@@ -1,0 +1,46 @@
+[package]
+name = "rwlog"
+version = "0.1.0"
+edition = "2021"
+description = "Relational/logic programming system via term rewriting"
+license = "MIT"
+
+[lib]
+name = "rwlog"
+path = "src/lib.rs"
+
+[[bin]]
+name = "rwlog"
+path = "src/bin/rwlog.rs"
+
+[features]
+default = []
+tracing = ["dep:tracing", "dep:tracing-subscriber", "dep:tracing-flame"]
+
+[dependencies]
+crossbeam-deque = "0.8"
+parking_lot = "0.12"
+hashbrown = "0.14"
+smallvec = { version = "1.11", features = ["union"] }
+bumpalo = "3.14"
+lasso = { version = "0.7", features = ["multi-threaded"] }
+rustc-hash = "2.0"
+dashmap = "5.5"
+
+# Tracing - only included when feature enabled
+tracing = { version = "0.1", optional = true }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json", "fmt"], optional = true }
+tracing-flame = { version = "0.2", optional = true }
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+proptest = "1.4"
+test-log = { version = "0.2", features = ["trace"] }
+
+[[bench]]
+name = "eval_bench"
+harness = false
+
+[profile.release]
+lto = true
+codegen-units = 1

@@ -1,0 +1,26 @@
+# Peano addition using S-expressions
+#
+# z = zero
+# (s N) = successor of N
+#
+# add takes a pair (cons X Y) representing X + Y and returns the sum.
+#
+# Examples:
+#   add (cons z (s z)) => (s z)           -- 0 + 1 = 1
+#   add (cons (s z) (s z)) => (s (s z))   -- 1 + 1 = 2
+#   add (cons (s (s (s z))) (s (s z))) => (s (s (s (s (s z)))))  -- 3 + 2 = 5
+#
+# This relation is bidirectional:
+#   Running it backwards finds all pairs (X, Y) that sum to a given value.
+
+rel add {
+    # Base case: 0 + Y = Y
+    (cons z $y) -> $y
+    |
+    # Recursive case: S(X) + Y = S(add(X, Y))
+    # Steps:
+    #   1. Peel: (cons (s $x) $y) -> (cons $x $y)  -- decrease first arg
+    #   2. Recurse: call add
+    #   3. Wrap: $z -> (s $z)                      -- increment result
+    [(cons (s $x) $y) -> (cons $x $y) ; add ; $z -> (s $z)]
+}

@@ -1,0 +1,46 @@
+# Tree calculus application rules (single-step reduction)
+#
+# l = leaf
+# (b X) = branch containing X
+# (f X Y) = fork (application of X to Y)
+#
+# The four reduction rules:
+#   app(L, z) => B(z)                     -- Rule 1: leaf applied to anything
+#   app(B(y), z) => F(y, z)               -- Rule 2: branch creates fork
+#   app(F(L, y), z) => y                  -- Rule 3: fork with leaf returns y
+#   app(F(F(w, x), y), L) => w            -- Rule 4: nested fork with leaf returns w
+#
+# Examples from TreeCalcSpec.hs:
+#   app (f (f l (b l)) (b (b l))) => (b l)
+#   app (f l l) => (b l)
+
+rel app {
+    # Rule 1: app(L, z) => B(z)
+    (f l $z) -> (b $z)
+    |
+    # Rule 2: app(B(y), z) => F(y, z)
+    (f (b $y) $z) -> (f $y $z)
+    |
+    # Rule 3: app(F(L, y), z) => y
+    (f (f l $y) $z) -> $y
+    |
+    # Rule 4: app(F(F(w, x), y), L) => w
+    (f (f (f $w $x) $y) l) -> $w
+}
+
+# Full evaluation: apply app repeatedly until normal form
+#
+# eval takes a term and reduces it to normal form by repeatedly
+# applying single-step reduction rules.
+#
+# Examples:
+#   eval (f l l) => (b l)
+#   eval (f (f l l) l) => (b l)   (multiple steps)
+
+rel eval {
+    # Either return the input unchanged (already in normal form)
+    $x -> $x
+    |
+    # Or apply one step and recurse
+    [app ; eval]
+}
