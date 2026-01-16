@@ -324,7 +324,7 @@ mod tests {
 
     #[test]
     fn disequality_new() {
-        let (t0, t1, _t2) = get_term_ids();
+        let (_t0, t1, _t2) = get_term_ids();
         let diseq = Disequality { var: 0, term: t1 };
         assert_eq!(diseq.var, 0);
         assert_eq!(diseq.term, t1);
@@ -339,7 +339,7 @@ mod tests {
 
     #[test]
     fn diseq_constraint_add() {
-        let (t0, t1, t2) = get_term_ids();
+        let (_t0, t1, t2) = get_term_ids();
         let mut c = DiseqConstraint::new();
         c.add(0, t1);
         c.add(1, t2);
@@ -348,7 +348,7 @@ mod tests {
 
     #[test]
     fn diseq_constraint_no_duplicates() {
-        let (t0, t1, _t2) = get_term_ids();
+        let (_t0, t1, _t2) = get_term_ids();
         let mut c = DiseqConstraint::new();
         c.add(0, t1);
         c.add(0, t1); // Duplicate
@@ -357,7 +357,7 @@ mod tests {
 
     #[test]
     fn diseq_constraint_is_empty() {
-        let (t0, t1, _t2) = get_term_ids();
+        let (_t0, t1, _t2) = get_term_ids();
         let c = DiseqConstraint::new();
         assert!(c.is_empty());
 
@@ -368,7 +368,7 @@ mod tests {
 
     #[test]
     fn diseq_constraint_combine() {
-        let (t0, t1, t2) = get_term_ids();
+        let (_t0, t1, t2) = get_term_ids();
         let mut c1 = DiseqConstraint::new();
         c1.add(0, t1);
 
@@ -381,7 +381,7 @@ mod tests {
 
     #[test]
     fn diseq_constraint_combine_with_overlap() {
-        let (t0, t1, _t2) = get_term_ids();
+        let (_t0, t1, _t2) = get_term_ids();
         let mut c1 = DiseqConstraint::new();
         c1.add(0, t1);
 
@@ -394,7 +394,7 @@ mod tests {
 
     #[test]
     fn diseq_constraint_normalize() {
-        let (t0, t1, _t2) = get_term_ids();
+        let (_t0, t1, _t2) = get_term_ids();
         let mut c = DiseqConstraint::new();
         c.add(0, t1);
 
@@ -405,7 +405,7 @@ mod tests {
 
     #[test]
     fn diseq_constraint_satisfiable() {
-        let (t0, t1, _t2) = get_term_ids();
+        let (_t0, t1, _t2) = get_term_ids();
         let mut c = DiseqConstraint::new();
         c.add(0, t1);
         assert!(c.is_satisfiable());
@@ -413,7 +413,7 @@ mod tests {
 
     #[test]
     fn diseq_constraint_iter() {
-        let (t0, t1, t2) = get_term_ids();
+        let (_t0, t1, t2) = get_term_ids();
         let mut c = DiseqConstraint::new();
         c.add(0, t1);
         c.add(1, t2);

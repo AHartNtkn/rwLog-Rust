@@ -169,7 +169,13 @@ pub fn init_subscriber() {
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
 
     tracing_subscriber::registry()
-        .with(fmt::layer().with_target(true).with_level(true))
+        .with(
+            fmt::layer()
+                .with_writer(std::io::stderr)
+                .with_target(true)
+                .with_level(true)
+                .with_ansi(false),
+        )
         .with(filter)
         .try_init()
         .ok(); // Ignore error if already initialized

@@ -293,8 +293,8 @@ RwR [p1, ...] ; RwL [q1, ...] ->
 
 **Example:** `RwR [B(0,1)] ; RwL [B(A(2),3)]`
 1. Unify B(0,1) with B(A(2),3): sigma = {0 -> A(2), 1 -> 3}
-2. RwR has vars [0, 1] -> apply sigma -> [A(2), 3]
-3. RwL has vars [2, 3] -> apply sigma -> [2, 3] (unchanged)
+2. RwR vars [0,1] -> [A(2), 3]
+3. RwL vars [2,3] -> [2, 3] (unchanged)
 4. Result: `RwL [A(2), 3] ; Wire(identity 2->2) ; RwR [2, 3]`
 
 **Common mistake to avoid:** The fact that patterns become identical after unification says nothing about whether the operation is identity. The actual transformation is determined by the *variable structure*, not pattern equality.
@@ -500,9 +500,6 @@ mod tests {
 
     #[test]
     fn unify_occurs_check_prevents_infinite_term() { ... }
-
-    #[test]
-    fn unify_arity_mismatch_fails() { ... }
 }
 ```
 
@@ -579,5 +576,3 @@ fn resume_after_yield_with_seq_below_alt_must_continue() {
         "BUG: Alt yield must flow through SeqNext, not be treated as final");
 }
 ```
-
-The good test will fail with a message that explains the bug. The bad test just says "expected X got Y" with no insight into the cause.
