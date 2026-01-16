@@ -160,43 +160,16 @@ mod tests {
     use crate::rel::Rel;
     use crate::rel::dual;
     use crate::symbol::SymbolStore;
+    use crate::test_utils::{make_ground_nf, make_rule_nf, setup};
     use crate::wire::Wire;
     use smallvec::SmallVec;
     use std::collections::HashSet;
     use std::sync::Arc;
     use crate::work::Env;
 
-    fn setup() -> (SymbolStore, TermStore) {
-        (SymbolStore::new(), TermStore::new())
-    }
-
     /// Create an empty NF (identity)
     fn make_identity_nf() -> NF<()> {
         NF::identity(())
-    }
-
-    /// Create a ground NF for testing
-    fn make_ground_nf(name: &str, symbols: &SymbolStore, terms: &TermStore) -> NF<()> {
-        let sym = symbols.intern(name);
-        let t = terms.app0(sym);
-        NF::new(
-            SmallVec::from_slice(&[t]),
-            Wire::identity(0),
-            SmallVec::from_slice(&[t]),
-        )
-    }
-
-    /// Create a ground rule NF: from -> to
-    fn make_rule_nf(from: &str, to: &str, symbols: &SymbolStore, terms: &TermStore) -> NF<()> {
-        let from_sym = symbols.intern(from);
-        let to_sym = symbols.intern(to);
-        let from_term = terms.app0(from_sym);
-        let to_term = terms.app0(to_sym);
-        NF::new(
-            SmallVec::from_slice(&[from_term]),
-            Wire::identity(0),
-            SmallVec::from_slice(&[to_term]),
-        )
     }
 
     fn parse_rel_def_with_env(parser: &mut Parser, def: &str) -> (Rel<()>, Env<()>) {

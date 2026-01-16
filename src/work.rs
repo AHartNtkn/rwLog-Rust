@@ -140,6 +140,67 @@ pub struct PipeWork<C: Clone + Hash + Eq> {
     pub call_mode: CallMode<C>,
 }
 
+struct PipeWorkBuilder<C: Clone + Hash + Eq> {
+    left: Option<NF<C>>,
+    mid: Factors<C>,
+    right: Option<NF<C>>,
+    flip: bool,
+    env: Env<C>,
+    tables: Tables<C>,
+    call_mode: CallMode<C>,
+}
+
+impl<C: Clone + Hash + Eq> PipeWorkBuilder<C> {
+    fn new() -> Self {
+        Self {
+            left: None,
+            mid: Factors::new(),
+            right: None,
+            flip: false,
+            env: Env::new(),
+            tables: Tables::new(),
+            call_mode: CallMode::Normal,
+        }
+    }
+
+    fn left(mut self, left: Option<NF<C>>) -> Self {
+        self.left = left;
+        self
+    }
+
+    fn mid(mut self, mid: Factors<C>) -> Self {
+        self.mid = mid;
+        self
+    }
+
+    fn right(mut self, right: Option<NF<C>>) -> Self {
+        self.right = right;
+        self
+    }
+
+    fn env(mut self, env: Env<C>) -> Self {
+        self.env = env;
+        self
+    }
+
+    fn tables(mut self, tables: Tables<C>) -> Self {
+        self.tables = tables;
+        self
+    }
+
+    fn build(self) -> PipeWork<C> {
+        PipeWork {
+            left: self.left,
+            mid: self.mid,
+            right: self.right,
+            flip: self.flip,
+            env: self.env,
+            tables: self.tables,
+            call_mode: self.call_mode,
+        }
+    }
+}
+
 impl<C: Clone + Default + Hash + Eq> Work<C> {
     /// Step this work item, returning the next state.
     pub fn step(&mut self, terms: &mut TermStore) -> WorkStep<C> {
@@ -159,43 +220,23 @@ impl<C: Clone + Default + Hash + Eq> Work<C> {
 }
 
 impl<C: Clone + Default + Hash + Eq> PipeWork<C> {
+    fn builder() -> PipeWorkBuilder<C> {
+        PipeWorkBuilder::new()
+    }
+
     /// Create an empty pipe (represents identity and emits it).
     pub fn new() -> Self {
-        Self {
-            left: None,
-            mid: Factors::new(),
-            right: None,
-            flip: false,
-            env: Env::new(),
-            tables: Tables::new(),
-            call_mode: CallMode::Normal,
-        }
+        Self::builder().build()
     }
 
     /// Create a pipe with only mid factors.
     pub fn with_mid(mid: Factors<C>) -> Self {
-        Self {
-            left: None,
-            mid,
-            right: None,
-            flip: false,
-            env: Env::new(),
-            tables: Tables::new(),
-            call_mode: CallMode::Normal,
-        }
+        Self::builder().mid(mid).build()
     }
 
     /// Create a pipe with boundaries and mid.
     pub fn with_boundaries(left: Option<NF<C>>, mid: Factors<C>, right: Option<NF<C>>) -> Self {
-        Self {
-            left,
-            mid,
-            right,
-            flip: false,
-            env: Env::new(),
-            tables: Tables::new(),
-            call_mode: CallMode::Normal,
-        }
+        Self::builder().left(left).mid(mid).right(right).build()
     }
 
     /// Create a pipe with full state including env and tables.
@@ -206,15 +247,13 @@ impl<C: Clone + Default + Hash + Eq> PipeWork<C> {
         env: Env<C>,
         tables: Tables<C>,
     ) -> Self {
-        Self {
-            left,
-            mid,
-            right,
-            flip: false,
-            env,
-            tables,
-            call_mode: CallMode::Normal,
-        }
+        Self::builder()
+            .left(left)
+            .mid(mid)
+            .right(right)
+            .env(env)
+            .tables(tables)
+            .build()
     }
 
     /// Create a pipe from a Rel expression with given env and tables.
@@ -227,15 +266,7 @@ impl<C: Clone + Default + Hash + Eq> PipeWork<C> {
                 Factors::from_seq(factors)
             }
         };
-        Self {
-            left: None,
-            mid,
-            right: None,
-            flip: false,
-            env,
-            tables,
-            call_mode: CallMode::Normal,
-        }
+        Self::builder().mid(mid).env(env).tables(tables).build()
     }
 
     /// Create a producer pipe with boundaries as Atom factors in mid.
@@ -276,15 +307,7 @@ impl<C: Clone + Default + Hash + Eq> PipeWork<C> {
         let factors: Arc<[Arc<Rel<C>>]> = Arc::from(factors_vec);
         let mid = Factors::from_seq(factors);
 
-        Self {
-            left: None,
-            mid,
-            right: None,
-            flip: false,
-            env,
-            tables,
-            call_mode: CallMode::Normal,
-        }
+        Self::builder().mid(mid).env(env).tables(tables).build()
     }
 
     /// Check if the pipe is empty (no boundaries and no mid).
@@ -1419,15 +1442,11 @@ mod tests {
     use crate::nf::NF;
     use crate::node::Node;
     use crate::rel::Rel;
-    use crate::symbol::SymbolStore;
     use crate::term::TermStore;
+    use crate::test_utils::{make_ground_nf, setup};
     use crate::wire::Wire;
     use smallvec::SmallVec;
     use std::sync::Arc;
-
-    fn setup() -> (SymbolStore, TermStore) {
-        (SymbolStore::new(), TermStore::new())
-    }
 
     /// Create identity NF (x -> x with single variable)
     fn make_identity_nf() -> NF<()> {
@@ -1443,17 +1462,6 @@ mod tests {
             SmallVec::from_slice(&[v0]),
             Wire::identity(1),
             SmallVec::from_slice(&[v0]),
-        )
-    }
-
-    /// Create a simple ground NF: symbol -> symbol
-    fn make_ground_nf(sym_name: &str, symbols: &SymbolStore, terms: &TermStore) -> NF<()> {
-        let sym = symbols.intern(sym_name);
-        let t = terms.app0(sym);
-        NF::new(
-            SmallVec::from_slice(&[t]),
-            Wire::identity(0),
-            SmallVec::from_slice(&[t]),
         )
     }
 

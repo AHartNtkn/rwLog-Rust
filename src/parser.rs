@@ -136,7 +136,7 @@ impl Parser {
             });
         }
 
-        let ch = input.chars().nth(*pos).unwrap();
+        let ch = peek_char(input, *pos).unwrap();
 
         if ch == '$' {
             // Variable
@@ -167,7 +167,7 @@ impl Parser {
                         position: *pos,
                     });
                 }
-                if input.chars().nth(*pos).unwrap() == ')' {
+                if peek_char(input, *pos).unwrap() == ')' {
                     *pos += 1;
                     break;
                 }
@@ -246,7 +246,7 @@ impl Parser {
 
         loop {
             skip_whitespace(input, pos);
-            if *pos >= input.len() || input.chars().nth(*pos).unwrap() != '|' {
+            if *pos >= input.len() || peek_char(input, *pos).unwrap() != '|' {
                 break;
             }
             *pos += 1;
@@ -267,7 +267,7 @@ impl Parser {
             if *pos >= input.len() {
                 break;
             }
-            let ch = input.chars().nth(*pos).unwrap();
+            let ch = peek_char(input, *pos).unwrap();
             if ch != ';' {
                 break;
             }
@@ -276,7 +276,7 @@ impl Parser {
         }
 
         if factors.len() == 1 {
-            Ok(Arc::try_unwrap(factors.pop().unwrap()).unwrap_or_else(|arc| (*arc).clone()))
+            Ok(unwrap_or_clone(factors.pop().unwrap()))
         } else {
             Ok(Rel::Seq(Arc::from(factors)))
         }
@@ -288,7 +288,7 @@ impl Parser {
 
         loop {
             skip_whitespace(input, pos);
-            if *pos >= input.len() || input.chars().nth(*pos).unwrap() != '&' {
+            if *pos >= input.len() || peek_char(input, *pos).unwrap() != '&' {
                 break;
             }
             *pos += 1;
@@ -310,14 +310,14 @@ impl Parser {
             });
         }
 
-        let ch = input.chars().nth(*pos).unwrap();
+        let ch = peek_char(input, *pos).unwrap();
 
         if ch == '[' {
             // Bracketed sequence
             *pos += 1;
             let inner = self.parse_or_expr(input, pos)?;
             skip_whitespace(input, pos);
-            if *pos >= input.len() || input.chars().nth(*pos).unwrap() != ']' {
+            if *pos >= input.len() || peek_char(input, *pos).unwrap() != ']' {
                 return Err(ParseError {
                     message: "Expected ']'".to_string(),
                     position: *pos,
@@ -336,7 +336,7 @@ impl Parser {
             // Rule starting with term
             let rule = self.parse_rule_inner(input, pos)?;
             Ok(Rel::Atom(Arc::new(rule)))
-        } else if ch.is_alphabetic() && ch.is_lowercase() {
+        } else if ch.is_ascii_lowercase() {
             // Could be atom (start of rule) or relation call
             let start_pos = *pos;
             let name = parse_identifier(input, pos)?;
@@ -399,7 +399,7 @@ impl Parser {
 
         // Expect '{'
         skip_whitespace(input, &mut pos);
-        if pos >= input.len() || input.chars().nth(pos).unwrap() != '{' {
+        if pos >= input.len() || peek_char(input, pos).unwrap() != '{' {
             return Err(ParseError {
                 message: "Expected '{'".to_string(),
                 position: pos,
@@ -412,7 +412,7 @@ impl Parser {
 
         // Expect '}'
         skip_whitespace(input, &mut pos);
-        if pos >= input.len() || input.chars().nth(pos).unwrap() != '}' {
+        if pos >= input.len() || peek_char(input, pos).unwrap() != '}' {
             return Err(ParseError {
                 message: "Expected '}'".to_string(),
                 position: pos,
@@ -438,7 +438,7 @@ impl Parser {
             if *pos >= input.len() {
                 break;
             }
-            let ch = input.chars().nth(*pos).unwrap();
+            let ch = peek_char(input, *pos).unwrap();
             if ch == stop_char || ch != '|' {
                 break;
             }
@@ -460,7 +460,7 @@ impl Parser {
             if *pos >= input.len() {
                 break;
             }
-            let ch = input.chars().nth(*pos).unwrap();
+            let ch = peek_char(input, *pos).unwrap();
             if ch == stop_char || ch == '|' {
                 break;
             }
@@ -472,7 +472,7 @@ impl Parser {
         }
 
         if factors.len() == 1 {
-            Ok(Arc::try_unwrap(factors.pop().unwrap()).unwrap_or_else(|arc| (*arc).clone()))
+            Ok(unwrap_or_clone(factors.pop().unwrap()))
         } else {
             Ok(Rel::Seq(Arc::from(factors)))
         }
@@ -487,7 +487,7 @@ impl Parser {
             if *pos >= input.len() {
                 break;
             }
-            let ch = input.chars().nth(*pos).unwrap();
+            let ch = peek_char(input, *pos).unwrap();
             if ch == stop_char || ch == '|' || ch == ';' {
                 break;
             }
@@ -513,7 +513,7 @@ impl Parser {
             });
         }
 
-        let ch = input.chars().nth(*pos).unwrap();
+        let ch = peek_char(input, *pos).unwrap();
 
         if ch == stop_char {
             return Err(ParseError {
@@ -527,7 +527,7 @@ impl Parser {
             *pos += 1;
             let inner = self.parse_or_expr_until(input, pos, ']')?;
             skip_whitespace(input, pos);
-            if *pos >= input.len() || input.chars().nth(*pos).unwrap() != ']' {
+            if *pos >= input.len() || peek_char(input, *pos).unwrap() != ']' {
                 return Err(ParseError {
                     message: "Expected ']'".to_string(),
                     position: *pos,
@@ -539,7 +539,7 @@ impl Parser {
             // Rule starting with term
             let rule = self.parse_rule_inner(input, pos)?;
             Ok(Rel::Atom(Arc::new(rule)))
-        } else if ch.is_alphabetic() && ch.is_lowercase() {
+        } else if ch.is_ascii_lowercase() {
             // Could be atom (start of rule) or relation call
             let start_pos = *pos;
             let name = parse_identifier(input, pos)?;
@@ -578,15 +578,23 @@ impl Default for Parser {
     }
 }
 
+fn peek_char(input: &str, pos: usize) -> Option<char> {
+    input.as_bytes().get(pos).copied().map(|byte| byte as char)
+}
+
+fn unwrap_or_clone<T: Clone>(arc: Arc<T>) -> T {
+    Arc::try_unwrap(arc).unwrap_or_else(|arc| (*arc).clone())
+}
+
 /// Skip whitespace and comments.
 fn skip_whitespace(input: &str, pos: &mut usize) {
     while *pos < input.len() {
-        let ch = input.chars().nth(*pos).unwrap();
-        if ch.is_whitespace() {
+        let ch = peek_char(input, *pos).unwrap();
+        if ch.is_ascii_whitespace() {
             *pos += 1;
         } else if ch == '#' {
             // Comment - skip to end of line
-            while *pos < input.len() && input.chars().nth(*pos).unwrap() != '\n' {
+            while *pos < input.len() && peek_char(input, *pos).unwrap() != '\n' {
                 *pos += 1;
             }
         } else {
@@ -599,8 +607,8 @@ fn skip_whitespace(input: &str, pos: &mut usize) {
 fn parse_identifier(input: &str, pos: &mut usize) -> Result<String, ParseError> {
     let start = *pos;
     while *pos < input.len() {
-        let ch = input.chars().nth(*pos).unwrap();
-        if ch.is_alphanumeric() || ch == '_' {
+        let ch = peek_char(input, *pos).unwrap();
+        if ch.is_ascii_alphanumeric() || ch == '_' {
             *pos += 1;
         } else {
             break;

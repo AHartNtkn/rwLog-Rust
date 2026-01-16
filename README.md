@@ -8,6 +8,7 @@ rwlog is a relational/logic programming system built on term rewriting. It provi
 - Query relations interactively (`?- <expr>` or bare `<expr>`).
 - Composition (`;`), disjunction (`|`), and conjunction (`&`).
 - Term literals as relations via `@term`.
+- Recursive relations via named calls.
 - Jupyter notebook integration (text-only outputs).
 
 ## Build
@@ -96,6 +97,18 @@ Example queries:
 ```text
 ?- add ; @(cons z (s z))
 ?- @(cons (s z) z) ; add
+```
+
+## Recursive Relations
+
+Recursive relations are defined using named `rel` blocks and invoked by name. Example (Peano addition):
+
+```text
+rel add {
+    (cons z $y) -> $y
+    |
+    [(cons (s $x) $y) -> (cons $x $y) ; add ; $z -> (s $z)]
+}
 ```
 
 ## Jupyter Notebook Support

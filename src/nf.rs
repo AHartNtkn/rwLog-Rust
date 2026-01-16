@@ -255,12 +255,7 @@ pub fn format_nf<C: Clone>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::symbol::SymbolStore;
-
-    // Helper to create test environment
-    fn setup() -> (SymbolStore, TermStore) {
-        (SymbolStore::new(), TermStore::new())
-    }
+    use crate::test_utils::setup;
 
     // ========== COLLECT VARS TESTS ==========
 

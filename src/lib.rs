@@ -16,3 +16,6 @@ pub mod engine;
 pub mod parser;
 pub mod repl;
 pub mod jupyter;
+
+#[cfg(test)]
+pub(crate) mod test_utils;

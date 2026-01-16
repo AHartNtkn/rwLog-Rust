@@ -206,11 +206,7 @@ impl Default for TermStore {
 mod tests {
     use super::*;
     use crate::symbol::SymbolStore;
-
-    // Helper to create a test environment
-    fn setup() -> (SymbolStore, TermStore) {
-        (SymbolStore::new(), TermStore::new())
-    }
+    use crate::test_utils::setup;
 
     // ========== HAPPY PATH: VARIABLE TESTS ==========
 

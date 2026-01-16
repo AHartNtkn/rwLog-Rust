@@ -200,11 +200,7 @@ fn resolve_var_chain(start: TermId, subst: &Subst, terms: &TermStore) -> TermId 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::symbol::SymbolStore;
-
-    fn setup() -> (SymbolStore, TermStore) {
-        (SymbolStore::new(), TermStore::new())
-    }
+    use crate::test_utils::setup;
 
     // ========== SUBST CONSTRUCTION TESTS ==========
 

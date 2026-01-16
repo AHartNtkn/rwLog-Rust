@@ -84,26 +84,10 @@ mod tests {
     use crate::nf::NF;
     use crate::symbol::SymbolStore;
     use crate::term::TermStore;
+    use crate::test_utils::{make_rule_nf, setup};
     use crate::wire::Wire;
     use smallvec::SmallVec;
     use std::sync::Arc;
-
-    fn setup() -> (SymbolStore, TermStore) {
-        (SymbolStore::new(), TermStore::new())
-    }
-
-    /// Create a simple ground NF: A -> B (no variables)
-    fn make_ground_nf(symbols: &SymbolStore, terms: &TermStore) -> NF<()> {
-        let a = symbols.intern("A");
-        let b = symbols.intern("B");
-        let ta = terms.app0(a);
-        let tb = terms.app0(b);
-        NF::new(
-            SmallVec::from_slice(&[ta]),
-            Wire::identity(0),
-            SmallVec::from_slice(&[tb]),
-        )
-    }
 
     /// Create an NF with variables: F(x) -> G(x)
     fn make_var_nf(symbols: &SymbolStore, terms: &TermStore) -> NF<()> {
@@ -186,7 +170,7 @@ mod tests {
     #[test]
     fn dual_atom_duals_inner_nf() {
         let (symbols, terms) = setup();
-        let nf = make_ground_nf(&symbols, &terms);
+        let nf = make_rule_nf("A", "B", &symbols, &terms);
         let r = Rel::Atom(Arc::new(nf.clone()));
         let d = dual(&r);
 
@@ -248,7 +232,7 @@ mod tests {
     #[test]
     fn dual_or_duals_both_children() {
         let (symbols, terms) = setup();
-        let nf_a = make_ground_nf(&symbols, &terms);
+        let nf_a = make_rule_nf("A", "B", &symbols, &terms);
         let nf_b = make_var_nf(&symbols, &terms);
 
         let a = Arc::new(Rel::Atom(Arc::new(nf_a)));
@@ -319,7 +303,7 @@ mod tests {
     #[test]
     fn dual_and_duals_both_children() {
         let (symbols, terms) = setup();
-        let nf_a = make_ground_nf(&symbols, &terms);
+        let nf_a = make_rule_nf("A", "B", &symbols, &terms);
         let nf_b = make_var_nf(&symbols, &terms);
 
         let a = Arc::new(Rel::Atom(Arc::new(nf_a)));
@@ -549,7 +533,7 @@ mod tests {
     #[test]
     fn dual_fix_duals_body() {
         let (symbols, terms) = setup();
-        let nf = make_ground_nf(&symbols, &terms);
+        let nf = make_rule_nf("A", "B", &symbols, &terms);
         let body = Arc::new(Rel::Atom(Arc::new(nf)));
         let r = Rel::Fix(7, body);
         let d = dual(&r);
@@ -709,7 +693,7 @@ mod tests {
         // Test each variant in isolation
         let cases: Vec<Rel<()>> = vec![
             Rel::Zero,
-            Rel::Atom(Arc::new(make_ground_nf(&symbols, &terms))),
+            Rel::Atom(Arc::new(make_rule_nf("A", "B", &symbols, &terms))),
             Rel::Or(Arc::new(Rel::Zero), Arc::new(Rel::Zero)),
             Rel::And(Arc::new(Rel::Zero), Arc::new(Rel::Zero)),
             Rel::Seq(Arc::from(vec![
@@ -818,7 +802,7 @@ mod tests {
     #[test]
     fn rel_atom_holds_nf() {
         let (symbols, terms) = setup();
-        let nf = make_ground_nf(&symbols, &terms);
+        let nf = make_rule_nf("A", "B", &symbols, &terms);
         let r = Rel::Atom(Arc::new(nf));
         assert!(matches!(r, Rel::Atom(_)));
     }

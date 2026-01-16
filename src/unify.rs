@@ -135,11 +135,7 @@ fn occurs(var: u32, term: TermId, subst: &Subst, terms: &TermStore) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::symbol::SymbolStore;
-
-    fn setup() -> (SymbolStore, TermStore) {
-        (SymbolStore::new(), TermStore::new())
-    }
+    use crate::test_utils::setup;
 
     // ========== HAPPY PATH: IDENTICAL TERMS ==========
 

@@ -63,17 +63,12 @@ pub fn dual_nf<C: Clone>(nf: &NF<C>) -> NF<C> {
 mod tests {
     use crate::kernel::compose_nf;
     use crate::nf::NF;
-    use crate::symbol::SymbolStore;
-    use crate::term::TermStore;
+    use crate::test_utils::setup;
     use crate::wire::Wire;
     use smallvec::SmallVec;
 
     // Import the functions we're testing (don't exist yet - will fail to compile)
     use super::{dual_nf, dual_wire};
-
-    fn setup() -> (SymbolStore, TermStore) {
-        (SymbolStore::new(), TermStore::new())
-    }
 
     // ========================================================================
     // WIRE TESTS - BASIC PROPERTIES

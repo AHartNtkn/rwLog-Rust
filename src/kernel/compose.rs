@@ -132,12 +132,8 @@ fn max_var_index(term: TermId, terms: &mut TermStore) -> Option<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::symbol::SymbolStore;
+    use crate::test_utils::setup;
     use crate::wire::Wire;
-
-    fn setup() -> (SymbolStore, TermStore) {
-        (SymbolStore::new(), TermStore::new())
-    }
 
     // ========== BASIC COMPOSITION TESTS ==========
 

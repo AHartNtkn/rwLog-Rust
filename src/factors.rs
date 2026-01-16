@@ -41,11 +41,7 @@ impl<C> Slice<C> {
 
     /// Get the number of elements in this slice.
     pub fn len(&self) -> usize {
-        if self.start >= self.end {
-            0
-        } else {
-            self.end - self.start
-        }
+        self.end.saturating_sub(self.start)
     }
 
     /// Get the first element, if any.

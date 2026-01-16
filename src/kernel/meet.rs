@@ -118,11 +118,7 @@ fn shift_vars_helper(term: TermId, offset: u32, terms: &mut TermStore) -> TermId
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::symbol::SymbolStore;
-
-    fn setup() -> (SymbolStore, TermStore) {
-        (SymbolStore::new(), TermStore::new())
-    }
+    use crate::test_utils::setup;
 
     // ========== BASIC MEET TESTS ==========
 

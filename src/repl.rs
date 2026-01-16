@@ -107,33 +107,13 @@ impl Repl {
         }
 
         let mut outputs = Vec::new();
-        let mut current = String::new();
-        let mut brace_depth: i32 = 0;
+        let statements = split_statements(trimmed)
+            .map_err(|_| "Unterminated relation definition in cell".to_string())?;
 
-        for raw_line in trimmed.lines() {
-            let line = raw_line.trim();
-            if line.is_empty() || line.starts_with('#') {
-                continue;
+        for statement in statements {
+            if let Some(output) = self.process_input(statement.trim())? {
+                outputs.push(output);
             }
-
-            if !current.is_empty() {
-                current.push('\n');
-            }
-            current.push_str(line);
-
-            brace_depth += line.chars().filter(|&ch| ch == '{').count() as i32;
-            brace_depth -= line.chars().filter(|&ch| ch == '}').count() as i32;
-
-            if brace_depth == 0 {
-                if let Some(output) = self.process_input(current.trim())? {
-                    outputs.push(output);
-                }
-                current.clear();
-            }
-        }
-
-        if brace_depth != 0 {
-            return Err("Unterminated relation definition in cell".to_string());
         }
 
         if outputs.is_empty() {
@@ -184,63 +164,22 @@ Syntax:
             .map_err(|e| format!("Failed to read file '{}': {}", path, e))?;
 
         let mut count = 0;
-        let mut pos = 0;
+        let statements = split_statements(&content)
+            .map_err(|err| format!("{} in '{}'", err, path))?;
 
-        // Strip comments and find relation definitions
-        while pos < content.len() {
-            // Skip whitespace and comments
-            while pos < content.len() {
-                let ch = content.chars().nth(pos).unwrap();
-                if ch.is_whitespace() {
-                    pos += 1;
-                } else if ch == '#' {
-                    // Skip to end of line
-                    while pos < content.len() && content.chars().nth(pos).unwrap() != '\n' {
-                        pos += 1;
-                    }
-                } else {
-                    break;
-                }
+        for statement in statements {
+            let line = statement.trim();
+            if !line.starts_with("rel ") {
+                continue;
             }
-
-            if pos >= content.len() {
-                break;
-            }
-
-            // Check for 'rel' keyword
-            if content[pos..].starts_with("rel ") {
-                // Find the matching closing brace
-                let start = pos;
-                let mut brace_depth = 0;
-                let mut found_open = false;
-
-                while pos < content.len() {
-                    let ch = content.chars().nth(pos).unwrap();
-                    if ch == '{' {
-                        found_open = true;
-                        brace_depth += 1;
-                    } else if ch == '}' {
-                        brace_depth -= 1;
-                        if brace_depth == 0 && found_open {
-                            pos += 1;
-                            break;
-                        }
-                    }
-                    pos += 1;
+            match self.parser.parse_rel_def(line) {
+                Ok((name, rel)) => {
+                    self.definitions.insert(name, rel);
+                    count += 1;
                 }
-
-                let rel_text = &content[start..pos];
-                match self.parser.parse_rel_def(rel_text) {
-                    Ok((name, rel)) => {
-                        self.definitions.insert(name, rel);
-                        count += 1;
-                    }
-                    Err(e) => {
-                        return Err(format!("Parse error in '{}': {}", path, e));
-                    }
+                Err(e) => {
+                    return Err(format!("Parse error in '{}': {}", path, e));
                 }
-            } else {
-                pos += 1;
             }
         }
 
@@ -332,6 +271,50 @@ impl Default for Repl {
     fn default() -> Self {
         Self::new()
     }
+}
+
+fn split_statements(input: &str) -> Result<Vec<String>, String> {
+    let mut outputs = Vec::new();
+    let mut current = String::new();
+    let mut brace_depth: i32 = 0;
+
+    for raw_line in input.lines() {
+        let line = raw_line.trim();
+        if line.is_empty() {
+            continue;
+        }
+
+        let line = match line.split_once('#') {
+            Some((before, _)) => before.trim(),
+            None => line,
+        };
+        if line.is_empty() {
+            continue;
+        }
+
+        if !current.is_empty() {
+            current.push('\n');
+        }
+        current.push_str(line);
+
+        brace_depth += line.chars().filter(|&ch| ch == '{').count() as i32;
+        brace_depth -= line.chars().filter(|&ch| ch == '}').count() as i32;
+
+        if brace_depth == 0 {
+            outputs.push(current.trim().to_string());
+            current.clear();
+        }
+    }
+
+    if brace_depth != 0 {
+        return Err("Unterminated relation definition".to_string());
+    }
+
+    if !current.trim().is_empty() {
+        outputs.push(current.trim().to_string());
+    }
+
+    Ok(outputs)
 }
 
 #[cfg(test)]
