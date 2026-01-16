@@ -16,7 +16,6 @@ use crate::nf::NF;
 use crate::rel::{Rel, RelId};
 use crate::symbol::SymbolStore;
 use crate::term::TermStore;
-use crate::wire::Wire;
 use smallvec::SmallVec;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -176,7 +175,7 @@ impl Parser {
             }
 
             Ok(self.terms.app(sym, args))
-        } else if ch.is_alphabetic() && ch.is_lowercase() {
+        } else if ch.is_ascii_lowercase() || ch.is_ascii_digit() {
             // Atom (nullary constructor)
             let name = parse_identifier(input, pos)?;
             let sym = self.symbols.intern(&name);
@@ -190,7 +189,7 @@ impl Parser {
     }
 
     /// Parse a rule: `lhs -> rhs`
-    pub fn parse_rule(&self, input: &str) -> Result<NF<()>, ParseError> {
+    pub fn parse_rule(&mut self, input: &str) -> Result<NF<()>, ParseError> {
         let mut pos = 0;
         let rule = self.parse_rule_inner(input, &mut pos)?;
         skip_whitespace(input, &mut pos);
@@ -204,7 +203,7 @@ impl Parser {
     }
 
     /// Parse a rule, returning an NF.
-    fn parse_rule_inner(&self, input: &str, pos: &mut usize) -> Result<NF<()>, ParseError> {
+    fn parse_rule_inner(&mut self, input: &str, pos: &mut usize) -> Result<NF<()>, ParseError> {
         let mut var_map: HashMap<String, u32> = HashMap::new();
         let mut var_order: Vec<u32> = Vec::new();
 
@@ -224,16 +223,7 @@ impl Parser {
         // Parse RHS with the same var_map (to share variables)
         let rhs = self.parse_term_inner(input, pos, &mut var_map, &mut var_order)?;
 
-        // Build NF from lhs -> rhs
-        // For now, use identity wire with appropriate arity
-        let var_count = var_map.len() as u32;
-        let wire = Wire::identity(var_count);
-
-        Ok(NF::new(
-            SmallVec::from_slice(&[lhs]),
-            wire,
-            SmallVec::from_slice(&[rhs]),
-        ))
+        Ok(NF::factor(lhs, rhs, (), &mut self.terms))
     }
 
     /// Parse a relation body (the part inside `rel name { ... }`).
@@ -645,6 +635,15 @@ mod tests {
     }
 
     #[test]
+    fn parse_numeric_atom() {
+        let parser = Parser::new();
+        let result = parser.parse_term("0");
+        assert!(result.is_ok(), "Should parse numeric atom");
+        let parsed = result.unwrap();
+        assert!(parsed.var_order.is_empty(), "Numeric atom has no variables");
+    }
+
+    #[test]
     fn parse_variable() {
         let parser = Parser::new();
         let result = parser.parse_term("$x");
@@ -665,6 +664,16 @@ mod tests {
         let parser = Parser::new();
         let result = parser.parse_term("(s z)");
         assert!(result.is_ok(), "Should parse unary compound");
+    }
+
+    #[test]
+    fn parse_compound_with_numeric_atom() {
+        let parser = Parser::new();
+        let result = parser.parse_term("(c 0)");
+        assert!(
+            result.is_ok(),
+            "Should parse compound with numeric atom argument"
+        );
     }
 
     #[test]
@@ -736,42 +745,64 @@ mod tests {
 
     #[test]
     fn parse_simple_rule() {
-        let parser = Parser::new();
+        let mut parser = Parser::new();
         let result = parser.parse_rule("z -> z");
         assert!(result.is_ok(), "Should parse simple rule");
     }
 
     #[test]
     fn parse_rule_with_compound() {
-        let parser = Parser::new();
+        let mut parser = Parser::new();
         let result = parser.parse_rule("(s $x) -> $x");
         assert!(result.is_ok());
     }
 
     #[test]
     fn parse_rule_with_variables() {
-        let parser = Parser::new();
+        let mut parser = Parser::new();
         let result = parser.parse_rule("(cons $x $y) -> $y");
         assert!(result.is_ok());
     }
 
     #[test]
+    fn parse_rule_rhs_only_variable_creates_fresh_output() {
+        let mut parser = Parser::new();
+        let nf = parser
+            .parse_rule("$x -> (f $x $y)")
+            .expect("parse rule with rhs-only variable");
+        assert_eq!(nf.wire.in_arity, 1);
+        assert_eq!(nf.wire.out_arity, 2);
+        assert_eq!(nf.wire.map.as_slice(), &[(0, 0)]);
+    }
+
+    #[test]
+    fn parse_rule_lhs_only_variable_is_dropped() {
+        let mut parser = Parser::new();
+        let nf = parser
+            .parse_rule("(f $x $y) -> $x")
+            .expect("parse rule with lhs-only variable");
+        assert_eq!(nf.wire.in_arity, 2);
+        assert_eq!(nf.wire.out_arity, 1);
+        assert_eq!(nf.wire.map.as_slice(), &[(0, 0)]);
+    }
+
+    #[test]
     fn parse_complex_rule() {
-        let parser = Parser::new();
+        let mut parser = Parser::new();
         let result = parser.parse_rule("(cons (s $x) $y) -> (cons $x $y)");
         assert!(result.is_ok());
     }
 
     #[test]
     fn parse_rule_missing_arrow_fails() {
-        let parser = Parser::new();
+        let mut parser = Parser::new();
         let result = parser.parse_rule("z z");
         assert!(result.is_err());
     }
 
     #[test]
     fn parse_rule_missing_rhs_fails() {
-        let parser = Parser::new();
+        let mut parser = Parser::new();
         let result = parser.parse_rule("z ->");
         assert!(result.is_err());
     }
@@ -992,7 +1023,7 @@ mod tests {
 
     #[test]
     fn parse_rule_with_comment() {
-        let parser = Parser::new();
+        let mut parser = Parser::new();
         let result = parser.parse_rule("z -> z # identity");
         assert!(result.is_ok());
     }

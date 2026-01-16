@@ -305,24 +305,15 @@ impl<C: Clone + Default + Hash + Eq> PipeWork<C> {
             }
 
             // Phase A: Try to normalize at either end
-            if let Some(result) = self.try_normalize_step(terms) {
-                match result {
-                    WorkStep::More(Work::Pipe(updated)) => {
-                        *self = updated;
-                        continue;
-                    }
-                    other => return other,
-                }
+            match self.try_normalize_step(terms) {
+                Ok(true) => continue,
+                Ok(false) => {}
+                Err(step) => return step,
             }
 
             // Phase A: Normalize adjacent atoms anywhere in mid
             match self.normalize_mid_atoms(terms) {
-                Ok(true) => {
-                    if self.mid_all_atoms() {
-                        continue;
-                    }
-                    return WorkStep::More(Work::Pipe(self.clone()));
-                }
+                Ok(true) => continue,
                 Ok(false) => {}
                 Err(step) => return step,
             }
@@ -330,8 +321,25 @@ impl<C: Clone + Default + Hash + Eq> PipeWork<C> {
             break;
         }
 
-        // Phase B: Stuck on normalization - advance one end using flip
-        let result = if self.flip {
+        // Phase B: Stuck on normalization - advance one end using flip.
+        // Prefer advancing a non-Call end when the opposite end is a Call.
+        let front_is_call = matches!(
+            self.mid.front().map(|rel| rel.as_ref()),
+            Some(Rel::Call(_))
+        );
+        let back_is_call = matches!(
+            self.mid.back().map(|rel| rel.as_ref()),
+            Some(Rel::Call(_))
+        );
+
+        let mut advance_back = self.flip;
+        if advance_back && back_is_call && !front_is_call {
+            advance_back = false;
+        } else if !advance_back && front_is_call && !back_is_call {
+            advance_back = true;
+        }
+
+        let result = if advance_back {
             self.advance_back(terms)
         } else {
             self.advance_front(terms)
@@ -452,28 +460,28 @@ impl<C: Clone + Default + Hash + Eq> PipeWork<C> {
     }
 
     /// Try to normalize one step at either end.
-    /// Returns Some(result) if normalization produced a result (success or failure),
-    /// or None if stuck (no progress possible at either end).
-    fn try_normalize_step(&mut self, terms: &mut TermStore) -> Option<WorkStep<C>> {
+    /// Returns Ok(true) if progress was made, Ok(false) if stuck,
+    /// or Err(step) if normalization yields a terminal result.
+    fn try_normalize_step(&mut self, terms: &mut TermStore) -> Result<bool, WorkStep<C>> {
         // Try front first
         if let Some(front) = self.mid.front().cloned() {
             match front.as_ref() {
                 Rel::Zero => {
                     // Zero annihilates the pipe
-                    return Some(WorkStep::Done);
+                    return Err(WorkStep::Done);
                 }
                 Rel::Atom(nf) => {
                     self.mid.pop_front();
                     if self.absorb_front(nf.as_ref().clone(), terms) {
-                        return Some(WorkStep::More(Work::Pipe(self.clone())));
+                        return Ok(true);
                     } else {
-                        return Some(WorkStep::Done);
+                        return Err(WorkStep::Done);
                     }
                 }
                 Rel::Seq(xs) => {
                     self.mid.pop_front();
                     self.mid.push_front_slice_from_seq(xs.clone());
-                    return Some(WorkStep::More(Work::Pipe(self.clone())));
+                    return Ok(true);
                 }
                 _ => {}
             }
@@ -484,27 +492,27 @@ impl<C: Clone + Default + Hash + Eq> PipeWork<C> {
             match back.as_ref() {
                 Rel::Zero => {
                     // Zero annihilates the pipe
-                    return Some(WorkStep::Done);
+                    return Err(WorkStep::Done);
                 }
                 Rel::Atom(nf) => {
                     self.mid.pop_back();
                     if self.absorb_back(nf.as_ref().clone(), terms) {
-                        return Some(WorkStep::More(Work::Pipe(self.clone())));
+                        return Ok(true);
                     } else {
-                        return Some(WorkStep::Done);
+                        return Err(WorkStep::Done);
                     }
                 }
                 Rel::Seq(xs) => {
                     self.mid.pop_back();
                     self.mid.push_back_slice_from_seq(xs.clone());
-                    return Some(WorkStep::More(Work::Pipe(self.clone())));
+                    return Ok(true);
                 }
                 _ => {}
             }
         }
 
         // No progress possible
-        None
+        Ok(false)
     }
 
     /// Normalize mid factors by flattening Seq and fusing adjacent atoms anywhere.
@@ -573,14 +581,6 @@ impl<C: Clone + Default + Hash + Eq> PipeWork<C> {
         Ok(changed)
     }
 
-    /// Check if the mid contains only Atom factors.
-    fn mid_all_atoms(&self) -> bool {
-        self.mid
-            .to_vec()
-            .iter()
-            .all(|f| matches!(f.as_ref(), Rel::Atom(_)))
-    }
-
     /// Advance the front factor when stuck on normalization.
     fn advance_front(&mut self, terms: &mut TermStore) -> WorkStep<C> {
         let Some(front) = self.mid.front().cloned() else {
@@ -594,10 +594,39 @@ impl<C: Clone + Default + Hash + Eq> PipeWork<C> {
             }
             Rel::And(a, b) => {
                 self.mid.pop_front();
-                let left_node = rel_to_node(a, &self.env, &self.tables);
-                let right_node = rel_to_node(b, &self.env, &self.tables);
+                let use_left = true;
+                let use_right = self.mid.is_empty();
+                let call_left = if use_left { self.left.clone() } else { None };
+                let call_right = if use_right { self.right.clone() } else { None };
+
+                let mut left_pipe = PipeWork::from_rel_with_boundaries(
+                    a.as_ref().clone(),
+                    call_left.clone(),
+                    call_right.clone(),
+                    self.env.clone(),
+                    self.tables.clone(),
+                );
+                let mut right_pipe = PipeWork::from_rel_with_boundaries(
+                    b.as_ref().clone(),
+                    call_left,
+                    call_right,
+                    self.env.clone(),
+                    self.tables.clone(),
+                );
+                left_pipe.call_mode = self.call_mode.clone();
+                right_pipe.call_mode = self.call_mode.clone();
+
+                let left_node = Node::Work(Work::Pipe(left_pipe));
+                let right_node = Node::Work(Work::Pipe(right_pipe));
                 let meet = MeetWork::new(left_node, right_node);
-                let bind = BindWork::new(Node::Work(Work::Meet(meet)), self.clone(), true);
+                let mut pipe = self.clone();
+                if use_left {
+                    pipe.left = None;
+                }
+                if use_right {
+                    pipe.right = None;
+                }
+                let bind = BindWork::new(Node::Work(Work::Meet(meet)), pipe, true);
                 WorkStep::More(Work::Bind(bind))
             }
             Rel::Fix(id, body) => {
@@ -628,10 +657,39 @@ impl<C: Clone + Default + Hash + Eq> PipeWork<C> {
             }
             Rel::And(a, b) => {
                 self.mid.pop_back();
-                let left_node = rel_to_node(a, &self.env, &self.tables);
-                let right_node = rel_to_node(b, &self.env, &self.tables);
+                let use_left = self.mid.is_empty();
+                let use_right = true;
+                let call_left = if use_left { self.left.clone() } else { None };
+                let call_right = if use_right { self.right.clone() } else { None };
+
+                let mut left_pipe = PipeWork::from_rel_with_boundaries(
+                    a.as_ref().clone(),
+                    call_left.clone(),
+                    call_right.clone(),
+                    self.env.clone(),
+                    self.tables.clone(),
+                );
+                let mut right_pipe = PipeWork::from_rel_with_boundaries(
+                    b.as_ref().clone(),
+                    call_left,
+                    call_right,
+                    self.env.clone(),
+                    self.tables.clone(),
+                );
+                left_pipe.call_mode = self.call_mode.clone();
+                right_pipe.call_mode = self.call_mode.clone();
+
+                let left_node = Node::Work(Work::Pipe(left_pipe));
+                let right_node = Node::Work(Work::Pipe(right_pipe));
                 let meet = MeetWork::new(left_node, right_node);
-                let bind = BindWork::new(Node::Work(Work::Meet(meet)), self.clone(), false);
+                let mut pipe = self.clone();
+                if use_left {
+                    pipe.left = None;
+                }
+                if use_right {
+                    pipe.right = None;
+                }
+                let bind = BindWork::new(Node::Work(Work::Meet(meet)), pipe, false);
                 WorkStep::More(Work::Bind(bind))
             }
             Rel::Fix(id, body) => {
@@ -646,32 +704,6 @@ impl<C: Clone + Default + Hash + Eq> PipeWork<C> {
             }
             // Atom/Zero/Seq should have been normalized in try_normalize_step
             _ => WorkStep::Done,
-        }
-    }
-
-    fn build_call_context(&self, id: RelId, absorb_front: bool) -> Arc<Rel<C>> {
-        let mut factors: Vec<Arc<Rel<C>>> = Vec::new();
-
-        if let Some(left_nf) = self.left.clone() {
-            factors.push(Arc::new(Rel::Atom(Arc::new(left_nf))));
-        }
-
-        if absorb_front {
-            factors.push(Arc::new(Rel::Call(id)));
-            factors.extend(self.mid.to_vec());
-        } else {
-            factors.extend(self.mid.to_vec());
-            factors.push(Arc::new(Rel::Call(id)));
-        }
-
-        if let Some(right_nf) = self.right.clone() {
-            factors.push(Arc::new(Rel::Atom(Arc::new(right_nf))));
-        }
-
-        if factors.len() == 1 {
-            factors.remove(0)
-        } else {
-            Arc::new(Rel::Seq(Arc::from(factors)))
         }
     }
 
@@ -691,8 +723,7 @@ impl<C: Clone + Default + Hash + Eq> PipeWork<C> {
         let call_left = if use_left { self.left.clone() } else { None };
         let call_right = if use_right { self.right.clone() } else { None };
 
-        let context = self.build_call_context(id, absorb_front);
-        let key = CallKey::with_context(id, self.left.clone(), self.right.clone(), context);
+        let key = CallKey::new(id, call_left.clone(), call_right.clone());
         if let CallMode::ReplayOnly(replay_key) = &self.call_mode {
             if replay_key == &key {
                 let table = match self.tables.lookup(&key) {
@@ -795,6 +826,11 @@ impl<C: Clone + Default + Hash + Eq> BindWork<C> {
         }
     }
 
+    fn take_self(&mut self) -> Self {
+        let placeholder = BindWork::new(Node::Fail, PipeWork::new(), self.absorb_front);
+        std::mem::replace(self, placeholder)
+    }
+
     /// Step this bind work.
     pub fn step(&mut self, terms: &mut TermStore) -> WorkStep<C> {
         let current = std::mem::replace(&mut *self.gen, Node::Fail);
@@ -810,16 +846,16 @@ impl<C: Clone + Default + Hash + Eq> BindWork<C> {
                 };
 
                 if !absorbed {
-                    return WorkStep::More(Work::Bind(self.clone()));
+                    return WorkStep::More(Work::Bind(self.take_self()));
                 }
 
                 let left_node = Node::Work(Work::Pipe(pipe));
-                let right_node = Node::Work(Work::Bind(self.clone()));
+                let right_node = Node::Work(Work::Bind(self.take_self()));
                 WorkStep::Split(left_node, right_node)
             }
             NodeStep::Continue(rest) => {
                 *self.gen = rest;
-                WorkStep::More(Work::Bind(self.clone()))
+                WorkStep::More(Work::Bind(self.take_self()))
             }
             NodeStep::Exhausted => WorkStep::Done,
         }
@@ -846,10 +882,14 @@ pub struct MeetWork<C: Clone + Hash + Eq> {
     pub left: Box<Node<C>>,
     /// Right search tree (boxed to break recursive type cycle)
     pub right: Box<Node<C>>,
-    /// Answers seen from left (already met with current right)
+    /// Answers seen from left (in insertion order)
     pub seen_l: Vec<NF<C>>,
-    /// Answers seen from right (already met with current left)
+    /// Answers seen from right (in insertion order)
     pub seen_r: Vec<NF<C>>,
+    /// Dedup set for left answers
+    seen_l_set: HashSet<NF<C>>,
+    /// Dedup set for right answers
+    seen_r_set: HashSet<NF<C>>,
     /// Successful meets waiting to be emitted
     pub pending: VecDeque<NF<C>>,
     /// If false, pull from left next; if true, pull from right
@@ -864,9 +904,15 @@ impl<C: Clone + Default + Hash + Eq> MeetWork<C> {
             right: Box::new(right),
             seen_l: Vec::new(),
             seen_r: Vec::new(),
+            seen_l_set: HashSet::new(),
+            seen_r_set: HashSet::new(),
             pending: VecDeque::new(),
             flip: false,
         }
+    }
+
+    fn take_self(&mut self) -> Self {
+        std::mem::replace(self, MeetWork::new(Node::Fail, Node::Fail))
     }
 
     /// Step this meet work, returning the next state.
@@ -879,7 +925,7 @@ impl<C: Clone + Default + Hash + Eq> MeetWork<C> {
     pub fn step(&mut self, terms: &mut TermStore) -> WorkStep<C> {
         // Step 1: If pending has items, emit front
         if let Some(nf) = self.pending.pop_front() {
-            return WorkStep::Emit(nf, Work::Meet(self.clone()));
+            return WorkStep::Emit(nf, Work::Meet(self.take_self()));
         }
 
         // Step 2: Check if both sides are exhausted
@@ -913,28 +959,32 @@ impl<C: Clone + Default + Hash + Eq> MeetWork<C> {
         match step_node(current, terms) {
             NodeStep::Emit(nf, rest) => {
                 *self.left = rest;
-                self.seen_l.push(nf.clone());
-                for r_nf in &self.seen_r {
-                    if let Some(met) = meet_nf(&nf, r_nf, terms) {
-                        self.pending.push_back(met);
+                if self.seen_l_set.insert(nf.clone()) {
+                    self.seen_l.push(nf.clone());
+                    for r_nf in self.seen_r.iter() {
+                        if let Some(met) = meet_nf(&nf, r_nf, terms) {
+                            if !self.pending.contains(&met) {
+                                self.pending.push_back(met);
+                            }
+                        }
                     }
                 }
                 self.flip = true;
                 if let Some(result) = self.pending.pop_front() {
-                    WorkStep::Emit(result, Work::Meet(self.clone()))
+                    WorkStep::Emit(result, Work::Meet(self.take_self()))
                 } else {
-                    WorkStep::More(Work::Meet(self.clone()))
+                    WorkStep::More(Work::Meet(self.take_self()))
                 }
             }
             NodeStep::Continue(rest) => {
                 *self.left = rest;
                 self.flip = true;
-                WorkStep::More(Work::Meet(self.clone()))
+                WorkStep::More(Work::Meet(self.take_self()))
             }
             NodeStep::Exhausted => {
                 *self.left = Node::Fail;
                 self.flip = true;
-                WorkStep::More(Work::Meet(self.clone()))
+                WorkStep::More(Work::Meet(self.take_self()))
             }
         }
     }
@@ -945,28 +995,32 @@ impl<C: Clone + Default + Hash + Eq> MeetWork<C> {
         match step_node(current, terms) {
             NodeStep::Emit(nf, rest) => {
                 *self.right = rest;
-                self.seen_r.push(nf.clone());
-                for l_nf in &self.seen_l {
-                    if let Some(met) = meet_nf(l_nf, &nf, terms) {
-                        self.pending.push_back(met);
+                if self.seen_r_set.insert(nf.clone()) {
+                    self.seen_r.push(nf.clone());
+                    for l_nf in self.seen_l.iter() {
+                        if let Some(met) = meet_nf(l_nf, &nf, terms) {
+                            if !self.pending.contains(&met) {
+                                self.pending.push_back(met);
+                            }
+                        }
                     }
                 }
                 self.flip = false;
                 if let Some(result) = self.pending.pop_front() {
-                    WorkStep::Emit(result, Work::Meet(self.clone()))
+                    WorkStep::Emit(result, Work::Meet(self.take_self()))
                 } else {
-                    WorkStep::More(Work::Meet(self.clone()))
+                    WorkStep::More(Work::Meet(self.take_self()))
                 }
             }
             NodeStep::Continue(rest) => {
                 *self.right = rest;
                 self.flip = false;
-                WorkStep::More(Work::Meet(self.clone()))
+                WorkStep::More(Work::Meet(self.take_self()))
             }
             NodeStep::Exhausted => {
                 *self.right = Node::Fail;
                 self.flip = false;
-                WorkStep::More(Work::Meet(self.clone()))
+                WorkStep::More(Work::Meet(self.take_self()))
             }
         }
     }
@@ -1013,7 +1067,7 @@ impl<C: Clone> Env<C> {
 
 /// Key for call-context tabling.
 ///
-/// Identifies a recursive call by its RelId and boundary context.
+/// Identifies a recursive call by its RelId and adjacent boundary constraints.
 /// Two calls with the same key should share their tabled answers.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct CallKey<C: Clone + Hash + Eq> {
@@ -1023,46 +1077,15 @@ pub struct CallKey<C: Clone + Hash + Eq> {
     pub left: Option<NF<C>>,
     /// Right boundary NF (if any).
     pub right: Option<NF<C>>,
-    /// Full call-site context expression.
-    pub context: Arc<Rel<C>>,
 }
 
 impl<C: Clone + Hash + Eq> CallKey<C> {
     /// Create a new CallKey.
     pub fn new(rel: RelId, left: Option<NF<C>>, right: Option<NF<C>>) -> Self {
-        let mut factors: Vec<Arc<Rel<C>>> = Vec::new();
-        if let Some(left_nf) = left.clone() {
-            factors.push(Arc::new(Rel::Atom(Arc::new(left_nf))));
-        }
-        factors.push(Arc::new(Rel::Call(rel)));
-        if let Some(right_nf) = right.clone() {
-            factors.push(Arc::new(Rel::Atom(Arc::new(right_nf))));
-        }
-        let context = if factors.len() == 1 {
-            factors.remove(0)
-        } else {
-            Arc::new(Rel::Seq(Arc::from(factors)))
-        };
         Self {
             rel,
             left,
             right,
-            context,
-        }
-    }
-
-    /// Create a CallKey with an explicit context expression.
-    pub fn with_context(
-        rel: RelId,
-        left: Option<NF<C>>,
-        right: Option<NF<C>>,
-        context: Arc<Rel<C>>,
-    ) -> Self {
-        Self {
-            rel,
-            left,
-            right,
-            context,
         }
     }
 }
@@ -1658,7 +1681,11 @@ mod tests {
             WorkStep::More(Work::Pipe(updated)) => {
                 assert_eq!(updated.mid.len(), 3, "Middle atoms should fuse first");
             }
-            _ => panic!("Expected normalization to fuse middle atoms"),
+            WorkStep::Split(Node::Work(Work::Pipe(left)), Node::Work(Work::Pipe(right))) => {
+                assert_eq!(left.mid.len(), 3, "Left branch should see fused middle atoms");
+                assert_eq!(right.mid.len(), 3, "Right branch should see fused middle atoms");
+            }
+            _ => panic!("Expected normalization to fuse middle atoms before advancing ends"),
         }
     }
 
@@ -1883,6 +1910,35 @@ mod tests {
                 assert_eq!(right_pipe.right.as_ref().unwrap().match_pats, boundary.match_pats);
             }
             other => panic!("Expected Split with Work::Pipe, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn pipework_prefers_non_call_over_call_on_opposite_end() {
+        let (symbols, mut terms) = setup();
+        let left_nf = make_ground_nf("L", &symbols, &terms);
+        let right_nf = make_ground_nf("R", &symbols, &terms);
+        let left_rel: Arc<Rel<()>> = Arc::new(Rel::Atom(Arc::new(left_nf)));
+        let right_rel: Arc<Rel<()>> = Arc::new(Rel::Atom(Arc::new(right_nf)));
+        let and_rel: Arc<Rel<()>> = Arc::new(Rel::And(left_rel, right_rel));
+        let call_rel: Arc<Rel<()>> = Arc::new(Rel::Call(0));
+        let mid = factors_from_rels(vec![and_rel, call_rel]);
+
+        let body = Arc::new(Rel::Atom(Arc::new(make_ground_nf("BODY", &symbols, &terms))));
+        let mut pipe: PipeWork<()> = PipeWork::with_mid(mid);
+        pipe.env = Env::new().bind(0, body);
+        pipe.flip = true;
+
+        let step = pipe.step(&mut terms);
+
+        match step {
+            WorkStep::More(Work::Bind(bind)) => {
+                assert!(
+                    bind.absorb_front,
+                    "Should advance front (And) before Call when opposite end is non-call"
+                );
+            }
+            other => panic!("Expected Bind from And advance, got {:?}", other),
         }
     }
 
@@ -3368,7 +3424,7 @@ mod tests {
     }
 
     #[test]
-    fn callkey_differs_for_different_mid_context() {
+    fn callkey_ignores_mid_context_for_same_boundaries() {
         let (symbols, mut terms) = setup();
         let nf_a = make_ground_nf("A", &symbols, &terms);
         let nf_b = make_ground_nf("B", &symbols, &terms);
@@ -3391,9 +3447,9 @@ mod tests {
         let key_a = extract_key_from_step(step_a);
         let key_b = extract_key_from_step(step_b);
 
-        assert_ne!(
+        assert_eq!(
             key_a, key_b,
-            "CallKey should distinguish different mid contexts"
+            "CallKey should ignore mid context when boundaries match"
         );
     }
 

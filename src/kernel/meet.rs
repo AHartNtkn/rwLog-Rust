@@ -30,19 +30,14 @@ pub fn meet_nf<C: Default + Clone>(
     )
     .entered();
 
-    // For the meet, we need to:
-    // 1. Unify a.match_pats with b.match_pats (most specific input pattern)
-    // 2. Unify a.build_pats with b.build_pats (most specific output pattern)
-    // 3. Combine the wires appropriately
-
+    // For the meet, we need to unify direct-rule forms so that wires are honored.
     if a.match_pats.len() != b.match_pats.len() || a.build_pats.len() != b.build_pats.len() {
         #[cfg(feature = "tracing")]
         trace!("meet_arity_mismatch");
-        return None; // Arity mismatch
+        return None;
     }
 
     if a.match_pats.is_empty() && a.build_pats.is_empty() {
-        // Both empty - just return a copy
         return Some(NF::new(
             SmallVec::new(),
             Wire::identity(0),
@@ -50,90 +45,79 @@ pub fn meet_nf<C: Default + Clone>(
         ));
     }
 
-    // Shift b's variables to avoid collision with a's
-    // a uses vars 0..a.wire.in_arity (match) and 0..a.wire.out_arity (build)
-    // We'll use the max of these as the offset for b
-    let b_var_offset = a.wire.in_arity.max(a.wire.out_arity);
+    let (a_lhs, a_rhs) = direct_rule_terms(a, terms)?;
+    let (b_lhs, b_rhs) = direct_rule_terms(b, terms)?;
 
-    // Handle single-pattern case (most common)
-    let unified_match = if !a.match_pats.is_empty() {
-        let a_match = a.match_pats[0];
-        let b_match_shifted = shift_vars(b.match_pats[0], b_var_offset, terms);
+    let b_var_offset = max_var_index(a_lhs, terms)
+        .max(max_var_index(a_rhs, terms))
+        .map(|v| v + 1)
+        .unwrap_or(0);
 
-        // Unify the match patterns
-        let mgu = match unify(a_match, b_match_shifted, terms) {
-            Some(mgu) => mgu,
-            None => {
-                #[cfg(feature = "tracing")]
-                trace!("meet_match_unify_failed");
-                return None;
-            }
-        };
+    let b_lhs_shifted = shift_vars(b_lhs, b_var_offset, terms);
+    let b_rhs_shifted = shift_vars(b_rhs, b_var_offset, terms);
 
-        // Apply MGU to get the unified match pattern
-        apply_subst(a_match, &mgu, terms)
-    } else {
-        // No match patterns - use a placeholder
-        terms.var(0) // This won't be used
+    let mgu_match = match unify(a_lhs, b_lhs_shifted, terms) {
+        Some(mgu) => mgu,
+        None => {
+            #[cfg(feature = "tracing")]
+            trace!("meet_match_unify_failed");
+            return None;
+        }
     };
 
-    let unified_build = if !a.build_pats.is_empty() {
-        let a_build = a.build_pats[0];
-        let b_build_shifted = shift_vars(b.build_pats[0], b_var_offset, terms);
+    let unified_lhs = apply_subst(a_lhs, &mgu_match, terms);
+    let a_rhs_subst = apply_subst(a_rhs, &mgu_match, terms);
+    let b_rhs_subst = apply_subst(b_rhs_shifted, &mgu_match, terms);
 
-        // Unify the build patterns
-        let mgu = match unify(a_build, b_build_shifted, terms) {
-            Some(mgu) => mgu,
-            None => {
-                #[cfg(feature = "tracing")]
-                trace!("meet_build_unify_failed");
-                return None;
-            }
-        };
-
-        // Apply MGU to get the unified build pattern
-        apply_subst(a_build, &mgu, terms)
-    } else {
-        terms.var(0)
+    let mgu_build = match unify(a_rhs_subst, b_rhs_subst, terms) {
+        Some(mgu) => mgu,
+        None => {
+            #[cfg(feature = "tracing")]
+            trace!("meet_build_unify_failed");
+            return None;
+        }
     };
 
-    // Now we need to unify the match and build together to ensure consistency
-    // Variables in match should connect to variables in build appropriately
+    let final_lhs = apply_subst(unified_lhs, &mgu_build, terms);
+    let final_rhs = apply_subst(a_rhs_subst, &mgu_build, terms);
 
-    // Renumber to get consecutive vars
-    let (final_match, match_var_mapping) = renumber_term(unified_match, terms);
-    let (final_build, build_var_mapping) = renumber_term(unified_build, terms);
+    #[cfg(feature = "tracing")]
+    trace!("meet_success");
 
-    // Build wire connecting match vars to build vars
-    let mut wire_map: SmallVec<[(u32, u32); 4]> = SmallVec::new();
+    Some(NF::factor(final_lhs, final_rhs, C::default(), terms))
+}
 
-    for (i, &match_orig_var) in match_var_mapping.iter().enumerate() {
-        if let Some(j) = build_var_mapping.iter().position(|&v| v == match_orig_var) {
-            if wire_map.is_empty() || wire_map.last().unwrap().1 < j as u32 {
-                wire_map.push((i as u32, j as u32));
-            }
+fn direct_rule_terms<C: Clone>(nf: &NF<C>, terms: &mut TermStore) -> Option<(TermId, TermId)> {
+    if nf.match_pats.len() != 1 || nf.build_pats.len() != 1 {
+        return None;
+    }
+
+    let lhs = nf.match_pats[0];
+    let rhs = nf.build_pats[0];
+    let out_arity = nf.wire.out_arity as usize;
+    let in_arity = nf.wire.in_arity as u32;
+
+    let mut rhs_map: Vec<Option<u32>> = vec![None; out_arity];
+    for (i, j) in nf.wire.map.iter().copied() {
+        if let Some(slot) = rhs_map.get_mut(j as usize) {
+            *slot = Some(i);
         }
     }
 
-    let wire = Wire {
-        in_arity: match_var_mapping.len() as u32,
-        out_arity: build_var_mapping.len() as u32,
-        map: wire_map,
-        constraint: C::default(),
-    };
+    let mut next_var = in_arity;
+    for slot in rhs_map.iter_mut() {
+        if slot.is_none() {
+            *slot = Some(next_var);
+            next_var += 1;
+        }
+    }
 
-    #[cfg(feature = "tracing")]
-    trace!(
-        result_in_arity = wire.in_arity,
-        result_out_arity = wire.out_arity,
-        "meet_success"
-    );
+    let rhs_direct = apply_var_renaming(rhs, &rhs_map, terms);
+    Some((lhs, rhs_direct))
+}
 
-    Some(NF::new(
-        if a.match_pats.is_empty() { SmallVec::new() } else { smallvec::smallvec![final_match] },
-        wire,
-        if a.build_pats.is_empty() { SmallVec::new() } else { smallvec::smallvec![final_build] },
-    ))
+fn max_var_index(term: TermId, terms: &mut TermStore) -> Option<u32> {
+    collect_vars_ordered(term, terms).into_iter().max()
 }
 
 /// Shift all variables in a term by a given offset.
@@ -159,21 +143,6 @@ fn shift_vars_helper(term: TermId, offset: u32, terms: &mut TermStore) -> TermId
 }
 
 /// Renumber variables in a term to consecutive indices 0..n-1.
-fn renumber_term(term: TermId, terms: &mut TermStore) -> (TermId, Vec<u32>) {
-    let vars = collect_vars_ordered(term, terms);
-    if vars.is_empty() {
-        return (term, vec![]);
-    }
-
-    let max_var = vars.iter().copied().max().unwrap() as usize;
-    let mut old_to_new = vec![None; max_var + 1];
-    for (new_idx, &old_idx) in vars.iter().enumerate() {
-        old_to_new[old_idx as usize] = Some(new_idx as u32);
-    }
-
-    let renumbered = apply_var_renaming(term, &old_to_new, terms);
-    (renumbered, vars)
-}
 
 #[cfg(test)]
 mod tests {
@@ -259,6 +228,45 @@ mod tests {
         // Meet should specialize to F(x) -> F(x)
         let (match_func, _) = terms.is_app(met.match_pats[0]).unwrap();
         assert_eq!(symbols.resolve(match_func), Some("F"));
+    }
+
+    #[test]
+    fn meet_unifies_fresh_outputs() {
+        let (symbols, mut terms) = setup();
+        let f = symbols.intern("f");
+        let b = symbols.intern("b");
+        let l = symbols.intern("l");
+        let c = symbols.intern("c");
+        let zero = symbols.intern("0");
+
+        let l_term = terms.app0(l);
+        let zero_term = terms.app0(zero);
+        let c0 = terms.app(c, smallvec::smallvec![zero_term]);
+        let b_l = terms.app(b, smallvec::smallvec![l_term]);
+        let b_b_l = terms.app(b, smallvec::smallvec![b_l]);
+        let inner = terms.app(f, smallvec::smallvec![b_b_l, l_term]);
+        let input = terms.app(f, smallvec::smallvec![inner, c0]);
+
+        let inner_out = terms.app(f, smallvec::smallvec![l_term, c0]);
+        let out1 = terms.app(f, smallvec::smallvec![inner_out, terms.var(0)]);
+        let out2 = {
+            let b_c0 = terms.app(b, smallvec::smallvec![c0]);
+            terms.app(f, smallvec::smallvec![terms.var(0), b_c0])
+        };
+
+        let nf1 = NF::factor(input, out1, (), &mut terms);
+        let nf2 = NF::factor(input, out2, (), &mut terms);
+
+        let met = meet_nf(&nf1, &nf2, &mut terms).expect("meet should succeed");
+
+        let expected_out = {
+            let inner_expected = terms.app(f, smallvec::smallvec![l_term, c0]);
+            let b_c0 = terms.app(b, smallvec::smallvec![c0]);
+            terms.app(f, smallvec::smallvec![inner_expected, b_c0])
+        };
+
+        assert_eq!(met.match_pats[0], input);
+        assert_eq!(met.build_pats[0], expected_out);
     }
 
     #[test]
@@ -534,13 +542,9 @@ mod tests {
             smallvec::smallvec![v0],
         );
 
-        // The meet would require x = F(x) which fails occurs check
-        // Actually this might succeed since match and build are separate...
-        // Let me reconsider - they have different match patterns so unification
-        // would produce x = F(y), which is valid.
+        // The meet would require x = F(x), which fails occurs check.
         let result = meet_nf(&rule_a, &rule_b, &mut terms);
-        // This actually should succeed with F(x) -> F(x) after unification
-        assert!(result.is_some());
+        assert!(result.is_none(), "Occurs check should reject x = F(x)");
     }
 
     #[test]

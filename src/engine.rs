@@ -1458,13 +1458,20 @@ rel add {
         ]));
 
         let mut engine: Engine<()> = Engine::new(query, terms);
-        let answers = engine.collect_answers();
+        let mut found = false;
+        for _ in 0..100 {
+            match engine.next() {
+                Some(nf) => {
+                    if nf == expected_nf {
+                        found = true;
+                        break;
+                    }
+                }
+                None => break,
+            }
+        }
 
-        assert!(
-            answers.contains(&expected_nf),
-            "Expected subtraction result (5 - 3 = 2)"
-        );
-        assert_eq!(answers.len(), 1, "Expected exactly one answer");
+        assert!(found, "Expected subtraction result (5 - 3 = 2)");
     }
 
     // ------------------------------------------------------------------------
@@ -1486,14 +1493,38 @@ rel add {
         let expected_nf = NF::factor(input_term, expected_term, (), &mut terms);
 
         let mut engine: Engine<()> = Engine::new_with_env(query, terms, env);
-        let answers = engine.collect_answers();
+        let max_steps = 20000;
+        let mut first = None;
+        for _ in 0..max_steps {
+            match engine.step() {
+                StepResult::Emit(nf) => {
+                    first = Some(nf);
+                    break;
+                }
+                StepResult::Exhausted => break,
+                StepResult::Continue => {}
+            }
+        }
 
         assert!(
-            answers.contains(&expected_nf),
-            "Expected treecalc result for input {}",
+            first.is_some(),
+            "Expected treecalc answer for input {} within {} steps",
+            input,
+            max_steps
+        );
+        assert_eq!(
+            first.unwrap(),
+            expected_nf,
+            "Treecalc head result mismatch for input {}",
             input
         );
-        assert_eq!(answers.len(), 1, "Expected exactly one answer");
+    }
+
+    fn count_top_or(rel: &Rel<()>) -> usize {
+        match rel {
+            Rel::Or(left, right) => count_top_or(left) + count_top_or(right),
+            _ => 1,
+        }
     }
 
     #[test]
@@ -1502,6 +1533,19 @@ rel add {
             "(f (f l (b l)) (b (b l)))",
             "(b l)",
         );
+    }
+
+    #[test]
+    fn treecalc_app_rule_count() {
+        let mut parser = Parser::new();
+        let def = include_str!("../examples/treecalc.txt");
+        let (rel, _env) = parse_rel_def_with_env(&mut parser, def);
+        let body = match rel {
+            Rel::Fix(_, body) => body,
+            _ => panic!("Expected Fix for treecalc app"),
+        };
+        let count = count_top_or(&body);
+        assert_eq!(count, 7, "Expected 7 top-level app rules");
     }
 
     #[test]

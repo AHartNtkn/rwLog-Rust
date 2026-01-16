@@ -26,6 +26,30 @@ rel app {
     |
     # Rule 4: app(F(F(w, x), y), L) => w
     (f (f (f $w $x) $y) l) -> $w
+    |
+    # Rule 5: app(F(B(x), y), z) => app(app(x, z), app(y, z))
+    [
+        [(f (f (b $x) $y) $z) -> (f $x $z) ; app ; $x -> (f $x $y)]
+        &
+        [(f (f (b $x) $y) $z) -> (f $y $z) ; app ; $y -> (f $x $y)]
+        ; app
+    ]
+    |
+    # Rule 6: app(F(F(w, x), y), B(u)) => app(x, u)
+    [
+        (f (f (f $w $x) $y) (b $u)) -> (f $x $u)
+        ; app
+    ]
+    |
+    # Rule 7: app(F(F(w, x), y), F(u, v)) => app(app(y, u), v)
+    [
+        (f (f (f $w $x) $y) (f $u $v)) -> (f (f $y $u) $v)
+        ;
+        [(f (f $a $b) $c) -> (f $a $b) ; app ; $a -> (f $a $b)]
+        &
+        (f (f $a $b) $c) -> (f $d $c)
+        ; app
+    ]
 }
 
 # Full evaluation: apply app repeatedly until normal form
