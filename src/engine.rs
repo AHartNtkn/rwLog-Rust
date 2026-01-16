@@ -5,9 +5,10 @@
 //! 2. Stepping through the Node tree using Or rotation
 //! 3. Yielding NF answers via next()
 
-use crate::nf::NF;
+use crate::nf::{format_nf, NF};
 use crate::node::{step_node, Node, NodeStep};
 use crate::rel::Rel;
+use crate::symbol::SymbolStore;
 use crate::term::TermStore;
 use crate::work::{rel_to_node, Env, Tables};
 use std::hash::Hash;
@@ -58,6 +59,10 @@ impl<C: Clone + Default + Hash + Eq> Engine<C> {
                 StepResult::Continue => continue,
             }
         }
+    }
+
+    pub fn format_nf(&mut self, nf: &NF<C>, symbols: &SymbolStore) -> Result<String, String> {
+        format_nf(nf, &mut self.terms, symbols)
     }
 
     /// Take a single step in the evaluation.

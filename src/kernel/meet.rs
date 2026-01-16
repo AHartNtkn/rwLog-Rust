@@ -1,4 +1,4 @@
-use crate::nf::{apply_var_renaming, collect_vars_ordered, NF};
+use crate::nf::{collect_vars_ordered, direct_rule_terms, NF};
 use crate::subst::apply_subst;
 use crate::term::{Term, TermId, TermStore};
 use crate::unify::unify;
@@ -85,35 +85,6 @@ pub fn meet_nf<C: Default + Clone>(
     trace!("meet_success");
 
     Some(NF::factor(final_lhs, final_rhs, C::default(), terms))
-}
-
-fn direct_rule_terms<C: Clone>(nf: &NF<C>, terms: &mut TermStore) -> Option<(TermId, TermId)> {
-    if nf.match_pats.len() != 1 || nf.build_pats.len() != 1 {
-        return None;
-    }
-
-    let lhs = nf.match_pats[0];
-    let rhs = nf.build_pats[0];
-    let out_arity = nf.wire.out_arity as usize;
-    let in_arity = nf.wire.in_arity as u32;
-
-    let mut rhs_map: Vec<Option<u32>> = vec![None; out_arity];
-    for (i, j) in nf.wire.map.iter().copied() {
-        if let Some(slot) = rhs_map.get_mut(j as usize) {
-            *slot = Some(i);
-        }
-    }
-
-    let mut next_var = in_arity;
-    for slot in rhs_map.iter_mut() {
-        if slot.is_none() {
-            *slot = Some(next_var);
-            next_var += 1;
-        }
-    }
-
-    let rhs_direct = apply_var_renaming(rhs, &rhs_map, terms);
-    Some((lhs, rhs_direct))
 }
 
 fn max_var_index(term: TermId, terms: &mut TermStore) -> Option<u32> {

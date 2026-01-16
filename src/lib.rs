@@ -14,3 +14,5 @@ pub mod node;
 pub mod work;
 pub mod engine;
 pub mod parser;
+pub mod repl;
+pub mod jupyter;

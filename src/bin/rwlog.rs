@@ -6,225 +6,41 @@
 //! - `list` - List defined relations
 //! - `help` - Show help
 //! - `quit` or `exit` - Exit the REPL
+//! - `kernel install` - Install Jupyter kernel spec
+//! - `kernel --connection-file <path>` - Run Jupyter kernel
 
-use rwlog::engine::Engine;
-use rwlog::parser::Parser;
-use rwlog::rel::Rel;
-use rwlog::work::Env;
-use std::collections::HashMap;
+use rwlog::jupyter::{default_kernel_dir, install_kernel_spec};
+use rwlog::repl::Repl;
 use std::io::{self, BufRead, Write};
+use std::path::PathBuf;
 
-/// REPL state.
-struct Repl {
-    parser: Parser,
-    /// Named relation definitions.
-    definitions: HashMap<String, Rel<()>>,
-}
-
-impl Repl {
-    fn new() -> Self {
-        Self {
-            parser: Parser::new(),
-            definitions: HashMap::new(),
-        }
-    }
-
-    /// Process a single line of input.
-    fn process_line(&mut self, line: &str) -> Result<Option<String>, String> {
-        let line = line.trim();
-
-        if line.is_empty() || line.starts_with('#') {
-            return Ok(None);
-        }
-
-        if line == "help" {
-            return Ok(Some(self.help_text()));
-        }
-
-        if line == "quit" || line == "exit" {
-            return Err("quit".to_string());
-        }
-
-        if line == "list" {
-            return Ok(Some(self.list_relations()));
-        }
-
-        if let Some(path) = line.strip_prefix("load ") {
-            return self.load_file(path.trim());
-        }
-
-        if let Some(query) = line.strip_prefix("?- ") {
-            return self.run_query(query.trim());
-        }
-
-        // Try to parse as a relation definition
-        if line.starts_with("rel ") {
-            return self.define_relation(line);
-        }
-
-        Err(format!("Unknown command: {}. Type 'help' for usage.", line))
-    }
-
-    fn help_text(&self) -> String {
-        r#"rwlog - Relational Programming via Term Rewriting
-
-Commands:
-  load <file>    Load relation definitions from a file
-  ?- <query>     Run a query (e.g., ?- add ; (cons z z))
-  list           List defined relations
-  help           Show this help
-  quit/exit      Exit the REPL
-
-Syntax:
-  rel name { body }     Define a relation
-  lhs -> rhs            Rewrite rule
-  a | b                 Disjunction (or)
-  a ; b                 Sequence (composition)
-  a & b                 Conjunction (and/intersection)
-  [...]                 Grouping
-  $var                  Variable
-  (f x y)               Compound term
-"#.to_string()
-    }
-
-    fn list_relations(&self) -> String {
-        if self.definitions.is_empty() {
-            "No relations defined.".to_string()
-        } else {
-            let names: Vec<&str> = self.definitions.keys().map(|s| s.as_str()).collect();
-            format!("Defined relations: {}", names.join(", "))
-        }
-    }
-
-    fn load_file(&mut self, path: &str) -> Result<Option<String>, String> {
-        let content = std::fs::read_to_string(path)
-            .map_err(|e| format!("Failed to read file '{}': {}", path, e))?;
-
-        let mut count = 0;
-        let mut pos = 0;
-
-        // Strip comments and find relation definitions
-        while pos < content.len() {
-            // Skip whitespace and comments
-            while pos < content.len() {
-                let ch = content.chars().nth(pos).unwrap();
-                if ch.is_whitespace() {
-                    pos += 1;
-                } else if ch == '#' {
-                    // Skip to end of line
-                    while pos < content.len() && content.chars().nth(pos).unwrap() != '\n' {
-                        pos += 1;
-                    }
-                } else {
-                    break;
-                }
-            }
-
-            if pos >= content.len() {
-                break;
-            }
-
-            // Check for 'rel' keyword
-            if content[pos..].starts_with("rel ") {
-                // Find the matching closing brace
-                let start = pos;
-                let mut brace_depth = 0;
-                let mut found_open = false;
-
-                while pos < content.len() {
-                    let ch = content.chars().nth(pos).unwrap();
-                    if ch == '{' {
-                        found_open = true;
-                        brace_depth += 1;
-                    } else if ch == '}' {
-                        brace_depth -= 1;
-                        if brace_depth == 0 && found_open {
-                            pos += 1;
-                            break;
-                        }
-                    }
-                    pos += 1;
-                }
-
-                let rel_text = &content[start..pos];
-                match self.parser.parse_rel_def(rel_text) {
-                    Ok((name, rel)) => {
-                        self.definitions.insert(name, rel);
-                        count += 1;
-                    }
-                    Err(e) => {
-                        return Err(format!("Parse error in '{}': {}", path, e));
-                    }
-                }
-            } else {
-                pos += 1;
-            }
-        }
-
-        Ok(Some(format!("Loaded {} relation(s) from '{}'", count, path)))
-    }
-
-    fn define_relation(&mut self, line: &str) -> Result<Option<String>, String> {
-        match self.parser.parse_rel_def(line) {
-            Ok((name, rel)) => {
-                self.definitions.insert(name.clone(), rel);
-                Ok(Some(format!("Defined relation '{}'", name)))
-            }
-            Err(e) => Err(format!("Parse error: {}", e)),
-        }
-    }
-
-    fn run_query(&mut self, query: &str) -> Result<Option<String>, String> {
-        // Parse the query as a relation body
-        let rel = self.parser.parse_rel_body(query)
-            .map_err(|e| format!("Parse error: {}", e))?;
-
-        let env = self.build_env();
-
-        // Share the parser's TermStore with the engine to keep TermIds valid.
-        let terms = self.parser.take_terms();
-        let mut engine: Engine<()> = Engine::new_with_env(rel, terms, env);
-
-        // Collect answers (with a limit to prevent infinite loops)
-        let mut answers = Vec::new();
-        let max_answers = 100;
-
-        while let Some(nf) = engine.next() {
-            answers.push(nf);
-            if answers.len() >= max_answers {
-                break;
-            }
-        }
-
-        let terms = engine.into_terms();
-        self.parser.restore_terms(terms);
-
-        if answers.is_empty() {
-            Ok(Some("No answers.".to_string()))
-        } else {
-            let mut output = String::new();
-            for (i, nf) in answers.iter().enumerate() {
-                output.push_str(&format!("{}. {:?}\n", i + 1, nf));
-            }
-            if answers.len() >= max_answers {
-                output.push_str(&format!("... (showing first {} answers)\n", max_answers));
-            }
-            Ok(Some(output))
-        }
-    }
-
-    fn build_env(&self) -> Env<()> {
-        let mut env = Env::new();
-        for rel in self.definitions.values() {
-            if let Rel::Fix(id, body) = rel {
-                env = env.bind(*id, body.clone());
-            }
-        }
-        env
-    }
-}
+#[cfg(feature = "jupyter")]
+use rwlog::jupyter::run_kernel;
 
 fn main() {
+    let mut args = std::env::args().skip(1);
+    match args.next().as_deref() {
+        None => run_repl(),
+        Some("help") | Some("--help") | Some("-h") => {
+            print_help();
+        }
+        Some("kernel") => handle_kernel(args.collect()),
+        Some(other) => {
+            eprintln!("Unknown subcommand: {}", other);
+            print_help();
+        }
+    }
+}
+
+fn print_help() {
+    println!("rwlog - Relational Programming via Term Rewriting\n");
+    println!("Usage:");
+    println!("  rwlog                  Start interactive REPL");
+    println!("  rwlog kernel install   Install Jupyter kernel spec");
+    println!("  rwlog kernel --connection-file <path>  Run Jupyter kernel");
+}
+
+fn run_repl() {
     let mut repl = Repl::new();
 
     println!("rwlog - Relational Programming via Term Rewriting");
@@ -244,17 +60,15 @@ fn main() {
                 println!("\nGoodbye!");
                 break;
             }
-            Ok(_) => {
-                match repl.process_line(&line) {
-                    Ok(Some(output)) => println!("{}", output),
-                    Ok(None) => {}
-                    Err(e) if e == "quit" => {
-                        println!("Goodbye!");
-                        break;
-                    }
-                    Err(e) => eprintln!("Error: {}", e),
+            Ok(_) => match repl.process_input(&line) {
+                Ok(Some(output)) => println!("{}", output),
+                Ok(None) => {}
+                Err(e) if e == "quit" => {
+                    println!("Goodbye!");
+                    break;
                 }
-            }
+                Err(e) => eprintln!("Error: {}", e),
+            },
             Err(e) => {
                 eprintln!("Error reading input: {}", e);
                 break;
@@ -263,22 +77,129 @@ fn main() {
     }
 }
 
+fn handle_kernel(args: Vec<String>) {
+    let mut iter = args.into_iter();
+    match iter.next().as_deref() {
+        Some("install") => handle_kernel_install(iter.collect()),
+        other => handle_kernel_run(other, iter.collect()),
+    }
+}
+
+fn handle_kernel_install(args: Vec<String>) {
+    let mut name = "rwlog".to_string();
+    let mut dir: Option<PathBuf> = None;
+    let mut iter = args.into_iter();
+
+    while let Some(arg) = iter.next() {
+        match arg.as_str() {
+            "--name" => {
+                if let Some(val) = iter.next() {
+                    name = val;
+                }
+            }
+            "--dir" => {
+                if let Some(val) = iter.next() {
+                    dir = Some(PathBuf::from(val));
+                }
+            }
+            "--help" | "-h" => {
+                println!("rwlog kernel install [--name <name>] [--dir <dir>]");
+                return;
+            }
+            other => {
+                eprintln!("Unknown install option: {}", other);
+                return;
+            }
+        }
+    }
+
+    let dir = match dir {
+        Some(d) => d,
+        None => match default_kernel_dir() {
+            Ok(d) => d,
+            Err(err) => {
+                eprintln!("Failed to resolve kernel dir: {}", err);
+                return;
+            }
+        },
+    };
+    let argv0 = match std::env::current_exe() {
+        Ok(path) => path.to_string_lossy().to_string(),
+        Err(err) => {
+            eprintln!("Failed to resolve executable path: {}", err);
+            return;
+        }
+    };
+
+    match install_kernel_spec(&dir, &name, &argv0) {
+        Ok(path) => println!("Installed kernel spec at {}", path.display()),
+        Err(err) => eprintln!("Kernel install failed: {}", err),
+    }
+}
+
+fn handle_kernel_run(first: Option<&str>, rest: Vec<String>) {
+    let mut connection_file: Option<String> = None;
+    let mut args = Vec::new();
+    if let Some(arg) = first {
+        args.push(arg.to_string());
+    }
+    args.extend(rest);
+
+    let mut iter = args.into_iter();
+    while let Some(arg) = iter.next() {
+        match arg.as_str() {
+            "--connection-file" | "-f" => {
+                connection_file = iter.next();
+            }
+            "--help" | "-h" => {
+                println!("rwlog kernel --connection-file <path>");
+                return;
+            }
+            other => {
+                eprintln!("Unknown kernel option: {}", other);
+                return;
+            }
+        }
+    }
+
+    let connection_file = match connection_file {
+        Some(path) => PathBuf::from(path),
+        None => {
+            eprintln!("Missing --connection-file");
+            return;
+        }
+    };
+
+    #[cfg(feature = "jupyter")]
+    {
+        if let Err(err) = run_kernel(&connection_file) {
+            eprintln!("Kernel error: {}", err);
+        }
+    }
+
+    #[cfg(not(feature = "jupyter"))]
+    {
+        eprintln!("Kernel support requires building with --features jupyter");
+        let _ = connection_file;
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::Repl;
+    use rwlog::repl::Repl;
 
     #[test]
     fn repl_query_composes_named_relations() {
         let mut repl = Repl::new();
-        repl.process_line("rel f { a -> b }")
+        repl.process_input("rel f { a -> b }")
             .expect("define f")
             .expect("f output");
-        repl.process_line("rel g { b -> c }")
+        repl.process_input("rel g { b -> c }")
             .expect("define g")
             .expect("g output");
 
         let output = repl
-            .process_line("?- f ; g")
+            .process_input("?- f ; g")
             .expect("query should run")
             .expect("query output");
 

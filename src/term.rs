@@ -1,4 +1,4 @@
-use crate::symbol::FuncId;
+use crate::symbol::{FuncId, SymbolStore};
 use hashbrown::HashMap;
 use parking_lot::RwLock;
 use rustc_hash::FxHasher;
@@ -150,6 +150,50 @@ impl TermStore {
         term.hash(&mut hasher);
         (hasher.finish() as usize) % NUM_SHARDS
     }
+}
+
+pub fn format_term(
+    term: TermId,
+    terms: &TermStore,
+    symbols: &SymbolStore,
+) -> Result<String, String> {
+    fn render(
+        term: TermId,
+        terms: &TermStore,
+        symbols: &SymbolStore,
+        out: &mut String,
+    ) -> Result<(), String> {
+        match terms.resolve(term) {
+            Some(Term::Var(idx)) => {
+                out.push('$');
+                out.push_str(&idx.to_string());
+                Ok(())
+            }
+            Some(Term::App(func, children)) => {
+                let name = symbols
+                    .resolve(func)
+                    .ok_or_else(|| format!("Unknown symbol for func id {:?}", func))?;
+                if children.is_empty() {
+                    out.push_str(name);
+                    Ok(())
+                } else {
+                    out.push('(');
+                    out.push_str(name);
+                    for child in children.iter() {
+                        out.push(' ');
+                        render(*child, terms, symbols, out)?;
+                    }
+                    out.push(')');
+                    Ok(())
+                }
+            }
+            None => Err(format!("Unknown term id {:?}", term)),
+        }
+    }
+
+    let mut out = String::new();
+    render(term, terms, symbols, &mut out)?;
+    Ok(out)
 }
 
 impl Default for TermStore {
