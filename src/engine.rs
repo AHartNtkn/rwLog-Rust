@@ -7,6 +7,7 @@
 
 use crate::constraint::ConstraintOps;
 use crate::nf::{format_nf, NF};
+use crate::constraint::ConstraintDisplay;
 use crate::node::{step_node, Node, NodeStep};
 use crate::rel::Rel;
 use crate::symbol::SymbolStore;
@@ -48,7 +49,10 @@ impl<C: ConstraintOps> Engine<C> {
         Self { root, terms }
     }
 
-    pub fn format_nf(&mut self, nf: &NF<C>, symbols: &SymbolStore) -> Result<String, String> {
+    pub fn format_nf(&mut self, nf: &NF<C>, symbols: &SymbolStore) -> Result<String, String>
+    where
+        C: ConstraintDisplay,
+    {
         format_nf(nf, &mut self.terms, symbols)
     }
 
@@ -156,11 +160,14 @@ pub fn query_first<C: ConstraintOps>(rel: Rel<C>, terms: TermStore) -> Option<NF
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::chr::{ChrState, NoTheory};
     use crate::drop_fresh::DropFresh;
-    use crate::nf::NF;
+    use crate::nf::{direct_rule_terms, NF};
+    use crate::parser::ChrConstraintBuilder;
     use crate::parser::Parser;
     use crate::rel::dual;
     use crate::rel::Rel;
+    use crate::repl::split_statements;
     use crate::symbol::SymbolStore;
     use crate::test_utils::{make_ground_nf, make_rule_nf, setup};
     use crate::work::Env;
@@ -174,7 +181,39 @@ mod tests {
     }
 
     fn parse_rel_def_with_env(parser: &mut Parser, def: &str) -> (Rel<()>, Env<()>) {
-        let (_, rel_def) = parser.parse_rel_def(def).expect("parse rel def");
+        let statements = split_statements(def).expect("split rel def");
+        let mut rel_def = None;
+        for statement in statements {
+            let line = statement.trim();
+            if line.starts_with("rel ") {
+                rel_def = Some(parser.parse_rel_def(line).expect("parse rel def").1);
+            }
+        }
+        let rel_def = rel_def.expect("expected relation definition");
+        let env = match &rel_def {
+            Rel::Fix(id, body) => Env::new().bind(*id, body.clone()),
+            _ => Env::new(),
+        };
+        (rel_def, env)
+    }
+
+    fn parse_rel_def_with_env_chr(
+        parser: &mut Parser<ChrConstraintBuilder>,
+        def: &str,
+    ) -> (Rel<ChrState<NoTheory>>, Env<ChrState<NoTheory>>) {
+        let statements = split_statements(def).expect("split rel def");
+        let mut rel_def = None;
+        for statement in statements {
+            let line = statement.trim();
+            if line.starts_with("theory ") {
+                parser.parse_theory_def(line).expect("parse theory");
+                continue;
+            }
+            if line.starts_with("rel ") {
+                rel_def = Some(parser.parse_rel_def(line).expect("parse rel def").1);
+            }
+        }
+        let rel_def = rel_def.expect("expected relation definition");
         let env = match &rel_def {
             Rel::Fix(id, body) => Env::new().bind(*id, body.clone()),
             _ => Env::new(),
@@ -1514,7 +1553,7 @@ rel add {
 
         let mut terms = parser.take_terms();
         let target_nf = NF::factor(target_term, target_term, (), &mut terms);
-        let dual_add = dual(&add_rel);
+        let dual_add = dual(&add_rel, &mut terms);
         let query = Rel::Seq(Arc::from(vec![
             Arc::new(Rel::Atom(Arc::new(target_nf))),
             Arc::new(dual_add),
@@ -1536,7 +1575,6 @@ rel add {
         let mut parser = Parser::new();
         let def = include_str!("../examples/addition.txt");
         let (add_rel, _env) = parse_rel_def_with_env(&mut parser, def);
-        let dual_add = dual(&add_rel);
 
         let rule_left = parser
             .parse_rel_body("(cons $x $y) -> $x")
@@ -1548,12 +1586,6 @@ rel add {
             .parse_rel_body("(cons $x $y) -> $y")
             .expect("parse rule out");
 
-        let and_left = Rel::Seq(Arc::from(vec![Arc::new(rule_left), Arc::new(dual_add)]));
-        let sub_rel = Rel::Seq(Arc::from(vec![
-            Arc::new(Rel::And(Arc::new(and_left), Arc::new(rule_right))),
-            Arc::new(rule_out),
-        ]));
-
         let input_str = "(cons (s (s (s (s (s z))))) (s (s (s z))))";
         let expected_str = "(s (s z))";
 
@@ -1564,6 +1596,12 @@ rel add {
             .term_id;
 
         let mut terms = parser.take_terms();
+        let dual_add = dual(&add_rel, &mut terms);
+        let and_left = Rel::Seq(Arc::from(vec![Arc::new(rule_left), Arc::new(dual_add)]));
+        let sub_rel = Rel::Seq(Arc::from(vec![
+            Arc::new(Rel::And(Arc::new(and_left), Arc::new(rule_right))),
+            Arc::new(rule_out),
+        ]));
         let input_nf = NF::factor(input_term, input_term, (), &mut terms);
         let expected_nf = NF::factor(input_term, expected_term, (), &mut terms);
         let query = Rel::Seq(Arc::from(vec![
@@ -1692,6 +1730,109 @@ rel add {
     }
 
     #[test]
+    fn treecalc_identity_with_no_c_constraint() {
+        let mut parser = Parser::with_chr();
+        let def = include_str!("../examples/treecalc.txt");
+        let (_app_rel, env) = parse_rel_def_with_env_chr(&mut parser, def);
+
+        let expected_prog = parser
+            .parse_term("(f (b (b l)) l)")
+            .expect("parse expected program")
+            .term_id;
+        let expected_out = parser
+            .parse_term("(c z)")
+            .expect("parse expected output")
+            .term_id;
+
+        fn trace_query(
+            label: &str,
+            query: &Rel<ChrState<NoTheory>>,
+            env: &Env<ChrState<NoTheory>>,
+            terms: &mut TermStore,
+            symbols: &SymbolStore,
+            max_steps: usize,
+        ) -> Option<NF<ChrState<NoTheory>>> {
+            let mut engine: Engine<ChrState<NoTheory>> =
+                Engine::new_with_env(query.clone(), std::mem::take(terms), env.clone());
+            let mut first = None;
+            for step in 0..max_steps {
+                match engine.step() {
+                    StepResult::Emit(nf) => {
+                        let rendered = engine
+                            .format_nf(&nf, symbols)
+                            .unwrap_or_else(|_| "<unrenderable>".to_string());
+                        eprintln!("trace {} emit step {}: {}", label, step, rendered);
+                        first = Some(nf);
+                        break;
+                    }
+                    StepResult::Exhausted => {
+                        eprintln!("trace {} exhausted at step {}", label, step);
+                        break;
+                    }
+                    StepResult::Continue => {
+                        if step < 20 || step % 1000 == 0 {
+                            eprintln!("trace {} continue step {}", label, step);
+                        }
+                    }
+                }
+            }
+            if first.is_none() {
+                eprintln!("trace {} no emit within {} steps", label, max_steps);
+            }
+            *terms = engine.into_terms();
+            first
+        }
+
+        let query_strs = [
+            (
+                "filter_only",
+                "@(f (b (b l)) l) ; [$x { (no_c $x) } -> $x]",
+            ),
+            (
+                "build_only",
+                "@(f (b (b l)) l) ; [$x { (no_c $x) } -> $x ; $x -> (f $x (c z))]",
+            ),
+            (
+                "with_app",
+                "@(f (b (b l)) l) ; [$x { (no_c $x) } -> $x ; $x -> (f $x (c z)) ; app]",
+            ),
+            (
+                "direct_app",
+                "@(f (f (b (b l)) l) (c z)) ; app",
+            ),
+            (
+                "full",
+                "@(f (b (b l)) l) ; [$x { (no_c $x) } -> $x ; $x -> (f $x (c z)) ; app] ; @(c z)",
+            ),
+        ];
+
+        let mut queries = Vec::new();
+        for (label, query_str) in query_strs.iter() {
+            let query = parser
+                .parse_rel_body(query_str)
+                .expect("parse query");
+            queries.push((*label, query));
+        }
+
+        let mut terms = parser.take_terms();
+        let max_steps = 20000;
+        let mut first = None;
+        for (label, query) in queries.iter() {
+            let result =
+                trace_query(label, query, &env, &mut terms, parser.symbols(), max_steps);
+            if *label == "full" {
+                first = result;
+            }
+        }
+
+        let nf = first.expect("expected answer");
+        let (lhs, rhs) = direct_rule_terms(&nf, &mut terms).expect("direct rule");
+        assert_eq!(lhs, expected_prog, "unexpected program term");
+        assert_eq!(rhs, expected_out, "unexpected output term");
+        assert!(nf.drop_fresh.constraint.is_empty(), "expected no remaining constraints");
+    }
+
+    #[test]
     fn treecalc_app_rule_count() {
         let mut parser = Parser::new();
         let def = include_str!("../examples/treecalc.txt");
@@ -1752,7 +1893,7 @@ rel add {
 
     #[test]
     fn treecalc_app_example_10() {
-        treecalc_app_case("(f (f (b (b l)) l) (c 0))", "(c 0)");
+        treecalc_app_case("(f (f (b (b l)) l) (c z))", "(c z)");
     }
 
     #[test]
@@ -2140,7 +2281,8 @@ rel add {
         let body = Arc::new(Rel::Atom(Arc::new(nf)));
         let fix: Rel<()> = Rel::Fix(42, body);
 
-        let dualed = dual(&fix);
+        let mut terms = TermStore::new();
+        let dualed = dual(&fix, &mut terms);
 
         match dualed {
             Rel::Fix(id, _) => assert_eq!(id, 42, "dual should preserve RelId"),
@@ -2154,7 +2296,8 @@ rel add {
         use crate::rel::dual;
 
         let call: Rel<()> = Rel::Call(123);
-        let dualed = dual(&call);
+        let mut terms = TermStore::new();
+        let dualed = dual(&call, &mut terms);
 
         match dualed {
             Rel::Call(id) => assert_eq!(id, 123, "dual should preserve RelId"),
@@ -2188,8 +2331,12 @@ rel add {
             }
         }
 
-        let terms = std::mem::take(&mut engine.terms);
-        let dual_rel = dual(&rel);
+        let mut terms = std::mem::take(&mut engine.terms);
+        let expected: Vec<NF<()>> = outputs
+            .iter()
+            .map(|nf| dual_nf(nf, &mut terms))
+            .collect();
+        let dual_rel = dual(&rel, &mut terms);
         let mut dual_engine: Engine<()> = Engine::new(dual_rel, terms);
         let mut dual_outputs = Vec::new();
         for _ in 0..outputs.len() {
@@ -2199,7 +2346,6 @@ rel add {
             }
         }
 
-        let expected: Vec<NF<()>> = outputs.iter().map(dual_nf).collect();
         assert_eq!(dual_outputs, expected);
     }
 }

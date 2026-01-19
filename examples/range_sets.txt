@@ -1,0 +1,39 @@
+# Integer range sets with open/closed endpoints.
+#
+# Peano numbers:
+#   z = 0
+#   (s N) = N + 1
+#
+# Endpoints:
+#   (closed N) includes N
+#   (open N) excludes N
+#
+# Range term:
+#   (range LO HI)
+#
+# Range set (list of ranges):
+#   rnil
+#   (rcons RANGE REST)
+
+
+theory ranges {
+    constraint lt/2
+    constraint leq/2
+    constraint between/2
+
+    # Ordering on Peano numbers
+    (leq $x $x) <=> .
+    (leq z $y) <=> .
+    (leq (s $x) (s $y)) <=> (leq $x $y).
+    (leq (s $x) z) <=> fail.
+
+    (lt z (s $y)) <=> .
+    (lt (s $x) (s $y)) <=> (lt $x $y).
+    (lt $x z) <=> fail.
+
+    # Membership: between X RANGE
+    (between $x (range (closed $lo) (closed $hi))) <=> (leq $lo $x), (leq $x $hi).
+    (between $x (range (open $lo) (closed $hi))) <=> (lt $lo $x), (leq $x $hi).
+    (between $x (range (closed $lo) (open $hi))) <=> (leq $lo $x), (lt $x $hi).
+    (between $x (range (open $lo) (open $hi))) <=> (lt $lo $x), (lt $x $hi).
+}

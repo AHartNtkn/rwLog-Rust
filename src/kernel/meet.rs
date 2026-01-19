@@ -4,7 +4,9 @@ use crate::term::TermStore;
 #[cfg(feature = "tracing")]
 use crate::trace::{debug_span, trace};
 
-use super::util::{apply_subst_list, max_var_index_terms, shift_vars_list, unify_term_lists};
+use super::util::{
+    apply_subst_list, max_var_index_terms, remap_constraint_vars, shift_vars_list, unify_term_lists,
+};
 
 /// Compute the meet (intersection) of two NFs.
 ///
@@ -32,6 +34,8 @@ pub fn meet_nf<C: ConstraintOps>(a: &NF<C>, b: &NF<C>, terms: &mut TermStore) ->
 
     let rw1 = collect_tensor(a, terms);
     let mut rw2 = collect_tensor(b, terms);
+    let b_max_var = max_var_index_terms(&rw2.lhs, terms)
+        .max(max_var_index_terms(&rw2.rhs, terms));
 
     let b_var_offset = max_var_index_terms(&rw1.lhs, terms)
         .max(max_var_index_terms(&rw1.rhs, terms))
@@ -68,7 +72,10 @@ pub fn meet_nf<C: ConstraintOps>(a: &NF<C>, b: &NF<C>, terms: &mut TermStore) ->
     let mut final_lhs = apply_subst_list(&unified_lhs, &mgu_build, terms);
     let mut final_rhs = apply_subst_list(&a_rhs_subst, &mgu_build, terms);
 
-    let combined = match a.drop_fresh.constraint.combine(&b.drop_fresh.constraint) {
+    let b_constraint =
+        remap_constraint_vars(&b.drop_fresh.constraint, b_max_var, b_var_offset, terms);
+
+    let combined = match a.drop_fresh.constraint.combine(&b_constraint) {
         Some(c) => c,
         None => {
             #[cfg(feature = "tracing")]
@@ -76,8 +83,17 @@ pub fn meet_nf<C: ConstraintOps>(a: &NF<C>, b: &NF<C>, terms: &mut TermStore) ->
             return None;
         }
     };
+    let combined = combined.apply_subst(&mgu_match, terms);
+    let combined = combined.apply_subst(&mgu_build, terms);
 
-    let (normalized, subst_opt) = combined.normalize();
+    let (normalized, subst_opt) = match combined.normalize(terms) {
+        Some(result) => result,
+        None => {
+            #[cfg(feature = "tracing")]
+            trace!("meet_constraint_unsat");
+            return None;
+        }
+    };
     if let Some(subst) = subst_opt {
         final_lhs = apply_subst_list(&final_lhs, &subst, terms);
         final_rhs = apply_subst_list(&final_rhs, &subst, terms);
@@ -94,6 +110,7 @@ mod tests {
     use super::*;
     use crate::constraint::TypeConstraints;
     use crate::drop_fresh::DropFresh;
+    use crate::parser::Parser;
     use crate::term::TermId;
     use crate::test_utils::setup;
     use smallvec::SmallVec;
@@ -119,6 +136,29 @@ mod tests {
         // Meet of identity with itself is identity
         assert_eq!(met.match_pats.len(), 1);
         assert_eq!(met.build_pats.len(), 1);
+    }
+
+    #[test]
+    fn meet_applies_mgu_to_constraints() {
+        let mut parser = Parser::with_chr();
+        let theory = r#"
+theory neq_only {
+  constraint neq/2
+  (neq $x $x) <=> fail.
+}
+"#;
+        parser.parse_theory_def(theory).expect("parse theory");
+        let left = parser
+            .parse_rule("$x { (neq $x z) } -> $x")
+            .expect("parse left rule");
+        let right = parser.parse_rule("z -> z").expect("parse right rule");
+        let mut terms = parser.take_terms();
+
+        let met = meet_nf(&left, &right, &mut terms);
+        assert!(
+            met.is_none(),
+            "Expected meet to fail after constraint substitution"
+        );
     }
 
     #[test]
@@ -740,10 +780,10 @@ mod tests {
         let v1 = terms.var(1);
 
         let mut c_left = TypeConstraints::new();
-        c_left.add(0, 10);
+        c_left.add(v0, 10);
 
         let mut c_right = TypeConstraints::new();
-        c_right.add(1, 20);
+        c_right.add(v1, 20);
 
         let left = NF::new(
             smallvec::smallvec![v0, v1],
@@ -761,8 +801,8 @@ mod tests {
         assert!(result.is_some());
         let met = result.unwrap();
 
-        assert_eq!(met.drop_fresh.constraint.get_type(0), Some(10));
-        assert_eq!(met.drop_fresh.constraint.get_type(1), Some(20));
+        assert_eq!(met.drop_fresh.constraint.get_type(v0), Some(10));
+        assert_eq!(met.drop_fresh.constraint.get_type(v1), Some(20));
     }
 
     #[test]
@@ -772,10 +812,10 @@ mod tests {
         let v1 = terms.var(1);
 
         let mut c_left = TypeConstraints::new();
-        c_left.add(0, 10);
+        c_left.add(v0, 10);
 
         let mut c_right = TypeConstraints::new();
-        c_right.add(0, 20);
+        c_right.add(v0, 20);
 
         let left = NF::new(
             smallvec::smallvec![v0, v1],

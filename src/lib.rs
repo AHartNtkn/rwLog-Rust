@@ -1,4 +1,5 @@
 pub mod constraint;
+pub mod chr;
 pub mod drop_fresh;
 pub mod engine;
 pub mod factors;

@@ -4,7 +4,9 @@ use crate::term::TermStore;
 #[cfg(feature = "tracing")]
 use crate::trace::{debug_span, trace};
 
-use super::util::{apply_subst_list, max_var_index_terms, shift_vars_list, unify_term_lists};
+use super::util::{
+    apply_subst_list, max_var_index_terms, remap_constraint_vars, shift_vars_list, unify_term_lists,
+};
 
 /// Compose two NFs in sequence: a ; b
 ///
@@ -44,6 +46,8 @@ pub fn compose_nf<C: ConstraintOps>(a: &NF<C>, b: &NF<C>, terms: &mut TermStore)
 
     let rw1 = collect_tensor(a, terms);
     let mut rw2 = collect_tensor(b, terms);
+    let b_max_var = max_var_index_terms(&rw2.lhs, terms)
+        .max(max_var_index_terms(&rw2.rhs, terms));
 
     let b_var_offset = max_var_index_terms(&rw1.lhs, terms)
         .max(max_var_index_terms(&rw1.rhs, terms))
@@ -79,7 +83,10 @@ pub fn compose_nf<C: ConstraintOps>(a: &NF<C>, b: &NF<C>, terms: &mut TermStore)
     let mut new_match = apply_subst_list(&rw1.lhs, &mgu, terms);
     let mut new_build = apply_subst_list(&rw2.rhs, &mgu, terms);
 
-    let combined = match a.drop_fresh.constraint.combine(&b.drop_fresh.constraint) {
+    let b_constraint =
+        remap_constraint_vars(&b.drop_fresh.constraint, b_max_var, b_var_offset, terms);
+
+    let combined = match a.drop_fresh.constraint.combine(&b_constraint) {
         Some(c) => c,
         None => {
             #[cfg(feature = "tracing")]
@@ -87,8 +94,16 @@ pub fn compose_nf<C: ConstraintOps>(a: &NF<C>, b: &NF<C>, terms: &mut TermStore)
             return None;
         }
     };
+    let combined = combined.apply_subst(&mgu, terms);
 
-    let (normalized, subst_opt) = combined.normalize();
+    let (normalized, subst_opt) = match combined.normalize(terms) {
+        Some(result) => result,
+        None => {
+            #[cfg(feature = "tracing")]
+            trace!("compose_constraint_unsat");
+            return None;
+        }
+    };
     if let Some(subst) = subst_opt {
         new_match = apply_subst_list(&new_match, &subst, terms);
         new_build = apply_subst_list(&new_build, &subst, terms);
@@ -101,6 +116,7 @@ pub fn compose_nf<C: ConstraintOps>(a: &NF<C>, b: &NF<C>, terms: &mut TermStore)
 mod tests {
     use super::*;
     use crate::drop_fresh::DropFresh;
+    use crate::parser::Parser;
     use crate::test_utils::setup;
     use smallvec::SmallVec;
 
@@ -126,6 +142,63 @@ mod tests {
         assert_eq!(composed.match_pats.len(), 1);
         assert_eq!(composed.build_pats.len(), 1);
         assert!(composed.drop_fresh.is_identity());
+    }
+
+    #[test]
+    fn compose_applies_mgu_to_constraints() {
+        let mut parser = Parser::with_chr();
+        let theory = r#"
+theory neq_only {
+  constraint neq/2
+  (neq $x $x) <=> fail.
+}
+"#;
+        parser.parse_theory_def(theory).expect("parse theory");
+        let left = parser
+            .parse_rule("$x { (neq $x z) } -> $x")
+            .expect("parse left rule");
+        let right = parser.parse_rule("z -> z").expect("parse right rule");
+        let mut terms = parser.take_terms();
+
+        let composed = compose_nf(&left, &right, &mut terms);
+        assert!(
+            composed.is_none(),
+            "Expected composition to fail after constraint substitution"
+        );
+    }
+
+    #[test]
+    fn compose_preserves_constraint_var_binding() {
+        let mut parser = Parser::with_chr();
+        let theory = r#"
+theory no_c {
+  constraint no_c/1
+}
+"#;
+        parser.parse_theory_def(theory).expect("parse theory");
+        let left = parser
+            .parse_rule("$x { (no_c $x) } -> $x")
+            .expect("parse left rule");
+        let right = parser
+            .parse_rule("$x -> (f $x (c z))")
+            .expect("parse right rule");
+        let mut terms = parser.take_terms();
+
+        let composed = compose_nf(&left, &right, &mut terms).expect("compose should succeed");
+        let state = &composed.drop_fresh.constraint;
+        let pred = state
+            .program
+            .pred_id("no_c")
+            .expect("expected no_c predicate");
+        let alive: Vec<_> = state.store.inst.iter().filter(|inst| inst.alive).collect();
+        assert_eq!(alive.len(), 1, "expected one no_c constraint");
+        let inst = alive[0];
+        assert_eq!(inst.pred, pred, "expected no_c constraint");
+        assert_eq!(inst.args.len(), 1, "no_c should have one arg");
+        assert!(
+            terms.is_var(inst.args[0]).is_some(),
+            "no_c arg should remain a variable"
+        );
     }
 
     #[test]

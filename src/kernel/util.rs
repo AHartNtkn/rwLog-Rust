@@ -9,7 +9,7 @@ use crate::unify::unify;
 use smallvec::SmallVec;
 
 /// Find the maximum variable index in a list of patterns.
-pub fn max_var_index_terms(pats: &[TermId], terms: &mut TermStore) -> Option<u32> {
+pub fn max_var_index_terms(pats: &[TermId], terms: &TermStore) -> Option<u32> {
     pats.iter()
         .flat_map(|&term| collect_vars_ordered(term, terms).into_iter())
         .max()
@@ -87,4 +87,29 @@ pub fn compose_subst(existing: &Subst, new: &Subst, terms: &mut TermStore) -> Su
         combined.bind(var, term);
     }
     combined
+}
+
+/// Remap constraint variables by the given offset.
+///
+/// Returns the remapped constraint if offset is non-zero and there are variables,
+/// otherwise returns a clone of the original.
+pub fn remap_constraint_vars<C: crate::constraint::ConstraintOps>(
+    constraint: &C,
+    max_var: Option<u32>,
+    offset: u32,
+    terms: &mut TermStore,
+) -> C {
+    if offset == 0 {
+        return constraint.clone();
+    }
+    match max_var {
+        Some(max) => {
+            let mut map = vec![None; max as usize + 1];
+            for i in 0..=max {
+                map[i as usize] = Some(i + offset);
+            }
+            constraint.remap_vars(&map, terms)
+        }
+        None => constraint.clone(),
+    }
 }

@@ -1,0 +1,31 @@
+# Equality/inequality constraints as a CHR theory.
+#
+# Peano numbers:
+#   z = 0
+#   (s N) = N + 1
+
+
+theory eq_neq {
+    constraint eq/2
+    constraint neq/2
+    constraint nonzero/1
+
+    # Equality over Peano numbers
+    (eq $x $x) <=> .
+    (eq z (s $x)) <=> fail.
+    (eq (s $x) z) <=> fail.
+    (eq (s $x) (s $y)) <=> (eq $x $y).
+
+    # Inequality over Peano numbers
+    (neq $x $x) <=> fail.
+    (neq z (s $x)) <=> .
+    (neq (s $x) z) <=> .
+    (neq (s $x) (s $y)) <=> (neq $x $y).
+
+    # Consistency: cannot be both equal and unequal
+    (eq $x $y), (neq $x $y) <=> fail.
+
+    # Guarded nonzero check
+    (nonzero $x) <=> (eq $x z) | fail.
+    (nonzero $x) <=> (neq $x z) | true.
+}

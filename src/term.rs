@@ -8,13 +8,17 @@ use std::sync::atomic::{AtomicU32, Ordering};
 
 /// Unique identifier for a term in the term store.
 /// TermIds are stable and can be compared for equality.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct TermId(u32);
 
 impl TermId {
     /// Get the raw u32 value (for debugging/display).
     pub fn raw(self) -> u32 {
         self.0
+    }
+
+    pub(crate) fn from_raw(raw: u32) -> Self {
+        TermId(raw)
     }
 }
 

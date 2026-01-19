@@ -1,0 +1,12 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 20c7dd218df93a7798cacb61db508ed5ce88d8cd3426bf50459743f8c4cc94a5 # shrinks to a_parts = (App { f: 4, kids: [Var(0), Var(0)] }, App { f: 3, kids: [Var(0)] }, [0, 0, 0, 0, 0], [true, false, false, false, false]), b_parts = (App { f: 3, kids: [Var(0)] }, App { f: 4, kids: [App { f: 4, kids: [Var(1), Var(0)] }, Var(0)] }, [0, 0, 0, 0, 0], [false, false, false, false, false])
+cc c31aca9ea9437a806b71d1aad1b0bff21e4c65af56f1b3f4255ee66356989111 # shrinks to a_parts = (App { f: 4, kids: [Var(0), App { f: 2, kids: [] }] }, App { f: 0, kids: [] }, [0, 0, 0, 0, 0], [false, false, false, false, false]), b_parts = (App { f: 4, kids: [Var(0), App { f: 2, kids: [] }] }, Var(2), [0, 0, 0, 0, 0], [false, false, true, false, false])
+cc e54027e5698846c9878bae796ffd5da3314ef766452da2233e5b014112bbccf1 # shrinks to a_parts = (Var(0), Var(1), [0, 0, 0, 0, 0], [false, false, false, false, false]), b_parts = (App { f: 3, kids: [Var(3)] }, Var(0), [0, 0, 0, 0, 0], [false, false, false, true, false])
+cc cdeca5a5dd38353d29a28e99c9cc27f1993eab3fa0f755902d00a48c2d6e6bb3 # shrinks to a_parts = (App { f: 4, kids: [Var(0), Var(2)] }, App { f: 4, kids: [Var(3), App { f: 2, kids: [] }] }, [0, 0, 0, 0, 0], [false, false, true, true, false]), b_parts = (App { f: 4, kids: [Var(0), App { f: 0, kids: [] }] }, App { f: 4, kids: [App { f: 0, kids: [] }, App { f: 2, kids: [] }] }, [0, 0, 0, 0, 0], [false, false, false, false, false])
+cc 9d07cf075f1c9e3486cdfb28d2493380e5face29181b3be47f2627d86e6a40d8 # shrinks to parts = (App { f: 5, kids: [Var(2), Var(0)] }, App { f: 5, kids: [App { f: 4, kids: [Var(0), Var(2)] }, Var(0)] }, [0, 0, 0, 0, 0], [false, false, true, false, false])
+cc 21993e0a7f4669734ec32ab563f822cd1cf620683802ba4ca8fe25bd12ce6245 # shrinks to parts = (App { f: 4, kids: [Var(4), App { f: 5, kids: [Var(2), Var(0)] }] }, App { f: 4, kids: [App { f: 4, kids: [Var(2), Var(0)] }, Var(0)] }, [0, 0, 0, 0, 0], [false, false, false, false, true])

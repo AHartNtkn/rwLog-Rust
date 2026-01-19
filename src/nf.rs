@@ -1,3 +1,4 @@
+use crate::constraint::{ConstraintDisplay, ConstraintOps};
 use crate::drop_fresh::DropFresh;
 use crate::symbol::SymbolStore;
 use crate::term::{format_term, Term, TermId, TermStore};
@@ -60,7 +61,7 @@ impl<C> NF<C> {
     }
 }
 
-impl<C: Default + Clone> NF<C> {
+impl<C: ConstraintOps> NF<C> {
     /// Factor a single-term rule (lhs -> rhs) into normal form.
     ///
     /// This extracts variables, renumbers them, and computes the DropFresh
@@ -71,28 +72,43 @@ impl<C: Default + Clone> NF<C> {
         let rhs_vars = collect_vars_ordered(rhs, terms);
 
         let n = lhs_vars.len() as u32;
+        let lhs_old_to_new = build_var_map(&lhs_vars);
 
-        // Step 2: Build old_to_new mapping for LHS renumbering
-        // LHS vars get renumbered 0..n-1 in order of appearance
-        let max_lhs_var = lhs_vars.iter().copied().max().unwrap_or(0) as usize;
-        let mut lhs_old_to_new = vec![None; max_lhs_var + 1];
-        for (new_idx, &old_idx) in lhs_vars.iter().enumerate() {
-            lhs_old_to_new[old_idx as usize] = Some(new_idx as u32);
-        }
-
-        // Step 3: Renumber LHS
+        // Step 2: Renumber LHS
         let norm_lhs = if lhs_vars.is_empty() {
             lhs
         } else {
             apply_var_renaming(lhs, &lhs_old_to_new, terms)
         };
 
-        // Step 4: Establish RHS variable order:
+        // Step 3: Establish RHS variable order:
         // - shared vars in LHS order (preserves monotone routing)
         // - fresh vars appended in RHS order
         let rhs_set: std::collections::HashSet<u32> = rhs_vars.iter().copied().collect();
         let lhs_set: std::collections::HashSet<u32> = lhs_vars.iter().copied().collect();
 
+        // Build constraint variable ordering
+        let mut constraint_ordered: Vec<u32> = lhs_vars.clone();
+        for &var in rhs_vars.iter() {
+            if !lhs_set.contains(&var) {
+                constraint_ordered.push(var);
+            }
+        }
+        let mut seen: std::collections::HashSet<u32> =
+            constraint_ordered.iter().copied().collect();
+        let mut constraint_vars = Vec::new();
+        constraint.collect_vars(terms, &mut constraint_vars);
+        constraint_vars.sort_unstable();
+        constraint_vars.dedup();
+        for var in constraint_vars {
+            if seen.insert(var) {
+                constraint_ordered.push(var);
+            }
+        }
+        let constraint_map = build_var_map(&constraint_ordered);
+        let constraint = constraint.remap_vars(&constraint_map, terms);
+
+        // Build RHS variable ordering
         let mut rhs_ordered: Vec<u32> = Vec::new();
         for &var in lhs_vars.iter() {
             if rhs_set.contains(&var) {
@@ -106,16 +122,9 @@ impl<C: Default + Clone> NF<C> {
         }
 
         let m = rhs_ordered.len() as u32;
+        let rhs_old_to_new = build_var_map(&rhs_ordered);
 
-        // Step 5: Build old_to_new mapping for RHS renumbering
-        // RHS vars are renumbered according to rhs_ordered.
-        let max_rhs_var = rhs_ordered.iter().copied().max().unwrap_or(0) as usize;
-        let mut rhs_old_to_new = vec![None; max_rhs_var + 1];
-        for (new_idx, &old_idx) in rhs_ordered.iter().enumerate() {
-            rhs_old_to_new[old_idx as usize] = Some(new_idx as u32);
-        }
-
-        // Step 6: Renumber RHS
+        // Step 4: Renumber RHS
         let norm_rhs = if rhs_ordered.is_empty() {
             rhs
         } else {
@@ -182,22 +191,20 @@ pub fn collect_tensor<C: Clone>(nf: &NF<C>, terms: &mut TermStore) -> RwT<C> {
 }
 
 /// Factor a tensor rewrite (lists of patterns) into NF.
-pub fn factor_tensor<C: Clone>(
+pub fn factor_tensor<C: ConstraintOps>(
     lhs_pats: SmallVec<[TermId; 1]>,
     rhs_pats: SmallVec<[TermId; 1]>,
     constraint: C,
     terms: &mut TermStore,
 ) -> NF<C> {
+    let constraint_map = constraint_var_renaming(&lhs_pats, &rhs_pats, &constraint, terms);
+    let constraint = constraint.remap_vars(&constraint_map, terms);
+
     let lhs_vars = collect_vars_ordered_list(&lhs_pats, terms);
     let rhs_vars = collect_vars_ordered_list(&rhs_pats, terms);
 
     let n = lhs_vars.len() as u32;
-
-    let max_lhs_var = lhs_vars.iter().copied().max().unwrap_or(0) as usize;
-    let mut lhs_old_to_new = vec![None; max_lhs_var + 1];
-    for (new_idx, &old_idx) in lhs_vars.iter().enumerate() {
-        lhs_old_to_new[old_idx as usize] = Some(new_idx as u32);
-    }
+    let lhs_old_to_new = build_var_map(&lhs_vars);
 
     let norm_lhs = if lhs_vars.is_empty() {
         lhs_pats.clone()
@@ -208,6 +215,7 @@ pub fn factor_tensor<C: Clone>(
     let rhs_set: std::collections::HashSet<u32> = rhs_vars.iter().copied().collect();
     let lhs_set: std::collections::HashSet<u32> = lhs_vars.iter().copied().collect();
 
+    // Build RHS variable ordering: shared vars in LHS order, then RHS-only vars
     let mut rhs_ordered: Vec<u32> = Vec::new();
     for &var in lhs_vars.iter() {
         if rhs_set.contains(&var) {
@@ -221,12 +229,7 @@ pub fn factor_tensor<C: Clone>(
     }
 
     let m = rhs_ordered.len() as u32;
-
-    let max_rhs_var = rhs_ordered.iter().copied().max().unwrap_or(0) as usize;
-    let mut rhs_old_to_new = vec![None; max_rhs_var + 1];
-    for (new_idx, &old_idx) in rhs_ordered.iter().enumerate() {
-        rhs_old_to_new[old_idx as usize] = Some(new_idx as u32);
-    }
+    let rhs_old_to_new = build_var_map(&rhs_ordered);
 
     let norm_rhs = if rhs_ordered.is_empty() {
         rhs_pats.clone()
@@ -234,6 +237,7 @@ pub fn factor_tensor<C: Clone>(
         apply_var_renaming_list(&rhs_pats, &rhs_old_to_new, terms)
     };
 
+    // Build DropFresh by finding shared variables
     let mut rhs_pos: std::collections::HashMap<u32, u32> = std::collections::HashMap::new();
     for (pos, &var) in rhs_ordered.iter().enumerate() {
         rhs_pos.insert(var, pos as u32);
@@ -258,6 +262,70 @@ pub fn factor_tensor<C: Clone>(
         drop_fresh,
         build_pats: norm_rhs,
     }
+}
+
+/// Compute a renaming map for constraints based on direct-rule variable ordering:
+/// LHS variables first (order of appearance), then RHS-only variables.
+pub fn constraint_var_renaming<C: ConstraintOps>(
+    lhs_pats: &[TermId],
+    rhs_pats: &[TermId],
+    constraint: &C,
+    terms: &TermStore,
+) -> Vec<Option<u32>> {
+    let lhs_vars = collect_vars_ordered_list(lhs_pats, terms);
+    let rhs_vars = collect_vars_ordered_list(rhs_pats, terms);
+    let mut constraint_vars = Vec::new();
+    constraint.collect_vars(terms, &mut constraint_vars);
+    constraint_vars.sort_unstable();
+    constraint_vars.dedup();
+    combined_var_renaming_with_extra(&lhs_vars, &rhs_vars, &constraint_vars)
+}
+
+/// Compute a renaming map for constraints based on combined variable order:
+/// LHS variables first (order of appearance), then RHS-only variables.
+pub fn combined_var_renaming(lhs_vars: &[u32], rhs_vars: &[u32]) -> Vec<Option<u32>> {
+    combined_var_renaming_with_extra(lhs_vars, rhs_vars, &[])
+}
+
+/// Compute a renaming map for constraints using LHS vars, RHS-only vars,
+/// then any extra vars (e.g., constraint-only vars).
+pub fn combined_var_renaming_with_extra(
+    lhs_vars: &[u32],
+    rhs_vars: &[u32],
+    extra_vars: &[u32],
+) -> Vec<Option<u32>> {
+    let mut ordered: Vec<u32> = Vec::new();
+    let mut seen: std::collections::HashSet<u32> = std::collections::HashSet::new();
+    for &var in lhs_vars.iter() {
+        if seen.insert(var) {
+            ordered.push(var);
+        }
+    }
+    for &var in rhs_vars.iter() {
+        if seen.insert(var) {
+            ordered.push(var);
+        }
+    }
+    for &var in extra_vars.iter() {
+        if seen.insert(var) {
+            ordered.push(var);
+        }
+    }
+    build_var_map(&ordered)
+}
+
+/// Build a variable renaming map from a list of original variable indices.
+/// Maps old_idx -> new_idx where new_idx is the position in vars.
+fn build_var_map(vars: &[u32]) -> Vec<Option<u32>> {
+    if vars.is_empty() {
+        return Vec::new();
+    }
+    let max_var = vars.iter().copied().max().unwrap_or(0) as usize;
+    let mut old_to_new = vec![None; max_var + 1];
+    for (new_idx, &old_idx) in vars.iter().enumerate() {
+        old_to_new[old_idx as usize] = Some(new_idx as u32);
+    }
+    old_to_new
 }
 
 /// Collect variables from a term in order of first appearance.
@@ -389,7 +457,7 @@ pub fn direct_rule_terms<C: Clone>(nf: &NF<C>, terms: &mut TermStore) -> Option<
     Some((lhs, rhs_direct))
 }
 
-pub fn format_nf<C: Clone>(
+pub fn format_nf<C: Clone + ConstraintDisplay>(
     nf: &NF<C>,
     terms: &mut TermStore,
     symbols: &SymbolStore,
@@ -402,7 +470,12 @@ pub fn format_nf<C: Clone>(
         .ok_or_else(|| "Cannot render non-unary relation".to_string())?;
     let lhs_str = format_term(lhs, terms, symbols)?;
     let rhs_str = format_term(rhs, terms, symbols)?;
-    Ok(format!("{} -> {}", lhs_str, rhs_str))
+    let constraint_str = nf.drop_fresh.constraint.fmt_constraints(terms, symbols)?;
+    if let Some(cs) = constraint_str {
+        Ok(format!("{} {{ {} }} -> {}", lhs_str, cs, rhs_str))
+    } else {
+        Ok(format!("{} -> {}", lhs_str, rhs_str))
+    }
 }
 
 #[cfg(test)]

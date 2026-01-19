@@ -5,11 +5,25 @@ Whenever you are asked to edit AGENTS.md, do not take these as litteral, step-by
 ## Misalignment Fix Protocol (User-Specified)
 
 - When the user says a requirement is vague/misaligned, stop work and do three steps in order:
-  1) Quote the exact user statement.
-  2) Translate it into a precise, checkable rule using the user's wording (no paraphrased or "improved" structure).
-  3) Add that rule to AGENTS.md before doing any other work.
+  1) Translate it into a precise, checkable rule using the user's wording (no paraphrased or "improved" structure).
+  2) Add that rule to AGENTS.md before doing any other work.
 - Do not introduce alternative structures or "helpful" reframes unless the user asks.
-- If the user's requirement is concrete, capture it verbatim. If unclear, ask for the exact wording.
+- You should capture the spirit of the requirement; not preserve it in amber. You MUST think CRITICALLY about what the requirement is and *why*, in context, it exists. Capture that in full; not merely its form.
+
+## Symmetry and Semantics (User-Specified)
+
+- NEVER EVER EVER DIRECTLY QUOTE THE USER IN AGENTS.md!
+- The system has only relations; nothing more.
+- The system normalizes relations into (possibly infinite) unions of spans.
+- There are no inputs.
+- There are no outputs.
+- There is no directionality.
+- Every test should have a dual version (if it is not already symmetric).
+- Dual tests should output duals of the same spans; ordering does not need to match.
+
+## Constraints and Substitution (User-Specified)
+
+- If a variable is fully instantiated, then the constraint doesn't drop, the instance gets substituted for the variable. Whether or not the constraint should drop will depend on what ground term it becomes.
 
 ## User Interaction (User-Specified)
 
