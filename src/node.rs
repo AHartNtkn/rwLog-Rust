@@ -5,9 +5,9 @@
 //! Work nodes embed active computations (Seq, And, Fix).
 
 use crate::nf::NF;
+use crate::constraint::ConstraintOps;
 use crate::term::TermStore;
 use crate::work::{Work, WorkStep};
-use std::hash::Hash;
 
 /// Search tree node.
 ///
@@ -17,7 +17,7 @@ use std::hash::Hash;
 /// - `Emit(nf, rest)`: Yield an answer, continue with rest
 /// - `Work(work)`: Active computation (Seq, And, Fix)
 #[derive(Clone, Debug)]
-pub enum Node<C: Clone + Hash + Eq> {
+pub enum Node<C: ConstraintOps> {
     /// Failed/exhausted branch - no more answers.
     Fail,
     /// Disjunction: search left first, then rotate.
@@ -31,7 +31,7 @@ pub enum Node<C: Clone + Hash + Eq> {
 
 /// Result of stepping a Node one notch.
 #[derive(Clone, Debug)]
-pub enum NodeStep<C: Clone + Hash + Eq> {
+pub enum NodeStep<C: ConstraintOps> {
     /// Produced an answer and the remaining node.
     Emit(NF<C>, Node<C>),
     /// No answer yet, but node updated (rotation or work progress).
@@ -41,7 +41,7 @@ pub enum NodeStep<C: Clone + Hash + Eq> {
 }
 
 /// Step a node once using Or rotation and Work stepping.
-pub fn step_node<C: Clone + Default + Hash + Eq>(node: Node<C>, terms: &mut TermStore) -> NodeStep<C> {
+pub fn step_node<C: ConstraintOps>(node: Node<C>, terms: &mut TermStore) -> NodeStep<C> {
     match node {
         Node::Fail => NodeStep::Exhausted,
 
@@ -77,11 +77,11 @@ pub fn step_node<C: Clone + Default + Hash + Eq>(node: Node<C>, terms: &mut Term
 #[cfg(test)]
 mod tests {
     use super::Node;
+    use crate::drop_fresh::DropFresh;
     use crate::nf::NF;
     use crate::symbol::SymbolStore;
     use crate::term::TermStore;
     use crate::test_utils::setup;
-    use crate::drop_fresh::DropFresh;
     use smallvec::SmallVec;
 
     /// Create a simple identity NF for testing

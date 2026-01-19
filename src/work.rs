@@ -3,24 +3,29 @@
 //! Work represents computations in progress. PipeWork handles
 //! sequential composition (Seq) with outside-in boundary fusion.
 
+use crate::constraint::ConstraintOps;
+use crate::drop_fresh::DropFresh;
 use crate::factors::Factors;
 use crate::kernel::{compose_nf, meet_nf};
 use crate::nf::NF;
 use crate::node::{step_node, Node, NodeStep};
 use crate::rel::{Rel, RelId};
-use crate::term::TermStore;
+use crate::term::{TermId, TermStore};
+use smallvec::SmallVec;
 use std::cell::RefCell;
 use std::collections::{HashSet, VecDeque};
-use std::hash::Hash;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Active work items for evaluation.
 #[derive(Clone, Debug)]
-pub enum Work<C: Clone + Hash + Eq> {
+pub enum Work<C: ConstraintOps> {
     /// Sequential composition pipeline.
     Pipe(PipeWork<C>),
     /// Conjunction/intersection via fair diagonal join.
     Meet(MeetWork<C>),
+    /// N-ary conjunction/intersection via fair diagonal join.
+    AndGroup(AndGroup<C>),
     /// Tabled recursive call.
     Fix(FixWork<C>),
     /// Bind a generator to a pipeline continuation.
@@ -33,7 +38,7 @@ pub enum Work<C: Clone + Hash + Eq> {
 
 /// Result of stepping a work item.
 #[derive(Clone, Debug)]
-pub enum WorkStep<C: Clone + Hash + Eq> {
+pub enum WorkStep<C: ConstraintOps> {
     /// Work exhausted, no answers.
     Done,
     /// Emit an answer, continue with more work.
@@ -46,15 +51,52 @@ pub enum WorkStep<C: Clone + Hash + Eq> {
 
 /// Call handling mode for PipeWork.
 #[derive(Clone, Debug)]
-pub enum CallMode<C: Clone + Hash + Eq> {
+pub enum CallMode<C: ConstraintOps> {
     /// Normal call handling (tabling + producer).
     Normal,
     /// Replay-only for a specific CallKey (used during producer iterations).
     ReplayOnly(CallKey<C>),
 }
 
+fn collect_and_parts<C: ConstraintOps>(rel: Arc<Rel<C>>, out: &mut Vec<Arc<Rel<C>>>) {
+    match rel.as_ref() {
+        Rel::And(a, b) => {
+            collect_and_parts(a.clone(), out);
+            collect_and_parts(b.clone(), out);
+        }
+        _ => out.push(rel),
+    }
+}
+
+fn flatten_and_parts<C: ConstraintOps>(rel: Arc<Rel<C>>) -> Vec<Arc<Rel<C>>> {
+    let mut parts = Vec::new();
+    collect_and_parts(rel, &mut parts);
+    parts
+}
+
+fn wrap_rel_with_atoms<C: ConstraintOps>(
+    rel: Arc<Rel<C>>,
+    prefix: Option<NF<C>>,
+    suffix: Option<NF<C>>,
+) -> Rel<C> {
+    if prefix.is_none() && suffix.is_none() {
+        return rel.as_ref().clone();
+    }
+
+    let mut factors: Vec<Arc<Rel<C>>> = Vec::new();
+    if let Some(nf) = prefix {
+        factors.push(Arc::new(Rel::Atom(Arc::new(nf))));
+    }
+    factors.push(rel);
+    if let Some(nf) = suffix {
+        factors.push(Arc::new(Rel::Atom(Arc::new(nf))));
+    }
+
+    Rel::Seq(Arc::from(factors))
+}
+
 /// Convert a Rel to a Node tree with the given environment and tables.
-pub fn rel_to_node<C: Clone + Default + Hash + Eq>(
+pub fn rel_to_node<C: ConstraintOps>(
     rel: &Rel<C>,
     env: &Env<C>,
     tables: &Tables<C>,
@@ -70,10 +112,20 @@ pub fn rel_to_node<C: Clone + Default + Hash + Eq>(
         ),
 
         Rel::And(a, b) => {
-            let left_node = rel_to_node(a, env, tables);
-            let right_node = rel_to_node(b, env, tables);
-            let meet = MeetWork::new(left_node, right_node);
-            Node::Work(Work::Meet(meet))
+            let mut parts = Vec::new();
+            collect_and_parts(a.clone(), &mut parts);
+            collect_and_parts(b.clone(), &mut parts);
+            if parts.is_empty() {
+                return Node::Fail;
+            }
+            if parts.len() == 1 {
+                return rel_to_node(parts[0].as_ref(), env, tables);
+            }
+            let nodes = parts
+                .into_iter()
+                .map(|part| rel_to_node(part.as_ref(), env, tables))
+                .collect();
+            Node::Work(Work::AndGroup(AndGroup::new(nodes)))
         }
 
         Rel::Seq(factors) => {
@@ -105,12 +157,56 @@ pub fn rel_to_node<C: Clone + Default + Hash + Eq>(
     }
 }
 
-fn node_from_answers<C: Clone + Hash + Eq>(answers: &[NF<C>]) -> Node<C> {
+fn node_from_answers<C: ConstraintOps>(answers: &[NF<C>]) -> Node<C> {
     let mut node = Node::Fail;
     for nf in answers.iter().rev() {
         node = Node::Emit(nf.clone(), Box::new(node));
     }
     node
+}
+
+fn build_var_list(arity: u32, terms: &mut TermStore) -> SmallVec<[TermId; 1]> {
+    let mut vars = SmallVec::new();
+    for idx in 0..arity {
+        vars.push(terms.var(idx));
+    }
+    vars
+}
+
+fn nf_rwl_iso<C: ConstraintOps>(nf: &NF<C>, terms: &mut TermStore) -> NF<C> {
+    let in_arity = nf.drop_fresh.in_arity;
+    NF::new(
+        nf.match_pats.clone(),
+        DropFresh::identity(in_arity),
+        build_var_list(in_arity, terms),
+    )
+}
+
+fn nf_rwr_iso<C: ConstraintOps>(nf: &NF<C>, terms: &mut TermStore) -> NF<C> {
+    let out_arity = nf.drop_fresh.out_arity;
+    NF::new(
+        build_var_list(out_arity, terms),
+        DropFresh::identity(out_arity),
+        nf.build_pats.clone(),
+    )
+}
+
+fn nf_left_prefix<C: ConstraintOps>(nf: &NF<C>, terms: &mut TermStore) -> NF<C> {
+    let out_arity = nf.drop_fresh.out_arity;
+    NF::new(
+        nf.match_pats.clone(),
+        nf.drop_fresh.clone(),
+        build_var_list(out_arity, terms),
+    )
+}
+
+fn nf_right_suffix<C: ConstraintOps>(nf: &NF<C>, terms: &mut TermStore) -> NF<C> {
+    let in_arity = nf.drop_fresh.in_arity;
+    NF::new(
+        build_var_list(in_arity, terms),
+        nf.drop_fresh.clone(),
+        nf.build_pats.clone(),
+    )
 }
 
 /// Pipeline work: sequential composition with boundary fusion.
@@ -123,7 +219,7 @@ fn node_from_answers<C: Clone + Hash + Eq>(answers: &[NF<C>]) -> Node<C> {
 /// Outside-in evaluation: alternates processing front/back to propagate
 /// constraints before expanding recursion.
 #[derive(Clone, Debug)]
-pub struct PipeWork<C: Clone + Hash + Eq> {
+pub struct PipeWork<C: ConstraintOps> {
     /// Left boundary (fused from front).
     pub left: Option<NF<C>>,
     /// Middle factors (remaining Rel elements).
@@ -140,7 +236,7 @@ pub struct PipeWork<C: Clone + Hash + Eq> {
     pub call_mode: CallMode<C>,
 }
 
-struct PipeWorkBuilder<C: Clone + Hash + Eq> {
+struct PipeWorkBuilder<C: ConstraintOps> {
     left: Option<NF<C>>,
     mid: Factors<C>,
     right: Option<NF<C>>,
@@ -150,7 +246,7 @@ struct PipeWorkBuilder<C: Clone + Hash + Eq> {
     call_mode: CallMode<C>,
 }
 
-impl<C: Clone + Hash + Eq> PipeWorkBuilder<C> {
+impl<C: ConstraintOps> PipeWorkBuilder<C> {
     fn new() -> Self {
         Self {
             left: None,
@@ -201,12 +297,13 @@ impl<C: Clone + Hash + Eq> PipeWorkBuilder<C> {
     }
 }
 
-impl<C: Clone + Default + Hash + Eq> Work<C> {
+impl<C: ConstraintOps> Work<C> {
     /// Step this work item, returning the next state.
     pub fn step(&mut self, terms: &mut TermStore) -> WorkStep<C> {
         match self {
             Work::Pipe(pipe) => pipe.step(terms),
             Work::Meet(meet) => meet.step(terms),
+            Work::AndGroup(group) => group.step(terms),
             Work::Fix(fix) => fix.step(terms),
             Work::Bind(bind) => bind.step(terms),
             Work::Atom(nf) => {
@@ -219,7 +316,7 @@ impl<C: Clone + Default + Hash + Eq> Work<C> {
     }
 }
 
-impl<C: Clone + Default + Hash + Eq> PipeWork<C> {
+impl<C: ConstraintOps> PipeWork<C> {
     fn builder() -> PipeWorkBuilder<C> {
         PipeWorkBuilder::new()
     }
@@ -615,33 +712,70 @@ impl<C: Clone + Default + Hash + Eq> PipeWork<C> {
                 self.mid.pop_front();
                 self.split_or_front(a.clone(), b.clone())
             }
-            Rel::And(a, b) => {
+            Rel::And(_, _) => {
+                self.mid.pop_front();
+                let parts = flatten_and_parts(front.clone());
+
+                let (left_prefix, left_iso) = match &self.left {
+                    Some(nf) => (
+                        Some(nf_left_prefix(nf, terms)),
+                        Some(nf_rwr_iso(nf, terms)),
+                    ),
+                    None => (None, None),
+                };
+
+                let (right_suffix, right_iso) = if self.mid.is_empty() {
+                    match &self.right {
+                        Some(nf) => (
+                            Some(nf_right_suffix(nf, terms)),
+                            Some(nf_rwl_iso(nf, terms)),
+                        ),
+                        None => (None, None),
+                    }
+                } else {
+                    (self.right.clone(), None)
+                };
+
+                let mut pipe = self.clone();
+                pipe.left = left_prefix;
+                pipe.right = right_suffix;
+
+                let nodes = parts
+                    .into_iter()
+                    .map(|part| {
+                        let wrapped = wrap_rel_with_atoms(
+                            part,
+                            left_iso.clone(),
+                            right_iso.clone(),
+                        );
+                        let mut part_pipe =
+                            PipeWork::from_rel(wrapped, self.env.clone(), self.tables.clone());
+                        part_pipe.call_mode = self.call_mode.clone();
+                        Node::Work(Work::Pipe(part_pipe))
+                    })
+                    .collect();
+                let group = AndGroup::new(nodes);
+                let bind = BindWork::new(Node::Work(Work::AndGroup(group)), pipe, true);
+                WorkStep::More(Work::Bind(bind))
+            }
+            Rel::Fix(id, body) => {
                 self.mid.pop_front();
                 let use_left = true;
                 let use_right = self.mid.is_empty();
                 let call_left = if use_left { self.left.clone() } else { None };
                 let call_right = if use_right { self.right.clone() } else { None };
+                let bound_env = self.env.bind(*id, body.clone());
 
-                let mut left_pipe = PipeWork::from_rel_with_boundaries(
-                    a.as_ref().clone(),
-                    call_left.clone(),
-                    call_right.clone(),
-                    self.env.clone(),
-                    self.tables.clone(),
-                );
-                let mut right_pipe = PipeWork::from_rel_with_boundaries(
-                    b.as_ref().clone(),
+                let mut fix_pipe = PipeWork::from_rel_with_boundaries(
+                    body.as_ref().clone(),
                     call_left,
                     call_right,
-                    self.env.clone(),
+                    bound_env,
                     self.tables.clone(),
                 );
-                left_pipe.call_mode = self.call_mode.clone();
-                right_pipe.call_mode = self.call_mode.clone();
+                fix_pipe.call_mode = self.call_mode.clone();
 
-                let left_node = Node::Work(Work::Pipe(left_pipe));
-                let right_node = Node::Work(Work::Pipe(right_pipe));
-                let meet = MeetWork::new(left_node, right_node);
+                let fix_node = Node::Work(Work::Pipe(fix_pipe));
                 let mut pipe = self.clone();
                 if use_left {
                     pipe.left = None;
@@ -649,14 +783,8 @@ impl<C: Clone + Default + Hash + Eq> PipeWork<C> {
                 if use_right {
                     pipe.right = None;
                 }
-                let bind = BindWork::new(Node::Work(Work::Meet(meet)), pipe, true);
+                let bind = BindWork::new(fix_node, pipe, true);
                 WorkStep::More(Work::Bind(bind))
-            }
-            Rel::Fix(id, body) => {
-                self.mid.pop_front();
-                self.env = self.env.bind(*id, body.clone());
-                self.mid.push_front_rel(body.clone());
-                WorkStep::More(Work::Pipe(self.clone()))
             }
             Rel::Call(id) => {
                 self.mid.pop_front();
@@ -678,33 +806,70 @@ impl<C: Clone + Default + Hash + Eq> PipeWork<C> {
                 self.mid.pop_back();
                 self.split_or_back(a.clone(), b.clone())
             }
-            Rel::And(a, b) => {
+            Rel::And(_, _) => {
+                self.mid.pop_back();
+                let parts = flatten_and_parts(back.clone());
+
+                let (right_suffix, right_iso) = match &self.right {
+                    Some(nf) => (
+                        Some(nf_right_suffix(nf, terms)),
+                        Some(nf_rwl_iso(nf, terms)),
+                    ),
+                    None => (None, None),
+                };
+
+                let (left_prefix, left_iso) = if self.mid.is_empty() {
+                    match &self.left {
+                        Some(nf) => (
+                            Some(nf_left_prefix(nf, terms)),
+                            Some(nf_rwr_iso(nf, terms)),
+                        ),
+                        None => (None, None),
+                    }
+                } else {
+                    (self.left.clone(), None)
+                };
+
+                let mut pipe = self.clone();
+                pipe.left = left_prefix;
+                pipe.right = right_suffix;
+
+                let nodes = parts
+                    .into_iter()
+                    .map(|part| {
+                        let wrapped = wrap_rel_with_atoms(
+                            part,
+                            left_iso.clone(),
+                            right_iso.clone(),
+                        );
+                        let mut part_pipe =
+                            PipeWork::from_rel(wrapped, self.env.clone(), self.tables.clone());
+                        part_pipe.call_mode = self.call_mode.clone();
+                        Node::Work(Work::Pipe(part_pipe))
+                    })
+                    .collect();
+                let group = AndGroup::new(nodes);
+                let bind = BindWork::new(Node::Work(Work::AndGroup(group)), pipe, false);
+                WorkStep::More(Work::Bind(bind))
+            }
+            Rel::Fix(id, body) => {
                 self.mid.pop_back();
                 let use_left = self.mid.is_empty();
                 let use_right = true;
                 let call_left = if use_left { self.left.clone() } else { None };
                 let call_right = if use_right { self.right.clone() } else { None };
+                let bound_env = self.env.bind(*id, body.clone());
 
-                let mut left_pipe = PipeWork::from_rel_with_boundaries(
-                    a.as_ref().clone(),
-                    call_left.clone(),
-                    call_right.clone(),
-                    self.env.clone(),
-                    self.tables.clone(),
-                );
-                let mut right_pipe = PipeWork::from_rel_with_boundaries(
-                    b.as_ref().clone(),
+                let mut fix_pipe = PipeWork::from_rel_with_boundaries(
+                    body.as_ref().clone(),
                     call_left,
                     call_right,
-                    self.env.clone(),
+                    bound_env,
                     self.tables.clone(),
                 );
-                left_pipe.call_mode = self.call_mode.clone();
-                right_pipe.call_mode = self.call_mode.clone();
+                fix_pipe.call_mode = self.call_mode.clone();
 
-                let left_node = Node::Work(Work::Pipe(left_pipe));
-                let right_node = Node::Work(Work::Pipe(right_pipe));
-                let meet = MeetWork::new(left_node, right_node);
+                let fix_node = Node::Work(Work::Pipe(fix_pipe));
                 let mut pipe = self.clone();
                 if use_left {
                     pipe.left = None;
@@ -712,14 +877,8 @@ impl<C: Clone + Default + Hash + Eq> PipeWork<C> {
                 if use_right {
                     pipe.right = None;
                 }
-                let bind = BindWork::new(Node::Work(Work::Meet(meet)), pipe, false);
+                let bind = BindWork::new(fix_node, pipe, false);
                 WorkStep::More(Work::Bind(bind))
-            }
-            Rel::Fix(id, body) => {
-                self.mid.pop_back();
-                self.env = self.env.bind(*id, body.clone());
-                self.mid.push_back_rel(body.clone());
-                WorkStep::More(Work::Pipe(self.clone()))
             }
             Rel::Call(id) => {
                 self.mid.pop_back();
@@ -732,6 +891,9 @@ impl<C: Clone + Default + Hash + Eq> PipeWork<C> {
 
     /// Handle a Call by looking up in the environment and using tabling.
     fn handle_call(&mut self, id: RelId, absorb_front: bool) -> WorkStep<C> {
+        let Some(binding) = self.env.lookup(id) else {
+            return WorkStep::Done;
+        };
         let use_left = if absorb_front {
             true
         } else {
@@ -746,7 +908,7 @@ impl<C: Clone + Default + Hash + Eq> PipeWork<C> {
         let call_left = if use_left { self.left.clone() } else { None };
         let call_right = if use_right { self.right.clone() } else { None };
 
-        let key = CallKey::new(id, call_left.clone(), call_right.clone());
+        let key = CallKey::new(id, binding.id, call_left.clone(), call_right.clone());
         if let CallMode::ReplayOnly(replay_key) = &self.call_mode {
             if replay_key == &key {
                 let table = match self.tables.lookup(&key) {
@@ -771,17 +933,14 @@ impl<C: Clone + Default + Hash + Eq> PipeWork<C> {
         let snapshot = { table.borrow().answers.clone() };
 
         if table.borrow().state == ProducerState::NotStarted {
-            let Some(body) = self.env.lookup(id) else {
-                return WorkStep::Done;
-            };
             let spec = ProducerSpec {
-                body: body.clone(),
+                body: binding.body.clone(),
                 left: call_left.clone(),
                 right: call_right.clone(),
                 env: self.env.clone(),
             };
             let mut producer_pipe = PipeWork::from_rel_with_boundaries(
-                body.as_ref().clone(),
+                binding.body.as_ref().clone(),
                 call_left,
                 call_right,
                 self.env.clone(),
@@ -814,7 +973,7 @@ impl<C: Clone + Default + Hash + Eq> PipeWork<C> {
     }
 }
 
-impl<C: Clone + Hash + Eq> Default for PipeWork<C> {
+impl<C: ConstraintOps> Default for PipeWork<C> {
     fn default() -> Self {
         Self {
             left: None,
@@ -830,7 +989,7 @@ impl<C: Clone + Hash + Eq> Default for PipeWork<C> {
 
 /// Bind work: apply a generator's answers to a pipe continuation.
 #[derive(Clone, Debug)]
-pub struct BindWork<C: Clone + Hash + Eq> {
+pub struct BindWork<C: ConstraintOps> {
     /// Generator node that yields NF answers.
     pub gen: Box<Node<C>>,
     /// Continuation pipe to absorb answers into.
@@ -839,7 +998,7 @@ pub struct BindWork<C: Clone + Hash + Eq> {
     pub absorb_front: bool,
 }
 
-impl<C: Clone + Default + Hash + Eq> BindWork<C> {
+impl<C: ConstraintOps> BindWork<C> {
     /// Create a new BindWork.
     pub fn new(gen: Node<C>, pipe: PipeWork<C>, absorb_front: bool) -> Self {
         Self {
@@ -885,6 +1044,148 @@ impl<C: Clone + Default + Hash + Eq> BindWork<C> {
     }
 }
 
+/// AndGroup work: fair diagonal join for n-ary conjunction/intersection.
+///
+/// Represents: And(r0, r1, ..., rn-1)
+///
+/// Uses fair diagonal enumeration:
+/// - Pull answers round-robin from each part
+/// - When a new answer arrives, meet with all seen from other parts
+/// - Successful meets are queued in pending
+#[derive(Clone, Debug)]
+pub struct AndGroup<C: ConstraintOps> {
+    /// Part nodes.
+    pub parts: Vec<Node<C>>,
+    /// Answers seen per part.
+    pub seen: Vec<Vec<NF<C>>>,
+    /// Dedup sets per part.
+    seen_sets: Vec<HashSet<NF<C>>>,
+    /// Successful meets waiting to be emitted.
+    pub pending: VecDeque<NF<C>>,
+    /// Dedup set for pending.
+    pending_set: HashSet<NF<C>>,
+    /// Round-robin turn index.
+    pub turn: usize,
+}
+
+impl<C: ConstraintOps> AndGroup<C> {
+    /// Create a new AndGroup from part nodes.
+    pub fn new(parts: Vec<Node<C>>) -> Self {
+        let count = parts.len();
+        Self {
+            parts,
+            seen: vec![Vec::new(); count],
+            seen_sets: vec![HashSet::new(); count],
+            pending: VecDeque::new(),
+            pending_set: HashSet::new(),
+            turn: 0,
+        }
+    }
+
+    fn take_self(&mut self) -> Self {
+        std::mem::replace(self, AndGroup::new(Vec::new()))
+    }
+
+    fn push_pending(&mut self, nf: NF<C>) {
+        if self.pending_set.insert(nf.clone()) {
+            self.pending.push_back(nf);
+        }
+    }
+
+    fn enqueue_meets(&mut self, idx: usize, nf: NF<C>, terms: &mut TermStore) {
+        if self.parts.len() == 1 {
+            self.push_pending(nf);
+            return;
+        }
+
+        let mut acc = vec![nf];
+        for (j, seen_j) in self.seen.iter().enumerate() {
+            if j == idx {
+                continue;
+            }
+            if seen_j.is_empty() {
+                return;
+            }
+
+            let mut next = Vec::new();
+            for left in acc.iter() {
+                for right in seen_j.iter() {
+                    if let Some(met) = meet_nf(left, right, terms) {
+                        next.push(met);
+                    }
+                }
+            }
+            if next.is_empty() {
+                return;
+            }
+            acc = next;
+        }
+
+        for result in acc {
+            self.push_pending(result);
+        }
+    }
+
+    /// Step this AndGroup, returning the next state.
+    pub fn step(&mut self, terms: &mut TermStore) -> WorkStep<C> {
+        if let Some(nf) = self.pending.pop_front() {
+            self.pending_set.remove(&nf);
+            return WorkStep::Emit(nf, Work::AndGroup(self.take_self()));
+        }
+
+        if self.parts.is_empty() {
+            return WorkStep::Done;
+        }
+
+        if self.parts.iter().all(|node| matches!(node, Node::Fail)) {
+            return WorkStep::Done;
+        }
+
+        let part_count = self.parts.len();
+        let mut pick = None;
+        for offset in 0..part_count {
+            let idx = (self.turn + offset) % part_count;
+            if !matches!(self.parts[idx], Node::Fail) {
+                pick = Some(idx);
+                break;
+            }
+        }
+
+        let idx = match pick {
+            Some(idx) => idx,
+            None => return WorkStep::Done,
+        };
+
+        let current = std::mem::replace(&mut self.parts[idx], Node::Fail);
+        match step_node(current, terms) {
+            NodeStep::Emit(nf, rest) => {
+                self.parts[idx] = rest;
+                if self.seen_sets[idx].insert(nf.clone()) {
+                    self.seen[idx].push(nf.clone());
+                    self.enqueue_meets(idx, nf, terms);
+                }
+                self.turn = (idx + 1) % part_count;
+                if let Some(result) = self.pending.pop_front() {
+                    self.pending_set.remove(&result);
+                    WorkStep::Emit(result, Work::AndGroup(self.take_self()))
+                } else {
+                    WorkStep::More(Work::AndGroup(self.take_self()))
+                }
+            }
+            NodeStep::Continue(rest) => {
+                self.parts[idx] = rest;
+                self.turn = (idx + 1) % part_count;
+                WorkStep::More(Work::AndGroup(self.take_self()))
+            }
+            NodeStep::Exhausted => {
+                self.parts[idx] = Node::Fail;
+                self.turn = (idx + 1) % part_count;
+                WorkStep::More(Work::AndGroup(self.take_self()))
+            }
+        }
+    }
+}
+
 /// Meet work: fair diagonal join for conjunction/intersection.
 ///
 /// Represents: And(left_node, right_node)
@@ -900,7 +1201,7 @@ impl<C: Clone + Default + Hash + Eq> BindWork<C> {
 /// 3. When new answer arrives, meet with all seen from other side
 /// 4. Push successful meets to pending
 #[derive(Clone, Debug)]
-pub struct MeetWork<C: Clone + Hash + Eq> {
+pub struct MeetWork<C: ConstraintOps> {
     /// Left search tree (boxed to break recursive type cycle)
     pub left: Box<Node<C>>,
     /// Right search tree (boxed to break recursive type cycle)
@@ -919,7 +1220,7 @@ pub struct MeetWork<C: Clone + Hash + Eq> {
     pub flip: bool,
 }
 
-impl<C: Clone + Default + Hash + Eq> MeetWork<C> {
+impl<C: ConstraintOps> MeetWork<C> {
     /// Create a new MeetWork from two nodes.
     pub fn new(left: Node<C>, right: Node<C>) -> Self {
         Self {
@@ -1054,12 +1355,22 @@ impl<C: Clone + Default + Hash + Eq> MeetWork<C> {
 // FixWork: Call-context tabling for recursive calls
 // ============================================================================
 
+type BindId = u64;
+
+static NEXT_BIND_ID: AtomicU64 = AtomicU64::new(1);
+
+#[derive(Clone, Debug)]
+struct Binding<C: Clone> {
+    id: BindId,
+    body: Arc<Rel<C>>,
+}
+
 /// Environment for Fix bindings (RelId -> Rel body).
 ///
 /// Uses persistent map for efficient cloning during search.
 #[derive(Clone, Debug, Default)]
 pub struct Env<C: Clone> {
-    bindings: im::HashMap<RelId, Arc<Rel<C>>>,
+    bindings: im::HashMap<RelId, Binding<C>>,
 }
 
 impl<C: Clone> Env<C> {
@@ -1072,13 +1383,17 @@ impl<C: Clone> Env<C> {
 
     /// Bind a RelId to a Rel body.
     pub fn bind(&self, id: RelId, body: Arc<Rel<C>>) -> Self {
+        let binding = Binding {
+            id: NEXT_BIND_ID.fetch_add(1, Ordering::Relaxed),
+            body,
+        };
         Self {
-            bindings: self.bindings.update(id, body),
+            bindings: self.bindings.update(id, binding),
         }
     }
 
     /// Look up a binding.
-    pub fn lookup(&self, id: RelId) -> Option<&Arc<Rel<C>>> {
+    fn lookup(&self, id: RelId) -> Option<&Binding<C>> {
         self.bindings.get(&id)
     }
 
@@ -1093,20 +1408,23 @@ impl<C: Clone> Env<C> {
 /// Identifies a recursive call by its RelId and adjacent boundary constraints.
 /// Two calls with the same key should share their tabled answers.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct CallKey<C: Clone + Hash + Eq> {
+pub struct CallKey<C: ConstraintOps> {
     /// The relation being called.
     pub rel: RelId,
+    /// Unique binding id for the Fix scope.
+    pub bind_id: BindId,
     /// Left boundary NF (if any).
     pub left: Option<NF<C>>,
     /// Right boundary NF (if any).
     pub right: Option<NF<C>>,
 }
 
-impl<C: Clone + Hash + Eq> CallKey<C> {
+impl<C: ConstraintOps> CallKey<C> {
     /// Create a new CallKey.
-    pub fn new(rel: RelId, left: Option<NF<C>>, right: Option<NF<C>>) -> Self {
+    pub fn new(rel: RelId, bind_id: BindId, left: Option<NF<C>>, right: Option<NF<C>>) -> Self {
         Self {
             rel,
+            bind_id,
             left,
             right,
         }
@@ -1126,7 +1444,7 @@ pub enum ProducerState {
 
 /// Spec for rebuilding a producer iteration.
 #[derive(Clone, Debug)]
-pub struct ProducerSpec<C: Clone + Hash + Eq> {
+pub struct ProducerSpec<C: ConstraintOps> {
     /// Body of the Fix relation.
     pub body: Arc<Rel<C>>,
     /// Left boundary to apply for this call.
@@ -1141,7 +1459,7 @@ pub struct ProducerSpec<C: Clone + Hash + Eq> {
 ///
 /// Stores the answers produced so far and the producer state.
 #[derive(Clone, Debug)]
-pub struct Table<C: Clone + Hash + Eq> {
+pub struct Table<C: ConstraintOps> {
     /// Answers produced so far.
     pub answers: Vec<NF<C>>,
     /// Dedup set for answers.
@@ -1160,7 +1478,7 @@ pub struct Table<C: Clone + Hash + Eq> {
     pub stepping: bool,
 }
 
-impl<C: Clone + Hash + Eq> Table<C> {
+impl<C: ConstraintOps> Table<C> {
     /// Create a new empty table.
     pub fn new() -> Self {
         Self {
@@ -1238,7 +1556,7 @@ impl<C: Clone + Hash + Eq> Table<C> {
     }
 }
 
-impl<C: Clone + Hash + Eq> Default for Table<C> {
+impl<C: ConstraintOps> Default for Table<C> {
     fn default() -> Self {
         Self::new()
     }
@@ -1248,11 +1566,11 @@ impl<C: Clone + Hash + Eq> Default for Table<C> {
 ///
 /// Uses persistent map for efficient cloning.
 #[derive(Clone, Debug)]
-pub struct Tables<C: Clone + Hash + Eq> {
+pub struct Tables<C: ConstraintOps> {
     map: Arc<RefCell<im::HashMap<CallKey<C>, Arc<RefCell<Table<C>>>>>>,
 }
 
-impl<C: Clone + Hash + Eq> Tables<C> {
+impl<C: ConstraintOps> Tables<C> {
     /// Create an empty Tables collection.
     pub fn new() -> Self {
         Self {
@@ -1297,7 +1615,7 @@ impl<C: Clone + Hash + Eq> Tables<C> {
     }
 }
 
-impl<C: Clone + Hash + Eq> Default for Tables<C> {
+impl<C: ConstraintOps> Default for Tables<C> {
     fn default() -> Self {
         Self::new()
     }
@@ -1310,7 +1628,7 @@ impl<C: Clone + Hash + Eq> Default for Tables<C> {
 /// - if new answers were found, start a new iteration
 /// - otherwise mark the table done
 #[derive(Clone, Debug)]
-pub struct FixWork<C: Clone + Hash + Eq> {
+pub struct FixWork<C: ConstraintOps> {
     /// The CallKey for this tabled call.
     pub key: CallKey<C>,
     /// Reference to the table.
@@ -1321,7 +1639,7 @@ pub struct FixWork<C: Clone + Hash + Eq> {
     pub tables: Tables<C>,
 }
 
-impl<C: Clone + Hash + Eq + Default> FixWork<C> {
+impl<C: ConstraintOps> FixWork<C> {
     /// Create a new FixWork handle.
     pub fn new(
         key: CallKey<C>,
@@ -3280,10 +3598,9 @@ mod tests {
         let rel: Arc<Rel<()>> = Arc::new(Rel::Zero);
         let env2 = env.bind(42, rel.clone());
 
-        let looked_up = env2.lookup(42);
-        assert!(looked_up.is_some());
+        let looked_up = env2.lookup(42).expect("binding");
         // Check it's the same Arc
-        assert!(Arc::ptr_eq(looked_up.unwrap(), &rel));
+        assert!(Arc::ptr_eq(&looked_up.body, &rel));
     }
 
     #[test]
@@ -3306,9 +3623,9 @@ mod tests {
         let env3 = env2.bind(0, rel2.clone());
 
         // Should get the new binding
-        let looked_up = env3.lookup(0).unwrap();
-        assert!(Arc::ptr_eq(looked_up, &rel2));
-        assert!(!Arc::ptr_eq(looked_up, &rel1));
+        let looked_up = env3.lookup(0).expect("binding");
+        assert!(Arc::ptr_eq(&looked_up.body, &rel2));
+        assert!(!Arc::ptr_eq(&looked_up.body, &rel1));
     }
 
     #[test]
@@ -3327,7 +3644,7 @@ mod tests {
 
     #[test]
     fn callkey_construction_no_boundaries() {
-        let key: CallKey<()> = CallKey::new(0, None, None);
+        let key: CallKey<()> = CallKey::new(0, 1, None, None);
         assert_eq!(key.rel, 0);
         assert!(key.left.is_none());
         assert!(key.right.is_none());
@@ -3336,7 +3653,7 @@ mod tests {
     #[test]
     fn callkey_construction_with_left() {
         let nf = make_identity_nf();
-        let key: CallKey<()> = CallKey::new(1, Some(nf), None);
+        let key: CallKey<()> = CallKey::new(1, 2, Some(nf), None);
         assert_eq!(key.rel, 1);
         assert!(key.left.is_some());
         assert!(key.right.is_none());
@@ -3345,7 +3662,7 @@ mod tests {
     #[test]
     fn callkey_construction_with_right() {
         let nf = make_identity_nf();
-        let key: CallKey<()> = CallKey::new(2, None, Some(nf));
+        let key: CallKey<()> = CallKey::new(2, 3, None, Some(nf));
         assert_eq!(key.rel, 2);
         assert!(key.left.is_none());
         assert!(key.right.is_some());
@@ -3355,7 +3672,7 @@ mod tests {
     fn callkey_construction_with_both() {
         let nf1 = make_identity_nf();
         let nf2 = make_identity_nf();
-        let key: CallKey<()> = CallKey::new(3, Some(nf1), Some(nf2));
+        let key: CallKey<()> = CallKey::new(3, 4, Some(nf1), Some(nf2));
         assert_eq!(key.rel, 3);
         assert!(key.left.is_some());
         assert!(key.right.is_some());
@@ -3363,23 +3680,23 @@ mod tests {
 
     #[test]
     fn callkey_equality_same_rel_no_boundaries() {
-        let key1: CallKey<()> = CallKey::new(0, None, None);
-        let key2: CallKey<()> = CallKey::new(0, None, None);
+        let key1: CallKey<()> = CallKey::new(0, 1, None, None);
+        let key2: CallKey<()> = CallKey::new(0, 1, None, None);
         assert_eq!(key1, key2);
     }
 
     #[test]
     fn callkey_inequality_different_rel() {
-        let key1: CallKey<()> = CallKey::new(0, None, None);
-        let key2: CallKey<()> = CallKey::new(1, None, None);
+        let key1: CallKey<()> = CallKey::new(0, 1, None, None);
+        let key2: CallKey<()> = CallKey::new(1, 1, None, None);
         assert_ne!(key1, key2);
     }
 
     #[test]
     fn callkey_equality_same_boundaries() {
         let nf = make_identity_nf();
-        let key1: CallKey<()> = CallKey::new(0, Some(nf.clone()), None);
-        let key2: CallKey<()> = CallKey::new(0, Some(nf), None);
+        let key1: CallKey<()> = CallKey::new(0, 1, Some(nf.clone()), None);
+        let key2: CallKey<()> = CallKey::new(0, 1, Some(nf), None);
         assert_eq!(key1, key2);
     }
 
@@ -3389,8 +3706,8 @@ mod tests {
         let nf_a = make_ground_nf("A", &symbols, &terms);
         let nf_b = make_ground_nf("B", &symbols, &terms);
 
-        let key1: CallKey<()> = CallKey::new(0, Some(nf_a), None);
-        let key2: CallKey<()> = CallKey::new(0, Some(nf_b), None);
+        let key1: CallKey<()> = CallKey::new(0, 1, Some(nf_a), None);
+        let key2: CallKey<()> = CallKey::new(0, 1, Some(nf_b), None);
         assert_ne!(key1, key2);
     }
 
@@ -3400,8 +3717,8 @@ mod tests {
         let nf_a = make_ground_nf("A", &symbols, &terms);
         let nf_b = make_ground_nf("B", &symbols, &terms);
 
-        let key1: CallKey<()> = CallKey::new(0, None, Some(nf_a));
-        let key2: CallKey<()> = CallKey::new(0, None, Some(nf_b));
+        let key1: CallKey<()> = CallKey::new(0, 1, None, Some(nf_a));
+        let key2: CallKey<()> = CallKey::new(0, 1, None, Some(nf_b));
         assert_ne!(key1, key2);
     }
 
@@ -3410,8 +3727,8 @@ mod tests {
         use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
 
-        let key1: CallKey<()> = CallKey::new(5, None, None);
-        let key2: CallKey<()> = CallKey::new(5, None, None);
+        let key1: CallKey<()> = CallKey::new(5, 1, None, None);
+        let key2: CallKey<()> = CallKey::new(5, 1, None, None);
 
         let mut hasher1 = DefaultHasher::new();
         let mut hasher2 = DefaultHasher::new();
@@ -3424,7 +3741,7 @@ mod tests {
     #[test]
     fn callkey_is_clone() {
         let nf = make_identity_nf();
-        let key1: CallKey<()> = CallKey::new(0, Some(nf), None);
+        let key1: CallKey<()> = CallKey::new(0, 1, Some(nf), None);
         let key2 = key1.clone();
 
         assert_eq!(key1.rel, key2.rel);
@@ -3682,14 +3999,14 @@ mod tests {
     #[test]
     fn tables_lookup_nonexistent() {
         let tables: Tables<()> = Tables::new();
-        let key: CallKey<()> = CallKey::new(0, None, None);
+        let key: CallKey<()> = CallKey::new(0, 0, None, None);
         assert!(tables.lookup(&key).is_none());
     }
 
     #[test]
     fn tables_get_or_create_new() {
         let mut tables: Tables<()> = Tables::new();
-        let key: CallKey<()> = CallKey::new(0, None, None);
+        let key: CallKey<()> = CallKey::new(0, 0, None, None);
 
         let table = tables.get_or_create(key.clone());
         assert!(!tables.is_empty());
@@ -3700,7 +4017,7 @@ mod tests {
     #[test]
     fn tables_get_or_create_existing() {
         let mut tables: Tables<()> = Tables::new();
-        let key: CallKey<()> = CallKey::new(0, None, None);
+        let key: CallKey<()> = CallKey::new(0, 0, None, None);
 
         let table1 = tables.get_or_create(key.clone());
         table1.borrow_mut().add_answer(make_identity_nf());
@@ -3714,8 +4031,8 @@ mod tests {
     #[test]
     fn tables_contains() {
         let mut tables: Tables<()> = Tables::new();
-        let key1: CallKey<()> = CallKey::new(0, None, None);
-        let key2: CallKey<()> = CallKey::new(1, None, None);
+        let key1: CallKey<()> = CallKey::new(0, 0, None, None);
+        let key2: CallKey<()> = CallKey::new(1, 0, None, None);
 
         assert!(!tables.contains(&key1));
         let _ = tables.get_or_create(key1.clone());
@@ -3726,9 +4043,9 @@ mod tests {
     #[test]
     fn tables_multiple_keys() {
         let mut tables: Tables<()> = Tables::new();
-        let key1: CallKey<()> = CallKey::new(0, None, None);
-        let key2: CallKey<()> = CallKey::new(1, None, None);
-        let key3: CallKey<()> = CallKey::new(2, None, None);
+        let key1: CallKey<()> = CallKey::new(0, 0, None, None);
+        let key2: CallKey<()> = CallKey::new(1, 0, None, None);
+        let key3: CallKey<()> = CallKey::new(2, 0, None, None);
 
         let _ = tables.get_or_create(key1);
         let _ = tables.get_or_create(key2);
@@ -3740,7 +4057,7 @@ mod tests {
     #[test]
     fn tables_lookup_after_create() {
         let mut tables: Tables<()> = Tables::new();
-        let key: CallKey<()> = CallKey::new(0, None, None);
+        let key: CallKey<()> = CallKey::new(0, 0, None, None);
 
         let _ = tables.get_or_create(key.clone());
         let looked_up = tables.lookup(&key);
@@ -3756,7 +4073,7 @@ mod tests {
     #[test]
     fn tables_is_clone() {
         let mut tables1: Tables<()> = Tables::new();
-        let key: CallKey<()> = CallKey::new(0, None, None);
+        let key: CallKey<()> = CallKey::new(0, 0, None, None);
         let table = tables1.get_or_create(key.clone());
         table.borrow_mut().add_answer(make_identity_nf());
 
@@ -3769,7 +4086,7 @@ mod tests {
     fn tables_clone_shares_updates() {
         let mut tables1: Tables<()> = Tables::new();
         let mut tables2 = tables1.clone();
-        let key: CallKey<()> = CallKey::new(0, None, None);
+        let key: CallKey<()> = CallKey::new(0, 0, None, None);
 
         let table1 = tables1.get_or_create(key.clone());
 
@@ -3789,9 +4106,9 @@ mod tests {
         let nf_b = make_ground_nf("B", &symbols, &terms);
 
         // Same rel, different boundaries should be different keys
-        let key1: CallKey<()> = CallKey::new(0, Some(nf_a.clone()), None);
-        let key2: CallKey<()> = CallKey::new(0, Some(nf_b), None);
-        let key3: CallKey<()> = CallKey::new(0, None, Some(nf_a));
+        let key1: CallKey<()> = CallKey::new(0, 0, Some(nf_a.clone()), None);
+        let key2: CallKey<()> = CallKey::new(0, 0, Some(nf_b), None);
+        let key3: CallKey<()> = CallKey::new(0, 0, None, Some(nf_a));
 
         let _ = tables.get_or_create(key1);
         let _ = tables.get_or_create(key2);
@@ -3808,7 +4125,7 @@ mod tests {
     fn fixwork_new_handle() {
         use std::cell::RefCell;
 
-        let key: CallKey<()> = CallKey::new(0, None, None);
+        let key: CallKey<()> = CallKey::new(0, 0, None, None);
         let table = Arc::new(RefCell::new(Table::new()));
 
         let fix: FixWork<()> = FixWork::new(key.clone(), table, 0, Tables::new());
@@ -3827,7 +4144,7 @@ mod tests {
 
         let (symbols, terms) = setup();
         let mut terms = terms;
-        let key: CallKey<()> = CallKey::new(0, None, None);
+        let key: CallKey<()> = CallKey::new(0, 0, None, None);
         let table = Arc::new(RefCell::new(Table::new()));
 
         table
@@ -3864,7 +4181,7 @@ mod tests {
         use std::sync::Arc;
 
         let (symbols, mut terms) = setup();
-        let key: CallKey<()> = CallKey::new(0, None, None);
+        let key: CallKey<()> = CallKey::new(0, 0, None, None);
         let table = Arc::new(RefCell::new(Table::new()));
         let nf = make_ground_nf("A", &symbols, &terms);
         let producer_node = Node::Work(Work::Atom(nf.clone()));
@@ -3891,7 +4208,7 @@ mod tests {
         use std::sync::Arc;
 
         let (symbols, mut terms) = setup();
-        let key: CallKey<()> = CallKey::new(0, None, None);
+        let key: CallKey<()> = CallKey::new(0, 0, None, None);
         let table = Arc::new(RefCell::new(Table::new()));
         let nf = make_ground_nf("A", &symbols, &terms);
         let producer_node = Node::Emit(
@@ -3934,7 +4251,7 @@ mod tests {
         use std::cell::RefCell;
 
         let (_, mut terms) = setup();
-        let key: CallKey<()> = CallKey::new(0, None, None);
+        let key: CallKey<()> = CallKey::new(0, 0, None, None);
         let table = Arc::new(RefCell::new(Table::new()));
         table.borrow_mut().finish_producer();
 
@@ -4020,7 +4337,7 @@ mod tests {
     fn work_fix_construction() {
         use std::cell::RefCell;
 
-        let key: CallKey<()> = CallKey::new(0, None, None);
+        let key: CallKey<()> = CallKey::new(0, 0, None, None);
         let table = Arc::new(RefCell::new(Table::new()));
         let fix: FixWork<()> = FixWork::new(key, table, 0, Tables::new());
         let work: Work<()> = Work::Fix(fix);
@@ -4032,7 +4349,7 @@ mod tests {
         use std::cell::RefCell;
 
         let (_, mut terms) = setup();
-        let key: CallKey<()> = CallKey::new(0, None, None);
+        let key: CallKey<()> = CallKey::new(0, 0, None, None);
         let table = Arc::new(RefCell::new(Table::new()));
         table.borrow_mut().finish_producer();
 

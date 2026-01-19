@@ -11,11 +11,11 @@ use crate::rel::Rel;
 use crate::symbol::SymbolStore;
 use crate::term::TermStore;
 use crate::work::{rel_to_node, Env, Tables};
-use std::hash::Hash;
+use crate::constraint::ConstraintOps;
 
 /// Result of a single step in the Engine.
 #[derive(Clone, Debug)]
-pub enum StepResult<C: Clone + Hash + Eq> {
+pub enum StepResult<C: ConstraintOps> {
     /// Produced an answer NF
     Emit(NF<C>),
     /// No more answers (exhausted)
@@ -28,14 +28,14 @@ pub enum StepResult<C: Clone + Hash + Eq> {
 ///
 /// Converts a Rel expression into a stream of NF answers using
 /// Or rotation interleaving and Work stepping.
-pub struct Engine<C: Clone + Hash + Eq> {
+pub struct Engine<C: ConstraintOps> {
     /// Root of the search tree
     root: Node<C>,
     /// Term store for creating/looking up terms
     terms: TermStore,
 }
 
-impl<C: Clone + Default + Hash + Eq> Engine<C> {
+impl<C: ConstraintOps> Engine<C> {
     /// Create a new Engine from a Rel expression.
     pub fn new(rel: Rel<C>, terms: TermStore) -> Self {
         Self::new_with_env(rel, terms, Env::new())
@@ -128,11 +128,11 @@ impl<C: Clone + Default + Hash + Eq> Engine<C> {
 /// Iterator over query answers.
 ///
 /// Yields NF answers from the engine until exhausted.
-pub struct QueryIter<'a, C: Clone + Hash + Eq> {
+pub struct QueryIter<'a, C: ConstraintOps> {
     engine: &'a mut Engine<C>,
 }
 
-impl<'a, C: Clone + Default + Hash + Eq> Iterator for QueryIter<'a, C> {
+impl<'a, C: ConstraintOps> Iterator for QueryIter<'a, C> {
     type Item = NF<C>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -141,13 +141,13 @@ impl<'a, C: Clone + Default + Hash + Eq> Iterator for QueryIter<'a, C> {
 }
 
 /// Convenience function to run a query and collect all answers.
-pub fn query<C: Clone + Default + Hash + Eq>(rel: Rel<C>, terms: TermStore) -> Vec<NF<C>> {
+pub fn query<C: ConstraintOps>(rel: Rel<C>, terms: TermStore) -> Vec<NF<C>> {
     let mut engine = Engine::new(rel, terms);
     engine.collect_answers()
 }
 
 /// Convenience function to run a query and get the first answer.
-pub fn query_first<C: Clone + Default + Hash + Eq>(rel: Rel<C>, terms: TermStore) -> Option<NF<C>> {
+pub fn query_first<C: ConstraintOps>(rel: Rel<C>, terms: TermStore) -> Option<NF<C>> {
     let mut engine = Engine::new(rel, terms);
     engine.next()
 }
@@ -702,6 +702,96 @@ mod tests {
 
         let answers = engine.collect_answers();
         assert!(answers.is_empty());
+    }
+
+    #[test]
+    fn seq_with_and_of_disjoint_rules_is_empty() {
+        let mut parser = Parser::new();
+        let rel = parser
+            .parse_rel_body("[$x -> $y] ; [[a -> z] & [b -> z]]")
+            .expect("parse query");
+        let terms = parser.take_terms();
+        let mut engine: Engine<()> = Engine::new(rel, terms);
+
+        let answers = engine.collect_answers();
+        assert!(
+            answers.is_empty(),
+            "Expected no answers for disjoint intersection in sequence, got {}",
+            answers.len()
+        );
+    }
+
+    #[test]
+    fn seq_with_fix_then_free_call_is_empty() {
+        let mut parser = Parser::new();
+        let nf = parser.parse_rule("a -> a").expect("parse rule");
+        let rel = Rel::Seq(Arc::from(vec![
+            Arc::new(Rel::Fix(0, Arc::new(Rel::Atom(Arc::new(nf))))),
+            Arc::new(Rel::Call(0)),
+        ]));
+        let terms = parser.take_terms();
+        let mut engine: Engine<()> = Engine::new(rel, terms);
+
+        let answers = engine.collect_answers();
+        assert!(
+            answers.is_empty(),
+            "Expected no answers for out-of-scope Call, got {}",
+            answers.len()
+        );
+    }
+
+    #[test]
+    fn and_with_shadowed_fix_does_not_reuse_table() {
+        let mut parser = Parser::new();
+        let nf = parser.parse_rule("a -> a").expect("parse rule");
+        let fix_body = Rel::Or(
+            Arc::new(Rel::Atom(Arc::new(nf))),
+            Arc::new(Rel::Call(0)),
+        );
+        let rel = Rel::And(
+            Arc::new(Rel::Fix(0, Arc::new(fix_body))),
+            Arc::new(Rel::Fix(0, Arc::new(Rel::Call(0)))),
+        );
+        let terms = parser.take_terms();
+        let mut engine: Engine<()> = Engine::new(rel, terms);
+
+        let answers = engine.collect_answers();
+        assert!(
+            answers.is_empty(),
+            "Expected no answers for separate Fix scopes with same id, got {}",
+            answers.len()
+        );
+    }
+
+    #[test]
+    fn or_with_shadowed_fix_should_not_duplicate_answers() {
+        let mut parser = Parser::new();
+        let nf_a = parser.parse_rule("a -> a").expect("parse rule");
+        let nf_b = parser.parse_rule("b -> b").expect("parse rule");
+        let expected = nf_a.clone();
+        let recursive = Rel::Seq(Arc::from(vec![
+            Arc::new(Rel::Call(0)),
+            Arc::new(Rel::Atom(Arc::new(nf_b))),
+        ]));
+        let fix_body = Rel::Or(
+            Arc::new(Rel::Atom(Arc::new(nf_a))),
+            Arc::new(recursive),
+        );
+        let rel = Rel::Or(
+            Arc::new(Rel::Fix(0, Arc::new(fix_body))),
+            Arc::new(Rel::Fix(0, Arc::new(Rel::Call(0)))),
+        );
+        let terms = parser.take_terms();
+        let mut engine: Engine<()> = Engine::new(rel, terms);
+
+        let answers = engine.collect_answers();
+        assert_eq!(
+            answers.len(),
+            1,
+            "Expected one answer from left Fix only, got {}",
+            answers.len()
+        );
+        assert_eq!(answers[0], expected, "Unexpected answer returned");
     }
 
     #[test]
@@ -1550,6 +1640,46 @@ rel add {
         );
     }
 
+    fn treecalc_app_case_with_limit(input: &str, expected: &str, query_suffix: &str, max_steps: usize) {
+        let mut parser = Parser::new();
+        let def = include_str!("../examples/treecalc.txt");
+        let (_app_rel, env) = parse_rel_def_with_env(&mut parser, def);
+
+        let query_str = format!("@{} ; {}", input, query_suffix);
+        let query = parser.parse_rel_body(&query_str).expect("parse app query");
+        let input_term = parser.parse_term(input).expect("parse input").term_id;
+        let expected_term = parser.parse_term(expected).expect("parse expected").term_id;
+
+        let mut terms = parser.take_terms();
+        let expected_nf = NF::factor(input_term, expected_term, (), &mut terms);
+
+        let mut engine: Engine<()> = Engine::new_with_env(query, terms, env);
+        let mut first = None;
+        for _ in 0..max_steps {
+            match engine.step() {
+                StepResult::Emit(nf) => {
+                    first = Some(nf);
+                    break;
+                }
+                StepResult::Exhausted => break,
+                StepResult::Continue => {}
+            }
+        }
+
+        assert!(
+            first.is_some(),
+            "Expected treecalc answer for query {} within {} steps",
+            query_str,
+            max_steps
+        );
+        assert_eq!(
+            first.unwrap(),
+            expected_nf,
+            "Treecalc head result mismatch for query {}",
+            query_str
+        );
+    }
+
     fn count_top_or(rel: &Rel<()>) -> usize {
         match rel {
             Rel::Or(left, right) => count_top_or(left) + count_top_or(right),
@@ -1647,6 +1777,121 @@ rel add {
         treecalc_app_case(
             "(f (f (b (b l)) l) (c 0))",
             "(c 0)",
+        );
+    }
+
+    #[test]
+    fn treecalc_app_and_group_two_conjuncts_example_9() {
+        treecalc_app_case_with_limit(
+            "(f (f (f l (b l)) (f (b l) (b l))) (f l (f (b l) (b l))))",
+            "(f l l)",
+            "[app & app]",
+            20000,
+        );
+    }
+
+    #[test]
+    fn treecalc_app_and_group_nested_conjuncts_example_9() {
+        treecalc_app_case_with_limit(
+            "(f (f (f l (b l)) (f (b l) (b l))) (f l (f (b l) (b l))))",
+            "(f l l)",
+            "[[app & app] & app]",
+            20000,
+        );
+    }
+
+    #[test]
+    fn treecalc_app_and_group_three_conjuncts_example_9() {
+        treecalc_app_case_with_limit(
+            "(f (f (f l (b l)) (f (b l) (b l))) (f l (f (b l) (b l))))",
+            "(f l l)",
+            "[app & app & app]",
+            20000,
+        );
+    }
+
+    #[test]
+    fn seq_with_and_non_iso_left_boundary_does_not_distribute() {
+        let mut parser = Parser::new();
+        let rel = parser
+            .parse_rel_body("[[c -> a] | [c -> b]] ; [[a -> z] & [b -> z]]")
+            .expect("parse query");
+        let terms = parser.take_terms();
+        let mut engine: Engine<()> = Engine::new(rel, terms);
+
+        let answers = engine.collect_answers();
+        assert!(
+            answers.is_empty(),
+            "Non-iso left boundary must not distribute across And"
+        );
+    }
+
+    #[test]
+    fn seq_with_and_non_iso_right_boundary_does_not_distribute() {
+        let mut parser = Parser::new();
+        let rel = parser
+            .parse_rel_body("[[a -> z] & [b -> z]] ; [[c -> a] | [c -> b]]")
+            .expect("parse query");
+        let terms = parser.take_terms();
+        let mut engine: Engine<()> = Engine::new(rel, terms);
+
+        let answers = engine.collect_answers();
+        assert!(
+            answers.is_empty(),
+            "Non-iso right boundary must not distribute across And"
+        );
+    }
+
+    #[test]
+    fn and_associativity_simple_equivalence() {
+        let mut parser = Parser::new();
+        let rel_left = parser
+            .parse_rel_body("[[a -> a] & [[a -> a] & [a -> a]]]")
+            .expect("parse left");
+        let terms_left = parser.take_terms();
+        let mut engine_left: Engine<()> = Engine::new(rel_left, terms_left);
+        let answers_left: HashSet<NF<()>> = engine_left.collect_answers().into_iter().collect();
+
+        let mut parser = Parser::new();
+        let rel_right = parser
+            .parse_rel_body("[[[a -> a] & [a -> a]] & [a -> a]]")
+            .expect("parse right");
+        let terms_right = parser.take_terms();
+        let mut engine_right: Engine<()> = Engine::new(rel_right, terms_right);
+        let answers_right: HashSet<NF<()>> = engine_right.collect_answers().into_iter().collect();
+
+        assert_eq!(
+            answers_left, answers_right,
+            "Nested And grouping must be associative"
+        );
+        assert_eq!(answers_left.len(), 1, "Expected a single answer");
+    }
+
+    #[test]
+    fn and_associativity_with_disjoint_branch_is_empty() {
+        let mut parser = Parser::new();
+        let rel_left = parser
+            .parse_rel_body("[[a -> a] & [[a -> a] & [b -> b]]]")
+            .expect("parse left");
+        let terms_left = parser.take_terms();
+        let mut engine_left: Engine<()> = Engine::new(rel_left, terms_left);
+        let answers_left = engine_left.collect_answers();
+
+        let mut parser = Parser::new();
+        let rel_right = parser
+            .parse_rel_body("[[[a -> a] & [a -> a]] & [b -> b]]")
+            .expect("parse right");
+        let terms_right = parser.take_terms();
+        let mut engine_right: Engine<()> = Engine::new(rel_right, terms_right);
+        let answers_right = engine_right.collect_answers();
+
+        assert!(
+            answers_left.is_empty(),
+            "Disjoint branch should empty the intersection (left grouping)"
+        );
+        assert!(
+            answers_right.is_empty(),
+            "Disjoint branch should empty the intersection (right grouping)"
         );
     }
 

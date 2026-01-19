@@ -1,4 +1,5 @@
-use crate::nf::{collect_vars_ordered, direct_rule_terms, NF};
+use crate::constraint::ConstraintOps;
+use crate::nf::{collect_tensor, collect_vars_ordered, factor_tensor, NF};
 use crate::subst::apply_subst;
 use crate::term::{Term, TermId, TermStore};
 #[cfg(feature = "tracing")]
@@ -17,7 +18,7 @@ use smallvec::SmallVec;
 /// - b's build patterns are constructed
 ///
 /// Returns None if composition fails (unification failure at interface).
-pub fn compose_nf<C: Default + Clone>(
+pub fn compose_nf<C: ConstraintOps>(
     a: &NF<C>,
     b: &NF<C>,
     terms: &mut TermStore,
@@ -36,11 +37,6 @@ pub fn compose_nf<C: Default + Clone>(
     )
     .entered();
 
-    // The key operation: unify a.build_pats with b.match_pats
-    // This fuses RwR_a ; RwL_b into a single transformation.
-
-    // For simplicity, we handle the single-pattern case.
-    // Multi-pattern composition would iterate over pairs.
     if a.build_pats.len() != b.match_pats.len() {
         #[cfg(feature = "tracing")]
         trace!(
@@ -51,38 +47,28 @@ pub fn compose_nf<C: Default + Clone>(
         return None; // Arity mismatch
     }
 
-    if a.build_pats.is_empty() {
-        // Both empty - compose the DropFresh maps
-        #[cfg(feature = "tracing")]
-        trace!("empty_patterns_drop_fresh_compose");
-        let drop_fresh = a.drop_fresh.compose(&b.drop_fresh)?;
-        return Some(NF::new(
-            a.match_pats.clone(),
-            drop_fresh,
-            b.build_pats.clone(),
-        ));
-    }
+    let rw1 = collect_tensor(a, terms);
+    let mut rw2 = collect_tensor(b, terms);
 
-    let (a_lhs, a_rhs) = direct_rule_terms(a, terms)?;
-    let (b_lhs, b_rhs) = direct_rule_terms(b, terms)?;
-
-    let b_var_offset = max_var_index(a_lhs, terms)
-        .max(max_var_index(a_rhs, terms))
+    let b_var_offset = max_var_index_terms(&rw1.lhs, terms)
+        .max(max_var_index_terms(&rw1.rhs, terms))
         .map(|v| v + 1)
         .unwrap_or(0);
 
-    let b_lhs_shifted = shift_vars(b_lhs, b_var_offset, terms);
-    let b_rhs_shifted = shift_vars(b_rhs, b_var_offset, terms);
+    if b_var_offset != 0 {
+        rw2.lhs = shift_vars_list(&rw2.lhs, b_var_offset, terms);
+        rw2.rhs = shift_vars_list(&rw2.rhs, b_var_offset, terms);
+    }
 
     #[cfg(feature = "tracing")]
     trace!(
-        a_rhs = ?a_rhs,
-        b_lhs_shifted = ?b_lhs_shifted,
+        a_rhs = ?rw1.rhs,
+        b_lhs_shifted = ?rw2.lhs,
         b_var_offset,
         "unifying_interface"
     );
 
-    let mgu = match unify(a_rhs, b_lhs_shifted, terms) {
+    let mgu = match unify_term_lists(&rw1.rhs, &rw2.lhs, terms) {
         Some(mgu) => {
             #[cfg(feature = "tracing")]
             trace!(mgu_size = mgu.len(), "unification_success");
@@ -95,10 +81,29 @@ pub fn compose_nf<C: Default + Clone>(
         }
     };
 
-    let new_match = apply_subst(a_lhs, &mgu, terms);
-    let new_build = apply_subst(b_rhs_shifted, &mgu, terms);
+    let mut new_match = apply_subst_list(&rw1.lhs, &mgu, terms);
+    let mut new_build = apply_subst_list(&rw2.rhs, &mgu, terms);
 
-    Some(NF::factor(new_match, new_build, C::default(), terms))
+    let combined = match a
+        .drop_fresh
+        .constraint
+        .combine(&b.drop_fresh.constraint)
+    {
+        Some(c) => c,
+        None => {
+            #[cfg(feature = "tracing")]
+            trace!("compose_constraint_conflict");
+            return None;
+        }
+    };
+
+    let (normalized, subst_opt) = combined.normalize();
+    if let Some(subst) = subst_opt {
+        new_match = apply_subst_list(&new_match, &subst, terms);
+        new_build = apply_subst_list(&new_build, &subst, terms);
+    }
+
+    Some(factor_tensor(new_match, new_build, normalized, terms))
 }
 
 /// Shift all variables in a term by a given offset.
@@ -125,8 +130,64 @@ fn shift_vars_helper(term: TermId, offset: u32, terms: &mut TermStore) -> TermId
     }
 }
 
-fn max_var_index(term: TermId, terms: &mut TermStore) -> Option<u32> {
-    collect_vars_ordered(term, terms).into_iter().max()
+fn max_var_index_terms(pats: &[TermId], terms: &mut TermStore) -> Option<u32> {
+    pats.iter()
+        .flat_map(|&term| collect_vars_ordered(term, terms).into_iter())
+        .max()
+}
+
+fn shift_vars_list(pats: &[TermId], offset: u32, terms: &mut TermStore) -> SmallVec<[TermId; 1]> {
+    if offset == 0 {
+        return pats.iter().copied().collect();
+    }
+    pats.iter()
+        .map(|&term| shift_vars(term, offset, terms))
+        .collect()
+}
+
+fn apply_subst_list(
+    pats: &[TermId],
+    subst: &crate::subst::Subst,
+    terms: &mut TermStore,
+) -> SmallVec<[TermId; 1]> {
+    pats.iter()
+        .map(|&term| apply_subst(term, subst, terms))
+        .collect()
+}
+
+fn unify_term_lists(
+    left: &[TermId],
+    right: &[TermId],
+    terms: &mut TermStore,
+) -> Option<crate::subst::Subst> {
+    if left.len() != right.len() {
+        return None;
+    }
+
+    let mut subst = crate::subst::Subst::new();
+    for (&l, &r) in left.iter().zip(right.iter()) {
+        let l_sub = apply_subst(l, &subst, terms);
+        let r_sub = apply_subst(r, &subst, terms);
+        let mgu = unify(l_sub, r_sub, terms)?;
+        subst = compose_subst(&subst, &mgu, terms);
+    }
+    Some(subst)
+}
+
+fn compose_subst(
+    existing: &crate::subst::Subst,
+    new: &crate::subst::Subst,
+    terms: &mut TermStore,
+) -> crate::subst::Subst {
+    let mut combined = crate::subst::Subst::new();
+    for (var, term) in existing.iter() {
+        let updated = apply_subst(term, new, terms);
+        combined.bind(var, updated);
+    }
+    for (var, term) in new.iter() {
+        combined.bind(var, term);
+    }
+    combined
 }
 
 #[cfg(test)]

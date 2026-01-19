@@ -1,8 +1,8 @@
-use crate::nf::{collect_vars_ordered, direct_rule_terms, NF};
+use crate::constraint::ConstraintOps;
+use crate::nf::{collect_tensor, collect_vars_ordered, factor_tensor, NF};
 use crate::subst::apply_subst;
 use crate::term::{Term, TermId, TermStore};
 use crate::unify::unify;
-use crate::drop_fresh::DropFresh;
 use smallvec::SmallVec;
 
 #[cfg(feature = "tracing")]
@@ -15,7 +15,7 @@ use crate::trace::{debug_span, trace};
 /// For outputs, this means the output must satisfy both a's and b's build patterns.
 ///
 /// Returns None if the meet is empty (patterns are incompatible).
-pub fn meet_nf<C: Default + Clone>(
+pub fn meet_nf<C: ConstraintOps>(
     a: &NF<C>,
     b: &NF<C>,
     terms: &mut TermStore,
@@ -30,33 +30,26 @@ pub fn meet_nf<C: Default + Clone>(
     )
     .entered();
 
-    // For the meet, we need to unify direct-rule forms so that DropFresh maps are honored.
     if a.match_pats.len() != b.match_pats.len() || a.build_pats.len() != b.build_pats.len() {
         #[cfg(feature = "tracing")]
         trace!("meet_arity_mismatch");
         return None;
     }
 
-    if a.match_pats.is_empty() && a.build_pats.is_empty() {
-        return Some(NF::new(
-            SmallVec::new(),
-            DropFresh::identity(0),
-            SmallVec::new(),
-        ));
-    }
+    let rw1 = collect_tensor(a, terms);
+    let mut rw2 = collect_tensor(b, terms);
 
-    let (a_lhs, a_rhs) = direct_rule_terms(a, terms)?;
-    let (b_lhs, b_rhs) = direct_rule_terms(b, terms)?;
-
-    let b_var_offset = max_var_index(a_lhs, terms)
-        .max(max_var_index(a_rhs, terms))
+    let b_var_offset = max_var_index_terms(&rw1.lhs, terms)
+        .max(max_var_index_terms(&rw1.rhs, terms))
         .map(|v| v + 1)
         .unwrap_or(0);
 
-    let b_lhs_shifted = shift_vars(b_lhs, b_var_offset, terms);
-    let b_rhs_shifted = shift_vars(b_rhs, b_var_offset, terms);
+    if b_var_offset != 0 {
+        rw2.lhs = shift_vars_list(&rw2.lhs, b_var_offset, terms);
+        rw2.rhs = shift_vars_list(&rw2.rhs, b_var_offset, terms);
+    }
 
-    let mgu_match = match unify(a_lhs, b_lhs_shifted, terms) {
+    let mgu_match = match unify_term_lists(&rw1.lhs, &rw2.lhs, terms) {
         Some(mgu) => mgu,
         None => {
             #[cfg(feature = "tracing")]
@@ -65,11 +58,11 @@ pub fn meet_nf<C: Default + Clone>(
         }
     };
 
-    let unified_lhs = apply_subst(a_lhs, &mgu_match, terms);
-    let a_rhs_subst = apply_subst(a_rhs, &mgu_match, terms);
-    let b_rhs_subst = apply_subst(b_rhs_shifted, &mgu_match, terms);
+    let unified_lhs = apply_subst_list(&rw1.lhs, &mgu_match, terms);
+    let a_rhs_subst = apply_subst_list(&rw1.rhs, &mgu_match, terms);
+    let b_rhs_subst = apply_subst_list(&rw2.rhs, &mgu_match, terms);
 
-    let mgu_build = match unify(a_rhs_subst, b_rhs_subst, terms) {
+    let mgu_build = match unify_term_lists(&a_rhs_subst, &b_rhs_subst, terms) {
         Some(mgu) => mgu,
         None => {
             #[cfg(feature = "tracing")]
@@ -78,17 +71,38 @@ pub fn meet_nf<C: Default + Clone>(
         }
     };
 
-    let final_lhs = apply_subst(unified_lhs, &mgu_build, terms);
-    let final_rhs = apply_subst(a_rhs_subst, &mgu_build, terms);
+    let mut final_lhs = apply_subst_list(&unified_lhs, &mgu_build, terms);
+    let mut final_rhs = apply_subst_list(&a_rhs_subst, &mgu_build, terms);
+
+    let combined = match a
+        .drop_fresh
+        .constraint
+        .combine(&b.drop_fresh.constraint)
+    {
+        Some(c) => c,
+        None => {
+            #[cfg(feature = "tracing")]
+            trace!("meet_constraint_conflict");
+            return None;
+        }
+    };
+
+    let (normalized, subst_opt) = combined.normalize();
+    if let Some(subst) = subst_opt {
+        final_lhs = apply_subst_list(&final_lhs, &subst, terms);
+        final_rhs = apply_subst_list(&final_rhs, &subst, terms);
+    }
 
     #[cfg(feature = "tracing")]
     trace!("meet_success");
 
-    Some(NF::factor(final_lhs, final_rhs, C::default(), terms))
+    Some(factor_tensor(final_lhs, final_rhs, normalized, terms))
 }
 
-fn max_var_index(term: TermId, terms: &mut TermStore) -> Option<u32> {
-    collect_vars_ordered(term, terms).into_iter().max()
+fn max_var_index_terms(pats: &[TermId], terms: &mut TermStore) -> Option<u32> {
+    pats.iter()
+        .flat_map(|&term| collect_vars_ordered(term, terms).into_iter())
+        .max()
 }
 
 /// Shift all variables in a term by a given offset.
@@ -113,11 +127,65 @@ fn shift_vars_helper(term: TermId, offset: u32, terms: &mut TermStore) -> TermId
     }
 }
 
-/// Renumber variables in a term to consecutive indices 0..n-1.
+fn shift_vars_list(pats: &[TermId], offset: u32, terms: &mut TermStore) -> SmallVec<[TermId; 1]> {
+    if offset == 0 {
+        return pats.iter().copied().collect();
+    }
+    pats.iter()
+        .map(|&term| shift_vars(term, offset, terms))
+        .collect()
+}
+
+fn apply_subst_list(
+    pats: &[TermId],
+    subst: &crate::subst::Subst,
+    terms: &mut TermStore,
+) -> SmallVec<[TermId; 1]> {
+    pats.iter()
+        .map(|&term| apply_subst(term, subst, terms))
+        .collect()
+}
+
+fn unify_term_lists(
+    left: &[TermId],
+    right: &[TermId],
+    terms: &mut TermStore,
+) -> Option<crate::subst::Subst> {
+    if left.len() != right.len() {
+        return None;
+    }
+
+    let mut subst = crate::subst::Subst::new();
+    for (&l, &r) in left.iter().zip(right.iter()) {
+        let l_sub = apply_subst(l, &subst, terms);
+        let r_sub = apply_subst(r, &subst, terms);
+        let mgu = unify(l_sub, r_sub, terms)?;
+        subst = compose_subst(&subst, &mgu, terms);
+    }
+    Some(subst)
+}
+
+fn compose_subst(
+    existing: &crate::subst::Subst,
+    new: &crate::subst::Subst,
+    terms: &mut TermStore,
+) -> crate::subst::Subst {
+    let mut combined = crate::subst::Subst::new();
+    for (var, term) in existing.iter() {
+        let updated = apply_subst(term, new, terms);
+        combined.bind(var, updated);
+    }
+    for (var, term) in new.iter() {
+        combined.bind(var, term);
+    }
+    combined
+}
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::drop_fresh::DropFresh;
+    use crate::constraint::TypeConstraints;
     use crate::test_utils::setup;
 
     // ========== BASIC MEET TESTS ==========
@@ -590,5 +658,235 @@ mod tests {
         assert_eq!(symbols.resolve(f), Some("Append"));
         assert_eq!(c[0], nil_term); // First arg is Nil
         assert_eq!(c[1], c[2]); // Second and third args are same var
+    }
+
+    // ========== MULTI-PATTERN (TENSOR) MEET TESTS ==========
+
+    #[test]
+    fn meet_multi_pattern_identity() {
+        let (_, mut terms) = setup();
+        let v0 = terms.var(0);
+        let v1 = terms.var(1);
+
+        let rule: NF<()> = NF::new(
+            smallvec::smallvec![v0, v1],
+            DropFresh::identity(2),
+            smallvec::smallvec![v0, v1],
+        );
+
+        let result = meet_nf(&rule, &rule, &mut terms);
+        assert!(result.is_some());
+        let met = result.unwrap();
+
+        assert_eq!(met.match_pats.len(), 2);
+        assert_eq!(met.build_pats.len(), 2);
+        assert_eq!(met.match_pats[0], met.build_pats[0]);
+        assert_eq!(met.match_pats[1], met.build_pats[1]);
+    }
+
+    #[test]
+    fn meet_multi_pattern_match_mismatch_fails() {
+        let (symbols, mut terms) = setup();
+        let a = symbols.intern("A");
+        let b = symbols.intern("B");
+        let v0 = terms.var(0);
+
+        let a_term = terms.app0(a);
+        let b_term = terms.app0(b);
+
+        let rule_a: NF<()> = NF::new(
+            smallvec::smallvec![a_term, v0],
+            DropFresh::identity(1),
+            smallvec::smallvec![a_term, v0],
+        );
+
+        let rule_b: NF<()> = NF::new(
+            smallvec::smallvec![b_term, v0],
+            DropFresh::identity(1),
+            smallvec::smallvec![b_term, v0],
+        );
+
+        let result = meet_nf(&rule_a, &rule_b, &mut terms);
+        assert!(result.is_none(), "Different match patterns should not meet");
+    }
+
+    #[test]
+    fn meet_multi_pattern_build_mismatch_fails() {
+        let (symbols, mut terms) = setup();
+        let a = symbols.intern("A");
+        let b = symbols.intern("B");
+        let v0 = terms.var(0);
+        let v1 = terms.var(1);
+
+        let a_term = terms.app0(a);
+        let b_term = terms.app0(b);
+
+        let rule_a: NF<()> = NF::new(
+            smallvec::smallvec![v0, v1],
+            DropFresh::identity(2),
+            smallvec::smallvec![a_term, v0],
+        );
+
+        let rule_b: NF<()> = NF::new(
+            smallvec::smallvec![v0, v1],
+            DropFresh::identity(2),
+            smallvec::smallvec![b_term, v0],
+        );
+
+        let result = meet_nf(&rule_a, &rule_b, &mut terms);
+        assert!(result.is_none(), "Different build patterns should not meet");
+    }
+
+    #[test]
+    fn meet_multi_pattern_enforces_shared_variables() {
+        let (_, mut terms) = setup();
+        let v0 = terms.var(0);
+        let v1 = terms.var(1);
+
+        let rule_general: NF<()> = NF::new(
+            smallvec::smallvec![v0, v1],
+            DropFresh::identity(2),
+            smallvec::smallvec![v0, v1],
+        );
+
+        let rule_same: NF<()> = NF::new(
+            smallvec::smallvec![v0, v0],
+            DropFresh::identity(1),
+            smallvec::smallvec![v0, v0],
+        );
+
+        let result = meet_nf(&rule_general, &rule_same, &mut terms);
+        assert!(result.is_some());
+        let met = result.unwrap();
+
+        assert_eq!(met.match_pats.len(), 2);
+        let left = met.match_pats[0];
+        let right = met.match_pats[1];
+        assert_eq!(
+            terms.is_var(left),
+            terms.is_var(right),
+            "Meet should enforce equality across positions"
+        );
+    }
+
+    #[test]
+    fn meet_multi_pattern_wiring_induces_equality() {
+        let (_, mut terms) = setup();
+        let v0 = terms.var(0);
+        let v1 = terms.var(1);
+
+        let map_left = smallvec::smallvec![(1, 0)];
+        let map_right = smallvec::smallvec![(0, 0)];
+
+        let wire_left = DropFresh::new(2, 1, map_left, ()).unwrap();
+        let wire_right = DropFresh::new(2, 1, map_right, ()).unwrap();
+
+        let rule_left: NF<()> = NF::new(
+            smallvec::smallvec![v0, v1],
+            wire_left,
+            smallvec::smallvec![v0],
+        );
+
+        let rule_right: NF<()> = NF::new(
+            smallvec::smallvec![v0, v1],
+            wire_right,
+            smallvec::smallvec![v0],
+        );
+
+        let result = meet_nf(&rule_left, &rule_right, &mut terms);
+        assert!(result.is_some(), "Wiring intersection should be non-empty");
+        let met = result.unwrap();
+
+        assert_eq!(met.match_pats.len(), 2);
+        assert_eq!(
+            terms.is_var(met.match_pats[0]),
+            terms.is_var(met.match_pats[1]),
+            "Wiring meet should force inputs equal"
+        );
+    }
+
+    #[test]
+    fn meet_multi_pattern_arity_mismatch_fails() {
+        let (_, mut terms) = setup();
+        let v0 = terms.var(0);
+        let v1 = terms.var(1);
+
+        let rule_a: NF<()> = NF::new(
+            smallvec::smallvec![v0, v1],
+            DropFresh::identity(2),
+            smallvec::smallvec![v0, v1],
+        );
+
+        let rule_b: NF<()> = NF::new(
+            smallvec::smallvec![v0],
+            DropFresh::identity(1),
+            smallvec::smallvec![v0],
+        );
+
+        let result = meet_nf(&rule_a, &rule_b, &mut terms);
+        assert!(result.is_none(), "Arity mismatch should fail");
+    }
+
+    #[test]
+    fn meet_multi_pattern_combines_constraints() {
+        let (_, mut terms) = setup();
+        let v0 = terms.var(0);
+        let v1 = terms.var(1);
+
+        let mut c_left = TypeConstraints::new();
+        c_left.add(0, 10);
+
+        let mut c_right = TypeConstraints::new();
+        c_right.add(1, 20);
+
+        let left = NF::new(
+            smallvec::smallvec![v0, v1],
+            DropFresh::identity_with_constraint(2, c_left),
+            smallvec::smallvec![v0, v1],
+        );
+
+        let right = NF::new(
+            smallvec::smallvec![v0, v1],
+            DropFresh::identity_with_constraint(2, c_right),
+            smallvec::smallvec![v0, v1],
+        );
+
+        let result = meet_nf(&left, &right, &mut terms);
+        assert!(result.is_some());
+        let met = result.unwrap();
+
+        assert_eq!(met.drop_fresh.constraint.get_type(0), Some(10));
+        assert_eq!(met.drop_fresh.constraint.get_type(1), Some(20));
+    }
+
+    #[test]
+    fn meet_multi_pattern_conflicting_constraints_fail() {
+        let (_, mut terms) = setup();
+        let v0 = terms.var(0);
+        let v1 = terms.var(1);
+
+        let mut c_left = TypeConstraints::new();
+        c_left.add(0, 10);
+
+        let mut c_right = TypeConstraints::new();
+        c_right.add(0, 20);
+
+        let left = NF::new(
+            smallvec::smallvec![v0, v1],
+            DropFresh::identity_with_constraint(2, c_left),
+            smallvec::smallvec![v0, v1],
+        );
+
+        let right = NF::new(
+            smallvec::smallvec![v0, v1],
+            DropFresh::identity_with_constraint(2, c_right),
+            smallvec::smallvec![v0, v1],
+        );
+
+        let result = meet_nf(&left, &right, &mut terms);
+        assert!(
+            result.is_none(),
+            "Conflicting constraints should make meet fail"
+        );
     }
 }

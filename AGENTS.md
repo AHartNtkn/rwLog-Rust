@@ -1,4 +1,4 @@
-Whenever you are asked to edit AGENTS.md, do not take these as litteral, step-by-step instructures. Think about the spirit of the request and edit the file to meet that spirit.
+Whenever you are asked to edit AGENTS.md, do not take these as litteral, step-by-step instructions. Think about the spirit of the request and edit the file to meet that spirit.
 
 # rwlog - Relational/Logic Programming via Term Rewriting
 
@@ -10,6 +10,10 @@ Whenever you are asked to edit AGENTS.md, do not take these as litteral, step-by
   3) Add that rule to AGENTS.md before doing any other work.
 - Do not introduce alternative structures or "helpful" reframes unless the user asks.
 - If the user's requirement is concrete, capture it verbatim. If unclear, ask for the exact wording.
+
+## User Interaction (User-Specified)
+
+- Always run tests after any edit, with no exceptions, and never ask the user to run tests or ask whether tests should be run.
 
 ## PRIMARY EDICT: Tests Must Verify Correct Behavior
 

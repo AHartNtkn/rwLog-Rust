@@ -25,6 +25,14 @@ pub struct NF<C> {
     pub build_pats: SmallVec<[TermId; 1]>,
 }
 
+/// Direct tensor rewrite form (lists of patterns with constraint).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RwT<C> {
+    pub lhs: SmallVec<[TermId; 1]>,
+    pub rhs: SmallVec<[TermId; 1]>,
+    pub constraint: C,
+}
+
 impl<C> NF<C> {
     /// Create a new NF directly (assumes already normalized).
     pub fn new(match_pats: SmallVec<[TermId; 1]>, drop_fresh: DropFresh<C>, build_pats: SmallVec<[TermId; 1]>) -> Self {
@@ -136,12 +144,130 @@ impl<C: Default + Clone> NF<C> {
     }
 }
 
+/// Collect a tensor NF into direct-rule form by pushing wiring into RHS vars.
+pub fn collect_tensor<C: Clone>(nf: &NF<C>, terms: &mut TermStore) -> RwT<C> {
+    let out_arity = nf.drop_fresh.out_arity as usize;
+    let in_arity = nf.drop_fresh.in_arity as u32;
+
+    let mut rhs_map: Vec<Option<u32>> = vec![None; out_arity];
+    for (i, j) in nf.drop_fresh.map.iter().copied() {
+        if let Some(slot) = rhs_map.get_mut(j as usize) {
+            *slot = Some(i);
+        }
+    }
+
+    let mut next_var = in_arity;
+    for slot in rhs_map.iter_mut() {
+        if slot.is_none() {
+            *slot = Some(next_var);
+            next_var += 1;
+        }
+    }
+
+    let rhs_direct = apply_var_renaming_list(&nf.build_pats, &rhs_map, terms);
+
+    RwT {
+        lhs: nf.match_pats.clone(),
+        rhs: rhs_direct,
+        constraint: nf.drop_fresh.constraint.clone(),
+    }
+}
+
+/// Factor a tensor rewrite (lists of patterns) into NF.
+pub fn factor_tensor<C: Clone>(
+    lhs_pats: SmallVec<[TermId; 1]>,
+    rhs_pats: SmallVec<[TermId; 1]>,
+    constraint: C,
+    terms: &mut TermStore,
+) -> NF<C> {
+    let lhs_vars = collect_vars_ordered_list(&lhs_pats, terms);
+    let rhs_vars = collect_vars_ordered_list(&rhs_pats, terms);
+
+    let n = lhs_vars.len() as u32;
+
+    let max_lhs_var = lhs_vars.iter().copied().max().unwrap_or(0) as usize;
+    let mut lhs_old_to_new = vec![None; max_lhs_var + 1];
+    for (new_idx, &old_idx) in lhs_vars.iter().enumerate() {
+        lhs_old_to_new[old_idx as usize] = Some(new_idx as u32);
+    }
+
+    let norm_lhs = if lhs_vars.is_empty() {
+        lhs_pats.clone()
+    } else {
+        apply_var_renaming_list(&lhs_pats, &lhs_old_to_new, terms)
+    };
+
+    let rhs_set: std::collections::HashSet<u32> = rhs_vars.iter().copied().collect();
+    let lhs_set: std::collections::HashSet<u32> = lhs_vars.iter().copied().collect();
+
+    let mut rhs_ordered: Vec<u32> = Vec::new();
+    for &var in lhs_vars.iter() {
+        if rhs_set.contains(&var) {
+            rhs_ordered.push(var);
+        }
+    }
+    for &var in rhs_vars.iter() {
+        if !lhs_set.contains(&var) {
+            rhs_ordered.push(var);
+        }
+    }
+
+    let m = rhs_ordered.len() as u32;
+
+    let max_rhs_var = rhs_ordered.iter().copied().max().unwrap_or(0) as usize;
+    let mut rhs_old_to_new = vec![None; max_rhs_var + 1];
+    for (new_idx, &old_idx) in rhs_ordered.iter().enumerate() {
+        rhs_old_to_new[old_idx as usize] = Some(new_idx as u32);
+    }
+
+    let norm_rhs = if rhs_ordered.is_empty() {
+        rhs_pats.clone()
+    } else {
+        apply_var_renaming_list(&rhs_pats, &rhs_old_to_new, terms)
+    };
+
+    let mut rhs_pos: std::collections::HashMap<u32, u32> = std::collections::HashMap::new();
+    for (pos, &var) in rhs_ordered.iter().enumerate() {
+        rhs_pos.insert(var, pos as u32);
+    }
+
+    let mut drop_fresh_map: SmallVec<[(u32, u32); 4]> = SmallVec::new();
+    for (i, &lhs_orig_var) in lhs_vars.iter().enumerate() {
+        if let Some(&j) = rhs_pos.get(&lhs_orig_var) {
+            drop_fresh_map.push((i as u32, j));
+        }
+    }
+
+    let drop_fresh = DropFresh {
+        in_arity: n,
+        out_arity: m,
+        map: drop_fresh_map,
+        constraint,
+    };
+
+    NF {
+        match_pats: norm_lhs,
+        drop_fresh,
+        build_pats: norm_rhs,
+    }
+}
+
 /// Collect variables from a term in order of first appearance.
 /// Returns the list of original variable indices (unique).
 pub fn collect_vars_ordered(term: TermId, terms: &TermStore) -> Vec<u32> {
     let mut vars = Vec::new();
     let mut seen = std::collections::HashSet::new();
     collect_vars_helper(term, terms, &mut vars, &mut seen);
+    vars
+}
+
+/// Collect variables from a list of terms in order of first appearance.
+pub fn collect_vars_ordered_list(terms_list: &[TermId], terms: &TermStore) -> Vec<u32> {
+    let mut vars = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for &term in terms_list {
+        collect_vars_helper(term, terms, &mut vars, &mut seen);
+    }
     vars
 }
 
@@ -209,6 +335,17 @@ pub fn apply_var_renaming(term: TermId, old_to_new: &[Option<u32>], terms: &mut 
         }
         None => term,
     }
+}
+
+fn apply_var_renaming_list(
+    terms_list: &[TermId],
+    old_to_new: &[Option<u32>],
+    terms: &mut TermStore,
+) -> SmallVec<[TermId; 1]> {
+    terms_list
+        .iter()
+        .map(|&term| apply_var_renaming(term, old_to_new, terms))
+        .collect()
 }
 
 pub fn direct_rule_terms<C: Clone>(
