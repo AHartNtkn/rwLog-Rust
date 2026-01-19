@@ -161,7 +161,7 @@ mod tests {
     use crate::rel::dual;
     use crate::symbol::SymbolStore;
     use crate::test_utils::{make_ground_nf, make_rule_nf, setup};
-    use crate::wire::Wire;
+    use crate::drop_fresh::DropFresh;
     use smallvec::SmallVec;
     use std::collections::HashSet;
     use std::sync::Arc;
@@ -187,6 +187,27 @@ mod tests {
         } else {
             format!("(s {})", peano_str(n - 1))
         }
+    }
+
+    fn assert_simple_eval(query: &str, input: &str, expected: &str) {
+        let mut parser = Parser::new();
+        let rel = parser.parse_rel_body(query).expect("parse query");
+        let input_term = parser.parse_term(input).expect("parse input").term_id;
+        let expected_term = parser.parse_term(expected).expect("parse expected").term_id;
+
+        let mut terms = parser.take_terms();
+        let expected_nf = NF::factor(input_term, expected_term, (), &mut terms);
+
+        let mut engine: Engine<()> = Engine::new(rel, terms);
+        let answers = engine.collect_answers();
+
+        assert_eq!(
+            answers.len(),
+            1,
+            "Expected exactly one answer for query {}",
+            query
+        );
+        assert_eq!(answers[0], expected_nf, "Unexpected answer for query {}", query);
     }
 
     // ========================================================================
@@ -253,6 +274,37 @@ mod tests {
 
         let ans2 = engine.next();
         assert!(ans2.is_none(), "Atom should exhaust after one answer");
+    }
+
+    // ========================================================================
+    // E2E: Simple Combinators
+    // ========================================================================
+
+    #[test]
+    fn simple_swap_on_ground_pair() {
+        assert_simple_eval(
+            "@(cons a b) ; [(cons $x $y) -> (cons $y $x)]",
+            "(cons a b)",
+            "(cons b a)",
+        );
+    }
+
+    #[test]
+    fn simple_reorder_and_duplicate() {
+        assert_simple_eval(
+            "@(cons a b) ; [(cons $x $y) -> (cons $y (cons $x $y))]",
+            "(cons a b)",
+            "(cons b (cons a b))",
+        );
+    }
+
+    #[test]
+    fn simple_swap_then_duplicate() {
+        assert_simple_eval(
+            "@(cons a b) ; [(cons $x $y) -> (cons $y $x) ; (cons $x $y) -> (cons $x $x)]",
+            "(cons a b)",
+            "(cons b b)",
+        );
     }
 
     // ========================================================================
@@ -823,7 +875,7 @@ mod tests {
         // Base: z -> z
         let base_nf = NF::new(
             SmallVec::from_slice(&[z_term]),
-            Wire::identity(0),
+            DropFresh::identity(0),
             SmallVec::from_slice(&[z_term]),
         );
         let base = Arc::new(Rel::Atom(Arc::new(base_nf)));
@@ -831,7 +883,7 @@ mod tests {
         // Peel: (s x) -> x
         let peel_nf = NF::new(
             SmallVec::from_slice(&[s_v0]),
-            Wire::identity(1),
+            DropFresh::identity(1),
             SmallVec::from_slice(&[v0]),
         );
         let peel = Arc::new(Rel::Atom(Arc::new(peel_nf)));
@@ -1076,7 +1128,7 @@ mod tests {
         let countdown = build_countdown_rel(&symbols, &terms);
         let input_nf = NF::new(
             SmallVec::from_slice(&[s_z]),
-            Wire::identity(0),
+            DropFresh::identity(0),
             SmallVec::from_slice(&[s_z]),
         );
         let query = Rel::Seq(Arc::from(vec![
@@ -1168,7 +1220,7 @@ mod tests {
         ]));
         let input_nf = NF::new(
             SmallVec::from_slice(&[ss_z]),
-            Wire::identity(0),
+            DropFresh::identity(0),
             SmallVec::from_slice(&[ss_z]),
         );
 
@@ -1214,21 +1266,21 @@ mod tests {
         // recursive: peel ; Call ; wrap
         let base_nf = NF::new(
             SmallVec::from_slice(&[z_term]),
-            Wire::identity(0),
+            DropFresh::identity(0),
             SmallVec::from_slice(&[z_term]),
         );
         let base = Arc::new(Rel::Atom(Arc::new(base_nf)));
 
         let peel_nf = NF::new(
             SmallVec::from_slice(&[s_v0]),
-            Wire::identity(1),
+            DropFresh::identity(1),
             SmallVec::from_slice(&[v0]),
         );
         let peel = Arc::new(Rel::Atom(Arc::new(peel_nf)));
 
         let wrap_nf = NF::new(
             SmallVec::from_slice(&[v0]),
-            Wire::identity(1),
+            DropFresh::identity(1),
             SmallVec::from_slice(&[s_v0]),
         );
         let wrap = Arc::new(Rel::Atom(Arc::new(wrap_nf)));
@@ -1244,7 +1296,7 @@ mod tests {
         // id_(s z): matches (s z) -> (s z)
         let constraint_nf = NF::new(
             SmallVec::from_slice(&[s_z]),
-            Wire::identity(0),
+            DropFresh::identity(0),
             SmallVec::from_slice(&[s_z]),
         );
 
@@ -1660,7 +1712,7 @@ rel add {
         // Constraint: output must be z
         let z_nf = NF::new(
             SmallVec::from_slice(&[z_term]),
-            Wire::identity(0),
+            DropFresh::identity(0),
             SmallVec::from_slice(&[z_term]),
         );
 
@@ -1692,7 +1744,7 @@ rel add {
         // z -> z constraint on both sides
         let z_nf = NF::new(
             SmallVec::from_slice(&[z_term]),
-            Wire::identity(0),
+            DropFresh::identity(0),
             SmallVec::from_slice(&[z_term]),
         );
 
@@ -1810,21 +1862,21 @@ rel add {
 
         let base_nf = NF::new(
             SmallVec::from_slice(&[z_term]),
-            Wire::identity(0),
+            DropFresh::identity(0),
             SmallVec::from_slice(&[z_term]),
         );
         let base = Arc::new(Rel::Atom(Arc::new(base_nf)));
 
         let peel_nf = NF::new(
             SmallVec::from_slice(&[s_v0]),
-            Wire::identity(1),
+            DropFresh::identity(1),
             SmallVec::from_slice(&[v0]),
         );
         let peel = Arc::new(Rel::Atom(Arc::new(peel_nf)));
 
         let wrap_nf = NF::new(
             SmallVec::from_slice(&[v0]),
-            Wire::identity(1),
+            DropFresh::identity(1),
             SmallVec::from_slice(&[s_v0]),
         );
         let wrap = Arc::new(Rel::Atom(Arc::new(wrap_nf)));
@@ -1840,7 +1892,7 @@ rel add {
         // Query: what inputs to countdown produce (s z)?
         let constraint = NF::new(
             SmallVec::from_slice(&[s_z]),
-            Wire::identity(0),
+            DropFresh::identity(0),
             SmallVec::from_slice(&[s_z]),
         );
 

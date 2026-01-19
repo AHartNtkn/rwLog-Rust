@@ -2,7 +2,7 @@ pub mod trace;
 pub mod metrics;
 pub mod symbol;
 pub mod term;
-pub mod wire;
+pub mod drop_fresh;
 pub mod nf;
 pub mod subst;
 pub mod unify;

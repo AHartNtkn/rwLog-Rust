@@ -1444,7 +1444,7 @@ mod tests {
     use crate::rel::Rel;
     use crate::term::TermStore;
     use crate::test_utils::{make_ground_nf, setup};
-    use crate::wire::Wire;
+    use crate::drop_fresh::DropFresh;
     use smallvec::SmallVec;
     use std::sync::Arc;
 
@@ -1460,7 +1460,7 @@ mod tests {
         let v0 = terms.var(0);
         NF::new(
             SmallVec::from_slice(&[v0]),
-            Wire::identity(1),
+            DropFresh::identity(1),
             SmallVec::from_slice(&[v0]),
         )
     }
@@ -2132,7 +2132,7 @@ mod tests {
             let tb = terms.app0(b);
             NF::new(
                 SmallVec::from_slice(&[ta]),
-                Wire::identity(0),
+                DropFresh::identity(0),
                 SmallVec::from_slice(&[tb]),
             )
         };
@@ -2143,7 +2143,7 @@ mod tests {
             let td = terms.app0(d);
             NF::new(
                 SmallVec::from_slice(&[tc]),
-                Wire::identity(0),
+                DropFresh::identity(0),
                 SmallVec::from_slice(&[td]),
             )
         };
@@ -2331,12 +2331,12 @@ mod tests {
 
         let x_to_y = NF::new(
             SmallVec::from_slice(&[tx]),
-            Wire::identity(0),
+            DropFresh::identity(0),
             SmallVec::from_slice(&[ty]),
         );
         let y_to_z = NF::new(
             SmallVec::from_slice(&[ty]),
-            Wire::identity(0),
+            DropFresh::identity(0),
             SmallVec::from_slice(&[tz]),
         );
 
@@ -2642,7 +2642,7 @@ mod tests {
         let pair_ab = terms.app2(pair_sym, ta, tb);
         let double = NF::new(
             SmallVec::from_slice(&[pair_ab]),
-            Wire::identity(0),
+            DropFresh::identity(0),
             SmallVec::from_slice(&[pair_ab]),
         );
 

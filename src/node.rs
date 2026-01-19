@@ -81,7 +81,7 @@ mod tests {
     use crate::symbol::SymbolStore;
     use crate::term::TermStore;
     use crate::test_utils::setup;
-    use crate::wire::Wire;
+    use crate::drop_fresh::DropFresh;
     use smallvec::SmallVec;
 
     /// Create a simple identity NF for testing
@@ -97,7 +97,7 @@ mod tests {
         let tb = terms.app0(b);
         NF::new(
             SmallVec::from_slice(&[ta]),
-            Wire::identity(0),
+            DropFresh::identity(0),
             SmallVec::from_slice(&[tb]),
         )
     }
@@ -358,7 +358,7 @@ mod tests {
         let node: Node<()> = Node::Emit(nf.clone(), Box::new(Node::Fail));
         match node {
             Node::Emit(emitted, rest) => {
-                assert_eq!(emitted.wire.in_arity, nf.wire.in_arity);
+                assert_eq!(emitted.drop_fresh.in_arity, nf.drop_fresh.in_arity);
                 assert!(matches!(*rest, Node::Fail));
             }
             _ => panic!("Expected Emit"),

@@ -159,12 +159,12 @@ A **span** `Rw lhs rhs` denotes a relation where:
 User-facing `Rw` nodes are **factored** into three internal forms before execution:
 
 ```
-Rw lhs rhs c  ~=  RwL [normLhs] ; Wire w ; RwR [normRhs]
+Rw lhs rhs c  ~=  RwL [normLhs] ; DropFresh w ; RwR [normRhs]
 ```
 
 This separation isolates:
 - **RwL**: Pattern matching (decomposition)
-- **Wire**: Variable routing
+- **DropFresh**: Variable routing
 - **RwR**: Term construction (composition)
 
 ### RwL - Left Tensor (Decomposition)
@@ -197,9 +197,9 @@ This separation isolates:
 
 **Duality:** RwL and RwR are perfect duals: `[[RwR ps]] = dual([[RwL ps]])`
 
-### Wire - Variable Routing
+### DropFresh - Variable Routing
 
-Wire specifies how variables flow from input to output.
+DropFresh specifies how variables flow from input to output.
 
 **Intuition:** Start with a tuple of n values, drop some, keep k, add fresh values, end with m values. There are no swaps or reorderings - just drop and add.
 
@@ -212,7 +212,7 @@ Wire specifies how variables flow from input to output.
 **Representation:** A monotone partial injection - list of (input_pos, output_pos) pairs, strictly increasing in both coordinates.
 
 ```rust
-struct Wire<C> {
+struct DropFresh<C> {
     in_arity: u32,
     out_arity: u32,
     map: SmallVec<[(u32, u32); 4]>,  // strictly increasing in both coords
@@ -222,7 +222,7 @@ struct Wire<C> {
 
 **Semantics:**
 ```
-[[Wire w]] inp out  <=>
+[[DropFresh w]] inp out  <=>
     length inp = w.in_arity and
     length out = w.out_arity and
     forall (i, j) in w.map. inp[i] = out[j]
@@ -244,7 +244,7 @@ Given `Rw lhs rhs c`:
    normRhs uses vars 0..m-1 (where m = length rhsVars)
    ```
 
-3. **Build labels** for Wire:
+3. **Build labels** for DropFresh:
    ```
    lhsLabels = [0, 1, ..., n-1]
    rhsLabels = for each (j, v) in enumerate(rhsVars):
@@ -252,7 +252,7 @@ Given `Rw lhs rhs c`:
                  else: label = n + j  (fresh, unique)
    ```
 
-4. **Construct Wire** from matching labels:
+4. **Construct DropFresh** from matching labels:
    - Shared variables: where lhsLabels[i] = rhsLabels[j]
    - map contains (i, j) pairs for shared variables
 
@@ -280,11 +280,11 @@ RwR [p1, p2, ...] ; RwR [q1, q2, ...] -> RwR [q1[p/vars], q2[p/vars], ...]
 
 `RwR ; RwL` - Unification at the interface:
 
-This fusion **ALWAYS** produces `RwL ; Wire ; RwR` (never just a Wire):
+This fusion **ALWAYS** produces `RwL ; DropFresh ; RwR` (never just a DropFresh):
 ```
 RwR [p1, ...] ; RwL [q1, ...] ->
   if unify(pi, qi) succeeds with sigma:
-    RwL [varsOf(p)[sigma], ...] ; Wire w ; RwR [varsOf(q)[sigma], ...]
+    RwL [varsOf(p)[sigma], ...] ; DropFresh w ; RwR [varsOf(q)[sigma], ...]
   else:
     Fail
 ```
@@ -295,7 +295,7 @@ RwR [p1, ...] ; RwL [q1, ...] ->
 1. Unify B(0,1) with B(A(2),3): sigma = {0 -> A(2), 1 -> 3}
 2. RwR has vars [0, 1] -> apply sigma -> [A(2), 3]
 3. RwL has vars [2, 3] -> apply sigma -> [2, 3] (unchanged)
-4. Result: `RwL [A(2), 3] ; Wire(identity 2->2) ; RwR [2, 3]`
+4. Result: `RwL [A(2), 3] ; DropFresh(identity 2->2) ; RwR [2, 3]`
 
 **Common mistake to avoid:** The fact that patterns become identical after unification says nothing about whether the operation is identity. The actual transformation is determined by the *variable structure*, not pattern equality.
 
@@ -316,7 +316,7 @@ This eliminates looping behavior because `meet_nf` is a single terminating funct
 The universal principle for normalization is:
 - **RwL always moves left**
 - **RwR always moves right**
-- **Wire moves left** (arbitrary choice, but consistent)
+- **DropFresh moves left** (arbitrary choice, but consistent)
 
 ### And Normalization
 
@@ -356,7 +356,7 @@ The kernel operates on a single compact canonical form:
 struct NF<C> {
     // Match: patterns to decompose input
     match_pats: SmallVec<[TermId; 1]>,
-    wire: Wire<C>,
+    drop_fresh: DropFresh<C>,
     // Build: patterns to construct output
     build_pats: SmallVec<[TermId; 1]>,
 }
@@ -391,7 +391,7 @@ Step 3 - RwL;RwL fusion on `RwL [B(A(0),1)] ; RwL [A(2), 3]`:
 - B(A(0), 1) becomes B(A(A(2)), 3)
 - Result: `RwL [B(A(A(2)), 3)]`
 
-Step 4-6: Continue fusing Wires and RwRs
+Step 4-6: Continue fusing DropFreshs and RwRs
 
 Final result:
 ```

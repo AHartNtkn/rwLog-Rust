@@ -85,7 +85,7 @@ mod tests {
     use crate::symbol::SymbolStore;
     use crate::term::TermStore;
     use crate::test_utils::{make_rule_nf, setup};
-    use crate::wire::Wire;
+    use crate::drop_fresh::DropFresh;
     use smallvec::SmallVec;
     use std::sync::Arc;
 
@@ -98,7 +98,7 @@ mod tests {
         let g_x = terms.app1(g, v0);
         NF::new(
             SmallVec::from_slice(&[f_x]),
-            Wire::identity(1),
+            DropFresh::identity(1),
             SmallVec::from_slice(&[g_x]),
         )
     }
@@ -109,7 +109,7 @@ mod tests {
         let t = terms.app0(sym);
         let nf = NF::new(
             SmallVec::from_slice(&[t]),
-            Wire::identity(0),
+            DropFresh::identity(0),
             SmallVec::from_slice(&[t]),
         );
         Rel::Atom(Arc::new(nf))
@@ -122,9 +122,9 @@ mod tests {
             (Rel::Atom(nf1), Rel::Atom(nf2)) => {
                 nf1.match_pats == nf2.match_pats
                     && nf1.build_pats == nf2.build_pats
-                    && nf1.wire.in_arity == nf2.wire.in_arity
-                    && nf1.wire.out_arity == nf2.wire.out_arity
-                    && nf1.wire.map == nf2.wire.map
+                    && nf1.drop_fresh.in_arity == nf2.drop_fresh.in_arity
+                    && nf1.drop_fresh.out_arity == nf2.drop_fresh.out_arity
+                    && nf1.drop_fresh.map == nf2.drop_fresh.map
             }
             (Rel::Or(a1, b1), Rel::Or(a2, b2)) => {
                 structurally_equal(a1, a2) && structurally_equal(b1, b2)
@@ -197,9 +197,9 @@ mod tests {
                 // F(x) -> G(x) becomes G(x) -> F(x)
                 assert_eq!(dualed_nf.match_pats, nf.build_pats);
                 assert_eq!(dualed_nf.build_pats, nf.match_pats);
-                // Wire should also be dualized
-                assert_eq!(dualed_nf.wire.in_arity, nf.wire.out_arity);
-                assert_eq!(dualed_nf.wire.out_arity, nf.wire.in_arity);
+                // DropFresh should also be dualized
+                assert_eq!(dualed_nf.drop_fresh.in_arity, nf.drop_fresh.out_arity);
+                assert_eq!(dualed_nf.drop_fresh.out_arity, nf.drop_fresh.in_arity);
             }
             _ => panic!("Expected Atom variant"),
         }

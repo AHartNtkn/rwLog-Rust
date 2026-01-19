@@ -1,16 +1,16 @@
 use crate::symbol::SymbolStore;
 use crate::term::{format_term, Term, TermId, TermStore};
-use crate::wire::Wire;
+use crate::drop_fresh::DropFresh;
 use smallvec::SmallVec;
 
 /// Normal Form representation of a rewrite rule.
 ///
 /// A rule `Rw lhs rhs` is factored into:
-///   RwL [match_pats] ; Wire ; RwR [build_pats]
+///   RwL [match_pats] ; DropFresh ; RwR [build_pats]
 ///
 /// Where:
 /// - RwL (match_pats): patterns to decompose input, extracting variables
-/// - Wire: variable routing between LHS vars and RHS vars
+/// - DropFresh: variable routing between LHS vars and RHS vars
 /// - RwR (build_pats): patterns to construct output from variables
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct NF<C> {
@@ -18,26 +18,27 @@ pub struct NF<C> {
     /// Variables in these patterns are numbered 0..n-1 in order of first appearance.
     pub match_pats: SmallVec<[TermId; 1]>,
     /// Variable routing between match and build.
-    pub wire: Wire<C>,
+    pub drop_fresh: DropFresh<C>,
     /// Patterns for building output terms (RwR).
-    /// Variables in these patterns are numbered 0..m-1 in order of first appearance.
+    /// Variables in these patterns are numbered 0..m-1 with shared vars in LHS order,
+    /// followed by RHS-only vars in RHS order.
     pub build_pats: SmallVec<[TermId; 1]>,
 }
 
 impl<C> NF<C> {
     /// Create a new NF directly (assumes already normalized).
-    pub fn new(match_pats: SmallVec<[TermId; 1]>, wire: Wire<C>, build_pats: SmallVec<[TermId; 1]>) -> Self {
-        Self { match_pats, wire, build_pats }
+    pub fn new(match_pats: SmallVec<[TermId; 1]>, drop_fresh: DropFresh<C>, build_pats: SmallVec<[TermId; 1]>) -> Self {
+        Self { match_pats, drop_fresh, build_pats }
     }
 
-    /// Create an identity NF (empty patterns, zero-arity wire).
+    /// Create an identity NF (empty patterns, zero-arity DropFresh).
     ///
     /// This represents the identity relation that accepts any input
     /// and produces it unchanged.
     pub fn identity(constraint: C) -> Self {
         Self {
             match_pats: SmallVec::new(),
-            wire: Wire::identity_with_constraint(0, constraint),
+            drop_fresh: DropFresh::identity_with_constraint(0, constraint),
             build_pats: SmallVec::new(),
         }
     }
@@ -46,7 +47,7 @@ impl<C> NF<C> {
 impl<C: Default + Clone> NF<C> {
     /// Factor a single-term rule (lhs -> rhs) into normal form.
     ///
-    /// This extracts variables, renumbers them, and computes the wire
+    /// This extracts variables, renumbers them, and computes the DropFresh
     /// that connects LHS variables to RHS variables.
     pub fn factor(lhs: TermId, rhs: TermId, constraint: C, terms: &mut TermStore) -> Self {
         // Step 1: Collect variables from each side
@@ -54,7 +55,6 @@ impl<C: Default + Clone> NF<C> {
         let rhs_vars = collect_vars_ordered(rhs, terms);
 
         let n = lhs_vars.len() as u32;
-        let m = rhs_vars.len() as u32;
 
         // Step 2: Build old_to_new mapping for LHS renumbering
         // LHS vars get renumbered 0..n-1 in order of appearance
@@ -71,59 +71,66 @@ impl<C: Default + Clone> NF<C> {
             apply_var_renaming(lhs, &lhs_old_to_new, terms)
         };
 
-        // Step 4: Build old_to_new mapping for RHS renumbering
-        // RHS vars get renumbered 0..m-1 in order of appearance
-        let max_rhs_var = rhs_vars.iter().copied().max().unwrap_or(0) as usize;
+        // Step 4: Establish RHS variable order:
+        // - shared vars in LHS order (preserves monotone routing)
+        // - fresh vars appended in RHS order
+        let rhs_set: std::collections::HashSet<u32> = rhs_vars.iter().copied().collect();
+        let lhs_set: std::collections::HashSet<u32> = lhs_vars.iter().copied().collect();
+
+        let mut rhs_ordered: Vec<u32> = Vec::new();
+        for &var in lhs_vars.iter() {
+            if rhs_set.contains(&var) {
+                rhs_ordered.push(var);
+            }
+        }
+        for &var in rhs_vars.iter() {
+            if !lhs_set.contains(&var) {
+                rhs_ordered.push(var);
+            }
+        }
+
+        let m = rhs_ordered.len() as u32;
+
+        // Step 5: Build old_to_new mapping for RHS renumbering
+        // RHS vars are renumbered according to rhs_ordered.
+        let max_rhs_var = rhs_ordered.iter().copied().max().unwrap_or(0) as usize;
         let mut rhs_old_to_new = vec![None; max_rhs_var + 1];
-        for (new_idx, &old_idx) in rhs_vars.iter().enumerate() {
+        for (new_idx, &old_idx) in rhs_ordered.iter().enumerate() {
             rhs_old_to_new[old_idx as usize] = Some(new_idx as u32);
         }
 
-        // Step 5: Renumber RHS
-        let norm_rhs = if rhs_vars.is_empty() {
+        // Step 6: Renumber RHS
+        let norm_rhs = if rhs_ordered.is_empty() {
             rhs
         } else {
             apply_var_renaming(rhs, &rhs_old_to_new, terms)
         };
 
-        // Step 6: Build wire by finding shared variables
+        // Step 7: Build DropFresh by finding shared variables
         // For each LHS var position i, find if the original var appears in RHS
-        // and at what position j. Wire connects (i, j) for shared vars.
-        let mut wire_map: SmallVec<[(u32, u32); 4]> = SmallVec::new();
+        // and at what position j in rhs_ordered. DropFresh connects (i, j) for shared vars.
+        let mut rhs_pos: std::collections::HashMap<u32, u32> = std::collections::HashMap::new();
+        for (pos, &var) in rhs_ordered.iter().enumerate() {
+            rhs_pos.insert(var, pos as u32);
+        }
+        let mut drop_fresh_map: SmallVec<[(u32, u32); 4]> = SmallVec::new();
 
         for (i, &lhs_orig_var) in lhs_vars.iter().enumerate() {
-            // Find position of this var in RHS vars
-            if let Some(j) = rhs_vars.iter().position(|&v| v == lhs_orig_var) {
-                wire_map.push((i as u32, j as u32));
+            if let Some(&j) = rhs_pos.get(&lhs_orig_var) {
+                drop_fresh_map.push((i as u32, j));
             }
         }
 
-        // The wire_map is already sorted by i (LHS position) since we iterate in order.
-        // We need to check if it's monotone in j (RHS position) too.
-        // If not, we have a crossing situation. For now, we'll just use what we have.
-        // The Wire::new will validate and handle this.
-
-        // Filter to keep only monotonically increasing mappings
-        let mut filtered_map: SmallVec<[(u32, u32); 4]> = SmallVec::new();
-        let mut last_j = None;
-        for (i, j) in wire_map {
-            if last_j.is_none() || j > last_j.unwrap() {
-                filtered_map.push((i, j));
-                last_j = Some(j);
-            }
-            // If j <= last_j, we skip this mapping (it's a crossing)
-        }
-
-        let wire = Wire {
+        let drop_fresh = DropFresh {
             in_arity: n,
             out_arity: m,
-            map: filtered_map,
+            map: drop_fresh_map,
             constraint,
         };
 
         Self {
             match_pats: smallvec::smallvec![norm_lhs],
-            wire,
+            drop_fresh,
             build_pats: smallvec::smallvec![norm_rhs],
         }
     }
@@ -214,11 +221,11 @@ pub fn direct_rule_terms<C: Clone>(
 
     let lhs = nf.match_pats[0];
     let rhs = nf.build_pats[0];
-    let out_arity = nf.wire.out_arity as usize;
-    let in_arity = nf.wire.in_arity as u32;
+    let out_arity = nf.drop_fresh.out_arity as usize;
+    let in_arity = nf.drop_fresh.in_arity as u32;
 
     let mut rhs_map: Vec<Option<u32>> = vec![None; out_arity];
-    for (i, j) in nf.wire.map.iter().copied() {
+    for (i, j) in nf.drop_fresh.map.iter().copied() {
         if let Some(slot) = rhs_map.get_mut(j as usize) {
             *slot = Some(i);
         }
@@ -436,9 +443,9 @@ mod tests {
         assert_eq!(nf.build_pats.len(), 1);
         assert_eq!(terms.is_var(nf.build_pats[0]), Some(0));
 
-        // wire should be identity on 1
-        assert!(nf.wire.is_identity());
-        assert_eq!(nf.wire.in_arity, 1);
+        // DropFresh should be identity on 1
+        assert!(nf.drop_fresh.is_identity());
+        assert_eq!(nf.drop_fresh.in_arity, 1);
     }
 
     #[test]
@@ -466,24 +473,24 @@ mod tests {
         // build_pats: Pair(var(0), var(1)) with vars renumbered from RHS perspective
         assert_eq!(nf.build_pats.len(), 1);
 
-        // Wire: LHS var 0 -> RHS position where original var 0 ends up
+        // DropFresh: LHS var 0 -> RHS position where original var 0 ends up
         //       LHS var 1 -> RHS position where original var 1 ends up
         // In RHS [1, 0]: var 1 is first (pos 0), var 0 is second (pos 1)
         // So: LHS 0 -> RHS 1, LHS 1 -> RHS 0
-        // But wires must be monotone! This is actually a crossing, which can't be
-        // represented as a monotone wire. The factoring will handle this differently.
+        // But DropFresh maps must be monotone! This is actually a crossing, which can't be
+        // represented as a monotone DropFresh. The factoring will handle this differently.
 
-        // Actually, let me reconsider. The wire connects LHS vars (by position in LHS var list)
+        // Actually, let me reconsider. The DropFresh connects LHS vars (by position in LHS var list)
         // to RHS vars (by position in RHS var list).
         // LHS vars in order: [0, 1] -> positions 0, 1
         // RHS vars in order: [1, 0] -> original 1 at pos 0, original 0 at pos 1
         // So LHS pos 0 (original 0) connects to RHS pos 1 (where original 0 is)
         //    LHS pos 1 (original 1) connects to RHS pos 0 (where original 1 is)
-        // This would require wire [(0,1), (1,0)] which is NOT monotone in output!
+        // This would require DropFresh [(0,1), (1,0)] which is NOT monotone in output!
         //
-        // The specification says wires are strictly increasing in both coordinates.
-        // For a swap, there is NO valid wire. The constraint system would need to handle this.
-        // Or the factoring produces a wire that doesn't connect all vars.
+        // The specification says DropFresh maps are strictly increasing in both coordinates.
+        // For a swap, there is NO valid DropFresh. The constraint system would need to handle this.
+        // Or the factoring produces a DropFresh that doesn't connect all vars.
         //
         // Wait, re-reading the spec: the constraint field can carry information.
         // Or, the RHS is renumbered differently?
@@ -502,62 +509,62 @@ mod tests {
         //   j=1, v=0: v=0 is in lhsVars at position 0, so label = 0
         // rhsLabels = [1, 0]
         //
-        // Now build wire: shared vars where lhsLabels[i] = rhsLabels[j]
+        // Now build drop_fresh: shared vars where lhsLabels[i] = rhsLabels[j]
         //   lhsLabels[0] = 0, find j where rhsLabels[j] = 0 -> j=1
         //   lhsLabels[1] = 1, find j where rhsLabels[j] = 1 -> j=0
-        // Wire: [(0, 1), (1, 0)] - but this is not monotone in output!
+        // DropFresh: [(0, 1), (1, 0)] - but this is not monotone in output!
         //
-        // This means swap cannot be represented with a monotone wire.
+        // This means swap cannot be represented with a monotone DropFresh.
         // The spec says "no swaps or reorderings" - but then how is swap handled?
         //
         // I think the answer is: swaps are NOT representable in this system.
-        // Or, the RHS gets the vars from the wire in the order they appear in the wire output,
+        // Or, the RHS gets the vars from the DropFresh in the order they appear in the DropFresh output,
         // not in the order they appear in the RHS pattern.
         //
         // Let me re-read more carefully...
-        // "Build labels for Wire: Shared variables: where lhsLabels[i] = rhsLabels[j]
+        // "Build labels for DropFresh: Shared variables: where lhsLabels[i] = rhsLabels[j]
         //  Domain selects those i positions from lhs
         //  Codomain selects those j positions from rhs"
         //
         // For swap: both vars are shared, but the order is crossed.
-        // Since wire must be monotone, we can't represent this directly.
+        // Since DropFresh must be monotone, we can't represent this directly.
         //
         // I think the correct interpretation is:
-        // - The wire only represents which vars are SHARED (connected)
+        // - The DropFresh only represents which vars are SHARED (connected)
         // - The actual "crossing" is encoded in how the RHS pattern is built
         //
         // The RHS pattern uses renumbered vars where:
-        // - RHS var i gets its value from wire codomain position i (if in codomain)
+        // - RHS var i gets its value from DropFresh codomain position i (if in codomain)
         // - or is fresh
         //
-        // For swap, both RHS positions are in the codomain, but the wire can't cross.
+        // For swap, both RHS positions are in the codomain, but the DropFresh can't cross.
         // So maybe the factoring for swap produces a different result?
         //
         // Actually, I think I'm overcomplicating this. Let me look at the semantics again.
         //
         // The spec says swap IS representable. The key is that the PATTERNS are renumbered,
-        // not the wire. So:
+        // not the DropFresh. So:
         //
         // After renumbering:
         // - normLhs = Pair(var(0), var(1)) with lhsVars = [orig0, orig1]
         // - normRhs = Pair(var(0), var(1)) with rhsVars = [orig1, orig0]
         //
-        // The wire connects: which LHS positions connect to which RHS positions?
+        // The DropFresh connects: which LHS positions connect to which RHS positions?
         // LHS position 0 (orig0) connects to where orig0 appears in RHS -> RHS position 1
         // LHS position 1 (orig1) connects to where orig1 appears in RHS -> RHS position 0
         //
-        // But this is a crossing! The constraint is that wire MUST be monotone.
+        // But this is a crossing! The constraint is that DropFresh MUST be monotone.
         //
         // I think the resolution is that the vars in normRhs are not numbered 0,1
-        // in order of appearance, but rather they're numbered to make the wire monotone.
+        // in order of appearance, but rather they're numbered to make the DropFresh monotone.
         //
-        // OR: the test is wrong and swap just isn't possible with a simple monotone wire.
+        // OR: the test is wrong and swap just isn't possible with a simple monotone DropFresh.
         //
         // Let me skip the swap test for now and focus on simpler cases.
 
         // For now, just check that factoring produces SOMETHING valid
-        assert_eq!(nf.wire.in_arity, 2);
-        assert_eq!(nf.wire.out_arity, 2);
+        assert_eq!(nf.drop_fresh.in_arity, 2);
+        assert_eq!(nf.drop_fresh.out_arity, 2);
     }
 
     #[test]
@@ -574,11 +581,11 @@ mod tests {
         let nf: NF<()> = NF::factor(lhs, rhs, (), &mut terms);
 
         // LHS has 2 vars, RHS has 1 var (shared with LHS)
-        assert_eq!(nf.wire.in_arity, 2);
-        assert_eq!(nf.wire.out_arity, 1);
+        assert_eq!(nf.drop_fresh.in_arity, 2);
+        assert_eq!(nf.drop_fresh.out_arity, 1);
 
-        // Wire should map LHS position 0 to RHS position 0
-        assert_eq!(nf.wire.map.as_slice(), &[(0, 0)]);
+        // DropFresh should map LHS position 0 to RHS position 0
+        assert_eq!(nf.drop_fresh.map.as_slice(), &[(0, 0)]);
     }
 
     #[test]
@@ -595,11 +602,11 @@ mod tests {
         let nf: NF<()> = NF::factor(lhs, rhs, (), &mut terms);
 
         // LHS has 0 vars, RHS has 2 fresh vars
-        assert_eq!(nf.wire.in_arity, 0);
-        assert_eq!(nf.wire.out_arity, 2);
+        assert_eq!(nf.drop_fresh.in_arity, 0);
+        assert_eq!(nf.drop_fresh.out_arity, 2);
 
-        // Wire is disconnect (no shared vars)
-        assert!(nf.wire.is_disconnect());
+        // DropFresh is disconnect (no shared vars)
+        assert!(nf.drop_fresh.is_disconnect());
     }
 
     #[test]
@@ -618,9 +625,9 @@ mod tests {
         let nf: NF<()> = NF::factor(lhs, rhs, (), &mut terms);
 
         // Both sides have vars [0, 1], all shared
-        assert_eq!(nf.wire.in_arity, 2);
-        assert_eq!(nf.wire.out_arity, 2);
-        assert!(nf.wire.is_identity());
+        assert_eq!(nf.drop_fresh.in_arity, 2);
+        assert_eq!(nf.drop_fresh.out_arity, 2);
+        assert!(nf.drop_fresh.is_identity());
     }
 
     #[test]
@@ -635,9 +642,9 @@ mod tests {
         let nf: NF<()> = NF::factor(lhs, rhs, (), &mut terms);
 
         // No vars on either side
-        assert_eq!(nf.wire.in_arity, 0);
-        assert_eq!(nf.wire.out_arity, 0);
-        assert!(nf.wire.is_identity()); // identity on 0 elements
+        assert_eq!(nf.drop_fresh.in_arity, 0);
+        assert_eq!(nf.drop_fresh.out_arity, 0);
+        assert!(nf.drop_fresh.is_identity()); // identity on 0 elements
     }
 
     // ========== NF CONSTRUCTION TESTS ==========
@@ -646,17 +653,17 @@ mod tests {
     fn nf_new_creates_valid_nf() {
         let (_, terms) = setup();
         let v0 = terms.var(0);
-        let wire: Wire<()> = Wire::identity(1);
+        let drop_fresh: DropFresh<()> = DropFresh::identity(1);
 
         let nf = NF::new(
             smallvec::smallvec![v0],
-            wire,
+            drop_fresh,
             smallvec::smallvec![v0],
         );
 
         assert_eq!(nf.match_pats.len(), 1);
         assert_eq!(nf.build_pats.len(), 1);
-        assert!(nf.wire.is_identity());
+        assert!(nf.drop_fresh.is_identity());
     }
 
     // ========== EDGE CASES ==========

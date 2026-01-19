@@ -2,7 +2,7 @@ use crate::nf::{collect_vars_ordered, direct_rule_terms, NF};
 use crate::subst::apply_subst;
 use crate::term::{Term, TermId, TermStore};
 use crate::unify::unify;
-use crate::wire::Wire;
+use crate::drop_fresh::DropFresh;
 use smallvec::SmallVec;
 
 #[cfg(feature = "tracing")]
@@ -30,7 +30,7 @@ pub fn meet_nf<C: Default + Clone>(
     )
     .entered();
 
-    // For the meet, we need to unify direct-rule forms so that wires are honored.
+    // For the meet, we need to unify direct-rule forms so that DropFresh maps are honored.
     if a.match_pats.len() != b.match_pats.len() || a.build_pats.len() != b.build_pats.len() {
         #[cfg(feature = "tracing")]
         trace!("meet_arity_mismatch");
@@ -40,7 +40,7 @@ pub fn meet_nf<C: Default + Clone>(
     if a.match_pats.is_empty() && a.build_pats.is_empty() {
         return Some(NF::new(
             SmallVec::new(),
-            Wire::identity(0),
+            DropFresh::identity(0),
             SmallVec::new(),
         ));
     }
@@ -130,7 +130,7 @@ mod tests {
         // Identity NF: x -> x
         let identity: NF<()> = NF::new(
             smallvec::smallvec![v0],
-            Wire::identity(1),
+            DropFresh::identity(1),
             smallvec::smallvec![v0],
         );
 
@@ -155,7 +155,7 @@ mod tests {
         // Rule: A -> B
         let rule: NF<()> = NF::new(
             smallvec::smallvec![a_term],
-            Wire::identity(0),
+            DropFresh::identity(0),
             smallvec::smallvec![b_term],
         );
 
@@ -176,7 +176,7 @@ mod tests {
         // Rule a: x -> x (identity)
         let identity: NF<()> = NF::new(
             smallvec::smallvec![v0],
-            Wire::identity(1),
+            DropFresh::identity(1),
             smallvec::smallvec![v0],
         );
 
@@ -184,7 +184,7 @@ mod tests {
         let f_x = terms.app1(f, v0);
         let f_rule: NF<()> = NF::new(
             smallvec::smallvec![f_x],
-            Wire::identity(1),
+            DropFresh::identity(1),
             smallvec::smallvec![f_x],
         );
 
@@ -250,14 +250,14 @@ mod tests {
         // Rule a: A -> B
         let rule_a: NF<()> = NF::new(
             smallvec::smallvec![a_term],
-            Wire::identity(0),
+            DropFresh::identity(0),
             smallvec::smallvec![b_term],
         );
 
         // Rule b: C -> B (different match pattern)
         let rule_b: NF<()> = NF::new(
             smallvec::smallvec![c_term],
-            Wire::identity(0),
+            DropFresh::identity(0),
             smallvec::smallvec![b_term],
         );
 
@@ -279,14 +279,14 @@ mod tests {
         // Rule a: A -> B
         let rule_a: NF<()> = NF::new(
             smallvec::smallvec![a_term],
-            Wire::identity(0),
+            DropFresh::identity(0),
             smallvec::smallvec![b_term],
         );
 
         // Rule b: A -> C (same match, different build)
         let rule_b: NF<()> = NF::new(
             smallvec::smallvec![a_term],
-            Wire::identity(0),
+            DropFresh::identity(0),
             smallvec::smallvec![c_term],
         );
 
@@ -310,14 +310,14 @@ mod tests {
         // Rule a: F(x) -> G(x)
         let rule_a: NF<()> = NF::new(
             smallvec::smallvec![f_x],
-            Wire::identity(1),
+            DropFresh::identity(1),
             smallvec::smallvec![g_x],
         );
 
         // Rule b: F(A) -> G(A)
         let rule_b: NF<()> = NF::new(
             smallvec::smallvec![f_a],
-            Wire::identity(0),
+            DropFresh::identity(0),
             smallvec::smallvec![g_a],
         );
 
@@ -341,7 +341,7 @@ mod tests {
         let g_x = terms.app1(g, v0);
         let rule_a: NF<()> = NF::new(
             smallvec::smallvec![f_x],
-            Wire::identity(1),
+            DropFresh::identity(1),
             smallvec::smallvec![g_x],
         );
 
@@ -351,7 +351,7 @@ mod tests {
         let g_g_y = terms.app1(g, g_y);
         let rule_b: NF<()> = NF::new(
             smallvec::smallvec![f_g_y],
-            Wire::identity(1),
+            DropFresh::identity(1),
             smallvec::smallvec![g_g_y],
         );
 
@@ -380,14 +380,14 @@ mod tests {
         // Rule a: F(x) -> F(x)
         let rule_a: NF<()> = NF::new(
             smallvec::smallvec![f_x],
-            Wire::identity(1),
+            DropFresh::identity(1),
             smallvec::smallvec![f_x],
         );
 
         // Rule b: F(A) -> F(A)
         let rule_b: NF<()> = NF::new(
             smallvec::smallvec![f_a],
-            Wire::identity(0),
+            DropFresh::identity(0),
             smallvec::smallvec![f_a],
         );
 
@@ -412,7 +412,7 @@ mod tests {
 
         let empty: NF<()> = NF::new(
             SmallVec::new(),
-            Wire::identity(0),
+            DropFresh::identity(0),
             SmallVec::new(),
         );
 
@@ -431,7 +431,7 @@ mod tests {
         let pair_xy = terms.app2(pair, v0, v1);
         let rule_a: NF<()> = NF::new(
             smallvec::smallvec![pair_xy],
-            Wire::identity(2),
+            DropFresh::identity(2),
             smallvec::smallvec![pair_xy],
         );
 
@@ -439,7 +439,7 @@ mod tests {
         let pair_xx = terms.app2(pair, v0, v0);
         let rule_b: NF<()> = NF::new(
             smallvec::smallvec![pair_xx],
-            Wire::identity(1),
+            DropFresh::identity(1),
             smallvec::smallvec![pair_xx],
         );
 
@@ -464,7 +464,7 @@ mod tests {
         // Rule a: x -> x
         let identity: NF<()> = NF::new(
             smallvec::smallvec![v0],
-            Wire::identity(1),
+            DropFresh::identity(1),
             smallvec::smallvec![v0],
         );
 
@@ -473,7 +473,7 @@ mod tests {
         let f_g_x = terms.app1(f, g_x);
         let complex: NF<()> = NF::new(
             smallvec::smallvec![f_g_x],
-            Wire::identity(1),
+            DropFresh::identity(1),
             smallvec::smallvec![f_g_x],
         );
 
@@ -498,14 +498,14 @@ mod tests {
         let f_x = terms.app1(f, v0);
         let rule_a: NF<()> = NF::new(
             smallvec::smallvec![v0],
-            Wire::identity(1),
+            DropFresh::identity(1),
             smallvec::smallvec![f_x],
         );
 
         // Rule b: F(x) -> x
         let rule_b: NF<()> = NF::new(
             smallvec::smallvec![f_x],
-            Wire::identity(1),
+            DropFresh::identity(1),
             smallvec::smallvec![v0],
         );
 
@@ -527,7 +527,7 @@ mod tests {
         let t_xyz = terms.app(triple, triple_xyz.clone());
         let rule_a: NF<()> = NF::new(
             smallvec::smallvec![t_xyz],
-            Wire::identity(3),
+            DropFresh::identity(3),
             smallvec::smallvec![t_xyz],
         );
 
@@ -536,7 +536,7 @@ mod tests {
         let t_xxy = terms.app(triple, triple_xxy);
         let rule_b: NF<()> = NF::new(
             smallvec::smallvec![t_xxy],
-            Wire::identity(2),
+            DropFresh::identity(2),
             smallvec::smallvec![t_xxy],
         );
 
@@ -568,7 +568,7 @@ mod tests {
         let base_term = terms.app(append, base_args);
         let base_rule: NF<()> = NF::new(
             smallvec::smallvec![base_term],
-            Wire::identity(1),
+            DropFresh::identity(1),
             smallvec::smallvec![base_term],
         );
 
@@ -577,7 +577,7 @@ mod tests {
         let query_term = terms.app(append, query_args);
         let query: NF<()> = NF::new(
             smallvec::smallvec![query_term],
-            Wire::identity(3),
+            DropFresh::identity(3),
             smallvec::smallvec![query_term],
         );
 

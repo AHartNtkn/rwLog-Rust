@@ -778,9 +778,9 @@ mod tests {
         let nf = parser
             .parse_rule("$x -> (f $x $y)")
             .expect("parse rule with rhs-only variable");
-        assert_eq!(nf.wire.in_arity, 1);
-        assert_eq!(nf.wire.out_arity, 2);
-        assert_eq!(nf.wire.map.as_slice(), &[(0, 0)]);
+        assert_eq!(nf.drop_fresh.in_arity, 1);
+        assert_eq!(nf.drop_fresh.out_arity, 2);
+        assert_eq!(nf.drop_fresh.map.as_slice(), &[(0, 0)]);
     }
 
     #[test]
@@ -789,9 +789,9 @@ mod tests {
         let nf = parser
             .parse_rule("(f $x $y) -> $x")
             .expect("parse rule with lhs-only variable");
-        assert_eq!(nf.wire.in_arity, 2);
-        assert_eq!(nf.wire.out_arity, 1);
-        assert_eq!(nf.wire.map.as_slice(), &[(0, 0)]);
+        assert_eq!(nf.drop_fresh.in_arity, 2);
+        assert_eq!(nf.drop_fresh.out_arity, 1);
+        assert_eq!(nf.drop_fresh.map.as_slice(), &[(0, 0)]);
     }
 
     #[test]

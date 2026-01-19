@@ -1,4 +1,15 @@
+Whenever you are asked to edit AGENTS.md, do not take these as litteral, step-by-step instructures. Think about the spirit of the request and edit the file to meet that spirit.
+
 # rwlog - Relational/Logic Programming via Term Rewriting
+
+## Misalignment Fix Protocol (User-Specified)
+
+- When the user says a requirement is vague/misaligned, stop work and do three steps in order:
+  1) Quote the exact user statement.
+  2) Translate it into a precise, checkable rule using the user's wording (no paraphrased or "improved" structure).
+  3) Add that rule to AGENTS.md before doing any other work.
+- Do not introduce alternative structures or "helpful" reframes unless the user asks.
+- If the user's requirement is concrete, capture it verbatim. If unclear, ask for the exact wording.
 
 ## PRIMARY EDICT: Tests Must Verify Correct Behavior
 
@@ -46,6 +57,50 @@ But NEVER write code you know is wrong. Wrong code is worse than no code because
 - It wastes everyone's time
 
 **The only acceptable implementation is a CORRECT implementation.**
+
+## Interactive Walkthrough Requirements (User-Specified)
+
+These apply to the walkthrough blog post work:
+
+1. **Thorough coverage**: cover every aspect of development, data representation, engine, and computation.
+2. **Per-concept interactables**: each concept gets its own interactable; do not limit to one per "unit."
+3. **Examples are interactive**: any example that would benefit from interaction should be an interactable.
+4. **Depth over basics**: avoid shallow, repetitive, or purely textual demos; use visuals that build intuition about data structure and algorithm flow.
+5. **Incremental delivery**: work segment-by-segment; finish the interactable for the current segment before moving on.
+6. **Brainstorming-first**: spend time exploring multiple presentation ideas for each segment before implementing the chosen interactable.
+7. **Concept inventory first**: before drafting a section's structure or text, enumerate distinct concepts for that section and use that inventory to drive the interactables.
+8. **Hierarchical inventory workflow and outline format**: build the walkthrough hierarchy incrementally from the code and record it in `walkthrough/index.html` as an outline:
+   - **Layer 1**: one `<h2>` per source file/module.
+   - **Layer 2** (one file at a time): immediately under that file’s `<h2>`, add
+     `<h3>Types</h3><ul><li>...</li></ul>` and `<h3>Functions / Methods</h3><ul><li>...</li></ul>`.
+     Do not add other content until all files have Layer 2.
+   - **Layer 3**: after all Layer 2 sections exist, expand **one Layer 2 item at a time**
+     (a single `<li>` entry under Types or Functions), and add a nested concept list
+     **under that item only**:
+     `<li>Thing<ul><li>Concept: ... | Explanation stub | Interactable stub</li></ul></li>`.
+     Do not expand multiple items in the same pass. If an item has no concepts, remove
+     it from Layer 2 instead of skipping.
+     Each concept item becomes a single‑concept segment + its own interactable.
+   - No other prose or UI until all files have Layers 1-3 placeholders.
+   - End state: a granular, full‑coverage concept list across all files.
+9. **Concept quality rules**: before expanding any Layer 2 item, explicitly brainstorm
+   the mechanics and edge-case examples that need coverage, then convert that list into
+   concepts. This is a tutorial on how the system works, so lead
+   each concept list with internal representation/encoding and mechanism details
+   (e.g., interner layout, id scheme). Do not restate the Layer 2 item as a “concept.”
+   Instead, brainstorm concrete examples that expose mechanics and edge cases.
+   Each distinct mechanic or edge case is its own concept.
+10. **Interactable quality rule**: each interactable must be a complete, ambitious,
+    intuitive, and visual exploration that builds a full mental model of the concept.
+    It is not a dressed‑up example; it should eliminate gaps and ambiguities in understanding.
+11. **Expanding each concept in separate edits but proceeding continuously without waiting**:
+    do not pause for approval or status updates between concepts; limit the scope
+    of each edit to a single concept and keep moving automatically to the next.
+
+Walkthrough content directives:
+Visual communication: use SVGs and other mechanisms to communicate visually throughout.
+Layout rule: avoid multi-column exposition; keep text single-column and give diagrams full-width space.
+
 
 ## CRITICAL: Always Use Timeouts When Running Tests
 
@@ -159,12 +214,12 @@ A **span** `Rw lhs rhs` denotes a relation where:
 User-facing `Rw` nodes are **factored** into three internal forms before execution:
 
 ```
-Rw lhs rhs c  ~=  RwL [normLhs] ; Wire w ; RwR [normRhs]
+Rw lhs rhs c  ~=  RwL [normLhs] ; DropFresh w ; RwR [normRhs]
 ```
 
 This separation isolates:
 - **RwL**: Pattern matching (decomposition)
-- **Wire**: Variable routing
+- **DropFresh**: Variable routing
 - **RwR**: Term construction (composition)
 
 ### RwL - Left Tensor (Decomposition)
@@ -197,9 +252,9 @@ This separation isolates:
 
 **Duality:** RwL and RwR are perfect duals: `[[RwR ps]] = dual([[RwL ps]])`
 
-### Wire - Variable Routing
+### DropFresh - Variable Routing
 
-Wire specifies how variables flow from input to output.
+DropFresh specifies how variables flow from input to output.
 
 **Intuition:** Start with a tuple of n values, drop some, keep k, add fresh values, end with m values. There are no swaps or reorderings - just drop and add.
 
@@ -212,7 +267,7 @@ Wire specifies how variables flow from input to output.
 **Representation:** A monotone partial injection - list of (input_pos, output_pos) pairs, strictly increasing in both coordinates.
 
 ```rust
-struct Wire<C> {
+struct DropFresh<C> {
     in_arity: u32,
     out_arity: u32,
     map: SmallVec<[(u32, u32); 4]>,  // strictly increasing in both coords
@@ -222,7 +277,7 @@ struct Wire<C> {
 
 **Semantics:**
 ```
-[[Wire w]] inp out  <=>
+[[DropFresh w]] inp out  <=>
     length inp = w.in_arity and
     length out = w.out_arity and
     forall (i, j) in w.map. inp[i] = out[j]
@@ -244,7 +299,7 @@ Given `Rw lhs rhs c`:
    normRhs uses vars 0..m-1 (where m = length rhsVars)
    ```
 
-3. **Build labels** for Wire:
+3. **Build labels** for DropFresh:
    ```
    lhsLabels = [0, 1, ..., n-1]
    rhsLabels = for each (j, v) in enumerate(rhsVars):
@@ -252,7 +307,7 @@ Given `Rw lhs rhs c`:
                  else: label = n + j  (fresh, unique)
    ```
 
-4. **Construct Wire** from matching labels:
+4. **Construct DropFresh** from matching labels:
    - Shared variables: where lhsLabels[i] = rhsLabels[j]
    - map contains (i, j) pairs for shared variables
 
@@ -280,11 +335,11 @@ RwR [p1, p2, ...] ; RwR [q1, q2, ...] -> RwR [q1[p/vars], q2[p/vars], ...]
 
 `RwR ; RwL` - Unification at the interface:
 
-This fusion **ALWAYS** produces `RwL ; Wire ; RwR` (never just a Wire):
+This fusion **ALWAYS** produces `RwL ; DropFresh ; RwR` (never just a DropFresh):
 ```
 RwR [p1, ...] ; RwL [q1, ...] ->
   if unify(pi, qi) succeeds with sigma:
-    RwL [varsOf(p)[sigma], ...] ; Wire w ; RwR [varsOf(q)[sigma], ...]
+    RwL [varsOf(p)[sigma], ...] ; DropFresh w ; RwR [varsOf(q)[sigma], ...]
   else:
     Fail
 ```
@@ -295,7 +350,7 @@ RwR [p1, ...] ; RwL [q1, ...] ->
 1. Unify B(0,1) with B(A(2),3): sigma = {0 -> A(2), 1 -> 3}
 2. RwR vars [0,1] -> [A(2), 3]
 3. RwL vars [2,3] -> [2, 3] (unchanged)
-4. Result: `RwL [A(2), 3] ; Wire(identity 2->2) ; RwR [2, 3]`
+4. Result: `RwL [A(2), 3] ; DropFresh(identity 2->2) ; RwR [2, 3]`
 
 **Common mistake to avoid:** The fact that patterns become identical after unification says nothing about whether the operation is identity. The actual transformation is determined by the *variable structure*, not pattern equality.
 
@@ -316,7 +371,7 @@ This eliminates looping behavior because `meet_nf` is a single terminating funct
 The universal principle for normalization is:
 - **RwL always moves left**
 - **RwR always moves right**
-- **Wire moves left** (arbitrary choice, but consistent)
+- **DropFresh moves left** (arbitrary choice, but consistent)
 
 ### And Normalization
 
@@ -356,7 +411,7 @@ The kernel operates on a single compact canonical form:
 struct NF<C> {
     // Match: patterns to decompose input
     match_pats: SmallVec<[TermId; 1]>,
-    wire: Wire<C>,
+    drop_fresh: DropFresh<C>,
     // Build: patterns to construct output
     build_pats: SmallVec<[TermId; 1]>,
 }
@@ -391,7 +446,7 @@ Step 3 - RwL;RwL fusion on `RwL [B(A(0),1)] ; RwL [A(2), 3]`:
 - B(A(0), 1) becomes B(A(A(2)), 3)
 - Result: `RwL [B(A(A(2)), 3)]`
 
-Step 4-6: Continue fusing Wires and RwRs
+Step 4-6: Continue fusing DropFreshs and RwRs
 
 Final result:
 ```

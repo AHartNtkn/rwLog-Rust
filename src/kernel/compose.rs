@@ -10,10 +10,10 @@ use smallvec::SmallVec;
 ///
 /// This computes the composition where:
 /// - First, a's match patterns are matched against input
-/// - Variables are routed through a's wire
+/// - Variables are routed through a's DropFresh
 /// - a's build patterns are constructed
 /// - b's match patterns are matched against a's output
-/// - Variables are routed through b's wire
+/// - Variables are routed through b's DropFresh
 /// - b's build patterns are constructed
 ///
 /// Returns None if composition fails (unification failure at interface).
@@ -29,10 +29,10 @@ pub fn compose_nf<C: Default + Clone>(
         a_build_arity = a.build_pats.len(),
         b_match_arity = b.match_pats.len(),
         b_build_arity = b.build_pats.len(),
-        a_wire_in = a.wire.in_arity,
-        a_wire_out = a.wire.out_arity,
-        b_wire_in = b.wire.in_arity,
-        b_wire_out = b.wire.out_arity,
+        a_drop_fresh_in = a.drop_fresh.in_arity,
+        a_drop_fresh_out = a.drop_fresh.out_arity,
+        b_drop_fresh_in = b.drop_fresh.in_arity,
+        b_drop_fresh_out = b.drop_fresh.out_arity,
     )
     .entered();
 
@@ -52,13 +52,13 @@ pub fn compose_nf<C: Default + Clone>(
     }
 
     if a.build_pats.is_empty() {
-        // Both empty - compose the wires
+        // Both empty - compose the DropFresh maps
         #[cfg(feature = "tracing")]
-        trace!("empty_patterns_wire_compose");
-        let wire = a.wire.compose(&b.wire)?;
+        trace!("empty_patterns_drop_fresh_compose");
+        let drop_fresh = a.drop_fresh.compose(&b.drop_fresh)?;
         return Some(NF::new(
             a.match_pats.clone(),
-            wire,
+            drop_fresh,
             b.build_pats.clone(),
         ));
     }
@@ -133,7 +133,7 @@ fn max_var_index(term: TermId, terms: &mut TermStore) -> Option<u32> {
 mod tests {
     use super::*;
     use crate::test_utils::setup;
-    use crate::wire::Wire;
+    use crate::drop_fresh::DropFresh;
 
     // ========== BASIC COMPOSITION TESTS ==========
 
@@ -145,7 +145,7 @@ mod tests {
         // Identity NF: x -> x
         let identity: NF<()> = NF::new(
             smallvec::smallvec![v0],
-            Wire::identity(1),
+            DropFresh::identity(1),
             smallvec::smallvec![v0],
         );
 
@@ -156,7 +156,7 @@ mod tests {
         // Identity composed with identity is identity
         assert_eq!(composed.match_pats.len(), 1);
         assert_eq!(composed.build_pats.len(), 1);
-        assert!(composed.wire.is_identity());
+        assert!(composed.drop_fresh.is_identity());
     }
 
     #[test]
@@ -173,14 +173,14 @@ mod tests {
         // Rule a: A -> B
         let rule_a: NF<()> = NF::new(
             smallvec::smallvec![a_term],
-            Wire::identity(0),
+            DropFresh::identity(0),
             smallvec::smallvec![b_term],
         );
 
         // Rule b: B -> C
         let rule_b: NF<()> = NF::new(
             smallvec::smallvec![b_term],
-            Wire::identity(0),
+            DropFresh::identity(0),
             smallvec::smallvec![c_term],
         );
 
@@ -207,14 +207,14 @@ mod tests {
         // Rule a: A -> B
         let rule_a: NF<()> = NF::new(
             smallvec::smallvec![a_term],
-            Wire::identity(0),
+            DropFresh::identity(0),
             smallvec::smallvec![b_term],
         );
 
         // Rule b: C -> A (doesn't match B)
         let rule_b: NF<()> = NF::new(
             smallvec::smallvec![c_term],
-            Wire::identity(0),
+            DropFresh::identity(0),
             smallvec::smallvec![a_term],
         );
 
@@ -233,7 +233,7 @@ mod tests {
         let f_x = terms.app1(f, v0);
         let rule_a: NF<()> = NF::new(
             smallvec::smallvec![f_x],
-            Wire::identity(1),
+            DropFresh::identity(1),
             smallvec::smallvec![v0],
         );
 
@@ -241,7 +241,7 @@ mod tests {
         let g_x = terms.app1(g, v0);
         let rule_b: NF<()> = NF::new(
             smallvec::smallvec![v0],
-            Wire::identity(1),
+            DropFresh::identity(1),
             smallvec::smallvec![g_x],
         );
 
@@ -269,7 +269,7 @@ mod tests {
         let s_x = terms.app1(s, v0);
         let peel: NF<()> = NF::new(
             smallvec::smallvec![s_x],
-            Wire::identity(1),
+            DropFresh::identity(1),
             smallvec::smallvec![v0],
         );
 
@@ -298,7 +298,7 @@ mod tests {
         let s_x = terms.app1(s, v0);
         let wrap: NF<()> = NF::new(
             smallvec::smallvec![v0],
-            Wire::identity(1),
+            DropFresh::identity(1),
             smallvec::smallvec![s_x],
         );
 
@@ -331,7 +331,7 @@ mod tests {
         let fst_x = terms.app1(fst, v0);
         let rule_a: NF<()> = NF::new(
             smallvec::smallvec![pair_xy],
-            Wire {
+            DropFresh {
                 in_arity: 2,
                 out_arity: 1,
                 map: smallvec::smallvec![(0, 0)],
@@ -345,7 +345,7 @@ mod tests {
         let fst_x_b = terms.app1(fst, v0_b);
         let rule_b: NF<()> = NF::new(
             smallvec::smallvec![fst_x_b],
-            Wire::identity(1),
+            DropFresh::identity(1),
             smallvec::smallvec![v0_b],
         );
 
@@ -376,7 +376,7 @@ mod tests {
         // Rule a: A -> A (identity on A)
         let rule_a: NF<()> = NF::new(
             smallvec::smallvec![a_term],
-            Wire::identity(0),
+            DropFresh::identity(0),
             smallvec::smallvec![a_term],
         );
 
@@ -384,7 +384,7 @@ mod tests {
         let f_x = terms.app1(f, v0);
         let rule_b: NF<()> = NF::new(
             smallvec::smallvec![v0],
-            Wire::identity(1),
+            DropFresh::identity(1),
             smallvec::smallvec![f_x],
         );
 
@@ -401,16 +401,16 @@ mod tests {
     fn compose_empty_patterns() {
         let (_, mut terms) = setup();
 
-        // Empty NFs with just wires
+        // Empty NFs with just DropFresh maps
         let nf_a: NF<()> = NF::new(
             SmallVec::new(),
-            Wire::identity(0),
+            DropFresh::identity(0),
             SmallVec::new(),
         );
 
         let nf_b: NF<()> = NF::new(
             SmallVec::new(),
-            Wire::identity(0),
+            DropFresh::identity(0),
             SmallVec::new(),
         );
 
@@ -431,7 +431,7 @@ mod tests {
         let f_g_x = terms.app1(f, g_x);
         let rule_a: NF<()> = NF::new(
             smallvec::smallvec![f_g_x],
-            Wire::identity(1),
+            DropFresh::identity(1),
             smallvec::smallvec![g_x],
         );
 
@@ -439,7 +439,7 @@ mod tests {
         let h_x = terms.app1(h, v0);
         let rule_b: NF<()> = NF::new(
             smallvec::smallvec![g_x],
-            Wire::identity(1),
+            DropFresh::identity(1),
             smallvec::smallvec![h_x],
         );
 
@@ -632,7 +632,7 @@ mod tests {
             composed.build_pats[0],
             "Composition should be identity"
         );
-        assert!(composed.wire.is_identity());
+        assert!(composed.drop_fresh.is_identity());
     }
 
     #[test]

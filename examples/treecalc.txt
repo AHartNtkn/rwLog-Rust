@@ -1,10 +1,10 @@
-# Tree calculus application rules (single-step reduction)
+# Tree calculus application rules (big-step; app normalizes via recursion)
 #
 # l = leaf
 # (b X) = branch containing X
 # (f X Y) = fork (application of X to Y)
 #
-# The four reduction rules:
+# The four core reduction rules:
 #   app(L, z) => B(z)                     -- Rule 1: leaf applied to anything
 #   app(B(y), z) => F(y, z)               -- Rule 2: branch creates fork
 #   app(F(L, y), z) => y                  -- Rule 3: fork with leaf returns y
@@ -50,21 +50,4 @@ rel app {
         (f (f $a $b) $c) -> (f $d $c)
         ; app
     ]
-}
-
-# Full evaluation: apply app repeatedly until normal form
-#
-# eval takes a term and reduces it to normal form by repeatedly
-# applying single-step reduction rules.
-#
-# Examples:
-#   eval (f l l) => (b l)
-#   eval (f (f l l) l) => (b l)   (multiple steps)
-
-rel eval {
-    # Either return the input unchanged (already in normal form)
-    $x -> $x
-    |
-    # Or apply one step and recurse
-    [app ; eval]
 }
