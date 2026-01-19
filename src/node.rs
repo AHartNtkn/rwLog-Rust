@@ -26,7 +26,7 @@ pub enum Node<C: ConstraintOps> {
     /// Emit an answer and continue with the rest.
     Emit(NF<C>, Box<Node<C>>),
     /// Active work - computations that may emit, split, or complete.
-    Work(Work<C>),
+    Work(Box<Work<C>>),
 }
 
 /// Result of stepping a Node one notch.
@@ -64,7 +64,7 @@ pub fn step_node<C: ConstraintOps>(node: Node<C>, terms: &mut TermStore) -> Node
             WorkStep::Done => NodeStep::Continue(Node::Fail),
             WorkStep::Emit(nf, next_work) => NodeStep::Emit(nf, Node::Work(next_work)),
             WorkStep::Split(left_node, right_node) => {
-                NodeStep::Continue(Node::Or(Box::new(left_node), Box::new(right_node)))
+                NodeStep::Continue(Node::Or(left_node, right_node))
             }
             WorkStep::More(next_work) => NodeStep::Continue(Node::Work(next_work)),
         },

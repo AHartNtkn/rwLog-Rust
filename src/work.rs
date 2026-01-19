@@ -42,11 +42,11 @@ pub enum WorkStep<C: ConstraintOps> {
     /// Work exhausted, no answers.
     Done,
     /// Emit an answer, continue with more work.
-    Emit(NF<C>, Work<C>),
+    Emit(NF<C>, Box<Work<C>>),
     /// Fork into two search branches.
-    Split(Node<C>, Node<C>),
+    Split(Box<Node<C>>, Box<Node<C>>),
     /// Continue with modified work.
-    More(Work<C>),
+    More(Box<Work<C>>),
 }
 
 /// Call handling mode for PipeWork.
@@ -55,7 +55,7 @@ pub enum CallMode<C: ConstraintOps> {
     /// Normal call handling (tabling + producer).
     Normal,
     /// Replay-only for a specific CallKey (used during producer iterations).
-    ReplayOnly(CallKey<C>),
+    ReplayOnly(Box<CallKey<C>>),
 }
 
 fn collect_and_parts<C: ConstraintOps>(rel: Arc<Rel<C>>, out: &mut Vec<Arc<Rel<C>>>) {
@@ -121,7 +121,7 @@ pub fn rel_to_node<C: ConstraintOps>(rel: &Rel<C>, env: &Env<C>, tables: &Tables
                 .into_iter()
                 .map(|part| rel_to_node(part.as_ref(), env, tables))
                 .collect();
-            Node::Work(Work::AndGroup(AndGroup::new(nodes)))
+            Node::Work(boxed_work(Work::AndGroup(AndGroup::new(nodes))))
         }
 
         Rel::Seq(factors) => {
@@ -129,7 +129,7 @@ pub fn rel_to_node<C: ConstraintOps>(rel: &Rel<C>, env: &Env<C>, tables: &Tables
             let mut pipe = PipeWork::with_mid(factors_rope);
             pipe.env = env.clone();
             pipe.tables = tables.clone();
-            Node::Work(Work::Pipe(pipe))
+            Node::Work(boxed_work(Work::Pipe(pipe)))
         }
 
         Rel::Fix(id, body) => {
@@ -144,7 +144,7 @@ pub fn rel_to_node<C: ConstraintOps>(rel: &Rel<C>, env: &Env<C>, tables: &Tables
                 let mut pipe = PipeWork::with_mid(factors);
                 pipe.env = env.clone();
                 pipe.tables = tables.clone();
-                Node::Work(Work::Pipe(pipe))
+                Node::Work(boxed_work(Work::Pipe(pipe)))
             }
             None => Node::Fail,
         },
@@ -157,6 +157,14 @@ fn node_from_answers<C: ConstraintOps>(answers: &[NF<C>]) -> Node<C> {
         node = Node::Emit(nf.clone(), Box::new(node));
     }
     node
+}
+
+fn boxed_work<C: ConstraintOps>(work: Work<C>) -> Box<Work<C>> {
+    Box::new(work)
+}
+
+fn boxed_node<C: ConstraintOps>(node: Node<C>) -> Box<Node<C>> {
+    Box::new(node)
 }
 
 fn build_var_list(arity: u32, terms: &mut TermStore) -> SmallVec<[TermId; 1]> {
@@ -303,7 +311,7 @@ impl<C: ConstraintOps> Work<C> {
             Work::Atom(nf) => {
                 // Emit the NF once, then done
                 let nf = nf.clone();
-                WorkStep::Emit(nf, Work::Done)
+                WorkStep::Emit(nf, boxed_work(Work::Done))
             }
             Work::Done => WorkStep::Done,
         }
@@ -461,20 +469,20 @@ impl<C: ConstraintOps> PipeWork<C> {
         match (&self.left, &self.right) {
             (None, None) => {
                 // Empty pipe - emit identity
-                WorkStep::Emit(NF::identity(C::default()), Work::Done)
+                WorkStep::Emit(NF::identity(C::default()), boxed_work(Work::Done))
             }
             (Some(left), None) => {
                 // Only left boundary
-                WorkStep::Emit(left.clone(), Work::Done)
+                WorkStep::Emit(left.clone(), boxed_work(Work::Done))
             }
             (None, Some(right)) => {
                 // Only right boundary
-                WorkStep::Emit(right.clone(), Work::Done)
+                WorkStep::Emit(right.clone(), boxed_work(Work::Done))
             }
             (Some(left), Some(right)) => {
                 // Compose left and right
                 match compose_nf(left, right, terms) {
-                    Some(composed) => WorkStep::Emit(composed, Work::Done),
+                    Some(composed) => WorkStep::Emit(composed, boxed_work(Work::Done)),
                     None => WorkStep::Done, // Composition failed
                 }
             }
@@ -543,8 +551,8 @@ impl<C: ConstraintOps> PipeWork<C> {
         right_pipe.mid.push_front_rel(b);
 
         WorkStep::Split(
-            Node::Work(Work::Pipe(left_pipe)),
-            Node::Work(Work::Pipe(right_pipe)),
+            boxed_node(Node::Work(boxed_work(Work::Pipe(left_pipe)))),
+            boxed_node(Node::Work(boxed_work(Work::Pipe(right_pipe)))),
         )
     }
 
@@ -562,8 +570,8 @@ impl<C: ConstraintOps> PipeWork<C> {
         right_pipe.mid.push_back_rel(b);
 
         WorkStep::Split(
-            Node::Work(Work::Pipe(left_pipe)),
-            Node::Work(Work::Pipe(right_pipe)),
+            boxed_node(Node::Work(boxed_work(Work::Pipe(left_pipe)))),
+            boxed_node(Node::Work(boxed_work(Work::Pipe(right_pipe)))),
         )
     }
 
@@ -728,12 +736,12 @@ impl<C: ConstraintOps> PipeWork<C> {
                         let mut part_pipe =
                             PipeWork::from_rel(wrapped, self.env.clone(), self.tables.clone());
                         part_pipe.call_mode = self.call_mode.clone();
-                        Node::Work(Work::Pipe(part_pipe))
+                        Node::Work(boxed_work(Work::Pipe(part_pipe)))
                     })
                     .collect();
                 let group = AndGroup::new(nodes);
-                let bind = BindWork::new(Node::Work(Work::AndGroup(group)), pipe, true);
-                WorkStep::More(Work::Bind(bind))
+                let bind = BindWork::new(Node::Work(boxed_work(Work::AndGroup(group))), pipe, true);
+                WorkStep::More(boxed_work(Work::Bind(bind)))
             }
             Rel::Fix(id, body) => {
                 self.mid.pop_front();
@@ -752,7 +760,7 @@ impl<C: ConstraintOps> PipeWork<C> {
                 );
                 fix_pipe.call_mode = self.call_mode.clone();
 
-                let fix_node = Node::Work(Work::Pipe(fix_pipe));
+                let fix_node = Node::Work(boxed_work(Work::Pipe(fix_pipe)));
                 let mut pipe = self.clone();
                 if use_left {
                     pipe.left = None;
@@ -761,7 +769,7 @@ impl<C: ConstraintOps> PipeWork<C> {
                     pipe.right = None;
                 }
                 let bind = BindWork::new(fix_node, pipe, true);
-                WorkStep::More(Work::Bind(bind))
+                WorkStep::More(boxed_work(Work::Bind(bind)))
             }
             Rel::Call(id) => {
                 self.mid.pop_front();
@@ -816,12 +824,13 @@ impl<C: ConstraintOps> PipeWork<C> {
                         let mut part_pipe =
                             PipeWork::from_rel(wrapped, self.env.clone(), self.tables.clone());
                         part_pipe.call_mode = self.call_mode.clone();
-                        Node::Work(Work::Pipe(part_pipe))
+                        Node::Work(boxed_work(Work::Pipe(part_pipe)))
                     })
                     .collect();
                 let group = AndGroup::new(nodes);
-                let bind = BindWork::new(Node::Work(Work::AndGroup(group)), pipe, false);
-                WorkStep::More(Work::Bind(bind))
+                let bind =
+                    BindWork::new(Node::Work(boxed_work(Work::AndGroup(group))), pipe, false);
+                WorkStep::More(boxed_work(Work::Bind(bind)))
             }
             Rel::Fix(id, body) => {
                 self.mid.pop_back();
@@ -840,7 +849,7 @@ impl<C: ConstraintOps> PipeWork<C> {
                 );
                 fix_pipe.call_mode = self.call_mode.clone();
 
-                let fix_node = Node::Work(Work::Pipe(fix_pipe));
+                let fix_node = Node::Work(boxed_work(Work::Pipe(fix_pipe)));
                 let mut pipe = self.clone();
                 if use_left {
                     pipe.left = None;
@@ -849,7 +858,7 @@ impl<C: ConstraintOps> PipeWork<C> {
                     pipe.right = None;
                 }
                 let bind = BindWork::new(fix_node, pipe, false);
-                WorkStep::More(Work::Bind(bind))
+                WorkStep::More(boxed_work(Work::Bind(bind)))
             }
             Rel::Call(id) => {
                 self.mid.pop_back();
@@ -881,7 +890,7 @@ impl<C: ConstraintOps> PipeWork<C> {
 
         let key = CallKey::new(id, binding.id, call_left.clone(), call_right.clone());
         if let CallMode::ReplayOnly(replay_key) = &self.call_mode {
-            if replay_key == &key {
+            if replay_key.as_ref() == &key {
                 let table = match self.tables.lookup(&key) {
                     Some(table) => table,
                     None => return WorkStep::Done,
@@ -896,7 +905,7 @@ impl<C: ConstraintOps> PipeWork<C> {
                     pipe.right = None;
                 }
                 let bind = BindWork::new(replay_node, pipe, absorb_front);
-                return WorkStep::More(Work::Bind(bind));
+                return WorkStep::More(boxed_work(Work::Bind(bind)));
             }
         }
 
@@ -917,14 +926,14 @@ impl<C: ConstraintOps> PipeWork<C> {
                 self.env.clone(),
                 self.tables.clone(),
             );
-            producer_pipe.call_mode = CallMode::ReplayOnly(key.clone());
-            let producer_node = Node::Work(Work::Pipe(producer_pipe));
+            producer_pipe.call_mode = CallMode::ReplayOnly(Box::new(key.clone()));
+            let producer_node = Node::Work(boxed_work(Work::Pipe(producer_pipe)));
             table.borrow_mut().start_producer(producer_node, spec);
         }
 
         let replay_node = node_from_answers(&snapshot);
         let fix = FixWork::new(key, table, snapshot.len(), self.tables.clone());
-        let fix_node = Node::Work(Work::Fix(fix));
+        let fix_node = Node::Work(boxed_work(Work::Fix(fix)));
 
         let gen_node = match replay_node {
             Node::Fail => fix_node,
@@ -940,7 +949,7 @@ impl<C: ConstraintOps> PipeWork<C> {
         }
 
         let bind = BindWork::new(gen_node, pipe, absorb_front);
-        WorkStep::More(Work::Bind(bind))
+        WorkStep::More(boxed_work(Work::Bind(bind)))
     }
 }
 
@@ -999,16 +1008,16 @@ impl<C: ConstraintOps> BindWork<C> {
                 };
 
                 if !absorbed {
-                    return WorkStep::More(Work::Bind(self.take_self()));
+                    return WorkStep::More(boxed_work(Work::Bind(self.take_self())));
                 }
 
-                let left_node = Node::Work(Work::Pipe(pipe));
-                let right_node = Node::Work(Work::Bind(self.take_self()));
-                WorkStep::Split(left_node, right_node)
+                let left_node = Node::Work(boxed_work(Work::Pipe(pipe)));
+                let right_node = Node::Work(boxed_work(Work::Bind(self.take_self())));
+                WorkStep::Split(boxed_node(left_node), boxed_node(right_node))
             }
             NodeStep::Continue(rest) => {
                 *self.gen = rest;
-                WorkStep::More(Work::Bind(self.take_self()))
+                WorkStep::More(boxed_work(Work::Bind(self.take_self())))
             }
             NodeStep::Exhausted => WorkStep::Done,
         }
@@ -1101,7 +1110,7 @@ impl<C: ConstraintOps> AndGroup<C> {
     pub fn step(&mut self, terms: &mut TermStore) -> WorkStep<C> {
         if let Some(nf) = self.pending.pop_front() {
             self.pending_set.remove(&nf);
-            return WorkStep::Emit(nf, Work::AndGroup(self.take_self()));
+            return WorkStep::Emit(nf, boxed_work(Work::AndGroup(self.take_self())));
         }
 
         if self.parts.is_empty() {
@@ -1138,20 +1147,20 @@ impl<C: ConstraintOps> AndGroup<C> {
                 self.turn = (idx + 1) % part_count;
                 if let Some(result) = self.pending.pop_front() {
                     self.pending_set.remove(&result);
-                    WorkStep::Emit(result, Work::AndGroup(self.take_self()))
+                    WorkStep::Emit(result, boxed_work(Work::AndGroup(self.take_self())))
                 } else {
-                    WorkStep::More(Work::AndGroup(self.take_self()))
+                    WorkStep::More(boxed_work(Work::AndGroup(self.take_self())))
                 }
             }
             NodeStep::Continue(rest) => {
                 self.parts[idx] = rest;
                 self.turn = (idx + 1) % part_count;
-                WorkStep::More(Work::AndGroup(self.take_self()))
+                WorkStep::More(boxed_work(Work::AndGroup(self.take_self())))
             }
             NodeStep::Exhausted => {
                 self.parts[idx] = Node::Fail;
                 self.turn = (idx + 1) % part_count;
-                WorkStep::More(Work::AndGroup(self.take_self()))
+                WorkStep::More(boxed_work(Work::AndGroup(self.take_self())))
             }
         }
     }
@@ -1220,7 +1229,7 @@ impl<C: ConstraintOps> MeetWork<C> {
     pub fn step(&mut self, terms: &mut TermStore) -> WorkStep<C> {
         // Step 1: If pending has items, emit front
         if let Some(nf) = self.pending.pop_front() {
-            return WorkStep::Emit(nf, Work::Meet(self.take_self()));
+            return WorkStep::Emit(nf, boxed_work(Work::Meet(self.take_self())));
         }
 
         // Step 2: Check if both sides are exhausted
@@ -1266,20 +1275,20 @@ impl<C: ConstraintOps> MeetWork<C> {
                 }
                 self.flip = true;
                 if let Some(result) = self.pending.pop_front() {
-                    WorkStep::Emit(result, Work::Meet(self.take_self()))
+                    WorkStep::Emit(result, boxed_work(Work::Meet(self.take_self())))
                 } else {
-                    WorkStep::More(Work::Meet(self.take_self()))
+                    WorkStep::More(boxed_work(Work::Meet(self.take_self())))
                 }
             }
             NodeStep::Continue(rest) => {
                 *self.left = rest;
                 self.flip = true;
-                WorkStep::More(Work::Meet(self.take_self()))
+                WorkStep::More(boxed_work(Work::Meet(self.take_self())))
             }
             NodeStep::Exhausted => {
                 *self.left = Node::Fail;
                 self.flip = true;
-                WorkStep::More(Work::Meet(self.take_self()))
+                WorkStep::More(boxed_work(Work::Meet(self.take_self())))
             }
         }
     }
@@ -1302,20 +1311,20 @@ impl<C: ConstraintOps> MeetWork<C> {
                 }
                 self.flip = false;
                 if let Some(result) = self.pending.pop_front() {
-                    WorkStep::Emit(result, Work::Meet(self.take_self()))
+                    WorkStep::Emit(result, boxed_work(Work::Meet(self.take_self())))
                 } else {
-                    WorkStep::More(Work::Meet(self.take_self()))
+                    WorkStep::More(boxed_work(Work::Meet(self.take_self())))
                 }
             }
             NodeStep::Continue(rest) => {
                 *self.right = rest;
                 self.flip = false;
-                WorkStep::More(Work::Meet(self.take_self()))
+                WorkStep::More(boxed_work(Work::Meet(self.take_self())))
             }
             NodeStep::Exhausted => {
                 *self.right = Node::Fail;
                 self.flip = false;
-                WorkStep::More(Work::Meet(self.take_self()))
+                WorkStep::More(boxed_work(Work::Meet(self.take_self())))
             }
         }
     }
@@ -1532,12 +1541,14 @@ impl<C: ConstraintOps> Default for Table<C> {
     }
 }
 
+type TableMap<C> = im::HashMap<CallKey<C>, Arc<RefCell<Table<C>>>>;
+
 /// Collection of tables for call-context tabling.
 ///
 /// Uses persistent map for efficient cloning.
 #[derive(Clone, Debug)]
 pub struct Tables<C: ConstraintOps> {
-    map: Arc<RefCell<im::HashMap<CallKey<C>, Arc<RefCell<Table<C>>>>>>,
+    map: Arc<RefCell<TableMap<C>>>,
 }
 
 impl<C: ConstraintOps> Tables<C> {
@@ -1633,13 +1644,13 @@ impl<C: ConstraintOps> FixWork<C> {
                 let nf = table.answers[self.answer_index].clone();
                 drop(table);
                 self.answer_index += 1;
-                return WorkStep::Emit(nf, Work::Fix(self.clone()));
+                return WorkStep::Emit(nf, boxed_work(Work::Fix(self.clone())));
             }
             if table.is_done() {
                 return WorkStep::Done;
             }
             if table.stepping {
-                return WorkStep::More(Work::Fix(self.clone()));
+                return WorkStep::More(boxed_work(Work::Fix(self.clone())));
             }
         }
 
@@ -1663,8 +1674,8 @@ impl<C: ConstraintOps> FixWork<C> {
                 spec.env.clone(),
                 self.tables.clone(),
             );
-            producer_pipe.call_mode = CallMode::ReplayOnly(self.key.clone());
-            producer = Some(Node::Work(Work::Pipe(producer_pipe)));
+            producer_pipe.call_mode = CallMode::ReplayOnly(Box::new(self.key.clone()));
+            producer = Some(Node::Work(boxed_work(Work::Pipe(producer_pipe))));
         }
 
         let current = producer.unwrap_or(Node::Fail);
@@ -1678,16 +1689,16 @@ impl<C: ConstraintOps> FixWork<C> {
                 drop(table);
                 self.answer_index = new_len;
                 if added {
-                    WorkStep::Emit(nf, Work::Fix(self.clone()))
+                    WorkStep::Emit(nf, boxed_work(Work::Fix(self.clone())))
                 } else {
-                    WorkStep::More(Work::Fix(self.clone()))
+                    WorkStep::More(boxed_work(Work::Fix(self.clone())))
                 }
             }
             NodeStep::Continue(rest) => {
                 let mut table = self.table.borrow_mut();
                 table.producer = Some(rest);
                 table.stepping = false;
-                WorkStep::More(Work::Fix(self.clone()))
+                WorkStep::More(boxed_work(Work::Fix(self.clone())))
             }
             NodeStep::Exhausted => {
                 let mut table = self.table.borrow_mut();
@@ -1706,10 +1717,10 @@ impl<C: ConstraintOps> FixWork<C> {
                         spec.env.clone(),
                         self.tables.clone(),
                     );
-                    producer_pipe.call_mode = CallMode::ReplayOnly(self.key.clone());
-                    table.producer = Some(Node::Work(Work::Pipe(producer_pipe)));
+                    producer_pipe.call_mode = CallMode::ReplayOnly(Box::new(self.key.clone()));
+                    table.producer = Some(Node::Work(boxed_work(Work::Pipe(producer_pipe))));
                     table.stepping = false;
-                    WorkStep::More(Work::Fix(self.clone()))
+                    WorkStep::More(boxed_work(Work::Fix(self.clone())))
                 } else {
                     table.finish_producer();
                     table.stepping = false;
@@ -1723,8 +1734,8 @@ impl<C: ConstraintOps> FixWork<C> {
 #[cfg(test)]
 mod tests {
     use super::{
-        CallKey, CallMode, Env, FixWork, MeetWork, PipeWork, ProducerSpec, ProducerState, Table,
-        Tables, Work, WorkStep,
+        boxed_node, boxed_work, BindWork, CallKey, CallMode, Env, FixWork, MeetWork, PipeWork,
+        ProducerSpec, ProducerState, Table, Tables, Work, WorkStep,
     };
     use crate::drop_fresh::DropFresh;
     use crate::factors::Factors;
@@ -1769,7 +1780,10 @@ mod tests {
 
     fn find_fixwork_in_node(node: &Node<()>) -> Option<FixWork<()>> {
         match node {
-            Node::Work(Work::Fix(fix)) => Some(fix.clone()),
+            Node::Work(work) => match work.as_ref() {
+                Work::Fix(fix) => Some(fix.clone()),
+                _ => None,
+            },
             Node::Or(left, right) => {
                 find_fixwork_in_node(left).or_else(|| find_fixwork_in_node(right))
             }
@@ -1779,20 +1793,57 @@ mod tests {
 
     fn extract_key_from_step(step: WorkStep<()>) -> CallKey<()> {
         match step {
-            WorkStep::More(Work::Bind(bind)) => {
-                let Some(fix) = find_fixwork_in_node(&bind.gen) else {
-                    panic!("Expected FixWork in bind generator");
-                };
-                fix.key
-            }
-            _ => panic!("Expected WorkStep::More(Work::Bind(..))"),
+            WorkStep::More(work) => match *work {
+                Work::Bind(bind) => {
+                    let Some(fix) = find_fixwork_in_node(&bind.gen) else {
+                        panic!("Expected FixWork in bind generator");
+                    };
+                    fix.key
+                }
+                _ => panic!("Expected Work::Bind(..)"),
+            },
+            _ => panic!("Expected WorkStep::More(..)"),
         }
     }
 
     fn extract_gen_from_step(step: WorkStep<()>) -> Node<()> {
         match step {
-            WorkStep::More(Work::Bind(bind)) => *bind.gen,
-            _ => panic!("Expected WorkStep::More(Work::Bind(..))"),
+            WorkStep::More(work) => match *work {
+                Work::Bind(bind) => *bind.gen,
+                _ => panic!("Expected Work::Bind(..)"),
+            },
+            _ => panic!("Expected WorkStep::More(..)"),
+        }
+    }
+
+    fn is_work_pipe(node: &Node<()>) -> bool {
+        matches!(node, Node::Work(work) if matches!(work.as_ref(), Work::Pipe(_)))
+    }
+
+    fn unwrap_work_pipe(node: Node<()>) -> PipeWork<()> {
+        match node {
+            Node::Work(work) => match *work {
+                Work::Pipe(pipe) => pipe,
+                _ => panic!("Expected Work::Pipe"),
+            },
+            _ => panic!("Expected Node::Work"),
+        }
+    }
+
+    fn unwrap_work_bind(step: WorkStep<()>) -> BindWork<()> {
+        match step {
+            WorkStep::More(work) => match *work {
+                Work::Bind(bind) => bind,
+                _ => panic!("Expected Work::Bind"),
+            },
+            _ => panic!("Expected WorkStep::More"),
+        }
+    }
+
+    fn unwrap_split(step: WorkStep<()>) -> (Node<()>, Node<()>) {
+        match step {
+            WorkStep::Split(left, right) => (*left, *right),
+            _ => panic!("Expected WorkStep::Split"),
         }
     }
 
@@ -1828,7 +1879,7 @@ mod tests {
     fn workstep_emit_construction() {
         let nf = make_identity_nf();
         let work = Work::Atom(make_identity_nf());
-        let step: WorkStep<()> = WorkStep::Emit(nf, work);
+        let step: WorkStep<()> = WorkStep::Emit(nf, boxed_work(work));
         assert!(matches!(step, WorkStep::Emit(_, _)));
     }
 
@@ -1836,14 +1887,14 @@ mod tests {
     fn workstep_split_construction() {
         let left: Node<()> = Node::Fail;
         let right: Node<()> = Node::Fail;
-        let step: WorkStep<()> = WorkStep::Split(left, right);
+        let step: WorkStep<()> = WorkStep::Split(boxed_node(left), boxed_node(right));
         assert!(matches!(step, WorkStep::Split(_, _)));
     }
 
     #[test]
     fn workstep_more_construction() {
         let work = Work::Atom(make_identity_nf());
-        let step: WorkStep<()> = WorkStep::More(work);
+        let step: WorkStep<()> = WorkStep::More(boxed_work(work));
         assert!(matches!(step, WorkStep::More(_)));
     }
 
@@ -1970,17 +2021,34 @@ mod tests {
 
         let step = pipe.step(&mut terms);
         match step {
-            WorkStep::More(Work::Pipe(updated)) => {
-                assert_eq!(updated.mid.len(), 3, "Middle atoms should fuse first");
-            }
-            WorkStep::Split(Node::Work(Work::Pipe(left)), Node::Work(Work::Pipe(right))) => {
+            WorkStep::More(work) => match *work {
+                Work::Pipe(updated) => {
+                    assert_eq!(updated.mid.len(), 3, "Middle atoms should fuse first");
+                }
+                _ => panic!("Expected Work::Pipe"),
+            },
+            WorkStep::Split(left, right) => {
+                let left_pipe = match *left {
+                    Node::Work(work) => match *work {
+                        Work::Pipe(pipe) => pipe,
+                        _ => panic!("Expected Work::Pipe on left"),
+                    },
+                    _ => panic!("Expected Node::Work on left"),
+                };
+                let right_pipe = match *right {
+                    Node::Work(work) => match *work {
+                        Work::Pipe(pipe) => pipe,
+                        _ => panic!("Expected Work::Pipe on right"),
+                    },
+                    _ => panic!("Expected Node::Work on right"),
+                };
                 assert_eq!(
-                    left.mid.len(),
+                    left_pipe.mid.len(),
                     3,
                     "Left branch should see fused middle atoms"
                 );
                 assert_eq!(
-                    right.mid.len(),
+                    right_pipe.mid.len(),
                     3,
                     "Right branch should see fused middle atoms"
                 );
@@ -2004,16 +2072,19 @@ mod tests {
         let step = pipe.step(&mut terms);
 
         match step {
-            WorkStep::More(Work::Pipe(mut next_pipe)) => {
-                assert!(
-                    next_pipe.left.is_some(),
-                    "Atom should be absorbed into left"
-                );
-                assert!(next_pipe.mid.is_empty(), "Mid should be empty after absorb");
+            WorkStep::More(work) => match *work {
+                Work::Pipe(mut next_pipe) => {
+                    assert!(
+                        next_pipe.left.is_some(),
+                        "Atom should be absorbed into left"
+                    );
+                    assert!(next_pipe.mid.is_empty(), "Mid should be empty after absorb");
 
-                let step2 = next_pipe.step(&mut terms);
-                assert!(matches!(step2, WorkStep::Emit(_, _)));
-            }
+                    let step2 = next_pipe.step(&mut terms);
+                    assert!(matches!(step2, WorkStep::Emit(_, _)));
+                }
+                _ => panic!("Expected Work::Pipe"),
+            },
             WorkStep::Emit(_, _) => {}
             _ => panic!("Expected Emit or More(Pipe), got {:?}", step),
         }
@@ -2089,21 +2160,17 @@ mod tests {
         let mut pipe: PipeWork<()> = PipeWork::with_mid(mid);
         let step = pipe.step(&mut terms);
 
-        match step {
-            WorkStep::Split(left, right) => {
-                assert!(
-                    matches!(left, Node::Work(Work::Pipe(_))),
-                    "Left branch must be Work::Pipe, got {:?}",
-                    left
-                );
-                assert!(
-                    matches!(right, Node::Work(Work::Pipe(_))),
-                    "Right branch must be Work::Pipe, got {:?}",
-                    right
-                );
-            }
-            other => panic!("Expected Split, got {:?}", other),
-        }
+        let (left, right) = unwrap_split(step);
+        assert!(
+            is_work_pipe(&left),
+            "Left branch must be Work::Pipe, got {:?}",
+            left
+        );
+        assert!(
+            is_work_pipe(&right),
+            "Right branch must be Work::Pipe, got {:?}",
+            right
+        );
     }
 
     /// split_or left branch must contain the 'a' factor.
@@ -2120,25 +2187,22 @@ mod tests {
         let mut pipe: PipeWork<()> = PipeWork::with_mid(mid);
         let step = pipe.step(&mut terms);
 
-        match step {
-            WorkStep::Split(Node::Work(Work::Pipe(left_pipe)), _) => {
-                // Left pipe's mid should have 'a' at front
-                assert!(
-                    !left_pipe.mid.is_empty(),
-                    "Left pipe mid should not be empty"
+        let (left_node, _right_node) = unwrap_split(step);
+        let left_pipe = unwrap_work_pipe(left_node);
+        // Left pipe's mid should have 'a' at front
+        assert!(
+            !left_pipe.mid.is_empty(),
+            "Left pipe mid should not be empty"
+        );
+        let front = left_pipe.mid.front().unwrap();
+        match front.as_ref() {
+            Rel::Atom(nf) => {
+                assert_eq!(
+                    nf.match_pats, nf_a.match_pats,
+                    "Left branch should have 'a' factor"
                 );
-                let front = left_pipe.mid.front().unwrap();
-                match front.as_ref() {
-                    Rel::Atom(nf) => {
-                        assert_eq!(
-                            nf.match_pats, nf_a.match_pats,
-                            "Left branch should have 'a' factor"
-                        );
-                    }
-                    other => panic!("Expected Atom in left branch, got {:?}", other),
-                }
             }
-            other => panic!("Expected Split with Work::Pipe, got {:?}", other),
+            other => panic!("Expected Atom in left branch, got {:?}", other),
         }
     }
 
@@ -2156,25 +2220,22 @@ mod tests {
         let mut pipe: PipeWork<()> = PipeWork::with_mid(mid);
         let step = pipe.step(&mut terms);
 
-        match step {
-            WorkStep::Split(_, Node::Work(Work::Pipe(right_pipe))) => {
-                // Right pipe's mid should have 'b' at front
-                assert!(
-                    !right_pipe.mid.is_empty(),
-                    "Right pipe mid should not be empty"
+        let (_left_node, right_node) = unwrap_split(step);
+        let right_pipe = unwrap_work_pipe(right_node);
+        // Right pipe's mid should have 'b' at front
+        assert!(
+            !right_pipe.mid.is_empty(),
+            "Right pipe mid should not be empty"
+        );
+        let front = right_pipe.mid.front().unwrap();
+        match front.as_ref() {
+            Rel::Atom(nf) => {
+                assert_eq!(
+                    nf.match_pats, nf_b.match_pats,
+                    "Right branch should have 'b' factor"
                 );
-                let front = right_pipe.mid.front().unwrap();
-                match front.as_ref() {
-                    Rel::Atom(nf) => {
-                        assert_eq!(
-                            nf.match_pats, nf_b.match_pats,
-                            "Right branch should have 'b' factor"
-                        );
-                    }
-                    other => panic!("Expected Atom in right branch, got {:?}", other),
-                }
             }
-            other => panic!("Expected Split with Work::Pipe, got {:?}", other),
+            other => panic!("Expected Atom in right branch, got {:?}", other),
         }
     }
 
@@ -2193,30 +2254,25 @@ mod tests {
         let mut pipe: PipeWork<()> = PipeWork::with_boundaries(Some(boundary.clone()), mid, None);
         let step = pipe.step(&mut terms);
 
-        match step {
-            WorkStep::Split(
-                Node::Work(Work::Pipe(left_pipe)),
-                Node::Work(Work::Pipe(right_pipe)),
-            ) => {
-                assert!(
-                    left_pipe.left.is_some(),
-                    "Left branch should preserve left boundary"
-                );
-                assert!(
-                    right_pipe.left.is_some(),
-                    "Right branch should preserve left boundary"
-                );
-                assert_eq!(
-                    left_pipe.left.as_ref().unwrap().match_pats,
-                    boundary.match_pats
-                );
-                assert_eq!(
-                    right_pipe.left.as_ref().unwrap().match_pats,
-                    boundary.match_pats
-                );
-            }
-            other => panic!("Expected Split with Work::Pipe, got {:?}", other),
-        }
+        let (left_node, right_node) = unwrap_split(step);
+        let left_pipe = unwrap_work_pipe(left_node);
+        let right_pipe = unwrap_work_pipe(right_node);
+        assert!(
+            left_pipe.left.is_some(),
+            "Left branch should preserve left boundary"
+        );
+        assert!(
+            right_pipe.left.is_some(),
+            "Right branch should preserve left boundary"
+        );
+        assert_eq!(
+            left_pipe.left.as_ref().unwrap().match_pats,
+            boundary.match_pats
+        );
+        assert_eq!(
+            right_pipe.left.as_ref().unwrap().match_pats,
+            boundary.match_pats
+        );
     }
 
     /// split_or must preserve right boundary in both branches.
@@ -2234,30 +2290,25 @@ mod tests {
         let mut pipe: PipeWork<()> = PipeWork::with_boundaries(None, mid, Some(boundary.clone()));
         let step = pipe.step(&mut terms);
 
-        match step {
-            WorkStep::Split(
-                Node::Work(Work::Pipe(left_pipe)),
-                Node::Work(Work::Pipe(right_pipe)),
-            ) => {
-                assert!(
-                    left_pipe.right.is_some(),
-                    "Left branch should preserve right boundary"
-                );
-                assert!(
-                    right_pipe.right.is_some(),
-                    "Right branch should preserve right boundary"
-                );
-                assert_eq!(
-                    left_pipe.right.as_ref().unwrap().match_pats,
-                    boundary.match_pats
-                );
-                assert_eq!(
-                    right_pipe.right.as_ref().unwrap().match_pats,
-                    boundary.match_pats
-                );
-            }
-            other => panic!("Expected Split with Work::Pipe, got {:?}", other),
-        }
+        let (left_node, right_node) = unwrap_split(step);
+        let left_pipe = unwrap_work_pipe(left_node);
+        let right_pipe = unwrap_work_pipe(right_node);
+        assert!(
+            left_pipe.right.is_some(),
+            "Left branch should preserve right boundary"
+        );
+        assert!(
+            right_pipe.right.is_some(),
+            "Right branch should preserve right boundary"
+        );
+        assert_eq!(
+            left_pipe.right.as_ref().unwrap().match_pats,
+            boundary.match_pats
+        );
+        assert_eq!(
+            right_pipe.right.as_ref().unwrap().match_pats,
+            boundary.match_pats
+        );
     }
 
     #[test]
@@ -2280,15 +2331,11 @@ mod tests {
 
         let step = pipe.step(&mut terms);
 
-        match step {
-            WorkStep::More(Work::Bind(bind)) => {
-                assert!(
-                    bind.absorb_front,
-                    "Should advance front (And) before Call when opposite end is non-call"
-                );
-            }
-            other => panic!("Expected Bind from And advance, got {:?}", other),
-        }
+        let bind = unwrap_work_bind(step);
+        assert!(
+            bind.absorb_front,
+            "Should advance front (And) before Call when opposite end is non-call"
+        );
     }
 
     /// split_or must preserve both boundaries in both branches.
@@ -2311,32 +2358,27 @@ mod tests {
         );
         let step = pipe.step(&mut terms);
 
-        match step {
-            WorkStep::Split(
-                Node::Work(Work::Pipe(left_pipe)),
-                Node::Work(Work::Pipe(right_pipe)),
-            ) => {
-                // Check left boundary preserved
-                assert_eq!(
-                    left_pipe.left.as_ref().unwrap().match_pats,
-                    left_boundary.match_pats
-                );
-                assert_eq!(
-                    right_pipe.left.as_ref().unwrap().match_pats,
-                    left_boundary.match_pats
-                );
-                // Check right boundary preserved
-                assert_eq!(
-                    left_pipe.right.as_ref().unwrap().match_pats,
-                    right_boundary.match_pats
-                );
-                assert_eq!(
-                    right_pipe.right.as_ref().unwrap().match_pats,
-                    right_boundary.match_pats
-                );
-            }
-            other => panic!("Expected Split with Work::Pipe, got {:?}", other),
-        }
+        let (left_node, right_node) = unwrap_split(step);
+        let left_pipe = unwrap_work_pipe(left_node);
+        let right_pipe = unwrap_work_pipe(right_node);
+        // Check left boundary preserved
+        assert_eq!(
+            left_pipe.left.as_ref().unwrap().match_pats,
+            left_boundary.match_pats
+        );
+        assert_eq!(
+            right_pipe.left.as_ref().unwrap().match_pats,
+            left_boundary.match_pats
+        );
+        // Check right boundary preserved
+        assert_eq!(
+            left_pipe.right.as_ref().unwrap().match_pats,
+            right_boundary.match_pats
+        );
+        assert_eq!(
+            right_pipe.right.as_ref().unwrap().match_pats,
+            right_boundary.match_pats
+        );
     }
 
     /// split_or must preserve remaining mid factors in both branches.
@@ -2356,17 +2398,12 @@ mod tests {
         let mut pipe: PipeWork<()> = PipeWork::with_mid(mid);
         let step = pipe.step(&mut terms);
 
-        match step {
-            WorkStep::Split(
-                Node::Work(Work::Pipe(left_pipe)),
-                Node::Work(Work::Pipe(right_pipe)),
-            ) => {
-                // Both branches should have 2 factors: (branch from or1) + or2
-                assert_eq!(left_pipe.mid.len(), 2, "Left pipe should have 2 factors");
-                assert_eq!(right_pipe.mid.len(), 2, "Right pipe should have 2 factors");
-            }
-            other => panic!("Expected Split with Work::Pipe, got {:?}", other),
-        }
+        let (left_node, right_node) = unwrap_split(step);
+        let left_pipe = unwrap_work_pipe(left_node);
+        let right_pipe = unwrap_work_pipe(right_node);
+        // Both branches should have 2 factors: (branch from or1) + or2
+        assert_eq!(left_pipe.mid.len(), 2, "Left pipe should have 2 factors");
+        assert_eq!(right_pipe.mid.len(), 2, "Right pipe should have 2 factors");
     }
 
     /// split_or must preserve env in both branches.
@@ -2394,22 +2431,17 @@ mod tests {
         };
         let step = pipe.step(&mut terms);
 
-        match step {
-            WorkStep::Split(
-                Node::Work(Work::Pipe(left_pipe)),
-                Node::Work(Work::Pipe(right_pipe)),
-            ) => {
-                assert!(
-                    left_pipe.env.contains(42),
-                    "Left branch should preserve env binding"
-                );
-                assert!(
-                    right_pipe.env.contains(42),
-                    "Right branch should preserve env binding"
-                );
-            }
-            other => panic!("Expected Split with Work::Pipe, got {:?}", other),
-        }
+        let (left_node, right_node) = unwrap_split(step);
+        let left_pipe = unwrap_work_pipe(left_node);
+        let right_pipe = unwrap_work_pipe(right_node);
+        assert!(
+            left_pipe.env.contains(42),
+            "Left branch should preserve env binding"
+        );
+        assert!(
+            right_pipe.env.contains(42),
+            "Right branch should preserve env binding"
+        );
     }
 
     /// split_or with Zero branches should still return Work::Pipe (not optimize to Fail).
@@ -2427,21 +2459,17 @@ mod tests {
 
         // Even with Zero branches, split_or should return Work::Pipe
         // The Zero will be handled when each branch steps
-        match step {
-            WorkStep::Split(left, right) => {
-                assert!(
-                    matches!(left, Node::Work(Work::Pipe(_))),
-                    "Left branch should be Work::Pipe even for Zero, got {:?}",
-                    left
-                );
-                assert!(
-                    matches!(right, Node::Work(Work::Pipe(_))),
-                    "Right branch should be Work::Pipe even for Zero, got {:?}",
-                    right
-                );
-            }
-            other => panic!("Expected Split, got {:?}", other),
-        }
+        let (left, right) = unwrap_split(step);
+        assert!(
+            is_work_pipe(&left),
+            "Left branch should be Work::Pipe even for Zero, got {:?}",
+            left
+        );
+        assert!(
+            is_work_pipe(&right),
+            "Right branch should be Work::Pipe even for Zero, got {:?}",
+            right
+        );
     }
 
     // ========================================================================
@@ -2530,7 +2558,7 @@ mod tests {
             WorkStep::Emit(emitted, rest) => {
                 // Should emit the NF
                 assert_eq!(emitted, nf);
-                assert!(matches!(rest, Work::Done));
+                assert!(matches!(*rest, Work::Done));
             }
             _ => panic!("Atom should emit"),
         }
@@ -2558,7 +2586,7 @@ mod tests {
             match step {
                 WorkStep::Emit(_, _) => break,
                 WorkStep::Done => break,
-                WorkStep::More(w) => match w {
+                WorkStep::More(work) => match *work {
                     Work::Pipe(p) => pipe = p,
                     _ => panic!("Expected Pipe"),
                 },
@@ -2599,19 +2627,24 @@ mod tests {
 
         // After one step, the back Atom should be absorbed into right boundary.
         match step {
-            WorkStep::More(Work::Pipe(p)) => {
+            WorkStep::More(work) => match *work {
+                Work::Pipe(p) => {
+                    assert!(
+                        p.right.is_some(),
+                        "BUG: Back atom was NOT absorbed into right boundary!"
+                    );
+                }
+                _ => panic!("Expected Work::Pipe"),
+            },
+            WorkStep::Split(left, right) => {
+                let left_pipe = unwrap_work_pipe(*left);
+                let right_pipe = unwrap_work_pipe(*right);
                 assert!(
-                    p.right.is_some(),
-                    "BUG: Back atom was NOT absorbed into right boundary!"
-                );
-            }
-            WorkStep::Split(Node::Work(Work::Pipe(left)), Node::Work(Work::Pipe(right))) => {
-                assert!(
-                    left.right.is_some(),
+                    left_pipe.right.is_some(),
                     "Left branch missing absorbed right boundary"
                 );
                 assert!(
-                    right.right.is_some(),
+                    right_pipe.right.is_some(),
                     "Right branch missing absorbed right boundary"
                 );
             }
@@ -2641,13 +2674,18 @@ mod tests {
         loop {
             let step = pipe.step(&mut terms);
             match step {
-                WorkStep::More(Work::Pipe(p)) => {
-                    pipe = p;
-                    steps += 1;
-                    if steps > max_steps {
-                        panic!("Too many More steps without Split");
+                WorkStep::More(work) => match *work {
+                    Work::Pipe(p) => {
+                        pipe = p;
+                        steps += 1;
+                        if steps > max_steps {
+                            panic!("Too many More steps without Split");
+                        }
                     }
-                }
+                    _ => {
+                        panic!("Unexpected non-Pipe More");
+                    }
+                },
                 WorkStep::Split(_, _) => {
                     // When we reach Split, both boundaries should be set
                     assert!(
@@ -2665,9 +2703,6 @@ mod tests {
                 }
                 WorkStep::Emit(_, _) => {
                     panic!("Unexpected Emit");
-                }
-                WorkStep::More(_) => {
-                    panic!("Unexpected non-Pipe More");
                 }
             }
         }
@@ -2711,13 +2746,16 @@ mod tests {
         loop {
             let step = pipe.step(&mut terms);
             match step {
-                WorkStep::More(Work::Pipe(p)) => {
-                    pipe = p;
-                    steps += 1;
-                    if steps > 10 {
-                        panic!("Too many steps");
+                WorkStep::More(work) => match *work {
+                    Work::Pipe(p) => {
+                        pipe = p;
+                        steps += 1;
+                        if steps > 10 {
+                            panic!("Too many steps");
+                        }
                     }
-                }
+                    _ => panic!("Expected Work::Pipe"),
+                },
                 WorkStep::Split(_, _) => {
                     // Right boundary should be composed: X->Z
                     let right = pipe.right.as_ref().expect("Right boundary should exist");
@@ -2821,7 +2859,11 @@ mod tests {
                     done = true;
                     break;
                 }
-                WorkStep::More(Work::Meet(m)) => meet = m,
+                WorkStep::More(work) => {
+                    if let Work::Meet(m) = *work {
+                        meet = m;
+                    }
+                }
                 _ => {}
             }
         }
@@ -2844,7 +2886,11 @@ mod tests {
                     done = true;
                     break;
                 }
-                WorkStep::More(Work::Meet(m)) => meet = m,
+                WorkStep::More(work) => {
+                    if let Work::Meet(m) = *work {
+                        meet = m;
+                    }
+                }
                 _ => {}
             }
         }
@@ -2858,7 +2904,7 @@ mod tests {
         let rel = Arc::new(Rel::Atom(Arc::new(nf.clone())));
         let factors = Factors::from_seq(Arc::from(vec![rel]));
         let left_pipe = PipeWork::with_mid(factors);
-        let left = Node::Work(Work::Pipe(left_pipe));
+        let left = Node::Work(boxed_work(Work::Pipe(left_pipe)));
         let right = Node::Emit(nf, Box::new(Node::Fail));
         let mut meet: MeetWork<()> = MeetWork::new(left, right);
 
@@ -2869,7 +2915,11 @@ mod tests {
                     emitted = true;
                     break;
                 }
-                WorkStep::More(Work::Meet(m)) => meet = m,
+                WorkStep::More(work) => {
+                    if let Work::Meet(m) = *work {
+                        meet = m;
+                    }
+                }
                 WorkStep::Done => break,
                 _ => {}
             }
@@ -2902,7 +2952,11 @@ mod tests {
                     break;
                 }
                 WorkStep::Done => break,
-                WorkStep::More(Work::Meet(m)) => meet = m,
+                WorkStep::More(work) => {
+                    if let Work::Meet(m) = *work {
+                        meet = m;
+                    }
+                }
                 _ => {}
             }
         }
@@ -2931,7 +2985,11 @@ mod tests {
                     break;
                 }
                 WorkStep::Done => break,
-                WorkStep::More(Work::Meet(m)) => meet = m,
+                WorkStep::More(work) => {
+                    if let Work::Meet(m) = *work {
+                        meet = m;
+                    }
+                }
                 _ => {}
             }
         }
@@ -2971,7 +3029,11 @@ mod tests {
                     break;
                 }
                 WorkStep::Done => break,
-                WorkStep::More(Work::Meet(m)) => meet = m,
+                WorkStep::More(work) => {
+                    if let Work::Meet(m) = *work {
+                        meet = m;
+                    }
+                }
                 _ => {}
             }
         }
@@ -3014,7 +3076,11 @@ mod tests {
                     break;
                 }
                 WorkStep::Done => break,
-                WorkStep::More(Work::Meet(m)) => meet = m,
+                WorkStep::More(work) => {
+                    if let Work::Meet(m) = *work {
+                        meet = m;
+                    }
+                }
                 _ => {}
             }
         }
@@ -3049,8 +3115,16 @@ mod tests {
             let step = meet.step(&mut terms);
             match step {
                 WorkStep::Done => break,
-                WorkStep::More(Work::Meet(m)) => meet = m,
-                WorkStep::Emit(_, Work::Meet(m)) => meet = m,
+                WorkStep::More(work) => {
+                    if let Work::Meet(m) = *work {
+                        meet = m;
+                    }
+                }
+                WorkStep::Emit(_, work) => {
+                    if let Work::Meet(m) = *work {
+                        meet = m;
+                    }
+                }
                 _ => break,
             }
             steps += 1;
@@ -3089,14 +3163,18 @@ mod tests {
             match step {
                 WorkStep::Emit(_, rest) => {
                     emit_count += 1;
-                    match rest {
+                    match *rest {
                         Work::Meet(m) => meet = m,
                         Work::Done => break,
                         _ => {}
                     }
                 }
                 WorkStep::Done => break,
-                WorkStep::More(Work::Meet(m)) => meet = m,
+                WorkStep::More(work) => {
+                    if let Work::Meet(m) = *work {
+                        meet = m;
+                    }
+                }
                 _ => {}
             }
         }
@@ -3153,13 +3231,17 @@ mod tests {
             match step {
                 WorkStep::Emit(nf, rest) => {
                     emitted.push(nf.match_pats[0]);
-                    match rest {
+                    match *rest {
                         Work::Meet(m) => meet = m,
                         _ => break,
                     }
                 }
                 WorkStep::Done => break,
-                WorkStep::More(Work::Meet(m)) => meet = m,
+                WorkStep::More(work) => {
+                    if let Work::Meet(m) = *work {
+                        meet = m;
+                    }
+                }
                 _ => {}
             }
         }
@@ -3216,13 +3298,17 @@ mod tests {
             match step {
                 WorkStep::Emit(_, rest) => {
                     emit_count += 1;
-                    match rest {
+                    match *rest {
                         Work::Meet(m) => meet = m,
                         _ => break,
                     }
                 }
                 WorkStep::Done => break,
-                WorkStep::More(Work::Meet(m)) => meet = m,
+                WorkStep::More(work) => {
+                    if let Work::Meet(m) = *work {
+                        meet = m;
+                    }
+                }
                 _ => {}
             }
         }
@@ -3260,13 +3346,17 @@ mod tests {
             match step {
                 WorkStep::Emit(_, rest) => {
                     emit_count += 1;
-                    match rest {
+                    match *rest {
                         Work::Meet(m) => meet = m,
                         _ => break,
                     }
                 }
                 WorkStep::Done => break,
-                WorkStep::More(Work::Meet(m)) => meet = m,
+                WorkStep::More(work) => {
+                    if let Work::Meet(m) = *work {
+                        meet = m;
+                    }
+                }
                 _ => {}
             }
         }
@@ -3299,7 +3389,7 @@ mod tests {
             match step {
                 WorkStep::Emit(_, rest) => {
                     emit_count += 1;
-                    match rest {
+                    match *rest {
                         Work::Meet(m) => meet = m,
                         Work::Done => {
                             done = true;
@@ -3312,7 +3402,11 @@ mod tests {
                     done = true;
                     break;
                 }
-                WorkStep::More(Work::Meet(m)) => meet = m,
+                WorkStep::More(work) => {
+                    if let Work::Meet(m) = *work {
+                        meet = m;
+                    }
+                }
                 _ => {}
             }
         }
@@ -3340,10 +3434,12 @@ mod tests {
             let step = meet.step(&mut terms);
             match step {
                 WorkStep::Done => break,
-                WorkStep::More(Work::Meet(m)) => {
-                    meet = m;
-                    if !meet.seen_l.is_empty() {
-                        break;
+                WorkStep::More(work) => {
+                    if let Work::Meet(m) = *work {
+                        meet = m;
+                        if !meet.seen_l.is_empty() {
+                            break;
+                        }
                     }
                 }
                 _ => break,
@@ -3372,10 +3468,12 @@ mod tests {
             let step = meet.step(&mut terms);
             match step {
                 WorkStep::Done => break,
-                WorkStep::More(Work::Meet(m)) => {
-                    meet = m;
-                    if !meet.seen_r.is_empty() {
-                        break;
+                WorkStep::More(work) => {
+                    if let Work::Meet(m) = *work {
+                        meet = m;
+                        if !meet.seen_r.is_empty() {
+                            break;
+                        }
                     }
                 }
                 _ => break,
@@ -3413,17 +3511,20 @@ mod tests {
             match step {
                 WorkStep::Emit(_, rest) => {
                     emit_count += 1;
-                    match rest {
+                    match *rest {
                         Work::Meet(m) => meet = m,
                         _ => break,
                     }
                 }
                 WorkStep::Done => break,
-                WorkStep::More(Work::Meet(m)) => meet = m,
+                WorkStep::More(work) => {
+                    if let Work::Meet(m) = *work {
+                        meet = m;
+                    }
+                }
                 WorkStep::Split(_, _) => {
                     // Or could cause split
                 }
-                _ => {}
             }
         }
 
@@ -3486,13 +3587,17 @@ mod tests {
             match step {
                 WorkStep::Emit(_, rest) => {
                     count1 += 1;
-                    match rest {
+                    match *rest {
                         Work::Meet(m) => meet1 = m,
                         _ => break,
                     }
                 }
                 WorkStep::Done => break,
-                WorkStep::More(Work::Meet(m)) => meet1 = m,
+                WorkStep::More(work) => {
+                    if let Work::Meet(m) = *work {
+                        meet1 = m;
+                    }
+                }
                 _ => {}
             }
         }
@@ -3502,13 +3607,17 @@ mod tests {
             match step {
                 WorkStep::Emit(_, rest) => {
                     count2 += 1;
-                    match rest {
+                    match *rest {
                         Work::Meet(m) => meet2 = m,
                         _ => break,
                     }
                 }
                 WorkStep::Done => break,
-                WorkStep::More(Work::Meet(m)) => meet2 = m,
+                WorkStep::More(work) => {
+                    if let Work::Meet(m) = *work {
+                        meet2 = m;
+                    }
+                }
                 _ => {}
             }
         }
@@ -3556,11 +3665,15 @@ mod tests {
             let step = meet.step(&mut terms);
             match step {
                 WorkStep::Done => break,
-                WorkStep::Emit(_, rest) => match rest {
+                WorkStep::Emit(_, rest) => match *rest {
                     Work::Meet(m) => meet = m,
                     _ => break,
                 },
-                WorkStep::More(Work::Meet(m)) => meet = m,
+                WorkStep::More(work) => {
+                    if let Work::Meet(m) = *work {
+                        meet = m;
+                    }
+                }
                 _ => break,
             }
             steps += 1;
@@ -3885,7 +3998,7 @@ mod tests {
             right: None,
             env: Env::new(),
         };
-        let producer_node = Node::Work(Work::Done);
+        let producer_node = Node::Work(boxed_work(Work::Done));
         table.start_producer(producer_node, spec);
         assert_eq!(table.state, ProducerState::Running);
         assert!(table.is_running());
@@ -3904,7 +4017,7 @@ mod tests {
             right: None,
             env: Env::new(),
         };
-        let producer_node = Node::Work(Work::Done);
+        let producer_node = Node::Work(boxed_work(Work::Done));
         table.start_producer(producer_node, spec);
         table.finish_producer();
 
@@ -4190,15 +4303,19 @@ mod tests {
         let step1 = fix.step(&mut terms);
         assert!(matches!(step1, WorkStep::Emit(_, _)));
 
-        if let WorkStep::Emit(_, Work::Fix(f)) = step1 {
-            fix = f;
+        if let WorkStep::Emit(_, work) = step1 {
+            if let Work::Fix(f) = *work {
+                fix = f;
+            }
         }
 
         let step2 = fix.step(&mut terms);
         assert!(matches!(step2, WorkStep::Emit(_, _)));
 
-        if let WorkStep::Emit(_, Work::Fix(f)) = step2 {
-            fix = f;
+        if let WorkStep::Emit(_, work) = step2 {
+            if let Work::Fix(f) = *work {
+                fix = f;
+            }
         }
 
         let step3 = fix.step(&mut terms);
@@ -4214,7 +4331,7 @@ mod tests {
         let key: CallKey<()> = CallKey::new(0, 0, None, None);
         let table = Arc::new(RefCell::new(Table::new()));
         let nf = make_ground_nf("A", &symbols, &terms);
-        let producer_node = Node::Work(Work::Atom(nf.clone()));
+        let producer_node = Node::Work(boxed_work(Work::Atom(nf.clone())));
         let spec = ProducerSpec {
             body: Arc::new(Rel::Atom(Arc::new(nf))),
             left: None,
@@ -4256,12 +4373,16 @@ mod tests {
         let mut outputs = Vec::new();
         for _ in 0..10 {
             match fix.step(&mut terms) {
-                WorkStep::Emit(answer, Work::Fix(next)) => {
-                    outputs.push(answer);
-                    fix = next;
+                WorkStep::Emit(answer, work) => {
+                    if let Work::Fix(next) = *work {
+                        outputs.push(answer);
+                        fix = next;
+                    }
                 }
-                WorkStep::More(Work::Fix(next)) => {
-                    fix = next;
+                WorkStep::More(work) => {
+                    if let Work::Fix(next) = *work {
+                        fix = next;
+                    }
                 }
                 WorkStep::Done => break,
                 other => panic!("Unexpected step: {:?}", other),
@@ -4320,7 +4441,7 @@ mod tests {
             table.add_answer(nf_a1.clone());
             table.add_answer(nf_a2.clone());
             table.start_producer(
-                Node::Work(Work::Done),
+                Node::Work(boxed_work(Work::Done)),
                 ProducerSpec {
                     body: body.clone(),
                     left: None,

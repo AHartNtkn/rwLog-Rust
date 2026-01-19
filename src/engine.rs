@@ -48,19 +48,6 @@ impl<C: ConstraintOps> Engine<C> {
         Self { root, terms }
     }
 
-    /// Get the next answer from the query.
-    ///
-    /// Returns Some(nf) if an answer is found, None if exhausted.
-    pub fn next(&mut self) -> Option<NF<C>> {
-        loop {
-            match self.step() {
-                StepResult::Emit(nf) => return Some(nf),
-                StepResult::Exhausted => return None,
-                StepResult::Continue => continue,
-            }
-        }
-    }
-
     pub fn format_nf(&mut self, nf: &NF<C>, symbols: &SymbolStore) -> Result<String, String> {
         format_nf(nf, &mut self.terms, symbols)
     }
@@ -122,6 +109,20 @@ impl<C: ConstraintOps> Engine<C> {
     /// Count the number of answers (consumes them).
     pub fn count_answers(&mut self) -> usize {
         self.iter().count()
+    }
+}
+
+impl<C: ConstraintOps> Iterator for Engine<C> {
+    type Item = NF<C>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            match self.step() {
+                StepResult::Emit(nf) => return Some(nf),
+                StepResult::Exhausted => return None,
+                StepResult::Continue => continue,
+            }
+        }
     }
 }
 

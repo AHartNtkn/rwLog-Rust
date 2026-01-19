@@ -92,6 +92,11 @@ impl DiseqConstraint {
     }
 
     /// Check if there are no constraints.
+    pub fn is_empty(&self) -> bool {
+        self.constraints.is_empty()
+    }
+
+    /// Check if there are no constraints.
     pub fn is_empty_constraint(&self) -> bool {
         self.constraints.is_empty()
     }
@@ -180,6 +185,11 @@ impl TypeConstraints {
     /// Get the number of constraints.
     pub fn len(&self) -> usize {
         self.constraints.len()
+    }
+
+    /// Check if there are no constraints.
+    pub fn is_empty(&self) -> bool {
+        self.constraints.is_empty()
     }
 
     /// Check if there are no constraints.
