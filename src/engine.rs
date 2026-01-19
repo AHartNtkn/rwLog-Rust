@@ -5,13 +5,13 @@
 //! 2. Stepping through the Node tree using Or rotation
 //! 3. Yielding NF answers via next()
 
+use crate::constraint::ConstraintOps;
 use crate::nf::{format_nf, NF};
 use crate::node::{step_node, Node, NodeStep};
 use crate::rel::Rel;
 use crate::symbol::SymbolStore;
 use crate::term::TermStore;
 use crate::work::{rel_to_node, Env, Tables};
-use crate::constraint::ConstraintOps;
 
 /// Result of a single step in the Engine.
 #[derive(Clone, Debug)]
@@ -155,17 +155,17 @@ pub fn query_first<C: ConstraintOps>(rel: Rel<C>, terms: TermStore) -> Option<NF
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::drop_fresh::DropFresh;
     use crate::nf::NF;
     use crate::parser::Parser;
-    use crate::rel::Rel;
     use crate::rel::dual;
+    use crate::rel::Rel;
     use crate::symbol::SymbolStore;
     use crate::test_utils::{make_ground_nf, make_rule_nf, setup};
-    use crate::drop_fresh::DropFresh;
+    use crate::work::Env;
     use smallvec::SmallVec;
     use std::collections::HashSet;
     use std::sync::Arc;
-    use crate::work::Env;
 
     /// Create an empty NF (identity)
     fn make_identity_nf() -> NF<()> {
@@ -207,7 +207,11 @@ mod tests {
             "Expected exactly one answer for query {}",
             query
         );
-        assert_eq!(answers[0], expected_nf, "Unexpected answer for query {}", query);
+        assert_eq!(
+            answers[0], expected_nf,
+            "Unexpected answer for query {}",
+            query
+        );
     }
 
     // ========================================================================
@@ -232,10 +236,8 @@ mod tests {
     #[test]
     fn engine_new_from_or() {
         let (_, terms) = setup();
-        let engine: Engine<()> = Engine::new(
-            Rel::Or(Arc::new(Rel::Zero), Arc::new(Rel::Zero)),
-            terms,
-        );
+        let engine: Engine<()> =
+            Engine::new(Rel::Or(Arc::new(Rel::Zero), Arc::new(Rel::Zero)), terms);
         // Or of two Zeros eventually exhausts
         assert!(!engine.is_exhausted()); // Not immediately exhausted
     }
@@ -337,7 +339,10 @@ mod tests {
         let ans = engine.next();
         assert!(ans.is_some(), "Empty Seq should yield identity");
         assert_eq!(ans.unwrap(), NF::identity(()));
-        assert!(engine.next().is_none(), "Empty Seq should exhaust after identity");
+        assert!(
+            engine.next().is_none(),
+            "Empty Seq should exhaust after identity"
+        );
     }
 
     #[test]
@@ -392,10 +397,8 @@ mod tests {
     #[test]
     fn engine_or_zero_zero_exhausts() {
         let (_, terms) = setup();
-        let mut engine: Engine<()> = Engine::new(
-            Rel::Or(Arc::new(Rel::Zero), Arc::new(Rel::Zero)),
-            terms,
-        );
+        let mut engine: Engine<()> =
+            Engine::new(Rel::Or(Arc::new(Rel::Zero), Arc::new(Rel::Zero)), terms);
 
         assert!(engine.next().is_none(), "Or(Zero, Zero) should exhaust");
     }
@@ -744,10 +747,7 @@ mod tests {
     fn and_with_shadowed_fix_does_not_reuse_table() {
         let mut parser = Parser::new();
         let nf = parser.parse_rule("a -> a").expect("parse rule");
-        let fix_body = Rel::Or(
-            Arc::new(Rel::Atom(Arc::new(nf))),
-            Arc::new(Rel::Call(0)),
-        );
+        let fix_body = Rel::Or(Arc::new(Rel::Atom(Arc::new(nf))), Arc::new(Rel::Call(0)));
         let rel = Rel::And(
             Arc::new(Rel::Fix(0, Arc::new(fix_body))),
             Arc::new(Rel::Fix(0, Arc::new(Rel::Call(0)))),
@@ -773,10 +773,7 @@ mod tests {
             Arc::new(Rel::Call(0)),
             Arc::new(Rel::Atom(Arc::new(nf_b))),
         ]));
-        let fix_body = Rel::Or(
-            Arc::new(Rel::Atom(Arc::new(nf_a))),
-            Arc::new(recursive),
-        );
+        let fix_body = Rel::Or(Arc::new(Rel::Atom(Arc::new(nf_a))), Arc::new(recursive));
         let rel = Rel::Or(
             Arc::new(Rel::Fix(0, Arc::new(fix_body))),
             Arc::new(Rel::Fix(0, Arc::new(Rel::Call(0)))),
@@ -1092,7 +1089,10 @@ mod tests {
     fn call_undefined_relid_fails() {
         let rel: Rel<()> = Rel::Call(99);
         let mut engine: Engine<()> = Engine::new(rel, TermStore::new());
-        assert!(engine.next().is_none(), "Call to undefined RelId should fail");
+        assert!(
+            engine.next().is_none(),
+            "Call to undefined RelId should fail"
+        );
     }
 
     /// Call with RelId 0 (boundary).
@@ -1101,14 +1101,14 @@ mod tests {
         let nf = make_identity_nf();
         // Fix(0, Or(Atom(nf), Call(0))) - Call refers to the Fix
         // With base case first, should at least yield base case
-        let body = Rel::Or(
-            Arc::new(Rel::Atom(Arc::new(nf))),
-            Arc::new(Rel::Call(0)),
-        );
+        let body = Rel::Or(Arc::new(Rel::Atom(Arc::new(nf))), Arc::new(Rel::Call(0)));
         let rel = Rel::Fix(0, Arc::new(body));
         let mut engine: Engine<()> = Engine::new(rel, TermStore::new());
 
-        assert!(engine.next().is_some(), "Call(0) with Fix(0, ...) should work");
+        assert!(
+            engine.next().is_some(),
+            "Call(0) with Fix(0, ...) should work"
+        );
     }
 
     /// Call inside Or - should try base first, then recursive branch.
@@ -1191,10 +1191,7 @@ mod tests {
         let nf = make_identity_nf();
         // Fix(0, Fix(1, Or(Atom(nf), Call(0))))
         // Call(0) refers to outer Fix
-        let inner_body = Rel::Or(
-            Arc::new(Rel::Atom(Arc::new(nf))),
-            Arc::new(Rel::Call(0)),
-        );
+        let inner_body = Rel::Or(Arc::new(Rel::Atom(Arc::new(nf))), Arc::new(Rel::Call(0)));
         let inner = Rel::Fix(1, Arc::new(inner_body));
         let outer = Rel::Fix(0, Arc::new(inner));
 
@@ -1305,9 +1302,10 @@ mod tests {
         let countdown = build_countdown_rel(&symbols, &terms);
 
         // Input: (s (s z)) through countdown
-        let ss_z = terms.app(s, SmallVec::from_slice(&[
-            terms.app(s, SmallVec::from_slice(&[z_term]))
-        ]));
+        let ss_z = terms.app(
+            s,
+            SmallVec::from_slice(&[terms.app(s, SmallVec::from_slice(&[z_term]))]),
+        );
         let input_nf = NF::new(
             SmallVec::from_slice(&[ss_z]),
             DropFresh::identity(0),
@@ -1435,9 +1433,7 @@ rel add {
             _ => Env::new(),
         };
 
-        let query = parser
-            .parse_rel_body("add ; @(s z)")
-            .expect("parse query");
+        let query = parser.parse_rel_body("add ; @(s z)").expect("parse query");
 
         let terms = parser.take_terms();
         let mut engine: Engine<()> = Engine::new_with_env(query, terms, env);
@@ -1551,10 +1547,7 @@ rel add {
             .parse_rel_body("(cons $x $y) -> $y")
             .expect("parse rule out");
 
-        let and_left = Rel::Seq(Arc::from(vec![
-            Arc::new(rule_left),
-            Arc::new(dual_add),
-        ]));
+        let and_left = Rel::Seq(Arc::from(vec![Arc::new(rule_left), Arc::new(dual_add)]));
         let sub_rel = Rel::Seq(Arc::from(vec![
             Arc::new(Rel::And(Arc::new(and_left), Arc::new(rule_right))),
             Arc::new(rule_out),
@@ -1640,7 +1633,12 @@ rel add {
         );
     }
 
-    fn treecalc_app_case_with_limit(input: &str, expected: &str, query_suffix: &str, max_steps: usize) {
+    fn treecalc_app_case_with_limit(
+        input: &str,
+        expected: &str,
+        query_suffix: &str,
+        max_steps: usize,
+    ) {
         let mut parser = Parser::new();
         let def = include_str!("../examples/treecalc.txt");
         let (_app_rel, env) = parse_rel_def_with_env(&mut parser, def);
@@ -1689,10 +1687,7 @@ rel add {
 
     #[test]
     fn treecalc_app_example_1() {
-        treecalc_app_case(
-            "(f (f l (b l)) (b (b l)))",
-            "(b l)",
-        );
+        treecalc_app_case("(f (f l (b l)) (b (b l)))", "(b l)");
     }
 
     #[test]
@@ -1710,50 +1705,32 @@ rel add {
 
     #[test]
     fn treecalc_app_example_2() {
-        treecalc_app_case(
-            "(f (f l (f l l)) (b (b (b l))))",
-            "(f l l)",
-        );
+        treecalc_app_case("(f (f l (f l l)) (b (b (b l))))", "(f l l)");
     }
 
     #[test]
     fn treecalc_app_example_3() {
-        treecalc_app_case(
-            "(f (f (f l l) l) (b (b l)))",
-            "(b (b l))",
-        );
+        treecalc_app_case("(f (f (f l l) l) (b (b l)))", "(b (b l))");
     }
 
     #[test]
     fn treecalc_app_example_4() {
-        treecalc_app_case(
-            "(f (b (f l l)) (f l l))",
-            "(f (f l l) (f l l))",
-        );
+        treecalc_app_case("(f (b (f l l)) (f l l))", "(f (f l l) (f l l))");
     }
 
     #[test]
     fn treecalc_app_example_5() {
-        treecalc_app_case(
-            "(f (f l l) (f (b l) (b l)))",
-            "l",
-        );
+        treecalc_app_case("(f (f l l) (f (b l) (b l)))", "l");
     }
 
     #[test]
     fn treecalc_app_example_6() {
-        treecalc_app_case(
-            "(f (f l (b l)) (f (b l) (b l)))",
-            "(b l)",
-        );
+        treecalc_app_case("(f (f l (b l)) (f (b l) (b l)))", "(b l)");
     }
 
     #[test]
     fn treecalc_app_example_7() {
-        treecalc_app_case(
-            "(f (b l) (b (b (b l))))",
-            "(f l (b (b (b l))))",
-        );
+        treecalc_app_case("(f (b l) (b (b (b l))))", "(f l (b (b (b l))))");
     }
 
     #[test]
@@ -1774,10 +1751,7 @@ rel add {
 
     #[test]
     fn treecalc_app_example_10() {
-        treecalc_app_case(
-            "(f (f (b (b l)) l) (c 0))",
-            "(c 0)",
-        );
+        treecalc_app_case("(f (f (b (b l)) l) (c 0))", "(c 0)");
     }
 
     #[test]
@@ -1971,10 +1945,7 @@ rel add {
 
         // Should find inputs that produce z: just z itself
         let ans = engine.next();
-        assert!(
-            ans.is_some(),
-            "countdown ; id_z should find z -> z"
-        );
+        assert!(ans.is_some(), "countdown ; id_z should find z -> z");
     }
 
     /// Both boundaries should propagate.
@@ -2004,10 +1975,7 @@ rel add {
 
         // Should find z -> z -> z
         let ans = engine.next();
-        assert!(
-            ans.is_some(),
-            "id_z ; countdown ; id_z should find answer"
-        );
+        assert!(ans.is_some(), "id_z ; countdown ; id_z should find answer");
     }
 
     // ------------------------------------------------------------------------
@@ -2018,10 +1986,7 @@ rel add {
     #[test]
     fn zero_before_call_short_circuits() {
         // Fix(0, Seq([Zero, Call(0)])) - Zero kills the branch
-        let body = Rel::Seq(Arc::from(vec![
-            Arc::new(Rel::Zero),
-            Arc::new(Rel::Call(0)),
-        ]));
+        let body = Rel::Seq(Arc::from(vec![Arc::new(Rel::Zero), Arc::new(Rel::Call(0))]));
         let rel: Rel<()> = Rel::Fix(0, Arc::new(body));
         let mut engine: Engine<()> = Engine::new(rel, TermStore::new());
 
@@ -2087,7 +2052,10 @@ rel add {
         let mut engine: Engine<()> = Engine::new(countdown, terms);
 
         // Should work (tested elsewhere, but explicit here)
-        assert!(engine.next().is_some(), "Seq inside recursive body should work");
+        assert!(
+            engine.next().is_some(),
+            "Seq inside recursive body should work"
+        );
     }
 
     // ------------------------------------------------------------------------

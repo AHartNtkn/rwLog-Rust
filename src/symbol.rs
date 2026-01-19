@@ -258,9 +258,18 @@ mod tests {
         let id_tab = store.intern("\t");
         let id_newline = store.intern("\n");
 
-        assert_ne!(id_space, id_tab, "Space and tab should be different symbols");
-        assert_ne!(id_tab, id_newline, "Tab and newline should be different symbols");
-        assert_ne!(id_space, id_newline, "Space and newline should be different symbols");
+        assert_ne!(
+            id_space, id_tab,
+            "Space and tab should be different symbols"
+        );
+        assert_ne!(
+            id_tab, id_newline,
+            "Tab and newline should be different symbols"
+        );
+        assert_ne!(
+            id_space, id_newline,
+            "Space and newline should be different symbols"
+        );
     }
 
     #[test]

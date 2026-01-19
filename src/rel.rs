@@ -81,11 +81,11 @@ pub fn dual<C: Clone>(rel: &Rel<C>) -> Rel<C> {
 #[cfg(test)]
 mod tests {
     use super::{dual, Rel, RelId};
+    use crate::drop_fresh::DropFresh;
     use crate::nf::NF;
     use crate::symbol::SymbolStore;
     use crate::term::TermStore;
     use crate::test_utils::{make_rule_nf, setup};
-    use crate::drop_fresh::DropFresh;
     use smallvec::SmallVec;
     use std::sync::Arc;
 
@@ -134,7 +134,10 @@ mod tests {
             }
             (Rel::Seq(xs1), Rel::Seq(xs2)) => {
                 xs1.len() == xs2.len()
-                    && xs1.iter().zip(xs2.iter()).all(|(x1, x2)| structurally_equal(x1, x2))
+                    && xs1
+                        .iter()
+                        .zip(xs2.iter())
+                        .all(|(x1, x2)| structurally_equal(x1, x2))
             }
             (Rel::Fix(id1, body1), Rel::Fix(id2, body2)) => {
                 id1 == id2 && structurally_equal(body1, body2)
@@ -213,7 +216,10 @@ mod tests {
         let d1 = dual(&r);
         let d2 = dual(&d1);
 
-        assert!(structurally_equal(&r, &d2), "dual(dual(atom)) should equal atom");
+        assert!(
+            structurally_equal(&r, &d2),
+            "dual(dual(atom)) should equal atom"
+        );
     }
 
     // ========================================================================
@@ -476,7 +482,10 @@ mod tests {
                 // Outer reversed: [dual(C), dual(Seq([A,B]))]
                 // dual(Seq([A,B])) = Seq([dual(B), dual(A)])
                 let dual_0 = dual(xs[0].as_ref());
-                assert!(structurally_equal(&dual_0, c.as_ref()), "First should be dual(C)");
+                assert!(
+                    structurally_equal(&dual_0, c.as_ref()),
+                    "First should be dual(C)"
+                );
 
                 match xs[1].as_ref() {
                     Rel::Seq(inner_xs) => {
@@ -503,7 +512,10 @@ mod tests {
         let r = Rel::Seq(Arc::from(vec![a, b, c]));
         let d1 = dual(&r);
         let d2 = dual(&d1);
-        assert!(structurally_equal(&r, &d2), "dual(dual(seq)) should equal seq");
+        assert!(
+            structurally_equal(&r, &d2),
+            "dual(dual(seq)) should equal seq"
+        );
     }
 
     #[test]
@@ -696,10 +708,7 @@ mod tests {
             Rel::Atom(Arc::new(make_rule_nf("A", "B", &symbols, &terms))),
             Rel::Or(Arc::new(Rel::Zero), Arc::new(Rel::Zero)),
             Rel::And(Arc::new(Rel::Zero), Arc::new(Rel::Zero)),
-            Rel::Seq(Arc::from(vec![
-                Arc::new(Rel::Zero),
-                Arc::new(Rel::Zero),
-            ])),
+            Rel::Seq(Arc::from(vec![Arc::new(Rel::Zero), Arc::new(Rel::Zero)])),
             Rel::Fix(0, Arc::new(Rel::Zero)),
             Rel::Call(0),
         ];
@@ -707,10 +716,7 @@ mod tests {
         for r in cases {
             let d1 = dual(&r);
             let d2 = dual(&d1);
-            assert!(
-                structurally_equal(&r, &d2),
-                "Involution failed for variant"
-            );
+            assert!(structurally_equal(&r, &d2), "Involution failed for variant");
         }
     }
 

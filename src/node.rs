@@ -4,8 +4,8 @@
 //! Or nodes use rotation interleaving for fair search.
 //! Work nodes embed active computations (Seq, And, Fix).
 
-use crate::nf::NF;
 use crate::constraint::ConstraintOps;
+use crate::nf::NF;
 use crate::term::TermStore;
 use crate::work::{Work, WorkStep};
 
@@ -62,13 +62,10 @@ pub fn step_node<C: ConstraintOps>(node: Node<C>, terms: &mut TermStore) -> Node
 
         Node::Work(mut work) => match work.step(terms) {
             WorkStep::Done => NodeStep::Continue(Node::Fail),
-            WorkStep::Emit(nf, next_work) => {
-                NodeStep::Emit(nf, Node::Work(next_work))
+            WorkStep::Emit(nf, next_work) => NodeStep::Emit(nf, Node::Work(next_work)),
+            WorkStep::Split(left_node, right_node) => {
+                NodeStep::Continue(Node::Or(Box::new(left_node), Box::new(right_node)))
             }
-            WorkStep::Split(left_node, right_node) => NodeStep::Continue(Node::Or(
-                Box::new(left_node),
-                Box::new(right_node),
-            )),
             WorkStep::More(next_work) => NodeStep::Continue(Node::Work(next_work)),
         },
     }
@@ -221,7 +218,10 @@ mod tests {
 
         let chain = Node::Emit(
             nf1,
-            Box::new(Node::Emit(nf2, Box::new(Node::Emit(nf3, Box::new(Node::Fail))))),
+            Box::new(Node::Emit(
+                nf2,
+                Box::new(Node::Emit(nf3, Box::new(Node::Fail))),
+            )),
         );
         assert!(matches!(chain, Node::Emit(_, _)));
     }
@@ -338,7 +338,11 @@ mod tests {
         // Node is larger now because it contains Work variant
         // Work contains MeetWork, FixWork, PipeWork variants which are substantial
         // PipeWork now includes env: Env and tables: Tables for Fix/Call handling
-        assert!(size < 700, "Node should not be excessively large, got {}", size);
+        assert!(
+            size < 700,
+            "Node should not be excessively large, got {}",
+            size
+        );
     }
 
     // ========================================================================

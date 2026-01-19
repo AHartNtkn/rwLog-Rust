@@ -67,10 +67,7 @@ impl JupyterMessage {
         let content = serde_json::to_vec(&self.content)
             .map_err(|e| format!("Serialize content failed: {}", e))?;
 
-        let sig = sign_frames(
-            key,
-            [&header[..], &parent[..], &metadata[..], &content[..]],
-        );
+        let sig = sign_frames(key, [&header[..], &parent[..], &metadata[..], &content[..]]);
 
         let mut frames = Vec::new();
         frames.extend(self.ids.iter().cloned());
@@ -107,14 +104,14 @@ impl JupyterMessage {
             return Err("Invalid Jupyter message signature".to_string());
         }
 
-        let header: JupyterHeader = serde_json::from_slice(header)
-            .map_err(|e| format!("Invalid header: {}", e))?;
-        let parent_header: Value = serde_json::from_slice(parent)
-            .map_err(|e| format!("Invalid parent header: {}", e))?;
-        let metadata: Value = serde_json::from_slice(metadata)
-            .map_err(|e| format!("Invalid metadata: {}", e))?;
-        let content: Value = serde_json::from_slice(content)
-            .map_err(|e| format!("Invalid content: {}", e))?;
+        let header: JupyterHeader =
+            serde_json::from_slice(header).map_err(|e| format!("Invalid header: {}", e))?;
+        let parent_header: Value =
+            serde_json::from_slice(parent).map_err(|e| format!("Invalid parent header: {}", e))?;
+        let metadata: Value =
+            serde_json::from_slice(metadata).map_err(|e| format!("Invalid metadata: {}", e))?;
+        let content: Value =
+            serde_json::from_slice(content).map_err(|e| format!("Invalid content: {}", e))?;
 
         Ok(Self {
             ids,
@@ -132,8 +129,8 @@ fn sign_frames<'a>(key: &str, frames: impl IntoIterator<Item = &'a [u8]>) -> Str
         return String::new();
     }
 
-    let mut mac = HmacSha256::new_from_slice(key.as_bytes())
-        .expect("HMAC can take key of any size");
+    let mut mac =
+        HmacSha256::new_from_slice(key.as_bytes()).expect("HMAC can take key of any size");
     for frame in frames {
         mac.update(frame);
     }
@@ -184,12 +181,10 @@ pub fn default_kernel_dir() -> Result<PathBuf, String> {
 
 pub fn install_kernel_spec(dir: &Path, name: &str, argv0: &str) -> Result<PathBuf, String> {
     let spec_dir = dir.join(name);
-    fs::create_dir_all(&spec_dir)
-        .map_err(|e| format!("Failed to create kernel dir: {}", e))?;
+    fs::create_dir_all(&spec_dir).map_err(|e| format!("Failed to create kernel dir: {}", e))?;
     let spec = kernel_spec_json(name, argv0)?;
     let path = spec_dir.join("kernel.json");
-    fs::write(&path, spec.as_bytes())
-        .map_err(|e| format!("Failed to write kernel.json: {}", e))?;
+    fs::write(&path, spec.as_bytes()).map_err(|e| format!("Failed to write kernel.json: {}", e))?;
     Ok(path)
 }
 
@@ -258,7 +253,12 @@ impl Kernel {
         self.make_reply("status", parent, json!({ "execution_state": state }))
     }
 
-    fn error_message(&mut self, parent: &JupyterMessage, ename: &str, evalue: &str) -> JupyterMessage {
+    fn error_message(
+        &mut self,
+        parent: &JupyterMessage,
+        ename: &str,
+        evalue: &str,
+    ) -> JupyterMessage {
         self.make_reply(
             "error",
             parent,
@@ -270,11 +270,7 @@ impl Kernel {
         )
     }
 
-    fn execute_input_message(
-        &mut self,
-        parent: &JupyterMessage,
-        code: &str,
-    ) -> JupyterMessage {
+    fn execute_input_message(&mut self, parent: &JupyterMessage, code: &str) -> JupyterMessage {
         self.make_reply(
             "execute_input",
             parent,
@@ -282,11 +278,7 @@ impl Kernel {
         )
     }
 
-    fn execute_result_message(
-        &mut self,
-        parent: &JupyterMessage,
-        text: &str,
-    ) -> JupyterMessage {
+    fn execute_result_message(&mut self, parent: &JupyterMessage, text: &str) -> JupyterMessage {
         self.make_reply(
             "execute_result",
             parent,
@@ -336,7 +328,11 @@ impl Kernel {
                 shutdown: false,
             },
             "shutdown_request" => {
-                let restart = msg.content.get("restart").and_then(Value::as_bool).unwrap_or(false);
+                let restart = msg
+                    .content
+                    .get("restart")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
                 KernelResponse {
                     shell: Some(self.make_reply(
                         "shutdown_reply",
@@ -348,11 +344,7 @@ impl Kernel {
                 }
             }
             "comm_info_request" => KernelResponse {
-                shell: Some(self.make_reply(
-                    "comm_info_reply",
-                    msg,
-                    json!({ "comms": {} }),
-                )),
+                shell: Some(self.make_reply("comm_info_reply", msg, json!({ "comms": {} }))),
                 iopub: vec![self.status_message(msg, "idle")],
                 shutdown: false,
             },

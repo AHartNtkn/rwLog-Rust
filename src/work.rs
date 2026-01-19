@@ -14,8 +14,8 @@ use crate::term::{TermId, TermStore};
 use smallvec::SmallVec;
 use std::cell::RefCell;
 use std::collections::{HashSet, VecDeque};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 
 /// Active work items for evaluation.
 #[derive(Clone, Debug)]
@@ -96,11 +96,7 @@ fn wrap_rel_with_atoms<C: ConstraintOps>(
 }
 
 /// Convert a Rel to a Node tree with the given environment and tables.
-pub fn rel_to_node<C: ConstraintOps>(
-    rel: &Rel<C>,
-    env: &Env<C>,
-    tables: &Tables<C>,
-) -> Node<C> {
+pub fn rel_to_node<C: ConstraintOps>(rel: &Rel<C>, env: &Env<C>, tables: &Tables<C>) -> Node<C> {
     match rel {
         Rel::Zero => Node::Fail,
 
@@ -141,19 +137,17 @@ pub fn rel_to_node<C: ConstraintOps>(
             rel_to_node(body, &new_env, tables)
         }
 
-        Rel::Call(id) => {
-            match env.lookup(*id) {
-                Some(_) => {
-                    let call_rel = Arc::new(rel.clone());
-                    let factors = Factors::from_seq(Arc::from(vec![call_rel]));
-                    let mut pipe = PipeWork::with_mid(factors);
-                    pipe.env = env.clone();
-                    pipe.tables = tables.clone();
-                    Node::Work(Work::Pipe(pipe))
-                }
-                None => Node::Fail,
+        Rel::Call(id) => match env.lookup(*id) {
+            Some(_) => {
+                let call_rel = Arc::new(rel.clone());
+                let factors = Factors::from_seq(Arc::from(vec![call_rel]));
+                let mut pipe = PipeWork::with_mid(factors);
+                pipe.env = env.clone();
+                pipe.tables = tables.clone();
+                Node::Work(Work::Pipe(pipe))
             }
-        }
+            None => Node::Fail,
+        },
     }
 }
 
@@ -443,14 +437,8 @@ impl<C: ConstraintOps> PipeWork<C> {
 
         // Phase B: Stuck on normalization - advance one end using flip.
         // Prefer advancing a non-Call end when the opposite end is a Call.
-        let front_is_call = matches!(
-            self.mid.front().map(|rel| rel.as_ref()),
-            Some(Rel::Call(_))
-        );
-        let back_is_call = matches!(
-            self.mid.back().map(|rel| rel.as_ref()),
-            Some(Rel::Call(_))
-        );
+        let front_is_call = matches!(self.mid.front().map(|rel| rel.as_ref()), Some(Rel::Call(_)));
+        let back_is_call = matches!(self.mid.back().map(|rel| rel.as_ref()), Some(Rel::Call(_)));
 
         let mut advance_back = self.flip;
         if advance_back && back_is_call && !front_is_call {
@@ -675,20 +663,15 @@ impl<C: ConstraintOps> PipeWork<C> {
         while i + 1 < factors.len() {
             let left = factors[i].clone();
             let right = factors[i + 1].clone();
-            match (left.as_ref(), right.as_ref()) {
-                (Rel::Atom(a), Rel::Atom(b)) => {
-                    let Some(composed) = compose_nf(a, b, terms) else {
-                        return Err(WorkStep::Done);
-                    };
-                    factors[i] = Arc::new(Rel::Atom(Arc::new(composed)));
-                    factors.remove(i + 1);
-                    changed = true;
-                    if i > 0 {
-                        i -= 1;
-                    }
-                    continue;
-                }
-                _ => {}
+            if let (Rel::Atom(a), Rel::Atom(b)) = (left.as_ref(), right.as_ref()) {
+                let Some(composed) = compose_nf(a, b, terms) else {
+                    return Err(WorkStep::Done);
+                };
+                factors[i] = Arc::new(Rel::Atom(Arc::new(composed)));
+                factors.remove(i + 1);
+                changed = true;
+                i = i.saturating_sub(1);
+                continue;
             }
             i += 1;
         }
@@ -717,10 +700,7 @@ impl<C: ConstraintOps> PipeWork<C> {
                 let parts = flatten_and_parts(front.clone());
 
                 let (left_prefix, left_iso) = match &self.left {
-                    Some(nf) => (
-                        Some(nf_left_prefix(nf, terms)),
-                        Some(nf_rwr_iso(nf, terms)),
-                    ),
+                    Some(nf) => (Some(nf_left_prefix(nf, terms)), Some(nf_rwr_iso(nf, terms))),
                     None => (None, None),
                 };
 
@@ -743,11 +723,8 @@ impl<C: ConstraintOps> PipeWork<C> {
                 let nodes = parts
                     .into_iter()
                     .map(|part| {
-                        let wrapped = wrap_rel_with_atoms(
-                            part,
-                            left_iso.clone(),
-                            right_iso.clone(),
-                        );
+                        let wrapped =
+                            wrap_rel_with_atoms(part, left_iso.clone(), right_iso.clone());
                         let mut part_pipe =
                             PipeWork::from_rel(wrapped, self.env.clone(), self.tables.clone());
                         part_pipe.call_mode = self.call_mode.clone();
@@ -820,10 +797,7 @@ impl<C: ConstraintOps> PipeWork<C> {
 
                 let (left_prefix, left_iso) = if self.mid.is_empty() {
                     match &self.left {
-                        Some(nf) => (
-                            Some(nf_left_prefix(nf, terms)),
-                            Some(nf_rwr_iso(nf, terms)),
-                        ),
+                        Some(nf) => (Some(nf_left_prefix(nf, terms)), Some(nf_rwr_iso(nf, terms))),
                         None => (None, None),
                     }
                 } else {
@@ -837,11 +811,8 @@ impl<C: ConstraintOps> PipeWork<C> {
                 let nodes = parts
                     .into_iter()
                     .map(|part| {
-                        let wrapped = wrap_rel_with_atoms(
-                            part,
-                            left_iso.clone(),
-                            right_iso.clone(),
-                        );
+                        let wrapped =
+                            wrap_rel_with_atoms(part, left_iso.clone(), right_iso.clone());
                         let mut part_pipe =
                             PipeWork::from_rel(wrapped, self.env.clone(), self.tables.clone());
                         part_pipe.call_mode = self.call_mode.clone();
@@ -1348,7 +1319,6 @@ impl<C: ConstraintOps> MeetWork<C> {
             }
         }
     }
-
 }
 
 // ============================================================================
@@ -1756,13 +1726,13 @@ mod tests {
         CallKey, CallMode, Env, FixWork, MeetWork, PipeWork, ProducerSpec, ProducerState, Table,
         Tables, Work, WorkStep,
     };
+    use crate::drop_fresh::DropFresh;
     use crate::factors::Factors;
     use crate::nf::NF;
     use crate::node::Node;
     use crate::rel::Rel;
     use crate::term::TermStore;
     use crate::test_utils::{make_ground_nf, setup};
-    use crate::drop_fresh::DropFresh;
     use smallvec::SmallVec;
     use std::sync::Arc;
 
@@ -1800,7 +1770,9 @@ mod tests {
     fn find_fixwork_in_node(node: &Node<()>) -> Option<FixWork<()>> {
         match node {
             Node::Work(Work::Fix(fix)) => Some(fix.clone()),
-            Node::Or(left, right) => find_fixwork_in_node(left).or_else(|| find_fixwork_in_node(right)),
+            Node::Or(left, right) => {
+                find_fixwork_in_node(left).or_else(|| find_fixwork_in_node(right))
+            }
             _ => None,
         }
     }
@@ -1897,7 +1869,8 @@ mod tests {
     #[test]
     fn pipework_with_boundaries_and_empty_mid() {
         let nf = make_identity_nf();
-        let pipe: PipeWork<()> = PipeWork::with_boundaries(Some(nf.clone()), Factors::new(), Some(nf));
+        let pipe: PipeWork<()> =
+            PipeWork::with_boundaries(Some(nf.clone()), Factors::new(), Some(nf));
         // Has boundaries but empty mid
         assert!(!pipe.is_empty());
     }
@@ -1934,11 +1907,8 @@ mod tests {
         let left = make_ground_nf("X", &symbols, &terms);
         let right = make_ground_nf("X", &symbols, &terms);
 
-        let mut pipe: PipeWork<()> = PipeWork::with_boundaries(
-            Some(left),
-            Factors::new(),
-            Some(right),
-        );
+        let mut pipe: PipeWork<()> =
+            PipeWork::with_boundaries(Some(left), Factors::new(), Some(right));
 
         let step = pipe.step(&mut terms);
         // Should emit the composed result
@@ -1950,11 +1920,7 @@ mod tests {
         let (symbols, mut terms) = setup();
         let nf = make_ground_nf("X", &symbols, &terms);
 
-        let mut pipe: PipeWork<()> = PipeWork::with_boundaries(
-            Some(nf),
-            Factors::new(),
-            None,
-        );
+        let mut pipe: PipeWork<()> = PipeWork::with_boundaries(Some(nf), Factors::new(), None);
 
         let step = pipe.step(&mut terms);
         // Should emit the left boundary as result
@@ -1966,11 +1932,7 @@ mod tests {
         let (symbols, mut terms) = setup();
         let nf = make_ground_nf("X", &symbols, &terms);
 
-        let mut pipe: PipeWork<()> = PipeWork::with_boundaries(
-            None,
-            Factors::new(),
-            Some(nf),
-        );
+        let mut pipe: PipeWork<()> = PipeWork::with_boundaries(None, Factors::new(), Some(nf));
 
         let step = pipe.step(&mut terms);
         assert!(matches!(step, WorkStep::Emit(_, _)));
@@ -1980,7 +1942,11 @@ mod tests {
     fn pipework_fuses_adjacent_atoms_anywhere() {
         let (symbols, mut terms) = setup();
         let nf = make_ground_nf("A", &symbols, &terms);
-        let rels = vec![atom_rel(nf.clone()), atom_rel(nf.clone()), atom_rel(nf.clone())];
+        let rels = vec![
+            atom_rel(nf.clone()),
+            atom_rel(nf.clone()),
+            atom_rel(nf.clone()),
+        ];
         let mid = factors_from_rels(rels);
         let mut pipe: PipeWork<()> = PipeWork::with_mid(mid);
 
@@ -2008,8 +1974,16 @@ mod tests {
                 assert_eq!(updated.mid.len(), 3, "Middle atoms should fuse first");
             }
             WorkStep::Split(Node::Work(Work::Pipe(left)), Node::Work(Work::Pipe(right))) => {
-                assert_eq!(left.mid.len(), 3, "Left branch should see fused middle atoms");
-                assert_eq!(right.mid.len(), 3, "Right branch should see fused middle atoms");
+                assert_eq!(
+                    left.mid.len(),
+                    3,
+                    "Left branch should see fused middle atoms"
+                );
+                assert_eq!(
+                    right.mid.len(),
+                    3,
+                    "Right branch should see fused middle atoms"
+                );
             }
             _ => panic!("Expected normalization to fuse middle atoms before advancing ends"),
         }
@@ -2031,7 +2005,10 @@ mod tests {
 
         match step {
             WorkStep::More(Work::Pipe(mut next_pipe)) => {
-                assert!(next_pipe.left.is_some(), "Atom should be absorbed into left");
+                assert!(
+                    next_pipe.left.is_some(),
+                    "Atom should be absorbed into left"
+                );
                 assert!(next_pipe.mid.is_empty(), "Mid should be empty after absorb");
 
                 let step2 = next_pipe.step(&mut terms);
@@ -2116,11 +2093,13 @@ mod tests {
             WorkStep::Split(left, right) => {
                 assert!(
                     matches!(left, Node::Work(Work::Pipe(_))),
-                    "Left branch must be Work::Pipe, got {:?}", left
+                    "Left branch must be Work::Pipe, got {:?}",
+                    left
                 );
                 assert!(
                     matches!(right, Node::Work(Work::Pipe(_))),
-                    "Right branch must be Work::Pipe, got {:?}", right
+                    "Right branch must be Work::Pipe, got {:?}",
+                    right
                 );
             }
             other => panic!("Expected Split, got {:?}", other),
@@ -2144,11 +2123,17 @@ mod tests {
         match step {
             WorkStep::Split(Node::Work(Work::Pipe(left_pipe)), _) => {
                 // Left pipe's mid should have 'a' at front
-                assert!(!left_pipe.mid.is_empty(), "Left pipe mid should not be empty");
+                assert!(
+                    !left_pipe.mid.is_empty(),
+                    "Left pipe mid should not be empty"
+                );
                 let front = left_pipe.mid.front().unwrap();
                 match front.as_ref() {
                     Rel::Atom(nf) => {
-                        assert_eq!(nf.match_pats, nf_a.match_pats, "Left branch should have 'a' factor");
+                        assert_eq!(
+                            nf.match_pats, nf_a.match_pats,
+                            "Left branch should have 'a' factor"
+                        );
                     }
                     other => panic!("Expected Atom in left branch, got {:?}", other),
                 }
@@ -2174,11 +2159,17 @@ mod tests {
         match step {
             WorkStep::Split(_, Node::Work(Work::Pipe(right_pipe))) => {
                 // Right pipe's mid should have 'b' at front
-                assert!(!right_pipe.mid.is_empty(), "Right pipe mid should not be empty");
+                assert!(
+                    !right_pipe.mid.is_empty(),
+                    "Right pipe mid should not be empty"
+                );
                 let front = right_pipe.mid.front().unwrap();
                 match front.as_ref() {
                     Rel::Atom(nf) => {
-                        assert_eq!(nf.match_pats, nf_b.match_pats, "Right branch should have 'b' factor");
+                        assert_eq!(
+                            nf.match_pats, nf_b.match_pats,
+                            "Right branch should have 'b' factor"
+                        );
                     }
                     other => panic!("Expected Atom in right branch, got {:?}", other),
                 }
@@ -2203,11 +2194,26 @@ mod tests {
         let step = pipe.step(&mut terms);
 
         match step {
-            WorkStep::Split(Node::Work(Work::Pipe(left_pipe)), Node::Work(Work::Pipe(right_pipe))) => {
-                assert!(left_pipe.left.is_some(), "Left branch should preserve left boundary");
-                assert!(right_pipe.left.is_some(), "Right branch should preserve left boundary");
-                assert_eq!(left_pipe.left.as_ref().unwrap().match_pats, boundary.match_pats);
-                assert_eq!(right_pipe.left.as_ref().unwrap().match_pats, boundary.match_pats);
+            WorkStep::Split(
+                Node::Work(Work::Pipe(left_pipe)),
+                Node::Work(Work::Pipe(right_pipe)),
+            ) => {
+                assert!(
+                    left_pipe.left.is_some(),
+                    "Left branch should preserve left boundary"
+                );
+                assert!(
+                    right_pipe.left.is_some(),
+                    "Right branch should preserve left boundary"
+                );
+                assert_eq!(
+                    left_pipe.left.as_ref().unwrap().match_pats,
+                    boundary.match_pats
+                );
+                assert_eq!(
+                    right_pipe.left.as_ref().unwrap().match_pats,
+                    boundary.match_pats
+                );
             }
             other => panic!("Expected Split with Work::Pipe, got {:?}", other),
         }
@@ -2229,11 +2235,26 @@ mod tests {
         let step = pipe.step(&mut terms);
 
         match step {
-            WorkStep::Split(Node::Work(Work::Pipe(left_pipe)), Node::Work(Work::Pipe(right_pipe))) => {
-                assert!(left_pipe.right.is_some(), "Left branch should preserve right boundary");
-                assert!(right_pipe.right.is_some(), "Right branch should preserve right boundary");
-                assert_eq!(left_pipe.right.as_ref().unwrap().match_pats, boundary.match_pats);
-                assert_eq!(right_pipe.right.as_ref().unwrap().match_pats, boundary.match_pats);
+            WorkStep::Split(
+                Node::Work(Work::Pipe(left_pipe)),
+                Node::Work(Work::Pipe(right_pipe)),
+            ) => {
+                assert!(
+                    left_pipe.right.is_some(),
+                    "Left branch should preserve right boundary"
+                );
+                assert!(
+                    right_pipe.right.is_some(),
+                    "Right branch should preserve right boundary"
+                );
+                assert_eq!(
+                    left_pipe.right.as_ref().unwrap().match_pats,
+                    boundary.match_pats
+                );
+                assert_eq!(
+                    right_pipe.right.as_ref().unwrap().match_pats,
+                    boundary.match_pats
+                );
             }
             other => panic!("Expected Split with Work::Pipe, got {:?}", other),
         }
@@ -2250,7 +2271,9 @@ mod tests {
         let call_rel: Arc<Rel<()>> = Arc::new(Rel::Call(0));
         let mid = factors_from_rels(vec![and_rel, call_rel]);
 
-        let body = Arc::new(Rel::Atom(Arc::new(make_ground_nf("BODY", &symbols, &terms))));
+        let body = Arc::new(Rel::Atom(Arc::new(make_ground_nf(
+            "BODY", &symbols, &terms,
+        ))));
         let mut pipe: PipeWork<()> = PipeWork::with_mid(mid);
         pipe.env = Env::new().bind(0, body);
         pipe.flip = true;
@@ -2284,12 +2307,15 @@ mod tests {
         let mut pipe: PipeWork<()> = PipeWork::with_boundaries(
             Some(left_boundary.clone()),
             mid,
-            Some(right_boundary.clone())
+            Some(right_boundary.clone()),
         );
         let step = pipe.step(&mut terms);
 
         match step {
-            WorkStep::Split(Node::Work(Work::Pipe(left_pipe)), Node::Work(Work::Pipe(right_pipe))) => {
+            WorkStep::Split(
+                Node::Work(Work::Pipe(left_pipe)),
+                Node::Work(Work::Pipe(right_pipe)),
+            ) => {
                 // Check left boundary preserved
                 assert_eq!(
                     left_pipe.left.as_ref().unwrap().match_pats,
@@ -2324,14 +2350,17 @@ mod tests {
         let b: Arc<Rel<()>> = Arc::new(Rel::Zero);
         let or1 = Arc::new(Rel::Or(a.clone(), b.clone()));
         let or2 = Arc::new(Rel::Or(a.clone(), b.clone())); // Non-atom rest factor
-        // Or followed by another Or (neither is normalizable)
+                                                           // Or followed by another Or (neither is normalizable)
         let mid = factors_from_rels(vec![or1, or2]);
 
         let mut pipe: PipeWork<()> = PipeWork::with_mid(mid);
         let step = pipe.step(&mut terms);
 
         match step {
-            WorkStep::Split(Node::Work(Work::Pipe(left_pipe)), Node::Work(Work::Pipe(right_pipe))) => {
+            WorkStep::Split(
+                Node::Work(Work::Pipe(left_pipe)),
+                Node::Work(Work::Pipe(right_pipe)),
+            ) => {
                 // Both branches should have 2 factors: (branch from or1) + or2
                 assert_eq!(left_pipe.mid.len(), 2, "Left pipe should have 2 factors");
                 assert_eq!(right_pipe.mid.len(), 2, "Right pipe should have 2 factors");
@@ -2366,9 +2395,18 @@ mod tests {
         let step = pipe.step(&mut terms);
 
         match step {
-            WorkStep::Split(Node::Work(Work::Pipe(left_pipe)), Node::Work(Work::Pipe(right_pipe))) => {
-                assert!(left_pipe.env.contains(42), "Left branch should preserve env binding");
-                assert!(right_pipe.env.contains(42), "Right branch should preserve env binding");
+            WorkStep::Split(
+                Node::Work(Work::Pipe(left_pipe)),
+                Node::Work(Work::Pipe(right_pipe)),
+            ) => {
+                assert!(
+                    left_pipe.env.contains(42),
+                    "Left branch should preserve env binding"
+                );
+                assert!(
+                    right_pipe.env.contains(42),
+                    "Right branch should preserve env binding"
+                );
             }
             other => panic!("Expected Split with Work::Pipe, got {:?}", other),
         }
@@ -2393,11 +2431,13 @@ mod tests {
             WorkStep::Split(left, right) => {
                 assert!(
                     matches!(left, Node::Work(Work::Pipe(_))),
-                    "Left branch should be Work::Pipe even for Zero, got {:?}", left
+                    "Left branch should be Work::Pipe even for Zero, got {:?}",
+                    left
                 );
                 assert!(
                     matches!(right, Node::Work(Work::Pipe(_))),
-                    "Right branch should be Work::Pipe even for Zero, got {:?}", right
+                    "Right branch should be Work::Pipe even for Zero, got {:?}",
+                    right
                 );
             }
             other => panic!("Expected Split, got {:?}", other),
@@ -2518,12 +2558,10 @@ mod tests {
             match step {
                 WorkStep::Emit(_, _) => break,
                 WorkStep::Done => break,
-                WorkStep::More(w) => {
-                    match w {
-                        Work::Pipe(p) => pipe = p,
-                        _ => panic!("Expected Pipe"),
-                    }
-                }
+                WorkStep::More(w) => match w {
+                    Work::Pipe(p) => pipe = p,
+                    _ => panic!("Expected Pipe"),
+                },
                 WorkStep::Split(_, _) => panic!("Unexpected split"),
             }
             steps += 1;
@@ -2550,10 +2588,7 @@ mod tests {
         let nf = make_ground_nf("X", &symbols, &terms);
 
         // Put an Or at front so front isn't an Atom
-        let or_rel = Arc::new(Rel::Or(
-            Arc::new(Rel::Zero),
-            Arc::new(Rel::Zero),
-        ));
+        let or_rel = Arc::new(Rel::Or(Arc::new(Rel::Zero), Arc::new(Rel::Zero)));
         let atom_rel = Arc::new(Rel::Atom(Arc::new(nf.clone())));
 
         let mid = factors_from_rels(vec![or_rel, atom_rel]);
@@ -2571,8 +2606,14 @@ mod tests {
                 );
             }
             WorkStep::Split(Node::Work(Work::Pipe(left)), Node::Work(Work::Pipe(right))) => {
-                assert!(left.right.is_some(), "Left branch missing absorbed right boundary");
-                assert!(right.right.is_some(), "Right branch missing absorbed right boundary");
+                assert!(
+                    left.right.is_some(),
+                    "Left branch missing absorbed right boundary"
+                );
+                assert!(
+                    right.right.is_some(),
+                    "Right branch missing absorbed right boundary"
+                );
             }
             _ => panic!("Unexpected step result: {:?}", step),
         }
@@ -2681,11 +2722,7 @@ mod tests {
                     // Right boundary should be composed: X->Z
                     let right = pipe.right.as_ref().expect("Right boundary should exist");
                     // Verify composition happened (output should be Z, not Y)
-                    assert_eq!(
-                        right.build_pats.len(),
-                        1,
-                        "Should have one output pattern"
-                    );
+                    assert_eq!(right.build_pats.len(), 1, "Should have one output pattern");
                     assert_eq!(
                         right.build_pats[0], tz,
                         "BUG: Right boundary not composed! Output should be Z"
@@ -2997,14 +3034,8 @@ mod tests {
         let nf4 = make_identity_nf();
 
         // Left has 2 answers, right has 2 answers
-        let left = Node::Emit(
-            nf1,
-            Box::new(Node::Emit(nf2, Box::new(Node::Fail))),
-        );
-        let right = Node::Emit(
-            nf3,
-            Box::new(Node::Emit(nf4, Box::new(Node::Fail))),
-        );
+        let left = Node::Emit(nf1, Box::new(Node::Emit(nf2, Box::new(Node::Fail))));
+        let right = Node::Emit(nf3, Box::new(Node::Emit(nf4, Box::new(Node::Fail))));
 
         let mut meet: MeetWork<()> = MeetWork::new(left, right);
 
@@ -3048,10 +3079,7 @@ mod tests {
         let nf_b = make_ground_nf("B", &symbols, &terms);
 
         let left = Node::Emit(id1, Box::new(Node::Emit(id2, Box::new(Node::Fail))));
-        let right = Node::Emit(
-            nf_a,
-            Box::new(Node::Emit(nf_b, Box::new(Node::Fail))),
-        );
+        let right = Node::Emit(nf_a, Box::new(Node::Emit(nf_b, Box::new(Node::Fail))));
 
         let mut meet: MeetWork<()> = MeetWork::new(left, right);
 
@@ -3291,10 +3319,7 @@ mod tests {
 
         assert!(done, "Should eventually reach Done");
         // 2x2 = 4 combinations possible
-        assert!(
-            emit_count >= 1,
-            "Should produce at least one meet result"
-        );
+        assert!(emit_count >= 1, "Should produce at least one meet result");
     }
 
     // ========================================================================
@@ -3531,12 +3556,10 @@ mod tests {
             let step = meet.step(&mut terms);
             match step {
                 WorkStep::Done => break,
-                WorkStep::Emit(_, rest) => {
-                    match rest {
-                        Work::Meet(m) => meet = m,
-                        _ => break,
-                    }
-                }
+                WorkStep::Emit(_, rest) => match rest {
+                    Work::Meet(m) => meet = m,
+                    _ => break,
+                },
                 WorkStep::More(Work::Meet(m)) => meet = m,
                 _ => break,
             }
@@ -4094,7 +4117,10 @@ mod tests {
         assert_eq!(tables1.len(), tables2.len());
 
         let table2 = tables2.get_or_create(key.clone());
-        assert!(Arc::ptr_eq(&table1, &table2), "Tables should share the same entry");
+        assert!(
+            Arc::ptr_eq(&table1, &table2),
+            "Tables should share the same entry"
+        );
     }
 
     #[test]
@@ -4114,7 +4140,11 @@ mod tests {
         let _ = tables.get_or_create(key2);
         let _ = tables.get_or_create(key3);
 
-        assert_eq!(tables.len(), 3, "Different boundaries should create different tables");
+        assert_eq!(
+            tables.len(),
+            3,
+            "Different boundaries should create different tables"
+        );
     }
 
     // ========================================================================
@@ -4192,9 +4222,7 @@ mod tests {
             env: Env::new(),
         };
 
-        table
-            .borrow_mut()
-            .start_producer(producer_node, spec);
+        table.borrow_mut().start_producer(producer_node, spec);
 
         let mut fix: FixWork<()> = FixWork::new(key, table.clone(), 0, Tables::new());
         let step = fix.step(&mut terms);
@@ -4222,9 +4250,7 @@ mod tests {
             env: Env::new(),
         };
 
-        table
-            .borrow_mut()
-            .start_producer(producer_node, spec);
+        table.borrow_mut().start_producer(producer_node, spec);
 
         let mut fix: FixWork<()> = FixWork::new(key, table.clone(), 0, Tables::new());
         let mut outputs = Vec::new();
@@ -4242,7 +4268,11 @@ mod tests {
             }
         }
 
-        assert_eq!(outputs.len(), 1, "Duplicate producer answers should not emit twice");
+        assert_eq!(
+            outputs.len(),
+            1,
+            "Duplicate producer answers should not emit twice"
+        );
         assert_eq!(table.borrow().answers.len(), 1);
     }
 
@@ -4323,7 +4353,11 @@ mod tests {
             steps += 1;
         }
 
-        assert_eq!(outputs.len(), 3, "Expected three answers from replay + discovery");
+        assert_eq!(
+            outputs.len(),
+            3,
+            "Expected three answers from replay + discovery"
+        );
         assert_eq!(outputs[0], nf_a1);
         assert_eq!(outputs[1], nf_b);
         assert_eq!(outputs[2], nf_a2);

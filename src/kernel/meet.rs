@@ -1,12 +1,10 @@
 use crate::constraint::ConstraintOps;
-use crate::nf::{collect_tensor, collect_vars_ordered, factor_tensor, NF};
-use crate::subst::apply_subst;
-use crate::term::{Term, TermId, TermStore};
-use crate::unify::unify;
-use smallvec::SmallVec;
-
+use crate::nf::{collect_tensor, factor_tensor, NF};
+use crate::term::TermStore;
 #[cfg(feature = "tracing")]
 use crate::trace::{debug_span, trace};
+
+use super::util::{apply_subst_list, max_var_index_terms, shift_vars_list, unify_term_lists};
 
 /// Compute the meet (intersection) of two NFs.
 ///
@@ -15,11 +13,7 @@ use crate::trace::{debug_span, trace};
 /// For outputs, this means the output must satisfy both a's and b's build patterns.
 ///
 /// Returns None if the meet is empty (patterns are incompatible).
-pub fn meet_nf<C: ConstraintOps>(
-    a: &NF<C>,
-    b: &NF<C>,
-    terms: &mut TermStore,
-) -> Option<NF<C>> {
+pub fn meet_nf<C: ConstraintOps>(a: &NF<C>, b: &NF<C>, terms: &mut TermStore) -> Option<NF<C>> {
     #[cfg(feature = "tracing")]
     let _span = debug_span!(
         "meet_nf",
@@ -74,11 +68,7 @@ pub fn meet_nf<C: ConstraintOps>(
     let mut final_lhs = apply_subst_list(&unified_lhs, &mgu_build, terms);
     let mut final_rhs = apply_subst_list(&a_rhs_subst, &mgu_build, terms);
 
-    let combined = match a
-        .drop_fresh
-        .constraint
-        .combine(&b.drop_fresh.constraint)
-    {
+    let combined = match a.drop_fresh.constraint.combine(&b.drop_fresh.constraint) {
         Some(c) => c,
         None => {
             #[cfg(feature = "tracing")]
@@ -99,94 +89,14 @@ pub fn meet_nf<C: ConstraintOps>(
     Some(factor_tensor(final_lhs, final_rhs, normalized, terms))
 }
 
-fn max_var_index_terms(pats: &[TermId], terms: &mut TermStore) -> Option<u32> {
-    pats.iter()
-        .flat_map(|&term| collect_vars_ordered(term, terms).into_iter())
-        .max()
-}
-
-/// Shift all variables in a term by a given offset.
-fn shift_vars(term: TermId, offset: u32, terms: &mut TermStore) -> TermId {
-    if offset == 0 {
-        return term;
-    }
-    shift_vars_helper(term, offset, terms)
-}
-
-fn shift_vars_helper(term: TermId, offset: u32, terms: &mut TermStore) -> TermId {
-    match terms.resolve(term) {
-        Some(Term::Var(idx)) => terms.var(idx + offset),
-        Some(Term::App(func, children)) => {
-            let new_children: SmallVec<[TermId; 4]> = children
-                .iter()
-                .map(|&c| shift_vars_helper(c, offset, terms))
-                .collect();
-            terms.app(func, new_children)
-        }
-        None => term,
-    }
-}
-
-fn shift_vars_list(pats: &[TermId], offset: u32, terms: &mut TermStore) -> SmallVec<[TermId; 1]> {
-    if offset == 0 {
-        return pats.iter().copied().collect();
-    }
-    pats.iter()
-        .map(|&term| shift_vars(term, offset, terms))
-        .collect()
-}
-
-fn apply_subst_list(
-    pats: &[TermId],
-    subst: &crate::subst::Subst,
-    terms: &mut TermStore,
-) -> SmallVec<[TermId; 1]> {
-    pats.iter()
-        .map(|&term| apply_subst(term, subst, terms))
-        .collect()
-}
-
-fn unify_term_lists(
-    left: &[TermId],
-    right: &[TermId],
-    terms: &mut TermStore,
-) -> Option<crate::subst::Subst> {
-    if left.len() != right.len() {
-        return None;
-    }
-
-    let mut subst = crate::subst::Subst::new();
-    for (&l, &r) in left.iter().zip(right.iter()) {
-        let l_sub = apply_subst(l, &subst, terms);
-        let r_sub = apply_subst(r, &subst, terms);
-        let mgu = unify(l_sub, r_sub, terms)?;
-        subst = compose_subst(&subst, &mgu, terms);
-    }
-    Some(subst)
-}
-
-fn compose_subst(
-    existing: &crate::subst::Subst,
-    new: &crate::subst::Subst,
-    terms: &mut TermStore,
-) -> crate::subst::Subst {
-    let mut combined = crate::subst::Subst::new();
-    for (var, term) in existing.iter() {
-        let updated = apply_subst(term, new, terms);
-        combined.bind(var, updated);
-    }
-    for (var, term) in new.iter() {
-        combined.bind(var, term);
-    }
-    combined
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::drop_fresh::DropFresh;
     use crate::constraint::TypeConstraints;
+    use crate::drop_fresh::DropFresh;
+    use crate::term::TermId;
     use crate::test_utils::setup;
+    use smallvec::SmallVec;
 
     // ========== BASIC MEET TESTS ==========
 
@@ -478,11 +388,7 @@ mod tests {
     fn meet_empty_patterns() {
         let (_, mut terms) = setup();
 
-        let empty: NF<()> = NF::new(
-            SmallVec::new(),
-            DropFresh::identity(0),
-            SmallVec::new(),
-        );
+        let empty: NF<()> = NF::new(SmallVec::new(), DropFresh::identity(0), SmallVec::new());
 
         let result = meet_nf(&empty, &empty, &mut terms);
         assert!(result.is_some());

@@ -12,7 +12,9 @@ pub struct Subst {
 impl Subst {
     /// Create an empty substitution.
     pub fn new() -> Self {
-        Self { bindings: Vec::new() }
+        Self {
+            bindings: Vec::new(),
+        }
     }
 
     /// Create a substitution with capacity for n variables.
@@ -59,9 +61,10 @@ impl Subst {
 
     /// Iterator over (var_index, term_id) pairs for bound variables.
     pub fn iter(&self) -> impl Iterator<Item = (u32, TermId)> + '_ {
-        self.bindings.iter().enumerate().filter_map(|(i, opt)| {
-            opt.map(|tid| (i as u32, tid))
-        })
+        self.bindings
+            .iter()
+            .enumerate()
+            .filter_map(|(i, opt)| opt.map(|tid| (i as u32, tid)))
     }
 }
 

@@ -3,8 +3,8 @@
 //! The dual of a relation R is its converse: if R relates a to b,
 //! then dual(R) relates b to a.
 
-use crate::nf::NF;
 use crate::drop_fresh::DropFresh;
+use crate::nf::NF;
 use smallvec::SmallVec;
 
 /// Compute the dual of a DropFresh.
@@ -23,11 +23,8 @@ pub fn dual_drop_fresh<C: Clone>(drop_fresh: &DropFresh<C>) -> DropFresh<C> {
     let new_out_arity = drop_fresh.in_arity;
 
     // Invert map: (i, j) -> (j, i)
-    let mut inverted: SmallVec<[(u32, u32); 4]> = drop_fresh
-        .map
-        .iter()
-        .map(|&(i, j)| (j, i))
-        .collect();
+    let mut inverted: SmallVec<[(u32, u32); 4]> =
+        drop_fresh.map.iter().map(|&(i, j)| (j, i)).collect();
 
     // CRITICAL: Re-sort by first coordinate to maintain invariant
     // The original map is sorted by i, so after inversion the j values
@@ -61,14 +58,14 @@ pub fn dual_nf<C: Clone>(nf: &NF<C>) -> NF<C> {
 
 #[cfg(test)]
 mod tests {
+    use crate::drop_fresh::DropFresh;
     use crate::kernel::compose_nf;
     use crate::nf::NF;
     use crate::test_utils::setup;
-    use crate::drop_fresh::DropFresh;
     use smallvec::SmallVec;
 
     // Import the functions we're testing (don't exist yet - will fail to compile)
-    use super::{dual_nf, dual_drop_fresh};
+    use super::{dual_drop_fresh, dual_nf};
 
     // ========================================================================
     // DROP-FRESH TESTS - BASIC PROPERTIES
@@ -137,7 +134,10 @@ mod tests {
 
         assert_eq!(dual2.in_arity, drop_fresh.in_arity);
         assert_eq!(dual2.out_arity, drop_fresh.out_arity);
-        assert_eq!(dual2.map, drop_fresh.map, "dual(dual(drop_fresh)) should equal drop_fresh");
+        assert_eq!(
+            dual2.map, drop_fresh.map,
+            "dual(dual(drop_fresh)) should equal drop_fresh"
+        );
     }
 
     #[test]
@@ -680,7 +680,8 @@ mod tests {
         // compose(dual(b), dual(a)) = C -> A
         let dual_b = dual_nf(&nf_b);
         let dual_a = dual_nf(&nf_a);
-        let composed_duals = compose_nf(&dual_b, &dual_a, &mut terms).expect("composition should succeed");
+        let composed_duals =
+            compose_nf(&dual_b, &dual_a, &mut terms).expect("composition should succeed");
 
         assert_eq!(dual_composed.match_pats, composed_duals.match_pats);
         assert_eq!(dual_composed.build_pats, composed_duals.build_pats);
@@ -717,7 +718,8 @@ mod tests {
 
         let dual_b = dual_nf(&nf_b);
         let dual_a = dual_nf(&nf_a);
-        let composed_duals = compose_nf(&dual_b, &dual_a, &mut terms).expect("composition should succeed");
+        let composed_duals =
+            compose_nf(&dual_b, &dual_a, &mut terms).expect("composition should succeed");
 
         // Both should be H(x) -> F(x)
         let (dc_match_f, _) = terms.is_app(dual_composed.match_pats[0]).unwrap();
@@ -753,11 +755,18 @@ mod tests {
 
         // compose(dual(peel), dual(peel))
         let dual_peel = dual_nf(&peel);
-        let composed_duals = compose_nf(&dual_peel, &dual_peel, &mut terms).expect("composition should succeed");
+        let composed_duals =
+            compose_nf(&dual_peel, &dual_peel, &mut terms).expect("composition should succeed");
 
         // Verify structure matches
-        assert_eq!(dual_composed.drop_fresh.in_arity, composed_duals.drop_fresh.in_arity);
-        assert_eq!(dual_composed.drop_fresh.out_arity, composed_duals.drop_fresh.out_arity);
+        assert_eq!(
+            dual_composed.drop_fresh.in_arity,
+            composed_duals.drop_fresh.in_arity
+        );
+        assert_eq!(
+            dual_composed.drop_fresh.out_arity,
+            composed_duals.drop_fresh.out_arity
+        );
     }
 
     // ========================================================================

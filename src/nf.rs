@@ -1,6 +1,6 @@
+use crate::drop_fresh::DropFresh;
 use crate::symbol::SymbolStore;
 use crate::term::{format_term, Term, TermId, TermStore};
-use crate::drop_fresh::DropFresh;
 use smallvec::SmallVec;
 
 /// Normal Form representation of a rewrite rule.
@@ -35,8 +35,16 @@ pub struct RwT<C> {
 
 impl<C> NF<C> {
     /// Create a new NF directly (assumes already normalized).
-    pub fn new(match_pats: SmallVec<[TermId; 1]>, drop_fresh: DropFresh<C>, build_pats: SmallVec<[TermId; 1]>) -> Self {
-        Self { match_pats, drop_fresh, build_pats }
+    pub fn new(
+        match_pats: SmallVec<[TermId; 1]>,
+        drop_fresh: DropFresh<C>,
+        build_pats: SmallVec<[TermId; 1]>,
+    ) -> Self {
+        Self {
+            match_pats,
+            drop_fresh,
+            build_pats,
+        }
     }
 
     /// Create an identity NF (empty patterns, zero-arity DropFresh).
@@ -147,7 +155,7 @@ impl<C: Default + Clone> NF<C> {
 /// Collect a tensor NF into direct-rule form by pushing wiring into RHS vars.
 pub fn collect_tensor<C: Clone>(nf: &NF<C>, terms: &mut TermStore) -> RwT<C> {
     let out_arity = nf.drop_fresh.out_arity as usize;
-    let in_arity = nf.drop_fresh.in_arity as u32;
+    let in_arity = nf.drop_fresh.in_arity;
 
     let mut rhs_map: Vec<Option<u32>> = vec![None; out_arity];
     for (i, j) in nf.drop_fresh.map.iter().copied() {
@@ -314,7 +322,11 @@ pub fn renumber_vars(term: TermId, terms: &mut TermStore) -> (TermId, Vec<u32>) 
 
 /// Renumber variables according to a given mapping.
 /// The mapping maps old variable index to new variable index.
-pub fn apply_var_renaming(term: TermId, old_to_new: &[Option<u32>], terms: &mut TermStore) -> TermId {
+pub fn apply_var_renaming(
+    term: TermId,
+    old_to_new: &[Option<u32>],
+    terms: &mut TermStore,
+) -> TermId {
     match terms.resolve(term) {
         Some(Term::Var(idx)) => {
             let idx_usize = idx as usize;
@@ -348,10 +360,7 @@ fn apply_var_renaming_list(
         .collect()
 }
 
-pub fn direct_rule_terms<C: Clone>(
-    nf: &NF<C>,
-    terms: &mut TermStore,
-) -> Option<(TermId, TermId)> {
+pub fn direct_rule_terms<C: Clone>(nf: &NF<C>, terms: &mut TermStore) -> Option<(TermId, TermId)> {
     if nf.match_pats.len() != 1 || nf.build_pats.len() != 1 {
         return None;
     }
@@ -359,7 +368,7 @@ pub fn direct_rule_terms<C: Clone>(
     let lhs = nf.match_pats[0];
     let rhs = nf.build_pats[0];
     let out_arity = nf.drop_fresh.out_arity as usize;
-    let in_arity = nf.drop_fresh.in_arity as u32;
+    let in_arity = nf.drop_fresh.in_arity;
 
     let mut rhs_map: Vec<Option<u32>> = vec![None; out_arity];
     for (i, j) in nf.drop_fresh.map.iter().copied() {
@@ -419,7 +428,11 @@ mod tests {
         let v0 = terms.var(0);
         let t = terms.app2(pair, v2, v0);
         let vars = collect_vars_ordered(t, &terms);
-        assert_eq!(vars, vec![2, 0], "Vars collected in order of first appearance");
+        assert_eq!(
+            vars,
+            vec![2, 0],
+            "Vars collected in order of first appearance"
+        );
     }
 
     #[test]
@@ -445,7 +458,11 @@ mod tests {
         let inner = terms.app2(g, v1, v0);
         let outer = terms.app2(f, inner, v2);
         let vars = collect_vars_ordered(outer, &terms);
-        assert_eq!(vars, vec![1, 0, 2], "Nested vars in order of first appearance");
+        assert_eq!(
+            vars,
+            vec![1, 0, 2],
+            "Nested vars in order of first appearance"
+        );
     }
 
     #[test]
@@ -792,11 +809,7 @@ mod tests {
         let v0 = terms.var(0);
         let drop_fresh: DropFresh<()> = DropFresh::identity(1);
 
-        let nf = NF::new(
-            smallvec::smallvec![v0],
-            drop_fresh,
-            smallvec::smallvec![v0],
-        );
+        let nf = NF::new(smallvec::smallvec![v0], drop_fresh, smallvec::smallvec![v0]);
 
         assert_eq!(nf.match_pats.len(), 1);
         assert_eq!(nf.build_pats.len(), 1);
@@ -834,6 +847,10 @@ mod tests {
         let t = terms.app(tuple, children);
 
         let vars = collect_vars_ordered(t, &terms);
-        assert_eq!(vars, vec![3, 1, 4, 5, 9], "Unique vars in order of first appearance");
+        assert_eq!(
+            vars,
+            vec![3, 1, 4, 5, 9],
+            "Unique vars in order of first appearance"
+        );
     }
 }

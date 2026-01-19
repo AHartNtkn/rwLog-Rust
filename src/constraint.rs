@@ -282,7 +282,11 @@ mod tests {
     use crate::term::TermStore;
 
     // Helper to get term IDs for testing
-    fn get_term_ids() -> (crate::term::TermId, crate::term::TermId, crate::term::TermId) {
+    fn get_term_ids() -> (
+        crate::term::TermId,
+        crate::term::TermId,
+        crate::term::TermId,
+    ) {
         let terms = TermStore::new();
         let t0 = terms.var(0);
         let t1 = terms.var(1);

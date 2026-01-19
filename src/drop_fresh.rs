@@ -59,7 +59,12 @@ impl<C> DropFresh<C> {
 impl<C: Clone> DropFresh<C> {
     /// Create a new DropFresh with validation.
     /// Returns None if the mapping is not monotone or out of bounds.
-    pub fn new(in_arity: u32, out_arity: u32, map: SmallVec<[(u32, u32); 4]>, constraint: C) -> Option<Self> {
+    pub fn new(
+        in_arity: u32,
+        out_arity: u32,
+        map: SmallVec<[(u32, u32); 4]>,
+        constraint: C,
+    ) -> Option<Self> {
         let drop_fresh = Self {
             in_arity,
             out_arity,
@@ -144,9 +149,10 @@ impl<C: Clone> DropFresh<C> {
             return false;
         }
         // Check that each position maps to itself
-        self.map.iter().enumerate().all(|(i, &(inp, out))| {
-            inp == i as u32 && out == i as u32
-        })
+        self.map
+            .iter()
+            .enumerate()
+            .all(|(i, &(inp, out))| inp == i as u32 && out == i as u32)
     }
 
     /// Check if this DropFresh connects no positions.
@@ -380,10 +386,12 @@ mod tests {
     #[test]
     fn compose_chain_of_projections() {
         // a: 4 -> 3, keeps positions 0, 1, 3
-        let a: DropFresh<()> = DropFresh::new(4, 3, smallvec::smallvec![(0u32, 0u32), (1, 1), (3, 2)], ()).unwrap();
+        let a: DropFresh<()> =
+            DropFresh::new(4, 3, smallvec::smallvec![(0u32, 0u32), (1, 1), (3, 2)], ()).unwrap();
 
         // b: 3 -> 2, keeps positions 0, 2
-        let b: DropFresh<()> = DropFresh::new(3, 2, smallvec::smallvec![(0u32, 0u32), (2, 1)], ()).unwrap();
+        let b: DropFresh<()> =
+            DropFresh::new(3, 2, smallvec::smallvec![(0u32, 0u32), (2, 1)], ()).unwrap();
 
         // Composed: should keep input 0 -> output 0, input 3 -> output 1
         let c = a.compose(&b).unwrap();
@@ -421,7 +429,10 @@ mod tests {
         // Input positions not strictly increasing: (1, 0), (0, 1)
         let map = smallvec::smallvec![(1u32, 0u32), (0, 1)];
         let result: Option<DropFresh<()>> = DropFresh::new(3, 2, map, ());
-        assert!(result.is_none(), "Should reject non-monotone input positions");
+        assert!(
+            result.is_none(),
+            "Should reject non-monotone input positions"
+        );
     }
 
     #[test]
@@ -429,7 +440,10 @@ mod tests {
         // Output positions not strictly increasing: (0, 1), (1, 0)
         let map = smallvec::smallvec![(0u32, 1u32), (1, 0)];
         let result: Option<DropFresh<()>> = DropFresh::new(3, 2, map, ());
-        assert!(result.is_none(), "Should reject non-monotone output positions");
+        assert!(
+            result.is_none(),
+            "Should reject non-monotone output positions"
+        );
     }
 
     #[test]
@@ -453,7 +467,10 @@ mod tests {
         // Input position 5 >= in_arity 3
         let map = smallvec::smallvec![(0u32, 0u32), (5, 1)];
         let result: Option<DropFresh<()>> = DropFresh::new(3, 2, map, ());
-        assert!(result.is_none(), "Should reject out of bounds input position");
+        assert!(
+            result.is_none(),
+            "Should reject out of bounds input position"
+        );
     }
 
     #[test]
@@ -461,7 +478,10 @@ mod tests {
         // Output position 5 >= out_arity 2
         let map = smallvec::smallvec![(0u32, 0u32), (1, 5)];
         let result: Option<DropFresh<()>> = DropFresh::new(3, 2, map, ());
-        assert!(result.is_none(), "Should reject out of bounds output position");
+        assert!(
+            result.is_none(),
+            "Should reject out of bounds output position"
+        );
     }
 
     #[test]
@@ -469,7 +489,10 @@ mod tests {
         let a: DropFresh<()> = DropFresh::identity(3);
         let b: DropFresh<()> = DropFresh::identity(2);
         let result = a.compose(&b);
-        assert!(result.is_none(), "Should reject composition with mismatched arities");
+        assert!(
+            result.is_none(),
+            "Should reject composition with mismatched arities"
+        );
     }
 
     // ========== EDGE CASES ==========
@@ -502,12 +525,20 @@ mod tests {
     #[test]
     fn forward_out_of_range() {
         let drop_fresh: DropFresh<()> = DropFresh::identity(3);
-        assert_eq!(drop_fresh.forward(5), None, "Should return None for out of range input");
+        assert_eq!(
+            drop_fresh.forward(5),
+            None,
+            "Should return None for out of range input"
+        );
     }
 
     #[test]
     fn backward_out_of_range() {
         let drop_fresh: DropFresh<()> = DropFresh::identity(3);
-        assert_eq!(drop_fresh.backward(5), None, "Should return None for out of range output");
+        assert_eq!(
+            drop_fresh.backward(5),
+            None,
+            "Should return None for out of range output"
+        );
     }
 }

@@ -47,7 +47,11 @@ pub struct ParseError {
 
 impl std::fmt::Display for ParseError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Parse error at position {}: {}", self.position, self.message)
+        write!(
+            f,
+            "Parse error at position {}: {}",
+            self.position, self.message
+        )
     }
 }
 
@@ -233,7 +237,10 @@ impl Parser {
         skip_whitespace(input, &mut pos);
         if pos < input.len() {
             return Err(ParseError {
-                message: format!("Unexpected characters after relation body: '{}'", &input[pos..]),
+                message: format!(
+                    "Unexpected characters after relation body: '{}'",
+                    &input[pos..]
+                ),
                 position: pos,
             });
         }
@@ -425,12 +432,21 @@ impl Parser {
     }
 
     /// Parse relation body until we hit a closing brace.
-    fn parse_rel_body_until_brace(&mut self, input: &str, pos: &mut usize) -> Result<Rel<()>, ParseError> {
+    fn parse_rel_body_until_brace(
+        &mut self,
+        input: &str,
+        pos: &mut usize,
+    ) -> Result<Rel<()>, ParseError> {
         self.parse_or_expr_until(input, pos, '}')
     }
 
     /// Parse an Or expression, stopping at a given character.
-    fn parse_or_expr_until(&mut self, input: &str, pos: &mut usize, stop_char: char) -> Result<Rel<()>, ParseError> {
+    fn parse_or_expr_until(
+        &mut self,
+        input: &str,
+        pos: &mut usize,
+        stop_char: char,
+    ) -> Result<Rel<()>, ParseError> {
         let mut left = self.parse_seq_expr_until(input, pos, stop_char)?;
 
         loop {
@@ -451,7 +467,12 @@ impl Parser {
     }
 
     /// Parse a Seq expression, stopping at a given character.
-    fn parse_seq_expr_until(&mut self, input: &str, pos: &mut usize, stop_char: char) -> Result<Rel<()>, ParseError> {
+    fn parse_seq_expr_until(
+        &mut self,
+        input: &str,
+        pos: &mut usize,
+        stop_char: char,
+    ) -> Result<Rel<()>, ParseError> {
         let mut factors: Vec<Arc<Rel<()>>> = Vec::new();
         factors.push(Arc::new(self.parse_and_expr_until(input, pos, stop_char)?));
 
@@ -479,7 +500,12 @@ impl Parser {
     }
 
     /// Parse an And expression, stopping at a given character.
-    fn parse_and_expr_until(&mut self, input: &str, pos: &mut usize, stop_char: char) -> Result<Rel<()>, ParseError> {
+    fn parse_and_expr_until(
+        &mut self,
+        input: &str,
+        pos: &mut usize,
+        stop_char: char,
+    ) -> Result<Rel<()>, ParseError> {
         let mut left = self.parse_primary_until(input, pos, stop_char)?;
 
         loop {
@@ -503,7 +529,12 @@ impl Parser {
     }
 
     /// Parse a primary expression, stopping at a given character.
-    fn parse_primary_until(&mut self, input: &str, pos: &mut usize, stop_char: char) -> Result<Rel<()>, ParseError> {
+    fn parse_primary_until(
+        &mut self,
+        input: &str,
+        pos: &mut usize,
+        stop_char: char,
+    ) -> Result<Rel<()>, ParseError> {
         skip_whitespace(input, pos);
 
         if *pos >= input.len() {
@@ -1098,13 +1129,21 @@ mod tests {
         use std::mem::size_of;
         let size = size_of::<Parser>();
         // Parser contains SymbolStore, TermStore, and HashMap<String, RelId>
-        assert!(size < 1000, "Parser should not be excessively large, got {}", size);
+        assert!(
+            size < 1000,
+            "Parser should not be excessively large, got {}",
+            size
+        );
     }
 
     #[test]
     fn parse_error_size_reasonable() {
         use std::mem::size_of;
         let size = size_of::<ParseError>();
-        assert!(size < 100, "ParseError should not be excessively large, got {}", size);
+        assert!(
+            size < 100,
+            "ParseError should not be excessively large, got {}",
+            size
+        );
     }
 }

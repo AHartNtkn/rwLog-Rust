@@ -223,10 +223,7 @@ mod tests {
         let (_, terms) = setup();
         let id1 = terms.var(42);
         let id2 = terms.var(42);
-        assert_eq!(
-            id1, id2,
-            "Same variable index should return same TermId"
-        );
+        assert_eq!(id1, id2, "Same variable index should return same TermId");
     }
 
     #[test]
@@ -402,10 +399,7 @@ mod tests {
 
         let id1 = terms.app1(f, x);
         let id2 = terms.app1(g, x);
-        assert_ne!(
-            id1, id2,
-            "Different functors should give different TermIds"
-        );
+        assert_ne!(id1, id2, "Different functors should give different TermIds");
     }
 
     #[test]
@@ -524,10 +518,12 @@ mod tests {
         let f = symbols.intern("F");
 
         // Create 1000 distinct terms F(Var(i))
-        let ids: Vec<_> = (0u32..1000).map(|i| {
-            let v = terms.var(i);
-            terms.app1(f, v)
-        }).collect();
+        let ids: Vec<_> = (0u32..1000)
+            .map(|i| {
+                let v = terms.var(i);
+                terms.app1(f, v)
+            })
+            .collect();
 
         // All should be distinct
         let id_set: std::collections::HashSet<_> = ids.iter().copied().collect();
@@ -667,7 +663,8 @@ mod tests {
         // All should be different
         let id_set: std::collections::HashSet<_> = ids.iter().copied().collect();
         assert_eq!(
-            id_set.len(), 10,
+            id_set.len(),
+            10,
             "Concurrent different terms should all be distinct"
         );
     }

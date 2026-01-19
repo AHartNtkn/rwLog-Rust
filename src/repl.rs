@@ -56,9 +56,10 @@ impl Repl {
         }
 
         if let Some(rest) = line.strip_prefix("more ") {
-            let count: usize = rest.trim().parse().map_err(|_| {
-                "Invalid count for 'more'. Usage: more <n>".to_string()
-            })?;
+            let count: usize = rest
+                .trim()
+                .parse()
+                .map_err(|_| "Invalid count for 'more'. Usage: more <n>".to_string())?;
             if count == 0 {
                 return Err("Count for 'more' must be > 0".to_string());
             }
@@ -164,8 +165,8 @@ Syntax:
             .map_err(|e| format!("Failed to read file '{}': {}", path, e))?;
 
         let mut count = 0;
-        let statements = split_statements(&content)
-            .map_err(|err| format!("{} in '{}'", err, path))?;
+        let statements =
+            split_statements(&content).map_err(|err| format!("{} in '{}'", err, path))?;
 
         for statement in statements {
             let line = statement.trim();
@@ -183,7 +184,10 @@ Syntax:
             }
         }
 
-        Ok(Some(format!("Loaded {} relation(s) from '{}'", count, path)))
+        Ok(Some(format!(
+            "Loaded {} relation(s) from '{}'",
+            count, path
+        )))
     }
 
     fn define_relation(&mut self, input: &str) -> Result<Option<String>, String> {
@@ -336,8 +340,7 @@ mod tests {
     #[test]
     fn repl_process_cell_handles_comment_then_query() {
         let mut repl = Repl::new();
-        repl.process_input("rel f { a -> b }")
-            .expect("define f");
+        repl.process_input("rel f { a -> b }").expect("define f");
         // Simulates a notebook cell with a comment header followed by a query
         let output = repl
             .process_cell("# This is a comment\n?- f")
@@ -351,8 +354,7 @@ mod tests {
     #[test]
     fn repl_query_renders_rule_syntax() {
         let mut repl = Repl::new();
-        repl.process_input("rel f { a -> b }")
-            .expect("define f");
+        repl.process_input("rel f { a -> b }").expect("define f");
         let output = repl
             .process_input("?- f")
             .expect("run query")

@@ -1,21 +1,21 @@
-pub mod trace;
+pub mod constraint;
+pub mod drop_fresh;
+pub mod engine;
+pub mod factors;
+pub mod jupyter;
+pub mod kernel;
 pub mod metrics;
+pub mod nf;
+pub mod node;
+pub mod parser;
+pub mod rel;
+pub mod repl;
+pub mod subst;
 pub mod symbol;
 pub mod term;
-pub mod drop_fresh;
-pub mod nf;
-pub mod subst;
+pub mod trace;
 pub mod unify;
-pub mod kernel;
-pub mod constraint;
-pub mod rel;
-pub mod factors;
-pub mod node;
 pub mod work;
-pub mod engine;
-pub mod parser;
-pub mod repl;
-pub mod jupyter;
 
 #[cfg(test)]
 pub(crate) mod test_utils;

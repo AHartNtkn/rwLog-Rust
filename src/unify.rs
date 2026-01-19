@@ -401,7 +401,10 @@ mod tests {
         let t2 = terms.app2(f, a_term, b_term);
 
         let result = unify(t1, t2, &terms);
-        assert!(result.is_none(), "Shared var with different values should fail");
+        assert!(
+            result.is_none(),
+            "Shared var with different values should fail"
+        );
     }
 
     // ========== OCCURS CHECK ==========
@@ -415,7 +418,10 @@ mod tests {
 
         // x vs F(x) should fail - infinite term
         let result = unify(v0, f_v0, &terms);
-        assert!(result.is_none(), "Occurs check should prevent infinite term");
+        assert!(
+            result.is_none(),
+            "Occurs check should prevent infinite term"
+        );
     }
 
     #[test]
@@ -430,7 +436,10 @@ mod tests {
         let g_f_v0 = terms.app1(g, f_v0);
 
         let result = unify(v0, g_f_v0, &terms);
-        assert!(result.is_none(), "Nested occurs check should prevent infinite term");
+        assert!(
+            result.is_none(),
+            "Nested occurs check should prevent infinite term"
+        );
     }
 
     #[test]

@@ -1,18 +1,14 @@
+use crate::drop_fresh::DropFresh;
 use crate::nf::NF;
 use crate::symbol::SymbolStore;
 use crate::term::TermStore;
-use crate::drop_fresh::DropFresh;
 use smallvec::SmallVec;
 
 pub(crate) fn setup() -> (SymbolStore, TermStore) {
     (SymbolStore::new(), TermStore::new())
 }
 
-pub(crate) fn make_ground_nf(
-    name: &str,
-    symbols: &SymbolStore,
-    terms: &TermStore,
-) -> NF<()> {
+pub(crate) fn make_ground_nf(name: &str, symbols: &SymbolStore, terms: &TermStore) -> NF<()> {
     let sym = symbols.intern(name);
     let term = terms.app0(sym);
     NF::new(
