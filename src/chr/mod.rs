@@ -1,8 +1,8 @@
 use crate::constraint::ConstraintDisplay;
 use crate::nf::apply_var_renaming;
 use crate::subst::{apply_subst, Subst};
-use crate::term::{Term, TermId, TermStore};
 use crate::symbol::FuncId;
+use crate::term::{Term, TermId, TermStore};
 use hashbrown::{HashMap, HashSet};
 use smallvec::SmallVec;
 use std::cmp::Ordering;
@@ -35,7 +35,10 @@ pub struct PatId(pub u32);
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub enum PatNode {
     RVar(RVar),
-    App { f: FuncId, kids: SmallVec<[PatId; 4]> },
+    App {
+        f: FuncId,
+        kids: SmallVec<[PatId; 4]>,
+    },
 }
 
 #[derive(Clone, Debug, Default)]
@@ -198,8 +201,7 @@ pub trait Theory: Send + Sync + 'static {
     fn apply_subst(store: &Self::Store, subst: &Subst, terms: &mut TermStore) -> Self::Store;
     fn freeze_store(store: &Self::Store) -> Vec<u8>;
     fn thaw_store(bytes: &[u8]) -> Self::Store;
-    fn remap_vars(store: &Self::Store, map: &[Option<u32>], terms: &mut TermStore)
-        -> Self::Store;
+    fn remap_vars(store: &Self::Store, map: &[Option<u32>], terms: &mut TermStore) -> Self::Store;
     fn collect_vars(store: &Self::Store, terms: &TermStore, out: &mut Vec<u32>);
     fn is_empty(store: &Self::Store) -> bool;
 }
@@ -238,7 +240,8 @@ impl Theory for NoTheory {
         _store: &Self::Store,
         _map: &[Option<u32>],
         _terms: &mut TermStore,
-    ) -> Self::Store {}
+    ) -> Self::Store {
+    }
 
     fn collect_vars(_store: &Self::Store, _terms: &TermStore, _out: &mut Vec<u32>) {}
 
@@ -291,7 +294,9 @@ impl<T: Theory> std::fmt::Debug for BuiltinRegistry<T> {
 
 impl<T: Theory> Default for BuiltinRegistry<T> {
     fn default() -> Self {
-        Self { builtins: Vec::new() }
+        Self {
+            builtins: Vec::new(),
+        }
     }
 }
 
@@ -327,7 +332,9 @@ impl GuardProg {
     }
 
     pub fn new(code: Vec<GuardInstr>) -> Self {
-        Self { code: code.into_boxed_slice() }
+        Self {
+            code: code.into_boxed_slice(),
+        }
     }
 
     pub fn eval<T: Theory>(
@@ -415,8 +422,14 @@ pub enum ArgExpr {
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub enum BodyInstr {
-    AddChr { pred: PredId, args: Box<[ArgExpr]> },
-    AddBuiltin { bid: BuiltinId, args: Box<[ArgExpr]> },
+    AddChr {
+        pred: PredId,
+        args: Box<[ArgExpr]>,
+    },
+    AddBuiltin {
+        bid: BuiltinId,
+        args: Box<[ArgExpr]>,
+    },
     Fail,
 }
 
@@ -427,7 +440,9 @@ pub struct BodyProg {
 
 impl BodyProg {
     pub fn new(code: Vec<BodyInstr>) -> Self {
-        Self { code: code.into_boxed_slice() }
+        Self {
+            code: code.into_boxed_slice(),
+        }
     }
 
     pub fn exec<T: Theory>(
@@ -540,7 +555,10 @@ pub struct HeadPat {
 
 impl HeadPat {
     pub fn new(pred: PredId, args: Vec<PatId>) -> Self {
-        Self { pred, args: args.into_boxed_slice() }
+        Self {
+            pred,
+            args: args.into_boxed_slice(),
+        }
     }
 }
 
@@ -585,7 +603,10 @@ impl PredStore {
             };
             indexes.push(idx);
         }
-        Self { all: Vec::new(), indexes }
+        Self {
+            all: Vec::new(),
+            indexes,
+        }
     }
 
     fn insert(&mut self, cid: Cid, inst: &CInstance, terms: &TermStore, specs: &[IndexSpec]) {
@@ -685,7 +706,10 @@ impl ChrStore {
     }
 
     fn rebuild_indexes(&mut self, preds: &[PredDecl], terms: &TermStore) {
-        self.preds = preds.iter().map(|p| PredStore::new(&p.index_specs)).collect();
+        self.preds = preds
+            .iter()
+            .map(|p| PredStore::new(&p.index_specs))
+            .collect();
         self.alive_count = 0;
         self.dead_count = 0;
         for inst in self.inst.iter() {
@@ -1010,9 +1034,14 @@ fn compile_join_steps(
         for &head_idx in remaining.iter() {
             let head = &heads[head_idx];
             let pred_decl = &preds[head.pred.0 as usize];
-            let (score, probe, key) =
-                best_probe_for_head(head, pred_decl, pats, &bound);
-            if score < best_score || (score == best_score && best_idx.map_or(true, |b| head_idx < b)) {
+            let (score, probe, key) = best_probe_for_head(head, pred_decl, pats, &bound);
+            if score < best_score
+                || (score == best_score
+                    && match best_idx {
+                        None => true,
+                        Some(b) => head_idx < b,
+                    })
+            {
                 best_score = score;
                 best_idx = Some(head_idx);
                 best_probe = probe;
@@ -1259,10 +1288,13 @@ impl<T: Theory> ChrState<T> {
         terms: &TermStore,
     ) -> Option<Vec<Cid>> {
         if step_idx == occ.steps.len() {
-            if !rule
-                .guard
-                .eval(&self.program.pats, terms, &self.builtins, &self.program.builtins, env)
-            {
+            if !rule.guard.eval(
+                &self.program.pats,
+                terms,
+                &self.builtins,
+                &self.program.builtins,
+                env,
+            ) {
                 return None;
             }
             let tuple: Vec<Cid> = chosen.iter().map(|c| c.expect("head cid")).collect();
@@ -1286,7 +1318,8 @@ impl<T: Theory> ChrState<T> {
             let inst = &self.store.inst[cid.0 as usize];
             if match_head(&self.program.pats, terms, head, inst, env) {
                 chosen[step.head as usize] = Some(cid);
-                if let Some(tuple) = self.search_steps(rule, occ, step_idx + 1, env, chosen, terms) {
+                if let Some(tuple) = self.search_steps(rule, occ, step_idx + 1, env, chosen, terms)
+                {
                     return Some(tuple);
                 }
                 chosen[step.head as usize] = None;
@@ -1365,20 +1398,14 @@ impl<T: Theory> ChrState<T> {
             }
         }
 
-        body.exec(
-            &pats,
-            terms,
-            &builtins,
-            &env,
-            self,
-        )
+        body.exec(&pats, terms, &builtins, &env, self)
     }
 
     fn is_alive(&self, cid: Cid) -> bool {
-        self.store
-            .inst
-            .get(cid.0 as usize)
-            .map_or(false, |inst| inst.alive)
+        matches!(
+            self.store.inst.get(cid.0 as usize),
+            Some(inst) if inst.alive
+        )
     }
 
     fn apply_subst_to_store(&mut self, subst: &Subst, terms: &mut TermStore) {
@@ -1488,7 +1515,9 @@ struct AliveRec {
 
 impl PartialEq for AliveRec {
     fn eq(&self, other: &Self) -> bool {
-        self.pred == other.pred && self.args.as_slice() == other.args.as_slice() && self.old_cid == other.old_cid
+        self.pred == other.pred
+            && self.args.as_slice() == other.args.as_slice()
+            && self.old_cid == other.old_cid
     }
 }
 
@@ -1779,7 +1808,11 @@ impl<T: Theory> crate::constraint::ConstraintOps for ChrState<T> {
         }
 
         let subst = T::extract_subst(&st.builtins);
-        let subst_opt = if subst.is_empty() { None } else { Some(subst.clone()) };
+        let subst_opt = if subst.is_empty() {
+            None
+        } else {
+            Some(subst.clone())
+        };
         if !subst.is_empty() {
             st.apply_subst_to_store(&subst, terms);
             st.store.rebuild_indexes(&st.program.preds, terms);
@@ -1843,10 +1876,7 @@ impl<T: Theory> ConstraintDisplay for ChrState<T> {
 
         let mut parts = Vec::new();
         for inst in self.store.inst.iter().filter(|c| c.alive) {
-            let pred_name = self
-                .program
-                .pred_name(inst.pred)
-                .unwrap_or("unknown");
+            let pred_name = self.program.pred_name(inst.pred).unwrap_or("unknown");
             if inst.args.is_empty() {
                 parts.push(pred_name.to_string());
             } else {

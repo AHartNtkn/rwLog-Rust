@@ -276,7 +276,8 @@ impl ConstraintOps for TypeConstraints {
             return None;
         }
         let mut out = self.clone();
-        out.constraints.sort_by(|a, b| (a.term, a.type_id).cmp(&(b.term, b.type_id)));
+        out.constraints
+            .sort_by(|a, b| (a.term, a.type_id).cmp(&(b.term, b.type_id)));
         out.constraints
             .dedup_by(|a, b| a.term == b.term && a.type_id == b.type_id);
         Some((out, None))
@@ -295,7 +296,8 @@ impl ConstraintOps for TypeConstraints {
         for tc in out.constraints.iter_mut() {
             tc.term = apply_var_renaming(tc.term, map, terms);
         }
-        out.constraints.sort_by(|a, b| (a.term, a.type_id).cmp(&(b.term, b.type_id)));
+        out.constraints
+            .sort_by(|a, b| (a.term, a.type_id).cmp(&(b.term, b.type_id)));
         out.constraints
             .dedup_by(|a, b| a.term == b.term && a.type_id == b.type_id);
         out

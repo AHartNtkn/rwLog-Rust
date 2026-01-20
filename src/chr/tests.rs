@@ -95,11 +95,7 @@ impl Theory for TestTheory {
         TestStore { bindings }
     }
 
-    fn remap_vars(
-        store: &Self::Store,
-        map: &[Option<u32>],
-        terms: &mut TermStore,
-    ) -> Self::Store {
+    fn remap_vars(store: &Self::Store, map: &[Option<u32>], terms: &mut TermStore) -> Self::Store {
         let mut out = store.clone();
         for (v, t) in out.bindings.iter_mut() {
             if (*v as usize) < map.len() {
@@ -194,7 +190,10 @@ fn empty_constraints_combine_across_programs() {
     let combined = state_a
         .combine(&state_b)
         .expect("empty constraints should combine");
-    assert!(combined.is_empty(), "combined constraint should remain empty");
+    assert!(
+        combined.is_empty(),
+        "combined constraint should remain empty"
+    );
 }
 
 #[test]
@@ -212,8 +211,7 @@ fn empty_constraint_combines_with_non_empty_other_program() {
         .expect("empty constraint should not block combine");
 
     assert_eq!(
-        combined.program.program_id,
-        non_empty.program.program_id,
+        combined.program.program_id, non_empty.program.program_id,
         "combined state should keep the non-empty program"
     );
     assert_eq!(
@@ -318,7 +316,10 @@ fn guard_blocks_rule_on_neq() {
     let x = builder.pat_var(RVar(0));
     let y = builder.pat_var(RVar(1));
     let head_p = HeadPat::new(p, vec![x, y]);
-    let guard = GuardProg::new(vec![GuardInstr::Eq(GVal::RVar(RVar(0)), GVal::RVar(RVar(1)))]);
+    let guard = GuardProg::new(vec![GuardInstr::Eq(
+        GVal::RVar(RVar(0)),
+        GVal::RVar(RVar(1)),
+    )]);
     let body_q = BodyProg::new(vec![BodyInstr::AddChr {
         pred: q,
         args: vec![ArgExpr::RVar(RVar(0))].into_boxed_slice(),
@@ -348,7 +349,10 @@ fn guard_unbound_rvar_fails() {
 
     let x = builder.pat_var(RVar(0));
     let head_p = HeadPat::new(p, vec![x]);
-    let guard = GuardProg::new(vec![GuardInstr::Eq(GVal::RVar(RVar(1)), GVal::RVar(RVar(0)))]);
+    let guard = GuardProg::new(vec![GuardInstr::Eq(
+        GVal::RVar(RVar(1)),
+        GVal::RVar(RVar(0)),
+    )]);
     let body_q = BodyProg::new(vec![BodyInstr::AddChr {
         pred: q,
         args: vec![ArgExpr::RVar(RVar(0))].into_boxed_slice(),
@@ -412,7 +416,13 @@ fn committed_choice_respects_priority() {
         args: vec![ArgExpr::RVar(RVar(0))].into_boxed_slice(),
     }]);
 
-    builder.rule(vec![], vec![head_p.clone()], GuardProg::empty(), body_q1, 10);
+    builder.rule(
+        vec![],
+        vec![head_p.clone()],
+        GuardProg::empty(),
+        body_q1,
+        10,
+    );
     builder.rule(vec![], vec![head_p], GuardProg::empty(), body_q2, 0);
 
     let program = builder.build();

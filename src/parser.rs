@@ -13,8 +13,8 @@
 //! - `(f x y ...)` - compound term
 
 use crate::chr::{
-    ArgExpr, BodyInstr, BodyProg, ChrProgram, ChrProgramBuilder, ChrState, GuardInstr, GuardProg,
-    GVal, HeadPat, NoTheory, PatId, PredId, RVar,
+    ArgExpr, BodyInstr, BodyProg, ChrProgram, ChrProgramBuilder, ChrState, GVal, GuardInstr,
+    GuardProg, HeadPat, NoTheory, PatId, PredId, RVar,
 };
 use crate::constraint::ConstraintOps;
 use crate::nf::NF;
@@ -137,13 +137,10 @@ impl ConstraintBuilder for ChrConstraintBuilder {
     ) -> Result<Self::Constraint, ParseError> {
         let mut st = ChrState::new(self.program.clone(), ());
         for call in calls {
-            let pred = self
-                .program
-                .pred_id(&call.name)
-                .ok_or_else(|| ParseError {
-                    message: format!("unknown constraint predicate '{}'", call.name),
-                    position: call.position,
-                })?;
+            let pred = self.program.pred_id(&call.name).ok_or_else(|| ParseError {
+                message: format!("unknown constraint predicate '{}'", call.name),
+                position: call.position,
+            })?;
             let expected = self.program.preds[pred.0 as usize].arity as usize;
             if call.args.len() != expected {
                 return Err(ParseError {
@@ -675,7 +672,12 @@ impl<B: ConstraintBuilder> Parser<B> {
             let mut var_map: HashMap<String, u32> = HashMap::new();
             let mut var_order: Vec<u32> = Vec::new();
             let term = self.parse_term_inner(input, pos, &mut var_map, &mut var_order)?;
-            let nf = NF::factor(term, term, self.constraints.empty_constraint(), &mut self.terms);
+            let nf = NF::factor(
+                term,
+                term,
+                self.constraints.empty_constraint(),
+                &mut self.terms,
+            );
             Ok(Rel::Atom(Arc::new(nf)))
         } else if ch == '$' || ch == '(' {
             // Rule starting with term
@@ -884,20 +886,15 @@ fn parse_chr_theory(
         let line = line.strip_suffix('.').unwrap_or(line).trim();
         if line.starts_with("constraint ") {
             let decl = line["constraint".len()..].trim();
-            let (pred, arity) = decl
-                .split_once('/')
-                .ok_or_else(|| ParseError {
-                    message: "Expected constraint declaration like name/arity".to_string(),
-                    position: 0,
-                })?;
+            let (pred, arity) = decl.split_once('/').ok_or_else(|| ParseError {
+                message: "Expected constraint declaration like name/arity".to_string(),
+                position: 0,
+            })?;
             let pred = pred.trim();
-            let arity: u8 = arity
-                .trim()
-                .parse()
-                .map_err(|_| ParseError {
-                    message: "Invalid constraint arity".to_string(),
-                    position: 0,
-                })?;
+            let arity: u8 = arity.trim().parse().map_err(|_| ParseError {
+                message: "Invalid constraint arity".to_string(),
+                position: 0,
+            })?;
             if builder.pred_id(pred).is_some() {
                 return Err(ParseError {
                     message: format!("Duplicate constraint predicate '{}'", pred),
@@ -1249,7 +1246,9 @@ fn parse_chr_constraint(
                 pos += 1;
                 break;
             }
-            args.push(parse_chr_pat_term(input, &mut pos, builder, symbols, rvars)?);
+            args.push(parse_chr_pat_term(
+                input, &mut pos, builder, symbols, rvars,
+            )?);
         }
         (name, args)
     } else {
@@ -1268,10 +1267,7 @@ fn parse_chr_constraint(
         message: format!("Unknown constraint predicate '{}'", name),
         position: 0,
     })?;
-    let expected = builder
-        .pred_arity(pred)
-        .map(|a| a as usize)
-        .unwrap_or(0);
+    let expected = builder.pred_arity(pred).map(|a| a as usize).unwrap_or(0);
     if args.len() != expected {
         return Err(ParseError {
             message: format!(
@@ -1318,12 +1314,10 @@ fn parse_chr_pat_term_impl(
                 let next_id = rvars.len() as u32;
                 *rvars.entry(name).or_insert(RVar(next_id))
             }
-            PatVarMode::BoundOnly(rvars) => {
-                *rvars.get(&name).ok_or_else(|| ParseError {
-                    message: format!("Guard variable '${}' must be bound by a head", name),
-                    position: *pos,
-                })?
-            }
+            PatVarMode::BoundOnly(rvars) => *rvars.get(&name).ok_or_else(|| ParseError {
+                message: format!("Guard variable '${}' must be bound by a head", name),
+                position: *pos,
+            })?,
         };
         Ok(builder.pat_var(rv))
     } else if ch == '(' {
@@ -1376,7 +1370,13 @@ fn parse_chr_pat_term_bound(
     symbols: &mut SymbolStore,
     rvars: &HashMap<String, RVar>,
 ) -> Result<PatId, ParseError> {
-    parse_chr_pat_term_impl(input, pos, builder, symbols, &mut PatVarMode::BoundOnly(rvars))
+    parse_chr_pat_term_impl(
+        input,
+        pos,
+        builder,
+        symbols,
+        &mut PatVarMode::BoundOnly(rvars),
+    )
 }
 
 fn split_top_level_commas(input: &str) -> Vec<&str> {
@@ -2038,11 +2038,7 @@ theory eq {
             Ok(_) => panic!("expected arity mismatch error"),
             Err(err) => err,
         };
-        assert!(
-            err.message.contains("arity"),
-            "unexpected error: {}",
-            err
-        );
+        assert!(err.message.contains("arity"), "unexpected error: {}", err);
     }
 
     #[test]
@@ -2059,8 +2055,7 @@ theory eq {
             .parse_rule("(pair $x $y) { (eq $x $y) } -> $x")
             .expect("parse rule with constraint");
         let mut terms = parser.take_terms();
-        let rendered = crate::nf::format_nf(&nf, &mut terms, parser.symbols())
-            .expect("format nf");
+        let rendered = crate::nf::format_nf(&nf, &mut terms, parser.symbols()).expect("format nf");
         assert!(
             rendered.contains("{ (eq $0 $1) }"),
             "expected constraints in output, got: {}",

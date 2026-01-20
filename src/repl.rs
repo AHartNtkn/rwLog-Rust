@@ -116,8 +116,8 @@ impl Repl {
         }
 
         let mut outputs = Vec::new();
-        let statements =
-            split_statements(trimmed).map_err(|_| "Unterminated block definition in cell".to_string())?;
+        let statements = split_statements(trimmed)
+            .map_err(|_| "Unterminated block definition in cell".to_string())?;
 
         for statement in statements {
             if let Some(output) = self.process_input(statement.trim())? {
@@ -384,9 +384,9 @@ mod tests {
             if cell_type != "code" {
                 continue;
             }
-            let source = cell.get("source").ok_or_else(|| {
-                format!("Notebook '{}' missing cell source", path.display())
-            })?;
+            let source = cell
+                .get("source")
+                .ok_or_else(|| format!("Notebook '{}' missing cell source", path.display()))?;
             let src = if let Some(lines) = source.as_array() {
                 let mut merged = String::new();
                 for line in lines {

@@ -27,13 +27,14 @@ fn raw_term_strategy() -> impl Strategy<Value = RawTerm> {
 
     leaf.prop_recursive(3, 16, 4, |inner| {
         prop_oneof![
-            inner.clone()
-                .prop_map(|t| RawTerm::App { f: 3, kids: vec![t] }),
-            (inner.clone(), inner.clone())
-                .prop_map(|(a, b)| RawTerm::App {
-                    f: 4,
-                    kids: vec![a, b],
-                }),
+            inner.clone().prop_map(|t| RawTerm::App {
+                f: 3,
+                kids: vec![t]
+            }),
+            (inner.clone(), inner.clone()).prop_map(|(a, b)| RawTerm::App {
+                f: 4,
+                kids: vec![a, b],
+            }),
             (inner.clone(), inner).prop_map(|(a, b)| RawTerm::App {
                 f: 5,
                 kids: vec![a, b],

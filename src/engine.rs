@@ -5,9 +5,9 @@
 //! 2. Stepping through the Node tree using Or rotation
 //! 3. Yielding NF answers via next()
 
+use crate::constraint::ConstraintDisplay;
 use crate::constraint::ConstraintOps;
 use crate::nf::{format_nf, NF};
-use crate::constraint::ConstraintDisplay;
 use crate::node::{step_node, Node, NodeStep};
 use crate::rel::Rel;
 use crate::symbol::SymbolStore;
@@ -1784,10 +1784,7 @@ rel add {
         }
 
         let query_strs = [
-            (
-                "filter_only",
-                "@(f (b (b l)) l) ; [$x { (no_c $x) } -> $x]",
-            ),
+            ("filter_only", "@(f (b (b l)) l) ; [$x { (no_c $x) } -> $x]"),
             (
                 "build_only",
                 "@(f (b (b l)) l) ; [$x { (no_c $x) } -> $x ; $x -> (f $x (c z))]",
@@ -1796,10 +1793,7 @@ rel add {
                 "with_app",
                 "@(f (b (b l)) l) ; [$x { (no_c $x) } -> $x ; $x -> (f $x (c z)) ; app]",
             ),
-            (
-                "direct_app",
-                "@(f (f (b (b l)) l) (c z)) ; app",
-            ),
+            ("direct_app", "@(f (f (b (b l)) l) (c z)) ; app"),
             (
                 "full",
                 "@(f (b (b l)) l) ; [$x { (no_c $x) } -> $x ; $x -> (f $x (c z)) ; app] ; @(c z)",
@@ -1808,9 +1802,7 @@ rel add {
 
         let mut queries = Vec::new();
         for (label, query_str) in query_strs.iter() {
-            let query = parser
-                .parse_rel_body(query_str)
-                .expect("parse query");
+            let query = parser.parse_rel_body(query_str).expect("parse query");
             queries.push((*label, query));
         }
 
@@ -1818,8 +1810,7 @@ rel add {
         let max_steps = 20000;
         let mut first = None;
         for (label, query) in queries.iter() {
-            let result =
-                trace_query(label, query, &env, &mut terms, parser.symbols(), max_steps);
+            let result = trace_query(label, query, &env, &mut terms, parser.symbols(), max_steps);
             if *label == "full" {
                 first = result;
             }
@@ -1829,7 +1820,10 @@ rel add {
         let (lhs, rhs) = direct_rule_terms(&nf, &mut terms).expect("direct rule");
         assert_eq!(lhs, expected_prog, "unexpected program term");
         assert_eq!(rhs, expected_out, "unexpected output term");
-        assert!(nf.drop_fresh.constraint.is_empty(), "expected no remaining constraints");
+        assert!(
+            nf.drop_fresh.constraint.is_empty(),
+            "expected no remaining constraints"
+        );
     }
 
     #[test]
@@ -2332,10 +2326,7 @@ rel add {
         }
 
         let mut terms = std::mem::take(&mut engine.terms);
-        let expected: Vec<NF<()>> = outputs
-            .iter()
-            .map(|nf| dual_nf(nf, &mut terms))
-            .collect();
+        let expected: Vec<NF<()>> = outputs.iter().map(|nf| dual_nf(nf, &mut terms)).collect();
         let dual_rel = dual(&rel, &mut terms);
         let mut dual_engine: Engine<()> = Engine::new(dual_rel, terms);
         let mut dual_outputs = Vec::new();

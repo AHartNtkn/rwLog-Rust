@@ -94,8 +94,7 @@ impl<C: ConstraintOps> NF<C> {
                 constraint_ordered.push(var);
             }
         }
-        let mut seen: std::collections::HashSet<u32> =
-            constraint_ordered.iter().copied().collect();
+        let mut seen: std::collections::HashSet<u32> = constraint_ordered.iter().copied().collect();
         let mut constraint_vars = Vec::new();
         constraint.collect_vars(terms, &mut constraint_vars);
         constraint_vars.sort_unstable();

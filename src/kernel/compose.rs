@@ -46,8 +46,7 @@ pub fn compose_nf<C: ConstraintOps>(a: &NF<C>, b: &NF<C>, terms: &mut TermStore)
 
     let rw1 = collect_tensor(a, terms);
     let mut rw2 = collect_tensor(b, terms);
-    let b_max_var = max_var_index_terms(&rw2.lhs, terms)
-        .max(max_var_index_terms(&rw2.rhs, terms));
+    let b_max_var = max_var_index_terms(&rw2.lhs, terms).max(max_var_index_terms(&rw2.rhs, terms));
 
     let b_var_offset = max_var_index_terms(&rw1.lhs, terms)
         .max(max_var_index_terms(&rw1.rhs, terms))
