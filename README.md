@@ -1,6 +1,6 @@
 # rwlog
 
-rwlog is a relational/logic programming system built on term rewriting. It provides a CLI REPL and an optional Jupyter kernel.
+rwlog is a relational/logic programming system built on term rewriting. It takes relations described in an algebraic language of relations and normalizes them into (possibly infinite) unions of atomic spans of pattern rewrites. It provides a CLI REPL and an optional Jupyter kernel.
 
 ## Features
 
