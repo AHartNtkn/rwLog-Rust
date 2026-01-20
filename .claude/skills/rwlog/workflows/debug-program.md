@@ -26,12 +26,12 @@ Find the **simplest input** that exhibits the bug:
 
 ```
 # Original failing case
-?- @(cons (s (s z)) (s (s (s z)))) ; relation
+@(cons (s (s z)) (s (s (s z)))) ; relation
 
 # Simplify systematically
-?- @(cons z z) ; relation            # Works?
-?- @(cons (s z) z) ; relation        # Works?
-?- @(cons (s z) (s z)) ; relation    # Bug appears here?
+@(cons z z) ; relation            # Works?
+@(cons (s z) z) ; relation        # Works?
+@(cons (s z) (s z)) ; relation    # Bug appears here?
 ```
 
 The simplest failing case reveals the bug pattern.
@@ -44,10 +44,10 @@ Break the relation into parts and test each:
 # If relation is: [step1 ; step2 ; step3]
 
 # Test step1 alone
-?- @input ; [step1]
+@input ; [step1]
 
 # Test step1 ; step2
-?- @input ; [step1 ; step2]
+@input ; [step1 ; step2]
 
 # Find which step fails
 ```
@@ -58,7 +58,7 @@ Verify patterns match what you expect:
 
 ```
 # Does this pattern match?
-?- @(cons a b) ; [(cons $x $y) -> matched]
+@(cons a b) ; [(cons $x $y) -> matched]
 
 # Expected: matched
 # If fails: pattern is wrong
@@ -91,7 +91,7 @@ For recursive relations, verify:
 **Base case exists and is reachable:**
 ```
 # Is there a base case?
-?- @base_input ; relation
+@base_input ; relation
 # Should return without recursing
 ```
 
@@ -123,11 +123,11 @@ In a composition, output of each step must match input of next:
 
 ```
 # Debug: what does step1 produce?
-?- @input ; [step1]
+@input ; [step1]
 > intermediate_value
 
 # Does step2 accept that?
-?- @intermediate_value ; [step2]
+@intermediate_value ; [step2]
 ```
 
 ## Step 8: Check Disjunction Order

@@ -628,7 +628,7 @@ A bug-demonstrating test must **isolate the exact condition that triggers the bu
 fn test_backward_query_bug() {
     let mut repl = Repl::new();
     repl.process_line("load examples/addition.txt").unwrap();
-    let result = repl.process_line("?- add ; z").unwrap();
+    let result = repl.process_line("add ; z").unwrap();
     assert!(result.contains("(cons z z) -> z"));  // Fails, but WHY?
 }
 ```

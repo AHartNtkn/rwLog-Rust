@@ -3,7 +3,7 @@
 //! Supports:
 //! - `rel name { ... }` definitions
 //! - `load <file>` to load definitions
-//! - `?- <query>` to run a query
+//! - `<query>` to run a query
 //! - `list`, `help`, `quit`/`exit`
 
 use crate::chr::{ChrState, NoTheory};
@@ -79,11 +79,6 @@ impl Repl {
             return self.load_file(path.trim());
         }
 
-        if let Some(query) = line.strip_prefix("?- ") {
-            self.reset_active_query();
-            return self.run_query(query.trim());
-        }
-
         // Try to parse as a relation definition
         if line.starts_with("theory ") {
             self.reset_active_query();
@@ -137,7 +132,6 @@ impl Repl {
 
 Commands:
   load <file>    Load relation definitions from a file
-  ?- <query>     Run a query (e.g., ?- add ; (cons z z))
   list           List defined relations
   next           Show the next answer from the active query
   more <n>       Show the next N answers from the active query
@@ -155,7 +149,7 @@ Syntax:
   [...]                 Grouping
   $var                  Variable
   (f x y)               Compound term
-  <expr>                Bare query (same as ?- <expr>)
+  <expr>                Run a query (e.g., add ; @(s z))
 "#
         .to_string()
     }
@@ -471,7 +465,7 @@ mod tests {
     fn repl_process_cell_handles_multiple_lines() {
         let mut repl = Repl::new();
         let output = repl
-            .process_cell("rel f { a -> b }\n?- f")
+            .process_cell("rel f { a -> b }\nf")
             .expect("process cell");
         assert!(
             output.unwrap_or_default().contains("1."),
@@ -485,7 +479,7 @@ mod tests {
         repl.process_input("rel f { a -> b }").expect("define f");
         // Simulates a notebook cell with a comment header followed by a query
         let output = repl
-            .process_cell("# This is a comment\n?- f")
+            .process_cell("# This is a comment\nf")
             .expect("process cell with leading comment");
         assert!(
             output.unwrap_or_default().contains("1."),
@@ -498,7 +492,7 @@ mod tests {
         let mut repl = Repl::new();
         repl.process_input("rel f { a -> b }").expect("define f");
         let output = repl
-            .process_input("?- f")
+            .process_input("f")
             .expect("run query")
             .unwrap_or_default();
         assert!(
@@ -530,7 +524,7 @@ mod tests {
             .expect("define output");
 
         let first = repl
-            .process_input("?- f")
+            .process_input("f")
             .expect("run query")
             .unwrap_or_default();
         assert!(first.contains("1."), "Expected first answer");

@@ -74,7 +74,7 @@ Every rwlog relation is inherently bidirectional. The same definition can:
 <forward_mode>
 **Forward mode:**
 ```
-?- @input ; relation
+@input ; relation
 ```
 Computes: what outputs does `input` produce through `relation`?
 </forward_mode>
@@ -84,7 +84,7 @@ Computes: what outputs does `input` produce through `relation`?
 
 To find inputs that produce a given output, constrain the output:
 ```
-?- relation ; @output
+relation ; @output
 ```
 This finds inputs to `relation` that produce `output`.
 
@@ -94,7 +94,7 @@ This finds inputs to `relation` that produce `output`.
 <enumeration_mode>
 **Enumeration mode:**
 ```
-?- relation
+relation
 ```
 With no constraint, generates all input/output pairs (may be infinite).
 </enumeration_mode>
@@ -128,11 +128,11 @@ dual(R) inp out  <=>  R out inp
 rel add { ... }
 
 # Forward: compute sum
-?- @(cons (s z) (s z)) ; add
+@(cons (s z) (s z)) ; add
 > (s (s z))
 
 # Backward: find addends
-?- add ; @(s (s z))
+add ; @(s (s z))
 > (cons z (s (s z)))  # 0 + 2
 > (cons (s z) (s z))  # 1 + 1
 > (cons (s (s z)) z)  # 2 + 0
@@ -276,7 +276,7 @@ Non-termination happens with:
 **Productive non-termination:**
 Some queries "don't terminate" but productively generate an infinite stream:
 ```
-?- nat
+nat
 ```
 Generates `z`, `(s z)`, `(s (s z))`, ... forever.
 

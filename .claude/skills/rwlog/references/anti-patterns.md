@@ -214,17 +214,17 @@ Backward execution may have different termination properties.
 **Testing only forward direction:**
 ```
 # Tested forward - works!
-?- @(cons (s z) (s z)) ; add
+@(cons (s z) (s z)) ; add
 > (s (s z))
 
 # But did you test backward?
-?- add ; @(s (s z))
+add ; @(s (s z))
 > (cons z (s (s z)))
 > (cons (s z) (s z))
 > (cons (s (s z)) z)
 
 # And edge cases?
-?- @(cons z z) ; add
+@(cons z z) ; add
 > z
 ```
 Always test both directions and edge cases.
@@ -287,9 +287,9 @@ rel reverse_acc {
 **Isolate the problem:**
 ```
 # Test components separately
-?- @input ; [step1]
-?- @intermediate ; [step2]
-?- @input ; [step1 ; step2]
+@input ; [step1]
+@intermediate ; [step2]
+@input ; [step1 ; step2]
 ```
 Find which step is failing.
 </isolate_the_problem>
@@ -298,7 +298,7 @@ Find which step is failing.
 **Check pattern matching:**
 ```
 # Does the pattern even match?
-?- @(cons a b) ; [(cons $x $y) -> matched]
+@(cons a b) ; [(cons $x $y) -> matched]
 
 # If it returns 'matched', pattern works
 # If it fails, pattern doesn't match
@@ -309,11 +309,11 @@ Find which step is failing.
 **Trace variable bindings:**
 ```
 # Add identity checkpoints
-?- @input ; [step1] ; [$x -> $x] ; [step2]
+@input ; [step1] ; [$x -> $x] ; [step2]
 #                     ^^^^^^^^^^^ see intermediate
 
 # Or output the intermediate explicitly
-?- @input ; [step1]
+@input ; [step1]
 ```
 </trace_variables>
 
@@ -321,9 +321,9 @@ Find which step is failing.
 **Simplify the failing case:**
 ```
 # If complex input fails, try simpler input
-?- @(cons z z) ; relation           # Simplest non-trivial
-?- @(cons (s z) z) ; relation       # One step more complex
-?- @(cons (s (s z)) (s z)) ; relation  # Original failing case
+@(cons z z) ; relation           # Simplest non-trivial
+@(cons (s z) z) ; relation       # One step more complex
+@(cons (s (s z)) (s z)) ; relation  # Original failing case
 ```
 Find the simplest input that exhibits the bug.
 </simplify>

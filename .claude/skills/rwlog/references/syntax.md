@@ -230,13 +230,7 @@ Computes 2 + 1.
 <queries>
 ## Query Syntax
 
-Queries are expressions evaluated by the REPL.
-
-```
-?- expression
-```
-
-Or just:
+Queries are expressions evaluated by the REPL:
 
 ```
 expression
@@ -244,20 +238,20 @@ expression
 
 <example name="Run relation forward">
 ```
-?- @(cons z (s z)) ; add
+@(cons z (s z)) ; add
 ```
 </example>
 
 <example name="Run relation backward">
 ```
-?- add ; @(s (s z))
+add ; @(s (s z))
 ```
 Find pairs that sum to 2.
 </example>
 
 <example name="Inline rule">
 ```
-?- @(pair a b) ; [(pair $x $y) -> (pair $y $x)]
+@(pair a b) ; [(pair $x $y) -> (pair $y $x)]
 ```
 </example>
 </queries>

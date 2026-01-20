@@ -22,12 +22,12 @@ This is automatic - no special syntax needed.
 Pass input to a relation:
 
 ```
-?- @input_term ; relation_name
+@input_term ; relation_name
 ```
 
 <example name="Addition forward">
 ```
-?- @(cons (s (s z)) (s z)) ; add
+@(cons (s (s z)) (s z)) ; add
 > (s (s (s z)))
 ```
 2 + 1 = 3
@@ -38,12 +38,12 @@ Pass input to a relation:
 Constrain the output and find inputs:
 
 ```
-?- relation_name ; @output_term
+relation_name ; @output_term
 ```
 
 <example name="Addition backward">
 ```
-?- add ; @(s (s (s z)))
+add ; @(s (s (s z)))
 > (cons z (s (s (s z))))
 ```
 What + what = 3? First answer: 0 + 3
@@ -54,7 +54,7 @@ What + what = 3? First answer: 0 + 3
 Most backward queries have multiple solutions. Use `next` or `more N`:
 
 ```
-?- add ; @(s (s (s z)))
+add ; @(s (s (s z)))
 > (cons z (s (s (s z))))
 
 next
@@ -78,14 +78,14 @@ You can constrain just part of the output:
 
 ```
 # Find all inputs where result starts with (s ...)
-?- add ; [(s $n) -> (s $n)]
+add ; [(s $n) -> (s $n)]
 ```
 
 Or use conjunction to add constraints:
 
 ```
 # Find pairs summing to 3 where first element is at least 1
-?- add ; @(s (s (s z))) & [(cons (s $x) $y) -> (cons (s $x) $y)]
+add ; @(s (s (s z))) & [(cons (s $x) $y) -> (cons (s $x) $y)]
 ```
 
 ## Step 6: Enumeration Mode
@@ -93,7 +93,7 @@ Or use conjunction to add constraints:
 With no constraints, generate all input/output pairs:
 
 ```
-?- add
+add
 > (cons z z) -> z
 
 next
@@ -122,11 +122,11 @@ rel double {
 }
 
 # Forward: double 2
-?- @(s (s z)) ; double
+@(s (s z)) ; double
 > (s (s (s (s z))))
 
 # Backward: what doubles to 4?
-?- double ; @(s (s (s (s z))))
+double ; @(s (s (s (s z))))
 > (s (s z))
 ```
 </example>
@@ -141,17 +141,17 @@ rel wrap {
 }
 
 # Forward: finite
-?- @a ; wrap
+@a ; wrap
 > (wrapped a)
 
 # Backward on (wrapped a): finite
-?- wrap ; @(wrapped a)
+wrap ; @(wrapped a)
 > a
 
 # But if we had a relation generating all terms...
 rel any_term { ... }  # Generates infinite terms
 
-?- any_term ; wrap    # Infinite stream
+any_term ; wrap    # Infinite stream
 ```
 
 If backward hangs, the relation may be generating infinitely. Use `Ctrl+C` to interrupt.
@@ -162,12 +162,12 @@ For every relation, test both directions:
 
 ```
 # Forward test
-?- @(cons (s z) (s z)) ; add
+@(cons (s z) (s z)) ; add
 > (s (s z))
 # Expected: 1 + 1 = 2 ✓
 
 # Backward test
-?- add ; @(s (s z))
+add ; @(s (s z))
 > (cons z (s (s z)))
 more 2
 > (cons (s z) (s z))
@@ -175,7 +175,7 @@ more 2
 # Expected: all pairs summing to 2 ✓
 
 # Verify round-trip
-?- @(cons (s z) (s z)) ; add ; add
+@(cons (s z) (s z)) ; add ; add
 # This finds: what pairs sum to a number that is the sum of (1,1)?
 # i.e., what pairs sum to 2?
 ```
@@ -184,7 +184,7 @@ more 2
 
 **Generate test cases:**
 ```
-?- add ; @(s (s (s (s (s z)))))
+add ; @(s (s (s (s (s z)))))
 # All pairs summing to 5 - automatic test generation!
 ```
 
@@ -192,19 +192,19 @@ more 2
 ```
 # Encode: string -> encoded
 # Decode: just run backward
-?- encode ; @encoded_value
+encode ; @encoded_value
 ```
 
 **Solve constraints:**
 ```
 # Find X such that f(X) = target
-?- f ; @target
+f ; @target
 ```
 
 **Program synthesis:**
 ```
 # What program transforms A to B?
-?- @A ; program ; @B
+@A ; program ; @B
 # (if program is defined relationally)
 ```
 

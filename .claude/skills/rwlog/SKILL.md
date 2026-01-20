@@ -80,13 +80,13 @@ What would you like to do?
 
 ```bash
 # Test forward direction
-?- @input_term ; relation_name
+@input_term ; relation_name
 
 # Test backward direction
-?- relation_name ; @expected_output
+relation_name ; @expected_output
 
 # Test enumeration
-?- relation_name
+relation_name
 ```
 
 Report:

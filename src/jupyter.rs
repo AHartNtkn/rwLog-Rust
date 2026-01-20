@@ -660,7 +660,7 @@ mod tests {
             header,
             parent_header: json!({}),
             metadata: json!({}),
-            content: json!({"code": "rel f { a -> b }\n?- f"}),
+            content: json!({"code": "rel f { a -> b }\nf"}),
             buffers: Vec::new(),
         };
 
@@ -755,7 +755,7 @@ mod tests {
             header,
             parent_header: json!({}),
             metadata: json!({}),
-            content: json!({"code": "?- (cons z z)"}),
+            content: json!({"code": "rel { invalid"}),
             buffers: Vec::new(),
         };
 

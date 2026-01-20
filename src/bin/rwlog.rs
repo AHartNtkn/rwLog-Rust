@@ -2,7 +2,7 @@
 //!
 //! Commands:
 //! - `load <file>` - Load relation definitions from a file
-//! - `?- <query>` - Run a query
+//! - `<query>` - Run a query
 //! - `list` - List defined relations
 //! - `help` - Show help
 //! - `quit` or `exit` - Exit the REPL
@@ -199,7 +199,7 @@ mod tests {
             .expect("g output");
 
         let output = repl
-            .process_input("?- f ; g")
+            .process_input("f ; g")
             .expect("query should run")
             .expect("query output");
 

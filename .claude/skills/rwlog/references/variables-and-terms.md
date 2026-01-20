@@ -170,7 +170,7 @@ Variables work the same forwards and backwards because unification is symmetric.
 <forward>
 **Forward (input on left):**
 ```
-?- @(cons a b) ; [(cons $h $t) -> $h]
+@(cons a b) ; [(cons $h $t) -> $h]
 ```
 Result: `a`
 - Pattern `(cons $h $t)` matches `(cons a b)`
@@ -181,7 +181,7 @@ Result: `a`
 <backward>
 **Backward (constrain output):**
 ```
-?- [(cons $h $t) -> $h] ; @a
+[(cons $h $t) -> $h] ; @a
 ```
 Result: `(cons a $t)` for any `$t`
 - Output must equal `a`

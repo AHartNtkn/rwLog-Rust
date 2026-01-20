@@ -56,7 +56,7 @@ rel add {
 
 **Test it:**
 ```
-?- @(cons z (s z)) ; add
+@(cons z (s z)) ; add
 > (s z)
 ```
 
@@ -98,15 +98,15 @@ Test with increasingly complex inputs:
 
 ```
 # Simplest case
-?- @(cons z z) ; add
+@(cons z z) ; add
 > z
 
 # One step
-?- @(cons (s z) z) ; add
+@(cons (s z) z) ; add
 > (s z)
 
 # Two steps
-?- @(cons (s (s z)) (s z)) ; add
+@(cons (s (s z)) (s z)) ; add
 > (s (s (s z)))
 ```
 
@@ -116,7 +116,7 @@ Test finding inputs that produce given outputs:
 
 ```
 # What sums to 2?
-?- add ; @(s (s z))
+add ; @(s (s z))
 > (cons z (s (s z)))
 
 more 3

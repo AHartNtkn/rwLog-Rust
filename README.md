@@ -5,7 +5,7 @@ rwlog is a relational/logic programming system built on term rewriting. It takes
 ## Features
 
 - Define relations with `rel name { ... }`.
-- Query relations interactively (`?- <expr>` or bare `<expr>`).
+- Query relations interactively (`<expr>`).
 - Composition (`;`), disjunction (`|`), and conjunction (`&`).
 - Term literals as relations via `@term`.
 - Recursive relations via named calls.
@@ -41,8 +41,7 @@ rwlog help
 
 - `load <file>`: Load relation definitions from a file.
 - `list`: List defined relations.
-- `?- <query>`: Run a query.
-- `<query>`: Bare query (same as `?- <query>`).
+- `<query>`: Run a query.
 - `next`: Show the next answer from the active query.
 - `more <n>`: Show the next N answers.
 - `reset`: Clear the active query.
@@ -95,8 +94,8 @@ Term literal (identity relation at a term):
 Example queries:
 
 ```text
-?- add ; @(cons z (s z))
-?- @(cons (s z) z) ; add
+add ; @(cons z (s z))
+@(cons (s z) z) ; add
 ```
 
 ## Recursive Relations

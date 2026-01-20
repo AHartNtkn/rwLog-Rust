@@ -312,7 +312,7 @@ The constraints act as filters/guards while the relation structure handles trans
 When a query completes, answers may include **residual constraints** - constraints that couldn't be fully resolved:
 
 ```
-?- [$x { (no_c $x) } -> (f $x (c z))] ; app ; @(c z)
+[$x { (no_c $x) } -> (f $x (c z))] ; app ; @(c z)
 > (f (b (b l)) (f l $0)) { (no_c $0) } -> (c z)
 ```
 

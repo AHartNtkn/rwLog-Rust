@@ -21,10 +21,6 @@ Or if built:
 <query>
 **Execute query:**
 ```
-?- expression
-```
-Or just:
-```
 expression
 ```
 
@@ -68,7 +64,7 @@ Gets the next N answers from the current query.
 
 Example:
 ```
-?- add ; @(s (s (s z)))
+add ; @(s (s (s z)))
 > (cons z (s (s (s z))))
 more 5
 > (cons (s z) (s (s z)))
@@ -153,7 +149,7 @@ rel add {
 <test_forward>
 **2. Test forward:**
 ```
-?- @(cons (s (s z)) (s z)) ; add
+@(cons (s (s z)) (s z)) ; add
 > (s (s (s z)))
 ```
 2 + 1 = 3 ✓
@@ -162,7 +158,7 @@ rel add {
 <test_backward>
 **3. Test backward:**
 ```
-?- add ; @(s (s (s z)))
+add ; @(s (s (s z)))
 > (cons z (s (s (s z))))
 more 3
 > (cons (s z) (s (s z)))
@@ -187,11 +183,11 @@ All pairs summing to 3 ✓
 Test small parts before combining:
 ```
 # Test just the rule
-?- @(cons (s z) (s z)) ; [(cons (s $x) $y) -> (cons $x $y)]
+@(cons (s z) (s z)) ; [(cons (s $x) $y) -> (cons $x $y)]
 > (cons z (s z))
 
 # Then test with recursion
-?- @(cons (s z) (s z)) ; add
+@(cons (s z) (s z)) ; add
 ```
 </incremental_testing>
 
@@ -199,7 +195,7 @@ Test small parts before combining:
 **Debug with identity:**
 Insert identity to see intermediate values:
 ```
-?- @input ; [step1] ; [$x -> $x] ; [step2]
+@input ; [step1] ; [$x -> $x] ; [step2]
 #                     ^^^^^^^^^^^ checkpoint
 ```
 </debugging_with_identity>
@@ -279,10 +275,10 @@ Loaded 1 relation(s)
 rwlog> list
 - add
 
-rwlog> ?- @(cons (s z) (s z)) ; add
+rwlog> @(cons (s z) (s z)) ; add
 > (s (s z))
 
-rwlog> ?- add ; @(s (s z))
+rwlog> add ; @(s (s z))
 > (cons z (s (s z)))
 
 rwlog> next
@@ -300,7 +296,7 @@ rwlog> rel double {
     [(s $n) -> $n ; double ; $m -> (s (s $m))]
 }
 
-rwlog> ?- @(s (s z)) ; double
+rwlog> @(s (s z)) ; double
 > (s (s (s (s z))))
 
 rwlog> quit
