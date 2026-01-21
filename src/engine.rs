@@ -221,6 +221,63 @@ mod tests {
         (rel_def, env)
     }
 
+    const PROGRAM_SYNTH_DEF: &str = r#"
+theory treecalc_constraints {
+    constraint no_c/1
+
+    # no_c/1 rejects terms containing (c N) where N is a unary number (z, s z, ...).
+    (no_c l) <=> .
+    (no_c (b $x)) <=> (no_c $x).
+    (no_c (f $x $y)) <=> (no_c $x), (no_c $y).
+    (no_c (c $n)) <=> fail.
+    (no_c (a $n $m)) <=> fail.
+}
+
+rel app {
+    # Rule 0a: Catch uninterpreted constants
+    (f (c $x) $y) -> (a (c $x) $y)
+    |
+    # Rule 0b: Accumulate caught applications
+    (f (a $x $y) $z) -> (a (a $x $y) $z)
+    |
+    # Rule 1: app(L, z) => B(z)
+    (f l $z) -> (b $z)
+    |
+    # Rule 2: app(B(y), z) => F(y, z)
+    (f (b $y) $z) -> (f $y $z)
+    |
+    # Rule 3: app(F(L, y), z) => y
+    (f (f l $y) $z) -> $y
+    |
+    # Rule 4: app(F(F(w, x), y), L) => w
+    (f (f (f $w $x) $y) l) -> $w
+    |
+    # Rule 5: app(F(B(x), y), z) => app(app(x, z), app(y, z))
+    [
+        [(f (f (b $x) $y) $z) -> (f $x $z) ; app ; $x -> (f $x $y)]
+        &
+        [(f (f (b $x) $y) $z) -> (f $y $z) ; app ; $y -> (f $x $y)]
+        ; app
+    ]
+    |
+    # Rule 6: app(F(F(w, x), y), B(u)) => app(x, u)
+    [
+        (f (f (f $w $x) $y) (b $u)) -> (f $x $u)
+        ; app
+    ]
+    |
+    # Rule 7: app(F(F(w, x), y), F(u, v)) => app(app(y, u), v)
+    [
+        (f (f (f $w $x) $y) (f $u $v)) -> (f (f $y $u) $v)
+        ;
+        [(f (f $a $b) $c) -> (f $a $b) ; app ; $a -> (f $a $b)]
+        &
+        (f (f $a $b) $c) -> (f $d $c)
+        ; app
+    ]
+}
+"#;
+
     fn peano_str(n: usize) -> String {
         if n == 0 {
             "z".to_string()
@@ -252,6 +309,19 @@ mod tests {
             "Unexpected answer for query {}",
             query
         );
+    }
+
+    fn run_until_emit<C: ConstraintOps>(engine: &mut Engine<C>, max_steps: usize) -> Option<NF<C>> {
+        for _ in 0..max_steps {
+            match engine.step() {
+                StepResult::Emit(nf) => return Some(nf),
+                StepResult::Exhausted => return None,
+                StepResult::Continue => {
+                    std::thread::yield_now();
+                }
+            }
+        }
+        None
     }
 
     // ========================================================================
@@ -1727,6 +1797,57 @@ rel add {
     #[test]
     fn treecalc_app_example_1() {
         treecalc_app_case("(f (f l (b l)) (b (b l)))", "(b l)");
+    }
+
+    #[test]
+    fn program_synth_flip_query_emits_answer() {
+        let mut parser = Parser::with_chr();
+        let (_app_rel, env) = parse_rel_def_with_env_chr(&mut parser, PROGRAM_SYNTH_DEF);
+
+        let query_str = concat!(
+            "[[$x { (no_c $x) } -> (f $x (c z))] ; app ; ",
+            "[$x -> (f $x (c (s z)))] ; app ; @(a (c (s z)) (c z))]"
+        );
+        let query = parser.parse_rel_body(query_str).expect("parse query");
+        let terms = parser.take_terms();
+        let mut engine: Engine<ChrState<NoTheory>> = Engine::new_with_env(query, terms, env);
+        let max_steps = 20_000_000;
+        let first = run_until_emit(&mut engine, max_steps);
+        assert!(
+            first.is_some(),
+            "Expected program_synth flip query to emit within {} steps",
+            max_steps
+        );
+    }
+
+    #[test]
+    fn program_synth_flip_query_emits_answer_dual() {
+        use crate::kernel::dual_nf;
+
+        let mut parser = Parser::with_chr();
+        let (_app_rel, env) = parse_rel_def_with_env_chr(&mut parser, PROGRAM_SYNTH_DEF);
+
+        let query_str = concat!(
+            "[[$x { (no_c $x) } -> (f $x (c z))] ; app ; ",
+            "[$x -> (f $x (c (s z)))] ; app ; @(a (c (s z)) (c z))]"
+        );
+        let query = parser.parse_rel_body(query_str).expect("parse query");
+        let terms = parser.take_terms();
+
+        let mut engine: Engine<ChrState<NoTheory>> =
+            Engine::new_with_env(query.clone(), terms, env.clone());
+        let max_steps = 20_000_000;
+        let first = run_until_emit(&mut engine, max_steps).expect("expected first answer");
+        let mut terms = engine.into_terms();
+        let expected_dual = dual_nf(&first, &mut terms);
+
+        let mut dual_engine: Engine<ChrState<NoTheory>> =
+            Engine::new_with_env(dual(&query, &mut terms), terms, env);
+        let dual_first = run_until_emit(&mut dual_engine, max_steps).expect("expected dual answer");
+        assert!(
+            dual_first == expected_dual,
+            "Dual query should emit the dual of the same span"
+        );
     }
 
     #[test]
