@@ -9,6 +9,7 @@ Whenever you are asked to edit AGENTS.md, do not take these as litteral, step-by
   2) Add that rule to AGENTS.md before doing any other work.
 - Do not introduce alternative structures or "helpful" reframes unless the user asks.
 - You should capture the spirit of the requirement; not preserve it in amber. You MUST think CRITICALLY about what the requirement is and *why*, in context, it exists. Capture that in full; not merely its form.
+- Avoid literal, rule‑lawyer interpretations that create busywork or miss the user's intent. Optimize for the best final result within the requested scope, even when that requires large changes.
 
 ## Symmetry and Semantics (User-Specified)
 
@@ -27,7 +28,9 @@ Whenever you are asked to edit AGENTS.md, do not take these as litteral, step-by
 
 ## User Interaction (User-Specified)
 
-- Always run tests after any edit, with no exceptions, and never ask the user to run tests or ask whether tests should be run.
+- Run tests after code changes that can affect behavior. Do not ask the user to run tests.
+- Do not run tests for instruction-only edits, documentation-only edits, or git-only changes (branch/worktree/checkout/reset).
+- When running tests, complete a `cargo build` in the same profile (debug/release) first.
 
 ## PRIMARY EDICT: Tests Must Verify Correct Behavior
 
