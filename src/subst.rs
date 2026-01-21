@@ -51,7 +51,7 @@ impl Subst {
 
     /// Check if the substitution is empty (no bindings).
     pub fn is_empty(&self) -> bool {
-        self.bindings.iter().all(|b| b.is_none())
+        self.bindings.iter().all(Option::is_none)
     }
 
     /// Number of bound variables.

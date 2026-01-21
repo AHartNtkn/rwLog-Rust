@@ -44,7 +44,7 @@ pub struct EngineConfig {
 impl Default for EngineConfig {
     fn default() -> Self {
         let workers = std::thread::available_parallelism()
-            .map(|n| n.get())
+            .map(std::num::NonZeroUsize::get)
             .unwrap_or(1);
         let workers = if cfg!(test) { 1 } else { workers };
         let budget = if cfg!(test) { 64 } else { 32 };
@@ -129,9 +129,8 @@ impl<C: ConstraintOps> Engine<C> {
             RecvResult::Empty => {}
         }
 
-        let receiver = match self.receiver.as_ref() {
-            Some(receiver) => receiver,
-            None => return self.exhausted,
+        let Some(receiver) = self.receiver.as_ref() else {
+            return self.exhausted;
         };
 
         match receiver.recv_timeout(std::time::Duration::from_millis(1)) {
@@ -255,9 +254,8 @@ impl<C: ConstraintOps + 'static> Engine<C> {
         }
 
         self.start_if_needed();
-        let receiver = match self.receiver.as_ref() {
-            Some(receiver) => receiver,
-            None => return StepResult::Exhausted,
+        let Some(receiver) = self.receiver.as_ref() else {
+            return StepResult::Exhausted;
         };
 
         let wait = std::time::Duration::from_micros(100);

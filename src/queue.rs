@@ -308,17 +308,7 @@ mod tests {
     }
 
     #[test]
-    fn answer_sender_is_send_sync_dual() {
-        assert_send_sync::<AnswerSender<()>>();
-    }
-
-    #[test]
     fn answer_receiver_is_send_sync() {
-        assert_send_sync::<AnswerReceiver<()>>();
-    }
-
-    #[test]
-    fn answer_receiver_is_send_sync_dual() {
         assert_send_sync::<AnswerReceiver<()>>();
     }
 }

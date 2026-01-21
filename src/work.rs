@@ -601,9 +601,8 @@ impl<C: ConstraintOps> PipeWork<C> {
                     self.mid.pop_front();
                     if self.absorb_front(nf.as_ref().clone(), terms) {
                         return Ok(true);
-                    } else {
-                        return Err(WorkStep::Done);
                     }
+                    return Err(WorkStep::Done);
                 }
                 Rel::Seq(xs) => {
                     self.mid.pop_front();
@@ -625,9 +624,8 @@ impl<C: ConstraintOps> PipeWork<C> {
                     self.mid.pop_back();
                     if self.absorb_back(nf.as_ref().clone(), terms) {
                         return Ok(true);
-                    } else {
-                        return Err(WorkStep::Done);
                     }
+                    return Err(WorkStep::Done);
                 }
                 Rel::Seq(xs) => {
                     self.mid.pop_back();

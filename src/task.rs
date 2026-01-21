@@ -280,7 +280,7 @@ impl<C: ConstraintOps> SearchTask<C> {
                     let blocked = self
                         .sink
                         .as_ref()
-                        .and_then(|sink| sink.blocked_on())
+                        .and_then(AnswerSink::blocked_on)
                         .expect("queue sink should provide a waker");
                     return TaskStatus::Blocked(blocked);
                 }
@@ -315,7 +315,7 @@ impl<C: ConstraintOps> SearchTask<C> {
                             let blocked = self
                                 .sink
                                 .as_ref()
-                                .and_then(|sink| sink.blocked_on())
+                                .and_then(AnswerSink::blocked_on)
                                 .expect("queue sink should provide a waker");
                             return TaskStatus::Blocked(blocked);
                         }

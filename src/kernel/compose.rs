@@ -363,7 +363,6 @@ theory no_c {
         let (symbols, terms) = setup();
         let pair = symbols.intern("Pair");
         let fst = symbols.intern("Fst");
-        let _snd = symbols.intern("Snd");
         let v0 = terms.var(0);
         let v1 = terms.var(1);
 

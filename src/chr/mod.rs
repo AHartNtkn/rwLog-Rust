@@ -340,26 +340,23 @@ impl GuardProg {
         reg: &BuiltinRegistry<T>,
         env: &RVarEnv,
     ) -> bool {
-        for ins in self.code.iter() {
+        for ins in &self.code {
             let ok = match ins {
                 GuardInstr::Eq(a, b) => {
-                    let (ta, tb) = match eval_gval_pair(env, *a, *b) {
-                        Some(pair) => pair,
-                        None => return false,
+                    let Some((ta, tb)) = eval_gval_pair(env, *a, *b) else {
+                        return false;
                     };
                     T::entails_eq(builtins, ta, tb)
                 }
                 GuardInstr::Neq(a, b) => {
-                    let (ta, tb) = match eval_gval_pair(env, *a, *b) {
-                        Some(pair) => pair,
-                        None => return false,
+                    let Some((ta, tb)) = eval_gval_pair(env, *a, *b) else {
+                        return false;
                     };
                     T::entails_neq(builtins, ta, tb)
                 }
                 GuardInstr::TopFunctor { t, f, arity } => {
-                    let tt = match eval_gval(env, *t) {
-                        Some(x) => x,
-                        None => return false,
+                    let Some(tt) = eval_gval(env, *t) else {
+                        return false;
                     };
                     match terms.resolve(tt) {
                         Some(Term::App(tf, kids)) => tf == *f && kids.len() == (*arity as usize),
@@ -367,9 +364,8 @@ impl GuardProg {
                     }
                 }
                 GuardInstr::MatchPat { pat, t } => {
-                    let tt = match eval_gval(env, *t) {
-                        Some(x) => x,
-                        None => return false,
+                    let Some(tt) = eval_gval(env, *t) else {
+                        return false;
                     };
                     match_pat_nobind(pats, terms, *pat, tt, env)
                 }
@@ -378,9 +374,8 @@ impl GuardProg {
                     if args.len() != b.arity as usize {
                         return false;
                     }
-                    let av = match collect_gval_args(args, env) {
-                        Some(v) => v,
-                        None => return false,
+                    let Some(av) = collect_gval_args(args, env) else {
+                        return false;
                     };
                     (b.guard)(builtins, terms, &av)
                 }
@@ -448,12 +443,11 @@ impl BodyProg {
         env: &RVarEnv,
         st: &mut ChrState<T>,
     ) -> bool {
-        for ins in self.code.iter() {
+        for ins in &self.code {
             match ins {
                 BodyInstr::AddChr { pred, args } => {
-                    let av = match collect_args(args, pats, terms, env) {
-                        Some(v) => v,
-                        None => return false,
+                    let Some(av) = collect_args(args, pats, terms, env) else {
+                        return false;
                     };
                     st.introduce(*pred, &av, terms);
                 }
@@ -462,9 +456,8 @@ impl BodyProg {
                     if args.len() != b.arity as usize {
                         return false;
                     }
-                    let av = match collect_args(args, pats, terms, env) {
-                        Some(v) => v,
-                        None => return false,
+                    let Some(av) = collect_args(args, pats, terms, env) else {
+                        return false;
                     };
                     if !(b.add)(&mut st.builtins, terms, &av) {
                         return false;
@@ -484,7 +477,7 @@ fn collect_args(
     env: &RVarEnv,
 ) -> Option<SmallVec<[TermId; 8]>> {
     let mut av: SmallVec<[TermId; 8]> = SmallVec::new();
-    for a in args.iter() {
+    for a in args {
         av.push(eval_arg_expr(pats, terms, env, *a)?);
     }
     Some(av)
@@ -702,7 +695,7 @@ impl ChrStore {
             .collect();
         self.alive_count = 0;
         self.dead_count = 0;
-        for inst in self.inst.iter() {
+        for inst in &self.inst {
             if inst.alive {
                 self.alive_count += 1;
                 let pred = inst.pred;
@@ -925,7 +918,7 @@ impl<T: Theory> ChrProgramBuilder<T> {
         }
 
         let mut triggers: Vec<Vec<OccRef>> = vec![Vec::new(); self.preds.len()];
-        for rule in rules.iter() {
+        for rule in &rules {
             for (occ_idx, occ) in rule.occs.iter().enumerate() {
                 let head = &rule.heads[occ.anchor_head as usize];
                 triggers[head.pred.0 as usize].push(OccRef {
@@ -935,7 +928,7 @@ impl<T: Theory> ChrProgramBuilder<T> {
             }
         }
 
-        for occs in triggers.iter_mut() {
+        for occs in &mut triggers {
             occs.sort_by(|a, b| occ_ref_order(a, b, &rules));
         }
 
@@ -963,7 +956,7 @@ fn occ_ref_order<T: Theory>(a: &OccRef, b: &OccRef, rules: &[Rule<T>]) -> Orderi
 fn max_rvar_in_heads(heads: &[HeadPat], pats: &PatArena) -> u32 {
     let mut max = None;
     for head in heads {
-        for arg in head.args.iter() {
+        for arg in &head.args {
             collect_rvars(*arg, pats, &mut max);
         }
     }
@@ -976,7 +969,7 @@ fn collect_rvars(p: PatId, pats: &PatArena, max: &mut Option<u32>) {
             *max = Some(max.map_or(rv.0, |m| m.max(rv.0)));
         }
         PatNode::App { kids, .. } => {
-            for kid in kids.iter() {
+            for kid in kids {
                 collect_rvars(*kid, pats, max);
             }
         }
@@ -1021,7 +1014,7 @@ fn compile_join_steps(
         let mut best_probe = ProbeKind::ScanAll;
         let mut best_key = KeyMode::None;
 
-        for &head_idx in remaining.iter() {
+        for &head_idx in &remaining {
             let head = &heads[head_idx];
             let pred_decl = &preds[head.pred.0 as usize];
             let (score, probe, key) = best_probe_for_head(head, pred_decl, pats, &bound);
@@ -1056,7 +1049,7 @@ fn compile_join_steps(
 }
 
 fn collect_head_rvars(head: &HeadPat, pats: &PatArena, out: &mut HashSet<u32>) {
-    for arg in head.args.iter() {
+    for arg in &head.args {
         collect_pat_rvars(*arg, pats, out);
     }
 }
@@ -1067,7 +1060,7 @@ fn collect_pat_rvars(p: PatId, pats: &PatArena, out: &mut HashSet<u32>) {
             out.insert(rv.0);
         }
         PatNode::App { kids, .. } => {
-            for kid in kids.iter() {
+            for kid in kids {
                 collect_pat_rvars(*kid, pats, out);
             }
         }
@@ -1332,17 +1325,17 @@ impl<T: Theory> ChrState<T> {
                 match (&pred_store.indexes[idx_usize], step.key_mode) {
                     (IndexData::ArgTerm(map), KeyMode::RVar(v)) => {
                         if let Some(t) = env.get(RVar(v)) {
-                            map.get(&t).map(|v| v.as_slice()).unwrap_or(&EMPTY)
+                            map.get(&t).map(Vec::as_slice).unwrap_or(&EMPTY)
                         } else {
                             &EMPTY
                         }
                     }
                     (IndexData::ArgTopFunctor(map), KeyMode::FunctorConst(f)) => {
-                        map.get(&f).map(|v| v.as_slice()).unwrap_or(&EMPTY)
+                        map.get(&f).map(Vec::as_slice).unwrap_or(&EMPTY)
                     }
                     (IndexData::ArgPairTerm(map), KeyMode::PairRVar(a, b)) => {
                         if let (Some(ta), Some(tb)) = (env.get(RVar(a)), env.get(RVar(b))) {
-                            map.get(&(ta, tb)).map(|v| v.as_slice()).unwrap_or(&EMPTY)
+                            map.get(&(ta, tb)).map(Vec::as_slice).unwrap_or(&EMPTY)
                         } else {
                             &EMPTY
                         }
