@@ -30,7 +30,7 @@ Whenever you are asked to edit AGENTS.md, do not take these as litteral, step-by
 
 - Run tests after code changes that can affect behavior. Do not ask the user to run tests.
 - Do not run tests for instruction-only edits, documentation-only edits, or git-only changes (branch/worktree/checkout/reset).
-- When running tests, complete a `cargo build` in the same profile (debug/release) first.
+- When running tests, run `cargo test --no-run` in the same profile (debug/release) first.
 
 ## PRIMARY EDICT: Tests Must Verify Correct Behavior
 
@@ -125,11 +125,12 @@ Layout rule: avoid multi-column exposition; keep text single-column and give dia
 
 ## CRITICAL: Always Use Timeouts When Running Tests
 
-**NEVER run tests without a timeout.** If tests don't ALL finish in less than 30 seconds, there's an infinite loop bug.
+**NEVER run tests without a timeout.** If tests don't ALL finish in less than 180 seconds, there's an infinite loop bug.
 
 **Always use:**
 ```bash
-timeout 30 cargo test 2>&1
+cargo test --no-run 2>&1
+timeout 180 cargo test 2>&1
 ```
 
 **Never use:**
