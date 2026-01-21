@@ -144,7 +144,7 @@ A single vague test like "this feature doesn't work" is USELESS. It doesn't guid
 
 **Before implementing ANY feature:**
 
-1. **Analyze the feature** using a subagent to identify ALL edge cases
+1. **Analyze the feature** brainstorm to identify ALL edge cases
 2. **Write a failing test for EVERY edge case** identified
 3. Each test must be:
    - **Specific**: Tests exactly ONE behavior or edge case

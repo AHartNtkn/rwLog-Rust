@@ -9,11 +9,16 @@ use crate::factors::Factors;
 use crate::kernel::{compose_nf, meet_nf};
 use crate::nf::NF;
 use crate::node::{step_node, Node, NodeStep};
+use crate::queue::{
+    AnswerQueue, AnswerReceiver, AnswerSender, BlockedOn, QueueWaker, RecvResult, SinkResult,
+    WakeHub,
+};
 use crate::rel::{Rel, RelId};
 use crate::term::{TermId, TermStore};
+use dashmap::DashMap;
+use parking_lot::Mutex;
 use smallvec::SmallVec;
-use std::cell::RefCell;
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
@@ -28,8 +33,12 @@ pub enum Work<C: ConstraintOps> {
     AndGroup(AndGroup<C>),
     /// Tabled recursive call.
     Fix(FixWork<C>),
+    /// Producer work for tabled recursion.
+    FixProducer(FixProducerWork<C>),
     /// Bind a generator to a pipeline continuation.
     Bind(BindWork<C>),
+    /// Producer work for bind generators.
+    BindProducer(BindProducerWork<C>),
     /// Single atomic NF (emits once, then done).
     Atom(NF<C>),
     /// Completed - no more work.
@@ -167,7 +176,7 @@ fn boxed_node<C: ConstraintOps>(node: Node<C>) -> Box<Node<C>> {
     Box::new(node)
 }
 
-fn build_var_list(arity: u32, terms: &mut TermStore) -> SmallVec<[TermId; 1]> {
+fn build_var_list(arity: u32, terms: &TermStore) -> SmallVec<[TermId; 1]> {
     let mut vars = SmallVec::new();
     for idx in 0..arity {
         vars.push(terms.var(idx));
@@ -175,7 +184,7 @@ fn build_var_list(arity: u32, terms: &mut TermStore) -> SmallVec<[TermId; 1]> {
     vars
 }
 
-fn nf_rwl_iso<C: ConstraintOps>(nf: &NF<C>, terms: &mut TermStore) -> NF<C> {
+fn nf_rwl_iso<C: ConstraintOps>(nf: &NF<C>, terms: &TermStore) -> NF<C> {
     let in_arity = nf.drop_fresh.in_arity;
     NF::new(
         nf.match_pats.clone(),
@@ -184,7 +193,7 @@ fn nf_rwl_iso<C: ConstraintOps>(nf: &NF<C>, terms: &mut TermStore) -> NF<C> {
     )
 }
 
-fn nf_rwr_iso<C: ConstraintOps>(nf: &NF<C>, terms: &mut TermStore) -> NF<C> {
+fn nf_rwr_iso<C: ConstraintOps>(nf: &NF<C>, terms: &TermStore) -> NF<C> {
     let out_arity = nf.drop_fresh.out_arity;
     NF::new(
         build_var_list(out_arity, terms),
@@ -193,7 +202,7 @@ fn nf_rwr_iso<C: ConstraintOps>(nf: &NF<C>, terms: &mut TermStore) -> NF<C> {
     )
 }
 
-fn nf_left_prefix<C: ConstraintOps>(nf: &NF<C>, terms: &mut TermStore) -> NF<C> {
+fn nf_left_prefix<C: ConstraintOps>(nf: &NF<C>, terms: &TermStore) -> NF<C> {
     let out_arity = nf.drop_fresh.out_arity;
     NF::new(
         nf.match_pats.clone(),
@@ -202,7 +211,7 @@ fn nf_left_prefix<C: ConstraintOps>(nf: &NF<C>, terms: &mut TermStore) -> NF<C> 
     )
 }
 
-fn nf_right_suffix<C: ConstraintOps>(nf: &NF<C>, terms: &mut TermStore) -> NF<C> {
+fn nf_right_suffix<C: ConstraintOps>(nf: &NF<C>, terms: &TermStore) -> NF<C> {
     let in_arity = nf.drop_fresh.in_arity;
     NF::new(
         build_var_list(in_arity, terms),
@@ -301,13 +310,15 @@ impl<C: ConstraintOps> PipeWorkBuilder<C> {
 
 impl<C: ConstraintOps> Work<C> {
     /// Step this work item, returning the next state.
-    pub fn step(&mut self, terms: &mut TermStore) -> WorkStep<C> {
+    pub fn step(&mut self, terms: &TermStore) -> WorkStep<C> {
         match self {
             Work::Pipe(pipe) => pipe.step(terms),
             Work::Meet(meet) => meet.step(terms),
             Work::AndGroup(group) => group.step(terms),
             Work::Fix(fix) => fix.step(terms),
+            Work::FixProducer(producer) => producer.step(terms),
             Work::Bind(bind) => bind.step(terms),
+            Work::BindProducer(producer) => producer.step(terms),
             Work::Atom(nf) => {
                 // Emit the NF once, then done
                 let nf = nf.clone();
@@ -419,7 +430,7 @@ impl<C: ConstraintOps> PipeWork<C> {
     /// Two-phase approach for direction-agnostic evaluation:
     /// - Phase A: Try to normalize (absorb atoms, flatten Seq, detect Zero) at BOTH ends
     /// - Phase B: When stuck, advance one end using alternating flip
-    pub fn step(&mut self, terms: &mut TermStore) -> WorkStep<C> {
+    pub fn step(&mut self, terms: &TermStore) -> WorkStep<C> {
         loop {
             // Phase A: Check for empty mid
             if self.mid.is_empty() {
@@ -465,7 +476,7 @@ impl<C: ConstraintOps> PipeWork<C> {
     }
 
     /// Emit the composed boundaries when mid is empty.
-    fn emit_boundaries(&self, terms: &mut TermStore) -> WorkStep<C> {
+    fn emit_boundaries(&self, terms: &TermStore) -> WorkStep<C> {
         match (&self.left, &self.right) {
             (None, None) => {
                 // Empty pipe - emit identity
@@ -490,7 +501,7 @@ impl<C: ConstraintOps> PipeWork<C> {
     }
 
     /// Absorb an NF from the front into the left boundary.
-    fn absorb_front(&mut self, nf: NF<C>, terms: &mut TermStore) -> bool {
+    fn absorb_front(&mut self, nf: NF<C>, terms: &TermStore) -> bool {
         match &self.left {
             None => {
                 // No left boundary, this NF becomes the left boundary
@@ -514,7 +525,7 @@ impl<C: ConstraintOps> PipeWork<C> {
     }
 
     /// Absorb an NF from the back into the right boundary.
-    fn absorb_back(&mut self, nf: NF<C>, terms: &mut TermStore) -> bool {
+    fn absorb_back(&mut self, nf: NF<C>, terms: &TermStore) -> bool {
         match &self.right {
             None => {
                 // No right boundary, this NF becomes the right boundary
@@ -578,7 +589,7 @@ impl<C: ConstraintOps> PipeWork<C> {
     /// Try to normalize one step at either end.
     /// Returns Ok(true) if progress was made, Ok(false) if stuck,
     /// or Err(step) if normalization yields a terminal result.
-    fn try_normalize_step(&mut self, terms: &mut TermStore) -> Result<bool, WorkStep<C>> {
+    fn try_normalize_step(&mut self, terms: &TermStore) -> Result<bool, WorkStep<C>> {
         // Try front first
         if let Some(front) = self.mid.front().cloned() {
             match front.as_ref() {
@@ -632,7 +643,7 @@ impl<C: ConstraintOps> PipeWork<C> {
     }
 
     /// Normalize mid factors by flattening Seq and fusing adjacent atoms anywhere.
-    fn normalize_mid_atoms(&mut self, terms: &mut TermStore) -> Result<bool, WorkStep<C>> {
+    fn normalize_mid_atoms(&mut self, terms: &TermStore) -> Result<bool, WorkStep<C>> {
         if self.mid.is_empty() {
             return Ok(false);
         }
@@ -693,7 +704,7 @@ impl<C: ConstraintOps> PipeWork<C> {
     }
 
     /// Advance the front factor when stuck on normalization.
-    fn advance_front(&mut self, terms: &mut TermStore) -> WorkStep<C> {
+    fn advance_front(&mut self, terms: &TermStore) -> WorkStep<C> {
         let Some(front) = self.mid.front().cloned() else {
             return self.emit_boundaries(terms);
         };
@@ -781,7 +792,7 @@ impl<C: ConstraintOps> PipeWork<C> {
     }
 
     /// Advance the back factor when stuck on normalization.
-    fn advance_back(&mut self, terms: &mut TermStore) -> WorkStep<C> {
+    fn advance_back(&mut self, terms: &TermStore) -> WorkStep<C> {
         let Some(back) = self.mid.back().cloned() else {
             return self.emit_boundaries(terms);
         };
@@ -895,7 +906,7 @@ impl<C: ConstraintOps> PipeWork<C> {
                     Some(table) => table,
                     None => return WorkStep::Done,
                 };
-                let snapshot = table.borrow().answers.clone();
+                let snapshot = table.all_answers();
                 let replay_node = node_from_answers(&snapshot);
                 let mut pipe = self.clone();
                 if use_left {
@@ -910,26 +921,20 @@ impl<C: ConstraintOps> PipeWork<C> {
         }
 
         let table = self.tables.get_or_create(key.clone());
-        let snapshot = { table.borrow().answers.clone() };
-
-        if table.borrow().state == ProducerState::NotStarted {
-            let spec = ProducerSpec {
-                body: binding.body.clone(),
-                left: call_left.clone(),
-                right: call_right.clone(),
-                env: self.env.clone(),
-            };
-            let mut producer_pipe = PipeWork::from_rel_with_boundaries(
-                binding.body.as_ref().clone(),
-                call_left,
-                call_right,
-                self.env.clone(),
-                self.tables.clone(),
-            );
-            producer_pipe.call_mode = CallMode::ReplayOnly(Box::new(key.clone()));
-            let producer_node = Node::Work(boxed_work(Work::Pipe(producer_pipe)));
-            table.borrow_mut().start_producer(producer_node, spec);
-        }
+        let snapshot = {
+            let mut producer = table.producer.lock();
+            if producer.spec.is_none() {
+                producer.spec = Some(ProducerSpec {
+                    key: key.clone(),
+                    body: binding.body.clone(),
+                    left: call_left.clone(),
+                    right: call_right.clone(),
+                    env: self.env.clone(),
+                });
+            }
+            drop(producer);
+            table.answers.lock().answers.clone()
+        };
 
         let replay_node = node_from_answers(&snapshot);
         let fix = FixWork::new(key, table, snapshot.len(), self.tables.clone());
@@ -967,11 +972,154 @@ impl<C: ConstraintOps> Default for PipeWork<C> {
     }
 }
 
-/// Bind work: apply a generator's answers to a pipe continuation.
+#[derive(Debug)]
+pub(crate) struct BindProducerState<C: ConstraintOps> {
+    gen: Node<C>,
+    sender: Option<AnswerSender<C>>,
+    pending: VecDeque<NF<C>>,
+    done: bool,
+    active: bool,
+}
+
+impl<C: ConstraintOps> BindProducerState<C> {
+    fn new(gen: Node<C>, sender: AnswerSender<C>) -> Arc<Mutex<Self>> {
+        Arc::new(Mutex::new(Self {
+            gen,
+            sender: Some(sender),
+            pending: VecDeque::new(),
+            done: false,
+            active: false,
+        }))
+    }
+
+    pub(crate) fn is_closed(&self) -> bool {
+        self.sender.is_none()
+    }
+
+    pub(crate) fn is_active(&self) -> bool {
+        self.active
+    }
+
+    pub(crate) fn mark_active(&mut self) {
+        self.active = true;
+    }
+
+    pub(crate) fn blocked_on(&self) -> BlockedOn {
+        self.sender
+            .as_ref()
+            .expect("bind producer should have sender when blocked")
+            .blocked_on()
+    }
+}
+
+pub(crate) fn step_bind_producer<C: ConstraintOps>(
+    state: &Arc<Mutex<BindProducerState<C>>>,
+    terms: &TermStore,
+) -> ProducerStep {
+    let current = {
+        let mut guard = state.lock();
+
+        if let Some(sender) = guard.sender.as_ref() {
+            if let Some(nf) = guard.pending.front().cloned() {
+                match sender.try_send(nf.clone()) {
+                    SinkResult::Accepted => {
+                        let _ = guard.pending.pop_front();
+                        return ProducerStep::Progress;
+                    }
+                    SinkResult::Full => return ProducerStep::Blocked,
+                    SinkResult::Closed => {
+                        guard.sender = None;
+                        guard.pending.clear();
+                        guard.active = false;
+                        return ProducerStep::Done;
+                    }
+                }
+            }
+        }
+
+        if guard.done && guard.pending.is_empty() {
+            guard.sender = None;
+            guard.active = false;
+            return ProducerStep::Done;
+        }
+
+        if guard.sender.is_none() {
+            guard.active = false;
+            return ProducerStep::Done;
+        }
+
+        std::mem::replace(&mut guard.gen, Node::Fail)
+    };
+
+    let step = step_node(current, terms);
+    let mut guard = state.lock();
+    match step {
+        NodeStep::Emit(nf, rest) => {
+            guard.gen = rest;
+            if let Some(sender) = guard.sender.as_ref() {
+                match sender.try_send(nf.clone()) {
+                    SinkResult::Accepted => ProducerStep::Progress,
+                    SinkResult::Full => {
+                        guard.pending.push_back(nf);
+                        ProducerStep::Blocked
+                    }
+                    SinkResult::Closed => {
+                        guard.sender = None;
+                        guard.pending.clear();
+                        guard.active = false;
+                        ProducerStep::Done
+                    }
+                }
+            } else {
+                guard.active = false;
+                ProducerStep::Done
+            }
+        }
+        NodeStep::Continue(rest) => {
+            guard.gen = rest;
+            ProducerStep::Progress
+        }
+        NodeStep::Exhausted => {
+            guard.done = true;
+            if guard.pending.is_empty() {
+                guard.sender = None;
+                guard.active = false;
+                ProducerStep::Done
+            } else {
+                ProducerStep::Progress
+            }
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct BindProducerWork<C: ConstraintOps> {
+    state: Arc<Mutex<BindProducerState<C>>>,
+}
+
+impl<C: ConstraintOps> BindProducerWork<C> {
+    pub(crate) fn new(state: Arc<Mutex<BindProducerState<C>>>) -> Self {
+        Self { state }
+    }
+
+    pub fn step(&mut self, terms: &TermStore) -> WorkStep<C> {
+        let step = step_bind_producer(&self.state, terms);
+        match step {
+            ProducerStep::Done => WorkStep::Done,
+            ProducerStep::Blocked | ProducerStep::Progress => {
+                WorkStep::More(boxed_work(Work::BindProducer(self.clone())))
+            }
+        }
+    }
+}
+
+/// Bind work: apply queued generator answers to a pipe continuation.
 #[derive(Clone, Debug)]
 pub struct BindWork<C: ConstraintOps> {
-    /// Generator node that yields NF answers.
-    pub gen: Box<Node<C>>,
+    /// Shared producer state for the generator.
+    producer: Arc<Mutex<BindProducerState<C>>>,
+    /// Receiver for queued answers.
+    receiver: Arc<Mutex<AnswerReceiver<C>>>,
     /// Continuation pipe to absorb answers into.
     pub pipe: PipeWork<C>,
     /// If true, absorb into the left boundary; otherwise right.
@@ -981,25 +1129,27 @@ pub struct BindWork<C: ConstraintOps> {
 impl<C: ConstraintOps> BindWork<C> {
     /// Create a new BindWork.
     pub fn new(gen: Node<C>, pipe: PipeWork<C>, absorb_front: bool) -> Self {
+        let (tx, rx) =
+            AnswerQueue::bounded_with_waker(pipe.tables.queue_bound(), pipe.tables.waker());
+        let producer = BindProducerState::new(gen, tx);
         Self {
-            gen: Box::new(gen),
+            producer,
+            receiver: Arc::new(Mutex::new(rx)),
             pipe,
             absorb_front,
         }
     }
 
-    fn take_self(&mut self) -> Self {
-        let placeholder = BindWork::new(Node::Fail, PipeWork::new(), self.absorb_front);
-        std::mem::replace(self, placeholder)
+    pub(crate) fn producer_state(&self) -> Arc<Mutex<BindProducerState<C>>> {
+        self.producer.clone()
     }
 
     /// Step this bind work.
-    pub fn step(&mut self, terms: &mut TermStore) -> WorkStep<C> {
-        let current = std::mem::replace(&mut *self.gen, Node::Fail);
-        match step_node(current, terms) {
-            NodeStep::Emit(nf, rest) => {
-                *self.gen = rest;
-
+    pub fn step(&mut self, terms: &TermStore) -> WorkStep<C> {
+        let receiver = self.receiver.lock();
+        match receiver.try_recv() {
+            RecvResult::Item(nf) => {
+                drop(receiver);
                 let mut pipe = self.pipe.clone();
                 let absorbed = if self.absorb_front {
                     pipe.absorb_front(nf, terms)
@@ -1008,18 +1158,36 @@ impl<C: ConstraintOps> BindWork<C> {
                 };
 
                 if !absorbed {
-                    return WorkStep::More(boxed_work(Work::Bind(self.take_self())));
+                    return WorkStep::More(boxed_work(Work::Bind(self.clone())));
                 }
 
                 let left_node = Node::Work(boxed_work(Work::Pipe(pipe)));
-                let right_node = Node::Work(boxed_work(Work::Bind(self.take_self())));
-                WorkStep::Split(boxed_node(left_node), boxed_node(right_node))
+                let right_node = Node::Work(boxed_work(Work::Bind(self.clone())));
+                return WorkStep::Split(boxed_node(left_node), boxed_node(right_node));
             }
-            NodeStep::Continue(rest) => {
-                *self.gen = rest;
-                WorkStep::More(boxed_work(Work::Bind(self.take_self())))
+            RecvResult::Closed => return WorkStep::Done,
+            RecvResult::Empty => {}
+        }
+        drop(receiver);
+
+        let should_spawn = {
+            let mut state = self.producer.lock();
+            if state.is_active() || state.is_closed() {
+                false
+            } else {
+                state.mark_active();
+                true
             }
-            NodeStep::Exhausted => WorkStep::Done,
+        };
+
+        if should_spawn {
+            let producer = BindProducerWork::new(self.producer.clone());
+            WorkStep::Split(
+                boxed_node(Node::Work(boxed_work(Work::BindProducer(producer)))),
+                boxed_node(Node::Work(boxed_work(Work::Bind(self.clone())))),
+            )
+        } else {
+            WorkStep::More(boxed_work(Work::Bind(self.clone())))
         }
     }
 }
@@ -1072,7 +1240,7 @@ impl<C: ConstraintOps> AndGroup<C> {
         }
     }
 
-    fn enqueue_meets(&mut self, idx: usize, nf: NF<C>, terms: &mut TermStore) {
+    fn enqueue_meets(&mut self, idx: usize, nf: NF<C>, terms: &TermStore) {
         if self.parts.len() == 1 {
             self.push_pending(nf);
             return;
@@ -1107,7 +1275,7 @@ impl<C: ConstraintOps> AndGroup<C> {
     }
 
     /// Step this AndGroup, returning the next state.
-    pub fn step(&mut self, terms: &mut TermStore) -> WorkStep<C> {
+    pub fn step(&mut self, terms: &TermStore) -> WorkStep<C> {
         if let Some(nf) = self.pending.pop_front() {
             self.pending_set.remove(&nf);
             return WorkStep::Emit(nf, boxed_work(Work::AndGroup(self.take_self())));
@@ -1226,7 +1394,7 @@ impl<C: ConstraintOps> MeetWork<C> {
     /// 2. Alternate pulling from left/right (flip)
     /// 3. When new answer arrives, meet with all seen from other side
     /// 4. Push successful meets to pending
-    pub fn step(&mut self, terms: &mut TermStore) -> WorkStep<C> {
+    pub fn step(&mut self, terms: &TermStore) -> WorkStep<C> {
         // Step 1: If pending has items, emit front
         if let Some(nf) = self.pending.pop_front() {
             return WorkStep::Emit(nf, boxed_work(Work::Meet(self.take_self())));
@@ -1258,7 +1426,7 @@ impl<C: ConstraintOps> MeetWork<C> {
     }
 
     /// Pull from left node and meet with seen_r
-    fn pull_left(&mut self, terms: &mut TermStore) -> WorkStep<C> {
+    fn pull_left(&mut self, terms: &TermStore) -> WorkStep<C> {
         let current = std::mem::replace(&mut *self.left, Node::Fail);
         match step_node(current, terms) {
             NodeStep::Emit(nf, rest) => {
@@ -1294,7 +1462,7 @@ impl<C: ConstraintOps> MeetWork<C> {
     }
 
     /// Pull from right node and meet with seen_l
-    fn pull_right(&mut self, terms: &mut TermStore) -> WorkStep<C> {
+    fn pull_right(&mut self, terms: &TermStore) -> WorkStep<C> {
         let current = std::mem::replace(&mut *self.right, Node::Fail);
         match step_node(current, terms) {
             NodeStep::Emit(nf, rest) => {
@@ -1421,9 +1589,18 @@ pub enum ProducerState {
     Done,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ProducerStep {
+    Progress,
+    Blocked,
+    Done,
+}
+
 /// Spec for rebuilding a producer iteration.
 #[derive(Clone, Debug)]
 pub struct ProducerSpec<C: ConstraintOps> {
+    /// CallKey for ReplayOnly protection.
+    pub key: CallKey<C>,
     /// Body of the Fix relation.
     pub body: Arc<Rel<C>>,
     /// Left boundary to apply for this call.
@@ -1434,48 +1611,71 @@ pub struct ProducerSpec<C: ConstraintOps> {
     pub env: Env<C>,
 }
 
+pub type ConsumerId = u64;
+
+#[derive(Clone, Debug)]
+struct Consumer<C: ConstraintOps> {
+    sender: AnswerSender<C>,
+    replay_index: usize,
+}
+
+#[derive(Debug)]
+struct TableAnswers<C: ConstraintOps> {
+    answers: Vec<NF<C>>,
+    seen: HashSet<NF<C>>,
+    consumers: HashMap<ConsumerId, Consumer<C>>,
+    next_consumer_id: ConsumerId,
+    waker: QueueWaker,
+}
+
+#[derive(Debug)]
+struct TableProducer<C: ConstraintOps> {
+    state: ProducerState,
+    producer: Option<Node<C>>,
+    spec: Option<ProducerSpec<C>>,
+    iteration_start_len: usize,
+    producer_task_active: bool,
+}
+
 /// A table entry for a recursive call.
 ///
 /// Stores the answers produced so far and the producer state.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct Table<C: ConstraintOps> {
-    /// Answers produced so far.
-    pub answers: Vec<NF<C>>,
-    /// Dedup set for answers.
-    pub seen: HashSet<NF<C>>,
-    /// Current index for consumers.
-    pub consumer_index: usize,
-    /// Producer state.
-    pub state: ProducerState,
-    /// Producer node for the current iteration.
-    pub producer: Option<Node<C>>,
-    /// Spec for rebuilding producer iterations.
-    pub spec: Option<ProducerSpec<C>>,
-    /// Answer count at the start of the current iteration.
-    pub iteration_start_len: usize,
-    /// Prevent re-entrant stepping.
-    pub stepping: bool,
+    answers: Mutex<TableAnswers<C>>,
+    producer: Mutex<TableProducer<C>>,
 }
 
 impl<C: ConstraintOps> Table<C> {
     /// Create a new empty table.
     pub fn new() -> Self {
+        Self::with_waker(QueueWaker::noop())
+    }
+
+    pub fn with_waker(waker: QueueWaker) -> Self {
         Self {
-            answers: Vec::new(),
-            seen: HashSet::new(),
-            consumer_index: 0,
-            state: ProducerState::NotStarted,
-            producer: None,
-            spec: None,
-            iteration_start_len: 0,
-            stepping: false,
+            answers: Mutex::new(TableAnswers {
+                answers: Vec::new(),
+                seen: HashSet::new(),
+                consumers: HashMap::new(),
+                next_consumer_id: 0,
+                waker,
+            }),
+            producer: Mutex::new(TableProducer {
+                state: ProducerState::NotStarted,
+                producer: None,
+                spec: None,
+                iteration_start_len: 0,
+                producer_task_active: false,
+            }),
         }
     }
 
     /// Add an answer to the table.
-    pub fn add_answer(&mut self, nf: NF<C>) -> bool {
-        if self.seen.insert(nf.clone()) {
-            self.answers.push(nf);
+    pub fn add_answer(&self, nf: NF<C>) -> bool {
+        let mut answers = self.answers.lock();
+        if answers.seen.insert(nf.clone()) {
+            answers.answers.push(nf);
             true
         } else {
             false
@@ -1483,55 +1683,195 @@ impl<C: ConstraintOps> Table<C> {
     }
 
     /// Mark the producer as running.
-    pub fn start_producer(&mut self, producer: Node<C>, spec: ProducerSpec<C>) {
-        self.state = ProducerState::Running;
-        self.producer = Some(producer);
-        self.spec = Some(spec);
-        self.iteration_start_len = self.answers.len();
-        self.stepping = false;
+    pub fn start_producer(
+        &self,
+        producer: Node<C>,
+        spec: ProducerSpec<C>,
+        iteration_start_len: usize,
+    ) {
+        let mut guard = self.producer.lock();
+        guard.state = ProducerState::Running;
+        guard.producer = Some(producer);
+        guard.spec = Some(spec);
+        guard.iteration_start_len = iteration_start_len;
     }
 
     /// Mark the producer as done.
-    pub fn finish_producer(&mut self) {
-        self.state = ProducerState::Done;
-        self.producer = None;
-        self.stepping = false;
+    pub fn finish_producer(&self) {
+        let mut guard = self.producer.lock();
+        guard.state = ProducerState::Done;
+        guard.producer = None;
     }
 
     /// Check if producer is done.
     pub fn is_done(&self) -> bool {
-        self.state == ProducerState::Done
+        self.producer.lock().state == ProducerState::Done
     }
 
-    /// Check if producer is running (re-entrance check).
+    /// Check if producer is running.
     pub fn is_running(&self) -> bool {
-        self.state == ProducerState::Running
+        self.producer.lock().state == ProducerState::Running
     }
 
-    /// Get the next unconsumed answer (if any).
-    pub fn next_answer(&mut self) -> Option<&NF<C>> {
-        if self.consumer_index < self.answers.len() {
-            let answer = &self.answers[self.consumer_index];
-            self.consumer_index += 1;
-            Some(answer)
+    pub fn producer_state(&self) -> ProducerState {
+        self.producer.lock().state.clone()
+    }
+
+    pub fn producer_task_active(&self) -> bool {
+        self.producer.lock().producer_task_active
+    }
+
+    pub fn set_producer_task_active(&self, active: bool) {
+        self.producer.lock().producer_task_active = active;
+    }
+
+    pub fn try_mark_producer_active(&self) -> bool {
+        let mut guard = self.producer.lock();
+        if guard.producer_task_active || guard.state == ProducerState::Done || guard.spec.is_none()
+        {
+            false
         } else {
-            None
+            guard.producer_task_active = true;
+            true
         }
     }
 
-    /// Reset consumer index to re-read all answers.
-    pub fn reset_consumer(&mut self) {
-        self.consumer_index = 0;
+    pub fn producer_spec_is_some(&self) -> bool {
+        self.producer.lock().spec.is_some()
+    }
+
+    pub fn producer_spec_clone(&self) -> Option<ProducerSpec<C>> {
+        self.producer.lock().spec.clone()
+    }
+
+    pub fn take_producer_node(&self) -> Option<Node<C>> {
+        self.producer.lock().producer.take()
+    }
+
+    pub fn set_producer_node(&self, node: Node<C>) {
+        self.producer.lock().producer = Some(node);
+    }
+
+    pub fn iteration_start_len(&self) -> usize {
+        self.producer.lock().iteration_start_len
+    }
+
+    pub fn set_iteration_start_len(&self, len: usize) {
+        self.producer.lock().iteration_start_len = len;
+    }
+
+    pub fn answers_len(&self) -> usize {
+        self.answers.lock().answers.len()
+    }
+
+    pub fn consumers_is_empty(&self) -> bool {
+        self.answers.lock().consumers.is_empty()
+    }
+
+    /// Register a consumer queue starting at a given answer index.
+    pub fn register_consumer(
+        &self,
+        queue_bound: usize,
+        start_index: usize,
+    ) -> (ConsumerId, AnswerReceiver<C>) {
+        let mut answers = self.answers.lock();
+        let (tx, rx) = AnswerQueue::bounded_with_waker(queue_bound.max(1), answers.waker.clone());
+        let consumer_id = answers.next_consumer_id;
+        answers.next_consumer_id += 1;
+        let replay_index = start_index.min(answers.answers.len());
+        answers.consumers.insert(
+            consumer_id,
+            Consumer {
+                sender: tx,
+                replay_index,
+            },
+        );
+        let _ = self.fill_consumer_with_guard(&mut answers, consumer_id);
+        (consumer_id, rx)
+    }
+
+    fn fill_consumer_with_guard(
+        &self,
+        answers: &mut TableAnswers<C>,
+        consumer_id: ConsumerId,
+    ) -> bool {
+        let mut blocked = false;
+        let mut remove = false;
+        if let Some(consumer) = answers.consumers.get_mut(&consumer_id) {
+            while consumer.replay_index < answers.answers.len() {
+                let nf = answers.answers[consumer.replay_index].clone();
+                match consumer.sender.try_send(nf) {
+                    SinkResult::Accepted => {
+                        consumer.replay_index += 1;
+                    }
+                    SinkResult::Full => {
+                        blocked = true;
+                        break;
+                    }
+                    SinkResult::Closed => {
+                        remove = true;
+                        break;
+                    }
+                }
+            }
+        }
+        if remove {
+            answers.consumers.remove(&consumer_id);
+        }
+        blocked
+    }
+
+    fn fill_consumer(&self, consumer_id: ConsumerId) -> bool {
+        let mut answers = self.answers.lock();
+        self.fill_consumer_with_guard(&mut answers, consumer_id)
+    }
+
+    fn flush_consumers(&self) -> bool {
+        let mut answers = self.answers.lock();
+        let ids: Vec<ConsumerId> = answers.consumers.keys().copied().collect();
+        let mut blocked = false;
+        for id in ids {
+            if self.fill_consumer_with_guard(&mut answers, id) {
+                blocked = true;
+            }
+        }
+        blocked
+    }
+
+    fn consumer_caught_up(&self, consumer_id: ConsumerId) -> bool {
+        let answers = self.answers.lock();
+        match answers.consumers.get(&consumer_id) {
+            Some(consumer) => consumer.replay_index >= answers.answers.len(),
+            None => true,
+        }
     }
 
     /// Get all answers.
-    pub fn all_answers(&self) -> &[NF<C>] {
-        &self.answers
+    pub fn all_answers(&self) -> Vec<NF<C>> {
+        self.answers.lock().answers.clone()
     }
 
-    /// Check if there are more answers to consume.
-    pub fn has_more_answers(&self) -> bool {
-        self.consumer_index < self.answers.len()
+    pub fn blocked_on(&self) -> BlockedOn {
+        self.answers.lock().waker.blocked_on()
+    }
+}
+
+#[cfg(test)]
+impl<C: ConstraintOps> Table<C> {
+    fn lock_answers_for_test(&self) -> parking_lot::MutexGuard<'_, TableAnswers<C>> {
+        self.answers.lock()
+    }
+
+    fn try_lock_answers_for_test(&self) -> Option<parking_lot::MutexGuard<'_, TableAnswers<C>>> {
+        self.answers.try_lock()
+    }
+
+    fn lock_producer_for_test(&self) -> parking_lot::MutexGuard<'_, TableProducer<C>> {
+        self.producer.lock()
+    }
+
+    fn try_lock_producer_for_test(&self) -> Option<parking_lot::MutexGuard<'_, TableProducer<C>>> {
+        self.producer.try_lock()
     }
 }
 
@@ -1541,58 +1881,150 @@ impl<C: ConstraintOps> Default for Table<C> {
     }
 }
 
-type TableMap<C> = im::HashMap<CallKey<C>, Arc<RefCell<Table<C>>>>;
+pub fn step_table_producer<C: ConstraintOps>(
+    table: &Arc<Table<C>>,
+    terms: &TermStore,
+    tables: &Tables<C>,
+) -> ProducerStep {
+    if table.flush_consumers() {
+        return ProducerStep::Blocked;
+    }
+
+    let state = table.producer_state();
+    if state == ProducerState::Done {
+        table.set_producer_task_active(false);
+        return ProducerStep::Done;
+    }
+
+    if state == ProducerState::NotStarted {
+        let Some(spec) = table.producer_spec_clone() else {
+            table.finish_producer();
+            table.set_producer_task_active(false);
+            return ProducerStep::Done;
+        };
+        let mut producer_pipe = PipeWork::from_rel_with_boundaries(
+            spec.body.as_ref().clone(),
+            spec.left.clone(),
+            spec.right.clone(),
+            spec.env.clone(),
+            tables.clone(),
+        );
+        producer_pipe.call_mode = CallMode::ReplayOnly(Box::new(spec.key.clone()));
+        let producer_node = Node::Work(boxed_work(Work::Pipe(producer_pipe)));
+        table.start_producer(producer_node, spec, table.answers_len());
+    }
+
+    let current = table.take_producer_node().unwrap_or(Node::Fail);
+
+    let step = step_node(current, terms);
+    match step {
+        NodeStep::Emit(nf, rest) => {
+            let _ = table.add_answer(nf);
+            table.set_producer_node(rest);
+            if table.flush_consumers() {
+                return ProducerStep::Blocked;
+            }
+            ProducerStep::Progress
+        }
+        NodeStep::Continue(rest) => {
+            table.set_producer_node(rest);
+            ProducerStep::Progress
+        }
+        NodeStep::Exhausted => {
+            let has_new = table.answers_len() > table.iteration_start_len();
+            if has_new {
+                let Some(spec) = table.producer_spec_clone() else {
+                    table.finish_producer();
+                    table.set_producer_task_active(false);
+                    return ProducerStep::Done;
+                };
+                let mut producer_pipe = PipeWork::from_rel_with_boundaries(
+                    spec.body.as_ref().clone(),
+                    spec.left.clone(),
+                    spec.right.clone(),
+                    spec.env.clone(),
+                    tables.clone(),
+                );
+                producer_pipe.call_mode = CallMode::ReplayOnly(Box::new(spec.key.clone()));
+                table.set_iteration_start_len(table.answers_len());
+                table.set_producer_node(Node::Work(boxed_work(Work::Pipe(producer_pipe))));
+                ProducerStep::Progress
+            } else {
+                table.finish_producer();
+                table.set_producer_task_active(false);
+                ProducerStep::Done
+            }
+        }
+    }
+}
+
+type TableMap<C> = DashMap<CallKey<C>, Arc<Table<C>>>;
 
 /// Collection of tables for call-context tabling.
 ///
-/// Uses persistent map for efficient cloning.
+/// Uses a shared concurrent map so all clones see the same tables.
 #[derive(Clone, Debug)]
 pub struct Tables<C: ConstraintOps> {
-    map: Arc<RefCell<TableMap<C>>>,
+    map: Arc<TableMap<C>>,
+    queue_bound: usize,
+    wake_hub: Arc<WakeHub>,
 }
 
 impl<C: ConstraintOps> Tables<C> {
     /// Create an empty Tables collection.
     pub fn new() -> Self {
+        Self::with_queue_bound(64)
+    }
+
+    pub fn with_queue_bound(queue_bound: usize) -> Self {
+        let (wake_hub, _rx) = WakeHub::new();
+        Self::with_queue_bound_and_waker(queue_bound, wake_hub)
+    }
+
+    pub fn with_queue_bound_and_waker(queue_bound: usize, wake_hub: Arc<WakeHub>) -> Self {
         Self {
-            map: Arc::new(RefCell::new(im::HashMap::new())),
+            map: Arc::new(DashMap::new()),
+            queue_bound: queue_bound.max(1),
+            wake_hub,
         }
     }
 
     /// Look up a table by CallKey.
-    pub fn lookup(&self, key: &CallKey<C>) -> Option<Arc<RefCell<Table<C>>>> {
-        self.map.borrow().get(key).cloned()
+    pub fn lookup(&self, key: &CallKey<C>) -> Option<Arc<Table<C>>> {
+        self.map.get(key).map(|entry| entry.value().clone())
     }
 
     /// Get or create a table for a CallKey.
-    pub fn get_or_create(&mut self, key: CallKey<C>) -> Arc<RefCell<Table<C>>> {
-        if let Some(table) = self.map.borrow().get(&key) {
-            return table.clone();
+    pub fn get_or_create(&self, key: CallKey<C>) -> Arc<Table<C>> {
+        if let Some(table) = self.map.get(&key) {
+            return table.value().clone();
         }
-
-        let mut map = self.map.borrow_mut();
-        if let Some(table) = map.get(&key) {
-            return table.clone();
-        }
-
-        let table = Arc::new(RefCell::new(Table::new()));
-        *map = map.update(key, table.clone());
-        table
+        let table = Arc::new(Table::with_waker(self.waker()));
+        let entry = self.map.entry(key).or_insert(table.clone());
+        entry.value().clone()
     }
 
     /// Check if a table exists for a CallKey.
     pub fn contains(&self, key: &CallKey<C>) -> bool {
-        self.map.borrow().contains_key(key)
+        self.map.contains_key(key)
     }
 
     /// Get the number of tables.
     pub fn len(&self) -> usize {
-        self.map.borrow().len()
+        self.map.len()
     }
 
     /// Check if empty.
     pub fn is_empty(&self) -> bool {
-        self.map.borrow().is_empty()
+        self.map.is_empty()
+    }
+
+    pub fn queue_bound(&self) -> usize {
+        self.queue_bound
+    }
+
+    pub fn waker(&self) -> QueueWaker {
+        self.wake_hub.waker()
     }
 }
 
@@ -1602,20 +2034,20 @@ impl<C: ConstraintOps> Default for Tables<C> {
     }
 }
 
-/// FixWork: table handle that streams answers and advances the producer.
+/// FixWork: table handle that streams answers from a producer task.
 ///
-/// The producer runs in iterations. Each iteration evaluates the body with
-/// replay-only calls for the current CallKey. When an iteration exhausts:
-/// - if new answers were found, start a new iteration
-/// - otherwise mark the table done
+/// The producer runs in iterations in a separate task. Each iteration
+/// evaluates the body with replay-only calls for the current CallKey.
 #[derive(Clone, Debug)]
 pub struct FixWork<C: ConstraintOps> {
     /// The CallKey for this tabled call.
     pub key: CallKey<C>,
     /// Reference to the table.
-    pub table: Arc<RefCell<Table<C>>>,
-    /// Current answer index for this handle.
-    pub answer_index: usize,
+    pub table: Arc<Table<C>>,
+    /// Consumer id for this handle.
+    pub consumer_id: ConsumerId,
+    /// Receiver for this handle.
+    pub receiver: Arc<Mutex<AnswerReceiver<C>>>,
     /// Tables for nested calls.
     pub tables: Tables<C>,
 }
@@ -1624,108 +2056,79 @@ impl<C: ConstraintOps> FixWork<C> {
     /// Create a new FixWork handle.
     pub fn new(
         key: CallKey<C>,
-        table: Arc<RefCell<Table<C>>>,
-        answer_index: usize,
+        table: Arc<Table<C>>,
+        start_index: usize,
         tables: Tables<C>,
     ) -> Self {
+        let (consumer_id, receiver) = table.register_consumer(tables.queue_bound(), start_index);
         Self {
             key,
             table,
-            answer_index,
+            consumer_id,
+            receiver: Arc::new(Mutex::new(receiver)),
             tables,
         }
     }
 
     /// Step this FixWork handle.
-    pub fn step(&mut self, terms: &mut TermStore) -> WorkStep<C> {
-        {
-            let table = self.table.borrow();
-            if self.answer_index < table.answers.len() {
-                let nf = table.answers[self.answer_index].clone();
-                drop(table);
-                self.answer_index += 1;
+    pub fn step(&mut self, terms: &TermStore) -> WorkStep<C> {
+        let _ = terms;
+        let receiver = self.receiver.lock();
+        match receiver.try_recv() {
+            RecvResult::Item(nf) => {
                 return WorkStep::Emit(nf, boxed_work(Work::Fix(self.clone())));
             }
-            if table.is_done() {
-                return WorkStep::Done;
+            RecvResult::Closed => return WorkStep::Done,
+            RecvResult::Empty => {}
+        }
+        drop(receiver);
+
+        let _ = self.table.fill_consumer(self.consumer_id);
+
+        let receiver = self.receiver.lock();
+        match receiver.try_recv() {
+            RecvResult::Item(nf) => {
+                return WorkStep::Emit(nf, boxed_work(Work::Fix(self.clone())));
             }
-            if table.stepping {
-                return WorkStep::More(boxed_work(Work::Fix(self.clone())));
-            }
+            RecvResult::Closed => return WorkStep::Done,
+            RecvResult::Empty => {}
         }
 
-        let (mut producer, spec) = {
-            let mut table = self.table.borrow_mut();
-            table.stepping = true;
-            (table.producer.take(), table.spec.clone())
-        };
-
-        if producer.is_none() {
-            let Some(spec) = spec.clone() else {
-                let mut table = self.table.borrow_mut();
-                table.finish_producer();
-                table.stepping = false;
-                return WorkStep::Done;
-            };
-            let mut producer_pipe = PipeWork::from_rel_with_boundaries(
-                spec.body.as_ref().clone(),
-                spec.left.clone(),
-                spec.right.clone(),
-                spec.env.clone(),
-                self.tables.clone(),
-            );
-            producer_pipe.call_mode = CallMode::ReplayOnly(Box::new(self.key.clone()));
-            producer = Some(Node::Work(boxed_work(Work::Pipe(producer_pipe))));
-        }
-
-        let current = producer.unwrap_or(Node::Fail);
-        match step_node(current, terms) {
-            NodeStep::Emit(nf, rest) => {
-                let mut table = self.table.borrow_mut();
-                let added = table.add_answer(nf.clone());
-                table.producer = Some(rest);
-                table.stepping = false;
-                let new_len = table.answers.len();
-                drop(table);
-                self.answer_index = new_len;
-                if added {
-                    WorkStep::Emit(nf, boxed_work(Work::Fix(self.clone())))
-                } else {
-                    WorkStep::More(boxed_work(Work::Fix(self.clone())))
-                }
-            }
-            NodeStep::Continue(rest) => {
-                let mut table = self.table.borrow_mut();
-                table.producer = Some(rest);
-                table.stepping = false;
+        let done = self.table.is_done() && self.table.consumer_caught_up(self.consumer_id);
+        if done {
+            WorkStep::Done
+        } else {
+            let should_spawn = self.table.try_mark_producer_active();
+            if should_spawn {
+                let producer = FixProducerWork::new(self.table.clone(), self.tables.clone());
+                WorkStep::Split(
+                    boxed_node(Node::Work(boxed_work(Work::FixProducer(producer)))),
+                    boxed_node(Node::Work(boxed_work(Work::Fix(self.clone())))),
+                )
+            } else {
                 WorkStep::More(boxed_work(Work::Fix(self.clone())))
             }
-            NodeStep::Exhausted => {
-                let mut table = self.table.borrow_mut();
-                let has_new = table.answers.len() > table.iteration_start_len;
-                if has_new {
-                    let Some(spec) = table.spec.clone() else {
-                        table.finish_producer();
-                        table.stepping = false;
-                        return WorkStep::Done;
-                    };
-                    table.iteration_start_len = table.answers.len();
-                    let mut producer_pipe = PipeWork::from_rel_with_boundaries(
-                        spec.body.as_ref().clone(),
-                        spec.left.clone(),
-                        spec.right.clone(),
-                        spec.env.clone(),
-                        self.tables.clone(),
-                    );
-                    producer_pipe.call_mode = CallMode::ReplayOnly(Box::new(self.key.clone()));
-                    table.producer = Some(Node::Work(boxed_work(Work::Pipe(producer_pipe))));
-                    table.stepping = false;
-                    WorkStep::More(boxed_work(Work::Fix(self.clone())))
-                } else {
-                    table.finish_producer();
-                    table.stepping = false;
-                    WorkStep::Done
-                }
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct FixProducerWork<C: ConstraintOps> {
+    table: Arc<Table<C>>,
+    tables: Tables<C>,
+}
+
+impl<C: ConstraintOps> FixProducerWork<C> {
+    pub fn new(table: Arc<Table<C>>, tables: Tables<C>) -> Self {
+        Self { table, tables }
+    }
+
+    pub fn step(&mut self, terms: &TermStore) -> WorkStep<C> {
+        let step = step_table_producer(&self.table, terms, &self.tables);
+        match step {
+            ProducerStep::Done => WorkStep::Done,
+            ProducerStep::Blocked | ProducerStep::Progress => {
+                WorkStep::More(boxed_work(Work::FixProducer(self.clone())))
             }
         }
     }
@@ -1734,13 +2137,15 @@ impl<C: ConstraintOps> FixWork<C> {
 #[cfg(test)]
 mod tests {
     use super::{
-        boxed_node, boxed_work, BindWork, CallKey, CallMode, Env, FixWork, MeetWork, PipeWork,
-        ProducerSpec, ProducerState, Table, Tables, Work, WorkStep,
+        boxed_node, boxed_work, step_bind_producer, step_table_producer, BindProducerState,
+        BindWork, CallKey, CallMode, Env, FixWork, MeetWork, PipeWork, ProducerSpec, ProducerState,
+        ProducerStep, Table, Tables, Work, WorkStep,
     };
     use crate::drop_fresh::DropFresh;
     use crate::factors::Factors;
     use crate::nf::NF;
     use crate::node::Node;
+    use crate::queue::{AnswerQueue, RecvResult};
     use crate::rel::Rel;
     use crate::term::TermStore;
     use crate::test_utils::{make_ground_nf, setup};
@@ -1795,21 +2200,13 @@ mod tests {
         match step {
             WorkStep::More(work) => match *work {
                 Work::Bind(bind) => {
-                    let Some(fix) = find_fixwork_in_node(&bind.gen) else {
+                    let state = bind.producer_state();
+                    let guard = state.lock();
+                    let Some(fix) = find_fixwork_in_node(&guard.gen) else {
                         panic!("Expected FixWork in bind generator");
                     };
                     fix.key
                 }
-                _ => panic!("Expected Work::Bind(..)"),
-            },
-            _ => panic!("Expected WorkStep::More(..)"),
-        }
-    }
-
-    fn extract_gen_from_step(step: WorkStep<()>) -> Node<()> {
-        match step {
-            WorkStep::More(work) => match *work {
-                Work::Bind(bind) => *bind.gen,
                 _ => panic!("Expected Work::Bind(..)"),
             },
             _ => panic!("Expected WorkStep::More(..)"),
@@ -1845,6 +2242,79 @@ mod tests {
             WorkStep::Split(left, right) => (*left, *right),
             _ => panic!("Expected WorkStep::Split"),
         }
+    }
+
+    // ========================================================================
+    // BIND PRODUCER / CONSUMER TESTS
+    // ========================================================================
+
+    #[test]
+    fn bindwork_consumer_does_not_advance_generator() {
+        let terms = TermStore::new();
+        let gen: Node<()> = Node::Or(Box::new(Node::Fail), Box::new(Node::Fail));
+        let pipe = PipeWork::new();
+        let mut bind = BindWork::new(gen, pipe, false);
+
+        let _ = bind.step(&terms);
+        let state = bind.producer.lock();
+        assert!(
+            matches!(state.gen, Node::Or(_, _)),
+            "consumer must not advance generator"
+        );
+    }
+
+    #[test]
+    fn bind_producer_blocks_when_queue_full() {
+        let (symbols, terms) = setup();
+        let nf_a = make_ground_nf("A", &symbols, &terms);
+        let nf_b = make_ground_nf("B", &symbols, &terms);
+        let gen = Node::Emit(
+            nf_a.clone(),
+            Box::new(Node::Emit(nf_b.clone(), Box::new(Node::Fail))),
+        );
+
+        let (tx, _rx) = AnswerQueue::bounded(1);
+        let state = BindProducerState::new(gen, tx);
+
+        let step1 = step_bind_producer(&state, &terms);
+        assert!(matches!(step1, ProducerStep::Progress));
+
+        let step2 = step_bind_producer(&state, &terms);
+        assert!(matches!(step2, ProducerStep::Blocked));
+    }
+
+    #[test]
+    fn bind_producer_closes_queue_on_exhaustion() {
+        let terms = TermStore::new();
+        let gen: Node<()> = Node::Fail;
+        let (tx, rx) = AnswerQueue::bounded(1);
+        let state = BindProducerState::new(gen, tx);
+
+        let step = step_bind_producer(&state, &terms);
+        assert!(matches!(step, ProducerStep::Done));
+
+        match rx.try_recv() {
+            RecvResult::Closed => {}
+            other => panic!("expected closed receiver, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn bind_consumer_emits_from_queue() {
+        let (symbols, terms) = setup();
+        let nf = make_ground_nf("A", &symbols, &terms);
+        let pipe = PipeWork::new();
+        let mut bind = BindWork::new(Node::Fail, pipe, false);
+
+        {
+            let state = bind.producer.lock();
+            let sender = state.sender.as_ref().expect("expected sender");
+            let _ = sender.try_send(nf);
+        }
+
+        let step = bind.step(&terms);
+        let (left, _) = unwrap_split(step);
+        assert!(is_work_pipe(&left));
     }
 
     // ========================================================================
@@ -1946,52 +2416,52 @@ mod tests {
 
     #[test]
     fn pipework_step_empty_returns_done() {
-        let mut terms = TermStore::new();
+        let terms = TermStore::new();
         let mut pipe: PipeWork<()> = PipeWork::new();
-        let step = pipe.step(&mut terms);
+        let step = pipe.step(&terms);
         assert!(matches!(step, WorkStep::Emit(_, _)));
     }
 
     #[test]
     fn pipework_step_boundaries_only_emits_compose() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let left = make_ground_nf("X", &symbols, &terms);
         let right = make_ground_nf("X", &symbols, &terms);
 
         let mut pipe: PipeWork<()> =
             PipeWork::with_boundaries(Some(left), Factors::new(), Some(right));
 
-        let step = pipe.step(&mut terms);
+        let step = pipe.step(&terms);
         // Should emit the composed result
         assert!(matches!(step, WorkStep::Emit(_, _)));
     }
 
     #[test]
     fn pipework_step_left_boundary_only_emits() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let nf = make_ground_nf("X", &symbols, &terms);
 
         let mut pipe: PipeWork<()> = PipeWork::with_boundaries(Some(nf), Factors::new(), None);
 
-        let step = pipe.step(&mut terms);
+        let step = pipe.step(&terms);
         // Should emit the left boundary as result
         assert!(matches!(step, WorkStep::Emit(_, _)));
     }
 
     #[test]
     fn pipework_step_right_boundary_only_emits() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let nf = make_ground_nf("X", &symbols, &terms);
 
         let mut pipe: PipeWork<()> = PipeWork::with_boundaries(None, Factors::new(), Some(nf));
 
-        let step = pipe.step(&mut terms);
+        let step = pipe.step(&terms);
         assert!(matches!(step, WorkStep::Emit(_, _)));
     }
 
     #[test]
     fn pipework_fuses_adjacent_atoms_anywhere() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let nf = make_ground_nf("A", &symbols, &terms);
         let rels = vec![
             atom_rel(nf.clone()),
@@ -2001,7 +2471,7 @@ mod tests {
         let mid = factors_from_rels(rels);
         let mut pipe: PipeWork<()> = PipeWork::with_mid(mid);
 
-        let step = pipe.step(&mut terms);
+        let step = pipe.step(&terms);
         match step {
             WorkStep::Emit(emitted, _) => assert_eq!(emitted, nf),
             _ => panic!("Expected adjacent atoms to fuse and emit in one step"),
@@ -2010,7 +2480,7 @@ mod tests {
 
     #[test]
     fn pipework_fuses_middle_atoms_before_advancing_ends() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let nf = make_ground_nf("A", &symbols, &terms);
         let atom = atom_rel(nf);
         let or = Arc::new(Rel::Or(atom.clone(), atom.clone()));
@@ -2019,7 +2489,7 @@ mod tests {
         let mid = factors_from_rels(rels);
         let mut pipe: PipeWork<()> = PipeWork::with_mid(mid);
 
-        let step = pipe.step(&mut terms);
+        let step = pipe.step(&terms);
         match step {
             WorkStep::More(work) => match *work {
                 Work::Pipe(updated) => {
@@ -2063,13 +2533,13 @@ mod tests {
 
     #[test]
     fn pipework_step_single_atom_absorbs_to_left() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let nf = make_ground_nf("X", &symbols, &terms);
         let rels = vec![atom_rel(nf.clone())];
         let mid = factors_from_rels(rels);
 
         let mut pipe: PipeWork<()> = PipeWork::with_mid(mid);
-        let step = pipe.step(&mut terms);
+        let step = pipe.step(&terms);
 
         match step {
             WorkStep::More(work) => match *work {
@@ -2080,7 +2550,7 @@ mod tests {
                     );
                     assert!(next_pipe.mid.is_empty(), "Mid should be empty after absorb");
 
-                    let step2 = next_pipe.step(&mut terms);
+                    let step2 = next_pipe.step(&terms);
                     assert!(matches!(step2, WorkStep::Emit(_, _)));
                 }
                 _ => panic!("Expected Work::Pipe"),
@@ -2092,14 +2562,14 @@ mod tests {
 
     #[test]
     fn pipework_step_atom_composes_with_left_boundary() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let left = make_ground_nf("X", &symbols, &terms);
         let atom_nf = make_ground_nf("X", &symbols, &terms);
         let rels = vec![atom_rel(atom_nf)];
         let mid = factors_from_rels(rels);
 
         let mut pipe: PipeWork<()> = PipeWork::with_boundaries(Some(left), mid, None);
-        let step = pipe.step(&mut terms);
+        let step = pipe.step(&terms);
 
         // Should compose and continue or emit
         // Depends on implementation - More or Emit
@@ -2112,14 +2582,14 @@ mod tests {
 
     #[test]
     fn pipework_step_or_in_mid_splits() {
-        let (_, mut terms) = setup();
+        let (_, terms) = setup();
         let a: Arc<Rel<()>> = Arc::new(Rel::Zero);
         let b: Arc<Rel<()>> = Arc::new(Rel::Zero);
         let or_rel = Arc::new(Rel::Or(a, b));
         let mid = factors_from_rels(vec![or_rel]);
 
         let mut pipe: PipeWork<()> = PipeWork::with_mid(mid);
-        let step = pipe.step(&mut terms);
+        let step = pipe.step(&terms);
 
         // Should split into two branches
         assert!(matches!(step, WorkStep::Split(_, _)));
@@ -2127,7 +2597,7 @@ mod tests {
 
     #[test]
     fn pipework_step_or_with_boundaries_splits() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let left = make_ground_nf("X", &symbols, &terms);
         let a: Arc<Rel<()>> = Arc::new(Rel::Zero);
         let b: Arc<Rel<()>> = Arc::new(Rel::Zero);
@@ -2135,7 +2605,7 @@ mod tests {
         let mid = factors_from_rels(vec![or_rel]);
 
         let mut pipe: PipeWork<()> = PipeWork::with_boundaries(Some(left), mid, None);
-        let step = pipe.step(&mut terms);
+        let step = pipe.step(&terms);
 
         // Should split, preserving boundaries in both branches
         assert!(matches!(step, WorkStep::Split(_, _)));
@@ -2149,7 +2619,7 @@ mod tests {
     /// This is the fundamental contract of split_or.
     #[test]
     fn split_or_returns_work_pipe_not_fail() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let nf_a = make_ground_nf("A", &symbols, &terms);
         let nf_b = make_ground_nf("B", &symbols, &terms);
         let a: Arc<Rel<()>> = Arc::new(Rel::Atom(Arc::new(nf_a)));
@@ -2158,7 +2628,7 @@ mod tests {
         let mid = factors_from_rels(vec![or_rel]);
 
         let mut pipe: PipeWork<()> = PipeWork::with_mid(mid);
-        let step = pipe.step(&mut terms);
+        let step = pipe.step(&terms);
 
         let (left, right) = unwrap_split(step);
         assert!(
@@ -2176,7 +2646,7 @@ mod tests {
     /// split_or left branch must contain the 'a' factor.
     #[test]
     fn split_or_left_branch_has_a_factor() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let nf_a = make_ground_nf("A", &symbols, &terms);
         let nf_b = make_ground_nf("B", &symbols, &terms);
         let a: Arc<Rel<()>> = Arc::new(Rel::Atom(Arc::new(nf_a.clone())));
@@ -2185,7 +2655,7 @@ mod tests {
         let mid = factors_from_rels(vec![or_rel]);
 
         let mut pipe: PipeWork<()> = PipeWork::with_mid(mid);
-        let step = pipe.step(&mut terms);
+        let step = pipe.step(&terms);
 
         let (left_node, _right_node) = unwrap_split(step);
         let left_pipe = unwrap_work_pipe(left_node);
@@ -2209,7 +2679,7 @@ mod tests {
     /// split_or right branch must contain the 'b' factor.
     #[test]
     fn split_or_right_branch_has_b_factor() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let nf_a = make_ground_nf("A", &symbols, &terms);
         let nf_b = make_ground_nf("B", &symbols, &terms);
         let a: Arc<Rel<()>> = Arc::new(Rel::Atom(Arc::new(nf_a)));
@@ -2218,7 +2688,7 @@ mod tests {
         let mid = factors_from_rels(vec![or_rel]);
 
         let mut pipe: PipeWork<()> = PipeWork::with_mid(mid);
-        let step = pipe.step(&mut terms);
+        let step = pipe.step(&terms);
 
         let (_left_node, right_node) = unwrap_split(step);
         let right_pipe = unwrap_work_pipe(right_node);
@@ -2242,7 +2712,7 @@ mod tests {
     /// split_or must preserve left boundary in both branches.
     #[test]
     fn split_or_preserves_left_boundary() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let boundary = make_ground_nf("BOUNDARY", &symbols, &terms);
         let nf_a = make_ground_nf("A", &symbols, &terms);
         let nf_b = make_ground_nf("B", &symbols, &terms);
@@ -2252,7 +2722,7 @@ mod tests {
         let mid = factors_from_rels(vec![or_rel]);
 
         let mut pipe: PipeWork<()> = PipeWork::with_boundaries(Some(boundary.clone()), mid, None);
-        let step = pipe.step(&mut terms);
+        let step = pipe.step(&terms);
 
         let (left_node, right_node) = unwrap_split(step);
         let left_pipe = unwrap_work_pipe(left_node);
@@ -2278,7 +2748,7 @@ mod tests {
     /// split_or must preserve right boundary in both branches.
     #[test]
     fn split_or_preserves_right_boundary() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let boundary = make_ground_nf("BOUNDARY", &symbols, &terms);
         let nf_a = make_ground_nf("A", &symbols, &terms);
         let nf_b = make_ground_nf("B", &symbols, &terms);
@@ -2288,7 +2758,7 @@ mod tests {
         let mid = factors_from_rels(vec![or_rel]);
 
         let mut pipe: PipeWork<()> = PipeWork::with_boundaries(None, mid, Some(boundary.clone()));
-        let step = pipe.step(&mut terms);
+        let step = pipe.step(&terms);
 
         let (left_node, right_node) = unwrap_split(step);
         let left_pipe = unwrap_work_pipe(left_node);
@@ -2313,7 +2783,7 @@ mod tests {
 
     #[test]
     fn pipework_prefers_non_call_over_call_on_opposite_end() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let left_nf = make_ground_nf("L", &symbols, &terms);
         let right_nf = make_ground_nf("R", &symbols, &terms);
         let left_rel: Arc<Rel<()>> = Arc::new(Rel::Atom(Arc::new(left_nf)));
@@ -2329,7 +2799,7 @@ mod tests {
         pipe.env = Env::new().bind(0, body);
         pipe.flip = true;
 
-        let step = pipe.step(&mut terms);
+        let step = pipe.step(&terms);
 
         let bind = unwrap_work_bind(step);
         assert!(
@@ -2341,7 +2811,7 @@ mod tests {
     /// split_or must preserve both boundaries in both branches.
     #[test]
     fn split_or_preserves_both_boundaries() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let left_boundary = make_ground_nf("LEFT", &symbols, &terms);
         let right_boundary = make_ground_nf("RIGHT", &symbols, &terms);
         let nf_a = make_ground_nf("A", &symbols, &terms);
@@ -2356,7 +2826,7 @@ mod tests {
             mid,
             Some(right_boundary.clone()),
         );
-        let step = pipe.step(&mut terms);
+        let step = pipe.step(&terms);
 
         let (left_node, right_node) = unwrap_split(step);
         let left_pipe = unwrap_work_pipe(left_node);
@@ -2386,7 +2856,7 @@ mod tests {
     /// BEFORE splitting. So we use non-atom factors to test mid preservation.
     #[test]
     fn split_or_preserves_remaining_mid() {
-        let (_, mut terms) = setup();
+        let (_, terms) = setup();
         // Use Or nodes which won't be absorbed during normalization
         let a: Arc<Rel<()>> = Arc::new(Rel::Zero);
         let b: Arc<Rel<()>> = Arc::new(Rel::Zero);
@@ -2396,7 +2866,7 @@ mod tests {
         let mid = factors_from_rels(vec![or1, or2]);
 
         let mut pipe: PipeWork<()> = PipeWork::with_mid(mid);
-        let step = pipe.step(&mut terms);
+        let step = pipe.step(&terms);
 
         let (left_node, right_node) = unwrap_split(step);
         let left_pipe = unwrap_work_pipe(left_node);
@@ -2409,7 +2879,7 @@ mod tests {
     /// split_or must preserve env in both branches.
     #[test]
     fn split_or_preserves_env() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let nf_a = make_ground_nf("A", &symbols, &terms);
         let nf_b = make_ground_nf("B", &symbols, &terms);
         let nf_body = make_ground_nf("BODY", &symbols, &terms);
@@ -2429,7 +2899,7 @@ mod tests {
             tables: Tables::new(),
             call_mode: CallMode::Normal,
         };
-        let step = pipe.step(&mut terms);
+        let step = pipe.step(&terms);
 
         let (left_node, right_node) = unwrap_split(step);
         let left_pipe = unwrap_work_pipe(left_node);
@@ -2448,14 +2918,14 @@ mod tests {
     /// The Fail optimization happens during evaluation, not during split.
     #[test]
     fn split_or_zero_branches_returns_work_pipe() {
-        let (_, mut terms) = setup();
+        let (_, terms) = setup();
         let a: Arc<Rel<()>> = Arc::new(Rel::Zero);
         let b: Arc<Rel<()>> = Arc::new(Rel::Zero);
         let or_rel = Arc::new(Rel::Or(a, b));
         let mid = factors_from_rels(vec![or_rel]);
 
         let mut pipe: PipeWork<()> = PipeWork::with_mid(mid);
-        let step = pipe.step(&mut terms);
+        let step = pipe.step(&terms);
 
         // Even with Zero branches, split_or should return Work::Pipe
         // The Zero will be handled when each branch steps
@@ -2478,12 +2948,12 @@ mod tests {
 
     #[test]
     fn pipework_step_zero_in_mid_returns_done() {
-        let (_, mut terms) = setup();
+        let (_, terms) = setup();
         let zero_rel = Arc::new(Rel::Zero);
         let mid = factors_from_rels(vec![zero_rel]);
 
         let mut pipe: PipeWork<()> = PipeWork::with_mid(mid);
-        let step = pipe.step(&mut terms);
+        let step = pipe.step(&terms);
 
         // Zero annihilates the pipe
         assert!(matches!(step, WorkStep::Done));
@@ -2491,14 +2961,14 @@ mod tests {
 
     #[test]
     fn pipework_step_zero_with_boundaries_returns_done() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let left = make_ground_nf("X", &symbols, &terms);
         let right = make_ground_nf("X", &symbols, &terms);
         let zero_rel = Arc::new(Rel::Zero);
         let mid = factors_from_rels(vec![zero_rel]);
 
         let mut pipe: PipeWork<()> = PipeWork::with_boundaries(Some(left), mid, Some(right));
-        let step = pipe.step(&mut terms);
+        let step = pipe.step(&terms);
 
         assert!(matches!(step, WorkStep::Done));
     }
@@ -2509,7 +2979,7 @@ mod tests {
 
     #[test]
     fn pipework_step_incompatible_compose_returns_done() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         // A -> B cannot compose with C -> D
         let a_to_b = {
             let a = symbols.intern("A");
@@ -2536,7 +3006,7 @@ mod tests {
 
         let mid = factors_from_rels(vec![atom_rel(c_to_d)]);
         let mut pipe: PipeWork<()> = PipeWork::with_boundaries(Some(a_to_b), mid, None);
-        let step = pipe.step(&mut terms);
+        let step = pipe.step(&terms);
 
         // Composition should fail (B != C), returning Done
         assert!(matches!(step, WorkStep::Done));
@@ -2548,11 +3018,11 @@ mod tests {
 
     #[test]
     fn work_atom_step_emits_then_done() {
-        let (_, mut terms) = setup();
+        let (_, terms) = setup();
         let nf = make_identity_nf();
         let mut work: Work<()> = Work::Atom(nf.clone());
 
-        let step = work.step(&mut terms);
+        let step = work.step(&terms);
 
         match step {
             WorkStep::Emit(emitted, rest) => {
@@ -2570,7 +3040,7 @@ mod tests {
 
     #[test]
     fn pipework_multiple_atoms_compose() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         // X -> X ; X -> X should compose to X -> X
         let nf1 = make_ground_nf("X", &symbols, &terms);
         let nf2 = make_ground_nf("X", &symbols, &terms);
@@ -2582,7 +3052,7 @@ mod tests {
         // Step until we get an answer or Done
         let mut steps = 0;
         loop {
-            let step = pipe.step(&mut terms);
+            let step = pipe.step(&terms);
             match step {
                 WorkStep::Emit(_, _) => break,
                 WorkStep::Done => break,
@@ -2609,7 +3079,7 @@ mod tests {
     /// This test demonstrates the required behavior for outside-in evaluation.
     #[test]
     fn pipework_step_back_atom_absorbs_to_right() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         // Create: mid = [Or(...), Atom(X->X)]
         // The Atom at the BACK should be absorbed into right boundary
         // BEFORE the Or at front is processed.
@@ -2623,7 +3093,7 @@ mod tests {
         let mut pipe: PipeWork<()> = PipeWork::with_mid(mid);
 
         // Normalize step should absorb back atom into right
-        let step = pipe.step(&mut terms);
+        let step = pipe.step(&terms);
 
         // After one step, the back Atom should be absorbed into right boundary.
         match step {
@@ -2655,7 +3125,7 @@ mod tests {
     /// Test that atoms at both ends are absorbed before processing non-atoms.
     #[test]
     fn pipework_step_absorbs_both_ends_before_advancing() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         // mid = [Atom(A->A), Or(...), Atom(B->B)]
         // Both atoms should be absorbed before Or is processed
         let nf_a = make_ground_nf("A", &symbols, &terms);
@@ -2672,7 +3142,7 @@ mod tests {
         let mut steps = 0;
         let max_steps = 10;
         loop {
-            let step = pipe.step(&mut terms);
+            let step = pipe.step(&terms);
             match step {
                 WorkStep::More(work) => match *work {
                     Work::Pipe(p) => {
@@ -2711,7 +3181,7 @@ mod tests {
     /// Test right boundary composition - critical for constraint propagation.
     #[test]
     fn pipework_step_right_boundary_composes() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         // Put two atoms at the back, they should compose into right boundary
         // mid = [Or(...), Atom(X->Y), Atom(Y->Z)]
         // After normalization: right = X->Z (composed)
@@ -2744,7 +3214,7 @@ mod tests {
         // Step until Split
         let mut steps = 0;
         loop {
-            let step = pipe.step(&mut terms);
+            let step = pipe.step(&terms);
             match step {
                 WorkStep::More(work) => match *work {
                     Work::Pipe(p) => {
@@ -2833,9 +3303,9 @@ mod tests {
 
     #[test]
     fn meetwork_step_both_fail_returns_done() {
-        let (_, mut terms) = setup();
+        let (_, terms) = setup();
         let mut meet: MeetWork<()> = MeetWork::new(Node::Fail, Node::Fail);
-        let step = meet.step(&mut terms);
+        let step = meet.step(&terms);
         assert!(
             matches!(step, WorkStep::Done),
             "Both sides Fail should return Done immediately"
@@ -2844,7 +3314,7 @@ mod tests {
 
     #[test]
     fn meetwork_step_left_fail_returns_done() {
-        let (_, mut terms) = setup();
+        let (_, terms) = setup();
         let nf = make_identity_nf();
         let right = Node::Emit(nf, Box::new(Node::Fail));
         let mut meet: MeetWork<()> = MeetWork::new(Node::Fail, right);
@@ -2853,7 +3323,7 @@ mod tests {
         // (may take multiple steps as it drains right)
         let mut done = false;
         for _ in 0..10 {
-            let step = meet.step(&mut terms);
+            let step = meet.step(&terms);
             match step {
                 WorkStep::Done => {
                     done = true;
@@ -2872,7 +3342,7 @@ mod tests {
 
     #[test]
     fn meetwork_step_right_fail_returns_done() {
-        let (_, mut terms) = setup();
+        let (_, terms) = setup();
         let nf = make_identity_nf();
         let left = Node::Emit(nf, Box::new(Node::Fail));
         let mut meet: MeetWork<()> = MeetWork::new(left, Node::Fail);
@@ -2880,7 +3350,7 @@ mod tests {
         // With right Fail, no meets possible - should eventually return Done
         let mut done = false;
         for _ in 0..10 {
-            let step = meet.step(&mut terms);
+            let step = meet.step(&terms);
             match step {
                 WorkStep::Done => {
                     done = true;
@@ -2899,7 +3369,7 @@ mod tests {
 
     #[test]
     fn meetwork_steps_work_nodes() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let nf = make_ground_nf("A", &symbols, &terms);
         let rel = Arc::new(Rel::Atom(Arc::new(nf.clone())));
         let factors = Factors::from_seq(Arc::from(vec![rel]));
@@ -2910,7 +3380,7 @@ mod tests {
 
         let mut emitted = false;
         for _ in 0..50 {
-            match meet.step(&mut terms) {
+            match meet.step(&terms) {
                 WorkStep::Emit(_, _) => {
                     emitted = true;
                     break;
@@ -2934,7 +3404,7 @@ mod tests {
 
     #[test]
     fn meetwork_step_identical_answers_produces_meet() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         // Both sides emit X -> X, which should meet successfully
         let nf1 = make_ground_nf("X", &symbols, &terms);
         let nf2 = make_ground_nf("X", &symbols, &terms);
@@ -2945,7 +3415,7 @@ mod tests {
         // Step until we get an emit or Done
         let mut emitted = false;
         for _ in 0..20 {
-            let step = meet.step(&mut terms);
+            let step = meet.step(&terms);
             match step {
                 WorkStep::Emit(_, _) => {
                     emitted = true;
@@ -2965,7 +3435,7 @@ mod tests {
 
     #[test]
     fn meetwork_step_identity_with_ground_specializes() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         // Left: x -> x (variable identity)
         // Right: A -> A (ground)
         // Meet should produce A -> A
@@ -2978,7 +3448,7 @@ mod tests {
 
         let mut result: Option<NF<()>> = None;
         for _ in 0..20 {
-            let step = meet.step(&mut terms);
+            let step = meet.step(&terms);
             match step {
                 WorkStep::Emit(nf, _) => {
                     result = Some(nf);
@@ -3009,7 +3479,7 @@ mod tests {
 
     #[test]
     fn meetwork_step_incompatible_ground_no_emit() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         // Left: A -> A
         // Right: B -> B
         // These can't meet (A != B)
@@ -3022,7 +3492,7 @@ mod tests {
 
         let mut emitted = false;
         for _ in 0..20 {
-            let step = meet.step(&mut terms);
+            let step = meet.step(&terms);
             match step {
                 WorkStep::Emit(_, _) => {
                     emitted = true;
@@ -3045,7 +3515,7 @@ mod tests {
 
     #[test]
     fn meetwork_step_arity_mismatch_no_emit() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         // Left: 1-in, 1-out
         // Right: 2-in, 2-out (if we can construct it)
         let single = make_ground_nf("X", &symbols, &terms);
@@ -3069,7 +3539,7 @@ mod tests {
 
         let mut emitted = false;
         for _ in 0..20 {
-            let step = meet.step(&mut terms);
+            let step = meet.step(&terms);
             match step {
                 WorkStep::Emit(_, _) => {
                     emitted = true;
@@ -3093,7 +3563,7 @@ mod tests {
 
     #[test]
     fn meetwork_step_flip_alternates_sides() {
-        let (_, mut terms) = setup();
+        let (_, terms) = setup();
         let nf1 = make_identity_nf();
         let nf2 = make_identity_nf();
         let nf3 = make_identity_nf();
@@ -3112,7 +3582,7 @@ mod tests {
         let mut flip_values = Vec::new();
         for _ in 0..10 {
             flip_values.push(meet.flip);
-            let step = meet.step(&mut terms);
+            let step = meet.step(&terms);
             match step {
                 WorkStep::Done => break,
                 WorkStep::More(work) => {
@@ -3139,7 +3609,7 @@ mod tests {
 
     #[test]
     fn meetwork_step_multiple_meets_all_produced() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         // Left: emit variable identity x -> x twice
         // Right: emit A -> A, B -> B
         // If identity meets with A -> A and B -> B, should produce:
@@ -3159,7 +3629,7 @@ mod tests {
 
         let mut emit_count = 0;
         for _ in 0..50 {
-            let step = meet.step(&mut terms);
+            let step = meet.step(&terms);
             match step {
                 WorkStep::Emit(_, rest) => {
                     emit_count += 1;
@@ -3194,7 +3664,7 @@ mod tests {
 
     #[test]
     fn meetwork_pending_emits_before_pulls() {
-        let (_, mut terms) = setup();
+        let (_, terms) = setup();
         // Pre-populate pending queue to verify emit priority
         let nf1 = make_identity_nf();
         let nf2 = make_identity_nf();
@@ -3204,7 +3674,7 @@ mod tests {
         meet.pending.push_back(nf2);
 
         // First step should emit from pending
-        let step = meet.step(&mut terms);
+        let step = meet.step(&terms);
         assert!(
             matches!(step, WorkStep::Emit(_, _)),
             "Should emit from pending first"
@@ -3213,7 +3683,7 @@ mod tests {
 
     #[test]
     fn meetwork_pending_preserves_order() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         // Pre-populate pending with ordered items
         let nf_a = make_ground_nf("A", &symbols, &terms);
         let nf_b = make_ground_nf("B", &symbols, &terms);
@@ -3227,7 +3697,7 @@ mod tests {
         // Should emit in FIFO order
         let mut emitted = Vec::new();
         for _ in 0..5 {
-            let step = meet.step(&mut terms);
+            let step = meet.step(&terms);
             match step {
                 WorkStep::Emit(nf, rest) => {
                     emitted.push(nf.match_pats[0]);
@@ -3254,13 +3724,13 @@ mod tests {
 
     #[test]
     fn meetwork_drains_pending_before_done() {
-        let (_, mut terms) = setup();
+        let (_, terms) = setup();
         // Both sides exhausted but pending has items
         let nf = make_identity_nf();
         let mut meet: MeetWork<()> = MeetWork::new(Node::Fail, Node::Fail);
         meet.pending.push_back(nf);
 
-        let step = meet.step(&mut terms);
+        let step = meet.step(&terms);
         // Should NOT return Done if pending has items
         assert!(
             !matches!(step, WorkStep::Done),
@@ -3274,7 +3744,7 @@ mod tests {
 
     #[test]
     fn meetwork_left_exhausts_first() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         // Left has 1 variable identity, right has 3 ground answers
         let id = make_var_identity_nf(&terms);
         let nf_a = make_ground_nf("A", &symbols, &terms);
@@ -3294,7 +3764,7 @@ mod tests {
 
         let mut emit_count = 0;
         for _ in 0..30 {
-            let step = meet.step(&mut terms);
+            let step = meet.step(&terms);
             match step {
                 WorkStep::Emit(_, rest) => {
                     emit_count += 1;
@@ -3322,7 +3792,7 @@ mod tests {
 
     #[test]
     fn meetwork_right_exhausts_first() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         // Left has 3 ground answers, right has 1 variable identity
         let nf_a = make_ground_nf("A", &symbols, &terms);
         let nf_b = make_ground_nf("B", &symbols, &terms);
@@ -3342,7 +3812,7 @@ mod tests {
 
         let mut emit_count = 0;
         for _ in 0..30 {
-            let step = meet.step(&mut terms);
+            let step = meet.step(&terms);
             match step {
                 WorkStep::Emit(_, rest) => {
                     emit_count += 1;
@@ -3370,7 +3840,7 @@ mod tests {
 
     #[test]
     fn meetwork_both_exhaust_simultaneously() {
-        let (_, mut terms) = setup();
+        let (_, terms) = setup();
         // Both sides have 2 identical answers
         let id1 = make_identity_nf();
         let id2 = make_identity_nf();
@@ -3385,7 +3855,7 @@ mod tests {
         let mut emit_count = 0;
         let mut done = false;
         for _ in 0..50 {
-            let step = meet.step(&mut terms);
+            let step = meet.step(&terms);
             match step {
                 WorkStep::Emit(_, rest) => {
                     emit_count += 1;
@@ -3422,7 +3892,7 @@ mod tests {
 
     #[test]
     fn meetwork_seen_l_grows_after_left_emit() {
-        let (_, mut terms) = setup();
+        let (_, terms) = setup();
         let nf = make_identity_nf();
         let left = Node::Emit(nf.clone(), Box::new(Node::Fail));
         let mut meet: MeetWork<()> = MeetWork::new(left, Node::Fail);
@@ -3431,7 +3901,7 @@ mod tests {
 
         // Step to pull from left
         loop {
-            let step = meet.step(&mut terms);
+            let step = meet.step(&terms);
             match step {
                 WorkStep::Done => break,
                 WorkStep::More(work) => {
@@ -3455,7 +3925,7 @@ mod tests {
 
     #[test]
     fn meetwork_seen_r_grows_after_right_emit() {
-        let (_, mut terms) = setup();
+        let (_, terms) = setup();
         let nf = make_identity_nf();
         let right = Node::Emit(nf.clone(), Box::new(Node::Fail));
         let mut meet: MeetWork<()> = MeetWork::new(Node::Fail, right);
@@ -3465,7 +3935,7 @@ mod tests {
         // Step to pull from right (may need flip to be true)
         meet.flip = true; // Force pull from right
         loop {
-            let step = meet.step(&mut terms);
+            let step = meet.step(&terms);
             match step {
                 WorkStep::Done => break,
                 WorkStep::More(work) => {
@@ -3490,7 +3960,7 @@ mod tests {
 
     #[test]
     fn meetwork_handles_or_on_left() {
-        let (_, mut terms) = setup();
+        let (_, terms) = setup();
         let nf1 = make_identity_nf();
         let nf2 = make_identity_nf();
         let nf3 = make_identity_nf();
@@ -3507,7 +3977,7 @@ mod tests {
         // Should handle Or by interleaving properly
         let mut emit_count = 0;
         for _ in 0..30 {
-            let step = meet.step(&mut terms);
+            let step = meet.step(&terms);
             match step {
                 WorkStep::Emit(_, rest) => {
                     emit_count += 1;
@@ -3548,10 +4018,10 @@ mod tests {
 
     #[test]
     fn work_meet_step_delegates_to_meetwork() {
-        let (_, mut terms) = setup();
+        let (_, terms) = setup();
         let meet: MeetWork<()> = MeetWork::new(Node::Fail, Node::Fail);
         let mut work: Work<()> = Work::Meet(meet);
-        let step = work.step(&mut terms);
+        let step = work.step(&terms);
         // Should delegate to MeetWork::step
         assert!(matches!(step, WorkStep::Done));
     }
@@ -3562,8 +4032,8 @@ mod tests {
 
     #[test]
     fn meetwork_symmetric_produces_same_results() {
-        let (symbols, mut terms1) = setup();
-        let (_, mut terms2) = setup();
+        let (symbols, terms1) = setup();
+        let (_, terms2) = setup();
 
         let nf_a = make_ground_nf("A", &symbols, &terms1);
         let id = make_identity_nf();
@@ -3583,7 +4053,7 @@ mod tests {
 
         // Run both to completion
         for _ in 0..30 {
-            let step = meet1.step(&mut terms1);
+            let step = meet1.step(&terms1);
             match step {
                 WorkStep::Emit(_, rest) => {
                     count1 += 1;
@@ -3603,7 +4073,7 @@ mod tests {
         }
 
         for _ in 0..30 {
-            let step = meet2.step(&mut terms2);
+            let step = meet2.step(&terms2);
             match step {
                 WorkStep::Emit(_, rest) => {
                     count2 += 1;
@@ -3647,7 +4117,7 @@ mod tests {
 
     #[test]
     fn meetwork_many_answers_terminates() {
-        let (_, mut terms) = setup();
+        let (_, terms) = setup();
         // Create chains of many answers
         let mut left: Node<()> = Node::Fail;
         let mut right: Node<()> = Node::Fail;
@@ -3662,7 +4132,7 @@ mod tests {
         let mut steps = 0;
         let max_steps = 1000;
         loop {
-            let step = meet.step(&mut terms);
+            let step = meet.step(&terms);
             match step {
                 WorkStep::Done => break,
                 WorkStep::Emit(_, rest) => match *rest {
@@ -3886,7 +4356,7 @@ mod tests {
 
     #[test]
     fn callkey_ignores_mid_context_for_same_boundaries() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let nf_a = make_ground_nf("A", &symbols, &terms);
         let nf_b = make_ground_nf("B", &symbols, &terms);
         let body_nf = make_ground_nf("BODY", &symbols, &terms);
@@ -3902,8 +4372,8 @@ mod tests {
         let mut pipe_b = PipeWork::with_mid(mid_b);
         pipe_b.env = env.clone();
 
-        let step_a = pipe_a.advance_front(&mut terms);
-        let step_b = pipe_b.advance_front(&mut terms);
+        let step_a = pipe_a.advance_front(&terms);
+        let step_b = pipe_b.advance_front(&terms);
 
         let key_a = extract_key_from_step(step_a);
         let key_b = extract_key_from_step(step_b);
@@ -3956,24 +4426,26 @@ mod tests {
     #[test]
     fn table_new_is_empty() {
         let table: Table<()> = Table::new();
-        assert!(table.answers.is_empty());
-        assert_eq!(table.consumer_index, 0);
-        assert_eq!(table.state, ProducerState::NotStarted);
+        let answers = table.lock_answers_for_test();
+        assert!(answers.answers.is_empty());
+        assert!(answers.consumers.is_empty());
+        drop(answers);
+        assert_eq!(table.producer_state(), ProducerState::NotStarted);
     }
 
     #[test]
     fn table_add_answer() {
-        let mut table: Table<()> = Table::new();
+        let table: Table<()> = Table::new();
         let nf = make_identity_nf();
         table.add_answer(nf);
 
-        assert_eq!(table.answers.len(), 1);
+        assert_eq!(table.answers_len(), 1);
     }
 
     #[test]
     fn table_add_multiple_answers() {
         let (symbols, terms) = setup();
-        let mut table: Table<()> = Table::new();
+        let table: Table<()> = Table::new();
         let nf1 = make_ground_nf("A", &symbols, &terms);
         let nf2 = make_ground_nf("B", &symbols, &terms);
         let nf3 = make_ground_nf("C", &symbols, &terms);
@@ -3982,117 +4454,121 @@ mod tests {
         table.add_answer(nf2);
         table.add_answer(nf3);
 
-        assert_eq!(table.answers.len(), 3);
+        assert_eq!(table.answers_len(), 3);
     }
 
     #[test]
     fn table_start_producer() {
         use std::sync::Arc;
 
-        let mut table: Table<()> = Table::new();
-        assert_eq!(table.state, ProducerState::NotStarted);
+        let table: Table<()> = Table::new();
+        assert_eq!(table.producer_state(), ProducerState::NotStarted);
 
         let spec = ProducerSpec {
+            key: CallKey::new(0, 0, None, None),
             body: Arc::new(Rel::Zero),
             left: None,
             right: None,
             env: Env::new(),
         };
         let producer_node = Node::Work(boxed_work(Work::Done));
-        table.start_producer(producer_node, spec);
-        assert_eq!(table.state, ProducerState::Running);
+        table.start_producer(producer_node, spec, 0);
+        assert_eq!(table.producer_state(), ProducerState::Running);
         assert!(table.is_running());
         assert!(!table.is_done());
-        assert!(table.producer.is_some());
+        assert!(table.lock_producer_for_test().producer.is_some());
     }
 
     #[test]
     fn table_finish_producer() {
         use std::sync::Arc;
 
-        let mut table: Table<()> = Table::new();
+        let table: Table<()> = Table::new();
         let spec = ProducerSpec {
+            key: CallKey::new(0, 0, None, None),
             body: Arc::new(Rel::Zero),
             left: None,
             right: None,
             env: Env::new(),
         };
         let producer_node = Node::Work(boxed_work(Work::Done));
-        table.start_producer(producer_node, spec);
+        table.start_producer(producer_node, spec, 0);
         table.finish_producer();
 
-        assert_eq!(table.state, ProducerState::Done);
+        assert_eq!(table.producer_state(), ProducerState::Done);
         assert!(table.is_done());
         assert!(!table.is_running());
-        assert!(table.producer.is_none());
+        assert!(table.lock_producer_for_test().producer.is_none());
     }
 
     #[test]
     fn table_next_answer_empty() {
-        let mut table: Table<()> = Table::new();
-        assert!(table.next_answer().is_none());
+        let table: Table<()> = Table::new();
+        let (_id, rx) = table.register_consumer(2, 0);
+        assert!(matches!(rx.try_recv(), RecvResult::Empty));
     }
 
     #[test]
     fn table_next_answer_single() {
-        let mut table: Table<()> = Table::new();
+        let table: Table<()> = Table::new();
         let nf = make_identity_nf();
         table.add_answer(nf);
-
-        assert!(table.next_answer().is_some());
-        assert!(table.next_answer().is_none());
+        let (_id, rx) = table.register_consumer(2, 0);
+        assert!(matches!(rx.try_recv(), RecvResult::Item(_)));
+        assert!(matches!(rx.try_recv(), RecvResult::Empty));
     }
 
     #[test]
     fn table_next_answer_multiple() {
         let (symbols, terms) = setup();
-        let mut table: Table<()> = Table::new();
+        let table: Table<()> = Table::new();
         table.add_answer(make_ground_nf("A", &symbols, &terms));
         table.add_answer(make_ground_nf("B", &symbols, &terms));
         table.add_answer(make_ground_nf("C", &symbols, &terms));
+        let (_id, rx) = table.register_consumer(4, 0);
 
-        assert!(table.next_answer().is_some());
-        assert!(table.next_answer().is_some());
-        assert!(table.next_answer().is_some());
-        assert!(table.next_answer().is_none());
+        assert!(matches!(rx.try_recv(), RecvResult::Item(_)));
+        assert!(matches!(rx.try_recv(), RecvResult::Item(_)));
+        assert!(matches!(rx.try_recv(), RecvResult::Item(_)));
+        assert!(matches!(rx.try_recv(), RecvResult::Empty));
     }
 
     #[test]
     fn table_next_answer_increments_index() {
         let (symbols, terms) = setup();
-        let mut table: Table<()> = Table::new();
+        let table: Table<()> = Table::new();
         table.add_answer(make_ground_nf("A", &symbols, &terms));
         table.add_answer(make_ground_nf("B", &symbols, &terms));
-
-        assert_eq!(table.consumer_index, 0);
-        let _ = table.next_answer();
-        assert_eq!(table.consumer_index, 1);
-        let _ = table.next_answer();
-        assert_eq!(table.consumer_index, 2);
+        let (id, rx) = table.register_consumer(1, 0);
+        {
+            let answers = table.lock_answers_for_test();
+            assert_eq!(answers.consumers.get(&id).unwrap().replay_index, 1);
+        }
+        assert!(matches!(rx.try_recv(), RecvResult::Item(_)));
+        let blocked = table.fill_consumer(id);
+        assert!(!blocked);
+        {
+            let answers = table.lock_answers_for_test();
+            assert_eq!(answers.consumers.get(&id).unwrap().replay_index, 2);
+        }
     }
 
     #[test]
     fn table_reset_consumer() {
         let (symbols, terms) = setup();
-        let mut table: Table<()> = Table::new();
+        let table: Table<()> = Table::new();
         table.add_answer(make_ground_nf("A", &symbols, &terms));
         table.add_answer(make_ground_nf("B", &symbols, &terms));
-
-        let _ = table.next_answer();
-        let _ = table.next_answer();
-        assert_eq!(table.consumer_index, 2);
-
-        table.reset_consumer();
-        assert_eq!(table.consumer_index, 0);
-
-        // Should be able to iterate again
-        assert!(table.next_answer().is_some());
+        let (_id, rx_a) = table.register_consumer(2, 0);
+        assert!(matches!(rx_a.try_recv(), RecvResult::Item(_)));
+        let (_id, rx_b) = table.register_consumer(2, 0);
+        assert!(matches!(rx_b.try_recv(), RecvResult::Item(_)));
     }
 
     #[test]
     fn table_all_answers() {
         let (symbols, terms) = setup();
-        let mut table: Table<()> = Table::new();
+        let table: Table<()> = Table::new();
         table.add_answer(make_ground_nf("A", &symbols, &terms));
         table.add_answer(make_ground_nf("B", &symbols, &terms));
 
@@ -4103,22 +4579,24 @@ mod tests {
     #[test]
     fn table_has_more_answers() {
         let (symbols, terms) = setup();
-        let mut table: Table<()> = Table::new();
+        let table: Table<()> = Table::new();
         table.add_answer(make_ground_nf("A", &symbols, &terms));
         table.add_answer(make_ground_nf("B", &symbols, &terms));
-
-        assert!(table.has_more_answers());
-        let _ = table.next_answer();
-        assert!(table.has_more_answers());
-        let _ = table.next_answer();
-        assert!(!table.has_more_answers());
+        let (id, rx) = table.register_consumer(1, 0);
+        assert!(!table.consumer_caught_up(id));
+        assert!(matches!(rx.try_recv(), RecvResult::Item(_)));
+        let blocked = table.fill_consumer(id);
+        assert!(!blocked);
+        assert!(table.consumer_caught_up(id));
     }
 
     #[test]
     fn table_default_is_new() {
         let table: Table<()> = Table::default();
-        assert!(table.answers.is_empty());
-        assert_eq!(table.state, ProducerState::NotStarted);
+        let answers = table.lock_answers_for_test();
+        assert!(answers.answers.is_empty());
+        drop(answers);
+        assert_eq!(table.producer_state(), ProducerState::NotStarted);
     }
 
     // ========================================================================
@@ -4141,32 +4619,32 @@ mod tests {
 
     #[test]
     fn tables_get_or_create_new() {
-        let mut tables: Tables<()> = Tables::new();
+        let tables: Tables<()> = Tables::new();
         let key: CallKey<()> = CallKey::new(0, 0, None, None);
 
         let table = tables.get_or_create(key.clone());
         assert!(!tables.is_empty());
         assert_eq!(tables.len(), 1);
-        assert!(table.borrow().answers.is_empty());
+        assert_eq!(table.answers_len(), 0);
     }
 
     #[test]
     fn tables_get_or_create_existing() {
-        let mut tables: Tables<()> = Tables::new();
+        let tables: Tables<()> = Tables::new();
         let key: CallKey<()> = CallKey::new(0, 0, None, None);
 
         let table1 = tables.get_or_create(key.clone());
-        table1.borrow_mut().add_answer(make_identity_nf());
+        table1.add_answer(make_identity_nf());
 
         // Getting same key should return same table
         let table2 = tables.get_or_create(key);
-        assert_eq!(table2.borrow().answers.len(), 1);
+        assert_eq!(table2.answers_len(), 1);
         assert_eq!(tables.len(), 1);
     }
 
     #[test]
     fn tables_contains() {
-        let mut tables: Tables<()> = Tables::new();
+        let tables: Tables<()> = Tables::new();
         let key1: CallKey<()> = CallKey::new(0, 0, None, None);
         let key2: CallKey<()> = CallKey::new(1, 0, None, None);
 
@@ -4178,7 +4656,7 @@ mod tests {
 
     #[test]
     fn tables_multiple_keys() {
-        let mut tables: Tables<()> = Tables::new();
+        let tables: Tables<()> = Tables::new();
         let key1: CallKey<()> = CallKey::new(0, 0, None, None);
         let key2: CallKey<()> = CallKey::new(1, 0, None, None);
         let key3: CallKey<()> = CallKey::new(2, 0, None, None);
@@ -4192,7 +4670,7 @@ mod tests {
 
     #[test]
     fn tables_lookup_after_create() {
-        let mut tables: Tables<()> = Tables::new();
+        let tables: Tables<()> = Tables::new();
         let key: CallKey<()> = CallKey::new(0, 0, None, None);
 
         let _ = tables.get_or_create(key.clone());
@@ -4208,10 +4686,10 @@ mod tests {
 
     #[test]
     fn tables_is_clone() {
-        let mut tables1: Tables<()> = Tables::new();
+        let tables1: Tables<()> = Tables::new();
         let key: CallKey<()> = CallKey::new(0, 0, None, None);
         let table = tables1.get_or_create(key.clone());
-        table.borrow_mut().add_answer(make_identity_nf());
+        table.add_answer(make_identity_nf());
 
         let tables2 = tables1.clone();
         assert_eq!(tables1.len(), tables2.len());
@@ -4220,8 +4698,8 @@ mod tests {
 
     #[test]
     fn tables_clone_shares_updates() {
-        let mut tables1: Tables<()> = Tables::new();
-        let mut tables2 = tables1.clone();
+        let tables1: Tables<()> = Tables::new();
+        let tables2 = tables1.clone();
         let key: CallKey<()> = CallKey::new(0, 0, None, None);
 
         let table1 = tables1.get_or_create(key.clone());
@@ -4239,7 +4717,7 @@ mod tests {
     #[test]
     fn tables_keys_with_different_boundaries() {
         let (symbols, terms) = setup();
-        let mut tables: Tables<()> = Tables::new();
+        let tables: Tables<()> = Tables::new();
 
         let nf_a = make_ground_nf("A", &symbols, &terms);
         let nf_b = make_ground_nf("B", &symbols, &terms);
@@ -4266,14 +4744,12 @@ mod tests {
 
     #[test]
     fn fixwork_new_handle() {
-        use std::cell::RefCell;
-
         let key: CallKey<()> = CallKey::new(0, 0, None, None);
-        let table = Arc::new(RefCell::new(Table::new()));
+        let table = Arc::new(Table::new());
 
         let fix: FixWork<()> = FixWork::new(key.clone(), table, 0, Tables::new());
 
-        assert_eq!(fix.answer_index, 0);
+        assert_eq!(fix.consumer_id, 0);
         assert_eq!(fix.key.rel, 0);
     }
 
@@ -4283,24 +4759,18 @@ mod tests {
 
     #[test]
     fn fixwork_handle_emits_existing_answers() {
-        use std::cell::RefCell;
-
         let (symbols, terms) = setup();
-        let mut terms = terms;
+        let terms = terms;
         let key: CallKey<()> = CallKey::new(0, 0, None, None);
-        let table = Arc::new(RefCell::new(Table::new()));
+        let table = Arc::new(Table::new());
 
-        table
-            .borrow_mut()
-            .add_answer(make_ground_nf("A", &symbols, &terms));
-        table
-            .borrow_mut()
-            .add_answer(make_ground_nf("B", &symbols, &terms));
-        table.borrow_mut().finish_producer();
+        table.add_answer(make_ground_nf("A", &symbols, &terms));
+        table.add_answer(make_ground_nf("B", &symbols, &terms));
+        table.finish_producer();
 
         let mut fix: FixWork<()> = FixWork::new(key, table, 0, Tables::new());
 
-        let step1 = fix.step(&mut terms);
+        let step1 = fix.step(&terms);
         assert!(matches!(step1, WorkStep::Emit(_, _)));
 
         if let WorkStep::Emit(_, work) = step1 {
@@ -4309,7 +4779,7 @@ mod tests {
             }
         }
 
-        let step2 = fix.step(&mut terms);
+        let step2 = fix.step(&terms);
         assert!(matches!(step2, WorkStep::Emit(_, _)));
 
         if let WorkStep::Emit(_, work) = step2 {
@@ -4318,105 +4788,245 @@ mod tests {
             }
         }
 
-        let step3 = fix.step(&mut terms);
+        let step3 = fix.step(&terms);
         assert!(matches!(step3, WorkStep::Done));
     }
 
     #[test]
-    fn fixwork_handle_advances_producer() {
-        use std::cell::RefCell;
+    fn fixwork_handle_does_not_start_producer() {
         use std::sync::Arc;
 
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let key: CallKey<()> = CallKey::new(0, 0, None, None);
-        let table = Arc::new(RefCell::new(Table::new()));
+        let table = Arc::new(Table::new());
         let nf = make_ground_nf("A", &symbols, &terms);
-        let producer_node = Node::Work(boxed_work(Work::Atom(nf.clone())));
         let spec = ProducerSpec {
+            key: key.clone(),
             body: Arc::new(Rel::Atom(Arc::new(nf))),
             left: None,
             right: None,
             env: Env::new(),
         };
 
-        table.borrow_mut().start_producer(producer_node, spec);
+        {
+            let mut guard = table.lock_producer_for_test();
+            guard.spec = Some(spec);
+            guard.state = ProducerState::NotStarted;
+        }
 
         let mut fix: FixWork<()> = FixWork::new(key, table.clone(), 0, Tables::new());
-        let step = fix.step(&mut terms);
-        assert!(matches!(step, WorkStep::Emit(_, _)));
-        assert_eq!(table.borrow().answers.len(), 1);
+        let step = fix.step(&terms);
+        assert!(
+            matches!(step, WorkStep::Split(_, _)),
+            "consumer should schedule producer task"
+        );
+        assert_eq!(
+            table.producer_state(),
+            ProducerState::NotStarted,
+            "consumer must not start producer"
+        );
+        assert!(
+            table.producer_task_active(),
+            "producer task should be marked active"
+        );
     }
 
     #[test]
-    fn fixwork_dedups_duplicate_producer_answers() {
-        use std::cell::RefCell;
+    fn fixwork_handle_does_not_advance_producer() {
         use std::sync::Arc;
 
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let key: CallKey<()> = CallKey::new(0, 0, None, None);
-        let table = Arc::new(RefCell::new(Table::new()));
+        let table = Arc::new(Table::new());
+        let nf = make_ground_nf("A", &symbols, &terms);
+        let producer_node = Node::Or(Box::new(Node::Fail), Box::new(Node::Fail));
+        let spec = ProducerSpec {
+            key: key.clone(),
+            body: Arc::new(Rel::Atom(Arc::new(nf))),
+            left: None,
+            right: None,
+            env: Env::new(),
+        };
+
+        table.start_producer(producer_node, spec, 0);
+
+        let mut fix: FixWork<()> = FixWork::new(key, table.clone(), 0, Tables::new());
+        let _ = fix.step(&terms);
+
+        let still_or = {
+            let guard = table.lock_producer_for_test();
+            matches!(guard.producer, Some(Node::Or(_, _)))
+        };
+        assert!(still_or, "consumer must not advance producer node");
+    }
+
+    #[test]
+    fn fix_producer_dedups_duplicate_answers() {
+        use std::sync::Arc;
+
+        let (symbols, terms) = setup();
+        let tables = Tables::new();
+        let table = Arc::new(Table::new());
         let nf = make_ground_nf("A", &symbols, &terms);
         let producer_node = Node::Emit(
             nf.clone(),
             Box::new(Node::Emit(nf.clone(), Box::new(Node::Fail))),
         );
         let spec = ProducerSpec {
+            key: CallKey::new(0, 0, None, None),
             body: Arc::new(Rel::Atom(Arc::new(nf.clone()))),
             left: None,
             right: None,
             env: Env::new(),
         };
 
-        table.borrow_mut().start_producer(producer_node, spec);
+        table.start_producer(producer_node, spec, 0);
+        let _ = table.register_consumer(4, 0);
 
-        let mut fix: FixWork<()> = FixWork::new(key, table.clone(), 0, Tables::new());
-        let mut outputs = Vec::new();
-        for _ in 0..10 {
-            match fix.step(&mut terms) {
-                WorkStep::Emit(answer, work) => {
-                    if let Work::Fix(next) = *work {
-                        outputs.push(answer);
-                        fix = next;
-                    }
-                }
-                WorkStep::More(work) => {
-                    if let Work::Fix(next) = *work {
-                        fix = next;
-                    }
-                }
-                WorkStep::Done => break,
-                other => panic!("Unexpected step: {:?}", other),
+        let mut steps = 0;
+        loop {
+            let step = step_table_producer(&table, &terms, &tables);
+            steps += 1;
+            if matches!(step, ProducerStep::Done) || steps > 10 {
+                break;
             }
         }
 
-        assert_eq!(
-            outputs.len(),
-            1,
-            "Duplicate producer answers should not emit twice"
+        assert_eq!(table.answers_len(), 1);
+    }
+
+    #[test]
+    fn fix_producer_blocks_when_consumer_queue_full() {
+        use std::sync::Arc;
+
+        let (symbols, terms) = setup();
+        let tables = Tables::new();
+        let table = Arc::new(Table::new());
+        let nf_a = make_ground_nf("A", &symbols, &terms);
+        let nf_b = make_ground_nf("B", &symbols, &terms);
+        let producer_node = Node::Emit(
+            nf_a.clone(),
+            Box::new(Node::Emit(nf_b.clone(), Box::new(Node::Fail))),
         );
-        assert_eq!(table.borrow().answers.len(), 1);
+        let spec = ProducerSpec {
+            key: CallKey::new(0, 0, None, None),
+            body: Arc::new(Rel::Atom(Arc::new(nf_a.clone()))),
+            left: None,
+            right: None,
+            env: Env::new(),
+        };
+
+        table.start_producer(producer_node, spec, 0);
+        let (_id, rx) = table.register_consumer(1, 0);
+
+        let step1 = step_table_producer(&table, &terms, &tables);
+        assert!(matches!(step1, ProducerStep::Progress));
+
+        let step2 = step_table_producer(&table, &terms, &tables);
+        assert!(matches!(step2, ProducerStep::Blocked));
+
+        match rx.try_recv() {
+            RecvResult::Item(_) => {}
+            other => panic!("expected queued answer, got {:?}", other),
+        }
+
+        let step3 = step_table_producer(&table, &terms, &tables);
+        assert!(matches!(step3, ProducerStep::Progress));
+    }
+
+    #[test]
+    fn fix_producer_broadcasts_answers_to_all_consumers() {
+        use std::sync::Arc;
+
+        let (symbols, terms) = setup();
+        let tables = Tables::new();
+        let table = Arc::new(Table::new());
+        let nf_a = make_ground_nf("A", &symbols, &terms);
+        let nf_b = make_ground_nf("B", &symbols, &terms);
+        let producer_node = Node::Emit(
+            nf_a.clone(),
+            Box::new(Node::Emit(nf_b.clone(), Box::new(Node::Fail))),
+        );
+        let spec = ProducerSpec {
+            key: CallKey::new(0, 0, None, None),
+            body: Arc::new(Rel::Atom(Arc::new(nf_a.clone()))),
+            left: None,
+            right: None,
+            env: Env::new(),
+        };
+
+        table.start_producer(producer_node, spec, 0);
+        let (_id_a, rx_a) = table.register_consumer(2, 0);
+        let (_id_b, rx_b) = table.register_consumer(2, 0);
+
+        let mut steps = 0;
+        loop {
+            let step = step_table_producer(&table, &terms, &tables);
+            steps += 1;
+            if matches!(step, ProducerStep::Done) || steps > 10 {
+                break;
+            }
+        }
+
+        let mut got_a = Vec::new();
+        let mut got_b = Vec::new();
+        for _ in 0..2 {
+            if let RecvResult::Item(nf) = rx_a.try_recv() {
+                got_a.push(nf);
+            }
+            if let RecvResult::Item(nf) = rx_b.try_recv() {
+                got_b.push(nf);
+            }
+        }
+
+        assert_eq!(got_a.len(), 2);
+        assert_eq!(got_b.len(), 2);
+        assert!(got_a.contains(&nf_a));
+        assert!(got_a.contains(&nf_b));
+        assert!(got_b.contains(&nf_a));
+        assert!(got_b.contains(&nf_b));
+    }
+
+    #[test]
+    fn fix_consumer_replays_existing_answers() {
+        use std::sync::Arc;
+
+        let (symbols, terms) = setup();
+        let table = Arc::new(Table::new());
+        let nf_a = make_ground_nf("A", &symbols, &terms);
+        let nf_b = make_ground_nf("B", &symbols, &terms);
+
+        table.add_answer(nf_a.clone());
+        table.add_answer(nf_b.clone());
+        let (_id, rx) = table.register_consumer(4, 0);
+        match rx.try_recv() {
+            RecvResult::Item(nf) => assert!(nf == nf_a || nf == nf_b),
+            other => panic!("expected replayed answer, got {:?}", other),
+        }
+
+        let mut fix: FixWork<()> =
+            FixWork::new(CallKey::new(0, 0, None, None), table, 0, Tables::new());
+        let step = fix.step(&terms);
+        assert!(matches!(step, WorkStep::Emit(_, _)));
     }
 
     #[test]
     fn fixwork_handle_done_when_table_done() {
-        use std::cell::RefCell;
-
-        let (_, mut terms) = setup();
+        let (_, terms) = setup();
         let key: CallKey<()> = CallKey::new(0, 0, None, None);
-        let table = Arc::new(RefCell::new(Table::new()));
-        table.borrow_mut().finish_producer();
+        let table = Arc::new(Table::new());
+        table.finish_producer();
 
         let mut fix: FixWork<()> = FixWork::new(key, table, 0, Tables::new());
-        let step = fix.step(&mut terms);
+        let step = fix.step(&terms);
         assert!(matches!(step, WorkStep::Done));
     }
 
     #[test]
     fn call_replay_interleaves_with_new_answers() {
-        use crate::node::{step_node, NodeStep};
         use std::sync::Arc;
 
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let nf_a1 = make_ground_nf("A1", &symbols, &terms);
         let nf_a2 = make_ground_nf("A2", &symbols, &terms);
         let nf_b = make_ground_nf("B", &symbols, &terms);
@@ -4429,47 +5039,47 @@ mod tests {
 
         let mut pipe_producer = PipeWork::with_mid(mid.clone());
         pipe_producer.env = env.clone();
-        let step_producer = pipe_producer.advance_front(&mut terms);
+        let step_producer = pipe_producer.advance_front(&terms);
         let key = extract_key_from_step(step_producer);
 
         let table = pipe_producer
             .tables
             .lookup(&key)
             .expect("Table should exist after producer call");
-        {
-            let mut table = table.borrow_mut();
-            table.add_answer(nf_a1.clone());
-            table.add_answer(nf_a2.clone());
-            table.start_producer(
-                Node::Work(boxed_work(Work::Done)),
-                ProducerSpec {
-                    body: body.clone(),
-                    left: None,
-                    right: None,
-                    env: env.clone(),
-                },
-            );
-        }
+        table.add_answer(nf_a1.clone());
+        table.add_answer(nf_a2.clone());
+        table.start_producer(
+            Node::Work(boxed_work(Work::Done)),
+            ProducerSpec {
+                key: key.clone(),
+                body: body.clone(),
+                left: None,
+                right: None,
+                env: env.clone(),
+            },
+            table.answers_len(),
+        );
 
         let mut pipe_consumer = PipeWork::with_mid(mid);
         pipe_consumer.env = env;
         pipe_consumer.tables = pipe_producer.tables.clone();
-        let step_consumer = pipe_consumer.advance_front(&mut terms);
-        let mut node = extract_gen_from_step(step_consumer);
+        let step_consumer = pipe_consumer.advance_front(&terms);
+        let bind = unwrap_work_bind(step_consumer);
+        let producer_state = bind.producer_state();
 
         let mut outputs = Vec::new();
         let mut steps = 0;
-        while outputs.len() < 3 && steps < 20 {
-            match step_node(node, &mut terms) {
-                NodeStep::Emit(nf, rest) => {
+        while outputs.len() < 3 && steps < 50 {
+            let _ = step_bind_producer(&producer_state, &terms);
+            match bind.receiver.lock().try_recv() {
+                RecvResult::Item(nf) => {
                     outputs.push(nf);
-                    node = rest;
                     if outputs.len() == 1 {
-                        table.borrow_mut().add_answer(nf_b.clone());
+                        table.add_answer(nf_b.clone());
                     }
                 }
-                NodeStep::Continue(rest) => node = rest,
-                NodeStep::Exhausted => break,
+                RecvResult::Closed => break,
+                RecvResult::Empty => {}
             }
             steps += 1;
         }
@@ -4490,10 +5100,8 @@ mod tests {
 
     #[test]
     fn work_fix_construction() {
-        use std::cell::RefCell;
-
         let key: CallKey<()> = CallKey::new(0, 0, None, None);
-        let table = Arc::new(RefCell::new(Table::new()));
+        let table = Arc::new(Table::new());
         let fix: FixWork<()> = FixWork::new(key, table, 0, Tables::new());
         let work: Work<()> = Work::Fix(fix);
         assert!(matches!(work, Work::Fix(_)));
@@ -4501,17 +5109,15 @@ mod tests {
 
     #[test]
     fn work_fix_step_delegates() {
-        use std::cell::RefCell;
-
-        let (_, mut terms) = setup();
+        let (_, terms) = setup();
         let key: CallKey<()> = CallKey::new(0, 0, None, None);
-        let table = Arc::new(RefCell::new(Table::new()));
-        table.borrow_mut().finish_producer();
+        let table = Arc::new(Table::new());
+        table.finish_producer();
 
         let fix: FixWork<()> = FixWork::new(key, table, 0, Tables::new());
         let mut work: Work<()> = Work::Fix(fix);
 
-        let step = work.step(&mut terms);
+        let step = work.step(&terms);
         assert!(matches!(step, WorkStep::Done));
     }
 
@@ -4546,10 +5152,42 @@ mod tests {
     fn table_dedups_duplicate_answers() {
         let (symbols, terms) = setup();
         let nf = make_ground_nf("A", &symbols, &terms);
-        let mut table: Table<()> = Table::new();
+        let table: Table<()> = Table::new();
         table.add_answer(nf.clone());
         table.add_answer(nf);
-        assert_eq!(table.answers.len(), 1, "Table should dedup answers");
+        assert_eq!(table.answers_len(), 1, "Table should dedup answers");
+    }
+
+    fn assert_table_lock_independent() {
+        let table = Arc::new(Table::<()>::new());
+
+        let producer_guard = table.lock_producer_for_test();
+        let answers_try = table.try_lock_answers_for_test();
+        assert!(
+            answers_try.is_some(),
+            "answers lock should not be blocked by producer lock"
+        );
+        drop(answers_try);
+        drop(producer_guard);
+
+        let answers_guard = table.lock_answers_for_test();
+        let producer_try = table.try_lock_producer_for_test();
+        assert!(
+            producer_try.is_some(),
+            "producer lock should not be blocked by answers lock"
+        );
+        drop(producer_try);
+        drop(answers_guard);
+    }
+
+    #[test]
+    fn table_locks_are_independent() {
+        assert_table_lock_independent();
+    }
+
+    #[test]
+    fn table_locks_are_independent_dual() {
+        assert_table_lock_independent();
     }
 
     #[test]

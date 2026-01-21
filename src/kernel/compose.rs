@@ -19,7 +19,7 @@ use super::util::{
 /// - b's build patterns are constructed
 ///
 /// Returns None if composition fails (unification failure at interface).
-pub fn compose_nf<C: ConstraintOps>(a: &NF<C>, b: &NF<C>, terms: &mut TermStore) -> Option<NF<C>> {
+pub fn compose_nf<C: ConstraintOps>(a: &NF<C>, b: &NF<C>, terms: &TermStore) -> Option<NF<C>> {
     #[cfg(feature = "tracing")]
     let _span = debug_span!(
         "compose_nf",
@@ -123,7 +123,7 @@ mod tests {
 
     #[test]
     fn compose_identity_identity() {
-        let (_, mut terms) = setup();
+        let (_, terms) = setup();
         let v0 = terms.var(0);
 
         // Identity NF: x -> x
@@ -133,7 +133,7 @@ mod tests {
             smallvec::smallvec![v0],
         );
 
-        let result = compose_nf(&identity, &identity, &mut terms);
+        let result = compose_nf(&identity, &identity, &terms);
         assert!(result.is_some());
         let composed = result.unwrap();
 
@@ -157,9 +157,9 @@ theory neq_only {
             .parse_rule("$x { (neq $x z) } -> $x")
             .expect("parse left rule");
         let right = parser.parse_rule("z -> z").expect("parse right rule");
-        let mut terms = parser.take_terms();
+        let terms = parser.take_terms();
 
-        let composed = compose_nf(&left, &right, &mut terms);
+        let composed = compose_nf(&left, &right, &terms);
         assert!(
             composed.is_none(),
             "Expected composition to fail after constraint substitution"
@@ -181,9 +181,9 @@ theory no_c {
         let right = parser
             .parse_rule("$x -> (f $x (c z))")
             .expect("parse right rule");
-        let mut terms = parser.take_terms();
+        let terms = parser.take_terms();
 
-        let composed = compose_nf(&left, &right, &mut terms).expect("compose should succeed");
+        let composed = compose_nf(&left, &right, &terms).expect("compose should succeed");
         let state = &composed.drop_fresh.constraint;
         let pred = state
             .program
@@ -202,7 +202,7 @@ theory no_c {
 
     #[test]
     fn compose_ground_rules() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let a = symbols.intern("A");
         let b = symbols.intern("B");
         let c = symbols.intern("C");
@@ -225,7 +225,7 @@ theory no_c {
             smallvec::smallvec![c_term],
         );
 
-        let result = compose_nf(&rule_a, &rule_b, &mut terms);
+        let result = compose_nf(&rule_a, &rule_b, &terms);
         assert!(result.is_some());
         let composed = result.unwrap();
 
@@ -236,7 +236,7 @@ theory no_c {
 
     #[test]
     fn compose_fails_on_mismatch() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let a = symbols.intern("A");
         let b = symbols.intern("B");
         let c = symbols.intern("C");
@@ -259,13 +259,13 @@ theory no_c {
             smallvec::smallvec![a_term],
         );
 
-        let result = compose_nf(&rule_a, &rule_b, &mut terms);
+        let result = compose_nf(&rule_a, &rule_b, &terms);
         assert!(result.is_none(), "B != C so composition should fail");
     }
 
     #[test]
     fn compose_with_variables() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let f = symbols.intern("F");
         let g = symbols.intern("G");
         let v0 = terms.var(0);
@@ -286,7 +286,7 @@ theory no_c {
             smallvec::smallvec![g_x],
         );
 
-        let result = compose_nf(&rule_a, &rule_b, &mut terms);
+        let result = compose_nf(&rule_a, &rule_b, &terms);
         assert!(result.is_some());
         let composed = result.unwrap();
 
@@ -302,7 +302,7 @@ theory no_c {
 
     #[test]
     fn compose_peeling() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let s = symbols.intern("S");
         let v0 = terms.var(0);
 
@@ -315,7 +315,7 @@ theory no_c {
         );
 
         // Compose peel ; peel = S(S(x)) -> x
-        let result = compose_nf(&peel, &peel, &mut terms);
+        let result = compose_nf(&peel, &peel, &terms);
         assert!(result.is_some());
         let composed = result.unwrap();
 
@@ -331,7 +331,7 @@ theory no_c {
 
     #[test]
     fn compose_wrapping() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let s = symbols.intern("S");
         let v0 = terms.var(0);
 
@@ -344,7 +344,7 @@ theory no_c {
         );
 
         // Compose wrap ; wrap = x -> S(S(x))
-        let result = compose_nf(&wrap, &wrap, &mut terms);
+        let result = compose_nf(&wrap, &wrap, &terms);
         assert!(result.is_some());
         let composed = result.unwrap();
 
@@ -360,7 +360,7 @@ theory no_c {
 
     #[test]
     fn compose_variable_passing() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let pair = symbols.intern("Pair");
         let fst = symbols.intern("Fst");
         let _snd = symbols.intern("Snd");
@@ -390,7 +390,7 @@ theory no_c {
             smallvec::smallvec![v0_b],
         );
 
-        let result = compose_nf(&rule_a, &rule_b, &mut terms);
+        let result = compose_nf(&rule_a, &rule_b, &terms);
         assert!(result.is_some());
         let composed = result.unwrap();
 
@@ -406,7 +406,7 @@ theory no_c {
 
     #[test]
     fn compose_ground_with_var_match() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let a = symbols.intern("A");
         let f = symbols.intern("F");
         let v0 = terms.var(0);
@@ -429,7 +429,7 @@ theory no_c {
             smallvec::smallvec![f_x],
         );
 
-        let result = compose_nf(&rule_a, &rule_b, &mut terms);
+        let result = compose_nf(&rule_a, &rule_b, &terms);
         assert!(result.is_some());
         let composed = result.unwrap();
 
@@ -440,20 +440,20 @@ theory no_c {
 
     #[test]
     fn compose_empty_patterns() {
-        let (_, mut terms) = setup();
+        let (_, terms) = setup();
 
         // Empty NFs with just DropFresh maps
         let nf_a: NF<()> = NF::new(SmallVec::new(), DropFresh::identity(0), SmallVec::new());
 
         let nf_b: NF<()> = NF::new(SmallVec::new(), DropFresh::identity(0), SmallVec::new());
 
-        let result = compose_nf(&nf_a, &nf_b, &mut terms);
+        let result = compose_nf(&nf_a, &nf_b, &terms);
         assert!(result.is_some());
     }
 
     #[test]
     fn compose_nested_constructors() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let f = symbols.intern("F");
         let g = symbols.intern("G");
         let h = symbols.intern("H");
@@ -476,7 +476,7 @@ theory no_c {
             smallvec::smallvec![h_x],
         );
 
-        let result = compose_nf(&rule_a, &rule_b, &mut terms);
+        let result = compose_nf(&rule_a, &rule_b, &terms);
         assert!(result.is_some());
         let composed = result.unwrap();
 
@@ -496,7 +496,7 @@ theory no_c {
     fn compose_peel_twice_example() {
         // From spec: B(A(x),y)->B(x,y) composed with itself
         // Should produce B(A(A(x)),y)->B(x,y)
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let a = symbols.intern("A");
         let b = symbols.intern("B");
         let v0 = terms.var(0);
@@ -507,10 +507,10 @@ theory no_c {
         let lhs = terms.app2(b, a_x, v1);
         let rhs = terms.app2(b, v0, v1);
 
-        let peel: NF<()> = NF::factor(lhs, rhs, (), &mut terms);
+        let peel: NF<()> = NF::factor(lhs, rhs, (), &terms);
 
         // Compose peel ; peel
-        let result = compose_nf(&peel, &peel, &mut terms);
+        let result = compose_nf(&peel, &peel, &terms);
         assert!(result.is_some(), "Composition should succeed");
         let composed = result.unwrap();
 
@@ -541,7 +541,7 @@ theory no_c {
         // add base case: (cons z $0) -> $0
         // identity on z: z -> z
         // Expected: (cons z z) -> z
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let cons_sym = symbols.intern("cons");
         let z_sym = symbols.intern("z");
 
@@ -550,13 +550,13 @@ theory no_c {
 
         // add base case: (cons z $0) -> $0
         let cons_z_v0 = terms.app2(cons_sym, z, v0);
-        let add_base: NF<()> = NF::factor(cons_z_v0, v0, (), &mut terms);
+        let add_base: NF<()> = NF::factor(cons_z_v0, v0, (), &terms);
 
         // identity on z: z -> z (ground term)
-        let identity_z: NF<()> = NF::factor(z, z, (), &mut terms);
+        let identity_z: NF<()> = NF::factor(z, z, (), &terms);
 
         // Compose: add_base ; identity_z
-        let result = compose_nf(&add_base, &identity_z, &mut terms);
+        let result = compose_nf(&add_base, &identity_z, &terms);
 
         assert!(
             result.is_some(),
@@ -581,7 +581,7 @@ theory no_c {
         // Two cases that should match:
         // 1. add base: (cons z $0) -> $0  with identity on (s z)
         //    => (cons z (s z)) -> (s z)  [0 + 1 = 1]
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let cons_sym = symbols.intern("cons");
         let z_sym = symbols.intern("z");
         let s_sym = symbols.intern("s");
@@ -592,13 +592,13 @@ theory no_c {
 
         // add base case: (cons z $0) -> $0
         let cons_z_v0 = terms.app2(cons_sym, z, v0);
-        let add_base: NF<()> = NF::factor(cons_z_v0, v0, (), &mut terms);
+        let add_base: NF<()> = NF::factor(cons_z_v0, v0, (), &terms);
 
         // identity on (s z): (s z) -> (s z)
-        let identity_s_z: NF<()> = NF::factor(s_z, s_z, (), &mut terms);
+        let identity_s_z: NF<()> = NF::factor(s_z, s_z, (), &terms);
 
         // Compose: add_base ; identity_s_z
-        let result = compose_nf(&add_base, &identity_s_z, &mut terms);
+        let result = compose_nf(&add_base, &identity_s_z, &terms);
 
         assert!(
             result.is_some(),
@@ -623,19 +623,19 @@ theory no_c {
     #[test]
     fn compose_var_with_ground_unifies() {
         // Most basic case: $0 -> $0 composed with z -> z should give z -> z
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let z_sym = symbols.intern("z");
         let z = terms.app0(z_sym);
         let v0 = terms.var(0);
 
         // identity relation: $0 -> $0
-        let identity_var: NF<()> = NF::factor(v0, v0, (), &mut terms);
+        let identity_var: NF<()> = NF::factor(v0, v0, (), &terms);
 
         // identity on z: z -> z
-        let identity_z: NF<()> = NF::factor(z, z, (), &mut terms);
+        let identity_z: NF<()> = NF::factor(z, z, (), &terms);
 
         // Compose: ($0 -> $0) ; (z -> z) should give z -> z
-        let result = compose_nf(&identity_var, &identity_z, &mut terms);
+        let result = compose_nf(&identity_var, &identity_z, &terms);
 
         assert!(result.is_some(), "Variable should unify with ground term");
         let composed = result.unwrap();
@@ -646,17 +646,17 @@ theory no_c {
 
     #[test]
     fn compose_introduces_fresh_var_then_projects() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let f = symbols.intern("f");
         let v0 = terms.var(0);
         let v1 = terms.var(1);
 
         let f_v0_v1 = terms.app(f, smallvec::smallvec![v0, v1]);
-        let rule_intro = NF::factor(v0, f_v0_v1, (), &mut terms);
-        let rule_proj = NF::factor(f_v0_v1, v0, (), &mut terms);
+        let rule_intro = NF::factor(v0, f_v0_v1, (), &terms);
+        let rule_proj = NF::factor(f_v0_v1, v0, (), &terms);
 
         let composed =
-            compose_nf(&rule_intro, &rule_proj, &mut terms).expect("composition should succeed");
+            compose_nf(&rule_intro, &rule_proj, &terms).expect("composition should succeed");
 
         assert_eq!(composed.match_pats.len(), 1);
         assert_eq!(composed.build_pats.len(), 1);
@@ -669,7 +669,7 @@ theory no_c {
 
     #[test]
     fn compose_ground_identity_with_rule_instantiates_vars() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let f = symbols.intern("f");
         let b = symbols.intern("b");
         let l = symbols.intern("l");
@@ -698,10 +698,10 @@ theory no_c {
             ],
         );
         let rhs = terms.app(f, smallvec::smallvec![terms.var(0), terms.var(2)]);
-        let rule = NF::factor(lhs, rhs, (), &mut terms);
-        let identity = NF::factor(input, input, (), &mut terms);
+        let rule = NF::factor(lhs, rhs, (), &terms);
+        let identity = NF::factor(input, input, (), &terms);
 
-        let composed = compose_nf(&identity, &rule, &mut terms).expect("compose should succeed");
+        let composed = compose_nf(&identity, &rule, &terms).expect("compose should succeed");
 
         let expected_out = terms.app(f, smallvec::smallvec![b_l, c0]);
         assert_eq!(composed.match_pats[0], input);

@@ -49,7 +49,7 @@ impl Theory for TestTheory {
     fn apply_subst(
         store: &Self::Store,
         subst: &crate::subst::Subst,
-        terms: &mut TermStore,
+        terms: &TermStore,
     ) -> Self::Store {
         let mut out = store.clone();
         for (_, t) in out.bindings.iter_mut() {
@@ -95,7 +95,7 @@ impl Theory for TestTheory {
         TestStore { bindings }
     }
 
-    fn remap_vars(store: &Self::Store, map: &[Option<u32>], terms: &mut TermStore) -> Self::Store {
+    fn remap_vars(store: &Self::Store, map: &[Option<u32>], terms: &TermStore) -> Self::Store {
         let mut out = store.clone();
         for (v, t) in out.bindings.iter_mut() {
             if (*v as usize) < map.len() {
@@ -223,7 +223,7 @@ fn empty_constraint_combines_with_non_empty_other_program() {
 
 #[test]
 fn propagation_rule_fires_once_via_token_store() {
-    let (symbols, mut terms) = setup();
+    let (symbols, terms) = setup();
     let mut builtins = BuiltinRegistry::default();
     builtins.builtins.push(bind_builtin());
 
@@ -244,17 +244,17 @@ fn propagation_rule_fires_once_via_token_store() {
 
     let a = terms.app0(symbols.intern("A"));
     state.introduce(p, &[a], &terms);
-    assert!(state.solve_to_fixpoint(&mut terms));
+    assert!(state.solve_to_fixpoint(&terms));
     assert_eq!(alive_args_for_pred(&state.store, q).len(), 1);
 
     // Re-run; should not re-fire propagation.
-    assert!(state.solve_to_fixpoint(&mut terms));
+    assert!(state.solve_to_fixpoint(&terms));
     assert_eq!(alive_args_for_pred(&state.store, q).len(), 1);
 }
 
 #[test]
 fn simplification_removes_head() {
-    let (symbols, mut terms) = setup();
+    let (symbols, terms) = setup();
     let mut builder = ChrProgramBuilder::<TestTheory>::new(BuiltinRegistry::default());
     let p = builder.pred("p", 1, vec![]);
     let q = builder.pred("q", 1, vec![]);
@@ -271,7 +271,7 @@ fn simplification_removes_head() {
     let mut state = ChrState::new(program, TestStore::default());
     let a = terms.app0(symbols.intern("A"));
     state.introduce(p, &[a], &terms);
-    assert!(state.solve_to_fixpoint(&mut terms));
+    assert!(state.solve_to_fixpoint(&terms));
 
     assert_eq!(alive_args_for_pred(&state.store, p).len(), 0);
     assert_eq!(alive_args_for_pred(&state.store, q).len(), 1);
@@ -279,7 +279,7 @@ fn simplification_removes_head() {
 
 #[test]
 fn simpagation_keeps_kept_head() {
-    let (symbols, mut terms) = setup();
+    let (symbols, terms) = setup();
     let mut builder = ChrProgramBuilder::<TestTheory>::new(BuiltinRegistry::default());
     let p = builder.pred("p", 1, vec![]);
     let r = builder.pred("r", 1, vec![]);
@@ -299,7 +299,7 @@ fn simpagation_keeps_kept_head() {
     let a = terms.app0(symbols.intern("A"));
     state.introduce(p, &[a], &terms);
     state.introduce(r, &[a], &terms);
-    assert!(state.solve_to_fixpoint(&mut terms));
+    assert!(state.solve_to_fixpoint(&terms));
 
     assert_eq!(alive_args_for_pred(&state.store, p).len(), 1);
     assert_eq!(alive_args_for_pred(&state.store, r).len(), 0);
@@ -308,7 +308,7 @@ fn simpagation_keeps_kept_head() {
 
 #[test]
 fn guard_blocks_rule_on_neq() {
-    let (symbols, mut terms) = setup();
+    let (symbols, terms) = setup();
     let mut builder = ChrProgramBuilder::<TestTheory>::new(BuiltinRegistry::default());
     let p = builder.pred("p", 2, vec![]);
     let q = builder.pred("q", 1, vec![]);
@@ -332,17 +332,17 @@ fn guard_blocks_rule_on_neq() {
     let b = terms.app0(symbols.intern("B"));
 
     state.introduce(p, &[a, b], &terms);
-    assert!(state.solve_to_fixpoint(&mut terms));
+    assert!(state.solve_to_fixpoint(&terms));
     assert_eq!(alive_args_for_pred(&state.store, q).len(), 0);
 
     state.introduce(p, &[a, a], &terms);
-    assert!(state.solve_to_fixpoint(&mut terms));
+    assert!(state.solve_to_fixpoint(&terms));
     assert_eq!(alive_args_for_pred(&state.store, q).len(), 1);
 }
 
 #[test]
 fn guard_unbound_rvar_fails() {
-    let (symbols, mut terms) = setup();
+    let (symbols, terms) = setup();
     let mut builder = ChrProgramBuilder::<TestTheory>::new(BuiltinRegistry::default());
     let p = builder.pred("p", 1, vec![]);
     let q = builder.pred("q", 1, vec![]);
@@ -364,13 +364,13 @@ fn guard_unbound_rvar_fails() {
     let a = terms.app0(symbols.intern("A"));
 
     state.introduce(p, &[a], &terms);
-    assert!(state.solve_to_fixpoint(&mut terms));
+    assert!(state.solve_to_fixpoint(&terms));
     assert_eq!(alive_args_for_pred(&state.store, q).len(), 0);
 }
 
 #[test]
 fn join_rejects_duplicate_cid() {
-    let (symbols, mut terms) = setup();
+    let (symbols, terms) = setup();
     let mut builder = ChrProgramBuilder::<TestTheory>::new(BuiltinRegistry::default());
     let p = builder.pred("p", 1, vec![]);
     let q = builder.pred("q", 1, vec![]);
@@ -389,17 +389,17 @@ fn join_rejects_duplicate_cid() {
     let a = terms.app0(symbols.intern("A"));
 
     state.introduce(p, &[a], &terms);
-    assert!(state.solve_to_fixpoint(&mut terms));
+    assert!(state.solve_to_fixpoint(&terms));
     assert_eq!(alive_args_for_pred(&state.store, q).len(), 0);
 
     state.introduce(p, &[a], &terms);
-    assert!(state.solve_to_fixpoint(&mut terms));
+    assert!(state.solve_to_fixpoint(&terms));
     assert_eq!(alive_args_for_pred(&state.store, q).len(), 1);
 }
 
 #[test]
 fn committed_choice_respects_priority() {
-    let (symbols, mut terms) = setup();
+    let (symbols, terms) = setup();
     let mut builder = ChrProgramBuilder::<TestTheory>::new(BuiltinRegistry::default());
     let p = builder.pred("p", 1, vec![]);
     let q1 = builder.pred("q1", 1, vec![]);
@@ -429,7 +429,7 @@ fn committed_choice_respects_priority() {
     let mut state = ChrState::new(program, TestStore::default());
     let a = terms.app0(symbols.intern("A"));
     state.introduce(p, &[a], &terms);
-    assert!(state.solve_to_fixpoint(&mut terms));
+    assert!(state.solve_to_fixpoint(&terms));
 
     assert_eq!(alive_args_for_pred(&state.store, q1).len(), 1);
     assert_eq!(alive_args_for_pred(&state.store, q2).len(), 0);
@@ -437,7 +437,7 @@ fn committed_choice_respects_priority() {
 
 #[test]
 fn freeze_thaw_remaps_tokens_and_cids() {
-    let (symbols, mut terms) = setup();
+    let (symbols, terms) = setup();
     let mut builder = ChrProgramBuilder::<TestTheory>::new(BuiltinRegistry::default());
     let p = builder.pred("p", 1, vec![]);
     let q = builder.pred("q", 1, vec![]);
@@ -457,7 +457,7 @@ fn freeze_thaw_remaps_tokens_and_cids() {
 
     let cid_a = state.introduce(p, &[a], &terms);
     let _cid_b = state.introduce(p, &[b], &terms);
-    assert!(state.solve_to_fixpoint(&mut terms));
+    assert!(state.solve_to_fixpoint(&terms));
 
     // Kill the first constraint to force remapping.
     state.store.inst[cid_a.0 as usize].alive = false;

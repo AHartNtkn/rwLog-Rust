@@ -1,0 +1,11 @@
+- [x] Split FixWork into producer task + consumer handles with bounded answer queue; replace in-place producer stepping.
+  - Edge cases: consumer must not advance producer; producer must not start on consumer step; producer must broadcast answers to all consumers; bounded queues must apply backpressure; new consumers must replay existing answers; producer terminates when done and no consumers remain.
+- [x] Split BindWork into producer task + consumer continuation with bounded queue.
+  - Edge cases: consumer must not advance generator; producer must block on full queue without advancing; producer must close queue on exhaustion; consumer must emit only from queued answers; producer must drain pending answers before closing.
+- [x] Add wakeable backpressure for Blocked tasks (sleep until queue capacity/answers).
+  - Edge cases: blocked tasks must not spin; wake events must requeue blocked tasks; wake-before-block must not strand tasks; multiple blocked tasks on the same waker must all resume.
+- [x] Add global answer dedup sink for set semantics (unordered answers).
+- [x] Refactor table state into finer-grained locks (producer state vs answer storage).
+- [x] Make joiner scheduling event-driven (receiver readiness rather than polling).
+- [x] Replace answer queues with crossbeam_channel.
+- [x] Add scheduler instrumentation (per-task steps, blocked time, queue utilization).

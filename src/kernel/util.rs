@@ -16,7 +16,7 @@ pub fn max_var_index_terms(pats: &[TermId], terms: &TermStore) -> Option<u32> {
 }
 
 /// Shift all variables in a term by a given offset.
-pub fn shift_vars(term: TermId, offset: u32, terms: &mut TermStore) -> TermId {
+pub fn shift_vars(term: TermId, offset: u32, terms: &TermStore) -> TermId {
     match terms.resolve(term) {
         Some(Term::Var(idx)) => terms.var(idx + offset),
         Some(Term::App(func, children)) => {
@@ -31,11 +31,7 @@ pub fn shift_vars(term: TermId, offset: u32, terms: &mut TermStore) -> TermId {
 }
 
 /// Shift all variables in a list of patterns by a given offset.
-pub fn shift_vars_list(
-    pats: &[TermId],
-    offset: u32,
-    terms: &mut TermStore,
-) -> SmallVec<[TermId; 1]> {
+pub fn shift_vars_list(pats: &[TermId], offset: u32, terms: &TermStore) -> SmallVec<[TermId; 1]> {
     if offset == 0 {
         return pats.iter().copied().collect();
     }
@@ -48,7 +44,7 @@ pub fn shift_vars_list(
 pub fn apply_subst_list(
     pats: &[TermId],
     subst: &Subst,
-    terms: &mut TermStore,
+    terms: &TermStore,
 ) -> SmallVec<[TermId; 1]> {
     pats.iter()
         .map(|&term| apply_subst(term, subst, terms))
@@ -59,7 +55,7 @@ pub fn apply_subst_list(
 ///
 /// Returns the combined most general unifier if all pairs unify,
 /// or None if any pair fails to unify.
-pub fn unify_term_lists(left: &[TermId], right: &[TermId], terms: &mut TermStore) -> Option<Subst> {
+pub fn unify_term_lists(left: &[TermId], right: &[TermId], terms: &TermStore) -> Option<Subst> {
     if left.len() != right.len() {
         return None;
     }
@@ -77,7 +73,7 @@ pub fn unify_term_lists(left: &[TermId], right: &[TermId], terms: &mut TermStore
 /// Compose two substitutions.
 ///
 /// The result applies `existing` first, then `new`.
-pub fn compose_subst(existing: &Subst, new: &Subst, terms: &mut TermStore) -> Subst {
+pub fn compose_subst(existing: &Subst, new: &Subst, terms: &TermStore) -> Subst {
     let mut combined = Subst::new();
     for (var, term) in existing.iter() {
         let updated = apply_subst(term, new, terms);
@@ -97,7 +93,7 @@ pub fn remap_constraint_vars<C: crate::constraint::ConstraintOps>(
     constraint: &C,
     max_var: Option<u32>,
     offset: u32,
-    terms: &mut TermStore,
+    terms: &TermStore,
 ) -> C {
     if offset == 0 {
         return constraint.clone();

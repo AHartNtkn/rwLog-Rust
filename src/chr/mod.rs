@@ -198,10 +198,10 @@ pub trait Theory: Send + Sync + 'static {
     fn entails_neq(store: &Self::Store, a: TermId, b: TermId) -> bool;
     fn extract_subst(store: &Self::Store) -> Subst;
     fn merge_store(a: &Self::Store, b: &Self::Store) -> Option<Self::Store>;
-    fn apply_subst(store: &Self::Store, subst: &Subst, terms: &mut TermStore) -> Self::Store;
+    fn apply_subst(store: &Self::Store, subst: &Subst, terms: &TermStore) -> Self::Store;
     fn freeze_store(store: &Self::Store) -> Vec<u8>;
     fn thaw_store(bytes: &[u8]) -> Self::Store;
-    fn remap_vars(store: &Self::Store, map: &[Option<u32>], terms: &mut TermStore) -> Self::Store;
+    fn remap_vars(store: &Self::Store, map: &[Option<u32>], terms: &TermStore) -> Self::Store;
     fn collect_vars(store: &Self::Store, terms: &TermStore, out: &mut Vec<u32>);
     fn is_empty(store: &Self::Store) -> bool;
 }
@@ -228,7 +228,7 @@ impl Theory for NoTheory {
         Some(())
     }
 
-    fn apply_subst(_store: &Self::Store, _subst: &Subst, _terms: &mut TermStore) -> Self::Store {}
+    fn apply_subst(_store: &Self::Store, _subst: &Subst, _terms: &TermStore) -> Self::Store {}
 
     fn freeze_store(_store: &Self::Store) -> Vec<u8> {
         Vec::new()
@@ -236,12 +236,7 @@ impl Theory for NoTheory {
 
     fn thaw_store(_bytes: &[u8]) -> Self::Store {}
 
-    fn remap_vars(
-        _store: &Self::Store,
-        _map: &[Option<u32>],
-        _terms: &mut TermStore,
-    ) -> Self::Store {
-    }
+    fn remap_vars(_store: &Self::Store, _map: &[Option<u32>], _terms: &TermStore) -> Self::Store {}
 
     fn collect_vars(_store: &Self::Store, _terms: &TermStore, _out: &mut Vec<u32>) {}
 
@@ -448,7 +443,7 @@ impl BodyProg {
     pub fn exec<T: Theory>(
         &self,
         pats: &PatArena,
-        terms: &mut TermStore,
+        terms: &TermStore,
         reg: &BuiltinRegistry<T>,
         env: &RVarEnv,
         st: &mut ChrState<T>,
@@ -485,7 +480,7 @@ impl BodyProg {
 fn collect_args(
     args: &[ArgExpr],
     pats: &PatArena,
-    terms: &mut TermStore,
+    terms: &TermStore,
     env: &RVarEnv,
 ) -> Option<SmallVec<[TermId; 8]>> {
     let mut av: SmallVec<[TermId; 8]> = SmallVec::new();
@@ -495,12 +490,7 @@ fn collect_args(
     Some(av)
 }
 
-fn eval_arg_expr(
-    pats: &PatArena,
-    terms: &mut TermStore,
-    env: &RVarEnv,
-    e: ArgExpr,
-) -> Option<TermId> {
+fn eval_arg_expr(pats: &PatArena, terms: &TermStore, env: &RVarEnv, e: ArgExpr) -> Option<TermId> {
     match e {
         ArgExpr::RVar(rv) => env.get(rv),
         ArgExpr::Const(t) => Some(t),
@@ -510,7 +500,7 @@ fn eval_arg_expr(
 
 pub fn instantiate_pat(
     pats: &PatArena,
-    terms: &mut TermStore,
+    terms: &TermStore,
     env: &RVarEnv,
     root: PatId,
 ) -> Option<TermId> {
@@ -1223,7 +1213,7 @@ impl<T: Theory> ChrState<T> {
         cid
     }
 
-    pub fn solve_to_fixpoint(&mut self, terms: &mut TermStore) -> bool {
+    pub fn solve_to_fixpoint(&mut self, terms: &TermStore) -> bool {
         if self.failed {
             return false;
         }
@@ -1363,7 +1353,7 @@ impl<T: Theory> ChrState<T> {
         }
     }
 
-    fn apply_rule_by_id(&mut self, rid: RuleId, tuple: &[Cid], terms: &mut TermStore) -> bool {
+    fn apply_rule_by_id(&mut self, rid: RuleId, tuple: &[Cid], terms: &TermStore) -> bool {
         let (removed_mask, is_propagation, n_rvars, heads, body, pats, builtins) = {
             let rule = &self.program.rules[rid.0 as usize];
             (
@@ -1408,7 +1398,7 @@ impl<T: Theory> ChrState<T> {
         )
     }
 
-    fn apply_subst_to_store(&mut self, subst: &Subst, terms: &mut TermStore) {
+    fn apply_subst_to_store(&mut self, subst: &Subst, terms: &TermStore) {
         for inst in self.store.inst.iter_mut() {
             if inst.alive {
                 for arg in inst.args.iter_mut() {
@@ -1796,7 +1786,7 @@ impl<T: Theory> crate::constraint::ConstraintOps for ChrState<T> {
         Some(merged)
     }
 
-    fn normalize(&self, terms: &mut TermStore) -> Option<(Self, Option<Subst>)> {
+    fn normalize(&self, terms: &TermStore) -> Option<(Self, Option<Subst>)> {
         if self.failed {
             return None;
         }
@@ -1821,7 +1811,7 @@ impl<T: Theory> crate::constraint::ConstraintOps for ChrState<T> {
         Some((st, subst_opt))
     }
 
-    fn apply_subst(&self, subst: &Subst, terms: &mut TermStore) -> Self {
+    fn apply_subst(&self, subst: &Subst, terms: &TermStore) -> Self {
         let mut st = self.clone();
         if !subst.is_empty() {
             st.apply_subst_to_store(subst, terms);
@@ -1829,7 +1819,7 @@ impl<T: Theory> crate::constraint::ConstraintOps for ChrState<T> {
         st
     }
 
-    fn remap_vars(&self, map: &[Option<u32>], terms: &mut TermStore) -> Self {
+    fn remap_vars(&self, map: &[Option<u32>], terms: &TermStore) -> Self {
         let mut st = self.clone();
         for inst in st.store.inst.iter_mut() {
             if inst.alive {
@@ -1867,7 +1857,7 @@ impl<T: Theory> crate::constraint::ConstraintOps for ChrState<T> {
 impl<T: Theory> ConstraintDisplay for ChrState<T> {
     fn fmt_constraints(
         &self,
-        terms: &mut TermStore,
+        terms: &TermStore,
         symbols: &crate::symbol::SymbolStore,
     ) -> Result<Option<String>, String> {
         if self.store.alive_count == 0 {

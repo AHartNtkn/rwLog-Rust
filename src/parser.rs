@@ -57,14 +57,14 @@ pub trait ConstraintBuilder: Clone {
     fn build_constraint(
         &mut self,
         calls: Vec<ConstraintCall>,
-        terms: &mut TermStore,
+        terms: &TermStore,
     ) -> Result<Self::Constraint, ParseError>;
 
     fn parse_theory_def(
         &mut self,
         input: &str,
         symbols: &mut SymbolStore,
-        terms: &mut TermStore,
+        terms: &TermStore,
     ) -> Result<TheorySummary, ParseError>;
 }
 
@@ -77,7 +77,7 @@ impl ConstraintBuilder for NoConstraintBuilder {
     fn build_constraint(
         &mut self,
         calls: Vec<ConstraintCall>,
-        _terms: &mut TermStore,
+        _terms: &TermStore,
     ) -> Result<Self::Constraint, ParseError> {
         let pos = calls.first().map(|c| c.position).unwrap_or(0);
         Err(ParseError {
@@ -90,7 +90,7 @@ impl ConstraintBuilder for NoConstraintBuilder {
         &mut self,
         _input: &str,
         _symbols: &mut SymbolStore,
-        _terms: &mut TermStore,
+        _terms: &TermStore,
     ) -> Result<TheorySummary, ParseError> {
         Err(ParseError {
             message: "Theory blocks are not supported in this parser".to_string(),
@@ -133,7 +133,7 @@ impl ConstraintBuilder for ChrConstraintBuilder {
     fn build_constraint(
         &mut self,
         calls: Vec<ConstraintCall>,
-        terms: &mut TermStore,
+        terms: &TermStore,
     ) -> Result<Self::Constraint, ParseError> {
         let mut st = ChrState::new(self.program.clone(), ());
         for call in calls {
@@ -163,7 +163,7 @@ impl ConstraintBuilder for ChrConstraintBuilder {
         &mut self,
         input: &str,
         symbols: &mut SymbolStore,
-        terms: &mut TermStore,
+        terms: &TermStore,
     ) -> Result<TheorySummary, ParseError> {
         let summary = parse_chr_theory(input, &mut self.builder, symbols, terms)?;
         self.program = self.builder.clone().build();
@@ -407,12 +407,12 @@ impl<B: ConstraintBuilder> Parser<B> {
         // Parse RHS with the same var_map (to share variables)
         let rhs = self.parse_term_inner(input, pos, &mut var_map, &mut var_order)?;
 
-        Ok(NF::factor(lhs, rhs, constraint, &mut self.terms))
+        Ok(NF::factor(lhs, rhs, constraint, &self.terms))
     }
 
     pub fn parse_theory_def(&mut self, input: &str) -> Result<TheorySummary, ParseError> {
         self.constraints
-            .parse_theory_def(input, &mut self.symbols, &mut self.terms)
+            .parse_theory_def(input, &mut self.symbols, &self.terms)
     }
 
     fn parse_constraint_block(
@@ -476,7 +476,7 @@ impl<B: ConstraintBuilder> Parser<B> {
             }
         }
 
-        self.constraints.build_constraint(calls, &mut self.terms)
+        self.constraints.build_constraint(calls, &self.terms)
     }
 
     fn parse_constraint_call(
@@ -672,12 +672,7 @@ impl<B: ConstraintBuilder> Parser<B> {
             let mut var_map: HashMap<String, u32> = HashMap::new();
             let mut var_order: Vec<u32> = Vec::new();
             let term = self.parse_term_inner(input, pos, &mut var_map, &mut var_order)?;
-            let nf = NF::factor(
-                term,
-                term,
-                self.constraints.empty_constraint(),
-                &mut self.terms,
-            );
+            let nf = NF::factor(term, term, self.constraints.empty_constraint(), &self.terms);
             Ok(Rel::Atom(Arc::new(nf)))
         } else if ch == '$' || ch == '(' {
             // Rule starting with term
@@ -825,7 +820,7 @@ fn parse_chr_theory(
     input: &str,
     builder: &mut ChrProgramBuilder<NoTheory>,
     symbols: &mut SymbolStore,
-    terms: &mut TermStore,
+    terms: &TermStore,
 ) -> Result<TheorySummary, ParseError> {
     let mut pos = 0;
     skip_whitespace(input, &mut pos);
@@ -921,7 +916,7 @@ fn parse_chr_rule_line(
     line: &str,
     builder: &mut ChrProgramBuilder<NoTheory>,
     symbols: &mut SymbolStore,
-    terms: &mut TermStore,
+    terms: &TermStore,
 ) -> Result<(), ParseError> {
     let op = if let Some(idx) = find_top_level_token(line, "<=>") {
         (idx, "<=>")
@@ -1031,7 +1026,7 @@ fn parse_chr_guard(
     input: &str,
     builder: &mut ChrProgramBuilder<NoTheory>,
     symbols: &mut SymbolStore,
-    terms: &mut TermStore,
+    terms: &TermStore,
     rvars: &HashMap<String, RVar>,
 ) -> Result<GuardProg, ParseError> {
     let input = input.trim();
@@ -1051,7 +1046,7 @@ fn parse_chr_guard_call(
     input: &str,
     builder: &mut ChrProgramBuilder<NoTheory>,
     symbols: &mut SymbolStore,
-    terms: &mut TermStore,
+    terms: &TermStore,
     rvars: &HashMap<String, RVar>,
 ) -> Result<GuardInstr, ParseError> {
     let mut pos = 0;
@@ -1143,7 +1138,7 @@ fn parse_chr_guard_val(
     input: &str,
     pos: &mut usize,
     symbols: &mut SymbolStore,
-    terms: &mut TermStore,
+    terms: &TermStore,
     rvars: &HashMap<String, RVar>,
 ) -> Result<GVal, ParseError> {
     skip_whitespace(input, pos);
@@ -1172,7 +1167,7 @@ fn parse_chr_const_term(
     input: &str,
     pos: &mut usize,
     symbols: &mut SymbolStore,
-    terms: &mut TermStore,
+    terms: &TermStore,
 ) -> Result<TermId, ParseError> {
     skip_whitespace(input, pos);
     if *pos >= input.len() {
@@ -1970,8 +1965,8 @@ theory bad {
         let nf = parser
             .parse_rule("$x { bad } -> $x")
             .expect("parse rule with fail constraint");
-        let mut terms = parser.take_terms();
-        let result = nf.drop_fresh.constraint.normalize(&mut terms);
+        let terms = parser.take_terms();
+        let result = nf.drop_fresh.constraint.normalize(&terms);
         assert!(result.is_none(), "expected failure from bad constraint");
     }
 
@@ -2007,11 +2002,11 @@ theory guards {
             .parse_rule("z { (p z) } -> z")
             .expect("parse rule with guard");
 
-        let mut terms = parser.take_terms();
+        let terms = parser.take_terms();
         let (normalized, _) = nf
             .drop_fresh
             .constraint
-            .normalize(&mut terms)
+            .normalize(&terms)
             .expect("normalize constraints");
 
         let q = normalized.program.pred_id("q").expect("q predicate id");
@@ -2054,8 +2049,8 @@ theory eq {
         let nf = parser
             .parse_rule("(pair $x $y) { (eq $x $y) } -> $x")
             .expect("parse rule with constraint");
-        let mut terms = parser.take_terms();
-        let rendered = crate::nf::format_nf(&nf, &mut terms, parser.symbols()).expect("format nf");
+        let terms = parser.take_terms();
+        let rendered = crate::nf::format_nf(&nf, &terms, parser.symbols()).expect("format nf");
         assert!(
             rendered.contains("{ (eq $0 $1) }"),
             "expected constraints in output, got: {}",

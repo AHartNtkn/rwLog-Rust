@@ -3,29 +3,26 @@
 //! Run with: `cargo bench`
 //!
 //! These benchmarks measure the core evaluation loop performance including:
-//! - Step dispatch for different goal types
-//! - Composition operations
-//! - Backtracking with varying depths
+//! - Step dispatch for different Rel shapes
+//! - Or rotation progression
+//! - NF factoring costs
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use rwlog::{
-    eval::{backtrack, step, EvalCtx, StepResult},
-    goal::GoalStore,
     nf::NF,
+    node::{step_node, Node, NodeStep},
+    rel::Rel,
     symbol::SymbolStore,
-    table::RuleStore,
-    task::Task,
     term::TermStore,
+    work::{rel_to_node, Env, Tables},
 };
-use smallvec::smallvec;
+use std::sync::Arc;
 
 /// Create the standard test stores for benchmarks.
-fn setup_stores() -> (GoalStore, RuleStore<()>, TermStore, SymbolStore) {
+fn setup_stores() -> (TermStore, SymbolStore) {
     let symbols = SymbolStore::new();
     let terms = TermStore::new();
-    let goals = GoalStore::new();
-    let rules = RuleStore::new();
-    (goals, rules, terms, symbols)
+    (terms, symbols)
 }
 
 /// Build a Peano numeral with n successors: S(S(...S(Z)...))
@@ -37,65 +34,57 @@ fn build_peano(n: u32, z: lasso::Spur, s: lasso::Spur, terms: &TermStore) -> rwl
     result
 }
 
-/// Benchmark the step function with a simple Rule goal.
-fn bench_step_rule(c: &mut Criterion) {
-    let (mut goals, mut rules, terms, symbols) = setup_stores();
+fn or_tree(mut rels: Vec<Rel<()>>) -> Rel<()> {
+    let mut iter = rels.drain(..);
+    let mut acc = iter.next().expect("at least one rel");
+    for rel in iter {
+        acc = Rel::Or(Arc::new(acc), Arc::new(rel));
+    }
+    acc
+}
 
-    // Create a simple identity rule: $0 -> $0
+/// Benchmark a single step on a trivial Atom.
+fn bench_step_atom(c: &mut Criterion) {
+    let (terms, _symbols) = setup_stores();
     let v0 = terms.var(0);
     let nf = NF::factor(v0, v0, (), &terms);
-    let rule_id = rules.add(nf.clone());
-    let goal_id = goals.rule(rule_id);
+    let rel = Rel::Atom(Arc::new(nf));
+    let env = Env::new();
+    let tables = Tables::new();
+    let node = rel_to_node(&rel, &env, &tables);
 
-    // Input: identity NF
-    let input = NF::factor(v0, v0, (), &terms);
-
-    c.bench_function("step_rule", |b| {
+    c.bench_function("step_atom", |b| {
         b.iter(|| {
-            let mut task = Task::new(0, goal_id, input.clone());
-            let mut ctx = EvalCtx {
-                goals: &goals,
-                rules: &rules,
-                terms: &terms,
-            };
-            step(black_box(&mut task), black_box(&mut ctx))
+            let step = step_node(node.clone(), &terms);
+            black_box(step)
         });
     });
 }
 
-/// Benchmark the step function with Alt goals of varying branch counts.
-fn bench_step_alt(c: &mut Criterion) {
-    let mut group = c.benchmark_group("step_alt");
+/// Benchmark a single step on Or nodes of varying branch counts.
+fn bench_step_or(c: &mut Criterion) {
+    let mut group = c.benchmark_group("step_or");
 
     for branches in [2, 4, 8] {
         group.bench_with_input(
             BenchmarkId::new("branches", branches),
             &branches,
             |b, &branches| {
-                let (mut goals, mut rules, terms, _symbols) = setup_stores();
-
-                // Create multiple identity rules
+                let (terms, _symbols) = setup_stores();
                 let v0 = terms.var(0);
                 let nf = NF::factor(v0, v0, (), &terms);
 
-                let rule_goals: smallvec::SmallVec<[u32; 8]> = (0..branches)
-                    .map(|_| {
-                        let rule_id = rules.add(nf.clone());
-                        goals.rule(rule_id)
-                    })
+                let rels: Vec<_> = (0..branches)
+                    .map(|_| Rel::Atom(Arc::new(nf.clone())))
                     .collect();
-
-                let alt_goal = goals.alt(rule_goals);
-                let input = NF::factor(v0, v0, (), &terms);
+                let rel = or_tree(rels);
+                let env = Env::new();
+                let tables = Tables::new();
+                let node = rel_to_node(&rel, &env, &tables);
 
                 b.iter(|| {
-                    let mut task = Task::new(0, alt_goal, input.clone());
-                    let mut ctx = EvalCtx {
-                        goals: &goals,
-                        rules: &rules,
-                        terms: &terms,
-                    };
-                    step(black_box(&mut task), black_box(&mut ctx))
+                    let step = step_node(node.clone(), &terms);
+                    black_box(step)
                 });
             },
         );
@@ -104,42 +93,33 @@ fn bench_step_alt(c: &mut Criterion) {
     group.finish();
 }
 
-/// Benchmark backtracking with varying continuation stack depths.
-fn bench_backtrack(c: &mut Criterion) {
-    use rwlog::task::Kont;
-
-    let mut group = c.benchmark_group("backtrack");
+/// Benchmark advancing through Or rotation for different depths.
+fn bench_or_rotation(c: &mut Criterion) {
+    let mut group = c.benchmark_group("or_rotation");
 
     for depth in [2, 5, 10] {
         group.bench_with_input(BenchmarkId::new("depth", depth), &depth, |b, &depth| {
-            let (mut goals, mut rules, terms, _symbols) = setup_stores();
-
-            // Create a simple goal
+            let (terms, _symbols) = setup_stores();
             let v0 = terms.var(0);
             let nf = NF::factor(v0, v0, (), &terms);
-            let rule_id = rules.add(nf.clone());
-            let goal_id = goals.rule(rule_id);
-
-            let input = NF::factor(v0, v0, (), &terms);
+            let rels: Vec<_> = (0..depth)
+                .map(|_| Rel::Atom(Arc::new(nf.clone())))
+                .collect();
+            let rel = or_tree(rels);
+            let env = Env::new();
+            let tables = Tables::new();
+            let base = rel_to_node(&rel, &env, &tables);
 
             b.iter(|| {
-                let mut task = Task::new(0, goal_id, input.clone());
-
-                // Push continuations to simulate depth
+                let mut node = base.clone();
                 for _ in 0..depth {
-                    task.push_kont(Kont::AltNext {
-                        alts: smallvec![goal_id],
-                        input: input.clone(),
-                    });
+                    let current = std::mem::replace(&mut node, Node::Fail);
+                    match step_node(current, &terms) {
+                        NodeStep::Emit(_, rest) | NodeStep::Continue(rest) => node = rest,
+                        NodeStep::Exhausted => break,
+                    }
                 }
-
-                let mut ctx = EvalCtx {
-                    goals: &goals,
-                    rules: &rules,
-                    terms: &terms,
-                };
-
-                backtrack(black_box(&mut task), black_box(&mut ctx))
+                black_box(node)
             });
         });
     }
@@ -147,16 +127,13 @@ fn bench_backtrack(c: &mut Criterion) {
     group.finish();
 }
 
-/// Benchmark Peano addition for varying input sizes.
+/// Benchmark Peano NF factoring for varying input sizes.
 fn bench_peano_add(c: &mut Criterion) {
-    // This benchmark requires the full addition relation to be set up
-    // For now, we'll benchmark the composition operation directly
-
-    let mut group = c.benchmark_group("peano_add");
+    let mut group = c.benchmark_group("peano_factor");
 
     for n in [1, 3, 5] {
         group.bench_with_input(BenchmarkId::new("n", n), &n, |b, &n| {
-            let (_goals, _rules, terms, symbols) = setup_stores();
+            let (terms, symbols) = setup_stores();
 
             let z = symbols.intern("z");
             let s = symbols.intern("s");
@@ -166,14 +143,9 @@ fn bench_peano_add(c: &mut Criterion) {
             let num = build_peano(n, z, s, &terms);
             let input_term = terms.app2(cons, num, num);
 
-            // Create an NF from this
             let v0 = terms.var(0);
-            let _input_nf = NF::factor(input_term, v0, (), &terms);
 
-            b.iter(|| {
-                // Benchmark NF creation (factoring)
-                black_box(NF::factor(input_term, v0, (), &terms))
-            });
+            b.iter(|| black_box(NF::factor(input_term, v0, (), &terms)));
         });
     }
 
@@ -182,9 +154,9 @@ fn bench_peano_add(c: &mut Criterion) {
 
 criterion_group!(
     benches,
-    bench_step_rule,
-    bench_step_alt,
-    bench_backtrack,
+    bench_step_atom,
+    bench_step_or,
+    bench_or_rotation,
     bench_peano_add
 );
 criterion_main!(benches);

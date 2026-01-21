@@ -50,7 +50,7 @@ pub fn dual_drop_fresh<C: Clone>(drop_fresh: &DropFresh<C>) -> DropFresh<C> {
 /// Properties:
 /// - dual(dual(nf)) == nf (involution)
 /// - If nf represents relation R, dual(nf) represents the converse R^(-1)
-pub fn dual_nf<C: ConstraintOps>(nf: &NF<C>, terms: &mut TermStore) -> NF<C> {
+pub fn dual_nf<C: ConstraintOps>(nf: &NF<C>, terms: &TermStore) -> NF<C> {
     let direct = collect_tensor(nf, terms);
     factor_tensor(direct.rhs, direct.lhs, direct.constraint, terms)
 }
@@ -384,8 +384,8 @@ mod tests {
     fn dual_nf_empty_identity() {
         // Empty identity NF is self-dual
         let nf: NF<()> = NF::identity(());
-        let mut terms = TermStore::new();
-        let dual = super::dual_nf(&nf, &mut terms);
+        let terms = TermStore::new();
+        let dual = super::dual_nf(&nf, &terms);
 
         assert!(dual.match_pats.is_empty());
         assert!(dual.build_pats.is_empty());
@@ -395,7 +395,7 @@ mod tests {
     #[test]
     fn dual_nf_swaps_patterns() {
         // Fundamental: dual swaps match_pats and build_pats
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let a = symbols.intern("A");
         let b = symbols.intern("B");
         let ta = terms.app0(a);
@@ -408,7 +408,7 @@ mod tests {
             SmallVec::from_slice(&[tb]),
         );
 
-        let dual = super::dual_nf(&nf, &mut terms);
+        let dual = super::dual_nf(&nf, &terms);
 
         // dual: B -> A
         assert_eq!(dual.match_pats.as_slice(), &[tb], "match should be B");
@@ -418,7 +418,7 @@ mod tests {
     #[test]
     fn dual_nf_involution() {
         // CRITICAL: dual(dual(nf)) == nf
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let a = symbols.intern("A");
         let b = symbols.intern("B");
         let ta = terms.app0(a);
@@ -430,8 +430,8 @@ mod tests {
             SmallVec::from_slice(&[tb]),
         );
 
-        let dual1 = super::dual_nf(&nf, &mut terms);
-        let dual2 = super::dual_nf(&dual1, &mut terms);
+        let dual1 = super::dual_nf(&nf, &terms);
+        let dual2 = super::dual_nf(&dual1, &terms);
 
         assert_eq!(dual2.match_pats, nf.match_pats);
         assert_eq!(dual2.build_pats, nf.build_pats);
@@ -443,7 +443,7 @@ mod tests {
     #[test]
     fn dual_nf_identity_is_self_dual() {
         // x -> x should be self-dual
-        let (_, mut terms) = setup();
+        let (_, terms) = setup();
         let v0 = terms.var(0);
 
         let nf: NF<()> = NF::new(
@@ -452,7 +452,7 @@ mod tests {
             SmallVec::from_slice(&[v0]),
         );
 
-        let dual = super::dual_nf(&nf, &mut terms);
+        let dual = super::dual_nf(&nf, &terms);
 
         assert_eq!(terms.is_var(dual.match_pats[0]), Some(0));
         assert_eq!(terms.is_var(dual.build_pats[0]), Some(0));
@@ -466,7 +466,7 @@ mod tests {
     #[test]
     fn dual_nf_dualizes_drop_fresh() {
         // DropFresh arities should swap when NF is dualized
-        let (_, mut terms) = setup();
+        let (_, terms) = setup();
         let v0 = terms.var(0);
         let v1 = terms.var(1);
 
@@ -482,7 +482,7 @@ mod tests {
             SmallVec::from_slice(&[v0]),
         );
 
-        let dual = super::dual_nf(&nf, &mut terms);
+        let dual = super::dual_nf(&nf, &terms);
 
         // Dual should have 1 input var, 2 output vars
         assert_eq!(dual.drop_fresh.in_arity, 1);
@@ -491,7 +491,7 @@ mod tests {
 
     #[test]
     fn dual_nf_with_complex_drop_fresh() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let f = symbols.intern("F");
         let g = symbols.intern("G");
         let v0 = terms.var(0);
@@ -512,7 +512,7 @@ mod tests {
             SmallVec::from_slice(&[g_term]),
         );
 
-        let dual = super::dual_nf(&nf, &mut terms);
+        let dual = super::dual_nf(&nf, &terms);
 
         // Dual: G(x) -> F(x,y) with DropFresh that maps x, adds fresh y
         assert_eq!(dual.match_pats[0], g_term);
@@ -528,7 +528,7 @@ mod tests {
     #[test]
     fn dual_nf_ground_patterns() {
         // No variables - DropFresh should be identity on 0
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let a = symbols.intern("A");
         let b = symbols.intern("B");
         let ta = terms.app0(a);
@@ -540,7 +540,7 @@ mod tests {
             SmallVec::from_slice(&[tb]),
         );
 
-        let dual = super::dual_nf(&nf, &mut terms);
+        let dual = super::dual_nf(&nf, &terms);
 
         assert_eq!(dual.match_pats[0], tb);
         assert_eq!(dual.build_pats[0], ta);
@@ -551,7 +551,7 @@ mod tests {
     #[test]
     fn dual_nf_empty_match_pats() {
         // Empty match (introduces fresh variables)
-        let (_, mut terms) = setup();
+        let (_, terms) = setup();
         let v0 = terms.var(0);
 
         let nf: NF<()> = NF::new(
@@ -565,7 +565,7 @@ mod tests {
             SmallVec::from_slice(&[v0]),
         );
 
-        let dual = super::dual_nf(&nf, &mut terms);
+        let dual = super::dual_nf(&nf, &terms);
 
         assert!(dual.match_pats.len() == 1);
         assert!(dual.build_pats.is_empty());
@@ -574,7 +574,7 @@ mod tests {
     #[test]
     fn dual_nf_empty_build_pats() {
         // Empty build (drops all variables)
-        let (_, mut terms) = setup();
+        let (_, terms) = setup();
         let v0 = terms.var(0);
 
         let nf: NF<()> = NF::new(
@@ -588,7 +588,7 @@ mod tests {
             SmallVec::new(),
         );
 
-        let dual = super::dual_nf(&nf, &mut terms);
+        let dual = super::dual_nf(&nf, &terms);
 
         assert!(dual.match_pats.is_empty());
         assert!(dual.build_pats.len() == 1);
@@ -597,7 +597,7 @@ mod tests {
     #[test]
     fn dual_nf_multiple_patterns() {
         // Multiple patterns in both match and build
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let a = symbols.intern("A");
         let b = symbols.intern("B");
         let c = symbols.intern("C");
@@ -611,7 +611,7 @@ mod tests {
             SmallVec::from_slice(&[tc]),
         );
 
-        let dual = super::dual_nf(&nf, &mut terms);
+        let dual = super::dual_nf(&nf, &terms);
 
         assert_eq!(dual.match_pats.len(), 1);
         assert_eq!(dual.build_pats.len(), 2);
@@ -622,7 +622,7 @@ mod tests {
     #[test]
     fn dual_nf_deeply_nested_terms() {
         // Deep nesting should work
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let f = symbols.intern("F");
         let v0 = terms.var(0);
 
@@ -638,7 +638,7 @@ mod tests {
             SmallVec::from_slice(&[v0]),
         );
 
-        let dual = super::dual_nf(&nf, &mut terms);
+        let dual = super::dual_nf(&nf, &terms);
 
         assert_eq!(dual.match_pats[0], v0);
         assert_eq!(dual.build_pats[0], f4);
@@ -651,7 +651,7 @@ mod tests {
     #[test]
     fn dual_reverses_composition_ground() {
         // dual(compose(a, b)) == compose(dual(b), dual(a)) for ground terms
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let a = symbols.intern("A");
         let b = symbols.intern("B");
         let c = symbols.intern("C");
@@ -673,15 +673,15 @@ mod tests {
         );
 
         // compose(a, b) = A -> C
-        let composed = compose_nf(&nf_a, &nf_b, &mut terms).expect("composition should succeed");
-        let dual_composed = super::dual_nf(&composed, &mut terms);
+        let composed = compose_nf(&nf_a, &nf_b, &terms).expect("composition should succeed");
+        let dual_composed = super::dual_nf(&composed, &terms);
 
         // dual(b) = C -> B, dual(a) = B -> A
         // compose(dual(b), dual(a)) = C -> A
-        let dual_b = super::dual_nf(&nf_b, &mut terms);
-        let dual_a = super::dual_nf(&nf_a, &mut terms);
+        let dual_b = super::dual_nf(&nf_b, &terms);
+        let dual_a = super::dual_nf(&nf_a, &terms);
         let composed_duals =
-            compose_nf(&dual_b, &dual_a, &mut terms).expect("composition should succeed");
+            compose_nf(&dual_b, &dual_a, &terms).expect("composition should succeed");
 
         assert_eq!(dual_composed.match_pats, composed_duals.match_pats);
         assert_eq!(dual_composed.build_pats, composed_duals.build_pats);
@@ -690,7 +690,7 @@ mod tests {
     #[test]
     fn dual_reverses_composition_with_vars() {
         // Same test but with variables
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let f = symbols.intern("F");
         let g = symbols.intern("G");
         let h = symbols.intern("H");
@@ -713,13 +713,13 @@ mod tests {
             SmallVec::from_slice(&[h_x]),
         );
 
-        let composed = compose_nf(&nf_a, &nf_b, &mut terms).expect("composition should succeed");
-        let dual_composed = super::dual_nf(&composed, &mut terms);
+        let composed = compose_nf(&nf_a, &nf_b, &terms).expect("composition should succeed");
+        let dual_composed = super::dual_nf(&composed, &terms);
 
-        let dual_b = super::dual_nf(&nf_b, &mut terms);
-        let dual_a = super::dual_nf(&nf_a, &mut terms);
+        let dual_b = super::dual_nf(&nf_b, &terms);
+        let dual_a = super::dual_nf(&nf_a, &terms);
         let composed_duals =
-            compose_nf(&dual_b, &dual_a, &mut terms).expect("composition should succeed");
+            compose_nf(&dual_b, &dual_a, &terms).expect("composition should succeed");
 
         // Both should be H(x) -> F(x)
         let (dc_match_f, _) = terms.is_app(dual_composed.match_pats[0]).unwrap();
@@ -736,7 +736,7 @@ mod tests {
     #[test]
     fn dual_reverses_peel_composition() {
         // Test from spec: B(A(x),y)->B(x,y) composed with itself
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let a = symbols.intern("A");
         let b = symbols.intern("B");
         let v0 = terms.var(0);
@@ -747,16 +747,16 @@ mod tests {
         let lhs = terms.app2(b, a_x, v1);
         let rhs = terms.app2(b, v0, v1);
 
-        let peel: NF<()> = NF::factor(lhs, rhs, (), &mut terms);
+        let peel: NF<()> = NF::factor(lhs, rhs, (), &terms);
 
         // compose(peel, peel)
-        let composed = compose_nf(&peel, &peel, &mut terms).expect("composition should succeed");
-        let dual_composed = super::dual_nf(&composed, &mut terms);
+        let composed = compose_nf(&peel, &peel, &terms).expect("composition should succeed");
+        let dual_composed = super::dual_nf(&composed, &terms);
 
         // compose(dual(peel), dual(peel))
-        let dual_peel = super::dual_nf(&peel, &mut terms);
+        let dual_peel = super::dual_nf(&peel, &terms);
         let composed_duals =
-            compose_nf(&dual_peel, &dual_peel, &mut terms).expect("composition should succeed");
+            compose_nf(&dual_peel, &dual_peel, &terms).expect("composition should succeed");
 
         // Verify structure matches
         assert_eq!(
@@ -776,7 +776,7 @@ mod tests {
     #[test]
     fn dual_nf_drops_become_fresh() {
         // NF that drops a variable becomes NF that introduces fresh variable
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let pair = symbols.intern("Pair");
         let fst = symbols.intern("Fst");
         let v0 = terms.var(0);
@@ -797,7 +797,7 @@ mod tests {
             SmallVec::from_slice(&[fst_x]),
         );
 
-        let dual = super::dual_nf(&nf, &mut terms);
+        let dual = super::dual_nf(&nf, &terms);
 
         // dual: Fst(x) -> Pair(x, y)  (introduces fresh y)
         assert_eq!(dual.match_pats[0], fst_x);
@@ -809,7 +809,7 @@ mod tests {
     #[test]
     fn dual_nf_fresh_become_drops() {
         // Inverse of above
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let unit = symbols.intern("Unit");
         let pair = symbols.intern("Pair");
         let v0 = terms.var(0);
@@ -830,7 +830,7 @@ mod tests {
             SmallVec::from_slice(&[pair_xy]),
         );
 
-        let dual = super::dual_nf(&nf, &mut terms);
+        let dual = super::dual_nf(&nf, &terms);
 
         // dual: Pair(x, y) -> Unit  (drops x, y)
         assert_eq!(dual.match_pats[0], pair_xy);

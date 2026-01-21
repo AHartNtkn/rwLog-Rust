@@ -172,7 +172,7 @@ impl<C: Clone> DropFresh<C> {
     /// Get the input position for a given output position, if mapped.
     pub fn backward(&self, output_pos: u32) -> Option<u32> {
         // Linear search since map is sorted by input, not output
-        // (Could optimize with a parallel sorted structure if needed)
+        // (Could optimize with a second index if needed)
         self.map
             .iter()
             .find(|&&(_, out)| out == output_pos)

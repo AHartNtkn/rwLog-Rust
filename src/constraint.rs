@@ -25,13 +25,13 @@ pub trait ConstraintOps: Clone + Eq + Hash + Default + Send + Sync {
     ///
     /// Returns the simplified constraint and any substitutions that
     /// were derived from the constraint.
-    fn normalize(&self, terms: &mut TermStore) -> Option<(Self, Option<Subst>)>;
+    fn normalize(&self, terms: &TermStore) -> Option<(Self, Option<Subst>)>;
 
     /// Apply a substitution to the constraint.
-    fn apply_subst(&self, subst: &Subst, terms: &mut TermStore) -> Self;
+    fn apply_subst(&self, subst: &Subst, terms: &TermStore) -> Self;
 
     /// Remap variable indices according to a renaming map.
-    fn remap_vars(&self, map: &[Option<u32>], terms: &mut TermStore) -> Self;
+    fn remap_vars(&self, map: &[Option<u32>], terms: &TermStore) -> Self;
 
     /// Collect variable indices referenced by this constraint.
     fn collect_vars(&self, _terms: &TermStore, _out: &mut Vec<u32>) {}
@@ -46,7 +46,7 @@ pub trait ConstraintOps: Clone + Eq + Hash + Default + Send + Sync {
 pub trait ConstraintDisplay {
     fn fmt_constraints(
         &self,
-        _terms: &mut TermStore,
+        _terms: &TermStore,
         _symbols: &SymbolStore,
     ) -> Result<Option<String>, String> {
         Ok(None)
@@ -63,13 +63,13 @@ impl ConstraintOps for () {
         Some(())
     }
 
-    fn normalize(&self, _terms: &mut TermStore) -> Option<(Self, Option<Subst>)> {
+    fn normalize(&self, _terms: &TermStore) -> Option<(Self, Option<Subst>)> {
         Some(((), None))
     }
 
-    fn apply_subst(&self, _subst: &Subst, _terms: &mut TermStore) -> Self {}
+    fn apply_subst(&self, _subst: &Subst, _terms: &TermStore) -> Self {}
 
-    fn remap_vars(&self, _map: &[Option<u32>], _terms: &mut TermStore) -> Self {}
+    fn remap_vars(&self, _map: &[Option<u32>], _terms: &TermStore) -> Self {}
 
     fn collect_vars(&self, _terms: &TermStore, _out: &mut Vec<u32>) {}
 
@@ -143,14 +143,14 @@ impl ConstraintOps for DiseqConstraint {
         Some(result)
     }
 
-    fn normalize(&self, _terms: &mut TermStore) -> Option<(Self, Option<Subst>)> {
+    fn normalize(&self, _terms: &TermStore) -> Option<(Self, Option<Subst>)> {
         if !self.is_satisfiable() {
             return None;
         }
         Some((self.clone(), None))
     }
 
-    fn apply_subst(&self, subst: &Subst, terms: &mut TermStore) -> Self {
+    fn apply_subst(&self, subst: &Subst, terms: &TermStore) -> Self {
         let mut out = self.clone();
         for diseq in out.constraints.iter_mut() {
             if let Some(bound) = subst.get(diseq.var) {
@@ -163,7 +163,7 @@ impl ConstraintOps for DiseqConstraint {
         out
     }
 
-    fn remap_vars(&self, map: &[Option<u32>], terms: &mut TermStore) -> Self {
+    fn remap_vars(&self, map: &[Option<u32>], terms: &TermStore) -> Self {
         let mut out = self.clone();
         for diseq in out.constraints.iter_mut() {
             if (diseq.var as usize) < map.len() {
@@ -271,7 +271,7 @@ impl ConstraintOps for TypeConstraints {
         Some(result)
     }
 
-    fn normalize(&self, _terms: &mut TermStore) -> Option<(Self, Option<Subst>)> {
+    fn normalize(&self, _terms: &TermStore) -> Option<(Self, Option<Subst>)> {
         if !self.is_satisfiable() {
             return None;
         }
@@ -283,7 +283,7 @@ impl ConstraintOps for TypeConstraints {
         Some((out, None))
     }
 
-    fn apply_subst(&self, subst: &Subst, terms: &mut TermStore) -> Self {
+    fn apply_subst(&self, subst: &Subst, terms: &TermStore) -> Self {
         let mut out = self.clone();
         for tc in out.constraints.iter_mut() {
             tc.term = crate::subst::apply_subst(tc.term, subst, terms);
@@ -291,7 +291,7 @@ impl ConstraintOps for TypeConstraints {
         out
     }
 
-    fn remap_vars(&self, map: &[Option<u32>], terms: &mut TermStore) -> Self {
+    fn remap_vars(&self, map: &[Option<u32>], terms: &TermStore) -> Self {
         let mut out = self.clone();
         for tc in out.constraints.iter_mut() {
             tc.term = apply_var_renaming(tc.term, map, terms);
@@ -364,20 +364,20 @@ impl ConstraintOps for CombinedConstraint {
         Some(Self { diseqs, types })
     }
 
-    fn normalize(&self, terms: &mut TermStore) -> Option<(Self, Option<Subst>)> {
+    fn normalize(&self, terms: &TermStore) -> Option<(Self, Option<Subst>)> {
         let (diseqs, _) = self.diseqs.normalize(terms)?;
         let (types, _) = self.types.normalize(terms)?;
         Some((Self { diseqs, types }, None))
     }
 
-    fn apply_subst(&self, subst: &Subst, terms: &mut TermStore) -> Self {
+    fn apply_subst(&self, subst: &Subst, terms: &TermStore) -> Self {
         Self {
             diseqs: self.diseqs.apply_subst(subst, terms),
             types: self.types.apply_subst(subst, terms),
         }
     }
 
-    fn remap_vars(&self, map: &[Option<u32>], terms: &mut TermStore) -> Self {
+    fn remap_vars(&self, map: &[Option<u32>], terms: &TermStore) -> Self {
         Self {
             diseqs: self.diseqs.remap_vars(map, terms),
             types: self.types.remap_vars(map, terms),
@@ -443,8 +443,8 @@ mod tests {
     #[test]
     fn unit_constraint_normalize() {
         let c: () = ();
-        let mut terms = TermStore::new();
-        let (normalized, subst) = c.normalize(&mut terms).unwrap();
+        let terms = TermStore::new();
+        let (normalized, subst) = c.normalize(&terms).unwrap();
         assert_eq!(normalized, ());
         assert!(subst.is_none());
     }
@@ -527,8 +527,8 @@ mod tests {
         let mut c = DiseqConstraint::new();
         c.add(0, t1);
 
-        let mut terms = TermStore::new();
-        let (normalized, subst) = c.normalize(&mut terms).unwrap();
+        let terms = TermStore::new();
+        let (normalized, subst) = c.normalize(&terms).unwrap();
         assert_eq!(normalized.len(), 1);
         assert!(subst.is_none());
     }
@@ -665,8 +665,8 @@ mod tests {
         let mut c = TypeConstraints::new();
         c.add(terms.var(0), 1);
 
-        let mut terms = terms;
-        let (normalized, subst) = c.normalize(&mut terms).unwrap();
+        let terms = terms;
+        let (normalized, subst) = c.normalize(&terms).unwrap();
         assert_eq!(normalized.len(), 1);
         assert!(subst.is_none());
     }
@@ -742,8 +742,8 @@ mod tests {
         c.add_diseq(0, t1);
         c.add_type(t0, 10);
 
-        let mut terms = TermStore::new();
-        let (normalized, subst) = c.normalize(&mut terms).unwrap();
+        let terms = TermStore::new();
+        let (normalized, subst) = c.normalize(&terms).unwrap();
         assert!(!normalized.is_empty());
         assert!(subst.is_none());
     }

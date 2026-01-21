@@ -80,7 +80,7 @@ impl Default for Subst {
 /// Variable chains are followed iteratively to avoid stack overflow on cycles.
 ///
 /// Uses explicit stack to avoid recursion.
-pub fn apply_subst(term: TermId, subst: &Subst, terms: &mut TermStore) -> TermId {
+pub fn apply_subst(term: TermId, subst: &Subst, terms: &TermStore) -> TermId {
     // Use a worklist to process terms depth-first
     // Stack contains (original term, children_processed)
     // Result stack collects processed terms
@@ -318,17 +318,17 @@ mod tests {
 
     #[test]
     fn apply_to_unbound_var_unchanged() {
-        let (_, mut terms) = setup();
+        let (_, terms) = setup();
         let v0 = terms.var(0);
         let subst = Subst::new();
 
-        let result = apply_subst(v0, &subst, &mut terms);
+        let result = apply_subst(v0, &subst, &terms);
         assert_eq!(result, v0);
     }
 
     #[test]
     fn apply_to_bound_var_replaces() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let nil = symbols.intern("Nil");
         let v0 = terms.var(0);
         let nil_term = terms.app0(nil);
@@ -336,13 +336,13 @@ mod tests {
         let mut subst = Subst::new();
         subst.bind(0, nil_term);
 
-        let result = apply_subst(v0, &subst, &mut terms);
+        let result = apply_subst(v0, &subst, &terms);
         assert_eq!(result, nil_term);
     }
 
     #[test]
     fn apply_to_ground_term_unchanged() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let zero = symbols.intern("Zero");
         let succ = symbols.intern("Succ");
         let n0 = terms.app0(zero);
@@ -351,13 +351,13 @@ mod tests {
         let mut subst = Subst::new();
         subst.bind(0, n0);
 
-        let result = apply_subst(n1, &subst, &mut terms);
+        let result = apply_subst(n1, &subst, &terms);
         assert_eq!(result, n1, "Ground term should be unchanged");
     }
 
     #[test]
     fn apply_replaces_in_nested_term() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let f = symbols.intern("F");
         let g = symbols.intern("G");
         let v0 = terms.var(0);
@@ -371,7 +371,7 @@ mod tests {
         let mut subst = Subst::new();
         subst.bind(0, g_y);
 
-        let result = apply_subst(term, &subst, &mut terms);
+        let result = apply_subst(term, &subst, &terms);
 
         // Should be F(G(y), G(y))
         let expected = terms.app2(f, g_y, g_y);
@@ -380,7 +380,7 @@ mod tests {
 
     #[test]
     fn apply_multiple_substitutions() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let pair = symbols.intern("Pair");
         let v0 = terms.var(0);
         let v1 = terms.var(1);
@@ -395,7 +395,7 @@ mod tests {
         subst.bind(0, v2);
         subst.bind(1, v3);
 
-        let result = apply_subst(term, &subst, &mut terms);
+        let result = apply_subst(term, &subst, &terms);
 
         // Should be Pair(z, w)
         let expected = terms.app2(pair, v2, v3);
@@ -404,7 +404,7 @@ mod tests {
 
     #[test]
     fn apply_deeply_nested() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let f = symbols.intern("F");
         let a = symbols.intern("A");
         let v0 = terms.var(0);
@@ -420,7 +420,7 @@ mod tests {
         let mut subst = Subst::new();
         subst.bind(0, a_term);
 
-        let result = apply_subst(f4, &subst, &mut terms);
+        let result = apply_subst(f4, &subst, &terms);
 
         // Should be F(F(F(F(A))))
         let e1 = terms.app1(f, a_term);
@@ -432,7 +432,7 @@ mod tests {
 
     #[test]
     fn apply_chain_of_vars() {
-        let (_, mut terms) = setup();
+        let (_, terms) = setup();
         let v0 = terms.var(0);
         let v1 = terms.var(1);
         let v2 = terms.var(2);
@@ -443,13 +443,13 @@ mod tests {
         subst.bind(1, v2);
 
         // Apply to var(0) should follow the chain: 0 -> 1 -> 2
-        let result = apply_subst(v0, &subst, &mut terms);
+        let result = apply_subst(v0, &subst, &terms);
         assert_eq!(result, v2, "Should follow chain of substitutions");
     }
 
     #[test]
     fn apply_to_wide_term() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let tuple = symbols.intern("Tuple");
         let a = symbols.intern("A");
         let v0 = terms.var(0);
@@ -467,7 +467,7 @@ mod tests {
         subst.bind(1, a_term);
         subst.bind(2, a_term);
 
-        let result = apply_subst(term, &subst, &mut terms);
+        let result = apply_subst(term, &subst, &terms);
 
         // Should be Tuple(A, A, A)
         let expected_children: SmallVec<[TermId; 4]> = smallvec::smallvec![a_term, a_term, a_term];
@@ -477,7 +477,7 @@ mod tests {
 
     #[test]
     fn apply_preserves_structure() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let cons = symbols.intern("Cons");
         let nil = symbols.intern("Nil");
         let v0 = terms.var(0);
@@ -491,7 +491,7 @@ mod tests {
         // Empty substitution
         let subst = Subst::new();
 
-        let result = apply_subst(term, &subst, &mut terms);
+        let result = apply_subst(term, &subst, &terms);
         assert_eq!(result, term, "Empty subst should preserve term exactly");
     }
 
@@ -499,33 +499,33 @@ mod tests {
 
     #[test]
     fn apply_subst_var_maps_to_itself() {
-        let (_, mut terms) = setup();
+        let (_, terms) = setup();
         let v0 = terms.var(0);
 
         // Substitute 0 -> 0 (identity)
         let mut subst = Subst::new();
         subst.bind(0, v0);
 
-        let result = apply_subst(v0, &subst, &mut terms);
+        let result = apply_subst(v0, &subst, &terms);
         assert_eq!(result, v0);
     }
 
     #[test]
     fn apply_nullary_app() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let zero = symbols.intern("Zero");
         let term = terms.app0(zero);
 
         let mut subst = Subst::new();
         subst.bind(0, terms.var(1));
 
-        let result = apply_subst(term, &subst, &mut terms);
+        let result = apply_subst(term, &subst, &terms);
         assert_eq!(result, term, "Nullary app unchanged");
     }
 
     #[test]
     fn apply_sparse_binding() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let f = symbols.intern("F");
         let a = symbols.intern("A");
         let v0 = terms.var(0);
@@ -539,7 +539,7 @@ mod tests {
         let mut subst = Subst::new();
         subst.bind(100, a_term);
 
-        let result = apply_subst(term, &subst, &mut terms);
+        let result = apply_subst(term, &subst, &terms);
 
         // Should be F(x0, A)
         let expected = terms.app2(f, v0, a_term);
@@ -550,7 +550,7 @@ mod tests {
 
     #[test]
     fn apply_uses_hashconsing() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let f = symbols.intern("F");
         let a = symbols.intern("A");
         let v0 = terms.var(0);
@@ -565,8 +565,8 @@ mod tests {
         let mut subst = Subst::new();
         subst.bind(0, a_term);
 
-        let result1 = apply_subst(term1, &subst, &mut terms);
-        let result2 = apply_subst(term2, &subst, &mut terms);
+        let result1 = apply_subst(term1, &subst, &terms);
+        let result2 = apply_subst(term2, &subst, &terms);
 
         // Results should also be same via hashconsing
         assert_eq!(result1, result2);

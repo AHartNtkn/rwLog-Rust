@@ -54,7 +54,7 @@ pub enum Rel<C> {
 /// - dual(Seq([x0..xn])) = Seq([dual(xn)..dual(x0)]) (REVERSE and dual)
 /// - dual(Fix(id, body)) = Fix(id, dual(body))
 /// - dual(Call(id)) = Call(id)
-pub fn dual<C: ConstraintOps>(rel: &Rel<C>, terms: &mut TermStore) -> Rel<C> {
+pub fn dual<C: ConstraintOps>(rel: &Rel<C>, terms: &TermStore) -> Rel<C> {
     match rel {
         Rel::Zero => Rel::Zero,
 
@@ -92,7 +92,7 @@ mod tests {
     use smallvec::SmallVec;
     use std::sync::Arc;
 
-    fn dual<C: ConstraintOps>(rel: &Rel<C>, terms: &mut TermStore) -> Rel<C> {
+    fn dual<C: ConstraintOps>(rel: &Rel<C>, terms: &TermStore) -> Rel<C> {
         super::dual(rel, terms)
     }
 
@@ -161,17 +161,17 @@ mod tests {
     #[test]
     fn dual_zero_is_zero() {
         let r: Rel<()> = Rel::Zero;
-        let mut terms = TermStore::new();
-        let d = dual(&r, &mut terms);
+        let terms = TermStore::new();
+        let d = dual(&r, &terms);
         assert!(matches!(d, Rel::Zero));
     }
 
     #[test]
     fn dual_dual_zero_equals_zero() {
         let r: Rel<()> = Rel::Zero;
-        let mut terms = TermStore::new();
-        let d1 = dual(&r, &mut terms);
-        let d2 = dual(&d1, &mut terms);
+        let terms = TermStore::new();
+        let d1 = dual(&r, &terms);
+        let d2 = dual(&d1, &terms);
         assert!(matches!(d2, Rel::Zero));
     }
 
@@ -181,10 +181,10 @@ mod tests {
 
     #[test]
     fn dual_atom_duals_inner_nf() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let nf = make_rule_nf("A", "B", &symbols, &terms);
         let r = Rel::Atom(Arc::new(nf.clone()));
-        let d = dual(&r, &mut terms);
+        let d = dual(&r, &terms);
 
         match d {
             Rel::Atom(dualed_nf) => {
@@ -199,10 +199,10 @@ mod tests {
 
     #[test]
     fn dual_atom_with_vars_duals_correctly() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let nf = make_var_nf(&symbols, &terms);
         let r = Rel::Atom(Arc::new(nf.clone()));
-        let d = dual(&r, &mut terms);
+        let d = dual(&r, &terms);
 
         match d {
             Rel::Atom(dualed_nf) => {
@@ -219,11 +219,11 @@ mod tests {
 
     #[test]
     fn dual_dual_atom_equals_original() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let nf = make_var_nf(&symbols, &terms);
         let r = Rel::Atom(Arc::new(nf.clone()));
-        let d1 = dual(&r, &mut terms);
-        let d2 = dual(&d1, &mut terms);
+        let d1 = dual(&r, &terms);
+        let d2 = dual(&d1, &terms);
 
         assert!(
             structurally_equal(&r, &d2),
@@ -240,21 +240,21 @@ mod tests {
         let a: Arc<Rel<()>> = Arc::new(Rel::Zero);
         let b: Arc<Rel<()>> = Arc::new(Rel::Zero);
         let r = Rel::Or(a, b);
-        let mut terms = TermStore::new();
-        let d = dual(&r, &mut terms);
+        let terms = TermStore::new();
+        let d = dual(&r, &terms);
         assert!(matches!(d, Rel::Or(_, _)));
     }
 
     #[test]
     fn dual_or_duals_both_children() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let nf_a = make_rule_nf("A", "B", &symbols, &terms);
         let nf_b = make_var_nf(&symbols, &terms);
 
         let a = Arc::new(Rel::Atom(Arc::new(nf_a)));
         let b = Arc::new(Rel::Atom(Arc::new(nf_b)));
         let r = Rel::Or(a, b);
-        let d = dual(&r, &mut terms);
+        let d = dual(&r, &terms);
 
         match d {
             Rel::Or(da, db) => {
@@ -268,11 +268,11 @@ mod tests {
 
     #[test]
     fn dual_or_does_not_swap_children() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let a = Arc::new(make_labeled_atom("Left", &symbols, &terms));
         let b = Arc::new(make_labeled_atom("Right", &symbols, &terms));
         let r = Rel::Or(a, b);
-        let d = dual(&r, &mut terms);
+        let d = dual(&r, &terms);
 
         match d {
             Rel::Or(da, db) => {
@@ -280,8 +280,8 @@ mod tests {
                 // (Or does NOT swap, unlike Seq which reverses)
                 let expected_left = make_labeled_atom("Left", &symbols, &terms);
                 let expected_right = make_labeled_atom("Right", &symbols, &terms);
-                let dual_left = dual(da.as_ref(), &mut terms);
-                let dual_right = dual(db.as_ref(), &mut terms);
+                let dual_left = dual(da.as_ref(), &terms);
+                let dual_right = dual(db.as_ref(), &terms);
                 assert!(
                     structurally_equal(&dual_left, &expected_left),
                     "Left child should remain left"
@@ -300,9 +300,9 @@ mod tests {
         let a: Arc<Rel<()>> = Arc::new(Rel::Zero);
         let b: Arc<Rel<()>> = Arc::new(Rel::Zero);
         let r = Rel::Or(a, b);
-        let mut terms = TermStore::new();
-        let d1 = dual(&r, &mut terms);
-        let d2 = dual(&d1, &mut terms);
+        let terms = TermStore::new();
+        let d1 = dual(&r, &terms);
+        let d2 = dual(&d1, &terms);
         assert!(structurally_equal(&r, &d2));
     }
 
@@ -315,21 +315,21 @@ mod tests {
         let a: Arc<Rel<()>> = Arc::new(Rel::Zero);
         let b: Arc<Rel<()>> = Arc::new(Rel::Zero);
         let r = Rel::And(a, b);
-        let mut terms = TermStore::new();
-        let d = dual(&r, &mut terms);
+        let terms = TermStore::new();
+        let d = dual(&r, &terms);
         assert!(matches!(d, Rel::And(_, _)));
     }
 
     #[test]
     fn dual_and_duals_both_children() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let nf_a = make_rule_nf("A", "B", &symbols, &terms);
         let nf_b = make_var_nf(&symbols, &terms);
 
         let a = Arc::new(Rel::Atom(Arc::new(nf_a)));
         let b = Arc::new(Rel::Atom(Arc::new(nf_b)));
         let r = Rel::And(a, b);
-        let d = dual(&r, &mut terms);
+        let d = dual(&r, &terms);
 
         match d {
             Rel::And(da, db) => {
@@ -342,18 +342,18 @@ mod tests {
 
     #[test]
     fn dual_and_does_not_swap_children() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let a = Arc::new(make_labeled_atom("First", &symbols, &terms));
         let b = Arc::new(make_labeled_atom("Second", &symbols, &terms));
         let r = Rel::And(a, b);
-        let d = dual(&r, &mut terms);
+        let d = dual(&r, &terms);
 
         match d {
             Rel::And(da, db) => {
                 let expected_first = make_labeled_atom("First", &symbols, &terms);
                 let expected_second = make_labeled_atom("Second", &symbols, &terms);
-                let dual_first = dual(da.as_ref(), &mut terms);
-                let dual_second = dual(db.as_ref(), &mut terms);
+                let dual_first = dual(da.as_ref(), &terms);
+                let dual_second = dual(db.as_ref(), &terms);
                 assert!(
                     structurally_equal(&dual_first, &expected_first),
                     "First child should remain first"
@@ -372,9 +372,9 @@ mod tests {
         let a: Arc<Rel<()>> = Arc::new(Rel::Zero);
         let b: Arc<Rel<()>> = Arc::new(Rel::Zero);
         let r = Rel::And(a, b);
-        let mut terms = TermStore::new();
-        let d1 = dual(&r, &mut terms);
-        let d2 = dual(&d1, &mut terms);
+        let terms = TermStore::new();
+        let d1 = dual(&r, &terms);
+        let d2 = dual(&d1, &terms);
         assert!(structurally_equal(&r, &d2));
     }
 
@@ -385,8 +385,8 @@ mod tests {
     #[test]
     fn dual_seq_empty() {
         let r: Rel<()> = Rel::Seq(Arc::from(Vec::<Arc<Rel<()>>>::new()));
-        let mut terms = TermStore::new();
-        let d = dual(&r, &mut terms);
+        let terms = TermStore::new();
+        let d = dual(&r, &terms);
         match d {
             Rel::Seq(xs) => assert!(xs.is_empty(), "Empty Seq should remain empty"),
             _ => panic!("Expected Seq variant"),
@@ -397,8 +397,8 @@ mod tests {
     fn dual_seq_single_element() {
         let x: Arc<Rel<()>> = Arc::new(Rel::Zero);
         let r = Rel::Seq(Arc::from(vec![x]));
-        let mut terms = TermStore::new();
-        let d = dual(&r, &mut terms);
+        let terms = TermStore::new();
+        let d = dual(&r, &terms);
         match d {
             Rel::Seq(xs) => {
                 assert_eq!(xs.len(), 1);
@@ -410,19 +410,19 @@ mod tests {
 
     #[test]
     fn dual_seq_two_elements_reverses() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let a = Arc::new(make_labeled_atom("A", &symbols, &terms));
         let b = Arc::new(make_labeled_atom("B", &symbols, &terms));
         let r = Rel::Seq(Arc::from(vec![a.clone(), b.clone()]));
-        let d = dual(&r, &mut terms);
+        let d = dual(&r, &terms);
 
         match d {
             Rel::Seq(xs) => {
                 assert_eq!(xs.len(), 2);
                 // Order should be reversed: [dual(B), dual(A)]
                 // After double-dual: [B, A]
-                let dual_first = dual(xs[0].as_ref(), &mut terms);
-                let dual_second = dual(xs[1].as_ref(), &mut terms);
+                let dual_first = dual(xs[0].as_ref(), &terms);
+                let dual_second = dual(xs[1].as_ref(), &terms);
 
                 // The original was [A, B], dual should be [dual(B), dual(A)]
                 // So dual(xs[0]) should equal B, dual(xs[1]) should equal A
@@ -441,21 +441,21 @@ mod tests {
 
     #[test]
     fn dual_seq_three_elements_reverses() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let a = Arc::new(make_labeled_atom("A", &symbols, &terms));
         let b = Arc::new(make_labeled_atom("B", &symbols, &terms));
         let c = Arc::new(make_labeled_atom("C", &symbols, &terms));
         let r = Rel::Seq(Arc::from(vec![a.clone(), b.clone(), c.clone()]));
-        let d = dual(&r, &mut terms);
+        let d = dual(&r, &terms);
 
         match d {
             Rel::Seq(xs) => {
                 assert_eq!(xs.len(), 3);
                 // Original: [A, B, C]
                 // Dual: [dual(C), dual(B), dual(A)]
-                let dual_0 = dual(xs[0].as_ref(), &mut terms);
-                let dual_1 = dual(xs[1].as_ref(), &mut terms);
-                let dual_2 = dual(xs[2].as_ref(), &mut terms);
+                let dual_0 = dual(xs[0].as_ref(), &terms);
+                let dual_1 = dual(xs[1].as_ref(), &terms);
+                let dual_2 = dual(xs[2].as_ref(), &terms);
 
                 assert!(structurally_equal(&dual_0, c.as_ref()));
                 assert!(structurally_equal(&dual_1, b.as_ref()));
@@ -469,8 +469,8 @@ mod tests {
     fn dual_seq_many_elements_reverses_all() {
         let elements: Vec<Arc<Rel<()>>> = (0..10).map(|_| Arc::new(Rel::Zero)).collect();
         let r = Rel::Seq(Arc::from(elements.clone()));
-        let mut terms = TermStore::new();
-        let d = dual(&r, &mut terms);
+        let terms = TermStore::new();
+        let d = dual(&r, &terms);
 
         match d {
             Rel::Seq(xs) => {
@@ -486,7 +486,7 @@ mod tests {
 
     #[test]
     fn dual_seq_nested_reverses_outer_and_duals_inner() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let a = Arc::new(make_labeled_atom("A", &symbols, &terms));
         let b = Arc::new(make_labeled_atom("B", &symbols, &terms));
         let c = Arc::new(make_labeled_atom("C", &symbols, &terms));
@@ -494,14 +494,14 @@ mod tests {
         // Seq([Seq([A, B]), C])
         let inner = Arc::new(Rel::Seq(Arc::from(vec![a.clone(), b.clone()])));
         let r = Rel::Seq(Arc::from(vec![inner, c.clone()]));
-        let d = dual(&r, &mut terms);
+        let d = dual(&r, &terms);
 
         match d {
             Rel::Seq(xs) => {
                 assert_eq!(xs.len(), 2);
                 // Outer reversed: [dual(C), dual(Seq([A,B]))]
                 // dual(Seq([A,B])) = Seq([dual(B), dual(A)])
-                let dual_0 = dual(xs[0].as_ref(), &mut terms);
+                let dual_0 = dual(xs[0].as_ref(), &terms);
                 assert!(
                     structurally_equal(&dual_0, c.as_ref()),
                     "First should be dual(C)"
@@ -511,8 +511,8 @@ mod tests {
                     Rel::Seq(inner_xs) => {
                         assert_eq!(inner_xs.len(), 2);
                         // Inner also reversed: [dual(B), dual(A)]
-                        let inner_0 = dual(inner_xs[0].as_ref(), &mut terms);
-                        let inner_1 = dual(inner_xs[1].as_ref(), &mut terms);
+                        let inner_0 = dual(inner_xs[0].as_ref(), &terms);
+                        let inner_1 = dual(inner_xs[1].as_ref(), &terms);
                         assert!(structurally_equal(&inner_0, b.as_ref()));
                         assert!(structurally_equal(&inner_1, a.as_ref()));
                     }
@@ -525,13 +525,13 @@ mod tests {
 
     #[test]
     fn dual_dual_seq_equals_original() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let a = Arc::new(make_labeled_atom("A", &symbols, &terms));
         let b = Arc::new(make_labeled_atom("B", &symbols, &terms));
         let c = Arc::new(make_labeled_atom("C", &symbols, &terms));
         let r = Rel::Seq(Arc::from(vec![a, b, c]));
-        let d1 = dual(&r, &mut terms);
-        let d2 = dual(&d1, &mut terms);
+        let d1 = dual(&r, &terms);
+        let d2 = dual(&d1, &terms);
         assert!(
             structurally_equal(&r, &d2),
             "dual(dual(seq)) should equal seq"
@@ -541,9 +541,9 @@ mod tests {
     #[test]
     fn dual_dual_seq_empty_equals_original() {
         let r: Rel<()> = Rel::Seq(Arc::from(Vec::<Arc<Rel<()>>>::new()));
-        let mut terms = TermStore::new();
-        let d1 = dual(&r, &mut terms);
-        let d2 = dual(&d1, &mut terms);
+        let terms = TermStore::new();
+        let d1 = dual(&r, &terms);
+        let d2 = dual(&d1, &terms);
         assert!(structurally_equal(&r, &d2));
     }
 
@@ -555,8 +555,8 @@ mod tests {
     fn dual_fix_preserves_id() {
         let body: Arc<Rel<()>> = Arc::new(Rel::Zero);
         let r = Rel::Fix(42, body);
-        let mut terms = TermStore::new();
-        let d = dual(&r, &mut terms);
+        let terms = TermStore::new();
+        let d = dual(&r, &terms);
 
         match d {
             Rel::Fix(id, _) => assert_eq!(id, 42, "Fix ID should be preserved"),
@@ -566,11 +566,11 @@ mod tests {
 
     #[test]
     fn dual_fix_duals_body() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let nf = make_rule_nf("A", "B", &symbols, &terms);
         let body = Arc::new(Rel::Atom(Arc::new(nf)));
         let r = Rel::Fix(7, body);
-        let d = dual(&r, &mut terms);
+        let d = dual(&r, &terms);
 
         match d {
             Rel::Fix(id, dualed_body) => {
@@ -590,8 +590,8 @@ mod tests {
         let seq = Arc::new(Rel::Seq(Arc::from(vec![call, step])));
         let or = Arc::new(Rel::Or(base, seq));
         let r = Rel::Fix(0, or);
-        let mut terms = TermStore::new();
-        let d = dual(&r, &mut terms);
+        let terms = TermStore::new();
+        let d = dual(&r, &terms);
 
         match d {
             Rel::Fix(id, body) => {
@@ -626,8 +626,8 @@ mod tests {
         let seq = Arc::new(Rel::Seq(Arc::from(vec![call0, call1])));
         let inner_fix = Arc::new(Rel::Fix(1, seq));
         let r = Rel::Fix(0, inner_fix);
-        let mut terms = TermStore::new();
-        let d = dual(&r, &mut terms);
+        let terms = TermStore::new();
+        let d = dual(&r, &terms);
 
         match d {
             Rel::Fix(id0, body0) => {
@@ -657,9 +657,9 @@ mod tests {
     fn dual_dual_fix_equals_original() {
         let body: Arc<Rel<()>> = Arc::new(Rel::Call(99));
         let r = Rel::Fix(99, body);
-        let mut terms = TermStore::new();
-        let d1 = dual(&r, &mut terms);
-        let d2 = dual(&d1, &mut terms);
+        let terms = TermStore::new();
+        let d1 = dual(&r, &terms);
+        let d2 = dual(&d1, &terms);
         assert!(structurally_equal(&r, &d2));
     }
 
@@ -670,33 +670,33 @@ mod tests {
     #[test]
     fn dual_call_unchanged() {
         let r: Rel<()> = Rel::Call(42);
-        let mut terms = TermStore::new();
-        let d = dual(&r, &mut terms);
+        let terms = TermStore::new();
+        let d = dual(&r, &terms);
         assert!(matches!(d, Rel::Call(42)));
     }
 
     #[test]
     fn dual_call_zero_id() {
         let r: Rel<()> = Rel::Call(0);
-        let mut terms = TermStore::new();
-        let d = dual(&r, &mut terms);
+        let terms = TermStore::new();
+        let d = dual(&r, &terms);
         assert!(matches!(d, Rel::Call(0)));
     }
 
     #[test]
     fn dual_call_max_id() {
         let r: Rel<()> = Rel::Call(RelId::MAX);
-        let mut terms = TermStore::new();
-        let d = dual(&r, &mut terms);
+        let terms = TermStore::new();
+        let d = dual(&r, &terms);
         assert!(matches!(d, Rel::Call(id) if id == RelId::MAX));
     }
 
     #[test]
     fn dual_dual_call_equals_original() {
         let r: Rel<()> = Rel::Call(123);
-        let mut terms = TermStore::new();
-        let d1 = dual(&r, &mut terms);
-        let d2 = dual(&d1, &mut terms);
+        let terms = TermStore::new();
+        let d1 = dual(&r, &terms);
+        let d2 = dual(&d1, &terms);
         assert!(structurally_equal(&r, &d2));
     }
 
@@ -706,7 +706,7 @@ mod tests {
 
     #[test]
     fn dual_is_involution_complex_tree() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let a = Arc::new(make_labeled_atom("A", &symbols, &terms));
         let b = Arc::new(make_labeled_atom("B", &symbols, &terms));
         let c = Arc::new(make_labeled_atom("C", &symbols, &terms));
@@ -718,8 +718,8 @@ mod tests {
         let seq_part = Arc::new(Rel::Seq(Arc::from(vec![c.clone(), fix])));
         let r = Rel::Or(and_part, seq_part);
 
-        let d1 = dual(&r, &mut terms);
-        let d2 = dual(&d1, &mut terms);
+        let d1 = dual(&r, &terms);
+        let d2 = dual(&d1, &terms);
 
         assert!(
             structurally_equal(&r, &d2),
@@ -729,7 +729,7 @@ mod tests {
 
     #[test]
     fn dual_is_involution_all_variants() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
 
         // Test each variant in isolation
         let cases: Vec<Rel<()>> = vec![
@@ -743,8 +743,8 @@ mod tests {
         ];
 
         for r in cases {
-            let d1 = dual(&r, &mut terms);
-            let d2 = dual(&d1, &mut terms);
+            let d1 = dual(&r, &terms);
+            let d2 = dual(&d1, &terms);
             assert!(structurally_equal(&r, &d2), "Involution failed for variant");
         }
     }
@@ -757,8 +757,8 @@ mod tests {
     fn dual_with_shared_arc_both_or_children() {
         let shared: Arc<Rel<()>> = Arc::new(Rel::Zero);
         let r = Rel::Or(Arc::clone(&shared), Arc::clone(&shared));
-        let mut terms = TermStore::new();
-        let d = dual(&r, &mut terms);
+        let terms = TermStore::new();
+        let d = dual(&r, &terms);
         // Should not panic, result should be valid
         assert!(matches!(d, Rel::Or(_, _)));
     }
@@ -771,8 +771,8 @@ mod tests {
             Arc::clone(&shared),
             Arc::clone(&shared),
         ]));
-        let mut terms = TermStore::new();
-        let d = dual(&r, &mut terms);
+        let terms = TermStore::new();
+        let d = dual(&r, &terms);
         match d {
             Rel::Seq(xs) => assert_eq!(xs.len(), 3),
             _ => panic!("Expected Seq"),
@@ -789,8 +789,8 @@ mod tests {
         for _ in 0..100 {
             r = Rel::Or(Arc::new(r), Arc::new(Rel::Zero));
         }
-        let mut terms = TermStore::new();
-        let d = dual(&r, &mut terms);
+        let terms = TermStore::new();
+        let d = dual(&r, &terms);
         // Should complete without stack overflow
         assert!(matches!(d, Rel::Or(_, _)));
     }
@@ -801,8 +801,8 @@ mod tests {
         for _ in 0..100 {
             r = Rel::Seq(Arc::from(vec![Arc::new(r), Arc::new(Rel::Zero)]));
         }
-        let mut terms = TermStore::new();
-        let d = dual(&r, &mut terms);
+        let terms = TermStore::new();
+        let d = dual(&r, &terms);
         assert!(matches!(d, Rel::Seq(_)));
     }
 
@@ -812,8 +812,8 @@ mod tests {
         for i in 0..50 {
             r = Rel::Fix(i, Arc::new(r));
         }
-        let mut terms = TermStore::new();
-        let d = dual(&r, &mut terms);
+        let terms = TermStore::new();
+        let d = dual(&r, &terms);
         assert!(matches!(d, Rel::Fix(49, _)));
     }
 
@@ -821,8 +821,8 @@ mod tests {
     fn dual_wide_seq() {
         let elements: Vec<Arc<Rel<()>>> = (0..1000).map(|_| Arc::new(Rel::Zero)).collect();
         let r = Rel::Seq(Arc::from(elements));
-        let mut terms = TermStore::new();
-        let d = dual(&r, &mut terms);
+        let terms = TermStore::new();
+        let d = dual(&r, &terms);
         match d {
             Rel::Seq(xs) => assert_eq!(xs.len(), 1000),
             _ => panic!("Expected Seq"),

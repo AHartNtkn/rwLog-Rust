@@ -41,7 +41,7 @@ pub enum NodeStep<C: ConstraintOps> {
 }
 
 /// Step a node once using Or rotation and Work stepping.
-pub fn step_node<C: ConstraintOps>(node: Node<C>, terms: &mut TermStore) -> NodeStep<C> {
+pub fn step_node<C: ConstraintOps>(node: Node<C>, terms: &TermStore) -> NodeStep<C> {
     match node {
         Node::Fail => NodeStep::Exhausted,
 

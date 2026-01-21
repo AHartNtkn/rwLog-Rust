@@ -1,18 +1,26 @@
 //! Engine - Top-level evaluation loop for relational queries.
 //!
 //! The Engine orchestrates the search through a Rel tree by:
-//! 1. Converting Rel to initial Node tree
-//! 2. Stepping through the Node tree using Or rotation
+//! 1. Converting Rel to an initial Node tree
+//! 2. Running a work-stealing scheduler with Or rotation
 //! 3. Yielding NF answers via next()
 
 use crate::constraint::ConstraintDisplay;
 use crate::constraint::ConstraintOps;
 use crate::nf::{format_nf, NF};
-use crate::node::{step_node, Node, NodeStep};
+use crate::node::Node;
+use crate::queue::{AnswerQueue, AnswerReceiver, AnswerSink, RecvResult, WakeHub};
 use crate::rel::Rel;
+use crate::scheduler::Scheduler;
 use crate::symbol::SymbolStore;
+use crate::task::{SearchTask, Task};
 use crate::term::TermStore;
 use crate::work::{rel_to_node, Env, Tables};
+use crossbeam_channel::Receiver as WakeReceiver;
+use std::collections::HashSet;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+use std::thread::JoinHandle;
 
 /// Result of a single step in the Engine.
 #[derive(Clone, Debug)]
@@ -25,60 +33,118 @@ pub enum StepResult<C: ConstraintOps> {
     Continue,
 }
 
+/// Engine configuration for the scheduler.
+#[derive(Clone, Debug)]
+pub struct EngineConfig {
+    pub workers: usize,
+    pub budget: usize,
+    pub queue_bound: usize,
+}
+
+impl Default for EngineConfig {
+    fn default() -> Self {
+        let workers = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(1);
+        let workers = if cfg!(test) { 1 } else { workers };
+        let budget = if cfg!(test) { 64 } else { 32 };
+        Self {
+            workers,
+            budget,
+            queue_bound: 64,
+        }
+    }
+}
+
 /// Evaluation engine for relational queries.
 ///
 /// Converts a Rel expression into a stream of NF answers using
-/// Or rotation interleaving and Work stepping.
+/// Or rotation interleaving and scheduled work-stealing.
 pub struct Engine<C: ConstraintOps> {
-    /// Root of the search tree
-    root: Node<C>,
-    /// Term store for creating/looking up terms
-    terms: TermStore,
+    root: Option<Node<C>>,
+    terms: Arc<TermStore>,
+    config: EngineConfig,
+    receiver: Option<AnswerReceiver<C>>,
+    pending: Option<NF<C>>,
+    driver: Option<JoinHandle<()>>,
+    cancelled: Arc<AtomicBool>,
+    exhausted: bool,
+    wake_hub: Arc<WakeHub>,
+    wake_rx: Option<WakeReceiver<u64>>,
 }
 
 impl<C: ConstraintOps> Engine<C> {
-    /// Create a new Engine from a Rel expression.
-    pub fn new(rel: Rel<C>, terms: TermStore) -> Self {
-        Self::new_with_env(rel, terms, Env::new())
-    }
-
-    /// Create a new Engine with an explicit environment.
-    pub fn new_with_env(rel: Rel<C>, terms: TermStore, env: Env<C>) -> Self {
-        let tables = Tables::new();
-        let root = rel_to_node(&rel, &env, &tables);
-        Self { root, terms }
-    }
-
-    pub fn format_nf(&mut self, nf: &NF<C>, symbols: &SymbolStore) -> Result<String, String>
+    pub fn format_nf(&self, nf: &NF<C>, symbols: &SymbolStore) -> Result<String, String>
     where
         C: ConstraintDisplay,
     {
-        format_nf(nf, &mut self.terms, symbols)
+        format_nf(nf, &self.terms, symbols)
     }
 
-    /// Take a single step in the evaluation.
-    fn step(&mut self) -> StepResult<C> {
-        // Take ownership of root, step it, and update root with result
-        let current = std::mem::replace(&mut self.root, Node::Fail);
-        match step_node(current, &mut self.terms) {
-            NodeStep::Emit(nf, rest) => {
-                self.root = rest;
-                StepResult::Emit(nf)
-            }
-            NodeStep::Continue(rest) => {
-                self.root = rest;
-                StepResult::Continue
-            }
-            NodeStep::Exhausted => {
-                self.root = Node::Fail;
-                StepResult::Exhausted
-            }
+    fn join_driver(&mut self) {
+        if let Some(handle) = self.driver.take() {
+            let _ = handle.join();
         }
+        self.receiver = None;
+        self.pending = None;
+        self.exhausted = true;
+    }
+
+    fn cancel_and_join(&mut self) {
+        if self.driver.is_some() {
+            self.cancelled.store(true, Ordering::Release);
+        }
+        if let Some(handle) = self.driver.take() {
+            let _ = handle.join();
+        }
+        self.receiver = None;
+        self.pending = None;
+        self.exhausted = true;
     }
 
     /// Check if the engine is exhausted.
-    pub fn is_exhausted(&self) -> bool {
-        matches!(self.root, Node::Fail)
+    pub fn is_exhausted(&mut self) -> bool {
+        if self.exhausted {
+            return true;
+        }
+
+        if self.pending.is_some() {
+            return false;
+        }
+
+        let status = match self.receiver.as_ref() {
+            Some(receiver) => receiver.try_recv(),
+            None => return self.exhausted,
+        };
+
+        match status {
+            RecvResult::Item(nf) => {
+                self.pending = Some(nf);
+                return false;
+            }
+            RecvResult::Closed => {
+                self.join_driver();
+                return true;
+            }
+            RecvResult::Empty => {}
+        }
+
+        let receiver = match self.receiver.as_ref() {
+            Some(receiver) => receiver,
+            None => return self.exhausted,
+        };
+
+        match receiver.recv_timeout(std::time::Duration::from_millis(1)) {
+            RecvResult::Item(nf) => {
+                self.pending = Some(nf);
+                false
+            }
+            RecvResult::Closed => {
+                self.join_driver();
+                true
+            }
+            RecvResult::Empty => false,
+        }
     }
 
     /// Get reference to the term store.
@@ -88,12 +154,132 @@ impl<C: ConstraintOps> Engine<C> {
 
     /// Get mutable reference to the term store.
     pub fn terms_mut(&mut self) -> &mut TermStore {
-        &mut self.terms
+        if self.driver.is_some() {
+            panic!("cannot mutably access terms while evaluation is running");
+        }
+        Arc::get_mut(&mut self.terms).expect("term store is still shared with active workers")
     }
 
     /// Consume the engine and return the term store.
-    pub fn into_terms(self) -> TermStore {
-        self.terms
+    pub fn into_terms(mut self) -> TermStore {
+        self.cancel_and_join();
+        let terms = std::mem::take(&mut self.terms);
+        Arc::try_unwrap(terms)
+            .unwrap_or_else(|_| panic!("engine still holds shared term store references"))
+    }
+}
+
+impl<C: ConstraintOps + 'static> Engine<C> {
+    /// Create a new Engine from a Rel expression.
+    pub fn new(rel: Rel<C>, terms: TermStore) -> Self {
+        Self::with_env_and_config(rel, terms, Env::new(), EngineConfig::default())
+    }
+
+    /// Create a new Engine from a Rel expression and config.
+    pub fn with_config(rel: Rel<C>, terms: TermStore, config: EngineConfig) -> Self {
+        Self::with_env_and_config(rel, terms, Env::new(), config)
+    }
+
+    /// Create a new Engine with an explicit environment.
+    pub fn new_with_env(rel: Rel<C>, terms: TermStore, env: Env<C>) -> Self {
+        Self::with_env_and_config(rel, terms, env, EngineConfig::default())
+    }
+
+    /// Create a new Engine with environment and config.
+    pub fn with_env_and_config(
+        rel: Rel<C>,
+        terms: TermStore,
+        env: Env<C>,
+        config: EngineConfig,
+    ) -> Self {
+        let (wake_hub, wake_rx) = WakeHub::new();
+        let tables = Tables::with_queue_bound_and_waker(config.queue_bound, wake_hub.clone());
+        let root = rel_to_node(&rel, &env, &tables);
+        let exhausted = matches!(root, Node::Fail);
+        Self {
+            root: Some(root),
+            terms: Arc::new(terms),
+            config,
+            receiver: None,
+            pending: None,
+            driver: None,
+            cancelled: Arc::new(AtomicBool::new(false)),
+            exhausted,
+            wake_hub,
+            wake_rx: Some(wake_rx),
+        }
+    }
+
+    fn start_if_needed(&mut self) {
+        if self.receiver.is_some() || self.root.is_none() {
+            return;
+        }
+
+        let root = self.root.take().expect("root should be present");
+        if matches!(root, Node::Fail) {
+            self.exhausted = true;
+            return;
+        }
+
+        let (tx, rx) =
+            AnswerQueue::bounded_with_waker::<C>(self.config.queue_bound, self.wake_hub.waker());
+        let sink = AnswerSink::DedupQueue {
+            sender: tx,
+            seen: Arc::new(Mutex::new(HashSet::new())),
+        };
+        let task = Task::Search(SearchTask::new(root, sink));
+
+        let wake_rx = self.wake_rx.take().expect("wake receiver already consumed");
+        let scheduler: Scheduler<C> = Scheduler::new(
+            self.terms.clone(),
+            self.config.workers,
+            self.config.budget,
+            self.config.queue_bound,
+            self.cancelled.clone(),
+            self.wake_hub.clone(),
+            wake_rx,
+        );
+
+        let handle = std::thread::spawn(move || {
+            scheduler.run(vec![task]);
+        });
+
+        self.receiver = Some(rx);
+        self.driver = Some(handle);
+    }
+
+    /// Take a single step in the evaluation.
+    fn step(&mut self) -> StepResult<C> {
+        if let Some(nf) = self.pending.take() {
+            return StepResult::Emit(nf);
+        }
+
+        self.start_if_needed();
+        let receiver = match self.receiver.as_ref() {
+            Some(receiver) => receiver,
+            None => return StepResult::Exhausted,
+        };
+
+        let wait = std::time::Duration::from_micros(100);
+        match receiver.recv_timeout(wait) {
+            RecvResult::Item(nf) => {
+                match receiver.try_recv() {
+                    RecvResult::Item(next) => {
+                        self.pending = Some(next);
+                    }
+                    RecvResult::Closed => {
+                        self.join_driver();
+                    }
+                    RecvResult::Empty => {}
+                }
+                StepResult::Emit(nf)
+            }
+            RecvResult::Empty => StepResult::Continue,
+            RecvResult::Closed => {
+                self.join_driver();
+                StepResult::Exhausted
+            }
+        }
     }
 
     /// Create an iterator over all answers.
@@ -116,7 +302,7 @@ impl<C: ConstraintOps> Engine<C> {
     }
 }
 
-impl<C: ConstraintOps> Iterator for Engine<C> {
+impl<C: ConstraintOps + 'static> Iterator for Engine<C> {
     type Item = NF<C>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -130,14 +316,20 @@ impl<C: ConstraintOps> Iterator for Engine<C> {
     }
 }
 
+impl<C: ConstraintOps> Drop for Engine<C> {
+    fn drop(&mut self) {
+        self.cancel_and_join();
+    }
+}
+
 /// Iterator over query answers.
 ///
 /// Yields NF answers from the engine until exhausted.
-pub struct QueryIter<'a, C: ConstraintOps> {
+pub struct QueryIter<'a, C: ConstraintOps + 'static> {
     engine: &'a mut Engine<C>,
 }
 
-impl<'a, C: ConstraintOps> Iterator for QueryIter<'a, C> {
+impl<'a, C: ConstraintOps + 'static> Iterator for QueryIter<'a, C> {
     type Item = NF<C>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -146,17 +338,16 @@ impl<'a, C: ConstraintOps> Iterator for QueryIter<'a, C> {
 }
 
 /// Convenience function to run a query and collect all answers.
-pub fn query<C: ConstraintOps>(rel: Rel<C>, terms: TermStore) -> Vec<NF<C>> {
+pub fn query<C: ConstraintOps + 'static>(rel: Rel<C>, terms: TermStore) -> Vec<NF<C>> {
     let mut engine = Engine::new(rel, terms);
     engine.collect_answers()
 }
 
 /// Convenience function to run a query and get the first answer.
-pub fn query_first<C: ConstraintOps>(rel: Rel<C>, terms: TermStore) -> Option<NF<C>> {
+pub fn query_first<C: ConstraintOps + 'static>(rel: Rel<C>, terms: TermStore) -> Option<NF<C>> {
     let mut engine = Engine::new(rel, terms);
     engine.next()
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -235,8 +426,8 @@ mod tests {
         let input_term = parser.parse_term(input).expect("parse input").term_id;
         let expected_term = parser.parse_term(expected).expect("parse expected").term_id;
 
-        let mut terms = parser.take_terms();
-        let expected_nf = NF::factor(input_term, expected_term, (), &mut terms);
+        let terms = parser.take_terms();
+        let expected_nf = NF::factor(input_term, expected_term, (), &terms);
 
         let mut engine: Engine<()> = Engine::new(rel, terms);
         let answers = engine.collect_answers();
@@ -261,7 +452,7 @@ mod tests {
     #[test]
     fn engine_new_from_zero() {
         let (_, terms) = setup();
-        let engine: Engine<()> = Engine::new(Rel::Zero, terms);
+        let mut engine: Engine<()> = Engine::new(Rel::Zero, terms);
         assert!(engine.is_exhausted());
     }
 
@@ -269,14 +460,14 @@ mod tests {
     fn engine_new_from_atom() {
         let (_, terms) = setup();
         let nf = make_identity_nf();
-        let engine: Engine<()> = Engine::new(Rel::Atom(Arc::new(nf)), terms);
+        let mut engine: Engine<()> = Engine::new(Rel::Atom(Arc::new(nf)), terms);
         assert!(!engine.is_exhausted());
     }
 
     #[test]
     fn engine_new_from_or() {
         let (_, terms) = setup();
-        let engine: Engine<()> =
+        let mut engine: Engine<()> =
             Engine::new(Rel::Or(Arc::new(Rel::Zero), Arc::new(Rel::Zero)), terms);
         // Or of two Zeros eventually exhausts
         assert!(!engine.is_exhausted()); // Not immediately exhausted
@@ -297,7 +488,7 @@ mod tests {
     #[test]
     fn engine_zero_is_exhausted() {
         let (_, terms) = setup();
-        let engine: Engine<()> = Engine::new(Rel::Zero, terms);
+        let mut engine: Engine<()> = Engine::new(Rel::Zero, terms);
         assert!(engine.is_exhausted());
     }
 
@@ -499,6 +690,95 @@ mod tests {
         assert!(ans3.is_none(), "Or(A, B) should exhaust after two");
     }
 
+    fn run_or_identical_atoms_dedup(use_dual: bool) {
+        use crate::kernel::dual_nf;
+        use crate::rel::dual;
+
+        let (symbols, terms) = setup();
+        let nf_a = make_ground_nf("A", &symbols, &terms);
+        let rel = Rel::Or(
+            Arc::new(Rel::Atom(Arc::new(nf_a.clone()))),
+            Arc::new(Rel::Atom(Arc::new(nf_a.clone()))),
+        );
+
+        let (rel, expected) = if use_dual {
+            (dual(&rel, &terms), dual_nf(&nf_a, &terms))
+        } else {
+            (rel, nf_a.clone())
+        };
+
+        let config = EngineConfig {
+            workers: 2,
+            ..EngineConfig::default()
+        };
+        let mut engine: Engine<()> = Engine::with_config(rel, terms, config);
+        let answers = engine.collect_answers();
+        let unique: HashSet<_> = answers.iter().cloned().collect();
+
+        assert_eq!(unique.len(), 1, "expected one unique answer");
+        assert_eq!(answers.len(), 1, "dedup should suppress duplicates");
+        assert!(unique.contains(&expected), "missing expected answer");
+    }
+
+    #[test]
+    fn engine_or_identical_atoms_dedups() {
+        run_or_identical_atoms_dedup(false);
+    }
+
+    #[test]
+    fn engine_or_identical_atoms_dedups_dual() {
+        run_or_identical_atoms_dedup(true);
+    }
+
+    fn run_or_nested_duplicates_dedup(use_dual: bool) {
+        use crate::kernel::dual_nf;
+        use crate::rel::dual;
+
+        let (symbols, terms) = setup();
+        let nf_a = make_ground_nf("A", &symbols, &terms);
+        let nf_b = make_ground_nf("B", &symbols, &terms);
+        let rel = Rel::Or(
+            Arc::new(Rel::Atom(Arc::new(nf_a.clone()))),
+            Arc::new(Rel::Or(
+                Arc::new(Rel::Atom(Arc::new(nf_b.clone()))),
+                Arc::new(Rel::Atom(Arc::new(nf_a.clone()))),
+            )),
+        );
+
+        let (rel, expected) = if use_dual {
+            let expected = vec![dual_nf(&nf_a, &terms), dual_nf(&nf_b, &terms)];
+            (dual(&rel, &terms), expected)
+        } else {
+            (rel, vec![nf_a.clone(), nf_b.clone()])
+        };
+
+        let config = EngineConfig {
+            workers: 2,
+            ..EngineConfig::default()
+        };
+        let mut engine: Engine<()> = Engine::with_config(rel, terms, config);
+        let answers = engine.collect_answers();
+        let unique: HashSet<_> = answers.iter().cloned().collect();
+        let expected_set: HashSet<_> = expected.into_iter().collect();
+
+        assert_eq!(unique, expected_set, "missing expected answers");
+        assert_eq!(
+            answers.len(),
+            unique.len(),
+            "dedup should suppress duplicates"
+        );
+    }
+
+    #[test]
+    fn engine_or_nested_duplicates_dedup() {
+        run_or_nested_duplicates_dedup(false);
+    }
+
+    #[test]
+    fn engine_or_nested_duplicates_dedup_dual() {
+        run_or_nested_duplicates_dedup(true);
+    }
+
     #[test]
     fn engine_or_rotation_interleaves() {
         let (symbols, terms) = setup();
@@ -515,7 +795,7 @@ mod tests {
 
         // Collect answers
         let mut answers = vec![];
-        while let Some(nf) = engine.next() {
+        for nf in engine.by_ref() {
             answers.push(nf);
         }
 
@@ -1305,14 +1585,14 @@ mod tests {
         let rel: Rel<()> = Rel::Fix(0, Arc::new(Rel::Call(0)));
         let env = Env::new();
         let tables = Tables::new();
-        let mut terms = TermStore::new();
+        let terms = TermStore::new();
 
         let mut node = rel_to_node(&rel, &env, &tables);
         let mut steps = 0;
         let max_steps = 50;
 
         loop {
-            match step_node(node, &mut terms) {
+            match step_node(node, &terms) {
                 NodeStep::Emit(_, rest) => {
                     node = rest;
                     steps += 1;
@@ -1476,7 +1756,11 @@ rel add {
         let query = parser.parse_rel_body("add ; @(s z)").expect("parse query");
 
         let terms = parser.take_terms();
-        let mut engine: Engine<()> = Engine::new_with_env(query, terms, env);
+        let config = EngineConfig {
+            workers: 2,
+            ..EngineConfig::default()
+        };
+        let mut engine: Engine<()> = Engine::with_env_and_config(query, terms, env, config);
 
         let max_steps = 2000;
         let mut step_count = 0;
@@ -1522,10 +1806,14 @@ rel add {
             .expect("parse expected")
             .term_id;
 
-        let mut terms = parser.take_terms();
-        let expected_nf = NF::factor(input_term, expected_term, (), &mut terms);
+        let terms = parser.take_terms();
+        let expected_nf = NF::factor(input_term, expected_term, (), &terms);
 
-        let mut engine: Engine<()> = Engine::new_with_env(query, terms, env);
+        let config = EngineConfig {
+            workers: 2,
+            ..EngineConfig::default()
+        };
+        let mut engine: Engine<()> = Engine::with_env_and_config(query, terms, env, config);
         let answers = engine.collect_answers();
 
         assert!(
@@ -1551,9 +1839,9 @@ rel add {
             pair_terms.push(pair_term);
         }
 
-        let mut terms = parser.take_terms();
-        let target_nf = NF::factor(target_term, target_term, (), &mut terms);
-        let dual_add = dual(&add_rel, &mut terms);
+        let terms = parser.take_terms();
+        let target_nf = NF::factor(target_term, target_term, (), &terms);
+        let dual_add = dual(&add_rel, &terms);
         let query = Rel::Seq(Arc::from(vec![
             Arc::new(Rel::Atom(Arc::new(target_nf))),
             Arc::new(dual_add),
@@ -1561,7 +1849,7 @@ rel add {
 
         let mut expected = HashSet::new();
         for pair_term in pair_terms {
-            expected.insert(NF::factor(target_term, pair_term, (), &mut terms));
+            expected.insert(NF::factor(target_term, pair_term, (), &terms));
         }
 
         let mut engine: Engine<()> = Engine::new(query, terms);
@@ -1595,15 +1883,15 @@ rel add {
             .expect("parse expected")
             .term_id;
 
-        let mut terms = parser.take_terms();
-        let dual_add = dual(&add_rel, &mut terms);
+        let terms = parser.take_terms();
+        let dual_add = dual(&add_rel, &terms);
         let and_left = Rel::Seq(Arc::from(vec![Arc::new(rule_left), Arc::new(dual_add)]));
         let sub_rel = Rel::Seq(Arc::from(vec![
             Arc::new(Rel::And(Arc::new(and_left), Arc::new(rule_right))),
             Arc::new(rule_out),
         ]));
-        let input_nf = NF::factor(input_term, input_term, (), &mut terms);
-        let expected_nf = NF::factor(input_term, expected_term, (), &mut terms);
+        let input_nf = NF::factor(input_term, input_term, (), &terms);
+        let expected_nf = NF::factor(input_term, expected_term, (), &terms);
         let query = Rel::Seq(Arc::from(vec![
             Arc::new(Rel::Atom(Arc::new(input_nf))),
             Arc::new(sub_rel),
@@ -1641,28 +1929,19 @@ rel add {
         let input_term = parser.parse_term(input).expect("parse input").term_id;
         let expected_term = parser.parse_term(expected).expect("parse expected").term_id;
 
-        let mut terms = parser.take_terms();
-        let expected_nf = NF::factor(input_term, expected_term, (), &mut terms);
+        let terms = parser.take_terms();
+        let expected_nf = NF::factor(input_term, expected_term, (), &terms);
 
-        let mut engine: Engine<()> = Engine::new_with_env(query, terms, env);
-        let max_steps = 20000;
-        let mut first = None;
-        for _ in 0..max_steps {
-            match engine.step() {
-                StepResult::Emit(nf) => {
-                    first = Some(nf);
-                    break;
-                }
-                StepResult::Exhausted => break,
-                StepResult::Continue => {}
-            }
-        }
-
+        let config = EngineConfig {
+            workers: 2,
+            ..EngineConfig::default()
+        };
+        let mut engine: Engine<()> = Engine::with_env_and_config(query, terms, env, config);
+        let first = engine.next();
         assert!(
             first.is_some(),
-            "Expected treecalc answer for input {} within {} steps",
-            input,
-            max_steps
+            "Expected treecalc answer for input {}",
+            input
         );
         assert_eq!(
             first.unwrap(),
@@ -1672,12 +1951,7 @@ rel add {
         );
     }
 
-    fn treecalc_app_case_with_limit(
-        input: &str,
-        expected: &str,
-        query_suffix: &str,
-        max_steps: usize,
-    ) {
+    fn treecalc_app_case_with_limit(input: &str, expected: &str, query_suffix: &str) {
         let mut parser = Parser::new();
         let def = include_str!("../examples/treecalc.txt");
         let (_app_rel, env) = parse_rel_def_with_env(&mut parser, def);
@@ -1687,27 +1961,19 @@ rel add {
         let input_term = parser.parse_term(input).expect("parse input").term_id;
         let expected_term = parser.parse_term(expected).expect("parse expected").term_id;
 
-        let mut terms = parser.take_terms();
-        let expected_nf = NF::factor(input_term, expected_term, (), &mut terms);
+        let terms = parser.take_terms();
+        let expected_nf = NF::factor(input_term, expected_term, (), &terms);
 
-        let mut engine: Engine<()> = Engine::new_with_env(query, terms, env);
-        let mut first = None;
-        for _ in 0..max_steps {
-            match engine.step() {
-                StepResult::Emit(nf) => {
-                    first = Some(nf);
-                    break;
-                }
-                StepResult::Exhausted => break,
-                StepResult::Continue => {}
-            }
-        }
-
+        let config = EngineConfig {
+            workers: 2,
+            ..EngineConfig::default()
+        };
+        let mut engine: Engine<()> = Engine::with_env_and_config(query, terms, env, config);
+        let first = engine.next();
         assert!(
             first.is_some(),
-            "Expected treecalc answer for query {} within {} steps",
-            query_str,
-            max_steps
+            "Expected treecalc answer for query {}",
+            query_str
         );
         assert_eq!(
             first.unwrap(),
@@ -1817,7 +2083,7 @@ rel add {
         }
 
         let nf = first.expect("expected answer");
-        let (lhs, rhs) = direct_rule_terms(&nf, &mut terms).expect("direct rule");
+        let (lhs, rhs) = direct_rule_terms(&nf, &terms).expect("direct rule");
         assert_eq!(lhs, expected_prog, "unexpected program term");
         assert_eq!(rhs, expected_out, "unexpected output term");
         assert!(
@@ -1896,7 +2162,6 @@ rel add {
             "(f (f (f l (b l)) (f (b l) (b l))) (f l (f (b l) (b l))))",
             "(f l l)",
             "[app & app]",
-            20000,
         );
     }
 
@@ -1906,7 +2171,6 @@ rel add {
             "(f (f (f l (b l)) (f (b l) (b l))) (f l (f (b l) (b l))))",
             "(f l l)",
             "[[app & app] & app]",
-            20000,
         );
     }
 
@@ -1916,7 +2180,6 @@ rel add {
             "(f (f (f l (b l)) (f (b l) (b l))) (f l (f (b l) (b l))))",
             "(f l l)",
             "[app & app & app]",
-            20000,
         );
     }
 
@@ -2275,8 +2538,8 @@ rel add {
         let body = Arc::new(Rel::Atom(Arc::new(nf)));
         let fix: Rel<()> = Rel::Fix(42, body);
 
-        let mut terms = TermStore::new();
-        let dualed = dual(&fix, &mut terms);
+        let terms = TermStore::new();
+        let dualed = dual(&fix, &terms);
 
         match dualed {
             Rel::Fix(id, _) => assert_eq!(id, 42, "dual should preserve RelId"),
@@ -2290,8 +2553,8 @@ rel add {
         use crate::rel::dual;
 
         let call: Rel<()> = Rel::Call(123);
-        let mut terms = TermStore::new();
-        let dualed = dual(&call, &mut terms);
+        let terms = TermStore::new();
+        let dualed = dual(&call, &terms);
 
         match dualed {
             Rel::Call(id) => assert_eq!(id, 123, "dual should preserve RelId"),
@@ -2325,9 +2588,9 @@ rel add {
             }
         }
 
-        let mut terms = std::mem::take(&mut engine.terms);
-        let expected: Vec<NF<()>> = outputs.iter().map(|nf| dual_nf(nf, &mut terms)).collect();
-        let dual_rel = dual(&rel, &mut terms);
+        let terms = engine.into_terms();
+        let expected: Vec<NF<()>> = outputs.iter().map(|nf| dual_nf(nf, &terms)).collect();
+        let dual_rel = dual(&rel, &terms);
         let mut dual_engine: Engine<()> = Engine::new(dual_rel, terms);
         let mut dual_outputs = Vec::new();
         for _ in 0..outputs.len() {

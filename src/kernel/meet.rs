@@ -15,7 +15,7 @@ use super::util::{
 /// For outputs, this means the output must satisfy both a's and b's build patterns.
 ///
 /// Returns None if the meet is empty (patterns are incompatible).
-pub fn meet_nf<C: ConstraintOps>(a: &NF<C>, b: &NF<C>, terms: &mut TermStore) -> Option<NF<C>> {
+pub fn meet_nf<C: ConstraintOps>(a: &NF<C>, b: &NF<C>, terms: &TermStore) -> Option<NF<C>> {
     #[cfg(feature = "tracing")]
     let _span = debug_span!(
         "meet_nf",
@@ -118,7 +118,7 @@ mod tests {
 
     #[test]
     fn meet_identical_identity() {
-        let (_, mut terms) = setup();
+        let (_, terms) = setup();
         let v0 = terms.var(0);
 
         // Identity NF: x -> x
@@ -128,7 +128,7 @@ mod tests {
             smallvec::smallvec![v0],
         );
 
-        let result = meet_nf(&identity, &identity, &mut terms);
+        let result = meet_nf(&identity, &identity, &terms);
         assert!(result.is_some());
         let met = result.unwrap();
 
@@ -151,9 +151,9 @@ theory neq_only {
             .parse_rule("$x { (neq $x z) } -> $x")
             .expect("parse left rule");
         let right = parser.parse_rule("z -> z").expect("parse right rule");
-        let mut terms = parser.take_terms();
+        let terms = parser.take_terms();
 
-        let met = meet_nf(&left, &right, &mut terms);
+        let met = meet_nf(&left, &right, &terms);
         assert!(
             met.is_none(),
             "Expected meet to fail after constraint substitution"
@@ -162,7 +162,7 @@ theory neq_only {
 
     #[test]
     fn meet_identical_ground_rules() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let a = symbols.intern("A");
         let b = symbols.intern("B");
 
@@ -176,7 +176,7 @@ theory neq_only {
             smallvec::smallvec![b_term],
         );
 
-        let result = meet_nf(&rule, &rule, &mut terms);
+        let result = meet_nf(&rule, &rule, &terms);
         assert!(result.is_some());
         let met = result.unwrap();
 
@@ -186,7 +186,7 @@ theory neq_only {
 
     #[test]
     fn meet_specializes_var() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let f = symbols.intern("F");
         let v0 = terms.var(0);
 
@@ -205,7 +205,7 @@ theory neq_only {
             smallvec::smallvec![f_x],
         );
 
-        let result = meet_nf(&identity, &f_rule, &mut terms);
+        let result = meet_nf(&identity, &f_rule, &terms);
         assert!(result.is_some());
         let met = result.unwrap();
 
@@ -216,7 +216,7 @@ theory neq_only {
 
     #[test]
     fn meet_unifies_fresh_outputs() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let f = symbols.intern("f");
         let b = symbols.intern("b");
         let l = symbols.intern("l");
@@ -238,10 +238,10 @@ theory neq_only {
             terms.app(f, smallvec::smallvec![terms.var(0), b_c0])
         };
 
-        let nf1 = NF::factor(input, out1, (), &mut terms);
-        let nf2 = NF::factor(input, out2, (), &mut terms);
+        let nf1 = NF::factor(input, out1, (), &terms);
+        let nf2 = NF::factor(input, out2, (), &terms);
 
-        let met = meet_nf(&nf1, &nf2, &mut terms).expect("meet should succeed");
+        let met = meet_nf(&nf1, &nf2, &terms).expect("meet should succeed");
 
         let expected_out = {
             let inner_expected = terms.app(f, smallvec::smallvec![l_term, c0]);
@@ -255,7 +255,7 @@ theory neq_only {
 
     #[test]
     fn meet_fails_incompatible_ground() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let a = symbols.intern("A");
         let b = symbols.intern("B");
         let c = symbols.intern("C");
@@ -278,13 +278,13 @@ theory neq_only {
             smallvec::smallvec![b_term],
         );
 
-        let result = meet_nf(&rule_a, &rule_b, &mut terms);
+        let result = meet_nf(&rule_a, &rule_b, &terms);
         assert!(result.is_none(), "A and C don't unify, meet should fail");
     }
 
     #[test]
     fn meet_fails_incompatible_output() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let a = symbols.intern("A");
         let b = symbols.intern("B");
         let c = symbols.intern("C");
@@ -307,13 +307,13 @@ theory neq_only {
             smallvec::smallvec![c_term],
         );
 
-        let result = meet_nf(&rule_a, &rule_b, &mut terms);
+        let result = meet_nf(&rule_a, &rule_b, &terms);
         assert!(result.is_none(), "B and C don't unify, meet should fail");
     }
 
     #[test]
     fn meet_unifies_compatible_patterns() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let f = symbols.intern("F");
         let g = symbols.intern("G");
         let a = symbols.intern("A");
@@ -338,7 +338,7 @@ theory neq_only {
             smallvec::smallvec![g_a],
         );
 
-        let result = meet_nf(&rule_a, &rule_b, &mut terms);
+        let result = meet_nf(&rule_a, &rule_b, &terms);
         assert!(result.is_some());
         let met = result.unwrap();
 
@@ -349,7 +349,7 @@ theory neq_only {
 
     #[test]
     fn meet_nested_patterns() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let f = symbols.intern("F");
         let g = symbols.intern("G");
         let v0 = terms.var(0);
@@ -372,7 +372,7 @@ theory neq_only {
             smallvec::smallvec![g_g_y],
         );
 
-        let result = meet_nf(&rule_a, &rule_b, &mut terms);
+        let result = meet_nf(&rule_a, &rule_b, &terms);
         assert!(result.is_some());
         let met = result.unwrap();
 
@@ -385,7 +385,7 @@ theory neq_only {
 
     #[test]
     fn meet_symmetric() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let f = symbols.intern("F");
         let a = symbols.intern("A");
         let v0 = terms.var(0);
@@ -409,8 +409,8 @@ theory neq_only {
         );
 
         // meet(a, b) should equal meet(b, a)
-        let result_ab = meet_nf(&rule_a, &rule_b, &mut terms);
-        let result_ba = meet_nf(&rule_b, &rule_a, &mut terms);
+        let result_ab = meet_nf(&rule_a, &rule_b, &terms);
+        let result_ba = meet_nf(&rule_b, &rule_a, &terms);
 
         assert!(result_ab.is_some());
         assert!(result_ba.is_some());
@@ -425,17 +425,17 @@ theory neq_only {
 
     #[test]
     fn meet_empty_patterns() {
-        let (_, mut terms) = setup();
+        let (_, terms) = setup();
 
         let empty: NF<()> = NF::new(SmallVec::new(), DropFresh::identity(0), SmallVec::new());
 
-        let result = meet_nf(&empty, &empty, &mut terms);
+        let result = meet_nf(&empty, &empty, &terms);
         assert!(result.is_some());
     }
 
     #[test]
     fn meet_with_different_vars() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let pair = symbols.intern("Pair");
         let v0 = terms.var(0);
         let v1 = terms.var(1);
@@ -456,7 +456,7 @@ theory neq_only {
             smallvec::smallvec![pair_xx],
         );
 
-        let result = meet_nf(&rule_a, &rule_b, &mut terms);
+        let result = meet_nf(&rule_a, &rule_b, &terms);
         assert!(result.is_some());
         let met = result.unwrap();
 
@@ -469,7 +469,7 @@ theory neq_only {
 
     #[test]
     fn meet_var_with_complex_term() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let f = symbols.intern("F");
         let g = symbols.intern("G");
         let v0 = terms.var(0);
@@ -490,7 +490,7 @@ theory neq_only {
             smallvec::smallvec![f_g_x],
         );
 
-        let result = meet_nf(&identity, &complex, &mut terms);
+        let result = meet_nf(&identity, &complex, &terms);
         assert!(result.is_some());
         let met = result.unwrap();
 
@@ -503,7 +503,7 @@ theory neq_only {
 
     #[test]
     fn meet_fails_occurs_check() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let f = symbols.intern("F");
         let v0 = terms.var(0);
 
@@ -523,13 +523,13 @@ theory neq_only {
         );
 
         // The meet would require x = F(x), which fails occurs check.
-        let result = meet_nf(&rule_a, &rule_b, &mut terms);
+        let result = meet_nf(&rule_a, &rule_b, &terms);
         assert!(result.is_none(), "Occurs check should reject x = F(x)");
     }
 
     #[test]
     fn meet_multiple_var_constraints() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let triple = symbols.intern("Triple");
         let v0 = terms.var(0);
         let v1 = terms.var(1);
@@ -553,7 +553,7 @@ theory neq_only {
             smallvec::smallvec![t_xxy],
         );
 
-        let result = meet_nf(&rule_a, &rule_b, &mut terms);
+        let result = meet_nf(&rule_a, &rule_b, &terms);
         assert!(result.is_some());
         let met = result.unwrap();
 
@@ -566,7 +566,7 @@ theory neq_only {
 
     #[test]
     fn meet_append_rules() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let _cons = symbols.intern("Cons");
         let nil = symbols.intern("Nil");
         let append = symbols.intern("Append");
@@ -594,7 +594,7 @@ theory neq_only {
             smallvec::smallvec![query_term],
         );
 
-        let result = meet_nf(&query, &base_rule, &mut terms);
+        let result = meet_nf(&query, &base_rule, &terms);
         assert!(result.is_some());
         let met = result.unwrap();
 
@@ -609,7 +609,7 @@ theory neq_only {
 
     #[test]
     fn meet_multi_pattern_identity() {
-        let (_, mut terms) = setup();
+        let (_, terms) = setup();
         let v0 = terms.var(0);
         let v1 = terms.var(1);
 
@@ -619,7 +619,7 @@ theory neq_only {
             smallvec::smallvec![v0, v1],
         );
 
-        let result = meet_nf(&rule, &rule, &mut terms);
+        let result = meet_nf(&rule, &rule, &terms);
         assert!(result.is_some());
         let met = result.unwrap();
 
@@ -631,7 +631,7 @@ theory neq_only {
 
     #[test]
     fn meet_multi_pattern_match_mismatch_fails() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let a = symbols.intern("A");
         let b = symbols.intern("B");
         let v0 = terms.var(0);
@@ -651,13 +651,13 @@ theory neq_only {
             smallvec::smallvec![b_term, v0],
         );
 
-        let result = meet_nf(&rule_a, &rule_b, &mut terms);
+        let result = meet_nf(&rule_a, &rule_b, &terms);
         assert!(result.is_none(), "Different match patterns should not meet");
     }
 
     #[test]
     fn meet_multi_pattern_build_mismatch_fails() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let a = symbols.intern("A");
         let b = symbols.intern("B");
         let v0 = terms.var(0);
@@ -678,13 +678,13 @@ theory neq_only {
             smallvec::smallvec![b_term, v0],
         );
 
-        let result = meet_nf(&rule_a, &rule_b, &mut terms);
+        let result = meet_nf(&rule_a, &rule_b, &terms);
         assert!(result.is_none(), "Different build patterns should not meet");
     }
 
     #[test]
     fn meet_multi_pattern_enforces_shared_variables() {
-        let (_, mut terms) = setup();
+        let (_, terms) = setup();
         let v0 = terms.var(0);
         let v1 = terms.var(1);
 
@@ -700,7 +700,7 @@ theory neq_only {
             smallvec::smallvec![v0, v0],
         );
 
-        let result = meet_nf(&rule_general, &rule_same, &mut terms);
+        let result = meet_nf(&rule_general, &rule_same, &terms);
         assert!(result.is_some());
         let met = result.unwrap();
 
@@ -716,7 +716,7 @@ theory neq_only {
 
     #[test]
     fn meet_multi_pattern_wiring_induces_equality() {
-        let (_, mut terms) = setup();
+        let (_, terms) = setup();
         let v0 = terms.var(0);
         let v1 = terms.var(1);
 
@@ -738,7 +738,7 @@ theory neq_only {
             smallvec::smallvec![v0],
         );
 
-        let result = meet_nf(&rule_left, &rule_right, &mut terms);
+        let result = meet_nf(&rule_left, &rule_right, &terms);
         assert!(result.is_some(), "Wiring intersection should be non-empty");
         let met = result.unwrap();
 
@@ -752,7 +752,7 @@ theory neq_only {
 
     #[test]
     fn meet_multi_pattern_arity_mismatch_fails() {
-        let (_, mut terms) = setup();
+        let (_, terms) = setup();
         let v0 = terms.var(0);
         let v1 = terms.var(1);
 
@@ -768,13 +768,13 @@ theory neq_only {
             smallvec::smallvec![v0],
         );
 
-        let result = meet_nf(&rule_a, &rule_b, &mut terms);
+        let result = meet_nf(&rule_a, &rule_b, &terms);
         assert!(result.is_none(), "Arity mismatch should fail");
     }
 
     #[test]
     fn meet_multi_pattern_combines_constraints() {
-        let (_, mut terms) = setup();
+        let (_, terms) = setup();
         let v0 = terms.var(0);
         let v1 = terms.var(1);
 
@@ -796,7 +796,7 @@ theory neq_only {
             smallvec::smallvec![v0, v1],
         );
 
-        let result = meet_nf(&left, &right, &mut terms);
+        let result = meet_nf(&left, &right, &terms);
         assert!(result.is_some());
         let met = result.unwrap();
 
@@ -806,7 +806,7 @@ theory neq_only {
 
     #[test]
     fn meet_multi_pattern_conflicting_constraints_fail() {
-        let (_, mut terms) = setup();
+        let (_, terms) = setup();
         let v0 = terms.var(0);
         let v1 = terms.var(1);
 
@@ -828,7 +828,7 @@ theory neq_only {
             smallvec::smallvec![v0, v1],
         );
 
-        let result = meet_nf(&left, &right, &mut terms);
+        let result = meet_nf(&left, &right, &terms);
         assert!(
             result.is_none(),
             "Conflicting constraints should make meet fail"

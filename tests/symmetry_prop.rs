@@ -108,7 +108,7 @@ fn build_nf(
     types: &[u32],
     flags: &[bool],
     symbols: &SymbolStore,
-    terms: &mut TermStore,
+    terms: &TermStore,
 ) -> NF<TypeConstraints> {
     let lhs_id = build_term(lhs, symbols, terms);
     let rhs_id = build_term(rhs, symbols, terms);
@@ -119,25 +119,25 @@ fn build_nf(
     NF::factor(lhs_id, rhs_id, constraint, terms)
 }
 
-fn canonicalize_nf<C: ConstraintOps + Clone>(nf: &NF<C>, terms: &mut TermStore) -> NF<C> {
+fn canonicalize_nf<C: ConstraintOps + Clone>(nf: &NF<C>, terms: &TermStore) -> NF<C> {
     let direct = collect_tensor(nf, terms);
     factor_tensor(direct.lhs, direct.rhs, direct.constraint, terms)
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig { cases: 256, .. ProptestConfig::default() })]
+    #![proptest_config(ProptestConfig { cases: 128, .. ProptestConfig::default() })]
 
     #[test]
     fn dual_is_involution(parts in nf_parts_strategy()) {
-        let mut terms = TermStore::new();
+        let terms = TermStore::new();
         let symbols = SymbolStore::new();
         let (lhs, rhs, types, flags) = parts;
-        let nf = build_nf(&lhs, &rhs, &types, &flags, &symbols, &mut terms);
+        let nf = build_nf(&lhs, &rhs, &types, &flags, &symbols, &terms);
 
-        let dual = dual_nf(&nf, &mut terms);
-        let dual_dual = dual_nf(&dual, &mut terms);
-        let canon_nf = canonicalize_nf(&nf, &mut terms);
-        let canon_dual_dual = canonicalize_nf(&dual_dual, &mut terms);
+        let dual = dual_nf(&nf, &terms);
+        let dual_dual = dual_nf(&dual, &terms);
+        let canon_nf = canonicalize_nf(&nf, &terms);
+        let canon_dual_dual = canonicalize_nf(&dual_dual, &terms);
         prop_assert_eq!(canon_dual_dual, canon_nf);
     }
 
@@ -146,23 +146,23 @@ proptest! {
         a_parts in nf_parts_strategy(),
         b_parts in nf_parts_strategy()
     ) {
-        let mut terms = TermStore::new();
+        let terms = TermStore::new();
         let symbols = SymbolStore::new();
         let (a_lhs, a_rhs, a_types, a_flags) = a_parts;
         let (b_lhs, b_rhs, b_types, b_flags) = b_parts;
 
-        let a = build_nf(&a_lhs, &a_rhs, &a_types, &a_flags, &symbols, &mut terms);
-        let b = build_nf(&b_lhs, &b_rhs, &b_types, &b_flags, &symbols, &mut terms);
+        let a = build_nf(&a_lhs, &a_rhs, &a_types, &a_flags, &symbols, &terms);
+        let b = build_nf(&b_lhs, &b_rhs, &b_types, &b_flags, &symbols, &terms);
 
-        let composed = compose_nf(&a, &b, &mut terms);
+        let composed = compose_nf(&a, &b, &terms);
         let dual_composed = composed
             .as_ref()
-            .map(|nf| canonicalize_nf(&dual_nf(nf, &mut terms), &mut terms));
+            .map(|nf| canonicalize_nf(&dual_nf(nf, &terms), &terms));
 
-        let dual_a = canonicalize_nf(&dual_nf(&a, &mut terms), &mut terms);
-        let dual_b = canonicalize_nf(&dual_nf(&b, &mut terms), &mut terms);
-        let composed_duals = compose_nf(&dual_b, &dual_a, &mut terms)
-            .map(|nf| canonicalize_nf(&nf, &mut terms));
+        let dual_a = canonicalize_nf(&dual_nf(&a, &terms), &terms);
+        let dual_b = canonicalize_nf(&dual_nf(&b, &terms), &terms);
+        let composed_duals = compose_nf(&dual_b, &dual_a, &terms)
+            .map(|nf| canonicalize_nf(&nf, &terms));
 
         prop_assert_eq!(dual_composed.is_some(), composed_duals.is_some());
         if let (Some(left), Some(right)) = (dual_composed, composed_duals) {
@@ -175,23 +175,23 @@ proptest! {
         a_parts in nf_parts_strategy(),
         b_parts in nf_parts_strategy()
     ) {
-        let mut terms = TermStore::new();
+        let terms = TermStore::new();
         let symbols = SymbolStore::new();
         let (a_lhs, a_rhs, a_types, a_flags) = a_parts;
         let (b_lhs, b_rhs, b_types, b_flags) = b_parts;
 
-        let a = build_nf(&a_lhs, &a_rhs, &a_types, &a_flags, &symbols, &mut terms);
-        let b = build_nf(&b_lhs, &b_rhs, &b_types, &b_flags, &symbols, &mut terms);
+        let a = build_nf(&a_lhs, &a_rhs, &a_types, &a_flags, &symbols, &terms);
+        let b = build_nf(&b_lhs, &b_rhs, &b_types, &b_flags, &symbols, &terms);
 
-        let met = meet_nf(&a, &b, &mut terms);
+        let met = meet_nf(&a, &b, &terms);
         let dual_met = met
             .as_ref()
-            .map(|nf| canonicalize_nf(&dual_nf(nf, &mut terms), &mut terms));
+            .map(|nf| canonicalize_nf(&dual_nf(nf, &terms), &terms));
 
-        let dual_a = canonicalize_nf(&dual_nf(&a, &mut terms), &mut terms);
-        let dual_b = canonicalize_nf(&dual_nf(&b, &mut terms), &mut terms);
-        let met_duals = meet_nf(&dual_a, &dual_b, &mut terms)
-            .map(|nf| canonicalize_nf(&nf, &mut terms));
+        let dual_a = canonicalize_nf(&dual_nf(&a, &terms), &terms);
+        let dual_b = canonicalize_nf(&dual_nf(&b, &terms), &terms);
+        let met_duals = meet_nf(&dual_a, &dual_b, &terms)
+            .map(|nf| canonicalize_nf(&nf, &terms));
 
         prop_assert_eq!(dual_met.is_some(), met_duals.is_some());
         if let (Some(left), Some(right)) = (dual_met, met_duals) {

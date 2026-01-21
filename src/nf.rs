@@ -66,7 +66,7 @@ impl<C: ConstraintOps> NF<C> {
     ///
     /// This extracts variables, renumbers them, and computes the DropFresh
     /// that connects LHS variables to RHS variables.
-    pub fn factor(lhs: TermId, rhs: TermId, constraint: C, terms: &mut TermStore) -> Self {
+    pub fn factor(lhs: TermId, rhs: TermId, constraint: C, terms: &TermStore) -> Self {
         // Step 1: Collect variables from each side
         let lhs_vars = collect_vars_ordered(lhs, terms);
         let rhs_vars = collect_vars_ordered(rhs, terms);
@@ -161,7 +161,7 @@ impl<C: ConstraintOps> NF<C> {
 }
 
 /// Collect a tensor NF into direct-rule form by pushing wiring into RHS vars.
-pub fn collect_tensor<C: Clone>(nf: &NF<C>, terms: &mut TermStore) -> RwT<C> {
+pub fn collect_tensor<C: Clone>(nf: &NF<C>, terms: &TermStore) -> RwT<C> {
     let out_arity = nf.drop_fresh.out_arity as usize;
     let in_arity = nf.drop_fresh.in_arity;
 
@@ -194,7 +194,7 @@ pub fn factor_tensor<C: ConstraintOps>(
     lhs_pats: SmallVec<[TermId; 1]>,
     rhs_pats: SmallVec<[TermId; 1]>,
     constraint: C,
-    terms: &mut TermStore,
+    terms: &TermStore,
 ) -> NF<C> {
     let constraint_map = constraint_var_renaming(&lhs_pats, &rhs_pats, &constraint, terms);
     let constraint = constraint.remap_vars(&constraint_map, terms);
@@ -369,7 +369,7 @@ fn collect_vars_helper(
 
 /// Renumber variables in a term to use consecutive indices starting at 0.
 /// Returns the renumbered term and the mapping from new index to old index.
-pub fn renumber_vars(term: TermId, terms: &mut TermStore) -> (TermId, Vec<u32>) {
+pub fn renumber_vars(term: TermId, terms: &TermStore) -> (TermId, Vec<u32>) {
     let vars = collect_vars_ordered(term, terms);
 
     if vars.is_empty() {
@@ -389,11 +389,7 @@ pub fn renumber_vars(term: TermId, terms: &mut TermStore) -> (TermId, Vec<u32>) 
 
 /// Renumber variables according to a given mapping.
 /// The mapping maps old variable index to new variable index.
-pub fn apply_var_renaming(
-    term: TermId,
-    old_to_new: &[Option<u32>],
-    terms: &mut TermStore,
-) -> TermId {
+pub fn apply_var_renaming(term: TermId, old_to_new: &[Option<u32>], terms: &TermStore) -> TermId {
     match terms.resolve(term) {
         Some(Term::Var(idx)) => {
             let idx_usize = idx as usize;
@@ -419,7 +415,7 @@ pub fn apply_var_renaming(
 fn apply_var_renaming_list(
     terms_list: &[TermId],
     old_to_new: &[Option<u32>],
-    terms: &mut TermStore,
+    terms: &TermStore,
 ) -> SmallVec<[TermId; 1]> {
     terms_list
         .iter()
@@ -427,7 +423,7 @@ fn apply_var_renaming_list(
         .collect()
 }
 
-pub fn direct_rule_terms<C: Clone>(nf: &NF<C>, terms: &mut TermStore) -> Option<(TermId, TermId)> {
+pub fn direct_rule_terms<C: Clone>(nf: &NF<C>, terms: &TermStore) -> Option<(TermId, TermId)> {
     if nf.match_pats.len() != 1 || nf.build_pats.len() != 1 {
         return None;
     }
@@ -458,7 +454,7 @@ pub fn direct_rule_terms<C: Clone>(nf: &NF<C>, terms: &mut TermStore) -> Option<
 
 pub fn format_nf<C: Clone + ConstraintDisplay>(
     nf: &NF<C>,
-    terms: &mut TermStore,
+    terms: &TermStore,
     symbols: &SymbolStore,
 ) -> Result<String, String> {
     if nf.match_pats.is_empty() && nf.build_pats.is_empty() {
@@ -552,9 +548,9 @@ mod tests {
 
     #[test]
     fn renumber_single_var() {
-        let (_, mut terms) = setup();
+        let (_, terms) = setup();
         let v5 = terms.var(5);
-        let (renumbered, mapping) = renumber_vars(v5, &mut terms);
+        let (renumbered, mapping) = renumber_vars(v5, &terms);
 
         // Should become var(0), mapping [5]
         assert_eq!(terms.is_var(renumbered), Some(0));
@@ -563,13 +559,13 @@ mod tests {
 
     #[test]
     fn renumber_multiple_vars() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let pair = symbols.intern("Pair");
         let v7 = terms.var(7);
         let v3 = terms.var(3);
         let t = terms.app2(pair, v7, v3);
 
-        let (renumbered, mapping) = renumber_vars(t, &mut terms);
+        let (renumbered, mapping) = renumber_vars(t, &terms);
 
         // Should become Pair(var(0), var(1)), mapping [7, 3]
         let (f, children) = terms.is_app(renumbered).unwrap();
@@ -581,13 +577,13 @@ mod tests {
 
     #[test]
     fn renumber_with_repeated_vars() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let f = symbols.intern("F");
         let v5 = terms.var(5);
         // F(v5, v5)
         let t = terms.app2(f, v5, v5);
 
-        let (renumbered, mapping) = renumber_vars(t, &mut terms);
+        let (renumbered, mapping) = renumber_vars(t, &terms);
 
         // Should become F(var(0), var(0)), mapping [5]
         let (_, children) = terms.is_app(renumbered).unwrap();
@@ -600,11 +596,11 @@ mod tests {
 
     #[test]
     fn renumber_ground_term_unchanged() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let nil = symbols.intern("Nil");
         let t = terms.app0(nil);
 
-        let (renumbered, mapping) = renumber_vars(t, &mut terms);
+        let (renumbered, mapping) = renumber_vars(t, &terms);
 
         // Ground term unchanged, empty mapping
         assert_eq!(renumbered, t);
@@ -615,17 +611,17 @@ mod tests {
 
     #[test]
     fn apply_renaming_single_var() {
-        let (_, mut terms) = setup();
+        let (_, terms) = setup();
         let v0 = terms.var(0);
         // Map var 0 -> var 5
         let mapping = vec![Some(5), None, None];
-        let result = apply_var_renaming(v0, &mapping, &mut terms);
+        let result = apply_var_renaming(v0, &mapping, &terms);
         assert_eq!(terms.is_var(result), Some(5));
     }
 
     #[test]
     fn apply_renaming_nested() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let f = symbols.intern("F");
         let v0 = terms.var(0);
         let v1 = terms.var(1);
@@ -633,7 +629,7 @@ mod tests {
 
         // Map var 0 -> 2, var 1 -> 3
         let mapping = vec![Some(2), Some(3)];
-        let result = apply_var_renaming(t, &mapping, &mut terms);
+        let result = apply_var_renaming(t, &mapping, &terms);
 
         let (_, children) = terms.is_app(result).unwrap();
         assert_eq!(terms.is_var(children[0]), Some(2));
@@ -642,12 +638,12 @@ mod tests {
 
     #[test]
     fn apply_renaming_preserves_ground() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let nil = symbols.intern("Nil");
         let t = terms.app0(nil);
 
         let mapping = vec![Some(99)]; // irrelevant
-        let result = apply_var_renaming(t, &mapping, &mut terms);
+        let result = apply_var_renaming(t, &mapping, &terms);
 
         assert_eq!(result, t, "Ground term unchanged by renaming");
     }
@@ -656,10 +652,10 @@ mod tests {
 
     #[test]
     fn factor_identity_rule() {
-        let (_, mut terms) = setup();
+        let (_, terms) = setup();
         let v0 = terms.var(0);
         // Rule: x -> x (identity)
-        let nf: NF<()> = NF::factor(v0, v0, (), &mut terms);
+        let nf: NF<()> = NF::factor(v0, v0, (), &terms);
 
         // match_pats should be [var(0)]
         assert_eq!(nf.match_pats.len(), 1);
@@ -676,7 +672,7 @@ mod tests {
 
     #[test]
     fn factor_swap_rule() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let pair = symbols.intern("Pair");
         let v0 = terms.var(0);
         let v1 = terms.var(1);
@@ -684,7 +680,7 @@ mod tests {
         // Rule: Pair(x, y) -> Pair(y, x)
         let lhs = terms.app2(pair, v0, v1);
         let rhs = terms.app2(pair, v1, v0);
-        let nf: NF<()> = NF::factor(lhs, rhs, (), &mut terms);
+        let nf: NF<()> = NF::factor(lhs, rhs, (), &terms);
 
         // LHS vars: [0, 1] -> normalized to [0, 1]
         // RHS vars: [1, 0] -> normalized to [0, 1] where 0 maps to original 1, 1 maps to original 0
@@ -795,7 +791,7 @@ mod tests {
 
     #[test]
     fn factor_drop_var() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let pair = symbols.intern("Pair");
         let fst = symbols.intern("Fst");
         let v0 = terms.var(0);
@@ -804,7 +800,7 @@ mod tests {
         // Rule: Pair(x, y) -> Fst(x) (drops y)
         let lhs = terms.app2(pair, v0, v1);
         let rhs = terms.app1(fst, v0);
-        let nf: NF<()> = NF::factor(lhs, rhs, (), &mut terms);
+        let nf: NF<()> = NF::factor(lhs, rhs, (), &terms);
 
         // LHS has 2 vars, RHS has 1 var (shared with LHS)
         assert_eq!(nf.drop_fresh.in_arity, 2);
@@ -816,7 +812,7 @@ mod tests {
 
     #[test]
     fn factor_fresh_var() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let unit = symbols.intern("Unit");
         let pair = symbols.intern("Pair");
         let v0 = terms.var(0);
@@ -825,7 +821,7 @@ mod tests {
         // Rule: Unit -> Pair(x, y) (introduces fresh vars)
         let lhs = terms.app0(unit);
         let rhs = terms.app2(pair, v0, v1);
-        let nf: NF<()> = NF::factor(lhs, rhs, (), &mut terms);
+        let nf: NF<()> = NF::factor(lhs, rhs, (), &terms);
 
         // LHS has 0 vars, RHS has 2 fresh vars
         assert_eq!(nf.drop_fresh.in_arity, 0);
@@ -837,7 +833,7 @@ mod tests {
 
     #[test]
     fn factor_nested_pattern() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let a = symbols.intern("A");
         let b = symbols.intern("B");
         let v0 = terms.var(0);
@@ -848,7 +844,7 @@ mod tests {
         let lhs = terms.app2(b, a_x, v1);
         let rhs = terms.app2(b, v0, v1);
 
-        let nf: NF<()> = NF::factor(lhs, rhs, (), &mut terms);
+        let nf: NF<()> = NF::factor(lhs, rhs, (), &terms);
 
         // Both sides have vars [0, 1], all shared
         assert_eq!(nf.drop_fresh.in_arity, 2);
@@ -858,14 +854,14 @@ mod tests {
 
     #[test]
     fn factor_ground_to_ground() {
-        let (symbols, mut terms) = setup();
+        let (symbols, terms) = setup();
         let true_sym = symbols.intern("True");
         let false_sym = symbols.intern("False");
 
         // Rule: True -> False (no vars)
         let lhs = terms.app0(true_sym);
         let rhs = terms.app0(false_sym);
-        let nf: NF<()> = NF::factor(lhs, rhs, (), &mut terms);
+        let nf: NF<()> = NF::factor(lhs, rhs, (), &terms);
 
         // No vars on either side
         assert_eq!(nf.drop_fresh.in_arity, 0);
