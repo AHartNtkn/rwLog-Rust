@@ -6,13 +6,19 @@
 use crate::constraint::ConstraintOps;
 use crate::drop_fresh::DropFresh;
 use crate::factors::Factors;
+use crate::join::{AndJoiner, JoinStep};
 use crate::kernel::{compose_nf, meet_nf};
 use crate::nf::NF;
 use crate::node::{step_node, Node, NodeStep};
+use crate::queue::{
+    AnswerQueue, AnswerReceiver, AnswerSender, BlockedOn, QueueWaker, RecvResult, SinkResult,
+    WakeHub,
+};
 use crate::rel::{Rel, RelId};
 use crate::term::{TermId, TermStore};
+use dashmap::DashMap;
+use parking_lot::Mutex;
 use smallvec::SmallVec;
-use std::cell::RefCell;
 use std::collections::{HashSet, VecDeque};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -28,8 +34,10 @@ pub enum Work<C: ConstraintOps> {
     AndGroup(AndGroup<C>),
     /// Tabled recursive call.
     Fix(FixWork<C>),
-    /// Bind a generator to a pipeline continuation.
-    Bind(BindWork<C>),
+    /// Symmetric compose join for sequential composition.
+    Compose(ComposeWork<C>),
+    /// Receiver for joiner outputs (drives AndGroup producers).
+    JoinReceiver(JoinReceiverWork<C>),
     /// Single atomic NF (emits once, then done).
     Atom(NF<C>),
     /// Completed - no more work.
@@ -165,6 +173,33 @@ fn boxed_work<C: ConstraintOps>(work: Work<C>) -> Box<Work<C>> {
 
 fn boxed_node<C: ConstraintOps>(node: Node<C>) -> Box<Node<C>> {
     Box::new(node)
+}
+
+fn wrap_compose_with_prefix_suffix<C: ConstraintOps>(
+    core: ComposeWork<C>,
+    prefix: Option<NF<C>>,
+    suffix: Option<NF<C>>,
+) -> WorkStep<C> {
+    let mut node = Node::Work(boxed_work(Work::Compose(core)));
+
+    if let Some(prefix_nf) = prefix {
+        let prefix_node = Node::Emit(prefix_nf, Box::new(Node::Fail));
+        node = Node::Work(boxed_work(Work::Compose(ComposeWork::new(
+            prefix_node, node,
+        ))));
+    }
+
+    if let Some(suffix_nf) = suffix {
+        let suffix_node = Node::Emit(suffix_nf, Box::new(Node::Fail));
+        node = Node::Work(boxed_work(Work::Compose(ComposeWork::new(
+            node, suffix_node,
+        ))));
+    }
+
+    match node {
+        Node::Work(work) => WorkStep::More(work),
+        _ => WorkStep::Done,
+    }
 }
 
 fn build_var_list(arity: u32, terms: &mut TermStore) -> SmallVec<[TermId; 1]> {
@@ -307,7 +342,8 @@ impl<C: ConstraintOps> Work<C> {
             Work::Meet(meet) => meet.step(terms),
             Work::AndGroup(group) => group.step(terms),
             Work::Fix(fix) => fix.step(terms),
-            Work::Bind(bind) => bind.step(terms),
+            Work::Compose(compose) => compose.step(terms),
+            Work::JoinReceiver(join) => join.step(terms),
             Work::Atom(nf) => {
                 // Emit the NF once, then done
                 let nf = nf.clone();
@@ -590,9 +626,8 @@ impl<C: ConstraintOps> PipeWork<C> {
                     self.mid.pop_front();
                     if self.absorb_front(nf.as_ref().clone(), terms) {
                         return Ok(true);
-                    } else {
-                        return Err(WorkStep::Done);
                     }
+                    return Err(WorkStep::Done);
                 }
                 Rel::Seq(xs) => {
                     self.mid.pop_front();
@@ -614,9 +649,8 @@ impl<C: ConstraintOps> PipeWork<C> {
                     self.mid.pop_back();
                     if self.absorb_back(nf.as_ref().clone(), terms) {
                         return Ok(true);
-                    } else {
-                        return Err(WorkStep::Done);
                     }
+                    return Err(WorkStep::Done);
                 }
                 Rel::Seq(xs) => {
                     self.mid.pop_back();
@@ -724,10 +758,6 @@ impl<C: ConstraintOps> PipeWork<C> {
                     (self.right.clone(), None)
                 };
 
-                let mut pipe = self.clone();
-                pipe.left = left_prefix;
-                pipe.right = right_suffix;
-
                 let nodes = parts
                     .into_iter()
                     .map(|part| {
@@ -740,8 +770,16 @@ impl<C: ConstraintOps> PipeWork<C> {
                     })
                     .collect();
                 let group = AndGroup::new(nodes);
-                let bind = BindWork::new(Node::Work(boxed_work(Work::AndGroup(group))), pipe, true);
-                WorkStep::More(boxed_work(Work::Bind(bind)))
+                let left_node = Node::Work(boxed_work(Work::AndGroup(group)));
+
+                let mut pipe = self.clone();
+                pipe.left = None;
+                pipe.right = if right_iso.is_some() { None } else { right_suffix.clone() };
+                let right_node = Node::Work(boxed_work(Work::Pipe(pipe)));
+
+                let core = ComposeWork::new(left_node, right_node);
+                let outer_suffix = if right_iso.is_some() { right_suffix } else { None };
+                wrap_compose_with_prefix_suffix(core, left_prefix, outer_suffix)
             }
             Rel::Fix(id, body) => {
                 self.mid.pop_front();
@@ -768,8 +806,10 @@ impl<C: ConstraintOps> PipeWork<C> {
                 if use_right {
                     pipe.right = None;
                 }
-                let bind = BindWork::new(fix_node, pipe, true);
-                WorkStep::More(boxed_work(Work::Bind(bind)))
+                let left_node = fix_node;
+                let right_node = Node::Work(boxed_work(Work::Pipe(pipe)));
+                let compose = ComposeWork::new(left_node, right_node);
+                WorkStep::More(boxed_work(Work::Compose(compose)))
             }
             Rel::Call(id) => {
                 self.mid.pop_front();
@@ -812,10 +852,6 @@ impl<C: ConstraintOps> PipeWork<C> {
                     (self.left.clone(), None)
                 };
 
-                let mut pipe = self.clone();
-                pipe.left = left_prefix;
-                pipe.right = right_suffix;
-
                 let nodes = parts
                     .into_iter()
                     .map(|part| {
@@ -828,9 +864,16 @@ impl<C: ConstraintOps> PipeWork<C> {
                     })
                     .collect();
                 let group = AndGroup::new(nodes);
-                let bind =
-                    BindWork::new(Node::Work(boxed_work(Work::AndGroup(group))), pipe, false);
-                WorkStep::More(boxed_work(Work::Bind(bind)))
+                let right_node = Node::Work(boxed_work(Work::AndGroup(group)));
+
+                let mut pipe = self.clone();
+                pipe.right = None;
+                pipe.left = if left_iso.is_some() { None } else { left_prefix.clone() };
+                let left_node = Node::Work(boxed_work(Work::Pipe(pipe)));
+
+                let core = ComposeWork::new(left_node, right_node);
+                let outer_prefix = if left_iso.is_some() { left_prefix } else { None };
+                wrap_compose_with_prefix_suffix(core, outer_prefix, right_suffix)
             }
             Rel::Fix(id, body) => {
                 self.mid.pop_back();
@@ -857,8 +900,10 @@ impl<C: ConstraintOps> PipeWork<C> {
                 if use_right {
                     pipe.right = None;
                 }
-                let bind = BindWork::new(fix_node, pipe, false);
-                WorkStep::More(boxed_work(Work::Bind(bind)))
+                let left_node = Node::Work(boxed_work(Work::Pipe(pipe)));
+                let right_node = fix_node;
+                let compose = ComposeWork::new(left_node, right_node);
+                WorkStep::More(boxed_work(Work::Compose(compose)))
             }
             Rel::Call(id) => {
                 self.mid.pop_back();
@@ -895,7 +940,7 @@ impl<C: ConstraintOps> PipeWork<C> {
                     Some(table) => table,
                     None => return WorkStep::Done,
                 };
-                let snapshot = table.borrow().answers.clone();
+                let snapshot = table.all_answers();
                 let replay_node = node_from_answers(&snapshot);
                 let mut pipe = self.clone();
                 if use_left {
@@ -904,32 +949,31 @@ impl<C: ConstraintOps> PipeWork<C> {
                 if use_right {
                     pipe.right = None;
                 }
-                let bind = BindWork::new(replay_node, pipe, absorb_front);
-                return WorkStep::More(boxed_work(Work::Bind(bind)));
+                let (left_node, right_node) = if absorb_front {
+                    (replay_node, Node::Work(boxed_work(Work::Pipe(pipe))))
+                } else {
+                    (Node::Work(boxed_work(Work::Pipe(pipe))), replay_node)
+                };
+                let compose = ComposeWork::new(left_node, right_node);
+                return WorkStep::More(boxed_work(Work::Compose(compose)));
             }
         }
 
         let table = self.tables.get_or_create(key.clone());
-        let snapshot = { table.borrow().answers.clone() };
-
-        if table.borrow().state == ProducerState::NotStarted {
-            let spec = ProducerSpec {
-                body: binding.body.clone(),
-                left: call_left.clone(),
-                right: call_right.clone(),
-                env: self.env.clone(),
-            };
-            let mut producer_pipe = PipeWork::from_rel_with_boundaries(
-                binding.body.as_ref().clone(),
-                call_left,
-                call_right,
-                self.env.clone(),
-                self.tables.clone(),
-            );
-            producer_pipe.call_mode = CallMode::ReplayOnly(Box::new(key.clone()));
-            let producer_node = Node::Work(boxed_work(Work::Pipe(producer_pipe)));
-            table.borrow_mut().start_producer(producer_node, spec);
-        }
+        let snapshot = {
+            let mut producer = table.producer.lock();
+            if producer.spec.is_none() {
+                producer.spec = Some(ProducerSpec {
+                    key: key.clone(),
+                    body: binding.body.clone(),
+                    left: call_left.clone(),
+                    right: call_right.clone(),
+                    env: self.env.clone(),
+                });
+            }
+            drop(producer);
+            table.answers.lock().answers.clone()
+        };
 
         let replay_node = node_from_answers(&snapshot);
         let fix = FixWork::new(key, table, snapshot.len(), self.tables.clone());
@@ -948,8 +992,13 @@ impl<C: ConstraintOps> PipeWork<C> {
             pipe.right = None;
         }
 
-        let bind = BindWork::new(gen_node, pipe, absorb_front);
-        WorkStep::More(boxed_work(Work::Bind(bind)))
+        let (left_node, right_node) = if absorb_front {
+            (gen_node, Node::Work(boxed_work(Work::Pipe(pipe))))
+        } else {
+            (Node::Work(boxed_work(Work::Pipe(pipe))), gen_node)
+        };
+        let compose = ComposeWork::new(left_node, right_node);
+        WorkStep::More(boxed_work(Work::Compose(compose)))
     }
 }
 
@@ -967,103 +1016,73 @@ impl<C: ConstraintOps> Default for PipeWork<C> {
     }
 }
 
-/// Bind work: apply a generator's answers to a pipe continuation.
-#[derive(Clone, Debug)]
-pub struct BindWork<C: ConstraintOps> {
-    /// Generator node that yields NF answers.
-    pub gen: Box<Node<C>>,
-    /// Continuation pipe to absorb answers into.
-    pub pipe: PipeWork<C>,
-    /// If true, absorb into the left boundary; otherwise right.
-    pub absorb_front: bool,
-}
-
-impl<C: ConstraintOps> BindWork<C> {
-    /// Create a new BindWork.
-    pub fn new(gen: Node<C>, pipe: PipeWork<C>, absorb_front: bool) -> Self {
-        Self {
-            gen: Box::new(gen),
-            pipe,
-            absorb_front,
-        }
-    }
-
-    fn take_self(&mut self) -> Self {
-        let placeholder = BindWork::new(Node::Fail, PipeWork::new(), self.absorb_front);
-        std::mem::replace(self, placeholder)
-    }
-
-    /// Step this bind work.
-    pub fn step(&mut self, terms: &mut TermStore) -> WorkStep<C> {
-        let current = std::mem::replace(&mut *self.gen, Node::Fail);
-        match step_node(current, terms) {
-            NodeStep::Emit(nf, rest) => {
-                *self.gen = rest;
-
-                let mut pipe = self.pipe.clone();
-                let absorbed = if self.absorb_front {
-                    pipe.absorb_front(nf, terms)
-                } else {
-                    pipe.absorb_back(nf, terms)
-                };
-
-                if !absorbed {
-                    return WorkStep::More(boxed_work(Work::Bind(self.take_self())));
-                }
-
-                let left_node = Node::Work(boxed_work(Work::Pipe(pipe)));
-                let right_node = Node::Work(boxed_work(Work::Bind(self.take_self())));
-                WorkStep::Split(boxed_node(left_node), boxed_node(right_node))
-            }
-            NodeStep::Continue(rest) => {
-                *self.gen = rest;
-                WorkStep::More(boxed_work(Work::Bind(self.take_self())))
-            }
-            NodeStep::Exhausted => WorkStep::Done,
-        }
-    }
-}
-
-/// AndGroup work: fair diagonal join for n-ary conjunction/intersection.
+/// Compose work: symmetric join for sequential composition.
 ///
-/// Represents: And(r0, r1, ..., rn-1)
+/// Represents: left ; right
 ///
 /// Uses fair diagonal enumeration:
-/// - Pull answers round-robin from each part
-/// - When a new answer arrives, meet with all seen from other parts
-/// - Successful meets are queued in pending
+/// - Pull alternately from left/right nodes
+/// - When a new answer arrives, compose with all seen from the other side
+/// - Successful compositions are queued in pending
 #[derive(Clone, Debug)]
-pub struct AndGroup<C: ConstraintOps> {
-    /// Part nodes.
-    pub parts: Vec<Node<C>>,
-    /// Answers seen per part.
-    pub seen: Vec<Vec<NF<C>>>,
-    /// Dedup sets per part.
-    seen_sets: Vec<HashSet<NF<C>>>,
-    /// Successful meets waiting to be emitted.
-    pub pending: VecDeque<NF<C>>,
-    /// Dedup set for pending.
-    pending_set: HashSet<NF<C>>,
-    /// Round-robin turn index.
-    pub turn: usize,
+enum ComposeCursor {
+    Left {
+        left_idx: usize,
+        right_idx: usize,
+        right_limit: usize,
+    },
+    Right {
+        right_idx: usize,
+        left_idx: usize,
+        left_limit: usize,
+    },
 }
 
-impl<C: ConstraintOps> AndGroup<C> {
-    /// Create a new AndGroup from part nodes.
-    pub fn new(parts: Vec<Node<C>>) -> Self {
-        let count = parts.len();
+const COMPOSE_BATCH: usize = 1;
+
+#[derive(Clone, Debug)]
+pub struct ComposeWork<C: ConstraintOps> {
+    /// Left search tree.
+    pub left: Box<Node<C>>,
+    /// Right search tree.
+    pub right: Box<Node<C>>,
+    /// Answers seen from left.
+    pub seen_l: Vec<NF<C>>,
+    /// Answers seen from right.
+    pub seen_r: Vec<NF<C>>,
+    /// Dedup set for left answers.
+    seen_l_set: HashSet<NF<C>>,
+    /// Dedup set for right answers.
+    seen_r_set: HashSet<NF<C>>,
+    /// Successful compositions waiting to be emitted.
+    pub pending: VecDeque<NF<C>>,
+    /// Dedup set for pending compositions.
+    pending_set: HashSet<NF<C>>,
+    /// Pending composition cursors.
+    pair_queue: VecDeque<ComposeCursor>,
+    /// If false, pull from left next; if true, pull from right.
+    pub flip: bool,
+}
+
+impl<C: ConstraintOps> ComposeWork<C> {
+    /// Create a new ComposeWork from two nodes.
+    pub fn new(left: Node<C>, right: Node<C>) -> Self {
         Self {
-            parts,
-            seen: vec![Vec::new(); count],
-            seen_sets: vec![HashSet::new(); count],
+            left: Box::new(left),
+            right: Box::new(right),
+            seen_l: Vec::new(),
+            seen_r: Vec::new(),
+            seen_l_set: HashSet::new(),
+            seen_r_set: HashSet::new(),
             pending: VecDeque::new(),
             pending_set: HashSet::new(),
-            turn: 0,
+            pair_queue: VecDeque::new(),
+            flip: false,
         }
     }
 
     fn take_self(&mut self) -> Self {
-        std::mem::replace(self, AndGroup::new(Vec::new()))
+        std::mem::replace(self, ComposeWork::new(Node::Fail, Node::Fail))
     }
 
     fn push_pending(&mut self, nf: NF<C>) {
@@ -1072,96 +1091,548 @@ impl<C: ConstraintOps> AndGroup<C> {
         }
     }
 
-    fn enqueue_meets(&mut self, idx: usize, nf: NF<C>, terms: &mut TermStore) {
-        if self.parts.len() == 1 {
-            self.push_pending(nf);
+    fn is_empty_identity(nf: &NF<C>) -> bool {
+        nf.match_pats.is_empty()
+            && nf.build_pats.is_empty()
+            && nf.drop_fresh.in_arity == 0
+            && nf.drop_fresh.out_arity == 0
+    }
+
+    fn compose_pair(
+        left_nf: &NF<C>,
+        right_nf: &NF<C>,
+        terms: &mut TermStore,
+    ) -> Option<NF<C>> {
+        if Self::is_empty_identity(right_nf) {
+            return Some(left_nf.clone());
+        }
+        if Self::is_empty_identity(left_nf) {
+            return Some(right_nf.clone());
+        }
+        compose_nf(left_nf, right_nf, terms)
+    }
+
+    fn enqueue_pairs_left(&mut self, left_idx: usize) {
+        let right_limit = self.seen_r.len();
+        if right_limit == 0 {
             return;
         }
+        self.pair_queue.push_back(ComposeCursor::Left {
+            left_idx,
+            right_idx: 0,
+            right_limit,
+        });
+    }
 
-        let mut acc = vec![nf];
-        for (j, seen_j) in self.seen.iter().enumerate() {
-            if j == idx {
-                continue;
-            }
-            if seen_j.is_empty() {
-                return;
-            }
+    fn enqueue_pairs_right(&mut self, right_idx: usize) {
+        let left_limit = self.seen_l.len();
+        if left_limit == 0 {
+            return;
+        }
+        self.pair_queue.push_back(ComposeCursor::Right {
+            right_idx,
+            left_idx: 0,
+            left_limit,
+        });
+    }
 
-            let mut next = Vec::new();
-            for left in acc.iter() {
-                for right in seen_j.iter() {
-                    if let Some(met) = meet_nf(left, right, terms) {
-                        next.push(met);
+    fn process_pair_queue(&mut self, terms: &mut TermStore) -> Option<NF<C>> {
+        let Some(mut cursor) = self.pair_queue.pop_front() else {
+            return None;
+        };
+
+        let mut steps = 0;
+        loop {
+            if steps >= COMPOSE_BATCH {
+                break;
+            }
+            match &mut cursor {
+                ComposeCursor::Left {
+                    left_idx,
+                    right_idx,
+                    right_limit,
+                } => {
+                    if *right_idx >= *right_limit {
+                        break;
+                    }
+                    let left_nf = &self.seen_l[*left_idx];
+                    let right_nf = &self.seen_r[*right_idx];
+                    if let Some(nf) = Self::compose_pair(left_nf, right_nf, terms) {
+                        self.push_pending(nf);
+                    }
+                    *right_idx += 1;
+                }
+                ComposeCursor::Right {
+                    right_idx,
+                    left_idx,
+                    left_limit,
+                } => {
+                    if *left_idx >= *left_limit {
+                        break;
+                    }
+                    let left_nf = &self.seen_l[*left_idx];
+                    let right_nf = &self.seen_r[*right_idx];
+                    if let Some(nf) = Self::compose_pair(left_nf, right_nf, terms) {
+                        self.push_pending(nf);
+                    }
+                    *left_idx += 1;
+                }
+            }
+            steps += 1;
+        }
+
+        let cursor_done = match &cursor {
+            ComposeCursor::Left {
+                right_idx,
+                right_limit,
+                ..
+            } => *right_idx >= *right_limit,
+            ComposeCursor::Right {
+                left_idx,
+                left_limit,
+                ..
+            } => *left_idx >= *left_limit,
+        };
+        if !cursor_done {
+            self.pair_queue.push_back(cursor);
+        }
+
+        if let Some(nf) = self.pending.pop_front() {
+            self.pending_set.remove(&nf);
+            return Some(nf);
+        }
+
+        None
+    }
+
+    /// Step this compose work, returning the next state.
+    ///
+    /// Step policy:
+    /// 1. If pending non-empty: emit front
+    /// 2. Alternate processing pair cursors and pulling new answers
+    /// 3. Alternate pulling from left/right (flip)
+    pub fn step(&mut self, terms: &mut TermStore) -> WorkStep<C> {
+        if let Some(nf) = self.pending.pop_front() {
+            self.pending_set.remove(&nf);
+            return WorkStep::Emit(nf, boxed_work(Work::Compose(self.take_self())));
+        }
+
+        let left_exhausted = matches!(*self.left, Node::Fail);
+        let right_exhausted = matches!(*self.right, Node::Fail);
+
+        if let Some(nf) = self.process_pair_queue(terms) {
+            return WorkStep::Emit(nf, boxed_work(Work::Compose(self.take_self())));
+        }
+
+        if left_exhausted && self.seen_l.is_empty() && self.pair_queue.is_empty() {
+            return WorkStep::Done;
+        }
+
+        if right_exhausted && self.seen_r.is_empty() && self.pair_queue.is_empty() {
+            return WorkStep::Done;
+        }
+
+        if left_exhausted && right_exhausted {
+            if self.pair_queue.is_empty() {
+                return WorkStep::Done;
+            }
+            return WorkStep::More(boxed_work(Work::Compose(self.take_self())));
+        }
+
+        let pull_from_right = if left_exhausted {
+            true
+        } else if right_exhausted {
+            false
+        } else {
+            self.flip
+        };
+
+        if pull_from_right {
+            self.pull_right(terms)
+        } else {
+            self.pull_left(terms)
+        }
+    }
+
+    fn pull_left(&mut self, terms: &mut TermStore) -> WorkStep<C> {
+        let current = std::mem::replace(&mut *self.left, Node::Fail);
+        match step_node(current, terms) {
+            NodeStep::Emit(nf, rest) => {
+                *self.left = rest;
+                if self.seen_l_set.insert(nf.clone()) {
+                    let idx = self.seen_l.len();
+                    self.seen_l.push(nf.clone());
+                    self.enqueue_pairs_left(idx);
+                }
+                self.flip = true;
+                if let Some(result) = self.pending.pop_front() {
+                    self.pending_set.remove(&result);
+                    WorkStep::Emit(result, boxed_work(Work::Compose(self.take_self())))
+                } else {
+                    WorkStep::More(boxed_work(Work::Compose(self.take_self())))
+                }
+            }
+            NodeStep::Continue(rest) => {
+                *self.left = rest;
+                self.flip = true;
+                WorkStep::More(boxed_work(Work::Compose(self.take_self())))
+            }
+            NodeStep::Exhausted => {
+                *self.left = Node::Fail;
+                self.flip = true;
+                WorkStep::More(boxed_work(Work::Compose(self.take_self())))
+            }
+        }
+    }
+
+    fn pull_right(&mut self, terms: &mut TermStore) -> WorkStep<C> {
+        let current = std::mem::replace(&mut *self.right, Node::Fail);
+        match step_node(current, terms) {
+            NodeStep::Emit(nf, rest) => {
+                *self.right = rest;
+                if self.seen_r_set.insert(nf.clone()) {
+                    let idx = self.seen_r.len();
+                    self.seen_r.push(nf.clone());
+                    self.enqueue_pairs_right(idx);
+                }
+                self.flip = false;
+                if let Some(result) = self.pending.pop_front() {
+                    self.pending_set.remove(&result);
+                    WorkStep::Emit(result, boxed_work(Work::Compose(self.take_self())))
+                } else {
+                    WorkStep::More(boxed_work(Work::Compose(self.take_self())))
+                }
+            }
+            NodeStep::Continue(rest) => {
+                *self.right = rest;
+                self.flip = false;
+                WorkStep::More(boxed_work(Work::Compose(self.take_self())))
+            }
+            NodeStep::Exhausted => {
+                *self.right = Node::Fail;
+                self.flip = false;
+                WorkStep::More(boxed_work(Work::Compose(self.take_self())))
+            }
+        }
+    }
+}
+
+/// Join receiver work: consume joiner outputs from a queue.
+#[derive(Clone, Debug)]
+pub struct JoinReceiverWork<C: ConstraintOps> {
+    receiver: Arc<Mutex<AnswerReceiver<C>>>,
+    blocked: Option<BlockedOn>,
+}
+
+impl<C: ConstraintOps> JoinReceiverWork<C> {
+    pub fn new(receiver: AnswerReceiver<C>) -> Self {
+        Self {
+            receiver: Arc::new(Mutex::new(receiver)),
+            blocked: None,
+        }
+    }
+
+    pub fn blocked_on(&self) -> Option<BlockedOn> {
+        self.blocked.clone()
+    }
+
+    pub fn step(&mut self, _terms: &mut TermStore) -> WorkStep<C> {
+        let receiver = self.receiver.lock();
+        match receiver.try_recv() {
+            RecvResult::Item(nf) => {
+                self.blocked = None;
+                WorkStep::Emit(nf, boxed_work(Work::JoinReceiver(self.clone())))
+            }
+            RecvResult::Closed => WorkStep::Done,
+            RecvResult::Empty => {
+                self.blocked = Some(receiver.blocked_on());
+                WorkStep::More(boxed_work(Work::JoinReceiver(self.clone())))
+            }
+        }
+    }
+}
+
+/// AndGroup work: queue-backed join for n-ary conjunction/intersection.
+///
+/// Represents: And(r0, r1, ..., rn-1)
+///
+/// Each part runs as a producer that pushes answers into a bounded queue.
+/// The joiner consumes those queues round-robin and emits meets into an output queue.
+#[derive(Clone, Copy, Debug)]
+pub struct AndGroupConfig {
+    part_queue_capacity: usize,
+    output_queue_capacity: usize,
+}
+
+impl Default for AndGroupConfig {
+    fn default() -> Self {
+        Self {
+            part_queue_capacity: 1,
+            output_queue_capacity: 1,
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+struct AndProducer<C: ConstraintOps> {
+    node: Node<C>,
+    sender: Option<AnswerSender<C>>,
+    pending: Option<NF<C>>,
+    blocked: Option<BlockedOn>,
+    done: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum AndProducerStep {
+    Progress,
+    Blocked,
+    Done,
+}
+
+impl<C: ConstraintOps> AndProducer<C> {
+    fn new(node: Node<C>, sender: AnswerSender<C>) -> Self {
+        Self {
+            node,
+            sender: Some(sender),
+            pending: None,
+            blocked: None,
+            done: false,
+        }
+    }
+
+    fn runnable(&self) -> bool {
+        if self.done {
+            return false;
+        }
+        self.blocked.as_ref().map_or(true, |b| b.is_stale())
+    }
+
+    fn close_sender(&mut self) {
+        self.sender = None;
+    }
+
+    fn step(&mut self, terms: &mut TermStore) -> AndProducerStep {
+        if self.done {
+            return AndProducerStep::Done;
+        }
+
+        if let Some(blocked) = &self.blocked {
+            if !blocked.is_stale() {
+                return AndProducerStep::Blocked;
+            }
+        }
+
+        if let Some(nf) = self.pending.take() {
+            let Some(sender) = self.sender.as_ref() else {
+                self.done = true;
+                return AndProducerStep::Done;
+            };
+            match sender.try_send(nf.clone()) {
+                SinkResult::Accepted => {
+                    self.blocked = None;
+                    return AndProducerStep::Progress;
+                }
+                SinkResult::Full => {
+                    self.pending = Some(nf);
+                    self.blocked = Some(sender.blocked_on());
+                    return AndProducerStep::Blocked;
+                }
+                SinkResult::Closed => {
+                    self.done = true;
+                    self.close_sender();
+                    return AndProducerStep::Done;
+                }
+            }
+        }
+
+        let current = std::mem::replace(&mut self.node, Node::Fail);
+        match step_node(current, terms) {
+            NodeStep::Emit(nf, rest) => {
+                self.node = rest;
+                let Some(sender) = self.sender.as_ref() else {
+                    self.done = true;
+                    return AndProducerStep::Done;
+                };
+                match sender.try_send(nf.clone()) {
+                    SinkResult::Accepted => {
+                        self.blocked = None;
+                        AndProducerStep::Progress
+                    }
+                    SinkResult::Full => {
+                        self.pending = Some(nf);
+                        self.blocked = Some(sender.blocked_on());
+                        AndProducerStep::Blocked
+                    }
+                    SinkResult::Closed => {
+                        self.done = true;
+                        self.close_sender();
+                        AndProducerStep::Done
                     }
                 }
             }
-            if next.is_empty() {
-                return;
+            NodeStep::Continue(rest) => {
+                self.node = rest;
+                if matches!(self.node, Node::Fail) {
+                    self.done = true;
+                    self.close_sender();
+                    return AndProducerStep::Done;
+                }
+                self.blocked = None;
+                AndProducerStep::Progress
             }
-            acc = next;
+            NodeStep::Exhausted => {
+                self.node = Node::Fail;
+                self.done = true;
+                self.close_sender();
+                AndProducerStep::Done
+            }
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct AndGroup<C: ConstraintOps> {
+    producers: Vec<AndProducer<C>>,
+    joiner: Arc<Mutex<AndJoiner<C>>>,
+    joiner_sink: AnswerSender<C>,
+    joiner_blocked: Option<BlockedOn>,
+    joiner_done: bool,
+    output_receiver: Arc<Mutex<AnswerReceiver<C>>>,
+    /// Round-robin turn index across producers + joiner.
+    pub turn: usize,
+}
+
+impl<C: ConstraintOps> AndGroup<C> {
+    /// Create a new AndGroup from part nodes.
+    pub fn new(parts: Vec<Node<C>>) -> Self {
+        Self::with_config(parts, AndGroupConfig::default())
+    }
+
+    pub fn with_config(parts: Vec<Node<C>>, config: AndGroupConfig) -> Self {
+        let (hub, _rx) = WakeHub::new();
+        let joiner_waker = hub.waker();
+        let output_waker = hub.waker();
+
+        let mut receivers = Vec::new();
+        let mut producers = Vec::new();
+
+        for part in parts {
+            let (tx, rx) =
+                AnswerQueue::bounded_with_waker(config.part_queue_capacity, joiner_waker.clone());
+            receivers.push(rx);
+            producers.push(AndProducer::new(part, tx));
         }
 
-        for result in acc {
-            self.push_pending(result);
+        let (out_tx, out_rx) =
+            AnswerQueue::bounded_with_waker(config.output_queue_capacity, output_waker);
+
+        let joiner = AndJoiner::from_state(
+            receivers,
+            vec![false; producers.len()],
+            vec![Vec::new(); producers.len()],
+            VecDeque::new(),
+            0,
+            joiner_waker,
+        );
+
+        Self {
+            producers,
+            joiner: Arc::new(Mutex::new(joiner)),
+            joiner_sink: out_tx,
+            joiner_blocked: None,
+            joiner_done: false,
+            output_receiver: Arc::new(Mutex::new(out_rx)),
+            turn: 0,
+        }
+    }
+
+    fn take_self(&mut self) -> Self {
+        std::mem::replace(self, AndGroup::new(Vec::new()))
+    }
+
+    fn joiner_runnable(&self) -> bool {
+        if self.joiner_done {
+            return false;
+        }
+        self.joiner_blocked.as_ref().map_or(true, |b| b.is_stale())
+    }
+
+    fn poll_output(&mut self) -> Option<NF<C>> {
+        let receiver = self.output_receiver.lock();
+        match receiver.try_recv() {
+            RecvResult::Item(nf) => Some(nf),
+            RecvResult::Empty => None,
+            RecvResult::Closed => {
+                self.joiner_done = true;
+                None
+            }
+        }
+    }
+
+    fn step_joiner(&mut self, terms: &mut TermStore) -> JoinStep {
+        let mut joiner = self.joiner.lock();
+        let mut sink = crate::queue::AnswerSink::Queue(self.joiner_sink.clone());
+        match joiner.step(terms, &mut sink) {
+            JoinStep::Progress => {
+                self.joiner_blocked = None;
+                JoinStep::Progress
+            }
+            JoinStep::Blocked(blocked) => {
+                self.joiner_blocked = Some(blocked.clone());
+                JoinStep::Blocked(blocked)
+            }
+            JoinStep::Done => {
+                self.joiner_done = true;
+                self.joiner_blocked = None;
+                JoinStep::Done
+            }
         }
     }
 
     /// Step this AndGroup, returning the next state.
     pub fn step(&mut self, terms: &mut TermStore) -> WorkStep<C> {
-        if let Some(nf) = self.pending.pop_front() {
-            self.pending_set.remove(&nf);
+        if let Some(nf) = self.poll_output() {
             return WorkStep::Emit(nf, boxed_work(Work::AndGroup(self.take_self())));
         }
 
-        if self.parts.is_empty() {
+        if self.joiner_done {
             return WorkStep::Done;
         }
 
-        if self.parts.iter().all(|node| matches!(node, Node::Fail)) {
+        let total = self.producers.len() + 1;
+        if total == 0 {
             return WorkStep::Done;
         }
 
-        let part_count = self.parts.len();
-        let mut pick = None;
-        for offset in 0..part_count {
-            let idx = (self.turn + offset) % part_count;
-            if !matches!(self.parts[idx], Node::Fail) {
-                pick = Some(idx);
-                break;
+        for offset in 0..total {
+            let idx = (self.turn + offset) % total;
+            if idx == self.producers.len() {
+                if !self.joiner_runnable() {
+                    continue;
+                }
+                self.step_joiner(terms);
+                self.turn = (idx + 1) % total;
+                if let Some(nf) = self.poll_output() {
+                    return WorkStep::Emit(nf, boxed_work(Work::AndGroup(self.take_self())));
+                }
+                return WorkStep::More(boxed_work(Work::AndGroup(self.take_self())));
             }
+
+            if !self.producers[idx].runnable() {
+                continue;
+            }
+            let _ = self.producers[idx].step(terms);
+            self.turn = (idx + 1) % total;
+            if let Some(nf) = self.poll_output() {
+                return WorkStep::Emit(nf, boxed_work(Work::AndGroup(self.take_self())));
+            }
+            return WorkStep::More(boxed_work(Work::AndGroup(self.take_self())));
         }
 
-        let idx = match pick {
-            Some(idx) => idx,
-            None => return WorkStep::Done,
-        };
-
-        let current = std::mem::replace(&mut self.parts[idx], Node::Fail);
-        match step_node(current, terms) {
-            NodeStep::Emit(nf, rest) => {
-                self.parts[idx] = rest;
-                if self.seen_sets[idx].insert(nf.clone()) {
-                    self.seen[idx].push(nf.clone());
-                    self.enqueue_meets(idx, nf, terms);
-                }
-                self.turn = (idx + 1) % part_count;
-                if let Some(result) = self.pending.pop_front() {
-                    self.pending_set.remove(&result);
-                    WorkStep::Emit(result, boxed_work(Work::AndGroup(self.take_self())))
-                } else {
-                    WorkStep::More(boxed_work(Work::AndGroup(self.take_self())))
-                }
-            }
-            NodeStep::Continue(rest) => {
-                self.parts[idx] = rest;
-                self.turn = (idx + 1) % part_count;
-                WorkStep::More(boxed_work(Work::AndGroup(self.take_self())))
-            }
-            NodeStep::Exhausted => {
-                self.parts[idx] = Node::Fail;
-                self.turn = (idx + 1) % part_count;
-                WorkStep::More(boxed_work(Work::AndGroup(self.take_self())))
-            }
+        if self.joiner_done {
+            WorkStep::Done
+        } else {
+            WorkStep::More(boxed_work(Work::AndGroup(self.take_self())))
         }
     }
 }
@@ -1421,9 +1892,18 @@ pub enum ProducerState {
     Done,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ProducerStep {
+    Progress,
+    Blocked,
+    Done,
+}
+
 /// Spec for rebuilding a producer iteration.
 #[derive(Clone, Debug)]
 pub struct ProducerSpec<C: ConstraintOps> {
+    /// CallKey for ReplayOnly protection.
+    pub key: CallKey<C>,
     /// Body of the Fix relation.
     pub body: Arc<Rel<C>>,
     /// Left boundary to apply for this call.
@@ -1434,48 +1914,60 @@ pub struct ProducerSpec<C: ConstraintOps> {
     pub env: Env<C>,
 }
 
+#[derive(Debug)]
+struct TableAnswers<C: ConstraintOps> {
+    answers: Vec<NF<C>>,
+    seen: HashSet<NF<C>>,
+    waker: QueueWaker,
+}
+
+#[derive(Debug)]
+struct TableProducer<C: ConstraintOps> {
+    state: ProducerState,
+    producer: Option<Node<C>>,
+    spec: Option<ProducerSpec<C>>,
+    iteration_start_len: usize,
+    producer_task_active: bool,
+}
+
 /// A table entry for a recursive call.
 ///
 /// Stores the answers produced so far and the producer state.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct Table<C: ConstraintOps> {
-    /// Answers produced so far.
-    pub answers: Vec<NF<C>>,
-    /// Dedup set for answers.
-    pub seen: HashSet<NF<C>>,
-    /// Current index for consumers.
-    pub consumer_index: usize,
-    /// Producer state.
-    pub state: ProducerState,
-    /// Producer node for the current iteration.
-    pub producer: Option<Node<C>>,
-    /// Spec for rebuilding producer iterations.
-    pub spec: Option<ProducerSpec<C>>,
-    /// Answer count at the start of the current iteration.
-    pub iteration_start_len: usize,
-    /// Prevent re-entrant stepping.
-    pub stepping: bool,
+    answers: Mutex<TableAnswers<C>>,
+    producer: Mutex<TableProducer<C>>,
 }
 
 impl<C: ConstraintOps> Table<C> {
     /// Create a new empty table.
     pub fn new() -> Self {
+        Self::with_waker(QueueWaker::noop())
+    }
+
+    pub fn with_waker(waker: QueueWaker) -> Self {
         Self {
-            answers: Vec::new(),
-            seen: HashSet::new(),
-            consumer_index: 0,
-            state: ProducerState::NotStarted,
-            producer: None,
-            spec: None,
-            iteration_start_len: 0,
-            stepping: false,
+            answers: Mutex::new(TableAnswers {
+                answers: Vec::new(),
+                seen: HashSet::new(),
+                waker,
+            }),
+            producer: Mutex::new(TableProducer {
+                state: ProducerState::NotStarted,
+                producer: None,
+                spec: None,
+                iteration_start_len: 0,
+                producer_task_active: false,
+            }),
         }
     }
 
     /// Add an answer to the table.
-    pub fn add_answer(&mut self, nf: NF<C>) -> bool {
-        if self.seen.insert(nf.clone()) {
-            self.answers.push(nf);
+    pub fn add_answer(&self, nf: NF<C>) -> bool {
+        let mut answers = self.answers.lock();
+        if answers.seen.insert(nf.clone()) {
+            answers.answers.push(nf);
+            answers.waker.wake();
             true
         } else {
             false
@@ -1483,55 +1975,120 @@ impl<C: ConstraintOps> Table<C> {
     }
 
     /// Mark the producer as running.
-    pub fn start_producer(&mut self, producer: Node<C>, spec: ProducerSpec<C>) {
-        self.state = ProducerState::Running;
-        self.producer = Some(producer);
-        self.spec = Some(spec);
-        self.iteration_start_len = self.answers.len();
-        self.stepping = false;
+    pub fn start_producer(
+        &self,
+        producer: Node<C>,
+        spec: ProducerSpec<C>,
+        iteration_start_len: usize,
+    ) {
+        let mut guard = self.producer.lock();
+        guard.state = ProducerState::Running;
+        guard.producer = Some(producer);
+        guard.spec = Some(spec);
+        guard.iteration_start_len = iteration_start_len;
     }
 
     /// Mark the producer as done.
-    pub fn finish_producer(&mut self) {
-        self.state = ProducerState::Done;
-        self.producer = None;
-        self.stepping = false;
+    pub fn finish_producer(&self) {
+        {
+            let mut guard = self.producer.lock();
+            guard.state = ProducerState::Done;
+            guard.producer = None;
+        }
+        self.answers.lock().waker.wake();
     }
 
     /// Check if producer is done.
     pub fn is_done(&self) -> bool {
-        self.state == ProducerState::Done
+        self.producer.lock().state == ProducerState::Done
     }
 
-    /// Check if producer is running (re-entrance check).
+    /// Check if producer is running.
     pub fn is_running(&self) -> bool {
-        self.state == ProducerState::Running
+        self.producer.lock().state == ProducerState::Running
     }
 
-    /// Get the next unconsumed answer (if any).
-    pub fn next_answer(&mut self) -> Option<&NF<C>> {
-        if self.consumer_index < self.answers.len() {
-            let answer = &self.answers[self.consumer_index];
-            self.consumer_index += 1;
-            Some(answer)
+    pub fn producer_state(&self) -> ProducerState {
+        self.producer.lock().state.clone()
+    }
+
+    pub fn producer_task_active(&self) -> bool {
+        self.producer.lock().producer_task_active
+    }
+
+    pub fn set_producer_task_active(&self, active: bool) {
+        self.producer.lock().producer_task_active = active;
+    }
+
+    pub fn try_mark_producer_active(&self) -> bool {
+        let mut guard = self.producer.lock();
+        if guard.producer_task_active || guard.state == ProducerState::Done || guard.spec.is_none()
+        {
+            false
         } else {
-            None
+            guard.producer_task_active = true;
+            true
         }
     }
 
-    /// Reset consumer index to re-read all answers.
-    pub fn reset_consumer(&mut self) {
-        self.consumer_index = 0;
+    pub fn producer_spec_is_some(&self) -> bool {
+        self.producer.lock().spec.is_some()
+    }
+
+    pub fn producer_spec_clone(&self) -> Option<ProducerSpec<C>> {
+        self.producer.lock().spec.clone()
+    }
+
+    pub fn take_producer_node(&self) -> Option<Node<C>> {
+        self.producer.lock().producer.take()
+    }
+
+    pub fn set_producer_node(&self, node: Node<C>) {
+        self.producer.lock().producer = Some(node);
+    }
+
+    pub fn iteration_start_len(&self) -> usize {
+        self.producer.lock().iteration_start_len
+    }
+
+    pub fn set_iteration_start_len(&self, len: usize) {
+        self.producer.lock().iteration_start_len = len;
+    }
+
+    pub fn answers_len(&self) -> usize {
+        self.answers.lock().answers.len()
+    }
+
+    pub fn answer_at(&self, index: usize) -> Option<NF<C>> {
+        self.answers.lock().answers.get(index).cloned()
     }
 
     /// Get all answers.
-    pub fn all_answers(&self) -> &[NF<C>] {
-        &self.answers
+    pub fn all_answers(&self) -> Vec<NF<C>> {
+        self.answers.lock().answers.clone()
     }
 
-    /// Check if there are more answers to consume.
-    pub fn has_more_answers(&self) -> bool {
-        self.consumer_index < self.answers.len()
+    pub fn blocked_on(&self) -> BlockedOn {
+        self.answers.lock().waker.blocked_on()
+    }
+}
+
+#[cfg(test)]
+impl<C: ConstraintOps> Table<C> {
+    fn lock_answers_for_test(&self) -> parking_lot::MutexGuard<'_, TableAnswers<C>> {
+        self.answers.lock()
+    }
+
+    fn try_lock_answers_for_test(&self) -> Option<parking_lot::MutexGuard<'_, TableAnswers<C>>> {
+        self.answers.try_lock()
+    }
+
+    fn lock_producer_for_test(&self) -> parking_lot::MutexGuard<'_, TableProducer<C>> {
+        self.producer.lock()
+    }
+
+    fn try_lock_producer_for_test(&self) -> Option<parking_lot::MutexGuard<'_, TableProducer<C>>> {
+        self.producer.try_lock()
     }
 }
 
@@ -1541,58 +2098,143 @@ impl<C: ConstraintOps> Default for Table<C> {
     }
 }
 
-type TableMap<C> = im::HashMap<CallKey<C>, Arc<RefCell<Table<C>>>>;
+pub fn step_table_producer<C: ConstraintOps>(
+    table: &Arc<Table<C>>,
+    terms: &mut TermStore,
+    tables: &Tables<C>,
+) -> ProducerStep {
+    let state = table.producer_state();
+    if state == ProducerState::Done {
+        table.set_producer_task_active(false);
+        return ProducerStep::Done;
+    }
+
+    if state == ProducerState::NotStarted {
+        let Some(spec) = table.producer_spec_clone() else {
+            table.finish_producer();
+            table.set_producer_task_active(false);
+            return ProducerStep::Done;
+        };
+        let mut producer_pipe = PipeWork::from_rel_with_boundaries(
+            spec.body.as_ref().clone(),
+            spec.left.clone(),
+            spec.right.clone(),
+            spec.env.clone(),
+            tables.clone(),
+        );
+        producer_pipe.call_mode = CallMode::ReplayOnly(Box::new(spec.key.clone()));
+        let producer_node = Node::Work(boxed_work(Work::Pipe(producer_pipe)));
+        table.start_producer(producer_node, spec, table.answers_len());
+    }
+
+    let current = table.take_producer_node().unwrap_or(Node::Fail);
+
+    let step = step_node(current, terms);
+    match step {
+        NodeStep::Emit(nf, rest) => {
+            let _ = table.add_answer(nf);
+            table.set_producer_node(rest);
+            ProducerStep::Progress
+        }
+        NodeStep::Continue(rest) => {
+            table.set_producer_node(rest);
+            ProducerStep::Progress
+        }
+        NodeStep::Exhausted => {
+            let has_new = table.answers_len() > table.iteration_start_len();
+            if has_new {
+                let Some(spec) = table.producer_spec_clone() else {
+                    table.finish_producer();
+                    table.set_producer_task_active(false);
+                    return ProducerStep::Done;
+                };
+                let mut producer_pipe = PipeWork::from_rel_with_boundaries(
+                    spec.body.as_ref().clone(),
+                    spec.left.clone(),
+                    spec.right.clone(),
+                    spec.env.clone(),
+                    tables.clone(),
+                );
+                producer_pipe.call_mode = CallMode::ReplayOnly(Box::new(spec.key.clone()));
+                table.set_iteration_start_len(table.answers_len());
+                table.set_producer_node(Node::Work(boxed_work(Work::Pipe(producer_pipe))));
+                ProducerStep::Progress
+            } else {
+                table.finish_producer();
+                table.set_producer_task_active(false);
+                ProducerStep::Done
+            }
+        }
+    }
+}
+
+type TableMap<C> = DashMap<CallKey<C>, Arc<Table<C>>>;
 
 /// Collection of tables for call-context tabling.
 ///
-/// Uses persistent map for efficient cloning.
+/// Uses a shared concurrent map so all clones see the same tables.
 #[derive(Clone, Debug)]
 pub struct Tables<C: ConstraintOps> {
-    map: Arc<RefCell<TableMap<C>>>,
+    map: Arc<TableMap<C>>,
+    queue_bound: usize,
+    wake_hub: Arc<WakeHub>,
 }
 
 impl<C: ConstraintOps> Tables<C> {
     /// Create an empty Tables collection.
     pub fn new() -> Self {
+        Self::with_queue_bound(64)
+    }
+
+    pub fn with_queue_bound(queue_bound: usize) -> Self {
+        let (wake_hub, _rx) = WakeHub::new();
+        Self::with_queue_bound_and_waker(queue_bound, wake_hub)
+    }
+
+    pub fn with_queue_bound_and_waker(queue_bound: usize, wake_hub: Arc<WakeHub>) -> Self {
         Self {
-            map: Arc::new(RefCell::new(im::HashMap::new())),
+            map: Arc::new(DashMap::new()),
+            queue_bound: queue_bound.max(1),
+            wake_hub,
         }
     }
 
     /// Look up a table by CallKey.
-    pub fn lookup(&self, key: &CallKey<C>) -> Option<Arc<RefCell<Table<C>>>> {
-        self.map.borrow().get(key).cloned()
+    pub fn lookup(&self, key: &CallKey<C>) -> Option<Arc<Table<C>>> {
+        self.map.get(key).map(|entry| entry.value().clone())
     }
 
     /// Get or create a table for a CallKey.
-    pub fn get_or_create(&mut self, key: CallKey<C>) -> Arc<RefCell<Table<C>>> {
-        if let Some(table) = self.map.borrow().get(&key) {
-            return table.clone();
+    pub fn get_or_create(&self, key: CallKey<C>) -> Arc<Table<C>> {
+        if let Some(table) = self.map.get(&key) {
+            return table.value().clone();
         }
-
-        let mut map = self.map.borrow_mut();
-        if let Some(table) = map.get(&key) {
-            return table.clone();
-        }
-
-        let table = Arc::new(RefCell::new(Table::new()));
-        *map = map.update(key, table.clone());
-        table
+        let table = Arc::new(Table::with_waker(self.waker()));
+        let entry = self.map.entry(key).or_insert(table.clone());
+        entry.value().clone()
     }
 
     /// Check if a table exists for a CallKey.
     pub fn contains(&self, key: &CallKey<C>) -> bool {
-        self.map.borrow().contains_key(key)
+        self.map.contains_key(key)
     }
 
     /// Get the number of tables.
     pub fn len(&self) -> usize {
-        self.map.borrow().len()
+        self.map.len()
     }
 
     /// Check if empty.
     pub fn is_empty(&self) -> bool {
-        self.map.borrow().is_empty()
+        self.map.is_empty()
+    }
+
+    pub fn queue_bound(&self) -> usize {
+        self.queue_bound
+    }
+
+    pub fn waker(&self) -> QueueWaker {
+        self.wake_hub.waker()
     }
 }
 
@@ -1602,18 +2244,16 @@ impl<C: ConstraintOps> Default for Tables<C> {
     }
 }
 
-/// FixWork: table handle that streams answers and advances the producer.
+/// FixWork: table handle that streams answers and steps the producer inline.
 ///
 /// The producer runs in iterations. Each iteration evaluates the body with
-/// replay-only calls for the current CallKey. When an iteration exhausts:
-/// - if new answers were found, start a new iteration
-/// - otherwise mark the table done
+/// replay-only calls for the current CallKey.
 #[derive(Clone, Debug)]
 pub struct FixWork<C: ConstraintOps> {
     /// The CallKey for this tabled call.
     pub key: CallKey<C>,
     /// Reference to the table.
-    pub table: Arc<RefCell<Table<C>>>,
+    pub table: Arc<Table<C>>,
     /// Current answer index for this handle.
     pub answer_index: usize,
     /// Tables for nested calls.
@@ -1624,108 +2264,49 @@ impl<C: ConstraintOps> FixWork<C> {
     /// Create a new FixWork handle.
     pub fn new(
         key: CallKey<C>,
-        table: Arc<RefCell<Table<C>>>,
-        answer_index: usize,
+        table: Arc<Table<C>>,
+        start_index: usize,
         tables: Tables<C>,
     ) -> Self {
         Self {
             key,
             table,
-            answer_index,
+            answer_index: start_index,
             tables,
         }
     }
 
     /// Step this FixWork handle.
     pub fn step(&mut self, terms: &mut TermStore) -> WorkStep<C> {
-        {
-            let table = self.table.borrow();
-            if self.answer_index < table.answers.len() {
-                let nf = table.answers[self.answer_index].clone();
-                drop(table);
-                self.answer_index += 1;
-                return WorkStep::Emit(nf, boxed_work(Work::Fix(self.clone())));
-            }
-            if table.is_done() {
-                return WorkStep::Done;
-            }
-            if table.stepping {
-                return WorkStep::More(boxed_work(Work::Fix(self.clone())));
-            }
+        let _ = terms;
+        if let Some(nf) = self.table.answer_at(self.answer_index) {
+            self.answer_index += 1;
+            return WorkStep::Emit(nf, boxed_work(Work::Fix(self.clone())));
         }
 
-        let (mut producer, spec) = {
-            let mut table = self.table.borrow_mut();
-            table.stepping = true;
-            (table.producer.take(), table.spec.clone())
-        };
-
-        if producer.is_none() {
-            let Some(spec) = spec.clone() else {
-                let mut table = self.table.borrow_mut();
-                table.finish_producer();
-                table.stepping = false;
-                return WorkStep::Done;
-            };
-            let mut producer_pipe = PipeWork::from_rel_with_boundaries(
-                spec.body.as_ref().clone(),
-                spec.left.clone(),
-                spec.right.clone(),
-                spec.env.clone(),
-                self.tables.clone(),
-            );
-            producer_pipe.call_mode = CallMode::ReplayOnly(Box::new(self.key.clone()));
-            producer = Some(Node::Work(boxed_work(Work::Pipe(producer_pipe))));
+        if self.table.is_done() {
+            return WorkStep::Done;
         }
 
-        let current = producer.unwrap_or(Node::Fail);
-        match step_node(current, terms) {
-            NodeStep::Emit(nf, rest) => {
-                let mut table = self.table.borrow_mut();
-                let added = table.add_answer(nf.clone());
-                table.producer = Some(rest);
-                table.stepping = false;
-                let new_len = table.answers.len();
-                drop(table);
-                self.answer_index = new_len;
-                if added {
-                    WorkStep::Emit(nf, boxed_work(Work::Fix(self.clone())))
-                } else {
-                    WorkStep::More(boxed_work(Work::Fix(self.clone())))
-                }
+        if !self.table.try_mark_producer_active() {
+            if self.table.is_done() {
+                return WorkStep::Done;
             }
-            NodeStep::Continue(rest) => {
-                let mut table = self.table.borrow_mut();
-                table.producer = Some(rest);
-                table.stepping = false;
+            return WorkStep::More(boxed_work(Work::Fix(self.clone())));
+        }
+
+        let step = step_table_producer(&self.table, terms, &self.tables);
+        self.table.set_producer_task_active(false);
+
+        if let Some(nf) = self.table.answer_at(self.answer_index) {
+            self.answer_index += 1;
+            return WorkStep::Emit(nf, boxed_work(Work::Fix(self.clone())));
+        }
+
+        match step {
+            ProducerStep::Done => WorkStep::Done,
+            ProducerStep::Progress | ProducerStep::Blocked => {
                 WorkStep::More(boxed_work(Work::Fix(self.clone())))
-            }
-            NodeStep::Exhausted => {
-                let mut table = self.table.borrow_mut();
-                let has_new = table.answers.len() > table.iteration_start_len;
-                if has_new {
-                    let Some(spec) = table.spec.clone() else {
-                        table.finish_producer();
-                        table.stepping = false;
-                        return WorkStep::Done;
-                    };
-                    table.iteration_start_len = table.answers.len();
-                    let mut producer_pipe = PipeWork::from_rel_with_boundaries(
-                        spec.body.as_ref().clone(),
-                        spec.left.clone(),
-                        spec.right.clone(),
-                        spec.env.clone(),
-                        self.tables.clone(),
-                    );
-                    producer_pipe.call_mode = CallMode::ReplayOnly(Box::new(self.key.clone()));
-                    table.producer = Some(Node::Work(boxed_work(Work::Pipe(producer_pipe))));
-                    table.stepping = false;
-                    WorkStep::More(boxed_work(Work::Fix(self.clone())))
-                } else {
-                    table.finish_producer();
-                    table.stepping = false;
-                    WorkStep::Done
-                }
             }
         }
     }
@@ -1734,16 +2315,20 @@ impl<C: ConstraintOps> FixWork<C> {
 #[cfg(test)]
 mod tests {
     use super::{
-        boxed_node, boxed_work, BindWork, CallKey, CallMode, Env, FixWork, MeetWork, PipeWork,
-        ProducerSpec, ProducerState, Table, Tables, Work, WorkStep,
+        boxed_node, boxed_work, rel_to_node, step_table_producer, AndGroup, CallKey, CallMode,
+        ComposeWork, Env, FixWork, JoinReceiverWork, MeetWork, PipeWork, ProducerSpec,
+        ProducerState, ProducerStep, Table, Tables, Work, WorkStep,
     };
     use crate::drop_fresh::DropFresh;
     use crate::factors::Factors;
+    use crate::kernel::compose_nf;
+    use crate::kernel::dual::dual_nf;
     use crate::nf::NF;
-    use crate::node::Node;
+    use crate::node::{step_node, Node, NodeStep};
+    use crate::queue::{AnswerQueue, SinkResult};
     use crate::rel::Rel;
     use crate::term::TermStore;
-    use crate::test_utils::{make_ground_nf, setup};
+    use crate::test_utils::{make_ground_nf, make_rule_nf, setup};
     use smallvec::SmallVec;
     use std::sync::Arc;
 
@@ -1755,7 +2340,7 @@ mod tests {
     }
 
     /// Create variable identity NF (x -> x) using a specific TermStore
-    fn make_var_identity_nf(terms: &TermStore) -> NF<()> {
+    fn make_var_identity_nf(terms: &mut TermStore) -> NF<()> {
         let v0 = terms.var(0);
         NF::new(
             SmallVec::from_slice(&[v0]),
@@ -1778,6 +2363,50 @@ mod tests {
         }
     }
 
+    fn or_chain(rels: Vec<Arc<Rel<()>>>) -> Arc<Rel<()>> {
+        let mut iter = rels.into_iter();
+        let Some(first) = iter.next() else {
+            return Arc::new(Rel::Zero);
+        };
+        iter.fold(first, |acc, rel| Arc::new(Rel::Or(rel, acc)))
+    }
+
+    fn delayed_or(depth: usize, inner: Arc<Rel<()>>) -> Arc<Rel<()>> {
+        let mut rel = inner;
+        for _ in 0..depth {
+            rel = Arc::new(Rel::Or(Arc::new(Rel::Zero), rel));
+        }
+        rel
+    }
+
+    fn count_pipe_nodes(node: &Node<()>) -> usize {
+        match node {
+            Node::Fail => 0,
+            Node::Emit(_, rest) => count_pipe_nodes(rest),
+            Node::Or(left, right) => count_pipe_nodes(left) + count_pipe_nodes(right),
+            Node::Work(work) => count_pipe_nodes_in_work(work),
+        }
+    }
+
+    fn count_pipe_nodes_in_work(work: &Work<()>) -> usize {
+        match work {
+            Work::Pipe(_) => 1,
+            Work::Meet(meet) => count_pipe_nodes(&meet.left) + count_pipe_nodes(&meet.right),
+            Work::AndGroup(group) => group
+                .producers
+                .iter()
+                .map(|producer| count_pipe_nodes(&producer.node))
+                .sum(),
+            Work::Fix(_) => 0,
+            Work::Compose(compose) => {
+                count_pipe_nodes(&compose.left) + count_pipe_nodes(&compose.right)
+            }
+            Work::JoinReceiver(_) => 0,
+            Work::Atom(_) => 0,
+            Work::Done => 0,
+        }
+    }
+
     fn find_fixwork_in_node(node: &Node<()>) -> Option<FixWork<()>> {
         match node {
             Node::Work(work) => match work.as_ref() {
@@ -1794,23 +2423,13 @@ mod tests {
     fn extract_key_from_step(step: WorkStep<()>) -> CallKey<()> {
         match step {
             WorkStep::More(work) => match *work {
-                Work::Bind(bind) => {
-                    let Some(fix) = find_fixwork_in_node(&bind.gen) else {
-                        panic!("Expected FixWork in bind generator");
-                    };
+                Work::Compose(compose) => {
+                    let fix = find_fixwork_in_node(&compose.left)
+                        .or_else(|| find_fixwork_in_node(&compose.right))
+                        .expect("Expected FixWork in compose nodes");
                     fix.key
                 }
-                _ => panic!("Expected Work::Bind(..)"),
-            },
-            _ => panic!("Expected WorkStep::More(..)"),
-        }
-    }
-
-    fn extract_gen_from_step(step: WorkStep<()>) -> Node<()> {
-        match step {
-            WorkStep::More(work) => match *work {
-                Work::Bind(bind) => *bind.gen,
-                _ => panic!("Expected Work::Bind(..)"),
+                _ => panic!("Expected Work::Compose(..)"),
             },
             _ => panic!("Expected WorkStep::More(..)"),
         }
@@ -1818,6 +2437,20 @@ mod tests {
 
     fn is_work_pipe(node: &Node<()>) -> bool {
         matches!(node, Node::Work(work) if matches!(work.as_ref(), Work::Pipe(_)))
+    }
+
+    fn unwrap_join_receiver(work: Work<()>) -> JoinReceiverWork<()> {
+        match work {
+            Work::JoinReceiver(join) => join,
+            other => panic!("Expected JoinReceiverWork, got {:?}", other),
+        }
+    }
+
+    fn unwrap_and_group(work: Work<()>) -> AndGroup<()> {
+        match work {
+            Work::AndGroup(group) => group,
+            other => panic!("Expected AndGroup, got {:?}", other),
+        }
     }
 
     fn unwrap_work_pipe(node: Node<()>) -> PipeWork<()> {
@@ -1830,11 +2463,11 @@ mod tests {
         }
     }
 
-    fn unwrap_work_bind(step: WorkStep<()>) -> BindWork<()> {
+    fn unwrap_work_compose(step: WorkStep<()>) -> ComposeWork<()> {
         match step {
             WorkStep::More(work) => match *work {
-                Work::Bind(bind) => bind,
-                _ => panic!("Expected Work::Bind"),
+                Work::Compose(compose) => compose,
+                _ => panic!("Expected Work::Compose"),
             },
             _ => panic!("Expected WorkStep::More"),
         }
@@ -1845,6 +2478,154 @@ mod tests {
             WorkStep::Split(left, right) => (*left, *right),
             _ => panic!("Expected WorkStep::Split"),
         }
+    }
+
+    // ========================================================================
+    // COMPOSE WORK TESTS
+    // ========================================================================
+
+    #[test]
+    fn composework_emits_composed_nf() {
+        let (symbols, mut terms) = setup();
+        let left_nf = make_var_identity_nf(&mut terms);
+        let right_nf = make_ground_nf("A", &symbols, &mut terms);
+        let expected = compose_nf(&left_nf, &right_nf, &mut terms)
+            .expect("compose should succeed");
+
+        let left = Node::Emit(left_nf, Box::new(Node::Fail));
+        let right = Node::Emit(right_nf, Box::new(Node::Fail));
+        let mut compose = ComposeWork::new(left, right);
+
+        let mut steps = 0;
+        let mut step = compose.step(&mut terms);
+        loop {
+            match step {
+                WorkStep::Emit(nf, _) => {
+                    assert_eq!(nf, expected);
+                    break;
+                }
+                WorkStep::More(work) => {
+                    compose = unwrap_work_compose(WorkStep::More(work));
+                    step = compose.step(&mut terms);
+                }
+                other => panic!("Expected emit, got {:?}", other),
+            }
+            steps += 1;
+            if steps > 4 {
+                panic!("ComposeWork did not emit within expected steps");
+            }
+        }
+    }
+
+    #[test]
+    fn composework_emits_composed_nf_dual() {
+        let (symbols, mut terms) = setup();
+        let left_nf = make_var_identity_nf(&mut terms);
+        let right_nf = make_ground_nf("A", &symbols, &mut terms);
+        let expected = compose_nf(&left_nf, &right_nf, &mut terms)
+            .expect("compose should succeed");
+        let expected_dual = dual_nf(&expected, &mut terms);
+        let dual_left = dual_nf(&right_nf, &mut terms);
+        let dual_right = dual_nf(&left_nf, &mut terms);
+
+        let left = Node::Emit(dual_left, Box::new(Node::Fail));
+        let right = Node::Emit(dual_right, Box::new(Node::Fail));
+        let mut compose = ComposeWork::new(left, right);
+
+        let mut steps = 0;
+        let mut step = compose.step(&mut terms);
+        loop {
+            match step {
+                WorkStep::Emit(nf, _) => {
+                    assert_eq!(nf, expected_dual);
+                    break;
+                }
+                WorkStep::More(work) => {
+                    compose = unwrap_work_compose(WorkStep::More(work));
+                    step = compose.step(&mut terms);
+                }
+                other => panic!("Expected emit, got {:?}", other),
+            }
+            steps += 1;
+            if steps > 4 {
+                panic!("ComposeWork did not emit within expected steps");
+            }
+        }
+    }
+
+    #[test]
+    fn seq_does_not_spawn_pipe_per_and_answer() {
+        let (symbols, mut terms) = setup();
+        let mut atoms = Vec::new();
+        for idx in 0..8 {
+            let name = format!("A{idx}");
+            atoms.push(atom_rel(make_ground_nf(&name, &symbols, &mut terms)));
+        }
+
+        let left_or = or_chain(atoms);
+        let right_identity = atom_rel(make_var_identity_nf(&mut terms));
+        let and_rel = Arc::new(Rel::And(left_or, right_identity));
+        let delayed = delayed_or(8, atom_rel(make_var_identity_nf(&mut terms)));
+
+        let seq = Rel::Seq(Arc::from(vec![and_rel, delayed]));
+        let env = Env::new();
+        let tables = Tables::new();
+        let mut node = rel_to_node(&seq, &env, &tables);
+
+        for _ in 0..24 {
+            match step_node(node, &mut terms) {
+                NodeStep::Emit(_, rest) | NodeStep::Continue(rest) => node = rest,
+                NodeStep::Exhausted => {
+                    node = Node::Fail;
+                    break;
+                }
+            }
+        }
+
+        let pipe_count = count_pipe_nodes(&node);
+        assert!(
+            pipe_count <= 2,
+            "Seq should not spawn one pipe per And answer; got {pipe_count}"
+        );
+    }
+
+    #[test]
+    fn seq_does_not_spawn_pipe_per_and_answer_dual() {
+        use crate::rel::dual;
+
+        let (symbols, mut terms) = setup();
+        let mut atoms = Vec::new();
+        for idx in 0..8 {
+            let name = format!("A{idx}");
+            atoms.push(atom_rel(make_ground_nf(&name, &symbols, &mut terms)));
+        }
+
+        let left_or = or_chain(atoms);
+        let right_identity = atom_rel(make_var_identity_nf(&mut terms));
+        let and_rel = Arc::new(Rel::And(left_or, right_identity));
+        let delayed = delayed_or(8, atom_rel(make_var_identity_nf(&mut terms)));
+
+        let seq = Rel::Seq(Arc::from(vec![and_rel, delayed]));
+        let dual_seq = dual(&seq, &mut terms);
+        let env = Env::new();
+        let tables = Tables::new();
+        let mut node = rel_to_node(&dual_seq, &env, &tables);
+
+        for _ in 0..24 {
+            match step_node(node, &mut terms) {
+                NodeStep::Emit(_, rest) | NodeStep::Continue(rest) => node = rest,
+                NodeStep::Exhausted => {
+                    node = Node::Fail;
+                    break;
+                }
+            }
+        }
+
+        let pipe_count = count_pipe_nodes(&node);
+        assert!(
+            pipe_count <= 3,
+            "Dual Seq should not spawn one pipe per And answer; got {pipe_count}"
+        );
     }
 
     // ========================================================================
@@ -1955,8 +2736,8 @@ mod tests {
     #[test]
     fn pipework_step_boundaries_only_emits_compose() {
         let (symbols, mut terms) = setup();
-        let left = make_ground_nf("X", &symbols, &terms);
-        let right = make_ground_nf("X", &symbols, &terms);
+        let left = make_ground_nf("X", &symbols, &mut terms);
+        let right = make_ground_nf("X", &symbols, &mut terms);
 
         let mut pipe: PipeWork<()> =
             PipeWork::with_boundaries(Some(left), Factors::new(), Some(right));
@@ -1969,7 +2750,7 @@ mod tests {
     #[test]
     fn pipework_step_left_boundary_only_emits() {
         let (symbols, mut terms) = setup();
-        let nf = make_ground_nf("X", &symbols, &terms);
+        let nf = make_ground_nf("X", &symbols, &mut terms);
 
         let mut pipe: PipeWork<()> = PipeWork::with_boundaries(Some(nf), Factors::new(), None);
 
@@ -1981,7 +2762,7 @@ mod tests {
     #[test]
     fn pipework_step_right_boundary_only_emits() {
         let (symbols, mut terms) = setup();
-        let nf = make_ground_nf("X", &symbols, &terms);
+        let nf = make_ground_nf("X", &symbols, &mut terms);
 
         let mut pipe: PipeWork<()> = PipeWork::with_boundaries(None, Factors::new(), Some(nf));
 
@@ -1992,7 +2773,7 @@ mod tests {
     #[test]
     fn pipework_fuses_adjacent_atoms_anywhere() {
         let (symbols, mut terms) = setup();
-        let nf = make_ground_nf("A", &symbols, &terms);
+        let nf = make_ground_nf("A", &symbols, &mut terms);
         let rels = vec![
             atom_rel(nf.clone()),
             atom_rel(nf.clone()),
@@ -2011,7 +2792,7 @@ mod tests {
     #[test]
     fn pipework_fuses_middle_atoms_before_advancing_ends() {
         let (symbols, mut terms) = setup();
-        let nf = make_ground_nf("A", &symbols, &terms);
+        let nf = make_ground_nf("A", &symbols, &mut terms);
         let atom = atom_rel(nf);
         let or = Arc::new(Rel::Or(atom.clone(), atom.clone()));
 
@@ -2064,7 +2845,7 @@ mod tests {
     #[test]
     fn pipework_step_single_atom_absorbs_to_left() {
         let (symbols, mut terms) = setup();
-        let nf = make_ground_nf("X", &symbols, &terms);
+        let nf = make_ground_nf("X", &symbols, &mut terms);
         let rels = vec![atom_rel(nf.clone())];
         let mid = factors_from_rels(rels);
 
@@ -2093,8 +2874,8 @@ mod tests {
     #[test]
     fn pipework_step_atom_composes_with_left_boundary() {
         let (symbols, mut terms) = setup();
-        let left = make_ground_nf("X", &symbols, &terms);
-        let atom_nf = make_ground_nf("X", &symbols, &terms);
+        let left = make_ground_nf("X", &symbols, &mut terms);
+        let atom_nf = make_ground_nf("X", &symbols, &mut terms);
         let rels = vec![atom_rel(atom_nf)];
         let mid = factors_from_rels(rels);
 
@@ -2128,7 +2909,7 @@ mod tests {
     #[test]
     fn pipework_step_or_with_boundaries_splits() {
         let (symbols, mut terms) = setup();
-        let left = make_ground_nf("X", &symbols, &terms);
+        let left = make_ground_nf("X", &symbols, &mut terms);
         let a: Arc<Rel<()>> = Arc::new(Rel::Zero);
         let b: Arc<Rel<()>> = Arc::new(Rel::Zero);
         let or_rel = Arc::new(Rel::Or(a, b));
@@ -2150,8 +2931,8 @@ mod tests {
     #[test]
     fn split_or_returns_work_pipe_not_fail() {
         let (symbols, mut terms) = setup();
-        let nf_a = make_ground_nf("A", &symbols, &terms);
-        let nf_b = make_ground_nf("B", &symbols, &terms);
+        let nf_a = make_ground_nf("A", &symbols, &mut terms);
+        let nf_b = make_ground_nf("B", &symbols, &mut terms);
         let a: Arc<Rel<()>> = Arc::new(Rel::Atom(Arc::new(nf_a)));
         let b: Arc<Rel<()>> = Arc::new(Rel::Atom(Arc::new(nf_b)));
         let or_rel = Arc::new(Rel::Or(a, b));
@@ -2177,8 +2958,8 @@ mod tests {
     #[test]
     fn split_or_left_branch_has_a_factor() {
         let (symbols, mut terms) = setup();
-        let nf_a = make_ground_nf("A", &symbols, &terms);
-        let nf_b = make_ground_nf("B", &symbols, &terms);
+        let nf_a = make_ground_nf("A", &symbols, &mut terms);
+        let nf_b = make_ground_nf("B", &symbols, &mut terms);
         let a: Arc<Rel<()>> = Arc::new(Rel::Atom(Arc::new(nf_a.clone())));
         let b: Arc<Rel<()>> = Arc::new(Rel::Atom(Arc::new(nf_b)));
         let or_rel = Arc::new(Rel::Or(a, b));
@@ -2210,8 +2991,8 @@ mod tests {
     #[test]
     fn split_or_right_branch_has_b_factor() {
         let (symbols, mut terms) = setup();
-        let nf_a = make_ground_nf("A", &symbols, &terms);
-        let nf_b = make_ground_nf("B", &symbols, &terms);
+        let nf_a = make_ground_nf("A", &symbols, &mut terms);
+        let nf_b = make_ground_nf("B", &symbols, &mut terms);
         let a: Arc<Rel<()>> = Arc::new(Rel::Atom(Arc::new(nf_a)));
         let b: Arc<Rel<()>> = Arc::new(Rel::Atom(Arc::new(nf_b.clone())));
         let or_rel = Arc::new(Rel::Or(a, b));
@@ -2243,9 +3024,9 @@ mod tests {
     #[test]
     fn split_or_preserves_left_boundary() {
         let (symbols, mut terms) = setup();
-        let boundary = make_ground_nf("BOUNDARY", &symbols, &terms);
-        let nf_a = make_ground_nf("A", &symbols, &terms);
-        let nf_b = make_ground_nf("B", &symbols, &terms);
+        let boundary = make_ground_nf("BOUNDARY", &symbols, &mut terms);
+        let nf_a = make_ground_nf("A", &symbols, &mut terms);
+        let nf_b = make_ground_nf("B", &symbols, &mut terms);
         let a: Arc<Rel<()>> = Arc::new(Rel::Atom(Arc::new(nf_a)));
         let b: Arc<Rel<()>> = Arc::new(Rel::Atom(Arc::new(nf_b)));
         let or_rel = Arc::new(Rel::Or(a, b));
@@ -2279,9 +3060,9 @@ mod tests {
     #[test]
     fn split_or_preserves_right_boundary() {
         let (symbols, mut terms) = setup();
-        let boundary = make_ground_nf("BOUNDARY", &symbols, &terms);
-        let nf_a = make_ground_nf("A", &symbols, &terms);
-        let nf_b = make_ground_nf("B", &symbols, &terms);
+        let boundary = make_ground_nf("BOUNDARY", &symbols, &mut terms);
+        let nf_a = make_ground_nf("A", &symbols, &mut terms);
+        let nf_b = make_ground_nf("B", &symbols, &mut terms);
         let a: Arc<Rel<()>> = Arc::new(Rel::Atom(Arc::new(nf_a)));
         let b: Arc<Rel<()>> = Arc::new(Rel::Atom(Arc::new(nf_b)));
         let or_rel = Arc::new(Rel::Or(a, b));
@@ -2314,8 +3095,8 @@ mod tests {
     #[test]
     fn pipework_prefers_non_call_over_call_on_opposite_end() {
         let (symbols, mut terms) = setup();
-        let left_nf = make_ground_nf("L", &symbols, &terms);
-        let right_nf = make_ground_nf("R", &symbols, &terms);
+        let left_nf = make_ground_nf("L", &symbols, &mut terms);
+        let right_nf = make_ground_nf("R", &symbols, &mut terms);
         let left_rel: Arc<Rel<()>> = Arc::new(Rel::Atom(Arc::new(left_nf)));
         let right_rel: Arc<Rel<()>> = Arc::new(Rel::Atom(Arc::new(right_nf)));
         let and_rel: Arc<Rel<()>> = Arc::new(Rel::And(left_rel, right_rel));
@@ -2323,7 +3104,7 @@ mod tests {
         let mid = factors_from_rels(vec![and_rel, call_rel]);
 
         let body = Arc::new(Rel::Atom(Arc::new(make_ground_nf(
-            "BODY", &symbols, &terms,
+            "BODY", &symbols, &mut terms,
         ))));
         let mut pipe: PipeWork<()> = PipeWork::with_mid(mid);
         pipe.env = Env::new().bind(0, body);
@@ -2331,9 +3112,13 @@ mod tests {
 
         let step = pipe.step(&mut terms);
 
-        let bind = unwrap_work_bind(step);
+        let compose = unwrap_work_compose(step);
+        let left_is_and = matches!(
+            compose.left.as_ref(),
+            Node::Work(work) if matches!(work.as_ref(), Work::AndGroup(_))
+        );
         assert!(
-            bind.absorb_front,
+            left_is_and,
             "Should advance front (And) before Call when opposite end is non-call"
         );
     }
@@ -2342,10 +3127,10 @@ mod tests {
     #[test]
     fn split_or_preserves_both_boundaries() {
         let (symbols, mut terms) = setup();
-        let left_boundary = make_ground_nf("LEFT", &symbols, &terms);
-        let right_boundary = make_ground_nf("RIGHT", &symbols, &terms);
-        let nf_a = make_ground_nf("A", &symbols, &terms);
-        let nf_b = make_ground_nf("B", &symbols, &terms);
+        let left_boundary = make_ground_nf("LEFT", &symbols, &mut terms);
+        let right_boundary = make_ground_nf("RIGHT", &symbols, &mut terms);
+        let nf_a = make_ground_nf("A", &symbols, &mut terms);
+        let nf_b = make_ground_nf("B", &symbols, &mut terms);
         let a: Arc<Rel<()>> = Arc::new(Rel::Atom(Arc::new(nf_a)));
         let b: Arc<Rel<()>> = Arc::new(Rel::Atom(Arc::new(nf_b)));
         let or_rel = Arc::new(Rel::Or(a, b));
@@ -2410,9 +3195,9 @@ mod tests {
     #[test]
     fn split_or_preserves_env() {
         let (symbols, mut terms) = setup();
-        let nf_a = make_ground_nf("A", &symbols, &terms);
-        let nf_b = make_ground_nf("B", &symbols, &terms);
-        let nf_body = make_ground_nf("BODY", &symbols, &terms);
+        let nf_a = make_ground_nf("A", &symbols, &mut terms);
+        let nf_b = make_ground_nf("B", &symbols, &mut terms);
+        let nf_body = make_ground_nf("BODY", &symbols, &mut terms);
         let a: Arc<Rel<()>> = Arc::new(Rel::Atom(Arc::new(nf_a)));
         let b: Arc<Rel<()>> = Arc::new(Rel::Atom(Arc::new(nf_b)));
         let or_rel = Arc::new(Rel::Or(a, b));
@@ -2492,8 +3277,8 @@ mod tests {
     #[test]
     fn pipework_step_zero_with_boundaries_returns_done() {
         let (symbols, mut terms) = setup();
-        let left = make_ground_nf("X", &symbols, &terms);
-        let right = make_ground_nf("X", &symbols, &terms);
+        let left = make_ground_nf("X", &symbols, &mut terms);
+        let right = make_ground_nf("X", &symbols, &mut terms);
         let zero_rel = Arc::new(Rel::Zero);
         let mid = factors_from_rels(vec![zero_rel]);
 
@@ -2572,8 +3357,8 @@ mod tests {
     fn pipework_multiple_atoms_compose() {
         let (symbols, mut terms) = setup();
         // X -> X ; X -> X should compose to X -> X
-        let nf1 = make_ground_nf("X", &symbols, &terms);
-        let nf2 = make_ground_nf("X", &symbols, &terms);
+        let nf1 = make_ground_nf("X", &symbols, &mut terms);
+        let nf2 = make_ground_nf("X", &symbols, &mut terms);
         let rels = vec![atom_rel(nf1), atom_rel(nf2)];
         let mid = factors_from_rels(rels);
 
@@ -2613,7 +3398,7 @@ mod tests {
         // Create: mid = [Or(...), Atom(X->X)]
         // The Atom at the BACK should be absorbed into right boundary
         // BEFORE the Or at front is processed.
-        let nf = make_ground_nf("X", &symbols, &terms);
+        let nf = make_ground_nf("X", &symbols, &mut terms);
 
         // Put an Or at front so front isn't an Atom
         let or_rel = Arc::new(Rel::Or(Arc::new(Rel::Zero), Arc::new(Rel::Zero)));
@@ -2658,8 +3443,8 @@ mod tests {
         let (symbols, mut terms) = setup();
         // mid = [Atom(A->A), Or(...), Atom(B->B)]
         // Both atoms should be absorbed before Or is processed
-        let nf_a = make_ground_nf("A", &symbols, &terms);
-        let nf_b = make_ground_nf("B", &symbols, &terms);
+        let nf_a = make_ground_nf("A", &symbols, &mut terms);
+        let nf_b = make_ground_nf("B", &symbols, &mut terms);
 
         let atom_a = Arc::new(Rel::Atom(Arc::new(nf_a.clone())));
         let or_rel = Arc::new(Rel::Or(Arc::new(Rel::Zero), Arc::new(Rel::Zero)));
@@ -2900,7 +3685,7 @@ mod tests {
     #[test]
     fn meetwork_steps_work_nodes() {
         let (symbols, mut terms) = setup();
-        let nf = make_ground_nf("A", &symbols, &terms);
+        let nf = make_ground_nf("A", &symbols, &mut terms);
         let rel = Arc::new(Rel::Atom(Arc::new(nf.clone())));
         let factors = Factors::from_seq(Arc::from(vec![rel]));
         let left_pipe = PipeWork::with_mid(factors);
@@ -2936,8 +3721,8 @@ mod tests {
     fn meetwork_step_identical_answers_produces_meet() {
         let (symbols, mut terms) = setup();
         // Both sides emit X -> X, which should meet successfully
-        let nf1 = make_ground_nf("X", &symbols, &terms);
-        let nf2 = make_ground_nf("X", &symbols, &terms);
+        let nf1 = make_ground_nf("X", &symbols, &mut terms);
+        let nf2 = make_ground_nf("X", &symbols, &mut terms);
         let left = Node::Emit(nf1, Box::new(Node::Fail));
         let right = Node::Emit(nf2, Box::new(Node::Fail));
         let mut meet: MeetWork<()> = MeetWork::new(left, right);
@@ -2969,8 +3754,8 @@ mod tests {
         // Left: x -> x (variable identity)
         // Right: A -> A (ground)
         // Meet should produce A -> A
-        let identity = make_var_identity_nf(&terms);
-        let ground = make_ground_nf("A", &symbols, &terms);
+        let identity = make_var_identity_nf(&mut terms);
+        let ground = make_ground_nf("A", &symbols, &mut terms);
 
         let left = Node::Emit(identity, Box::new(Node::Fail));
         let right = Node::Emit(ground.clone(), Box::new(Node::Fail));
@@ -3013,8 +3798,8 @@ mod tests {
         // Left: A -> A
         // Right: B -> B
         // These can't meet (A != B)
-        let nf_a = make_ground_nf("A", &symbols, &terms);
-        let nf_b = make_ground_nf("B", &symbols, &terms);
+        let nf_a = make_ground_nf("A", &symbols, &mut terms);
+        let nf_b = make_ground_nf("B", &symbols, &mut terms);
 
         let left = Node::Emit(nf_a, Box::new(Node::Fail));
         let right = Node::Emit(nf_b, Box::new(Node::Fail));
@@ -3048,7 +3833,7 @@ mod tests {
         let (symbols, mut terms) = setup();
         // Left: 1-in, 1-out
         // Right: 2-in, 2-out (if we can construct it)
-        let single = make_ground_nf("X", &symbols, &terms);
+        let single = make_ground_nf("X", &symbols, &mut terms);
 
         // Create a 2-tuple pattern
         let pair_sym = symbols.intern("Pair");
@@ -3147,10 +3932,10 @@ mod tests {
         // - B -> B (from identity meet B -> B)
         // - Plus other combinations
 
-        let id1 = make_var_identity_nf(&terms);
-        let id2 = make_var_identity_nf(&terms);
-        let nf_a = make_ground_nf("A", &symbols, &terms);
-        let nf_b = make_ground_nf("B", &symbols, &terms);
+        let id1 = make_var_identity_nf(&mut terms);
+        let id2 = make_var_identity_nf(&mut terms);
+        let nf_a = make_ground_nf("A", &symbols, &mut terms);
+        let nf_b = make_ground_nf("B", &symbols, &mut terms);
 
         let left = Node::Emit(id1, Box::new(Node::Emit(id2, Box::new(Node::Fail))));
         let right = Node::Emit(nf_a, Box::new(Node::Emit(nf_b, Box::new(Node::Fail))));
@@ -3215,9 +4000,9 @@ mod tests {
     fn meetwork_pending_preserves_order() {
         let (symbols, mut terms) = setup();
         // Pre-populate pending with ordered items
-        let nf_a = make_ground_nf("A", &symbols, &terms);
-        let nf_b = make_ground_nf("B", &symbols, &terms);
-        let nf_c = make_ground_nf("C", &symbols, &terms);
+        let nf_a = make_ground_nf("A", &symbols, &mut terms);
+        let nf_b = make_ground_nf("B", &symbols, &mut terms);
+        let nf_c = make_ground_nf("C", &symbols, &mut terms);
 
         let mut meet: MeetWork<()> = MeetWork::new(Node::Fail, Node::Fail);
         meet.pending.push_back(nf_a.clone());
@@ -3276,10 +4061,10 @@ mod tests {
     fn meetwork_left_exhausts_first() {
         let (symbols, mut terms) = setup();
         // Left has 1 variable identity, right has 3 ground answers
-        let id = make_var_identity_nf(&terms);
-        let nf_a = make_ground_nf("A", &symbols, &terms);
-        let nf_b = make_ground_nf("B", &symbols, &terms);
-        let nf_c = make_ground_nf("C", &symbols, &terms);
+        let id = make_var_identity_nf(&mut terms);
+        let nf_a = make_ground_nf("A", &symbols, &mut terms);
+        let nf_b = make_ground_nf("B", &symbols, &mut terms);
+        let nf_c = make_ground_nf("C", &symbols, &mut terms);
 
         let left = Node::Emit(id, Box::new(Node::Fail));
         let right = Node::Emit(
@@ -3324,10 +4109,10 @@ mod tests {
     fn meetwork_right_exhausts_first() {
         let (symbols, mut terms) = setup();
         // Left has 3 ground answers, right has 1 variable identity
-        let nf_a = make_ground_nf("A", &symbols, &terms);
-        let nf_b = make_ground_nf("B", &symbols, &terms);
-        let nf_c = make_ground_nf("C", &symbols, &terms);
-        let id = make_var_identity_nf(&terms);
+        let nf_a = make_ground_nf("A", &symbols, &mut terms);
+        let nf_b = make_ground_nf("B", &symbols, &mut terms);
+        let nf_c = make_ground_nf("C", &symbols, &mut terms);
+        let id = make_var_identity_nf(&mut terms);
 
         let left = Node::Emit(
             nf_a,
@@ -3565,7 +4350,7 @@ mod tests {
         let (symbols, mut terms1) = setup();
         let (_, mut terms2) = setup();
 
-        let nf_a = make_ground_nf("A", &symbols, &terms1);
+        let nf_a = make_ground_nf("A", &symbols, &mut terms1);
         let id = make_identity_nf();
 
         // Meet(A, id) vs Meet(id, A) should produce same results
@@ -3838,9 +4623,9 @@ mod tests {
 
     #[test]
     fn callkey_inequality_different_left() {
-        let (symbols, terms) = setup();
-        let nf_a = make_ground_nf("A", &symbols, &terms);
-        let nf_b = make_ground_nf("B", &symbols, &terms);
+        let (symbols, mut terms) = setup();
+        let nf_a = make_ground_nf("A", &symbols, &mut terms);
+        let nf_b = make_ground_nf("B", &symbols, &mut terms);
 
         let key1: CallKey<()> = CallKey::new(0, 1, Some(nf_a), None);
         let key2: CallKey<()> = CallKey::new(0, 1, Some(nf_b), None);
@@ -3849,9 +4634,9 @@ mod tests {
 
     #[test]
     fn callkey_inequality_different_right() {
-        let (symbols, terms) = setup();
-        let nf_a = make_ground_nf("A", &symbols, &terms);
-        let nf_b = make_ground_nf("B", &symbols, &terms);
+        let (symbols, mut terms) = setup();
+        let nf_a = make_ground_nf("A", &symbols, &mut terms);
+        let nf_b = make_ground_nf("B", &symbols, &mut terms);
 
         let key1: CallKey<()> = CallKey::new(0, 1, None, Some(nf_a));
         let key2: CallKey<()> = CallKey::new(0, 1, None, Some(nf_b));
@@ -3887,9 +4672,9 @@ mod tests {
     #[test]
     fn callkey_ignores_mid_context_for_same_boundaries() {
         let (symbols, mut terms) = setup();
-        let nf_a = make_ground_nf("A", &symbols, &terms);
-        let nf_b = make_ground_nf("B", &symbols, &terms);
-        let body_nf = make_ground_nf("BODY", &symbols, &terms);
+        let nf_a = make_ground_nf("A", &symbols, &mut terms);
+        let nf_b = make_ground_nf("B", &symbols, &mut terms);
+        let body_nf = make_ground_nf("BODY", &symbols, &mut terms);
         let body: Arc<Rel<()>> = Arc::new(Rel::Atom(Arc::new(body_nf)));
         let env = Env::new().bind(0, body);
 
@@ -3956,145 +4741,140 @@ mod tests {
     #[test]
     fn table_new_is_empty() {
         let table: Table<()> = Table::new();
-        assert!(table.answers.is_empty());
-        assert_eq!(table.consumer_index, 0);
-        assert_eq!(table.state, ProducerState::NotStarted);
+        let answers = table.lock_answers_for_test();
+        assert!(answers.answers.is_empty());
+        drop(answers);
+        assert_eq!(table.answers_len(), 0);
+        assert_eq!(table.producer_state(), ProducerState::NotStarted);
     }
 
     #[test]
     fn table_add_answer() {
-        let mut table: Table<()> = Table::new();
+        let table: Table<()> = Table::new();
         let nf = make_identity_nf();
         table.add_answer(nf);
 
-        assert_eq!(table.answers.len(), 1);
+        assert_eq!(table.answers_len(), 1);
     }
 
     #[test]
     fn table_add_multiple_answers() {
-        let (symbols, terms) = setup();
-        let mut table: Table<()> = Table::new();
-        let nf1 = make_ground_nf("A", &symbols, &terms);
-        let nf2 = make_ground_nf("B", &symbols, &terms);
-        let nf3 = make_ground_nf("C", &symbols, &terms);
+        let (symbols, mut terms) = setup();
+        let table: Table<()> = Table::new();
+        let nf1 = make_ground_nf("A", &symbols, &mut terms);
+        let nf2 = make_ground_nf("B", &symbols, &mut terms);
+        let nf3 = make_ground_nf("C", &symbols, &mut terms);
 
         table.add_answer(nf1);
         table.add_answer(nf2);
         table.add_answer(nf3);
 
-        assert_eq!(table.answers.len(), 3);
+        assert_eq!(table.answers_len(), 3);
     }
 
     #[test]
     fn table_start_producer() {
         use std::sync::Arc;
 
-        let mut table: Table<()> = Table::new();
-        assert_eq!(table.state, ProducerState::NotStarted);
+        let table: Table<()> = Table::new();
+        assert_eq!(table.producer_state(), ProducerState::NotStarted);
 
         let spec = ProducerSpec {
+            key: CallKey::new(0, 0, None, None),
             body: Arc::new(Rel::Zero),
             left: None,
             right: None,
             env: Env::new(),
         };
         let producer_node = Node::Work(boxed_work(Work::Done));
-        table.start_producer(producer_node, spec);
-        assert_eq!(table.state, ProducerState::Running);
+        table.start_producer(producer_node, spec, 0);
+        assert_eq!(table.producer_state(), ProducerState::Running);
         assert!(table.is_running());
         assert!(!table.is_done());
-        assert!(table.producer.is_some());
+        assert!(table.lock_producer_for_test().producer.is_some());
     }
 
     #[test]
     fn table_finish_producer() {
         use std::sync::Arc;
 
-        let mut table: Table<()> = Table::new();
+        let table: Table<()> = Table::new();
         let spec = ProducerSpec {
+            key: CallKey::new(0, 0, None, None),
             body: Arc::new(Rel::Zero),
             left: None,
             right: None,
             env: Env::new(),
         };
         let producer_node = Node::Work(boxed_work(Work::Done));
-        table.start_producer(producer_node, spec);
+        table.start_producer(producer_node, spec, 0);
         table.finish_producer();
 
-        assert_eq!(table.state, ProducerState::Done);
+        assert_eq!(table.producer_state(), ProducerState::Done);
         assert!(table.is_done());
         assert!(!table.is_running());
-        assert!(table.producer.is_none());
+        assert!(table.lock_producer_for_test().producer.is_none());
     }
 
     #[test]
     fn table_next_answer_empty() {
-        let mut table: Table<()> = Table::new();
-        assert!(table.next_answer().is_none());
+        let table: Table<()> = Table::new();
+        assert!(table.answer_at(0).is_none());
     }
 
     #[test]
     fn table_next_answer_single() {
-        let mut table: Table<()> = Table::new();
+        let table: Table<()> = Table::new();
         let nf = make_identity_nf();
         table.add_answer(nf);
-
-        assert!(table.next_answer().is_some());
-        assert!(table.next_answer().is_none());
+        assert!(table.answer_at(0).is_some());
+        assert!(table.answer_at(1).is_none());
     }
 
     #[test]
     fn table_next_answer_multiple() {
-        let (symbols, terms) = setup();
-        let mut table: Table<()> = Table::new();
-        table.add_answer(make_ground_nf("A", &symbols, &terms));
-        table.add_answer(make_ground_nf("B", &symbols, &terms));
-        table.add_answer(make_ground_nf("C", &symbols, &terms));
-
-        assert!(table.next_answer().is_some());
-        assert!(table.next_answer().is_some());
-        assert!(table.next_answer().is_some());
-        assert!(table.next_answer().is_none());
+        let (symbols, mut terms) = setup();
+        let table: Table<()> = Table::new();
+        table.add_answer(make_ground_nf("A", &symbols, &mut terms));
+        table.add_answer(make_ground_nf("B", &symbols, &mut terms));
+        table.add_answer(make_ground_nf("C", &symbols, &mut terms));
+        assert!(table.answer_at(0).is_some());
+        assert!(table.answer_at(1).is_some());
+        assert!(table.answer_at(2).is_some());
+        assert!(table.answer_at(3).is_none());
     }
 
     #[test]
     fn table_next_answer_increments_index() {
-        let (symbols, terms) = setup();
-        let mut table: Table<()> = Table::new();
-        table.add_answer(make_ground_nf("A", &symbols, &terms));
-        table.add_answer(make_ground_nf("B", &symbols, &terms));
-
-        assert_eq!(table.consumer_index, 0);
-        let _ = table.next_answer();
-        assert_eq!(table.consumer_index, 1);
-        let _ = table.next_answer();
-        assert_eq!(table.consumer_index, 2);
+        let (symbols, mut terms) = setup();
+        let table: Table<()> = Table::new();
+        let nf_a = make_ground_nf("A", &symbols, &mut terms);
+        let nf_b = make_ground_nf("B", &symbols, &mut terms);
+        table.add_answer(nf_a.clone());
+        table.add_answer(nf_b.clone());
+        assert_eq!(table.answer_at(0), Some(nf_a));
+        assert_eq!(table.answer_at(1), Some(nf_b));
     }
 
     #[test]
     fn table_reset_consumer() {
-        let (symbols, terms) = setup();
-        let mut table: Table<()> = Table::new();
-        table.add_answer(make_ground_nf("A", &symbols, &terms));
-        table.add_answer(make_ground_nf("B", &symbols, &terms));
-
-        let _ = table.next_answer();
-        let _ = table.next_answer();
-        assert_eq!(table.consumer_index, 2);
-
-        table.reset_consumer();
-        assert_eq!(table.consumer_index, 0);
-
-        // Should be able to iterate again
-        assert!(table.next_answer().is_some());
+        let (symbols, mut terms) = setup();
+        let table: Table<()> = Table::new();
+        let nf_a = make_ground_nf("A", &symbols, &mut terms);
+        let nf_b = make_ground_nf("B", &symbols, &mut terms);
+        table.add_answer(nf_a.clone());
+        table.add_answer(nf_b.clone());
+        assert_eq!(table.answer_at(0), Some(nf_a.clone()));
+        assert_eq!(table.answer_at(1), Some(nf_b));
+        assert_eq!(table.answer_at(0), Some(nf_a));
     }
 
     #[test]
     fn table_all_answers() {
-        let (symbols, terms) = setup();
-        let mut table: Table<()> = Table::new();
-        table.add_answer(make_ground_nf("A", &symbols, &terms));
-        table.add_answer(make_ground_nf("B", &symbols, &terms));
+        let (symbols, mut terms) = setup();
+        let table: Table<()> = Table::new();
+        table.add_answer(make_ground_nf("A", &symbols, &mut terms));
+        table.add_answer(make_ground_nf("B", &symbols, &mut terms));
 
         let all = table.all_answers();
         assert_eq!(all.len(), 2);
@@ -4102,23 +4882,22 @@ mod tests {
 
     #[test]
     fn table_has_more_answers() {
-        let (symbols, terms) = setup();
-        let mut table: Table<()> = Table::new();
-        table.add_answer(make_ground_nf("A", &symbols, &terms));
-        table.add_answer(make_ground_nf("B", &symbols, &terms));
-
-        assert!(table.has_more_answers());
-        let _ = table.next_answer();
-        assert!(table.has_more_answers());
-        let _ = table.next_answer();
-        assert!(!table.has_more_answers());
+        let (symbols, mut terms) = setup();
+        let table: Table<()> = Table::new();
+        table.add_answer(make_ground_nf("A", &symbols, &mut terms));
+        table.add_answer(make_ground_nf("B", &symbols, &mut terms));
+        assert!(table.answer_at(1).is_some());
+        assert!(table.answer_at(2).is_none());
     }
 
     #[test]
     fn table_default_is_new() {
         let table: Table<()> = Table::default();
-        assert!(table.answers.is_empty());
-        assert_eq!(table.state, ProducerState::NotStarted);
+        let answers = table.lock_answers_for_test();
+        assert!(answers.answers.is_empty());
+        drop(answers);
+        assert_eq!(table.answers_len(), 0);
+        assert_eq!(table.producer_state(), ProducerState::NotStarted);
     }
 
     // ========================================================================
@@ -4141,32 +4920,32 @@ mod tests {
 
     #[test]
     fn tables_get_or_create_new() {
-        let mut tables: Tables<()> = Tables::new();
+        let tables: Tables<()> = Tables::new();
         let key: CallKey<()> = CallKey::new(0, 0, None, None);
 
         let table = tables.get_or_create(key.clone());
         assert!(!tables.is_empty());
         assert_eq!(tables.len(), 1);
-        assert!(table.borrow().answers.is_empty());
+        assert_eq!(table.answers_len(), 0);
     }
 
     #[test]
     fn tables_get_or_create_existing() {
-        let mut tables: Tables<()> = Tables::new();
+        let tables: Tables<()> = Tables::new();
         let key: CallKey<()> = CallKey::new(0, 0, None, None);
 
         let table1 = tables.get_or_create(key.clone());
-        table1.borrow_mut().add_answer(make_identity_nf());
+        table1.add_answer(make_identity_nf());
 
         // Getting same key should return same table
         let table2 = tables.get_or_create(key);
-        assert_eq!(table2.borrow().answers.len(), 1);
+        assert_eq!(table2.answers_len(), 1);
         assert_eq!(tables.len(), 1);
     }
 
     #[test]
     fn tables_contains() {
-        let mut tables: Tables<()> = Tables::new();
+        let tables: Tables<()> = Tables::new();
         let key1: CallKey<()> = CallKey::new(0, 0, None, None);
         let key2: CallKey<()> = CallKey::new(1, 0, None, None);
 
@@ -4178,7 +4957,7 @@ mod tests {
 
     #[test]
     fn tables_multiple_keys() {
-        let mut tables: Tables<()> = Tables::new();
+        let tables: Tables<()> = Tables::new();
         let key1: CallKey<()> = CallKey::new(0, 0, None, None);
         let key2: CallKey<()> = CallKey::new(1, 0, None, None);
         let key3: CallKey<()> = CallKey::new(2, 0, None, None);
@@ -4192,7 +4971,7 @@ mod tests {
 
     #[test]
     fn tables_lookup_after_create() {
-        let mut tables: Tables<()> = Tables::new();
+        let tables: Tables<()> = Tables::new();
         let key: CallKey<()> = CallKey::new(0, 0, None, None);
 
         let _ = tables.get_or_create(key.clone());
@@ -4208,10 +4987,10 @@ mod tests {
 
     #[test]
     fn tables_is_clone() {
-        let mut tables1: Tables<()> = Tables::new();
+        let tables1: Tables<()> = Tables::new();
         let key: CallKey<()> = CallKey::new(0, 0, None, None);
         let table = tables1.get_or_create(key.clone());
-        table.borrow_mut().add_answer(make_identity_nf());
+        table.add_answer(make_identity_nf());
 
         let tables2 = tables1.clone();
         assert_eq!(tables1.len(), tables2.len());
@@ -4220,8 +4999,8 @@ mod tests {
 
     #[test]
     fn tables_clone_shares_updates() {
-        let mut tables1: Tables<()> = Tables::new();
-        let mut tables2 = tables1.clone();
+        let tables1: Tables<()> = Tables::new();
+        let tables2 = tables1.clone();
         let key: CallKey<()> = CallKey::new(0, 0, None, None);
 
         let table1 = tables1.get_or_create(key.clone());
@@ -4238,11 +5017,11 @@ mod tests {
 
     #[test]
     fn tables_keys_with_different_boundaries() {
-        let (symbols, terms) = setup();
-        let mut tables: Tables<()> = Tables::new();
+        let (symbols, mut terms) = setup();
+        let tables: Tables<()> = Tables::new();
 
-        let nf_a = make_ground_nf("A", &symbols, &terms);
-        let nf_b = make_ground_nf("B", &symbols, &terms);
+        let nf_a = make_ground_nf("A", &symbols, &mut terms);
+        let nf_b = make_ground_nf("B", &symbols, &mut terms);
 
         // Same rel, different boundaries should be different keys
         let key1: CallKey<()> = CallKey::new(0, 0, Some(nf_a.clone()), None);
@@ -4266,10 +5045,8 @@ mod tests {
 
     #[test]
     fn fixwork_new_handle() {
-        use std::cell::RefCell;
-
         let key: CallKey<()> = CallKey::new(0, 0, None, None);
-        let table = Arc::new(RefCell::new(Table::new()));
+        let table = Arc::new(Table::new());
 
         let fix: FixWork<()> = FixWork::new(key.clone(), table, 0, Tables::new());
 
@@ -4283,20 +5060,13 @@ mod tests {
 
     #[test]
     fn fixwork_handle_emits_existing_answers() {
-        use std::cell::RefCell;
-
-        let (symbols, terms) = setup();
-        let mut terms = terms;
+        let (symbols, mut terms) = setup();
         let key: CallKey<()> = CallKey::new(0, 0, None, None);
-        let table = Arc::new(RefCell::new(Table::new()));
+        let table = Arc::new(Table::new());
 
-        table
-            .borrow_mut()
-            .add_answer(make_ground_nf("A", &symbols, &terms));
-        table
-            .borrow_mut()
-            .add_answer(make_ground_nf("B", &symbols, &terms));
-        table.borrow_mut().finish_producer();
+        table.add_answer(make_ground_nf("A", &symbols, &mut terms));
+        table.add_answer(make_ground_nf("B", &symbols, &mut terms));
+        table.finish_producer();
 
         let mut fix: FixWork<()> = FixWork::new(key, table, 0, Tables::new());
 
@@ -4322,89 +5092,338 @@ mod tests {
         assert!(matches!(step3, WorkStep::Done));
     }
 
-    #[test]
-    fn fixwork_handle_advances_producer() {
-        use std::cell::RefCell;
+    fn run_fixwork_starts_producer_and_emits_answer(use_dual: bool) {
         use std::sync::Arc;
 
         let (symbols, mut terms) = setup();
         let key: CallKey<()> = CallKey::new(0, 0, None, None);
-        let table = Arc::new(RefCell::new(Table::new()));
-        let nf = make_ground_nf("A", &symbols, &terms);
-        let producer_node = Node::Work(boxed_work(Work::Atom(nf.clone())));
+        let table = Arc::new(Table::new());
+        let mut nf = make_ground_nf("A", &symbols, &mut terms);
+        if use_dual {
+            nf = dual_nf(&nf, &mut terms);
+        }
         let spec = ProducerSpec {
-            body: Arc::new(Rel::Atom(Arc::new(nf))),
-            left: None,
-            right: None,
-            env: Env::new(),
-        };
-
-        table.borrow_mut().start_producer(producer_node, spec);
-
-        let mut fix: FixWork<()> = FixWork::new(key, table.clone(), 0, Tables::new());
-        let step = fix.step(&mut terms);
-        assert!(matches!(step, WorkStep::Emit(_, _)));
-        assert_eq!(table.borrow().answers.len(), 1);
-    }
-
-    #[test]
-    fn fixwork_dedups_duplicate_producer_answers() {
-        use std::cell::RefCell;
-        use std::sync::Arc;
-
-        let (symbols, mut terms) = setup();
-        let key: CallKey<()> = CallKey::new(0, 0, None, None);
-        let table = Arc::new(RefCell::new(Table::new()));
-        let nf = make_ground_nf("A", &symbols, &terms);
-        let producer_node = Node::Emit(
-            nf.clone(),
-            Box::new(Node::Emit(nf.clone(), Box::new(Node::Fail))),
-        );
-        let spec = ProducerSpec {
+            key: key.clone(),
             body: Arc::new(Rel::Atom(Arc::new(nf.clone()))),
             left: None,
             right: None,
             env: Env::new(),
         };
 
-        table.borrow_mut().start_producer(producer_node, spec);
+        {
+            let mut guard = table.lock_producer_for_test();
+            guard.spec = Some(spec);
+            guard.state = ProducerState::NotStarted;
+        }
 
         let mut fix: FixWork<()> = FixWork::new(key, table.clone(), 0, Tables::new());
-        let mut outputs = Vec::new();
-        for _ in 0..10 {
-            match fix.step(&mut terms) {
-                WorkStep::Emit(answer, work) => {
-                    if let Work::Fix(next) = *work {
-                        outputs.push(answer);
-                        fix = next;
-                    }
-                }
-                WorkStep::More(work) => {
-                    if let Work::Fix(next) = *work {
-                        fix = next;
-                    }
-                }
-                WorkStep::Done => break,
-                other => panic!("Unexpected step: {:?}", other),
+        let step = fix.step(&mut terms);
+        match step {
+            WorkStep::Emit(out, _) => assert_eq!(out, nf),
+            other => panic!("expected inline producer emit, got {:?}", other),
+        }
+        assert_eq!(table.answers_len(), 1);
+    }
+
+    #[test]
+    fn fixwork_starts_producer_and_emits_answer() {
+        run_fixwork_starts_producer_and_emits_answer(false);
+    }
+
+    #[test]
+    fn fixwork_starts_producer_and_emits_answer_dual() {
+        run_fixwork_starts_producer_and_emits_answer(true);
+    }
+
+    fn run_fixwork_advances_running_producer_and_emits(use_dual: bool) {
+        use std::sync::Arc;
+
+        let (symbols, mut terms) = setup();
+        let key: CallKey<()> = CallKey::new(0, 0, None, None);
+        let table = Arc::new(Table::new());
+        let mut nf = make_ground_nf("A", &symbols, &mut terms);
+        if use_dual {
+            nf = dual_nf(&nf, &mut terms);
+        }
+        let producer_node = Node::Emit(nf.clone(), Box::new(Node::Fail));
+        let spec = ProducerSpec {
+            key: key.clone(),
+            body: Arc::new(Rel::Atom(Arc::new(nf.clone()))),
+            left: None,
+            right: None,
+            env: Env::new(),
+        };
+
+        table.start_producer(producer_node, spec, 0);
+
+        let mut fix: FixWork<()> = FixWork::new(key, table.clone(), 0, Tables::new());
+        let step = fix.step(&mut terms);
+        match step {
+            WorkStep::Emit(out, _) => assert_eq!(out, nf),
+            other => panic!("expected inline producer advance, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn fixwork_advances_running_producer_and_emits() {
+        run_fixwork_advances_running_producer_and_emits(false);
+    }
+
+    #[test]
+    fn fixwork_advances_running_producer_and_emits_dual() {
+        run_fixwork_advances_running_producer_and_emits(true);
+    }
+
+    fn run_fixwork_skips_duplicate_answer(use_dual: bool) {
+        use std::sync::Arc;
+
+        let (symbols, mut terms) = setup();
+        let key: CallKey<()> = CallKey::new(0, 0, None, None);
+        let table = Arc::new(Table::new());
+        let mut nf = make_ground_nf("A", &symbols, &mut terms);
+        if use_dual {
+            nf = dual_nf(&nf, &mut terms);
+        }
+        table.add_answer(nf.clone());
+
+        let producer_node = Node::Emit(nf.clone(), Box::new(Node::Fail));
+        let spec = ProducerSpec {
+            key: key.clone(),
+            body: Arc::new(Rel::Atom(Arc::new(nf.clone()))),
+            left: None,
+            right: None,
+            env: Env::new(),
+        };
+        table.start_producer(producer_node, spec, table.answers_len());
+
+        let mut fix: FixWork<()> =
+            FixWork::new(key, table.clone(), table.answers_len(), Tables::new());
+        let step = fix.step(&mut terms);
+        assert!(
+            matches!(step, WorkStep::More(_)),
+            "duplicate answer should not emit"
+        );
+    }
+
+    #[test]
+    fn fixwork_skips_duplicate_answer() {
+        run_fixwork_skips_duplicate_answer(false);
+    }
+
+    #[test]
+    fn fixwork_skips_duplicate_answer_dual() {
+        run_fixwork_skips_duplicate_answer(true);
+    }
+
+    fn run_fixwork_exhausted_marks_done(use_dual: bool) {
+        use std::sync::Arc;
+
+        let (symbols, mut terms) = setup();
+        let key: CallKey<()> = CallKey::new(0, 0, None, None);
+        let table = Arc::new(Table::new());
+        let mut nf = make_ground_nf("A", &symbols, &mut terms);
+        if use_dual {
+            nf = dual_nf(&nf, &mut terms);
+        }
+        let spec = ProducerSpec {
+            key: key.clone(),
+            body: Arc::new(Rel::Atom(Arc::new(nf))),
+            left: None,
+            right: None,
+            env: Env::new(),
+        };
+        table.start_producer(Node::Fail, spec, table.answers_len());
+
+        let mut fix: FixWork<()> =
+            FixWork::new(key, table.clone(), table.answers_len(), Tables::new());
+        let step = fix.step(&mut terms);
+        assert!(matches!(step, WorkStep::Done));
+        assert_eq!(table.producer_state(), ProducerState::Done);
+    }
+
+    #[test]
+    fn fixwork_exhausted_marks_done() {
+        run_fixwork_exhausted_marks_done(false);
+    }
+
+    #[test]
+    fn fixwork_exhausted_marks_done_dual() {
+        run_fixwork_exhausted_marks_done(true);
+    }
+
+    #[test]
+    fn fix_producer_dedups_duplicate_answers() {
+        use std::sync::Arc;
+
+        let (symbols, mut terms) = setup();
+        let tables = Tables::new();
+        let table = Arc::new(Table::new());
+        let nf = make_ground_nf("A", &symbols, &mut terms);
+        let producer_node = Node::Emit(
+            nf.clone(),
+            Box::new(Node::Emit(nf.clone(), Box::new(Node::Fail))),
+        );
+        let spec = ProducerSpec {
+            key: CallKey::new(0, 0, None, None),
+            body: Arc::new(Rel::Atom(Arc::new(nf.clone()))),
+            left: None,
+            right: None,
+            env: Env::new(),
+        };
+
+        table.start_producer(producer_node, spec, 0);
+
+        let mut steps = 0;
+        loop {
+            let step = step_table_producer(&table, &mut terms, &tables);
+            steps += 1;
+            if matches!(step, ProducerStep::Done) || steps > 10 {
+                break;
             }
         }
 
-        assert_eq!(
-            outputs.len(),
-            1,
-            "Duplicate producer answers should not emit twice"
+        assert_eq!(table.answers_len(), 1);
+    }
+
+    fn run_fix_producer_continues_when_consumer_queue_full(use_dual: bool) {
+        let (symbols, mut terms) = setup();
+        let tables = Tables::new();
+        let table = Arc::new(Table::new());
+        let mut nf_a = make_ground_nf("A", &symbols, &mut terms);
+        let mut nf_b = make_ground_nf("B", &symbols, &mut terms);
+        if use_dual {
+            nf_a = dual_nf(&nf_a, &mut terms);
+            nf_b = dual_nf(&nf_b, &mut terms);
+        }
+        let producer_node = Node::Emit(
+            nf_a.clone(),
+            Box::new(Node::Emit(nf_b.clone(), Box::new(Node::Fail))),
         );
-        assert_eq!(table.borrow().answers.len(), 1);
+        let spec = ProducerSpec {
+            key: CallKey::new(0, 0, None, None),
+            body: Arc::new(Rel::Atom(Arc::new(nf_a.clone()))),
+            left: None,
+            right: None,
+            env: Env::new(),
+        };
+
+        table.start_producer(producer_node, spec, 0);
+
+        let step1 = step_table_producer(&table, &mut terms, &tables);
+        assert!(matches!(step1, ProducerStep::Progress));
+
+        let step2 = step_table_producer(&table, &mut terms, &tables);
+        assert!(
+            matches!(step2, ProducerStep::Progress),
+            "producer should continue even when consumer lags"
+        );
+        assert_eq!(
+            table.answers_len(),
+            2,
+            "producer should add answers even when consumer lags"
+        );
+    }
+
+    #[test]
+    fn fix_producer_continues_when_consumer_queue_full() {
+        run_fix_producer_continues_when_consumer_queue_full(false);
+    }
+
+    #[test]
+    fn fix_producer_continues_when_consumer_queue_full_dual() {
+        run_fix_producer_continues_when_consumer_queue_full(true);
+    }
+
+    #[test]
+    fn fix_producer_broadcasts_answers_to_all_consumers() {
+        use std::sync::Arc;
+
+        let (symbols, mut terms) = setup();
+        let tables = Tables::new();
+        let table = Arc::new(Table::new());
+        let nf_a = make_ground_nf("A", &symbols, &mut terms);
+        let nf_b = make_ground_nf("B", &symbols, &mut terms);
+        let producer_node = Node::Emit(
+            nf_a.clone(),
+            Box::new(Node::Emit(nf_b.clone(), Box::new(Node::Fail))),
+        );
+        let spec = ProducerSpec {
+            key: CallKey::new(0, 0, None, None),
+            body: Arc::new(Rel::Atom(Arc::new(nf_a.clone()))),
+            left: None,
+            right: None,
+            env: Env::new(),
+        };
+
+        table.start_producer(producer_node, spec, 0);
+
+        let mut steps = 0;
+        loop {
+            let step = step_table_producer(&table, &mut terms, &tables);
+            steps += 1;
+            if matches!(step, ProducerStep::Done) || steps > 10 {
+                break;
+            }
+        }
+
+        let mut got_a = Vec::new();
+        let mut got_b = Vec::new();
+        let mut fix_a = FixWork::new(CallKey::new(0, 0, None, None), table.clone(), 0, tables);
+        let mut fix_b = FixWork::new(CallKey::new(0, 0, None, None), table, 0, Tables::new());
+        for _ in 0..2 {
+            if let WorkStep::Emit(nf, work) = fix_a.step(&mut terms) {
+                got_a.push(nf);
+                if let Work::Fix(fix) = *work {
+                    fix_a = fix;
+                }
+            }
+            if let WorkStep::Emit(nf, work) = fix_b.step(&mut terms) {
+                got_b.push(nf);
+                if let Work::Fix(fix) = *work {
+                    fix_b = fix;
+                }
+            }
+        }
+
+        assert_eq!(got_a.len(), 2);
+        assert_eq!(got_b.len(), 2);
+        assert!(got_a.contains(&nf_a));
+        assert!(got_a.contains(&nf_b));
+        assert!(got_b.contains(&nf_a));
+        assert!(got_b.contains(&nf_b));
+    }
+
+    #[test]
+    fn fix_consumer_replays_existing_answers() {
+        use std::sync::Arc;
+
+        let (symbols, mut terms) = setup();
+        let table = Arc::new(Table::new());
+        let nf_a = make_ground_nf("A", &symbols, &mut terms);
+        let nf_b = make_ground_nf("B", &symbols, &mut terms);
+
+        table.add_answer(nf_a.clone());
+        table.add_answer(nf_b.clone());
+
+        let mut fix: FixWork<()> =
+            FixWork::new(CallKey::new(0, 0, None, None), table, 0, Tables::new());
+        let step1 = fix.step(&mut terms);
+        assert!(matches!(step1, WorkStep::Emit(_, _)));
+        if let WorkStep::Emit(_, work) = step1 {
+            if let Work::Fix(fix_next) = *work {
+                fix = fix_next;
+            }
+        }
+        let step2 = fix.step(&mut terms);
+        assert!(matches!(step2, WorkStep::Emit(_, _)));
     }
 
     #[test]
     fn fixwork_handle_done_when_table_done() {
-        use std::cell::RefCell;
-
         let (_, mut terms) = setup();
         let key: CallKey<()> = CallKey::new(0, 0, None, None);
-        let table = Arc::new(RefCell::new(Table::new()));
-        table.borrow_mut().finish_producer();
+        let table = Arc::new(Table::new());
+        table.finish_producer();
 
         let mut fix: FixWork<()> = FixWork::new(key, table, 0, Tables::new());
         let step = fix.step(&mut terms);
@@ -4413,14 +5432,13 @@ mod tests {
 
     #[test]
     fn call_replay_interleaves_with_new_answers() {
-        use crate::node::{step_node, NodeStep};
         use std::sync::Arc;
 
         let (symbols, mut terms) = setup();
-        let nf_a1 = make_ground_nf("A1", &symbols, &terms);
-        let nf_a2 = make_ground_nf("A2", &symbols, &terms);
-        let nf_b = make_ground_nf("B", &symbols, &terms);
-        let body_nf = make_ground_nf("BODY", &symbols, &terms);
+        let nf_a1 = make_ground_nf("A1", &symbols, &mut terms);
+        let nf_a2 = make_ground_nf("A2", &symbols, &mut terms);
+        let nf_b = make_ground_nf("B", &symbols, &mut terms);
+        let body_nf = make_ground_nf("BODY", &symbols, &mut terms);
         let body: Arc<Rel<()>> = Arc::new(Rel::Atom(Arc::new(body_nf)));
         let env = Env::new().bind(0, body.clone());
 
@@ -4436,40 +5454,49 @@ mod tests {
             .tables
             .lookup(&key)
             .expect("Table should exist after producer call");
-        {
-            let mut table = table.borrow_mut();
-            table.add_answer(nf_a1.clone());
-            table.add_answer(nf_a2.clone());
-            table.start_producer(
-                Node::Work(boxed_work(Work::Done)),
-                ProducerSpec {
-                    body: body.clone(),
-                    left: None,
-                    right: None,
-                    env: env.clone(),
-                },
-            );
-        }
+        table.add_answer(nf_a1.clone());
+        table.add_answer(nf_a2.clone());
+        table.start_producer(
+            Node::Work(boxed_work(Work::Done)),
+            ProducerSpec {
+                key: key.clone(),
+                body: body.clone(),
+                left: None,
+                right: None,
+                env: env.clone(),
+            },
+            table.answers_len(),
+        );
 
         let mut pipe_consumer = PipeWork::with_mid(mid);
         pipe_consumer.env = env;
         pipe_consumer.tables = pipe_producer.tables.clone();
         let step_consumer = pipe_consumer.advance_front(&mut terms);
-        let mut node = extract_gen_from_step(step_consumer);
+        let mut compose = unwrap_work_compose(step_consumer);
 
         let mut outputs = Vec::new();
         let mut steps = 0;
-        while outputs.len() < 3 && steps < 20 {
-            match step_node(node, &mut terms) {
-                NodeStep::Emit(nf, rest) => {
+        while outputs.len() < 3 && steps < 200 {
+            let step = compose.step(&mut terms);
+            match step {
+                WorkStep::Emit(nf, next) => {
                     outputs.push(nf);
-                    node = rest;
                     if outputs.len() == 1 {
-                        table.borrow_mut().add_answer(nf_b.clone());
+                        table.add_answer(nf_b.clone());
                     }
+                    compose = match *next {
+                        Work::Compose(next_compose) => next_compose,
+                        other => panic!("Expected Work::Compose, got {:?}", other),
+                    };
                 }
-                NodeStep::Continue(rest) => node = rest,
-                NodeStep::Exhausted => break,
+                WorkStep::More(next) => {
+                    compose = match *next {
+                        Work::Compose(next_compose) => next_compose,
+                        other => panic!("Expected Work::Compose, got {:?}", other),
+                    };
+                }
+                WorkStep::Done => break,
+                WorkStep::Split(_, _) => panic!("ComposeWork should not split"),
             }
             steps += 1;
         }
@@ -4490,10 +5517,8 @@ mod tests {
 
     #[test]
     fn work_fix_construction() {
-        use std::cell::RefCell;
-
         let key: CallKey<()> = CallKey::new(0, 0, None, None);
-        let table = Arc::new(RefCell::new(Table::new()));
+        let table = Arc::new(Table::new());
         let fix: FixWork<()> = FixWork::new(key, table, 0, Tables::new());
         let work: Work<()> = Work::Fix(fix);
         assert!(matches!(work, Work::Fix(_)));
@@ -4501,12 +5526,10 @@ mod tests {
 
     #[test]
     fn work_fix_step_delegates() {
-        use std::cell::RefCell;
-
         let (_, mut terms) = setup();
         let key: CallKey<()> = CallKey::new(0, 0, None, None);
-        let table = Arc::new(RefCell::new(Table::new()));
-        table.borrow_mut().finish_producer();
+        let table = Arc::new(Table::new());
+        table.finish_producer();
 
         let fix: FixWork<()> = FixWork::new(key, table, 0, Tables::new());
         let mut work: Work<()> = Work::Fix(fix);
@@ -4544,12 +5567,44 @@ mod tests {
 
     #[test]
     fn table_dedups_duplicate_answers() {
-        let (symbols, terms) = setup();
-        let nf = make_ground_nf("A", &symbols, &terms);
-        let mut table: Table<()> = Table::new();
+        let (symbols, mut terms) = setup();
+        let nf = make_ground_nf("A", &symbols, &mut terms);
+        let table: Table<()> = Table::new();
         table.add_answer(nf.clone());
         table.add_answer(nf);
-        assert_eq!(table.answers.len(), 1, "Table should dedup answers");
+        assert_eq!(table.answers_len(), 1, "Table should dedup answers");
+    }
+
+    fn assert_table_lock_independent() {
+        let table = Arc::new(Table::<()>::new());
+
+        let producer_guard = table.lock_producer_for_test();
+        let answers_try = table.try_lock_answers_for_test();
+        assert!(
+            answers_try.is_some(),
+            "answers lock should not be blocked by producer lock"
+        );
+        drop(answers_try);
+        drop(producer_guard);
+
+        let answers_guard = table.lock_answers_for_test();
+        let producer_try = table.try_lock_producer_for_test();
+        assert!(
+            producer_try.is_some(),
+            "producer lock should not be blocked by answers lock"
+        );
+        drop(producer_try);
+        drop(answers_guard);
+    }
+
+    #[test]
+    fn table_locks_are_independent() {
+        assert_table_lock_independent();
+    }
+
+    #[test]
+    fn table_locks_are_independent_dual() {
+        assert_table_lock_independent();
     }
 
     #[test]
@@ -4584,5 +5639,138 @@ mod tests {
             "CallKey should not be excessively large, got {}",
             size
         );
+    }
+
+    fn run_join_receiver_emits_from_queue(use_dual: bool) {
+        let (symbols, mut terms) = setup();
+        let mut nf1 = make_rule_nf("A", "B", &symbols, &mut terms);
+        let mut nf2 = make_rule_nf("B", "C", &symbols, &mut terms);
+        if use_dual {
+            nf1 = dual_nf(&nf1, &mut terms);
+            nf2 = dual_nf(&nf2, &mut terms);
+        }
+
+        let (tx, rx) = AnswerQueue::bounded::<()>(2);
+        assert_eq!(tx.try_send(nf1.clone()), SinkResult::Accepted);
+        assert_eq!(tx.try_send(nf2.clone()), SinkResult::Accepted);
+
+        let mut join = JoinReceiverWork::new(rx);
+        let step = join.step(&mut terms);
+        let (out, work) = match step {
+            WorkStep::Emit(nf, work) => (nf, work),
+            other => panic!("expected emit from join receiver, got {:?}", other),
+        };
+        assert_eq!(out, nf1);
+
+        let mut join = unwrap_join_receiver(*work);
+        let step = join.step(&mut terms);
+        let (out, work) = match step {
+            WorkStep::Emit(nf, work) => (nf, work),
+            other => panic!("expected second emit from join receiver, got {:?}", other),
+        };
+        assert_eq!(out, nf2);
+
+        drop(tx);
+        let mut join = unwrap_join_receiver(*work);
+        match join.step(&mut terms) {
+            WorkStep::Done => {}
+            other => panic!("expected join receiver to finish, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn join_receiver_emits_from_queue() {
+        run_join_receiver_emits_from_queue(false);
+    }
+
+    #[test]
+    fn join_receiver_emits_from_queue_dual() {
+        run_join_receiver_emits_from_queue(true);
+    }
+
+    fn run_join_receiver_blocks_when_empty(use_dual: bool) {
+        let (symbols, mut terms) = setup();
+        let mut nf = make_rule_nf("A", "B", &symbols, &mut terms);
+        if use_dual {
+            nf = dual_nf(&nf, &mut terms);
+        }
+
+        let (tx, rx) = AnswerQueue::bounded::<()>(1);
+        let mut join = JoinReceiverWork::new(rx);
+        let step = join.step(&mut terms);
+        let mut join = match step {
+            WorkStep::More(work) => unwrap_join_receiver(*work),
+            other => panic!("expected join receiver to wait, got {:?}", other),
+        };
+        assert!(
+            join.blocked_on().is_some(),
+            "join receiver should block when empty"
+        );
+
+        assert_eq!(tx.try_send(nf.clone()), SinkResult::Accepted);
+        let step = join.step(&mut terms);
+        let (out, _work) = match step {
+            WorkStep::Emit(nf, work) => (nf, work),
+            other => panic!("expected join receiver emit after send, got {:?}", other),
+        };
+        assert_eq!(out, nf);
+    }
+
+    #[test]
+    fn join_receiver_blocks_when_empty() {
+        run_join_receiver_blocks_when_empty(false);
+    }
+
+    #[test]
+    fn join_receiver_blocks_when_empty_dual() {
+        run_join_receiver_blocks_when_empty(true);
+    }
+
+    fn run_andgroup_closed_empty_part_terminates_even_if_other_blocks(use_dual: bool) {
+        let _ = use_dual;
+        let (_, mut terms) = setup();
+
+        let (_tx0, rx0) = AnswerQueue::bounded::<()>(1);
+        drop(_tx0);
+        let part0 = Node::Work(boxed_work(Work::JoinReceiver(JoinReceiverWork::new(rx0))));
+
+        let (_tx1, rx1) = AnswerQueue::bounded::<()>(1);
+        let part1 = Node::Work(boxed_work(Work::JoinReceiver(JoinReceiverWork::new(rx1))));
+
+        let mut group = AndGroup::new(vec![part0, part1]);
+        let mut done = false;
+
+        for _ in 0..6 {
+            match group.step(&mut terms) {
+                WorkStep::Done => {
+                    done = true;
+                    break;
+                }
+                WorkStep::More(work) => {
+                    group = unwrap_and_group(*work);
+                }
+                WorkStep::Emit(_, _) => {
+                    panic!("andgroup should not emit when a part closes empty")
+                }
+                WorkStep::Split(_, _) => panic!("andgroup should not split"),
+            }
+        }
+
+        assert!(
+            done,
+            "AndGroup should terminate when a part closes empty, even if others block"
+        );
+
+        drop(_tx1);
+    }
+
+    #[test]
+    fn andgroup_closed_empty_part_terminates_even_if_other_blocks() {
+        run_andgroup_closed_empty_part_terminates_even_if_other_blocks(false);
+    }
+
+    #[test]
+    fn andgroup_closed_empty_part_terminates_even_if_other_blocks_dual() {
+        run_andgroup_closed_empty_part_terminates_even_if_other_blocks(true);
     }
 }

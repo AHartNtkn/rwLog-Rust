@@ -992,6 +992,7 @@ version = "0.1.0"
 dependencies = [
  "bumpalo",
  "criterion",
+ "crossbeam-channel",
  "crossbeam-deque",
  "dashmap 5.5.3",
  "hashbrown 0.14.5",

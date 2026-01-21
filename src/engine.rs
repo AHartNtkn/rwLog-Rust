@@ -1715,25 +1715,8 @@ rel add {
         let expected_nf = NF::factor(input_term, expected_term, (), &mut terms);
 
         let mut engine: Engine<()> = Engine::new_with_env(query, terms, env);
-        let max_steps = 20000;
-        let mut first = None;
-        for _ in 0..max_steps {
-            match engine.step() {
-                StepResult::Emit(nf) => {
-                    first = Some(nf);
-                    break;
-                }
-                StepResult::Exhausted => break,
-                StepResult::Continue => {}
-            }
-        }
-
-        assert!(
-            first.is_some(),
-            "Expected treecalc answer for input {} within {} steps",
-            input,
-            max_steps
-        );
+        let first = engine.next();
+        assert!(first.is_some(), "Expected treecalc answer for input {}", input);
         assert_eq!(
             first.unwrap(),
             expected_nf,
@@ -1742,12 +1725,7 @@ rel add {
         );
     }
 
-    fn treecalc_app_case_with_limit(
-        input: &str,
-        expected: &str,
-        query_suffix: &str,
-        max_steps: usize,
-    ) {
+    fn treecalc_app_case_with_limit(input: &str, expected: &str, query_suffix: &str) {
         let mut parser = Parser::new();
         let def = include_str!("../examples/treecalc.txt");
         let (_app_rel, env) = parse_rel_def_with_env(&mut parser, def);
@@ -1761,23 +1739,11 @@ rel add {
         let expected_nf = NF::factor(input_term, expected_term, (), &mut terms);
 
         let mut engine: Engine<()> = Engine::new_with_env(query, terms, env);
-        let mut first = None;
-        for _ in 0..max_steps {
-            match engine.step() {
-                StepResult::Emit(nf) => {
-                    first = Some(nf);
-                    break;
-                }
-                StepResult::Exhausted => break,
-                StepResult::Continue => {}
-            }
-        }
-
+        let first = engine.next();
         assert!(
             first.is_some(),
-            "Expected treecalc answer for query {} within {} steps",
-            query_str,
-            max_steps
+            "Expected treecalc answer for query {}",
+            query_str
         );
         assert_eq!(
             first.unwrap(),
@@ -1800,6 +1766,10 @@ rel add {
     }
 
     #[test]
+    #[cfg_attr(
+        debug_assertions,
+        ignore = "long-running; requires release build that has already been built"
+    )]
     fn program_synth_flip_query_emits_answer() {
         let mut parser = Parser::with_chr();
         let (_app_rel, env) = parse_rel_def_with_env_chr(&mut parser, PROGRAM_SYNTH_DEF);
@@ -1821,6 +1791,10 @@ rel add {
     }
 
     #[test]
+    #[cfg_attr(
+        debug_assertions,
+        ignore = "long-running; requires release build that has already been built"
+    )]
     fn program_synth_flip_query_emits_answer_dual() {
         use crate::kernel::dual_nf;
 
@@ -2017,7 +1991,6 @@ rel add {
             "(f (f (f l (b l)) (f (b l) (b l))) (f l (f (b l) (b l))))",
             "(f l l)",
             "[app & app]",
-            20000,
         );
     }
 
@@ -2027,7 +2000,6 @@ rel add {
             "(f (f (f l (b l)) (f (b l) (b l))) (f l (f (b l) (b l))))",
             "(f l l)",
             "[[app & app] & app]",
-            20000,
         );
     }
 
@@ -2037,7 +2009,6 @@ rel add {
             "(f (f (f l (b l)) (f (b l) (b l))) (f l (f (b l) (b l))))",
             "(f l l)",
             "[app & app & app]",
-            20000,
         );
     }
 
