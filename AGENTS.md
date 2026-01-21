@@ -140,6 +140,13 @@ cargo test 2>&1  # WRONG - will hang forever on infinite loop
 
 This applies to ALL test commands - full suite, filtered tests, individual tests. No exceptions.
 
+## Program Synth Baseline (Release)
+
+Baseline to preserve during the parallelism port (I ran this myself on commit `8eab6f01f1be85aa5a5790afb84a604e6948b336`):
+- Built release tests with `cargo test --release --no-run`.
+- Ran `timeout 180 cargo test --release --lib engine::tests::program_synth_flip_query_emits_answer -- --exact --nocapture`.
+- Result: pass, completed in ~57.4s.
+
 ## TDD Test Coverage Requirements
 
 **When implementing a new feature using TDD, you MUST write comprehensive failing tests FIRST.**
