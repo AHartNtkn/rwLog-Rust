@@ -336,6 +336,22 @@ rel app {
         None
     }
 
+    fn run_until_exhausted<C: ConstraintOps>(
+        engine: &mut Engine<C>,
+        max_steps: usize,
+    ) -> Result<(), &'static str> {
+        for _ in 0..max_steps {
+            match engine.step() {
+                StepResult::Emit(_) => return Err("unexpected extra answer"),
+                StepResult::Exhausted => return Ok(()),
+                StepResult::Continue => {
+                    std::thread::yield_now();
+                }
+            }
+        }
+        Err("did not exhaust within step limit")
+    }
+
     // ========================================================================
     // ENGINE CONSTRUCTION TESTS
     // ========================================================================
@@ -460,6 +476,65 @@ rel app {
             "(cons a b)",
             "(cons b b)",
         );
+    }
+
+    fn run_killer_and_intersection_collapses(use_dual: bool) {
+        let mut parser = Parser::new();
+        let def = r#"
+rel killer {
+    (f l) -> b
+    |
+    [@z ; killer ; $x -> (f $x)]
+}
+"#;
+        let (rel_def, env) = parse_rel_def_with_env(&mut parser, def);
+        let query_str = "[(f $x) -> (f $x)] & [@(f l)] ; killer";
+        let query = parser.parse_rel_body(query_str).expect("parse query");
+
+        let input_term = parser.parse_term("(f l)").expect("parse input").term_id;
+        let output_term = parser.parse_term("b").expect("parse output").term_id;
+        let mut terms = parser.take_terms();
+        let expected_nf = NF::factor(input_term, output_term, (), &mut terms);
+
+        let mut engine: Engine<()> = Engine::new_with_env(query.clone(), terms, env.clone());
+        let max_steps = 20_000;
+        let first = run_until_emit(&mut engine, max_steps);
+        assert!(
+            first.is_some(),
+            "Expected killer query to emit within {} steps",
+            max_steps
+        );
+        let first = first.expect("expected first killer answer");
+        assert_eq!(first, expected_nf, "Unexpected killer answer");
+        run_until_exhausted(&mut engine, max_steps).expect("killer should exhaust");
+
+        if use_dual {
+            let mut terms = engine.into_terms();
+            let expected_dual = dual_nf(&first, &mut terms);
+            let dual_env = match &rel_def {
+                Rel::Fix(id, body) => Env::new().bind(*id, Arc::new(dual(body, &mut terms))),
+                _ => env.clone(),
+            };
+            let mut dual_engine: Engine<()> =
+                Engine::new_with_env(dual(&query, &mut terms), terms, dual_env);
+            let dual_first = run_until_emit(&mut dual_engine, max_steps)
+                .expect("expected dual killer answer");
+            assert_eq!(
+                dual_first, expected_dual,
+                "Dual query should emit the dual of the same span"
+            );
+            run_until_exhausted(&mut dual_engine, max_steps).expect("dual killer should exhaust");
+        }
+    }
+
+    #[test]
+    fn killer_and_intersection_collapses() {
+        run_killer_and_intersection_collapses(false);
+    }
+
+    #[test]
+    fn killer_and_intersection_collapses_dual() {
+        run_killer_and_intersection_collapses(true);
     }
 
     // ========================================================================

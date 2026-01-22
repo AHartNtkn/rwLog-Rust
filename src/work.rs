@@ -696,6 +696,42 @@ impl<C: ConstraintOps> PipeWork<C> {
             changed = true;
         }
 
+        // Collapse And factors that are fully atomic into a single Atom via meet.
+        for idx in 0..factors.len() {
+            let rel = factors[idx].clone();
+            let Rel::And(_, _) = rel.as_ref() else {
+                continue;
+            };
+            let parts = flatten_and_parts(rel);
+            let mut acc: Option<NF<C>> = None;
+            let mut all_atoms = true;
+            for part in parts {
+                match part.as_ref() {
+                    Rel::Atom(nf) => {
+                        acc = match acc {
+                            None => Some(nf.as_ref().clone()),
+                            Some(prev) => meet_nf(&prev, nf.as_ref(), terms),
+                        };
+                        if acc.is_none() {
+                            return Err(WorkStep::Done);
+                        }
+                    }
+                    Rel::Zero => return Err(WorkStep::Done),
+                    _ => {
+                        all_atoms = false;
+                        break;
+                    }
+                }
+            }
+
+            if all_atoms {
+                if let Some(nf) = acc {
+                    factors[idx] = Arc::new(Rel::Atom(Arc::new(nf)));
+                    changed = true;
+                }
+            }
+        }
+
         if factors.iter().any(|f| matches!(f.as_ref(), Rel::Zero)) {
             return Err(WorkStep::Done);
         }
@@ -3096,7 +3132,7 @@ mod tests {
     fn pipework_prefers_non_call_over_call_on_opposite_end() {
         let (symbols, mut terms) = setup();
         let left_nf = make_ground_nf("L", &symbols, &mut terms);
-        let right_nf = make_ground_nf("R", &symbols, &mut terms);
+        let right_nf = left_nf.clone();
         let left_rel: Arc<Rel<()>> = Arc::new(Rel::Atom(Arc::new(left_nf)));
         let right_rel: Arc<Rel<()>> = Arc::new(Rel::Atom(Arc::new(right_nf)));
         let and_rel: Arc<Rel<()>> = Arc::new(Rel::And(left_rel, right_rel));
@@ -3111,15 +3147,10 @@ mod tests {
         pipe.flip = true;
 
         let step = pipe.step(&mut terms);
-
-        let compose = unwrap_work_compose(step);
-        let left_is_and = matches!(
-            compose.left.as_ref(),
-            Node::Work(work) if matches!(work.as_ref(), Work::AndGroup(_))
-        );
+        let key = extract_key_from_step(step);
         assert!(
-            left_is_and,
-            "Should advance front (And) before Call when opposite end is non-call"
+            key.left.is_some(),
+            "Call should see a left boundary after collapsing And of atoms"
         );
     }
 
