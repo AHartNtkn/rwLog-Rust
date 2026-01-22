@@ -13,6 +13,7 @@ use crate::rel::Rel;
 use crate::symbol::SymbolStore;
 use crate::term::TermStore;
 use crate::work::{rel_to_node, Env, Tables};
+use std::collections::HashSet;
 
 /// Result of a single step in the Engine.
 #[derive(Clone, Debug)]
@@ -34,6 +35,8 @@ pub struct Engine<C: ConstraintOps> {
     root: Node<C>,
     /// Term store for creating/looking up terms
     terms: TermStore,
+    /// Dedup set for emitted answers (set semantics).
+    seen: HashSet<NF<C>>,
 }
 
 impl<C: ConstraintOps> Engine<C> {
@@ -46,7 +49,11 @@ impl<C: ConstraintOps> Engine<C> {
     pub fn new_with_env(rel: Rel<C>, terms: TermStore, env: Env<C>) -> Self {
         let tables = Tables::new();
         let root = rel_to_node(&rel, &env, &tables);
-        Self { root, terms }
+        Self {
+            root,
+            terms,
+            seen: HashSet::new(),
+        }
     }
 
     pub fn format_nf(&mut self, nf: &NF<C>, symbols: &SymbolStore) -> Result<String, String>
@@ -122,7 +129,11 @@ impl<C: ConstraintOps> Iterator for Engine<C> {
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             match self.step() {
-                StepResult::Emit(nf) => return Some(nf),
+                StepResult::Emit(nf) => {
+                    if self.seen.insert(nf.clone()) {
+                        return Some(nf);
+                    }
+                }
                 StepResult::Exhausted => return None,
                 StepResult::Continue => continue,
             }
@@ -162,6 +173,7 @@ mod tests {
     use super::*;
     use crate::chr::{ChrState, NoTheory};
     use crate::drop_fresh::DropFresh;
+    use crate::kernel::dual_nf;
     use crate::nf::{direct_rule_terms, NF};
     use crate::parser::ChrConstraintBuilder;
     use crate::parser::Parser;
@@ -391,6 +403,37 @@ rel app {
     // ========================================================================
     // E2E: Simple Combinators
     // ========================================================================
+
+    #[test]
+    fn engine_dedups_duplicate_or() {
+        let (_, terms) = setup();
+        let nf = make_identity_nf();
+        let rel = Rel::Or(
+            Arc::new(Rel::Atom(Arc::new(nf.clone()))),
+            Arc::new(Rel::Atom(Arc::new(nf.clone()))),
+        );
+
+        let mut engine: Engine<()> = Engine::new(rel, terms);
+        let answers = engine.collect_answers();
+        assert_eq!(answers.len(), 1, "Engine should dedup identical answers");
+        assert_eq!(answers[0], nf);
+    }
+
+    #[test]
+    fn engine_dedups_duplicate_or_dual() {
+        let (_, mut terms) = setup();
+        let nf = make_identity_nf();
+        let nf = dual_nf(&nf, &mut terms);
+        let rel = Rel::Or(
+            Arc::new(Rel::Atom(Arc::new(nf.clone()))),
+            Arc::new(Rel::Atom(Arc::new(nf.clone()))),
+        );
+
+        let mut engine: Engine<()> = Engine::new(rel, terms);
+        let answers = engine.collect_answers();
+        assert_eq!(answers.len(), 1, "Engine should dedup identical answers");
+        assert_eq!(answers[0], nf);
+    }
 
     #[test]
     fn simple_swap_on_ground_pair() {
@@ -1788,6 +1831,11 @@ rel add {
             "Expected program_synth flip query to emit within {} steps",
             max_steps
         );
+        let nf = first.expect("expected program_synth flip answer");
+        let rendered = engine
+            .format_nf(&nf, parser.symbols())
+            .unwrap_or_else(|_| "<unrenderable>".to_string());
+        eprintln!("program_synth_flip_query_emits_answer output: {}", rendered);
     }
 
     #[test]

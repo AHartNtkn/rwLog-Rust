@@ -8,3 +8,4 @@
 - [x] Replace AndGroup with queue-backed joiner (bounded producer queues + joiner output queue).
   - Edge cases: empty closed part terminates And immediately even if other parts block (plus dual).
 - [x] Re-run program_synth regression tests and confirm they emit within the step budget (release).
+- [x] Add global answer dedup at Engine emission (set semantics).
