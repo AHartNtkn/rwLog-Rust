@@ -47,6 +47,29 @@ But NEVER write code you know is wrong. Wrong code is worse than no code because
 
 **The only acceptable implementation is a CORRECT implementation.**
 
+## **PRINCIPLED FIXES ONLY - NO TARGETED BAND-AIDS**
+
+When fixing bugs, **always implement the most principled, ideal solution** - even if it requires tearing out entire subsystems and rebuilding them from scratch.
+
+**NEVER propose "targeted" or "minimal" fixes.** These are just band-aids that:
+- Paper over the real problem
+- Leave architectural rot in place
+- Create more bugs down the line
+- Make the codebase harder to understand
+
+**The correct approach:**
+1. Identify the ROOT CAUSE, not just the symptom
+2. Design the IDEAL solution - what would the code look like if it were written correctly from the start?
+3. Implement that ideal solution, even if it means:
+   - Deleting large amounts of code
+   - Changing core data structures
+   - Rewriting entire modules
+   - Breaking and fixing many call sites
+
+**I don't care if it's harder. I don't care if it takes longer. I want the RIGHT fix, not the EASY fix.**
+
+If you find yourself thinking "this targeted fix would be simpler" - STOP. That's the wrong instinct. Strip it out root and stem and rebuild it correctly.
+
 ## CRITICAL: Always Use Timeouts When Running Tests
 
 **NEVER run tests without a timeout.** If tests don't ALL finish in less than 30 seconds, there's an infinite loop bug.
