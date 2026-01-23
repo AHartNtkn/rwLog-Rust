@@ -70,6 +70,37 @@ When fixing bugs, **always implement the most principled, ideal solution** - eve
 
 If you find yourself thinking "this targeted fix would be simpler" - STOP. That's the wrong instinct. Strip it out root and stem and rebuild it correctly.
 
+## **ABSOLUTELY FORBIDDEN: HEURISTICS**
+
+**HEURISTICS ARE BANNED.** A heuristic is a guess dressed up as logic. If you cannot prove that your solution is correct, you do not have a solution.
+
+**What is a heuristic?**
+A heuristic is when you use indirect evidence to approximate a conclusion that you cannot actually determine from your available information.
+
+**Example of BANNED heuristic thinking:**
+
+Problem: Detect when a fixpoint has been reached (no more progress is possible).
+
+BAD (heuristic): "Count how many times we've been called while blocked. If we've been called N times with no progress, it's PROBABLY fixpoint."
+
+This is garbage because:
+- There is no N that makes this certain
+- Being called N times doesn't prove other work was attempted
+- It's a guess based on "usually this is enough"
+- The number N is arbitrary magic
+
+GOOD (principled): "Detect fixpoint at the engine level where we have visibility into ALL work. When step_node returns Blocked for the root AND global_progress hasn't changed since we last saw all-blocked, we KNOW it's fixpoint."
+
+This is correct because:
+- The engine actually knows when all work is blocked
+- We have definitive information, not a guess
+- The conclusion follows logically from the premises
+
+**The test for whether something is a heuristic:**
+Ask yourself: "Does this conclusion follow DEFINITIVELY from my premises, or am I HOPING it's true based on indirect evidence?"
+
+If you're hoping, you're using a heuristic. Stop and find the place in the system where you CAN know definitively.
+
 ## CRITICAL: Always Use Timeouts When Running Tests
 
 **NEVER run tests without a timeout.** If tests don't ALL finish in less than 30 seconds, there's an infinite loop bug.
@@ -604,3 +635,83 @@ fn resume_after_yield_with_seq_below_alt_must_continue() {
 ```
 
 The good test will fail with a message that explains the bug. The bad test just says "expected X got Y" with no insight into the cause.
+
+## Bug Hunting: Systematic Diagnosis
+
+### Keep a Debug Log
+
+**When hunting bugs, maintain a detailed log file** (e.g., `DEBUG_LOG.md` in the project root). This log serves multiple purposes:
+- Records everything tried and what was observed
+- Prevents repeating failed approaches after context compaction
+- Captures insights that might otherwise be lost
+- Provides continuity across conversation resets
+
+**Log structure:**
+```markdown
+# Bug: [Brief description]
+
+## Current Understanding
+[What we know so far about the bug's behavior]
+
+## Hypotheses
+1. [Hypothesis A] - Status: [untested/disproven/plausible]
+2. [Hypothesis B] - Status: [untested/disproven/plausible]
+
+## Investigation Log
+
+### [Timestamp/Step N]
+**Tried:** [What was attempted]
+**Observed:** [Exact output/behavior]
+**Conclusion:** [What this tells us]
+
+### [Timestamp/Step N+1]
+...
+
+## Next Steps
+- [ ] [Specific investigation to try next]
+- [ ] [Another avenue to explore]
+
+## Disproven Theories
+- [Theory X]: Disproven because [evidence]
+```
+
+### After Context Compaction
+
+**CRITICAL: After any conversation summary/compaction, IMMEDIATELY read the debug log** to restore context about:
+- What has already been tried
+- What hypotheses have been disproven
+- What the current working theory is
+- What the next planned investigation step was
+
+### Hypothesis-Driven Debugging
+
+1. **Form explicit hypotheses** - Don't just poke around. State what you think might be wrong.
+2. **Design falsification tests** - For each hypothesis, ask "What observation would DISPROVE this?"
+3. **Run broad exploratory tests** - Multiple debug outputs are better than single targeted ones. A full picture sparks insights.
+4. **Update hypotheses based on evidence** - Remove disproven ones, refine plausible ones, add new ones.
+5. **Require mechanical explanation** - Don't stop until you can trace step-by-step exactly what happens and where it goes wrong.
+
+### Avoid Heuristic "Fixes"
+
+When debugging, it's tempting to add heuristics like:
+- "Count iterations and give up after N"
+- "Detect this specific pattern and handle it specially"
+- "Add a timeout or limit"
+
+**These are NOT fixes. They are masks.** A heuristic that prevents a symptom does not address the root cause. If you find yourself adding such code, STOP and continue debugging. The correct fix will be obvious once you understand the actual problem.
+
+### Signs You Haven't Found the Root Cause
+
+- You're adding code that "detects" a problematic state rather than preventing it
+- Your fix involves arbitrary constants (magic numbers)
+- You can't explain WHY the fix works, just that it does
+- The fix is "defensive" rather than "corrective"
+- You're handling symptoms downstream rather than causes upstream
+
+### Minimal Reproduction
+
+Once you believe you understand the bug:
+1. Create the smallest possible test case that exhibits the bug
+2. Trace through it step-by-step with debug output
+3. Write out the trace showing exactly where behavior diverges from expectation
+4. If your trace has gaps or uncertainties, you haven't fully understood the bug yet
