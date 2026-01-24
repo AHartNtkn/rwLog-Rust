@@ -5,7 +5,7 @@ use crate::term::TermStore;
 use crate::trace::{debug_span, trace};
 
 use super::util::{
-    apply_subst_list, max_var_index_terms, remap_constraint_vars, shift_vars_list, unify_term_lists,
+    apply_subst_list, match_term_lists, max_var_index_terms, remap_constraint_vars, shift_vars_list,
 };
 
 /// Compute the meet (intersection) of two NFs.
@@ -46,35 +46,40 @@ pub fn meet_nf<C: ConstraintOps>(a: &NF<C>, b: &NF<C>, terms: &mut TermStore) ->
         rw2.rhs = shift_vars_list(&rw2.rhs, b_var_offset, terms);
     }
 
-    let mgu_match = match unify_term_lists(&rw1.lhs, &rw2.lhs, terms) {
-        Some(mgu) => mgu,
+    let matching_lhs = match match_term_lists(&rw1.lhs, &rw2.lhs, b_var_offset, terms) {
+        Some(matching) => matching,
         None => {
             #[cfg(feature = "tracing")]
-            trace!("meet_match_unify_failed");
+            trace!("meet_match_failed");
             return None;
         }
     };
 
-    let unified_lhs = apply_subst_list(&rw1.lhs, &mgu_match, terms);
-    let a_rhs_subst = apply_subst_list(&rw1.rhs, &mgu_match, terms);
-    let b_rhs_subst = apply_subst_list(&rw2.rhs, &mgu_match, terms);
+    let unified_lhs = apply_subst_list(&rw1.lhs, &matching_lhs.left, terms);
+    let a_rhs_subst = apply_subst_list(&rw1.rhs, &matching_lhs.left, terms);
+    let b_rhs_subst = apply_subst_list(&rw2.rhs, &matching_lhs.right, terms);
 
-    let mgu_build = match unify_term_lists(&a_rhs_subst, &b_rhs_subst, terms) {
-        Some(mgu) => mgu,
+    let matching_rhs = match match_term_lists(&a_rhs_subst, &b_rhs_subst, b_var_offset, terms) {
+        Some(matching) => matching,
         None => {
             #[cfg(feature = "tracing")]
-            trace!("meet_build_unify_failed");
+            trace!("meet_build_failed");
             return None;
         }
     };
 
-    let mut final_lhs = apply_subst_list(&unified_lhs, &mgu_build, terms);
-    let mut final_rhs = apply_subst_list(&a_rhs_subst, &mgu_build, terms);
+    let mut final_lhs = apply_subst_list(&unified_lhs, &matching_rhs.left, terms);
+    let mut final_rhs = apply_subst_list(&a_rhs_subst, &matching_rhs.left, terms);
 
     let b_constraint =
         remap_constraint_vars(&b.drop_fresh.constraint, b_max_var, b_var_offset, terms);
 
-    let combined = match a.drop_fresh.constraint.combine(&b_constraint) {
+    let a_constraint = a.drop_fresh.constraint.apply_subst(&matching_lhs.left, terms);
+    let a_constraint = a_constraint.apply_subst(&matching_rhs.left, terms);
+    let b_constraint = b_constraint.apply_subst(&matching_lhs.right, terms);
+    let b_constraint = b_constraint.apply_subst(&matching_rhs.right, terms);
+
+    let combined = match a_constraint.combine(&b_constraint) {
         Some(c) => c,
         None => {
             #[cfg(feature = "tracing")]
@@ -82,8 +87,6 @@ pub fn meet_nf<C: ConstraintOps>(a: &NF<C>, b: &NF<C>, terms: &mut TermStore) ->
             return None;
         }
     };
-    let combined = combined.apply_subst(&mgu_match, terms);
-    let combined = combined.apply_subst(&mgu_build, terms);
 
     let (normalized, subst_opt) = match combined.normalize(terms) {
         Some(result) => result,
@@ -106,4 +109,5 @@ pub fn meet_nf<C: ConstraintOps>(a: &NF<C>, b: &NF<C>, terms: &mut TermStore) ->
 
 
 #[cfg(test)]
+#[path = "../tests/kernel_meet.rs"]
 mod tests;

@@ -214,4 +214,5 @@ pub fn init_flamegraph(_path: &str) -> impl Drop {
 
 
 #[cfg(test)]
+#[path = "tests/trace.rs"]
 mod tests;

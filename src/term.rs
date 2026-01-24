@@ -208,4 +208,5 @@ impl Default for TermStore {
 
 
 #[cfg(test)]
+#[path = "tests/term.rs"]
 mod tests;

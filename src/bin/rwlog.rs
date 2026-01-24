@@ -186,5 +186,5 @@ fn handle_kernel_run(first: Option<&str>, rest: Vec<String>) {
 
 
 #[cfg(test)]
-#[path = "rwlog/tests.rs"]
+#[path = "../tests/bin_rwlog.rs"]
 mod tests;

@@ -259,4 +259,5 @@ impl<C: Clone + Eq + Hash> AnswerSink<C> {
 
 
 #[cfg(test)]
+#[path = "tests/queue.rs"]
 mod tests;

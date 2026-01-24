@@ -402,4 +402,5 @@ impl ConstraintDisplay for CombinedConstraint {}
 
 
 #[cfg(test)]
+#[path = "tests/constraint.rs"]
 mod tests;

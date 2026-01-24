@@ -170,4 +170,5 @@ pub fn query_first<C: ConstraintOps>(rel: Rel<C>, terms: TermStore) -> Option<NF
 
 
 #[cfg(test)]
+#[path = "tests/engine.rs"]
 mod tests;

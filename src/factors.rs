@@ -224,4 +224,5 @@ impl<C> Default for Factors<C> {
 
 
 #[cfg(test)]
+#[path = "tests/factors.rs"]
 mod tests;

@@ -201,6 +201,8 @@ Key operations:
 
 rwlog does not support unification. All cross-side comparisons are *matching* with **separate substitutions** on each side. Variable identities are local to each term; the same variable index on both sides has no shared meaning. Any matching algorithm must rename apart (or otherwise guarantee disjoint variable namespaces) before attempting to relate two sides.
 
+There must be no unification APIs, implementations, or metrics; any such naming or behavior is a correctness bug and should be replaced with matching. Matching must be invariant under renaming variables on only one side, and property tests should assert this.
+
 A matching is a pair of substitutions that make the two terms equal after their own substitution. A most-general matching is required: any other matching must factor through it via additional substitutions on each side. Unification-style behavior that treats shared variable names as equal across sides is a correctness bug.
 
 Definition (matching): a matching of terms s and t is a pair (θ1, θ2) such that s[θ1] = t[θ2].

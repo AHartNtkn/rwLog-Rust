@@ -1442,4 +1442,5 @@ fn parse_identifier(input: &str, pos: &mut usize) -> Result<String, ParseError> 
 
 
 #[cfg(test)]
+#[path = "tests/parser.rs"]
 mod tests;

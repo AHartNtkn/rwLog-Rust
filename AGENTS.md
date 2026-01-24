@@ -7,6 +7,7 @@ Whenever you are asked to edit AGENTS.md, do not take these as litteral, step-by
 - When the user says a requirement is vague/misaligned, stop work and do three steps in order:
   1) Translate it into a precise, checkable rule using the user's wording (no paraphrased or "improved" structure).
   2) Add that rule to AGENTS.md before doing any other work.
+- Only add rules to AGENTS.md when explicitly asked to edit it or when the Misalignment Fix Protocol is triggered; never record one-off task directives or situational preferences as permanent policy.
 - Do not introduce alternative structures or "helpful" reframes unless the user asks.
 - You should capture the spirit of the requirement; not preserve it in amber. You MUST think CRITICALLY about what the requirement is and *why*, in context, it exists. Capture that in full; not merely its form.
 - Avoid literal, rule‑lawyer interpretations that create busywork or miss the user's intent. Optimize for the best final result within the requested scope, even when that requires large changes.
@@ -30,11 +31,13 @@ Whenever you are asked to edit AGENTS.md, do not take these as litteral, step-by
 ## Matching Only (User-Specified)
 
 - The system does NOT support unification; it only supports matching.
+- Do not implement or expose unification APIs or algorithms; any unification-style code path is a correctness bug that must be removed or renamed to matching with tests to prove it.
 - Matching uses two substitutions (one per side) so that both sides become equal after applying their own substitution.
 - Variable identities are local to each side; the same variable index on both sides has no shared meaning.
 - Any algorithm that compares two sides must rename apart (or otherwise ensure disjoint variable namespaces) before matching.
 - Most-general matching is required: any other matching must factor through it via post-substitutions on each side.
 - Treat any unification-style behavior (shared-variable equality across sides) as a severe correctness bug.
+- Matching results must be invariant under renaming variables on only one side; property tests should cover this.
 - Definition (matching): a matching of terms s and t is a pair of substitutions (θ1, θ2) such that s[θ1] = t[θ2].
 - Definition (most general): a matching (θ1, θ2) is most general when any other matching (λ1, λ2) can be written as
   λ1 = θ1 ∘ μ1 and λ2 = θ2 ∘ μ2 for some μ1, μ2.

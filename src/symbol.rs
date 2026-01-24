@@ -53,4 +53,5 @@ impl Default for SymbolStore {
 
 
 #[cfg(test)]
+#[path = "tests/symbol.rs"]
 mod tests;

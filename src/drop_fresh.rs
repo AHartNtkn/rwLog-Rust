@@ -219,4 +219,5 @@ impl<C: Clone> DropFresh<C> {
 
 
 #[cfg(test)]
+#[path = "tests/drop_fresh.rs"]
 mod tests;

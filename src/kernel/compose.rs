@@ -5,7 +5,7 @@ use crate::term::TermStore;
 use crate::trace::{debug_span, trace};
 
 use super::util::{
-    apply_subst_list, max_var_index_terms, remap_constraint_vars, shift_vars_list, unify_term_lists,
+    apply_subst_list, match_term_lists, max_var_index_terms, remap_constraint_vars, shift_vars_list,
 };
 
 /// Compose two NFs in sequence: a ; b
@@ -18,7 +18,7 @@ use super::util::{
 /// - Variables are routed through b's DropFresh
 /// - b's build patterns are constructed
 ///
-/// Returns None if composition fails (unification failure at interface).
+/// Returns None if composition fails (matching failure at interface).
 pub fn compose_nf<C: ConstraintOps>(a: &NF<C>, b: &NF<C>, terms: &mut TermStore) -> Option<NF<C>> {
     #[cfg(feature = "tracing")]
     let _span = debug_span!(
@@ -63,29 +63,35 @@ pub fn compose_nf<C: ConstraintOps>(a: &NF<C>, b: &NF<C>, terms: &mut TermStore)
         a_rhs = ?rw1.rhs,
         b_lhs_shifted = ?rw2.lhs,
         b_var_offset,
-        "unifying_interface"
+        "matching_interface"
     );
 
-    let mgu = match unify_term_lists(&rw1.rhs, &rw2.lhs, terms) {
-        Some(mgu) => {
+    let matching = match match_term_lists(&rw1.rhs, &rw2.lhs, b_var_offset, terms) {
+        Some(matching) => {
             #[cfg(feature = "tracing")]
-            trace!(mgu_size = mgu.len(), "unification_success");
-            mgu
+            trace!(
+                left_bindings = matching.left.len(),
+                right_bindings = matching.right.len(),
+                "matching_success"
+            );
+            matching
         }
         None => {
             #[cfg(feature = "tracing")]
-            trace!("unification_failed");
+            trace!("matching_failed");
             return None;
         }
     };
 
-    let mut new_match = apply_subst_list(&rw1.lhs, &mgu, terms);
-    let mut new_build = apply_subst_list(&rw2.rhs, &mgu, terms);
+    let mut new_match = apply_subst_list(&rw1.lhs, &matching.left, terms);
+    let mut new_build = apply_subst_list(&rw2.rhs, &matching.right, terms);
 
     let b_constraint =
         remap_constraint_vars(&b.drop_fresh.constraint, b_max_var, b_var_offset, terms);
 
-    let combined = match a.drop_fresh.constraint.combine(&b_constraint) {
+    let a_constraint = a.drop_fresh.constraint.apply_subst(&matching.left, terms);
+    let b_constraint = b_constraint.apply_subst(&matching.right, terms);
+    let combined = match a_constraint.combine(&b_constraint) {
         Some(c) => c,
         None => {
             #[cfg(feature = "tracing")]
@@ -93,7 +99,6 @@ pub fn compose_nf<C: ConstraintOps>(a: &NF<C>, b: &NF<C>, terms: &mut TermStore)
             return None;
         }
     };
-    let combined = combined.apply_subst(&mgu, terms);
 
     let (normalized, subst_opt) = match combined.normalize(terms) {
         Some(result) => result,
@@ -113,4 +118,5 @@ pub fn compose_nf<C: ConstraintOps>(a: &NF<C>, b: &NF<C>, terms: &mut TermStore)
 
 
 #[cfg(test)]
+#[path = "../tests/kernel_compose.rs"]
 mod tests;

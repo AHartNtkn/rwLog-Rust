@@ -355,4 +355,5 @@ pub fn split_statements(input: &str) -> Result<Vec<String>, String> {
 
 
 #[cfg(test)]
+#[path = "tests/repl.rs"]
 mod tests;

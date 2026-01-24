@@ -1902,4 +1902,5 @@ impl<T: Theory> ConstraintDisplay for ChrState<T> {
 }
 
 #[cfg(test)]
+#[path = "../tests/chr.rs"]
 mod tests;

@@ -2094,7 +2094,7 @@ fn left_boundary_propagates_to_call() {
         }
     }
     // With boundary propagation, A ; countdown should fail immediately
-    // (A doesn't unify with z or (s x))
+    // (A doesn't match with z or (s x))
     assert_eq!(count, 0, "Left boundary should prevent any answers");
 }
 

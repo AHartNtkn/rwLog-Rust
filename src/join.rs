@@ -217,4 +217,5 @@ impl<C: ConstraintOps> AndJoiner<C> {
 
 
 #[cfg(test)]
+#[path = "tests/join.rs"]
 mod tests;

@@ -29,7 +29,7 @@ fn compose_identity_identity() {
 }
 
 #[test]
-fn compose_applies_mgu_to_constraints() {
+fn compose_applies_matching_to_constraints() {
     let mut parser = Parser::with_chr();
     let theory = r#"
 theory neq_only {
@@ -445,7 +445,7 @@ fn compose_backward_query_ground_constraint() {
 
     assert!(
         result.is_some(),
-        "Composition should succeed: variable $0 should unify with ground z"
+        "Composition should succeed: variable $0 should match ground z"
     );
 
     let composed = result.unwrap();
@@ -487,7 +487,7 @@ fn compose_backward_query_ground_constraint_s_z() {
 
     assert!(
         result.is_some(),
-        "Composition should succeed: variable $0 should unify with (s z)"
+        "Composition should succeed: variable $0 should match (s z)"
     );
 
     let composed = result.unwrap();
@@ -522,7 +522,7 @@ fn compose_var_with_ground_unifies() {
     // Compose: ($0 -> $0) ; (z -> z) should give z -> z
     let result = compose_nf(&identity_var, &identity_z, &mut terms);
 
-    assert!(result.is_some(), "Variable should unify with ground term");
+    assert!(result.is_some(), "Variable should match ground term");
     let composed = result.unwrap();
 
     assert_eq!(composed.match_pats[0], z, "Match should be z");

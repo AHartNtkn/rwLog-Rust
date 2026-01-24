@@ -29,7 +29,7 @@ pub struct EvalMetrics {
     pub steps: AtomicU64,
     /// Successful NF compositions
     pub compositions: AtomicU64,
-    /// Failed composition attempts (unification failed)
+    /// Failed composition attempts (matching failed)
     pub composition_failures: AtomicU64,
     /// Successful NF meets (conjunctions)
     pub meets: AtomicU64,
@@ -37,10 +37,10 @@ pub struct EvalMetrics {
     pub meet_failures: AtomicU64,
     /// Backtrack operations
     pub backtracks: AtomicU64,
-    /// Total unification attempts
-    pub unifications: AtomicU64,
-    /// Failed unifications
-    pub unification_failures: AtomicU64,
+    /// Total matching attempts
+    pub matchings: AtomicU64,
+    /// Failed matchings
+    pub matching_failures: AtomicU64,
     /// Goal state transitions
     pub goal_transitions: AtomicU64,
     /// Tasks spawned
@@ -70,8 +70,8 @@ impl EvalMetrics {
             meets: AtomicU64::new(0),
             meet_failures: AtomicU64::new(0),
             backtracks: AtomicU64::new(0),
-            unifications: AtomicU64::new(0),
-            unification_failures: AtomicU64::new(0),
+            matchings: AtomicU64::new(0),
+            matching_failures: AtomicU64::new(0),
             goal_transitions: AtomicU64::new(0),
             tasks_spawned: AtomicU64::new(0),
             tasks_blocked: AtomicU64::new(0),
@@ -119,16 +119,16 @@ impl EvalMetrics {
         self.backtracks.fetch_add(1, Ordering::Relaxed);
     }
 
-    /// Record a unification attempt (success).
+    /// Record a matching attempt (success).
     #[inline]
-    pub fn record_unification(&self) {
-        self.unifications.fetch_add(1, Ordering::Relaxed);
+    pub fn record_matching(&self) {
+        self.matchings.fetch_add(1, Ordering::Relaxed);
     }
 
-    /// Record a failed unification.
+    /// Record a failed matching.
     #[inline]
-    pub fn record_unification_failure(&self) {
-        self.unification_failures.fetch_add(1, Ordering::Relaxed);
+    pub fn record_matching_failure(&self) {
+        self.matching_failures.fetch_add(1, Ordering::Relaxed);
     }
 
     /// Record a goal state transition.
@@ -200,8 +200,8 @@ impl EvalMetrics {
             meets: self.meets.load(Ordering::Relaxed),
             meet_failures: self.meet_failures.load(Ordering::Relaxed),
             backtracks: self.backtracks.load(Ordering::Relaxed),
-            unifications: self.unifications.load(Ordering::Relaxed),
-            unification_failures: self.unification_failures.load(Ordering::Relaxed),
+            matchings: self.matchings.load(Ordering::Relaxed),
+            matching_failures: self.matching_failures.load(Ordering::Relaxed),
             goal_transitions: self.goal_transitions.load(Ordering::Relaxed),
             tasks_spawned: self.tasks_spawned.load(Ordering::Relaxed),
             tasks_blocked: self.tasks_blocked.load(Ordering::Relaxed),
@@ -221,8 +221,8 @@ impl EvalMetrics {
         self.meets.store(0, Ordering::Relaxed);
         self.meet_failures.store(0, Ordering::Relaxed);
         self.backtracks.store(0, Ordering::Relaxed);
-        self.unifications.store(0, Ordering::Relaxed);
-        self.unification_failures.store(0, Ordering::Relaxed);
+        self.matchings.store(0, Ordering::Relaxed);
+        self.matching_failures.store(0, Ordering::Relaxed);
         self.goal_transitions.store(0, Ordering::Relaxed);
         self.tasks_spawned.store(0, Ordering::Relaxed);
         self.tasks_blocked.store(0, Ordering::Relaxed);
@@ -250,8 +250,8 @@ pub struct MetricsReport {
     pub meets: u64,
     pub meet_failures: u64,
     pub backtracks: u64,
-    pub unifications: u64,
-    pub unification_failures: u64,
+    pub matchings: u64,
+    pub matching_failures: u64,
     pub goal_transitions: u64,
     pub tasks_spawned: u64,
     pub tasks_blocked: u64,
@@ -273,13 +273,13 @@ impl MetricsReport {
         }
     }
 
-    /// Calculate unification success rate.
-    pub fn unification_success_rate(&self) -> f64 {
-        let total = self.unifications + self.unification_failures;
+    /// Calculate matching success rate.
+    pub fn matching_success_rate(&self) -> f64 {
+        let total = self.matchings + self.matching_failures;
         if total == 0 {
             1.0
         } else {
-            self.unifications as f64 / total as f64
+            self.matchings as f64 / total as f64
         }
     }
 
@@ -313,10 +313,10 @@ impl std::fmt::Display for MetricsReport {
         writeln!(f, "Backtracks:         {}", self.backtracks)?;
         writeln!(
             f,
-            "Unifications:       {} ({} failures, {:.1}% success)",
-            self.unifications,
-            self.unification_failures,
-            self.unification_success_rate() * 100.0
+            "Matchings:       {} ({} failures, {:.1}% success)",
+            self.matchings,
+            self.matching_failures,
+            self.matching_success_rate() * 100.0
         )?;
         writeln!(f, "Goal transitions:   {}", self.goal_transitions)?;
         writeln!(
@@ -357,9 +357,9 @@ impl EvalMetrics {
     #[inline]
     pub fn record_backtrack(&self) {}
     #[inline]
-    pub fn record_unification(&self) {}
+    pub fn record_matching(&self) {}
     #[inline]
-    pub fn record_unification_failure(&self) {}
+    pub fn record_matching_failure(&self) {}
     #[inline]
     pub fn record_goal_transition(&self) {}
     #[inline]
@@ -393,4 +393,5 @@ impl Default for EvalMetrics {
 
 
 #[cfg(test)]
+#[path = "tests/metrics.rs"]
 mod tests;

@@ -73,4 +73,5 @@ pub fn step_node<C: ConstraintOps>(node: Node<C>, terms: &mut TermStore) -> Node
 
 
 #[cfg(test)]
+#[path = "tests/node.rs"]
 mod tests;

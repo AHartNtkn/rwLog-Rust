@@ -57,4 +57,5 @@ pub fn dual_nf<C: ConstraintOps>(nf: &NF<C>, terms: &mut TermStore) -> NF<C> {
 
 
 #[cfg(test)]
+#[path = "../tests/kernel_dual.rs"]
 mod tests;

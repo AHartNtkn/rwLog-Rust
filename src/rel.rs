@@ -82,4 +82,5 @@ pub fn dual<C: ConstraintOps>(rel: &Rel<C>, terms: &mut TermStore) -> Rel<C> {
 
 
 #[cfg(test)]
+#[path = "tests/rel.rs"]
 mod tests;

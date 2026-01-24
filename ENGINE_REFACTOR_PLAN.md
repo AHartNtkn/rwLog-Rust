@@ -52,6 +52,6 @@ Task list (check off as completed). This plan is deletion-first and does not all
   - [ ] Drop pipework/fixwork structural tests and add engine-level semantic coverage.
   - [ ] Move table/tables tests into tabling module.
   - [ ] Add additional proptests for semantic laws (canonicalization/meet/identity).
-  - [ ] Enforce matching-only semantics in code/comments/tests (rename unification references).
+- [ ] Enforce matching-only semantics in code/comments/tests (rename unification references to matching).
   - [ ] Remove engine size/layout tests; refocus REPL tests on semantic counts over output format.
   - [ ] Remove format/size/construction-only tests in parser/rel/metrics; keep CLI formatting tests where output format is part of the interface.

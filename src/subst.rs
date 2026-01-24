@@ -202,4 +202,5 @@ fn resolve_var_chain(start: TermId, subst: &Subst, terms: &TermStore) -> TermId 
 
 
 #[cfg(test)]
+#[path = "tests/subst.rs"]
 mod tests;

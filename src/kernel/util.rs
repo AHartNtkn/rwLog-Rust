@@ -2,10 +2,10 @@
 //!
 //! This module contains helper functions used by both compose and meet operations.
 
+use crate::matching::{match_disjoint, split_subst, Matching};
 use crate::nf::collect_vars_ordered;
 use crate::subst::{apply_subst, Subst};
 use crate::term::{Term, TermId, TermStore};
-use crate::unify::unify;
 use smallvec::SmallVec;
 
 /// Find the maximum variable index in a list of patterns.
@@ -55,11 +55,16 @@ pub fn apply_subst_list(
         .collect()
 }
 
-/// Unify two lists of terms element-wise.
+/// Match two lists of terms element-wise.
 ///
-/// Returns the combined most general unifier if all pairs unify,
-/// or None if any pair fails to unify.
-pub fn unify_term_lists(left: &[TermId], right: &[TermId], terms: &mut TermStore) -> Option<Subst> {
+/// `right_offset` is the offset used to rename the right side into a disjoint
+/// namespace before matching. This keeps variable identities local per side.
+pub fn match_term_lists(
+    left: &[TermId],
+    right: &[TermId],
+    right_offset: u32,
+    terms: &mut TermStore,
+) -> Option<Matching> {
     if left.len() != right.len() {
         return None;
     }
@@ -68,10 +73,10 @@ pub fn unify_term_lists(left: &[TermId], right: &[TermId], terms: &mut TermStore
     for (&l, &r) in left.iter().zip(right.iter()) {
         let l_sub = apply_subst(l, &subst, terms);
         let r_sub = apply_subst(r, &subst, terms);
-        let mgu = unify(l_sub, r_sub, terms)?;
-        subst = compose_subst(&subst, &mgu, terms);
+        let match_subst = match_disjoint(l_sub, r_sub, terms)?;
+        subst = compose_subst(&subst, &match_subst, terms);
     }
-    Some(subst)
+    Some(split_subst(&subst, right_offset))
 }
 
 /// Compose two substitutions.

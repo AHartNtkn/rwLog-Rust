@@ -2350,4 +2350,5 @@ impl<C: ConstraintOps> FixWork<C> {
 
 
 #[cfg(test)]
+#[path = "tests/work.rs"]
 mod tests;

@@ -479,4 +479,5 @@ pub fn format_nf<C: Clone + ConstraintDisplay>(
 
 
 #[cfg(test)]
+#[path = "tests/nf.rs"]
 mod tests;

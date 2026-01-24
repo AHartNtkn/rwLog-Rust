@@ -30,7 +30,7 @@ fn meet_identical_identity() {
 }
 
 #[test]
-fn meet_applies_mgu_to_constraints() {
+fn meet_applies_matching_to_constraints() {
     let mut parser = Parser::with_chr();
     let theory = r#"
 theory neq_only {
@@ -171,7 +171,7 @@ fn meet_fails_incompatible_ground() {
     );
 
     let result = meet_nf(&rule_a, &rule_b, &mut terms);
-    assert!(result.is_none(), "A and C don't unify, meet should fail");
+    assert!(result.is_none(), "A and C don't match, meet should fail");
 }
 
 #[test]
@@ -200,7 +200,7 @@ fn meet_fails_incompatible_output() {
     );
 
     let result = meet_nf(&rule_a, &rule_b, &mut terms);
-    assert!(result.is_none(), "B and C don't unify, meet should fail");
+    assert!(result.is_none(), "B and C don't match, meet should fail");
 }
 
 #[test]
