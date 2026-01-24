@@ -993,7 +993,6 @@ dependencies = [
  "bumpalo",
  "criterion",
  "crossbeam-channel",
- "crossbeam-deque",
  "dashmap 5.5.3",
  "hashbrown 0.14.5",
  "hex",
