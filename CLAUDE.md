@@ -197,6 +197,20 @@ Key operations:
 - `comp R S`: sequential composition (R ; S)
 - `dual R`: converse relation (swap inputs and outputs)
 
+### Matching (No Unification)
+
+rwlog does not support unification. All cross-side comparisons are *matching* with **separate substitutions** on each side. Variable identities are local to each term; the same variable index on both sides has no shared meaning. Any matching algorithm must rename apart (or otherwise guarantee disjoint variable namespaces) before attempting to relate two sides.
+
+A matching is a pair of substitutions that make the two terms equal after their own substitution. A most-general matching is required: any other matching must factor through it via additional substitutions on each side. Unification-style behavior that treats shared variable names as equal across sides is a correctness bug.
+
+Definition (matching): a matching of terms s and t is a pair (θ1, θ2) such that s[θ1] = t[θ2].
+
+Definition (most general): a matching (θ1, θ2) is most general when any other matching (λ1, λ2) can be written as
+λ1 = θ1 ∘ μ1 and λ2 = θ2 ∘ μ2 for some μ1, μ2.
+
+Consequence: most-general matching is invariant to variable names being shared across the two terms; disjoint namespaces make this
+explicit, and variables that are not related remain identity under matching.
+
 ### Span Semantics
 
 A **span** `Rw lhs rhs` denotes a relation where:
@@ -332,26 +346,26 @@ RwR [p1, p2, ...] ; RwR [q1, q2, ...] -> RwR [q1[p/vars], q2[p/vars], ...]
 
 **Heterogeneous Fusion:**
 
-`RwR ; RwL` - Unification at the interface:
+`RwR ; RwL` - Matching at the interface (variables are renamed apart; names are not shared):
 
 This fusion **ALWAYS** produces `RwL ; DropFresh ; RwR` (never just a DropFresh):
 ```
 RwR [p1, ...] ; RwL [q1, ...] ->
-  if unify(pi, qi) succeeds with sigma:
+  if match(pi, qi) succeeds with sigma:
     RwL [varsOf(p)[sigma], ...] ; DropFresh w ; RwR [varsOf(q)[sigma], ...]
   else:
     Fail
 ```
 
-**CRITICAL:** The result RwL/RwR contain the **variable lists** with unifier applied, NOT the original patterns.
+**CRITICAL:** The result RwL/RwR contain the **variable lists** with the matching substitution applied, NOT the original patterns.
 
 **Example:** `RwR [B(0,1)] ; RwL [B(A(2),3)]`
-1. Unify B(0,1) with B(A(2),3): sigma = {0 -> A(2), 1 -> 3}
+1. Match B(0,1) with B(A(2),3) under disjoint namespaces: sigma = {0 -> A(2), 1 -> 3}
 2. RwR has vars [0, 1] -> apply sigma -> [A(2), 3]
 3. RwL has vars [2, 3] -> apply sigma -> [2, 3] (unchanged)
 4. Result: `RwL [A(2), 3] ; DropFresh(identity 2->2) ; RwR [2, 3]`
 
-**Common mistake to avoid:** The fact that patterns become identical after unification says nothing about whether the operation is identity. The actual transformation is determined by the *variable structure*, not pattern equality.
+**Common mistake to avoid:** The fact that patterns become identical after matching says nothing about whether the operation is identity. The actual transformation is determined by the *variable structure*, not pattern equality.
 
 ### meet_nf: Conjunction/Intersection
 
@@ -360,7 +374,7 @@ Fuses `And(NF1, NF2)` into a single NF.
 Implementation:
 1. Convert each NF to "direct rule" form (lhs_terms, rhs_terms, constraint)
 2. Rename-apart vars of the second side
-3. Unify lhs lists, unify rhs lists; combine constraints; normalize
+3. Match lhs lists, match rhs lists; combine constraints; normalize
 4. Factor back into NF
 
 This eliminates looping behavior because `meet_nf` is a single terminating function, not a rewriting schema.
@@ -486,7 +500,7 @@ When tracing is enabled, the following are instrumented:
 - `step()` - Main eval dispatch (task_id, goal_id, kont_depth)
 - `backtrack()` - Search backtracking (initial_depth, kont types popped)
 - `resume_after_yield()` - Answer flow through continuations
-- `compose_nf()` - Rule composition (arities, unification result)
+- `compose_nf()` - Rule composition (arities, matching result)
 
 **Priority 2 (TRACE level):**
 - `handle_rule/alt/seq/both/call()` - Individual goal handlers
@@ -543,20 +557,20 @@ mod tests {
 
     // Happy path tests
     #[test]
-    fn unify_identical_terms_succeeds() { ... }
+    fn match_identical_terms_succeeds() { ... }
 
     #[test]
-    fn unify_compatible_terms_produces_correct_substitution() { ... }
+    fn match_compatible_terms_produces_correct_substitution() { ... }
 
     // Unhappy path tests - specific expected failures
     #[test]
-    fn unify_incompatible_constructors_fails() { ... }
+    fn match_incompatible_constructors_fails() { ... }
 
     #[test]
-    fn unify_occurs_check_prevents_infinite_term() { ... }
+    fn match_occurs_check_prevents_infinite_term() { ... }
 
     #[test]
-    fn unify_arity_mismatch_fails() { ... }
+    fn match_arity_mismatch_fails() { ... }
 }
 ```
 

@@ -10,6 +10,7 @@ Whenever you are asked to edit AGENTS.md, do not take these as litteral, step-by
 - Do not introduce alternative structures or "helpful" reframes unless the user asks.
 - You should capture the spirit of the requirement; not preserve it in amber. You MUST think CRITICALLY about what the requirement is and *why*, in context, it exists. Capture that in full; not merely its form.
 - Avoid literal, rule‑lawyer interpretations that create busywork or miss the user's intent. Optimize for the best final result within the requested scope, even when that requires large changes.
+- If the user says they don't know what these suggestions mean or it's not even clear that they are mutually exclusive, explain what the suggestions mean and whether they are mutually exclusive before asking them to choose or proceed.
 
 ## Symmetry and Semantics (User-Specified)
 
@@ -26,11 +27,35 @@ Whenever you are asked to edit AGENTS.md, do not take these as litteral, step-by
 
 - If a variable is fully instantiated, then the constraint doesn't drop, the instance gets substituted for the variable. Whether or not the constraint should drop will depend on what ground term it becomes.
 
+## Matching Only (User-Specified)
+
+- The system does NOT support unification; it only supports matching.
+- Matching uses two substitutions (one per side) so that both sides become equal after applying their own substitution.
+- Variable identities are local to each side; the same variable index on both sides has no shared meaning.
+- Any algorithm that compares two sides must rename apart (or otherwise ensure disjoint variable namespaces) before matching.
+- Most-general matching is required: any other matching must factor through it via post-substitutions on each side.
+- Treat any unification-style behavior (shared-variable equality across sides) as a severe correctness bug.
+- Definition (matching): a matching of terms s and t is a pair of substitutions (θ1, θ2) such that s[θ1] = t[θ2].
+- Definition (most general): a matching (θ1, θ2) is most general when any other matching (λ1, λ2) can be written as
+  λ1 = θ1 ∘ μ1 and λ2 = θ2 ∘ μ2 for some μ1, μ2.
+- Consequence: the most-general matching is invariant to variable names being shared across the two terms; disjoint namespaces make
+  this explicit, and variables that do not correspond remain identity under matching.
+
 ## User Interaction (User-Specified)
 
 - Run tests after code changes that can affect behavior. Do not ask the user to run tests.
 - Do not run tests for instruction-only edits, documentation-only edits, or git-only changes (branch/worktree/checkout/reset).
 - When running tests, run `cargo test --no-run` in the same profile (debug/release) first.
+- The user does not care about phrasing or framing; do not propose rephrasings or reframings for solutions or fixes, and describe them objectively.
+- Never propose fixes that change semantics; correctness is defined by the current semantics, and a semantic change is not an acceptable bug fix unless the user explicitly requests it.
+- Treat semantics-breaking changes as catastrophic to correctness; even when explicitly requested, treat them as severe, warn strongly, and resist by default.
+- If the user explicitly requests a semantic change, the agent must push back with strong warnings, explain the correctness risks, and treat it as a last resort rather than normal progress.
+
+## Refactor Discipline (User-Specified)
+
+- Refactors must be deletion-first: remove the obsolete implementation as soon as a replacement is chosen.
+- Never keep parallel implementations for the same behavior.
+- Do not perform incremental replacements; complete each replacement in a single change set.
 
 ## PRIMARY EDICT: Tests Must Verify Correct Behavior
 
@@ -51,11 +76,22 @@ A test that expects incorrect output is a lie. It is a machine designed to decei
 
 There is no third category of "test passes because it expects the bug."
 
+## Test Semantics and Placement (User-Specified)
+
+- Tests must assert semantic behavior, not implementation form.
+- **Form** means internal representation coupling (enum/struct layout, node shapes, incidental ordering, debug strings, IDs), **not** formatting or output rendering.
+- Avoid tests that only validate enum construction, field layout, specific data structure shapes, or exact internal ordering.
+- Assert on observable outcomes (answer sets, spans, exhaustiveness, duality), not intermediate pipeline states.
+- Output formatting is a separate concern: only check exact output strings when that textual format is part of a specified public, user-facing interface; otherwise check content/meaning.
+- Place tests at the layer that defines the behavior: REPL semantics in `repl` tests, engine iteration semantics in `engine` tests, and internal modules only for their semantic contracts.
+
 ## **ABSOLUTELY FORBIDDEN: TEMPORARY OR HACKY IMPLEMENTATIONS**
 
 # NEVER EVER EVER EVER MAKE TEMPORARY IMPLEMENTATIONS!
 # NEVER INTENTIONALLY MAKE AN IMPLEMENTATION THAT YOU KNOW IS WRONG AND WILL HAVE TO BE REPLACED!
 # NEVER EVER EVER INTRODUCE A HACK, EVER!
+# AVOID TARGETED FIXES; DO NOT IMPLEMENT NARROW PATCHES THAT ONLY ADDRESS A SPECIFIC SYMPTOM INSTEAD OF THE UNDERLYING DESIGN INVARIANTS.
+# Always aim for principled, architecture-level fixes that preserve invariants and correctness.
 
 **This is non-negotiable.** If you find yourself writing:
 - "for now"
@@ -125,12 +161,12 @@ Layout rule: avoid multi-column exposition; keep text single-column and give dia
 
 ## CRITICAL: Always Use Timeouts When Running Tests
 
-**NEVER run tests without a timeout.** If tests don't ALL finish in less than 180 seconds, there's an infinite loop bug.
+**NEVER run tests without a timeout.** If tests don't ALL finish in less than 30 seconds, there's an infinite loop bug.
 
 **Always use:**
 ```bash
 cargo test --no-run 2>&1
-timeout 180 cargo test 2>&1
+timeout 30 cargo test 2>&1
 ```
 
 **Never use:**
@@ -144,8 +180,8 @@ This applies to ALL test commands - full suite, filtered tests, individual tests
 
 Baseline to preserve during the parallelism port (I ran this myself on commit `8eab6f01f1be85aa5a5790afb84a604e6948b336`):
 - Built release tests with `cargo test --release --no-run`.
-- Ran `timeout 180 cargo test --release --lib engine::tests::program_synth_flip_query_emits_answer -- --exact --nocapture`.
-- Result: pass, completed in ~57.4s.
+- Ran `timeout 30 cargo test --release --lib engine::tests::program_synth_flip_query_emits_answer -- --exact --nocapture`.
+- Result: pass.
 
 ## TDD Test Coverage Requirements
 
@@ -362,26 +398,26 @@ RwR [p1, p2, ...] ; RwR [q1, q2, ...] -> RwR [q1[p/vars], q2[p/vars], ...]
 
 **Heterogeneous Fusion:**
 
-`RwR ; RwL` - Unification at the interface:
+`RwR ; RwL` - Matching at the interface (variables are renamed apart; names are not shared):
 
 This fusion **ALWAYS** produces `RwL ; DropFresh ; RwR` (never just a DropFresh):
 ```
 RwR [p1, ...] ; RwL [q1, ...] ->
-  if unify(pi, qi) succeeds with sigma:
+  if match(pi, qi) succeeds with sigma:
     RwL [varsOf(p)[sigma], ...] ; DropFresh w ; RwR [varsOf(q)[sigma], ...]
   else:
     Fail
 ```
 
-**CRITICAL:** The result RwL/RwR contain the **variable lists** with unifier applied, NOT the original patterns.
+**CRITICAL:** The result RwL/RwR contain the **variable lists** with the matching substitution applied, NOT the original patterns.
 
 **Example:** `RwR [B(0,1)] ; RwL [B(A(2),3)]`
-1. Unify B(0,1) with B(A(2),3): sigma = {0 -> A(2), 1 -> 3}
+1. Match B(0,1) with B(A(2),3) under disjoint namespaces: sigma = {0 -> A(2), 1 -> 3}
 2. RwR vars [0,1] -> [A(2), 3]
 3. RwL vars [2,3] -> [2, 3] (unchanged)
 4. Result: `RwL [A(2), 3] ; DropFresh(identity 2->2) ; RwR [2, 3]`
 
-**Common mistake to avoid:** The fact that patterns become identical after unification says nothing about whether the operation is identity. The actual transformation is determined by the *variable structure*, not pattern equality.
+**Common mistake to avoid:** The fact that patterns become identical after matching says nothing about whether the operation is identity. The actual transformation is determined by the *variable structure*, not pattern equality.
 
 ### meet_nf: Conjunction/Intersection
 
@@ -390,7 +426,7 @@ Fuses `And(NF1, NF2)` into a single NF.
 Implementation:
 1. Convert each NF to "direct rule" form (lhs_terms, rhs_terms, constraint)
 2. Rename-apart vars of the second side
-3. Unify lhs lists, unify rhs lists; combine constraints; normalize
+3. Match lhs lists, match rhs lists; combine constraints; normalize
 4. Factor back into NF
 
 This eliminates looping behavior because `meet_nf` is a single terminating function, not a rewriting schema.
@@ -516,7 +552,7 @@ When tracing is enabled, the following are instrumented:
 - `step()` - Main eval dispatch (task_id, goal_id, kont_depth)
 - `backtrack()` - Search backtracking (initial_depth, kont types popped)
 - `resume_after_yield()` - Answer flow through continuations
-- `compose_nf()` - Rule composition (arities, unification result)
+- `compose_nf()` - Rule composition (arities, matching result)
 
 **Priority 2 (TRACE level):**
 - `handle_rule/alt/seq/both/call()` - Individual goal handlers
@@ -573,17 +609,17 @@ mod tests {
 
     // Happy path tests
     #[test]
-    fn unify_identical_terms_succeeds() { ... }
+    fn match_identical_terms_succeeds() { ... }
 
     #[test]
-    fn unify_compatible_terms_produces_correct_substitution() { ... }
+    fn match_compatible_terms_produces_correct_substitution() { ... }
 
     // Unhappy path tests - specific expected failures
     #[test]
-    fn unify_incompatible_constructors_fails() { ... }
+    fn match_incompatible_constructors_fails() { ... }
 
     #[test]
-    fn unify_occurs_check_prevents_infinite_term() { ... }
+    fn match_occurs_check_prevents_infinite_term() { ... }
 }
 ```
 
