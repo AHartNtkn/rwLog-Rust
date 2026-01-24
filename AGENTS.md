@@ -53,6 +53,10 @@ Whenever you are asked to edit AGENTS.md, do not take these as litteral, step-by
 - Never propose fixes that change semantics; correctness is defined by the current semantics, and a semantic change is not an acceptable bug fix unless the user explicitly requests it.
 - Treat semantics-breaking changes as catastrophic to correctness; even when explicitly requested, treat them as severe, warn strongly, and resist by default.
 - If the user explicitly requests a semantic change, the agent must push back with strong warnings, explain the correctness risks, and treat it as a last resort rather than normal progress.
+- Large deletions or full rewrites that preserve semantics are encouraged; do not require extra approval based only on scale or perceived risk.
+- Do not invent process requirements that are not written here; when scope is unclear, ask a concrete clarification question instead of asserting a policy.
+- Do not assume a redesign preserves semantics just because the user says so; independently validate semantic equivalence.
+- Do not be conservative about scope or effort: if a real problem requires broad, invasive changes to fix correctly, make those changes without hesitation. Effort and size are not blockers.
 
 ## Refactor Discipline (User-Specified)
 

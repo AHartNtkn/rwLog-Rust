@@ -14,6 +14,7 @@ use crate::work::Env;
 use smallvec::SmallVec;
 use std::collections::HashSet;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 /// Create an empty NF (identity)
 fn make_identity_nf() -> NF<()> {
@@ -178,6 +179,23 @@ fn run_until_exhausted<C: ConstraintOps>(
         }
     }
     Err("did not exhaust within step limit")
+}
+
+fn run_until_exhausted_with_timeout<C: ConstraintOps>(
+    engine: &mut Engine<C>,
+    timeout: Duration,
+) -> Result<(), &'static str> {
+    let start = Instant::now();
+    loop {
+        if start.elapsed() >= timeout {
+            return Err("did not exhaust within timeout");
+        }
+        match engine.step() {
+            StepResult::Emit(_) => return Err("unexpected extra answer"),
+            StepResult::Exhausted => return Ok(()),
+            StepResult::Continue => std::thread::yield_now(),
+        }
+    }
 }
 
 // ========================================================================
@@ -1934,6 +1952,34 @@ fn treecalc_app_example_9() {
 #[test]
 fn treecalc_app_example_10() {
     treecalc_app_case("(f (f (b (b l)) l) (c z))", "(c z)");
+}
+
+#[test]
+fn treecalc_app_example_11_next_exhausts_quickly() {
+    let mut parser = Parser::new();
+    let def = include_str!("../../examples/treecalc.txt");
+    let (_app_rel, env) = parse_rel_def_with_env(&mut parser, def);
+
+    let input = "(f (f (b l) l) l)";
+    let expected = "(f l (b l))";
+    let query = parser
+        .parse_rel_body(&format!("@{} ; app", input))
+        .expect("parse app query");
+    let input_term = parser.parse_term(input).expect("parse input").term_id;
+    let expected_term = parser
+        .parse_term(expected)
+        .expect("parse expected")
+        .term_id;
+
+    let mut terms = parser.take_terms();
+    let expected_nf = NF::factor(input_term, expected_term, (), &mut terms);
+
+    let mut engine: Engine<()> = Engine::new_with_env(query, terms, env);
+    let first = run_until_emit(&mut engine, 10_000).expect("expected first answer");
+    assert_eq!(first, expected_nf, "unexpected first treecalc answer");
+
+    run_until_exhausted_with_timeout(&mut engine, Duration::from_secs(1))
+        .expect("expected to exhaust within 1s after first answer");
 }
 
 #[test]
