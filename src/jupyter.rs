@@ -548,4 +548,5 @@ fn endpoint(transport: &str, ip: &str, port: u16) -> String {
 
 
 #[cfg(test)]
+#[path = "tests/jupyter.rs"]
 mod tests;
