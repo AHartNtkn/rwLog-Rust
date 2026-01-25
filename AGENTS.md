@@ -57,6 +57,21 @@ Whenever you are asked to edit AGENTS.md, do not take these as litteral, step-by
 - Do not invent process requirements that are not written here; when scope is unclear, ask a concrete clarification question instead of asserting a policy.
 - Do not assume a redesign preserves semantics just because the user says so; independently validate semantic equivalence.
 - Do not be conservative about scope or effort: if a real problem requires broad, invasive changes to fix correctly, make those changes without hesitation. Effort and size are not blockers.
+- When the user has already requested a task, proceed without asking for permission or prompting for confirmation; avoid “say the word” or similar re-ask phrasing.
+- When objective standards in this file or the system/developer instructions already determine the correct action, follow them without asking the user for preference or permission; only ask when those standards are insufficient to decide.
+- User preference is not the deciding factor; follow objective standards relevant to the task to determine the best action. Do not ask for preference when standards already decide.
+
+## Debugging and Diagnosis Protocol
+
+- When a bug or failing behavior is identified, use a hypothesis-falsification workflow before attempting fixes.
+- Start by listing multiple plausible hypotheses for the bug.
+- For each hypothesis, design ways to disprove it; prefer broad, exploratory probes.
+- Use multiple debug statements and/or custom exploratory tests to maximize visibility; remove temporary debug output after testing.
+- Default to maximizing visibility of execution dynamics; prefer instrumentation, broad probes, and exploratory tests over silent reasoning.
+- Update hypotheses based on evidence; remove disproven ones and refine remaining ones.
+- Continue until there is a firm, mechanical, step-by-step explanation of where expected behavior diverges from actual behavior.
+- Produce a minimal, isolated reproduction program that calls specific library functions in sequence and demonstrates the bug step-by-step with logged output.
+- Do not proceed to fixes until the bug is fully traced and explained without hedging; if the explanation contains uncertainty, continue testing instead.
 
 ## Refactor Discipline (User-Specified)
 
