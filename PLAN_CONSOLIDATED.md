@@ -239,6 +239,49 @@ If you push the enclosing `Seq` context into a `Call` inside a branch, you are r
 
 In treecalc, rules 5/7 rely on `And`. Passing the outer sequential context into both branches can prevent any branch‑local `Call` from producing the partial NFs that are necessary for the meet to succeed, so the whole computation emits no first answer.
 
+### 1.7 `And` barrier vs boundary demand (both are required)
+
+`And` **blocks sequential context propagation**, but **does not block boundary demand propagation**.
+
+You must apply both rules simultaneously:
+
+1. **And-barrier for sequential ctxL/ctxR (keep this):**
+   Calls inside an `And` branch must build `ctxL/ctxR` using **branch-local sequential context only**, never any outer sequential prefix/suffix outside the nearest `And`.
+
+2. **No barrier for boundary demand (add this):**
+   The **demanded boundary goals** for the `And` output (the goal boundaries required by its consumer) must be propagated **unchanged into both branches**.
+   `And` blocks Seq-context accumulation, but **does not block the demanded boundary patterns** for the node’s output.
+
+Operationally:
+
+```
+propDemand(And a b, dem) = { a -> dem, b -> dem }
+```
+
+And call-goal construction inside the branch uses:
+
+- branch-local sequential context (`ctxL/ctxR`), and
+- the propagated **boundary demand** (grounding/constraints from the parent).
+
+This preserves soundness (no meet-dependent substitutions are leaked into branch-local calls) while still allowing ground demand from the root to **specialize** branch-local goals.
+
+### 1.8 Why this fixes treecalc ground exhaustion (matching-only)
+
+Example:
+
+- demanded left boundary at the `And` output (from root query):  
+  `L* = (f (f (b l) l) l)`
+- branch-local context reaches a call with:  
+  `L_branch = (f (f (b l) l) $0)`
+
+Matching (two-sided, disjoint scopes) allows:
+
+- `L_branch[θ_branch] = L*[θ_*]` with `θ_branch = {$0 -> l}` and `θ_* = {}`
+
+So the branch-local goal is **specialized to the ground demand** even though sequential context did not cross `And`.
+
+This relies on **matching-based goal membership** (Option B), not strict equality.
+
 #### Structural context propagation rules
 
 1. **Seq**
@@ -399,7 +442,51 @@ Reason: while one input set is empty, the meet output set is necessarily empty; 
 
 If one side is **exhausted** (will never produce any items under the current demand), then after the meet node has processed all already‑available cross pairs (if any), it becomes **exhausted** too and stops demanding both sides.
 
-**Demand policy for a meet node (precise):**
+##### 4.3.5.1 Exhaustion is intrinsic, not demand‑dependent (Option C)
+
+`lexh`/`rexh` must mean **“this side would be exhausted if we kept demanding it”** — an intrinsic EOF fact for the current goal context, **not** a function of the current `dl/dr` demand bits.
+
+**Normative clarifications:**
+
+1. **Demand (`dl/dr`) and exhaustion (`lexh/rexh`) are separate state.**
+   - `dl/dr` is a *control* decision (what to request next).
+   - `lexh/rexh` is *information* (EOF status for this side under the current goal context).
+
+2. **Turning demand off must not change exhaustion.**
+   - If a dependency becomes undemanded, you **do not** rewrite its exhaustion status to “not exhausted” or “exhausted.”
+   - You keep the last‑known exhaustion fact.
+
+3. **You need a third value: Unknown.**
+   With only `Bool`, you cannot distinguish “not exhausted” from “never checked because undemanded.” Use:
+
+```haskell
+data Exh = Unknown | Open | Exhausted
+```
+
+- `Unknown`: this join has not yet driven that side far enough to know EOF under this goal context.
+- `Open`: not known EOF (it has produced at least one item, or you attempted to advance and did not reach EOF).
+- `Exhausted`: proven EOF for this side under this goal context.
+
+4. **Join demand uses `Exh`, not “is demanded?”.**
+   In particular, when there are **no unprocessed pairs**:
+
+```haskell
+demandWhenNoPairs :: Exh -> Exh -> (Bool, Bool)  -- (dl, dr)
+demandWhenNoPairs lexh rexh =
+  case (lexh, rexh) of
+    (Exhausted, Exhausted) -> (False, False)
+    (Exhausted, _        ) -> (False, True )   -- must demand right
+    (_        , Exhausted) -> (True , False)   -- must demand left
+    (_        , _        ) -> alternateFairly  -- both potentially open/unknown
+```
+
+`Unknown` behaves like “may still produce,” but **never causes re‑demand of a side already known `Exhausted`**.
+
+5. **How `Exh` is set**
+   - A side becomes `Exhausted` **only** when the join has actually attempted to obtain additional items from that side (under the current goal context) and the producer has reached a proven EOF state for that context.
+   - A side does **not** become `Open`/`Unknown` merely because it is currently undemanded.
+
+##### 4.3.5.2 Demand policy for a meet node (precise)
 
 Model the meet node state as:
 
@@ -407,8 +494,8 @@ Model the meet node state as:
 data MeetState a b = MeetState
   { ls   :: [a]      -- left items seen so far
   , rs   :: [b]      -- right items seen so far
-  , lexh :: Bool     -- left exhausted under current demand
-  , rexh :: Bool     -- right exhausted under current demand
+  , lexh :: Exh      -- left exhaustion state (Unknown/Open/Exhausted)
+  , rexh :: Exh      -- right exhaustion state (Unknown/Open/Exhausted)
   , cur  :: (Int,Int) -- next cross-product cursor (implementation detail)
   }
 ```
@@ -421,17 +508,17 @@ demandMeet needOut st
   | not needOut = (False, False)
 
   -- hard block: empty side demanded exclusively
-  | null (ls st) && not (lexh st) = (True,  False)
-  | null (rs st) && not (rexh st) = (False, True)
+  | null (ls st) && lexh st /= Exhausted = (True,  False)
+  | null (rs st) && rexh st /= Exhausted = (False, True)
 
   -- once both sides non-empty, demand is for producing/finishing pairs
-  | hasUnprocessedPairs st        = (True,  True)
+  | hasUnprocessedPairs st              = (True,  True)
 
   -- no pairs left to process:
-  | lexh st && rexh st            = (False, False)  -- meet itself exhausted
-  | rexh st                       = (True,  False)  -- only left can still grow pair space
-  | lexh st                       = (False, True)   -- only right can still grow pair space
-  | otherwise                     = alternate st     -- symmetric fairness when both can still grow
+  | lexh st == Exhausted && rexh st == Exhausted = (False, False)  -- meet itself exhausted
+  | lexh st == Exhausted                        = (False, True)   -- must demand right
+  | rexh st == Exhausted                        = (True,  False)  -- must demand left
+  | otherwise                                   = alternate st     -- symmetric fairness when both can still grow
 ```
 
 The crucial blocked behavior is exactly the first two “hard block” guards:
