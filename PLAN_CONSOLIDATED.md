@@ -83,7 +83,9 @@ All set membership, equality, and deduplication are performed on a canonical rep
 
 **CanonNF invariants**
 1. Constraints are normalized **syntactically** into a canonical form and may be rejected as unsatisfiable by *local* checks (e.g., `diseq(t,t)` if the constraint language includes disequality).
-2. CanonNF performs **no general equality solving / unification**. The only substitutions ever applied are those produced by explicit **matching** steps in kernel operators (e.g., `meet_nf` / `compose_nf`) and by explicit α‑renamings; constraint normalization never generates new substitutions.
+2. CanonNF performs **no equality solving / unification** inside constraints. Constraints are **normalization‑only**: they may reject unsatisfiable cases, but they **must not** produce substitutions.
+   - Constraint normalization is purely syntactic (canonical ordering, dedup, trivial contradiction detection).
+   - Variables are NF‑local; matching‑only semantics across NFs remain intact.
 3. Remaining free variables are alpha-normalized deterministically (`v0, v1, ...`) by first-occurrence order across:
    - substituted term patterns (match/build)
    - residual constraints (in a fixed traversal order)
@@ -571,6 +573,227 @@ A `Call` site does not “run” the recursive relation directly. Instead it:
 
 **Important**: table answers are **body-only** (constrained to the boundary `(L,R)`), and call-site context is applied **exactly once** via composition.
 
+##### 4.6.3.1 Combining branch-local ctx goal with propagated boundary demand (precise rule)
+
+This rule resolves how to combine a branch-local goal derived from `ctxL/ctxR` with a propagated boundary demand `(L*, R*)` from the enclosing `And`.
+
+**Objects**
+
+- A **goal** is an NF-shaped boundary pair:
+  - `g ≡ (L, R)` where `L` is the demanded/produced `matchPats` boundary and `R` is the demanded/produced `buildPats` boundary.
+  - Variables may appear in `L`, in `R`, and may be shared between them (within the same goal).
+- A **Call** inside an `And` branch has a **branch-local sequential context**:
+  - `ctx ≡ (pre, post)` where `pre` is the normalized composition of rels before the call in that branch, and `post` is the composition after the call in that branch.
+- The **propagated boundary demand** is:
+  - `g* ≡ (L*, R*)`.
+
+**Required semantic choice**
+
+- A Call consumes **table answers that are body-only**, and applies `pre/post` **outside** the table at the call site.
+- Do **not** insert `pre`/`post` effects into the callee’s table answers (or they get double-applied).
+
+**Definition: ctx-application with a hole (NF has separate match/build boundaries)**
+
+The “hole” is **not** an identity relation and **must not** assert any equality between its match‑side and build‑side variables. The hole is a pure boundary placeholder with **disjoint variables on each side** and **no DropFresh wiring**.
+
+**Hole arities (forced by context):**
+- `m = len(pre.build_pats)` (the boundary immediately left of the call)
+- `n = len(post.match_pats)` (the boundary immediately right of the call)
+
+Define a hole NF for arities `(m,n)`:
+- `hole.match_pats = [Var α0, …, Var α(m-1)]`
+- `hole.build_pats = [Var β0, …, Var β(n-1)]`
+- `α` and `β` variables are disjoint
+- `hole.drop_fresh` is empty (no wiring)
+- `hole.constraints` is empty
+
+Define the **symbolic branch output** produced by passing a hole answer through the branch‑local context:
+
+- `out(ctx, hole) ≡ compose(pre, hole(m,n), post)`
+
+**Important:** the hole variables do **not** appear in the *outer* boundary of `out(ctx, hole)` (composition eliminates internal boundaries). Therefore, **you cannot refine the hole by looking only at the outer boundary pair**. The MGM must be computed over the **internal boundary matchings** created by composition (see below).
+
+**Combination rule (the only operation)**
+
+To refine a call goal under boundary demand `(L*, R*)`, compute a most‑general solution of the **entire boundary‑matching system** induced by the context and the hole, then project onto the hole variables:
+
+1. Build `pre` and `post` from the branch‑local sequential context (stop at `And`).
+2. Construct `hole(m,n)` as above.
+3. Form the **matching system** (all equalities are solved by matching under disjoint scopes):
+   - `pre.match_pats  ==  L*`
+   - `post.build_pats ==  R*`
+   - `pre.build_pats  ==  hole.match_pats`
+   - `hole.build_pats ==  post.match_pats`
+4. **Alpha‑rename apart** all variable namespaces involved so scopes are disjoint (matching‑only requirement).
+5. Compute a **most‑general matching** solution for the system (a pair of substitutions per scope).  
+   If no solution exists, **register no call goals** from this `(ctx, demand)` pair.
+6. Project the resulting substitutions onto the hole variables `{αi}` and `{βj}` to obtain the refined call goal:
+   - `L_call = [αi]` with projected substitution applied
+   - `R_call = [βj]` with projected substitution applied
+7. **Alpha‑normalize** `(L_call, R_call)` before using it as a goal key.
+8. If multiple MGMs exist (non‑unique due to var/var matches), **register all** resulting goals, deduped by alpha‑normal form.
+
+This is the precise meaning of “MGM+projection” when `NF` has separate `match_pats` and `build_pats` lists.
+
+This avoids both failure modes:
+
+- If you enforce both `L*` and `R*` directly at the callee, you can over-constrain and block the first answer.
+- If you ignore boundary demand, you register over-general goals and lose query-bounded exhaustion.
+
+**Reference pseudocode (complete, not a sketch)**
+
+```haskell
+-- Terms with constructors and variables
+data Term
+  = Var Int
+  | Con String [Term]
+  deriving (Eq, Ord, Show)
+
+-- NF-shaped boundary pair (matchPats, buildPats)
+data Goal = Goal { gL :: Term, gR :: Term }
+  deriving (Eq, Ord, Show)
+
+-- Substitution: Var -> Term
+newtype Subst = Subst (Map Int Term)
+  deriving (Eq, Ord, Show)
+
+emptySubst :: Subst
+emptySubst = Subst mempty
+
+-- Apply a substitution capture-avoidingly (vars are ints, so just map)
+apply :: Subst -> Term -> Term
+apply (Subst s) t =
+  case t of
+    Var v ->
+      case Map.lookup v s of
+        Nothing -> Var v
+        Just u  -> apply (Subst s) u
+    Con c xs -> Con c (map (apply (Subst s)) xs)
+
+applyGoal :: Subst -> Goal -> Goal
+applyGoal th (Goal l r) = Goal (apply th l) (apply th r)
+
+-- Compose substitutions: (θ ∘ μ)(x) = apply θ (μ(x))
+composeSubst :: Subst -> Subst -> Subst
+composeSubst th@(Subst theta) (Subst mu) =
+  Subst (Map.map (apply th) mu <> theta)
+
+-- Restrict a substitution to a given set of vars
+restrict :: Set Int -> Subst -> Subst
+restrict vs (Subst s) = Subst (Map.filterWithKey (\k _ -> Set.member k vs) s)
+
+-- Alpha-normalize a Goal: rename vars in first-occurrence order to 0..n-1
+alphaNorm :: Goal -> Goal
+alphaNorm (Goal l r) =
+  let (l', env1, next1) = normTerm l mempty 0
+      (r', _,    _    ) = normTerm r env1  next1
+  in Goal l' r'
+  where
+    normTerm :: Term -> Map Int Int -> Int -> (Term, Map Int Int, Int)
+    normTerm t env next =
+      case t of
+        Var v ->
+          case Map.lookup v env of
+            Just v' -> (Var v', env, next)
+            Nothing ->
+              let env' = Map.insert v next env
+              in (Var next, env', next + 1)
+        Con c xs ->
+          let (xs', env', next') = normList xs env next
+          in (Con c xs', env', next')
+    normList [] env next = ([], env, next)
+    normList (x:xs) env next =
+      let (x',  env1, next1) = normTerm x  env  next
+          (xs', env2, next2) = normList xs env1 next1
+      in (x':xs', env2, next2)
+
+-- Most-general matching of two Goals (NF-pair), returning (θ1, θ2).
+-- Implemented as unification on disjoint namespaces, then splitting.
+-- This is "matching" because we alpha-rename apart first.
+mgmGoal :: Goal -> Goal -> Maybe (Subst, Subst)
+mgmGoal g1 g2 =
+  let (g1', ren1, vars1) = freshenGoal 0 g1
+      (g2', ren2, _    ) = freshenGoal (vars1 + 1) g2
+      u = unifyGoal g1' g2'   -- MGU on a single namespace
+  in case u of
+      Nothing -> Nothing
+      Just mgu ->
+        let th1 = restrict ren1 mgu
+            th2 = restrict ren2 mgu
+        in Just (th1, th2)
+  where
+    -- freshen vars in a goal by adding an offset; returns the var-set used
+    freshenGoal :: Int -> Goal -> (Goal, Set Int, Int)
+    freshenGoal off (Goal l r) =
+      let (l', vs1, mx1) = freshenTerm off l
+          (r', vs2, mx2) = freshenTerm off r
+          vs = vs1 <> vs2
+      in (Goal l' r', vs, max mx1 mx2)
+
+    freshenTerm :: Int -> Term -> (Term, Set Int, Int)
+    freshenTerm off t =
+      case t of
+        Var v ->
+          let v' = v + off
+          in (Var v', Set.singleton v', v')
+        Con c xs ->
+          let (xs', vss, mx) = freshenList off xs
+          in (Con c xs', vss, mx)
+    freshenList _ [] = ([], mempty, 0)
+    freshenList off (x:xs) =
+      let (x', vs1, mx1) = freshenTerm off x
+          (xs',vs2, mx2) = freshenList off xs
+      in (x':xs', vs1<>vs2, max mx1 mx2)
+
+-- Standard first-order unification with occurs-check, producing an MGU.
+unifyGoal :: Goal -> Goal -> Maybe Subst
+unifyGoal (Goal l1 r1) (Goal l2 r2) = do
+  th1 <- unifyTerm l1 l2 emptySubst
+  th2 <- unifyTerm (apply th1 r1) (apply th1 r2) th1
+  pure th2
+
+unifyTerm :: Term -> Term -> Subst -> Maybe Subst
+unifyTerm s t th =
+  let s' = apply th s
+      t' = apply th t
+  in case (s', t') of
+      (Var x, Var y) | x == y -> Just th
+      (Var x, _) -> bindVar x t' th
+      (_, Var y) -> bindVar y s' th
+      (Con c xs, Con d ys)
+        | c == d && length xs == length ys ->
+            unifyList xs ys th
+        | otherwise -> Nothing
+
+unifyList :: [Term] -> [Term] -> Subst -> Maybe Subst
+unifyList [] [] th = Just th
+unifyList (x:xs) (y:ys) th = do
+  th1 <- unifyTerm x y th
+  unifyList xs ys th1
+unifyList _ _ _ = Nothing
+
+bindVar :: Int -> Term -> Subst -> Maybe Subst
+bindVar x t th@(Subst s) =
+  if occurs x t then Nothing
+  else Just (Subst (Map.insert x t s))
+  where
+    occurs v tt =
+      case tt of
+        Var u     -> v == u
+        Con _ xs  -> any (occurs v) xs
+
+-- The rule: compute call goals from (ctx-produced symbolic goal) and demand
+-- by MGM + projection to hole vars {α,β}, then alpha-normalize.
+refineCallGoal :: Goal -> Goal -> (Int, Int) -> [Goal]
+refineCallGoal goalFromCtx demanded (alphaVar, betaVar) =
+  case mgmGoal goalFromCtx demanded of
+    Nothing -> []
+    Just (thetaCtx, _thetaDemand) ->
+      let hole = Goal (Var alphaVar) (Var betaVar)
+          refined = applyGoal thetaCtx hole
+      in [alphaNorm refined]
+```
+
 ##### Goal membership under matching (Option B; no unification)
 
 Rigid boundary equality (Option A) is **not** valid, because composing `idNF(L)` with the body can specialize `L` to `L[θ]`.
@@ -726,7 +949,7 @@ This affects correctness and termination.
 
 Deduplication is only sound if constraints are canonical.
 
-### 7.1 Constraint normalization (no unification)
+### 7.1 Constraint normalization (no substitutions)
 
 Canonicalization requires `Constraint` values to have a stable, deterministic syntax and to support early rejection of *trivially* inconsistent constraints.
 
@@ -736,7 +959,7 @@ Required operations:
   - Canonicalize associative structure (`And` flattening), sort conjuncts deterministically, and deduplicate identical conjuncts.
   - Apply purely syntactic rewrites that do not require solving equalities (e.g., `And(True, c) -> c`).
   - Detect contradictions that are decidable by local syntax (e.g., `diseq(t,t)`).
-  - **MUST NOT** introduce new substitutions by solving equality constraints. The system has no general unification.
+  - **MUST NOT** introduce substitutions. Constraint theories never return bindings.
 
 - `remap_vars(C, f, terms) -> C`
   - Rename variables inside constraints using a total renaming function `f: Var -> Var`.
