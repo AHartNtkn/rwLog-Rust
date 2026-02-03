@@ -1898,7 +1898,8 @@ rel add {
         );
         let query = parser.parse_rel_body(query_str).expect("parse query");
         let terms = parser.take_terms();
-        let mut engine: Engine<ChrState<NoTheory>> = Engine::new_with_env(query, terms, env);
+        let mut engine: Engine<ChrState<NoTheory>> =
+            Engine::new_with_env(query, terms, env.clone());
         let max_steps = 20_000_000;
         let first = run_until_emit(&mut engine, max_steps);
         assert!(
@@ -1907,10 +1908,37 @@ rel add {
             max_steps
         );
         let nf = first.expect("expected program_synth flip answer");
-        let rendered = engine
-            .format_nf(&nf, parser.symbols())
-            .unwrap_or_else(|_| "<unrenderable>".to_string());
-        eprintln!("program_synth_flip_query_emits_answer output: {}", rendered);
+        let mut terms = engine.into_terms();
+        let (lhs, rhs) = direct_rule_terms(&nf, &mut terms).expect("direct rule");
+        let lhs_str = crate::term::format_term(lhs, &terms, parser.symbols())
+            .expect("format program term");
+        let rhs_str = crate::term::format_term(rhs, &terms, parser.symbols())
+            .expect("format output term");
+        assert_eq!(
+            rhs_str,
+            "(a (c (s z)) (c z))",
+            "Unexpected program_synth flip output term"
+        );
+
+        parser.restore_terms(terms);
+        let query2_str = format!(
+            "@{} ; [$x {{ (no_c $x) }} -> (f $x (c z))] ; app ; [$x -> (f $x (c (s z)))] ; app",
+            lhs_str
+        );
+        let query2 = parser.parse_rel_body(&query2_str).expect("parse query 2");
+        let terms = parser.take_terms();
+        let mut engine2: Engine<ChrState<NoTheory>> = Engine::new_with_env(query2, terms, env);
+        let second = run_until_emit(&mut engine2, max_steps);
+        assert!(
+            second.is_some(),
+            "Expected program_synth flip query to re-emit within {} steps",
+            max_steps
+        );
+        let nf2 = second.expect("expected re-emitted program_synth flip answer");
+        assert!(
+            nf2 == nf,
+            "Expected program_synth flip answer to be closed under application"
+        );
     }
 
     #[test]
@@ -2266,7 +2294,7 @@ rel add {
             }
         }
         // With boundary propagation, A ; countdown should fail immediately
-        // (A doesn't unify with z or (s x))
+        // (A doesn't match with z or (s x))
         assert_eq!(count, 0, "Left boundary should prevent any answers");
     }
 

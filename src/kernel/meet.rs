@@ -5,7 +5,7 @@ use crate::term::TermStore;
 use crate::trace::{debug_span, trace};
 
 use super::util::{
-    apply_subst_list, max_var_index_terms, remap_constraint_vars, shift_vars_list, unify_term_lists,
+    apply_subst_list, match_term_lists, max_var_index_terms, remap_constraint_vars, shift_vars_list,
 };
 
 /// Compute the meet (intersection) of two NFs.
@@ -46,35 +46,45 @@ pub fn meet_nf<C: ConstraintOps>(a: &NF<C>, b: &NF<C>, terms: &mut TermStore) ->
         rw2.rhs = shift_vars_list(&rw2.rhs, b_var_offset, terms);
     }
 
-    let mgu_match = match unify_term_lists(&rw1.lhs, &rw2.lhs, terms) {
-        Some(mgu) => mgu,
+    let (lhs_left, lhs_right) = match match_term_lists(&rw1.lhs, &rw2.lhs, b_var_offset, terms) {
+        Some(result) => result,
         None => {
             #[cfg(feature = "tracing")]
-            trace!("meet_match_unify_failed");
+            trace!("meet_match_failed");
             return None;
         }
     };
 
-    let unified_lhs = apply_subst_list(&rw1.lhs, &mgu_match, terms);
-    let a_rhs_subst = apply_subst_list(&rw1.rhs, &mgu_match, terms);
-    let b_rhs_subst = apply_subst_list(&rw2.rhs, &mgu_match, terms);
+    let lhs_left_applied = apply_subst_list(&rw1.lhs, &lhs_left, terms);
+    let rhs_left_applied = apply_subst_list(&rw1.rhs, &lhs_left, terms);
+    let rhs_right_applied = apply_subst_list(&rw2.rhs, &lhs_right, terms);
 
-    let mgu_build = match unify_term_lists(&a_rhs_subst, &b_rhs_subst, terms) {
-        Some(mgu) => mgu,
-        None => {
-            #[cfg(feature = "tracing")]
-            trace!("meet_build_unify_failed");
-            return None;
-        }
-    };
+    let (rhs_left, rhs_right) =
+        match match_term_lists(&rhs_left_applied, &rhs_right_applied, b_var_offset, terms) {
+            Some(result) => result,
+            None => {
+                #[cfg(feature = "tracing")]
+                trace!("meet_build_failed");
+                return None;
+            }
+        };
 
-    let mut final_lhs = apply_subst_list(&unified_lhs, &mgu_build, terms);
-    let mut final_rhs = apply_subst_list(&a_rhs_subst, &mgu_build, terms);
+    let mut final_lhs = apply_subst_list(&lhs_left_applied, &rhs_left, terms);
+    let mut final_rhs = apply_subst_list(&rhs_left_applied, &rhs_left, terms);
+    final_lhs = apply_subst_list(&final_lhs, &rhs_right, terms);
+    final_rhs = apply_subst_list(&final_rhs, &rhs_right, terms);
 
     let b_constraint =
         remap_constraint_vars(&b.drop_fresh.constraint, b_max_var, b_var_offset, terms);
 
-    let combined = match a.drop_fresh.constraint.combine(&b_constraint) {
+    let a_constraint = a.drop_fresh.constraint.apply_subst(&lhs_left, terms);
+    let a_constraint = a_constraint.apply_subst(&rhs_left, terms);
+    let a_constraint = a_constraint.apply_subst(&rhs_right, terms);
+    let b_constraint = b_constraint.apply_subst(&lhs_right, terms);
+    let b_constraint = b_constraint.apply_subst(&rhs_right, terms);
+    let b_constraint = b_constraint.apply_subst(&rhs_left, terms);
+
+    let combined = match a_constraint.combine(&b_constraint) {
         Some(c) => c,
         None => {
             #[cfg(feature = "tracing")]
@@ -82,8 +92,6 @@ pub fn meet_nf<C: ConstraintOps>(a: &NF<C>, b: &NF<C>, terms: &mut TermStore) ->
             return None;
         }
     };
-    let combined = combined.apply_subst(&mgu_match, terms);
-    let combined = combined.apply_subst(&mgu_build, terms);
 
     let (normalized, subst_opt) = match combined.normalize(terms) {
         Some(result) => result,
@@ -138,7 +146,7 @@ mod tests {
     }
 
     #[test]
-    fn meet_applies_mgu_to_constraints() {
+    fn meet_applies_match_subst_to_constraints() {
         let mut parser = Parser::with_chr();
         let theory = r#"
 theory neq_only {
@@ -157,6 +165,27 @@ theory neq_only {
         assert!(
             met.is_none(),
             "Expected meet to fail after constraint substitution"
+        );
+    }
+
+    #[test]
+    fn meet_propagates_rhs_constraints_into_lhs() {
+        let mut parser = Parser::new();
+        let left = parser
+            .parse_rule("(f $x) -> k")
+            .expect("parse left rule");
+        let right = parser
+            .parse_rule("(f (g $y)) -> $y")
+            .expect("parse right rule");
+        let expected = parser
+            .parse_rule("(f (g k)) -> k")
+            .expect("parse expected rule");
+        let mut terms = parser.take_terms();
+
+        let met = meet_nf(&left, &right, &mut terms).expect("meet should succeed");
+        assert_eq!(
+            met, expected,
+            "Meet must propagate rhs bindings back into lhs variables"
         );
     }
 
@@ -215,7 +244,7 @@ theory neq_only {
     }
 
     #[test]
-    fn meet_unifies_fresh_outputs() {
+    fn meet_matches_fresh_outputs() {
         let (symbols, mut terms) = setup();
         let f = symbols.intern("f");
         let b = symbols.intern("b");
@@ -279,7 +308,7 @@ theory neq_only {
         );
 
         let result = meet_nf(&rule_a, &rule_b, &mut terms);
-        assert!(result.is_none(), "A and C don't unify, meet should fail");
+        assert!(result.is_none(), "A and C don't match, meet should fail");
     }
 
     #[test]
@@ -308,11 +337,11 @@ theory neq_only {
         );
 
         let result = meet_nf(&rule_a, &rule_b, &mut terms);
-        assert!(result.is_none(), "B and C don't unify, meet should fail");
+        assert!(result.is_none(), "B and C don't match, meet should fail");
     }
 
     #[test]
-    fn meet_unifies_compatible_patterns() {
+    fn meet_matches_compatible_patterns() {
         let (symbols, mut terms) = setup();
         let f = symbols.intern("F");
         let g = symbols.intern("G");

@@ -3,9 +3,9 @@
 //! This module contains helper functions used by both compose and meet operations.
 
 use crate::nf::collect_vars_ordered;
+use crate::matching::match_terms_combined;
 use crate::subst::{apply_subst, Subst};
 use crate::term::{Term, TermId, TermStore};
-use crate::unify::unify;
 use smallvec::SmallVec;
 
 /// Find the maximum variable index in a list of patterns.
@@ -55,11 +55,16 @@ pub fn apply_subst_list(
         .collect()
 }
 
-/// Unify two lists of terms element-wise.
+/// Match two lists of terms element-wise in disjoint namespaces.
 ///
-/// Returns the combined most general unifier if all pairs unify,
-/// or None if any pair fails to unify.
-pub fn unify_term_lists(left: &[TermId], right: &[TermId], terms: &mut TermStore) -> Option<Subst> {
+/// Returns a pair of substitutions (left, right) when all pairs match,
+/// or None if any pair fails to match.
+pub fn match_term_lists(
+    left: &[TermId],
+    right: &[TermId],
+    right_offset: u32,
+    terms: &mut TermStore,
+) -> Option<(Subst, Subst)> {
     if left.len() != right.len() {
         return None;
     }
@@ -68,10 +73,10 @@ pub fn unify_term_lists(left: &[TermId], right: &[TermId], terms: &mut TermStore
     for (&l, &r) in left.iter().zip(right.iter()) {
         let l_sub = apply_subst(l, &subst, terms);
         let r_sub = apply_subst(r, &subst, terms);
-        let mgu = unify(l_sub, r_sub, terms)?;
-        subst = compose_subst(&subst, &mgu, terms);
+        let match_subst = match_terms_combined(l_sub, r_sub, terms)?;
+        subst = compose_subst(&subst, &match_subst, terms);
     }
-    Some(subst)
+    Some(crate::matching::split_match_subst(&subst, right_offset, terms))
 }
 
 /// Compose two substitutions.
@@ -102,7 +107,18 @@ pub fn remap_constraint_vars<C: crate::constraint::ConstraintOps>(
     if offset == 0 {
         return constraint.clone();
     }
-    match max_var {
+    let mut constraint_vars = Vec::new();
+    constraint.collect_vars(terms, &mut constraint_vars);
+    constraint_vars.sort_unstable();
+    constraint_vars.dedup();
+    let max_constraint = constraint_vars.last().copied();
+    let max_all = match (max_var, max_constraint) {
+        (Some(a), Some(b)) => Some(a.max(b)),
+        (Some(a), None) => Some(a),
+        (None, Some(b)) => Some(b),
+        (None, None) => None,
+    };
+    match max_all {
         Some(max) => {
             let mut map = vec![None; max as usize + 1];
             for i in 0..=max {
@@ -111,5 +127,42 @@ pub fn remap_constraint_vars<C: crate::constraint::ConstraintOps>(
             constraint.remap_vars(&map, terms)
         }
         None => constraint.clone(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::parser::Parser;
+
+    #[test]
+    fn match_term_lists_disjoint_keeps_equality_for_app_rule_shape() {
+        let mut parser = Parser::new();
+        let left = parser
+            .parse_term("(f $x (c z))")
+            .expect("parse left")
+            .term_id;
+        let right = parser
+            .parse_term("(f (f (b $x) $y) $z)")
+            .expect("parse right")
+            .term_id;
+        let mut terms = parser.take_terms();
+
+        let offset = max_var_index_terms(&[left], &terms)
+            .map(|v| v + 1)
+            .unwrap_or(0);
+        let right_shifted = shift_vars(right, offset, &mut terms);
+
+        let (left_sub, right_sub) =
+            match_term_lists(&[left], &[right_shifted], offset, &mut terms)
+                .expect("expected match");
+
+        let left_applied = apply_subst(left, &left_sub, &mut terms);
+        let right_applied = apply_subst(right_shifted, &right_sub, &mut terms);
+
+        assert_eq!(
+            left_applied, right_applied,
+            "split substitutions must make both sides equal"
+        );
     }
 }

@@ -1,18 +1,21 @@
-use crate::subst::Subst;
+use crate::subst::{apply_subst, Subst};
 use crate::term::{Term, TermId, TermStore};
 use smallvec::SmallVec;
 
 #[cfg(feature = "tracing")]
 use crate::trace::{debug_span, trace};
 
-/// Unify two terms, returning a most general unifier (MGU) if successful.
-/// Returns None if the terms cannot be unified.
+/// Match two terms in a shared namespace, returning a most general matching
+/// substitution if successful. Returns None if the terms cannot match.
+///
+/// This computes a combined substitution over the shared namespace; callers
+/// that need per-side substitutions should split and resolve it.
 ///
 /// Uses an explicit worklist to avoid recursion.
 /// Implements occurs-check to prevent infinite terms.
-pub fn unify(t1: TermId, t2: TermId, terms: &TermStore) -> Option<Subst> {
+pub(crate) fn match_terms_combined(t1: TermId, t2: TermId, terms: &TermStore) -> Option<Subst> {
     #[cfg(feature = "tracing")]
-    let _span = debug_span!("unify", ?t1, ?t2).entered();
+    let _span = debug_span!("match_terms", ?t1, ?t2).entered();
 
     let mut subst = Subst::new();
     let mut worklist: SmallVec<[(TermId, TermId); 32]> = SmallVec::new();
@@ -24,7 +27,7 @@ pub fn unify(t1: TermId, t2: TermId, terms: &TermStore) -> Option<Subst> {
         let b_deref = deref(b, &subst, terms);
 
         if a_deref == b_deref {
-            // Same term - already unified
+            // Same term - already matched
             continue;
         }
 
@@ -42,7 +45,7 @@ pub fn unify(t1: TermId, t2: TermId, terms: &TermStore) -> Option<Subst> {
                 // Variable vs App - occurs check then bind
                 if occurs(idx, b_deref, &subst, terms) {
                     #[cfg(feature = "tracing")]
-                    trace!(var = idx, "unify_occurs_check_failed");
+                    trace!(var = idx, "match_occurs_check_failed");
                     return None; // Occurs check failed
                 }
                 subst.bind(idx, b_deref);
@@ -51,7 +54,7 @@ pub fn unify(t1: TermId, t2: TermId, terms: &TermStore) -> Option<Subst> {
                 // App vs Variable - occurs check then bind
                 if occurs(idx, a_deref, &subst, terms) {
                     #[cfg(feature = "tracing")]
-                    trace!(var = idx, "unify_occurs_check_failed");
+                    trace!(var = idx, "match_occurs_check_failed");
                     return None; // Occurs check failed
                 }
                 subst.bind(idx, a_deref);
@@ -60,12 +63,12 @@ pub fn unify(t1: TermId, t2: TermId, terms: &TermStore) -> Option<Subst> {
                 // Both Apps - must have same functor and arity
                 if f1 != f2 {
                     #[cfg(feature = "tracing")]
-                    trace!("unify_functor_mismatch");
+                    trace!("match_functor_mismatch");
                     return None; // Different functors
                 }
                 if children1.len() != children2.len() {
                     #[cfg(feature = "tracing")]
-                    trace!("unify_arity_mismatch");
+                    trace!("match_arity_mismatch");
                     return None; // Different arities
                 }
                 // Add children pairs to worklist
@@ -76,16 +79,52 @@ pub fn unify(t1: TermId, t2: TermId, terms: &TermStore) -> Option<Subst> {
             _ => {
                 // One or both terms are invalid
                 #[cfg(feature = "tracing")]
-                trace!("unify_invalid_term");
+                trace!("match_invalid_term");
                 return None;
             }
         }
     }
 
     #[cfg(feature = "tracing")]
-    trace!(bindings = subst.len(), "unify_success");
+    trace!(bindings = subst.len(), "match_success");
 
     Some(subst)
+}
+
+/// Split a combined substitution into (left, right) parts, resolving each
+/// binding through the combined substitution so that applying each part
+/// independently yields equal terms.
+pub(crate) fn split_match_subst(
+    combined: &Subst,
+    right_offset: u32,
+    terms: &mut TermStore,
+) -> (Subst, Subst) {
+    let mut left = Subst::new();
+    let mut right = Subst::new();
+    for (var, _term) in combined.iter() {
+        let resolved = apply_subst(terms.var(var), combined, terms);
+        if resolved == terms.var(var) {
+            continue;
+        }
+        if var < right_offset {
+            left.bind(var, resolved);
+        } else {
+            right.bind(var, resolved);
+        }
+    }
+    (left, right)
+}
+
+/// Match two terms whose variable namespaces are disjoint.
+/// `right_offset` must be greater than any variable index on the left side.
+pub fn match_terms_disjoint(
+    left: TermId,
+    right: TermId,
+    right_offset: u32,
+    terms: &mut TermStore,
+) -> Option<(Subst, Subst)> {
+    let combined = match_terms_combined(left, right, terms)?;
+    Some(split_match_subst(&combined, right_offset, terms))
 }
 
 /// Dereference a term through the substitution.
@@ -140,30 +179,30 @@ mod tests {
     // ========== HAPPY PATH: IDENTICAL TERMS ==========
 
     #[test]
-    fn unify_same_var() {
+    fn match_same_var() {
         let (_, terms) = setup();
         let v0 = terms.var(0);
 
-        let result = unify(v0, v0, &terms);
+        let result = match_terms_combined(v0, v0, &terms);
         assert!(result.is_some());
         let subst = result.unwrap();
         assert!(subst.is_empty(), "Same var should produce empty subst");
     }
 
     #[test]
-    fn unify_same_ground_term() {
+    fn match_same_ground_term() {
         let (symbols, terms) = setup();
         let zero = symbols.intern("Zero");
         let t = terms.app0(zero);
 
-        let result = unify(t, t, &terms);
+        let result = match_terms_combined(t, t, &terms);
         assert!(result.is_some());
         let subst = result.unwrap();
         assert!(subst.is_empty(), "Same term should produce empty subst");
     }
 
     #[test]
-    fn unify_same_complex_term() {
+    fn match_same_complex_term() {
         let (symbols, terms) = setup();
         let cons = symbols.intern("Cons");
         let nil = symbols.intern("Nil");
@@ -171,45 +210,45 @@ mod tests {
         let nil_term = terms.app0(nil);
         let t = terms.app2(cons, v0, nil_term);
 
-        let result = unify(t, t, &terms);
+        let result = match_terms_combined(t, t, &terms);
         assert!(result.is_some());
     }
 
     // ========== HAPPY PATH: VAR vs TERM ==========
 
     #[test]
-    fn unify_var_with_ground() {
+    fn match_var_with_ground() {
         let (symbols, terms) = setup();
         let zero = symbols.intern("Zero");
         let v0 = terms.var(0);
         let zero_term = terms.app0(zero);
 
-        let result = unify(v0, zero_term, &terms);
+        let result = match_terms_combined(v0, zero_term, &terms);
         assert!(result.is_some());
         let subst = result.unwrap();
         assert_eq!(subst.get(0), Some(zero_term));
     }
 
     #[test]
-    fn unify_ground_with_var() {
+    fn match_ground_with_var() {
         let (symbols, terms) = setup();
         let zero = symbols.intern("Zero");
         let v0 = terms.var(0);
         let zero_term = terms.app0(zero);
 
-        let result = unify(zero_term, v0, &terms);
+        let result = match_terms_combined(zero_term, v0, &terms);
         assert!(result.is_some());
         let subst = result.unwrap();
         assert_eq!(subst.get(0), Some(zero_term));
     }
 
     #[test]
-    fn unify_var_with_var() {
+    fn match_var_with_var() {
         let (_, terms) = setup();
         let v0 = terms.var(0);
         let v1 = terms.var(1);
 
-        let result = unify(v0, v1, &terms);
+        let result = match_terms_combined(v0, v1, &terms);
         assert!(result.is_some());
         let subst = result.unwrap();
         // One should be bound to the other
@@ -218,14 +257,14 @@ mod tests {
     }
 
     #[test]
-    fn unify_var_with_nested_var() {
+    fn match_var_with_nested_var() {
         let (symbols, terms) = setup();
         let f = symbols.intern("F");
         let v0 = terms.var(0);
         let v1 = terms.var(1);
         let f_v1 = terms.app1(f, v1);
 
-        let result = unify(v0, f_v1, &terms);
+        let result = match_terms_combined(v0, f_v1, &terms);
         assert!(result.is_some());
         let subst = result.unwrap();
         assert_eq!(subst.get(0), Some(f_v1));
@@ -234,18 +273,18 @@ mod tests {
     // ========== HAPPY PATH: COMPATIBLE CONSTRUCTORS ==========
 
     #[test]
-    fn unify_nullary_same_functor() {
+    fn match_nullary_same_functor() {
         let (symbols, terms) = setup();
         let nil = symbols.intern("Nil");
         let t1 = terms.app0(nil);
         let t2 = terms.app0(nil);
 
-        let result = unify(t1, t2, &terms);
+        let result = match_terms_combined(t1, t2, &terms);
         assert!(result.is_some());
     }
 
     #[test]
-    fn unify_compatible_apps() {
+    fn match_compatible_apps() {
         let (symbols, terms) = setup();
         let f = symbols.intern("F");
         let v0 = terms.var(0);
@@ -256,14 +295,14 @@ mod tests {
         let t1 = terms.app1(f, v0);
         let t2 = terms.app1(f, a_term);
 
-        let result = unify(t1, t2, &terms);
+        let result = match_terms_combined(t1, t2, &terms);
         assert!(result.is_some());
         let subst = result.unwrap();
         assert_eq!(subst.get(0), Some(a_term));
     }
 
     #[test]
-    fn unify_nested_compatible() {
+    fn match_nested_compatible() {
         let (symbols, terms) = setup();
         let f = symbols.intern("F");
         let g = symbols.intern("G");
@@ -281,7 +320,7 @@ mod tests {
         let g_a = terms.app1(g, a_term);
         let t2 = terms.app2(f, g_a, b_term);
 
-        let result = unify(t1, t2, &terms);
+        let result = match_terms_combined(t1, t2, &terms);
         assert!(result.is_some());
         let subst = result.unwrap();
         assert_eq!(subst.get(0), Some(a_term));
@@ -289,7 +328,7 @@ mod tests {
     }
 
     #[test]
-    fn unify_both_sides_have_vars() {
+    fn match_both_sides_have_vars() {
         let (symbols, terms) = setup();
         let pair = symbols.intern("Pair");
         let v0 = terms.var(0);
@@ -301,7 +340,7 @@ mod tests {
         let t1 = terms.app2(pair, v0, a_term);
         let t2 = terms.app2(pair, a_term, v1);
 
-        let result = unify(t1, t2, &terms);
+        let result = match_terms_combined(t1, t2, &terms);
         assert!(result.is_some());
         let subst = result.unwrap();
         assert_eq!(subst.get(0), Some(a_term));
@@ -309,7 +348,7 @@ mod tests {
     }
 
     #[test]
-    fn unify_shared_var() {
+    fn match_shared_var() {
         let (symbols, terms) = setup();
         let f = symbols.intern("F");
         let v0 = terms.var(0);
@@ -320,7 +359,7 @@ mod tests {
         let t1 = terms.app2(f, v0, v0);
         let t2 = terms.app2(f, a_term, a_term);
 
-        let result = unify(t1, t2, &terms);
+        let result = match_terms_combined(t1, t2, &terms);
         assert!(result.is_some());
         let subst = result.unwrap();
         assert_eq!(subst.get(0), Some(a_term));
@@ -329,19 +368,19 @@ mod tests {
     // ========== UNHAPPY PATH: INCOMPATIBLE CONSTRUCTORS ==========
 
     #[test]
-    fn unify_different_nullary_fails() {
+    fn match_different_nullary_fails() {
         let (symbols, terms) = setup();
         let nil = symbols.intern("Nil");
         let zero = symbols.intern("Zero");
         let t1 = terms.app0(nil);
         let t2 = terms.app0(zero);
 
-        let result = unify(t1, t2, &terms);
+        let result = match_terms_combined(t1, t2, &terms);
         assert!(result.is_none(), "Different functors should fail");
     }
 
     #[test]
-    fn unify_different_functors_fails() {
+    fn match_different_functors_fails() {
         let (symbols, terms) = setup();
         let f = symbols.intern("F");
         let g = symbols.intern("G");
@@ -351,12 +390,12 @@ mod tests {
         let t1 = terms.app1(f, a_term);
         let t2 = terms.app1(g, a_term);
 
-        let result = unify(t1, t2, &terms);
+        let result = match_terms_combined(t1, t2, &terms);
         assert!(result.is_none(), "Different functors should fail");
     }
 
     #[test]
-    fn unify_different_arity_fails() {
+    fn match_different_arity_fails() {
         let (symbols, terms) = setup();
         let f = symbols.intern("F");
         let a = symbols.intern("A");
@@ -365,12 +404,12 @@ mod tests {
         let t1 = terms.app1(f, a_term);
         let t2 = terms.app2(f, a_term, a_term);
 
-        let result = unify(t1, t2, &terms);
+        let result = match_terms_combined(t1, t2, &terms);
         assert!(result.is_none(), "Different arities should fail");
     }
 
     #[test]
-    fn unify_nested_conflict_fails() {
+    fn match_nested_conflict_fails() {
         let (symbols, terms) = setup();
         let f = symbols.intern("F");
         let a = symbols.intern("A");
@@ -382,12 +421,12 @@ mod tests {
         let t1 = terms.app1(f, a_term);
         let t2 = terms.app1(f, b_term);
 
-        let result = unify(t1, t2, &terms);
+        let result = match_terms_combined(t1, t2, &terms);
         assert!(result.is_none(), "Nested conflict should fail");
     }
 
     #[test]
-    fn unify_shared_var_conflict_fails() {
+    fn match_shared_var_conflict_fails() {
         let (symbols, terms) = setup();
         let f = symbols.intern("F");
         let v0 = terms.var(0);
@@ -400,7 +439,7 @@ mod tests {
         let t1 = terms.app2(f, v0, v0);
         let t2 = terms.app2(f, a_term, b_term);
 
-        let result = unify(t1, t2, &terms);
+        let result = match_terms_combined(t1, t2, &terms);
         assert!(
             result.is_none(),
             "Shared var with different values should fail"
@@ -410,14 +449,14 @@ mod tests {
     // ========== OCCURS CHECK ==========
 
     #[test]
-    fn unify_occurs_check_simple() {
+    fn match_occurs_check_simple() {
         let (symbols, terms) = setup();
         let f = symbols.intern("F");
         let v0 = terms.var(0);
         let f_v0 = terms.app1(f, v0);
 
         // x vs F(x) should fail - infinite term
-        let result = unify(v0, f_v0, &terms);
+        let result = match_terms_combined(v0, f_v0, &terms);
         assert!(
             result.is_none(),
             "Occurs check should prevent infinite term"
@@ -425,7 +464,7 @@ mod tests {
     }
 
     #[test]
-    fn unify_occurs_check_nested() {
+    fn match_occurs_check_nested() {
         let (symbols, terms) = setup();
         let f = symbols.intern("F");
         let g = symbols.intern("G");
@@ -435,7 +474,7 @@ mod tests {
         let f_v0 = terms.app1(f, v0);
         let g_f_v0 = terms.app1(g, f_v0);
 
-        let result = unify(v0, g_f_v0, &terms);
+        let result = match_terms_combined(v0, g_f_v0, &terms);
         assert!(
             result.is_none(),
             "Nested occurs check should prevent infinite term"
@@ -443,26 +482,26 @@ mod tests {
     }
 
     #[test]
-    fn unify_occurs_check_through_substitution() {
+    fn match_occurs_check_through_substitution() {
         let (symbols, terms) = setup();
         let f = symbols.intern("F");
         let v0 = terms.var(0);
         let v1 = terms.var(1);
 
         // F(x, y) vs F(y, F(x)) - should fail
-        // After unifying x=y, we'd have y vs F(y) which fails occurs check
+        // After matching x=y, we'd have y vs F(y) which fails occurs check
         let f_x = terms.app1(f, v0);
         let t1 = terms.app2(f, v0, v1);
         let t2 = terms.app2(f, v1, f_x);
 
-        let result = unify(t1, t2, &terms);
+        let result = match_terms_combined(t1, t2, &terms);
         assert!(result.is_none(), "Occurs check through subst should fail");
     }
 
     // ========== COMPLEX CASES ==========
 
     #[test]
-    fn unify_list_pattern() {
+    fn match_list_pattern() {
         let (symbols, terms) = setup();
         let cons = symbols.intern("Cons");
         let nil = symbols.intern("Nil");
@@ -481,7 +520,7 @@ mod tests {
         let inner2 = terms.app2(cons, b_term, nil_term);
         let t2 = terms.app2(cons, a_term, inner2);
 
-        let result = unify(t1, t2, &terms);
+        let result = match_terms_combined(t1, t2, &terms);
         assert!(result.is_some());
         let subst = result.unwrap();
         assert_eq!(subst.get(0), Some(a_term));
@@ -489,7 +528,7 @@ mod tests {
     }
 
     #[test]
-    fn unify_vars_in_both_terms() {
+    fn match_vars_in_both_terms() {
         let (symbols, terms) = setup();
         let f = symbols.intern("F");
         let v0 = terms.var(0);
@@ -497,18 +536,18 @@ mod tests {
         let v2 = terms.var(2);
 
         // F(x, y) vs F(z, z)
-        // Should unify with x=z, y=z (or equivalent)
+        // Should match with x=z, y=z (or equivalent)
         let t1 = terms.app2(f, v0, v1);
         let t2 = terms.app2(f, v2, v2);
 
-        let result = unify(t1, t2, &terms);
+        let result = match_terms_combined(t1, t2, &terms);
         assert!(result.is_some());
         // The exact substitution depends on order, but both x and y should
         // ultimately equal z (or be equal to each other)
     }
 
     #[test]
-    fn unify_symmetric() {
+    fn match_symmetric() {
         let (symbols, terms) = setup();
         let f = symbols.intern("F");
         let v0 = terms.var(0);
@@ -518,9 +557,9 @@ mod tests {
         let t1 = terms.app1(f, v0);
         let t2 = terms.app1(f, a_term);
 
-        // unify(t1, t2) and unify(t2, t1) should both succeed with same binding
-        let result1 = unify(t1, t2, &terms);
-        let result2 = unify(t2, t1, &terms);
+        // match_terms_combined(t1, t2) and match_terms_combined(t2, t1) should both succeed with same binding
+        let result1 = match_terms_combined(t1, t2, &terms);
+        let result2 = match_terms_combined(t2, t1, &terms);
 
         assert!(result1.is_some());
         assert!(result2.is_some());
@@ -530,7 +569,7 @@ mod tests {
     }
 
     #[test]
-    fn unify_deep_nesting() {
+    fn match_deep_nesting() {
         let (symbols, terms) = setup();
         let s = symbols.intern("S");
         let z = symbols.intern("Z");
@@ -548,7 +587,7 @@ mod tests {
         let sv3 = terms.app1(s, sv2);
         let sv4 = terms.app1(s, sv3);
 
-        let result = unify(sv4, s4_z, &terms);
+        let result = match_terms_combined(sv4, s4_z, &terms);
         assert!(result.is_some());
         let subst = result.unwrap();
         assert_eq!(subst.get(0), Some(z_term));
@@ -557,7 +596,7 @@ mod tests {
     // ========== EDGE CASES ==========
 
     #[test]
-    fn unify_many_vars() {
+    fn match_many_vars() {
         let (symbols, terms) = setup();
         let tuple = symbols.intern("Tuple");
 
@@ -571,7 +610,7 @@ mod tests {
         let as_terms: SmallVec<[TermId; 4]> = (0..5).map(|_| a_term).collect();
         let t2 = terms.app(tuple, as_terms);
 
-        let result = unify(t1, t2, &terms);
+        let result = match_terms_combined(t1, t2, &terms);
         assert!(result.is_some());
         let subst = result.unwrap();
         for i in 0..5 {
@@ -580,13 +619,13 @@ mod tests {
     }
 
     #[test]
-    fn unify_empty_app_terms() {
+    fn match_empty_app_terms() {
         let (symbols, terms) = setup();
         let empty = symbols.intern("Empty");
         let t1 = terms.app0(empty);
         let t2 = terms.app0(empty);
 
-        let result = unify(t1, t2, &terms);
+        let result = match_terms_combined(t1, t2, &terms);
         assert!(result.is_some());
         assert!(result.unwrap().is_empty());
     }

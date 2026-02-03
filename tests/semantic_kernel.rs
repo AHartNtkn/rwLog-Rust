@@ -50,6 +50,16 @@ fn compose_nf_non_ground_structural() {
             shape_app("h", vec![shape_var(0)])
         )
     );
+
+    let dual = dual_nf(&composed, &mut terms);
+    let dual_pair = nf_pair_shape(&dual, &mut terms, &symbols);
+    assert_eq!(
+        dual_pair,
+        (
+            shape_app("h", vec![shape_var(0)]),
+            shape_app("f", vec![shape_var(0)])
+        )
+    );
 }
 
 #[test]
@@ -92,6 +102,12 @@ fn compose_nf_invariant_under_rhs_renaming() {
     let pair_a = nf_pair_shape(&composed_a, &mut terms, &symbols);
     let pair_b = nf_pair_shape(&composed_b, &mut terms, &symbols);
     assert_eq!(pair_a, pair_b);
+
+    let dual_a = dual_nf(&composed_a, &mut terms);
+    let dual_b = dual_nf(&composed_b, &mut terms);
+    let dual_pair_a = nf_pair_shape(&dual_a, &mut terms, &symbols);
+    let dual_pair_b = nf_pair_shape(&dual_b, &mut terms, &symbols);
+    assert_eq!(dual_pair_a, dual_pair_b);
 }
 
 #[test]
@@ -127,6 +143,16 @@ fn meet_nf_non_ground_structural() {
         (
             shape_app("f", vec![shape_var(0)]),
             shape_app("g", vec![shape_var(0)])
+        )
+    );
+
+    let dual = dual_nf(&met, &mut terms);
+    let dual_pair = nf_pair_shape(&dual, &mut terms, &symbols);
+    assert_eq!(
+        dual_pair,
+        (
+            shape_app("g", vec![shape_var(0)]),
+            shape_app("f", vec![shape_var(0)])
         )
     );
 }

@@ -17,7 +17,7 @@ pub mod subst;
 pub mod symbol;
 pub mod term;
 pub mod trace;
-pub mod unify;
+pub mod matching;
 pub mod work;
 
 #[cfg(test)]

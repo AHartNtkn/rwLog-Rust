@@ -5,7 +5,7 @@ use crate::term::TermStore;
 use crate::trace::{debug_span, trace};
 
 use super::util::{
-    apply_subst_list, max_var_index_terms, remap_constraint_vars, shift_vars_list, unify_term_lists,
+    apply_subst_list, match_term_lists, max_var_index_terms, remap_constraint_vars, shift_vars_list,
 };
 
 /// Compose two NFs in sequence: a ; b
@@ -18,7 +18,7 @@ use super::util::{
 /// - Variables are routed through b's DropFresh
 /// - b's build patterns are constructed
 ///
-/// Returns None if composition fails (unification failure at interface).
+/// Returns None if composition fails (matching failure at interface).
 pub fn compose_nf<C: ConstraintOps>(a: &NF<C>, b: &NF<C>, terms: &mut TermStore) -> Option<NF<C>> {
     #[cfg(feature = "tracing")]
     let _span = debug_span!(
@@ -63,29 +63,37 @@ pub fn compose_nf<C: ConstraintOps>(a: &NF<C>, b: &NF<C>, terms: &mut TermStore)
         a_rhs = ?rw1.rhs,
         b_lhs_shifted = ?rw2.lhs,
         b_var_offset,
-        "unifying_interface"
+        "matching_interface"
     );
 
-    let mgu = match unify_term_lists(&rw1.rhs, &rw2.lhs, terms) {
-        Some(mgu) => {
-            #[cfg(feature = "tracing")]
-            trace!(mgu_size = mgu.len(), "unification_success");
-            mgu
-        }
-        None => {
-            #[cfg(feature = "tracing")]
-            trace!("unification_failed");
-            return None;
-        }
-    };
+    let (subst_left, subst_right) =
+        match match_term_lists(&rw1.rhs, &rw2.lhs, b_var_offset, terms) {
+            Some((subst_left, subst_right)) => {
+                #[cfg(feature = "tracing")]
+                trace!(
+                    left_bindings = subst_left.len(),
+                    right_bindings = subst_right.len(),
+                    "matching_success"
+                );
+                (subst_left, subst_right)
+            }
+            None => {
+                #[cfg(feature = "tracing")]
+                trace!("matching_failed");
+                return None;
+            }
+        };
 
-    let mut new_match = apply_subst_list(&rw1.lhs, &mgu, terms);
-    let mut new_build = apply_subst_list(&rw2.rhs, &mgu, terms);
+    let mut new_match = apply_subst_list(&rw1.lhs, &subst_left, terms);
+    let mut new_build = apply_subst_list(&rw2.rhs, &subst_right, terms);
 
     let b_constraint =
         remap_constraint_vars(&b.drop_fresh.constraint, b_max_var, b_var_offset, terms);
 
-    let combined = match a.drop_fresh.constraint.combine(&b_constraint) {
+    let a_constraint = a.drop_fresh.constraint.apply_subst(&subst_left, terms);
+    let b_constraint = b_constraint.apply_subst(&subst_right, terms);
+
+    let combined = match a_constraint.combine(&b_constraint) {
         Some(c) => c,
         None => {
             #[cfg(feature = "tracing")]
@@ -93,7 +101,6 @@ pub fn compose_nf<C: ConstraintOps>(a: &NF<C>, b: &NF<C>, terms: &mut TermStore)
             return None;
         }
     };
-    let combined = combined.apply_subst(&mgu, terms);
 
     let (normalized, subst_opt) = match combined.normalize(terms) {
         Some(result) => result,
@@ -144,7 +151,7 @@ mod tests {
     }
 
     #[test]
-    fn compose_applies_mgu_to_constraints() {
+    fn compose_applies_match_subst_to_constraints() {
         let mut parser = Parser::with_chr();
         let theory = r#"
 theory neq_only {
@@ -163,6 +170,32 @@ theory neq_only {
         assert!(
             composed.is_none(),
             "Expected composition to fail after constraint substitution"
+        );
+    }
+
+    #[test]
+    fn compose_preserves_constraint_only_vars() {
+        let mut parser = Parser::with_chr();
+        let theory = r#"
+theory t {
+  constraint p/1
+}
+"#;
+        parser.parse_theory_def(theory).expect("parse theory");
+        let identity = parser.parse_rule("$x -> $x").expect("parse identity");
+        let constrained = parser
+            .parse_rule("$x { (p $y) } -> $x")
+            .expect("parse constrained rule");
+        let expected = parser
+            .parse_rule("$x { (p $y) } -> $x")
+            .expect("parse expected rule");
+        let mut terms = parser.take_terms();
+
+        let composed = compose_nf(&identity, &constrained, &mut terms)
+            .expect("compose identity with constrained rule");
+        assert!(
+            composed == expected,
+            "Constraint-only variables must remain fresh under composition"
         );
     }
 
@@ -560,7 +593,7 @@ theory no_c {
 
         assert!(
             result.is_some(),
-            "Composition should succeed: variable $0 should unify with ground z"
+            "Composition should succeed: variable $0 should match with ground z"
         );
 
         let composed = result.unwrap();
@@ -602,7 +635,7 @@ theory no_c {
 
         assert!(
             result.is_some(),
-            "Composition should succeed: variable $0 should unify with (s z)"
+            "Composition should succeed: variable $0 should match with (s z)"
         );
 
         let composed = result.unwrap();
@@ -621,7 +654,7 @@ theory no_c {
     }
 
     #[test]
-    fn compose_var_with_ground_unifies() {
+    fn compose_var_with_ground_matches() {
         // Most basic case: $0 -> $0 composed with z -> z should give z -> z
         let (symbols, mut terms) = setup();
         let z_sym = symbols.intern("z");
@@ -637,7 +670,7 @@ theory no_c {
         // Compose: ($0 -> $0) ; (z -> z) should give z -> z
         let result = compose_nf(&identity_var, &identity_z, &mut terms);
 
-        assert!(result.is_some(), "Variable should unify with ground term");
+        assert!(result.is_some(), "Variable should match with ground term");
         let composed = result.unwrap();
 
         assert_eq!(composed.match_pats[0], z, "Match should be z");
