@@ -669,7 +669,7 @@ rel killer {
 
         // Collect answers
         let mut answers = vec![];
-        while let Some(nf) = engine.next() {
+        for nf in engine.by_ref() {
             answers.push(nf);
         }
 

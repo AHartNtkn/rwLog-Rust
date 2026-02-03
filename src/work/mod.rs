@@ -15,6 +15,7 @@ use std::sync::Arc;
 
 mod and_group;
 mod compose;
+mod diagonal;
 mod fix;
 mod join_receiver;
 mod meet;

@@ -68,14 +68,11 @@ fn count_pipe_nodes(node: &Node<()>) -> usize {
 fn count_pipe_nodes_in_work(work: &Work<()>) -> usize {
     match work {
         Work::Pipe(_) => 1,
-        Work::Meet(meet) => count_pipe_nodes(&meet.left) + count_pipe_nodes(&meet.right),
-        Work::AndGroup(group) => group
-            .producer_nodes()
-            .map(|node| count_pipe_nodes(node))
-            .sum(),
+        Work::Meet(meet) => count_pipe_nodes(meet.left()) + count_pipe_nodes(meet.right()),
+        Work::AndGroup(group) => group.producer_nodes().map(count_pipe_nodes).sum(),
         Work::Fix(_) => 0,
         Work::Compose(compose) => {
-            count_pipe_nodes(&compose.left) + count_pipe_nodes(&compose.right)
+            count_pipe_nodes(compose.left()) + count_pipe_nodes(compose.right())
         }
         Work::JoinReceiver(_) => 0,
         Work::Atom(_) => 0,
@@ -98,8 +95,8 @@ fn extract_key_from_step(step: WorkStep<()>) -> CallKey<()> {
     match step {
         WorkStep::More(work) => match *work {
             Work::Compose(compose) => {
-                let fix = find_fixwork_in_node(&compose.left)
-                    .or_else(|| find_fixwork_in_node(&compose.right))
+                let fix = find_fixwork_in_node(compose.left())
+                    .or_else(|| find_fixwork_in_node(compose.right()))
                     .expect("Expected FixWork in compose nodes");
                 fix.key
             }
@@ -117,6 +114,12 @@ fn unwrap_join_receiver(work: Work<()>) -> JoinReceiverWork<()> {
     match work {
         Work::JoinReceiver(join) => join,
         other => panic!("Expected JoinReceiverWork, got {:?}", other),
+    }
+}
+
+fn push_pending_all(meet: &mut MeetWork<()>, items: &[NF<()>]) {
+    for nf in items {
+        meet.push_pending_for_test(nf.clone());
     }
 }
 
@@ -162,7 +165,7 @@ fn unwrap_split(step: WorkStep<()>) -> (Node<()>, Node<()>) {
 fn composework_emits_composed_nf() {
     let (symbols, mut terms) = setup();
     let left_nf = make_var_identity_nf(&mut terms);
-    let right_nf = make_ground_nf("A", &symbols, &mut terms);
+    let right_nf = make_ground_nf("A", &symbols, &terms);
     let expected = compose_nf(&left_nf, &right_nf, &mut terms).expect("compose should succeed");
 
     let left = Node::Emit(left_nf, Box::new(Node::Fail));
@@ -194,7 +197,7 @@ fn composework_emits_composed_nf() {
 fn composework_emits_composed_nf_dual() {
     let (symbols, mut terms) = setup();
     let left_nf = make_var_identity_nf(&mut terms);
-    let right_nf = make_ground_nf("A", &symbols, &mut terms);
+    let right_nf = make_ground_nf("A", &symbols, &terms);
     let expected = compose_nf(&left_nf, &right_nf, &mut terms).expect("compose should succeed");
     let expected_dual = dual_nf(&expected, &mut terms);
     let dual_left = dual_nf(&right_nf, &mut terms);
@@ -231,7 +234,7 @@ fn seq_does_not_spawn_pipe_per_and_answer() {
     let mut atoms = Vec::new();
     for idx in 0..8 {
         let name = format!("A{idx}");
-        atoms.push(atom_rel(make_ground_nf(&name, &symbols, &mut terms)));
+        atoms.push(atom_rel(make_ground_nf(&name, &symbols, &terms)));
     }
 
     let left_or = or_chain(atoms);
@@ -269,7 +272,7 @@ fn seq_does_not_spawn_pipe_per_and_answer_dual() {
     let mut atoms = Vec::new();
     for idx in 0..8 {
         let name = format!("A{idx}");
-        atoms.push(atom_rel(make_ground_nf(&name, &symbols, &mut terms)));
+        atoms.push(atom_rel(make_ground_nf(&name, &symbols, &terms)));
     }
 
     let left_or = or_chain(atoms);
@@ -407,8 +410,8 @@ fn pipework_step_empty_returns_done() {
 #[test]
 fn pipework_step_boundaries_only_emits_compose() {
     let (symbols, mut terms) = setup();
-    let left = make_ground_nf("X", &symbols, &mut terms);
-    let right = make_ground_nf("X", &symbols, &mut terms);
+    let left = make_ground_nf("X", &symbols, &terms);
+    let right = make_ground_nf("X", &symbols, &terms);
 
     let mut pipe: PipeWork<()> = PipeWork::with_boundaries(Some(left), Factors::new(), Some(right));
 
@@ -420,7 +423,7 @@ fn pipework_step_boundaries_only_emits_compose() {
 #[test]
 fn pipework_step_left_boundary_only_emits() {
     let (symbols, mut terms) = setup();
-    let nf = make_ground_nf("X", &symbols, &mut terms);
+    let nf = make_ground_nf("X", &symbols, &terms);
 
     let mut pipe: PipeWork<()> = PipeWork::with_boundaries(Some(nf), Factors::new(), None);
 
@@ -432,7 +435,7 @@ fn pipework_step_left_boundary_only_emits() {
 #[test]
 fn pipework_step_right_boundary_only_emits() {
     let (symbols, mut terms) = setup();
-    let nf = make_ground_nf("X", &symbols, &mut terms);
+    let nf = make_ground_nf("X", &symbols, &terms);
 
     let mut pipe: PipeWork<()> = PipeWork::with_boundaries(None, Factors::new(), Some(nf));
 
@@ -443,7 +446,7 @@ fn pipework_step_right_boundary_only_emits() {
 #[test]
 fn pipework_fuses_adjacent_atoms_anywhere() {
     let (symbols, mut terms) = setup();
-    let nf = make_ground_nf("A", &symbols, &mut terms);
+    let nf = make_ground_nf("A", &symbols, &terms);
     let rels = vec![
         atom_rel(nf.clone()),
         atom_rel(nf.clone()),
@@ -462,7 +465,7 @@ fn pipework_fuses_adjacent_atoms_anywhere() {
 #[test]
 fn pipework_fuses_middle_atoms_before_advancing_ends() {
     let (symbols, mut terms) = setup();
-    let nf = make_ground_nf("A", &symbols, &mut terms);
+    let nf = make_ground_nf("A", &symbols, &terms);
     let atom = atom_rel(nf);
     let or = Arc::new(Rel::Or(atom.clone(), atom.clone()));
 
@@ -515,7 +518,7 @@ fn pipework_fuses_middle_atoms_before_advancing_ends() {
 #[test]
 fn pipework_step_single_atom_absorbs_to_left() {
     let (symbols, mut terms) = setup();
-    let nf = make_ground_nf("X", &symbols, &mut terms);
+    let nf = make_ground_nf("X", &symbols, &terms);
     let rels = vec![atom_rel(nf.clone())];
     let mid = factors_from_rels(rels);
 
@@ -544,8 +547,8 @@ fn pipework_step_single_atom_absorbs_to_left() {
 #[test]
 fn pipework_step_atom_composes_with_left_boundary() {
     let (symbols, mut terms) = setup();
-    let left = make_ground_nf("X", &symbols, &mut terms);
-    let atom_nf = make_ground_nf("X", &symbols, &mut terms);
+    let left = make_ground_nf("X", &symbols, &terms);
+    let atom_nf = make_ground_nf("X", &symbols, &terms);
     let rels = vec![atom_rel(atom_nf)];
     let mid = factors_from_rels(rels);
 
@@ -579,7 +582,7 @@ fn pipework_step_or_in_mid_splits() {
 #[test]
 fn pipework_step_or_with_boundaries_splits() {
     let (symbols, mut terms) = setup();
-    let left = make_ground_nf("X", &symbols, &mut terms);
+    let left = make_ground_nf("X", &symbols, &terms);
     let a: Arc<Rel<()>> = Arc::new(Rel::Zero);
     let b: Arc<Rel<()>> = Arc::new(Rel::Zero);
     let or_rel = Arc::new(Rel::Or(a, b));
@@ -601,8 +604,8 @@ fn pipework_step_or_with_boundaries_splits() {
 #[test]
 fn split_or_returns_work_pipe_not_fail() {
     let (symbols, mut terms) = setup();
-    let nf_a = make_ground_nf("A", &symbols, &mut terms);
-    let nf_b = make_ground_nf("B", &symbols, &mut terms);
+    let nf_a = make_ground_nf("A", &symbols, &terms);
+    let nf_b = make_ground_nf("B", &symbols, &terms);
     let a: Arc<Rel<()>> = Arc::new(Rel::Atom(Arc::new(nf_a)));
     let b: Arc<Rel<()>> = Arc::new(Rel::Atom(Arc::new(nf_b)));
     let or_rel = Arc::new(Rel::Or(a, b));
@@ -628,8 +631,8 @@ fn split_or_returns_work_pipe_not_fail() {
 #[test]
 fn split_or_left_branch_has_a_factor() {
     let (symbols, mut terms) = setup();
-    let nf_a = make_ground_nf("A", &symbols, &mut terms);
-    let nf_b = make_ground_nf("B", &symbols, &mut terms);
+    let nf_a = make_ground_nf("A", &symbols, &terms);
+    let nf_b = make_ground_nf("B", &symbols, &terms);
     let a: Arc<Rel<()>> = Arc::new(Rel::Atom(Arc::new(nf_a.clone())));
     let b: Arc<Rel<()>> = Arc::new(Rel::Atom(Arc::new(nf_b)));
     let or_rel = Arc::new(Rel::Or(a, b));
@@ -661,8 +664,8 @@ fn split_or_left_branch_has_a_factor() {
 #[test]
 fn split_or_right_branch_has_b_factor() {
     let (symbols, mut terms) = setup();
-    let nf_a = make_ground_nf("A", &symbols, &mut terms);
-    let nf_b = make_ground_nf("B", &symbols, &mut terms);
+    let nf_a = make_ground_nf("A", &symbols, &terms);
+    let nf_b = make_ground_nf("B", &symbols, &terms);
     let a: Arc<Rel<()>> = Arc::new(Rel::Atom(Arc::new(nf_a)));
     let b: Arc<Rel<()>> = Arc::new(Rel::Atom(Arc::new(nf_b.clone())));
     let or_rel = Arc::new(Rel::Or(a, b));
@@ -694,9 +697,9 @@ fn split_or_right_branch_has_b_factor() {
 #[test]
 fn split_or_preserves_left_boundary() {
     let (symbols, mut terms) = setup();
-    let boundary = make_ground_nf("BOUNDARY", &symbols, &mut terms);
-    let nf_a = make_ground_nf("A", &symbols, &mut terms);
-    let nf_b = make_ground_nf("B", &symbols, &mut terms);
+    let boundary = make_ground_nf("BOUNDARY", &symbols, &terms);
+    let nf_a = make_ground_nf("A", &symbols, &terms);
+    let nf_b = make_ground_nf("B", &symbols, &terms);
     let a: Arc<Rel<()>> = Arc::new(Rel::Atom(Arc::new(nf_a)));
     let b: Arc<Rel<()>> = Arc::new(Rel::Atom(Arc::new(nf_b)));
     let or_rel = Arc::new(Rel::Or(a, b));
@@ -730,9 +733,9 @@ fn split_or_preserves_left_boundary() {
 #[test]
 fn split_or_preserves_right_boundary() {
     let (symbols, mut terms) = setup();
-    let boundary = make_ground_nf("BOUNDARY", &symbols, &mut terms);
-    let nf_a = make_ground_nf("A", &symbols, &mut terms);
-    let nf_b = make_ground_nf("B", &symbols, &mut terms);
+    let boundary = make_ground_nf("BOUNDARY", &symbols, &terms);
+    let nf_a = make_ground_nf("A", &symbols, &terms);
+    let nf_b = make_ground_nf("B", &symbols, &terms);
     let a: Arc<Rel<()>> = Arc::new(Rel::Atom(Arc::new(nf_a)));
     let b: Arc<Rel<()>> = Arc::new(Rel::Atom(Arc::new(nf_b)));
     let or_rel = Arc::new(Rel::Or(a, b));
@@ -765,7 +768,7 @@ fn split_or_preserves_right_boundary() {
 #[test]
 fn pipework_prefers_non_call_over_call_on_opposite_end() {
     let (symbols, mut terms) = setup();
-    let left_nf = make_ground_nf("L", &symbols, &mut terms);
+    let left_nf = make_ground_nf("L", &symbols, &terms);
     let right_nf = left_nf.clone();
     let left_rel: Arc<Rel<()>> = Arc::new(Rel::Atom(Arc::new(left_nf)));
     let right_rel: Arc<Rel<()>> = Arc::new(Rel::Atom(Arc::new(right_nf)));
@@ -774,7 +777,7 @@ fn pipework_prefers_non_call_over_call_on_opposite_end() {
     let mid = factors_from_rels(vec![and_rel, call_rel]);
 
     let body = Arc::new(Rel::Atom(Arc::new(make_ground_nf(
-        "BODY", &symbols, &mut terms,
+        "BODY", &symbols, &terms,
     ))));
     let mut pipe: PipeWork<()> = PipeWork::with_mid(mid);
     pipe.env = Env::new().bind(0, body);
@@ -792,10 +795,10 @@ fn pipework_prefers_non_call_over_call_on_opposite_end() {
 #[test]
 fn split_or_preserves_both_boundaries() {
     let (symbols, mut terms) = setup();
-    let left_boundary = make_ground_nf("LEFT", &symbols, &mut terms);
-    let right_boundary = make_ground_nf("RIGHT", &symbols, &mut terms);
-    let nf_a = make_ground_nf("A", &symbols, &mut terms);
-    let nf_b = make_ground_nf("B", &symbols, &mut terms);
+    let left_boundary = make_ground_nf("LEFT", &symbols, &terms);
+    let right_boundary = make_ground_nf("RIGHT", &symbols, &terms);
+    let nf_a = make_ground_nf("A", &symbols, &terms);
+    let nf_b = make_ground_nf("B", &symbols, &terms);
     let a: Arc<Rel<()>> = Arc::new(Rel::Atom(Arc::new(nf_a)));
     let b: Arc<Rel<()>> = Arc::new(Rel::Atom(Arc::new(nf_b)));
     let or_rel = Arc::new(Rel::Or(a, b));
@@ -860,9 +863,9 @@ fn split_or_preserves_remaining_mid() {
 #[test]
 fn split_or_preserves_env() {
     let (symbols, mut terms) = setup();
-    let nf_a = make_ground_nf("A", &symbols, &mut terms);
-    let nf_b = make_ground_nf("B", &symbols, &mut terms);
-    let nf_body = make_ground_nf("BODY", &symbols, &mut terms);
+    let nf_a = make_ground_nf("A", &symbols, &terms);
+    let nf_b = make_ground_nf("B", &symbols, &terms);
+    let nf_body = make_ground_nf("BODY", &symbols, &terms);
     let a: Arc<Rel<()>> = Arc::new(Rel::Atom(Arc::new(nf_a)));
     let b: Arc<Rel<()>> = Arc::new(Rel::Atom(Arc::new(nf_b)));
     let or_rel = Arc::new(Rel::Or(a, b));
@@ -942,8 +945,8 @@ fn pipework_step_zero_in_mid_returns_done() {
 #[test]
 fn pipework_step_zero_with_boundaries_returns_done() {
     let (symbols, mut terms) = setup();
-    let left = make_ground_nf("X", &symbols, &mut terms);
-    let right = make_ground_nf("X", &symbols, &mut terms);
+    let left = make_ground_nf("X", &symbols, &terms);
+    let right = make_ground_nf("X", &symbols, &terms);
     let zero_rel = Arc::new(Rel::Zero);
     let mid = factors_from_rels(vec![zero_rel]);
 
@@ -1022,8 +1025,8 @@ fn work_atom_step_emits_then_done() {
 fn pipework_multiple_atoms_compose() {
     let (symbols, mut terms) = setup();
     // X -> X ; X -> X should compose to X -> X
-    let nf1 = make_ground_nf("X", &symbols, &mut terms);
-    let nf2 = make_ground_nf("X", &symbols, &mut terms);
+    let nf1 = make_ground_nf("X", &symbols, &terms);
+    let nf2 = make_ground_nf("X", &symbols, &terms);
     let rels = vec![atom_rel(nf1), atom_rel(nf2)];
     let mid = factors_from_rels(rels);
 
@@ -1063,7 +1066,7 @@ fn pipework_step_back_atom_absorbs_to_right() {
     // Create: mid = [Or(...), Atom(X->X)]
     // The Atom at the BACK should be absorbed into right boundary
     // BEFORE the Or at front is processed.
-    let nf = make_ground_nf("X", &symbols, &mut terms);
+    let nf = make_ground_nf("X", &symbols, &terms);
 
     // Put an Or at front so front isn't an Atom
     let or_rel = Arc::new(Rel::Or(Arc::new(Rel::Zero), Arc::new(Rel::Zero)));
@@ -1108,8 +1111,8 @@ fn pipework_step_absorbs_both_ends_before_advancing() {
     let (symbols, mut terms) = setup();
     // mid = [Atom(A->A), Or(...), Atom(B->B)]
     // Both atoms should be absorbed before Or is processed
-    let nf_a = make_ground_nf("A", &symbols, &mut terms);
-    let nf_b = make_ground_nf("B", &symbols, &mut terms);
+    let nf_a = make_ground_nf("A", &symbols, &terms);
+    let nf_b = make_ground_nf("B", &symbols, &terms);
 
     let atom_a = Arc::new(Rel::Atom(Arc::new(nf_a.clone())));
     let or_rel = Arc::new(Rel::Or(Arc::new(Rel::Zero), Arc::new(Rel::Zero)));
@@ -1229,12 +1232,12 @@ fn pipework_step_right_boundary_composes() {
 #[test]
 fn meetwork_construction_both_fail() {
     let meet: MeetWork<()> = MeetWork::new(Node::Fail, Node::Fail);
-    assert!(matches!(*meet.left, Node::Fail));
-    assert!(matches!(*meet.right, Node::Fail));
-    assert!(meet.seen_l.is_empty());
-    assert!(meet.seen_r.is_empty());
-    assert!(meet.pending.is_empty());
-    assert!(!meet.flip);
+    assert!(matches!(meet.left(), Node::Fail));
+    assert!(matches!(meet.right(), Node::Fail));
+    assert!(meet.seen_l().is_empty());
+    assert!(meet.seen_r().is_empty());
+    assert!(meet.pending_is_empty());
+    assert!(!meet.flip());
 }
 
 #[test]
@@ -1242,8 +1245,8 @@ fn meetwork_construction_left_fail_right_emit() {
     let nf = make_identity_nf();
     let right = Node::Emit(nf, Box::new(Node::Fail));
     let meet: MeetWork<()> = MeetWork::new(Node::Fail, right);
-    assert!(matches!(*meet.left, Node::Fail));
-    assert!(matches!(*meet.right, Node::Emit(_, _)));
+    assert!(matches!(meet.left(), Node::Fail));
+    assert!(matches!(meet.right(), Node::Emit(_, _)));
 }
 
 #[test]
@@ -1251,8 +1254,8 @@ fn meetwork_construction_left_emit_right_fail() {
     let nf = make_identity_nf();
     let left = Node::Emit(nf, Box::new(Node::Fail));
     let meet: MeetWork<()> = MeetWork::new(left, Node::Fail);
-    assert!(matches!(*meet.left, Node::Emit(_, _)));
-    assert!(matches!(*meet.right, Node::Fail));
+    assert!(matches!(meet.left(), Node::Emit(_, _)));
+    assert!(matches!(meet.right(), Node::Fail));
 }
 
 #[test]
@@ -1262,8 +1265,8 @@ fn meetwork_construction_both_emit() {
     let left = Node::Emit(nf1, Box::new(Node::Fail));
     let right = Node::Emit(nf2, Box::new(Node::Fail));
     let meet: MeetWork<()> = MeetWork::new(left, right);
-    assert!(matches!(*meet.left, Node::Emit(_, _)));
-    assert!(matches!(*meet.right, Node::Emit(_, _)));
+    assert!(matches!(meet.left(), Node::Emit(_, _)));
+    assert!(matches!(meet.right(), Node::Emit(_, _)));
 }
 
 #[test]
@@ -1274,7 +1277,7 @@ fn meetwork_construction_deep_left_or() {
         node = Node::Or(Box::new(node), Box::new(Node::Fail));
     }
     let meet: MeetWork<()> = MeetWork::new(node, Node::Fail);
-    assert!(matches!(*meet.left, Node::Or(_, _)));
+    assert!(matches!(meet.left(), Node::Or(_, _)));
 }
 
 // ========================================================================
@@ -1350,7 +1353,7 @@ fn meetwork_step_right_fail_returns_done() {
 #[test]
 fn meetwork_steps_work_nodes() {
     let (symbols, mut terms) = setup();
-    let nf = make_ground_nf("A", &symbols, &mut terms);
+    let nf = make_ground_nf("A", &symbols, &terms);
     let rel = Arc::new(Rel::Atom(Arc::new(nf.clone())));
     let factors = Factors::from_seq(Arc::from(vec![rel]));
     let left_pipe = PipeWork::with_mid(factors);
@@ -1386,8 +1389,8 @@ fn meetwork_steps_work_nodes() {
 fn meetwork_step_identical_answers_produces_meet() {
     let (symbols, mut terms) = setup();
     // Both sides emit X -> X, which should meet successfully
-    let nf1 = make_ground_nf("X", &symbols, &mut terms);
-    let nf2 = make_ground_nf("X", &symbols, &mut terms);
+    let nf1 = make_ground_nf("X", &symbols, &terms);
+    let nf2 = make_ground_nf("X", &symbols, &terms);
     let left = Node::Emit(nf1, Box::new(Node::Fail));
     let right = Node::Emit(nf2, Box::new(Node::Fail));
     let mut meet: MeetWork<()> = MeetWork::new(left, right);
@@ -1420,7 +1423,7 @@ fn meetwork_step_identity_with_ground_specializes() {
     // Right: A -> A (ground)
     // Meet should produce A -> A
     let identity = make_var_identity_nf(&mut terms);
-    let ground = make_ground_nf("A", &symbols, &mut terms);
+    let ground = make_ground_nf("A", &symbols, &terms);
 
     let left = Node::Emit(identity, Box::new(Node::Fail));
     let right = Node::Emit(ground.clone(), Box::new(Node::Fail));
@@ -1463,8 +1466,8 @@ fn meetwork_step_incompatible_ground_no_emit() {
     // Left: A -> A
     // Right: B -> B
     // These can't meet (A != B)
-    let nf_a = make_ground_nf("A", &symbols, &mut terms);
-    let nf_b = make_ground_nf("B", &symbols, &mut terms);
+    let nf_a = make_ground_nf("A", &symbols, &terms);
+    let nf_b = make_ground_nf("B", &symbols, &terms);
 
     let left = Node::Emit(nf_a, Box::new(Node::Fail));
     let right = Node::Emit(nf_b, Box::new(Node::Fail));
@@ -1498,7 +1501,7 @@ fn meetwork_step_arity_mismatch_no_emit() {
     let (symbols, mut terms) = setup();
     // Left: 1-in, 1-out
     // Right: 2-in, 2-out (if we can construct it)
-    let single = make_ground_nf("X", &symbols, &mut terms);
+    let single = make_ground_nf("X", &symbols, &terms);
 
     // Create a 2-tuple pattern
     let pair_sym = symbols.intern("Pair");
@@ -1561,7 +1564,7 @@ fn meetwork_step_flip_alternates_sides() {
     let mut steps = 0;
     let mut flip_values = Vec::new();
     for _ in 0..10 {
-        flip_values.push(meet.flip);
+        flip_values.push(meet.flip());
         let step = meet.step(&mut terms);
         match step {
             WorkStep::Done => break,
@@ -1599,8 +1602,8 @@ fn meetwork_step_multiple_meets_all_produced() {
 
     let id1 = make_var_identity_nf(&mut terms);
     let id2 = make_var_identity_nf(&mut terms);
-    let nf_a = make_ground_nf("A", &symbols, &mut terms);
-    let nf_b = make_ground_nf("B", &symbols, &mut terms);
+    let nf_a = make_ground_nf("A", &symbols, &terms);
+    let nf_b = make_ground_nf("B", &symbols, &terms);
 
     let left = Node::Emit(id1, Box::new(Node::Emit(id2, Box::new(Node::Fail))));
     let right = Node::Emit(nf_a, Box::new(Node::Emit(nf_b, Box::new(Node::Fail))));
@@ -1650,8 +1653,7 @@ fn meetwork_pending_emits_before_pulls() {
     let nf2 = make_identity_nf();
 
     let mut meet: MeetWork<()> = MeetWork::new(Node::Fail, Node::Fail);
-    meet.pending.push_back(nf1);
-    meet.pending.push_back(nf2);
+    push_pending_all(&mut meet, &[nf1, nf2]);
 
     // First step should emit from pending
     let step = meet.step(&mut terms);
@@ -1665,14 +1667,12 @@ fn meetwork_pending_emits_before_pulls() {
 fn meetwork_pending_preserves_order() {
     let (symbols, mut terms) = setup();
     // Pre-populate pending with ordered items
-    let nf_a = make_ground_nf("A", &symbols, &mut terms);
-    let nf_b = make_ground_nf("B", &symbols, &mut terms);
-    let nf_c = make_ground_nf("C", &symbols, &mut terms);
+    let nf_a = make_ground_nf("A", &symbols, &terms);
+    let nf_b = make_ground_nf("B", &symbols, &terms);
+    let nf_c = make_ground_nf("C", &symbols, &terms);
 
     let mut meet: MeetWork<()> = MeetWork::new(Node::Fail, Node::Fail);
-    meet.pending.push_back(nf_a.clone());
-    meet.pending.push_back(nf_b.clone());
-    meet.pending.push_back(nf_c.clone());
+    push_pending_all(&mut meet, &[nf_a.clone(), nf_b.clone(), nf_c.clone()]);
 
     // Should emit in FIFO order
     let mut emitted = Vec::new();
@@ -1708,7 +1708,7 @@ fn meetwork_drains_pending_before_done() {
     // Both sides exhausted but pending has items
     let nf = make_identity_nf();
     let mut meet: MeetWork<()> = MeetWork::new(Node::Fail, Node::Fail);
-    meet.pending.push_back(nf);
+    push_pending_all(&mut meet, &[nf]);
 
     let step = meet.step(&mut terms);
     // Should NOT return Done if pending has items
@@ -1727,9 +1727,9 @@ fn meetwork_left_exhausts_first() {
     let (symbols, mut terms) = setup();
     // Left has 1 variable identity, right has 3 ground answers
     let id = make_var_identity_nf(&mut terms);
-    let nf_a = make_ground_nf("A", &symbols, &mut terms);
-    let nf_b = make_ground_nf("B", &symbols, &mut terms);
-    let nf_c = make_ground_nf("C", &symbols, &mut terms);
+    let nf_a = make_ground_nf("A", &symbols, &terms);
+    let nf_b = make_ground_nf("B", &symbols, &terms);
+    let nf_c = make_ground_nf("C", &symbols, &terms);
 
     let left = Node::Emit(id, Box::new(Node::Fail));
     let right = Node::Emit(
@@ -1774,9 +1774,9 @@ fn meetwork_left_exhausts_first() {
 fn meetwork_right_exhausts_first() {
     let (symbols, mut terms) = setup();
     // Left has 3 ground answers, right has 1 variable identity
-    let nf_a = make_ground_nf("A", &symbols, &mut terms);
-    let nf_b = make_ground_nf("B", &symbols, &mut terms);
-    let nf_c = make_ground_nf("C", &symbols, &mut terms);
+    let nf_a = make_ground_nf("A", &symbols, &terms);
+    let nf_b = make_ground_nf("B", &symbols, &terms);
+    let nf_c = make_ground_nf("C", &symbols, &terms);
     let id = make_var_identity_nf(&mut terms);
 
     let left = Node::Emit(
@@ -1877,7 +1877,7 @@ fn meetwork_seen_l_grows_after_left_emit() {
     let left = Node::Emit(nf.clone(), Box::new(Node::Fail));
     let mut meet: MeetWork<()> = MeetWork::new(left, Node::Fail);
 
-    assert!(meet.seen_l.is_empty(), "seen_l should start empty");
+    assert!(meet.seen_l().is_empty(), "seen_l should start empty");
 
     // Step to pull from left
     loop {
@@ -1887,7 +1887,7 @@ fn meetwork_seen_l_grows_after_left_emit() {
             WorkStep::More(work) => {
                 if let Work::Meet(m) = *work {
                     meet = m;
-                    if !meet.seen_l.is_empty() {
+                    if !meet.seen_l().is_empty() {
                         break;
                     }
                 }
@@ -1897,7 +1897,7 @@ fn meetwork_seen_l_grows_after_left_emit() {
     }
 
     assert_eq!(
-        meet.seen_l.len(),
+        meet.seen_l().len(),
         1,
         "seen_l should have 1 entry after pulling from left"
     );
@@ -1910,10 +1910,10 @@ fn meetwork_seen_r_grows_after_right_emit() {
     let right = Node::Emit(nf.clone(), Box::new(Node::Fail));
     let mut meet: MeetWork<()> = MeetWork::new(Node::Fail, right);
 
-    assert!(meet.seen_r.is_empty(), "seen_r should start empty");
+    assert!(meet.seen_r().is_empty(), "seen_r should start empty");
 
     // Step to pull from right (may need flip to be true)
-    meet.flip = true; // Force pull from right
+    meet.set_flip(true); // Force pull from right
     loop {
         let step = meet.step(&mut terms);
         match step {
@@ -1921,7 +1921,7 @@ fn meetwork_seen_r_grows_after_right_emit() {
             WorkStep::More(work) => {
                 if let Work::Meet(m) = *work {
                     meet = m;
-                    if !meet.seen_r.is_empty() {
+                    if !meet.seen_r().is_empty() {
                         break;
                     }
                 }
@@ -2015,7 +2015,7 @@ fn meetwork_symmetric_produces_same_results() {
     let (symbols, mut terms1) = setup();
     let (_, mut terms2) = setup();
 
-    let nf_a = make_ground_nf("A", &symbols, &mut terms1);
+    let nf_a = make_ground_nf("A", &symbols, &terms1);
     let id = make_identity_nf();
 
     // Meet(A, id) vs Meet(id, A) should produce same results
@@ -2186,7 +2186,7 @@ fn env_lookup_returns_bound_rel() {
 
     let looked_up = env2.lookup(42).expect("binding");
     // Check it's the same Arc
-    assert!(Arc::ptr_eq(looked_up.body(), &rel));
+    assert!(Arc::ptr_eq(&looked_up.body, &rel));
 }
 
 #[test]
@@ -2210,8 +2210,8 @@ fn env_bind_overwrites_existing() {
 
     // Should get the new binding
     let looked_up = env3.lookup(0).expect("binding");
-    assert!(Arc::ptr_eq(looked_up.body(), &rel2));
-    assert!(!Arc::ptr_eq(looked_up.body(), &rel1));
+    assert!(Arc::ptr_eq(&looked_up.body, &rel2));
+    assert!(!Arc::ptr_eq(&looked_up.body, &rel1));
 }
 
 #[test]
@@ -2288,9 +2288,9 @@ fn callkey_equality_same_boundaries() {
 
 #[test]
 fn callkey_inequality_different_left() {
-    let (symbols, mut terms) = setup();
-    let nf_a = make_ground_nf("A", &symbols, &mut terms);
-    let nf_b = make_ground_nf("B", &symbols, &mut terms);
+    let (symbols, terms) = setup();
+    let nf_a = make_ground_nf("A", &symbols, &terms);
+    let nf_b = make_ground_nf("B", &symbols, &terms);
 
     let key1: CallKey<()> = CallKey::new(0, 1, Some(nf_a), None);
     let key2: CallKey<()> = CallKey::new(0, 1, Some(nf_b), None);
@@ -2299,9 +2299,9 @@ fn callkey_inequality_different_left() {
 
 #[test]
 fn callkey_inequality_different_right() {
-    let (symbols, mut terms) = setup();
-    let nf_a = make_ground_nf("A", &symbols, &mut terms);
-    let nf_b = make_ground_nf("B", &symbols, &mut terms);
+    let (symbols, terms) = setup();
+    let nf_a = make_ground_nf("A", &symbols, &terms);
+    let nf_b = make_ground_nf("B", &symbols, &terms);
 
     let key1: CallKey<()> = CallKey::new(0, 1, None, Some(nf_a));
     let key2: CallKey<()> = CallKey::new(0, 1, None, Some(nf_b));
@@ -2337,9 +2337,9 @@ fn callkey_is_clone() {
 #[test]
 fn callkey_ignores_mid_context_for_same_boundaries() {
     let (symbols, mut terms) = setup();
-    let nf_a = make_ground_nf("A", &symbols, &mut terms);
-    let nf_b = make_ground_nf("B", &symbols, &mut terms);
-    let body_nf = make_ground_nf("BODY", &symbols, &mut terms);
+    let nf_a = make_ground_nf("A", &symbols, &terms);
+    let nf_b = make_ground_nf("B", &symbols, &terms);
+    let body_nf = make_ground_nf("BODY", &symbols, &terms);
     let body: Arc<Rel<()>> = Arc::new(Rel::Atom(Arc::new(body_nf)));
     let env = Env::new().bind(0, body);
 
@@ -2421,11 +2421,11 @@ fn table_add_answer() {
 
 #[test]
 fn table_add_multiple_answers() {
-    let (symbols, mut terms) = setup();
+    let (symbols, terms) = setup();
     let table: Table<()> = Table::new();
-    let nf1 = make_ground_nf("A", &symbols, &mut terms);
-    let nf2 = make_ground_nf("B", &symbols, &mut terms);
-    let nf3 = make_ground_nf("C", &symbols, &mut terms);
+    let nf1 = make_ground_nf("A", &symbols, &terms);
+    let nf2 = make_ground_nf("B", &symbols, &terms);
+    let nf3 = make_ground_nf("C", &symbols, &terms);
 
     table.add_answer(nf1);
     table.add_answer(nf2);
@@ -2495,11 +2495,11 @@ fn table_next_answer_single() {
 
 #[test]
 fn table_next_answer_multiple() {
-    let (symbols, mut terms) = setup();
+    let (symbols, terms) = setup();
     let table: Table<()> = Table::new();
-    table.add_answer(make_ground_nf("A", &symbols, &mut terms));
-    table.add_answer(make_ground_nf("B", &symbols, &mut terms));
-    table.add_answer(make_ground_nf("C", &symbols, &mut terms));
+    table.add_answer(make_ground_nf("A", &symbols, &terms));
+    table.add_answer(make_ground_nf("B", &symbols, &terms));
+    table.add_answer(make_ground_nf("C", &symbols, &terms));
     assert!(table.answer_at(0).is_some());
     assert!(table.answer_at(1).is_some());
     assert!(table.answer_at(2).is_some());
@@ -2508,10 +2508,10 @@ fn table_next_answer_multiple() {
 
 #[test]
 fn table_next_answer_increments_index() {
-    let (symbols, mut terms) = setup();
+    let (symbols, terms) = setup();
     let table: Table<()> = Table::new();
-    let nf_a = make_ground_nf("A", &symbols, &mut terms);
-    let nf_b = make_ground_nf("B", &symbols, &mut terms);
+    let nf_a = make_ground_nf("A", &symbols, &terms);
+    let nf_b = make_ground_nf("B", &symbols, &terms);
     table.add_answer(nf_a.clone());
     table.add_answer(nf_b.clone());
     assert_eq!(table.answer_at(0), Some(nf_a));
@@ -2520,10 +2520,10 @@ fn table_next_answer_increments_index() {
 
 #[test]
 fn table_reset_consumer() {
-    let (symbols, mut terms) = setup();
+    let (symbols, terms) = setup();
     let table: Table<()> = Table::new();
-    let nf_a = make_ground_nf("A", &symbols, &mut terms);
-    let nf_b = make_ground_nf("B", &symbols, &mut terms);
+    let nf_a = make_ground_nf("A", &symbols, &terms);
+    let nf_b = make_ground_nf("B", &symbols, &terms);
     table.add_answer(nf_a.clone());
     table.add_answer(nf_b.clone());
     assert_eq!(table.answer_at(0), Some(nf_a.clone()));
@@ -2533,10 +2533,10 @@ fn table_reset_consumer() {
 
 #[test]
 fn table_all_answers() {
-    let (symbols, mut terms) = setup();
+    let (symbols, terms) = setup();
     let table: Table<()> = Table::new();
-    table.add_answer(make_ground_nf("A", &symbols, &mut terms));
-    table.add_answer(make_ground_nf("B", &symbols, &mut terms));
+    table.add_answer(make_ground_nf("A", &symbols, &terms));
+    table.add_answer(make_ground_nf("B", &symbols, &terms));
 
     let all = table.all_answers();
     assert_eq!(all.len(), 2);
@@ -2544,10 +2544,10 @@ fn table_all_answers() {
 
 #[test]
 fn table_has_more_answers() {
-    let (symbols, mut terms) = setup();
+    let (symbols, terms) = setup();
     let table: Table<()> = Table::new();
-    table.add_answer(make_ground_nf("A", &symbols, &mut terms));
-    table.add_answer(make_ground_nf("B", &symbols, &mut terms));
+    table.add_answer(make_ground_nf("A", &symbols, &terms));
+    table.add_answer(make_ground_nf("B", &symbols, &terms));
     assert!(table.answer_at(1).is_some());
     assert!(table.answer_at(2).is_none());
 }
@@ -2566,8 +2566,8 @@ fn table_default_is_new() {
 #[test]
 fn tables_new_is_empty() {
     let tables: Tables<()> = Tables::new();
-    assert!(tables.is_empty());
-    assert_eq!(tables.len(), 0);
+    let key: CallKey<()> = CallKey::new(0, 0, None, None);
+    assert!(tables.lookup(&key).is_none());
 }
 
 #[test]
@@ -2583,9 +2583,8 @@ fn tables_get_or_create_new() {
     let key: CallKey<()> = CallKey::new(0, 0, None, None);
 
     let table = tables.get_or_create(key.clone());
-    assert!(!tables.is_empty());
-    assert_eq!(tables.len(), 1);
     assert_eq!(table.answers_len(), 0);
+    assert!(tables.lookup(&key).is_some());
 }
 
 #[test]
@@ -2599,7 +2598,6 @@ fn tables_get_or_create_existing() {
     // Getting same key should return same table
     let table2 = tables.get_or_create(key);
     assert_eq!(table2.answers_len(), 1);
-    assert_eq!(tables.len(), 1);
 }
 
 #[test]
@@ -2608,10 +2606,10 @@ fn tables_contains() {
     let key1: CallKey<()> = CallKey::new(0, 0, None, None);
     let key2: CallKey<()> = CallKey::new(1, 0, None, None);
 
-    assert!(!tables.contains(&key1));
+    assert!(tables.lookup(&key1).is_none());
     let _ = tables.get_or_create(key1.clone());
-    assert!(tables.contains(&key1));
-    assert!(!tables.contains(&key2));
+    assert!(tables.lookup(&key1).is_some());
+    assert!(tables.lookup(&key2).is_none());
 }
 
 #[test]
@@ -2621,11 +2619,13 @@ fn tables_multiple_keys() {
     let key2: CallKey<()> = CallKey::new(1, 0, None, None);
     let key3: CallKey<()> = CallKey::new(2, 0, None, None);
 
-    let _ = tables.get_or_create(key1);
-    let _ = tables.get_or_create(key2);
-    let _ = tables.get_or_create(key3);
+    let _ = tables.get_or_create(key1.clone());
+    let _ = tables.get_or_create(key2.clone());
+    let _ = tables.get_or_create(key3.clone());
 
-    assert_eq!(tables.len(), 3);
+    assert!(tables.lookup(&CallKey::new(0, 0, None, None)).is_some());
+    assert!(tables.lookup(&CallKey::new(1, 0, None, None)).is_some());
+    assert!(tables.lookup(&CallKey::new(2, 0, None, None)).is_some());
 }
 
 #[test]
@@ -2641,7 +2641,8 @@ fn tables_lookup_after_create() {
 #[test]
 fn tables_default_is_new() {
     let tables: Tables<()> = Tables::default();
-    assert!(tables.is_empty());
+    let key: CallKey<()> = CallKey::new(0, 0, None, None);
+    assert!(tables.lookup(&key).is_none());
 }
 
 #[test]
@@ -2652,8 +2653,8 @@ fn tables_is_clone() {
     table.add_answer(make_identity_nf());
 
     let tables2 = tables1.clone();
-    assert_eq!(tables1.len(), tables2.len());
-    // The cloned tables should share the same Arc references (im::HashMap behavior)
+    assert!(tables2.lookup(&key).is_some());
+    // The cloned tables should share the same Arc references.
 }
 
 #[test]
@@ -2664,8 +2665,10 @@ fn tables_clone_shares_updates() {
 
     let table1 = tables1.get_or_create(key.clone());
 
-    assert!(tables2.contains(&key), "Clone should see inserted table");
-    assert_eq!(tables1.len(), tables2.len());
+    assert!(
+        tables2.lookup(&key).is_some(),
+        "Clone should see inserted table"
+    );
 
     let table2 = tables2.get_or_create(key.clone());
     assert!(
@@ -2676,24 +2679,26 @@ fn tables_clone_shares_updates() {
 
 #[test]
 fn tables_keys_with_different_boundaries() {
-    let (symbols, mut terms) = setup();
+    let (symbols, terms) = setup();
     let tables: Tables<()> = Tables::new();
 
-    let nf_a = make_ground_nf("A", &symbols, &mut terms);
-    let nf_b = make_ground_nf("B", &symbols, &mut terms);
+    let nf_a = make_ground_nf("A", &symbols, &terms);
+    let nf_b = make_ground_nf("B", &symbols, &terms);
 
     // Same rel, different boundaries should be different keys
     let key1: CallKey<()> = CallKey::new(0, 0, Some(nf_a.clone()), None);
     let key2: CallKey<()> = CallKey::new(0, 0, Some(nf_b), None);
     let key3: CallKey<()> = CallKey::new(0, 0, None, Some(nf_a));
 
-    let _ = tables.get_or_create(key1);
-    let _ = tables.get_or_create(key2);
-    let _ = tables.get_or_create(key3);
+    let _ = tables.get_or_create(key1.clone());
+    let _ = tables.get_or_create(key2.clone());
+    let _ = tables.get_or_create(key3.clone());
 
-    assert_eq!(
-        tables.len(),
-        3,
+    let t1 = tables.lookup(&key1).expect("table for key1");
+    let t2 = tables.lookup(&key2).expect("table for key2");
+    let t3 = tables.lookup(&key3).expect("table for key3");
+    assert!(
+        !Arc::ptr_eq(&t1, &t2) && !Arc::ptr_eq(&t1, &t3) && !Arc::ptr_eq(&t2, &t3),
         "Different boundaries should create different tables"
     );
 }
@@ -2723,8 +2728,8 @@ fn fixwork_handle_emits_existing_answers() {
     let key: CallKey<()> = CallKey::new(0, 0, None, None);
     let table = Arc::new(Table::new());
 
-    table.add_answer(make_ground_nf("A", &symbols, &mut terms));
-    table.add_answer(make_ground_nf("B", &symbols, &mut terms));
+    table.add_answer(make_ground_nf("A", &symbols, &terms));
+    table.add_answer(make_ground_nf("B", &symbols, &terms));
     table.finish_producer();
 
     let mut fix: FixWork<()> = FixWork::new(key, table, 0, Tables::new());
@@ -2757,7 +2762,7 @@ fn run_fixwork_starts_producer_and_emits_answer(use_dual: bool) {
     let (symbols, mut terms) = setup();
     let key: CallKey<()> = CallKey::new(0, 0, None, None);
     let table = Arc::new(Table::new());
-    let mut nf = make_ground_nf("A", &symbols, &mut terms);
+    let mut nf = make_ground_nf("A", &symbols, &terms);
     if use_dual {
         nf = dual_nf(&nf, &mut terms);
     }
@@ -2796,7 +2801,7 @@ fn run_fixwork_advances_running_producer_and_emits(use_dual: bool) {
     let (symbols, mut terms) = setup();
     let key: CallKey<()> = CallKey::new(0, 0, None, None);
     let table = Arc::new(Table::new());
-    let mut nf = make_ground_nf("A", &symbols, &mut terms);
+    let mut nf = make_ground_nf("A", &symbols, &terms);
     if use_dual {
         nf = dual_nf(&nf, &mut terms);
     }
@@ -2835,7 +2840,7 @@ fn run_fixwork_skips_duplicate_answer(use_dual: bool) {
     let (symbols, mut terms) = setup();
     let key: CallKey<()> = CallKey::new(0, 0, None, None);
     let table = Arc::new(Table::new());
-    let mut nf = make_ground_nf("A", &symbols, &mut terms);
+    let mut nf = make_ground_nf("A", &symbols, &terms);
     if use_dual {
         nf = dual_nf(&nf, &mut terms);
     }
@@ -2875,7 +2880,7 @@ fn run_fixwork_exhausted_marks_done(use_dual: bool) {
     let (symbols, mut terms) = setup();
     let key: CallKey<()> = CallKey::new(0, 0, None, None);
     let table = Arc::new(Table::new());
-    let mut nf = make_ground_nf("A", &symbols, &mut terms);
+    let mut nf = make_ground_nf("A", &symbols, &terms);
     if use_dual {
         nf = dual_nf(&nf, &mut terms);
     }
@@ -2911,7 +2916,7 @@ fn fix_producer_dedups_duplicate_answers() {
     let (symbols, mut terms) = setup();
     let tables = Tables::new();
     let table = Arc::new(Table::new());
-    let nf = make_ground_nf("A", &symbols, &mut terms);
+    let nf = make_ground_nf("A", &symbols, &terms);
     let producer_node = Node::Emit(
         nf.clone(),
         Box::new(Node::Emit(nf.clone(), Box::new(Node::Fail))),
@@ -2942,8 +2947,8 @@ fn run_fix_producer_continues_when_consumer_queue_full(use_dual: bool) {
     let (symbols, mut terms) = setup();
     let tables = Tables::new();
     let table = Arc::new(Table::new());
-    let mut nf_a = make_ground_nf("A", &symbols, &mut terms);
-    let mut nf_b = make_ground_nf("B", &symbols, &mut terms);
+    let mut nf_a = make_ground_nf("A", &symbols, &terms);
+    let mut nf_b = make_ground_nf("B", &symbols, &terms);
     if use_dual {
         nf_a = dual_nf(&nf_a, &mut terms);
         nf_b = dual_nf(&nf_b, &mut terms);
@@ -2994,8 +2999,8 @@ fn fix_producer_broadcasts_answers_to_all_consumers() {
     let (symbols, mut terms) = setup();
     let tables = Tables::new();
     let table = Arc::new(Table::new());
-    let nf_a = make_ground_nf("A", &symbols, &mut terms);
-    let nf_b = make_ground_nf("B", &symbols, &mut terms);
+    let nf_a = make_ground_nf("A", &symbols, &terms);
+    let nf_b = make_ground_nf("B", &symbols, &terms);
     let producer_node = Node::Emit(
         nf_a.clone(),
         Box::new(Node::Emit(nf_b.clone(), Box::new(Node::Fail))),
@@ -3052,8 +3057,8 @@ fn fix_consumer_replays_existing_answers() {
 
     let (symbols, mut terms) = setup();
     let table = Arc::new(Table::new());
-    let nf_a = make_ground_nf("A", &symbols, &mut terms);
-    let nf_b = make_ground_nf("B", &symbols, &mut terms);
+    let nf_a = make_ground_nf("A", &symbols, &terms);
+    let nf_b = make_ground_nf("B", &symbols, &terms);
 
     table.add_answer(nf_a.clone());
     table.add_answer(nf_b.clone());
@@ -3088,10 +3093,10 @@ fn call_replay_interleaves_with_new_answers() {
     use std::sync::Arc;
 
     let (symbols, mut terms) = setup();
-    let nf_a1 = make_ground_nf("A1", &symbols, &mut terms);
-    let nf_a2 = make_ground_nf("A2", &symbols, &mut terms);
-    let nf_b = make_ground_nf("B", &symbols, &mut terms);
-    let body_nf = make_ground_nf("BODY", &symbols, &mut terms);
+    let nf_a1 = make_ground_nf("A1", &symbols, &terms);
+    let nf_a2 = make_ground_nf("A2", &symbols, &terms);
+    let nf_b = make_ground_nf("B", &symbols, &terms);
+    let body_nf = make_ground_nf("BODY", &symbols, &terms);
     let body: Arc<Rel<()>> = Arc::new(Rel::Atom(Arc::new(body_nf)));
     let env = Env::new().bind(0, body.clone());
 
@@ -3220,8 +3225,8 @@ fn table_size_reasonable() {
 
 #[test]
 fn table_dedups_duplicate_answers() {
-    let (symbols, mut terms) = setup();
-    let nf = make_ground_nf("A", &symbols, &mut terms);
+    let (symbols, terms) = setup();
+    let nf = make_ground_nf("A", &symbols, &terms);
     let table: Table<()> = Table::new();
     table.add_answer(nf.clone());
     table.add_answer(nf);
@@ -3296,8 +3301,8 @@ fn callkey_size_reasonable() {
 
 fn run_join_receiver_emits_from_queue(use_dual: bool) {
     let (symbols, mut terms) = setup();
-    let mut nf1 = make_rule_nf("A", "B", &symbols, &mut terms);
-    let mut nf2 = make_rule_nf("B", "C", &symbols, &mut terms);
+    let mut nf1 = make_rule_nf("A", "B", &symbols, &terms);
+    let mut nf2 = make_rule_nf("B", "C", &symbols, &terms);
     if use_dual {
         nf1 = dual_nf(&nf1, &mut terms);
         nf2 = dual_nf(&nf2, &mut terms);
@@ -3343,7 +3348,7 @@ fn join_receiver_emits_from_queue_dual() {
 
 fn run_join_receiver_blocks_when_empty(use_dual: bool) {
     let (symbols, mut terms) = setup();
-    let mut nf = make_rule_nf("A", "B", &symbols, &mut terms);
+    let mut nf = make_rule_nf("A", "B", &symbols, &terms);
     if use_dual {
         nf = dual_nf(&nf, &mut terms);
     }

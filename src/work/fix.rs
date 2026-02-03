@@ -21,18 +21,9 @@ static NEXT_BIND_ID: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Clone, Debug)]
 pub(crate) struct Binding<C: Clone> {
-    id: BindId,
-    body: Arc<Rel<C>>,
-}
-
-impl<C: Clone> Binding<C> {
-    pub(crate) fn id(&self) -> BindId {
-        self.id
-    }
-
-    pub(crate) fn body(&self) -> &Arc<Rel<C>> {
-        &self.body
-    }
+    pub(crate) rel: RelId,
+    pub(crate) id: BindId,
+    pub(crate) body: Arc<Rel<C>>,
 }
 
 /// Environment for Fix bindings (RelId -> Rel body).
@@ -40,36 +31,41 @@ impl<C: Clone> Binding<C> {
 /// Uses persistent map for efficient cloning during search.
 #[derive(Clone, Debug, Default)]
 pub struct Env<C: Clone> {
-    bindings: im::HashMap<RelId, Binding<C>>,
+    bindings: Vec<Binding<C>>,
 }
 
 impl<C: Clone> Env<C> {
     /// Create an empty environment.
     pub fn new() -> Self {
         Self {
-            bindings: im::HashMap::new(),
+            bindings: Vec::new(),
         }
     }
 
     /// Bind a RelId to a Rel body.
     pub fn bind(&self, id: RelId, body: Arc<Rel<C>>) -> Self {
         let binding = Binding {
+            rel: id,
             id: NEXT_BIND_ID.fetch_add(1, Ordering::Relaxed),
             body,
         };
         Self {
-            bindings: self.bindings.update(id, binding),
+            bindings: {
+                let mut bindings = self.bindings.clone();
+                bindings.push(binding);
+                bindings
+            },
         }
     }
 
     /// Look up a binding.
     pub(crate) fn lookup(&self, id: RelId) -> Option<&Binding<C>> {
-        self.bindings.get(&id)
+        self.bindings.iter().rev().find(|binding| binding.rel == id)
     }
 
     /// Check if a binding exists.
     pub fn contains(&self, id: RelId) -> bool {
-        self.bindings.contains_key(&id)
+        self.lookup(id).is_some()
     }
 }
 
@@ -340,6 +336,18 @@ impl<C: ConstraintOps> Default for Table<C> {
     }
 }
 
+fn make_replay_producer<C: ConstraintOps>(spec: &ProducerSpec<C>, tables: &Tables<C>) -> Node<C> {
+    let mut producer_pipe = PipeWork::from_rel_with_boundaries(
+        spec.body.as_ref().clone(),
+        spec.left.clone(),
+        spec.right.clone(),
+        spec.env.clone(),
+        tables.clone(),
+    );
+    producer_pipe.call_mode = CallMode::ReplayOnly(Box::new(spec.key.clone()));
+    Node::Work(Box::new(Work::Pipe(producer_pipe)))
+}
+
 pub fn step_table_producer<C: ConstraintOps>(
     table: &Arc<Table<C>>,
     terms: &mut TermStore,
@@ -357,15 +365,7 @@ pub fn step_table_producer<C: ConstraintOps>(
             table.set_producer_task_active(false);
             return ProducerStep::Done;
         };
-        let mut producer_pipe = PipeWork::from_rel_with_boundaries(
-            spec.body.as_ref().clone(),
-            spec.left.clone(),
-            spec.right.clone(),
-            spec.env.clone(),
-            tables.clone(),
-        );
-        producer_pipe.call_mode = CallMode::ReplayOnly(Box::new(spec.key.clone()));
-        let producer_node = Node::Work(Box::new(Work::Pipe(producer_pipe)));
+        let producer_node = make_replay_producer(&spec, tables);
         table.start_producer(producer_node, spec, table.answers_len());
     }
 
@@ -390,16 +390,8 @@ pub fn step_table_producer<C: ConstraintOps>(
                     table.set_producer_task_active(false);
                     return ProducerStep::Done;
                 };
-                let mut producer_pipe = PipeWork::from_rel_with_boundaries(
-                    spec.body.as_ref().clone(),
-                    spec.left.clone(),
-                    spec.right.clone(),
-                    spec.env.clone(),
-                    tables.clone(),
-                );
-                producer_pipe.call_mode = CallMode::ReplayOnly(Box::new(spec.key.clone()));
                 table.set_iteration_start_len(table.answers_len());
-                table.set_producer_node(Node::Work(Box::new(Work::Pipe(producer_pipe))));
+                table.set_producer_node(make_replay_producer(&spec, tables));
                 ProducerStep::Progress
             } else {
                 table.finish_producer();
@@ -418,25 +410,15 @@ type TableMap<C> = DashMap<CallKey<C>, Arc<Table<C>>>;
 #[derive(Clone, Debug)]
 pub struct Tables<C: ConstraintOps> {
     map: Arc<TableMap<C>>,
-    queue_bound: usize,
     wake_hub: Arc<WakeHub>,
 }
 
 impl<C: ConstraintOps> Tables<C> {
     /// Create an empty Tables collection.
     pub fn new() -> Self {
-        Self::with_queue_bound(64)
-    }
-
-    pub fn with_queue_bound(queue_bound: usize) -> Self {
         let (wake_hub, _rx) = WakeHub::new();
-        Self::with_queue_bound_and_waker(queue_bound, wake_hub)
-    }
-
-    pub fn with_queue_bound_and_waker(queue_bound: usize, wake_hub: Arc<WakeHub>) -> Self {
         Self {
             map: Arc::new(DashMap::new()),
-            queue_bound: queue_bound.max(1),
             wake_hub,
         }
     }
@@ -454,25 +436,6 @@ impl<C: ConstraintOps> Tables<C> {
         let table = Arc::new(Table::with_waker(self.waker()));
         let entry = self.map.entry(key).or_insert(table.clone());
         entry.value().clone()
-    }
-
-    /// Check if a table exists for a CallKey.
-    pub fn contains(&self, key: &CallKey<C>) -> bool {
-        self.map.contains_key(key)
-    }
-
-    /// Get the number of tables.
-    pub fn len(&self) -> usize {
-        self.map.len()
-    }
-
-    /// Check if empty.
-    pub fn is_empty(&self) -> bool {
-        self.map.is_empty()
-    }
-
-    pub fn queue_bound(&self) -> usize {
-        self.queue_bound
     }
 
     pub fn waker(&self) -> QueueWaker {

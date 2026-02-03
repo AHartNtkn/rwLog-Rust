@@ -1,10 +1,10 @@
 use crate::nf::NF;
 use crossbeam_channel::{Receiver, RecvTimeoutError, Sender, TryRecvError, TrySendError};
+use parking_lot::Mutex;
 use std::collections::HashSet;
 use std::hash::Hash;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use std::sync::Mutex;
 use std::time::Duration;
 
 #[derive(Clone, Debug)]
@@ -221,29 +221,25 @@ impl<C: Clone + Eq + Hash> AnswerSink<C> {
     pub fn push(&mut self, nf: NF<C>) -> SinkResult {
         match self {
             AnswerSink::Queue(sender) => sender.try_send(nf),
-            AnswerSink::DedupQueue { sender, seen } => match seen.lock() {
-                Ok(mut guard) => {
-                    if guard.contains(&nf) {
-                        return SinkResult::Accepted;
-                    }
-                    match sender.try_send(nf.clone()) {
-                        SinkResult::Accepted => {
-                            guard.insert(nf);
-                            SinkResult::Accepted
-                        }
-                        other => other,
-                    }
+            AnswerSink::DedupQueue { sender, seen } => {
+                let mut guard = seen.lock();
+                if guard.contains(&nf) {
+                    return SinkResult::Accepted;
                 }
-                Err(_) => SinkResult::Closed,
-            },
+                match sender.try_send(nf.clone()) {
+                    SinkResult::Accepted => {
+                        guard.insert(nf);
+                        SinkResult::Accepted
+                    }
+                    other => other,
+                }
+            }
             #[cfg(test)]
-            AnswerSink::Collector(out) => match out.lock() {
-                Ok(mut guard) => {
-                    guard.push(nf);
-                    SinkResult::Accepted
-                }
-                Err(_) => SinkResult::Closed,
-            },
+            AnswerSink::Collector(out) => {
+                let mut guard = out.lock();
+                guard.push(nf);
+                SinkResult::Accepted
+            }
         }
     }
 

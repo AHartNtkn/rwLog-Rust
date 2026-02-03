@@ -221,8 +221,9 @@ mod tests {
     use crate::kernel::dual_nf;
     use crate::queue::{AnswerQueue, AnswerSink, RecvResult, SinkResult, WakeHub};
     use crate::test_utils::{make_rule_nf, setup};
+    use parking_lot::Mutex;
     use std::collections::VecDeque;
-    use std::sync::{Arc, Mutex};
+    use std::sync::Arc;
 
     type CollectedAnswers = (AnswerSink<()>, Arc<Mutex<Vec<NF<()>>>>);
 
@@ -366,7 +367,7 @@ mod tests {
 
         run_until_done(&mut joiner, &mut terms, &mut sink);
         assert!(
-            out.lock().unwrap().is_empty(),
+            out.lock().is_empty(),
             "empty part should force empty result set"
         );
     }
@@ -400,7 +401,7 @@ mod tests {
         let (mut sink, out) = collect_sink();
 
         run_until_done(&mut joiner, &mut terms, &mut sink);
-        let out = out.lock().unwrap();
+        let out = out.lock();
         assert_eq!(out.len(), 1);
         assert_eq!(out[0], nf);
     }

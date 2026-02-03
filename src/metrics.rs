@@ -23,164 +23,230 @@ use std::sync::atomic::{AtomicU64, Ordering};
 /// All counters use relaxed ordering for minimal overhead.
 /// This means values may be slightly stale in multi-threaded contexts,
 /// but the final report after evaluation completes will be accurate.
-#[cfg(feature = "tracing")]
 pub struct EvalMetrics {
     /// Total evaluation steps taken
+    #[cfg(feature = "tracing")]
     pub steps: AtomicU64,
     /// Successful NF compositions
+    #[cfg(feature = "tracing")]
     pub compositions: AtomicU64,
     /// Failed composition attempts (matching failed)
+    #[cfg(feature = "tracing")]
     pub composition_failures: AtomicU64,
     /// Successful NF meets (conjunctions)
+    #[cfg(feature = "tracing")]
     pub meets: AtomicU64,
     /// Failed meet attempts
+    #[cfg(feature = "tracing")]
     pub meet_failures: AtomicU64,
     /// Backtrack operations
+    #[cfg(feature = "tracing")]
     pub backtracks: AtomicU64,
     /// Total matching attempts
+    #[cfg(feature = "tracing")]
     pub matches: AtomicU64,
     /// Failed matches
+    #[cfg(feature = "tracing")]
     pub match_failures: AtomicU64,
     /// Goal state transitions
+    #[cfg(feature = "tracing")]
     pub goal_transitions: AtomicU64,
     /// Tasks spawned
+    #[cfg(feature = "tracing")]
     pub tasks_spawned: AtomicU64,
     /// Tasks that blocked on a relation
+    #[cfg(feature = "tracing")]
     pub tasks_blocked: AtomicU64,
     /// Tasks that completed
+    #[cfg(feature = "tracing")]
     pub tasks_completed: AtomicU64,
     /// Continuation stack pushes
+    #[cfg(feature = "tracing")]
     pub kont_pushes: AtomicU64,
     /// Continuation stack pops
+    #[cfg(feature = "tracing")]
     pub kont_pops: AtomicU64,
     /// Maximum continuation stack depth observed
+    #[cfg(feature = "tracing")]
     pub max_kont_depth: AtomicU64,
     /// Answers yielded
+    #[cfg(feature = "tracing")]
     pub answers_yielded: AtomicU64,
 }
 
-#[cfg(feature = "tracing")]
 impl EvalMetrics {
     /// Create a new metrics collector with all counters at zero.
     pub fn new() -> Self {
-        Self {
-            steps: AtomicU64::new(0),
-            compositions: AtomicU64::new(0),
-            composition_failures: AtomicU64::new(0),
-            meets: AtomicU64::new(0),
-            meet_failures: AtomicU64::new(0),
-            backtracks: AtomicU64::new(0),
-            matches: AtomicU64::new(0),
-            match_failures: AtomicU64::new(0),
-            goal_transitions: AtomicU64::new(0),
-            tasks_spawned: AtomicU64::new(0),
-            tasks_blocked: AtomicU64::new(0),
-            tasks_completed: AtomicU64::new(0),
-            kont_pushes: AtomicU64::new(0),
-            kont_pops: AtomicU64::new(0),
-            max_kont_depth: AtomicU64::new(0),
-            answers_yielded: AtomicU64::new(0),
+        #[cfg(feature = "tracing")]
+        {
+            Self {
+                steps: AtomicU64::new(0),
+                compositions: AtomicU64::new(0),
+                composition_failures: AtomicU64::new(0),
+                meets: AtomicU64::new(0),
+                meet_failures: AtomicU64::new(0),
+                backtracks: AtomicU64::new(0),
+                matches: AtomicU64::new(0),
+                match_failures: AtomicU64::new(0),
+                goal_transitions: AtomicU64::new(0),
+                tasks_spawned: AtomicU64::new(0),
+                tasks_blocked: AtomicU64::new(0),
+                tasks_completed: AtomicU64::new(0),
+                kont_pushes: AtomicU64::new(0),
+                kont_pops: AtomicU64::new(0),
+                max_kont_depth: AtomicU64::new(0),
+                answers_yielded: AtomicU64::new(0),
+            }
+        }
+        #[cfg(not(feature = "tracing"))]
+        {
+            Self {}
         }
     }
 
     /// Record an evaluation step.
     #[inline]
     pub fn record_step(&self) {
-        self.steps.fetch_add(1, Ordering::Relaxed);
+        #[cfg(feature = "tracing")]
+        {
+            self.steps.fetch_add(1, Ordering::Relaxed);
+        }
     }
 
     /// Record a successful composition.
     #[inline]
     pub fn record_composition(&self) {
-        self.compositions.fetch_add(1, Ordering::Relaxed);
+        #[cfg(feature = "tracing")]
+        {
+            self.compositions.fetch_add(1, Ordering::Relaxed);
+        }
     }
 
     /// Record a failed composition attempt.
     #[inline]
     pub fn record_composition_failure(&self) {
-        self.composition_failures.fetch_add(1, Ordering::Relaxed);
+        #[cfg(feature = "tracing")]
+        {
+            self.composition_failures.fetch_add(1, Ordering::Relaxed);
+        }
     }
 
     /// Record a successful meet operation.
     #[inline]
     pub fn record_meet(&self) {
-        self.meets.fetch_add(1, Ordering::Relaxed);
+        #[cfg(feature = "tracing")]
+        {
+            self.meets.fetch_add(1, Ordering::Relaxed);
+        }
     }
 
     /// Record a failed meet attempt.
     #[inline]
     pub fn record_meet_failure(&self) {
-        self.meet_failures.fetch_add(1, Ordering::Relaxed);
+        #[cfg(feature = "tracing")]
+        {
+            self.meet_failures.fetch_add(1, Ordering::Relaxed);
+        }
     }
 
     /// Record a backtrack operation.
     #[inline]
     pub fn record_backtrack(&self) {
-        self.backtracks.fetch_add(1, Ordering::Relaxed);
+        #[cfg(feature = "tracing")]
+        {
+            self.backtracks.fetch_add(1, Ordering::Relaxed);
+        }
     }
 
     /// Record a matching attempt (success).
     #[inline]
     pub fn record_match(&self) {
-        self.matches.fetch_add(1, Ordering::Relaxed);
+        #[cfg(feature = "tracing")]
+        {
+            self.matches.fetch_add(1, Ordering::Relaxed);
+        }
     }
 
     /// Record a failed matching.
     #[inline]
     pub fn record_match_failure(&self) {
-        self.match_failures.fetch_add(1, Ordering::Relaxed);
+        #[cfg(feature = "tracing")]
+        {
+            self.match_failures.fetch_add(1, Ordering::Relaxed);
+        }
     }
 
     /// Record a goal state transition.
     #[inline]
     pub fn record_goal_transition(&self) {
-        self.goal_transitions.fetch_add(1, Ordering::Relaxed);
+        #[cfg(feature = "tracing")]
+        {
+            self.goal_transitions.fetch_add(1, Ordering::Relaxed);
+        }
     }
 
     /// Record a task spawn.
     #[inline]
     pub fn record_task_spawned(&self) {
-        self.tasks_spawned.fetch_add(1, Ordering::Relaxed);
+        #[cfg(feature = "tracing")]
+        {
+            self.tasks_spawned.fetch_add(1, Ordering::Relaxed);
+        }
     }
 
     /// Record a task block.
     #[inline]
     pub fn record_task_blocked(&self) {
-        self.tasks_blocked.fetch_add(1, Ordering::Relaxed);
+        #[cfg(feature = "tracing")]
+        {
+            self.tasks_blocked.fetch_add(1, Ordering::Relaxed);
+        }
     }
 
     /// Record a task completion.
     #[inline]
     pub fn record_task_completed(&self) {
-        self.tasks_completed.fetch_add(1, Ordering::Relaxed);
+        #[cfg(feature = "tracing")]
+        {
+            self.tasks_completed.fetch_add(1, Ordering::Relaxed);
+        }
     }
 
     /// Record a continuation push with current depth.
     #[inline]
-    pub fn record_kont_push(&self, new_depth: u64) {
-        self.kont_pushes.fetch_add(1, Ordering::Relaxed);
-        self.update_max_kont_depth(new_depth);
+    pub fn record_kont_push(&self, _new_depth: u64) {
+        #[cfg(feature = "tracing")]
+        {
+            self.kont_pushes.fetch_add(1, Ordering::Relaxed);
+            self.update_max_kont_depth(_new_depth);
+        }
     }
 
     /// Record a continuation pop.
     #[inline]
     pub fn record_kont_pop(&self) {
-        self.kont_pops.fetch_add(1, Ordering::Relaxed);
+        #[cfg(feature = "tracing")]
+        {
+            self.kont_pops.fetch_add(1, Ordering::Relaxed);
+        }
     }
 
     /// Update the maximum continuation depth if the new depth is higher.
     #[inline]
-    pub fn update_max_kont_depth(&self, depth: u64) {
-        let mut current = self.max_kont_depth.load(Ordering::Relaxed);
-        while depth > current {
-            match self.max_kont_depth.compare_exchange_weak(
-                current,
-                depth,
-                Ordering::Relaxed,
-                Ordering::Relaxed,
-            ) {
-                Ok(_) => break,
-                Err(c) => current = c,
+    pub fn update_max_kont_depth(&self, _depth: u64) {
+        #[cfg(feature = "tracing")]
+        {
+            let mut current = self.max_kont_depth.load(Ordering::Relaxed);
+            while _depth > current {
+                match self.max_kont_depth.compare_exchange_weak(
+                    current,
+                    _depth,
+                    Ordering::Relaxed,
+                    Ordering::Relaxed,
+                ) {
+                    Ok(_) => break,
+                    Err(c) => current = c,
+                }
             }
         }
     }
@@ -188,53 +254,65 @@ impl EvalMetrics {
     /// Record an answer being yielded.
     #[inline]
     pub fn record_answer_yielded(&self) {
-        self.answers_yielded.fetch_add(1, Ordering::Relaxed);
+        #[cfg(feature = "tracing")]
+        {
+            self.answers_yielded.fetch_add(1, Ordering::Relaxed);
+        }
     }
 
     /// Generate a snapshot report of all metrics.
     pub fn report(&self) -> MetricsReport {
-        MetricsReport {
-            steps: self.steps.load(Ordering::Relaxed),
-            compositions: self.compositions.load(Ordering::Relaxed),
-            composition_failures: self.composition_failures.load(Ordering::Relaxed),
-            meets: self.meets.load(Ordering::Relaxed),
-            meet_failures: self.meet_failures.load(Ordering::Relaxed),
-            backtracks: self.backtracks.load(Ordering::Relaxed),
-            matches: self.matches.load(Ordering::Relaxed),
-            match_failures: self.match_failures.load(Ordering::Relaxed),
-            goal_transitions: self.goal_transitions.load(Ordering::Relaxed),
-            tasks_spawned: self.tasks_spawned.load(Ordering::Relaxed),
-            tasks_blocked: self.tasks_blocked.load(Ordering::Relaxed),
-            tasks_completed: self.tasks_completed.load(Ordering::Relaxed),
-            kont_pushes: self.kont_pushes.load(Ordering::Relaxed),
-            kont_pops: self.kont_pops.load(Ordering::Relaxed),
-            max_kont_depth: self.max_kont_depth.load(Ordering::Relaxed),
-            answers_yielded: self.answers_yielded.load(Ordering::Relaxed),
+        #[cfg(feature = "tracing")]
+        {
+            MetricsReport {
+                steps: self.steps.load(Ordering::Relaxed),
+                compositions: self.compositions.load(Ordering::Relaxed),
+                composition_failures: self.composition_failures.load(Ordering::Relaxed),
+                meets: self.meets.load(Ordering::Relaxed),
+                meet_failures: self.meet_failures.load(Ordering::Relaxed),
+                backtracks: self.backtracks.load(Ordering::Relaxed),
+                matches: self.matches.load(Ordering::Relaxed),
+                match_failures: self.match_failures.load(Ordering::Relaxed),
+                goal_transitions: self.goal_transitions.load(Ordering::Relaxed),
+                tasks_spawned: self.tasks_spawned.load(Ordering::Relaxed),
+                tasks_blocked: self.tasks_blocked.load(Ordering::Relaxed),
+                tasks_completed: self.tasks_completed.load(Ordering::Relaxed),
+                kont_pushes: self.kont_pushes.load(Ordering::Relaxed),
+                kont_pops: self.kont_pops.load(Ordering::Relaxed),
+                max_kont_depth: self.max_kont_depth.load(Ordering::Relaxed),
+                answers_yielded: self.answers_yielded.load(Ordering::Relaxed),
+            }
+        }
+        #[cfg(not(feature = "tracing"))]
+        {
+            MetricsReport::default()
         }
     }
 
     /// Reset all metrics to zero.
     pub fn reset(&self) {
-        self.steps.store(0, Ordering::Relaxed);
-        self.compositions.store(0, Ordering::Relaxed);
-        self.composition_failures.store(0, Ordering::Relaxed);
-        self.meets.store(0, Ordering::Relaxed);
-        self.meet_failures.store(0, Ordering::Relaxed);
-        self.backtracks.store(0, Ordering::Relaxed);
-        self.matches.store(0, Ordering::Relaxed);
-        self.match_failures.store(0, Ordering::Relaxed);
-        self.goal_transitions.store(0, Ordering::Relaxed);
-        self.tasks_spawned.store(0, Ordering::Relaxed);
-        self.tasks_blocked.store(0, Ordering::Relaxed);
-        self.tasks_completed.store(0, Ordering::Relaxed);
-        self.kont_pushes.store(0, Ordering::Relaxed);
-        self.kont_pops.store(0, Ordering::Relaxed);
-        self.max_kont_depth.store(0, Ordering::Relaxed);
-        self.answers_yielded.store(0, Ordering::Relaxed);
+        #[cfg(feature = "tracing")]
+        {
+            self.steps.store(0, Ordering::Relaxed);
+            self.compositions.store(0, Ordering::Relaxed);
+            self.composition_failures.store(0, Ordering::Relaxed);
+            self.meets.store(0, Ordering::Relaxed);
+            self.meet_failures.store(0, Ordering::Relaxed);
+            self.backtracks.store(0, Ordering::Relaxed);
+            self.matches.store(0, Ordering::Relaxed);
+            self.match_failures.store(0, Ordering::Relaxed);
+            self.goal_transitions.store(0, Ordering::Relaxed);
+            self.tasks_spawned.store(0, Ordering::Relaxed);
+            self.tasks_blocked.store(0, Ordering::Relaxed);
+            self.tasks_completed.store(0, Ordering::Relaxed);
+            self.kont_pushes.store(0, Ordering::Relaxed);
+            self.kont_pops.store(0, Ordering::Relaxed);
+            self.max_kont_depth.store(0, Ordering::Relaxed);
+            self.answers_yielded.store(0, Ordering::Relaxed);
+        }
     }
 }
 
-#[cfg(feature = "tracing")]
 impl Default for EvalMetrics {
     fn default() -> Self {
         Self::new()
@@ -321,63 +399,6 @@ impl std::fmt::Display for MetricsReport {
         )?;
         writeln!(f, "Answers yielded:    {}", self.answers_yielded)?;
         Ok(())
-    }
-}
-
-// No-op implementation when tracing is disabled
-#[cfg(not(feature = "tracing"))]
-pub struct EvalMetrics;
-
-#[cfg(not(feature = "tracing"))]
-impl EvalMetrics {
-    #[inline]
-    pub fn new() -> Self {
-        EvalMetrics
-    }
-    #[inline]
-    pub fn record_step(&self) {}
-    #[inline]
-    pub fn record_composition(&self) {}
-    #[inline]
-    pub fn record_composition_failure(&self) {}
-    #[inline]
-    pub fn record_meet(&self) {}
-    #[inline]
-    pub fn record_meet_failure(&self) {}
-    #[inline]
-    pub fn record_backtrack(&self) {}
-    #[inline]
-    pub fn record_match(&self) {}
-    #[inline]
-    pub fn record_match_failure(&self) {}
-    #[inline]
-    pub fn record_goal_transition(&self) {}
-    #[inline]
-    pub fn record_task_spawned(&self) {}
-    #[inline]
-    pub fn record_task_blocked(&self) {}
-    #[inline]
-    pub fn record_task_completed(&self) {}
-    #[inline]
-    pub fn record_kont_push(&self, _new_depth: u64) {}
-    #[inline]
-    pub fn record_kont_pop(&self) {}
-    #[inline]
-    pub fn update_max_kont_depth(&self, _depth: u64) {}
-    #[inline]
-    pub fn record_answer_yielded(&self) {}
-    #[inline]
-    pub fn report(&self) -> MetricsReport {
-        MetricsReport::default()
-    }
-    #[inline]
-    pub fn reset(&self) {}
-}
-
-#[cfg(not(feature = "tracing"))]
-impl Default for EvalMetrics {
-    fn default() -> Self {
-        Self::new()
     }
 }
 

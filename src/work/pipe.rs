@@ -31,19 +31,19 @@ enum PipeEnd {
 #[derive(Clone, Debug)]
 pub struct PipeWork<C: ConstraintOps> {
     /// Left boundary (fused from front).
-    pub left: Option<NF<C>>,
+    pub(crate) left: Option<NF<C>>,
     /// Middle factors (remaining Rel elements).
-    pub mid: Factors<C>,
+    pub(crate) mid: Factors<C>,
     /// Right boundary (fused from back).
-    pub right: Option<NF<C>>,
+    pub(crate) right: Option<NF<C>>,
     /// Flip bit: alternates which end to process for outside-in evaluation.
-    pub flip: bool,
+    pub(crate) flip: bool,
     /// Environment for Fix bindings (RelId -> Rel body).
-    pub env: Env<C>,
+    pub(crate) env: Env<C>,
     /// Tables for call-context tabling.
-    pub tables: Tables<C>,
+    pub(crate) tables: Tables<C>,
     /// Call handling mode.
-    pub call_mode: CallMode<C>,
+    pub(crate) call_mode: CallMode<C>,
 }
 
 impl<C: ConstraintOps> Work<C> {
@@ -200,7 +200,17 @@ impl<C: ConstraintOps> PipeWork<C> {
         }
 
         // Phase B: Stuck on normalization - advance one end using flip.
-        // Prefer advancing a non-Call end when the opposite end is a Call.
+        let end = self.choose_advance_end();
+        let result = self.advance_end(end, terms);
+        self.flip = !self.flip; // Toggle for next step
+        result
+    }
+
+    /// Choose which end to advance when normalization is stuck.
+    ///
+    /// If one end is a Call and the other is not, advance the non-Call end
+    /// so any adjacent boundary normalization can flow into the Call key.
+    fn choose_advance_end(&self) -> PipeEnd {
         let front_is_call = matches!(self.mid.front().map(|rel| rel.as_ref()), Some(Rel::Call(_)));
         let back_is_call = matches!(self.mid.back().map(|rel| rel.as_ref()), Some(Rel::Call(_)));
 
@@ -211,13 +221,11 @@ impl<C: ConstraintOps> PipeWork<C> {
             advance_back = true;
         }
 
-        let result = if advance_back {
-            self.advance_end(PipeEnd::Back, terms)
+        if advance_back {
+            PipeEnd::Back
         } else {
-            self.advance_end(PipeEnd::Front, terms)
-        };
-        self.flip = !self.flip; // Toggle for next step
-        result
+            PipeEnd::Front
+        }
     }
 
     /// Emit the composed boundaries when mid is empty.
@@ -482,6 +490,172 @@ impl<C: ConstraintOps> PipeWork<C> {
         }
     }
 
+    fn pop_end(&mut self, end: PipeEnd) {
+        match end {
+            PipeEnd::Front => {
+                self.mid.pop_front();
+            }
+            PipeEnd::Back => {
+                self.mid.pop_back();
+            }
+        }
+    }
+
+    fn and_left_context(
+        &self,
+        end: PipeEnd,
+        mid_empty: bool,
+        terms: &mut TermStore,
+    ) -> (Option<NF<C>>, Option<NF<C>>) {
+        match end {
+            PipeEnd::Front => self.left_prefix_iso(terms),
+            PipeEnd::Back => {
+                if mid_empty {
+                    self.left_prefix_iso(terms)
+                } else {
+                    (self.left.clone(), None)
+                }
+            }
+        }
+    }
+
+    fn and_right_context(
+        &self,
+        end: PipeEnd,
+        mid_empty: bool,
+        terms: &mut TermStore,
+    ) -> (Option<NF<C>>, Option<NF<C>>) {
+        match end {
+            PipeEnd::Back => self.right_suffix_iso(terms),
+            PipeEnd::Front => {
+                if mid_empty {
+                    self.right_suffix_iso(terms)
+                } else {
+                    (self.right.clone(), None)
+                }
+            }
+        }
+    }
+
+    fn build_and_group(
+        &self,
+        parts: Vec<Arc<Rel<C>>>,
+        left_iso: Option<NF<C>>,
+        right_iso: Option<NF<C>>,
+    ) -> AndGroup<C> {
+        let nodes = parts
+            .into_iter()
+            .map(|part| {
+                let wrapped = wrap_rel_with_atoms(part, left_iso.clone(), right_iso.clone());
+                let mut part_pipe =
+                    PipeWork::from_rel(wrapped, self.env.clone(), self.tables.clone());
+                part_pipe.call_mode = self.call_mode.clone();
+                Node::Work(Box::new(Work::Pipe(part_pipe)))
+            })
+            .collect();
+        AndGroup::new(nodes)
+    }
+
+    fn advance_or(&mut self, end: PipeEnd, a: Arc<Rel<C>>, b: Arc<Rel<C>>) -> WorkStep<C> {
+        self.pop_end(end);
+        self.split_or(end, a, b)
+    }
+
+    fn advance_and(
+        &mut self,
+        end: PipeEnd,
+        rel: Arc<Rel<C>>,
+        terms: &mut TermStore,
+    ) -> WorkStep<C> {
+        self.pop_end(end);
+
+        let parts = flatten_and_parts(rel);
+        let mid_empty = self.mid.is_empty();
+        let (left_prefix, left_iso) = self.and_left_context(end, mid_empty, terms);
+        let (right_suffix, right_iso) = self.and_right_context(end, mid_empty, terms);
+        let group = self.build_and_group(parts, left_iso.clone(), right_iso.clone());
+
+        let mut pipe = self.clone();
+        let (left_node, right_node, outer_prefix, outer_suffix) = match end {
+            PipeEnd::Front => {
+                pipe.left = None;
+                pipe.right = if right_iso.is_some() {
+                    None
+                } else {
+                    right_suffix.clone()
+                };
+                let left_node = Node::Work(Box::new(Work::AndGroup(group)));
+                let right_node = Node::Work(Box::new(Work::Pipe(pipe)));
+                let outer_suffix = if right_iso.is_some() {
+                    right_suffix
+                } else {
+                    None
+                };
+                (left_node, right_node, left_prefix, outer_suffix)
+            }
+            PipeEnd::Back => {
+                pipe.right = None;
+                pipe.left = if left_iso.is_some() {
+                    None
+                } else {
+                    left_prefix.clone()
+                };
+                let left_node = Node::Work(Box::new(Work::Pipe(pipe)));
+                let right_node = Node::Work(Box::new(Work::AndGroup(group)));
+                let outer_prefix = if left_iso.is_some() {
+                    left_prefix
+                } else {
+                    None
+                };
+                (left_node, right_node, outer_prefix, right_suffix)
+            }
+        };
+
+        let core = ComposeWork::new(left_node, right_node);
+        wrap_compose_with_prefix_suffix(core, outer_prefix, outer_suffix)
+    }
+
+    fn advance_fix(&mut self, end: PipeEnd, id: RelId, body: Arc<Rel<C>>) -> WorkStep<C> {
+        self.pop_end(end);
+        let use_left = matches!(end, PipeEnd::Front) || self.mid.is_empty();
+        let use_right = matches!(end, PipeEnd::Back) || self.mid.is_empty();
+        let call_left = if use_left { self.left.clone() } else { None };
+        let call_right = if use_right { self.right.clone() } else { None };
+        let bound_env = self.env.bind(id, body.clone());
+
+        let mut fix_pipe = PipeWork::from_rel_with_boundaries(
+            body.as_ref().clone(),
+            call_left,
+            call_right,
+            bound_env,
+            self.tables.clone(),
+        );
+        fix_pipe.call_mode = self.call_mode.clone();
+
+        let fix_node = Node::Work(Box::new(Work::Pipe(fix_pipe)));
+        let mut pipe = self.clone();
+        if use_left {
+            pipe.left = None;
+        }
+        if use_right {
+            pipe.right = None;
+        }
+        let (left_node, right_node) = match end {
+            PipeEnd::Front => (fix_node, Node::Work(Box::new(Work::Pipe(pipe)))),
+            PipeEnd::Back => (Node::Work(Box::new(Work::Pipe(pipe))), fix_node),
+        };
+        let compose = ComposeWork::new(left_node, right_node);
+        WorkStep::More(Box::new(Work::Compose(compose)))
+    }
+
+    fn advance_call(&mut self, end: PipeEnd, id: RelId) -> WorkStep<C> {
+        self.pop_end(end);
+        match end {
+            PipeEnd::Front => self.handle_call(id, true),
+            PipeEnd::Back => self.handle_call(id, false),
+        }
+    }
+
     /// Advance the selected end when stuck on normalization.
     fn advance_end(&mut self, end: PipeEnd, terms: &mut TermStore) -> WorkStep<C> {
         let rel = match end {
@@ -493,152 +667,10 @@ impl<C: ConstraintOps> PipeWork<C> {
         };
 
         match rel.as_ref() {
-            Rel::Or(a, b) => {
-                match end {
-                    PipeEnd::Front => {
-                        self.mid.pop_front();
-                    }
-                    PipeEnd::Back => {
-                        self.mid.pop_back();
-                    }
-                }
-                self.split_or(end, a.clone(), b.clone())
-            }
-            Rel::And(_, _) => {
-                match end {
-                    PipeEnd::Front => {
-                        self.mid.pop_front();
-                    }
-                    PipeEnd::Back => {
-                        self.mid.pop_back();
-                    }
-                }
-
-                let parts = flatten_and_parts(rel.clone());
-
-                let (left_prefix, left_iso) = match end {
-                    PipeEnd::Front => self.left_prefix_iso(terms),
-                    PipeEnd::Back => {
-                        if self.mid.is_empty() {
-                            self.left_prefix_iso(terms)
-                        } else {
-                            (self.left.clone(), None)
-                        }
-                    }
-                };
-
-                let (right_suffix, right_iso) = match end {
-                    PipeEnd::Back => self.right_suffix_iso(terms),
-                    PipeEnd::Front => {
-                        if self.mid.is_empty() {
-                            self.right_suffix_iso(terms)
-                        } else {
-                            (self.right.clone(), None)
-                        }
-                    }
-                };
-
-                let nodes = parts
-                    .into_iter()
-                    .map(|part| {
-                        let wrapped =
-                            wrap_rel_with_atoms(part, left_iso.clone(), right_iso.clone());
-                        let mut part_pipe =
-                            PipeWork::from_rel(wrapped, self.env.clone(), self.tables.clone());
-                        part_pipe.call_mode = self.call_mode.clone();
-                        Node::Work(Box::new(Work::Pipe(part_pipe)))
-                    })
-                    .collect();
-                let group = AndGroup::new(nodes);
-
-                let mut pipe = self.clone();
-                let (left_node, right_node, outer_prefix, outer_suffix) = match end {
-                    PipeEnd::Front => {
-                        pipe.left = None;
-                        pipe.right = if right_iso.is_some() {
-                            None
-                        } else {
-                            right_suffix.clone()
-                        };
-                        let left_node = Node::Work(Box::new(Work::AndGroup(group)));
-                        let right_node = Node::Work(Box::new(Work::Pipe(pipe)));
-                        let outer_suffix = if right_iso.is_some() {
-                            right_suffix
-                        } else {
-                            None
-                        };
-                        (left_node, right_node, left_prefix, outer_suffix)
-                    }
-                    PipeEnd::Back => {
-                        pipe.right = None;
-                        pipe.left = if left_iso.is_some() {
-                            None
-                        } else {
-                            left_prefix.clone()
-                        };
-                        let left_node = Node::Work(Box::new(Work::Pipe(pipe)));
-                        let right_node = Node::Work(Box::new(Work::AndGroup(group)));
-                        let outer_prefix = if left_iso.is_some() {
-                            left_prefix
-                        } else {
-                            None
-                        };
-                        (left_node, right_node, outer_prefix, right_suffix)
-                    }
-                };
-
-                let core = ComposeWork::new(left_node, right_node);
-                wrap_compose_with_prefix_suffix(core, outer_prefix, outer_suffix)
-            }
-            Rel::Fix(id, body) => {
-                match end {
-                    PipeEnd::Front => {
-                        self.mid.pop_front();
-                    }
-                    PipeEnd::Back => {
-                        self.mid.pop_back();
-                    }
-                }
-                let use_left = matches!(end, PipeEnd::Front) || self.mid.is_empty();
-                let use_right = matches!(end, PipeEnd::Back) || self.mid.is_empty();
-                let call_left = if use_left { self.left.clone() } else { None };
-                let call_right = if use_right { self.right.clone() } else { None };
-                let bound_env = self.env.bind(*id, body.clone());
-
-                let mut fix_pipe = PipeWork::from_rel_with_boundaries(
-                    body.as_ref().clone(),
-                    call_left,
-                    call_right,
-                    bound_env,
-                    self.tables.clone(),
-                );
-                fix_pipe.call_mode = self.call_mode.clone();
-
-                let fix_node = Node::Work(Box::new(Work::Pipe(fix_pipe)));
-                let mut pipe = self.clone();
-                if use_left {
-                    pipe.left = None;
-                }
-                if use_right {
-                    pipe.right = None;
-                }
-                let (left_node, right_node) = match end {
-                    PipeEnd::Front => (fix_node, Node::Work(Box::new(Work::Pipe(pipe)))),
-                    PipeEnd::Back => (Node::Work(Box::new(Work::Pipe(pipe))), fix_node),
-                };
-                let compose = ComposeWork::new(left_node, right_node);
-                WorkStep::More(Box::new(Work::Compose(compose)))
-            }
-            Rel::Call(id) => match end {
-                PipeEnd::Front => {
-                    self.mid.pop_front();
-                    self.handle_call(*id, true)
-                }
-                PipeEnd::Back => {
-                    self.mid.pop_back();
-                    self.handle_call(*id, false)
-                }
-            },
+            Rel::Or(a, b) => self.advance_or(end, a.clone(), b.clone()),
+            Rel::And(_, _) => self.advance_and(end, rel.clone(), terms),
+            Rel::Fix(id, body) => self.advance_fix(end, *id, body.clone()),
+            Rel::Call(id) => self.advance_call(end, *id),
             // Atom/Zero/Seq should have been normalized in try_normalize_step
             _ => WorkStep::Done,
         }
@@ -668,7 +700,7 @@ impl<C: ConstraintOps> PipeWork<C> {
         let call_left = if use_left { self.left.clone() } else { None };
         let call_right = if use_right { self.right.clone() } else { None };
 
-        let key = CallKey::new(id, binding.id(), call_left.clone(), call_right.clone());
+        let key = CallKey::new(id, binding.id, call_left.clone(), call_right.clone());
         if let CallMode::ReplayOnly(replay_key) = &self.call_mode {
             if replay_key.as_ref() == &key {
                 let table = match self.tables.lookup(&key) {
@@ -697,7 +729,7 @@ impl<C: ConstraintOps> PipeWork<C> {
         let table = self.tables.get_or_create(key.clone());
         table.ensure_producer_spec(ProducerSpec {
             key: key.clone(),
-            body: binding.body().clone(),
+            body: binding.body.clone(),
             left: call_left.clone(),
             right: call_right.clone(),
             env: self.env.clone(),

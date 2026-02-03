@@ -61,102 +61,122 @@ mod noop {
         pub const ERROR: Level = Level;
     }
 
-    /// No-op trace macro
-    #[macro_export]
-    macro_rules! trace {
-        ($($tt:tt)*) => {};
-    }
-
-    /// No-op debug macro
-    #[macro_export]
-    macro_rules! debug {
-        ($($tt:tt)*) => {};
-    }
-
-    /// No-op info macro
-    #[macro_export]
-    macro_rules! info {
-        ($($tt:tt)*) => {};
-    }
-
-    /// No-op warn macro
-    #[macro_export]
-    macro_rules! warn {
-        ($($tt:tt)*) => {};
-    }
-
-    /// No-op error macro
-    #[macro_export]
-    macro_rules! error {
-        ($($tt:tt)*) => {};
-    }
-
-    /// No-op event macro
-    #[macro_export]
-    macro_rules! event {
-        ($($tt:tt)*) => {};
-    }
-
-    /// No-op span macro
-    #[macro_export]
-    macro_rules! span {
-        ($($tt:tt)*) => {
-            $crate::trace::Span::none()
-        };
-    }
-
-    /// No-op trace_span macro
-    #[macro_export]
-    macro_rules! trace_span {
-        ($($tt:tt)*) => {
-            $crate::trace::Span::none()
-        };
-    }
-
-    /// No-op debug_span macro
-    #[macro_export]
-    macro_rules! debug_span {
-        ($($tt:tt)*) => {
-            $crate::trace::Span::none()
-        };
-    }
-
-    /// No-op info_span macro
-    #[macro_export]
-    macro_rules! info_span {
-        ($($tt:tt)*) => {
-            $crate::trace::Span::none()
-        };
-    }
-
-    /// No-op warn_span macro
-    #[macro_export]
-    macro_rules! warn_span {
-        ($($tt:tt)*) => {
-            $crate::trace::Span::none()
-        };
-    }
-
-    /// No-op error_span macro
-    #[macro_export]
-    macro_rules! error_span {
-        ($($tt:tt)*) => {
-            $crate::trace::Span::none()
-        };
-    }
-
     /// No-op instrument attribute (identity function)
     pub use core::convert::identity as instrument;
-
-    // Re-export macros at module level
-    pub use crate::{
-        debug, debug_span, error, error_span, event, info, info_span, span, trace, trace_span,
-        warn, warn_span,
-    };
 }
 
 #[cfg(not(feature = "tracing"))]
 pub use noop::*;
+
+#[cfg(not(feature = "tracing"))]
+#[allow(unused_macros)]
+macro_rules! __noop_event {
+    ($($tt:tt)*) => {};
+}
+
+#[cfg(not(feature = "tracing"))]
+#[allow(unused_macros)]
+macro_rules! __noop_span {
+    ($($tt:tt)*) => {
+        $crate::trace::Span::none()
+    };
+}
+
+#[cfg(not(feature = "tracing"))]
+#[allow(unused_macros)]
+macro_rules! trace {
+    ($($tt:tt)*) => {
+        __noop_event!($($tt)*)
+    };
+}
+
+#[cfg(not(feature = "tracing"))]
+#[allow(unused_macros)]
+macro_rules! debug {
+    ($($tt:tt)*) => {
+        __noop_event!($($tt)*)
+    };
+}
+
+#[cfg(not(feature = "tracing"))]
+#[allow(unused_macros)]
+macro_rules! info {
+    ($($tt:tt)*) => {
+        __noop_event!($($tt)*)
+    };
+}
+
+#[cfg(not(feature = "tracing"))]
+#[allow(unused_macros)]
+macro_rules! warn {
+    ($($tt:tt)*) => {
+        __noop_event!($($tt)*)
+    };
+}
+
+#[cfg(not(feature = "tracing"))]
+#[allow(unused_macros)]
+macro_rules! error {
+    ($($tt:tt)*) => {
+        __noop_event!($($tt)*)
+    };
+}
+
+#[cfg(not(feature = "tracing"))]
+#[allow(unused_macros)]
+macro_rules! event {
+    ($($tt:tt)*) => {
+        __noop_event!($($tt)*)
+    };
+}
+
+#[cfg(not(feature = "tracing"))]
+#[allow(unused_macros)]
+macro_rules! span {
+    ($($tt:tt)*) => {
+        __noop_span!($($tt)*)
+    };
+}
+
+#[cfg(not(feature = "tracing"))]
+#[allow(unused_macros)]
+macro_rules! trace_span {
+    ($($tt:tt)*) => {
+        __noop_span!($($tt)*)
+    };
+}
+
+#[cfg(not(feature = "tracing"))]
+#[allow(unused_macros)]
+macro_rules! debug_span {
+    ($($tt:tt)*) => {
+        __noop_span!($($tt)*)
+    };
+}
+
+#[cfg(not(feature = "tracing"))]
+#[allow(unused_macros)]
+macro_rules! info_span {
+    ($($tt:tt)*) => {
+        __noop_span!($($tt)*)
+    };
+}
+
+#[cfg(not(feature = "tracing"))]
+#[allow(unused_macros)]
+macro_rules! warn_span {
+    ($($tt:tt)*) => {
+        __noop_span!($($tt)*)
+    };
+}
+
+#[cfg(not(feature = "tracing"))]
+#[allow(unused_macros)]
+macro_rules! error_span {
+    ($($tt:tt)*) => {
+        __noop_span!($($tt)*)
+    };
+}
 
 /// Initialize tracing subscriber for tests/development.
 ///
