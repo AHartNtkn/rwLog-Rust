@@ -106,6 +106,7 @@ There is no third category of "test passes because it expects the bug."
 - Assert on observable outcomes (answer sets, spans, exhaustiveness, duality), not intermediate pipeline states.
 - Output formatting is a separate concern: only check exact output strings when that textual format is part of a specified public, user-facing interface; otherwise check content/meaning.
 - Place tests at the layer that defines the behavior: REPL semantics in `repl` tests, engine iteration semantics in `engine` tests, and internal modules only for their semantic contracts.
+- Semantic test suites must not have essentially all examples grounded; include non-ground examples so matching is meaningfully tested and coverage is thorough.
 
 ## **ABSOLUTELY FORBIDDEN: TEMPORARY OR HACKY IMPLEMENTATIONS**
 
