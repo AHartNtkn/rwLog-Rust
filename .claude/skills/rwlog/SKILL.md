@@ -24,9 +24,9 @@ The `;` operator chains relations: output of first becomes input of second.
 ```
 This passes a term through a swap rule.
 
-### 3. Variables Unify
+### 3. Variables Match
 
-Variables (`$x`, `$y`) in rules unify across both sides:
+Variables (`$x`, `$y`) are local to a rule. rwlog uses **matching** (not unification across sides): repeated variables in a single pattern must be equal.
 ```
 (cons $x $x) -> $x
 ```

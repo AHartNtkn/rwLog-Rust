@@ -166,7 +166,7 @@ With conjunction, both branches run in parallel. If either fails, the whole thin
 </why_conjunction>
 
 <combining_results>
-**Combining results via unification:**
+**Combining results via matching:**
 
 Variables are scoped to a single rule. Use fresh variables as "holes" that get filled by the other branch:
 
@@ -181,12 +181,12 @@ Variables are scoped to a single rule. Use fresh variables as "holes" that get f
 How this works:
 1. Left branch computes `process1(x)` → R, outputs `(result R $s)` where `$s` is **fresh**
 2. Right branch computes `process2(x)` → S, outputs `(result $t S)` where `$t` is **fresh**
-3. Meet unifies `(result R $s)` with `(result $t S)`:
-   - `$t` = R (constrained by unification)
-   - `$s` = S (constrained by unification)
+3. Meet matches `(result R $s)` with `(result $t S)` to a common shape (two substitutions, one per side):
+   - `$t` = R (constrained by matching)
+   - `$s` = S (constrained by matching)
    - Result: `(result R S)`
 
-The fresh variables act as placeholders that get constrained to actual values through unification at the meet.
+The fresh variables act as placeholders that get constrained to actual values through matching at the meet.
 </combining_results>
 
 <example name="Building a pair from parallel results">
@@ -200,7 +200,7 @@ The fresh variables act as placeholders that get constrained to actual values th
 
 - Left computes some value L, outputs `(pair L $r)` with fresh `$r`
 - Right computes some value R, outputs `(pair $l R)` with fresh `$l`
-- Meet: `$l` = L, `$r` = R, result is `(pair L R)`
+- Meet (by matching): `$l` = L, `$r` = R, result is `(pair L R)`
 </example>
 
 <contrast_with_threading>

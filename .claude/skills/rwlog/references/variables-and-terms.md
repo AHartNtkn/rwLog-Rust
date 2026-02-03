@@ -1,11 +1,11 @@
 <overview>
-How variables and terms work in rwlog. Variables are logical variables that unify, not assignment variables.
+How variables and terms work in rwlog. Variables are logical variables used in matching, not assignment variables.
 </overview>
 
 <variables>
 ## Variables
 
-Variables in rwlog are **logical variables** - they represent unknown values that get determined through unification.
+Variables in rwlog are **logical variables** - they represent unknown values that get determined through matching.
 
 <naming>
 **Naming:**
@@ -18,7 +18,7 @@ Variables in rwlog are **logical variables** - they represent unknown values tha
 **Scoping:**
 - Variables are scoped to a **single rule**
 - Same variable name in different rules = different variables
-- Within a rule, same variable name = same value (unification)
+- Within a rule, same variable name = same value (equality enforced by matching)
 
 ```
 rel example {
@@ -29,10 +29,10 @@ rel example {
 ```
 </scoping>
 
-<unification>
-**Unification:**
+<matching>
+**Matching:**
 
-When a variable appears multiple times in a rule, all occurrences must unify to the same value.
+When a variable appears multiple times in a rule, all occurrences must match the same value.
 
 ```
 (cons $x $x) -> $x
@@ -41,7 +41,17 @@ This only matches cons cells where both elements are **identical**.
 
 - `(cons a a)` matches, produces `a`
 - `(cons a b)` does NOT match (a ≠ b)
-</unification>
+</matching>
+
+<matching_vs_unification>
+**Matching vs unification:**
+
+rwlog uses **matching**, not unification across sides. A match between terms `s` and `t` is a pair of substitutions
+`(theta1, theta2)` such that `s[theta1] = t[theta2]`. Variable identities are local to each side; the same variable name on both sides
+does not imply shared identity.
+
+When the two sides use disjoint variable namespaces, unification and matching coincide.
+</matching_vs_unification>
 </variables>
 
 <pattern_matching>
@@ -165,7 +175,7 @@ $x -> (cons $x nil)       # Singleton list
 <bidirectional_variables>
 ## Variables and Bidirectionality
 
-Variables work the same forwards and backwards because unification is symmetric.
+Variables work the same forwards and backwards because matching is symmetric under swapping sides.
 
 <forward>
 **Forward (input on left):**

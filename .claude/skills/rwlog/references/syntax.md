@@ -38,7 +38,7 @@ A functor applied to arguments, written in parentheses.
 </term_type>
 
 <term_type name="Variables">
-Identifiers starting with `$`. Used for pattern matching and unification.
+Identifiers starting with `$`. Used for pattern matching (matching-only; no cross-side unification).
 
 ```
 $x
