@@ -1,4 +1,4 @@
-use crate::matching::{match_terms_disjoint, Matching};
+use crate::matching::match_disjoint;
 use crate::subst::apply_subst;
 use crate::term::{Term, TermId, TermStore};
 use crate::test_utils::setup;
@@ -43,20 +43,14 @@ fn shift_term(term: TermId, offset: u32, terms: &TermStore) -> TermId {
     }
 }
 
-fn match_pair(left: TermId, right: TermId, terms: &TermStore) -> (Matching, TermId, u32) {
+/// Match two terms by first renaming the right side apart.
+/// Returns the combined substitution and the shifted right term.
+fn match_pair(left: TermId, right: TermId, terms: &TermStore) -> (crate::subst::Subst, TermId, u32) {
     let offset = right_offset_for(left, terms);
     let right_shifted = shift_term(right, offset, terms);
-    let matching = match_terms_disjoint(left, right_shifted, offset, terms)
+    let subst = match_disjoint(left, right_shifted, terms)
         .expect("expected matching to succeed");
-    (matching, right_shifted, offset)
-}
-
-fn apply_left(matching: &Matching, term: TermId, terms: &mut TermStore) -> TermId {
-    apply_subst(term, &matching.left, terms)
-}
-
-fn apply_right(matching: &Matching, term: TermId, terms: &mut TermStore) -> TermId {
-    apply_subst(term, &matching.right, terms)
+    (subst, right_shifted, offset)
 }
 
 #[test]
@@ -65,13 +59,13 @@ fn matching_same_ground_term_is_identity() {
     let zero = symbols.intern("Zero");
     let t = terms.app0(zero);
 
-    let (matching, right_shifted, _) = match_pair(t, t, &terms);
-    assert!(matching.left.is_empty());
-    assert!(matching.right.is_empty());
+    let (subst, right_shifted, _) = match_pair(t, t, &terms);
+    // Ground terms have no variables, so subst should be empty
+    assert!(subst.is_empty());
 
     let mut terms = terms;
-    let left = apply_left(&matching, t, &mut terms);
-    let right = apply_right(&matching, right_shifted, &mut terms);
+    let left = apply_subst(t, &subst, &mut terms);
+    let right = apply_subst(right_shifted, &subst, &mut terms);
     assert_eq!(left, right);
 }
 
@@ -82,9 +76,9 @@ fn matching_var_with_ground_binds_left() {
     let v0 = terms.var(0);
     let zero_term = terms.app0(zero);
 
-    let (matching, _, _) = match_pair(v0, zero_term, &terms);
-    assert_eq!(matching.left.get(0), Some(zero_term));
-    assert!(matching.right.is_empty());
+    let (subst, _, _) = match_pair(v0, zero_term, &terms);
+    // Left var 0 should be bound to zero
+    assert_eq!(subst.get(0), Some(zero_term));
 }
 
 #[test]
@@ -94,21 +88,21 @@ fn matching_ground_with_var_binds_right() {
     let v0 = terms.var(0);
     let zero_term = terms.app0(zero);
 
-    let (matching, _right_shifted, offset) = match_pair(zero_term, v0, &terms);
-    assert_eq!(matching.right.get(offset), Some(zero_term));
-    assert!(matching.left.is_empty());
+    let (subst, _right_shifted, offset) = match_pair(zero_term, v0, &terms);
+    // Right var (shifted) should be bound to zero
+    assert_eq!(subst.get(offset), Some(zero_term));
 }
 
 #[test]
-fn matching_var_with_var_binds_right_side() {
+fn matching_var_with_var_binds_higher_to_lower() {
     let (_, terms) = setup();
     let v0 = terms.var(0);
     let v1 = terms.var(1);
 
-    let (matching, _right_shifted, offset) = match_pair(v0, v1, &terms);
-    assert!(matching.left.is_empty());
-    assert!(matching.right.is_bound(offset + 1));
-    assert_eq!(matching.right.len(), 1);
+    let (subst, _right_shifted, offset) = match_pair(v0, v1, &terms);
+    // Higher-indexed variable (offset+1 from right) should be bound to lower (0 from left)
+    assert!(subst.is_bound(offset + 1));
+    assert_eq!(subst.len(), 1);
 }
 
 #[test]
@@ -122,8 +116,8 @@ fn matching_compatible_apps_bind_left() {
     let t1 = terms.app1(f, v0);
     let t2 = terms.app1(f, a_term);
 
-    let (matching, _right_shifted, _) = match_pair(t1, t2, &terms);
-    assert_eq!(matching.left.get(0), Some(a_term));
+    let (subst, _, _) = match_pair(t1, t2, &terms);
+    assert_eq!(subst.get(0), Some(a_term));
 }
 
 #[test]
@@ -134,15 +128,16 @@ fn matching_var_names_not_shared_across_sides() {
     let t1 = terms.app1(f, v0);
     let t2 = terms.app1(f, v0);
 
-    let (matching, right_shifted, _) = match_pair(t1, t2, &terms);
+    let (subst, right_shifted, _) = match_pair(t1, t2, &terms);
+    // Variables from different sides (even with same index in source) must be related
     assert!(
-        !(matching.left.is_empty() && matching.right.is_empty()),
+        !subst.is_empty(),
         "matching must not treat shared variable indices as shared identity"
     );
 
     let mut terms = terms;
-    let left = apply_left(&matching, t1, &mut terms);
-    let right = apply_right(&matching, right_shifted, &mut terms);
+    let left = apply_subst(t1, &subst, &mut terms);
+    let right = apply_subst(right_shifted, &subst, &mut terms);
     assert_eq!(left, right);
 }
 
@@ -158,7 +153,7 @@ fn matching_functor_mismatch_fails() {
 
     let offset = right_offset_for(t1, &terms);
     let right_shifted = shift_term(t2, offset, &terms);
-    assert!(match_terms_disjoint(t1, right_shifted, offset, &terms).is_none());
+    assert!(match_disjoint(t1, right_shifted, &terms).is_none());
 }
 
 #[test]
@@ -173,11 +168,11 @@ fn matching_arity_mismatch_fails() {
 
     let offset = right_offset_for(t1, &terms);
     let right_shifted = shift_term(t2, offset, &terms);
-    assert!(match_terms_disjoint(t1, right_shifted, offset, &terms).is_none());
+    assert!(match_disjoint(t1, right_shifted, &terms).is_none());
 }
 
 #[test]
-fn matching_applies_separate_substitutions() {
+fn matching_applies_same_substitution_to_both_sides() {
     let (symbols, terms) = setup();
     let pair = symbols.intern("Pair");
     let a = symbols.intern("A");
@@ -188,9 +183,17 @@ fn matching_applies_separate_substitutions() {
     let left = terms.app2(pair, x, a_term);
     let right = terms.app2(pair, a_term, y);
 
-    let (matching, _right_shifted, offset) = match_pair(left, right, &terms);
-    assert_eq!(matching.left.get(0), Some(a_term));
-    assert_eq!(matching.right.get(offset + 1), Some(a_term));
+    let (subst, right_shifted, offset) = match_pair(left, right, &terms);
+    // Left x should be bound to a
+    assert_eq!(subst.get(0), Some(a_term));
+    // Right y (shifted) should be bound to a
+    assert_eq!(subst.get(offset + 1), Some(a_term));
+
+    // Applying the same subst to both sides should make them equal
+    let mut terms = terms;
+    let left_result = apply_subst(left, &subst, &mut terms);
+    let right_result = apply_subst(right_shifted, &subst, &mut terms);
+    assert_eq!(left_result, right_result);
 }
 
 #[derive(Clone, Debug)]
@@ -252,17 +255,17 @@ proptest! {
 
         let offset = right_offset_for(left_id, &terms);
         let right_shifted = shift_term(right_id, offset, &terms);
-        let success_a = match_terms_disjoint(left_id, right_shifted, offset, &terms).is_some();
+        let success_a = match_disjoint(left_id, right_shifted, &terms).is_some();
 
         let offset_b = offset + 5;
         let right_shifted_b = shift_term(right_id, offset_b, &terms);
-        let success_b = match_terms_disjoint(left_id, right_shifted_b, offset_b, &terms).is_some();
+        let success_b = match_disjoint(left_id, right_shifted_b, &terms).is_some();
 
         prop_assert_eq!(success_a, success_b);
     }
 
     #[test]
-    fn matching_identical_terms_with_vars_is_not_identity(raw in raw_term_strategy()) {
+    fn matching_identical_terms_with_vars_produces_bindings(raw in raw_term_strategy()) {
         prop_assume!(has_var(&raw));
         let (symbols, terms) = setup();
         let left_id = build_term(&raw, &symbols, &terms);
@@ -270,9 +273,28 @@ proptest! {
 
         let offset = right_offset_for(left_id, &terms);
         let right_shifted = shift_term(right_id, offset, &terms);
-        let matching = match_terms_disjoint(left_id, right_shifted, offset, &terms)
+        let subst = match_disjoint(left_id, right_shifted, &terms)
             .expect("expected matching");
 
-        prop_assert!(!(matching.left.is_empty() && matching.right.is_empty()));
+        // If the term has variables, matching identical-but-shifted terms produces bindings
+        prop_assert!(!subst.is_empty());
+    }
+
+    #[test]
+    fn matching_results_make_both_sides_equal(left in raw_term_strategy(), right in raw_term_strategy()) {
+        let (symbols, terms) = setup();
+        let left_id = build_term(&left, &symbols, &terms);
+        let right_id = build_term(&right, &symbols, &terms);
+
+        let offset = right_offset_for(left_id, &terms);
+        let right_shifted = shift_term(right_id, offset, &terms);
+
+        if let Some(subst) = match_disjoint(left_id, right_shifted, &terms) {
+            let mut terms = terms;
+            let left_result = apply_subst(left_id, &subst, &mut terms);
+            let right_result = apply_subst(right_shifted, &subst, &mut terms);
+            prop_assert_eq!(left_result, right_result,
+                "After applying the combined substitution, both sides should be equal");
+        }
     }
 }

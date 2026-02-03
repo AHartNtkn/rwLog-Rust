@@ -1,0 +1,43 @@
+theory treecalc_constraints {
+    constraint no_c/1
+    (no_c l) <=> .
+    (no_c (b $x)) <=> (no_c $x).
+    (no_c (f $x $y)) <=> (no_c $x), (no_c $y).
+    (no_c (c $n)) <=> fail.
+    (no_c (a $n $m)) <=> fail.
+}
+
+rel app {
+    (f (c $x) $y) -> (a (c $x) $y)
+    |
+    (f (a $x $y) $z) -> (a (a $x $y) $z)
+    |
+    (f l $z) -> (b $z)
+    |
+    (f (b $y) $z) -> (f $y $z)
+    |
+    (f (f l $y) $z) -> $y
+    |
+    (f (f (f $w $x) $y) l) -> $w
+    |
+    [
+        [(f (f (b $x) $y) $z) -> (f $x $z) ; app ; $x -> (f $x $y)]
+        &
+        [(f (f (b $x) $y) $z) -> (f $y $z) ; app ; $y -> (f $x $y)]
+        ; app
+    ]
+    |
+    [
+        (f (f (f $w $x) $y) (b $u)) -> (f $x $u)
+        ; app
+    ]
+    |
+    [
+        (f (f (f $w $x) $y) (f $u $v)) -> (f (f $y $u) $v)
+        ;
+        [(f (f $a $b) $c) -> (f $a $b) ; app ; $a -> (f $a $b)]
+        &
+        (f (f $a $b) $c) -> (f $d $c)
+        ; app
+    ]
+}

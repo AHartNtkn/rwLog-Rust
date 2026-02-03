@@ -103,16 +103,21 @@ If you're hoping, you're using a heuristic. Stop and find the place in the syste
 
 ## CRITICAL: Always Use Timeouts When Running Tests
 
-**NEVER run tests without a timeout.** If tests don't ALL finish in less than 30 seconds, there's an infinite loop bug.
+**NEVER run tests without a timeout.** If tests don't ALL finish in less than 10 seconds, there's an infinite loop bug.
 
-**Always use:**
+**Always compile first, then run with timeout:**
 ```bash
-timeout 30 cargo test 2>&1
+# Step 1: Compile without timeout (compilation can take time)
+cargo test --no-run 2>&1
+
+# Step 2: Run tests with strict timeout (tests should be fast)
+timeout 10 cargo test 2>&1
 ```
 
 **Never use:**
 ```bash
 cargo test 2>&1  # WRONG - will hang forever on infinite loop
+timeout 10 cargo test 2>&1  # WRONG if not compiled first - compilation eats the timeout
 ```
 
 This applies to ALL test commands - full suite, filtered tests, individual tests. No exceptions.

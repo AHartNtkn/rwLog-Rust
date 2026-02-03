@@ -1,337 +1,216 @@
+//! Normal Form (NF) representation for rewrite relations.
+//!
+//! An NF represents a relation as a pair of boundaries (match and build)
+//! with an associated constraint. Variables are numbered by first occurrence
+//! scanning match_boundary then build_boundary.
+//!
+//! Semantics: NF denotes the set of all ground instances where for all
+//! substitutions σ, if input matches match_boundary[σ], output is build_boundary[σ].
+
 use crate::constraint::{ConstraintDisplay, ConstraintOps};
-use crate::drop_fresh::DropFresh;
 use crate::symbol::SymbolStore;
 use crate::term::{format_term, Term, TermId, TermStore};
 use smallvec::SmallVec;
+use std::collections::HashSet;
 
-/// Normal Form representation of a rewrite rule.
+/// A boundary is a list of term patterns (tensor arity = length).
+pub type Boundary = SmallVec<[TermId; 1]>;
+
+/// Normal Form representation of a rewrite relation.
 ///
-/// A rule `Rw lhs rhs` is factored into:
-///   RwL [match_pats] ; DropFresh ; RwR [build_pats]
-///
-/// Where:
-/// - RwL (match_pats): patterns to decompose input, extracting variables
-/// - DropFresh: variable routing between LHS vars and RHS vars
-/// - RwR (build_pats): patterns to construct output from variables
+/// Variables are numbered 0, 1, 2, ... in order of first occurrence,
+/// scanning match_boundary first, then build_boundary. This is the
+/// canonical form required for deduplication in tabling.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct NF<C> {
-    /// Patterns for matching input terms (RwL).
-    /// Variables in these patterns are numbered 0..n-1 in order of first appearance.
-    pub match_pats: SmallVec<[TermId; 1]>,
-    /// Variable routing between match and build.
-    pub drop_fresh: DropFresh<C>,
-    /// Patterns for building output terms (RwR).
-    /// Variables in these patterns are numbered 0..m-1 with shared vars in LHS order,
-    /// followed by RHS-only vars in RHS order.
-    pub build_pats: SmallVec<[TermId; 1]>,
-}
-
-/// Direct tensor rewrite form (lists of patterns with constraint).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RwT<C> {
-    pub lhs: SmallVec<[TermId; 1]>,
-    pub rhs: SmallVec<[TermId; 1]>,
+    /// Patterns to match against input (tensor of terms).
+    pub match_boundary: Boundary,
+    /// Patterns to construct output (tensor of terms).
+    pub build_boundary: Boundary,
+    /// Associated constraint.
     pub constraint: C,
 }
 
-impl<C> NF<C> {
-    /// Create a new NF directly (assumes already normalized).
-    pub fn new(
-        match_pats: SmallVec<[TermId; 1]>,
-        drop_fresh: DropFresh<C>,
-        build_pats: SmallVec<[TermId; 1]>,
-    ) -> Self {
+impl<C: Default> NF<C> {
+    /// Create an NF with default constraint.
+    pub fn new(match_boundary: Boundary, build_boundary: Boundary) -> Self {
         Self {
-            match_pats,
-            drop_fresh,
-            build_pats,
+            match_boundary,
+            build_boundary,
+            constraint: C::default(),
+        }
+    }
+}
+
+impl<C> NF<C> {
+    /// Create an NF with explicit constraint.
+    pub fn with_constraint(match_boundary: Boundary, build_boundary: Boundary, constraint: C) -> Self {
+        Self {
+            match_boundary,
+            build_boundary,
+            constraint,
         }
     }
 
-    /// Create an identity NF (empty patterns, zero-arity DropFresh).
-    ///
-    /// This represents the identity relation that accepts any input
-    /// and produces it unchanged.
+    /// Create an identity NF (empty boundaries).
+    /// Represents the identity relation that accepts any input and produces it unchanged.
     pub fn identity(constraint: C) -> Self {
         Self {
-            match_pats: SmallVec::new(),
-            drop_fresh: DropFresh::identity_with_constraint(0, constraint),
-            build_pats: SmallVec::new(),
+            match_boundary: SmallVec::new(),
+            build_boundary: SmallVec::new(),
+            constraint,
         }
+    }
+
+    /// Get the input arity (number of terms in match boundary).
+    pub fn match_arity(&self) -> usize {
+        self.match_boundary.len()
+    }
+
+    /// Get the output arity (number of terms in build boundary).
+    pub fn build_arity(&self) -> usize {
+        self.build_boundary.len()
     }
 }
 
 impl<C: ConstraintOps> NF<C> {
+    /// Create an NF from patterns, canonicalizing variables.
+    ///
+    /// Variables are renumbered by first occurrence (match then build).
+    /// The constraint is also renumbered to use the canonical variable indices.
+    pub fn from_patterns(
+        match_pats: Boundary,
+        build_pats: Boundary,
+        constraint: C,
+        terms: &mut TermStore,
+    ) -> Self {
+        let mut nf = Self::with_constraint(match_pats, build_pats, constraint);
+        canonicalize_nf(&mut nf, terms);
+        nf
+    }
+
     /// Factor a single-term rule (lhs -> rhs) into normal form.
     ///
-    /// This extracts variables, renumbers them, and computes the DropFresh
-    /// that connects LHS variables to RHS variables.
+    /// Convenience method for the common case of arity-1 relations.
     pub fn factor(lhs: TermId, rhs: TermId, constraint: C, terms: &mut TermStore) -> Self {
-        // Step 1: Collect variables from each side
-        let lhs_vars = collect_vars_ordered(lhs, terms);
-        let rhs_vars = collect_vars_ordered(rhs, terms);
-
-        let n = lhs_vars.len() as u32;
-        let lhs_old_to_new = build_var_map(&lhs_vars);
-
-        // Step 2: Renumber LHS
-        let norm_lhs = if lhs_vars.is_empty() {
-            lhs
-        } else {
-            apply_var_renaming(lhs, &lhs_old_to_new, terms)
-        };
-
-        // Step 3: Establish RHS variable order:
-        // - shared vars in LHS order (preserves monotone routing)
-        // - fresh vars appended in RHS order
-        let rhs_set: std::collections::HashSet<u32> = rhs_vars.iter().copied().collect();
-        let lhs_set: std::collections::HashSet<u32> = lhs_vars.iter().copied().collect();
-
-        // Build constraint variable ordering
-        let mut constraint_ordered: Vec<u32> = lhs_vars.clone();
-        for &var in rhs_vars.iter() {
-            if !lhs_set.contains(&var) {
-                constraint_ordered.push(var);
-            }
-        }
-        let mut seen: std::collections::HashSet<u32> = constraint_ordered.iter().copied().collect();
-        let mut constraint_vars = Vec::new();
-        constraint.collect_vars(terms, &mut constraint_vars);
-        constraint_vars.sort_unstable();
-        constraint_vars.dedup();
-        for var in constraint_vars {
-            if seen.insert(var) {
-                constraint_ordered.push(var);
-            }
-        }
-        let constraint_map = build_var_map(&constraint_ordered);
-        let constraint = constraint.remap_vars(&constraint_map, terms);
-
-        // Build RHS variable ordering
-        let mut rhs_ordered: Vec<u32> = Vec::new();
-        for &var in lhs_vars.iter() {
-            if rhs_set.contains(&var) {
-                rhs_ordered.push(var);
-            }
-        }
-        for &var in rhs_vars.iter() {
-            if !lhs_set.contains(&var) {
-                rhs_ordered.push(var);
-            }
-        }
-
-        let m = rhs_ordered.len() as u32;
-        let rhs_old_to_new = build_var_map(&rhs_ordered);
-
-        // Step 4: Renumber RHS
-        let norm_rhs = if rhs_ordered.is_empty() {
-            rhs
-        } else {
-            apply_var_renaming(rhs, &rhs_old_to_new, terms)
-        };
-
-        // Step 7: Build DropFresh by finding shared variables
-        // For each LHS var position i, find if the original var appears in RHS
-        // and at what position j in rhs_ordered. DropFresh connects (i, j) for shared vars.
-        let mut rhs_pos: std::collections::HashMap<u32, u32> = std::collections::HashMap::new();
-        for (pos, &var) in rhs_ordered.iter().enumerate() {
-            rhs_pos.insert(var, pos as u32);
-        }
-        let mut drop_fresh_map: SmallVec<[(u32, u32); 4]> = SmallVec::new();
-
-        for (i, &lhs_orig_var) in lhs_vars.iter().enumerate() {
-            if let Some(&j) = rhs_pos.get(&lhs_orig_var) {
-                drop_fresh_map.push((i as u32, j));
-            }
-        }
-
-        let drop_fresh = DropFresh {
-            in_arity: n,
-            out_arity: m,
-            map: drop_fresh_map,
+        Self::from_patterns(
+            smallvec::smallvec![lhs],
+            smallvec::smallvec![rhs],
             constraint,
-        };
-
-        Self {
-            match_pats: smallvec::smallvec![norm_lhs],
-            drop_fresh,
-            build_pats: smallvec::smallvec![norm_rhs],
-        }
+            terms,
+        )
     }
 }
 
-/// Collect a tensor NF into direct-rule form by pushing wiring into RHS vars.
-pub fn collect_tensor<C: Clone>(nf: &NF<C>, terms: &mut TermStore) -> RwT<C> {
-    let out_arity = nf.drop_fresh.out_arity as usize;
-    let in_arity = nf.drop_fresh.in_arity;
+/// Canonicalize an NF in place by renumbering variables.
+///
+/// Variables are assigned indices 0, 1, 2, ... in order of first occurrence,
+/// scanning match_boundary first, then build_boundary.
+pub fn canonicalize_nf<C: ConstraintOps>(nf: &mut NF<C>, terms: &mut TermStore) {
+    // Collect all variables in canonical order
+    let match_vars = collect_vars_ordered_list(&nf.match_boundary, terms);
+    let build_vars = collect_vars_ordered_list(&nf.build_boundary, terms);
 
-    let mut rhs_map: Vec<Option<u32>> = vec![None; out_arity];
-    for (i, j) in nf.drop_fresh.map.iter().copied() {
-        if let Some(slot) = rhs_map.get_mut(j as usize) {
-            *slot = Some(i);
+    // Build combined ordering: match vars first, then build-only vars
+    let mut ordered: Vec<u32> = match_vars.clone();
+    let match_set: HashSet<u32> = match_vars.iter().copied().collect();
+    for var in build_vars {
+        if !match_set.contains(&var) {
+            ordered.push(var);
         }
     }
 
-    let mut next_var = in_arity;
-    for slot in rhs_map.iter_mut() {
-        if slot.is_none() {
-            *slot = Some(next_var);
-            next_var += 1;
-        }
-    }
-
-    let rhs_direct = apply_var_renaming_list(&nf.build_pats, &rhs_map, terms);
-
-    RwT {
-        lhs: nf.match_pats.clone(),
-        rhs: rhs_direct,
-        constraint: nf.drop_fresh.constraint.clone(),
-    }
-}
-
-/// Factor a tensor rewrite (lists of patterns) into NF.
-pub fn factor_tensor<C: ConstraintOps>(
-    lhs_pats: SmallVec<[TermId; 1]>,
-    rhs_pats: SmallVec<[TermId; 1]>,
-    constraint: C,
-    terms: &mut TermStore,
-) -> NF<C> {
-    let constraint_map = constraint_var_renaming(&lhs_pats, &rhs_pats, &constraint, terms);
-    let constraint = constraint.remap_vars(&constraint_map, terms);
-
-    let lhs_vars = collect_vars_ordered_list(&lhs_pats, terms);
-    let rhs_vars = collect_vars_ordered_list(&rhs_pats, terms);
-
-    let n = lhs_vars.len() as u32;
-    let lhs_old_to_new = build_var_map(&lhs_vars);
-
-    let norm_lhs = if lhs_vars.is_empty() {
-        lhs_pats.clone()
-    } else {
-        apply_var_renaming_list(&lhs_pats, &lhs_old_to_new, terms)
-    };
-
-    let rhs_set: std::collections::HashSet<u32> = rhs_vars.iter().copied().collect();
-    let lhs_set: std::collections::HashSet<u32> = lhs_vars.iter().copied().collect();
-
-    // Build RHS variable ordering: shared vars in LHS order, then RHS-only vars
-    let mut rhs_ordered: Vec<u32> = Vec::new();
-    for &var in lhs_vars.iter() {
-        if rhs_set.contains(&var) {
-            rhs_ordered.push(var);
-        }
-    }
-    for &var in rhs_vars.iter() {
-        if !lhs_set.contains(&var) {
-            rhs_ordered.push(var);
-        }
-    }
-
-    let m = rhs_ordered.len() as u32;
-    let rhs_old_to_new = build_var_map(&rhs_ordered);
-
-    let norm_rhs = if rhs_ordered.is_empty() {
-        rhs_pats.clone()
-    } else {
-        apply_var_renaming_list(&rhs_pats, &rhs_old_to_new, terms)
-    };
-
-    // Build DropFresh by finding shared variables
-    let mut rhs_pos: std::collections::HashMap<u32, u32> = std::collections::HashMap::new();
-    for (pos, &var) in rhs_ordered.iter().enumerate() {
-        rhs_pos.insert(var, pos as u32);
-    }
-
-    let mut drop_fresh_map: SmallVec<[(u32, u32); 4]> = SmallVec::new();
-    for (i, &lhs_orig_var) in lhs_vars.iter().enumerate() {
-        if let Some(&j) = rhs_pos.get(&lhs_orig_var) {
-            drop_fresh_map.push((i as u32, j));
-        }
-    }
-
-    let drop_fresh = DropFresh {
-        in_arity: n,
-        out_arity: m,
-        map: drop_fresh_map,
-        constraint,
-    };
-
-    NF {
-        match_pats: norm_lhs,
-        drop_fresh,
-        build_pats: norm_rhs,
-    }
-}
-
-/// Compute a renaming map for constraints based on direct-rule variable ordering:
-/// LHS variables first (order of appearance), then RHS-only variables.
-pub fn constraint_var_renaming<C: ConstraintOps>(
-    lhs_pats: &[TermId],
-    rhs_pats: &[TermId],
-    constraint: &C,
-    terms: &TermStore,
-) -> Vec<Option<u32>> {
-    let lhs_vars = collect_vars_ordered_list(lhs_pats, terms);
-    let rhs_vars = collect_vars_ordered_list(rhs_pats, terms);
+    // Include constraint variables
     let mut constraint_vars = Vec::new();
-    constraint.collect_vars(terms, &mut constraint_vars);
-    constraint_vars.sort_unstable();
-    constraint_vars.dedup();
-    combined_var_renaming_with_extra(&lhs_vars, &rhs_vars, &constraint_vars)
-}
-
-/// Compute a renaming map for constraints based on combined variable order:
-/// LHS variables first (order of appearance), then RHS-only variables.
-pub fn combined_var_renaming(lhs_vars: &[u32], rhs_vars: &[u32]) -> Vec<Option<u32>> {
-    combined_var_renaming_with_extra(lhs_vars, rhs_vars, &[])
-}
-
-/// Compute a renaming map for constraints using LHS vars, RHS-only vars,
-/// then any extra vars (e.g., constraint-only vars).
-pub fn combined_var_renaming_with_extra(
-    lhs_vars: &[u32],
-    rhs_vars: &[u32],
-    extra_vars: &[u32],
-) -> Vec<Option<u32>> {
-    let mut ordered: Vec<u32> = Vec::new();
-    let mut seen: std::collections::HashSet<u32> = std::collections::HashSet::new();
-    for &var in lhs_vars.iter() {
+    nf.constraint.collect_vars(terms, &mut constraint_vars);
+    let mut seen: HashSet<u32> = ordered.iter().copied().collect();
+    for var in constraint_vars {
         if seen.insert(var) {
             ordered.push(var);
         }
     }
-    for &var in rhs_vars.iter() {
-        if seen.insert(var) {
-            ordered.push(var);
-        }
+
+    if ordered.is_empty() {
+        return; // No variables to renumber
     }
-    for &var in extra_vars.iter() {
-        if seen.insert(var) {
-            ordered.push(var);
-        }
-    }
-    build_var_map(&ordered)
+
+    // Build renaming map
+    let old_to_new = build_var_map(&ordered);
+
+    // Apply renaming to boundaries
+    nf.match_boundary = apply_var_renaming_list(&nf.match_boundary, &old_to_new, terms);
+    nf.build_boundary = apply_var_renaming_list(&nf.build_boundary, &old_to_new, terms);
+
+    // Apply renaming to constraint
+    nf.constraint = nf.constraint.remap_vars(&old_to_new, terms);
 }
 
-/// Build a variable renaming map from a list of original variable indices.
-/// Maps old_idx -> new_idx where new_idx is the position in vars.
-fn build_var_map(vars: &[u32]) -> Vec<Option<u32>> {
-    if vars.is_empty() {
-        return Vec::new();
-    }
-    let max_var = vars.iter().copied().max().unwrap_or(0) as usize;
-    let mut old_to_new = vec![None; max_var + 1];
-    for (new_idx, &old_idx) in vars.iter().enumerate() {
-        old_to_new[old_idx as usize] = Some(new_idx as u32);
-    }
-    old_to_new
+/// Canonicalize an NF, returning a new NF.
+pub fn canon_nf<C: ConstraintOps>(nf: &NF<C>, terms: &mut TermStore) -> NF<C> {
+    let mut result = nf.clone();
+    canonicalize_nf(&mut result, terms);
+    result
 }
+
+/// Compute the maximum variable index in an NF.
+pub fn max_var_in_nf<C>(nf: &NF<C>, terms: &TermStore) -> Option<u32> {
+    let match_max = max_var_in_boundary(&nf.match_boundary, terms);
+    let build_max = max_var_in_boundary(&nf.build_boundary, terms);
+    match (match_max, build_max) {
+        (Some(a), Some(b)) => Some(a.max(b)),
+        (Some(a), None) => Some(a),
+        (None, Some(b)) => Some(b),
+        (None, None) => None,
+    }
+}
+
+/// Compute the maximum variable index in a boundary.
+pub fn max_var_in_boundary(boundary: &[TermId], terms: &TermStore) -> Option<u32> {
+    let vars = collect_vars_ordered_list(boundary, terms);
+    vars.into_iter().max()
+}
+
+/// Shift all variables in an NF by an offset, returning a new NF.
+///
+/// Used to rename variables apart before matching.
+pub fn shift_nf_vars<C: ConstraintOps>(nf: &NF<C>, offset: u32, terms: &mut TermStore) -> NF<C> {
+    let match_shifted = shift_vars_list(&nf.match_boundary, offset, terms);
+    let build_shifted = shift_vars_list(&nf.build_boundary, offset, terms);
+    let constraint_shifted = nf.constraint.shift_vars(offset, terms);
+    NF::with_constraint(match_shifted, build_shifted, constraint_shifted)
+}
+
+/// Shift all variables in a boundary by an offset.
+pub fn shift_vars_list(boundary: &[TermId], offset: u32, terms: &mut TermStore) -> Boundary {
+    boundary
+        .iter()
+        .map(|&t| shift_vars(t, offset, terms))
+        .collect()
+}
+
+/// Shift all variables in a term by an offset.
+pub fn shift_vars(term: TermId, offset: u32, terms: &mut TermStore) -> TermId {
+    match terms.resolve(term) {
+        Some(Term::Var(idx)) => terms.var(idx + offset),
+        Some(Term::App(func, children)) => {
+            let new_children: SmallVec<[TermId; 4]> = children
+                .iter()
+                .map(|&child| shift_vars(child, offset, terms))
+                .collect();
+            terms.app(func, new_children)
+        }
+        None => term,
+    }
+}
+
+// ============================================================================
+// Variable collection utilities
+// ============================================================================
 
 /// Collect variables from a term in order of first appearance.
-/// Returns the list of original variable indices (unique).
 pub fn collect_vars_ordered(term: TermId, terms: &TermStore) -> Vec<u32> {
     let mut vars = Vec::new();
-    let mut seen = std::collections::HashSet::new();
+    let mut seen = HashSet::new();
     collect_vars_helper(term, terms, &mut vars, &mut seen);
     vars
 }
@@ -339,7 +218,7 @@ pub fn collect_vars_ordered(term: TermId, terms: &TermStore) -> Vec<u32> {
 /// Collect variables from a list of terms in order of first appearance.
 pub fn collect_vars_ordered_list(terms_list: &[TermId], terms: &TermStore) -> Vec<u32> {
     let mut vars = Vec::new();
-    let mut seen = std::collections::HashSet::new();
+    let mut seen = HashSet::new();
     for &term in terms_list {
         collect_vars_helper(term, terms, &mut vars, &mut seen);
     }
@@ -350,7 +229,7 @@ fn collect_vars_helper(
     term: TermId,
     terms: &TermStore,
     vars: &mut Vec<u32>,
-    seen: &mut std::collections::HashSet<u32>,
+    seen: &mut HashSet<u32>,
 ) {
     match terms.resolve(term) {
         Some(Term::Var(idx)) => {
@@ -367,28 +246,25 @@ fn collect_vars_helper(
     }
 }
 
-/// Renumber variables in a term to use consecutive indices starting at 0.
-/// Returns the renumbered term and the mapping from new index to old index.
-pub fn renumber_vars(term: TermId, terms: &mut TermStore) -> (TermId, Vec<u32>) {
-    let vars = collect_vars_ordered(term, terms);
+// ============================================================================
+// Variable renaming utilities
+// ============================================================================
 
+/// Build a variable renaming map from a list of original variable indices.
+/// Maps old_idx -> new_idx where new_idx is the position in vars.
+pub fn build_var_map(vars: &[u32]) -> Vec<Option<u32>> {
     if vars.is_empty() {
-        return (term, vec![]);
+        return Vec::new();
     }
-
-    // Build old_to_new mapping
-    let max_var = vars.iter().copied().max().unwrap() as usize;
+    let max_var = vars.iter().copied().max().unwrap_or(0) as usize;
     let mut old_to_new = vec![None; max_var + 1];
     for (new_idx, &old_idx) in vars.iter().enumerate() {
         old_to_new[old_idx as usize] = Some(new_idx as u32);
     }
-
-    let renumbered = apply_var_renaming(term, &old_to_new, terms);
-    (renumbered, vars)
+    old_to_new
 }
 
-/// Renumber variables according to a given mapping.
-/// The mapping maps old variable index to new variable index.
+/// Renumber variables in a term according to a mapping.
 pub fn apply_var_renaming(
     term: TermId,
     old_to_new: &[Option<u32>],
@@ -416,60 +292,59 @@ pub fn apply_var_renaming(
     }
 }
 
-fn apply_var_renaming_list(
+/// Renumber variables in a list of terms.
+pub fn apply_var_renaming_list(
     terms_list: &[TermId],
     old_to_new: &[Option<u32>],
     terms: &mut TermStore,
-) -> SmallVec<[TermId; 1]> {
+) -> Boundary {
     terms_list
         .iter()
         .map(|&term| apply_var_renaming(term, old_to_new, terms))
         .collect()
 }
 
-pub fn direct_rule_terms<C: Clone>(nf: &NF<C>, terms: &mut TermStore) -> Option<(TermId, TermId)> {
-    if nf.match_pats.len() != 1 || nf.build_pats.len() != 1 {
-        return None;
+/// Renumber variables in a term to use consecutive indices starting at 0.
+pub fn renumber_vars(term: TermId, terms: &mut TermStore) -> (TermId, Vec<u32>) {
+    let vars = collect_vars_ordered(term, terms);
+    if vars.is_empty() {
+        return (term, vec![]);
     }
-
-    let lhs = nf.match_pats[0];
-    let rhs = nf.build_pats[0];
-    let out_arity = nf.drop_fresh.out_arity as usize;
-    let in_arity = nf.drop_fresh.in_arity;
-
-    let mut rhs_map: Vec<Option<u32>> = vec![None; out_arity];
-    for (i, j) in nf.drop_fresh.map.iter().copied() {
-        if let Some(slot) = rhs_map.get_mut(j as usize) {
-            *slot = Some(i);
-        }
-    }
-
-    let mut next_var = in_arity;
-    for slot in rhs_map.iter_mut() {
-        if slot.is_none() {
-            *slot = Some(next_var);
-            next_var += 1;
-        }
-    }
-
-    let rhs_direct = apply_var_renaming(rhs, &rhs_map, terms);
-    Some((lhs, rhs_direct))
+    let old_to_new = build_var_map(&vars);
+    let renumbered = apply_var_renaming(term, &old_to_new, terms);
+    (renumbered, vars)
 }
 
+// ============================================================================
+// Formatting
+// ============================================================================
+
+/// Format an NF for display.
 pub fn format_nf<C: Clone + ConstraintDisplay>(
     nf: &NF<C>,
     terms: &mut TermStore,
     symbols: &SymbolStore,
 ) -> Result<String, String> {
-    if nf.match_pats.is_empty() && nf.build_pats.is_empty() {
-        return Ok("$0 -> $0".to_string());
+    if nf.match_boundary.is_empty() && nf.build_boundary.is_empty() {
+        return Ok("[] -> []".to_string());
     }
 
-    let (lhs, rhs) = direct_rule_terms(nf, terms)
-        .ok_or_else(|| "Cannot render non-unary relation".to_string())?;
-    let lhs_str = format_term(lhs, terms, symbols)?;
-    let rhs_str = format_term(rhs, terms, symbols)?;
-    let constraint_str = nf.drop_fresh.constraint.fmt_constraints(terms, symbols)?;
+    let format_boundary = |boundary: &[TermId]| -> Result<String, String> {
+        if boundary.len() == 1 {
+            format_term(boundary[0], terms, symbols)
+        } else {
+            let parts: Result<Vec<String>, String> = boundary
+                .iter()
+                .map(|&t| format_term(t, terms, symbols))
+                .collect();
+            Ok(format!("[{}]", parts?.join(", ")))
+        }
+    };
+
+    let lhs_str = format_boundary(&nf.match_boundary)?;
+    let rhs_str = format_boundary(&nf.build_boundary)?;
+    let constraint_str = nf.constraint.fmt_constraints(terms, symbols)?;
+
     if let Some(cs) = constraint_str {
         Ok(format!("{} {{ {} }} -> {}", lhs_str, cs, rhs_str))
     } else {
@@ -479,5 +354,116 @@ pub fn format_nf<C: Clone + ConstraintDisplay>(
 
 
 #[cfg(test)]
-#[path = "tests/nf.rs"]
-mod tests;
+mod tests {
+    use super::*;
+    use crate::symbol::SymbolStore;
+
+    fn setup() -> (TermStore, SymbolStore) {
+        (TermStore::new(), SymbolStore::new())
+    }
+
+    #[test]
+    fn canon_nf_renumbers_by_first_occurrence() {
+        let (mut terms, mut symbols) = setup();
+        let f = symbols.intern("f");
+        let g = symbols.intern("g");
+
+        // Create NF with non-canonical variable numbering
+        // match: f($5, $3)  build: g($3, $5, $7)
+        let v5 = terms.var(5);
+        let v3 = terms.var(3);
+        let v7 = terms.var(7);
+        let match_pat = terms.app(f, smallvec::smallvec![v5, v3]);
+        let build_pat = terms.app(g, smallvec::smallvec![v3, v5, v7]);
+
+        let nf: NF<()> = NF::from_patterns(
+            smallvec::smallvec![match_pat],
+            smallvec::smallvec![build_pat],
+            (),
+            &mut terms,
+        );
+
+        // After canonicalization:
+        // match vars in order: $5, $3 -> $0, $1
+        // build vars: $3=$1, $5=$0, $7 is new -> $2
+        // Result: match: f($0, $1)  build: g($1, $0, $2)
+
+        assert_eq!(nf.match_boundary.len(), 1);
+        assert_eq!(nf.build_boundary.len(), 1);
+
+        // Check match boundary has vars 0, 1
+        let match_vars = collect_vars_ordered_list(&nf.match_boundary, &terms);
+        assert_eq!(match_vars, vec![0, 1]);
+
+        // Check build boundary has vars 1, 0, 2
+        let build_vars = collect_vars_ordered_list(&nf.build_boundary, &terms);
+        assert_eq!(build_vars, vec![1, 0, 2]);
+    }
+
+    #[test]
+    fn shift_nf_vars_offsets_all_variables() {
+        let (mut terms, mut symbols) = setup();
+        let f = symbols.intern("f");
+
+        let v0 = terms.var(0);
+        let v1 = terms.var(1);
+        let match_pat = terms.app(f, smallvec::smallvec![v0, v1]);
+        let build_pat = v0;
+
+        let nf: NF<()> = NF::new(
+            smallvec::smallvec![match_pat],
+            smallvec::smallvec![build_pat],
+        );
+
+        let shifted = shift_nf_vars(&nf, 10, &mut terms);
+
+        let shifted_match_vars = collect_vars_ordered_list(&shifted.match_boundary, &terms);
+        assert_eq!(shifted_match_vars, vec![10, 11]);
+
+        let shifted_build_vars = collect_vars_ordered_list(&shifted.build_boundary, &terms);
+        assert_eq!(shifted_build_vars, vec![10]);
+    }
+
+    #[test]
+    fn identity_nf_has_empty_boundaries() {
+        let nf: NF<()> = NF::identity(());
+        assert!(nf.match_boundary.is_empty());
+        assert!(nf.build_boundary.is_empty());
+        assert_eq!(nf.match_arity(), 0);
+        assert_eq!(nf.build_arity(), 0);
+    }
+
+    #[test]
+    fn max_var_in_nf_finds_maximum() {
+        let (mut terms, mut symbols) = setup();
+        let f = symbols.intern("f");
+
+        let v2 = terms.var(2);
+        let v5 = terms.var(5);
+        let v3 = terms.var(3);
+        let match_pat = terms.app(f, smallvec::smallvec![v2, v5]);
+        let build_pat = v3;
+
+        let nf: NF<()> = NF::new(
+            smallvec::smallvec![match_pat],
+            smallvec::smallvec![build_pat],
+        );
+
+        assert_eq!(max_var_in_nf(&nf, &terms), Some(5));
+    }
+
+    #[test]
+    fn collect_vars_ordered_preserves_first_occurrence_order() {
+        let (mut terms, mut symbols) = setup();
+        let f = symbols.intern("f");
+
+        // f($3, $1, $3, $2)
+        let v3 = terms.var(3);
+        let v1 = terms.var(1);
+        let v2 = terms.var(2);
+        let term = terms.app(f, smallvec::smallvec![v3, v1, v3, v2]);
+
+        let vars = collect_vars_ordered(term, &terms);
+        assert_eq!(vars, vec![3, 1, 2]); // First occurrence order, no duplicates
+    }
+}

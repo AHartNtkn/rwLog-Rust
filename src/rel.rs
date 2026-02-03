@@ -3,10 +3,8 @@
 //! Rel replaces the old Goal enum with a more principled representation
 //! that supports structural dual operations.
 
-use crate::constraint::ConstraintOps;
 use crate::kernel::dual_nf;
 use crate::nf::NF;
-use crate::term::TermStore;
 use std::sync::Arc;
 
 /// Identifier for recursive relation bindings (Fix/Call).
@@ -48,33 +46,33 @@ pub enum Rel<C> {
 /// Properties:
 /// - dual(dual(r)) == r (involution)
 /// - dual(Zero) = Zero
-/// - dual(Atom(nf)) = Atom(dual_nf(nf, terms))
+/// - dual(Atom(nf)) = Atom(dual_nf(nf))
 /// - dual(Or(a,b)) = Or(dual(a), dual(b)) (no swap)
 /// - dual(And(a,b)) = And(dual(a), dual(b)) (no swap)
 /// - dual(Seq([x0..xn])) = Seq([dual(xn)..dual(x0)]) (REVERSE and dual)
 /// - dual(Fix(id, body)) = Fix(id, dual(body))
 /// - dual(Call(id)) = Call(id)
-pub fn dual<C: ConstraintOps>(rel: &Rel<C>, terms: &mut TermStore) -> Rel<C> {
+pub fn dual<C: Clone>(rel: &Rel<C>) -> Rel<C> {
     match rel {
         Rel::Zero => Rel::Zero,
 
-        Rel::Atom(nf) => Rel::Atom(Arc::new(dual_nf(nf, terms))),
+        Rel::Atom(nf) => Rel::Atom(Arc::new(dual_nf(nf))),
 
-        Rel::Or(a, b) => Rel::Or(Arc::new(dual(a, terms)), Arc::new(dual(b, terms))),
+        Rel::Or(a, b) => Rel::Or(Arc::new(dual(a)), Arc::new(dual(b))),
 
-        Rel::And(a, b) => Rel::And(Arc::new(dual(a, terms)), Arc::new(dual(b, terms))),
+        Rel::And(a, b) => Rel::And(Arc::new(dual(a)), Arc::new(dual(b))),
 
         Rel::Seq(xs) => {
             // CRITICAL: Reverse the sequence AND dual each element
             let dualed: Vec<Arc<Rel<C>>> = xs
                 .iter()
                 .rev() // Reverse order
-                .map(|x| Arc::new(dual(x, terms))) // Dual each element
+                .map(|x| Arc::new(dual(x))) // Dual each element
                 .collect();
             Rel::Seq(Arc::from(dualed))
         }
 
-        Rel::Fix(id, body) => Rel::Fix(*id, Arc::new(dual(body, terms))),
+        Rel::Fix(id, body) => Rel::Fix(*id, Arc::new(dual(body))),
 
         Rel::Call(id) => Rel::Call(*id),
     }

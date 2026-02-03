@@ -21,11 +21,10 @@ pub trait ConstraintOps: Clone + Eq + Hash + Default + Send + Sync {
     /// Returns None if the constraints are inconsistent.
     fn combine(&self, other: &Self) -> Option<Self>;
 
-    /// Normalize the constraint, potentially producing substitutions.
+    /// Normalize the constraint.
     ///
-    /// Returns the simplified constraint and any substitutions that
-    /// were derived from the constraint.
-    fn normalize(&self, terms: &mut TermStore) -> Option<(Self, Option<Subst>)>;
+    /// Returns the simplified constraint, or None if inconsistent.
+    fn normalize(&self, terms: &mut TermStore) -> Option<Self>;
 
     /// Apply a substitution to the constraint.
     fn apply_subst(&self, subst: &Subst, terms: &mut TermStore) -> Self;
@@ -35,6 +34,10 @@ pub trait ConstraintOps: Clone + Eq + Hash + Default + Send + Sync {
 
     /// Collect variable indices referenced by this constraint.
     fn collect_vars(&self, _terms: &TermStore, _out: &mut Vec<u32>) {}
+
+    /// Shift all variable indices by an offset.
+    /// Used to rename variables apart before matching.
+    fn shift_vars(&self, offset: u32, terms: &mut TermStore) -> Self;
 
     /// Check if this is the trivial (empty) constraint.
     fn is_empty(&self) -> bool;
@@ -63,8 +66,8 @@ impl ConstraintOps for () {
         Some(())
     }
 
-    fn normalize(&self, _terms: &mut TermStore) -> Option<(Self, Option<Subst>)> {
-        Some(((), None))
+    fn normalize(&self, _terms: &mut TermStore) -> Option<Self> {
+        Some(())
     }
 
     fn apply_subst(&self, _subst: &Subst, _terms: &mut TermStore) -> Self {}
@@ -72,6 +75,8 @@ impl ConstraintOps for () {
     fn remap_vars(&self, _map: &[Option<u32>], _terms: &mut TermStore) -> Self {}
 
     fn collect_vars(&self, _terms: &TermStore, _out: &mut Vec<u32>) {}
+
+    fn shift_vars(&self, _offset: u32, _terms: &mut TermStore) -> Self {}
 
     fn is_empty(&self) -> bool {
         true
@@ -143,11 +148,16 @@ impl ConstraintOps for DiseqConstraint {
         Some(result)
     }
 
-    fn normalize(&self, _terms: &mut TermStore) -> Option<(Self, Option<Subst>)> {
+    fn normalize(&self, _terms: &mut TermStore) -> Option<Self> {
         if !self.is_satisfiable() {
             return None;
         }
-        Some((self.clone(), None))
+        let mut out = self.clone();
+        out.constraints
+            .sort_by(|a, b| (a.var, a.term).cmp(&(b.var, b.term)));
+        out.constraints
+            .dedup_by(|a, b| a.var == b.var && a.term == b.term);
+        Some(out)
     }
 
     fn apply_subst(&self, subst: &Subst, terms: &mut TermStore) -> Self {
@@ -173,6 +183,10 @@ impl ConstraintOps for DiseqConstraint {
             }
             diseq.term = apply_var_renaming(diseq.term, map, terms);
         }
+        out.constraints
+            .sort_by(|a, b| (a.var, a.term).cmp(&(b.var, b.term)));
+        out.constraints
+            .dedup_by(|a, b| a.var == b.var && a.term == b.term);
         out
     }
 
@@ -181,6 +195,15 @@ impl ConstraintOps for DiseqConstraint {
             out.push(diseq.var);
             out.extend(crate::nf::collect_vars_ordered(diseq.term, terms));
         }
+    }
+
+    fn shift_vars(&self, offset: u32, terms: &mut TermStore) -> Self {
+        let mut out = self.clone();
+        for diseq in out.constraints.iter_mut() {
+            diseq.var += offset;
+            diseq.term = crate::nf::shift_vars(diseq.term, offset, terms);
+        }
+        out
     }
 
     fn is_empty(&self) -> bool {
@@ -223,14 +246,6 @@ impl TypeConstraints {
     /// Add a type constraint: term : type_id.
     pub fn add(&mut self, term: crate::term::TermId, type_id: u32) {
         let tc = TypeConstraint { term, type_id };
-        // Check for conflicting type constraint
-        for existing in &self.constraints {
-            if existing.term == term && existing.type_id != type_id {
-                // Conflicting types - this would make it unsatisfiable
-                // For now, we just don't add duplicates
-                return;
-            }
-        }
         if !self.constraints.contains(&tc) {
             self.constraints.push(tc);
         }
@@ -271,7 +286,7 @@ impl ConstraintOps for TypeConstraints {
         Some(result)
     }
 
-    fn normalize(&self, _terms: &mut TermStore) -> Option<(Self, Option<Subst>)> {
+    fn normalize(&self, _terms: &mut TermStore) -> Option<Self> {
         if !self.is_satisfiable() {
             return None;
         }
@@ -280,7 +295,7 @@ impl ConstraintOps for TypeConstraints {
             .sort_by(|a, b| (a.term, a.type_id).cmp(&(b.term, b.type_id)));
         out.constraints
             .dedup_by(|a, b| a.term == b.term && a.type_id == b.type_id);
-        Some((out, None))
+        Some(out)
     }
 
     fn apply_subst(&self, subst: &Subst, terms: &mut TermStore) -> Self {
@@ -307,6 +322,14 @@ impl ConstraintOps for TypeConstraints {
         for tc in self.constraints.iter() {
             out.extend(crate::nf::collect_vars_ordered(tc.term, terms));
         }
+    }
+
+    fn shift_vars(&self, offset: u32, terms: &mut TermStore) -> Self {
+        let mut out = self.clone();
+        for tc in out.constraints.iter_mut() {
+            tc.term = crate::nf::shift_vars(tc.term, offset, terms);
+        }
+        out
     }
 
     fn is_empty(&self) -> bool {
@@ -364,10 +387,10 @@ impl ConstraintOps for CombinedConstraint {
         Some(Self { diseqs, types })
     }
 
-    fn normalize(&self, terms: &mut TermStore) -> Option<(Self, Option<Subst>)> {
-        let (diseqs, _) = self.diseqs.normalize(terms)?;
-        let (types, _) = self.types.normalize(terms)?;
-        Some((Self { diseqs, types }, None))
+    fn normalize(&self, terms: &mut TermStore) -> Option<Self> {
+        let diseqs = self.diseqs.normalize(terms)?;
+        let types = self.types.normalize(terms)?;
+        Some(Self { diseqs, types })
     }
 
     fn apply_subst(&self, subst: &Subst, terms: &mut TermStore) -> Self {
@@ -387,6 +410,13 @@ impl ConstraintOps for CombinedConstraint {
     fn collect_vars(&self, terms: &TermStore, out: &mut Vec<u32>) {
         self.diseqs.collect_vars(terms, out);
         self.types.collect_vars(terms, out);
+    }
+
+    fn shift_vars(&self, offset: u32, terms: &mut TermStore) -> Self {
+        Self {
+            diseqs: self.diseqs.shift_vars(offset, terms),
+            types: self.types.shift_vars(offset, terms),
+        }
     }
 
     fn is_empty(&self) -> bool {

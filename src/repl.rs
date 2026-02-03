@@ -7,13 +7,15 @@
 //! - `list`, `help`, `quit`/`exit`
 
 use crate::chr::{ChrState, NoTheory};
-use crate::engine::Engine;
 use crate::parser::{ChrConstraintBuilder, Parser};
-use crate::rel::Rel;
-use crate::work::Env;
+use crate::rel::{Rel, RelId};
+use crate::runtime::Engine;
 use std::collections::HashMap;
 
 type ReplConstraint = ChrState<NoTheory>;
+
+/// Fuel per answer when running queries.
+const FUEL_PER_ANSWER: usize = 10000;
 
 /// REPL state.
 pub struct Repl {
@@ -237,11 +239,17 @@ Syntax:
             .parse_rel_body(query)
             .map_err(|e| format!("Parse error: {}", e))?;
 
-        let env = self.build_env();
+        // Build definitions list from stored relations
+        let defs = self.build_defs();
 
         // Share the parser's TermStore with the engine to keep TermIds valid.
         let terms = self.parser.take_terms();
-        let engine: Engine<ReplConstraint> = Engine::new_with_env(rel, terms, env);
+
+        let engine: Engine<ReplConstraint> =
+            Engine::from_program(&defs, &rel, terms).ok_or_else(|| {
+                "Failed to compile query - undefined relation reference?".to_string()
+            })?;
+
         self.active_engine = Some(engine);
         self.active_answer_count = 0;
         self.next_answers(1)
@@ -257,15 +265,20 @@ Syntax:
         let mut produced = 0;
 
         while produced < count {
-            match engine.next() {
-                Some(nf) => {
+            match engine.next_with_fuel(FUEL_PER_ANSWER) {
+                Ok(Some(nf)) => {
                     self.active_answer_count += 1;
                     let rendered = engine.format_nf(&nf, self.parser.symbols())?;
                     output.push_str(&format!("{}. {}\n", self.active_answer_count, rendered));
                     produced += 1;
                 }
-                None => {
+                Ok(None) => {
                     self.finish_active_query();
+                    break;
+                }
+                Err(e) => {
+                    // Ran out of fuel
+                    output.push_str(&format!("(out of fuel: {})\n", e));
                     break;
                 }
             }
@@ -291,14 +304,17 @@ Syntax:
         self.active_answer_count = 0;
     }
 
-    fn build_env(&self) -> Env<ReplConstraint> {
-        let mut env = Env::new();
+    /// Build definitions list for the engine.
+    /// Extracts (RelId, body) pairs from stored Rel::Fix definitions.
+    fn build_defs(&self) -> Vec<(RelId, Rel<ReplConstraint>)> {
+        let mut defs = Vec::new();
         for rel in self.definitions.values() {
             if let Rel::Fix(id, body) = rel {
-                env = env.bind(*id, body.clone());
+                // The body is already wrapped in Arc, unwrap it for from_program
+                defs.push((*id, (**body).clone()));
             }
         }
-        env
+        defs
     }
 }
 

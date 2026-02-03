@@ -1,80 +1,71 @@
+//! Sequential composition of NFs: a ; b
+//!
+//! This computes the composition where output of a feeds into input of b.
+//! - Match a.match_boundary against input
+//! - Construct a.build_boundary
+//! - Match b.match_boundary against a.build_boundary
+//! - Construct b.build_boundary as final output
+
 use crate::constraint::ConstraintOps;
-use crate::nf::{collect_tensor, factor_tensor, NF};
+use crate::nf::{canon_nf, max_var_in_nf, shift_nf_vars, NF};
 use crate::term::TermStore;
 #[cfg(feature = "tracing")]
 use crate::trace::{debug_span, trace};
 
-use super::util::{
-    apply_subst_list, match_term_lists, max_var_index_terms, remap_constraint_vars, shift_vars_list,
-};
+use super::util::{apply_subst_list, match_term_lists};
 
 /// Compose two NFs in sequence: a ; b
 ///
-/// This computes the composition where:
-/// - First, a's match patterns are matched against input
-/// - Variables are routed through a's DropFresh
-/// - a's build patterns are constructed
-/// - b's match patterns are matched against a's output
-/// - Variables are routed through b's DropFresh
-/// - b's build patterns are constructed
-///
-/// Returns None if composition fails (matching failure at interface).
+/// Returns None if composition fails (arity mismatch or matching failure).
 pub fn compose_nf<C: ConstraintOps>(a: &NF<C>, b: &NF<C>, terms: &mut TermStore) -> Option<NF<C>> {
     #[cfg(feature = "tracing")]
     let _span = debug_span!(
         "compose_nf",
-        a_match_arity = a.match_pats.len(),
-        a_build_arity = a.build_pats.len(),
-        b_match_arity = b.match_pats.len(),
-        b_build_arity = b.build_pats.len(),
-        a_drop_fresh_in = a.drop_fresh.in_arity,
-        a_drop_fresh_out = a.drop_fresh.out_arity,
-        b_drop_fresh_in = b.drop_fresh.in_arity,
-        b_drop_fresh_out = b.drop_fresh.out_arity,
+        a_match_arity = a.match_boundary.len(),
+        a_build_arity = a.build_boundary.len(),
+        b_match_arity = b.match_boundary.len(),
+        b_build_arity = b.build_boundary.len(),
     )
     .entered();
 
-    if a.build_pats.len() != b.match_pats.len() {
+    // Arity check: a's output must match b's input
+    if a.build_boundary.len() != b.match_boundary.len() {
         #[cfg(feature = "tracing")]
         trace!(
-            a_build = a.build_pats.len(),
-            b_match = b.match_pats.len(),
+            a_build = a.build_boundary.len(),
+            b_match = b.match_boundary.len(),
             "arity_mismatch"
         );
-        return None; // Arity mismatch
+        return None;
     }
 
-    let rw1 = collect_tensor(a, terms);
-    let mut rw2 = collect_tensor(b, terms);
-    let b_max_var = max_var_index_terms(&rw2.lhs, terms).max(max_var_index_terms(&rw2.rhs, terms));
+    // Compute offset to rename b's variables to disjoint namespace
+    let a_max_var = max_var_in_nf(a, terms).map(|v| v + 1).unwrap_or(0);
 
-    let b_var_offset = max_var_index_terms(&rw1.lhs, terms)
-        .max(max_var_index_terms(&rw1.rhs, terms))
-        .map(|v| v + 1)
-        .unwrap_or(0);
-
-    if b_var_offset != 0 {
-        rw2.lhs = shift_vars_list(&rw2.lhs, b_var_offset, terms);
-        rw2.rhs = shift_vars_list(&rw2.rhs, b_var_offset, terms);
-    }
+    // Shift b's variables if needed
+    let b_shifted = if a_max_var > 0 {
+        shift_nf_vars(b, a_max_var, terms)
+    } else {
+        b.clone()
+    };
 
     #[cfg(feature = "tracing")]
     trace!(
-        a_rhs = ?rw1.rhs,
-        b_lhs_shifted = ?rw2.lhs,
-        b_var_offset,
+        a_build = ?a.build_boundary,
+        b_match_shifted = ?b_shifted.match_boundary,
+        a_max_var,
         "matching_interface"
     );
 
-    let matching = match match_term_lists(&rw1.rhs, &rw2.lhs, b_var_offset, terms) {
-        Some(matching) => {
+    // Match a.build_boundary with b.match_boundary
+    // Returns a combined substitution over the disjoint namespace.
+    // The same subst is applied to both sides - since variables are renamed
+    // apart, each side's terms only see their own bindings.
+    let mgu = match match_term_lists(&a.build_boundary, &b_shifted.match_boundary, terms) {
+        Some(subst) => {
             #[cfg(feature = "tracing")]
-            trace!(
-                left_bindings = matching.left.len(),
-                right_bindings = matching.right.len(),
-                "matching_success"
-            );
-            matching
+            trace!(mgu_size = subst.len(), "matching_success");
+            subst
         }
         None => {
             #[cfg(feature = "tracing")]
@@ -83,15 +74,12 @@ pub fn compose_nf<C: ConstraintOps>(a: &NF<C>, b: &NF<C>, terms: &mut TermStore)
         }
     };
 
-    let mut new_match = apply_subst_list(&rw1.lhs, &matching.left, terms);
-    let mut new_build = apply_subst_list(&rw2.rhs, &matching.right, terms);
+    // Apply the same substitution to both sides
+    let new_match = apply_subst_list(&a.match_boundary, &mgu, terms);
+    let new_build = apply_subst_list(&b_shifted.build_boundary, &mgu, terms);
 
-    let b_constraint =
-        remap_constraint_vars(&b.drop_fresh.constraint, b_max_var, b_var_offset, terms);
-
-    let a_constraint = a.drop_fresh.constraint.apply_subst(&matching.left, terms);
-    let b_constraint = b_constraint.apply_subst(&matching.right, terms);
-    let combined = match a_constraint.combine(&b_constraint) {
+    // Combine constraints, then apply substitution to the combined result
+    let combined = match a.constraint.combine(&b_shifted.constraint) {
         Some(c) => c,
         None => {
             #[cfg(feature = "tracing")]
@@ -99,8 +87,9 @@ pub fn compose_nf<C: ConstraintOps>(a: &NF<C>, b: &NF<C>, terms: &mut TermStore)
             return None;
         }
     };
+    let combined = combined.apply_subst(&mgu, terms);
 
-    let (normalized, subst_opt) = match combined.normalize(terms) {
+    let normalized = match combined.normalize(terms) {
         Some(result) => result,
         None => {
             #[cfg(feature = "tracing")]
@@ -108,12 +97,10 @@ pub fn compose_nf<C: ConstraintOps>(a: &NF<C>, b: &NF<C>, terms: &mut TermStore)
             return None;
         }
     };
-    if let Some(subst) = subst_opt {
-        new_match = apply_subst_list(&new_match, &subst, terms);
-        new_build = apply_subst_list(&new_build, &subst, terms);
-    }
 
-    Some(factor_tensor(new_match, new_build, normalized, terms))
+    // Construct and canonicalize result
+    let result = NF::with_constraint(new_match, new_build, normalized);
+    Some(canon_nf(&result, terms))
 }
 
 

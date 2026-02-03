@@ -1,6 +1,10 @@
+//! Tests for kernel/meet.rs - meet_nf operation.
+//!
+//! Meet computes the intersection of two NFs - the most specific relation
+//! that is a subset of both inputs.
+
 use super::*;
 use crate::constraint::TypeConstraints;
-use crate::drop_fresh::DropFresh;
 use crate::parser::Parser;
 use crate::term::TermId;
 use crate::test_utils::setup;
@@ -10,23 +14,23 @@ use smallvec::SmallVec;
 
 #[test]
 fn meet_identical_identity() {
-    let (_, mut terms) = setup();
+    let (_, terms) = setup();
     let v0 = terms.var(0);
 
     // Identity NF: x -> x
     let identity: NF<()> = NF::new(
         smallvec::smallvec![v0],
-        DropFresh::identity(1),
         smallvec::smallvec![v0],
     );
 
+    let mut terms = terms;
     let result = meet_nf(&identity, &identity, &mut terms);
     assert!(result.is_some());
     let met = result.unwrap();
 
     // Meet of identity with itself is identity
-    assert_eq!(met.match_pats.len(), 1);
-    assert_eq!(met.build_pats.len(), 1);
+    assert_eq!(met.match_boundary.len(), 1);
+    assert_eq!(met.build_boundary.len(), 1);
 }
 
 #[test]
@@ -54,7 +58,7 @@ theory neq_only {
 
 #[test]
 fn meet_identical_ground_rules() {
-    let (symbols, mut terms) = setup();
+    let (symbols, terms) = setup();
     let a = symbols.intern("A");
     let b = symbols.intern("B");
 
@@ -64,28 +68,27 @@ fn meet_identical_ground_rules() {
     // Rule: A -> B
     let rule: NF<()> = NF::new(
         smallvec::smallvec![a_term],
-        DropFresh::identity(0),
         smallvec::smallvec![b_term],
     );
 
+    let mut terms = terms;
     let result = meet_nf(&rule, &rule, &mut terms);
     assert!(result.is_some());
     let met = result.unwrap();
 
-    assert_eq!(met.match_pats[0], a_term);
-    assert_eq!(met.build_pats[0], b_term);
+    assert_eq!(met.match_boundary[0], a_term);
+    assert_eq!(met.build_boundary[0], b_term);
 }
 
 #[test]
 fn meet_specializes_var() {
-    let (symbols, mut terms) = setup();
+    let (symbols, terms) = setup();
     let f = symbols.intern("F");
     let v0 = terms.var(0);
 
     // Rule a: x -> x (identity)
     let identity: NF<()> = NF::new(
         smallvec::smallvec![v0],
-        DropFresh::identity(1),
         smallvec::smallvec![v0],
     );
 
@@ -93,16 +96,16 @@ fn meet_specializes_var() {
     let f_x = terms.app1(f, v0);
     let f_rule: NF<()> = NF::new(
         smallvec::smallvec![f_x],
-        DropFresh::identity(1),
         smallvec::smallvec![f_x],
     );
 
+    let mut terms = terms;
     let result = meet_nf(&identity, &f_rule, &mut terms);
     assert!(result.is_some());
     let met = result.unwrap();
 
     // Meet should specialize to F(x) -> F(x)
-    let (match_func, _) = terms.is_app(met.match_pats[0]).unwrap();
+    let (match_func, _) = terms.is_app(met.match_boundary[0]).unwrap();
     assert_eq!(symbols.resolve(match_func), Some("F"));
 }
 
@@ -141,13 +144,13 @@ fn meet_unifies_fresh_outputs() {
         terms.app(f, smallvec::smallvec![inner_expected, b_c0])
     };
 
-    assert_eq!(met.match_pats[0], input);
-    assert_eq!(met.build_pats[0], expected_out);
+    assert_eq!(met.match_boundary[0], input);
+    assert_eq!(met.build_boundary[0], expected_out);
 }
 
 #[test]
 fn meet_fails_incompatible_ground() {
-    let (symbols, mut terms) = setup();
+    let (symbols, terms) = setup();
     let a = symbols.intern("A");
     let b = symbols.intern("B");
     let c = symbols.intern("C");
@@ -159,24 +162,23 @@ fn meet_fails_incompatible_ground() {
     // Rule a: A -> B
     let rule_a: NF<()> = NF::new(
         smallvec::smallvec![a_term],
-        DropFresh::identity(0),
         smallvec::smallvec![b_term],
     );
 
     // Rule b: C -> B (different match pattern)
     let rule_b: NF<()> = NF::new(
         smallvec::smallvec![c_term],
-        DropFresh::identity(0),
         smallvec::smallvec![b_term],
     );
 
+    let mut terms = terms;
     let result = meet_nf(&rule_a, &rule_b, &mut terms);
     assert!(result.is_none(), "A and C don't match, meet should fail");
 }
 
 #[test]
 fn meet_fails_incompatible_output() {
-    let (symbols, mut terms) = setup();
+    let (symbols, terms) = setup();
     let a = symbols.intern("A");
     let b = symbols.intern("B");
     let c = symbols.intern("C");
@@ -188,24 +190,23 @@ fn meet_fails_incompatible_output() {
     // Rule a: A -> B
     let rule_a: NF<()> = NF::new(
         smallvec::smallvec![a_term],
-        DropFresh::identity(0),
         smallvec::smallvec![b_term],
     );
 
     // Rule b: A -> C (same match, different build)
     let rule_b: NF<()> = NF::new(
         smallvec::smallvec![a_term],
-        DropFresh::identity(0),
         smallvec::smallvec![c_term],
     );
 
+    let mut terms = terms;
     let result = meet_nf(&rule_a, &rule_b, &mut terms);
     assert!(result.is_none(), "B and C don't match, meet should fail");
 }
 
 #[test]
 fn meet_unifies_compatible_patterns() {
-    let (symbols, mut terms) = setup();
+    let (symbols, terms) = setup();
     let f = symbols.intern("F");
     let g = symbols.intern("G");
     let a = symbols.intern("A");
@@ -219,29 +220,28 @@ fn meet_unifies_compatible_patterns() {
     // Rule a: F(x) -> G(x)
     let rule_a: NF<()> = NF::new(
         smallvec::smallvec![f_x],
-        DropFresh::identity(1),
         smallvec::smallvec![g_x],
     );
 
     // Rule b: F(A) -> G(A)
     let rule_b: NF<()> = NF::new(
         smallvec::smallvec![f_a],
-        DropFresh::identity(0),
         smallvec::smallvec![g_a],
     );
 
+    let mut terms = terms;
     let result = meet_nf(&rule_a, &rule_b, &mut terms);
     assert!(result.is_some());
     let met = result.unwrap();
 
     // Meet should be F(A) -> G(A)
-    assert_eq!(met.match_pats[0], f_a);
-    assert_eq!(met.build_pats[0], g_a);
+    assert_eq!(met.match_boundary[0], f_a);
+    assert_eq!(met.build_boundary[0], g_a);
 }
 
 #[test]
 fn meet_nested_patterns() {
-    let (symbols, mut terms) = setup();
+    let (symbols, terms) = setup();
     let f = symbols.intern("F");
     let g = symbols.intern("G");
     let v0 = terms.var(0);
@@ -250,7 +250,6 @@ fn meet_nested_patterns() {
     let g_x = terms.app1(g, v0);
     let rule_a: NF<()> = NF::new(
         smallvec::smallvec![f_x],
-        DropFresh::identity(1),
         smallvec::smallvec![g_x],
     );
 
@@ -260,16 +259,16 @@ fn meet_nested_patterns() {
     let g_g_y = terms.app1(g, g_y);
     let rule_b: NF<()> = NF::new(
         smallvec::smallvec![f_g_y],
-        DropFresh::identity(1),
         smallvec::smallvec![g_g_y],
     );
 
+    let mut terms = terms;
     let result = meet_nf(&rule_a, &rule_b, &mut terms);
     assert!(result.is_some());
     let met = result.unwrap();
 
     // Meet should specialize to F(G(y)) -> G(G(y))
-    let (match_f, match_c) = terms.is_app(met.match_pats[0]).unwrap();
+    let (match_f, match_c) = terms.is_app(met.match_boundary[0]).unwrap();
     assert_eq!(symbols.resolve(match_f), Some("F"));
     let (inner_f, _) = terms.is_app(match_c[0]).unwrap();
     assert_eq!(symbols.resolve(inner_f), Some("G"));
@@ -277,7 +276,7 @@ fn meet_nested_patterns() {
 
 #[test]
 fn meet_symmetric() {
-    let (symbols, mut terms) = setup();
+    let (symbols, terms) = setup();
     let f = symbols.intern("F");
     let a = symbols.intern("A");
     let v0 = terms.var(0);
@@ -289,17 +288,16 @@ fn meet_symmetric() {
     // Rule a: F(x) -> F(x)
     let rule_a: NF<()> = NF::new(
         smallvec::smallvec![f_x],
-        DropFresh::identity(1),
         smallvec::smallvec![f_x],
     );
 
     // Rule b: F(A) -> F(A)
     let rule_b: NF<()> = NF::new(
         smallvec::smallvec![f_a],
-        DropFresh::identity(0),
         smallvec::smallvec![f_a],
     );
 
+    let mut terms = terms;
     // meet(a, b) should equal meet(b, a)
     let result_ab = meet_nf(&rule_a, &rule_b, &mut terms);
     let result_ba = meet_nf(&rule_b, &rule_a, &mut terms);
@@ -311,15 +309,15 @@ fn meet_symmetric() {
     let met_ab = result_ab.unwrap();
     let met_ba = result_ba.unwrap();
 
-    assert_eq!(met_ab.match_pats[0], met_ba.match_pats[0]);
-    assert_eq!(met_ab.build_pats[0], met_ba.build_pats[0]);
+    assert_eq!(met_ab.match_boundary[0], met_ba.match_boundary[0]);
+    assert_eq!(met_ab.build_boundary[0], met_ba.build_boundary[0]);
 }
 
 #[test]
 fn meet_empty_patterns() {
     let (_, mut terms) = setup();
 
-    let empty: NF<()> = NF::new(SmallVec::new(), DropFresh::identity(0), SmallVec::new());
+    let empty: NF<()> = NF::new(SmallVec::new(), SmallVec::new());
 
     let result = meet_nf(&empty, &empty, &mut terms);
     assert!(result.is_some());
@@ -327,7 +325,7 @@ fn meet_empty_patterns() {
 
 #[test]
 fn meet_with_different_vars() {
-    let (symbols, mut terms) = setup();
+    let (symbols, terms) = setup();
     let pair = symbols.intern("Pair");
     let v0 = terms.var(0);
     let v1 = terms.var(1);
@@ -336,7 +334,6 @@ fn meet_with_different_vars() {
     let pair_xy = terms.app2(pair, v0, v1);
     let rule_a: NF<()> = NF::new(
         smallvec::smallvec![pair_xy],
-        DropFresh::identity(2),
         smallvec::smallvec![pair_xy],
     );
 
@@ -344,16 +341,16 @@ fn meet_with_different_vars() {
     let pair_xx = terms.app2(pair, v0, v0);
     let rule_b: NF<()> = NF::new(
         smallvec::smallvec![pair_xx],
-        DropFresh::identity(1),
         smallvec::smallvec![pair_xx],
     );
 
+    let mut terms = terms;
     let result = meet_nf(&rule_a, &rule_b, &mut terms);
     assert!(result.is_some());
     let met = result.unwrap();
 
     // Meet should specialize to Pair(x, x) -> Pair(x, x)
-    let (_, match_c) = terms.is_app(met.match_pats[0]).unwrap();
+    let (_, match_c) = terms.is_app(met.match_boundary[0]).unwrap();
     assert_eq!(match_c[0], match_c[1], "Both args should be the same var");
 }
 
@@ -361,7 +358,7 @@ fn meet_with_different_vars() {
 
 #[test]
 fn meet_var_with_complex_term() {
-    let (symbols, mut terms) = setup();
+    let (symbols, terms) = setup();
     let f = symbols.intern("F");
     let g = symbols.intern("G");
     let v0 = terms.var(0);
@@ -369,7 +366,6 @@ fn meet_var_with_complex_term() {
     // Rule a: x -> x
     let identity: NF<()> = NF::new(
         smallvec::smallvec![v0],
-        DropFresh::identity(1),
         smallvec::smallvec![v0],
     );
 
@@ -378,16 +374,16 @@ fn meet_var_with_complex_term() {
     let f_g_x = terms.app1(f, g_x);
     let complex: NF<()> = NF::new(
         smallvec::smallvec![f_g_x],
-        DropFresh::identity(1),
         smallvec::smallvec![f_g_x],
     );
 
+    let mut terms = terms;
     let result = meet_nf(&identity, &complex, &mut terms);
     assert!(result.is_some());
     let met = result.unwrap();
 
     // Should specialize to F(G(x)) -> F(G(x))
-    let (f_id, f_c) = terms.is_app(met.match_pats[0]).unwrap();
+    let (f_id, f_c) = terms.is_app(met.match_boundary[0]).unwrap();
     assert_eq!(symbols.resolve(f_id), Some("F"));
     let (g_id, _) = terms.is_app(f_c[0]).unwrap();
     assert_eq!(symbols.resolve(g_id), Some("G"));
@@ -395,7 +391,7 @@ fn meet_var_with_complex_term() {
 
 #[test]
 fn meet_fails_occurs_check() {
-    let (symbols, mut terms) = setup();
+    let (symbols, terms) = setup();
     let f = symbols.intern("F");
     let v0 = terms.var(0);
 
@@ -403,17 +399,16 @@ fn meet_fails_occurs_check() {
     let f_x = terms.app1(f, v0);
     let rule_a: NF<()> = NF::new(
         smallvec::smallvec![v0],
-        DropFresh::identity(1),
         smallvec::smallvec![f_x],
     );
 
     // Rule b: F(x) -> x
     let rule_b: NF<()> = NF::new(
         smallvec::smallvec![f_x],
-        DropFresh::identity(1),
         smallvec::smallvec![v0],
     );
 
+    let mut terms = terms;
     // The meet would require x = F(x), which fails occurs check.
     let result = meet_nf(&rule_a, &rule_b, &mut terms);
     assert!(result.is_none(), "Occurs check should reject x = F(x)");
@@ -421,7 +416,7 @@ fn meet_fails_occurs_check() {
 
 #[test]
 fn meet_multiple_var_constraints() {
-    let (symbols, mut terms) = setup();
+    let (symbols, terms) = setup();
     let triple = symbols.intern("Triple");
     let v0 = terms.var(0);
     let v1 = terms.var(1);
@@ -432,7 +427,6 @@ fn meet_multiple_var_constraints() {
     let t_xyz = terms.app(triple, triple_xyz.clone());
     let rule_a: NF<()> = NF::new(
         smallvec::smallvec![t_xyz],
-        DropFresh::identity(3),
         smallvec::smallvec![t_xyz],
     );
 
@@ -441,16 +435,16 @@ fn meet_multiple_var_constraints() {
     let t_xxy = terms.app(triple, triple_xxy);
     let rule_b: NF<()> = NF::new(
         smallvec::smallvec![t_xxy],
-        DropFresh::identity(2),
         smallvec::smallvec![t_xxy],
     );
 
+    let mut terms = terms;
     let result = meet_nf(&rule_a, &rule_b, &mut terms);
     assert!(result.is_some());
     let met = result.unwrap();
 
     // Should specialize to Triple(x, x, y) pattern
-    let (_, c) = terms.is_app(met.match_pats[0]).unwrap();
+    let (_, c) = terms.is_app(met.match_boundary[0]).unwrap();
     assert_eq!(c[0], c[1], "First two should be same var");
 }
 
@@ -458,7 +452,7 @@ fn meet_multiple_var_constraints() {
 
 #[test]
 fn meet_append_rules() {
-    let (symbols, mut terms) = setup();
+    let (symbols, terms) = setup();
     let _cons = symbols.intern("Cons");
     let nil = symbols.intern("Nil");
     let append = symbols.intern("Append");
@@ -473,7 +467,6 @@ fn meet_append_rules() {
     let base_term = terms.app(append, base_args);
     let base_rule: NF<()> = NF::new(
         smallvec::smallvec![base_term],
-        DropFresh::identity(1),
         smallvec::smallvec![base_term],
     );
 
@@ -482,16 +475,16 @@ fn meet_append_rules() {
     let query_term = terms.app(append, query_args);
     let query: NF<()> = NF::new(
         smallvec::smallvec![query_term],
-        DropFresh::identity(3),
         smallvec::smallvec![query_term],
     );
 
+    let mut terms = terms;
     let result = meet_nf(&query, &base_rule, &mut terms);
     assert!(result.is_some());
     let met = result.unwrap();
 
     // Should produce Append(Nil, ys, ys)
-    let (f, c) = terms.is_app(met.match_pats[0]).unwrap();
+    let (f, c) = terms.is_app(met.match_boundary[0]).unwrap();
     assert_eq!(symbols.resolve(f), Some("Append"));
     assert_eq!(c[0], nil_term); // First arg is Nil
     assert_eq!(c[1], c[2]); // Second and third args are same var
@@ -501,29 +494,29 @@ fn meet_append_rules() {
 
 #[test]
 fn meet_multi_pattern_identity() {
-    let (_, mut terms) = setup();
+    let (_, terms) = setup();
     let v0 = terms.var(0);
     let v1 = terms.var(1);
 
     let rule: NF<()> = NF::new(
         smallvec::smallvec![v0, v1],
-        DropFresh::identity(2),
         smallvec::smallvec![v0, v1],
     );
 
+    let mut terms = terms;
     let result = meet_nf(&rule, &rule, &mut terms);
     assert!(result.is_some());
     let met = result.unwrap();
 
-    assert_eq!(met.match_pats.len(), 2);
-    assert_eq!(met.build_pats.len(), 2);
-    assert_eq!(met.match_pats[0], met.build_pats[0]);
-    assert_eq!(met.match_pats[1], met.build_pats[1]);
+    assert_eq!(met.match_boundary.len(), 2);
+    assert_eq!(met.build_boundary.len(), 2);
+    assert_eq!(met.match_boundary[0], met.build_boundary[0]);
+    assert_eq!(met.match_boundary[1], met.build_boundary[1]);
 }
 
 #[test]
 fn meet_multi_pattern_match_mismatch_fails() {
-    let (symbols, mut terms) = setup();
+    let (symbols, terms) = setup();
     let a = symbols.intern("A");
     let b = symbols.intern("B");
     let v0 = terms.var(0);
@@ -533,23 +526,22 @@ fn meet_multi_pattern_match_mismatch_fails() {
 
     let rule_a: NF<()> = NF::new(
         smallvec::smallvec![a_term, v0],
-        DropFresh::identity(1),
         smallvec::smallvec![a_term, v0],
     );
 
     let rule_b: NF<()> = NF::new(
         smallvec::smallvec![b_term, v0],
-        DropFresh::identity(1),
         smallvec::smallvec![b_term, v0],
     );
 
+    let mut terms = terms;
     let result = meet_nf(&rule_a, &rule_b, &mut terms);
     assert!(result.is_none(), "Different match patterns should not meet");
 }
 
 #[test]
 fn meet_multi_pattern_build_mismatch_fails() {
-    let (symbols, mut terms) = setup();
+    let (symbols, terms) = setup();
     let a = symbols.intern("A");
     let b = symbols.intern("B");
     let v0 = terms.var(0);
@@ -560,45 +552,43 @@ fn meet_multi_pattern_build_mismatch_fails() {
 
     let rule_a: NF<()> = NF::new(
         smallvec::smallvec![v0, v1],
-        DropFresh::identity(2),
         smallvec::smallvec![a_term, v0],
     );
 
     let rule_b: NF<()> = NF::new(
         smallvec::smallvec![v0, v1],
-        DropFresh::identity(2),
         smallvec::smallvec![b_term, v0],
     );
 
+    let mut terms = terms;
     let result = meet_nf(&rule_a, &rule_b, &mut terms);
     assert!(result.is_none(), "Different build patterns should not meet");
 }
 
 #[test]
 fn meet_multi_pattern_enforces_shared_variables() {
-    let (_, mut terms) = setup();
+    let (_, terms) = setup();
     let v0 = terms.var(0);
     let v1 = terms.var(1);
 
     let rule_general: NF<()> = NF::new(
         smallvec::smallvec![v0, v1],
-        DropFresh::identity(2),
         smallvec::smallvec![v0, v1],
     );
 
     let rule_same: NF<()> = NF::new(
         smallvec::smallvec![v0, v0],
-        DropFresh::identity(1),
         smallvec::smallvec![v0, v0],
     );
 
+    let mut terms = terms;
     let result = meet_nf(&rule_general, &rule_same, &mut terms);
     assert!(result.is_some());
     let met = result.unwrap();
 
-    assert_eq!(met.match_pats.len(), 2);
-    let left = met.match_pats[0];
-    let right = met.match_pats[1];
+    assert_eq!(met.match_boundary.len(), 2);
+    let left = met.match_boundary[0];
+    let right = met.match_boundary[1];
     assert_eq!(
         terms.is_var(left),
         terms.is_var(right),
@@ -607,66 +597,29 @@ fn meet_multi_pattern_enforces_shared_variables() {
 }
 
 #[test]
-fn meet_multi_pattern_wiring_induces_equality() {
-    let (_, mut terms) = setup();
-    let v0 = terms.var(0);
-    let v1 = terms.var(1);
-
-    let map_left = smallvec::smallvec![(1, 0)];
-    let map_right = smallvec::smallvec![(0, 0)];
-
-    let wire_left = DropFresh::new(2, 1, map_left, ()).unwrap();
-    let wire_right = DropFresh::new(2, 1, map_right, ()).unwrap();
-
-    let rule_left: NF<()> = NF::new(
-        smallvec::smallvec![v0, v1],
-        wire_left,
-        smallvec::smallvec![v0],
-    );
-
-    let rule_right: NF<()> = NF::new(
-        smallvec::smallvec![v0, v1],
-        wire_right,
-        smallvec::smallvec![v0],
-    );
-
-    let result = meet_nf(&rule_left, &rule_right, &mut terms);
-    assert!(result.is_some(), "Wiring intersection should be non-empty");
-    let met = result.unwrap();
-
-    assert_eq!(met.match_pats.len(), 2);
-    assert_eq!(
-        terms.is_var(met.match_pats[0]),
-        terms.is_var(met.match_pats[1]),
-        "Wiring meet should force inputs equal"
-    );
-}
-
-#[test]
 fn meet_multi_pattern_arity_mismatch_fails() {
-    let (_, mut terms) = setup();
+    let (_, terms) = setup();
     let v0 = terms.var(0);
     let v1 = terms.var(1);
 
     let rule_a: NF<()> = NF::new(
         smallvec::smallvec![v0, v1],
-        DropFresh::identity(2),
         smallvec::smallvec![v0, v1],
     );
 
     let rule_b: NF<()> = NF::new(
         smallvec::smallvec![v0],
-        DropFresh::identity(1),
         smallvec::smallvec![v0],
     );
 
+    let mut terms = terms;
     let result = meet_nf(&rule_a, &rule_b, &mut terms);
     assert!(result.is_none(), "Arity mismatch should fail");
 }
 
 #[test]
 fn meet_multi_pattern_combines_constraints() {
-    let (_, mut terms) = setup();
+    let (_, terms) = setup();
     let v0 = terms.var(0);
     let v1 = terms.var(1);
 
@@ -676,29 +629,30 @@ fn meet_multi_pattern_combines_constraints() {
     let mut c_right = TypeConstraints::new();
     c_right.add(v1, 20);
 
-    let left = NF::new(
+    let left: NF<TypeConstraints> = NF::with_constraint(
         smallvec::smallvec![v0, v1],
-        DropFresh::identity_with_constraint(2, c_left),
         smallvec::smallvec![v0, v1],
+        c_left,
     );
 
-    let right = NF::new(
+    let right: NF<TypeConstraints> = NF::with_constraint(
         smallvec::smallvec![v0, v1],
-        DropFresh::identity_with_constraint(2, c_right),
         smallvec::smallvec![v0, v1],
+        c_right,
     );
 
+    let mut terms = terms;
     let result = meet_nf(&left, &right, &mut terms);
     assert!(result.is_some());
     let met = result.unwrap();
 
-    assert_eq!(met.drop_fresh.constraint.get_type(v0), Some(10));
-    assert_eq!(met.drop_fresh.constraint.get_type(v1), Some(20));
+    assert_eq!(met.constraint.get_type(v0), Some(10));
+    assert_eq!(met.constraint.get_type(v1), Some(20));
 }
 
 #[test]
 fn meet_multi_pattern_conflicting_constraints_fail() {
-    let (_, mut terms) = setup();
+    let (_, terms) = setup();
     let v0 = terms.var(0);
     let v1 = terms.var(1);
 
@@ -708,18 +662,19 @@ fn meet_multi_pattern_conflicting_constraints_fail() {
     let mut c_right = TypeConstraints::new();
     c_right.add(v0, 20);
 
-    let left = NF::new(
+    let left: NF<TypeConstraints> = NF::with_constraint(
         smallvec::smallvec![v0, v1],
-        DropFresh::identity_with_constraint(2, c_left),
         smallvec::smallvec![v0, v1],
+        c_left,
     );
 
-    let right = NF::new(
+    let right: NF<TypeConstraints> = NF::with_constraint(
         smallvec::smallvec![v0, v1],
-        DropFresh::identity_with_constraint(2, c_right),
         smallvec::smallvec![v0, v1],
+        c_right,
     );
 
+    let mut terms = terms;
     let result = meet_nf(&left, &right, &mut terms);
     assert!(
         result.is_none(),

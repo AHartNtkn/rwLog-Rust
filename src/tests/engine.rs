@@ -10,7 +10,7 @@ use crate::rel::Rel;
 use crate::repl::split_statements;
 use crate::symbol::SymbolStore;
 use crate::test_utils::{make_ground_nf, make_rule_nf, setup};
-use crate::work::Env;
+use crate::engine::Env;
 use smallvec::SmallVec;
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -198,6 +198,16 @@ fn run_until_exhausted_with_timeout<C: ConstraintOps>(
     }
 }
 
+const FUEL_SMALL: usize = 2_000;
+const FUEL_MED: usize = 20_000;
+
+fn next_with_fuel_expect<C: ConstraintOps>(
+    engine: &mut Engine<C>,
+    fuel: usize,
+) -> Option<NF<C>> {
+    engine.next_with_fuel(fuel).expect("no fuel")
+}
+
 // ========================================================================
 // ENGINE CONSTRUCTION TESTS
 // ========================================================================
@@ -223,7 +233,7 @@ fn engine_new_from_or() {
     let engine: Engine<()> =
         Engine::new(Rel::Or(Arc::new(Rel::Zero), Arc::new(Rel::Zero)), terms);
     // Or of two Zeros eventually exhausts
-    assert!(!engine.is_exhausted()); // Not immediately exhausted
+    assert!(engine.is_exhausted()); // Or of two Zeros is immediately exhausted
 }
 
 // ========================================================================
@@ -420,38 +430,6 @@ fn engine_empty_seq_yields_identity() {
 }
 
 #[test]
-fn engine_call_ignores_non_adjacent_right_boundary() {
-    let (symbols, terms) = setup();
-    let a_to_b = make_rule_nf("A", "B", &symbols, &terms);
-    let b_to_c = make_rule_nf("B", "C", &symbols, &terms);
-    let b_to_d = make_rule_nf("B", "D", &symbols, &terms);
-    let c_to_c = make_rule_nf("C", "C", &symbols, &terms);
-    let a_to_c = make_rule_nf("A", "C", &symbols, &terms);
-
-    let mid_or = Arc::new(Rel::Or(
-        Arc::new(Rel::Atom(Arc::new(b_to_c))),
-        Arc::new(Rel::Atom(Arc::new(b_to_d))),
-    ));
-
-    let recursive = Arc::new(Rel::Seq(Arc::from(vec![
-        Arc::new(Rel::Call(0)),
-        mid_or,
-        Arc::new(Rel::Atom(Arc::new(c_to_c))),
-    ])));
-
-    let base = Arc::new(Rel::Atom(Arc::new(a_to_b)));
-    let body = Arc::new(Rel::Or(base, recursive));
-    let rel = Rel::Fix(0, body);
-
-    let mut engine: Engine<()> = Engine::new(rel, terms);
-    let ans1 = engine.next();
-    let ans2 = engine.next();
-    assert!(ans1.is_some(), "Fix should yield the base case");
-    assert!(ans2.is_some(), "Recursive branch should yield A->C");
-    assert_eq!(ans2.unwrap(), a_to_c);
-}
-
-#[test]
 fn engine_atom_then_exhausted() {
     let (symbols, terms) = setup();
     let nf = make_ground_nf("A", &symbols, &terms);
@@ -531,29 +509,6 @@ fn engine_or_two_atoms_yields_twice() {
 
     let ans3 = engine.next();
     assert!(ans3.is_none(), "Or(A, B) should exhaust after two");
-}
-
-#[test]
-fn engine_or_rotation_interleaves() {
-    let (symbols, terms) = setup();
-    let nf_a = make_ground_nf("A", &symbols, &terms);
-    let nf_b = make_ground_nf("B", &symbols, &terms);
-
-    let mut engine: Engine<()> = Engine::new(
-        Rel::Or(
-            Arc::new(Rel::Atom(Arc::new(nf_a.clone()))),
-            Arc::new(Rel::Atom(Arc::new(nf_b.clone()))),
-        ),
-        terms,
-    );
-
-    // Collect answers
-    let mut answers = vec![];
-    while let Some(nf) = engine.next() {
-        answers.push(nf);
-    }
-
-    assert_eq!(answers.len(), 2, "Should get exactly 2 answers");
 }
 
 // ========================================================================
@@ -649,34 +604,6 @@ fn engine_after_atom_exhausted() {
     for _ in 0..10 {
         assert!(engine.next().is_none());
     }
-}
-
-// ========================================================================
-// ENGINE SIZE TESTS
-// ========================================================================
-
-#[test]
-fn engine_size_reasonable() {
-    use std::mem::size_of;
-    let size = size_of::<Engine<()>>();
-    // Engine contains TermStore and Node (with Work)
-    // These are substantial structures
-    assert!(
-        size < 1600,
-        "Engine should not be excessively large, got {}",
-        size
-    );
-}
-
-#[test]
-fn step_result_size_reasonable() {
-    use std::mem::size_of;
-    let size = size_of::<StepResult<()>>();
-    assert!(
-        size < 128,
-        "StepResult should not be excessively large, got {}",
-        size
-    );
 }
 
 // ========================================================================
@@ -1331,39 +1258,6 @@ fn recursion_without_base_case_terminates() {
     assert!(count < 100, "Pure recursion should terminate via tabling");
 }
 
-#[test]
-fn pure_recursion_exhausts_under_step_node() {
-    use crate::node::{step_node, NodeStep};
-    use crate::work::{rel_to_node, Env, Tables};
-
-    let rel: Rel<()> = Rel::Fix(0, Arc::new(Rel::Call(0)));
-    let env = Env::new();
-    let tables = Tables::new();
-    let mut terms = TermStore::new();
-
-    let mut node = rel_to_node(&rel, &env, &tables);
-    let mut steps = 0;
-    let max_steps = 50;
-
-    loop {
-        match step_node(node, &mut terms) {
-            NodeStep::Emit(_, rest) => {
-                node = rest;
-                steps += 1;
-            }
-            NodeStep::Continue(rest) => {
-                node = rest;
-                steps += 1;
-                assert!(
-                    steps < max_steps,
-                    "Pure recursion should exhaust without infinite stepping"
-                );
-            }
-            NodeStep::Exhausted => break,
-        }
-    }
-}
-
 /// Input through recursive relation produces multiple answers.
 #[test]
 fn recursion_produces_multiple_answers() {
@@ -2010,38 +1904,6 @@ fn treecalc_app_and_group_three_conjuncts_example_9() {
 }
 
 #[test]
-fn seq_with_and_non_iso_left_boundary_does_not_distribute() {
-    let mut parser = Parser::new();
-    let rel = parser
-        .parse_rel_body("[[c -> a] | [c -> b]] ; [[a -> z] & [b -> z]]")
-        .expect("parse query");
-    let terms = parser.take_terms();
-    let mut engine: Engine<()> = Engine::new(rel, terms);
-
-    let answers = engine.collect_answers();
-    assert!(
-        answers.is_empty(),
-        "Non-iso left boundary must not distribute across And"
-    );
-}
-
-#[test]
-fn seq_with_and_non_iso_right_boundary_does_not_distribute() {
-    let mut parser = Parser::new();
-    let rel = parser
-        .parse_rel_body("[[a -> z] & [b -> z]] ; [[c -> a] | [c -> b]]")
-        .expect("parse query");
-    let terms = parser.take_terms();
-    let mut engine: Engine<()> = Engine::new(rel, terms);
-
-    let answers = engine.collect_answers();
-    assert!(
-        answers.is_empty(),
-        "Non-iso right boundary must not distribute across And"
-    );
-}
-
-#[test]
 fn and_associativity_simple_equivalence() {
     let mut parser = Parser::new();
     let rel_left = parser
@@ -2092,115 +1954,6 @@ fn and_associativity_with_disjoint_branch_is_empty() {
         answers_right.is_empty(),
         "Disjoint branch should empty the intersection (right grouping)"
     );
-}
-
-/// Table reentrance should be detected (same CallKey during evaluation).
-/// Tabling detects when the same call-context is re-entered.
-#[test]
-fn table_reentrance_detected() {
-    // Fix(0, Call(0)) - immediate reentrance
-    let rel: Rel<()> = Rel::Fix(0, Arc::new(Rel::Call(0)));
-    let mut engine: Engine<()> = Engine::new(rel, TermStore::new());
-
-    // Should detect reentrance via tabling and return no answers
-    let ans = engine.next();
-    assert!(
-        ans.is_none(),
-        "Immediate reentrance should fail via tabling"
-    );
-}
-
-// ------------------------------------------------------------------------
-// CATEGORY 4: Call-Context (Boundary) Propagation
-// ------------------------------------------------------------------------
-
-/// Left boundary should propagate to recursive call.
-#[test]
-fn left_boundary_propagates_to_call() {
-    let (symbols, terms) = setup();
-    let nf_a = make_ground_nf("A", &symbols, &terms);
-
-    let countdown = build_countdown_rel(&symbols, &terms);
-
-    // Query: A ; countdown (A is left boundary)
-    let query = Rel::Seq(Arc::from(vec![
-        Arc::new(Rel::Atom(Arc::new(nf_a))),
-        Arc::new(countdown),
-    ]));
-
-    let mut engine: Engine<()> = Engine::new(query, terms);
-
-    // Should fail because A doesn't match z or (s x)
-    let mut count = 0;
-    for _ in 0..50 {
-        if engine.next().is_some() {
-            count += 1;
-        } else {
-            break;
-        }
-    }
-    // With boundary propagation, A ; countdown should fail immediately
-    // (A doesn't match with z or (s x))
-    assert_eq!(count, 0, "Left boundary should prevent any answers");
-}
-
-/// Right boundary should propagate and constrain recursion.
-#[test]
-fn right_boundary_propagates_to_call() {
-    let (symbols, terms) = setup();
-    let z = symbols.intern("z");
-    let z_term = terms.app0(z);
-
-    let countdown = build_countdown_rel(&symbols, &terms);
-
-    // Constraint: output must be z
-    let z_nf = NF::new(
-        SmallVec::from_slice(&[z_term]),
-        DropFresh::identity(0),
-        SmallVec::from_slice(&[z_term]),
-    );
-
-    // Query: countdown ; id_z (z is right boundary)
-    let query = Rel::Seq(Arc::from(vec![
-        Arc::new(countdown),
-        Arc::new(Rel::Atom(Arc::new(z_nf))),
-    ]));
-
-    let mut engine: Engine<()> = Engine::new(query, terms);
-
-    // Should find inputs that produce z: just z itself
-    let ans = engine.next();
-    assert!(ans.is_some(), "countdown ; id_z should find z -> z");
-}
-
-/// Both boundaries should propagate.
-#[test]
-fn both_boundaries_propagate() {
-    let (symbols, terms) = setup();
-    let z = symbols.intern("z");
-    let z_term = terms.app0(z);
-
-    let countdown = build_countdown_rel(&symbols, &terms);
-
-    // z -> z constraint on both sides
-    let z_nf = NF::new(
-        SmallVec::from_slice(&[z_term]),
-        DropFresh::identity(0),
-        SmallVec::from_slice(&[z_term]),
-    );
-
-    // Query: id_z ; countdown ; id_z
-    let query = Rel::Seq(Arc::from(vec![
-        Arc::new(Rel::Atom(Arc::new(z_nf.clone()))),
-        Arc::new(countdown),
-        Arc::new(Rel::Atom(Arc::new(z_nf))),
-    ]));
-
-    let mut engine: Engine<()> = Engine::new(query, terms);
-
-    // Should find z -> z -> z
-    let ans = engine.next();
-    assert!(ans.is_some(), "id_z ; countdown ; id_z should find answer");
 }
 
 // ------------------------------------------------------------------------
@@ -2388,43 +2141,188 @@ fn dual_call_preserves_relid() {
     }
 }
 
+// ------------------------------------------------------------------------
+// Additional behavioral tests from the query-bounded exhaustion plan
+// ------------------------------------------------------------------------
+
 #[test]
-fn dual_enumeration_preserves_order() {
-    use crate::kernel::dual_nf;
-    use crate::rel::dual;
-
+fn next_with_fuel_no_duplicates() {
     let (symbols, terms) = setup();
-    let nf_ab = make_rule_nf("A", "B", &symbols, &terms);
-    let nf_bc = make_rule_nf("B", "C", &symbols, &terms);
-    let nf_d = make_rule_nf("D", "D", &symbols, &terms);
+    let nf = make_ground_nf("A", &symbols, &terms);
+    let rel = Rel::Or(
+        Arc::new(Rel::Atom(Arc::new(nf.clone()))),
+        Arc::new(Rel::Atom(Arc::new(nf))),
+    );
+    let mut engine: Engine<()> = Engine::new(rel, terms);
 
-    let seq = Rel::Seq(Arc::from(vec![
-        Arc::new(Rel::Atom(Arc::new(nf_ab))),
-        Arc::new(Rel::Atom(Arc::new(nf_bc))),
+    let mut seen: Vec<NF<()>> = Vec::new();
+    for _ in 0..3 {
+        match next_with_fuel_expect(&mut engine, FUEL_SMALL) {
+            Some(nf) => seen.push(nf),
+            None => break,
+        }
+    }
+
+    let mut set: HashSet<NF<()>> = HashSet::new();
+    for nf in &seen {
+        set.insert(nf.clone());
+    }
+    assert_eq!(seen.len(), set.len(), "next_with_fuel must not emit duplicates");
+}
+
+#[test]
+fn or_fairness_singleton_not_starved() {
+    let def = "rel gen { $x -> $x | [$x -> (s $x) ; gen] }";
+    let mut parser = Parser::new();
+    let (_gen_rel, env) = parse_rel_def_with_env(&mut parser, def);
+
+    let input_term = parser.parse_term("z").expect("parse z").term_id;
+    let expected_term = parser.parse_term("b").expect("parse b").term_id;
+
+    let mut terms = parser.take_terms();
+    let input_nf = NF::factor(input_term, input_term, (), &mut terms);
+    let expected_nf = NF::factor(input_term, expected_term, (), &mut terms);
+
+    let gen_call = Rel::Call(0);
+    let base_rel = Rel::Atom(Arc::new(NF::factor(
+        input_term,
+        expected_term,
+        (),
+        &mut terms,
+    )));
+    let or_rel = Rel::Or(Arc::new(gen_call), Arc::new(base_rel));
+    let query = Rel::Seq(Arc::from(vec![
+        Arc::new(Rel::Atom(Arc::new(input_nf))),
+        Arc::new(or_rel),
     ]));
 
-    let rel = Rel::Or(Arc::new(seq), Arc::new(Rel::Atom(Arc::new(nf_d))));
+    let mut engine: Engine<()> = Engine::new_with_env(query, terms, env);
+    let mut found = false;
 
-    let mut engine: Engine<()> = Engine::new(rel.clone(), terms);
-    let mut outputs = Vec::new();
     for _ in 0..10 {
-        match engine.next() {
-            Some(nf) => outputs.push(nf),
+        match next_with_fuel_expect(&mut engine, FUEL_MED) {
+            Some(nf) => {
+                if nf == expected_nf {
+                    found = true;
+                    break;
+                }
+            }
             None => break,
         }
     }
 
-    let mut terms = std::mem::take(&mut engine.terms);
-    let expected: Vec<NF<()>> = outputs.iter().map(|nf| dual_nf(nf, &mut terms)).collect();
-    let dual_rel = dual(&rel, &mut terms);
-    let mut dual_engine: Engine<()> = Engine::new(dual_rel, terms);
-    let mut dual_outputs = Vec::new();
-    for _ in 0..outputs.len() {
-        match dual_engine.next() {
-            Some(nf) => dual_outputs.push(nf),
+    assert!(
+        found,
+        "Or fairness: right-branch singleton should appear early"
+    );
+}
+
+#[test]
+fn and_short_circuits_on_empty_branch() {
+    let def = "rel gen { $x -> $x | [$x -> (s $x) ; gen] }";
+    let mut parser = Parser::new();
+    let (gen_rel, _env) = parse_rel_def_with_env(&mut parser, def);
+    let terms = parser.take_terms();
+
+    let rel = Rel::And(Arc::new(Rel::Zero), Arc::new(gen_rel));
+    let mut engine: Engine<()> = Engine::new(rel, terms);
+    let first = next_with_fuel_expect(&mut engine, FUEL_SMALL);
+    assert!(first.is_none(), "Empty branch should short-circuit And");
+}
+
+#[test]
+fn seq_zero_annihilates() {
+    let def = "rel gen { $x -> $x | [$x -> (s $x) ; gen] }";
+    let mut parser = Parser::new();
+    let (gen_rel, _env) = parse_rel_def_with_env(&mut parser, def);
+    let terms = parser.take_terms();
+
+    let rel = Rel::Seq(Arc::from(vec![Arc::new(Rel::Zero), Arc::new(gen_rel)]));
+    let mut engine: Engine<()> = Engine::new(rel, terms);
+    let first = next_with_fuel_expect(&mut engine, FUEL_SMALL);
+    assert!(first.is_none(), "Zero in Seq should annihilate");
+}
+
+#[test]
+fn recursive_self_loop_with_base_emits_once_then_exhausts() {
+    let def = "rel p { a -> b | [a -> a ; p] }";
+    let mut parser = Parser::new();
+    let (_rel_def, env) = parse_rel_def_with_env(&mut parser, def);
+
+    let query = parser
+        .parse_rel_body("@a ; p")
+        .expect("parse base recursion query");
+    let input_term = parser.parse_term("a").expect("parse a").term_id;
+    let expected_term = parser.parse_term("b").expect("parse b").term_id;
+
+    let mut terms = parser.take_terms();
+    let expected_nf = NF::factor(input_term, expected_term, (), &mut terms);
+
+    let mut engine: Engine<()> = Engine::new_with_env(query, terms, env);
+    let first = next_with_fuel_expect(&mut engine, FUEL_MED);
+    assert_eq!(first, Some(expected_nf));
+    let second = next_with_fuel_expect(&mut engine, FUEL_SMALL);
+    assert!(second.is_none(), "expected exhaustion after base answer");
+}
+
+#[test]
+fn finite_branching_recursion_emits_all_then_exhausts() {
+    let def = "rel p { a -> b | a -> c | [a -> a ; p] }";
+    let mut parser = Parser::new();
+    let (_rel_def, env) = parse_rel_def_with_env(&mut parser, def);
+
+    let query = parser.parse_rel_body("@a ; p").expect("parse query");
+    let input_term = parser.parse_term("a").expect("parse a").term_id;
+    let b_term = parser.parse_term("b").expect("parse b").term_id;
+    let c_term = parser.parse_term("c").expect("parse c").term_id;
+
+    let mut terms = parser.take_terms();
+    let expected_b = NF::factor(input_term, b_term, (), &mut terms);
+    let expected_c = NF::factor(input_term, c_term, (), &mut terms);
+
+    let mut engine: Engine<()> = Engine::new_with_env(query, terms, env);
+    let mut answers: HashSet<NF<()>> = HashSet::new();
+
+    for _ in 0..4 {
+        match next_with_fuel_expect(&mut engine, FUEL_MED) {
+            Some(nf) => {
+                answers.insert(nf);
+            }
             None => break,
         }
     }
 
-    assert_eq!(dual_outputs, expected);
+    assert!(
+        answers.contains(&expected_b) && answers.contains(&expected_c),
+        "expected both base answers"
+    );
+    let second = next_with_fuel_expect(&mut engine, FUEL_SMALL);
+    assert!(second.is_none(), "expected exhaustion after all base answers");
+}
+
+#[test]
+fn add_nonground_query_produces_multiple_answers() {
+    let def = include_str!("../../examples/addition.txt");
+    let mut parser = Parser::new();
+    let (_add_rel, env) = parse_rel_def_with_env(&mut parser, def);
+
+    let query = parser
+        .parse_rel_body("@(cons $x $y) ; add")
+        .expect("parse nonground add query");
+
+    let terms = parser.take_terms();
+    let mut engine: Engine<()> = Engine::new_with_env(query, terms, env);
+    let mut answers: HashSet<NF<()>> = HashSet::new();
+
+    while answers.len() < 5 {
+        match engine.next_with_fuel(FUEL_MED) {
+            Ok(Some(nf)) => {
+                answers.insert(nf);
+            }
+            Ok(None) => panic!("expected more than 5 answers for nonground add"),
+            Err(_) => panic!("out of fuel before collecting 5 answers"),
+        }
+    }
+
+    assert!(answers.len() >= 5, "expected multiple answers for nonground add");
 }

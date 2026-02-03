@@ -149,9 +149,10 @@ fn parse_rule_rhs_only_variable_creates_fresh_output() {
     let nf = parser
         .parse_rule("$x -> (f $x $y)")
         .expect("parse rule with rhs-only variable");
-    assert_eq!(nf.drop_fresh.in_arity, 1);
-    assert_eq!(nf.drop_fresh.out_arity, 2);
-    assert_eq!(nf.drop_fresh.map.as_slice(), &[(0, 0)]);
+    // Match boundary should be the variable $x (renumbered to $0)
+    assert_eq!(nf.match_boundary.len(), 1);
+    // Build boundary should be f($0, $1) where $1 is fresh
+    assert_eq!(nf.build_boundary.len(), 1);
 }
 
 #[test]
@@ -160,9 +161,10 @@ fn parse_rule_lhs_only_variable_is_dropped() {
     let nf = parser
         .parse_rule("(f $x $y) -> $x")
         .expect("parse rule with lhs-only variable");
-    assert_eq!(nf.drop_fresh.in_arity, 2);
-    assert_eq!(nf.drop_fresh.out_arity, 1);
-    assert_eq!(nf.drop_fresh.map.as_slice(), &[(0, 0)]);
+    // Match boundary should be f($0, $1)
+    assert_eq!(nf.match_boundary.len(), 1);
+    // Build boundary should be just $0 (the shared variable)
+    assert_eq!(nf.build_boundary.len(), 1);
 }
 
 #[test]
@@ -204,9 +206,9 @@ fn parse_term_literal_identity_body() {
     let result = parser.parse_rel_body("@z").unwrap();
     match result {
         Rel::Atom(nf) => {
-            assert_eq!(nf.match_pats.len(), 1);
-            assert_eq!(nf.build_pats.len(), 1);
-            assert_eq!(nf.match_pats[0], nf.build_pats[0]);
+            assert_eq!(nf.match_boundary.len(), 1);
+            assert_eq!(nf.build_boundary.len(), 1);
+            assert_eq!(nf.match_boundary[0], nf.build_boundary[0]);
         }
         _ => panic!("Expected term literal to parse as Atom identity"),
     }
@@ -474,15 +476,13 @@ theory eq {
         .parse_rule("(pair $x $y) { (eq $x $y) } -> $x")
         .expect("parse rule with constraint");
 
-    assert_eq!(nf.drop_fresh.constraint.store.alive_count, 1);
+    assert_eq!(nf.constraint.store.alive_count, 1);
     let pred = nf
-        .drop_fresh
         .constraint
         .program
         .pred_id("eq")
         .expect("eq predicate id");
     let inst = nf
-        .drop_fresh
         .constraint
         .store
         .inst
@@ -527,7 +527,7 @@ theory bad {
         .parse_rule("$x { bad } -> $x")
         .expect("parse rule with fail constraint");
     let mut terms = parser.take_terms();
-    let result = nf.drop_fresh.constraint.normalize(&mut terms);
+    let result = nf.constraint.normalize(&mut terms);
     assert!(result.is_none(), "expected failure from bad constraint");
 }
 
@@ -564,8 +564,7 @@ theory guards {
         .expect("parse rule with guard");
 
     let mut terms = parser.take_terms();
-    let (normalized, _) = nf
-        .drop_fresh
+    let normalized = nf
         .constraint
         .normalize(&mut terms)
         .expect("normalize constraints");

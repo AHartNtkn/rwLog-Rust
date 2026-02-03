@@ -1,4 +1,3 @@
-use crate::drop_fresh::DropFresh;
 use crate::nf::NF;
 use crate::symbol::SymbolStore;
 use crate::term::TermStore;
@@ -13,7 +12,6 @@ pub(crate) fn make_ground_nf(name: &str, symbols: &SymbolStore, terms: &TermStor
     let term = terms.app0(sym);
     NF::new(
         SmallVec::from_slice(&[term]),
-        DropFresh::identity(0),
         SmallVec::from_slice(&[term]),
     )
 }
@@ -30,7 +28,6 @@ pub(crate) fn make_rule_nf(
     let to_term = terms.app0(to_sym);
     NF::new(
         SmallVec::from_slice(&[from_term]),
-        DropFresh::identity(0),
         SmallVec::from_slice(&[to_term]),
     )
 }

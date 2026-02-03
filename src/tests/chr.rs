@@ -24,14 +24,6 @@ impl Theory for TestTheory {
         a != b
     }
 
-    fn extract_subst(store: &Self::Store) -> crate::subst::Subst {
-        let mut subst = crate::subst::Subst::new();
-        for (v, t) in store.bindings.iter().copied() {
-            subst.bind(v, t);
-        }
-        subst
-    }
-
     fn merge_store(a: &Self::Store, b: &Self::Store) -> Option<Self::Store> {
         let mut merged = a.clone();
         for (v, t) in b.bindings.iter().copied() {
@@ -117,6 +109,15 @@ impl Theory for TestTheory {
 
     fn is_empty(store: &Self::Store) -> bool {
         store.bindings.is_empty()
+    }
+
+    fn shift_vars(store: &Self::Store, offset: u32, terms: &mut TermStore) -> Self::Store {
+        let mut out = store.clone();
+        for (v, t) in out.bindings.iter_mut() {
+            *v += offset;
+            *t = crate::nf::shift_vars(*t, offset, terms);
+        }
+        out
     }
 }
 

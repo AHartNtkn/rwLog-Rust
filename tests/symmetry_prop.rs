@@ -1,7 +1,7 @@
 use proptest::prelude::*;
 use rwlog::constraint::{ConstraintOps, TypeConstraints};
 use rwlog::kernel::{compose_nf, dual_nf, meet_nf};
-use rwlog::nf::{collect_tensor, factor_tensor, NF};
+use rwlog::nf::{canon_nf, NF};
 use rwlog::symbol::SymbolStore;
 use rwlog::term::{TermId, TermStore};
 use smallvec::SmallVec;
@@ -119,11 +119,6 @@ fn build_nf(
     NF::factor(lhs_id, rhs_id, constraint, terms)
 }
 
-fn canonicalize_nf<C: ConstraintOps + Clone>(nf: &NF<C>, terms: &mut TermStore) -> NF<C> {
-    let direct = collect_tensor(nf, terms);
-    factor_tensor(direct.lhs, direct.rhs, direct.constraint, terms)
-}
-
 proptest! {
     #![proptest_config(ProptestConfig { cases: 256, .. ProptestConfig::default() })]
 
@@ -134,11 +129,11 @@ proptest! {
         let (lhs, rhs, types, flags) = parts;
         let nf = build_nf(&lhs, &rhs, &types, &flags, &symbols, &mut terms);
 
-        let dual = dual_nf(&nf, &mut terms);
-        let dual_dual = dual_nf(&dual, &mut terms);
-        let canon_nf = canonicalize_nf(&nf, &mut terms);
-        let canon_dual_dual = canonicalize_nf(&dual_dual, &mut terms);
-        prop_assert_eq!(canon_dual_dual, canon_nf);
+        let dual = dual_nf(&nf);
+        let dual_dual = dual_nf(&dual);
+        let canon_original = canon_nf(&nf, &mut terms);
+        let canon_dual_dual = canon_nf(&dual_dual, &mut terms);
+        prop_assert_eq!(canon_dual_dual, canon_original);
     }
 
     #[test]
@@ -157,12 +152,12 @@ proptest! {
         let composed = compose_nf(&a, &b, &mut terms);
         let dual_composed = composed
             .as_ref()
-            .map(|nf| canonicalize_nf(&dual_nf(nf, &mut terms), &mut terms));
+            .map(|nf| canon_nf(&dual_nf(nf), &mut terms));
 
-        let dual_a = canonicalize_nf(&dual_nf(&a, &mut terms), &mut terms);
-        let dual_b = canonicalize_nf(&dual_nf(&b, &mut terms), &mut terms);
+        let dual_a = canon_nf(&dual_nf(&a), &mut terms);
+        let dual_b = canon_nf(&dual_nf(&b), &mut terms);
         let composed_duals = compose_nf(&dual_b, &dual_a, &mut terms)
-            .map(|nf| canonicalize_nf(&nf, &mut terms));
+            .map(|nf| canon_nf(&nf, &mut terms));
 
         prop_assert_eq!(dual_composed.is_some(), composed_duals.is_some());
         if let (Some(left), Some(right)) = (dual_composed, composed_duals) {
@@ -186,12 +181,12 @@ proptest! {
         let met = meet_nf(&a, &b, &mut terms);
         let dual_met = met
             .as_ref()
-            .map(|nf| canonicalize_nf(&dual_nf(nf, &mut terms), &mut terms));
+            .map(|nf| canon_nf(&dual_nf(nf), &mut terms));
 
-        let dual_a = canonicalize_nf(&dual_nf(&a, &mut terms), &mut terms);
-        let dual_b = canonicalize_nf(&dual_nf(&b, &mut terms), &mut terms);
+        let dual_a = canon_nf(&dual_nf(&a), &mut terms);
+        let dual_b = canon_nf(&dual_nf(&b), &mut terms);
         let met_duals = meet_nf(&dual_a, &dual_b, &mut terms)
-            .map(|nf| canonicalize_nf(&nf, &mut terms));
+            .map(|nf| canon_nf(&nf, &mut terms));
 
         prop_assert_eq!(dual_met.is_some(), met_duals.is_some());
         if let (Some(left), Some(right)) = (dual_met, met_duals) {

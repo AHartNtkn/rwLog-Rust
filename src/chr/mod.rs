@@ -196,13 +196,13 @@ pub trait Theory: Send + Sync + 'static {
 
     fn entails_eq(store: &Self::Store, a: TermId, b: TermId) -> bool;
     fn entails_neq(store: &Self::Store, a: TermId, b: TermId) -> bool;
-    fn extract_subst(store: &Self::Store) -> Subst;
     fn merge_store(a: &Self::Store, b: &Self::Store) -> Option<Self::Store>;
     fn apply_subst(store: &Self::Store, subst: &Subst, terms: &mut TermStore) -> Self::Store;
     fn freeze_store(store: &Self::Store) -> Vec<u8>;
     fn thaw_store(bytes: &[u8]) -> Self::Store;
     fn remap_vars(store: &Self::Store, map: &[Option<u32>], terms: &mut TermStore) -> Self::Store;
     fn collect_vars(store: &Self::Store, terms: &TermStore, out: &mut Vec<u32>);
+    fn shift_vars(store: &Self::Store, offset: u32, terms: &mut TermStore) -> Self::Store;
     fn is_empty(store: &Self::Store) -> bool;
 }
 
@@ -218,10 +218,6 @@ impl Theory for NoTheory {
 
     fn entails_neq(_store: &Self::Store, a: TermId, b: TermId) -> bool {
         a != b
-    }
-
-    fn extract_subst(_store: &Self::Store) -> Subst {
-        Subst::default()
     }
 
     fn merge_store(_a: &Self::Store, _b: &Self::Store) -> Option<Self::Store> {
@@ -244,6 +240,8 @@ impl Theory for NoTheory {
     }
 
     fn collect_vars(_store: &Self::Store, _terms: &TermStore, _out: &mut Vec<u32>) {}
+
+    fn shift_vars(_store: &Self::Store, _offset: u32, _terms: &mut TermStore) -> Self::Store {}
 
     fn is_empty(_store: &Self::Store) -> bool {
         true
@@ -1796,7 +1794,7 @@ impl<T: Theory> crate::constraint::ConstraintOps for ChrState<T> {
         Some(merged)
     }
 
-    fn normalize(&self, terms: &mut TermStore) -> Option<(Self, Option<Subst>)> {
+    fn normalize(&self, terms: &mut TermStore) -> Option<Self> {
         if self.failed {
             return None;
         }
@@ -1806,19 +1804,8 @@ impl<T: Theory> crate::constraint::ConstraintOps for ChrState<T> {
         if !st.solve_to_fixpoint(terms) {
             return None;
         }
-
-        let subst = T::extract_subst(&st.builtins);
-        let subst_opt = if subst.is_empty() {
-            None
-        } else {
-            Some(subst.clone())
-        };
-        if !subst.is_empty() {
-            st.apply_subst_to_store(&subst, terms);
-            st.store.rebuild_indexes(&st.program.preds, terms);
-        }
         st.agenda.clear();
-        Some((st, subst_opt))
+        Some(st)
     }
 
     fn apply_subst(&self, subst: &Subst, terms: &mut TermStore) -> Self {
@@ -1853,6 +1840,21 @@ impl<T: Theory> crate::constraint::ConstraintOps for ChrState<T> {
             }
         }
         T::collect_vars(&self.builtins, terms, out);
+    }
+
+    fn shift_vars(&self, offset: u32, terms: &mut TermStore) -> Self {
+        let mut st = self.clone();
+        for inst in st.store.inst.iter_mut() {
+            if inst.alive {
+                for arg in inst.args.iter_mut() {
+                    *arg = crate::nf::shift_vars(*arg, offset, terms);
+                }
+            }
+        }
+        st.builtins = T::shift_vars(&st.builtins, offset, terms);
+        st.store.rebuild_indexes(&st.program.preds, terms);
+        st.agenda.clear();
+        st
     }
 
     fn is_empty(&self) -> bool {

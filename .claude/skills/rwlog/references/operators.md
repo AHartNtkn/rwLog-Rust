@@ -141,9 +141,85 @@ Must be both even AND less than 10.
 - Enforcing multiple constraints on same value
 - Intersection of two relations
 - Checking properties without transforming
-
-**Less common than `;` and `|`** - most programs use composition and disjunction primarily.
+- Computing multiple values in parallel and combining them
 </when_to_use>
+
+<parallel_computation>
+**Parallel Computation with Conjunction**
+
+When you need results from two independent computations, use `&` rather than sequential composition. This is the standard approach for parallel work.
+
+<why_conjunction>
+**Why use `&` for parallel computation:**
+
+With sequential composition, if the first step runs forever, you never reach the second:
+```
+# BAD: if process1 is infinite and process2 would fail, this never fails
+[$x -> $x ; process1 ; ... ; process2 ; ...]
+```
+
+With conjunction, both branches run in parallel. If either fails, the whole thing fails:
+```
+# GOOD: if either branch fails, fails immediately
+[... ; process1 ; ...] & [... ; process2 ; ...]
+```
+</why_conjunction>
+
+<combining_results>
+**Combining results via unification:**
+
+Variables are scoped to a single rule. Use fresh variables as "holes" that get filled by the other branch:
+
+```
+[
+    [$x -> $x ; process1 ; $r -> (result $r $s)]
+    &
+    [$x -> $x ; process2 ; $r -> (result $t $r)]
+]
+```
+
+How this works:
+1. Left branch computes `process1(x)` → R, outputs `(result R $s)` where `$s` is **fresh**
+2. Right branch computes `process2(x)` → S, outputs `(result $t S)` where `$t` is **fresh**
+3. Meet unifies `(result R $s)` with `(result $t S)`:
+   - `$t` = R (constrained by unification)
+   - `$s` = S (constrained by unification)
+   - Result: `(result R S)`
+
+The fresh variables act as placeholders that get constrained to actual values through unification at the meet.
+</combining_results>
+
+<example name="Building a pair from parallel results">
+```
+[
+    [$x -> $x ; left_computation ; $l -> (pair $l $r)]
+    &
+    [$x -> $x ; right_computation ; $r -> (pair $l $r)]
+]
+```
+
+- Left computes some value L, outputs `(pair L $r)` with fresh `$r`
+- Right computes some value R, outputs `(pair $l R)` with fresh `$l`
+- Meet: `$l` = L, `$r` = R, result is `(pair L R)`
+</example>
+
+<contrast_with_threading>
+**Contrast with explicit threading:**
+
+An alternative is to thread values through tuples sequentially:
+```
+[... ; process1 ; $r1 -> (pair $r1 $x) ;
+ [(pair $r1 $x) -> $x ; process2 ; $r2 -> (pair $r1 $r2)]]
+```
+
+This works but has drawbacks:
+- More verbose
+- Sequential: if process1 is slow/infinite, process2 waits
+- If process2 would fail, you don't discover this until process1 completes
+
+Prefer conjunction for independent parallel computations.
+</contrast_with_threading>
+</parallel_computation>
 </conjunction>
 
 <precedence_examples>

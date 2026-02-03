@@ -40,9 +40,8 @@ fn unit_constraint_combine() {
 fn unit_constraint_normalize() {
     let c: () = ();
     let mut terms = TermStore::new();
-    let (normalized, subst) = c.normalize(&mut terms).unwrap();
+    let normalized = c.normalize(&mut terms).unwrap();
     assert_eq!(normalized, ());
-    assert!(subst.is_none());
 }
 
 // ========== DISEQUALITY TESTS ==========
@@ -124,9 +123,8 @@ fn diseq_constraint_normalize() {
     c.add(0, t1);
 
     let mut terms = TermStore::new();
-    let (normalized, subst) = c.normalize(&mut terms).unwrap();
+    let normalized = c.normalize(&mut terms).unwrap();
     assert_eq!(normalized.len(), 1);
-    assert!(subst.is_none());
 }
 
 #[test]
@@ -262,9 +260,8 @@ fn type_constraints_normalize() {
     c.add(terms.var(0), 1);
 
     let mut terms = terms;
-    let (normalized, subst) = c.normalize(&mut terms).unwrap();
+    let normalized = c.normalize(&mut terms).unwrap();
     assert_eq!(normalized.len(), 1);
-    assert!(subst.is_none());
 }
 
 // ========== COMBINED CONSTRAINT TESTS ==========
@@ -339,9 +336,8 @@ fn combined_constraint_normalize() {
     c.add_type(t0, 10);
 
     let mut terms = TermStore::new();
-    let (normalized, subst) = c.normalize(&mut terms).unwrap();
+    let normalized = c.normalize(&mut terms).unwrap();
     assert!(!normalized.is_empty());
-    assert!(subst.is_none());
 }
 
 // ========== CONSTRAINT OPS TRAIT TESTS ==========

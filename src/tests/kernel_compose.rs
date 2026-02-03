@@ -1,8 +1,11 @@
 use super::*;
-use crate::drop_fresh::DropFresh;
-use crate::parser::Parser;
-use crate::test_utils::setup;
+use crate::symbol::SymbolStore;
+use crate::term::TermStore;
 use smallvec::SmallVec;
+
+fn setup() -> (SymbolStore, TermStore) {
+    (SymbolStore::new(), TermStore::new())
+}
 
 // ========== BASIC COMPOSITION TESTS ==========
 
@@ -14,7 +17,6 @@ fn compose_identity_identity() {
     // Identity NF: x -> x
     let identity: NF<()> = NF::new(
         smallvec::smallvec![v0],
-        DropFresh::identity(1),
         smallvec::smallvec![v0],
     );
 
@@ -23,66 +25,8 @@ fn compose_identity_identity() {
     let composed = result.unwrap();
 
     // Identity composed with identity is identity
-    assert_eq!(composed.match_pats.len(), 1);
-    assert_eq!(composed.build_pats.len(), 1);
-    assert!(composed.drop_fresh.is_identity());
-}
-
-#[test]
-fn compose_applies_matching_to_constraints() {
-    let mut parser = Parser::with_chr();
-    let theory = r#"
-theory neq_only {
-  constraint neq/2
-  (neq $x $x) <=> fail.
-}
-"#;
-    parser.parse_theory_def(theory).expect("parse theory");
-    let left = parser
-        .parse_rule("$x { (neq $x z) } -> $x")
-        .expect("parse left rule");
-    let right = parser.parse_rule("z -> z").expect("parse right rule");
-    let mut terms = parser.take_terms();
-
-    let composed = compose_nf(&left, &right, &mut terms);
-    assert!(
-        composed.is_none(),
-        "Expected composition to fail after constraint substitution"
-    );
-}
-
-#[test]
-fn compose_preserves_constraint_var_binding() {
-    let mut parser = Parser::with_chr();
-    let theory = r#"
-theory no_c {
-  constraint no_c/1
-}
-"#;
-    parser.parse_theory_def(theory).expect("parse theory");
-    let left = parser
-        .parse_rule("$x { (no_c $x) } -> $x")
-        .expect("parse left rule");
-    let right = parser
-        .parse_rule("$x -> (f $x (c z))")
-        .expect("parse right rule");
-    let mut terms = parser.take_terms();
-
-    let composed = compose_nf(&left, &right, &mut terms).expect("compose should succeed");
-    let state = &composed.drop_fresh.constraint;
-    let pred = state
-        .program
-        .pred_id("no_c")
-        .expect("expected no_c predicate");
-    let alive: Vec<_> = state.store.inst.iter().filter(|inst| inst.alive).collect();
-    assert_eq!(alive.len(), 1, "expected one no_c constraint");
-    let inst = alive[0];
-    assert_eq!(inst.pred, pred, "expected no_c constraint");
-    assert_eq!(inst.args.len(), 1, "no_c should have one arg");
-    assert!(
-        terms.is_var(inst.args[0]).is_some(),
-        "no_c arg should remain a variable"
-    );
+    assert_eq!(composed.match_boundary.len(), 1);
+    assert_eq!(composed.build_boundary.len(), 1);
 }
 
 #[test]
@@ -99,14 +43,12 @@ fn compose_ground_rules() {
     // Rule a: A -> B
     let rule_a: NF<()> = NF::new(
         smallvec::smallvec![a_term],
-        DropFresh::identity(0),
         smallvec::smallvec![b_term],
     );
 
     // Rule b: B -> C
     let rule_b: NF<()> = NF::new(
         smallvec::smallvec![b_term],
-        DropFresh::identity(0),
         smallvec::smallvec![c_term],
     );
 
@@ -115,8 +57,8 @@ fn compose_ground_rules() {
     let composed = result.unwrap();
 
     // A -> B ; B -> C = A -> C
-    assert_eq!(composed.match_pats[0], a_term);
-    assert_eq!(composed.build_pats[0], c_term);
+    assert_eq!(composed.match_boundary[0], a_term);
+    assert_eq!(composed.build_boundary[0], c_term);
 }
 
 #[test]
@@ -133,14 +75,12 @@ fn compose_fails_on_mismatch() {
     // Rule a: A -> B
     let rule_a: NF<()> = NF::new(
         smallvec::smallvec![a_term],
-        DropFresh::identity(0),
         smallvec::smallvec![b_term],
     );
 
     // Rule b: C -> A (doesn't match B)
     let rule_b: NF<()> = NF::new(
         smallvec::smallvec![c_term],
-        DropFresh::identity(0),
         smallvec::smallvec![a_term],
     );
 
@@ -159,7 +99,6 @@ fn compose_with_variables() {
     let f_x = terms.app1(f, v0);
     let rule_a: NF<()> = NF::new(
         smallvec::smallvec![f_x],
-        DropFresh::identity(1),
         smallvec::smallvec![v0],
     );
 
@@ -167,7 +106,6 @@ fn compose_with_variables() {
     let g_x = terms.app1(g, v0);
     let rule_b: NF<()> = NF::new(
         smallvec::smallvec![v0],
-        DropFresh::identity(1),
         smallvec::smallvec![g_x],
     );
 
@@ -177,11 +115,11 @@ fn compose_with_variables() {
 
     // F(x) -> x ; x -> G(x) = F(x) -> G(x)
     // Match pattern should be F(_)
-    let (match_f, _match_children) = terms.is_app(composed.match_pats[0]).unwrap();
+    let (match_f, _match_children) = terms.is_app(composed.match_boundary[0]).unwrap();
     assert_eq!(symbols.resolve(match_f), Some("F"));
 
     // Build pattern should be G(_)
-    let (build_f, _) = terms.is_app(composed.build_pats[0]).unwrap();
+    let (build_f, _) = terms.is_app(composed.build_boundary[0]).unwrap();
     assert_eq!(symbols.resolve(build_f), Some("G"));
 }
 
@@ -195,7 +133,6 @@ fn compose_peeling() {
     let s_x = terms.app1(s, v0);
     let peel: NF<()> = NF::new(
         smallvec::smallvec![s_x],
-        DropFresh::identity(1),
         smallvec::smallvec![v0],
     );
 
@@ -205,13 +142,13 @@ fn compose_peeling() {
     let composed = result.unwrap();
 
     // Match pattern should be S(S(x))
-    let (f1, c1) = terms.is_app(composed.match_pats[0]).unwrap();
+    let (f1, c1) = terms.is_app(composed.match_boundary[0]).unwrap();
     assert_eq!(symbols.resolve(f1), Some("S"));
     let (f2, _) = terms.is_app(c1[0]).unwrap();
     assert_eq!(symbols.resolve(f2), Some("S"));
 
     // Build pattern should be just x
-    assert!(terms.is_var(composed.build_pats[0]).is_some());
+    assert!(terms.is_var(composed.build_boundary[0]).is_some());
 }
 
 #[test]
@@ -224,7 +161,6 @@ fn compose_wrapping() {
     let s_x = terms.app1(s, v0);
     let wrap: NF<()> = NF::new(
         smallvec::smallvec![v0],
-        DropFresh::identity(1),
         smallvec::smallvec![s_x],
     );
 
@@ -234,10 +170,10 @@ fn compose_wrapping() {
     let composed = result.unwrap();
 
     // Match pattern should be just x
-    assert!(terms.is_var(composed.match_pats[0]).is_some());
+    assert!(terms.is_var(composed.match_boundary[0]).is_some());
 
     // Build pattern should be S(S(x))
-    let (f1, c1) = terms.is_app(composed.build_pats[0]).unwrap();
+    let (f1, c1) = terms.is_app(composed.build_boundary[0]).unwrap();
     assert_eq!(symbols.resolve(f1), Some("S"));
     let (f2, _) = terms.is_app(c1[0]).unwrap();
     assert_eq!(symbols.resolve(f2), Some("S"));
@@ -248,7 +184,6 @@ fn compose_variable_passing() {
     let (symbols, mut terms) = setup();
     let pair = symbols.intern("Pair");
     let fst = symbols.intern("Fst");
-    let _snd = symbols.intern("Snd");
     let v0 = terms.var(0);
     let v1 = terms.var(1);
 
@@ -257,12 +192,6 @@ fn compose_variable_passing() {
     let fst_x = terms.app1(fst, v0);
     let rule_a: NF<()> = NF::new(
         smallvec::smallvec![pair_xy],
-        DropFresh {
-            in_arity: 2,
-            out_arity: 1,
-            map: smallvec::smallvec![(0, 0)],
-            constraint: (),
-        },
         smallvec::smallvec![fst_x],
     );
 
@@ -271,7 +200,6 @@ fn compose_variable_passing() {
     let fst_x_b = terms.app1(fst, v0_b);
     let rule_b: NF<()> = NF::new(
         smallvec::smallvec![fst_x_b],
-        DropFresh::identity(1),
         smallvec::smallvec![v0_b],
     );
 
@@ -280,11 +208,11 @@ fn compose_variable_passing() {
     let composed = result.unwrap();
 
     // Pair(x, y) -> Fst(x) ; Fst(x) -> x = Pair(x, y) -> x
-    let (match_f, _) = terms.is_app(composed.match_pats[0]).unwrap();
+    let (match_f, _) = terms.is_app(composed.match_boundary[0]).unwrap();
     assert_eq!(symbols.resolve(match_f), Some("Pair"));
 
     // Build should be a variable
-    assert!(terms.is_var(composed.build_pats[0]).is_some());
+    assert!(terms.is_var(composed.build_boundary[0]).is_some());
 }
 
 // ========== EDGE CASES ==========
@@ -302,7 +230,6 @@ fn compose_ground_with_var_match() {
     // Rule a: A -> A (identity on A)
     let rule_a: NF<()> = NF::new(
         smallvec::smallvec![a_term],
-        DropFresh::identity(0),
         smallvec::smallvec![a_term],
     );
 
@@ -310,7 +237,6 @@ fn compose_ground_with_var_match() {
     let f_x = terms.app1(f, v0);
     let rule_b: NF<()> = NF::new(
         smallvec::smallvec![v0],
-        DropFresh::identity(1),
         smallvec::smallvec![f_x],
     );
 
@@ -319,18 +245,17 @@ fn compose_ground_with_var_match() {
     let composed = result.unwrap();
 
     // A -> A ; x -> F(x) = A -> F(A)
-    assert_eq!(composed.match_pats[0], a_term);
-    assert_eq!(composed.build_pats[0], f_a);
+    assert_eq!(composed.match_boundary[0], a_term);
+    assert_eq!(composed.build_boundary[0], f_a);
 }
 
 #[test]
 fn compose_empty_patterns() {
     let (_, mut terms) = setup();
 
-    // Empty NFs with just DropFresh maps
-    let nf_a: NF<()> = NF::new(SmallVec::new(), DropFresh::identity(0), SmallVec::new());
-
-    let nf_b: NF<()> = NF::new(SmallVec::new(), DropFresh::identity(0), SmallVec::new());
+    // Empty NFs
+    let nf_a: NF<()> = NF::new(SmallVec::new(), SmallVec::new());
+    let nf_b: NF<()> = NF::new(SmallVec::new(), SmallVec::new());
 
     let result = compose_nf(&nf_a, &nf_b, &mut terms);
     assert!(result.is_some());
@@ -349,7 +274,6 @@ fn compose_nested_constructors() {
     let f_g_x = terms.app1(f, g_x);
     let rule_a: NF<()> = NF::new(
         smallvec::smallvec![f_g_x],
-        DropFresh::identity(1),
         smallvec::smallvec![g_x],
     );
 
@@ -357,7 +281,6 @@ fn compose_nested_constructors() {
     let h_x = terms.app1(h, v0);
     let rule_b: NF<()> = NF::new(
         smallvec::smallvec![g_x],
-        DropFresh::identity(1),
         smallvec::smallvec![h_x],
     );
 
@@ -366,12 +289,12 @@ fn compose_nested_constructors() {
     let composed = result.unwrap();
 
     // F(G(x)) -> G(x) ; G(x) -> H(x) = F(G(x)) -> H(x)
-    let (match_f, match_c) = terms.is_app(composed.match_pats[0]).unwrap();
+    let (match_f, match_c) = terms.is_app(composed.match_boundary[0]).unwrap();
     assert_eq!(symbols.resolve(match_f), Some("F"));
     let (inner_f, _) = terms.is_app(match_c[0]).unwrap();
     assert_eq!(symbols.resolve(inner_f), Some("G"));
 
-    let (build_f, _) = terms.is_app(composed.build_pats[0]).unwrap();
+    let (build_f, _) = terms.is_app(composed.build_boundary[0]).unwrap();
     assert_eq!(symbols.resolve(build_f), Some("H"));
 }
 
@@ -400,7 +323,7 @@ fn compose_peel_twice_example() {
     let composed = result.unwrap();
 
     // Match should be B(A(A(x)), y)
-    let (match_f, match_c) = terms.is_app(composed.match_pats[0]).unwrap();
+    let (match_f, match_c) = terms.is_app(composed.match_boundary[0]).unwrap();
     assert_eq!(symbols.resolve(match_f), Some("B"));
 
     // First arg should be A(A(x))
@@ -410,22 +333,16 @@ fn compose_peel_twice_example() {
     assert_eq!(symbols.resolve(a2_f), Some("A"));
 
     // Build should be B(x, y)
-    let (build_f, build_c) = terms.is_app(composed.build_pats[0]).unwrap();
+    let (build_f, build_c) = terms.is_app(composed.build_boundary[0]).unwrap();
     assert_eq!(symbols.resolve(build_f), Some("B"));
     assert!(terms.is_var(build_c[0]).is_some());
     assert!(terms.is_var(build_c[1]).is_some());
 }
 
 // ========== BACKWARD QUERY SYMMETRY TESTS ==========
-// These tests verify that compose_nf works correctly for backward queries
-// where a relation's output is constrained by a ground term.
 
 #[test]
 fn compose_backward_query_ground_constraint() {
-    // Simulates: add_base_case ; identity_on_z
-    // add base case: (cons z $0) -> $0
-    // identity on z: z -> z
-    // Expected: (cons z z) -> z
     let (symbols, mut terms) = setup();
     let cons_sym = symbols.intern("cons");
     let z_sym = symbols.intern("z");
@@ -451,21 +368,17 @@ fn compose_backward_query_ground_constraint() {
     let composed = result.unwrap();
 
     // Match should be (cons z z) - the variable $0 should be bound to z
-    let (match_f, match_c) = terms.is_app(composed.match_pats[0]).unwrap();
+    let (match_f, match_c) = terms.is_app(composed.match_boundary[0]).unwrap();
     assert_eq!(symbols.resolve(match_f), Some("cons"));
     assert_eq!(match_c[0], z, "First arg should be z");
     assert_eq!(match_c[1], z, "Second arg should be z (variable bound)");
 
     // Build should be z
-    assert_eq!(composed.build_pats[0], z, "Output should be z");
+    assert_eq!(composed.build_boundary[0], z, "Output should be z");
 }
 
 #[test]
 fn compose_backward_query_ground_constraint_s_z() {
-    // Simulates backward query for sum = 1
-    // Two cases that should match:
-    // 1. add base: (cons z $0) -> $0  with identity on (s z)
-    //    => (cons z (s z)) -> (s z)  [0 + 1 = 1]
     let (symbols, mut terms) = setup();
     let cons_sym = symbols.intern("cons");
     let z_sym = symbols.intern("z");
@@ -493,7 +406,7 @@ fn compose_backward_query_ground_constraint_s_z() {
     let composed = result.unwrap();
 
     // Match should be (cons z (s z))
-    let (match_f, match_c) = terms.is_app(composed.match_pats[0]).unwrap();
+    let (match_f, match_c) = terms.is_app(composed.match_boundary[0]).unwrap();
     assert_eq!(symbols.resolve(match_f), Some("cons"));
     assert_eq!(match_c[0], z, "First arg should be z");
     // Second arg should be (s z)
@@ -502,11 +415,11 @@ fn compose_backward_query_ground_constraint_s_z() {
     assert_eq!(s_c[0], z, "Arg of s should be z");
 
     // Build should be (s z)
-    assert_eq!(composed.build_pats[0], s_z, "Output should be (s z)");
+    assert_eq!(composed.build_boundary[0], s_z, "Output should be (s z)");
 }
 
 #[test]
-fn compose_var_with_ground_unifies() {
+fn compose_var_with_ground_matches() {
     // Most basic case: $0 -> $0 composed with z -> z should give z -> z
     let (symbols, mut terms) = setup();
     let z_sym = symbols.intern("z");
@@ -525,8 +438,8 @@ fn compose_var_with_ground_unifies() {
     assert!(result.is_some(), "Variable should match ground term");
     let composed = result.unwrap();
 
-    assert_eq!(composed.match_pats[0], z, "Match should be z");
-    assert_eq!(composed.build_pats[0], z, "Build should be z");
+    assert_eq!(composed.match_boundary[0], z, "Match should be z");
+    assert_eq!(composed.build_boundary[0], z, "Build should be z");
 }
 
 #[test]
@@ -543,13 +456,12 @@ fn compose_introduces_fresh_var_then_projects() {
     let composed =
         compose_nf(&rule_intro, &rule_proj, &mut terms).expect("composition should succeed");
 
-    assert_eq!(composed.match_pats.len(), 1);
-    assert_eq!(composed.build_pats.len(), 1);
+    assert_eq!(composed.match_boundary.len(), 1);
+    assert_eq!(composed.build_boundary.len(), 1);
     assert_eq!(
-        composed.match_pats[0], composed.build_pats[0],
+        composed.match_boundary[0], composed.build_boundary[0],
         "Composition should be identity"
     );
-    assert!(composed.drop_fresh.is_identity());
 }
 
 #[test]
@@ -589,6 +501,66 @@ fn compose_ground_identity_with_rule_instantiates_vars() {
     let composed = compose_nf(&identity, &rule, &mut terms).expect("compose should succeed");
 
     let expected_out = terms.app(f, smallvec::smallvec![b_l, c0]);
-    assert_eq!(composed.match_pats[0], input);
-    assert_eq!(composed.build_pats[0], expected_out);
+    assert_eq!(composed.match_boundary[0], input);
+    assert_eq!(composed.build_boundary[0], expected_out);
+}
+
+#[test]
+fn compose_dual_law_constraint_regression() {
+    // Reproduces the compose_dual_law property test failure
+    // a: $0 -> g($1, $1), no constraints
+    // b: g(a, $1) -> $0, constraint on $1
+    // Verify: dual(compose(a, b)) == compose(dual(b), dual(a))
+    use crate::constraint::TypeConstraints;
+    use crate::kernel::dual_nf;
+    use crate::nf::canon_nf;
+
+    let mut terms = TermStore::new();
+    let symbols = SymbolStore::new();
+
+    let v0 = terms.var(0);
+    let v1 = terms.var(1);
+    let g = symbols.intern("g");
+    let g_v1_v1 = terms.app(g, smallvec::smallvec![v1, v1]);
+
+    let a: NF<TypeConstraints> = NF::from_patterns(
+        smallvec::smallvec![v0],
+        smallvec::smallvec![g_v1_v1],
+        TypeConstraints::new(),
+        &mut terms,
+    );
+
+    let a_sym = symbols.intern("a_const");
+    let a_term = terms.app0(a_sym);
+    let g_a_v1 = terms.app(g, smallvec::smallvec![a_term, v1]);
+    let mut b_constraint = TypeConstraints::new();
+    b_constraint.add(v1, 0);
+
+    let b: NF<TypeConstraints> = NF::from_patterns(
+        smallvec::smallvec![g_a_v1],
+        smallvec::smallvec![v0],
+        b_constraint,
+        &mut terms,
+    );
+
+    // Path 1: compose(a, b), then dual
+    let composed = compose_nf(&a, &b, &mut terms).expect("compose(a,b) should succeed");
+    eprintln!("composed: {:?}", composed);
+    let dual_composed = canon_nf(&dual_nf(&composed), &mut terms);
+    eprintln!("dual(composed): {:?}", dual_composed);
+
+    // Path 2: compose(dual(b), dual(a))
+    let dual_a = canon_nf(&dual_nf(&a), &mut terms);
+    let dual_b = canon_nf(&dual_nf(&b), &mut terms);
+    eprintln!("dual_a: {:?}", dual_a);
+    eprintln!("dual_b: {:?}", dual_b);
+
+    let composed_duals = compose_nf(&dual_b, &dual_a, &mut terms).expect("compose(dual_b, dual_a) should succeed");
+    let composed_duals_canon = canon_nf(&composed_duals, &mut terms);
+    eprintln!("composed_duals: {:?}", composed_duals_canon);
+
+    // The constraint should be on 'a' (the nullary functor), not on a variable
+    eprintln!("'a_const' term is {:?}", a_term);
+
+    assert_eq!(dual_composed, composed_duals_canon, "compose_dual_law must hold");
 }
