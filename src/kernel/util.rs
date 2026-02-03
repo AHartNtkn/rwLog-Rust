@@ -2,8 +2,8 @@
 //!
 //! This module contains helper functions used by both compose and meet operations.
 
-use crate::nf::collect_vars_ordered;
 use crate::matching::match_terms_combined;
+use crate::nf::collect_vars_ordered;
 use crate::subst::{apply_subst, Subst};
 use crate::term::{Term, TermId, TermStore};
 use smallvec::SmallVec;
@@ -76,7 +76,11 @@ pub fn match_term_lists(
         let match_subst = match_terms_combined(l_sub, r_sub, terms)?;
         subst = compose_subst(&subst, &match_subst, terms);
     }
-    Some(crate::matching::split_match_subst(&subst, right_offset, terms))
+    Some(crate::matching::split_match_subst(
+        &subst,
+        right_offset,
+        terms,
+    ))
 }
 
 /// Compose two substitutions.
@@ -153,9 +157,8 @@ mod tests {
             .unwrap_or(0);
         let right_shifted = shift_vars(right, offset, &mut terms);
 
-        let (left_sub, right_sub) =
-            match_term_lists(&[left], &[right_shifted], offset, &mut terms)
-                .expect("expected match");
+        let (left_sub, right_sub) = match_term_lists(&[left], &[right_shifted], offset, &mut terms)
+            .expect("expected match");
 
         let left_applied = apply_subst(left, &left_sub, &mut terms);
         let right_applied = apply_subst(right_shifted, &right_sub, &mut terms);

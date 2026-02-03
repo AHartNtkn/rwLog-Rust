@@ -270,12 +270,18 @@ mod tests {
         assert_eq!(joiner.seen[0].len(), 0);
         assert_eq!(joiner.seen[1].len(), 0);
 
-        assert!(matches!(joiner.step(&mut terms, &mut sink), JoinStep::Progress));
+        assert!(matches!(
+            joiner.step(&mut terms, &mut sink),
+            JoinStep::Progress
+        ));
         assert_eq!(joiner.seen[0].len(), 1);
         assert_eq!(joiner.seen[1].len(), 0);
         assert_eq!(joiner.turn, 1);
 
-        assert!(matches!(joiner.step(&mut terms, &mut sink), JoinStep::Progress));
+        assert!(matches!(
+            joiner.step(&mut terms, &mut sink),
+            JoinStep::Progress
+        ));
         assert_eq!(joiner.seen[0].len(), 1);
         assert_eq!(joiner.seen[1].len(), 1);
         assert_eq!(joiner.turn, 0);

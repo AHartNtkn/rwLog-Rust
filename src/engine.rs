@@ -153,8 +153,8 @@ mod tests {
     use crate::drop_fresh::DropFresh;
     use crate::kernel::dual_nf;
     use crate::nf::{direct_rule_terms, NF};
-    use crate::parser::{ChrConstraintBuilder, ConstraintBuilder};
     use crate::parser::Parser;
+    use crate::parser::{ChrConstraintBuilder, ConstraintBuilder};
     use crate::rel::dual;
     use crate::rel::Rel;
     use crate::repl::split_statements;
@@ -483,8 +483,8 @@ rel killer {
             };
             let mut dual_engine: Engine<()> =
                 Engine::new_with_env(dual(&query, &mut terms), terms, dual_env);
-            let dual_first = run_until_emit(&mut dual_engine, max_steps)
-                .expect("expected dual killer answer");
+            let dual_first =
+                run_until_emit(&mut dual_engine, max_steps).expect("expected dual killer answer");
             assert_eq!(
                 dual_first, expected_dual,
                 "Dual query should emit the dual of the same span"
@@ -1800,7 +1800,11 @@ rel add {
 
         let mut engine: Engine<()> = Engine::new_with_env(query, terms, env);
         let first = engine.next();
-        assert!(first.is_some(), "Expected treecalc answer for input {}", input);
+        assert!(
+            first.is_some(),
+            "Expected treecalc answer for input {}",
+            input
+        );
         assert_eq!(
             first.unwrap(),
             expected_nf,
@@ -1876,13 +1880,12 @@ rel add {
         let nf = first.expect("expected program_synth flip answer");
         let mut terms = engine.into_terms();
         let (lhs, rhs) = direct_rule_terms(&nf, &mut terms).expect("direct rule");
-        let lhs_str = crate::term::format_term(lhs, &terms, parser.symbols())
-            .expect("format program term");
-        let rhs_str = crate::term::format_term(rhs, &terms, parser.symbols())
-            .expect("format output term");
+        let lhs_str =
+            crate::term::format_term(lhs, &terms, parser.symbols()).expect("format program term");
+        let rhs_str =
+            crate::term::format_term(rhs, &terms, parser.symbols()).expect("format output term");
         assert_eq!(
-            rhs_str,
-            "(a (c (s z)) (c z))",
+            rhs_str, "(a (c (s z)) (c z))",
             "Unexpected program_synth flip output term"
         );
 

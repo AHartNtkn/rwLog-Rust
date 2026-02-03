@@ -164,7 +164,10 @@ fn intersection_with_mixed_interior_and() {
         let gh_fresh = rel_rule(t_app1(terms, g, v0), t_app1(terms, h, v1), terms);
         let left = rel_seq(vec![fg.clone(), rel_and(gh, gh_fresh)]);
 
-        let right = rel_seq(vec![fg, rel_rule(t_app1(terms, g, v0), t_app1(terms, h, v0), terms)]);
+        let right = rel_seq(vec![
+            fg,
+            rel_rule(t_app1(terms, g, v0), t_app1(terms, h, v0), terms),
+        ]);
 
         rel_and(left, right)
     });

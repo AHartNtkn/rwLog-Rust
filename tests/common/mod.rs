@@ -107,10 +107,7 @@ fn shape_term(
             Shape::Var(*entry)
         }
         Some(Term::App(func, kids)) => {
-            let name = symbols
-                .resolve(func)
-                .unwrap_or("<unknown>")
-                .to_string();
+            let name = symbols.resolve(func).unwrap_or("<unknown>").to_string();
             let mut rendered = Vec::with_capacity(kids.len());
             for kid in kids.iter().copied() {
                 rendered.push(shape_term(kid, terms, symbols, map, next));
@@ -152,8 +149,8 @@ pub fn collect_pair_shapes(
     let mut engine = Engine::new(rel, terms);
     let mut out = Vec::new();
     while let Some(nf) = engine.next() {
-        let (lhs, rhs) = direct_rule_terms(&nf, engine.terms_mut())
-            .expect("expected unary relation");
+        let (lhs, rhs) =
+            direct_rule_terms(&nf, engine.terms_mut()).expect("expected unary relation");
         out.push(pair_shape(lhs, rhs, engine.terms_mut(), symbols));
         if let Some(max) = limit {
             if out.len() >= max {
@@ -176,11 +173,7 @@ pub fn assert_pairs(actual: Vec<(Shape, Shape)>, expected: &[(Shape, Shape)]) {
 }
 
 fn canonicalize_shape_pair(lhs: &Shape, rhs: &Shape) -> (Shape, Shape) {
-    fn remap(
-        shape: &Shape,
-        map: &mut HashMap<u32, u32>,
-        next: &mut u32,
-    ) -> Shape {
+    fn remap(shape: &Shape, map: &mut HashMap<u32, u32>, next: &mut u32) -> Shape {
         match shape {
             Shape::Var(idx) => {
                 let entry = map.entry(*idx).or_insert_with(|| {
@@ -204,11 +197,8 @@ fn canonicalize_shape_pair(lhs: &Shape, rhs: &Shape) -> (Shape, Shape) {
     (lhs_mapped, rhs_mapped)
 }
 
-pub fn assert_rel_pairs_with_dual<F>(
-    symbols: &SymbolStore,
-    expected: &[(Shape, Shape)],
-    build: &F,
-) where
+pub fn assert_rel_pairs_with_dual<F>(symbols: &SymbolStore, expected: &[(Shape, Shape)], build: &F)
+where
     F: Fn(&mut TermStore, &SymbolStore) -> Rel<()>,
 {
     let mut terms = TermStore::new();

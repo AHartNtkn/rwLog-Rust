@@ -66,23 +66,23 @@ pub fn compose_nf<C: ConstraintOps>(a: &NF<C>, b: &NF<C>, terms: &mut TermStore)
         "matching_interface"
     );
 
-    let (subst_left, subst_right) =
-        match match_term_lists(&rw1.rhs, &rw2.lhs, b_var_offset, terms) {
-            Some((subst_left, subst_right)) => {
-                #[cfg(feature = "tracing")]
-                trace!(
-                    left_bindings = subst_left.len(),
-                    right_bindings = subst_right.len(),
-                    "matching_success"
-                );
-                (subst_left, subst_right)
-            }
-            None => {
-                #[cfg(feature = "tracing")]
-                trace!("matching_failed");
-                return None;
-            }
-        };
+    let (subst_left, subst_right) = match match_term_lists(&rw1.rhs, &rw2.lhs, b_var_offset, terms)
+    {
+        Some((subst_left, subst_right)) => {
+            #[cfg(feature = "tracing")]
+            trace!(
+                left_bindings = subst_left.len(),
+                right_bindings = subst_right.len(),
+                "matching_success"
+            );
+            (subst_left, subst_right)
+        }
+        None => {
+            #[cfg(feature = "tracing")]
+            trace!("matching_failed");
+            return None;
+        }
+    };
 
     let mut new_match = apply_subst_list(&rw1.lhs, &subst_left, terms);
     let mut new_build = apply_subst_list(&rw2.rhs, &subst_right, terms);

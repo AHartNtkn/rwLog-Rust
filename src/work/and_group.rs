@@ -64,7 +64,7 @@ impl<C: ConstraintOps> AndProducer<C> {
         if self.done {
             return false;
         }
-        self.blocked.as_ref().map_or(true, |b| b.is_stale())
+        self.blocked.as_ref().is_none_or(|b| b.is_stale())
     }
 
     fn close_sender(&mut self) {
@@ -219,7 +219,7 @@ impl<C: ConstraintOps> AndGroup<C> {
         if self.joiner_done {
             return false;
         }
-        self.joiner_blocked.as_ref().map_or(true, |b| b.is_stale())
+        self.joiner_blocked.as_ref().is_none_or(|b| b.is_stale())
     }
 
     fn poll_output(&mut self) -> Option<NF<C>> {

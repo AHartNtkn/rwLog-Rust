@@ -29,7 +29,10 @@ fn raw_term_strategy() -> impl Strategy<Value = RawTerm> {
 
     leaf.prop_recursive(3, 16, 4, |inner| {
         prop_oneof![
-            inner.clone().prop_map(|t| RawTerm::App { f: 3, kids: vec![t] }),
+            inner.clone().prop_map(|t| RawTerm::App {
+                f: 3,
+                kids: vec![t]
+            }),
             (inner.clone(), inner.clone()).prop_map(|(a, b)| RawTerm::App {
                 f: 4,
                 kids: vec![a, b],
@@ -74,12 +77,7 @@ fn swap_right_vars(
     apply_var_renaming(term, &map, terms)
 }
 
-fn swap_left_vars(
-    term: TermId,
-    swap_a: u32,
-    swap_b: u32,
-    terms: &mut TermStore,
-) -> TermId {
+fn swap_left_vars(term: TermId, swap_a: u32, swap_b: u32, terms: &mut TermStore) -> TermId {
     if swap_a == swap_b {
         return term;
     }

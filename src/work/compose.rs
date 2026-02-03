@@ -79,11 +79,7 @@ impl<C: ConstraintOps> ComposeWork<C> {
             && nf.drop_fresh.out_arity == 0
     }
 
-    fn compose_pair(
-        left_nf: &NF<C>,
-        right_nf: &NF<C>,
-        terms: &mut TermStore,
-    ) -> Option<NF<C>> {
+    fn compose_pair(left_nf: &NF<C>, right_nf: &NF<C>, terms: &mut TermStore) -> Option<NF<C>> {
         if Self::is_empty_identity(right_nf) {
             return Some(left_nf.clone());
         }
@@ -118,9 +114,7 @@ impl<C: ConstraintOps> ComposeWork<C> {
     }
 
     fn process_pair_queue(&mut self, terms: &mut TermStore) -> Option<NF<C>> {
-        let Some(mut cursor) = self.pair_queue.pop_front() else {
-            return None;
-        };
+        let mut cursor = self.pair_queue.pop_front()?;
 
         loop {
             match &mut cursor {

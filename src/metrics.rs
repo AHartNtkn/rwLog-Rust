@@ -282,7 +282,6 @@ impl MetricsReport {
             self.matches as f64 / total as f64
         }
     }
-
 }
 
 impl std::fmt::Display for MetricsReport {

@@ -67,12 +67,7 @@ fn build_term(raw: &RawTerm, symbols: &SymbolStore, terms: &TermStore) -> TermId
     }
 }
 
-fn build_nf(
-    lhs: &RawTerm,
-    rhs: &RawTerm,
-    symbols: &SymbolStore,
-    terms: &mut TermStore,
-) -> NF<()> {
+fn build_nf(lhs: &RawTerm, rhs: &RawTerm, symbols: &SymbolStore, terms: &mut TermStore) -> NF<()> {
     let lhs_id = build_term(lhs, symbols, terms);
     let rhs_id = build_term(rhs, symbols, terms);
     NF::factor(lhs_id, rhs_id, (), terms)

@@ -65,7 +65,10 @@ fn swap_unconstrained_emits_general_span() {
 #[test]
 fn repeated_variable_requires_equality() {
     let symbols = SymbolStore::new();
-    let expected = vec![(shape_app("pair", vec![shape_atom("a"), shape_atom("a")]), shape_atom("a"))];
+    let expected = vec![(
+        shape_app("pair", vec![shape_atom("a"), shape_atom("a")]),
+        shape_atom("a"),
+    )];
     let build = |terms: &mut TermStore, symbols: &SymbolStore| {
         let pair = sym(symbols, "pair");
         let a = t_atom(symbols, terms, "a");
@@ -168,10 +171,7 @@ fn dropped_lhs_var_is_existential_in_backward() {
 #[test]
 fn alpha_equivalent_rules_have_same_semantics() {
     let symbols = SymbolStore::new();
-    let expected = vec![(
-        shape_atom("a"),
-        shape_app("f", vec![shape_atom("a")]),
-    )];
+    let expected = vec![(shape_atom("a"), shape_app("f", vec![shape_atom("a")]))];
 
     let build_var0 = |terms: &mut TermStore, symbols: &SymbolStore| {
         let f = sym(symbols, "f");
@@ -293,8 +293,16 @@ fn or_union_deduplicates_alpha_equivalent_non_ground() {
         let v1 = t_var(terms, 1);
         let v2 = t_var(terms, 2);
         let v3 = t_var(terms, 3);
-        let rule_a = rel_rule(t_app2(terms, pair, v0, v1), t_app2(terms, pair, v1, v0), terms);
-        let rule_b = rel_rule(t_app2(terms, pair, v2, v3), t_app2(terms, pair, v3, v2), terms);
+        let rule_a = rel_rule(
+            t_app2(terms, pair, v0, v1),
+            t_app2(terms, pair, v1, v0),
+            terms,
+        );
+        let rule_b = rel_rule(
+            t_app2(terms, pair, v2, v3),
+            t_app2(terms, pair, v3, v2),
+            terms,
+        );
         rel_or(rule_a, rule_b)
     };
     assert_rel_pairs_with_dual(&symbols, &expected, &build);
@@ -371,10 +379,7 @@ fn recursive_double_computes_expected_value() {
         let post = rel_rule(v0, t_app1(terms, s, t_app1(terms, s, v0)), terms);
         let base = rel_rule(z, z, terms);
 
-        let body = rel_or(
-            base,
-            rel_seq(vec![peel, Rel::Call(0), post]),
-        );
+        let body = rel_or(base, rel_seq(vec![peel, Rel::Call(0), post]));
         let rel = Rel::Fix(0, Arc::new(body));
 
         let input = t_peano(symbols, terms, 2);

@@ -327,11 +327,7 @@ impl<C: ConstraintOps> Table<C> {
         self.producer.try_lock()
     }
 
-    pub(crate) fn set_producer_spec_for_test(
-        &self,
-        spec: ProducerSpec<C>,
-        state: ProducerState,
-    ) {
+    pub(crate) fn set_producer_spec_for_test(&self, spec: ProducerSpec<C>, state: ProducerState) {
         let mut guard = self.producer.lock();
         guard.spec = Some(spec);
         guard.state = state;

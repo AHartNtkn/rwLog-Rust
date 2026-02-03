@@ -186,16 +186,12 @@ fn wrap_compose_with_prefix_suffix<C: ConstraintOps>(
 
     if let Some(prefix_nf) = prefix {
         let prefix_node = Node::Emit(prefix_nf, Box::new(Node::Fail));
-        node = Node::Work(Box::new(Work::Compose(ComposeWork::new(
-            prefix_node, node,
-        ))));
+        node = Node::Work(Box::new(Work::Compose(ComposeWork::new(prefix_node, node))));
     }
 
     if let Some(suffix_nf) = suffix {
         let suffix_node = Node::Emit(suffix_nf, Box::new(Node::Fail));
-        node = Node::Work(Box::new(Work::Compose(ComposeWork::new(
-            node, suffix_node,
-        ))));
+        node = Node::Work(Box::new(Work::Compose(ComposeWork::new(node, suffix_node))));
     }
 
     match node {

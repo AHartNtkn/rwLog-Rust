@@ -401,12 +401,11 @@ impl<C: ConstraintOps> PipeWork<C> {
         }
 
         // Collapse And factors that are fully atomic into a single Atom via meet.
-        for idx in 0..factors.len() {
-            let rel = factors[idx].clone();
+        for rel in factors.iter_mut() {
             let Rel::And(_, _) = rel.as_ref() else {
                 continue;
             };
-            let parts = flatten_and_parts(rel);
+            let parts = flatten_and_parts(rel.clone());
             let mut acc: Option<NF<C>> = None;
             let mut all_atoms = true;
             for part in parts {
@@ -430,7 +429,7 @@ impl<C: ConstraintOps> PipeWork<C> {
 
             if all_atoms {
                 if let Some(nf) = acc {
-                    factors[idx] = Arc::new(Rel::Atom(Arc::new(nf)));
+                    *rel = Arc::new(Rel::Atom(Arc::new(nf)));
                     changed = true;
                 }
             }
@@ -556,18 +555,34 @@ impl<C: ConstraintOps> PipeWork<C> {
                 let (left_node, right_node, outer_prefix, outer_suffix) = match end {
                     PipeEnd::Front => {
                         pipe.left = None;
-                        pipe.right = if right_iso.is_some() { None } else { right_suffix.clone() };
+                        pipe.right = if right_iso.is_some() {
+                            None
+                        } else {
+                            right_suffix.clone()
+                        };
                         let left_node = Node::Work(Box::new(Work::AndGroup(group)));
                         let right_node = Node::Work(Box::new(Work::Pipe(pipe)));
-                        let outer_suffix = if right_iso.is_some() { right_suffix } else { None };
+                        let outer_suffix = if right_iso.is_some() {
+                            right_suffix
+                        } else {
+                            None
+                        };
                         (left_node, right_node, left_prefix, outer_suffix)
                     }
                     PipeEnd::Back => {
                         pipe.right = None;
-                        pipe.left = if left_iso.is_some() { None } else { left_prefix.clone() };
+                        pipe.left = if left_iso.is_some() {
+                            None
+                        } else {
+                            left_prefix.clone()
+                        };
                         let left_node = Node::Work(Box::new(Work::Pipe(pipe)));
                         let right_node = Node::Work(Box::new(Work::AndGroup(group)));
-                        let outer_prefix = if left_iso.is_some() { left_prefix } else { None };
+                        let outer_prefix = if left_iso.is_some() {
+                            left_prefix
+                        } else {
+                            None
+                        };
                         (left_node, right_node, outer_prefix, right_suffix)
                     }
                 };
@@ -614,18 +629,16 @@ impl<C: ConstraintOps> PipeWork<C> {
                 let compose = ComposeWork::new(left_node, right_node);
                 WorkStep::More(Box::new(Work::Compose(compose)))
             }
-            Rel::Call(id) => {
-                match end {
-                    PipeEnd::Front => {
-                        self.mid.pop_front();
-                        self.handle_call(*id, true)
-                    }
-                    PipeEnd::Back => {
-                        self.mid.pop_back();
-                        self.handle_call(*id, false)
-                    }
+            Rel::Call(id) => match end {
+                PipeEnd::Front => {
+                    self.mid.pop_front();
+                    self.handle_call(*id, true)
                 }
-            }
+                PipeEnd::Back => {
+                    self.mid.pop_back();
+                    self.handle_call(*id, false)
+                }
+            },
             // Atom/Zero/Seq should have been normalized in try_normalize_step
             _ => WorkStep::Done,
         }

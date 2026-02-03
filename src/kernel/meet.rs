@@ -170,9 +170,7 @@ theory neq_only {
     #[test]
     fn meet_propagates_rhs_constraints_into_lhs() {
         let mut parser = Parser::new();
-        let left = parser
-            .parse_rule("(f $x) -> k")
-            .expect("parse left rule");
+        let left = parser.parse_rule("(f $x) -> k").expect("parse left rule");
         let right = parser
             .parse_rule("(f (g $y)) -> $y")
             .expect("parse right rule");
@@ -799,5 +797,4 @@ theory neq_only {
         let result = meet_nf(&rule_a, &rule_b, &mut terms);
         assert!(result.is_none(), "Arity mismatch should fail");
     }
-
 }
