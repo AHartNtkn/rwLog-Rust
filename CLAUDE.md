@@ -47,18 +47,77 @@ But NEVER write code you know is wrong. Wrong code is worse than no code because
 
 **The only acceptable implementation is a CORRECT implementation.**
 
+## **PRINCIPLED FIXES ONLY - NO TARGETED BAND-AIDS**
+
+When fixing bugs, **always implement the most principled, ideal solution** - even if it requires tearing out entire subsystems and rebuilding them from scratch.
+
+**NEVER propose "targeted" or "minimal" fixes.** These are just band-aids that:
+- Paper over the real problem
+- Leave architectural rot in place
+- Create more bugs down the line
+- Make the codebase harder to understand
+
+**The correct approach:**
+1. Identify the ROOT CAUSE, not just the symptom
+2. Design the IDEAL solution - what would the code look like if it were written correctly from the start?
+3. Implement that ideal solution, even if it means:
+   - Deleting large amounts of code
+   - Changing core data structures
+   - Rewriting entire modules
+   - Breaking and fixing many call sites
+
+**I don't care if it's harder. I don't care if it takes longer. I want the RIGHT fix, not the EASY fix.**
+
+If you find yourself thinking "this targeted fix would be simpler" - STOP. That's the wrong instinct. Strip it out root and stem and rebuild it correctly.
+
+## **ABSOLUTELY FORBIDDEN: HEURISTICS**
+
+**HEURISTICS ARE BANNED.** A heuristic is a guess dressed up as logic. If you cannot prove that your solution is correct, you do not have a solution.
+
+**What is a heuristic?**
+A heuristic is when you use indirect evidence to approximate a conclusion that you cannot actually determine from your available information.
+
+**Example of BANNED heuristic thinking:**
+
+Problem: Detect when a fixpoint has been reached (no more progress is possible).
+
+BAD (heuristic): "Count how many times we've been called while blocked. If we've been called N times with no progress, it's PROBABLY fixpoint."
+
+This is garbage because:
+- There is no N that makes this certain
+- Being called N times doesn't prove other work was attempted
+- It's a guess based on "usually this is enough"
+- The number N is arbitrary magic
+
+GOOD (principled): "Detect fixpoint at the engine level where we have visibility into ALL work. When step_node returns Blocked for the root AND global_progress hasn't changed since we last saw all-blocked, we KNOW it's fixpoint."
+
+This is correct because:
+- The engine actually knows when all work is blocked
+- We have definitive information, not a guess
+- The conclusion follows logically from the premises
+
+**The test for whether something is a heuristic:**
+Ask yourself: "Does this conclusion follow DEFINITIVELY from my premises, or am I HOPING it's true based on indirect evidence?"
+
+If you're hoping, you're using a heuristic. Stop and find the place in the system where you CAN know definitively.
+
 ## CRITICAL: Always Use Timeouts When Running Tests
 
-**NEVER run tests without a timeout.** If tests don't ALL finish in less than 30 seconds, there's an infinite loop bug.
+**NEVER run tests without a timeout.** If tests don't ALL finish in less than 10 seconds, there's an infinite loop bug.
 
-**Always use:**
+**Always compile first, then run with timeout:**
 ```bash
-timeout 30 cargo test 2>&1
+# Step 1: Compile without timeout (compilation can take time)
+cargo test --no-run 2>&1
+
+# Step 2: Run tests with strict timeout (tests should be fast)
+timeout 10 cargo test 2>&1
 ```
 
 **Never use:**
 ```bash
 cargo test 2>&1  # WRONG - will hang forever on infinite loop
+timeout 10 cargo test 2>&1  # WRONG if not compiled first - compilation eats the timeout
 ```
 
 This applies to ALL test commands - full suite, filtered tests, individual tests. No exceptions.
@@ -142,6 +201,22 @@ Key operations:
 - `inter R S`: conjunction (R intersection S)
 - `comp R S`: sequential composition (R ; S)
 - `dual R`: converse relation (swap inputs and outputs)
+
+### Matching (No Unification)
+
+rwlog does not support unification. All cross-side comparisons are *matching* with **separate substitutions** on each side. Variable identities are local to each term; the same variable index on both sides has no shared meaning. Any matching algorithm must rename apart (or otherwise guarantee disjoint variable namespaces) before attempting to relate two sides.
+
+There must be no unification APIs, implementations, or metrics; any such naming or behavior is a correctness bug and should be replaced with matching. Matching must be invariant under renaming variables on only one side, and property tests should assert this.
+
+A matching is a pair of substitutions that make the two terms equal after their own substitution. A most-general matching is required: any other matching must factor through it via additional substitutions on each side. Unification-style behavior that treats shared variable names as equal across sides is a correctness bug.
+
+Definition (matching): a matching of terms s and t is a pair (θ1, θ2) such that s[θ1] = t[θ2].
+
+Definition (most general): a matching (θ1, θ2) is most general when any other matching (λ1, λ2) can be written as
+λ1 = θ1 ∘ μ1 and λ2 = θ2 ∘ μ2 for some μ1, μ2.
+
+Consequence: most-general matching is invariant to variable names being shared across the two terms; disjoint namespaces make this
+explicit, and variables that are not related remain identity under matching.
 
 ### Span Semantics
 
@@ -278,26 +353,26 @@ RwR [p1, p2, ...] ; RwR [q1, q2, ...] -> RwR [q1[p/vars], q2[p/vars], ...]
 
 **Heterogeneous Fusion:**
 
-`RwR ; RwL` - Unification at the interface:
+`RwR ; RwL` - Matching at the interface (variables are renamed apart; names are not shared):
 
 This fusion **ALWAYS** produces `RwL ; DropFresh ; RwR` (never just a DropFresh):
 ```
 RwR [p1, ...] ; RwL [q1, ...] ->
-  if unify(pi, qi) succeeds with sigma:
+  if match(pi, qi) succeeds with sigma:
     RwL [varsOf(p)[sigma], ...] ; DropFresh w ; RwR [varsOf(q)[sigma], ...]
   else:
     Fail
 ```
 
-**CRITICAL:** The result RwL/RwR contain the **variable lists** with unifier applied, NOT the original patterns.
+**CRITICAL:** The result RwL/RwR contain the **variable lists** with the matching substitution applied, NOT the original patterns.
 
 **Example:** `RwR [B(0,1)] ; RwL [B(A(2),3)]`
-1. Unify B(0,1) with B(A(2),3): sigma = {0 -> A(2), 1 -> 3}
+1. Match B(0,1) with B(A(2),3) under disjoint namespaces: sigma = {0 -> A(2), 1 -> 3}
 2. RwR has vars [0, 1] -> apply sigma -> [A(2), 3]
 3. RwL has vars [2, 3] -> apply sigma -> [2, 3] (unchanged)
 4. Result: `RwL [A(2), 3] ; DropFresh(identity 2->2) ; RwR [2, 3]`
 
-**Common mistake to avoid:** The fact that patterns become identical after unification says nothing about whether the operation is identity. The actual transformation is determined by the *variable structure*, not pattern equality.
+**Common mistake to avoid:** The fact that patterns become identical after matching says nothing about whether the operation is identity. The actual transformation is determined by the *variable structure*, not pattern equality.
 
 ### meet_nf: Conjunction/Intersection
 
@@ -306,7 +381,7 @@ Fuses `And(NF1, NF2)` into a single NF.
 Implementation:
 1. Convert each NF to "direct rule" form (lhs_terms, rhs_terms, constraint)
 2. Rename-apart vars of the second side
-3. Unify lhs lists, unify rhs lists; combine constraints; normalize
+3. Match lhs lists, match rhs lists; combine constraints; normalize
 4. Factor back into NF
 
 This eliminates looping behavior because `meet_nf` is a single terminating function, not a rewriting schema.
@@ -432,7 +507,7 @@ When tracing is enabled, the following are instrumented:
 - `step()` - Main eval dispatch (task_id, goal_id, kont_depth)
 - `backtrack()` - Search backtracking (initial_depth, kont types popped)
 - `resume_after_yield()` - Answer flow through continuations
-- `compose_nf()` - Rule composition (arities, unification result)
+- `compose_nf()` - Rule composition (arities, matching result)
 
 **Priority 2 (TRACE level):**
 - `handle_rule/alt/seq/both/call()` - Individual goal handlers
@@ -489,20 +564,20 @@ mod tests {
 
     // Happy path tests
     #[test]
-    fn unify_identical_terms_succeeds() { ... }
+    fn match_identical_terms_succeeds() { ... }
 
     #[test]
-    fn unify_compatible_terms_produces_correct_substitution() { ... }
+    fn match_compatible_terms_produces_correct_substitution() { ... }
 
     // Unhappy path tests - specific expected failures
     #[test]
-    fn unify_incompatible_constructors_fails() { ... }
+    fn match_incompatible_constructors_fails() { ... }
 
     #[test]
-    fn unify_occurs_check_prevents_infinite_term() { ... }
+    fn match_occurs_check_prevents_infinite_term() { ... }
 
     #[test]
-    fn unify_arity_mismatch_fails() { ... }
+    fn match_arity_mismatch_fails() { ... }
 }
 ```
 
@@ -581,3 +656,83 @@ fn resume_after_yield_with_seq_below_alt_must_continue() {
 ```
 
 The good test will fail with a message that explains the bug. The bad test just says "expected X got Y" with no insight into the cause.
+
+## Bug Hunting: Systematic Diagnosis
+
+### Keep a Debug Log
+
+**When hunting bugs, maintain a detailed log file** (e.g., `DEBUG_LOG.md` in the project root). This log serves multiple purposes:
+- Records everything tried and what was observed
+- Prevents repeating failed approaches after context compaction
+- Captures insights that might otherwise be lost
+- Provides continuity across conversation resets
+
+**Log structure:**
+```markdown
+# Bug: [Brief description]
+
+## Current Understanding
+[What we know so far about the bug's behavior]
+
+## Hypotheses
+1. [Hypothesis A] - Status: [untested/disproven/plausible]
+2. [Hypothesis B] - Status: [untested/disproven/plausible]
+
+## Investigation Log
+
+### [Timestamp/Step N]
+**Tried:** [What was attempted]
+**Observed:** [Exact output/behavior]
+**Conclusion:** [What this tells us]
+
+### [Timestamp/Step N+1]
+...
+
+## Next Steps
+- [ ] [Specific investigation to try next]
+- [ ] [Another avenue to explore]
+
+## Disproven Theories
+- [Theory X]: Disproven because [evidence]
+```
+
+### After Context Compaction
+
+**CRITICAL: After any conversation summary/compaction, IMMEDIATELY read the debug log** to restore context about:
+- What has already been tried
+- What hypotheses have been disproven
+- What the current working theory is
+- What the next planned investigation step was
+
+### Hypothesis-Driven Debugging
+
+1. **Form explicit hypotheses** - Don't just poke around. State what you think might be wrong.
+2. **Design falsification tests** - For each hypothesis, ask "What observation would DISPROVE this?"
+3. **Run broad exploratory tests** - Multiple debug outputs are better than single targeted ones. A full picture sparks insights.
+4. **Update hypotheses based on evidence** - Remove disproven ones, refine plausible ones, add new ones.
+5. **Require mechanical explanation** - Don't stop until you can trace step-by-step exactly what happens and where it goes wrong.
+
+### Avoid Heuristic "Fixes"
+
+When debugging, it's tempting to add heuristics like:
+- "Count iterations and give up after N"
+- "Detect this specific pattern and handle it specially"
+- "Add a timeout or limit"
+
+**These are NOT fixes. They are masks.** A heuristic that prevents a symptom does not address the root cause. If you find yourself adding such code, STOP and continue debugging. The correct fix will be obvious once you understand the actual problem.
+
+### Signs You Haven't Found the Root Cause
+
+- You're adding code that "detects" a problematic state rather than preventing it
+- Your fix involves arbitrary constants (magic numbers)
+- You can't explain WHY the fix works, just that it does
+- The fix is "defensive" rather than "corrective"
+- You're handling symptoms downstream rather than causes upstream
+
+### Minimal Reproduction
+
+Once you believe you understand the bug:
+1. Create the smallest possible test case that exhibits the bug
+2. Trace through it step-by-step with debug output
+3. Write out the trace showing exactly where behavior diverges from expectation
+4. If your trace has gaps or uncertainties, you haven't fully understood the bug yet
