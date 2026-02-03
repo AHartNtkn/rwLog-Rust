@@ -8,6 +8,10 @@ pub(crate) fn setup() -> (SymbolStore, TermStore) {
     (SymbolStore::new(), TermStore::new())
 }
 
+pub(crate) fn make_identity_nf() -> NF<()> {
+    NF::identity(())
+}
+
 pub(crate) fn make_ground_nf(name: &str, symbols: &SymbolStore, terms: &TermStore) -> NF<()> {
     let sym = symbols.intern(name);
     let term = terms.app0(sym);

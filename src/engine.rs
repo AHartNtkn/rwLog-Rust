@@ -103,23 +103,16 @@ impl<C: ConstraintOps> Engine<C> {
         self.terms
     }
 
-    /// Create an iterator over all answers.
-    ///
-    /// The iterator yields NF answers until the engine is exhausted.
-    pub fn iter(&mut self) -> QueryIter<'_, C> {
-        QueryIter { engine: self }
-    }
-
     /// Collect all answers into a vector.
     ///
     /// This consumes all answers from the query.
     pub fn collect_answers(&mut self) -> Vec<NF<C>> {
-        self.iter().collect()
+        self.by_ref().collect()
     }
 
     /// Count the number of answers (consumes them).
     pub fn count_answers(&mut self) -> usize {
-        self.iter().count()
+        self.by_ref().count()
     }
 }
 
@@ -138,21 +131,6 @@ impl<C: ConstraintOps> Iterator for Engine<C> {
                 StepResult::Continue => continue,
             }
         }
-    }
-}
-
-/// Iterator over query answers.
-///
-/// Yields NF answers from the engine until exhausted.
-pub struct QueryIter<'a, C: ConstraintOps> {
-    engine: &'a mut Engine<C>,
-}
-
-impl<'a, C: ConstraintOps> Iterator for QueryIter<'a, C> {
-    type Item = NF<C>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.engine.next()
     }
 }
 
@@ -175,50 +153,29 @@ mod tests {
     use crate::drop_fresh::DropFresh;
     use crate::kernel::dual_nf;
     use crate::nf::{direct_rule_terms, NF};
-    use crate::parser::ChrConstraintBuilder;
+    use crate::parser::{ChrConstraintBuilder, ConstraintBuilder};
     use crate::parser::Parser;
     use crate::rel::dual;
     use crate::rel::Rel;
     use crate::repl::split_statements;
     use crate::symbol::SymbolStore;
-    use crate::test_utils::{make_ground_nf, make_rule_nf, setup};
+    use crate::test_utils::{make_ground_nf, make_identity_nf, make_rule_nf, setup};
     use crate::work::Env;
     use smallvec::SmallVec;
     use std::collections::HashSet;
     use std::sync::Arc;
 
-    /// Create an empty NF (identity)
-    fn make_identity_nf() -> NF<()> {
-        NF::identity(())
-    }
-
-    fn parse_rel_def_with_env(parser: &mut Parser, def: &str) -> (Rel<()>, Env<()>) {
-        let statements = split_statements(def).expect("split rel def");
-        let mut rel_def = None;
-        for statement in statements {
-            let line = statement.trim();
-            if line.starts_with("rel ") {
-                rel_def = Some(parser.parse_rel_def(line).expect("parse rel def").1);
-            }
-        }
-        let rel_def = rel_def.expect("expected relation definition");
-        let env = match &rel_def {
-            Rel::Fix(id, body) => Env::new().bind(*id, body.clone()),
-            _ => Env::new(),
-        };
-        (rel_def, env)
-    }
-
-    fn parse_rel_def_with_env_chr(
-        parser: &mut Parser<ChrConstraintBuilder>,
+    fn parse_rel_def_with_env_common<B: ConstraintBuilder>(
+        parser: &mut Parser<B>,
         def: &str,
-    ) -> (Rel<ChrState<NoTheory>>, Env<ChrState<NoTheory>>) {
+        mut handle_theory: impl FnMut(&mut Parser<B>, &str),
+    ) -> (Rel<B::Constraint>, Env<B::Constraint>) {
         let statements = split_statements(def).expect("split rel def");
         let mut rel_def = None;
         for statement in statements {
             let line = statement.trim();
             if line.starts_with("theory ") {
-                parser.parse_theory_def(line).expect("parse theory");
+                handle_theory(parser, line);
                 continue;
             }
             if line.starts_with("rel ") {
@@ -231,6 +188,19 @@ mod tests {
             _ => Env::new(),
         };
         (rel_def, env)
+    }
+
+    fn parse_rel_def_with_env(parser: &mut Parser, def: &str) -> (Rel<()>, Env<()>) {
+        parse_rel_def_with_env_common(parser, def, |_parser, _line| {})
+    }
+
+    fn parse_rel_def_with_env_chr(
+        parser: &mut Parser<ChrConstraintBuilder>,
+        def: &str,
+    ) -> (Rel<ChrState<NoTheory>>, Env<ChrState<NoTheory>>) {
+        parse_rel_def_with_env_common(parser, def, |parser, line| {
+            parser.parse_theory_def(line).expect("parse theory");
+        })
     }
 
     const PROGRAM_SYNTH_DEF: &str = r#"
@@ -328,9 +298,7 @@ rel app {
             match engine.step() {
                 StepResult::Emit(nf) => return Some(nf),
                 StepResult::Exhausted => return None,
-                StepResult::Continue => {
-                    std::thread::yield_now();
-                }
+                StepResult::Continue => {}
             }
         }
         None
@@ -344,9 +312,7 @@ rel app {
             match engine.step() {
                 StepResult::Emit(_) => return Err("unexpected extra answer"),
                 StepResult::Exhausted => return Ok(()),
-                StepResult::Continue => {
-                    std::thread::yield_now();
-                }
+                StepResult::Continue => {}
             }
         }
         Err("did not exhaust within step limit")
@@ -851,7 +817,7 @@ rel killer {
             terms,
         );
 
-        let answers: Vec<_> = engine.iter().collect();
+        let answers: Vec<_> = engine.by_ref().collect();
         assert_eq!(answers.len(), 2, "iter() should yield all 2 answers");
     }
 
@@ -860,7 +826,7 @@ rel killer {
         let (_, terms) = setup();
         let mut engine: Engine<()> = Engine::new(Rel::Zero, terms);
 
-        let answers: Vec<_> = engine.iter().collect();
+        let answers: Vec<_> = engine.by_ref().collect();
         assert!(answers.is_empty(), "iter() on Zero should be empty");
     }
 
@@ -870,7 +836,7 @@ rel killer {
         let nf = make_identity_nf();
         let mut engine: Engine<()> = Engine::new(Rel::Atom(Arc::new(nf)), terms);
 
-        let answers: Vec<_> = engine.iter().collect();
+        let answers: Vec<_> = engine.by_ref().collect();
         assert_eq!(answers.len(), 1, "iter() on Atom should yield 1");
     }
 
@@ -893,14 +859,14 @@ rel killer {
         );
 
         // Take only first answer via iter
-        let first = engine.iter().next();
+        let first = engine.by_ref().next();
         assert!(first.is_some(), "Should get first answer");
 
         // Engine should still have more answers
         assert!(!engine.is_exhausted());
 
         // Can get remaining via another iter
-        let rest: Vec<_> = engine.iter().collect();
+        let rest: Vec<_> = engine.by_ref().collect();
         assert_eq!(rest.len(), 2, "Should have 2 remaining answers");
     }
 

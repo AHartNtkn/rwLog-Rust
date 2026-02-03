@@ -78,13 +78,8 @@ mod tests {
     use crate::nf::NF;
     use crate::symbol::SymbolStore;
     use crate::term::TermStore;
-    use crate::test_utils::setup;
+    use crate::test_utils::{make_identity_nf, setup};
     use smallvec::SmallVec;
-
-    /// Create a simple identity NF for testing
-    fn make_identity_nf() -> NF<()> {
-        NF::identity(())
-    }
 
     /// Create an NF with patterns for testing
     fn make_test_nf(symbols: &SymbolStore, terms: &TermStore) -> NF<()> {

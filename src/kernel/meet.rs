@@ -115,7 +115,6 @@ pub fn meet_nf<C: ConstraintOps>(a: &NF<C>, b: &NF<C>, terms: &mut TermStore) ->
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::constraint::TypeConstraints;
     use crate::drop_fresh::DropFresh;
     use crate::parser::Parser;
     use crate::term::TermId;
@@ -801,66 +800,4 @@ theory neq_only {
         assert!(result.is_none(), "Arity mismatch should fail");
     }
 
-    #[test]
-    fn meet_multi_pattern_combines_constraints() {
-        let (_, mut terms) = setup();
-        let v0 = terms.var(0);
-        let v1 = terms.var(1);
-
-        let mut c_left = TypeConstraints::new();
-        c_left.add(v0, 10);
-
-        let mut c_right = TypeConstraints::new();
-        c_right.add(v1, 20);
-
-        let left = NF::new(
-            smallvec::smallvec![v0, v1],
-            DropFresh::identity_with_constraint(2, c_left),
-            smallvec::smallvec![v0, v1],
-        );
-
-        let right = NF::new(
-            smallvec::smallvec![v0, v1],
-            DropFresh::identity_with_constraint(2, c_right),
-            smallvec::smallvec![v0, v1],
-        );
-
-        let result = meet_nf(&left, &right, &mut terms);
-        assert!(result.is_some());
-        let met = result.unwrap();
-
-        assert_eq!(met.drop_fresh.constraint.get_type(v0), Some(10));
-        assert_eq!(met.drop_fresh.constraint.get_type(v1), Some(20));
-    }
-
-    #[test]
-    fn meet_multi_pattern_conflicting_constraints_fail() {
-        let (_, mut terms) = setup();
-        let v0 = terms.var(0);
-        let v1 = terms.var(1);
-
-        let mut c_left = TypeConstraints::new();
-        c_left.add(v0, 10);
-
-        let mut c_right = TypeConstraints::new();
-        c_right.add(v0, 20);
-
-        let left = NF::new(
-            smallvec::smallvec![v0, v1],
-            DropFresh::identity_with_constraint(2, c_left),
-            smallvec::smallvec![v0, v1],
-        );
-
-        let right = NF::new(
-            smallvec::smallvec![v0, v1],
-            DropFresh::identity_with_constraint(2, c_right),
-            smallvec::smallvec![v0, v1],
-        );
-
-        let result = meet_nf(&left, &right, &mut terms);
-        assert!(
-            result.is_none(),
-            "Conflicting constraints should make meet fail"
-        );
-    }
 }

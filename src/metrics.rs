@@ -283,15 +283,6 @@ impl MetricsReport {
         }
     }
 
-    /// Calculate average continuation depth (rough estimate).
-    pub fn avg_kont_depth(&self) -> f64 {
-        if self.kont_pushes == 0 {
-            0.0
-        } else {
-            // This is a rough estimate - actual average would need per-step tracking
-            self.max_kont_depth as f64 / 2.0
-        }
-    }
 }
 
 impl std::fmt::Display for MetricsReport {

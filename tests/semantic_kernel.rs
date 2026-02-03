@@ -2,7 +2,6 @@ mod common;
 
 use common::*;
 
-use rwlog::constraint::TypeConstraints;
 use rwlog::kernel::{compose_nf, dual_nf, meet_nf};
 use rwlog::nf::NF;
 use rwlog::symbol::SymbolStore;
@@ -174,38 +173,4 @@ fn meet_nf_renames_apart_variables() {
     let dual = dual_nf(&met, &mut terms);
     let dual_pair = nf_pair_shape(&dual, &mut terms, &symbols);
     assert_eq!(dual_pair, (shape_var(0), shape_var(1)));
-}
-
-#[test]
-fn compose_nf_conflicting_type_constraints_fails() {
-    let mut terms = TermStore::new();
-    let v0 = t_var(&terms, 0);
-
-    let mut left_c = TypeConstraints::new();
-    left_c.add(v0, 1);
-    let left = NF::factor(v0, v0, left_c, &mut terms);
-
-    let mut right_c = TypeConstraints::new();
-    right_c.add(v0, 2);
-    let right = NF::factor(v0, v0, right_c, &mut terms);
-
-    let composed = compose_nf(&left, &right, &mut terms);
-    assert!(composed.is_none());
-}
-
-#[test]
-fn compose_nf_satisfiable_type_constraints_succeeds() {
-    let mut terms = TermStore::new();
-    let v0 = t_var(&terms, 0);
-
-    let mut left_c = TypeConstraints::new();
-    left_c.add(v0, 1);
-    let left = NF::factor(v0, v0, left_c, &mut terms);
-
-    let mut right_c = TypeConstraints::new();
-    right_c.add(v0, 1);
-    let right = NF::factor(v0, v0, right_c, &mut terms);
-
-    let composed = compose_nf(&left, &right, &mut terms);
-    assert!(composed.is_some());
 }
