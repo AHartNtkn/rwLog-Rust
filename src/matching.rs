@@ -1,5 +1,6 @@
 use crate::subst::{apply_subst, Subst};
-use crate::term::{Term, TermId, TermStore};
+use crate::symbol::FuncId;
+use crate::term::{Term, TermId, TermReadGuard, TermStore};
 use smallvec::SmallVec;
 
 #[cfg(feature = "tracing")]
@@ -17,67 +18,83 @@ pub(crate) fn match_terms_combined(t1: TermId, t2: TermId, terms: &TermStore) ->
     #[cfg(feature = "tracing")]
     let _span = debug_span!("match_terms", ?t1, ?t2).entered();
 
+    // Hold a single read lock for the entire matching operation.
+    let guard = terms.read_lock();
+
     let mut subst = Subst::new();
     let mut worklist: SmallVec<[(TermId, TermId); 32]> = SmallVec::new();
     worklist.push((t1, t2));
 
     while let Some((a, b)) = worklist.pop() {
         // Dereference variables through the substitution
-        let a_deref = deref(a, &subst, terms);
-        let b_deref = deref(b, &subst, terms);
+        let a_deref = deref_locked(a, &subst, &guard);
+        let b_deref = deref_locked(b, &subst, &guard);
 
         if a_deref == b_deref {
-            // Same term - already matched
             continue;
         }
 
-        match (terms.resolve(a_deref), terms.resolve(b_deref)) {
-            (Some(Term::Var(idx_a)), Some(Term::Var(idx_b))) => {
-                // Both variables - bind one to the other
-                // Prefer binding higher-indexed to lower-indexed for consistency
+        // Classify both terms without cloning children
+        enum TermKind {
+            Var(u32),
+            App(FuncId),
+            Invalid,
+        }
+        let a_kind = match guard.get(a_deref) {
+            Some(Term::Var(idx)) => TermKind::Var(*idx),
+            Some(Term::App(f, _)) => TermKind::App(*f),
+            None => TermKind::Invalid,
+        };
+        let b_kind = match guard.get(b_deref) {
+            Some(Term::Var(idx)) => TermKind::Var(*idx),
+            Some(Term::App(f, _)) => TermKind::App(*f),
+            None => TermKind::Invalid,
+        };
+
+        match (a_kind, b_kind) {
+            (TermKind::Var(idx_a), TermKind::Var(idx_b)) => {
                 if idx_a < idx_b {
                     subst.bind(idx_b, a_deref);
                 } else {
                     subst.bind(idx_a, b_deref);
                 }
             }
-            (Some(Term::Var(idx)), Some(Term::App(_, _))) => {
-                // Variable vs App - occurs check then bind
-                if occurs(idx, b_deref, &subst, terms) {
+            (TermKind::Var(idx), TermKind::App(_)) => {
+                if occurs_locked(idx, b_deref, &subst, &guard) {
                     #[cfg(feature = "tracing")]
                     trace!(var = idx, "match_occurs_check_failed");
-                    return None; // Occurs check failed
+                    return None;
                 }
                 subst.bind(idx, b_deref);
             }
-            (Some(Term::App(_, _)), Some(Term::Var(idx))) => {
-                // App vs Variable - occurs check then bind
-                if occurs(idx, a_deref, &subst, terms) {
+            (TermKind::App(_), TermKind::Var(idx)) => {
+                if occurs_locked(idx, a_deref, &subst, &guard) {
                     #[cfg(feature = "tracing")]
                     trace!(var = idx, "match_occurs_check_failed");
-                    return None; // Occurs check failed
+                    return None;
                 }
                 subst.bind(idx, a_deref);
             }
-            (Some(Term::App(f1, children1)), Some(Term::App(f2, children2))) => {
-                // Both Apps - must have same functor and arity
+            (TermKind::App(f1), TermKind::App(f2)) => {
                 if f1 != f2 {
                     #[cfg(feature = "tracing")]
                     trace!("match_functor_mismatch");
-                    return None; // Different functors
+                    return None;
                 }
-                if children1.len() != children2.len() {
-                    #[cfg(feature = "tracing")]
-                    trace!("match_arity_mismatch");
-                    return None; // Different arities
-                }
-                // Add children pairs to worklist
-                for (c1, c2) in children1.iter().zip(children2.iter()) {
-                    worklist.push((*c1, *c2));
+                if let (Some(Term::App(_, ac)), Some(Term::App(_, bc))) =
+                    (guard.get(a_deref), guard.get(b_deref))
+                {
+                    if ac.len() != bc.len() {
+                        #[cfg(feature = "tracing")]
+                        trace!("match_arity_mismatch");
+                        return None;
+                    }
+                    for (c1, c2) in ac.iter().zip(bc.iter()) {
+                        worklist.push((*c1, *c2));
+                    }
                 }
             }
             _ => {
-                // One or both terms are invalid
                 #[cfg(feature = "tracing")]
                 trace!("match_invalid_term");
                 return None;
@@ -127,35 +144,31 @@ pub fn match_terms_disjoint(
     Some(split_match_subst(&combined, right_offset, terms))
 }
 
-/// Dereference a term through the substitution.
-/// If the term is a variable bound in the substitution, follow the chain.
-fn deref(term: TermId, subst: &Subst, terms: &TermStore) -> TermId {
+/// Dereference a term through the substitution using a pre-acquired read lock.
+#[inline]
+fn deref_locked(term: TermId, subst: &Subst, guard: &TermReadGuard<'_>) -> TermId {
     let mut current = term;
     loop {
-        match terms.resolve(current) {
-            Some(Term::Var(idx)) => {
-                if let Some(bound) = subst.get(idx) {
-                    current = bound;
-                } else {
-                    return current;
-                }
-            }
+        match guard.get(current) {
+            Some(Term::Var(idx)) => match subst.get(*idx) {
+                Some(bound) => current = bound,
+                None => return current,
+            },
             _ => return current,
         }
     }
 }
 
-/// Occurs check: does variable `var` occur in term `term`?
-/// Used to prevent creating infinite (cyclic) terms.
-fn occurs(var: u32, term: TermId, subst: &Subst, terms: &TermStore) -> bool {
+/// Occurs check using a pre-acquired read lock.
+fn occurs_locked(var: u32, term: TermId, subst: &Subst, guard: &TermReadGuard<'_>) -> bool {
     let mut stack: SmallVec<[TermId; 16]> = SmallVec::new();
     stack.push(term);
 
     while let Some(t) = stack.pop() {
-        let t_deref = deref(t, subst, terms);
-        match terms.resolve(t_deref) {
+        let t_deref = deref_locked(t, subst, guard);
+        match guard.get(t_deref) {
             Some(Term::Var(idx)) => {
-                if idx == var {
+                if *idx == var {
                     return true;
                 }
             }

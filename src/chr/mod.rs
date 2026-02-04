@@ -135,6 +135,7 @@ pub fn match_pat_bind(
     term: TermId,
     env: &mut RVarEnv,
 ) -> bool {
+    let guard = terms.read_lock();
     let mut stack: SmallVec<[(PatId, TermId); 32]> = SmallVec::new();
     stack.push((pat, term));
     while let Some((p, t)) = stack.pop() {
@@ -144,9 +145,9 @@ pub fn match_pat_bind(
                     return false;
                 }
             }
-            PatNode::App { f, kids } => match terms.resolve(t) {
+            PatNode::App { f, kids } => match guard.get(t) {
                 Some(Term::App(tf, tks)) => {
-                    if *f != tf || kids.len() != tks.len() {
+                    if *f != *tf || kids.len() != tks.len() {
                         return false;
                     }
                     for (cp, ct) in kids.iter().zip(tks.iter()) {
@@ -167,6 +168,7 @@ pub fn match_pat_nobind(
     term: TermId,
     env: &RVarEnv,
 ) -> bool {
+    let guard = terms.read_lock();
     let mut stack: SmallVec<[(PatId, TermId); 32]> = SmallVec::new();
     stack.push((pat, term));
     while let Some((p, t)) = stack.pop() {
@@ -175,9 +177,9 @@ pub fn match_pat_nobind(
                 Some(tv) if tv == t => {}
                 _ => return false,
             },
-            PatNode::App { f, kids } => match terms.resolve(t) {
+            PatNode::App { f, kids } => match guard.get(t) {
                 Some(Term::App(tf, tks)) => {
-                    if *f != tf || kids.len() != tks.len() {
+                    if *f != *tf || kids.len() != tks.len() {
                         return false;
                     }
                     for (cp, ct) in kids.iter().zip(tks.iter()) {
@@ -366,10 +368,10 @@ impl GuardProg {
                         Some(x) => x,
                         None => return false,
                     };
-                    match terms.resolve(tt) {
-                        Some(Term::App(tf, kids)) => tf == *f && kids.len() == (*arity as usize),
+                    terms.with_term(tt, |resolved| match resolved {
+                        Some(Term::App(tf, kids)) => *tf == *f && kids.len() == (*arity as usize),
                         _ => false,
-                    }
+                    })
                 }
                 GuardInstr::MatchPat { pat, t } => {
                     let tt = match eval_gval(env, *t) {
@@ -623,9 +625,11 @@ impl PredStore {
                 (IndexSpec::ArgTopFunctor(pos), IndexData::ArgTopFunctor(map)) => {
                     let p = *pos as usize;
                     if p < inst.args.len() {
-                        if let Some(Term::App(f, _)) = terms.resolve(inst.args[p]) {
-                            map.entry(f).or_default().push(cid);
-                        }
+                        terms.with_term(inst.args[p], |resolved| {
+                            if let Some(Term::App(f, _)) = resolved {
+                                map.entry(*f).or_default().push(cid);
+                            }
+                        });
                     }
                 }
                 (IndexSpec::ArgPairTerm(a, b), IndexData::ArgPairTerm(map)) => {

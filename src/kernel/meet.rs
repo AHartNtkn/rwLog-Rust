@@ -108,7 +108,6 @@ pub fn meet_nf<C: ConstraintOps>(a: &NF<C>, b: &NF<C>, terms: &mut TermStore) ->
 
     #[cfg(feature = "tracing")]
     trace!("meet_success");
-
     Some(factor_tensor(final_lhs, final_rhs, normalized, terms))
 }
 

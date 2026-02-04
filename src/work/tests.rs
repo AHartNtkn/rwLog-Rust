@@ -140,6 +140,31 @@ fn unwrap_work_pipe(node: Node<()>) -> PipeWork<()> {
     }
 }
 
+fn find_and_group_in_work(work: &Work<()>) -> Option<AndGroup<()>> {
+    match work {
+        Work::AndGroup(group) => Some(group.clone()),
+        Work::Compose(compose) => find_and_group_in_node(compose.left())
+            .or_else(|| find_and_group_in_node(compose.right())),
+        Work::Pipe(_)
+        | Work::Meet(_)
+        | Work::Fix(_)
+        | Work::JoinReceiver(_)
+        | Work::Atom(_)
+        | Work::Done => None,
+    }
+}
+
+fn find_and_group_in_node(node: &Node<()>) -> Option<AndGroup<()>> {
+    match node {
+        Node::Work(work) => find_and_group_in_work(work),
+        Node::Or(left, right) => {
+            find_and_group_in_node(left).or_else(|| find_and_group_in_node(right))
+        }
+        Node::Emit(_, rest) => find_and_group_in_node(rest),
+        Node::Fail => None,
+    }
+}
+
 fn unwrap_work_compose(step: WorkStep<()>) -> ComposeWork<()> {
     match step {
         WorkStep::More(work) => match *work {
@@ -789,6 +814,60 @@ fn pipework_prefers_non_call_over_call_on_opposite_end() {
         key.left.is_some(),
         "Call should see a left boundary after collapsing And of atoms"
     );
+}
+
+#[test]
+fn pipework_and_group_wraps_parts_with_iso_boundaries() {
+    let (symbols, mut terms) = setup();
+    let left_nf = make_ground_nf("L", &symbols, &terms);
+    let right_nf = make_ground_nf("R", &symbols, &terms);
+    let nf_a = make_ground_nf("A", &symbols, &terms);
+    let nf_b = make_ground_nf("B", &symbols, &terms);
+    let nf_c = make_ground_nf("C", &symbols, &terms);
+
+    let part_a: Arc<Rel<()>> = Arc::new(Rel::Atom(Arc::new(nf_a)));
+    let part_b: Arc<Rel<()>> = Arc::new(Rel::Atom(Arc::new(nf_b)));
+    let part_c: Arc<Rel<()>> = Arc::new(Rel::Atom(Arc::new(nf_c)));
+    let part_or: Arc<Rel<()>> = Arc::new(Rel::Or(part_b, part_c));
+    let and_rel: Arc<Rel<()>> = Arc::new(Rel::And(part_a, part_or));
+    let mid = factors_from_rels(vec![and_rel]);
+
+    let mut pipe: PipeWork<()> =
+        PipeWork::with_boundaries(Some(left_nf.clone()), mid, Some(right_nf.clone()));
+    pipe.flip = false;
+
+    let step = pipe.advance_front(&mut terms);
+    let work = match step {
+        WorkStep::More(work) => work,
+        other => panic!("Expected WorkStep::More, got {:?}", other),
+    };
+    let group = find_and_group_in_work(&work).expect("Expected AndGroup in work tree");
+
+    let expected_left_iso = super::nf_rwr_iso(&left_nf, &mut terms);
+    let expected_right_iso = super::nf_rwl_iso(&right_nf, &mut terms);
+
+    for node in group.producer_nodes() {
+        let pipe = unwrap_work_pipe(node.clone());
+        let factors = pipe.mid.to_vec();
+        let left = factors.first().and_then(|rel| match rel.as_ref() {
+            Rel::Atom(nf) => Some(nf.as_ref()),
+            _ => None,
+        });
+        let right = factors.last().and_then(|rel| match rel.as_ref() {
+            Rel::Atom(nf) => Some(nf.as_ref()),
+            _ => None,
+        });
+        assert_eq!(
+            left,
+            Some(&expected_left_iso),
+            "And part should be prefixed with left iso boundary"
+        );
+        assert_eq!(
+            right,
+            Some(&expected_right_iso),
+            "And part should be suffixed with right iso boundary"
+        );
+    }
 }
 
 /// split_or must preserve both boundaries in both branches.

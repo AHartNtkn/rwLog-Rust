@@ -17,17 +17,57 @@ pub fn max_var_index_terms(pats: &[TermId], terms: &TermStore) -> Option<u32> {
 
 /// Shift all variables in a term by a given offset.
 pub fn shift_vars(term: TermId, offset: u32, terms: &mut TermStore) -> TermId {
-    match terms.resolve(term) {
-        Some(Term::Var(idx)) => terms.var(idx + offset),
-        Some(Term::App(func, children)) => {
-            let new_children: SmallVec<[TermId; 4]> = children
-                .iter()
-                .map(|&c| shift_vars(c, offset, terms))
-                .collect();
-            terms.app(func, new_children)
+    // Use explicit stack to avoid recursion and cloning.
+    let mut work_stack: SmallVec<[(TermId, bool); 16]> = SmallVec::new();
+    let mut result_stack: SmallVec<[TermId; 16]> = SmallVec::new();
+    let mut children_counts: SmallVec<[usize; 8]> = SmallVec::new();
+
+    work_stack.push((term, false));
+
+    while let Some((tid, children_done)) = work_stack.pop() {
+        if children_done {
+            let (func, n) = terms.with_term(tid, |t| match t {
+                Some(Term::App(f, children)) => (*f, children.len()),
+                _ => unreachable!(),
+            });
+            let count = children_counts.pop().unwrap();
+            debug_assert_eq!(n, count);
+            let new_children: SmallVec<[TermId; 4]> =
+                result_stack.drain(result_stack.len() - n..).collect();
+            result_stack.push(terms.app(func, new_children));
+        } else {
+            enum Action {
+                Var(u32),
+                App(SmallVec<[TermId; 4]>),
+                Keep,
+            }
+            let action = terms.with_term(tid, |t| match t {
+                Some(Term::Var(idx)) => Action::Var(*idx),
+                Some(Term::App(_, children)) => {
+                    if children.is_empty() {
+                        Action::Keep
+                    } else {
+                        Action::App(children.clone())
+                    }
+                }
+                None => Action::Keep,
+            });
+            match action {
+                Action::Var(idx) => result_stack.push(terms.var(idx + offset)),
+                Action::App(children) => {
+                    work_stack.push((tid, true));
+                    children_counts.push(children.len());
+                    for child in children.iter().rev() {
+                        work_stack.push((*child, false));
+                    }
+                }
+                Action::Keep => result_stack.push(tid),
+            }
         }
-        None => term,
     }
+
+    debug_assert_eq!(result_stack.len(), 1);
+    result_stack.pop().unwrap()
 }
 
 /// Shift all variables in a list of patterns by a given offset.

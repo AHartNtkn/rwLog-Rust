@@ -1,7 +1,7 @@
 use crate::symbol::{FuncId, SymbolStore};
 use hashbrown::HashMap;
 use parking_lot::RwLock;
-use rustc_hash::FxHasher;
+use rustc_hash::{FxBuildHasher, FxHasher};
 use smallvec::SmallVec;
 use std::hash::{Hash, Hasher};
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -43,8 +43,8 @@ const NUM_SHARDS: usize = 16;
 pub struct TermStore {
     /// Central storage of all terms, indexed by TermId.
     nodes: RwLock<Vec<Term>>,
-    /// Sharded hashcons maps for reducing contention.
-    shards: [RwLock<HashMap<Term, TermId>>; NUM_SHARDS],
+    /// Sharded hashcons maps for reducing contention. Uses FxHash for speed.
+    shards: [RwLock<HashMap<Term, TermId, FxBuildHasher>>; NUM_SHARDS],
     /// Counter for generating unique TermIds.
     next_id: AtomicU32,
 }
@@ -52,8 +52,9 @@ pub struct TermStore {
 impl TermStore {
     /// Create a new empty term store.
     pub fn new() -> Self {
-        // Initialize array of shards
-        let shards = std::array::from_fn(|_| RwLock::new(HashMap::new()));
+        // Initialize array of shards with FxHash
+        let shards =
+            std::array::from_fn(|_| RwLock::new(HashMap::with_hasher(FxBuildHasher::default())));
         Self {
             nodes: RwLock::new(Vec::new()),
             shards,
@@ -125,27 +126,44 @@ impl TermStore {
         self.app(func, smallvec::smallvec![left, right])
     }
 
-    /// Resolve a TermId to its term.
-    /// Returns None if the TermId is invalid.
+    /// Resolve a TermId to its term (cloning).
+    /// Prefer `with_term` for read-only access to avoid cloning.
     pub fn resolve(&self, id: TermId) -> Option<Term> {
         let nodes = self.nodes.read();
         nodes.get(id.0 as usize).cloned()
     }
 
+    /// Access a term by reference without cloning.
+    /// The closure receives `Option<&Term>` and must return before the lock is released.
+    #[inline]
+    pub fn with_term<R>(&self, id: TermId, f: impl FnOnce(Option<&Term>) -> R) -> R {
+        let nodes = self.nodes.read();
+        f(nodes.get(id.0 as usize))
+    }
+
+    /// Acquire a read lock on the term storage, returning a guard that allows
+    /// zero-overhead term lookups. Use this for tight loops that resolve many terms.
+    #[inline]
+    pub fn read_lock(&self) -> TermReadGuard<'_> {
+        TermReadGuard {
+            nodes: self.nodes.read(),
+        }
+    }
+
     /// Check if a term is a variable.
     pub fn is_var(&self, id: TermId) -> Option<u32> {
-        match self.resolve(id)? {
-            Term::Var(idx) => Some(idx),
+        self.with_term(id, |t| match t? {
+            Term::Var(idx) => Some(*idx),
             Term::App(_, _) => None,
-        }
+        })
     }
 
     /// Check if a term is an application, returning functor and children.
     pub fn is_app(&self, id: TermId) -> Option<(FuncId, SmallVec<[TermId; 4]>)> {
-        match self.resolve(id)? {
+        self.with_term(id, |t| match t? {
             Term::Var(_) => None,
-            Term::App(f, children) => Some((f, children)),
-        }
+            Term::App(f, children) => Some((*f, children.clone())),
+        })
     }
 
     /// Get the shard index for a term (for hashconsing distribution).
@@ -153,6 +171,21 @@ impl TermStore {
         let mut hasher = FxHasher::default();
         term.hash(&mut hasher);
         (hasher.finish() as usize) % NUM_SHARDS
+    }
+}
+
+/// A read guard for the term storage that enables zero-overhead term lookups.
+/// Holds the RwLock read guard for the duration of its lifetime, avoiding
+/// per-lookup lock acquisition in tight loops.
+pub struct TermReadGuard<'a> {
+    nodes: parking_lot::RwLockReadGuard<'a, Vec<Term>>,
+}
+
+impl<'a> TermReadGuard<'a> {
+    /// Resolve a TermId to a reference to its Term without cloning.
+    #[inline]
+    pub fn get(&self, id: TermId) -> Option<&Term> {
+        self.nodes.get(id.0 as usize)
     }
 }
 

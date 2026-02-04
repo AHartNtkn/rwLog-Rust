@@ -79,89 +79,85 @@ impl Default for Subst {
 /// Unbound variables remain as variables.
 /// Variable chains are followed iteratively to avoid stack overflow on cycles.
 ///
-/// Uses explicit stack to avoid recursion.
+/// Uses explicit stack to avoid recursion and with_term to avoid cloning.
 pub fn apply_subst(term: TermId, subst: &Subst, terms: &mut TermStore) -> TermId {
-    // Use a worklist to process terms depth-first
-    // Stack contains (original term, children_processed)
-    // Result stack collects processed terms
+    // Fast path: empty substitution
+    if subst.bindings.is_empty() {
+        return term;
+    }
 
-    let mut work_stack: Vec<(TermId, bool)> = vec![(term, false)];
-    let mut result_stack: Vec<TermId> = Vec::new();
-    let mut children_counts: Vec<usize> = Vec::new();
+    let mut work_stack: SmallVec<[(TermId, bool); 16]> = SmallVec::new();
+    let mut result_stack: SmallVec<[TermId; 16]> = SmallVec::new();
+    let mut children_counts: SmallVec<[usize; 8]> = SmallVec::new();
+
+    work_stack.push((term, false));
 
     while let Some((tid, children_done)) = work_stack.pop() {
         if children_done {
-            // Children have been processed, now build the result
-            let original = terms.resolve(tid);
-            match original {
-                Some(Term::App(func, children)) => {
-                    let n = children.len();
-                    let count = children_counts.pop().unwrap();
-                    assert_eq!(n, count);
+            // Children have been processed, build the App result
+            let (func, n) = terms.with_term(tid, |t| match t {
+                Some(Term::App(f, children)) => (*f, children.len()),
+                _ => unreachable!("Only App terms should have children_done=true"),
+            });
+            let count = children_counts.pop().unwrap();
+            debug_assert_eq!(n, count);
 
-                    // Pop n results from result_stack
-                    let new_children: SmallVec<[TermId; 4]> =
-                        result_stack.drain(result_stack.len() - n..).collect();
-
-                    let new_term = terms.app(func, new_children);
-                    result_stack.push(new_term);
-                }
-                _ => {
-                    // Var or None case already handled in first pass
-                    unreachable!("Only App terms should have children_done=true");
-                }
-            }
+            let new_children: SmallVec<[TermId; 4]> =
+                result_stack.drain(result_stack.len() - n..).collect();
+            let new_term = terms.app(func, new_children);
+            result_stack.push(new_term);
         } else {
-            // First visit to this term
-            match terms.resolve(tid) {
-                Some(Term::Var(_)) => {
-                    // Follow variable chain iteratively
-                    let resolved = resolve_var_chain(tid, subst, terms);
-                    match terms.resolve(resolved) {
-                        Some(Term::Var(_)) => {
-                            // Ended at a variable (unbound or cycle)
-                            result_stack.push(resolved);
-                        }
-                        Some(Term::App(_, children)) => {
-                            if children.is_empty() {
-                                result_stack.push(resolved);
-                            } else {
-                                // Need to process this App term
-                                work_stack.push((resolved, true));
-                                children_counts.push(children.len());
-                                for child in children.iter().rev() {
-                                    work_stack.push((*child, false));
-                                }
-                            }
-                        }
-                        None => {
-                            result_stack.push(resolved);
-                        }
-                    }
-                }
+            enum FirstVisitResult {
+                VarResolved(TermId),
+                App(SmallVec<[TermId; 4]>),
+                Keep,
+            }
+
+            let action = terms.with_term(tid, |t| match t {
+                Some(Term::Var(_)) => FirstVisitResult::VarResolved(resolve_var_chain(tid, subst, terms)),
                 Some(Term::App(_, children)) => {
                     if children.is_empty() {
-                        // Nullary app - no children to process
-                        result_stack.push(tid);
+                        FirstVisitResult::Keep
                     } else {
-                        // Push back with children_done=true for later processing
-                        work_stack.push((tid, true));
-                        children_counts.push(children.len());
-                        // Push children (in reverse order so leftmost processed first)
-                        for child in children.iter().rev() {
-                            work_stack.push((*child, false));
-                        }
+                        FirstVisitResult::App(children.clone())
                     }
                 }
-                None => {
-                    // Invalid term - just keep it
-                    result_stack.push(tid);
+                None => FirstVisitResult::Keep,
+            });
+
+            match action {
+                FirstVisitResult::VarResolved(resolved) => {
+                    // Now classify the resolved term
+                    let inner = terms.with_term(resolved, |t| match t {
+                        Some(Term::App(_, children)) if !children.is_empty() => {
+                            Some(children.clone())
+                        }
+                        _ => None, // Var, nullary App, or None - just keep
+                    });
+                    match inner {
+                        Some(children) => {
+                            work_stack.push((resolved, true));
+                            children_counts.push(children.len());
+                            for child in children.iter().rev() {
+                                work_stack.push((*child, false));
+                            }
+                        }
+                        None => result_stack.push(resolved),
+                    }
                 }
+                FirstVisitResult::App(children) => {
+                    work_stack.push((tid, true));
+                    children_counts.push(children.len());
+                    for child in children.iter().rev() {
+                        work_stack.push((*child, false));
+                    }
+                }
+                FirstVisitResult::Keep => result_stack.push(tid),
             }
         }
     }
 
-    assert_eq!(result_stack.len(), 1);
+    debug_assert_eq!(result_stack.len(), 1);
     result_stack.pop().unwrap()
 }
 
@@ -172,30 +168,20 @@ fn resolve_var_chain(start: TermId, subst: &Subst, terms: &TermStore) -> TermId 
     let mut visited = smallvec::SmallVec::<[u32; 8]>::new();
 
     loop {
-        match terms.resolve(current) {
+        let next = terms.with_term(current, |t| match t {
             Some(Term::Var(idx)) => {
-                // Check for cycle
+                let idx = *idx;
                 if visited.contains(&idx) {
-                    // Cycle detected - return current variable
-                    return current;
+                    return None; // Cycle detected
                 }
                 visited.push(idx);
-
-                // Check if bound
-                if let Some(bound) = subst.get(idx) {
-                    current = bound;
-                } else {
-                    // Unbound variable - end of chain
-                    return current;
-                }
+                subst.get(idx)
             }
-            Some(Term::App(_, _)) => {
-                // Hit a non-variable term
-                return current;
-            }
-            None => {
-                return current;
-            }
+            _ => None, // Non-variable or invalid
+        });
+        match next {
+            Some(bound) => current = bound,
+            None => return current,
         }
     }
 }

@@ -352,18 +352,23 @@ fn collect_vars_helper(
     vars: &mut Vec<u32>,
     seen: &mut std::collections::HashSet<u32>,
 ) {
-    match terms.resolve(term) {
-        Some(Term::Var(idx)) => {
-            if seen.insert(idx) {
-                vars.push(idx);
+    let guard = terms.read_lock();
+    let mut stack: SmallVec<[TermId; 16]> = SmallVec::new();
+    stack.push(term);
+    while let Some(tid) = stack.pop() {
+        match guard.get(tid) {
+            Some(Term::Var(idx)) => {
+                if seen.insert(*idx) {
+                    vars.push(*idx);
+                }
             }
-        }
-        Some(Term::App(_, children)) => {
-            for child in children {
-                collect_vars_helper(child, terms, vars, seen);
+            Some(Term::App(_, children)) => {
+                for child in children.iter().rev() {
+                    stack.push(*child);
+                }
             }
+            None => {}
         }
-        None => {}
     }
 }
 
@@ -394,26 +399,70 @@ pub fn apply_var_renaming(
     old_to_new: &[Option<u32>],
     terms: &mut TermStore,
 ) -> TermId {
-    match terms.resolve(term) {
-        Some(Term::Var(idx)) => {
-            let idx_usize = idx as usize;
-            if idx_usize < old_to_new.len() {
-                if let Some(new_idx) = old_to_new[idx_usize] {
-                    return terms.var(new_idx);
-                }
+    // Use explicit stack to avoid recursion.
+    // Stack items: (term_id, children_done)
+    // Result stack collects processed terms.
+    let mut work_stack: SmallVec<[(TermId, bool); 16]> = SmallVec::new();
+    let mut result_stack: SmallVec<[TermId; 16]> = SmallVec::new();
+    let mut children_counts: SmallVec<[usize; 8]> = SmallVec::new();
+
+    work_stack.push((term, false));
+
+    while let Some((tid, children_done)) = work_stack.pop() {
+        if children_done {
+            // Children have been processed, build the App result
+            let (func, n) = terms.with_term(tid, |t| match t {
+                Some(Term::App(f, children)) => (*f, children.len()),
+                _ => unreachable!("Only App terms should have children_done=true"),
+            });
+            let count = children_counts.pop().unwrap();
+            debug_assert_eq!(n, count);
+            let new_children: SmallVec<[TermId; 4]> =
+                result_stack.drain(result_stack.len() - n..).collect();
+            let new_term = terms.app(func, new_children);
+            result_stack.push(new_term);
+        } else {
+            // First visit: classify without cloning
+            enum Action {
+                Var(u32),                              // new variable index to intern
+                App(SmallVec<[TermId; 4]>),            // children to process
+                Keep,                                  // keep original
             }
-            // Variable not in mapping - keep as is
-            term
+            let action = terms.with_term(tid, |t| match t {
+                Some(Term::Var(idx)) => {
+                    let idx_usize = *idx as usize;
+                    if idx_usize < old_to_new.len() {
+                        if let Some(new_idx) = old_to_new[idx_usize] {
+                            return Action::Var(new_idx);
+                        }
+                    }
+                    Action::Keep
+                }
+                Some(Term::App(_, children)) => {
+                    if children.is_empty() {
+                        Action::Keep
+                    } else {
+                        Action::App(children.clone())
+                    }
+                }
+                None => Action::Keep,
+            });
+            match action {
+                Action::Var(new_idx) => result_stack.push(terms.var(new_idx)),
+                Action::App(children) => {
+                    work_stack.push((tid, true));
+                    children_counts.push(children.len());
+                    for child in children.iter().rev() {
+                        work_stack.push((*child, false));
+                    }
+                }
+                Action::Keep => result_stack.push(tid),
+            }
         }
-        Some(Term::App(func, children)) => {
-            let new_children: SmallVec<[TermId; 4]> = children
-                .iter()
-                .map(|&child| apply_var_renaming(child, old_to_new, terms))
-                .collect();
-            terms.app(func, new_children)
-        }
-        None => term,
     }
+
+    debug_assert_eq!(result_stack.len(), 1);
+    result_stack.pop().unwrap()
 }
 
 fn apply_var_renaming_list(
