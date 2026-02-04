@@ -2,7 +2,7 @@ use crate::constraint::ConstraintDisplay;
 use crate::nf::apply_var_renaming;
 use crate::subst::{apply_subst, Subst};
 use crate::symbol::FuncId;
-use crate::term::{Term, TermId, TermStore};
+use crate::term::{Term, TermId, TermReadGuard, TermStore};
 use hashbrown::{HashMap, HashSet};
 use smallvec::SmallVec;
 use std::cmp::Ordering;
@@ -136,6 +136,17 @@ pub fn match_pat_bind(
     env: &mut RVarEnv,
 ) -> bool {
     let guard = terms.read_lock();
+    match_pat_bind_locked(pats, &guard, pat, term, env)
+}
+
+#[inline]
+fn match_pat_bind_locked(
+    pats: &PatArena,
+    guard: &TermReadGuard<'_>,
+    pat: PatId,
+    term: TermId,
+    env: &mut RVarEnv,
+) -> bool {
     let mut stack: SmallVec<[(PatId, TermId); 32]> = SmallVec::new();
     stack.push((pat, term));
     while let Some((p, t)) = stack.pop() {
@@ -169,6 +180,17 @@ pub fn match_pat_nobind(
     env: &RVarEnv,
 ) -> bool {
     let guard = terms.read_lock();
+    match_pat_nobind_locked(pats, &guard, pat, term, env)
+}
+
+#[inline]
+fn match_pat_nobind_locked(
+    pats: &PatArena,
+    guard: &TermReadGuard<'_>,
+    pat: PatId,
+    term: TermId,
+    env: &RVarEnv,
+) -> bool {
     let mut stack: SmallVec<[(PatId, TermId); 32]> = SmallVec::new();
     stack.push((pat, term));
     while let Some((p, t)) = stack.pop() {
@@ -1368,20 +1390,11 @@ impl<T: Theory> ChrState<T> {
     }
 
     fn apply_rule_by_id(&mut self, rid: RuleId, tuple: &[Cid], terms: &mut TermStore) -> bool {
-        let (removed_mask, is_propagation, n_rvars, heads, body, pats, builtins) = {
-            let rule = &self.program.rules[rid.0 as usize];
-            (
-                rule.removed_mask,
-                rule.is_propagation,
-                rule.n_rvars,
-                rule.heads.clone(),
-                rule.body.clone(),
-                self.program.pats.clone(),
-                self.program.builtins.clone(),
-            )
-        };
+        let prog = Arc::clone(&self.program);
+        let rule = &prog.rules[rid.0 as usize];
+        let removed_mask = rule.removed_mask;
 
-        if is_propagation {
+        if rule.is_propagation {
             let token = TokenKey::from_cids(tuple.to_vec());
             self.tokens.fired[rid.0 as usize].insert(token);
         }
@@ -1392,17 +1405,17 @@ impl<T: Theory> ChrState<T> {
             }
         }
 
-        let mut env = RVarEnv::new(n_rvars);
+        let mut env = RVarEnv::new(rule.n_rvars);
         env.reset();
         for (i, cid) in tuple.iter().copied().enumerate() {
-            let head = &heads[i];
+            let head = &rule.heads[i];
             let inst = &self.store.inst[cid.0 as usize];
-            if !match_head(&pats, terms, head, inst, &mut env) {
+            if !match_head(&prog.pats, terms, head, inst, &mut env) {
                 return false;
             }
         }
 
-        body.exec(&pats, terms, &builtins, &env, self)
+        rule.body.exec(&prog.pats, terms, &prog.builtins, &env, self)
     }
 
     fn is_alive(&self, cid: Cid) -> bool {
@@ -1446,8 +1459,9 @@ fn match_head(
     if head.args.len() != inst.args.len() {
         return false;
     }
+    let guard = terms.read_lock();
     for (pat, term) in head.args.iter().zip(inst.args.iter()) {
-        if !match_pat_bind(pats, terms, *pat, *term, env) {
+        if !match_pat_bind_locked(pats, &guard, *pat, *term, env) {
             return false;
         }
     }

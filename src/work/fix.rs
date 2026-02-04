@@ -28,17 +28,18 @@ pub(crate) struct Binding<C: Clone> {
 
 /// Environment for Fix bindings (RelId -> Rel body).
 ///
-/// Uses persistent map for efficient cloning during search.
+/// Arc-wrapped Vec for O(1) cloning. bind() copies the Vec since the old
+/// Env remains shared, but clone() is just an Arc bump.
 #[derive(Clone, Debug, Default)]
 pub struct Env<C: Clone> {
-    bindings: Vec<Binding<C>>,
+    bindings: Arc<Vec<Binding<C>>>,
 }
 
 impl<C: Clone> Env<C> {
     /// Create an empty environment.
     pub fn new() -> Self {
         Self {
-            bindings: Vec::new(),
+            bindings: Arc::new(Vec::new()),
         }
     }
 
@@ -49,12 +50,10 @@ impl<C: Clone> Env<C> {
             id: NEXT_BIND_ID.fetch_add(1, Ordering::Relaxed),
             body,
         };
+        let mut new_bindings = (*self.bindings).clone();
+        new_bindings.push(binding);
         Self {
-            bindings: {
-                let mut bindings = self.bindings.clone();
-                bindings.push(binding);
-                bindings
-            },
+            bindings: Arc::new(new_bindings),
         }
     }
 
