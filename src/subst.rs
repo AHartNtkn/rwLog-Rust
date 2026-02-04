@@ -79,80 +79,84 @@ impl Default for Subst {
 /// Unbound variables remain as variables.
 /// Variable chains are followed iteratively to avoid stack overflow on cycles.
 ///
-/// Uses explicit stack to avoid recursion and with_term to avoid cloning.
+/// Uses explicit stack to avoid recursion. Acquires read_lock in batches
+/// to amortize lock overhead and avoids cloning children SmallVecs.
 pub fn apply_subst(term: TermId, subst: &Subst, terms: &mut TermStore) -> TermId {
+    use crate::symbol::FuncId;
+
     // Fast path: empty substitution
     if subst.bindings.is_empty() {
         return term;
     }
 
-    let mut work_stack: SmallVec<[(TermId, bool); 16]> = SmallVec::new();
+    // Work items: either a term to visit, or a pending App to build.
+    // BuildApp stores the original TermId so we can check if children changed.
+    enum Work {
+        Visit(TermId),
+        BuildApp(TermId, FuncId, usize), // (original_tid, functor, child_count)
+    }
+
+    let mut work_stack: SmallVec<[Work; 16]> = SmallVec::new();
     let mut result_stack: SmallVec<[TermId; 16]> = SmallVec::new();
-    let mut children_counts: SmallVec<[usize; 8]> = SmallVec::new();
 
-    work_stack.push((term, false));
+    work_stack.push(Work::Visit(term));
 
-    while let Some((tid, children_done)) = work_stack.pop() {
-        if children_done {
-            // Children have been processed, build the App result
-            let (func, n) = terms.with_term(tid, |t| match t {
-                Some(Term::App(f, children)) => (*f, children.len()),
-                _ => unreachable!("Only App terms should have children_done=true"),
-            });
-            let count = children_counts.pop().unwrap();
-            debug_assert_eq!(n, count);
-
-            let new_children: SmallVec<[TermId; 4]> =
-                result_stack.drain(result_stack.len() - n..).collect();
-            let new_term = terms.app(func, new_children);
-            result_stack.push(new_term);
-        } else {
-            enum FirstVisitResult {
-                VarResolved(TermId),
-                App(SmallVec<[TermId; 4]>),
-                Keep,
+    while let Some(item) = work_stack.pop() {
+        match item {
+            Work::BuildApp(orig_tid, func, n) => {
+                let start = result_stack.len() - n;
+                // Check if any child actually changed from the original.
+                // If not, reuse the original TermId to skip hashcons lookup.
+                let guard = terms.read_lock();
+                let all_same = match guard.get(orig_tid) {
+                    Some(Term::App(_, orig_children)) => {
+                        orig_children.len() == n
+                            && orig_children
+                                .iter()
+                                .zip(&result_stack[start..])
+                                .all(|(a, b)| *a == *b)
+                    }
+                    _ => false,
+                };
+                drop(guard);
+                if all_same {
+                    result_stack.truncate(start);
+                    result_stack.push(orig_tid);
+                } else {
+                    let new_term = terms.app_from_slice(func, &result_stack[start..]);
+                    result_stack.truncate(start);
+                    result_stack.push(new_term);
+                }
             }
+            Work::Visit(tid) => {
+                // Acquire read lock for the classification phase.
+                let guard = terms.read_lock();
 
-            let action = terms.with_term(tid, |t| match t {
-                Some(Term::Var(_)) => FirstVisitResult::VarResolved(resolve_var_chain(tid, subst, terms)),
-                Some(Term::App(_, children)) => {
-                    if children.is_empty() {
-                        FirstVisitResult::Keep
-                    } else {
-                        FirstVisitResult::App(children.clone())
-                    }
-                }
-                None => FirstVisitResult::Keep,
-            });
+                // Resolve variable chains under the same lock
+                let resolved = resolve_var_chain_locked(tid, subst, &guard);
 
-            match action {
-                FirstVisitResult::VarResolved(resolved) => {
-                    // Now classify the resolved term
-                    let inner = terms.with_term(resolved, |t| match t {
-                        Some(Term::App(_, children)) if !children.is_empty() => {
-                            Some(children.clone())
+                match guard.get(resolved) {
+                    Some(Term::Var(_)) => {
+                        // Unbound variable (chain resolution already tried subst).
+                        result_stack.push(resolved);
+                    }
+                    Some(Term::App(_, children)) if children.is_empty() => {
+                        // Nullary app: keep as-is
+                        result_stack.push(resolved);
+                    }
+                    Some(Term::App(f, children)) => {
+                        let func = *f;
+                        let n = children.len();
+                        // Push children in reverse order (TermId is Copy, no clone)
+                        work_stack.push(Work::BuildApp(resolved, func, n));
+                        for i in (0..n).rev() {
+                            work_stack.push(Work::Visit(children[i]));
                         }
-                        _ => None, // Var, nullary App, or None - just keep
-                    });
-                    match inner {
-                        Some(children) => {
-                            work_stack.push((resolved, true));
-                            children_counts.push(children.len());
-                            for child in children.iter().rev() {
-                                work_stack.push((*child, false));
-                            }
-                        }
-                        None => result_stack.push(resolved),
+                    }
+                    None => {
+                        result_stack.push(resolved);
                     }
                 }
-                FirstVisitResult::App(children) => {
-                    work_stack.push((tid, true));
-                    children_counts.push(children.len());
-                    for child in children.iter().rev() {
-                        work_stack.push((*child, false));
-                    }
-                }
-                FirstVisitResult::Keep => result_stack.push(tid),
             }
         }
     }
@@ -161,27 +165,35 @@ pub fn apply_subst(term: TermId, subst: &Subst, terms: &mut TermStore) -> TermId
     result_stack.pop().unwrap()
 }
 
-/// Follow a chain of variable substitutions until we hit a non-variable
-/// or detect a cycle. Returns the final term in the chain.
-fn resolve_var_chain(start: TermId, subst: &Subst, terms: &TermStore) -> TermId {
+/// Follow a chain of variable substitutions using a pre-acquired read lock.
+/// Returns the final term in the chain.
+///
+/// Well-formed substitutions from matching do not contain cycles, so we use
+/// a simple depth limit rather than tracking visited nodes.
+#[inline]
+fn resolve_var_chain_locked(
+    start: TermId,
+    subst: &Subst,
+    guard: &crate::term::TermReadGuard<'_>,
+) -> TermId {
     let mut current = start;
-    let mut visited = smallvec::SmallVec::<[u32; 8]>::new();
-
+    // Depth limit to handle malformed substitutions gracefully.
+    // In practice, chains are very short (1-3 steps).
+    let max_depth = subst.bindings.len();
+    let mut depth = 0;
     loop {
-        let next = terms.with_term(current, |t| match t {
-            Some(Term::Var(idx)) => {
-                let idx = *idx;
-                if visited.contains(&idx) {
-                    return None; // Cycle detected
+        if depth >= max_depth {
+            return current;
+        }
+        match guard.get(current) {
+            Some(Term::Var(idx)) => match subst.get(*idx) {
+                Some(bound) if bound != current => {
+                    current = bound;
+                    depth += 1;
                 }
-                visited.push(idx);
-                subst.get(idx)
-            }
-            _ => None, // Non-variable or invalid
-        });
-        match next {
-            Some(bound) => current = bound,
-            None => return current,
+                _ => return current,
+            },
+            _ => return current,
         }
     }
 }

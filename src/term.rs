@@ -34,6 +34,10 @@ pub enum Term {
 /// Number of shards for hashcons maps (power of 2 for fast modulo).
 const NUM_SHARDS: usize = 16;
 
+/// Number of variable indices to cache for O(1) lookup.
+/// Variables 0..VAR_CACHE_SIZE are pre-interned and cached.
+const VAR_CACHE_SIZE: usize = 32;
+
 /// Thread-safe term store with hashconsing.
 ///
 /// Guarantees:
@@ -47,6 +51,10 @@ pub struct TermStore {
     shards: [RwLock<HashMap<Term, TermId, FxBuildHasher>>; NUM_SHARDS],
     /// Counter for generating unique TermIds.
     next_id: AtomicU32,
+    /// Cache of TermIds for small variable indices (0..VAR_CACHE_SIZE).
+    /// Avoids hashcons lookup for the most common variables.
+    /// Uses AtomicU32 with u32::MAX as sentinel for "not yet cached".
+    var_cache: [AtomicU32; VAR_CACHE_SIZE],
 }
 
 impl TermStore {
@@ -55,10 +63,12 @@ impl TermStore {
         // Initialize array of shards with FxHash
         let shards =
             std::array::from_fn(|_| RwLock::new(HashMap::with_hasher(FxBuildHasher::default())));
+        let var_cache = std::array::from_fn(|_| AtomicU32::new(u32::MAX));
         Self {
             nodes: RwLock::new(Vec::new()),
             shards,
             next_id: AtomicU32::new(0),
+            var_cache,
         }
     }
 
@@ -101,14 +111,34 @@ impl TermStore {
 
     /// Create a variable term.
     /// Variables are hashconsed: same index always returns same TermId.
+    /// Small variable indices (0..32) are cached for O(1) lookup.
+    #[inline]
     pub fn var(&self, index: u32) -> TermId {
-        self.intern(Term::Var(index))
+        let idx = index as usize;
+        if idx < VAR_CACHE_SIZE {
+            let cached = self.var_cache[idx].load(Ordering::Relaxed);
+            if cached != u32::MAX {
+                return TermId(cached);
+            }
+            let id = self.intern(Term::Var(index));
+            self.var_cache[idx].store(id.0, Ordering::Relaxed);
+            id
+        } else {
+            self.intern(Term::Var(index))
+        }
     }
 
     /// Create an application term.
     /// Hashconsed: same functor and children always returns same TermId.
     pub fn app(&self, func: FuncId, children: SmallVec<[TermId; 4]>) -> TermId {
         self.intern(Term::App(func, children))
+    }
+
+    /// Create an application term from a slice of children.
+    /// Avoids intermediate SmallVec allocation when children are already in a contiguous buffer.
+    #[inline]
+    pub fn app_from_slice(&self, func: FuncId, children: &[TermId]) -> TermId {
+        self.intern(Term::App(func, SmallVec::from_slice(children)))
     }
 
     /// Create a nullary (0-arity) application.

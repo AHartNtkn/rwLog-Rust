@@ -354,12 +354,29 @@ fn collect_vars_helper(
 ) {
     let guard = terms.read_lock();
     let mut stack: SmallVec<[TermId; 16]> = SmallVec::new();
+    // Use a bitset for small variable indices (0..64) to avoid HashSet overhead.
+    // Variables >= 64 fall back to the HashSet.
+    let mut seen_bits: u64 = 0;
+    // Pre-populate seen_bits from any vars already in `seen` (from previous terms in a list).
+    for &v in seen.iter() {
+        if v < 64 {
+            seen_bits |= 1u64 << v;
+        }
+    }
     stack.push(term);
     while let Some(tid) = stack.pop() {
         match guard.get(tid) {
             Some(Term::Var(idx)) => {
-                if seen.insert(*idx) {
-                    vars.push(*idx);
+                let v = *idx;
+                if v < 64 {
+                    let bit = 1u64 << v;
+                    if seen_bits & bit == 0 {
+                        seen_bits |= bit;
+                        seen.insert(v);
+                        vars.push(v);
+                    }
+                } else if seen.insert(v) {
+                    vars.push(v);
                 }
             }
             Some(Term::App(_, children)) => {
@@ -381,6 +398,15 @@ pub fn renumber_vars(term: TermId, terms: &mut TermStore) -> (TermId, Vec<u32>) 
         return (term, vec![]);
     }
 
+    // Fast path: if variables are already 0..n-1 in order, no renaming needed.
+    let is_identity = vars
+        .iter()
+        .enumerate()
+        .all(|(new_idx, &old_idx)| new_idx as u32 == old_idx);
+    if is_identity {
+        return (term, vars);
+    }
+
     // Build old_to_new mapping
     let max_var = vars.iter().copied().max().unwrap() as usize;
     let mut old_to_new = vec![None; max_var + 1];
@@ -394,69 +420,92 @@ pub fn renumber_vars(term: TermId, terms: &mut TermStore) -> (TermId, Vec<u32>) 
 
 /// Renumber variables according to a given mapping.
 /// The mapping maps old variable index to new variable index.
+///
+/// Uses batched read_lock to avoid per-node lock acquisition and avoids
+/// cloning children SmallVecs by copying TermIds (which are Copy).
 pub fn apply_var_renaming(
     term: TermId,
     old_to_new: &[Option<u32>],
     terms: &mut TermStore,
 ) -> TermId {
-    // Use explicit stack to avoid recursion.
-    // Stack items: (term_id, children_done)
-    // Result stack collects processed terms.
-    let mut work_stack: SmallVec<[(TermId, bool); 16]> = SmallVec::new();
+    use crate::symbol::FuncId;
+
+    // Fast path: if the mapping is identity (every i maps to Some(i)),
+    // the renaming has no effect.
+    let is_identity = old_to_new
+        .iter()
+        .enumerate()
+        .all(|(i, v)| *v == Some(i as u32) || v.is_none());
+    if is_identity {
+        return term;
+    }
+
+    enum Work {
+        Visit(TermId),
+        BuildApp(TermId, FuncId, usize), // (original_tid, functor, child_count)
+    }
+
+    let mut work_stack: SmallVec<[Work; 16]> = SmallVec::new();
     let mut result_stack: SmallVec<[TermId; 16]> = SmallVec::new();
-    let mut children_counts: SmallVec<[usize; 8]> = SmallVec::new();
 
-    work_stack.push((term, false));
+    work_stack.push(Work::Visit(term));
 
-    while let Some((tid, children_done)) = work_stack.pop() {
-        if children_done {
-            // Children have been processed, build the App result
-            let (func, n) = terms.with_term(tid, |t| match t {
-                Some(Term::App(f, children)) => (*f, children.len()),
-                _ => unreachable!("Only App terms should have children_done=true"),
-            });
-            let count = children_counts.pop().unwrap();
-            debug_assert_eq!(n, count);
-            let new_children: SmallVec<[TermId; 4]> =
-                result_stack.drain(result_stack.len() - n..).collect();
-            let new_term = terms.app(func, new_children);
-            result_stack.push(new_term);
-        } else {
-            // First visit: classify without cloning
-            enum Action {
-                Var(u32),                              // new variable index to intern
-                App(SmallVec<[TermId; 4]>),            // children to process
-                Keep,                                  // keep original
+    while let Some(item) = work_stack.pop() {
+        match item {
+            Work::BuildApp(orig_tid, func, n) => {
+                let start = result_stack.len() - n;
+                // Check if any child actually changed from the original.
+                let guard = terms.read_lock();
+                let all_same = match guard.get(orig_tid) {
+                    Some(Term::App(_, orig_children)) => {
+                        orig_children.len() == n
+                            && orig_children
+                                .iter()
+                                .zip(&result_stack[start..])
+                                .all(|(a, b)| *a == *b)
+                    }
+                    _ => false,
+                };
+                drop(guard);
+                if all_same {
+                    result_stack.truncate(start);
+                    result_stack.push(orig_tid);
+                } else {
+                    let new_term = terms.app_from_slice(func, &result_stack[start..]);
+                    result_stack.truncate(start);
+                    result_stack.push(new_term);
+                }
             }
-            let action = terms.with_term(tid, |t| match t {
-                Some(Term::Var(idx)) => {
-                    let idx_usize = *idx as usize;
-                    if idx_usize < old_to_new.len() {
-                        if let Some(new_idx) = old_to_new[idx_usize] {
-                            return Action::Var(new_idx);
+            Work::Visit(tid) => {
+                let guard = terms.read_lock();
+                match guard.get(tid) {
+                    Some(Term::Var(idx)) => {
+                        let idx_val = *idx;
+                        let idx_usize = idx_val as usize;
+                        drop(guard);
+                        if idx_usize < old_to_new.len() {
+                            if let Some(new_idx) = old_to_new[idx_usize] {
+                                result_stack.push(terms.var(new_idx));
+                                continue;
+                            }
+                        }
+                        result_stack.push(tid);
+                    }
+                    Some(Term::App(_, children)) if children.is_empty() => {
+                        result_stack.push(tid);
+                    }
+                    Some(Term::App(f, children)) => {
+                        let func = *f;
+                        let n = children.len();
+                        work_stack.push(Work::BuildApp(tid, func, n));
+                        for i in (0..n).rev() {
+                            work_stack.push(Work::Visit(children[i]));
                         }
                     }
-                    Action::Keep
-                }
-                Some(Term::App(_, children)) => {
-                    if children.is_empty() {
-                        Action::Keep
-                    } else {
-                        Action::App(children.clone())
+                    None => {
+                        result_stack.push(tid);
                     }
                 }
-                None => Action::Keep,
-            });
-            match action {
-                Action::Var(new_idx) => result_stack.push(terms.var(new_idx)),
-                Action::App(children) => {
-                    work_stack.push((tid, true));
-                    children_counts.push(children.len());
-                    for child in children.iter().rev() {
-                        work_stack.push((*child, false));
-                    }
-                }
-                Action::Keep => result_stack.push(tid),
             }
         }
     }

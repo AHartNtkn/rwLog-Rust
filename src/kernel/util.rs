@@ -16,52 +16,76 @@ pub fn max_var_index_terms(pats: &[TermId], terms: &TermStore) -> Option<u32> {
 }
 
 /// Shift all variables in a term by a given offset.
+///
+/// Uses batched read_lock to avoid per-node lock acquisition and avoids
+/// cloning children SmallVecs by copying TermIds (which are Copy).
 pub fn shift_vars(term: TermId, offset: u32, terms: &mut TermStore) -> TermId {
-    // Use explicit stack to avoid recursion and cloning.
-    let mut work_stack: SmallVec<[(TermId, bool); 16]> = SmallVec::new();
+    use crate::symbol::FuncId;
+
+    // Fast path: zero offset changes nothing
+    if offset == 0 {
+        return term;
+    }
+
+    enum Work {
+        Visit(TermId),
+        BuildApp(TermId, FuncId, usize), // (original_tid, functor, child_count)
+    }
+
+    let mut work_stack: SmallVec<[Work; 16]> = SmallVec::new();
     let mut result_stack: SmallVec<[TermId; 16]> = SmallVec::new();
-    let mut children_counts: SmallVec<[usize; 8]> = SmallVec::new();
 
-    work_stack.push((term, false));
+    work_stack.push(Work::Visit(term));
 
-    while let Some((tid, children_done)) = work_stack.pop() {
-        if children_done {
-            let (func, n) = terms.with_term(tid, |t| match t {
-                Some(Term::App(f, children)) => (*f, children.len()),
-                _ => unreachable!(),
-            });
-            let count = children_counts.pop().unwrap();
-            debug_assert_eq!(n, count);
-            let new_children: SmallVec<[TermId; 4]> =
-                result_stack.drain(result_stack.len() - n..).collect();
-            result_stack.push(terms.app(func, new_children));
-        } else {
-            enum Action {
-                Var(u32),
-                App(SmallVec<[TermId; 4]>),
-                Keep,
+    while let Some(item) = work_stack.pop() {
+        match item {
+            Work::BuildApp(orig_tid, func, n) => {
+                let start = result_stack.len() - n;
+                // Check if all children are unchanged (ground subtree case).
+                let guard = terms.read_lock();
+                let all_same = match guard.get(orig_tid) {
+                    Some(Term::App(_, orig_children)) => {
+                        orig_children.len() == n
+                            && orig_children
+                                .iter()
+                                .zip(&result_stack[start..])
+                                .all(|(a, b)| *a == *b)
+                    }
+                    _ => false,
+                };
+                drop(guard);
+                if all_same {
+                    result_stack.truncate(start);
+                    result_stack.push(orig_tid);
+                } else {
+                    let new_term = terms.app_from_slice(func, &result_stack[start..]);
+                    result_stack.truncate(start);
+                    result_stack.push(new_term);
+                }
             }
-            let action = terms.with_term(tid, |t| match t {
-                Some(Term::Var(idx)) => Action::Var(*idx),
-                Some(Term::App(_, children)) => {
-                    if children.is_empty() {
-                        Action::Keep
-                    } else {
-                        Action::App(children.clone())
+            Work::Visit(tid) => {
+                let guard = terms.read_lock();
+                match guard.get(tid) {
+                    Some(Term::Var(idx)) => {
+                        let shifted = *idx + offset;
+                        drop(guard);
+                        result_stack.push(terms.var(shifted));
+                    }
+                    Some(Term::App(_, children)) if children.is_empty() => {
+                        result_stack.push(tid);
+                    }
+                    Some(Term::App(f, children)) => {
+                        let func = *f;
+                        let n = children.len();
+                        work_stack.push(Work::BuildApp(tid, func, n));
+                        for i in (0..n).rev() {
+                            work_stack.push(Work::Visit(children[i]));
+                        }
+                    }
+                    None => {
+                        result_stack.push(tid);
                     }
                 }
-                None => Action::Keep,
-            });
-            match action {
-                Action::Var(idx) => result_stack.push(terms.var(idx + offset)),
-                Action::App(children) => {
-                    work_stack.push((tid, true));
-                    children_counts.push(children.len());
-                    for child in children.iter().rev() {
-                        work_stack.push((*child, false));
-                    }
-                }
-                Action::Keep => result_stack.push(tid),
             }
         }
     }
