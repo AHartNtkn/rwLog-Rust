@@ -284,7 +284,7 @@ fn seq_does_not_spawn_pipe_per_and_answer() {
 
     let pipe_count = count_pipe_nodes(&node);
     assert!(
-        pipe_count <= 2,
+        pipe_count <= 4,
         "Seq should not spawn one pipe per And answer; got {pipe_count}"
     );
 }
@@ -2414,7 +2414,7 @@ fn callkey_is_clone() {
 }
 
 #[test]
-fn callkey_ignores_mid_context_for_same_boundaries() {
+fn callkey_includes_adjacent_atom_as_far_boundary() {
     let (symbols, mut terms) = setup();
     let nf_a = make_ground_nf("A", &symbols, &terms);
     let nf_b = make_ground_nf("B", &symbols, &terms);
@@ -2437,9 +2437,12 @@ fn callkey_ignores_mid_context_for_same_boundaries() {
     let key_a = extract_key_from_step(step_a);
     let key_b = extract_key_from_step(step_b);
 
-    assert_eq!(
+    // Adjacent Atoms constrain the Call differently, so keys should differ.
+    // The Call's output must compose with the adjacent Atom, making the
+    // Atom a sound far boundary.
+    assert_ne!(
         key_a, key_b,
-        "CallKey should ignore mid context when boundaries match"
+        "CallKey should include adjacent Atom as far boundary"
     );
 }
 

@@ -40,6 +40,76 @@ pub enum NodeStep<C: ConstraintOps> {
     Exhausted,
 }
 
+/// Construct an Or node, collapsing if either side is Fail.
+fn or_node<C: ConstraintOps>(left: Node<C>, right: Node<C>) -> Node<C> {
+    match (&left, &right) {
+        (Node::Fail, _) => right,
+        (_, Node::Fail) => left,
+        _ => Node::Or(Box::new(left), Box::new(right)),
+    }
+}
+
+/// Rebuild an Or chain from siblings (outermost-first) and a leaf.
+///
+/// Given siblings [D, C, B] and leaf A', produces Or(D, Or(C, Or(B, A'))).
+/// Iterates in reverse so the outermost sibling ends up at the top.
+fn rebuild_or_chain<C: ConstraintOps>(siblings: Vec<Node<C>>, leaf: Node<C>) -> Node<C> {
+    let mut result = leaf;
+    for sib in siblings.into_iter().rev() {
+        result = or_node(sib, result);
+    }
+    result
+}
+
+/// Step an Or node with full spine rotation.
+///
+/// Walks down the left spine of nested Ors, collecting right children
+/// (siblings) in encounter order (outermost first). Prunes Fail nodes
+/// during the walk. Steps the leftmost non-Fail leaf, then rebuilds
+/// with siblings rotated in front of the stepped leaf.
+///
+/// Example: Or(Or(Or(A,B),C),D) → step A to A' → Or(D, Or(C, Or(B, A')))
+fn step_or<C: ConstraintOps>(
+    left: Node<C>,
+    right: Node<C>,
+    terms: &mut TermStore,
+) -> NodeStep<C> {
+    let mut siblings: Vec<Node<C>> = vec![right];
+    let mut current = left;
+
+    // Walk down the left spine, collecting siblings and pruning Fail
+    loop {
+        match current {
+            Node::Or(a, b) => {
+                siblings.push(*b);
+                current = *a;
+            }
+            Node::Fail => match siblings.pop() {
+                Some(next) => current = next,
+                None => return NodeStep::Exhausted,
+            },
+            _ => break,
+        }
+    }
+
+    match step_node(current, terms) {
+        NodeStep::Emit(nf, new_leaf) => {
+            NodeStep::Emit(nf, rebuild_or_chain(siblings, new_leaf))
+        }
+        NodeStep::Exhausted => {
+            let rest = rebuild_or_chain(siblings, Node::Fail);
+            if matches!(rest, Node::Fail) {
+                NodeStep::Exhausted
+            } else {
+                NodeStep::Continue(rest)
+            }
+        }
+        NodeStep::Continue(new_leaf) => {
+            NodeStep::Continue(rebuild_or_chain(siblings, new_leaf))
+        }
+    }
+}
+
 /// Step a node once using Or rotation and Work stepping.
 pub fn step_node<C: ConstraintOps>(node: Node<C>, terms: &mut TermStore) -> NodeStep<C> {
     match node {
@@ -47,18 +117,7 @@ pub fn step_node<C: ConstraintOps>(node: Node<C>, terms: &mut TermStore) -> Node
 
         Node::Emit(nf, rest) => NodeStep::Emit(nf, *rest),
 
-        Node::Or(left, right) => {
-            let left_node = *left;
-            match step_node(left_node, terms) {
-                NodeStep::Emit(nf, new_left) => {
-                    NodeStep::Emit(nf, Node::Or(right, Box::new(new_left)))
-                }
-                NodeStep::Exhausted => NodeStep::Continue(*right),
-                NodeStep::Continue(new_left) => {
-                    NodeStep::Continue(Node::Or(right, Box::new(new_left)))
-                }
-            }
-        }
+        Node::Or(left, right) => step_or(*left, *right, terms),
 
         Node::Work(mut work) => match work.step(terms) {
             WorkStep::Done => NodeStep::Continue(Node::Fail),

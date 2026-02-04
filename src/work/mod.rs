@@ -34,6 +34,7 @@ pub use pipe::PipeWork;
 #[cfg(test)]
 mod tests;
 
+
 /// Active work items for evaluation.
 #[derive(Clone, Debug)]
 pub enum Work<C: ConstraintOps> {
@@ -242,5 +243,14 @@ fn nf_right_suffix<C: ConstraintOps>(nf: &NF<C>, terms: &mut TermStore) -> NF<C>
         build_var_list(in_arity, terms),
         nf.drop_fresh.clone(),
         nf.build_pats.clone(),
+    )
+}
+
+fn nf_domain_filter<C: ConstraintOps>(nf: &NF<C>) -> NF<C> {
+    let in_arity = nf.drop_fresh.in_arity;
+    NF::new(
+        nf.match_pats.clone(),
+        DropFresh::identity_with_constraint(in_arity, nf.drop_fresh.constraint.clone()),
+        nf.match_pats.clone(),
     )
 }

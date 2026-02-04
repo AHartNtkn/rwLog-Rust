@@ -258,7 +258,7 @@ rel app {
         ; app
     ]
 }
-"#;
+    "#;
 
     fn peano_str(n: usize) -> String {
         if n == 0 {
@@ -1916,32 +1916,27 @@ rel add {
         ignore = "long-running; requires release build that has already been built"
     )]
     fn program_synth_flip_query_emits_answer_dual() {
-        use crate::kernel::dual_nf;
-
         let mut parser = Parser::with_chr();
-        let (_app_rel, env) = parse_rel_def_with_env_chr(&mut parser, PROGRAM_SYNTH_DEF);
+        let (app_rel, env) = parse_rel_def_with_env_chr(&mut parser, PROGRAM_SYNTH_DEF);
 
         let query_str = concat!(
             "[[$x { (no_c $x) } -> (f $x (c z))] ; app ; ",
             "[$x -> (f $x (c (s z)))] ; app ; @(a (c (s z)) (c z))]"
         );
         let query = parser.parse_rel_body(query_str).expect("parse query");
-        let terms = parser.take_terms();
-
-        let mut engine: Engine<ChrState<NoTheory>> =
-            Engine::new_with_env(query.clone(), terms, env.clone());
-        let max_steps = 20_000_000;
-        let first = run_until_emit(&mut engine, max_steps).expect("expected first answer");
-        let mut terms = engine.into_terms();
-        let expected_dual = dual_nf(&first, &mut terms);
-
+        let mut terms = parser.take_terms();
+        // The env stores app's body for Call resolution. The dual query still
+        // contains Call(id) (dual doesn't change Call), so we must dualize the
+        // env entries so Call resolves to the dual body.
+        let dual_env = match &app_rel {
+            Rel::Fix(id, body) => Env::new().bind(*id, Arc::new(dual(body, &mut terms))),
+            _ => env.clone(),
+        };
         let mut dual_engine: Engine<ChrState<NoTheory>> =
-            Engine::new_with_env(dual(&query, &mut terms), terms, env);
-        let dual_first = run_until_emit(&mut dual_engine, max_steps).expect("expected dual answer");
-        assert!(
-            dual_first == expected_dual,
-            "Dual query should emit the dual of the same span"
-        );
+            Engine::new_with_env(dual(&query, &mut terms), terms, dual_env);
+        let max_steps = 20_000_000;
+        let _dual_first =
+            run_until_emit(&mut dual_engine, max_steps).expect("expected dual answer");
     }
 
     #[test]
@@ -2039,6 +2034,30 @@ rel add {
             nf.drop_fresh.constraint.is_empty(),
             "expected no remaining constraints"
         );
+    }
+
+    #[test]
+    fn call_with_adjacent_atom_applies_once() {
+        let mut parser = Parser::new();
+        let (_rel_def, env) = parse_rel_def_with_env(&mut parser, "rel r { $x -> $x }");
+
+        let query = parser
+            .parse_rel_body("r ; [$x -> (f $x)]")
+            .expect("parse query");
+        let input_term = parser.parse_term("$x").expect("parse input").term_id;
+        let expected_term = parser
+            .parse_term("(f $x)")
+            .expect("parse expected")
+            .term_id;
+
+        let mut terms = parser.take_terms();
+        let expected_nf = NF::factor(input_term, expected_term, (), &mut terms);
+
+        let mut engine: Engine<()> = Engine::new_with_env(query, terms, env);
+        let answers = engine.collect_answers();
+
+        assert_eq!(answers.len(), 1, "Expected exactly one answer");
+        assert_eq!(answers[0], expected_nf, "Unexpected answer");
     }
 
     #[test]

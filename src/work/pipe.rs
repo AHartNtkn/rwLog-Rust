@@ -8,10 +8,11 @@ use crate::term::TermStore;
 use std::sync::Arc;
 
 use super::{
-    flatten_and_parts, nf_left_prefix, nf_right_suffix, nf_rwl_iso, nf_rwr_iso, node_from_answers,
-    wrap_compose_with_prefix_suffix, wrap_rel_with_atoms, AndGroup, CallKey, CallMode, ComposeWork,
-    Env, FixWork, ProducerSpec, Tables, Work, WorkStep,
+    flatten_and_parts, nf_domain_filter, nf_left_prefix, nf_right_suffix, nf_rwl_iso, nf_rwr_iso,
+    node_from_answers, wrap_compose_with_prefix_suffix, wrap_rel_with_atoms, AndGroup, CallKey,
+    CallMode, ComposeWork, Env, FixWork, ProducerSpec, Tables, Work, WorkStep,
 };
+
 
 #[derive(Clone, Copy, Debug)]
 enum PipeEnd {
@@ -26,8 +27,9 @@ enum PipeEnd {
 /// Normalization absorbs Atoms at boundaries via compose_nf.
 /// Or nodes in mid cause splits. Zero in mid annihilates.
 ///
-/// Outside-in evaluation: alternates processing front/back to propagate
-/// constraints before expanding recursion.
+/// Evaluation alternates front/back via flip. Or distribution is deferred
+/// when the other end has non-Or work. Internal Atoms split the pipe to
+/// give each segment tighter boundaries.
 #[derive(Clone, Debug)]
 pub struct PipeWork<C: ConstraintOps> {
     /// Left boundary (fused from front).
@@ -196,6 +198,10 @@ impl<C: ConstraintOps> PipeWork<C> {
                 Err(step) => return step,
             }
 
+            if let Some(step) = self.try_split_call_atom_call() {
+                return step;
+            }
+
             break;
         }
 
@@ -204,6 +210,50 @@ impl<C: ConstraintOps> PipeWork<C> {
         let result = self.advance_end(end, terms);
         self.flip = !self.flip; // Toggle for next step
         result
+    }
+
+    fn try_split_call_atom_call(&self) -> Option<WorkStep<C>> {
+        if self.mid.len() != 3 {
+            return None;
+        }
+        let factors = self.mid.to_vec();
+        let front = factors.first()?.as_ref();
+        let middle = factors.get(1)?.as_ref();
+        let back = factors.get(2)?.as_ref();
+        if !matches!(front, Rel::Call(_)) {
+            return None;
+        }
+        let middle_nf = match middle {
+            Rel::Atom(nf) => nf.as_ref(),
+            _ => return None,
+        };
+        if !matches!(back, Rel::Call(_)) {
+            return None;
+        }
+
+        let left_seq: Arc<[Arc<Rel<C>>]> = Arc::from(vec![factors[0].clone()]);
+        let right_seq: Arc<[Arc<Rel<C>>]> =
+            Arc::from(vec![factors[1].clone(), factors[2].clone()]);
+        let mut left_pipe = PipeWork::new_with_parts(
+            self.left.clone(),
+            Factors::from_seq(left_seq),
+            Some(nf_domain_filter(middle_nf)),
+            self.env.clone(),
+            self.tables.clone(),
+        );
+        let mut right_pipe = PipeWork::new_with_parts(
+            None,
+            Factors::from_seq(right_seq),
+            self.right.clone(),
+            self.env.clone(),
+            self.tables.clone(),
+        );
+        left_pipe.call_mode = self.call_mode.clone();
+        right_pipe.call_mode = self.call_mode.clone();
+        let left_node = Node::Work(Box::new(Work::Pipe(left_pipe)));
+        let right_node = Node::Work(Box::new(Work::Pipe(right_pipe)));
+        let compose = ComposeWork::new(left_node, right_node);
+        Some(WorkStep::More(Box::new(Work::Compose(compose))))
     }
 
     /// Choose which end to advance when normalization is stuck.
@@ -698,7 +748,18 @@ impl<C: ConstraintOps> PipeWork<C> {
         };
 
         let call_left = if use_left { self.left.clone() } else { None };
-        let call_right = if use_right { self.right.clone() } else { None };
+        let mut call_right = if use_right { self.right.clone() } else { None };
+
+        // Peek at the adjacent mid element in the far direction for an Atom
+        // when advancing the front Call. The Call's output flows into the
+        // next element, so an adjacent Atom is a sound constraint on output.
+        // This doesn't consume the Atom — it remains in mid for normal
+        // normalization when the Call's output flows back into the pipe.
+        if call_right.is_none() && absorb_front {
+            if let Some(Rel::Atom(nf)) = self.mid.front().map(|r| r.as_ref()) {
+                call_right = Some(nf_domain_filter(nf.as_ref()));
+            }
+        }
 
         let key = CallKey::new(id, binding.id, call_left.clone(), call_right.clone());
         if let CallMode::ReplayOnly(replay_key) = &self.call_mode {
