@@ -102,5 +102,6 @@ The investigation reveals two more promising optimization targets:
 ## Artifacts
 
 - Timing data from `perf_corpus_run` with labeled cases
-- Instrumentation in `perf_counters.rs` (fixpoint tracking fields, pair hash tracking)
+- Hooks (not yet wired): `record_fixpoint_producer_start`, `record_fixpoint_verification_start`, `record_fixpoint_verification_step` exist in `perf_counters.rs` but are not called from `fix.rs`
+- Instrumentation: pair hash tracking in `perf_counters.rs` (active for meet via `meet.rs`)
 - Investigation test: `tests/compose_meet_dedup_investigation.rs`

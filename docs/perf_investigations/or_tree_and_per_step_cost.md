@@ -96,7 +96,7 @@ CallKey::hash()
 4. Allocates `Vec<(u32, Vec<TokenKey>)>` (token rules)
 5. Sorts both alive constraints and token rules
 
-**This happens even when ChrState is empty** (no CHR constraints in the program). The even/odd workload has zero CHR constraints, so all this allocation is pure waste.
+**Update:** An empty fast-path has since been added to `freeze_chr` that short-circuits when `alive_count == 0 && T::is_empty(&builtins)`, returning a fixed 12-byte result without any allocations. Benchmarks showed this was neutral (the existing code path was already near-zero cost for empty state). See [chrstate_cache_and_fastpath.md](chrstate_cache_and_fastpath.md).
 
 ### Why ChrState::eq also allocates
 
@@ -121,7 +121,7 @@ At ~3-5µs per freeze_chr call (allocation + serialization + deallocation), the 
 Options:
 - **Pre-compute and cache the hash** inside ChrState (invalidate on mutation)
 - **Hash directly without materializing**: feed values to Hasher instead of building Vec<u8>
-- **Fast-path for empty ChrState**: skip freeze_chr entirely when store is empty
+- ~~**Fast-path for empty ChrState**: skip freeze_chr entirely when store is empty~~ (implemented; neutral impact)
 
 ### Target 2: Make ChrState cloning cheap
 

@@ -125,8 +125,8 @@ The ~21% improvement is real, but it's attributable to the **hash/eq caching** (
 
 ### Recommended next steps (in order of expected impact)
 
-1. **Cache frozen bytes directly on ChrState** — add `cached_frozen: Option<Vec<u8>>` field, set to `None` on any mutation, populated lazily in Hash/Eq. No Arc needed. Should capture ~15-20% of the 21% improvement.
-2. **Empty ChrState fast-path** — skip freeze_chr entirely when `store.alive_count == 0 && T::is_empty(&builtins)`. The even/odd workload uses NoTheory with zero constraints, so this eliminates all freeze_chr allocation for the critical benchmark.
+1. ~~**Cache frozen bytes directly on ChrState**~~ — Investigated in [chrstate_cache_and_fastpath.md](chrstate_cache_and_fastpath.md). `OnceLock<Vec<u8>>` cache caused a 15-23% regression due to struct size increase and OnceLock overhead. Instances are hashed/compared once each, so caching adds cost without benefit.
+2. ~~**Empty ChrState fast-path**~~ — Implemented in `freeze_chr`. Benchmarks showed neutral impact (existing code was already near-zero cost for empty state). See [chrstate_cache_and_fastpath.md](chrstate_cache_and_fastpath.md).
 3. **Restructure ConstraintOps to avoid clone-then-mutate** — this is a prerequisite for Arc-wrapping to deliver its full potential. Only after this is done would Arc-wrapping make sense.
 4. **FixWork Box allocation** — avoid per-step `Box::new(Work::Fix(self.clone()))` by reusing allocations.
 

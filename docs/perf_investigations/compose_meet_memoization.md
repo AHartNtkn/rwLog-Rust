@@ -92,5 +92,6 @@ These would eliminate not just the 258 duplicate compose calls but the entire re
 ## Artifacts
 
 - Instrumentation: `src/perf_counters.rs` (pair-hash tracking behind `enabled()` gate)
-- Instrumentation: `src/kernel/compose.rs`, `src/kernel/meet.rs` (hash computation)
+- Instrumentation: `src/kernel/meet.rs` (hash computation via `record_meet_pair_hash`)
+- Hook (not yet wired): `record_compose_pair_hash` exists in `perf_counters.rs` but is not called from `compose.rs`
 - Measurement test: `tests/compose_meet_dedup_investigation.rs`
