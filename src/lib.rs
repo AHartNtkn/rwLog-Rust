@@ -11,6 +11,8 @@ pub mod metrics;
 pub mod nf;
 pub mod node;
 pub mod parser;
+pub mod perf_corpus;
+pub mod perf_counters;
 pub mod queue;
 pub mod rel;
 pub mod repl;

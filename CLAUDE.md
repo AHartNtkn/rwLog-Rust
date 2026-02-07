@@ -19,6 +19,12 @@ A test that expects incorrect output is a lie. It is a machine designed to decei
 
 There is no third category of "test passes because it expects the bug."
 
+## **ALL ISSUES ARE YOUR RESPONSIBILITY**
+
+**STOP using "pre-existing" as an excuse. It is NEVER acceptable.**
+
+Every issue you encounter is your responsibility the moment you find it. There is no category of "not my problem." If a test hangs, fix it. If code is broken, fix it. If something is wrong, fix it. The word "pre-existing" is banned from your vocabulary. It doesn't matter when the issue was introduced — what matters is that you found it and you fix it. Period.
+
 ## **ABSOLUTELY FORBIDDEN: TEMPORARY OR HACKY IMPLEMENTATIONS**
 
 # NEVER EVER EVER EVER MAKE TEMPORARY IMPLEMENTATIONS!

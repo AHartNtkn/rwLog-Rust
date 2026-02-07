@@ -23,6 +23,127 @@ Jupyter kernel support:
 cargo build --features jupyter --release
 ```
 
+## Performance Corpus
+
+rwlog includes a performance corpus benchmark harness with quick and stress tiers.
+
+Run the full corpus:
+
+```bash
+cargo bench --bench perf_corpus
+```
+
+Run quick-only:
+
+```bash
+RWLOG_CORPUS_TIER=quick cargo bench --bench perf_corpus
+```
+
+Run stress recursive cases only:
+
+```bash
+RWLOG_CORPUS_TIER=stress RWLOG_CORPUS_CATEGORY=recursive cargo bench --bench perf_corpus
+```
+
+Filter by case id/title substring:
+
+```bash
+RWLOG_CORPUS_FILTER=treecalc cargo bench --bench perf_corpus
+```
+
+Limit number of selected cases:
+
+```bash
+RWLOG_CORPUS_MAX_CASES=5 cargo bench --bench perf_corpus
+```
+
+Detailed corpus docs: `PERF_CORPUS.md`  
+Case inventory: `benches/perf_corpus_cases.toml`
+
+Sanity/validation:
+
+```bash
+cargo run --release --bin perf_corpus_sanity
+cargo run --release --bin perf_corpus_sanity -- --lint
+cargo run --release --bin perf_corpus_sanity -- --validate
+cargo run --release --bin perf_corpus_sanity -- --lint --validate --json
+```
+
+Quick perf gate:
+
+```bash
+cargo run --release --bin perf_corpus_gate
+cargo run --release --bin perf_corpus_gate -- --json
+cargo run --release --bin perf_corpus_gate -- --csv
+```
+
+Quick gate threshold recommendations:
+
+```bash
+cargo run --release --bin perf_corpus_recommend_gate -- --headroom-pct 20
+cargo run --release --bin perf_corpus_recommend_gate -- --json
+cargo run --release --bin perf_corpus_recommend_gate -- --headroom-pct 20 --apply
+```
+
+Allocation visibility (parse vs execute):
+
+```bash
+cargo run --release --bin perf_corpus_alloc -- --iters 5
+cargo run --release --bin perf_corpus_alloc -- --iters 5 --json
+cargo run --release --bin perf_corpus_alloc -- --iters 5 --csv
+```
+
+Case-level timing report:
+
+```bash
+cargo run --release --bin perf_corpus_run -- --phase end_to_end --iters 20 --json
+cargo run --release --bin perf_corpus_run -- --phase end_to_end --iters 20 --csv
+```
+
+CI markdown summary from JSON artifacts:
+
+```bash
+cargo run --release --bin perf_corpus_ci_summary -- \
+  --sanity-json perf-artifacts/quick_sanity.json \
+  --gate-json perf-artifacts/quick_gate.json \
+  --probe-json perf-artifacts/quick_probe.json \
+  --status-json-out perf-artifacts/quick_status.json \
+  --out perf-artifacts/quick_summary.md
+```
+
+Trend analysis from historical snapshots:
+
+```bash
+cargo run --release --bin perf_corpus_trend -- --history-dir perf/history --source all --metric all
+scripts/perf/trend.sh --source probe --metric p95 --top 20
+cargo run --release --bin perf_corpus_trend -- --history-dir perf/history --window 2 --fail-regressions-pct 10
+cargo run --release --bin perf_corpus_trend -- --history-dir perf/history --env-compat fail
+cargo run --release --bin perf_corpus_trend -- --history-dir perf/history --fail-regressions-pct 10 --min-regression-confidence 1.5
+scripts/perf/trend_gate.sh
+```
+
+Periodic corpus-health audit:
+
+```bash
+cargo run --release --bin perf_corpus_health -- --history-dir perf/history --source all --window 30 --json
+scripts/perf/health_audit.sh
+```
+
+Helper scripts:
+
+```bash
+scripts/perf/quick.sh
+scripts/perf/stress.sh
+scripts/perf/save_baseline.sh main
+scripts/perf/compare_baseline.sh main
+scripts/perf/capture_snapshot.sh --tier quick --iters 10 --label local
+scripts/perf/import_artifacts_snapshot.sh --name quick_run_1234 --from perf-artifacts
+scripts/perf/trend.sh --source all --metric all
+scripts/perf/trend_gate.sh
+scripts/perf/health_audit.sh
+scripts/perf/prune_history.sh --history-dir perf/history --keep-last 60 --apply
+```
+
 ## CLI Usage
 
 Start the REPL:

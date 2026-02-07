@@ -98,7 +98,7 @@ fn extract_key_from_step(step: WorkStep<()>) -> CallKey<()> {
                 let fix = find_fixwork_in_node(compose.left())
                     .or_else(|| find_fixwork_in_node(compose.right()))
                     .expect("Expected FixWork in compose nodes");
-                fix.key
+                (*fix.key).clone()
             }
             _ => panic!("Expected Work::Compose(..)"),
         },
@@ -2524,7 +2524,7 @@ fn table_start_producer() {
     assert_eq!(table.producer_state(), ProducerState::NotStarted);
 
     let spec = ProducerSpec {
-        key: CallKey::new(0, 0, None, None),
+        key: Arc::new(CallKey::new(0, 0, None, None)),
         body: Arc::new(Rel::Zero),
         left: None,
         right: None,
@@ -2544,7 +2544,7 @@ fn table_finish_producer() {
 
     let table: Table<()> = Table::new();
     let spec = ProducerSpec {
-        key: CallKey::new(0, 0, None, None),
+        key: Arc::new(CallKey::new(0, 0, None, None)),
         body: Arc::new(Rel::Zero),
         left: None,
         right: None,
@@ -2664,7 +2664,7 @@ fn tables_get_or_create_new() {
     let tables: Tables<()> = Tables::new();
     let key: CallKey<()> = CallKey::new(0, 0, None, None);
 
-    let table = tables.get_or_create(key.clone());
+    let table = tables.get_or_create(&key);
     assert_eq!(table.answers_len(), 0);
     assert!(tables.lookup(&key).is_some());
 }
@@ -2674,11 +2674,11 @@ fn tables_get_or_create_existing() {
     let tables: Tables<()> = Tables::new();
     let key: CallKey<()> = CallKey::new(0, 0, None, None);
 
-    let table1 = tables.get_or_create(key.clone());
+    let table1 = tables.get_or_create(&key);
     table1.add_answer(make_identity_nf());
 
     // Getting same key should return same table
-    let table2 = tables.get_or_create(key);
+    let table2 = tables.get_or_create(&key);
     assert_eq!(table2.answers_len(), 1);
 }
 
@@ -2689,7 +2689,7 @@ fn tables_contains() {
     let key2: CallKey<()> = CallKey::new(1, 0, None, None);
 
     assert!(tables.lookup(&key1).is_none());
-    let _ = tables.get_or_create(key1.clone());
+    let _ = tables.get_or_create(&key1);
     assert!(tables.lookup(&key1).is_some());
     assert!(tables.lookup(&key2).is_none());
 }
@@ -2701,9 +2701,9 @@ fn tables_multiple_keys() {
     let key2: CallKey<()> = CallKey::new(1, 0, None, None);
     let key3: CallKey<()> = CallKey::new(2, 0, None, None);
 
-    let _ = tables.get_or_create(key1.clone());
-    let _ = tables.get_or_create(key2.clone());
-    let _ = tables.get_or_create(key3.clone());
+    let _ = tables.get_or_create(&key1);
+    let _ = tables.get_or_create(&key2);
+    let _ = tables.get_or_create(&key3);
 
     assert!(tables.lookup(&CallKey::new(0, 0, None, None)).is_some());
     assert!(tables.lookup(&CallKey::new(1, 0, None, None)).is_some());
@@ -2715,7 +2715,7 @@ fn tables_lookup_after_create() {
     let tables: Tables<()> = Tables::new();
     let key: CallKey<()> = CallKey::new(0, 0, None, None);
 
-    let _ = tables.get_or_create(key.clone());
+    let _ = tables.get_or_create(&key);
     let looked_up = tables.lookup(&key);
     assert!(looked_up.is_some());
 }
@@ -2731,7 +2731,7 @@ fn tables_default_is_new() {
 fn tables_is_clone() {
     let tables1: Tables<()> = Tables::new();
     let key: CallKey<()> = CallKey::new(0, 0, None, None);
-    let table = tables1.get_or_create(key.clone());
+    let table = tables1.get_or_create(&key);
     table.add_answer(make_identity_nf());
 
     let tables2 = tables1.clone();
@@ -2745,14 +2745,14 @@ fn tables_clone_shares_updates() {
     let tables2 = tables1.clone();
     let key: CallKey<()> = CallKey::new(0, 0, None, None);
 
-    let table1 = tables1.get_or_create(key.clone());
+    let table1 = tables1.get_or_create(&key);
 
     assert!(
         tables2.lookup(&key).is_some(),
         "Clone should see inserted table"
     );
 
-    let table2 = tables2.get_or_create(key.clone());
+    let table2 = tables2.get_or_create(&key);
     assert!(
         Arc::ptr_eq(&table1, &table2),
         "Tables should share the same entry"
@@ -2772,9 +2772,9 @@ fn tables_keys_with_different_boundaries() {
     let key2: CallKey<()> = CallKey::new(0, 0, Some(nf_b), None);
     let key3: CallKey<()> = CallKey::new(0, 0, None, Some(nf_a));
 
-    let _ = tables.get_or_create(key1.clone());
-    let _ = tables.get_or_create(key2.clone());
-    let _ = tables.get_or_create(key3.clone());
+    let _ = tables.get_or_create(&key1);
+    let _ = tables.get_or_create(&key2);
+    let _ = tables.get_or_create(&key3);
 
     let t1 = tables.lookup(&key1).expect("table for key1");
     let t2 = tables.lookup(&key2).expect("table for key2");
@@ -2791,7 +2791,7 @@ fn tables_keys_with_different_boundaries() {
 
 #[test]
 fn fixwork_new_handle() {
-    let key: CallKey<()> = CallKey::new(0, 0, None, None);
+    let key = Arc::new(CallKey::new(0, 0, None, None));
     let table = Arc::new(Table::new());
 
     let fix: FixWork<()> = FixWork::new(key.clone(), table, 0, Tables::new());
@@ -2807,7 +2807,7 @@ fn fixwork_new_handle() {
 #[test]
 fn fixwork_handle_emits_existing_answers() {
     let (symbols, mut terms) = setup();
-    let key: CallKey<()> = CallKey::new(0, 0, None, None);
+    let key = Arc::new(CallKey::new(0, 0, None, None));
     let table = Arc::new(Table::new());
 
     table.add_answer(make_ground_nf("A", &symbols, &terms));
@@ -2842,7 +2842,7 @@ fn run_fixwork_starts_producer_and_emits_answer(use_dual: bool) {
     use std::sync::Arc;
 
     let (symbols, mut terms) = setup();
-    let key: CallKey<()> = CallKey::new(0, 0, None, None);
+    let key = Arc::new(CallKey::new(0, 0, None, None));
     let table = Arc::new(Table::new());
     let mut nf = make_ground_nf("A", &symbols, &terms);
     if use_dual {
@@ -2881,7 +2881,7 @@ fn run_fixwork_advances_running_producer_and_emits(use_dual: bool) {
     use std::sync::Arc;
 
     let (symbols, mut terms) = setup();
-    let key: CallKey<()> = CallKey::new(0, 0, None, None);
+    let key = Arc::new(CallKey::new(0, 0, None, None));
     let table = Arc::new(Table::new());
     let mut nf = make_ground_nf("A", &symbols, &terms);
     if use_dual {
@@ -2920,7 +2920,7 @@ fn run_fixwork_skips_duplicate_answer(use_dual: bool) {
     use std::sync::Arc;
 
     let (symbols, mut terms) = setup();
-    let key: CallKey<()> = CallKey::new(0, 0, None, None);
+    let key = Arc::new(CallKey::new(0, 0, None, None));
     let table = Arc::new(Table::new());
     let mut nf = make_ground_nf("A", &symbols, &terms);
     if use_dual {
@@ -2960,7 +2960,7 @@ fn run_fixwork_exhausted_marks_done(use_dual: bool) {
     use std::sync::Arc;
 
     let (symbols, mut terms) = setup();
-    let key: CallKey<()> = CallKey::new(0, 0, None, None);
+    let key = Arc::new(CallKey::new(0, 0, None, None));
     let table = Arc::new(Table::new());
     let mut nf = make_ground_nf("A", &symbols, &terms);
     if use_dual {
@@ -3004,7 +3004,7 @@ fn fix_producer_dedups_duplicate_answers() {
         Box::new(Node::Emit(nf.clone(), Box::new(Node::Fail))),
     );
     let spec = ProducerSpec {
-        key: CallKey::new(0, 0, None, None),
+        key: Arc::new(CallKey::new(0, 0, None, None)),
         body: Arc::new(Rel::Atom(Arc::new(nf.clone()))),
         left: None,
         right: None,
@@ -3040,7 +3040,7 @@ fn run_fix_producer_continues_when_consumer_queue_full(use_dual: bool) {
         Box::new(Node::Emit(nf_b.clone(), Box::new(Node::Fail))),
     );
     let spec = ProducerSpec {
-        key: CallKey::new(0, 0, None, None),
+        key: Arc::new(CallKey::new(0, 0, None, None)),
         body: Arc::new(Rel::Atom(Arc::new(nf_a.clone()))),
         left: None,
         right: None,
@@ -3088,7 +3088,7 @@ fn fix_producer_broadcasts_answers_to_all_consumers() {
         Box::new(Node::Emit(nf_b.clone(), Box::new(Node::Fail))),
     );
     let spec = ProducerSpec {
-        key: CallKey::new(0, 0, None, None),
+        key: Arc::new(CallKey::new(0, 0, None, None)),
         body: Arc::new(Rel::Atom(Arc::new(nf_a.clone()))),
         left: None,
         right: None,
@@ -3108,8 +3108,18 @@ fn fix_producer_broadcasts_answers_to_all_consumers() {
 
     let mut got_a = Vec::new();
     let mut got_b = Vec::new();
-    let mut fix_a = FixWork::new(CallKey::new(0, 0, None, None), table.clone(), 0, tables);
-    let mut fix_b = FixWork::new(CallKey::new(0, 0, None, None), table, 0, Tables::new());
+    let mut fix_a = FixWork::new(
+        Arc::new(CallKey::new(0, 0, None, None)),
+        table.clone(),
+        0,
+        tables,
+    );
+    let mut fix_b = FixWork::new(
+        Arc::new(CallKey::new(0, 0, None, None)),
+        table,
+        0,
+        Tables::new(),
+    );
     for _ in 0..2 {
         if let WorkStep::Emit(nf, work) = fix_a.step(&mut terms) {
             got_a.push(nf);
@@ -3145,8 +3155,12 @@ fn fix_consumer_replays_existing_answers() {
     table.add_answer(nf_a.clone());
     table.add_answer(nf_b.clone());
 
-    let mut fix: FixWork<()> =
-        FixWork::new(CallKey::new(0, 0, None, None), table, 0, Tables::new());
+    let mut fix: FixWork<()> = FixWork::new(
+        Arc::new(CallKey::new(0, 0, None, None)),
+        table,
+        0,
+        Tables::new(),
+    );
     let step1 = fix.step(&mut terms);
     assert!(matches!(step1, WorkStep::Emit(_, _)));
     if let WorkStep::Emit(_, work) = step1 {
@@ -3161,7 +3175,7 @@ fn fix_consumer_replays_existing_answers() {
 #[test]
 fn fixwork_handle_done_when_table_done() {
     let (_, mut terms) = setup();
-    let key: CallKey<()> = CallKey::new(0, 0, None, None);
+    let key = Arc::new(CallKey::new(0, 0, None, None));
     let table = Arc::new(Table::new());
     table.finish_producer();
 
@@ -3199,7 +3213,7 @@ fn call_replay_interleaves_with_new_answers() {
     table.start_producer(
         Node::Work(Box::new(Work::Done)),
         ProducerSpec {
-            key: key.clone(),
+            key: Arc::new(key.clone()),
             body: body.clone(),
             left: None,
             right: None,
@@ -3257,7 +3271,7 @@ fn call_replay_interleaves_with_new_answers() {
 
 #[test]
 fn work_fix_construction() {
-    let key: CallKey<()> = CallKey::new(0, 0, None, None);
+    let key = Arc::new(CallKey::new(0, 0, None, None));
     let table = Arc::new(Table::new());
     let fix: FixWork<()> = FixWork::new(key, table, 0, Tables::new());
     let work: Work<()> = Work::Fix(fix);
@@ -3267,7 +3281,7 @@ fn work_fix_construction() {
 #[test]
 fn work_fix_step_delegates() {
     let (_, mut terms) = setup();
-    let key: CallKey<()> = CallKey::new(0, 0, None, None);
+    let key = Arc::new(CallKey::new(0, 0, None, None));
     let table = Arc::new(Table::new());
     table.finish_producer();
 

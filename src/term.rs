@@ -62,7 +62,7 @@ impl TermStore {
     pub fn new() -> Self {
         // Initialize array of shards with FxHash
         let shards =
-            std::array::from_fn(|_| RwLock::new(HashMap::with_hasher(FxBuildHasher::default())));
+            std::array::from_fn(|_| RwLock::new(HashMap::with_hasher(FxBuildHasher)));
         let var_cache = std::array::from_fn(|_| AtomicU32::new(u32::MAX));
         Self {
             nodes: RwLock::new(Vec::new()),

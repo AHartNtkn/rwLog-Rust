@@ -6,6 +6,7 @@
 
 use crate::constraint::ConstraintOps;
 use crate::nf::NF;
+use crate::perf_counters;
 use crate::term::TermStore;
 use crate::work::{Work, WorkStep};
 
@@ -69,11 +70,7 @@ fn rebuild_or_chain<C: ConstraintOps>(siblings: Vec<Node<C>>, leaf: Node<C>) -> 
 /// with siblings rotated in front of the stepped leaf.
 ///
 /// Example: Or(Or(Or(A,B),C),D) → step A to A' → Or(D, Or(C, Or(B, A')))
-fn step_or<C: ConstraintOps>(
-    left: Node<C>,
-    right: Node<C>,
-    terms: &mut TermStore,
-) -> NodeStep<C> {
+fn step_or<C: ConstraintOps>(left: Node<C>, right: Node<C>, terms: &mut TermStore) -> NodeStep<C> {
     let mut siblings: Vec<Node<C>> = vec![right];
     let mut current = left;
 
@@ -92,10 +89,10 @@ fn step_or<C: ConstraintOps>(
         }
     }
 
+    perf_counters::record_or_spine_walk(siblings.len() as u64);
+
     match step_node(current, terms) {
-        NodeStep::Emit(nf, new_leaf) => {
-            NodeStep::Emit(nf, rebuild_or_chain(siblings, new_leaf))
-        }
+        NodeStep::Emit(nf, new_leaf) => NodeStep::Emit(nf, rebuild_or_chain(siblings, new_leaf)),
         NodeStep::Exhausted => {
             let rest = rebuild_or_chain(siblings, Node::Fail);
             if matches!(rest, Node::Fail) {
@@ -104,9 +101,7 @@ fn step_or<C: ConstraintOps>(
                 NodeStep::Continue(rest)
             }
         }
-        NodeStep::Continue(new_leaf) => {
-            NodeStep::Continue(rebuild_or_chain(siblings, new_leaf))
-        }
+        NodeStep::Continue(new_leaf) => NodeStep::Continue(rebuild_or_chain(siblings, new_leaf)),
     }
 }
 

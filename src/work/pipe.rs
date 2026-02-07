@@ -13,7 +13,6 @@ use super::{
     CallMode, ComposeWork, Env, FixWork, ProducerSpec, Tables, Work, WorkStep,
 };
 
-
 #[derive(Clone, Copy, Debug)]
 enum PipeEnd {
     Front,
@@ -232,8 +231,7 @@ impl<C: ConstraintOps> PipeWork<C> {
         }
 
         let left_seq: Arc<[Arc<Rel<C>>]> = Arc::from(vec![factors[0].clone()]);
-        let right_seq: Arc<[Arc<Rel<C>>]> =
-            Arc::from(vec![factors[1].clone(), factors[2].clone()]);
+        let right_seq: Arc<[Arc<Rel<C>>]> = Arc::from(vec![factors[1].clone(), factors[2].clone()]);
         let mut left_pipe = PipeWork::new_with_parts(
             self.left.clone(),
             Factors::from_seq(left_seq),
@@ -761,9 +759,14 @@ impl<C: ConstraintOps> PipeWork<C> {
             }
         }
 
-        let key = CallKey::new(id, binding.id, call_left.clone(), call_right.clone());
+        let key = Arc::new(CallKey::new(
+            id,
+            binding.id,
+            call_left.clone(),
+            call_right.clone(),
+        ));
         if let CallMode::ReplayOnly(replay_key) = &self.call_mode {
-            if replay_key.as_ref() == &key {
+            if replay_key.as_ref() == key.as_ref() {
                 let table = match self.tables.lookup(&key) {
                     Some(table) => table,
                     None => return WorkStep::Done,
@@ -787,7 +790,7 @@ impl<C: ConstraintOps> PipeWork<C> {
             }
         }
 
-        let table = self.tables.get_or_create(key.clone());
+        let table = self.tables.get_or_create(&key);
         table.ensure_producer_spec(ProducerSpec {
             key: key.clone(),
             body: binding.body.clone(),

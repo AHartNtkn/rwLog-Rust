@@ -1,0 +1,424 @@
+[corpus]
+schema_version = 1
+min_quick_cases = 10
+min_stress_cases = 8
+min_by_category = { finite_det = 2, finite_nondet = 2, recursive = 4, constraints = 2, deep_terms = 2, wide_branching = 2 }
+require_real_world_tag_in_categories = ["recursive"]
+
+[[case]]
+id = "identity_atom"
+title = "Identity Rule Baseline"
+tier = "quick"
+category = "finite_det"
+description = "Single deterministic rule application baseline."
+mode = "exhaust"
+expected_kind = "exact"
+expected_value = 1
+program = '''
+rel id { $x -> $x }
+'''
+query = "@a ; id"
+tags = ["baseline", "deterministic"]
+determinism = "deterministic"
+answer_shape = "single"
+infinite_stream = false
+quick_gate_max_median_us = 3000.0
+quick_gate_max_p95_us = 6000.0
+noise_target_cv_pct = 35.0
+noise_flaky_cv_pct = 55.0
+adaptive_min_samples = 15
+adaptive_max_samples = 40
+notes = "Lowest-overhead deterministic baseline."
+
+[[case]]
+id = "sequence_chain_len12"
+title = "Sequence Chain Length 12"
+tier = "quick"
+category = "finite_det"
+description = "Long deterministic pipeline of relation calls."
+mode = "exhaust"
+expected_kind = "exact"
+expected_value = 1
+program = "{{CHAIN_PROGRAM:12}}"
+query = "{{CHAIN_QUERY:12}}"
+tags = ["seq", "pipeline"]
+determinism = "deterministic"
+answer_shape = "single"
+infinite_stream = false
+quick_gate_max_median_us = 12000.0
+quick_gate_max_p95_us = 24000.0
+noise_target_cv_pct = 35.0
+noise_flaky_cv_pct = 55.0
+adaptive_min_samples = 15
+adaptive_max_samples = 40
+
+[[case]]
+id = "sequence_chain_len64"
+title = "Sequence Chain Length 64"
+tier = "stress"
+category = "finite_det"
+description = "Stress deterministic pipeline normalization and call overhead."
+mode = "exhaust"
+expected_kind = "exact"
+expected_value = 1
+program = "{{CHAIN_PROGRAM:64}}"
+query = "{{CHAIN_QUERY:64}}"
+tags = ["seq", "pipeline", "stress"]
+determinism = "deterministic"
+answer_shape = "single"
+infinite_stream = false
+
+[[case]]
+id = "disjunction_wide_16"
+title = "Wide OR 16"
+tier = "quick"
+category = "wide_branching"
+description = "Exhaustive wide disjunction with moderate branch width."
+mode = "exhaust"
+expected_kind = "exact"
+expected_value = 16
+program = "{{OR_PROGRAM:16}}"
+query = "@a ; wide_or"
+tags = ["or", "branching"]
+determinism = "nondeterministic"
+answer_shape = "finite"
+infinite_stream = false
+quick_gate_max_median_us = 20000.0
+quick_gate_max_p95_us = 40000.0
+noise_target_cv_pct = 35.0
+noise_flaky_cv_pct = 55.0
+adaptive_min_samples = 15
+adaptive_max_samples = 40
+
+[[case]]
+id = "disjunction_wide_64_first16"
+title = "Wide OR 64 First 16"
+tier = "quick"
+category = "wide_branching"
+description = "Wide disjunction sampled as first-N stream."
+mode = "first_n"
+mode_limit = 16
+expected_kind = "exact"
+expected_value = 16
+program = "{{OR_PROGRAM:64}}"
+query = "@a ; wide_or"
+tags = ["or", "streaming"]
+determinism = "nondeterministic"
+answer_shape = "prefix_stream"
+infinite_stream = false
+quick_gate_max_median_us = 30000.0
+quick_gate_max_p95_us = 60000.0
+noise_target_cv_pct = 35.0
+noise_flaky_cv_pct = 55.0
+adaptive_min_samples = 15
+adaptive_max_samples = 40
+
+[[case]]
+id = "disjunction_wide_256_first64"
+title = "Wide OR 256 First 64"
+tier = "stress"
+category = "wide_branching"
+description = "Stress branch scheduling and early-answer throughput."
+mode = "first_n"
+mode_limit = 64
+expected_kind = "exact"
+expected_value = 64
+program = "{{OR_PROGRAM:256}}"
+query = "@a ; wide_or"
+tags = ["or", "streaming", "stress"]
+determinism = "nondeterministic"
+answer_shape = "prefix_stream"
+infinite_stream = false
+
+[[case]]
+id = "conjunction_selective"
+title = "Selective Conjunction"
+tier = "quick"
+category = "finite_nondet"
+description = "Conjunction that intersects two disjunctions to one answer."
+mode = "exhaust"
+expected_kind = "exact"
+expected_value = 1
+program = ""
+query = "@a ; [a -> b | a -> c | a -> d] & [a -> c | a -> x]"
+tags = ["and", "meet", "selective"]
+determinism = "nondeterministic"
+answer_shape = "single"
+infinite_stream = false
+quick_gate_max_median_us = 20000.0
+quick_gate_max_p95_us = 40000.0
+noise_target_cv_pct = 35.0
+noise_flaky_cv_pct = 55.0
+adaptive_min_samples = 15
+adaptive_max_samples = 40
+
+[[case]]
+id = "conjunction_cross_16x16"
+title = "Conjunction Cross 16x16"
+tier = "stress"
+category = "finite_nondet"
+description = "Higher branching conjunction to stress join filtering."
+mode = "exhaust"
+expected_kind = "exact"
+expected_value = 1
+program = ""
+query = "@a ; [a -> k0 | a -> k1 | a -> k2 | a -> k3 | a -> k4 | a -> k5 | a -> k6 | a -> k7 | a -> k8 | a -> k9 | a -> k10 | a -> k11 | a -> k12 | a -> k13 | a -> k14 | a -> k15] & [a -> k15 | a -> x0 | a -> x1 | a -> x2 | a -> x3 | a -> x4 | a -> x5 | a -> x6 | a -> x7 | a -> x8 | a -> x9 | a -> x10 | a -> x11 | a -> x12 | a -> x13 | a -> x14]"
+tags = ["and", "meet", "branching", "stress"]
+determinism = "nondeterministic"
+answer_shape = "single"
+infinite_stream = false
+
+[[case]]
+id = "deep_term_depth_32"
+title = "Deep Term Depth 32"
+tier = "quick"
+category = "deep_terms"
+description = "Single peel from a deeply nested unary term."
+mode = "exhaust"
+expected_kind = "exact"
+expected_value = 1
+program = "{{PROGRAM_PEEL}}"
+query = "@{{NESTED:z:32}} ; peel"
+tags = ["deep", "matching"]
+determinism = "deterministic"
+answer_shape = "single"
+infinite_stream = false
+quick_gate_max_median_us = 20000.0
+quick_gate_max_p95_us = 40000.0
+noise_target_cv_pct = 35.0
+noise_flaky_cv_pct = 55.0
+adaptive_min_samples = 15
+adaptive_max_samples = 40
+
+[[case]]
+id = "deep_term_depth_128"
+title = "Deep Term Depth 128"
+tier = "stress"
+category = "deep_terms"
+description = "Stress deep-term matching and substitution handling."
+mode = "exhaust"
+expected_kind = "exact"
+expected_value = 1
+program = "{{PROGRAM_PEEL}}"
+query = "@{{NESTED:z:128}} ; peel"
+tags = ["deep", "matching", "stress"]
+determinism = "deterministic"
+answer_shape = "single"
+infinite_stream = false
+
+[[case]]
+id = "recursive_add_forward_n8"
+title = "Add Forward n=8"
+tier = "quick"
+category = "recursive"
+description = "Recursive deterministic forward addition."
+mode = "exhaust"
+expected_kind = "exact"
+expected_value = 1
+program = "{{PROGRAM_ADD}}"
+query = "@(cons {{PEANO:8}} {{PEANO:8}}) ; add"
+tags = ["recursion", "forward"]
+determinism = "deterministic"
+answer_shape = "single"
+infinite_stream = false
+quick_gate_max_median_us = 20000.0
+quick_gate_max_p95_us = 45000.0
+noise_target_cv_pct = 35.0
+noise_flaky_cv_pct = 55.0
+adaptive_min_samples = 15
+adaptive_max_samples = 40
+
+[[case]]
+id = "recursive_add_backward_n8"
+title = "Add Backward sum=8"
+tier = "quick"
+category = "recursive"
+description = "Backward addition enumeration with finite partition count."
+mode = "exhaust"
+expected_kind = "exact"
+expected_value = 9
+program = "{{PROGRAM_ADD}}"
+query = "add ; @{{PEANO:8}}"
+tags = ["recursion", "backward", "enumeration"]
+determinism = "nondeterministic"
+answer_shape = "finite"
+infinite_stream = false
+quick_gate_max_median_us = 35000.0
+quick_gate_max_p95_us = 70000.0
+noise_target_cv_pct = 35.0
+noise_flaky_cv_pct = 55.0
+adaptive_min_samples = 15
+adaptive_max_samples = 40
+
+[[case]]
+id = "recursive_add_forward_n24"
+title = "Add Forward n=24"
+tier = "stress"
+category = "recursive"
+description = "Deeper recursive forward addition stress."
+mode = "exhaust"
+expected_kind = "exact"
+expected_value = 1
+program = "{{PROGRAM_ADD}}"
+query = "@(cons {{PEANO:24}} {{PEANO:24}}) ; add"
+tags = ["recursion", "forward", "stress"]
+determinism = "deterministic"
+answer_shape = "single"
+infinite_stream = false
+
+[[case]]
+id = "recursive_add_backward_n24"
+title = "Add Backward sum=24"
+tier = "stress"
+category = "recursive"
+description = "Backward addition with larger finite answer set."
+mode = "exhaust"
+expected_kind = "exact"
+expected_value = 25
+program = "{{PROGRAM_ADD}}"
+query = "add ; @{{PEANO:24}}"
+tags = ["recursion", "backward", "stress"]
+determinism = "nondeterministic"
+answer_shape = "finite"
+infinite_stream = false
+
+[[case]]
+id = "recursive_even_backward_first10"
+title = "Even Backward First 10"
+tier = "quick"
+category = "recursive"
+description = "Mutual recursion stream prefix."
+mode = "first_n"
+mode_limit = 10
+expected_kind = "exact"
+expected_value = 10
+program = "{{PROGRAM_EVEN_ODD}}"
+query = "even ; @yes"
+tags = ["mutual-recursion", "streaming"]
+determinism = "nondeterministic"
+answer_shape = "prefix_stream"
+infinite_stream = true
+quick_gate_max_median_us = 30000.0
+quick_gate_max_p95_us = 70000.0
+noise_target_cv_pct = 35.0
+noise_flaky_cv_pct = 55.0
+adaptive_min_samples = 15
+adaptive_max_samples = 40
+
+[[case]]
+id = "recursive_even_backward_first64"
+title = "Even Backward First 64"
+tier = "stress"
+category = "recursive"
+description = "Stress long-prefix streaming in mutual recursion."
+mode = "first_n"
+mode_limit = 64
+expected_kind = "exact"
+expected_value = 64
+program = "{{PROGRAM_EVEN_ODD}}"
+query = "even ; @yes"
+tags = ["mutual-recursion", "streaming", "stress"]
+determinism = "nondeterministic"
+answer_shape = "prefix_stream"
+infinite_stream = true
+
+[[case]]
+id = "constraints_nonzero_success"
+title = "CHR Nonzero Success"
+tier = "quick"
+category = "constraints"
+description = "Constraint-guarded success path."
+mode = "exhaust"
+expected_kind = "exact"
+expected_value = 1
+program = "{{PROGRAM_EQ_NEQ}}"
+query = "@(s (s z)) ; nonzero_ok"
+tags = ["chr", "guards"]
+determinism = "deterministic"
+answer_shape = "single"
+infinite_stream = false
+quick_gate_max_median_us = 30000.0
+quick_gate_max_p95_us = 60000.0
+noise_target_cv_pct = 35.0
+noise_flaky_cv_pct = 55.0
+adaptive_min_samples = 15
+adaptive_max_samples = 40
+
+[[case]]
+id = "constraints_nonzero_deep_success"
+title = "CHR Nonzero Deep Success"
+tier = "stress"
+category = "constraints"
+description = "Constraint-guarded success with deeper Peano argument."
+mode = "exhaust"
+expected_kind = "exact"
+expected_value = 1
+program = "{{PROGRAM_EQ_NEQ}}"
+query = "@{{PEANO:32}} ; nonzero_ok"
+tags = ["chr", "guards", "stress"]
+determinism = "deterministic"
+answer_shape = "single"
+infinite_stream = false
+
+[[case]]
+id = "constraints_range_between"
+title = "CHR Between Range"
+tier = "quick"
+category = "constraints"
+description = "Constraint composition through between/leq."
+mode = "exhaust"
+expected_kind = "exact"
+expected_value = 1
+program = "{{PROGRAM_RANGES}}"
+query = "@(pair (s z) (range (closed z) (closed (s (s z))))) ; member"
+tags = ["chr", "between"]
+determinism = "deterministic"
+answer_shape = "single"
+infinite_stream = false
+quick_gate_max_median_us = 30000.0
+quick_gate_max_p95_us = 60000.0
+noise_target_cv_pct = 35.0
+noise_flaky_cv_pct = 55.0
+adaptive_min_samples = 15
+adaptive_max_samples = 40
+
+[[case]]
+id = "treecalc_first_answer"
+title = "TreeCalc First Answer"
+tier = "quick"
+category = "recursive"
+description = "Tree calculus workload representative from examples."
+mode = "first_answer"
+expected_kind = "at_least"
+expected_value = 1
+program = "{{PROGRAM_TREECALC}}"
+query = "@(f (f l (b l)) (b (b l))) ; app"
+tags = ["treecalc", "realistic"]
+determinism = "nondeterministic"
+answer_shape = "prefix_stream"
+infinite_stream = true
+quick_gate_max_median_us = 50000.0
+quick_gate_max_p95_us = 120000.0
+noise_target_cv_pct = 35.0
+noise_flaky_cv_pct = 55.0
+adaptive_min_samples = 15
+adaptive_max_samples = 40
+notes = "Representative real-world recursive workload from examples/treecalc.txt."
+
+[[case]]
+id = "treecalc_first16"
+title = "TreeCalc First 16"
+tier = "stress"
+category = "recursive"
+description = "Tree calculus streaming prefix for heavier recursive search."
+mode = "first_n"
+mode_limit = 16
+expected_kind = "at_least"
+expected_value = 1
+program = "{{PROGRAM_TREECALC}}"
+query = "app ; @(b l)"
+tags = ["treecalc", "streaming", "stress"]
+determinism = "nondeterministic"
+answer_shape = "prefix_stream"
+infinite_stream = true
+notes = "Streaming treecalc stress query; validates productive prefix generation."
