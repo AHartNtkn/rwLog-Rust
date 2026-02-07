@@ -34,7 +34,6 @@ pub use pipe::PipeWork;
 #[cfg(test)]
 mod tests;
 
-
 /// Active work items for evaluation.
 #[derive(Clone, Debug)]
 pub enum Work<C: ConstraintOps> {
@@ -75,7 +74,7 @@ pub enum CallMode<C: ConstraintOps> {
     /// Normal call handling (tabling + producer).
     Normal,
     /// Replay-only for a specific CallKey (used during producer iterations).
-    ReplayOnly(Box<CallKey<C>>),
+    ReplayOnly(Arc<CallKey<C>>),
 }
 
 fn collect_and_parts<C: ConstraintOps>(rel: Arc<Rel<C>>, out: &mut Vec<Arc<Rel<C>>>) {

@@ -56,12 +56,10 @@ fn run_bin_in_dir(name: &str, args: &[&str], cwd: &Path) -> Output {
             .arg("--");
         fallback
     };
-    cmd.args(args).current_dir(cwd).output().unwrap_or_else(|e| {
-        panic!(
-            "failed to run binary '{name}' in {}: {e}",
-            cwd.display()
-        )
-    })
+    cmd.args(args)
+        .current_dir(cwd)
+        .output()
+        .unwrap_or_else(|e| panic!("failed to run binary '{name}' in {}: {e}", cwd.display()))
 }
 
 fn run_bash(script_path: &str, args: &[&str]) -> Output {
@@ -437,7 +435,7 @@ fn import_artifacts_snapshot_script_copies_expected_files() {
         &json!({"failed":false}),
     );
     write_json(&artifact_dir.join("quick_probe.json"), &json!({"rows":[]}));
-    fs::write(&artifact_dir.join("quick_summary.md"), "# summary\n").expect("write summary");
+    fs::write(artifact_dir.join("quick_summary.md"), "# summary\n").expect("write summary");
 
     let output = run_bash(
         "scripts/perf/import_artifacts_snapshot.sh",
@@ -659,7 +657,9 @@ fn prune_history_script_reports_and_applies_deletions() {
     assert_eq!(dry_json["applied"].as_bool(), Some(false));
     assert!(dry_json["would_delete"]
         .as_array()
-        .map(|a| a.iter().any(|v| v.as_str() == Some("20250101T000000Z_quick")))
+        .map(|a| a
+            .iter()
+            .any(|v| v.as_str() == Some("20250101T000000Z_quick")))
         .unwrap_or(false));
     assert!(d1.exists());
 
@@ -746,11 +746,15 @@ fn perf_health_audit_reports_stale_noisy_and_redundant_patterns() {
     assert_eq!(report["snapshots_scanned"].as_u64(), Some(3));
     assert!(report["stale_cases"]
         .as_array()
-        .map(|a| a.iter().any(|v| v["id"].as_str() == Some("recursive_add_forward_n8")))
+        .map(|a| a
+            .iter()
+            .any(|v| v["id"].as_str() == Some("recursive_add_forward_n8")))
         .unwrap_or(false));
     assert!(report["noisy_cases"]
         .as_array()
-        .map(|a| a.iter().any(|v| v["id"].as_str() == Some("recursive_add_forward_n8")))
+        .map(|a| a
+            .iter()
+            .any(|v| v["id"].as_str() == Some("recursive_add_forward_n8")))
         .unwrap_or(false));
     assert!(report["redundant_pairs"]
         .as_array()
@@ -759,9 +763,9 @@ fn perf_health_audit_reports_stale_noisy_and_redundant_patterns() {
                 v["left_id"].as_str() == Some("identity_atom")
                     && v["right_id"].as_str() == Some("sequence_chain_len12")
             }) || a.iter().any(|v| {
-                    v["left_id"].as_str() == Some("sequence_chain_len12")
-                        && v["right_id"].as_str() == Some("identity_atom")
-                })
+                v["left_id"].as_str() == Some("sequence_chain_len12")
+                    && v["right_id"].as_str() == Some("identity_atom")
+            })
         })
         .unwrap_or(false));
 }

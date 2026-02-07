@@ -118,7 +118,7 @@ pub enum ProducerStep {
 #[derive(Clone, Debug)]
 pub struct ProducerSpec<C: ConstraintOps> {
     /// CallKey for ReplayOnly protection.
-    pub key: CallKey<C>,
+    pub key: Arc<CallKey<C>>,
     /// Body of the Fix relation.
     pub body: Arc<Rel<C>>,
     /// Left boundary to apply for this call.
@@ -343,7 +343,7 @@ fn make_replay_producer<C: ConstraintOps>(spec: &ProducerSpec<C>, tables: &Table
         spec.env.clone(),
         tables.clone(),
     );
-    producer_pipe.call_mode = CallMode::ReplayOnly(Box::new(spec.key.clone()));
+    producer_pipe.call_mode = CallMode::ReplayOnly(spec.key.clone());
     Node::Work(Box::new(Work::Pipe(producer_pipe)))
 }
 
@@ -428,12 +428,12 @@ impl<C: ConstraintOps> Tables<C> {
     }
 
     /// Get or create a table for a CallKey.
-    pub fn get_or_create(&self, key: CallKey<C>) -> Arc<Table<C>> {
-        if let Some(table) = self.map.get(&key) {
+    pub fn get_or_create(&self, key: &CallKey<C>) -> Arc<Table<C>> {
+        if let Some(table) = self.map.get(key) {
             return table.value().clone();
         }
         let table = Arc::new(Table::with_waker(self.waker()));
-        let entry = self.map.entry(key).or_insert(table.clone());
+        let entry = self.map.entry(key.clone()).or_insert(table.clone());
         entry.value().clone()
     }
 
@@ -454,8 +454,8 @@ impl<C: ConstraintOps> Default for Tables<C> {
 /// replay-only calls for the current CallKey.
 #[derive(Clone, Debug)]
 pub struct FixWork<C: ConstraintOps> {
-    /// The CallKey for this tabled call.
-    pub key: CallKey<C>,
+    /// The CallKey for this tabled call (Arc-wrapped for O(1) clone).
+    pub key: Arc<CallKey<C>>,
     /// Reference to the table.
     pub table: Arc<Table<C>>,
     /// Current answer index for this handle.
@@ -467,7 +467,7 @@ pub struct FixWork<C: ConstraintOps> {
 impl<C: ConstraintOps> FixWork<C> {
     /// Create a new FixWork handle.
     pub fn new(
-        key: CallKey<C>,
+        key: Arc<CallKey<C>>,
         table: Arc<Table<C>>,
         start_index: usize,
         tables: Tables<C>,

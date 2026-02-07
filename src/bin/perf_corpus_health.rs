@@ -5,6 +5,12 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+/// Time-series data keyed by (source, metric, case_id) -> list of (snapshot_name, value).
+type MetricSeries = BTreeMap<(String, String, String), Vec<(String, f64)>>;
+
+/// Series grouped by (source, metric) -> list of (case_id, values).
+type GroupedSeries = BTreeMap<(String, String), Vec<(String, Vec<(String, f64)>)>>;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum SourceFilter {
     Gate,
@@ -321,8 +327,8 @@ fn pearson_corr(xs: &[f64], ys: &[f64]) -> Option<f64> {
 fn collect_series(
     snapshots: &[Snapshot],
     source: SourceFilter,
-) -> BTreeMap<(String, String, String), Vec<(String, f64)>> {
-    let mut series: BTreeMap<(String, String, String), Vec<(String, f64)>> = BTreeMap::new();
+) -> MetricSeries {
+    let mut series: MetricSeries = BTreeMap::new();
     for snapshot in snapshots {
         if (source == SourceFilter::Gate || source == SourceFilter::All) && snapshot.gate.is_some()
         {
@@ -376,7 +382,7 @@ fn latest_present_ids(snapshots: &[Snapshot], source: SourceFilter) -> BTreeSet<
 }
 
 fn stale_cases(
-    series: &BTreeMap<(String, String, String), Vec<(String, f64)>>,
+    series: &MetricSeries,
     snapshots: &[Snapshot],
     source: SourceFilter,
     min_points: usize,
@@ -410,7 +416,7 @@ fn stale_cases(
 }
 
 fn noisy_cases(
-    series: &BTreeMap<(String, String, String), Vec<(String, f64)>>,
+    series: &MetricSeries,
     noisy_cv_pct_threshold: f64,
 ) -> Vec<NoisyCase> {
     let mut out = Vec::new();
@@ -443,13 +449,12 @@ fn noisy_cases(
 }
 
 fn redundant_pairs(
-    series: &BTreeMap<(String, String, String), Vec<(String, f64)>>,
+    series: &MetricSeries,
     min_points: usize,
     corr_min: f64,
     top: usize,
 ) -> Vec<RedundantPair> {
-    let mut grouped: BTreeMap<(String, String), Vec<(String, Vec<(String, f64)>)>> =
-        BTreeMap::new();
+    let mut grouped: GroupedSeries = BTreeMap::new();
     for ((source, metric, id), values) in series {
         grouped
             .entry((source.clone(), metric.clone()))
@@ -463,10 +468,8 @@ fn redundant_pairs(
             for j in (i + 1)..cases.len() {
                 let (id_a, vals_a) = &cases[i];
                 let (id_b, vals_b) = &cases[j];
-                let map_b: BTreeMap<&str, f64> = vals_b
-                    .iter()
-                    .map(|(snap, v)| (snap.as_str(), *v))
-                    .collect();
+                let map_b: BTreeMap<&str, f64> =
+                    vals_b.iter().map(|(snap, v)| (snap.as_str(), *v)).collect();
                 let mut xs = Vec::new();
                 let mut ys = Vec::new();
                 for (snap, va) in vals_a {

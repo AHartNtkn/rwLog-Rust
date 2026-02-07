@@ -8,6 +8,7 @@
 use rwlog::perf_corpus::{self, CorpusFilters, TierFilter};
 
 #[test]
+#[ignore] // Investigation benchmark: only meaningful in --release mode
 fn measure_or_spine_costs() {
     let cases = perf_corpus::load_cases();
     let filters = CorpusFilters {
@@ -19,7 +20,15 @@ fn measure_or_spine_costs() {
     println!("\n{:-<150}", "");
     println!(
         "{:<40} {:>8} {:>8} {:>8} {:>10} {:>10} {:>10} {:>10} {:>8}",
-        "Case", "Steps", "Emits", "OrWalks", "TotalSibs", "MaxSibs", "AvgSibs", "SibSteps%", "µs/step"
+        "Case",
+        "Steps",
+        "Emits",
+        "OrWalks",
+        "TotalSibs",
+        "MaxSibs",
+        "AvgSibs",
+        "SibSteps%",
+        "µs/step"
     );
     println!("{:-<150}", "");
 
@@ -32,9 +41,8 @@ fn measure_or_spine_costs() {
         let prepared = perf_corpus::prepare_case(case);
 
         let start = std::time::Instant::now();
-        let (_answers, snap) = rwlog::perf_counters::capture(|| {
-            perf_corpus::run_prepared(case, prepared)
-        });
+        let (_answers, snap) =
+            rwlog::perf_counters::capture(|| perf_corpus::run_prepared(case, prepared));
         let elapsed = start.elapsed();
 
         grand_steps += snap.engine_steps;
@@ -103,12 +111,26 @@ fn measure_or_spine_costs() {
 
     println!("\nKey metrics:");
     println!("  Total engine steps: {}", grand_steps);
-    println!("  Total Or spine walks: {} ({:.1}% of steps are Or rotations)",
+    println!(
+        "  Total Or spine walks: {} ({:.1}% of steps are Or rotations)",
         grand_or_walks,
-        if grand_steps > 0 { grand_or_walks as f64 / grand_steps as f64 * 100.0 } else { 0.0 });
-    println!("  Total sibling nodes traversed: {} (avg {:.1} per walk)",
-        grand_total_siblings, grand_avg);
+        if grand_steps > 0 {
+            grand_or_walks as f64 / grand_steps as f64 * 100.0
+        } else {
+            0.0
+        }
+    );
+    println!(
+        "  Total sibling nodes traversed: {} (avg {:.1} per walk)",
+        grand_total_siblings, grand_avg
+    );
     println!("  Peak siblings in single walk: {}", grand_max_siblings);
-    println!("  Sibling traversals as fraction of engine steps: {:.1}x",
-        if grand_steps > 0 { grand_total_siblings as f64 / grand_steps as f64 } else { 0.0 });
+    println!(
+        "  Sibling traversals as fraction of engine steps: {:.1}x",
+        if grand_steps > 0 {
+            grand_total_siblings as f64 / grand_steps as f64
+        } else {
+            0.0
+        }
+    );
 }

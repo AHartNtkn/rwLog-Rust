@@ -1415,7 +1415,8 @@ impl<T: Theory> ChrState<T> {
             }
         }
 
-        rule.body.exec(&prog.pats, terms, &prog.builtins, &env, self)
+        rule.body
+            .exec(&prog.pats, terms, &prog.builtins, &env, self)
     }
 
     fn is_alive(&self, cid: Cid) -> bool {

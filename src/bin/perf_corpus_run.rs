@@ -280,7 +280,6 @@ fn main() {
                 csv_escape_opt(env.run_id.as_deref()),
             );
         }
-        return;
     }
 }
 

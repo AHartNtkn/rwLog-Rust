@@ -5,6 +5,7 @@
 use rwlog::perf_corpus::{self, CorpusFilters, TierFilter};
 
 #[test]
+#[ignore] // Investigation benchmark: only meaningful in --release mode
 fn measure_compose_meet_duplication() {
     let cases = perf_corpus::load_cases();
     let filters = CorpusFilters {
@@ -28,9 +29,8 @@ fn measure_compose_meet_duplication() {
 
     for case in &cases {
         let prepared = perf_corpus::prepare_case(case);
-        let (_answers, snap) = rwlog::perf_counters::capture(|| {
-            perf_corpus::run_prepared(case, prepared)
-        });
+        let (_answers, snap) =
+            rwlog::perf_counters::capture(|| perf_corpus::run_prepared(case, prepared));
 
         total_steps += snap.engine_steps;
         total_compose += snap.compose_attempts;
@@ -99,9 +99,21 @@ fn measure_compose_meet_duplication() {
         total_meet_dup,
     );
     println!("{:-<140}", "");
-    println!("\nCompose calls as % of engine steps: {:.2}%",
-        if total_steps > 0 { total_compose as f64 / total_steps as f64 * 100.0 } else { 0.0 });
-    println!("Duplicate compose calls saved by cache: {} ({:.1}% of total compose)",
+    println!(
+        "\nCompose calls as % of engine steps: {:.2}%",
+        if total_steps > 0 {
+            total_compose as f64 / total_steps as f64 * 100.0
+        } else {
+            0.0
+        }
+    );
+    println!(
+        "Duplicate compose calls saved by cache: {} ({:.1}% of total compose)",
         total_compose - total_compose_unique,
-        if total_compose > 0 { (total_compose - total_compose_unique) as f64 / total_compose as f64 * 100.0 } else { 0.0 });
+        if total_compose > 0 {
+            (total_compose - total_compose_unique) as f64 / total_compose as f64 * 100.0
+        } else {
+            0.0
+        }
+    );
 }

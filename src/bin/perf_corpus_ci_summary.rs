@@ -144,15 +144,21 @@ fn parse_args() -> Args {
             continue;
         }
         if arg == "--sanity-json" {
-            sanity_json = Some(PathBuf::from(args.next().expect("--sanity-json requires path")));
+            sanity_json = Some(PathBuf::from(
+                args.next().expect("--sanity-json requires path"),
+            ));
             continue;
         }
         if arg == "--gate-json" {
-            gate_json = Some(PathBuf::from(args.next().expect("--gate-json requires path")));
+            gate_json = Some(PathBuf::from(
+                args.next().expect("--gate-json requires path"),
+            ));
             continue;
         }
         if arg == "--probe-json" {
-            probe_json = Some(PathBuf::from(args.next().expect("--probe-json requires path")));
+            probe_json = Some(PathBuf::from(
+                args.next().expect("--probe-json requires path"),
+            ));
             continue;
         }
         if arg == "--out" {
@@ -190,7 +196,8 @@ fn parse_args() -> Args {
 }
 
 fn read_json<T: for<'de> Deserialize<'de>>(path: &PathBuf) -> T {
-    let data = fs::read_to_string(path).unwrap_or_else(|e| panic!("read {}: {}", path.display(), e));
+    let data =
+        fs::read_to_string(path).unwrap_or_else(|e| panic!("read {}: {}", path.display(), e));
     serde_json::from_str(&data).unwrap_or_else(|e| panic!("parse {}: {}", path.display(), e))
 }
 
@@ -271,7 +278,10 @@ fn build_status_report(
         } else {
             "fail".to_string()
         },
-        message: format!("lint_requested={} lint_ok={}", sanity.lint_requested, sanity.lint_ok),
+        message: format!(
+            "lint_requested={} lint_ok={}",
+            sanity.lint_requested, sanity.lint_ok
+        ),
     });
     checks.push(StatusCheck {
         name: "sanity_validate".to_string(),
@@ -333,7 +343,12 @@ fn build_status_report(
     }
 }
 
-fn render_markdown(sanity: &SanityReport, gate: Option<&GateReport>, probe: Option<&RunReport>, title: &str) -> String {
+fn render_markdown(
+    sanity: &SanityReport,
+    gate: Option<&GateReport>,
+    probe: Option<&RunReport>,
+    title: &str,
+) -> String {
     let env = first_env(sanity, gate, probe);
     let mut out = String::new();
     out.push_str(&format!("## {title}\n\n"));
@@ -382,13 +397,21 @@ fn render_markdown(sanity: &SanityReport, gate: Option<&GateReport>, probe: Opti
             "- samples/warmup/tolerance: `{}/{}/{:.3}%`\n- failed: `{}`\n",
             g.samples, g.warmup, g.tolerance_pct, failed_count
         ));
-        out.push_str("\n| case | median_us | median_budget | p95_us | p95_budget | utilization |\n");
+        out.push_str(
+            "\n| case | median_us | median_budget | p95_us | p95_budget | utilization |\n",
+        );
         out.push_str("|---|---:|---:|---:|---:|---:|\n");
         for row in top_gate_rows(&g.rows, 8) {
-            let utilization = (row.median_us / row.budget_median_us).max(row.p95_us / row.budget_p95_us);
+            let utilization =
+                (row.median_us / row.budget_median_us).max(row.p95_us / row.budget_p95_us);
             out.push_str(&format!(
                 "| `{}` | {:.3} | {:.3} | {:.3} | {:.3} | {:.3} |\n",
-                row.id, row.median_us, row.budget_median_us, row.p95_us, row.budget_p95_us, utilization
+                row.id,
+                row.median_us,
+                row.budget_median_us,
+                row.p95_us,
+                row.budget_p95_us,
+                utilization
             ));
         }
         out.push('\n');
@@ -446,10 +469,8 @@ fn main() {
             .unwrap_or_else(|e| panic!("write {}: {}", status_json_out.display(), e));
     }
 
-    if args.fail_on_gate_regression {
-        if gate.as_ref().map(|g| g.failed).unwrap_or(false) {
-            eprintln!("gate report indicates regression");
-            std::process::exit(1);
-        }
+    if args.fail_on_gate_regression && gate.as_ref().map(|g| g.failed).unwrap_or(false) {
+        eprintln!("gate report indicates regression");
+        std::process::exit(1);
     }
 }

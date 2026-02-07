@@ -1,7 +1,7 @@
 use crate::chr::{ChrState, NoTheory};
 use crate::engine::Engine;
-use crate::perf_counters;
 use crate::parser::{ChrConstraintBuilder, Parser};
+use crate::perf_counters;
 use crate::rel::Rel;
 use crate::repl::split_statements;
 use crate::term::TermStore;
@@ -12,6 +12,7 @@ use std::env;
 use std::fs;
 use std::process::Command;
 use std::sync::OnceLock;
+use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub type CorpusConstraint = ChrState<NoTheory>;
@@ -43,19 +44,23 @@ pub enum CaseCategory {
     WideBranching,
 }
 
-impl CaseCategory {
-    pub fn from_str(s: &str) -> Self {
+impl FromStr for CaseCategory {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "finite_det" => CaseCategory::FiniteDeterministic,
-            "finite_nondet" => CaseCategory::FiniteNondeterministic,
-            "recursive" => CaseCategory::Recursive,
-            "constraints" => CaseCategory::Constraints,
-            "deep_terms" => CaseCategory::DeepTerms,
-            "wide_branching" => CaseCategory::WideBranching,
-            other => panic!("unknown category '{other}'"),
+            "finite_det" => Ok(CaseCategory::FiniteDeterministic),
+            "finite_nondet" => Ok(CaseCategory::FiniteNondeterministic),
+            "recursive" => Ok(CaseCategory::Recursive),
+            "constraints" => Ok(CaseCategory::Constraints),
+            "deep_terms" => Ok(CaseCategory::DeepTerms),
+            "wide_branching" => Ok(CaseCategory::WideBranching),
+            other => Err(format!("unknown category '{other}'")),
         }
     }
+}
 
+impl CaseCategory {
     pub fn as_str(self) -> &'static str {
         match self {
             CaseCategory::FiniteDeterministic => "finite_det",
@@ -74,15 +79,19 @@ pub enum CaseTier {
     Stress,
 }
 
-impl CaseTier {
-    pub fn from_str(s: &str) -> Self {
+impl FromStr for CaseTier {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "quick" => CaseTier::Quick,
-            "stress" => CaseTier::Stress,
-            other => panic!("unknown tier '{other}'"),
+            "quick" => Ok(CaseTier::Quick),
+            "stress" => Ok(CaseTier::Stress),
+            other => Err(format!("unknown tier '{other}'")),
         }
     }
+}
 
+impl CaseTier {
     pub fn as_str(self) -> &'static str {
         match self {
             CaseTier::Quick => "quick",
@@ -97,15 +106,19 @@ pub enum DeterminismClass {
     Nondeterministic,
 }
 
-impl DeterminismClass {
-    pub fn from_str(s: &str) -> Self {
+impl FromStr for DeterminismClass {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "deterministic" => DeterminismClass::Deterministic,
-            "nondeterministic" => DeterminismClass::Nondeterministic,
-            other => panic!("unknown determinism '{other}'"),
+            "deterministic" => Ok(DeterminismClass::Deterministic),
+            "nondeterministic" => Ok(DeterminismClass::Nondeterministic),
+            other => Err(format!("unknown determinism '{other}'")),
         }
     }
+}
 
+impl DeterminismClass {
     pub fn as_str(self) -> &'static str {
         match self {
             DeterminismClass::Deterministic => "deterministic",
@@ -121,16 +134,20 @@ pub enum AnswerShape {
     PrefixStream,
 }
 
-impl AnswerShape {
-    pub fn from_str(s: &str) -> Self {
+impl FromStr for AnswerShape {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "single" => AnswerShape::Single,
-            "finite" => AnswerShape::Finite,
-            "prefix_stream" => AnswerShape::PrefixStream,
-            other => panic!("unknown answer shape '{other}'"),
+            "single" => Ok(AnswerShape::Single),
+            "finite" => Ok(AnswerShape::Finite),
+            "prefix_stream" => Ok(AnswerShape::PrefixStream),
+            other => Err(format!("unknown answer shape '{other}'")),
         }
     }
+}
 
+impl AnswerShape {
     pub fn as_str(self) -> &'static str {
         match self {
             AnswerShape::Single => "single",
@@ -351,10 +368,10 @@ impl CorpusFilters {
             );
         }
         if let Some(d) = env_var("RWLOG_CORPUS_DETERMINISM") {
-            out.determinism = Some(DeterminismClass::from_str(&d));
+            out.determinism = Some(d.parse().expect("valid RWLOG_CORPUS_DETERMINISM"));
         }
         if let Some(shape) = env_var("RWLOG_CORPUS_ANSWER_SHAPE") {
-            out.answer_shape = Some(AnswerShape::from_str(&shape));
+            out.answer_shape = Some(shape.parse().expect("valid RWLOG_CORPUS_ANSWER_SHAPE"));
         }
         if let Some(tags) = env_var("RWLOG_CORPUS_TAGS") {
             let wanted: HashSet<String> = tags
@@ -388,8 +405,8 @@ pub fn load_meta_and_cases() -> (CorpusMeta, Vec<CorpusCase>) {
         let case = CorpusCase {
             id: c.id,
             title: c.title,
-            tier: CaseTier::from_str(&c.tier),
-            category: CaseCategory::from_str(&c.category),
+            tier: c.tier.parse().expect("valid tier"),
+            category: c.category.parse().expect("valid category"),
             description: c.description,
             program: expand_templates(&c.program),
             query: expand_templates(&c.query),
@@ -399,12 +416,12 @@ pub fn load_meta_and_cases() -> (CorpusMeta, Vec<CorpusCase>) {
             determinism: c
                 .determinism
                 .as_deref()
-                .map(DeterminismClass::from_str)
+                .map(|s| s.parse().expect("valid determinism"))
                 .unwrap_or(DeterminismClass::Nondeterministic),
             answer_shape: c
                 .answer_shape
                 .as_deref()
-                .map(AnswerShape::from_str)
+                .map(|s| s.parse().expect("valid answer_shape"))
                 .unwrap_or(AnswerShape::Finite),
             infinite_stream: c.infinite_stream.unwrap_or(false),
             quick_gate_max_median_us: c.quick_gate_max_median_us,
@@ -492,10 +509,10 @@ fn lint_cases_with_meta(meta: &CorpusMeta, cases: &[CorpusCase]) -> Result<(), S
         ));
     }
     for category in meta.min_by_category.keys() {
-        let _ = CaseCategory::from_str(category);
+        category.parse::<CaseCategory>()?;
     }
     for category in &meta.require_real_world_tag_in_categories {
-        let _ = CaseCategory::from_str(category);
+        category.parse::<CaseCategory>()?;
     }
 
     lint_case_rows(cases)?;
@@ -650,7 +667,10 @@ fn lint_case_rows(cases: &[CorpusCase]) -> Result<(), String> {
         }
         if let RunMode::FirstN(limit) = case.mode {
             if limit == 0 {
-                return Err(format!("case '{}' first_n requires mode_limit > 0", case.id));
+                return Err(format!(
+                    "case '{}' first_n requires mode_limit > 0",
+                    case.id
+                ));
             }
             if let ExpectedAnswers::Exact(n) = case.expected {
                 if n > limit {
@@ -853,7 +873,9 @@ pub fn prepare_case(case: &CorpusCase) -> PreparedCase {
     PreparedCase { rel, terms, env }
 }
 
-fn execution_counters_from_snapshot(snapshot: perf_counters::PerfCountersSnapshot) -> ExecutionCounters {
+fn execution_counters_from_snapshot(
+    snapshot: perf_counters::PerfCountersSnapshot,
+) -> ExecutionCounters {
     ExecutionCounters {
         engine_steps: snapshot.engine_steps,
         engine_emits: snapshot.engine_emits,
@@ -1198,8 +1220,8 @@ fn detect_cpu_model() -> Option<String> {
 }
 
 fn build_environment_fingerprint() -> EnvironmentFingerprint {
-    let rustc_version = command_stdout("rustc", &["--version"])
-        .unwrap_or_else(|| "rustc <unknown>".to_string());
+    let rustc_version =
+        command_stdout("rustc", &["--version"]).unwrap_or_else(|| "rustc <unknown>".to_string());
 
     let timestamp_unix_s = SystemTime::now()
         .duration_since(UNIX_EPOCH)

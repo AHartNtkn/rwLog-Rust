@@ -2,9 +2,9 @@ use crate::constraint::ConstraintOps;
 use crate::nf::{collect_tensor, factor_tensor, NF};
 use crate::perf_counters;
 use crate::term::TermStore;
-use std::hash::{Hash, Hasher};
 #[cfg(feature = "tracing")]
 use crate::trace::{debug_span, trace};
+use std::hash::{Hash, Hasher};
 
 use super::util::{
     apply_subst_list, match_term_lists, max_var_index_terms, remap_constraint_vars, shift_vars_list,

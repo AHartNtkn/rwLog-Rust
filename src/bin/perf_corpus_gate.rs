@@ -106,7 +106,9 @@ fn quick_gate_cases(cfg: &GateConfig) -> Vec<GatedCase> {
     for case in cases {
         match (case.quick_gate_max_median_us, case.quick_gate_max_p95_us) {
             (Some(max_median_us), Some(max_p95_us)) => {
-                let target_cv_pct = case.noise_target_cv_pct.unwrap_or(cfg.default_target_cv_pct);
+                let target_cv_pct = case
+                    .noise_target_cv_pct
+                    .unwrap_or(cfg.default_target_cv_pct);
                 let flaky_cv_pct = case
                     .noise_flaky_cv_pct
                     .unwrap_or(cfg.default_flaky_cv_pct)
@@ -137,7 +139,13 @@ fn quick_gate_cases(cfg: &GateConfig) -> Vec<GatedCase> {
     out
 }
 
-fn run_samples_adaptive(case: &CorpusCase, cfg: &GateConfig, min_samples: usize, max_samples: usize, target_cv_pct: f64) -> Vec<f64> {
+fn run_samples_adaptive(
+    case: &CorpusCase,
+    cfg: &GateConfig,
+    min_samples: usize,
+    max_samples: usize,
+    target_cv_pct: f64,
+) -> Vec<f64> {
     let min_samples = min_samples.max(1);
     let max_samples = max_samples.max(min_samples);
     for _ in 0..cfg.warmup {
@@ -241,7 +249,10 @@ fn main() {
     let cfg = load_gate_config();
     assert!(cfg.samples > 0, "samples must be > 0");
     assert!(cfg.adaptive_step > 0, "adaptive_step must be > 0");
-    assert!(cfg.adaptive_max_samples > 0, "adaptive_max_samples must be > 0");
+    assert!(
+        cfg.adaptive_max_samples > 0,
+        "adaptive_max_samples must be > 0"
+    );
     assert!(
         cfg.default_target_cv_pct.is_finite() && cfg.default_target_cv_pct > 0.0,
         "default_target_cv_pct must be finite and > 0"

@@ -14,7 +14,7 @@
 use criterion::{black_box, criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion};
 use rwlog::perf_corpus::{
     apply_filters, case_bench_id, prepare_case, run_prepared, sort_cases, summary_string,
-    validate_cases, CorpusFilters, CorpusCase, RunMode,
+    validate_cases, CorpusCase, CorpusFilters, RunMode,
 };
 use std::sync::OnceLock;
 
@@ -24,7 +24,10 @@ fn selected_cases() -> &'static [CorpusCase] {
         let filters = CorpusFilters::from_env();
         let mut cases = apply_filters(rwlog::perf_corpus::load_cases(), &filters);
         sort_cases(&mut cases);
-        assert!(!cases.is_empty(), "no corpus cases selected after filtering");
+        assert!(
+            !cases.is_empty(),
+            "no corpus cases selected after filtering"
+        );
         eprintln!("{}", summary_string(&cases, &filters));
         validate_cases(&cases).expect("corpus case validation");
         cases
@@ -47,13 +50,17 @@ fn bench_corpus_execute(c: &mut Criterion) {
             if mode_suffix(case.mode) != mode_name {
                 continue;
             }
-            group.bench_with_input(BenchmarkId::from_parameter(case_bench_id(case)), case, |b, case| {
-                b.iter_batched(
-                    || prepare_case(case),
-                    |prepared| black_box(run_prepared(case, prepared)),
-                    BatchSize::SmallInput,
-                );
-            });
+            group.bench_with_input(
+                BenchmarkId::from_parameter(case_bench_id(case)),
+                case,
+                |b, case| {
+                    b.iter_batched(
+                        || prepare_case(case),
+                        |prepared| black_box(run_prepared(case, prepared)),
+                        BatchSize::SmallInput,
+                    );
+                },
+            );
         }
         group.finish();
     }
@@ -81,12 +88,16 @@ fn bench_corpus_end_to_end(c: &mut Criterion) {
             if mode_suffix(case.mode) != mode_name {
                 continue;
             }
-            group.bench_with_input(BenchmarkId::from_parameter(case_bench_id(case)), case, |b, case| {
-                b.iter(|| {
-                    let prepared = prepare_case(case);
-                    black_box(run_prepared(case, prepared))
-                });
-            });
+            group.bench_with_input(
+                BenchmarkId::from_parameter(case_bench_id(case)),
+                case,
+                |b, case| {
+                    b.iter(|| {
+                        let prepared = prepare_case(case);
+                        black_box(run_prepared(case, prepared))
+                    });
+                },
+            );
         }
         group.finish();
     }

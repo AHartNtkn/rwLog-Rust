@@ -258,7 +258,8 @@ fn parse_args() -> Args {
         "--min-regression-confidence must be >= 0"
     );
     assert!(
-        args_out.default_noise_target_cv_pct.is_finite() && args_out.default_noise_target_cv_pct > 0.0,
+        args_out.default_noise_target_cv_pct.is_finite()
+            && args_out.default_noise_target_cv_pct > 0.0,
         "--default-noise-target-cv-pct must be finite and > 0"
     );
     assert!(
@@ -558,11 +559,7 @@ fn is_regression(row: &TrendRow, threshold_pct: f64, min_regression_confidence: 
     row.delta_pct > threshold && row.regression_confidence >= min_regression_confidence
 }
 
-fn annotate_regressions(
-    rows: &mut [TrendRow],
-    threshold_pct: f64,
-    min_regression_confidence: f64,
-) {
+fn annotate_regressions(rows: &mut [TrendRow], threshold_pct: f64, min_regression_confidence: f64) {
     for row in rows {
         let threshold = effective_threshold_pct(row, threshold_pct);
         let over = is_regression(row, threshold_pct, min_regression_confidence);

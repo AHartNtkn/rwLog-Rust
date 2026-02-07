@@ -1,6 +1,10 @@
+use std::cell::Cell;
 use std::collections::HashSet;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
+
+/// Histogram of (call_count, num_pairs_with_that_count), sorted by call_count.
+pub type FrequencyHistogram = Vec<(u32, usize)>;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct PerfCountersSnapshot {
@@ -24,7 +28,9 @@ pub struct PerfCountersSnapshot {
     pub or_spine_max_siblings: u64,
 }
 
-static ENABLED: AtomicBool = AtomicBool::new(false);
+thread_local! {
+    static ENABLED: Cell<bool> = const { Cell::new(false) };
+}
 static ENGINE_STEPS: AtomicU64 = AtomicU64::new(0);
 static ENGINE_EMITS: AtomicU64 = AtomicU64::new(0);
 static ENGINE_CONTINUES: AtomicU64 = AtomicU64::new(0);
@@ -50,7 +56,7 @@ static CAPTURE_LOCK: Mutex<()> = Mutex::new(());
 
 #[inline]
 fn enabled() -> bool {
-    ENABLED.load(Ordering::Relaxed)
+    ENABLED.with(|e| e.get())
 }
 
 #[inline]
@@ -63,7 +69,7 @@ pub fn is_enabled() -> bool {
 }
 
 pub fn set_enabled(on: bool) {
-    ENABLED.store(on, Ordering::Relaxed);
+    ENABLED.with(|e| e.set(on));
 }
 
 pub fn reset() {
@@ -166,8 +172,8 @@ pub fn record_engine_exhausted() {
 
 /// Returns frequency histograms: (compose_freq_distribution, meet_freq_distribution)
 /// Each is a Vec<(call_count, num_pairs_with_that_count)> sorted by call_count.
-pub fn pair_frequency_histograms() -> (Vec<(u32, usize)>, Vec<(u32, usize)>) {
-    fn histogram(map: &Mutex<Option<std::collections::HashMap<u64, u32>>>) -> Vec<(u32, usize)> {
+pub fn pair_frequency_histograms() -> (FrequencyHistogram, FrequencyHistogram) {
+    fn histogram(map: &Mutex<Option<std::collections::HashMap<u64, u32>>>) -> FrequencyHistogram {
         let guard = map.lock().unwrap();
         let Some(freq) = guard.as_ref() else {
             return vec![];
@@ -269,10 +275,14 @@ mod tests {
     use crate::engine::Engine;
     use crate::parser::Parser;
 
+    /// Separate mutex for test serialization. Must NOT be CAPTURE_LOCK since
+    /// capture() acquires CAPTURE_LOCK internally, and std::sync::Mutex is
+    /// not reentrant. Lock ordering: TEST_SERIALIZE (outer) → CAPTURE_LOCK
+    /// (inner) — no circular dependency.
+    static TEST_SERIALIZE: Mutex<()> = Mutex::new(());
+
     fn test_lock() -> std::sync::MutexGuard<'static, ()> {
-        CAPTURE_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
+        TEST_SERIALIZE.lock().unwrap_or_else(|e| e.into_inner())
     }
 
     #[test]

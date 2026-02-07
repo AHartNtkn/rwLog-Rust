@@ -73,7 +73,9 @@ fn parse_program_defs(
             defs.insert(name, rel);
             continue;
         }
-        return Err(format!("Unsupported statement in contract test program: {line}"));
+        return Err(format!(
+            "Unsupported statement in contract test program: {line}"
+        ));
     }
     Ok(defs)
 }
@@ -260,8 +262,16 @@ fn inline_rule_query_executes() {
 
 #[test]
 fn named_identity_relation_is_bidirectional() {
-    assert_query_exact(BASIC_PROGRAM, "@a ; id", &[(shape_atom("a"), shape_atom("a"))]);
-    assert_query_exact(BASIC_PROGRAM, "id ; @a", &[(shape_atom("a"), shape_atom("a"))]);
+    assert_query_exact(
+        BASIC_PROGRAM,
+        "@a ; id",
+        &[(shape_atom("a"), shape_atom("a"))],
+    );
+    assert_query_exact(
+        BASIC_PROGRAM,
+        "id ; @a",
+        &[(shape_atom("a"), shape_atom("a"))],
+    );
 }
 
 #[test]
@@ -316,10 +326,7 @@ rel lift_b {
     $y -> (f $y)
 }
 "#;
-    let expected = [(
-        shape_atom("a"),
-        shape_app("f", vec![shape_atom("a")]),
-    )];
+    let expected = [(shape_atom("a"), shape_app("f", vec![shape_atom("a")]))];
     assert_query_exact(program, "@a ; lift_a", &expected);
     assert_query_exact(program, "@a ; lift_b", &expected);
 }
@@ -365,7 +372,11 @@ fn sequence_composition_works_via_surface_syntax() {
 rel r1 { a -> b }
 rel r2 { b -> c }
 "#;
-    assert_query_exact(program, "@a ; r1 ; r2", &[(shape_atom("a"), shape_atom("c"))]);
+    assert_query_exact(
+        program,
+        "@a ; r1 ; r2",
+        &[(shape_atom("a"), shape_atom("c"))],
+    );
 }
 
 #[test]
@@ -435,16 +446,8 @@ fn disjunction_commutativity_holds_on_finite_queries() {
 #[test]
 fn conjunction_commutativity_holds_on_finite_queries() {
     let expected = [(shape_atom("a"), shape_atom("c"))];
-    assert_query_exact(
-        "",
-        "@a ; [a -> b | a -> c] & [a -> c | a -> d]",
-        &expected,
-    );
-    assert_query_exact(
-        "",
-        "@a ; [a -> c | a -> d] & [a -> b | a -> c]",
-        &expected,
-    );
+    assert_query_exact("", "@a ; [a -> b | a -> c] & [a -> c | a -> d]", &expected);
+    assert_query_exact("", "@a ; [a -> c | a -> d] & [a -> b | a -> c]", &expected);
 }
 
 #[test]
@@ -452,18 +455,12 @@ fn add_forward_examples_compute_expected_sums() {
     assert_query_exact(
         ADD_PROGRAM,
         "@(cons z (s (s z))) ; add",
-        &[(
-            cons_shape(shape_peano(0), shape_peano(2)),
-            shape_peano(2),
-        )],
+        &[(cons_shape(shape_peano(0), shape_peano(2)), shape_peano(2))],
     );
     assert_query_exact(
         ADD_PROGRAM,
         "@(cons (s (s z)) (s z)) ; add",
-        &[(
-            cons_shape(shape_peano(2), shape_peano(1)),
-            shape_peano(3),
-        )],
+        &[(cons_shape(shape_peano(2), shape_peano(1)), shape_peano(3))],
     );
 }
 
@@ -668,7 +665,8 @@ fn undefined_constraint_predicate_is_parse_error() {
         Err(err) => err,
     };
     assert!(
-        err.to_string().contains("unknown constraint predicate 'missing'"),
+        err.to_string()
+            .contains("unknown constraint predicate 'missing'"),
         "unexpected error: {}",
         err
     );
@@ -735,7 +733,10 @@ fn repl_more_requires_positive_integer_argument() {
     let err_zero = repl
         .process_input("more 0")
         .expect_err("more 0 should error");
-    assert!(err_zero.contains("must be > 0"), "unexpected error: {err_zero}");
+    assert!(
+        err_zero.contains("must be > 0"),
+        "unexpected error: {err_zero}"
+    );
 
     let err_bad = repl
         .process_input("more nope")

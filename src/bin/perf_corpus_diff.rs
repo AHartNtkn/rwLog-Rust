@@ -42,14 +42,18 @@ fn parse_threshold_pct() -> f64 {
 }
 
 fn walk_dir(path: &Path, out: &mut Vec<PathBuf>) {
-    let entries = fs::read_dir(path).unwrap_or_else(|e| panic!("read_dir {}: {}", path.display(), e));
+    let entries =
+        fs::read_dir(path).unwrap_or_else(|e| panic!("read_dir {}: {}", path.display(), e));
     for entry in entries {
         let entry = entry.expect("dir entry");
         let p = entry.path();
         if p.is_dir() {
             walk_dir(&p, out);
         } else if p.file_name().and_then(|n| n.to_str()) == Some("estimates.json")
-            && p.parent().and_then(|p| p.file_name()).and_then(|n| n.to_str()) == Some("change")
+            && p.parent()
+                .and_then(|p| p.file_name())
+                .and_then(|n| n.to_str())
+                == Some("change")
         {
             out.push(p);
         }
@@ -78,10 +82,10 @@ fn load_changes(root: &Path) -> Vec<ChangeEntry> {
     walk_dir(root, &mut files);
     let mut out = Vec::new();
     for file in files {
-        let data = fs::read_to_string(&file)
-            .unwrap_or_else(|e| panic!("read {}: {}", file.display(), e));
-        let est: Estimates =
-            serde_json::from_str(&data).unwrap_or_else(|e| panic!("parse {}: {}", file.display(), e));
+        let data =
+            fs::read_to_string(&file).unwrap_or_else(|e| panic!("read {}: {}", file.display(), e));
+        let est: Estimates = serde_json::from_str(&data)
+            .unwrap_or_else(|e| panic!("parse {}: {}", file.display(), e));
         out.push(ChangeEntry {
             id: case_id_from_path(&file),
             mean_change_pct: est.mean.point_estimate * 100.0,

@@ -2050,10 +2050,7 @@ rel add {
             .parse_rel_body("r ; [$x -> (f $x)]")
             .expect("parse query");
         let input_term = parser.parse_term("$x").expect("parse input").term_id;
-        let expected_term = parser
-            .parse_term("(f $x)")
-            .expect("parse expected")
-            .term_id;
+        let expected_term = parser.parse_term("(f $x)").expect("parse expected").term_id;
 
         let mut terms = parser.take_terms();
         let expected_nf = NF::factor(input_term, expected_term, (), &mut terms);
