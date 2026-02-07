@@ -185,7 +185,7 @@ Each item is an investigation area, not a guaranteed improvement.
 5. Plan compilation/caching for parsed relation definitions and frequent queries.
 6. Structural sharing/DAG representation for `Rel` and normalized plans.
 7. ~~ChrState clone/hash/eq optimization.~~ **Superseded** — see [docs/perf_investigations/per_step_cost_decomposition.md](docs/perf_investigations/per_step_cost_decomposition.md). ChrState cloning is a symptom, not the root cause. 89.8% of ChrState clones originate from `FixWork::clone`, which deep-copies `CallKey<C>` (containing NFs) on every step. The real fix is Arc-wrapping CallKey in FixWork (~22% estimated reduction) rather than optimizing ChrState itself.
-8. **FixWork clone-per-step elimination.** See [docs/perf_investigations/per_step_cost_decomposition.md](docs/perf_investigations/per_step_cost_decomposition.md). Full cost decomposition shows: tabling machinery 26%, dispatch 14%, clone cascade 14%, drop 10%, kernel compute only 2.4%. Arc-wrapping CallKey + Arc-wrapping table answers + removing Mutex overhead = ~30% estimated total improvement. **Highest measured ROI of any investigated item.**
+8. ~~FixWork clone-per-step elimination.~~ **Implemented — 20-25% improvement.** See [docs/perf_investigations/callkey_arc_wrapping.md](docs/perf_investigations/callkey_arc_wrapping.md). Arc-wrapping CallKey in FixWork reduced `recursive_even_backward_first64` from ~105ms to ~84ms. Remaining targets: Arc-wrap table answers (~5-8%), replace Mutex with RefCell (~3-6%), reduce dispatch overhead (~3-5%).
 
 ## Suggested Experiment Template
 
