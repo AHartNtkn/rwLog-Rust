@@ -2,6 +2,7 @@ use crate::constraint::ConstraintOps;
 use crate::nf::{collect_tensor, factor_tensor, NF};
 use crate::perf_counters;
 use crate::term::TermStore;
+use std::hash::{Hash, Hasher};
 #[cfg(feature = "tracing")]
 use crate::trace::{debug_span, trace};
 
@@ -17,6 +18,12 @@ use super::util::{
 ///
 /// Returns None if the meet is empty (patterns are incompatible).
 pub fn meet_nf<C: ConstraintOps>(a: &NF<C>, b: &NF<C>, terms: &mut TermStore) -> Option<NF<C>> {
+    if perf_counters::is_enabled() {
+        let mut h = rustc_hash::FxHasher::default();
+        a.hash(&mut h);
+        b.hash(&mut h);
+        perf_counters::record_meet_pair_hash(h.finish());
+    }
     let result = meet_nf_impl(a, b, terms);
     perf_counters::record_meet_result(result.is_some());
     result

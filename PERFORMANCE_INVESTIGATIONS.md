@@ -10,17 +10,6 @@ The intent is to find order-of-magnitude improvements, not micro-optimizations.
 - Prefer changes that improve asymptotic behavior, pruning power, or work avoidance.
 - Require benchmarks on representative workloads before and after each experiment.
 
-## Measurement Infrastructure First
-
-1. Define a fixed benchmark corpus with categories: finite deterministic, finite nondeterministic, recursive/tabling-heavy, CHR-heavy, deep terms, and broad disjunction trees.
-2. Add workload metadata: expected answer count class (0, 1, finite-many, infinite-stream prefix).
-3. Record per-query metrics already exposed in `EvalMetrics`, plus wall time, allocations, peak RSS, and branch count.
-4. Add reproducible benchmark modes for `debug` and `release` profiles.
-5. Track p50/p95 latency for first answer, tenth answer, and exhaustion.
-6. Add golden performance baselines with regression thresholds in CI for key workloads.
-7. Add sampling/flamegraph scripts that can run each benchmark case in isolation.
-8. Add tracing snapshots for high-cost queries to compare execution shape before/after.
-
 ## Investigation Backlog
 
 Each item is an investigation area, not a guaranteed improvement.
@@ -103,7 +92,7 @@ Each item is an investigation area, not a guaranteed improvement.
 4. Introduce join-order optimization for multi-head CHR rules based on selectivity estimates.
 5. Cache guard evaluation results for repeated `(rule, bindings)` pairs.
 6. Add contradiction-first scheduling to fail branches earlier.
-7. Explore persistent constraint store snapshots to reduce clone costs across branches.
+7. Explore persistent constraint store snapshots to reduce clone costs across branches. **Investigated** — see [docs/perf_investigations/or_tree_and_per_step_cost.md](docs/perf_investigations/or_tree_and_per_step_cost.md). ChrState clone is 22% of execution and freeze_chr allocates during hash/eq. Arc-wrapping ChrState internals would make clone O(1) and enable cached hashing.
 8. Intern and hash canonical residual-constraint states to deduplicate equivalent outputs.
 
 ### Tabling/Recursion Strategy
@@ -132,7 +121,7 @@ Each item is an investigation area, not a guaranteed improvement.
 
 ### Disjunction/Or Execution
 
-1. Internally flatten nested `Or` structures once and schedule from a branch pool.
+1. Internally flatten nested `Or` structures once and schedule from a branch pool. **Investigated** — see [docs/perf_investigations/or_tree_and_per_step_cost.md](docs/perf_investigations/or_tree_and_per_step_cost.md). Or tree overhead is negligible for the heaviest workload (max 1 sibling). Or flattening would help wide-disjunction cases but those are already <1ms. The real bottleneck is ChrState clone/hash allocation (45% of execution).
 2. Add duplicate-answer suppression close to branch emission rather than global late-stage.
 3. Share normalized prefix work among sibling `Or` branches where legal.
 4. Add branch pruning based on static incompatibility with downstream constraints.
@@ -189,12 +178,13 @@ Each item is an investigation area, not a guaranteed improvement.
 
 ## Prioritization Candidates (High Expected ROI)
 
-1. Memoization and canonical hashing for `compose_nf`/`meet_nf`.
+1. ~~Memoization and canonical hashing for `compose_nf`/`meet_nf`.~~ **Investigated — not worth pursuing.** See [docs/perf_investigations/compose_meet_memoization.md](docs/perf_investigations/compose_meet_memoization.md). Duplication is only 21%, always exactly 2x, caused by tabling fixpoint verification. The real target is fixpoint strategy (#3 below).
 2. Selectivity-aware `AndGroup` join ordering and failed-pair caches.
-3. Tabling improvements (answer tries + semi-naive updates + replay strategy).
+3. Tabling improvements (answer tries + semi-naive updates + replay strategy). **Partially investigated** — see [docs/perf_investigations/fixpoint_verification_overhead.md](docs/perf_investigations/fixpoint_verification_overhead.md). Fixpoint verification overhead is low-ROI for current workloads (max ~3ms savings). Semi-naive requires 3+ iterations to help, which doesn't occur in the current corpus.
 4. Compiled match programs with constructor-indexed dispatch.
 5. Plan compilation/caching for parsed relation definitions and frequent queries.
 6. Structural sharing/DAG representation for `Rel` and normalized plans.
+7. **ChrState clone/hash/eq optimization.** **Investigated** — see [docs/perf_investigations/or_tree_and_per_step_cost.md](docs/perf_investigations/or_tree_and_per_step_cost.md). ChrState clone (22%) + freeze_chr hash allocation (13%) + associated alloc/dealloc (23%) = **~45% of execution time** on the heaviest workload. Only 15% is actual kernel work (compose_nf). Arc-wrapping ChrState internals and caching the hash would eliminate the dominant cost center. **Highest measured ROI of any investigated item.**
 
 ## Suggested Experiment Template
 

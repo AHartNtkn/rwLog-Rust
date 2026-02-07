@@ -6,6 +6,7 @@
 
 use crate::constraint::ConstraintOps;
 use crate::nf::NF;
+use crate::perf_counters;
 use crate::term::TermStore;
 use crate::work::{Work, WorkStep};
 
@@ -91,6 +92,8 @@ fn step_or<C: ConstraintOps>(
             _ => break,
         }
     }
+
+    perf_counters::record_or_spine_walk(siblings.len() as u64);
 
     match step_node(current, terms) {
         NodeStep::Emit(nf, new_leaf) => {
