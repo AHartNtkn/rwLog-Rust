@@ -128,6 +128,26 @@ timeout 10 cargo test 2>&1  # WRONG if not compiled first - compilation eats the
 
 This applies to ALL test commands - full suite, filtered tests, individual tests. No exceptions.
 
+## CRITICAL: Never Run Full Benchmark Suite Unattended
+
+**NEVER run `cargo bench` or `cargo bench -- "broad_filter"` without strict limits.** Criterion benchmarks collect 100 samples per benchmark, and the full suite has 40+ benchmarks. Running all of them in a single process causes extreme memory usage that can OOM-kill the system.
+
+**Always run benchmarks in narrow, targeted batches:**
+```bash
+# GOOD - run one specific benchmark
+cargo bench -- "recursive_even_backward_first64"
+
+# GOOD - run a small group
+cargo bench -- "recursive_even"
+
+# BAD - runs entire suite, will OOM-kill the system
+cargo bench
+cargo bench -- "corpus_execute"
+cargo bench -- ""
+```
+
+**Rule of thumb:** Never match more than ~5 benchmarks in a single invocation.
+
 ## TDD Test Coverage Requirements
 
 **When implementing a new feature using TDD, you MUST write comprehensive failing tests FIRST.**

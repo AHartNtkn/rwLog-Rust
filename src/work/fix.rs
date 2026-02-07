@@ -452,6 +452,16 @@ impl<C: ConstraintOps> Default for Tables<C> {
     }
 }
 
+/// Result of stepping a FixWork in-place (no allocation).
+pub enum FixStepResult<C: ConstraintOps> {
+    /// Emit an answer; FixWork has been updated in-place for continuation.
+    Emit(NF<C>),
+    /// No answer yet; FixWork has been updated in-place for continuation.
+    More,
+    /// Done; no more answers.
+    Done,
+}
+
 /// FixWork: table handle that streams answers and steps the producer inline.
 ///
 /// The producer runs in iterations. Each iteration evaluates the body with
@@ -484,22 +494,34 @@ impl<C: ConstraintOps> FixWork<C> {
         }
     }
 
-    /// Step this FixWork handle.
+    /// Step this FixWork handle, allocating a new Box<Work> for continuation.
     pub fn step(&mut self, terms: &mut TermStore) -> WorkStep<C> {
+        match self.step_in_place(terms) {
+            FixStepResult::Emit(nf) => WorkStep::Emit(nf, Box::new(Work::Fix(self.clone()))),
+            FixStepResult::More => WorkStep::More(Box::new(Work::Fix(self.clone()))),
+            FixStepResult::Done => WorkStep::Done,
+        }
+    }
+
+    /// Step this FixWork handle in-place (no clone, no allocation).
+    ///
+    /// Modifies `answer_index` and returns the step outcome.
+    /// The caller can reuse the existing Box<Work> instead of allocating.
+    pub fn step_in_place(&mut self, terms: &mut TermStore) -> FixStepResult<C> {
         if let Some(nf) = self.table.answer_at(self.answer_index) {
             self.answer_index += 1;
-            return WorkStep::Emit(nf, Box::new(Work::Fix(self.clone())));
+            return FixStepResult::Emit(nf);
         }
 
         if self.table.is_done() {
-            return WorkStep::Done;
+            return FixStepResult::Done;
         }
 
         if !self.table.try_mark_producer_active() {
             if self.table.is_done() {
-                return WorkStep::Done;
+                return FixStepResult::Done;
             }
-            return WorkStep::More(Box::new(Work::Fix(self.clone())));
+            return FixStepResult::More;
         }
 
         let step = step_table_producer(&self.table, terms, &self.tables);
@@ -507,14 +529,12 @@ impl<C: ConstraintOps> FixWork<C> {
 
         if let Some(nf) = self.table.answer_at(self.answer_index) {
             self.answer_index += 1;
-            return WorkStep::Emit(nf, Box::new(Work::Fix(self.clone())));
+            return FixStepResult::Emit(nf);
         }
 
         match step {
-            ProducerStep::Done => WorkStep::Done,
-            ProducerStep::Progress | ProducerStep::Blocked => {
-                WorkStep::More(Box::new(Work::Fix(self.clone())))
-            }
+            ProducerStep::Done => FixStepResult::Done,
+            ProducerStep::Progress | ProducerStep::Blocked => FixStepResult::More,
         }
     }
 }

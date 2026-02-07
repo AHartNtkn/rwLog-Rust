@@ -24,8 +24,8 @@ mod pipe;
 pub use and_group::{AndGroup, AndGroupConfig};
 pub use compose::ComposeWork;
 pub use fix::{
-    step_table_producer, CallKey, Env, FixWork, ProducerSpec, ProducerState, ProducerStep, Table,
-    Tables,
+    step_table_producer, CallKey, Env, FixStepResult, FixWork, ProducerSpec, ProducerState,
+    ProducerStep, Table, Tables,
 };
 pub use join_receiver::JoinReceiverWork;
 pub use meet::MeetWork;

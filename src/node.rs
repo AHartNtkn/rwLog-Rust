@@ -8,7 +8,7 @@ use crate::constraint::ConstraintOps;
 use crate::nf::NF;
 use crate::perf_counters;
 use crate::term::TermStore;
-use crate::work::{Work, WorkStep};
+use crate::work::{FixStepResult, Work, WorkStep};
 
 /// Search tree node.
 ///
@@ -114,14 +114,25 @@ pub fn step_node<C: ConstraintOps>(node: Node<C>, terms: &mut TermStore) -> Node
 
         Node::Or(left, right) => step_or(*left, *right, terms),
 
-        Node::Work(mut work) => match work.step(terms) {
-            WorkStep::Done => NodeStep::Continue(Node::Fail),
-            WorkStep::Emit(nf, next_work) => NodeStep::Emit(nf, Node::Work(next_work)),
-            WorkStep::Split(left_node, right_node) => {
-                NodeStep::Continue(Node::Or(left_node, right_node))
+        Node::Work(mut work) => {
+            // Fast path: FixWork can step in-place, reusing the existing Box<Work>.
+            // This avoids clone + alloc + free on every step (~216K per 64 answers).
+            if let Work::Fix(ref mut fix) = *work {
+                return match fix.step_in_place(terms) {
+                    FixStepResult::Emit(nf) => NodeStep::Emit(nf, Node::Work(work)),
+                    FixStepResult::More => NodeStep::Continue(Node::Work(work)),
+                    FixStepResult::Done => NodeStep::Continue(Node::Fail),
+                };
             }
-            WorkStep::More(next_work) => NodeStep::Continue(Node::Work(next_work)),
-        },
+            match work.step(terms) {
+                WorkStep::Done => NodeStep::Continue(Node::Fail),
+                WorkStep::Emit(nf, next_work) => NodeStep::Emit(nf, Node::Work(next_work)),
+                WorkStep::Split(left_node, right_node) => {
+                    NodeStep::Continue(Node::Or(left_node, right_node))
+                }
+                WorkStep::More(next_work) => NodeStep::Continue(Node::Work(next_work)),
+            }
+        }
     }
 }
 
