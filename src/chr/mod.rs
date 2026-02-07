@@ -1560,6 +1560,14 @@ impl PartialOrd for AliveRec {
 }
 
 pub fn freeze_chr<T: Theory>(st: &ChrState<T>) -> Vec<u8> {
+    if st.store.alive_count == 0 && T::is_empty(&st.builtins) {
+        let mut w = ByteWriter::new();
+        w.push_u32(0);
+        w.push_u32(0);
+        w.push_u32(0);
+        return w.into_vec();
+    }
+
     let mut alive: Vec<AliveRec> = Vec::new();
     for (i, inst) in st.store.inst.iter().enumerate() {
         if inst.alive {
