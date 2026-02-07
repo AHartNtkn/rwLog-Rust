@@ -3,6 +3,7 @@ pub mod constraint;
 pub mod drop_fresh;
 pub mod engine;
 pub mod factors;
+pub mod fast_lock;
 pub mod join;
 pub mod jupyter;
 pub mod kernel;

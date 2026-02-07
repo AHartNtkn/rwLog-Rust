@@ -11,8 +11,8 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::env;
 use std::fs;
 use std::process::Command;
-use std::sync::OnceLock;
 use std::str::FromStr;
+use std::sync::OnceLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub type CorpusConstraint = ChrState<NoTheory>;

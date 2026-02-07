@@ -1,11 +1,11 @@
 use crate::constraint::ConstraintOps;
+use crate::fast_lock::FastLock;
 use crate::nf::NF;
 use crate::node::{step_node, Node, NodeStep};
 use crate::queue::{BlockedOn, QueueWaker, WakeHub};
 use crate::rel::{Rel, RelId};
 use crate::term::TermStore;
 use dashmap::DashMap;
-use parking_lot::Mutex;
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -150,8 +150,8 @@ pub(crate) struct TableProducer<C: ConstraintOps> {
 /// Stores the answers produced so far and the producer state.
 #[derive(Debug)]
 pub struct Table<C: ConstraintOps> {
-    answers: Mutex<TableAnswers<C>>,
-    producer: Mutex<TableProducer<C>>,
+    answers: FastLock<TableAnswers<C>>,
+    producer: FastLock<TableProducer<C>>,
 }
 
 impl<C: ConstraintOps> Table<C> {
@@ -162,12 +162,12 @@ impl<C: ConstraintOps> Table<C> {
 
     pub fn with_waker(waker: QueueWaker) -> Self {
         Self {
-            answers: Mutex::new(TableAnswers {
+            answers: FastLock::new(TableAnswers {
                 answers: Vec::new(),
                 seen: HashSet::new(),
                 waker,
             }),
-            producer: Mutex::new(TableProducer {
+            producer: FastLock::new(TableProducer {
                 state: ProducerState::NotStarted,
                 producer: None,
                 spec: None,
@@ -302,23 +302,27 @@ impl<C: ConstraintOps> Table<C> {
 
 #[cfg(test)]
 impl<C: ConstraintOps> Table<C> {
-    pub(crate) fn lock_answers_for_test(&self) -> parking_lot::MutexGuard<'_, TableAnswers<C>> {
+    pub(crate) fn lock_answers_for_test(
+        &self,
+    ) -> crate::fast_lock::FastLockGuard<'_, TableAnswers<C>> {
         self.answers.lock()
     }
 
     pub(crate) fn try_lock_answers_for_test(
         &self,
-    ) -> Option<parking_lot::MutexGuard<'_, TableAnswers<C>>> {
+    ) -> Option<crate::fast_lock::FastLockGuard<'_, TableAnswers<C>>> {
         self.answers.try_lock()
     }
 
-    pub(crate) fn lock_producer_for_test(&self) -> parking_lot::MutexGuard<'_, TableProducer<C>> {
+    pub(crate) fn lock_producer_for_test(
+        &self,
+    ) -> crate::fast_lock::FastLockGuard<'_, TableProducer<C>> {
         self.producer.lock()
     }
 
     pub(crate) fn try_lock_producer_for_test(
         &self,
-    ) -> Option<parking_lot::MutexGuard<'_, TableProducer<C>>> {
+    ) -> Option<crate::fast_lock::FastLockGuard<'_, TableProducer<C>>> {
         self.producer.try_lock()
     }
 

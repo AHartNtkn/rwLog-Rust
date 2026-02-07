@@ -185,7 +185,8 @@ Each item is an investigation area, not a guaranteed improvement.
 5. Plan compilation/caching for parsed relation definitions and frequent queries.
 6. Structural sharing/DAG representation for `Rel` and normalized plans.
 7. ~~ChrState clone/hash/eq optimization.~~ **Superseded** — see [docs/perf_investigations/per_step_cost_decomposition.md](docs/perf_investigations/per_step_cost_decomposition.md). ChrState cloning is a symptom, not the root cause. 89.8% of ChrState clones originate from `FixWork::clone`, which deep-copies `CallKey<C>` (containing NFs) on every step. The real fix is Arc-wrapping CallKey in FixWork (~22% estimated reduction) rather than optimizing ChrState itself.
-8. ~~FixWork clone-per-step elimination.~~ **Implemented — 20-25% improvement.** See [docs/perf_investigations/callkey_arc_wrapping.md](docs/perf_investigations/callkey_arc_wrapping.md). Arc-wrapping CallKey in FixWork reduced `recursive_even_backward_first64` from ~105ms to ~84ms. Remaining targets: Arc-wrap table answers (~5-8%), replace Mutex with RefCell (~3-6%), reduce dispatch overhead (~3-5%).
+8. ~~FixWork clone-per-step elimination.~~ **Implemented — 20-25% improvement.** See [docs/perf_investigations/callkey_arc_wrapping.md](docs/perf_investigations/callkey_arc_wrapping.md). Arc-wrapping CallKey in FixWork reduced `recursive_even_backward_first64` from ~105ms to ~84ms.
+9. ~~Mutex-to-FastLock for single-threaded tabling.~~ **Implemented — ~20% improvement.** See [docs/perf_investigations/fastlock_mutex_elimination.md](docs/perf_investigations/fastlock_mutex_elimination.md). Replaced `parking_lot::Mutex` with zero-cost `FastLock` in Table. 1.74M Mutex locks per 64 answers (8 per FixWork step, 99.1% of answer_at calls returning None). Reduced `recursive_even_backward_first64` from ~85ms to ~65-71ms. Remaining targets: FixWork::clone (~4%), malloc/free (~6%), dispatch (~8%), drop overhead (~5.5%).
 
 ## Suggested Experiment Template
 
