@@ -1,5 +1,6 @@
 use crate::constraint::ConstraintOps;
 use crate::nf::{collect_tensor, factor_tensor, NF};
+use crate::perf_counters;
 use crate::term::TermStore;
 #[cfg(feature = "tracing")]
 use crate::trace::{debug_span, trace};
@@ -16,6 +17,12 @@ use super::util::{
 ///
 /// Returns None if the meet is empty (patterns are incompatible).
 pub fn meet_nf<C: ConstraintOps>(a: &NF<C>, b: &NF<C>, terms: &mut TermStore) -> Option<NF<C>> {
+    let result = meet_nf_impl(a, b, terms);
+    perf_counters::record_meet_result(result.is_some());
+    result
+}
+
+fn meet_nf_impl<C: ConstraintOps>(a: &NF<C>, b: &NF<C>, terms: &mut TermStore) -> Option<NF<C>> {
     #[cfg(feature = "tracing")]
     let _span = debug_span!(
         "meet_nf",

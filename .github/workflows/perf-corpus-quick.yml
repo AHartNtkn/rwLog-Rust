@@ -1,0 +1,88 @@
+name: Perf Corpus Quick Gate
+
+on:
+  pull_request:
+  push:
+    branches: [ main ]
+
+jobs:
+  perf-quick:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Restore perf history cache
+        uses: actions/cache@v4
+        with:
+          path: .perf-history-cache
+          key: perf-history-quick-${{ github.ref_name }}-${{ github.run_id }}
+          restore-keys: |
+            perf-history-quick-${{ github.ref_name }}-
+
+      - name: Build tests
+        run: cargo test --no-run
+
+      - name: Validate quick corpus cases
+        run: RWLOG_CORPUS_TIER=quick cargo run --release --bin perf_corpus_sanity -- --validate
+
+      - name: Run quick perf gate thresholds
+        run: cargo run --release --bin perf_corpus_gate
+
+      - name: Generate quick perf summary artifacts
+        run: |
+          set -euo pipefail
+          mkdir -p perf-artifacts
+          RWLOG_CORPUS_TIER=quick cargo run --release --bin perf_corpus_sanity -- --lint --validate > perf-artifacts/quick_sanity.txt
+          RWLOG_CORPUS_TIER=quick cargo run --release --bin perf_corpus_sanity -- --lint --validate --json > perf-artifacts/quick_sanity.json
+          cargo run --release --bin perf_corpus_gate > perf-artifacts/quick_gate.txt
+          cargo run --release --bin perf_corpus_gate -- --json > perf-artifacts/quick_gate.json
+          RWLOG_CORPUS_TIER=quick RWLOG_CORPUS_MAX_CASES=5 cargo run --release --bin perf_corpus_run -- --phase end_to_end --iters 5 --json > perf-artifacts/quick_probe.json
+          cargo run --release --bin perf_corpus_ci_summary -- \
+            --title "Perf Corpus Quick Gate" \
+            --sanity-json perf-artifacts/quick_sanity.json \
+            --gate-json perf-artifacts/quick_gate.json \
+            --probe-json perf-artifacts/quick_probe.json \
+            --status-json-out perf-artifacts/quick_status.json \
+            --out perf-artifacts/quick_summary.md
+          cat perf-artifacts/quick_summary.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Enforce trend regression gate with cached history
+        run: |
+          set -euo pipefail
+          mkdir -p .perf-history-cache
+          scripts/perf/import_artifacts_snapshot.sh \
+            --name "quick_${{ github.run_id }}" \
+            --from perf-artifacts \
+            --history-dir .perf-history-cache
+          scripts/perf/prune_history.sh \
+            --history-dir .perf-history-cache \
+            --keep-last 60 \
+            --apply
+          scripts/perf/trend_gate.sh \
+            --history-dir .perf-history-cache \
+            --source all \
+            --metric median \
+            --window 20 \
+            --top 200 \
+            --env-compat warn \
+            --fail-regressions-pct 10
+          cargo run --release --bin perf_corpus_trend -- \
+            --history-dir .perf-history-cache \
+            --source all \
+            --metric all \
+            --window 20 \
+            --top 200 \
+            --json > perf-artifacts/quick_trend.json
+
+      - name: Upload quick perf artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: quick-perf-${{ github.run_id }}
+          path: perf-artifacts
+          if-no-files-found: warn

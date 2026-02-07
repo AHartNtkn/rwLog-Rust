@@ -9,6 +9,7 @@ use crate::constraint::ConstraintDisplay;
 use crate::constraint::ConstraintOps;
 use crate::nf::{format_nf, NF};
 use crate::node::{step_node, Node, NodeStep};
+use crate::perf_counters;
 use crate::rel::Rel;
 use crate::symbol::SymbolStore;
 use crate::term::TermStore;
@@ -65,18 +66,22 @@ impl<C: ConstraintOps> Engine<C> {
 
     /// Take a single step in the evaluation.
     fn step(&mut self) -> StepResult<C> {
+        perf_counters::record_engine_step();
         // Take ownership of root, step it, and update root with result
         let current = std::mem::replace(&mut self.root, Node::Fail);
         match step_node(current, &mut self.terms) {
             NodeStep::Emit(nf, rest) => {
+                perf_counters::record_engine_emit();
                 self.root = rest;
                 StepResult::Emit(nf)
             }
             NodeStep::Continue(rest) => {
+                perf_counters::record_engine_continue();
                 self.root = rest;
                 StepResult::Continue
             }
             NodeStep::Exhausted => {
+                perf_counters::record_engine_exhausted();
                 self.root = Node::Fail;
                 StepResult::Exhausted
             }

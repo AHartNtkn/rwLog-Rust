@@ -1,0 +1,115 @@
+name: Perf Corpus Stress Nightly
+
+on:
+  schedule:
+    - cron: "15 5 * * *"
+  workflow_dispatch:
+
+jobs:
+  perf-stress:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Restore stress perf history cache
+        uses: actions/cache@v4
+        with:
+          path: .perf-history-stress-cache
+          key: perf-history-stress-${{ github.ref_name }}-${{ github.run_id }}
+          restore-keys: |
+            perf-history-stress-${{ github.ref_name }}-
+
+      - name: Validate stress corpus cases
+        run: RWLOG_CORPUS_TIER=stress cargo run --release --bin perf_corpus_sanity -- --lint --validate
+
+      - name: Run stress corpus bench
+        run: RWLOG_CORPUS_TIER=stress cargo bench --bench perf_corpus -- --noplot
+
+      - name: Generate stress summary artifacts
+        run: |
+          set -euo pipefail
+          mkdir -p perf-artifacts
+          RWLOG_CORPUS_TIER=stress cargo run --release --bin perf_corpus_sanity -- --lint --validate > perf-artifacts/stress_sanity.txt
+          RWLOG_CORPUS_TIER=stress cargo run --release --bin perf_corpus_sanity -- --lint --validate --json > perf-artifacts/stress_sanity.json
+          RWLOG_CORPUS_TIER=stress RWLOG_CORPUS_MAX_CASES=8 cargo run --release --bin perf_corpus_run -- --phase end_to_end --iters 3 --json > perf-artifacts/stress_probe.json
+          criterion_size="$(du -sh target/criterion | awk '{print $1}')"
+          cargo run --release --bin perf_corpus_ci_summary -- \
+            --title "Perf Corpus Stress Nightly" \
+            --sanity-json perf-artifacts/stress_sanity.json \
+            --probe-json perf-artifacts/stress_probe.json \
+            --status-json-out perf-artifacts/stress_status.json \
+            --out perf-artifacts/stress_summary.md
+          {
+            echo ""
+            echo "### Criterion Artifact Size"
+            echo "- target/criterion: ${criterion_size}"
+          } >> perf-artifacts/stress_summary.md
+          cat perf-artifacts/stress_summary.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Enforce stress trend regression gate with cached history
+        run: |
+          set -euo pipefail
+          mkdir -p .perf-history-stress-cache
+          scripts/perf/import_artifacts_snapshot.sh \
+            --name "stress_${{ github.run_id }}" \
+            --from perf-artifacts \
+            --history-dir .perf-history-stress-cache
+          scripts/perf/prune_history.sh \
+            --history-dir .perf-history-stress-cache \
+            --keep-last 45 \
+            --apply
+          scripts/perf/trend_gate.sh \
+            --history-dir .perf-history-stress-cache \
+            --source probe \
+            --metric median \
+            --window 14 \
+            --top 200 \
+            --env-compat warn \
+            --fail-regressions-pct 15
+          cargo run --release --bin perf_corpus_trend -- \
+            --history-dir .perf-history-stress-cache \
+            --source probe \
+            --metric all \
+            --window 14 \
+            --top 200 \
+            --json > perf-artifacts/stress_trend.json
+          cargo run --release --bin perf_corpus_health -- \
+            --history-dir .perf-history-stress-cache \
+            --source probe \
+            --window 30 \
+            --min-points 3 \
+            --noisy-cv-pct 25 \
+            --redundancy-corr-min 0.995 \
+            --json > perf-artifacts/stress_health.json
+          cargo run --release --bin perf_corpus_health -- \
+            --history-dir .perf-history-stress-cache \
+            --source probe \
+            --window 30 \
+            --min-points 3 \
+            --noisy-cv-pct 25 \
+            --redundancy-corr-min 0.995 > perf-artifacts/stress_health.txt
+          {
+            echo ""
+            echo "### Perf Corpus Health Audit"
+            cat perf-artifacts/stress_health.txt
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload criterion artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: stress-criterion-${{ github.run_id }}
+          path: target/criterion
+          if-no-files-found: warn
+
+      - name: Upload stress perf artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: stress-perf-${{ github.run_id }}
+          path: perf-artifacts
+          if-no-files-found: warn

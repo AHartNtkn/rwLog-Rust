@@ -1,0 +1,207 @@
+# rwlog Performance Investigations
+
+This document is a backlog of architecture-level performance investigations for `rwlog`.
+The intent is to find order-of-magnitude improvements, not micro-optimizations.
+
+## Guardrails
+
+- Preserve current language semantics.
+- Treat every idea as a hypothesis until measured.
+- Prefer changes that improve asymptotic behavior, pruning power, or work avoidance.
+- Require benchmarks on representative workloads before and after each experiment.
+
+## Measurement Infrastructure First
+
+1. Define a fixed benchmark corpus with categories: finite deterministic, finite nondeterministic, recursive/tabling-heavy, CHR-heavy, deep terms, and broad disjunction trees.
+2. Add workload metadata: expected answer count class (0, 1, finite-many, infinite-stream prefix).
+3. Record per-query metrics already exposed in `EvalMetrics`, plus wall time, allocations, peak RSS, and branch count.
+4. Add reproducible benchmark modes for `debug` and `release` profiles.
+5. Track p50/p95 latency for first answer, tenth answer, and exhaustion.
+6. Add golden performance baselines with regression thresholds in CI for key workloads.
+7. Add sampling/flamegraph scripts that can run each benchmark case in isolation.
+8. Add tracing snapshots for high-cost queries to compare execution shape before/after.
+
+## Investigation Backlog
+
+Each item is an investigation area, not a guaranteed improvement.
+
+### Search/Scheduling Architecture
+
+1. Replace strict left-biased stepping with adaptive branch scheduling guided by historical yield rate per branch.
+2. Prioritize branches with lower estimated normalization cost before expensive branches.
+3. Add a scheduler mode tuned for first-answer latency vs throughput and compare both modes.
+4. Use dynamic branch throttling for branches that repeatedly produce duplicates.
+5. Introduce beam-style bounded frontier for exploratory workloads and evaluate semantics-preserving variants.
+6. Investigate stratified fairness where recursive producers receive budget quotas rather than strict alternation.
+7. Add cooperative work-stealing across independent branches for multicore execution.
+8. Replace queue discipline with pluggable schedulers (`FIFO`, `LIFO`, cost-priority, round-robin-by-call-key).
+9. Cache branch failure signatures to fast-reject repeated dead paths.
+10. Predict likely-empty conjunction branches early from shape constraints and schedule them first.
+
+### Work Graph Representation
+
+1. Replace tree-style `Rel` cloning with a DAG representation using structural hashing to share repeated subexpressions.
+2. Introduce immutable arena-backed nodes for `Rel`/`Node` to reduce `Arc` churn.
+3. Store normalized fragments once and reference by ID in execution nodes.
+4. Replace recursive descent rewrites with iterative worklist rewrites to reduce stack pressure.
+5. Explore compact bytecode-style execution plans compiled from `Rel` before evaluation.
+6. Add canonicalized subplan cache keyed by normalized plan shape.
+7. Evaluate rope/chunk-based sequence storage vs current factor representation for long `Seq`.
+8. Investigate specialized node types for common plan idioms (`rule ; call`, `call ; rule`, `A & B` with atoms).
+
+### Matching and Unification-Equivalent Core (Matching-Only Semantics)
+
+1. Replace generic term matching with opcode-specialized match programs compiled per pattern shape.
+2. Introduce constructor-indexed dispatch tables to avoid repeated top-symbol checks.
+3. Precompute variable occurrence maps for each pattern to speed repeated-variable constraints.
+4. Explore union-find-like equivalence structures for intra-side variable equalities during matching.
+5. Add fast-paths for linear patterns (no repeated variables) separate from nonlinear patterns.
+6. Pre-normalize variable IDs to dense ranges earlier to reduce substitution map size.
+7. Evaluate hash-consed matched-subterm memoization for repeated pattern applications.
+8. Cache match failures by `(pattern_id, subject_top_shape)` to skip impossible attempts.
+9. Investigate SIMD-friendly structural comparison for small fixed-arity constructor trees.
+10. Add matching cost model and schedule cheaper matches first in heterogeneous fusion.
+
+### NF/Kernel Normalization Pipeline
+
+1. Introduce a staged normalization pipeline with explicit cost-based reorder of commuting rewrites.
+2. Memoize `compose_nf` results by normalized NF fingerprints.
+3. Memoize `meet_nf` results by canonical pair fingerprints (order-normalized).
+4. Separate cheap syntactic impossibility checks before expensive matching in compose/meet.
+5. Add canonical hash keys for `NF` to enable dedup and cache hits across branches.
+6. Rework normalization to produce and consume compact intermediate IR rather than rebuilding full `NF`s.
+7. Identify hot paths where repeated factor/collect cycles can be eliminated.
+8. Build a fusion planner that batches multiple adjacent kernel operations in one pass.
+9. Add identity/annihilator propagation earlier to shrink plans before deep normalization.
+10. Specialize unary-arity common cases to bypass general multi-arity machinery.
+
+### DropFresh and Variable Routing
+
+1. Replace generic `SmallVec` map representation with packed bitset/packed arrays for frequent small arities.
+2. Precompute composition tables for common `DropFresh` patterns.
+3. Introduce a canonical `DropFresh` interner to share identical routings.
+4. Add fast-path for identity and near-identity routings through tagged variants.
+5. Fuse adjacent `DropFresh` chains without materializing intermediate mappings.
+6. Evaluate transposed/internal cache-friendly layouts for routing maps in composition-heavy workloads.
+
+### Term Representation and Memory Layout
+
+1. Move to arena indices with cache-aware contiguous child storage for `TermStore`.
+2. Add global hash-consing for immutable ground subterms.
+3. Add optional per-query temporary arena to avoid long-lived heap churn for transient terms.
+4. Use compact tagged integer encoding for tiny terms/vars to reduce pointer chasing.
+5. Evaluate SoA layout for term fields to improve traversal throughput.
+6. Introduce generation-based GC/reclamation for dead transient terms between query epochs.
+7. Add copy-on-write term slabs shared across branches.
+8. Investigate lock-free symbol/term interning paths for parallel evaluators.
+
+### Constraint/CHR Engine Integration
+
+1. Add CHR predicate indexing by head functor/arity and argument shape.
+2. Compile CHR rules into indexed decision structures rather than linear scans.
+3. Add incremental constraint store deltas to avoid full rechecks after each introduce.
+4. Introduce join-order optimization for multi-head CHR rules based on selectivity estimates.
+5. Cache guard evaluation results for repeated `(rule, bindings)` pairs.
+6. Add contradiction-first scheduling to fail branches earlier.
+7. Explore persistent constraint store snapshots to reduce clone costs across branches.
+8. Intern and hash canonical residual-constraint states to deduplicate equivalent outputs.
+
+### Tabling/Recursion Strategy
+
+1. Replace coarse call-key table entries with stratified keys that separate shape and constraint components.
+2. Add subsumption tabling: reuse answers from more-general calls when safe.
+3. Add answer-trie indexes per call key for faster duplicate detection and replay.
+4. Introduce semi-naive fixpoint updates to avoid reprocessing stable answers.
+5. Evaluate strongly connected component scheduling for mutual recursion groups.
+6. Add incremental invalidation model for environments where definitions change.
+7. Investigate bounded early materialization of likely-hot recursive calls.
+8. Add producer prioritization by estimated marginal new answers.
+9. Compare eager replay vs batched replay strategies for consumer wakeups.
+10. Explore differential dataflow-style recursive maintenance for monotone fragments.
+
+### Conjunction/Meet Execution
+
+1. Replace naive fair diagonal join with selectivity-aware join ordering.
+2. Add cardinality/selectivity estimators for `AndGroup` components.
+3. Introduce adaptive join algorithms (`nested-loop`, hash-join-like, indexed join) by workload.
+4. Pre-filter candidate pairs using cheap shape signatures before full `meet_nf`.
+5. Cache failed meet pairs to avoid repeated impossible intersections.
+6. Rework `AndGroup` to pipeline partial meets instead of materializing large intermediate frontiers.
+7. Use async producer/consumer channels for parallel branch production and controlled backpressure.
+8. Add branch-specific dedup filters to cut cross-product blow-up.
+
+### Disjunction/Or Execution
+
+1. Internally flatten nested `Or` structures once and schedule from a branch pool.
+2. Add duplicate-answer suppression close to branch emission rather than global late-stage.
+3. Share normalized prefix work among sibling `Or` branches where legal.
+4. Add branch pruning based on static incompatibility with downstream constraints.
+5. Batch branch stepping to amortize scheduler overhead.
+
+### Parsing/Compilation Layer
+
+1. Add a compile phase from parsed `Rel` to optimized execution plan cached per definition.
+2. Introduce plan-level static analyses: arity flow, variable liveness, potential determinism.
+3. Add detection and specialization for deterministic relations.
+4. Inline small relation calls into caller plans when profitable.
+5. Add whole-program relation call graph analysis for cycle grouping and specialization.
+6. Precompute top-symbol indexes for each rule head during parsing.
+7. Compile frequently used queries into reusable prepared plans.
+
+### Deduplication and Canonicalization
+
+1. Define stable canonical fingerprints for answers to make dedup O(1) hashed in common cases.
+2. Add per-branch dedup + global dedup layering to reduce central contention.
+3. Investigate canonical alpha-renaming at emission boundary to improve duplicate collapse.
+4. Add bounded LRU caches for recently emitted canonical answers in streaming queries.
+5. Evaluate probabilistic prefilters (Bloom) before full dedup checks for high-volume streams.
+
+### Parallelism
+
+1. Parallelize independent `Or` branches with work-stealing thread pools.
+2. Parallelize `AndGroup` producers and merge with deterministic stable ordering layer.
+3. Split tabling producer evaluation and consumer replay onto separate executors.
+4. Use lock-sharded tables and caches keyed by call key/hash buckets.
+5. Investigate data-parallel match evaluation for batches of candidate terms.
+6. Add NUMA-aware placement experiments for large memory-heavy workloads.
+
+### Output/Rendering Path
+
+1. Separate answer generation from rendering to measure pure engine throughput.
+2. Add lazy formatting to avoid rendering answers that are dropped by upstream filters/tests.
+3. Cache rendered symbol strings for repeated term structures in large result sets.
+
+### Correctness-Preserving Pruning Analyses
+
+1. Add static impossibility analysis for constructor conflicts before runtime.
+2. Add variable-occurrence compatibility analysis to reject impossible compositions early.
+3. Add monotonicity/determinism annotations inferred from rules for safer aggressive pruning.
+4. Identify relation fragments where exhaustive normalization can be replaced by precompiled transfer functions.
+5. Add bounded symbolic execution on plans to discover dead branches ahead of runtime.
+
+### Experimental Alternate Architectures
+
+1. Build a prototype Datalog-style semi-naive engine for a subset and compare recursion-heavy workloads.
+2. Build a prototype e-graph-based normalization backend for compose/meet-heavy workloads.
+3. Build a prototype incremental dataflow executor where each relation is a node and answers are streams.
+4. Build a bytecode VM backend with explicit registers for vars/substitutions.
+5. Build a GPU-accelerated matcher prototype for broad shallow term sets.
+
+## Prioritization Candidates (High Expected ROI)
+
+1. Memoization and canonical hashing for `compose_nf`/`meet_nf`.
+2. Selectivity-aware `AndGroup` join ordering and failed-pair caches.
+3. Tabling improvements (answer tries + semi-naive updates + replay strategy).
+4. Compiled match programs with constructor-indexed dispatch.
+5. Plan compilation/caching for parsed relation definitions and frequent queries.
+6. Structural sharing/DAG representation for `Rel` and normalized plans.
+
+## Suggested Experiment Template
+
+1. Hypothesis: one sentence about expected speedup mechanism.
+2. Scope: exact subsystem and files touched.
+3. Workloads: benchmark IDs and why they are representative.
+4. Metrics: first-answer latency, total time, allocations, peak RSS, steps, cache hit rates.
+5. Result: absolute numbers and relative change.
+6. Regression check: semantics test suite and existing property tests.
+7. Decision: keep, iterate, or revert.
