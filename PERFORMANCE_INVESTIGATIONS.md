@@ -30,7 +30,7 @@ Each item is an investigation area, not a guaranteed improvement.
 ### Work Graph Representation
 
 1. Replace tree-style `Rel` cloning with a DAG representation using structural hashing to share repeated subexpressions.
-2. Introduce immutable arena-backed nodes for `Rel`/`Node` to reduce `Arc` churn.
+2. Introduce immutable arena-backed nodes for `Rel`/`Node` to reduce `Arc` churn. **Estimated 3-5% ROI** — see [per_step_cost_decomposition.md](docs/perf_investigations/per_step_cost_decomposition.md).
 3. Store normalized fragments once and reference by ID in execution nodes.
 4. Replace recursive descent rewrites with iterative worklist rewrites to reduce stack pressure.
 5. Explore compact bytecode-style execution plans compiled from `Rel` before evaluation.
@@ -184,7 +184,8 @@ Each item is an investigation area, not a guaranteed improvement.
 4. Compiled match programs with constructor-indexed dispatch.
 5. Plan compilation/caching for parsed relation definitions and frequent queries.
 6. Structural sharing/DAG representation for `Rel` and normalized plans.
-7. **ChrState clone/hash/eq optimization.** **Investigated** — see [docs/perf_investigations/or_tree_and_per_step_cost.md](docs/perf_investigations/or_tree_and_per_step_cost.md). ChrState clone (22%) + freeze_chr hash allocation (13%) + associated alloc/dealloc (23%) = **~45% of execution time** on the heaviest workload. Only 15% is actual kernel work (compose_nf). Arc-wrapping ChrState internals and caching the hash would eliminate the dominant cost center. **Highest measured ROI of any investigated item.**
+7. ~~ChrState clone/hash/eq optimization.~~ **Superseded** — see [docs/perf_investigations/per_step_cost_decomposition.md](docs/perf_investigations/per_step_cost_decomposition.md). ChrState cloning is a symptom, not the root cause. 89.8% of ChrState clones originate from `FixWork::clone`, which deep-copies `CallKey<C>` (containing NFs) on every step. The real fix is Arc-wrapping CallKey in FixWork (~22% estimated reduction) rather than optimizing ChrState itself.
+8. **FixWork clone-per-step elimination.** See [docs/perf_investigations/per_step_cost_decomposition.md](docs/perf_investigations/per_step_cost_decomposition.md). Full cost decomposition shows: tabling machinery 26%, dispatch 14%, clone cascade 14%, drop 10%, kernel compute only 2.4%. Arc-wrapping CallKey + Arc-wrapping table answers + removing Mutex overhead = ~30% estimated total improvement. **Highest measured ROI of any investigated item.**
 
 ## Suggested Experiment Template
 
