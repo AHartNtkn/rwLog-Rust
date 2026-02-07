@@ -133,7 +133,7 @@ fn unwrap_and_group(work: Work<()>) -> AndGroup<()> {
 fn unwrap_work_pipe(node: Node<()>) -> PipeWork<()> {
     match node {
         Node::Work(work) => match *work {
-            Work::Pipe(pipe) => pipe,
+            Work::Pipe(pipe) => *pipe,
             _ => panic!("Expected Work::Pipe"),
         },
         _ => panic!("Expected Node::Work"),
@@ -342,7 +342,7 @@ fn work_atom_construction() {
 #[test]
 fn work_pipe_construction() {
     let pipe = PipeWork::new();
-    let work: Work<()> = Work::Pipe(pipe);
+    let work: Work<()> = Work::Pipe(Box::new(pipe));
     assert!(matches!(work, Work::Pipe(_)));
 }
 
@@ -509,14 +509,14 @@ fn pipework_fuses_middle_atoms_before_advancing_ends() {
         WorkStep::Split(left, right) => {
             let left_pipe = match *left {
                 Node::Work(work) => match *work {
-                    Work::Pipe(pipe) => pipe,
+                    Work::Pipe(pipe) => *pipe,
                     _ => panic!("Expected Work::Pipe on left"),
                 },
                 _ => panic!("Expected Node::Work on left"),
             };
             let right_pipe = match *right {
                 Node::Work(work) => match *work {
-                    Work::Pipe(pipe) => pipe,
+                    Work::Pipe(pipe) => *pipe,
                     _ => panic!("Expected Work::Pipe on right"),
                 },
                 _ => panic!("Expected Node::Work on right"),
@@ -1119,7 +1119,7 @@ fn pipework_multiple_atoms_compose() {
             WorkStep::Emit(_, _) => break,
             WorkStep::Done => break,
             WorkStep::More(work) => match *work {
-                Work::Pipe(p) => pipe = p,
+                Work::Pipe(p) => pipe = *p,
                 _ => panic!("Expected Pipe"),
             },
             WorkStep::Split(_, _) => panic!("Unexpected split"),
@@ -1208,7 +1208,7 @@ fn pipework_step_absorbs_both_ends_before_advancing() {
         match step {
             WorkStep::More(work) => match *work {
                 Work::Pipe(p) => {
-                    pipe = p;
+                    pipe = *p;
                     steps += 1;
                     if steps > max_steps {
                         panic!("Too many More steps without Split");
@@ -1280,7 +1280,7 @@ fn pipework_step_right_boundary_composes() {
         match step {
             WorkStep::More(work) => match *work {
                 Work::Pipe(p) => {
-                    pipe = p;
+                    pipe = *p;
                     steps += 1;
                     if steps > 10 {
                         panic!("Too many steps");
@@ -1436,7 +1436,7 @@ fn meetwork_steps_work_nodes() {
     let rel = Arc::new(Rel::Atom(Arc::new(nf.clone())));
     let factors = Factors::from_seq(Arc::from(vec![rel]));
     let left_pipe = PipeWork::with_mid(factors);
-    let left = Node::Work(Box::new(Work::Pipe(left_pipe)));
+    let left = Node::Work(Box::new(Work::Pipe(Box::new(left_pipe))));
     let right = Node::Emit(nf, Box::new(Node::Fail));
     let mut meet: MeetWork<()> = MeetWork::new(left, right);
 

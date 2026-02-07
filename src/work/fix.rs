@@ -348,7 +348,7 @@ fn make_replay_producer<C: ConstraintOps>(spec: &ProducerSpec<C>, tables: &Table
         tables.clone(),
     );
     producer_pipe.call_mode = CallMode::ReplayOnly(spec.key.clone());
-    Node::Work(Box::new(Work::Pipe(producer_pipe)))
+    Node::Work(Box::new(Work::Pipe(Box::new(producer_pipe))))
 }
 
 pub fn step_table_producer<C: ConstraintOps>(

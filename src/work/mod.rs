@@ -38,7 +38,7 @@ mod tests;
 #[derive(Clone, Debug)]
 pub enum Work<C: ConstraintOps> {
     /// Sequential composition pipeline.
-    Pipe(PipeWork<C>),
+    Pipe(Box<PipeWork<C>>),
     /// Conjunction/intersection via fair diagonal join.
     Meet(MeetWork<C>),
     /// N-ary conjunction/intersection via fair diagonal join.
@@ -148,7 +148,7 @@ pub fn rel_to_node<C: ConstraintOps>(rel: &Rel<C>, env: &Env<C>, tables: &Tables
             let mut pipe = PipeWork::with_mid(factors_rope);
             pipe.env = env.clone();
             pipe.tables = tables.clone();
-            Node::Work(Box::new(Work::Pipe(pipe)))
+            Node::Work(Box::new(Work::Pipe(Box::new(pipe))))
         }
 
         Rel::Fix(id, body) => {
@@ -163,7 +163,7 @@ pub fn rel_to_node<C: ConstraintOps>(rel: &Rel<C>, env: &Env<C>, tables: &Tables
                 let mut pipe = PipeWork::with_mid(factors);
                 pipe.env = env.clone();
                 pipe.tables = tables.clone();
-                Node::Work(Box::new(Work::Pipe(pipe)))
+                Node::Work(Box::new(Work::Pipe(Box::new(pipe))))
             }
             None => Node::Fail,
         },
