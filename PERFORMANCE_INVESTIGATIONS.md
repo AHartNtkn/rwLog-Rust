@@ -89,8 +89,8 @@ Each item is an investigation area, not a guaranteed improvement.
 
 ### Constraint/CHR Engine Integration
 
-1. Add CHR predicate indexing by head functor/arity and argument shape.
-2. Compile CHR rules into indexed decision structures rather than linear scans.
+1. ~~Add CHR predicate indexing by head functor/arity and argument shape.~~ **Implemented — ~27% improvement on CHR-heavy workloads.** See [docs/perf_investigations/chr_trigger_indexing.md](docs/perf_investigations/chr_trigger_indexing.md). First-argument functor indexing on the trigger table + RVarEnv reuse. Eliminated 69% of match_head calls (28.7M/41.8M) and 99.99% of RVarEnv heap allocations. `program_synth_flip` from ~7.3s to ~5.5s.
+2. ~~Compile CHR rules into indexed decision structures rather than linear scans.~~ **Partially addressed** — see [docs/perf_investigations/chr_trigger_indexing.md](docs/perf_investigations/chr_trigger_indexing.md). First-argument indexing covers the most common case. Full decision-tree compilation for multi-argument or variable-first-arg patterns remains uninvestigated.
 3. Add incremental constraint store deltas to avoid full rechecks after each introduce.
 4. Introduce join-order optimization for multi-head CHR rules based on selectivity estimates.
 5. Cache guard evaluation results for repeated `(rule, bindings)` pairs.

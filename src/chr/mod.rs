@@ -81,6 +81,15 @@ impl RVarEnv {
         }
     }
 
+    /// Grow internal vectors if needed to accommodate `n_rvars` slots.
+    pub fn ensure_capacity(&mut self, n_rvars: u32) {
+        let n = n_rvars as usize;
+        if n > self.stamp.len() {
+            self.stamp.resize(n, 0);
+            self.val.resize(n, TermId::from_raw(0));
+        }
+    }
+
     pub fn reset(&mut self) {
         self.gen = self.gen.wrapping_add(1);
         if self.gen == 0 {
@@ -845,15 +854,32 @@ pub struct OccRef {
     pub occ: u16,
 }
 
+/// First-argument functor-indexed trigger dispatch table.
+///
+/// For each predicate, partitions rule occurrences by the top-level functor
+/// of the anchor head's first argument pattern:
+/// - `by_functor[f]` → rules whose first arg pattern is `App(f, ...)`
+/// - `fallback` → rules whose first arg is a variable (matches anything),
+///   or rules with arity-0 heads (no argument to index on)
+///
+/// At dispatch time, a constraint `pred(t, ...)` looks up `t`'s top functor
+/// and tries only `by_functor[f] ++ fallback`, skipping rules that cannot match.
+#[derive(Clone, Debug)]
+pub struct IndexedTriggers {
+    pub by_functor: HashMap<FuncId, Vec<OccRef>>,
+    pub fallback: Vec<OccRef>,
+}
+
 #[derive(Debug)]
 pub struct ChrProgram<T: Theory> {
     pub preds: Box<[PredDecl]>,
     pub rules: Box<[Rule<T>]>,
-    pub triggers: Vec<Vec<OccRef>>,
+    pub triggers: Vec<IndexedTriggers>,
     pub pats: PatArena,
     pub builtins: BuiltinRegistry<T>,
     pub pred_names: HashMap<String, PredId>,
     pub program_id: u64,
+    pub max_rvars: u32,
 }
 
 impl<T: Theory> Clone for ChrProgram<T> {
@@ -866,6 +892,7 @@ impl<T: Theory> Clone for ChrProgram<T> {
             builtins: self.builtins.clone(),
             pred_names: self.pred_names.clone(),
             program_id: self.program_id,
+            max_rvars: self.max_rvars,
         }
     }
 }
@@ -987,19 +1014,48 @@ impl<T: Theory> ChrProgramBuilder<T> {
             });
         }
 
-        let mut triggers: Vec<Vec<OccRef>> = vec![Vec::new(); self.preds.len()];
+        let max_rvars = rules.iter().map(|r| r.n_rvars).max().unwrap_or(0);
+
+        // Build first-argument indexed trigger tables.
+        let mut triggers: Vec<IndexedTriggers> = (0..self.preds.len())
+            .map(|_| IndexedTriggers {
+                by_functor: HashMap::new(),
+                fallback: Vec::new(),
+            })
+            .collect();
+
         for rule in rules.iter() {
             for (occ_idx, occ) in rule.occs.iter().enumerate() {
                 let head = &rule.heads[occ.anchor_head as usize];
-                triggers[head.pred.0 as usize].push(OccRef {
+                let occ_ref = OccRef {
                     rid: rule.rid,
                     occ: occ_idx as u16,
-                });
+                };
+                let trig = &mut triggers[head.pred.0 as usize];
+
+                // Index by the top-level functor of the first argument pattern.
+                if let Some(first_arg) = head.args.first() {
+                    match self.pats.get(*first_arg) {
+                        PatNode::App { f, .. } => {
+                            trig.by_functor.entry(*f).or_default().push(occ_ref);
+                        }
+                        PatNode::RVar(_) => {
+                            trig.fallback.push(occ_ref);
+                        }
+                    }
+                } else {
+                    // Arity-0 head: no argument to index on.
+                    trig.fallback.push(occ_ref);
+                }
             }
         }
 
-        for occs in triggers.iter_mut() {
-            occs.sort_by(|a, b| occ_ref_order(a, b, &rules));
+        // Sort each bucket by priority.
+        for trig in triggers.iter_mut() {
+            for bucket in trig.by_functor.values_mut() {
+                bucket.sort_by(|a, b| occ_ref_order(a, b, &rules));
+            }
+            trig.fallback.sort_by(|a, b| occ_ref_order(a, b, &rules));
         }
 
         Arc::new(ChrProgram {
@@ -1010,6 +1066,7 @@ impl<T: Theory> ChrProgramBuilder<T> {
             builtins: self.builtins,
             pred_names: self.pred_names,
             program_id,
+            max_rvars,
         })
     }
 }
@@ -1344,28 +1401,59 @@ impl<T: Theory> ChrState<T> {
             return false;
         }
         d.store.rebuild_indexes(&self.program.preds, terms);
+
+        // Reuse a single RVarEnv across all match attempts in this fixpoint.
+        let mut env = RVarEnv::new(self.program.max_rvars);
+
         while let Some(cid) = d.agenda.pop_front() {
             if !Self::is_alive_in(&d.store, cid) {
                 continue;
             }
-            let pred = d.store.inst[cid.0 as usize].pred;
-            let triggers = &self.program.triggers[pred.0 as usize];
-            for occ_ref in triggers.iter() {
-                if let Some(tuple) = Self::find_match_by_ids_inner(
+            let inst = &d.store.inst[cid.0 as usize];
+            let pred = inst.pred;
+            let indexed = &self.program.triggers[pred.0 as usize];
+
+            // Extract top functor of first arg for indexed dispatch.
+            let first_arg_functor: Option<FuncId> = inst.args.first().and_then(|tid| {
+                terms.with_term(*tid, |t| match t? {
+                    Term::App(f, _) => Some(*f),
+                    Term::Var(_) => None,
+                })
+            });
+
+            // Try functor-indexed rules first, then fallback.
+            let indexed_occs = first_arg_functor
+                .and_then(|f| indexed.by_functor.get(&f))
+                .map(|v| v.as_slice())
+                .unwrap_or(&[]);
+
+            let mut fired = false;
+            for occ_ref in indexed_occs.iter().chain(indexed.fallback.iter()) {
+                if let Some(tuple) = Self::find_match_by_ids_reuse(
                     &self.program,
                     d,
                     occ_ref.rid,
                     occ_ref.occ,
                     cid,
                     terms,
+                    &mut env,
                 ) {
-                    if !Self::apply_rule_by_id_inner(&self.program, d, occ_ref.rid, &tuple, terms) {
+                    if !Self::apply_rule_by_id_reuse(
+                        &self.program,
+                        d,
+                        occ_ref.rid,
+                        &tuple,
+                        terms,
+                        &mut env,
+                    ) {
                         d.failed = true;
                         return false;
                     }
+                    fired = true;
                     break;
                 }
             }
+            let _ = fired;
         }
         !d.failed
     }
@@ -1380,20 +1468,24 @@ struct SearchCtx<'a, T: Theory> {
 }
 
 impl<T: Theory> ChrState<T> {
-    fn find_match_inner(
+    /// Find a match for a rule occurrence using a pre-allocated `RVarEnv`.
+    fn find_match_by_ids_reuse(
         program: &ChrProgram<T>,
         data: &ChrStateData<T>,
-        rule: &Rule<T>,
-        occ: &Occurrence,
+        rid: RuleId,
+        occ_idx: u16,
         active: Cid,
         terms: &TermStore,
+        env: &mut RVarEnv,
     ) -> Option<Vec<Cid>> {
-        let mut env = RVarEnv::new(rule.n_rvars);
-        let mut chosen: Vec<Option<Cid>> = vec![None; rule.heads.len()];
+        let rule = &program.rules[rid.0 as usize];
+        let occ = &rule.occs[occ_idx as usize];
+        env.ensure_capacity(rule.n_rvars);
         env.reset();
+        let mut chosen: Vec<Option<Cid>> = vec![None; rule.heads.len()];
         let anchor_head = &rule.heads[occ.anchor_head as usize];
         let inst = &data.store.inst[active.0 as usize];
-        if !match_head(&program.pats, terms, anchor_head, inst, &mut env) {
+        if !match_head(&program.pats, terms, anchor_head, inst, env) {
             return None;
         }
         chosen[occ.anchor_head as usize] = Some(active);
@@ -1404,20 +1496,44 @@ impl<T: Theory> ChrState<T> {
             occ,
             terms,
         };
-        Self::search_steps_inner(&ctx, 0, &mut env, &mut chosen)
+        Self::search_steps_inner(&ctx, 0, env, &mut chosen)
     }
 
-    fn find_match_by_ids_inner(
+    /// Like `apply_rule_by_id_inner` but reuses a pre-allocated `RVarEnv`.
+    fn apply_rule_by_id_reuse(
         program: &ChrProgram<T>,
-        data: &ChrStateData<T>,
+        data: &mut ChrStateData<T>,
         rid: RuleId,
-        occ_idx: u16,
-        active: Cid,
-        terms: &TermStore,
-    ) -> Option<Vec<Cid>> {
+        tuple: &[Cid],
+        terms: &mut TermStore,
+        env: &mut RVarEnv,
+    ) -> bool {
         let rule = &program.rules[rid.0 as usize];
-        let occ = &rule.occs[occ_idx as usize];
-        Self::find_match_inner(program, data, rule, occ, active, terms)
+        let removed_mask = rule.removed_mask;
+
+        if rule.is_propagation {
+            let token = TokenKey::from_cids(tuple.to_vec());
+            data.tokens.fired[rid.0 as usize].insert(token);
+        }
+
+        for (i, cid) in tuple.iter().copied().enumerate() {
+            if (removed_mask & (1u64 << i)) != 0 {
+                data.store.mark_dead(cid);
+            }
+        }
+
+        env.ensure_capacity(rule.n_rvars);
+        env.reset();
+        for (i, cid) in tuple.iter().copied().enumerate() {
+            let head = &rule.heads[i];
+            let inst = &data.store.inst[cid.0 as usize];
+            if !match_head(&program.pats, terms, head, inst, env) {
+                return false;
+            }
+        }
+
+        rule.body
+            .exec_with_data(&program.pats, terms, &program.builtins, env, program, data)
     }
 
     fn search_steps_inner(
@@ -1503,41 +1619,6 @@ impl<T: Theory> ChrState<T> {
                 }
             }
         }
-    }
-
-    fn apply_rule_by_id_inner(
-        program: &ChrProgram<T>,
-        data: &mut ChrStateData<T>,
-        rid: RuleId,
-        tuple: &[Cid],
-        terms: &mut TermStore,
-    ) -> bool {
-        let rule = &program.rules[rid.0 as usize];
-        let removed_mask = rule.removed_mask;
-
-        if rule.is_propagation {
-            let token = TokenKey::from_cids(tuple.to_vec());
-            data.tokens.fired[rid.0 as usize].insert(token);
-        }
-
-        for (i, cid) in tuple.iter().copied().enumerate() {
-            if (removed_mask & (1u64 << i)) != 0 {
-                data.store.mark_dead(cid);
-            }
-        }
-
-        let mut env = RVarEnv::new(rule.n_rvars);
-        env.reset();
-        for (i, cid) in tuple.iter().copied().enumerate() {
-            let head = &rule.heads[i];
-            let inst = &data.store.inst[cid.0 as usize];
-            if !match_head(&program.pats, terms, head, inst, &mut env) {
-                return false;
-            }
-        }
-
-        rule.body
-            .exec_with_data(&program.pats, terms, &program.builtins, &env, program, data)
     }
 
     #[inline]
@@ -1861,6 +1942,7 @@ impl<T: Theory> ChrProgram<T> {
             builtins: BuiltinRegistry::default(),
             pred_names: HashMap::new(),
             program_id: NEXT_PROGRAM_ID.fetch_add(1, AtomicOrdering::Relaxed),
+            max_rvars: 0,
         })
     }
 }
