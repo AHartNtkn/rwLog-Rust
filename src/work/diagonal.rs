@@ -6,6 +6,16 @@ use std::collections::{HashSet, VecDeque};
 
 use super::{Work, WorkStep};
 
+/// Result of stepping a DiagonalJoin in-place (no allocation).
+pub(crate) enum DiagonalStepResult<C: ConstraintOps> {
+    /// Emit an answer; DiagonalJoin has been updated in-place for continuation.
+    Emit(NF<C>),
+    /// No answer yet; DiagonalJoin has been updated in-place for continuation.
+    More,
+    /// Done; no more answers.
+    Done,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum JoinOutcome {
     Done,
@@ -165,6 +175,121 @@ impl<C: ConstraintOps, S: JoinStrategy<C> + Default> DiagonalJoin<C, S> {
             self.pull_side(JoinSide::Right, terms, wrap)
         } else {
             self.pull_side(JoinSide::Left, terms, wrap)
+        }
+    }
+
+    /// Step in-place, returning a simple result without allocating Box<Work>.
+    ///
+    /// Same logic as `step()` but mutates self in-place and returns
+    /// `DiagonalStepResult` instead of `WorkStep`. The caller reuses the
+    /// existing `Box<Work>` for the continuation, eliminating 3 heap
+    /// allocations per step (2× dummy Box<Node::Fail> + 1× Box<Work>).
+    pub(crate) fn step_in_place(&mut self, terms: &mut TermStore) -> DiagonalStepResult<C> {
+        if let Some(nf) = self.pop_pending() {
+            return DiagonalStepResult::Emit(nf);
+        }
+
+        let left_exhausted = matches!(*self.left, Node::Fail);
+        let right_exhausted = matches!(*self.right, Node::Fail);
+
+        if let Some(nf) = self.with_strategy_mut(|strategy, join| strategy.pre_step(join, terms)) {
+            return DiagonalStepResult::Emit(nf);
+        }
+
+        if let Some(outcome) = self
+            .strategy
+            .check_done(self, left_exhausted, right_exhausted)
+        {
+            return match outcome {
+                JoinOutcome::Done => DiagonalStepResult::Done,
+                JoinOutcome::More => DiagonalStepResult::More,
+            };
+        }
+
+        let pull_from_right = if left_exhausted {
+            true
+        } else if right_exhausted {
+            false
+        } else {
+            self.flip
+        };
+
+        if pull_from_right {
+            self.pull_side_in_place(JoinSide::Right, terms)
+        } else {
+            self.pull_side_in_place(JoinSide::Left, terms)
+        }
+    }
+
+    fn pull_side_in_place(
+        &mut self,
+        side: JoinSide,
+        terms: &mut TermStore,
+    ) -> DiagonalStepResult<C> {
+        let current = match side {
+            JoinSide::Left => std::mem::replace(&mut *self.left, Node::Fail),
+            JoinSide::Right => std::mem::replace(&mut *self.right, Node::Fail),
+        };
+
+        match step_node(current, terms) {
+            NodeStep::Emit(nf, rest) => {
+                match side {
+                    JoinSide::Left => {
+                        *self.left = rest;
+                        if self.seen_l_set.insert(nf.clone()) {
+                            let idx = self.seen_l.len();
+                            self.seen_l.push(nf);
+                            self.with_strategy_mut(|strategy, join| {
+                                strategy.on_new_left(join, idx, terms);
+                            });
+                        }
+                        self.flip = true;
+                    }
+                    JoinSide::Right => {
+                        *self.right = rest;
+                        if self.seen_r_set.insert(nf.clone()) {
+                            let idx = self.seen_r.len();
+                            self.seen_r.push(nf);
+                            self.with_strategy_mut(|strategy, join| {
+                                strategy.on_new_right(join, idx, terms);
+                            });
+                        }
+                        self.flip = false;
+                    }
+                }
+
+                if let Some(result) = self.pop_pending() {
+                    DiagonalStepResult::Emit(result)
+                } else {
+                    DiagonalStepResult::More
+                }
+            }
+            NodeStep::Continue(rest) => {
+                match side {
+                    JoinSide::Left => {
+                        *self.left = rest;
+                        self.flip = true;
+                    }
+                    JoinSide::Right => {
+                        *self.right = rest;
+                        self.flip = false;
+                    }
+                }
+                DiagonalStepResult::More
+            }
+            NodeStep::Exhausted => {
+                match side {
+                    JoinSide::Left => {
+                        *self.left = Node::Fail;
+                        self.flip = true;
+                    }
+                    JoinSide::Right => {
+                        *self.right = Node::Fail;
+                        self.flip = false;
+                    }
+                }
+                DiagonalStepResult::More
+            }
         }
     }
 

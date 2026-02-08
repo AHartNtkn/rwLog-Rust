@@ -8,7 +8,7 @@ use crate::constraint::ConstraintOps;
 use crate::nf::NF;
 use crate::perf_counters;
 use crate::term::TermStore;
-use crate::work::{FixStepResult, Work, WorkStep};
+use crate::work::{DiagonalStepResult, FixStepResult, Work, WorkStep};
 
 /// Search tree node.
 ///
@@ -115,13 +115,27 @@ pub fn step_node<C: ConstraintOps>(node: Node<C>, terms: &mut TermStore) -> Node
         Node::Or(left, right) => step_or(*left, *right, terms),
 
         Node::Work(mut work) => {
-            // Fast path: FixWork can step in-place, reusing the existing Box<Work>.
-            // This avoids clone + alloc + free on every step (~216K per 64 answers).
+            // Fast paths: step in-place, reusing the existing Box<Work>.
+            // This avoids take_self + alloc + free on every step.
             if let Work::Fix(ref mut fix) = *work {
                 return match fix.step_in_place(terms) {
                     FixStepResult::Emit(nf) => NodeStep::Emit(nf, Node::Work(work)),
                     FixStepResult::More => NodeStep::Continue(Node::Work(work)),
                     FixStepResult::Done => NodeStep::Continue(Node::Fail),
+                };
+            }
+            if let Work::Compose(ref mut compose) = *work {
+                return match compose.step_in_place(terms) {
+                    DiagonalStepResult::Emit(nf) => NodeStep::Emit(nf, Node::Work(work)),
+                    DiagonalStepResult::More => NodeStep::Continue(Node::Work(work)),
+                    DiagonalStepResult::Done => NodeStep::Continue(Node::Fail),
+                };
+            }
+            if let Work::Meet(ref mut meet) = *work {
+                return match meet.step_in_place(terms) {
+                    DiagonalStepResult::Emit(nf) => NodeStep::Emit(nf, Node::Work(work)),
+                    DiagonalStepResult::More => NodeStep::Continue(Node::Work(work)),
+                    DiagonalStepResult::Done => NodeStep::Continue(Node::Fail),
                 };
             }
             match work.step(terms) {

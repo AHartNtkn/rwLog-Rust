@@ -4,7 +4,7 @@ use crate::node::Node;
 use crate::term::TermStore;
 use std::collections::VecDeque;
 
-use super::diagonal::{DiagonalJoin, JoinOutcome, JoinStrategy};
+use super::diagonal::{DiagonalJoin, DiagonalStepResult, JoinOutcome, JoinStrategy};
 use super::{Work, WorkStep};
 
 #[derive(Clone, Debug)]
@@ -202,6 +202,10 @@ impl<C: ConstraintOps> ComposeWork<C> {
 
     pub fn step(&mut self, terms: &mut TermStore) -> WorkStep<C> {
         self.core.step(terms, Self::wrap)
+    }
+
+    pub(crate) fn step_in_place(&mut self, terms: &mut TermStore) -> DiagonalStepResult<C> {
+        self.core.step_in_place(terms)
     }
 
     fn wrap(core: DiagonalJoin<C, ComposeStrategy>) -> Work<C> {

@@ -23,6 +23,7 @@ mod pipe;
 
 pub use and_group::{AndGroup, AndGroupConfig};
 pub use compose::ComposeWork;
+pub(crate) use diagonal::DiagonalStepResult;
 pub use fix::{
     step_table_producer, CallKey, Env, FixStepResult, FixWork, ProducerSpec, ProducerState,
     ProducerStep, Table, Tables,
