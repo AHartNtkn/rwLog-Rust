@@ -78,7 +78,7 @@ Each item is an investigation area, not a guaranteed improvement.
 
 ### Term Representation and Memory Layout
 
-1. Move to arena indices with cache-aware contiguous child storage for `TermStore`. **Highly relevant** — see [docs/perf_investigations/step_node_inline_control.md](docs/perf_investigations/step_node_inline_control.md). Corrected execution-only profiling shows 23.6% of engine time is in `memcpy`/`memmove` from Rust value semantics moving large structs (Node ~112B, NodeStep ~192B, NF ~120B). This is the single largest remaining optimization target.
+1. Move to arena indices with cache-aware contiguous child storage for `TermStore`. **Partially addressed** — see [docs/perf_investigations/memcpy_struct_size_reduction.md](docs/perf_investigations/memcpy_struct_size_reduction.md). Thin ChrState (`Option<Box<ChrStateData>>`) reduced NF from 224B→112B, NodeStep from 456B→240B, Node from 232B→128B. Memcpy dropped from 21% to <0.5% of execution. Arena indices for TermStore remain uninvestigated.
 2. Add global hash-consing for immutable ground subterms.
 3. Add optional per-query temporary arena to avoid long-lived heap churn for transient terms.
 4. Use compact tagged integer encoding for tiny terms/vars to reduce pointer chasing.
@@ -95,7 +95,7 @@ Each item is an investigation area, not a guaranteed improvement.
 4. Introduce join-order optimization for multi-head CHR rules based on selectivity estimates.
 5. Cache guard evaluation results for repeated `(rule, bindings)` pairs.
 6. Add contradiction-first scheduling to fail branches earlier.
-7. Explore persistent constraint store snapshots to reduce clone costs across branches. **Investigated** — see [docs/perf_investigations/or_tree_and_per_step_cost.md](docs/perf_investigations/or_tree_and_per_step_cost.md). ChrState clone is 22% of execution and freeze_chr allocates during hash/eq. Arc-wrapping ChrState internals would make clone O(1) and enable cached hashing.
+7. ~~Explore persistent constraint store snapshots to reduce clone costs across branches.~~ **Superseded** — ChrState clone overhead was eliminated by thin ChrState (`Option<Box<ChrStateData>>`). See [docs/perf_investigations/memcpy_struct_size_reduction.md](docs/perf_investigations/memcpy_struct_size_reduction.md). Empty ChrState clone is now O(1) (16 bytes, no allocation).
 8. Intern and hash canonical residual-constraint states to deduplicate equivalent outputs.
 
 ### Tabling/Recursion Strategy
@@ -193,6 +193,7 @@ Each item is an investigation area, not a guaranteed improvement.
 10. ~~Allocation overhead reduction (Box<Work>/Box<Node> size + malloc/free elimination).~~ **Implemented — ~31% improvement.** See [docs/perf_investigations/diagonal_join_take_self_overhead.md](docs/perf_investigations/diagonal_join_take_self_overhead.md). In-place stepping for ComposeWork/MeetWork eliminated 663K alloc+free cycles (88% of total). Allocations: 751K→88K (-88%), bytes: 179MB→14MB (-92%). `recursive_even_backward_first64` from ~46ms to ~32ms. Cumulative 3.28× speedup from original ~105ms.
 11. ~~FixWork in-place stepping.~~ **Implemented — ~20% improvement.** See [docs/perf_investigations/fixwork_inplace_stepping.md](docs/perf_investigations/fixwork_inplace_stepping.md). Eliminated 216K clone+alloc+free cycles per 64 answers. Cumulative 2.14× speedup on critical workload (105ms → 49ms across all optimizations).
 12. ~~step_node inline control.~~ **Implemented — ~16% improvement.** See [docs/perf_investigations/step_node_inline_control.md](docs/perf_investigations/step_node_inline_control.md). Added `#[inline(never)]` to cold paths (step_or, ComposeWork/MeetWork::step_in_place), freeing compiler inlining budget for hot FixWork path. A/B tested: 30.1ms → 25.5ms with non-overlapping ranges. Cumulative 4.12× speedup (105ms → 25.5ms).
+13. ~~Memcpy/struct size reduction (thin ChrState).~~ **Implemented — ~8% improvement.** See [docs/perf_investigations/memcpy_struct_size_reduction.md](docs/perf_investigations/memcpy_struct_size_reduction.md). Restructured ChrState from 128B to 16B via `Option<Box<ChrStateData>>`. Cascaded: NF 224→112B, NodeStep 456→240B, Node 232→128B. Memcpy dropped from 21% to <0.5%. step_node frame halved (2792→1384B). Boxing individual fields was tried first and REGRESSED 22% due to pointer chasing replacing L1-hot stack reloads. Cumulative ~4.6× speedup (105ms → 22.6ms).
 
 ## Suggested Experiment Template
 

@@ -477,6 +477,20 @@ impl BodyProg {
         env: &RVarEnv,
         st: &mut ChrState<T>,
     ) -> bool {
+        let program = Arc::clone(&st.program);
+        let d = st.data_mut();
+        self.exec_with_data(pats, terms, reg, env, &program, d)
+    }
+
+    fn exec_with_data<T: Theory>(
+        &self,
+        pats: &PatArena,
+        terms: &mut TermStore,
+        reg: &BuiltinRegistry<T>,
+        env: &RVarEnv,
+        program: &ChrProgram<T>,
+        data: &mut ChrStateData<T>,
+    ) -> bool {
         for ins in self.code.iter() {
             match ins {
                 BodyInstr::AddChr { pred, args } => {
@@ -484,7 +498,11 @@ impl BodyProg {
                         Some(v) => v,
                         None => return false,
                     };
-                    st.introduce(*pred, &av, terms);
+                    let cid = Cid(data.next_cid);
+                    data.next_cid = data.next_cid.saturating_add(1);
+                    let specs = &program.preds[pred.0 as usize].index_specs;
+                    data.store.add_chr(cid, *pred, &av, terms, specs);
+                    data.agenda.push_back(cid);
                 }
                 BodyInstr::AddBuiltin { bid, args } => {
                     let b = reg.get(*bid);
@@ -495,7 +513,7 @@ impl BodyProg {
                         Some(v) => v,
                         None => return false,
                     };
-                    if !(b.add)(&mut st.builtins, terms, &av) {
+                    if !(b.add)(&mut data.builtins, terms, &av) {
                         return false;
                     }
                 }
@@ -685,6 +703,15 @@ pub struct ChrStore {
 }
 
 impl ChrStore {
+    pub const fn const_empty() -> Self {
+        Self {
+            inst: Vec::new(),
+            preds: Vec::new(),
+            alive_count: 0,
+            dead_count: 0,
+        }
+    }
+
     pub fn new(preds: &[PredDecl]) -> Self {
         let mut pred_stores = Vec::with_capacity(preds.len());
         for pred in preds {
@@ -1202,17 +1229,16 @@ impl TokenStore {
     }
 }
 
-pub struct ChrState<T: Theory> {
-    pub store: ChrStore,
-    pub builtins: T::Store,
-    pub tokens: TokenStore,
-    pub next_cid: u32,
-    pub agenda: VecDeque<Cid>,
-    pub program: Arc<ChrProgram<T>>,
-    failed: bool,
+pub struct ChrStateData<T: Theory> {
+    pub(crate) store: ChrStore,
+    pub(crate) builtins: T::Store,
+    pub(crate) tokens: TokenStore,
+    pub(crate) next_cid: u32,
+    pub(crate) agenda: VecDeque<Cid>,
+    pub(crate) failed: bool,
 }
 
-impl<T: Theory> Clone for ChrState<T> {
+impl<T: Theory> Clone for ChrStateData<T> {
     fn clone(&self) -> Self {
         Self {
             store: self.store.clone(),
@@ -1220,61 +1246,143 @@ impl<T: Theory> Clone for ChrState<T> {
             tokens: self.tokens.clone(),
             next_cid: self.next_cid,
             agenda: self.agenda.clone(),
-            program: self.program.clone(),
             failed: self.failed,
         }
     }
 }
 
+pub struct ChrState<T: Theory> {
+    pub program: Arc<ChrProgram<T>>,
+    data: Option<Box<ChrStateData<T>>>,
+}
+
+impl<T: Theory> Clone for ChrState<T> {
+    fn clone(&self) -> Self {
+        Self {
+            program: self.program.clone(),
+            data: self.data.clone(),
+        }
+    }
+}
+
 impl<T: Theory> ChrState<T> {
+    #[inline]
+    pub fn data(&self) -> Option<&ChrStateData<T>> {
+        self.data.as_deref()
+    }
+
+    #[inline]
+    pub fn data_mut(&mut self) -> &mut ChrStateData<T> {
+        let program = &self.program;
+        self.data.get_or_insert_with(|| {
+            Box::new(ChrStateData {
+                store: ChrStore::new(&program.preds),
+                builtins: T::Store::default(),
+                tokens: TokenStore::new(program.rules.len()),
+                next_cid: 0,
+                agenda: VecDeque::new(),
+                failed: false,
+            })
+        })
+    }
+
+    #[inline]
+    pub fn store(&self) -> &ChrStore {
+        static EMPTY_STORE: ChrStore = ChrStore::const_empty();
+        match &self.data {
+            Some(d) => &d.store,
+            None => &EMPTY_STORE,
+        }
+    }
+
+    #[inline]
+    pub fn has_data(&self) -> bool {
+        self.data.is_some()
+    }
+
     pub fn new(program: Arc<ChrProgram<T>>, builtins: T::Store) -> Self {
         let n_rules = program.rules.len();
         Self {
-            store: ChrStore::new(&program.preds),
-            builtins,
-            tokens: TokenStore::new(n_rules),
-            next_cid: 0,
-            agenda: VecDeque::new(),
+            data: Some(Box::new(ChrStateData {
+                store: ChrStore::new(&program.preds),
+                builtins,
+                tokens: TokenStore::new(n_rules),
+                next_cid: 0,
+                agenda: VecDeque::new(),
+                failed: false,
+            })),
             program,
-            failed: false,
         }
     }
 
     pub fn introduce(&mut self, pred: PredId, args: &[TermId], terms: &TermStore) -> Cid {
-        let cid = Cid(self.next_cid);
-        self.next_cid = self.next_cid.saturating_add(1);
-        let specs = &self.program.preds[pred.0 as usize].index_specs;
-        self.store.add_chr(cid, pred, args, terms, specs);
-        self.agenda.push_back(cid);
+        let program = &self.program;
+        let d = self.data.get_or_insert_with(|| {
+            Box::new(ChrStateData {
+                store: ChrStore::new(&program.preds),
+                builtins: T::Store::default(),
+                tokens: TokenStore::new(program.rules.len()),
+                next_cid: 0,
+                agenda: VecDeque::new(),
+                failed: false,
+            })
+        });
+        let cid = Cid(d.next_cid);
+        d.next_cid = d.next_cid.saturating_add(1);
+        let specs = &program.preds[pred.0 as usize].index_specs;
+        d.store.add_chr(cid, pred, args, terms, specs);
+        d.agenda.push_back(cid);
         cid
     }
 
     pub fn solve_to_fixpoint(&mut self, terms: &mut TermStore) -> bool {
-        if self.failed {
+        let d = match self.data.as_mut() {
+            Some(d) => &mut **d,
+            None => return true,
+        };
+        if d.failed {
             return false;
         }
-        self.store.rebuild_indexes(&self.program.preds, terms);
-        while let Some(cid) = self.agenda.pop_front() {
-            if !self.is_alive(cid) {
+        d.store.rebuild_indexes(&self.program.preds, terms);
+        while let Some(cid) = d.agenda.pop_front() {
+            if !Self::is_alive_in(&d.store, cid) {
                 continue;
             }
-            let pred = self.store.inst[cid.0 as usize].pred;
+            let pred = d.store.inst[cid.0 as usize].pred;
             let triggers = &self.program.triggers[pred.0 as usize];
             for occ_ref in triggers.iter() {
-                if let Some(tuple) = self.find_match_by_ids(occ_ref.rid, occ_ref.occ, cid, terms) {
-                    if !self.apply_rule_by_id(occ_ref.rid, &tuple, terms) {
-                        self.failed = true;
+                if let Some(tuple) = Self::find_match_by_ids_inner(
+                    &self.program,
+                    d,
+                    occ_ref.rid,
+                    occ_ref.occ,
+                    cid,
+                    terms,
+                ) {
+                    if !Self::apply_rule_by_id_inner(&self.program, d, occ_ref.rid, &tuple, terms) {
+                        d.failed = true;
                         return false;
                     }
                     break;
                 }
             }
         }
-        !self.failed
+        !d.failed
     }
+}
 
-    fn find_match(
-        &self,
+struct SearchCtx<'a, T: Theory> {
+    program: &'a ChrProgram<T>,
+    data: &'a ChrStateData<T>,
+    rule: &'a Rule<T>,
+    occ: &'a Occurrence,
+    terms: &'a TermStore,
+}
+
+impl<T: Theory> ChrState<T> {
+    fn find_match_inner(
+        program: &ChrProgram<T>,
+        data: &ChrStateData<T>,
         rule: &Rule<T>,
         occ: &Occurrence,
         active: Cid,
@@ -1284,68 +1392,72 @@ impl<T: Theory> ChrState<T> {
         let mut chosen: Vec<Option<Cid>> = vec![None; rule.heads.len()];
         env.reset();
         let anchor_head = &rule.heads[occ.anchor_head as usize];
-        let inst = &self.store.inst[active.0 as usize];
-        if !match_head(&self.program.pats, terms, anchor_head, inst, &mut env) {
+        let inst = &data.store.inst[active.0 as usize];
+        if !match_head(&program.pats, terms, anchor_head, inst, &mut env) {
             return None;
         }
         chosen[occ.anchor_head as usize] = Some(active);
-        self.search_steps(rule, occ, 0, &mut env, &mut chosen, terms)
+        let ctx = SearchCtx {
+            program,
+            data,
+            rule,
+            occ,
+            terms,
+        };
+        Self::search_steps_inner(&ctx, 0, &mut env, &mut chosen)
     }
 
-    fn find_match_by_ids(
-        &self,
+    fn find_match_by_ids_inner(
+        program: &ChrProgram<T>,
+        data: &ChrStateData<T>,
         rid: RuleId,
         occ_idx: u16,
         active: Cid,
         terms: &TermStore,
     ) -> Option<Vec<Cid>> {
-        let rule = &self.program.rules[rid.0 as usize];
+        let rule = &program.rules[rid.0 as usize];
         let occ = &rule.occs[occ_idx as usize];
-        self.find_match(rule, occ, active, terms)
+        Self::find_match_inner(program, data, rule, occ, active, terms)
     }
 
-    fn search_steps(
-        &self,
-        rule: &Rule<T>,
-        occ: &Occurrence,
+    fn search_steps_inner(
+        ctx: &SearchCtx<'_, T>,
         step_idx: usize,
         env: &mut RVarEnv,
         chosen: &mut Vec<Option<Cid>>,
-        terms: &TermStore,
     ) -> Option<Vec<Cid>> {
-        if step_idx == occ.steps.len() {
-            if !rule.guard.eval(
-                &self.program.pats,
-                terms,
-                &self.builtins,
-                &self.program.builtins,
+        if step_idx == ctx.occ.steps.len() {
+            if !ctx.rule.guard.eval(
+                &ctx.program.pats,
+                ctx.terms,
+                &ctx.data.builtins,
+                &ctx.program.builtins,
                 env,
             ) {
                 return None;
             }
             let tuple: Vec<Cid> = chosen.iter().map(|c| c.expect("head cid")).collect();
-            if rule.is_propagation {
+            if ctx.rule.is_propagation {
                 let token = TokenKey::from_cids(tuple.clone());
-                if self.tokens.fired[rule.rid.0 as usize].contains(&token) {
+                if ctx.data.tokens.fired[ctx.rule.rid.0 as usize].contains(&token) {
                     return None;
                 }
             }
             return Some(tuple);
         }
 
-        let step = &occ.steps[step_idx];
-        let cands = self.candidates_for_step(step, env);
+        let step = &ctx.occ.steps[step_idx];
+        let cands = Self::candidates_for_step_inner(&ctx.data.store, step, env);
         for &cid in cands.iter() {
-            if !self.is_alive(cid) || chosen.iter().any(|c| c == &Some(cid)) {
+            if !Self::is_alive_in(&ctx.data.store, cid) || chosen.iter().any(|c| c == &Some(cid)) {
                 continue;
             }
             let trail = env.trail_len();
-            let head = &rule.heads[step.head as usize];
-            let inst = &self.store.inst[cid.0 as usize];
-            if match_head(&self.program.pats, terms, head, inst, env) {
+            let head = &ctx.rule.heads[step.head as usize];
+            let inst = &ctx.data.store.inst[cid.0 as usize];
+            if match_head(&ctx.program.pats, ctx.terms, head, inst, env) {
                 chosen[step.head as usize] = Some(cid);
-                if let Some(tuple) = self.search_steps(rule, occ, step_idx + 1, env, chosen, terms)
-                {
+                if let Some(tuple) = Self::search_steps_inner(ctx, step_idx + 1, env, chosen) {
                     return Some(tuple);
                 }
                 chosen[step.head as usize] = None;
@@ -1355,9 +1467,13 @@ impl<T: Theory> ChrState<T> {
         None
     }
 
-    fn candidates_for_step<'a>(&'a self, step: &JoinStep, env: &RVarEnv) -> &'a [Cid] {
+    fn candidates_for_step_inner<'a>(
+        store: &'a ChrStore,
+        step: &JoinStep,
+        env: &RVarEnv,
+    ) -> &'a [Cid] {
         static EMPTY: [Cid; 0] = [];
-        let pred_store = &self.store.preds[step.pred.0 as usize];
+        let pred_store = &store.preds[step.pred.0 as usize];
         match step.probe {
             ProbeKind::ScanAll => pred_store.all.as_slice(),
             ProbeKind::Index(idx) => {
@@ -1389,19 +1505,24 @@ impl<T: Theory> ChrState<T> {
         }
     }
 
-    fn apply_rule_by_id(&mut self, rid: RuleId, tuple: &[Cid], terms: &mut TermStore) -> bool {
-        let prog = Arc::clone(&self.program);
-        let rule = &prog.rules[rid.0 as usize];
+    fn apply_rule_by_id_inner(
+        program: &ChrProgram<T>,
+        data: &mut ChrStateData<T>,
+        rid: RuleId,
+        tuple: &[Cid],
+        terms: &mut TermStore,
+    ) -> bool {
+        let rule = &program.rules[rid.0 as usize];
         let removed_mask = rule.removed_mask;
 
         if rule.is_propagation {
             let token = TokenKey::from_cids(tuple.to_vec());
-            self.tokens.fired[rid.0 as usize].insert(token);
+            data.tokens.fired[rid.0 as usize].insert(token);
         }
 
         for (i, cid) in tuple.iter().copied().enumerate() {
             if (removed_mask & (1u64 << i)) != 0 {
-                self.store.mark_dead(cid);
+                data.store.mark_dead(cid);
             }
         }
 
@@ -1409,39 +1530,40 @@ impl<T: Theory> ChrState<T> {
         env.reset();
         for (i, cid) in tuple.iter().copied().enumerate() {
             let head = &rule.heads[i];
-            let inst = &self.store.inst[cid.0 as usize];
-            if !match_head(&prog.pats, terms, head, inst, &mut env) {
+            let inst = &data.store.inst[cid.0 as usize];
+            if !match_head(&program.pats, terms, head, inst, &mut env) {
                 return false;
             }
         }
 
         rule.body
-            .exec(&prog.pats, terms, &prog.builtins, &env, self)
+            .exec_with_data(&program.pats, terms, &program.builtins, &env, program, data)
     }
 
-    fn is_alive(&self, cid: Cid) -> bool {
+    #[inline]
+    fn is_alive_in(store: &ChrStore, cid: Cid) -> bool {
         matches!(
-            self.store.inst.get(cid.0 as usize),
+            store.inst.get(cid.0 as usize),
             Some(inst) if inst.alive
         )
     }
 
-    fn apply_subst_to_store(&mut self, subst: &Subst, terms: &mut TermStore) {
-        for inst in self.store.inst.iter_mut() {
+    fn apply_subst_to_data(data: &mut ChrStateData<T>, subst: &Subst, terms: &mut TermStore) {
+        for inst in data.store.inst.iter_mut() {
             if inst.alive {
                 for arg in inst.args.iter_mut() {
                     *arg = apply_subst(*arg, subst, terms);
                 }
             }
         }
-        self.builtins = T::apply_subst(&self.builtins, subst, terms);
+        data.builtins = T::apply_subst(&data.builtins, subst, terms);
     }
 
-    fn enqueue_all_alive(&mut self) {
-        self.agenda.clear();
-        for (idx, inst) in self.store.inst.iter().enumerate() {
+    fn enqueue_all_alive_in(data: &mut ChrStateData<T>) {
+        data.agenda.clear();
+        for (idx, inst) in data.store.inst.iter().enumerate() {
             if inst.alive {
-                self.agenda.push_back(Cid(idx as u32));
+                data.agenda.push_back(Cid(idx as u32));
             }
         }
     }
@@ -1561,7 +1683,18 @@ impl PartialOrd for AliveRec {
 }
 
 pub fn freeze_chr<T: Theory>(st: &ChrState<T>) -> Vec<u8> {
-    if st.store.alive_count == 0 && T::is_empty(&st.builtins) {
+    let d = match &st.data {
+        None => {
+            let mut w = ByteWriter::new();
+            w.push_u32(0);
+            w.push_u32(0);
+            w.push_u32(0);
+            return w.into_vec();
+        }
+        Some(d) => d,
+    };
+
+    if d.store.alive_count == 0 && T::is_empty(&d.builtins) {
         let mut w = ByteWriter::new();
         w.push_u32(0);
         w.push_u32(0);
@@ -1570,7 +1703,7 @@ pub fn freeze_chr<T: Theory>(st: &ChrState<T>) -> Vec<u8> {
     }
 
     let mut alive: Vec<AliveRec> = Vec::new();
-    for (i, inst) in st.store.inst.iter().enumerate() {
+    for (i, inst) in d.store.inst.iter().enumerate() {
         if inst.alive {
             alive.push(AliveRec {
                 pred: inst.pred,
@@ -1582,7 +1715,7 @@ pub fn freeze_chr<T: Theory>(st: &ChrState<T>) -> Vec<u8> {
 
     alive.sort();
 
-    let mut remap: Vec<u32> = vec![u32::MAX; st.store.inst.len()];
+    let mut remap: Vec<u32> = vec![u32::MAX; d.store.inst.len()];
     for (new_cid, rec) in alive.iter().enumerate() {
         remap[rec.old_cid as usize] = new_cid as u32;
     }
@@ -1597,12 +1730,12 @@ pub fn freeze_chr<T: Theory>(st: &ChrState<T>) -> Vec<u8> {
         }
     }
 
-    let b = T::freeze_store(&st.builtins);
+    let b = T::freeze_store(&d.builtins);
     w.push_u32(b.len() as u32);
     w.push_bytes(&b);
 
     let mut token_rules: Vec<(u32, Vec<TokenKey>)> = Vec::new();
-    for (rid, set) in st.tokens.fired.iter().enumerate() {
+    for (rid, set) in d.tokens.fired.iter().enumerate() {
         if !st.program.rules[rid].is_propagation {
             continue;
         }
@@ -1664,7 +1797,10 @@ pub fn thaw_chr<T: Theory>(
     let mut r = ByteReader::new(bytes);
     let n_constraints = r.read_u32()? as usize;
     let mut st = ChrState::<T>::new(program.clone(), T::thaw_store(&[]));
-    st.store = ChrStore::new(&program.preds);
+    {
+        let d = st.data.as_mut().unwrap();
+        d.store = ChrStore::new(&program.preds);
+    }
 
     for _ in 0..n_constraints {
         let pred = PredId(r.read_u32()?);
@@ -1676,16 +1812,17 @@ pub fn thaw_chr<T: Theory>(
         st.introduce(pred, &args, terms);
     }
 
+    let d = st.data.as_mut().unwrap();
     let b_len = r.read_u32()? as usize;
     let b_bytes = r.read_bytes(b_len)?;
-    st.builtins = T::thaw_store(b_bytes);
+    d.builtins = T::thaw_store(b_bytes);
 
     let n_token_rules = r.read_u32()? as usize;
-    st.tokens = TokenStore::new(program.rules.len());
+    d.tokens = TokenStore::new(program.rules.len());
     for _ in 0..n_token_rules {
         let rid = r.read_u32()? as usize;
         let n_tokens = r.read_u32()? as usize;
-        let set = st.tokens.fired.get_mut(rid)?;
+        let set = d.tokens.fired.get_mut(rid)?;
         for _ in 0..n_tokens {
             let k = r.read_u32()? as usize;
             let mut sv: SmallVec<[Cid; 8]> = SmallVec::new();
@@ -1696,7 +1833,7 @@ pub fn thaw_chr<T: Theory>(
         }
     }
 
-    st.agenda.clear();
+    d.agenda.clear();
     Some(st)
 }
 
@@ -1730,7 +1867,10 @@ impl<T: Theory> ChrProgram<T> {
 
 impl<T: Theory> Default for ChrState<T> {
     fn default() -> Self {
-        ChrState::new(ChrProgram::empty(), T::Store::default())
+        Self {
+            program: ChrProgram::empty(),
+            data: None,
+        }
     }
 }
 
@@ -1739,7 +1879,10 @@ impl<T: Theory> PartialEq for ChrState<T> {
         if self.program.program_id != other.program.program_id {
             return false;
         }
-        freeze_chr(self) == freeze_chr(other)
+        match (&self.data, &other.data) {
+            (None, None) => true,
+            _ => freeze_chr(self) == freeze_chr(other),
+        }
     }
 }
 
@@ -1748,14 +1891,23 @@ impl<T: Theory> Eq for ChrState<T> {}
 impl<T: Theory> Hash for ChrState<T> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.program.program_id.hash(state);
-        freeze_chr(self).hash(state);
+        if self.data.is_some() {
+            freeze_chr(self).hash(state);
+        }
     }
 }
 
 impl<T: Theory> crate::constraint::ConstraintOps for ChrState<T> {
     fn combine(&self, other: &Self) -> Option<Self> {
-        if self.failed || other.failed {
-            return None;
+        if let Some(d) = &self.data {
+            if d.failed {
+                return None;
+            }
+        }
+        if let Some(d) = &other.data {
+            if d.failed {
+                return None;
+            }
         }
         if self.program.program_id != other.program.program_id {
             let self_empty = self.is_empty();
@@ -1775,119 +1927,156 @@ impl<T: Theory> crate::constraint::ConstraintOps for ChrState<T> {
             }
             return None;
         }
-        let builtins = T::merge_store(&self.builtins, &other.builtins)?;
-        let mut merged = self.clone();
-        merged.builtins = builtins;
-        merged.agenda.clear();
 
-        let mut remap: Vec<Option<Cid>> = vec![None; other.store.inst.len()];
-        for (idx, inst) in other.store.inst.iter().enumerate() {
-            if !inst.alive {
-                continue;
-            }
-            let cid = Cid(merged.next_cid);
-            merged.next_cid = merged.next_cid.saturating_add(1);
-            merged.store.inst.push(CInstance {
-                cid,
-                pred: inst.pred,
-                args: inst.args.clone(),
-                alive: true,
-            });
-            remap[idx] = Some(cid);
-            merged.store.alive_count += 1;
-        }
+        match (&self.data, &other.data) {
+            (None, None) => Some(self.clone()),
+            (None, Some(_)) => Some(other.clone()),
+            (Some(_), None) => Some(self.clone()),
+            (Some(sd), Some(od)) => {
+                let builtins = T::merge_store(&sd.builtins, &od.builtins)?;
+                let mut merged = self.clone();
+                let md = merged.data.as_mut().unwrap();
+                md.builtins = builtins;
+                md.agenda.clear();
 
-        for (rid, set) in other.tokens.fired.iter().enumerate() {
-            if !other.program.rules[rid].is_propagation {
-                continue;
-            }
-            for token in set.iter() {
-                let mut cids = Vec::new();
-                let mut ok = true;
-                for cid in token_cids(token).iter().copied() {
-                    let mapped = remap.get(cid.0 as usize).and_then(|c| *c);
-                    if let Some(ncid) = mapped {
-                        cids.push(ncid);
-                    } else {
-                        ok = false;
-                        break;
+                let mut remap: Vec<Option<Cid>> = vec![None; od.store.inst.len()];
+                for (idx, inst) in od.store.inst.iter().enumerate() {
+                    if !inst.alive {
+                        continue;
+                    }
+                    let cid = Cid(md.next_cid);
+                    md.next_cid = md.next_cid.saturating_add(1);
+                    md.store.inst.push(CInstance {
+                        cid,
+                        pred: inst.pred,
+                        args: inst.args.clone(),
+                        alive: true,
+                    });
+                    remap[idx] = Some(cid);
+                    md.store.alive_count += 1;
+                }
+
+                for (rid, set) in od.tokens.fired.iter().enumerate() {
+                    if !other.program.rules[rid].is_propagation {
+                        continue;
+                    }
+                    for token in set.iter() {
+                        let mut cids = Vec::new();
+                        let mut ok = true;
+                        for cid in token_cids(token).iter().copied() {
+                            let mapped = remap.get(cid.0 as usize).and_then(|c| *c);
+                            if let Some(ncid) = mapped {
+                                cids.push(ncid);
+                            } else {
+                                ok = false;
+                                break;
+                            }
+                        }
+                        if ok {
+                            let new_token = TokenKey::from_cids(cids);
+                            md.tokens.fired[rid].insert(new_token);
+                        }
                     }
                 }
-                if ok {
-                    let new_token = TokenKey::from_cids(cids);
-                    merged.tokens.fired[rid].insert(new_token);
-                }
+
+                Some(merged)
             }
         }
-
-        Some(merged)
     }
 
     fn normalize(&self, terms: &mut TermStore) -> Option<(Self, Option<Subst>)> {
-        if self.failed {
+        if self.data.is_none() {
+            return Some((self.clone(), None));
+        }
+        if self.data.as_ref().unwrap().failed {
             return None;
         }
         let mut st = self.clone();
-        st.store.rebuild_indexes(&st.program.preds, terms);
-        st.enqueue_all_alive();
+        {
+            let preds = &st.program.preds;
+            let sd = st.data.as_mut().unwrap();
+            sd.store.rebuild_indexes(preds, terms);
+            Self::enqueue_all_alive_in(sd);
+        }
         if !st.solve_to_fixpoint(terms) {
             return None;
         }
 
-        let subst = T::extract_subst(&st.builtins);
+        let preds = &st.program.preds;
+        let sd = st.data.as_mut().unwrap();
+        let subst = T::extract_subst(&sd.builtins);
         let subst_opt = if subst.is_empty() {
             None
         } else {
             Some(subst.clone())
         };
         if !subst.is_empty() {
-            st.apply_subst_to_store(&subst, terms);
-            st.store.rebuild_indexes(&st.program.preds, terms);
+            Self::apply_subst_to_data(sd, &subst, terms);
+            sd.store.rebuild_indexes(preds, terms);
         }
-        st.agenda.clear();
+        sd.agenda.clear();
         Some((st, subst_opt))
     }
 
     fn apply_subst(&self, subst: &Subst, terms: &mut TermStore) -> Self {
+        if self.data.is_none() {
+            return self.clone();
+        }
         let mut st = self.clone();
         if !subst.is_empty() {
-            st.apply_subst_to_store(subst, terms);
+            let d = st.data.as_mut().unwrap();
+            Self::apply_subst_to_data(d, subst, terms);
         }
         st
     }
 
     fn remap_vars(&self, map: &[Option<u32>], terms: &mut TermStore) -> Self {
+        if self.data.is_none() {
+            return self.clone();
+        }
         let mut st = self.clone();
-        for inst in st.store.inst.iter_mut() {
+        let preds = &st.program.preds;
+        let d = st.data.as_mut().unwrap();
+        for inst in d.store.inst.iter_mut() {
             if inst.alive {
                 for arg in inst.args.iter_mut() {
                     *arg = apply_var_renaming(*arg, map, terms);
                 }
             }
         }
-        st.builtins = T::remap_vars(&st.builtins, map, terms);
-        st.store.rebuild_indexes(&st.program.preds, terms);
-        st.agenda.clear();
+        d.builtins = T::remap_vars(&d.builtins, map, terms);
+        d.store.rebuild_indexes(preds, terms);
+        d.agenda.clear();
         st
     }
 
     fn collect_vars(&self, terms: &TermStore, out: &mut Vec<u32>) {
-        for inst in self.store.inst.iter() {
+        let d = match &self.data {
+            Some(d) => d,
+            None => return,
+        };
+        for inst in d.store.inst.iter() {
             if inst.alive {
                 for arg in inst.args.iter().copied() {
                     out.extend(crate::nf::collect_vars_ordered(arg, terms));
                 }
             }
         }
-        T::collect_vars(&self.builtins, terms, out);
+        T::collect_vars(&d.builtins, terms, out);
     }
 
     fn is_empty(&self) -> bool {
-        self.store.alive_count == 0 && T::is_empty(&self.builtins)
+        match &self.data {
+            None => true,
+            Some(d) => d.store.alive_count == 0 && T::is_empty(&d.builtins),
+        }
     }
 
     fn is_satisfiable(&self) -> bool {
-        !self.failed
+        match &self.data {
+            None => true,
+            Some(d) => !d.failed,
+        }
     }
 }
 
@@ -1897,12 +2086,16 @@ impl<T: Theory> ConstraintDisplay for ChrState<T> {
         terms: &mut TermStore,
         symbols: &crate::symbol::SymbolStore,
     ) -> Result<Option<String>, String> {
-        if self.store.alive_count == 0 {
+        let d = match &self.data {
+            None => return Ok(None),
+            Some(d) => d,
+        };
+        if d.store.alive_count == 0 {
             return Ok(None);
         }
 
         let mut parts = Vec::new();
-        for inst in self.store.inst.iter().filter(|c| c.alive) {
+        for inst in d.store.inst.iter().filter(|c| c.alive) {
             let pred_name = self.program.pred_name(inst.pred).unwrap_or("unknown");
             if inst.args.is_empty() {
                 parts.push(pred_name.to_string());

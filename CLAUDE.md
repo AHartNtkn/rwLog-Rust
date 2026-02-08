@@ -19,6 +19,20 @@ A test that expects incorrect output is a lie. It is a machine designed to decei
 
 There is no third category of "test passes because it expects the bug."
 
+## **ZERO WARNINGS POLICY**
+
+**Every compiler and clippy warning MUST be fixed. No exceptions.**
+
+A warning is a problem. It does not matter whether you caused it or it was already there. If you see it, you fix it. Ignoring a warning because it's "just stylistic" or "not auto-fixable" is laziness, not judgement.
+
+**Rules:**
+1. After any change, run `cargo clippy --all-targets` and fix ALL warnings
+2. Never skip a warning because it requires restructuring code
+3. Never skip a warning because it wasn't caused by your changes
+4. If fixing a warning requires a design change, make the design change
+
+**The bar:** `cargo clippy --all-targets` produces zero warnings. If it doesn't, you're not done.
+
 ## **ALL ISSUES ARE YOUR RESPONSIBILITY**
 
 **STOP using "pre-existing" as an excuse. It is NEVER acceptable.**

@@ -229,7 +229,12 @@ theory no_c {
             .program
             .pred_id("no_c")
             .expect("expected no_c predicate");
-        let alive: Vec<_> = state.store.inst.iter().filter(|inst| inst.alive).collect();
+        let alive: Vec<_> = state
+            .store()
+            .inst
+            .iter()
+            .filter(|inst| inst.alive)
+            .collect();
         assert_eq!(alive.len(), 1, "expected one no_c constraint");
         let inst = alive[0];
         assert_eq!(inst.pred, pred, "expected no_c constraint");
