@@ -100,7 +100,7 @@ fn compose_nf_impl<C: ConstraintOps>(a: &NF<C>, b: &NF<C>, terms: &mut TermStore
     let a_constraint = a.drop_fresh.constraint.apply_subst(&subst_left, terms);
     let b_constraint = b_constraint.apply_subst(&subst_right, terms);
 
-    let combined = match a_constraint.combine(&b_constraint) {
+    let combined = match a_constraint.combine_owned(b_constraint) {
         Some(c) => c,
         None => {
             #[cfg(feature = "tracing")]
@@ -109,7 +109,7 @@ fn compose_nf_impl<C: ConstraintOps>(a: &NF<C>, b: &NF<C>, terms: &mut TermStore
         }
     };
 
-    let (normalized, subst_opt) = match combined.normalize(terms) {
+    let (normalized, subst_opt) = match combined.normalize_owned(terms) {
         Some(result) => result,
         None => {
             #[cfg(feature = "tracing")]

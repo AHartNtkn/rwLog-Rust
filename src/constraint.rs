@@ -20,6 +20,21 @@ pub trait ConstraintOps: Clone + Eq + Hash + Default + Send + Sync {
     /// were derived from the constraint.
     fn normalize(&self, terms: &mut TermStore) -> Option<(Self, Option<Subst>)>;
 
+    /// Normalize by consuming self, avoiding a clone.
+    ///
+    /// Default implementation delegates to `normalize(&self)`.
+    /// Implementors should override when they can avoid cloning.
+    fn normalize_owned(self, terms: &mut TermStore) -> Option<(Self, Option<Subst>)> {
+        self.normalize(terms)
+    }
+
+    /// Combine by consuming both sides, avoiding clones.
+    ///
+    /// Default implementation delegates to `combine(&self, &other)`.
+    fn combine_owned(self, other: Self) -> Option<Self> {
+        self.combine(&other)
+    }
+
     /// Apply a substitution to the constraint.
     fn apply_subst(&self, subst: &Subst, terms: &mut TermStore) -> Self;
 

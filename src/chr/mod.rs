@@ -1404,7 +1404,6 @@ impl<T: Theory> ChrState<T> {
 
         // Reuse a single RVarEnv across all match attempts in this fixpoint.
         let mut env = RVarEnv::new(self.program.max_rvars);
-
         while let Some(cid) = d.agenda.pop_front() {
             if !Self::is_alive_in(&d.store, cid) {
                 continue;
@@ -2067,25 +2066,28 @@ impl<T: Theory> crate::constraint::ConstraintOps for ChrState<T> {
     }
 
     fn normalize(&self, terms: &mut TermStore) -> Option<(Self, Option<Subst>)> {
+        self.clone().normalize_owned(terms)
+    }
+
+    fn normalize_owned(mut self, terms: &mut TermStore) -> Option<(Self, Option<Subst>)> {
         if self.data.is_none() {
-            return Some((self.clone(), None));
+            return Some((self, None));
         }
         if self.data.as_ref().unwrap().failed {
             return None;
         }
-        let mut st = self.clone();
         {
-            let preds = &st.program.preds;
-            let sd = st.data.as_mut().unwrap();
+            let preds = &self.program.preds;
+            let sd = self.data.as_mut().unwrap();
             sd.store.rebuild_indexes(preds, terms);
             Self::enqueue_all_alive_in(sd);
         }
-        if !st.solve_to_fixpoint(terms) {
+        if !self.solve_to_fixpoint(terms) {
             return None;
         }
 
-        let preds = &st.program.preds;
-        let sd = st.data.as_mut().unwrap();
+        let preds = &self.program.preds;
+        let sd = self.data.as_mut().unwrap();
         let subst = T::extract_subst(&sd.builtins);
         let subst_opt = if subst.is_empty() {
             None
@@ -2097,7 +2099,96 @@ impl<T: Theory> crate::constraint::ConstraintOps for ChrState<T> {
             sd.store.rebuild_indexes(preds, terms);
         }
         sd.agenda.clear();
-        Some((st, subst_opt))
+        Some((self, subst_opt))
+    }
+
+    fn combine_owned(mut self, other: Self) -> Option<Self> {
+        if let Some(d) = &self.data {
+            if d.failed {
+                return None;
+            }
+        }
+        if let Some(d) = &other.data {
+            if d.failed {
+                return None;
+            }
+        }
+        if self.program.program_id != other.program.program_id {
+            let self_empty = self.is_empty();
+            let other_empty = other.is_empty();
+            if self_empty && other_empty {
+                return Some(if self.program.program_id <= other.program.program_id {
+                    self
+                } else {
+                    other
+                });
+            }
+            if self_empty {
+                return Some(other);
+            }
+            if other_empty {
+                return Some(self);
+            }
+            return None;
+        }
+
+        match (&self.data, &other.data) {
+            (None, None) => Some(self),
+            (None, Some(_)) => Some(other),
+            (Some(_), None) => Some(self),
+            (Some(_), Some(od)) => {
+                let builtins = T::merge_store(
+                    &self.data.as_ref().unwrap().builtins,
+                    &od.builtins,
+                )?;
+                // Reuse self's allocation instead of cloning.
+                let md = self.data.as_mut().unwrap();
+                md.builtins = builtins;
+                md.agenda.clear();
+
+                let mut remap: Vec<Option<Cid>> = vec![None; od.store.inst.len()];
+                for (idx, inst) in od.store.inst.iter().enumerate() {
+                    if !inst.alive {
+                        continue;
+                    }
+                    let cid = Cid(md.next_cid);
+                    md.next_cid = md.next_cid.saturating_add(1);
+                    md.store.inst.push(CInstance {
+                        cid,
+                        pred: inst.pred,
+                        args: inst.args.clone(),
+                        alive: true,
+                    });
+                    remap[idx] = Some(cid);
+                    md.store.alive_count += 1;
+                }
+
+                for (rid, set) in od.tokens.fired.iter().enumerate() {
+                    if !other.program.rules[rid].is_propagation {
+                        continue;
+                    }
+                    for token in set.iter() {
+                        let mut cids = Vec::new();
+                        let mut ok = true;
+                        for cid in token_cids(token).iter().copied() {
+                            let mapped = remap.get(cid.0 as usize).and_then(|c| *c);
+                            if let Some(ncid) = mapped {
+                                cids.push(ncid);
+                            } else {
+                                ok = false;
+                                break;
+                            }
+                        }
+                        if ok {
+                            let new_token = TokenKey::from_cids(cids);
+                            md.tokens.fired[rid].insert(new_token);
+                        }
+                    }
+                }
+
+                Some(self)
+            }
+        }
     }
 
     fn apply_subst(&self, subst: &Subst, terms: &mut TermStore) -> Self {
