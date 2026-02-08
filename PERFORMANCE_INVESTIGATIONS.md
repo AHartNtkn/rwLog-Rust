@@ -32,7 +32,7 @@ Each item is an investigation area, not a guaranteed improvement.
 1. Replace tree-style `Rel` cloning with a DAG representation using structural hashing to share repeated subexpressions.
 2. Introduce immutable arena-backed nodes for `Rel`/`Node` to reduce `Arc` churn. **Estimated 3-5% ROI** — see [per_step_cost_decomposition.md](docs/perf_investigations/per_step_cost_decomposition.md).
 3. Store normalized fragments once and reference by ID in execution nodes.
-4. Replace recursive descent rewrites with iterative worklist rewrites to reduce stack pressure.
+4. Replace recursive descent rewrites with iterative worklist rewrites to reduce stack pressure. **Partially addressed** — see [docs/perf_investigations/step_node_inline_control.md](docs/perf_investigations/step_node_inline_control.md). Outlining cold paths (step_or, ComposeWork/MeetWork::step_in_place) reduced step_node stack pressure by ~11%. step_node still has a 2792-byte frame (absorbing FixWork::step_in_place), but the hot path now benefits from cross-function optimization.
 5. Explore compact bytecode-style execution plans compiled from `Rel` before evaluation.
 6. Add canonicalized subplan cache keyed by normalized plan shape.
 7. Evaluate rope/chunk-based sequence storage vs current factor representation for long `Seq`.
@@ -78,7 +78,7 @@ Each item is an investigation area, not a guaranteed improvement.
 
 ### Term Representation and Memory Layout
 
-1. Move to arena indices with cache-aware contiguous child storage for `TermStore`.
+1. Move to arena indices with cache-aware contiguous child storage for `TermStore`. **Highly relevant** — see [docs/perf_investigations/step_node_inline_control.md](docs/perf_investigations/step_node_inline_control.md). Corrected execution-only profiling shows 23.6% of engine time is in `memcpy`/`memmove` from Rust value semantics moving large structs (Node ~112B, NodeStep ~192B, NF ~120B). This is the single largest remaining optimization target.
 2. Add global hash-consing for immutable ground subterms.
 3. Add optional per-query temporary arena to avoid long-lived heap churn for transient terms.
 4. Use compact tagged integer encoding for tiny terms/vars to reduce pointer chasing.
@@ -192,6 +192,7 @@ Each item is an investigation area, not a guaranteed improvement.
 9. ~~Mutex-to-FastLock for single-threaded tabling.~~ **Implemented — ~20% improvement.** See [docs/perf_investigations/fastlock_mutex_elimination.md](docs/perf_investigations/fastlock_mutex_elimination.md). Replaced `parking_lot::Mutex` with zero-cost `FastLock` in Table. 1.74M Mutex locks per 64 answers (8 per FixWork step, 99.1% of answer_at calls returning None). Reduced `recursive_even_backward_first64` from ~85ms to ~65-71ms. Remaining targets: FixWork::clone (~4%), malloc/free (~6%), dispatch (~8%), drop overhead (~5.5%).
 10. ~~Allocation overhead reduction (Box<Work>/Box<Node> size + malloc/free elimination).~~ **Implemented — ~31% improvement.** See [docs/perf_investigations/diagonal_join_take_self_overhead.md](docs/perf_investigations/diagonal_join_take_self_overhead.md). In-place stepping for ComposeWork/MeetWork eliminated 663K alloc+free cycles (88% of total). Allocations: 751K→88K (-88%), bytes: 179MB→14MB (-92%). `recursive_even_backward_first64` from ~46ms to ~32ms. Cumulative 3.28× speedup from original ~105ms.
 11. ~~FixWork in-place stepping.~~ **Implemented — ~20% improvement.** See [docs/perf_investigations/fixwork_inplace_stepping.md](docs/perf_investigations/fixwork_inplace_stepping.md). Eliminated 216K clone+alloc+free cycles per 64 answers. Cumulative 2.14× speedup on critical workload (105ms → 49ms across all optimizations).
+12. ~~step_node inline control.~~ **Implemented — ~16% improvement.** See [docs/perf_investigations/step_node_inline_control.md](docs/perf_investigations/step_node_inline_control.md). Added `#[inline(never)]` to cold paths (step_or, ComposeWork/MeetWork::step_in_place), freeing compiler inlining budget for hot FixWork path. A/B tested: 30.1ms → 25.5ms with non-overlapping ranges. Cumulative 4.12× speedup (105ms → 25.5ms).
 
 ## Suggested Experiment Template
 

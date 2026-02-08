@@ -93,6 +93,7 @@ impl<C: ConstraintOps> MeetWork<C> {
         self.core.step(terms, Self::wrap)
     }
 
+    #[inline(never)]
     pub(crate) fn step_in_place(&mut self, terms: &mut TermStore) -> DiagonalStepResult<C> {
         self.core.step_in_place(terms)
     }

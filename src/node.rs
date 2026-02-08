@@ -70,6 +70,7 @@ fn rebuild_or_chain<C: ConstraintOps>(siblings: Vec<Node<C>>, leaf: Node<C>) -> 
 /// with siblings rotated in front of the stepped leaf.
 ///
 /// Example: Or(Or(Or(A,B),C),D) → step A to A' → Or(D, Or(C, Or(B, A')))
+#[inline(never)]
 fn step_or<C: ConstraintOps>(left: Node<C>, right: Node<C>, terms: &mut TermStore) -> NodeStep<C> {
     let mut siblings: Vec<Node<C>> = vec![right];
     let mut current = left;
