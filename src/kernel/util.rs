@@ -4,8 +4,8 @@
 
 use crate::matching::match_terms_combined;
 use crate::nf::collect_vars_ordered;
-use crate::subst::{apply_subst, Subst};
-use crate::term::{Term, TermId, TermStore};
+use crate::subst::{apply_subst, apply_subst_shifted, Subst};
+use crate::term::{TermId, TermStore};
 use smallvec::SmallVec;
 
 /// Find the maximum variable index in a list of patterns.
@@ -13,111 +13,6 @@ pub fn max_var_index_terms(pats: &[TermId], terms: &TermStore) -> Option<u32> {
     pats.iter()
         .flat_map(|&term| collect_vars_ordered(term, terms).into_iter())
         .max()
-}
-
-/// Shift all variables in a term by a given offset.
-///
-/// Uses batched read_lock to avoid per-node lock acquisition and avoids
-/// cloning children SmallVecs by copying TermIds (which are Copy).
-pub fn shift_vars(term: TermId, offset: u32, terms: &mut TermStore) -> TermId {
-    use crate::symbol::FuncId;
-
-    // Fast path: zero offset changes nothing
-    if offset == 0 {
-        return term;
-    }
-
-    // Fast path: ground term (no variables to shift).
-    // Just a bit test on TermId — zero memory access.
-    if term.is_ground() {
-        return term;
-    }
-
-    enum Work {
-        Visit(TermId),
-        BuildApp(TermId, FuncId, usize), // (original_tid, functor, child_count)
-    }
-
-    let mut work_stack: SmallVec<[Work; 16]> = SmallVec::new();
-    let mut result_stack: SmallVec<[TermId; 16]> = SmallVec::new();
-
-    work_stack.push(Work::Visit(term));
-
-    while let Some(item) = work_stack.pop() {
-        match item {
-            Work::BuildApp(orig_tid, func, n) => {
-                let start = result_stack.len() - n;
-                // Check if all children are unchanged (ground subtree case).
-                let guard = terms.read_lock();
-                let all_same = match guard.get(orig_tid) {
-                    Some(Term::App(_, orig_children)) => {
-                        orig_children.len() == n
-                            && orig_children
-                                .iter()
-                                .zip(&result_stack[start..])
-                                .all(|(a, b)| *a == *b)
-                    }
-                    _ => false,
-                };
-                drop(guard);
-                if all_same {
-                    result_stack.truncate(start);
-                    result_stack.push(orig_tid);
-                } else {
-                    let new_term = terms.app_from_slice(func, &result_stack[start..]);
-                    result_stack.truncate(start);
-                    result_stack.push(new_term);
-                }
-            }
-            Work::Visit(tid) => {
-                // Fast path: skip ground subtrees (just a bit test, no memory access).
-                if tid.is_ground() {
-                    result_stack.push(tid);
-                    continue;
-                }
-
-                let guard = terms.read_lock();
-                match guard.get(tid) {
-                    Some(Term::Var(idx)) => {
-                        let shifted = *idx + offset;
-                        drop(guard);
-                        result_stack.push(terms.var(shifted));
-                    }
-                    Some(Term::App(_, children)) if children.is_empty() => {
-                        result_stack.push(tid);
-                    }
-                    Some(Term::App(f, children)) => {
-                        let func = *f;
-                        let n = children.len();
-                        work_stack.push(Work::BuildApp(tid, func, n));
-                        for i in (0..n).rev() {
-                            work_stack.push(Work::Visit(children[i]));
-                        }
-                    }
-                    None => {
-                        result_stack.push(tid);
-                    }
-                }
-            }
-        }
-    }
-
-    debug_assert_eq!(result_stack.len(), 1);
-    result_stack.pop().unwrap()
-}
-
-/// Shift all variables in a list of patterns by a given offset.
-pub fn shift_vars_list(
-    pats: &[TermId],
-    offset: u32,
-    terms: &mut TermStore,
-) -> SmallVec<[TermId; 1]> {
-    if offset == 0 {
-        return pats.iter().copied().collect();
-    }
-    pats.iter()
-        .map(|&term| shift_vars(term, offset, terms))
-        .collect()
 }
 
 /// Apply a substitution to a list of patterns.
@@ -131,6 +26,37 @@ pub fn apply_subst_list(
         .collect()
 }
 
+/// Pre-create shifted variable TermIds for virtual shifting.
+///
+/// Returns `shifted_vars[j] = terms.var(j + offset)` for `j` in `0..=max_var`.
+/// Must be called before acquiring any read locks on the TermStore.
+pub fn pre_create_shifted_vars(
+    max_var: Option<u32>,
+    offset: u32,
+    terms: &TermStore,
+) -> SmallVec<[TermId; 8]> {
+    if offset == 0 {
+        return SmallVec::new();
+    }
+    match max_var {
+        Some(max) => (0..=max).map(|j| terms.var(j + offset)).collect(),
+        None => SmallVec::new(),
+    }
+}
+
+/// Apply a substitution to a list of patterns, virtually shifting variables.
+pub fn apply_subst_shifted_list(
+    pats: &[TermId],
+    subst: &Subst,
+    var_offset: u32,
+    shifted_vars: &[TermId],
+    terms: &mut TermStore,
+) -> SmallVec<[TermId; 1]> {
+    pats.iter()
+        .map(|&term| apply_subst_shifted(term, subst, var_offset, shifted_vars, terms))
+        .collect()
+}
+
 /// Match two lists of terms element-wise in disjoint namespaces.
 ///
 /// Returns a pair of substitutions (left, right) when all pairs match,
@@ -141,6 +67,22 @@ pub fn match_term_lists(
     right_offset: u32,
     terms: &mut TermStore,
 ) -> Option<(Subst, Subst)> {
+    match_term_lists_shifted(left, right, right_offset, &[], terms)
+}
+
+/// Match two lists of terms element-wise with virtual shifting on the right side.
+///
+/// The right terms are unshifted; variables are virtually offset by `right_offset`
+/// during substitution application. This avoids physically creating shifted terms.
+///
+/// When `shifted_vars` is empty, behaves identically to standard element-wise matching.
+pub fn match_term_lists_shifted(
+    left: &[TermId],
+    right: &[TermId],
+    right_offset: u32,
+    shifted_vars: &[TermId],
+    terms: &mut TermStore,
+) -> Option<(Subst, Subst)> {
     if left.len() != right.len() {
         return None;
     }
@@ -148,7 +90,7 @@ pub fn match_term_lists(
     let mut subst = Subst::new();
     for (&l, &r) in left.iter().zip(right.iter()) {
         let l_sub = apply_subst(l, &subst, terms);
-        let r_sub = apply_subst(r, &subst, terms);
+        let r_sub = apply_subst_shifted(r, &subst, right_offset, shifted_vars, terms);
         let match_subst = match_terms_combined(l_sub, r_sub, terms)?;
         subst = compose_subst(&subst, &match_subst, terms);
     }
@@ -216,7 +158,7 @@ mod tests {
     use crate::parser::Parser;
 
     #[test]
-    fn match_term_lists_disjoint_keeps_equality_for_app_rule_shape() {
+    fn match_term_lists_shifted_keeps_equality_for_app_rule_shape() {
         let mut parser = Parser::new();
         let left = parser
             .parse_term("(f $x (c z))")
@@ -228,16 +170,19 @@ mod tests {
             .term_id;
         let mut terms = parser.take_terms();
 
+        let right_max_var = max_var_index_terms(&[right], &terms);
         let offset = max_var_index_terms(&[left], &terms)
             .map(|v| v + 1)
             .unwrap_or(0);
-        let right_shifted = shift_vars(right, offset, &mut terms);
+        let shifted_vars = pre_create_shifted_vars(right_max_var, offset, &terms);
 
-        let (left_sub, right_sub) = match_term_lists(&[left], &[right_shifted], offset, &mut terms)
-            .expect("expected match");
+        let (left_sub, right_sub) =
+            match_term_lists_shifted(&[left], &[right], offset, &shifted_vars, &mut terms)
+                .expect("expected match");
 
         let left_applied = apply_subst(left, &left_sub, &mut terms);
-        let right_applied = apply_subst(right_shifted, &right_sub, &mut terms);
+        let right_applied =
+            apply_subst_shifted(right, &right_sub, offset, &shifted_vars, &mut terms);
 
         assert_eq!(
             left_applied, right_applied,

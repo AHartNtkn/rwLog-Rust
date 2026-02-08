@@ -82,30 +82,72 @@ impl Default for Subst {
 /// Uses explicit stack to avoid recursion. Acquires read_lock in batches
 /// to amortize lock overhead and avoids cloning children SmallVecs.
 pub fn apply_subst(term: TermId, subst: &Subst, terms: &mut TermStore) -> TermId {
-    use crate::symbol::FuncId;
-
     // Fast path: empty substitution
     if subst.bindings.is_empty() {
         return term;
     }
-
-    // Fast path: ground term (no variables to substitute).
-    // This is just a bit test on TermId — zero memory access.
     if term.is_ground() {
         return term;
     }
+    apply_subst_core::<false>(term, subst, &[], terms)
+}
 
-    // Work items: either a term to visit, or a pending App to build.
-    // BuildApp stores the original TermId so we can check if children changed.
+/// Apply a substitution to an unshifted term, virtually shifting variables by
+/// `var_offset` before lookup. This combines shift_vars + apply_subst into a
+/// single pass, avoiding the intermediate shifted term tree entirely.
+///
+/// `shifted_vars[j]` must equal `terms.var(j + var_offset)` for all variable
+/// indices `j` that appear in `term`. These must be pre-created before calling
+/// this function (to avoid deadlock with the read lock).
+///
+/// Terms from substitution bindings are in the shared namespace and are
+/// traversed without further shifting.
+pub fn apply_subst_shifted(
+    term: TermId,
+    subst: &Subst,
+    var_offset: u32,
+    shifted_vars: &[TermId],
+    terms: &mut TermStore,
+) -> TermId {
+    // No shift needed: delegate to standard apply_subst.
+    if var_offset == 0 || shifted_vars.is_empty() {
+        return apply_subst(term, subst, terms);
+    }
+    if term.is_ground() {
+        return term;
+    }
+    apply_subst_core::<true>(term, subst, shifted_vars, terms)
+}
+
+/// Core substitution application with optional virtual variable shifting.
+///
+/// `SHIFTED` is a const generic: when false, the compiler generates a version
+/// with no shifting overhead (all visits are non-raw, shifting branches are
+/// eliminated). When true, the initial term is treated as "raw" (unshifted):
+/// raw variables are looked up via `shifted_vars[j]` before substitution
+/// resolution, and children of raw App nodes inherit raw-ness. Terms obtained
+/// from substitution bindings are in the shared namespace and traversed without
+/// shifting.
+fn apply_subst_core<const SHIFTED: bool>(
+    term: TermId,
+    subst: &Subst,
+    shifted_vars: &[TermId],
+    terms: &mut TermStore,
+) -> TermId {
+    use crate::symbol::FuncId;
+
+    // Visit(term, is_raw): `is_raw` means the term is from the unshifted namespace
+    // and its variables need virtual shifting before substitution lookup.
+    // When SHIFTED=false, raw is always false and the compiler eliminates the branches.
     enum Work {
-        Visit(TermId),
-        BuildApp(TermId, FuncId, usize), // (original_tid, functor, child_count)
+        Visit(TermId, bool),
+        BuildApp(TermId, FuncId, usize),
     }
 
     let mut work_stack: SmallVec<[Work; 16]> = SmallVec::new();
     let mut result_stack: SmallVec<[TermId; 16]> = SmallVec::new();
 
-    work_stack.push(Work::Visit(term));
+    work_stack.push(Work::Visit(term, SHIFTED));
 
     while let Some(item) = work_stack.pop() {
         match item {
@@ -134,39 +176,72 @@ pub fn apply_subst(term: TermId, subst: &Subst, terms: &mut TermStore) -> TermId
                     result_stack.push(new_term);
                 }
             }
-            Work::Visit(tid) => {
-                // Fast path: skip ground subtrees (just a bit test, no memory access).
+            Work::Visit(tid, raw) => {
                 if tid.is_ground() {
                     result_stack.push(tid);
                     continue;
                 }
 
-                // Acquire read lock for the classification phase.
                 let guard = terms.read_lock();
 
-                // Resolve variable chains under the same lock
-                let resolved = resolve_var_chain_locked(tid, subst, &guard);
+                match guard.get(tid) {
+                    Some(Term::Var(idx)) => {
+                        // For raw vars: shift before substitution lookup.
+                        // For non-raw vars: look up directly.
+                        // `SHIFTED &&` gives the compiler a constant to fold:
+                        // when SHIFTED=false, this is `false && raw` = false.
+                        let start_tid = if SHIFTED && raw {
+                            let j = *idx as usize;
+                            debug_assert!(
+                                j < shifted_vars.len(),
+                                "var index {} exceeds shifted_vars length {}",
+                                j,
+                                shifted_vars.len()
+                            );
+                            shifted_vars[j]
+                        } else {
+                            tid
+                        };
 
-                match guard.get(resolved) {
-                    Some(Term::Var(_)) => {
-                        // Unbound variable (chain resolution already tried subst).
-                        result_stack.push(resolved);
+                        let resolved = resolve_var_chain_locked(start_tid, subst, &guard);
+
+                        match guard.get(resolved) {
+                            Some(Term::Var(_)) => {
+                                result_stack.push(resolved);
+                            }
+                            Some(Term::App(_, children)) if children.is_empty() => {
+                                result_stack.push(resolved);
+                            }
+                            Some(Term::App(f, children)) => {
+                                let func = *f;
+                                let n = children.len();
+                                // Terms from substitution bindings are in the
+                                // shared namespace (non-raw).
+                                work_stack.push(Work::BuildApp(resolved, func, n));
+                                for i in (0..n).rev() {
+                                    work_stack.push(Work::Visit(children[i], false));
+                                }
+                            }
+                            None => {
+                                result_stack.push(resolved);
+                            }
+                        }
                     }
                     Some(Term::App(_, children)) if children.is_empty() => {
-                        // Nullary app: keep as-is
-                        result_stack.push(resolved);
+                        result_stack.push(tid);
                     }
                     Some(Term::App(f, children)) => {
                         let func = *f;
                         let n = children.len();
-                        // Push children in reverse order (TermId is Copy, no clone)
-                        work_stack.push(Work::BuildApp(resolved, func, n));
+                        // Children of App nodes inherit raw-ness from their parent.
+                        // `SHIFTED &&` folds to false when SHIFTED=false.
+                        work_stack.push(Work::BuildApp(tid, func, n));
                         for i in (0..n).rev() {
-                            work_stack.push(Work::Visit(children[i]));
+                            work_stack.push(Work::Visit(children[i], SHIFTED && raw));
                         }
                     }
                     None => {
-                        result_stack.push(resolved);
+                        result_stack.push(tid);
                     }
                 }
             }

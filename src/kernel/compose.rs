@@ -6,7 +6,8 @@ use crate::term::TermStore;
 use crate::trace::{debug_span, trace};
 
 use super::util::{
-    apply_subst_list, match_term_lists, max_var_index_terms, remap_constraint_vars, shift_vars_list,
+    apply_subst_list, apply_subst_shifted_list, match_term_lists_shifted, max_var_index_terms,
+    pre_create_shifted_vars, remap_constraint_vars,
 };
 
 /// Compose two NFs in sequence: a ; b
@@ -52,7 +53,7 @@ fn compose_nf_impl<C: ConstraintOps>(a: &NF<C>, b: &NF<C>, terms: &mut TermStore
     }
 
     let rw1 = collect_tensor(a, terms);
-    let mut rw2 = collect_tensor(b, terms);
+    let rw2 = collect_tensor(b, terms);
 
     // Compute max var indices from NF metadata in O(1), avoiding term tree walks.
     let b_max_var = b.rwt_max_var();
@@ -73,39 +74,38 @@ fn compose_nf_impl<C: ConstraintOps>(a: &NF<C>, b: &NF<C>, terms: &mut TermStore
         "rwt_max_var mismatch for a (b_var_offset)"
     );
 
-    if b_var_offset != 0 {
-        rw2.lhs = shift_vars_list(&rw2.lhs, b_var_offset, terms);
-        rw2.rhs = shift_vars_list(&rw2.rhs, b_var_offset, terms);
-    }
+    // Pre-create shifted variable TermIds for virtual shifting (avoids physical tree rewriting).
+    let shifted_vars = pre_create_shifted_vars(b_max_var, b_var_offset, terms);
 
     #[cfg(feature = "tracing")]
     trace!(
         a_rhs = ?rw1.rhs,
-        b_lhs_shifted = ?rw2.lhs,
+        b_lhs = ?rw2.lhs,
         b_var_offset,
         "matching_interface"
     );
 
-    let (subst_left, subst_right) = match match_term_lists(&rw1.rhs, &rw2.lhs, b_var_offset, terms)
-    {
-        Some((subst_left, subst_right)) => {
-            #[cfg(feature = "tracing")]
-            trace!(
-                left_bindings = subst_left.len(),
-                right_bindings = subst_right.len(),
-                "matching_success"
-            );
-            (subst_left, subst_right)
-        }
-        None => {
-            #[cfg(feature = "tracing")]
-            trace!("matching_failed");
-            return None;
-        }
-    };
+    let (subst_left, subst_right) =
+        match match_term_lists_shifted(&rw1.rhs, &rw2.lhs, b_var_offset, &shifted_vars, terms) {
+            Some((subst_left, subst_right)) => {
+                #[cfg(feature = "tracing")]
+                trace!(
+                    left_bindings = subst_left.len(),
+                    right_bindings = subst_right.len(),
+                    "matching_success"
+                );
+                (subst_left, subst_right)
+            }
+            None => {
+                #[cfg(feature = "tracing")]
+                trace!("matching_failed");
+                return None;
+            }
+        };
 
     let mut new_match = apply_subst_list(&rw1.lhs, &subst_left, terms);
-    let mut new_build = apply_subst_list(&rw2.rhs, &subst_right, terms);
+    let mut new_build =
+        apply_subst_shifted_list(&rw2.rhs, &subst_right, b_var_offset, &shifted_vars, terms);
 
     let b_constraint =
         remap_constraint_vars(&b.drop_fresh.constraint, b_max_var, b_var_offset, terms);

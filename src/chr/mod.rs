@@ -2137,10 +2137,7 @@ impl<T: Theory> crate::constraint::ConstraintOps for ChrState<T> {
             (None, Some(_)) => Some(other),
             (Some(_), None) => Some(self),
             (Some(_), Some(od)) => {
-                let builtins = T::merge_store(
-                    &self.data.as_ref().unwrap().builtins,
-                    &od.builtins,
-                )?;
+                let builtins = T::merge_store(&self.data.as_ref().unwrap().builtins, &od.builtins)?;
                 // Reuse self's allocation instead of cloning.
                 let md = self.data.as_mut().unwrap();
                 md.builtins = builtins;

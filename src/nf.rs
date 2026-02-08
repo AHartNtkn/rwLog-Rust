@@ -67,8 +67,10 @@ impl<C> NF<C> {
     /// vars starting at `in_arity`. This computes the overall max in O(1)
     /// from DropFresh metadata, avoiding term tree traversal.
     pub fn rwt_max_var(&self) -> Option<u32> {
-        let num_fresh =
-            self.drop_fresh.out_arity.saturating_sub(self.drop_fresh.map.len() as u32);
+        let num_fresh = self
+            .drop_fresh
+            .out_arity
+            .saturating_sub(self.drop_fresh.map.len() as u32);
         let total = self.drop_fresh.in_arity + num_fresh;
         if total > 0 {
             Some(total - 1)

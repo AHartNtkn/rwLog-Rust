@@ -63,6 +63,7 @@ Each item is an investigation area, not a guaranteed improvement.
 5. Add canonical hash keys for `NF` to enable dedup and cache hits across branches.
 6. Rework normalization to produce and consume compact intermediate IR rather than rebuilding full `NF`s.
 7. ~~Identify hot paths where repeated factor/collect cycles can be eliminated.~~ **Partially addressed — ~8.8% improvement on program_synth_flip.** See [docs/perf_investigations/rwt_max_var_o1_computation.md](docs/perf_investigations/rwt_max_var_o1_computation.md). Replaced `max_var_index_terms` tree walks (5.68% of runtime) in compose_nf/meet_nf with O(1) computation from DropFresh metadata. Ground-bit skipping in `collect_vars_helper`/`apply_var_renaming` was tried and rejected (codegen regression). Full factor/collect cycle elimination remains uninvestigated.
+    - **Sub-investigation: virtual shift_vars — ~4% improvement on program_synth_flip.** See [docs/perf_investigations/virtual_shift_vars.md](docs/perf_investigations/virtual_shift_vars.md). Eliminated physical term tree rewriting for variable renaming-apart by combining shift+subst into a single pass (`apply_subst_shifted`). Avoids creating intermediate shifted terms that were immediately consumed by matching/substitution.
 8. Build a fusion planner that batches multiple adjacent kernel operations in one pass.
 9. Add identity/annihilator propagation earlier to shrink plans before deep normalization.
 10. Specialize unary-arity common cases to bypass general multi-arity machinery.
@@ -79,7 +80,7 @@ Each item is an investigation area, not a guaranteed improvement.
 ### Term Representation and Memory Layout
 
 1. Move to arena indices with cache-aware contiguous child storage for `TermStore`. **Partially addressed** — see [docs/perf_investigations/memcpy_struct_size_reduction.md](docs/perf_investigations/memcpy_struct_size_reduction.md). Thin ChrState (`Option<Box<ChrStateData>>`) reduced NF from 224B→112B, NodeStep from 456B→240B, Node from 232B→128B. Memcpy dropped from 21% to <0.5% of execution. Arena indices for TermStore remain uninvestigated.
-2. ~~Add global hash-consing for immutable ground subterms.~~ **Partially addressed** — ground-term tracking implemented via TermId bit encoding. See [docs/perf_investigations/ground_bit_subtree_skipping.md](docs/perf_investigations/ground_bit_subtree_skipping.md). Ground flag in bit 31 of TermId enables O(1) subtree skipping in apply_subst/shift_vars. ~9% improvement on program_synth_flip with zero tabling regression. Full ground-subterm deduplication (interning) remains uninvestigated.
+2. ~~Add global hash-consing for immutable ground subterms.~~ **Partially addressed** — ground-term tracking implemented via TermId bit encoding. See [docs/perf_investigations/ground_bit_subtree_skipping.md](docs/perf_investigations/ground_bit_subtree_skipping.md). Ground flag in bit 31 of TermId enables O(1) subtree skipping in apply_subst/apply_subst_shifted. ~9% improvement on program_synth_flip with zero tabling regression. Full ground-subterm deduplication (interning) remains uninvestigated.
 3. Add optional per-query temporary arena to avoid long-lived heap churn for transient terms.
 4. Use compact tagged integer encoding for tiny terms/vars to reduce pointer chasing.
 5. Evaluate SoA layout for term fields to improve traversal throughput.
