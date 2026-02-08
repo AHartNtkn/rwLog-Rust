@@ -62,7 +62,7 @@ Each item is an investigation area, not a guaranteed improvement.
 4. Separate cheap syntactic impossibility checks before expensive matching in compose/meet.
 5. Add canonical hash keys for `NF` to enable dedup and cache hits across branches.
 6. Rework normalization to produce and consume compact intermediate IR rather than rebuilding full `NF`s.
-7. Identify hot paths where repeated factor/collect cycles can be eliminated.
+7. ~~Identify hot paths where repeated factor/collect cycles can be eliminated.~~ **Partially addressed — ~8.8% improvement on program_synth_flip.** See [docs/perf_investigations/rwt_max_var_o1_computation.md](docs/perf_investigations/rwt_max_var_o1_computation.md). Replaced `max_var_index_terms` tree walks (5.68% of runtime) in compose_nf/meet_nf with O(1) computation from DropFresh metadata. Ground-bit skipping in `collect_vars_helper`/`apply_var_renaming` was tried and rejected (codegen regression). Full factor/collect cycle elimination remains uninvestigated.
 8. Build a fusion planner that batches multiple adjacent kernel operations in one pass.
 9. Add identity/annihilator propagation earlier to shrink plans before deep normalization.
 10. Specialize unary-arity common cases to bypass general multi-arity machinery.

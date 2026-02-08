@@ -59,6 +59,23 @@ impl<C> NF<C> {
             build_pats: SmallVec::new(),
         }
     }
+
+    /// Maximum variable index in the direct-rule (RwT) form of this NF.
+    ///
+    /// After `collect_tensor`, match_pats use vars `0..in_arity-1` and
+    /// build_pats use shared vars mapped to their LHS indices plus fresh
+    /// vars starting at `in_arity`. This computes the overall max in O(1)
+    /// from DropFresh metadata, avoiding term tree traversal.
+    pub fn rwt_max_var(&self) -> Option<u32> {
+        let num_fresh =
+            self.drop_fresh.out_arity.saturating_sub(self.drop_fresh.map.len() as u32);
+        let total = self.drop_fresh.in_arity + num_fresh;
+        if total > 0 {
+            Some(total - 1)
+        } else {
+            None
+        }
+    }
 }
 
 impl<C: ConstraintOps> NF<C> {

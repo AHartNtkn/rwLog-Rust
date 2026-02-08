@@ -48,12 +48,24 @@ fn meet_nf_impl<C: ConstraintOps>(a: &NF<C>, b: &NF<C>, terms: &mut TermStore) -
 
     let rw1 = collect_tensor(a, terms);
     let mut rw2 = collect_tensor(b, terms);
-    let b_max_var = max_var_index_terms(&rw2.lhs, terms).max(max_var_index_terms(&rw2.rhs, terms));
 
-    let b_var_offset = max_var_index_terms(&rw1.lhs, terms)
-        .max(max_var_index_terms(&rw1.rhs, terms))
-        .map(|v| v + 1)
-        .unwrap_or(0);
+    // Compute max var indices from NF metadata in O(1), avoiding term tree walks.
+    let b_max_var = b.rwt_max_var();
+    let b_var_offset = a.rwt_max_var().map(|v| v + 1).unwrap_or(0);
+
+    debug_assert_eq!(
+        b_max_var,
+        max_var_index_terms(&rw2.lhs, terms).max(max_var_index_terms(&rw2.rhs, terms)),
+        "rwt_max_var mismatch for b in meet_nf"
+    );
+    debug_assert_eq!(
+        b_var_offset,
+        max_var_index_terms(&rw1.lhs, terms)
+            .max(max_var_index_terms(&rw1.rhs, terms))
+            .map(|v| v + 1)
+            .unwrap_or(0),
+        "rwt_max_var mismatch for a (b_var_offset) in meet_nf"
+    );
 
     if b_var_offset != 0 {
         rw2.lhs = shift_vars_list(&rw2.lhs, b_var_offset, terms);
@@ -615,8 +627,8 @@ theory neq_only {
 
         let nil_term = terms.app0(nil);
 
-        // Base case: Append(Nil, ys, ys)
-        let base_args: SmallVec<[TermId; 4]> = smallvec::smallvec![nil_term, v1, v1];
+        // Base case: Append(Nil, ys, ys) — ys is var 0 (the single variable)
+        let base_args: SmallVec<[TermId; 4]> = smallvec::smallvec![nil_term, v0, v0];
         let base_term = terms.app(append, base_args);
         let base_rule: NF<()> = NF::new(
             smallvec::smallvec![base_term],
