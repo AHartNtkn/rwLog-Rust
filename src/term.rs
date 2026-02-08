@@ -6,8 +6,15 @@ use smallvec::SmallVec;
 use std::hash::{Hash, Hasher};
 use std::sync::atomic::{AtomicU32, Ordering};
 
+/// Bit 31 of TermId encodes "ground" (no variables in subtree).
+/// This enables O(1) subtree skipping in apply_subst/shift_vars
+/// with zero extra memory access — just a bit test on a register value.
+const GROUND_BIT: u32 = 1 << 31;
+const INDEX_MASK: u32 = !GROUND_BIT;
+
 /// Unique identifier for a term in the term store.
 /// TermIds are stable and can be compared for equality.
+/// Bit 31 encodes whether the term is ground (contains no variables).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct TermId(u32);
 
@@ -19,6 +26,19 @@ impl TermId {
 
     pub(crate) fn from_raw(raw: u32) -> Self {
         TermId(raw)
+    }
+
+    /// Get the storage index (strips the ground bit).
+    #[inline(always)]
+    pub fn index(self) -> usize {
+        (self.0 & INDEX_MASK) as usize
+    }
+
+    /// Check if this term is ground (contains no variables).
+    /// Ground terms are unaffected by any substitution or variable shift.
+    #[inline(always)]
+    pub fn is_ground(self) -> bool {
+        self.0 & GROUND_BIT != 0
     }
 }
 
@@ -45,7 +65,7 @@ const VAR_CACHE_SIZE: usize = 32;
 /// - TermId can be resolved back to the term
 /// - All terms (including variables) are hashconsed
 pub struct TermStore {
-    /// Central storage of all terms, indexed by TermId.
+    /// Central storage of all terms, indexed by TermId (using index() to strip ground bit).
     nodes: RwLock<Vec<Term>>,
     /// Sharded hashcons maps for reducing contention. Uses FxHash for speed.
     shards: [RwLock<HashMap<Term, TermId, FxBuildHasher>>; NUM_SHARDS],
@@ -93,17 +113,27 @@ impl TermStore {
             return id;
         }
 
-        // Allocate new TermId and store term
-        let id = TermId(self.next_id.fetch_add(1, Ordering::Relaxed));
+        // Allocate new raw index and store term
+        let raw_index = self.next_id.fetch_add(1, Ordering::Relaxed);
+        debug_assert!(
+            raw_index & GROUND_BIT == 0,
+            "TermStore overflow: too many terms (>{} terms)",
+            INDEX_MASK
+        );
         {
             let mut nodes = self.nodes.write();
-            // Ensure the vector is large enough
-            let idx = id.0 as usize;
+            let idx = raw_index as usize;
             if nodes.len() <= idx {
-                nodes.resize(idx + 1, Term::Var(0)); // placeholder
+                nodes.resize(idx + 1, Term::Var(0));
             }
             nodes[idx] = term.clone();
         }
+        // Compute ground flag from children's TermId ground bits (zero cost)
+        let is_ground = match &term {
+            Term::Var(_) => false,
+            Term::App(_, children) => children.iter().all(|c| c.is_ground()),
+        };
+        let id = TermId(raw_index | if is_ground { GROUND_BIT } else { 0 });
         map.insert(term, id);
         id
     }
@@ -159,7 +189,7 @@ impl TermStore {
     /// Prefer `with_term` for read-only access to avoid cloning.
     pub fn resolve(&self, id: TermId) -> Option<Term> {
         let nodes = self.nodes.read();
-        nodes.get(id.0 as usize).cloned()
+        nodes.get(id.index()).cloned()
     }
 
     /// Access a term by reference without cloning.
@@ -167,7 +197,7 @@ impl TermStore {
     #[inline]
     pub fn with_term<R>(&self, id: TermId, f: impl FnOnce(Option<&Term>) -> R) -> R {
         let nodes = self.nodes.read();
-        f(nodes.get(id.0 as usize))
+        f(nodes.get(id.index()))
     }
 
     /// Acquire a read lock on the term storage, returning a guard that allows
@@ -175,7 +205,7 @@ impl TermStore {
     #[inline]
     pub fn read_lock(&self) -> TermReadGuard<'_> {
         TermReadGuard {
-            nodes: self.nodes.read(),
+            data: self.nodes.read(),
         }
     }
 
@@ -207,14 +237,14 @@ impl TermStore {
 /// Holds the RwLock read guard for the duration of its lifetime, avoiding
 /// per-lookup lock acquisition in tight loops.
 pub struct TermReadGuard<'a> {
-    nodes: parking_lot::RwLockReadGuard<'a, Vec<Term>>,
+    data: parking_lot::RwLockReadGuard<'a, Vec<Term>>,
 }
 
 impl<'a> TermReadGuard<'a> {
     /// Resolve a TermId to a reference to its Term without cloning.
     #[inline]
     pub fn get(&self, id: TermId) -> Option<&Term> {
-        self.nodes.get(id.0 as usize)
+        self.data.get(id.index())
     }
 }
 

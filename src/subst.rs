@@ -89,6 +89,12 @@ pub fn apply_subst(term: TermId, subst: &Subst, terms: &mut TermStore) -> TermId
         return term;
     }
 
+    // Fast path: ground term (no variables to substitute).
+    // This is just a bit test on TermId — zero memory access.
+    if term.is_ground() {
+        return term;
+    }
+
     // Work items: either a term to visit, or a pending App to build.
     // BuildApp stores the original TermId so we can check if children changed.
     enum Work {
@@ -129,6 +135,12 @@ pub fn apply_subst(term: TermId, subst: &Subst, terms: &mut TermStore) -> TermId
                 }
             }
             Work::Visit(tid) => {
+                // Fast path: skip ground subtrees (just a bit test, no memory access).
+                if tid.is_ground() {
+                    result_stack.push(tid);
+                    continue;
+                }
+
                 // Acquire read lock for the classification phase.
                 let guard = terms.read_lock();
 

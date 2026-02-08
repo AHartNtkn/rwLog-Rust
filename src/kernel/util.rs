@@ -27,6 +27,12 @@ pub fn shift_vars(term: TermId, offset: u32, terms: &mut TermStore) -> TermId {
         return term;
     }
 
+    // Fast path: ground term (no variables to shift).
+    // Just a bit test on TermId — zero memory access.
+    if term.is_ground() {
+        return term;
+    }
+
     enum Work {
         Visit(TermId),
         BuildApp(TermId, FuncId, usize), // (original_tid, functor, child_count)
@@ -64,6 +70,12 @@ pub fn shift_vars(term: TermId, offset: u32, terms: &mut TermStore) -> TermId {
                 }
             }
             Work::Visit(tid) => {
+                // Fast path: skip ground subtrees (just a bit test, no memory access).
+                if tid.is_ground() {
+                    result_stack.push(tid);
+                    continue;
+                }
+
                 let guard = terms.read_lock();
                 match guard.get(tid) {
                     Some(Term::Var(idx)) => {

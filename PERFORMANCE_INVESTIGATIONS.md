@@ -79,7 +79,7 @@ Each item is an investigation area, not a guaranteed improvement.
 ### Term Representation and Memory Layout
 
 1. Move to arena indices with cache-aware contiguous child storage for `TermStore`. **Partially addressed** — see [docs/perf_investigations/memcpy_struct_size_reduction.md](docs/perf_investigations/memcpy_struct_size_reduction.md). Thin ChrState (`Option<Box<ChrStateData>>`) reduced NF from 224B→112B, NodeStep from 456B→240B, Node from 232B→128B. Memcpy dropped from 21% to <0.5% of execution. Arena indices for TermStore remain uninvestigated.
-2. Add global hash-consing for immutable ground subterms.
+2. ~~Add global hash-consing for immutable ground subterms.~~ **Partially addressed** — ground-term tracking implemented via TermId bit encoding. See [docs/perf_investigations/ground_bit_subtree_skipping.md](docs/perf_investigations/ground_bit_subtree_skipping.md). Ground flag in bit 31 of TermId enables O(1) subtree skipping in apply_subst/shift_vars. ~9% improvement on program_synth_flip with zero tabling regression. Full ground-subterm deduplication (interning) remains uninvestigated.
 3. Add optional per-query temporary arena to avoid long-lived heap churn for transient terms.
 4. Use compact tagged integer encoding for tiny terms/vars to reduce pointer chasing.
 5. Evaluate SoA layout for term fields to improve traversal throughput.
