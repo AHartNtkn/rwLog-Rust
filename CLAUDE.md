@@ -132,21 +132,31 @@ This applies to ALL test commands - full suite, filtered tests, individual tests
 
 **NEVER run `cargo bench` or `cargo bench -- "broad_filter"` without strict limits.** Criterion benchmarks collect 100 samples per benchmark, and the full suite has 40+ benchmarks. Running all of them in a single process causes extreme memory usage that can OOM-kill the system.
 
-**Always run benchmarks in narrow, targeted batches:**
+**Each benchmark ID appears in multiple groups** (corpus_parse, corpus_end_to_end, corpus_first_n). A filter like `"recursive_even"` matches ALL groups containing that substring. Even a seemingly narrow filter can match 6+ benchmarks.
+
+**Always run benchmarks as ONE EXACT benchmark ID at a time:**
 ```bash
-# GOOD - run one specific benchmark
+# GOOD - one exact benchmark
 cargo bench -- "recursive_even_backward_first64"
 
-# GOOD - run a small group
+# ACCEPTABLE - a small group (but verify count first)
 cargo bench -- "recursive_even"
 
-# BAD - runs entire suite, will OOM-kill the system
+# BAD - regex OR matches across many groups, will OOM-kill
+cargo bench -- "addition_backward\|treecalc\|peel_deep"
+cargo bench -- "foo|bar|baz"
+
+# BAD - runs entire suite, will OOM-kill
 cargo bench
 cargo bench -- "corpus_execute"
 cargo bench -- ""
 ```
 
-**Rule of thumb:** Never match more than ~5 benchmarks in a single invocation.
+**Rules:**
+1. **ONE benchmark at a time.** If you need to check multiple benchmarks, run separate `cargo bench` invocations sequentially.
+2. **NEVER use regex OR** (`\|` or `|`) to combine patterns. Each pattern matches across all groups, so `A\|B\|C` easily hits 15+ benchmarks.
+3. **Never match more than ~5 benchmarks** in a single invocation. When in doubt, run fewer.
+4. **If you need to compare multiple benchmarks**, run them one at a time in separate commands.
 
 ## TDD Test Coverage Requirements
 
