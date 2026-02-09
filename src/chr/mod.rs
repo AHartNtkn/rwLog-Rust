@@ -185,50 +185,6 @@ impl RVarEnv {
     }
 }
 
-pub fn match_pat_bind(
-    pats: &PatArena,
-    terms: &TermStore,
-    pat: PatId,
-    term: TermId,
-    env: &mut RVarEnv,
-) -> bool {
-    let guard = terms.read_lock();
-    match_pat_bind_locked(pats, &guard, pat, term, env)
-}
-
-#[inline]
-fn match_pat_bind_locked(
-    pats: &PatArena,
-    guard: &TermReadGuard<'_>,
-    pat: PatId,
-    term: TermId,
-    env: &mut RVarEnv,
-) -> bool {
-    let mut stack: SmallVec<[(PatId, TermId); 32]> = SmallVec::new();
-    stack.push((pat, term));
-    while let Some((p, t)) = stack.pop() {
-        match pats.get(p) {
-            PatNode::RVar(rv) => {
-                if !env.bind(*rv, t) {
-                    return false;
-                }
-            }
-            PatNode::App { f, kids } => match guard.get(t) {
-                Some(Term::App(tf, tks)) => {
-                    if *f != *tf || kids.len() != tks.len() {
-                        return false;
-                    }
-                    for (cp, ct) in kids.iter().zip(tks.iter()) {
-                        stack.push((*cp, *ct));
-                    }
-                }
-                _ => return false,
-            },
-        }
-    }
-    true
-}
-
 pub fn match_pat_nobind(
     pats: &PatArena,
     terms: &TermStore,
@@ -1571,7 +1527,7 @@ impl<T: Theory> ChrState<T> {
         let anchor_head = &rule.heads[anchor_idx];
         let anchor_flat = &rule.head_flat_ops[anchor_idx];
         let inst = &data.store.inst[active.0 as usize];
-        if !match_head(&program.pats, terms, anchor_head, anchor_flat, inst, env) {
+        if !match_head(terms, anchor_head, anchor_flat, inst, env) {
             return None;
         }
         chosen[occ.anchor_head as usize] = Some(active);
@@ -1654,7 +1610,7 @@ impl<T: Theory> ChrState<T> {
             let head = &ctx.rule.heads[head_idx];
             let flat_ops = &ctx.rule.head_flat_ops[head_idx];
             let inst = &ctx.data.store.inst[cid.0 as usize];
-            if match_head(&ctx.program.pats, ctx.terms, head, flat_ops, inst, env) {
+            if match_head(ctx.terms, head, flat_ops, inst, env) {
                 chosen[step.head as usize] = Some(cid);
                 if let Some(tuple) = Self::search_steps_inner(ctx, step_idx + 1, env, chosen) {
                     return Some(tuple);
@@ -1758,7 +1714,6 @@ impl<T: Theory> ChrState<T> {
 }
 
 fn match_head(
-    _pats: &PatArena,
     terms: &TermStore,
     head: &HeadPat,
     flat_ops: &[FlatMatchOp],
