@@ -772,7 +772,7 @@ impl<C: ConstraintOps> PipeWork<C> {
                     None => return WorkStep::Done,
                 };
                 let snapshot = table.all_answers();
-                let replay_node = node_from_answers(&snapshot);
+                let replay_node = node_from_answers(snapshot);
                 let mut pipe = self.clone();
                 if use_left {
                     pipe.left = None;
@@ -805,9 +805,10 @@ impl<C: ConstraintOps> PipeWork<C> {
             env: self.env.clone(),
         });
         let snapshot = table.all_answers();
+        let snapshot_len = snapshot.len();
 
-        let replay_node = node_from_answers(&snapshot);
-        let fix = FixWork::new(key, table, snapshot.len(), self.tables.clone());
+        let replay_node = node_from_answers(snapshot);
+        let fix = FixWork::new(key, table, snapshot_len, self.tables.clone());
         let fix_node = Node::Work(Box::new(Work::Fix(fix)));
 
         let gen_node = match replay_node {

@@ -171,10 +171,10 @@ pub fn rel_to_node<C: ConstraintOps>(rel: &Rel<C>, env: &Env<C>, tables: &Tables
     }
 }
 
-fn node_from_answers<C: ConstraintOps>(answers: &[NF<C>]) -> Node<C> {
+fn node_from_answers<C: ConstraintOps>(answers: Vec<Arc<NF<C>>>) -> Node<C> {
     let mut node = Node::Fail;
-    for nf in answers.iter().rev() {
-        node = Node::Emit(nf.clone(), Box::new(node));
+    for arc_nf in answers.into_iter().rev() {
+        node = Node::Emit(Arc::unwrap_or_clone(arc_nf), Box::new(node));
     }
     node
 }

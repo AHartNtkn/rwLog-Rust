@@ -113,17 +113,21 @@ impl<C: Clone> DropFresh<C> {
             let (in_a, mid_a) = self.map[i];
             let (mid_b, out_b) = other.map[j];
 
-            if mid_a < mid_b {
-                // self's output not in other's input, skip
-                i += 1;
-            } else if mid_a > mid_b {
-                // other's input not in self's output, skip
-                j += 1;
-            } else {
-                // mid_a == mid_b: they connect
-                result_map.push((in_a, out_b));
-                i += 1;
-                j += 1;
+            match mid_a.cmp(&mid_b) {
+                std::cmp::Ordering::Less => {
+                    // self's output not in other's input, skip
+                    i += 1;
+                }
+                std::cmp::Ordering::Greater => {
+                    // other's input not in self's output, skip
+                    j += 1;
+                }
+                std::cmp::Ordering::Equal => {
+                    // mid_a == mid_b: they connect
+                    result_map.push((in_a, out_b));
+                    i += 1;
+                    j += 1;
+                }
             }
         }
 

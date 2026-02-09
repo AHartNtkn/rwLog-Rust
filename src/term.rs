@@ -240,7 +240,7 @@ pub struct TermReadGuard<'a> {
     data: parking_lot::RwLockReadGuard<'a, Vec<Term>>,
 }
 
-impl<'a> TermReadGuard<'a> {
+impl TermReadGuard<'_> {
     /// Resolve a TermId to a reference to its Term without cloning.
     #[inline]
     pub fn get(&self, id: TermId) -> Option<&Term> {

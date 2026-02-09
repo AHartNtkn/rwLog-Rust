@@ -123,7 +123,7 @@ mod tests {
         let c: () = ();
         let mut terms = TermStore::new();
         let (normalized, subst) = c.normalize(&mut terms).unwrap();
-        assert_eq!(normalized, ());
+        let _: () = normalized;
         assert!(subst.is_none());
     }
 }
