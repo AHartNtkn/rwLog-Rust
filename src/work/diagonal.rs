@@ -76,8 +76,8 @@ pub(crate) struct DiagonalJoin<C: ConstraintOps, S: JoinStrategy<C> + Default> {
     pub(crate) seen_r: Vec<Arc<NF<C>>>,
     seen_l_set: FxHashSet<Arc<NF<C>>>,
     seen_r_set: FxHashSet<Arc<NF<C>>>,
-    pending: VecDeque<NF<C>>,
-    pending_set: FxHashSet<NF<C>>,
+    pending: VecDeque<Arc<NF<C>>>,
+    pending_set: FxHashSet<Arc<NF<C>>>,
     pub(crate) flip: bool,
     pub(crate) strategy: S,
 }
@@ -106,15 +106,18 @@ impl<C: ConstraintOps, S: JoinStrategy<C> + Default> DiagonalJoin<C, S> {
     }
 
     pub(crate) fn push_pending(&mut self, nf: NF<C>) {
-        if self.pending_set.insert(nf.clone()) {
-            self.pending.push_back(nf);
+        let arc = Arc::new(nf);
+        if self.pending_set.insert(Arc::clone(&arc)) {
+            self.pending.push_back(arc);
         }
     }
 
     pub(crate) fn pop_pending(&mut self) -> Option<NF<C>> {
-        let nf = self.pending.pop_front()?;
-        self.pending_set.remove(&nf);
-        Some(nf)
+        let arc = self.pending.pop_front()?;
+        self.pending_set.remove(&*arc);
+        // After removing from pending_set, refcount should be 1 (only this arc).
+        // Try to unwrap; fall back to clone if somehow shared.
+        Some(Arc::try_unwrap(arc).unwrap_or_else(|arc| (*arc).clone()))
     }
 
     pub(crate) fn seen_l_len(&self) -> usize {
