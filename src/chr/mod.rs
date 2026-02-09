@@ -1651,15 +1651,27 @@ impl<T: Theory> ChrState<T> {
         )
     }
 
-    fn apply_subst_to_data(data: &mut ChrStateData<T>, subst: &Subst, terms: &mut TermStore) {
+    /// Apply substitution to all alive constraint args and builtins.
+    /// Returns `true` if any constraint arg actually changed.
+    fn apply_subst_to_data(
+        data: &mut ChrStateData<T>,
+        subst: &Subst,
+        terms: &mut TermStore,
+    ) -> bool {
+        let mut changed = false;
         for inst in data.store.inst.iter_mut() {
             if inst.alive {
                 for arg in inst.args.iter_mut() {
-                    *arg = apply_subst(*arg, subst, terms);
+                    let new_arg = apply_subst(*arg, subst, terms);
+                    if new_arg != *arg {
+                        *arg = new_arg;
+                        changed = true;
+                    }
                 }
             }
         }
         data.builtins = T::apply_subst(&data.builtins, subst, terms);
+        changed
     }
 
     fn enqueue_all_alive_in(data: &mut ChrStateData<T>) {
@@ -2140,11 +2152,16 @@ impl<T: Theory> crate::constraint::ConstraintOps for ChrState<T> {
             Some(subst.clone())
         };
         if !subst.is_empty() {
-            Self::apply_subst_to_data(sd, &subst, terms);
+            let args_changed = Self::apply_subst_to_data(sd, &subst, terms);
             sd.store.rebuild_indexes(preds, terms);
-            // Subst changed constraint args, so old constraints are no longer
-            // guaranteed to be at fixpoint. Reset watermark.
-            sd.fixpoint_watermark = 0;
+            if args_changed {
+                // Subst changed constraint args, so old constraints are no longer
+                // guaranteed to be at fixpoint. Reset watermark.
+                sd.fixpoint_watermark = 0;
+            } else {
+                // Subst didn't affect constraint args. Fixpoint is preserved.
+                sd.fixpoint_watermark = sd.next_cid;
+            }
         } else {
             // All constraints are now at fixpoint. Advance watermark.
             sd.fixpoint_watermark = sd.next_cid;
@@ -2246,9 +2263,11 @@ impl<T: Theory> crate::constraint::ConstraintOps for ChrState<T> {
         let mut st = self.clone();
         if !subst.is_empty() {
             let d = Arc::make_mut(st.data.as_mut().unwrap());
-            Self::apply_subst_to_data(d, subst, terms);
-            // Subst changed constraint args; indexes and fixpoint are stale.
-            d.fixpoint_watermark = 0;
+            let args_changed = Self::apply_subst_to_data(d, subst, terms);
+            if args_changed {
+                // Subst changed constraint args; indexes and fixpoint are stale.
+                d.fixpoint_watermark = 0;
+            }
         }
         st
     }
@@ -2260,17 +2279,24 @@ impl<T: Theory> crate::constraint::ConstraintOps for ChrState<T> {
         let mut st = self.clone();
         let preds = &st.program.preds;
         let d = Arc::make_mut(st.data.as_mut().unwrap());
+        let mut args_changed = false;
         for inst in d.store.inst.iter_mut() {
             if inst.alive {
                 for arg in inst.args.iter_mut() {
-                    *arg = apply_var_renaming(*arg, map, terms);
+                    let new_arg = apply_var_renaming(*arg, map, terms);
+                    if new_arg != *arg {
+                        *arg = new_arg;
+                        args_changed = true;
+                    }
                 }
             }
         }
         d.builtins = T::remap_vars(&d.builtins, map, terms);
-        d.store.rebuild_indexes(preds, terms);
+        if args_changed {
+            d.store.rebuild_indexes(preds, terms);
+            d.fixpoint_watermark = 0;
+        }
         d.agenda.clear();
-        d.fixpoint_watermark = 0;
         st
     }
 
