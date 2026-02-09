@@ -904,6 +904,11 @@ pub struct ChrProgram<T: Theory> {
     pub pred_names: HashMap<String, PredId>,
     pub program_id: u64,
     pub max_rvars: u32,
+    /// True iff every rule in the program has exactly one head and is a
+    /// simplification rule (not propagation).  When set, `solve_to_fixpoint`
+    /// uses a specialised inline loop that avoids Vec allocations, SearchCtx
+    /// construction, and propagation-token handling.
+    pub all_single_head_simplification: bool,
 }
 
 impl<T: Theory> Clone for ChrProgram<T> {
@@ -917,6 +922,7 @@ impl<T: Theory> Clone for ChrProgram<T> {
             pred_names: self.pred_names.clone(),
             program_id: self.program_id,
             max_rvars: self.max_rvars,
+            all_single_head_simplification: self.all_single_head_simplification,
         }
     }
 }
@@ -1049,6 +1055,11 @@ impl<T: Theory> ChrProgramBuilder<T> {
 
         let max_rvars = rules.iter().map(|r| r.n_rvars).max().unwrap_or(0);
 
+        let all_single_head_simplification = !rules.is_empty()
+            && rules
+                .iter()
+                .all(|r| r.heads.len() == 1 && !r.is_propagation);
+
         // Build first-argument indexed trigger tables.
         let mut triggers: Vec<IndexedTriggers> = (0..self.preds.len())
             .map(|_| IndexedTriggers {
@@ -1100,6 +1111,7 @@ impl<T: Theory> ChrProgramBuilder<T> {
             pred_names: self.pred_names,
             program_id,
             max_rvars,
+            all_single_head_simplification,
         })
     }
 }
@@ -1443,17 +1455,29 @@ impl<T: Theory> ChrState<T> {
             return false;
         }
 
-        // Reuse a single RVarEnv across all match attempts in this fixpoint.
-        let mut env = RVarEnv::new(self.program.max_rvars);
+        if self.program.all_single_head_simplification {
+            Self::solve_to_fixpoint_single_head(&self.program, d, terms);
+        } else {
+            Self::solve_to_fixpoint_general(&self.program, d, terms);
+        }
+        !d.failed
+    }
+
+    /// General solve_to_fixpoint for programs with multi-head or propagation rules.
+    fn solve_to_fixpoint_general(
+        program: &ChrProgram<T>,
+        d: &mut ChrStateData<T>,
+        terms: &mut TermStore,
+    ) {
+        let mut env = RVarEnv::new(program.max_rvars);
         while let Some(cid) = d.agenda.pop_front() {
             if !Self::is_alive_in(&d.store, cid) {
                 continue;
             }
             let inst = &d.store.inst[cid.0 as usize];
             let pred = inst.pred;
-            let indexed = &self.program.triggers[pred.0 as usize];
+            let indexed = &program.triggers[pred.0 as usize];
 
-            // Extract top functor of first arg for indexed dispatch.
             let first_arg_functor: Option<FuncId> = inst.args.first().and_then(|tid| {
                 terms.with_term(*tid, |t| match t? {
                     Term::App(f, _) => Some(*f),
@@ -1461,7 +1485,6 @@ impl<T: Theory> ChrState<T> {
                 })
             });
 
-            // Try functor-indexed rules first, then fallback.
             let indexed_occs = first_arg_functor
                 .and_then(|f| indexed.by_functor.get(&f))
                 .map(|v| v.as_slice())
@@ -1470,7 +1493,7 @@ impl<T: Theory> ChrState<T> {
             let mut fired = false;
             for occ_ref in indexed_occs.iter().chain(indexed.fallback.iter()) {
                 if let Some(tuple) = Self::find_match_by_ids_reuse(
-                    &self.program,
+                    program,
                     d,
                     occ_ref.rid,
                     occ_ref.occ,
@@ -1479,7 +1502,7 @@ impl<T: Theory> ChrState<T> {
                     &mut env,
                 ) {
                     if !Self::apply_rule_by_id_reuse(
-                        &self.program,
+                        program,
                         d,
                         occ_ref.rid,
                         &tuple,
@@ -1487,7 +1510,7 @@ impl<T: Theory> ChrState<T> {
                         &mut env,
                     ) {
                         d.failed = true;
-                        return false;
+                        return;
                     }
                     fired = true;
                     break;
@@ -1495,7 +1518,80 @@ impl<T: Theory> ChrState<T> {
             }
             let _ = fired;
         }
-        !d.failed
+    }
+
+    /// Specialized solve_to_fixpoint for programs where ALL rules are single-head
+    /// simplification rules.  Avoids Vec allocations for chosen/tuple arrays,
+    /// SearchCtx construction, search_steps_inner recursion, and propagation
+    /// token handling.
+    fn solve_to_fixpoint_single_head(
+        program: &ChrProgram<T>,
+        d: &mut ChrStateData<T>,
+        terms: &mut TermStore,
+    ) {
+        let mut env = RVarEnv::new(program.max_rvars);
+        while let Some(cid) = d.agenda.pop_front() {
+            if !Self::is_alive_in(&d.store, cid) {
+                continue;
+            }
+            let inst = &d.store.inst[cid.0 as usize];
+            let pred = inst.pred;
+            let indexed = &program.triggers[pred.0 as usize];
+
+            let first_arg_functor: Option<FuncId> = inst.args.first().and_then(|tid| {
+                terms.with_term(*tid, |t| match t? {
+                    Term::App(f, _) => Some(*f),
+                    Term::Var(_) => None,
+                })
+            });
+
+            let indexed_occs = first_arg_functor
+                .and_then(|f| indexed.by_functor.get(&f))
+                .map(|v| v.as_slice())
+                .unwrap_or(&[]);
+
+            for occ_ref in indexed_occs.iter().chain(indexed.fallback.iter()) {
+                let rule = &program.rules[occ_ref.rid.0 as usize];
+                let occ = &rule.occs[occ_ref.occ as usize];
+                let anchor_idx = occ.anchor_head as usize;
+                let anchor_head = &rule.heads[anchor_idx];
+                let anchor_flat = &rule.head_flat_ops[anchor_idx];
+
+                env.ensure_capacity(rule.n_rvars);
+                env.reset();
+
+                let inst_ref = &d.store.inst[cid.0 as usize];
+                if !match_head(terms, anchor_head, anchor_flat, inst_ref, &mut env) {
+                    continue;
+                }
+
+                // Single-head: no join steps.  Evaluate guard directly.
+                if !rule
+                    .guard
+                    .eval(&program.pats, terms, &d.builtins, &program.builtins, &env)
+                {
+                    continue;
+                }
+
+                // Single-head simplification: always mark dead (removed_mask bit 0
+                // is always set for single-head simplification rules).
+                d.store.mark_dead(cid);
+
+                // Execute body.
+                if !rule.body.exec_with_data(
+                    &program.pats,
+                    terms,
+                    &program.builtins,
+                    &env,
+                    program,
+                    d,
+                ) {
+                    d.failed = true;
+                    return;
+                }
+                break;
+            }
+        }
     }
 }
 
@@ -2047,6 +2143,7 @@ impl<T: Theory> ChrProgram<T> {
             pred_names: HashMap::new(),
             program_id: NEXT_PROGRAM_ID.fetch_add(1, AtomicOrdering::Relaxed),
             max_rvars: 0,
+            all_single_head_simplification: false,
         })
     }
 }
