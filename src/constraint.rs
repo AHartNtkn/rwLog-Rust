@@ -9,6 +9,14 @@ use crate::term::TermStore;
 /// Constraints represent additional conditions that must be satisfied
 /// beyond the structural matching of terms.
 pub trait ConstraintOps: Clone + Eq + Hash + Default + Send + Sync {
+    /// Whether this constraint type is always the empty/trivial constraint.
+    ///
+    /// When `true`, the compose join can eagerly process pairs in
+    /// `on_new_left`/`on_new_right` instead of deferring via cursors,
+    /// since there is no CHR constraint propagation timing to respect.
+    /// This is a compile-time constant so the dead branch is eliminated.
+    const ALWAYS_EMPTY: bool = false;
+
     /// Combine two constraints (conjunction).
     ///
     /// Returns None if the constraints are inconsistent.
@@ -67,6 +75,8 @@ pub trait ConstraintDisplay {
 /// are trivially satisfied. Useful for pure term rewriting without
 /// additional constraint handling.
 impl ConstraintOps for () {
+    const ALWAYS_EMPTY: bool = true;
+
     fn combine(&self, _other: &Self) -> Option<Self> {
         Some(())
     }

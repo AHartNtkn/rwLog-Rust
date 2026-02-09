@@ -144,25 +144,57 @@ impl<C: ConstraintOps> JoinStrategy<C> for ComposeStrategy {
         join: &mut DiagonalJoin<C, Self>,
         terms: &mut TermStore,
     ) -> Option<crate::nf::NF<C>> {
-        self.process_pair_queue(join, terms)
+        if C::ALWAYS_EMPTY {
+            // Eager path: all pairs were composed directly in on_new_left/on_new_right,
+            // so there are no cursors to process. Results are already in pending.
+            join.pop_pending()
+        } else {
+            self.process_pair_queue(join, terms)
+        }
     }
 
     fn on_new_left(
         &mut self,
         join: &mut DiagonalJoin<C, Self>,
         left_idx: usize,
-        _terms: &mut TermStore,
+        terms: &mut TermStore,
     ) {
-        self.enqueue_pairs_left(join, left_idx);
+        if C::ALWAYS_EMPTY {
+            // Eager: compose all pairs immediately
+            let right_limit = join.seen_r_len();
+            for right_idx in 0..right_limit {
+                let left_nf = join.seen_l_at(left_idx);
+                let right_nf = join.seen_r_at(right_idx);
+                if let Some(nf) = Self::compose_pair(left_nf, right_nf, terms) {
+                    join.push_pending(nf);
+                }
+            }
+        } else {
+            let _ = terms;
+            self.enqueue_pairs_left(join, left_idx);
+        }
     }
 
     fn on_new_right(
         &mut self,
         join: &mut DiagonalJoin<C, Self>,
         right_idx: usize,
-        _terms: &mut TermStore,
+        terms: &mut TermStore,
     ) {
-        self.enqueue_pairs_right(join, right_idx);
+        if C::ALWAYS_EMPTY {
+            // Eager: compose all pairs immediately
+            let left_limit = join.seen_l_len();
+            for left_idx in 0..left_limit {
+                let left_nf = join.seen_l_at(left_idx);
+                let right_nf = join.seen_r_at(right_idx);
+                if let Some(nf) = Self::compose_pair(left_nf, right_nf, terms) {
+                    join.push_pending(nf);
+                }
+            }
+        } else {
+            let _ = terms;
+            self.enqueue_pairs_right(join, right_idx);
+        }
     }
 
     fn check_done(
