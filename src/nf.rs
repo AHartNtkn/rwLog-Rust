@@ -22,6 +22,14 @@ pub struct NfInner<C> {
     pub build_pats: SmallVec<[TermId; 1]>,
     /// Pre-computed hash of match_pats, drop_fresh, and build_pats.
     cached_hash: u64,
+    /// Pre-computed rhs_map: maps build-side variable indices to direct-form
+    /// variable indices. This is the same mapping that `collect_tensor` computes
+    /// on every call, but cached here for reuse. Each entry `rhs_map[j]` gives
+    /// the direct-form variable index for build-side variable `j`.
+    ///
+    /// For shared variables (those in the DropFresh map), `rhs_map[j] = i` where
+    /// `(i, j)` is in the map. For fresh variables, indices continue from `in_arity`.
+    pub cached_rhs_map: SmallVec<[u32; 4]>,
 }
 
 /// Normal Form representation of a rewrite rule.
@@ -91,6 +99,35 @@ fn compute_nf_hash<C: Hash>(
     hasher.finish()
 }
 
+/// Compute the cached rhs_map from a DropFresh structure.
+///
+/// The rhs_map maps build-side variable indices (0..out_arity) to direct-form
+/// variable indices. Shared variables map to their corresponding input positions,
+/// and fresh variables get indices starting from in_arity.
+fn compute_rhs_map<C>(drop_fresh: &DropFresh<C>) -> SmallVec<[u32; 4]> {
+    let out_arity = drop_fresh.out_arity as usize;
+    let in_arity = drop_fresh.in_arity;
+    let mut rhs_map: SmallVec<[u32; 4]> = smallvec::smallvec![0; out_arity];
+    // Use a sentinel to track which slots are unset
+    // We fill all slots with u32::MAX first, then assign shared vars, then fresh vars
+    for slot in rhs_map.iter_mut() {
+        *slot = u32::MAX;
+    }
+    for &(i, j) in drop_fresh.map.iter() {
+        if (j as usize) < out_arity {
+            rhs_map[j as usize] = i;
+        }
+    }
+    let mut next_var = in_arity;
+    for slot in rhs_map.iter_mut() {
+        if *slot == u32::MAX {
+            *slot = next_var;
+            next_var += 1;
+        }
+    }
+    rhs_map
+}
+
 impl<C: Hash> NF<C> {
     /// Access the pre-computed hash value for this NF.
     ///
@@ -107,12 +144,14 @@ impl<C: Hash> NF<C> {
         build_pats: SmallVec<[TermId; 1]>,
     ) -> Self {
         let cached_hash = compute_nf_hash(&match_pats, &drop_fresh, &build_pats);
+        let cached_rhs_map = compute_rhs_map(&drop_fresh);
         Self {
             inner: Arc::new(NfInner {
                 match_pats,
                 drop_fresh,
                 build_pats,
                 cached_hash,
+                cached_rhs_map,
             }),
         }
     }
@@ -126,12 +165,14 @@ impl<C: Hash> NF<C> {
         let drop_fresh = DropFresh::identity_with_constraint(0, constraint);
         let build_pats = SmallVec::new();
         let cached_hash = compute_nf_hash(&match_pats, &drop_fresh, &build_pats);
+        let cached_rhs_map = compute_rhs_map(&drop_fresh);
         Self {
             inner: Arc::new(NfInner {
                 match_pats,
                 drop_fresh,
                 build_pats,
                 cached_hash,
+                cached_rhs_map,
             }),
         }
     }
@@ -251,23 +292,8 @@ impl<C: ConstraintOps> NF<C> {
 
 /// Collect a tensor NF into direct-rule form by pushing wiring into RHS vars.
 pub fn collect_tensor<C: Clone>(nf: &NF<C>, terms: &mut TermStore) -> RwT<C> {
-    let out_arity = nf.drop_fresh.out_arity as usize;
-    let in_arity = nf.drop_fresh.in_arity;
-
-    let mut rhs_map: Vec<Option<u32>> = vec![None; out_arity];
-    for (i, j) in nf.drop_fresh.map.iter().copied() {
-        if let Some(slot) = rhs_map.get_mut(j as usize) {
-            *slot = Some(i);
-        }
-    }
-
-    let mut next_var = in_arity;
-    for slot in rhs_map.iter_mut() {
-        if slot.is_none() {
-            *slot = Some(next_var);
-            next_var += 1;
-        }
-    }
+    // Use the pre-computed cached_rhs_map instead of recomputing it.
+    let rhs_map: Vec<Option<u32>> = nf.cached_rhs_map.iter().map(|&v| Some(v)).collect();
 
     let rhs_direct = apply_var_renaming_list(&nf.build_pats, &rhs_map, terms);
 
@@ -1476,23 +1502,9 @@ pub fn direct_rule_terms<C: Clone>(nf: &NF<C>, terms: &mut TermStore) -> Option<
 
     let lhs = nf.match_pats[0];
     let rhs = nf.build_pats[0];
-    let out_arity = nf.drop_fresh.out_arity as usize;
-    let in_arity = nf.drop_fresh.in_arity;
 
-    let mut rhs_map: Vec<Option<u32>> = vec![None; out_arity];
-    for (i, j) in nf.drop_fresh.map.iter().copied() {
-        if let Some(slot) = rhs_map.get_mut(j as usize) {
-            *slot = Some(i);
-        }
-    }
-
-    let mut next_var = in_arity;
-    for slot in rhs_map.iter_mut() {
-        if slot.is_none() {
-            *slot = Some(next_var);
-            next_var += 1;
-        }
-    }
+    // Use the pre-computed cached_rhs_map.
+    let rhs_map: Vec<Option<u32>> = nf.cached_rhs_map.iter().map(|&v| Some(v)).collect();
 
     let rhs_direct = apply_var_renaming(rhs, &rhs_map, terms);
     Some((lhs, rhs_direct))

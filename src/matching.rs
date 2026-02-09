@@ -257,6 +257,292 @@ pub(crate) fn match_terms_combined_shifted(
     Some(subst)
 }
 
+/// Match two terms where left-side variables are renamed via `left_rhs_map`
+/// and right-side variables are virtually shifted via `shifted_vars`.
+///
+/// This is used in compose_nf to avoid eagerly applying `apply_var_renaming_list`
+/// to the a-side build patterns. Instead, the renaming is applied inline during
+/// matching: when encountering `Var(idx)` on the left, it is treated as
+/// `Var(left_rhs_map[idx])`.
+///
+/// This function is only called on the fast path where subst starts empty and
+/// left/right variables are in disjoint namespaces after renaming.
+pub(crate) fn match_terms_combined_shifted_with_left_renaming(
+    t1: TermId,
+    t2: TermId,
+    left_rhs_map: &[u32],
+    shifted_vars: &[TermId],
+    terms: &mut TermStore,
+) -> Option<Subst> {
+    #[cfg(feature = "tracing")]
+    let _span = debug_span!("match_terms_left_rename", ?t1, ?t2).entered();
+
+    let mut subst = Subst::new();
+    // Worklist entries: (left_term, right_term, left_is_raw, right_is_raw).
+    // `left_is_raw` means the left term's variables need renaming via left_rhs_map.
+    // `right_is_raw` means the right term's variables need shifting via shifted_vars.
+    let mut worklist: SmallVec<[(TermId, TermId, bool, bool); 32]> = SmallVec::new();
+    let use_right_shift = !shifted_vars.is_empty();
+    worklist.push((t1, t2, true, use_right_shift));
+
+    while let Some((a, b, a_raw, b_raw)) = worklist.pop() {
+        // Dereference left side: if raw, rename the variable first.
+        let a_deref = if a_raw {
+            deref_left_renamed_unlocked(a, left_rhs_map, &subst, terms)
+        } else {
+            deref_unlocked(a, &subst, terms)
+        };
+
+        // Dereference right side: if raw, virtually shift the variable first.
+        let b_deref = if b_raw {
+            deref_shifted_unlocked(b, shifted_vars, &subst, terms)
+        } else {
+            deref_unlocked(b, &subst, terms)
+        };
+
+        // Fast equality check (same logic as match_terms_combined_shifted).
+        // For left raw: if a_deref != a, the var was renamed and dereffed through subst,
+        // so equality is valid. If a_deref == a and it's an App, children still need
+        // renaming, so we can't skip.
+        let skip_left = !a_raw || a_deref != a || a_deref.is_ground();
+        let skip_right = !b_raw || b_deref != b || b_deref.is_ground();
+        if a_deref == b_deref && skip_left && skip_right {
+            continue;
+        }
+
+        // Classify both terms without cloning children
+        enum TermKind {
+            Var(u32),
+            App(FuncId),
+            Invalid,
+        }
+
+        let a_kind = match terms.get_unlocked(a_deref) {
+            Some(Term::Var(idx)) => TermKind::Var(*idx),
+            Some(Term::App(f, _)) => TermKind::App(*f),
+            None => TermKind::Invalid,
+        };
+        let b_kind = match terms.get_unlocked(b_deref) {
+            Some(Term::Var(idx)) => TermKind::Var(*idx),
+            Some(Term::App(f, _)) => TermKind::App(*f),
+            None => TermKind::Invalid,
+        };
+
+        match (a_kind, b_kind) {
+            (TermKind::Var(idx_a), TermKind::Var(idx_b)) => {
+                if idx_a < idx_b {
+                    subst.bind(idx_b, a_deref);
+                } else {
+                    subst.bind(idx_a, b_deref);
+                }
+            }
+            (TermKind::Var(idx), TermKind::App(_)) => {
+                // Materialize shifted right-side subtree if needed.
+                let b_shifted = if b_raw && b_deref == b {
+                    shift_term(b, shifted_vars, terms)
+                } else {
+                    b_deref
+                };
+                subst.bind(idx, b_shifted);
+            }
+            (TermKind::App(_), TermKind::Var(idx)) => {
+                // Materialize renamed left-side subtree if needed.
+                let a_renamed = if a_raw && a_deref == a {
+                    rename_term(a, left_rhs_map, terms)
+                } else {
+                    a_deref
+                };
+                subst.bind(idx, a_renamed);
+            }
+            (TermKind::App(f1), TermKind::App(f2)) => {
+                if f1 != f2 {
+                    #[cfg(feature = "tracing")]
+                    trace!("match_functor_mismatch");
+                    return None;
+                }
+                let children_a_raw = a_raw && a_deref == a;
+                let children_b_raw = b_raw && b_deref == b;
+                let (ac, bc) = {
+                    let nodes = terms.nodes.get_mut();
+                    let a_children = match nodes.get(a_deref.index()) {
+                        Some(Term::App(_, c)) => c.clone(),
+                        _ => return None,
+                    };
+                    let b_children = match nodes.get(b_deref.index()) {
+                        Some(Term::App(_, c)) => c.clone(),
+                        _ => return None,
+                    };
+                    (a_children, b_children)
+                };
+                if ac.len() != bc.len() {
+                    #[cfg(feature = "tracing")]
+                    trace!("match_arity_mismatch");
+                    return None;
+                }
+                for (c1, c2) in ac.iter().zip(bc.iter()) {
+                    worklist.push((*c1, *c2, children_a_raw, children_b_raw));
+                }
+            }
+            _ => {
+                #[cfg(feature = "tracing")]
+                trace!("match_invalid_term");
+                return None;
+            }
+        }
+    }
+
+    #[cfg(feature = "tracing")]
+    trace!(bindings = subst.len(), "match_success");
+
+    Some(subst)
+}
+
+/// Dereference a "raw" (unrenamed) left-side term through variable renaming
+/// and then through the substitution, using lock-free access.
+///
+/// If the term is `Var(j)`, maps it to `Var(left_rhs_map[j])` before looking
+/// up in the substitution. If the term is an App, returns it as-is (children
+/// will be processed with left_raw=true in the worklist).
+#[inline]
+fn deref_left_renamed_unlocked(
+    term: TermId,
+    left_rhs_map: &[u32],
+    subst: &Subst,
+    terms: &mut TermStore,
+) -> TermId {
+    // Extract variable index if this term is a Var, within a scoped borrow.
+    let var_idx = {
+        let nodes = terms.nodes.get_mut();
+        match nodes.get(term.index()) {
+            Some(Term::Var(idx)) => Some(*idx),
+            _ => None, // App or invalid: return as-is
+        }
+    };
+
+    let idx = match var_idx {
+        Some(idx) => idx,
+        None => return term,
+    };
+
+    let j = idx as usize;
+    debug_assert!(
+        j < left_rhs_map.len(),
+        "var index {} exceeds left_rhs_map length {}",
+        j,
+        left_rhs_map.len()
+    );
+    let renamed_idx = left_rhs_map[j];
+
+    // Check if the subst has a binding for this renamed index.
+    match subst.get(renamed_idx) {
+        Some(bound) => {
+            // Follow substitution chain from the bound term.
+            let nodes = terms.nodes.get_mut();
+            let mut current = bound;
+            loop {
+                match nodes.get(current.index()) {
+                    Some(Term::Var(vidx)) => match subst.get(*vidx) {
+                        Some(next) => current = next,
+                        None => return current,
+                    },
+                    _ => return current,
+                }
+            }
+        }
+        None => {
+            // Not bound — create a TermId for Var(renamed_idx).
+            terms.var_unlocked(renamed_idx)
+        }
+    }
+}
+
+/// Rename all variables in a term using the left_rhs_map.
+/// This is the materialization counterpart of deref_left_renamed_unlocked,
+/// called only when binding a right-side variable to a left-side subtree.
+fn rename_term(term: TermId, left_rhs_map: &[u32], terms: &mut TermStore) -> TermId {
+    if term.is_ground() {
+        return term;
+    }
+
+    enum Work {
+        Visit(TermId),
+        BuildApp(TermId, FuncId, usize),
+    }
+
+    let mut work_stack: SmallVec<[Work; 16]> = SmallVec::new();
+    let mut result_stack: SmallVec<[TermId; 16]> = SmallVec::new();
+
+    work_stack.push(Work::Visit(term));
+
+    while let Some(item) = work_stack.pop() {
+        match item {
+            Work::BuildApp(orig_tid, func, n) => {
+                let start = result_stack.len() - n;
+                let all_same = {
+                    let nodes = terms.nodes.get_mut();
+                    match nodes.get(orig_tid.index()) {
+                        Some(Term::App(_, orig_children)) => {
+                            orig_children.len() == n
+                                && orig_children
+                                    .iter()
+                                    .zip(&result_stack[start..])
+                                    .all(|(a, b)| *a == *b)
+                        }
+                        _ => false,
+                    }
+                };
+                if all_same {
+                    result_stack.truncate(start);
+                    result_stack.push(orig_tid);
+                } else {
+                    let new_term = terms.app_from_slice_unlocked(func, &result_stack[start..]);
+                    result_stack.truncate(start);
+                    result_stack.push(new_term);
+                }
+            }
+            Work::Visit(tid) => {
+                if tid.is_ground() {
+                    result_stack.push(tid);
+                    continue;
+                }
+                let var_action: Option<u32> = {
+                    let nodes = terms.nodes.get_mut();
+                    match nodes.get(tid.index()) {
+                        Some(Term::Var(idx)) => {
+                            let j = *idx as usize;
+                            debug_assert!(j < left_rhs_map.len());
+                            Some(left_rhs_map[j])
+                        }
+                        Some(Term::App(_, children)) if children.is_empty() => {
+                            result_stack.push(tid);
+                            None
+                        }
+                        Some(Term::App(f, children)) => {
+                            let func = *f;
+                            let n = children.len();
+                            work_stack.push(Work::BuildApp(tid, func, n));
+                            for i in (0..n).rev() {
+                                work_stack.push(Work::Visit(children[i]));
+                            }
+                            None
+                        }
+                        None => {
+                            result_stack.push(tid);
+                            None
+                        }
+                    }
+                };
+                if let Some(renamed_idx) = var_action {
+                    result_stack.push(terms.var_unlocked(renamed_idx));
+                }
+            }
+        }
+    }
+
+    debug_assert_eq!(result_stack.len(), 1);
+    result_stack.pop().unwrap()
+}
+
 /// Split a combined substitution into (left, right) parts, resolving each
 /// binding through the combined substitution so that applying each part
 /// independently yields equal terms.
