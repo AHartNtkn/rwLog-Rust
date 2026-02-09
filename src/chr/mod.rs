@@ -1521,7 +1521,9 @@ impl<T: Theory> ChrState<T> {
         Self::search_steps_inner(&ctx, 0, env, &mut chosen)
     }
 
-    /// Like `apply_rule_by_id_inner` but reuses a pre-allocated `RVarEnv`.
+    /// Apply a matched rule. The `env` must already contain the variable
+    /// bindings produced by `find_match_by_ids_reuse` — we skip re-matching
+    /// heads since those bindings are still live in the env.
     fn apply_rule_by_id_reuse(
         program: &ChrProgram<T>,
         data: &mut ChrStateData<T>,
@@ -1544,15 +1546,8 @@ impl<T: Theory> ChrState<T> {
             }
         }
 
-        env.ensure_capacity(rule.n_rvars);
-        env.reset();
-        for (i, cid) in tuple.iter().copied().enumerate() {
-            let head = &rule.heads[i];
-            let inst = &data.store.inst[cid.0 as usize];
-            if !match_head(&program.pats, terms, head, inst, env) {
-                return false;
-            }
-        }
+        // env already has correct bindings from find_match_by_ids_reuse —
+        // no reset or re-matching needed.
 
         rule.body
             .exec_with_data(&program.pats, terms, &program.builtins, env, program, data)
