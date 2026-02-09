@@ -410,7 +410,8 @@ fn collect_vars_helper(
     vars: &mut Vec<u32>,
     seen: &mut std::collections::HashSet<u32>,
 ) {
-    let guard = terms.read_lock();
+    // Use read_lock once for the entire traversal (no per-node locking).
+    let nodes = terms.nodes.read();
     let mut stack: SmallVec<[TermId; 16]> = SmallVec::new();
     // Use a bitset for small variable indices (0..64) to avoid HashSet overhead.
     // Variables >= 64 fall back to the HashSet.
@@ -427,7 +428,7 @@ fn collect_vars_helper(
         if tid.is_ground() {
             continue;
         }
-        match guard.get(tid) {
+        match nodes.get(tid.index()) {
             Some(Term::Var(idx)) => {
                 let v = *idx;
                 if v < 64 {
@@ -483,8 +484,9 @@ pub fn renumber_vars(term: TermId, terms: &mut TermStore) -> (TermId, Vec<u32>) 
 /// Renumber variables according to a given mapping.
 /// The mapping maps old variable index to new variable index.
 ///
-/// Uses batched read_lock to avoid per-node lock acquisition and avoids
-/// cloning children SmallVecs by copying TermIds (which are Copy).
+/// Uses lock-free access via `RwLock::get_mut()` since we have exclusive
+/// (`&mut`) access to the TermStore. This eliminates all lock acquire/release
+/// overhead in the traversal loop.
 pub fn apply_var_renaming(
     term: TermId,
     old_to_new: &[Option<u32>],
@@ -517,23 +519,26 @@ pub fn apply_var_renaming(
             Work::BuildApp(orig_tid, func, n) => {
                 let start = result_stack.len() - n;
                 // Check if any child actually changed from the original.
-                let guard = terms.read_lock();
-                let all_same = match guard.get(orig_tid) {
-                    Some(Term::App(_, orig_children)) => {
-                        orig_children.len() == n
-                            && orig_children
-                                .iter()
-                                .zip(&result_stack[start..])
-                                .all(|(a, b)| *a == *b)
+                // Lock-free access via get_mut(). The borrow ends before
+                // any potential call to app_from_slice_unlocked.
+                let all_same = {
+                    let nodes = terms.nodes.get_mut();
+                    match nodes.get(orig_tid.index()) {
+                        Some(Term::App(_, orig_children)) => {
+                            orig_children.len() == n
+                                && orig_children
+                                    .iter()
+                                    .zip(&result_stack[start..])
+                                    .all(|(a, b)| *a == *b)
+                        }
+                        _ => false,
                     }
-                    _ => false,
                 };
-                drop(guard);
                 if all_same {
                     result_stack.truncate(start);
                     result_stack.push(orig_tid);
                 } else {
-                    let new_term = terms.app_from_slice(func, &result_stack[start..]);
+                    let new_term = terms.app_from_slice_unlocked(func, &result_stack[start..]);
                     result_stack.truncate(start);
                     result_stack.push(new_term);
                 }
@@ -544,32 +549,44 @@ pub fn apply_var_renaming(
                     result_stack.push(tid);
                     continue;
                 }
-                let guard = terms.read_lock();
-                match guard.get(tid) {
-                    Some(Term::Var(idx)) => {
-                        let idx_val = *idx;
-                        let idx_usize = idx_val as usize;
-                        drop(guard);
-                        if idx_usize < old_to_new.len() {
-                            if let Some(new_idx) = old_to_new[idx_usize] {
-                                result_stack.push(terms.var(new_idx));
-                                continue;
+                // Lock-free access via get_mut(). Extract the variable index
+                // (if Var) into a local before dropping the borrow, so that
+                // the subsequent var_unlocked call can take &mut terms.
+                let var_rename: Option<Option<u32>> = {
+                    let nodes = terms.nodes.get_mut();
+                    match nodes.get(tid.index()) {
+                        Some(Term::Var(idx)) => {
+                            let idx_usize = *idx as usize;
+                            if idx_usize < old_to_new.len() {
+                                Some(old_to_new[idx_usize])
+                            } else {
+                                Some(None) // no mapping, keep original
                             }
                         }
-                        result_stack.push(tid);
-                    }
-                    Some(Term::App(_, children)) if children.is_empty() => {
-                        result_stack.push(tid);
-                    }
-                    Some(Term::App(f, children)) => {
-                        let func = *f;
-                        let n = children.len();
-                        work_stack.push(Work::BuildApp(tid, func, n));
-                        for i in (0..n).rev() {
-                            work_stack.push(Work::Visit(children[i]));
+                        Some(Term::App(_, children)) if children.is_empty() => {
+                            result_stack.push(tid);
+                            None // already handled
+                        }
+                        Some(Term::App(f, children)) => {
+                            let func = *f;
+                            let n = children.len();
+                            work_stack.push(Work::BuildApp(tid, func, n));
+                            for i in (0..n).rev() {
+                                work_stack.push(Work::Visit(children[i]));
+                            }
+                            None // already handled
+                        }
+                        None => {
+                            result_stack.push(tid);
+                            None // already handled
                         }
                     }
-                    None => {
+                };
+                // Handle variable renaming outside the borrow scope.
+                if let Some(rename) = var_rename {
+                    if let Some(new_idx) = rename {
+                        result_stack.push(terms.var_unlocked(new_idx));
+                    } else {
                         result_stack.push(tid);
                     }
                 }

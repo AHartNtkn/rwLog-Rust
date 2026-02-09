@@ -128,6 +128,10 @@ pub fn apply_subst_shifted(
 /// resolution, and children of raw App nodes inherit raw-ness. Terms obtained
 /// from substitution bindings are in the shared namespace and traversed without
 /// shifting.
+///
+/// Uses lock-free access via `RwLock::get_mut()` since we have exclusive
+/// (`&mut`) access to the TermStore. This eliminates all lock acquire/release
+/// overhead in the traversal loop.
 fn apply_subst_core<const SHIFTED: bool>(
     term: TermId,
     subst: &Subst,
@@ -155,23 +159,26 @@ fn apply_subst_core<const SHIFTED: bool>(
                 let start = result_stack.len() - n;
                 // Check if any child actually changed from the original.
                 // If not, reuse the original TermId to skip hashcons lookup.
-                let guard = terms.read_lock();
-                let all_same = match guard.get(orig_tid) {
-                    Some(Term::App(_, orig_children)) => {
-                        orig_children.len() == n
-                            && orig_children
-                                .iter()
-                                .zip(&result_stack[start..])
-                                .all(|(a, b)| *a == *b)
+                // Scope the nodes borrow so app_from_slice_unlocked can
+                // borrow terms mutably if needed.
+                let all_same = {
+                    let nodes = terms.nodes.get_mut();
+                    match nodes.get(orig_tid.index()) {
+                        Some(Term::App(_, orig_children)) => {
+                            orig_children.len() == n
+                                && orig_children
+                                    .iter()
+                                    .zip(&result_stack[start..])
+                                    .all(|(a, b)| *a == *b)
+                        }
+                        _ => false,
                     }
-                    _ => false,
                 };
-                drop(guard);
                 if all_same {
                     result_stack.truncate(start);
                     result_stack.push(orig_tid);
                 } else {
-                    let new_term = terms.app_from_slice(func, &result_stack[start..]);
+                    let new_term = terms.app_from_slice_unlocked(func, &result_stack[start..]);
                     result_stack.truncate(start);
                     result_stack.push(new_term);
                 }
@@ -182,16 +189,19 @@ fn apply_subst_core<const SHIFTED: bool>(
                     continue;
                 }
 
-                let guard = terms.read_lock();
+                // Read the term using lock-free access. We copy all needed
+                // data out before any potential mutation (intern_unlocked).
+                let nodes = terms.nodes.get_mut();
 
-                match guard.get(tid) {
+                match nodes.get(tid.index()) {
                     Some(Term::Var(idx)) => {
+                        let idx_val = *idx;
                         // For raw vars: shift before substitution lookup.
                         // For non-raw vars: look up directly.
                         // `SHIFTED &&` gives the compiler a constant to fold:
                         // when SHIFTED=false, this is `false && raw` = false.
                         let start_tid = if SHIFTED && raw {
-                            let j = *idx as usize;
+                            let j = idx_val as usize;
                             debug_assert!(
                                 j < shifted_vars.len(),
                                 "var index {} exceeds shifted_vars length {}",
@@ -203,9 +213,9 @@ fn apply_subst_core<const SHIFTED: bool>(
                             tid
                         };
 
-                        let resolved = resolve_var_chain_locked(start_tid, subst, &guard);
+                        let resolved = resolve_var_chain_unlocked(start_tid, subst, nodes);
 
-                        match guard.get(resolved) {
+                        match nodes.get(resolved.index()) {
                             Some(Term::Var(_)) => {
                                 result_stack.push(resolved);
                             }
@@ -215,8 +225,8 @@ fn apply_subst_core<const SHIFTED: bool>(
                             Some(Term::App(f, children)) => {
                                 let func = *f;
                                 let n = children.len();
-                                // Terms from substitution bindings are in the
-                                // shared namespace (non-raw).
+                                // Copy children TermIds to work stack before
+                                // dropping the nodes reference.
                                 work_stack.push(Work::BuildApp(resolved, func, n));
                                 for i in (0..n).rev() {
                                     work_stack.push(Work::Visit(children[i], false));
@@ -252,17 +262,13 @@ fn apply_subst_core<const SHIFTED: bool>(
     result_stack.pop().unwrap()
 }
 
-/// Follow a chain of variable substitutions using a pre-acquired read lock.
+/// Follow a chain of variable substitutions using direct slice access.
 /// Returns the final term in the chain.
 ///
 /// Well-formed substitutions from matching do not contain cycles, so we use
 /// a simple depth limit rather than tracking visited nodes.
 #[inline]
-fn resolve_var_chain_locked(
-    start: TermId,
-    subst: &Subst,
-    guard: &crate::term::TermReadGuard<'_>,
-) -> TermId {
+fn resolve_var_chain_unlocked(start: TermId, subst: &Subst, nodes: &[Term]) -> TermId {
     let mut current = start;
     // Depth limit to handle malformed substitutions gracefully.
     // In practice, chains are very short (1-3 steps).
@@ -272,7 +278,7 @@ fn resolve_var_chain_locked(
         if depth >= max_depth {
             return current;
         }
-        match guard.get(current) {
+        match nodes.get(current.index()) {
             Some(Term::Var(idx)) => match subst.get(*idx) {
                 Some(bound) if bound != current => {
                     current = bound;

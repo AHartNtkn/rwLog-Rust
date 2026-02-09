@@ -66,7 +66,7 @@ const VAR_CACHE_SIZE: usize = 32;
 /// - All terms (including variables) are hashconsed
 pub struct TermStore {
     /// Central storage of all terms, indexed by TermId (using index() to strip ground bit).
-    nodes: RwLock<Vec<Term>>,
+    pub(crate) nodes: RwLock<Vec<Term>>,
     /// Sharded hashcons maps for reducing contention. Uses FxHash for speed.
     shards: [RwLock<HashMap<Term, TermId, FxBuildHasher>>; NUM_SHARDS],
     /// Counter for generating unique TermIds.
@@ -223,6 +223,75 @@ impl TermStore {
             Term::Var(_) => None,
             Term::App(f, children) => Some((*f, children.clone())),
         })
+    }
+
+    /// Get a term by index without locking. Requires exclusive (`&mut`) access.
+    ///
+    /// Uses `RwLock::get_mut()` which is lock-free because exclusive access
+    /// guarantees no other readers or writers exist.
+    #[inline]
+    pub fn get_unlocked(&mut self, id: TermId) -> Option<&Term> {
+        self.nodes.get_mut().get(id.index())
+    }
+
+    /// Intern a term without locking. Requires exclusive (`&mut`) access.
+    ///
+    /// Uses `RwLock::get_mut()` on both nodes and shard maps, bypassing
+    /// all lock acquire/release overhead.
+    pub fn intern_unlocked(&mut self, term: Term) -> TermId {
+        let shard_idx = Self::shard_index(&term);
+
+        // Fast path: check if term exists (no lock needed)
+        if let Some(&id) = self.shards[shard_idx].get_mut().get(&term) {
+            return id;
+        }
+
+        // Slow path: insert
+        let raw_index = self.next_id.fetch_add(1, Ordering::Relaxed);
+        debug_assert!(
+            raw_index & GROUND_BIT == 0,
+            "TermStore overflow: too many terms (>{} terms)",
+            INDEX_MASK
+        );
+        let nodes = self.nodes.get_mut();
+        let idx = raw_index as usize;
+        if nodes.len() <= idx {
+            nodes.resize(idx + 1, Term::Var(0));
+        }
+        nodes[idx] = term.clone();
+
+        let is_ground = match &term {
+            Term::Var(_) => false,
+            Term::App(_, children) => children.iter().all(|c| c.is_ground()),
+        };
+        let id = TermId(raw_index | if is_ground { GROUND_BIT } else { 0 });
+        self.shards[shard_idx].get_mut().insert(term, id);
+        id
+    }
+
+    /// Create an application term from a slice without locking.
+    /// Requires exclusive (`&mut`) access.
+    #[inline]
+    pub fn app_from_slice_unlocked(&mut self, func: FuncId, children: &[TermId]) -> TermId {
+        self.intern_unlocked(Term::App(func, SmallVec::from_slice(children)))
+    }
+
+    /// Create a variable term without locking. Requires exclusive (`&mut`) access.
+    /// Uses the var_cache for small indices.
+    #[inline]
+    pub fn var_unlocked(&mut self, index: u32) -> TermId {
+        let idx = index as usize;
+        if idx < VAR_CACHE_SIZE {
+            let cached = self.var_cache[idx].load(Ordering::Relaxed);
+            if cached != u32::MAX {
+                return TermId(cached);
+            }
+            let id = self.intern_unlocked(Term::Var(index));
+            self.var_cache[idx].store(id.0, Ordering::Relaxed);
+            id
+        } else {
+            self.intern_unlocked(Term::Var(index))
+        }
     }
 
     /// Get the shard index for a term (for hashconsing distribution).
