@@ -2,11 +2,32 @@ use crate::constraint::ConstraintOps;
 use crate::nf::NF;
 use crate::node::{step_node, Node, NodeStep};
 use crate::term::TermStore;
-use rustc_hash::FxHashSet;
 use std::collections::VecDeque;
 use std::sync::Arc;
 
 use super::{Work, WorkStep};
+
+/// A no-op hasher that passes through a pre-hashed u64 value.
+///
+/// Used with `FxHashSet<u64>` where the u64 keys are already well-distributed
+/// hash values (NF::hash_value()). Avoids double-hashing overhead.
+#[derive(Default)]
+struct IdentityHasher(u64);
+
+impl std::hash::Hasher for IdentityHasher {
+    fn finish(&self) -> u64 {
+        self.0
+    }
+    fn write(&mut self, _bytes: &[u8]) {
+        // Not used for u64 keys
+    }
+    fn write_u64(&mut self, i: u64) {
+        self.0 = i;
+    }
+}
+
+type IdentityBuildHasher = std::hash::BuildHasherDefault<IdentityHasher>;
+type U64HashSet = std::collections::HashSet<u64, IdentityBuildHasher>;
 
 /// Result of stepping a DiagonalJoin in-place (no allocation).
 pub(crate) enum DiagonalStepResult<C: ConstraintOps> {
@@ -73,10 +94,10 @@ pub(crate) struct DiagonalJoin<C: ConstraintOps, S: JoinStrategy<C> + Default> {
     pub(crate) right: Box<Node<C>>,
     pub(crate) seen_l: Vec<Arc<NF<C>>>,
     pub(crate) seen_r: Vec<Arc<NF<C>>>,
-    seen_l_set: FxHashSet<Arc<NF<C>>>,
-    seen_r_set: FxHashSet<Arc<NF<C>>>,
-    pending: VecDeque<Arc<NF<C>>>,
-    pending_set: FxHashSet<Arc<NF<C>>>,
+    seen_l_set: U64HashSet,
+    seen_r_set: U64HashSet,
+    pending: VecDeque<NF<C>>,
+    pending_set: U64HashSet,
     pub(crate) flip: bool,
     pub(crate) strategy: S,
 }
@@ -88,10 +109,10 @@ impl<C: ConstraintOps, S: JoinStrategy<C> + Default> DiagonalJoin<C, S> {
             right: Box::new(right),
             seen_l: Vec::new(),
             seen_r: Vec::new(),
-            seen_l_set: FxHashSet::default(),
-            seen_r_set: FxHashSet::default(),
+            seen_l_set: U64HashSet::default(),
+            seen_r_set: U64HashSet::default(),
             pending: VecDeque::new(),
-            pending_set: FxHashSet::default(),
+            pending_set: U64HashSet::default(),
             flip: false,
             strategy,
         }
@@ -105,18 +126,16 @@ impl<C: ConstraintOps, S: JoinStrategy<C> + Default> DiagonalJoin<C, S> {
     }
 
     pub(crate) fn push_pending(&mut self, nf: NF<C>) {
-        let arc = Arc::new(nf);
-        if self.pending_set.insert(Arc::clone(&arc)) {
-            self.pending.push_back(arc);
+        let hash = nf.hash_value();
+        if self.pending_set.insert(hash) {
+            self.pending.push_back(nf);
         }
     }
 
     pub(crate) fn pop_pending(&mut self) -> Option<NF<C>> {
-        let arc = self.pending.pop_front()?;
-        self.pending_set.remove(&*arc);
-        // After removing from pending_set, refcount should be 1 (only this arc).
-        // Try to unwrap; fall back to clone if somehow shared.
-        Some(Arc::try_unwrap(arc).unwrap_or_else(|arc| (*arc).clone()))
+        let nf = self.pending.pop_front()?;
+        self.pending_set.remove(&nf.hash_value());
+        Some(nf)
     }
 
     pub(crate) fn seen_l_len(&self) -> usize {
@@ -231,13 +250,14 @@ impl<C: ConstraintOps, S: JoinStrategy<C> + Default> DiagonalJoin<C, S> {
 
         match step_node(current, terms) {
             NodeStep::Emit(nf, rest) => {
-                let nf = Arc::new(*nf);
+                let nf_inner = *nf;
+                let hash = nf_inner.hash_value();
                 match side {
                     JoinSide::Left => {
                         *self.left = rest;
-                        if self.seen_l_set.insert(Arc::clone(&nf)) {
+                        if self.seen_l_set.insert(hash) {
                             let idx = self.seen_l.len();
-                            self.seen_l.push(nf);
+                            self.seen_l.push(Arc::new(nf_inner));
                             self.with_strategy_mut(|strategy, join| {
                                 strategy.on_new_left(join, idx, terms);
                             });
@@ -246,9 +266,9 @@ impl<C: ConstraintOps, S: JoinStrategy<C> + Default> DiagonalJoin<C, S> {
                     }
                     JoinSide::Right => {
                         *self.right = rest;
-                        if self.seen_r_set.insert(Arc::clone(&nf)) {
+                        if self.seen_r_set.insert(hash) {
                             let idx = self.seen_r.len();
-                            self.seen_r.push(nf);
+                            self.seen_r.push(Arc::new(nf_inner));
                             self.with_strategy_mut(|strategy, join| {
                                 strategy.on_new_right(join, idx, terms);
                             });
@@ -312,13 +332,14 @@ impl<C: ConstraintOps, S: JoinStrategy<C> + Default> DiagonalJoin<C, S> {
 
         match step_node(current, terms) {
             NodeStep::Emit(nf, rest) => {
-                let nf = Arc::new(*nf);
+                let nf_inner = *nf;
+                let hash = nf_inner.hash_value();
                 match side {
                     JoinSide::Left => {
                         *self.left = rest;
-                        if self.seen_l_set.insert(Arc::clone(&nf)) {
+                        if self.seen_l_set.insert(hash) {
                             let idx = self.seen_l.len();
-                            self.seen_l.push(nf);
+                            self.seen_l.push(Arc::new(nf_inner));
                             self.with_strategy_mut(|strategy, join| {
                                 strategy.on_new_left(join, idx, terms);
                             });
@@ -327,9 +348,9 @@ impl<C: ConstraintOps, S: JoinStrategy<C> + Default> DiagonalJoin<C, S> {
                     }
                     JoinSide::Right => {
                         *self.right = rest;
-                        if self.seen_r_set.insert(Arc::clone(&nf)) {
+                        if self.seen_r_set.insert(hash) {
                             let idx = self.seen_r.len();
-                            self.seen_r.push(nf);
+                            self.seen_r.push(Arc::new(nf_inner));
                             self.with_strategy_mut(|strategy, join| {
                                 strategy.on_new_right(join, idx, terms);
                             });

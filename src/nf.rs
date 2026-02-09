@@ -71,6 +71,14 @@ fn compute_nf_hash<C: Hash>(
 }
 
 impl<C: Hash> NF<C> {
+    /// Access the pre-computed hash value for this NF.
+    ///
+    /// This is the same value used by the `Hash` impl and is computed from
+    /// all content fields (match_pats, drop_fresh, build_pats).
+    pub fn hash_value(&self) -> u64 {
+        self.cached_hash
+    }
+
     /// Create a new NF directly (assumes already normalized).
     pub fn new(
         match_pats: SmallVec<[TermId; 1]>,
