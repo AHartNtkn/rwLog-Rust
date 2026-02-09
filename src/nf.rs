@@ -1,9 +1,11 @@
+use std::hash::{Hash, Hasher};
+use std::sync::Arc;
+
 use crate::constraint::{ConstraintDisplay, ConstraintOps};
 use crate::drop_fresh::DropFresh;
 use crate::symbol::SymbolStore;
 use crate::term::{format_term, Term, TermId, TermStore};
 use smallvec::SmallVec;
-use std::hash::{Hash, Hasher};
 
 /// Normal Form representation of a rewrite rule.
 ///
@@ -211,7 +213,7 @@ impl<C: ConstraintOps> NF<C> {
         let drop_fresh = DropFresh {
             in_arity: n,
             out_arity: m,
-            map: drop_fresh_map,
+            map: Arc::new(drop_fresh_map),
             constraint,
         };
 
@@ -310,7 +312,7 @@ pub fn factor_tensor<C: ConstraintOps>(
     let drop_fresh = DropFresh {
         in_arity: n,
         out_arity: m,
-        map: drop_fresh_map,
+        map: Arc::new(drop_fresh_map),
         constraint,
     };
 

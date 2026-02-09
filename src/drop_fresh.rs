@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use smallvec::SmallVec;
 
 /// A DropFresh represents a monotone partial injection between two arities.
@@ -15,6 +17,11 @@ use smallvec::SmallVec;
 /// - Input 0 maps to output 0
 /// - Input 1 is dropped
 /// - Input 2 maps to output 1
+///
+/// The map is Arc-wrapped so that cloning a DropFresh is O(1) (atomic ref
+/// count increment) rather than O(n) where n is the number of map entries.
+/// DropFresh values are created once and cloned many times through NF cloning,
+/// so this amortizes the Arc::new cost on construction.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct DropFresh<C> {
     /// Number of input positions.
@@ -23,7 +30,8 @@ pub struct DropFresh<C> {
     pub out_arity: u32,
     /// Monotone partial injection: (input_pos, output_pos) pairs.
     /// Must be strictly increasing in both coordinates.
-    pub map: SmallVec<[(u32, u32); 4]>,
+    /// Arc-wrapped for O(1) cloning.
+    pub map: Arc<SmallVec<[(u32, u32); 4]>>,
     /// Associated constraint.
     pub constraint: C,
 }
@@ -36,7 +44,7 @@ impl<C: Default> DropFresh<C> {
         Self {
             in_arity: arity,
             out_arity: arity,
-            map,
+            map: Arc::new(map),
             constraint: C::default(),
         }
     }
@@ -50,7 +58,7 @@ impl<C> DropFresh<C> {
         Self {
             in_arity: arity,
             out_arity: arity,
-            map,
+            map: Arc::new(map),
             constraint,
         }
     }
@@ -68,7 +76,7 @@ impl<C: Clone> DropFresh<C> {
         let drop_fresh = Self {
             in_arity,
             out_arity,
-            map,
+            map: Arc::new(map),
             constraint,
         };
         if drop_fresh.validate() {
@@ -84,7 +92,7 @@ impl<C: Clone> DropFresh<C> {
         Self {
             in_arity,
             out_arity,
-            map: SmallVec::new(),
+            map: Arc::new(SmallVec::new()),
             constraint,
         }
     }
@@ -134,7 +142,7 @@ impl<C: Clone> DropFresh<C> {
         Some(DropFresh {
             in_arity: self.in_arity,
             out_arity: other.out_arity,
-            map: result_map,
+            map: Arc::new(result_map),
             constraint: C::default(),
         })
     }
@@ -194,7 +202,7 @@ impl<C: Clone> DropFresh<C> {
         let mut prev_in = None;
         let mut prev_out = None;
 
-        for &(inp, out) in &self.map {
+        for &(inp, out) in self.map.iter() {
             // Check bounds
             if inp >= self.in_arity || out >= self.out_arity {
                 return false;
