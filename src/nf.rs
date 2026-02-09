@@ -1,4 +1,5 @@
 use std::hash::{Hash, Hasher};
+use std::ops::Deref;
 use std::sync::Arc;
 
 use crate::constraint::{ConstraintDisplay, ConstraintOps};
@@ -7,20 +8,9 @@ use crate::symbol::SymbolStore;
 use crate::term::{format_term, Term, TermId, TermStore};
 use smallvec::SmallVec;
 
-/// Normal Form representation of a rewrite rule.
-///
-/// A rule `Rw lhs rhs` is factored into:
-///   RwL [match_pats] ; DropFresh ; RwR [build_pats]
-///
-/// Where:
-/// - RwL (match_pats): patterns to decompose input, extracting variables
-/// - DropFresh: variable routing between LHS vars and RHS vars
-/// - RwR (build_pats): patterns to construct output from variables
-///
-/// The `cached_hash` field stores a pre-computed hash of all content fields
-/// so that HashSet operations avoid re-hashing the full NF content every time.
-#[derive(Debug, Clone)]
-pub struct NF<C> {
+/// Inner storage for NF fields, shared via Arc.
+#[derive(Debug)]
+pub struct NfInner<C> {
     /// Patterns for matching input terms (RwL).
     /// Variables in these patterns are numbered 0..n-1 in order of first appearance.
     pub match_pats: SmallVec<[TermId; 1]>,
@@ -34,18 +24,47 @@ pub struct NF<C> {
     cached_hash: u64,
 }
 
+/// Normal Form representation of a rewrite rule.
+///
+/// A rule `Rw lhs rhs` is factored into:
+///   RwL [match_pats] ; DropFresh ; RwR [build_pats]
+///
+/// Where:
+/// - RwL (match_pats): patterns to decompose input, extracting variables
+/// - DropFresh: variable routing between LHS vars and RHS vars
+/// - RwR (build_pats): patterns to construct output from variables
+///
+/// The inner fields are shared via Arc, making clone O(1) (atomic ref count bump)
+/// instead of copying ~48 bytes of data + 2 atomic bumps for DropFresh.
+/// Fields are accessible via Deref to NfInner.
+#[derive(Debug, Clone)]
+pub struct NF<C> {
+    inner: Arc<NfInner<C>>,
+}
+
+impl<C> Deref for NF<C> {
+    type Target = NfInner<C>;
+
+    #[inline(always)]
+    fn deref(&self) -> &NfInner<C> {
+        &self.inner
+    }
+}
+
 impl<C: Hash> Hash for NF<C> {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        self.cached_hash.hash(state);
+        self.inner.cached_hash.hash(state);
     }
 }
 
 impl<C: PartialEq> PartialEq for NF<C> {
     fn eq(&self, other: &Self) -> bool {
-        self.cached_hash == other.cached_hash
-            && self.match_pats == other.match_pats
-            && self.drop_fresh == other.drop_fresh
-            && self.build_pats == other.build_pats
+        // Fast path: same Arc pointer means identical
+        Arc::ptr_eq(&self.inner, &other.inner)
+            || (self.inner.cached_hash == other.inner.cached_hash
+                && self.inner.match_pats == other.inner.match_pats
+                && self.inner.drop_fresh == other.inner.drop_fresh
+                && self.inner.build_pats == other.inner.build_pats)
     }
 }
 
@@ -78,7 +97,7 @@ impl<C: Hash> NF<C> {
     /// This is the same value used by the `Hash` impl and is computed from
     /// all content fields (match_pats, drop_fresh, build_pats).
     pub fn hash_value(&self) -> u64 {
-        self.cached_hash
+        self.inner.cached_hash
     }
 
     /// Create a new NF directly (assumes already normalized).
@@ -89,10 +108,12 @@ impl<C: Hash> NF<C> {
     ) -> Self {
         let cached_hash = compute_nf_hash(&match_pats, &drop_fresh, &build_pats);
         Self {
-            match_pats,
-            drop_fresh,
-            build_pats,
-            cached_hash,
+            inner: Arc::new(NfInner {
+                match_pats,
+                drop_fresh,
+                build_pats,
+                cached_hash,
+            }),
         }
     }
 
@@ -106,10 +127,12 @@ impl<C: Hash> NF<C> {
         let build_pats = SmallVec::new();
         let cached_hash = compute_nf_hash(&match_pats, &drop_fresh, &build_pats);
         Self {
-            match_pats,
-            drop_fresh,
-            build_pats,
-            cached_hash,
+            inner: Arc::new(NfInner {
+                match_pats,
+                drop_fresh,
+                build_pats,
+                cached_hash,
+            }),
         }
     }
 
@@ -121,10 +144,11 @@ impl<C: Hash> NF<C> {
     /// from DropFresh metadata, avoiding term tree traversal.
     pub fn rwt_max_var(&self) -> Option<u32> {
         let num_fresh = self
+            .inner
             .drop_fresh
             .out_arity
-            .saturating_sub(self.drop_fresh.map.len() as u32);
-        let total = self.drop_fresh.in_arity + num_fresh;
+            .saturating_sub(self.inner.drop_fresh.map.len() as u32);
+        let total = self.inner.drop_fresh.in_arity + num_fresh;
         if total > 0 {
             Some(total - 1)
         } else {
