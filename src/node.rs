@@ -32,10 +32,13 @@ pub enum Node<C: ConstraintOps> {
 }
 
 /// Result of stepping a Node one notch.
+///
+/// NF is boxed in Emit to shrink NodeStep from ~152B to ~40B, reducing
+/// sret copy costs and step_node's stack frame size.
 #[derive(Clone, Debug)]
 pub enum NodeStep<C: ConstraintOps> {
     /// Produced an answer and the remaining node.
-    Emit(NF<C>, Node<C>),
+    Emit(Box<NF<C>>, Node<C>),
     /// No answer yet, but node updated (rotation or work progress).
     Continue(Node<C>),
     /// Exhausted - no more answers.
@@ -112,7 +115,7 @@ pub fn step_node<C: ConstraintOps>(node: Node<C>, terms: &mut TermStore) -> Node
     match node {
         Node::Fail => NodeStep::Exhausted,
 
-        Node::Emit(nf, rest) => NodeStep::Emit(*nf, *rest),
+        Node::Emit(nf, rest) => NodeStep::Emit(nf, *rest),
 
         Node::Or(left, right) => step_or(*left, *right, terms),
 
@@ -121,28 +124,30 @@ pub fn step_node<C: ConstraintOps>(node: Node<C>, terms: &mut TermStore) -> Node
             // This avoids take_self + alloc + free on every step.
             if let Work::Fix(ref mut fix) = *work {
                 return match fix.step_in_place(terms) {
-                    FixStepResult::Emit(nf) => NodeStep::Emit(nf, Node::Work(work)),
+                    FixStepResult::Emit(nf) => NodeStep::Emit(Box::new(nf), Node::Work(work)),
                     FixStepResult::More => NodeStep::Continue(Node::Work(work)),
                     FixStepResult::Done => NodeStep::Continue(Node::Fail),
                 };
             }
             if let Work::Compose(ref mut compose) = *work {
                 return match compose.step_in_place(terms) {
-                    DiagonalStepResult::Emit(nf) => NodeStep::Emit(nf, Node::Work(work)),
+                    DiagonalStepResult::Emit(nf) => NodeStep::Emit(Box::new(nf), Node::Work(work)),
                     DiagonalStepResult::More => NodeStep::Continue(Node::Work(work)),
                     DiagonalStepResult::Done => NodeStep::Continue(Node::Fail),
                 };
             }
             if let Work::Meet(ref mut meet) = *work {
                 return match meet.step_in_place(terms) {
-                    DiagonalStepResult::Emit(nf) => NodeStep::Emit(nf, Node::Work(work)),
+                    DiagonalStepResult::Emit(nf) => NodeStep::Emit(Box::new(nf), Node::Work(work)),
                     DiagonalStepResult::More => NodeStep::Continue(Node::Work(work)),
                     DiagonalStepResult::Done => NodeStep::Continue(Node::Fail),
                 };
             }
             match work.step(terms) {
                 WorkStep::Done => NodeStep::Continue(Node::Fail),
-                WorkStep::Emit(nf, next_work) => NodeStep::Emit(nf, Node::Work(next_work)),
+                WorkStep::Emit(nf, next_work) => {
+                    NodeStep::Emit(Box::new(nf), Node::Work(next_work))
+                }
                 WorkStep::Split(left_node, right_node) => {
                     NodeStep::Continue(Node::Or(left_node, right_node))
                 }

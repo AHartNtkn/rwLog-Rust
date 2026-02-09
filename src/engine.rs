@@ -73,7 +73,7 @@ impl<C: ConstraintOps> Engine<C> {
             NodeStep::Emit(nf, rest) => {
                 perf_counters::record_engine_emit();
                 self.root = rest;
-                StepResult::Emit(nf)
+                StepResult::Emit(*nf)
             }
             NodeStep::Continue(rest) => {
                 perf_counters::record_engine_continue();

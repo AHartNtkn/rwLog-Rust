@@ -238,7 +238,7 @@ impl<C: ConstraintOps, S: JoinStrategy<C> + Default> DiagonalJoin<C, S> {
 
         match step_node(current, terms) {
             NodeStep::Emit(nf, rest) => {
-                let nf = Arc::new(nf);
+                let nf = Arc::new(*nf);
                 match side {
                     JoinSide::Left => {
                         *self.left = rest;
@@ -319,7 +319,7 @@ impl<C: ConstraintOps, S: JoinStrategy<C> + Default> DiagonalJoin<C, S> {
 
         match step_node(current, terms) {
             NodeStep::Emit(nf, rest) => {
-                let nf = Arc::new(nf);
+                let nf = Arc::new(*nf);
                 match side {
                     JoinSide::Left => {
                         *self.left = rest;

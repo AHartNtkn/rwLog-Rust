@@ -378,7 +378,7 @@ pub fn step_table_producer<C: ConstraintOps>(
     let step = step_node(current, terms);
     match step {
         NodeStep::Emit(nf, rest) => {
-            let _ = table.add_answer(nf);
+            let _ = table.add_answer(*nf);
             table.set_producer_node(rest);
             ProducerStep::Progress
         }

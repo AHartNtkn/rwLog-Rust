@@ -108,6 +108,7 @@ impl<C: ConstraintOps> AndProducer<C> {
         let current = std::mem::replace(&mut self.node, Node::Fail);
         match step_node(current, terms) {
             NodeStep::Emit(nf, rest) => {
+                let nf = *nf;
                 self.node = rest;
                 let Some(sender) = self.sender.as_ref() else {
                     self.done = true;
