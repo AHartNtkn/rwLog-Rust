@@ -3,7 +3,6 @@ use crate::nf::NF;
 use crate::node::{step_node, Node, NodeStep};
 use crate::term::TermStore;
 use std::collections::VecDeque;
-use std::sync::Arc;
 
 use super::{Work, WorkStep};
 
@@ -92,8 +91,8 @@ enum JoinSide {
 pub(crate) struct DiagonalJoin<C: ConstraintOps, S: JoinStrategy<C> + Default> {
     pub(crate) left: Box<Node<C>>,
     pub(crate) right: Box<Node<C>>,
-    pub(crate) seen_l: Vec<Arc<NF<C>>>,
-    pub(crate) seen_r: Vec<Arc<NF<C>>>,
+    pub(crate) seen_l: Vec<NF<C>>,
+    pub(crate) seen_r: Vec<NF<C>>,
     seen_l_set: U64HashSet,
     seen_r_set: U64HashSet,
     pending: VecDeque<NF<C>>,
@@ -250,14 +249,14 @@ impl<C: ConstraintOps, S: JoinStrategy<C> + Default> DiagonalJoin<C, S> {
 
         match step_node(current, terms) {
             NodeStep::Emit(nf, rest) => {
-                let nf_inner = *nf;
-                let hash = nf_inner.hash_value();
+                let nf_val = *nf;
+                let hash = nf_val.hash_value();
                 match side {
                     JoinSide::Left => {
                         *self.left = rest;
                         if self.seen_l_set.insert(hash) {
                             let idx = self.seen_l.len();
-                            self.seen_l.push(Arc::new(nf_inner));
+                            self.seen_l.push(nf_val);
                             self.with_strategy_mut(|strategy, join| {
                                 strategy.on_new_left(join, idx, terms);
                             });
@@ -268,7 +267,7 @@ impl<C: ConstraintOps, S: JoinStrategy<C> + Default> DiagonalJoin<C, S> {
                         *self.right = rest;
                         if self.seen_r_set.insert(hash) {
                             let idx = self.seen_r.len();
-                            self.seen_r.push(Arc::new(nf_inner));
+                            self.seen_r.push(nf_val);
                             self.with_strategy_mut(|strategy, join| {
                                 strategy.on_new_right(join, idx, terms);
                             });
@@ -332,14 +331,14 @@ impl<C: ConstraintOps, S: JoinStrategy<C> + Default> DiagonalJoin<C, S> {
 
         match step_node(current, terms) {
             NodeStep::Emit(nf, rest) => {
-                let nf_inner = *nf;
-                let hash = nf_inner.hash_value();
+                let nf_val = *nf;
+                let hash = nf_val.hash_value();
                 match side {
                     JoinSide::Left => {
                         *self.left = rest;
                         if self.seen_l_set.insert(hash) {
                             let idx = self.seen_l.len();
-                            self.seen_l.push(Arc::new(nf_inner));
+                            self.seen_l.push(nf_val);
                             self.with_strategy_mut(|strategy, join| {
                                 strategy.on_new_left(join, idx, terms);
                             });
@@ -350,7 +349,7 @@ impl<C: ConstraintOps, S: JoinStrategy<C> + Default> DiagonalJoin<C, S> {
                         *self.right = rest;
                         if self.seen_r_set.insert(hash) {
                             let idx = self.seen_r.len();
-                            self.seen_r.push(Arc::new(nf_inner));
+                            self.seen_r.push(nf_val);
                             self.with_strategy_mut(|strategy, join| {
                                 strategy.on_new_right(join, idx, terms);
                             });
