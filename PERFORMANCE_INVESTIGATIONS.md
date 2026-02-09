@@ -48,7 +48,7 @@ Each item is an investigation area, not a guaranteed improvement.
 ### Matching and Unification-Equivalent Core (Matching-Only Semantics)
 
 1. Replace generic term matching with opcode-specialized match programs compiled per pattern shape.
-2. Introduce constructor-indexed dispatch tables to avoid repeated top-symbol checks.
+2. Introduce constructor-indexed dispatch tables to avoid repeated top-symbol checks. **Partially investigated — top-constructor prefilter DISCARDED.** See [docs/perf_investigations/compiled_match_prefilter.md](docs/perf_investigations/compiled_match_prefilter.md). Top-level constructor mismatch check in compose_nf was implemented but showed no improvement on the primary workload (U=43/100). The even/odd benchmark has too few constructors for shape-based rejection to help. Full compiled match programs remain uninvestigated.
 3. Precompute variable occurrence maps for each pattern to speed repeated-variable constraints.
 4. Explore union-find-like equivalence structures for intra-side variable equalities during matching.
 5. Add fast-paths for linear patterns (no repeated variables) separate from nonlinear patterns.
@@ -204,6 +204,7 @@ Each item is an investigation area, not a guaranteed improvement.
 11. ~~FixWork in-place stepping.~~ **Implemented — ~20% improvement.** See [docs/perf_investigations/fixwork_inplace_stepping.md](docs/perf_investigations/fixwork_inplace_stepping.md). Eliminated 216K clone+alloc+free cycles per 64 answers. Cumulative 2.14× speedup on critical workload (105ms → 49ms across all optimizations).
 12. ~~step_node inline control.~~ **Implemented — ~16% improvement.** See [docs/perf_investigations/step_node_inline_control.md](docs/perf_investigations/step_node_inline_control.md). Added `#[inline(never)]` to cold paths (step_or, ComposeWork/MeetWork::step_in_place), freeing compiler inlining budget for hot FixWork path. A/B tested: 30.1ms → 25.5ms with non-overlapping ranges. Cumulative 4.12× speedup (105ms → 25.5ms).
 13. ~~Memcpy/struct size reduction (thin ChrState).~~ **Implemented — ~8% improvement.** See [docs/perf_investigations/memcpy_struct_size_reduction.md](docs/perf_investigations/memcpy_struct_size_reduction.md). Restructured ChrState from 128B to 16B via `Option<Box<ChrStateData>>`. Cascaded: NF 224→112B, NodeStep 456→240B, Node 232→128B. Memcpy dropped from 21% to <0.5%. step_node frame halved (2792→1384B). Boxing individual fields was tried first and REGRESSED 22% due to pointer chasing replacing L1-hot stack reloads. Cumulative ~4.6× speedup (105ms → 22.6ms).
+14. ~~Eager compose pair processing.~~ **Implemented — ~50% improvement.** See [docs/perf_investigations/eager_compose_pairs.md](docs/perf_investigations/eager_compose_pairs.md). Replaced cursor-based one-pair-per-step compose processing with eager batch processing in `on_new_left`/`on_new_right`. Engine steps reduced from 4793 to 697 (85% reduction). `recursive_even_backward_first64` from ~13.9ms to ~7.0ms. Secondary (treecalc) also improved ~32%. Cumulative ~15× speedup (105ms → 7.0ms).
 
 ## Suggested Experiment Template
 
