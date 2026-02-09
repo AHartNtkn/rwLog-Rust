@@ -1,13 +1,12 @@
 use crate::constraint::ConstraintOps;
-use crate::nf::{collect_tensor, factor_tensor, NF};
+use crate::nf::{collect_tensor, factor_tensor_with_subst, SubstParams, NF};
 use crate::perf_counters;
 use crate::term::{Term, TermStore};
 #[cfg(feature = "tracing")]
 use crate::trace::{debug_span, trace};
 
 use super::util::{
-    apply_subst_list, apply_subst_shifted_list, match_term_lists_shifted, max_var_index_terms,
-    pre_create_shifted_vars, remap_constraint_vars,
+    match_term_lists_shifted, max_var_index_terms, pre_create_shifted_vars, remap_constraint_vars,
 };
 
 /// Compose two NFs in sequence: a ; b
@@ -124,10 +123,6 @@ fn compose_nf_impl<C: ConstraintOps>(a: &NF<C>, b: &NF<C>, terms: &mut TermStore
             }
         };
 
-    let mut new_match = apply_subst_list(&rw1.lhs, &subst_left, terms);
-    let mut new_build =
-        apply_subst_shifted_list(&rw2.rhs, &subst_right, b_var_offset, &shifted_vars, terms);
-
     let b_constraint =
         remap_constraint_vars(&b.drop_fresh.constraint, b_max_var, b_var_offset, terms);
 
@@ -151,12 +146,33 @@ fn compose_nf_impl<C: ConstraintOps>(a: &NF<C>, b: &NF<C>, terms: &mut TermStore
             return None;
         }
     };
-    if let Some(subst) = subst_opt {
-        new_match = apply_subst_list(&new_match, &subst, terms);
-        new_build = apply_subst_list(&new_build, &subst, terms);
-    }
 
-    Some(factor_tensor(new_match, new_build, normalized, terms))
+    // Use fused factor_tensor_with_subst to avoid creating intermediate
+    // substituted terms. The original patterns (rw1.lhs, rw2.rhs) are passed
+    // directly along with the substitutions, and factor_tensor_with_subst
+    // resolves variables through the substitutions during its collect+renumber
+    // passes, eliminating the need for apply_subst_list + apply_subst_shifted_list.
+    let rhs_shifted = b_var_offset > 0 && !shifted_vars.is_empty();
+    let lhs_params = SubstParams {
+        subst: &subst_left,
+        subst2: subst_opt.as_ref(),
+        shifted: false,
+        shifted_vars: &[],
+    };
+    let rhs_params = SubstParams {
+        subst: &subst_right,
+        subst2: subst_opt.as_ref(),
+        shifted: rhs_shifted,
+        shifted_vars: &shifted_vars,
+    };
+    Some(factor_tensor_with_subst(
+        &rw1.lhs,
+        &lhs_params,
+        &rw2.rhs,
+        &rhs_params,
+        normalized,
+        terms,
+    ))
 }
 
 #[cfg(test)]

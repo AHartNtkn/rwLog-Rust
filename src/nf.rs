@@ -797,6 +797,550 @@ fn renumber_vars_list(
     (result_terms, vars)
 }
 
+/// Fused apply_subst + renumber_vars_list: walks original patterns, resolves
+/// variables through one or two substitutions (optionally with virtual shifting),
+/// discovers variable indices, and renumbers them to consecutive indices starting
+/// at 0. Returns (renumbered_terms, discovered_vars).
+///
+/// This eliminates intermediate term creation by never materializing the
+/// substituted-but-not-yet-renumbered terms.
+///
+/// When `shifted` is true, the initial term variables are virtually shifted
+/// via `shifted_vars` before substitution lookup (like `apply_subst_shifted`).
+/// `subst2` is an optional secondary substitution applied after `subst1`.
+fn renumber_vars_through_subst_list(
+    terms_list: &[TermId],
+    subst1: &crate::subst::Subst,
+    subst2: Option<&crate::subst::Subst>,
+    shifted: bool,
+    shifted_vars: &[TermId],
+    terms: &mut TermStore,
+) -> (SmallVec<[TermId; 1]>, Vec<u32>) {
+    use crate::subst::resolve_var_chain_unlocked;
+    use crate::symbol::FuncId;
+
+    let mut var_map: Vec<Option<u32>> = Vec::new();
+    let mut vars: Vec<u32> = Vec::new();
+    let mut next_var: u32 = 0;
+
+    enum Work {
+        /// Visit a term. The bool indicates whether variables are "raw" (need shifting).
+        Visit(TermId, bool),
+        BuildApp(FuncId, usize),
+    }
+
+    /// Result of resolving a variable through substitution(s).
+    enum VarResolution {
+        /// Resolved to a final variable index that needs renumbering.
+        FinalVar(u32),
+        /// Resolved to a ground or nullary-app term (push directly).
+        Leaf(TermId),
+        /// Resolved to a compound app term (needs further traversal).
+        App(TermId, FuncId, SmallVec<[TermId; 8]>),
+    }
+
+    let mut work_stack: SmallVec<[Work; 16]> = SmallVec::new();
+    let mut result_stack: SmallVec<[TermId; 16]> = SmallVec::new();
+    let mut result_terms: SmallVec<[TermId; 1]> = SmallVec::new();
+
+    for &term in terms_list {
+        if term.is_ground() {
+            result_terms.push(term);
+            continue;
+        }
+
+        work_stack.clear();
+        result_stack.clear();
+        work_stack.push(Work::Visit(term, shifted));
+
+        while let Some(item) = work_stack.pop() {
+            match item {
+                Work::BuildApp(func, n) => {
+                    let start = result_stack.len() - n;
+                    let new_term = terms.app_from_slice_unlocked(func, &result_stack[start..]);
+                    result_stack.truncate(start);
+                    result_stack.push(new_term);
+                }
+                Work::Visit(tid, raw) => {
+                    if tid.is_ground() {
+                        result_stack.push(tid);
+                        continue;
+                    }
+
+                    // Extract all needed info within a scoped borrow of nodes.
+                    let action = {
+                        let nodes = terms.nodes.get_mut();
+                        match nodes.get(tid.index()) {
+                            Some(Term::Var(idx)) => {
+                                let idx_val = *idx;
+                                let start_tid = if raw {
+                                    let j = idx_val as usize;
+                                    debug_assert!(j < shifted_vars.len());
+                                    shifted_vars[j]
+                                } else {
+                                    tid
+                                };
+                                let mut resolved =
+                                    resolve_var_chain_unlocked(start_tid, subst1, nodes);
+                                if let Some(s2) = subst2 {
+                                    resolved = resolve_var_chain_unlocked(resolved, s2, nodes);
+                                }
+
+                                match nodes.get(resolved.index()) {
+                                    Some(Term::Var(final_idx)) => {
+                                        VarResolution::FinalVar(*final_idx)
+                                    }
+                                    Some(Term::App(_, children)) if children.is_empty() => {
+                                        VarResolution::Leaf(resolved)
+                                    }
+                                    Some(Term::App(f, children)) => {
+                                        let func = *f;
+                                        let child_ids: SmallVec<[TermId; 8]> =
+                                            children.iter().copied().collect();
+                                        VarResolution::App(resolved, func, child_ids)
+                                    }
+                                    None => VarResolution::Leaf(resolved),
+                                }
+                            }
+                            Some(Term::App(_, children)) if children.is_empty() => {
+                                result_stack.push(tid);
+                                continue;
+                            }
+                            Some(Term::App(f, children)) => {
+                                let func = *f;
+                                let n = children.len();
+                                work_stack.push(Work::BuildApp(func, n));
+                                for i in (0..n).rev() {
+                                    work_stack.push(Work::Visit(children[i], raw));
+                                }
+                                continue;
+                            }
+                            None => {
+                                result_stack.push(tid);
+                                continue;
+                            }
+                        }
+                    };
+                    // Now process the var resolution outside the borrow scope.
+                    match action {
+                        VarResolution::FinalVar(old_idx) => {
+                            let old_usize = old_idx as usize;
+                            if old_usize >= var_map.len() {
+                                var_map.resize(old_usize + 1, None);
+                            }
+                            let new_idx = match var_map[old_usize] {
+                                Some(already) => already,
+                                None => {
+                                    let assigned = next_var;
+                                    next_var += 1;
+                                    var_map[old_usize] = Some(assigned);
+                                    vars.push(old_idx);
+                                    assigned
+                                }
+                            };
+                            result_stack.push(terms.var_unlocked(new_idx));
+                        }
+                        VarResolution::Leaf(tid) => {
+                            result_stack.push(tid);
+                        }
+                        VarResolution::App(_resolved, func, child_ids) => {
+                            let n = child_ids.len();
+                            work_stack.push(Work::BuildApp(func, n));
+                            for i in (0..n).rev() {
+                                work_stack.push(Work::Visit(child_ids[i], false));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        debug_assert_eq!(result_stack.len(), 1);
+        result_terms.push(result_stack.pop().unwrap());
+    }
+
+    (result_terms, vars)
+}
+
+/// Collect variables from a list of terms by walking through one or two substitutions
+/// (optionally with virtual shifting). Does NOT create any new terms in the TermStore.
+///
+/// This replaces apply_subst(_shifted)_list + collect_vars_ordered_list with a single
+/// read-only traversal that discovers variable indices without materializing terms.
+fn collect_vars_through_subst_list(
+    terms_list: &[TermId],
+    subst1: &crate::subst::Subst,
+    subst2: Option<&crate::subst::Subst>,
+    shifted: bool,
+    shifted_vars: &[TermId],
+    terms: &TermStore,
+) -> Vec<u32> {
+    use crate::subst::resolve_var_chain_unlocked;
+
+    let nodes = terms.nodes.read();
+    let mut vars = Vec::new();
+    let mut seen_bits: u64 = 0;
+    let mut seen_large: std::collections::HashSet<u32> = std::collections::HashSet::new();
+
+    // Stack entries: (TermId, is_raw)
+    let mut stack: SmallVec<[(TermId, bool); 16]> = SmallVec::new();
+
+    for &term in terms_list {
+        if term.is_ground() {
+            continue;
+        }
+        stack.clear();
+        stack.push((term, shifted));
+
+        while let Some((tid, raw)) = stack.pop() {
+            if tid.is_ground() {
+                continue;
+            }
+            match nodes.get(tid.index()) {
+                Some(Term::Var(idx)) => {
+                    let idx_val = *idx;
+                    let start_tid = if raw {
+                        let j = idx_val as usize;
+                        debug_assert!(j < shifted_vars.len());
+                        shifted_vars[j]
+                    } else {
+                        tid
+                    };
+                    let mut resolved = resolve_var_chain_unlocked(start_tid, subst1, &nodes);
+                    if let Some(s2) = subst2 {
+                        resolved = resolve_var_chain_unlocked(resolved, s2, &nodes);
+                    }
+
+                    match nodes.get(resolved.index()) {
+                        Some(Term::Var(final_idx)) => {
+                            let v = *final_idx;
+                            if v < 64 {
+                                let bit = 1u64 << v;
+                                if seen_bits & bit == 0 {
+                                    seen_bits |= bit;
+                                    vars.push(v);
+                                }
+                            } else if seen_large.insert(v) {
+                                vars.push(v);
+                            }
+                        }
+                        Some(Term::App(_, children)) => {
+                            for child in children.iter().rev() {
+                                // Resolved terms from subst are never raw
+                                stack.push((*child, false));
+                            }
+                        }
+                        None => {}
+                    }
+                }
+                Some(Term::App(_, children)) => {
+                    for child in children.iter().rev() {
+                        stack.push((*child, raw));
+                    }
+                }
+                None => {}
+            }
+        }
+    }
+
+    vars
+}
+
+/// Bundled substitution parameters for fused factor operations.
+/// Groups a primary substitution, optional secondary substitution, and optional
+/// virtual shifting info to keep function signatures manageable.
+pub struct SubstParams<'a> {
+    /// Primary substitution.
+    pub subst: &'a crate::subst::Subst,
+    /// Optional secondary substitution (e.g., from constraint normalization).
+    pub subst2: Option<&'a crate::subst::Subst>,
+    /// Whether variables need virtual shifting before substitution lookup.
+    pub shifted: bool,
+    /// Pre-created shifted variable TermIds (only used when shifted=true).
+    pub shifted_vars: &'a [TermId],
+}
+
+/// Factor a tensor rewrite into NF using pre-computed substitutions instead of
+/// pre-substituted patterns. This eliminates intermediate term creation by
+/// resolving substitutions during the collect-vars and renumber passes.
+pub fn factor_tensor_with_subst<C: ConstraintOps>(
+    lhs_pats: &[TermId],
+    lhs_params: &SubstParams<'_>,
+    rhs_pats: &[TermId],
+    rhs_params: &SubstParams<'_>,
+    constraint: C,
+    terms: &mut TermStore,
+) -> NF<C> {
+    // Step 1: Fused apply_subst + renumber on LHS (single traversal).
+    // LHS is never shifted (lhs_params.shifted should be false).
+    let (norm_lhs, lhs_vars) = renumber_vars_through_subst_list(
+        lhs_pats,
+        lhs_params.subst,
+        lhs_params.subst2,
+        lhs_params.shifted,
+        lhs_params.shifted_vars,
+        terms,
+    );
+
+    // Step 2: Collect RHS variables through substitution (read-only, no term creation).
+    let rhs_vars = collect_vars_through_subst_list(
+        rhs_pats,
+        rhs_params.subst,
+        rhs_params.subst2,
+        rhs_params.shifted,
+        rhs_params.shifted_vars,
+        terms,
+    );
+
+    let n = lhs_vars.len() as u32;
+
+    // Step 3: Build membership bitsets for O(1) lookups.
+    let mut lhs_bits: u64 = 0;
+    let mut lhs_has_large = false;
+    for &var in lhs_vars.iter() {
+        if var < 64 {
+            lhs_bits |= 1u64 << var;
+        } else {
+            lhs_has_large = true;
+        }
+    }
+    let mut rhs_bits: u64 = 0;
+    let mut rhs_has_large = false;
+    for &var in rhs_vars.iter() {
+        if var < 64 {
+            rhs_bits |= 1u64 << var;
+        } else {
+            rhs_has_large = true;
+        }
+    }
+
+    let lhs_contains = |var: u32| -> bool {
+        if var < 64 {
+            lhs_bits & (1u64 << var) != 0
+        } else if lhs_has_large {
+            lhs_vars.contains(&var)
+        } else {
+            false
+        }
+    };
+    let rhs_contains = |var: u32| -> bool {
+        if var < 64 {
+            rhs_bits & (1u64 << var) != 0
+        } else if rhs_has_large {
+            rhs_vars.contains(&var)
+        } else {
+            false
+        }
+    };
+
+    // Step 4: Build RHS variable ordering: shared vars in LHS order, then RHS-only vars.
+    let mut rhs_ordered: Vec<u32> = Vec::new();
+    for &var in lhs_vars.iter() {
+        if rhs_contains(var) {
+            rhs_ordered.push(var);
+        }
+    }
+    for &var in rhs_vars.iter() {
+        if !lhs_contains(var) {
+            rhs_ordered.push(var);
+        }
+    }
+
+    let m = rhs_ordered.len() as u32;
+    let rhs_old_to_new = build_var_map(&rhs_ordered);
+
+    // Step 5: Compute constraint renaming.
+    let constraint = if !constraint.is_empty() {
+        let mut constraint_vars = Vec::new();
+        constraint.collect_vars(terms, &mut constraint_vars);
+        constraint_vars.sort_unstable();
+        constraint_vars.dedup();
+        let constraint_map =
+            combined_var_renaming_with_extra(&lhs_vars, &rhs_vars, &constraint_vars);
+        constraint.remap_vars(&constraint_map, terms)
+    } else {
+        constraint
+    };
+
+    // Step 6: Apply subst + renumber on RHS in a single traversal.
+    // We always apply the substitution even when rhs_ordered is empty because
+    // variables may have been bound to ground terms by the substitution.
+    let norm_rhs = apply_subst_and_renumber_list(
+        rhs_pats,
+        rhs_params.subst,
+        rhs_params.subst2,
+        rhs_params.shifted,
+        rhs_params.shifted_vars,
+        &rhs_old_to_new,
+        terms,
+    );
+
+    // Step 7: Build DropFresh map.
+    let mut drop_fresh_map: SmallVec<[(u32, u32); 4]> = SmallVec::new();
+    for (i, &lhs_orig_var) in lhs_vars.iter().enumerate() {
+        let idx = lhs_orig_var as usize;
+        if idx < rhs_old_to_new.len() {
+            if let Some(j) = rhs_old_to_new[idx] {
+                drop_fresh_map.push((i as u32, j));
+            }
+        }
+    }
+
+    let drop_fresh = DropFresh {
+        in_arity: n,
+        out_arity: m,
+        map: drop_fresh_map,
+        constraint,
+    };
+
+    NF::new(norm_lhs, drop_fresh, norm_rhs)
+}
+
+/// Fused apply_subst + apply_var_renaming: walks original patterns, resolves
+/// variables through substitution(s), then applies a renaming map to final
+/// variable indices. Produces renumbered output terms in a single traversal.
+fn apply_subst_and_renumber_list(
+    terms_list: &[TermId],
+    subst1: &crate::subst::Subst,
+    subst2: Option<&crate::subst::Subst>,
+    shifted: bool,
+    shifted_vars: &[TermId],
+    renaming: &[Option<u32>],
+    terms: &mut TermStore,
+) -> SmallVec<[TermId; 1]> {
+    use crate::subst::resolve_var_chain_unlocked;
+    use crate::symbol::FuncId;
+
+    enum Work {
+        Visit(TermId, bool),
+        BuildApp(FuncId, usize),
+    }
+
+    /// Result of resolving a variable through substitution(s) + renaming.
+    enum VarResolution {
+        /// Resolved to a renamed variable index.
+        RenamedVar(u32),
+        /// Resolved to a ground or nullary-app term.
+        Leaf(TermId),
+        /// Resolved to a compound app term.
+        App(FuncId, SmallVec<[TermId; 8]>),
+    }
+
+    let mut work_stack: SmallVec<[Work; 16]> = SmallVec::new();
+    let mut result_stack: SmallVec<[TermId; 16]> = SmallVec::new();
+    let mut result_terms: SmallVec<[TermId; 1]> = SmallVec::new();
+
+    for &term in terms_list {
+        if term.is_ground() {
+            result_terms.push(term);
+            continue;
+        }
+
+        work_stack.clear();
+        result_stack.clear();
+        work_stack.push(Work::Visit(term, shifted));
+
+        while let Some(item) = work_stack.pop() {
+            match item {
+                Work::BuildApp(func, n) => {
+                    let start = result_stack.len() - n;
+                    let new_term = terms.app_from_slice_unlocked(func, &result_stack[start..]);
+                    result_stack.truncate(start);
+                    result_stack.push(new_term);
+                }
+                Work::Visit(tid, raw) => {
+                    if tid.is_ground() {
+                        result_stack.push(tid);
+                        continue;
+                    }
+
+                    // Extract resolution info within scoped borrow.
+                    let action = {
+                        let nodes = terms.nodes.get_mut();
+                        match nodes.get(tid.index()) {
+                            Some(Term::Var(idx)) => {
+                                let idx_val = *idx;
+                                let start_tid = if raw {
+                                    let j = idx_val as usize;
+                                    debug_assert!(j < shifted_vars.len());
+                                    shifted_vars[j]
+                                } else {
+                                    tid
+                                };
+                                let mut resolved =
+                                    resolve_var_chain_unlocked(start_tid, subst1, nodes);
+                                if let Some(s2) = subst2 {
+                                    resolved = resolve_var_chain_unlocked(resolved, s2, nodes);
+                                }
+
+                                match nodes.get(resolved.index()) {
+                                    Some(Term::Var(final_idx)) => {
+                                        let old_idx = *final_idx as usize;
+                                        let new_idx = if old_idx < renaming.len() {
+                                            renaming[old_idx].unwrap_or(*final_idx)
+                                        } else {
+                                            *final_idx
+                                        };
+                                        VarResolution::RenamedVar(new_idx)
+                                    }
+                                    Some(Term::App(_, children)) if children.is_empty() => {
+                                        VarResolution::Leaf(resolved)
+                                    }
+                                    Some(Term::App(f, children)) => {
+                                        let func = *f;
+                                        let child_ids: SmallVec<[TermId; 8]> =
+                                            children.iter().copied().collect();
+                                        VarResolution::App(func, child_ids)
+                                    }
+                                    None => VarResolution::Leaf(resolved),
+                                }
+                            }
+                            Some(Term::App(_, children)) if children.is_empty() => {
+                                result_stack.push(tid);
+                                continue;
+                            }
+                            Some(Term::App(f, children)) => {
+                                let func = *f;
+                                let n = children.len();
+                                work_stack.push(Work::BuildApp(func, n));
+                                for i in (0..n).rev() {
+                                    work_stack.push(Work::Visit(children[i], raw));
+                                }
+                                continue;
+                            }
+                            None => {
+                                result_stack.push(tid);
+                                continue;
+                            }
+                        }
+                    };
+                    // Process var resolution outside the borrow scope.
+                    match action {
+                        VarResolution::RenamedVar(new_idx) => {
+                            result_stack.push(terms.var_unlocked(new_idx));
+                        }
+                        VarResolution::Leaf(tid) => {
+                            result_stack.push(tid);
+                        }
+                        VarResolution::App(func, child_ids) => {
+                            let n = child_ids.len();
+                            work_stack.push(Work::BuildApp(func, n));
+                            for i in (0..n).rev() {
+                                work_stack.push(Work::Visit(child_ids[i], false));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        debug_assert_eq!(result_stack.len(), 1);
+        result_terms.push(result_stack.pop().unwrap());
+    }
+
+    result_terms
+}
+
 /// Renumber variables according to a given mapping.
 /// The mapping maps old variable index to new variable index.
 ///
