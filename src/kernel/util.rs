@@ -2,7 +2,7 @@
 //!
 //! This module contains helper functions used by both compose and meet operations.
 
-use crate::matching::match_terms_combined;
+use crate::matching::{match_terms_combined, match_terms_combined_shifted};
 use crate::nf::collect_vars_ordered;
 use crate::subst::{apply_subst, apply_subst_shifted, Subst};
 use crate::term::{TermId, TermStore};
@@ -89,10 +89,19 @@ pub fn match_term_lists_shifted(
 
     let mut subst = Subst::new();
     for (&l, &r) in left.iter().zip(right.iter()) {
-        let l_sub = apply_subst(l, &subst, terms);
-        let r_sub = apply_subst_shifted(r, &subst, right_offset, shifted_vars, terms);
-        let match_subst = match_terms_combined(l_sub, r_sub, terms)?;
-        subst = compose_subst(&subst, &match_subst, terms);
+        if subst.is_empty() && !shifted_vars.is_empty() {
+            // Fast path: subst is empty, so apply_subst(l, &empty) == l.
+            // Instead of walking the right tree to shift variables via
+            // apply_subst_shifted, use offset-aware matching that handles
+            // the variable offset internally during traversal.
+            let match_subst = match_terms_combined_shifted(l, r, shifted_vars, terms)?;
+            subst = match_subst;
+        } else {
+            let l_sub = apply_subst(l, &subst, terms);
+            let r_sub = apply_subst_shifted(r, &subst, right_offset, shifted_vars, terms);
+            let match_subst = match_terms_combined(l_sub, r_sub, terms)?;
+            subst = compose_subst(&subst, &match_subst, terms);
+        }
     }
     Some(crate::matching::split_match_subst(
         &subst,

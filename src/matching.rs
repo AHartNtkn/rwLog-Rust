@@ -108,6 +108,160 @@ pub(crate) fn match_terms_combined(t1: TermId, t2: TermId, terms: &TermStore) ->
     Some(subst)
 }
 
+/// Match two terms where the right-side (`t2`) variables are virtually shifted.
+///
+/// `shifted_vars[j]` must be the TermId for `Var(j + offset)` for every variable
+/// index `j` that appears in `t2`. These are pre-created by the caller.
+///
+/// This function avoids the full tree walk that `apply_subst_shifted` would
+/// perform to produce a shifted copy of `t2`. Instead, it traverses `t2`
+/// directly, shifting variables on-the-fly using `shifted_vars`. For App
+/// nodes, children that contain variables are shifted lazily only when needed
+/// (i.e., when a left-side variable would be bound to a right-side subtree).
+///
+/// Requires `&mut TermStore` because materializing shifted App subtrees may
+/// need to intern new terms.
+///
+/// When `shifted_vars` is empty, behaves identically to `match_terms_combined`.
+pub(crate) fn match_terms_combined_shifted(
+    t1: TermId,
+    t2: TermId,
+    shifted_vars: &[TermId],
+    terms: &mut TermStore,
+) -> Option<Subst> {
+    #[cfg(feature = "tracing")]
+    let _span = debug_span!("match_terms", ?t1, ?t2).entered();
+
+    if shifted_vars.is_empty() {
+        return match_terms_combined(t1, t2, terms);
+    }
+
+    let mut subst = Subst::new();
+    // Worklist entries: (left_term, right_term, right_is_raw).
+    // `right_is_raw` is true when the right term is from the unshifted
+    // namespace and its variables need virtual shifting.
+    let mut worklist: SmallVec<[(TermId, TermId, bool); 32]> = SmallVec::new();
+    worklist.push((t1, t2, true));
+
+    while let Some((a, b, b_raw)) = worklist.pop() {
+        // Dereference left side through the substitution.
+        let a_deref = deref_unlocked(a, &subst, terms);
+
+        // Dereference right side: if raw, virtually shift the variable first.
+        let b_deref = if b_raw {
+            deref_shifted_unlocked(b, shifted_vars, &subst, terms)
+        } else {
+            deref_unlocked(b, &subst, terms)
+        };
+
+        // Fast equality check: skip if both sides resolve to the same TermId.
+        // When b_raw is true and b was an App (deref_shifted returns Apps as-is),
+        // b_deref == a_deref does NOT mean they are semantically equal because
+        // the right-side's children still need shifting. Only skip when:
+        // - b_raw is false (right side already in shared namespace), OR
+        // - b_raw is true but b_deref was obtained by shifting a Var (b_deref != b,
+        //   meaning deref went through shifted_vars and then subst), OR
+        // - both terms are ground (shifting doesn't affect ground terms).
+        if a_deref == b_deref && (!b_raw || b_deref != b || a_deref.is_ground()) {
+            continue;
+        }
+
+        // Classify both terms without cloning children
+        enum TermKind {
+            Var(u32),
+            App(FuncId),
+            Invalid,
+        }
+
+        let a_kind = match terms.get_unlocked(a_deref) {
+            Some(Term::Var(idx)) => TermKind::Var(*idx),
+            Some(Term::App(f, _)) => TermKind::App(*f),
+            None => TermKind::Invalid,
+        };
+        let b_kind = match terms.get_unlocked(b_deref) {
+            Some(Term::Var(idx)) => TermKind::Var(*idx),
+            Some(Term::App(f, _)) => TermKind::App(*f),
+            None => TermKind::Invalid,
+        };
+
+        match (a_kind, b_kind) {
+            (TermKind::Var(idx_a), TermKind::Var(idx_b)) => {
+                if idx_a < idx_b {
+                    subst.bind(idx_b, a_deref);
+                } else {
+                    subst.bind(idx_a, b_deref);
+                }
+            }
+            (TermKind::Var(idx), TermKind::App(_)) => {
+                // When binding a left-side Var to a right-side subtree,
+                // materialize the shifted version if the subtree is raw.
+                let b_shifted = if b_raw && b_deref == b {
+                    // b_deref == b means b was an App (not dereffed through subst).
+                    // Its children are raw. Materialize the shifted version.
+                    shift_term(b, shifted_vars, terms)
+                } else {
+                    b_deref
+                };
+                if occurs_unlocked(idx, b_shifted, &subst, terms) {
+                    #[cfg(feature = "tracing")]
+                    trace!(var = idx, "match_occurs_check_failed");
+                    return None;
+                }
+                subst.bind(idx, b_shifted);
+            }
+            (TermKind::App(_), TermKind::Var(idx)) => {
+                if occurs_unlocked(idx, a_deref, &subst, terms) {
+                    #[cfg(feature = "tracing")]
+                    trace!(var = idx, "match_occurs_check_failed");
+                    return None;
+                }
+                subst.bind(idx, a_deref);
+            }
+            (TermKind::App(f1), TermKind::App(f2)) => {
+                if f1 != f2 {
+                    #[cfg(feature = "tracing")]
+                    trace!("match_functor_mismatch");
+                    return None;
+                }
+                // Children are raw only if b was raw and b_deref is the
+                // original b (App returned as-is by deref_shifted_unlocked).
+                let children_raw = b_raw && b_deref == b;
+                // Read children. For the raw case, read from the original b.
+                let (ac, bc) = {
+                    let nodes = terms.nodes.get_mut();
+                    let a_children = match nodes.get(a_deref.index()) {
+                        Some(Term::App(_, c)) => c.clone(),
+                        _ => return None,
+                    };
+                    let b_children = match nodes.get(b_deref.index()) {
+                        Some(Term::App(_, c)) => c.clone(),
+                        _ => return None,
+                    };
+                    (a_children, b_children)
+                };
+                if ac.len() != bc.len() {
+                    #[cfg(feature = "tracing")]
+                    trace!("match_arity_mismatch");
+                    return None;
+                }
+                for (c1, c2) in ac.iter().zip(bc.iter()) {
+                    worklist.push((*c1, *c2, children_raw));
+                }
+            }
+            _ => {
+                #[cfg(feature = "tracing")]
+                trace!("match_invalid_term");
+                return None;
+            }
+        }
+    }
+
+    #[cfg(feature = "tracing")]
+    trace!(bindings = subst.len(), "match_success");
+
+    Some(subst)
+}
+
 /// Split a combined substitution into (left, right) parts, resolving each
 /// binding through the combined substitution so that applying each part
 /// independently yields equal terms.
@@ -157,6 +311,184 @@ fn deref_locked(term: TermId, subst: &Subst, guard: &TermReadGuard<'_>) -> TermI
             _ => return current,
         }
     }
+}
+
+/// Dereference a term through the substitution using lock-free access.
+/// Requires exclusive (`&mut`) access to the TermStore.
+#[inline]
+fn deref_unlocked(term: TermId, subst: &Subst, terms: &mut TermStore) -> TermId {
+    let nodes = terms.nodes.get_mut();
+    let mut current = term;
+    loop {
+        match nodes.get(current.index()) {
+            Some(Term::Var(idx)) => match subst.get(*idx) {
+                Some(bound) => current = bound,
+                None => return current,
+            },
+            _ => return current,
+        }
+    }
+}
+
+/// Dereference a "raw" (unshifted) right-side term through virtual shifting
+/// and then through the substitution, using lock-free access.
+///
+/// If the term is `Var(j)`, maps it to `shifted_vars[j]` (i.e., `Var(j + offset)`)
+/// before looking up in the substitution. If the term is an App, returns it as-is
+/// (children will be processed with raw=true in the worklist).
+#[inline]
+fn deref_shifted_unlocked(
+    term: TermId,
+    shifted_vars: &[TermId],
+    subst: &Subst,
+    terms: &mut TermStore,
+) -> TermId {
+    let nodes = terms.nodes.get_mut();
+    match nodes.get(term.index()) {
+        Some(Term::Var(idx)) => {
+            let j = *idx as usize;
+            debug_assert!(
+                j < shifted_vars.len(),
+                "var index {} exceeds shifted_vars length {}",
+                j,
+                shifted_vars.len()
+            );
+            let shifted = shifted_vars[j];
+            // Now dereference through the substitution from the shifted var.
+            let mut current = shifted;
+            loop {
+                match nodes.get(current.index()) {
+                    Some(Term::Var(vidx)) => match subst.get(*vidx) {
+                        Some(bound) => current = bound,
+                        None => return current,
+                    },
+                    _ => return current,
+                }
+            }
+        }
+        _ => term, // App or invalid: return as-is
+    }
+}
+
+/// Occurs check using lock-free access.
+/// Requires exclusive (`&mut`) access to the TermStore.
+fn occurs_unlocked(var: u32, term: TermId, subst: &Subst, terms: &mut TermStore) -> bool {
+    let nodes = terms.nodes.get_mut();
+    let mut stack: SmallVec<[TermId; 16]> = SmallVec::new();
+    stack.push(term);
+
+    while let Some(t) = stack.pop() {
+        // Inline deref_unlocked to avoid borrowing terms again.
+        let mut current = t;
+        while let Some(Term::Var(idx)) = nodes.get(current.index()) {
+            match subst.get(*idx) {
+                Some(bound) => current = bound,
+                None => break,
+            }
+        }
+        let t_deref = current;
+        match nodes.get(t_deref.index()) {
+            Some(Term::Var(idx)) => {
+                if *idx == var {
+                    return true;
+                }
+            }
+            Some(Term::App(_, children)) => {
+                for child in children.iter() {
+                    stack.push(*child);
+                }
+            }
+            None => {}
+        }
+    }
+
+    false
+}
+
+/// Shift all variables in a term using the pre-created shifted_vars mapping.
+/// This is equivalent to `apply_subst_shifted(term, &empty_subst, offset, shifted_vars, terms)`
+/// but called only when we actually need the shifted version (i.e., when binding
+/// a left-side variable to a right-side subtree).
+fn shift_term(term: TermId, shifted_vars: &[TermId], terms: &mut TermStore) -> TermId {
+    if term.is_ground() {
+        return term;
+    }
+
+    // Use a stack-based approach similar to apply_subst_core.
+    enum Work {
+        Visit(TermId),
+        BuildApp(TermId, FuncId, usize),
+    }
+
+    let mut work_stack: SmallVec<[Work; 16]> = SmallVec::new();
+    let mut result_stack: SmallVec<[TermId; 16]> = SmallVec::new();
+
+    work_stack.push(Work::Visit(term));
+
+    while let Some(item) = work_stack.pop() {
+        match item {
+            Work::BuildApp(orig_tid, func, n) => {
+                let start = result_stack.len() - n;
+                let all_same = {
+                    let nodes = terms.nodes.get_mut();
+                    match nodes.get(orig_tid.index()) {
+                        Some(Term::App(_, orig_children)) => {
+                            orig_children.len() == n
+                                && orig_children
+                                    .iter()
+                                    .zip(&result_stack[start..])
+                                    .all(|(a, b)| *a == *b)
+                        }
+                        _ => false,
+                    }
+                };
+                if all_same {
+                    result_stack.truncate(start);
+                    result_stack.push(orig_tid);
+                } else {
+                    let new_term = terms.app_from_slice_unlocked(func, &result_stack[start..]);
+                    result_stack.truncate(start);
+                    result_stack.push(new_term);
+                }
+            }
+            Work::Visit(tid) => {
+                if tid.is_ground() {
+                    result_stack.push(tid);
+                    continue;
+                }
+                let nodes = terms.nodes.get_mut();
+                match nodes.get(tid.index()) {
+                    Some(Term::Var(idx)) => {
+                        let j = *idx as usize;
+                        debug_assert!(
+                            j < shifted_vars.len(),
+                            "var index {} exceeds shifted_vars length {}",
+                            j,
+                            shifted_vars.len()
+                        );
+                        result_stack.push(shifted_vars[j]);
+                    }
+                    Some(Term::App(_, children)) if children.is_empty() => {
+                        result_stack.push(tid);
+                    }
+                    Some(Term::App(f, children)) => {
+                        let func = *f;
+                        let n = children.len();
+                        work_stack.push(Work::BuildApp(tid, func, n));
+                        for i in (0..n).rev() {
+                            work_stack.push(Work::Visit(children[i]));
+                        }
+                    }
+                    None => {
+                        result_stack.push(tid);
+                    }
+                }
+            }
+        }
+    }
+
+    debug_assert_eq!(result_stack.len(), 1);
+    result_stack.pop().unwrap()
 }
 
 /// Occurs check using a pre-acquired read lock.
