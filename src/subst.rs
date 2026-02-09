@@ -268,7 +268,7 @@ fn apply_subst_core<const SHIFTED: bool>(
 /// Well-formed substitutions from matching do not contain cycles, so we use
 /// a simple depth limit rather than tracking visited nodes.
 #[inline]
-fn resolve_var_chain_unlocked(start: TermId, subst: &Subst, nodes: &[Term]) -> TermId {
+pub(crate) fn resolve_var_chain_unlocked(start: TermId, subst: &Subst, nodes: &[Term]) -> TermId {
     let mut current = start;
     // Depth limit to handle malformed substitutions gracefully.
     // In practice, chains are very short (1-3 steps).
