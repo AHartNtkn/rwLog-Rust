@@ -16,6 +16,9 @@
 //!   --id <case_id>    Corpus case to run (default: recursive_even_backward_first64)
 //!   --secs <n>        Duration in seconds (default: 5)
 
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 use rwlog::perf_corpus::{
     apply_filters, load_cases, prepare_case, run_prepared, sort_cases, CorpusFilters,
 };

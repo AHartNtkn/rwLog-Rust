@@ -9,6 +9,9 @@
 //! - `kernel install` - Install Jupyter kernel spec
 //! - `kernel --connection-file <path>` - Run Jupyter kernel
 
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 use rwlog::jupyter::{default_kernel_dir, install_kernel_spec};
 use rwlog::repl::Repl;
 use std::io::{self, BufRead, Write};

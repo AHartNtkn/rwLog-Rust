@@ -1,3 +1,6 @@
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fs;
