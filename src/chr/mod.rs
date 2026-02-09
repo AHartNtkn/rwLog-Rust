@@ -41,6 +41,25 @@ pub enum PatNode {
     },
 }
 
+/// Pre-flattened match operation for cache-friendly linear pattern matching.
+///
+/// Instead of walking a PatNode tree via PatArena indirection at match time,
+/// we pre-flatten each head's argument patterns into a contiguous array of
+/// these ops at program construction time. This eliminates PatArena lookups,
+/// SmallVec push/pop of (PatId, TermId) pairs, and PatNode dispatch during
+/// the hot matching loop.
+#[derive(Clone, Debug)]
+pub enum FlatMatchOp {
+    /// Push the next root term from the head argument list onto the work stack.
+    PushRoot,
+    /// Pop a term, check it is App(f, children) with the given arity.
+    /// If match: push children in reverse onto work stack (for pre-order).
+    /// If mismatch: fail immediately.
+    CheckApp(FuncId, u8),
+    /// Pop a term, bind it to the given RVar.
+    BindVar(RVar),
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct PatArena {
     nodes: Vec<PatNode>,
@@ -59,6 +78,35 @@ impl PatArena {
 
     pub fn get(&self, p: PatId) -> &PatNode {
         &self.nodes[p.0 as usize]
+    }
+}
+
+/// Flatten a head pattern's argument list into a contiguous array of FlatMatchOps.
+///
+/// For each arg PatId, emits a PushRoot followed by a pre-order traversal of the
+/// pattern tree. The result is a single linear sequence that can match all args
+/// of a head in one tight loop.
+fn flatten_head_pat(pats: &PatArena, args: &[PatId]) -> Box<[FlatMatchOp]> {
+    let mut ops = Vec::new();
+    for &arg in args {
+        ops.push(FlatMatchOp::PushRoot);
+        flatten_pat_preorder(pats, arg, &mut ops);
+    }
+    ops.into_boxed_slice()
+}
+
+/// Emit FlatMatchOps for a single pattern node in pre-order.
+fn flatten_pat_preorder(pats: &PatArena, pat: PatId, ops: &mut Vec<FlatMatchOp>) {
+    match pats.get(pat) {
+        PatNode::RVar(rv) => {
+            ops.push(FlatMatchOp::BindVar(*rv));
+        }
+        PatNode::App { f, kids } => {
+            ops.push(FlatMatchOp::CheckApp(*f, kids.len() as u8));
+            for kid in kids.iter() {
+                flatten_pat_preorder(pats, *kid, ops);
+            }
+        }
     }
 }
 
@@ -837,6 +885,10 @@ pub struct Rule<T: Theory> {
     pub rid: RuleId,
     pub n_rvars: u32,
     pub heads: Box<[HeadPat]>,
+    /// Pre-flattened match ops per head, indexed by head position.
+    /// Each inner `Box<[FlatMatchOp]>` is a contiguous sequence of ops
+    /// that matches all args of that head in a single linear scan.
+    pub head_flat_ops: Box<[Box<[FlatMatchOp]>]>,
     pub guard: GuardProg,
     pub body: BodyProg,
     pub priority: i32,
@@ -852,6 +904,7 @@ impl<T: Theory> Clone for Rule<T> {
             rid: self.rid,
             n_rvars: self.n_rvars,
             heads: self.heads.clone(),
+            head_flat_ops: self.head_flat_ops.clone(),
             guard: self.guard.clone(),
             body: self.body.clone(),
             priority: self.priority,
@@ -1015,10 +1068,19 @@ impl<T: Theory> ChrProgramBuilder<T> {
             );
 
             let is_propagation = removed_mask == 0;
+
+            // Pre-flatten each head's arg patterns into contiguous match ops.
+            let head_flat_ops: Box<[Box<[FlatMatchOp]>]> = heads
+                .iter()
+                .map(|head| flatten_head_pat(&self.pats, &head.args))
+                .collect::<Vec<_>>()
+                .into_boxed_slice();
+
             rules.push(Rule {
                 rid: RuleId(idx as u32),
                 n_rvars,
                 heads: heads.into_boxed_slice(),
+                head_flat_ops,
                 guard: draft.guard,
                 body: draft.body,
                 priority: draft.priority,
@@ -1505,9 +1567,11 @@ impl<T: Theory> ChrState<T> {
         env.ensure_capacity(rule.n_rvars);
         env.reset();
         let mut chosen: Vec<Option<Cid>> = vec![None; rule.heads.len()];
-        let anchor_head = &rule.heads[occ.anchor_head as usize];
+        let anchor_idx = occ.anchor_head as usize;
+        let anchor_head = &rule.heads[anchor_idx];
+        let anchor_flat = &rule.head_flat_ops[anchor_idx];
         let inst = &data.store.inst[active.0 as usize];
-        if !match_head(&program.pats, terms, anchor_head, inst, env) {
+        if !match_head(&program.pats, terms, anchor_head, anchor_flat, inst, env) {
             return None;
         }
         chosen[occ.anchor_head as usize] = Some(active);
@@ -1586,9 +1650,11 @@ impl<T: Theory> ChrState<T> {
                 continue;
             }
             let trail = env.trail_len();
-            let head = &ctx.rule.heads[step.head as usize];
+            let head_idx = step.head as usize;
+            let head = &ctx.rule.heads[head_idx];
+            let flat_ops = &ctx.rule.head_flat_ops[head_idx];
             let inst = &ctx.data.store.inst[cid.0 as usize];
-            if match_head(&ctx.program.pats, ctx.terms, head, inst, env) {
+            if match_head(&ctx.program.pats, ctx.terms, head, flat_ops, inst, env) {
                 chosen[step.head as usize] = Some(cid);
                 if let Some(tuple) = Self::search_steps_inner(ctx, step_idx + 1, env, chosen) {
                     return Some(tuple);
@@ -1692,9 +1758,10 @@ impl<T: Theory> ChrState<T> {
 }
 
 fn match_head(
-    pats: &PatArena,
+    _pats: &PatArena,
     terms: &TermStore,
     head: &HeadPat,
+    flat_ops: &[FlatMatchOp],
     inst: &CInstance,
     env: &mut RVarEnv,
 ) -> bool {
@@ -1705,9 +1772,48 @@ fn match_head(
         return false;
     }
     let guard = terms.read_lock();
-    for (pat, term) in head.args.iter().zip(inst.args.iter()) {
-        if !match_pat_bind_locked(pats, &guard, *pat, *term, env) {
-            return false;
+    match_flat_ops(flat_ops, &guard, &inst.args, env)
+}
+
+/// Execute a pre-flattened match op sequence against a list of root terms.
+///
+/// The ops were produced by `flatten_head_pat` and encode a pre-order traversal
+/// of all arg patterns with PushRoot ops separating each arg's segment.
+#[inline]
+fn match_flat_ops(
+    ops: &[FlatMatchOp],
+    guard: &TermReadGuard<'_>,
+    args: &[TermId],
+    env: &mut RVarEnv,
+) -> bool {
+    let mut stack: SmallVec<[TermId; 8]> = SmallVec::new();
+    let mut arg_iter = args.iter();
+    for op in ops {
+        match op {
+            FlatMatchOp::PushRoot => {
+                // Safety: flatten_head_pat emits exactly one PushRoot per arg,
+                // and we checked args.len() == head.args.len() above.
+                let t = *arg_iter.next().unwrap();
+                stack.push(t);
+            }
+            FlatMatchOp::CheckApp(f, n) => {
+                let t = stack.pop().unwrap();
+                match guard.get(t) {
+                    Some(Term::App(tf, tks)) if *tf == *f && tks.len() == *n as usize => {
+                        // Push children in reverse for pre-order traversal.
+                        for kid in tks.iter().rev() {
+                            stack.push(*kid);
+                        }
+                    }
+                    _ => return false,
+                }
+            }
+            FlatMatchOp::BindVar(rv) => {
+                let t = stack.pop().unwrap();
+                if !env.bind(*rv, t) {
+                    return false;
+                }
+            }
         }
     }
     true
