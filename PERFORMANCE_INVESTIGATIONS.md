@@ -61,7 +61,7 @@ Each item is an investigation area, not a guaranteed improvement.
 2. Memoize `compose_nf` results by normalized NF fingerprints.
 3. Memoize `meet_nf` results by canonical pair fingerprints (order-normalized).
 4. Separate cheap syntactic impossibility checks before expensive matching in compose/meet.
-5. Add canonical hash keys for `NF` to enable dedup and cache hits across branches.
+5. ~~Add canonical hash keys for `NF` to enable dedup and cache hits across branches.~~ **Implemented — ~10% improvement.** See [docs/perf_investigations/cached_nf_hash.md](docs/perf_investigations/cached_nf_hash.md). Added `cached_hash: u64` field to NF, pre-computed at construction. Hash impl returns cached value (one u64 write). PartialEq compares hash first as fast rejection. Eliminates repeated full-NF hashing in all FxHashSet operations.
 6. Rework normalization to produce and consume compact intermediate IR rather than rebuilding full `NF`s.
 7. ~~Identify hot paths where repeated factor/collect cycles can be eliminated.~~ **Partially addressed — ~8.8% improvement on program_synth_flip.** See [docs/perf_investigations/rwt_max_var_o1_computation.md](docs/perf_investigations/rwt_max_var_o1_computation.md). Replaced `max_var_index_terms` tree walks (5.68% of runtime) in compose_nf/meet_nf with O(1) computation from DropFresh metadata. Full factor/collect cycle elimination remains uninvestigated.
     - **Sub-investigation: virtual shift_vars — ~4% improvement on program_synth_flip.** See [docs/perf_investigations/virtual_shift_vars.md](docs/perf_investigations/virtual_shift_vars.md). Eliminated physical term tree rewriting for variable renaming-apart by combining shift+subst into a single pass (`apply_subst_shifted`). Avoids creating intermediate shifted terms that were immediately consumed by matching/substitution.
@@ -125,6 +125,7 @@ Each item is an investigation area, not a guaranteed improvement.
 6. Rework `AndGroup` to pipeline partial meets instead of materializing large intermediate frontiers.
 7. Use async producer/consumer channels for parallel branch production and controlled backpressure.
 8. ~~Add branch-specific dedup filters to cut cross-product blow-up.~~ **Partially addressed — ~5% improvement.** See [docs/perf_investigations/arc_diagonal_join.md](docs/perf_investigations/arc_diagonal_join.md). Arc<NF<C>> wrapping in DiagonalJoin seen vectors and dedup sets eliminates deep NF clones on every emit. Dedup set insertion is now O(1) Arc clone instead of deep clone. Combined with earlier Arc wrapping in Table answers (see [docs/perf_investigations/arc_nf_answers.md](docs/perf_investigations/arc_nf_answers.md)).
+    - **Sub-investigation: Arc-wrap pending NFs — ~7.6% improvement.** See [docs/perf_investigations/arc_pending_nf.md](docs/perf_investigations/arc_pending_nf.md). Extended Arc wrapping to DiagonalJoin pending VecDeque and pending_set FxHashSet. Eliminates deep NF clone per push_pending call. Combined with cached_nf_hash for ~7.8% combined improvement.
 
 ### Disjunction/Or Execution
 
