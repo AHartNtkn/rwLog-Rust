@@ -143,6 +143,7 @@ Each item is an investigation area, not a guaranteed improvement.
 
 ### Deduplication and Canonicalization
 
+0. ~~Replace SipHash with FxHash for NF dedup HashSets.~~ **Implemented — ~5% improvement.** See [docs/perf_investigations/fxhash_nf_dedup.md](docs/perf_investigations/fxhash_nf_dedup.md). Replaced `std::collections::HashSet` with `rustc_hash::FxHashSet` across all hot-path NF dedup sets (DiagonalJoin, Engine, Table, DedupQueue). SipHash was 4.17% of runtime; FxHash eliminated most of that overhead.
 1. Define stable canonical fingerprints for answers to make dedup O(1) hashed in common cases.
 2. Add per-branch dedup + global dedup layering to reduce central contention.
 3. Investigate canonical alpha-renaming at emission boundary to improve duplicate collapse.
