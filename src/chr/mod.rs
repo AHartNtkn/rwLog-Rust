@@ -785,6 +785,21 @@ impl ChrStore {
             }
         }
     }
+
+    /// Index only constraints starting from `from` position.
+    /// Assumes indexes for constraints before `from` are already up-to-date.
+    fn index_from(&mut self, from: usize, preds: &[PredDecl], terms: &TermStore) {
+        for inst in self.inst[from..].iter() {
+            if inst.alive {
+                let pred = inst.pred;
+                let specs = &preds[pred.0 as usize].index_specs;
+                self.preds[pred.0 as usize].insert(inst.cid, inst, terms, specs);
+                self.alive_count += 1;
+            } else {
+                self.dead_count += 1;
+            }
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -1293,6 +1308,9 @@ pub struct ChrStateData<T: Theory> {
     pub(crate) next_cid: u32,
     pub(crate) agenda: VecDeque<Cid>,
     pub(crate) failed: bool,
+    /// Constraints with `cid.0 < fixpoint_watermark` are already at CHR fixpoint
+    /// and do not need to be re-enqueued for agenda processing.
+    pub(crate) fixpoint_watermark: u32,
 }
 
 impl<T: Theory> Clone for ChrStateData<T> {
@@ -1304,6 +1322,7 @@ impl<T: Theory> Clone for ChrStateData<T> {
             next_cid: self.next_cid,
             agenda: self.agenda.clone(),
             failed: self.failed,
+            fixpoint_watermark: self.fixpoint_watermark,
         }
     }
 }
@@ -1339,6 +1358,7 @@ impl<T: Theory> ChrState<T> {
                 next_cid: 0,
                 agenda: VecDeque::new(),
                 failed: false,
+                fixpoint_watermark: 0,
             })
         });
         Arc::make_mut(arc)
@@ -1368,6 +1388,7 @@ impl<T: Theory> ChrState<T> {
                 next_cid: 0,
                 agenda: VecDeque::new(),
                 failed: false,
+                fixpoint_watermark: 0,
             })),
             program,
         }
@@ -1383,6 +1404,7 @@ impl<T: Theory> ChrState<T> {
                 next_cid: 0,
                 agenda: VecDeque::new(),
                 failed: false,
+                fixpoint_watermark: 0,
             })
         });
         let d = Arc::make_mut(arc);
@@ -1402,7 +1424,6 @@ impl<T: Theory> ChrState<T> {
         if d.failed {
             return false;
         }
-        d.store.rebuild_indexes(&self.program.preds, terms);
 
         // Reuse a single RVarEnv across all match attempts in this fixpoint.
         let mut env = RVarEnv::new(self.program.max_rvars);
@@ -1646,6 +1667,18 @@ impl<T: Theory> ChrState<T> {
         for (idx, inst) in data.store.inst.iter().enumerate() {
             if inst.alive {
                 data.agenda.push_back(Cid(idx as u32));
+            }
+        }
+    }
+
+    /// Enqueue only constraints at or above the fixpoint watermark.
+    /// Constraints below the watermark are already at CHR fixpoint.
+    fn enqueue_above_watermark(data: &mut ChrStateData<T>) {
+        data.agenda.clear();
+        let start = data.fixpoint_watermark as usize;
+        for inst in data.store.inst[start..].iter() {
+            if inst.alive {
+                data.agenda.push_back(inst.cid);
             }
         }
     }
@@ -1916,6 +1949,8 @@ pub fn thaw_chr<T: Theory>(
     }
 
     d.agenda.clear();
+    // Thawed state was frozen at fixpoint; mark all constraints as at fixpoint.
+    d.fixpoint_watermark = d.next_cid;
     Some(st)
 }
 
@@ -2081,8 +2116,16 @@ impl<T: Theory> crate::constraint::ConstraintOps for ChrState<T> {
         {
             let preds = &self.program.preds;
             let sd = Arc::make_mut(self.data.as_mut().unwrap());
-            sd.store.rebuild_indexes(preds, terms);
-            Self::enqueue_all_alive_in(sd);
+            let watermark = sd.fixpoint_watermark as usize;
+            if watermark == 0 {
+                // Full rebuild: first normalize or after subst invalidation.
+                sd.store.rebuild_indexes(preds, terms);
+                Self::enqueue_all_alive_in(sd);
+            } else {
+                // Incremental: only index and enqueue constraints above watermark.
+                sd.store.index_from(watermark, preds, terms);
+                Self::enqueue_above_watermark(sd);
+            }
         }
         if !self.solve_to_fixpoint(terms) {
             return None;
@@ -2099,6 +2142,12 @@ impl<T: Theory> crate::constraint::ConstraintOps for ChrState<T> {
         if !subst.is_empty() {
             Self::apply_subst_to_data(sd, &subst, terms);
             sd.store.rebuild_indexes(preds, terms);
+            // Subst changed constraint args, so old constraints are no longer
+            // guaranteed to be at fixpoint. Reset watermark.
+            sd.fixpoint_watermark = 0;
+        } else {
+            // All constraints are now at fixpoint. Advance watermark.
+            sd.fixpoint_watermark = sd.next_cid;
         }
         sd.agenda.clear();
         Some((self, subst_opt))
@@ -2198,6 +2247,8 @@ impl<T: Theory> crate::constraint::ConstraintOps for ChrState<T> {
         if !subst.is_empty() {
             let d = Arc::make_mut(st.data.as_mut().unwrap());
             Self::apply_subst_to_data(d, subst, terms);
+            // Subst changed constraint args; indexes and fixpoint are stale.
+            d.fixpoint_watermark = 0;
         }
         st
     }
@@ -2219,6 +2270,7 @@ impl<T: Theory> crate::constraint::ConstraintOps for ChrState<T> {
         d.builtins = T::remap_vars(&d.builtins, map, terms);
         d.store.rebuild_indexes(preds, terms);
         d.agenda.clear();
+        d.fixpoint_watermark = 0;
         st
     }
 
