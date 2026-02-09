@@ -21,7 +21,6 @@ pub(crate) enum DiagonalStepResult<C: ConstraintOps> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum JoinOutcome {
     Done,
-    More,
 }
 
 pub(crate) trait JoinStrategy<C: ConstraintOps>: Clone + std::fmt::Debug + Default {
@@ -158,14 +157,11 @@ impl<C: ConstraintOps, S: JoinStrategy<C> + Default> DiagonalJoin<C, S> {
             return WorkStep::Emit(nf, Box::new(wrap(self.take_self())));
         }
 
-        if let Some(outcome) = self
-            .strategy
-            .check_done(self, left_exhausted, right_exhausted)
+        if let Some(JoinOutcome::Done) =
+            self.strategy
+                .check_done(self, left_exhausted, right_exhausted)
         {
-            return match outcome {
-                JoinOutcome::Done => WorkStep::Done,
-                JoinOutcome::More => WorkStep::More(Box::new(wrap(self.take_self()))),
-            };
+            return WorkStep::Done;
         }
 
         let pull_from_right = if left_exhausted {
@@ -201,14 +197,11 @@ impl<C: ConstraintOps, S: JoinStrategy<C> + Default> DiagonalJoin<C, S> {
             return DiagonalStepResult::Emit(nf);
         }
 
-        if let Some(outcome) = self
-            .strategy
-            .check_done(self, left_exhausted, right_exhausted)
+        if let Some(JoinOutcome::Done) =
+            self.strategy
+                .check_done(self, left_exhausted, right_exhausted)
         {
-            return match outcome {
-                JoinOutcome::Done => DiagonalStepResult::Done,
-                JoinOutcome::More => DiagonalStepResult::More,
-            };
+            return DiagonalStepResult::Done;
         }
 
         let pull_from_right = if left_exhausted {

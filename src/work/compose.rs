@@ -2,112 +2,20 @@ use crate::constraint::ConstraintOps;
 use crate::kernel::compose_nf;
 use crate::node::Node;
 use crate::term::TermStore;
-use std::collections::VecDeque;
 
 use super::diagonal::{DiagonalJoin, DiagonalStepResult, JoinOutcome, JoinStrategy};
 use super::{Work, WorkStep};
 
+/// Eager compose strategy: when a new NF arrives from either side, immediately
+/// compose it with all existing opposite-side NFs and push results to pending.
+/// This eliminates the cursor-based VecDeque and processes all pairs in a tight
+/// loop at the point of arrival.
 #[derive(Clone, Debug)]
-enum ComposeCursor {
-    Left {
-        left_idx: usize,
-        right_idx: usize,
-        right_limit: usize,
-    },
-    Right {
-        right_idx: usize,
-        left_idx: usize,
-        left_limit: usize,
-    },
-}
-
-#[derive(Clone, Debug)]
-struct ComposeStrategy {
-    pair_queue: VecDeque<ComposeCursor>,
-}
+struct ComposeStrategy;
 
 impl ComposeStrategy {
     fn new() -> Self {
-        Self {
-            pair_queue: VecDeque::new(),
-        }
-    }
-
-    fn enqueue_pairs_left<C: ConstraintOps>(
-        &mut self,
-        join: &DiagonalJoin<C, Self>,
-        left_idx: usize,
-    ) {
-        let right_limit = join.seen_r_len();
-        if right_limit == 0 {
-            return;
-        }
-        self.pair_queue.push_back(ComposeCursor::Left {
-            left_idx,
-            right_idx: 0,
-            right_limit,
-        });
-    }
-
-    fn enqueue_pairs_right<C: ConstraintOps>(
-        &mut self,
-        join: &DiagonalJoin<C, Self>,
-        right_idx: usize,
-    ) {
-        let left_limit = join.seen_l_len();
-        if left_limit == 0 {
-            return;
-        }
-        self.pair_queue.push_back(ComposeCursor::Right {
-            right_idx,
-            left_idx: 0,
-            left_limit,
-        });
-    }
-
-    fn process_pair_queue<C: ConstraintOps>(
-        &mut self,
-        join: &mut DiagonalJoin<C, Self>,
-        terms: &mut TermStore,
-    ) -> Option<crate::nf::NF<C>> {
-        let mut cursor = self.pair_queue.pop_front()?;
-
-        loop {
-            match &mut cursor {
-                ComposeCursor::Left {
-                    left_idx,
-                    right_idx,
-                    right_limit,
-                } => {
-                    if *right_idx >= *right_limit {
-                        break;
-                    }
-                    let left_nf = join.seen_l_at(*left_idx);
-                    let right_nf = join.seen_r_at(*right_idx);
-                    if let Some(nf) = Self::compose_pair(left_nf, right_nf, terms) {
-                        join.push_pending(nf);
-                    }
-                    *right_idx += 1;
-                }
-                ComposeCursor::Right {
-                    right_idx,
-                    left_idx,
-                    left_limit,
-                } => {
-                    if *left_idx >= *left_limit {
-                        break;
-                    }
-                    let left_nf = join.seen_l_at(*left_idx);
-                    let right_nf = join.seen_r_at(*right_idx);
-                    if let Some(nf) = Self::compose_pair(left_nf, right_nf, terms) {
-                        join.push_pending(nf);
-                    }
-                    *left_idx += 1;
-                }
-            }
-        }
-
-        join.pop_pending()
+        Self
     }
 
     fn is_empty_identity<C: ConstraintOps>(nf: &crate::nf::NF<C>) -> bool {
@@ -139,30 +47,36 @@ impl Default for ComposeStrategy {
 }
 
 impl<C: ConstraintOps> JoinStrategy<C> for ComposeStrategy {
-    fn pre_step(
-        &mut self,
-        join: &mut DiagonalJoin<C, Self>,
-        terms: &mut TermStore,
-    ) -> Option<crate::nf::NF<C>> {
-        self.process_pair_queue(join, terms)
-    }
-
     fn on_new_left(
         &mut self,
         join: &mut DiagonalJoin<C, Self>,
         left_idx: usize,
-        _terms: &mut TermStore,
+        terms: &mut TermStore,
     ) {
-        self.enqueue_pairs_left(join, left_idx);
+        let right_len = join.seen_r_len();
+        for right_idx in 0..right_len {
+            let left_nf = join.seen_l_at(left_idx);
+            let right_nf = join.seen_r_at(right_idx);
+            if let Some(nf) = Self::compose_pair(left_nf, right_nf, terms) {
+                join.push_pending(nf);
+            }
+        }
     }
 
     fn on_new_right(
         &mut self,
         join: &mut DiagonalJoin<C, Self>,
         right_idx: usize,
-        _terms: &mut TermStore,
+        terms: &mut TermStore,
     ) {
-        self.enqueue_pairs_right(join, right_idx);
+        let left_len = join.seen_l_len();
+        for left_idx in 0..left_len {
+            let left_nf = join.seen_l_at(left_idx);
+            let right_nf = join.seen_r_at(right_idx);
+            if let Some(nf) = Self::compose_pair(left_nf, right_nf, terms) {
+                join.push_pending(nf);
+            }
+        }
     }
 
     fn check_done(
@@ -171,17 +85,14 @@ impl<C: ConstraintOps> JoinStrategy<C> for ComposeStrategy {
         left_exhausted: bool,
         right_exhausted: bool,
     ) -> Option<JoinOutcome> {
-        if left_exhausted && join.seen_l.is_empty() && self.pair_queue.is_empty() {
+        if left_exhausted && join.seen_l.is_empty() {
             return Some(JoinOutcome::Done);
         }
-        if right_exhausted && join.seen_r.is_empty() && self.pair_queue.is_empty() {
+        if right_exhausted && join.seen_r.is_empty() {
             return Some(JoinOutcome::Done);
         }
         if left_exhausted && right_exhausted {
-            if self.pair_queue.is_empty() {
-                return Some(JoinOutcome::Done);
-            }
-            return Some(JoinOutcome::More);
+            return Some(JoinOutcome::Done);
         }
         None
     }
