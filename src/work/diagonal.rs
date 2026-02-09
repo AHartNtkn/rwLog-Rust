@@ -4,6 +4,7 @@ use crate::node::{step_node, Node, NodeStep};
 use crate::term::TermStore;
 use rustc_hash::FxHashSet;
 use std::collections::VecDeque;
+use std::sync::Arc;
 
 use super::{Work, WorkStep};
 
@@ -71,10 +72,10 @@ enum JoinSide {
 pub(crate) struct DiagonalJoin<C: ConstraintOps, S: JoinStrategy<C> + Default> {
     pub(crate) left: Box<Node<C>>,
     pub(crate) right: Box<Node<C>>,
-    pub(crate) seen_l: Vec<NF<C>>,
-    pub(crate) seen_r: Vec<NF<C>>,
-    seen_l_set: FxHashSet<NF<C>>,
-    seen_r_set: FxHashSet<NF<C>>,
+    pub(crate) seen_l: Vec<Arc<NF<C>>>,
+    pub(crate) seen_r: Vec<Arc<NF<C>>>,
+    seen_l_set: FxHashSet<Arc<NF<C>>>,
+    seen_r_set: FxHashSet<Arc<NF<C>>>,
     pending: VecDeque<NF<C>>,
     pending_set: FxHashSet<NF<C>>,
     pub(crate) flip: bool,
@@ -234,10 +235,11 @@ impl<C: ConstraintOps, S: JoinStrategy<C> + Default> DiagonalJoin<C, S> {
 
         match step_node(current, terms) {
             NodeStep::Emit(nf, rest) => {
+                let nf = Arc::new(nf);
                 match side {
                     JoinSide::Left => {
                         *self.left = rest;
-                        if self.seen_l_set.insert(nf.clone()) {
+                        if self.seen_l_set.insert(Arc::clone(&nf)) {
                             let idx = self.seen_l.len();
                             self.seen_l.push(nf);
                             self.with_strategy_mut(|strategy, join| {
@@ -248,7 +250,7 @@ impl<C: ConstraintOps, S: JoinStrategy<C> + Default> DiagonalJoin<C, S> {
                     }
                     JoinSide::Right => {
                         *self.right = rest;
-                        if self.seen_r_set.insert(nf.clone()) {
+                        if self.seen_r_set.insert(Arc::clone(&nf)) {
                             let idx = self.seen_r.len();
                             self.seen_r.push(nf);
                             self.with_strategy_mut(|strategy, join| {
@@ -314,10 +316,11 @@ impl<C: ConstraintOps, S: JoinStrategy<C> + Default> DiagonalJoin<C, S> {
 
         match step_node(current, terms) {
             NodeStep::Emit(nf, rest) => {
+                let nf = Arc::new(nf);
                 match side {
                     JoinSide::Left => {
                         *self.left = rest;
-                        if self.seen_l_set.insert(nf.clone()) {
+                        if self.seen_l_set.insert(Arc::clone(&nf)) {
                             let idx = self.seen_l.len();
                             self.seen_l.push(nf);
                             self.with_strategy_mut(|strategy, join| {
@@ -328,7 +331,7 @@ impl<C: ConstraintOps, S: JoinStrategy<C> + Default> DiagonalJoin<C, S> {
                     }
                     JoinSide::Right => {
                         *self.right = rest;
-                        if self.seen_r_set.insert(nf.clone()) {
+                        if self.seen_r_set.insert(Arc::clone(&nf)) {
                             let idx = self.seen_r.len();
                             self.seen_r.push(nf);
                             self.with_strategy_mut(|strategy, join| {

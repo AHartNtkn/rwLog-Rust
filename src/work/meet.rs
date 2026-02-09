@@ -123,12 +123,12 @@ impl<C: ConstraintOps> MeetWork<C> {
     }
 
     #[cfg(test)]
-    pub(crate) fn seen_l(&self) -> &[NF<C>] {
+    pub(crate) fn seen_l(&self) -> &[std::sync::Arc<NF<C>>] {
         &self.core.seen_l
     }
 
     #[cfg(test)]
-    pub(crate) fn seen_r(&self) -> &[NF<C>] {
+    pub(crate) fn seen_r(&self) -> &[std::sync::Arc<NF<C>>] {
         &self.core.seen_r
     }
 
