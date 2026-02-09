@@ -1310,7 +1310,7 @@ impl<T: Theory> Clone for ChrStateData<T> {
 
 pub struct ChrState<T: Theory> {
     pub program: Arc<ChrProgram<T>>,
-    data: Option<Box<ChrStateData<T>>>,
+    data: Option<Arc<ChrStateData<T>>>,
 }
 
 impl<T: Theory> Clone for ChrState<T> {
@@ -1331,8 +1331,8 @@ impl<T: Theory> ChrState<T> {
     #[inline]
     pub fn data_mut(&mut self) -> &mut ChrStateData<T> {
         let program = &self.program;
-        self.data.get_or_insert_with(|| {
-            Box::new(ChrStateData {
+        let arc = self.data.get_or_insert_with(|| {
+            Arc::new(ChrStateData {
                 store: ChrStore::new(&program.preds),
                 builtins: T::Store::default(),
                 tokens: TokenStore::new(program.rules.len()),
@@ -1340,7 +1340,8 @@ impl<T: Theory> ChrState<T> {
                 agenda: VecDeque::new(),
                 failed: false,
             })
-        })
+        });
+        Arc::make_mut(arc)
     }
 
     #[inline]
@@ -1360,7 +1361,7 @@ impl<T: Theory> ChrState<T> {
     pub fn new(program: Arc<ChrProgram<T>>, builtins: T::Store) -> Self {
         let n_rules = program.rules.len();
         Self {
-            data: Some(Box::new(ChrStateData {
+            data: Some(Arc::new(ChrStateData {
                 store: ChrStore::new(&program.preds),
                 builtins,
                 tokens: TokenStore::new(n_rules),
@@ -1374,8 +1375,8 @@ impl<T: Theory> ChrState<T> {
 
     pub fn introduce(&mut self, pred: PredId, args: &[TermId], terms: &TermStore) -> Cid {
         let program = &self.program;
-        let d = self.data.get_or_insert_with(|| {
-            Box::new(ChrStateData {
+        let arc = self.data.get_or_insert_with(|| {
+            Arc::new(ChrStateData {
                 store: ChrStore::new(&program.preds),
                 builtins: T::Store::default(),
                 tokens: TokenStore::new(program.rules.len()),
@@ -1384,6 +1385,7 @@ impl<T: Theory> ChrState<T> {
                 failed: false,
             })
         });
+        let d = Arc::make_mut(arc);
         let cid = Cid(d.next_cid);
         d.next_cid = d.next_cid.saturating_add(1);
         let specs = &program.preds[pred.0 as usize].index_specs;
@@ -1394,7 +1396,7 @@ impl<T: Theory> ChrState<T> {
 
     pub fn solve_to_fixpoint(&mut self, terms: &mut TermStore) -> bool {
         let d = match self.data.as_mut() {
-            Some(d) => &mut **d,
+            Some(arc) => Arc::make_mut(arc),
             None => return true,
         };
         if d.failed {
@@ -1878,8 +1880,8 @@ pub fn thaw_chr<T: Theory>(
     let n_constraints = r.read_u32()? as usize;
     let mut st = ChrState::<T>::new(program.clone(), T::thaw_store(&[]));
     {
-        let d = st.data.as_mut().unwrap();
-        d.store = ChrStore::new(&program.preds);
+        let arc = st.data.as_mut().unwrap();
+        Arc::make_mut(arc).store = ChrStore::new(&program.preds);
     }
 
     for _ in 0..n_constraints {
@@ -1892,7 +1894,7 @@ pub fn thaw_chr<T: Theory>(
         st.introduce(pred, &args, terms);
     }
 
-    let d = st.data.as_mut().unwrap();
+    let d = Arc::make_mut(st.data.as_mut().unwrap());
     let b_len = r.read_u32()? as usize;
     let b_bytes = r.read_bytes(b_len)?;
     d.builtins = T::thaw_store(b_bytes);
@@ -2016,7 +2018,7 @@ impl<T: Theory> crate::constraint::ConstraintOps for ChrState<T> {
             (Some(sd), Some(od)) => {
                 let builtins = T::merge_store(&sd.builtins, &od.builtins)?;
                 let mut merged = self.clone();
-                let md = merged.data.as_mut().unwrap();
+                let md = Arc::make_mut(merged.data.as_mut().unwrap());
                 md.builtins = builtins;
                 md.agenda.clear();
 
@@ -2078,7 +2080,7 @@ impl<T: Theory> crate::constraint::ConstraintOps for ChrState<T> {
         }
         {
             let preds = &self.program.preds;
-            let sd = self.data.as_mut().unwrap();
+            let sd = Arc::make_mut(self.data.as_mut().unwrap());
             sd.store.rebuild_indexes(preds, terms);
             Self::enqueue_all_alive_in(sd);
         }
@@ -2087,7 +2089,7 @@ impl<T: Theory> crate::constraint::ConstraintOps for ChrState<T> {
         }
 
         let preds = &self.program.preds;
-        let sd = self.data.as_mut().unwrap();
+        let sd = Arc::make_mut(self.data.as_mut().unwrap());
         let subst = T::extract_subst(&sd.builtins);
         let subst_opt = if subst.is_empty() {
             None
@@ -2139,7 +2141,7 @@ impl<T: Theory> crate::constraint::ConstraintOps for ChrState<T> {
             (Some(_), Some(od)) => {
                 let builtins = T::merge_store(&self.data.as_ref().unwrap().builtins, &od.builtins)?;
                 // Reuse self's allocation instead of cloning.
-                let md = self.data.as_mut().unwrap();
+                let md = Arc::make_mut(self.data.as_mut().unwrap());
                 md.builtins = builtins;
                 md.agenda.clear();
 
@@ -2194,7 +2196,7 @@ impl<T: Theory> crate::constraint::ConstraintOps for ChrState<T> {
         }
         let mut st = self.clone();
         if !subst.is_empty() {
-            let d = st.data.as_mut().unwrap();
+            let d = Arc::make_mut(st.data.as_mut().unwrap());
             Self::apply_subst_to_data(d, subst, terms);
         }
         st
@@ -2206,7 +2208,7 @@ impl<T: Theory> crate::constraint::ConstraintOps for ChrState<T> {
         }
         let mut st = self.clone();
         let preds = &st.program.preds;
-        let d = st.data.as_mut().unwrap();
+        let d = Arc::make_mut(st.data.as_mut().unwrap());
         for inst in d.store.inst.iter_mut() {
             if inst.alive {
                 for arg in inst.args.iter_mut() {
