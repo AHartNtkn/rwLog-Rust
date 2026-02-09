@@ -137,19 +137,12 @@ impl<C: ConstraintOps> NF<C> {
     /// This extracts variables, renumbers them, and computes the DropFresh
     /// that connects LHS variables to RHS variables.
     pub fn factor(lhs: TermId, rhs: TermId, constraint: C, terms: &mut TermStore) -> Self {
-        // Step 1: Collect variables from each side
-        let lhs_vars = collect_vars_ordered(lhs, terms);
+        // Step 1+2: Fused collect + renumber LHS in a single pass
+        let (norm_lhs, lhs_vars) = renumber_vars(lhs, terms);
+        // Collect RHS variables (still needed for DropFresh computation)
         let rhs_vars = collect_vars_ordered(rhs, terms);
 
         let n = lhs_vars.len() as u32;
-        let lhs_old_to_new = build_var_map(&lhs_vars);
-
-        // Step 2: Renumber LHS
-        let norm_lhs = if lhs_vars.is_empty() {
-            lhs
-        } else {
-            apply_var_renaming(lhs, &lhs_old_to_new, terms)
-        };
 
         // Step 3: Establish RHS variable order:
         // - shared vars in LHS order (preserves monotone routing)
@@ -269,17 +262,12 @@ pub fn factor_tensor<C: ConstraintOps>(
     let constraint_map = constraint_var_renaming(&lhs_pats, &rhs_pats, &constraint, terms);
     let constraint = constraint.remap_vars(&constraint_map, terms);
 
-    let lhs_vars = collect_vars_ordered_list(&lhs_pats, terms);
+    // Fused collect + renumber LHS in a single pass per term
+    let (norm_lhs, lhs_vars) = renumber_vars_list(&lhs_pats, terms);
+    // Collect RHS variables (still needed for DropFresh computation)
     let rhs_vars = collect_vars_ordered_list(&rhs_pats, terms);
 
     let n = lhs_vars.len() as u32;
-    let lhs_old_to_new = build_var_map(&lhs_vars);
-
-    let norm_lhs = if lhs_vars.is_empty() {
-        lhs_pats.clone()
-    } else {
-        apply_var_renaming_list(&lhs_pats, &lhs_old_to_new, terms)
-    };
 
     let rhs_set: std::collections::HashSet<u32> = rhs_vars.iter().copied().collect();
     let lhs_set: std::collections::HashSet<u32> = lhs_vars.iter().copied().collect();
@@ -462,31 +450,258 @@ fn collect_vars_helper(
 
 /// Renumber variables in a term to use consecutive indices starting at 0.
 /// Returns the renumbered term and the mapping from new index to old index.
+///
+/// This is a fused single-pass implementation that discovers variables and
+/// renames them in one traversal, eliminating the second pass that the
+/// sequential collect_vars + apply_var_renaming approach would require.
 pub fn renumber_vars(term: TermId, terms: &mut TermStore) -> (TermId, Vec<u32>) {
-    let vars = collect_vars_ordered(term, terms);
+    use crate::symbol::FuncId;
+
+    // Ground terms contain no variables.
+    if term.is_ground() {
+        return (term, vec![]);
+    }
+
+    // var_map: old_var_index -> assigned new index (None if not yet seen).
+    // We use a Vec<Option<u32>> indexed by old variable index.
+    // Start with a reasonable capacity and grow if needed.
+    let mut var_map: Vec<Option<u32>> = Vec::new();
+    // vars: the ordered list of original variable indices (first-appearance order).
+    let mut vars: Vec<u32> = Vec::new();
+    let mut next_var: u32 = 0;
+    // Track whether any variable actually needs renaming.
+    let mut is_identity = true;
+
+    enum Work {
+        Visit(TermId),
+        BuildApp(TermId, FuncId, usize),
+    }
+
+    let mut work_stack: SmallVec<[Work; 16]> = SmallVec::new();
+    let mut result_stack: SmallVec<[TermId; 16]> = SmallVec::new();
+
+    work_stack.push(Work::Visit(term));
+
+    while let Some(item) = work_stack.pop() {
+        match item {
+            Work::BuildApp(orig_tid, func, n) => {
+                let start = result_stack.len() - n;
+                let all_same = {
+                    let nodes = terms.nodes.get_mut();
+                    match nodes.get(orig_tid.index()) {
+                        Some(Term::App(_, orig_children)) => {
+                            orig_children.len() == n
+                                && orig_children
+                                    .iter()
+                                    .zip(&result_stack[start..])
+                                    .all(|(a, b)| *a == *b)
+                        }
+                        _ => false,
+                    }
+                };
+                if all_same {
+                    result_stack.truncate(start);
+                    result_stack.push(orig_tid);
+                } else {
+                    let new_term = terms.app_from_slice_unlocked(func, &result_stack[start..]);
+                    result_stack.truncate(start);
+                    result_stack.push(new_term);
+                }
+            }
+            Work::Visit(tid) => {
+                if tid.is_ground() {
+                    result_stack.push(tid);
+                    continue;
+                }
+                let var_action: Option<u32> = {
+                    let nodes = terms.nodes.get_mut();
+                    match nodes.get(tid.index()) {
+                        Some(Term::Var(idx)) => {
+                            let old_idx = *idx;
+                            let old_usize = old_idx as usize;
+                            // Grow var_map if needed.
+                            if old_usize >= var_map.len() {
+                                var_map.resize(old_usize + 1, None);
+                            }
+                            let new_idx = match var_map[old_usize] {
+                                Some(already) => already,
+                                None => {
+                                    let assigned = next_var;
+                                    next_var += 1;
+                                    var_map[old_usize] = Some(assigned);
+                                    vars.push(old_idx);
+                                    if assigned != old_idx {
+                                        is_identity = false;
+                                    }
+                                    assigned
+                                }
+                            };
+                            Some(new_idx)
+                        }
+                        Some(Term::App(_, children)) if children.is_empty() => {
+                            result_stack.push(tid);
+                            None
+                        }
+                        Some(Term::App(f, children)) => {
+                            let func = *f;
+                            let n = children.len();
+                            work_stack.push(Work::BuildApp(tid, func, n));
+                            for i in (0..n).rev() {
+                                work_stack.push(Work::Visit(children[i]));
+                            }
+                            None
+                        }
+                        None => {
+                            result_stack.push(tid);
+                            None
+                        }
+                    }
+                };
+                if let Some(new_idx) = var_action {
+                    result_stack.push(terms.var_unlocked(new_idx));
+                }
+            }
+        }
+    }
 
     if vars.is_empty() {
         return (term, vec![]);
     }
 
-    // Fast path: if variables are already 0..n-1 in order, no renaming needed.
-    let is_identity = vars
-        .iter()
-        .enumerate()
-        .all(|(new_idx, &old_idx)| new_idx as u32 == old_idx);
     if is_identity {
         return (term, vars);
     }
 
-    // Build old_to_new mapping
-    let max_var = vars.iter().copied().max().unwrap() as usize;
-    let mut old_to_new = vec![None; max_var + 1];
-    for (new_idx, &old_idx) in vars.iter().enumerate() {
-        old_to_new[old_idx as usize] = Some(new_idx as u32);
+    debug_assert_eq!(result_stack.len(), 1);
+    (result_stack.pop().unwrap(), vars)
+}
+
+/// Renumber variables in a list of terms to use consecutive indices starting at 0.
+/// Variables are numbered in order of first appearance across all terms (left to right).
+/// Returns the renumbered terms and the mapping from new index to old index.
+///
+/// This is a fused single-pass implementation that discovers variables and
+/// renames them in one traversal per term.
+fn renumber_vars_list(
+    terms_list: &[TermId],
+    terms: &mut TermStore,
+) -> (SmallVec<[TermId; 1]>, Vec<u32>) {
+    use crate::symbol::FuncId;
+
+    let mut var_map: Vec<Option<u32>> = Vec::new();
+    let mut vars: Vec<u32> = Vec::new();
+    let mut next_var: u32 = 0;
+    let mut is_identity = true;
+
+    enum Work {
+        Visit(TermId),
+        BuildApp(TermId, FuncId, usize),
     }
 
-    let renumbered = apply_var_renaming(term, &old_to_new, terms);
-    (renumbered, vars)
+    let mut work_stack: SmallVec<[Work; 16]> = SmallVec::new();
+    let mut result_stack: SmallVec<[TermId; 16]> = SmallVec::new();
+    let mut result_terms: SmallVec<[TermId; 1]> = SmallVec::new();
+
+    for &term in terms_list {
+        if term.is_ground() {
+            result_terms.push(term);
+            continue;
+        }
+
+        work_stack.clear();
+        result_stack.clear();
+        work_stack.push(Work::Visit(term));
+
+        while let Some(item) = work_stack.pop() {
+            match item {
+                Work::BuildApp(orig_tid, func, n) => {
+                    let start = result_stack.len() - n;
+                    let all_same = {
+                        let nodes = terms.nodes.get_mut();
+                        match nodes.get(orig_tid.index()) {
+                            Some(Term::App(_, orig_children)) => {
+                                orig_children.len() == n
+                                    && orig_children
+                                        .iter()
+                                        .zip(&result_stack[start..])
+                                        .all(|(a, b)| *a == *b)
+                            }
+                            _ => false,
+                        }
+                    };
+                    if all_same {
+                        result_stack.truncate(start);
+                        result_stack.push(orig_tid);
+                    } else {
+                        let new_term = terms.app_from_slice_unlocked(func, &result_stack[start..]);
+                        result_stack.truncate(start);
+                        result_stack.push(new_term);
+                    }
+                }
+                Work::Visit(tid) => {
+                    if tid.is_ground() {
+                        result_stack.push(tid);
+                        continue;
+                    }
+                    let var_action: Option<u32> = {
+                        let nodes = terms.nodes.get_mut();
+                        match nodes.get(tid.index()) {
+                            Some(Term::Var(idx)) => {
+                                let old_idx = *idx;
+                                let old_usize = old_idx as usize;
+                                if old_usize >= var_map.len() {
+                                    var_map.resize(old_usize + 1, None);
+                                }
+                                let new_idx = match var_map[old_usize] {
+                                    Some(already) => already,
+                                    None => {
+                                        let assigned = next_var;
+                                        next_var += 1;
+                                        var_map[old_usize] = Some(assigned);
+                                        vars.push(old_idx);
+                                        if assigned != old_idx {
+                                            is_identity = false;
+                                        }
+                                        assigned
+                                    }
+                                };
+                                Some(new_idx)
+                            }
+                            Some(Term::App(_, children)) if children.is_empty() => {
+                                result_stack.push(tid);
+                                None
+                            }
+                            Some(Term::App(f, children)) => {
+                                let func = *f;
+                                let n = children.len();
+                                work_stack.push(Work::BuildApp(tid, func, n));
+                                for i in (0..n).rev() {
+                                    work_stack.push(Work::Visit(children[i]));
+                                }
+                                None
+                            }
+                            None => {
+                                result_stack.push(tid);
+                                None
+                            }
+                        }
+                    };
+                    if let Some(new_idx) = var_action {
+                        result_stack.push(terms.var_unlocked(new_idx));
+                    }
+                }
+            }
+        }
+
+        debug_assert_eq!(result_stack.len(), 1);
+        result_terms.push(result_stack.pop().unwrap());
+    }
+
+    if is_identity {
+        return (terms_list.iter().copied().collect(), vars);
+    }
+
+    (result_terms, vars)
 }
 
 /// Renumber variables according to a given mapping.
