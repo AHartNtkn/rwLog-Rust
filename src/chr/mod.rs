@@ -664,6 +664,15 @@ impl PredStore {
         }
     }
 
+    /// Create a lightweight stub that won't be used for index lookups.
+    /// Avoids allocating HashMap entries for each IndexSpec.
+    fn new_stub() -> Self {
+        Self {
+            all: Vec::new(),
+            indexes: Vec::new(),
+        }
+    }
+
     fn insert(&mut self, cid: Cid, args: &[TermId], terms: &TermStore, specs: &[IndexSpec]) {
         self.all.push(cid);
         for (i, spec) in specs.iter().enumerate() {
@@ -715,6 +724,9 @@ pub struct ChrStore {
     pub preds: Vec<PredStore>,
     pub alive_count: u32,
     pub dead_count: u32,
+    /// When true, PredStore indexes are not populated because the program
+    /// uses only single-head simplification rules that never read them.
+    skip_indexes: bool,
 }
 
 impl ChrStore {
@@ -725,6 +737,7 @@ impl ChrStore {
             preds: Vec::new(),
             alive_count: 0,
             dead_count: 0,
+            skip_indexes: false,
         }
     }
 
@@ -744,17 +757,22 @@ impl ChrStore {
         &mut self.all_args[start..end]
     }
 
-    pub fn new(preds: &[PredDecl]) -> Self {
-        let mut pred_stores = Vec::with_capacity(preds.len());
-        for pred in preds {
-            pred_stores.push(PredStore::new(&pred.index_specs));
-        }
+    pub fn new(preds: &[PredDecl], skip_indexes: bool) -> Self {
+        let pred_stores: Vec<PredStore> = if skip_indexes {
+            (0..preds.len()).map(|_| PredStore::new_stub()).collect()
+        } else {
+            preds
+                .iter()
+                .map(|p| PredStore::new(&p.index_specs))
+                .collect()
+        };
         Self {
             inst: Vec::new(),
             all_args: Vec::new(),
             preds: pred_stores,
             alive_count: 0,
             dead_count: 0,
+            skip_indexes,
         }
     }
 
@@ -777,10 +795,12 @@ impl ChrStore {
             alive: true,
         };
         self.inst.push(inst);
-        let args_slice =
-            &self.all_args[arg_start as usize..(arg_start as usize + arg_count as usize)];
-        let pred_store = &mut self.preds[pred.0 as usize];
-        pred_store.insert(cid, args_slice, terms, specs);
+        if !self.skip_indexes {
+            let args_slice =
+                &self.all_args[arg_start as usize..(arg_start as usize + arg_count as usize)];
+            let pred_store = &mut self.preds[pred.0 as usize];
+            pred_store.insert(cid, args_slice, terms, specs);
+        }
         self.alive_count += 1;
     }
 
@@ -795,6 +815,19 @@ impl ChrStore {
     }
 
     fn rebuild_indexes(&mut self, preds: &[PredDecl], terms: &TermStore) {
+        if self.skip_indexes {
+            // Still recount alive/dead but skip all index construction.
+            self.alive_count = 0;
+            self.dead_count = 0;
+            for inst in self.inst.iter() {
+                if inst.alive {
+                    self.alive_count += 1;
+                } else {
+                    self.dead_count += 1;
+                }
+            }
+            return;
+        }
         self.preds = preds
             .iter()
             .map(|p| PredStore::new(&p.index_specs))
@@ -820,11 +853,13 @@ impl ChrStore {
     fn index_from(&mut self, from: usize, preds: &[PredDecl], terms: &TermStore) {
         for inst in self.inst[from..].iter() {
             if inst.alive {
-                let pred = inst.pred;
-                let specs = &preds[pred.0 as usize].index_specs;
-                let args = &self.all_args
-                    [inst.arg_start as usize..(inst.arg_start as usize + inst.arg_count as usize)];
-                self.preds[pred.0 as usize].insert(inst.cid, args, terms, specs);
+                if !self.skip_indexes {
+                    let pred = inst.pred;
+                    let specs = &preds[pred.0 as usize].index_specs;
+                    let args = &self.all_args[inst.arg_start as usize
+                        ..(inst.arg_start as usize + inst.arg_count as usize)];
+                    self.preds[pred.0 as usize].insert(inst.cid, args, terms, specs);
+                }
                 self.alive_count += 1;
             } else {
                 self.dead_count += 1;
@@ -1409,7 +1444,7 @@ impl<T: Theory> ChrState<T> {
         let program = &self.program;
         let arc = self.data.get_or_insert_with(|| {
             Arc::new(ChrStateData {
-                store: ChrStore::new(&program.preds),
+                store: ChrStore::new(&program.preds, program.all_single_head_simplification),
                 builtins: T::Store::default(),
                 tokens: TokenStore::new(program.rules.len()),
                 next_cid: 0,
@@ -1437,9 +1472,10 @@ impl<T: Theory> ChrState<T> {
 
     pub fn new(program: Arc<ChrProgram<T>>, builtins: T::Store) -> Self {
         let n_rules = program.rules.len();
+        let skip_idx = program.all_single_head_simplification;
         Self {
             data: Some(Arc::new(ChrStateData {
-                store: ChrStore::new(&program.preds),
+                store: ChrStore::new(&program.preds, skip_idx),
                 builtins,
                 tokens: TokenStore::new(n_rules),
                 next_cid: 0,
@@ -1455,7 +1491,7 @@ impl<T: Theory> ChrState<T> {
         let program = &self.program;
         let arc = self.data.get_or_insert_with(|| {
             Arc::new(ChrStateData {
-                store: ChrStore::new(&program.preds),
+                store: ChrStore::new(&program.preds, program.all_single_head_simplification),
                 builtins: T::Store::default(),
                 tokens: TokenStore::new(program.rules.len()),
                 next_cid: 0,
@@ -2124,7 +2160,8 @@ pub fn thaw_chr<T: Theory>(
     let mut st = ChrState::<T>::new(program.clone(), T::thaw_store(&[]));
     {
         let arc = st.data.as_mut().unwrap();
-        Arc::make_mut(arc).store = ChrStore::new(&program.preds);
+        Arc::make_mut(arc).store =
+            ChrStore::new(&program.preds, program.all_single_head_simplification);
     }
 
     for _ in 0..n_constraints {
