@@ -1650,8 +1650,11 @@ impl<T: Theory> ChrState<T> {
                 // is always set for single-head simplification rules).
                 d.store.mark_dead(cid);
 
-                // Execute body.
-                if !rule.body.exec_with_data(
+                // Execute body with inline matching: new constraints created
+                // by the body are matched against rules before being stored,
+                // avoiding the store/agenda roundtrip for matched constraints.
+                if !exec_body_inline(
+                    &rule.body,
                     &program.pats,
                     terms,
                     &program.builtins,
@@ -1903,6 +1906,150 @@ fn match_head(
     }
     let guard = terms.read_lock();
     match_flat_ops(flat_ops, &guard, inst_args, env)
+}
+
+/// Like `match_head` but takes `pred` and `args` directly instead of a
+/// `CInstance`.  Used for inline matching before storing constraints.
+#[inline]
+fn match_head_direct(
+    terms: &TermStore,
+    head: &HeadPat,
+    flat_ops: &[FlatMatchOp],
+    pred: PredId,
+    args: &[TermId],
+    env: &mut RVarEnv,
+) -> bool {
+    if head.pred != pred {
+        return false;
+    }
+    if head.args.len() != args.len() {
+        return false;
+    }
+    let guard = terms.read_lock();
+    match_flat_ops(flat_ops, &guard, args, env)
+}
+
+/// Try to match a newly-created constraint against triggered rules inline,
+/// before storing it. If a rule matches, execute its body recursively (DFS).
+/// Returns `Ok(true)` if a rule matched and fired, `Ok(false)` if no rule
+/// matched (caller should store the constraint), or `Err(())` if a body
+/// execution failed (propagate failure).
+fn try_inline_match<T: Theory>(
+    pred: PredId,
+    args: &[TermId],
+    terms: &mut TermStore,
+    program: &ChrProgram<T>,
+    data: &mut ChrStateData<T>,
+    env: &mut RVarEnv,
+) -> Result<bool, ()> {
+    let indexed = &program.triggers[pred.0 as usize];
+
+    let first_arg_functor: Option<FuncId> = args.first().and_then(|tid| {
+        terms.with_term(*tid, |t| match t? {
+            Term::App(f, _) => Some(*f),
+            Term::Var(_) => None,
+        })
+    });
+
+    let indexed_occs = first_arg_functor
+        .and_then(|f| indexed.by_functor.get(&f))
+        .map(|v| v.as_slice())
+        .unwrap_or(&[]);
+
+    for occ_ref in indexed_occs.iter().chain(indexed.fallback.iter()) {
+        let rule = &program.rules[occ_ref.rid.0 as usize];
+        let occ = &rule.occs[occ_ref.occ as usize];
+        let anchor_idx = occ.anchor_head as usize;
+        let anchor_head = &rule.heads[anchor_idx];
+        let anchor_flat = &rule.head_flat_ops[anchor_idx];
+
+        env.ensure_capacity(rule.n_rvars);
+        env.reset();
+
+        if !match_head_direct(terms, anchor_head, anchor_flat, pred, args, env) {
+            continue;
+        }
+
+        if !rule
+            .guard
+            .eval(&program.pats, terms, &data.builtins, &program.builtins, env)
+        {
+            continue;
+        }
+
+        // Rule fires! Execute body with inline matching (recursive DFS).
+        // The constraint never needs to be stored or killed.
+        if !exec_body_inline(
+            &rule.body,
+            &program.pats,
+            terms,
+            &program.builtins,
+            env,
+            program,
+            data,
+        ) {
+            return Err(());
+        }
+        return Ok(true);
+    }
+    Ok(false)
+}
+
+/// Execute a rule body, trying to match each new `AddChr` constraint inline
+/// before storing it. This is the DFS variant used during single-head
+/// simplification to avoid the store/agenda roundtrip for matched constraints.
+fn exec_body_inline<T: Theory>(
+    body: &BodyProg,
+    pats: &PatArena,
+    terms: &mut TermStore,
+    reg: &BuiltinRegistry<T>,
+    env: &RVarEnv,
+    program: &ChrProgram<T>,
+    data: &mut ChrStateData<T>,
+) -> bool {
+    // We need a separate env for inline matching (the caller's env must not
+    // be clobbered). Allocate once and reuse across AddChr instructions.
+    let mut match_env = RVarEnv::new(program.max_rvars);
+    for ins in body.code.iter() {
+        match ins {
+            BodyInstr::AddChr { pred, args } => {
+                let av = match collect_args(args, pats, terms, env) {
+                    Some(v) => v,
+                    None => return false,
+                };
+
+                match try_inline_match(*pred, &av, terms, program, data, &mut match_env) {
+                    Ok(true) => {
+                        // Rule matched and fired inline; constraint consumed.
+                    }
+                    Ok(false) => {
+                        // No rule matched; store the constraint but do NOT
+                        // push to agenda (we already tried all rules).
+                        let cid = Cid(data.next_cid);
+                        data.next_cid = data.next_cid.saturating_add(1);
+                        let specs = &program.preds[pred.0 as usize].index_specs;
+                        data.store.add_chr(cid, *pred, &av, terms, specs);
+                    }
+                    Err(()) => return false,
+                }
+            }
+            BodyInstr::AddBuiltin { bid, args } => {
+                let b = reg.get(*bid);
+                if args.len() != b.arity as usize {
+                    return false;
+                }
+                let av = match collect_args(args, pats, terms, env) {
+                    Some(v) => v,
+                    None => return false,
+                };
+                if !(b.add)(&mut data.builtins, terms, &av) {
+                    return false;
+                }
+            }
+            BodyInstr::Fail => return false,
+        }
+    }
+    true
 }
 
 /// Execute a pre-flattened match op sequence against a list of root terms.
