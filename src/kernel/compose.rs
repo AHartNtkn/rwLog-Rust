@@ -6,7 +6,7 @@ use crate::term::{Term, TermStore};
 use crate::trace::{debug_span, trace};
 
 use super::util::{
-    build_remap_map, match_term_lists_shifted, max_var_index_terms, pre_create_shifted_vars,
+    build_remap_map, match_term_lists_shifted_with_left_renaming, pre_create_shifted_vars,
 };
 
 /// Compose two NFs in sequence: a ; b
@@ -72,56 +72,49 @@ fn compose_nf_impl<C: ConstraintOps>(a: &NF<C>, b: &NF<C>, terms: &mut TermStore
         }
     }
 
-    let rw1 = collect_tensor(a, terms);
-    let rw2 = collect_tensor(b, terms);
-
     // Compute max var indices from NF metadata in O(1), avoiding term tree walks.
     let b_max_var = b.rwt_max_var();
     let b_var_offset = a.rwt_max_var().map(|v| v + 1).unwrap_or(0);
-
-    // Verify O(1) computation matches tree walk in debug builds.
-    debug_assert_eq!(
-        b_max_var,
-        max_var_index_terms(&rw2.lhs, terms).max(max_var_index_terms(&rw2.rhs, terms)),
-        "rwt_max_var mismatch for b"
-    );
-    debug_assert_eq!(
-        b_var_offset,
-        max_var_index_terms(&rw1.lhs, terms)
-            .max(max_var_index_terms(&rw1.rhs, terms))
-            .map(|v| v + 1)
-            .unwrap_or(0),
-        "rwt_max_var mismatch for a (b_var_offset)"
-    );
 
     // Pre-create shifted variable TermIds for virtual shifting (avoids physical tree rewriting).
     let shifted_vars = pre_create_shifted_vars(b_max_var, b_var_offset, terms);
 
     #[cfg(feature = "tracing")]
     trace!(
-        a_rhs = ?rw1.rhs,
-        b_lhs = ?rw2.lhs,
+        a_build = ?a.build_pats,
+        b_match = ?b.match_pats,
         b_var_offset,
         "matching_interface"
     );
 
-    let (subst_left, subst_right) =
-        match match_term_lists_shifted(&rw1.rhs, &rw2.lhs, b_var_offset, &shifted_vars, terms) {
-            Some((subst_left, subst_right)) => {
-                #[cfg(feature = "tracing")]
-                trace!(
-                    left_bindings = subst_left.len(),
-                    right_bindings = subst_right.len(),
-                    "matching_success"
-                );
-                (subst_left, subst_right)
-            }
-            None => {
-                #[cfg(feature = "tracing")]
-                trace!("matching_failed");
-                return None;
-            }
-        };
+    // Match a's build patterns against b's match patterns using inline renaming.
+    // This avoids the tree walk of collect_tensor(a) for the 99%+ of compose
+    // attempts that fail matching. The a-side variables are renamed inline via
+    // the cached_rhs_map instead of eagerly applying apply_var_renaming_list.
+    // b's match_pats are used directly (no renaming needed, same as rw2.lhs).
+    let (subst_left, subst_right) = match match_term_lists_shifted_with_left_renaming(
+        &a.build_pats,
+        &b.match_pats,
+        &a.cached_rhs_map,
+        b_var_offset,
+        &shifted_vars,
+        terms,
+    ) {
+        Some((subst_left, subst_right)) => {
+            #[cfg(feature = "tracing")]
+            trace!(
+                left_bindings = subst_left.len(),
+                right_bindings = subst_right.len(),
+                "matching_success"
+            );
+            (subst_left, subst_right)
+        }
+        None => {
+            #[cfg(feature = "tracing")]
+            trace!("matching_failed");
+            return None;
+        }
+    };
 
     let a_constraint = a.drop_fresh.constraint.apply_subst(&subst_left, terms);
     let b_constraint =
@@ -151,8 +144,13 @@ fn compose_nf_impl<C: ConstraintOps>(a: &NF<C>, b: &NF<C>, terms: &mut TermStore
         }
     };
 
+    // Success path: compute the RHS of b via collect_tensor (only for successes).
+    // a's LHS is just a.match_pats (no renaming needed).
+    // b's RHS needs the rhs_map applied via collect_tensor.
+    let rw2 = collect_tensor(b, terms);
+
     // Use fused factor_tensor_with_subst to avoid creating intermediate
-    // substituted terms. The original patterns (rw1.lhs, rw2.rhs) are passed
+    // substituted terms. The original patterns (a.match_pats, rw2.rhs) are passed
     // directly along with the substitutions, and factor_tensor_with_subst
     // resolves variables through the substitutions during its collect+renumber
     // passes, eliminating the need for apply_subst_list + apply_subst_shifted_list.
@@ -170,7 +168,7 @@ fn compose_nf_impl<C: ConstraintOps>(a: &NF<C>, b: &NF<C>, terms: &mut TermStore
         shifted_vars: &shifted_vars,
     };
     Some(factor_tensor_with_subst(
-        &rw1.lhs,
+        &a.match_pats,
         &lhs_params,
         &rw2.rhs,
         &rhs_params,

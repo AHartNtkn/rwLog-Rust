@@ -2,7 +2,10 @@
 //!
 //! This module contains helper functions used by both compose and meet operations.
 
-use crate::matching::{match_terms_combined, match_terms_combined_shifted};
+use crate::matching::{
+    match_terms_combined, match_terms_combined_shifted,
+    match_terms_combined_shifted_with_left_renaming,
+};
 use crate::nf::collect_vars_ordered;
 use crate::subst::{apply_subst, apply_subst_shifted, Subst};
 use crate::term::{TermId, TermStore};
@@ -98,6 +101,58 @@ pub fn match_term_lists_shifted(
             subst = match_subst;
         } else {
             let l_sub = apply_subst(l, &subst, terms);
+            let r_sub = apply_subst_shifted(r, &subst, right_offset, shifted_vars, terms);
+            let match_subst = match_terms_combined(l_sub, r_sub, terms)?;
+            subst = compose_subst(&subst, &match_subst, terms);
+        }
+    }
+    Some(crate::matching::split_match_subst(
+        &subst,
+        right_offset,
+        terms,
+    ))
+}
+
+/// Match two lists of terms element-wise with left-side variable renaming
+/// and right-side virtual shifting.
+///
+/// Left-side variables are renamed via `left_rhs_map` during matching instead
+/// of eagerly applying `apply_var_renaming_list`. Right-side variables are
+/// virtually shifted as in `match_term_lists_shifted`.
+///
+/// This is used in compose_nf to avoid the tree walk of `collect_tensor(a)`
+/// for the 99%+ of compose attempts that fail matching.
+pub fn match_term_lists_shifted_with_left_renaming(
+    left: &[TermId],
+    right: &[TermId],
+    left_rhs_map: &[u32],
+    right_offset: u32,
+    shifted_vars: &[TermId],
+    terms: &mut TermStore,
+) -> Option<(Subst, Subst)> {
+    if left.len() != right.len() {
+        return None;
+    }
+
+    let mut subst = Subst::new();
+    for (idx, (&l, &r)) in left.iter().zip(right.iter()).enumerate() {
+        if subst.is_empty() && idx == 0 {
+            // Fast path: first term, subst is empty.
+            // Use the inline-renaming matcher to avoid tree walk.
+            let match_subst = match_terms_combined_shifted_with_left_renaming(
+                l,
+                r,
+                left_rhs_map,
+                shifted_vars,
+                terms,
+            )?;
+            subst = match_subst;
+        } else {
+            // For subsequent terms or when subst is non-empty:
+            // Materialize the renamed left term, then match normally.
+            let rhs_map_opt: Vec<Option<u32>> = left_rhs_map.iter().map(|&v| Some(v)).collect();
+            let l_renamed = crate::nf::apply_var_renaming(l, &rhs_map_opt, terms);
+            let l_sub = apply_subst(l_renamed, &subst, terms);
             let r_sub = apply_subst_shifted(r, &subst, right_offset, shifted_vars, terms);
             let match_subst = match_terms_combined(l_sub, r_sub, terms)?;
             subst = compose_subst(&subst, &match_subst, terms);
