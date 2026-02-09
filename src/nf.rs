@@ -261,51 +261,113 @@ pub fn factor_tensor<C: ConstraintOps>(
     constraint: C,
     terms: &mut TermStore,
 ) -> NF<C> {
-    let constraint_map = constraint_var_renaming(&lhs_pats, &rhs_pats, &constraint, terms);
-    let constraint = constraint.remap_vars(&constraint_map, terms);
-
-    // Fused collect + renumber LHS in a single pass per term
+    // Step 1: Fused collect + renumber LHS in a single pass per term.
+    // This discovers lhs_vars as a side effect, eliminating a separate
+    // collect_vars_ordered_list call.
     let (norm_lhs, lhs_vars) = renumber_vars_list(&lhs_pats, terms);
-    // Collect RHS variables (still needed for DropFresh computation)
+
+    // Step 2: Collect RHS variables (one pass, not two).
     let rhs_vars = collect_vars_ordered_list(&rhs_pats, terms);
 
     let n = lhs_vars.len() as u32;
 
-    let rhs_set: std::collections::HashSet<u32> = rhs_vars.iter().copied().collect();
-    let lhs_set: std::collections::HashSet<u32> = lhs_vars.iter().copied().collect();
+    // Step 3: Build membership bitsets for O(1) lookups instead of HashSets.
+    // Variables are typically small indices (< 64), so a u64 bitset covers
+    // the common case. For larger indices we fall back to linear scan.
+    let mut lhs_bits: u64 = 0;
+    let mut lhs_has_large = false;
+    for &var in lhs_vars.iter() {
+        if var < 64 {
+            lhs_bits |= 1u64 << var;
+        } else {
+            lhs_has_large = true;
+        }
+    }
+    let mut rhs_bits: u64 = 0;
+    let mut rhs_has_large = false;
+    for &var in rhs_vars.iter() {
+        if var < 64 {
+            rhs_bits |= 1u64 << var;
+        } else {
+            rhs_has_large = true;
+        }
+    }
 
-    // Build RHS variable ordering: shared vars in LHS order, then RHS-only vars
+    // Inline membership check using bitset + fallback.
+    let lhs_contains = |var: u32| -> bool {
+        if var < 64 {
+            lhs_bits & (1u64 << var) != 0
+        } else if lhs_has_large {
+            lhs_vars.contains(&var)
+        } else {
+            false
+        }
+    };
+    let rhs_contains = |var: u32| -> bool {
+        if var < 64 {
+            rhs_bits & (1u64 << var) != 0
+        } else if rhs_has_large {
+            rhs_vars.contains(&var)
+        } else {
+            false
+        }
+    };
+
+    // Step 4: Build RHS variable ordering: shared vars in LHS order, then RHS-only vars.
+    // Simultaneously build a lookup table (old_var -> position in rhs_ordered)
+    // that replaces both build_var_map and the HashMap<u32, u32>.
     let mut rhs_ordered: Vec<u32> = Vec::new();
     for &var in lhs_vars.iter() {
-        if rhs_set.contains(&var) {
+        if rhs_contains(var) {
             rhs_ordered.push(var);
         }
     }
+    let shared_count = rhs_ordered.len();
     for &var in rhs_vars.iter() {
-        if !lhs_set.contains(&var) {
+        if !lhs_contains(var) {
             rhs_ordered.push(var);
         }
     }
 
     let m = rhs_ordered.len() as u32;
+
+    // Build a unified lookup: old_var_index -> new position in rhs_ordered.
+    // This serves as BOTH the renaming map for apply_var_renaming AND the
+    // rhs_pos lookup for DropFresh construction, eliminating a separate HashMap.
     let rhs_old_to_new = build_var_map(&rhs_ordered);
 
+    // Step 5: Compute constraint renaming inline, using already-collected
+    // lhs_vars and rhs_vars, avoiding the redundant collect_vars_ordered_list
+    // calls that constraint_var_renaming would make.
+    let constraint = if !constraint.is_empty() {
+        let mut constraint_vars = Vec::new();
+        constraint.collect_vars(terms, &mut constraint_vars);
+        constraint_vars.sort_unstable();
+        constraint_vars.dedup();
+        let constraint_map =
+            combined_var_renaming_with_extra(&lhs_vars, &rhs_vars, &constraint_vars);
+        constraint.remap_vars(&constraint_map, terms)
+    } else {
+        constraint
+    };
+
+    // Step 6: Renumber RHS variables.
     let norm_rhs = if rhs_ordered.is_empty() {
         rhs_pats.clone()
     } else {
         apply_var_renaming_list(&rhs_pats, &rhs_old_to_new, terms)
     };
 
-    // Build DropFresh by finding shared variables
-    let mut rhs_pos: std::collections::HashMap<u32, u32> = std::collections::HashMap::new();
-    for (pos, &var) in rhs_ordered.iter().enumerate() {
-        rhs_pos.insert(var, pos as u32);
-    }
-
+    // Step 7: Build DropFresh map. Shared vars are the first `shared_count`
+    // entries in rhs_ordered, placed at positions 0..shared_count.
+    // For each LHS var position i, check if the original var appears in rhs_old_to_new.
     let mut drop_fresh_map: SmallVec<[(u32, u32); 4]> = SmallVec::new();
     for (i, &lhs_orig_var) in lhs_vars.iter().enumerate() {
-        if let Some(&j) = rhs_pos.get(&lhs_orig_var) {
-            drop_fresh_map.push((i as u32, j));
+        let idx = lhs_orig_var as usize;
+        if idx < rhs_old_to_new.len() {
+            if let Some(j) = rhs_old_to_new[idx] {
+                drop_fresh_map.push((i as u32, j));
+            }
         }
     }
 
@@ -315,6 +377,11 @@ pub fn factor_tensor<C: ConstraintOps>(
         map: Arc::new(drop_fresh_map),
         constraint,
     };
+
+    // Suppress unused variable warning - shared_count documents the structure
+    // of rhs_ordered but isn't needed for computation since rhs_old_to_new
+    // already encodes the position information.
+    let _ = shared_count;
 
     NF::new(norm_lhs, drop_fresh, norm_rhs)
 }
