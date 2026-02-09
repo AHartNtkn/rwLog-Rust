@@ -3,6 +3,7 @@ use crate::drop_fresh::DropFresh;
 use crate::symbol::SymbolStore;
 use crate::term::{format_term, Term, TermId, TermStore};
 use smallvec::SmallVec;
+use std::hash::{Hash, Hasher};
 
 /// Normal Form representation of a rewrite rule.
 ///
@@ -13,7 +14,10 @@ use smallvec::SmallVec;
 /// - RwL (match_pats): patterns to decompose input, extracting variables
 /// - DropFresh: variable routing between LHS vars and RHS vars
 /// - RwR (build_pats): patterns to construct output from variables
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+///
+/// The `cached_hash` field stores a pre-computed hash of all content fields
+/// so that HashSet operations avoid re-hashing the full NF content every time.
+#[derive(Debug, Clone)]
 pub struct NF<C> {
     /// Patterns for matching input terms (RwL).
     /// Variables in these patterns are numbered 0..n-1 in order of first appearance.
@@ -24,7 +28,26 @@ pub struct NF<C> {
     /// Variables in these patterns are numbered 0..m-1 with shared vars in LHS order,
     /// followed by RHS-only vars in RHS order.
     pub build_pats: SmallVec<[TermId; 1]>,
+    /// Pre-computed hash of match_pats, drop_fresh, and build_pats.
+    cached_hash: u64,
 }
+
+impl<C: Hash> Hash for NF<C> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.cached_hash.hash(state);
+    }
+}
+
+impl<C: PartialEq> PartialEq for NF<C> {
+    fn eq(&self, other: &Self) -> bool {
+        self.cached_hash == other.cached_hash
+            && self.match_pats == other.match_pats
+            && self.drop_fresh == other.drop_fresh
+            && self.build_pats == other.build_pats
+    }
+}
+
+impl<C: Eq> Eq for NF<C> {}
 
 /// Direct tensor rewrite form (lists of patterns with constraint).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -34,17 +57,32 @@ pub struct RwT<C> {
     pub constraint: C,
 }
 
-impl<C> NF<C> {
+/// Compute the cached hash for NF content fields.
+fn compute_nf_hash<C: Hash>(
+    match_pats: &SmallVec<[TermId; 1]>,
+    drop_fresh: &DropFresh<C>,
+    build_pats: &SmallVec<[TermId; 1]>,
+) -> u64 {
+    let mut hasher = rustc_hash::FxHasher::default();
+    match_pats.hash(&mut hasher);
+    drop_fresh.hash(&mut hasher);
+    build_pats.hash(&mut hasher);
+    hasher.finish()
+}
+
+impl<C: Hash> NF<C> {
     /// Create a new NF directly (assumes already normalized).
     pub fn new(
         match_pats: SmallVec<[TermId; 1]>,
         drop_fresh: DropFresh<C>,
         build_pats: SmallVec<[TermId; 1]>,
     ) -> Self {
+        let cached_hash = compute_nf_hash(&match_pats, &drop_fresh, &build_pats);
         Self {
             match_pats,
             drop_fresh,
             build_pats,
+            cached_hash,
         }
     }
 
@@ -53,10 +91,15 @@ impl<C> NF<C> {
     /// This represents the identity relation that accepts any input
     /// and produces it unchanged.
     pub fn identity(constraint: C) -> Self {
+        let match_pats = SmallVec::new();
+        let drop_fresh = DropFresh::identity_with_constraint(0, constraint);
+        let build_pats = SmallVec::new();
+        let cached_hash = compute_nf_hash(&match_pats, &drop_fresh, &build_pats);
         Self {
-            match_pats: SmallVec::new(),
-            drop_fresh: DropFresh::identity_with_constraint(0, constraint),
-            build_pats: SmallVec::new(),
+            match_pats,
+            drop_fresh,
+            build_pats,
+            cached_hash,
         }
     }
 
@@ -171,11 +214,11 @@ impl<C: ConstraintOps> NF<C> {
             constraint,
         };
 
-        Self {
-            match_pats: smallvec::smallvec![norm_lhs],
+        Self::new(
+            smallvec::smallvec![norm_lhs],
             drop_fresh,
-            build_pats: smallvec::smallvec![norm_rhs],
-        }
+            smallvec::smallvec![norm_rhs],
+        )
     }
 }
 
@@ -275,11 +318,7 @@ pub fn factor_tensor<C: ConstraintOps>(
         constraint,
     };
 
-    NF {
-        match_pats: norm_lhs,
-        drop_fresh,
-        build_pats: norm_rhs,
-    }
+    NF::new(norm_lhs, drop_fresh, norm_rhs)
 }
 
 /// Compute a renaming map for constraints based on direct-rule variable ordering:
