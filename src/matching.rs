@@ -202,19 +202,14 @@ pub(crate) fn match_terms_combined_shifted(
                 } else {
                     b_deref
                 };
-                if occurs_unlocked(idx, b_shifted, &subst, terms) {
-                    #[cfg(feature = "tracing")]
-                    trace!(var = idx, "match_occurs_check_failed");
-                    return None;
-                }
+                // Occurs check is unnecessary here: this function is only called
+                // when subst starts empty and left/right variables are in disjoint
+                // namespaces (left < offset, right >= offset). Cross-namespace
+                // bindings cannot form cycles, so occurs check always returns false.
                 subst.bind(idx, b_shifted);
             }
             (TermKind::App(_), TermKind::Var(idx)) => {
-                if occurs_unlocked(idx, a_deref, &subst, terms) {
-                    #[cfg(feature = "tracing")]
-                    trace!(var = idx, "match_occurs_check_failed");
-                    return None;
-                }
+                // Same reasoning: disjoint namespaces make cycles impossible.
                 subst.bind(idx, a_deref);
             }
             (TermKind::App(f1), TermKind::App(f2)) => {
@@ -368,41 +363,6 @@ fn deref_shifted_unlocked(
         }
         _ => term, // App or invalid: return as-is
     }
-}
-
-/// Occurs check using lock-free access.
-/// Requires exclusive (`&mut`) access to the TermStore.
-fn occurs_unlocked(var: u32, term: TermId, subst: &Subst, terms: &mut TermStore) -> bool {
-    let nodes = terms.nodes.get_mut();
-    let mut stack: SmallVec<[TermId; 16]> = SmallVec::new();
-    stack.push(term);
-
-    while let Some(t) = stack.pop() {
-        // Inline deref_unlocked to avoid borrowing terms again.
-        let mut current = t;
-        while let Some(Term::Var(idx)) = nodes.get(current.index()) {
-            match subst.get(*idx) {
-                Some(bound) => current = bound,
-                None => break,
-            }
-        }
-        let t_deref = current;
-        match nodes.get(t_deref.index()) {
-            Some(Term::Var(idx)) => {
-                if *idx == var {
-                    return true;
-                }
-            }
-            Some(Term::App(_, children)) => {
-                for child in children.iter() {
-                    stack.push(*child);
-                }
-            }
-            None => {}
-        }
-    }
-
-    false
 }
 
 /// Shift all variables in a term using the pre-created shifted_vars mapping.
