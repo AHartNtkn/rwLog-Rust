@@ -433,7 +433,7 @@ theory no_c {
             DropFresh {
                 in_arity: 2,
                 out_arity: 1,
-                map: std::sync::Arc::new(smallvec::smallvec![(0, 0)]),
+                map: smallvec::smallvec![(0, 0)],
                 constraint: (),
             },
             smallvec::smallvec![fst_x],

@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use smallvec::SmallVec;
 
 /// A DropFresh represents a monotone partial injection between two arities.
@@ -18,10 +16,10 @@ use smallvec::SmallVec;
 /// - Input 1 is dropped
 /// - Input 2 maps to output 1
 ///
-/// The map is Arc-wrapped so that cloning a DropFresh is O(1) (atomic ref
-/// count increment) rather than O(n) where n is the number of map entries.
-/// DropFresh values are created once and cloned many times through NF cloning,
-/// so this amortizes the Arc::new cost on construction.
+/// DropFresh is only cloned as part of NfInner, which is itself shared via
+/// Arc<NfInner>. Since NFs are immutable after creation, DropFresh is never
+/// independently cloned in practice, so a direct SmallVec is cheaper than
+/// an Arc-wrapped one (avoids a heap allocation per NF construction).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct DropFresh<C> {
     /// Number of input positions.
@@ -30,8 +28,7 @@ pub struct DropFresh<C> {
     pub out_arity: u32,
     /// Monotone partial injection: (input_pos, output_pos) pairs.
     /// Must be strictly increasing in both coordinates.
-    /// Arc-wrapped for O(1) cloning.
-    pub map: Arc<SmallVec<[(u32, u32); 4]>>,
+    pub map: SmallVec<[(u32, u32); 4]>,
     /// Associated constraint.
     pub constraint: C,
 }
@@ -44,7 +41,7 @@ impl<C: Default> DropFresh<C> {
         Self {
             in_arity: arity,
             out_arity: arity,
-            map: Arc::new(map),
+            map,
             constraint: C::default(),
         }
     }
@@ -58,7 +55,7 @@ impl<C> DropFresh<C> {
         Self {
             in_arity: arity,
             out_arity: arity,
-            map: Arc::new(map),
+            map,
             constraint,
         }
     }
@@ -76,7 +73,7 @@ impl<C: Clone> DropFresh<C> {
         let drop_fresh = Self {
             in_arity,
             out_arity,
-            map: Arc::new(map),
+            map,
             constraint,
         };
         if drop_fresh.validate() {
@@ -92,7 +89,7 @@ impl<C: Clone> DropFresh<C> {
         Self {
             in_arity,
             out_arity,
-            map: Arc::new(SmallVec::new()),
+            map: SmallVec::new(),
             constraint,
         }
     }
@@ -142,7 +139,7 @@ impl<C: Clone> DropFresh<C> {
         Some(DropFresh {
             in_arity: self.in_arity,
             out_arity: other.out_arity,
-            map: Arc::new(result_map),
+            map: result_map,
             constraint: C::default(),
         })
     }

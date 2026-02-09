@@ -3,8 +3,6 @@
 //! The dual of a relation R is its converse: if R relates a to b,
 //! then dual(R) relates b to a.
 
-use std::sync::Arc;
-
 use crate::constraint::ConstraintOps;
 use crate::drop_fresh::DropFresh;
 use crate::nf::{collect_tensor, factor_tensor, NF};
@@ -38,7 +36,7 @@ pub fn dual_drop_fresh<C: Clone>(drop_fresh: &DropFresh<C>) -> DropFresh<C> {
     DropFresh {
         in_arity: new_in_arity,
         out_arity: new_out_arity,
-        map: Arc::new(inverted),
+        map: inverted,
         constraint: drop_fresh.constraint.clone(),
     }
 }
@@ -59,8 +57,6 @@ pub fn dual_nf<C: ConstraintOps>(nf: &NF<C>, terms: &mut TermStore) -> NF<C> {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
     use crate::drop_fresh::DropFresh;
     use crate::kernel::compose_nf;
     use crate::nf::NF;
@@ -115,7 +111,7 @@ mod tests {
         let drop_fresh: DropFresh<()> = DropFresh {
             in_arity: 3,
             out_arity: 7,
-            map: Arc::new(SmallVec::from_slice(&[(0, 2), (2, 5)])),
+            map: SmallVec::from_slice(&[(0, 2), (2, 5)]),
             constraint: (),
         };
         let dual = dual_drop_fresh(&drop_fresh);
@@ -130,7 +126,7 @@ mod tests {
         let drop_fresh: DropFresh<()> = DropFresh {
             in_arity: 4,
             out_arity: 3,
-            map: Arc::new(SmallVec::from_slice(&[(0, 0), (2, 1), (3, 2)])),
+            map: SmallVec::from_slice(&[(0, 0), (2, 1), (3, 2)]),
             constraint: (),
         };
         let dual1 = dual_drop_fresh(&drop_fresh);
@@ -150,7 +146,7 @@ mod tests {
         let drop_fresh: DropFresh<()> = DropFresh {
             in_arity: 6,
             out_arity: 5,
-            map: Arc::new(SmallVec::from_slice(&[(1, 0), (2, 2), (4, 3), (5, 4)])),
+            map: SmallVec::from_slice(&[(1, 0), (2, 2), (4, 3), (5, 4)]),
             constraint: (),
         };
         let dual1 = dual_drop_fresh(&drop_fresh);
@@ -171,7 +167,7 @@ mod tests {
         let drop_fresh: DropFresh<()> = DropFresh {
             in_arity: 2,
             out_arity: 3,
-            map: Arc::new(SmallVec::from_slice(&[(0, 1), (1, 2)])),
+            map: SmallVec::from_slice(&[(0, 1), (1, 2)]),
             constraint: (),
         };
         let dual = dual_drop_fresh(&drop_fresh);
@@ -190,7 +186,7 @@ mod tests {
         let drop_fresh: DropFresh<()> = DropFresh {
             in_arity: 3,
             out_arity: 4,
-            map: Arc::new(SmallVec::from_slice(&[(0, 3), (1, 1), (2, 2)])),
+            map: SmallVec::from_slice(&[(0, 3), (1, 1), (2, 2)]),
             constraint: (),
         };
         let dual = dual_drop_fresh(&drop_fresh);
@@ -214,7 +210,7 @@ mod tests {
         let drop_fresh: DropFresh<()> = DropFresh {
             in_arity: 5,
             out_arity: 5,
-            map: Arc::new(SmallVec::from_slice(&[(0, 4), (1, 2), (3, 0), (4, 3)])),
+            map: SmallVec::from_slice(&[(0, 4), (1, 2), (3, 0), (4, 3)]),
             constraint: (),
         };
         let dual = dual_drop_fresh(&drop_fresh);
@@ -232,7 +228,7 @@ mod tests {
         let drop_fresh: DropFresh<()> = DropFresh {
             in_arity: 4,
             out_arity: 5,
-            map: Arc::new(SmallVec::from_slice(&[(0, 1), (1, 3), (3, 4)])),
+            map: SmallVec::from_slice(&[(0, 1), (1, 3), (3, 4)]),
             constraint: (),
         };
         let dual = dual_drop_fresh(&drop_fresh);
@@ -263,7 +259,7 @@ mod tests {
         let drop_fresh: DropFresh<()> = DropFresh {
             in_arity: 3,
             out_arity: 4,
-            map: Arc::new(SmallVec::new()),
+            map: SmallVec::new(),
             constraint: (),
         };
         let dual = dual_drop_fresh(&drop_fresh);
@@ -279,7 +275,7 @@ mod tests {
         let drop_fresh: DropFresh<()> = DropFresh {
             in_arity: 0,
             out_arity: 3,
-            map: Arc::new(SmallVec::new()),
+            map: SmallVec::new(),
             constraint: (),
         };
         let dual = dual_drop_fresh(&drop_fresh);
@@ -295,7 +291,7 @@ mod tests {
         let drop_fresh: DropFresh<()> = DropFresh {
             in_arity: 3,
             out_arity: 0,
-            map: Arc::new(SmallVec::new()),
+            map: SmallVec::new(),
             constraint: (),
         };
         let dual = dual_drop_fresh(&drop_fresh);
@@ -311,7 +307,7 @@ mod tests {
         let drop_fresh: DropFresh<()> = DropFresh {
             in_arity: 5,
             out_arity: 2,
-            map: Arc::new(SmallVec::from_slice(&[(1, 0), (3, 1)])),
+            map: SmallVec::from_slice(&[(1, 0), (3, 1)]),
             constraint: (),
         };
         let dual = dual_drop_fresh(&drop_fresh);
@@ -327,7 +323,7 @@ mod tests {
         let drop_fresh: DropFresh<()> = DropFresh {
             in_arity: 2,
             out_arity: 5,
-            map: Arc::new(SmallVec::from_slice(&[(0, 1), (1, 3)])),
+            map: SmallVec::from_slice(&[(0, 1), (1, 3)]),
             constraint: (),
         };
         let dual = dual_drop_fresh(&drop_fresh);
@@ -343,7 +339,7 @@ mod tests {
         let drop_fresh: DropFresh<()> = DropFresh {
             in_arity: 3,
             out_arity: 4,
-            map: Arc::new(SmallVec::from_slice(&[(2, 1)])),
+            map: SmallVec::from_slice(&[(2, 1)]),
             constraint: (),
         };
         let dual = dual_drop_fresh(&drop_fresh);
@@ -359,7 +355,7 @@ mod tests {
         let drop_fresh: DropFresh<()> = DropFresh {
             in_arity: 4,
             out_arity: 5,
-            map: Arc::new(SmallVec::from_slice(&[(0, 0), (3, 4)])),
+            map: SmallVec::from_slice(&[(0, 0), (3, 4)]),
             constraint: (),
         };
         let dual = dual_drop_fresh(&drop_fresh);
@@ -372,7 +368,7 @@ mod tests {
         let drop_fresh: DropFresh<i32> = DropFresh {
             in_arity: 2,
             out_arity: 3,
-            map: Arc::new(SmallVec::from_slice(&[(0, 1)])),
+            map: SmallVec::from_slice(&[(0, 1)]),
             constraint: 42,
         };
         let dual = dual_drop_fresh(&drop_fresh);
@@ -480,7 +476,7 @@ mod tests {
             DropFresh {
                 in_arity: 2,
                 out_arity: 1,
-                map: Arc::new(SmallVec::from_slice(&[(0, 0)])),
+                map: SmallVec::from_slice(&[(0, 0)]),
                 constraint: (),
             },
             SmallVec::from_slice(&[v0]),
@@ -510,7 +506,7 @@ mod tests {
             DropFresh {
                 in_arity: 2,
                 out_arity: 1,
-                map: Arc::new(SmallVec::from_slice(&[(0, 0)])),
+                map: SmallVec::from_slice(&[(0, 0)]),
                 constraint: (),
             },
             SmallVec::from_slice(&[g_term]),
@@ -563,7 +559,7 @@ mod tests {
             DropFresh {
                 in_arity: 0,
                 out_arity: 1,
-                map: Arc::new(SmallVec::new()),
+                map: SmallVec::new(),
                 constraint: (),
             },
             SmallVec::from_slice(&[v0]),
@@ -586,7 +582,7 @@ mod tests {
             DropFresh {
                 in_arity: 1,
                 out_arity: 0,
-                map: Arc::new(SmallVec::new()),
+                map: SmallVec::new(),
                 constraint: (),
             },
             SmallVec::new(),
@@ -795,7 +791,7 @@ mod tests {
             DropFresh {
                 in_arity: 2,
                 out_arity: 1,
-                map: Arc::new(SmallVec::from_slice(&[(0, 0)])),
+                map: SmallVec::from_slice(&[(0, 0)]),
                 constraint: (),
             },
             SmallVec::from_slice(&[fst_x]),
@@ -828,7 +824,7 @@ mod tests {
             DropFresh {
                 in_arity: 0,
                 out_arity: 2,
-                map: Arc::new(SmallVec::new()),
+                map: SmallVec::new(),
                 constraint: (),
             },
             SmallVec::from_slice(&[pair_xy]),

@@ -237,7 +237,7 @@ impl<C: ConstraintOps> NF<C> {
         let drop_fresh = DropFresh {
             in_arity: n,
             out_arity: m,
-            map: Arc::new(drop_fresh_map),
+            map: drop_fresh_map,
             constraint,
         };
 
@@ -398,7 +398,7 @@ pub fn factor_tensor<C: ConstraintOps>(
     let drop_fresh = DropFresh {
         in_arity: n,
         out_arity: m,
-        map: Arc::new(drop_fresh_map),
+        map: drop_fresh_map,
         constraint,
     };
 
