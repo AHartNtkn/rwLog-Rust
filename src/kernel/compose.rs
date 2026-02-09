@@ -6,7 +6,7 @@ use crate::term::{Term, TermStore};
 use crate::trace::{debug_span, trace};
 
 use super::util::{
-    match_term_lists_shifted, max_var_index_terms, pre_create_shifted_vars, remap_constraint_vars,
+    build_remap_map, match_term_lists_shifted, max_var_index_terms, pre_create_shifted_vars,
 };
 
 /// Compose two NFs in sequence: a ; b
@@ -123,11 +123,15 @@ fn compose_nf_impl<C: ConstraintOps>(a: &NF<C>, b: &NF<C>, terms: &mut TermStore
             }
         };
 
-    let b_constraint =
-        remap_constraint_vars(&b.drop_fresh.constraint, b_max_var, b_var_offset, terms);
-
     let a_constraint = a.drop_fresh.constraint.apply_subst(&subst_left, terms);
-    let b_constraint = b_constraint.apply_subst(&subst_right, terms);
+    let b_constraint =
+        match build_remap_map(&b.drop_fresh.constraint, b_max_var, b_var_offset, terms) {
+            Some(map) => b
+                .drop_fresh
+                .constraint
+                .remap_and_apply_subst(&map, &subst_right, terms),
+            None => b.drop_fresh.constraint.apply_subst(&subst_right, terms),
+        };
 
     let combined = match a_constraint.combine_owned(b_constraint) {
         Some(c) => c,

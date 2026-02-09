@@ -2252,30 +2252,35 @@ impl<T: Theory> crate::constraint::ConstraintOps for ChrState<T> {
     }
 
     fn apply_subst(&self, subst: &Subst, terms: &mut TermStore) -> Self {
-        if self.data.is_none() {
+        let data_ref = match &self.data {
+            Some(d) => d,
+            None => return self.clone(),
+        };
+        if subst.is_empty() {
             return self.clone();
         }
-        let mut st = self.clone();
-        if !subst.is_empty() {
-            let d = Arc::make_mut(st.data.as_mut().unwrap());
-            let args_changed = Self::apply_subst_to_data(d, subst, terms);
-            if args_changed {
-                // Subst changed constraint args; indexes and fixpoint are stale.
-                d.fixpoint_watermark = 0;
-            }
+        // Clone data directly to avoid self.clone() + Arc::make_mut double-clone.
+        let mut data = data_ref.as_ref().clone();
+        let args_changed = Self::apply_subst_to_data(&mut data, subst, terms);
+        if args_changed {
+            data.fixpoint_watermark = 0;
         }
-        st
+        ChrState {
+            program: self.program.clone(),
+            data: Some(Arc::new(data)),
+        }
     }
 
     fn remap_vars(&self, map: &[Option<u32>], terms: &mut TermStore) -> Self {
-        if self.data.is_none() {
-            return self.clone();
-        }
-        let mut st = self.clone();
-        let preds = &st.program.preds;
-        let d = Arc::make_mut(st.data.as_mut().unwrap());
+        let data_ref = match &self.data {
+            Some(d) => d,
+            None => return self.clone(),
+        };
+        // Clone data directly to avoid self.clone() + Arc::make_mut double-clone.
+        let mut data = data_ref.as_ref().clone();
+        let preds = &self.program.preds;
         let mut args_changed = false;
-        for inst in d.store.inst.iter_mut() {
+        for inst in data.store.inst.iter_mut() {
             if inst.alive {
                 for arg in inst.args.iter_mut() {
                     let new_arg = apply_var_renaming(*arg, map, terms);
@@ -2286,13 +2291,57 @@ impl<T: Theory> crate::constraint::ConstraintOps for ChrState<T> {
                 }
             }
         }
-        d.builtins = T::remap_vars(&d.builtins, map, terms);
+        data.builtins = T::remap_vars(&data.builtins, map, terms);
         if args_changed {
-            d.store.rebuild_indexes(preds, terms);
-            d.fixpoint_watermark = 0;
+            data.store.rebuild_indexes(preds, terms);
+            data.fixpoint_watermark = 0;
         }
-        d.agenda.clear();
-        st
+        data.agenda.clear();
+        ChrState {
+            program: self.program.clone(),
+            data: Some(Arc::new(data)),
+        }
+    }
+
+    fn remap_and_apply_subst(
+        &self,
+        map: &[Option<u32>],
+        subst: &Subst,
+        terms: &mut TermStore,
+    ) -> Self {
+        let data_ref = match &self.data {
+            Some(d) => d,
+            None => return self.clone(),
+        };
+        // Clone data once instead of twice (remap_vars clone + apply_subst clone).
+        let mut data = data_ref.as_ref().clone();
+        let mut args_changed = false;
+        for inst in data.store.inst.iter_mut() {
+            if inst.alive {
+                for arg in inst.args.iter_mut() {
+                    // Step 1: remap variable indices
+                    let remapped = apply_var_renaming(*arg, map, terms);
+                    // Step 2: apply substitution
+                    let substituted = apply_subst(remapped, subst, terms);
+                    if substituted != *arg {
+                        *arg = substituted;
+                        args_changed = true;
+                    }
+                }
+            }
+        }
+        // Fuse builtin operations
+        data.builtins = T::remap_vars(&data.builtins, map, terms);
+        data.builtins = T::apply_subst(&data.builtins, subst, terms);
+        if args_changed {
+            data.fixpoint_watermark = 0;
+        }
+        // Skip rebuild_indexes: normalize_owned will do this after combine.
+        data.agenda.clear();
+        ChrState {
+            program: self.program.clone(),
+            data: Some(Arc::new(data)),
+        }
     }
 
     fn collect_vars(&self, terms: &TermStore, out: &mut Vec<u32>) {

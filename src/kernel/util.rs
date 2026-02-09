@@ -125,18 +125,18 @@ pub fn compose_subst(existing: &Subst, new: &Subst, terms: &mut TermStore) -> Su
     combined
 }
 
-/// Remap constraint variables by the given offset.
+/// Build a remap map that shifts all variable indices by `offset`.
 ///
-/// Returns the remapped constraint if offset is non-zero and there are variables,
-/// otherwise returns a clone of the original.
-pub fn remap_constraint_vars<C: crate::constraint::ConstraintOps>(
+/// Returns `None` if no remapping is needed (offset is zero or no variables exist).
+/// The map has `map[i] = Some(i + offset)` for `i` in `0..=max`.
+pub fn build_remap_map<C: crate::constraint::ConstraintOps>(
     constraint: &C,
     max_var: Option<u32>,
     offset: u32,
-    terms: &mut TermStore,
-) -> C {
+    terms: &TermStore,
+) -> Option<Vec<Option<u32>>> {
     if offset == 0 {
-        return constraint.clone();
+        return None;
     }
     let mut constraint_vars = Vec::new();
     constraint.collect_vars(terms, &mut constraint_vars);
@@ -155,8 +155,24 @@ pub fn remap_constraint_vars<C: crate::constraint::ConstraintOps>(
             for i in 0..=max {
                 map[i as usize] = Some(i + offset);
             }
-            constraint.remap_vars(&map, terms)
+            Some(map)
         }
+        None => None,
+    }
+}
+
+/// Remap constraint variables by the given offset.
+///
+/// Returns the remapped constraint if offset is non-zero and there are variables,
+/// otherwise returns a clone of the original.
+pub fn remap_constraint_vars<C: crate::constraint::ConstraintOps>(
+    constraint: &C,
+    max_var: Option<u32>,
+    offset: u32,
+    terms: &mut TermStore,
+) -> C {
+    match build_remap_map(constraint, max_var, offset, terms) {
+        Some(map) => constraint.remap_vars(&map, terms),
         None => constraint.clone(),
     }
 }

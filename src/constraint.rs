@@ -49,6 +49,21 @@ pub trait ConstraintOps: Clone + Eq + Hash + Default + Send + Sync {
     /// Remap variable indices according to a renaming map.
     fn remap_vars(&self, map: &[Option<u32>], terms: &mut TermStore) -> Self;
 
+    /// Fused remap + apply_subst: remap variable indices then apply a substitution
+    /// in a single operation, avoiding redundant cloning.
+    ///
+    /// Default implementation delegates to `remap_vars` then `apply_subst`.
+    /// Implementors with expensive clone operations should override this.
+    fn remap_and_apply_subst(
+        &self,
+        map: &[Option<u32>],
+        subst: &Subst,
+        terms: &mut TermStore,
+    ) -> Self {
+        let remapped = self.remap_vars(map, terms);
+        remapped.apply_subst(subst, terms)
+    }
+
     /// Collect variable indices referenced by this constraint.
     fn collect_vars(&self, _terms: &TermStore, _out: &mut Vec<u32>) {}
 
