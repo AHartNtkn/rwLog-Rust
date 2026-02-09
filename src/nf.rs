@@ -384,6 +384,10 @@ fn collect_vars_helper(
     }
     stack.push(term);
     while let Some(tid) = stack.pop() {
+        // Ground terms contain no variables — skip entire subtree.
+        if tid.is_ground() {
+            continue;
+        }
         match guard.get(tid) {
             Some(Term::Var(idx)) => {
                 let v = *idx;
@@ -496,6 +500,11 @@ pub fn apply_var_renaming(
                 }
             }
             Work::Visit(tid) => {
+                // Ground terms contain no variables — skip entire subtree.
+                if tid.is_ground() {
+                    result_stack.push(tid);
+                    continue;
+                }
                 let guard = terms.read_lock();
                 match guard.get(tid) {
                     Some(Term::Var(idx)) => {
