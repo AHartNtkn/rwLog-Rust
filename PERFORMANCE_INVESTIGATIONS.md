@@ -89,6 +89,7 @@ Each item is an investigation area, not a guaranteed improvement.
 6. Introduce generation-based GC/reclamation for dead transient terms between query epochs.
 7. Add copy-on-write term slabs shared across branches.
 8. Investigate lock-free symbol/term interning paths for parallel evaluators.
+9. ~~Evaluate alternative allocators for allocation-heavy workloads.~~ **Implemented — ~1.3% primary / ~21.5% secondary improvement.** See [docs/perf_investigations/mimalloc_global_allocator.md](docs/perf_investigations/mimalloc_global_allocator.md). Replaced glibc malloc with mimalloc as global allocator. Massive secondary improvement on treecalc_first16 (allocation-dominated workload). Set per-binary rather than in lib.rs due to profiling binaries with custom counting allocators.
 
 ### Constraint/CHR Engine Integration
 
@@ -123,7 +124,7 @@ Each item is an investigation area, not a guaranteed improvement.
 5. Cache failed meet pairs to avoid repeated impossible intersections.
 6. Rework `AndGroup` to pipeline partial meets instead of materializing large intermediate frontiers.
 7. Use async producer/consumer channels for parallel branch production and controlled backpressure.
-8. Add branch-specific dedup filters to cut cross-product blow-up.
+8. ~~Add branch-specific dedup filters to cut cross-product blow-up.~~ **Partially addressed — ~5% improvement.** See [docs/perf_investigations/arc_diagonal_join.md](docs/perf_investigations/arc_diagonal_join.md). Arc<NF<C>> wrapping in DiagonalJoin seen vectors and dedup sets eliminates deep NF clones on every emit. Dedup set insertion is now O(1) Arc clone instead of deep clone. Combined with earlier Arc wrapping in Table answers (see [docs/perf_investigations/arc_nf_answers.md](docs/perf_investigations/arc_nf_answers.md)).
 
 ### Disjunction/Or Execution
 
