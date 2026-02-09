@@ -422,3 +422,22 @@ determinism = "nondeterministic"
 answer_shape = "prefix_stream"
 infinite_stream = true
 notes = "Streaming treecalc stress query; validates productive prefix generation."
+
+[[case]]
+id = "treecalc_synth_flip"
+title = "TreeCalc Flip Synthesis"
+tier = "stress"
+category = "constraints"
+description = "Synthesize the flip combinator in tree calculus with CHR constraints; regression guard for compose scheduling."
+mode = "first_answer"
+expected_kind = "at_least"
+expected_value = 1
+program = """
+{{PROGRAM_TREECALC_SYNTH}}
+"""
+query = "[[$x { (no_c $x) } -> (f $x (c z))] ; app ; [$x -> (f $x (c (s z)))] ; app ; @(a (c (s z)) (c z))]"
+tags = ["treecalc", "constraints", "synthesis", "regression_guard", "realistic"]
+determinism = "nondeterministic"
+answer_shape = "single"
+infinite_stream = false
+notes = "Guards against regressions in CHR constraint + tabled compose interaction. Synthesizes the flip combinator: find x (no_c) such that app(app(x, c(0)), c(1)) = a(c(1), c(0))."
