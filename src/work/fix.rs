@@ -6,7 +6,7 @@ use crate::queue::{BlockedOn, QueueWaker, WakeHub};
 use crate::rel::{Rel, RelId};
 use crate::term::TermStore;
 use dashmap::DashMap;
-use std::collections::HashSet;
+use rustc_hash::FxHashSet;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
@@ -132,7 +132,7 @@ pub struct ProducerSpec<C: ConstraintOps> {
 #[derive(Debug)]
 pub(crate) struct TableAnswers<C: ConstraintOps> {
     answers: Vec<NF<C>>,
-    seen: HashSet<NF<C>>,
+    seen: FxHashSet<NF<C>>,
     waker: QueueWaker,
 }
 
@@ -164,7 +164,7 @@ impl<C: ConstraintOps> Table<C> {
         Self {
             answers: FastLock::new(TableAnswers {
                 answers: Vec::new(),
-                seen: HashSet::new(),
+                seen: FxHashSet::default(),
                 waker,
             }),
             producer: FastLock::new(TableProducer {

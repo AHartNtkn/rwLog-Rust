@@ -1,7 +1,7 @@
 use crate::nf::NF;
 use crossbeam_channel::{Receiver, RecvTimeoutError, Sender, TryRecvError, TrySendError};
 use parking_lot::Mutex;
-use std::collections::HashSet;
+use rustc_hash::FxHashSet;
 use std::hash::Hash;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -211,7 +211,7 @@ pub enum AnswerSink<C> {
     Queue(AnswerSender<C>),
     DedupQueue {
         sender: AnswerSender<C>,
-        seen: Arc<Mutex<HashSet<NF<C>>>>,
+        seen: Arc<Mutex<FxHashSet<NF<C>>>>,
     },
     #[cfg(test)]
     Collector(Arc<Mutex<Vec<NF<C>>>>),

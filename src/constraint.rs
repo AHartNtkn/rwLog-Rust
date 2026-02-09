@@ -122,8 +122,7 @@ mod tests {
     fn unit_constraint_normalize() {
         let c: () = ();
         let mut terms = TermStore::new();
-        let (normalized, subst) = c.normalize(&mut terms).unwrap();
-        assert_eq!(normalized, ());
+        let (_normalized, subst) = c.normalize(&mut terms).unwrap();
         assert!(subst.is_none());
     }
 }

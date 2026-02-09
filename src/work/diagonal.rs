@@ -2,7 +2,8 @@ use crate::constraint::ConstraintOps;
 use crate::nf::NF;
 use crate::node::{step_node, Node, NodeStep};
 use crate::term::TermStore;
-use std::collections::{HashSet, VecDeque};
+use rustc_hash::FxHashSet;
+use std::collections::VecDeque;
 
 use super::{Work, WorkStep};
 
@@ -72,10 +73,10 @@ pub(crate) struct DiagonalJoin<C: ConstraintOps, S: JoinStrategy<C> + Default> {
     pub(crate) right: Box<Node<C>>,
     pub(crate) seen_l: Vec<NF<C>>,
     pub(crate) seen_r: Vec<NF<C>>,
-    seen_l_set: HashSet<NF<C>>,
-    seen_r_set: HashSet<NF<C>>,
+    seen_l_set: FxHashSet<NF<C>>,
+    seen_r_set: FxHashSet<NF<C>>,
     pending: VecDeque<NF<C>>,
-    pending_set: HashSet<NF<C>>,
+    pending_set: FxHashSet<NF<C>>,
     pub(crate) flip: bool,
     pub(crate) strategy: S,
 }
@@ -87,10 +88,10 @@ impl<C: ConstraintOps, S: JoinStrategy<C> + Default> DiagonalJoin<C, S> {
             right: Box::new(right),
             seen_l: Vec::new(),
             seen_r: Vec::new(),
-            seen_l_set: HashSet::new(),
-            seen_r_set: HashSet::new(),
+            seen_l_set: FxHashSet::default(),
+            seen_r_set: FxHashSet::default(),
             pending: VecDeque::new(),
-            pending_set: HashSet::new(),
+            pending_set: FxHashSet::default(),
             flip: false,
             strategy,
         }
