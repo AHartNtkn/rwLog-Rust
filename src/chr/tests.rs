@@ -164,7 +164,12 @@ fn alive_args_for_pred(store: &ChrStore, pred: PredId) -> Vec<SmallVec<[crate::t
         .inst
         .iter()
         .filter(|inst| inst.alive && inst.pred == pred)
-        .map(|inst| inst.args.clone())
+        .map(|inst| {
+            let args = store.args(inst);
+            let mut sv: SmallVec<[crate::term::TermId; 4]> = SmallVec::new();
+            sv.extend_from_slice(args);
+            sv
+        })
         .collect()
 }
 

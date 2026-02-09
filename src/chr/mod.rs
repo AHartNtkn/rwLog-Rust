@@ -664,21 +664,21 @@ impl PredStore {
         }
     }
 
-    fn insert(&mut self, cid: Cid, inst: &CInstance, terms: &TermStore, specs: &[IndexSpec]) {
+    fn insert(&mut self, cid: Cid, args: &[TermId], terms: &TermStore, specs: &[IndexSpec]) {
         self.all.push(cid);
         for (i, spec) in specs.iter().enumerate() {
             match (spec, &mut self.indexes[i]) {
                 (IndexSpec::PredOnly, _) => {}
                 (IndexSpec::ArgTerm(pos), IndexData::ArgTerm(map)) => {
                     let p = *pos as usize;
-                    if p < inst.args.len() {
-                        map.entry(inst.args[p]).or_default().push(cid);
+                    if p < args.len() {
+                        map.entry(args[p]).or_default().push(cid);
                     }
                 }
                 (IndexSpec::ArgTopFunctor(pos), IndexData::ArgTopFunctor(map)) => {
                     let p = *pos as usize;
-                    if p < inst.args.len() {
-                        terms.with_term(inst.args[p], |resolved| {
+                    if p < args.len() {
+                        terms.with_term(args[p], |resolved| {
                             if let Some(Term::App(f, _)) = resolved {
                                 map.entry(*f).or_default().push(cid);
                             }
@@ -688,8 +688,8 @@ impl PredStore {
                 (IndexSpec::ArgPairTerm(a, b), IndexData::ArgPairTerm(map)) => {
                     let ia = *a as usize;
                     let ib = *b as usize;
-                    if ia < inst.args.len() && ib < inst.args.len() {
-                        let key = (inst.args[ia], inst.args[ib]);
+                    if ia < args.len() && ib < args.len() {
+                        let key = (args[ia], args[ib]);
                         map.entry(key).or_default().push(cid);
                     }
                 }
@@ -703,13 +703,15 @@ impl PredStore {
 pub struct CInstance {
     pub cid: Cid,
     pub pred: PredId,
-    pub args: SmallVec<[TermId; 4]>,
+    pub arg_start: u32,
+    pub arg_count: u16,
     pub alive: bool,
 }
 
 #[derive(Clone, Debug)]
 pub struct ChrStore {
     pub inst: Vec<CInstance>,
+    pub all_args: Vec<TermId>,
     pub preds: Vec<PredStore>,
     pub alive_count: u32,
     pub dead_count: u32,
@@ -719,10 +721,27 @@ impl ChrStore {
     pub const fn const_empty() -> Self {
         Self {
             inst: Vec::new(),
+            all_args: Vec::new(),
             preds: Vec::new(),
             alive_count: 0,
             dead_count: 0,
         }
+    }
+
+    /// Get the args slice for a CInstance.
+    #[inline]
+    pub fn args(&self, inst: &CInstance) -> &[TermId] {
+        let start = inst.arg_start as usize;
+        let end = start + inst.arg_count as usize;
+        &self.all_args[start..end]
+    }
+
+    /// Get a mutable args slice for a CInstance.
+    #[inline]
+    pub fn args_mut(&mut self, inst: &CInstance) -> &mut [TermId] {
+        let start = inst.arg_start as usize;
+        let end = start + inst.arg_count as usize;
+        &mut self.all_args[start..end]
     }
 
     pub fn new(preds: &[PredDecl]) -> Self {
@@ -732,6 +751,7 @@ impl ChrStore {
         }
         Self {
             inst: Vec::new(),
+            all_args: Vec::new(),
             preds: pred_stores,
             alive_count: 0,
             dead_count: 0,
@@ -746,18 +766,21 @@ impl ChrStore {
         terms: &TermStore,
         specs: &[IndexSpec],
     ) {
-        let mut sv: SmallVec<[TermId; 4]> = SmallVec::new();
-        sv.extend_from_slice(args);
+        let arg_start = self.all_args.len() as u32;
+        let arg_count = args.len() as u16;
+        self.all_args.extend_from_slice(args);
         let inst = CInstance {
             cid,
             pred,
-            args: sv,
+            arg_start,
+            arg_count,
             alive: true,
         };
         self.inst.push(inst);
+        let args_slice =
+            &self.all_args[arg_start as usize..(arg_start as usize + arg_count as usize)];
         let pred_store = &mut self.preds[pred.0 as usize];
-        let inst_ref = &self.inst[cid.0 as usize];
-        pred_store.insert(cid, inst_ref, terms, specs);
+        pred_store.insert(cid, args_slice, terms, specs);
         self.alive_count += 1;
     }
 
@@ -783,7 +806,9 @@ impl ChrStore {
                 self.alive_count += 1;
                 let pred = inst.pred;
                 let specs = &preds[pred.0 as usize].index_specs;
-                self.preds[pred.0 as usize].insert(inst.cid, inst, terms, specs);
+                let args = &self.all_args
+                    [inst.arg_start as usize..(inst.arg_start as usize + inst.arg_count as usize)];
+                self.preds[pred.0 as usize].insert(inst.cid, args, terms, specs);
             } else {
                 self.dead_count += 1;
             }
@@ -797,7 +822,9 @@ impl ChrStore {
             if inst.alive {
                 let pred = inst.pred;
                 let specs = &preds[pred.0 as usize].index_specs;
-                self.preds[pred.0 as usize].insert(inst.cid, inst, terms, specs);
+                let args = &self.all_args
+                    [inst.arg_start as usize..(inst.arg_start as usize + inst.arg_count as usize)];
+                self.preds[pred.0 as usize].insert(inst.cid, args, terms, specs);
                 self.alive_count += 1;
             } else {
                 self.dead_count += 1;
@@ -1478,7 +1505,8 @@ impl<T: Theory> ChrState<T> {
             let pred = inst.pred;
             let indexed = &program.triggers[pred.0 as usize];
 
-            let first_arg_functor: Option<FuncId> = inst.args.first().and_then(|tid| {
+            let inst_args = d.store.args(inst);
+            let first_arg_functor: Option<FuncId> = inst_args.first().and_then(|tid| {
                 terms.with_term(*tid, |t| match t? {
                     Term::App(f, _) => Some(*f),
                     Term::Var(_) => None,
@@ -1538,7 +1566,8 @@ impl<T: Theory> ChrState<T> {
             let pred = inst.pred;
             let indexed = &program.triggers[pred.0 as usize];
 
-            let first_arg_functor: Option<FuncId> = inst.args.first().and_then(|tid| {
+            let inst_args = d.store.args(inst);
+            let first_arg_functor: Option<FuncId> = inst_args.first().and_then(|tid| {
                 terms.with_term(*tid, |t| match t? {
                     Term::App(f, _) => Some(*f),
                     Term::Var(_) => None,
@@ -1561,7 +1590,15 @@ impl<T: Theory> ChrState<T> {
                 env.reset();
 
                 let inst_ref = &d.store.inst[cid.0 as usize];
-                if !match_head(terms, anchor_head, anchor_flat, inst_ref, &mut env) {
+                let inst_ref_args = d.store.args(inst_ref);
+                if !match_head(
+                    terms,
+                    anchor_head,
+                    anchor_flat,
+                    inst_ref,
+                    inst_ref_args,
+                    &mut env,
+                ) {
                     continue;
                 }
 
@@ -1623,7 +1660,8 @@ impl<T: Theory> ChrState<T> {
         let anchor_head = &rule.heads[anchor_idx];
         let anchor_flat = &rule.head_flat_ops[anchor_idx];
         let inst = &data.store.inst[active.0 as usize];
-        if !match_head(terms, anchor_head, anchor_flat, inst, env) {
+        let inst_args = data.store.args(inst);
+        if !match_head(terms, anchor_head, anchor_flat, inst, inst_args, env) {
             return None;
         }
         chosen[occ.anchor_head as usize] = Some(active);
@@ -1706,7 +1744,8 @@ impl<T: Theory> ChrState<T> {
             let head = &ctx.rule.heads[head_idx];
             let flat_ops = &ctx.rule.head_flat_ops[head_idx];
             let inst = &ctx.data.store.inst[cid.0 as usize];
-            if match_head(ctx.terms, head, flat_ops, inst, env) {
+            let inst_args = ctx.data.store.args(inst);
+            if match_head(ctx.terms, head, flat_ops, inst, inst_args, env) {
                 chosen[step.head as usize] = Some(cid);
                 if let Some(tuple) = Self::search_steps_inner(ctx, step_idx + 1, env, chosen) {
                     return Some(tuple);
@@ -1772,9 +1811,12 @@ impl<T: Theory> ChrState<T> {
         terms: &mut TermStore,
     ) -> bool {
         let mut changed = false;
-        for inst in data.store.inst.iter_mut() {
+        for i in 0..data.store.inst.len() {
+            let inst = &data.store.inst[i];
             if inst.alive {
-                for arg in inst.args.iter_mut() {
+                let start = inst.arg_start as usize;
+                let end = start + inst.arg_count as usize;
+                for arg in data.store.all_args[start..end].iter_mut() {
                     let new_arg = apply_subst(*arg, subst, terms);
                     if new_arg != *arg {
                         *arg = new_arg;
@@ -1814,16 +1856,17 @@ fn match_head(
     head: &HeadPat,
     flat_ops: &[FlatMatchOp],
     inst: &CInstance,
+    inst_args: &[TermId],
     env: &mut RVarEnv,
 ) -> bool {
     if head.pred != inst.pred {
         return false;
     }
-    if head.args.len() != inst.args.len() {
+    if head.args.len() != inst_args.len() {
         return false;
     }
     let guard = terms.read_lock();
-    match_flat_ops(flat_ops, &guard, &inst.args, env)
+    match_flat_ops(flat_ops, &guard, inst_args, env)
 }
 
 /// Execute a pre-flattened match op sequence against a list of root terms.
@@ -1984,9 +2027,12 @@ pub fn freeze_chr<T: Theory>(st: &ChrState<T>) -> Vec<u8> {
     let mut alive: Vec<AliveRec> = Vec::new();
     for (i, inst) in d.store.inst.iter().enumerate() {
         if inst.alive {
+            let args = d.store.args(inst);
+            let mut sv: SmallVec<[TermId; 4]> = SmallVec::new();
+            sv.extend_from_slice(args);
             alive.push(AliveRec {
                 pred: inst.pred,
-                args: inst.args.clone(),
+                args: sv,
                 old_cid: i as u32,
             });
         }
@@ -2229,10 +2275,15 @@ impl<T: Theory> crate::constraint::ConstraintOps for ChrState<T> {
                     }
                     let cid = Cid(md.next_cid);
                     md.next_cid = md.next_cid.saturating_add(1);
+                    let other_args = od.store.args(inst);
+                    let arg_start = md.store.all_args.len() as u32;
+                    let arg_count = other_args.len() as u16;
+                    md.store.all_args.extend_from_slice(other_args);
                     md.store.inst.push(CInstance {
                         cid,
                         pred: inst.pred,
-                        args: inst.args.clone(),
+                        arg_start,
+                        arg_count,
                         alive: true,
                     });
                     remap[idx] = Some(cid);
@@ -2371,10 +2422,15 @@ impl<T: Theory> crate::constraint::ConstraintOps for ChrState<T> {
                     }
                     let cid = Cid(md.next_cid);
                     md.next_cid = md.next_cid.saturating_add(1);
+                    let other_args = od.store.args(inst);
+                    let arg_start = md.store.all_args.len() as u32;
+                    let arg_count = other_args.len() as u16;
+                    md.store.all_args.extend_from_slice(other_args);
                     md.store.inst.push(CInstance {
                         cid,
                         pred: inst.pred,
-                        args: inst.args.clone(),
+                        arg_start,
+                        arg_count,
                         alive: true,
                     });
                     remap[idx] = Some(cid);
@@ -2438,9 +2494,12 @@ impl<T: Theory> crate::constraint::ConstraintOps for ChrState<T> {
         let mut data = data_ref.as_ref().clone();
         let preds = &self.program.preds;
         let mut args_changed = false;
-        for inst in data.store.inst.iter_mut() {
+        for i in 0..data.store.inst.len() {
+            let inst = &data.store.inst[i];
             if inst.alive {
-                for arg in inst.args.iter_mut() {
+                let start = inst.arg_start as usize;
+                let end = start + inst.arg_count as usize;
+                for arg in data.store.all_args[start..end].iter_mut() {
                     let new_arg = apply_var_renaming(*arg, map, terms);
                     if new_arg != *arg {
                         *arg = new_arg;
@@ -2474,9 +2533,12 @@ impl<T: Theory> crate::constraint::ConstraintOps for ChrState<T> {
         // Clone data once instead of twice (remap_vars clone + apply_subst clone).
         let mut data = data_ref.as_ref().clone();
         let mut args_changed = false;
-        for inst in data.store.inst.iter_mut() {
+        for i in 0..data.store.inst.len() {
+            let inst = &data.store.inst[i];
             if inst.alive {
-                for arg in inst.args.iter_mut() {
+                let start = inst.arg_start as usize;
+                let end = start + inst.arg_count as usize;
+                for arg in data.store.all_args[start..end].iter_mut() {
                     // Step 1: remap variable indices
                     let remapped = apply_var_renaming(*arg, map, terms);
                     // Step 2: apply substitution
@@ -2509,7 +2571,8 @@ impl<T: Theory> crate::constraint::ConstraintOps for ChrState<T> {
         };
         for inst in d.store.inst.iter() {
             if inst.alive {
-                for arg in inst.args.iter().copied() {
+                let args = d.store.args(inst);
+                for arg in args.iter().copied() {
                     out.extend(crate::nf::collect_vars_ordered(arg, terms));
                 }
             }
@@ -2549,13 +2612,14 @@ impl<T: Theory> ConstraintDisplay for ChrState<T> {
         let mut parts = Vec::new();
         for inst in d.store.inst.iter().filter(|c| c.alive) {
             let pred_name = self.program.pred_name(inst.pred).unwrap_or("unknown");
-            if inst.args.is_empty() {
+            let args = d.store.args(inst);
+            if args.is_empty() {
                 parts.push(pred_name.to_string());
             } else {
                 let mut s = String::new();
                 s.push('(');
                 s.push_str(pred_name);
-                for arg in inst.args.iter().copied() {
+                for arg in args.iter().copied() {
                     let arg_str = crate::term::format_term(arg, terms, symbols)?;
                     s.push(' ');
                     s.push_str(&arg_str);

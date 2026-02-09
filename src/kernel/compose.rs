@@ -283,18 +283,15 @@ theory no_c {
             .program
             .pred_id("no_c")
             .expect("expected no_c predicate");
-        let alive: Vec<_> = state
-            .store()
-            .inst
-            .iter()
-            .filter(|inst| inst.alive)
-            .collect();
+        let store = state.store();
+        let alive: Vec<_> = store.inst.iter().filter(|inst| inst.alive).collect();
         assert_eq!(alive.len(), 1, "expected one no_c constraint");
         let inst = alive[0];
+        let inst_args = store.args(inst);
         assert_eq!(inst.pred, pred, "expected no_c constraint");
-        assert_eq!(inst.args.len(), 1, "no_c should have one arg");
+        assert_eq!(inst_args.len(), 1, "no_c should have one arg");
         assert!(
-            terms.is_var(inst.args[0]).is_some(),
+            terms.is_var(inst_args[0]).is_some(),
             "no_c arg should remain a variable"
         );
     }
