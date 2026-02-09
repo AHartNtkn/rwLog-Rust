@@ -3,10 +3,12 @@ use rwlog::perf_corpus::{
     sort_cases, CorpusCase, CorpusFilters, EnvironmentFingerprint,
 };
 use serde::Serialize;
-use std::alloc::{GlobalAlloc, Layout, System};
+use std::alloc::{GlobalAlloc, Layout};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 struct CountingAlloc;
+
+static INNER: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 static ALLOC_CALLS: AtomicU64 = AtomicU64::new(0);
 static DEALLOC_CALLS: AtomicU64 = AtomicU64::new(0);
@@ -23,20 +25,20 @@ unsafe impl GlobalAlloc for CountingAlloc {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         ALLOC_CALLS.fetch_add(1, Ordering::Relaxed);
         ALLOC_BYTES.fetch_add(layout.size() as u64, Ordering::Relaxed);
-        System.alloc(layout)
+        INNER.alloc(layout)
     }
 
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
         DEALLOC_CALLS.fetch_add(1, Ordering::Relaxed);
         DEALLOC_BYTES.fetch_add(layout.size() as u64, Ordering::Relaxed);
-        System.dealloc(ptr, layout)
+        INNER.dealloc(ptr, layout)
     }
 
     unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
         REALLOC_CALLS.fetch_add(1, Ordering::Relaxed);
         REALLOC_IN_BYTES.fetch_add(layout.size() as u64, Ordering::Relaxed);
         REALLOC_OUT_BYTES.fetch_add(new_size as u64, Ordering::Relaxed);
-        System.realloc(ptr, layout, new_size)
+        INNER.realloc(ptr, layout, new_size)
     }
 }
 

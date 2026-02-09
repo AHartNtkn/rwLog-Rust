@@ -6,7 +6,7 @@
 use rwlog::perf_corpus::{
     apply_filters, load_cases, prepare_case, run_prepared, sort_cases, CorpusFilters,
 };
-use std::alloc::{GlobalAlloc, Layout, System};
+use std::alloc::{GlobalAlloc, Layout};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 // Size buckets: 0-16, 17-32, 33-64, 65-128, 129-256, 257-512, 513-1024, 1025-4096, 4097+
@@ -24,6 +24,8 @@ static BUCKET_DEALLOC_COUNTS: [AtomicU64; NUM_BUCKETS] = atomic_u64_array!(NUM_B
 static TRACKING: AtomicBool = AtomicBool::new(false);
 
 struct BucketAlloc;
+
+static INNER: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 fn bucket_index(size: usize) -> usize {
     match size {
@@ -64,7 +66,7 @@ unsafe impl GlobalAlloc for BucketAlloc {
             BUCKET_ALLOC_COUNTS[idx].fetch_add(1, Ordering::Relaxed);
             BUCKET_ALLOC_BYTES[idx].fetch_add(layout.size() as u64, Ordering::Relaxed);
         }
-        unsafe { System.alloc(layout) }
+        unsafe { INNER.alloc(layout) }
     }
 
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
@@ -72,7 +74,7 @@ unsafe impl GlobalAlloc for BucketAlloc {
             let idx = bucket_index(layout.size());
             BUCKET_DEALLOC_COUNTS[idx].fetch_add(1, Ordering::Relaxed);
         }
-        unsafe { System.dealloc(ptr, layout) }
+        unsafe { INNER.dealloc(ptr, layout) }
     }
 
     unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
@@ -84,7 +86,7 @@ unsafe impl GlobalAlloc for BucketAlloc {
             BUCKET_ALLOC_COUNTS[new_idx].fetch_add(1, Ordering::Relaxed);
             BUCKET_ALLOC_BYTES[new_idx].fetch_add(new_size as u64, Ordering::Relaxed);
         }
-        unsafe { System.realloc(ptr, layout, new_size) }
+        unsafe { INNER.realloc(ptr, layout, new_size) }
     }
 }
 

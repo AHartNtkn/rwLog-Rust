@@ -1,3 +1,6 @@
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 use rwlog::perf_corpus::load_cases;
 use serde::Deserialize;
 use serde::Serialize;

@@ -1,3 +1,6 @@
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 use serde::Deserialize;
 use std::fs;
 use std::path::{Path, PathBuf};

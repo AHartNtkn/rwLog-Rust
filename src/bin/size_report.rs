@@ -1,5 +1,8 @@
 //! Reports sizes of all key data structures for allocation analysis.
 
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 use rwlog::chr;
 use rwlog::drop_fresh;
 use rwlog::factors;
