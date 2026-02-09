@@ -131,8 +131,8 @@ pub struct ProducerSpec<C: ConstraintOps> {
 
 #[derive(Debug)]
 pub(crate) struct TableAnswers<C: ConstraintOps> {
-    answers: Vec<NF<C>>,
-    seen: FxHashSet<NF<C>>,
+    answers: Vec<Arc<NF<C>>>,
+    seen: FxHashSet<Arc<NF<C>>>,
     waker: QueueWaker,
 }
 
@@ -179,9 +179,10 @@ impl<C: ConstraintOps> Table<C> {
 
     /// Add an answer to the table.
     pub fn add_answer(&self, nf: NF<C>) -> bool {
+        let arc_nf = Arc::new(nf);
         let mut answers = self.answers.lock();
-        if answers.seen.insert(nf.clone()) {
-            answers.answers.push(nf);
+        if answers.seen.insert(Arc::clone(&arc_nf)) {
+            answers.answers.push(arc_nf);
             answers.waker.wake();
             true
         } else {
@@ -286,12 +287,12 @@ impl<C: ConstraintOps> Table<C> {
         self.answers.lock().answers.len()
     }
 
-    pub fn answer_at(&self, index: usize) -> Option<NF<C>> {
+    pub fn answer_at(&self, index: usize) -> Option<Arc<NF<C>>> {
         self.answers.lock().answers.get(index).cloned()
     }
 
     /// Get all answers.
-    pub fn all_answers(&self) -> Vec<NF<C>> {
+    pub fn all_answers(&self) -> Vec<Arc<NF<C>>> {
         self.answers.lock().answers.clone()
     }
 
@@ -508,9 +509,9 @@ impl<C: ConstraintOps> FixWork<C> {
     /// Modifies `answer_index` and returns the step outcome.
     /// The caller can reuse the existing Box<Work> instead of allocating.
     pub fn step_in_place(&mut self, terms: &mut TermStore) -> FixStepResult<C> {
-        if let Some(nf) = self.table.answer_at(self.answer_index) {
+        if let Some(arc_nf) = self.table.answer_at(self.answer_index) {
             self.answer_index += 1;
-            return FixStepResult::Emit(nf);
+            return FixStepResult::Emit(Arc::unwrap_or_clone(arc_nf));
         }
 
         if self.table.is_done() {
@@ -527,9 +528,9 @@ impl<C: ConstraintOps> FixWork<C> {
         let step = step_table_producer(&self.table, terms, &self.tables);
         self.table.set_producer_task_active(false);
 
-        if let Some(nf) = self.table.answer_at(self.answer_index) {
+        if let Some(arc_nf) = self.table.answer_at(self.answer_index) {
             self.answer_index += 1;
-            return FixStepResult::Emit(nf);
+            return FixStepResult::Emit(Arc::unwrap_or_clone(arc_nf));
         }
 
         match step {
