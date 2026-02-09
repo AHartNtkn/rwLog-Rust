@@ -26,6 +26,10 @@ The cache showed no measurable improvement because existing optimizations alread
 
 The remaining intern calls are mostly for genuinely new terms (new substitution results, new constructor applications) that wouldn't benefit from a small cache since they're unique. The profile's 7.7% hashmap overhead is irreducible cost of hashconsing — the cache adds overhead (hash computation + comparison) that roughly equals the savings from cache hits.
 
+## Round 19 Re-investigation (treecalc_synth_flip)
+
+Re-investigated with treecalc_synth_flip as primary workload (HashMap::get_inner was 11.91% of runtime). Added a 64-entry direct-mapped cache to `intern_unlocked` and `app_from_slice_unlocked`. Result: **U=15/100 — actively 1.7% SLOWER**. The cache overhead (hash computation, comparison, cache line pollution) exceeds any savings from cache hits. The treecalc workload creates many unique terms with low repetition, so the cache hit rate is poor and the cache pollutes L1 with entries that are never reused.
+
 ## Remaining Opportunities
 
 - **Arena-based term storage:** Replace hashconsing entirely with structural equality checks during matching. This would eliminate all intern overhead but requires architectural changes to how terms are compared.
