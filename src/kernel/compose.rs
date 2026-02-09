@@ -1,7 +1,7 @@
 use crate::constraint::ConstraintOps;
 use crate::nf::{collect_tensor, factor_tensor, NF};
 use crate::perf_counters;
-use crate::term::TermStore;
+use crate::term::{Term, TermStore};
 #[cfg(feature = "tracing")]
 use crate::trace::{debug_span, trace};
 
@@ -50,6 +50,27 @@ fn compose_nf_impl<C: ConstraintOps>(a: &NF<C>, b: &NF<C>, terms: &mut TermStore
             "arity_mismatch"
         );
         return None; // Arity mismatch
+    }
+
+    // Root functor precheck: if the first build pattern of `a` and the first match
+    // pattern of `b` are both App nodes with different root functors, composition
+    // must fail (match_term_lists_shifted would fail at the first term). This avoids
+    // the cost of collect_tensor, pre_create_shifted_vars, and match_term_lists_shifted
+    // for incompatible pairs. Uses get_unlocked for zero-overhead access.
+    if !a.build_pats.is_empty() {
+        let a_root = match terms.get_unlocked(a.build_pats[0]) {
+            Some(Term::App(f, _)) => Some(*f),
+            _ => None, // Variable-rooted or missing: skip precheck
+        };
+        let b_root = match terms.get_unlocked(b.match_pats[0]) {
+            Some(Term::App(f, _)) => Some(*f),
+            _ => None, // Variable-rooted or missing: skip precheck
+        };
+        if let (Some(af), Some(bf)) = (a_root, b_root) {
+            if af != bf {
+                return None;
+            }
+        }
     }
 
     let rw1 = collect_tensor(a, terms);
