@@ -25,7 +25,8 @@ pub enum Node<C: ConstraintOps> {
     /// Rotation: Or(left', right) -> Or(right, left')
     Or(Box<Node<C>>, Box<Node<C>>),
     /// Emit an answer and continue with the rest.
-    Emit(NF<C>, Box<Node<C>>),
+    /// NF is boxed to shrink Node from ~136B to ~24B, reducing memcpy costs.
+    Emit(Box<NF<C>>, Box<Node<C>>),
     /// Active work - computations that may emit, split, or complete.
     Work(Box<Work<C>>),
 }
@@ -111,7 +112,7 @@ pub fn step_node<C: ConstraintOps>(node: Node<C>, terms: &mut TermStore) -> Node
     match node {
         Node::Fail => NodeStep::Exhausted,
 
-        Node::Emit(nf, rest) => NodeStep::Emit(nf, *rest),
+        Node::Emit(nf, rest) => NodeStep::Emit(*nf, *rest),
 
         Node::Or(left, right) => step_or(*left, *right, terms),
 
@@ -204,7 +205,7 @@ mod tests {
     #[test]
     fn or_left_fail_right_other() {
         let nf = make_identity_nf();
-        let right = Node::Emit(nf, Box::new(Node::Fail));
+        let right = Node::Emit(Box::new(nf), Box::new(Node::Fail));
         let node: Node<()> = Node::Or(Box::new(Node::Fail), Box::new(right));
         assert!(matches!(node, Node::Or(_, _)));
     }
@@ -212,7 +213,7 @@ mod tests {
     #[test]
     fn or_left_other_right_fail() {
         let nf = make_identity_nf();
-        let left = Node::Emit(nf, Box::new(Node::Fail));
+        let left = Node::Emit(Box::new(nf), Box::new(Node::Fail));
         let node: Node<()> = Node::Or(Box::new(left), Box::new(Node::Fail));
         assert!(matches!(node, Node::Or(_, _)));
     }
@@ -221,8 +222,8 @@ mod tests {
     fn or_both_emit() {
         let nf1 = make_identity_nf();
         let nf2 = make_identity_nf();
-        let left = Node::Emit(nf1, Box::new(Node::Fail));
-        let right = Node::Emit(nf2, Box::new(Node::Fail));
+        let left = Node::Emit(Box::new(nf1), Box::new(Node::Fail));
+        let right = Node::Emit(Box::new(nf2), Box::new(Node::Fail));
         let node: Node<()> = Node::Or(Box::new(left), Box::new(right));
         assert!(matches!(node, Node::Or(_, _)));
     }
@@ -261,7 +262,7 @@ mod tests {
     #[test]
     fn emit_into_fail() {
         let nf = make_identity_nf();
-        let node: Node<()> = Node::Emit(nf, Box::new(Node::Fail));
+        let node: Node<()> = Node::Emit(Box::new(nf), Box::new(Node::Fail));
         match node {
             Node::Emit(_, rest) => {
                 assert!(matches!(*rest, Node::Fail));
@@ -274,7 +275,7 @@ mod tests {
     fn emit_single_answer() {
         let (symbols, terms) = setup();
         let nf = make_test_nf(&symbols, &terms);
-        let node: Node<()> = Node::Emit(nf.clone(), Box::new(Node::Fail));
+        let node: Node<()> = Node::Emit(Box::new(nf.clone()), Box::new(Node::Fail));
 
         match node {
             Node::Emit(emitted, _) => {
@@ -292,10 +293,10 @@ mod tests {
         let nf3 = make_identity_nf();
 
         let chain = Node::Emit(
-            nf1,
+            Box::new(nf1),
             Box::new(Node::Emit(
-                nf2,
-                Box::new(Node::Emit(nf3, Box::new(Node::Fail))),
+                Box::new(nf2),
+                Box::new(Node::Emit(Box::new(nf3), Box::new(Node::Fail))),
             )),
         );
         assert!(matches!(chain, Node::Emit(_, _)));
@@ -305,7 +306,7 @@ mod tests {
     fn emit_into_or() {
         let nf = make_identity_nf();
         let or_node = Node::Or(Box::new(Node::Fail), Box::new(Node::Fail));
-        let node: Node<()> = Node::Emit(nf, Box::new(or_node));
+        let node: Node<()> = Node::Emit(Box::new(nf), Box::new(or_node));
 
         match node {
             Node::Emit(_, rest) => {
@@ -319,7 +320,7 @@ mod tests {
     fn emit_deeply_chained() {
         let mut node: Node<()> = Node::Fail;
         for _ in 0..50 {
-            node = Node::Emit(make_identity_nf(), Box::new(node));
+            node = Node::Emit(Box::new(make_identity_nf()), Box::new(node));
         }
         assert!(matches!(node, Node::Emit(_, _)));
     }
@@ -333,7 +334,7 @@ mod tests {
         // Emit(nf, Or(Fail, Fail))
         let nf = make_identity_nf();
         let or_node = Node::Or(Box::new(Node::Fail), Box::new(Node::Fail));
-        let node: Node<()> = Node::Emit(nf, Box::new(or_node));
+        let node: Node<()> = Node::Emit(Box::new(nf), Box::new(or_node));
         assert!(matches!(node, Node::Emit(_, _)));
     }
 
@@ -342,8 +343,8 @@ mod tests {
         // Or(Emit(nf1, Fail), Emit(nf2, Fail))
         let nf1 = make_identity_nf();
         let nf2 = make_identity_nf();
-        let left = Node::Emit(nf1, Box::new(Node::Fail));
-        let right = Node::Emit(nf2, Box::new(Node::Fail));
+        let left = Node::Emit(Box::new(nf1), Box::new(Node::Fail));
+        let right = Node::Emit(Box::new(nf2), Box::new(Node::Fail));
         let node: Node<()> = Node::Or(Box::new(left), Box::new(right));
         assert!(matches!(node, Node::Or(_, _)));
     }
@@ -353,9 +354,9 @@ mod tests {
         // Emit(nf1, Or(Emit(nf2, Fail), Fail))
         let nf1 = make_identity_nf();
         let nf2 = make_identity_nf();
-        let inner_emit = Node::Emit(nf2, Box::new(Node::Fail));
+        let inner_emit = Node::Emit(Box::new(nf2), Box::new(Node::Fail));
         let or_node = Node::Or(Box::new(inner_emit), Box::new(Node::Fail));
-        let node: Node<()> = Node::Emit(nf1, Box::new(or_node));
+        let node: Node<()> = Node::Emit(Box::new(nf1), Box::new(or_node));
         assert!(matches!(node, Node::Emit(_, _)));
     }
 
@@ -366,10 +367,10 @@ mod tests {
         let nf2 = make_identity_nf();
 
         let inner = Node::Or(
-            Box::new(Node::Emit(nf1, Box::new(Node::Fail))),
+            Box::new(Node::Emit(Box::new(nf1), Box::new(Node::Fail))),
             Box::new(Node::Fail),
         );
-        let outer = Node::Emit(nf2, Box::new(inner));
+        let outer = Node::Emit(Box::new(nf2), Box::new(inner));
         let node: Node<()> = Node::Or(Box::new(outer), Box::new(Node::Fail));
         assert!(matches!(node, Node::Or(_, _)));
     }
@@ -381,7 +382,7 @@ mod tests {
     #[test]
     fn node_is_clone() {
         let nf = make_identity_nf();
-        let node1: Node<()> = Node::Emit(nf, Box::new(Node::Fail));
+        let node1: Node<()> = Node::Emit(Box::new(nf), Box::new(Node::Fail));
         let node2 = node1.clone();
         // Just verify clone compiles and doesn't panic
         assert!(matches!(node2, Node::Emit(_, _)));
@@ -410,12 +411,11 @@ mod tests {
     fn node_size_reasonable() {
         use std::mem::size_of;
         let size = size_of::<Node<()>>();
-        // Node is larger now because it contains Work variant
-        // Work contains MeetWork, FixWork, PipeWork variants which are substantial
-        // PipeWork now includes env: Env and tables: Tables for Fix/Call handling
+        // Node::Emit has Box<NF<C>> so Node is sized by Box<Work> (pointer).
+        // All variants are pointer-sized or smaller, so Node should be small.
         assert!(
-            size < 700,
-            "Node should not be excessively large, got {}",
+            size <= 24,
+            "Node should be at most 24 bytes (enum tag + two pointers), got {}",
             size
         );
     }
@@ -434,7 +434,7 @@ mod tests {
     #[test]
     fn can_pattern_match_emit() {
         let nf = make_identity_nf();
-        let node: Node<()> = Node::Emit(nf.clone(), Box::new(Node::Fail));
+        let node: Node<()> = Node::Emit(Box::new(nf.clone()), Box::new(Node::Fail));
         match node {
             Node::Emit(emitted, rest) => {
                 assert_eq!(emitted.drop_fresh.in_arity, nf.drop_fresh.in_arity);

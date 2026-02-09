@@ -120,7 +120,7 @@ pub fn rel_to_node<C: ConstraintOps>(rel: &Rel<C>, env: &Env<C>, tables: &Tables
     match rel {
         Rel::Zero => Node::Fail,
 
-        Rel::Atom(nf) => Node::Emit(nf.as_ref().clone(), Box::new(Node::Fail)),
+        Rel::Atom(nf) => Node::Emit(Box::new(nf.as_ref().clone()), Box::new(Node::Fail)),
 
         Rel::Or(a, b) => Node::Or(
             Box::new(rel_to_node(a, env, tables)),
@@ -174,7 +174,7 @@ pub fn rel_to_node<C: ConstraintOps>(rel: &Rel<C>, env: &Env<C>, tables: &Tables
 fn node_from_answers<C: ConstraintOps>(answers: Vec<Arc<NF<C>>>) -> Node<C> {
     let mut node = Node::Fail;
     for arc_nf in answers.into_iter().rev() {
-        node = Node::Emit(Arc::unwrap_or_clone(arc_nf), Box::new(node));
+        node = Node::Emit(Box::new(Arc::unwrap_or_clone(arc_nf)), Box::new(node));
     }
     node
 }
@@ -187,12 +187,12 @@ fn wrap_compose_with_prefix_suffix<C: ConstraintOps>(
     let mut node = Node::Work(Box::new(Work::Compose(core)));
 
     if let Some(prefix_nf) = prefix {
-        let prefix_node = Node::Emit(prefix_nf, Box::new(Node::Fail));
+        let prefix_node = Node::Emit(Box::new(prefix_nf), Box::new(Node::Fail));
         node = Node::Work(Box::new(Work::Compose(ComposeWork::new(prefix_node, node))));
     }
 
     if let Some(suffix_nf) = suffix {
-        let suffix_node = Node::Emit(suffix_nf, Box::new(Node::Fail));
+        let suffix_node = Node::Emit(Box::new(suffix_nf), Box::new(Node::Fail));
         node = Node::Work(Box::new(Work::Compose(ComposeWork::new(node, suffix_node))));
     }
 
