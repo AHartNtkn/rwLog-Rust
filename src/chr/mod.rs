@@ -612,8 +612,9 @@ pub fn instantiate_pat(
     env: &RVarEnv,
     root: PatId,
 ) -> Option<TermId> {
-    let mut stack: Vec<(PatId, usize)> = vec![(root, 0)];
-    let mut out: Vec<TermId> = Vec::new();
+    let mut stack: SmallVec<[(PatId, usize); 8]> = SmallVec::new();
+    stack.push((root, 0));
+    let mut out: SmallVec<[TermId; 8]> = SmallVec::new();
     while let Some((p, i)) = stack.pop() {
         match pats.get(p) {
             PatNode::RVar(rv) => {
@@ -1943,6 +1944,9 @@ impl<T: Theory> ChrState<T> {
                 let start = inst.arg_start as usize;
                 let end = start + inst.arg_count as usize;
                 for arg in data.store.all_args[start..end].iter_mut() {
+                    if arg.is_ground() {
+                        continue;
+                    }
                     let new_arg = apply_subst(*arg, subst, terms);
                     if new_arg != *arg {
                         *arg = new_arg;
@@ -1997,7 +2001,7 @@ fn match_head(
 
 /// Like `match_head` but takes `pred` and `args` directly instead of a
 /// `CInstance`.  Used for inline matching before storing constraints.
-#[inline]
+#[inline(always)]
 fn match_head_direct(
     terms: &TermStore,
     head: &HeadPat,
@@ -2143,7 +2147,7 @@ fn exec_body_inline<T: Theory>(
 ///
 /// The ops were produced by `flatten_head_pat` and encode a pre-order traversal
 /// of all arg patterns with PushRoot ops separating each arg's segment.
-#[inline]
+#[inline(always)]
 fn match_flat_ops(
     ops: &[FlatMatchOp],
     guard: &TermReadGuard<'_>,
