@@ -2,10 +2,13 @@
 //!
 //! This module contains helper functions used by both compose and meet operations.
 
-use crate::matching::match_terms_combined;
+use crate::matching::{
+    match_terms_combined, match_terms_combined_shifted,
+    match_terms_combined_shifted_with_left_renaming,
+};
 use crate::nf::collect_vars_ordered;
-use crate::subst::{apply_subst, Subst};
-use crate::term::{Term, TermId, TermStore};
+use crate::subst::{apply_subst, apply_subst_shifted, Subst};
+use crate::term::{TermId, TermStore};
 use smallvec::SmallVec;
 
 /// Find the maximum variable index in a list of patterns.
@@ -13,99 +16,6 @@ pub fn max_var_index_terms(pats: &[TermId], terms: &TermStore) -> Option<u32> {
     pats.iter()
         .flat_map(|&term| collect_vars_ordered(term, terms).into_iter())
         .max()
-}
-
-/// Shift all variables in a term by a given offset.
-///
-/// Uses batched read_lock to avoid per-node lock acquisition and avoids
-/// cloning children SmallVecs by copying TermIds (which are Copy).
-pub fn shift_vars(term: TermId, offset: u32, terms: &mut TermStore) -> TermId {
-    use crate::symbol::FuncId;
-
-    // Fast path: zero offset changes nothing
-    if offset == 0 {
-        return term;
-    }
-
-    enum Work {
-        Visit(TermId),
-        BuildApp(TermId, FuncId, usize), // (original_tid, functor, child_count)
-    }
-
-    let mut work_stack: SmallVec<[Work; 16]> = SmallVec::new();
-    let mut result_stack: SmallVec<[TermId; 16]> = SmallVec::new();
-
-    work_stack.push(Work::Visit(term));
-
-    while let Some(item) = work_stack.pop() {
-        match item {
-            Work::BuildApp(orig_tid, func, n) => {
-                let start = result_stack.len() - n;
-                // Check if all children are unchanged (ground subtree case).
-                let guard = terms.read_lock();
-                let all_same = match guard.get(orig_tid) {
-                    Some(Term::App(_, orig_children)) => {
-                        orig_children.len() == n
-                            && orig_children
-                                .iter()
-                                .zip(&result_stack[start..])
-                                .all(|(a, b)| *a == *b)
-                    }
-                    _ => false,
-                };
-                drop(guard);
-                if all_same {
-                    result_stack.truncate(start);
-                    result_stack.push(orig_tid);
-                } else {
-                    let new_term = terms.app_from_slice(func, &result_stack[start..]);
-                    result_stack.truncate(start);
-                    result_stack.push(new_term);
-                }
-            }
-            Work::Visit(tid) => {
-                let guard = terms.read_lock();
-                match guard.get(tid) {
-                    Some(Term::Var(idx)) => {
-                        let shifted = *idx + offset;
-                        drop(guard);
-                        result_stack.push(terms.var(shifted));
-                    }
-                    Some(Term::App(_, children)) if children.is_empty() => {
-                        result_stack.push(tid);
-                    }
-                    Some(Term::App(f, children)) => {
-                        let func = *f;
-                        let n = children.len();
-                        work_stack.push(Work::BuildApp(tid, func, n));
-                        for i in (0..n).rev() {
-                            work_stack.push(Work::Visit(children[i]));
-                        }
-                    }
-                    None => {
-                        result_stack.push(tid);
-                    }
-                }
-            }
-        }
-    }
-
-    debug_assert_eq!(result_stack.len(), 1);
-    result_stack.pop().unwrap()
-}
-
-/// Shift all variables in a list of patterns by a given offset.
-pub fn shift_vars_list(
-    pats: &[TermId],
-    offset: u32,
-    terms: &mut TermStore,
-) -> SmallVec<[TermId; 1]> {
-    if offset == 0 {
-        return pats.iter().copied().collect();
-    }
-    pats.iter()
-        .map(|&term| shift_vars(term, offset, terms))
-        .collect()
 }
 
 /// Apply a substitution to a list of patterns.
@@ -119,6 +29,37 @@ pub fn apply_subst_list(
         .collect()
 }
 
+/// Pre-create shifted variable TermIds for virtual shifting.
+///
+/// Returns `shifted_vars[j] = terms.var(j + offset)` for `j` in `0..=max_var`.
+/// Must be called before acquiring any read locks on the TermStore.
+pub fn pre_create_shifted_vars(
+    max_var: Option<u32>,
+    offset: u32,
+    terms: &TermStore,
+) -> SmallVec<[TermId; 8]> {
+    if offset == 0 {
+        return SmallVec::new();
+    }
+    match max_var {
+        Some(max) => (0..=max).map(|j| terms.var(j + offset)).collect(),
+        None => SmallVec::new(),
+    }
+}
+
+/// Apply a substitution to a list of patterns, virtually shifting variables.
+pub fn apply_subst_shifted_list(
+    pats: &[TermId],
+    subst: &Subst,
+    var_offset: u32,
+    shifted_vars: &[TermId],
+    terms: &mut TermStore,
+) -> SmallVec<[TermId; 1]> {
+    pats.iter()
+        .map(|&term| apply_subst_shifted(term, subst, var_offset, shifted_vars, terms))
+        .collect()
+}
+
 /// Match two lists of terms element-wise in disjoint namespaces.
 ///
 /// Returns a pair of substitutions (left, right) when all pairs match,
@@ -129,22 +70,97 @@ pub fn match_term_lists(
     right_offset: u32,
     terms: &mut TermStore,
 ) -> Option<(Subst, Subst)> {
+    match_term_lists_shifted(left, right, right_offset, &[], terms)
+}
+
+/// Match two lists of terms element-wise with virtual shifting on the right side.
+///
+/// The right terms are unshifted; variables are virtually offset by `right_offset`
+/// during substitution application. This avoids physically creating shifted terms.
+///
+/// When `shifted_vars` is empty, behaves identically to standard element-wise matching.
+pub fn match_term_lists_shifted(
+    left: &[TermId],
+    right: &[TermId],
+    right_offset: u32,
+    shifted_vars: &[TermId],
+    terms: &mut TermStore,
+) -> Option<(Subst, Subst)> {
     if left.len() != right.len() {
         return None;
     }
 
     let mut subst = Subst::new();
     for (&l, &r) in left.iter().zip(right.iter()) {
-        let l_sub = apply_subst(l, &subst, terms);
-        let r_sub = apply_subst(r, &subst, terms);
-        let match_subst = match_terms_combined(l_sub, r_sub, terms)?;
-        subst = compose_subst(&subst, &match_subst, terms);
+        if subst.is_empty() && !shifted_vars.is_empty() {
+            // Fast path: subst is empty, so apply_subst(l, &empty) == l.
+            // Instead of walking the right tree to shift variables via
+            // apply_subst_shifted, use offset-aware matching that handles
+            // the variable offset internally during traversal.
+            let match_subst = match_terms_combined_shifted(l, r, shifted_vars, terms)?;
+            subst = match_subst;
+        } else {
+            let l_sub = apply_subst(l, &subst, terms);
+            let r_sub = apply_subst_shifted(r, &subst, right_offset, shifted_vars, terms);
+            let match_subst = match_terms_combined(l_sub, r_sub, terms)?;
+            subst = compose_subst(&subst, &match_subst, terms);
+        }
     }
     Some(crate::matching::split_match_subst(
         &subst,
         right_offset,
         terms,
     ))
+}
+
+/// Match two lists of terms element-wise with left-side variable renaming
+/// and right-side virtual shifting, returning the raw combined substitution.
+///
+/// Left-side variables are renamed via `left_rhs_map` during matching instead
+/// of eagerly applying `apply_var_renaming_list`. Right-side variables are
+/// virtually shifted as in `match_term_lists_shifted`.
+///
+/// Returns the raw combined substitution instead of splitting it into
+/// (left, right) halves. This avoids the `split_match_subst` cost when the
+/// caller can consume the combined substitution directly, resolving chains
+/// lazily. Variables `< right_offset` are left-side bindings; variables
+/// `>= right_offset` are right-side bindings (already shifted by matching).
+///
+/// This is used in compose_nf to avoid the tree walk of `collect_tensor(a)`
+/// for the 99%+ of compose attempts that fail matching.
+pub fn match_term_lists_shifted_with_left_renaming_combined(
+    left: &[TermId],
+    right: &[TermId],
+    left_rhs_map: &[u32],
+    right_offset: u32,
+    shifted_vars: &[TermId],
+    terms: &mut TermStore,
+) -> Option<Subst> {
+    if left.len() != right.len() {
+        return None;
+    }
+
+    let mut subst = Subst::new();
+    for (idx, (&l, &r)) in left.iter().zip(right.iter()).enumerate() {
+        if subst.is_empty() && idx == 0 {
+            let match_subst = match_terms_combined_shifted_with_left_renaming(
+                l,
+                r,
+                left_rhs_map,
+                shifted_vars,
+                terms,
+            )?;
+            subst = match_subst;
+        } else {
+            let rhs_map_opt: Vec<Option<u32>> = left_rhs_map.iter().map(|&v| Some(v)).collect();
+            let l_renamed = crate::nf::apply_var_renaming(l, &rhs_map_opt, terms);
+            let l_sub = apply_subst(l_renamed, &subst, terms);
+            let r_sub = apply_subst_shifted(r, &subst, right_offset, shifted_vars, terms);
+            let match_subst = match_terms_combined(l_sub, r_sub, terms)?;
+            subst = compose_subst(&subst, &match_subst, terms);
+        }
+    }
+    Some(subst)
 }
 
 /// Compose two substitutions.
@@ -162,18 +178,18 @@ pub fn compose_subst(existing: &Subst, new: &Subst, terms: &mut TermStore) -> Su
     combined
 }
 
-/// Remap constraint variables by the given offset.
+/// Build a remap map that shifts all variable indices by `offset`.
 ///
-/// Returns the remapped constraint if offset is non-zero and there are variables,
-/// otherwise returns a clone of the original.
-pub fn remap_constraint_vars<C: crate::constraint::ConstraintOps>(
+/// Returns `None` if no remapping is needed (offset is zero or no variables exist).
+/// The map has `map[i] = Some(i + offset)` for `i` in `0..=max`.
+pub fn build_remap_map<C: crate::constraint::ConstraintOps>(
     constraint: &C,
     max_var: Option<u32>,
     offset: u32,
-    terms: &mut TermStore,
-) -> C {
+    terms: &TermStore,
+) -> Option<Vec<Option<u32>>> {
     if offset == 0 {
-        return constraint.clone();
+        return None;
     }
     let mut constraint_vars = Vec::new();
     constraint.collect_vars(terms, &mut constraint_vars);
@@ -192,8 +208,24 @@ pub fn remap_constraint_vars<C: crate::constraint::ConstraintOps>(
             for i in 0..=max {
                 map[i as usize] = Some(i + offset);
             }
-            constraint.remap_vars(&map, terms)
+            Some(map)
         }
+        None => None,
+    }
+}
+
+/// Remap constraint variables by the given offset.
+///
+/// Returns the remapped constraint if offset is non-zero and there are variables,
+/// otherwise returns a clone of the original.
+pub fn remap_constraint_vars<C: crate::constraint::ConstraintOps>(
+    constraint: &C,
+    max_var: Option<u32>,
+    offset: u32,
+    terms: &mut TermStore,
+) -> C {
+    match build_remap_map(constraint, max_var, offset, terms) {
+        Some(map) => constraint.remap_vars(&map, terms),
         None => constraint.clone(),
     }
 }
@@ -204,7 +236,7 @@ mod tests {
     use crate::parser::Parser;
 
     #[test]
-    fn match_term_lists_disjoint_keeps_equality_for_app_rule_shape() {
+    fn match_term_lists_shifted_keeps_equality_for_app_rule_shape() {
         let mut parser = Parser::new();
         let left = parser
             .parse_term("(f $x (c z))")
@@ -216,16 +248,19 @@ mod tests {
             .term_id;
         let mut terms = parser.take_terms();
 
+        let right_max_var = max_var_index_terms(&[right], &terms);
         let offset = max_var_index_terms(&[left], &terms)
             .map(|v| v + 1)
             .unwrap_or(0);
-        let right_shifted = shift_vars(right, offset, &mut terms);
+        let shifted_vars = pre_create_shifted_vars(right_max_var, offset, &terms);
 
-        let (left_sub, right_sub) = match_term_lists(&[left], &[right_shifted], offset, &mut terms)
-            .expect("expected match");
+        let (left_sub, right_sub) =
+            match_term_lists_shifted(&[left], &[right], offset, &shifted_vars, &mut terms)
+                .expect("expected match");
 
         let left_applied = apply_subst(left, &left_sub, &mut terms);
-        let right_applied = apply_subst(right_shifted, &right_sub, &mut terms);
+        let right_applied =
+            apply_subst_shifted(right, &right_sub, offset, &shifted_vars, &mut terms);
 
         assert_eq!(
             left_applied, right_applied,

@@ -9,6 +9,14 @@ use crate::term::TermStore;
 /// Constraints represent additional conditions that must be satisfied
 /// beyond the structural matching of terms.
 pub trait ConstraintOps: Clone + Eq + Hash + Default + Send + Sync {
+    /// Whether this constraint type is always the empty/trivial constraint.
+    ///
+    /// When `true`, the compose join can eagerly process pairs in
+    /// `on_new_left`/`on_new_right` instead of deferring via cursors,
+    /// since there is no CHR constraint propagation timing to respect.
+    /// This is a compile-time constant so the dead branch is eliminated.
+    const ALWAYS_EMPTY: bool = false;
+
     /// Combine two constraints (conjunction).
     ///
     /// Returns None if the constraints are inconsistent.
@@ -20,11 +28,41 @@ pub trait ConstraintOps: Clone + Eq + Hash + Default + Send + Sync {
     /// were derived from the constraint.
     fn normalize(&self, terms: &mut TermStore) -> Option<(Self, Option<Subst>)>;
 
+    /// Normalize by consuming self, avoiding a clone.
+    ///
+    /// Default implementation delegates to `normalize(&self)`.
+    /// Implementors should override when they can avoid cloning.
+    fn normalize_owned(self, terms: &mut TermStore) -> Option<(Self, Option<Subst>)> {
+        self.normalize(terms)
+    }
+
+    /// Combine by consuming both sides, avoiding clones.
+    ///
+    /// Default implementation delegates to `combine(&self, &other)`.
+    fn combine_owned(self, other: Self) -> Option<Self> {
+        self.combine(&other)
+    }
+
     /// Apply a substitution to the constraint.
     fn apply_subst(&self, subst: &Subst, terms: &mut TermStore) -> Self;
 
     /// Remap variable indices according to a renaming map.
     fn remap_vars(&self, map: &[Option<u32>], terms: &mut TermStore) -> Self;
+
+    /// Fused remap + apply_subst: remap variable indices then apply a substitution
+    /// in a single operation, avoiding redundant cloning.
+    ///
+    /// Default implementation delegates to `remap_vars` then `apply_subst`.
+    /// Implementors with expensive clone operations should override this.
+    fn remap_and_apply_subst(
+        &self,
+        map: &[Option<u32>],
+        subst: &Subst,
+        terms: &mut TermStore,
+    ) -> Self {
+        let remapped = self.remap_vars(map, terms);
+        remapped.apply_subst(subst, terms)
+    }
 
     /// Collect variable indices referenced by this constraint.
     fn collect_vars(&self, _terms: &TermStore, _out: &mut Vec<u32>) {}
@@ -52,6 +90,8 @@ pub trait ConstraintDisplay {
 /// are trivially satisfied. Useful for pure term rewriting without
 /// additional constraint handling.
 impl ConstraintOps for () {
+    const ALWAYS_EMPTY: bool = true;
+
     fn combine(&self, _other: &Self) -> Option<Self> {
         Some(())
     }
@@ -107,8 +147,7 @@ mod tests {
     fn unit_constraint_normalize() {
         let c: () = ();
         let mut terms = TermStore::new();
-        let (normalized, subst) = c.normalize(&mut terms).unwrap();
-        assert_eq!(normalized, ());
+        let (_normalized, subst) = c.normalize(&mut terms).unwrap();
         assert!(subst.is_none());
     }
 }

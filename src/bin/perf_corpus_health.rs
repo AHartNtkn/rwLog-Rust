@@ -1,3 +1,6 @@
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 use rwlog::perf_corpus::load_cases;
 use serde::Deserialize;
 use serde::Serialize;
@@ -324,10 +327,7 @@ fn pearson_corr(xs: &[f64], ys: &[f64]) -> Option<f64> {
     Some(num / den)
 }
 
-fn collect_series(
-    snapshots: &[Snapshot],
-    source: SourceFilter,
-) -> MetricSeries {
+fn collect_series(snapshots: &[Snapshot], source: SourceFilter) -> MetricSeries {
     let mut series: MetricSeries = BTreeMap::new();
     for snapshot in snapshots {
         if (source == SourceFilter::Gate || source == SourceFilter::All) && snapshot.gate.is_some()
@@ -415,10 +415,7 @@ fn stale_cases(
     stale
 }
 
-fn noisy_cases(
-    series: &MetricSeries,
-    noisy_cv_pct_threshold: f64,
-) -> Vec<NoisyCase> {
+fn noisy_cases(series: &MetricSeries, noisy_cv_pct_threshold: f64) -> Vec<NoisyCase> {
     let mut out = Vec::new();
     for ((source, metric, id), values) in series {
         if values.len() < 2 {

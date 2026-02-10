@@ -1,3 +1,6 @@
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 use rwlog::perf_corpus::{
     apply_filters, environment_fingerprint, lint_cases, lint_full_corpus, load_cases, sort_cases,
     summary_string, validate_cases, CorpusFilters, EnvironmentFingerprint,

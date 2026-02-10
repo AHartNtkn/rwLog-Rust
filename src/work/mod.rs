@@ -23,9 +23,10 @@ mod pipe;
 
 pub use and_group::{AndGroup, AndGroupConfig};
 pub use compose::ComposeWork;
+pub(crate) use diagonal::DiagonalStepResult;
 pub use fix::{
-    step_table_producer, CallKey, Env, FixWork, ProducerSpec, ProducerState, ProducerStep, Table,
-    Tables,
+    step_table_producer, CallKey, Env, FixStepResult, FixWork, ProducerSpec, ProducerState,
+    ProducerStep, Table, Tables,
 };
 pub use join_receiver::JoinReceiverWork;
 pub use meet::MeetWork;
@@ -38,7 +39,7 @@ mod tests;
 #[derive(Clone, Debug)]
 pub enum Work<C: ConstraintOps> {
     /// Sequential composition pipeline.
-    Pipe(PipeWork<C>),
+    Pipe(Box<PipeWork<C>>),
     /// Conjunction/intersection via fair diagonal join.
     Meet(MeetWork<C>),
     /// N-ary conjunction/intersection via fair diagonal join.
@@ -119,7 +120,7 @@ pub fn rel_to_node<C: ConstraintOps>(rel: &Rel<C>, env: &Env<C>, tables: &Tables
     match rel {
         Rel::Zero => Node::Fail,
 
-        Rel::Atom(nf) => Node::Emit(nf.as_ref().clone(), Box::new(Node::Fail)),
+        Rel::Atom(nf) => Node::Emit(Box::new(nf.as_ref().clone()), Box::new(Node::Fail)),
 
         Rel::Or(a, b) => Node::Or(
             Box::new(rel_to_node(a, env, tables)),
@@ -148,7 +149,7 @@ pub fn rel_to_node<C: ConstraintOps>(rel: &Rel<C>, env: &Env<C>, tables: &Tables
             let mut pipe = PipeWork::with_mid(factors_rope);
             pipe.env = env.clone();
             pipe.tables = tables.clone();
-            Node::Work(Box::new(Work::Pipe(pipe)))
+            Node::Work(Box::new(Work::Pipe(Box::new(pipe))))
         }
 
         Rel::Fix(id, body) => {
@@ -163,17 +164,17 @@ pub fn rel_to_node<C: ConstraintOps>(rel: &Rel<C>, env: &Env<C>, tables: &Tables
                 let mut pipe = PipeWork::with_mid(factors);
                 pipe.env = env.clone();
                 pipe.tables = tables.clone();
-                Node::Work(Box::new(Work::Pipe(pipe)))
+                Node::Work(Box::new(Work::Pipe(Box::new(pipe))))
             }
             None => Node::Fail,
         },
     }
 }
 
-fn node_from_answers<C: ConstraintOps>(answers: &[NF<C>]) -> Node<C> {
+fn node_from_answers<C: ConstraintOps>(answers: Vec<Arc<NF<C>>>) -> Node<C> {
     let mut node = Node::Fail;
-    for nf in answers.iter().rev() {
-        node = Node::Emit(nf.clone(), Box::new(node));
+    for arc_nf in answers.into_iter().rev() {
+        node = Node::Emit(Box::new(Arc::unwrap_or_clone(arc_nf)), Box::new(node));
     }
     node
 }
@@ -186,12 +187,12 @@ fn wrap_compose_with_prefix_suffix<C: ConstraintOps>(
     let mut node = Node::Work(Box::new(Work::Compose(core)));
 
     if let Some(prefix_nf) = prefix {
-        let prefix_node = Node::Emit(prefix_nf, Box::new(Node::Fail));
+        let prefix_node = Node::Emit(Box::new(prefix_nf), Box::new(Node::Fail));
         node = Node::Work(Box::new(Work::Compose(ComposeWork::new(prefix_node, node))));
     }
 
     if let Some(suffix_nf) = suffix {
-        let suffix_node = Node::Emit(suffix_nf, Box::new(Node::Fail));
+        let suffix_node = Node::Emit(Box::new(suffix_nf), Box::new(Node::Fail));
         node = Node::Work(Box::new(Work::Compose(ComposeWork::new(node, suffix_node))));
     }
 

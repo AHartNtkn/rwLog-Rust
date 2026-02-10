@@ -4,10 +4,35 @@ use parking_lot::RwLock;
 use rustc_hash::{FxBuildHasher, FxHasher};
 use smallvec::SmallVec;
 use std::hash::{Hash, Hasher};
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+
+/// Tag bits (bits 31-30) encode TermId kind:
+///   00 = Non-ground store reference (index in bits 0-29)
+///   01 = Inline variable (var_index in bits 0-29)
+///   10 = Ground store reference (index in bits 0-29)
+///   11 = Inline nullary constant (FuncId raw value in bits 0-29)
+const TAG_SHIFT: u32 = 30;
+const TAG_MASK: u32 = 0b11 << TAG_SHIFT;
+const PAYLOAD_MASK: u32 = !(TAG_MASK);
+
+const TAG_STORE_NONGROUND: u32 = 0b00 << TAG_SHIFT;
+const TAG_INLINE_VAR: u32 = 0b01 << TAG_SHIFT;
+const TAG_STORE_GROUND: u32 = 0b10 << TAG_SHIFT;
+const TAG_INLINE_NULLARY: u32 = 0b11 << TAG_SHIFT;
+
+/// Bit 31 is set for ground terms (both ground store refs and inline nullaries).
+const GROUND_BIT: u32 = 1 << 31;
+/// Bit 30 is set for inline terms (both inline vars and inline nullaries).
+const INLINE_BIT: u32 = 1 << 30;
 
 /// Unique identifier for a term in the term store.
 /// TermIds are stable and can be compared for equality.
+///
+/// Encoding uses the top 2 bits as a tag:
+///   00 = Non-ground store reference
+///   01 = Inline variable (pure arithmetic, no store access needed)
+///   10 = Ground store reference
+///   11 = Inline nullary constant (no store access needed)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct TermId(u32);
 
@@ -19,6 +44,82 @@ impl TermId {
 
     pub(crate) fn from_raw(raw: u32) -> Self {
         TermId(raw)
+    }
+
+    /// Get the storage index (strips both tag bits).
+    /// Only valid for store references (non-inline TermIds).
+    #[inline(always)]
+    pub fn index(self) -> usize {
+        (self.0 & PAYLOAD_MASK) as usize
+    }
+
+    /// Check if this term is ground (contains no variables).
+    /// Ground terms are unaffected by any substitution or variable shift.
+    /// True for ground store refs (tag 10) and inline nullaries (tag 11).
+    #[inline(always)]
+    pub fn is_ground(self) -> bool {
+        self.0 & GROUND_BIT != 0
+    }
+
+    /// Check if this is an inline term (variable or nullary constant).
+    /// Inline terms are not stored in the TermStore's nodes Vec.
+    #[inline(always)]
+    pub fn is_inline(self) -> bool {
+        self.0 & INLINE_BIT != 0
+    }
+
+    /// Check if this is a store reference (not inline).
+    #[inline(always)]
+    pub fn is_store_ref(self) -> bool {
+        self.0 & INLINE_BIT == 0
+    }
+
+    /// Check if this is an inline variable.
+    #[inline(always)]
+    pub fn is_inline_var(self) -> bool {
+        self.0 & TAG_MASK == TAG_INLINE_VAR
+    }
+
+    /// Get the variable index from an inline variable TermId.
+    /// Only valid when is_inline_var() returns true.
+    #[inline(always)]
+    pub fn inline_var_index(self) -> u32 {
+        debug_assert!(self.is_inline_var());
+        self.0 & PAYLOAD_MASK
+    }
+
+    /// Create an inline variable TermId.
+    #[inline(always)]
+    pub fn inline_var(idx: u32) -> Self {
+        debug_assert!(
+            idx <= PAYLOAD_MASK,
+            "variable index too large for inline encoding"
+        );
+        TermId(TAG_INLINE_VAR | idx)
+    }
+
+    /// Check if this is an inline nullary constant.
+    #[inline(always)]
+    pub fn is_inline_nullary(self) -> bool {
+        self.0 & TAG_MASK == TAG_INLINE_NULLARY
+    }
+
+    /// Get the FuncId from an inline nullary constant TermId.
+    /// Only valid when is_inline_nullary() returns true.
+    #[inline(always)]
+    pub fn inline_nullary_func_raw(self) -> u32 {
+        debug_assert!(self.is_inline_nullary());
+        self.0 & PAYLOAD_MASK
+    }
+
+    /// Create an inline nullary constant TermId from a FuncId's raw value.
+    #[inline(always)]
+    pub fn inline_nullary(func_raw: u32) -> Self {
+        debug_assert!(
+            func_raw <= PAYLOAD_MASK,
+            "FuncId too large for inline encoding"
+        );
+        TermId(TAG_INLINE_NULLARY | func_raw)
     }
 }
 
@@ -34,47 +135,60 @@ pub enum Term {
 /// Number of shards for hashcons maps (power of 2 for fast modulo).
 const NUM_SHARDS: usize = 16;
 
-/// Number of variable indices to cache for O(1) lookup.
-/// Variables 0..VAR_CACHE_SIZE are pre-interned and cached.
-const VAR_CACHE_SIZE: usize = 32;
+/// Global generation counter for TermStore instances.
+static TERMSTORE_GENERATION: AtomicU64 = AtomicU64::new(0);
 
 /// Thread-safe term store with hashconsing.
 ///
 /// Guarantees:
 /// - Structurally equal terms get the same TermId
 /// - TermId can be resolved back to the term
-/// - All terms (including variables) are hashconsed
+/// - Variables and nullary constants are encoded inline in TermId (no store access)
+/// - Non-trivial App terms are hashconsed in the store
 pub struct TermStore {
-    /// Central storage of all terms, indexed by TermId.
-    nodes: RwLock<Vec<Term>>,
+    /// Central storage of all terms, indexed by TermId (using index() to strip tag bits).
+    /// Does NOT contain variables or nullary App entries (those are inline in TermId).
+    pub(crate) nodes: RwLock<Vec<Term>>,
     /// Sharded hashcons maps for reducing contention. Uses FxHash for speed.
     shards: [RwLock<HashMap<Term, TermId, FxBuildHasher>>; NUM_SHARDS],
     /// Counter for generating unique TermIds.
     next_id: AtomicU32,
-    /// Cache of TermIds for small variable indices (0..VAR_CACHE_SIZE).
-    /// Avoids hashcons lookup for the most common variables.
-    /// Uses AtomicU32 with u32::MAX as sentinel for "not yet cached".
-    var_cache: [AtomicU32; VAR_CACHE_SIZE],
+    /// Unique generation ID for this TermStore instance.
+    generation: u64,
 }
 
 impl TermStore {
     /// Create a new empty term store.
     pub fn new() -> Self {
         // Initialize array of shards with FxHash
-        let shards =
-            std::array::from_fn(|_| RwLock::new(HashMap::with_hasher(FxBuildHasher)));
-        let var_cache = std::array::from_fn(|_| AtomicU32::new(u32::MAX));
+        let shards = std::array::from_fn(|_| RwLock::new(HashMap::with_hasher(FxBuildHasher)));
         Self {
             nodes: RwLock::new(Vec::new()),
             shards,
             next_id: AtomicU32::new(0),
-            var_cache,
+            generation: TERMSTORE_GENERATION.fetch_add(1, Ordering::Relaxed),
         }
+    }
+
+    /// Returns the unique generation ID for this TermStore instance.
+    #[inline]
+    pub fn generation(&self) -> u64 {
+        self.generation
     }
 
     /// Intern a term, returning its TermId.
     /// If the term already exists, returns the existing TermId.
+    /// Variables and nullary Apps are returned as inline TermIds without store insertion.
     fn intern(&self, term: Term) -> TermId {
+        // Inline fast paths: variables and nullary constants are encoded directly in TermId.
+        match &term {
+            Term::Var(idx) => return TermId::inline_var(*idx),
+            Term::App(func, children) if children.is_empty() => {
+                return TermId::inline_nullary(func.into_inner().get());
+            }
+            _ => {}
+        }
+
         let shard_idx = Self::shard_index(&term);
         let shard = &self.shards[shard_idx];
 
@@ -94,43 +208,52 @@ impl TermStore {
             return id;
         }
 
-        // Allocate new TermId and store term
-        let id = TermId(self.next_id.fetch_add(1, Ordering::Relaxed));
+        // Allocate new raw index and store term
+        let raw_index = self.next_id.fetch_add(1, Ordering::Relaxed);
+        debug_assert!(
+            raw_index & TAG_MASK == 0,
+            "TermStore overflow: too many terms (>{} terms)",
+            PAYLOAD_MASK
+        );
         {
             let mut nodes = self.nodes.write();
-            // Ensure the vector is large enough
-            let idx = id.0 as usize;
+            let idx = raw_index as usize;
             if nodes.len() <= idx {
-                nodes.resize(idx + 1, Term::Var(0)); // placeholder
+                nodes.resize(idx + 1, Term::Var(0));
             }
             nodes[idx] = term.clone();
         }
+        // Compute ground flag from children's TermId ground bits (zero cost).
+        // At this point, term is guaranteed to be an App with at least one child.
+        let is_ground = match &term {
+            Term::App(_, children) => children.iter().all(|c| c.is_ground()),
+            Term::Var(_) => unreachable!("variables are handled above"),
+        };
+        let id = TermId(
+            raw_index
+                | if is_ground {
+                    TAG_STORE_GROUND
+                } else {
+                    TAG_STORE_NONGROUND
+                },
+        );
         map.insert(term, id);
         id
     }
 
     /// Create a variable term.
-    /// Variables are hashconsed: same index always returns same TermId.
-    /// Small variable indices (0..32) are cached for O(1) lookup.
-    #[inline]
+    /// Variables are always encoded inline: pure arithmetic, no store access.
+    #[inline(always)]
     pub fn var(&self, index: u32) -> TermId {
-        let idx = index as usize;
-        if idx < VAR_CACHE_SIZE {
-            let cached = self.var_cache[idx].load(Ordering::Relaxed);
-            if cached != u32::MAX {
-                return TermId(cached);
-            }
-            let id = self.intern(Term::Var(index));
-            self.var_cache[idx].store(id.0, Ordering::Relaxed);
-            id
-        } else {
-            self.intern(Term::Var(index))
-        }
+        TermId::inline_var(index)
     }
 
     /// Create an application term.
-    /// Hashconsed: same functor and children always returns same TermId.
+    /// Nullary apps are encoded inline. Non-nullary apps are hashconsed.
     pub fn app(&self, func: FuncId, children: SmallVec<[TermId; 4]>) -> TermId {
+        if children.is_empty() {
+            return TermId::inline_nullary(func.into_inner().get());
+        }
         self.intern(Term::App(func, children))
     }
 
@@ -138,12 +261,16 @@ impl TermStore {
     /// Avoids intermediate SmallVec allocation when children are already in a contiguous buffer.
     #[inline]
     pub fn app_from_slice(&self, func: FuncId, children: &[TermId]) -> TermId {
+        if children.is_empty() {
+            return TermId::inline_nullary(func.into_inner().get());
+        }
         self.intern(Term::App(func, SmallVec::from_slice(children)))
     }
 
     /// Create a nullary (0-arity) application.
+    #[inline(always)]
     pub fn app0(&self, func: FuncId) -> TermId {
-        self.app(func, SmallVec::new())
+        TermId::inline_nullary(func.into_inner().get())
     }
 
     /// Create a unary (1-arity) application.
@@ -159,16 +286,37 @@ impl TermStore {
     /// Resolve a TermId to its term (cloning).
     /// Prefer `with_term` for read-only access to avoid cloning.
     pub fn resolve(&self, id: TermId) -> Option<Term> {
+        if id.is_inline_var() {
+            return Some(Term::Var(id.inline_var_index()));
+        }
+        if id.is_inline_nullary() {
+            let func_raw = id.inline_nullary_func_raw();
+            let func = Self::func_id_from_raw(func_raw)?;
+            return Some(Term::App(func, SmallVec::new()));
+        }
         let nodes = self.nodes.read();
-        nodes.get(id.0 as usize).cloned()
+        nodes.get(id.index()).cloned()
     }
 
     /// Access a term by reference without cloning.
     /// The closure receives `Option<&Term>` and must return before the lock is released.
+    /// NOTE: For inline TermIds, this creates a temporary Term on the stack.
     #[inline]
     pub fn with_term<R>(&self, id: TermId, f: impl FnOnce(Option<&Term>) -> R) -> R {
+        if id.is_inline_var() {
+            let term = Term::Var(id.inline_var_index());
+            return f(Some(&term));
+        }
+        if id.is_inline_nullary() {
+            let func_raw = id.inline_nullary_func_raw();
+            if let Some(func) = Self::func_id_from_raw(func_raw) {
+                let term = Term::App(func, SmallVec::new());
+                return f(Some(&term));
+            }
+            return f(None);
+        }
         let nodes = self.nodes.read();
-        f(nodes.get(id.0 as usize))
+        f(nodes.get(id.index()))
     }
 
     /// Acquire a read lock on the term storage, returning a guard that allows
@@ -176,24 +324,138 @@ impl TermStore {
     #[inline]
     pub fn read_lock(&self) -> TermReadGuard<'_> {
         TermReadGuard {
-            nodes: self.nodes.read(),
+            data: self.nodes.read(),
         }
     }
 
     /// Check if a term is a variable.
+    #[inline]
     pub fn is_var(&self, id: TermId) -> Option<u32> {
-        self.with_term(id, |t| match t? {
-            Term::Var(idx) => Some(*idx),
-            Term::App(_, _) => None,
-        })
+        if id.is_inline_var() {
+            return Some(id.inline_var_index());
+        }
+        if id.is_inline_nullary() {
+            return None;
+        }
+        let nodes = self.nodes.read();
+        match nodes.get(id.index()) {
+            Some(Term::Var(idx)) => Some(*idx),
+            _ => None,
+        }
     }
 
     /// Check if a term is an application, returning functor and children.
     pub fn is_app(&self, id: TermId) -> Option<(FuncId, SmallVec<[TermId; 4]>)> {
-        self.with_term(id, |t| match t? {
-            Term::Var(_) => None,
-            Term::App(f, children) => Some((*f, children.clone())),
-        })
+        if id.is_inline_var() {
+            return None;
+        }
+        if id.is_inline_nullary() {
+            let func = Self::func_id_from_raw(id.inline_nullary_func_raw())?;
+            return Some((func, SmallVec::new()));
+        }
+        let nodes = self.nodes.read();
+        match nodes.get(id.index()) {
+            Some(Term::App(f, children)) => Some((*f, children.clone())),
+            _ => None,
+        }
+    }
+
+    /// Get a term by index without locking. Requires exclusive (`&mut`) access.
+    ///
+    /// Uses `RwLock::get_mut()` which is lock-free because exclusive access
+    /// guarantees no other readers or writers exist.
+    ///
+    /// Returns None for inline TermIds (variables and nullary constants).
+    /// Callers MUST check is_inline_var() / is_inline_nullary() first for
+    /// hot-path code.
+    #[inline]
+    pub fn get_unlocked(&mut self, id: TermId) -> Option<&Term> {
+        if id.is_inline() {
+            return None;
+        }
+        self.nodes.get_mut().get(id.index())
+    }
+
+    /// Intern a term without locking. Requires exclusive (`&mut`) access.
+    ///
+    /// Uses `RwLock::get_mut()` on both nodes and shard maps, bypassing
+    /// all lock acquire/release overhead.
+    /// Variables and nullary Apps are returned as inline TermIds without store insertion.
+    pub fn intern_unlocked(&mut self, term: Term) -> TermId {
+        // Inline fast paths: variables and nullary constants.
+        match &term {
+            Term::Var(idx) => return TermId::inline_var(*idx),
+            Term::App(func, children) if children.is_empty() => {
+                return TermId::inline_nullary(func.into_inner().get());
+            }
+            _ => {}
+        }
+
+        let shard_idx = Self::shard_index(&term);
+
+        // Fast path: check if term exists (no lock needed)
+        if let Some(&id) = self.shards[shard_idx].get_mut().get(&term) {
+            return id;
+        }
+
+        // Slow path: insert
+        let raw_index = self.next_id.fetch_add(1, Ordering::Relaxed);
+        debug_assert!(
+            raw_index & TAG_MASK == 0,
+            "TermStore overflow: too many terms (>{} terms)",
+            PAYLOAD_MASK
+        );
+        let nodes = self.nodes.get_mut();
+        let idx = raw_index as usize;
+        if nodes.len() <= idx {
+            nodes.resize(idx + 1, Term::Var(0));
+        }
+        nodes[idx] = term.clone();
+
+        // At this point, term is guaranteed to be an App with at least one child.
+        let is_ground = match &term {
+            Term::App(_, children) => children.iter().all(|c| c.is_ground()),
+            Term::Var(_) => unreachable!("variables are handled above"),
+        };
+        let id = TermId(
+            raw_index
+                | if is_ground {
+                    TAG_STORE_GROUND
+                } else {
+                    TAG_STORE_NONGROUND
+                },
+        );
+        self.shards[shard_idx].get_mut().insert(term, id);
+        id
+    }
+
+    /// Create an application term from a slice without locking.
+    /// Requires exclusive (`&mut`) access.
+    #[inline]
+    pub fn app_from_slice_unlocked(&mut self, func: FuncId, children: &[TermId]) -> TermId {
+        if children.is_empty() {
+            return TermId::inline_nullary(func.into_inner().get());
+        }
+        self.intern_unlocked(Term::App(func, SmallVec::from_slice(children)))
+    }
+
+    /// Create a variable term without locking. Requires exclusive (`&mut`) access.
+    /// Pure arithmetic, no store access.
+    #[inline(always)]
+    pub fn var_unlocked(&mut self, index: u32) -> TermId {
+        TermId::inline_var(index)
+    }
+
+    /// Convert a raw u32 FuncId value back to a FuncId (Spur).
+    /// Returns None if the value is invalid (0 is not a valid NonZeroU32).
+    #[inline]
+    fn func_id_from_raw(raw: u32) -> Option<FuncId> {
+        use lasso::Key;
+        let nz = std::num::NonZeroU32::new(raw)?;
+        // Spur::try_from_usize expects a 0-based index; Spur stores it as index+1 (NonZeroU32).
+        // Since we stored func.into_inner().get() which is the NonZeroU32 value,
+        // and Spur::into_usize() returns key-1, we need try_from_usize(raw-1).
+        FuncId::try_from_usize(nz.get() as usize - 1)
     }
 
     /// Get the shard index for a term (for hashconsing distribution).
@@ -208,14 +470,19 @@ impl TermStore {
 /// Holds the RwLock read guard for the duration of its lifetime, avoiding
 /// per-lookup lock acquisition in tight loops.
 pub struct TermReadGuard<'a> {
-    nodes: parking_lot::RwLockReadGuard<'a, Vec<Term>>,
+    data: parking_lot::RwLockReadGuard<'a, Vec<Term>>,
 }
 
-impl<'a> TermReadGuard<'a> {
+impl TermReadGuard<'_> {
     /// Resolve a TermId to a reference to its Term without cloning.
+    /// Returns None for inline TermIds (variables and nullary constants).
+    /// Callers must check is_inline_var() / is_inline_nullary() first for hot paths.
     #[inline]
     pub fn get(&self, id: TermId) -> Option<&Term> {
-        self.nodes.get(id.0 as usize)
+        if id.is_inline() {
+            return None;
+        }
+        self.data.get(id.index())
     }
 }
 
@@ -230,6 +497,21 @@ pub fn format_term(
         symbols: &SymbolStore,
         out: &mut String,
     ) -> Result<(), String> {
+        // Handle inline TermIds without store access.
+        if term.is_inline_var() {
+            out.push('$');
+            out.push_str(&term.inline_var_index().to_string());
+            return Ok(());
+        }
+        if term.is_inline_nullary() {
+            let func = TermStore::func_id_from_raw(term.inline_nullary_func_raw())
+                .ok_or_else(|| format!("Invalid inline nullary func raw {:?}", term))?;
+            let name = symbols
+                .resolve(func)
+                .ok_or_else(|| format!("Unknown symbol for func id {:?}", func))?;
+            out.push_str(name);
+            return Ok(());
+        }
         match terms.resolve(term) {
             Some(Term::Var(idx)) => {
                 out.push('$');
@@ -616,26 +898,30 @@ mod tests {
     // ========== UNHAPPY PATH / EDGE CASE TESTS ==========
 
     #[test]
-    fn resolve_invalid_term_id() {
+    fn resolve_invalid_store_ref() {
         let (_, terms) = setup();
-        // Create a TermId that doesn't exist in this store
+        // Create a store-ref TermId that doesn't exist in this store
+        // Tag 00 (non-ground store ref) with a large index
         let invalid_id = TermId(999999);
+        // 999999 has bit 30=0, bit 31=0 => TAG_STORE_NONGROUND => store ref
         let resolved = terms.resolve(invalid_id);
         assert_eq!(
             resolved, None,
-            "Resolving invalid TermId should return None"
+            "Resolving invalid store ref TermId should return None"
         );
     }
 
     #[test]
     fn var_max_index() {
         let (_, terms) = setup();
-        let id = terms.var(u32::MAX);
+        // Inline vars use 30 bits, so max index is PAYLOAD_MASK
+        let max_idx = PAYLOAD_MASK;
+        let id = terms.var(max_idx);
         let resolved = terms.resolve(id);
         assert_eq!(
             resolved,
-            Some(Term::Var(u32::MAX)),
-            "Max u32 variable index should work"
+            Some(Term::Var(max_idx)),
+            "Max inline variable index should work"
         );
     }
 

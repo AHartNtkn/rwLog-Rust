@@ -14,7 +14,7 @@ use crate::rel::Rel;
 use crate::symbol::SymbolStore;
 use crate::term::TermStore;
 use crate::work::{rel_to_node, Env, Tables};
-use std::collections::HashSet;
+use rustc_hash::FxHashSet;
 
 /// Result of a single step in the Engine.
 #[derive(Clone, Debug)]
@@ -37,7 +37,7 @@ pub struct Engine<C: ConstraintOps> {
     /// Term store for creating/looking up terms
     terms: TermStore,
     /// Dedup set for emitted answers (set semantics).
-    seen: HashSet<NF<C>>,
+    seen: FxHashSet<NF<C>>,
 }
 
 impl<C: ConstraintOps> Engine<C> {
@@ -53,7 +53,7 @@ impl<C: ConstraintOps> Engine<C> {
         Self {
             root,
             terms,
-            seen: HashSet::new(),
+            seen: FxHashSet::default(),
         }
     }
 
@@ -73,7 +73,7 @@ impl<C: ConstraintOps> Engine<C> {
             NodeStep::Emit(nf, rest) => {
                 perf_counters::record_engine_emit();
                 self.root = rest;
-                StepResult::Emit(nf)
+                StepResult::Emit(*nf)
             }
             NodeStep::Continue(rest) => {
                 perf_counters::record_engine_continue();

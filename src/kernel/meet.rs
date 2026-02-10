@@ -7,7 +7,8 @@ use crate::trace::{debug_span, trace};
 use std::hash::{Hash, Hasher};
 
 use super::util::{
-    apply_subst_list, match_term_lists, max_var_index_terms, remap_constraint_vars, shift_vars_list,
+    apply_subst_list, apply_subst_shifted_list, match_term_lists, match_term_lists_shifted,
+    max_var_index_terms, pre_create_shifted_vars, remap_constraint_vars,
 };
 
 /// Compute the meet (intersection) of two NFs.
@@ -47,31 +48,43 @@ fn meet_nf_impl<C: ConstraintOps>(a: &NF<C>, b: &NF<C>, terms: &mut TermStore) -
     }
 
     let rw1 = collect_tensor(a, terms);
-    let mut rw2 = collect_tensor(b, terms);
-    let b_max_var = max_var_index_terms(&rw2.lhs, terms).max(max_var_index_terms(&rw2.rhs, terms));
+    let rw2 = collect_tensor(b, terms);
 
-    let b_var_offset = max_var_index_terms(&rw1.lhs, terms)
-        .max(max_var_index_terms(&rw1.rhs, terms))
-        .map(|v| v + 1)
-        .unwrap_or(0);
+    // Compute max var indices from NF metadata in O(1), avoiding term tree walks.
+    let b_max_var = b.rwt_max_var();
+    let b_var_offset = a.rwt_max_var().map(|v| v + 1).unwrap_or(0);
 
-    if b_var_offset != 0 {
-        rw2.lhs = shift_vars_list(&rw2.lhs, b_var_offset, terms);
-        rw2.rhs = shift_vars_list(&rw2.rhs, b_var_offset, terms);
-    }
+    debug_assert_eq!(
+        b_max_var,
+        max_var_index_terms(&rw2.lhs, terms).max(max_var_index_terms(&rw2.rhs, terms)),
+        "rwt_max_var mismatch for b in meet_nf"
+    );
+    debug_assert_eq!(
+        b_var_offset,
+        max_var_index_terms(&rw1.lhs, terms)
+            .max(max_var_index_terms(&rw1.rhs, terms))
+            .map(|v| v + 1)
+            .unwrap_or(0),
+        "rwt_max_var mismatch for a (b_var_offset) in meet_nf"
+    );
 
-    let (lhs_left, lhs_right) = match match_term_lists(&rw1.lhs, &rw2.lhs, b_var_offset, terms) {
-        Some(result) => result,
-        None => {
-            #[cfg(feature = "tracing")]
-            trace!("meet_match_failed");
-            return None;
-        }
-    };
+    // Pre-create shifted variable TermIds for virtual shifting.
+    let shifted_vars = pre_create_shifted_vars(b_max_var, b_var_offset, terms);
+
+    let (lhs_left, lhs_right) =
+        match match_term_lists_shifted(&rw1.lhs, &rw2.lhs, b_var_offset, &shifted_vars, terms) {
+            Some(result) => result,
+            None => {
+                #[cfg(feature = "tracing")]
+                trace!("meet_match_failed");
+                return None;
+            }
+        };
 
     let lhs_left_applied = apply_subst_list(&rw1.lhs, &lhs_left, terms);
     let rhs_left_applied = apply_subst_list(&rw1.rhs, &lhs_left, terms);
-    let rhs_right_applied = apply_subst_list(&rw2.rhs, &lhs_right, terms);
+    let rhs_right_applied =
+        apply_subst_shifted_list(&rw2.rhs, &lhs_right, b_var_offset, &shifted_vars, terms);
 
     let (rhs_left, rhs_right) =
         match match_term_lists(&rhs_left_applied, &rhs_right_applied, b_var_offset, terms) {
@@ -98,7 +111,7 @@ fn meet_nf_impl<C: ConstraintOps>(a: &NF<C>, b: &NF<C>, terms: &mut TermStore) -
     let b_constraint = b_constraint.apply_subst(&rhs_right, terms);
     let b_constraint = b_constraint.apply_subst(&rhs_left, terms);
 
-    let combined = match a_constraint.combine(&b_constraint) {
+    let combined = match a_constraint.combine_owned(b_constraint) {
         Some(c) => c,
         None => {
             #[cfg(feature = "tracing")]
@@ -107,7 +120,7 @@ fn meet_nf_impl<C: ConstraintOps>(a: &NF<C>, b: &NF<C>, terms: &mut TermStore) -
         }
     };
 
-    let (normalized, subst_opt) = match combined.normalize(terms) {
+    let (normalized, subst_opt) = match combined.normalize_owned(terms) {
         Some(result) => result,
         None => {
             #[cfg(feature = "tracing")]
@@ -615,8 +628,8 @@ theory neq_only {
 
         let nil_term = terms.app0(nil);
 
-        // Base case: Append(Nil, ys, ys)
-        let base_args: SmallVec<[TermId; 4]> = smallvec::smallvec![nil_term, v1, v1];
+        // Base case: Append(Nil, ys, ys) — ys is var 0 (the single variable)
+        let base_args: SmallVec<[TermId; 4]> = smallvec::smallvec![nil_term, v0, v0];
         let base_term = terms.app(append, base_args);
         let base_rule: NF<()> = NF::new(
             smallvec::smallvec![base_term],

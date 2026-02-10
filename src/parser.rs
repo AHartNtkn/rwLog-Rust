@@ -1918,7 +1918,7 @@ theory eq {
             .parse_rule("(pair $x $y) { (eq $x $y) } -> $x")
             .expect("parse rule with constraint");
 
-        assert_eq!(nf.drop_fresh.constraint.store.alive_count, 1);
+        assert_eq!(nf.drop_fresh.constraint.store().alive_count, 1);
         let pred = nf
             .drop_fresh
             .constraint
@@ -1928,7 +1928,7 @@ theory eq {
         let inst = nf
             .drop_fresh
             .constraint
-            .store
+            .store()
             .inst
             .iter()
             .find(|c| c.alive)
@@ -2016,7 +2016,7 @@ theory guards {
 
         let q = normalized.program.pred_id("q").expect("q predicate id");
         let count = normalized
-            .store
+            .store()
             .inst
             .iter()
             .filter(|c| c.alive && c.pred == q)

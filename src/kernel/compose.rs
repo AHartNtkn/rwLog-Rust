@@ -1,12 +1,12 @@
 use crate::constraint::ConstraintOps;
-use crate::nf::{collect_tensor, factor_tensor, NF};
+use crate::nf::{collect_tensor, factor_tensor_with_subst, SubstParams, NF};
 use crate::perf_counters;
-use crate::term::TermStore;
+use crate::term::{Term, TermStore};
 #[cfg(feature = "tracing")]
 use crate::trace::{debug_span, trace};
 
 use super::util::{
-    apply_subst_list, match_term_lists, max_var_index_terms, remap_constraint_vars, shift_vars_list,
+    build_remap_map, match_term_lists_shifted_with_left_renaming_combined, pre_create_shifted_vars,
 };
 
 /// Compose two NFs in sequence: a ; b
@@ -51,38 +51,65 @@ fn compose_nf_impl<C: ConstraintOps>(a: &NF<C>, b: &NF<C>, terms: &mut TermStore
         return None; // Arity mismatch
     }
 
-    let rw1 = collect_tensor(a, terms);
-    let mut rw2 = collect_tensor(b, terms);
-    let b_max_var = max_var_index_terms(&rw2.lhs, terms).max(max_var_index_terms(&rw2.rhs, terms));
-
-    let b_var_offset = max_var_index_terms(&rw1.lhs, terms)
-        .max(max_var_index_terms(&rw1.rhs, terms))
-        .map(|v| v + 1)
-        .unwrap_or(0);
-
-    if b_var_offset != 0 {
-        rw2.lhs = shift_vars_list(&rw2.lhs, b_var_offset, terms);
-        rw2.rhs = shift_vars_list(&rw2.rhs, b_var_offset, terms);
+    // Root functor precheck: if the first build pattern of `a` and the first match
+    // pattern of `b` are both App nodes with different root functors, composition
+    // must fail (match_term_lists_shifted would fail at the first term). This avoids
+    // the cost of collect_tensor, pre_create_shifted_vars, and match_term_lists_shifted
+    // for incompatible pairs. Uses get_unlocked for zero-overhead access.
+    if !a.build_pats.is_empty() {
+        let a_root = match terms.get_unlocked(a.build_pats[0]) {
+            Some(Term::App(f, _)) => Some(*f),
+            _ => None, // Variable-rooted or missing: skip precheck
+        };
+        let b_root = match terms.get_unlocked(b.match_pats[0]) {
+            Some(Term::App(f, _)) => Some(*f),
+            _ => None, // Variable-rooted or missing: skip precheck
+        };
+        if let (Some(af), Some(bf)) = (a_root, b_root) {
+            if af != bf {
+                return None;
+            }
+        }
     }
+
+    // Compute max var indices from NF metadata in O(1), avoiding term tree walks.
+    let b_max_var = b.rwt_max_var();
+    let b_var_offset = a.rwt_max_var().map(|v| v + 1).unwrap_or(0);
+
+    // Pre-create shifted variable TermIds for virtual shifting (avoids physical tree rewriting).
+    let shifted_vars = pre_create_shifted_vars(b_max_var, b_var_offset, terms);
 
     #[cfg(feature = "tracing")]
     trace!(
-        a_rhs = ?rw1.rhs,
-        b_lhs_shifted = ?rw2.lhs,
+        a_build = ?a.build_pats,
+        b_match = ?b.match_pats,
         b_var_offset,
         "matching_interface"
     );
 
-    let (subst_left, subst_right) = match match_term_lists(&rw1.rhs, &rw2.lhs, b_var_offset, terms)
-    {
-        Some((subst_left, subst_right)) => {
+    // Match a's build patterns against b's match patterns using inline renaming.
+    // This avoids the tree walk of collect_tensor(a) for the 99%+ of compose
+    // attempts that fail matching. The a-side variables are renamed inline via
+    // the cached_rhs_map instead of eagerly applying apply_var_renaming_list.
+    // b's match_pats are used directly (no renaming needed, same as rw2.lhs).
+    //
+    // We return the combined substitution directly (no split_match_subst),
+    // avoiding the cost of walking all bindings and calling apply_subst on each.
+    // The combined subst has left-side vars at indices < b_var_offset and
+    // right-side vars at indices >= b_var_offset. Consumers resolve chains
+    // lazily through apply_subst's natural chain following.
+    let combined_subst = match match_term_lists_shifted_with_left_renaming_combined(
+        &a.build_pats,
+        &b.match_pats,
+        &a.cached_rhs_map,
+        b_var_offset,
+        &shifted_vars,
+        terms,
+    ) {
+        Some(subst) => {
             #[cfg(feature = "tracing")]
-            trace!(
-                left_bindings = subst_left.len(),
-                right_bindings = subst_right.len(),
-                "matching_success"
-            );
-            (subst_left, subst_right)
+            trace!(bindings = subst.len(), "matching_success");
+            subst
         }
         None => {
             #[cfg(feature = "tracing")]
@@ -91,16 +118,22 @@ fn compose_nf_impl<C: ConstraintOps>(a: &NF<C>, b: &NF<C>, terms: &mut TermStore
         }
     };
 
-    let mut new_match = apply_subst_list(&rw1.lhs, &subst_left, terms);
-    let mut new_build = apply_subst_list(&rw2.rhs, &subst_right, terms);
-
+    // Apply the combined subst directly to constraints. Each constraint's args
+    // only reference variables from their own side, so the extra bindings for
+    // the other side are simply never accessed. Chain resolution through
+    // apply_subst naturally follows cross-side bindings when needed.
+    let a_constraint = a.drop_fresh.constraint.apply_subst(&combined_subst, terms);
     let b_constraint =
-        remap_constraint_vars(&b.drop_fresh.constraint, b_max_var, b_var_offset, terms);
+        match build_remap_map(&b.drop_fresh.constraint, b_max_var, b_var_offset, terms) {
+            Some(map) => {
+                b.drop_fresh
+                    .constraint
+                    .remap_and_apply_subst(&map, &combined_subst, terms)
+            }
+            None => b.drop_fresh.constraint.apply_subst(&combined_subst, terms),
+        };
 
-    let a_constraint = a.drop_fresh.constraint.apply_subst(&subst_left, terms);
-    let b_constraint = b_constraint.apply_subst(&subst_right, terms);
-
-    let combined = match a_constraint.combine(&b_constraint) {
+    let combined_constraint = match a_constraint.combine_owned(b_constraint) {
         Some(c) => c,
         None => {
             #[cfg(feature = "tracing")]
@@ -109,7 +142,7 @@ fn compose_nf_impl<C: ConstraintOps>(a: &NF<C>, b: &NF<C>, terms: &mut TermStore
         }
     };
 
-    let (normalized, subst_opt) = match combined.normalize(terms) {
+    let (normalized, subst_opt) = match combined_constraint.normalize_owned(terms) {
         Some(result) => result,
         None => {
             #[cfg(feature = "tracing")]
@@ -117,12 +150,43 @@ fn compose_nf_impl<C: ConstraintOps>(a: &NF<C>, b: &NF<C>, terms: &mut TermStore
             return None;
         }
     };
-    if let Some(subst) = subst_opt {
-        new_match = apply_subst_list(&new_match, &subst, terms);
-        new_build = apply_subst_list(&new_build, &subst, terms);
-    }
 
-    Some(factor_tensor(new_match, new_build, normalized, terms))
+    // Success path: compute the RHS of b via collect_tensor (only for successes).
+    // a's LHS is just a.match_pats (no renaming needed).
+    // b's RHS needs the rhs_map applied via collect_tensor.
+    let rw2 = collect_tensor(b, terms);
+
+    // Use fused factor_tensor_with_subst to avoid creating intermediate
+    // substituted terms. The original patterns (a.match_pats, rw2.rhs) are passed
+    // directly along with the substitutions, and factor_tensor_with_subst
+    // resolves variables through the substitutions during its collect+renumber
+    // passes, eliminating the need for apply_subst_list + apply_subst_shifted_list.
+    //
+    // Both lhs and rhs use the same combined_subst. The lhs patterns only
+    // contain left-side vars (< b_var_offset), and the rhs patterns only
+    // contain right-side vars (>= b_var_offset), so each side naturally
+    // resolves only its own bindings through the combined subst.
+    let rhs_shifted = b_var_offset > 0 && !shifted_vars.is_empty();
+    let lhs_params = SubstParams {
+        subst: &combined_subst,
+        subst2: subst_opt.as_ref(),
+        shifted: false,
+        shifted_vars: &[],
+    };
+    let rhs_params = SubstParams {
+        subst: &combined_subst,
+        subst2: subst_opt.as_ref(),
+        shifted: rhs_shifted,
+        shifted_vars: &shifted_vars,
+    };
+    Some(factor_tensor_with_subst(
+        &a.match_pats,
+        &lhs_params,
+        &rw2.rhs,
+        &rhs_params,
+        normalized,
+        terms,
+    ))
 }
 
 #[cfg(test)]
@@ -229,13 +293,15 @@ theory no_c {
             .program
             .pred_id("no_c")
             .expect("expected no_c predicate");
-        let alive: Vec<_> = state.store.inst.iter().filter(|inst| inst.alive).collect();
+        let store = state.store();
+        let alive: Vec<_> = store.inst.iter().filter(|inst| inst.alive).collect();
         assert_eq!(alive.len(), 1, "expected one no_c constraint");
         let inst = alive[0];
+        let inst_args = store.args(inst);
         assert_eq!(inst.pred, pred, "expected no_c constraint");
-        assert_eq!(inst.args.len(), 1, "no_c should have one arg");
+        assert_eq!(inst_args.len(), 1, "no_c should have one arg");
         assert!(
-            terms.is_var(inst.args[0]).is_some(),
+            terms.is_var(inst_args[0]).is_some(),
             "no_c arg should remain a variable"
         );
     }

@@ -19,6 +19,20 @@ A test that expects incorrect output is a lie. It is a machine designed to decei
 
 There is no third category of "test passes because it expects the bug."
 
+## **ZERO WARNINGS POLICY**
+
+**Every compiler and clippy warning MUST be fixed. No exceptions.**
+
+A warning is a problem. It does not matter whether you caused it or it was already there. If you see it, you fix it. Ignoring a warning because it's "just stylistic" or "not auto-fixable" is laziness, not judgement.
+
+**Rules:**
+1. After any change, run `cargo clippy --all-targets` and fix ALL warnings
+2. Never skip a warning because it requires restructuring code
+3. Never skip a warning because it wasn't caused by your changes
+4. If fixing a warning requires a design change, make the design change
+
+**The bar:** `cargo clippy --all-targets` produces zero warnings. If it doesn't, you're not done.
+
 ## **ALL ISSUES ARE YOUR RESPONSIBILITY**
 
 **STOP using "pre-existing" as an excuse. It is NEVER acceptable.**
@@ -127,6 +141,36 @@ timeout 10 cargo test 2>&1  # WRONG if not compiled first - compilation eats the
 ```
 
 This applies to ALL test commands - full suite, filtered tests, individual tests. No exceptions.
+
+## CRITICAL: Never Run Full Benchmark Suite Unattended
+
+**NEVER run `cargo bench` or `cargo bench -- "broad_filter"` without strict limits.** Criterion benchmarks collect 100 samples per benchmark, and the full suite has 40+ benchmarks. Running all of them in a single process causes extreme memory usage that can OOM-kill the system.
+
+**Each benchmark ID appears in multiple groups** (corpus_parse, corpus_end_to_end, corpus_first_n). A filter like `"recursive_even"` matches ALL groups containing that substring. Even a seemingly narrow filter can match 6+ benchmarks.
+
+**Always run benchmarks as ONE EXACT benchmark ID at a time:**
+```bash
+# GOOD - one exact benchmark
+cargo bench -- "recursive_even_backward_first64"
+
+# ACCEPTABLE - a small group (but verify count first)
+cargo bench -- "recursive_even"
+
+# BAD - regex OR matches across many groups, will OOM-kill
+cargo bench -- "addition_backward\|treecalc\|peel_deep"
+cargo bench -- "foo|bar|baz"
+
+# BAD - runs entire suite, will OOM-kill
+cargo bench
+cargo bench -- "corpus_execute"
+cargo bench -- ""
+```
+
+**Rules:**
+1. **ONE benchmark at a time.** If you need to check multiple benchmarks, run separate `cargo bench` invocations sequentially.
+2. **NEVER use regex OR** (`\|` or `|`) to combine patterns. Each pattern matches across all groups, so `A\|B\|C` easily hits 15+ benchmarks.
+3. **Never match more than ~5 benchmarks** in a single invocation. When in doubt, run fewer.
+4. **If you need to compare multiple benchmarks**, run them one at a time in separate commands.
 
 ## TDD Test Coverage Requirements
 

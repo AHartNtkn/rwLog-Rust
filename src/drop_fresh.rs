@@ -15,6 +15,11 @@ use smallvec::SmallVec;
 /// - Input 0 maps to output 0
 /// - Input 1 is dropped
 /// - Input 2 maps to output 1
+///
+/// DropFresh is only cloned as part of NfInner, which is itself shared via
+/// Arc<NfInner>. Since NFs are immutable after creation, DropFresh is never
+/// independently cloned in practice, so a direct SmallVec is cheaper than
+/// an Arc-wrapped one (avoids a heap allocation per NF construction).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct DropFresh<C> {
     /// Number of input positions.
@@ -113,17 +118,21 @@ impl<C: Clone> DropFresh<C> {
             let (in_a, mid_a) = self.map[i];
             let (mid_b, out_b) = other.map[j];
 
-            if mid_a < mid_b {
-                // self's output not in other's input, skip
-                i += 1;
-            } else if mid_a > mid_b {
-                // other's input not in self's output, skip
-                j += 1;
-            } else {
-                // mid_a == mid_b: they connect
-                result_map.push((in_a, out_b));
-                i += 1;
-                j += 1;
+            match mid_a.cmp(&mid_b) {
+                std::cmp::Ordering::Less => {
+                    // self's output not in other's input, skip
+                    i += 1;
+                }
+                std::cmp::Ordering::Greater => {
+                    // other's input not in self's output, skip
+                    j += 1;
+                }
+                std::cmp::Ordering::Equal => {
+                    // mid_a == mid_b: they connect
+                    result_map.push((in_a, out_b));
+                    i += 1;
+                    j += 1;
+                }
             }
         }
 
@@ -190,7 +199,7 @@ impl<C: Clone> DropFresh<C> {
         let mut prev_in = None;
         let mut prev_out = None;
 
-        for &(inp, out) in &self.map {
+        for &(inp, out) in self.map.iter() {
             // Check bounds
             if inp >= self.in_arity || out >= self.out_arity {
                 return false;

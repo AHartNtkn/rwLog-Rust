@@ -2,9 +2,41 @@ use crate::constraint::ConstraintOps;
 use crate::nf::NF;
 use crate::node::{step_node, Node, NodeStep};
 use crate::term::TermStore;
-use std::collections::{HashSet, VecDeque};
+use std::collections::VecDeque;
 
 use super::{Work, WorkStep};
+
+/// A no-op hasher that passes through a pre-hashed u64 value.
+///
+/// Used with `FxHashSet<u64>` where the u64 keys are already well-distributed
+/// hash values (NF::hash_value()). Avoids double-hashing overhead.
+#[derive(Default)]
+struct IdentityHasher(u64);
+
+impl std::hash::Hasher for IdentityHasher {
+    fn finish(&self) -> u64 {
+        self.0
+    }
+    fn write(&mut self, _bytes: &[u8]) {
+        // Not used for u64 keys
+    }
+    fn write_u64(&mut self, i: u64) {
+        self.0 = i;
+    }
+}
+
+type IdentityBuildHasher = std::hash::BuildHasherDefault<IdentityHasher>;
+type U64HashSet = std::collections::HashSet<u64, IdentityBuildHasher>;
+
+/// Result of stepping a DiagonalJoin in-place (no allocation).
+pub(crate) enum DiagonalStepResult<C: ConstraintOps> {
+    /// Emit an answer; DiagonalJoin has been updated in-place for continuation.
+    Emit(NF<C>),
+    /// No answer yet; DiagonalJoin has been updated in-place for continuation.
+    More,
+    /// Done; no more answers.
+    Done,
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum JoinOutcome {
@@ -62,10 +94,10 @@ pub(crate) struct DiagonalJoin<C: ConstraintOps, S: JoinStrategy<C> + Default> {
     pub(crate) right: Box<Node<C>>,
     pub(crate) seen_l: Vec<NF<C>>,
     pub(crate) seen_r: Vec<NF<C>>,
-    seen_l_set: HashSet<NF<C>>,
-    seen_r_set: HashSet<NF<C>>,
+    seen_l_set: U64HashSet,
+    seen_r_set: U64HashSet,
     pending: VecDeque<NF<C>>,
-    pending_set: HashSet<NF<C>>,
+    pending_set: U64HashSet,
     pub(crate) flip: bool,
     pub(crate) strategy: S,
 }
@@ -77,10 +109,10 @@ impl<C: ConstraintOps, S: JoinStrategy<C> + Default> DiagonalJoin<C, S> {
             right: Box::new(right),
             seen_l: Vec::new(),
             seen_r: Vec::new(),
-            seen_l_set: HashSet::new(),
-            seen_r_set: HashSet::new(),
+            seen_l_set: U64HashSet::default(),
+            seen_r_set: U64HashSet::default(),
             pending: VecDeque::new(),
-            pending_set: HashSet::new(),
+            pending_set: U64HashSet::default(),
             flip: false,
             strategy,
         }
@@ -94,14 +126,15 @@ impl<C: ConstraintOps, S: JoinStrategy<C> + Default> DiagonalJoin<C, S> {
     }
 
     pub(crate) fn push_pending(&mut self, nf: NF<C>) {
-        if self.pending_set.insert(nf.clone()) {
+        let hash = nf.hash_value();
+        if self.pending_set.insert(hash) {
             self.pending.push_back(nf);
         }
     }
 
     pub(crate) fn pop_pending(&mut self) -> Option<NF<C>> {
         let nf = self.pending.pop_front()?;
-        self.pending_set.remove(&nf);
+        self.pending_set.remove(&nf.hash_value());
         Some(nf)
     }
 
@@ -168,6 +201,123 @@ impl<C: ConstraintOps, S: JoinStrategy<C> + Default> DiagonalJoin<C, S> {
         }
     }
 
+    /// Step in-place, returning a simple result without allocating Box<Work>.
+    ///
+    /// Same logic as `step()` but mutates self in-place and returns
+    /// `DiagonalStepResult` instead of `WorkStep`. The caller reuses the
+    /// existing `Box<Work>` for the continuation, eliminating 3 heap
+    /// allocations per step (2× dummy Box<Node::Fail> + 1× Box<Work>).
+    pub(crate) fn step_in_place(&mut self, terms: &mut TermStore) -> DiagonalStepResult<C> {
+        if let Some(nf) = self.pop_pending() {
+            return DiagonalStepResult::Emit(nf);
+        }
+
+        let left_exhausted = matches!(*self.left, Node::Fail);
+        let right_exhausted = matches!(*self.right, Node::Fail);
+
+        if let Some(nf) = self.with_strategy_mut(|strategy, join| strategy.pre_step(join, terms)) {
+            return DiagonalStepResult::Emit(nf);
+        }
+
+        if let Some(outcome) = self
+            .strategy
+            .check_done(self, left_exhausted, right_exhausted)
+        {
+            return match outcome {
+                JoinOutcome::Done => DiagonalStepResult::Done,
+                JoinOutcome::More => DiagonalStepResult::More,
+            };
+        }
+
+        let pull_from_right = if left_exhausted {
+            true
+        } else if right_exhausted {
+            false
+        } else {
+            self.flip
+        };
+
+        if pull_from_right {
+            self.pull_side_in_place(JoinSide::Right, terms)
+        } else {
+            self.pull_side_in_place(JoinSide::Left, terms)
+        }
+    }
+
+    fn pull_side_in_place(
+        &mut self,
+        side: JoinSide,
+        terms: &mut TermStore,
+    ) -> DiagonalStepResult<C> {
+        let current = match side {
+            JoinSide::Left => std::mem::replace(&mut *self.left, Node::Fail),
+            JoinSide::Right => std::mem::replace(&mut *self.right, Node::Fail),
+        };
+
+        match step_node(current, terms) {
+            NodeStep::Emit(nf, rest) => {
+                let nf_val = *nf;
+                let hash = nf_val.hash_value();
+                match side {
+                    JoinSide::Left => {
+                        *self.left = rest;
+                        if self.seen_l_set.insert(hash) {
+                            let idx = self.seen_l.len();
+                            self.seen_l.push(nf_val);
+                            self.with_strategy_mut(|strategy, join| {
+                                strategy.on_new_left(join, idx, terms);
+                            });
+                        }
+                        self.flip = true;
+                    }
+                    JoinSide::Right => {
+                        *self.right = rest;
+                        if self.seen_r_set.insert(hash) {
+                            let idx = self.seen_r.len();
+                            self.seen_r.push(nf_val);
+                            self.with_strategy_mut(|strategy, join| {
+                                strategy.on_new_right(join, idx, terms);
+                            });
+                        }
+                        self.flip = false;
+                    }
+                }
+
+                if let Some(result) = self.pop_pending() {
+                    DiagonalStepResult::Emit(result)
+                } else {
+                    DiagonalStepResult::More
+                }
+            }
+            NodeStep::Continue(rest) => {
+                match side {
+                    JoinSide::Left => {
+                        *self.left = rest;
+                        self.flip = true;
+                    }
+                    JoinSide::Right => {
+                        *self.right = rest;
+                        self.flip = false;
+                    }
+                }
+                DiagonalStepResult::More
+            }
+            NodeStep::Exhausted => {
+                match side {
+                    JoinSide::Left => {
+                        *self.left = Node::Fail;
+                        self.flip = true;
+                    }
+                    JoinSide::Right => {
+                        *self.right = Node::Fail;
+                        self.flip = false;
+                    }
+                }
+                DiagonalStepResult::More
+            }
+        }
+    }
+
     fn with_strategy_mut<R>(&mut self, f: impl FnOnce(&mut S, &mut Self) -> R) -> R {
         let mut strategy = std::mem::take(&mut self.strategy);
         let result = f(&mut strategy, self);
@@ -188,12 +338,14 @@ impl<C: ConstraintOps, S: JoinStrategy<C> + Default> DiagonalJoin<C, S> {
 
         match step_node(current, terms) {
             NodeStep::Emit(nf, rest) => {
+                let nf_val = *nf;
+                let hash = nf_val.hash_value();
                 match side {
                     JoinSide::Left => {
                         *self.left = rest;
-                        if self.seen_l_set.insert(nf.clone()) {
+                        if self.seen_l_set.insert(hash) {
                             let idx = self.seen_l.len();
-                            self.seen_l.push(nf);
+                            self.seen_l.push(nf_val);
                             self.with_strategy_mut(|strategy, join| {
                                 strategy.on_new_left(join, idx, terms);
                             });
@@ -202,9 +354,9 @@ impl<C: ConstraintOps, S: JoinStrategy<C> + Default> DiagonalJoin<C, S> {
                     }
                     JoinSide::Right => {
                         *self.right = rest;
-                        if self.seen_r_set.insert(nf.clone()) {
+                        if self.seen_r_set.insert(hash) {
                             let idx = self.seen_r.len();
-                            self.seen_r.push(nf);
+                            self.seen_r.push(nf_val);
                             self.with_strategy_mut(|strategy, join| {
                                 strategy.on_new_right(join, idx, terms);
                             });

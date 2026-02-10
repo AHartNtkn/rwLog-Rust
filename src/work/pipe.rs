@@ -248,8 +248,8 @@ impl<C: ConstraintOps> PipeWork<C> {
         );
         left_pipe.call_mode = self.call_mode.clone();
         right_pipe.call_mode = self.call_mode.clone();
-        let left_node = Node::Work(Box::new(Work::Pipe(left_pipe)));
-        let right_node = Node::Work(Box::new(Work::Pipe(right_pipe)));
+        let left_node = Node::Work(Box::new(Work::Pipe(Box::new(left_pipe))));
+        let right_node = Node::Work(Box::new(Work::Pipe(Box::new(right_pipe))));
         let compose = ComposeWork::new(left_node, right_node);
         Some(WorkStep::More(Box::new(Work::Compose(compose))))
     }
@@ -366,8 +366,8 @@ impl<C: ConstraintOps> PipeWork<C> {
         }
 
         WorkStep::Split(
-            Box::new(Node::Work(Box::new(Work::Pipe(left_pipe)))),
-            Box::new(Node::Work(Box::new(Work::Pipe(right_pipe)))),
+            Box::new(Node::Work(Box::new(Work::Pipe(Box::new(left_pipe))))),
+            Box::new(Node::Work(Box::new(Work::Pipe(Box::new(right_pipe))))),
         )
     }
 
@@ -598,7 +598,7 @@ impl<C: ConstraintOps> PipeWork<C> {
                 let mut part_pipe =
                     PipeWork::from_rel(wrapped, self.env.clone(), self.tables.clone());
                 part_pipe.call_mode = self.call_mode.clone();
-                Node::Work(Box::new(Work::Pipe(part_pipe)))
+                Node::Work(Box::new(Work::Pipe(Box::new(part_pipe))))
             })
             .collect();
         AndGroup::new(nodes)
@@ -633,7 +633,7 @@ impl<C: ConstraintOps> PipeWork<C> {
                     right_suffix.clone()
                 };
                 let left_node = Node::Work(Box::new(Work::AndGroup(group)));
-                let right_node = Node::Work(Box::new(Work::Pipe(pipe)));
+                let right_node = Node::Work(Box::new(Work::Pipe(Box::new(pipe))));
                 let outer_suffix = if right_iso.is_some() {
                     right_suffix
                 } else {
@@ -648,7 +648,7 @@ impl<C: ConstraintOps> PipeWork<C> {
                 } else {
                     left_prefix.clone()
                 };
-                let left_node = Node::Work(Box::new(Work::Pipe(pipe)));
+                let left_node = Node::Work(Box::new(Work::Pipe(Box::new(pipe))));
                 let right_node = Node::Work(Box::new(Work::AndGroup(group)));
                 let outer_prefix = if left_iso.is_some() {
                     left_prefix
@@ -680,7 +680,7 @@ impl<C: ConstraintOps> PipeWork<C> {
         );
         fix_pipe.call_mode = self.call_mode.clone();
 
-        let fix_node = Node::Work(Box::new(Work::Pipe(fix_pipe)));
+        let fix_node = Node::Work(Box::new(Work::Pipe(Box::new(fix_pipe))));
         let mut pipe = self.clone();
         if use_left {
             pipe.left = None;
@@ -689,8 +689,8 @@ impl<C: ConstraintOps> PipeWork<C> {
             pipe.right = None;
         }
         let (left_node, right_node) = match end {
-            PipeEnd::Front => (fix_node, Node::Work(Box::new(Work::Pipe(pipe)))),
-            PipeEnd::Back => (Node::Work(Box::new(Work::Pipe(pipe))), fix_node),
+            PipeEnd::Front => (fix_node, Node::Work(Box::new(Work::Pipe(Box::new(pipe))))),
+            PipeEnd::Back => (Node::Work(Box::new(Work::Pipe(Box::new(pipe)))), fix_node),
         };
         let compose = ComposeWork::new(left_node, right_node);
         WorkStep::More(Box::new(Work::Compose(compose)))
@@ -772,7 +772,7 @@ impl<C: ConstraintOps> PipeWork<C> {
                     None => return WorkStep::Done,
                 };
                 let snapshot = table.all_answers();
-                let replay_node = node_from_answers(&snapshot);
+                let replay_node = node_from_answers(snapshot);
                 let mut pipe = self.clone();
                 if use_left {
                     pipe.left = None;
@@ -781,9 +781,15 @@ impl<C: ConstraintOps> PipeWork<C> {
                     pipe.right = None;
                 }
                 let (left_node, right_node) = if absorb_front {
-                    (replay_node, Node::Work(Box::new(Work::Pipe(pipe))))
+                    (
+                        replay_node,
+                        Node::Work(Box::new(Work::Pipe(Box::new(pipe)))),
+                    )
                 } else {
-                    (Node::Work(Box::new(Work::Pipe(pipe))), replay_node)
+                    (
+                        Node::Work(Box::new(Work::Pipe(Box::new(pipe)))),
+                        replay_node,
+                    )
                 };
                 let compose = ComposeWork::new(left_node, right_node);
                 return WorkStep::More(Box::new(Work::Compose(compose)));
@@ -799,9 +805,10 @@ impl<C: ConstraintOps> PipeWork<C> {
             env: self.env.clone(),
         });
         let snapshot = table.all_answers();
+        let snapshot_len = snapshot.len();
 
-        let replay_node = node_from_answers(&snapshot);
-        let fix = FixWork::new(key, table, snapshot.len(), self.tables.clone());
+        let replay_node = node_from_answers(snapshot);
+        let fix = FixWork::new(key, table, snapshot_len, self.tables.clone());
         let fix_node = Node::Work(Box::new(Work::Fix(fix)));
 
         let gen_node = match replay_node {
@@ -818,9 +825,9 @@ impl<C: ConstraintOps> PipeWork<C> {
         }
 
         let (left_node, right_node) = if absorb_front {
-            (gen_node, Node::Work(Box::new(Work::Pipe(pipe))))
+            (gen_node, Node::Work(Box::new(Work::Pipe(Box::new(pipe)))))
         } else {
-            (Node::Work(Box::new(Work::Pipe(pipe))), gen_node)
+            (Node::Work(Box::new(Work::Pipe(Box::new(pipe)))), gen_node)
         };
         let compose = ComposeWork::new(left_node, right_node);
         WorkStep::More(Box::new(Work::Compose(compose)))

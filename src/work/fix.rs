@@ -1,12 +1,12 @@
 use crate::constraint::ConstraintOps;
+use crate::fast_lock::FastLock;
 use crate::nf::NF;
 use crate::node::{step_node, Node, NodeStep};
 use crate::queue::{BlockedOn, QueueWaker, WakeHub};
 use crate::rel::{Rel, RelId};
 use crate::term::TermStore;
 use dashmap::DashMap;
-use parking_lot::Mutex;
-use std::collections::HashSet;
+use rustc_hash::FxHashSet;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
@@ -131,8 +131,8 @@ pub struct ProducerSpec<C: ConstraintOps> {
 
 #[derive(Debug)]
 pub(crate) struct TableAnswers<C: ConstraintOps> {
-    answers: Vec<NF<C>>,
-    seen: HashSet<NF<C>>,
+    answers: Vec<Arc<NF<C>>>,
+    seen: FxHashSet<Arc<NF<C>>>,
     waker: QueueWaker,
 }
 
@@ -150,8 +150,8 @@ pub(crate) struct TableProducer<C: ConstraintOps> {
 /// Stores the answers produced so far and the producer state.
 #[derive(Debug)]
 pub struct Table<C: ConstraintOps> {
-    answers: Mutex<TableAnswers<C>>,
-    producer: Mutex<TableProducer<C>>,
+    answers: FastLock<TableAnswers<C>>,
+    producer: FastLock<TableProducer<C>>,
 }
 
 impl<C: ConstraintOps> Table<C> {
@@ -162,12 +162,12 @@ impl<C: ConstraintOps> Table<C> {
 
     pub fn with_waker(waker: QueueWaker) -> Self {
         Self {
-            answers: Mutex::new(TableAnswers {
+            answers: FastLock::new(TableAnswers {
                 answers: Vec::new(),
-                seen: HashSet::new(),
+                seen: FxHashSet::default(),
                 waker,
             }),
-            producer: Mutex::new(TableProducer {
+            producer: FastLock::new(TableProducer {
                 state: ProducerState::NotStarted,
                 producer: None,
                 spec: None,
@@ -179,9 +179,10 @@ impl<C: ConstraintOps> Table<C> {
 
     /// Add an answer to the table.
     pub fn add_answer(&self, nf: NF<C>) -> bool {
+        let arc_nf = Arc::new(nf);
         let mut answers = self.answers.lock();
-        if answers.seen.insert(nf.clone()) {
-            answers.answers.push(nf);
+        if answers.seen.insert(Arc::clone(&arc_nf)) {
+            answers.answers.push(arc_nf);
             answers.waker.wake();
             true
         } else {
@@ -286,12 +287,12 @@ impl<C: ConstraintOps> Table<C> {
         self.answers.lock().answers.len()
     }
 
-    pub fn answer_at(&self, index: usize) -> Option<NF<C>> {
+    pub fn answer_at(&self, index: usize) -> Option<Arc<NF<C>>> {
         self.answers.lock().answers.get(index).cloned()
     }
 
     /// Get all answers.
-    pub fn all_answers(&self) -> Vec<NF<C>> {
+    pub fn all_answers(&self) -> Vec<Arc<NF<C>>> {
         self.answers.lock().answers.clone()
     }
 
@@ -302,23 +303,27 @@ impl<C: ConstraintOps> Table<C> {
 
 #[cfg(test)]
 impl<C: ConstraintOps> Table<C> {
-    pub(crate) fn lock_answers_for_test(&self) -> parking_lot::MutexGuard<'_, TableAnswers<C>> {
+    pub(crate) fn lock_answers_for_test(
+        &self,
+    ) -> crate::fast_lock::FastLockGuard<'_, TableAnswers<C>> {
         self.answers.lock()
     }
 
     pub(crate) fn try_lock_answers_for_test(
         &self,
-    ) -> Option<parking_lot::MutexGuard<'_, TableAnswers<C>>> {
+    ) -> Option<crate::fast_lock::FastLockGuard<'_, TableAnswers<C>>> {
         self.answers.try_lock()
     }
 
-    pub(crate) fn lock_producer_for_test(&self) -> parking_lot::MutexGuard<'_, TableProducer<C>> {
+    pub(crate) fn lock_producer_for_test(
+        &self,
+    ) -> crate::fast_lock::FastLockGuard<'_, TableProducer<C>> {
         self.producer.lock()
     }
 
     pub(crate) fn try_lock_producer_for_test(
         &self,
-    ) -> Option<parking_lot::MutexGuard<'_, TableProducer<C>>> {
+    ) -> Option<crate::fast_lock::FastLockGuard<'_, TableProducer<C>>> {
         self.producer.try_lock()
     }
 
@@ -344,7 +349,7 @@ fn make_replay_producer<C: ConstraintOps>(spec: &ProducerSpec<C>, tables: &Table
         tables.clone(),
     );
     producer_pipe.call_mode = CallMode::ReplayOnly(spec.key.clone());
-    Node::Work(Box::new(Work::Pipe(producer_pipe)))
+    Node::Work(Box::new(Work::Pipe(Box::new(producer_pipe))))
 }
 
 pub fn step_table_producer<C: ConstraintOps>(
@@ -373,7 +378,7 @@ pub fn step_table_producer<C: ConstraintOps>(
     let step = step_node(current, terms);
     match step {
         NodeStep::Emit(nf, rest) => {
-            let _ = table.add_answer(nf);
+            let _ = table.add_answer(*nf);
             table.set_producer_node(rest);
             ProducerStep::Progress
         }
@@ -448,6 +453,16 @@ impl<C: ConstraintOps> Default for Tables<C> {
     }
 }
 
+/// Result of stepping a FixWork in-place (no allocation).
+pub enum FixStepResult<C: ConstraintOps> {
+    /// Emit an answer; FixWork has been updated in-place for continuation.
+    Emit(NF<C>),
+    /// No answer yet; FixWork has been updated in-place for continuation.
+    More,
+    /// Done; no more answers.
+    Done,
+}
+
 /// FixWork: table handle that streams answers and steps the producer inline.
 ///
 /// The producer runs in iterations. Each iteration evaluates the body with
@@ -480,37 +495,47 @@ impl<C: ConstraintOps> FixWork<C> {
         }
     }
 
-    /// Step this FixWork handle.
+    /// Step this FixWork handle, allocating a new Box<Work> for continuation.
     pub fn step(&mut self, terms: &mut TermStore) -> WorkStep<C> {
-        if let Some(nf) = self.table.answer_at(self.answer_index) {
+        match self.step_in_place(terms) {
+            FixStepResult::Emit(nf) => WorkStep::Emit(nf, Box::new(Work::Fix(self.clone()))),
+            FixStepResult::More => WorkStep::More(Box::new(Work::Fix(self.clone()))),
+            FixStepResult::Done => WorkStep::Done,
+        }
+    }
+
+    /// Step this FixWork handle in-place (no clone, no allocation).
+    ///
+    /// Modifies `answer_index` and returns the step outcome.
+    /// The caller can reuse the existing Box<Work> instead of allocating.
+    pub fn step_in_place(&mut self, terms: &mut TermStore) -> FixStepResult<C> {
+        if let Some(arc_nf) = self.table.answer_at(self.answer_index) {
             self.answer_index += 1;
-            return WorkStep::Emit(nf, Box::new(Work::Fix(self.clone())));
+            return FixStepResult::Emit(Arc::unwrap_or_clone(arc_nf));
         }
 
         if self.table.is_done() {
-            return WorkStep::Done;
+            return FixStepResult::Done;
         }
 
         if !self.table.try_mark_producer_active() {
             if self.table.is_done() {
-                return WorkStep::Done;
+                return FixStepResult::Done;
             }
-            return WorkStep::More(Box::new(Work::Fix(self.clone())));
+            return FixStepResult::More;
         }
 
         let step = step_table_producer(&self.table, terms, &self.tables);
         self.table.set_producer_task_active(false);
 
-        if let Some(nf) = self.table.answer_at(self.answer_index) {
+        if let Some(arc_nf) = self.table.answer_at(self.answer_index) {
             self.answer_index += 1;
-            return WorkStep::Emit(nf, Box::new(Work::Fix(self.clone())));
+            return FixStepResult::Emit(Arc::unwrap_or_clone(arc_nf));
         }
 
         match step {
-            ProducerStep::Done => WorkStep::Done,
-            ProducerStep::Progress | ProducerStep::Blocked => {
-                WorkStep::More(Box::new(Work::Fix(self.clone())))
-            }
+            ProducerStep::Done => FixStepResult::Done,
+            ProducerStep::Progress | ProducerStep::Blocked => FixStepResult::More,
         }
     }
 }

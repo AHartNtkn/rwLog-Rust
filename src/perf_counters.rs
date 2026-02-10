@@ -47,7 +47,6 @@ static FIXPOINT_VERIFICATION_STEPS: AtomicU64 = AtomicU64::new(0);
 static OR_SPINE_WALKS: AtomicU64 = AtomicU64::new(0);
 static OR_SPINE_TOTAL_SIBLINGS: AtomicU64 = AtomicU64::new(0);
 static OR_SPINE_MAX_SIBLINGS: AtomicU64 = AtomicU64::new(0);
-
 static COMPOSE_PAIR_SET: Mutex<Option<HashSet<u64>>> = Mutex::new(None);
 static MEET_PAIR_SET: Mutex<Option<HashSet<u64>>> = Mutex::new(None);
 static COMPOSE_PAIR_FREQ: Mutex<Option<std::collections::HashMap<u64, u32>>> = Mutex::new(None);

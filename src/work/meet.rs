@@ -5,7 +5,7 @@ use crate::nf::NF;
 use crate::node::Node;
 use crate::term::TermStore;
 
-use super::diagonal::{DiagonalJoin, JoinOutcome, JoinStrategy};
+use super::diagonal::{DiagonalJoin, DiagonalStepResult, JoinOutcome, JoinStrategy};
 use super::{Work, WorkStep};
 
 /// Meet work: fair diagonal join for conjunction/intersection.
@@ -91,6 +91,11 @@ impl<C: ConstraintOps> MeetWork<C> {
 
     pub fn step(&mut self, terms: &mut TermStore) -> WorkStep<C> {
         self.core.step(terms, Self::wrap)
+    }
+
+    #[inline(never)]
+    pub(crate) fn step_in_place(&mut self, terms: &mut TermStore) -> DiagonalStepResult<C> {
+        self.core.step_in_place(terms)
     }
 
     fn wrap(core: DiagonalJoin<C, MeetStrategy>) -> Work<C> {

@@ -164,7 +164,12 @@ fn alive_args_for_pred(store: &ChrStore, pred: PredId) -> Vec<SmallVec<[crate::t
         .inst
         .iter()
         .filter(|inst| inst.alive && inst.pred == pred)
-        .map(|inst| inst.args.clone())
+        .map(|inst| {
+            let args = store.args(inst);
+            let mut sv: SmallVec<[crate::term::TermId; 4]> = SmallVec::new();
+            sv.extend_from_slice(args);
+            sv
+        })
         .collect()
 }
 
@@ -179,7 +184,7 @@ fn duplicate_constraints_get_distinct_cids() {
     let cid2 = state.introduce(p, &[a], &terms);
 
     assert_ne!(cid1, cid2);
-    assert_eq!(alive_args_for_pred(&state.store, p).len(), 2);
+    assert_eq!(alive_args_for_pred(state.store(), p).len(), 2);
 }
 
 #[test]
@@ -215,8 +220,8 @@ fn empty_constraint_combines_with_non_empty_other_program() {
         "combined state should keep the non-empty program"
     );
     assert_eq!(
-        alive_args_for_pred(&combined.store, p),
-        alive_args_for_pred(&non_empty.store, p),
+        alive_args_for_pred(combined.store(), p),
+        alive_args_for_pred(non_empty.store(), p),
         "combined state should preserve non-empty constraints"
     );
 }
@@ -245,11 +250,11 @@ fn propagation_rule_fires_once_via_token_store() {
     let a = terms.app0(symbols.intern("A"));
     state.introduce(p, &[a], &terms);
     assert!(state.solve_to_fixpoint(&mut terms));
-    assert_eq!(alive_args_for_pred(&state.store, q).len(), 1);
+    assert_eq!(alive_args_for_pred(state.store(), q).len(), 1);
 
     // Re-run; should not re-fire propagation.
     assert!(state.solve_to_fixpoint(&mut terms));
-    assert_eq!(alive_args_for_pred(&state.store, q).len(), 1);
+    assert_eq!(alive_args_for_pred(state.store(), q).len(), 1);
 }
 
 #[test]
@@ -273,8 +278,8 @@ fn simplification_removes_head() {
     state.introduce(p, &[a], &terms);
     assert!(state.solve_to_fixpoint(&mut terms));
 
-    assert_eq!(alive_args_for_pred(&state.store, p).len(), 0);
-    assert_eq!(alive_args_for_pred(&state.store, q).len(), 1);
+    assert_eq!(alive_args_for_pred(state.store(), p).len(), 0);
+    assert_eq!(alive_args_for_pred(state.store(), q).len(), 1);
 }
 
 #[test]
@@ -301,9 +306,9 @@ fn simpagation_keeps_kept_head() {
     state.introduce(r, &[a], &terms);
     assert!(state.solve_to_fixpoint(&mut terms));
 
-    assert_eq!(alive_args_for_pred(&state.store, p).len(), 1);
-    assert_eq!(alive_args_for_pred(&state.store, r).len(), 0);
-    assert_eq!(alive_args_for_pred(&state.store, s).len(), 1);
+    assert_eq!(alive_args_for_pred(state.store(), p).len(), 1);
+    assert_eq!(alive_args_for_pred(state.store(), r).len(), 0);
+    assert_eq!(alive_args_for_pred(state.store(), s).len(), 1);
 }
 
 #[test]
@@ -333,11 +338,11 @@ fn guard_blocks_rule_on_neq() {
 
     state.introduce(p, &[a, b], &terms);
     assert!(state.solve_to_fixpoint(&mut terms));
-    assert_eq!(alive_args_for_pred(&state.store, q).len(), 0);
+    assert_eq!(alive_args_for_pred(state.store(), q).len(), 0);
 
     state.introduce(p, &[a, a], &terms);
     assert!(state.solve_to_fixpoint(&mut terms));
-    assert_eq!(alive_args_for_pred(&state.store, q).len(), 1);
+    assert_eq!(alive_args_for_pred(state.store(), q).len(), 1);
 }
 
 #[test]
@@ -365,7 +370,7 @@ fn guard_unbound_rvar_fails() {
 
     state.introduce(p, &[a], &terms);
     assert!(state.solve_to_fixpoint(&mut terms));
-    assert_eq!(alive_args_for_pred(&state.store, q).len(), 0);
+    assert_eq!(alive_args_for_pred(state.store(), q).len(), 0);
 }
 
 #[test]
@@ -390,11 +395,11 @@ fn join_rejects_duplicate_cid() {
 
     state.introduce(p, &[a], &terms);
     assert!(state.solve_to_fixpoint(&mut terms));
-    assert_eq!(alive_args_for_pred(&state.store, q).len(), 0);
+    assert_eq!(alive_args_for_pred(state.store(), q).len(), 0);
 
     state.introduce(p, &[a], &terms);
     assert!(state.solve_to_fixpoint(&mut terms));
-    assert_eq!(alive_args_for_pred(&state.store, q).len(), 1);
+    assert_eq!(alive_args_for_pred(state.store(), q).len(), 1);
 }
 
 #[test]
@@ -431,8 +436,8 @@ fn committed_choice_respects_priority() {
     state.introduce(p, &[a], &terms);
     assert!(state.solve_to_fixpoint(&mut terms));
 
-    assert_eq!(alive_args_for_pred(&state.store, q1).len(), 1);
-    assert_eq!(alive_args_for_pred(&state.store, q2).len(), 0);
+    assert_eq!(alive_args_for_pred(state.store(), q1).len(), 1);
+    assert_eq!(alive_args_for_pred(state.store(), q2).len(), 0);
 }
 
 #[test]
@@ -460,10 +465,10 @@ fn freeze_thaw_remaps_tokens_and_cids() {
     assert!(state.solve_to_fixpoint(&mut terms));
 
     // Kill the first constraint to force remapping.
-    state.store.inst[cid_a.0 as usize].alive = false;
+    state.data_mut().store.inst[cid_a.0 as usize].alive = false;
     let frozen = freeze_chr(&state);
     let thawed = thaw_chr(program, &frozen, &terms).expect("thaw should succeed");
 
-    assert_eq!(alive_args_for_pred(&thawed.store, p).len(), 1);
-    assert_eq!(alive_args_for_pred(&thawed.store, q).len(), 2);
+    assert_eq!(alive_args_for_pred(thawed.store(), p).len(), 1);
+    assert_eq!(alive_args_for_pred(thawed.store(), q).len(), 2);
 }
