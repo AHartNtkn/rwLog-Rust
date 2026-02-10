@@ -1,10 +1,40 @@
 use crate::subst::{apply_subst, Subst};
 use crate::symbol::FuncId;
 use crate::term::{Term, TermId, TermReadGuard, TermStore};
+use hashbrown::HashMap;
 use smallvec::SmallVec;
+use std::cell::RefCell;
 
 #[cfg(feature = "tracing")]
 use crate::trace::{debug_span, trace};
+
+/// Thread-local memoization cache for `shift_term` results.
+///
+/// Keyed by a packed u64 encoding `(TermId, offset)`. Invalidated when the
+/// TermStore generation changes (indicating a new engine run with a fresh store).
+struct ShiftCache {
+    generation: u64,
+    entries: HashMap<u64, TermId>,
+}
+
+impl ShiftCache {
+    fn new() -> Self {
+        Self {
+            generation: u64::MAX,
+            entries: HashMap::new(),
+        }
+    }
+
+    /// Pack a (TermId, offset) pair into a single u64 cache key.
+    #[inline(always)]
+    fn pack_key(term: TermId, offset: u32) -> u64 {
+        (term.raw() as u64) << 32 | offset as u64
+    }
+}
+
+thread_local! {
+    static SHIFT_CACHE: RefCell<ShiftCache> = RefCell::new(ShiftCache::new());
+}
 
 /// Match two terms in a shared namespace, returning a most general matching
 /// substitution if successful. Returns None if the terms cannot match.
@@ -792,11 +822,67 @@ fn deref_shifted_unlocked(
 /// This is equivalent to `apply_subst_shifted(term, &empty_subst, offset, shifted_vars, terms)`
 /// but called only when we actually need the shifted version (i.e., when binding
 /// a left-side variable to a right-side subtree).
+///
+/// Results for compound (non-inline, non-ground) terms are memoized in a
+/// thread-local cache keyed by `(TermId, offset)`, invalidated by TermStore
+/// generation. This avoids redundant tree walks and interning when the same
+/// compound term is shifted by the same offset repeatedly.
 fn shift_term(term: TermId, shifted_vars: &[TermId], terms: &mut TermStore) -> TermId {
     if term.is_ground() {
         return term;
     }
 
+    // Inline vars are O(1) — just a lookup, no need to cache.
+    if term.is_inline_var() {
+        let j = term.inline_var_index() as usize;
+        debug_assert!(
+            j < shifted_vars.len(),
+            "var index {} exceeds shifted_vars length {}",
+            j,
+            shifted_vars.len()
+        );
+        return shifted_vars[j];
+    }
+
+    // Derive the offset from shifted_vars[0] = Var(0 + offset).
+    // shifted_vars is always non-empty here (callers guard on is_empty).
+    let offset = shifted_vars[0].inline_var_index();
+    let gen = terms.generation();
+    let cache_key = ShiftCache::pack_key(term, offset);
+
+    // Check the thread-local cache.
+    let cached = SHIFT_CACHE.with(|c| {
+        let cache = c.borrow();
+        if cache.generation == gen {
+            cache.entries.get(&cache_key).copied()
+        } else {
+            None
+        }
+    });
+    if let Some(result) = cached {
+        return result;
+    }
+
+    let result = shift_term_uncached(term, shifted_vars, terms);
+
+    // Store in cache (only for non-trivial shifts where the result differs).
+    if result != term {
+        SHIFT_CACHE.with(|c| {
+            let mut cache = c.borrow_mut();
+            if cache.generation != gen {
+                cache.entries.clear();
+                cache.generation = gen;
+            }
+            cache.entries.insert(cache_key, result);
+        });
+    }
+
+    result
+}
+
+/// Inner implementation of shift_term without caching. Performs the actual
+/// stack-based tree walk and variable substitution.
+fn shift_term_uncached(term: TermId, shifted_vars: &[TermId], terms: &mut TermStore) -> TermId {
     // Use a stack-based approach similar to apply_subst_core.
     enum Work {
         Visit(TermId),
