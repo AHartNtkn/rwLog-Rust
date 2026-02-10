@@ -159,9 +159,8 @@ fn apply_subst_core<const SHIFTED: bool>(
                 let start = result_stack.len() - n;
                 // Check if any child actually changed from the original.
                 // If not, reuse the original TermId to skip hashcons lookup.
-                // Scope the nodes borrow so app_from_slice_unlocked can
-                // borrow terms mutably if needed.
-                let all_same = {
+                // orig_tid is always a store ref (only non-leaf App nodes get BuildApp).
+                let all_same = if orig_tid.is_store_ref() {
                     let nodes = terms.nodes.get_mut();
                     match nodes.get(orig_tid.index()) {
                         Some(Term::App(_, orig_children)) => {
@@ -173,6 +172,8 @@ fn apply_subst_core<const SHIFTED: bool>(
                         }
                         _ => false,
                     }
+                } else {
+                    false
                 };
                 if all_same {
                     result_stack.truncate(start);
@@ -189,17 +190,53 @@ fn apply_subst_core<const SHIFTED: bool>(
                     continue;
                 }
 
-                // Read the term using lock-free access. We copy all needed
-                // data out before any potential mutation (intern_unlocked).
+                // Fast path: inline variable - no store access needed.
+                if tid.is_inline_var() {
+                    let idx_val = tid.inline_var_index();
+                    let start_tid = if SHIFTED && raw {
+                        let j = idx_val as usize;
+                        debug_assert!(
+                            j < shifted_vars.len(),
+                            "var index {} exceeds shifted_vars length {}",
+                            j,
+                            shifted_vars.len()
+                        );
+                        shifted_vars[j]
+                    } else {
+                        tid
+                    };
+
+                    let nodes = terms.nodes.get_mut();
+                    let resolved = resolve_var_chain_unlocked(start_tid, subst, nodes);
+
+                    // Check what resolved is:
+                    if resolved.is_inline() {
+                        // Inline var or inline nullary - push directly.
+                        result_stack.push(resolved);
+                    } else {
+                        match nodes.get(resolved.index()) {
+                            Some(Term::App(f, children)) if !children.is_empty() => {
+                                let func = *f;
+                                let n = children.len();
+                                work_stack.push(Work::BuildApp(resolved, func, n));
+                                for i in (0..n).rev() {
+                                    work_stack.push(Work::Visit(children[i], false));
+                                }
+                            }
+                            _ => {
+                                result_stack.push(resolved);
+                            }
+                        }
+                    }
+                    continue;
+                }
+
+                // Store ref (non-ground, non-inline): read the term.
                 let nodes = terms.nodes.get_mut();
 
                 match nodes.get(tid.index()) {
                     Some(Term::Var(idx)) => {
                         let idx_val = *idx;
-                        // For raw vars: shift before substitution lookup.
-                        // For non-raw vars: look up directly.
-                        // `SHIFTED &&` gives the compiler a constant to fold:
-                        // when SHIFTED=false, this is `false && raw` = false.
                         let start_tid = if SHIFTED && raw {
                             let j = idx_val as usize;
                             debug_assert!(
@@ -215,25 +252,21 @@ fn apply_subst_core<const SHIFTED: bool>(
 
                         let resolved = resolve_var_chain_unlocked(start_tid, subst, nodes);
 
-                        match nodes.get(resolved.index()) {
-                            Some(Term::Var(_)) => {
-                                result_stack.push(resolved);
-                            }
-                            Some(Term::App(_, children)) if children.is_empty() => {
-                                result_stack.push(resolved);
-                            }
-                            Some(Term::App(f, children)) => {
-                                let func = *f;
-                                let n = children.len();
-                                // Copy children TermIds to work stack before
-                                // dropping the nodes reference.
-                                work_stack.push(Work::BuildApp(resolved, func, n));
-                                for i in (0..n).rev() {
-                                    work_stack.push(Work::Visit(children[i], false));
+                        if resolved.is_inline() {
+                            result_stack.push(resolved);
+                        } else {
+                            match nodes.get(resolved.index()) {
+                                Some(Term::App(f, children)) if !children.is_empty() => {
+                                    let func = *f;
+                                    let n = children.len();
+                                    work_stack.push(Work::BuildApp(resolved, func, n));
+                                    for i in (0..n).rev() {
+                                        work_stack.push(Work::Visit(children[i], false));
+                                    }
                                 }
-                            }
-                            None => {
-                                result_stack.push(resolved);
+                                _ => {
+                                    result_stack.push(resolved);
+                                }
                             }
                         }
                     }
@@ -243,8 +276,6 @@ fn apply_subst_core<const SHIFTED: bool>(
                     Some(Term::App(f, children)) => {
                         let func = *f;
                         let n = children.len();
-                        // Children of App nodes inherit raw-ness from their parent.
-                        // `SHIFTED &&` folds to false when SHIFTED=false.
                         work_stack.push(Work::BuildApp(tid, func, n));
                         for i in (0..n).rev() {
                             work_stack.push(Work::Visit(children[i], SHIFTED && raw));
@@ -278,6 +309,22 @@ pub(crate) fn resolve_var_chain_unlocked(start: TermId, subst: &Subst, nodes: &[
         if depth >= max_depth {
             return current;
         }
+        // Fast path: inline variable - no store lookup needed.
+        if current.is_inline_var() {
+            match subst.get(current.inline_var_index()) {
+                Some(bound) if bound != current => {
+                    current = bound;
+                    depth += 1;
+                }
+                _ => return current,
+            }
+            continue;
+        }
+        // Inline nullary or ground store ref - not a variable, stop.
+        if current.is_ground() {
+            return current;
+        }
+        // Store ref - look up in nodes.
         match nodes.get(current.index()) {
             Some(Term::Var(idx)) => match subst.get(*idx) {
                 Some(bound) if bound != current => {

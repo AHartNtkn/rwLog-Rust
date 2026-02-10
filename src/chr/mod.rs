@@ -212,17 +212,32 @@ fn match_pat_nobind_locked(
                 Some(tv) if tv == t => {}
                 _ => return false,
             },
-            PatNode::App { f, kids } => match guard.get(t) {
-                Some(Term::App(tf, tks)) => {
-                    if *f != *tf || kids.len() != tks.len() {
-                        return false;
+            PatNode::App { f, kids } => {
+                // Handle inline nullary: check functor match with no children.
+                if t.is_inline_nullary() {
+                    if kids.is_empty() {
+                        let func_raw = t.inline_nullary_func_raw();
+                        if func_raw != f.into_inner().get() {
+                            return false;
+                        }
+                        // Match: nullary pattern vs nullary inline term, same functor.
+                    } else {
+                        return false; // nullary term vs non-nullary pattern
                     }
-                    for (cp, ct) in kids.iter().zip(tks.iter()) {
-                        stack.push((*cp, *ct));
+                } else {
+                    match guard.get(t) {
+                        Some(Term::App(tf, tks)) => {
+                            if *f != *tf || kids.len() != tks.len() {
+                                return false;
+                            }
+                            for (cp, ct) in kids.iter().zip(tks.iter()) {
+                                stack.push((*cp, *ct));
+                            }
+                        }
+                        _ => return false,
                     }
                 }
-                _ => return false,
-            },
+            }
         }
     }
     true
@@ -2099,14 +2114,22 @@ fn match_flat_ops(
             }
             FlatMatchOp::CheckApp(f, n) => {
                 let t = stack.pop().unwrap();
-                match guard.get(t) {
-                    Some(Term::App(tf, tks)) if *tf == *f && tks.len() == *n as usize => {
-                        // Push children in reverse for pre-order traversal.
-                        for kid in tks.iter().rev() {
-                            stack.push(*kid);
-                        }
+                // Handle inline nullary: check functor match with no children.
+                if t.is_inline_nullary() {
+                    if *n != 0 || t.inline_nullary_func_raw() != f.into_inner().get() {
+                        return false;
                     }
-                    _ => return false,
+                    // Match: nullary CheckApp vs nullary inline term, same functor.
+                } else {
+                    match guard.get(t) {
+                        Some(Term::App(tf, tks)) if *tf == *f && tks.len() == *n as usize => {
+                            // Push children in reverse for pre-order traversal.
+                            for kid in tks.iter().rev() {
+                                stack.push(*kid);
+                            }
+                        }
+                        _ => return false,
+                    }
                 }
             }
             FlatMatchOp::BindVar(rv) => {
