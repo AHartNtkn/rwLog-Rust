@@ -34,22 +34,30 @@ pub(crate) fn match_terms_combined(t1: TermId, t2: TermId, terms: &TermStore) ->
             continue;
         }
 
-        // Classify both terms without cloning children
+        // Classify both terms without cloning children.
+        // Handle inline TermIds directly.
         enum TermKind {
             Var(u32),
             App(FuncId),
+            InlineNullary(u32), // raw func id
             Invalid,
         }
-        let a_kind = match guard.get(a_deref) {
-            Some(Term::Var(idx)) => TermKind::Var(*idx),
-            Some(Term::App(f, _)) => TermKind::App(*f),
-            None => TermKind::Invalid,
+
+        let classify = |tid: TermId| -> TermKind {
+            if tid.is_inline_var() {
+                return TermKind::Var(tid.inline_var_index());
+            }
+            if tid.is_inline_nullary() {
+                return TermKind::InlineNullary(tid.inline_nullary_func_raw());
+            }
+            match guard.get(tid) {
+                Some(Term::Var(idx)) => TermKind::Var(*idx),
+                Some(Term::App(f, _)) => TermKind::App(*f),
+                None => TermKind::Invalid,
+            }
         };
-        let b_kind = match guard.get(b_deref) {
-            Some(Term::Var(idx)) => TermKind::Var(*idx),
-            Some(Term::App(f, _)) => TermKind::App(*f),
-            None => TermKind::Invalid,
-        };
+        let a_kind = classify(a_deref);
+        let b_kind = classify(b_deref);
 
         match (a_kind, b_kind) {
             (TermKind::Var(idx_a), TermKind::Var(idx_b)) => {
@@ -59,7 +67,7 @@ pub(crate) fn match_terms_combined(t1: TermId, t2: TermId, terms: &TermStore) ->
                     subst.bind(idx_a, b_deref);
                 }
             }
-            (TermKind::Var(idx), TermKind::App(_)) => {
+            (TermKind::Var(idx), TermKind::App(_) | TermKind::InlineNullary(_)) => {
                 if occurs_locked(idx, b_deref, &subst, &guard) {
                     #[cfg(feature = "tracing")]
                     trace!(var = idx, "match_occurs_check_failed");
@@ -67,13 +75,22 @@ pub(crate) fn match_terms_combined(t1: TermId, t2: TermId, terms: &TermStore) ->
                 }
                 subst.bind(idx, b_deref);
             }
-            (TermKind::App(_), TermKind::Var(idx)) => {
+            (TermKind::App(_) | TermKind::InlineNullary(_), TermKind::Var(idx)) => {
                 if occurs_locked(idx, a_deref, &subst, &guard) {
                     #[cfg(feature = "tracing")]
                     trace!(var = idx, "match_occurs_check_failed");
                     return None;
                 }
                 subst.bind(idx, a_deref);
+            }
+            (TermKind::InlineNullary(f1), TermKind::InlineNullary(f2)) => {
+                if f1 != f2 {
+                    #[cfg(feature = "tracing")]
+                    trace!("match_functor_mismatch");
+                    return None;
+                }
+                // Both are nullary with same func: already equal (caught by a_deref == b_deref above).
+                // If we reach here, they must have matched, no children to compare.
             }
             (TermKind::App(f1), TermKind::App(f2)) => {
                 if f1 != f2 {
@@ -93,6 +110,14 @@ pub(crate) fn match_terms_combined(t1: TermId, t2: TermId, terms: &TermStore) ->
                         worklist.push((*c1, *c2));
                     }
                 }
+            }
+            // Mismatched kinds: inline nullary vs store App (different arity) or other mismatches
+            (TermKind::InlineNullary(_), TermKind::App(..))
+            | (TermKind::App(..), TermKind::InlineNullary(_)) => {
+                // Nullary (0 children) vs non-nullary App (1+ children): arity mismatch.
+                #[cfg(feature = "tracing")]
+                trace!("match_arity_mismatch");
+                return None;
             }
             _ => {
                 #[cfg(feature = "tracing")]
@@ -166,23 +191,30 @@ pub(crate) fn match_terms_combined_shifted(
             continue;
         }
 
-        // Classify both terms without cloning children
+        // Classify both terms without cloning children.
+        // Handle inline TermIds directly.
         enum TermKind {
             Var(u32),
             App(FuncId),
+            InlineNullary(u32),
             Invalid,
         }
 
-        let a_kind = match terms.get_unlocked(a_deref) {
-            Some(Term::Var(idx)) => TermKind::Var(*idx),
-            Some(Term::App(f, _)) => TermKind::App(*f),
-            None => TermKind::Invalid,
+        let classify_unlocked = |tid: TermId, terms_ref: &mut TermStore| -> TermKind {
+            if tid.is_inline_var() {
+                return TermKind::Var(tid.inline_var_index());
+            }
+            if tid.is_inline_nullary() {
+                return TermKind::InlineNullary(tid.inline_nullary_func_raw());
+            }
+            match terms_ref.get_unlocked(tid) {
+                Some(Term::Var(idx)) => TermKind::Var(*idx),
+                Some(Term::App(f, _)) => TermKind::App(*f),
+                None => TermKind::Invalid,
+            }
         };
-        let b_kind = match terms.get_unlocked(b_deref) {
-            Some(Term::Var(idx)) => TermKind::Var(*idx),
-            Some(Term::App(f, _)) => TermKind::App(*f),
-            None => TermKind::Invalid,
-        };
+        let a_kind = classify_unlocked(a_deref, terms);
+        let b_kind = classify_unlocked(b_deref, terms);
 
         match (a_kind, b_kind) {
             (TermKind::Var(idx_a), TermKind::Var(idx_b)) => {
@@ -192,25 +224,25 @@ pub(crate) fn match_terms_combined_shifted(
                     subst.bind(idx_a, b_deref);
                 }
             }
-            (TermKind::Var(idx), TermKind::App(_)) => {
+            (TermKind::Var(idx), TermKind::App(_) | TermKind::InlineNullary(_)) => {
                 // When binding a left-side Var to a right-side subtree,
                 // materialize the shifted version if the subtree is raw.
-                let b_shifted = if b_raw && b_deref == b {
-                    // b_deref == b means b was an App (not dereffed through subst).
-                    // Its children are raw. Materialize the shifted version.
+                let b_shifted = if b_raw && b_deref == b && !b_deref.is_inline_nullary() {
                     shift_term(b, shifted_vars, terms)
                 } else {
                     b_deref
                 };
-                // Occurs check is unnecessary here: this function is only called
-                // when subst starts empty and left/right variables are in disjoint
-                // namespaces (left < offset, right >= offset). Cross-namespace
-                // bindings cannot form cycles, so occurs check always returns false.
                 subst.bind(idx, b_shifted);
             }
-            (TermKind::App(_), TermKind::Var(idx)) => {
-                // Same reasoning: disjoint namespaces make cycles impossible.
+            (TermKind::App(_) | TermKind::InlineNullary(_), TermKind::Var(idx)) => {
                 subst.bind(idx, a_deref);
+            }
+            (TermKind::InlineNullary(f1), TermKind::InlineNullary(f2)) => {
+                if f1 != f2 {
+                    #[cfg(feature = "tracing")]
+                    trace!("match_functor_mismatch");
+                    return None;
+                }
             }
             (TermKind::App(f1), TermKind::App(f2)) => {
                 if f1 != f2 {
@@ -218,10 +250,7 @@ pub(crate) fn match_terms_combined_shifted(
                     trace!("match_functor_mismatch");
                     return None;
                 }
-                // Children are raw only if b was raw and b_deref is the
-                // original b (App returned as-is by deref_shifted_unlocked).
                 let children_raw = b_raw && b_deref == b;
-                // Read children. For the raw case, read from the original b.
                 let (ac, bc) = {
                     let nodes = terms.nodes.get_mut();
                     let a_children = match nodes.get(a_deref.index()) {
@@ -242,6 +271,12 @@ pub(crate) fn match_terms_combined_shifted(
                 for (c1, c2) in ac.iter().zip(bc.iter()) {
                     worklist.push((*c1, *c2, children_raw));
                 }
+            }
+            (TermKind::InlineNullary(_), TermKind::App(..))
+            | (TermKind::App(..), TermKind::InlineNullary(_)) => {
+                #[cfg(feature = "tracing")]
+                trace!("match_arity_mismatch");
+                return None;
             }
             _ => {
                 #[cfg(feature = "tracing")]
@@ -310,23 +345,30 @@ pub(crate) fn match_terms_combined_shifted_with_left_renaming(
             continue;
         }
 
-        // Classify both terms without cloning children
+        // Classify both terms without cloning children.
+        // Handle inline TermIds directly.
         enum TermKind {
             Var(u32),
             App(FuncId),
+            InlineNullary(u32),
             Invalid,
         }
 
-        let a_kind = match terms.get_unlocked(a_deref) {
-            Some(Term::Var(idx)) => TermKind::Var(*idx),
-            Some(Term::App(f, _)) => TermKind::App(*f),
-            None => TermKind::Invalid,
+        let classify_unlocked2 = |tid: TermId, terms_ref: &mut TermStore| -> TermKind {
+            if tid.is_inline_var() {
+                return TermKind::Var(tid.inline_var_index());
+            }
+            if tid.is_inline_nullary() {
+                return TermKind::InlineNullary(tid.inline_nullary_func_raw());
+            }
+            match terms_ref.get_unlocked(tid) {
+                Some(Term::Var(idx)) => TermKind::Var(*idx),
+                Some(Term::App(f, _)) => TermKind::App(*f),
+                None => TermKind::Invalid,
+            }
         };
-        let b_kind = match terms.get_unlocked(b_deref) {
-            Some(Term::Var(idx)) => TermKind::Var(*idx),
-            Some(Term::App(f, _)) => TermKind::App(*f),
-            None => TermKind::Invalid,
-        };
+        let a_kind = classify_unlocked2(a_deref, terms);
+        let b_kind = classify_unlocked2(b_deref, terms);
 
         match (a_kind, b_kind) {
             (TermKind::Var(idx_a), TermKind::Var(idx_b)) => {
@@ -336,23 +378,28 @@ pub(crate) fn match_terms_combined_shifted_with_left_renaming(
                     subst.bind(idx_a, b_deref);
                 }
             }
-            (TermKind::Var(idx), TermKind::App(_)) => {
-                // Materialize shifted right-side subtree if needed.
-                let b_shifted = if b_raw && b_deref == b {
+            (TermKind::Var(idx), TermKind::App(_) | TermKind::InlineNullary(_)) => {
+                let b_shifted = if b_raw && b_deref == b && !b_deref.is_inline_nullary() {
                     shift_term(b, shifted_vars, terms)
                 } else {
                     b_deref
                 };
                 subst.bind(idx, b_shifted);
             }
-            (TermKind::App(_), TermKind::Var(idx)) => {
-                // Materialize renamed left-side subtree if needed.
-                let a_renamed = if a_raw && a_deref == a {
+            (TermKind::App(_) | TermKind::InlineNullary(_), TermKind::Var(idx)) => {
+                let a_renamed = if a_raw && a_deref == a && !a_deref.is_inline_nullary() {
                     rename_term(a, left_rhs_map, terms)
                 } else {
                     a_deref
                 };
                 subst.bind(idx, a_renamed);
+            }
+            (TermKind::InlineNullary(f1), TermKind::InlineNullary(f2)) => {
+                if f1 != f2 {
+                    #[cfg(feature = "tracing")]
+                    trace!("match_functor_mismatch");
+                    return None;
+                }
             }
             (TermKind::App(f1), TermKind::App(f2)) => {
                 if f1 != f2 {
@@ -383,6 +430,12 @@ pub(crate) fn match_terms_combined_shifted_with_left_renaming(
                     worklist.push((*c1, *c2, children_a_raw, children_b_raw));
                 }
             }
+            (TermKind::InlineNullary(_), TermKind::App(..))
+            | (TermKind::App(..), TermKind::InlineNullary(_)) => {
+                #[cfg(feature = "tracing")]
+                trace!("match_arity_mismatch");
+                return None;
+            }
             _ => {
                 #[cfg(feature = "tracing")]
                 trace!("match_invalid_term");
@@ -410,18 +463,18 @@ fn deref_left_renamed_unlocked(
     subst: &Subst,
     terms: &mut TermStore,
 ) -> TermId {
-    // Extract variable index if this term is a Var, within a scoped borrow.
-    let var_idx = {
+    // Extract variable index: check inline var first, then store ref.
+    let idx = if term.is_inline_var() {
+        term.inline_var_index()
+    } else if term.is_inline_nullary() {
+        return term; // Nullary constant: return as-is.
+    } else {
+        // Store ref: check if it's a variable.
         let nodes = terms.nodes.get_mut();
         match nodes.get(term.index()) {
-            Some(Term::Var(idx)) => Some(*idx),
-            _ => None, // App or invalid: return as-is
+            Some(Term::Var(idx)) => *idx,
+            _ => return term, // App or invalid: return as-is
         }
-    };
-
-    let idx = match var_idx {
-        Some(idx) => idx,
-        None => return term,
     };
 
     let j = idx as usize;
@@ -440,6 +493,16 @@ fn deref_left_renamed_unlocked(
             let nodes = terms.nodes.get_mut();
             let mut current = bound;
             loop {
+                if current.is_inline_var() {
+                    match subst.get(current.inline_var_index()) {
+                        Some(next) => current = next,
+                        None => return current,
+                    }
+                    continue;
+                }
+                if current.is_inline() {
+                    return current;
+                }
                 match nodes.get(current.index()) {
                     Some(Term::Var(vidx)) => match subst.get(*vidx) {
                         Some(next) => current = next,
@@ -505,6 +568,14 @@ fn rename_term(term: TermId, left_rhs_map: &[u32], terms: &mut TermStore) -> Ter
                     result_stack.push(tid);
                     continue;
                 }
+                // Fast path: inline variable.
+                if tid.is_inline_var() {
+                    let j = tid.inline_var_index() as usize;
+                    debug_assert!(j < left_rhs_map.len());
+                    result_stack.push(terms.var_unlocked(left_rhs_map[j]));
+                    continue;
+                }
+                // Store ref (non-ground).
                 let var_action: Option<u32> = {
                     let nodes = terms.nodes.get_mut();
                     match nodes.get(tid.index()) {
@@ -584,6 +655,14 @@ pub fn match_terms_disjoint(
 fn deref_locked(term: TermId, subst: &Subst, guard: &TermReadGuard<'_>) -> TermId {
     let mut current = term;
     loop {
+        if current.is_inline_var() {
+            match subst.get(current.inline_var_index()) {
+                Some(bound) => current = bound,
+                None => return current,
+            }
+            continue;
+        }
+        // Inline nullary or non-inline: try guard
         match guard.get(current) {
             Some(Term::Var(idx)) => match subst.get(*idx) {
                 Some(bound) => current = bound,
@@ -601,6 +680,17 @@ fn deref_unlocked(term: TermId, subst: &Subst, terms: &mut TermStore) -> TermId 
     let nodes = terms.nodes.get_mut();
     let mut current = term;
     loop {
+        if current.is_inline_var() {
+            match subst.get(current.inline_var_index()) {
+                Some(bound) => current = bound,
+                None => return current,
+            }
+            continue;
+        }
+        if current.is_inline() {
+            // Inline nullary - not a variable, stop.
+            return current;
+        }
         match nodes.get(current.index()) {
             Some(Term::Var(idx)) => match subst.get(*idx) {
                 Some(bound) => current = bound,
@@ -624,6 +714,44 @@ fn deref_shifted_unlocked(
     subst: &Subst,
     terms: &mut TermStore,
 ) -> TermId {
+    // Check for inline var first (most common case for raw terms).
+    if term.is_inline_var() {
+        let j = term.inline_var_index() as usize;
+        debug_assert!(
+            j < shifted_vars.len(),
+            "var index {} exceeds shifted_vars length {}",
+            j,
+            shifted_vars.len()
+        );
+        let shifted = shifted_vars[j];
+        // Now dereference through the substitution from the shifted var.
+        let nodes = terms.nodes.get_mut();
+        let mut current = shifted;
+        loop {
+            if current.is_inline_var() {
+                match subst.get(current.inline_var_index()) {
+                    Some(bound) => current = bound,
+                    None => return current,
+                }
+                continue;
+            }
+            if current.is_inline() {
+                return current;
+            }
+            match nodes.get(current.index()) {
+                Some(Term::Var(vidx)) => match subst.get(*vidx) {
+                    Some(bound) => current = bound,
+                    None => return current,
+                },
+                _ => return current,
+            }
+        }
+    }
+    // Inline nullary: return as-is (not a variable).
+    if term.is_inline_nullary() {
+        return term;
+    }
+    // Store ref: check if it's a variable.
     let nodes = terms.nodes.get_mut();
     match nodes.get(term.index()) {
         Some(Term::Var(idx)) => {
@@ -635,9 +763,18 @@ fn deref_shifted_unlocked(
                 shifted_vars.len()
             );
             let shifted = shifted_vars[j];
-            // Now dereference through the substitution from the shifted var.
             let mut current = shifted;
             loop {
+                if current.is_inline_var() {
+                    match subst.get(current.inline_var_index()) {
+                        Some(bound) => current = bound,
+                        None => return current,
+                    }
+                    continue;
+                }
+                if current.is_inline() {
+                    return current;
+                }
                 match nodes.get(current.index()) {
                     Some(Term::Var(vidx)) => match subst.get(*vidx) {
                         Some(bound) => current = bound,
@@ -647,7 +784,7 @@ fn deref_shifted_unlocked(
                 }
             }
         }
-        _ => term, // App or invalid: return as-is
+        _ => term,
     }
 }
 
@@ -702,6 +839,19 @@ fn shift_term(term: TermId, shifted_vars: &[TermId], terms: &mut TermStore) -> T
                     result_stack.push(tid);
                     continue;
                 }
+                // Fast path: inline variable.
+                if tid.is_inline_var() {
+                    let j = tid.inline_var_index() as usize;
+                    debug_assert!(
+                        j < shifted_vars.len(),
+                        "var index {} exceeds shifted_vars length {}",
+                        j,
+                        shifted_vars.len()
+                    );
+                    result_stack.push(shifted_vars[j]);
+                    continue;
+                }
+                // Store ref (non-ground).
                 let nodes = terms.nodes.get_mut();
                 match nodes.get(tid.index()) {
                     Some(Term::Var(idx)) => {
@@ -744,6 +894,15 @@ fn occurs_locked(var: u32, term: TermId, subst: &Subst, guard: &TermReadGuard<'_
 
     while let Some(t) = stack.pop() {
         let t_deref = deref_locked(t, subst, guard);
+        if t_deref.is_inline_var() {
+            if t_deref.inline_var_index() == var {
+                return true;
+            }
+            continue;
+        }
+        if t_deref.is_inline_nullary() {
+            continue;
+        }
         match guard.get(t_deref) {
             Some(Term::Var(idx)) => {
                 if *idx == var {

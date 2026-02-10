@@ -543,6 +543,22 @@ fn collect_vars_helper(
         if tid.is_ground() {
             continue;
         }
+        // Fast path: inline variable.
+        if tid.is_inline_var() {
+            let v = tid.inline_var_index();
+            if v < 64 {
+                let bit = 1u64 << v;
+                if seen_bits & bit == 0 {
+                    seen_bits |= bit;
+                    seen.insert(v);
+                    vars.push(v);
+                }
+            } else if seen.insert(v) {
+                vars.push(v);
+            }
+            continue;
+        }
+        // Store ref (non-ground).
         match nodes.get(tid.index()) {
             Some(Term::Var(idx)) => {
                 let v = *idx;
@@ -632,13 +648,36 @@ pub fn renumber_vars(term: TermId, terms: &mut TermStore) -> (TermId, Vec<u32>) 
                     result_stack.push(tid);
                     continue;
                 }
+                // Fast path: inline variable.
+                if tid.is_inline_var() {
+                    let old_idx = tid.inline_var_index();
+                    let old_usize = old_idx as usize;
+                    if old_usize >= var_map.len() {
+                        var_map.resize(old_usize + 1, None);
+                    }
+                    let new_idx = match var_map[old_usize] {
+                        Some(already) => already,
+                        None => {
+                            let assigned = next_var;
+                            next_var += 1;
+                            var_map[old_usize] = Some(assigned);
+                            vars.push(old_idx);
+                            if assigned != old_idx {
+                                is_identity = false;
+                            }
+                            assigned
+                        }
+                    };
+                    result_stack.push(terms.var_unlocked(new_idx));
+                    continue;
+                }
+                // Store ref (non-ground).
                 let var_action: Option<u32> = {
                     let nodes = terms.nodes.get_mut();
                     match nodes.get(tid.index()) {
                         Some(Term::Var(idx)) => {
                             let old_idx = *idx;
                             let old_usize = old_idx as usize;
-                            // Grow var_map if needed.
                             if old_usize >= var_map.len() {
                                 var_map.resize(old_usize + 1, None);
                             }
@@ -759,6 +798,34 @@ fn renumber_vars_list(
                 }
                 Work::Visit(tid) => {
                     if tid.is_ground() {
+                        result_stack.push(tid);
+                        continue;
+                    }
+                    // Inline var fast path: no store lookup needed.
+                    if tid.is_inline_var() {
+                        let old_idx = tid.inline_var_index();
+                        let old_usize = old_idx as usize;
+                        if old_usize >= var_map.len() {
+                            var_map.resize(old_usize + 1, None);
+                        }
+                        let new_idx = match var_map[old_usize] {
+                            Some(already) => already,
+                            None => {
+                                let assigned = next_var;
+                                next_var += 1;
+                                var_map[old_usize] = Some(assigned);
+                                vars.push(old_idx);
+                                if assigned != old_idx {
+                                    is_identity = false;
+                                }
+                                assigned
+                            }
+                        };
+                        result_stack.push(terms.var_unlocked(new_idx));
+                        continue;
+                    }
+                    // Inline nullary fast path: no variables, push directly.
+                    if tid.is_inline_nullary() {
                         result_stack.push(tid);
                         continue;
                     }
@@ -893,6 +960,80 @@ fn renumber_vars_through_subst_list(
                         continue;
                     }
 
+                    // Inline var fast path: resolve through substitutions without store lookup.
+                    if tid.is_inline_var() {
+                        let idx_val = tid.inline_var_index();
+                        let start_tid = if raw {
+                            let j = idx_val as usize;
+                            debug_assert!(j < shifted_vars.len());
+                            shifted_vars[j]
+                        } else {
+                            tid
+                        };
+                        let nodes = terms.nodes.get_mut();
+                        let mut resolved = resolve_var_chain_unlocked(start_tid, subst1, nodes);
+                        if let Some(s2) = subst2 {
+                            resolved = resolve_var_chain_unlocked(resolved, s2, nodes);
+                        }
+
+                        // Classify the resolved term.
+                        let action = if resolved.is_inline_var() {
+                            VarResolution::FinalVar(resolved.inline_var_index())
+                        } else if resolved.is_inline_nullary() || resolved.is_ground() {
+                            VarResolution::Leaf(resolved)
+                        } else {
+                            match nodes.get(resolved.index()) {
+                                Some(Term::Var(final_idx)) => VarResolution::FinalVar(*final_idx),
+                                Some(Term::App(_, children)) if children.is_empty() => {
+                                    VarResolution::Leaf(resolved)
+                                }
+                                Some(Term::App(f, children)) => {
+                                    let func = *f;
+                                    let child_ids: SmallVec<[TermId; 8]> =
+                                        children.iter().copied().collect();
+                                    VarResolution::App(resolved, func, child_ids)
+                                }
+                                None => VarResolution::Leaf(resolved),
+                            }
+                        };
+                        // Process outside borrow scope.
+                        match action {
+                            VarResolution::FinalVar(old_idx) => {
+                                let old_usize = old_idx as usize;
+                                if old_usize >= var_map.len() {
+                                    var_map.resize(old_usize + 1, None);
+                                }
+                                let new_idx = match var_map[old_usize] {
+                                    Some(already) => already,
+                                    None => {
+                                        let assigned = next_var;
+                                        next_var += 1;
+                                        var_map[old_usize] = Some(assigned);
+                                        vars.push(old_idx);
+                                        assigned
+                                    }
+                                };
+                                result_stack.push(terms.var_unlocked(new_idx));
+                            }
+                            VarResolution::Leaf(tid) => {
+                                result_stack.push(tid);
+                            }
+                            VarResolution::App(_resolved_tid, func, child_ids) => {
+                                let n = child_ids.len();
+                                work_stack.push(Work::BuildApp(func, n));
+                                for i in (0..n).rev() {
+                                    work_stack.push(Work::Visit(child_ids[i], false));
+                                }
+                            }
+                        }
+                        continue;
+                    }
+                    // Inline nullary fast path: no variables, push directly.
+                    if tid.is_inline_nullary() {
+                        result_stack.push(tid);
+                        continue;
+                    }
+
                     // Extract all needed info within a scoped borrow of nodes.
                     let action = {
                         let nodes = terms.nodes.get_mut();
@@ -912,20 +1053,27 @@ fn renumber_vars_through_subst_list(
                                     resolved = resolve_var_chain_unlocked(resolved, s2, nodes);
                                 }
 
-                                match nodes.get(resolved.index()) {
-                                    Some(Term::Var(final_idx)) => {
-                                        VarResolution::FinalVar(*final_idx)
+                                // Handle inline resolved results.
+                                if resolved.is_inline_var() {
+                                    VarResolution::FinalVar(resolved.inline_var_index())
+                                } else if resolved.is_inline_nullary() || resolved.is_ground() {
+                                    VarResolution::Leaf(resolved)
+                                } else {
+                                    match nodes.get(resolved.index()) {
+                                        Some(Term::Var(final_idx)) => {
+                                            VarResolution::FinalVar(*final_idx)
+                                        }
+                                        Some(Term::App(_, children)) if children.is_empty() => {
+                                            VarResolution::Leaf(resolved)
+                                        }
+                                        Some(Term::App(f, children)) => {
+                                            let func = *f;
+                                            let child_ids: SmallVec<[TermId; 8]> =
+                                                children.iter().copied().collect();
+                                            VarResolution::App(resolved, func, child_ids)
+                                        }
+                                        None => VarResolution::Leaf(resolved),
                                     }
-                                    Some(Term::App(_, children)) if children.is_empty() => {
-                                        VarResolution::Leaf(resolved)
-                                    }
-                                    Some(Term::App(f, children)) => {
-                                        let func = *f;
-                                        let child_ids: SmallVec<[TermId; 8]> =
-                                            children.iter().copied().collect();
-                                        VarResolution::App(resolved, func, child_ids)
-                                    }
-                                    None => VarResolution::Leaf(resolved),
                                 }
                             }
                             Some(Term::App(_, children)) if children.is_empty() => {
@@ -1022,21 +1170,36 @@ fn collect_vars_through_subst_list(
             if tid.is_ground() {
                 continue;
             }
-            match nodes.get(tid.index()) {
-                Some(Term::Var(idx)) => {
-                    let idx_val = *idx;
-                    let start_tid = if raw {
-                        let j = idx_val as usize;
-                        debug_assert!(j < shifted_vars.len());
-                        shifted_vars[j]
-                    } else {
-                        tid
-                    };
-                    let mut resolved = resolve_var_chain_unlocked(start_tid, subst1, &nodes);
-                    if let Some(s2) = subst2 {
-                        resolved = resolve_var_chain_unlocked(resolved, s2, &nodes);
-                    }
+            // Inline var fast path: resolve through substitutions without store lookup.
+            if tid.is_inline_var() {
+                let idx_val = tid.inline_var_index();
+                let start_tid = if raw {
+                    let j = idx_val as usize;
+                    debug_assert!(j < shifted_vars.len());
+                    shifted_vars[j]
+                } else {
+                    tid
+                };
+                let mut resolved = resolve_var_chain_unlocked(start_tid, subst1, &nodes);
+                if let Some(s2) = subst2 {
+                    resolved = resolve_var_chain_unlocked(resolved, s2, &nodes);
+                }
 
+                // Classify the resolved term.
+                if resolved.is_inline_var() {
+                    let v = resolved.inline_var_index();
+                    if v < 64 {
+                        let bit = 1u64 << v;
+                        if seen_bits & bit == 0 {
+                            seen_bits |= bit;
+                            vars.push(v);
+                        }
+                    } else if seen_large.insert(v) {
+                        vars.push(v);
+                    }
+                } else if resolved.is_inline_nullary() || resolved.is_ground() {
+                    // Ground/nullary leaf — no variables.
+                } else {
                     match nodes.get(resolved.index()) {
                         Some(Term::Var(final_idx)) => {
                             let v = *final_idx;
@@ -1052,11 +1215,68 @@ fn collect_vars_through_subst_list(
                         }
                         Some(Term::App(_, children)) => {
                             for child in children.iter().rev() {
-                                // Resolved terms from subst are never raw
                                 stack.push((*child, false));
                             }
                         }
                         None => {}
+                    }
+                }
+                continue;
+            }
+            // Inline nullary fast path: no variables.
+            if tid.is_inline_nullary() {
+                continue;
+            }
+            match nodes.get(tid.index()) {
+                Some(Term::Var(idx)) => {
+                    let idx_val = *idx;
+                    let start_tid = if raw {
+                        let j = idx_val as usize;
+                        debug_assert!(j < shifted_vars.len());
+                        shifted_vars[j]
+                    } else {
+                        tid
+                    };
+                    let mut resolved = resolve_var_chain_unlocked(start_tid, subst1, &nodes);
+                    if let Some(s2) = subst2 {
+                        resolved = resolve_var_chain_unlocked(resolved, s2, &nodes);
+                    }
+
+                    // Handle inline resolved results.
+                    if resolved.is_inline_var() {
+                        let v = resolved.inline_var_index();
+                        if v < 64 {
+                            let bit = 1u64 << v;
+                            if seen_bits & bit == 0 {
+                                seen_bits |= bit;
+                                vars.push(v);
+                            }
+                        } else if seen_large.insert(v) {
+                            vars.push(v);
+                        }
+                    } else if resolved.is_inline_nullary() || resolved.is_ground() {
+                        // Ground/nullary leaf — no variables.
+                    } else {
+                        match nodes.get(resolved.index()) {
+                            Some(Term::Var(final_idx)) => {
+                                let v = *final_idx;
+                                if v < 64 {
+                                    let bit = 1u64 << v;
+                                    if seen_bits & bit == 0 {
+                                        seen_bits |= bit;
+                                        vars.push(v);
+                                    }
+                                } else if seen_large.insert(v) {
+                                    vars.push(v);
+                                }
+                            }
+                            Some(Term::App(_, children)) => {
+                                for child in children.iter().rev() {
+                                    stack.push((*child, false));
+                                }
+                            }
+                            None => {}
+                        }
                     }
                 }
                 Some(Term::App(_, children)) => {
@@ -1280,6 +1500,81 @@ fn apply_subst_and_renumber_list(
                         continue;
                     }
 
+                    // Inline var fast path: resolve through substitutions without store lookup.
+                    if tid.is_inline_var() {
+                        let idx_val = tid.inline_var_index();
+                        let start_tid = if raw {
+                            let j = idx_val as usize;
+                            debug_assert!(j < shifted_vars.len());
+                            shifted_vars[j]
+                        } else {
+                            tid
+                        };
+                        let nodes = terms.nodes.get_mut();
+                        let mut resolved = resolve_var_chain_unlocked(start_tid, subst1, nodes);
+                        if let Some(s2) = subst2 {
+                            resolved = resolve_var_chain_unlocked(resolved, s2, nodes);
+                        }
+
+                        // Classify the resolved term.
+                        let action = if resolved.is_inline_var() {
+                            let final_idx = resolved.inline_var_index();
+                            let old_idx = final_idx as usize;
+                            let new_idx = if old_idx < renaming.len() {
+                                renaming[old_idx].unwrap_or(final_idx)
+                            } else {
+                                final_idx
+                            };
+                            VarResolution::RenamedVar(new_idx)
+                        } else if resolved.is_inline_nullary() || resolved.is_ground() {
+                            VarResolution::Leaf(resolved)
+                        } else {
+                            match nodes.get(resolved.index()) {
+                                Some(Term::Var(final_idx)) => {
+                                    let old_idx = *final_idx as usize;
+                                    let new_idx = if old_idx < renaming.len() {
+                                        renaming[old_idx].unwrap_or(*final_idx)
+                                    } else {
+                                        *final_idx
+                                    };
+                                    VarResolution::RenamedVar(new_idx)
+                                }
+                                Some(Term::App(_, children)) if children.is_empty() => {
+                                    VarResolution::Leaf(resolved)
+                                }
+                                Some(Term::App(f, children)) => {
+                                    let func = *f;
+                                    let child_ids: SmallVec<[TermId; 8]> =
+                                        children.iter().copied().collect();
+                                    VarResolution::App(func, child_ids)
+                                }
+                                None => VarResolution::Leaf(resolved),
+                            }
+                        };
+                        // Process outside borrow scope.
+                        match action {
+                            VarResolution::RenamedVar(new_idx) => {
+                                result_stack.push(terms.var_unlocked(new_idx));
+                            }
+                            VarResolution::Leaf(tid) => {
+                                result_stack.push(tid);
+                            }
+                            VarResolution::App(func, child_ids) => {
+                                let n = child_ids.len();
+                                work_stack.push(Work::BuildApp(func, n));
+                                for i in (0..n).rev() {
+                                    work_stack.push(Work::Visit(child_ids[i], false));
+                                }
+                            }
+                        }
+                        continue;
+                    }
+                    // Inline nullary fast path: no variables, push directly.
+                    if tid.is_inline_nullary() {
+                        result_stack.push(tid);
+                        continue;
+                    }
+
                     // Extract resolution info within scoped borrow.
                     let action = {
                         let nodes = terms.nodes.get_mut();
@@ -1299,26 +1594,40 @@ fn apply_subst_and_renumber_list(
                                     resolved = resolve_var_chain_unlocked(resolved, s2, nodes);
                                 }
 
-                                match nodes.get(resolved.index()) {
-                                    Some(Term::Var(final_idx)) => {
-                                        let old_idx = *final_idx as usize;
-                                        let new_idx = if old_idx < renaming.len() {
-                                            renaming[old_idx].unwrap_or(*final_idx)
-                                        } else {
-                                            *final_idx
-                                        };
-                                        VarResolution::RenamedVar(new_idx)
+                                // Handle inline resolved results.
+                                if resolved.is_inline_var() {
+                                    let final_idx = resolved.inline_var_index();
+                                    let old_idx = final_idx as usize;
+                                    let new_idx = if old_idx < renaming.len() {
+                                        renaming[old_idx].unwrap_or(final_idx)
+                                    } else {
+                                        final_idx
+                                    };
+                                    VarResolution::RenamedVar(new_idx)
+                                } else if resolved.is_inline_nullary() || resolved.is_ground() {
+                                    VarResolution::Leaf(resolved)
+                                } else {
+                                    match nodes.get(resolved.index()) {
+                                        Some(Term::Var(final_idx)) => {
+                                            let old_idx = *final_idx as usize;
+                                            let new_idx = if old_idx < renaming.len() {
+                                                renaming[old_idx].unwrap_or(*final_idx)
+                                            } else {
+                                                *final_idx
+                                            };
+                                            VarResolution::RenamedVar(new_idx)
+                                        }
+                                        Some(Term::App(_, children)) if children.is_empty() => {
+                                            VarResolution::Leaf(resolved)
+                                        }
+                                        Some(Term::App(f, children)) => {
+                                            let func = *f;
+                                            let child_ids: SmallVec<[TermId; 8]> =
+                                                children.iter().copied().collect();
+                                            VarResolution::App(func, child_ids)
+                                        }
+                                        None => VarResolution::Leaf(resolved),
                                     }
-                                    Some(Term::App(_, children)) if children.is_empty() => {
-                                        VarResolution::Leaf(resolved)
-                                    }
-                                    Some(Term::App(f, children)) => {
-                                        let func = *f;
-                                        let child_ids: SmallVec<[TermId; 8]> =
-                                            children.iter().copied().collect();
-                                        VarResolution::App(func, child_ids)
-                                    }
-                                    None => VarResolution::Leaf(resolved),
                                 }
                             }
                             Some(Term::App(_, children)) if children.is_empty() => {
@@ -1432,6 +1741,25 @@ pub fn apply_var_renaming(
             Work::Visit(tid) => {
                 // Ground terms contain no variables — skip entire subtree.
                 if tid.is_ground() {
+                    result_stack.push(tid);
+                    continue;
+                }
+                // Inline var fast path: apply renaming without store lookup.
+                if tid.is_inline_var() {
+                    let idx_usize = tid.inline_var_index() as usize;
+                    if idx_usize < old_to_new.len() {
+                        if let Some(new_idx) = old_to_new[idx_usize] {
+                            result_stack.push(terms.var_unlocked(new_idx));
+                        } else {
+                            result_stack.push(tid);
+                        }
+                    } else {
+                        result_stack.push(tid);
+                    }
+                    continue;
+                }
+                // Inline nullary fast path: no variables, push directly.
+                if tid.is_inline_nullary() {
                     result_stack.push(tid);
                     continue;
                 }
