@@ -2638,19 +2638,35 @@ impl<T: Theory> crate::constraint::ConstraintOps for ChrState<T> {
         // Compute a fast hash of the pre-normalization ChrState for cache lookup.
         // Includes: program_id, alive constraint predicates and their term args,
         // and fired propagation tokens (for propagation rule correctness).
+        //
+        // The per-constraint hashes are combined with wrapping_add (commutative)
+        // so that two states with the same alive constraints at different inst Vec
+        // positions produce the same hash, improving cache hit rate.
         let state_hash = {
             let d = self.data.as_ref().unwrap();
             const MUL: u64 = 6364136223846793005;
-            let mut h = 0u64;
-            h = h.wrapping_mul(MUL).wrapping_add(d.store.alive_count as u64);
+
+            // Hash each alive constraint independently, then sum them (order-independent).
+            let mut constraints_hash = 0u64;
             for inst in d.store.inst.iter() {
                 if inst.alive {
-                    h = h.wrapping_mul(MUL).wrapping_add(inst.pred.0 as u64);
+                    // Per-constraint hash: order-dependent WITHIN a single constraint's
+                    // predicate and args (which is correct — arg order matters).
+                    let mut ch = inst.pred.0 as u64;
                     for arg in d.store.args(inst) {
-                        h = h.wrapping_mul(MUL).wrapping_add(arg.raw() as u64);
+                        ch = ch.wrapping_mul(MUL).wrapping_add(arg.raw() as u64);
                     }
+                    // Spread bits before combining to reduce collisions from
+                    // identical per-constraint hashes.
+                    constraints_hash = constraints_hash.wrapping_add(ch.wrapping_mul(MUL));
                 }
             }
+
+            // Final combination: alive_count, commutative constraint hash,
+            // per-rule fired token counts, and program_id.
+            let mut h = 0u64;
+            h = h.wrapping_mul(MUL).wrapping_add(d.store.alive_count as u64);
+            h = h.wrapping_mul(MUL).wrapping_add(constraints_hash);
             // Include fired token counts for propagation-rule correctness.
             for set in d.tokens.fired.iter() {
                 h = h.wrapping_mul(MUL).wrapping_add(set.len() as u64);
