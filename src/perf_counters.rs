@@ -47,9 +47,6 @@ static FIXPOINT_VERIFICATION_STEPS: AtomicU64 = AtomicU64::new(0);
 static OR_SPINE_WALKS: AtomicU64 = AtomicU64::new(0);
 static OR_SPINE_TOTAL_SIBLINGS: AtomicU64 = AtomicU64::new(0);
 static OR_SPINE_MAX_SIBLINGS: AtomicU64 = AtomicU64::new(0);
-static NORMALIZE_TOTAL: AtomicU64 = AtomicU64::new(0);
-static NORMALIZE_UNIQUE: Mutex<Option<HashSet<u64>>> = Mutex::new(None);
-
 static COMPOSE_PAIR_SET: Mutex<Option<HashSet<u64>>> = Mutex::new(None);
 static MEET_PAIR_SET: Mutex<Option<HashSet<u64>>> = Mutex::new(None);
 static COMPOSE_PAIR_FREQ: Mutex<Option<std::collections::HashMap<u64, u32>>> = Mutex::new(None);
@@ -91,8 +88,6 @@ pub fn reset() {
     OR_SPINE_WALKS.store(0, Ordering::Relaxed);
     OR_SPINE_TOTAL_SIBLINGS.store(0, Ordering::Relaxed);
     OR_SPINE_MAX_SIBLINGS.store(0, Ordering::Relaxed);
-    NORMALIZE_TOTAL.store(0, Ordering::Relaxed);
-    *NORMALIZE_UNIQUE.lock().unwrap() = Some(HashSet::new());
     *COMPOSE_PAIR_SET.lock().unwrap() = Some(HashSet::new());
     *MEET_PAIR_SET.lock().unwrap() = Some(HashSet::new());
     *COMPOSE_PAIR_FREQ.lock().unwrap() = Some(std::collections::HashMap::new());
@@ -262,29 +257,6 @@ pub fn record_fixpoint_verification_step() {
     if enabled() {
         bump(&FIXPOINT_VERIFICATION_STEPS);
     }
-}
-
-/// Record a normalize_owned call with a hash of the pre-normalization ChrState.
-pub fn record_normalize_call(state_hash: u64) {
-    if enabled() {
-        bump(&NORMALIZE_TOTAL);
-        if let Ok(mut guard) = NORMALIZE_UNIQUE.lock() {
-            if let Some(set) = guard.as_mut() {
-                set.insert(state_hash);
-            }
-        }
-    }
-}
-
-/// Get the normalize duplication stats: (total_calls, unique_states).
-pub fn normalize_stats() -> (u64, u64) {
-    let total = NORMALIZE_TOTAL.load(Ordering::Relaxed);
-    let unique = NORMALIZE_UNIQUE
-        .lock()
-        .unwrap()
-        .as_ref()
-        .map_or(0, |s| s.len() as u64);
-    (total, unique)
 }
 
 /// Record an Or spine walk with the given number of siblings collected.
