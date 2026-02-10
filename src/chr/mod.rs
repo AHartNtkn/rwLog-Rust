@@ -1403,6 +1403,10 @@ pub struct ChrStateData<T: Theory> {
     /// Constraints with `cid.0 < fixpoint_watermark` are already at CHR fixpoint
     /// and do not need to be re-enqueued for agenda processing.
     pub(crate) fixpoint_watermark: u32,
+    /// Cached flag: true when every alive constraint arg has `is_ground()` set.
+    /// When true and builtins are empty, apply_subst/remap_vars can skip the
+    /// expensive ChrStateData clone + arg walk because no variable can change.
+    pub(crate) all_args_ground: bool,
 }
 
 impl<T: Theory> Clone for ChrStateData<T> {
@@ -1415,7 +1419,20 @@ impl<T: Theory> Clone for ChrStateData<T> {
             agenda: self.agenda.clone(),
             failed: self.failed,
             fixpoint_watermark: self.fixpoint_watermark,
+            all_args_ground: self.all_args_ground,
         }
+    }
+}
+
+impl<T: Theory> ChrStateData<T> {
+    /// Recompute the `all_args_ground` flag by checking all alive constraint args.
+    fn recompute_all_args_ground(&mut self) {
+        self.all_args_ground = self.store.inst.iter().all(|inst| {
+            if !inst.alive {
+                return true;
+            }
+            self.store.args(inst).iter().all(|arg| arg.is_ground())
+        });
     }
 }
 
@@ -1451,6 +1468,7 @@ impl<T: Theory> ChrState<T> {
                 agenda: VecDeque::new(),
                 failed: false,
                 fixpoint_watermark: 0,
+                all_args_ground: true, // empty store has no args
             })
         });
         Arc::make_mut(arc)
@@ -1482,6 +1500,7 @@ impl<T: Theory> ChrState<T> {
                 agenda: VecDeque::new(),
                 failed: false,
                 fixpoint_watermark: 0,
+                all_args_ground: true, // empty store has no args
             })),
             program,
         }
@@ -1498,6 +1517,7 @@ impl<T: Theory> ChrState<T> {
                 agenda: VecDeque::new(),
                 failed: false,
                 fixpoint_watermark: 0,
+                all_args_ground: true,
             })
         });
         let d = Arc::make_mut(arc);
@@ -1505,6 +1525,10 @@ impl<T: Theory> ChrState<T> {
         d.next_cid = d.next_cid.saturating_add(1);
         let specs = &program.preds[pred.0 as usize].index_specs;
         d.store.add_chr(cid, pred, args, terms, specs);
+        // Update all_args_ground: if it was true and new args have non-ground terms, set to false
+        if d.all_args_ground && !args.iter().all(|a| a.is_ground()) {
+            d.all_args_ground = false;
+        }
         d.agenda.push_back(cid);
         cid
     }
@@ -2555,6 +2579,7 @@ impl<T: Theory> crate::constraint::ConstraintOps for ChrState<T> {
             sd.fixpoint_watermark = sd.next_cid;
         }
         sd.agenda.clear();
+        sd.recompute_all_args_ground();
         Some((self, subst_opt))
     }
 
@@ -2621,6 +2646,12 @@ impl<T: Theory> crate::constraint::ConstraintOps for ChrState<T> {
                     md.store.alive_count += 1;
                 }
 
+                // Update all_args_ground: if self was ground and other's alive args are all ground,
+                // combined is still ground. Otherwise recompute.
+                if md.all_args_ground && !od.all_args_ground {
+                    md.all_args_ground = false;
+                }
+
                 for (rid, set) in od.tokens.fired.iter().enumerate() {
                     if !other.program.rules[rid].is_propagation {
                         continue;
@@ -2657,6 +2688,11 @@ impl<T: Theory> crate::constraint::ConstraintOps for ChrState<T> {
         if subst.is_empty() {
             return self.clone();
         }
+        // If all constraint args are ground and builtins are empty,
+        // no substitution can change anything - skip the expensive clone + walk.
+        if data_ref.all_args_ground && T::is_empty(&data_ref.builtins) {
+            return self.clone();
+        }
         // Clone data directly to avoid self.clone() + Arc::make_mut double-clone.
         let mut data = data_ref.as_ref().clone();
         let args_changed = Self::apply_subst_to_data(&mut data, subst, terms);
@@ -2674,6 +2710,11 @@ impl<T: Theory> crate::constraint::ConstraintOps for ChrState<T> {
             Some(d) => d,
             None => return self.clone(),
         };
+        // If all constraint args are ground and builtins are empty,
+        // variable remapping cannot change anything - skip the clone + walk.
+        if data_ref.all_args_ground && T::is_empty(&data_ref.builtins) {
+            return self.clone();
+        }
         // Clone data directly to avoid self.clone() + Arc::make_mut double-clone.
         let mut data = data_ref.as_ref().clone();
         let preds = &self.program.preds;
@@ -2714,6 +2755,11 @@ impl<T: Theory> crate::constraint::ConstraintOps for ChrState<T> {
             Some(d) => d,
             None => return self.clone(),
         };
+        // If all constraint args are ground and builtins are empty,
+        // neither remap nor subst can change anything - skip the clone + walk.
+        if data_ref.all_args_ground && T::is_empty(&data_ref.builtins) {
+            return self.clone();
+        }
         // Clone data once instead of twice (remap_vars clone + apply_subst clone).
         let mut data = data_ref.as_ref().clone();
         let mut args_changed = false;
