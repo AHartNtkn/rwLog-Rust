@@ -6,7 +6,7 @@ use crate::term::{Term, TermStore};
 use crate::trace::{debug_span, trace};
 
 use super::util::{
-    build_remap_map, match_term_lists_shifted_with_left_renaming, pre_create_shifted_vars,
+    build_remap_map, match_term_lists_shifted_with_left_renaming_combined, pre_create_shifted_vars,
 };
 
 /// Compose two NFs in sequence: a ; b
@@ -92,7 +92,13 @@ fn compose_nf_impl<C: ConstraintOps>(a: &NF<C>, b: &NF<C>, terms: &mut TermStore
     // attempts that fail matching. The a-side variables are renamed inline via
     // the cached_rhs_map instead of eagerly applying apply_var_renaming_list.
     // b's match_pats are used directly (no renaming needed, same as rw2.lhs).
-    let (subst_left, subst_right) = match match_term_lists_shifted_with_left_renaming(
+    //
+    // We return the combined substitution directly (no split_match_subst),
+    // avoiding the cost of walking all bindings and calling apply_subst on each.
+    // The combined subst has left-side vars at indices < b_var_offset and
+    // right-side vars at indices >= b_var_offset. Consumers resolve chains
+    // lazily through apply_subst's natural chain following.
+    let combined_subst = match match_term_lists_shifted_with_left_renaming_combined(
         &a.build_pats,
         &b.match_pats,
         &a.cached_rhs_map,
@@ -100,14 +106,10 @@ fn compose_nf_impl<C: ConstraintOps>(a: &NF<C>, b: &NF<C>, terms: &mut TermStore
         &shifted_vars,
         terms,
     ) {
-        Some((subst_left, subst_right)) => {
+        Some(subst) => {
             #[cfg(feature = "tracing")]
-            trace!(
-                left_bindings = subst_left.len(),
-                right_bindings = subst_right.len(),
-                "matching_success"
-            );
-            (subst_left, subst_right)
+            trace!(bindings = subst.len(), "matching_success");
+            subst
         }
         None => {
             #[cfg(feature = "tracing")]
@@ -116,17 +118,22 @@ fn compose_nf_impl<C: ConstraintOps>(a: &NF<C>, b: &NF<C>, terms: &mut TermStore
         }
     };
 
-    let a_constraint = a.drop_fresh.constraint.apply_subst(&subst_left, terms);
+    // Apply the combined subst directly to constraints. Each constraint's args
+    // only reference variables from their own side, so the extra bindings for
+    // the other side are simply never accessed. Chain resolution through
+    // apply_subst naturally follows cross-side bindings when needed.
+    let a_constraint = a.drop_fresh.constraint.apply_subst(&combined_subst, terms);
     let b_constraint =
         match build_remap_map(&b.drop_fresh.constraint, b_max_var, b_var_offset, terms) {
-            Some(map) => b
-                .drop_fresh
-                .constraint
-                .remap_and_apply_subst(&map, &subst_right, terms),
-            None => b.drop_fresh.constraint.apply_subst(&subst_right, terms),
+            Some(map) => {
+                b.drop_fresh
+                    .constraint
+                    .remap_and_apply_subst(&map, &combined_subst, terms)
+            }
+            None => b.drop_fresh.constraint.apply_subst(&combined_subst, terms),
         };
 
-    let combined = match a_constraint.combine_owned(b_constraint) {
+    let combined_constraint = match a_constraint.combine_owned(b_constraint) {
         Some(c) => c,
         None => {
             #[cfg(feature = "tracing")]
@@ -135,7 +142,7 @@ fn compose_nf_impl<C: ConstraintOps>(a: &NF<C>, b: &NF<C>, terms: &mut TermStore
         }
     };
 
-    let (normalized, subst_opt) = match combined.normalize_owned(terms) {
+    let (normalized, subst_opt) = match combined_constraint.normalize_owned(terms) {
         Some(result) => result,
         None => {
             #[cfg(feature = "tracing")]
@@ -154,15 +161,20 @@ fn compose_nf_impl<C: ConstraintOps>(a: &NF<C>, b: &NF<C>, terms: &mut TermStore
     // directly along with the substitutions, and factor_tensor_with_subst
     // resolves variables through the substitutions during its collect+renumber
     // passes, eliminating the need for apply_subst_list + apply_subst_shifted_list.
+    //
+    // Both lhs and rhs use the same combined_subst. The lhs patterns only
+    // contain left-side vars (< b_var_offset), and the rhs patterns only
+    // contain right-side vars (>= b_var_offset), so each side naturally
+    // resolves only its own bindings through the combined subst.
     let rhs_shifted = b_var_offset > 0 && !shifted_vars.is_empty();
     let lhs_params = SubstParams {
-        subst: &subst_left,
+        subst: &combined_subst,
         subst2: subst_opt.as_ref(),
         shifted: false,
         shifted_vars: &[],
     };
     let rhs_params = SubstParams {
-        subst: &subst_right,
+        subst: &combined_subst,
         subst2: subst_opt.as_ref(),
         shifted: rhs_shifted,
         shifted_vars: &shifted_vars,
