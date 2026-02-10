@@ -1434,6 +1434,12 @@ impl TokenStore {
             fired: (0..n_rules).map(|_| HashSet::new()).collect(),
         }
     }
+
+    /// Create an empty token store for programs where tokens are never used.
+    /// This avoids allocating N empty HashSets that will never be accessed.
+    fn empty() -> Self {
+        Self { fired: Vec::new() }
+    }
 }
 
 pub struct ChrStateData<T: Theory> {
@@ -1503,10 +1509,15 @@ impl<T: Theory> ChrState<T> {
     pub fn data_mut(&mut self) -> &mut ChrStateData<T> {
         let program = &self.program;
         let arc = self.data.get_or_insert_with(|| {
+            let tokens = if program.all_single_head_simplification {
+                TokenStore::empty()
+            } else {
+                TokenStore::new(program.rules.len())
+            };
             Arc::new(ChrStateData {
                 store: ChrStore::new(&program.preds, program.all_single_head_simplification),
                 builtins: T::Store::default(),
-                tokens: TokenStore::new(program.rules.len()),
+                tokens,
                 next_cid: 0,
                 agenda: VecDeque::new(),
                 failed: false,
@@ -1532,13 +1543,17 @@ impl<T: Theory> ChrState<T> {
     }
 
     pub fn new(program: Arc<ChrProgram<T>>, builtins: T::Store) -> Self {
-        let n_rules = program.rules.len();
         let skip_idx = program.all_single_head_simplification;
+        let tokens = if skip_idx {
+            TokenStore::empty()
+        } else {
+            TokenStore::new(program.rules.len())
+        };
         Self {
             data: Some(Arc::new(ChrStateData {
                 store: ChrStore::new(&program.preds, skip_idx),
                 builtins,
-                tokens: TokenStore::new(n_rules),
+                tokens,
                 next_cid: 0,
                 agenda: VecDeque::new(),
                 failed: false,
@@ -1552,10 +1567,15 @@ impl<T: Theory> ChrState<T> {
     pub fn introduce(&mut self, pred: PredId, args: &[TermId], terms: &TermStore) -> Cid {
         let program = &self.program;
         let arc = self.data.get_or_insert_with(|| {
+            let tokens = if program.all_single_head_simplification {
+                TokenStore::empty()
+            } else {
+                TokenStore::new(program.rules.len())
+            };
             Arc::new(ChrStateData {
                 store: ChrStore::new(&program.preds, program.all_single_head_simplification),
                 builtins: T::Store::default(),
-                tokens: TokenStore::new(program.rules.len()),
+                tokens,
                 next_cid: 0,
                 agenda: VecDeque::new(),
                 failed: false,
@@ -2402,7 +2422,11 @@ pub fn thaw_chr<T: Theory>(
     d.builtins = T::thaw_store(b_bytes);
 
     let n_token_rules = r.read_u32()? as usize;
-    d.tokens = TokenStore::new(program.rules.len());
+    d.tokens = if program.all_single_head_simplification {
+        TokenStore::empty()
+    } else {
+        TokenStore::new(program.rules.len())
+    };
     for _ in 0..n_token_rules {
         let rid = r.read_u32()? as usize;
         let n_tokens = r.read_u32()? as usize;
