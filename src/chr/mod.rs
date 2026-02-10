@@ -5,11 +5,39 @@ use crate::symbol::FuncId;
 use crate::term::{Term, TermId, TermReadGuard, TermStore};
 use hashbrown::{HashMap, HashSet};
 use smallvec::SmallVec;
+use std::any::Any;
+use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::collections::VecDeque;
 use std::hash::{Hash, Hasher};
 use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
 use std::sync::Arc;
+
+/// Thread-local cache for normalize_owned results.
+///
+/// Keyed by a fast hash of the pre-normalization ChrState (alive constraints
+/// and their term arguments). The cache is invalidated when the TermStore
+/// generation changes (indicating a new engine run with a fresh TermStore).
+///
+/// Values are type-erased via `Box<dyn Any>` to support the generic `T: Theory`
+/// parameter. Each entry stores `Option<(ChrState<T>, Option<Subst>)>`.
+struct NormalizeCache {
+    generation: u64,
+    entries: HashMap<u64, Box<dyn Any>>,
+}
+
+impl NormalizeCache {
+    fn new() -> Self {
+        Self {
+            generation: u64::MAX,
+            entries: HashMap::new(),
+        }
+    }
+}
+
+thread_local! {
+    static NORMALIZE_CACHE: RefCell<NormalizeCache> = RefCell::new(NormalizeCache::new());
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct PredId(pub u32);
@@ -2457,6 +2485,52 @@ impl<T: Theory> Hash for ChrState<T> {
     }
 }
 
+/// Run the full CHR normalization without caching. This is the uncached hot path
+/// extracted from normalize_owned to keep the ConstraintOps impl clean.
+fn normalize_owned_uncached<T: Theory>(
+    mut state: ChrState<T>,
+    terms: &mut TermStore,
+) -> Option<(ChrState<T>, Option<Subst>)> {
+    {
+        let preds = &state.program.preds;
+        let sd = Arc::make_mut(state.data.as_mut().unwrap());
+        let watermark = sd.fixpoint_watermark as usize;
+        if watermark == 0 {
+            sd.store.rebuild_indexes(preds, terms);
+            ChrState::enqueue_all_alive_in(sd);
+        } else {
+            sd.store.index_from(watermark, preds, terms);
+            ChrState::enqueue_above_watermark(sd);
+        }
+    }
+    if !state.solve_to_fixpoint(terms) {
+        return None;
+    }
+
+    let preds = &state.program.preds;
+    let sd = Arc::make_mut(state.data.as_mut().unwrap());
+    let subst = T::extract_subst(&sd.builtins);
+    let subst_opt = if subst.is_empty() {
+        None
+    } else {
+        Some(subst.clone())
+    };
+    if !subst.is_empty() {
+        let args_changed = ChrState::<T>::apply_subst_to_data(sd, &subst, terms);
+        sd.store.rebuild_indexes(preds, terms);
+        if args_changed {
+            sd.fixpoint_watermark = 0;
+        } else {
+            sd.fixpoint_watermark = sd.next_cid;
+        }
+    } else {
+        sd.fixpoint_watermark = sd.next_cid;
+    }
+    sd.agenda.clear();
+    sd.recompute_all_args_ground();
+    Some((state, subst_opt))
+}
+
 impl<T: Theory> crate::constraint::ConstraintOps for ChrState<T> {
     fn combine(&self, other: &Self) -> Option<Self> {
         if let Some(d) = &self.data {
@@ -2553,57 +2627,76 @@ impl<T: Theory> crate::constraint::ConstraintOps for ChrState<T> {
         self.clone().normalize_owned(terms)
     }
 
-    fn normalize_owned(mut self, terms: &mut TermStore) -> Option<(Self, Option<Subst>)> {
+    fn normalize_owned(self, terms: &mut TermStore) -> Option<(Self, Option<Subst>)> {
         if self.data.is_none() {
             return Some((self, None));
         }
         if self.data.as_ref().unwrap().failed {
             return None;
         }
-        {
-            let preds = &self.program.preds;
-            let sd = Arc::make_mut(self.data.as_mut().unwrap());
-            let watermark = sd.fixpoint_watermark as usize;
-            if watermark == 0 {
-                // Full rebuild: first normalize or after subst invalidation.
-                sd.store.rebuild_indexes(preds, terms);
-                Self::enqueue_all_alive_in(sd);
-            } else {
-                // Incremental: only index and enqueue constraints above watermark.
-                sd.store.index_from(watermark, preds, terms);
-                Self::enqueue_above_watermark(sd);
-            }
-        }
-        if !self.solve_to_fixpoint(terms) {
-            return None;
-        }
 
-        let preds = &self.program.preds;
-        let sd = Arc::make_mut(self.data.as_mut().unwrap());
-        let subst = T::extract_subst(&sd.builtins);
-        let subst_opt = if subst.is_empty() {
-            None
-        } else {
-            Some(subst.clone())
-        };
-        if !subst.is_empty() {
-            let args_changed = Self::apply_subst_to_data(sd, &subst, terms);
-            sd.store.rebuild_indexes(preds, terms);
-            if args_changed {
-                // Subst changed constraint args, so old constraints are no longer
-                // guaranteed to be at fixpoint. Reset watermark.
-                sd.fixpoint_watermark = 0;
-            } else {
-                // Subst didn't affect constraint args. Fixpoint is preserved.
-                sd.fixpoint_watermark = sd.next_cid;
+        // Compute a fast hash of the pre-normalization ChrState for cache lookup.
+        // Includes: program_id, alive constraint predicates and their term args,
+        // and fired propagation tokens (for propagation rule correctness).
+        let state_hash = {
+            let d = self.data.as_ref().unwrap();
+            const MUL: u64 = 6364136223846793005;
+            let mut h = 0u64;
+            h = h.wrapping_mul(MUL).wrapping_add(d.store.alive_count as u64);
+            for inst in d.store.inst.iter() {
+                if inst.alive {
+                    h = h.wrapping_mul(MUL).wrapping_add(inst.pred.0 as u64);
+                    for arg in d.store.args(inst) {
+                        h = h.wrapping_mul(MUL).wrapping_add(arg.raw() as u64);
+                    }
+                }
             }
-        } else {
-            // All constraints are now at fixpoint. Advance watermark.
-            sd.fixpoint_watermark = sd.next_cid;
+            // Include fired token counts for propagation-rule correctness.
+            for set in d.tokens.fired.iter() {
+                h = h.wrapping_mul(MUL).wrapping_add(set.len() as u64);
+            }
+            h = h.wrapping_mul(MUL).wrapping_add(self.program.program_id);
+            h
+        };
+
+        // Check the thread-local cache for a previously computed result.
+        let generation = terms.generation();
+        let cached = NORMALIZE_CACHE.with(|cache| {
+            let mut c = cache.borrow_mut();
+            if c.generation != generation {
+                c.entries.clear();
+                c.generation = generation;
+            }
+            c.entries.get(&state_hash).map(|boxed| {
+                boxed
+                    .downcast_ref::<Option<(ChrState<T>, Option<Subst>)>>()
+                    .cloned()
+            })
+        });
+
+        if let Some(Some(hit)) = cached {
+            // Cache hit with successful downcast. `hit` is the cached
+            // Option<(ChrState<T>, Option<Subst>)>:
+            //   Some(..) = successful normalization
+            //   None = unsatisfiable (normalization failed)
+            return hit;
         }
-        sd.agenda.clear();
-        sd.recompute_all_args_ground();
-        Some((self, subst_opt))
+        // None = cache miss (key not found)
+        // Some(None) = downcast failure (should not happen; fall through to compute)
+
+        // Cache miss: run the full normalization.
+        let result = normalize_owned_uncached(self, terms);
+
+        // Store the result in the cache.
+        NORMALIZE_CACHE.with(|cache| {
+            let mut c = cache.borrow_mut();
+            if c.generation == generation {
+                let boxed: Box<dyn Any> = Box::new(result.clone());
+                c.entries.insert(state_hash, boxed);
+            }
+        });
+
+        result
     }
 
     fn combine_owned(mut self, other: Self) -> Option<Self> {

@@ -4,7 +4,7 @@ use parking_lot::RwLock;
 use rustc_hash::{FxBuildHasher, FxHasher};
 use smallvec::SmallVec;
 use std::hash::{Hash, Hasher};
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 
 /// Tag bits (bits 31-30) encode TermId kind:
 ///   00 = Non-ground store reference (index in bits 0-29)
@@ -135,6 +135,9 @@ pub enum Term {
 /// Number of shards for hashcons maps (power of 2 for fast modulo).
 const NUM_SHARDS: usize = 16;
 
+/// Global generation counter for TermStore instances.
+static TERMSTORE_GENERATION: AtomicU64 = AtomicU64::new(0);
+
 /// Thread-safe term store with hashconsing.
 ///
 /// Guarantees:
@@ -150,6 +153,8 @@ pub struct TermStore {
     shards: [RwLock<HashMap<Term, TermId, FxBuildHasher>>; NUM_SHARDS],
     /// Counter for generating unique TermIds.
     next_id: AtomicU32,
+    /// Unique generation ID for this TermStore instance.
+    generation: u64,
 }
 
 impl TermStore {
@@ -161,7 +166,14 @@ impl TermStore {
             nodes: RwLock::new(Vec::new()),
             shards,
             next_id: AtomicU32::new(0),
+            generation: TERMSTORE_GENERATION.fetch_add(1, Ordering::Relaxed),
         }
+    }
+
+    /// Returns the unique generation ID for this TermStore instance.
+    #[inline]
+    pub fn generation(&self) -> u64 {
+        self.generation
     }
 
     /// Intern a term, returning its TermId.
