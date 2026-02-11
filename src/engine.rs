@@ -1915,6 +1915,92 @@ rel add {
         );
     }
 
+    /// Walk a term tree and check if it contains any functor whose name is in `forbidden`.
+    /// Returns the first forbidden functor name found, or None.
+    fn find_forbidden_functor(
+        term: crate::term::TermId,
+        terms: &TermStore,
+        symbols: &SymbolStore,
+        forbidden: &[&str],
+    ) -> Option<String> {
+        let mut stack = vec![term];
+        while let Some(tid) = stack.pop() {
+            if let Some((func_id, children)) = terms.is_app(tid) {
+                if let Some(name) = symbols.resolve(func_id) {
+                    if forbidden.contains(&name) {
+                        return Some(name.to_string());
+                    }
+                }
+                for child in children.iter().rev() {
+                    stack.push(*child);
+                }
+            }
+        }
+        None
+    }
+
+    #[test]
+    #[cfg_attr(
+        debug_assertions,
+        ignore = "long-running; requires release build that has already been built"
+    )]
+    fn program_synth_no_c_constraint_rejects_c_and_a_in_lhs() {
+        // Regression test: the normalize cache used commutative addition to
+        // combine per-constraint hashes, causing hash collisions between
+        // different constraint states. This allowed answers where the LHS
+        // contained 'c' or 'a' functors despite a (no_c $x) constraint.
+        //
+        // The test checks that every emitted answer has a clean LHS. The
+        // query may not produce valid answers (the buggy answer was the
+        // only one found before the fix), so we don't require any answers.
+        let mut parser = Parser::with_chr();
+        let (_app_rel, env) = parse_rel_def_with_env_chr(&mut parser, PROGRAM_SYNTH_DEF);
+
+        let query_str = concat!(
+            "[[$x { (no_c $x) } -> (f $x (c z))] ; app ; ",
+            "[$x -> (f $x (c (s z)))] ; app ; ",
+            "@(a (a (c (s z)) (c z)) (c z))]"
+        );
+        let query = parser.parse_rel_body(query_str).expect("parse query");
+        let terms = parser.take_terms();
+        let mut engine: Engine<ChrState<NoTheory>> = Engine::new_with_env(query, terms, env);
+        // Use a minimal step limit. With the old buggy cache hash, the
+        // invalid answer appeared almost immediately (~0.21s). With the fix,
+        // no answers appear because invalid branches are correctly pruned.
+        let max_steps = 10_000;
+
+        let mut answer_count = 0;
+        for _ in 0..max_steps {
+            match engine.step() {
+                StepResult::Emit(nf) => {
+                    answer_count += 1;
+                    let terms = engine.terms_mut();
+                    let (lhs, _rhs) = direct_rule_terms(&nf, terms).expect("direct rule");
+                    let lhs_str =
+                        crate::term::format_term(lhs, terms, parser.symbols()).expect("format LHS");
+                    eprintln!("Answer #{}: {}", answer_count, lhs_str);
+
+                    let forbidden =
+                        find_forbidden_functor(lhs, terms, parser.symbols(), &["a", "c"]);
+                    assert!(
+                        forbidden.is_none(),
+                        "BUG: Answer #{} LHS contains forbidden functor '{}'. \
+                         The (no_c) constraint was not enforced.\nLHS: {}",
+                        answer_count,
+                        forbidden.as_deref().unwrap_or("?"),
+                        lhs_str,
+                    );
+
+                    if answer_count >= 5 {
+                        break;
+                    }
+                }
+                StepResult::Exhausted => break,
+                StepResult::Continue => {}
+            }
+        }
+    }
+
     #[test]
     #[cfg_attr(
         debug_assertions,
@@ -2622,8 +2708,7 @@ rel lamEq {
         let query = parser.parse_rel_body(query_str).expect("parse lamEq query");
         let terms = parser.take_terms();
 
-        let mut engine: Engine<ChrState<NoTheory>> =
-            Engine::new_with_env(query, terms, env);
+        let mut engine: Engine<ChrState<NoTheory>> = Engine::new_with_env(query, terms, env);
 
         // First answer should be the identity - get it
         let max_steps = 100_000;
@@ -2653,13 +2738,11 @@ rel lamEq {
         let (_rel, env) = parse_rel_def_with_env_chr(&mut parser, LAM_EQ_DEF);
 
         // Direct beta reduction without the outer lambda
-        let query_str =
-            "(app (lam $x $x) $z) { (var $x) } -> (app (lam $x $x) $z) ; lamEq";
+        let query_str = "(app (lam $x $x) $z) { (var $x) } -> (app (lam $x $x) $z) ; lamEq";
         let query = parser.parse_rel_body(query_str).expect("parse lamEq query");
         let terms = parser.take_terms();
 
-        let mut engine: Engine<ChrState<NoTheory>> =
-            Engine::new_with_env(query, terms, env);
+        let mut engine: Engine<ChrState<NoTheory>> = Engine::new_with_env(query, terms, env);
 
         let max_steps = 100_000;
 
@@ -2687,7 +2770,11 @@ rel lamEq {
             total_steps += 1;
         }
 
-        eprintln!("  bare beta: {} answers in {} steps", answers.len(), total_steps);
+        eprintln!(
+            "  bare beta: {} answers in {} steps",
+            answers.len(),
+            total_steps
+        );
         assert!(
             answers.len() >= 2,
             "Expected at least 2 answers (identity + beta reduction), got {}",
@@ -2705,8 +2792,7 @@ rel lamEq {
         let query = parser.parse_rel_body(query_str).expect("parse lamEq");
         let terms = parser.take_terms();
 
-        let mut engine: Engine<ChrState<NoTheory>> =
-            Engine::new_with_env(query, terms, env);
+        let mut engine: Engine<ChrState<NoTheory>> = Engine::new_with_env(query, terms, env);
 
         let max_steps = 100_000;
         let mut answers = Vec::new();
@@ -2720,7 +2806,12 @@ rel lamEq {
                     let rendered = engine
                         .format_nf(&nf, parser.symbols())
                         .unwrap_or_else(|_| "<error>".to_string());
-                    eprintln!("  lamEq standalone answer {}: {} (step {})", answers.len() + 1, rendered, total_steps);
+                    eprintln!(
+                        "  lamEq standalone answer {}: {} (step {})",
+                        answers.len() + 1,
+                        rendered,
+                        total_steps
+                    );
                     answers.push(nf);
                     if answers.len() >= 5 {
                         break;
@@ -2735,7 +2826,11 @@ rel lamEq {
             total_steps += 1;
         }
 
-        eprintln!("  lamEq standalone: {} answers in {} steps", answers.len(), total_steps);
+        eprintln!(
+            "  lamEq standalone: {} answers in {} steps",
+            answers.len(),
+            total_steps
+        );
         assert!(
             !answers.is_empty(),
             "lamEq should produce at least the identity answer"
@@ -2749,13 +2844,11 @@ rel lamEq {
         let (_rel, env) = parse_rel_def_with_env_chr(&mut parser, LAM_EQ_DEF);
 
         // No constraint - just identity for app term composed with lamEq
-        let query_str =
-            "(app (lam $x $x) $z) -> (app (lam $x $x) $z) ; lamEq";
+        let query_str = "(app (lam $x $x) $z) -> (app (lam $x $x) $z) ; lamEq";
         let query = parser.parse_rel_body(query_str).expect("parse lamEq query");
         let terms = parser.take_terms();
 
-        let mut engine: Engine<ChrState<NoTheory>> =
-            Engine::new_with_env(query, terms, env);
+        let mut engine: Engine<ChrState<NoTheory>> = Engine::new_with_env(query, terms, env);
 
         let max_steps = 100_000;
         let mut answers = Vec::new();
@@ -2769,7 +2862,12 @@ rel lamEq {
                     let rendered = engine
                         .format_nf(&nf, parser.symbols())
                         .unwrap_or_else(|_| "<error>".to_string());
-                    eprintln!("  plain id+lamEq answer {}: {} (step {})", answers.len() + 1, rendered, total_steps);
+                    eprintln!(
+                        "  plain id+lamEq answer {}: {} (step {})",
+                        answers.len() + 1,
+                        rendered,
+                        total_steps
+                    );
                     answers.push(nf);
                     if answers.len() >= 5 {
                         break;
@@ -2784,12 +2882,15 @@ rel lamEq {
             total_steps += 1;
         }
 
-        eprintln!("  plain id+lamEq: {} answers in {} steps", answers.len(), total_steps);
+        eprintln!(
+            "  plain id+lamEq: {} answers in {} steps",
+            answers.len(),
+            total_steps
+        );
         assert!(
             answers.len() >= 2,
             "Expected at least 2 answers (identity + beta reduction), got {}",
             answers.len()
         );
     }
-
 }
