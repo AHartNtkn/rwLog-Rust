@@ -472,3 +472,100 @@ fn freeze_thaw_remaps_tokens_and_cids() {
     assert_eq!(alive_args_for_pred(thawed.store(), p).len(), 1);
     assert_eq!(alive_args_for_pred(thawed.store(), q).len(), 2);
 }
+
+/// Minimal reproduction of the normalize cache collision bug.
+///
+/// The normalize cache previously used commutative addition to combine
+/// per-constraint hashes. Two distinct constraint states whose per-constraint
+/// hashes happened to have the same sum would produce the same cache key,
+/// causing one to return the other's cached result.
+///
+/// This test constructs exactly that scenario:
+/// - State A: {p(a(z)), p(d(z))} — both constraints pass, normalization = Some
+/// - State B: {p(b(z)), p(c(z))} — p(c(z)) triggers "fail", normalization = None
+///
+/// Under the old additive hash, A and B had the same hash because their
+/// arg TermId raw values sum to the same total (indices 0+3 == 1+2).
+/// Normalizing A first (cached as Some) caused B to return the stale
+/// Some instead of correctly returning None.
+#[test]
+fn normalize_cache_must_not_return_stale_result_for_additive_collision() {
+    let (symbols, terms) = setup();
+    let c_sym = symbols.intern("c");
+
+    // Build a CHR program: p/1 where p(X) <=> top_functor(X, c, 1) | fail
+    let mut builder = ChrProgramBuilder::<TestTheory>::new(BuiltinRegistry::default());
+    let p = builder.pred("p", 1, vec![]);
+
+    // Head: p(X) where X is RVar(0)
+    let x = builder.pat_var(RVar(0));
+    let head = HeadPat::new(p, vec![x]);
+
+    // Guard: top_functor(X, c, 1) — checks if X's root functor is `c` with arity 1
+    let guard = GuardProg::new(vec![GuardInstr::TopFunctor {
+        t: GVal::RVar(RVar(0)),
+        f: c_sym,
+        arity: 1,
+    }]);
+
+    // Body: fail
+    let body = BodyProg::new(vec![BodyInstr::Fail]);
+
+    // Simplification rule: removed=[head], kept=[], guard, body
+    builder.rule(vec![], vec![head], guard, body, 0);
+
+    let program = builder.build();
+
+    // Create four unary terms. Store allocation is sequential, so:
+    //   (a z) → index 0, raw = 0x80000000
+    //   (b z) → index 1, raw = 0x80000001
+    //   (c z) → index 2, raw = 0x80000002
+    //   (d z) → index 3, raw = 0x80000003
+    let z = terms.app0(symbols.intern("z"));
+    let a_z = terms.app1(symbols.intern("a"), z);
+    let b_z = terms.app1(symbols.intern("b"), z);
+    let c_z = terms.app1(c_sym, z);
+    let d_z = terms.app1(symbols.intern("d"), z);
+
+    // Verify the collision precondition: raw sums must be equal.
+    // If TermStore allocation changes, this assertion will catch it
+    // and the test needs updating to find new colliding pairs.
+    let sum_a = a_z.raw() as u64 + d_z.raw() as u64;
+    let sum_b = b_z.raw() as u64 + c_z.raw() as u64;
+    assert_eq!(
+        sum_a,
+        sum_b,
+        "Precondition: raw sums must collide for this test to exercise \
+         the additive hash weakness. a_z={:#x}, b_z={:#x}, c_z={:#x}, d_z={:#x}",
+        a_z.raw(),
+        b_z.raw(),
+        c_z.raw(),
+        d_z.raw(),
+    );
+
+    // State A: {p(a(z)), p(d(z))} — neither triggers the c-guard, both pass.
+    let mut state_a: ChrState<TestTheory> = ChrState::new(program.clone(), TestStore::default());
+    state_a.introduce(p, &[a_z], &terms);
+    state_a.introduce(p, &[d_z], &terms);
+
+    let mut terms_mut = terms;
+
+    // Normalize state A — should succeed (constraints remain alive).
+    let result_a = state_a.normalize_owned(&mut terms_mut);
+    assert!(result_a.is_some(), "State A should normalize successfully");
+
+    // State B: {p(b(z)), p(c(z))} — p(c(z)) triggers the c-guard → fail.
+    let mut state_b: ChrState<TestTheory> = ChrState::new(program.clone(), TestStore::default());
+    state_b.introduce(p, &[b_z], &terms_mut);
+    state_b.introduce(p, &[c_z], &terms_mut);
+
+    // Normalize state B — MUST fail (return None).
+    // With the old additive hash, this returned Some (stale cache hit from A).
+    let result_b = state_b.normalize_owned(&mut terms_mut);
+    assert!(
+        result_b.is_none(),
+        "BUG: State B {{p(b(z)), p(c(z))}} should fail because p(c(z)) \
+         triggers the c-guard, but it returned Some. The normalize cache \
+         returned a stale result from State A due to a hash collision."
+    );
+}

@@ -54,18 +54,20 @@ impl Repl {
             return Ok(Some(self.list_relations()));
         }
 
-        if line == "next" {
-            return self.next_answers(1);
-        }
-
-        if let Some(rest) = line.strip_prefix("more ") {
-            let count: usize = rest
-                .trim()
-                .parse()
-                .map_err(|_| "Invalid count for 'more'. Usage: more <n>".to_string())?;
-            if count == 0 {
-                return Err("Count for 'more' must be > 0".to_string());
-            }
+        if line == "next" || line.starts_with("next ") {
+            let count = if line == "next" {
+                1
+            } else {
+                let rest = &line[5..];
+                let n: usize = rest
+                    .trim()
+                    .parse()
+                    .map_err(|_| "Invalid count for 'next'. Usage: next [N]".to_string())?;
+                if n == 0 {
+                    return Err("Count for 'next' must be > 0".to_string());
+                }
+                n
+            };
             return self.next_answers(count);
         }
 
@@ -133,8 +135,7 @@ impl Repl {
 Commands:
   load <file>    Load relation definitions from a file
   list           List defined relations
-  next           Show the next answer from the active query
-  more <n>       Show the next N answers from the active query
+  next [N]       Show the next N answers (default 1)
   reset          Clear the active query
   help           Show this help
   quit/exit      Exit the REPL
@@ -449,10 +450,10 @@ mod tests {
             }
             if trimmed.starts_with("load ")
                 || trimmed == "next"
+                || trimmed.starts_with("next ")
                 || trimmed == "reset"
                 || trimmed == "list"
                 || trimmed == "help"
-                || trimmed.starts_with("more ")
             {
                 continue;
             }

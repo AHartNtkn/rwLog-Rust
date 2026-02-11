@@ -612,8 +612,9 @@ pub fn instantiate_pat(
     env: &RVarEnv,
     root: PatId,
 ) -> Option<TermId> {
-    let mut stack: Vec<(PatId, usize)> = vec![(root, 0)];
-    let mut out: Vec<TermId> = Vec::new();
+    let mut stack: SmallVec<[(PatId, usize); 8]> = SmallVec::new();
+    stack.push((root, 0));
+    let mut out: SmallVec<[TermId; 8]> = SmallVec::new();
     while let Some((p, i)) = stack.pop() {
         match pats.get(p) {
             PatNode::RVar(rv) => {
@@ -1943,6 +1944,9 @@ impl<T: Theory> ChrState<T> {
                 let start = inst.arg_start as usize;
                 let end = start + inst.arg_count as usize;
                 for arg in data.store.all_args[start..end].iter_mut() {
+                    if arg.is_ground() {
+                        continue;
+                    }
                     let new_arg = apply_subst(*arg, subst, terms);
                     if new_arg != *arg {
                         *arg = new_arg;
@@ -1997,7 +2001,7 @@ fn match_head(
 
 /// Like `match_head` but takes `pred` and `args` directly instead of a
 /// `CInstance`.  Used for inline matching before storing constraints.
-#[inline]
+#[inline(always)]
 fn match_head_direct(
     terms: &TermStore,
     head: &HeadPat,
@@ -2143,7 +2147,7 @@ fn exec_body_inline<T: Theory>(
 ///
 /// The ops were produced by `flatten_head_pat` and encode a pre-order traversal
 /// of all arg patterns with PushRoot ops separating each arg's segment.
-#[inline]
+#[inline(always)]
 fn match_flat_ops(
     ops: &[FlatMatchOp],
     guard: &TermReadGuard<'_>,
@@ -2663,15 +2667,16 @@ impl<T: Theory> crate::constraint::ConstraintOps for ChrState<T> {
         // Includes: program_id, alive constraint predicates and their term args,
         // and fired propagation tokens (for propagation rule correctness).
         //
-        // The per-constraint hashes are combined with wrapping_add (commutative)
-        // so that two states with the same alive constraints at different inst Vec
-        // positions produce the same hash, improving cache hit rate.
+        // Per-constraint hashes are sorted before chaining to ensure order-independence
+        // (the constraint store is a multiset) while avoiding the collision weakness
+        // of commutative addition (where different multisets with the same sum collide).
         let state_hash = {
             let d = self.data.as_ref().unwrap();
             const MUL: u64 = 6364136223846793005;
 
-            // Hash each alive constraint independently, then sum them (order-independent).
-            let mut constraints_hash = 0u64;
+            // Hash each alive constraint independently, collect into sorted array,
+            // then chain-multiply for a collision-resistant order-independent hash.
+            let mut per_constraint_hashes: SmallVec<[u64; 8]> = SmallVec::new();
             for inst in d.store.inst.iter() {
                 if inst.alive {
                     // Per-constraint hash: order-dependent WITHIN a single constraint's
@@ -2680,13 +2685,17 @@ impl<T: Theory> crate::constraint::ConstraintOps for ChrState<T> {
                     for arg in d.store.args(inst) {
                         ch = ch.wrapping_mul(MUL).wrapping_add(arg.raw() as u64);
                     }
-                    // Spread bits before combining to reduce collisions from
-                    // identical per-constraint hashes.
-                    constraints_hash = constraints_hash.wrapping_add(ch.wrapping_mul(MUL));
+                    per_constraint_hashes.push(ch);
                 }
             }
+            per_constraint_hashes.sort_unstable();
 
-            // Final combination: alive_count, commutative constraint hash,
+            let mut constraints_hash = 0u64;
+            for ch in per_constraint_hashes {
+                constraints_hash = constraints_hash.wrapping_mul(MUL).wrapping_add(ch);
+            }
+
+            // Final combination: alive_count, sorted constraint hash chain,
             // per-rule fired token counts, and program_id.
             let mut h = 0u64;
             h = h.wrapping_mul(MUL).wrapping_add(d.store.alive_count as u64);

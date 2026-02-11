@@ -723,26 +723,26 @@ fn repl_help_lists_core_commands() {
         .expect("help command")
         .expect("help output");
     assert!(help.contains("load <file>"), "missing load docs");
-    assert!(help.contains("more <n>"), "missing more docs");
+    assert!(help.contains("next [N]"), "missing next docs");
     assert!(help.contains("rel name"), "missing relation docs");
 }
 
 #[test]
-fn repl_more_requires_positive_integer_argument() {
+fn repl_next_requires_positive_integer_argument() {
     let mut repl = Repl::new();
     let err_zero = repl
-        .process_input("more 0")
-        .expect_err("more 0 should error");
+        .process_input("next 0")
+        .expect_err("next 0 should error");
     assert!(
         err_zero.contains("must be > 0"),
         "unexpected error: {err_zero}"
     );
 
     let err_bad = repl
-        .process_input("more nope")
-        .expect_err("more nope should error");
+        .process_input("next nope")
+        .expect_err("next nope should error");
     assert!(
-        err_bad.contains("Invalid count for 'more'"),
+        err_bad.contains("Invalid count for 'next'"),
         "unexpected error: {err_bad}"
     );
 }
