@@ -150,7 +150,6 @@ fn compose_nf_impl<C: ConstraintOps>(a: &NF<C>, b: &NF<C>, terms: &mut TermStore
             return None;
         }
     };
-
     // Success path: compute the RHS of b via collect_tensor (only for successes).
     // a's LHS is just a.match_pats (no renaming needed).
     // b's RHS needs the rhs_map applied via collect_tensor.
@@ -179,14 +178,15 @@ fn compose_nf_impl<C: ConstraintOps>(a: &NF<C>, b: &NF<C>, terms: &mut TermStore
         shifted: rhs_shifted,
         shifted_vars: &shifted_vars,
     };
-    Some(factor_tensor_with_subst(
+    let result = factor_tensor_with_subst(
         &a.match_pats,
         &lhs_params,
         &rw2.rhs,
         &rhs_params,
         normalized,
         terms,
-    ))
+    );
+    Some(result)
 }
 
 #[cfg(test)]

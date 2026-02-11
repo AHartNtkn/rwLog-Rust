@@ -262,9 +262,15 @@ pub(crate) fn match_terms_combined_shifted(
                 } else {
                     b_deref
                 };
+                if occurs_unlocked(idx, b_shifted, &subst, terms) {
+                    return None;
+                }
                 subst.bind(idx, b_shifted);
             }
             (TermKind::App(_) | TermKind::InlineNullary(_), TermKind::Var(idx)) => {
+                if occurs_unlocked(idx, a_deref, &subst, terms) {
+                    return None;
+                }
                 subst.bind(idx, a_deref);
             }
             (TermKind::InlineNullary(f1), TermKind::InlineNullary(f2)) => {
@@ -414,6 +420,9 @@ pub(crate) fn match_terms_combined_shifted_with_left_renaming(
                 } else {
                     b_deref
                 };
+                if occurs_unlocked(idx, b_shifted, &subst, terms) {
+                    return None;
+                }
                 subst.bind(idx, b_shifted);
             }
             (TermKind::App(_) | TermKind::InlineNullary(_), TermKind::Var(idx)) => {
@@ -422,6 +431,9 @@ pub(crate) fn match_terms_combined_shifted_with_left_renaming(
                 } else {
                     a_deref
                 };
+                if occurs_unlocked(idx, a_renamed, &subst, terms) {
+                    return None;
+                }
                 subst.bind(idx, a_renamed);
             }
             (TermKind::InlineNullary(f1), TermKind::InlineNullary(f2)) => {
@@ -971,6 +983,40 @@ fn shift_term_uncached(term: TermId, shifted_vars: &[TermId], terms: &mut TermSt
 
     debug_assert_eq!(result_stack.len(), 1);
     result_stack.pop().unwrap()
+}
+
+/// Occurs check using unlocked access (for shifted matching variants).
+fn occurs_unlocked(var: u32, term: TermId, subst: &Subst, terms: &mut TermStore) -> bool {
+    let mut stack: SmallVec<[TermId; 16]> = SmallVec::new();
+    stack.push(term);
+
+    while let Some(t) = stack.pop() {
+        let t_deref = deref_unlocked(t, subst, terms);
+        if t_deref.is_inline_var() {
+            if t_deref.inline_var_index() == var {
+                return true;
+            }
+            continue;
+        }
+        if t_deref.is_inline_nullary() {
+            continue;
+        }
+        match terms.get_unlocked(t_deref) {
+            Some(Term::Var(idx)) => {
+                if *idx == var {
+                    return true;
+                }
+            }
+            Some(Term::App(_, children)) => {
+                for child in children.iter() {
+                    stack.push(*child);
+                }
+            }
+            None => {}
+        }
+    }
+
+    false
 }
 
 /// Occurs check using a pre-acquired read lock.

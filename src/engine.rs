@@ -2572,4 +2572,224 @@ rel add {
 
         assert_eq!(dual_outputs, expected);
     }
+
+    // ========================================================================
+    // LAMBDA CALCULUS EQUALITY - CHR CONSTRAINT HANG BUG
+    // ========================================================================
+
+    const LAM_EQ_DEF: &str = r#"
+theory bound_vars {
+    constraint neq/2
+
+    (neq $x $x) <=> fail.
+
+    constraint var/1
+    (var (app $x $y)) <=> fail.
+    (var (lam $x $y)) <=> fail.
+
+    constraint norm/1
+    (norm (app (lam $x $y) $z)) <=> fail.
+    (norm (app (app $x $y) $z)) <=> (norm (app $x $y)), (norm $z).
+    (norm (app $x $z)), (var $x) <=> (var $x), (norm $z).
+    (norm (lam $x $y)) <=> (norm $y).
+    (norm $x), (var $x) <=> (var $x).
+}
+
+rel lamEq {
+    $x -> $x
+    | (app (lam $x $x) $z) { (var $x) } -> $z
+    | (app (lam $x (lam $x $y)) $z) -> (lam $x $y)
+    | (app (lam $x (lam $y $z)) $w) { (neq $x $y) } -> (lam $y (app (lam $x $z) $w))
+    | (app (lam $x (app $y $z)) $w) -> (app (app (lam $x $y) $w) (app (lam $x $z) $w))
+    | [ [(lam $x $y) -> $y ; lamEq ; $y -> (lam $x $y)] &
+        (lam $x $y) -> (lam $x $z) ]
+    | [ [(app $x $y) -> $x ; lamEq ; $x -> (app $x $y)] &
+        [(app $x $y) -> $y ; lamEq ; $y -> (app $x $y)] ]
+}
+    "#;
+
+    /// The query `(lam $x (app (lam $x $x) $z)) { (var $x) } -> ... ; lamEq`
+    /// should produce (lam $x $z) as one of its early answers. The first
+    /// answer is the identity, and the second should be the beta-reduced form.
+    /// Currently, requesting the second answer hangs.
+    #[test]
+    fn lam_eq_beta_under_lam_does_not_hang() {
+        let mut parser = Parser::with_chr();
+        let (_rel, env) = parse_rel_def_with_env_chr(&mut parser, LAM_EQ_DEF);
+
+        let query_str =
+            "(lam $x (app (lam $x $x) $z)) { (var $x) } -> (lam $x (app (lam $x $x) $z)) ; lamEq";
+        let query = parser.parse_rel_body(query_str).expect("parse lamEq query");
+        let terms = parser.take_terms();
+
+        let mut engine: Engine<ChrState<NoTheory>> =
+            Engine::new_with_env(query, terms, env);
+
+        // First answer should be the identity - get it
+        let max_steps = 100_000;
+        let first = run_until_emit(&mut engine, max_steps);
+        assert!(
+            first.is_some(),
+            "Expected lamEq identity answer within {} steps",
+            max_steps
+        );
+
+        // Second answer should be the beta-reduced form (lam $x $z)
+        // This is where the hang occurs
+        let second = run_until_emit(&mut engine, max_steps);
+        assert!(
+            second.is_some(),
+            "BUG: lamEq should produce beta-reduced answer (lam $x $z) within {} steps, but it hangs",
+            max_steps
+        );
+    }
+
+    /// Simpler test: compose identity with lamEq's beta rule directly.
+    /// Does `(app (lam $x $x) $z) { (var $x) } -> (app (lam $x $x) $z) ; lamEq`
+    /// produce `(app (lam $x $x) $z) -> $z`?
+    #[test]
+    fn lam_eq_bare_beta_reduction() {
+        let mut parser = Parser::with_chr();
+        let (_rel, env) = parse_rel_def_with_env_chr(&mut parser, LAM_EQ_DEF);
+
+        // Direct beta reduction without the outer lambda
+        let query_str =
+            "(app (lam $x $x) $z) { (var $x) } -> (app (lam $x $x) $z) ; lamEq";
+        let query = parser.parse_rel_body(query_str).expect("parse lamEq query");
+        let terms = parser.take_terms();
+
+        let mut engine: Engine<ChrState<NoTheory>> =
+            Engine::new_with_env(query, terms, env);
+
+        let max_steps = 100_000;
+
+        // Collect answers with step counting
+        let mut answers = Vec::new();
+        let mut total_steps = 0;
+        loop {
+            if total_steps >= max_steps {
+                break;
+            }
+            match engine.step() {
+                StepResult::Emit(nf) => {
+                    let rendered = engine
+                        .format_nf(&nf, parser.symbols())
+                        .unwrap_or_else(|_| "<error>".to_string());
+                    eprintln!("  bare beta answer {}: {}", answers.len() + 1, rendered);
+                    answers.push(nf);
+                    if answers.len() >= 10 {
+                        break;
+                    }
+                }
+                StepResult::Exhausted => break,
+                StepResult::Continue => {}
+            }
+            total_steps += 1;
+        }
+
+        eprintln!("  bare beta: {} answers in {} steps", answers.len(), total_steps);
+        assert!(
+            answers.len() >= 2,
+            "Expected at least 2 answers (identity + beta reduction), got {}",
+            answers.len()
+        );
+    }
+
+    /// Diagnostic: does lamEq by itself produce any answers?
+    #[test]
+    fn lam_eq_standalone_produces_answers() {
+        let mut parser = Parser::with_chr();
+        let (_rel, env) = parse_rel_def_with_env_chr(&mut parser, LAM_EQ_DEF);
+
+        let query_str = "lamEq";
+        let query = parser.parse_rel_body(query_str).expect("parse lamEq");
+        let terms = parser.take_terms();
+
+        let mut engine: Engine<ChrState<NoTheory>> =
+            Engine::new_with_env(query, terms, env);
+
+        let max_steps = 100_000;
+        let mut answers = Vec::new();
+        let mut total_steps = 0;
+        loop {
+            if total_steps >= max_steps {
+                break;
+            }
+            match engine.step() {
+                StepResult::Emit(nf) => {
+                    let rendered = engine
+                        .format_nf(&nf, parser.symbols())
+                        .unwrap_or_else(|_| "<error>".to_string());
+                    eprintln!("  lamEq standalone answer {}: {} (step {})", answers.len() + 1, rendered, total_steps);
+                    answers.push(nf);
+                    if answers.len() >= 5 {
+                        break;
+                    }
+                }
+                StepResult::Exhausted => {
+                    eprintln!("  lamEq standalone exhausted at step {}", total_steps);
+                    break;
+                }
+                StepResult::Continue => {}
+            }
+            total_steps += 1;
+        }
+
+        eprintln!("  lamEq standalone: {} answers in {} steps", answers.len(), total_steps);
+        assert!(
+            !answers.is_empty(),
+            "lamEq should produce at least the identity answer"
+        );
+    }
+
+    /// Diagnostic: compose plain identity (no constraint) with lamEq
+    #[test]
+    fn lam_eq_compose_plain_identity() {
+        let mut parser = Parser::with_chr();
+        let (_rel, env) = parse_rel_def_with_env_chr(&mut parser, LAM_EQ_DEF);
+
+        // No constraint - just identity for app term composed with lamEq
+        let query_str =
+            "(app (lam $x $x) $z) -> (app (lam $x $x) $z) ; lamEq";
+        let query = parser.parse_rel_body(query_str).expect("parse lamEq query");
+        let terms = parser.take_terms();
+
+        let mut engine: Engine<ChrState<NoTheory>> =
+            Engine::new_with_env(query, terms, env);
+
+        let max_steps = 100_000;
+        let mut answers = Vec::new();
+        let mut total_steps = 0;
+        loop {
+            if total_steps >= max_steps {
+                break;
+            }
+            match engine.step() {
+                StepResult::Emit(nf) => {
+                    let rendered = engine
+                        .format_nf(&nf, parser.symbols())
+                        .unwrap_or_else(|_| "<error>".to_string());
+                    eprintln!("  plain id+lamEq answer {}: {} (step {})", answers.len() + 1, rendered, total_steps);
+                    answers.push(nf);
+                    if answers.len() >= 5 {
+                        break;
+                    }
+                }
+                StepResult::Exhausted => {
+                    eprintln!("  plain id+lamEq exhausted at step {}", total_steps);
+                    break;
+                }
+                StepResult::Continue => {}
+            }
+            total_steps += 1;
+        }
+
+        eprintln!("  plain id+lamEq: {} answers in {} steps", answers.len(), total_steps);
+        assert!(
+            answers.len() >= 2,
+            "Expected at least 2 answers (identity + beta reduction), got {}",
+            answers.len()
+        );
+    }
+
 }
