@@ -1,46 +1,11 @@
 use crate::constraint::ConstraintOps;
 use crate::kernel::compose_nf;
 use crate::node::Node;
-use crate::symbol::FuncId;
-use crate::term::{Term, TermStore};
+use crate::term::TermStore;
 use std::collections::VecDeque;
 
 use super::diagonal::{DiagonalJoin, DiagonalStepResult, JoinOutcome, JoinStrategy};
-use super::{Work, WorkStep};
-
-/// Root functor tag for indexing NFs by their first pattern's root.
-///
-/// - `Functor(f)`: the first pattern is `App(f, ...)` with a specific root functor
-/// - `Wildcard`: the first pattern is variable-headed or patterns are empty (matches anything)
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-enum RootTag {
-    Functor(FuncId),
-    Wildcard,
-}
-
-/// Extract the root functor from the first build pattern of an NF.
-fn build_root_tag<C>(nf: &crate::nf::NF<C>, terms: &mut TermStore) -> RootTag {
-    if let Some(&first_pat) = nf.build_pats.first() {
-        match terms.get_unlocked(first_pat) {
-            Some(Term::App(f, _)) => RootTag::Functor(*f),
-            _ => RootTag::Wildcard,
-        }
-    } else {
-        RootTag::Wildcard
-    }
-}
-
-/// Extract the root functor from the first match pattern of an NF.
-fn match_root_tag<C>(nf: &crate::nf::NF<C>, terms: &mut TermStore) -> RootTag {
-    if let Some(&first_pat) = nf.match_pats.first() {
-        match terms.get_unlocked(first_pat) {
-            Some(Term::App(f, _)) => RootTag::Functor(*f),
-            _ => RootTag::Wildcard,
-        }
-    } else {
-        RootTag::Wildcard
-    }
-}
+use super::{build_root_tag, match_root_tag, tags_compatible, RootTag, Work, WorkStep};
 
 #[derive(Clone, Debug)]
 enum ComposeCursor {
@@ -248,16 +213,6 @@ impl ComposeStrategy {
 impl Default for ComposeStrategy {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-/// Check if two root tags are compatible for composition.
-///
-/// Compatible means composition *might* succeed (the root functor precheck won't reject it).
-fn tags_compatible(build_tag: RootTag, match_tag: RootTag) -> bool {
-    match (build_tag, match_tag) {
-        (RootTag::Functor(f), RootTag::Functor(g)) => f == g,
-        _ => true, // Wildcard on either side is always compatible
     }
 }
 

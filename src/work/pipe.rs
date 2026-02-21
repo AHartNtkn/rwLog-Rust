@@ -4,14 +4,14 @@ use crate::kernel::{compose_nf, meet_nf};
 use crate::nf::NF;
 use crate::node::Node;
 use crate::rel::{Rel, RelId};
-use crate::symbol::FuncId;
-use crate::term::{Term, TermStore};
+use crate::term::TermStore;
 use std::sync::Arc;
 
 use super::{
-    flatten_and_parts, nf_domain_filter, nf_left_prefix, nf_right_suffix, nf_rwl_iso, nf_rwr_iso,
-    node_from_answers, wrap_compose_with_prefix_suffix, wrap_rel_with_atoms, AndGroup, CallKey,
-    CallMode, ComposeWork, Env, FixWork, ProducerSpec, Tables, Work, WorkStep,
+    build_root_tag, flatten_and_parts, match_root_tag, nf_domain_filter, nf_left_prefix,
+    nf_right_suffix, nf_rwl_iso, nf_rwr_iso, node_from_answers, tags_compatible,
+    wrap_compose_with_prefix_suffix, wrap_rel_with_atoms, AndGroup, CallKey, CallMode, ComposeWork,
+    Env, FixWork, ProducerSpec, RootTag, Tables, Work, WorkStep,
 };
 
 /// Result of dispatch filtering on a flat Or of Atoms.
@@ -22,41 +22,6 @@ enum DispatchResult<C: ConstraintOps> {
     Single(NF<C>),
     /// Multiple atoms matched - push filtered Or back into mid.
     Filtered(Rel<C>),
-}
-
-/// Extract the root functor from a TermId, if it's a functor-headed term.
-/// Returns `Some(func_id)` for `App(f, ...)`, `None` for variables or empty.
-#[inline]
-fn term_root_functor(term_id: crate::term::TermId, terms: &mut TermStore) -> Option<FuncId> {
-    if term_id.is_inline_var() {
-        return None;
-    }
-    if term_id.is_inline_nullary() {
-        let raw = term_id.inline_nullary_func_raw();
-        return TermStore::func_id_from_raw(raw);
-    }
-    match terms.get_unlocked(term_id) {
-        Some(Term::App(f, _)) => Some(*f),
-        _ => None,
-    }
-}
-
-/// Extract the root functor of the first build pattern of an NF.
-/// Returns None if build_pats is empty or the first pattern is variable-headed.
-#[inline]
-fn build_root_functor<C>(nf: &NF<C>, terms: &mut TermStore) -> Option<FuncId> {
-    nf.build_pats
-        .first()
-        .and_then(|&pat| term_root_functor(pat, terms))
-}
-
-/// Extract the root functor of the first match pattern of an NF.
-/// Returns None if match_pats is empty or the first pattern is variable-headed.
-#[inline]
-fn match_root_functor<C>(nf: &NF<C>, terms: &mut TermStore) -> Option<FuncId> {
-    nf.match_pats
-        .first()
-        .and_then(|&pat| term_root_functor(pat, terms))
 }
 
 /// Collect all branches of a flat Or tree into a Vec.
@@ -400,49 +365,30 @@ impl<C: ConstraintOps> PipeWork<C> {
         }
     }
 
-    /// Absorb an NF from the front into the left boundary.
-    fn absorb_front(&mut self, nf: NF<C>, terms: &mut TermStore) -> bool {
-        match &self.left {
+    /// Absorb an NF into the boundary at the given end.
+    /// Front absorbs into left boundary (left ; nf), back into right (nf ; right).
+    fn absorb_at(&mut self, end: PipeEnd, nf: NF<C>, terms: &mut TermStore) -> bool {
+        let boundary = match end {
+            PipeEnd::Front => &mut self.left,
+            PipeEnd::Back => &mut self.right,
+        };
+        match boundary {
             None => {
-                // No left boundary, this NF becomes the left boundary
-                self.left = Some(nf);
+                *boundary = Some(nf);
                 true
             }
-            Some(left) => {
-                // Try to compose with left boundary
-                match compose_nf(left, &nf, terms) {
-                    Some(composed) => {
-                        self.left = Some(composed);
+            Some(existing) => {
+                // Compose: front = existing ; nf, back = nf ; existing
+                let composed = match end {
+                    PipeEnd::Front => compose_nf(existing, &nf, terms),
+                    PipeEnd::Back => compose_nf(&nf, existing, terms),
+                };
+                match composed {
+                    Some(result) => {
+                        *existing = result;
                         true
                     }
-                    None => {
-                        // Composition failed - signal failure
-                        false
-                    }
-                }
-            }
-        }
-    }
-
-    /// Absorb an NF from the back into the right boundary.
-    fn absorb_back(&mut self, nf: NF<C>, terms: &mut TermStore) -> bool {
-        match &self.right {
-            None => {
-                // No right boundary, this NF becomes the right boundary
-                self.right = Some(nf);
-                true
-            }
-            Some(right) => {
-                // Try to compose: nf ; right
-                match compose_nf(&nf, right, terms) {
-                    Some(composed) => {
-                        self.right = Some(composed);
-                        true
-                    }
-                    None => {
-                        // Composition failed - signal failure
-                        false
-                    }
+                    None => false,
                 }
             }
         }
@@ -476,56 +422,47 @@ impl<C: ConstraintOps> PipeWork<C> {
     /// Returns Ok(true) if progress was made, Ok(false) if stuck,
     /// or Err(step) if normalization yields a terminal result.
     fn try_normalize_step(&mut self, terms: &mut TermStore) -> Result<bool, WorkStep<C>> {
-        // Try front first
-        if let Some(front) = self.mid.front().cloned() {
-            match front.as_ref() {
-                Rel::Zero => {
-                    // Zero annihilates the pipe
-                    return Err(WorkStep::Done);
-                }
-                Rel::Atom(nf) => {
-                    self.mid.pop_front();
-                    if self.absorb_front(nf.as_ref().clone(), terms) {
-                        return Ok(true);
-                    }
-                    return Err(WorkStep::Done);
-                }
-                Rel::Seq(xs) => {
-                    self.mid.pop_front();
-                    self.mid.push_front_slice_from_seq(xs.clone());
-                    self.mid_normalized = false;
-                    return Ok(true);
-                }
-                _ => {}
+        // Try front first, then back
+        for &end in &[PipeEnd::Front, PipeEnd::Back] {
+            if let Some(result) = self.try_normalize_end(end, terms) {
+                return result;
             }
         }
-
-        // Try back
-        if let Some(back) = self.mid.back().cloned() {
-            match back.as_ref() {
-                Rel::Zero => {
-                    // Zero annihilates the pipe
-                    return Err(WorkStep::Done);
-                }
-                Rel::Atom(nf) => {
-                    self.mid.pop_back();
-                    if self.absorb_back(nf.as_ref().clone(), terms) {
-                        return Ok(true);
-                    }
-                    return Err(WorkStep::Done);
-                }
-                Rel::Seq(xs) => {
-                    self.mid.pop_back();
-                    self.mid.push_back_slice_from_seq(xs.clone());
-                    self.mid_normalized = false;
-                    return Ok(true);
-                }
-                _ => {}
-            }
-        }
-
-        // No progress possible
         Ok(false)
+    }
+
+    /// Try to normalize one step at the given end.
+    /// Returns `Some(result)` if the end was normalizable, `None` if not.
+    fn try_normalize_end(
+        &mut self,
+        end: PipeEnd,
+        terms: &mut TermStore,
+    ) -> Option<Result<bool, WorkStep<C>>> {
+        let rel = match end {
+            PipeEnd::Front => self.mid.front().cloned(),
+            PipeEnd::Back => self.mid.back().cloned(),
+        }?;
+        match rel.as_ref() {
+            Rel::Zero => Some(Err(WorkStep::Done)),
+            Rel::Atom(nf) => {
+                self.pop_end(end);
+                if self.absorb_at(end, nf.as_ref().clone(), terms) {
+                    Some(Ok(true))
+                } else {
+                    Some(Err(WorkStep::Done))
+                }
+            }
+            Rel::Seq(xs) => {
+                self.pop_end(end);
+                match end {
+                    PipeEnd::Front => self.mid.push_front_slice_from_seq(xs.clone()),
+                    PipeEnd::Back => self.mid.push_back_slice_from_seq(xs.clone()),
+                }
+                self.mid_normalized = false;
+                Some(Ok(true))
+            }
+            _ => None,
+        }
     }
 
     /// Normalize mid factors by flattening Seq and fusing adjacent atoms anywhere.
@@ -654,6 +591,22 @@ impl<C: ConstraintOps> PipeWork<C> {
             PipeEnd::Back => {
                 self.mid.pop_back();
             }
+        }
+    }
+
+    /// Order a produced node and the remaining pipe node by end.
+    /// Front: produced goes left, pipe goes right.
+    /// Back: pipe goes left, produced goes right.
+    fn order_by_end(
+        &self,
+        end: PipeEnd,
+        produced: Node<C>,
+        pipe: PipeWork<C>,
+    ) -> (Node<C>, Node<C>) {
+        let pipe_node = Node::Work(Box::new(Work::Pipe(Box::new(pipe))));
+        match end {
+            PipeEnd::Front => (produced, pipe_node),
+            PipeEnd::Back => (pipe_node, produced),
         }
     }
 
@@ -796,10 +749,7 @@ impl<C: ConstraintOps> PipeWork<C> {
         if use_right {
             pipe.right = None;
         }
-        let (left_node, right_node) = match end {
-            PipeEnd::Front => (fix_node, Node::Work(Box::new(Work::Pipe(Box::new(pipe))))),
-            PipeEnd::Back => (Node::Work(Box::new(Work::Pipe(Box::new(pipe)))), fix_node),
-        };
+        let (left_node, right_node) = self.order_by_end(end, fix_node, pipe);
         let compose = ComposeWork::new(left_node, right_node);
         WorkStep::More(Box::new(Work::Compose(compose)))
     }
@@ -817,85 +767,79 @@ impl<C: ConstraintOps> PipeWork<C> {
     fn try_batch_advance_calls(&mut self, terms: &mut TermStore) -> Result<bool, WorkStep<C>> {
         let mut made_progress = false;
         loop {
-            // Try front
-            if let Some(front) = self.mid.front() {
-                if let Rel::Call(id) = front.as_ref() {
-                    let id = *id;
-                    if let Some(binding) = self.env.lookup(id) {
-                        // Single Atom body: compose directly
-                        if let Rel::Atom(nf) = binding.body.as_ref() {
-                            self.mid.pop_front();
-                            if !self.absorb_front(nf.as_ref().clone(), terms) {
-                                return Err(WorkStep::Done);
-                            }
-                            made_progress = true;
-                            continue;
-                        }
-                        // Flat Or of Atoms: dispatch by root functor
-                        if let Some(filtered) =
-                            self.try_dispatch_or_atoms(binding.body.clone(), true, terms)
-                        {
-                            self.mid.pop_front();
-                            match filtered {
-                                DispatchResult::Fail => return Err(WorkStep::Done),
-                                DispatchResult::Single(nf) => {
-                                    if !self.absorb_front(nf, terms) {
-                                        return Err(WorkStep::Done);
-                                    }
-                                }
-                                DispatchResult::Filtered(rel) => {
-                                    self.mid.push_front_rel(Arc::new(rel));
-                                    self.mid_normalized = false;
-                                }
-                            }
-                            made_progress = true;
-                            continue;
-                        }
+            let mut advanced = false;
+            for &end in &[PipeEnd::Front, PipeEnd::Back] {
+                match self.try_advance_call_at_end(end, terms) {
+                    Ok(true) => {
+                        made_progress = true;
+                        advanced = true;
+                        break; // restart loop to try front again
                     }
+                    Ok(false) => {} // try next end
+                    Err(step) => return Err(step),
                 }
             }
-
-            // Try back
-            if let Some(back) = self.mid.back() {
-                if let Rel::Call(id) = back.as_ref() {
-                    let id = *id;
-                    if let Some(binding) = self.env.lookup(id) {
-                        // Single Atom body: compose directly
-                        if let Rel::Atom(nf) = binding.body.as_ref() {
-                            self.mid.pop_back();
-                            if !self.absorb_back(nf.as_ref().clone(), terms) {
-                                return Err(WorkStep::Done);
-                            }
-                            made_progress = true;
-                            continue;
-                        }
-                        // Flat Or of Atoms: dispatch by root functor
-                        if let Some(filtered) =
-                            self.try_dispatch_or_atoms(binding.body.clone(), false, terms)
-                        {
-                            self.mid.pop_back();
-                            match filtered {
-                                DispatchResult::Fail => return Err(WorkStep::Done),
-                                DispatchResult::Single(nf) => {
-                                    if !self.absorb_back(nf, terms) {
-                                        return Err(WorkStep::Done);
-                                    }
-                                }
-                                DispatchResult::Filtered(rel) => {
-                                    self.mid.push_back_rel(Arc::new(rel));
-                                    self.mid_normalized = false;
-                                }
-                            }
-                            made_progress = true;
-                            continue;
-                        }
-                    }
-                }
+            if !advanced {
+                break;
             }
-
-            break;
         }
         Ok(made_progress)
+    }
+
+    /// Try to advance a Call at the given end. Returns Ok(true) if progress
+    /// was made, Ok(false) if no simple Call was found, or Err on failure.
+    fn try_advance_call_at_end(
+        &mut self,
+        end: PipeEnd,
+        terms: &mut TermStore,
+    ) -> Result<bool, WorkStep<C>> {
+        let rel = match end {
+            PipeEnd::Front => self.mid.front(),
+            PipeEnd::Back => self.mid.back(),
+        };
+        let Some(rel) = rel else {
+            return Ok(false);
+        };
+        let Rel::Call(id) = rel.as_ref() else {
+            return Ok(false);
+        };
+        let id = *id;
+        let body = match self.env.lookup(id) {
+            Some(binding) => binding.body.clone(),
+            None => return Ok(false),
+        };
+
+        // Single Atom body: compose directly
+        if let Rel::Atom(nf) = body.as_ref() {
+            self.pop_end(end);
+            if !self.absorb_at(end, nf.as_ref().clone(), terms) {
+                return Err(WorkStep::Done);
+            }
+            return Ok(true);
+        }
+
+        // Flat Or of Atoms: dispatch by root functor
+        if let Some(filtered) = self.try_dispatch_or_atoms(body, end, terms) {
+            self.pop_end(end);
+            match filtered {
+                DispatchResult::Fail => return Err(WorkStep::Done),
+                DispatchResult::Single(nf) => {
+                    if !self.absorb_at(end, nf, terms) {
+                        return Err(WorkStep::Done);
+                    }
+                }
+                DispatchResult::Filtered(rel) => {
+                    match end {
+                        PipeEnd::Front => self.mid.push_front_rel(Arc::new(rel)),
+                        PipeEnd::Back => self.mid.push_back_rel(Arc::new(rel)),
+                    }
+                    self.mid_normalized = false;
+                }
+            }
+            return Ok(true);
+        }
+
+        Ok(false)
     }
 
     /// Try to filter a flat-Or-of-Atoms relation body by root functor dispatch.
@@ -904,15 +848,12 @@ impl<C: ConstraintOps> PipeWork<C> {
     /// and a boundary NF, extract the boundary's root functor and filter
     /// the Or branches to only those with compatible root functors.
     ///
-    /// `absorb_front`: true if this is a front Call (boundary flows left-to-right),
-    /// false if back Call (boundary flows right-to-left).
-    ///
     /// Returns `None` if dispatch is not applicable (body is not flat Or of Atoms,
     /// or no boundary to dispatch against).
     fn try_dispatch_or_atoms(
         &self,
         body: Arc<Rel<C>>,
-        absorb_front: bool,
+        end: PipeEnd,
         terms: &mut TermStore,
     ) -> Option<DispatchResult<C>> {
         // Unwrap Fix wrapper if present
@@ -931,37 +872,35 @@ impl<C: ConstraintOps> PipeWork<C> {
             return None; // Not worth dispatching for fewer than 2 branches
         }
 
-        // Get the boundary NF to dispatch against
-        let boundary = if absorb_front {
-            self.left.as_ref()?
-        } else {
-            self.right.as_ref()?
+        // Get the boundary NF to dispatch against.
+        // Front: left boundary's build output flows into the Call's match input.
+        // Back: right boundary's match input comes from the Call's build output.
+        let boundary = match end {
+            PipeEnd::Front => self.left.as_ref()?,
+            PipeEnd::Back => self.right.as_ref()?,
         };
 
-        // Extract the root functor from the boundary
-        let boundary_functor = if absorb_front {
-            // Front Call: boundary's build output flows into the Call's match input
-            build_root_functor(boundary, terms)?
-        } else {
-            // Back Call: boundary's match input comes from the Call's build output
-            match_root_functor(boundary, terms)?
+        let boundary_tag = match end {
+            PipeEnd::Front => build_root_tag(boundary, terms),
+            PipeEnd::Back => match_root_tag(boundary, terms),
+        };
+
+        // Only dispatch when boundary has a definite functor
+        let RootTag::Functor(_) = boundary_tag else {
+            return None;
         };
 
         // Filter atoms by compatible root functor
         let compatible: Vec<Arc<NF<C>>> = atoms
             .into_iter()
             .filter(|atom| {
-                let atom_functor = if absorb_front {
-                    // Front Call: atom's match pattern root must be compatible
-                    match_root_functor(atom, terms)
-                } else {
-                    // Back Call: atom's build pattern root must be compatible
-                    build_root_functor(atom, terms)
+                // Front: boundary build -> atom match.
+                // Back: atom build -> boundary match.
+                let (build_tag, match_tag) = match end {
+                    PipeEnd::Front => (boundary_tag, match_root_tag(atom, terms)),
+                    PipeEnd::Back => (build_root_tag(atom, terms), boundary_tag),
                 };
-                match atom_functor {
-                    Some(f) => f == boundary_functor,
-                    None => true, // Wildcard (variable-headed) always compatible
-                }
+                tags_compatible(build_tag, match_tag)
             })
             .collect();
 
@@ -978,10 +917,7 @@ impl<C: ConstraintOps> PipeWork<C> {
 
     fn advance_call(&mut self, end: PipeEnd, id: RelId) -> WorkStep<C> {
         self.pop_end(end);
-        match end {
-            PipeEnd::Front => self.handle_call(id, true),
-            PipeEnd::Back => self.handle_call(id, false),
-        }
+        self.handle_call(id, end)
     }
 
     /// Advance the selected end when stuck on normalization.
@@ -1010,20 +946,13 @@ impl<C: ConstraintOps> PipeWork<C> {
     }
 
     /// Handle a Call by looking up in the environment and using tabling.
-    fn handle_call(&mut self, id: RelId, absorb_front: bool) -> WorkStep<C> {
+    fn handle_call(&mut self, id: RelId, end: PipeEnd) -> WorkStep<C> {
         let Some(binding) = self.env.lookup(id) else {
             return WorkStep::Done;
         };
-        let use_left = if absorb_front {
-            true
-        } else {
-            self.mid.is_empty()
-        };
-        let use_right = if absorb_front {
-            self.mid.is_empty()
-        } else {
-            true
-        };
+        // The near-side boundary always participates; the far side only when mid is empty.
+        let use_left = matches!(end, PipeEnd::Front) || self.mid.is_empty();
+        let use_right = matches!(end, PipeEnd::Back) || self.mid.is_empty();
 
         let call_left = if use_left { self.left.clone() } else { None };
         let mut call_right = if use_right { self.right.clone() } else { None };
@@ -1031,9 +960,9 @@ impl<C: ConstraintOps> PipeWork<C> {
         // Peek at the adjacent mid element in the far direction for an Atom
         // when advancing the front Call. The Call's output flows into the
         // next element, so an adjacent Atom is a sound constraint on output.
-        // This doesn't consume the Atom — it remains in mid for normal
+        // This doesn't consume the Atom -- it remains in mid for normal
         // normalization when the Call's output flows back into the pipe.
-        if call_right.is_none() && absorb_front {
+        if call_right.is_none() && matches!(end, PipeEnd::Front) {
             if let Some(Rel::Atom(nf)) = self.mid.front().map(|r| r.as_ref()) {
                 call_right = Some(nf_domain_filter(nf.as_ref()));
             }
@@ -1060,17 +989,7 @@ impl<C: ConstraintOps> PipeWork<C> {
                 if use_right {
                     pipe.right = None;
                 }
-                let (left_node, right_node) = if absorb_front {
-                    (
-                        replay_node,
-                        Node::Work(Box::new(Work::Pipe(Box::new(pipe)))),
-                    )
-                } else {
-                    (
-                        Node::Work(Box::new(Work::Pipe(Box::new(pipe)))),
-                        replay_node,
-                    )
-                };
+                let (left_node, right_node) = self.order_by_end(end, replay_node, pipe);
                 let compose = ComposeWork::new(left_node, right_node);
                 return WorkStep::More(Box::new(Work::Compose(compose)));
             }
@@ -1104,11 +1023,7 @@ impl<C: ConstraintOps> PipeWork<C> {
             pipe.right = None;
         }
 
-        let (left_node, right_node) = if absorb_front {
-            (gen_node, Node::Work(Box::new(Work::Pipe(Box::new(pipe)))))
-        } else {
-            (Node::Work(Box::new(Work::Pipe(Box::new(pipe)))), gen_node)
-        };
+        let (left_node, right_node) = self.order_by_end(end, gen_node, pipe);
         let compose = ComposeWork::new(left_node, right_node);
         WorkStep::More(Box::new(Work::Compose(compose)))
     }

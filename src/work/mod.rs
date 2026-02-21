@@ -9,7 +9,8 @@ use crate::factors::Factors;
 use crate::nf::NF;
 use crate::node::Node;
 use crate::rel::Rel;
-use crate::term::{TermId, TermStore};
+use crate::symbol::FuncId;
+use crate::term::{Term, TermId, TermStore};
 use smallvec::SmallVec;
 use std::sync::Arc;
 
@@ -256,4 +257,63 @@ fn nf_domain_filter<C: ConstraintOps>(nf: &NF<C>) -> NF<C> {
         DropFresh::identity_with_constraint(in_arity, nf.drop_fresh.constraint.clone()),
         nf.match_pats.clone(),
     )
+}
+
+/// Root functor tag for indexing NFs by their first pattern's root.
+///
+/// - `Functor(f)`: the first pattern is `App(f, ...)` with a specific root functor
+/// - `Wildcard`: the first pattern is variable-headed or patterns are empty (matches anything)
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(crate) enum RootTag {
+    Functor(FuncId),
+    Wildcard,
+}
+
+/// Extract the root functor tag from a TermId.
+/// Returns `Functor(f)` for `App(f, ...)` or inline nullary functors,
+/// `Wildcard` for variables or empty.
+#[inline]
+fn term_root_tag(term_id: TermId, terms: &mut TermStore) -> RootTag {
+    if term_id.is_inline_var() {
+        return RootTag::Wildcard;
+    }
+    if term_id.is_inline_nullary() {
+        let raw = term_id.inline_nullary_func_raw();
+        return match TermStore::func_id_from_raw(raw) {
+            Some(f) => RootTag::Functor(f),
+            None => RootTag::Wildcard,
+        };
+    }
+    match terms.get_unlocked(term_id) {
+        Some(Term::App(f, _)) => RootTag::Functor(*f),
+        _ => RootTag::Wildcard,
+    }
+}
+
+/// Extract the root functor tag of the first build pattern of an NF.
+#[inline]
+pub(crate) fn build_root_tag<C>(nf: &NF<C>, terms: &mut TermStore) -> RootTag {
+    nf.build_pats
+        .first()
+        .map(|&pat| term_root_tag(pat, terms))
+        .unwrap_or(RootTag::Wildcard)
+}
+
+/// Extract the root functor tag of the first match pattern of an NF.
+#[inline]
+pub(crate) fn match_root_tag<C>(nf: &NF<C>, terms: &mut TermStore) -> RootTag {
+    nf.match_pats
+        .first()
+        .map(|&pat| term_root_tag(pat, terms))
+        .unwrap_or(RootTag::Wildcard)
+}
+
+/// Check if two root tags are compatible for composition.
+///
+/// Compatible means composition *might* succeed (the root functor precheck won't reject it).
+pub(crate) fn tags_compatible(build_tag: RootTag, match_tag: RootTag) -> bool {
+    match (build_tag, match_tag) {
+        (RootTag::Functor(f), RootTag::Functor(g)) => f == g,
+        _ => true, // Wildcard on either side is always compatible
+    }
 }
