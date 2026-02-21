@@ -78,7 +78,7 @@ This changes recursion cost from "replay everything" to "replay only new," which
 
 **Partially implemented — semi-naive replay watermarks ~96.6% improvement on graph_reach_64.** See [docs/perf_investigations/tabling_semi_naive.md](docs/perf_investigations/tabling_semi_naive.md). Added replay watermark to tabling: consumers in subsequent fixpoint iterations only replay delta (new) answers. Compose attempts dropped from 5.38M to 131K (41x reduction). graph_reach_64 from ~190ms to ~6.4ms (30x speedup). Answer tries, SCC scheduling, and subsumption tabling remain uninvestigated.
 
-**Key benchmark cases:** ~~`graph_reach_64`~~ (now 6.4ms with semi-naive), `left_rec_32` (unaffected — different recursion pattern)
+**Key benchmark cases:** ~~`graph_reach_64`~~ (now 6.4ms with semi-naive), `left_rec_32` (unaffected — different recursion pattern). **Sub-investigation: left_rec_32 semi-naive + table skip — DISCARDED (U=70, ~1.8%).** See [docs/perf_investigations/left_rec_semi_naive.md](docs/perf_investigations/left_rec_semi_naive.md). Semi-naive doesn't help because: (1) CallKey exact matching prevents replay across different right boundaries, (2) watermarks are always 0 (single fixpoint iteration per table), (3) the 528-table cascade is semantically required. Real bottleneck is 155K Or-spine walks.
 
 ### 8. Conjunction/Meet as Join Optimizer
 
