@@ -32,7 +32,9 @@ Use that to: inline small deterministic callees into callers, pick specialized e
 
 This changes evaluation from "everything is a search problem" to "search only where necessary," while preserving semantics.
 
-**Key benchmark cases:** `inline_amplification_256` (256 distinct trivially-deterministic relations composed in sequence; stresses per-call Fix/Call + tabling overhead that inlining would eliminate), existing `recursive_add_*`
+**Partially investigated — runtime tabling bypass DISCARDED.** See [docs/perf_investigations/determinism_bypass.md](docs/perf_investigations/determinism_bypass.md). Attempted to bypass Fix/Table for `Fix(_, Atom(nf))` at call sites. Discovery: `env.lookup()` already returns unwrapped bodies (Fix stripped at bind time), so the existing batch advance `Rel::Atom(nf)` path already handles these optimally. The 948us overhead is compose cost (256 compositions building depth-256 terms), not dispatch. Compile-time determinism analysis and compose chain fusion remain uninvestigated.
+
+**Key benchmark cases:** `inline_amplification_256` (256 distinct trivially-deterministic relations composed in sequence; compose cost dominates, not dispatch), existing `recursive_add_*`
 
 ### 3. Compiled Matching: Decision Trees + Discrimination Trees
 
