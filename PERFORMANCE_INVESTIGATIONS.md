@@ -40,7 +40,9 @@ Replace generic term matching with compiled match programs: for each rule head (
 
 This turns "O(rules) attempts with repeated generic matcher overhead" into "direct dispatch to a tiny candidate set with a straight-line matcher."
 
-**Key benchmark cases:** `wide_match_512` (512 rules sharing top functor `pair`; root precheck passes for all, forcing depth-2 matching to reject — discrimination trees dispatch in O(1)), `nonlinear_match_64`
+**Partially implemented — root-functor dispatch ~216x improvement on hot_call_site_256.** See [docs/perf_investigations/compiled_dispatch.md](docs/perf_investigations/compiled_dispatch.md). Runtime root-functor filtering for flat-Or-of-Atoms Call bodies. Converts O(calls × rules) compose attempts to O(calls × 1) for relations with distinct root functors per rule. Discrimination trees for depth-2+ matching and pre-built dispatch indexes remain uninvestigated.
+
+**Key benchmark cases:** ~~`hot_call_site_256`~~ (now 316us with dispatch), `wide_match_512` (512 rules sharing top functor `pair`; root precheck passes for all, needs depth-2 discrimination), `nonlinear_match_64`
 
 ### 4. Terms as Closures: Explicit-Substitution + Explicit-Shift
 
