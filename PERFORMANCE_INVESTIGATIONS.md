@@ -72,7 +72,9 @@ Replace "flat sets of answers per call" with: an answer trie keyed by canonicali
 
 This changes recursion cost from "replay everything" to "replay only new," which is the standard asymptotic jump for recursive logic engines. Semi-naive requires 3+ fixpoint iterations to help, which the current corpus doesn't trigger — these new benchmarks provide that coverage.
 
-**Key benchmark cases:** `graph_reach_64`, `left_rec_32`
+**Partially implemented — semi-naive replay watermarks ~96.6% improvement on graph_reach_64.** See [docs/perf_investigations/tabling_semi_naive.md](docs/perf_investigations/tabling_semi_naive.md). Added replay watermark to tabling: consumers in subsequent fixpoint iterations only replay delta (new) answers. Compose attempts dropped from 5.38M to 131K (41x reduction). graph_reach_64 from ~190ms to ~6.4ms (30x speedup). Answer tries, SCC scheduling, and subsumption tabling remain uninvestigated.
+
+**Key benchmark cases:** ~~`graph_reach_64`~~ (now 6.4ms with semi-naive), `left_rec_32` (unaffected — different recursion pattern)
 
 ### 8. Conjunction/Meet as Join Optimizer
 
