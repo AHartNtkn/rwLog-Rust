@@ -86,6 +86,8 @@ Replace "one diagonal join strategy" with: runtime join-order selection based on
 
 Converts worst-case cross products into something closer to database join complexity.
 
+**Partially investigated — deep functor indexing DISCARDED (U=42, U=34).** See [docs/perf_investigations/join_optimizer_deep_indexing.md](docs/perf_investigations/join_optimizer_deep_indexing.md). Extended root functor indexing to depth-2 (DeepTag with child0/child1 functors) and HashMap-based TagIndex. Only reduced treecalc_synth_flip compose attempts by 5.6% (278K → 262K) because tree calculus has only 3 functors and children are variable-heavy. Overhead exceeds savings. Confirms depth2_precheck and multi_pos_precheck results: structural indexing design space is exhausted for this workload. Runtime join-order selection and alternative join algorithms remain uninvestigated.
+
 **Key benchmark cases:** `join_low_overlap_64x64`, `join_skewed_128x4`, `join_high_overlap_64x64`
 
 ### 9. Constraint-State Canonicalization + Global Interning
