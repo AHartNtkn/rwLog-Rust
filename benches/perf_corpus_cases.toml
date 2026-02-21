@@ -441,3 +441,339 @@ determinism = "nondeterministic"
 answer_shape = "single"
 infinite_stream = false
 notes = "Guards against regressions in CHR constraint + tabled compose interaction. Synthesizes the flip combinator: find x (no_c) such that app(app(x, c(0)), c(1)) = a(c(1), c(0))."
+
+# --- Proposal 1: AOT Plan Compilation ---
+
+[[case]]
+id = "sequence_chain_len4096"
+title = "Sequence Chain Length 4096"
+tier = "stress"
+category = "finite_det"
+description = "4096-step deterministic pipeline stressing plan interpretation overhead."
+mode = "exhaust"
+expected_kind = "exact"
+expected_value = 1
+program = "{{CHAIN_PROGRAM:4096}}"
+query = "{{CHAIN_QUERY:4096}}"
+tags = ["seq", "pipeline", "stress", "plan_overhead"]
+determinism = "deterministic"
+answer_shape = "single"
+infinite_stream = false
+
+[[case]]
+id = "hot_call_site_256"
+title = "Hot Call Site 256"
+tier = "stress"
+category = "finite_det"
+description = "256 calls to 32-rule dispatch relation; each call re-walks the Or spine. Plan caching would compile the dispatch table once and reuse it."
+mode = "exhaust"
+expected_kind = "exact"
+expected_value = 1
+program = "{{DISPATCH_PROGRAM:32}}"
+query = "{{DISPATCH_CHAIN_QUERY:256}}"
+tags = ["call", "pipeline", "stress", "plan_overhead"]
+determinism = "deterministic"
+answer_shape = "single"
+infinite_stream = false
+
+# --- Proposal 2: Determinism + Mode Inference ---
+
+[[case]]
+id = "inline_amplification_256"
+title = "Inline Amplification 256"
+tier = "stress"
+category = "finite_det"
+description = "256 distinct trivially-deterministic relations composed in sequence; stresses per-call Fix/Call + tabling overhead that inlining would eliminate."
+mode = "exhaust"
+expected_kind = "exact"
+expected_value = 1
+program = "{{MANY_TINY_RELS_PROGRAM:256}}"
+query = "{{MANY_TINY_RELS_QUERY:256}}"
+tags = ["inline", "determinism", "stress"]
+determinism = "deterministic"
+answer_shape = "single"
+infinite_stream = false
+
+# --- Proposal 3: Compiled Matching ---
+
+[[case]]
+id = "wide_match_512"
+title = "Wide Match 512 Rules"
+tier = "stress"
+category = "finite_det"
+description = "512 rules sharing top functor pair; query hits rule 256. Root precheck passes for all, forcing depth-2 matching to reject. Discrimination trees would dispatch in O(1)."
+mode = "exhaust"
+expected_kind = "exact"
+expected_value = 1
+program = "{{WIDE_MATCH_PROGRAM:512}}"
+query = "@(pair (c256 hello) a) ; wide_match"
+tags = ["matching", "dispatch", "stress"]
+determinism = "deterministic"
+answer_shape = "single"
+infinite_stream = false
+
+[[case]]
+id = "nonlinear_match_64"
+title = "Nonlinear Match 64 Rules"
+tier = "stress"
+category = "finite_det"
+description = "64 rules with (pair (ci $x) (ci $x)) heads stressing equality checking in match."
+mode = "exhaust"
+expected_kind = "exact"
+expected_value = 1
+program = "{{NONLINEAR_MATCH_PROGRAM:64}}"
+query = "@(pair (c32 hello) (c32 hello)) ; nonlinear_match"
+tags = ["matching", "nonlinear", "stress"]
+determinism = "deterministic"
+answer_shape = "single"
+infinite_stream = false
+
+# --- Proposal 4: Terms as Closures ---
+
+[[case]]
+id = "deep_rewrite_depth64"
+title = "Deep Rewrite Depth 64"
+tier = "quick"
+category = "deep_terms"
+description = "8-wide recursive wide_inc on depth-64 term; each level applies 8-variable substitution on 17-node pattern. Closures would defer these walks for ~13x improvement."
+mode = "exhaust"
+expected_kind = "exact"
+expected_value = 1
+program = "{{PROGRAM_WIDE_INC}}"
+query = "@{{WIDE_TERM:8:64}} ; wide_inc"
+tags = ["deep", "substitution", "recursive"]
+determinism = "deterministic"
+answer_shape = "single"
+infinite_stream = false
+quick_gate_max_median_us = 100000.0
+quick_gate_max_p95_us = 200000.0
+noise_target_cv_pct = 35.0
+noise_flaky_cv_pct = 55.0
+adaptive_min_samples = 15
+adaptive_max_samples = 40
+
+[[case]]
+id = "deep_rewrite_depth256"
+title = "Deep Rewrite Depth 256"
+tier = "stress"
+category = "deep_terms"
+description = "Stress version: 8-wide recursive wide_inc on depth-256 term; each level applies 8-variable substitution. Closures would defer walks for ~16x improvement."
+mode = "exhaust"
+expected_kind = "exact"
+expected_value = 1
+program = "{{PROGRAM_WIDE_INC}}"
+query = "@{{WIDE_TERM:8:256}} ; wide_inc"
+tags = ["deep", "substitution", "recursive", "stress"]
+determinism = "deterministic"
+answer_shape = "single"
+infinite_stream = false
+
+# --- Proposal 5: Adaptive Search Scheduling ---
+
+[[case]]
+id = "hetero_or_branches"
+title = "Heterogeneous OR Branches"
+tier = "stress"
+category = "wide_branching"
+description = "3 fast constant branches + 1 expensive recursive add branch; tests scheduling fairness."
+mode = "exhaust"
+expected_kind = "exact"
+expected_value = 4
+program = """
+{{PROGRAM_ADD}}
+rel hetero {
+    a -> fast0
+    | a -> fast1
+    | a -> fast2
+    | [a -> (cons (s (s z)) (s (s z))) ; add ; $x -> (slow $x)]
+}
+"""
+query = "@a ; hetero"
+tags = ["or", "scheduling", "heterogeneous", "stress"]
+determinism = "nondeterministic"
+answer_shape = "finite"
+infinite_stream = false
+
+[[case]]
+id = "failfast_conjunction"
+title = "Fail-Fast Conjunction"
+tier = "stress"
+category = "finite_nondet"
+description = "32-wide generator conjuncted with expensive filter producing 1 match; tests conjunction scheduling."
+mode = "exhaust"
+expected_kind = "exact"
+expected_value = 1
+program = "{{PROGRAM_ADD}}"
+query = "@a ; [[{{INLINE_GEN:32}}] & [a -> (cons {{PEANO:8}} {{PEANO:8}}) ; add ; {{PEANO:16}} -> k16]]"
+tags = ["and", "scheduling", "failfast", "stress"]
+determinism = "nondeterministic"
+answer_shape = "single"
+infinite_stream = false
+
+# --- Proposal 6: True Multicore Execution ---
+
+[[case]]
+id = "heavy_or_16"
+title = "Heavy OR 16 Branches"
+tier = "stress"
+category = "wide_branching"
+description = "16 branches each computing recursive add(8,8); tests parallel branch execution."
+mode = "exhaust"
+expected_kind = "exact"
+expected_value = 16
+program = "{{HEAVY_BRANCH_PROGRAM:16:8}}"
+query = "@a ; heavy_or"
+tags = ["or", "parallel", "recursive", "stress"]
+determinism = "nondeterministic"
+answer_shape = "finite"
+infinite_stream = false
+
+[[case]]
+id = "parallel_and_32x32_overlap16"
+title = "Parallel AND 32x32 Overlap 16"
+tier = "stress"
+category = "finite_nondet"
+description = "32x32 conjunction with 16-element intersection; tests parallel AND execution."
+mode = "exhaust"
+expected_kind = "exact"
+expected_value = 16
+program = "{{JOIN_PROGRAM:32:32:16}}"
+query = "@a ; [left_gen & right_gen]"
+tags = ["and", "parallel", "join", "stress"]
+determinism = "nondeterministic"
+answer_shape = "finite"
+infinite_stream = false
+
+# --- Proposal 7: Tabling Redesign ---
+
+[[case]]
+id = "graph_reach_64"
+title = "Graph Reach 64 Nodes"
+tier = "stress"
+category = "recursive"
+description = "Transitive closure over 64-node linear chain graph via tabling."
+mode = "exhaust"
+expected_kind = "exact"
+expected_value = 64
+program = "{{GRAPH_REACH_PROGRAM:64}}"
+query = "@n0 ; reach"
+tags = ["recursion", "tabling", "transitive_closure", "stress", "realistic"]
+determinism = "nondeterministic"
+answer_shape = "finite"
+infinite_stream = false
+
+[[case]]
+id = "left_rec_32"
+title = "Left Recursion 32 Layers"
+tier = "stress"
+category = "recursive"
+description = "32-layer left-recursive relation testing tabling with left recursion."
+mode = "exhaust"
+expected_kind = "exact"
+expected_value = 33
+program = "{{LEFT_REC_PROGRAM:32}}"
+query = "@a ; left_rec"
+tags = ["recursion", "left_recursion", "tabling", "stress", "realistic"]
+determinism = "nondeterministic"
+answer_shape = "finite"
+infinite_stream = false
+
+# --- Proposal 8: Conjunction/Meet as Joins ---
+
+[[case]]
+id = "join_low_overlap_64x64"
+title = "Join Low Overlap 64x64"
+tier = "stress"
+category = "finite_nondet"
+description = "64x64 join with 1-element overlap; stresses join filtering."
+mode = "exhaust"
+expected_kind = "exact"
+expected_value = 1
+program = "{{JOIN_PROGRAM:64:64:1}}"
+query = "@a ; [left_gen & right_gen]"
+tags = ["and", "join", "low_overlap", "stress"]
+determinism = "nondeterministic"
+answer_shape = "single"
+infinite_stream = false
+
+[[case]]
+id = "join_skewed_128x4"
+title = "Join Skewed 128x4"
+tier = "stress"
+category = "finite_nondet"
+description = "128x4 join with all 4 overlapping; tests directional join optimization."
+mode = "exhaust"
+expected_kind = "exact"
+expected_value = 4
+program = "{{JOIN_PROGRAM:128:4:4}}"
+query = "@a ; [left_gen & right_gen]"
+tags = ["and", "join", "skewed", "stress"]
+determinism = "nondeterministic"
+answer_shape = "finite"
+infinite_stream = false
+
+[[case]]
+id = "join_high_overlap_64x64"
+title = "Join High Overlap 64x64"
+tier = "stress"
+category = "finite_nondet"
+description = "64x64 join with 50% overlap (32 elements); tests high-overlap regime."
+mode = "exhaust"
+expected_kind = "exact"
+expected_value = 32
+program = "{{JOIN_PROGRAM:64:64:32}}"
+query = "@a ; [left_gen & right_gen]"
+tags = ["and", "join", "high_overlap", "stress"]
+determinism = "nondeterministic"
+answer_shape = "finite"
+infinite_stream = false
+
+# --- Proposal 9: Constraint Canonicalization ---
+
+[[case]]
+id = "constraint_perm_4"
+title = "Constraint Permutation 4"
+tier = "quick"
+category = "constraints"
+description = "4 neq constraints in different orders across branches; tests canonicalization dedup."
+mode = "exhaust"
+expected_kind = "exact"
+expected_value = 1
+program = "{{PERM_CONSTRAINT_PROGRAM:4}}"
+query = "@hello ; perm_test"
+tags = ["chr", "canonicalization", "dedup"]
+determinism = "nondeterministic"
+answer_shape = "single"
+infinite_stream = false
+quick_gate_max_median_us = 50000.0
+quick_gate_max_p95_us = 100000.0
+noise_target_cv_pct = 35.0
+noise_flaky_cv_pct = 55.0
+adaptive_min_samples = 15
+adaptive_max_samples = 40
+
+[[case]]
+id = "multi_head_chr_join"
+title = "Multi-Head CHR Join"
+tier = "stress"
+category = "constraints"
+description = "Multi-head CHR rule (p $x $y), (q $y $z) <=> (p $x $z); tests multi-head join path."
+mode = "exhaust"
+expected_kind = "exact"
+expected_value = 1
+program = """
+theory join_theory {
+    constraint p/2
+    constraint q/2
+
+    (p $x $y), (q $y $z) <=> (p $x $z).
+}
+rel test_join {
+    a { (p a b), (q b c) } -> a
+}
+"""
+query = "@a ; test_join"
+tags = ["chr", "multi_head", "join", "stress"]
+determinism = "nondeterministic"
+answer_shape = "single"
+infinite_stream = false

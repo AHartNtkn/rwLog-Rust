@@ -689,8 +689,11 @@ impl<B: ConstraintBuilder> Parser<B> {
             let name = parse_identifier(input, pos)?;
             skip_whitespace(input, pos);
 
-            // Check if this is followed by -> (making it a rule starting with an atom)
-            if *pos < input.len() && input[*pos..].starts_with("->") {
+            // Check if this is followed by -> or { (making it a rule starting with an atom).
+            // A constraint block { ... } between the LHS and -> is valid rule syntax.
+            let is_rule = *pos < input.len()
+                && (input[*pos..].starts_with("->") || peek_char(input, *pos) == Some('{'));
+            if is_rule {
                 // It's a rule: restore position and parse as rule
                 *pos = start_pos;
                 let rule = self.parse_rule_inner(input, pos)?;
@@ -1934,6 +1937,27 @@ theory eq {
             .find(|c| c.alive)
             .expect("alive constraint");
         assert_eq!(inst.pred, pred);
+    }
+
+    #[test]
+    fn atom_lhs_with_constraint_block_parses_as_rule() {
+        let mut parser = Parser::with_chr();
+        let theory = r#"
+theory t {
+    constraint p/2
+    constraint q/2
+    (p $x $y), (q $y $z) <=> (p $x $z).
+}
+"#;
+        parser.parse_theory_def(theory).expect("parse theory");
+        let (name, rel) = parser
+            .parse_rel_def("rel test { a { (p a b), (q b c) } -> a }")
+            .expect("atom LHS with constraint block must parse as rule");
+        assert_eq!(name, "test");
+        match rel {
+            Rel::Fix(_, _) => {}
+            _ => panic!("expected Fix"),
+        }
     }
 
     #[test]

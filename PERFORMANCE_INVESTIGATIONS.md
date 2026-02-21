@@ -10,6 +10,84 @@ The intent is to find order-of-magnitude improvements, not micro-optimizations.
 - Prefer changes that improve asymptotic behavior, pruning power, or work avoidance.
 - Require benchmarks on representative workloads before and after each experiment.
 
+## Major Improvement Proposals
+
+Architecture-level improvement proposals. Each targets a distinct subsystem and is paired with benchmark cases for before/after measurement.
+
+### 1. AOT Plan Compilation to Bytecode / Register Machine
+
+Add an ahead-of-time compiler from parsed `Rel` into a compact bytecode with explicit registers for current NF, substitution environments, call keys / table handles, and branch continuation state. Replace the current "fat enum tree" stepping model with an interpreter over compact instruction streams (or a "direct threaded" interpreter). Cache compiled plans per relation and per query shape.
+
+This creates a single choke point where you can: fuse adjacent operations (`rule ; call`, `call ; rule`, repeated `;` chains), eliminate `Rel` cloning overhead structurally (bytecode is immutable, shared), specialize hot instructions (e.g., "match root functor then fast-fail" as a single op), and add profile-driven layout (instruction ordering, hot/cold splitting) without relying on LLVM PGO.
+
+**Key benchmark cases:** `sequence_chain_len4096` (plan interpretation overhead via O(n) `to_vec()` per step), `hot_call_site_256` (256 calls to a 32-rule dispatch relation; each call re-walks the Or spine — plan caching would compile the dispatch table once)
+
+### 2. Whole-Program Determinism + Mode Inference
+
+A compile-time analysis pass over relation definitions: infer determinism under an input/output mode (e.g., `@ground_input ; rel` deterministic even if `rel ; @output` is not), infer linearity/nonlinearity of rule heads, infer whether a call is "constructor-driven" vs "variable-driven".
+
+Use that to: inline small deterministic callees into callers, pick specialized execution strategies (e.g., "single successor rule" vs "search tree"), bypass parts of tabling when provably unnecessary (deterministic + terminating fragment).
+
+This changes evaluation from "everything is a search problem" to "search only where necessary," while preserving semantics.
+
+**Key benchmark cases:** `inline_amplification_256` (256 distinct trivially-deterministic relations composed in sequence; stresses per-call Fix/Call + tabling overhead that inlining would eliminate), existing `recursive_add_*`
+
+### 3. Compiled Matching: Decision Trees + Discrimination Trees
+
+Replace generic term matching with compiled match programs: for each rule head (and for compose/meet pattern lists), compile a flat decision program with top functor checks, arity checks, selected deeper position checks, variable binding writes, repeated-variable equality checks, and early contradiction exits. Then add multi-rule indexing via discrimination tree / trie keyed by functor paths to dispatch directly to candidate rules.
+
+This turns "O(rules) attempts with repeated generic matcher overhead" into "direct dispatch to a tiny candidate set with a straight-line matcher."
+
+**Key benchmark cases:** `wide_match_512` (512 rules sharing top functor `pair`; root precheck passes for all, forcing depth-2 matching to reject — discrimination trees dispatch in O(1)), `nonlinear_match_64`
+
+### 4. Terms as Closures: Explicit-Substitution + Explicit-Shift
+
+Introduce a second term representation for transient evaluation: `T = Concrete TermId | Susp { base: TermId, subst: SubstId, shift: i32 }`. Update matching, factor/collect, and CHR argument evaluation to operate directly on `Susp` views (forcing only when needed for output interning / dedup).
+
+This extends the already-successful "virtual shift / offset-aware matching" direction into the full substitution pipeline, eliminating repeated tree walks in `apply_subst`-dominated workloads.
+
+**Key benchmark cases:** `deep_rewrite_depth64`, `deep_rewrite_depth256` (8-wide recursive `wide_inc` on depth-64/256 terms; each level applies 8-variable substitution on a 17-node build pattern — closures would defer these walks for ~13-16x improvement)
+
+### 5. Adaptive Search Scheduling
+
+Replace strict left-biased stepping with a scheduler that maintains per-branch statistics: estimated cost per step, yield rate (answers per step), duplicate rate (answers rejected by dedup), failure rate (steps producing no frontier progress). Offer two explicit modes: minimize time-to-first-answer, and maximize answers/sec under bounded memory.
+
+For synthesis-style workloads, performance is dominated by how fast you reach a productive subspace; a scheduler change can shift effective complexity without touching kernel cost.
+
+**Key benchmark cases:** `hetero_or_branches`, `failfast_conjunction`
+
+### 6. True Multicore Execution
+
+A parallel executor with: per-worker deques (Chase-Lev style), work-stealing for independent branches, sharded tables + sharded term interning (or per-worker transient stores + merge), deterministic merge layer for answer streams if required by tests.
+
+Targets linear-to-sublinear wall time reduction on wide branching workloads.
+
+**Key benchmark cases:** `heavy_or_16`, `parallel_and_32x32_overlap16`
+
+### 7. Tabling Redesign: Answer Tries + Semi-Naive + SCC
+
+Replace "flat sets of answers per call" with: an answer trie keyed by canonicalized NF (alpha-renamed + hashed), delta sets to propagate only new answers (semi-naive), and SCC-based scheduling for mutually recursive groups.
+
+This changes recursion cost from "replay everything" to "replay only new," which is the standard asymptotic jump for recursive logic engines. Semi-naive requires 3+ fixpoint iterations to help, which the current corpus doesn't trigger — these new benchmarks provide that coverage.
+
+**Key benchmark cases:** `graph_reach_64`, `left_rec_32`
+
+### 8. Conjunction/Meet as Join Optimizer
+
+Replace "one diagonal join strategy" with: runtime join-order selection based on selectivity estimates, multiple join algorithms (nested-loop for small×large, hash join keyed by shape/functor signatures, indexed join for large streams), and failed-pair caching keyed by stable fingerprints.
+
+Converts worst-case cross products into something closer to database join complexity.
+
+**Key benchmark cases:** `join_low_overlap_64x64`, `join_skewed_128x4`, `join_high_overlap_64x64`
+
+### 9. Constraint-State Canonicalization + Global Interning
+
+Push the commutative-hash normalize cache further by: making normalized `ChrState` structurally interned (hash-consed) so identical states across branches become pointer-identical, dedup at the state level rather than only at the "normalize result cache" level, and feeding canonical constraint-state IDs into call keys and answer fingerprints.
+
+Turns an optimization (memoizing normalize results) into a representation invariant (canonical state identity), enabling pervasive work avoidance: cheaper equality/dedup, higher cache hit rates across the engine, and less memory churn.
+
+**Key benchmark cases:** `constraint_perm_4`, `multi_head_chr_join`
+
 ## Investigation Backlog
 
 Each item is an investigation area, not a guaranteed improvement.

@@ -1190,6 +1190,160 @@ rel app {
 "#
 }
 
+fn dispatch_program(n_rules: usize) -> String {
+    let mut rules = Vec::with_capacity(n_rules);
+    for i in 0..n_rules {
+        rules.push(format!("(c{i} $x) -> (c{i} $x)"));
+    }
+    format!("rel dispatch {{\n{}\n}}", rules.join("\n|\n"))
+}
+
+fn dispatch_chain_query(n_calls: usize) -> String {
+    let mut query = "@(c0 a)".to_string();
+    for _ in 0..n_calls {
+        query.push_str(" ; dispatch");
+    }
+    query
+}
+
+fn many_tiny_rels_program(n: usize) -> String {
+    let mut defs = Vec::with_capacity(n);
+    for i in 0..n {
+        defs.push(format!("rel step{i} {{ $x -> (s{i} $x) }}"));
+    }
+    defs.join("\n")
+}
+
+fn many_tiny_rels_query(n: usize) -> String {
+    let mut parts = vec!["@a".to_string()];
+    for i in 0..n {
+        parts.push(format!("step{i}"));
+    }
+    parts.join(" ; ")
+}
+
+fn wide_match_program(n: usize) -> String {
+    let mut rules = Vec::with_capacity(n);
+    for i in 0..n {
+        rules.push(format!("(pair (c{i} $x) a) -> (r{i} $x)"));
+    }
+    format!("rel wide_match {{\n{}\n}}", rules.join("\n|\n"))
+}
+
+fn nonlinear_match_program(n: usize) -> String {
+    let mut rules = Vec::with_capacity(n);
+    for i in 0..n {
+        rules.push(format!("(pair (c{i} $x) (c{i} $x)) -> (r{i} $x)"));
+    }
+    format!("rel nonlinear_match {{\n{}\n}}", rules.join("\n|\n"))
+}
+
+fn wide_inc_program() -> &'static str {
+    r#"
+rel wide_inc {
+    (t a a a a a a a a) -> (t (s a) (s a) (s a) (s a) (s a) (s a) (s a) (s a))
+    | [(t (f $x0) (f $x1) (f $x2) (f $x3) (f $x4) (f $x5) (f $x6) (f $x7)) ->
+        (t $x0 $x1 $x2 $x3 $x4 $x5 $x6 $x7) ;
+        wide_inc ;
+        (t $y0 $y1 $y2 $y3 $y4 $y5 $y6 $y7) ->
+        (t (f $y0) (f $y1) (f $y2) (f $y3) (f $y4) (f $y5) (f $y6) (f $y7))]
+}
+"#
+}
+
+fn wide_term(width: usize, depth: usize) -> String {
+    let branch = nested("a", depth);
+    let branches: Vec<&str> = (0..width).map(|_| branch.as_str()).collect();
+    format!("(t {})", branches.join(" "))
+}
+
+fn graph_reach_program(n: usize) -> String {
+    assert!(n >= 2);
+    let mut edges = Vec::with_capacity(n - 1);
+    for i in 0..n - 1 {
+        edges.push(format!("n{i} -> n{}", i + 1));
+    }
+    format!(
+        "rel edge {{\n{}\n}}\n\nrel reach {{ $x -> $x | [$x -> $x ; edge ; reach] }}",
+        edges.join("\n|\n")
+    )
+}
+
+fn left_rec_program(n: usize) -> String {
+    let mut rules = Vec::with_capacity(n + 1);
+    rules.push("a -> b0".to_string());
+    for i in 0..n {
+        rules.push(format!("[a -> a ; left_rec ; b{i} -> b{}]", i + 1));
+    }
+    format!("rel left_rec {{\n{}\n}}", rules.join("\n|\n"))
+}
+
+fn join_program(left_n: usize, right_n: usize, overlap: usize) -> String {
+    assert!(overlap <= left_n && overlap <= right_n);
+    let mut left_rules = Vec::with_capacity(left_n);
+    for i in 0..left_n {
+        left_rules.push(format!("a -> k{i}"));
+    }
+    let right_start = left_n - overlap;
+    let mut right_rules = Vec::with_capacity(right_n);
+    for i in 0..right_n {
+        right_rules.push(format!("a -> k{}", right_start + i));
+    }
+    format!(
+        "rel left_gen {{\n{}\n}}\n\nrel right_gen {{\n{}\n}}",
+        left_rules.join("\n|\n"),
+        right_rules.join("\n|\n")
+    )
+}
+
+fn heavy_branch_program(n: usize, depth: usize) -> String {
+    let mut branches = Vec::with_capacity(n);
+    let p = peano(depth);
+    for i in 0..n {
+        branches.push(format!(
+            "[a -> (cons {p} {p}) ; add ; $x -> (branch{i} $x)]"
+        ));
+    }
+    format!(
+        "{}\n\nrel heavy_or {{\n{}\n}}",
+        add_program(),
+        branches.join("\n|\n")
+    )
+}
+
+fn inline_gen(n: usize) -> String {
+    let mut rules = Vec::with_capacity(n);
+    for i in 0..n {
+        rules.push(format!("a -> k{i}"));
+    }
+    rules.join(" | ")
+}
+
+fn perm_constraint_program(n: usize) -> String {
+    let theory = r#"theory perm_theory {
+    constraint neq/2
+    (neq $x $x) <=> fail.
+    (neq z (s $y)) <=> .
+    (neq (s $x) z) <=> .
+    (neq (s $x) (s $y)) <=> (neq $x $y).
+}"#;
+    let constraints: Vec<String> = (0..n).map(|i| format!("(neq $x {})", peano(i))).collect();
+
+    let mut branches = Vec::new();
+    for shift in 0..=n {
+        let mut rotated = Vec::with_capacity(n);
+        for j in 0..n {
+            rotated.push(constraints[(j + shift) % n].clone());
+        }
+        branches.push(format!("$x {{ {} }} -> $x", rotated.join(", ")));
+    }
+    format!(
+        "{}\n\nrel perm_test {{\n{}\n}}",
+        theory,
+        branches.join("\n|\n")
+    )
+}
+
 fn expand_template(name: &str) -> String {
     if name == "PROGRAM_ADD" {
         return add_program().to_string();
@@ -1212,6 +1366,9 @@ fn expand_template(name: &str) -> String {
     if name == "PROGRAM_TREECALC_SYNTH" {
         return treecalc_synth_program().to_string();
     }
+    if name == "PROGRAM_WIDE_INC" {
+        return wide_inc_program().to_string();
+    }
 
     let parts: Vec<&str> = name.split(':').collect();
     match parts.as_slice() {
@@ -1220,6 +1377,43 @@ fn expand_template(name: &str) -> String {
         ["OR_PROGRAM", branches] => or_program(branches.parse().expect("OR_PROGRAM integer")),
         ["CHAIN_PROGRAM", len] => chain_program(len.parse().expect("CHAIN_PROGRAM integer")),
         ["CHAIN_QUERY", len] => chain_query(len.parse().expect("CHAIN_QUERY integer")),
+        ["DISPATCH_PROGRAM", n] => dispatch_program(n.parse().expect("DISPATCH_PROGRAM integer")),
+        ["DISPATCH_CHAIN_QUERY", n] => {
+            dispatch_chain_query(n.parse().expect("DISPATCH_CHAIN_QUERY integer"))
+        }
+        ["MANY_TINY_RELS_PROGRAM", n] => {
+            many_tiny_rels_program(n.parse().expect("MANY_TINY_RELS_PROGRAM integer"))
+        }
+        ["MANY_TINY_RELS_QUERY", n] => {
+            many_tiny_rels_query(n.parse().expect("MANY_TINY_RELS_QUERY integer"))
+        }
+        ["WIDE_TERM", width, depth] => wide_term(
+            width.parse().expect("WIDE_TERM width integer"),
+            depth.parse().expect("WIDE_TERM depth integer"),
+        ),
+        ["WIDE_MATCH_PROGRAM", n] => {
+            wide_match_program(n.parse().expect("WIDE_MATCH_PROGRAM integer"))
+        }
+        ["NONLINEAR_MATCH_PROGRAM", n] => {
+            nonlinear_match_program(n.parse().expect("NONLINEAR_MATCH_PROGRAM integer"))
+        }
+        ["GRAPH_REACH_PROGRAM", n] => {
+            graph_reach_program(n.parse().expect("GRAPH_REACH_PROGRAM integer"))
+        }
+        ["LEFT_REC_PROGRAM", n] => left_rec_program(n.parse().expect("LEFT_REC_PROGRAM integer")),
+        ["JOIN_PROGRAM", left, right, overlap] => join_program(
+            left.parse().expect("JOIN_PROGRAM left integer"),
+            right.parse().expect("JOIN_PROGRAM right integer"),
+            overlap.parse().expect("JOIN_PROGRAM overlap integer"),
+        ),
+        ["HEAVY_BRANCH_PROGRAM", n, depth] => heavy_branch_program(
+            n.parse().expect("HEAVY_BRANCH_PROGRAM n integer"),
+            depth.parse().expect("HEAVY_BRANCH_PROGRAM depth integer"),
+        ),
+        ["INLINE_GEN", n] => inline_gen(n.parse().expect("INLINE_GEN integer")),
+        ["PERM_CONSTRAINT_PROGRAM", n] => {
+            perm_constraint_program(n.parse().expect("PERM_CONSTRAINT_PROGRAM integer"))
+        }
         _ => panic!("unknown template '{{{{{name}}}}}'"),
     }
 }
