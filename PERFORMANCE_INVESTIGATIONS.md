@@ -20,7 +20,9 @@ Add an ahead-of-time compiler from parsed `Rel` into a compact bytecode with exp
 
 This creates a single choke point where you can: fuse adjacent operations (`rule ; call`, `call ; rule`, repeated `;` chains), eliminate `Rel` cloning overhead structurally (bytecode is immutable, shared), specialize hot instructions (e.g., "match root functor then fast-fail" as a single op), and add profile-driven layout (instruction ordering, hot/cold splitting) without relying on LLVM PGO.
 
-**Key benchmark cases:** `sequence_chain_len4096` (plan interpretation overhead via O(n) `to_vec()` per step), `hot_call_site_256` (256 calls to a 32-rule dispatch relation; each call re-walks the Or spine — plan caching would compile the dispatch table once)
+**Partially addressed — batch-advance single-Atom Calls ~81.6% total corpus improvement.** See [docs/perf_investigations/pipe_batch_advance.md](docs/perf_investigations/pipe_batch_advance.md). Inline resolution of Calls whose body is `Rel::Atom(nf)` bypasses FixWork/Table/ComposeWork/DiagonalJoin machinery entirely. `sequence_chain_len4096` from ~3.94s to ~87ms (45x). Full bytecode compilation remains uninvestigated but this demonstrates the payoff of eliminating per-step dispatch overhead.
+
+**Key benchmark cases:** `sequence_chain_len4096` (~~plan interpretation overhead via O(n) `to_vec()` per step~~ now 87ms with batch-advance), `hot_call_site_256` (256 calls to a 32-rule dispatch relation; each call re-walks the Or spine — plan caching would compile the dispatch table once)
 
 ### 2. Whole-Program Determinism + Mode Inference
 
