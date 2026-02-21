@@ -50,7 +50,9 @@ Introduce a second term representation for transient evaluation: `T = Concrete T
 
 This extends the already-successful "virtual shift / offset-aware matching" direction into the full substitution pipeline, eliminating repeated tree walks in `apply_subst`-dominated workloads.
 
-**Key benchmark cases:** `deep_rewrite_depth64`, `deep_rewrite_depth256` (8-wide recursive `wide_inc` on depth-64/256 terms; each level applies 8-variable substitution on a 17-node build pattern — closures would defer these walks for ~13-16x improvement)
+**Investigated — blocked by hash-consing architecture.** See [docs/perf_investigations/terms_as_closures.md](docs/perf_investigations/terms_as_closures.md). The O(depth^2) cost is inherent: NF hashes require materialized TermIds, and building f^k(Var(i)) requires k intern calls per compose step. Lazy/deferred approaches (Susp variant, substitution composition, all_same optimization) all fail because materialization cannot be avoided without changing the NF hash/equality contract. To break this barrier requires architectural changes to how NF identity is defined.
+
+**Key benchmark cases:** `deep_rewrite_depth64`, `deep_rewrite_depth256` (8-wide recursive `wide_inc` on depth-64/256 terms; each level applies 8-variable substitution on a 17-node build pattern)
 
 ### 5. Adaptive Search Scheduling
 
