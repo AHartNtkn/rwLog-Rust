@@ -843,13 +843,13 @@ impl<C: ConstraintOps> PipeWork<C> {
             call_left.clone(),
             call_right.clone(),
         ));
-        if let CallMode::ReplayOnly(replay_key) = &self.call_mode {
+        if let CallMode::ReplayOnly(replay_key, watermark) = &self.call_mode {
             if replay_key.as_ref() == key.as_ref() {
                 let table = match self.tables.lookup(&key) {
                     Some(table) => table,
                     None => return WorkStep::Done,
                 };
-                let snapshot = table.all_answers();
+                let snapshot = table.answers_from(*watermark);
                 let replay_node = node_from_answers(snapshot);
                 let mut pipe = self.clone();
                 if use_left {
