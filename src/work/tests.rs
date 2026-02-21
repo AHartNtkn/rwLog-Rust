@@ -1,5 +1,5 @@
 use super::{
-    rel_to_node, step_table_producer, AndGroup, CallKey, CallMode, ComposeWork, Env, FixWork,
+    rel_to_node, step_table_producer, AndGroup, CallKey, ComposeWork, Env, FixWork,
     JoinReceiverWork, MeetWork, PipeWork, ProducerSpec, ProducerState, ProducerStep, Table, Tables,
     Work, WorkStep,
 };
@@ -952,15 +952,7 @@ fn split_or_preserves_env() {
 
     // Create pipe with env containing a binding
     let env = Env::new().bind(42, Arc::new(Rel::Atom(Arc::new(nf_body))));
-    let mut pipe: PipeWork<()> = PipeWork {
-        left: None,
-        mid,
-        right: None,
-        flip: false,
-        env,
-        tables: Tables::new(),
-        call_mode: CallMode::Normal,
-    };
+    let mut pipe: PipeWork<()> = PipeWork::with_env_and_tables(None, mid, None, env, Tables::new());
     let step = pipe.step(&mut terms);
 
     let (left_node, right_node) = unwrap_split(step);

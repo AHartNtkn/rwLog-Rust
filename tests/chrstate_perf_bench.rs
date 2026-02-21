@@ -65,7 +65,7 @@ fn run_benchmark() {
             timings.push((elapsed, snap.engine_steps, us_per_step, _answers));
         }
 
-        timings.sort_by(|a, b| a.0.cmp(&b.0));
+        timings.sort_by_key(|a| a.0);
         let median = &timings[n_runs / 2];
 
         println!("\n=== {} (5 runs) ===", target_id);

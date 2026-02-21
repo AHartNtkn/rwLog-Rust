@@ -39,6 +39,11 @@ pub struct PipeWork<C: ConstraintOps> {
     pub(crate) right: Option<NF<C>>,
     /// Flip bit: alternates which end to process for outside-in evaluation.
     pub(crate) flip: bool,
+    /// When true, mid has been scanned and contains no normalizable
+    /// structure (no Seq, And, Zero, or adjacent Atom pairs).
+    /// Popping from ends preserves this invariant; only pushing new
+    /// elements or rebuilding mid invalidates it.
+    mid_normalized: bool,
     /// Environment for Fix bindings (RelId -> Rel body).
     pub(crate) env: Env<C>,
     /// Tables for call-context tabling.
@@ -80,6 +85,7 @@ impl<C: ConstraintOps> PipeWork<C> {
             mid,
             right,
             flip: false,
+            mid_normalized: false,
             env,
             tables,
             call_mode: CallMode::Normal,
@@ -364,7 +370,9 @@ impl<C: ConstraintOps> PipeWork<C> {
                 right_pipe.mid.push_back_rel(b);
             }
         }
-
+        // Pushed elements may introduce normalizable structure.
+        left_pipe.mid_normalized = false;
+        right_pipe.mid_normalized = false;
         WorkStep::Split(
             Box::new(Node::Work(Box::new(Work::Pipe(Box::new(left_pipe))))),
             Box::new(Node::Work(Box::new(Work::Pipe(Box::new(right_pipe))))),
@@ -392,6 +400,7 @@ impl<C: ConstraintOps> PipeWork<C> {
                 Rel::Seq(xs) => {
                     self.mid.pop_front();
                     self.mid.push_front_slice_from_seq(xs.clone());
+                    self.mid_normalized = false;
                     return Ok(true);
                 }
                 _ => {}
@@ -415,6 +424,7 @@ impl<C: ConstraintOps> PipeWork<C> {
                 Rel::Seq(xs) => {
                     self.mid.pop_back();
                     self.mid.push_back_slice_from_seq(xs.clone());
+                    self.mid_normalized = false;
                     return Ok(true);
                 }
                 _ => {}
@@ -427,7 +437,7 @@ impl<C: ConstraintOps> PipeWork<C> {
 
     /// Normalize mid factors by flattening Seq and fusing adjacent atoms anywhere.
     fn normalize_mid_atoms(&mut self, terms: &mut TermStore) -> Result<bool, WorkStep<C>> {
-        if self.mid.is_empty() {
+        if self.mid.is_empty() || self.mid_normalized {
             return Ok(false);
         }
 
@@ -516,6 +526,11 @@ impl<C: ConstraintOps> PipeWork<C> {
         if changed {
             let seq: Arc<[Arc<Rel<C>>]> = Arc::from(factors);
             self.mid = Factors::from_seq(seq);
+            // Rebuild may have created new adjacent atoms; re-check next time.
+            self.mid_normalized = false;
+        } else {
+            // No changes found — mid is fully normalized.
+            self.mid_normalized = true;
         }
 
         Ok(changed)
@@ -841,6 +856,7 @@ impl<C: ConstraintOps> Default for PipeWork<C> {
             mid: Factors::new(),
             right: None,
             flip: false,
+            mid_normalized: true,
             env: Env::new(),
             tables: Tables::new(),
             call_mode: CallMode::Normal,
