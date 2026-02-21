@@ -449,7 +449,7 @@ impl TermStore {
     /// Convert a raw u32 FuncId value back to a FuncId (Spur).
     /// Returns None if the value is invalid (0 is not a valid NonZeroU32).
     #[inline]
-    fn func_id_from_raw(raw: u32) -> Option<FuncId> {
+    pub(crate) fn func_id_from_raw(raw: u32) -> Option<FuncId> {
         use lasso::Key;
         let nz = std::num::NonZeroU32::new(raw)?;
         // Spur::try_from_usize expects a 0-based index; Spur stores it as index+1 (NonZeroU32).

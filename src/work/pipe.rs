@@ -4,7 +4,8 @@ use crate::kernel::{compose_nf, meet_nf};
 use crate::nf::NF;
 use crate::node::Node;
 use crate::rel::{Rel, RelId};
-use crate::term::TermStore;
+use crate::symbol::FuncId;
+use crate::term::{Term, TermStore};
 use std::sync::Arc;
 
 use super::{
@@ -12,6 +13,87 @@ use super::{
     node_from_answers, wrap_compose_with_prefix_suffix, wrap_rel_with_atoms, AndGroup, CallKey,
     CallMode, ComposeWork, Env, FixWork, ProducerSpec, Tables, Work, WorkStep,
 };
+
+/// Result of dispatch filtering on a flat Or of Atoms.
+enum DispatchResult<C: ConstraintOps> {
+    /// No atoms matched the boundary's root functor.
+    Fail,
+    /// Exactly one atom matched - can be absorbed directly.
+    Single(NF<C>),
+    /// Multiple atoms matched - push filtered Or back into mid.
+    Filtered(Rel<C>),
+}
+
+/// Extract the root functor from a TermId, if it's a functor-headed term.
+/// Returns `Some(func_id)` for `App(f, ...)`, `None` for variables or empty.
+#[inline]
+fn term_root_functor(term_id: crate::term::TermId, terms: &mut TermStore) -> Option<FuncId> {
+    if term_id.is_inline_var() {
+        return None;
+    }
+    if term_id.is_inline_nullary() {
+        let raw = term_id.inline_nullary_func_raw();
+        return TermStore::func_id_from_raw(raw);
+    }
+    match terms.get_unlocked(term_id) {
+        Some(Term::App(f, _)) => Some(*f),
+        _ => None,
+    }
+}
+
+/// Extract the root functor of the first build pattern of an NF.
+/// Returns None if build_pats is empty or the first pattern is variable-headed.
+#[inline]
+fn build_root_functor<C>(nf: &NF<C>, terms: &mut TermStore) -> Option<FuncId> {
+    nf.build_pats
+        .first()
+        .and_then(|&pat| term_root_functor(pat, terms))
+}
+
+/// Extract the root functor of the first match pattern of an NF.
+/// Returns None if match_pats is empty or the first pattern is variable-headed.
+#[inline]
+fn match_root_functor<C>(nf: &NF<C>, terms: &mut TermStore) -> Option<FuncId> {
+    nf.match_pats
+        .first()
+        .and_then(|&pat| term_root_functor(pat, terms))
+}
+
+/// Collect all branches of a flat Or tree into a Vec.
+/// Returns None if the tree contains any non-Atom leaves.
+fn collect_flat_or_atoms<C: Clone>(rel: &Rel<C>) -> Option<Vec<Arc<NF<C>>>> {
+    let mut atoms = Vec::new();
+    collect_flat_or_atoms_inner(rel, &mut atoms)?;
+    Some(atoms)
+}
+
+fn collect_flat_or_atoms_inner<C: Clone>(rel: &Rel<C>, out: &mut Vec<Arc<NF<C>>>) -> Option<()> {
+    match rel {
+        Rel::Or(a, b) => {
+            collect_flat_or_atoms_inner(a, out)?;
+            collect_flat_or_atoms_inner(b, out)?;
+            Some(())
+        }
+        Rel::Atom(nf) => {
+            out.push(nf.clone());
+            Some(())
+        }
+        _ => None,
+    }
+}
+
+/// Build a Rel from a list of atoms (right-nested Or).
+fn atoms_to_or_rel<C: Clone>(atoms: &[Arc<NF<C>>]) -> Rel<C> {
+    debug_assert!(!atoms.is_empty());
+    if atoms.len() == 1 {
+        return Rel::Atom(atoms[0].clone());
+    }
+    let mut rel = Rel::Atom(atoms[atoms.len() - 1].clone());
+    for i in (0..atoms.len() - 1).rev() {
+        rel = Rel::Or(Arc::new(Rel::Atom(atoms[i].clone())), Arc::new(rel));
+    }
+    rel
+}
 
 #[derive(Clone, Copy, Debug)]
 enum PipeEnd {
@@ -722,13 +804,13 @@ impl<C: ConstraintOps> PipeWork<C> {
         WorkStep::More(Box::new(Work::Compose(compose)))
     }
 
-    /// Try to batch-advance Calls at either end whose body is a single Atom.
+    /// Try to batch-advance Calls at either end whose body is a single Atom
+    /// or a flat Or of Atoms (with root functor dispatch).
     ///
-    /// When a Call resolves (via env lookup) to a body that is `Rel::Atom(nf)`,
-    /// the result is completely deterministic: exactly one NF. Instead of
-    /// creating FixWork/Table/ComposeWork/DiagonalJoin machinery (O(1) per
-    /// Call but with high constant), we compose the NF directly into the
-    /// pipe boundary in a tight loop.
+    /// When a Call resolves to `Rel::Atom(nf)`, compose the NF directly into
+    /// the boundary. When a Call resolves to a flat Or of Atoms and we have a
+    /// boundary NF, filter the Or branches by root functor compatibility,
+    /// eliminating branches that cannot possibly match.
     ///
     /// Returns Ok(true) if progress was made, Ok(false) if no simple Calls
     /// were found, or Err(WorkStep::Done) if composition failed.
@@ -740,10 +822,31 @@ impl<C: ConstraintOps> PipeWork<C> {
                 if let Rel::Call(id) = front.as_ref() {
                     let id = *id;
                     if let Some(binding) = self.env.lookup(id) {
+                        // Single Atom body: compose directly
                         if let Rel::Atom(nf) = binding.body.as_ref() {
                             self.mid.pop_front();
                             if !self.absorb_front(nf.as_ref().clone(), terms) {
                                 return Err(WorkStep::Done);
+                            }
+                            made_progress = true;
+                            continue;
+                        }
+                        // Flat Or of Atoms: dispatch by root functor
+                        if let Some(filtered) =
+                            self.try_dispatch_or_atoms(binding.body.clone(), true, terms)
+                        {
+                            self.mid.pop_front();
+                            match filtered {
+                                DispatchResult::Fail => return Err(WorkStep::Done),
+                                DispatchResult::Single(nf) => {
+                                    if !self.absorb_front(nf, terms) {
+                                        return Err(WorkStep::Done);
+                                    }
+                                }
+                                DispatchResult::Filtered(rel) => {
+                                    self.mid.push_front_rel(Arc::new(rel));
+                                    self.mid_normalized = false;
+                                }
                             }
                             made_progress = true;
                             continue;
@@ -757,10 +860,31 @@ impl<C: ConstraintOps> PipeWork<C> {
                 if let Rel::Call(id) = back.as_ref() {
                     let id = *id;
                     if let Some(binding) = self.env.lookup(id) {
+                        // Single Atom body: compose directly
                         if let Rel::Atom(nf) = binding.body.as_ref() {
                             self.mid.pop_back();
                             if !self.absorb_back(nf.as_ref().clone(), terms) {
                                 return Err(WorkStep::Done);
+                            }
+                            made_progress = true;
+                            continue;
+                        }
+                        // Flat Or of Atoms: dispatch by root functor
+                        if let Some(filtered) =
+                            self.try_dispatch_or_atoms(binding.body.clone(), false, terms)
+                        {
+                            self.mid.pop_back();
+                            match filtered {
+                                DispatchResult::Fail => return Err(WorkStep::Done),
+                                DispatchResult::Single(nf) => {
+                                    if !self.absorb_back(nf, terms) {
+                                        return Err(WorkStep::Done);
+                                    }
+                                }
+                                DispatchResult::Filtered(rel) => {
+                                    self.mid.push_back_rel(Arc::new(rel));
+                                    self.mid_normalized = false;
+                                }
                             }
                             made_progress = true;
                             continue;
@@ -772,6 +896,84 @@ impl<C: ConstraintOps> PipeWork<C> {
             break;
         }
         Ok(made_progress)
+    }
+
+    /// Try to filter a flat-Or-of-Atoms relation body by root functor dispatch.
+    ///
+    /// Given a Call body that is a flat Or of Atoms (possibly wrapped in Fix),
+    /// and a boundary NF, extract the boundary's root functor and filter
+    /// the Or branches to only those with compatible root functors.
+    ///
+    /// `absorb_front`: true if this is a front Call (boundary flows left-to-right),
+    /// false if back Call (boundary flows right-to-left).
+    ///
+    /// Returns `None` if dispatch is not applicable (body is not flat Or of Atoms,
+    /// or no boundary to dispatch against).
+    fn try_dispatch_or_atoms(
+        &self,
+        body: Arc<Rel<C>>,
+        absorb_front: bool,
+        terms: &mut TermStore,
+    ) -> Option<DispatchResult<C>> {
+        // Unwrap Fix wrapper if present
+        let or_body = match body.as_ref() {
+            Rel::Or(_, _) => body.as_ref(),
+            Rel::Fix(_, inner) => match inner.as_ref() {
+                Rel::Or(_, _) => inner.as_ref(),
+                _ => return None,
+            },
+            _ => return None,
+        };
+
+        // Collect flat Or branches - all must be Atoms
+        let atoms = collect_flat_or_atoms(or_body)?;
+        if atoms.len() < 2 {
+            return None; // Not worth dispatching for fewer than 2 branches
+        }
+
+        // Get the boundary NF to dispatch against
+        let boundary = if absorb_front {
+            self.left.as_ref()?
+        } else {
+            self.right.as_ref()?
+        };
+
+        // Extract the root functor from the boundary
+        let boundary_functor = if absorb_front {
+            // Front Call: boundary's build output flows into the Call's match input
+            build_root_functor(boundary, terms)?
+        } else {
+            // Back Call: boundary's match input comes from the Call's build output
+            match_root_functor(boundary, terms)?
+        };
+
+        // Filter atoms by compatible root functor
+        let compatible: Vec<Arc<NF<C>>> = atoms
+            .into_iter()
+            .filter(|atom| {
+                let atom_functor = if absorb_front {
+                    // Front Call: atom's match pattern root must be compatible
+                    match_root_functor(atom, terms)
+                } else {
+                    // Back Call: atom's build pattern root must be compatible
+                    build_root_functor(atom, terms)
+                };
+                match atom_functor {
+                    Some(f) => f == boundary_functor,
+                    None => true, // Wildcard (variable-headed) always compatible
+                }
+            })
+            .collect();
+
+        if compatible.is_empty() {
+            Some(DispatchResult::Fail)
+        } else if compatible.len() == 1 {
+            Some(DispatchResult::Single(
+                compatible.into_iter().next().unwrap().as_ref().clone(),
+            ))
+        } else {
+            Some(DispatchResult::Filtered(atoms_to_or_rel(&compatible)))
+        }
     }
 
     fn advance_call(&mut self, end: PipeEnd, id: RelId) -> WorkStep<C> {
