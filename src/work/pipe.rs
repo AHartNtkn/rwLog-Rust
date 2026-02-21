@@ -207,10 +207,21 @@ impl<C: ConstraintOps> PipeWork<C> {
                 return step;
             }
 
+            // Phase B: Try to batch-advance simple Calls (single-Atom bodies).
+            // When a Call resolves to a Fix whose body is a single Atom(nf),
+            // we can compose the NF directly into the boundary without creating
+            // FixWork/ComposeWork/DiagonalJoin machinery. This is a tight loop
+            // that handles chains of such Calls in O(1) per element.
+            match self.try_batch_advance_calls(terms) {
+                Ok(true) => continue,
+                Ok(false) => {}
+                Err(step) => return step,
+            }
+
             break;
         }
 
-        // Phase B: Stuck on normalization - advance one end using flip.
+        // Phase C: General advance - advance one end using flip.
         let end = self.choose_advance_end();
         let result = self.advance_end(end, terms);
         self.flip = !self.flip; // Toggle for next step
@@ -709,6 +720,58 @@ impl<C: ConstraintOps> PipeWork<C> {
         };
         let compose = ComposeWork::new(left_node, right_node);
         WorkStep::More(Box::new(Work::Compose(compose)))
+    }
+
+    /// Try to batch-advance Calls at either end whose body is a single Atom.
+    ///
+    /// When a Call resolves (via env lookup) to a body that is `Rel::Atom(nf)`,
+    /// the result is completely deterministic: exactly one NF. Instead of
+    /// creating FixWork/Table/ComposeWork/DiagonalJoin machinery (O(1) per
+    /// Call but with high constant), we compose the NF directly into the
+    /// pipe boundary in a tight loop.
+    ///
+    /// Returns Ok(true) if progress was made, Ok(false) if no simple Calls
+    /// were found, or Err(WorkStep::Done) if composition failed.
+    fn try_batch_advance_calls(&mut self, terms: &mut TermStore) -> Result<bool, WorkStep<C>> {
+        let mut made_progress = false;
+        loop {
+            // Try front
+            if let Some(front) = self.mid.front() {
+                if let Rel::Call(id) = front.as_ref() {
+                    let id = *id;
+                    if let Some(binding) = self.env.lookup(id) {
+                        if let Rel::Atom(nf) = binding.body.as_ref() {
+                            self.mid.pop_front();
+                            if !self.absorb_front(nf.as_ref().clone(), terms) {
+                                return Err(WorkStep::Done);
+                            }
+                            made_progress = true;
+                            continue;
+                        }
+                    }
+                }
+            }
+
+            // Try back
+            if let Some(back) = self.mid.back() {
+                if let Rel::Call(id) = back.as_ref() {
+                    let id = *id;
+                    if let Some(binding) = self.env.lookup(id) {
+                        if let Rel::Atom(nf) = binding.body.as_ref() {
+                            self.mid.pop_back();
+                            if !self.absorb_back(nf.as_ref().clone(), terms) {
+                                return Err(WorkStep::Done);
+                            }
+                            made_progress = true;
+                            continue;
+                        }
+                    }
+                }
+            }
+
+            break;
+        }
+        Ok(made_progress)
     }
 
     fn advance_call(&mut self, end: PipeEnd, id: RelId) -> WorkStep<C> {

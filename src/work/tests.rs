@@ -791,7 +791,13 @@ fn split_or_preserves_right_boundary() {
 }
 
 #[test]
-fn pipework_prefers_non_call_over_call_on_opposite_end() {
+fn pipework_resolves_and_then_simple_atom_call() {
+    // When mid = [And(Atom(L), Atom(L)), Call(0)] and Call(0) body is Atom(BODY),
+    // the pipe should:
+    // 1. Collapse the And into a single Atom(L) via meet
+    // 2. Absorb it into the left boundary
+    // 3. Resolve Call(0) to its Atom body (BODY -> BODY) and compose with left
+    // Since L != BODY, composition fails and the pipe produces no results.
     let (symbols, mut terms) = setup();
     let left_nf = make_ground_nf("L", &symbols, &terms);
     let right_nf = left_nf.clone();
@@ -809,10 +815,10 @@ fn pipework_prefers_non_call_over_call_on_opposite_end() {
     pipe.flip = true;
 
     let step = pipe.step(&mut terms);
-    let key = extract_key_from_step(step);
+    // L -> L composed with BODY -> BODY fails (L != BODY), so pipe is done.
     assert!(
-        key.left.is_some(),
-        "Call should see a left boundary after collapsing And of atoms"
+        matches!(step, WorkStep::Done),
+        "Pipe should produce Done when simple Atom Call compose fails"
     );
 }
 
