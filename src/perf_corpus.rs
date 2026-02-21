@@ -289,6 +289,14 @@ pub struct ExecutionCounters {
     pub meet_attempts: u64,
     pub meet_successes: u64,
     pub meet_failures: u64,
+    pub compose_unique_pairs: u64,
+    pub meet_unique_pairs: u64,
+    pub fixpoint_producer_starts: u64,
+    pub fixpoint_verification_starts: u64,
+    pub fixpoint_verification_steps: u64,
+    pub or_spine_walks: u64,
+    pub or_spine_total_siblings: u64,
+    pub or_spine_max_siblings: u64,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -887,6 +895,14 @@ fn execution_counters_from_snapshot(
         meet_attempts: snapshot.meet_attempts,
         meet_successes: snapshot.meet_successes,
         meet_failures: snapshot.meet_failures,
+        compose_unique_pairs: snapshot.compose_unique_pairs,
+        meet_unique_pairs: snapshot.meet_unique_pairs,
+        fixpoint_producer_starts: snapshot.fixpoint_producer_starts,
+        fixpoint_verification_starts: snapshot.fixpoint_verification_starts,
+        fixpoint_verification_steps: snapshot.fixpoint_verification_steps,
+        or_spine_walks: snapshot.or_spine_walks,
+        or_spine_total_siblings: snapshot.or_spine_total_siblings,
+        or_spine_max_siblings: snapshot.or_spine_max_siblings,
     }
 }
 

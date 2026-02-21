@@ -527,6 +527,26 @@ Collected as: `Rw B(A(A(0)),1) B(0,1)`
 
 This correctly represents composing the "decrement" operation twice.
 
+## Benchmarking
+
+The performance corpus (`benches/perf_corpus_cases.toml`) defines 40 benchmark cases across 6 categories and 2 tiers (quick/stress). The `perf_corpus_run` binary runs cases and produces a multi-dimensional breakdown.
+
+**Primary workload for performance measurement:**
+```bash
+cargo build --release --bin perf_corpus_run && ./target/release/perf_corpus_run --iters 5
+```
+
+This runs ALL cases and prints per-case timings plus a breakdown by category, tier, engine operation profile, and hotspot tables (by time, compose, meet, fixpoint, or-spine). The full breakdown is the primary measurement surface — not any single case in isolation.
+
+**For regression checking of specific subsystems, use tier or category filters:**
+```bash
+RWLOG_CORPUS_TIER=stress ./target/release/perf_corpus_run --iters 5
+RWLOG_CORPUS_CATEGORY=recursive ./target/release/perf_corpus_run --iters 5
+RWLOG_CORPUS_FILTER=graph_reach ./target/release/perf_corpus_run --iters 1
+```
+
+**Output modes:** `--json` for structured output, `--csv` for tabular data, default for human-readable text with breakdown.
+
 ## Tracing and Profiling
 
 ### Feature Flag: `tracing`
