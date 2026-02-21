@@ -75,7 +75,10 @@ pub enum CallMode<C: ConstraintOps> {
     /// Normal call handling (tabling + producer).
     Normal,
     /// Replay-only for a specific CallKey (used during producer iterations).
-    ReplayOnly(Arc<CallKey<C>>),
+    /// The usize is the replay watermark: only answers at index >= watermark
+    /// are replayed. This implements semi-naive evaluation by only composing
+    /// new (delta) answers in subsequent fixpoint iterations.
+    ReplayOnly(Arc<CallKey<C>>, usize),
 }
 
 fn collect_and_parts<C: ConstraintOps>(rel: Arc<Rel<C>>, out: &mut Vec<Arc<Rel<C>>>) {

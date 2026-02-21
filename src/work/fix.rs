@@ -142,6 +142,10 @@ pub(crate) struct TableProducer<C: ConstraintOps> {
     producer: Option<Node<C>>,
     spec: Option<ProducerSpec<C>>,
     iteration_start_len: usize,
+    /// Semi-naive: answers before this index were already composed in
+    /// previous iterations. Only answers at index >= replay_watermark
+    /// are replayed when building the next iteration's producer.
+    replay_watermark: usize,
     producer_task_active: bool,
 }
 
@@ -172,6 +176,7 @@ impl<C: ConstraintOps> Table<C> {
                 producer: None,
                 spec: None,
                 iteration_start_len: 0,
+                replay_watermark: 0,
                 producer_task_active: false,
             }),
         }
@@ -279,6 +284,14 @@ impl<C: ConstraintOps> Table<C> {
         self.producer.lock().iteration_start_len = len;
     }
 
+    pub fn replay_watermark(&self) -> usize {
+        self.producer.lock().replay_watermark
+    }
+
+    pub fn set_replay_watermark(&self, watermark: usize) {
+        self.producer.lock().replay_watermark = watermark;
+    }
+
     pub fn producer_has_node(&self) -> bool {
         self.producer.lock().producer.is_some()
     }
@@ -294,6 +307,16 @@ impl<C: ConstraintOps> Table<C> {
     /// Get all answers.
     pub fn all_answers(&self) -> Vec<Arc<NF<C>>> {
         self.answers.lock().answers.clone()
+    }
+
+    /// Get answers starting from the given index (for semi-naive delta replay).
+    pub fn answers_from(&self, start: usize) -> Vec<Arc<NF<C>>> {
+        let answers = self.answers.lock();
+        if start >= answers.answers.len() {
+            Vec::new()
+        } else {
+            answers.answers[start..].to_vec()
+        }
     }
 
     pub fn blocked_on(&self) -> BlockedOn {
@@ -340,7 +363,11 @@ impl<C: ConstraintOps> Default for Table<C> {
     }
 }
 
-fn make_replay_producer<C: ConstraintOps>(spec: &ProducerSpec<C>, tables: &Tables<C>) -> Node<C> {
+fn make_replay_producer<C: ConstraintOps>(
+    spec: &ProducerSpec<C>,
+    tables: &Tables<C>,
+    replay_watermark: usize,
+) -> Node<C> {
     let mut producer_pipe = PipeWork::from_rel_with_boundaries(
         spec.body.as_ref().clone(),
         spec.left.clone(),
@@ -348,7 +375,7 @@ fn make_replay_producer<C: ConstraintOps>(spec: &ProducerSpec<C>, tables: &Table
         spec.env.clone(),
         tables.clone(),
     );
-    producer_pipe.call_mode = CallMode::ReplayOnly(spec.key.clone());
+    producer_pipe.call_mode = CallMode::ReplayOnly(spec.key.clone(), replay_watermark);
     Node::Work(Box::new(Work::Pipe(Box::new(producer_pipe))))
 }
 
@@ -369,7 +396,8 @@ pub fn step_table_producer<C: ConstraintOps>(
             table.set_producer_task_active(false);
             return ProducerStep::Done;
         };
-        let producer_node = make_replay_producer(&spec, tables);
+        // First iteration: watermark = 0, replay all existing answers
+        let producer_node = make_replay_producer(&spec, tables, 0);
         table.start_producer(producer_node, spec, table.answers_len());
     }
 
@@ -394,8 +422,13 @@ pub fn step_table_producer<C: ConstraintOps>(
                     table.set_producer_task_active(false);
                     return ProducerStep::Done;
                 };
+                // Semi-naive: the delta for the next iteration starts at the
+                // previous iteration_start_len. Only answers from this index
+                // onward will be replayed by ReplayOnly calls.
+                let watermark = table.iteration_start_len();
+                table.set_replay_watermark(watermark);
                 table.set_iteration_start_len(table.answers_len());
-                table.set_producer_node(make_replay_producer(&spec, tables));
+                table.set_producer_node(make_replay_producer(&spec, tables, watermark));
                 ProducerStep::Progress
             } else {
                 table.finish_producer();
