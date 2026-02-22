@@ -137,6 +137,10 @@ pub fn match_term_lists_shifted_with_left_renaming_combined(
         return None;
     }
 
+    // Pre-compute the Option-wrapped renaming map once, outside the loop.
+    // This avoids a heap allocation on every iteration of the fallback path.
+    let rhs_map_opt: Vec<Option<u32>> = left_rhs_map.iter().map(|&v| Some(v)).collect();
+
     let mut subst = Subst::new();
     for (idx, (&l, &r)) in left.iter().zip(right.iter()).enumerate() {
         if subst.is_empty() && idx == 0 {
@@ -149,7 +153,6 @@ pub fn match_term_lists_shifted_with_left_renaming_combined(
             )?;
             subst = match_subst;
         } else {
-            let rhs_map_opt: Vec<Option<u32>> = left_rhs_map.iter().map(|&v| Some(v)).collect();
             let l_renamed = crate::nf::apply_var_renaming(l, &rhs_map_opt, terms);
             let l_sub = apply_subst(l_renamed, &subst, terms);
             let r_sub = apply_subst_shifted(r, &subst, right_offset, shifted_vars, terms);
@@ -193,22 +196,8 @@ pub fn build_remap_map<C: crate::constraint::ConstraintOps>(
     constraint_vars.sort_unstable();
     constraint_vars.dedup();
     let max_constraint = constraint_vars.last().copied();
-    let max_all = match (max_var, max_constraint) {
-        (Some(a), Some(b)) => Some(a.max(b)),
-        (Some(a), None) => Some(a),
-        (None, Some(b)) => Some(b),
-        (None, None) => None,
-    };
-    match max_all {
-        Some(max) => {
-            let mut map = vec![None; max as usize + 1];
-            for i in 0..=max {
-                map[i as usize] = Some(i + offset);
-            }
-            Some(map)
-        }
-        None => None,
-    }
+    let max_all = max_var.max(max_constraint);
+    max_all.map(|max| (0..=max).map(|i| Some(i + offset)).collect())
 }
 
 #[cfg(test)]
