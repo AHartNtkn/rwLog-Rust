@@ -1,5 +1,5 @@
 use crate::constraint::ConstraintOps;
-use crate::nf::{collect_tensor, factor_tensor, NF};
+use crate::nf::{collect_tensor, factor_tensor_with_subst, SubstParams, NF};
 use crate::perf_counters;
 use crate::term::{Term, TermId, TermStore};
 #[cfg(feature = "tracing")]
@@ -7,8 +7,9 @@ use crate::trace::{debug_span, trace};
 use std::hash::{Hash, Hasher};
 
 use super::util::{
-    apply_subst_list, apply_subst_shifted_list, match_term_lists, match_term_lists_shifted,
-    max_var_index_terms, pre_create_shifted_vars, remap_constraint_vars,
+    apply_subst_list, apply_subst_shifted_list, build_remap_map, compose_subst,
+    match_term_lists_combined, match_term_lists_shifted_combined, max_var_index_terms,
+    pre_create_shifted_vars,
 };
 
 /// Compute the meet (intersection) of two NFs.
@@ -129,24 +130,34 @@ fn meet_nf_impl<C: ConstraintOps>(a: &NF<C>, b: &NF<C>, terms: &mut TermStore) -
     // Pre-create shifted variable TermIds for virtual shifting.
     let shifted_vars = pre_create_shifted_vars(b_max_var, b_var_offset, terms);
 
-    let (lhs_left, lhs_right) =
-        match match_term_lists_shifted(&rw1.lhs, &rw2.lhs, b_var_offset, &shifted_vars, terms) {
-            Some(result) => result,
-            None => {
-                #[cfg(feature = "tracing")]
-                trace!("meet_match_failed");
-                return None;
-            }
-        };
+    // LHS matching: return raw combined substitution (skip split_match_subst).
+    // Left-side vars at indices < b_var_offset, right-side at >= b_var_offset.
+    let lhs_combined = match match_term_lists_shifted_combined(
+        &rw1.lhs,
+        &rw2.lhs,
+        b_var_offset,
+        &shifted_vars,
+        terms,
+    ) {
+        Some(subst) => subst,
+        None => {
+            #[cfg(feature = "tracing")]
+            trace!("meet_match_failed");
+            return None;
+        }
+    };
 
-    let lhs_left_applied = apply_subst_list(&rw1.lhs, &lhs_left, terms);
-    let rhs_left_applied = apply_subst_list(&rw1.rhs, &lhs_left, terms);
+    // Apply LHS combined subst to both sides' RHS patterns for the RHS match.
+    // rw1.rhs has left-side vars only; rw2.rhs has right-side vars (need shifting).
+    let rhs_left_applied = apply_subst_list(&rw1.rhs, &lhs_combined, terms);
     let rhs_right_applied =
-        apply_subst_shifted_list(&rw2.rhs, &lhs_right, b_var_offset, &shifted_vars, terms);
+        apply_subst_shifted_list(&rw2.rhs, &lhs_combined, b_var_offset, &shifted_vars, terms);
 
-    let (rhs_left, rhs_right) =
-        match match_term_lists(&rhs_left_applied, &rhs_right_applied, b_var_offset, terms) {
-            Some(result) => result,
+    // RHS matching: also return raw combined substitution.
+    let rhs_combined =
+        match match_term_lists_combined(&rhs_left_applied, &rhs_right_applied, b_var_offset, terms)
+        {
+            Some(subst) => subst,
             None => {
                 #[cfg(feature = "tracing")]
                 trace!("meet_build_failed");
@@ -154,20 +165,20 @@ fn meet_nf_impl<C: ConstraintOps>(a: &NF<C>, b: &NF<C>, terms: &mut TermStore) -
             }
         };
 
-    let mut final_lhs = apply_subst_list(&lhs_left_applied, &rhs_left, terms);
-    let mut final_rhs = apply_subst_list(&rhs_left_applied, &rhs_left, terms);
-    final_lhs = apply_subst_list(&final_lhs, &rhs_right, terms);
-    final_rhs = apply_subst_list(&final_rhs, &rhs_right, terms);
+    // Compose LHS and RHS combined substitutions into one.
+    // This is equivalent to applying lhs_combined then rhs_combined sequentially.
+    let meet_subst = compose_subst(&lhs_combined, &rhs_combined, terms);
 
+    // Apply the composed substitution to constraints in one pass each.
+    let a_constraint = a.drop_fresh.constraint.apply_subst(&meet_subst, terms);
     let b_constraint =
-        remap_constraint_vars(&b.drop_fresh.constraint, b_max_var, b_var_offset, terms);
-
-    let a_constraint = a.drop_fresh.constraint.apply_subst(&lhs_left, terms);
-    let a_constraint = a_constraint.apply_subst(&rhs_left, terms);
-    let a_constraint = a_constraint.apply_subst(&rhs_right, terms);
-    let b_constraint = b_constraint.apply_subst(&lhs_right, terms);
-    let b_constraint = b_constraint.apply_subst(&rhs_right, terms);
-    let b_constraint = b_constraint.apply_subst(&rhs_left, terms);
+        match build_remap_map(&b.drop_fresh.constraint, b_max_var, b_var_offset, terms) {
+            Some(map) => b
+                .drop_fresh
+                .constraint
+                .remap_and_apply_subst(&map, &meet_subst, terms),
+            None => b.drop_fresh.constraint.apply_subst(&meet_subst, terms),
+        };
 
     let combined = match a_constraint.combine_owned(b_constraint) {
         Some(c) => c,
@@ -186,14 +197,23 @@ fn meet_nf_impl<C: ConstraintOps>(a: &NF<C>, b: &NF<C>, terms: &mut TermStore) -
             return None;
         }
     };
-    if let Some(subst) = subst_opt {
-        final_lhs = apply_subst_list(&final_lhs, &subst, terms);
-        final_rhs = apply_subst_list(&final_rhs, &subst, terms);
-    }
+
+    // Use fused factor_tensor_with_subst: pass original rw1.lhs and rw1.rhs
+    // with the composed substitution, avoiding intermediate term creation.
+    // rw1.lhs has left-side vars only (no shifting needed).
+    // rw1.rhs has left-side vars only (no shifting needed).
+    let params = SubstParams {
+        subst: &meet_subst,
+        subst2: subst_opt.as_ref(),
+        shifted: false,
+        shifted_vars: &[],
+    };
 
     #[cfg(feature = "tracing")]
     trace!("meet_success");
-    Some(factor_tensor(final_lhs, final_rhs, normalized, terms))
+    Some(factor_tensor_with_subst(
+        &rw1.lhs, &params, &rw1.rhs, &params, normalized, terms,
+    ))
 }
 
 #[cfg(test)]
