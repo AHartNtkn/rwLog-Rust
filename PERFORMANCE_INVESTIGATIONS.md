@@ -62,6 +62,8 @@ Replace strict left-biased stepping with a scheduler that maintains per-branch s
 
 For synthesis-style workloads, performance is dominated by how fast you reach a productive subspace; a scheduler change can shift effective complexity without touching kernel cost.
 
+**Investigated — three approaches DISCARDED (semantics conflict).** See [docs/perf_investigations/adaptive_sched.md](docs/perf_investigations/adaptive_sched.md). Aggressive batch stepping improved left_rec_32 by 30% but caused exponential blowup on treecalc_synth_flip (violated rotation-based fairness, delayed CHR pruning). Exhaustion batching and SmallVec showed zero improvement — Or-spine walks are not the bottleneck. A principled batch approach that preserves interleaving semantics would require a fundamentally different search strategy.
+
 **Key benchmark cases:** `hetero_or_branches`, `failfast_conjunction`
 
 ### 6. True Multicore Execution
