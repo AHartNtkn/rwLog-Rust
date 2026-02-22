@@ -985,149 +985,114 @@ fn shift_term_uncached(term: TermId, shifted_vars: &[TermId], terms: &mut TermSt
     result_stack.pop().unwrap()
 }
 
-/// Occurs check using unlocked access (for shifted matching variants).
-fn occurs_unlocked(var: u32, term: TermId, subst: &Subst, terms: &mut TermStore) -> bool {
-    // Fast rejection: if the initial term is ground, var cannot appear.
-    if term.is_ground() {
-        return false;
-    }
-    // Fast rejection: if the initial term is a non-ground store ref,
-    // check its variable range. If var is outside the structural range
-    // AND no variable in the structural range is bound in subst,
-    // then var cannot appear even after substitution.
-    if term.is_store_ref() {
-        if let Some((min_v, max_v)) = terms.var_range_unlocked(term) {
-            if var < min_v || var > max_v {
-                // var not structurally present. Check if any structural var
-                // could lead to var through substitution chains.
-                // Only scan if the range is reasonably small.
-                let range_size = max_v.saturating_sub(min_v);
-                if range_size <= 64 {
-                    let mut reachable = false;
-                    for v in min_v..=max_v {
-                        if subst.get(v).is_some() {
-                            reachable = true;
-                            break;
+/// Generate an occurs-check function parameterized by term access method.
+///
+/// Both `occurs_locked` (read-lock guard) and `occurs_unlocked` (exclusive
+/// `&mut TermStore`) share identical logic. The only differences are:
+/// - how to query the variable range of a store-ref term
+/// - how to dereference a variable through the substitution
+/// - how to look up a TermId in the store
+///
+/// This macro emits a monomorphic function for each variant with zero
+/// abstraction overhead. The `$var_range`, `$deref`, and `$get_term`
+/// parameters are expression fragments that are spliced directly into the
+/// generated code, avoiding closure borrow conflicts.
+macro_rules! occurs_check_impl {
+    (
+        $fn_name:ident ( $store_param:ident : $store_ty:ty ),
+        var_range($vr_tid:ident) => $var_range:expr,
+        deref($d_tid:ident, $d_subst:ident) => $deref:expr,
+        get_term($g_tid:ident) => $get_term:expr $(,)?
+    ) => {
+        fn $fn_name(var: u32, term: TermId, subst: &Subst, $store_param: $store_ty) -> bool {
+            // Fast rejection: if the initial term is ground, var cannot appear.
+            if term.is_ground() {
+                return false;
+            }
+            // Fast rejection: if the initial term is a non-ground store ref,
+            // check its variable range. If var is outside the structural range
+            // AND no variable in the structural range is bound in subst,
+            // then var cannot appear even after substitution.
+            if term.is_store_ref() {
+                let $vr_tid = term;
+                if let Some((min_v, max_v)) = $var_range {
+                    if var < min_v || var > max_v {
+                        let range_size = max_v.saturating_sub(min_v);
+                        if range_size <= 64 {
+                            let mut reachable = false;
+                            for v in min_v..=max_v {
+                                if subst.get(v).is_some() {
+                                    reachable = true;
+                                    break;
+                                }
+                            }
+                            if !reachable {
+                                return false;
+                            }
                         }
                     }
-                    if !reachable {
-                        return false;
+                }
+            }
+
+            let mut stack: SmallVec<[TermId; 16]> = SmallVec::new();
+            stack.push(term);
+
+            while let Some(t) = stack.pop() {
+                // Skip ground terms without even dereferencing.
+                if t.is_ground() {
+                    continue;
+                }
+                let ($d_tid, $d_subst) = (t, subst);
+                let t_deref = $deref;
+                if t_deref.is_inline_var() {
+                    if t_deref.inline_var_index() == var {
+                        return true;
                     }
+                    continue;
                 }
-            }
-        }
-    }
-
-    let mut stack: SmallVec<[TermId; 16]> = SmallVec::new();
-    stack.push(term);
-
-    while let Some(t) = stack.pop() {
-        // Skip ground terms without even dereferencing.
-        if t.is_ground() {
-            continue;
-        }
-        let t_deref = deref_unlocked(t, subst, terms);
-        if t_deref.is_inline_var() {
-            if t_deref.inline_var_index() == var {
-                return true;
-            }
-            continue;
-        }
-        // After deref, if result is ground, skip.
-        if t_deref.is_ground() {
-            continue;
-        }
-        if t_deref.is_inline_nullary() {
-            continue;
-        }
-        match terms.get_unlocked(t_deref) {
-            Some(Term::Var(idx)) => {
-                if *idx == var {
-                    return true;
+                // After deref, if result is ground, skip.
+                if t_deref.is_ground() {
+                    continue;
                 }
-            }
-            Some(Term::App(_, children)) => {
-                for child in children.iter() {
-                    if !child.is_ground() {
-                        stack.push(*child);
-                    }
+                if t_deref.is_inline_nullary() {
+                    continue;
                 }
-            }
-            None => {}
-        }
-    }
-
-    false
-}
-
-/// Occurs check using a pre-acquired read lock.
-fn occurs_locked(var: u32, term: TermId, subst: &Subst, guard: &TermReadGuard<'_>) -> bool {
-    // Fast rejection: if the initial term is ground, var cannot appear.
-    if term.is_ground() {
-        return false;
-    }
-    // Fast rejection via variable range for non-ground store refs.
-    if term.is_store_ref() {
-        if let Some((min_v, max_v)) = guard.var_range(term) {
-            if var < min_v || var > max_v {
-                let range_size = max_v.saturating_sub(min_v);
-                if range_size <= 64 {
-                    let mut reachable = false;
-                    for v in min_v..=max_v {
-                        if subst.get(v).is_some() {
-                            reachable = true;
-                            break;
+                let $g_tid = t_deref;
+                match $get_term {
+                    Some(Term::Var(idx)) => {
+                        if *idx == var {
+                            return true;
                         }
                     }
-                    if !reachable {
-                        return false;
+                    Some(Term::App(_, children)) => {
+                        for child in children.iter() {
+                            if !child.is_ground() {
+                                stack.push(*child);
+                            }
+                        }
                     }
+                    None => {}
                 }
             }
-        }
-    }
 
-    let mut stack: SmallVec<[TermId; 16]> = SmallVec::new();
-    stack.push(term);
-
-    while let Some(t) = stack.pop() {
-        // Skip ground terms without even dereferencing.
-        if t.is_ground() {
-            continue;
+            false
         }
-        let t_deref = deref_locked(t, subst, guard);
-        if t_deref.is_inline_var() {
-            if t_deref.inline_var_index() == var {
-                return true;
-            }
-            continue;
-        }
-        // After deref, if result is ground, skip.
-        if t_deref.is_ground() {
-            continue;
-        }
-        if t_deref.is_inline_nullary() {
-            continue;
-        }
-        match guard.get(t_deref) {
-            Some(Term::Var(idx)) => {
-                if *idx == var {
-                    return true;
-                }
-            }
-            Some(Term::App(_, children)) => {
-                for child in children.iter() {
-                    if !child.is_ground() {
-                        stack.push(*child);
-                    }
-                }
-            }
-            None => {}
-        }
-    }
-
-    false
+    };
 }
+
+occurs_check_impl!(
+    occurs_unlocked(terms: &mut TermStore),
+    var_range(tid) => terms.var_range_unlocked(tid),
+    deref(t, s) => deref_unlocked(t, s, terms),
+    get_term(tid) => terms.get_unlocked(tid),
+);
+
+occurs_check_impl!(
+    occurs_locked(guard: &TermReadGuard<'_>),
+    var_range(tid) => guard.var_range(tid),
+    deref(t, s) => deref_locked(t, s, guard),
+    get_term(tid) => guard.get(tid),
+);
 
 #[cfg(test)]
 mod tests {
