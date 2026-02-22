@@ -61,6 +61,26 @@ impl Subst {
             .enumerate()
             .filter_map(|(i, opt)| opt.map(|tid| (i as u32, tid)))
     }
+
+    /// Compute the range of variable indices that have bindings: (min_bound, max_bound).
+    /// Returns None if no variables are bound.
+    #[inline]
+    pub fn bound_var_range(&self) -> Option<(u32, u32)> {
+        let mut min_bound = u32::MAX;
+        let mut max_bound = 0u32;
+        for (i, b) in self.bindings.iter().enumerate() {
+            if b.is_some() {
+                let idx = i as u32;
+                min_bound = min_bound.min(idx);
+                max_bound = max_bound.max(idx);
+            }
+        }
+        if min_bound > max_bound {
+            None
+        } else {
+            Some((min_bound, max_bound))
+        }
+    }
 }
 
 impl Default for Subst {
@@ -84,7 +104,7 @@ pub fn apply_subst(term: TermId, subst: &Subst, terms: &mut TermStore) -> TermId
     if term.is_ground() {
         return term;
     }
-    apply_subst_core::<false>(term, subst, &[], terms)
+    apply_subst_core::<false>(term, subst, 0, &[], terms)
 }
 
 /// Apply a substitution to an unshifted term, virtually shifting variables by
@@ -111,7 +131,7 @@ pub fn apply_subst_shifted(
     if term.is_ground() {
         return term;
     }
-    apply_subst_core::<true>(term, subst, shifted_vars, terms)
+    apply_subst_core::<true>(term, subst, var_offset, shifted_vars, terms)
 }
 
 /// Core substitution application with optional virtual variable shifting.
@@ -130,10 +150,14 @@ pub fn apply_subst_shifted(
 fn apply_subst_core<const SHIFTED: bool>(
     term: TermId,
     subst: &Subst,
+    _var_offset: u32,
     shifted_vars: &[TermId],
     terms: &mut TermStore,
 ) -> TermId {
     use crate::symbol::FuncId;
+
+    // Pre-compute the substitution's bound variable range once.
+    let subst_range = subst.bound_var_range();
 
     // Visit(term, is_raw): `is_raw` means the term is from the unshifted namespace
     // and its variables need virtual shifting before substitution lookup.
@@ -226,7 +250,26 @@ fn apply_subst_core<const SHIFTED: bool>(
                     continue;
                 }
 
-                // Store ref (non-ground, non-inline): read the term.
+                // Store ref (non-ground, non-inline): check var_range for early skip.
+                // If this subtree's variable range has no overlap with the subst's
+                // bound range, the substitution cannot affect it — return unchanged.
+                // Skip subtrees whose variable range doesn't overlap the subst.
+                // CRITICAL: Only valid when raw=false (or SHIFTED=false).
+                // When SHIFTED && raw, the term has unshifted variables that need
+                // virtual shifting even if no substitution binding applies.
+                // Skipping a raw subtree would return the unshifted term, which is wrong.
+                if !SHIFTED || !raw {
+                    if let Some((s_min, s_max)) = subst_range {
+                        if let Some(&(t_min, t_max)) = terms.var_ranges.get_mut().get(tid.index()) {
+                            if t_max < s_min || t_min > s_max {
+                                result_stack.push(tid);
+                                continue;
+                            }
+                        }
+                    }
+                }
+
+                // Read the term.
                 let nodes = terms.nodes.get_mut();
 
                 match nodes.get(tid.index()) {
