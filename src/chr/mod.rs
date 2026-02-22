@@ -213,7 +213,7 @@ impl RVarEnv {
     }
 }
 
-pub fn match_pat_nobind(
+pub(crate) fn match_pat_nobind(
     pats: &PatArena,
     terms: &TermStore,
     pat: PatId,
@@ -606,7 +606,7 @@ fn eval_arg_expr(
     }
 }
 
-pub fn instantiate_pat(
+pub(crate) fn instantiate_pat(
     pats: &PatArena,
     terms: &mut TermStore,
     env: &RVarEnv,
@@ -2221,11 +2221,13 @@ impl ByteWriter {
     }
 }
 
+#[cfg(test)]
 struct ByteReader<'a> {
     bs: &'a [u8],
     i: usize,
 }
 
+#[cfg(test)]
 impl<'a> ByteReader<'a> {
     fn new(bs: &'a [u8]) -> Self {
         Self { bs, i: 0 }
@@ -2286,7 +2288,7 @@ impl PartialOrd for AliveRec {
     }
 }
 
-pub fn freeze_chr<T: Theory>(st: &ChrState<T>) -> Vec<u8> {
+pub(crate) fn freeze_chr<T: Theory>(st: &ChrState<T>) -> Vec<u8> {
     let d = match &st.data {
         None => {
             let mut w = ByteWriter::new();
@@ -2396,7 +2398,8 @@ fn format_token(token: &TokenKey) -> Vec<u32> {
     token_cids(token).iter().map(|c| c.0).collect()
 }
 
-pub fn thaw_chr<T: Theory>(
+#[cfg(test)]
+pub(crate) fn thaw_chr<T: Theory>(
     program: Arc<ChrProgram<T>>,
     bytes: &[u8],
     terms: &TermStore,
