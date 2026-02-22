@@ -289,7 +289,7 @@ Each item is an investigation area, not a guaranteed improvement.
 
 ### Conjunction/Meet Execution
 
-1. Replace naive fair diagonal join with selectivity-aware join ordering.
+1. ~~Replace naive fair diagonal join with selectivity-aware join ordering.~~ **Investigated — DISCARDED (U=40, precheck already free).** See [docs/perf_investigations/selectivity_join.md](docs/perf_investigations/selectivity_join.md). Added root-tag filtering to MeetStrategy to skip incompatible NF pairs before meet_nf. meet_nf's inline precheck is already ~1-2ns per pair; higher-level filtering adds bookkeeping overhead without savings. Third confirmation (after meet_index U=66, meet_fail_cache 0% duplication) that meet-level pair filtering is a dead end.
 2. Add cardinality/selectivity estimators for `AndGroup` components.
 3. Introduce adaptive join algorithms (`nested-loop`, hash-join-like, indexed join) by workload.
 4. ~~Pre-filter candidate pairs using cheap shape signatures before full `meet_nf`.~~ **Investigated — DISCARDED (meet_nf precheck already free).** See [docs/perf_investigations/meet_index.md](docs/perf_investigations/meet_index.md). Root-functor indexing at MeetStrategy DiagonalJoin level. U=66 on join_high_overlap, U=63 on join_low_overlap. The meet_nf root functor precheck (from meet_fuse_reinv) is already essentially free (inline TermId comparison), so avoiding the call provides no measurable benefit.
