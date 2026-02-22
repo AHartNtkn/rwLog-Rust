@@ -98,6 +98,8 @@ Push the commutative-hash normalize cache further by: making normalized `ChrStat
 
 Turns an optimization (memoizing normalize results) into a representation invariant (canonical state identity), enabling pervasive work avoidance: cheaper equality/dedup, higher cache hit rates across the engine, and less memory churn.
 
+**Investigated — ChrState caching/fast-paths DISCARDED (regression).** See [docs/perf_investigations/chr_canonicalize.md](docs/perf_investigations/chr_canonicalize.md). Cached hash, Arc pointer fast-path, hash mismatch fast-path, combine/normalize shortcuts all regressed because constraint operations only run on the ~2,780 compose successes (0.1% of 278K attempts). The 99% failure rate is caught by functor matching before constraints are touched. The existing normalize cache already handles redundancy. Reducing compose attempt COUNT is the remaining lever, not per-attempt constraint cost.
+
 **Key benchmark cases:** `constraint_perm_4`, `multi_head_chr_join`
 
 ## Investigation Backlog
@@ -160,7 +162,7 @@ Each item is an investigation area, not a guaranteed improvement.
 ### NF/Kernel Normalization Pipeline
 
 1. Introduce a staged normalization pipeline with explicit cost-based reorder of commuting rewrites.
-2. Memoize `compose_nf` results by normalized NF fingerprints.
+2. ~~Memoize `compose_nf` results by normalized NF fingerprints.~~ **Investigated — compose_memo DISCARDED (0.02% duplicate rate).** See [docs/perf_investigations/compose_memo.md](docs/perf_investigations/compose_memo.md). Instrumentation showed only 61 duplicate compose pairs out of 277,985 total (0.02%). DiagonalJoin's per-instance dedup and CHR constraint uniqueness make cross-branch duplicates essentially zero.
 3. Memoize `meet_nf` results by canonical pair fingerprints (order-normalized).
 4. Separate cheap syntactic impossibility checks before expensive matching in compose/meet.
 5. ~~Add canonical hash keys for `NF` to enable dedup and cache hits across branches.~~ **Implemented — ~10% improvement.** See [docs/perf_investigations/cached_nf_hash.md](docs/perf_investigations/cached_nf_hash.md). Added `cached_hash: u64` field to NF, pre-computed at construction. Hash impl returns cached value (one u64 write). PartialEq compares hash first as fast rejection. Eliminates repeated full-NF hashing in all FxHashSet operations.
