@@ -183,7 +183,8 @@ pub struct PipeWork<C: ConstraintOps> {
     /// Call handling mode.
     pub(crate) call_mode: CallMode<C>,
     /// Cached dispatch tables for Or-of-Atoms bodies, keyed by Arc pointer address.
-    dispatch_cache: DispatchCache<C>,
+    /// Lazily allocated only when dispatch is actually used.
+    dispatch_cache: Option<Box<DispatchCache<C>>>,
 }
 
 impl<C: ConstraintOps> Work<C> {
@@ -223,7 +224,7 @@ impl<C: ConstraintOps> PipeWork<C> {
             env,
             tables,
             call_mode: CallMode::Normal,
-            dispatch_cache: DispatchCache::default(),
+            dispatch_cache: None,
         }
     }
 
@@ -1019,8 +1020,10 @@ impl<C: ConstraintOps> PipeWork<C> {
     ) -> Option<Arc<[DispatchEntry<C>]>> {
         let cache_key = or_body as *const Rel<C> as usize;
 
-        if let Some(table) = self.dispatch_cache.get(&cache_key) {
-            return Some(table.clone());
+        if let Some(cache) = &self.dispatch_cache {
+            if let Some(table) = cache.get(&cache_key) {
+                return Some(table.clone());
+            }
         }
 
         let atoms = collect_flat_or_atoms(or_body)?;
@@ -1029,7 +1032,8 @@ impl<C: ConstraintOps> PipeWork<C> {
         }
 
         let table = Self::build_dispatch_table(atoms, terms);
-        self.dispatch_cache.insert(cache_key, table.clone());
+        let cache = self.dispatch_cache.get_or_insert_with(|| Box::new(DispatchCache::default()));
+        cache.insert(cache_key, table.clone());
         Some(table)
     }
 
@@ -1311,7 +1315,7 @@ impl<C: ConstraintOps> Default for PipeWork<C> {
             env: Env::new(),
             tables: Tables::new(),
             call_mode: CallMode::Normal,
-            dispatch_cache: DispatchCache::default(),
+            dispatch_cache: None,
         }
     }
 }
