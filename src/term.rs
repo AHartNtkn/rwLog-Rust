@@ -257,16 +257,6 @@ impl TermStore {
         self.intern(Term::App(func, children))
     }
 
-    /// Create an application term from a slice of children.
-    /// Avoids intermediate SmallVec allocation when children are already in a contiguous buffer.
-    #[inline]
-    pub fn app_from_slice(&self, func: FuncId, children: &[TermId]) -> TermId {
-        if children.is_empty() {
-            return TermId::inline_nullary(func.into_inner().get());
-        }
-        self.intern(Term::App(func, SmallVec::from_slice(children)))
-    }
-
     /// Create a nullary (0-arity) application.
     #[inline(always)]
     pub fn app0(&self, func: FuncId) -> TermId {

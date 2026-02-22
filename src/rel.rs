@@ -122,38 +122,6 @@ mod tests {
         Rel::Atom(Arc::new(nf))
     }
 
-    /// Helper to check if two Rels are structurally equal (for testing)
-    fn structurally_equal<C: Clone + PartialEq>(a: &Rel<C>, b: &Rel<C>) -> bool {
-        match (a, b) {
-            (Rel::Zero, Rel::Zero) => true,
-            (Rel::Atom(nf1), Rel::Atom(nf2)) => {
-                nf1.match_pats == nf2.match_pats
-                    && nf1.build_pats == nf2.build_pats
-                    && nf1.drop_fresh.in_arity == nf2.drop_fresh.in_arity
-                    && nf1.drop_fresh.out_arity == nf2.drop_fresh.out_arity
-                    && nf1.drop_fresh.map == nf2.drop_fresh.map
-            }
-            (Rel::Or(a1, b1), Rel::Or(a2, b2)) => {
-                structurally_equal(a1, a2) && structurally_equal(b1, b2)
-            }
-            (Rel::And(a1, b1), Rel::And(a2, b2)) => {
-                structurally_equal(a1, a2) && structurally_equal(b1, b2)
-            }
-            (Rel::Seq(xs1), Rel::Seq(xs2)) => {
-                xs1.len() == xs2.len()
-                    && xs1
-                        .iter()
-                        .zip(xs2.iter())
-                        .all(|(x1, x2)| structurally_equal(x1, x2))
-            }
-            (Rel::Fix(id1, body1), Rel::Fix(id2, body2)) => {
-                id1 == id2 && structurally_equal(body1, body2)
-            }
-            (Rel::Call(id1), Rel::Call(id2)) => id1 == id2,
-            _ => false,
-        }
-    }
-
     // ========================================================================
     // ZERO TESTS
     // ========================================================================
@@ -225,10 +193,7 @@ mod tests {
         let d1 = dual(&r, &mut terms);
         let d2 = dual(&d1, &mut terms);
 
-        assert!(
-            structurally_equal(&r, &d2),
-            "dual(dual(atom)) should equal atom"
-        );
+        assert_eq!(r, d2, "dual(dual(atom)) should equal atom");
     }
 
     // ========================================================================
@@ -282,12 +247,9 @@ mod tests {
                 let expected_right = make_labeled_atom("Right", &symbols, &terms);
                 let dual_left = dual(da.as_ref(), &mut terms);
                 let dual_right = dual(db.as_ref(), &mut terms);
-                assert!(
-                    structurally_equal(&dual_left, &expected_left),
-                    "Left child should remain left"
-                );
-                assert!(
-                    structurally_equal(&dual_right, &expected_right),
+                assert_eq!(dual_left, expected_left, "Left child should remain left");
+                assert_eq!(
+                    dual_right, expected_right,
                     "Right child should remain right"
                 );
             }
@@ -303,7 +265,7 @@ mod tests {
         let mut terms = TermStore::new();
         let d1 = dual(&r, &mut terms);
         let d2 = dual(&d1, &mut terms);
-        assert!(structurally_equal(&r, &d2));
+        assert_eq!(r, d2);
     }
 
     // ========================================================================
@@ -354,12 +316,12 @@ mod tests {
                 let expected_second = make_labeled_atom("Second", &symbols, &terms);
                 let dual_first = dual(da.as_ref(), &mut terms);
                 let dual_second = dual(db.as_ref(), &mut terms);
-                assert!(
-                    structurally_equal(&dual_first, &expected_first),
+                assert_eq!(
+                    dual_first, expected_first,
                     "First child should remain first"
                 );
-                assert!(
-                    structurally_equal(&dual_second, &expected_second),
+                assert_eq!(
+                    dual_second, expected_second,
                     "Second child should remain second"
                 );
             }
@@ -375,7 +337,7 @@ mod tests {
         let mut terms = TermStore::new();
         let d1 = dual(&r, &mut terms);
         let d2 = dual(&d1, &mut terms);
-        assert!(structurally_equal(&r, &d2));
+        assert_eq!(r, d2);
     }
 
     // ========================================================================
@@ -426,12 +388,14 @@ mod tests {
 
                 // The original was [A, B], dual should be [dual(B), dual(A)]
                 // So dual(xs[0]) should equal B, dual(xs[1]) should equal A
-                assert!(
-                    structurally_equal(&dual_first, b.as_ref()),
+                assert_eq!(
+                    &dual_first,
+                    b.as_ref(),
                     "First element after dual should be dual(B)"
                 );
-                assert!(
-                    structurally_equal(&dual_second, a.as_ref()),
+                assert_eq!(
+                    &dual_second,
+                    a.as_ref(),
                     "Second element after dual should be dual(A)"
                 );
             }
@@ -457,9 +421,9 @@ mod tests {
                 let dual_1 = dual(xs[1].as_ref(), &mut terms);
                 let dual_2 = dual(xs[2].as_ref(), &mut terms);
 
-                assert!(structurally_equal(&dual_0, c.as_ref()));
-                assert!(structurally_equal(&dual_1, b.as_ref()));
-                assert!(structurally_equal(&dual_2, a.as_ref()));
+                assert_eq!(&dual_0, c.as_ref());
+                assert_eq!(&dual_1, b.as_ref());
+                assert_eq!(&dual_2, a.as_ref());
             }
             _ => panic!("Expected Seq variant"),
         }
@@ -502,10 +466,7 @@ mod tests {
                 // Outer reversed: [dual(C), dual(Seq([A,B]))]
                 // dual(Seq([A,B])) = Seq([dual(B), dual(A)])
                 let dual_0 = dual(xs[0].as_ref(), &mut terms);
-                assert!(
-                    structurally_equal(&dual_0, c.as_ref()),
-                    "First should be dual(C)"
-                );
+                assert_eq!(&dual_0, c.as_ref(), "First should be dual(C)");
 
                 match xs[1].as_ref() {
                     Rel::Seq(inner_xs) => {
@@ -513,8 +474,8 @@ mod tests {
                         // Inner also reversed: [dual(B), dual(A)]
                         let inner_0 = dual(inner_xs[0].as_ref(), &mut terms);
                         let inner_1 = dual(inner_xs[1].as_ref(), &mut terms);
-                        assert!(structurally_equal(&inner_0, b.as_ref()));
-                        assert!(structurally_equal(&inner_1, a.as_ref()));
+                        assert_eq!(&inner_0, b.as_ref());
+                        assert_eq!(&inner_1, a.as_ref());
                     }
                     _ => panic!("Expected inner Seq"),
                 }
@@ -532,10 +493,7 @@ mod tests {
         let r = Rel::Seq(Arc::from(vec![a, b, c]));
         let d1 = dual(&r, &mut terms);
         let d2 = dual(&d1, &mut terms);
-        assert!(
-            structurally_equal(&r, &d2),
-            "dual(dual(seq)) should equal seq"
-        );
+        assert_eq!(r, d2, "dual(dual(seq)) should equal seq");
     }
 
     #[test]
@@ -544,7 +502,7 @@ mod tests {
         let mut terms = TermStore::new();
         let d1 = dual(&r, &mut terms);
         let d2 = dual(&d1, &mut terms);
-        assert!(structurally_equal(&r, &d2));
+        assert_eq!(r, d2);
     }
 
     // ========================================================================
@@ -660,7 +618,7 @@ mod tests {
         let mut terms = TermStore::new();
         let d1 = dual(&r, &mut terms);
         let d2 = dual(&d1, &mut terms);
-        assert!(structurally_equal(&r, &d2));
+        assert_eq!(r, d2);
     }
 
     // ========================================================================
@@ -697,7 +655,7 @@ mod tests {
         let mut terms = TermStore::new();
         let d1 = dual(&r, &mut terms);
         let d2 = dual(&d1, &mut terms);
-        assert!(structurally_equal(&r, &d2));
+        assert_eq!(r, d2);
     }
 
     // ========================================================================
@@ -721,10 +679,7 @@ mod tests {
         let d1 = dual(&r, &mut terms);
         let d2 = dual(&d1, &mut terms);
 
-        assert!(
-            structurally_equal(&r, &d2),
-            "dual(dual(complex)) should equal complex"
-        );
+        assert_eq!(r, d2, "dual(dual(complex)) should equal complex");
     }
 
     #[test]
@@ -745,7 +700,7 @@ mod tests {
         for r in cases {
             let d1 = dual(&r, &mut terms);
             let d2 = dual(&d1, &mut terms);
-            assert!(structurally_equal(&r, &d2), "Involution failed for variant");
+            assert_eq!(r, d2, "Involution failed for variant");
         }
     }
 

@@ -17,13 +17,6 @@ impl Subst {
         }
     }
 
-    /// Create a substitution with capacity for n variables.
-    pub fn with_capacity(n: usize) -> Self {
-        Self {
-            bindings: vec![None; n],
-        }
-    }
-
     /// Bind a variable to a term.
     /// Extends the substitution if needed.
     pub fn bind(&mut self, var: u32, term: TermId) {
@@ -45,6 +38,7 @@ impl Subst {
     }
 
     /// Check if a variable is bound.
+    #[cfg(test)]
     pub fn is_bound(&self, var: u32) -> bool {
         self.get(var).is_some()
     }
@@ -55,6 +49,7 @@ impl Subst {
     }
 
     /// Number of bound variables.
+    #[cfg(test)]
     pub fn len(&self) -> usize {
         self.bindings.iter().filter(|b| b.is_some()).count()
     }
@@ -348,13 +343,6 @@ mod tests {
     #[test]
     fn new_subst_is_empty() {
         let subst = Subst::new();
-        assert!(subst.is_empty());
-        assert_eq!(subst.len(), 0);
-    }
-
-    #[test]
-    fn with_capacity_creates_empty_subst() {
-        let subst = Subst::with_capacity(10);
         assert!(subst.is_empty());
         assert_eq!(subst.len(), 0);
     }
