@@ -83,8 +83,25 @@ impl<C: Clone> DropFresh<C> {
         }
     }
 
+    /// Check if this is an identity DropFresh.
+    #[cfg(test)]
+    pub fn is_identity(&self) -> bool {
+        if self.in_arity != self.out_arity {
+            return false;
+        }
+        if self.map.len() != self.in_arity as usize {
+            return false;
+        }
+        // Check that each position maps to itself
+        self.map
+            .iter()
+            .enumerate()
+            .all(|(i, &(inp, out))| inp == i as u32 && out == i as u32)
+    }
+
     /// Create a DropFresh that drops all inputs and produces all fresh outputs.
     /// No inputs are connected to outputs.
+    #[cfg(test)]
     pub fn disconnect(in_arity: u32, out_arity: u32, constraint: C) -> Self {
         Self {
             in_arity,
@@ -97,6 +114,7 @@ impl<C: Clone> DropFresh<C> {
     /// Compose two DropFresh values: self ; other.
     /// The output arity of self must match the input arity of other.
     /// Returns None if arities don't match.
+    #[cfg(test)]
     pub fn compose(&self, other: &DropFresh<C>) -> Option<DropFresh<C>>
     where
         C: Default,
@@ -145,31 +163,19 @@ impl<C: Clone> DropFresh<C> {
     }
 
     /// Get the number of positions that are mapped (shared between in and out).
+    #[cfg(test)]
     pub fn shared_count(&self) -> usize {
         self.map.len()
     }
 
-    /// Check if this is an identity DropFresh.
-    pub fn is_identity(&self) -> bool {
-        if self.in_arity != self.out_arity {
-            return false;
-        }
-        if self.map.len() != self.in_arity as usize {
-            return false;
-        }
-        // Check that each position maps to itself
-        self.map
-            .iter()
-            .enumerate()
-            .all(|(i, &(inp, out))| inp == i as u32 && out == i as u32)
-    }
-
     /// Check if this DropFresh connects no positions.
+    #[cfg(test)]
     pub fn is_disconnect(&self) -> bool {
         self.map.is_empty()
     }
 
     /// Get the output position for a given input position, if mapped.
+    #[cfg(test)]
     pub fn forward(&self, input_pos: u32) -> Option<u32> {
         // Binary search since map is sorted by input position
         self.map
@@ -179,9 +185,9 @@ impl<C: Clone> DropFresh<C> {
     }
 
     /// Get the input position for a given output position, if mapped.
+    #[cfg(test)]
     pub fn backward(&self, output_pos: u32) -> Option<u32> {
         // Linear search since map is sorted by input, not output
-        // (Could optimize with a parallel sorted structure if needed)
         self.map
             .iter()
             .find(|&&(_, out)| out == output_pos)

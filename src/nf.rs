@@ -475,7 +475,7 @@ fn build_var_map(vars: &[u32]) -> Vec<Option<u32>> {
 
 /// Collect variables from a term in order of first appearance.
 /// Returns the list of original variable indices (unique).
-pub fn collect_vars_ordered(term: TermId, terms: &TermStore) -> Vec<u32> {
+pub(crate) fn collect_vars_ordered(term: TermId, terms: &TermStore) -> Vec<u32> {
     let mut vars = Vec::new();
     let mut seen = std::collections::HashSet::new();
     collect_vars_helper(term, terms, &mut vars, &mut seen);
@@ -483,7 +483,7 @@ pub fn collect_vars_ordered(term: TermId, terms: &TermStore) -> Vec<u32> {
 }
 
 /// Collect variables from a list of terms in order of first appearance.
-pub fn collect_vars_ordered_list(terms_list: &[TermId], terms: &TermStore) -> Vec<u32> {
+fn collect_vars_ordered_list(terms_list: &[TermId], terms: &TermStore) -> Vec<u32> {
     let mut vars = Vec::new();
     let mut seen = std::collections::HashSet::new();
     for &term in terms_list {
@@ -562,7 +562,7 @@ fn collect_vars_helper(
 /// This is a fused single-pass implementation that discovers variables and
 /// renames them in one traversal, eliminating the second pass that the
 /// sequential collect_vars + apply_var_renaming approach would require.
-pub fn renumber_vars(term: TermId, terms: &mut TermStore) -> (TermId, Vec<u32>) {
+pub(crate) fn renumber_vars(term: TermId, terms: &mut TermStore) -> (TermId, Vec<u32>) {
     use crate::symbol::FuncId;
 
     // Ground terms contain no variables.
@@ -1268,7 +1268,7 @@ fn collect_vars_through_subst_list(
 /// Bundled substitution parameters for fused factor operations.
 /// Groups a primary substitution, optional secondary substitution, and optional
 /// virtual shifting info to keep function signatures manageable.
-pub struct SubstParams<'a> {
+pub(crate) struct SubstParams<'a> {
     /// Primary substitution.
     pub subst: &'a crate::subst::Subst,
     /// Optional secondary substitution (e.g., from constraint normalization).
@@ -1282,7 +1282,7 @@ pub struct SubstParams<'a> {
 /// Factor a tensor rewrite into NF using pre-computed substitutions instead of
 /// pre-substituted patterns. This eliminates intermediate term creation by
 /// resolving substitutions during the collect-vars and renumber passes.
-pub fn factor_tensor_with_subst<C: ConstraintOps>(
+pub(crate) fn factor_tensor_with_subst<C: ConstraintOps>(
     lhs_pats: &[TermId],
     lhs_params: &SubstParams<'_>,
     rhs_pats: &[TermId],
