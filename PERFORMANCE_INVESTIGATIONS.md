@@ -302,7 +302,7 @@ Each item is an investigation area, not a guaranteed improvement.
 ### Disjunction/Or Execution
 
 1. ~~Internally flatten nested `Or` structures once and schedule from a branch pool.~~ **Investigated twice — DISCARDED.** See [docs/perf_investigations/or_tree_and_per_step_cost.md](docs/perf_investigations/or_tree_and_per_step_cost.md) and [docs/perf_investigations/or_index_step.md](docs/perf_investigations/or_index_step.md). Flat Vec with index-based stepping regressed 28% on left_rec_32. Binary tree depth is small (~4 levels), FlatOr bookkeeping exceeds tree-walking savings. Or-spine walks are NOT the bottleneck — 155K walks at avg 1.56 siblings cost microseconds total. Also consistent with flatten_or_spine (VecDeque/Vec, 0.8-1.6% regression).
-2. Add duplicate-answer suppression close to branch emission rather than global late-stage.
+2. ~~Add duplicate-answer suppression close to branch emission rather than global late-stage.~~ **Investigated — DISCARDED (0.8% duplication rate).** See [docs/perf_investigations/dedup_at_emission.md](docs/perf_investigations/dedup_at_emission.md). Only 44 duplicate answers out of 5421 add_answer calls across key workloads. Existing table-level FxHashSet dedup with cached NF hash is already O(1) and near-optimal. Semi-naive watermarks prevent most duplicates at the source.
 3. Share normalized prefix work among sibling `Or` branches where legal.
 4. Add branch pruning based on static incompatibility with downstream constraints.
 5. Batch branch stepping to amortize scheduler overhead.
