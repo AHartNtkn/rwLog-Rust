@@ -987,15 +987,54 @@ fn shift_term_uncached(term: TermId, shifted_vars: &[TermId], terms: &mut TermSt
 
 /// Occurs check using unlocked access (for shifted matching variants).
 fn occurs_unlocked(var: u32, term: TermId, subst: &Subst, terms: &mut TermStore) -> bool {
+    // Fast rejection: if the initial term is ground, var cannot appear.
+    if term.is_ground() {
+        return false;
+    }
+    // Fast rejection: if the initial term is a non-ground store ref,
+    // check its variable range. If var is outside the structural range
+    // AND no variable in the structural range is bound in subst,
+    // then var cannot appear even after substitution.
+    if term.is_store_ref() {
+        if let Some((min_v, max_v)) = terms.var_range_unlocked(term) {
+            if var < min_v || var > max_v {
+                // var not structurally present. Check if any structural var
+                // could lead to var through substitution chains.
+                // Only scan if the range is reasonably small.
+                let range_size = max_v.saturating_sub(min_v);
+                if range_size <= 64 {
+                    let mut reachable = false;
+                    for v in min_v..=max_v {
+                        if subst.get(v).is_some() {
+                            reachable = true;
+                            break;
+                        }
+                    }
+                    if !reachable {
+                        return false;
+                    }
+                }
+            }
+        }
+    }
+
     let mut stack: SmallVec<[TermId; 16]> = SmallVec::new();
     stack.push(term);
 
     while let Some(t) = stack.pop() {
+        // Skip ground terms without even dereferencing.
+        if t.is_ground() {
+            continue;
+        }
         let t_deref = deref_unlocked(t, subst, terms);
         if t_deref.is_inline_var() {
             if t_deref.inline_var_index() == var {
                 return true;
             }
+            continue;
+        }
+        // After deref, if result is ground, skip.
+        if t_deref.is_ground() {
             continue;
         }
         if t_deref.is_inline_nullary() {
@@ -1009,7 +1048,9 @@ fn occurs_unlocked(var: u32, term: TermId, subst: &Subst, terms: &mut TermStore)
             }
             Some(Term::App(_, children)) => {
                 for child in children.iter() {
-                    stack.push(*child);
+                    if !child.is_ground() {
+                        stack.push(*child);
+                    }
                 }
             }
             None => {}
@@ -1021,15 +1062,48 @@ fn occurs_unlocked(var: u32, term: TermId, subst: &Subst, terms: &mut TermStore)
 
 /// Occurs check using a pre-acquired read lock.
 fn occurs_locked(var: u32, term: TermId, subst: &Subst, guard: &TermReadGuard<'_>) -> bool {
+    // Fast rejection: if the initial term is ground, var cannot appear.
+    if term.is_ground() {
+        return false;
+    }
+    // Fast rejection via variable range for non-ground store refs.
+    if term.is_store_ref() {
+        if let Some((min_v, max_v)) = guard.var_range(term) {
+            if var < min_v || var > max_v {
+                let range_size = max_v.saturating_sub(min_v);
+                if range_size <= 64 {
+                    let mut reachable = false;
+                    for v in min_v..=max_v {
+                        if subst.get(v).is_some() {
+                            reachable = true;
+                            break;
+                        }
+                    }
+                    if !reachable {
+                        return false;
+                    }
+                }
+            }
+        }
+    }
+
     let mut stack: SmallVec<[TermId; 16]> = SmallVec::new();
     stack.push(term);
 
     while let Some(t) = stack.pop() {
+        // Skip ground terms without even dereferencing.
+        if t.is_ground() {
+            continue;
+        }
         let t_deref = deref_locked(t, subst, guard);
         if t_deref.is_inline_var() {
             if t_deref.inline_var_index() == var {
                 return true;
             }
+            continue;
+        }
+        // After deref, if result is ground, skip.
+        if t_deref.is_ground() {
             continue;
         }
         if t_deref.is_inline_nullary() {
@@ -1043,7 +1117,9 @@ fn occurs_locked(var: u32, term: TermId, subst: &Subst, guard: &TermReadGuard<'_
             }
             Some(Term::App(_, children)) => {
                 for child in children.iter() {
-                    stack.push(*child);
+                    if !child.is_ground() {
+                        stack.push(*child);
+                    }
                 }
             }
             None => {}

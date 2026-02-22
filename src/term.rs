@@ -121,6 +121,18 @@ impl TermId {
         );
         TermId(TAG_INLINE_NULLARY | func_raw)
     }
+
+    /// Get the variable range (min_var, max_var) for this TermId if it is an inline variable.
+    /// Returns None for non-variable inline terms and store references (use var_ranges vec for those).
+    #[inline(always)]
+    pub fn inline_var_range(self) -> Option<(u32, u32)> {
+        if self.is_inline_var() {
+            let idx = self.inline_var_index();
+            Some((idx, idx))
+        } else {
+            None
+        }
+    }
 }
 
 /// A term is either a variable or a function application.
@@ -149,6 +161,12 @@ pub struct TermStore {
     /// Central storage of all terms, indexed by TermId (using index() to strip tag bits).
     /// Does NOT contain variables or nullary App entries (those are inline in TermId).
     pub(crate) nodes: RwLock<Vec<Term>>,
+    /// Per-term variable range: (min_var, max_var) for non-ground stored terms.
+    /// Indexed in parallel with `nodes`. For ground terms the values are meaningless
+    /// (callers skip via `is_ground()`). For non-ground App terms, stores the minimum
+    /// and maximum variable indices reachable in the subtree, enabling O(1) rejection
+    /// in occurs checks.
+    pub(crate) var_ranges: RwLock<Vec<(u32, u32)>>,
     /// Sharded hashcons maps for reducing contention. Uses FxHash for speed.
     shards: [RwLock<HashMap<Term, TermId, FxBuildHasher>>; NUM_SHARDS],
     /// Counter for generating unique TermIds.
@@ -164,6 +182,7 @@ impl TermStore {
         let shards = std::array::from_fn(|_| RwLock::new(HashMap::with_hasher(FxBuildHasher)));
         Self {
             nodes: RwLock::new(Vec::new()),
+            var_ranges: RwLock::new(Vec::new()),
             shards,
             next_id: AtomicU32::new(0),
             generation: TERMSTORE_GENERATION.fetch_add(1, Ordering::Relaxed),
@@ -215,6 +234,37 @@ impl TermStore {
             "TermStore overflow: too many terms (>{} terms)",
             PAYLOAD_MASK
         );
+
+        // Compute ground flag and variable range from children.
+        // At this point, term is guaranteed to be an App with at least one child.
+        let (is_ground, var_range) = match &term {
+            Term::App(_, children) => {
+                let mut all_ground = true;
+                let mut min_v = u32::MAX;
+                let mut max_v = 0u32;
+                let var_ranges_guard = self.var_ranges.read();
+                for c in children.iter() {
+                    if c.is_ground() {
+                        continue;
+                    }
+                    all_ground = false;
+                    if c.is_inline_var() {
+                        let idx = c.inline_var_index();
+                        min_v = min_v.min(idx);
+                        max_v = max_v.max(idx);
+                    } else {
+                        // Non-ground store ref: look up child's range
+                        if let Some(&(cmin, cmax)) = var_ranges_guard.get(c.index()) {
+                            min_v = min_v.min(cmin);
+                            max_v = max_v.max(cmax);
+                        }
+                    }
+                }
+                (all_ground, (min_v, max_v))
+            }
+            Term::Var(_) => unreachable!("variables are handled above"),
+        };
+
         {
             let mut nodes = self.nodes.write();
             let idx = raw_index as usize;
@@ -223,12 +273,15 @@ impl TermStore {
             }
             nodes[idx] = term.clone();
         }
-        // Compute ground flag from children's TermId ground bits (zero cost).
-        // At this point, term is guaranteed to be an App with at least one child.
-        let is_ground = match &term {
-            Term::App(_, children) => children.iter().all(|c| c.is_ground()),
-            Term::Var(_) => unreachable!("variables are handled above"),
-        };
+        {
+            let mut vr = self.var_ranges.write();
+            let idx = raw_index as usize;
+            if vr.len() <= idx {
+                vr.resize(idx + 1, (u32::MAX, 0));
+            }
+            vr[idx] = var_range;
+        }
+
         let id = TermId(
             raw_index
                 | if is_ground {
@@ -315,6 +368,7 @@ impl TermStore {
     pub fn read_lock(&self) -> TermReadGuard<'_> {
         TermReadGuard {
             data: self.nodes.read(),
+            var_ranges: self.var_ranges.read(),
         }
     }
 
@@ -366,6 +420,17 @@ impl TermStore {
         self.nodes.get_mut().get(id.index())
     }
 
+    /// Get the variable range (min_var, max_var) for a non-ground store-ref TermId.
+    /// Returns None for inline or ground TermIds (callers should handle those directly).
+    /// Requires exclusive (`&mut`) access.
+    #[inline]
+    pub fn var_range_unlocked(&mut self, id: TermId) -> Option<(u32, u32)> {
+        if id.is_inline() || id.is_ground() {
+            return None;
+        }
+        self.var_ranges.get_mut().get(id.index()).copied()
+    }
+
     /// Intern a term without locking. Requires exclusive (`&mut`) access.
     ///
     /// Uses `RwLock::get_mut()` on both nodes and shard maps, bypassing
@@ -395,6 +460,37 @@ impl TermStore {
             "TermStore overflow: too many terms (>{} terms)",
             PAYLOAD_MASK
         );
+
+        // Compute ground flag and variable range from children.
+        // At this point, term is guaranteed to be an App with at least one child.
+        let (is_ground, var_range) = match &term {
+            Term::App(_, children) => {
+                let mut all_ground = true;
+                let mut min_v = u32::MAX;
+                let mut max_v = 0u32;
+                let vr = self.var_ranges.get_mut();
+                for c in children.iter() {
+                    if c.is_ground() {
+                        continue;
+                    }
+                    all_ground = false;
+                    if c.is_inline_var() {
+                        let idx = c.inline_var_index();
+                        min_v = min_v.min(idx);
+                        max_v = max_v.max(idx);
+                    } else {
+                        // Non-ground store ref: look up child's range
+                        if let Some(&(cmin, cmax)) = vr.get(c.index()) {
+                            min_v = min_v.min(cmin);
+                            max_v = max_v.max(cmax);
+                        }
+                    }
+                }
+                (all_ground, (min_v, max_v))
+            }
+            Term::Var(_) => unreachable!("variables are handled above"),
+        };
+
         let nodes = self.nodes.get_mut();
         let idx = raw_index as usize;
         if nodes.len() <= idx {
@@ -402,11 +498,14 @@ impl TermStore {
         }
         nodes[idx] = term.clone();
 
-        // At this point, term is guaranteed to be an App with at least one child.
-        let is_ground = match &term {
-            Term::App(_, children) => children.iter().all(|c| c.is_ground()),
-            Term::Var(_) => unreachable!("variables are handled above"),
-        };
+        {
+            let vr = self.var_ranges.get_mut();
+            if vr.len() <= idx {
+                vr.resize(idx + 1, (u32::MAX, 0));
+            }
+            vr[idx] = var_range;
+        }
+
         let id = TermId(
             raw_index
                 | if is_ground {
@@ -461,6 +560,7 @@ impl TermStore {
 /// per-lookup lock acquisition in tight loops.
 pub struct TermReadGuard<'a> {
     data: parking_lot::RwLockReadGuard<'a, Vec<Term>>,
+    var_ranges: parking_lot::RwLockReadGuard<'a, Vec<(u32, u32)>>,
 }
 
 impl TermReadGuard<'_> {
@@ -473,6 +573,16 @@ impl TermReadGuard<'_> {
             return None;
         }
         self.data.get(id.index())
+    }
+
+    /// Get the variable range (min_var, max_var) for a non-ground store-ref TermId.
+    /// Returns None for inline or ground TermIds.
+    #[inline]
+    pub fn var_range(&self, id: TermId) -> Option<(u32, u32)> {
+        if id.is_inline() || id.is_ground() {
+            return None;
+        }
+        self.var_ranges.get(id.index()).copied()
     }
 }
 
