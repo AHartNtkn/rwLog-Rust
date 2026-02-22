@@ -72,6 +72,8 @@ A parallel executor with: per-worker deques (Chase-Lev style), work-stealing for
 
 Targets linear-to-sublinear wall time reduction on wide branching workloads.
 
+**Investigated — DISCARDED (architectural incompatibility).** See [docs/perf_investigations/parallel_or.md](docs/perf_investigations/parallel_or.md). The codebase was explicitly designed for single-threaded performance: `&mut TermStore` API prevents shared access (144 call sites, 24 files), FastLock is a zero-cost fake mutex, and lock contention on TermStore/Tables would likely negate parallelism gains. Retrofitting requires ~400-600 lines of mechanical changes plus architectural restructuring. Engine-level parallelism (multiple independent queries) is more promising than within-query Or-branch parallelism.
+
 **Key benchmark cases:** `heavy_or_16`, `parallel_and_32x32_overlap16`
 
 ### 7. Tabling Redesign: Answer Tries + Semi-Naive + SCC
