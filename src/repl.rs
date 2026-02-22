@@ -6,14 +6,14 @@
 //! - `<query>` to run a query
 //! - `list`, `help`, `quit`/`exit`
 
-use crate::chr::{ChrState, NoTheory};
+use crate::chr::ChrState;
 use crate::engine::Engine;
 use crate::parser::{ChrConstraintBuilder, Parser};
 use crate::rel::Rel;
 use crate::work::Env;
 use std::collections::HashMap;
 
-type ReplConstraint = ChrState<NoTheory>;
+type ReplConstraint = ChrState;
 
 /// REPL state.
 pub struct Repl {

@@ -36,40 +36,32 @@ thread_local! {
     static SHIFT_CACHE: RefCell<ShiftCache> = RefCell::new(ShiftCache::new());
 }
 
-/// Match two terms in a shared namespace, returning a most general matching
-/// substitution if successful. Returns None if the terms cannot match.
-///
-/// This computes a combined substitution over the shared namespace; callers
-/// that need per-side substitutions should split and resolve it.
+/// Extend an existing substitution by unifying `t1` and `t2` under the read
+/// guard. Returns `true` on success, `false` if the terms are incompatible
+/// (functor mismatch, arity mismatch, or occurs-check failure).
 ///
 /// Uses an explicit worklist to avoid recursion.
-/// Implements occurs-check to prevent infinite terms.
-pub(crate) fn match_terms_combined(t1: TermId, t2: TermId, terms: &TermStore) -> Option<Subst> {
-    #[cfg(feature = "tracing")]
-    let _span = debug_span!("match_terms", ?t1, ?t2).entered();
-
-    // Hold a single read lock for the entire matching operation.
-    let guard = terms.read_lock();
-
-    let mut subst = Subst::new();
+pub(crate) fn unify_into(
+    subst: &mut Subst,
+    t1: TermId,
+    t2: TermId,
+    guard: &TermReadGuard<'_>,
+) -> bool {
     let mut worklist: SmallVec<[(TermId, TermId); 32]> = SmallVec::new();
     worklist.push((t1, t2));
 
     while let Some((a, b)) = worklist.pop() {
-        // Dereference variables through the substitution
-        let a_deref = deref_locked(a, &subst, &guard);
-        let b_deref = deref_locked(b, &subst, &guard);
+        let a_deref = deref_locked(a, subst, guard);
+        let b_deref = deref_locked(b, subst, guard);
 
         if a_deref == b_deref {
             continue;
         }
 
-        // Classify both terms without cloning children.
-        // Handle inline TermIds directly.
         enum TermKind {
             Var(u32),
             App(FuncId),
-            InlineNullary(u32), // raw func id
+            InlineNullary(u32),
             Invalid,
         }
 
@@ -98,69 +90,82 @@ pub(crate) fn match_terms_combined(t1: TermId, t2: TermId, terms: &TermStore) ->
                 }
             }
             (TermKind::Var(idx), TermKind::App(_) | TermKind::InlineNullary(_)) => {
-                if occurs_locked(idx, b_deref, &subst, &guard) {
+                if occurs_locked(idx, b_deref, subst, guard) {
                     #[cfg(feature = "tracing")]
-                    trace!(var = idx, "match_occurs_check_failed");
-                    return None;
+                    trace!(var = idx, "unify_occurs_check_failed");
+                    return false;
                 }
                 subst.bind(idx, b_deref);
             }
             (TermKind::App(_) | TermKind::InlineNullary(_), TermKind::Var(idx)) => {
-                if occurs_locked(idx, a_deref, &subst, &guard) {
+                if occurs_locked(idx, a_deref, subst, guard) {
                     #[cfg(feature = "tracing")]
-                    trace!(var = idx, "match_occurs_check_failed");
-                    return None;
+                    trace!(var = idx, "unify_occurs_check_failed");
+                    return false;
                 }
                 subst.bind(idx, a_deref);
             }
             (TermKind::InlineNullary(f1), TermKind::InlineNullary(f2)) => {
                 if f1 != f2 {
                     #[cfg(feature = "tracing")]
-                    trace!("match_functor_mismatch");
-                    return None;
+                    trace!("unify_functor_mismatch");
+                    return false;
                 }
-                // Both are nullary with same func: already equal (caught by a_deref == b_deref above).
-                // If we reach here, they must have matched, no children to compare.
             }
             (TermKind::App(f1), TermKind::App(f2)) => {
                 if f1 != f2 {
                     #[cfg(feature = "tracing")]
-                    trace!("match_functor_mismatch");
-                    return None;
+                    trace!("unify_functor_mismatch");
+                    return false;
                 }
                 if let (Some(Term::App(_, ac)), Some(Term::App(_, bc))) =
                     (guard.get(a_deref), guard.get(b_deref))
                 {
                     if ac.len() != bc.len() {
                         #[cfg(feature = "tracing")]
-                        trace!("match_arity_mismatch");
-                        return None;
+                        trace!("unify_arity_mismatch");
+                        return false;
                     }
                     for (c1, c2) in ac.iter().zip(bc.iter()) {
                         worklist.push((*c1, *c2));
                     }
                 }
             }
-            // Mismatched kinds: inline nullary vs store App (different arity) or other mismatches
             (TermKind::InlineNullary(_), TermKind::App(..))
             | (TermKind::App(..), TermKind::InlineNullary(_)) => {
-                // Nullary (0 children) vs non-nullary App (1+ children): arity mismatch.
                 #[cfg(feature = "tracing")]
-                trace!("match_arity_mismatch");
-                return None;
+                trace!("unify_arity_mismatch");
+                return false;
             }
             _ => {
                 #[cfg(feature = "tracing")]
-                trace!("match_invalid_term");
-                return None;
+                trace!("unify_invalid_term");
+                return false;
             }
         }
     }
 
-    #[cfg(feature = "tracing")]
-    trace!(bindings = subst.len(), "match_success");
+    true
+}
 
-    Some(subst)
+/// Match two terms in a shared namespace, returning a most general matching
+/// substitution if successful. Returns None if the terms cannot match.
+///
+/// This computes a combined substitution over the shared namespace; callers
+/// that need per-side substitutions should split and resolve it.
+pub(crate) fn match_terms_combined(t1: TermId, t2: TermId, terms: &TermStore) -> Option<Subst> {
+    #[cfg(feature = "tracing")]
+    let _span = debug_span!("match_terms", ?t1, ?t2).entered();
+
+    let guard = terms.read_lock();
+    let mut subst = Subst::new();
+    if unify_into(&mut subst, t1, t2, &guard) {
+        #[cfg(feature = "tracing")]
+        trace!(bindings = subst.len(), "match_success");
+        Some(subst)
+    } else {
+        None
+    }
 }
 
 /// Match two terms where the right-side (`t2`) variables are virtually shifted.

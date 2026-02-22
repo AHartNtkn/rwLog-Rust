@@ -1,148 +1,11 @@
 use super::*;
 use crate::constraint::ConstraintOps;
-use crate::term::TermStore;
 use crate::test_utils::setup;
 use smallvec::SmallVec;
 use std::sync::Arc;
 
-#[derive(Clone, Default)]
-struct TestStore {
-    bindings: Vec<(u32, crate::term::TermId)>,
-}
-
-struct TestTheory;
-
-impl Theory for TestTheory {
-    type Store = TestStore;
-
-    fn entails_eq(store: &Self::Store, a: crate::term::TermId, b: crate::term::TermId) -> bool {
-        let _ = store;
-        a == b
-    }
-
-    fn entails_neq(_store: &Self::Store, a: crate::term::TermId, b: crate::term::TermId) -> bool {
-        a != b
-    }
-
-    fn extract_subst(store: &Self::Store) -> crate::subst::Subst {
-        let mut subst = crate::subst::Subst::new();
-        for (v, t) in store.bindings.iter().copied() {
-            subst.bind(v, t);
-        }
-        subst
-    }
-
-    fn merge_store(a: &Self::Store, b: &Self::Store) -> Option<Self::Store> {
-        let mut merged = a.clone();
-        for (v, t) in b.bindings.iter().copied() {
-            if let Some(existing) = merged.bindings.iter().find(|(ev, _)| *ev == v) {
-                if existing.1 != t {
-                    return None;
-                }
-            } else {
-                merged.bindings.push((v, t));
-            }
-        }
-        Some(merged)
-    }
-
-    fn apply_subst(
-        store: &Self::Store,
-        subst: &crate::subst::Subst,
-        terms: &mut TermStore,
-    ) -> Self::Store {
-        let mut out = store.clone();
-        for (_, t) in out.bindings.iter_mut() {
-            *t = crate::subst::apply_subst(*t, subst, terms);
-        }
-        out
-    }
-
-    fn freeze_store(store: &Self::Store) -> Vec<u8> {
-        let mut out = Vec::new();
-        out.extend_from_slice(&(store.bindings.len() as u32).to_le_bytes());
-        for (v, t) in store.bindings.iter().copied() {
-            out.extend_from_slice(&v.to_le_bytes());
-            out.extend_from_slice(&t.raw().to_le_bytes());
-        }
-        out
-    }
-
-    fn thaw_store(bytes: &[u8]) -> Self::Store {
-        let mut i = 0;
-        if bytes.len() < 4 {
-            return TestStore::default();
-        }
-        let mut count_bytes = [0u8; 4];
-        count_bytes.copy_from_slice(&bytes[i..i + 4]);
-        i += 4;
-        let count = u32::from_le_bytes(count_bytes) as usize;
-        let mut bindings = Vec::with_capacity(count);
-        for _ in 0..count {
-            if i + 8 > bytes.len() {
-                break;
-            }
-            let mut v_bytes = [0u8; 4];
-            let mut t_bytes = [0u8; 4];
-            v_bytes.copy_from_slice(&bytes[i..i + 4]);
-            i += 4;
-            t_bytes.copy_from_slice(&bytes[i..i + 4]);
-            i += 4;
-            let v = u32::from_le_bytes(v_bytes);
-            let t = crate::term::TermId::from_raw(u32::from_le_bytes(t_bytes));
-            bindings.push((v, t));
-        }
-        TestStore { bindings }
-    }
-
-    fn remap_vars(store: &Self::Store, map: &[Option<u32>], terms: &mut TermStore) -> Self::Store {
-        let mut out = store.clone();
-        for (v, t) in out.bindings.iter_mut() {
-            if (*v as usize) < map.len() {
-                if let Some(new_v) = map[*v as usize] {
-                    *v = new_v;
-                }
-            }
-            *t = crate::nf::apply_var_renaming(*t, map, terms);
-        }
-        out
-    }
-
-    fn collect_vars(store: &Self::Store, terms: &TermStore, out: &mut Vec<u32>) {
-        for (v, t) in store.bindings.iter().copied() {
-            out.push(v);
-            out.extend(crate::nf::collect_vars_ordered(t, terms));
-        }
-    }
-
-    fn is_empty(store: &Self::Store) -> bool {
-        store.bindings.is_empty()
-    }
-}
-
-fn bind_builtin() -> Builtin<TestTheory> {
-    Builtin {
-        arity: 2,
-        guard: |_store, _terms, _args| true,
-        add: |store, terms, args| {
-            if args.len() != 2 {
-                return false;
-            }
-            let v = match terms.is_var(args[0]) {
-                Some(idx) => idx,
-                None => return false,
-            };
-            store.bindings.push((v, args[1]));
-            true
-        },
-    }
-}
-
-fn test_program() -> (Arc<ChrProgram<TestTheory>>, PredId, PredId) {
-    let mut builtins = BuiltinRegistry::default();
-    builtins.builtins.push(bind_builtin());
-
-    let mut builder = ChrProgramBuilder::<TestTheory>::new(builtins);
+fn test_program() -> (Arc<ChrProgram>, PredId, PredId) {
+    let mut builder = ChrProgramBuilder::new();
     let p = builder.pred("p", 1, vec![]);
     let q = builder.pred("q", 1, vec![]);
     let _ = builder.pred("r", 1, vec![]);
@@ -177,7 +40,7 @@ fn alive_args_for_pred(store: &ChrStore, pred: PredId) -> Vec<SmallVec<[crate::t
 fn duplicate_constraints_get_distinct_cids() {
     let (symbols, terms) = setup();
     let (program, p, _) = test_program();
-    let mut state = ChrState::new(program, TestStore::default());
+    let mut state = ChrState::new(program);
 
     let a = terms.app0(symbols.intern("A"));
     let cid1 = state.introduce(p, &[a], &terms);
@@ -189,8 +52,8 @@ fn duplicate_constraints_get_distinct_cids() {
 
 #[test]
 fn empty_constraints_combine_across_programs() {
-    let state_a: ChrState<TestTheory> = ChrState::new(ChrProgram::empty(), TestStore::default());
-    let state_b: ChrState<TestTheory> = ChrState::new(ChrProgram::empty(), TestStore::default());
+    let state_a = ChrState::new(ChrProgram::empty());
+    let state_b = ChrState::new(ChrProgram::empty());
 
     let combined = state_a
         .combine(&state_b)
@@ -206,11 +69,11 @@ fn empty_constraint_combines_with_non_empty_other_program() {
     let (symbols, terms) = setup();
     let (program, p, _) = test_program();
 
-    let mut non_empty = ChrState::new(program, TestStore::default());
+    let mut non_empty = ChrState::new(program);
     let a = terms.app0(symbols.intern("A"));
     non_empty.introduce(p, &[a], &terms);
 
-    let empty: ChrState<TestTheory> = ChrState::new(ChrProgram::empty(), TestStore::default());
+    let empty = ChrState::new(ChrProgram::empty());
     let combined = empty
         .combine(&non_empty)
         .expect("empty constraint should not block combine");
@@ -229,10 +92,8 @@ fn empty_constraint_combines_with_non_empty_other_program() {
 #[test]
 fn propagation_rule_fires_once_via_token_store() {
     let (symbols, mut terms) = setup();
-    let mut builtins = BuiltinRegistry::default();
-    builtins.builtins.push(bind_builtin());
 
-    let mut builder = ChrProgramBuilder::<TestTheory>::new(builtins);
+    let mut builder = ChrProgramBuilder::new();
     let p = builder.pred("p", 1, vec![]);
     let q = builder.pred("q", 1, vec![]);
 
@@ -245,7 +106,7 @@ fn propagation_rule_fires_once_via_token_store() {
     builder.rule(vec![head_p], vec![], GuardProg::empty(), body_q, 0);
 
     let program = builder.build();
-    let mut state = ChrState::new(program, TestStore::default());
+    let mut state = ChrState::new(program);
 
     let a = terms.app0(symbols.intern("A"));
     state.introduce(p, &[a], &terms);
@@ -260,7 +121,7 @@ fn propagation_rule_fires_once_via_token_store() {
 #[test]
 fn simplification_removes_head() {
     let (symbols, mut terms) = setup();
-    let mut builder = ChrProgramBuilder::<TestTheory>::new(BuiltinRegistry::default());
+    let mut builder = ChrProgramBuilder::new();
     let p = builder.pred("p", 1, vec![]);
     let q = builder.pred("q", 1, vec![]);
 
@@ -273,7 +134,7 @@ fn simplification_removes_head() {
     builder.rule(vec![], vec![head_p], GuardProg::empty(), body_q, 0);
 
     let program = builder.build();
-    let mut state = ChrState::new(program, TestStore::default());
+    let mut state = ChrState::new(program);
     let a = terms.app0(symbols.intern("A"));
     state.introduce(p, &[a], &terms);
     assert!(state.solve_to_fixpoint(&mut terms));
@@ -285,7 +146,7 @@ fn simplification_removes_head() {
 #[test]
 fn simpagation_keeps_kept_head() {
     let (symbols, mut terms) = setup();
-    let mut builder = ChrProgramBuilder::<TestTheory>::new(BuiltinRegistry::default());
+    let mut builder = ChrProgramBuilder::new();
     let p = builder.pred("p", 1, vec![]);
     let r = builder.pred("r", 1, vec![]);
     let s = builder.pred("s", 1, vec![]);
@@ -300,7 +161,7 @@ fn simpagation_keeps_kept_head() {
     builder.rule(vec![head_p], vec![head_r], GuardProg::empty(), body_s, 0);
 
     let program = builder.build();
-    let mut state = ChrState::new(program, TestStore::default());
+    let mut state = ChrState::new(program);
     let a = terms.app0(symbols.intern("A"));
     state.introduce(p, &[a], &terms);
     state.introduce(r, &[a], &terms);
@@ -314,7 +175,7 @@ fn simpagation_keeps_kept_head() {
 #[test]
 fn guard_blocks_rule_on_neq() {
     let (symbols, mut terms) = setup();
-    let mut builder = ChrProgramBuilder::<TestTheory>::new(BuiltinRegistry::default());
+    let mut builder = ChrProgramBuilder::new();
     let p = builder.pred("p", 2, vec![]);
     let q = builder.pred("q", 1, vec![]);
 
@@ -332,7 +193,7 @@ fn guard_blocks_rule_on_neq() {
     builder.rule(vec![], vec![head_p], guard, body_q, 0);
 
     let program = builder.build();
-    let mut state = ChrState::new(program, TestStore::default());
+    let mut state = ChrState::new(program);
     let a = terms.app0(symbols.intern("A"));
     let b = terms.app0(symbols.intern("B"));
 
@@ -348,7 +209,7 @@ fn guard_blocks_rule_on_neq() {
 #[test]
 fn guard_unbound_rvar_fails() {
     let (symbols, mut terms) = setup();
-    let mut builder = ChrProgramBuilder::<TestTheory>::new(BuiltinRegistry::default());
+    let mut builder = ChrProgramBuilder::new();
     let p = builder.pred("p", 1, vec![]);
     let q = builder.pred("q", 1, vec![]);
 
@@ -365,7 +226,7 @@ fn guard_unbound_rvar_fails() {
     builder.rule(vec![], vec![head_p], guard, body_q, 0);
 
     let program = builder.build();
-    let mut state = ChrState::new(program, TestStore::default());
+    let mut state = ChrState::new(program);
     let a = terms.app0(symbols.intern("A"));
 
     state.introduce(p, &[a], &terms);
@@ -376,7 +237,7 @@ fn guard_unbound_rvar_fails() {
 #[test]
 fn join_rejects_duplicate_cid() {
     let (symbols, mut terms) = setup();
-    let mut builder = ChrProgramBuilder::<TestTheory>::new(BuiltinRegistry::default());
+    let mut builder = ChrProgramBuilder::new();
     let p = builder.pred("p", 1, vec![]);
     let q = builder.pred("q", 1, vec![]);
 
@@ -390,7 +251,7 @@ fn join_rejects_duplicate_cid() {
     builder.rule(vec![head1, head2], vec![], GuardProg::empty(), body_q, 0);
 
     let program = builder.build();
-    let mut state = ChrState::new(program, TestStore::default());
+    let mut state = ChrState::new(program);
     let a = terms.app0(symbols.intern("A"));
 
     state.introduce(p, &[a], &terms);
@@ -405,7 +266,7 @@ fn join_rejects_duplicate_cid() {
 #[test]
 fn committed_choice_respects_priority() {
     let (symbols, mut terms) = setup();
-    let mut builder = ChrProgramBuilder::<TestTheory>::new(BuiltinRegistry::default());
+    let mut builder = ChrProgramBuilder::new();
     let p = builder.pred("p", 1, vec![]);
     let q1 = builder.pred("q1", 1, vec![]);
     let q2 = builder.pred("q2", 1, vec![]);
@@ -431,7 +292,7 @@ fn committed_choice_respects_priority() {
     builder.rule(vec![], vec![head_p], GuardProg::empty(), body_q2, 0);
 
     let program = builder.build();
-    let mut state = ChrState::new(program, TestStore::default());
+    let mut state = ChrState::new(program);
     let a = terms.app0(symbols.intern("A"));
     state.introduce(p, &[a], &terms);
     assert!(state.solve_to_fixpoint(&mut terms));
@@ -443,7 +304,7 @@ fn committed_choice_respects_priority() {
 #[test]
 fn freeze_thaw_remaps_tokens_and_cids() {
     let (symbols, mut terms) = setup();
-    let mut builder = ChrProgramBuilder::<TestTheory>::new(BuiltinRegistry::default());
+    let mut builder = ChrProgramBuilder::new();
     let p = builder.pred("p", 1, vec![]);
     let q = builder.pred("q", 1, vec![]);
 
@@ -456,7 +317,7 @@ fn freeze_thaw_remaps_tokens_and_cids() {
     builder.rule(vec![head_p], vec![], GuardProg::empty(), body_q, 0);
 
     let program = builder.build();
-    let mut state = ChrState::new(program.clone(), TestStore::default());
+    let mut state = ChrState::new(program.clone());
     let a = terms.app0(symbols.intern("A"));
     let b = terms.app0(symbols.intern("B"));
 
@@ -494,7 +355,7 @@ fn normalize_cache_must_not_return_stale_result_for_additive_collision() {
     let c_sym = symbols.intern("c");
 
     // Build a CHR program: p/1 where p(X) <=> top_functor(X, c, 1) | fail
-    let mut builder = ChrProgramBuilder::<TestTheory>::new(BuiltinRegistry::default());
+    let mut builder = ChrProgramBuilder::new();
     let p = builder.pred("p", 1, vec![]);
 
     // Head: p(X) where X is RVar(0)
@@ -544,7 +405,7 @@ fn normalize_cache_must_not_return_stale_result_for_additive_collision() {
     );
 
     // State A: {p(a(z)), p(d(z))} — neither triggers the c-guard, both pass.
-    let mut state_a: ChrState<TestTheory> = ChrState::new(program.clone(), TestStore::default());
+    let mut state_a = ChrState::new(program.clone());
     state_a.introduce(p, &[a_z], &terms);
     state_a.introduce(p, &[d_z], &terms);
 
@@ -555,7 +416,7 @@ fn normalize_cache_must_not_return_stale_result_for_additive_collision() {
     assert!(result_a.is_some(), "State A should normalize successfully");
 
     // State B: {p(b(z)), p(c(z))} — p(c(z)) triggers the c-guard → fail.
-    let mut state_b: ChrState<TestTheory> = ChrState::new(program.clone(), TestStore::default());
+    let mut state_b = ChrState::new(program.clone());
     state_b.introduce(p, &[b_z], &terms_mut);
     state_b.introduce(p, &[c_z], &terms_mut);
 
@@ -568,4 +429,260 @@ fn normalize_cache_must_not_return_stale_result_for_additive_collision() {
          triggers the c-guard, but it returned Some. The normalize cache \
          returned a stale result from State A due to a hash collision."
     );
+}
+
+// =========================================================================
+// Equality builtin tests ($x = $y via BuiltinId(0))
+// =========================================================================
+
+/// Rule body posts `$X = val` → normalization extracts the substitution.
+#[test]
+fn equality_in_body_produces_subst() {
+    let (symbols, mut terms) = setup();
+    let mut builder = ChrProgramBuilder::new();
+    let p = builder.pred("p", 1, vec![]);
+
+    // Rule: p(X) <=> $X = (a z).
+    // When p(Var(0)) is introduced, the body unifies Var(0) with (a z).
+    let x = builder.pat_var(RVar(0));
+    let head_p = HeadPat::new(p, vec![x]);
+
+    let a_sym = symbols.intern("a");
+    let z_sym = symbols.intern("z");
+    let z_pat = builder.pat_app(z_sym, vec![]);
+    let a_z_pat = builder.pat_app(a_sym, vec![z_pat]);
+
+    let body = BodyProg::new(vec![BodyInstr::AddBuiltin {
+        bid: BuiltinId(0),
+        args: vec![ArgExpr::RVar(RVar(0)), ArgExpr::Pat(a_z_pat)].into_boxed_slice(),
+    }]);
+    builder.rule(vec![], vec![head_p], GuardProg::empty(), body, 0);
+
+    let program = builder.build();
+    let v0 = terms.var(0);
+    let mut state = ChrState::new(program);
+    state.introduce(p, &[v0], &terms);
+
+    let (result_state, subst_opt) = state.normalize_owned(&mut terms).expect("should normalize");
+    let subst = subst_opt.expect("should produce a substitution from $X = (a z)");
+
+    // Var(0) should be bound to (a z).
+    let bound = subst.get(0).expect("Var(0) should be bound");
+    let a_z_term = terms.app1(a_sym, terms.app0(z_sym));
+    assert_eq!(
+        bound, a_z_term,
+        "Var(0) should be bound to (a z), got {:?}",
+        bound
+    );
+    // The simplification rule removed p, so no alive constraints remain.
+    assert!(
+        result_state.is_empty(),
+        "p should have been removed by simplification"
+    );
+}
+
+/// Equality between two ground terms that are structurally the same succeeds.
+#[test]
+fn equality_of_identical_ground_terms_succeeds() {
+    let (symbols, mut terms) = setup();
+    let mut builder = ChrProgramBuilder::new();
+    let p = builder.pred("p", 2, vec![]);
+    let q = builder.pred("q", 1, vec![]);
+
+    // Rule: p(X, Y) <=> $X = $Y | q(X).
+    // When X == Y, the equality succeeds and q(X) is posted.
+    let x = builder.pat_var(RVar(0));
+    let y = builder.pat_var(RVar(1));
+    let head_p = HeadPat::new(p, vec![x, y]);
+
+    let body = BodyProg::new(vec![
+        BodyInstr::AddBuiltin {
+            bid: BuiltinId(0),
+            args: vec![ArgExpr::RVar(RVar(0)), ArgExpr::RVar(RVar(1))].into_boxed_slice(),
+        },
+        BodyInstr::AddChr {
+            pred: q,
+            args: vec![ArgExpr::RVar(RVar(0))].into_boxed_slice(),
+        },
+    ]);
+    builder.rule(vec![], vec![head_p], GuardProg::empty(), body, 0);
+
+    let program = builder.build();
+    let a = terms.app0(symbols.intern("A"));
+
+    let mut state = ChrState::new(program);
+    state.introduce(p, &[a, a], &terms);
+
+    let (result_state, _) = state.normalize_owned(&mut terms).expect("should normalize");
+    assert_eq!(
+        alive_args_for_pred(result_state.store(), q).len(),
+        1,
+        "q should have been posted since A == A"
+    );
+}
+
+/// Equality between two different ground terms causes the rule body to fail.
+#[test]
+fn equality_of_different_ground_terms_fails_body() {
+    let (symbols, mut terms) = setup();
+    let mut builder = ChrProgramBuilder::new();
+    let p = builder.pred("p", 2, vec![]);
+    let q = builder.pred("q", 1, vec![]);
+
+    // Rule: p(X, Y) <=> $X = $Y, q(X).
+    // When X != Y, the equality fails and the entire body fails.
+    let x = builder.pat_var(RVar(0));
+    let y = builder.pat_var(RVar(1));
+    let head_p = HeadPat::new(p, vec![x, y]);
+
+    let body = BodyProg::new(vec![
+        BodyInstr::AddBuiltin {
+            bid: BuiltinId(0),
+            args: vec![ArgExpr::RVar(RVar(0)), ArgExpr::RVar(RVar(1))].into_boxed_slice(),
+        },
+        BodyInstr::AddChr {
+            pred: q,
+            args: vec![ArgExpr::RVar(RVar(0))].into_boxed_slice(),
+        },
+    ]);
+    builder.rule(vec![], vec![head_p], GuardProg::empty(), body, 0);
+
+    let program = builder.build();
+    let a = terms.app0(symbols.intern("A"));
+    let b = terms.app0(symbols.intern("B"));
+
+    let mut state = ChrState::new(program);
+    state.introduce(p, &[a, b], &terms);
+
+    // Body fails because A != B, so the whole normalization fails.
+    let result = state.normalize_owned(&mut terms);
+    assert!(
+        result.is_none(),
+        "Normalization should fail when equality A == B fails in body"
+    );
+}
+
+/// Structural decomposition: eq(f(a, Var(3)), f(a, b)) binds Var(3) to b.
+#[test]
+fn equality_structural_decomposition_binds_variable() {
+    let (symbols, mut terms) = setup();
+    let mut builder = ChrProgramBuilder::new();
+    let p = builder.pred("p", 2, vec![]);
+
+    // Rule: p(X, Y) <=> $X = $Y.
+    let x = builder.pat_var(RVar(0));
+    let y = builder.pat_var(RVar(1));
+    let head_p = HeadPat::new(p, vec![x, y]);
+
+    let body = BodyProg::new(vec![BodyInstr::AddBuiltin {
+        bid: BuiltinId(0),
+        args: vec![ArgExpr::RVar(RVar(0)), ArgExpr::RVar(RVar(1))].into_boxed_slice(),
+    }]);
+    builder.rule(vec![], vec![head_p], GuardProg::empty(), body, 0);
+
+    let program = builder.build();
+    let f_sym = symbols.intern("f");
+    let a = terms.app0(symbols.intern("a"));
+    let b = terms.app0(symbols.intern("b"));
+    let v3 = terms.var(3);
+    let f_a_v3 = terms.app2(f_sym, a, v3);
+    let f_a_b = terms.app2(f_sym, a, b);
+
+    let mut state = ChrState::new(program);
+    state.introduce(p, &[f_a_v3, f_a_b], &terms);
+
+    let (_result_state, subst_opt) = state.normalize_owned(&mut terms).expect("should normalize");
+    let subst = subst_opt.expect("should produce substitution from structural decomposition");
+
+    let bound = subst.get(3).expect("Var(3) should be bound");
+    assert_eq!(
+        bound, b,
+        "Var(3) should be bound to b via structural decomposition"
+    );
+}
+
+/// Occurs check: unifying Var(0) with f(Var(0)) must fail.
+#[test]
+fn equality_occurs_check_fails() {
+    let (symbols, mut terms) = setup();
+    let mut builder = ChrProgramBuilder::new();
+    let p = builder.pred("p", 2, vec![]);
+
+    // Rule: p(X, Y) <=> $X = $Y.
+    let x = builder.pat_var(RVar(0));
+    let y = builder.pat_var(RVar(1));
+    let head_p = HeadPat::new(p, vec![x, y]);
+
+    let body = BodyProg::new(vec![BodyInstr::AddBuiltin {
+        bid: BuiltinId(0),
+        args: vec![ArgExpr::RVar(RVar(0)), ArgExpr::RVar(RVar(1))].into_boxed_slice(),
+    }]);
+    builder.rule(vec![], vec![head_p], GuardProg::empty(), body, 0);
+
+    let program = builder.build();
+    let f_sym = symbols.intern("f");
+    let v0 = terms.var(0);
+    let f_v0 = terms.app1(f_sym, v0);
+
+    let mut state = ChrState::new(program);
+    state.introduce(p, &[v0, f_v0], &terms);
+
+    let result = state.normalize_owned(&mut terms);
+    assert!(
+        result.is_none(),
+        "Normalization should fail due to occurs check: Var(0) = f(Var(0))"
+    );
+}
+
+/// Multiple equalities in a single rule body accumulate into one substitution.
+#[test]
+fn equality_multiple_bindings_accumulate() {
+    let (symbols, mut terms) = setup();
+    let mut builder = ChrProgramBuilder::new();
+    let p = builder.pred("p", 3, vec![]);
+
+    // Rule: p(X, Y, Z) <=> $X = (a), $Y = (b), $Z = (c).
+    let x = builder.pat_var(RVar(0));
+    let y = builder.pat_var(RVar(1));
+    let z = builder.pat_var(RVar(2));
+    let head_p = HeadPat::new(p, vec![x, y, z]);
+
+    let a_pat = builder.pat_app(symbols.intern("a"), vec![]);
+    let b_pat = builder.pat_app(symbols.intern("b"), vec![]);
+    let c_pat = builder.pat_app(symbols.intern("c"), vec![]);
+
+    let body = BodyProg::new(vec![
+        BodyInstr::AddBuiltin {
+            bid: BuiltinId(0),
+            args: vec![ArgExpr::RVar(RVar(0)), ArgExpr::Pat(a_pat)].into_boxed_slice(),
+        },
+        BodyInstr::AddBuiltin {
+            bid: BuiltinId(0),
+            args: vec![ArgExpr::RVar(RVar(1)), ArgExpr::Pat(b_pat)].into_boxed_slice(),
+        },
+        BodyInstr::AddBuiltin {
+            bid: BuiltinId(0),
+            args: vec![ArgExpr::RVar(RVar(2)), ArgExpr::Pat(c_pat)].into_boxed_slice(),
+        },
+    ]);
+    builder.rule(vec![], vec![head_p], GuardProg::empty(), body, 0);
+
+    let program = builder.build();
+    let v0 = terms.var(0);
+    let v1 = terms.var(1);
+    let v2 = terms.var(2);
+
+    let mut state = ChrState::new(program);
+    state.introduce(p, &[v0, v1, v2], &terms);
+
+    let (_result_state, subst_opt) = state.normalize_owned(&mut terms).expect("should normalize");
+    let subst = subst_opt.expect("should produce substitution from three equalities");
+
+    let a = terms.app0(symbols.intern("a"));
+    let b = terms.app0(symbols.intern("b"));
+    let c = terms.app0(symbols.intern("c"));
+
+    assert_eq!(subst.get(0), Some(a), "Var(0) should be bound to a");
+    assert_eq!(subst.get(1), Some(b), "Var(1) should be bound to b");
+    assert_eq!(subst.get(2), Some(c), "Var(2) should be bound to c");
 }

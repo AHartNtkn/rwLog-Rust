@@ -1,4 +1,4 @@
-use crate::chr::{ChrState, NoTheory};
+use crate::chr::ChrState;
 use crate::engine::Engine;
 use crate::parser::{ChrConstraintBuilder, Parser};
 use crate::perf_counters;
@@ -15,7 +15,7 @@ use std::str::FromStr;
 use std::sync::OnceLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-pub type CorpusConstraint = ChrState<NoTheory>;
+pub type CorpusConstraint = ChrState;
 pub const CORPUS_SCHEMA_VERSION: u32 = 1;
 
 #[derive(Clone, Debug, Serialize)]

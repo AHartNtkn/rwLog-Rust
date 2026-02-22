@@ -2,7 +2,7 @@ mod common;
 
 use common::*;
 
-use rwlog::chr::{ChrState, NoTheory};
+use rwlog::chr::ChrState;
 use rwlog::engine::Engine;
 use rwlog::nf::direct_rule_terms;
 use rwlog::parser::{ChrConstraintBuilder, Parser};
@@ -15,7 +15,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-type TestConstraint = ChrState<NoTheory>;
+type TestConstraint = ChrState;
 
 static TEMP_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -915,4 +915,46 @@ fn large_peano_input_can_be_constructed_for_queries() {
     let n = peano_term(8);
     let query = format!("@{} ; id", n);
     assert_query_exact(BASIC_PROGRAM, &query, &[(shape_peano(8), shape_peano(8))]);
+}
+
+// =========================================================================
+// Equality constraints in theories ($x = $y)
+// =========================================================================
+
+#[test]
+fn equality_constraint_in_theory_produces_correct_binding() {
+    // A theory where p(X, Y) uses $X = $Y to unify args.
+    // When both args are the same ground term, the rule fires normally.
+    let program = r#"
+theory eq_theory {
+  constraint p/2
+  constraint q/1
+  (p $x $y) <=> $x = $y, (q $x).
+}
+
+rel r { (pair $a $a) { (p $a $a) } -> $a }
+"#;
+    assert_query_exact(
+        program,
+        "@(pair z z) ; r",
+        &[(
+            shape_app("pair", vec![shape_atom("z"), shape_atom("z")]),
+            shape_atom("z"),
+        )],
+    );
+}
+
+#[test]
+fn equality_constraint_failure_kills_branch() {
+    // When args differ, $x = $y fails and the whole body fails.
+    let program = r#"
+theory eq_theory {
+  constraint p/2
+  (p $x $y) <=> $x = $y.
+}
+
+rel r { (pair $a $b) { (p $a $b) } -> $a }
+"#;
+    // p(a, b) where a != b → body fails → no results.
+    assert_query_exact(program, "@(pair a b) ; r", &[]);
 }

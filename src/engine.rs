@@ -154,7 +154,7 @@ pub fn query_first<C: ConstraintOps>(rel: Rel<C>, terms: TermStore) -> Option<NF
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::chr::{ChrState, NoTheory};
+    use crate::chr::ChrState;
     use crate::drop_fresh::DropFresh;
     use crate::kernel::dual_nf;
     use crate::nf::{direct_rule_terms, NF};
@@ -202,7 +202,7 @@ mod tests {
     fn parse_rel_def_with_env_chr(
         parser: &mut Parser<ChrConstraintBuilder>,
         def: &str,
-    ) -> (Rel<ChrState<NoTheory>>, Env<ChrState<NoTheory>>) {
+    ) -> (Rel<ChrState>, Env<ChrState>) {
         parse_rel_def_with_env_common(parser, def, |parser, line| {
             parser.parse_theory_def(line).expect("parse theory");
         })
@@ -1873,8 +1873,7 @@ rel add {
         );
         let query = parser.parse_rel_body(query_str).expect("parse query");
         let terms = parser.take_terms();
-        let mut engine: Engine<ChrState<NoTheory>> =
-            Engine::new_with_env(query, terms, env.clone());
+        let mut engine: Engine<ChrState> = Engine::new_with_env(query, terms, env.clone());
         let max_steps = 20_000_000;
         let first = run_until_emit(&mut engine, max_steps);
         assert!(
@@ -1901,7 +1900,7 @@ rel add {
         );
         let query2 = parser.parse_rel_body(&query2_str).expect("parse query 2");
         let terms = parser.take_terms();
-        let mut engine2: Engine<ChrState<NoTheory>> = Engine::new_with_env(query2, terms, env);
+        let mut engine2: Engine<ChrState> = Engine::new_with_env(query2, terms, env);
         let second = run_until_emit(&mut engine2, max_steps);
         assert!(
             second.is_some(),
@@ -1963,7 +1962,7 @@ rel add {
         );
         let query = parser.parse_rel_body(query_str).expect("parse query");
         let terms = parser.take_terms();
-        let mut engine: Engine<ChrState<NoTheory>> = Engine::new_with_env(query, terms, env);
+        let mut engine: Engine<ChrState> = Engine::new_with_env(query, terms, env);
         // Use a minimal step limit. With the old buggy cache hash, the
         // invalid answer appeared almost immediately (~0.21s). With the fix,
         // no answers appear because invalid branches are correctly pruned.
@@ -2023,7 +2022,7 @@ rel add {
             Rel::Fix(id, body) => Env::new().bind(*id, Arc::new(dual(body, &mut terms))),
             _ => env.clone(),
         };
-        let mut dual_engine: Engine<ChrState<NoTheory>> =
+        let mut dual_engine: Engine<ChrState> =
             Engine::new_with_env(dual(&query, &mut terms), terms, dual_env);
         let max_steps = 20_000_000;
         let _dual_first =
@@ -2047,13 +2046,13 @@ rel add {
 
         fn trace_query(
             label: &str,
-            query: &Rel<ChrState<NoTheory>>,
-            env: &Env<ChrState<NoTheory>>,
+            query: &Rel<ChrState>,
+            env: &Env<ChrState>,
             terms: &mut TermStore,
             symbols: &SymbolStore,
             max_steps: usize,
-        ) -> Option<NF<ChrState<NoTheory>>> {
-            let mut engine: Engine<ChrState<NoTheory>> =
+        ) -> Option<NF<ChrState>> {
+            let mut engine: Engine<ChrState> =
                 Engine::new_with_env(query.clone(), std::mem::take(terms), env.clone());
             let mut first = None;
             for step in 0..max_steps {
@@ -2708,7 +2707,7 @@ rel lamEq {
         let query = parser.parse_rel_body(query_str).expect("parse lamEq query");
         let terms = parser.take_terms();
 
-        let mut engine: Engine<ChrState<NoTheory>> = Engine::new_with_env(query, terms, env);
+        let mut engine: Engine<ChrState> = Engine::new_with_env(query, terms, env);
 
         // First answer should be the identity - get it
         let max_steps = 100_000;
@@ -2742,7 +2741,7 @@ rel lamEq {
         let query = parser.parse_rel_body(query_str).expect("parse lamEq query");
         let terms = parser.take_terms();
 
-        let mut engine: Engine<ChrState<NoTheory>> = Engine::new_with_env(query, terms, env);
+        let mut engine: Engine<ChrState> = Engine::new_with_env(query, terms, env);
 
         let max_steps = 100_000;
 
@@ -2792,7 +2791,7 @@ rel lamEq {
         let query = parser.parse_rel_body(query_str).expect("parse lamEq");
         let terms = parser.take_terms();
 
-        let mut engine: Engine<ChrState<NoTheory>> = Engine::new_with_env(query, terms, env);
+        let mut engine: Engine<ChrState> = Engine::new_with_env(query, terms, env);
 
         let max_steps = 100_000;
         let mut answers = Vec::new();
@@ -2848,7 +2847,7 @@ rel lamEq {
         let query = parser.parse_rel_body(query_str).expect("parse lamEq query");
         let terms = parser.take_terms();
 
-        let mut engine: Engine<ChrState<NoTheory>> = Engine::new_with_env(query, terms, env);
+        let mut engine: Engine<ChrState> = Engine::new_with_env(query, terms, env);
 
         let max_steps = 100_000;
         let mut answers = Vec::new();

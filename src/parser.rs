@@ -13,8 +13,8 @@
 //! - `(f x y ...)` - compound term
 
 use crate::chr::{
-    ArgExpr, BodyInstr, BodyProg, ChrProgram, ChrProgramBuilder, ChrState, GVal, GuardInstr,
-    GuardProg, HeadPat, NoTheory, PatId, PredId, RVar,
+    ArgExpr, BodyInstr, BodyProg, BuiltinId, ChrProgram, ChrProgramBuilder, ChrState, GVal,
+    GuardInstr, GuardProg, HeadPat, PatId, PredId, RVar,
 };
 use crate::constraint::ConstraintOps;
 use crate::nf::NF;
@@ -101,18 +101,18 @@ impl ConstraintBuilder for NoConstraintBuilder {
 
 #[derive(Clone, Debug)]
 pub struct ChrConstraintBuilder {
-    builder: ChrProgramBuilder<NoTheory>,
-    program: Arc<ChrProgram<NoTheory>>,
+    builder: ChrProgramBuilder,
+    program: Arc<ChrProgram>,
 }
 
 impl ChrConstraintBuilder {
     pub fn new() -> Self {
-        let builder = ChrProgramBuilder::new(crate::chr::BuiltinRegistry::default());
+        let builder = ChrProgramBuilder::new();
         let program = builder.clone().build();
         Self { builder, program }
     }
 
-    pub fn program(&self) -> Arc<ChrProgram<NoTheory>> {
+    pub fn program(&self) -> Arc<ChrProgram> {
         self.program.clone()
     }
 }
@@ -124,10 +124,10 @@ impl Default for ChrConstraintBuilder {
 }
 
 impl ConstraintBuilder for ChrConstraintBuilder {
-    type Constraint = ChrState<NoTheory>;
+    type Constraint = ChrState;
 
     fn empty_constraint(&self) -> Self::Constraint {
-        ChrState::new(self.program.clone(), ())
+        ChrState::new(self.program.clone())
     }
 
     fn build_constraint(
@@ -135,7 +135,7 @@ impl ConstraintBuilder for ChrConstraintBuilder {
         calls: Vec<ConstraintCall>,
         terms: &mut TermStore,
     ) -> Result<Self::Constraint, ParseError> {
-        let mut st = ChrState::new(self.program.clone(), ());
+        let mut st = ChrState::new(self.program.clone());
         for call in calls {
             let pred = self.program.pred_id(&call.name).ok_or_else(|| ParseError {
                 message: format!("unknown constraint predicate '{}'", call.name),
@@ -826,7 +826,7 @@ fn skip_whitespace(input: &str, pos: &mut usize) {
 
 fn parse_chr_theory(
     input: &str,
-    builder: &mut ChrProgramBuilder<NoTheory>,
+    builder: &mut ChrProgramBuilder,
     symbols: &mut SymbolStore,
     terms: &mut TermStore,
 ) -> Result<TheorySummary, ParseError> {
@@ -922,7 +922,7 @@ fn parse_chr_theory(
 
 fn parse_chr_rule_line(
     line: &str,
-    builder: &mut ChrProgramBuilder<NoTheory>,
+    builder: &mut ChrProgramBuilder,
     symbols: &mut SymbolStore,
     terms: &mut TermStore,
 ) -> Result<(), ParseError> {
@@ -986,7 +986,7 @@ fn parse_chr_rule_line(
 
 fn parse_chr_head_list(
     input: &str,
-    builder: &mut ChrProgramBuilder<NoTheory>,
+    builder: &mut ChrProgramBuilder,
     symbols: &mut SymbolStore,
     rvars: &mut HashMap<String, RVar>,
 ) -> Result<Vec<HeadPat>, ParseError> {
@@ -1005,7 +1005,7 @@ fn parse_chr_head_list(
 
 fn parse_chr_body(
     input: &str,
-    builder: &mut ChrProgramBuilder<NoTheory>,
+    builder: &mut ChrProgramBuilder,
     symbols: &mut SymbolStore,
     rvars: &mut HashMap<String, RVar>,
 ) -> Result<BodyProg, ParseError> {
@@ -1020,6 +1020,30 @@ fn parse_chr_body(
     let parts = split_top_level_commas(input);
     let mut instrs = Vec::new();
     for part in parts {
+        // Detect `$x = $y` equality constraints in the body.
+        if let Some(eq_pos) = find_top_level_token(part, "=") {
+            // Guard: must not be part of `<=>` or `==>`.
+            let prev = if eq_pos > 0 {
+                part.as_bytes().get(eq_pos - 1).copied()
+            } else {
+                None
+            };
+            let next = part.as_bytes().get(eq_pos + 1).copied();
+            let is_arrow = prev == Some(b'<') || prev == Some(b'=') || next == Some(b'>');
+            if !is_arrow {
+                let lhs_str = part[..eq_pos].trim();
+                let rhs_str = part[eq_pos + 1..].trim();
+                let mut lhs_pos = 0;
+                let lhs = parse_chr_pat_term(lhs_str, &mut lhs_pos, builder, symbols, rvars)?;
+                let mut rhs_pos = 0;
+                let rhs = parse_chr_pat_term(rhs_str, &mut rhs_pos, builder, symbols, rvars)?;
+                instrs.push(BodyInstr::AddBuiltin {
+                    bid: BuiltinId(0),
+                    args: vec![ArgExpr::Pat(lhs), ArgExpr::Pat(rhs)].into_boxed_slice(),
+                });
+                continue;
+            }
+        }
         let (pred, args) = parse_chr_constraint(part, builder, symbols, rvars)?;
         let arg_exprs: Vec<ArgExpr> = args.into_iter().map(ArgExpr::Pat).collect();
         instrs.push(BodyInstr::AddChr {
@@ -1032,7 +1056,7 @@ fn parse_chr_body(
 
 fn parse_chr_guard(
     input: &str,
-    builder: &mut ChrProgramBuilder<NoTheory>,
+    builder: &mut ChrProgramBuilder,
     symbols: &mut SymbolStore,
     terms: &mut TermStore,
     rvars: &HashMap<String, RVar>,
@@ -1052,7 +1076,7 @@ fn parse_chr_guard(
 
 fn parse_chr_guard_call(
     input: &str,
-    builder: &mut ChrProgramBuilder<NoTheory>,
+    builder: &mut ChrProgramBuilder,
     symbols: &mut SymbolStore,
     terms: &mut TermStore,
     rvars: &HashMap<String, RVar>,
@@ -1226,7 +1250,7 @@ fn parse_chr_const_term(
 
 fn parse_chr_constraint(
     input: &str,
-    builder: &mut ChrProgramBuilder<NoTheory>,
+    builder: &mut ChrProgramBuilder,
     symbols: &mut SymbolStore,
     rvars: &mut HashMap<String, RVar>,
 ) -> Result<(PredId, Vec<PatId>), ParseError> {
@@ -1297,7 +1321,7 @@ enum PatVarMode<'a> {
 fn parse_chr_pat_term_impl(
     input: &str,
     pos: &mut usize,
-    builder: &mut ChrProgramBuilder<NoTheory>,
+    builder: &mut ChrProgramBuilder,
     symbols: &mut SymbolStore,
     mode: &mut PatVarMode<'_>,
 ) -> Result<PatId, ParseError> {
@@ -1359,7 +1383,7 @@ fn parse_chr_pat_term_impl(
 fn parse_chr_pat_term(
     input: &str,
     pos: &mut usize,
-    builder: &mut ChrProgramBuilder<NoTheory>,
+    builder: &mut ChrProgramBuilder,
     symbols: &mut SymbolStore,
     rvars: &mut HashMap<String, RVar>,
 ) -> Result<PatId, ParseError> {
@@ -1369,7 +1393,7 @@ fn parse_chr_pat_term(
 fn parse_chr_pat_term_bound(
     input: &str,
     pos: &mut usize,
-    builder: &mut ChrProgramBuilder<NoTheory>,
+    builder: &mut ChrProgramBuilder,
     symbols: &mut SymbolStore,
     rvars: &HashMap<String, RVar>,
 ) -> Result<PatId, ParseError> {
@@ -2112,5 +2136,70 @@ theory eq {
             "ParseError should not be excessively large, got {}",
             size
         );
+    }
+
+    // ========================================================================
+    // EQUALITY IN RULE BODIES
+    // ========================================================================
+
+    #[test]
+    fn theory_parses_equality_in_body() {
+        let mut parser = Parser::with_chr();
+        let theory = r#"
+theory eq_test {
+  constraint p/2
+  (p $x $y) <=> $x = $y.
+}
+"#;
+        parser
+            .parse_theory_def(theory)
+            .expect("parse theory with equality in body");
+    }
+
+    #[test]
+    fn equality_in_body_produces_subst_via_parser() {
+        let mut parser = Parser::with_chr();
+        let theory = r#"
+theory eq_test {
+  constraint p/1
+  (p $x) <=> $x = z.
+}
+"#;
+        parser.parse_theory_def(theory).expect("parse theory");
+        let nf = parser
+            .parse_rule("$x { (p $x) } -> $x")
+            .expect("parse rule with eq constraint");
+
+        let mut terms = parser.take_terms();
+        let (normalized, subst_opt) = nf
+            .drop_fresh
+            .constraint
+            .normalize(&mut terms)
+            .expect("normalize constraints");
+
+        let subst = subst_opt.expect("should produce a substitution from $x = z");
+        // The constraint p(Var) was simplified, and the body ran $x = z,
+        // binding the variable to the ground term z.
+        assert!(!subst.is_empty(), "subst should be non-empty from $x = z");
+        assert!(
+            normalized.is_empty(),
+            "p should have been removed by simplification"
+        );
+    }
+
+    #[test]
+    fn equality_arrow_not_confused_with_eq() {
+        let mut parser = Parser::with_chr();
+        // Ensure that `==>` and `<=>` are not confused with `=`.
+        let theory = r#"
+theory arrow_test {
+  constraint p/1
+  constraint q/1
+  (p $x) ==> (q $x).
+}
+"#;
+        parser
+            .parse_theory_def(theory)
+            .expect("parse theory with ==> arrow");
     }
 }
