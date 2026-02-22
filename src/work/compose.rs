@@ -318,6 +318,70 @@ impl<C: ConstraintOps> ComposeWork<C> {
         }
     }
 
+    /// Create a new ComposeWork, pre-seeding any immediately available NFs
+    /// from leading Emit nodes on either side. This avoids redundant step_node
+    /// calls for NFs that are already materialized at creation time.
+    pub fn new_preseed(mut left: Node<C>, mut right: Node<C>, terms: &mut TermStore) -> Self {
+        let mut strategy = ComposeStrategy::new();
+        let mut seen_l: Vec<crate::nf::NF<C>> = Vec::new();
+        let mut seen_r: Vec<crate::nf::NF<C>> = Vec::new();
+
+        // Absorb leading Emit chain from left
+        while let Node::Emit(nf, rest) = left {
+            let build_tag = build_root_tag(&nf, terms);
+            strategy.left_build_tags.push(build_tag);
+            seen_l.push(*nf);
+            left = *rest;
+        }
+
+        // Absorb leading Emit chain from right
+        while let Node::Emit(nf, rest) = right {
+            let match_tag = match_root_tag(&nf, terms);
+            strategy.right_match_tags.push(match_tag);
+            seen_r.push(*nf);
+            right = *rest;
+        }
+
+        let left_exhausted = matches!(left, Node::Fail);
+        let right_exhausted = matches!(right, Node::Fail);
+
+        // If one side is exhausted with zero NFs, the join is dead.
+        if (left_exhausted && seen_l.is_empty()) || (right_exhausted && seen_r.is_empty()) {
+            return Self {
+                core: DiagonalJoin::new(Node::Fail, Node::Fail, ComposeStrategy::new()),
+            };
+        }
+
+        // Eagerly compose all pre-seeded pairs and collect into pending.
+        let mut pending: VecDeque<crate::nf::NF<C>> = VecDeque::new();
+        if !seen_l.is_empty() && !seen_r.is_empty() {
+            // For each right NF, enqueue pairs with all compatible left NFs.
+            for (ri, right_nf) in seen_r.iter().enumerate() {
+                let match_tag = strategy.right_match_tags[ri];
+                for (li, left_nf) in seen_l.iter().enumerate() {
+                    let build_tag = strategy.left_build_tags[li];
+                    if !tags_compatible(build_tag, match_tag) {
+                        continue;
+                    }
+                    if let Some(nf) = ComposeStrategy::compose_pair(left_nf, right_nf, terms) {
+                        pending.push_back(nf);
+                    }
+                }
+            }
+        }
+
+        // Determine flip: if left was pre-seeded, pull right next (and vice versa).
+        let flip = !seen_l.is_empty();
+
+        let mut core = DiagonalJoin::new_with_seen(left, right, seen_l, seen_r, strategy);
+        core.flip = flip;
+        // Move eagerly-composed results into the join's pending queue.
+        for nf in pending {
+            core.push_pending(nf);
+        }
+        Self { core }
+    }
+
     pub fn step(&mut self, terms: &mut TermStore) -> WorkStep<C> {
         self.core.step(terms, Self::wrap)
     }

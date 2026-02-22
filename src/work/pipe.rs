@@ -810,7 +810,7 @@ impl<C: ConstraintOps> PipeWork<C> {
         };
 
         let core = ComposeWork::new(left_node, right_node);
-        wrap_compose_with_prefix_suffix(core, outer_prefix, outer_suffix)
+        wrap_compose_with_prefix_suffix(core, outer_prefix, outer_suffix, terms)
     }
 
     fn advance_fix(&mut self, end: PipeEnd, id: RelId, body: Arc<Rel<C>>) -> WorkStep<C> {
@@ -1143,9 +1143,9 @@ impl<C: ConstraintOps> PipeWork<C> {
         }
     }
 
-    fn advance_call(&mut self, end: PipeEnd, id: RelId) -> WorkStep<C> {
+    fn advance_call(&mut self, end: PipeEnd, id: RelId, terms: &mut TermStore) -> WorkStep<C> {
         self.pop_end(end);
-        self.handle_call(id, end)
+        self.handle_call(id, end, terms)
     }
 
     /// Advance the selected end when stuck on normalization.
@@ -1162,7 +1162,7 @@ impl<C: ConstraintOps> PipeWork<C> {
             Rel::Or(a, b) => self.advance_or(end, a.clone(), b.clone()),
             Rel::And(_, _) => self.advance_and(end, rel.clone(), terms),
             Rel::Fix(id, body) => self.advance_fix(end, *id, body.clone()),
-            Rel::Call(id) => self.advance_call(end, *id),
+            Rel::Call(id) => self.advance_call(end, *id, terms),
             // Atom/Zero/Seq should have been normalized in try_normalize_step
             _ => WorkStep::Done,
         }
@@ -1211,7 +1211,7 @@ impl<C: ConstraintOps> PipeWork<C> {
     }
 
     /// Handle a Call by looking up in the environment and using tabling.
-    fn handle_call(&mut self, id: RelId, end: PipeEnd) -> WorkStep<C> {
+    fn handle_call(&mut self, id: RelId, end: PipeEnd, terms: &mut TermStore) -> WorkStep<C> {
         let Some(binding) = self.env.lookup(id) else {
             return WorkStep::Done;
         };
@@ -1267,7 +1267,7 @@ impl<C: ConstraintOps> PipeWork<C> {
                     pipe.right = None;
                 }
                 let (left_node, right_node) = self.order_by_end(end, replay_node, pipe);
-                let compose = ComposeWork::new(left_node, right_node);
+                let compose = ComposeWork::new_preseed(left_node, right_node, terms);
                 return WorkStep::More(Box::new(Work::Compose(compose)));
             }
         }
@@ -1301,7 +1301,7 @@ impl<C: ConstraintOps> PipeWork<C> {
         }
 
         let (left_node, right_node) = self.order_by_end(end, gen_node, pipe);
-        let compose = ComposeWork::new(left_node, right_node);
+        let compose = ComposeWork::new_preseed(left_node, right_node, terms);
         WorkStep::More(Box::new(Work::Compose(compose)))
     }
 }

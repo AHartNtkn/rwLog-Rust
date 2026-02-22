@@ -187,17 +187,26 @@ fn wrap_compose_with_prefix_suffix<C: ConstraintOps>(
     core: ComposeWork<C>,
     prefix: Option<NF<C>>,
     suffix: Option<NF<C>>,
+    terms: &mut TermStore,
 ) -> WorkStep<C> {
     let mut node = Node::Work(Box::new(Work::Compose(core)));
 
     if let Some(prefix_nf) = prefix {
         let prefix_node = Node::Emit(Box::new(prefix_nf), Box::new(Node::Fail));
-        node = Node::Work(Box::new(Work::Compose(ComposeWork::new(prefix_node, node))));
+        node = Node::Work(Box::new(Work::Compose(ComposeWork::new_preseed(
+            prefix_node,
+            node,
+            terms,
+        ))));
     }
 
     if let Some(suffix_nf) = suffix {
         let suffix_node = Node::Emit(Box::new(suffix_nf), Box::new(Node::Fail));
-        node = Node::Work(Box::new(Work::Compose(ComposeWork::new(node, suffix_node))));
+        node = Node::Work(Box::new(Work::Compose(ComposeWork::new_preseed(
+            node,
+            suffix_node,
+            terms,
+        ))));
     }
 
     match node {
