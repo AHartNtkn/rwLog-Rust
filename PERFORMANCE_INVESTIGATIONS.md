@@ -285,7 +285,7 @@ Each item is an investigation area, not a guaranteed improvement.
 1. Replace naive fair diagonal join with selectivity-aware join ordering.
 2. Add cardinality/selectivity estimators for `AndGroup` components.
 3. Introduce adaptive join algorithms (`nested-loop`, hash-join-like, indexed join) by workload.
-4. Pre-filter candidate pairs using cheap shape signatures before full `meet_nf`.
+4. ~~Pre-filter candidate pairs using cheap shape signatures before full `meet_nf`.~~ **Investigated — DISCARDED (meet_nf precheck already free).** See [docs/perf_investigations/meet_index.md](docs/perf_investigations/meet_index.md). Root-functor indexing at MeetStrategy DiagonalJoin level. U=66 on join_high_overlap, U=63 on join_low_overlap. The meet_nf root functor precheck (from meet_fuse_reinv) is already essentially free (inline TermId comparison), so avoiding the call provides no measurable benefit.
 5. Cache failed meet pairs to avoid repeated impossible intersections.
 6. Rework `AndGroup` to pipeline partial meets instead of materializing large intermediate frontiers.
 7. Use async producer/consumer channels for parallel branch production and controlled backpressure.
