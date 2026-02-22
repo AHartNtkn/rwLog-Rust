@@ -1,10 +1,13 @@
 use crate::constraint::ConstraintOps;
+use crate::drop_fresh::DropFresh;
 use crate::factors::Factors;
 use crate::kernel::{compose_nf, meet_nf};
 use crate::nf::NF;
 use crate::node::Node;
 use crate::rel::{Rel, RelId};
-use crate::term::TermStore;
+use crate::symbol::FuncId;
+use crate::term::{Term, TermId, TermStore};
+use smallvec::SmallVec;
 use std::sync::Arc;
 
 use super::{
@@ -58,6 +61,74 @@ fn atoms_to_or_rel<C: Clone>(atoms: &[Arc<NF<C>>]) -> Rel<C> {
         rel = Rel::Or(Arc::new(Rel::Atom(atoms[i].clone())), Arc::new(rel));
     }
     rel
+}
+
+/// Check if an NF is a simple wrapper: `$x -> (f $x)`.
+///
+/// A simple wrapper has:
+/// - Exactly one match pattern that is a bare variable (Var(0))
+/// - Identity DropFresh(1,1,[(0,0)])
+/// - Empty constraint
+/// - Exactly one build pattern that is App(f, [Var(0)]) for some f
+///
+/// Returns the wrapper FuncId if the NF matches, None otherwise.
+fn simple_wrapper_func<C: ConstraintOps>(nf: &NF<C>, terms: &TermStore) -> Option<FuncId> {
+    // Must have exactly one match and one build pattern
+    if nf.match_pats.len() != 1 || nf.build_pats.len() != 1 {
+        return None;
+    }
+    // Match pattern must be Var(0)
+    let match_pat = nf.match_pats[0];
+    if !match_pat.is_inline_var() || match_pat.inline_var_index() != 0 {
+        return None;
+    }
+    // DropFresh must be identity(1) with empty constraint
+    let df = &nf.drop_fresh;
+    if df.in_arity != 1 || df.out_arity != 1 || df.map.len() != 1 {
+        return None;
+    }
+    if df.map[0] != (0, 0) {
+        return None;
+    }
+    if !df.constraint.is_empty() {
+        return None;
+    }
+    // Build pattern must be App(f, [Var(0)])
+    let build_pat = nf.build_pats[0];
+    terms.with_term(build_pat, |term| match term? {
+        Term::App(func, children) if children.len() == 1 => {
+            if children[0].is_inline_var() && children[0].inline_var_index() == 0 {
+                Some(*func)
+            } else {
+                None
+            }
+        }
+        _ => None,
+    })
+}
+
+/// Build a chain NF from a sequence of wrapper FuncIds.
+///
+/// Given FuncIds [f0, f1, ..., fn] (in pipeline order, front to back),
+/// builds the NF `$x -> fn(fn-1(...f1(f0($x))...))`.
+/// This is equivalent to composing all the individual wrapper NFs but in O(n)
+/// instead of O(n^2).
+fn build_wrapper_chain_nf<C: ConstraintOps>(
+    wrapper_funcs: &[FuncId],
+    terms: &mut TermStore,
+) -> NF<C> {
+    debug_assert!(!wrapper_funcs.is_empty());
+    // Build the nested term bottom-up: start with Var(0),
+    // then wrap with each func in order
+    let mut build_term = TermId::inline_var(0);
+    for &func in wrapper_funcs {
+        build_term = terms.app1(func, build_term);
+    }
+    NF::new(
+        SmallVec::from_elem(TermId::inline_var(0), 1),
+        DropFresh::identity_with_constraint(1, C::default()),
+        SmallVec::from_elem(build_term, 1),
+    )
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -765,6 +836,12 @@ impl<C: ConstraintOps> PipeWork<C> {
     /// Returns Ok(true) if progress was made, Ok(false) if no simple Calls
     /// were found, or Err(WorkStep::Done) if composition failed.
     fn try_batch_advance_calls(&mut self, terms: &mut TermStore) -> Result<bool, WorkStep<C>> {
+        // Chain fusion: detect consecutive simple wrapper Calls at the front
+        // and fuse them into a single NF in O(n) instead of O(n^2) individual composes.
+        if let Some(chain_result) = self.try_fuse_wrapper_chain(terms) {
+            return chain_result;
+        }
+
         let mut made_progress = false;
         loop {
             let mut advanced = false;
@@ -784,6 +861,55 @@ impl<C: ConstraintOps> PipeWork<C> {
             }
         }
         Ok(made_progress)
+    }
+
+    /// Detect and fuse a chain of consecutive simple wrapper Calls at the front.
+    ///
+    /// A simple wrapper NF has the form `$x -> (f $x)`. When multiple such Calls
+    /// appear consecutively, we can build the nested term bottom-up in O(n)
+    /// instead of doing n individual compose_nf calls (each O(depth)).
+    ///
+    /// Returns `Some(result)` if a chain of 2+ wrappers was found and fused,
+    /// `None` if no chain was found (caller should proceed with normal logic).
+    fn try_fuse_wrapper_chain(
+        &mut self,
+        terms: &mut TermStore,
+    ) -> Option<Result<bool, WorkStep<C>>> {
+        // Scan consecutive Calls from the front that resolve to simple wrappers
+        let mut wrapper_funcs: Vec<FuncId> = Vec::new();
+        for rel in self.mid.iter() {
+            let Rel::Call(id) = rel else {
+                break;
+            };
+            let Some(binding) = self.env.lookup(*id) else {
+                break;
+            };
+            let Rel::Atom(nf) = binding.body.as_ref() else {
+                break;
+            };
+            let Some(func) = simple_wrapper_func(nf.as_ref(), terms) else {
+                break;
+            };
+            wrapper_funcs.push(func);
+        }
+
+        // Need at least 2 wrappers to benefit from fusion
+        if wrapper_funcs.len() < 2 {
+            return None;
+        }
+
+        // Pop all the wrapper Calls from the front
+        let count = wrapper_funcs.len();
+        for _ in 0..count {
+            self.pop_end(PipeEnd::Front);
+        }
+
+        // Build the fused NF and absorb it at the front boundary
+        let chain_nf = build_wrapper_chain_nf::<C>(&wrapper_funcs, terms);
+        if !self.absorb_at(PipeEnd::Front, chain_nf, terms) {
+            return Some(Err(WorkStep::Done));
+        }
+        Some(Ok(true))
     }
 
     /// Try to advance a Call at the given end. Returns Ok(true) if progress
