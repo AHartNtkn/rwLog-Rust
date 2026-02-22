@@ -315,7 +315,7 @@ Each item is an investigation area, not a guaranteed improvement.
 0. ~~Replace SipHash with FxHash for NF dedup HashSets.~~ **Implemented — ~5% improvement.** See [docs/perf_investigations/fxhash_nf_dedup.md](docs/perf_investigations/fxhash_nf_dedup.md). Replaced `std::collections::HashSet` with `rustc_hash::FxHashSet` across all hot-path NF dedup sets (DiagonalJoin, Engine, Table, DedupQueue). SipHash was 4.17% of runtime; FxHash eliminated most of that overhead.
 1. Define stable canonical fingerprints for answers to make dedup O(1) hashed in common cases.
 2. Add per-branch dedup + global dedup layering to reduce central contention.
-3. Investigate canonical alpha-renaming at emission boundary to improve duplicate collapse.
+3. ~~Investigate canonical alpha-renaming at emission boundary to improve duplicate collapse.~~ **Investigated — no opportunity (already canonical).** See [docs/perf_investigations/canon_alpha.md](docs/perf_investigations/canon_alpha.md). factor_tensor/factor_tensor_with_subst inherently produce canonical alpha-normal forms. All NF construction paths already renumber variables to 0..n-1 in first-occurrence order. Zero alpha-equivalent duplicates exist.
 4. Add bounded LRU caches for recently emitted canonical answers in streaming queries.
 5. Evaluate probabilistic prefilters (Bloom) before full dedup checks for high-volume streams.
 
@@ -337,7 +337,7 @@ Each item is an investigation area, not a guaranteed improvement.
 ### Correctness-Preserving Pruning Analyses
 
 1. Add static impossibility analysis for constructor conflicts before runtime.
-2. Add variable-occurrence compatibility analysis to reject impossible compositions early.
+2. ~~Add variable-occurrence compatibility analysis to reject impossible compositions early.~~ **Investigated — DISCARDED (not significant).** See [docs/perf_investigations/var_compat.md](docs/perf_investigations/var_compat.md). Cached root functor fields on NfInner to eliminate get_unlocked() lookups. U=61/100, 0.75%. get_unlocked() is already ~1.5ns (pointer cast + array index). Compose precheck design space is exhausted for treecalc_synth_flip (third confirmation after depth2_precheck U=59, multi_pos_precheck U=56).
 3. Add monotonicity/determinism annotations inferred from rules for safer aggressive pruning.
 4. Identify relation fragments where exhaustive normalization can be replaced by precompiled transfer functions.
 5. Add bounded symbolic execution on plans to discover dead branches ahead of runtime.
