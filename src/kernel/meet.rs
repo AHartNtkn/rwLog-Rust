@@ -7,9 +7,8 @@ use crate::trace::{debug_span, trace};
 use std::hash::{Hash, Hasher};
 
 use super::util::{
-    apply_subst_list, apply_subst_shifted_list, build_remap_map, compose_subst,
-    match_term_lists_combined, match_term_lists_shifted_combined, max_var_index_terms,
-    pre_create_shifted_vars,
+    build_remap_map, match_rhs_lists_with_pre_subst, match_term_lists_shifted_combined,
+    max_var_index_terms, pre_create_shifted_vars,
 };
 
 /// Compute the meet (intersection) of two NFs.
@@ -147,27 +146,24 @@ fn meet_nf_impl<C: ConstraintOps>(a: &NF<C>, b: &NF<C>, terms: &mut TermStore) -
         }
     };
 
-    // Apply LHS combined subst to both sides' RHS patterns for the RHS match.
-    // rw1.rhs has left-side vars only; rw2.rhs has right-side vars (need shifting).
-    let rhs_left_applied = apply_subst_list(&rw1.rhs, &lhs_combined, terms);
-    let rhs_right_applied =
-        apply_subst_shifted_list(&rw2.rhs, &lhs_combined, b_var_offset, &shifted_vars, terms);
-
-    // RHS matching: also return raw combined substitution.
-    let rhs_combined =
-        match match_term_lists_combined(&rhs_left_applied, &rhs_right_applied, b_var_offset, terms)
-        {
-            Some(subst) => subst,
-            None => {
-                #[cfg(feature = "tracing")]
-                trace!("meet_build_failed");
-                return None;
-            }
-        };
-
-    // Compose LHS and RHS combined substitutions into one.
-    // This is equivalent to applying lhs_combined then rhs_combined sequentially.
-    let meet_subst = compose_subst(&lhs_combined, &rhs_combined, terms);
+    // Fused RHS matching: apply lhs_combined to each RHS pair on the fly and match,
+    // avoiding bulk intermediate term creation from apply_subst_list/apply_subst_shifted_list.
+    // Returns the fully composed substitution (lhs_combined + rhs_match) directly.
+    let meet_subst = match match_rhs_lists_with_pre_subst(
+        &rw1.rhs,
+        &rw2.rhs,
+        &lhs_combined,
+        b_var_offset,
+        &shifted_vars,
+        terms,
+    ) {
+        Some(subst) => subst,
+        None => {
+            #[cfg(feature = "tracing")]
+            trace!("meet_build_failed");
+            return None;
+        }
+    };
 
     // Apply the composed substitution to constraints in one pass each.
     let a_constraint = a.drop_fresh.constraint.apply_subst(&meet_subst, terms);

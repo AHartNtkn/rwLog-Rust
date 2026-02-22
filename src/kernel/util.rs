@@ -18,17 +18,6 @@ pub fn max_var_index_terms(pats: &[TermId], terms: &TermStore) -> Option<u32> {
         .max()
 }
 
-/// Apply a substitution to a list of patterns.
-pub fn apply_subst_list(
-    pats: &[TermId],
-    subst: &Subst,
-    terms: &mut TermStore,
-) -> SmallVec<[TermId; 1]> {
-    pats.iter()
-        .map(|&term| apply_subst(term, subst, terms))
-        .collect()
-}
-
 /// Pre-create shifted variable TermIds for virtual shifting.
 ///
 /// Returns `shifted_vars[j] = terms.var(j + offset)` for `j` in `0..=max_var`.
@@ -45,19 +34,6 @@ pub fn pre_create_shifted_vars(
         Some(max) => (0..=max).map(|j| terms.var(j + offset)).collect(),
         None => SmallVec::new(),
     }
-}
-
-/// Apply a substitution to a list of patterns, virtually shifting variables.
-pub fn apply_subst_shifted_list(
-    pats: &[TermId],
-    subst: &Subst,
-    var_offset: u32,
-    shifted_vars: &[TermId],
-    terms: &mut TermStore,
-) -> SmallVec<[TermId; 1]> {
-    pats.iter()
-        .map(|&term| apply_subst_shifted(term, subst, var_offset, shifted_vars, terms))
-        .collect()
 }
 
 /// Match two lists of terms element-wise with virtual shifting on the right side,
@@ -96,18 +72,49 @@ pub fn match_term_lists_shifted_combined(
     Some(subst)
 }
 
-/// Match two lists of already-substituted terms, returning the raw combined substitution.
+/// Match two lists of ORIGINAL (not yet substituted) terms element-wise,
+/// applying a pre-existing substitution (`pre_subst`) to each pair before matching.
 ///
-/// Unlike `match_term_lists`, this does not split the result. The combined subst
-/// has left-side vars at indices `< right_offset` and right-side vars at indices
-/// `>= right_offset`.
-pub fn match_term_lists_combined(
+/// This fuses the `apply_subst_list` + `apply_subst_shifted_list` + `match_term_lists_combined`
+/// pipeline into a single pass, avoiding bulk intermediate term creation.
+///
+/// The left terms have `pre_subst` applied directly. The right terms have `pre_subst`
+/// applied with virtual shifting. The resulting match subst is composed with `pre_subst`
+/// to produce a single combined substitution.
+///
+/// Returns `Some(combined_subst)` where `combined_subst = compose(pre_subst, rhs_match_subst)`,
+/// or `None` if matching fails.
+pub fn match_rhs_lists_with_pre_subst(
     left: &[TermId],
     right: &[TermId],
+    pre_subst: &Subst,
     right_offset: u32,
+    shifted_vars: &[TermId],
     terms: &mut TermStore,
 ) -> Option<Subst> {
-    match_term_lists_shifted_combined(left, right, right_offset, &[], terms)
+    if left.len() != right.len() {
+        return None;
+    }
+
+    let mut rhs_subst = Subst::new();
+    for (&l, &r) in left.iter().zip(right.iter()) {
+        // Apply pre_subst to both sides, then apply incremental rhs_subst on top.
+        let l_pre = apply_subst(l, pre_subst, terms);
+        let r_pre = apply_subst_shifted(r, pre_subst, right_offset, shifted_vars, terms);
+
+        if rhs_subst.is_empty() {
+            let match_subst = match_terms_combined(l_pre, r_pre, terms)?;
+            rhs_subst = match_subst;
+        } else {
+            let l_sub = apply_subst(l_pre, &rhs_subst, terms);
+            let r_sub = apply_subst(r_pre, &rhs_subst, terms);
+            let match_subst = match_terms_combined(l_sub, r_sub, terms)?;
+            rhs_subst = compose_subst(&rhs_subst, &match_subst, terms);
+        }
+    }
+
+    // Compose pre_subst with the rhs match result to get the full combined subst.
+    Some(compose_subst(pre_subst, &rhs_subst, terms))
 }
 
 /// Match two lists of terms element-wise with left-side variable renaming
