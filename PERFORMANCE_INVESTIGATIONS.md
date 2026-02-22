@@ -284,7 +284,7 @@ Each item is an investigation area, not a guaranteed improvement.
 5. Evaluate strongly connected component scheduling for mutual recursion groups.
 6. Add incremental invalidation model for environments where definitions change.
 7. Investigate bounded early materialization of likely-hot recursive calls.
-8. Add producer prioritization by estimated marginal new answers.
+8. ~~Add producer prioritization by estimated marginal new answers.~~ **Investigated — DISCARDED (no opportunity in current benchmarks).** See [docs/perf_investigations/tabling_producer_priority.md](docs/perf_investigations/tabling_producer_priority.md). Burst stepping causes stack overflow due to recursive step_node nesting. Dry-step skip scheduling is sound but current benchmarks have consistently productive producers — the pathology (stuck producers) doesn't occur.
 9. ~~Compare eager replay vs batched replay strategies for consumer wakeups.~~ **Investigated — DISCARDED (U=8, regression).** See [docs/perf_investigations/tabling_batch_replay.md](docs/perf_investigations/tabling_batch_replay.md). Producers are stepped one-at-a-time, so multiple new answers per producer step is extremely rare. Batch retrieval adds per-step overhead (lock + Vec allocation) that regresses on the hot path. Per-answer overhead is dominated by downstream compose/meet, not retrieval cost.
 10. Explore differential dataflow-style recursive maintenance for monotone fragments.
 
