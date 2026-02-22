@@ -3,9 +3,6 @@ use std::collections::HashSet;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 
-/// Histogram of (call_count, num_pairs_with_that_count), sorted by call_count.
-pub type FrequencyHistogram = Vec<(u32, usize)>;
-
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct PerfCountersSnapshot {
     pub engine_steps: u64,
@@ -49,8 +46,6 @@ static OR_SPINE_TOTAL_SIBLINGS: AtomicU64 = AtomicU64::new(0);
 static OR_SPINE_MAX_SIBLINGS: AtomicU64 = AtomicU64::new(0);
 static COMPOSE_PAIR_SET: Mutex<Option<HashSet<u64>>> = Mutex::new(None);
 static MEET_PAIR_SET: Mutex<Option<HashSet<u64>>> = Mutex::new(None);
-static COMPOSE_PAIR_FREQ: Mutex<Option<std::collections::HashMap<u64, u32>>> = Mutex::new(None);
-static MEET_PAIR_FREQ: Mutex<Option<std::collections::HashMap<u64, u32>>> = Mutex::new(None);
 static CAPTURE_LOCK: Mutex<()> = Mutex::new(());
 
 #[inline]
@@ -90,8 +85,6 @@ pub fn reset() {
     OR_SPINE_MAX_SIBLINGS.store(0, Ordering::Relaxed);
     *COMPOSE_PAIR_SET.lock().unwrap() = Some(HashSet::new());
     *MEET_PAIR_SET.lock().unwrap() = Some(HashSet::new());
-    *COMPOSE_PAIR_FREQ.lock().unwrap() = Some(std::collections::HashMap::new());
-    *MEET_PAIR_FREQ.lock().unwrap() = Some(std::collections::HashMap::new());
 }
 
 pub fn snapshot() -> PerfCountersSnapshot {
@@ -169,23 +162,6 @@ pub fn record_engine_exhausted() {
     }
 }
 
-/// Returns frequency histograms: (compose_freq_distribution, meet_freq_distribution)
-/// Each is a Vec<(call_count, num_pairs_with_that_count)> sorted by call_count.
-pub fn pair_frequency_histograms() -> (FrequencyHistogram, FrequencyHistogram) {
-    fn histogram(map: &Mutex<Option<std::collections::HashMap<u64, u32>>>) -> FrequencyHistogram {
-        let guard = map.lock().unwrap();
-        let Some(freq) = guard.as_ref() else {
-            return vec![];
-        };
-        let mut counts: std::collections::BTreeMap<u32, usize> = std::collections::BTreeMap::new();
-        for &count in freq.values() {
-            *counts.entry(count).or_insert(0) += 1;
-        }
-        counts.into_iter().collect()
-    }
-    (histogram(&COMPOSE_PAIR_FREQ), histogram(&MEET_PAIR_FREQ))
-}
-
 pub fn record_compose_result(success: bool) {
     if enabled() {
         bump(&COMPOSE_ATTEMPTS);
@@ -202,11 +178,6 @@ pub fn record_compose_pair_hash(hash: u64) {
         if let Ok(mut guard) = COMPOSE_PAIR_SET.lock() {
             if let Some(set) = guard.as_mut() {
                 set.insert(hash);
-            }
-        }
-        if let Ok(mut guard) = COMPOSE_PAIR_FREQ.lock() {
-            if let Some(map) = guard.as_mut() {
-                *map.entry(hash).or_insert(0) += 1;
             }
         }
     }
@@ -228,11 +199,6 @@ pub fn record_meet_pair_hash(hash: u64) {
         if let Ok(mut guard) = MEET_PAIR_SET.lock() {
             if let Some(set) = guard.as_mut() {
                 set.insert(hash);
-            }
-        }
-        if let Ok(mut guard) = MEET_PAIR_FREQ.lock() {
-            if let Some(map) = guard.as_mut() {
-                *map.entry(hash).or_insert(0) += 1;
             }
         }
     }
