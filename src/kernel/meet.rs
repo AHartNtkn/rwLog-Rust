@@ -1,7 +1,7 @@
 use crate::constraint::ConstraintOps;
 use crate::nf::{collect_tensor, factor_tensor, NF};
 use crate::perf_counters;
-use crate::term::TermStore;
+use crate::term::{Term, TermId, TermStore};
 #[cfg(feature = "tracing")]
 use crate::trace::{debug_span, trace};
 use std::hash::{Hash, Hasher};
@@ -30,6 +30,45 @@ pub fn meet_nf<C: ConstraintOps>(a: &NF<C>, b: &NF<C>, terms: &mut TermStore) ->
     result
 }
 
+/// Check if two term IDs have provably different root functors, meaning
+/// their matching/meet must fail. Handles both inline nullary constants
+/// (compare TermIds directly) and non-inline App nodes (compare root functors).
+/// Returns false for variables or other inline types (cannot rule out match).
+#[inline]
+fn meet_root_functor_mismatch(a_id: TermId, b_id: TermId, terms: &mut TermStore) -> bool {
+    // Inline nullary constants: different TermIds = different ground terms.
+    if a_id.is_inline_nullary() && b_id.is_inline_nullary() {
+        return a_id != b_id;
+    }
+    // Non-inline App nodes: compare root functors.
+    if !a_id.is_inline() && !b_id.is_inline() {
+        let a_root = match terms.get_unlocked(a_id) {
+            Some(Term::App(f, _)) => Some(*f),
+            _ => None,
+        };
+        let b_root = match terms.get_unlocked(b_id) {
+            Some(Term::App(f, _)) => Some(*f),
+            _ => None,
+        };
+        if let (Some(af), Some(bf)) = (a_root, b_root) {
+            return af != bf;
+        }
+    }
+    // One inline nullary + one non-inline App: they have different structure.
+    // An inline nullary is always a 0-ary App, while non-inline App has arity >= 1.
+    // These can never match.
+    if (a_id.is_inline_nullary() && !b_id.is_inline())
+        || (!a_id.is_inline() && b_id.is_inline_nullary())
+    {
+        // Check: non-inline side is actually an App (not a variable ref).
+        let non_inline = if a_id.is_inline_nullary() { b_id } else { a_id };
+        if let Some(Term::App(_, _)) = terms.get_unlocked(non_inline) {
+            return true; // 0-ary vs >=1-ary: definitely different
+        }
+    }
+    false
+}
+
 fn meet_nf_impl<C: ConstraintOps>(a: &NF<C>, b: &NF<C>, terms: &mut TermStore) -> Option<NF<C>> {
     #[cfg(feature = "tracing")]
     let _span = debug_span!(
@@ -44,6 +83,25 @@ fn meet_nf_impl<C: ConstraintOps>(a: &NF<C>, b: &NF<C>, terms: &mut TermStore) -
     if a.match_pats.len() != b.match_pats.len() || a.build_pats.len() != b.build_pats.len() {
         #[cfg(feature = "tracing")]
         trace!("meet_arity_mismatch");
+        return None;
+    }
+
+    // Root functor precheck: if the first match or build pattern of both NFs
+    // have incompatible root structure, the meet must fail. This avoids the
+    // cost of collect_tensor, pre_create_shifted_vars, and matching for
+    // incompatible pairs.
+    //
+    // For inline nullary terms (ground constants), different TermIds mean
+    // different terms — matching will fail. For non-inline App terms, compare
+    // root functors. Variables and other inline types skip the precheck.
+    if !a.match_pats.is_empty()
+        && meet_root_functor_mismatch(a.match_pats[0], b.match_pats[0], terms)
+    {
+        return None;
+    }
+    if !a.build_pats.is_empty()
+        && meet_root_functor_mismatch(a.build_pats[0], b.build_pats[0], terms)
+    {
         return None;
     }
 
