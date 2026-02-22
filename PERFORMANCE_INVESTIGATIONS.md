@@ -127,7 +127,7 @@ Each item is an investigation area, not a guaranteed improvement.
 7. Add cooperative work-stealing across independent branches for multicore execution.
 8. Replace queue discipline with pluggable schedulers (`FIFO`, `LIFO`, cost-priority, round-robin-by-call-key).
 9. ~~Cache branch failure signatures to fast-reject repeated dead paths.~~ **Investigated — DISCARDED (<0.02% failure overlap).** See [docs/perf_investigations/failure_sig_cache.md](docs/perf_investigations/failure_sig_cache.md). Prior data (compose_fail_cache 0% hits, compose_memo 0.02% duplicates) proves failure signatures are unique per branch due to CHR constraint state diversity. Caching adds overhead with no hits.
-10. Predict likely-empty conjunction branches early from shape constraints and schedule them first.
+10. ~~Predict likely-empty conjunction branches early from shape constraints and schedule them first.~~ **Implemented — ~43.3% improvement on treecalc_synth_flip.** See [docs/perf_investigations/shape_predict.md](docs/perf_investigations/shape_predict.md). Pre-seed ComposeWork with leading Emit chain NFs at construction time, eagerly compose compatible pairs, and detect dead joins early. Engine steps -21%, compose attempts -47%. U=100/100 (complete separation), neutral on secondary workloads.
 
 ### Work Graph Representation
 
