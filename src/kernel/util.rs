@@ -166,7 +166,7 @@ pub fn match_term_lists_shifted_with_left_renaming_combined(
 /// Compose two substitutions.
 ///
 /// The result applies `existing` first, then `new`.
-pub fn compose_subst(existing: &Subst, new: &Subst, terms: &mut TermStore) -> Subst {
+fn compose_subst(existing: &Subst, new: &Subst, terms: &mut TermStore) -> Subst {
     let mut combined = Subst::new();
     for (var, term) in existing.iter() {
         let updated = apply_subst(term, new, terms);
