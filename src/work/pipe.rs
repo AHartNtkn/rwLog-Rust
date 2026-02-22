@@ -945,6 +945,43 @@ impl<C: ConstraintOps> PipeWork<C> {
         self.advance_end(PipeEnd::Front, terms)
     }
 
+    /// Check if the replay_key subsumes our call key (strictly more general:
+    /// same relation/binding, fewer boundaries). Returns the replay_key clone
+    /// if subsumption applies, so the caller can use it as the call key.
+    ///
+    /// Only generalizes the OUTPUT-side boundary to avoid compose explosion:
+    /// - Front-advancing: right boundary is output (safe to relax)
+    /// - Back-advancing: left boundary is output (safe to relax)
+    ///
+    /// Input-side boundaries help prune during production, so relaxing them
+    /// causes the general table to produce many irrelevant answers.
+    #[cold]
+    fn try_generalize_key(
+        key: &Arc<CallKey<C>>,
+        replay_key: &Arc<CallKey<C>>,
+        end: PipeEnd,
+    ) -> Option<Arc<CallKey<C>>> {
+        if replay_key.bind_id != key.bind_id {
+            return None;
+        }
+        let right_relaxed = replay_key.right.is_none() && key.right.is_some();
+        let left_relaxed = replay_key.left.is_none() && key.left.is_some();
+        // Only relax the output-side boundary.
+        let output_relaxed = match end {
+            PipeEnd::Front => right_relaxed && !left_relaxed,
+            PipeEnd::Back => left_relaxed && !right_relaxed,
+        };
+        if !output_relaxed {
+            return None;
+        }
+        let left_compat = left_relaxed || replay_key.left == key.left;
+        let right_compat = right_relaxed || replay_key.right == key.right;
+        if !(left_compat && right_compat) {
+            return None;
+        }
+        Some(replay_key.clone())
+    }
+
     /// Handle a Call by looking up in the environment and using tabling.
     fn handle_call(&mut self, id: RelId, end: PipeEnd) -> WorkStep<C> {
         let Some(binding) = self.env.lookup(id) else {
@@ -968,13 +1005,25 @@ impl<C: ConstraintOps> PipeWork<C> {
             }
         }
 
-        let key = Arc::new(CallKey::new(
+        let mut key = Arc::new(CallKey::new(
             id,
             binding.id,
             call_left.clone(),
             call_right.clone(),
         ));
         if let CallMode::ReplayOnly(replay_key, watermark) = &self.call_mode {
+            // Subsumption: if the replay_key is strictly more general (fewer
+            // boundaries) for the same relation, use it as our key. The pipe's
+            // own boundaries will filter answers, so this is sound. This avoids
+            // creating redundant inner tables entirely.
+            // Guard: only attempt generalization when rel IDs match (cheap int
+            // comparison) but keys differ. For mutual recursion (even/odd),
+            // rel IDs differ, so the cold function is never called.
+            if replay_key.as_ref() != key.as_ref() && replay_key.rel == key.rel {
+                if let Some(generalized) = Self::try_generalize_key(&key, replay_key, end) {
+                    key = generalized;
+                }
+            }
             if replay_key.as_ref() == key.as_ref() {
                 let table = match self.tables.lookup(&key) {
                     Some(table) => table,
