@@ -1032,7 +1032,9 @@ impl<C: ConstraintOps> PipeWork<C> {
         }
 
         let table = Self::build_dispatch_table(atoms, terms);
-        let cache = self.dispatch_cache.get_or_insert_with(|| Box::new(DispatchCache::default()));
+        let cache = self
+            .dispatch_cache
+            .get_or_insert_with(|| Box::new(DispatchCache::default()));
         cache.insert(cache_key, table.clone());
         Some(table)
     }
