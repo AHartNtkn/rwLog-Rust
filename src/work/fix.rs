@@ -6,7 +6,7 @@ use crate::queue::{BlockedOn, QueueWaker, WakeHub};
 use crate::rel::{Rel, RelId};
 use crate::term::TermStore;
 use dashmap::DashMap;
-use rustc_hash::FxHashSet;
+use rustc_hash::{FxHashMap, FxHashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
@@ -21,50 +21,54 @@ static NEXT_BIND_ID: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Clone, Debug)]
 pub(crate) struct Binding<C: Clone> {
-    pub(crate) rel: RelId,
     pub(crate) id: BindId,
     pub(crate) body: Arc<Rel<C>>,
 }
 
 /// Environment for Fix bindings (RelId -> Rel body).
 ///
-/// Arc-wrapped Vec for O(1) cloning. bind() copies the Vec since the old
-/// Env remains shared, but clone() is just an Arc bump.
-#[derive(Clone, Debug, Default)]
+/// Uses FxHashMap for O(1) lookup. Arc-wrapped for O(1) cloning.
+/// bind() uses Arc::make_mut for copy-on-write: when the Arc has a single
+/// owner (common during env construction), the map is mutated in place
+/// without cloning.
+#[derive(Clone, Debug)]
 pub struct Env<C: Clone> {
-    bindings: Arc<Vec<Binding<C>>>,
+    map: Arc<FxHashMap<RelId, Binding<C>>>,
+}
+
+impl<C: Clone> Default for Env<C> {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl<C: Clone> Env<C> {
     /// Create an empty environment.
     pub fn new() -> Self {
         Self {
-            bindings: Arc::new(Vec::new()),
+            map: Arc::new(FxHashMap::default()),
         }
     }
 
     /// Bind a RelId to a Rel body.
     pub fn bind(&self, id: RelId, body: Arc<Rel<C>>) -> Self {
         let binding = Binding {
-            rel: id,
             id: NEXT_BIND_ID.fetch_add(1, Ordering::Relaxed),
             body,
         };
-        let mut new_bindings = (*self.bindings).clone();
-        new_bindings.push(binding);
-        Self {
-            bindings: Arc::new(new_bindings),
-        }
+        let mut new_map = Arc::clone(&self.map);
+        Arc::make_mut(&mut new_map).insert(id, binding);
+        Self { map: new_map }
     }
 
     /// Look up a binding.
     pub(crate) fn lookup(&self, id: RelId) -> Option<&Binding<C>> {
-        self.bindings.iter().rev().find(|binding| binding.rel == id)
+        self.map.get(&id)
     }
 
     /// Check if a binding exists.
     pub fn contains(&self, id: RelId) -> bool {
-        self.lookup(id).is_some()
+        self.map.contains_key(&id)
     }
 }
 
