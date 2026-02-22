@@ -2612,8 +2612,8 @@ fn table_next_answer_increments_index() {
     let nf_b = make_ground_nf("B", &symbols, &terms);
     table.add_answer(nf_a.clone());
     table.add_answer(nf_b.clone());
-    assert_eq!(table.answer_at(0).as_deref(), Some(&nf_a));
-    assert_eq!(table.answer_at(1).as_deref(), Some(&nf_b));
+    assert_eq!(table.answer_at(0).as_ref(), Some(&nf_a));
+    assert_eq!(table.answer_at(1).as_ref(), Some(&nf_b));
 }
 
 #[test]
@@ -2624,9 +2624,9 @@ fn table_reset_consumer() {
     let nf_b = make_ground_nf("B", &symbols, &terms);
     table.add_answer(nf_a.clone());
     table.add_answer(nf_b.clone());
-    assert_eq!(table.answer_at(0).as_deref(), Some(&nf_a));
-    assert_eq!(table.answer_at(1).as_deref(), Some(&nf_b));
-    assert_eq!(table.answer_at(0).as_deref(), Some(&nf_a));
+    assert_eq!(table.answer_at(0).as_ref(), Some(&nf_a));
+    assert_eq!(table.answer_at(1).as_ref(), Some(&nf_b));
+    assert_eq!(table.answer_at(0).as_ref(), Some(&nf_a));
 }
 
 #[test]
