@@ -310,7 +310,7 @@ Each item is an investigation area, not a guaranteed improvement.
 
 ### Parsing/Compilation Layer
 
-1. Add a compile phase from parsed `Rel` to optimized execution plan cached per definition.
+1. ~~Add a compile phase from parsed `Rel` to optimized execution plan cached per definition.~~ **Investigated — DISCARDED (U=61, Rel dispatch already cheap).** See [docs/perf_investigations/compile_rel_plan.md](docs/perf_investigations/compile_rel_plan.md). Rel dispatch is just enum matching + Arc cloning — no expensive traversal to cache. Prior optimizations already cover main targets (pipe_batch_advance 81.6%, cached_dispatch_table 47%, compose_chain_fuse 34.7%). Bottleneck is compose_nf failures (99% rate), not Rel traversal.
 2. Introduce plan-level static analyses: arity flow, variable liveness, potential determinism.
 3. Add detection and specialization for deterministic relations.
 4. Inline small relation calls into caller plans when profitable.
