@@ -21,30 +21,19 @@ static NEXT_BIND_ID: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Clone, Debug)]
 pub(crate) struct Binding<C: Clone> {
-    pub(crate) rel: RelId,
     pub(crate) id: BindId,
     pub(crate) body: Arc<Rel<C>>,
 }
 
-/// Threshold at which Env switches from linear scan to HashMap index.
-const ENV_HASH_THRESHOLD: usize = 8;
-
-/// Inner storage for Env, shared via Arc.
-#[derive(Clone, Debug)]
-struct EnvInner<C: Clone> {
-    bindings: Vec<Binding<C>>,
-    /// Index from RelId to position of the latest binding in `bindings`.
-    /// Only populated when bindings.len() > ENV_HASH_THRESHOLD.
-    index: Option<FxHashMap<RelId, usize>>,
-}
-
 /// Environment for Fix bindings (RelId -> Rel body).
 ///
-/// Uses a hybrid approach: linear scan for small environments (N <= 8),
-/// FxHashMap index for large environments. Arc-wrapped for O(1) cloning.
+/// Uses FxHashMap for O(1) lookup. Arc-wrapped for O(1) cloning.
+/// bind() uses Arc::make_mut for copy-on-write: when the Arc has a single
+/// owner (common during env construction), the map is mutated in place
+/// without cloning.
 #[derive(Clone, Debug)]
 pub struct Env<C: Clone> {
-    inner: Arc<EnvInner<C>>,
+    map: Arc<FxHashMap<RelId, Binding<C>>>,
 }
 
 impl<C: Clone> Default for Env<C> {
@@ -57,72 +46,29 @@ impl<C: Clone> Env<C> {
     /// Create an empty environment.
     pub fn new() -> Self {
         Self {
-            inner: Arc::new(EnvInner {
-                bindings: Vec::new(),
-                index: None,
-            }),
+            map: Arc::new(FxHashMap::default()),
         }
     }
 
     /// Bind a RelId to a Rel body.
     pub fn bind(&self, id: RelId, body: Arc<Rel<C>>) -> Self {
         let binding = Binding {
-            rel: id,
             id: NEXT_BIND_ID.fetch_add(1, Ordering::Relaxed),
             body,
         };
-        let mut new_bindings = self.inner.bindings.clone();
-        new_bindings.push(binding);
-        let new_len = new_bindings.len();
-        let new_pos = new_len - 1;
-
-        let index = if new_len > ENV_HASH_THRESHOLD {
-            // Build or update the index
-            let mut idx = match &self.inner.index {
-                Some(existing) => existing.clone(),
-                None => {
-                    // First time crossing threshold: build index from all bindings.
-                    // Iterate forward so later bindings overwrite earlier ones for
-                    // the same RelId, giving us the latest binding position.
-                    let mut m = FxHashMap::with_capacity_and_hasher(new_len, Default::default());
-                    for (i, b) in new_bindings.iter().enumerate().take(new_pos) {
-                        m.insert(b.rel, i);
-                    }
-                    m
-                }
-            };
-            idx.insert(id, new_pos);
-            Some(idx)
-        } else {
-            None
-        };
-
-        Self {
-            inner: Arc::new(EnvInner {
-                bindings: new_bindings,
-                index,
-            }),
-        }
+        let mut new_map = Arc::clone(&self.map);
+        Arc::make_mut(&mut new_map).insert(id, binding);
+        Self { map: new_map }
     }
 
     /// Look up a binding.
     pub(crate) fn lookup(&self, id: RelId) -> Option<&Binding<C>> {
-        if let Some(ref index) = self.inner.index {
-            // O(1) lookup via hash index
-            index.get(&id).map(|&pos| &self.inner.bindings[pos])
-        } else {
-            // Linear scan for small environments
-            self.inner
-                .bindings
-                .iter()
-                .rev()
-                .find(|binding| binding.rel == id)
-        }
+        self.map.get(&id)
     }
 
     /// Check if a binding exists.
     pub fn contains(&self, id: RelId) -> bool {
-        self.lookup(id).is_some()
+        self.map.contains_key(&id)
     }
 }
 
