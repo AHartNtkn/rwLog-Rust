@@ -45,7 +45,8 @@ Replace generic term matching with compiled match programs: for each rule head (
 
 This turns "O(rules) attempts with repeated generic matcher overhead" into "direct dispatch to a tiny candidate set with a straight-line matcher."
 
-**Partially implemented — root-functor dispatch ~216x improvement on hot_call_site_256.** See [docs/perf_investigations/compiled_dispatch.md](docs/perf_investigations/compiled_dispatch.md). Runtime root-functor filtering for flat-Or-of-Atoms Call bodies. Converts O(calls × rules) compose attempts to O(calls × 1) for relations with distinct root functors per rule. Discrimination trees for depth-2+ matching and pre-built dispatch indexes remain uninvestigated.
+**Partially implemented — root-functor dispatch ~216x improvement on hot_call_site_256.** See [docs/perf_investigations/compiled_dispatch.md](docs/perf_investigations/compiled_dispatch.md). Runtime root-functor filtering for flat-Or-of-Atoms Call bodies. Converts O(calls × rules) compose attempts to O(calls × 1) for relations with distinct root functors per rule.
+    - **Sub-investigation: depth-2+ discrimination tree in compose_nf — DISCARDED (regression).** See [docs/perf_investigations/discrim_tree.md](docs/perf_investigations/discrim_tree.md). Two approaches tried: HashMap-based DeepIndex in ComposeStrategy (wrong code path, 26% regression from boxing), and kernel compose_nf depth-2 precheck (2.5% regression on recursive_even from per-call overhead). Per-call overhead in compose_nf is the fundamental problem — depth-2 dispatch needs to happen at the Or-spine/relation level, not per compose attempt. nonlinear_match_64 showed 28% improvement (U=82), suggesting targeted activation for high-arity Or relations could work.
 
 **Key benchmark cases:** ~~`hot_call_site_256`~~ (now 316us with dispatch), `wide_match_512` (512 rules sharing top functor `pair`; root precheck passes for all, needs depth-2 discrimination), `nonlinear_match_64`
 
