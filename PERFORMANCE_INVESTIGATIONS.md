@@ -284,7 +284,7 @@ Each item is an investigation area, not a guaranteed improvement.
 
 ### Disjunction/Or Execution
 
-1. Internally flatten nested `Or` structures once and schedule from a branch pool. **Investigated** — see [docs/perf_investigations/or_tree_and_per_step_cost.md](docs/perf_investigations/or_tree_and_per_step_cost.md). Or tree overhead is negligible for the heaviest workload (max 1 sibling). Or flattening would help wide-disjunction cases but those are already <1ms. The real bottleneck is ChrState clone/hash allocation (45% of execution).
+1. ~~Internally flatten nested `Or` structures once and schedule from a branch pool.~~ **Investigated twice — DISCARDED.** See [docs/perf_investigations/or_tree_and_per_step_cost.md](docs/perf_investigations/or_tree_and_per_step_cost.md) and [docs/perf_investigations/or_index_step.md](docs/perf_investigations/or_index_step.md). Flat Vec with index-based stepping regressed 28% on left_rec_32. Binary tree depth is small (~4 levels), FlatOr bookkeeping exceeds tree-walking savings. Or-spine walks are NOT the bottleneck — 155K walks at avg 1.56 siblings cost microseconds total. Also consistent with flatten_or_spine (VecDeque/Vec, 0.8-1.6% regression).
 2. Add duplicate-answer suppression close to branch emission rather than global late-stage.
 3. Share normalized prefix work among sibling `Or` branches where legal.
 4. Add branch pruning based on static incompatibility with downstream constraints.
