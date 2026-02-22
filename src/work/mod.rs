@@ -317,3 +317,42 @@ pub(crate) fn tags_compatible(build_tag: RootTag, match_tag: RootTag) -> bool {
         _ => true, // Wildcard on either side is always compatible
     }
 }
+
+/// Extract the root functor tag of child[0] of a term (depth-2 tag).
+///
+/// For `App(f, [child0, ...])`, returns `term_root_tag(child0)`.
+/// For inline nullary (no children), variables, or empty, returns `Wildcard`.
+#[inline]
+fn term_child0_tag(term_id: TermId, terms: &mut TermStore) -> RootTag {
+    if term_id.is_inline() {
+        return RootTag::Wildcard; // Inline var or nullary: no children
+    }
+    match terms.get_unlocked(term_id) {
+        Some(Term::App(_, children)) => {
+            if let Some(&child0) = children.first() {
+                term_root_tag(child0, terms)
+            } else {
+                RootTag::Wildcard
+            }
+        }
+        _ => RootTag::Wildcard,
+    }
+}
+
+/// Extract the depth-2 (child[0]) functor tag of the first build pattern of an NF.
+#[inline]
+pub(crate) fn build_child0_tag<C>(nf: &NF<C>, terms: &mut TermStore) -> RootTag {
+    nf.build_pats
+        .first()
+        .map(|&pat| term_child0_tag(pat, terms))
+        .unwrap_or(RootTag::Wildcard)
+}
+
+/// Extract the depth-2 (child[0]) functor tag of the first match pattern of an NF.
+#[inline]
+pub(crate) fn match_child0_tag<C>(nf: &NF<C>, terms: &mut TermStore) -> RootTag {
+    nf.match_pats
+        .first()
+        .map(|&pat| term_child0_tag(pat, terms))
+        .unwrap_or(RootTag::Wildcard)
+}
