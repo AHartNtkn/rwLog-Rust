@@ -357,7 +357,7 @@ Each item is an investigation area, not a guaranteed improvement.
 1. Build a prototype Datalog-style semi-naive engine for a subset and compare recursion-heavy workloads.
 2. ~~Build a prototype e-graph-based normalization backend for compose/meet-heavy workloads.~~ **Investigated — DISCARDED.** See [docs/perf_investigations/egraph_normalize.md](docs/perf_investigations/egraph_normalize.md). Skeleton overlap is high (up to 89%) but does not translate to cacheable compose/meet result dedup because NFs with identical skeletons have different variable content. Combined with compose_memo (0.02%) and compose_dedup (0%), the compose/meet caching design space is exhausted.
 3. Build a prototype incremental dataflow executor where each relation is a node and answers are streams.
-4. Build a bytecode VM backend with explicit registers for vars/substitutions.
+4. ~~Build a bytecode VM backend with explicit registers for vars/substitutions.~~ **Investigated — DISCARDED (dispatch only 2-4% of time).** See [docs/perf_investigations/bytecode_vm.md](docs/perf_investigations/bytecode_vm.md). Profiling shows dispatch overhead is 2-4% of total time. CHR constraint processing (35%), substitution/matching (22%), and compose_nf (6%) dominate. Branch predictor already handles enum dispatch efficiently. Fifth confirmation of dispatch ceiling (step_dispatch, engine_loop_inlining, streamline_fixwork, compile_rel_plan).
 5. Build a GPU-accelerated matcher prototype for broad shallow term sets.
 
 ## Prioritization Candidates (High Expected ROI)
