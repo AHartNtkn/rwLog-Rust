@@ -343,6 +343,7 @@ Each item is an investigation area, not a guaranteed improvement.
 
 1. Add static impossibility analysis for constructor conflicts before runtime.
 2. ~~Add variable-occurrence compatibility analysis to reject impossible compositions early.~~ **Investigated — DISCARDED (not significant).** See [docs/perf_investigations/var_compat.md](docs/perf_investigations/var_compat.md). Cached root functor fields on NfInner to eliminate get_unlocked() lookups. U=61/100, 0.75%. get_unlocked() is already ~1.5ns (pointer cast + array index). Compose precheck design space is exhausted for treecalc_synth_flip (third confirmation after depth2_precheck U=59, multi_pos_precheck U=56).
+    - **Sub-investigation: NF-level variable range metadata precheck — DISCARDED (U=59, unsound hypothesis).** See [docs/perf_investigations/nf_var_range_meta.md](docs/perf_investigations/nf_var_range_meta.md). After NF factoring, variable ranges are always 0..arity-1 (determined by DropFresh arities), so they provide no discriminative power for compose rejection. Variable ranges are useful within traversals (subst_var_range, fast_occurs) but not at the NF level. Fifth confirmation that compose precheck design space is exhausted.
 3. Add monotonicity/determinism annotations inferred from rules for safer aggressive pruning.
 4. Identify relation fragments where exhaustive normalization can be replaced by precompiled transfer functions.
 5. Add bounded symbolic execution on plans to discover dead branches ahead of runtime.
