@@ -204,7 +204,7 @@ Each item is an investigation area, not a guaranteed improvement.
 2. Precompute composition tables for common `DropFresh` patterns.
 3. Introduce a canonical `DropFresh` interner to share identical routings.
 4. ~~Add fast-path for identity and near-identity routings through tagged variants.~~ **Investigated — negligible ROI.** See [docs/perf_investigations/dropfresh_identity_fast_path.md](docs/perf_investigations/dropfresh_identity_fast_path.md). DropFresh is 100% identity for the critical workload (even64), but the kernel is only ~3-5% of runtime at the ~32ms baseline. Fast-paths implemented but produce no measurable improvement. Further kernel-level optimizations cannot meaningfully help tabling-heavy workloads.
-5. Fuse adjacent `DropFresh` chains without materializing intermediate mappings.
+5. ~~Fuse adjacent `DropFresh` chains without materializing intermediate mappings.~~ **Investigated — DISCARDED (hypothesis invalid).** See [docs/perf_investigations/dropfresh_fuse_chains.md](docs/perf_investigations/dropfresh_fuse_chains.md). DropFresh::compose is never called in production — compose/meet pipelines construct fresh DropFresh from variable analysis via build_factor_wiring(), never by composing existing DropFresh maps. DropFresh backlog items #1-#3 (bitsets, composition tables, interner) are also moot for the same reason.
 6. Evaluate transposed/internal cache-friendly layouts for routing maps in composition-heavy workloads.
 
 ### Term Representation and Memory Layout
