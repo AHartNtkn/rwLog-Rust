@@ -7,6 +7,7 @@ use crate::node::Node;
 use crate::rel::{Rel, RelId};
 use crate::symbol::FuncId;
 use crate::term::{Term, TermId, TermStore};
+use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
 use std::sync::Arc;
 
@@ -16,6 +17,19 @@ use super::{
     tags_compatible, wrap_compose_with_prefix_suffix, wrap_rel_with_atoms, AndGroup, CallKey,
     CallMode, ComposeWork, Env, FixWork, ProducerSpec, RootTag, Tables, Work, WorkStep,
 };
+
+/// Pre-computed dispatch entry for a single atom in an Or-of-Atoms body.
+#[derive(Clone, Debug)]
+struct DispatchEntry<C: ConstraintOps> {
+    atom: Arc<NF<C>>,
+    match_root: RootTag,
+    build_root: RootTag,
+    match_child0: RootTag,
+    build_child0: RootTag,
+}
+
+/// Cache of pre-computed dispatch tables, keyed by `Arc<Rel<C>>` pointer address.
+type DispatchCache<C> = FxHashMap<usize, Arc<[DispatchEntry<C>]>>;
 
 /// Result of dispatch filtering on a flat Or of Atoms.
 enum DispatchResult<C: ConstraintOps> {
@@ -168,6 +182,8 @@ pub struct PipeWork<C: ConstraintOps> {
     pub(crate) tables: Tables<C>,
     /// Call handling mode.
     pub(crate) call_mode: CallMode<C>,
+    /// Cached dispatch tables for Or-of-Atoms bodies, keyed by Arc pointer address.
+    dispatch_cache: DispatchCache<C>,
 }
 
 impl<C: ConstraintOps> Work<C> {
@@ -207,6 +223,7 @@ impl<C: ConstraintOps> PipeWork<C> {
             env,
             tables,
             call_mode: CallMode::Normal,
+            dispatch_cache: DispatchCache::default(),
         }
     }
 
@@ -968,22 +985,72 @@ impl<C: ConstraintOps> PipeWork<C> {
         Ok(false)
     }
 
+    /// Build a dispatch table for a flat-Or-of-Atoms body.
+    /// Pre-computes all 4 tags (match_root, build_root, match_child0, build_child0)
+    /// for each atom so they don't need to be recomputed on every dispatch call.
+    fn build_dispatch_table(
+        atoms: Vec<Arc<NF<C>>>,
+        terms: &mut TermStore,
+    ) -> Arc<[DispatchEntry<C>]> {
+        let entries: Vec<DispatchEntry<C>> = atoms
+            .into_iter()
+            .map(|atom| {
+                let match_root = match_root_tag(&atom, terms);
+                let build_root = build_root_tag(&atom, terms);
+                let match_child0 = match_child0_tag(&atom, terms);
+                let build_child0 = build_child0_tag(&atom, terms);
+                DispatchEntry {
+                    atom,
+                    match_root,
+                    build_root,
+                    match_child0,
+                    build_child0,
+                }
+            })
+            .collect();
+        Arc::from(entries)
+    }
+
+    /// Get or build the dispatch table for an Or body, using the cache.
+    fn get_dispatch_table(
+        &mut self,
+        or_body: &Rel<C>,
+        terms: &mut TermStore,
+    ) -> Option<Arc<[DispatchEntry<C>]>> {
+        let cache_key = or_body as *const Rel<C> as usize;
+
+        if let Some(table) = self.dispatch_cache.get(&cache_key) {
+            return Some(table.clone());
+        }
+
+        let atoms = collect_flat_or_atoms(or_body)?;
+        if atoms.len() < 2 {
+            return None;
+        }
+
+        let table = Self::build_dispatch_table(atoms, terms);
+        self.dispatch_cache.insert(cache_key, table.clone());
+        Some(table)
+    }
+
     /// Try to filter a flat-Or-of-Atoms relation body by root functor dispatch.
     ///
     /// Given a Call body that is a flat Or of Atoms (possibly wrapped in Fix),
     /// and a boundary NF, extract the boundary's root functor and filter
     /// the Or branches to only those with compatible root functors.
     ///
+    /// Uses a cached dispatch table to avoid recomputing tags on every call.
+    ///
     /// Returns `None` if dispatch is not applicable (body is not flat Or of Atoms,
     /// or no boundary to dispatch against).
     fn try_dispatch_or_atoms(
-        &self,
+        &mut self,
         body: Arc<Rel<C>>,
         end: PipeEnd,
         terms: &mut TermStore,
     ) -> Option<DispatchResult<C>> {
-        // Unwrap Fix wrapper if present
-        let or_body = match body.as_ref() {
+        // Unwrap Fix wrapper if present, getting a reference to the Or body
+        let or_body: &Rel<C> = match body.as_ref() {
             Rel::Or(_, _) => body.as_ref(),
             Rel::Fix(_, inner) => match inner.as_ref() {
                 Rel::Or(_, _) => inner.as_ref(),
@@ -992,11 +1059,8 @@ impl<C: ConstraintOps> PipeWork<C> {
             _ => return None,
         };
 
-        // Collect flat Or branches - all must be Atoms
-        let atoms = collect_flat_or_atoms(or_body)?;
-        if atoms.len() < 2 {
-            return None; // Not worth dispatching for fewer than 2 branches
-        }
+        // Get or build the cached dispatch table
+        let table = self.get_dispatch_table(or_body, terms)?;
 
         // Get the boundary NF to dispatch against.
         // Front: left boundary's build output flows into the Call's match input.
@@ -1016,23 +1080,21 @@ impl<C: ConstraintOps> PipeWork<C> {
             return None;
         };
 
-        // Filter atoms by compatible root functor
-        let mut compatible: Vec<Arc<NF<C>>> = atoms
-            .into_iter()
-            .filter(|atom| {
-                // Front: boundary build -> atom match.
-                // Back: atom build -> boundary match.
+        // Filter entries by compatible root functor using pre-computed tags
+        let mut compatible: Vec<Arc<NF<C>>> = table
+            .iter()
+            .filter(|entry| {
                 let (build_tag, match_tag) = match end {
-                    PipeEnd::Front => (boundary_tag, match_root_tag(atom, terms)),
-                    PipeEnd::Back => (build_root_tag(atom, terms), boundary_tag),
+                    PipeEnd::Front => (boundary_tag, entry.match_root),
+                    PipeEnd::Back => (entry.build_root, boundary_tag),
                 };
                 tags_compatible(build_tag, match_tag)
             })
+            .map(|entry| entry.atom.clone())
             .collect();
 
-        // Depth-2 dispatch: if many atoms survive root-functor filtering (all share the
-        // same root functor), apply a secondary filter on child[0]'s functor.
-        // This is the common case for wide_match_512 where all rules have root `pair`.
+        // Depth-2 dispatch: if many atoms survive root-functor filtering,
+        // apply a secondary filter on child[0]'s functor using pre-computed tags.
         const DEPTH2_THRESHOLD: usize = 8;
         if compatible.len() > DEPTH2_THRESHOLD {
             let boundary_child0_tag = match end {
@@ -1040,13 +1102,27 @@ impl<C: ConstraintOps> PipeWork<C> {
                 PipeEnd::Back => match_child0_tag(boundary, terms),
             };
             if let RootTag::Functor(_) = boundary_child0_tag {
-                compatible.retain(|atom| {
-                    let (build_tag, match_tag) = match end {
-                        PipeEnd::Front => (boundary_child0_tag, match_child0_tag(atom, terms)),
-                        PipeEnd::Back => (build_child0_tag(atom, terms), boundary_child0_tag),
-                    };
-                    tags_compatible(build_tag, match_tag)
-                });
+                // Re-filter using the cached table entries for child0 tags
+                compatible = table
+                    .iter()
+                    .filter(|entry| {
+                        // First check root compatibility (same as above)
+                        let (build_tag, match_tag) = match end {
+                            PipeEnd::Front => (boundary_tag, entry.match_root),
+                            PipeEnd::Back => (entry.build_root, boundary_tag),
+                        };
+                        if !tags_compatible(build_tag, match_tag) {
+                            return false;
+                        }
+                        // Then check child0 compatibility
+                        let (build_c0, match_c0) = match end {
+                            PipeEnd::Front => (boundary_child0_tag, entry.match_child0),
+                            PipeEnd::Back => (entry.build_child0, boundary_child0_tag),
+                        };
+                        tags_compatible(build_c0, match_c0)
+                    })
+                    .map(|entry| entry.atom.clone())
+                    .collect();
             }
         }
 
@@ -1235,6 +1311,7 @@ impl<C: ConstraintOps> Default for PipeWork<C> {
             env: Env::new(),
             tables: Tables::new(),
             call_mode: CallMode::Normal,
+            dispatch_cache: DispatchCache::default(),
         }
     }
 }
