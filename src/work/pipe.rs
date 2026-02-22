@@ -11,10 +11,10 @@ use smallvec::SmallVec;
 use std::sync::Arc;
 
 use super::{
-    build_root_tag, flatten_and_parts, match_root_tag, nf_domain_filter, nf_left_prefix,
-    nf_right_suffix, nf_rwl_iso, nf_rwr_iso, node_from_answers, tags_compatible,
-    wrap_compose_with_prefix_suffix, wrap_rel_with_atoms, AndGroup, CallKey, CallMode, ComposeWork,
-    Env, FixWork, ProducerSpec, RootTag, Tables, Work, WorkStep,
+    build_child0_tag, build_root_tag, flatten_and_parts, match_child0_tag, match_root_tag,
+    nf_domain_filter, nf_left_prefix, nf_right_suffix, nf_rwl_iso, nf_rwr_iso, node_from_answers,
+    tags_compatible, wrap_compose_with_prefix_suffix, wrap_rel_with_atoms, AndGroup, CallKey,
+    CallMode, ComposeWork, Env, FixWork, ProducerSpec, RootTag, Tables, Work, WorkStep,
 };
 
 /// Result of dispatch filtering on a flat Or of Atoms.
@@ -1017,7 +1017,7 @@ impl<C: ConstraintOps> PipeWork<C> {
         };
 
         // Filter atoms by compatible root functor
-        let compatible: Vec<Arc<NF<C>>> = atoms
+        let mut compatible: Vec<Arc<NF<C>>> = atoms
             .into_iter()
             .filter(|atom| {
                 // Front: boundary build -> atom match.
@@ -1029,6 +1029,26 @@ impl<C: ConstraintOps> PipeWork<C> {
                 tags_compatible(build_tag, match_tag)
             })
             .collect();
+
+        // Depth-2 dispatch: if many atoms survive root-functor filtering (all share the
+        // same root functor), apply a secondary filter on child[0]'s functor.
+        // This is the common case for wide_match_512 where all rules have root `pair`.
+        const DEPTH2_THRESHOLD: usize = 8;
+        if compatible.len() > DEPTH2_THRESHOLD {
+            let boundary_child0_tag = match end {
+                PipeEnd::Front => build_child0_tag(boundary, terms),
+                PipeEnd::Back => match_child0_tag(boundary, terms),
+            };
+            if let RootTag::Functor(_) = boundary_child0_tag {
+                compatible.retain(|atom| {
+                    let (build_tag, match_tag) = match end {
+                        PipeEnd::Front => (boundary_child0_tag, match_child0_tag(atom, terms)),
+                        PipeEnd::Back => (build_child0_tag(atom, terms), boundary_child0_tag),
+                    };
+                    tags_compatible(build_tag, match_tag)
+                });
+            }
+        }
 
         if compatible.is_empty() {
             Some(DispatchResult::Fail)
