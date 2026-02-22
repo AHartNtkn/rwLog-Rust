@@ -32,7 +32,7 @@ Use that to: inline small deterministic callees into callers, pick specialized e
 
 This changes evaluation from "everything is a search problem" to "search only where necessary," while preserving semantics.
 
-**Partially investigated — runtime tabling bypass DISCARDED.** See [docs/perf_investigations/determinism_bypass.md](docs/perf_investigations/determinism_bypass.md). Attempted to bypass Fix/Table for `Fix(_, Atom(nf))` at call sites. Discovery: `env.lookup()` already returns unwrapped bodies (Fix stripped at bind time), so the existing batch advance `Rel::Atom(nf)` path already handles these optimally. The 948us overhead is compose cost (256 compositions building depth-256 terms), not dispatch. Compile-time determinism analysis and compose chain fusion remain uninvestigated.
+**Partially investigated — runtime tabling bypass DISCARDED, compose chain fusion DISCARDED.** See [docs/perf_investigations/determinism_bypass.md](docs/perf_investigations/determinism_bypass.md) and [docs/perf_investigations/compose_chain_fuse.md](docs/perf_investigations/compose_chain_fuse.md). Runtime bypass: `env.lookup()` already returns unwrapped bodies. Chain fusion: simple wrapper chains fused O(n)→O(1) with 38% improvement on inline_amplification_256, but that case is 0.15% of total corpus. Key insight: sequence_chain_len4096's bottleneck is env.lookup O(n^2) linear scan, not compose chains. Compile-time determinism analysis remains uninvestigated.
 
 **Key benchmark cases:** `inline_amplification_256` (256 distinct trivially-deterministic relations composed in sequence; compose cost dominates, not dispatch), existing `recursive_add_*`
 
