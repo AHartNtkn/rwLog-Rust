@@ -1002,8 +1002,9 @@ fn parse_program_defs(
             continue;
         }
         if line.starts_with("rel ") {
-            let (name, rel) = parser.parse_rel_def(line).expect("parse relation");
-            defs.insert(name, rel);
+            if let Some((name, rel)) = parser.parse_rel_def(line).expect("parse relation") {
+                defs.insert(name, rel);
+            }
             continue;
         }
         panic!("unsupported corpus statement: {line}");

@@ -5,7 +5,7 @@ Core programming patterns in rwlog. These patterns are the intended way to use t
 <constructing_duals>
 ## Constructing the Dual of a Relation
 
-`dual(R)` is a semantic concept meaning "swap inputs and outputs." There is no `dual` keyword in the language. To construct the dual of a relation, you have two options:
+`dual(R)` is a semantic concept meaning "swap inputs and outputs." You can define it as a parameterized macro or construct it manually. Two options:
 
 <hand_calculation>
 ### Option 1: Hand-Calculate Using Algebraic Laws
@@ -63,6 +63,22 @@ $b -> (pair $a $b)
 
 This takes B as input and produces A as output — the dual of R.
 </compositional_construction>
+
+<macro_dual>
+### Option 3: Define as a Parameterized Macro
+
+The compositional construction can be packaged as a reusable macro:
+
+```
+rel dual(r) {
+    $y -> (pair $x $y)
+      ; [[(pair $x $y) -> $x ; r ; $y -> (pair $x $y)] & $p -> $p]
+      ; (pair $x $y) -> $x
+}
+```
+
+Now `dual(add)` constructs the dual of `add` without manual derivation. This applies to any relation passed as an argument.
+</macro_dual>
 </constructing_duals>
 
 <deriving_relations>

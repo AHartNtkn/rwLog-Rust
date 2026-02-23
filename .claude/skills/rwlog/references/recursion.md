@@ -249,6 +249,64 @@ The key insight: constraining either end bounds the search. Leaving both unconst
 </bidirectional_termination>
 </termination>
 
+<parameterized_recursion>
+## Parameterized Recursion with Macros
+
+Macros let you write recursive patterns parameterized by relation-valued arguments. The recursive self-call uses the full parameterized form.
+
+<peel_example>
+**Peeling layers with a custom base case:**
+```
+rel peel(base) {
+    (s $x) -> $x ; peel(base)
+    | base
+}
+```
+
+The recursive call is `peel(base)` — NOT bare `peel`. Bare `peel` would refer to a completely different 0-arity relation.
+
+Usage:
+```
+@(s (s z)) ; peel(z -> done)
+```
+
+Strips two `s` layers, then applies `z -> done`. Result: `(s (s z)) -> done`.
+</peel_example>
+
+<double_macro>
+**Composing a relation with itself:**
+```
+rel double(r) {
+    r ; r
+}
+
+rel inc { $x -> (s $x) }
+```
+
+`@z ; double(inc)` applies `inc` twice. Result: `z -> (s (s z))`.
+
+This is non-recursive — no self-call in the body.
+</double_macro>
+
+<either_macro>
+**Choice between two relations:**
+```
+rel either(a, b) {
+    a | b
+}
+```
+
+`@z ; either(toa, tob)` tries both `toa` and `tob` on `z`.
+</either_macro>
+
+<recursion_note>
+**Key rules for recursive macros:**
+- Recursive self-calls must pass the original parameters unchanged: `peel(base)` inside `peel(base)`'s body
+- Permuted or modified parameters in self-calls (e.g., `foo(b, a)` inside `foo(a, b)`) are not supported
+- Cross-macro calls with parameters work: `double(r)` can call `compose(r, r)` even if `compose` is defined later in the same file
+</recursion_note>
+</parameterized_recursion>
+
 <anti_patterns>
 ## Recursion Anti-Patterns
 

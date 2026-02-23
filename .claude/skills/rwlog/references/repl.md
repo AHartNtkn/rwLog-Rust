@@ -42,7 +42,7 @@ Loads relation definitions from a file. Files contain `rel` definitions.
 list
 ```
 
-Shows all currently defined relations.
+Shows all currently defined relations and parameterized macros (with name/arity).
 </list>
 
 <next>
@@ -94,6 +94,15 @@ rel name {
 ```
 
 Enter the full relation definition. The REPL accepts multiline input for `rel` blocks.
+
+**Define parameterized macro:**
+```
+rel name(param1, param2) {
+    body using param1 and param2
+}
+```
+
+Defines a macro template. Parameters are relation-valued and expanded at parse time. See `syntax.md` for full macro syntax.
 </define_relation>
 
 <theory>

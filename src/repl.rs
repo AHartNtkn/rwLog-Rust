@@ -141,26 +141,43 @@ Commands:
   quit/exit      Exit the REPL
 
 Syntax:
-  theory name { body }  Define a theory (CHR constraints)
-  rel name { body }     Define a relation
-  lhs -> rhs            Rewrite rule
-  a | b                 Disjunction (or)
-  a ; b                 Sequence (composition)
-  a & b                 Conjunction (and/intersection)
-  [...]                 Grouping
-  $var                  Variable
-  (f x y)               Compound term
-  <expr>                Run a query (e.g., add ; @(s z))
+  theory name { body }       Define a theory (CHR constraints)
+  rel name { body }          Define a relation
+  rel name(p1, p2) { body }  Define a parameterized macro
+  name(arg1, arg2)           Call a macro (expanded at parse time)
+  lhs -> rhs                 Rewrite rule
+  a | b                      Disjunction (or)
+  a ; b                      Sequence (composition)
+  a & b                      Conjunction (and/intersection)
+  [...]                      Grouping
+  $var                       Variable
+  (f x y)                    Compound term
+  <expr>                     Run a query (e.g., add ; @(s z))
 "#
         .to_string()
     }
 
     fn list_relations(&self) -> String {
-        if self.definitions.is_empty() {
-            "No relations defined.".to_string()
-        } else {
+        let mut parts = Vec::new();
+
+        if !self.definitions.is_empty() {
             let names: Vec<&str> = self.definitions.keys().map(|s| s.as_str()).collect();
-            format!("Defined relations: {}", names.join(", "))
+            parts.push(format!("Relations: {}", names.join(", ")));
+        }
+
+        let macros = self.parser.macro_names();
+        if !macros.is_empty() {
+            let macro_strs: Vec<String> = macros
+                .iter()
+                .map(|(name, arity)| format!("{}/{}", name, arity))
+                .collect();
+            parts.push(format!("Macros: {}", macro_strs.join(", ")));
+        }
+
+        if parts.is_empty() {
+            "No relations or macros defined.".to_string()
+        } else {
+            parts.join("\n")
         }
     }
 
@@ -190,10 +207,16 @@ Syntax:
             .map_err(|e| format!("Failed to read file '{}': {}", path, e))?;
 
         let mut count = 0;
+        let mut macro_count = 0;
         let mut theory_count = 0;
         let statements =
             split_statements(&content).map_err(|err| format!("{} in '{}'", err, path))?;
 
+        // Pre-scan: register all macro signatures so forward references parse.
+        self.parser.scan_macro_signatures(&statements);
+
+        // Parse all definitions.
+        let mut pending_rels: Vec<(String, Rel<ReplConstraint>)> = Vec::new();
         for statement in statements {
             let line = statement.trim();
             if line.starts_with("theory ") {
@@ -203,9 +226,12 @@ Syntax:
             }
             if line.starts_with("rel ") {
                 match self.parser.parse_rel_def(line) {
-                    Ok((name, rel)) => {
-                        self.definitions.insert(name, rel);
+                    Ok(Some((name, rel))) => {
+                        pending_rels.push((name, rel));
                         count += 1;
+                    }
+                    Ok(None) => {
+                        macro_count += 1;
                     }
                     Err(e) => {
                         return Err(format!("Parse error in '{}': {}", path, e));
@@ -214,19 +240,45 @@ Syntax:
             }
         }
 
+        // Resolve any pending macro calls now that all definitions are available.
+        for (name, rel) in pending_rels {
+            let resolved = self
+                .parser
+                .resolve_pending(rel)
+                .map_err(|e| format!("Macro resolution error in '{}': {}", path, e))?;
+            self.definitions.insert(name, resolved);
+        }
+
         let mut parts = Vec::new();
         if theory_count > 0 {
             parts.push(format!("Loaded {} theory block(s)", theory_count));
         }
-        parts.push(format!("Loaded {} relation(s)", count));
+        if count > 0 {
+            parts.push(format!("Loaded {} relation(s)", count));
+        }
+        if macro_count > 0 {
+            parts.push(format!("Loaded {} macro(s)", macro_count));
+        }
+        if parts.is_empty() {
+            parts.push("Loaded nothing".to_string());
+        }
         Ok(Some(format!("{} from '{}'", parts.join(", "), path)))
     }
 
     fn define_relation(&mut self, input: &str) -> Result<Option<String>, String> {
         match self.parser.parse_rel_def(input) {
-            Ok((name, rel)) => {
+            Ok(Some((name, rel))) => {
                 self.definitions.insert(name.clone(), rel);
                 Ok(Some(format!("Defined relation '{}'", name)))
+            }
+            Ok(None) => {
+                // Macro definition — stored in parser. Extract name/arity for message.
+                let macros = self.parser.macro_names();
+                if let Some((name, arity)) = macros.last() {
+                    Ok(Some(format!("Defined macro '{}/{}'", name, arity)))
+                } else {
+                    Ok(Some("Defined macro".to_string()))
+                }
             }
             Err(e) => Err(format!("Parse error: {}", e)),
         }

@@ -23,7 +23,40 @@ use crate::symbol::SymbolStore;
 use crate::term::{TermId, TermStore};
 use smallvec::SmallVec;
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::sync::Arc;
+
+/// Result of `parse_rel_def`: `Some((name, rel))` for a relation, `None` for a macro.
+type RelDefResult<C> = Result<Option<(String, Rel<C>)>, ParseError>;
+
+/// A stored macro definition: `rel name(p1, ..., pn) { body }`.
+///
+/// The body is a `Rel` tree where parameter references are `Call(param_id)`
+/// and recursive self-references are `Call(self_id)`.
+struct MacroDef<C> {
+    params: Vec<(String, RelId)>,
+    body: Rel<C>,
+    self_id: RelId,
+}
+
+/// Tracks the macro currently being parsed, so the body parser can recognize
+/// parameter names and recursive self-calls.
+struct CurrentMacro {
+    name: String,
+    arity: usize,
+    self_id: RelId,
+    params: Vec<(String, RelId)>,
+}
+
+/// A macro call whose definition wasn't available at parse time.
+/// Stored in the Rel tree as `Call(pending_id)` and resolved after all
+/// definitions in a batch are parsed.
+#[derive(Clone)]
+struct PendingMacroCall<C> {
+    name: String,
+    arity: usize,
+    args: Vec<Rel<C>>,
+}
 
 /// Result of parsing a term - TermId plus variable info.
 #[derive(Clone, Debug)]
@@ -180,6 +213,16 @@ pub struct Parser<B: ConstraintBuilder = NoConstraintBuilder> {
     /// Next available RelId.
     next_rel_id: RelId,
     constraints: B,
+    /// Macro definitions keyed by (name, arity).
+    macro_defs: HashMap<(String, usize), MacroDef<B::Constraint>>,
+    /// The macro currently being parsed (if any).
+    current_macro: Option<CurrentMacro>,
+    /// Known macro signatures (name, arity) registered before bodies are parsed.
+    /// Used to recognize `name(...)` as macro call syntax during forward references.
+    macro_signatures: HashSet<(String, usize)>,
+    /// Macro calls whose definitions weren't available at parse time.
+    /// Keyed by a placeholder RelId used in the Rel tree as `Call(id)`.
+    pending_macro_calls: HashMap<RelId, PendingMacroCall<B::Constraint>>,
 }
 
 /// Parse error.
@@ -210,6 +253,10 @@ impl Parser<NoConstraintBuilder> {
             relations: HashMap::new(),
             next_rel_id: 0,
             constraints: NoConstraintBuilder,
+            macro_defs: HashMap::new(),
+            current_macro: None,
+            macro_signatures: HashSet::new(),
+            pending_macro_calls: HashMap::new(),
         }
     }
 
@@ -221,6 +268,10 @@ impl Parser<NoConstraintBuilder> {
             relations: HashMap::new(),
             next_rel_id: 0,
             constraints: NoConstraintBuilder,
+            macro_defs: HashMap::new(),
+            current_macro: None,
+            macro_signatures: HashSet::new(),
+            pending_macro_calls: HashMap::new(),
         }
     }
 }
@@ -233,6 +284,10 @@ impl<B: ConstraintBuilder> Parser<B> {
             relations: HashMap::new(),
             next_rel_id: 0,
             constraints: builder,
+            macro_defs: HashMap::new(),
+            current_macro: None,
+            macro_signatures: HashSet::new(),
+            pending_macro_calls: HashMap::new(),
         }
     }
 
@@ -243,6 +298,122 @@ impl<B: ConstraintBuilder> Parser<B> {
             relations: HashMap::new(),
             next_rel_id: 0,
             constraints: builder,
+            macro_defs: HashMap::new(),
+            current_macro: None,
+            macro_signatures: HashSet::new(),
+            pending_macro_calls: HashMap::new(),
+        }
+    }
+
+    fn alloc_rel_id(&mut self) -> RelId {
+        let id = self.next_rel_id;
+        self.next_rel_id += 1;
+        id
+    }
+
+    /// Names and arities of all defined macros.
+    pub fn macro_names(&self) -> Vec<(String, usize)> {
+        self.macro_defs
+            .keys()
+            .map(|(name, arity)| (name.clone(), *arity))
+            .collect()
+    }
+
+    /// Pre-scan a batch of statements and register all macro signatures
+    /// (name + arity) so that forward references parse correctly.
+    /// Call this before parsing any bodies in the batch.
+    pub fn scan_macro_signatures(&mut self, statements: &[String]) {
+        for stmt in statements {
+            let trimmed = stmt.trim();
+            if let Some(after_rel) = trimmed.strip_prefix("rel ") {
+                if let Some(sig) = extract_macro_signature(after_rel) {
+                    self.macro_signatures.insert(sig);
+                }
+            }
+        }
+    }
+
+    /// Resolve all pending macro calls in a Rel tree. Returns an error if
+    /// any referenced macro is still undefined after all definitions.
+    pub fn resolve_pending(
+        &mut self,
+        rel: Rel<B::Constraint>,
+    ) -> Result<Rel<B::Constraint>, String> {
+        self.resolve_pending_inner(rel, &HashMap::new())
+    }
+
+    /// Inner resolution: walks a Rel tree replacing `Call(pending_id)` nodes
+    /// with expanded macros. `outer_subst` is applied to the pending call's
+    /// stored args before expansion (handles params from an enclosing macro).
+    fn resolve_pending_inner(
+        &mut self,
+        rel: Rel<B::Constraint>,
+        outer_subst: &HashMap<RelId, Rel<B::Constraint>>,
+    ) -> Result<Rel<B::Constraint>, String> {
+        match rel {
+            Rel::Call(id) => {
+                if let Some(pending) = self.pending_macro_calls.get(&id).cloned() {
+                    // Substitute any outer macro params in the pending call's args.
+                    let resolved_args: Vec<Rel<B::Constraint>> = pending
+                        .args
+                        .iter()
+                        .map(|arg| {
+                            if outer_subst.is_empty() {
+                                arg.clone()
+                            } else {
+                                substitute_in_rel(arg, outer_subst, RelId::MAX, RelId::MAX)
+                            }
+                        })
+                        .collect();
+
+                    // Also resolve pending calls within the args themselves.
+                    let resolved_args: Result<Vec<_>, _> = resolved_args
+                        .into_iter()
+                        .map(|arg| self.resolve_pending_inner(arg, outer_subst))
+                        .collect();
+                    let resolved_args = resolved_args?;
+
+                    let key = (pending.name.clone(), pending.arity);
+                    if self.macro_defs.contains_key(&key) {
+                        // Expand and recursively resolve the result.
+                        let expanded = self
+                            .expand_macro_call(&pending.name, pending.arity, resolved_args, 0)
+                            .map_err(|e| e.message)?;
+                        self.resolve_pending_inner(expanded, outer_subst)
+                    } else {
+                        Err(format!(
+                            "undefined macro '{}/{}'",
+                            pending.name, pending.arity
+                        ))
+                    }
+                } else {
+                    Ok(Rel::Call(id))
+                }
+            }
+            Rel::Zero | Rel::Atom(_) => Ok(rel),
+            Rel::Or(a, b) => {
+                let a = self.resolve_pending_inner((*a).clone(), outer_subst)?;
+                let b = self.resolve_pending_inner((*b).clone(), outer_subst)?;
+                Ok(Rel::Or(Arc::new(a), Arc::new(b)))
+            }
+            Rel::And(a, b) => {
+                let a = self.resolve_pending_inner((*a).clone(), outer_subst)?;
+                let b = self.resolve_pending_inner((*b).clone(), outer_subst)?;
+                Ok(Rel::And(Arc::new(a), Arc::new(b)))
+            }
+            Rel::Seq(xs) => {
+                let new_xs: Result<Vec<_>, _> = xs
+                    .iter()
+                    .map(|x| self.resolve_pending_inner((**x).clone(), outer_subst))
+                    .collect();
+                let new_xs: Vec<Arc<Rel<B::Constraint>>> =
+                    new_xs?.into_iter().map(Arc::new).collect();
+                Ok(Rel::Seq(Arc::from(new_xs)))
+            }
+            Rel::Fix(id, body) => {
+                let body = self.resolve_pending_inner((*body).clone(), outer_subst)?;
+                Ok(Rel::Fix(id, Arc::new(body)))
+            }
         }
     }
 
@@ -684,7 +855,7 @@ impl<B: ConstraintBuilder> Parser<B> {
             let rule = self.parse_rule_inner(input, pos)?;
             Ok(Rel::Atom(Arc::new(rule)))
         } else if ch.is_ascii_lowercase() {
-            // Could be atom (start of rule) or relation call
+            // Could be atom (start of rule), relation call, or macro call.
             let start_pos = *pos;
             let name = parse_identifier(input, pos)?;
             skip_whitespace(input, pos);
@@ -698,15 +869,15 @@ impl<B: ConstraintBuilder> Parser<B> {
                 *pos = start_pos;
                 let rule = self.parse_rule_inner(input, pos)?;
                 Ok(Rel::Atom(Arc::new(rule)))
+            } else if *pos < input.len() && peek_char(input, *pos) == Some('(') {
+                // Macro call: name(arg1, arg2, ...)
+                self.parse_macro_call(input, pos, &name, start_pos)
             } else {
-                // It's a relation call
+                // Plain relation call
                 if let Some(&rel_id) = self.relations.get(&name) {
                     Ok(Rel::Call(rel_id))
                 } else {
-                    // Unknown relation - allocate a new RelId
-                    // This will be resolved when we parse the relation definition
-                    let rel_id = self.next_rel_id;
-                    self.next_rel_id += 1;
+                    let rel_id = self.alloc_rel_id();
                     self.relations.insert(name, rel_id);
                     Ok(Rel::Call(rel_id))
                 }
@@ -720,10 +891,10 @@ impl<B: ConstraintBuilder> Parser<B> {
     }
 
     /// Parse a complete relation definition.
-    pub fn parse_rel_def(
-        &mut self,
-        input: &str,
-    ) -> Result<(String, Rel<B::Constraint>), ParseError> {
+    ///
+    /// Returns `Ok(Some((name, rel)))` for a plain `rel name { body }`,
+    /// or `Ok(None)` for a macro `rel name(p1, ..., pn) { body }`.
+    pub fn parse_rel_def(&mut self, input: &str) -> RelDefResult<B::Constraint> {
         let mut pos = 0;
         skip_whitespace(input, &mut pos);
 
@@ -740,18 +911,24 @@ impl<B: ConstraintBuilder> Parser<B> {
         skip_whitespace(input, &mut pos);
         let name = parse_identifier(input, &mut pos)?;
 
-        // Register the relation name if not already registered
+        // Check for parameter list: `(`
+        skip_whitespace(input, &mut pos);
+        let has_params = pos < input.len() && peek_char(input, pos) == Some('(');
+
+        if has_params {
+            return self.parse_macro_def(input, &mut pos, name);
+        }
+
+        // Plain relation: register name and parse body.
         let rel_id = if let Some(&id) = self.relations.get(&name) {
             id
         } else {
-            let id = self.next_rel_id;
-            self.next_rel_id += 1;
+            let id = self.alloc_rel_id();
             self.relations.insert(name.clone(), id);
             id
         };
 
         // Expect '{'
-        skip_whitespace(input, &mut pos);
         if pos >= input.len() || peek_char(input, pos).unwrap() != '{' {
             return Err(ParseError {
                 message: "Expected '{'".to_string(),
@@ -760,10 +937,8 @@ impl<B: ConstraintBuilder> Parser<B> {
         }
         pos += 1;
 
-        // Parse body
         let body = self.parse_rel_body_until_brace(input, &mut pos)?;
 
-        // Expect '}'
         skip_whitespace(input, &mut pos);
         if pos >= input.len() || peek_char(input, pos).unwrap() != '}' {
             return Err(ParseError {
@@ -771,10 +946,112 @@ impl<B: ConstraintBuilder> Parser<B> {
                 position: pos,
             });
         }
-        // Wrap in Fix to enable recursion
-        let rel = Rel::Fix(rel_id, Arc::new(body));
 
-        Ok((name, rel))
+        let rel = Rel::Fix(rel_id, Arc::new(body));
+        Ok(Some((name, rel)))
+    }
+
+    /// Parse a macro definition: the part after `rel name` when `(` was seen.
+    fn parse_macro_def(
+        &mut self,
+        input: &str,
+        pos: &mut usize,
+        name: String,
+    ) -> RelDefResult<B::Constraint> {
+        // Consume '('
+        *pos += 1;
+
+        // Parse comma-separated parameter names
+        let mut params: Vec<(String, RelId)> = Vec::new();
+        loop {
+            skip_whitespace(input, pos);
+            if *pos >= input.len() {
+                return Err(ParseError {
+                    message: "Unterminated macro parameter list".to_string(),
+                    position: *pos,
+                });
+            }
+            if peek_char(input, *pos) == Some(')') {
+                *pos += 1;
+                break;
+            }
+            if !params.is_empty() {
+                if peek_char(input, *pos) != Some(',') {
+                    return Err(ParseError {
+                        message: "Expected ',' between macro parameters".to_string(),
+                        position: *pos,
+                    });
+                }
+                *pos += 1;
+                skip_whitespace(input, pos);
+            }
+            let param_name = parse_identifier(input, pos)?;
+            let param_id = self.alloc_rel_id();
+            params.push((param_name, param_id));
+        }
+
+        if params.is_empty() {
+            return Err(ParseError {
+                message: "Macro parameter list cannot be empty (use `rel name { ... }` instead)"
+                    .to_string(),
+                position: *pos,
+            });
+        }
+
+        let arity = params.len();
+        let self_id = self.alloc_rel_id();
+
+        // Register param names in `relations` so the body parser resolves them as Call(param_id).
+        for (pname, pid) in &params {
+            self.relations.insert(pname.clone(), *pid);
+        }
+
+        // Set current_macro so parse_primary_impl can detect recursive self-calls.
+        self.current_macro = Some(CurrentMacro {
+            name: name.clone(),
+            arity,
+            self_id,
+            params: params.clone(),
+        });
+
+        // Expect '{'
+        skip_whitespace(input, pos);
+        if *pos >= input.len() || peek_char(input, *pos) != Some('{') {
+            return Err(ParseError {
+                message: "Expected '{' after macro parameter list".to_string(),
+                position: *pos,
+            });
+        }
+        *pos += 1;
+
+        let body = self.parse_rel_body_until_brace(input, pos)?;
+
+        skip_whitespace(input, pos);
+        if *pos >= input.len() || peek_char(input, *pos) != Some('}') {
+            return Err(ParseError {
+                message: "Expected '}'".to_string(),
+                position: *pos,
+            });
+        }
+
+        // Unregister param names from `relations` — they are local to the macro body.
+        for (pname, _) in &params {
+            self.relations.remove(pname);
+        }
+        self.current_macro = None;
+
+        let key = (name.clone(), arity);
+        self.macro_signatures.insert(key.clone());
+        self.macro_defs.insert(
+            key,
+            MacroDef {
+                params,
+                body,
+                self_id,
+            },
+        );
+
+        Ok(None)
     }
 
     /// Parse relation body until we hit a closing brace.
@@ -784,6 +1061,343 @@ impl<B: ConstraintBuilder> Parser<B> {
         pos: &mut usize,
     ) -> Result<Rel<B::Constraint>, ParseError> {
         self.parse_or_expr_impl(input, pos, Some('}'))
+    }
+
+    /// Parse a macro call: the `(arg1, arg2, ...)` part after the name has been parsed.
+    fn parse_macro_call(
+        &mut self,
+        input: &str,
+        pos: &mut usize,
+        name: &str,
+        name_pos: usize,
+    ) -> Result<Rel<B::Constraint>, ParseError> {
+        let args = self.parse_macro_args(input, pos)?;
+        let arity = args.len();
+
+        // Check for recursive self-call when inside a macro definition.
+        if let Some(ref cm) = self.current_macro {
+            if cm.name == name && cm.arity == arity {
+                return self.handle_self_call(args, name_pos);
+            }
+        }
+
+        // Look up defined macro.
+        let key = (name.to_string(), arity);
+        if self.macro_defs.contains_key(&key) {
+            return self.expand_macro_call(name, arity, args, name_pos);
+        }
+
+        // Signature is known (from pre-scan) but body not yet parsed — pending call.
+        if self.macro_signatures.contains(&key) {
+            let pending_id = self.alloc_rel_id();
+            self.pending_macro_calls.insert(
+                pending_id,
+                PendingMacroCall {
+                    name: name.to_string(),
+                    arity,
+                    args,
+                },
+            );
+            return Ok(Rel::Call(pending_id));
+        }
+
+        Err(ParseError {
+            message: format!("undefined macro '{}/{}'", name, arity),
+            position: name_pos,
+        })
+    }
+
+    /// Parse comma-separated relation expression arguments inside `(...)`.
+    fn parse_macro_args(
+        &mut self,
+        input: &str,
+        pos: &mut usize,
+    ) -> Result<Vec<Rel<B::Constraint>>, ParseError> {
+        // Consume '('
+        if *pos >= input.len() || peek_char(input, *pos) != Some('(') {
+            return Err(ParseError {
+                message: "Expected '('".to_string(),
+                position: *pos,
+            });
+        }
+        *pos += 1;
+
+        let mut args = Vec::new();
+        loop {
+            skip_whitespace(input, pos);
+            if *pos >= input.len() {
+                return Err(ParseError {
+                    message: "Unterminated macro argument list".to_string(),
+                    position: *pos,
+                });
+            }
+            if peek_char(input, *pos) == Some(')') {
+                *pos += 1;
+                break;
+            }
+            if !args.is_empty() {
+                if peek_char(input, *pos) != Some(',') {
+                    return Err(ParseError {
+                        message: "Expected ',' between macro arguments".to_string(),
+                        position: *pos,
+                    });
+                }
+                *pos += 1;
+            }
+            // Each arg is a full relation expression, stopped by `,` or `)`.
+            let arg = self.parse_macro_arg_expr(input, pos)?;
+            args.push(arg);
+        }
+        Ok(args)
+    }
+
+    /// Parse a single macro argument: a relation expression delimited by `,` or `)`.
+    fn parse_macro_arg_expr(
+        &mut self,
+        input: &str,
+        pos: &mut usize,
+    ) -> Result<Rel<B::Constraint>, ParseError> {
+        // We parse an or-expression but stop at `)` and `,`.
+        // We can't use stop_char directly since we need two stop chars.
+        // Instead, parse a seq expr and manually break on `,` or `)`.
+        self.parse_macro_arg_or(input, pos)
+    }
+
+    /// Parse or-level for macro args, stopping at `,` or `)`.
+    fn parse_macro_arg_or(
+        &mut self,
+        input: &str,
+        pos: &mut usize,
+    ) -> Result<Rel<B::Constraint>, ParseError> {
+        let mut left = self.parse_macro_arg_seq(input, pos)?;
+        loop {
+            skip_whitespace(input, pos);
+            if *pos >= input.len() {
+                break;
+            }
+            let ch = peek_char(input, *pos).unwrap();
+            if ch == ')' || ch == ',' || ch != '|' {
+                break;
+            }
+            *pos += 1;
+            let right = self.parse_macro_arg_seq(input, pos)?;
+            left = Rel::Or(Arc::new(left), Arc::new(right));
+        }
+        Ok(left)
+    }
+
+    /// Parse seq-level for macro args, stopping at `|`, `,` or `)`.
+    fn parse_macro_arg_seq(
+        &mut self,
+        input: &str,
+        pos: &mut usize,
+    ) -> Result<Rel<B::Constraint>, ParseError> {
+        let mut factors: Vec<Arc<Rel<B::Constraint>>> = Vec::new();
+        factors.push(Arc::new(self.parse_macro_arg_and(input, pos)?));
+        loop {
+            skip_whitespace(input, pos);
+            if *pos >= input.len() {
+                break;
+            }
+            let ch = peek_char(input, *pos).unwrap();
+            if ch == ')' || ch == ',' || ch == '|' || ch != ';' {
+                break;
+            }
+            *pos += 1;
+            factors.push(Arc::new(self.parse_macro_arg_and(input, pos)?));
+        }
+        if factors.len() == 1 {
+            Ok(unwrap_or_clone(factors.pop().unwrap()))
+        } else {
+            Ok(Rel::Seq(Arc::from(factors)))
+        }
+    }
+
+    /// Parse and-level for macro args, stopping at `;`, `|`, `,` or `)`.
+    fn parse_macro_arg_and(
+        &mut self,
+        input: &str,
+        pos: &mut usize,
+    ) -> Result<Rel<B::Constraint>, ParseError> {
+        let mut left = self.parse_macro_arg_primary(input, pos)?;
+        loop {
+            skip_whitespace(input, pos);
+            if *pos >= input.len() {
+                break;
+            }
+            let ch = peek_char(input, *pos).unwrap();
+            if ch == ')' || ch == ',' || ch == '|' || ch == ';' || ch != '&' {
+                break;
+            }
+            *pos += 1;
+            let right = self.parse_macro_arg_primary(input, pos)?;
+            left = Rel::And(Arc::new(left), Arc::new(right));
+        }
+        Ok(left)
+    }
+
+    /// Parse a primary for macro args. Delegates to `parse_primary_impl` with no stop_char.
+    fn parse_macro_arg_primary(
+        &mut self,
+        input: &str,
+        pos: &mut usize,
+    ) -> Result<Rel<B::Constraint>, ParseError> {
+        // Reuse the standard primary parser — it handles `[...]`, `@`, `$`, `(`,
+        // lowercase identifiers (which may themselves be macro calls or relation refs).
+        self.parse_primary_impl(input, pos, None)
+    }
+
+    /// Handle a recursive self-call inside a macro body.
+    ///
+    /// Each arg must be either a bare parameter reference or completely parameter-free
+    /// (after any inner macro expansion that already happened during parsing of the arg).
+    fn handle_self_call(
+        &self,
+        args: Vec<Rel<B::Constraint>>,
+        call_pos: usize,
+    ) -> Result<Rel<B::Constraint>, ParseError> {
+        let cm = self.current_macro.as_ref().unwrap();
+        let param_ids: HashSet<RelId> = cm.params.iter().map(|(_, id)| *id).collect();
+
+        // Classify each argument.
+        for (i, arg) in args.iter().enumerate() {
+            match arg {
+                Rel::Call(id) if param_ids.contains(id) => {
+                    // Bare param ref — allowed.
+                }
+                _ => {
+                    if contains_any_call(arg, &param_ids) {
+                        return Err(ParseError {
+                            message: format!(
+                                "recursive call to '{}/{}': argument {} contains a transformed \
+                                 parameter reference, which may cause infinite expansion",
+                                cm.name,
+                                cm.arity,
+                                i + 1,
+                            ),
+                            position: call_pos,
+                        });
+                    }
+                    // Parameter-free — allowed.
+                }
+            }
+        }
+
+        // Check if this is an exact identity self-call: args match params in order.
+        let is_identity = args.len() == cm.params.len()
+            && args
+                .iter()
+                .zip(cm.params.iter())
+                .all(|(arg, (_, pid))| matches!(arg, Rel::Call(id) if *id == *pid));
+
+        if is_identity {
+            return Ok(Rel::Call(cm.self_id));
+        }
+
+        // Non-identity self-call: build a specialization key and store the call
+        // for expansion when the macro is later invoked at a call site.
+        // During macro body parsing, we record this as Call(self_id) with the args,
+        // but we can't expand yet since we're still defining the macro.
+        //
+        // To handle this, we need to inline-expand at this point: take the macro's
+        // own body template, substitute the args, and check for cycles.
+        // But we don't have the body yet (we're in the middle of parsing it).
+        //
+        // Solution: emit a placeholder that will be expanded when the outer macro
+        // is expanded at a call site. We encode the non-identity self-call as:
+        // Seq([self_id_marker, arg1, arg2, ...]) — but this pollutes the Rel tree.
+        //
+        // Better solution: for V1, recursive self-calls with modified args are
+        // expanded lazily during expand_macro_call. During body parsing, we store
+        // the original Call to self with the original text for these args.
+        // Since we can't do lazy expansion without extra Rel variants, we take
+        // a different approach: error for now if the args aren't identity.
+        // The smart expansion only works for cross-macro calls and external call sites.
+        //
+        // Actually, we CAN handle this: the body is being parsed right now. A
+        // non-identity self-call like fold(base, alg) inside fold(alg, base)
+        // is equivalent to calling the macro with those args. But we're still
+        // parsing the body, so we don't have the complete body yet.
+        //
+        // The correct approach: treat it like calling an already-defined macro.
+        // But the macro IS the one being defined. We solve this by noting that
+        // once the body is complete, expand_macro_call handles specialization
+        // with cycle detection. During body parsing, a non-identity self-call
+        // is just recorded verbatim — we need a way to represent
+        // "call this macro with these specific args" in the Rel tree.
+        //
+        // We'll store it as the identity Call(self_id) wrapped in a structure
+        // that substitutes the args relative to the params. This is equivalent
+        // to: substitute params->args in the body, which IS the expansion.
+        // And for the recursive occurrences inside that expansion, we'll hit
+        // identity self-calls which become Call(self_id).
+        //
+        // In other words: non-identity self-call = substitute params→args in
+        // an abstract copy of the body. But we don't have the body yet.
+        //
+        // Pragmatic V1: only identity self-calls are allowed during body parsing.
+        // Non-identity "self-calls" will be handled at expansion time when
+        // the full body is available. During parsing, if the call matches the
+        // current macro name/arity but args aren't identity, and the macro ISN'T
+        // yet in macro_defs, error with a clear message.
+        Err(ParseError {
+            message: format!(
+                "recursive call to '{}/{}' with modified arguments is not supported \
+                 inside the macro's own definition; use the original parameter names \
+                 in order for direct recursion, or define a helper macro",
+                cm.name, cm.arity,
+            ),
+            position: call_pos,
+        })
+    }
+
+    /// Expand a call to an already-defined macro.
+    fn expand_macro_call(
+        &mut self,
+        name: &str,
+        arity: usize,
+        args: Vec<Rel<B::Constraint>>,
+        call_pos: usize,
+    ) -> Result<Rel<B::Constraint>, ParseError> {
+        let key = (name.to_string(), arity);
+
+        // Clone what we need from the MacroDef to avoid borrowing self.
+        let (params, body, self_id) = {
+            let def = &self.macro_defs[&key];
+            (def.params.clone(), def.body.clone(), def.self_id)
+        };
+
+        // Build substitution: param_id -> arg
+        let mut subst: HashMap<RelId, Rel<B::Constraint>> = HashMap::new();
+        for ((_, pid), arg) in params.iter().zip(args.into_iter()) {
+            subst.insert(*pid, arg);
+        }
+
+        // Allocate a fresh id for this expansion.
+        let fresh_id = self.alloc_rel_id();
+
+        // Substitute params and self-references.
+        let mut expanded = substitute_in_rel(&body, &subst, self_id, fresh_id);
+
+        // Resolve any pending macro calls in the expanded body.
+        // This handles forward references: macro A's body references macro B,
+        // which wasn't defined when A was parsed but is available now.
+        if !self.pending_macro_calls.is_empty() {
+            expanded = self
+                .resolve_pending_inner(expanded, &subst)
+                .map_err(|msg| ParseError {
+                    message: msg,
+                    position: call_pos,
+                })?;
+        }
+
+        // If the expanded body contains Call(fresh_id), it's recursive — wrap in Fix.
+        if contains_call(&expanded, fresh_id) {
+            Ok(Rel::Fix(fresh_id, Arc::new(expanded)))
+        } else {
+            let _ = call_pos;
+            Ok(expanded)
+        }
     }
 }
 
@@ -801,6 +1415,34 @@ impl Default for Parser<NoConstraintBuilder> {
 
 fn peek_char(input: &str, pos: usize) -> Option<char> {
     input.as_bytes().get(pos).copied().map(|byte| byte as char)
+}
+
+/// Extract `(name, arity)` from the text after `rel ` in a macro definition header.
+/// Returns `None` if this isn't a macro definition (no parameter list).
+fn extract_macro_signature(after_rel: &str) -> Option<(String, usize)> {
+    let s = after_rel.trim_start();
+    // Parse the name (lowercase identifier).
+    let name_end = s
+        .find(|c: char| !c.is_ascii_alphanumeric() && c != '_')
+        .unwrap_or(s.len());
+    if name_end == 0 {
+        return None;
+    }
+    let name = &s[..name_end];
+    let rest = s[name_end..].trim_start();
+    // Must have '(' immediately.
+    let rest = rest.strip_prefix('(')?;
+    // Count comma-separated params until ')'.
+    let close = rest.find(')')?;
+    let params_str = &rest[..close];
+    let arity = params_str
+        .split(',')
+        .filter(|p| !p.trim().is_empty())
+        .count();
+    if arity == 0 {
+        return None;
+    }
+    Some((name.to_string(), arity))
 }
 
 fn unwrap_or_clone<T: Clone>(arc: Arc<T>) -> T {
@@ -1467,6 +2109,68 @@ fn parse_identifier(input: &str, pos: &mut usize) -> Result<String, ParseError> 
     Ok(input[start..*pos].to_string())
 }
 
+// ============================================================================
+// Macro expansion helpers
+// ============================================================================
+
+/// Substitute `Call(id)` nodes in a `Rel` tree according to a substitution map.
+/// Also replaces `Call(self_id)` with `Call(fresh_id)` for recursive references.
+fn substitute_in_rel<C: Clone>(
+    rel: &Rel<C>,
+    subst: &HashMap<RelId, Rel<C>>,
+    self_id: RelId,
+    fresh_id: RelId,
+) -> Rel<C> {
+    match rel {
+        Rel::Call(id) if subst.contains_key(id) => subst[id].clone(),
+        Rel::Call(id) if *id == self_id => Rel::Call(fresh_id),
+        Rel::Call(_) | Rel::Zero | Rel::Atom(_) => rel.clone(),
+        Rel::Or(a, b) => Rel::Or(
+            Arc::new(substitute_in_rel(a, subst, self_id, fresh_id)),
+            Arc::new(substitute_in_rel(b, subst, self_id, fresh_id)),
+        ),
+        Rel::And(a, b) => Rel::And(
+            Arc::new(substitute_in_rel(a, subst, self_id, fresh_id)),
+            Arc::new(substitute_in_rel(b, subst, self_id, fresh_id)),
+        ),
+        Rel::Seq(xs) => {
+            let new_xs: Vec<Arc<Rel<C>>> = xs
+                .iter()
+                .map(|x| Arc::new(substitute_in_rel(x, subst, self_id, fresh_id)))
+                .collect();
+            Rel::Seq(Arc::from(new_xs))
+        }
+        Rel::Fix(id, body) => Rel::Fix(
+            *id,
+            Arc::new(substitute_in_rel(body, subst, self_id, fresh_id)),
+        ),
+    }
+}
+
+/// Check whether a `Rel` tree contains `Call(target_id)` anywhere.
+fn contains_call<C>(rel: &Rel<C>, target_id: RelId) -> bool {
+    match rel {
+        Rel::Call(id) => *id == target_id,
+        Rel::Zero | Rel::Atom(_) => false,
+        Rel::Or(a, b) | Rel::And(a, b) => {
+            contains_call(a, target_id) || contains_call(b, target_id)
+        }
+        Rel::Seq(xs) => xs.iter().any(|x| contains_call(x, target_id)),
+        Rel::Fix(_, body) => contains_call(body, target_id),
+    }
+}
+
+/// Check whether a `Rel` tree contains any `Call(id)` where `id` is in the given set.
+fn contains_any_call<C>(rel: &Rel<C>, ids: &HashSet<RelId>) -> bool {
+    match rel {
+        Rel::Call(id) => ids.contains(id),
+        Rel::Zero | Rel::Atom(_) => false,
+        Rel::Or(a, b) | Rel::And(a, b) => contains_any_call(a, ids) || contains_any_call(b, ids),
+        Rel::Seq(xs) => xs.iter().any(|x| contains_any_call(x, ids)),
+        Rel::Fix(_, body) => contains_any_call(body, ids),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1810,7 +2514,7 @@ mod tests {
         let mut parser = Parser::new();
         let result = parser.parse_rel_def("rel id { $x -> $x }");
         assert!(result.is_ok());
-        let (name, rel) = result.unwrap();
+        let (name, rel) = result.unwrap().expect("not a macro");
         assert_eq!(name, "id");
         assert!(matches!(rel, Rel::Fix(_, _)));
     }
@@ -1820,7 +2524,7 @@ mod tests {
         let mut parser = Parser::new();
         let result = parser.parse_rel_def("rel test { a -> b | c -> d }");
         assert!(result.is_ok());
-        let (name, rel) = result.unwrap();
+        let (name, rel) = result.unwrap().expect("not a macro");
         assert_eq!(name, "test");
         match rel {
             Rel::Fix(_, body) => {
@@ -1842,7 +2546,7 @@ mod tests {
         "#;
         let result = parser.parse_rel_def(input);
         assert!(result.is_ok(), "Failed to parse: {:?}", result.err());
-        let (name, _rel) = result.unwrap();
+        let (name, _rel) = result.unwrap().expect("not a macro");
         assert_eq!(name, "add");
     }
 
@@ -1976,7 +2680,8 @@ theory t {
         parser.parse_theory_def(theory).expect("parse theory");
         let (name, rel) = parser
             .parse_rel_def("rel test { a { (p a b), (q b c) } -> a }")
-            .expect("atom LHS with constraint block must parse as rule");
+            .expect("atom LHS with constraint block must parse as rule")
+            .expect("not a macro");
         assert_eq!(name, "test");
         match rel {
             Rel::Fix(_, _) => {}
@@ -2119,9 +2824,10 @@ theory eq {
     fn parser_size_reasonable() {
         use std::mem::size_of;
         let size = size_of::<Parser>();
-        // Parser contains SymbolStore, TermStore, and HashMap<String, RelId>
+        // Parser contains SymbolStore, TermStore, HashMap<String, RelId>,
+        // macro_defs HashMap, and current_macro Option.
         assert!(
-            size < 1000,
+            size < 1200,
             "Parser should not be excessively large, got {}",
             size
         );
@@ -2201,5 +2907,299 @@ theory arrow_test {
         parser
             .parse_theory_def(theory)
             .expect("parse theory with ==> arrow");
+    }
+
+    // ========================================================================
+    // MACRO DEFINITION AND EXPANSION TESTS
+    // ========================================================================
+
+    #[test]
+    fn parse_non_recursive_macro_returns_none() {
+        let mut parser = Parser::new();
+        let result = parser.parse_rel_def("rel double(r) { r ; r }");
+        assert!(result.is_ok(), "Parse failed: {:?}", result.err());
+        assert!(
+            result.unwrap().is_none(),
+            "Macro def should return None (not a relation)"
+        );
+        assert!(
+            parser.macro_defs.contains_key(&("double".to_string(), 1)),
+            "Macro should be stored in macro_defs"
+        );
+    }
+
+    #[test]
+    fn parse_macro_two_params() {
+        let mut parser = Parser::new();
+        let result = parser.parse_rel_def("rel compose(f, g) { f ; g }");
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_none());
+        assert!(parser.macro_defs.contains_key(&("compose".to_string(), 2)));
+    }
+
+    #[test]
+    fn expand_non_recursive_macro_substitutes_params() {
+        let mut parser = Parser::new();
+        parser
+            .parse_rel_def("rel double(r) { r ; r }")
+            .expect("define macro");
+
+        // Use the macro in a body: double([$x -> (s $x)])
+        let rel = parser
+            .parse_rel_body("double([$x -> (s $x)])")
+            .expect("expand macro");
+
+        // Should be Seq([Atom, Atom]) — the rule duplicated.
+        match rel {
+            Rel::Seq(factors) => {
+                assert_eq!(factors.len(), 2, "double(r) should produce r;r = Seq of 2");
+                assert!(
+                    matches!(factors[0].as_ref(), Rel::Atom(_)),
+                    "First element should be Atom"
+                );
+                assert!(
+                    matches!(factors[1].as_ref(), Rel::Atom(_)),
+                    "Second element should be Atom"
+                );
+            }
+            _ => panic!("Expected Seq from double expansion, got {:?}", rel),
+        }
+    }
+
+    #[test]
+    fn expand_recursive_macro_wraps_in_fix() {
+        let mut parser = Parser::new();
+        parser
+            .parse_rel_def("rel repeat(r) { r | [r ; repeat(r)] }")
+            .expect("define recursive macro");
+
+        let rel = parser
+            .parse_rel_body("repeat([$x -> (s $x)])")
+            .expect("expand recursive macro");
+
+        // Should be Fix(_, Or(Atom, Seq([Atom, Call(_)])))
+        match rel {
+            Rel::Fix(id, body) => match body.as_ref() {
+                Rel::Or(left, right) => {
+                    assert!(
+                        matches!(left.as_ref(), Rel::Atom(_)),
+                        "Left branch should be the base case atom"
+                    );
+                    match right.as_ref() {
+                        Rel::Seq(factors) => {
+                            assert_eq!(factors.len(), 2);
+                            assert!(matches!(factors[0].as_ref(), Rel::Atom(_)));
+                            assert!(
+                                matches!(factors[1].as_ref(), Rel::Call(call_id) if *call_id == id),
+                                "Recursive call should reference the Fix id"
+                            );
+                        }
+                        _ => panic!("Right branch should be Seq"),
+                    }
+                }
+                _ => panic!("Fix body should be Or"),
+            },
+            _ => panic!("Expected Fix wrapping recursive macro expansion"),
+        }
+    }
+
+    #[test]
+    fn macro_arity_overloading() {
+        let mut parser = Parser::new();
+        // Define a plain relation `foo`
+        let result = parser.parse_rel_def("rel foo { a -> b }");
+        assert!(result.unwrap().is_some(), "plain rel should return Some");
+
+        // Define a macro `foo(x)` — different arity, different entity.
+        let result = parser.parse_rel_def("rel foo(x) { x ; x }");
+        assert!(result.unwrap().is_none(), "macro should return None");
+
+        // Both should coexist.
+        assert!(parser.relations.contains_key("foo"));
+        assert!(parser.macro_defs.contains_key(&("foo".to_string(), 1)));
+    }
+
+    #[test]
+    fn macro_call_wrong_arity_errors() {
+        let mut parser = Parser::new();
+        parser
+            .parse_rel_def("rel double(r) { r ; r }")
+            .expect("define double/1");
+
+        // Call with wrong arity
+        let err = parser
+            .parse_rel_body("double(a -> b, c -> d)")
+            .expect_err("wrong arity should fail");
+        assert!(
+            err.message.contains("undefined macro 'double/2'"),
+            "Expected arity error, got: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn macro_undefined_errors() {
+        let mut parser = Parser::new();
+        let err = parser
+            .parse_rel_body("nonexistent(a -> b)")
+            .expect_err("undefined macro should fail");
+        assert!(
+            err.message.contains("undefined macro"),
+            "Expected undefined error, got: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn macro_empty_params_errors() {
+        let mut parser = Parser::new();
+        let err = parser
+            .parse_rel_def("rel bad() { a -> b }")
+            .expect_err("empty params should fail");
+        assert!(
+            err.message.contains("cannot be empty"),
+            "Expected empty params error, got: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn macro_cross_call_with_param_propagation() {
+        let mut parser = Parser::new();
+        // Define compose(f, g) = f ; g
+        parser
+            .parse_rel_def("rel compose(f, g) { f ; g }")
+            .expect("define compose");
+        // Define double(r) = compose(r, r)
+        parser
+            .parse_rel_def("rel double(r) { compose(r, r) }")
+            .expect("define double using compose");
+
+        // Expand double([$x -> (s $x)])
+        let rel = parser
+            .parse_rel_body("double([$x -> (s $x)])")
+            .expect("expand double");
+
+        // compose(r, r) with r = the rule should produce Seq([rule, rule])
+        match rel {
+            Rel::Seq(factors) => {
+                assert_eq!(factors.len(), 2, "compose(r, r) = r;r");
+            }
+            _ => panic!("Expected Seq, got {:?}", rel),
+        }
+    }
+
+    #[test]
+    fn macro_recursive_identity_self_call() {
+        let mut parser = Parser::new();
+        // fold(alg, base) uses fold(alg, base) in body — identity self-call.
+        let result = parser.parse_rel_def("rel fold(alg, base) { base | [alg ; fold(alg, base)] }");
+        assert!(result.is_ok(), "Parse failed: {:?}", result.err());
+        assert!(result.unwrap().is_none(), "Macro should return None");
+
+        // Stored in macro_defs.
+        let def = parser
+            .macro_defs
+            .get(&("fold".to_string(), 2))
+            .expect("fold/2 should be in macro_defs");
+
+        // Body should have a self-call (Call to self_id).
+        assert!(
+            contains_call(&def.body, def.self_id),
+            "Body should contain a self-call"
+        );
+    }
+
+    #[test]
+    fn macro_non_identity_self_call_errors() {
+        let mut parser = Parser::new();
+        // fold(alg, base) calling fold(base, alg) — swapped args, non-identity.
+        let err = parser
+            .parse_rel_def("rel flip(a, b) { flip(b, a) }")
+            .expect_err("non-identity self-call during definition should error");
+        assert!(
+            err.message.contains("modified arguments"),
+            "Expected modified args error, got: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn macro_expansion_with_concrete_self_call_arg_errors() {
+        let mut parser = Parser::new();
+        // foo(a) calling foo([$x -> $x]) — concrete arg, non-identity self-call.
+        let err = parser
+            .parse_rel_def("rel foo(a) { foo([$x -> $x]) }")
+            .expect_err("concrete-arg self-call during definition should error");
+        assert!(
+            err.message.contains("modified arguments"),
+            "Expected modified args error, got: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn macro_param_not_leaked_after_definition() {
+        let mut parser = Parser::new();
+        parser
+            .parse_rel_def("rel m(r) { r ; r }")
+            .expect("define macro");
+
+        // After defining the macro, the param name `r` should NOT be
+        // registered as a relation in the parser.
+        assert!(
+            !parser.relations.contains_key("r"),
+            "Macro param 'r' should not leak into relations"
+        );
+    }
+
+    #[test]
+    fn macro_arg_is_full_relation_expr() {
+        let mut parser = Parser::new();
+        parser
+            .parse_rel_def("rel apply(f) { f }")
+            .expect("define apply");
+
+        // Pass a complex relation expression as arg: or, seq, and
+        let rel = parser
+            .parse_rel_body("apply([a -> b | c -> d])")
+            .expect("expand with complex arg");
+        // Should be Or(Atom, Atom) — the arg itself.
+        assert!(matches!(rel, Rel::Or(_, _)));
+    }
+
+    #[test]
+    fn macro_non_recursive_no_fix_wrap() {
+        let mut parser = Parser::new();
+        parser
+            .parse_rel_def("rel id_wrap(f) { f }")
+            .expect("define id_wrap");
+
+        let rel = parser
+            .parse_rel_body("id_wrap([$x -> $x])")
+            .expect("expand id_wrap");
+
+        // Should NOT be wrapped in Fix since there's no recursion.
+        assert!(
+            !matches!(rel, Rel::Fix(_, _)),
+            "Non-recursive expansion should not have Fix"
+        );
+    }
+
+    #[test]
+    fn macro_names_returns_defined_macros() {
+        let mut parser = Parser::new();
+        parser
+            .parse_rel_def("rel double(r) { r ; r }")
+            .expect("define double");
+        parser
+            .parse_rel_def("rel compose(f, g) { f ; g }")
+            .expect("define compose");
+
+        let names = parser.macro_names();
+        assert_eq!(names.len(), 2);
+        let name_set: HashSet<(String, usize)> = names.into_iter().collect();
+        assert!(name_set.contains(&("double".to_string(), 1)));
+        assert!(name_set.contains(&("compose".to_string(), 2)));
     }
 }

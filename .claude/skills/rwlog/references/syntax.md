@@ -1,5 +1,5 @@
 <overview>
-Complete syntax reference for rwlog. Covers terms, variables, rules, and relation definitions.
+Complete syntax reference for rwlog. Covers terms, variables, rules, relation definitions, and parameterized macros.
 </overview>
 
 <terms>
@@ -193,6 +193,70 @@ rel length {
 ```
 </example>
 </relations>
+
+<macros>
+## Parameterized Relation Macros
+
+Macros define relation templates with relation-valued parameters. Expansion happens at parse time — the result is always a plain relation tree.
+
+```
+rel name(param1, param2) {
+    body using param1 and param2
+}
+```
+
+**Arity is part of identity:** `fold`, `fold(x)`, and `fold(x, y)` are completely different, unrelated declarations. Bare `fold` does NOT refer to `fold(x)`.
+
+<example name="Non-recursive macro">
+```
+rel double(r) {
+    r ; r
+}
+
+rel inc { $x -> (s $x) }
+```
+
+`@z ; double(inc)` expands `double(inc)` to `inc ; inc`, producing `(s (s z))`.
+</example>
+
+<example name="Macro with two parameters">
+```
+rel then(first, second) {
+    first ; second
+}
+```
+
+`@z ; then(inc, wrap)` expands to `inc ; wrap`.
+</example>
+
+<example name="Recursive macro">
+```
+rel peel(base) {
+    (s $x) -> $x ; peel(base)
+    | base
+}
+```
+
+`peel(base)` inside the body is a recursive self-call (same params in same order). This strips `(s ...)` layers and applies `base` at the bottom.
+
+`@(s (s z)) ; peel(z -> done)` produces `done`.
+</example>
+
+<example name="Cross-macro call">
+```
+rel compose(f, g) { f ; g }
+rel double(r) { compose(r, r) }
+```
+
+`double(inc)` expands to `compose(inc, inc)` which expands to `inc ; inc`.
+</example>
+
+**Rules:**
+- Parameters must be lowercase identifiers
+- Macro arguments can be any relation expression: rules, sequences, alternatives, conjunctions, bracketed groups, or calls to other macros/relations
+- Recursive self-calls must pass the original parameters unchanged (identity self-call)
+- Macros can reference other macros defined later in the same file (forward references work)
+</macros>
 
 <term_literals>
 ## Term Literals with @

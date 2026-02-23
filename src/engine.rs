@@ -184,7 +184,9 @@ mod tests {
                 continue;
             }
             if line.starts_with("rel ") {
-                rel_def = Some(parser.parse_rel_def(line).expect("parse rel def").1);
+                if let Some((_, rel)) = parser.parse_rel_def(line).expect("parse rel def") {
+                    rel_def = Some(rel);
+                }
             }
         }
         let rel_def = rel_def.expect("expected relation definition");
@@ -1626,7 +1628,10 @@ rel add {
 }
 "#;
 
-        let (_, rel_def) = parser.parse_rel_def(def).expect("parse add");
+        let (_, rel_def) = parser
+            .parse_rel_def(def)
+            .expect("parse add")
+            .expect("not a macro");
         let env = match &rel_def {
             Rel::Fix(id, body) => Env::new().bind(*id, body.clone()),
             _ => Env::new(),
