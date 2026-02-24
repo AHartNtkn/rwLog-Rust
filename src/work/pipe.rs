@@ -339,10 +339,6 @@ impl<C: ConstraintOps> PipeWork<C> {
                 Err(step) => return step,
             }
 
-            if let Some(step) = self.try_split_call_atom_call() {
-                return step;
-            }
-
             // Phase B: Try to batch-advance simple Calls (single-Atom bodies).
             // When a Call resolves to a Fix whose body is a single Atom(nf),
             // we can compose the NF directly into the boundary without creating
@@ -362,49 +358,6 @@ impl<C: ConstraintOps> PipeWork<C> {
         let result = self.advance_end(end, terms);
         self.flip = !self.flip; // Toggle for next step
         result
-    }
-
-    fn try_split_call_atom_call(&self) -> Option<WorkStep<C>> {
-        if self.mid.len() != 3 {
-            return None;
-        }
-        let factors = self.mid.to_vec();
-        let front = factors.first()?.as_ref();
-        let middle = factors.get(1)?.as_ref();
-        let back = factors.get(2)?.as_ref();
-        if !matches!(front, Rel::Call(_)) {
-            return None;
-        }
-        let middle_nf = match middle {
-            Rel::Atom(nf) => nf.as_ref(),
-            _ => return None,
-        };
-        if !matches!(back, Rel::Call(_)) {
-            return None;
-        }
-
-        let left_seq: Arc<[Arc<Rel<C>>]> = Arc::from(vec![factors[0].clone()]);
-        let right_seq: Arc<[Arc<Rel<C>>]> = Arc::from(vec![factors[1].clone(), factors[2].clone()]);
-        let mut left_pipe = PipeWork::new_with_parts(
-            self.left.clone(),
-            Factors::from_seq(left_seq),
-            Some(nf_domain_filter(middle_nf)),
-            self.env.clone(),
-            self.tables.clone(),
-        );
-        let mut right_pipe = PipeWork::new_with_parts(
-            None,
-            Factors::from_seq(right_seq),
-            self.right.clone(),
-            self.env.clone(),
-            self.tables.clone(),
-        );
-        left_pipe.call_mode = self.call_mode.clone();
-        right_pipe.call_mode = self.call_mode.clone();
-        let left_node = Node::Work(Box::new(Work::Pipe(Box::new(left_pipe))));
-        let right_node = Node::Work(Box::new(Work::Pipe(Box::new(right_pipe))));
-        let compose = ComposeWork::new(left_node, right_node);
-        Some(WorkStep::More(Box::new(Work::Compose(compose))))
     }
 
     /// Choose which end to advance when normalization is stuck.

@@ -50,4 +50,4 @@ The initial hypothesis predicted that eliminating to_vec() would reduce sequence
 - **sequence_chain_len4096 is still 80%+ of total time** (~3.7s). The remaining bottleneck is O(n) compose/step overhead per chain element. Addressing this requires:
   - Plan compilation/caching (Proposal 1 in PERFORMANCE_INVESTIGATIONS.md): compile the 4096-step pipeline into a fused bytecode rather than stepping through one at a time
   - Seq batching: recognize deterministic pipelines and process multiple steps in batch
-- **to_vec() in try_split_call_atom_call()**: Still converts full mid to Vec just to check 3 elements. Could be replaced with direct rope access via `Factors::get(idx)`.
+- ~~**to_vec() in try_split_call_atom_call()**: Still converts full mid to Vec just to check 3 elements.~~ **Removed** — try_split_call_atom_call was deleted; see [docs/perf_investigations/split_call_atom_call.md](split_call_atom_call.md).

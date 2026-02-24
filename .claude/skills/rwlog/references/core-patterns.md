@@ -468,7 +468,7 @@ Results (first few):
 
 Each answer is a lambda term that reduces to the identity, with its freshness requirements made explicit:
 - Answer 1: `lam x . x` — the identity itself
-- Answer 2: `lam x . (lam y . x) z` where `y ≠ x` — a K-combinator application that discards `z` and returns `x`
+- Answer 2: `lam x . (lam y . x) z` where `y ≠ x` — an application that discards `z` and returns `x`
 - Answer 3: `(lam x . lam x . x) y` — outer binding is shadowed, inner identity survives
 - Answer 4: `lam x . (lam y . y) x` — applies identity to `x`
 - Answer 5: `(lam x . x) (lam y . y)` — identity applied to identity

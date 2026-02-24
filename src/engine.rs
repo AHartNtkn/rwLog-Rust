@@ -176,7 +176,7 @@ mod tests {
         mut handle_theory: impl FnMut(&mut Parser<B>, &str),
     ) -> (Rel<B::Constraint>, Env<B::Constraint>) {
         let statements = split_statements(def).expect("split rel def");
-        let mut rel_def = None;
+        let mut all_rels = Vec::new();
         for statement in statements {
             let line = statement.trim();
             if line.starts_with("theory ") {
@@ -185,15 +185,17 @@ mod tests {
             }
             if line.starts_with("rel ") {
                 if let Some((_, rel)) = parser.parse_rel_def(line).expect("parse rel def") {
-                    rel_def = Some(rel);
+                    all_rels.push(rel);
                 }
             }
         }
-        let rel_def = rel_def.expect("expected relation definition");
-        let env = match &rel_def {
-            Rel::Fix(id, body) => Env::new().bind(*id, body.clone()),
-            _ => Env::new(),
-        };
+        let rel_def = all_rels.last().expect("expected relation definition").clone();
+        let mut env = Env::new();
+        for rel in &all_rels {
+            if let Rel::Fix(id, body) = rel {
+                env = env.bind(*id, body.clone());
+            }
+        }
         (rel_def, env)
     }
 
@@ -2841,7 +2843,132 @@ rel lamEq {
         );
     }
 
-    /// Diagnostic: compose plain identity (no constraint) with lamEq
+    // ========================================================================
+    // SIMPLELAM STARVATION BUG TESTS
+    // ========================================================================
+
+    const SIMPLELAM_DEF: &str = r#"
+theory lamvar_constraints {
+    constraint neq/2
+
+    (neq $x $x) <=> fail.
+    (neq $x $y), (neq $x $y) <=> (neq $x $y).
+    (neq $x $y), (neq $y $x) <=> (neq $x $y).
+}
+
+rel fold {
+    (pair $e nil) -> $e
+  | (pair $e (cons $x $xs)) -> (pair (a $e $r) $xs) &
+    [(pair $e (cons $x $xs)) -> (pair $x nil) ; eval ; $r -> (pair (a $e $r) $xs)] ;
+    fold
+}
+
+rel eval {
+    (pair (a $x $y) $spine) -> (pair $x (cons $y $spine)) ; eval
+  | (pair (var $x) $spine) -> (pair (var $x) $spine) ; fold
+  | (pair (lam $x $y) nil) -> (lam $x $r) &
+    [(pair (lam $x $y) nil) -> (pair $y nil) ; eval ; $r -> (lam $x $r)]
+  | (pair (lam $x (var $x)) (cons $z $spine)) -> (pair $z $spine) ; eval
+  | (pair (lam $x (var $y)) (cons $z $spine)) {(neq $x $y)} -> (pair (var $y) $spine) ; eval
+  | (pair (lam $x (lam $x $z)) (cons $w $spine)) -> (pair (lam $x $z) $spine) ; eval
+  | (pair (lam $x (lam $y $z)) (cons $w $spine)) {(neq $x $y)} -> (pair (lam $y $r) $spine) &
+    [(pair (lam $x (lam $y $z)) (cons $w $spine)) -> (pair (a (lam $x $z) $w) nil) ; eval ; $r -> (pair (lam $y $r) $spine)]
+    ; eval
+  | (pair (lam $x (a $y $z)) (cons $w $spine)) -> (pair (lam $x $y) (cons $w (cons (a (lam $x $z) $w) $spine))) ; eval
+}
+
+rel k {
+    $a {(neq $x $y)} -> (lam $x (lam $y (var $x)))
+}
+
+rel s {
+    $a {(neq $f $x), (neq $f $g), (neq $g $x)} -> (lam $f (lam $g (lam $x (a (a (var $f) (var $x)) (a (var $g) (var $x))))))
+}
+"#;
+
+    /// Inlining the matching eval branch works — recursive eval calls inside are fine.
+    #[test]
+    fn simplelam_k_eval_inlined_branch_works() {
+        let mut parser = Parser::with_chr();
+        let (_rel, env) = parse_rel_def_with_env_chr(&mut parser, SIMPLELAM_DEF);
+
+        // Inline only the matching branch (case 3: lam with nil spine)
+        // but still use eval recursively inside
+        let query_str = r#"k ; $p -> (pair $p nil) ; [(pair (lam $x $y) nil) -> (lam $x $r) & [(pair (lam $x $y) nil) -> (pair $y nil) ; eval ; $r -> (lam $x $r)]]"#;
+        let query = parser.parse_rel_body(query_str).expect("parse inlined query");
+        let terms = parser.take_terms();
+
+        let mut engine: Engine<ChrState> = Engine::new_with_env(query, terms, env);
+
+        let max_steps = 500_000;
+        let first = run_until_emit(&mut engine, max_steps);
+        assert!(
+            first.is_some(),
+            "BUG: inlined eval branch should produce answer within {} steps",
+            max_steps
+        );
+        let rendered = engine
+            .format_nf(first.as_ref().unwrap(), parser.symbols())
+            .unwrap_or_else(|_| "<error>".to_string());
+        eprintln!("  simplelam inlined: {}", rendered);
+    }
+
+    /// `k ; $p -> (pair $p nil) ; eval` must produce an answer.
+    /// Regression: splitting [Call, Atom, Call] into a parallel Compose
+    /// lost the Atom's transformation at the compose interface, causing
+    /// the right side to explore its full infinite search space.
+    #[test]
+    fn simplelam_k_eval_full_must_not_starve() {
+        let mut parser = Parser::with_chr();
+        let (_rel, env) = parse_rel_def_with_env_chr(&mut parser, SIMPLELAM_DEF);
+
+        let query_str = "k ; $p -> (pair $p nil) ; eval";
+        let query = parser.parse_rel_body(query_str).expect("parse full eval query");
+        let terms = parser.take_terms();
+
+        let mut engine: Engine<ChrState> = Engine::new_with_env(query, terms, env);
+
+        let max_steps = 500_000;
+        let first = run_until_emit(&mut engine, max_steps);
+        assert!(
+            first.is_some(),
+            "BUG: full eval should produce answer within {} steps",
+            max_steps
+        );
+        let rendered = engine
+            .format_nf(first.as_ref().unwrap(), parser.symbols())
+            .unwrap_or_else(|_| "<error>".to_string());
+        eprintln!("  simplelam full eval: {}", rendered);
+    }
+
+    /// Evaluate S applied to K: `(S K)` should reduce to a lambda term.
+    /// The conjunction builds `(a s k)` from independent `s` and `k` generators,
+    /// then evaluates it.
+    #[test]
+    fn simplelam_sk_eval_must_produce_answer() {
+        let mut parser = Parser::with_chr();
+        let (_rel, env) = parse_rel_def_with_env_chr(&mut parser, SIMPLELAM_DEF);
+
+        let query_str =
+            "[[s ; $s -> (a $s $k1)] & [k ; $k1 -> (a $s $k1)]] ; $p -> (pair $p nil) ; eval";
+        let query = parser.parse_rel_body(query_str).expect("parse SK eval query");
+        let terms = parser.take_terms();
+
+        let mut engine: Engine<ChrState> = Engine::new_with_env(query, terms, env);
+
+        let max_steps = 500_000;
+        let first = run_until_emit(&mut engine, max_steps);
+        assert!(
+            first.is_some(),
+            "BUG: SK eval should produce answer within {} steps",
+            max_steps
+        );
+        let rendered = engine
+            .format_nf(first.as_ref().unwrap(), parser.symbols())
+            .unwrap_or_else(|_| "<error>".to_string());
+        eprintln!("  simplelam SK eval: {}", rendered);
+    }
+
     #[test]
     fn lam_eq_compose_plain_identity() {
         let mut parser = Parser::with_chr();
