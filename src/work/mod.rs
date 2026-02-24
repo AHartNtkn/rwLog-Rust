@@ -15,6 +15,7 @@ use smallvec::SmallVec;
 use std::sync::Arc;
 
 mod and_group;
+mod bind;
 mod compose;
 mod diagonal;
 mod fix;
@@ -23,6 +24,7 @@ mod meet;
 mod pipe;
 
 pub use and_group::{AndGroup, AndGroupConfig};
+pub use bind::BindWork;
 pub use compose::ComposeWork;
 pub(crate) use diagonal::DiagonalStepResult;
 pub use fix::{
@@ -49,6 +51,8 @@ pub enum Work<C: ConstraintOps> {
     Fix(FixWork<C>),
     /// Symmetric compose join for sequential composition.
     Compose(ComposeWork<C>),
+    /// Monadic bind: feeds each source NF as boundary into a pipe template.
+    Bind(BindWork<C>),
     /// Receiver for joiner outputs (drives AndGroup producers).
     JoinReceiver(JoinReceiverWork<C>),
     /// Single atomic NF (emits once, then done).
@@ -183,14 +187,12 @@ fn node_from_answers<C: ConstraintOps>(answers: Vec<NF<C>>) -> Node<C> {
     node
 }
 
-fn wrap_compose_with_prefix_suffix<C: ConstraintOps>(
-    core: ComposeWork<C>,
+fn wrap_node_with_prefix_suffix<C: ConstraintOps>(
+    mut node: Node<C>,
     prefix: Option<NF<C>>,
     suffix: Option<NF<C>>,
     terms: &mut TermStore,
 ) -> WorkStep<C> {
-    let mut node = Node::Work(Box::new(Work::Compose(core)));
-
     if let Some(prefix_nf) = prefix {
         let prefix_node = Node::Emit(Box::new(prefix_nf), Box::new(Node::Fail));
         node = Node::Work(Box::new(Work::Compose(ComposeWork::new_preseed(
@@ -213,6 +215,16 @@ fn wrap_compose_with_prefix_suffix<C: ConstraintOps>(
         Node::Work(work) => WorkStep::More(work),
         _ => WorkStep::Done,
     }
+}
+
+fn wrap_compose_with_prefix_suffix<C: ConstraintOps>(
+    core: ComposeWork<C>,
+    prefix: Option<NF<C>>,
+    suffix: Option<NF<C>>,
+    terms: &mut TermStore,
+) -> WorkStep<C> {
+    let node = Node::Work(Box::new(Work::Compose(core)));
+    wrap_node_with_prefix_suffix(node, prefix, suffix, terms)
 }
 
 fn build_var_list(arity: u32, terms: &mut TermStore) -> SmallVec<[TermId; 1]> {

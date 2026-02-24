@@ -74,6 +74,7 @@ fn count_pipe_nodes_in_work(work: &Work<()>) -> usize {
         Work::Compose(compose) => {
             count_pipe_nodes(compose.left()) + count_pipe_nodes(compose.right())
         }
+        Work::Bind(_) => 0,
         Work::JoinReceiver(_) => 0,
         Work::Atom(_) => 0,
         Work::Done => 0,
@@ -100,7 +101,12 @@ fn extract_key_from_step(step: WorkStep<()>) -> CallKey<()> {
                     .expect("Expected FixWork in compose nodes");
                 (*fix.key).clone()
             }
-            _ => panic!("Expected Work::Compose(..)"),
+            Work::Bind(bind) => {
+                let fix = find_fixwork_in_node(bind.source())
+                    .expect("Expected FixWork in bind source");
+                (*fix.key).clone()
+            }
+            _ => panic!("Expected Work::Compose or Work::Bind"),
         },
         _ => panic!("Expected WorkStep::More(..)"),
     }
@@ -148,6 +154,7 @@ fn find_and_group_in_work(work: &Work<()>) -> Option<AndGroup<()>> {
         Work::Pipe(_)
         | Work::Meet(_)
         | Work::Fix(_)
+        | Work::Bind(_)
         | Work::JoinReceiver(_)
         | Work::Atom(_)
         | Work::Done => None,

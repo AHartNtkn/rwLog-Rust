@@ -14,8 +14,9 @@ use std::sync::Arc;
 use super::{
     build_child0_tag, build_root_tag, flatten_and_parts, match_child0_tag, match_root_tag,
     nf_domain_filter, nf_left_prefix, nf_right_suffix, nf_rwl_iso, nf_rwr_iso, node_from_answers,
-    tags_compatible, wrap_compose_with_prefix_suffix, wrap_rel_with_atoms, AndGroup, CallKey,
-    CallMode, ComposeWork, Env, FixWork, ProducerSpec, RootTag, Tables, Work, WorkStep,
+    tags_compatible, wrap_compose_with_prefix_suffix, wrap_node_with_prefix_suffix,
+    wrap_rel_with_atoms, AndGroup, BindWork,
+    CallKey, CallMode, ComposeWork, Env, FixWork, ProducerSpec, RootTag, Tables, Work, WorkStep,
 };
 
 /// Pre-computed dispatch entry for a single atom in an Or-of-Atoms body.
@@ -196,6 +197,7 @@ impl<C: ConstraintOps> Work<C> {
             Work::AndGroup(group) => group.step(terms),
             Work::Fix(fix) => fix.step(terms),
             Work::Compose(compose) => compose.step(terms),
+            Work::Bind(bind) => bind.step(terms),
             Work::JoinReceiver(join) => join.step(terms),
             Work::Atom(nf) => {
                 // Emit the NF once, then done
@@ -727,7 +729,7 @@ impl<C: ConstraintOps> PipeWork<C> {
         let group = self.build_and_group(parts, left_iso.clone(), right_iso.clone());
 
         let mut pipe = self.clone();
-        let (left_node, right_node, outer_prefix, outer_suffix) = match end {
+        match end {
             PipeEnd::Front => {
                 pipe.left = None;
                 pipe.right = if right_iso.is_some() {
@@ -735,14 +737,31 @@ impl<C: ConstraintOps> PipeWork<C> {
                 } else {
                     right_suffix.clone()
                 };
-                let left_node = Node::Work(Box::new(Work::AndGroup(group)));
-                let right_node = Node::Work(Box::new(Work::Pipe(Box::new(pipe))));
+                let source_node = Node::Work(Box::new(Work::AndGroup(group)));
                 let outer_suffix = if right_iso.is_some() {
                     right_suffix
                 } else {
                     None
                 };
-                (left_node, right_node, left_prefix, outer_suffix)
+
+                // Front advancement with remaining mid: use BindWork so each
+                // source NF becomes a specific left boundary for the remaining pipe.
+                if !mid_empty {
+                    let bind = BindWork::new(
+                        source_node,
+                        pipe.mid,
+                        pipe.right,
+                        pipe.env,
+                        pipe.tables,
+                        pipe.call_mode,
+                    );
+                    let inner = Node::Work(Box::new(Work::Bind(bind)));
+                    return wrap_node_with_prefix_suffix(inner, left_prefix, outer_suffix, terms);
+                }
+
+                let right_node = Node::Work(Box::new(Work::Pipe(Box::new(pipe))));
+                let core = ComposeWork::new(source_node, right_node);
+                wrap_compose_with_prefix_suffix(core, left_prefix, outer_suffix, terms)
             }
             PipeEnd::Back => {
                 pipe.right = None;
@@ -758,12 +777,10 @@ impl<C: ConstraintOps> PipeWork<C> {
                 } else {
                     None
                 };
-                (left_node, right_node, outer_prefix, right_suffix)
+                let core = ComposeWork::new(left_node, right_node);
+                wrap_compose_with_prefix_suffix(core, outer_prefix, right_suffix, terms)
             }
-        };
-
-        let core = ComposeWork::new(left_node, right_node);
-        wrap_compose_with_prefix_suffix(core, outer_prefix, outer_suffix, terms)
+        }
     }
 
     fn advance_fix(&mut self, end: PipeEnd, id: RelId, body: Arc<Rel<C>>) -> WorkStep<C> {
@@ -791,6 +808,21 @@ impl<C: ConstraintOps> PipeWork<C> {
         if use_right {
             pipe.right = None;
         }
+
+        // Front advancement with remaining mid: use BindWork so each source
+        // NF becomes a specific left boundary for the remaining pipe.
+        if matches!(end, PipeEnd::Front) && !pipe.mid.is_empty() {
+            let bind = BindWork::new(
+                fix_node,
+                pipe.mid,
+                pipe.right,
+                pipe.env,
+                pipe.tables,
+                pipe.call_mode,
+            );
+            return WorkStep::More(Box::new(Work::Bind(bind)));
+        }
+
         let (left_node, right_node) = self.order_by_end(end, fix_node, pipe);
         let compose = ComposeWork::new(left_node, right_node);
         WorkStep::More(Box::new(Work::Compose(compose)))
@@ -1219,6 +1251,20 @@ impl<C: ConstraintOps> PipeWork<C> {
                 if use_right {
                     pipe.right = None;
                 }
+
+                let absorb_front = matches!(end, PipeEnd::Front);
+                if absorb_front && !pipe.mid.is_empty() {
+                    let bind = BindWork::new(
+                        replay_node,
+                        pipe.mid,
+                        pipe.right,
+                        pipe.env,
+                        pipe.tables,
+                        pipe.call_mode,
+                    );
+                    return WorkStep::More(Box::new(Work::Bind(bind)));
+                }
+
                 let (left_node, right_node) = self.order_by_end(end, replay_node, pipe);
                 let compose = ComposeWork::new_preseed(left_node, right_node, terms);
                 return WorkStep::More(Box::new(Work::Compose(compose)));
@@ -1251,6 +1297,22 @@ impl<C: ConstraintOps> PipeWork<C> {
         }
         if use_right {
             pipe.right = None;
+        }
+
+        // Front advancement with remaining mid: use BindWork so each source
+        // NF becomes a specific left boundary for the remaining pipe. This
+        // prevents downstream Calls from running with unconstrained input.
+        let absorb_front = matches!(end, PipeEnd::Front);
+        if absorb_front && !pipe.mid.is_empty() {
+            let bind = BindWork::new(
+                gen_node,
+                pipe.mid,
+                pipe.right,
+                pipe.env,
+                pipe.tables,
+                pipe.call_mode,
+            );
+            return WorkStep::More(Box::new(Work::Bind(bind)));
         }
 
         let (left_node, right_node) = self.order_by_end(end, gen_node, pipe);
