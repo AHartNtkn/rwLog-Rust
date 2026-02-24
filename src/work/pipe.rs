@@ -159,7 +159,7 @@ fn build_wrapper_chain_nf<C: ConstraintOps>(
 }
 
 #[derive(Clone, Copy, Debug)]
-enum PipeEnd {
+pub(crate) enum PipeEnd {
     Front,
     Back,
 }
@@ -764,7 +764,7 @@ impl<C: ConstraintOps> PipeWork<C> {
                 if !mid_empty
                     && (!mid_has_tabled_nodes(&pipe.mid) || pipe.right.is_none())
                 {
-                    let bind = BindWork::new(
+                    let bind = BindWork::new_front(
                         source_node,
                         pipe.mid,
                         pipe.right,
@@ -787,14 +787,32 @@ impl<C: ConstraintOps> PipeWork<C> {
                 } else {
                     left_prefix.clone()
                 };
-                let left_node = Node::Work(Box::new(Work::Pipe(Box::new(pipe))));
-                let right_node = Node::Work(Box::new(Work::AndGroup(group)));
+                let source_node = Node::Work(Box::new(Work::AndGroup(group)));
                 let outer_prefix = if left_iso.is_some() {
                     left_prefix
                 } else {
                     None
                 };
-                let core = ComposeWork::new(left_node, right_node);
+
+                // Back advancement with remaining mid: symmetric to Front.
+                // Use BindWork when mid has no tabled nodes OR no left boundary.
+                if !mid_empty
+                    && (!mid_has_tabled_nodes(&pipe.mid) || pipe.left.is_none())
+                {
+                    let bind = BindWork::new_back(
+                        source_node,
+                        pipe.left,
+                        pipe.mid,
+                        pipe.env,
+                        pipe.tables,
+                        pipe.call_mode,
+                    );
+                    let inner = Node::Work(Box::new(Work::Bind(bind)));
+                    return wrap_node_with_prefix_suffix(inner, outer_prefix, right_suffix, terms);
+                }
+
+                let left_node = Node::Work(Box::new(Work::Pipe(Box::new(pipe))));
+                let core = ComposeWork::new(left_node, source_node);
                 wrap_compose_with_prefix_suffix(core, outer_prefix, right_suffix, terms)
             }
         }
@@ -826,22 +844,37 @@ impl<C: ConstraintOps> PipeWork<C> {
             pipe.right = None;
         }
 
-        // Front advancement with remaining mid: use BindWork when mid has
-        // no tabled nodes OR no right boundary. ComposeWork when mid has
-        // Calls/Fixes AND a right boundary (preserves table sharing).
-        if matches!(end, PipeEnd::Front)
-            && !pipe.mid.is_empty()
-            && (!mid_has_tabled_nodes(&pipe.mid) || pipe.right.is_none())
-        {
-            let bind = BindWork::new(
-                fix_node,
-                pipe.mid,
-                pipe.right,
-                pipe.env,
-                pipe.tables,
-                pipe.call_mode,
-            );
-            return WorkStep::More(Box::new(Work::Bind(bind)));
+        // Use BindWork when remaining mid has no tabled nodes, or when
+        // the far-side boundary is absent (no output/input constraint for
+        // downstream Calls). ComposeWork when mid has Calls/Fixes AND a
+        // far-side boundary exists (preserves table sharing).
+        if !pipe.mid.is_empty() {
+            let mid_tabled = mid_has_tabled_nodes(&pipe.mid);
+            match end {
+                PipeEnd::Front if !mid_tabled || pipe.right.is_none() => {
+                    let bind = BindWork::new_front(
+                        fix_node,
+                        pipe.mid,
+                        pipe.right,
+                        pipe.env,
+                        pipe.tables,
+                        pipe.call_mode,
+                    );
+                    return WorkStep::More(Box::new(Work::Bind(bind)));
+                }
+                PipeEnd::Back if !mid_tabled || pipe.left.is_none() => {
+                    let bind = BindWork::new_back(
+                        fix_node,
+                        pipe.left,
+                        pipe.mid,
+                        pipe.env,
+                        pipe.tables,
+                        pipe.call_mode,
+                    );
+                    return WorkStep::More(Box::new(Work::Bind(bind)));
+                }
+                _ => {}
+            }
         }
 
         let (left_node, right_node) = self.order_by_end(end, fix_node, pipe);
@@ -1273,20 +1306,33 @@ impl<C: ConstraintOps> PipeWork<C> {
                     pipe.right = None;
                 }
 
-                let absorb_front = matches!(end, PipeEnd::Front);
-                if absorb_front
-                    && !pipe.mid.is_empty()
-                    && (!mid_has_tabled_nodes(&pipe.mid) || pipe.right.is_none())
-                {
-                    let bind = BindWork::new(
-                        replay_node,
-                        pipe.mid,
-                        pipe.right,
-                        pipe.env,
-                        pipe.tables,
-                        pipe.call_mode,
-                    );
-                    return WorkStep::More(Box::new(Work::Bind(bind)));
+                if !pipe.mid.is_empty() {
+                    let mid_tabled = mid_has_tabled_nodes(&pipe.mid);
+                    match end {
+                        PipeEnd::Front if !mid_tabled || pipe.right.is_none() => {
+                            let bind = BindWork::new_front(
+                                replay_node,
+                                pipe.mid,
+                                pipe.right,
+                                pipe.env,
+                                pipe.tables,
+                                pipe.call_mode,
+                            );
+                            return WorkStep::More(Box::new(Work::Bind(bind)));
+                        }
+                        PipeEnd::Back if !mid_tabled || pipe.left.is_none() => {
+                            let bind = BindWork::new_back(
+                                replay_node,
+                                pipe.left,
+                                pipe.mid,
+                                pipe.env,
+                                pipe.tables,
+                                pipe.call_mode,
+                            );
+                            return WorkStep::More(Box::new(Work::Bind(bind)));
+                        }
+                        _ => {}
+                    }
                 }
 
                 let (left_node, right_node) = self.order_by_end(end, replay_node, pipe);
@@ -1323,23 +1369,36 @@ impl<C: ConstraintOps> PipeWork<C> {
             pipe.right = None;
         }
 
-        // Front advancement with remaining mid: use BindWork when mid has
-        // no tabled nodes OR no right boundary. ComposeWork when mid has
-        // Calls/Fixes AND a right boundary (preserves table sharing).
-        let absorb_front = matches!(end, PipeEnd::Front);
-        if absorb_front
-            && !pipe.mid.is_empty()
-            && (!mid_has_tabled_nodes(&pipe.mid) || pipe.right.is_none())
-        {
-            let bind = BindWork::new(
-                gen_node,
-                pipe.mid,
-                pipe.right,
-                pipe.env,
-                pipe.tables,
-                pipe.call_mode,
-            );
-            return WorkStep::More(Box::new(Work::Bind(bind)));
+        // Use BindWork when remaining mid has no tabled nodes, or when
+        // the far-side boundary is absent. ComposeWork when mid has
+        // Calls/Fixes AND a far-side boundary (preserves table sharing).
+        if !pipe.mid.is_empty() {
+            let mid_tabled = mid_has_tabled_nodes(&pipe.mid);
+            match end {
+                PipeEnd::Front if !mid_tabled || pipe.right.is_none() => {
+                    let bind = BindWork::new_front(
+                        gen_node,
+                        pipe.mid,
+                        pipe.right,
+                        pipe.env,
+                        pipe.tables,
+                        pipe.call_mode,
+                    );
+                    return WorkStep::More(Box::new(Work::Bind(bind)));
+                }
+                PipeEnd::Back if !mid_tabled || pipe.left.is_none() => {
+                    let bind = BindWork::new_back(
+                        gen_node,
+                        pipe.left,
+                        pipe.mid,
+                        pipe.env,
+                        pipe.tables,
+                        pipe.call_mode,
+                    );
+                    return WorkStep::More(Box::new(Work::Bind(bind)));
+                }
+                _ => {}
+            }
         }
 
         let (left_node, right_node) = self.order_by_end(end, gen_node, pipe);
