@@ -280,6 +280,15 @@ fn nf_domain_filter<C: ConstraintOps>(nf: &NF<C>) -> NF<C> {
     )
 }
 
+fn nf_range_filter<C: ConstraintOps>(nf: &NF<C>) -> NF<C> {
+    let out_arity = nf.drop_fresh.out_arity;
+    NF::new(
+        nf.build_pats.clone(),
+        DropFresh::identity_with_constraint(out_arity, nf.drop_fresh.constraint.clone()),
+        nf.build_pats.clone(),
+    )
+}
+
 /// Root functor tag for indexing NFs by their first pattern's root.
 ///
 /// - `Functor(f)`: the first pattern is `App(f, ...)` with a specific root functor
