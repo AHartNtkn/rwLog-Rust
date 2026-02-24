@@ -2969,6 +2969,32 @@ rel s {
         eprintln!("  simplelam SK eval: {}", rendered);
     }
 
+    /// Regression: BindWork for front-advancement broke the flip synthesis query.
+    /// The query has [Atom ; Call ; Atom ; Call ; Atom] structure — multiple
+    /// sequential Calls separated by Atoms. BindWork must not prevent search
+    /// from finding the answer.
+    #[test]
+    fn program_synth_flip_must_not_hang() {
+        let mut parser = Parser::with_chr();
+        let (_app_rel, env) = parse_rel_def_with_env_chr(&mut parser, PROGRAM_SYNTH_DEF);
+
+        let query_str = concat!(
+            "[[$x { (no_c $x) } -> (f $x (c z))] ; app ; ",
+            "[$x -> (f $x (c (s z)))] ; app ; @(a (c (s z)) (c z))]"
+        );
+        let query = parser.parse_rel_body(query_str).expect("parse query");
+        let terms = parser.take_terms();
+        let mut engine: Engine<ChrState> = Engine::new_with_env(query, terms, env);
+
+        let max_steps = 500_000;
+        let first = run_until_emit(&mut engine, max_steps);
+        assert!(
+            first.is_some(),
+            "BUG: flip synthesis should produce answer within {} steps",
+            max_steps
+        );
+    }
+
     #[test]
     fn lam_eq_compose_plain_identity() {
         let mut parser = Parser::with_chr();
