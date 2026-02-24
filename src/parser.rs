@@ -29,23 +29,61 @@ use std::sync::Arc;
 /// Result of `parse_rel_def`: `Some((name, rel))` for a relation, `None` for a macro.
 type RelDefResult<C> = Result<Option<(String, Rel<C>)>, ParseError>;
 
-/// A stored macro definition: `rel name(p1, ..., pn) { body }`.
+/// Result of matching a macro equation: (rel_subst, term_subst).
+type EquationMatch<C> = (HashMap<RelId, Rel<C>>, crate::subst::Subst);
+
+/// Whether a macro parameter is a relation (substituted) or a term (pattern-matched).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum ParamKind {
+    Relation,
+    Term,
+}
+
+/// A single equation in a multi-equation macro definition.
 ///
-/// The body is a `Rel` tree where parameter references are `Call(param_id)`
-/// and recursive self-references are `Call(self_id)`.
-struct MacroDef<C> {
-    params: Vec<(String, RelId)>,
+/// For `rel fmap(@(sum $a $b), f) { ... }`:
+/// - `term_patterns[0]` = Some(TermId for `(sum $a $b)`), `term_patterns[1]` = None
+/// - `rel_params` = [("f", <RelId>)]
+/// - `body` = the parsed Rel tree
+#[derive(Clone)]
+struct MacroEquation<C> {
+    /// For each param position: Some(pattern) for Term params, None for Relation params.
+    term_patterns: Vec<Option<TermId>>,
+    /// Relation-kind parameters: (name, placeholder RelId).
+    rel_params: Vec<(String, RelId)>,
+    /// The macro body as a Rel tree.
     body: Rel<C>,
+    /// RelId used for recursive self-references in this equation's body.
     self_id: RelId,
 }
 
+/// A stored macro definition, potentially with multiple equations for pattern dispatch.
+///
+/// The first definition establishes `param_kinds`; subsequent definitions must match.
+struct MacroDef<C> {
+    param_kinds: Vec<ParamKind>,
+    equations: Vec<MacroEquation<C>>,
+}
+
 /// Tracks the macro currently being parsed, so the body parser can recognize
-/// parameter names and recursive self-calls.
+/// parameter names, recursive self-calls, and meta-variable references.
 struct CurrentMacro {
     name: String,
     arity: usize,
+    param_kinds: Vec<ParamKind>,
     self_id: RelId,
-    params: Vec<(String, RelId)>,
+    rel_params: Vec<(String, RelId)>,
+    /// Meta-variable names from term patterns, for use by parse_macro_term_arg.
+    meta_vars: HashMap<String, u32>,
+    /// Term patterns for each Term-kind param (used for identity self-call check).
+    term_patterns: Vec<Option<TermId>>,
+}
+
+/// A macro argument: either a relation expression or a term.
+#[derive(Clone, Debug)]
+enum MacroArg<C> {
+    Rel(Rel<C>),
+    Term(TermId),
 }
 
 /// A macro call whose definition wasn't available at parse time.
@@ -55,7 +93,7 @@ struct CurrentMacro {
 struct PendingMacroCall<C> {
     name: String,
     arity: usize,
-    args: Vec<Rel<C>>,
+    args: Vec<MacroArg<C>>,
 }
 
 /// Result of parsing a term - TermId plus variable info.
@@ -217,9 +255,11 @@ pub struct Parser<B: ConstraintBuilder = NoConstraintBuilder> {
     macro_defs: HashMap<(String, usize), MacroDef<B::Constraint>>,
     /// The macro currently being parsed (if any).
     current_macro: Option<CurrentMacro>,
-    /// Known macro signatures (name, arity) registered before bodies are parsed.
+    /// Known macro signatures (name, arity) -> param_kinds, registered before bodies are parsed.
     /// Used to recognize `name(...)` as macro call syntax during forward references.
-    macro_signatures: HashSet<(String, usize)>,
+    macro_signatures: HashMap<(String, usize), Vec<ParamKind>>,
+    /// Current macro expansion depth (for detecting non-structural recursion).
+    expansion_depth: usize,
     /// Macro calls whose definitions weren't available at parse time.
     /// Keyed by a placeholder RelId used in the Rel tree as `Call(id)`.
     pending_macro_calls: HashMap<RelId, PendingMacroCall<B::Constraint>>,
@@ -255,7 +295,8 @@ impl Parser<NoConstraintBuilder> {
             constraints: NoConstraintBuilder,
             macro_defs: HashMap::new(),
             current_macro: None,
-            macro_signatures: HashSet::new(),
+            macro_signatures: HashMap::new(),
+            expansion_depth: 0,
             pending_macro_calls: HashMap::new(),
         }
     }
@@ -270,7 +311,8 @@ impl Parser<NoConstraintBuilder> {
             constraints: NoConstraintBuilder,
             macro_defs: HashMap::new(),
             current_macro: None,
-            macro_signatures: HashSet::new(),
+            macro_signatures: HashMap::new(),
+            expansion_depth: 0,
             pending_macro_calls: HashMap::new(),
         }
     }
@@ -286,7 +328,8 @@ impl<B: ConstraintBuilder> Parser<B> {
             constraints: builder,
             macro_defs: HashMap::new(),
             current_macro: None,
-            macro_signatures: HashSet::new(),
+            macro_signatures: HashMap::new(),
+            expansion_depth: 0,
             pending_macro_calls: HashMap::new(),
         }
     }
@@ -300,7 +343,8 @@ impl<B: ConstraintBuilder> Parser<B> {
             constraints: builder,
             macro_defs: HashMap::new(),
             current_macro: None,
-            macro_signatures: HashSet::new(),
+            macro_signatures: HashMap::new(),
+            expansion_depth: 0,
             pending_macro_calls: HashMap::new(),
         }
     }
@@ -320,14 +364,16 @@ impl<B: ConstraintBuilder> Parser<B> {
     }
 
     /// Pre-scan a batch of statements and register all macro signatures
-    /// (name + arity) so that forward references parse correctly.
+    /// (name + arity + param_kinds) so that forward references parse correctly.
     /// Call this before parsing any bodies in the batch.
+    /// The first definition for a given (name, arity) establishes param_kinds.
     pub fn scan_macro_signatures(&mut self, statements: &[String]) {
         for stmt in statements {
             let trimmed = stmt.trim();
             if let Some(after_rel) = trimmed.strip_prefix("rel ") {
-                if let Some(sig) = extract_macro_signature(after_rel) {
-                    self.macro_signatures.insert(sig);
+                if let Some((name, arity, kinds)) = extract_macro_signature(after_rel) {
+                    let key = (name, arity);
+                    self.macro_signatures.entry(key).or_insert(kinds);
                 }
             }
         }
@@ -339,39 +385,51 @@ impl<B: ConstraintBuilder> Parser<B> {
         &mut self,
         rel: Rel<B::Constraint>,
     ) -> Result<Rel<B::Constraint>, String> {
-        self.resolve_pending_inner(rel, &HashMap::new())
+        self.resolve_pending_inner(rel, &HashMap::new(), None)
     }
 
     /// Inner resolution: walks a Rel tree replacing `Call(pending_id)` nodes
-    /// with expanded macros. `outer_subst` is applied to the pending call's
-    /// stored args before expansion (handles params from an enclosing macro).
+    /// with expanded macros. `outer_subst` is the Rel-level substitution applied
+    /// to the pending call's Rel args, and `term_subst` is applied to Term args
+    /// to resolve meta-variables from an enclosing pattern-matching macro.
     fn resolve_pending_inner(
         &mut self,
         rel: Rel<B::Constraint>,
         outer_subst: &HashMap<RelId, Rel<B::Constraint>>,
+        term_subst: Option<&crate::subst::Subst>,
     ) -> Result<Rel<B::Constraint>, String> {
         match rel {
             Rel::Call(id) => {
                 if let Some(pending) = self.pending_macro_calls.get(&id).cloned() {
-                    // Substitute any outer macro params in the pending call's args.
-                    let resolved_args: Vec<Rel<B::Constraint>> = pending
-                        .args
-                        .iter()
-                        .map(|arg| {
-                            if outer_subst.is_empty() {
-                                arg.clone()
-                            } else {
-                                substitute_in_rel(arg, outer_subst, RelId::MAX, RelId::MAX)
+                    // Resolve the pending call's args: apply outer_subst to Rel args,
+                    // apply term_subst to Term args.
+                    let mut resolved_args: Vec<MacroArg<B::Constraint>> = Vec::new();
+                    for arg in &pending.args {
+                        match arg {
+                            MacroArg::Rel(r) => {
+                                let resolved = if outer_subst.is_empty() {
+                                    r.clone()
+                                } else {
+                                    substitute_in_rel(r, outer_subst, RelId::MAX, RelId::MAX)
+                                };
+                                // Also resolve pending calls within the Rel arg.
+                                let resolved = self.resolve_pending_inner(
+                                    resolved,
+                                    outer_subst,
+                                    term_subst,
+                                )?;
+                                resolved_args.push(MacroArg::Rel(resolved));
                             }
-                        })
-                        .collect();
-
-                    // Also resolve pending calls within the args themselves.
-                    let resolved_args: Result<Vec<_>, _> = resolved_args
-                        .into_iter()
-                        .map(|arg| self.resolve_pending_inner(arg, outer_subst))
-                        .collect();
-                    let resolved_args = resolved_args?;
+                            MacroArg::Term(tid) => {
+                                let resolved_tid = if let Some(ts) = term_subst {
+                                    crate::subst::apply_subst(*tid, ts, &mut self.terms)
+                                } else {
+                                    *tid
+                                };
+                                resolved_args.push(MacroArg::Term(resolved_tid));
+                            }
+                        }
+                    }
 
                     let key = (pending.name.clone(), pending.arity);
                     if self.macro_defs.contains_key(&key) {
@@ -379,7 +437,7 @@ impl<B: ConstraintBuilder> Parser<B> {
                         let expanded = self
                             .expand_macro_call(&pending.name, pending.arity, resolved_args, 0)
                             .map_err(|e| e.message)?;
-                        self.resolve_pending_inner(expanded, outer_subst)
+                        self.resolve_pending_inner(expanded, outer_subst, term_subst)
                     } else {
                         Err(format!(
                             "undefined macro '{}/{}'",
@@ -392,26 +450,26 @@ impl<B: ConstraintBuilder> Parser<B> {
             }
             Rel::Zero | Rel::Atom(_) => Ok(rel),
             Rel::Or(a, b) => {
-                let a = self.resolve_pending_inner((*a).clone(), outer_subst)?;
-                let b = self.resolve_pending_inner((*b).clone(), outer_subst)?;
+                let a = self.resolve_pending_inner((*a).clone(), outer_subst, term_subst)?;
+                let b = self.resolve_pending_inner((*b).clone(), outer_subst, term_subst)?;
                 Ok(Rel::Or(Arc::new(a), Arc::new(b)))
             }
             Rel::And(a, b) => {
-                let a = self.resolve_pending_inner((*a).clone(), outer_subst)?;
-                let b = self.resolve_pending_inner((*b).clone(), outer_subst)?;
+                let a = self.resolve_pending_inner((*a).clone(), outer_subst, term_subst)?;
+                let b = self.resolve_pending_inner((*b).clone(), outer_subst, term_subst)?;
                 Ok(Rel::And(Arc::new(a), Arc::new(b)))
             }
             Rel::Seq(xs) => {
                 let new_xs: Result<Vec<_>, _> = xs
                     .iter()
-                    .map(|x| self.resolve_pending_inner((**x).clone(), outer_subst))
+                    .map(|x| self.resolve_pending_inner((**x).clone(), outer_subst, term_subst))
                     .collect();
                 let new_xs: Vec<Arc<Rel<B::Constraint>>> =
                     new_xs?.into_iter().map(Arc::new).collect();
                 Ok(Rel::Seq(Arc::from(new_xs)))
             }
             Rel::Fix(id, body) => {
-                let body = self.resolve_pending_inner((*body).clone(), outer_subst)?;
+                let body = self.resolve_pending_inner((*body).clone(), outer_subst, term_subst)?;
                 Ok(Rel::Fix(id, Arc::new(body)))
             }
         }
@@ -952,6 +1010,10 @@ impl<B: ConstraintBuilder> Parser<B> {
     }
 
     /// Parse a macro definition: the part after `rel name` when `(` was seen.
+    ///
+    /// Supports `@` prefix on parameters for term-valued (pattern-matched) params.
+    /// Multiple definitions with the same name/arity add equations; the first
+    /// definition establishes param_kinds.
     fn parse_macro_def(
         &mut self,
         input: &str,
@@ -961,8 +1023,17 @@ impl<B: ConstraintBuilder> Parser<B> {
         // Consume '('
         *pos += 1;
 
-        // Parse comma-separated parameter names
-        let mut params: Vec<(String, RelId)> = Vec::new();
+        // Parse comma-separated parameters, detecting `@` prefix for term params.
+        let mut param_kinds: Vec<ParamKind> = Vec::new();
+        let mut rel_params: Vec<(String, RelId)> = Vec::new();
+        let mut term_patterns: Vec<Option<TermId>> = Vec::new();
+
+        // Shared var_map/var_order for all term patterns in this equation,
+        // so meta-vars across patterns share a namespace.
+        let mut term_var_map: HashMap<String, u32> = HashMap::new();
+        let mut term_var_order: Vec<u32> = Vec::new();
+
+        let mut param_count = 0;
         loop {
             skip_whitespace(input, pos);
             if *pos >= input.len() {
@@ -975,7 +1046,7 @@ impl<B: ConstraintBuilder> Parser<B> {
                 *pos += 1;
                 break;
             }
-            if !params.is_empty() {
+            if param_count > 0 {
                 if peek_char(input, *pos) != Some(',') {
                     return Err(ParseError {
                         message: "Expected ',' between macro parameters".to_string(),
@@ -985,12 +1056,27 @@ impl<B: ConstraintBuilder> Parser<B> {
                 *pos += 1;
                 skip_whitespace(input, pos);
             }
-            let param_name = parse_identifier(input, pos)?;
-            let param_id = self.alloc_rel_id();
-            params.push((param_name, param_id));
+
+            // Detect `@` prefix for term-valued parameters.
+            if peek_char(input, *pos) == Some('@') {
+                *pos += 1;
+                param_kinds.push(ParamKind::Term);
+                // Parse the term pattern (may contain meta-vars like `$a`).
+                let pattern =
+                    self.parse_term_inner(input, pos, &mut term_var_map, &mut term_var_order)?;
+                term_patterns.push(Some(pattern));
+                // No relation param for term positions.
+            } else {
+                param_kinds.push(ParamKind::Relation);
+                let param_name = parse_identifier(input, pos)?;
+                let param_id = self.alloc_rel_id();
+                rel_params.push((param_name, param_id));
+                term_patterns.push(None);
+            }
+            param_count += 1;
         }
 
-        if params.is_empty() {
+        if param_count == 0 {
             return Err(ParseError {
                 message: "Macro parameter list cannot be empty (use `rel name { ... }` instead)"
                     .to_string(),
@@ -998,11 +1084,30 @@ impl<B: ConstraintBuilder> Parser<B> {
             });
         }
 
-        let arity = params.len();
-        let self_id = self.alloc_rel_id();
+        // Build meta_vars from term_var_map.
+        let meta_vars = term_var_map;
 
-        // Register param names in `relations` so the body parser resolves them as Call(param_id).
-        for (pname, pid) in &params {
+        let arity = param_kinds.len();
+        let self_id = self.alloc_rel_id();
+        let key = (name.clone(), arity);
+
+        // Validate param_kinds match any existing definition.
+        if let Some(existing) = self.macro_defs.get(&key) {
+            if existing.param_kinds != param_kinds {
+                return Err(ParseError {
+                    message: format!(
+                        "macro '{}/{}': parameter kinds (@-positions) must match \
+                         across all equations",
+                        name, arity,
+                    ),
+                    position: *pos,
+                });
+            }
+        }
+
+        // Register relation param names in `relations` so the body parser
+        // resolves them as Call(param_id). Meta-vars are NOT registered here.
+        for (pname, pid) in &rel_params {
             self.relations.insert(pname.clone(), *pid);
         }
 
@@ -1010,8 +1115,11 @@ impl<B: ConstraintBuilder> Parser<B> {
         self.current_macro = Some(CurrentMacro {
             name: name.clone(),
             arity,
+            param_kinds: param_kinds.clone(),
             self_id,
-            params: params.clone(),
+            rel_params: rel_params.clone(),
+            meta_vars: meta_vars.clone(),
+            term_patterns: term_patterns.clone(),
         });
 
         // Expect '{'
@@ -1034,22 +1142,34 @@ impl<B: ConstraintBuilder> Parser<B> {
             });
         }
 
-        // Unregister param names from `relations` — they are local to the macro body.
-        for (pname, _) in &params {
+        // Unregister relation param names from `relations` — they are local to the macro body.
+        for (pname, _) in &rel_params {
             self.relations.remove(pname);
         }
         self.current_macro = None;
 
-        let key = (name.clone(), arity);
-        self.macro_signatures.insert(key.clone());
-        self.macro_defs.insert(
-            key,
-            MacroDef {
-                params,
-                body,
-                self_id,
-            },
-        );
+        let equation = MacroEquation {
+            term_patterns,
+            rel_params,
+            body,
+            self_id,
+        };
+
+        // Multi-equation accumulation: if the macro already exists, push a new equation.
+        self.macro_signatures
+            .entry(key.clone())
+            .or_insert_with(|| param_kinds.clone());
+        if let Some(def) = self.macro_defs.get_mut(&key) {
+            def.equations.push(equation);
+        } else {
+            self.macro_defs.insert(
+                key,
+                MacroDef {
+                    param_kinds,
+                    equations: vec![equation],
+                },
+            );
+        }
 
         Ok(None)
     }
@@ -1063,6 +1183,69 @@ impl<B: ConstraintBuilder> Parser<B> {
         self.parse_or_expr_impl(input, pos, Some('}'))
     }
 
+    /// Count the number of comma-separated arguments between `(` and `)` at depth 0
+    /// without consuming input. Used to determine arity before parsing args.
+    fn peek_arg_count(input: &str, pos: usize) -> Result<usize, ParseError> {
+        if pos >= input.len() || peek_char(input, pos) != Some('(') {
+            return Err(ParseError {
+                message: "Expected '('".to_string(),
+                position: pos,
+            });
+        }
+        let mut depth = 1usize;
+        let mut count = 0usize;
+        let mut saw_content = false;
+        let mut i = pos + 1;
+        while i < input.len() && depth > 0 {
+            let ch = peek_char(input, i).unwrap();
+            match ch {
+                '(' | '[' => depth += 1,
+                ')' | ']' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        if saw_content {
+                            count += 1;
+                        }
+                        break;
+                    }
+                }
+                ',' if depth == 1 => {
+                    count += 1;
+                    saw_content = false;
+                    i += 1;
+                    continue;
+                }
+                _ => {}
+            }
+            if !ch.is_ascii_whitespace() {
+                saw_content = true;
+            }
+            i += 1;
+        }
+        Ok(count)
+    }
+
+    /// Look up param_kinds for a macro call given name and arity.
+    /// Returns None if the macro is unknown.
+    fn lookup_param_kinds(&self, name: &str, arity: usize) -> Option<Vec<ParamKind>> {
+        let key = (name.to_string(), arity);
+        // Check current macro being defined.
+        if let Some(ref cm) = self.current_macro {
+            if cm.name == name && cm.arity == arity {
+                return Some(cm.param_kinds.clone());
+            }
+        }
+        // Check macro_defs.
+        if let Some(def) = self.macro_defs.get(&key) {
+            return Some(def.param_kinds.clone());
+        }
+        // Check pre-scanned signatures.
+        if let Some(kinds) = self.macro_signatures.get(&key) {
+            return Some(kinds.clone());
+        }
+        None
+    }
+
     /// Parse a macro call: the `(arg1, arg2, ...)` part after the name has been parsed.
     fn parse_macro_call(
         &mut self,
@@ -1071,30 +1254,37 @@ impl<B: ConstraintBuilder> Parser<B> {
         name: &str,
         name_pos: usize,
     ) -> Result<Rel<B::Constraint>, ParseError> {
-        let args = self.parse_macro_args(input, pos)?;
-        let arity = args.len();
+        // Peek arity to look up param_kinds before parsing args.
+        let arity = Self::peek_arg_count(input, *pos)?;
+        let param_kinds = self.lookup_param_kinds(name, arity);
+
+        // Default to all-Relation for backward compatibility with unknown macros.
+        let kinds = param_kinds.unwrap_or_else(|| vec![ParamKind::Relation; arity]);
+
+        let args = self.parse_macro_args(input, pos, &kinds)?;
+        let actual_arity = args.len();
 
         // Check for recursive self-call when inside a macro definition.
         if let Some(ref cm) = self.current_macro {
-            if cm.name == name && cm.arity == arity {
+            if cm.name == name && cm.arity == actual_arity {
                 return self.handle_self_call(args, name_pos);
             }
         }
 
         // Look up defined macro.
-        let key = (name.to_string(), arity);
+        let key = (name.to_string(), actual_arity);
         if self.macro_defs.contains_key(&key) {
-            return self.expand_macro_call(name, arity, args, name_pos);
+            return self.expand_macro_call(name, actual_arity, args, name_pos);
         }
 
         // Signature is known (from pre-scan) but body not yet parsed — pending call.
-        if self.macro_signatures.contains(&key) {
+        if self.macro_signatures.contains_key(&key) {
             let pending_id = self.alloc_rel_id();
             self.pending_macro_calls.insert(
                 pending_id,
                 PendingMacroCall {
                     name: name.to_string(),
-                    arity,
+                    arity: actual_arity,
                     args,
                 },
             );
@@ -1102,17 +1292,21 @@ impl<B: ConstraintBuilder> Parser<B> {
         }
 
         Err(ParseError {
-            message: format!("undefined macro '{}/{}'", name, arity),
+            message: format!("undefined macro '{}/{}'", name, actual_arity),
             position: name_pos,
         })
     }
 
-    /// Parse comma-separated relation expression arguments inside `(...)`.
+    /// Parse comma-separated macro arguments inside `(...)`.
+    /// Each argument is parsed according to its `ParamKind`:
+    /// - `Relation` → parse as a full relation expression
+    /// - `Term` → parse as a term (ground at call sites, may contain meta-vars in macro bodies)
     fn parse_macro_args(
         &mut self,
         input: &str,
         pos: &mut usize,
-    ) -> Result<Vec<Rel<B::Constraint>>, ParseError> {
+        param_kinds: &[ParamKind],
+    ) -> Result<Vec<MacroArg<B::Constraint>>, ParseError> {
         // Consume '('
         if *pos >= input.len() || peek_char(input, *pos) != Some('(') {
             return Err(ParseError {
@@ -1144,11 +1338,56 @@ impl<B: ConstraintBuilder> Parser<B> {
                 }
                 *pos += 1;
             }
-            // Each arg is a full relation expression, stopped by `,` or `)`.
-            let arg = self.parse_macro_arg_expr(input, pos)?;
-            args.push(arg);
+
+            let idx = args.len();
+            let kind = param_kinds.get(idx).copied().unwrap_or(ParamKind::Relation);
+
+            match kind {
+                ParamKind::Relation => {
+                    let arg = self.parse_macro_arg_expr(input, pos)?;
+                    args.push(MacroArg::Rel(arg));
+                }
+                ParamKind::Term => {
+                    let tid = self.parse_macro_term_arg(input, pos)?;
+                    args.push(MacroArg::Term(tid));
+                }
+            }
         }
         Ok(args)
+    }
+
+    /// Parse a term argument for a macro call.
+    ///
+    /// - Inside a macro body: meta-vars from the current macro's term patterns
+    ///   are available as `$name` variables.
+    /// - At top level: term must be ground (no variables).
+    fn parse_macro_term_arg(
+        &self,
+        input: &str,
+        pos: &mut usize,
+    ) -> Result<TermId, ParseError> {
+        skip_whitespace(input, pos);
+        let start_pos = *pos;
+
+        // If inside a macro body, pre-populate var_map with meta-vars.
+        let mut var_map: HashMap<String, u32> = if let Some(ref cm) = self.current_macro {
+            cm.meta_vars.clone()
+        } else {
+            HashMap::new()
+        };
+        let mut var_order: Vec<u32> = Vec::new();
+
+        let tid = self.parse_term_inner(input, pos, &mut var_map, &mut var_order)?;
+
+        // At top level (no current_macro), term args must be ground.
+        if self.current_macro.is_none() && !var_order.is_empty() {
+            return Err(ParseError {
+                message: "term arguments at call sites must be ground (no $-variables)".to_string(),
+                position: start_pos,
+            });
+        }
+
+        Ok(tid)
     }
 
     /// Parse a single macro argument: a relation expression delimited by `,` or `)`.
@@ -1249,142 +1488,233 @@ impl<B: ConstraintBuilder> Parser<B> {
 
     /// Handle a recursive self-call inside a macro body.
     ///
-    /// Each arg must be either a bare parameter reference or completely parameter-free
-    /// (after any inner macro expansion that already happened during parsing of the arg).
+    /// For Relation args: each must be a bare parameter reference or parameter-free.
+    /// For Term args: compared structurally with the equation's term pattern.
+    ///
+    /// Identity self-call (all args match) → `Call(self_id)` (runtime recursion via Fix).
+    /// Non-identity with structurally smaller term args → deferred pending call
+    /// (expanded at expansion time when meta-vars are concrete).
     fn handle_self_call(
-        &self,
-        args: Vec<Rel<B::Constraint>>,
+        &mut self,
+        args: Vec<MacroArg<B::Constraint>>,
         call_pos: usize,
     ) -> Result<Rel<B::Constraint>, ParseError> {
+        // Clone needed data from current_macro to avoid borrow conflict
+        // when we later need to mutate self (alloc_rel_id, pending_macro_calls).
         let cm = self.current_macro.as_ref().unwrap();
-        let param_ids: HashSet<RelId> = cm.params.iter().map(|(_, id)| *id).collect();
+        let cm_name = cm.name.clone();
+        let cm_arity = cm.arity;
+        let cm_self_id = cm.self_id;
+        let cm_param_kinds = cm.param_kinds.clone();
+        let cm_rel_params = cm.rel_params.clone();
+        let cm_term_patterns = cm.term_patterns.clone();
+        let param_ids: HashSet<RelId> = cm_rel_params.iter().map(|(_, id)| *id).collect();
 
-        // Classify each argument.
-        for (i, arg) in args.iter().enumerate() {
-            match arg {
-                Rel::Call(id) if param_ids.contains(id) => {
-                    // Bare param ref — allowed.
+        // Check identity per position.
+        let mut is_identity = true;
+        for (i, (arg, kind)) in args.iter().zip(cm_param_kinds.iter()).enumerate() {
+            match (kind, arg) {
+                (ParamKind::Relation, MacroArg::Rel(rel)) => {
+                    match rel {
+                        Rel::Call(id) if param_ids.contains(id) => {
+                            // Check that this bare param ref matches the correct position.
+                            let rel_pos = cm_param_kinds[..i]
+                                .iter()
+                                .filter(|k| **k == ParamKind::Relation)
+                                .count();
+                            let expected_id = cm_rel_params.get(rel_pos).map(|(_, id)| *id);
+                            if expected_id != Some(*id) {
+                                is_identity = false;
+                            }
+                        }
+                        _ => {
+                            if contains_any_call(rel, &param_ids) {
+                                return Err(ParseError {
+                                    message: format!(
+                                        "recursive call to '{}/{}': argument {} contains a transformed \
+                                         parameter reference, which may cause infinite expansion",
+                                        cm_name, cm_arity, i + 1,
+                                    ),
+                                    position: call_pos,
+                                });
+                            }
+                            is_identity = false;
+                        }
+                    }
+                }
+                (ParamKind::Term, MacroArg::Term(tid)) => {
+                    // Compare structurally with the equation's term pattern.
+                    if let Some(Some(pattern)) = cm_term_patterns.get(i) {
+                        if *tid != *pattern {
+                            is_identity = false;
+                        }
+                    } else {
+                        is_identity = false;
+                    }
                 }
                 _ => {
-                    if contains_any_call(arg, &param_ids) {
-                        return Err(ParseError {
-                            message: format!(
-                                "recursive call to '{}/{}': argument {} contains a transformed \
-                                 parameter reference, which may cause infinite expansion",
-                                cm.name,
-                                cm.arity,
-                                i + 1,
-                            ),
-                            position: call_pos,
-                        });
-                    }
-                    // Parameter-free — allowed.
+                    is_identity = false;
                 }
             }
         }
 
-        // Check if this is an exact identity self-call: args match params in order.
-        let is_identity = args.len() == cm.params.len()
-            && args
-                .iter()
-                .zip(cm.params.iter())
-                .all(|(arg, (_, pid))| matches!(arg, Rel::Call(id) if *id == *pid));
-
         if is_identity {
-            return Ok(Rel::Call(cm.self_id));
+            return Ok(Rel::Call(cm_self_id));
         }
 
-        // Non-identity self-call: build a specialization key and store the call
-        // for expansion when the macro is later invoked at a call site.
-        // During macro body parsing, we record this as Call(self_id) with the args,
-        // but we can't expand yet since we're still defining the macro.
-        //
-        // To handle this, we need to inline-expand at this point: take the macro's
-        // own body template, substitute the args, and check for cycles.
-        // But we don't have the body yet (we're in the middle of parsing it).
-        //
-        // Solution: emit a placeholder that will be expanded when the outer macro
-        // is expanded at a call site. We encode the non-identity self-call as:
-        // Seq([self_id_marker, arg1, arg2, ...]) — but this pollutes the Rel tree.
-        //
-        // Better solution: for V1, recursive self-calls with modified args are
-        // expanded lazily during expand_macro_call. During body parsing, we store
-        // the original Call to self with the original text for these args.
-        // Since we can't do lazy expansion without extra Rel variants, we take
-        // a different approach: error for now if the args aren't identity.
-        // The smart expansion only works for cross-macro calls and external call sites.
-        //
-        // Actually, we CAN handle this: the body is being parsed right now. A
-        // non-identity self-call like fold(base, alg) inside fold(alg, base)
-        // is equivalent to calling the macro with those args. But we're still
-        // parsing the body, so we don't have the complete body yet.
-        //
-        // The correct approach: treat it like calling an already-defined macro.
-        // But the macro IS the one being defined. We solve this by noting that
-        // once the body is complete, expand_macro_call handles specialization
-        // with cycle detection. During body parsing, a non-identity self-call
-        // is just recorded verbatim — we need a way to represent
-        // "call this macro with these specific args" in the Rel tree.
-        //
-        // We'll store it as the identity Call(self_id) wrapped in a structure
-        // that substitutes the args relative to the params. This is equivalent
-        // to: substitute params->args in the body, which IS the expansion.
-        // And for the recursive occurrences inside that expansion, we'll hit
-        // identity self-calls which become Call(self_id).
-        //
-        // In other words: non-identity self-call = substitute params→args in
-        // an abstract copy of the body. But we don't have the body yet.
-        //
-        // Pragmatic V1: only identity self-calls are allowed during body parsing.
-        // Non-identity "self-calls" will be handled at expansion time when
-        // the full body is available. During parsing, if the call matches the
-        // current macro name/arity but args aren't identity, and the macro ISN'T
-        // yet in macro_defs, error with a clear message.
-        Err(ParseError {
-            message: format!(
-                "recursive call to '{}/{}' with modified arguments is not supported \
-                 inside the macro's own definition; use the original parameter names \
-                 in order for direct recursion, or define a helper macro",
-                cm.name, cm.arity,
-            ),
-            position: call_pos,
-        })
+        // Non-identity self-call: store as a pending call to be expanded at
+        // expansion time when the macro is invoked with concrete args.
+        // This enables structural recursion: `fmap($a, f)` inside
+        // `fmap(@(sum $a $b), f)` is deferred until `$a` is concrete.
+        let pending_id = self.alloc_rel_id();
+        self.pending_macro_calls.insert(
+            pending_id,
+            PendingMacroCall {
+                name: cm_name,
+                arity: cm_arity,
+                args,
+            },
+        );
+        Ok(Rel::Call(pending_id))
+    }
+
+    /// Try to match an equation's term patterns against the given args.
+    /// Returns (rel_subst, term_subst) if all term patterns match.
+    fn try_match_equation(
+        &self,
+        eq: &MacroEquation<B::Constraint>,
+        args: &[MacroArg<B::Constraint>],
+        param_kinds: &[ParamKind],
+    ) -> Option<EquationMatch<B::Constraint>> {
+        use crate::matching::match_terms_combined;
+
+        let mut rel_subst: HashMap<RelId, Rel<B::Constraint>> = HashMap::new();
+        let mut combined_term_subst = crate::subst::Subst::new();
+        let mut rel_idx = 0;
+
+        for (i, (kind, arg)) in param_kinds.iter().zip(args.iter()).enumerate() {
+            match (kind, arg) {
+                (ParamKind::Relation, MacroArg::Rel(rel)) => {
+                    if rel_idx < eq.rel_params.len() {
+                        let (_, pid) = &eq.rel_params[rel_idx];
+                        rel_subst.insert(*pid, rel.clone());
+                        rel_idx += 1;
+                    }
+                }
+                (ParamKind::Term, MacroArg::Term(actual_tid)) => {
+                    if let Some(Some(pattern)) = eq.term_patterns.get(i) {
+                        // Match pattern against actual term.
+                        match match_terms_combined(*pattern, *actual_tid, &self.terms) {
+                            Some(subst) => {
+                                // Merge into combined_term_subst.
+                                for (var, binding) in subst.iter() {
+                                    if let Some(existing) = combined_term_subst.get(var) {
+                                        if existing != binding {
+                                            return None; // Conflicting bindings.
+                                        }
+                                    } else {
+                                        combined_term_subst.bind(var, binding);
+                                    }
+                                }
+                            }
+                            None => return None,
+                        }
+                    } else {
+                        return None;
+                    }
+                }
+                _ => return None,
+            }
+        }
+        Some((rel_subst, combined_term_subst))
     }
 
     /// Expand a call to an already-defined macro.
+    ///
+    /// For single-equation macros (all-Relation params), this works as before.
+    /// For multi-equation macros (pattern-matching), tries each equation in order
+    /// and expands with the first matching one.
     fn expand_macro_call(
         &mut self,
         name: &str,
         arity: usize,
-        args: Vec<Rel<B::Constraint>>,
+        args: Vec<MacroArg<B::Constraint>>,
+        call_pos: usize,
+    ) -> Result<Rel<B::Constraint>, ParseError> {
+        // Expansion depth check.
+        if self.expansion_depth >= 128 {
+            return Err(ParseError {
+                message: format!(
+                    "macro expansion depth exceeded (128) for '{}/{}' \
+                     — likely non-structural recursion",
+                    name, arity,
+                ),
+                position: call_pos,
+            });
+        }
+        self.expansion_depth += 1;
+
+        let result = self.expand_macro_call_inner(name, arity, args, call_pos);
+
+        self.expansion_depth -= 1;
+        result
+    }
+
+    fn expand_macro_call_inner(
+        &mut self,
+        name: &str,
+        arity: usize,
+        args: Vec<MacroArg<B::Constraint>>,
         call_pos: usize,
     ) -> Result<Rel<B::Constraint>, ParseError> {
         let key = (name.to_string(), arity);
 
         // Clone what we need from the MacroDef to avoid borrowing self.
-        let (params, body, self_id) = {
+        let (param_kinds, equations) = {
             let def = &self.macro_defs[&key];
-            (def.params.clone(), def.body.clone(), def.self_id)
+            (def.param_kinds.clone(), def.equations.clone())
         };
 
-        // Build substitution: param_id -> arg
-        let mut subst: HashMap<RelId, Rel<B::Constraint>> = HashMap::new();
-        for ((_, pid), arg) in params.iter().zip(args.into_iter()) {
-            subst.insert(*pid, arg);
+        // Try each equation in order.
+        for eq in &equations {
+            if let Some((rel_subst, term_subst)) =
+                self.try_match_equation(eq, &args, &param_kinds)
+            {
+                return self.expand_with_equation(
+                    eq, &rel_subst, &term_subst, call_pos,
+                );
+            }
         }
 
-        // Allocate a fresh id for this expansion.
+        // No equation matched.
+        Err(ParseError {
+            message: format!(
+                "no matching equation for '{}/{}' with the given term arguments",
+                name, arity,
+            ),
+            position: call_pos,
+        })
+    }
+
+    /// Expand a macro using a specific matched equation.
+    fn expand_with_equation(
+        &mut self,
+        eq: &MacroEquation<B::Constraint>,
+        rel_subst: &HashMap<RelId, Rel<B::Constraint>>,
+        term_subst: &crate::subst::Subst,
+        call_pos: usize,
+    ) -> Result<Rel<B::Constraint>, ParseError> {
         let fresh_id = self.alloc_rel_id();
 
-        // Substitute params and self-references.
-        let mut expanded = substitute_in_rel(&body, &subst, self_id, fresh_id);
+        // Substitute relation params and self-references.
+        let mut expanded = substitute_in_rel(&eq.body, rel_subst, eq.self_id, fresh_id);
 
         // Resolve any pending macro calls in the expanded body.
-        // This handles forward references: macro A's body references macro B,
-        // which wasn't defined when A was parsed but is available now.
+        // Apply both rel_subst (for relation params) and term_subst (for meta-vars
+        // from pattern matching) to deferred calls.
         if !self.pending_macro_calls.is_empty() {
             expanded = self
-                .resolve_pending_inner(expanded, &subst)
+                .resolve_pending_inner(expanded, rel_subst, Some(term_subst))
                 .map_err(|msg| ParseError {
                     message: msg,
                     position: call_pos,
@@ -1395,7 +1725,6 @@ impl<B: ConstraintBuilder> Parser<B> {
         if contains_call(&expanded, fresh_id) {
             Ok(Rel::Fix(fresh_id, Arc::new(expanded)))
         } else {
-            let _ = call_pos;
             Ok(expanded)
         }
     }
@@ -1417,9 +1746,9 @@ fn peek_char(input: &str, pos: usize) -> Option<char> {
     input.as_bytes().get(pos).copied().map(|byte| byte as char)
 }
 
-/// Extract `(name, arity)` from the text after `rel ` in a macro definition header.
+/// Extract `(name, arity, param_kinds)` from the text after `rel ` in a macro definition header.
 /// Returns `None` if this isn't a macro definition (no parameter list).
-fn extract_macro_signature(after_rel: &str) -> Option<(String, usize)> {
+fn extract_macro_signature(after_rel: &str) -> Option<(String, usize, Vec<ParamKind>)> {
     let s = after_rel.trim_start();
     // Parse the name (lowercase identifier).
     let name_end = s
@@ -1432,17 +1761,25 @@ fn extract_macro_signature(after_rel: &str) -> Option<(String, usize)> {
     let rest = s[name_end..].trim_start();
     // Must have '(' immediately.
     let rest = rest.strip_prefix('(')?;
-    // Count comma-separated params until ')'.
+    // Count comma-separated params until ')' and detect `@` prefix.
     let close = rest.find(')')?;
     let params_str = &rest[..close];
-    let arity = params_str
+    let kinds: Vec<ParamKind> = params_str
         .split(',')
         .filter(|p| !p.trim().is_empty())
-        .count();
-    if arity == 0 {
+        .map(|p| {
+            if p.trim().starts_with('@') {
+                ParamKind::Term
+            } else {
+                ParamKind::Relation
+            }
+        })
+        .collect();
+    if kinds.is_empty() {
         return None;
     }
-    Some((name.to_string(), arity))
+    let arity = kinds.len();
+    Some((name.to_string(), arity, kinds))
 }
 
 fn unwrap_or_clone<T: Clone>(arc: Arc<T>) -> T {
@@ -2827,7 +3164,7 @@ theory eq {
         // Parser contains SymbolStore, TermStore, HashMap<String, RelId>,
         // macro_defs HashMap, and current_macro Option.
         assert!(
-            size < 1200,
+            size < 1300,
             "Parser should not be excessively large, got {}",
             size
         );
@@ -3104,36 +3441,49 @@ theory arrow_test {
             .expect("fold/2 should be in macro_defs");
 
         // Body should have a self-call (Call to self_id).
+        let eq = &def.equations[0];
         assert!(
-            contains_call(&def.body, def.self_id),
+            contains_call(&eq.body, eq.self_id),
             "Body should contain a self-call"
         );
     }
 
     #[test]
-    fn macro_non_identity_self_call_errors() {
+    fn macro_non_identity_self_call_deferred_then_depth_limit() {
         let mut parser = Parser::new();
-        // fold(alg, base) calling fold(base, alg) — swapped args, non-identity.
-        let err = parser
+        // flip(a, b) { flip(b, a) } — non-identity self-call is deferred as pending.
+        // Definition succeeds...
+        parser
             .parse_rel_def("rel flip(a, b) { flip(b, a) }")
-            .expect_err("non-identity self-call during definition should error");
+            .expect("non-identity self-call deferred as pending");
+
+        // ...but expansion hits infinite recursion (depth limit).
+        let err = parser
+            .parse_rel_body("flip([$x -> $x], [$y -> $y])")
+            .expect_err("non-structural recursion should hit depth limit");
         assert!(
-            err.message.contains("modified arguments"),
-            "Expected modified args error, got: {}",
+            err.message.contains("expansion depth exceeded"),
+            "Expected depth limit error, got: {}",
             err.message
         );
     }
 
     #[test]
-    fn macro_expansion_with_concrete_self_call_arg_errors() {
+    fn macro_concrete_self_call_deferred_then_depth_limit() {
         let mut parser = Parser::new();
-        // foo(a) calling foo([$x -> $x]) — concrete arg, non-identity self-call.
-        let err = parser
+        // foo(a) { foo([$x -> $x]) } — concrete arg self-call is deferred.
+        // Definition succeeds...
+        parser
             .parse_rel_def("rel foo(a) { foo([$x -> $x]) }")
-            .expect_err("concrete-arg self-call during definition should error");
+            .expect("concrete-arg self-call deferred as pending");
+
+        // ...but expansion hits infinite recursion (depth limit).
+        let err = parser
+            .parse_rel_body("foo([$y -> $y])")
+            .expect_err("non-structural recursion should hit depth limit");
         assert!(
-            err.message.contains("modified arguments"),
-            "Expected modified args error, got: {}",
+            err.message.contains("expansion depth exceeded"),
+            "Expected depth limit error, got: {}",
             err.message
         );
     }
@@ -3201,5 +3551,857 @@ theory arrow_test {
         let name_set: HashSet<(String, usize)> = names.into_iter().collect();
         assert!(name_set.contains(&("double".to_string(), 1)));
         assert!(name_set.contains(&("compose".to_string(), 2)));
+    }
+
+    // ========================================================================
+    // PATTERN-MATCHING MACRO TESTS
+    // ========================================================================
+
+    // --- Signature Detection ---
+
+    #[test]
+    fn extract_signature_all_relation() {
+        let sig = extract_macro_signature("compose(f, g) { f ; g }");
+        assert_eq!(
+            sig,
+            Some(("compose".to_string(), 2, vec![ParamKind::Relation, ParamKind::Relation]))
+        );
+    }
+
+    #[test]
+    fn extract_signature_mixed() {
+        let sig = extract_macro_signature("fmap(@t, f) { f }");
+        assert_eq!(
+            sig,
+            Some(("fmap".to_string(), 2, vec![ParamKind::Term, ParamKind::Relation]))
+        );
+    }
+
+    #[test]
+    fn extract_signature_all_term() {
+        let sig = extract_macro_signature("m(@a, @b) { $x -> $x }");
+        assert_eq!(
+            sig,
+            Some(("m".to_string(), 2, vec![ParamKind::Term, ParamKind::Term]))
+        );
+    }
+
+    // --- Single-Equation Term Patterns ---
+
+    #[test]
+    fn term_param_atom_pattern() {
+        let mut parser = Parser::new();
+        // Define a macro with a term pattern matching the atom `z`.
+        parser
+            .parse_rel_def("rel m(@z, f) { f }")
+            .expect("define m with atom term pattern");
+
+        // Call with matching term.
+        let rel = parser
+            .parse_rel_body("m(z, [$x -> (s $x)])")
+            .expect("expand m(z, ...)");
+
+        // Should be the relation arg (the rule), not wrapped in Fix.
+        assert!(
+            matches!(rel, Rel::Atom(_)),
+            "Expected Atom from expansion, got {:?}",
+            rel
+        );
+    }
+
+    #[test]
+    fn term_param_compound_pattern() {
+        let mut parser = Parser::new();
+        // Pattern (s $a) matches compound terms and binds meta-var $a.
+        // The body uses $a in a recursive call that we don't have yet,
+        // so let's just verify expansion with identity body.
+        parser
+            .parse_rel_def("rel m(@(s $a), f) { f }")
+            .expect("define m with compound term pattern");
+
+        // Call with matching term (s z).
+        let rel = parser
+            .parse_rel_body("m((s z), [$x -> (s $x)])")
+            .expect("expand m((s z), ...)");
+
+        assert!(
+            matches!(rel, Rel::Atom(_)),
+            "Expected Atom from expansion, got {:?}",
+            rel
+        );
+    }
+
+    #[test]
+    fn term_param_no_match_errors() {
+        let mut parser = Parser::new();
+        parser
+            .parse_rel_def("rel m(@z, f) { f }")
+            .expect("define m with z pattern");
+
+        // Call with non-matching term.
+        let err = parser
+            .parse_rel_body("m((s z), [$x -> $x])")
+            .expect_err("should fail: (s z) doesn't match z");
+        assert!(
+            err.message.contains("no matching equation"),
+            "Expected no-match error, got: {}",
+            err.message
+        );
+    }
+
+    // --- Multi-Equation Dispatch ---
+
+    #[test]
+    fn multi_equation_selects_first_match() {
+        let mut parser = Parser::new();
+        // Two equations for m/2: one for `z`, one for `(s $a)`.
+        parser
+            .parse_rel_def("rel m(@z, f) { f }")
+            .expect("define m/2 equation 1");
+        parser
+            .parse_rel_def("rel m(@(s $a), f) { f ; f }")
+            .expect("define m/2 equation 2");
+
+        // z matches equation 1 → body is `f` → Atom
+        let rel_z = parser
+            .parse_rel_body("m(z, [$x -> (s $x)])")
+            .expect("expand m(z, ...)");
+        assert!(
+            matches!(rel_z, Rel::Atom(_)),
+            "z should match first equation (body = f), got {:?}",
+            rel_z
+        );
+
+        // (s z) matches equation 2 → body is `f ; f` → Seq of 2
+        let rel_s = parser
+            .parse_rel_body("m((s z), [$x -> (s $x)])")
+            .expect("expand m((s z), ...)");
+        match rel_s {
+            Rel::Seq(factors) => {
+                assert_eq!(factors.len(), 2, "second equation body is f;f = Seq of 2");
+            }
+            _ => panic!("Expected Seq from second equation, got {:?}", rel_s),
+        }
+    }
+
+    #[test]
+    fn multi_equation_no_match_errors() {
+        let mut parser = Parser::new();
+        parser
+            .parse_rel_def("rel m(@z, f) { f }")
+            .expect("define m with z only");
+
+        let err = parser
+            .parse_rel_body("m((s z), [$x -> $x])")
+            .expect_err("(s z) matches no equation");
+        assert!(
+            err.message.contains("no matching equation"),
+            "Expected no-match error, got: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn param_kind_mismatch_errors() {
+        let mut parser = Parser::new();
+        parser
+            .parse_rel_def("rel m(@z, f) { f }")
+            .expect("define m with @-first");
+
+        // Second equation has different @-positions.
+        let err = parser
+            .parse_rel_def("rel m(g, @z) { g }")
+            .expect_err("mismatched param kinds should error");
+        assert!(
+            err.message.contains("parameter kinds"),
+            "Expected param-kind mismatch error, got: {}",
+            err.message
+        );
+    }
+
+    // --- Recursive Expansion ---
+
+    #[test]
+    fn fmap_sum_unit_xvar() {
+        let mut parser = Parser::new();
+        // Three equations for fmap:
+        // fmap(@unit, f) → identity
+        // fmap(@xvar, f) → f
+        // fmap(@(sum $a $b), f) → inl/inr dispatch with recursive calls
+        //
+        // The sum equation uses sequences: unwrap tag, apply fmap, rewrap tag.
+        parser
+            .parse_rel_def("rel fmap(@unit, f) { $x -> $x }")
+            .expect("define fmap/unit");
+        parser
+            .parse_rel_def("rel fmap(@xvar, f) { f }")
+            .expect("define fmap/xvar");
+        parser
+            .parse_rel_def(
+                "rel fmap(@(sum $a $b), f) { \
+                   [(inl $x) -> $x ; fmap($a, f) ; $y -> (inl $y)] \
+                 | [(inr $x) -> $x ; fmap($b, f) ; $y -> (inr $y)] \
+                 }",
+            )
+            .expect("define fmap/sum");
+
+        // Expand fmap((sum unit xvar), [$x -> (s $x)])
+        // Should produce Or(inl_branch, inr_branch) where:
+        // - inl_branch has fmap(unit, f) = Seq[unwrap, identity, rewrap]
+        // - inr_branch has fmap(xvar, f) = Seq[unwrap, f, rewrap]
+        let rel = parser
+            .parse_rel_body("fmap((sum unit xvar), [$x -> (s $x)])")
+            .expect("expand fmap((sum unit xvar), ...)");
+
+        // The result should be an Or (two branches from `|`).
+        match &rel {
+            Rel::Or(_, _) => {
+                // Correct: the two branches from the sum equation.
+            }
+            _ => panic!(
+                "Expected Or from fmap(sum unit xvar), got {:?}",
+                rel
+            ),
+        }
+    }
+
+    #[test]
+    fn fmap_nested_sum_depth_2() {
+        let mut parser = Parser::new();
+        parser
+            .parse_rel_def("rel fmap(@unit, f) { $x -> $x }")
+            .expect("define fmap/unit");
+        parser
+            .parse_rel_def("rel fmap(@xvar, f) { f }")
+            .expect("define fmap/xvar");
+        parser
+            .parse_rel_def(
+                "rel fmap(@(sum $a $b), f) { \
+                   [(inl $x) -> $x ; fmap($a, f) ; $y -> (inl $y)] \
+                 | [(inr $x) -> $x ; fmap($b, f) ; $y -> (inr $y)] \
+                 }",
+            )
+            .expect("define fmap/sum");
+
+        // Depth-2: fmap((sum (sum unit xvar) unit), inc)
+        // Should expand without error — structural recursion terminates.
+        let rel = parser
+            .parse_rel_body("fmap((sum (sum unit xvar) unit), [$x -> (s $x)])")
+            .expect("expand depth-2 nested fmap");
+
+        // Top level: Or from outer sum.
+        assert!(
+            matches!(&rel, Rel::Or(_, _)),
+            "Expected Or at top level, got {:?}",
+            rel
+        );
+    }
+
+    // --- Self-Call Handling ---
+
+    #[test]
+    fn identity_self_call_with_term_param() {
+        let mut parser = Parser::new();
+        // fmap(@(sum $a $b), f) calling fmap((sum $a $b), f) should be identity.
+        parser
+            .parse_rel_def(
+                "rel fmap(@(sum $a $b), f) { \
+                   [(inl $x) -> $x ; fmap($a, f) ; $y -> (inl $y)] \
+                 | [(inr $x) -> $x ; fmap($b, f) ; $y -> (inr $y)] \
+                 | fmap((sum $a $b), f) \
+                 }",
+            )
+            .expect("define fmap with identity self-call");
+
+        let def = parser
+            .macro_defs
+            .get(&("fmap".to_string(), 2))
+            .expect("fmap/2 should be in macro_defs");
+        let eq = &def.equations[0];
+
+        // Body should contain a self-call (identity).
+        assert!(
+            contains_call(&eq.body, eq.self_id),
+            "Body should contain identity self-call"
+        );
+    }
+
+    #[test]
+    fn structural_self_call_deferred() {
+        let mut parser = Parser::new();
+        // fmap(@(sum $a $b), f) calling fmap($a, f) — structurally smaller.
+        // Should be deferred (pending), not error.
+        parser
+            .parse_rel_def(
+                "rel fmap(@(sum $a $b), f) { \
+                   fmap($a, f) \
+                 }",
+            )
+            .expect("structural self-call should be deferred, not error");
+
+        // The body should contain a pending call, not a direct self-call.
+        let def = parser
+            .macro_defs
+            .get(&("fmap".to_string(), 2))
+            .expect("fmap/2 should be in macro_defs");
+        let eq = &def.equations[0];
+
+        // Body should NOT contain Call(self_id) — it's deferred as a pending call.
+        assert!(
+            !contains_call(&eq.body, eq.self_id),
+            "Structural self-call should be deferred, not identity"
+        );
+    }
+
+    // --- Forward References ---
+
+    #[test]
+    fn forward_ref_with_term_params() {
+        let mut parser = Parser::new();
+        let stmts = vec![
+            "rel a(@z, f) { b(z, f) }".to_string(),
+            "rel b(@z, f) { f }".to_string(),
+        ];
+        parser.scan_macro_signatures(&stmts);
+
+        for stmt in &stmts {
+            parser.parse_rel_def(stmt).expect("parse macro");
+        }
+
+        // Expand a(z, [$x -> $x]) — should resolve b(z, ...) via forward ref.
+        let rel = parser
+            .parse_rel_body("a(z, [$x -> $x])")
+            .expect("expand with forward ref");
+
+        assert!(
+            matches!(rel, Rel::Atom(_)),
+            "Expected Atom after forward ref resolution, got {:?}",
+            rel
+        );
+    }
+
+    // --- Meta-var Scoping ---
+
+    #[test]
+    fn meta_vars_dont_leak() {
+        let mut parser = Parser::new();
+        parser
+            .parse_rel_def("rel m(@(s $a), f) { f }")
+            .expect("define m with meta-var $a");
+
+        // After definition, $a should NOT be in the relations map.
+        assert!(
+            !parser.relations.contains_key("a"),
+            "Meta-var 'a' should not leak into relations"
+        );
+    }
+
+    // --- Expansion Depth Limit ---
+
+    #[test]
+    fn infinite_expansion_depth_limit() {
+        let mut parser = Parser::new();
+        // Two equations that bounce: inf(@z) expands to call inf((s z)),
+        // and inf(@(s $a)) expands to call inf(z).
+        // This is non-structural mutual recursion that never terminates.
+        parser
+            .parse_rel_def("rel inf(@z) { inf((s z)) }")
+            .expect("define inf/z");
+        parser
+            .parse_rel_def("rel inf(@(s $a)) { inf(z) }")
+            .expect("define inf/s");
+
+        let err = parser
+            .parse_rel_body("inf(z)")
+            .expect_err("should hit depth limit");
+        assert!(
+            err.message.contains("expansion depth exceeded"),
+            "Expected depth limit error, got: {}",
+            err.message
+        );
+    }
+
+    // --- End-to-End Integration ---
+
+    #[test]
+    fn polynomial_functor_fmap_end_to_end() {
+        let mut parser = Parser::new();
+
+        // Full polynomial functor fmap with unit, xvar, sum, prod.
+        parser
+            .parse_rel_def("rel fmap(@unit, f) { $x -> $x }")
+            .expect("fmap/unit");
+        parser
+            .parse_rel_def("rel fmap(@xvar, f) { f }")
+            .expect("fmap/xvar");
+        parser
+            .parse_rel_def(
+                "rel fmap(@(sum $a $b), f) { \
+                   [(inl $x) -> $x ; fmap($a, f) ; $y -> (inl $y)] \
+                 | [(inr $x) -> $x ; fmap($b, f) ; $y -> (inr $y)] \
+                 }",
+            )
+            .expect("fmap/sum");
+        // Simplified product: just applies fmap to the first component.
+        // Full product semantics would need And or a more complex piping,
+        // but for testing dispatch and recursive expansion this suffices.
+        parser
+            .parse_rel_def(
+                "rel fmap(@(prod $a $b), f) { \
+                   (pair $x $y) -> $x ; fmap($a, f) \
+                 }",
+            )
+            .expect("fmap/prod");
+
+        // Test 1: Simple sum of unit and xvar
+        let r1 = parser
+            .parse_rel_body("fmap((sum unit xvar), [$x -> (s $x)])")
+            .expect("fmap(sum unit xvar)");
+        assert!(matches!(&r1, Rel::Or(_, _)), "sum → Or");
+
+        // Test 2: Product
+        let r2 = parser
+            .parse_rel_body("fmap((prod xvar xvar), [$x -> (s $x)])")
+            .expect("fmap(prod xvar xvar)");
+        // Product body is a single rule → Atom(Seq(...)) or just an Atom
+        assert!(
+            matches!(&r2, Rel::Atom(_) | Rel::Seq(_)),
+            "prod → Atom or Seq, got {:?}",
+            r2
+        );
+
+        // Test 3: Nested sum-of-prod
+        let r3 = parser
+            .parse_rel_body("fmap((sum (prod xvar unit) xvar), [$x -> (s $x)])")
+            .expect("fmap(sum(prod xvar unit) xvar)");
+        assert!(matches!(&r3, Rel::Or(_, _)), "sum-of-prod → Or");
+
+        // Test 4: All-unit is all identity
+        let r4 = parser
+            .parse_rel_body("fmap(unit, [$x -> (s $x)])")
+            .expect("fmap(unit)");
+        assert!(
+            matches!(&r4, Rel::Atom(_)),
+            "fmap(unit) should be identity (Atom), got {:?}",
+            r4
+        );
+
+        // Test 5: xvar is just the functor argument
+        let r5 = parser
+            .parse_rel_body("fmap(xvar, [$x -> (s $x)])")
+            .expect("fmap(xvar)");
+        assert!(
+            matches!(&r5, Rel::Atom(_)),
+            "fmap(xvar) should be f (Atom), got {:?}",
+            r5
+        );
+    }
+
+    #[test]
+    fn term_arg_at_call_site_must_be_ground() {
+        let mut parser = Parser::new();
+        parser
+            .parse_rel_def("rel m(@z) { $x -> $x }")
+            .expect("define m");
+
+        // Calling with a variable in a term arg at top level should error.
+        let err = parser
+            .parse_rel_body("m($a)")
+            .expect_err("term args at call sites must be ground");
+        assert!(
+            err.message.contains("ground"),
+            "Expected ground error, got: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn all_relation_macros_backward_compat() {
+        // Verify that pure relation macros (no @ params) work exactly as before.
+        let mut parser = Parser::new();
+        parser
+            .parse_rel_def("rel double(r) { r ; r }")
+            .expect("define double");
+        parser
+            .parse_rel_def("rel compose(f, g) { f ; g }")
+            .expect("define compose");
+        parser
+            .parse_rel_def("rel repeat(r) { r | [r ; repeat(r)] }")
+            .expect("define repeat");
+
+        // double expands to Seq of 2
+        let r1 = parser
+            .parse_rel_body("double([$x -> (s $x)])")
+            .expect("expand double");
+        assert!(matches!(&r1, Rel::Seq(_)));
+
+        // compose expands to Seq of 2
+        let r2 = parser
+            .parse_rel_body("compose([$x -> (s $x)], [$y -> (s $y)])")
+            .expect("expand compose");
+        assert!(matches!(&r2, Rel::Seq(_)));
+
+        // repeat expands to Fix(Or(Atom, Seq))
+        let r3 = parser
+            .parse_rel_body("repeat([$x -> (s $x)])")
+            .expect("expand repeat");
+        assert!(matches!(&r3, Rel::Fix(_, _)));
+    }
+
+    // ========================================================================
+    // DEEP STRUCTURAL VERIFICATION TESTS
+    // ========================================================================
+
+    /// Helper: compare two Rel trees structurally, ignoring RelId values.
+    /// Returns true if they have the same shape and the same Atoms.
+    fn rel_shape_eq<C: PartialEq>(a: &Rel<C>, b: &Rel<C>) -> bool {
+        match (a, b) {
+            (Rel::Zero, Rel::Zero) => true,
+            (Rel::Atom(x), Rel::Atom(y)) => x == y,
+            (Rel::Or(a1, a2), Rel::Or(b1, b2)) => {
+                rel_shape_eq(a1, b1) && rel_shape_eq(a2, b2)
+            }
+            (Rel::And(a1, a2), Rel::And(b1, b2)) => {
+                rel_shape_eq(a1, b1) && rel_shape_eq(a2, b2)
+            }
+            (Rel::Seq(xs), Rel::Seq(ys)) => {
+                xs.len() == ys.len()
+                    && xs.iter().zip(ys.iter()).all(|(x, y)| rel_shape_eq(x, y))
+            }
+            (Rel::Fix(_, body_a), Rel::Fix(_, body_b)) => rel_shape_eq(body_a, body_b),
+            (Rel::Call(_), Rel::Call(_)) => true, // RelIds differ but both are calls
+            _ => false,
+        }
+    }
+
+    #[test]
+    fn fmap_unit_expands_to_identity_rule() {
+        let mut parser = Parser::new();
+        parser
+            .parse_rel_def("rel fmap(@unit, f) { $x -> $x }")
+            .expect("define fmap/unit");
+
+        let expanded = parser
+            .parse_rel_body("fmap(unit, [$y -> (s $y)])")
+            .expect("expand fmap(unit, ...)");
+
+        // fmap(unit, f) = { $x -> $x } regardless of f.
+        // Compare against directly parsed identity rule.
+        let expected = parser
+            .parse_rel_body("$x -> $x")
+            .expect("parse identity rule");
+
+        assert!(
+            rel_shape_eq(&expanded, &expected),
+            "fmap(unit, f) should expand to identity rule.\n\
+             Got: {:?}\nExpected: {:?}",
+            expanded, expected
+        );
+    }
+
+    #[test]
+    fn fmap_xvar_expands_to_passed_relation() {
+        let mut parser = Parser::new();
+        parser
+            .parse_rel_def("rel fmap(@xvar, f) { f }")
+            .expect("define fmap/xvar");
+
+        let expanded = parser
+            .parse_rel_body("fmap(xvar, [$y -> (s $y)])")
+            .expect("expand fmap(xvar, ...)");
+
+        let expected = parser
+            .parse_rel_body("$y -> (s $y)")
+            .expect("parse inc rule");
+
+        assert!(
+            rel_shape_eq(&expanded, &expected),
+            "fmap(xvar, f) should expand to f itself.\n\
+             Got: {:?}\nExpected: {:?}",
+            expanded, expected
+        );
+    }
+
+    #[test]
+    fn fmap_sum_inner_branches_correct() {
+        let mut parser = Parser::new();
+        parser
+            .parse_rel_def("rel fmap(@unit, f) { $x -> $x }")
+            .expect("fmap/unit");
+        parser
+            .parse_rel_def("rel fmap(@xvar, f) { f }")
+            .expect("fmap/xvar");
+        parser
+            .parse_rel_def(
+                "rel fmap(@(sum $a $b), f) { \
+                   [(inl $x) -> $x ; fmap($a, f) ; $y -> (inl $y)] \
+                 | [(inr $x) -> $x ; fmap($b, f) ; $y -> (inr $y)] \
+                 }",
+            )
+            .expect("fmap/sum");
+
+        let expanded = parser
+            .parse_rel_body("fmap((sum unit xvar), [$z -> (s $z)])")
+            .expect("expand fmap(sum unit xvar)");
+
+        // Expected: Or(
+        //   Seq[(inl $x) -> $x, $x -> $x, $y -> (inl $y)],  // unit branch: identity
+        //   Seq[(inr $x) -> $x, $z -> (s $z), $y -> (inr $y)]  // xvar branch: inc
+        // )
+        let expected = parser
+            .parse_rel_body(
+                "[(inl $x) -> $x ; $x -> $x ; $y -> (inl $y)] \
+                 | [(inr $x) -> $x ; [$z -> (s $z)] ; $y -> (inr $y)]",
+            )
+            .expect("parse expected expansion");
+
+        assert!(
+            rel_shape_eq(&expanded, &expected),
+            "fmap(sum unit xvar) inner branches should match.\n\
+             Got: {:?}\nExpected: {:?}",
+            expanded, expected
+        );
+    }
+
+    #[test]
+    fn fmap_nested_sum_inner_or_present() {
+        let mut parser = Parser::new();
+        parser
+            .parse_rel_def("rel fmap(@unit, f) { $x -> $x }")
+            .expect("fmap/unit");
+        parser
+            .parse_rel_def("rel fmap(@xvar, f) { f }")
+            .expect("fmap/xvar");
+        parser
+            .parse_rel_def(
+                "rel fmap(@(sum $a $b), f) { \
+                   [(inl $x) -> $x ; fmap($a, f) ; $y -> (inl $y)] \
+                 | [(inr $x) -> $x ; fmap($b, f) ; $y -> (inr $y)] \
+                 }",
+            )
+            .expect("fmap/sum");
+
+        // fmap((sum (sum unit xvar) unit), f)
+        // Left branch: fmap((sum unit xvar), f) → another Or
+        // Right branch: fmap(unit, f) → identity
+        let expanded = parser
+            .parse_rel_body("fmap((sum (sum unit xvar) unit), [$z -> (s $z)])")
+            .expect("expand nested fmap");
+
+        // Top level should be Or.
+        match &expanded {
+            Rel::Or(left, right) => {
+                // Left branch: Seq[(inl $x) -> $x, fmap(sum unit xvar, f), $y -> (inl $y)]
+                // where fmap(sum unit xvar, f) should itself be an Or.
+                match left.as_ref() {
+                    Rel::Seq(factors) => {
+                        assert_eq!(factors.len(), 3, "left branch should be Seq of 3");
+                        // Middle element should be the nested Or from fmap(sum unit xvar).
+                        assert!(
+                            matches!(factors[1].as_ref(), Rel::Or(_, _)),
+                            "Inner fmap(sum unit xvar) should produce Or, got {:?}",
+                            factors[1]
+                        );
+                    }
+                    _ => panic!("Left branch should be Seq, got {:?}", left),
+                }
+                // Right branch: Seq[(inr $x) -> $x, identity, $y -> (inr $y)]
+                match right.as_ref() {
+                    Rel::Seq(factors) => {
+                        assert_eq!(factors.len(), 3, "right branch should be Seq of 3");
+                        // Middle element should be identity (Atom).
+                        assert!(
+                            matches!(factors[1].as_ref(), Rel::Atom(_)),
+                            "fmap(unit) should produce Atom, got {:?}",
+                            factors[1]
+                        );
+                    }
+                    _ => panic!("Right branch should be Seq, got {:?}", right),
+                }
+            }
+            _ => panic!("Expected Or at top level, got {:?}", expanded),
+        }
+    }
+
+    #[test]
+    fn meta_var_binding_propagates_correctly() {
+        // Verify that $a and $b bind to the correct sub-terms and propagate
+        // into recursive calls. If bindings were swapped, the expansion
+        // would have xvar (=f) in the left branch and identity in the right.
+        let mut parser = Parser::new();
+        parser
+            .parse_rel_def("rel m(@unit, f) { $x -> $x }")
+            .expect("m/unit");
+        parser
+            .parse_rel_def("rel m(@xvar, f) { f }")
+            .expect("m/xvar");
+        // $a is bound to the FIRST sub-term (unit), $b to the SECOND (xvar).
+        parser
+            .parse_rel_def("rel m(@(pair $a $b), f) { m($a, f) ; m($b, f) }")
+            .expect("m/pair");
+
+        let expanded = parser
+            .parse_rel_body("m((pair unit xvar), [$z -> (s $z)])")
+            .expect("expand m(pair unit xvar)");
+
+        // Should be Seq[m(unit, f), m(xvar, f)] = Seq[identity, f]
+        match &expanded {
+            Rel::Seq(factors) => {
+                assert_eq!(factors.len(), 2, "pair body is Seq of 2");
+
+                // First: m(unit, f) = identity ($x -> $x)
+                let identity = parser
+                    .parse_rel_body("$x -> $x")
+                    .expect("parse identity");
+                assert!(
+                    rel_shape_eq(factors[0].as_ref(), &identity),
+                    "m(unit, f) should be identity, got {:?}",
+                    factors[0]
+                );
+
+                // Second: m(xvar, f) = f ($z -> (s $z))
+                let f_rel = parser
+                    .parse_rel_body("$z -> (s $z)")
+                    .expect("parse f");
+                assert!(
+                    rel_shape_eq(factors[1].as_ref(), &f_rel),
+                    "m(xvar, f) should be f, got {:?}",
+                    factors[1]
+                );
+            }
+            _ => panic!("Expected Seq from pair expansion, got {:?}", expanded),
+        }
+    }
+
+    #[test]
+    fn meta_var_binding_not_swapped() {
+        // Same as above but with reversed sub-terms to confirm order matters.
+        let mut parser = Parser::new();
+        parser
+            .parse_rel_def("rel m(@unit, f) { $x -> $x }")
+            .expect("m/unit");
+        parser
+            .parse_rel_def("rel m(@xvar, f) { f }")
+            .expect("m/xvar");
+        parser
+            .parse_rel_def("rel m(@(pair $a $b), f) { m($a, f) ; m($b, f) }")
+            .expect("m/pair");
+
+        // Now call with (pair xvar unit) — reversed from the previous test.
+        let expanded = parser
+            .parse_rel_body("m((pair xvar unit), [$z -> (s $z)])")
+            .expect("expand m(pair xvar unit)");
+
+        // Should be Seq[m(xvar, f), m(unit, f)] = Seq[f, identity]
+        match &expanded {
+            Rel::Seq(factors) => {
+                assert_eq!(factors.len(), 2);
+
+                let f_rel = parser.parse_rel_body("$z -> (s $z)").expect("parse f");
+                let identity = parser.parse_rel_body("$x -> $x").expect("parse identity");
+
+                // First should be f (xvar), second should be identity (unit).
+                assert!(
+                    rel_shape_eq(factors[0].as_ref(), &f_rel),
+                    "First should be f (xvar), got {:?}",
+                    factors[0]
+                );
+                assert!(
+                    rel_shape_eq(factors[1].as_ref(), &identity),
+                    "Second should be identity (unit), got {:?}",
+                    factors[1]
+                );
+            }
+            _ => panic!("Expected Seq, got {:?}", expanded),
+        }
+    }
+
+    #[test]
+    fn all_term_params_macro() {
+        // Macro with only term params (no relation params at all).
+        // Note: meta-vars from term patterns cannot appear in rule LHS/RHS
+        // (rules are NF-factored at parse time). So bodies must not reference $n.
+        let mut parser = Parser::new();
+        parser
+            .parse_rel_def("rel tag(@z) { $x -> (tagged_z $x) }")
+            .expect("tag/z");
+        parser
+            .parse_rel_def("rel tag(@(s $n)) { $x -> (tagged_s $x) }")
+            .expect("tag/s");
+
+        let r1 = parser
+            .parse_rel_body("tag(z)")
+            .expect("expand tag(z)");
+        let expected_z = parser
+            .parse_rel_body("$x -> (tagged_z $x)")
+            .expect("parse expected");
+        assert!(
+            rel_shape_eq(&r1, &expected_z),
+            "tag(z) expansion mismatch.\nGot: {:?}\nExpected: {:?}",
+            r1, expected_z
+        );
+
+        let r2 = parser
+            .parse_rel_body("tag((s z))")
+            .expect("expand tag((s z))");
+        let expected_s = parser
+            .parse_rel_body("$x -> (tagged_s $x)")
+            .expect("parse expected");
+        assert!(
+            rel_shape_eq(&r2, &expected_s),
+            "tag((s z)) expansion mismatch.\nGot: {:?}\nExpected: {:?}",
+            r2, expected_s
+        );
+    }
+
+    #[test]
+    fn two_term_param_positions() {
+        // Macro with two @-parameters.
+        let mut parser = Parser::new();
+        parser
+            .parse_rel_def("rel combine(@z, @z) { $x -> (both_z $x) }")
+            .expect("combine/z,z");
+        parser
+            .parse_rel_def("rel combine(@z, @(s $n)) { $x -> (z_and_s $x) }")
+            .expect("combine/z,s");
+        parser
+            .parse_rel_def("rel combine(@(s $m), @z) { $x -> (s_and_z $x) }")
+            .expect("combine/s,z");
+
+        let r1 = parser
+            .parse_rel_body("combine(z, z)")
+            .expect("expand combine(z, z)");
+        let e1 = parser.parse_rel_body("$x -> (both_z $x)").expect("expected");
+        assert!(
+            rel_shape_eq(&r1, &e1),
+            "combine(z,z) wrong: {:?}",
+            r1
+        );
+
+        let r2 = parser
+            .parse_rel_body("combine(z, (s z))")
+            .expect("expand combine(z, (s z))");
+        let e2 = parser.parse_rel_body("$x -> (z_and_s $x)").expect("expected");
+        assert!(
+            rel_shape_eq(&r2, &e2),
+            "combine(z,(s z)) wrong: {:?}",
+            r2
+        );
+
+        let r3 = parser
+            .parse_rel_body("combine((s z), z)")
+            .expect("expand combine((s z), z)");
+        let e3 = parser.parse_rel_body("$x -> (s_and_z $x)").expect("expected");
+        assert!(
+            rel_shape_eq(&r3, &e3),
+            "combine((s z),z) wrong: {:?}",
+            r3
+        );
+
+        // No equation matches (s, s).
+        let err = parser
+            .parse_rel_body("combine((s z), (s z))")
+            .expect_err("(s,s) should not match");
+        assert!(err.message.contains("no matching equation"));
     }
 }
