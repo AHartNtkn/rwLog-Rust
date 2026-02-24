@@ -2969,6 +2969,53 @@ rel s {
         eprintln!("  simplelam SK eval: {}", rendered);
     }
 
+    /// Evaluate S(K,K): `(a (a s k) k)` should reduce to the identity combinator.
+    /// S x y z = x z (y z), so S K K z = K z (K z) = z.
+    /// The result is `(lam x (var x))` — the identity function.
+    #[test]
+    fn simplelam_skk_eval_produces_identity() {
+        let mut parser = Parser::with_chr();
+        let (_rel, env) = parse_rel_def_with_env_chr(&mut parser, SIMPLELAM_DEF);
+
+        let query_str = concat!(
+            "[[s ; $s -> (a (a $s $k1) $k2)]",
+            " & [k ; $k1 -> (a (a $s $k1) $k2)]",
+            " & [k ; $k2 -> (a (a $s $k1) $k2)]]",
+            " ; $p -> (pair $p nil) ; eval"
+        );
+        let query = parser.parse_rel_body(query_str).expect("parse SKK eval query");
+        let terms = parser.take_terms();
+
+        let mut engine: Engine<ChrState> = Engine::new_with_env(query, terms, env);
+
+        let max_steps = 500_000;
+        let first = run_until_emit(&mut engine, max_steps);
+        assert!(
+            first.is_some(),
+            "BUG: SKK eval should produce answer within {} steps",
+            max_steps
+        );
+        let rendered = engine
+            .format_nf(first.as_ref().unwrap(), parser.symbols())
+            .unwrap_or_else(|_| "<error>".to_string());
+        eprintln!("  simplelam SKK eval: {}", rendered);
+
+        // Strip constraints: "LHS { ... } -> RHS" becomes "LHS -> RHS"
+        let without_constraints = if let Some(open) = rendered.find('{') {
+            let close = rendered.find('}').expect("unmatched { in rendered NF");
+            let before = rendered[..open].trim_end();
+            let after = rendered[close + 1..].trim_start();
+            format!("{} {}", before, after)
+        } else {
+            rendered.clone()
+        };
+        assert_eq!(
+            without_constraints, "$0 -> (lam $1 (var $1))",
+            "SKK should evaluate to the identity combinator, got: {}",
+            rendered
+        );
+    }
+
     /// Regression: BindWork for front-advancement broke the flip synthesis query.
     /// The query has [Atom ; Call ; Atom ; Call ; Atom] structure — multiple
     /// sequential Calls separated by Atoms. BindWork must not prevent search

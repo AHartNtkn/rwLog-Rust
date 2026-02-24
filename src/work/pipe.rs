@@ -65,6 +65,18 @@ fn collect_flat_or_atoms_inner<C: Clone>(rel: &Rel<C>, out: &mut Vec<Arc<NF<C>>>
     }
 }
 
+/// Check if a Factors sequence contains any tabled nodes (Call or Fix).
+///
+/// When remaining mid contains Calls or Fixes and the pipe has a right
+/// boundary, ComposeWork should be used instead of BindWork to preserve
+/// table sharing. With BindWork, each source NF creates a unique CallKey
+/// for downstream Calls, leading to N separate tables instead of one
+/// shared table (table key explosion).
+fn mid_has_tabled_nodes<C: ConstraintOps>(mid: &Factors<C>) -> bool {
+    mid.iter()
+        .any(|r| matches!(r, Rel::Call(_) | Rel::Fix(_, _)))
+}
+
 /// Build a Rel from a list of atoms (right-nested Or).
 fn atoms_to_or_rel<C: Clone>(atoms: &[Arc<NF<C>>]) -> Rel<C> {
     debug_assert!(!atoms.is_empty());
@@ -744,9 +756,14 @@ impl<C: ConstraintOps> PipeWork<C> {
                     None
                 };
 
-                // Front advancement with remaining mid: use BindWork so each
-                // source NF becomes a specific left boundary for the remaining pipe.
-                if !mid_empty {
+                // Front advancement with remaining mid: use BindWork when mid
+                // has no tabled nodes OR when there's no right boundary to
+                // constrain downstream Calls. When mid has Calls/Fixes AND a
+                // right boundary exists, use ComposeWork to preserve table
+                // sharing (one shared table instead of N per source NF).
+                if !mid_empty
+                    && (!mid_has_tabled_nodes(&pipe.mid) || pipe.right.is_none())
+                {
                     let bind = BindWork::new(
                         source_node,
                         pipe.mid,
@@ -809,9 +826,13 @@ impl<C: ConstraintOps> PipeWork<C> {
             pipe.right = None;
         }
 
-        // Front advancement with remaining mid: use BindWork so each source
-        // NF becomes a specific left boundary for the remaining pipe.
-        if matches!(end, PipeEnd::Front) && !pipe.mid.is_empty() {
+        // Front advancement with remaining mid: use BindWork when mid has
+        // no tabled nodes OR no right boundary. ComposeWork when mid has
+        // Calls/Fixes AND a right boundary (preserves table sharing).
+        if matches!(end, PipeEnd::Front)
+            && !pipe.mid.is_empty()
+            && (!mid_has_tabled_nodes(&pipe.mid) || pipe.right.is_none())
+        {
             let bind = BindWork::new(
                 fix_node,
                 pipe.mid,
@@ -1253,7 +1274,10 @@ impl<C: ConstraintOps> PipeWork<C> {
                 }
 
                 let absorb_front = matches!(end, PipeEnd::Front);
-                if absorb_front && !pipe.mid.is_empty() {
+                if absorb_front
+                    && !pipe.mid.is_empty()
+                    && (!mid_has_tabled_nodes(&pipe.mid) || pipe.right.is_none())
+                {
                     let bind = BindWork::new(
                         replay_node,
                         pipe.mid,
@@ -1299,11 +1323,14 @@ impl<C: ConstraintOps> PipeWork<C> {
             pipe.right = None;
         }
 
-        // Front advancement with remaining mid: use BindWork so each source
-        // NF becomes a specific left boundary for the remaining pipe. This
-        // prevents downstream Calls from running with unconstrained input.
+        // Front advancement with remaining mid: use BindWork when mid has
+        // no tabled nodes OR no right boundary. ComposeWork when mid has
+        // Calls/Fixes AND a right boundary (preserves table sharing).
         let absorb_front = matches!(end, PipeEnd::Front);
-        if absorb_front && !pipe.mid.is_empty() {
+        if absorb_front
+            && !pipe.mid.is_empty()
+            && (!mid_has_tabled_nodes(&pipe.mid) || pipe.right.is_none())
+        {
             let bind = BindWork::new(
                 gen_node,
                 pipe.mid,
