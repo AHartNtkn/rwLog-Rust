@@ -330,3 +330,161 @@ When evaluating compound expressions with independent subparts, use conjunction 
 
 Both `$x` and `$y` are evaluated independently. If either diverges but the other would fail, the conjunction fails early instead of hanging forever on the first branch. With sequential composition, the second evaluation would never start if the first diverges.
 </conjunction_parallel_eval>
+
+<variables_as_object_names>
+## Variables as Object-Level Names (Fresh Variable Management)
+
+rwlog variables can represent object-level names (e.g., bound variables in a lambda calculus). Combined with disequality constraints, this provides automatic fresh variable management without gensym, counters, or explicit alpha-renaming.
+
+<technique>
+### The Technique
+
+Instead of representing object-level variables with ground atoms (`(var a)`, `(var b)`), use rwlog variables:
+
+```
+(var $x)    # $x is an rwlog variable standing for "some name"
+```
+
+When two lambda-bound variables must be distinct, a `neq` constraint enforces it:
+
+```
+theory lamvar_constraints {
+    constraint neq/2
+
+    (neq $x $x) <=> fail.
+    (neq $x $y), (neq $x $y) <=> (neq $x $y).
+    (neq $x $y), (neq $y $x) <=> (neq $x $y).
+}
+```
+
+Rules that must distinguish bound variables use `neq` guards:
+
+```
+# Substitution: (lam x . x) applied to z — variable matches, substitute
+(pair (lam $x (var $x)) (cons $z $spine)) -> (pair $z $spine) ; eval
+
+# Substitution: (lam x . y) applied to z — variable doesn't match, pass through
+(pair (lam $x (var $y)) (cons $z $spine)) {(neq $x $y)} -> (pair (var $y) $spine) ; eval
+```
+
+No manual freshness tracking is needed. Each rwlog variable is automatically distinct from other variables unless constrained to be equal.
+</technique>
+
+<why_it_works>
+### Why It Works
+
+Three properties of rwlog combine to make this work:
+
+1. **Existential quantification**: A variable appearing only on the RHS of a rule is fresh — it can be any value. When constructing a lambda term, fresh rwlog variables automatically serve as fresh bound-variable names.
+
+2. **Constraint accumulation**: The `neq` constraints accumulate in the constraint store, tracking exactly which object-level names must be distinct. CHR simplification removes redundant constraints automatically.
+
+3. **Residual constraints in output**: Answers carry their freshness requirements as residual `neq` constraints, making the conditions explicit rather than hidden in side effects.
+</why_it_works>
+
+<example_lambda_eval>
+### Example: Lambda Calculus Evaluator
+
+A complete evaluator for the untyped lambda calculus using this technique:
+
+```
+theory lamvar_constraints {
+    constraint neq/2
+
+    (neq $x $x) <=> fail.
+    (neq $x $y), (neq $x $y) <=> (neq $x $y).
+    (neq $x $y), (neq $y $x) <=> (neq $x $y).
+}
+
+rel fold {
+    (pair $e nil) -> $e
+  | (pair $e (cons $x $xs)) -> (pair (a $e $r) $xs) &
+    [(pair $e (cons $x $xs)) -> (pair $x nil) ; eval ; $r -> (pair (a $e $r) $xs)] ;
+    fold
+}
+
+rel eval {
+    # Application: push argument onto spine
+    (pair (a $x $y) $spine) -> (pair $x (cons $y $spine)) ; eval
+
+    # Variable: already evaluated, fold spine
+  | (pair (var $x) $spine) -> (pair (var $x) $spine) ; fold
+
+    # Lambda with empty spine: evaluate body
+  | (pair (lam $x $y) nil) -> (lam $x $r) &
+    [(pair (lam $x $y) nil) -> (pair $y nil) ; eval ; $r -> (lam $x $r)]
+
+    # Beta reduction: bound var matches — substitute
+  | (pair (lam $x (var $x)) (cons $z $spine)) -> (pair $z $spine) ; eval
+
+    # Beta reduction: bound var doesn't match — pass through
+  | (pair (lam $x (var $y)) (cons $z $spine)) {(neq $x $y)}
+      -> (pair (var $y) $spine) ; eval
+
+    # Beta under shadowing lambda: inner binder shadows, skip substitution
+  | (pair (lam $x (lam $x $z)) (cons $w $spine))
+      -> (pair (lam $x $z) $spine) ; eval
+
+    # Beta under non-shadowing lambda: substitute into body
+  | (pair (lam $x (lam $y $z)) (cons $w $spine)) {(neq $x $y)}
+      -> (pair (lam $y $r) $spine) &
+    [(pair (lam $x (lam $y $z)) (cons $w $spine))
+      -> (pair (a (lam $x $z) $w) nil) ; eval
+      ; $r -> (pair (lam $y $r) $spine)]
+    ; eval
+
+    # Beta under application: distribute substitution
+  | (pair (lam $x (a $y $z)) (cons $w $spine))
+      -> (pair (lam $x $y) (cons $w (cons (a (lam $x $z) $w) $spine))) ; eval
+}
+```
+
+Key points:
+- `(var $x)` uses rwlog variables as lambda variable names
+- `{(neq $x $y)}` guards distinguish bound-variable cases without manual comparison
+- No alpha-renaming pass is needed — distinct rwlog variables are inherently distinct
+</example_lambda_eval>
+
+<backward_synthesis>
+### Backward Execution: Synthesizing Lambda Terms
+
+Running the evaluator backward synthesizes lambda terms satisfying a behavioral specification. The system automatically generates fresh variable names and accumulates the necessary distinctness constraints.
+
+Find all lambda terms that evaluate to the identity function:
+
+```
+$p -> (pair $p nil) ; eval ; @(lam $x (var $x))
+```
+
+Results (first few):
+
+```
+1. (lam $0 (var $0)) -> (lam $0 (var $0))
+2. (lam $0 (a (lam $1 (var $0)) $2)) { (neq $1 $0) } -> (lam $0 (var $0))
+3. (a (lam $0 (lam $0 (var $0))) $1) -> (lam $0 (var $0))
+4. (lam $0 (a (lam $1 (var $1)) (var $0))) -> (lam $0 (var $0))
+5. (a (lam $0 (var $0)) (lam $1 (var $1))) -> (lam $1 (var $1))
+```
+
+Each answer is a lambda term that reduces to the identity, with its freshness requirements made explicit:
+- Answer 1: `lam x . x` — the identity itself
+- Answer 2: `lam x . (lam y . x) z` where `y ≠ x` — a K-combinator application that discards `z` and returns `x`
+- Answer 3: `(lam x . lam x . x) y` — outer binding is shadowed, inner identity survives
+- Answer 4: `lam x . (lam y . y) x` — applies identity to `x`
+- Answer 5: `(lam x . x) (lam y . y)` — identity applied to identity
+</backward_synthesis>
+
+<comparison>
+### Comparison: Variables-as-Names vs Manual Management
+
+| Aspect | rwlog variables | Manual (ground atoms) |
+|--------|----------------|----------------------|
+| Fresh names | Automatic (existential) | Explicit gensym/counter |
+| Distinctness | `neq` constraints | Maintain used-name set |
+| Alpha-equivalence | Built-in (variables are unspecified) | Explicit alpha-renaming pass |
+| Backward execution | Works naturally | Must invert name generation |
+| Output clarity | Residual `neq` constraints show requirements | Arbitrary concrete names obscure generality |
+
+The key advantage is that rwlog variables are *unspecified* rather than *arbitrary*. An answer with `(lam $0 (var $0))` says "for any name" — it doesn't pick a specific name and require the reader to recognize it as arbitrary.
+</comparison>
+</variables_as_object_names>
