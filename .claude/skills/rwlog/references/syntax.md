@@ -1,5 +1,5 @@
 <overview>
-Complete syntax reference for rwlog. Covers terms, variables, rules, and relation definitions.
+Complete syntax reference for rwlog. Covers terms, variables, rules, relation definitions, and parameterized macros.
 </overview>
 
 <terms>
@@ -193,6 +193,126 @@ rel length {
 ```
 </example>
 </relations>
+
+<macros>
+## Parameterized Relation Macros
+
+Macros define relation templates with relation-valued parameters. Expansion happens at parse time — the result is always a plain relation tree.
+
+```
+rel name(param1, param2) {
+    body using param1 and param2
+}
+```
+
+**Arity is part of identity:** `fold`, `fold(x)`, and `fold(x, y)` are completely different, unrelated declarations. Bare `fold` does NOT refer to `fold(x)`.
+
+<example name="Non-recursive macro">
+```
+rel double(r) {
+    r ; r
+}
+
+rel inc { $x -> (s $x) }
+```
+
+`@z ; double(inc)` expands `double(inc)` to `inc ; inc`, producing `(s (s z))`.
+</example>
+
+<example name="Macro with two parameters">
+```
+rel then(first, second) {
+    first ; second
+}
+```
+
+`@z ; then(inc, wrap)` expands to `inc ; wrap`.
+</example>
+
+<example name="Recursive macro">
+```
+rel peel(base) {
+    (s $x) -> $x ; peel(base)
+    | base
+}
+```
+
+`peel(base)` inside the body is a recursive self-call (same params in same order). This strips `(s ...)` layers and applies `base` at the bottom.
+
+`@(s (s z)) ; peel(z -> done)` produces `done`.
+</example>
+
+<example name="Cross-macro call">
+```
+rel compose(f, g) { f ; g }
+rel double(r) { compose(r, r) }
+```
+
+`double(inc)` expands to `compose(inc, inc)` which expands to `inc ; inc`.
+</example>
+
+**Rules:**
+- Parameters must be lowercase identifiers
+- Macro arguments can be any relation expression: rules, sequences, alternatives, conjunctions, bracketed groups, or calls to other macros/relations
+- Recursive self-calls must pass the original parameters unchanged (identity self-call)
+- Macros can reference other macros defined later in the same file (forward references work)
+</macros>
+
+<pattern_matching_macros>
+## Pattern-Matching Macros
+
+The `@` prefix on a definition parameter marks it as **term-valued**: the argument is matched structurally against the pattern rather than substituted as a relation. Multiple definitions with the same name/arity add equations; the first definition establishes which positions are term-valued.
+
+```
+rel fmap(@unit, f) { $x -> $x }
+rel fmap(@xvar, f) { f }
+rel fmap(@(sum $a $b), f) {
+    [(inl $x) -> $x ; fmap($a, f) ; $y -> (inl $y)]
+  | [(inr $x) -> $x ; fmap($b, f) ; $y -> (inr $y)]
+}
+```
+
+**Meta-variables** (`$a`, `$b`) in term patterns bind sub-terms. These are available only in macro call term arguments within the body — not in rule LHS/RHS (rules are NF-factored at parse time).
+
+**Call syntax:** At call sites, no `@` is needed. The parser knows which positions are term-valued from the definition:
+```
+fmap((sum unit xvar), [$x -> (s $x)])
+```
+
+**Expansion-time structural recursion:** Recursive calls with structurally smaller term args (e.g., `fmap($a, f)` inside `fmap(@(sum $a $b), f)`) are expanded at macro-expansion time, not wrapped in Fix/Call. This terminates because terms have finite depth.
+
+**Identity self-calls** pass the same term pattern and relation params unchanged — these produce Fix/Call for runtime recursion:
+```
+rel repeat_fmap(@(sum $a $b), f) {
+    fmap((sum $a $b), f)           # identity → Fix/Call
+  | fmap($a, f)                    # structural → expanded at expansion time
+}
+```
+
+<example name="Polynomial functor map">
+```
+rel fmap(@unit, f) { $x -> $x }
+rel fmap(@xvar, f) { f }
+rel fmap(@(sum $a $b), f) {
+    [(inl $x) -> $x ; fmap($a, f) ; $y -> (inl $y)]
+  | [(inr $x) -> $x ; fmap($b, f) ; $y -> (inr $y)]
+}
+```
+
+`fmap((sum unit xvar), inc)` expands to:
+```
+[(inl $x) -> $x ; $x -> $x ; $y -> (inl $y)]    # unit: identity
+| [(inr $x) -> $x ; inc ; $y -> (inr $y)]        # xvar: apply inc
+```
+</example>
+
+**Rules:**
+- The `@` positions must be consistent across all equations for the same macro
+- Term arguments at call sites must be ground (no `$`-variables)
+- Term arguments inside macro bodies may reference meta-variables from enclosing term patterns
+- Expansion depth is limited to 128 levels to catch non-structural recursion
+- Forward references work: macro A can call pattern-matching macro B defined later
+</pattern_matching_macros>
 
 <term_literals>
 ## Term Literals with @

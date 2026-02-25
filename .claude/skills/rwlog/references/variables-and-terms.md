@@ -108,7 +108,9 @@ If a variable appears ONLY on the right side, it's existentially quantified (fre
 $x -> (pair $x $y)        # $y is fresh - can be anything
 ```
 
-This is less common and creates non-determinism.
+This creates non-determinism: the output includes an unspecified `$y`.
+
+This property is powerful for representing object-level binders. Using `(var $x)` with rwlog variables as bound-variable names means fresh variables are generated automatically, with `neq` constraints tracking distinctness. See the "Variables as Object-Level Names" section in `core-patterns.md`.
 </fresh_variables>
 
 <shared_variables>

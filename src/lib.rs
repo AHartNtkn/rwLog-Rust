@@ -8,7 +8,6 @@ pub mod join;
 pub mod jupyter;
 pub mod kernel;
 pub mod matching;
-pub mod metrics;
 pub mod nf;
 pub mod node;
 pub mod parser;

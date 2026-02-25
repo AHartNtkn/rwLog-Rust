@@ -249,6 +249,102 @@ The key insight: constraining either end bounds the search. Leaving both unconst
 </bidirectional_termination>
 </termination>
 
+<parameterized_recursion>
+## Parameterized Recursion with Macros
+
+Macros let you write recursive patterns parameterized by relation-valued arguments. The recursive self-call uses the full parameterized form.
+
+<peel_example>
+**Peeling layers with a custom base case:**
+```
+rel peel(base) {
+    (s $x) -> $x ; peel(base)
+    | base
+}
+```
+
+The recursive call is `peel(base)` — NOT bare `peel`. Bare `peel` would refer to a completely different 0-arity relation.
+
+Usage:
+```
+@(s (s z)) ; peel(z -> done)
+```
+
+Strips two `s` layers, then applies `z -> done`. Result: `(s (s z)) -> done`.
+</peel_example>
+
+<double_macro>
+**Composing a relation with itself:**
+```
+rel double(r) {
+    r ; r
+}
+
+rel inc { $x -> (s $x) }
+```
+
+`@z ; double(inc)` applies `inc` twice. Result: `z -> (s (s z))`.
+
+This is non-recursive — no self-call in the body.
+</double_macro>
+
+<either_macro>
+**Choice between two relations:**
+```
+rel either(a, b) {
+    a | b
+}
+```
+
+`@z ; either(toa, tob)` tries both `toa` and `tob` on `z`.
+</either_macro>
+
+<recursion_note>
+**Key rules for recursive macros:**
+- Recursive self-calls must pass the original parameters unchanged: `peel(base)` inside `peel(base)`'s body
+- Permuted or modified relation parameters in self-calls (e.g., `foo(b, a)` inside `foo(a, b)`) are deferred and expanded at call sites
+- Cross-macro calls with parameters work: `double(r)` can call `compose(r, r)` even if `compose` is defined later in the same file
+</recursion_note>
+</parameterized_recursion>
+
+<meta_level_recursion>
+## Meta-Level Recursion (Pattern-Matching Macros)
+
+Pattern-matching macros enable **expansion-time structural recursion** on term arguments. This is distinct from runtime recursion (Fix/Call):
+
+| Kind | When it happens | Mechanism | Termination |
+|------|----------------|-----------|-------------|
+| Runtime recursion | During evaluation | Fix/Call in Rel tree | Depends on input |
+| Expansion-time recursion | During parsing | Repeated macro expansion | Guaranteed for structural recursion |
+
+### How it works
+
+When a macro body contains a self-call with a structurally smaller term argument, it is **deferred** during body parsing and **expanded** when the macro is invoked at a call site with concrete term arguments.
+
+```
+rel fmap(@(sum $a $b), f) {
+    [(inl $x) -> $x ; fmap($a, f) ; $y -> (inl $y)]    # fmap($a, f) deferred
+  | [(inr $x) -> $x ; fmap($b, f) ; $y -> (inr $y)]    # fmap($b, f) deferred
+}
+```
+
+When called as `fmap((sum unit xvar), inc)`:
+1. Pattern `(sum $a $b)` matches `(sum unit xvar)` → `$a = unit`, `$b = xvar`
+2. Deferred `fmap($a, f)` resolves to `fmap(unit, inc)` → matches `fmap(@unit, f)` → `$x -> $x`
+3. Deferred `fmap($b, f)` resolves to `fmap(xvar, inc)` → matches `fmap(@xvar, f)` → `inc`
+4. Final result: `[(inl $x) -> $x ; $x -> $x ; $y -> (inl $y)] | [(inr $x) -> $x ; inc ; $y -> (inr $y)]`
+
+### Termination guarantee
+
+Structural recursion on finite-depth terms terminates because each recursive call uses a strict sub-term of the matched pattern. Since terms are hashconsed DAGs built bottom-up, they have finite depth. The expansion depth limit (128) catches non-structural recursion (e.g., mutual bouncing between equations) with a clear error.
+
+### Identity vs structural self-calls
+
+- **Identity:** `fmap((sum $a $b), f)` inside `fmap(@(sum $a $b), f)` — same pattern, same params → becomes `Call(self_id)` for runtime Fix/Call recursion
+- **Structural:** `fmap($a, f)` inside `fmap(@(sum $a $b), f)` — sub-term of pattern → deferred, expanded at call site
+- **Non-structural:** `inf((s z))` inside `inf(@z)` — term grows, not structurally smaller → hits depth limit
+</meta_level_recursion>
+
 <anti_patterns>
 ## Recursion Anti-Patterns
 

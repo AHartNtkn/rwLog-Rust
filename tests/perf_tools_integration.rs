@@ -339,7 +339,7 @@ fn recommend_apply_and_trend_and_summary_and_diff_behave_as_expected() {
             },
             "iters":1,
             "phase":"end_to_end",
-            "rows":[{"id":"id1","category":"finite_det","median_us":1.0,"p95_us":2.0,"engine_steps_median":3,"compose_attempts_median":4,"meet_attempts_median":5}]
+            "rows":[{"id":"id1","category":"finite_det","median_us":1.0,"p95_us":2.0,"engine_steps":3,"compose_attempts":4,"meet_attempts":5}]
         }),
     );
 

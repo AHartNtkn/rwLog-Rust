@@ -2,7 +2,7 @@ mod common;
 
 use common::*;
 
-use rwlog::chr::{ChrState, NoTheory};
+use rwlog::chr::ChrState;
 use rwlog::engine::Engine;
 use rwlog::nf::direct_rule_terms;
 use rwlog::parser::{ChrConstraintBuilder, Parser};
@@ -15,7 +15,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-type TestConstraint = ChrState<NoTheory>;
+type TestConstraint = ChrState;
 
 static TEMP_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -56,8 +56,12 @@ fn parse_program_defs(
     parser: &mut Parser<ChrConstraintBuilder>,
     program: &str,
 ) -> Result<HashMap<String, Rel<TestConstraint>>, String> {
-    let mut defs = HashMap::new();
     let statements = split_statements(program)?;
+
+    // Pre-scan: register all macro signatures for forward references.
+    parser.scan_macro_signatures(&statements);
+
+    let mut pending_rels = Vec::new();
     for statement in statements {
         let line = statement.trim();
         if line.is_empty() {
@@ -65,17 +69,25 @@ fn parse_program_defs(
         }
         if line.starts_with("theory ") {
             parser.parse_theory_def(line).map_err(|e| e.to_string())?;
-            defs.clear();
+            pending_rels.clear();
             continue;
         }
         if line.starts_with("rel ") {
-            let (name, rel) = parser.parse_rel_def(line).map_err(|e| e.to_string())?;
-            defs.insert(name, rel);
+            if let Some((name, rel)) = parser.parse_rel_def(line).map_err(|e| e.to_string())? {
+                pending_rels.push((name, rel));
+            }
             continue;
         }
         return Err(format!(
             "Unsupported statement in contract test program: {line}"
         ));
+    }
+
+    // Resolve any pending macro calls now that all definitions are available.
+    let mut defs = HashMap::new();
+    for (name, rel) in pending_rels {
+        let resolved = parser.resolve_pending(rel)?;
+        defs.insert(name, resolved);
     }
     Ok(defs)
 }
@@ -797,7 +809,7 @@ fn repl_theory_definition_clears_existing_relations() {
         .process_input("list")
         .expect("list command")
         .expect("list output");
-    assert_eq!(listed_after, "No relations defined.");
+    assert_eq!(listed_after, "No relations or macros defined.");
 }
 
 #[test]
@@ -915,4 +927,521 @@ fn large_peano_input_can_be_constructed_for_queries() {
     let n = peano_term(8);
     let query = format!("@{} ; id", n);
     assert_query_exact(BASIC_PROGRAM, &query, &[(shape_peano(8), shape_peano(8))]);
+}
+
+// =========================================================================
+// Equality constraints in theories ($x = $y)
+// =========================================================================
+
+#[test]
+fn equality_constraint_in_theory_produces_correct_binding() {
+    // A theory where p(X, Y) uses $X = $Y to unify args.
+    // When both args are the same ground term, the rule fires normally.
+    let program = r#"
+theory eq_theory {
+  constraint p/2
+  constraint q/1
+  (p $x $y) <=> $x = $y, (q $x).
+}
+
+rel r { (pair $a $a) { (p $a $a) } -> $a }
+"#;
+    assert_query_exact(
+        program,
+        "@(pair z z) ; r",
+        &[(
+            shape_app("pair", vec![shape_atom("z"), shape_atom("z")]),
+            shape_atom("z"),
+        )],
+    );
+}
+
+#[test]
+fn equality_constraint_failure_kills_branch() {
+    // When args differ, $x = $y fails and the whole body fails.
+    let program = r#"
+theory eq_theory {
+  constraint p/2
+  (p $x $y) <=> $x = $y.
+}
+
+rel r { (pair $a $b) { (p $a $b) } -> $a }
+"#;
+    // p(a, b) where a != b → body fails → no results.
+    assert_query_exact(program, "@(pair a b) ; r", &[]);
+}
+
+#[test]
+fn equality_constraint_grounds_nf_pattern_via_substitution() {
+    // $b appears only in the RHS — it's fresh/existential.
+    // The guard posts (p $a $b), which fires $a = $b, binding $b to $a's value.
+    // Without the constraint, $b would remain free in the output.
+    // With the constraint, querying @z ; r should produce z -> (pair z z):
+    // $a matches z from input, $b gets bound to z via the equality.
+    let program = r#"
+theory eq_theory {
+  constraint p/2
+  (p $x $y) <=> $x = $y.
+}
+
+rel r { $a { (p $a $b) } -> (pair $a $b) }
+"#;
+    assert_query_exact(
+        program,
+        "@z ; r",
+        &[(
+            shape_atom("z"),
+            shape_app("pair", vec![shape_atom("z"), shape_atom("z")]),
+        )],
+    );
+}
+
+// =========================================================================
+// Parameterized relation macros
+// =========================================================================
+
+#[test]
+fn macro_non_recursive_definition_and_expansion() {
+    // Define a macro that composes a relation with itself
+    let program = r#"
+rel double(r) {
+    r ; r
+}
+
+rel inc {
+    $x -> (s $x)
+}
+"#;
+    // double(inc) should expand to inc ; inc, i.e., increment by 2
+    assert_query_exact(
+        program,
+        "@z ; double(inc)",
+        &[(shape_atom("z"), shape_peano(2))],
+    );
+}
+
+#[test]
+fn macro_non_recursive_with_two_params() {
+    // Macro that sequences two relation-valued params
+    let program = r#"
+rel then(first, second) {
+    first ; second
+}
+
+rel inc {
+    $x -> (s $x)
+}
+
+rel wrap {
+    $x -> (box $x)
+}
+"#;
+    assert_query_exact(
+        program,
+        "@z ; then(inc, wrap)",
+        &[(shape_atom("z"), shape_app("box", vec![shape_peano(1)]))],
+    );
+}
+
+#[test]
+fn macro_non_recursive_with_or() {
+    // Macro that creates a choice between two relations
+    let program = r#"
+rel either(a, b) {
+    a | b
+}
+
+rel toa { $x -> (pA $x) }
+rel tob { $x -> (pB $x) }
+"#;
+    assert_query_exact(
+        program,
+        "@z ; either(toa, tob)",
+        &[
+            (shape_atom("z"), shape_app("pA", vec![shape_atom("z")])),
+            (shape_atom("z"), shape_app("pB", vec![shape_atom("z")])),
+        ],
+    );
+}
+
+#[test]
+fn macro_arity_overloading_e2e() {
+    // foo/0 and foo/1 are completely different
+    let program = r#"
+rel foo {
+    a -> b
+}
+
+rel foo(r) {
+    r ; r
+}
+
+rel inc { $x -> (s $x) }
+"#;
+    // Bare foo uses foo/0 (a -> b)
+    assert_query_exact(program, "foo", &[(shape_atom("a"), shape_atom("b"))]);
+    // foo(inc) uses foo/1 (inc ; inc = add 2)
+    assert_query_exact(
+        program,
+        "@z ; foo(inc)",
+        &[(shape_atom("z"), shape_peano(2))],
+    );
+}
+
+#[test]
+fn macro_cross_call_e2e() {
+    // Macro A calls macro B: compose(f, g) = f ; g, then double(r) = compose(r, r)
+    let program = r#"
+rel compose(f, g) {
+    f ; g
+}
+
+rel double(r) {
+    compose(r, r)
+}
+
+rel inc { $x -> (s $x) }
+"#;
+    assert_query_exact(
+        program,
+        "@z ; double(inc)",
+        &[(shape_atom("z"), shape_peano(2))],
+    );
+}
+
+#[test]
+fn macro_recursive_identity_self_call_e2e() {
+    // Recursive macro: peel strips (s ...) layers and then applies a base relation.
+    // peel(base) = (s $x) -> $x ; peel(base) | base
+    let program = r#"
+rel peel(base) {
+    (s $x) -> $x ; peel(base)
+    | base
+}
+"#;
+    // peel(z -> done) on (s (s z)) should strip two layers and produce done
+    assert_query_exact(
+        program,
+        "@(s (s z)) ; peel(z -> done)",
+        &[(shape_peano(2), shape_atom("done"))],
+    );
+}
+
+#[test]
+fn macro_repl_define_reports_name_and_arity() {
+    let mut repl = Repl::new();
+    let msg = repl
+        .process_input("rel foo(x) { x ; x }")
+        .expect("define macro")
+        .expect("macro output");
+    assert!(
+        msg.contains("Defined macro 'foo/1'"),
+        "Expected macro definition message, got: {}",
+        msg
+    );
+}
+
+#[test]
+fn macro_repl_define_two_params_reports_arity() {
+    let mut repl = Repl::new();
+    let msg = repl
+        .process_input("rel bar(a, b) { a ; b }")
+        .expect("define macro")
+        .expect("macro output");
+    assert!(
+        msg.contains("Defined macro 'bar/2'"),
+        "Expected macro definition message, got: {}",
+        msg
+    );
+}
+
+#[test]
+fn macro_repl_list_shows_macros() {
+    let mut repl = Repl::new();
+    repl.process_input("rel foo(x) { x ; x }")
+        .expect("define macro");
+    repl.process_input("rel f { a -> b }")
+        .expect("define relation");
+    let list = repl
+        .process_input("list")
+        .expect("list command")
+        .expect("list output");
+    assert!(
+        list.contains("foo/1"),
+        "Expected macro in list output, got: {}",
+        list
+    );
+    assert!(
+        list.contains('f'),
+        "Expected relation in list output, got: {}",
+        list
+    );
+}
+
+#[test]
+fn macro_repl_query_non_recursive() {
+    let mut repl = Repl::new();
+    repl.process_input("rel double(r) { r ; r }")
+        .expect("define macro");
+    repl.process_input("rel inc { $x -> (s $x) }")
+        .expect("define relation");
+    let output = repl
+        .process_input("@z ; double(inc)")
+        .expect("run query")
+        .expect("query output");
+    assert!(
+        output.contains("(s (s z))"),
+        "Expected double increment result, got: {}",
+        output
+    );
+}
+
+#[test]
+fn macro_repl_query_recursive() {
+    let mut repl = Repl::new();
+    repl.process_input("rel peel(base) { (s $x) -> $x ; peel(base) | base }")
+        .expect("define macro");
+    let output = repl
+        .process_input("@(s (s z)) ; peel(z -> done)")
+        .expect("run query")
+        .expect("query output");
+    assert!(
+        output.contains("done"),
+        "Expected peeled result 'done', got: {}",
+        output
+    );
+}
+
+#[test]
+fn macro_load_file_counts_macros() {
+    let file = TempFile::new(
+        "macro_load",
+        r#"
+rel double(r) {
+    r ; r
+}
+
+rel inc {
+    $x -> (s $x)
+}
+"#,
+    );
+    let mut repl = Repl::new();
+    let msg = repl
+        .process_input(&format!("load {}", file.path().display()))
+        .expect("load file")
+        .expect("load output");
+    assert!(
+        msg.contains("1 macro"),
+        "Expected macro count in load output, got: {}",
+        msg
+    );
+    assert!(
+        msg.contains("1 relation"),
+        "Expected relation count in load output, got: {}",
+        msg
+    );
+}
+
+#[test]
+fn macro_undefined_call_errors_in_repl() {
+    let mut repl = Repl::new();
+    let err = repl
+        .process_input("@z ; undefined_macro([$x -> $x])")
+        .expect_err("should fail");
+    assert!(
+        err.contains("Parse error"),
+        "Expected parse error for undefined macro, got: {}",
+        err
+    );
+}
+
+#[test]
+fn macro_wrong_arity_errors_in_repl() {
+    let mut repl = Repl::new();
+    repl.process_input("rel foo(x) { x ; x }")
+        .expect("define macro");
+    let err = repl
+        .process_input("@z ; foo([$x -> $x], [$y -> $y])")
+        .expect_err("should fail");
+    assert!(
+        err.contains("Parse error"),
+        "Expected parse error for wrong arity, got: {}",
+        err
+    );
+}
+
+#[test]
+fn macro_complex_arg_expression() {
+    // Macro arguments can be full relation expressions with |, ;, &
+    let program = r#"
+rel apply(r) {
+    r
+}
+"#;
+    // apply(a -> b | a -> c) should give both results
+    assert_query_exact(
+        program,
+        "@a ; apply(a -> b | a -> c)",
+        &[
+            (shape_atom("a"), shape_atom("b")),
+            (shape_atom("a"), shape_atom("c")),
+        ],
+    );
+}
+
+#[test]
+fn macro_param_does_not_leak_into_later_definitions() {
+    // After defining a macro with param x, using 'x' in later code
+    // should not refer to the macro's parameter
+    let program = r#"
+rel foo(x) {
+    x ; x
+}
+
+rel x {
+    a -> b
+}
+"#;
+    // Bare 'x' should be the relation x: a -> b, not the macro param
+    assert_query_exact(program, "x", &[(shape_atom("a"), shape_atom("b"))]);
+}
+
+// =========================================================================
+// Macro forward references
+// =========================================================================
+
+#[test]
+fn macro_forward_reference_in_macro_body() {
+    // double is defined BEFORE compose, but double's body calls compose.
+    let program = r#"
+rel double(r) {
+    compose(r, r)
+}
+
+rel compose(f, g) {
+    f ; g
+}
+
+rel inc { $x -> (s $x) }
+"#;
+    assert_query_exact(
+        program,
+        "@z ; double(inc)",
+        &[(shape_atom("z"), shape_peano(2))],
+    );
+}
+
+#[test]
+fn macro_mutual_forward_references() {
+    // Both macros reference each other's existence, though only one
+    // actually calls the other (mutual calls would require recursion).
+    // Here: apply_twice calls double, double calls compose.
+    // Defined in reverse dependency order.
+    let program = r#"
+rel apply_twice(f) {
+    double(f)
+}
+
+rel double(r) {
+    compose(r, r)
+}
+
+rel compose(f, g) {
+    f ; g
+}
+
+rel inc { $x -> (s $x) }
+"#;
+    assert_query_exact(
+        program,
+        "@z ; apply_twice(inc)",
+        &[(shape_atom("z"), shape_peano(2))],
+    );
+}
+
+#[test]
+fn macro_forward_reference_in_regular_relation() {
+    // A regular relation's body uses a macro defined later in the file.
+    let program = r#"
+rel inc { $x -> (s $x) }
+
+rel add_two {
+    double(inc)
+}
+
+rel double(r) {
+    r ; r
+}
+"#;
+    assert_query_exact(
+        program,
+        "@z ; add_two",
+        &[(shape_atom("z"), shape_peano(2))],
+    );
+}
+
+#[test]
+fn macro_forward_reference_recursive_macro() {
+    // A recursive macro references a non-recursive macro defined later.
+    let program = r#"
+rel peel(base) {
+    (s $x) -> $x ; peel(base)
+    | wrap(base)
+}
+
+rel wrap(r) {
+    r
+}
+"#;
+    assert_query_exact(
+        program,
+        "@(s z) ; peel(z -> done)",
+        &[(shape_peano(1), shape_atom("done"))],
+    );
+}
+
+#[test]
+fn macro_forward_ref_load_file() {
+    let file = TempFile::new(
+        "macro_fwd",
+        r#"
+rel double(r) {
+    compose(r, r)
+}
+
+rel compose(f, g) {
+    f ; g
+}
+
+rel inc {
+    $x -> (s $x)
+}
+"#,
+    );
+    let mut repl = Repl::new();
+    let msg = repl
+        .process_input(&format!("load {}", file.path().display()))
+        .expect("load file")
+        .expect("load output");
+    assert!(
+        msg.contains("1 relation"),
+        "Expected relation count, got: {}",
+        msg
+    );
+    assert!(
+        msg.contains("2 macro"),
+        "Expected macro count, got: {}",
+        msg
+    );
+
+    let output = repl
+        .process_input("@z ; double(inc)")
+        .expect("run query")
+        .expect("query output");
+    assert!(
+        output.contains("(s (s z))"),
+        "Expected double increment result, got: {}",
+        output
+    );
 }

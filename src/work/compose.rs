@@ -1,46 +1,11 @@
 use crate::constraint::ConstraintOps;
 use crate::kernel::compose_nf;
 use crate::node::Node;
-use crate::symbol::FuncId;
-use crate::term::{Term, TermStore};
+use crate::term::TermStore;
 use std::collections::VecDeque;
 
 use super::diagonal::{DiagonalJoin, DiagonalStepResult, JoinOutcome, JoinStrategy};
-use super::{Work, WorkStep};
-
-/// Root functor tag for indexing NFs by their first pattern's root.
-///
-/// - `Functor(f)`: the first pattern is `App(f, ...)` with a specific root functor
-/// - `Wildcard`: the first pattern is variable-headed or patterns are empty (matches anything)
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-enum RootTag {
-    Functor(FuncId),
-    Wildcard,
-}
-
-/// Extract the root functor from the first build pattern of an NF.
-fn build_root_tag<C>(nf: &crate::nf::NF<C>, terms: &mut TermStore) -> RootTag {
-    if let Some(&first_pat) = nf.build_pats.first() {
-        match terms.get_unlocked(first_pat) {
-            Some(Term::App(f, _)) => RootTag::Functor(*f),
-            _ => RootTag::Wildcard,
-        }
-    } else {
-        RootTag::Wildcard
-    }
-}
-
-/// Extract the root functor from the first match pattern of an NF.
-fn match_root_tag<C>(nf: &crate::nf::NF<C>, terms: &mut TermStore) -> RootTag {
-    if let Some(&first_pat) = nf.match_pats.first() {
-        match terms.get_unlocked(first_pat) {
-            Some(Term::App(f, _)) => RootTag::Functor(*f),
-            _ => RootTag::Wildcard,
-        }
-    } else {
-        RootTag::Wildcard
-    }
-}
+use super::{build_root_tag, match_root_tag, tags_compatible, RootTag, Work, WorkStep};
 
 #[derive(Clone, Debug)]
 enum ComposeCursor {
@@ -251,16 +216,6 @@ impl Default for ComposeStrategy {
     }
 }
 
-/// Check if two root tags are compatible for composition.
-///
-/// Compatible means composition *might* succeed (the root functor precheck won't reject it).
-fn tags_compatible(build_tag: RootTag, match_tag: RootTag) -> bool {
-    match (build_tag, match_tag) {
-        (RootTag::Functor(f), RootTag::Functor(g)) => f == g,
-        _ => true, // Wildcard on either side is always compatible
-    }
-}
-
 impl<C: ConstraintOps> JoinStrategy<C> for ComposeStrategy {
     fn pre_step(
         &mut self,
@@ -361,6 +316,70 @@ impl<C: ConstraintOps> ComposeWork<C> {
         Self {
             core: DiagonalJoin::new(left, right, ComposeStrategy::new()),
         }
+    }
+
+    /// Create a new ComposeWork, pre-seeding any immediately available NFs
+    /// from leading Emit nodes on either side. This avoids redundant step_node
+    /// calls for NFs that are already materialized at creation time.
+    pub fn new_preseed(mut left: Node<C>, mut right: Node<C>, terms: &mut TermStore) -> Self {
+        let mut strategy = ComposeStrategy::new();
+        let mut seen_l: Vec<crate::nf::NF<C>> = Vec::new();
+        let mut seen_r: Vec<crate::nf::NF<C>> = Vec::new();
+
+        // Absorb leading Emit chain from left
+        while let Node::Emit(nf, rest) = left {
+            let build_tag = build_root_tag(&nf, terms);
+            strategy.left_build_tags.push(build_tag);
+            seen_l.push(*nf);
+            left = *rest;
+        }
+
+        // Absorb leading Emit chain from right
+        while let Node::Emit(nf, rest) = right {
+            let match_tag = match_root_tag(&nf, terms);
+            strategy.right_match_tags.push(match_tag);
+            seen_r.push(*nf);
+            right = *rest;
+        }
+
+        let left_exhausted = matches!(left, Node::Fail);
+        let right_exhausted = matches!(right, Node::Fail);
+
+        // If one side is exhausted with zero NFs, the join is dead.
+        if (left_exhausted && seen_l.is_empty()) || (right_exhausted && seen_r.is_empty()) {
+            return Self {
+                core: DiagonalJoin::new(Node::Fail, Node::Fail, ComposeStrategy::new()),
+            };
+        }
+
+        // Eagerly compose all pre-seeded pairs and collect into pending.
+        let mut pending: VecDeque<crate::nf::NF<C>> = VecDeque::new();
+        if !seen_l.is_empty() && !seen_r.is_empty() {
+            // For each right NF, enqueue pairs with all compatible left NFs.
+            for (ri, right_nf) in seen_r.iter().enumerate() {
+                let match_tag = strategy.right_match_tags[ri];
+                for (li, left_nf) in seen_l.iter().enumerate() {
+                    let build_tag = strategy.left_build_tags[li];
+                    if !tags_compatible(build_tag, match_tag) {
+                        continue;
+                    }
+                    if let Some(nf) = ComposeStrategy::compose_pair(left_nf, right_nf, terms) {
+                        pending.push_back(nf);
+                    }
+                }
+            }
+        }
+
+        // Determine flip: if left was pre-seeded, pull right next (and vice versa).
+        let flip = !seen_l.is_empty();
+
+        let mut core = DiagonalJoin::new_with_seen(left, right, seen_l, seen_r, strategy);
+        core.flip = flip;
+        // Move eagerly-composed results into the join's pending queue.
+        for nf in pending {
+            core.push_pending(nf);
+        }
+        Self { core }
     }
 
     pub fn step(&mut self, terms: &mut TermStore) -> WorkStep<C> {

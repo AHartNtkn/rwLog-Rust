@@ -9,11 +9,13 @@ use crate::factors::Factors;
 use crate::nf::NF;
 use crate::node::Node;
 use crate::rel::Rel;
-use crate::term::{TermId, TermStore};
+use crate::symbol::FuncId;
+use crate::term::{Term, TermId, TermStore};
 use smallvec::SmallVec;
 use std::sync::Arc;
 
 mod and_group;
+mod bind;
 mod compose;
 mod diagonal;
 mod fix;
@@ -22,6 +24,7 @@ mod meet;
 mod pipe;
 
 pub use and_group::{AndGroup, AndGroupConfig};
+pub use bind::BindWork;
 pub use compose::ComposeWork;
 pub(crate) use diagonal::DiagonalStepResult;
 pub use fix::{
@@ -48,6 +51,8 @@ pub enum Work<C: ConstraintOps> {
     Fix(FixWork<C>),
     /// Symmetric compose join for sequential composition.
     Compose(ComposeWork<C>),
+    /// Monadic bind: feeds each source NF as boundary into a pipe template.
+    Bind(BindWork<C>),
     /// Receiver for joiner outputs (drives AndGroup producers).
     JoinReceiver(JoinReceiverWork<C>),
     /// Single atomic NF (emits once, then done).
@@ -75,7 +80,10 @@ pub enum CallMode<C: ConstraintOps> {
     /// Normal call handling (tabling + producer).
     Normal,
     /// Replay-only for a specific CallKey (used during producer iterations).
-    ReplayOnly(Arc<CallKey<C>>),
+    /// The usize is the replay watermark: only answers at index >= watermark
+    /// are replayed. This implements semi-naive evaluation by only composing
+    /// new (delta) answers in subsequent fixpoint iterations.
+    ReplayOnly(Arc<CallKey<C>>, usize),
 }
 
 fn collect_and_parts<C: ConstraintOps>(rel: Arc<Rel<C>>, out: &mut Vec<Arc<Rel<C>>>) {
@@ -171,35 +179,52 @@ pub fn rel_to_node<C: ConstraintOps>(rel: &Rel<C>, env: &Env<C>, tables: &Tables
     }
 }
 
-fn node_from_answers<C: ConstraintOps>(answers: Vec<Arc<NF<C>>>) -> Node<C> {
+fn node_from_answers<C: ConstraintOps>(answers: Vec<NF<C>>) -> Node<C> {
     let mut node = Node::Fail;
-    for arc_nf in answers.into_iter().rev() {
-        node = Node::Emit(Box::new(Arc::unwrap_or_clone(arc_nf)), Box::new(node));
+    for nf in answers.into_iter().rev() {
+        node = Node::Emit(Box::new(nf), Box::new(node));
     }
     node
 }
 
-fn wrap_compose_with_prefix_suffix<C: ConstraintOps>(
-    core: ComposeWork<C>,
+fn wrap_node_with_prefix_suffix<C: ConstraintOps>(
+    mut node: Node<C>,
     prefix: Option<NF<C>>,
     suffix: Option<NF<C>>,
+    terms: &mut TermStore,
 ) -> WorkStep<C> {
-    let mut node = Node::Work(Box::new(Work::Compose(core)));
-
     if let Some(prefix_nf) = prefix {
         let prefix_node = Node::Emit(Box::new(prefix_nf), Box::new(Node::Fail));
-        node = Node::Work(Box::new(Work::Compose(ComposeWork::new(prefix_node, node))));
+        node = Node::Work(Box::new(Work::Compose(ComposeWork::new_preseed(
+            prefix_node,
+            node,
+            terms,
+        ))));
     }
 
     if let Some(suffix_nf) = suffix {
         let suffix_node = Node::Emit(Box::new(suffix_nf), Box::new(Node::Fail));
-        node = Node::Work(Box::new(Work::Compose(ComposeWork::new(node, suffix_node))));
+        node = Node::Work(Box::new(Work::Compose(ComposeWork::new_preseed(
+            node,
+            suffix_node,
+            terms,
+        ))));
     }
 
     match node {
         Node::Work(work) => WorkStep::More(work),
         _ => WorkStep::Done,
     }
+}
+
+fn wrap_compose_with_prefix_suffix<C: ConstraintOps>(
+    core: ComposeWork<C>,
+    prefix: Option<NF<C>>,
+    suffix: Option<NF<C>>,
+    terms: &mut TermStore,
+) -> WorkStep<C> {
+    let node = Node::Work(Box::new(Work::Compose(core)));
+    wrap_node_with_prefix_suffix(node, prefix, suffix, terms)
 }
 
 fn build_var_list(arity: u32, terms: &mut TermStore) -> SmallVec<[TermId; 1]> {
@@ -253,4 +278,111 @@ fn nf_domain_filter<C: ConstraintOps>(nf: &NF<C>) -> NF<C> {
         DropFresh::identity_with_constraint(in_arity, nf.drop_fresh.constraint.clone()),
         nf.match_pats.clone(),
     )
+}
+
+fn nf_range_filter<C: ConstraintOps>(nf: &NF<C>) -> NF<C> {
+    let out_arity = nf.drop_fresh.out_arity;
+    NF::new(
+        nf.build_pats.clone(),
+        DropFresh::identity_with_constraint(out_arity, nf.drop_fresh.constraint.clone()),
+        nf.build_pats.clone(),
+    )
+}
+
+/// Root functor tag for indexing NFs by their first pattern's root.
+///
+/// - `Functor(f)`: the first pattern is `App(f, ...)` with a specific root functor
+/// - `Wildcard`: the first pattern is variable-headed or patterns are empty (matches anything)
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(crate) enum RootTag {
+    Functor(FuncId),
+    Wildcard,
+}
+
+/// Extract the root functor tag from a TermId.
+/// Returns `Functor(f)` for `App(f, ...)` or inline nullary functors,
+/// `Wildcard` for variables or empty.
+#[inline]
+fn term_root_tag(term_id: TermId, terms: &mut TermStore) -> RootTag {
+    if term_id.is_inline_var() {
+        return RootTag::Wildcard;
+    }
+    if term_id.is_inline_nullary() {
+        let raw = term_id.inline_nullary_func_raw();
+        return match TermStore::func_id_from_raw(raw) {
+            Some(f) => RootTag::Functor(f),
+            None => RootTag::Wildcard,
+        };
+    }
+    match terms.get_unlocked(term_id) {
+        Some(Term::App(f, _)) => RootTag::Functor(*f),
+        _ => RootTag::Wildcard,
+    }
+}
+
+/// Extract the root functor tag of the first build pattern of an NF.
+#[inline]
+pub(crate) fn build_root_tag<C>(nf: &NF<C>, terms: &mut TermStore) -> RootTag {
+    nf.build_pats
+        .first()
+        .map(|&pat| term_root_tag(pat, terms))
+        .unwrap_or(RootTag::Wildcard)
+}
+
+/// Extract the root functor tag of the first match pattern of an NF.
+#[inline]
+pub(crate) fn match_root_tag<C>(nf: &NF<C>, terms: &mut TermStore) -> RootTag {
+    nf.match_pats
+        .first()
+        .map(|&pat| term_root_tag(pat, terms))
+        .unwrap_or(RootTag::Wildcard)
+}
+
+/// Check if two root tags are compatible for composition.
+///
+/// Compatible means composition *might* succeed (the root functor precheck won't reject it).
+pub(crate) fn tags_compatible(build_tag: RootTag, match_tag: RootTag) -> bool {
+    match (build_tag, match_tag) {
+        (RootTag::Functor(f), RootTag::Functor(g)) => f == g,
+        _ => true, // Wildcard on either side is always compatible
+    }
+}
+
+/// Extract the root functor tag of child[0] of a term (depth-2 tag).
+///
+/// For `App(f, [child0, ...])`, returns `term_root_tag(child0)`.
+/// For inline nullary (no children), variables, or empty, returns `Wildcard`.
+#[inline]
+fn term_child0_tag(term_id: TermId, terms: &mut TermStore) -> RootTag {
+    if term_id.is_inline() {
+        return RootTag::Wildcard; // Inline var or nullary: no children
+    }
+    match terms.get_unlocked(term_id) {
+        Some(Term::App(_, children)) => {
+            if let Some(&child0) = children.first() {
+                term_root_tag(child0, terms)
+            } else {
+                RootTag::Wildcard
+            }
+        }
+        _ => RootTag::Wildcard,
+    }
+}
+
+/// Extract the depth-2 (child[0]) functor tag of the first build pattern of an NF.
+#[inline]
+pub(crate) fn build_child0_tag<C>(nf: &NF<C>, terms: &mut TermStore) -> RootTag {
+    nf.build_pats
+        .first()
+        .map(|&pat| term_child0_tag(pat, terms))
+        .unwrap_or(RootTag::Wildcard)
+}
+
+/// Extract the depth-2 (child[0]) functor tag of the first match pattern of an NF.
+#[inline]
+pub(crate) fn match_child0_tag<C>(nf: &NF<C>, terms: &mut TermStore) -> RootTag {
+    nf.match_pats
+        .first()
+        .map(|&pat| term_child0_tag(pat, terms))
+        .unwrap_or(RootTag::Wildcard)
 }

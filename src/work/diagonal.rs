@@ -118,6 +118,37 @@ impl<C: ConstraintOps, S: JoinStrategy<C> + Default> DiagonalJoin<C, S> {
         }
     }
 
+    /// Create a DiagonalJoin with pre-seeded seen NFs.
+    /// Used by ComposeWork::new_preseed to skip redundant step_node calls.
+    pub(crate) fn new_with_seen(
+        left: Node<C>,
+        right: Node<C>,
+        seen_l: Vec<NF<C>>,
+        seen_r: Vec<NF<C>>,
+        strategy: S,
+    ) -> Self {
+        let mut seen_l_set = U64HashSet::default();
+        for nf in &seen_l {
+            seen_l_set.insert(nf.hash_value());
+        }
+        let mut seen_r_set = U64HashSet::default();
+        for nf in &seen_r {
+            seen_r_set.insert(nf.hash_value());
+        }
+        Self {
+            left: Box::new(left),
+            right: Box::new(right),
+            seen_l,
+            seen_r,
+            seen_l_set,
+            seen_r_set,
+            pending: VecDeque::new(),
+            pending_set: U64HashSet::default(),
+            flip: false,
+            strategy,
+        }
+    }
+
     fn take_self(&mut self) -> Self {
         std::mem::replace(
             self,

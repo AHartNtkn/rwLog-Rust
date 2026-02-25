@@ -1,14 +1,14 @@
 use crate::constraint::ConstraintOps;
-use crate::nf::{collect_tensor, factor_tensor, NF};
+use crate::nf::{collect_tensor, factor_tensor_with_subst, SubstParams, NF};
 use crate::perf_counters;
-use crate::term::TermStore;
+use crate::term::{Term, TermId, TermStore};
 #[cfg(feature = "tracing")]
 use crate::trace::{debug_span, trace};
 use std::hash::{Hash, Hasher};
 
 use super::util::{
-    apply_subst_list, apply_subst_shifted_list, match_term_lists, match_term_lists_shifted,
-    max_var_index_terms, pre_create_shifted_vars, remap_constraint_vars,
+    build_remap_map, match_rhs_lists_with_pre_subst, match_term_lists_shifted_combined,
+    max_var_index_terms, pre_create_shifted_vars,
 };
 
 /// Compute the meet (intersection) of two NFs.
@@ -30,6 +30,45 @@ pub fn meet_nf<C: ConstraintOps>(a: &NF<C>, b: &NF<C>, terms: &mut TermStore) ->
     result
 }
 
+/// Check if two term IDs have provably different root functors, meaning
+/// their matching/meet must fail. Handles both inline nullary constants
+/// (compare TermIds directly) and non-inline App nodes (compare root functors).
+/// Returns false for variables or other inline types (cannot rule out match).
+#[inline]
+fn meet_root_functor_mismatch(a_id: TermId, b_id: TermId, terms: &mut TermStore) -> bool {
+    // Inline nullary constants: different TermIds = different ground terms.
+    if a_id.is_inline_nullary() && b_id.is_inline_nullary() {
+        return a_id != b_id;
+    }
+    // Non-inline App nodes: compare root functors.
+    if !a_id.is_inline() && !b_id.is_inline() {
+        let a_root = match terms.get_unlocked(a_id) {
+            Some(Term::App(f, _)) => Some(*f),
+            _ => None,
+        };
+        let b_root = match terms.get_unlocked(b_id) {
+            Some(Term::App(f, _)) => Some(*f),
+            _ => None,
+        };
+        if let (Some(af), Some(bf)) = (a_root, b_root) {
+            return af != bf;
+        }
+    }
+    // One inline nullary + one non-inline App: they have different structure.
+    // An inline nullary is always a 0-ary App, while non-inline App has arity >= 1.
+    // These can never match.
+    if (a_id.is_inline_nullary() && !b_id.is_inline())
+        || (!a_id.is_inline() && b_id.is_inline_nullary())
+    {
+        // Check: non-inline side is actually an App (not a variable ref).
+        let non_inline = if a_id.is_inline_nullary() { b_id } else { a_id };
+        if let Some(Term::App(_, _)) = terms.get_unlocked(non_inline) {
+            return true; // 0-ary vs >=1-ary: definitely different
+        }
+    }
+    false
+}
+
 fn meet_nf_impl<C: ConstraintOps>(a: &NF<C>, b: &NF<C>, terms: &mut TermStore) -> Option<NF<C>> {
     #[cfg(feature = "tracing")]
     let _span = debug_span!(
@@ -44,6 +83,25 @@ fn meet_nf_impl<C: ConstraintOps>(a: &NF<C>, b: &NF<C>, terms: &mut TermStore) -
     if a.match_pats.len() != b.match_pats.len() || a.build_pats.len() != b.build_pats.len() {
         #[cfg(feature = "tracing")]
         trace!("meet_arity_mismatch");
+        return None;
+    }
+
+    // Root functor precheck: if the first match or build pattern of both NFs
+    // have incompatible root structure, the meet must fail. This avoids the
+    // cost of collect_tensor, pre_create_shifted_vars, and matching for
+    // incompatible pairs.
+    //
+    // For inline nullary terms (ground constants), different TermIds mean
+    // different terms — matching will fail. For non-inline App terms, compare
+    // root functors. Variables and other inline types skip the precheck.
+    if !a.match_pats.is_empty()
+        && meet_root_functor_mismatch(a.match_pats[0], b.match_pats[0], terms)
+    {
+        return None;
+    }
+    if !a.build_pats.is_empty()
+        && meet_root_functor_mismatch(a.build_pats[0], b.build_pats[0], terms)
+    {
         return None;
     }
 
@@ -71,45 +129,52 @@ fn meet_nf_impl<C: ConstraintOps>(a: &NF<C>, b: &NF<C>, terms: &mut TermStore) -
     // Pre-create shifted variable TermIds for virtual shifting.
     let shifted_vars = pre_create_shifted_vars(b_max_var, b_var_offset, terms);
 
-    let (lhs_left, lhs_right) =
-        match match_term_lists_shifted(&rw1.lhs, &rw2.lhs, b_var_offset, &shifted_vars, terms) {
-            Some(result) => result,
-            None => {
-                #[cfg(feature = "tracing")]
-                trace!("meet_match_failed");
-                return None;
-            }
-        };
+    // LHS matching: return raw combined substitution (skip split_match_subst).
+    // Left-side vars at indices < b_var_offset, right-side at >= b_var_offset.
+    let lhs_combined = match match_term_lists_shifted_combined(
+        &rw1.lhs,
+        &rw2.lhs,
+        b_var_offset,
+        &shifted_vars,
+        terms,
+    ) {
+        Some(subst) => subst,
+        None => {
+            #[cfg(feature = "tracing")]
+            trace!("meet_match_failed");
+            return None;
+        }
+    };
 
-    let lhs_left_applied = apply_subst_list(&rw1.lhs, &lhs_left, terms);
-    let rhs_left_applied = apply_subst_list(&rw1.rhs, &lhs_left, terms);
-    let rhs_right_applied =
-        apply_subst_shifted_list(&rw2.rhs, &lhs_right, b_var_offset, &shifted_vars, terms);
+    // Fused RHS matching: apply lhs_combined to each RHS pair on the fly and match,
+    // avoiding bulk intermediate term creation from apply_subst_list/apply_subst_shifted_list.
+    // Returns the fully composed substitution (lhs_combined + rhs_match) directly.
+    let meet_subst = match match_rhs_lists_with_pre_subst(
+        &rw1.rhs,
+        &rw2.rhs,
+        &lhs_combined,
+        b_var_offset,
+        &shifted_vars,
+        terms,
+    ) {
+        Some(subst) => subst,
+        None => {
+            #[cfg(feature = "tracing")]
+            trace!("meet_build_failed");
+            return None;
+        }
+    };
 
-    let (rhs_left, rhs_right) =
-        match match_term_lists(&rhs_left_applied, &rhs_right_applied, b_var_offset, terms) {
-            Some(result) => result,
-            None => {
-                #[cfg(feature = "tracing")]
-                trace!("meet_build_failed");
-                return None;
-            }
-        };
-
-    let mut final_lhs = apply_subst_list(&lhs_left_applied, &rhs_left, terms);
-    let mut final_rhs = apply_subst_list(&rhs_left_applied, &rhs_left, terms);
-    final_lhs = apply_subst_list(&final_lhs, &rhs_right, terms);
-    final_rhs = apply_subst_list(&final_rhs, &rhs_right, terms);
-
+    // Apply the composed substitution to constraints in one pass each.
+    let a_constraint = a.drop_fresh.constraint.apply_subst(&meet_subst, terms);
     let b_constraint =
-        remap_constraint_vars(&b.drop_fresh.constraint, b_max_var, b_var_offset, terms);
-
-    let a_constraint = a.drop_fresh.constraint.apply_subst(&lhs_left, terms);
-    let a_constraint = a_constraint.apply_subst(&rhs_left, terms);
-    let a_constraint = a_constraint.apply_subst(&rhs_right, terms);
-    let b_constraint = b_constraint.apply_subst(&lhs_right, terms);
-    let b_constraint = b_constraint.apply_subst(&rhs_right, terms);
-    let b_constraint = b_constraint.apply_subst(&rhs_left, terms);
+        match build_remap_map(&b.drop_fresh.constraint, b_max_var, b_var_offset, terms) {
+            Some(map) => b
+                .drop_fresh
+                .constraint
+                .remap_and_apply_subst(&map, &meet_subst, terms),
+            None => b.drop_fresh.constraint.apply_subst(&meet_subst, terms),
+        };
 
     let combined = match a_constraint.combine_owned(b_constraint) {
         Some(c) => c,
@@ -128,14 +193,23 @@ fn meet_nf_impl<C: ConstraintOps>(a: &NF<C>, b: &NF<C>, terms: &mut TermStore) -
             return None;
         }
     };
-    if let Some(subst) = subst_opt {
-        final_lhs = apply_subst_list(&final_lhs, &subst, terms);
-        final_rhs = apply_subst_list(&final_rhs, &subst, terms);
-    }
+
+    // Use fused factor_tensor_with_subst: pass original rw1.lhs and rw1.rhs
+    // with the composed substitution, avoiding intermediate term creation.
+    // rw1.lhs has left-side vars only (no shifting needed).
+    // rw1.rhs has left-side vars only (no shifting needed).
+    let params = SubstParams {
+        subst: &meet_subst,
+        subst2: subst_opt.as_ref(),
+        shifted: false,
+        shifted_vars: &[],
+    };
 
     #[cfg(feature = "tracing")]
     trace!("meet_success");
-    Some(factor_tensor(final_lhs, final_rhs, normalized, terms))
+    Some(factor_tensor_with_subst(
+        &rw1.lhs, &params, &rw1.rhs, &params, normalized, terms,
+    ))
 }
 
 #[cfg(test)]

@@ -103,24 +103,29 @@ With no constraint, generates all input/output pairs (may be infinite).
 <dual_operation>
 ## The Dual Operation
 
-`dual(R)` swaps inputs and outputs:
+The **dual** (or converse) of a relation swaps inputs and outputs:
 ```
 dual(R) inp out  <=>  R out inp
 ```
 
-<dual_of_primitives>
-**Dual of primitives:**
+<dual_laws>
+**Algebraic laws:**
 - `dual(lhs -> rhs)` = `rhs -> lhs`
 - `dual(@term)` = `@term`
 - `dual(fail)` = `fail`
-</dual_of_primitives>
-
-<dual_of_operators>
-**Dual of operators:**
 - `dual(R ; S)` = `dual(S) ; dual(R)` (reverse order!)
 - `dual(R | S)` = `dual(R) | dual(S)`
 - `dual(R & S)` = `dual(R) & dual(S)`
-</dual_of_operators>
+</dual_laws>
+
+<dual_not_syntax>
+**Important:** `dual()` is a semantic concept, not language syntax. There is no `dual` keyword you can write in rwlog. To use a dual relation, either:
+
+1. **Hand-calculate** using the algebraic laws above and write the result as a new relation
+2. **Construct compositionally** using the wrap-intersect-project pattern (see `core-patterns.md`)
+
+The dual function exists as an internal API used in tests, but is not exposed in the language surface.
+</dual_not_syntax>
 
 <dual_example>
 **Example:**

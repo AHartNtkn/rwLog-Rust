@@ -18,17 +18,6 @@ pub fn max_var_index_terms(pats: &[TermId], terms: &TermStore) -> Option<u32> {
         .max()
 }
 
-/// Apply a substitution to a list of patterns.
-pub fn apply_subst_list(
-    pats: &[TermId],
-    subst: &Subst,
-    terms: &mut TermStore,
-) -> SmallVec<[TermId; 1]> {
-    pats.iter()
-        .map(|&term| apply_subst(term, subst, terms))
-        .collect()
-}
-
 /// Pre-create shifted variable TermIds for virtual shifting.
 ///
 /// Returns `shifted_vars[j] = terms.var(j + offset)` for `j` in `0..=max_var`.
@@ -47,45 +36,23 @@ pub fn pre_create_shifted_vars(
     }
 }
 
-/// Apply a substitution to a list of patterns, virtually shifting variables.
-pub fn apply_subst_shifted_list(
-    pats: &[TermId],
-    subst: &Subst,
-    var_offset: u32,
-    shifted_vars: &[TermId],
-    terms: &mut TermStore,
-) -> SmallVec<[TermId; 1]> {
-    pats.iter()
-        .map(|&term| apply_subst_shifted(term, subst, var_offset, shifted_vars, terms))
-        .collect()
-}
-
-/// Match two lists of terms element-wise in disjoint namespaces.
+/// Match two lists of terms element-wise with virtual shifting on the right side,
+/// returning the raw combined substitution instead of splitting.
 ///
-/// Returns a pair of substitutions (left, right) when all pairs match,
-/// or None if any pair fails to match.
-pub fn match_term_lists(
-    left: &[TermId],
-    right: &[TermId],
-    right_offset: u32,
-    terms: &mut TermStore,
-) -> Option<(Subst, Subst)> {
-    match_term_lists_shifted(left, right, right_offset, &[], terms)
-}
-
-/// Match two lists of terms element-wise with virtual shifting on the right side.
+/// This is the same as `match_term_lists_shifted` but returns the raw combined
+/// `Subst` instead of splitting into (left, right) halves via `split_match_subst`.
+/// Variables `< right_offset` are left-side bindings; variables `>= right_offset`
+/// are right-side bindings.
 ///
-/// The right terms are unshifted; variables are virtually offset by `right_offset`
-/// during substitution application. This avoids physically creating shifted terms.
-///
-/// When `shifted_vars` is empty, behaves identically to standard element-wise matching.
-pub fn match_term_lists_shifted(
+/// Used in meet_nf to defer splitting until factor_tensor_with_subst can resolve
+/// bindings lazily.
+pub fn match_term_lists_shifted_combined(
     left: &[TermId],
     right: &[TermId],
     right_offset: u32,
     shifted_vars: &[TermId],
     terms: &mut TermStore,
-) -> Option<(Subst, Subst)> {
+) -> Option<Subst> {
     if left.len() != right.len() {
         return None;
     }
@@ -93,10 +60,6 @@ pub fn match_term_lists_shifted(
     let mut subst = Subst::new();
     for (&l, &r) in left.iter().zip(right.iter()) {
         if subst.is_empty() && !shifted_vars.is_empty() {
-            // Fast path: subst is empty, so apply_subst(l, &empty) == l.
-            // Instead of walking the right tree to shift variables via
-            // apply_subst_shifted, use offset-aware matching that handles
-            // the variable offset internally during traversal.
             let match_subst = match_terms_combined_shifted(l, r, shifted_vars, terms)?;
             subst = match_subst;
         } else {
@@ -106,11 +69,52 @@ pub fn match_term_lists_shifted(
             subst = compose_subst(&subst, &match_subst, terms);
         }
     }
-    Some(crate::matching::split_match_subst(
-        &subst,
-        right_offset,
-        terms,
-    ))
+    Some(subst)
+}
+
+/// Match two lists of ORIGINAL (not yet substituted) terms element-wise,
+/// applying a pre-existing substitution (`pre_subst`) to each pair before matching.
+///
+/// This fuses the `apply_subst_list` + `apply_subst_shifted_list` + `match_term_lists_combined`
+/// pipeline into a single pass, avoiding bulk intermediate term creation.
+///
+/// The left terms have `pre_subst` applied directly. The right terms have `pre_subst`
+/// applied with virtual shifting. The resulting match subst is composed with `pre_subst`
+/// to produce a single combined substitution.
+///
+/// Returns `Some(combined_subst)` where `combined_subst = compose(pre_subst, rhs_match_subst)`,
+/// or `None` if matching fails.
+pub fn match_rhs_lists_with_pre_subst(
+    left: &[TermId],
+    right: &[TermId],
+    pre_subst: &Subst,
+    right_offset: u32,
+    shifted_vars: &[TermId],
+    terms: &mut TermStore,
+) -> Option<Subst> {
+    if left.len() != right.len() {
+        return None;
+    }
+
+    let mut rhs_subst = Subst::new();
+    for (&l, &r) in left.iter().zip(right.iter()) {
+        // Apply pre_subst to both sides, then apply incremental rhs_subst on top.
+        let l_pre = apply_subst(l, pre_subst, terms);
+        let r_pre = apply_subst_shifted(r, pre_subst, right_offset, shifted_vars, terms);
+
+        if rhs_subst.is_empty() {
+            let match_subst = match_terms_combined(l_pre, r_pre, terms)?;
+            rhs_subst = match_subst;
+        } else {
+            let l_sub = apply_subst(l_pre, &rhs_subst, terms);
+            let r_sub = apply_subst(r_pre, &rhs_subst, terms);
+            let match_subst = match_terms_combined(l_sub, r_sub, terms)?;
+            rhs_subst = compose_subst(&rhs_subst, &match_subst, terms);
+        }
+    }
+
+    // Compose pre_subst with the rhs match result to get the full combined subst.
+    Some(compose_subst(pre_subst, &rhs_subst, terms))
 }
 
 /// Match two lists of terms element-wise with left-side variable renaming
@@ -140,6 +144,10 @@ pub fn match_term_lists_shifted_with_left_renaming_combined(
         return None;
     }
 
+    // Pre-compute the Option-wrapped renaming map once, outside the loop.
+    // This avoids a heap allocation on every iteration of the fallback path.
+    let rhs_map_opt: Vec<Option<u32>> = left_rhs_map.iter().map(|&v| Some(v)).collect();
+
     let mut subst = Subst::new();
     for (idx, (&l, &r)) in left.iter().zip(right.iter()).enumerate() {
         if subst.is_empty() && idx == 0 {
@@ -152,7 +160,6 @@ pub fn match_term_lists_shifted_with_left_renaming_combined(
             )?;
             subst = match_subst;
         } else {
-            let rhs_map_opt: Vec<Option<u32>> = left_rhs_map.iter().map(|&v| Some(v)).collect();
             let l_renamed = crate::nf::apply_var_renaming(l, &rhs_map_opt, terms);
             let l_sub = apply_subst(l_renamed, &subst, terms);
             let r_sub = apply_subst_shifted(r, &subst, right_offset, shifted_vars, terms);
@@ -196,38 +203,8 @@ pub fn build_remap_map<C: crate::constraint::ConstraintOps>(
     constraint_vars.sort_unstable();
     constraint_vars.dedup();
     let max_constraint = constraint_vars.last().copied();
-    let max_all = match (max_var, max_constraint) {
-        (Some(a), Some(b)) => Some(a.max(b)),
-        (Some(a), None) => Some(a),
-        (None, Some(b)) => Some(b),
-        (None, None) => None,
-    };
-    match max_all {
-        Some(max) => {
-            let mut map = vec![None; max as usize + 1];
-            for i in 0..=max {
-                map[i as usize] = Some(i + offset);
-            }
-            Some(map)
-        }
-        None => None,
-    }
-}
-
-/// Remap constraint variables by the given offset.
-///
-/// Returns the remapped constraint if offset is non-zero and there are variables,
-/// otherwise returns a clone of the original.
-pub fn remap_constraint_vars<C: crate::constraint::ConstraintOps>(
-    constraint: &C,
-    max_var: Option<u32>,
-    offset: u32,
-    terms: &mut TermStore,
-) -> C {
-    match build_remap_map(constraint, max_var, offset, terms) {
-        Some(map) => constraint.remap_vars(&map, terms),
-        None => constraint.clone(),
-    }
+    let max_all = max_var.max(max_constraint);
+    max_all.map(|max| (0..=max).map(|i| Some(i + offset)).collect())
 }
 
 #[cfg(test)]
@@ -236,7 +213,7 @@ mod tests {
     use crate::parser::Parser;
 
     #[test]
-    fn match_term_lists_shifted_keeps_equality_for_app_rule_shape() {
+    fn match_term_lists_shifted_combined_keeps_equality_for_app_rule_shape() {
         let mut parser = Parser::new();
         let left = parser
             .parse_term("(f $x (c z))")
@@ -254,9 +231,13 @@ mod tests {
             .unwrap_or(0);
         let shifted_vars = pre_create_shifted_vars(right_max_var, offset, &terms);
 
-        let (left_sub, right_sub) =
-            match_term_lists_shifted(&[left], &[right], offset, &shifted_vars, &mut terms)
+        let combined =
+            match_term_lists_shifted_combined(&[left], &[right], offset, &shifted_vars, &mut terms)
                 .expect("expected match");
+
+        // Split combined subst to verify correctness.
+        let (left_sub, right_sub) =
+            crate::matching::split_match_subst(&combined, offset, &mut terms);
 
         let left_applied = apply_subst(left, &left_sub, &mut terms);
         let right_applied =

@@ -154,7 +154,7 @@ pub fn query_first<C: ConstraintOps>(rel: Rel<C>, terms: TermStore) -> Option<NF
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::chr::{ChrState, NoTheory};
+    use crate::chr::ChrState;
     use crate::drop_fresh::DropFresh;
     use crate::kernel::dual_nf;
     use crate::nf::{direct_rule_terms, NF};
@@ -176,7 +176,7 @@ mod tests {
         mut handle_theory: impl FnMut(&mut Parser<B>, &str),
     ) -> (Rel<B::Constraint>, Env<B::Constraint>) {
         let statements = split_statements(def).expect("split rel def");
-        let mut rel_def = None;
+        let mut all_rels = Vec::new();
         for statement in statements {
             let line = statement.trim();
             if line.starts_with("theory ") {
@@ -184,14 +184,18 @@ mod tests {
                 continue;
             }
             if line.starts_with("rel ") {
-                rel_def = Some(parser.parse_rel_def(line).expect("parse rel def").1);
+                if let Some((_, rel)) = parser.parse_rel_def(line).expect("parse rel def") {
+                    all_rels.push(rel);
+                }
             }
         }
-        let rel_def = rel_def.expect("expected relation definition");
-        let env = match &rel_def {
-            Rel::Fix(id, body) => Env::new().bind(*id, body.clone()),
-            _ => Env::new(),
-        };
+        let rel_def = all_rels.last().expect("expected relation definition").clone();
+        let mut env = Env::new();
+        for rel in &all_rels {
+            if let Rel::Fix(id, body) = rel {
+                env = env.bind(*id, body.clone());
+            }
+        }
         (rel_def, env)
     }
 
@@ -202,7 +206,7 @@ mod tests {
     fn parse_rel_def_with_env_chr(
         parser: &mut Parser<ChrConstraintBuilder>,
         def: &str,
-    ) -> (Rel<ChrState<NoTheory>>, Env<ChrState<NoTheory>>) {
+    ) -> (Rel<ChrState>, Env<ChrState>) {
         parse_rel_def_with_env_common(parser, def, |parser, line| {
             parser.parse_theory_def(line).expect("parse theory");
         })
@@ -1626,7 +1630,10 @@ rel add {
 }
 "#;
 
-        let (_, rel_def) = parser.parse_rel_def(def).expect("parse add");
+        let (_, rel_def) = parser
+            .parse_rel_def(def)
+            .expect("parse add")
+            .expect("not a macro");
         let env = match &rel_def {
             Rel::Fix(id, body) => Env::new().bind(*id, body.clone()),
             _ => Env::new(),
@@ -1873,8 +1880,7 @@ rel add {
         );
         let query = parser.parse_rel_body(query_str).expect("parse query");
         let terms = parser.take_terms();
-        let mut engine: Engine<ChrState<NoTheory>> =
-            Engine::new_with_env(query, terms, env.clone());
+        let mut engine: Engine<ChrState> = Engine::new_with_env(query, terms, env.clone());
         let max_steps = 20_000_000;
         let first = run_until_emit(&mut engine, max_steps);
         assert!(
@@ -1901,7 +1907,7 @@ rel add {
         );
         let query2 = parser.parse_rel_body(&query2_str).expect("parse query 2");
         let terms = parser.take_terms();
-        let mut engine2: Engine<ChrState<NoTheory>> = Engine::new_with_env(query2, terms, env);
+        let mut engine2: Engine<ChrState> = Engine::new_with_env(query2, terms, env);
         let second = run_until_emit(&mut engine2, max_steps);
         assert!(
             second.is_some(),
@@ -1963,7 +1969,7 @@ rel add {
         );
         let query = parser.parse_rel_body(query_str).expect("parse query");
         let terms = parser.take_terms();
-        let mut engine: Engine<ChrState<NoTheory>> = Engine::new_with_env(query, terms, env);
+        let mut engine: Engine<ChrState> = Engine::new_with_env(query, terms, env);
         // Use a minimal step limit. With the old buggy cache hash, the
         // invalid answer appeared almost immediately (~0.21s). With the fix,
         // no answers appear because invalid branches are correctly pruned.
@@ -2023,7 +2029,7 @@ rel add {
             Rel::Fix(id, body) => Env::new().bind(*id, Arc::new(dual(body, &mut terms))),
             _ => env.clone(),
         };
-        let mut dual_engine: Engine<ChrState<NoTheory>> =
+        let mut dual_engine: Engine<ChrState> =
             Engine::new_with_env(dual(&query, &mut terms), terms, dual_env);
         let max_steps = 20_000_000;
         let _dual_first =
@@ -2047,13 +2053,13 @@ rel add {
 
         fn trace_query(
             label: &str,
-            query: &Rel<ChrState<NoTheory>>,
-            env: &Env<ChrState<NoTheory>>,
+            query: &Rel<ChrState>,
+            env: &Env<ChrState>,
             terms: &mut TermStore,
             symbols: &SymbolStore,
             max_steps: usize,
-        ) -> Option<NF<ChrState<NoTheory>>> {
-            let mut engine: Engine<ChrState<NoTheory>> =
+        ) -> Option<NF<ChrState>> {
+            let mut engine: Engine<ChrState> =
                 Engine::new_with_env(query.clone(), std::mem::take(terms), env.clone());
             let mut first = None;
             for step in 0..max_steps {
@@ -2708,7 +2714,7 @@ rel lamEq {
         let query = parser.parse_rel_body(query_str).expect("parse lamEq query");
         let terms = parser.take_terms();
 
-        let mut engine: Engine<ChrState<NoTheory>> = Engine::new_with_env(query, terms, env);
+        let mut engine: Engine<ChrState> = Engine::new_with_env(query, terms, env);
 
         // First answer should be the identity - get it
         let max_steps = 100_000;
@@ -2742,7 +2748,7 @@ rel lamEq {
         let query = parser.parse_rel_body(query_str).expect("parse lamEq query");
         let terms = parser.take_terms();
 
-        let mut engine: Engine<ChrState<NoTheory>> = Engine::new_with_env(query, terms, env);
+        let mut engine: Engine<ChrState> = Engine::new_with_env(query, terms, env);
 
         let max_steps = 100_000;
 
@@ -2792,7 +2798,7 @@ rel lamEq {
         let query = parser.parse_rel_body(query_str).expect("parse lamEq");
         let terms = parser.take_terms();
 
-        let mut engine: Engine<ChrState<NoTheory>> = Engine::new_with_env(query, terms, env);
+        let mut engine: Engine<ChrState> = Engine::new_with_env(query, terms, env);
 
         let max_steps = 100_000;
         let mut answers = Vec::new();
@@ -2837,7 +2843,205 @@ rel lamEq {
         );
     }
 
-    /// Diagnostic: compose plain identity (no constraint) with lamEq
+    // ========================================================================
+    // SIMPLELAM STARVATION BUG TESTS
+    // ========================================================================
+
+    const SIMPLELAM_DEF: &str = r#"
+theory lamvar_constraints {
+    constraint neq/2
+
+    (neq $x $x) <=> fail.
+    (neq $x $y), (neq $x $y) <=> (neq $x $y).
+    (neq $x $y), (neq $y $x) <=> (neq $x $y).
+}
+
+rel fold {
+    (pair $e nil) -> $e
+  | (pair $e (cons $x $xs)) -> (pair (a $e $r) $xs) &
+    [(pair $e (cons $x $xs)) -> (pair $x nil) ; eval ; $r -> (pair (a $e $r) $xs)] ;
+    fold
+}
+
+rel eval {
+    (pair (a $x $y) $spine) -> (pair $x (cons $y $spine)) ; eval
+  | (pair (var $x) $spine) -> (pair (var $x) $spine) ; fold
+  | (pair (lam $x $y) nil) -> (lam $x $r) &
+    [(pair (lam $x $y) nil) -> (pair $y nil) ; eval ; $r -> (lam $x $r)]
+  | (pair (lam $x (var $x)) (cons $z $spine)) -> (pair $z $spine) ; eval
+  | (pair (lam $x (var $y)) (cons $z $spine)) {(neq $x $y)} -> (pair (var $y) $spine) ; eval
+  | (pair (lam $x (lam $x $z)) (cons $w $spine)) -> (pair (lam $x $z) $spine) ; eval
+  | (pair (lam $x (lam $y $z)) (cons $w $spine)) {(neq $x $y)} -> (pair (lam $y $r) $spine) &
+    [(pair (lam $x (lam $y $z)) (cons $w $spine)) -> (pair (a (lam $x $z) $w) nil) ; eval ; $r -> (pair (lam $y $r) $spine)]
+    ; eval
+  | (pair (lam $x (a $y $z)) (cons $w $spine)) -> (pair (lam $x $y) (cons $w (cons (a (lam $x $z) $w) $spine))) ; eval
+}
+
+rel k {
+    $a {(neq $x $y)} -> (lam $x (lam $y (var $x)))
+}
+
+rel s {
+    $a {(neq $f $x), (neq $f $g), (neq $g $x)} -> (lam $f (lam $g (lam $x (a (a (var $f) (var $x)) (a (var $g) (var $x))))))
+}
+"#;
+
+    /// Inlining the matching eval branch works — recursive eval calls inside are fine.
+    #[test]
+    fn simplelam_k_eval_inlined_branch_works() {
+        let mut parser = Parser::with_chr();
+        let (_rel, env) = parse_rel_def_with_env_chr(&mut parser, SIMPLELAM_DEF);
+
+        // Inline only the matching branch (case 3: lam with nil spine)
+        // but still use eval recursively inside
+        let query_str = r#"k ; $p -> (pair $p nil) ; [(pair (lam $x $y) nil) -> (lam $x $r) & [(pair (lam $x $y) nil) -> (pair $y nil) ; eval ; $r -> (lam $x $r)]]"#;
+        let query = parser.parse_rel_body(query_str).expect("parse inlined query");
+        let terms = parser.take_terms();
+
+        let mut engine: Engine<ChrState> = Engine::new_with_env(query, terms, env);
+
+        let max_steps = 500_000;
+        let first = run_until_emit(&mut engine, max_steps);
+        assert!(
+            first.is_some(),
+            "BUG: inlined eval branch should produce answer within {} steps",
+            max_steps
+        );
+        let rendered = engine
+            .format_nf(first.as_ref().unwrap(), parser.symbols())
+            .unwrap_or_else(|_| "<error>".to_string());
+        eprintln!("  simplelam inlined: {}", rendered);
+    }
+
+    /// `k ; $p -> (pair $p nil) ; eval` must produce an answer.
+    /// Regression: splitting [Call, Atom, Call] into a parallel Compose
+    /// lost the Atom's transformation at the compose interface, causing
+    /// the right side to explore its full infinite search space.
+    #[test]
+    fn simplelam_k_eval_full_must_not_starve() {
+        let mut parser = Parser::with_chr();
+        let (_rel, env) = parse_rel_def_with_env_chr(&mut parser, SIMPLELAM_DEF);
+
+        let query_str = "k ; $p -> (pair $p nil) ; eval";
+        let query = parser.parse_rel_body(query_str).expect("parse full eval query");
+        let terms = parser.take_terms();
+
+        let mut engine: Engine<ChrState> = Engine::new_with_env(query, terms, env);
+
+        let max_steps = 500_000;
+        let first = run_until_emit(&mut engine, max_steps);
+        assert!(
+            first.is_some(),
+            "BUG: full eval should produce answer within {} steps",
+            max_steps
+        );
+        let rendered = engine
+            .format_nf(first.as_ref().unwrap(), parser.symbols())
+            .unwrap_or_else(|_| "<error>".to_string());
+        eprintln!("  simplelam full eval: {}", rendered);
+    }
+
+    /// Evaluate S applied to K: `(S K)` should reduce to a lambda term.
+    /// The conjunction builds `(a s k)` from independent `s` and `k` generators,
+    /// then evaluates it.
+    #[test]
+    fn simplelam_sk_eval_must_produce_answer() {
+        let mut parser = Parser::with_chr();
+        let (_rel, env) = parse_rel_def_with_env_chr(&mut parser, SIMPLELAM_DEF);
+
+        let query_str =
+            "[[s ; $s -> (a $s $k1)] & [k ; $k1 -> (a $s $k1)]] ; $p -> (pair $p nil) ; eval";
+        let query = parser.parse_rel_body(query_str).expect("parse SK eval query");
+        let terms = parser.take_terms();
+
+        let mut engine: Engine<ChrState> = Engine::new_with_env(query, terms, env);
+
+        let max_steps = 500_000;
+        let first = run_until_emit(&mut engine, max_steps);
+        assert!(
+            first.is_some(),
+            "BUG: SK eval should produce answer within {} steps",
+            max_steps
+        );
+        let rendered = engine
+            .format_nf(first.as_ref().unwrap(), parser.symbols())
+            .unwrap_or_else(|_| "<error>".to_string());
+        eprintln!("  simplelam SK eval: {}", rendered);
+    }
+
+    /// Evaluate S(K,K): `(a (a s k) k)` should reduce to the identity combinator.
+    /// S x y z = x z (y z), so S K K z = K z (K z) = z.
+    /// The result is `(lam x (var x))` — the identity function.
+    #[test]
+    fn simplelam_skk_eval_produces_identity() {
+        let mut parser = Parser::with_chr();
+        let (_rel, env) = parse_rel_def_with_env_chr(&mut parser, SIMPLELAM_DEF);
+
+        let query_str = concat!(
+            "[[s ; $s -> (a (a $s $k1) $k2)]",
+            " & [k ; $k1 -> (a (a $s $k1) $k2)]",
+            " & [k ; $k2 -> (a (a $s $k1) $k2)]]",
+            " ; $p -> (pair $p nil) ; eval"
+        );
+        let query = parser.parse_rel_body(query_str).expect("parse SKK eval query");
+        let terms = parser.take_terms();
+
+        let mut engine: Engine<ChrState> = Engine::new_with_env(query, terms, env);
+
+        let max_steps = 500_000;
+        let first = run_until_emit(&mut engine, max_steps);
+        assert!(
+            first.is_some(),
+            "BUG: SKK eval should produce answer within {} steps",
+            max_steps
+        );
+        let rendered = engine
+            .format_nf(first.as_ref().unwrap(), parser.symbols())
+            .unwrap_or_else(|_| "<error>".to_string());
+        eprintln!("  simplelam SKK eval: {}", rendered);
+
+        // Strip constraints: "LHS { ... } -> RHS" becomes "LHS -> RHS"
+        let without_constraints = if let Some(open) = rendered.find('{') {
+            let close = rendered.find('}').expect("unmatched { in rendered NF");
+            let before = rendered[..open].trim_end();
+            let after = rendered[close + 1..].trim_start();
+            format!("{} {}", before, after)
+        } else {
+            rendered.clone()
+        };
+        assert_eq!(
+            without_constraints, "$0 -> (lam $1 (var $1))",
+            "SKK should evaluate to the identity combinator, got: {}",
+            rendered
+        );
+    }
+
+    /// Regression: BindWork for front-advancement broke the flip synthesis query.
+    /// The query has [Atom ; Call ; Atom ; Call ; Atom] structure — multiple
+    /// sequential Calls separated by Atoms. BindWork must not prevent search
+    /// from finding the answer.
+    #[test]
+    fn program_synth_flip_must_not_hang() {
+        let mut parser = Parser::with_chr();
+        let (_app_rel, env) = parse_rel_def_with_env_chr(&mut parser, PROGRAM_SYNTH_DEF);
+
+        let query_str = concat!(
+            "[[$x { (no_c $x) } -> (f $x (c z))] ; app ; ",
+            "[$x -> (f $x (c (s z)))] ; app ; @(a (c (s z)) (c z))]"
+        );
+        let query = parser.parse_rel_body(query_str).expect("parse query");
+        let terms = parser.take_terms();
+        let mut engine: Engine<ChrState> = Engine::new_with_env(query, terms, env);
+
+        let max_steps = 500_000;
+        let first = run_until_emit(&mut engine, max_steps);
+        assert!(
+            first.is_some(),
+            "BUG: flip synthesis should produce answer within {} steps",
+            max_steps
+        );
+    }
+
     #[test]
     fn lam_eq_compose_plain_identity() {
         let mut parser = Parser::with_chr();
@@ -2848,7 +3052,7 @@ rel lamEq {
         let query = parser.parse_rel_body(query_str).expect("parse lamEq query");
         let terms = parser.take_terms();
 
-        let mut engine: Engine<ChrState<NoTheory>> = Engine::new_with_env(query, terms, env);
+        let mut engine: Engine<ChrState> = Engine::new_with_env(query, terms, env);
 
         let max_steps = 100_000;
         let mut answers = Vec::new();

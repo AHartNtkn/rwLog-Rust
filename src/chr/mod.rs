@@ -1,11 +1,11 @@
 use crate::constraint::ConstraintDisplay;
+use crate::matching::unify_into;
 use crate::nf::apply_var_renaming;
 use crate::subst::{apply_subst, Subst};
 use crate::symbol::FuncId;
 use crate::term::{Term, TermId, TermReadGuard, TermStore};
 use hashbrown::{HashMap, HashSet};
 use smallvec::SmallVec;
-use std::any::Any;
 use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::collections::VecDeque;
@@ -18,12 +18,9 @@ use std::sync::Arc;
 /// Keyed by a fast hash of the pre-normalization ChrState (alive constraints
 /// and their term arguments). The cache is invalidated when the TermStore
 /// generation changes (indicating a new engine run with a fresh TermStore).
-///
-/// Values are type-erased via `Box<dyn Any>` to support the generic `T: Theory`
-/// parameter. Each entry stores `Option<(ChrState<T>, Option<Subst>)>`.
 struct NormalizeCache {
     generation: u64,
-    entries: HashMap<u64, Box<dyn Any>>,
+    entries: HashMap<u64, Option<(ChrState, Option<Subst>)>>,
 }
 
 impl NormalizeCache {
@@ -213,7 +210,7 @@ impl RVarEnv {
     }
 }
 
-pub fn match_pat_nobind(
+pub(crate) fn match_pat_nobind(
     pats: &PatArena,
     terms: &TermStore,
     pat: PatId,
@@ -271,84 +268,19 @@ fn match_pat_nobind_locked(
     true
 }
 
-pub trait Theory: Send + Sync + 'static {
-    type Store: Clone + Send + Sync + Default + 'static;
-
-    fn entails_eq(store: &Self::Store, a: TermId, b: TermId) -> bool;
-    fn entails_neq(store: &Self::Store, a: TermId, b: TermId) -> bool;
-    fn extract_subst(store: &Self::Store) -> Subst;
-    fn merge_store(a: &Self::Store, b: &Self::Store) -> Option<Self::Store>;
-    fn apply_subst(store: &Self::Store, subst: &Subst, terms: &mut TermStore) -> Self::Store;
-    fn freeze_store(store: &Self::Store) -> Vec<u8>;
-    fn thaw_store(bytes: &[u8]) -> Self::Store;
-    fn remap_vars(store: &Self::Store, map: &[Option<u32>], terms: &mut TermStore) -> Self::Store;
-    fn collect_vars(store: &Self::Store, terms: &TermStore, out: &mut Vec<u32>);
-    fn is_empty(store: &Self::Store) -> bool;
-}
-
-#[derive(Clone, Default, Debug)]
-pub struct NoTheory;
-
-impl Theory for NoTheory {
-    type Store = ();
-
-    fn entails_eq(_store: &Self::Store, a: TermId, b: TermId) -> bool {
-        a == b
-    }
-
-    fn entails_neq(_store: &Self::Store, a: TermId, b: TermId) -> bool {
-        a != b
-    }
-
-    fn extract_subst(_store: &Self::Store) -> Subst {
-        Subst::default()
-    }
-
-    fn merge_store(_a: &Self::Store, _b: &Self::Store) -> Option<Self::Store> {
-        Some(())
-    }
-
-    fn apply_subst(_store: &Self::Store, _subst: &Subst, _terms: &mut TermStore) -> Self::Store {}
-
-    fn freeze_store(_store: &Self::Store) -> Vec<u8> {
-        Vec::new()
-    }
-
-    fn thaw_store(_bytes: &[u8]) -> Self::Store {}
-
-    fn remap_vars(
-        _store: &Self::Store,
-        _map: &[Option<u32>],
-        _terms: &mut TermStore,
-    ) -> Self::Store {
-    }
-
-    fn collect_vars(_store: &Self::Store, _terms: &TermStore, _out: &mut Vec<u32>) {}
-
-    fn is_empty(_store: &Self::Store) -> bool {
-        true
-    }
-}
-
-pub struct Builtin<T: Theory> {
+#[derive(Copy, Clone)]
+pub struct Builtin {
     pub arity: u8,
-    pub guard: fn(&T::Store, &TermStore, &[TermId]) -> bool,
-    pub add: fn(&mut T::Store, &TermStore, &[TermId]) -> bool,
+    pub guard: fn(&Subst, &TermStore, &[TermId]) -> bool,
+    pub add: fn(&mut Subst, &TermStore, &[TermId]) -> bool,
 }
 
-pub struct BuiltinRegistry<T: Theory> {
-    pub builtins: Vec<Builtin<T>>,
+#[derive(Clone, Default)]
+pub struct BuiltinRegistry {
+    pub builtins: Vec<Builtin>,
 }
 
-impl<T: Theory> Copy for Builtin<T> {}
-
-impl<T: Theory> Clone for Builtin<T> {
-    fn clone(&self) -> Self {
-        *self
-    }
-}
-
-impl<T: Theory> std::fmt::Debug for Builtin<T> {
+impl std::fmt::Debug for Builtin {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Builtin")
             .field("arity", &self.arity)
@@ -356,15 +288,7 @@ impl<T: Theory> std::fmt::Debug for Builtin<T> {
     }
 }
 
-impl<T: Theory> Clone for BuiltinRegistry<T> {
-    fn clone(&self) -> Self {
-        Self {
-            builtins: self.builtins.clone(),
-        }
-    }
-}
-
-impl<T: Theory> std::fmt::Debug for BuiltinRegistry<T> {
+impl std::fmt::Debug for BuiltinRegistry {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("BuiltinRegistry")
             .field("builtins_len", &self.builtins.len())
@@ -372,16 +296,8 @@ impl<T: Theory> std::fmt::Debug for BuiltinRegistry<T> {
     }
 }
 
-impl<T: Theory> Default for BuiltinRegistry<T> {
-    fn default() -> Self {
-        Self {
-            builtins: Vec::new(),
-        }
-    }
-}
-
-impl<T: Theory> BuiltinRegistry<T> {
-    pub fn get(&self, id: BuiltinId) -> &Builtin<T> {
+impl BuiltinRegistry {
+    pub fn get(&self, id: BuiltinId) -> &Builtin {
         &self.builtins[id.0 as usize]
     }
 }
@@ -417,12 +333,12 @@ impl GuardProg {
         }
     }
 
-    pub fn eval<T: Theory>(
+    pub fn eval(
         &self,
         pats: &PatArena,
         terms: &TermStore,
-        builtins: &T::Store,
-        reg: &BuiltinRegistry<T>,
+        eq_subst: &Subst,
+        reg: &BuiltinRegistry,
         env: &RVarEnv,
     ) -> bool {
         for ins in self.code.iter() {
@@ -432,14 +348,14 @@ impl GuardProg {
                         Some(pair) => pair,
                         None => return false,
                     };
-                    T::entails_eq(builtins, ta, tb)
+                    ta == tb
                 }
                 GuardInstr::Neq(a, b) => {
                     let (ta, tb) = match eval_gval_pair(env, *a, *b) {
                         Some(pair) => pair,
                         None => return false,
                     };
-                    T::entails_neq(builtins, ta, tb)
+                    ta != tb
                 }
                 GuardInstr::TopFunctor { t, f, arity } => {
                     let tt = match eval_gval(env, *t) {
@@ -467,7 +383,7 @@ impl GuardProg {
                         Some(v) => v,
                         None => return false,
                     };
-                    (b.guard)(builtins, terms, &av)
+                    (b.guard)(eq_subst, terms, &av)
                 }
             };
             if !ok {
@@ -525,27 +441,27 @@ impl BodyProg {
         }
     }
 
-    pub fn exec<T: Theory>(
+    pub fn exec(
         &self,
         pats: &PatArena,
         terms: &mut TermStore,
-        reg: &BuiltinRegistry<T>,
+        reg: &BuiltinRegistry,
         env: &RVarEnv,
-        st: &mut ChrState<T>,
+        st: &mut ChrState,
     ) -> bool {
         let program = Arc::clone(&st.program);
         let d = st.data_mut();
         self.exec_with_data(pats, terms, reg, env, &program, d)
     }
 
-    fn exec_with_data<T: Theory>(
+    fn exec_with_data(
         &self,
         pats: &PatArena,
         terms: &mut TermStore,
-        reg: &BuiltinRegistry<T>,
+        reg: &BuiltinRegistry,
         env: &RVarEnv,
-        program: &ChrProgram<T>,
-        data: &mut ChrStateData<T>,
+        program: &ChrProgram,
+        data: &mut ChrStateData,
     ) -> bool {
         for ins in self.code.iter() {
             match ins {
@@ -569,7 +485,7 @@ impl BodyProg {
                         Some(v) => v,
                         None => return false,
                     };
-                    if !(b.add)(&mut data.builtins, terms, &av) {
+                    if !(b.add)(&mut data.eq_subst, terms, &av) {
                         return false;
                     }
                 }
@@ -606,7 +522,7 @@ fn eval_arg_expr(
     }
 }
 
-pub fn instantiate_pat(
+pub(crate) fn instantiate_pat(
     pats: &PatArena,
     terms: &mut TermStore,
     env: &RVarEnv,
@@ -942,8 +858,8 @@ pub struct Occurrence {
     pub removed_mask: u64,
 }
 
-#[derive(Debug)]
-pub struct Rule<T: Theory> {
+#[derive(Debug, Clone)]
+pub struct Rule {
     pub rid: RuleId,
     pub n_rvars: u32,
     pub heads: Box<[HeadPat]>,
@@ -957,25 +873,6 @@ pub struct Rule<T: Theory> {
     pub is_propagation: bool,
     pub occs: Box<[Occurrence]>,
     pub removed_mask: u64,
-    _phantom: std::marker::PhantomData<T>,
-}
-
-impl<T: Theory> Clone for Rule<T> {
-    fn clone(&self) -> Self {
-        Self {
-            rid: self.rid,
-            n_rvars: self.n_rvars,
-            heads: self.heads.clone(),
-            head_flat_ops: self.head_flat_ops.clone(),
-            guard: self.guard.clone(),
-            body: self.body.clone(),
-            priority: self.priority,
-            is_propagation: self.is_propagation,
-            occs: self.occs.clone(),
-            removed_mask: self.removed_mask,
-            _phantom: std::marker::PhantomData,
-        }
-    }
 }
 
 #[derive(Clone, Debug)]
@@ -1000,13 +897,13 @@ pub struct IndexedTriggers {
     pub fallback: Vec<OccRef>,
 }
 
-#[derive(Debug)]
-pub struct ChrProgram<T: Theory> {
+#[derive(Debug, Clone)]
+pub struct ChrProgram {
     pub preds: Box<[PredDecl]>,
-    pub rules: Box<[Rule<T>]>,
+    pub rules: Box<[Rule]>,
     pub triggers: Vec<IndexedTriggers>,
     pub pats: PatArena,
-    pub builtins: BuiltinRegistry<T>,
+    pub builtins: BuiltinRegistry,
     pub pred_names: HashMap<String, PredId>,
     pub program_id: u64,
     pub max_rvars: u32,
@@ -1015,22 +912,6 @@ pub struct ChrProgram<T: Theory> {
     /// uses a specialised inline loop that avoids Vec allocations, SearchCtx
     /// construction, and propagation-token handling.
     pub all_single_head_simplification: bool,
-}
-
-impl<T: Theory> Clone for ChrProgram<T> {
-    fn clone(&self) -> Self {
-        Self {
-            preds: self.preds.clone(),
-            rules: self.rules.clone(),
-            triggers: self.triggers.clone(),
-            pats: self.pats.clone(),
-            builtins: self.builtins.clone(),
-            pred_names: self.pred_names.clone(),
-            program_id: self.program_id,
-            max_rvars: self.max_rvars,
-            all_single_head_simplification: self.all_single_head_simplification,
-        }
-    }
 }
 
 #[derive(Clone, Debug)]
@@ -1043,16 +924,32 @@ struct RuleDraft {
 }
 
 #[derive(Clone, Debug)]
-pub struct ChrProgramBuilder<T: Theory> {
+pub struct ChrProgramBuilder {
     preds: Vec<PredDecl>,
     pred_names: HashMap<String, PredId>,
     rules: Vec<RuleDraft>,
     pats: PatArena,
-    builtins: BuiltinRegistry<T>,
+    builtins: BuiltinRegistry,
 }
 
-impl<T: Theory> ChrProgramBuilder<T> {
-    pub fn new(builtins: BuiltinRegistry<T>) -> Self {
+impl Default for ChrProgramBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ChrProgramBuilder {
+    pub fn new() -> Self {
+        let mut builtins = BuiltinRegistry::default();
+        // BuiltinId(0): equality — `$x = $y` in rule bodies calls unify_into.
+        builtins.builtins.push(Builtin {
+            arity: 2,
+            guard: |_eq_subst, _terms, args| args[0] == args[1],
+            add: |eq_subst, terms, args| {
+                let guard = terms.read_lock();
+                unify_into(eq_subst, args[0], args[1], &guard)
+            },
+        });
         Self {
             preds: Vec::new(),
             pred_names: HashMap::new(),
@@ -1110,7 +1007,7 @@ impl<T: Theory> ChrProgramBuilder<T> {
         rid
     }
 
-    pub fn build(self) -> Arc<ChrProgram<T>> {
+    pub fn build(self) -> Arc<ChrProgram> {
         let program_id = NEXT_PROGRAM_ID.fetch_add(1, AtomicOrdering::Relaxed);
         let mut rules = Vec::with_capacity(self.rules.len());
         for (idx, draft) in self.rules.into_iter().enumerate() {
@@ -1155,7 +1052,6 @@ impl<T: Theory> ChrProgramBuilder<T> {
                 is_propagation,
                 occs,
                 removed_mask,
-                _phantom: std::marker::PhantomData,
             });
         }
 
@@ -1222,7 +1118,7 @@ impl<T: Theory> ChrProgramBuilder<T> {
     }
 }
 
-fn occ_ref_order<T: Theory>(a: &OccRef, b: &OccRef, rules: &[Rule<T>]) -> Ordering {
+fn occ_ref_order(a: &OccRef, b: &OccRef, rules: &[Rule]) -> Ordering {
     let ra = &rules[a.rid.0 as usize];
     let rb = &rules[b.rid.0 as usize];
     rb.priority
@@ -1443,9 +1339,13 @@ impl TokenStore {
     }
 }
 
-pub struct ChrStateData<T: Theory> {
+pub struct ChrStateData {
     pub(crate) store: ChrStore,
-    pub(crate) builtins: T::Store,
+    /// Accumulated equality substitution from builtin `$x = $y` in rule bodies.
+    /// Transient: only non-empty during `normalize_owned_uncached` between
+    /// `solve_to_fixpoint` and the extract+apply step. Always empty in
+    /// freeze/thaw/combine/remap/collect_vars contexts.
+    pub(crate) eq_subst: Subst,
     pub(crate) tokens: TokenStore,
     pub(crate) next_cid: u32,
     pub(crate) agenda: VecDeque<Cid>,
@@ -1454,16 +1354,16 @@ pub struct ChrStateData<T: Theory> {
     /// and do not need to be re-enqueued for agenda processing.
     pub(crate) fixpoint_watermark: u32,
     /// Cached flag: true when every alive constraint arg has `is_ground()` set.
-    /// When true and builtins are empty, apply_subst/remap_vars can skip the
-    /// expensive ChrStateData clone + arg walk because no variable can change.
+    /// When true, apply_subst/remap_vars can skip the expensive ChrStateData
+    /// clone + arg walk because no variable can change.
     pub(crate) all_args_ground: bool,
 }
 
-impl<T: Theory> Clone for ChrStateData<T> {
+impl Clone for ChrStateData {
     fn clone(&self) -> Self {
         Self {
             store: self.store.clone(),
-            builtins: self.builtins.clone(),
+            eq_subst: self.eq_subst.clone(),
             tokens: self.tokens.clone(),
             next_cid: self.next_cid,
             agenda: self.agenda.clone(),
@@ -1474,7 +1374,7 @@ impl<T: Theory> Clone for ChrStateData<T> {
     }
 }
 
-impl<T: Theory> ChrStateData<T> {
+impl ChrStateData {
     /// Recompute the `all_args_ground` flag by checking all alive constraint args.
     fn recompute_all_args_ground(&mut self) {
         self.all_args_ground = self.store.inst.iter().all(|inst| {
@@ -1486,12 +1386,12 @@ impl<T: Theory> ChrStateData<T> {
     }
 }
 
-pub struct ChrState<T: Theory> {
-    pub program: Arc<ChrProgram<T>>,
-    data: Option<Arc<ChrStateData<T>>>,
+pub struct ChrState {
+    pub program: Arc<ChrProgram>,
+    data: Option<Arc<ChrStateData>>,
 }
 
-impl<T: Theory> Clone for ChrState<T> {
+impl Clone for ChrState {
     fn clone(&self) -> Self {
         Self {
             program: self.program.clone(),
@@ -1500,14 +1400,14 @@ impl<T: Theory> Clone for ChrState<T> {
     }
 }
 
-impl<T: Theory> ChrState<T> {
+impl ChrState {
     #[inline]
-    pub fn data(&self) -> Option<&ChrStateData<T>> {
+    pub fn data(&self) -> Option<&ChrStateData> {
         self.data.as_deref()
     }
 
     #[inline]
-    pub fn data_mut(&mut self) -> &mut ChrStateData<T> {
+    pub fn data_mut(&mut self) -> &mut ChrStateData {
         let program = &self.program;
         let arc = self.data.get_or_insert_with(|| {
             let tokens = if program.all_single_head_simplification {
@@ -1517,7 +1417,7 @@ impl<T: Theory> ChrState<T> {
             };
             Arc::new(ChrStateData {
                 store: ChrStore::new(&program.preds, program.all_single_head_simplification),
-                builtins: T::Store::default(),
+                eq_subst: Subst::default(),
                 tokens,
                 next_cid: 0,
                 agenda: VecDeque::new(),
@@ -1543,7 +1443,7 @@ impl<T: Theory> ChrState<T> {
         self.data.is_some()
     }
 
-    pub fn new(program: Arc<ChrProgram<T>>, builtins: T::Store) -> Self {
+    pub fn new(program: Arc<ChrProgram>) -> Self {
         let skip_idx = program.all_single_head_simplification;
         let tokens = if skip_idx {
             TokenStore::empty()
@@ -1553,7 +1453,7 @@ impl<T: Theory> ChrState<T> {
         Self {
             data: Some(Arc::new(ChrStateData {
                 store: ChrStore::new(&program.preds, skip_idx),
-                builtins,
+                eq_subst: Subst::default(),
                 tokens,
                 next_cid: 0,
                 agenda: VecDeque::new(),
@@ -1575,7 +1475,7 @@ impl<T: Theory> ChrState<T> {
             };
             Arc::new(ChrStateData {
                 store: ChrStore::new(&program.preds, program.all_single_head_simplification),
-                builtins: T::Store::default(),
+                eq_subst: Subst::default(),
                 tokens,
                 next_cid: 0,
                 agenda: VecDeque::new(),
@@ -1616,8 +1516,8 @@ impl<T: Theory> ChrState<T> {
 
     /// General solve_to_fixpoint for programs with multi-head or propagation rules.
     fn solve_to_fixpoint_general(
-        program: &ChrProgram<T>,
-        d: &mut ChrStateData<T>,
+        program: &ChrProgram,
+        d: &mut ChrStateData,
         terms: &mut TermStore,
     ) {
         let mut env = RVarEnv::new(program.max_rvars);
@@ -1677,8 +1577,8 @@ impl<T: Theory> ChrState<T> {
     /// SearchCtx construction, search_steps_inner recursion, and propagation
     /// token handling.
     fn solve_to_fixpoint_single_head(
-        program: &ChrProgram<T>,
-        d: &mut ChrStateData<T>,
+        program: &ChrProgram,
+        d: &mut ChrStateData,
         terms: &mut TermStore,
     ) {
         let mut env = RVarEnv::new(program.max_rvars);
@@ -1729,7 +1629,7 @@ impl<T: Theory> ChrState<T> {
                 // Single-head: no join steps.  Evaluate guard directly.
                 if !rule
                     .guard
-                    .eval(&program.pats, terms, &d.builtins, &program.builtins, &env)
+                    .eval(&program.pats, terms, &d.eq_subst, &program.builtins, &env)
                 {
                     continue;
                 }
@@ -1759,19 +1659,19 @@ impl<T: Theory> ChrState<T> {
     }
 }
 
-struct SearchCtx<'a, T: Theory> {
-    program: &'a ChrProgram<T>,
-    data: &'a ChrStateData<T>,
-    rule: &'a Rule<T>,
+struct SearchCtx<'a> {
+    program: &'a ChrProgram,
+    data: &'a ChrStateData,
+    rule: &'a Rule,
     occ: &'a Occurrence,
     terms: &'a TermStore,
 }
 
-impl<T: Theory> ChrState<T> {
+impl ChrState {
     /// Find a match for a rule occurrence using a pre-allocated `RVarEnv`.
     fn find_match_by_ids_reuse(
-        program: &ChrProgram<T>,
-        data: &ChrStateData<T>,
+        program: &ChrProgram,
+        data: &ChrStateData,
         rid: RuleId,
         occ_idx: u16,
         active: Cid,
@@ -1806,8 +1706,8 @@ impl<T: Theory> ChrState<T> {
     /// bindings produced by `find_match_by_ids_reuse` — we skip re-matching
     /// heads since those bindings are still live in the env.
     fn apply_rule_by_id_reuse(
-        program: &ChrProgram<T>,
-        data: &mut ChrStateData<T>,
+        program: &ChrProgram,
+        data: &mut ChrStateData,
         rid: RuleId,
         tuple: &[Cid],
         terms: &mut TermStore,
@@ -1835,7 +1735,7 @@ impl<T: Theory> ChrState<T> {
     }
 
     fn search_steps_inner(
-        ctx: &SearchCtx<'_, T>,
+        ctx: &SearchCtx<'_>,
         step_idx: usize,
         env: &mut RVarEnv,
         chosen: &mut Vec<Option<Cid>>,
@@ -1844,7 +1744,7 @@ impl<T: Theory> ChrState<T> {
             if !ctx.rule.guard.eval(
                 &ctx.program.pats,
                 ctx.terms,
-                &ctx.data.builtins,
+                &ctx.data.eq_subst,
                 &ctx.program.builtins,
                 env,
             ) {
@@ -1930,13 +1830,9 @@ impl<T: Theory> ChrState<T> {
         )
     }
 
-    /// Apply substitution to all alive constraint args and builtins.
+    /// Apply substitution to all alive constraint args.
     /// Returns `true` if any constraint arg actually changed.
-    fn apply_subst_to_data(
-        data: &mut ChrStateData<T>,
-        subst: &Subst,
-        terms: &mut TermStore,
-    ) -> bool {
+    fn apply_subst_to_data(data: &mut ChrStateData, subst: &Subst, terms: &mut TermStore) -> bool {
         let mut changed = false;
         for i in 0..data.store.inst.len() {
             let inst = &data.store.inst[i];
@@ -1955,11 +1851,10 @@ impl<T: Theory> ChrState<T> {
                 }
             }
         }
-        data.builtins = T::apply_subst(&data.builtins, subst, terms);
         changed
     }
 
-    fn enqueue_all_alive_in(data: &mut ChrStateData<T>) {
+    fn enqueue_all_alive_in(data: &mut ChrStateData) {
         data.agenda.clear();
         for (idx, inst) in data.store.inst.iter().enumerate() {
             if inst.alive {
@@ -1970,7 +1865,7 @@ impl<T: Theory> ChrState<T> {
 
     /// Enqueue only constraints at or above the fixpoint watermark.
     /// Constraints below the watermark are already at CHR fixpoint.
-    fn enqueue_above_watermark(data: &mut ChrStateData<T>) {
+    fn enqueue_above_watermark(data: &mut ChrStateData) {
         data.agenda.clear();
         let start = data.fixpoint_watermark as usize;
         for inst in data.store.inst[start..].iter() {
@@ -2025,12 +1920,12 @@ fn match_head_direct(
 /// Returns `Ok(true)` if a rule matched and fired, `Ok(false)` if no rule
 /// matched (caller should store the constraint), or `Err(())` if a body
 /// execution failed (propagate failure).
-fn try_inline_match<T: Theory>(
+fn try_inline_match(
     pred: PredId,
     args: &[TermId],
     terms: &mut TermStore,
-    program: &ChrProgram<T>,
-    data: &mut ChrStateData<T>,
+    program: &ChrProgram,
+    data: &mut ChrStateData,
     env: &mut RVarEnv,
 ) -> Result<bool, ()> {
     let indexed = &program.triggers[pred.0 as usize];
@@ -2063,7 +1958,7 @@ fn try_inline_match<T: Theory>(
 
         if !rule
             .guard
-            .eval(&program.pats, terms, &data.builtins, &program.builtins, env)
+            .eval(&program.pats, terms, &data.eq_subst, &program.builtins, env)
         {
             continue;
         }
@@ -2089,14 +1984,14 @@ fn try_inline_match<T: Theory>(
 /// Execute a rule body, trying to match each new `AddChr` constraint inline
 /// before storing it. This is the DFS variant used during single-head
 /// simplification to avoid the store/agenda roundtrip for matched constraints.
-fn exec_body_inline<T: Theory>(
+fn exec_body_inline(
     body: &BodyProg,
     pats: &PatArena,
     terms: &mut TermStore,
-    reg: &BuiltinRegistry<T>,
+    reg: &BuiltinRegistry,
     env: &RVarEnv,
-    program: &ChrProgram<T>,
-    data: &mut ChrStateData<T>,
+    program: &ChrProgram,
+    data: &mut ChrStateData,
 ) -> bool {
     // We need a separate env for inline matching (the caller's env must not
     // be clobbered). Allocate once and reuse across AddChr instructions.
@@ -2133,7 +2028,7 @@ fn exec_body_inline<T: Theory>(
                     Some(v) => v,
                     None => return false,
                 };
-                if !(b.add)(&mut data.builtins, terms, &av) {
+                if !(b.add)(&mut data.eq_subst, terms, &av) {
                     return false;
                 }
             }
@@ -2212,20 +2107,18 @@ impl ByteWriter {
         self.buf.extend_from_slice(&x.to_le_bytes());
     }
 
-    fn push_bytes(&mut self, bs: &[u8]) {
-        self.buf.extend_from_slice(bs);
-    }
-
     fn into_vec(self) -> Vec<u8> {
         self.buf
     }
 }
 
+#[cfg(test)]
 struct ByteReader<'a> {
     bs: &'a [u8],
     i: usize,
 }
 
+#[cfg(test)]
 impl<'a> ByteReader<'a> {
     fn new(bs: &'a [u8]) -> Self {
         Self { bs, i: 0 }
@@ -2286,7 +2179,7 @@ impl PartialOrd for AliveRec {
     }
 }
 
-pub fn freeze_chr<T: Theory>(st: &ChrState<T>) -> Vec<u8> {
+pub(crate) fn freeze_chr(st: &ChrState) -> Vec<u8> {
     let d = match &st.data {
         None => {
             let mut w = ByteWriter::new();
@@ -2298,7 +2191,7 @@ pub fn freeze_chr<T: Theory>(st: &ChrState<T>) -> Vec<u8> {
         Some(d) => d,
     };
 
-    if d.store.alive_count == 0 && T::is_empty(&d.builtins) {
+    if d.store.alive_count == 0 {
         let mut w = ByteWriter::new();
         w.push_u32(0);
         w.push_u32(0);
@@ -2337,9 +2230,8 @@ pub fn freeze_chr<T: Theory>(st: &ChrState<T>) -> Vec<u8> {
         }
     }
 
-    let b = T::freeze_store(&d.builtins);
-    w.push_u32(b.len() as u32);
-    w.push_bytes(&b);
+    // eq_subst is always empty when freezing; write 0-length marker.
+    w.push_u32(0);
 
     let mut token_rules: Vec<(u32, Vec<TokenKey>)> = Vec::new();
     for (rid, set) in d.tokens.fired.iter().enumerate() {
@@ -2396,14 +2288,15 @@ fn format_token(token: &TokenKey) -> Vec<u32> {
     token_cids(token).iter().map(|c| c.0).collect()
 }
 
-pub fn thaw_chr<T: Theory>(
-    program: Arc<ChrProgram<T>>,
+#[cfg(test)]
+pub(crate) fn thaw_chr(
+    program: Arc<ChrProgram>,
     bytes: &[u8],
     terms: &TermStore,
-) -> Option<ChrState<T>> {
+) -> Option<ChrState> {
     let mut r = ByteReader::new(bytes);
     let n_constraints = r.read_u32()? as usize;
-    let mut st = ChrState::<T>::new(program.clone(), T::thaw_store(&[]));
+    let mut st = ChrState::new(program.clone());
     {
         let arc = st.data.as_mut().unwrap();
         Arc::make_mut(arc).store =
@@ -2421,9 +2314,9 @@ pub fn thaw_chr<T: Theory>(
     }
 
     let d = Arc::make_mut(st.data.as_mut().unwrap());
+    // Skip the builtin bytes (always empty, but need to advance the reader).
     let b_len = r.read_u32()? as usize;
-    let b_bytes = r.read_bytes(b_len)?;
-    d.builtins = T::thaw_store(b_bytes);
+    let _ = r.read_bytes(b_len)?;
 
     let n_token_rules = r.read_u32()? as usize;
     d.tokens = if program.all_single_head_simplification {
@@ -2451,7 +2344,7 @@ pub fn thaw_chr<T: Theory>(
     Some(st)
 }
 
-impl<T: Theory> ChrProgram<T> {
+impl ChrProgram {
     pub fn pred_id(&self, name: &str) -> Option<PredId> {
         self.pred_names.get(name).copied()
     }
@@ -2481,7 +2374,7 @@ impl<T: Theory> ChrProgram<T> {
     }
 }
 
-impl<T: Theory> Default for ChrState<T> {
+impl Default for ChrState {
     fn default() -> Self {
         Self {
             program: ChrProgram::empty(),
@@ -2490,7 +2383,7 @@ impl<T: Theory> Default for ChrState<T> {
     }
 }
 
-impl<T: Theory> PartialEq for ChrState<T> {
+impl PartialEq for ChrState {
     fn eq(&self, other: &Self) -> bool {
         if self.program.program_id != other.program.program_id {
             return false;
@@ -2502,9 +2395,9 @@ impl<T: Theory> PartialEq for ChrState<T> {
     }
 }
 
-impl<T: Theory> Eq for ChrState<T> {}
+impl Eq for ChrState {}
 
-impl<T: Theory> Hash for ChrState<T> {
+impl Hash for ChrState {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.program.program_id.hash(state);
         if self.data.is_some() {
@@ -2515,10 +2408,10 @@ impl<T: Theory> Hash for ChrState<T> {
 
 /// Run the full CHR normalization without caching. This is the uncached hot path
 /// extracted from normalize_owned to keep the ConstraintOps impl clean.
-fn normalize_owned_uncached<T: Theory>(
-    mut state: ChrState<T>,
+fn normalize_owned_uncached(
+    mut state: ChrState,
     terms: &mut TermStore,
-) -> Option<(ChrState<T>, Option<Subst>)> {
+) -> Option<(ChrState, Option<Subst>)> {
     {
         let preds = &state.program.preds;
         let sd = Arc::make_mut(state.data.as_mut().unwrap());
@@ -2537,14 +2430,14 @@ fn normalize_owned_uncached<T: Theory>(
 
     let preds = &state.program.preds;
     let sd = Arc::make_mut(state.data.as_mut().unwrap());
-    let subst = T::extract_subst(&sd.builtins);
+    let subst = std::mem::take(&mut sd.eq_subst);
     let subst_opt = if subst.is_empty() {
         None
     } else {
         Some(subst.clone())
     };
     if !subst.is_empty() {
-        let args_changed = ChrState::<T>::apply_subst_to_data(sd, &subst, terms);
+        let args_changed = ChrState::apply_subst_to_data(sd, &subst, terms);
         sd.store.rebuild_indexes(preds, terms);
         if args_changed {
             sd.fixpoint_watermark = 0;
@@ -2559,7 +2452,7 @@ fn normalize_owned_uncached<T: Theory>(
     Some((state, subst_opt))
 }
 
-impl<T: Theory> crate::constraint::ConstraintOps for ChrState<T> {
+impl crate::constraint::ConstraintOps for ChrState {
     fn combine(&self, other: &Self) -> Option<Self> {
         if let Some(d) = &self.data {
             if d.failed {
@@ -2594,11 +2487,9 @@ impl<T: Theory> crate::constraint::ConstraintOps for ChrState<T> {
             (None, None) => Some(self.clone()),
             (None, Some(_)) => Some(other.clone()),
             (Some(_), None) => Some(self.clone()),
-            (Some(sd), Some(od)) => {
-                let builtins = T::merge_store(&sd.builtins, &od.builtins)?;
+            (Some(_sd), Some(od)) => {
                 let mut merged = self.clone();
                 let md = Arc::make_mut(merged.data.as_mut().unwrap());
-                md.builtins = builtins;
                 md.agenda.clear();
 
                 let mut remap: Vec<Option<Cid>> = vec![None; od.store.inst.len()];
@@ -2716,22 +2607,12 @@ impl<T: Theory> crate::constraint::ConstraintOps for ChrState<T> {
                 c.entries.clear();
                 c.generation = generation;
             }
-            c.entries.get(&state_hash).map(|boxed| {
-                boxed
-                    .downcast_ref::<Option<(ChrState<T>, Option<Subst>)>>()
-                    .cloned()
-            })
+            c.entries.get(&state_hash).cloned()
         });
 
-        if let Some(Some(hit)) = cached {
-            // Cache hit with successful downcast. `hit` is the cached
-            // Option<(ChrState<T>, Option<Subst>)>:
-            //   Some(..) = successful normalization
-            //   None = unsatisfiable (normalization failed)
+        if let Some(hit) = cached {
             return hit;
         }
-        // None = cache miss (key not found)
-        // Some(None) = downcast failure (should not happen; fall through to compute)
 
         // Cache miss: run the full normalization.
         let result = normalize_owned_uncached(self, terms);
@@ -2740,8 +2621,7 @@ impl<T: Theory> crate::constraint::ConstraintOps for ChrState<T> {
         NORMALIZE_CACHE.with(|cache| {
             let mut c = cache.borrow_mut();
             if c.generation == generation {
-                let boxed: Box<dyn Any> = Box::new(result.clone());
-                c.entries.insert(state_hash, boxed);
+                c.entries.insert(state_hash, result.clone());
             }
         });
 
@@ -2783,10 +2663,8 @@ impl<T: Theory> crate::constraint::ConstraintOps for ChrState<T> {
             (None, Some(_)) => Some(other),
             (Some(_), None) => Some(self),
             (Some(_), Some(od)) => {
-                let builtins = T::merge_store(&self.data.as_ref().unwrap().builtins, &od.builtins)?;
                 // Reuse self's allocation instead of cloning.
                 let md = Arc::make_mut(self.data.as_mut().unwrap());
-                md.builtins = builtins;
                 md.agenda.clear();
 
                 let mut remap: Vec<Option<Cid>> = vec![None; od.store.inst.len()];
@@ -2853,9 +2731,8 @@ impl<T: Theory> crate::constraint::ConstraintOps for ChrState<T> {
         if subst.is_empty() {
             return self.clone();
         }
-        // If all constraint args are ground and builtins are empty,
-        // no substitution can change anything - skip the expensive clone + walk.
-        if data_ref.all_args_ground && T::is_empty(&data_ref.builtins) {
+        // If all constraint args are ground, no substitution can change anything.
+        if data_ref.all_args_ground {
             return self.clone();
         }
         // Clone data directly to avoid self.clone() + Arc::make_mut double-clone.
@@ -2875,9 +2752,8 @@ impl<T: Theory> crate::constraint::ConstraintOps for ChrState<T> {
             Some(d) => d,
             None => return self.clone(),
         };
-        // If all constraint args are ground and builtins are empty,
-        // variable remapping cannot change anything - skip the clone + walk.
-        if data_ref.all_args_ground && T::is_empty(&data_ref.builtins) {
+        // If all constraint args are ground, variable remapping cannot change anything.
+        if data_ref.all_args_ground {
             return self.clone();
         }
         // Clone data directly to avoid self.clone() + Arc::make_mut double-clone.
@@ -2898,7 +2774,6 @@ impl<T: Theory> crate::constraint::ConstraintOps for ChrState<T> {
                 }
             }
         }
-        data.builtins = T::remap_vars(&data.builtins, map, terms);
         if args_changed {
             data.store.rebuild_indexes(preds, terms);
             data.fixpoint_watermark = 0;
@@ -2920,9 +2795,8 @@ impl<T: Theory> crate::constraint::ConstraintOps for ChrState<T> {
             Some(d) => d,
             None => return self.clone(),
         };
-        // If all constraint args are ground and builtins are empty,
-        // neither remap nor subst can change anything - skip the clone + walk.
-        if data_ref.all_args_ground && T::is_empty(&data_ref.builtins) {
+        // If all constraint args are ground, neither remap nor subst can change anything.
+        if data_ref.all_args_ground {
             return self.clone();
         }
         // Clone data once instead of twice (remap_vars clone + apply_subst clone).
@@ -2945,9 +2819,6 @@ impl<T: Theory> crate::constraint::ConstraintOps for ChrState<T> {
                 }
             }
         }
-        // Fuse builtin operations
-        data.builtins = T::remap_vars(&data.builtins, map, terms);
-        data.builtins = T::apply_subst(&data.builtins, subst, terms);
         if args_changed {
             data.fixpoint_watermark = 0;
         }
@@ -2972,13 +2843,12 @@ impl<T: Theory> crate::constraint::ConstraintOps for ChrState<T> {
                 }
             }
         }
-        T::collect_vars(&d.builtins, terms, out);
     }
 
     fn is_empty(&self) -> bool {
         match &self.data {
             None => true,
-            Some(d) => d.store.alive_count == 0 && T::is_empty(&d.builtins),
+            Some(d) => d.store.alive_count == 0,
         }
     }
 
@@ -2990,7 +2860,7 @@ impl<T: Theory> crate::constraint::ConstraintOps for ChrState<T> {
     }
 }
 
-impl<T: Theory> ConstraintDisplay for ChrState<T> {
+impl ConstraintDisplay for ChrState {
     fn fmt_constraints(
         &self,
         terms: &mut TermStore,

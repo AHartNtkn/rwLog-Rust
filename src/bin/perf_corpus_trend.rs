@@ -457,9 +457,11 @@ fn aggregate_rows(
 ) -> Vec<TrendRow> {
     let mut series: BTreeMap<(String, String, String), Vec<(String, f64)>> = BTreeMap::new();
     for snapshot in snapshots {
-        if (source == SourceFilter::Gate || source == SourceFilter::All) && snapshot.gate.is_some()
+        if let Some(gate) = snapshot
+            .gate
+            .as_ref()
+            .filter(|_| source == SourceFilter::Gate || source == SourceFilter::All)
         {
-            let gate = snapshot.gate.as_ref().expect("gate exists");
             for row in &gate.rows {
                 if metric == MetricFilter::Median || metric == MetricFilter::All {
                     series
@@ -475,10 +477,11 @@ fn aggregate_rows(
                 }
             }
         }
-        if (source == SourceFilter::Probe || source == SourceFilter::All)
-            && snapshot.probe.is_some()
+        if let Some(probe) = snapshot
+            .probe
+            .as_ref()
+            .filter(|_| source == SourceFilter::Probe || source == SourceFilter::All)
         {
-            let probe = snapshot.probe.as_ref().expect("probe exists");
             for row in &probe.rows {
                 if metric == MetricFilter::Median || metric == MetricFilter::All {
                     series

@@ -136,6 +136,15 @@ impl<C> Factors<C> {
         out
     }
 
+    /// Iterate over references to the elements without cloning Arcs.
+    pub fn iter(&self) -> FactorsIter<'_, C> {
+        FactorsIter {
+            chunks: &self.chunks,
+            chunk_idx: 0,
+            elem_idx: self.chunks.first().map_or(0, |s| s.start),
+        }
+    }
+
     /// Get the first element, if any.
     pub fn front(&self) -> Option<&Arc<Rel<C>>> {
         self.chunks.first().and_then(|s| s.front())
@@ -213,6 +222,32 @@ impl<C> Factors<C> {
     /// Push a Seq's contents to the back as a slice.
     pub fn push_back_slice_from_seq(&mut self, seq: Arc<[Arc<Rel<C>>]>) {
         self.push_back_slice(Slice::new(seq));
+    }
+}
+
+/// Iterator over references to elements in a Factors rope.
+pub struct FactorsIter<'a, C> {
+    chunks: &'a SmallVec<[Slice<C>; 4]>,
+    chunk_idx: usize,
+    elem_idx: usize,
+}
+
+impl<'a, C> Iterator for FactorsIter<'a, C> {
+    type Item = &'a Rel<C>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            let chunk = self.chunks.get(self.chunk_idx)?;
+            if self.elem_idx < chunk.end {
+                let elem = &chunk.arc[self.elem_idx];
+                self.elem_idx += 1;
+                return Some(elem.as_ref());
+            }
+            self.chunk_idx += 1;
+            if let Some(next_chunk) = self.chunks.get(self.chunk_idx) {
+                self.elem_idx = next_chunk.start;
+            }
+        }
     }
 }
 

@@ -4,9 +4,11 @@
 //! then dual(R) relates b to a.
 
 use crate::constraint::ConstraintOps;
+#[cfg(test)]
 use crate::drop_fresh::DropFresh;
 use crate::nf::{collect_tensor, factor_tensor, NF};
 use crate::term::TermStore;
+#[cfg(test)]
 use smallvec::SmallVec;
 
 /// Compute the dual of a DropFresh.
@@ -19,7 +21,8 @@ use smallvec::SmallVec;
 /// - dual(dual(w)) == w (involution)
 /// - dual swaps in_arity and out_arity
 /// - Constraint is preserved
-pub fn dual_drop_fresh<C: Clone>(drop_fresh: &DropFresh<C>) -> DropFresh<C> {
+#[cfg(test)]
+fn dual_drop_fresh<C: Clone>(drop_fresh: &DropFresh<C>) -> DropFresh<C> {
     // Swap arities
     let new_in_arity = drop_fresh.out_arity;
     let new_out_arity = drop_fresh.in_arity;

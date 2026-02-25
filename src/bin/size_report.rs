@@ -13,10 +13,10 @@ use rwlog::work::{self, CallKey, ComposeWork, Env, FixWork, MeetWork, PipeWork, 
 use std::mem::size_of;
 
 // The concrete constraint type used in perf benchmarks
-type C = chr::ChrState<chr::NoTheory>;
+type C = chr::ChrState;
 
 fn main() {
-    println!("=== Data Structure Sizes (with ChrState<BuiltinTheory> constraint) ===\n");
+    println!("=== Data Structure Sizes (with ChrState constraint) ===\n");
 
     println!("--- Atomic Types ---");
     println!(
@@ -153,7 +153,7 @@ fn main() {
     );
     println!(
         "  Arc<ChrProgram>:   {:>4} bytes",
-        size_of::<std::sync::Arc<chr::ChrProgram<chr::NoTheory>>>()
+        size_of::<std::sync::Arc<chr::ChrProgram>>()
     );
 
     // CallMode is not re-exported, skip it

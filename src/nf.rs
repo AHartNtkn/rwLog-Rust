@@ -312,18 +312,39 @@ pub fn factor_tensor<C: ConstraintOps>(
     terms: &mut TermStore,
 ) -> NF<C> {
     // Step 1: Fused collect + renumber LHS in a single pass per term.
-    // This discovers lhs_vars as a side effect, eliminating a separate
-    // collect_vars_ordered_list call.
     let (norm_lhs, lhs_vars) = renumber_vars_list(&lhs_pats, terms);
 
     // Step 2: Collect RHS variables (one pass, not two).
     let rhs_vars = collect_vars_ordered_list(&rhs_pats, terms);
 
+    // Steps 3-5, 7: Build wiring (bitsets, rhs ordering, constraint renaming, DropFresh).
+    let (rhs_old_to_new, drop_fresh) = build_factor_wiring(&lhs_vars, &rhs_vars, constraint, terms);
+
+    // Step 6: Renumber RHS variables.
+    let norm_rhs = if rhs_old_to_new.is_empty() {
+        rhs_pats.clone()
+    } else {
+        apply_var_renaming_list(&rhs_pats, &rhs_old_to_new, terms)
+    };
+
+    NF::new(norm_lhs, drop_fresh, norm_rhs)
+}
+
+/// Build the RHS variable ordering, renaming map, and DropFresh from already-collected
+/// LHS and RHS variable lists. This is the shared core of factor_tensor and
+/// factor_tensor_with_subst (Steps 3-5, 7).
+///
+/// Returns (rhs_old_to_new, drop_fresh) where rhs_old_to_new maps original RHS
+/// variable indices to their new consecutive positions.
+fn build_factor_wiring<C: ConstraintOps>(
+    lhs_vars: &[u32],
+    rhs_vars: &[u32],
+    constraint: C,
+    terms: &mut TermStore,
+) -> (Vec<Option<u32>>, DropFresh<C>) {
     let n = lhs_vars.len() as u32;
 
-    // Step 3: Build membership bitsets for O(1) lookups instead of HashSets.
-    // Variables are typically small indices (< 64), so a u64 bitset covers
-    // the common case. For larger indices we fall back to linear scan.
+    // Build membership bitsets for O(1) lookups instead of HashSets.
     let mut lhs_bits: u64 = 0;
     let mut lhs_has_large = false;
     for &var in lhs_vars.iter() {
@@ -343,7 +364,6 @@ pub fn factor_tensor<C: ConstraintOps>(
         }
     }
 
-    // Inline membership check using bitset + fallback.
     let lhs_contains = |var: u32| -> bool {
         if var < 64 {
             lhs_bits & (1u64 << var) != 0
@@ -363,16 +383,13 @@ pub fn factor_tensor<C: ConstraintOps>(
         }
     };
 
-    // Step 4: Build RHS variable ordering: shared vars in LHS order, then RHS-only vars.
-    // Simultaneously build a lookup table (old_var -> position in rhs_ordered)
-    // that replaces both build_var_map and the HashMap<u32, u32>.
+    // Build RHS variable ordering: shared vars in LHS order, then RHS-only vars.
     let mut rhs_ordered: Vec<u32> = Vec::new();
     for &var in lhs_vars.iter() {
         if rhs_contains(var) {
             rhs_ordered.push(var);
         }
     }
-    let shared_count = rhs_ordered.len();
     for &var in rhs_vars.iter() {
         if !lhs_contains(var) {
             rhs_ordered.push(var);
@@ -380,37 +397,21 @@ pub fn factor_tensor<C: ConstraintOps>(
     }
 
     let m = rhs_ordered.len() as u32;
-
-    // Build a unified lookup: old_var_index -> new position in rhs_ordered.
-    // This serves as BOTH the renaming map for apply_var_renaming AND the
-    // rhs_pos lookup for DropFresh construction, eliminating a separate HashMap.
     let rhs_old_to_new = build_var_map(&rhs_ordered);
 
-    // Step 5: Compute constraint renaming inline, using already-collected
-    // lhs_vars and rhs_vars, avoiding the redundant collect_vars_ordered_list
-    // calls that constraint_var_renaming would make.
+    // Compute constraint renaming.
     let constraint = if !constraint.is_empty() {
         let mut constraint_vars = Vec::new();
         constraint.collect_vars(terms, &mut constraint_vars);
         constraint_vars.sort_unstable();
         constraint_vars.dedup();
-        let constraint_map =
-            combined_var_renaming_with_extra(&lhs_vars, &rhs_vars, &constraint_vars);
+        let constraint_map = combined_var_renaming_with_extra(lhs_vars, rhs_vars, &constraint_vars);
         constraint.remap_vars(&constraint_map, terms)
     } else {
         constraint
     };
 
-    // Step 6: Renumber RHS variables.
-    let norm_rhs = if rhs_ordered.is_empty() {
-        rhs_pats.clone()
-    } else {
-        apply_var_renaming_list(&rhs_pats, &rhs_old_to_new, terms)
-    };
-
-    // Step 7: Build DropFresh map. Shared vars are the first `shared_count`
-    // entries in rhs_ordered, placed at positions 0..shared_count.
-    // For each LHS var position i, check if the original var appears in rhs_old_to_new.
+    // Build DropFresh map.
     let mut drop_fresh_map: SmallVec<[(u32, u32); 4]> = SmallVec::new();
     for (i, &lhs_orig_var) in lhs_vars.iter().enumerate() {
         let idx = lhs_orig_var as usize;
@@ -428,40 +429,12 @@ pub fn factor_tensor<C: ConstraintOps>(
         constraint,
     };
 
-    // Suppress unused variable warning - shared_count documents the structure
-    // of rhs_ordered but isn't needed for computation since rhs_old_to_new
-    // already encodes the position information.
-    let _ = shared_count;
-
-    NF::new(norm_lhs, drop_fresh, norm_rhs)
-}
-
-/// Compute a renaming map for constraints based on direct-rule variable ordering:
-/// LHS variables first (order of appearance), then RHS-only variables.
-pub fn constraint_var_renaming<C: ConstraintOps>(
-    lhs_pats: &[TermId],
-    rhs_pats: &[TermId],
-    constraint: &C,
-    terms: &TermStore,
-) -> Vec<Option<u32>> {
-    let lhs_vars = collect_vars_ordered_list(lhs_pats, terms);
-    let rhs_vars = collect_vars_ordered_list(rhs_pats, terms);
-    let mut constraint_vars = Vec::new();
-    constraint.collect_vars(terms, &mut constraint_vars);
-    constraint_vars.sort_unstable();
-    constraint_vars.dedup();
-    combined_var_renaming_with_extra(&lhs_vars, &rhs_vars, &constraint_vars)
-}
-
-/// Compute a renaming map for constraints based on combined variable order:
-/// LHS variables first (order of appearance), then RHS-only variables.
-pub fn combined_var_renaming(lhs_vars: &[u32], rhs_vars: &[u32]) -> Vec<Option<u32>> {
-    combined_var_renaming_with_extra(lhs_vars, rhs_vars, &[])
+    (rhs_old_to_new, drop_fresh)
 }
 
 /// Compute a renaming map for constraints using LHS vars, RHS-only vars,
 /// then any extra vars (e.g., constraint-only vars).
-pub fn combined_var_renaming_with_extra(
+fn combined_var_renaming_with_extra(
     lhs_vars: &[u32],
     rhs_vars: &[u32],
     extra_vars: &[u32],
@@ -502,7 +475,7 @@ fn build_var_map(vars: &[u32]) -> Vec<Option<u32>> {
 
 /// Collect variables from a term in order of first appearance.
 /// Returns the list of original variable indices (unique).
-pub fn collect_vars_ordered(term: TermId, terms: &TermStore) -> Vec<u32> {
+pub(crate) fn collect_vars_ordered(term: TermId, terms: &TermStore) -> Vec<u32> {
     let mut vars = Vec::new();
     let mut seen = std::collections::HashSet::new();
     collect_vars_helper(term, terms, &mut vars, &mut seen);
@@ -510,7 +483,7 @@ pub fn collect_vars_ordered(term: TermId, terms: &TermStore) -> Vec<u32> {
 }
 
 /// Collect variables from a list of terms in order of first appearance.
-pub fn collect_vars_ordered_list(terms_list: &[TermId], terms: &TermStore) -> Vec<u32> {
+fn collect_vars_ordered_list(terms_list: &[TermId], terms: &TermStore) -> Vec<u32> {
     let mut vars = Vec::new();
     let mut seen = std::collections::HashSet::new();
     for &term in terms_list {
@@ -589,7 +562,7 @@ fn collect_vars_helper(
 /// This is a fused single-pass implementation that discovers variables and
 /// renames them in one traversal, eliminating the second pass that the
 /// sequential collect_vars + apply_var_renaming approach would require.
-pub fn renumber_vars(term: TermId, terms: &mut TermStore) -> (TermId, Vec<u32>) {
+pub(crate) fn renumber_vars(term: TermId, terms: &mut TermStore) -> (TermId, Vec<u32>) {
     use crate::symbol::FuncId;
 
     // Ground terms contain no variables.
@@ -1295,7 +1268,7 @@ fn collect_vars_through_subst_list(
 /// Bundled substitution parameters for fused factor operations.
 /// Groups a primary substitution, optional secondary substitution, and optional
 /// virtual shifting info to keep function signatures manageable.
-pub struct SubstParams<'a> {
+pub(crate) struct SubstParams<'a> {
     /// Primary substitution.
     pub subst: &'a crate::subst::Subst,
     /// Optional secondary substitution (e.g., from constraint normalization).
@@ -1309,7 +1282,7 @@ pub struct SubstParams<'a> {
 /// Factor a tensor rewrite into NF using pre-computed substitutions instead of
 /// pre-substituted patterns. This eliminates intermediate term creation by
 /// resolving substitutions during the collect-vars and renumber passes.
-pub fn factor_tensor_with_subst<C: ConstraintOps>(
+pub(crate) fn factor_tensor_with_subst<C: ConstraintOps>(
     lhs_pats: &[TermId],
     lhs_params: &SubstParams<'_>,
     rhs_pats: &[TermId],
@@ -1318,7 +1291,6 @@ pub fn factor_tensor_with_subst<C: ConstraintOps>(
     terms: &mut TermStore,
 ) -> NF<C> {
     // Step 1: Fused apply_subst + renumber on LHS (single traversal).
-    // LHS is never shifted (lhs_params.shifted should be false).
     let (norm_lhs, lhs_vars) = renumber_vars_through_subst_list(
         lhs_pats,
         lhs_params.subst,
@@ -1338,78 +1310,11 @@ pub fn factor_tensor_with_subst<C: ConstraintOps>(
         terms,
     );
 
-    let n = lhs_vars.len() as u32;
-
-    // Step 3: Build membership bitsets for O(1) lookups.
-    let mut lhs_bits: u64 = 0;
-    let mut lhs_has_large = false;
-    for &var in lhs_vars.iter() {
-        if var < 64 {
-            lhs_bits |= 1u64 << var;
-        } else {
-            lhs_has_large = true;
-        }
-    }
-    let mut rhs_bits: u64 = 0;
-    let mut rhs_has_large = false;
-    for &var in rhs_vars.iter() {
-        if var < 64 {
-            rhs_bits |= 1u64 << var;
-        } else {
-            rhs_has_large = true;
-        }
-    }
-
-    let lhs_contains = |var: u32| -> bool {
-        if var < 64 {
-            lhs_bits & (1u64 << var) != 0
-        } else if lhs_has_large {
-            lhs_vars.contains(&var)
-        } else {
-            false
-        }
-    };
-    let rhs_contains = |var: u32| -> bool {
-        if var < 64 {
-            rhs_bits & (1u64 << var) != 0
-        } else if rhs_has_large {
-            rhs_vars.contains(&var)
-        } else {
-            false
-        }
-    };
-
-    // Step 4: Build RHS variable ordering: shared vars in LHS order, then RHS-only vars.
-    let mut rhs_ordered: Vec<u32> = Vec::new();
-    for &var in lhs_vars.iter() {
-        if rhs_contains(var) {
-            rhs_ordered.push(var);
-        }
-    }
-    for &var in rhs_vars.iter() {
-        if !lhs_contains(var) {
-            rhs_ordered.push(var);
-        }
-    }
-
-    let m = rhs_ordered.len() as u32;
-    let rhs_old_to_new = build_var_map(&rhs_ordered);
-
-    // Step 5: Compute constraint renaming.
-    let constraint = if !constraint.is_empty() {
-        let mut constraint_vars = Vec::new();
-        constraint.collect_vars(terms, &mut constraint_vars);
-        constraint_vars.sort_unstable();
-        constraint_vars.dedup();
-        let constraint_map =
-            combined_var_renaming_with_extra(&lhs_vars, &rhs_vars, &constraint_vars);
-        constraint.remap_vars(&constraint_map, terms)
-    } else {
-        constraint
-    };
+    // Steps 3-5, 7: Build wiring (bitsets, rhs ordering, constraint renaming, DropFresh).
+    let (rhs_old_to_new, drop_fresh) = build_factor_wiring(&lhs_vars, &rhs_vars, constraint, terms);
 
     // Step 6: Apply subst + renumber on RHS in a single traversal.
-    // We always apply the substitution even when rhs_ordered is empty because
+    // We always apply the substitution even when rhs_old_to_new is empty because
     // variables may have been bound to ground terms by the substitution.
     let norm_rhs = apply_subst_and_renumber_list(
         rhs_pats,
@@ -1420,24 +1325,6 @@ pub fn factor_tensor_with_subst<C: ConstraintOps>(
         &rhs_old_to_new,
         terms,
     );
-
-    // Step 7: Build DropFresh map.
-    let mut drop_fresh_map: SmallVec<[(u32, u32); 4]> = SmallVec::new();
-    for (i, &lhs_orig_var) in lhs_vars.iter().enumerate() {
-        let idx = lhs_orig_var as usize;
-        if idx < rhs_old_to_new.len() {
-            if let Some(j) = rhs_old_to_new[idx] {
-                drop_fresh_map.push((i as u32, j));
-            }
-        }
-    }
-
-    let drop_fresh = DropFresh {
-        in_arity: n,
-        out_arity: m,
-        map: drop_fresh_map,
-        constraint,
-    };
 
     NF::new(norm_lhs, drop_fresh, norm_rhs)
 }

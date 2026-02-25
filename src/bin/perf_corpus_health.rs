@@ -330,9 +330,11 @@ fn pearson_corr(xs: &[f64], ys: &[f64]) -> Option<f64> {
 fn collect_series(snapshots: &[Snapshot], source: SourceFilter) -> MetricSeries {
     let mut series: MetricSeries = BTreeMap::new();
     for snapshot in snapshots {
-        if (source == SourceFilter::Gate || source == SourceFilter::All) && snapshot.gate.is_some()
+        if let Some(gate) = snapshot
+            .gate
+            .as_ref()
+            .filter(|_| source == SourceFilter::Gate || source == SourceFilter::All)
         {
-            let gate = snapshot.gate.as_ref().expect("gate exists");
             for row in &gate.rows {
                 series
                     .entry(("gate".to_string(), "median".to_string(), row.id.clone()))
@@ -344,10 +346,11 @@ fn collect_series(snapshots: &[Snapshot], source: SourceFilter) -> MetricSeries 
                     .push((snapshot.name.clone(), row.p95_us));
             }
         }
-        if (source == SourceFilter::Probe || source == SourceFilter::All)
-            && snapshot.probe.is_some()
+        if let Some(probe) = snapshot
+            .probe
+            .as_ref()
+            .filter(|_| source == SourceFilter::Probe || source == SourceFilter::All)
         {
-            let probe = snapshot.probe.as_ref().expect("probe exists");
             for row in &probe.rows {
                 series
                     .entry(("probe".to_string(), "median".to_string(), row.id.clone()))
@@ -368,13 +371,21 @@ fn latest_present_ids(snapshots: &[Snapshot], source: SourceFilter) -> BTreeSet<
     let Some(latest) = snapshots.last() else {
         return out;
     };
-    if (source == SourceFilter::Gate || source == SourceFilter::All) && latest.gate.is_some() {
-        for row in &latest.gate.as_ref().expect("gate exists").rows {
+    if let Some(gate) = latest
+        .gate
+        .as_ref()
+        .filter(|_| source == SourceFilter::Gate || source == SourceFilter::All)
+    {
+        for row in &gate.rows {
             out.insert(row.id.clone());
         }
     }
-    if (source == SourceFilter::Probe || source == SourceFilter::All) && latest.probe.is_some() {
-        for row in &latest.probe.as_ref().expect("probe exists").rows {
+    if let Some(probe) = latest
+        .probe
+        .as_ref()
+        .filter(|_| source == SourceFilter::Probe || source == SourceFilter::All)
+    {
+        for row in &probe.rows {
             out.insert(row.id.clone());
         }
     }

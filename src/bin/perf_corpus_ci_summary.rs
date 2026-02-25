@@ -66,11 +66,11 @@ struct RunRow {
     median_us: f64,
     p95_us: f64,
     #[serde(default)]
-    engine_steps_median: u64,
+    engine_steps: u64,
     #[serde(default)]
-    compose_attempts_median: u64,
+    compose_attempts: u64,
     #[serde(default)]
-    meet_attempts_median: u64,
+    meet_attempts: u64,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -439,9 +439,9 @@ fn render_markdown(
                 row.category,
                 row.median_us,
                 row.p95_us,
-                row.engine_steps_median,
-                row.compose_attempts_median,
-                row.meet_attempts_median,
+                row.engine_steps,
+                row.compose_attempts,
+                row.meet_attempts,
             ));
         }
         out.push('\n');

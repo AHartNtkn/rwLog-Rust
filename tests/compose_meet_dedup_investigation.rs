@@ -61,18 +61,6 @@ fn measure_compose_meet_duplication() {
             snap.meet_unique_pairs,
             meet_dup_pct,
         );
-
-        // Show frequency distribution for cases with compose duplication
-        if snap.compose_attempts > 10 && snap.compose_unique_pairs < snap.compose_attempts {
-            let (compose_hist, _) = rwlog::perf_counters::pair_frequency_histograms();
-            if !compose_hist.is_empty() {
-                print!("    freq: ");
-                for (count, num_pairs) in &compose_hist {
-                    print!("{}x={} ", count, num_pairs);
-                }
-                println!();
-            }
-        }
     }
 
     println!("{:-<140}", "");

@@ -58,9 +58,11 @@ What would you like to do?
 4. Understand the syntax
 5. Learn about operators (; | &)
 6. Use constraints (CHR theories)
-7. Something else
+7. Construct duals, derive relations, synthesis, or deterministic patterns
+8. Use parameterized macros (`rel name(param) { ... }`)
+9. Something else
 
-**Then read the matching workflow from `workflows/` and follow it.**
+**Then read the matching workflow from `workflows/` or reference and follow it.**
 </intake>
 
 <routing>
@@ -72,7 +74,9 @@ What would you like to do?
 | 4, "syntax", "how to write" | Read `references/syntax.md`, explain to user |
 | 5, "operators", "composition", "disjunction" | Read `references/operators.md`, explain to user |
 | 6, "constraint", "CHR", "theory" | Read `references/constraints.md`, explain to user |
-| 7, other | Clarify intent, then select workflow or reference |
+| 7, "dual", "derive", "subtract", "synthesis", "synthesize", "determinism", "overlap" | Read `references/core-patterns.md`, explain to user |
+| 8, "macro", "parameterized", "rel name(", "forward reference" | Read `references/syntax.md` (macros section) and `references/recursion.md` (parameterized recursion section) |
+| 9, other | Clarify intent, then select workflow or reference |
 </routing>
 
 <verification_loop>
@@ -101,10 +105,11 @@ Report:
 All in `references/`:
 
 **Core Language:**
-- syntax.md - Complete syntax reference (terms, variables, rules)
+- syntax.md - Complete syntax reference (terms, variables, rules, macros)
 - operators.md - Composition (;), disjunction (|), conjunction (&)
 - variables-and-terms.md - How variables and terms work
 - constraints.md - CHR constraint theories
+- core-patterns.md - Constructing duals, deriving relations, synthesis, determinism
 
 **Programming:**
 - recursion.md - Writing recursive relations

@@ -6,7 +6,7 @@ use crate::queue::{BlockedOn, QueueWaker, WakeHub};
 use crate::rel::{Rel, RelId};
 use crate::term::TermStore;
 use dashmap::DashMap;
-use rustc_hash::FxHashSet;
+use rustc_hash::{FxHashMap, FxHashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
@@ -21,50 +21,54 @@ static NEXT_BIND_ID: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Clone, Debug)]
 pub(crate) struct Binding<C: Clone> {
-    pub(crate) rel: RelId,
     pub(crate) id: BindId,
     pub(crate) body: Arc<Rel<C>>,
 }
 
 /// Environment for Fix bindings (RelId -> Rel body).
 ///
-/// Arc-wrapped Vec for O(1) cloning. bind() copies the Vec since the old
-/// Env remains shared, but clone() is just an Arc bump.
-#[derive(Clone, Debug, Default)]
+/// Uses FxHashMap for O(1) lookup. Arc-wrapped for O(1) cloning.
+/// bind() uses Arc::make_mut for copy-on-write: when the Arc has a single
+/// owner (common during env construction), the map is mutated in place
+/// without cloning.
+#[derive(Clone, Debug)]
 pub struct Env<C: Clone> {
-    bindings: Arc<Vec<Binding<C>>>,
+    map: Arc<FxHashMap<RelId, Binding<C>>>,
+}
+
+impl<C: Clone> Default for Env<C> {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl<C: Clone> Env<C> {
     /// Create an empty environment.
     pub fn new() -> Self {
         Self {
-            bindings: Arc::new(Vec::new()),
+            map: Arc::new(FxHashMap::default()),
         }
     }
 
     /// Bind a RelId to a Rel body.
     pub fn bind(&self, id: RelId, body: Arc<Rel<C>>) -> Self {
         let binding = Binding {
-            rel: id,
             id: NEXT_BIND_ID.fetch_add(1, Ordering::Relaxed),
             body,
         };
-        let mut new_bindings = (*self.bindings).clone();
-        new_bindings.push(binding);
-        Self {
-            bindings: Arc::new(new_bindings),
-        }
+        let mut new_map = Arc::clone(&self.map);
+        Arc::make_mut(&mut new_map).insert(id, binding);
+        Self { map: new_map }
     }
 
     /// Look up a binding.
     pub(crate) fn lookup(&self, id: RelId) -> Option<&Binding<C>> {
-        self.bindings.iter().rev().find(|binding| binding.rel == id)
+        self.map.get(&id)
     }
 
     /// Check if a binding exists.
     pub fn contains(&self, id: RelId) -> bool {
-        self.lookup(id).is_some()
+        self.map.contains_key(&id)
     }
 }
 
@@ -131,8 +135,8 @@ pub struct ProducerSpec<C: ConstraintOps> {
 
 #[derive(Debug)]
 pub(crate) struct TableAnswers<C: ConstraintOps> {
-    answers: Vec<Arc<NF<C>>>,
-    seen: FxHashSet<Arc<NF<C>>>,
+    answers: Vec<NF<C>>,
+    seen: FxHashSet<NF<C>>,
     waker: QueueWaker,
 }
 
@@ -142,6 +146,10 @@ pub(crate) struct TableProducer<C: ConstraintOps> {
     producer: Option<Node<C>>,
     spec: Option<ProducerSpec<C>>,
     iteration_start_len: usize,
+    /// Semi-naive: answers before this index were already composed in
+    /// previous iterations. Only answers at index >= replay_watermark
+    /// are replayed when building the next iteration's producer.
+    replay_watermark: usize,
     producer_task_active: bool,
 }
 
@@ -172,6 +180,7 @@ impl<C: ConstraintOps> Table<C> {
                 producer: None,
                 spec: None,
                 iteration_start_len: 0,
+                replay_watermark: 0,
                 producer_task_active: false,
             }),
         }
@@ -179,10 +188,9 @@ impl<C: ConstraintOps> Table<C> {
 
     /// Add an answer to the table.
     pub fn add_answer(&self, nf: NF<C>) -> bool {
-        let arc_nf = Arc::new(nf);
         let mut answers = self.answers.lock();
-        if answers.seen.insert(Arc::clone(&arc_nf)) {
-            answers.answers.push(arc_nf);
+        if answers.seen.insert(nf.clone()) {
+            answers.answers.push(nf);
             answers.waker.wake();
             true
         } else {
@@ -279,6 +287,14 @@ impl<C: ConstraintOps> Table<C> {
         self.producer.lock().iteration_start_len = len;
     }
 
+    pub fn replay_watermark(&self) -> usize {
+        self.producer.lock().replay_watermark
+    }
+
+    pub fn set_replay_watermark(&self, watermark: usize) {
+        self.producer.lock().replay_watermark = watermark;
+    }
+
     pub fn producer_has_node(&self) -> bool {
         self.producer.lock().producer.is_some()
     }
@@ -287,13 +303,23 @@ impl<C: ConstraintOps> Table<C> {
         self.answers.lock().answers.len()
     }
 
-    pub fn answer_at(&self, index: usize) -> Option<Arc<NF<C>>> {
+    pub fn answer_at(&self, index: usize) -> Option<NF<C>> {
         self.answers.lock().answers.get(index).cloned()
     }
 
     /// Get all answers.
-    pub fn all_answers(&self) -> Vec<Arc<NF<C>>> {
+    pub fn all_answers(&self) -> Vec<NF<C>> {
         self.answers.lock().answers.clone()
+    }
+
+    /// Get answers starting from the given index (for semi-naive delta replay).
+    pub fn answers_from(&self, start: usize) -> Vec<NF<C>> {
+        let answers = self.answers.lock();
+        if start >= answers.answers.len() {
+            Vec::new()
+        } else {
+            answers.answers[start..].to_vec()
+        }
     }
 
     pub fn blocked_on(&self) -> BlockedOn {
@@ -340,7 +366,11 @@ impl<C: ConstraintOps> Default for Table<C> {
     }
 }
 
-fn make_replay_producer<C: ConstraintOps>(spec: &ProducerSpec<C>, tables: &Tables<C>) -> Node<C> {
+fn make_replay_producer<C: ConstraintOps>(
+    spec: &ProducerSpec<C>,
+    tables: &Tables<C>,
+    replay_watermark: usize,
+) -> Node<C> {
     let mut producer_pipe = PipeWork::from_rel_with_boundaries(
         spec.body.as_ref().clone(),
         spec.left.clone(),
@@ -348,7 +378,7 @@ fn make_replay_producer<C: ConstraintOps>(spec: &ProducerSpec<C>, tables: &Table
         spec.env.clone(),
         tables.clone(),
     );
-    producer_pipe.call_mode = CallMode::ReplayOnly(spec.key.clone());
+    producer_pipe.call_mode = CallMode::ReplayOnly(spec.key.clone(), replay_watermark);
     Node::Work(Box::new(Work::Pipe(Box::new(producer_pipe))))
 }
 
@@ -369,7 +399,8 @@ pub fn step_table_producer<C: ConstraintOps>(
             table.set_producer_task_active(false);
             return ProducerStep::Done;
         };
-        let producer_node = make_replay_producer(&spec, tables);
+        // First iteration: watermark = 0, replay all existing answers
+        let producer_node = make_replay_producer(&spec, tables, 0);
         table.start_producer(producer_node, spec, table.answers_len());
     }
 
@@ -394,8 +425,13 @@ pub fn step_table_producer<C: ConstraintOps>(
                     table.set_producer_task_active(false);
                     return ProducerStep::Done;
                 };
+                // Semi-naive: the delta for the next iteration starts at the
+                // previous iteration_start_len. Only answers from this index
+                // onward will be replayed by ReplayOnly calls.
+                let watermark = table.iteration_start_len();
+                table.set_replay_watermark(watermark);
                 table.set_iteration_start_len(table.answers_len());
-                table.set_producer_node(make_replay_producer(&spec, tables));
+                table.set_producer_node(make_replay_producer(&spec, tables, watermark));
                 ProducerStep::Progress
             } else {
                 table.finish_producer();
@@ -509,9 +545,9 @@ impl<C: ConstraintOps> FixWork<C> {
     /// Modifies `answer_index` and returns the step outcome.
     /// The caller can reuse the existing Box<Work> instead of allocating.
     pub fn step_in_place(&mut self, terms: &mut TermStore) -> FixStepResult<C> {
-        if let Some(arc_nf) = self.table.answer_at(self.answer_index) {
+        if let Some(nf) = self.table.answer_at(self.answer_index) {
             self.answer_index += 1;
-            return FixStepResult::Emit(Arc::unwrap_or_clone(arc_nf));
+            return FixStepResult::Emit(nf);
         }
 
         if self.table.is_done() {
@@ -528,9 +564,9 @@ impl<C: ConstraintOps> FixWork<C> {
         let step = step_table_producer(&self.table, terms, &self.tables);
         self.table.set_producer_task_active(false);
 
-        if let Some(arc_nf) = self.table.answer_at(self.answer_index) {
+        if let Some(nf) = self.table.answer_at(self.answer_index) {
             self.answer_index += 1;
-            return FixStepResult::Emit(Arc::unwrap_or_clone(arc_nf));
+            return FixStepResult::Emit(nf);
         }
 
         match step {

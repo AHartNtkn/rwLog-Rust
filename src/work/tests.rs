@@ -1,5 +1,5 @@
 use super::{
-    rel_to_node, step_table_producer, AndGroup, CallKey, CallMode, ComposeWork, Env, FixWork,
+    rel_to_node, step_table_producer, AndGroup, CallKey, ComposeWork, Env, FixWork,
     JoinReceiverWork, MeetWork, PipeWork, ProducerSpec, ProducerState, ProducerStep, Table, Tables,
     Work, WorkStep,
 };
@@ -74,6 +74,7 @@ fn count_pipe_nodes_in_work(work: &Work<()>) -> usize {
         Work::Compose(compose) => {
             count_pipe_nodes(compose.left()) + count_pipe_nodes(compose.right())
         }
+        Work::Bind(_) => 0,
         Work::JoinReceiver(_) => 0,
         Work::Atom(_) => 0,
         Work::Done => 0,
@@ -100,7 +101,12 @@ fn extract_key_from_step(step: WorkStep<()>) -> CallKey<()> {
                     .expect("Expected FixWork in compose nodes");
                 (*fix.key).clone()
             }
-            _ => panic!("Expected Work::Compose(..)"),
+            Work::Bind(bind) => {
+                let fix = find_fixwork_in_node(bind.source())
+                    .expect("Expected FixWork in bind source");
+                (*fix.key).clone()
+            }
+            _ => panic!("Expected Work::Compose or Work::Bind"),
         },
         _ => panic!("Expected WorkStep::More(..)"),
     }
@@ -148,6 +154,7 @@ fn find_and_group_in_work(work: &Work<()>) -> Option<AndGroup<()>> {
         Work::Pipe(_)
         | Work::Meet(_)
         | Work::Fix(_)
+        | Work::Bind(_)
         | Work::JoinReceiver(_)
         | Work::Atom(_)
         | Work::Done => None,
@@ -791,7 +798,13 @@ fn split_or_preserves_right_boundary() {
 }
 
 #[test]
-fn pipework_prefers_non_call_over_call_on_opposite_end() {
+fn pipework_resolves_and_then_simple_atom_call() {
+    // When mid = [And(Atom(L), Atom(L)), Call(0)] and Call(0) body is Atom(BODY),
+    // the pipe should:
+    // 1. Collapse the And into a single Atom(L) via meet
+    // 2. Absorb it into the left boundary
+    // 3. Resolve Call(0) to its Atom body (BODY -> BODY) and compose with left
+    // Since L != BODY, composition fails and the pipe produces no results.
     let (symbols, mut terms) = setup();
     let left_nf = make_ground_nf("L", &symbols, &terms);
     let right_nf = left_nf.clone();
@@ -809,10 +822,10 @@ fn pipework_prefers_non_call_over_call_on_opposite_end() {
     pipe.flip = true;
 
     let step = pipe.step(&mut terms);
-    let key = extract_key_from_step(step);
+    // L -> L composed with BODY -> BODY fails (L != BODY), so pipe is done.
     assert!(
-        key.left.is_some(),
-        "Call should see a left boundary after collapsing And of atoms"
+        matches!(step, WorkStep::Done),
+        "Pipe should produce Done when simple Atom Call compose fails"
     );
 }
 
@@ -952,15 +965,7 @@ fn split_or_preserves_env() {
 
     // Create pipe with env containing a binding
     let env = Env::new().bind(42, Arc::new(Rel::Atom(Arc::new(nf_body))));
-    let mut pipe: PipeWork<()> = PipeWork {
-        left: None,
-        mid,
-        right: None,
-        flip: false,
-        env,
-        tables: Tables::new(),
-        call_mode: CallMode::Normal,
-    };
+    let mut pipe: PipeWork<()> = PipeWork::with_env_and_tables(None, mid, None, env, Tables::new());
     let step = pipe.step(&mut terms);
 
     let (left_node, right_node) = unwrap_split(step);
@@ -2614,8 +2619,8 @@ fn table_next_answer_increments_index() {
     let nf_b = make_ground_nf("B", &symbols, &terms);
     table.add_answer(nf_a.clone());
     table.add_answer(nf_b.clone());
-    assert_eq!(table.answer_at(0).as_deref(), Some(&nf_a));
-    assert_eq!(table.answer_at(1).as_deref(), Some(&nf_b));
+    assert_eq!(table.answer_at(0).as_ref(), Some(&nf_a));
+    assert_eq!(table.answer_at(1).as_ref(), Some(&nf_b));
 }
 
 #[test]
@@ -2626,9 +2631,9 @@ fn table_reset_consumer() {
     let nf_b = make_ground_nf("B", &symbols, &terms);
     table.add_answer(nf_a.clone());
     table.add_answer(nf_b.clone());
-    assert_eq!(table.answer_at(0).as_deref(), Some(&nf_a));
-    assert_eq!(table.answer_at(1).as_deref(), Some(&nf_b));
-    assert_eq!(table.answer_at(0).as_deref(), Some(&nf_a));
+    assert_eq!(table.answer_at(0).as_ref(), Some(&nf_a));
+    assert_eq!(table.answer_at(1).as_ref(), Some(&nf_b));
+    assert_eq!(table.answer_at(0).as_ref(), Some(&nf_a));
 }
 
 #[test]

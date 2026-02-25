@@ -137,6 +137,31 @@ This fires when both constraints are present:
 (eq $x $y), (eq $y $z) <=> (eq $x $z).
 ```
 </multi_head>
+
+<equality_body>
+**Equality in Rule Bodies (`$x = $y`)**
+
+CHR rule bodies can use `$x = $y` to unify two terms. This is a builtin — it does not require declaring `constraint eq/2`.
+
+```
+(pred $x $y) <=> $x = $y.
+```
+
+When the body executes, `$x = $y` unifies the two terms into the state's equality substitution. If either side contains variables, they get bound. If the terms are incompatible (functor mismatch, arity mismatch, occurs-check failure), unification fails and the body fails.
+
+```
+theory eq_theory {
+    constraint p/2
+    constraint q/1
+
+    (p $x $y) <=> $x = $y, (q $x).
+}
+```
+
+When `(p a a)` fires this rule, the body unifies `a` with `a` (trivially succeeds) and inserts `(q a)`. When `(p a b)` fires, unifying `a` with `b` fails, so the body fails.
+
+Note: `$x = $y` in a body is full unification (variable binding, occurs check), not just structural equality. This is distinct from the main rewriting engine which uses matching only — the equality builtin operates within the CHR constraint store's own substitution.
+</equality_body>
 </rule_types>
 
 <using_constraints>
@@ -348,4 +373,5 @@ The output `{ (no_c $0) }` indicates that `$0` is constrained but not fully dete
 | `load file.txt` | Load theory from file |
 | `pattern { constraints } -> result` | Guard in rewrite rule |
 | `{ (c1), (c2) }` | Multiple constraints (comma-separated) |
+| `$x = $y` | Equality constraint in CHR rule body |
 </syntax_summary>
