@@ -29,6 +29,7 @@ fn run_bin(name: &str, args: &[&str], envs: &[(&str, &str)]) -> Output {
         let mut fallback = Command::new("cargo");
         fallback
             .arg("run")
+            .arg("--release")
             .arg("--quiet")
             .arg("--manifest-path")
             .arg(MANIFEST_PATH)
@@ -53,6 +54,7 @@ fn run_bin_in_dir(name: &str, args: &[&str], cwd: &Path) -> Output {
         let mut fallback = Command::new("cargo");
         fallback
             .arg("run")
+            .arg("--release")
             .arg("--quiet")
             .arg("--manifest-path")
             .arg(MANIFEST_PATH)

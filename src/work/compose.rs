@@ -10,17 +10,19 @@ use super::{build_root_tag, match_root_tag, tags_compatible, RootTag, Work, Work
 enum ComposeCursor {
     Left {
         left_idx: usize,
-        /// Indices into seen_r that are compatible with this left NF.
-        compatible_r: Vec<usize>,
-        /// Current position within compatible_r.
-        cursor: usize,
+        /// Next right index to scan.
+        next_right_idx: usize,
+        /// Snapshot of seen_r length when this cursor was enqueued.
+        /// Limits the scan so each pair is considered exactly once.
+        right_limit: usize,
     },
     Right {
         right_idx: usize,
-        /// Indices into seen_l that are compatible with this right NF.
-        compatible_l: Vec<usize>,
-        /// Current position within compatible_l.
-        cursor: usize,
+        /// Next left index to scan.
+        next_left_idx: usize,
+        /// Snapshot of seen_l length when this cursor was enqueued.
+        /// Limits the scan so each pair is considered exactly once.
+        left_limit: usize,
     },
 }
 
@@ -34,6 +36,8 @@ struct ComposeStrategy {
 }
 
 impl ComposeStrategy {
+    const MAX_PAIR_CHECKS_PER_STEP: usize = 128;
+
     fn new() -> Self {
         Self {
             pair_queue: VecDeque::new(),
@@ -42,56 +46,12 @@ impl ComposeStrategy {
         }
     }
 
-    /// Collect indices of right NFs that are compatible with a given build root tag.
-    ///
-    /// A left NF with build tag `Functor(f)` is compatible with right NFs that have
-    /// match tag `Functor(f)` (same functor) or `Wildcard` (variable-headed).
-    /// A left NF with build tag `Wildcard` is compatible with ALL right NFs.
-    fn compatible_right_indices(&self, build_tag: RootTag, right_limit: usize) -> Vec<usize> {
-        match build_tag {
-            RootTag::Wildcard => {
-                // Variable-headed build: compatible with everything
-                (0..right_limit).collect()
-            }
-            RootTag::Functor(f) => {
-                let mut indices = Vec::new();
-                for (idx, tag) in self.right_match_tags.iter().enumerate() {
-                    if idx >= right_limit {
-                        break;
-                    }
-                    if tags_compatible(RootTag::Functor(f), *tag) {
-                        indices.push(idx);
-                    }
-                }
-                indices
-            }
-        }
-    }
-
-    /// Collect indices of left NFs that are compatible with a given match root tag.
-    ///
-    /// A right NF with match tag `Functor(f)` is compatible with left NFs that have
-    /// build tag `Functor(f)` (same functor) or `Wildcard` (variable-headed).
-    /// A right NF with match tag `Wildcard` is compatible with ALL left NFs.
-    fn compatible_left_indices(&self, match_tag: RootTag, left_limit: usize) -> Vec<usize> {
-        match match_tag {
-            RootTag::Wildcard => {
-                // Variable-headed match: compatible with everything
-                (0..left_limit).collect()
-            }
-            RootTag::Functor(f) => {
-                let mut indices = Vec::new();
-                for (idx, tag) in self.left_build_tags.iter().enumerate() {
-                    if idx >= left_limit {
-                        break;
-                    }
-                    if tags_compatible(*tag, RootTag::Functor(f)) {
-                        indices.push(idx);
-                    }
-                }
-                indices
-            }
-        }
+    #[inline]
+    fn pair_tags_compatible(&self, left_idx: usize, right_idx: usize) -> bool {
+        tags_compatible(
+            self.left_build_tags[left_idx],
+            self.right_match_tags[right_idx],
+        )
     }
 
     /// Enqueue compose pairs for a new left NF.
@@ -100,20 +60,16 @@ impl ComposeStrategy {
         &mut self,
         join: &DiagonalJoin<C, Self>,
         left_idx: usize,
-        build_tag: RootTag,
+        _build_tag: RootTag,
     ) {
         let right_limit = join.seen_r_len();
         if right_limit == 0 {
             return;
         }
-        let compatible_r = self.compatible_right_indices(build_tag, right_limit);
-        if compatible_r.is_empty() {
-            return;
-        }
         self.pair_queue.push_back(ComposeCursor::Left {
             left_idx,
-            compatible_r,
-            cursor: 0,
+            next_right_idx: 0,
+            right_limit,
         });
     }
 
@@ -123,20 +79,16 @@ impl ComposeStrategy {
         &mut self,
         join: &DiagonalJoin<C, Self>,
         right_idx: usize,
-        match_tag: RootTag,
+        _match_tag: RootTag,
     ) {
         let left_limit = join.seen_l_len();
         if left_limit == 0 {
             return;
         }
-        let compatible_l = self.compatible_left_indices(match_tag, left_limit);
-        if compatible_l.is_empty() {
-            return;
-        }
         self.pair_queue.push_back(ComposeCursor::Right {
             right_idx,
-            compatible_l,
-            cursor: 0,
+            next_left_idx: 0,
+            left_limit,
         });
     }
 
@@ -145,45 +97,102 @@ impl ComposeStrategy {
         join: &mut DiagonalJoin<C, Self>,
         terms: &mut TermStore,
     ) -> Option<crate::nf::NF<C>> {
-        let mut cursor = self.pair_queue.pop_front()?;
-
-        loop {
-            match &mut cursor {
-                ComposeCursor::Left {
-                    left_idx,
-                    compatible_r,
-                    cursor: cur,
-                } => {
-                    if *cur >= compatible_r.len() {
-                        break;
+        let cursor = self.pair_queue.pop_front()?;
+        match cursor {
+            ComposeCursor::Left {
+                left_idx,
+                mut next_right_idx,
+                right_limit,
+            } => {
+                let left_nf = join.seen_l_at(left_idx);
+                let mut checks = 0usize;
+                while next_right_idx < right_limit {
+                    let right_idx = next_right_idx;
+                    next_right_idx += 1;
+                    checks += 1;
+                    if !self.pair_tags_compatible(left_idx, right_idx) {
+                        if checks >= Self::MAX_PAIR_CHECKS_PER_STEP && next_right_idx < right_limit
+                        {
+                            self.pair_queue.push_back(ComposeCursor::Left {
+                                left_idx,
+                                next_right_idx,
+                                right_limit,
+                            });
+                            return join.pop_pending();
+                        }
+                        continue;
                     }
-                    let right_idx = compatible_r[*cur];
-                    let left_nf = join.seen_l_at(*left_idx);
                     let right_nf = join.seen_r_at(right_idx);
                     if let Some(nf) = Self::compose_pair(left_nf, right_nf, terms) {
                         join.push_pending(nf);
+                        // Emit eagerly on first success to improve time-to-first-answer.
+                        // Resume this cursor later from where we left off.
+                        if next_right_idx < right_limit {
+                            self.pair_queue.push_front(ComposeCursor::Left {
+                                left_idx,
+                                next_right_idx,
+                                right_limit,
+                            });
+                        }
+                        return join.pop_pending();
                     }
-                    *cur += 1;
+                    if checks >= Self::MAX_PAIR_CHECKS_PER_STEP && next_right_idx < right_limit {
+                        self.pair_queue.push_back(ComposeCursor::Left {
+                            left_idx,
+                            next_right_idx,
+                            right_limit,
+                        });
+                        return join.pop_pending();
+                    }
                 }
-                ComposeCursor::Right {
-                    right_idx,
-                    compatible_l,
-                    cursor: cur,
-                } => {
-                    if *cur >= compatible_l.len() {
-                        break;
+            }
+            ComposeCursor::Right {
+                right_idx,
+                mut next_left_idx,
+                left_limit,
+            } => {
+                let right_nf = join.seen_r_at(right_idx);
+                let mut checks = 0usize;
+                while next_left_idx < left_limit {
+                    let left_idx = next_left_idx;
+                    next_left_idx += 1;
+                    checks += 1;
+                    if !self.pair_tags_compatible(left_idx, right_idx) {
+                        if checks >= Self::MAX_PAIR_CHECKS_PER_STEP && next_left_idx < left_limit {
+                            self.pair_queue.push_back(ComposeCursor::Right {
+                                right_idx,
+                                next_left_idx,
+                                left_limit,
+                            });
+                            return join.pop_pending();
+                        }
+                        continue;
                     }
-                    let left_idx = compatible_l[*cur];
                     let left_nf = join.seen_l_at(left_idx);
-                    let right_nf = join.seen_r_at(*right_idx);
                     if let Some(nf) = Self::compose_pair(left_nf, right_nf, terms) {
                         join.push_pending(nf);
+                        // Emit eagerly on first success to improve time-to-first-answer.
+                        // Resume this cursor later from where we left off.
+                        if next_left_idx < left_limit {
+                            self.pair_queue.push_front(ComposeCursor::Right {
+                                right_idx,
+                                next_left_idx,
+                                left_limit,
+                            });
+                        }
+                        return join.pop_pending();
                     }
-                    *cur += 1;
+                    if checks >= Self::MAX_PAIR_CHECKS_PER_STEP && next_left_idx < left_limit {
+                        self.pair_queue.push_back(ComposeCursor::Right {
+                            right_idx,
+                            next_left_idx,
+                            left_limit,
+                        });
+                        return join.pop_pending();
+                    }
                 }
             }
         }
-
         join.pop_pending()
     }
 
@@ -242,7 +251,7 @@ impl<C: ConstraintOps> JoinStrategy<C> for ComposeStrategy {
             // Eager: compose only functor-compatible pairs immediately
             let right_limit = join.seen_r_len();
             for right_idx in 0..right_limit {
-                if !tags_compatible(build_tag, self.right_match_tags[right_idx]) {
+                if !self.pair_tags_compatible(left_idx, right_idx) {
                     continue;
                 }
                 let left_nf = join.seen_l_at(left_idx);
@@ -268,7 +277,7 @@ impl<C: ConstraintOps> JoinStrategy<C> for ComposeStrategy {
             // Eager: compose only functor-compatible pairs immediately
             let left_limit = join.seen_l_len();
             for left_idx in 0..left_limit {
-                if !tags_compatible(self.left_build_tags[left_idx], match_tag) {
+                if !self.pair_tags_compatible(left_idx, right_idx) {
                     continue;
                 }
                 let left_nf = join.seen_l_at(left_idx);
@@ -355,10 +364,8 @@ impl<C: ConstraintOps> ComposeWork<C> {
         let mut pending: VecDeque<crate::nf::NF<C>> = VecDeque::new();
         if !seen_l.is_empty() && !seen_r.is_empty() {
             for (ri, right_nf) in seen_r.iter().enumerate() {
-                let match_tag = strategy.right_match_tags[ri];
                 for (li, left_nf) in seen_l.iter().enumerate() {
-                    let build_tag = strategy.left_build_tags[li];
-                    if !tags_compatible(build_tag, match_tag) {
+                    if !strategy.pair_tags_compatible(li, ri) {
                         continue;
                     }
                     if let Some(nf) = ComposeStrategy::compose_pair(left_nf, right_nf, terms) {
