@@ -9,14 +9,11 @@ use crate::constraint::ConstraintDisplay;
 use crate::constraint::ConstraintOps;
 use crate::factors::Factors;
 use crate::nf::{format_nf, NF};
-use crate::node::{step_node, Node, NodeStep};
 use crate::perf_counters;
 use crate::rel::{Rel, RelId};
 use crate::symbol::SymbolStore;
 use crate::term::TermStore;
-use crate::work::{
-    rel_to_node, AndGroup, DiagonalStepResult, Env, FixStepResult, PipeWork, Tables, Work, WorkStep,
-};
+use crate::work::{DiagonalStepResult, Env, FixStepResult, PipeWork, Tables, Work, WorkStep};
 use rustc_hash::{FxHashMap, FxHashSet};
 use smallvec::SmallVec;
 use std::collections::VecDeque;
@@ -60,7 +57,6 @@ enum Instr<C: ConstraintOps> {
 #[derive(Debug)]
 struct Program<C: ConstraintOps> {
     instrs: Vec<Instr<C>>,
-    ptr_to_pc: FxHashMap<usize, Pc>,
     entry: Pc,
 }
 
@@ -137,17 +133,12 @@ impl<C: ConstraintOps> Program<C> {
         let entry = compiler.compile_arc(root);
         Self {
             instrs: compiler.instrs,
-            ptr_to_pc: compiler.ptr_to_pc,
             entry,
         }
     }
 
     fn instr(&self, pc: Pc) -> &Instr<C> {
         &self.instrs[pc]
-    }
-
-    fn pc_for_rel(&self, rel: &Arc<Rel<C>>) -> Option<Pc> {
-        self.ptr_to_pc.get(&(Arc::as_ptr(rel) as usize)).copied()
     }
 }
 
@@ -158,7 +149,6 @@ enum Frame<C: ConstraintOps> {
         env: Env<C>,
         tables: Tables<C>,
     },
-    Node(Node<C>),
     Work(Box<Work<C>>),
 }
 
@@ -208,16 +198,6 @@ struct AbstractMachine<C: ConstraintOps> {
     ready: VecDeque<Frame<C>>,
 }
 
-fn collect_and_parts<C: ConstraintOps>(rel: Arc<Rel<C>>, out: &mut Vec<Arc<Rel<C>>>) {
-    match rel.as_ref() {
-        Rel::And(a, b) => {
-            collect_and_parts(a.clone(), out);
-            collect_and_parts(b.clone(), out);
-        }
-        _ => out.push(rel),
-    }
-}
-
 impl<C: ConstraintOps> AbstractMachine<C> {
     fn new(rel: Rel<C>, env: Env<C>) -> Self {
         let program = Program::compile(rel);
@@ -241,7 +221,6 @@ impl<C: ConstraintOps> AbstractMachine<C> {
     fn queue_frame(&mut self, frame: Frame<C>) {
         match frame {
             Frame::Exec { pc, .. } if matches!(self.program.instr(pc), Instr::Fail) => {}
-            Frame::Node(Node::Fail) => {}
             Frame::Work(work) if matches!(*work, Work::Done) => {}
             _ => {
                 self.ready.push_back(frame);
@@ -276,40 +255,10 @@ impl<C: ConstraintOps> AbstractMachine<C> {
                 prepend_spawned(right_frame, left_outcome)
             }
             Instr::EnterAnd { left, right } => {
-                let mut parts = Vec::new();
-                collect_and_parts(left, &mut parts);
-                collect_and_parts(right, &mut parts);
-
-                if parts.is_empty() {
-                    return FrameOutcome::Continue {
-                        cont: None,
-                        spawned: SmallVec::new(),
-                    };
-                }
-
-                if parts.len() == 1 {
-                    let part = parts.pop().expect("single and part");
-                    let cont = if let Some(part_pc) = self.program.pc_for_rel(&part) {
-                        Frame::Exec {
-                            pc: part_pc,
-                            env,
-                            tables,
-                        }
-                    } else {
-                        Frame::Node(rel_to_node(part.as_ref(), &env, &tables))
-                    };
-                    return FrameOutcome::Continue {
-                        cont: Some(cont),
-                        spawned: SmallVec::new(),
-                    };
-                }
-
-                let nodes = parts
-                    .into_iter()
-                    .map(|part| rel_to_node(part.as_ref(), &env, &tables))
-                    .collect();
+                let and_rel = Rel::And(left, right);
+                let pipe = PipeWork::from_rel(and_rel, env, tables);
                 FrameOutcome::Continue {
-                    cont: Some(Frame::Work(Box::new(Work::AndGroup(AndGroup::new(nodes))))),
+                    cont: Some(Frame::Work(Box::new(Work::Pipe(Box::new(pipe))))),
                     spawned: SmallVec::new(),
                 }
             }
@@ -423,8 +372,8 @@ impl<C: ConstraintOps> AbstractMachine<C> {
             },
             WorkStep::Split(left, right) => {
                 let mut spawned = SmallVec::new();
-                spawned.push(Frame::Node(*left));
-                spawned.push(Frame::Node(*right));
+                spawned.push(Frame::Work(left));
+                spawned.push(Frame::Work(right));
                 FrameOutcome::Continue {
                     cont: None,
                     spawned,
@@ -433,28 +382,9 @@ impl<C: ConstraintOps> AbstractMachine<C> {
         }
     }
 
-    fn step_node(&self, node: Node<C>, terms: &mut TermStore) -> FrameOutcome<C> {
-        match step_node(node, terms) {
-            NodeStep::Emit(nf, rest) => FrameOutcome::Emit {
-                nf: *nf,
-                cont: Some(Frame::Node(rest)),
-                spawned: SmallVec::new(),
-            },
-            NodeStep::Continue(rest) => FrameOutcome::Continue {
-                cont: Some(Frame::Node(rest)),
-                spawned: SmallVec::new(),
-            },
-            NodeStep::Exhausted => FrameOutcome::Continue {
-                cont: None,
-                spawned: SmallVec::new(),
-            },
-        }
-    }
-
     fn step_frame(&self, frame: Frame<C>, terms: &mut TermStore) -> FrameOutcome<C> {
         match frame {
             Frame::Exec { pc, env, tables } => self.step_exec(pc, env, tables),
-            Frame::Node(node) => self.step_node(node, terms),
             Frame::Work(work) => self.step_work(work, terms),
         }
     }

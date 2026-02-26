@@ -101,13 +101,13 @@ impl<C: ConstraintOps> BindWork<C> {
         let current = std::mem::replace(&mut *self.source, Node::Fail);
         match step_node(current, terms) {
             NodeStep::Emit(nf, rest) => {
-                let pipe_node = self.template.instantiate(*nf);
+                let pipe_work = self.template.instantiate(*nf);
                 let continuation = BindWork {
                     source: Box::new(rest),
                     template: self.template.clone(),
                 };
-                let continuation_node = Node::Work(Box::new(Work::Bind(continuation)));
-                WorkStep::Split(Box::new(pipe_node), Box::new(continuation_node))
+                let continuation_work = Work::Bind(continuation);
+                WorkStep::Split(Box::new(pipe_work), Box::new(continuation_work))
             }
             NodeStep::Continue(rest) => {
                 *self.source = rest;
@@ -132,7 +132,7 @@ impl<C: ConstraintOps> BindWork<C> {
 
 impl<C: ConstraintOps> PipeTemplate<C> {
     /// Instantiate a pipe with the given NF as a boundary.
-    fn instantiate(&self, nf: NF<C>) -> Node<C> {
+    fn instantiate(&self, nf: NF<C>) -> Work<C> {
         let (left, right) = match self.bind_end {
             PipeEnd::Front => (Some(nf), self.right.clone()),
             PipeEnd::Back => (self.left.clone(), Some(nf)),
@@ -145,6 +145,6 @@ impl<C: ConstraintOps> PipeTemplate<C> {
             self.tables.clone(),
         );
         pipe.call_mode = self.call_mode.clone();
-        Node::Work(Box::new(Work::Pipe(Box::new(pipe))))
+        Work::Pipe(Box::new(pipe))
     }
 }

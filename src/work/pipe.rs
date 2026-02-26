@@ -532,8 +532,8 @@ impl<C: ConstraintOps> PipeWork<C> {
         left_pipe.mid_normalized = false;
         right_pipe.mid_normalized = false;
         WorkStep::Split(
-            Box::new(Node::Work(Box::new(Work::Pipe(Box::new(left_pipe))))),
-            Box::new(Node::Work(Box::new(Work::Pipe(Box::new(right_pipe))))),
+            Box::new(Work::Pipe(Box::new(left_pipe))),
+            Box::new(Work::Pipe(Box::new(right_pipe))),
         )
     }
 

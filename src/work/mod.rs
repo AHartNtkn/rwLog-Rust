@@ -69,7 +69,7 @@ pub enum WorkStep<C: ConstraintOps> {
     /// Emit an answer, continue with more work.
     Emit(NF<C>, Box<Work<C>>),
     /// Fork into two search branches.
-    Split(Box<Node<C>>, Box<Node<C>>),
+    Split(Box<Work<C>>, Box<Work<C>>),
     /// Continue with modified work.
     More(Box<Work<C>>),
 }

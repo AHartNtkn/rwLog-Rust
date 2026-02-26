@@ -80,6 +80,9 @@ Whenever you are asked to edit AGENTS.md, do not take these as litteral, step-by
 - Refactors must be deletion-first: remove the obsolete implementation as soon as a replacement is chosen.
 - Never keep parallel implementations for the same behavior.
 - Do not perform incremental replacements; complete each replacement in a single change set.
+- Never maintain backward-compatibility paths, adapters, or compatibility shims.
+- Never keep legacy execution features once a replacement exists.
+- Always apply destructive updates during architecture replacement: remove the old implementation and route all execution through the new one.
 
 ## PRIMARY EDICT: Tests Must Verify Correct Behavior
 

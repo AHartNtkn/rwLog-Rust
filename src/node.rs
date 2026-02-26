@@ -148,9 +148,10 @@ pub fn step_node<C: ConstraintOps>(node: Node<C>, terms: &mut TermStore) -> Node
                 WorkStep::Emit(nf, next_work) => {
                     NodeStep::Emit(Box::new(nf), Node::Work(next_work))
                 }
-                WorkStep::Split(left_node, right_node) => {
-                    NodeStep::Continue(Node::Or(left_node, right_node))
-                }
+                WorkStep::Split(left_work, right_work) => NodeStep::Continue(Node::Or(
+                    Box::new(Node::Work(left_work)),
+                    Box::new(Node::Work(right_work)),
+                )),
                 WorkStep::More(next_work) => NodeStep::Continue(Node::Work(next_work)),
             }
         }

@@ -146,6 +146,13 @@ fn unwrap_work_pipe(node: Node<()>) -> PipeWork<()> {
     }
 }
 
+fn unwrap_work_pipe_work(work: Work<()>) -> PipeWork<()> {
+    match work {
+        Work::Pipe(pipe) => *pipe,
+        _ => panic!("Expected Work::Pipe"),
+    }
+}
+
 fn find_and_group_in_work(work: &Work<()>) -> Option<AndGroup<()>> {
     match work {
         Work::AndGroup(group) => Some(group.clone()),
@@ -184,7 +191,7 @@ fn unwrap_work_compose(step: WorkStep<()>) -> ComposeWork<()> {
 
 fn unwrap_split(step: WorkStep<()>) -> (Node<()>, Node<()>) {
     match step {
-        WorkStep::Split(left, right) => (*left, *right),
+        WorkStep::Split(left, right) => (Node::Work(left), Node::Work(right)),
         _ => panic!("Expected WorkStep::Split"),
     }
 }
@@ -373,8 +380,8 @@ fn workstep_emit_construction() {
 
 #[test]
 fn workstep_split_construction() {
-    let left: Node<()> = Node::Fail;
-    let right: Node<()> = Node::Fail;
+    let left: Work<()> = Work::Done;
+    let right: Work<()> = Work::Done;
     let step: WorkStep<()> = WorkStep::Split(Box::new(left), Box::new(right));
     assert!(matches!(step, WorkStep::Split(_, _)));
 }
@@ -514,20 +521,8 @@ fn pipework_fuses_middle_atoms_before_advancing_ends() {
             _ => panic!("Expected Work::Pipe"),
         },
         WorkStep::Split(left, right) => {
-            let left_pipe = match *left {
-                Node::Work(work) => match *work {
-                    Work::Pipe(pipe) => *pipe,
-                    _ => panic!("Expected Work::Pipe on left"),
-                },
-                _ => panic!("Expected Node::Work on left"),
-            };
-            let right_pipe = match *right {
-                Node::Work(work) => match *work {
-                    Work::Pipe(pipe) => *pipe,
-                    _ => panic!("Expected Work::Pipe on right"),
-                },
-                _ => panic!("Expected Node::Work on right"),
-            };
+            let left_pipe = unwrap_work_pipe_work(*left);
+            let right_pipe = unwrap_work_pipe_work(*right);
             assert_eq!(
                 left_pipe.mid.len(),
                 3,
@@ -1174,8 +1169,8 @@ fn pipework_step_back_atom_absorbs_to_right() {
             _ => panic!("Expected Work::Pipe"),
         },
         WorkStep::Split(left, right) => {
-            let left_pipe = unwrap_work_pipe(*left);
-            let right_pipe = unwrap_work_pipe(*right);
+            let left_pipe = unwrap_work_pipe_work(*left);
+            let right_pipe = unwrap_work_pipe_work(*right);
             assert!(
                 left_pipe.right.is_some(),
                 "Left branch missing absorbed right boundary"
