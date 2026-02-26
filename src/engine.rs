@@ -1174,8 +1174,8 @@ rel killer {
     fn engine_size_reasonable() {
         use std::mem::size_of;
         let size = size_of::<Engine<()>>();
-        // Engine contains TermStore and Node (with Work)
-        // These are substantial structures
+        // Engine contains TermStore plus scheduler/work state.
+        // These are substantial structures.
         assert!(
             size < 1600,
             "Engine should not be excessively large, got {}",
@@ -1844,39 +1844,6 @@ rel killer {
         }
         // Must terminate (either with 0 answers or by detecting loop)
         assert!(count < 100, "Pure recursion should terminate via tabling");
-    }
-
-    #[test]
-    fn pure_recursion_exhausts_under_step_node() {
-        use crate::node::{step_node, NodeStep};
-        use crate::work::{rel_to_node, Env, Tables};
-
-        let rel: Rel<()> = Rel::Fix(0, Arc::new(Rel::Call(0)));
-        let env = Env::new();
-        let tables = Tables::new();
-        let mut terms = TermStore::new();
-
-        let mut node = rel_to_node(&rel, &env, &tables);
-        let mut steps = 0;
-        let max_steps = 50;
-
-        loop {
-            match step_node(node, &mut terms) {
-                NodeStep::Emit(_, rest) => {
-                    node = rest;
-                    steps += 1;
-                }
-                NodeStep::Continue(rest) => {
-                    node = rest;
-                    steps += 1;
-                    assert!(
-                        steps < max_steps,
-                        "Pure recursion should exhaust without infinite stepping"
-                    );
-                }
-                NodeStep::Exhausted => break,
-            }
-        }
     }
 
     /// Input through recursive relation produces multiple answers.

@@ -7,7 +7,6 @@ use rwlog::chr;
 use rwlog::drop_fresh;
 use rwlog::factors;
 use rwlog::nf;
-use rwlog::node;
 use rwlog::rel;
 use rwlog::work::{self, CallKey, ComposeWork, Env, FixWork, MeetWork, PipeWork, Table, Tables};
 use std::mem::size_of;
@@ -52,16 +51,6 @@ fn main() {
 
     println!("\n--- Rel ---");
     println!("  Rel<C>:            {:>4} bytes", size_of::<rel::Rel<C>>());
-
-    println!("\n--- Node ---");
-    println!(
-        "  Node<C>:           {:>4} bytes",
-        size_of::<node::Node<C>>()
-    );
-    println!(
-        "  NodeStep<C>:       {:>4} bytes",
-        size_of::<node::NodeStep<C>>()
-    );
 
     println!("\n--- Work Enum ---");
     println!(
@@ -121,11 +110,6 @@ fn main() {
         "  Box<Work<C>>:      {:>4} bytes (heap: {})",
         size_of::<Box<work::Work<C>>>(),
         size_of::<work::Work<C>>()
-    );
-    println!(
-        "  Box<Node<C>>:      {:>4} bytes (heap: {})",
-        size_of::<Box<node::Node<C>>>(),
-        size_of::<node::Node<C>>()
     );
     println!(
         "  Arc<NF<C>>:        {:>4} bytes (heap: ~{})",
@@ -194,16 +178,11 @@ fn main() {
 
     println!("\n--- Key Sizes for Allocation Buckets ---");
     let work_size = size_of::<work::Work<C>>();
-    let node_size = size_of::<node::Node<C>>();
     let nf_size = size_of::<nf::NF<C>>();
     println!("  Box<Work> heap allocation: {} bytes", work_size);
-    println!("  Box<Node> heap allocation: {} bytes", node_size);
     println!("  NF<C> (inline, not boxed): {} bytes", nf_size);
     println!("\n  Allocation bucket mapping:");
-    println!(
-        "    129-256 range could be: Node<C> ({}) or NF<C> ({})?",
-        node_size, nf_size
-    );
+    println!("    129-256 range could be: NF<C> ({})", nf_size);
     println!(
         "    513-1024 range could be: Work<C> ({}) or PipeWork<C> ({})?",
         work_size,

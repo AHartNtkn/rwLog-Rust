@@ -5,9 +5,7 @@
 
 use crate::constraint::ConstraintOps;
 use crate::drop_fresh::DropFresh;
-use crate::factors::Factors;
 use crate::nf::NF;
-use crate::node::Node;
 use crate::rel::Rel;
 use crate::symbol::FuncId;
 use crate::term::{Term, TermId, TermStore};
@@ -87,23 +85,23 @@ pub(crate) enum WorkSetStep<C: ConstraintOps> {
 
 /// Local scheduler for a disjunction of work branches.
 ///
-/// This is the abstract-machine equivalent of keeping a local `Node::Or` tree:
+/// This is the abstract-machine disjunction scheduler:
 /// each step advances exactly one branch and rotates ready branches fairly.
 #[derive(Clone, Debug)]
 pub(crate) struct WorkSet<C: ConstraintOps> {
-    root: WorkSetNode<C>,
+    root: WorkSetTree<C>,
 }
 
 impl<C: ConstraintOps> WorkSet<C> {
     pub(crate) fn new() -> Self {
         Self {
-            root: WorkSetNode::Fail,
+            root: WorkSetTree::Fail,
         }
     }
 
     pub(crate) fn from_work(work: Work<C>) -> Self {
         Self {
-            root: WorkSetNode::from_work(work),
+            root: WorkSetTree::from_work(work),
         }
     }
 
@@ -112,9 +110,9 @@ impl<C: ConstraintOps> WorkSet<C> {
     where
         I: IntoIterator<Item = Work<C>>,
     {
-        let mut root = WorkSetNode::Fail;
+        let mut root = WorkSetTree::Fail;
         for work in works {
-            root = or_work_set_node(root, WorkSetNode::from_work(work));
+            root = or_work_set_tree(root, WorkSetTree::from_work(work));
         }
         Self { root }
     }
@@ -129,22 +127,22 @@ impl<C: ConstraintOps> WorkSet<C> {
 
     pub(crate) fn or_with(self, other: Self) -> Self {
         Self {
-            root: or_work_set_node(self.root, other.root),
+            root: or_work_set_tree(self.root, other.root),
         }
     }
 
     pub(crate) fn is_exhausted(&self) -> bool {
-        matches!(self.root, WorkSetNode::Fail)
+        matches!(self.root, WorkSetTree::Fail)
     }
 
     pub(crate) fn drain_leading_atoms(&mut self) -> Vec<NF<C>> {
         let mut out = Vec::new();
-        let current = std::mem::replace(&mut self.root, WorkSetNode::Fail);
+        let current = std::mem::replace(&mut self.root, WorkSetTree::Fail);
         match current {
-            WorkSetNode::Leaf(work) => match *work {
+            WorkSetTree::Leaf(work) => match *work {
                 Work::Atom(nf) => out.push(nf),
                 Work::ReplayAnswers(mut answers) => out.extend(answers.drain(..)),
-                other => self.root = WorkSetNode::Leaf(Box::new(other)),
+                other => self.root = WorkSetTree::Leaf(Box::new(other)),
             },
             other => self.root = other,
         }
@@ -164,13 +162,13 @@ impl<C: ConstraintOps> WorkSet<C> {
     }
 
     pub(crate) fn step(&mut self, terms: &mut TermStore) -> WorkSetStep<C> {
-        let current = std::mem::replace(&mut self.root, WorkSetNode::Fail);
-        match step_work_set_node(current, terms) {
-            WorkSetNodeStep::Emit(nf, rest) => {
+        let current = std::mem::replace(&mut self.root, WorkSetTree::Fail);
+        match step_work_set_tree(current, terms) {
+            WorkSetTreeStep::Emit(nf, rest) => {
                 self.root = rest;
                 WorkSetStep::Emit(nf)
             }
-            WorkSetNodeStep::Continue(rest) => {
+            WorkSetTreeStep::Continue(rest) => {
                 self.root = rest;
                 if self.is_exhausted() {
                     WorkSetStep::Exhausted
@@ -178,8 +176,8 @@ impl<C: ConstraintOps> WorkSet<C> {
                     WorkSetStep::Continue
                 }
             }
-            WorkSetNodeStep::Exhausted => {
-                self.root = WorkSetNode::Fail;
+            WorkSetTreeStep::Exhausted => {
+                self.root = WorkSetTree::Fail;
                 WorkSetStep::Exhausted
             }
         }
@@ -187,36 +185,36 @@ impl<C: ConstraintOps> WorkSet<C> {
 }
 
 #[derive(Clone, Debug)]
-enum WorkSetNode<C: ConstraintOps> {
+enum WorkSetTree<C: ConstraintOps> {
     Fail,
-    Or(Box<WorkSetNode<C>>, Box<WorkSetNode<C>>),
+    Or(Box<WorkSetTree<C>>, Box<WorkSetTree<C>>),
     Leaf(Box<Work<C>>),
 }
 
-impl<C: ConstraintOps> WorkSetNode<C> {
+impl<C: ConstraintOps> WorkSetTree<C> {
     fn from_work(work: Work<C>) -> Self {
         if matches!(work, Work::Done) {
-            WorkSetNode::Fail
+            WorkSetTree::Fail
         } else {
-            WorkSetNode::Leaf(Box::new(work))
+            WorkSetTree::Leaf(Box::new(work))
         }
     }
 
     #[cfg(test)]
     fn branch_count(&self) -> usize {
         match self {
-            WorkSetNode::Fail => 0,
-            WorkSetNode::Leaf(_) => 1,
-            WorkSetNode::Or(left, right) => left.branch_count() + right.branch_count(),
+            WorkSetTree::Fail => 0,
+            WorkSetTree::Leaf(_) => 1,
+            WorkSetTree::Or(left, right) => left.branch_count() + right.branch_count(),
         }
     }
 
     #[cfg(test)]
     fn collect_branches<'a>(&'a self, out: &mut Vec<&'a Work<C>>) {
         match self {
-            WorkSetNode::Fail => {}
-            WorkSetNode::Leaf(work) => out.push(work.as_ref()),
-            WorkSetNode::Or(left, right) => {
+            WorkSetTree::Fail => {}
+            WorkSetTree::Leaf(work) => out.push(work.as_ref()),
+            WorkSetTree::Or(left, right) => {
                 left.collect_branches(out);
                 right.collect_branches(out);
             }
@@ -224,89 +222,89 @@ impl<C: ConstraintOps> WorkSetNode<C> {
     }
 }
 
-enum WorkSetNodeStep<C: ConstraintOps> {
-    Emit(NF<C>, WorkSetNode<C>),
-    Continue(WorkSetNode<C>),
+enum WorkSetTreeStep<C: ConstraintOps> {
+    Emit(NF<C>, WorkSetTree<C>),
+    Continue(WorkSetTree<C>),
     Exhausted,
 }
 
-fn or_work_set_node<C: ConstraintOps>(
-    left: WorkSetNode<C>,
-    right: WorkSetNode<C>,
-) -> WorkSetNode<C> {
+fn or_work_set_tree<C: ConstraintOps>(
+    left: WorkSetTree<C>,
+    right: WorkSetTree<C>,
+) -> WorkSetTree<C> {
     match (&left, &right) {
-        (WorkSetNode::Fail, _) => right,
-        (_, WorkSetNode::Fail) => left,
-        _ => WorkSetNode::Or(Box::new(left), Box::new(right)),
+        (WorkSetTree::Fail, _) => right,
+        (_, WorkSetTree::Fail) => left,
+        _ => WorkSetTree::Or(Box::new(left), Box::new(right)),
     }
 }
 
 fn rebuild_work_set_or_chain<C: ConstraintOps>(
-    siblings: Vec<WorkSetNode<C>>,
-    leaf: WorkSetNode<C>,
-) -> WorkSetNode<C> {
+    siblings: Vec<WorkSetTree<C>>,
+    leaf: WorkSetTree<C>,
+) -> WorkSetTree<C> {
     let mut result = leaf;
     for sibling in siblings.into_iter().rev() {
-        result = or_work_set_node(sibling, result);
+        result = or_work_set_tree(sibling, result);
     }
     result
 }
 
 fn step_work_set_or<C: ConstraintOps>(
-    left: WorkSetNode<C>,
-    right: WorkSetNode<C>,
+    left: WorkSetTree<C>,
+    right: WorkSetTree<C>,
     terms: &mut TermStore,
-) -> WorkSetNodeStep<C> {
-    let mut siblings: Vec<WorkSetNode<C>> = vec![right];
+) -> WorkSetTreeStep<C> {
+    let mut siblings: Vec<WorkSetTree<C>> = vec![right];
     let mut current = left;
 
     loop {
         match current {
-            WorkSetNode::Or(a, b) => {
+            WorkSetTree::Or(a, b) => {
                 siblings.push(*b);
                 current = *a;
             }
-            WorkSetNode::Fail => match siblings.pop() {
+            WorkSetTree::Fail => match siblings.pop() {
                 Some(next) => current = next,
-                None => return WorkSetNodeStep::Exhausted,
+                None => return WorkSetTreeStep::Exhausted,
             },
             _ => break,
         }
     }
 
-    match step_work_set_node(current, terms) {
-        WorkSetNodeStep::Emit(nf, new_leaf) => {
-            WorkSetNodeStep::Emit(nf, rebuild_work_set_or_chain(siblings, new_leaf))
+    match step_work_set_tree(current, terms) {
+        WorkSetTreeStep::Emit(nf, new_leaf) => {
+            WorkSetTreeStep::Emit(nf, rebuild_work_set_or_chain(siblings, new_leaf))
         }
-        WorkSetNodeStep::Continue(new_leaf) => {
-            WorkSetNodeStep::Continue(rebuild_work_set_or_chain(siblings, new_leaf))
+        WorkSetTreeStep::Continue(new_leaf) => {
+            WorkSetTreeStep::Continue(rebuild_work_set_or_chain(siblings, new_leaf))
         }
-        WorkSetNodeStep::Exhausted => {
-            let rest = rebuild_work_set_or_chain(siblings, WorkSetNode::Fail);
-            if matches!(rest, WorkSetNode::Fail) {
-                WorkSetNodeStep::Exhausted
+        WorkSetTreeStep::Exhausted => {
+            let rest = rebuild_work_set_or_chain(siblings, WorkSetTree::Fail);
+            if matches!(rest, WorkSetTree::Fail) {
+                WorkSetTreeStep::Exhausted
             } else {
-                WorkSetNodeStep::Continue(rest)
+                WorkSetTreeStep::Continue(rest)
             }
         }
     }
 }
 
-fn step_work_set_node<C: ConstraintOps>(
-    node: WorkSetNode<C>,
+fn step_work_set_tree<C: ConstraintOps>(
+    tree: WorkSetTree<C>,
     terms: &mut TermStore,
-) -> WorkSetNodeStep<C> {
-    match node {
-        WorkSetNode::Fail => WorkSetNodeStep::Exhausted,
-        WorkSetNode::Or(left, right) => step_work_set_or(*left, *right, terms),
-        WorkSetNode::Leaf(work) => match step_work_box(work, terms) {
-            WorkStep::Done => WorkSetNodeStep::Continue(WorkSetNode::Fail),
-            WorkStep::Emit(nf, next) => WorkSetNodeStep::Emit(nf, WorkSetNode::from_work(*next)),
-            WorkStep::Split(left, right) => WorkSetNodeStep::Continue(or_work_set_node(
-                WorkSetNode::Leaf(left),
-                WorkSetNode::Leaf(right),
+) -> WorkSetTreeStep<C> {
+    match tree {
+        WorkSetTree::Fail => WorkSetTreeStep::Exhausted,
+        WorkSetTree::Or(left, right) => step_work_set_or(*left, *right, terms),
+        WorkSetTree::Leaf(work) => match step_work_box(work, terms) {
+            WorkStep::Done => WorkSetTreeStep::Continue(WorkSetTree::Fail),
+            WorkStep::Emit(nf, next) => WorkSetTreeStep::Emit(nf, WorkSetTree::from_work(*next)),
+            WorkStep::Split(left, right) => WorkSetTreeStep::Continue(or_work_set_tree(
+                WorkSetTree::Leaf(left),
+                WorkSetTree::Leaf(right),
             )),
-            WorkStep::More(next) => WorkSetNodeStep::Continue(WorkSetNode::Leaf(next)),
+            WorkStep::More(next) => WorkSetTreeStep::Continue(WorkSetTree::Leaf(next)),
         },
     }
 }
@@ -389,52 +387,6 @@ fn wrap_rel_with_atoms<C: ConstraintOps>(
     }
 
     Rel::Seq(Arc::from(factors))
-}
-
-/// Convert a Rel to a Node tree with the given environment and tables.
-pub fn rel_to_node<C: ConstraintOps>(rel: &Rel<C>, env: &Env<C>, tables: &Tables<C>) -> Node<C> {
-    match rel {
-        Rel::Zero => Node::Fail,
-
-        Rel::Atom(nf) => Node::Emit(Box::new(nf.as_ref().clone()), Box::new(Node::Fail)),
-
-        Rel::Or(a, b) => Node::Or(
-            Box::new(rel_to_node(a, env, tables)),
-            Box::new(rel_to_node(b, env, tables)),
-        ),
-
-        Rel::And(a, b) => {
-            let and_rel = Rel::And(a.clone(), b.clone());
-            let mut pipe = PipeWork::from_rel(and_rel, env.clone(), tables.clone());
-            pipe.call_mode = CallMode::Normal;
-            Node::Work(Box::new(Work::Pipe(Box::new(pipe))))
-        }
-
-        Rel::Seq(factors) => {
-            let factors_rope = Factors::from_seq(factors.clone());
-            let mut pipe = PipeWork::with_mid(factors_rope);
-            pipe.env = env.clone();
-            pipe.tables = tables.clone();
-            Node::Work(Box::new(Work::Pipe(Box::new(pipe))))
-        }
-
-        Rel::Fix(id, body) => {
-            let new_env = env.bind(*id, body.clone());
-            rel_to_node(body, &new_env, tables)
-        }
-
-        Rel::Call(id) => match env.lookup(*id) {
-            Some(_) => {
-                let call_rel = Arc::new(rel.clone());
-                let factors = Factors::from_seq(Arc::from(vec![call_rel]));
-                let mut pipe = PipeWork::with_mid(factors);
-                pipe.env = env.clone();
-                pipe.tables = tables.clone();
-                Node::Work(Box::new(Work::Pipe(Box::new(pipe))))
-            }
-            None => Node::Fail,
-        },
-    }
 }
 
 fn wrap_work_with_prefix_suffix<C: ConstraintOps>(
