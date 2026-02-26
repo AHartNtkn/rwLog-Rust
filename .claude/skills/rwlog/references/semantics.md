@@ -32,7 +32,7 @@ R inp out  <=>  (inp, out) is in the relation R
 <span_semantics>
 ## Span Semantics
 
-A rewrite rule `lhs -> rhs` denotes a **span**:
+A pattern span `lhs -> rhs` denotes a **span relation**:
 
 ```
 [[lhs -> rhs]] inp out  <=>
@@ -44,17 +44,17 @@ A rewrite rule `lhs -> rhs` denotes a **span**:
 Where `sigma` is a substitution mapping variables to terms.
 
 <example name="Simple span">
-Rule: `(cons $x $y) -> $x`
+Span: `(cons $x $y) -> $x`
 
-This rule relates:
-- Input: any term matching `(cons $x $y)`
-- Output: the value bound to `$x`
+This span relates:
+- Left side: any term matching `(cons $x $y)`
+- Right side: the value bound to `$x`
 
 So `(cons a b)` relates to `a`, `(cons (s z) nil)` relates to `(s z)`, etc.
 </example>
 
 <example name="Bidirectional span">
-The same rule `(cons $x $y) -> $x` run backwards:
+The same span `(cons $x $y) -> $x` run backwards:
 - Output: `a`
 - Find all inputs `(cons $x $y)` where `$x = a`
 - Answer: `(cons a $y)` for any `$y`
@@ -63,49 +63,46 @@ This generates infinitely many inputs that produce output `a`.
 </example>
 </span_semantics>
 
-<bidirectionality>
-## Bidirectionality
+<results_are_spans>
+## Results Are Spans
 
-Every rwlog relation is inherently bidirectional. The same definition can:
-1. Transform inputs to outputs (forward)
-2. Find inputs that produce given outputs (backward)
-3. Generate all input/output pairs (enumerate)
+A rwlog computation produces a (possibly infinite) stream of **pattern spans** — pairs of terms `lhs -> rhs`. Both sides are always returned together. The language is symmetric: there is no dedicated "input" side or "output" side.
 
-<forward_mode>
-**Forward mode:**
+`@term` is the identity relation at `term`: the single span `term -> term`. Composing with `@term` constrains the matching side of all resulting spans.
+
+<left_constrained>
+**Left-constrained (colloquially "forward"):**
 ```
-@input ; relation
+@term ; relation
 ```
-Computes: what outputs does `input` produce through `relation`?
-</forward_mode>
+Returns all spans in `relation` whose left side is `term`.
+</left_constrained>
 
-<backward_mode>
-**Backward mode:**
-
-To find inputs that produce a given output, constrain the output:
+<right_constrained>
+**Right-constrained (colloquially "backward"):**
 ```
-relation ; @output
+relation ; @term
 ```
-This finds inputs to `relation` that produce `output`.
+Returns all spans in `relation` whose right side is `term`.
 
-**Common mistake:** `@output ; relation` does NOT run backward - it passes `output` as input, which runs forward. This usually fails because `output` has the wrong shape for input.
-</backward_mode>
+Note: `@term ; relation` and `relation ; @term` constrain different sides and are generally different queries.
+</right_constrained>
 
-<enumeration_mode>
-**Enumeration mode:**
+<unconstrained>
+**Unconstrained:**
 ```
 relation
 ```
-With no constraint, generates all input/output pairs (may be infinite).
-</enumeration_mode>
-</bidirectionality>
+Returns all spans (may be infinite). Use `next` or `more N` in the REPL to stream results.
+</unconstrained>
+</results_are_spans>
 
 <dual_operation>
 ## The Dual Operation
 
-The **dual** (or converse) of a relation swaps inputs and outputs:
+The **dual** (or converse) of a relation swaps the two sides of every span:
 ```
-dual(R) inp out  <=>  R out inp
+dual(R) a b  <=>  R b a
 ```
 
 <dual_laws>
@@ -132,15 +129,15 @@ The dual function exists as an internal API used in tests, but is not exposed in
 ```
 rel add { ... }
 
-# Forward: compute sum
+# Left-constrained: spans with left side (cons (s z) (s z))
 @(cons (s z) (s z)) ; add
-> (s (s z))
+> (cons (s z) (s z)) -> (s (s z))
 
-# Backward: find addends
+# Right-constrained: spans with right side (s (s z))
 add ; @(s (s z))
-> (cons z (s (s z)))  # 0 + 2
-> (cons (s z) (s z))  # 1 + 1
-> (cons (s (s z)) z)  # 2 + 0
+> (cons z (s (s z))) -> (s (s z))    # 0 + 2
+> (cons (s z) (s z)) -> (s (s z))    # 1 + 1
+> (cons (s (s z)) z) -> (s (s z))    # 2 + 0
 ```
 </dual_example>
 </dual_operation>
@@ -148,7 +145,7 @@ add ; @(s (s z))
 <internal_representation>
 ## Internal Representation (Advanced)
 
-Internally, rwlog factors rules into three components:
+Internally, rwlog factors pattern spans into three components:
 
 ```
 lhs -> rhs  ~=  RwL [patterns] ; DropFresh ; RwR [patterns]
@@ -197,27 +194,17 @@ This is what makes bidirectionality work mechanically.
 <composition_semantics>
 ## Composition Semantics
 
-`R ; S` means: for all intermediate values `mid`,
+`R ; S` relates two terms through a shared middle term:
 ```
-(R ; S) inp out  <=>  exists mid. R inp mid AND S mid out
+(R ; S) a c  <=>  exists b. R a b AND S b c
 ```
 
-<forward_composition>
-**Forward execution:**
-1. Run R on input, get intermediate
-2. Run S on intermediate, get output
-</forward_composition>
+The right side of each span in R is matched with the left side of each span in S. The resulting spans pair the left side of R with the right side of S.
 
-<backward_composition>
-**Backward execution:**
-1. Run dual(S) on output, get intermediate
-2. Run dual(R) on intermediate, get input
-
-Equivalently:
+Duality reverses composition order:
 ```
 dual(R ; S) = dual(S) ; dual(R)
 ```
-</backward_composition>
 </composition_semantics>
 
 <search_semantics>

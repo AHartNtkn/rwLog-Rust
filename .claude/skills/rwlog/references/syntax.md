@@ -1,5 +1,5 @@
 <overview>
-Complete syntax reference for rwlog. Covers terms, variables, rules, relation definitions, and parameterized macros.
+Complete syntax reference for rwlog. Covers terms, variables, pattern spans, relation definitions, and parameterized macros.
 </overview>
 
 <terms>
@@ -51,59 +51,61 @@ $tail
 **Rules:**
 - Must start with `$`
 - Lowercase after `$` by convention
-- Scoped to a single rule (same name in different rules = different variables)
+- Scoped to a single pattern span (same name in different spans = different variables)
 </term_type>
 </terms>
 
-<rules>
-## Rewrite Rules
+<spans>
+## Pattern Spans
 
-A rule transforms an input pattern to an output pattern.
+A pattern span relates a left-side pattern to a right-side pattern.
 
 ```
 pattern -> pattern
 ```
 
-<example name="Simple rule">
+Variables on the left side are bound by matching. Variables appearing on both sides transfer values left-to-right. Variables appearing only on the right side are existentially quantified (fresh).
+
+<example name="Simple span">
 ```
 a -> b
 ```
-Transforms `a` into `b`.
+Relates `a` to `b`.
 </example>
 
-<example name="Rule with compound terms">
+<example name="Span with compound terms">
 ```
 (cons $x $y) -> $x
 ```
-Extracts the first element of a cons cell.
+Relates any cons cell to its first element.
 </example>
 
-<example name="Rule with nested patterns">
+<example name="Span with nested patterns">
 ```
 (cons (s $x) $y) -> (cons $x $y)
 ```
 Decrements the first element of a cons cell.
 </example>
 
-<example name="Rule preserving structure">
+<example name="Span preserving structure">
 ```
 (pair $x $y) -> (pair $y $x)
 ```
 Swaps elements of a pair.
 </example>
 
-<example name="Rule with constraint guard">
+<example name="Span with constraint guard">
 ```
 (pair $x $y) { (eq $x $y) } -> $x
 ```
 The guard `{ (eq $x $y) }` requires the constraint to be satisfied. See `constraints.md` for details.
 </example>
-</rules>
+</spans>
 
 <guards>
 ## Constraint Guards
 
-Rules can have **guards** - constraints that must be satisfied for the rule to fire:
+Pattern spans can have **guards** — constraints that must be satisfied for the span to apply:
 
 ```
 pattern { constraint1, constraint2 } -> result
@@ -143,13 +145,13 @@ Guards require a constraint theory to be loaded. See `constraints.md` for defini
 Use `[...]` to group expressions and control precedence.
 
 ```
-[a -> b ; c -> d]           # Sequence of two rules
-[(s $x) -> $x ; countdown]  # Rule followed by recursive call
-[rule1 | rule2]             # Explicit grouping of alternatives
+[a -> b ; c -> d]           # Sequence of two spans
+[(s $x) -> $x ; countdown]  # Span followed by recursive call
+[span1 | span2]             # Explicit grouping of alternatives
 ```
 
 **When to use:**
-- Creating sequences of rules and calls
+- Creating sequences of spans and calls
 - Overriding default operator precedence
 - Making complex expressions readable
 </grouping>
@@ -157,15 +159,15 @@ Use `[...]` to group expressions and control precedence.
 <relations>
 ## Relation Definitions
 
-Named relations group multiple rules with disjunction.
+Named relations group multiple alternatives with disjunction. Each alternative is a relation expression (a pattern span, a named relation call, a composition, a conjunction, etc.).
 
 ```
 rel name {
-    rule1
+    alternative1
     |
-    rule2
+    alternative2
     |
-    rule3
+    alternative3
 }
 ```
 
@@ -272,7 +274,7 @@ rel fmap(@(sum $a $b), f) {
 }
 ```
 
-**Meta-variables** (`$a`, `$b`) in term patterns bind sub-terms. These are available only in macro call term arguments within the body — not in rule LHS/RHS (rules are NF-factored at parse time).
+**Meta-variables** (`$a`, `$b`) in term patterns bind sub-terms. These are available only in macro call term arguments within the body — not in pattern span left/right sides (spans are NF-factored at parse time).
 
 **Call syntax:** At call sites, no `@` is needed. The parser knows which positions are term-valued from the definition:
 ```
@@ -369,7 +371,7 @@ add ; @(s (s z))
 Find pairs that sum to 2.
 </example>
 
-<example name="Inline rule">
+<example name="Inline span">
 ```
 @(pair a b) ; [(pair $x $y) -> (pair $y $x)]
 ```

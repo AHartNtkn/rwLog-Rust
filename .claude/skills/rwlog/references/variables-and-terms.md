@@ -16,23 +16,27 @@ Variables in rwlog are **logical variables** - they represent unknown values tha
 
 <scoping>
 **Scoping:**
-- Variables are scoped to a **single rule**
-- Same variable name in different rules = different variables
-- Within a rule, same variable name = same value (equality enforced by matching)
+- Variables are scoped to a **single pattern span** — one `pat -> pat` or `pat { guard } -> pat`
+- The same variable name in different spans is a different variable each time
+- Within a span, the same variable name always refers to the same value (equality enforced by matching)
 
 ```
 rel example {
-    (pair $x $y) -> (pair $y $x)   # $x and $y are local to this rule
+    (pair $x $y) -> (pair $y $x)   # $x, $y local to this span
     |
-    (triple $x $y $z) -> $x        # Different $x, $y - new rule
+    (triple $x $y $z) -> $x        # Different $x, $y — new span, new scope
 }
 ```
+
+When composing spans with `;`, each span has fully independent variables. There is no mechanism for a value from one span to be "carried" to a later span — the only connection is through matching between adjacent sides. If you need to combine a value from one computation with the result of another, use conjunction (`&`).
+
+Variable scoping is per-span and **symmetric**: both left and right sides of a span follow the same rule. The same variable name appearing in the right side of two different spans has no more connection than the same name in the left side of two different spans — none at all. When writing conjunction (`&`), reusing the same variable names in the right sides of parallel branches is perfectly valid and means exactly the same as using different names, since scopes never overlap.
 </scoping>
 
 <matching>
 **Matching:**
 
-When a variable appears multiple times in a rule, all occurrences must match the same value.
+When a variable appears multiple times in a span, all occurrences must match the same value.
 
 ```
 (cons $x $x) -> $x
@@ -57,7 +61,7 @@ When the two sides use disjoint variable namespaces, unification and matching co
 <pattern_matching>
 ## Pattern Matching
 
-The left side of a rule is a **pattern** that matches against input.
+The left side of a pattern span is a **pattern** that matches against input.
 
 <simple_patterns>
 **Simple patterns:**
@@ -88,7 +92,7 @@ $x -> $x                  # Matches anything, returns it unchanged
 <term_construction>
 ## Term Construction
 
-The right side of a rule **constructs** output using variables bound on the left.
+The right side of a pattern span **constructs** the right-hand term using variables bound on the left.
 
 <building_terms>
 **Building terms:**
@@ -100,15 +104,15 @@ $x -> (cons $x nil)       # Creates new structure
 </building_terms>
 
 <fresh_variables>
-**Fresh variables on right side:**
+**Fresh (existentially quantified) variables:**
 
-If a variable appears ONLY on the right side, it's existentially quantified (fresh).
+If a variable appears on only ONE side of a span, it's existentially quantified — it can take any value. The language is symmetric: this applies equally to variables only on the left or only on the right.
 
 ```
 $x -> (pair $x $y)        # $y is fresh - can be anything
 ```
 
-This creates non-determinism: the output includes an unspecified `$y`.
+This creates non-determinism: the span relates `$x` to `(pair $x $y)` for any `$y`.
 
 This property is powerful for representing object-level binders. Using `(var $x)` with rwlog variables as bound-variable names means fresh variables are generated automatically, with `neq` constraints tracking distinctness. See the "Variables as Object-Level Names" section in `core-patterns.md`.
 </fresh_variables>
@@ -175,32 +179,29 @@ $x -> (cons $x nil)       # Singleton list
 </common_patterns>
 
 <bidirectional_variables>
-## Variables and Bidirectionality
+## Variables and Symmetry
 
-Variables work the same forwards and backwards because matching is symmetric under swapping sides.
+The language is fully symmetric: variables work the same on both sides of a span.
 
-<forward>
-**Forward (input on left):**
+<left_constrained>
+**Left-constrained:**
 ```
 @(cons a b) ; [(cons $h $t) -> $h]
 ```
-Result: `a`
-- Pattern `(cons $h $t)` matches `(cons a b)`
-- `$h` = `a`, `$t` = `b`
-- Output: `$h` = `a`
-</forward>
+Result span: `(cons a b) -> a`
+- Left side `(cons a b)` is matched by `(cons $h $t)`: `$h = a`, `$t = b`
+- Right side is `$h = a`
+</left_constrained>
 
-<backward>
-**Backward (constrain output):**
+<right_constrained>
+**Right-constrained:**
 ```
 [(cons $h $t) -> $h] ; @a
 ```
-Result: `(cons a $t)` for any `$t`
-- Output must equal `a`
-- So `$h` = `a`
-- Input must be `(cons a $t)` for some `$t`
-- Generates all cons cells with `a` as head
-</backward>
+Result spans: `(cons a $t) -> a` for any `$t`
+- Right side must be `a`, so `$h = a`
+- Left side is `(cons a $t)` for any `$t`
+</right_constrained>
 </bidirectional_variables>
 
 <anti_patterns>
@@ -228,9 +229,9 @@ This creates a fresh variable instead of using the bound one.
 rel confusing {
     (a $x) -> (b $x)      # $x means one thing here
     |
-    (c $x) -> (d $x)      # $x means something else here (that's fine - different rule)
+    (c $x) -> (d $x)      # $x means something else here (that's fine - different span)
 }
 ```
-This is actually fine - each rule has its own scope. But be aware when reading code.
+This is actually fine - each span has its own scope. But be aware when reading code.
 </overloaded_meaning>
 </anti_patterns>

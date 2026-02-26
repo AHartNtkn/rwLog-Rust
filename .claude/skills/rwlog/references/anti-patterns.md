@@ -154,17 +154,29 @@ Make sure the output shape of each step matches the input pattern of the next.
 </wrong_intermediate>
 
 <forgetting_to_thread>
-**Forgetting to thread values through:**
-```
-# WRONG - loses $y
-[(pair $x $y) -> $x ; process ; $z -> (result $z)]
+**Needing a value from one computation in the result of another:**
 
-# RIGHT - thread $y through
-[(pair $x $y) -> (pair $x $y) ;
- [(pair $x $y) -> $x ; process ; $z -> (pair $z $y)] ;
- [(pair $z $y) -> (result $z $y)]]
+Each pattern span has its own scope. There is no mechanism to carry a variable from one span into a later independent span — the only connection between composed spans is through matching between adjacent sides. Attempting to "thread" a variable forward via pairing does not work: the `$y` in `$z -> (pair $z $y)` is a fresh existential, unrelated to any earlier span.
+
+When you need to combine a value extracted from the left side of a composition with the result of the right side, use conjunction (`&`):
+
 ```
-If you need a value later in the pipeline, you must carry it through intermediate steps.
+# Goal: extract $x and $y from (pair $x $y), compute process($x), produce (result process_result $y)
+
+# WRONG - $y in the last span is fresh, not the $y from the first span
+[(pair $x $y) -> $x ; process ; $z -> (result $z $y)]
+
+# RIGHT - use conjunction to run both computations and combine via meet
+[[(pair $x $y) -> $x ; process ; $z -> (result $z $w)]
+ &
+ [(pair $x $y) -> $y ; $w -> (result $l $w)]]
+```
+
+How it works:
+- Left branch extracts $x, applies process, produces `(result process_result fresh_w)`
+- Right branch extracts $y, produces `(result fresh_l $y)`
+- Meet matches these two: `fresh_w` = $y, `fresh_l` = process_result
+- Combined result: `(result process_result $y)` ✓
 </forgetting_to_thread>
 
 <order_confusion>

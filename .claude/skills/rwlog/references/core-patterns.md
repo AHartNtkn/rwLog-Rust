@@ -375,7 +375,7 @@ No manual freshness tracking is needed. Each rwlog variable is automatically dis
 
 Three properties of rwlog combine to make this work:
 
-1. **Existential quantification**: A variable appearing only on the RHS of a rule is fresh — it can be any value. When constructing a lambda term, fresh rwlog variables automatically serve as fresh bound-variable names.
+1. **Existential quantification**: A variable appearing on only one side of a pattern span is existentially quantified — it can be any value. When constructing a lambda term, fresh rwlog variables automatically serve as fresh bound-variable names.
 
 2. **Constraint accumulation**: The `neq` constraints accumulate in the constraint store, tracking exactly which object-level names must be distinct. CHR simplification removes redundant constraints automatically.
 

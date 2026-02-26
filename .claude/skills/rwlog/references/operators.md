@@ -5,9 +5,9 @@ The three core operators in rwlog: composition (;), disjunction (|), and conjunc
 <composition>
 ## Composition: `;` (Seq)
 
-Chains relations sequentially. Output of first becomes input of second.
+Chains relations through a shared middle term. The right side of each span in `R` is matched with the left side of each span in `S`.
 
-**Semantics:** `R ; S` means "apply R, then apply S to the result"
+**Semantics:** `(a, c) in R ; S` iff there exists `b` such that `(a, b) in R` and `(b, c) in S`
 
 <example name="Two-step transformation">
 ```
@@ -101,7 +101,7 @@ rel process {
     (right $x) -> (result $x right)
 }
 ```
-Different rules match different input shapes.
+Different spans match different shapes.
 </example>
 
 <search_behavior>
@@ -158,7 +158,7 @@ With sequential composition, if the first step runs forever, you never reach the
 [$x -> $x ; process1 ; ... ; process2 ; ...]
 ```
 
-With conjunction, both branches run in parallel. If either fails, the whole thing fails:
+With conjunction, both branches constrain the same span. If either fails, the whole thing fails:
 ```
 # GOOD: if either branch fails, fails immediately
 [... ; process1 ; ...] & [... ; process2 ; ...]
@@ -168,23 +168,17 @@ With conjunction, both branches run in parallel. If either fails, the whole thin
 <combining_results>
 **Combining results via matching:**
 
-Variables are scoped to a single rule. Use fresh variables as "holes" that get filled by the other branch:
+Variables are scoped to a single pattern span. Use fresh variables as "holes" that get filled by the other branch. Because scoping is per-span and symmetric, you can reuse the same variable names on either side across branches — same names in different spans are always independent.
 
 ```
 [
     [$x -> $x ; process1 ; $r -> (result $r $s)]
     &
-    [$x -> $x ; process2 ; $r -> (result $t $r)]
+    [$x -> $x ; process2 ; $r -> (result $r $s)]
 ]
 ```
 
-How this works:
-1. Left branch computes `process1(x)` → R, outputs `(result R $s)` where `$s` is **fresh**
-2. Right branch computes `process2(x)` → S, outputs `(result $t S)` where `$t` is **fresh**
-3. Meet matches `(result R $s)` with `(result $t S)` to a common shape (two substitutions, one per side):
-   - `$t` = R (constrained by matching)
-   - `$s` = S (constrained by matching)
-   - Result: `(result R S)`
+The `$r` and `$s` in the two branches are **different variables** (different spans). Left produces `(result R $s)` with fresh `$s`; right produces `(result $r S)` with fresh `$r`. Meet resolves `$r = R` and `$s = S`, giving `(result R S)`.
 
 The fresh variables act as placeholders that get constrained to actual values through matching at the meet.
 </combining_results>
@@ -198,26 +192,17 @@ The fresh variables act as placeholders that get constrained to actual values th
 ]
 ```
 
-- Left computes some value L, outputs `(pair L $r)` with fresh `$r`
-- Right computes some value R, outputs `(pair $l R)` with fresh `$l`
-- Meet (by matching): `$l` = L, `$r` = R, result is `(pair L R)`
+- Left produces `(pair L $r)` with fresh `$r` (the `$r` in the left branch)
+- Right produces `(pair $l R)` with fresh `$l` (the `$l` in the right branch)
+- Meet: `$l` = L, `$r` = R, result is `(pair L R)`
+
+The same variable names `$l` and `$r` appear in both branches — this is fine and idiomatic. The scopes never overlap.
 </example>
 
 <contrast_with_threading>
-**Contrast with explicit threading:**
+**Why threading does not work:**
 
-An alternative is to thread values through tuples sequentially:
-```
-[... ; process1 ; $r1 -> (pair $r1 $x) ;
- [(pair $r1 $x) -> $x ; process2 ; $r2 -> (pair $r1 $r2)]]
-```
-
-This works but has drawbacks:
-- More verbose
-- Sequential: if process1 is slow/infinite, process2 waits
-- If process2 would fail, you don't discover this until process1 completes
-
-Prefer conjunction for independent parallel computations.
+Variables are scoped to individual pattern spans. There is no mechanism to carry a variable from one span into a later span via pairing or any other technique — each span's variables are completely independent. Conjunction (`&`) is the correct and only way to combine values from separate computations.
 </contrast_with_threading>
 </parallel_computation>
 </conjunction>

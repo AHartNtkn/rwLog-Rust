@@ -56,9 +56,12 @@ rel mult {
     (cons z $y) -> z
     |
     # Recursive: (1+x) * y = y + (x * y)
-    [(cons (s $x) $y) -> (triple $y (cons $x $y) unit) ;
-     [(triple $a $b $c) -> $b ; mult ; $r -> (triple $a $b $r)] ;
-     [(triple $a $b $r) -> (cons $a $r) ; add]]
+    # Left branch recurses to get x*y; right branch extracts y.
+    # Meet combines them into (cons y (x*y)); then add computes y + x*y.
+    [[(cons (s $x) $y) -> (cons $x $y) ; mult ; $r -> (cons $y $r)]
+     &
+     (cons (s $x) $y) -> (cons $y $r)]
+    ; add
 }
 ```
 </multiplication>
@@ -90,7 +93,12 @@ rel append {
     (pair nil $ys) -> $ys
     |
     # Recursive: (x:xs) ++ ys = x : (xs ++ ys)
+    # Conjunction: left branch computes xs++ys (fresh $x on right);
+    # right branch extracts x (fresh $zs on right).
+    # Meet unifies: $x=x, $zs=xs++ys -> (cons x (xs++ys)).
     [(pair (cons $x $xs) $ys) -> (pair $xs $ys) ; append ; $zs -> (cons $x $zs)]
+    &
+    (pair (cons $x $xs) $ys) -> (cons $x $zs)
 }
 ```
 </append>
@@ -101,25 +109,16 @@ rel append {
 rel reverse {
     nil -> nil
     |
-    [(cons $h $t) -> (pair $t (cons $h nil)) ;
-     [(pair $a $b) -> $a ; reverse ; $ra -> (pair $ra $b)] ;
-     [(pair $ra $b) -> (pair $ra $b) ; append]]
+    # Left branch reverses the tail; right branch builds the singleton [h].
+    # Meet combines them into (pair rt [h]); then append computes rt ++ [h].
+    [[(cons $h $t) -> $t ; reverse ; $rt -> (pair $rt $sing)]
+     &
+     (cons $h $t) -> (pair $rt2 (cons $h nil))]
+    ; append
 }
 ```
 </reverse>
 
-<map>
-**Map (applying a relation to each element):**
-```
-rel map_succ {
-    nil -> nil
-    |
-    [(cons $h $t) -> (pair $h $t) ;
-     [(pair $h $t) -> $h ; [$x -> (s $x)] ; $h2 -> (pair $h2 $t)] ;
-     [(pair $h2 $t) -> $t ; map_succ ; $t2 -> (cons $h2 $t2)]]
-}
-```
-</map>
 </list_processing>
 
 <tree_processing>
@@ -134,27 +133,15 @@ rel tree_sum {
     # Leaf: return value
     (leaf $v) -> $v
     |
-    # Node: sum left + sum right
-    [(node $l $r) -> (pair $l $r) ;
-     [(pair $l $r) -> $l ; tree_sum ; $sl -> (pair $sl $r)] ;
-     [(pair $sl $r) -> $r ; tree_sum ; $sr -> (pair $sl $sr)] ;
-     [(pair $sl $sr) -> (cons $sl $sr) ; add]]
+    # Left branch sums left subtree; right branch sums right subtree.
+    # Meet combines into (cons $sl $sr); then add computes sl + sr.
+    [[(node $l $r) -> $l ; tree_sum ; $sl -> (cons $sl $sr)]
+     &
+     [(node $l $r) -> $r ; tree_sum ; $sr -> (cons $sl $sr)]]
+    ; add
 }
 ```
 </tree_sum>
-
-<tree_map>
-**Map over tree:**
-```
-rel tree_map_succ {
-    (leaf $v) -> (leaf (s $v))
-    |
-    [(node $l $r) -> (pair $l $r) ;
-     [(pair $l $r) -> $l ; tree_map_succ ; $l2 -> (pair $l2 $r)] ;
-     [(pair $l2 $r) -> $r ; tree_map_succ ; $r2 -> (node $l2 $r2)]]
-}
-```
-</tree_map>
 </tree_processing>
 
 <recursion_patterns>
@@ -168,10 +155,12 @@ rel sum_acc {
     # Base: return accumulator
     (pair nil $acc) -> $acc
     |
-    # Recursive: add head to acc, continue
-    [(pair (cons $h $t) $acc) -> (pair $h $acc) ;
-     [(pair $h $acc) -> (cons $h $acc) ; add ; $newacc -> (pair $t $newacc)] ;
-     [(pair $t $newacc) -> (pair $t $newacc) ; sum_acc]]
+    # Left branch computes h+acc; right branch extracts the tail.
+    # Meet combines into (pair $t $newacc); then sum_acc recurses.
+    [[(pair (cons $h $t) $acc) -> (cons $h $acc) ; add ; $newacc -> (pair $t $newacc)]
+     &
+     (pair (cons $h $t) $acc) -> (pair $t $newacc)]
+    ; sum_acc
 }
 ```
 </accumulator>
@@ -298,6 +287,40 @@ rel either(a, b) {
 
 `@z ; either(toa, tob)` tries both `toa` and `tob` on `z`.
 </either_macro>
+
+<map_macro>
+**Map over a list:**
+```
+rel map(f) {
+    nil -> nil
+    |
+    # Left applies f to head; right applies map(f) to tail.
+    # Meet combines into (cons $h2 $t2).
+    [[(cons $h $t) -> $h ; f ; $h2 -> (cons $h2 $t2)]
+     &
+     [(cons $h $t) -> $t ; map(f) ; $t2 -> (cons $h2 $t2)]]
+}
+```
+
+`@(cons z (cons (s z) nil)) ; map([$x -> (s $x)])` produces `(cons (s z) (cons (s (s z)) nil))`.
+</map_macro>
+
+<tree_map_macro>
+**Map over a tree:**
+```
+rel tree_map(f) {
+    [(leaf $v) -> $v ; f ; $v2 -> (leaf $v2)]
+    |
+    # Left maps left subtree; right maps right subtree.
+    # Meet combines into (node $l2 $r2).
+    [[(node $l $r) -> $l ; tree_map(f) ; $l2 -> (node $l2 $r2)]
+     &
+     [(node $l $r) -> $r ; tree_map(f) ; $r2 -> (node $l2 $r2)]]
+}
+```
+
+`@(node (leaf z) (leaf (s z))) ; tree_map([$x -> (s $x)])` produces `(node (leaf (s z)) (leaf (s (s z))))`.
+</tree_map_macro>
 
 <recursion_note>
 **Key rules for recursive macros:**
