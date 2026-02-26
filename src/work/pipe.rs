@@ -448,8 +448,14 @@ impl<C: ConstraintOps> PipeWork<C> {
     /// If one end is a Call and the other is not, advance the non-Call end
     /// so any adjacent boundary normalization can flow into the Call key.
     fn choose_advance_end(&self) -> PipeEnd {
-        let front_is_call = matches!(self.peek_end(PipeEnd::Front).map(|r| r.as_ref()), Some(Rel::Call(_)));
-        let back_is_call = matches!(self.peek_end(PipeEnd::Back).map(|r| r.as_ref()), Some(Rel::Call(_)));
+        let front_is_call = matches!(
+            self.peek_end(PipeEnd::Front).map(|r| r.as_ref()),
+            Some(Rel::Call(_))
+        );
+        let back_is_call = matches!(
+            self.peek_end(PipeEnd::Back).map(|r| r.as_ref()),
+            Some(Rel::Call(_))
+        );
 
         let mut advance_back = self.flip;
         if advance_back && back_is_call && !front_is_call {
@@ -693,7 +699,10 @@ impl<C: ConstraintOps> PipeWork<C> {
         match self.boundary(end) {
             Some(nf) => match end {
                 PipeEnd::Front => (Some(nf_left_prefix(nf, terms)), Some(nf_rwr_iso(nf, terms))),
-                PipeEnd::Back => (Some(nf_right_suffix(nf, terms)), Some(nf_rwl_iso(nf, terms))),
+                PipeEnd::Back => (
+                    Some(nf_right_suffix(nf, terms)),
+                    Some(nf_rwl_iso(nf, terms)),
+                ),
             },
             None => (None, None),
         }
@@ -814,9 +823,7 @@ impl<C: ConstraintOps> PipeWork<C> {
         };
 
         // BindWork when mid has no tabled nodes or far boundary is absent.
-        if !mid_empty
-            && (!mid_has_tabled_nodes(&pipe.mid) || pipe.boundary(opp).is_none())
-        {
+        if !mid_empty && (!mid_has_tabled_nodes(&pipe.mid) || pipe.boundary(opp).is_none()) {
             let bind = match end {
                 PipeEnd::Front => BindWork::new_front(
                     group_node,

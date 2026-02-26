@@ -102,8 +102,8 @@ fn extract_key_from_step(step: WorkStep<()>) -> CallKey<()> {
                 (*fix.key).clone()
             }
             Work::Bind(bind) => {
-                let fix = find_fixwork_in_node(bind.source())
-                    .expect("Expected FixWork in bind source");
+                let fix =
+                    find_fixwork_in_node(bind.source()).expect("Expected FixWork in bind source");
                 (*fix.key).clone()
             }
             _ => panic!("Expected Work::Compose or Work::Bind"),

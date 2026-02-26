@@ -413,11 +413,8 @@ impl<B: ConstraintBuilder> Parser<B> {
                                     substitute_in_rel(r, outer_subst, RelId::MAX, RelId::MAX)
                                 };
                                 // Also resolve pending calls within the Rel arg.
-                                let resolved = self.resolve_pending_inner(
-                                    resolved,
-                                    outer_subst,
-                                    term_subst,
-                                )?;
+                                let resolved =
+                                    self.resolve_pending_inner(resolved, outer_subst, term_subst)?;
                                 resolved_args.push(MacroArg::Rel(resolved));
                             }
                             MacroArg::Term(tid) => {
@@ -1361,11 +1358,7 @@ impl<B: ConstraintBuilder> Parser<B> {
     /// - Inside a macro body: meta-vars from the current macro's term patterns
     ///   are available as `$name` variables.
     /// - At top level: term must be ground (no variables).
-    fn parse_macro_term_arg(
-        &self,
-        input: &str,
-        pos: &mut usize,
-    ) -> Result<TermId, ParseError> {
+    fn parse_macro_term_arg(&self, input: &str, pos: &mut usize) -> Result<TermId, ParseError> {
         skip_whitespace(input, pos);
         let start_pos = *pos;
 
@@ -1677,12 +1670,9 @@ impl<B: ConstraintBuilder> Parser<B> {
 
         // Try each equation in order.
         for eq in &equations {
-            if let Some((rel_subst, term_subst)) =
-                self.try_match_equation(eq, &args, &param_kinds)
+            if let Some((rel_subst, term_subst)) = self.try_match_equation(eq, &args, &param_kinds)
             {
-                return self.expand_with_equation(
-                    eq, &rel_subst, &term_subst, call_pos,
-                );
+                return self.expand_with_equation(eq, &rel_subst, &term_subst, call_pos);
             }
         }
 
@@ -3564,7 +3554,11 @@ theory arrow_test {
         let sig = extract_macro_signature("compose(f, g) { f ; g }");
         assert_eq!(
             sig,
-            Some(("compose".to_string(), 2, vec![ParamKind::Relation, ParamKind::Relation]))
+            Some((
+                "compose".to_string(),
+                2,
+                vec![ParamKind::Relation, ParamKind::Relation]
+            ))
         );
     }
 
@@ -3573,7 +3567,11 @@ theory arrow_test {
         let sig = extract_macro_signature("fmap(@t, f) { f }");
         assert_eq!(
             sig,
-            Some(("fmap".to_string(), 2, vec![ParamKind::Term, ParamKind::Relation]))
+            Some((
+                "fmap".to_string(),
+                2,
+                vec![ParamKind::Term, ParamKind::Relation]
+            ))
         );
     }
 
@@ -3758,10 +3756,7 @@ theory arrow_test {
             Rel::Or(_, _) => {
                 // Correct: the two branches from the sum equation.
             }
-            _ => panic!(
-                "Expected Or from fmap(sum unit xvar), got {:?}",
-                rel
-            ),
+            _ => panic!("Expected Or from fmap(sum unit xvar), got {:?}", rel),
         }
     }
 
@@ -4058,15 +4053,10 @@ theory arrow_test {
         match (a, b) {
             (Rel::Zero, Rel::Zero) => true,
             (Rel::Atom(x), Rel::Atom(y)) => x == y,
-            (Rel::Or(a1, a2), Rel::Or(b1, b2)) => {
-                rel_shape_eq(a1, b1) && rel_shape_eq(a2, b2)
-            }
-            (Rel::And(a1, a2), Rel::And(b1, b2)) => {
-                rel_shape_eq(a1, b1) && rel_shape_eq(a2, b2)
-            }
+            (Rel::Or(a1, a2), Rel::Or(b1, b2)) => rel_shape_eq(a1, b1) && rel_shape_eq(a2, b2),
+            (Rel::And(a1, a2), Rel::And(b1, b2)) => rel_shape_eq(a1, b1) && rel_shape_eq(a2, b2),
             (Rel::Seq(xs), Rel::Seq(ys)) => {
-                xs.len() == ys.len()
-                    && xs.iter().zip(ys.iter()).all(|(x, y)| rel_shape_eq(x, y))
+                xs.len() == ys.len() && xs.iter().zip(ys.iter()).all(|(x, y)| rel_shape_eq(x, y))
             }
             (Rel::Fix(_, body_a), Rel::Fix(_, body_b)) => rel_shape_eq(body_a, body_b),
             (Rel::Call(_), Rel::Call(_)) => true, // RelIds differ but both are calls
@@ -4095,7 +4085,8 @@ theory arrow_test {
             rel_shape_eq(&expanded, &expected),
             "fmap(unit, f) should expand to identity rule.\n\
              Got: {:?}\nExpected: {:?}",
-            expanded, expected
+            expanded,
+            expected
         );
     }
 
@@ -4118,7 +4109,8 @@ theory arrow_test {
             rel_shape_eq(&expanded, &expected),
             "fmap(xvar, f) should expand to f itself.\n\
              Got: {:?}\nExpected: {:?}",
-            expanded, expected
+            expanded,
+            expected
         );
     }
 
@@ -4159,7 +4151,8 @@ theory arrow_test {
             rel_shape_eq(&expanded, &expected),
             "fmap(sum unit xvar) inner branches should match.\n\
              Got: {:?}\nExpected: {:?}",
-            expanded, expected
+            expanded,
+            expected
         );
     }
 
@@ -4250,9 +4243,7 @@ theory arrow_test {
                 assert_eq!(factors.len(), 2, "pair body is Seq of 2");
 
                 // First: m(unit, f) = identity ($x -> $x)
-                let identity = parser
-                    .parse_rel_body("$x -> $x")
-                    .expect("parse identity");
+                let identity = parser.parse_rel_body("$x -> $x").expect("parse identity");
                 assert!(
                     rel_shape_eq(factors[0].as_ref(), &identity),
                     "m(unit, f) should be identity, got {:?}",
@@ -4260,9 +4251,7 @@ theory arrow_test {
                 );
 
                 // Second: m(xvar, f) = f ($z -> (s $z))
-                let f_rel = parser
-                    .parse_rel_body("$z -> (s $z)")
-                    .expect("parse f");
+                let f_rel = parser.parse_rel_body("$z -> (s $z)").expect("parse f");
                 assert!(
                     rel_shape_eq(factors[1].as_ref(), &f_rel),
                     "m(xvar, f) should be f, got {:?}",
@@ -4329,16 +4318,15 @@ theory arrow_test {
             .parse_rel_def("rel tag(@(s $n)) { $x -> (tagged_s $x) }")
             .expect("tag/s");
 
-        let r1 = parser
-            .parse_rel_body("tag(z)")
-            .expect("expand tag(z)");
+        let r1 = parser.parse_rel_body("tag(z)").expect("expand tag(z)");
         let expected_z = parser
             .parse_rel_body("$x -> (tagged_z $x)")
             .expect("parse expected");
         assert!(
             rel_shape_eq(&r1, &expected_z),
             "tag(z) expansion mismatch.\nGot: {:?}\nExpected: {:?}",
-            r1, expected_z
+            r1,
+            expected_z
         );
 
         let r2 = parser
@@ -4350,7 +4338,8 @@ theory arrow_test {
         assert!(
             rel_shape_eq(&r2, &expected_s),
             "tag((s z)) expansion mismatch.\nGot: {:?}\nExpected: {:?}",
-            r2, expected_s
+            r2,
+            expected_s
         );
     }
 
@@ -4371,32 +4360,26 @@ theory arrow_test {
         let r1 = parser
             .parse_rel_body("combine(z, z)")
             .expect("expand combine(z, z)");
-        let e1 = parser.parse_rel_body("$x -> (both_z $x)").expect("expected");
-        assert!(
-            rel_shape_eq(&r1, &e1),
-            "combine(z,z) wrong: {:?}",
-            r1
-        );
+        let e1 = parser
+            .parse_rel_body("$x -> (both_z $x)")
+            .expect("expected");
+        assert!(rel_shape_eq(&r1, &e1), "combine(z,z) wrong: {:?}", r1);
 
         let r2 = parser
             .parse_rel_body("combine(z, (s z))")
             .expect("expand combine(z, (s z))");
-        let e2 = parser.parse_rel_body("$x -> (z_and_s $x)").expect("expected");
-        assert!(
-            rel_shape_eq(&r2, &e2),
-            "combine(z,(s z)) wrong: {:?}",
-            r2
-        );
+        let e2 = parser
+            .parse_rel_body("$x -> (z_and_s $x)")
+            .expect("expected");
+        assert!(rel_shape_eq(&r2, &e2), "combine(z,(s z)) wrong: {:?}", r2);
 
         let r3 = parser
             .parse_rel_body("combine((s z), z)")
             .expect("expand combine((s z), z)");
-        let e3 = parser.parse_rel_body("$x -> (s_and_z $x)").expect("expected");
-        assert!(
-            rel_shape_eq(&r3, &e3),
-            "combine((s z),z) wrong: {:?}",
-            r3
-        );
+        let e3 = parser
+            .parse_rel_body("$x -> (s_and_z $x)")
+            .expect("expected");
+        assert!(rel_shape_eq(&r3, &e3), "combine((s z),z) wrong: {:?}", r3);
 
         // No equation matches (s, s).
         let err = parser

@@ -106,8 +106,7 @@ impl<C: ConstraintOps> BindWork<C> {
                     source: Box::new(rest),
                     template: self.template.clone(),
                 };
-                let continuation_node =
-                    Node::Work(Box::new(Work::Bind(continuation)));
+                let continuation_node = Node::Work(Box::new(Work::Bind(continuation)));
                 WorkStep::Split(Box::new(pipe_node), Box::new(continuation_node))
             }
             NodeStep::Continue(rest) => {
