@@ -4,9 +4,11 @@ use crate::perf_counters;
 use crate::term::{Term, TermStore};
 #[cfg(feature = "tracing")]
 use crate::trace::{debug_span, trace};
+use std::hash::{Hash, Hasher};
 
 use super::util::{
-    build_remap_map, match_term_lists_shifted_with_left_renaming_combined, pre_create_shifted_vars,
+    build_remap_map, match_term_lists_shifted_combined,
+    match_term_lists_shifted_with_left_renaming_combined, pre_create_shifted_vars,
 };
 
 /// Compose two NFs in sequence: a ; b
@@ -21,6 +23,12 @@ use super::util::{
 ///
 /// Returns None if composition fails (matching failure at interface).
 pub fn compose_nf<C: ConstraintOps>(a: &NF<C>, b: &NF<C>, terms: &mut TermStore) -> Option<NF<C>> {
+    if perf_counters::is_enabled() {
+        let mut h = rustc_hash::FxHasher::default();
+        a.hash(&mut h);
+        b.hash(&mut h);
+        perf_counters::record_compose_pair_hash(h.finish());
+    }
     let result = compose_nf_impl(a, b, terms);
     perf_counters::record_compose_result(result.is_some());
     result
@@ -98,14 +106,25 @@ fn compose_nf_impl<C: ConstraintOps>(a: &NF<C>, b: &NF<C>, terms: &mut TermStore
     // The combined subst has left-side vars at indices < b_var_offset and
     // right-side vars at indices >= b_var_offset. Consumers resolve chains
     // lazily through apply_subst's natural chain following.
-    let combined_subst = match match_term_lists_shifted_with_left_renaming_combined(
-        &a.build_pats,
-        &b.match_pats,
-        &a.cached_rhs_map,
-        b_var_offset,
-        &shifted_vars,
-        terms,
-    ) {
+    let combined_subst = match if a.cached_rhs_identity {
+        match_term_lists_shifted_combined(
+            &a.build_pats,
+            &b.match_pats,
+            b_var_offset,
+            &shifted_vars,
+            terms,
+        )
+    } else {
+        match_term_lists_shifted_with_left_renaming_combined(
+            &a.build_pats,
+            &b.match_pats,
+            &a.cached_rhs_map,
+            &a.cached_rhs_map_opt,
+            b_var_offset,
+            &shifted_vars,
+            terms,
+        )
+    } {
         Some(subst) => {
             #[cfg(feature = "tracing")]
             trace!(bindings = subst.len(), "matching_success");

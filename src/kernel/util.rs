@@ -136,6 +136,7 @@ pub fn match_term_lists_shifted_with_left_renaming_combined(
     left: &[TermId],
     right: &[TermId],
     left_rhs_map: &[u32],
+    left_rhs_map_opt: &[Option<u32>],
     right_offset: u32,
     shifted_vars: &[TermId],
     terms: &mut TermStore,
@@ -143,10 +144,6 @@ pub fn match_term_lists_shifted_with_left_renaming_combined(
     if left.len() != right.len() {
         return None;
     }
-
-    // Pre-compute the Option-wrapped renaming map once, outside the loop.
-    // This avoids a heap allocation on every iteration of the fallback path.
-    let rhs_map_opt: Vec<Option<u32>> = left_rhs_map.iter().map(|&v| Some(v)).collect();
 
     let mut subst = Subst::new();
     for (idx, (&l, &r)) in left.iter().zip(right.iter()).enumerate() {
@@ -160,7 +157,7 @@ pub fn match_term_lists_shifted_with_left_renaming_combined(
             )?;
             subst = match_subst;
         } else {
-            let l_renamed = crate::nf::apply_var_renaming(l, &rhs_map_opt, terms);
+            let l_renamed = crate::nf::apply_var_renaming(l, left_rhs_map_opt, terms);
             let l_sub = apply_subst(l_renamed, &subst, terms);
             let r_sub = apply_subst_shifted(r, &subst, right_offset, shifted_vars, terms);
             let match_subst = match_terms_combined(l_sub, r_sub, terms)?;

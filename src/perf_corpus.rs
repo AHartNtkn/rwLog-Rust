@@ -906,8 +906,11 @@ fn execution_counters_from_snapshot(
     }
 }
 
-fn run_prepared_inner(case: &CorpusCase, prepared: PreparedCase) -> usize {
-    let mut engine = Engine::new_with_env(prepared.rel, prepared.terms, prepared.env);
+pub fn compile_prepared(prepared: PreparedCase) -> Engine<CorpusConstraint> {
+    Engine::new_with_env(prepared.rel, prepared.terms, prepared.env)
+}
+
+fn run_compiled_inner(case: &CorpusCase, mut engine: Engine<CorpusConstraint>) -> usize {
     match case.mode {
         RunMode::FirstAnswer => {
             if engine.next().is_some() {
@@ -931,12 +934,21 @@ fn run_prepared_inner(case: &CorpusCase, prepared: PreparedCase) -> usize {
     }
 }
 
-pub fn run_prepared_with_stats(case: &CorpusCase, prepared: PreparedCase) -> RunStats {
-    let (answers, snapshot) = perf_counters::capture(|| run_prepared_inner(case, prepared));
+pub fn run_compiled_with_stats(case: &CorpusCase, engine: Engine<CorpusConstraint>) -> RunStats {
+    let (answers, snapshot) = perf_counters::capture(|| run_compiled_inner(case, engine));
     RunStats {
         answers,
         counters: execution_counters_from_snapshot(snapshot),
     }
+}
+
+pub fn run_compiled(case: &CorpusCase, engine: Engine<CorpusConstraint>) -> usize {
+    run_compiled_with_stats(case, engine).answers
+}
+
+pub fn run_prepared_with_stats(case: &CorpusCase, prepared: PreparedCase) -> RunStats {
+    let engine = compile_prepared(prepared);
+    run_compiled_with_stats(case, engine)
 }
 
 pub fn run_prepared(case: &CorpusCase, prepared: PreparedCase) -> usize {

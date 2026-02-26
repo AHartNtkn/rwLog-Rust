@@ -48,7 +48,7 @@ Whenever you are asked to edit AGENTS.md, do not take these as litteral, step-by
 
 - Run tests after code changes that can affect behavior. Do not ask the user to run tests.
 - Do not run tests for instruction-only edits, documentation-only edits, or git-only changes (branch/worktree/checkout/reset).
-- When running tests, run `cargo test --no-run` in the same profile (debug/release) first.
+- When running tests, use release profile and run `cargo test --release --no-run` first.
 - The user does not care about phrasing or framing; do not propose rephrasings or reframings for solutions or fixes, and describe them objectively.
 - Never propose fixes that change semantics; correctness is defined by the current semantics, and a semantic change is not an acceptable bug fix unless the user explicitly requests it.
 - Treat semantics-breaking changes as catastrophic to correctness; even when explicitly requested, treat them as severe, warn strongly, and resist by default.
@@ -60,6 +60,8 @@ Whenever you are asked to edit AGENTS.md, do not take these as litteral, step-by
 - When the user has already requested a task, proceed without asking for permission or prompting for confirmation; avoid “say the word” or similar re-ask phrasing.
 - When objective standards in this file or the system/developer instructions already determine the correct action, follow them without asking the user for preference or permission; only ask when those standards are insufficient to decide.
 - User preference is not the deciding factor; follow objective standards relevant to the task to determine the best action. Do not ask for preference when standards already decide.
+- stop giving me unprompted status updates unless you litterally have no pending work.
+- If yoiu do have pending work, do NOT give a status update, just do the pending work.
 
 ## Debugging and Diagnosis Protocol
 
@@ -78,6 +80,9 @@ Whenever you are asked to edit AGENTS.md, do not take these as litteral, step-by
 - Refactors must be deletion-first: remove the obsolete implementation as soon as a replacement is chosen.
 - Never keep parallel implementations for the same behavior.
 - Do not perform incremental replacements; complete each replacement in a single change set.
+- Never maintain backward-compatibility paths, adapters, or compatibility shims.
+- Never keep legacy execution features once a replacement exists.
+- Always apply destructive updates during architecture replacement: remove the old implementation and route all execution through the new one.
 
 ## PRIMARY EDICT: Tests Must Verify Correct Behavior
 
@@ -184,12 +189,12 @@ Layout rule: avoid multi-column exposition; keep text single-column and give dia
 
 ## CRITICAL: Always Use Timeouts When Running Tests
 
-**NEVER run tests without a timeout.** If tests don't ALL finish in less than 30 seconds, there's an infinite loop bug.
+**NEVER run tests without a timeout.** If tests don't ALL finish in less than 60 seconds, there's an infinite loop bug.
 
 **Always use:**
 ```bash
-cargo test --no-run 2>&1
-timeout 30 cargo test 2>&1
+cargo test --release --no-run 2>&1
+timeout 60 cargo test --release 2>&1
 ```
 
 **Never use:**
@@ -203,7 +208,7 @@ This applies to ALL test commands - full suite, filtered tests, individual tests
 
 Baseline to preserve during the parallelism port (I ran this myself on commit `8eab6f01f1be85aa5a5790afb84a604e6948b336`):
 - Built release tests with `cargo test --release --no-run`.
-- Ran `timeout 30 cargo test --release --lib engine::tests::program_synth_flip_query_emits_answer -- --exact --nocapture`.
+- Ran `timeout 60 cargo test --release --lib engine::tests::program_synth_flip_query_emits_answer -- --exact --nocapture`.
 - Result: pass.
 
 ## TDD Test Coverage Requirements

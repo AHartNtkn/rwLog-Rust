@@ -1,20 +1,27 @@
 use super::{
-    rel_to_node, step_table_producer, AndGroup, CallKey, ComposeWork, Env, FixWork,
-    JoinReceiverWork, MeetWork, PipeWork, ProducerSpec, ProducerState, ProducerStep, Table, Tables,
-    Work, WorkStep,
+    step_table_producer, AndGroup, CallKey, ComposeWork, Env, FixWork, JoinReceiverWork, MeetWork,
+    PipeWork, ProducerSpec, ProducerState, ProducerStep, Table, Tables, Work, WorkSet, WorkSetStep,
+    WorkStep,
 };
 use crate::drop_fresh::DropFresh;
 use crate::factors::Factors;
 use crate::kernel::compose_nf;
 use crate::kernel::dual::dual_nf;
 use crate::nf::NF;
-use crate::node::{step_node, Node, NodeStep};
 use crate::queue::{AnswerQueue, SinkResult};
 use crate::rel::Rel;
 use crate::term::TermStore;
 use crate::test_utils::{make_ground_nf, make_identity_nf, make_rule_nf, setup};
 use smallvec::SmallVec;
 use std::sync::Arc;
+
+#[derive(Clone, Debug)]
+enum WorkTree {
+    Fail,
+    Or(Box<WorkTree>, Box<WorkTree>),
+    Emit(Box<NF<()>>, Box<WorkTree>),
+    Work(Box<Work<()>>),
+}
 
 /// Create variable identity NF (x -> x) using a specific TermStore
 fn make_var_identity_nf(terms: &mut TermStore) -> NF<()> {
@@ -56,54 +63,69 @@ fn delayed_or(depth: usize, inner: Arc<Rel<()>>) -> Arc<Rel<()>> {
     rel
 }
 
-fn count_pipe_nodes(node: &Node<()>) -> usize {
-    match node {
-        Node::Fail => 0,
-        Node::Emit(_, rest) => count_pipe_nodes(rest),
-        Node::Or(left, right) => count_pipe_nodes(left) + count_pipe_nodes(right),
-        Node::Work(work) => count_pipe_nodes_in_work(work),
-    }
-}
-
-fn count_pipe_nodes_in_work(work: &Work<()>) -> usize {
+fn count_pipe_branches_in_work(work: &Work<()>) -> usize {
     match work {
         Work::Pipe(_) => 1,
-        Work::Meet(meet) => count_pipe_nodes(meet.left()) + count_pipe_nodes(meet.right()),
-        Work::AndGroup(group) => group.producer_nodes().map(count_pipe_nodes).sum(),
+        Work::Meet(meet) => {
+            count_pipe_branches_in_work_set(meet.left())
+                + count_pipe_branches_in_work_set(meet.right())
+        }
+        Work::AndGroup(group) => group
+            .producer_work_sets()
+            .map(count_pipe_branches_in_work_set)
+            .sum(),
         Work::Fix(_) => 0,
         Work::Compose(compose) => {
-            count_pipe_nodes(compose.left()) + count_pipe_nodes(compose.right())
+            count_pipe_branches_in_work_set(compose.left())
+                + count_pipe_branches_in_work_set(compose.right())
         }
         Work::Bind(_) => 0,
         Work::JoinReceiver(_) => 0,
+        Work::ReplayAnswers(_) => 0,
         Work::Atom(_) => 0,
         Work::Done => 0,
     }
 }
 
-fn find_fixwork_in_node(node: &Node<()>) -> Option<FixWork<()>> {
-    match node {
-        Node::Work(work) => match work.as_ref() {
-            Work::Fix(fix) => Some(fix.clone()),
-            _ => None,
-        },
-        Node::Or(left, right) => find_fixwork_in_node(left).or_else(|| find_fixwork_in_node(right)),
-        _ => None,
+fn count_pipe_branches_in_work_set(work_set: &WorkSet<()>) -> usize {
+    work_set.branches().map(count_pipe_branches_in_work).sum()
+}
+
+fn find_fixwork_in_work_set(work_set: &WorkSet<()>) -> Option<FixWork<()>> {
+    for work in work_set.branches() {
+        match work {
+            Work::Fix(fix) => return Some(fix.clone()),
+            Work::Compose(compose) => {
+                if let Some(fix) = find_fixwork_in_work_set(compose.left()) {
+                    return Some(fix);
+                }
+                if let Some(fix) = find_fixwork_in_work_set(compose.right()) {
+                    return Some(fix);
+                }
+            }
+            Work::Bind(bind) => {
+                if let Some(fix) = find_fixwork_in_work_set(bind.source()) {
+                    return Some(fix);
+                }
+            }
+            _ => {}
+        }
     }
+    None
 }
 
 fn extract_key_from_step(step: WorkStep<()>) -> CallKey<()> {
     match step {
         WorkStep::More(work) => match *work {
             Work::Compose(compose) => {
-                let fix = find_fixwork_in_node(compose.left())
-                    .or_else(|| find_fixwork_in_node(compose.right()))
-                    .expect("Expected FixWork in compose nodes");
+                let fix = find_fixwork_in_work_set(compose.left())
+                    .or_else(|| find_fixwork_in_work_set(compose.right()))
+                    .expect("Expected FixWork in compose branches");
                 (*fix.key).clone()
             }
             Work::Bind(bind) => {
-                let fix =
-                    find_fixwork_in_node(bind.source()).expect("Expected FixWork in bind source");
+                let fix = find_fixwork_in_work_set(bind.source())
+                    .expect("Expected FixWork in bind source");
                 (*fix.key).clone()
             }
             _ => panic!("Expected Work::Compose or Work::Bind"),
@@ -112,8 +134,8 @@ fn extract_key_from_step(step: WorkStep<()>) -> CallKey<()> {
     }
 }
 
-fn is_work_pipe(node: &Node<()>) -> bool {
-    matches!(node, Node::Work(work) if matches!(work.as_ref(), Work::Pipe(_)))
+fn is_work_pipe(tree: &WorkTree) -> bool {
+    matches!(tree, WorkTree::Work(work) if matches!(work.as_ref(), Work::Pipe(_)))
 }
 
 fn unwrap_join_receiver(work: Work<()>) -> JoinReceiverWork<()> {
@@ -136,40 +158,46 @@ fn unwrap_and_group(work: Work<()>) -> AndGroup<()> {
     }
 }
 
-fn unwrap_work_pipe(node: Node<()>) -> PipeWork<()> {
-    match node {
-        Node::Work(work) => match *work {
+fn unwrap_work_pipe(tree: WorkTree) -> PipeWork<()> {
+    match tree {
+        WorkTree::Work(work) => match *work {
             Work::Pipe(pipe) => *pipe,
             _ => panic!("Expected Work::Pipe"),
         },
-        _ => panic!("Expected Node::Work"),
+        _ => panic!("Expected WorkTree::Work"),
+    }
+}
+
+fn unwrap_work_pipe_work(work: Work<()>) -> PipeWork<()> {
+    match work {
+        Work::Pipe(pipe) => *pipe,
+        _ => panic!("Expected Work::Pipe"),
     }
 }
 
 fn find_and_group_in_work(work: &Work<()>) -> Option<AndGroup<()>> {
     match work {
         Work::AndGroup(group) => Some(group.clone()),
-        Work::Compose(compose) => find_and_group_in_node(compose.left())
-            .or_else(|| find_and_group_in_node(compose.right())),
+        Work::Compose(compose) => find_and_group_in_work_set(compose.left())
+            .or_else(|| find_and_group_in_work_set(compose.right())),
+        Work::Bind(bind) => find_and_group_in_work_set(bind.source()),
         Work::Pipe(_)
         | Work::Meet(_)
         | Work::Fix(_)
-        | Work::Bind(_)
         | Work::JoinReceiver(_)
+        | Work::ReplayAnswers(_)
         | Work::Atom(_)
         | Work::Done => None,
     }
 }
 
-fn find_and_group_in_node(node: &Node<()>) -> Option<AndGroup<()>> {
-    match node {
-        Node::Work(work) => find_and_group_in_work(work),
-        Node::Or(left, right) => {
-            find_and_group_in_node(left).or_else(|| find_and_group_in_node(right))
+fn find_and_group_in_work_set(work_set: &WorkSet<()>) -> Option<AndGroup<()>> {
+    for work in work_set.branches() {
+        if let Some(group) = find_and_group_in_work(work) {
+            return Some(group);
         }
-        Node::Emit(_, rest) => find_and_group_in_node(rest),
-        Node::Fail => None,
     }
+    None
 }
 
 fn unwrap_work_compose(step: WorkStep<()>) -> ComposeWork<()> {
@@ -182,11 +210,49 @@ fn unwrap_work_compose(step: WorkStep<()>) -> ComposeWork<()> {
     }
 }
 
-fn unwrap_split(step: WorkStep<()>) -> (Node<()>, Node<()>) {
+fn unwrap_split(step: WorkStep<()>) -> (WorkTree, WorkTree) {
     match step {
-        WorkStep::Split(left, right) => (*left, *right),
+        WorkStep::Split(left, right) => (WorkTree::Work(left), WorkTree::Work(right)),
         _ => panic!("Expected WorkStep::Split"),
     }
+}
+
+fn works_from_tree(tree: WorkTree) -> Vec<Work<()>> {
+    match tree {
+        WorkTree::Fail => Vec::new(),
+        WorkTree::Work(work) => vec![*work],
+        WorkTree::Emit(nf, rest) => {
+            let mut works = vec![Work::Atom(*nf)];
+            works.extend(works_from_tree(*rest));
+            works
+        }
+        WorkTree::Or(left, right) => {
+            let mut works = works_from_tree(*left);
+            works.extend(works_from_tree(*right));
+            works
+        }
+    }
+}
+
+fn work_set_from_tree(tree: WorkTree) -> WorkSet<()> {
+    WorkSet::from_works(works_from_tree(tree))
+}
+
+fn compose_from_trees(left: WorkTree, right: WorkTree) -> ComposeWork<()> {
+    ComposeWork::new_with_sources(work_set_from_tree(left), work_set_from_tree(right))
+}
+
+fn meet_from_trees(left: WorkTree, right: WorkTree) -> MeetWork<()> {
+    MeetWork::new_with_sources(work_set_from_tree(left), work_set_from_tree(right))
+}
+
+fn start_producer_from_tree(
+    table: &Table<()>,
+    producer: WorkTree,
+    spec: ProducerSpec<()>,
+    iteration_start_len: usize,
+) {
+    table.start_producer(work_set_from_tree(producer), spec, iteration_start_len);
 }
 
 // ========================================================================
@@ -200,9 +266,9 @@ fn composework_emits_composed_nf() {
     let right_nf = make_ground_nf("A", &symbols, &terms);
     let expected = compose_nf(&left_nf, &right_nf, &mut terms).expect("compose should succeed");
 
-    let left = Node::Emit(Box::new(left_nf), Box::new(Node::Fail));
-    let right = Node::Emit(Box::new(right_nf), Box::new(Node::Fail));
-    let mut compose = ComposeWork::new(left, right);
+    let left = WorkTree::Emit(Box::new(left_nf), Box::new(WorkTree::Fail));
+    let right = WorkTree::Emit(Box::new(right_nf), Box::new(WorkTree::Fail));
+    let mut compose = compose_from_trees(left, right);
 
     let mut steps = 0;
     let mut step = compose.step(&mut terms);
@@ -235,9 +301,9 @@ fn composework_emits_composed_nf_dual() {
     let dual_left = dual_nf(&right_nf, &mut terms);
     let dual_right = dual_nf(&left_nf, &mut terms);
 
-    let left = Node::Emit(Box::new(dual_left), Box::new(Node::Fail));
-    let right = Node::Emit(Box::new(dual_right), Box::new(Node::Fail));
-    let mut compose = ComposeWork::new(left, right);
+    let left = WorkTree::Emit(Box::new(dual_left), Box::new(WorkTree::Fail));
+    let right = WorkTree::Emit(Box::new(dual_right), Box::new(WorkTree::Fail));
+    let mut compose = compose_from_trees(left, right);
 
     let mut steps = 0;
     let mut step = compose.step(&mut terms);
@@ -277,19 +343,17 @@ fn seq_does_not_spawn_pipe_per_and_answer() {
     let seq = Rel::Seq(Arc::from(vec![and_rel, delayed]));
     let env = Env::new();
     let tables = Tables::new();
-    let mut node = rel_to_node(&seq, &env, &tables);
+    let mut work_set =
+        WorkSet::from_work(Work::Pipe(Box::new(PipeWork::from_rel(seq, env, tables))));
 
     for _ in 0..24 {
-        match step_node(node, &mut terms) {
-            NodeStep::Emit(_, rest) | NodeStep::Continue(rest) => node = rest,
-            NodeStep::Exhausted => {
-                node = Node::Fail;
-                break;
-            }
+        match work_set.step(&mut terms) {
+            WorkSetStep::Emit(_) | WorkSetStep::Continue => {}
+            WorkSetStep::Exhausted => break,
         }
     }
 
-    let pipe_count = count_pipe_nodes(&node);
+    let pipe_count = count_pipe_branches_in_work_set(&work_set);
     assert!(
         pipe_count <= 4,
         "Seq should not spawn one pipe per And answer; got {pipe_count}"
@@ -316,19 +380,18 @@ fn seq_does_not_spawn_pipe_per_and_answer_dual() {
     let dual_seq = dual(&seq, &mut terms);
     let env = Env::new();
     let tables = Tables::new();
-    let mut node = rel_to_node(&dual_seq, &env, &tables);
+    let mut work_set = WorkSet::from_work(Work::Pipe(Box::new(PipeWork::from_rel(
+        dual_seq, env, tables,
+    ))));
 
     for _ in 0..24 {
-        match step_node(node, &mut terms) {
-            NodeStep::Emit(_, rest) | NodeStep::Continue(rest) => node = rest,
-            NodeStep::Exhausted => {
-                node = Node::Fail;
-                break;
-            }
+        match work_set.step(&mut terms) {
+            WorkSetStep::Emit(_) | WorkSetStep::Continue => {}
+            WorkSetStep::Exhausted => break,
         }
     }
 
-    let pipe_count = count_pipe_nodes(&node);
+    let pipe_count = count_pipe_branches_in_work_set(&work_set);
     assert!(
         pipe_count <= 3,
         "Dual Seq should not spawn one pipe per And answer; got {pipe_count}"
@@ -373,8 +436,8 @@ fn workstep_emit_construction() {
 
 #[test]
 fn workstep_split_construction() {
-    let left: Node<()> = Node::Fail;
-    let right: Node<()> = Node::Fail;
+    let left: Work<()> = Work::Done;
+    let right: Work<()> = Work::Done;
     let step: WorkStep<()> = WorkStep::Split(Box::new(left), Box::new(right));
     assert!(matches!(step, WorkStep::Split(_, _)));
 }
@@ -514,20 +577,8 @@ fn pipework_fuses_middle_atoms_before_advancing_ends() {
             _ => panic!("Expected Work::Pipe"),
         },
         WorkStep::Split(left, right) => {
-            let left_pipe = match *left {
-                Node::Work(work) => match *work {
-                    Work::Pipe(pipe) => *pipe,
-                    _ => panic!("Expected Work::Pipe on left"),
-                },
-                _ => panic!("Expected Node::Work on left"),
-            };
-            let right_pipe = match *right {
-                Node::Work(work) => match *work {
-                    Work::Pipe(pipe) => *pipe,
-                    _ => panic!("Expected Work::Pipe on right"),
-                },
-                _ => panic!("Expected Node::Work on right"),
-            };
+            let left_pipe = unwrap_work_pipe_work(*left);
+            let right_pipe = unwrap_work_pipe_work(*right);
             assert_eq!(
                 left_pipe.mid.len(),
                 3,
@@ -631,7 +682,7 @@ fn pipework_step_or_with_boundaries_splits() {
 // SPLIT_OR COMPREHENSIVE TESTS - Must return Work::Pipe, not Fail
 // ========================================================================
 
-/// split_or must return Work::Pipe nodes, NOT Fail nodes.
+/// split_or must return Work::Pipe branches, NOT Fail branches.
 /// This is the fundamental contract of split_or.
 #[test]
 fn split_or_returns_work_pipe_not_fail() {
@@ -673,8 +724,8 @@ fn split_or_left_branch_has_a_factor() {
     let mut pipe: PipeWork<()> = PipeWork::with_mid(mid);
     let step = pipe.step(&mut terms);
 
-    let (left_node, _right_node) = unwrap_split(step);
-    let left_pipe = unwrap_work_pipe(left_node);
+    let (left_tree, _right_tree) = unwrap_split(step);
+    let left_pipe = unwrap_work_pipe(left_tree);
     // Left pipe's mid should have 'a' at front
     assert!(
         !left_pipe.mid.is_empty(),
@@ -706,8 +757,8 @@ fn split_or_right_branch_has_b_factor() {
     let mut pipe: PipeWork<()> = PipeWork::with_mid(mid);
     let step = pipe.step(&mut terms);
 
-    let (_left_node, right_node) = unwrap_split(step);
-    let right_pipe = unwrap_work_pipe(right_node);
+    let (_left_tree, right_tree) = unwrap_split(step);
+    let right_pipe = unwrap_work_pipe(right_tree);
     // Right pipe's mid should have 'b' at front
     assert!(
         !right_pipe.mid.is_empty(),
@@ -740,9 +791,9 @@ fn split_or_preserves_left_boundary() {
     let mut pipe: PipeWork<()> = PipeWork::with_boundaries(Some(boundary.clone()), mid, None);
     let step = pipe.step(&mut terms);
 
-    let (left_node, right_node) = unwrap_split(step);
-    let left_pipe = unwrap_work_pipe(left_node);
-    let right_pipe = unwrap_work_pipe(right_node);
+    let (left_tree, right_tree) = unwrap_split(step);
+    let left_pipe = unwrap_work_pipe(left_tree);
+    let right_pipe = unwrap_work_pipe(right_tree);
     assert!(
         left_pipe.left.is_some(),
         "Left branch should preserve left boundary"
@@ -776,9 +827,9 @@ fn split_or_preserves_right_boundary() {
     let mut pipe: PipeWork<()> = PipeWork::with_boundaries(None, mid, Some(boundary.clone()));
     let step = pipe.step(&mut terms);
 
-    let (left_node, right_node) = unwrap_split(step);
-    let left_pipe = unwrap_work_pipe(left_node);
-    let right_pipe = unwrap_work_pipe(right_node);
+    let (left_tree, right_tree) = unwrap_split(step);
+    let left_pipe = unwrap_work_pipe(left_tree);
+    let right_pipe = unwrap_work_pipe(right_tree);
     assert!(
         left_pipe.right.is_some(),
         "Left branch should preserve right boundary"
@@ -859,8 +910,13 @@ fn pipework_and_group_wraps_parts_with_iso_boundaries() {
     let expected_left_iso = super::nf_rwr_iso(&left_nf, &mut terms);
     let expected_right_iso = super::nf_rwl_iso(&right_nf, &mut terms);
 
-    for node in group.producer_nodes() {
-        let pipe = unwrap_work_pipe(node.clone());
+    for work_set in group.producer_work_sets() {
+        let work = work_set
+            .branches()
+            .next()
+            .cloned()
+            .expect("AndGroup producer should have at least one branch");
+        let pipe = unwrap_work_pipe_work(work);
         let factors = pipe.mid.to_vec();
         let left = factors.first().and_then(|rel| match rel.as_ref() {
             Rel::Atom(nf) => Some(nf.as_ref()),
@@ -903,9 +959,9 @@ fn split_or_preserves_both_boundaries() {
     );
     let step = pipe.step(&mut terms);
 
-    let (left_node, right_node) = unwrap_split(step);
-    let left_pipe = unwrap_work_pipe(left_node);
-    let right_pipe = unwrap_work_pipe(right_node);
+    let (left_tree, right_tree) = unwrap_split(step);
+    let left_pipe = unwrap_work_pipe(left_tree);
+    let right_pipe = unwrap_work_pipe(right_tree);
     // Check left boundary preserved
     assert_eq!(
         left_pipe.left.as_ref().unwrap().match_pats,
@@ -932,7 +988,7 @@ fn split_or_preserves_both_boundaries() {
 #[test]
 fn split_or_preserves_remaining_mid() {
     let (_, mut terms) = setup();
-    // Use Or nodes which won't be absorbed during normalization
+    // Use Or branches which won't be absorbed during normalization
     let a: Arc<Rel<()>> = Arc::new(Rel::Zero);
     let b: Arc<Rel<()>> = Arc::new(Rel::Zero);
     let or1 = Arc::new(Rel::Or(a.clone(), b.clone()));
@@ -943,9 +999,9 @@ fn split_or_preserves_remaining_mid() {
     let mut pipe: PipeWork<()> = PipeWork::with_mid(mid);
     let step = pipe.step(&mut terms);
 
-    let (left_node, right_node) = unwrap_split(step);
-    let left_pipe = unwrap_work_pipe(left_node);
-    let right_pipe = unwrap_work_pipe(right_node);
+    let (left_tree, right_tree) = unwrap_split(step);
+    let left_pipe = unwrap_work_pipe(left_tree);
+    let right_pipe = unwrap_work_pipe(right_tree);
     // Both branches should have 2 factors: (branch from or1) + or2
     assert_eq!(left_pipe.mid.len(), 2, "Left pipe should have 2 factors");
     assert_eq!(right_pipe.mid.len(), 2, "Right pipe should have 2 factors");
@@ -968,9 +1024,9 @@ fn split_or_preserves_env() {
     let mut pipe: PipeWork<()> = PipeWork::with_env_and_tables(None, mid, None, env, Tables::new());
     let step = pipe.step(&mut terms);
 
-    let (left_node, right_node) = unwrap_split(step);
-    let left_pipe = unwrap_work_pipe(left_node);
-    let right_pipe = unwrap_work_pipe(right_node);
+    let (left_tree, right_tree) = unwrap_split(step);
+    let left_pipe = unwrap_work_pipe(left_tree);
+    let right_pipe = unwrap_work_pipe(right_tree);
     assert!(
         left_pipe.env.contains(42),
         "Left branch should preserve env binding"
@@ -1174,8 +1230,8 @@ fn pipework_step_back_atom_absorbs_to_right() {
             _ => panic!("Expected Work::Pipe"),
         },
         WorkStep::Split(left, right) => {
-            let left_pipe = unwrap_work_pipe(*left);
-            let right_pipe = unwrap_work_pipe(*right);
+            let left_pipe = unwrap_work_pipe_work(*left);
+            let right_pipe = unwrap_work_pipe_work(*right);
             assert!(
                 left_pipe.right.is_some(),
                 "Left branch missing absorbed right boundary"
@@ -1315,9 +1371,9 @@ fn pipework_step_right_boundary_composes() {
 
 #[test]
 fn meetwork_construction_both_fail() {
-    let meet: MeetWork<()> = MeetWork::new(Node::Fail, Node::Fail);
-    assert!(matches!(meet.left(), Node::Fail));
-    assert!(matches!(meet.right(), Node::Fail));
+    let meet: MeetWork<()> = meet_from_trees(WorkTree::Fail, WorkTree::Fail);
+    assert_eq!(meet.left().branch_count(), 0);
+    assert_eq!(meet.right().branch_count(), 0);
     assert!(meet.seen_l().is_empty());
     assert!(meet.seen_r().is_empty());
     assert!(meet.pending_is_empty());
@@ -1327,41 +1383,41 @@ fn meetwork_construction_both_fail() {
 #[test]
 fn meetwork_construction_left_fail_right_emit() {
     let nf = make_identity_nf();
-    let right = Node::Emit(Box::new(nf), Box::new(Node::Fail));
-    let meet: MeetWork<()> = MeetWork::new(Node::Fail, right);
-    assert!(matches!(meet.left(), Node::Fail));
-    assert!(matches!(meet.right(), Node::Emit(_, _)));
+    let right = WorkTree::Emit(Box::new(nf), Box::new(WorkTree::Fail));
+    let meet: MeetWork<()> = meet_from_trees(WorkTree::Fail, right);
+    assert_eq!(meet.left().branch_count(), 0);
+    assert_eq!(meet.right().branch_count(), 1);
 }
 
 #[test]
 fn meetwork_construction_left_emit_right_fail() {
     let nf = make_identity_nf();
-    let left = Node::Emit(Box::new(nf), Box::new(Node::Fail));
-    let meet: MeetWork<()> = MeetWork::new(left, Node::Fail);
-    assert!(matches!(meet.left(), Node::Emit(_, _)));
-    assert!(matches!(meet.right(), Node::Fail));
+    let left = WorkTree::Emit(Box::new(nf), Box::new(WorkTree::Fail));
+    let meet: MeetWork<()> = meet_from_trees(left, WorkTree::Fail);
+    assert_eq!(meet.left().branch_count(), 1);
+    assert_eq!(meet.right().branch_count(), 0);
 }
 
 #[test]
 fn meetwork_construction_both_emit() {
     let nf1 = make_identity_nf();
     let nf2 = make_identity_nf();
-    let left = Node::Emit(Box::new(nf1), Box::new(Node::Fail));
-    let right = Node::Emit(Box::new(nf2), Box::new(Node::Fail));
-    let meet: MeetWork<()> = MeetWork::new(left, right);
-    assert!(matches!(meet.left(), Node::Emit(_, _)));
-    assert!(matches!(meet.right(), Node::Emit(_, _)));
+    let left = WorkTree::Emit(Box::new(nf1), Box::new(WorkTree::Fail));
+    let right = WorkTree::Emit(Box::new(nf2), Box::new(WorkTree::Fail));
+    let meet: MeetWork<()> = meet_from_trees(left, right);
+    assert_eq!(meet.left().branch_count(), 1);
+    assert_eq!(meet.right().branch_count(), 1);
 }
 
 #[test]
 fn meetwork_construction_deep_left_or() {
     // Deeply nested Or on left
-    let mut node: Node<()> = Node::Fail;
+    let mut tree: WorkTree = WorkTree::Fail;
     for _ in 0..10 {
-        node = Node::Or(Box::new(node), Box::new(Node::Fail));
+        tree = WorkTree::Or(Box::new(tree), Box::new(WorkTree::Fail));
     }
-    let meet: MeetWork<()> = MeetWork::new(node, Node::Fail);
-    assert!(matches!(meet.left(), Node::Or(_, _)));
+    let meet: MeetWork<()> = meet_from_trees(tree, WorkTree::Fail);
+    assert_eq!(meet.left().branch_count(), 0);
 }
 
 // ========================================================================
@@ -1371,7 +1427,7 @@ fn meetwork_construction_deep_left_or() {
 #[test]
 fn meetwork_step_both_fail_returns_done() {
     let (_, mut terms) = setup();
-    let mut meet: MeetWork<()> = MeetWork::new(Node::Fail, Node::Fail);
+    let mut meet: MeetWork<()> = meet_from_trees(WorkTree::Fail, WorkTree::Fail);
     let step = meet.step(&mut terms);
     assert!(
         matches!(step, WorkStep::Done),
@@ -1383,8 +1439,8 @@ fn meetwork_step_both_fail_returns_done() {
 fn meetwork_step_left_fail_returns_done() {
     let (_, mut terms) = setup();
     let nf = make_identity_nf();
-    let right = Node::Emit(Box::new(nf), Box::new(Node::Fail));
-    let mut meet: MeetWork<()> = MeetWork::new(Node::Fail, right);
+    let right = WorkTree::Emit(Box::new(nf), Box::new(WorkTree::Fail));
+    let mut meet: MeetWork<()> = meet_from_trees(WorkTree::Fail, right);
 
     // With left Fail, no meets possible - should eventually return Done
     // (may take multiple steps as it drains right)
@@ -1411,8 +1467,8 @@ fn meetwork_step_left_fail_returns_done() {
 fn meetwork_step_right_fail_returns_done() {
     let (_, mut terms) = setup();
     let nf = make_identity_nf();
-    let left = Node::Emit(Box::new(nf), Box::new(Node::Fail));
-    let mut meet: MeetWork<()> = MeetWork::new(left, Node::Fail);
+    let left = WorkTree::Emit(Box::new(nf), Box::new(WorkTree::Fail));
+    let mut meet: MeetWork<()> = meet_from_trees(left, WorkTree::Fail);
 
     // With right Fail, no meets possible - should eventually return Done
     let mut done = false;
@@ -1435,15 +1491,15 @@ fn meetwork_step_right_fail_returns_done() {
 }
 
 #[test]
-fn meetwork_steps_work_nodes() {
+fn meetwork_steps_work_trees() {
     let (symbols, mut terms) = setup();
     let nf = make_ground_nf("A", &symbols, &terms);
     let rel = Arc::new(Rel::Atom(Arc::new(nf.clone())));
     let factors = Factors::from_seq(Arc::from(vec![rel]));
     let left_pipe = PipeWork::with_mid(factors);
-    let left = Node::Work(Box::new(Work::Pipe(Box::new(left_pipe))));
-    let right = Node::Emit(Box::new(nf), Box::new(Node::Fail));
-    let mut meet: MeetWork<()> = MeetWork::new(left, right);
+    let left = WorkTree::Work(Box::new(Work::Pipe(Box::new(left_pipe))));
+    let right = WorkTree::Emit(Box::new(nf), Box::new(WorkTree::Fail));
+    let mut meet: MeetWork<()> = meet_from_trees(left, right);
 
     let mut emitted = false;
     for _ in 0..50 {
@@ -1462,7 +1518,7 @@ fn meetwork_steps_work_nodes() {
         }
     }
 
-    assert!(emitted, "MeetWork should be able to advance Work nodes");
+    assert!(emitted, "MeetWork should be able to advance Work branches");
 }
 
 // ========================================================================
@@ -1475,9 +1531,9 @@ fn meetwork_step_identical_answers_produces_meet() {
     // Both sides emit X -> X, which should meet successfully
     let nf1 = make_ground_nf("X", &symbols, &terms);
     let nf2 = make_ground_nf("X", &symbols, &terms);
-    let left = Node::Emit(Box::new(nf1), Box::new(Node::Fail));
-    let right = Node::Emit(Box::new(nf2), Box::new(Node::Fail));
-    let mut meet: MeetWork<()> = MeetWork::new(left, right);
+    let left = WorkTree::Emit(Box::new(nf1), Box::new(WorkTree::Fail));
+    let right = WorkTree::Emit(Box::new(nf2), Box::new(WorkTree::Fail));
+    let mut meet: MeetWork<()> = meet_from_trees(left, right);
 
     // Step until we get an emit or Done
     let mut emitted = false;
@@ -1509,9 +1565,9 @@ fn meetwork_step_identity_with_ground_specializes() {
     let identity = make_var_identity_nf(&mut terms);
     let ground = make_ground_nf("A", &symbols, &terms);
 
-    let left = Node::Emit(Box::new(identity), Box::new(Node::Fail));
-    let right = Node::Emit(Box::new(ground.clone()), Box::new(Node::Fail));
-    let mut meet: MeetWork<()> = MeetWork::new(left, right);
+    let left = WorkTree::Emit(Box::new(identity), Box::new(WorkTree::Fail));
+    let right = WorkTree::Emit(Box::new(ground.clone()), Box::new(WorkTree::Fail));
+    let mut meet: MeetWork<()> = meet_from_trees(left, right);
 
     let mut result: Option<NF<()>> = None;
     for _ in 0..20 {
@@ -1553,9 +1609,9 @@ fn meetwork_step_incompatible_ground_no_emit() {
     let nf_a = make_ground_nf("A", &symbols, &terms);
     let nf_b = make_ground_nf("B", &symbols, &terms);
 
-    let left = Node::Emit(Box::new(nf_a), Box::new(Node::Fail));
-    let right = Node::Emit(Box::new(nf_b), Box::new(Node::Fail));
-    let mut meet: MeetWork<()> = MeetWork::new(left, right);
+    let left = WorkTree::Emit(Box::new(nf_a), Box::new(WorkTree::Fail));
+    let right = WorkTree::Emit(Box::new(nf_b), Box::new(WorkTree::Fail));
+    let mut meet: MeetWork<()> = meet_from_trees(left, right);
 
     let mut emitted = false;
     for _ in 0..20 {
@@ -1600,9 +1656,9 @@ fn meetwork_step_arity_mismatch_no_emit() {
         SmallVec::from_slice(&[pair_ab]),
     );
 
-    let left = Node::Emit(Box::new(single), Box::new(Node::Fail));
-    let right = Node::Emit(Box::new(double), Box::new(Node::Fail));
-    let mut meet: MeetWork<()> = MeetWork::new(left, right);
+    let left = WorkTree::Emit(Box::new(single), Box::new(WorkTree::Fail));
+    let right = WorkTree::Emit(Box::new(double), Box::new(WorkTree::Fail));
+    let mut meet: MeetWork<()> = meet_from_trees(left, right);
 
     let mut emitted = false;
     for _ in 0..20 {
@@ -1637,16 +1693,16 @@ fn meetwork_step_flip_alternates_sides() {
     let nf4 = make_identity_nf();
 
     // Left has 2 answers, right has 2 answers
-    let left = Node::Emit(
+    let left = WorkTree::Emit(
         Box::new(nf1),
-        Box::new(Node::Emit(Box::new(nf2), Box::new(Node::Fail))),
+        Box::new(WorkTree::Emit(Box::new(nf2), Box::new(WorkTree::Fail))),
     );
-    let right = Node::Emit(
+    let right = WorkTree::Emit(
         Box::new(nf3),
-        Box::new(Node::Emit(Box::new(nf4), Box::new(Node::Fail))),
+        Box::new(WorkTree::Emit(Box::new(nf4), Box::new(WorkTree::Fail))),
     );
 
-    let mut meet: MeetWork<()> = MeetWork::new(left, right);
+    let mut meet: MeetWork<()> = meet_from_trees(left, right);
 
     // After first step, flip should be true (pulled from left)
     // After second step, flip should be false (pulled from right)
@@ -1695,16 +1751,16 @@ fn meetwork_step_multiple_meets_all_produced() {
     let nf_a = make_ground_nf("A", &symbols, &terms);
     let nf_b = make_ground_nf("B", &symbols, &terms);
 
-    let left = Node::Emit(
+    let left = WorkTree::Emit(
         Box::new(id1),
-        Box::new(Node::Emit(Box::new(id2), Box::new(Node::Fail))),
+        Box::new(WorkTree::Emit(Box::new(id2), Box::new(WorkTree::Fail))),
     );
-    let right = Node::Emit(
+    let right = WorkTree::Emit(
         Box::new(nf_a),
-        Box::new(Node::Emit(Box::new(nf_b), Box::new(Node::Fail))),
+        Box::new(WorkTree::Emit(Box::new(nf_b), Box::new(WorkTree::Fail))),
     );
 
-    let mut meet: MeetWork<()> = MeetWork::new(left, right);
+    let mut meet: MeetWork<()> = meet_from_trees(left, right);
 
     let mut emit_count = 0;
     for _ in 0..50 {
@@ -1748,7 +1804,7 @@ fn meetwork_pending_emits_before_pulls() {
     let nf1 = make_identity_nf();
     let nf2 = make_identity_nf();
 
-    let mut meet: MeetWork<()> = MeetWork::new(Node::Fail, Node::Fail);
+    let mut meet: MeetWork<()> = meet_from_trees(WorkTree::Fail, WorkTree::Fail);
     push_pending_all(&mut meet, &[nf1, nf2]);
 
     // First step should emit from pending
@@ -1767,7 +1823,7 @@ fn meetwork_pending_preserves_order() {
     let nf_b = make_ground_nf("B", &symbols, &terms);
     let nf_c = make_ground_nf("C", &symbols, &terms);
 
-    let mut meet: MeetWork<()> = MeetWork::new(Node::Fail, Node::Fail);
+    let mut meet: MeetWork<()> = meet_from_trees(WorkTree::Fail, WorkTree::Fail);
     push_pending_all(&mut meet, &[nf_a.clone(), nf_b.clone(), nf_c.clone()]);
 
     // Should emit in FIFO order
@@ -1803,7 +1859,7 @@ fn meetwork_drains_pending_before_done() {
     let (_, mut terms) = setup();
     // Both sides exhausted but pending has items
     let nf = make_identity_nf();
-    let mut meet: MeetWork<()> = MeetWork::new(Node::Fail, Node::Fail);
+    let mut meet: MeetWork<()> = meet_from_trees(WorkTree::Fail, WorkTree::Fail);
     push_pending_all(&mut meet, &[nf]);
 
     let step = meet.step(&mut terms);
@@ -1827,16 +1883,16 @@ fn meetwork_left_exhausts_first() {
     let nf_b = make_ground_nf("B", &symbols, &terms);
     let nf_c = make_ground_nf("C", &symbols, &terms);
 
-    let left = Node::Emit(Box::new(id), Box::new(Node::Fail));
-    let right = Node::Emit(
+    let left = WorkTree::Emit(Box::new(id), Box::new(WorkTree::Fail));
+    let right = WorkTree::Emit(
         Box::new(nf_a),
-        Box::new(Node::Emit(
+        Box::new(WorkTree::Emit(
             Box::new(nf_b),
-            Box::new(Node::Emit(Box::new(nf_c), Box::new(Node::Fail))),
+            Box::new(WorkTree::Emit(Box::new(nf_c), Box::new(WorkTree::Fail))),
         )),
     );
 
-    let mut meet: MeetWork<()> = MeetWork::new(left, right);
+    let mut meet: MeetWork<()> = meet_from_trees(left, right);
 
     let mut emit_count = 0;
     for _ in 0..30 {
@@ -1875,16 +1931,16 @@ fn meetwork_right_exhausts_first() {
     let nf_c = make_ground_nf("C", &symbols, &terms);
     let id = make_var_identity_nf(&mut terms);
 
-    let left = Node::Emit(
+    let left = WorkTree::Emit(
         Box::new(nf_a),
-        Box::new(Node::Emit(
+        Box::new(WorkTree::Emit(
             Box::new(nf_b),
-            Box::new(Node::Emit(Box::new(nf_c), Box::new(Node::Fail))),
+            Box::new(WorkTree::Emit(Box::new(nf_c), Box::new(WorkTree::Fail))),
         )),
     );
-    let right = Node::Emit(Box::new(id), Box::new(Node::Fail));
+    let right = WorkTree::Emit(Box::new(id), Box::new(WorkTree::Fail));
 
-    let mut meet: MeetWork<()> = MeetWork::new(left, right);
+    let mut meet: MeetWork<()> = meet_from_trees(left, right);
 
     let mut emit_count = 0;
     for _ in 0..30 {
@@ -1923,16 +1979,16 @@ fn meetwork_both_exhaust_simultaneously() {
     let id3 = make_identity_nf();
     let id4 = make_identity_nf();
 
-    let left = Node::Emit(
+    let left = WorkTree::Emit(
         Box::new(id1),
-        Box::new(Node::Emit(Box::new(id2), Box::new(Node::Fail))),
+        Box::new(WorkTree::Emit(Box::new(id2), Box::new(WorkTree::Fail))),
     );
-    let right = Node::Emit(
+    let right = WorkTree::Emit(
         Box::new(id3),
-        Box::new(Node::Emit(Box::new(id4), Box::new(Node::Fail))),
+        Box::new(WorkTree::Emit(Box::new(id4), Box::new(WorkTree::Fail))),
     );
 
-    let mut meet: MeetWork<()> = MeetWork::new(left, right);
+    let mut meet: MeetWork<()> = meet_from_trees(left, right);
 
     let mut emit_count = 0;
     let mut done = false;
@@ -1976,8 +2032,8 @@ fn meetwork_both_exhaust_simultaneously() {
 fn meetwork_seen_l_grows_after_left_emit() {
     let (_, mut terms) = setup();
     let nf = make_identity_nf();
-    let left = Node::Emit(Box::new(nf.clone()), Box::new(Node::Fail));
-    let mut meet: MeetWork<()> = MeetWork::new(left, Node::Fail);
+    let left = WorkTree::Emit(Box::new(nf.clone()), Box::new(WorkTree::Fail));
+    let mut meet: MeetWork<()> = meet_from_trees(left, WorkTree::Fail);
 
     assert!(meet.seen_l().is_empty(), "seen_l should start empty");
 
@@ -2009,8 +2065,8 @@ fn meetwork_seen_l_grows_after_left_emit() {
 fn meetwork_seen_r_grows_after_right_emit() {
     let (_, mut terms) = setup();
     let nf = make_identity_nf();
-    let right = Node::Emit(Box::new(nf.clone()), Box::new(Node::Fail));
-    let mut meet: MeetWork<()> = MeetWork::new(Node::Fail, right);
+    let right = WorkTree::Emit(Box::new(nf.clone()), Box::new(WorkTree::Fail));
+    let mut meet: MeetWork<()> = meet_from_trees(WorkTree::Fail, right);
 
     assert!(meet.seen_r().is_empty(), "seen_r should start empty");
 
@@ -2048,13 +2104,13 @@ fn meetwork_handles_or_on_left() {
     let nf3 = make_identity_nf();
 
     // Left is Or of two emits
-    let or_left = Node::Or(
-        Box::new(Node::Emit(Box::new(nf1), Box::new(Node::Fail))),
-        Box::new(Node::Emit(Box::new(nf2), Box::new(Node::Fail))),
+    let or_left = WorkTree::Or(
+        Box::new(WorkTree::Emit(Box::new(nf1), Box::new(WorkTree::Fail))),
+        Box::new(WorkTree::Emit(Box::new(nf2), Box::new(WorkTree::Fail))),
     );
-    let right = Node::Emit(Box::new(nf3), Box::new(Node::Fail));
+    let right = WorkTree::Emit(Box::new(nf3), Box::new(WorkTree::Fail));
 
-    let mut meet: MeetWork<()> = MeetWork::new(or_left, right);
+    let mut meet: MeetWork<()> = meet_from_trees(or_left, right);
 
     // Should handle Or by interleaving properly
     let mut emit_count = 0;
@@ -2093,7 +2149,7 @@ fn meetwork_handles_or_on_left() {
 
 #[test]
 fn work_meet_construction() {
-    let meet: MeetWork<()> = MeetWork::new(Node::Fail, Node::Fail);
+    let meet: MeetWork<()> = meet_from_trees(WorkTree::Fail, WorkTree::Fail);
     let work: Work<()> = Work::Meet(meet);
     assert!(matches!(work, Work::Meet(_)));
 }
@@ -2101,7 +2157,7 @@ fn work_meet_construction() {
 #[test]
 fn work_meet_step_delegates_to_meetwork() {
     let (_, mut terms) = setup();
-    let meet: MeetWork<()> = MeetWork::new(Node::Fail, Node::Fail);
+    let meet: MeetWork<()> = meet_from_trees(WorkTree::Fail, WorkTree::Fail);
     let mut work: Work<()> = Work::Meet(meet);
     let step = work.step(&mut terms);
     // Should delegate to MeetWork::step
@@ -2121,13 +2177,13 @@ fn meetwork_symmetric_produces_same_results() {
     let id = make_identity_nf();
 
     // Meet(A, id) vs Meet(id, A) should produce same results
-    let mut meet1: MeetWork<()> = MeetWork::new(
-        Node::Emit(Box::new(nf_a.clone()), Box::new(Node::Fail)),
-        Node::Emit(Box::new(id.clone()), Box::new(Node::Fail)),
+    let mut meet1: MeetWork<()> = meet_from_trees(
+        WorkTree::Emit(Box::new(nf_a.clone()), Box::new(WorkTree::Fail)),
+        WorkTree::Emit(Box::new(id.clone()), Box::new(WorkTree::Fail)),
     );
-    let mut meet2: MeetWork<()> = MeetWork::new(
-        Node::Emit(Box::new(id), Box::new(Node::Fail)),
-        Node::Emit(Box::new(nf_a), Box::new(Node::Fail)),
+    let mut meet2: MeetWork<()> = meet_from_trees(
+        WorkTree::Emit(Box::new(id), Box::new(WorkTree::Fail)),
+        WorkTree::Emit(Box::new(nf_a), Box::new(WorkTree::Fail)),
     );
 
     let mut count1 = 0;
@@ -2201,14 +2257,14 @@ fn meetwork_size_reasonable() {
 fn meetwork_many_answers_terminates() {
     let (_, mut terms) = setup();
     // Create chains of many answers
-    let mut left: Node<()> = Node::Fail;
-    let mut right: Node<()> = Node::Fail;
+    let mut left: WorkTree = WorkTree::Fail;
+    let mut right: WorkTree = WorkTree::Fail;
     for _ in 0..10 {
-        left = Node::Emit(Box::new(make_identity_nf()), Box::new(left));
-        right = Node::Emit(Box::new(make_identity_nf()), Box::new(right));
+        left = WorkTree::Emit(Box::new(make_identity_nf()), Box::new(left));
+        right = WorkTree::Emit(Box::new(make_identity_nf()), Box::new(right));
     }
 
-    let mut meet: MeetWork<()> = MeetWork::new(left, right);
+    let mut meet: MeetWork<()> = meet_from_trees(left, right);
 
     // Should terminate within reasonable steps
     let mut steps = 0;
@@ -2553,12 +2609,12 @@ fn table_start_producer() {
         right: None,
         env: Env::new(),
     };
-    let producer_node = Node::Work(Box::new(Work::Done));
-    table.start_producer(producer_node, spec, 0);
+    let producer_tree = WorkTree::Work(Box::new(Work::Done));
+    start_producer_from_tree(&table, producer_tree, spec, 0);
     assert_eq!(table.producer_state(), ProducerState::Running);
     assert!(table.is_running());
     assert!(!table.is_done());
-    assert!(table.producer_has_node());
+    assert!(table.producer_has_work_set());
 }
 
 #[test]
@@ -2573,14 +2629,14 @@ fn table_finish_producer() {
         right: None,
         env: Env::new(),
     };
-    let producer_node = Node::Work(Box::new(Work::Done));
-    table.start_producer(producer_node, spec, 0);
+    let producer_tree = WorkTree::Work(Box::new(Work::Done));
+    start_producer_from_tree(&table, producer_tree, spec, 0);
     table.finish_producer();
 
     assert_eq!(table.producer_state(), ProducerState::Done);
     assert!(table.is_done());
     assert!(!table.is_running());
-    assert!(!table.producer_has_node());
+    assert!(!table.producer_has_work_set());
 }
 
 #[test]
@@ -2910,7 +2966,7 @@ fn run_fixwork_advances_running_producer_and_emits(use_dual: bool) {
     if use_dual {
         nf = dual_nf(&nf, &mut terms);
     }
-    let producer_node = Node::Emit(Box::new(nf.clone()), Box::new(Node::Fail));
+    let producer_tree = WorkTree::Emit(Box::new(nf.clone()), Box::new(WorkTree::Fail));
     let spec = ProducerSpec {
         key: key.clone(),
         body: Arc::new(Rel::Atom(Arc::new(nf.clone()))),
@@ -2919,7 +2975,7 @@ fn run_fixwork_advances_running_producer_and_emits(use_dual: bool) {
         env: Env::new(),
     };
 
-    table.start_producer(producer_node, spec, 0);
+    start_producer_from_tree(&table, producer_tree, spec, 0);
 
     let mut fix: FixWork<()> = FixWork::new(key, table.clone(), 0, Tables::new());
     let step = fix.step(&mut terms);
@@ -2951,7 +3007,7 @@ fn run_fixwork_skips_duplicate_answer(use_dual: bool) {
     }
     table.add_answer(nf.clone());
 
-    let producer_node = Node::Emit(Box::new(nf.clone()), Box::new(Node::Fail));
+    let producer_tree = WorkTree::Emit(Box::new(nf.clone()), Box::new(WorkTree::Fail));
     let spec = ProducerSpec {
         key: key.clone(),
         body: Arc::new(Rel::Atom(Arc::new(nf.clone()))),
@@ -2959,7 +3015,7 @@ fn run_fixwork_skips_duplicate_answer(use_dual: bool) {
         right: None,
         env: Env::new(),
     };
-    table.start_producer(producer_node, spec, table.answers_len());
+    start_producer_from_tree(&table, producer_tree, spec, table.answers_len());
 
     let mut fix: FixWork<()> = FixWork::new(key, table.clone(), table.answers_len(), Tables::new());
     let step = fix.step(&mut terms);
@@ -2996,7 +3052,7 @@ fn run_fixwork_exhausted_marks_done(use_dual: bool) {
         right: None,
         env: Env::new(),
     };
-    table.start_producer(Node::Fail, spec, table.answers_len());
+    start_producer_from_tree(&table, WorkTree::Fail, spec, table.answers_len());
 
     let mut fix: FixWork<()> = FixWork::new(key, table.clone(), table.answers_len(), Tables::new());
     let step = fix.step(&mut terms);
@@ -3022,9 +3078,12 @@ fn fix_producer_dedups_duplicate_answers() {
     let tables = Tables::new();
     let table = Arc::new(Table::new());
     let nf = make_ground_nf("A", &symbols, &terms);
-    let producer_node = Node::Emit(
+    let producer_tree = WorkTree::Emit(
         Box::new(nf.clone()),
-        Box::new(Node::Emit(Box::new(nf.clone()), Box::new(Node::Fail))),
+        Box::new(WorkTree::Emit(
+            Box::new(nf.clone()),
+            Box::new(WorkTree::Fail),
+        )),
     );
     let spec = ProducerSpec {
         key: Arc::new(CallKey::new(0, 0, None, None)),
@@ -3034,7 +3093,7 @@ fn fix_producer_dedups_duplicate_answers() {
         env: Env::new(),
     };
 
-    table.start_producer(producer_node, spec, 0);
+    start_producer_from_tree(&table, producer_tree, spec, 0);
 
     let mut steps = 0;
     loop {
@@ -3058,9 +3117,12 @@ fn run_fix_producer_continues_when_consumer_queue_full(use_dual: bool) {
         nf_a = dual_nf(&nf_a, &mut terms);
         nf_b = dual_nf(&nf_b, &mut terms);
     }
-    let producer_node = Node::Emit(
+    let producer_tree = WorkTree::Emit(
         Box::new(nf_a.clone()),
-        Box::new(Node::Emit(Box::new(nf_b.clone()), Box::new(Node::Fail))),
+        Box::new(WorkTree::Emit(
+            Box::new(nf_b.clone()),
+            Box::new(WorkTree::Fail),
+        )),
     );
     let spec = ProducerSpec {
         key: Arc::new(CallKey::new(0, 0, None, None)),
@@ -3070,7 +3132,7 @@ fn run_fix_producer_continues_when_consumer_queue_full(use_dual: bool) {
         env: Env::new(),
     };
 
-    table.start_producer(producer_node, spec, 0);
+    start_producer_from_tree(&table, producer_tree, spec, 0);
 
     let step1 = step_table_producer(&table, &mut terms, &tables);
     assert!(matches!(step1, ProducerStep::Progress));
@@ -3106,9 +3168,12 @@ fn fix_producer_broadcasts_answers_to_all_consumers() {
     let table = Arc::new(Table::new());
     let nf_a = make_ground_nf("A", &symbols, &terms);
     let nf_b = make_ground_nf("B", &symbols, &terms);
-    let producer_node = Node::Emit(
+    let producer_tree = WorkTree::Emit(
         Box::new(nf_a.clone()),
-        Box::new(Node::Emit(Box::new(nf_b.clone()), Box::new(Node::Fail))),
+        Box::new(WorkTree::Emit(
+            Box::new(nf_b.clone()),
+            Box::new(WorkTree::Fail),
+        )),
     );
     let spec = ProducerSpec {
         key: Arc::new(CallKey::new(0, 0, None, None)),
@@ -3118,7 +3183,7 @@ fn fix_producer_broadcasts_answers_to_all_consumers() {
         env: Env::new(),
     };
 
-    table.start_producer(producer_node, spec, 0);
+    start_producer_from_tree(&table, producer_tree, spec, 0);
 
     let mut steps = 0;
     loop {
@@ -3233,8 +3298,9 @@ fn call_replay_interleaves_with_new_answers() {
         .expect("Table should exist after producer call");
     table.add_answer(nf_a1.clone());
     table.add_answer(nf_a2.clone());
-    table.start_producer(
-        Node::Work(Box::new(Work::Done)),
+    start_producer_from_tree(
+        &table,
+        WorkTree::Work(Box::new(Work::Done)),
         ProducerSpec {
             key: Arc::new(key.clone()),
             body: body.clone(),
@@ -3509,10 +3575,10 @@ fn run_andgroup_closed_empty_part_terminates_even_if_other_blocks(use_dual: bool
 
     let (_tx0, rx0) = AnswerQueue::bounded::<()>(1);
     drop(_tx0);
-    let part0 = Node::Work(Box::new(Work::JoinReceiver(JoinReceiverWork::new(rx0))));
+    let part0 = Work::JoinReceiver(JoinReceiverWork::new(rx0));
 
     let (_tx1, rx1) = AnswerQueue::bounded::<()>(1);
-    let part1 = Node::Work(Box::new(Work::JoinReceiver(JoinReceiverWork::new(rx1))));
+    let part1 = Work::JoinReceiver(JoinReceiverWork::new(rx1));
 
     let mut group = AndGroup::new(vec![part0, part1]);
     let mut done = false;

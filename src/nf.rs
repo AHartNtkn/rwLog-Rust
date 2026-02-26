@@ -30,6 +30,12 @@ pub struct NfInner<C> {
     /// For shared variables (those in the DropFresh map), `rhs_map[j] = i` where
     /// `(i, j)` is in the map. For fresh variables, indices continue from `in_arity`.
     pub cached_rhs_map: SmallVec<[u32; 4]>,
+    /// Option-wrapped form of `cached_rhs_map` for APIs that consume a
+    /// renaming map of type `&[Option<u32>]`.
+    pub cached_rhs_map_opt: SmallVec<[Option<u32>; 4]>,
+    /// True when `cached_rhs_map[j] == j` for all j.
+    /// Allows compose to skip lhs-side renaming in the common identity-map case.
+    pub cached_rhs_identity: bool,
 }
 
 /// Normal Form representation of a rewrite rule.
@@ -128,6 +134,13 @@ fn compute_rhs_map<C>(drop_fresh: &DropFresh<C>) -> SmallVec<[u32; 4]> {
     rhs_map
 }
 
+fn rhs_map_is_identity(rhs_map: &[u32]) -> bool {
+    rhs_map
+        .iter()
+        .enumerate()
+        .all(|(idx, &mapped)| mapped == idx as u32)
+}
+
 impl<C: Hash> NF<C> {
     /// Access the pre-computed hash value for this NF.
     ///
@@ -145,6 +158,8 @@ impl<C: Hash> NF<C> {
     ) -> Self {
         let cached_hash = compute_nf_hash(&match_pats, &drop_fresh, &build_pats);
         let cached_rhs_map = compute_rhs_map(&drop_fresh);
+        let cached_rhs_map_opt = cached_rhs_map.iter().map(|&v| Some(v)).collect();
+        let cached_rhs_identity = rhs_map_is_identity(&cached_rhs_map);
         Self {
             inner: Arc::new(NfInner {
                 match_pats,
@@ -152,6 +167,8 @@ impl<C: Hash> NF<C> {
                 build_pats,
                 cached_hash,
                 cached_rhs_map,
+                cached_rhs_map_opt,
+                cached_rhs_identity,
             }),
         }
     }
@@ -166,6 +183,8 @@ impl<C: Hash> NF<C> {
         let build_pats = SmallVec::new();
         let cached_hash = compute_nf_hash(&match_pats, &drop_fresh, &build_pats);
         let cached_rhs_map = compute_rhs_map(&drop_fresh);
+        let cached_rhs_map_opt = cached_rhs_map.iter().map(|&v| Some(v)).collect();
+        let cached_rhs_identity = rhs_map_is_identity(&cached_rhs_map);
         Self {
             inner: Arc::new(NfInner {
                 match_pats,
@@ -173,6 +192,8 @@ impl<C: Hash> NF<C> {
                 build_pats,
                 cached_hash,
                 cached_rhs_map,
+                cached_rhs_map_opt,
+                cached_rhs_identity,
             }),
         }
     }

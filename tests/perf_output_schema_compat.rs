@@ -33,9 +33,14 @@ fn temp_dir(prefix: &str) -> PathBuf {
 }
 
 fn run_bin(name: &str, args: &[&str], envs: &[(&str, &str)]) -> Output {
+    let profile_dir = if cfg!(debug_assertions) {
+        "debug"
+    } else {
+        "release"
+    };
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("target")
-        .join("debug")
+        .join(profile_dir)
         .join(format!("{name}{EXE_SUFFIX}"));
     let mut cmd = if path.exists() {
         Command::new(path)

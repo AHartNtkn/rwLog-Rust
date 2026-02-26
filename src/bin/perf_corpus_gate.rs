@@ -2,8 +2,8 @@
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 use rwlog::perf_corpus::{
-    apply_filters, environment_fingerprint, load_cases, prepare_case, run_prepared, sort_cases,
-    CorpusCase, CorpusFilters, EnvironmentFingerprint, TierFilter,
+    apply_filters, compile_prepared, environment_fingerprint, load_cases, prepare_case,
+    run_compiled, sort_cases, CorpusCase, CorpusFilters, EnvironmentFingerprint, TierFilter,
 };
 use serde::Deserialize;
 use serde::Serialize;
@@ -153,16 +153,18 @@ fn run_samples_adaptive(
     let max_samples = max_samples.max(min_samples);
     for _ in 0..cfg.warmup {
         let prepared = prepare_case(case);
-        let _ = run_prepared(case, prepared);
+        let engine = compile_prepared(prepared);
+        let _ = run_compiled(case, engine);
     }
 
     let mut out = Vec::with_capacity(max_samples);
     let mut remaining = min_samples;
     while out.len() < max_samples {
         for _ in 0..remaining {
-            let start = Instant::now();
             let prepared = prepare_case(case);
-            let _ = run_prepared(case, prepared);
+            let engine = compile_prepared(prepared);
+            let start = Instant::now();
+            let _ = run_compiled(case, engine);
             out.push(start.elapsed().as_secs_f64() * 1_000_000.0);
         }
         if out.len() >= max_samples {

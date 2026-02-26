@@ -1,20 +1,23 @@
 //! Engine - Top-level evaluation loop for relational queries.
 //!
 //! The Engine orchestrates the search through a Rel tree by:
-//! 1. Converting Rel to initial Node tree
-//! 2. Stepping through the Node tree using Or rotation
+//! 1. Compiling Rel to an abstract-machine program
+//! 2. Stepping machine frames (compiled code + dynamic work items)
 //! 3. Yielding NF answers via next()
 
 use crate::constraint::ConstraintDisplay;
 use crate::constraint::ConstraintOps;
+use crate::factors::Factors;
 use crate::nf::{format_nf, NF};
-use crate::node::{step_node, Node, NodeStep};
 use crate::perf_counters;
-use crate::rel::Rel;
+use crate::rel::{Rel, RelId};
 use crate::symbol::SymbolStore;
 use crate::term::TermStore;
-use crate::work::{rel_to_node, Env, Tables};
-use rustc_hash::FxHashSet;
+use crate::work::{DiagonalStepResult, Env, FixStepResult, PipeWork, Tables, Work, WorkStep};
+use rustc_hash::{FxHashMap, FxHashSet};
+use smallvec::SmallVec;
+use std::collections::VecDeque;
+use std::sync::Arc;
 
 /// Result of a single step in the Engine.
 #[derive(Clone, Debug)]
@@ -27,13 +30,399 @@ pub enum StepResult<C: ConstraintOps> {
     Continue,
 }
 
+type Pc = usize;
+
+/// Compiled instruction for the abstract machine.
+#[derive(Clone, Debug)]
+enum Instr<C: ConstraintOps> {
+    Fail,
+    Emit(Arc<NF<C>>),
+    Branch {
+        left: Pc,
+        right: Pc,
+    },
+    EnterAnd {
+        left: Arc<Rel<C>>,
+        right: Arc<Rel<C>>,
+    },
+    EnterSeq(Arc<[Arc<Rel<C>>]>),
+    EnterFix {
+        id: RelId,
+        body: Arc<Rel<C>>,
+        body_pc: Pc,
+    },
+    EnterCall(RelId),
+}
+
+#[derive(Debug)]
+struct Program<C: ConstraintOps> {
+    instrs: Vec<Instr<C>>,
+    entry: Pc,
+}
+
+#[derive(Debug)]
+struct ProgramCompiler<C: ConstraintOps> {
+    instrs: Vec<Instr<C>>,
+    ptr_to_pc: FxHashMap<usize, Pc>,
+}
+
+impl<C: ConstraintOps> ProgramCompiler<C> {
+    fn new() -> Self {
+        Self {
+            instrs: Vec::new(),
+            ptr_to_pc: FxHashMap::default(),
+        }
+    }
+
+    fn rel_ptr(rel: &Arc<Rel<C>>) -> usize {
+        Arc::as_ptr(rel) as usize
+    }
+
+    fn compile_arc(&mut self, rel: Arc<Rel<C>>) -> Pc {
+        let ptr = Self::rel_ptr(&rel);
+        if let Some(&pc) = self.ptr_to_pc.get(&ptr) {
+            return pc;
+        }
+
+        let pc = self.instrs.len();
+        self.ptr_to_pc.insert(ptr, pc);
+        self.instrs.push(Instr::Fail);
+
+        let instr = match rel.as_ref() {
+            Rel::Zero => Instr::Fail,
+            Rel::Atom(nf) => Instr::Emit(nf.clone()),
+            Rel::Or(a, b) => {
+                let left = self.compile_arc(a.clone());
+                let right = self.compile_arc(b.clone());
+                Instr::Branch { left, right }
+            }
+            Rel::And(a, b) => {
+                self.compile_arc(a.clone());
+                self.compile_arc(b.clone());
+                Instr::EnterAnd {
+                    left: a.clone(),
+                    right: b.clone(),
+                }
+            }
+            Rel::Seq(factors) => {
+                for factor in factors.iter() {
+                    self.compile_arc(factor.clone());
+                }
+                Instr::EnterSeq(factors.clone())
+            }
+            Rel::Fix(id, body) => {
+                let body_pc = self.compile_arc(body.clone());
+                Instr::EnterFix {
+                    id: *id,
+                    body: body.clone(),
+                    body_pc,
+                }
+            }
+            Rel::Call(id) => Instr::EnterCall(*id),
+        };
+
+        self.instrs[pc] = instr;
+        pc
+    }
+}
+
+impl<C: ConstraintOps> Program<C> {
+    fn compile(root: Rel<C>) -> Self {
+        let mut compiler = ProgramCompiler::new();
+        let root = Arc::new(root);
+        let entry = compiler.compile_arc(root);
+        Self {
+            instrs: compiler.instrs,
+            entry,
+        }
+    }
+
+    fn instr(&self, pc: Pc) -> &Instr<C> {
+        &self.instrs[pc]
+    }
+}
+
+#[derive(Clone, Debug)]
+enum Frame<C: ConstraintOps> {
+    Exec {
+        pc: Pc,
+        env: Env<C>,
+        tables: Tables<C>,
+    },
+    Work(Box<Work<C>>),
+}
+
+type SpawnedFrames<C> = SmallVec<[Frame<C>; 2]>;
+
+enum FrameOutcome<C: ConstraintOps> {
+    Emit {
+        nf: NF<C>,
+        cont: Option<Frame<C>>,
+        spawned: SpawnedFrames<C>,
+    },
+    Continue {
+        cont: Option<Frame<C>>,
+        spawned: SpawnedFrames<C>,
+    },
+}
+
+fn prepend_spawned<C: ConstraintOps>(first: Frame<C>, outcome: FrameOutcome<C>) -> FrameOutcome<C> {
+    match outcome {
+        FrameOutcome::Emit {
+            nf,
+            cont,
+            mut spawned,
+        } => {
+            let mut all = SmallVec::new();
+            all.push(first);
+            all.extend(spawned.drain(..));
+            FrameOutcome::Emit {
+                nf,
+                cont,
+                spawned: all,
+            }
+        }
+        FrameOutcome::Continue { cont, mut spawned } => {
+            let mut all = SmallVec::new();
+            all.push(first);
+            all.extend(spawned.drain(..));
+            FrameOutcome::Continue { cont, spawned: all }
+        }
+    }
+}
+
+/// Abstract machine runtime state.
+#[derive(Debug)]
+struct AbstractMachine<C: ConstraintOps> {
+    program: Program<C>,
+    ready: VecDeque<Frame<C>>,
+}
+
+impl<C: ConstraintOps> AbstractMachine<C> {
+    fn new(rel: Rel<C>, env: Env<C>) -> Self {
+        let program = Program::compile(rel);
+        let entry = program.entry;
+        let mut machine = Self {
+            program,
+            ready: VecDeque::new(),
+        };
+        machine.queue_frame(Frame::Exec {
+            pc: entry,
+            env,
+            tables: Tables::new(),
+        });
+        machine
+    }
+
+    fn is_exhausted(&self) -> bool {
+        self.ready.is_empty()
+    }
+
+    fn queue_frame(&mut self, frame: Frame<C>) {
+        match frame {
+            Frame::Exec { pc, .. } if matches!(self.program.instr(pc), Instr::Fail) => {}
+            Frame::Work(work) if matches!(*work, Work::Done) => {}
+            _ => {
+                self.ready.push_back(frame);
+            }
+        }
+    }
+
+    fn queue_spawned(&mut self, spawned: SpawnedFrames<C>) {
+        for frame in spawned {
+            self.queue_frame(frame);
+        }
+    }
+
+    fn step_exec(&self, pc: Pc, env: Env<C>, tables: Tables<C>) -> FrameOutcome<C> {
+        match self.program.instr(pc).clone() {
+            Instr::Fail => FrameOutcome::Continue {
+                cont: None,
+                spawned: SmallVec::new(),
+            },
+            Instr::Emit(nf) => FrameOutcome::Emit {
+                nf: nf.as_ref().clone(),
+                cont: None,
+                spawned: SmallVec::new(),
+            },
+            Instr::Branch { left, right } => {
+                let right_frame = Frame::Exec {
+                    pc: right,
+                    env: env.clone(),
+                    tables: tables.clone(),
+                };
+                let left_outcome = self.step_exec(left, env, tables);
+                prepend_spawned(right_frame, left_outcome)
+            }
+            Instr::EnterAnd { left, right } => {
+                let and_rel = Rel::And(left, right);
+                let pipe = PipeWork::from_rel(and_rel, env, tables);
+                FrameOutcome::Continue {
+                    cont: Some(Frame::Work(Box::new(Work::Pipe(Box::new(pipe))))),
+                    spawned: SmallVec::new(),
+                }
+            }
+            Instr::EnterSeq(factors) => {
+                let factors_rope = Factors::from_seq(factors);
+                let mut pipe = PipeWork::with_mid(factors_rope);
+                pipe.env = env;
+                pipe.tables = tables;
+                FrameOutcome::Continue {
+                    cont: Some(Frame::Work(Box::new(Work::Pipe(Box::new(pipe))))),
+                    spawned: SmallVec::new(),
+                }
+            }
+            Instr::EnterFix { id, body, body_pc } => {
+                let new_env = env.bind(id, body);
+                FrameOutcome::Continue {
+                    cont: Some(Frame::Exec {
+                        pc: body_pc,
+                        env: new_env,
+                        tables,
+                    }),
+                    spawned: SmallVec::new(),
+                }
+            }
+            Instr::EnterCall(id) => {
+                let Some(_) = env.lookup(id) else {
+                    return FrameOutcome::Continue {
+                        cont: None,
+                        spawned: SmallVec::new(),
+                    };
+                };
+                let call_rel = Arc::new(Rel::Call(id));
+                let factors = Factors::from_seq(Arc::from(vec![call_rel]));
+                let mut pipe = PipeWork::with_mid(factors);
+                pipe.env = env;
+                pipe.tables = tables;
+                FrameOutcome::Continue {
+                    cont: Some(Frame::Work(Box::new(Work::Pipe(Box::new(pipe))))),
+                    spawned: SmallVec::new(),
+                }
+            }
+        }
+    }
+
+    fn step_work(&self, mut work: Box<Work<C>>, terms: &mut TermStore) -> FrameOutcome<C> {
+        if let Work::Fix(ref mut fix) = *work {
+            return match fix.step_in_place(terms) {
+                FixStepResult::Emit(nf) => FrameOutcome::Emit {
+                    nf,
+                    cont: Some(Frame::Work(work)),
+                    spawned: SmallVec::new(),
+                },
+                FixStepResult::More => FrameOutcome::Continue {
+                    cont: Some(Frame::Work(work)),
+                    spawned: SmallVec::new(),
+                },
+                FixStepResult::Done => FrameOutcome::Continue {
+                    cont: None,
+                    spawned: SmallVec::new(),
+                },
+            };
+        }
+        if let Work::Compose(ref mut compose) = *work {
+            return match compose.step_in_place(terms) {
+                DiagonalStepResult::Emit(nf) => FrameOutcome::Emit {
+                    nf,
+                    cont: Some(Frame::Work(work)),
+                    spawned: SmallVec::new(),
+                },
+                DiagonalStepResult::More => FrameOutcome::Continue {
+                    cont: Some(Frame::Work(work)),
+                    spawned: SmallVec::new(),
+                },
+                DiagonalStepResult::Done => FrameOutcome::Continue {
+                    cont: None,
+                    spawned: SmallVec::new(),
+                },
+            };
+        }
+        if let Work::Meet(ref mut meet) = *work {
+            return match meet.step_in_place(terms) {
+                DiagonalStepResult::Emit(nf) => FrameOutcome::Emit {
+                    nf,
+                    cont: Some(Frame::Work(work)),
+                    spawned: SmallVec::new(),
+                },
+                DiagonalStepResult::More => FrameOutcome::Continue {
+                    cont: Some(Frame::Work(work)),
+                    spawned: SmallVec::new(),
+                },
+                DiagonalStepResult::Done => FrameOutcome::Continue {
+                    cont: None,
+                    spawned: SmallVec::new(),
+                },
+            };
+        }
+
+        match work.step(terms) {
+            WorkStep::Done => FrameOutcome::Continue {
+                cont: None,
+                spawned: SmallVec::new(),
+            },
+            WorkStep::Emit(nf, next_work) => FrameOutcome::Emit {
+                nf,
+                cont: Some(Frame::Work(next_work)),
+                spawned: SmallVec::new(),
+            },
+            WorkStep::More(next_work) => FrameOutcome::Continue {
+                cont: Some(Frame::Work(next_work)),
+                spawned: SmallVec::new(),
+            },
+            WorkStep::Split(left, right) => {
+                let mut spawned = SmallVec::new();
+                spawned.push(Frame::Work(left));
+                spawned.push(Frame::Work(right));
+                FrameOutcome::Continue {
+                    cont: None,
+                    spawned,
+                }
+            }
+        }
+    }
+
+    fn step_frame(&self, frame: Frame<C>, terms: &mut TermStore) -> FrameOutcome<C> {
+        match frame {
+            Frame::Exec { pc, env, tables } => self.step_exec(pc, env, tables),
+            Frame::Work(work) => self.step_work(work, terms),
+        }
+    }
+
+    fn step(&mut self, terms: &mut TermStore) -> StepResult<C> {
+        let Some(frame) = self.ready.pop_front() else {
+            return StepResult::Exhausted;
+        };
+        match self.step_frame(frame, terms) {
+            FrameOutcome::Emit { nf, cont, spawned } => {
+                self.queue_spawned(spawned);
+                if let Some(cont) = cont {
+                    self.queue_frame(cont);
+                }
+                StepResult::Emit(nf)
+            }
+            FrameOutcome::Continue { cont, spawned } => {
+                self.queue_spawned(spawned);
+                if let Some(cont) = cont {
+                    self.queue_frame(cont);
+                }
+                if self.ready.is_empty() {
+                    StepResult::Exhausted
+                } else {
+                    StepResult::Continue
+                }
+            }
+        }
+    }
+}
+
 /// Evaluation engine for relational queries.
 ///
-/// Converts a Rel expression into a stream of NF answers using
-/// Or rotation interleaving and Work stepping.
+/// Converts a Rel expression into a stream of NF answers by compiling the
+/// expression to abstract-machine instructions and executing those frames.
 pub struct Engine<C: ConstraintOps> {
-    /// Root of the search tree
-    root: Node<C>,
+    /// Compiled abstract-machine runtime.
+    machine: AbstractMachine<C>,
     /// Term store for creating/looking up terms
     terms: TermStore,
     /// Dedup set for emitted answers (set semantics).
@@ -48,10 +437,9 @@ impl<C: ConstraintOps> Engine<C> {
 
     /// Create a new Engine with an explicit environment.
     pub fn new_with_env(rel: Rel<C>, terms: TermStore, env: Env<C>) -> Self {
-        let tables = Tables::new();
-        let root = rel_to_node(&rel, &env, &tables);
+        let machine = AbstractMachine::new(rel, env);
         Self {
-            root,
+            machine,
             terms,
             seen: FxHashSet::default(),
         }
@@ -67,22 +455,17 @@ impl<C: ConstraintOps> Engine<C> {
     /// Take a single step in the evaluation.
     fn step(&mut self) -> StepResult<C> {
         perf_counters::record_engine_step();
-        // Take ownership of root, step it, and update root with result
-        let current = std::mem::replace(&mut self.root, Node::Fail);
-        match step_node(current, &mut self.terms) {
-            NodeStep::Emit(nf, rest) => {
+        match self.machine.step(&mut self.terms) {
+            StepResult::Emit(nf) => {
                 perf_counters::record_engine_emit();
-                self.root = rest;
-                StepResult::Emit(*nf)
+                StepResult::Emit(nf)
             }
-            NodeStep::Continue(rest) => {
+            StepResult::Continue => {
                 perf_counters::record_engine_continue();
-                self.root = rest;
                 StepResult::Continue
             }
-            NodeStep::Exhausted => {
+            StepResult::Exhausted => {
                 perf_counters::record_engine_exhausted();
-                self.root = Node::Fail;
                 StepResult::Exhausted
             }
         }
@@ -90,7 +473,7 @@ impl<C: ConstraintOps> Engine<C> {
 
     /// Check if the engine is exhausted.
     pub fn is_exhausted(&self) -> bool {
-        matches!(self.root, Node::Fail)
+        self.machine.is_exhausted()
     }
 
     /// Get reference to the term store.
@@ -189,7 +572,10 @@ mod tests {
                 }
             }
         }
-        let rel_def = all_rels.last().expect("expected relation definition").clone();
+        let rel_def = all_rels
+            .last()
+            .expect("expected relation definition")
+            .clone();
         let mut env = Env::new();
         for rel in &all_rels {
             if let Rel::Fix(id, body) = rel {
@@ -788,8 +1174,8 @@ rel killer {
     fn engine_size_reasonable() {
         use std::mem::size_of;
         let size = size_of::<Engine<()>>();
-        // Engine contains TermStore and Node (with Work)
-        // These are substantial structures
+        // Engine contains TermStore plus scheduler/work state.
+        // These are substantial structures.
         assert!(
             size < 1600,
             "Engine should not be excessively large, got {}",
@@ -1458,39 +1844,6 @@ rel killer {
         }
         // Must terminate (either with 0 answers or by detecting loop)
         assert!(count < 100, "Pure recursion should terminate via tabling");
-    }
-
-    #[test]
-    fn pure_recursion_exhausts_under_step_node() {
-        use crate::node::{step_node, NodeStep};
-        use crate::work::{rel_to_node, Env, Tables};
-
-        let rel: Rel<()> = Rel::Fix(0, Arc::new(Rel::Call(0)));
-        let env = Env::new();
-        let tables = Tables::new();
-        let mut terms = TermStore::new();
-
-        let mut node = rel_to_node(&rel, &env, &tables);
-        let mut steps = 0;
-        let max_steps = 50;
-
-        loop {
-            match step_node(node, &mut terms) {
-                NodeStep::Emit(_, rest) => {
-                    node = rest;
-                    steps += 1;
-                }
-                NodeStep::Continue(rest) => {
-                    node = rest;
-                    steps += 1;
-                    assert!(
-                        steps < max_steps,
-                        "Pure recursion should exhaust without infinite stepping"
-                    );
-                }
-                NodeStep::Exhausted => break,
-            }
-        }
     }
 
     /// Input through recursive relation produces multiple answers.
@@ -2895,7 +3248,9 @@ rel s {
         // Inline only the matching branch (case 3: lam with nil spine)
         // but still use eval recursively inside
         let query_str = r#"k ; $p -> (pair $p nil) ; [(pair (lam $x $y) nil) -> (lam $x $r) & [(pair (lam $x $y) nil) -> (pair $y nil) ; eval ; $r -> (lam $x $r)]]"#;
-        let query = parser.parse_rel_body(query_str).expect("parse inlined query");
+        let query = parser
+            .parse_rel_body(query_str)
+            .expect("parse inlined query");
         let terms = parser.take_terms();
 
         let mut engine: Engine<ChrState> = Engine::new_with_env(query, terms, env);
@@ -2923,7 +3278,9 @@ rel s {
         let (_rel, env) = parse_rel_def_with_env_chr(&mut parser, SIMPLELAM_DEF);
 
         let query_str = "k ; $p -> (pair $p nil) ; eval";
-        let query = parser.parse_rel_body(query_str).expect("parse full eval query");
+        let query = parser
+            .parse_rel_body(query_str)
+            .expect("parse full eval query");
         let terms = parser.take_terms();
 
         let mut engine: Engine<ChrState> = Engine::new_with_env(query, terms, env);
@@ -2951,7 +3308,9 @@ rel s {
 
         let query_str =
             "[[s ; $s -> (a $s $k1)] & [k ; $k1 -> (a $s $k1)]] ; $p -> (pair $p nil) ; eval";
-        let query = parser.parse_rel_body(query_str).expect("parse SK eval query");
+        let query = parser
+            .parse_rel_body(query_str)
+            .expect("parse SK eval query");
         let terms = parser.take_terms();
 
         let mut engine: Engine<ChrState> = Engine::new_with_env(query, terms, env);
@@ -2983,7 +3342,9 @@ rel s {
             " & [k ; $k2 -> (a (a $s $k1) $k2)]]",
             " ; $p -> (pair $p nil) ; eval"
         );
-        let query = parser.parse_rel_body(query_str).expect("parse SKK eval query");
+        let query = parser
+            .parse_rel_body(query_str)
+            .expect("parse SKK eval query");
         let terms = parser.take_terms();
 
         let mut engine: Engine<ChrState> = Engine::new_with_env(query, terms, env);
