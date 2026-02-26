@@ -49,7 +49,6 @@ impl Subst {
     }
 
     /// Number of bound variables.
-    #[cfg(test)]
     pub fn len(&self) -> usize {
         self.bindings.iter().filter(|b| b.is_some()).count()
     }
