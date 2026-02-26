@@ -1253,10 +1253,15 @@ impl<B: ConstraintBuilder> Parser<B> {
     ) -> Result<Rel<B::Constraint>, ParseError> {
         // Peek arity to look up param_kinds before parsing args.
         let arity = Self::peek_arg_count(input, *pos)?;
-        let param_kinds = self.lookup_param_kinds(name, arity);
-
-        // Default to all-Relation for backward compatibility with unknown macros.
-        let kinds = param_kinds.unwrap_or_else(|| vec![ParamKind::Relation; arity]);
+        let kinds = match self.lookup_param_kinds(name, arity) {
+            Some(kinds) => kinds,
+            None => {
+                return Err(ParseError {
+                    message: format!("undefined macro '{}/{}'", name, arity),
+                    position: name_pos,
+                });
+            }
+        };
 
         let args = self.parse_macro_args(input, pos, &kinds)?;
         let actual_arity = args.len();
