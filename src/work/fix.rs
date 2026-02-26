@@ -1,7 +1,6 @@
 use crate::constraint::ConstraintOps;
 use crate::fast_lock::FastLock;
 use crate::nf::NF;
-use crate::node::{step_node, Node, NodeStep};
 use crate::queue::{BlockedOn, QueueWaker, WakeHub};
 use crate::rel::{Rel, RelId};
 use crate::term::TermStore;
@@ -10,7 +9,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
-use super::{CallMode, PipeWork, Work, WorkStep};
+use super::{CallMode, PipeWork, Work, WorkSet, WorkSetStep, WorkStep};
 
 // FixWork: Call-context tabling for recursive calls
 // ============================================================================
@@ -143,7 +142,7 @@ pub(crate) struct TableAnswers<C: ConstraintOps> {
 #[derive(Debug)]
 pub(crate) struct TableProducer<C: ConstraintOps> {
     state: ProducerState,
-    producer: Option<Node<C>>,
+    producer: Option<WorkSet<C>>,
     spec: Option<ProducerSpec<C>>,
     iteration_start_len: usize,
     /// Semi-naive: answers before this index were already composed in
@@ -199,9 +198,9 @@ impl<C: ConstraintOps> Table<C> {
     }
 
     /// Mark the producer as running.
-    pub fn start_producer(
+    pub(crate) fn start_producer(
         &self,
-        producer: Node<C>,
+        producer: WorkSet<C>,
         spec: ProducerSpec<C>,
         iteration_start_len: usize,
     ) {
@@ -271,12 +270,12 @@ impl<C: ConstraintOps> Table<C> {
         self.producer.lock().spec.clone()
     }
 
-    pub fn take_producer_node(&self) -> Option<Node<C>> {
+    pub(crate) fn take_producer_work_set(&self) -> Option<WorkSet<C>> {
         self.producer.lock().producer.take()
     }
 
-    pub fn set_producer_node(&self, node: Node<C>) {
-        self.producer.lock().producer = Some(node);
+    pub(crate) fn set_producer_work_set(&self, work_set: WorkSet<C>) {
+        self.producer.lock().producer = Some(work_set);
     }
 
     pub fn iteration_start_len(&self) -> usize {
@@ -295,7 +294,7 @@ impl<C: ConstraintOps> Table<C> {
         self.producer.lock().replay_watermark = watermark;
     }
 
-    pub fn producer_has_node(&self) -> bool {
+    pub fn producer_has_work_set(&self) -> bool {
         self.producer.lock().producer.is_some()
     }
 
@@ -370,7 +369,7 @@ fn make_replay_producer<C: ConstraintOps>(
     spec: &ProducerSpec<C>,
     tables: &Tables<C>,
     replay_watermark: usize,
-) -> Node<C> {
+) -> WorkSet<C> {
     let mut producer_pipe = PipeWork::from_rel_with_boundaries(
         spec.body.as_ref().clone(),
         spec.left.clone(),
@@ -379,7 +378,7 @@ fn make_replay_producer<C: ConstraintOps>(
         tables.clone(),
     );
     producer_pipe.call_mode = CallMode::ReplayOnly(spec.key.clone(), replay_watermark);
-    Node::Work(Box::new(Work::Pipe(Box::new(producer_pipe))))
+    WorkSet::from_work(Work::Pipe(Box::new(producer_pipe)))
 }
 
 pub fn step_table_producer<C: ConstraintOps>(
@@ -400,24 +399,24 @@ pub fn step_table_producer<C: ConstraintOps>(
             return ProducerStep::Done;
         };
         // First iteration: watermark = 0, replay all existing answers
-        let producer_node = make_replay_producer(&spec, tables, 0);
-        table.start_producer(producer_node, spec, table.answers_len());
+        let producer_work_set = make_replay_producer(&spec, tables, 0);
+        table.start_producer(producer_work_set, spec, table.answers_len());
     }
 
-    let current = table.take_producer_node().unwrap_or(Node::Fail);
+    let mut current = table.take_producer_work_set().unwrap_or_else(WorkSet::new);
 
-    let step = step_node(current, terms);
+    let step = current.step(terms);
     match step {
-        NodeStep::Emit(nf, rest) => {
-            let _ = table.add_answer(*nf);
-            table.set_producer_node(rest);
+        WorkSetStep::Emit(nf) => {
+            let _ = table.add_answer(nf);
+            table.set_producer_work_set(current);
             ProducerStep::Progress
         }
-        NodeStep::Continue(rest) => {
-            table.set_producer_node(rest);
+        WorkSetStep::Continue => {
+            table.set_producer_work_set(current);
             ProducerStep::Progress
         }
-        NodeStep::Exhausted => {
+        WorkSetStep::Exhausted => {
             let has_new = table.answers_len() > table.iteration_start_len();
             if has_new {
                 let Some(spec) = table.producer_spec_clone() else {
@@ -431,7 +430,7 @@ pub fn step_table_producer<C: ConstraintOps>(
                 let watermark = table.iteration_start_len();
                 table.set_replay_watermark(watermark);
                 table.set_iteration_start_len(table.answers_len());
-                table.set_producer_node(make_replay_producer(&spec, tables, watermark));
+                table.set_producer_work_set(make_replay_producer(&spec, tables, watermark));
                 ProducerStep::Progress
             } else {
                 table.finish_producer();

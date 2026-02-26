@@ -48,7 +48,7 @@ Whenever you are asked to edit AGENTS.md, do not take these as litteral, step-by
 
 - Run tests after code changes that can affect behavior. Do not ask the user to run tests.
 - Do not run tests for instruction-only edits, documentation-only edits, or git-only changes (branch/worktree/checkout/reset).
-- When running tests, run `cargo test --no-run` in the same profile (debug/release) first.
+- When running tests, use release profile and run `cargo test --release --no-run` first.
 - The user does not care about phrasing or framing; do not propose rephrasings or reframings for solutions or fixes, and describe them objectively.
 - Never propose fixes that change semantics; correctness is defined by the current semantics, and a semantic change is not an acceptable bug fix unless the user explicitly requests it.
 - Treat semantics-breaking changes as catastrophic to correctness; even when explicitly requested, treat them as severe, warn strongly, and resist by default.
@@ -189,12 +189,12 @@ Layout rule: avoid multi-column exposition; keep text single-column and give dia
 
 ## CRITICAL: Always Use Timeouts When Running Tests
 
-**NEVER run tests without a timeout.** If tests don't ALL finish in less than 30 seconds, there's an infinite loop bug.
+**NEVER run tests without a timeout.** If tests don't ALL finish in less than 60 seconds, there's an infinite loop bug.
 
 **Always use:**
 ```bash
-cargo test --no-run 2>&1
-timeout 30 cargo test 2>&1
+cargo test --release --no-run 2>&1
+timeout 60 cargo test --release 2>&1
 ```
 
 **Never use:**
@@ -208,7 +208,7 @@ This applies to ALL test commands - full suite, filtered tests, individual tests
 
 Baseline to preserve during the parallelism port (I ran this myself on commit `8eab6f01f1be85aa5a5790afb84a604e6948b336`):
 - Built release tests with `cargo test --release --no-run`.
-- Ran `timeout 30 cargo test --release --lib engine::tests::program_synth_flip_query_emits_answer -- --exact --nocapture`.
+- Ran `timeout 60 cargo test --release --lib engine::tests::program_synth_flip_query_emits_answer -- --exact --nocapture`.
 - Result: pass.
 
 ## TDD Test Coverage Requirements

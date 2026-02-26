@@ -1,11 +1,10 @@
 use crate::constraint::ConstraintOps;
 use crate::factors::Factors;
 use crate::nf::NF;
-use crate::node::{step_node, Node, NodeStep};
 use crate::term::TermStore;
 
 use super::pipe::PipeEnd;
-use super::{CallMode, Env, PipeWork, Tables, Work, WorkStep};
+use super::{CallMode, Env, PipeWork, Tables, Work, WorkSet, WorkSetStep, WorkStep};
 
 /// Monadic bind for pipe splitting: feeds each source NF as a boundary
 /// of a fresh pipe instance.
@@ -29,8 +28,8 @@ use super::{CallMode, Env, PipeWork, Tables, Work, WorkStep};
 /// causes it to explore an unconstrained (potentially infinite) search space.
 #[derive(Clone, Debug)]
 pub struct BindWork<C: ConstraintOps> {
-    /// Source node that produces NF answers.
-    source: Box<Node<C>>,
+    /// Source work set that produces NF answers.
+    source: WorkSet<C>,
     /// Template for instantiating pipes per source NF.
     template: PipeTemplate<C>,
 }
@@ -51,8 +50,8 @@ struct PipeTemplate<C: ConstraintOps> {
 impl<C: ConstraintOps> BindWork<C> {
     /// Create a BindWork that binds source NFs as the left boundary
     /// (front advancement: source flows left-to-right into remaining pipe).
-    pub fn new_front(
-        source: Node<C>,
+    pub(crate) fn new_front(
+        source: WorkSet<C>,
         mid: Factors<C>,
         right: Option<NF<C>>,
         env: Env<C>,
@@ -60,7 +59,7 @@ impl<C: ConstraintOps> BindWork<C> {
         call_mode: CallMode<C>,
     ) -> Self {
         Self {
-            source: Box::new(source),
+            source,
             template: PipeTemplate {
                 left: None,
                 mid,
@@ -75,8 +74,8 @@ impl<C: ConstraintOps> BindWork<C> {
 
     /// Create a BindWork that binds source NFs as the right boundary
     /// (back advancement: source flows right-to-left into remaining pipe).
-    pub fn new_back(
-        source: Node<C>,
+    pub(crate) fn new_back(
+        source: WorkSet<C>,
         left: Option<NF<C>>,
         mid: Factors<C>,
         env: Env<C>,
@@ -84,7 +83,7 @@ impl<C: ConstraintOps> BindWork<C> {
         call_mode: CallMode<C>,
     ) -> Self {
         Self {
-            source: Box::new(source),
+            source,
             template: PipeTemplate {
                 left,
                 mid,
@@ -98,33 +97,24 @@ impl<C: ConstraintOps> BindWork<C> {
     }
 
     pub fn step(&mut self, terms: &mut TermStore) -> WorkStep<C> {
-        let current = std::mem::replace(&mut *self.source, Node::Fail);
-        match step_node(current, terms) {
-            NodeStep::Emit(nf, rest) => {
-                let pipe_work = self.template.instantiate(*nf);
-                let continuation = BindWork {
-                    source: Box::new(rest),
-                    template: self.template.clone(),
-                };
-                let continuation_work = Work::Bind(continuation);
-                WorkStep::Split(Box::new(pipe_work), Box::new(continuation_work))
+        match self.source.step(terms) {
+            WorkSetStep::Emit(nf) => {
+                let pipe_work = self.template.instantiate(nf);
+                WorkStep::Split(Box::new(pipe_work), Box::new(Work::Bind(self.take())))
             }
-            NodeStep::Continue(rest) => {
-                *self.source = rest;
-                WorkStep::More(Box::new(Work::Bind(self.take())))
-            }
-            NodeStep::Exhausted => WorkStep::Done,
+            WorkSetStep::Continue => WorkStep::More(Box::new(Work::Bind(self.take()))),
+            WorkSetStep::Exhausted => WorkStep::Done,
         }
     }
 
     #[cfg(test)]
-    pub(crate) fn source(&self) -> &Node<C> {
+    pub(crate) fn source(&self) -> &WorkSet<C> {
         &self.source
     }
 
     fn take(&mut self) -> Self {
         Self {
-            source: std::mem::replace(&mut self.source, Box::new(Node::Fail)),
+            source: std::mem::replace(&mut self.source, WorkSet::new()),
             template: self.template.clone(),
         }
     }

@@ -2,8 +2,9 @@
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 use rwlog::perf_corpus::{
-    apply_filters, environment_fingerprint, load_cases, prepare_case, run_prepared_with_stats,
-    sort_cases, CorpusCase, CorpusFilters, EnvironmentFingerprint, ExecutionCounters,
+    apply_filters, compile_prepared, environment_fingerprint, load_cases, prepare_case,
+    run_compiled_with_stats, run_prepared_with_stats, sort_cases, CorpusCase, CorpusFilters,
+    EnvironmentFingerprint, ExecutionCounters,
 };
 use serde::Serialize;
 use std::collections::BTreeMap;
@@ -12,6 +13,7 @@ use std::time::Instant;
 #[derive(Clone, Copy, Debug)]
 enum Phase {
     Parse,
+    Compile,
     Execute,
     EndToEnd,
 }
@@ -20,9 +22,10 @@ impl Phase {
     fn from_arg(s: &str) -> Self {
         match s {
             "parse" => Phase::Parse,
+            "compile" => Phase::Compile,
             "execute" => Phase::Execute,
             "end_to_end" => Phase::EndToEnd,
-            other => panic!("--phase must be parse|execute|end_to_end, got '{other}'"),
+            other => panic!("--phase must be parse|compile|execute|end_to_end, got '{other}'"),
         }
     }
 }
@@ -31,6 +34,7 @@ impl Phase {
     fn as_str(self) -> &'static str {
         match self {
             Phase::Parse => "parse",
+            Phase::Compile => "compile",
             Phase::Execute => "execute",
             Phase::EndToEnd => "end_to_end",
         }
@@ -303,10 +307,21 @@ fn main() {
                     std::hint::black_box(prepared);
                     acc.push_zeros();
                 }
-                Phase::Execute => {
+                Phase::Compile => {
                     let prepared = prepare_case(case);
                     let mid = Instant::now();
-                    let stats = run_prepared_with_stats(case, prepared);
+                    let engine = compile_prepared(prepared);
+                    std::hint::black_box(engine);
+                    acc.push_zeros();
+                    let elapsed = mid.elapsed();
+                    samples_ns.push(elapsed.as_nanos() as u64);
+                    continue;
+                }
+                Phase::Execute => {
+                    let prepared = prepare_case(case);
+                    let engine = compile_prepared(prepared);
+                    let mid = Instant::now();
+                    let stats = run_compiled_with_stats(case, engine);
                     last_answers = stats.answers;
                     acc.push(&stats.counters);
                     let elapsed = mid.elapsed();

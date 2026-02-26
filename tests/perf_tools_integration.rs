@@ -10,9 +10,14 @@ const MANIFEST_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml");
 const EXE_SUFFIX: &str = std::env::consts::EXE_SUFFIX;
 
 fn bin_path(name: &str) -> PathBuf {
+    let profile_dir = if cfg!(debug_assertions) {
+        "debug"
+    } else {
+        "release"
+    };
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("target")
-        .join("debug")
+        .join(profile_dir)
         .join(format!("{name}{EXE_SUFFIX}"))
 }
 
@@ -147,6 +152,24 @@ fn perf_binaries_smoke_json_and_csv() {
     let run_json = parse_stdout_json(&run, "run json");
     assert_eq!(run_json["selected_cases"].as_u64(), Some(1));
     assert_eq!(run_json["phase"].as_str(), Some("execute"));
+
+    let run_compile = run_bin(
+        "perf_corpus_run",
+        &[
+            "--id",
+            "identity_atom",
+            "--iters",
+            "1",
+            "--phase",
+            "compile",
+            "--json",
+        ],
+        &quick_env,
+    );
+    assert_success(&run_compile, "perf_corpus_run --phase compile --json");
+    let run_compile_json = parse_stdout_json(&run_compile, "run compile json");
+    assert_eq!(run_compile_json["selected_cases"].as_u64(), Some(1));
+    assert_eq!(run_compile_json["phase"].as_str(), Some("compile"));
 
     let alloc = run_bin(
         "perf_corpus_alloc",

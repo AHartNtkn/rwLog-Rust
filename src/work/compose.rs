@@ -1,11 +1,10 @@
 use crate::constraint::ConstraintOps;
 use crate::kernel::compose_nf;
-use crate::node::Node;
 use crate::term::TermStore;
 use std::collections::VecDeque;
 
 use super::diagonal::{DiagonalJoin, DiagonalStepResult, JoinOutcome, JoinStrategy};
-use super::{build_root_tag, match_root_tag, tags_compatible, RootTag, Work, WorkStep};
+use super::{build_root_tag, match_root_tag, tags_compatible, RootTag, Work, WorkSet, WorkStep};
 
 #[derive(Clone, Debug)]
 enum ComposeCursor {
@@ -311,51 +310,50 @@ pub struct ComposeWork<C: ConstraintOps> {
 }
 
 impl<C: ConstraintOps> ComposeWork<C> {
-    /// Create a new ComposeWork from two nodes.
-    pub fn new(left: Node<C>, right: Node<C>) -> Self {
+    /// Create a new ComposeWork from two work streams.
+    pub fn new(left: Work<C>, right: Work<C>) -> Self {
         Self {
             core: DiagonalJoin::new(left, right, ComposeStrategy::new()),
         }
     }
 
-    /// Create a new ComposeWork, pre-seeding any immediately available NFs
-    /// from leading Emit nodes on either side. This avoids redundant step_node
-    /// calls for NFs that are already materialized at creation time.
-    pub fn new_preseed(mut left: Node<C>, mut right: Node<C>, terms: &mut TermStore) -> Self {
+    #[cfg(test)]
+    pub(crate) fn new_with_sources(left: WorkSet<C>, right: WorkSet<C>) -> Self {
+        Self {
+            core: DiagonalJoin::new_with_sources(left, right, ComposeStrategy::new()),
+        }
+    }
+
+    pub(crate) fn new_with_sources_preseed(
+        mut left: WorkSet<C>,
+        mut right: WorkSet<C>,
+        terms: &mut TermStore,
+    ) -> Self {
         let mut strategy = ComposeStrategy::new();
-        let mut seen_l: Vec<crate::nf::NF<C>> = Vec::new();
-        let mut seen_r: Vec<crate::nf::NF<C>> = Vec::new();
+        let seen_l = left.drain_leading_atoms();
+        let seen_r = right.drain_leading_atoms();
 
-        // Absorb leading Emit chain from left
-        while let Node::Emit(nf, rest) = left {
-            let build_tag = build_root_tag(&nf, terms);
-            strategy.left_build_tags.push(build_tag);
-            seen_l.push(*nf);
-            left = *rest;
+        for nf in &seen_l {
+            strategy.left_build_tags.push(build_root_tag(nf, terms));
+        }
+        for nf in &seen_r {
+            strategy.right_match_tags.push(match_root_tag(nf, terms));
         }
 
-        // Absorb leading Emit chain from right
-        while let Node::Emit(nf, rest) = right {
-            let match_tag = match_root_tag(&nf, terms);
-            strategy.right_match_tags.push(match_tag);
-            seen_r.push(*nf);
-            right = *rest;
-        }
-
-        let left_exhausted = matches!(left, Node::Fail);
-        let right_exhausted = matches!(right, Node::Fail);
-
-        // If one side is exhausted with zero NFs, the join is dead.
+        let left_exhausted = left.is_exhausted();
+        let right_exhausted = right.is_exhausted();
         if (left_exhausted && seen_l.is_empty()) || (right_exhausted && seen_r.is_empty()) {
             return Self {
-                core: DiagonalJoin::new(Node::Fail, Node::Fail, ComposeStrategy::new()),
+                core: DiagonalJoin::new_with_sources(
+                    WorkSet::new(),
+                    WorkSet::new(),
+                    ComposeStrategy::new(),
+                ),
             };
         }
 
-        // Eagerly compose all pre-seeded pairs and collect into pending.
         let mut pending: VecDeque<crate::nf::NF<C>> = VecDeque::new();
         if !seen_l.is_empty() && !seen_r.is_empty() {
-            // For each right NF, enqueue pairs with all compatible left NFs.
             for (ri, right_nf) in seen_r.iter().enumerate() {
                 let match_tag = strategy.right_match_tags[ri];
                 for (li, left_nf) in seen_l.iter().enumerate() {
@@ -370,12 +368,9 @@ impl<C: ConstraintOps> ComposeWork<C> {
             }
         }
 
-        // Determine flip: if left was pre-seeded, pull right next (and vice versa).
         let flip = !seen_l.is_empty();
-
-        let mut core = DiagonalJoin::new_with_seen(left, right, seen_l, seen_r, strategy);
+        let mut core = DiagonalJoin::new_with_seen_sources(left, right, seen_l, seen_r, strategy);
         core.flip = flip;
-        // Move eagerly-composed results into the join's pending queue.
         for nf in pending {
             core.push_pending(nf);
         }
@@ -396,12 +391,12 @@ impl<C: ConstraintOps> ComposeWork<C> {
     }
 
     #[cfg(test)]
-    pub(crate) fn left(&self) -> &Node<C> {
+    pub(crate) fn left(&self) -> &WorkSet<C> {
         &self.core.left
     }
 
     #[cfg(test)]
-    pub(crate) fn right(&self) -> &Node<C> {
+    pub(crate) fn right(&self) -> &WorkSet<C> {
         &self.core.right
     }
 }

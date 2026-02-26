@@ -1,7 +1,7 @@
 use super::{
     rel_to_node, step_table_producer, AndGroup, CallKey, ComposeWork, Env, FixWork,
     JoinReceiverWork, MeetWork, PipeWork, ProducerSpec, ProducerState, ProducerStep, Table, Tables,
-    Work, WorkStep,
+    Work, WorkSet, WorkStep,
 };
 use crate::drop_fresh::DropFresh;
 use crate::factors::Factors;
@@ -68,42 +68,65 @@ fn count_pipe_nodes(node: &Node<()>) -> usize {
 fn count_pipe_nodes_in_work(work: &Work<()>) -> usize {
     match work {
         Work::Pipe(_) => 1,
-        Work::Meet(meet) => count_pipe_nodes(meet.left()) + count_pipe_nodes(meet.right()),
-        Work::AndGroup(group) => group.producer_nodes().map(count_pipe_nodes).sum(),
+        Work::Meet(meet) => {
+            count_pipe_nodes_in_work_set(meet.left()) + count_pipe_nodes_in_work_set(meet.right())
+        }
+        Work::AndGroup(group) => group
+            .producer_work_sets()
+            .map(count_pipe_nodes_in_work_set)
+            .sum(),
         Work::Fix(_) => 0,
         Work::Compose(compose) => {
-            count_pipe_nodes(compose.left()) + count_pipe_nodes(compose.right())
+            count_pipe_nodes_in_work_set(compose.left())
+                + count_pipe_nodes_in_work_set(compose.right())
         }
         Work::Bind(_) => 0,
         Work::JoinReceiver(_) => 0,
+        Work::ReplayAnswers(_) => 0,
         Work::Atom(_) => 0,
         Work::Done => 0,
     }
 }
 
-fn find_fixwork_in_node(node: &Node<()>) -> Option<FixWork<()>> {
-    match node {
-        Node::Work(work) => match work.as_ref() {
-            Work::Fix(fix) => Some(fix.clone()),
-            _ => None,
-        },
-        Node::Or(left, right) => find_fixwork_in_node(left).or_else(|| find_fixwork_in_node(right)),
-        _ => None,
+fn count_pipe_nodes_in_work_set(work_set: &WorkSet<()>) -> usize {
+    work_set.branches().map(count_pipe_nodes_in_work).sum()
+}
+
+fn find_fixwork_in_work_set(work_set: &WorkSet<()>) -> Option<FixWork<()>> {
+    for work in work_set.branches() {
+        match work {
+            Work::Fix(fix) => return Some(fix.clone()),
+            Work::Compose(compose) => {
+                if let Some(fix) = find_fixwork_in_work_set(compose.left()) {
+                    return Some(fix);
+                }
+                if let Some(fix) = find_fixwork_in_work_set(compose.right()) {
+                    return Some(fix);
+                }
+            }
+            Work::Bind(bind) => {
+                if let Some(fix) = find_fixwork_in_work_set(bind.source()) {
+                    return Some(fix);
+                }
+            }
+            _ => {}
+        }
     }
+    None
 }
 
 fn extract_key_from_step(step: WorkStep<()>) -> CallKey<()> {
     match step {
         WorkStep::More(work) => match *work {
             Work::Compose(compose) => {
-                let fix = find_fixwork_in_node(compose.left())
-                    .or_else(|| find_fixwork_in_node(compose.right()))
+                let fix = find_fixwork_in_work_set(compose.left())
+                    .or_else(|| find_fixwork_in_work_set(compose.right()))
                     .expect("Expected FixWork in compose nodes");
                 (*fix.key).clone()
             }
             Work::Bind(bind) => {
-                let fix =
-                    find_fixwork_in_node(bind.source()).expect("Expected FixWork in bind source");
+                let fix = find_fixwork_in_work_set(bind.source())
+                    .expect("Expected FixWork in bind source");
                 (*fix.key).clone()
             }
             _ => panic!("Expected Work::Compose or Work::Bind"),
@@ -156,27 +179,26 @@ fn unwrap_work_pipe_work(work: Work<()>) -> PipeWork<()> {
 fn find_and_group_in_work(work: &Work<()>) -> Option<AndGroup<()>> {
     match work {
         Work::AndGroup(group) => Some(group.clone()),
-        Work::Compose(compose) => find_and_group_in_node(compose.left())
-            .or_else(|| find_and_group_in_node(compose.right())),
+        Work::Compose(compose) => find_and_group_in_work_set(compose.left())
+            .or_else(|| find_and_group_in_work_set(compose.right())),
+        Work::Bind(bind) => find_and_group_in_work_set(bind.source()),
         Work::Pipe(_)
         | Work::Meet(_)
         | Work::Fix(_)
-        | Work::Bind(_)
         | Work::JoinReceiver(_)
+        | Work::ReplayAnswers(_)
         | Work::Atom(_)
         | Work::Done => None,
     }
 }
 
-fn find_and_group_in_node(node: &Node<()>) -> Option<AndGroup<()>> {
-    match node {
-        Node::Work(work) => find_and_group_in_work(work),
-        Node::Or(left, right) => {
-            find_and_group_in_node(left).or_else(|| find_and_group_in_node(right))
+fn find_and_group_in_work_set(work_set: &WorkSet<()>) -> Option<AndGroup<()>> {
+    for work in work_set.branches() {
+        if let Some(group) = find_and_group_in_work(work) {
+            return Some(group);
         }
-        Node::Emit(_, rest) => find_and_group_in_node(rest),
-        Node::Fail => None,
     }
+    None
 }
 
 fn unwrap_work_compose(step: WorkStep<()>) -> ComposeWork<()> {
@@ -196,6 +218,44 @@ fn unwrap_split(step: WorkStep<()>) -> (Node<()>, Node<()>) {
     }
 }
 
+fn works_from_node(node: Node<()>) -> Vec<Work<()>> {
+    match node {
+        Node::Fail => Vec::new(),
+        Node::Work(work) => vec![*work],
+        Node::Emit(nf, rest) => {
+            let mut works = vec![Work::Atom(*nf)];
+            works.extend(works_from_node(*rest));
+            works
+        }
+        Node::Or(left, right) => {
+            let mut works = works_from_node(*left);
+            works.extend(works_from_node(*right));
+            works
+        }
+    }
+}
+
+fn work_set_from_node(node: Node<()>) -> WorkSet<()> {
+    WorkSet::from_works(works_from_node(node))
+}
+
+fn compose_from_nodes(left: Node<()>, right: Node<()>) -> ComposeWork<()> {
+    ComposeWork::new_with_sources(work_set_from_node(left), work_set_from_node(right))
+}
+
+fn meet_from_nodes(left: Node<()>, right: Node<()>) -> MeetWork<()> {
+    MeetWork::new_with_sources(work_set_from_node(left), work_set_from_node(right))
+}
+
+fn start_producer_from_node(
+    table: &Table<()>,
+    producer: Node<()>,
+    spec: ProducerSpec<()>,
+    iteration_start_len: usize,
+) {
+    table.start_producer(work_set_from_node(producer), spec, iteration_start_len);
+}
+
 // ========================================================================
 // COMPOSE WORK TESTS
 // ========================================================================
@@ -209,7 +269,7 @@ fn composework_emits_composed_nf() {
 
     let left = Node::Emit(Box::new(left_nf), Box::new(Node::Fail));
     let right = Node::Emit(Box::new(right_nf), Box::new(Node::Fail));
-    let mut compose = ComposeWork::new(left, right);
+    let mut compose = compose_from_nodes(left, right);
 
     let mut steps = 0;
     let mut step = compose.step(&mut terms);
@@ -244,7 +304,7 @@ fn composework_emits_composed_nf_dual() {
 
     let left = Node::Emit(Box::new(dual_left), Box::new(Node::Fail));
     let right = Node::Emit(Box::new(dual_right), Box::new(Node::Fail));
-    let mut compose = ComposeWork::new(left, right);
+    let mut compose = compose_from_nodes(left, right);
 
     let mut steps = 0;
     let mut step = compose.step(&mut terms);
@@ -854,8 +914,13 @@ fn pipework_and_group_wraps_parts_with_iso_boundaries() {
     let expected_left_iso = super::nf_rwr_iso(&left_nf, &mut terms);
     let expected_right_iso = super::nf_rwl_iso(&right_nf, &mut terms);
 
-    for node in group.producer_nodes() {
-        let pipe = unwrap_work_pipe(node.clone());
+    for work_set in group.producer_work_sets() {
+        let work = work_set
+            .branches()
+            .next()
+            .cloned()
+            .expect("AndGroup producer should have at least one branch");
+        let pipe = unwrap_work_pipe_work(work);
         let factors = pipe.mid.to_vec();
         let left = factors.first().and_then(|rel| match rel.as_ref() {
             Rel::Atom(nf) => Some(nf.as_ref()),
@@ -1310,9 +1375,9 @@ fn pipework_step_right_boundary_composes() {
 
 #[test]
 fn meetwork_construction_both_fail() {
-    let meet: MeetWork<()> = MeetWork::new(Node::Fail, Node::Fail);
-    assert!(matches!(meet.left(), Node::Fail));
-    assert!(matches!(meet.right(), Node::Fail));
+    let meet: MeetWork<()> = meet_from_nodes(Node::Fail, Node::Fail);
+    assert_eq!(meet.left().branch_count(), 0);
+    assert_eq!(meet.right().branch_count(), 0);
     assert!(meet.seen_l().is_empty());
     assert!(meet.seen_r().is_empty());
     assert!(meet.pending_is_empty());
@@ -1323,18 +1388,18 @@ fn meetwork_construction_both_fail() {
 fn meetwork_construction_left_fail_right_emit() {
     let nf = make_identity_nf();
     let right = Node::Emit(Box::new(nf), Box::new(Node::Fail));
-    let meet: MeetWork<()> = MeetWork::new(Node::Fail, right);
-    assert!(matches!(meet.left(), Node::Fail));
-    assert!(matches!(meet.right(), Node::Emit(_, _)));
+    let meet: MeetWork<()> = meet_from_nodes(Node::Fail, right);
+    assert_eq!(meet.left().branch_count(), 0);
+    assert_eq!(meet.right().branch_count(), 1);
 }
 
 #[test]
 fn meetwork_construction_left_emit_right_fail() {
     let nf = make_identity_nf();
     let left = Node::Emit(Box::new(nf), Box::new(Node::Fail));
-    let meet: MeetWork<()> = MeetWork::new(left, Node::Fail);
-    assert!(matches!(meet.left(), Node::Emit(_, _)));
-    assert!(matches!(meet.right(), Node::Fail));
+    let meet: MeetWork<()> = meet_from_nodes(left, Node::Fail);
+    assert_eq!(meet.left().branch_count(), 1);
+    assert_eq!(meet.right().branch_count(), 0);
 }
 
 #[test]
@@ -1343,9 +1408,9 @@ fn meetwork_construction_both_emit() {
     let nf2 = make_identity_nf();
     let left = Node::Emit(Box::new(nf1), Box::new(Node::Fail));
     let right = Node::Emit(Box::new(nf2), Box::new(Node::Fail));
-    let meet: MeetWork<()> = MeetWork::new(left, right);
-    assert!(matches!(meet.left(), Node::Emit(_, _)));
-    assert!(matches!(meet.right(), Node::Emit(_, _)));
+    let meet: MeetWork<()> = meet_from_nodes(left, right);
+    assert_eq!(meet.left().branch_count(), 1);
+    assert_eq!(meet.right().branch_count(), 1);
 }
 
 #[test]
@@ -1355,8 +1420,8 @@ fn meetwork_construction_deep_left_or() {
     for _ in 0..10 {
         node = Node::Or(Box::new(node), Box::new(Node::Fail));
     }
-    let meet: MeetWork<()> = MeetWork::new(node, Node::Fail);
-    assert!(matches!(meet.left(), Node::Or(_, _)));
+    let meet: MeetWork<()> = meet_from_nodes(node, Node::Fail);
+    assert_eq!(meet.left().branch_count(), 0);
 }
 
 // ========================================================================
@@ -1366,7 +1431,7 @@ fn meetwork_construction_deep_left_or() {
 #[test]
 fn meetwork_step_both_fail_returns_done() {
     let (_, mut terms) = setup();
-    let mut meet: MeetWork<()> = MeetWork::new(Node::Fail, Node::Fail);
+    let mut meet: MeetWork<()> = meet_from_nodes(Node::Fail, Node::Fail);
     let step = meet.step(&mut terms);
     assert!(
         matches!(step, WorkStep::Done),
@@ -1379,7 +1444,7 @@ fn meetwork_step_left_fail_returns_done() {
     let (_, mut terms) = setup();
     let nf = make_identity_nf();
     let right = Node::Emit(Box::new(nf), Box::new(Node::Fail));
-    let mut meet: MeetWork<()> = MeetWork::new(Node::Fail, right);
+    let mut meet: MeetWork<()> = meet_from_nodes(Node::Fail, right);
 
     // With left Fail, no meets possible - should eventually return Done
     // (may take multiple steps as it drains right)
@@ -1407,7 +1472,7 @@ fn meetwork_step_right_fail_returns_done() {
     let (_, mut terms) = setup();
     let nf = make_identity_nf();
     let left = Node::Emit(Box::new(nf), Box::new(Node::Fail));
-    let mut meet: MeetWork<()> = MeetWork::new(left, Node::Fail);
+    let mut meet: MeetWork<()> = meet_from_nodes(left, Node::Fail);
 
     // With right Fail, no meets possible - should eventually return Done
     let mut done = false;
@@ -1438,7 +1503,7 @@ fn meetwork_steps_work_nodes() {
     let left_pipe = PipeWork::with_mid(factors);
     let left = Node::Work(Box::new(Work::Pipe(Box::new(left_pipe))));
     let right = Node::Emit(Box::new(nf), Box::new(Node::Fail));
-    let mut meet: MeetWork<()> = MeetWork::new(left, right);
+    let mut meet: MeetWork<()> = meet_from_nodes(left, right);
 
     let mut emitted = false;
     for _ in 0..50 {
@@ -1472,7 +1537,7 @@ fn meetwork_step_identical_answers_produces_meet() {
     let nf2 = make_ground_nf("X", &symbols, &terms);
     let left = Node::Emit(Box::new(nf1), Box::new(Node::Fail));
     let right = Node::Emit(Box::new(nf2), Box::new(Node::Fail));
-    let mut meet: MeetWork<()> = MeetWork::new(left, right);
+    let mut meet: MeetWork<()> = meet_from_nodes(left, right);
 
     // Step until we get an emit or Done
     let mut emitted = false;
@@ -1506,7 +1571,7 @@ fn meetwork_step_identity_with_ground_specializes() {
 
     let left = Node::Emit(Box::new(identity), Box::new(Node::Fail));
     let right = Node::Emit(Box::new(ground.clone()), Box::new(Node::Fail));
-    let mut meet: MeetWork<()> = MeetWork::new(left, right);
+    let mut meet: MeetWork<()> = meet_from_nodes(left, right);
 
     let mut result: Option<NF<()>> = None;
     for _ in 0..20 {
@@ -1550,7 +1615,7 @@ fn meetwork_step_incompatible_ground_no_emit() {
 
     let left = Node::Emit(Box::new(nf_a), Box::new(Node::Fail));
     let right = Node::Emit(Box::new(nf_b), Box::new(Node::Fail));
-    let mut meet: MeetWork<()> = MeetWork::new(left, right);
+    let mut meet: MeetWork<()> = meet_from_nodes(left, right);
 
     let mut emitted = false;
     for _ in 0..20 {
@@ -1597,7 +1662,7 @@ fn meetwork_step_arity_mismatch_no_emit() {
 
     let left = Node::Emit(Box::new(single), Box::new(Node::Fail));
     let right = Node::Emit(Box::new(double), Box::new(Node::Fail));
-    let mut meet: MeetWork<()> = MeetWork::new(left, right);
+    let mut meet: MeetWork<()> = meet_from_nodes(left, right);
 
     let mut emitted = false;
     for _ in 0..20 {
@@ -1641,7 +1706,7 @@ fn meetwork_step_flip_alternates_sides() {
         Box::new(Node::Emit(Box::new(nf4), Box::new(Node::Fail))),
     );
 
-    let mut meet: MeetWork<()> = MeetWork::new(left, right);
+    let mut meet: MeetWork<()> = meet_from_nodes(left, right);
 
     // After first step, flip should be true (pulled from left)
     // After second step, flip should be false (pulled from right)
@@ -1699,7 +1764,7 @@ fn meetwork_step_multiple_meets_all_produced() {
         Box::new(Node::Emit(Box::new(nf_b), Box::new(Node::Fail))),
     );
 
-    let mut meet: MeetWork<()> = MeetWork::new(left, right);
+    let mut meet: MeetWork<()> = meet_from_nodes(left, right);
 
     let mut emit_count = 0;
     for _ in 0..50 {
@@ -1743,7 +1808,7 @@ fn meetwork_pending_emits_before_pulls() {
     let nf1 = make_identity_nf();
     let nf2 = make_identity_nf();
 
-    let mut meet: MeetWork<()> = MeetWork::new(Node::Fail, Node::Fail);
+    let mut meet: MeetWork<()> = meet_from_nodes(Node::Fail, Node::Fail);
     push_pending_all(&mut meet, &[nf1, nf2]);
 
     // First step should emit from pending
@@ -1762,7 +1827,7 @@ fn meetwork_pending_preserves_order() {
     let nf_b = make_ground_nf("B", &symbols, &terms);
     let nf_c = make_ground_nf("C", &symbols, &terms);
 
-    let mut meet: MeetWork<()> = MeetWork::new(Node::Fail, Node::Fail);
+    let mut meet: MeetWork<()> = meet_from_nodes(Node::Fail, Node::Fail);
     push_pending_all(&mut meet, &[nf_a.clone(), nf_b.clone(), nf_c.clone()]);
 
     // Should emit in FIFO order
@@ -1798,7 +1863,7 @@ fn meetwork_drains_pending_before_done() {
     let (_, mut terms) = setup();
     // Both sides exhausted but pending has items
     let nf = make_identity_nf();
-    let mut meet: MeetWork<()> = MeetWork::new(Node::Fail, Node::Fail);
+    let mut meet: MeetWork<()> = meet_from_nodes(Node::Fail, Node::Fail);
     push_pending_all(&mut meet, &[nf]);
 
     let step = meet.step(&mut terms);
@@ -1831,7 +1896,7 @@ fn meetwork_left_exhausts_first() {
         )),
     );
 
-    let mut meet: MeetWork<()> = MeetWork::new(left, right);
+    let mut meet: MeetWork<()> = meet_from_nodes(left, right);
 
     let mut emit_count = 0;
     for _ in 0..30 {
@@ -1879,7 +1944,7 @@ fn meetwork_right_exhausts_first() {
     );
     let right = Node::Emit(Box::new(id), Box::new(Node::Fail));
 
-    let mut meet: MeetWork<()> = MeetWork::new(left, right);
+    let mut meet: MeetWork<()> = meet_from_nodes(left, right);
 
     let mut emit_count = 0;
     for _ in 0..30 {
@@ -1927,7 +1992,7 @@ fn meetwork_both_exhaust_simultaneously() {
         Box::new(Node::Emit(Box::new(id4), Box::new(Node::Fail))),
     );
 
-    let mut meet: MeetWork<()> = MeetWork::new(left, right);
+    let mut meet: MeetWork<()> = meet_from_nodes(left, right);
 
     let mut emit_count = 0;
     let mut done = false;
@@ -1972,7 +2037,7 @@ fn meetwork_seen_l_grows_after_left_emit() {
     let (_, mut terms) = setup();
     let nf = make_identity_nf();
     let left = Node::Emit(Box::new(nf.clone()), Box::new(Node::Fail));
-    let mut meet: MeetWork<()> = MeetWork::new(left, Node::Fail);
+    let mut meet: MeetWork<()> = meet_from_nodes(left, Node::Fail);
 
     assert!(meet.seen_l().is_empty(), "seen_l should start empty");
 
@@ -2005,7 +2070,7 @@ fn meetwork_seen_r_grows_after_right_emit() {
     let (_, mut terms) = setup();
     let nf = make_identity_nf();
     let right = Node::Emit(Box::new(nf.clone()), Box::new(Node::Fail));
-    let mut meet: MeetWork<()> = MeetWork::new(Node::Fail, right);
+    let mut meet: MeetWork<()> = meet_from_nodes(Node::Fail, right);
 
     assert!(meet.seen_r().is_empty(), "seen_r should start empty");
 
@@ -2049,7 +2114,7 @@ fn meetwork_handles_or_on_left() {
     );
     let right = Node::Emit(Box::new(nf3), Box::new(Node::Fail));
 
-    let mut meet: MeetWork<()> = MeetWork::new(or_left, right);
+    let mut meet: MeetWork<()> = meet_from_nodes(or_left, right);
 
     // Should handle Or by interleaving properly
     let mut emit_count = 0;
@@ -2088,7 +2153,7 @@ fn meetwork_handles_or_on_left() {
 
 #[test]
 fn work_meet_construction() {
-    let meet: MeetWork<()> = MeetWork::new(Node::Fail, Node::Fail);
+    let meet: MeetWork<()> = meet_from_nodes(Node::Fail, Node::Fail);
     let work: Work<()> = Work::Meet(meet);
     assert!(matches!(work, Work::Meet(_)));
 }
@@ -2096,7 +2161,7 @@ fn work_meet_construction() {
 #[test]
 fn work_meet_step_delegates_to_meetwork() {
     let (_, mut terms) = setup();
-    let meet: MeetWork<()> = MeetWork::new(Node::Fail, Node::Fail);
+    let meet: MeetWork<()> = meet_from_nodes(Node::Fail, Node::Fail);
     let mut work: Work<()> = Work::Meet(meet);
     let step = work.step(&mut terms);
     // Should delegate to MeetWork::step
@@ -2116,11 +2181,11 @@ fn meetwork_symmetric_produces_same_results() {
     let id = make_identity_nf();
 
     // Meet(A, id) vs Meet(id, A) should produce same results
-    let mut meet1: MeetWork<()> = MeetWork::new(
+    let mut meet1: MeetWork<()> = meet_from_nodes(
         Node::Emit(Box::new(nf_a.clone()), Box::new(Node::Fail)),
         Node::Emit(Box::new(id.clone()), Box::new(Node::Fail)),
     );
-    let mut meet2: MeetWork<()> = MeetWork::new(
+    let mut meet2: MeetWork<()> = meet_from_nodes(
         Node::Emit(Box::new(id), Box::new(Node::Fail)),
         Node::Emit(Box::new(nf_a), Box::new(Node::Fail)),
     );
@@ -2203,7 +2268,7 @@ fn meetwork_many_answers_terminates() {
         right = Node::Emit(Box::new(make_identity_nf()), Box::new(right));
     }
 
-    let mut meet: MeetWork<()> = MeetWork::new(left, right);
+    let mut meet: MeetWork<()> = meet_from_nodes(left, right);
 
     // Should terminate within reasonable steps
     let mut steps = 0;
@@ -2549,11 +2614,11 @@ fn table_start_producer() {
         env: Env::new(),
     };
     let producer_node = Node::Work(Box::new(Work::Done));
-    table.start_producer(producer_node, spec, 0);
+    start_producer_from_node(&table, producer_node, spec, 0);
     assert_eq!(table.producer_state(), ProducerState::Running);
     assert!(table.is_running());
     assert!(!table.is_done());
-    assert!(table.producer_has_node());
+    assert!(table.producer_has_work_set());
 }
 
 #[test]
@@ -2569,13 +2634,13 @@ fn table_finish_producer() {
         env: Env::new(),
     };
     let producer_node = Node::Work(Box::new(Work::Done));
-    table.start_producer(producer_node, spec, 0);
+    start_producer_from_node(&table, producer_node, spec, 0);
     table.finish_producer();
 
     assert_eq!(table.producer_state(), ProducerState::Done);
     assert!(table.is_done());
     assert!(!table.is_running());
-    assert!(!table.producer_has_node());
+    assert!(!table.producer_has_work_set());
 }
 
 #[test]
@@ -2914,7 +2979,7 @@ fn run_fixwork_advances_running_producer_and_emits(use_dual: bool) {
         env: Env::new(),
     };
 
-    table.start_producer(producer_node, spec, 0);
+    start_producer_from_node(&table, producer_node, spec, 0);
 
     let mut fix: FixWork<()> = FixWork::new(key, table.clone(), 0, Tables::new());
     let step = fix.step(&mut terms);
@@ -2954,7 +3019,7 @@ fn run_fixwork_skips_duplicate_answer(use_dual: bool) {
         right: None,
         env: Env::new(),
     };
-    table.start_producer(producer_node, spec, table.answers_len());
+    start_producer_from_node(&table, producer_node, spec, table.answers_len());
 
     let mut fix: FixWork<()> = FixWork::new(key, table.clone(), table.answers_len(), Tables::new());
     let step = fix.step(&mut terms);
@@ -2991,7 +3056,7 @@ fn run_fixwork_exhausted_marks_done(use_dual: bool) {
         right: None,
         env: Env::new(),
     };
-    table.start_producer(Node::Fail, spec, table.answers_len());
+    start_producer_from_node(&table, Node::Fail, spec, table.answers_len());
 
     let mut fix: FixWork<()> = FixWork::new(key, table.clone(), table.answers_len(), Tables::new());
     let step = fix.step(&mut terms);
@@ -3029,7 +3094,7 @@ fn fix_producer_dedups_duplicate_answers() {
         env: Env::new(),
     };
 
-    table.start_producer(producer_node, spec, 0);
+    start_producer_from_node(&table, producer_node, spec, 0);
 
     let mut steps = 0;
     loop {
@@ -3065,7 +3130,7 @@ fn run_fix_producer_continues_when_consumer_queue_full(use_dual: bool) {
         env: Env::new(),
     };
 
-    table.start_producer(producer_node, spec, 0);
+    start_producer_from_node(&table, producer_node, spec, 0);
 
     let step1 = step_table_producer(&table, &mut terms, &tables);
     assert!(matches!(step1, ProducerStep::Progress));
@@ -3113,7 +3178,7 @@ fn fix_producer_broadcasts_answers_to_all_consumers() {
         env: Env::new(),
     };
 
-    table.start_producer(producer_node, spec, 0);
+    start_producer_from_node(&table, producer_node, spec, 0);
 
     let mut steps = 0;
     loop {
@@ -3228,7 +3293,8 @@ fn call_replay_interleaves_with_new_answers() {
         .expect("Table should exist after producer call");
     table.add_answer(nf_a1.clone());
     table.add_answer(nf_a2.clone());
-    table.start_producer(
+    start_producer_from_node(
+        &table,
         Node::Work(Box::new(Work::Done)),
         ProducerSpec {
             key: Arc::new(key.clone()),
@@ -3504,10 +3570,10 @@ fn run_andgroup_closed_empty_part_terminates_even_if_other_blocks(use_dual: bool
 
     let (_tx0, rx0) = AnswerQueue::bounded::<()>(1);
     drop(_tx0);
-    let part0 = Node::Work(Box::new(Work::JoinReceiver(JoinReceiverWork::new(rx0))));
+    let part0 = Work::JoinReceiver(JoinReceiverWork::new(rx0));
 
     let (_tx1, rx1) = AnswerQueue::bounded::<()>(1);
-    let part1 = Node::Work(Box::new(Work::JoinReceiver(JoinReceiverWork::new(rx1))));
+    let part1 = Work::JoinReceiver(JoinReceiverWork::new(rx1));
 
     let mut group = AndGroup::new(vec![part0, part1]);
     let mut done = false;

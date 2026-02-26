@@ -12,6 +12,7 @@ use crate::rel::Rel;
 use crate::symbol::FuncId;
 use crate::term::{Term, TermId, TermStore};
 use smallvec::SmallVec;
+use std::collections::VecDeque;
 use std::sync::Arc;
 
 mod and_group;
@@ -55,6 +56,8 @@ pub enum Work<C: ConstraintOps> {
     Bind(BindWork<C>),
     /// Receiver for joiner outputs (drives AndGroup producers).
     JoinReceiver(JoinReceiverWork<C>),
+    /// Finite replay stream of precomputed answers (one branch, emit-chain semantics).
+    ReplayAnswers(VecDeque<NF<C>>),
     /// Single atomic NF (emits once, then done).
     Atom(NF<C>),
     /// Completed - no more work.
@@ -72,6 +75,271 @@ pub enum WorkStep<C: ConstraintOps> {
     Split(Box<Work<C>>, Box<Work<C>>),
     /// Continue with modified work.
     More(Box<Work<C>>),
+}
+
+/// Result of stepping a local set of work branches.
+#[derive(Clone, Debug)]
+pub(crate) enum WorkSetStep<C: ConstraintOps> {
+    Emit(NF<C>),
+    Continue,
+    Exhausted,
+}
+
+/// Local scheduler for a disjunction of work branches.
+///
+/// This is the abstract-machine equivalent of keeping a local `Node::Or` tree:
+/// each step advances exactly one branch and rotates ready branches fairly.
+#[derive(Clone, Debug)]
+pub(crate) struct WorkSet<C: ConstraintOps> {
+    root: WorkSetNode<C>,
+}
+
+impl<C: ConstraintOps> WorkSet<C> {
+    pub(crate) fn new() -> Self {
+        Self {
+            root: WorkSetNode::Fail,
+        }
+    }
+
+    pub(crate) fn from_work(work: Work<C>) -> Self {
+        Self {
+            root: WorkSetNode::from_work(work),
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn from_works<I>(works: I) -> Self
+    where
+        I: IntoIterator<Item = Work<C>>,
+    {
+        let mut root = WorkSetNode::Fail;
+        for work in works {
+            root = or_work_set_node(root, WorkSetNode::from_work(work));
+        }
+        Self { root }
+    }
+
+    pub(crate) fn from_answers(answers: Vec<NF<C>>) -> Self {
+        if answers.is_empty() {
+            Self::new()
+        } else {
+            Self::from_work(Work::ReplayAnswers(VecDeque::from(answers)))
+        }
+    }
+
+    pub(crate) fn or_with(self, other: Self) -> Self {
+        Self {
+            root: or_work_set_node(self.root, other.root),
+        }
+    }
+
+    pub(crate) fn is_exhausted(&self) -> bool {
+        matches!(self.root, WorkSetNode::Fail)
+    }
+
+    pub(crate) fn drain_leading_atoms(&mut self) -> Vec<NF<C>> {
+        let mut out = Vec::new();
+        let current = std::mem::replace(&mut self.root, WorkSetNode::Fail);
+        match current {
+            WorkSetNode::Leaf(work) => match *work {
+                Work::Atom(nf) => out.push(nf),
+                Work::ReplayAnswers(mut answers) => out.extend(answers.drain(..)),
+                other => self.root = WorkSetNode::Leaf(Box::new(other)),
+            },
+            other => self.root = other,
+        }
+        out
+    }
+
+    #[cfg(test)]
+    pub(crate) fn branch_count(&self) -> usize {
+        self.root.branch_count()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn branches(&self) -> impl Iterator<Item = &Work<C>> {
+        let mut out = Vec::new();
+        self.root.collect_branches(&mut out);
+        out.into_iter()
+    }
+
+    pub(crate) fn step(&mut self, terms: &mut TermStore) -> WorkSetStep<C> {
+        let current = std::mem::replace(&mut self.root, WorkSetNode::Fail);
+        match step_work_set_node(current, terms) {
+            WorkSetNodeStep::Emit(nf, rest) => {
+                self.root = rest;
+                WorkSetStep::Emit(nf)
+            }
+            WorkSetNodeStep::Continue(rest) => {
+                self.root = rest;
+                if self.is_exhausted() {
+                    WorkSetStep::Exhausted
+                } else {
+                    WorkSetStep::Continue
+                }
+            }
+            WorkSetNodeStep::Exhausted => {
+                self.root = WorkSetNode::Fail;
+                WorkSetStep::Exhausted
+            }
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+enum WorkSetNode<C: ConstraintOps> {
+    Fail,
+    Or(Box<WorkSetNode<C>>, Box<WorkSetNode<C>>),
+    Leaf(Box<Work<C>>),
+}
+
+impl<C: ConstraintOps> WorkSetNode<C> {
+    fn from_work(work: Work<C>) -> Self {
+        if matches!(work, Work::Done) {
+            WorkSetNode::Fail
+        } else {
+            WorkSetNode::Leaf(Box::new(work))
+        }
+    }
+
+    #[cfg(test)]
+    fn branch_count(&self) -> usize {
+        match self {
+            WorkSetNode::Fail => 0,
+            WorkSetNode::Leaf(_) => 1,
+            WorkSetNode::Or(left, right) => left.branch_count() + right.branch_count(),
+        }
+    }
+
+    #[cfg(test)]
+    fn collect_branches<'a>(&'a self, out: &mut Vec<&'a Work<C>>) {
+        match self {
+            WorkSetNode::Fail => {}
+            WorkSetNode::Leaf(work) => out.push(work.as_ref()),
+            WorkSetNode::Or(left, right) => {
+                left.collect_branches(out);
+                right.collect_branches(out);
+            }
+        }
+    }
+}
+
+enum WorkSetNodeStep<C: ConstraintOps> {
+    Emit(NF<C>, WorkSetNode<C>),
+    Continue(WorkSetNode<C>),
+    Exhausted,
+}
+
+fn or_work_set_node<C: ConstraintOps>(
+    left: WorkSetNode<C>,
+    right: WorkSetNode<C>,
+) -> WorkSetNode<C> {
+    match (&left, &right) {
+        (WorkSetNode::Fail, _) => right,
+        (_, WorkSetNode::Fail) => left,
+        _ => WorkSetNode::Or(Box::new(left), Box::new(right)),
+    }
+}
+
+fn rebuild_work_set_or_chain<C: ConstraintOps>(
+    siblings: Vec<WorkSetNode<C>>,
+    leaf: WorkSetNode<C>,
+) -> WorkSetNode<C> {
+    let mut result = leaf;
+    for sibling in siblings.into_iter().rev() {
+        result = or_work_set_node(sibling, result);
+    }
+    result
+}
+
+fn step_work_set_or<C: ConstraintOps>(
+    left: WorkSetNode<C>,
+    right: WorkSetNode<C>,
+    terms: &mut TermStore,
+) -> WorkSetNodeStep<C> {
+    let mut siblings: Vec<WorkSetNode<C>> = vec![right];
+    let mut current = left;
+
+    loop {
+        match current {
+            WorkSetNode::Or(a, b) => {
+                siblings.push(*b);
+                current = *a;
+            }
+            WorkSetNode::Fail => match siblings.pop() {
+                Some(next) => current = next,
+                None => return WorkSetNodeStep::Exhausted,
+            },
+            _ => break,
+        }
+    }
+
+    match step_work_set_node(current, terms) {
+        WorkSetNodeStep::Emit(nf, new_leaf) => {
+            WorkSetNodeStep::Emit(nf, rebuild_work_set_or_chain(siblings, new_leaf))
+        }
+        WorkSetNodeStep::Continue(new_leaf) => {
+            WorkSetNodeStep::Continue(rebuild_work_set_or_chain(siblings, new_leaf))
+        }
+        WorkSetNodeStep::Exhausted => {
+            let rest = rebuild_work_set_or_chain(siblings, WorkSetNode::Fail);
+            if matches!(rest, WorkSetNode::Fail) {
+                WorkSetNodeStep::Exhausted
+            } else {
+                WorkSetNodeStep::Continue(rest)
+            }
+        }
+    }
+}
+
+fn step_work_set_node<C: ConstraintOps>(
+    node: WorkSetNode<C>,
+    terms: &mut TermStore,
+) -> WorkSetNodeStep<C> {
+    match node {
+        WorkSetNode::Fail => WorkSetNodeStep::Exhausted,
+        WorkSetNode::Or(left, right) => step_work_set_or(*left, *right, terms),
+        WorkSetNode::Leaf(work) => match step_work_box(work, terms) {
+            WorkStep::Done => WorkSetNodeStep::Continue(WorkSetNode::Fail),
+            WorkStep::Emit(nf, next) => WorkSetNodeStep::Emit(nf, WorkSetNode::from_work(*next)),
+            WorkStep::Split(left, right) => WorkSetNodeStep::Continue(or_work_set_node(
+                WorkSetNode::Leaf(left),
+                WorkSetNode::Leaf(right),
+            )),
+            WorkStep::More(next) => WorkSetNodeStep::Continue(WorkSetNode::Leaf(next)),
+        },
+    }
+}
+
+pub(crate) fn step_work_box<C: ConstraintOps>(
+    mut work: Box<Work<C>>,
+    terms: &mut TermStore,
+) -> WorkStep<C> {
+    if let Work::Fix(ref mut fix) = *work {
+        return match fix.step_in_place(terms) {
+            FixStepResult::Emit(nf) => WorkStep::Emit(nf, work),
+            FixStepResult::More => WorkStep::More(work),
+            FixStepResult::Done => WorkStep::Done,
+        };
+    }
+
+    if let Work::Compose(ref mut compose) = *work {
+        return match compose.step_in_place(terms) {
+            DiagonalStepResult::Emit(nf) => WorkStep::Emit(nf, work),
+            DiagonalStepResult::More => WorkStep::More(work),
+            DiagonalStepResult::Done => WorkStep::Done,
+        };
+    }
+
+    if let Work::Meet(ref mut meet) = *work {
+        return match meet.step_in_place(terms) {
+            DiagonalStepResult::Emit(nf) => WorkStep::Emit(nf, work),
+            DiagonalStepResult::More => WorkStep::More(work),
+            DiagonalStepResult::Done => WorkStep::Done,
+        };
+    }
+
+    work.step(terms)
 }
 
 /// Call handling mode for PipeWork.
@@ -136,20 +404,10 @@ pub fn rel_to_node<C: ConstraintOps>(rel: &Rel<C>, env: &Env<C>, tables: &Tables
         ),
 
         Rel::And(a, b) => {
-            let mut parts = Vec::new();
-            collect_and_parts(a.clone(), &mut parts);
-            collect_and_parts(b.clone(), &mut parts);
-            if parts.is_empty() {
-                return Node::Fail;
-            }
-            if parts.len() == 1 {
-                return rel_to_node(parts[0].as_ref(), env, tables);
-            }
-            let nodes = parts
-                .into_iter()
-                .map(|part| rel_to_node(part.as_ref(), env, tables))
-                .collect();
-            Node::Work(Box::new(Work::AndGroup(AndGroup::new(nodes))))
+            let and_rel = Rel::And(a.clone(), b.clone());
+            let mut pipe = PipeWork::from_rel(and_rel, env.clone(), tables.clone());
+            pipe.call_mode = CallMode::Normal;
+            Node::Work(Box::new(Work::Pipe(Box::new(pipe))))
         }
 
         Rel::Seq(factors) => {
@@ -179,52 +437,28 @@ pub fn rel_to_node<C: ConstraintOps>(rel: &Rel<C>, env: &Env<C>, tables: &Tables
     }
 }
 
-fn node_from_answers<C: ConstraintOps>(answers: Vec<NF<C>>) -> Node<C> {
-    let mut node = Node::Fail;
-    for nf in answers.into_iter().rev() {
-        node = Node::Emit(Box::new(nf), Box::new(node));
-    }
-    node
-}
-
-fn wrap_node_with_prefix_suffix<C: ConstraintOps>(
-    mut node: Node<C>,
+fn wrap_work_with_prefix_suffix<C: ConstraintOps>(
+    mut work: Work<C>,
     prefix: Option<NF<C>>,
     suffix: Option<NF<C>>,
-    terms: &mut TermStore,
 ) -> WorkStep<C> {
     if let Some(prefix_nf) = prefix {
-        let prefix_node = Node::Emit(Box::new(prefix_nf), Box::new(Node::Fail));
-        node = Node::Work(Box::new(Work::Compose(ComposeWork::new_preseed(
-            prefix_node,
-            node,
-            terms,
-        ))));
+        work = Work::Compose(ComposeWork::new(Work::Atom(prefix_nf), work));
     }
 
     if let Some(suffix_nf) = suffix {
-        let suffix_node = Node::Emit(Box::new(suffix_nf), Box::new(Node::Fail));
-        node = Node::Work(Box::new(Work::Compose(ComposeWork::new_preseed(
-            node,
-            suffix_node,
-            terms,
-        ))));
+        work = Work::Compose(ComposeWork::new(work, Work::Atom(suffix_nf)));
     }
 
-    match node {
-        Node::Work(work) => WorkStep::More(work),
-        _ => WorkStep::Done,
-    }
+    WorkStep::More(Box::new(work))
 }
 
 fn wrap_compose_with_prefix_suffix<C: ConstraintOps>(
     core: ComposeWork<C>,
     prefix: Option<NF<C>>,
     suffix: Option<NF<C>>,
-    terms: &mut TermStore,
 ) -> WorkStep<C> {
-    let node = Node::Work(Box::new(Work::Compose(core)));
-    wrap_node_with_prefix_suffix(node, prefix, suffix, terms)
+    wrap_work_with_prefix_suffix(Work::Compose(core), prefix, suffix)
 }
 
 fn build_var_list(arity: u32, terms: &mut TermStore) -> SmallVec<[TermId; 1]> {

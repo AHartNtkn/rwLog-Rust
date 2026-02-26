@@ -13,8 +13,8 @@
 
 use criterion::{black_box, criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion};
 use rwlog::perf_corpus::{
-    apply_filters, case_bench_id, prepare_case, run_prepared, sort_cases, summary_string,
-    validate_cases, CorpusCase, CorpusFilters, RunMode,
+    apply_filters, case_bench_id, compile_prepared, prepare_case, run_compiled, run_prepared,
+    sort_cases, summary_string, validate_cases, CorpusCase, CorpusFilters, RunMode,
 };
 use std::sync::OnceLock;
 
@@ -55,8 +55,8 @@ fn bench_corpus_execute(c: &mut Criterion) {
                 case,
                 |b, case| {
                     b.iter_batched(
-                        || prepare_case(case),
-                        |prepared| black_box(run_prepared(case, prepared)),
+                        || compile_prepared(prepare_case(case)),
+                        |engine| black_box(run_compiled(case, engine)),
                         BatchSize::SmallInput,
                     );
                 },
@@ -74,6 +74,24 @@ fn bench_corpus_parse(c: &mut Criterion) {
             case,
             |b, case| {
                 b.iter(|| black_box(prepare_case(case)));
+            },
+        );
+    }
+    group.finish();
+}
+
+fn bench_corpus_compile(c: &mut Criterion) {
+    let mut group = c.benchmark_group("corpus_compile");
+    for case in selected_cases() {
+        group.bench_with_input(
+            BenchmarkId::new(mode_suffix(case.mode), case_bench_id(case)),
+            case,
+            |b, case| {
+                b.iter_batched(
+                    || prepare_case(case),
+                    |prepared| black_box(compile_prepared(prepared)),
+                    BatchSize::SmallInput,
+                );
             },
         );
     }
@@ -107,6 +125,7 @@ criterion_group!(
     perf_corpus_benches,
     bench_corpus_execute,
     bench_corpus_parse,
+    bench_corpus_compile,
     bench_corpus_end_to_end
 );
 criterion_main!(perf_corpus_benches);

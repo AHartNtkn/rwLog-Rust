@@ -1,7 +1,6 @@
 use crate::constraint::ConstraintOps;
 use crate::join::{AndJoiner, JoinStep};
 use crate::nf::NF;
-use crate::node::{step_node, Node, NodeStep};
 use crate::queue::{
     AnswerQueue, AnswerReceiver, AnswerSender, BlockedOn, RecvResult, SinkResult, WakeHub,
 };
@@ -10,7 +9,7 @@ use parking_lot::Mutex;
 use std::collections::VecDeque;
 use std::sync::Arc;
 
-use super::{Work, WorkStep};
+use super::{Work, WorkSet, WorkSetStep, WorkStep};
 
 /// AndGroup work: queue-backed join for n-ary conjunction/intersection.
 ///
@@ -35,7 +34,7 @@ impl Default for AndGroupConfig {
 
 #[derive(Clone, Debug)]
 struct AndProducer<C: ConstraintOps> {
-    node: Node<C>,
+    work: WorkSet<C>,
     sender: Option<AnswerSender<C>>,
     pending: Option<NF<C>>,
     blocked: Option<BlockedOn>,
@@ -50,9 +49,9 @@ enum AndProducerStep {
 }
 
 impl<C: ConstraintOps> AndProducer<C> {
-    fn new(node: Node<C>, sender: AnswerSender<C>) -> Self {
+    fn new(work: Work<C>, sender: AnswerSender<C>) -> Self {
         Self {
-            node,
+            work: WorkSet::from_work(work),
             sender: Some(sender),
             pending: None,
             blocked: None,
@@ -105,11 +104,8 @@ impl<C: ConstraintOps> AndProducer<C> {
             }
         }
 
-        let current = std::mem::replace(&mut self.node, Node::Fail);
-        match step_node(current, terms) {
-            NodeStep::Emit(nf, rest) => {
-                let nf = *nf;
-                self.node = rest;
+        match self.work.step(terms) {
+            WorkSetStep::Emit(nf) => {
                 let Some(sender) = self.sender.as_ref() else {
                     self.done = true;
                     return AndProducerStep::Done;
@@ -131,18 +127,11 @@ impl<C: ConstraintOps> AndProducer<C> {
                     }
                 }
             }
-            NodeStep::Continue(rest) => {
-                self.node = rest;
-                if matches!(self.node, Node::Fail) {
-                    self.done = true;
-                    self.close_sender();
-                    return AndProducerStep::Done;
-                }
+            WorkSetStep::Continue => {
                 self.blocked = None;
                 AndProducerStep::Progress
             }
-            NodeStep::Exhausted => {
-                self.node = Node::Fail;
+            WorkSetStep::Exhausted => {
                 self.done = true;
                 self.close_sender();
                 AndProducerStep::Done
@@ -164,17 +153,17 @@ pub struct AndGroup<C: ConstraintOps> {
 }
 
 impl<C: ConstraintOps> AndGroup<C> {
-    /// Create a new AndGroup from part nodes.
-    pub fn new(parts: Vec<Node<C>>) -> Self {
+    /// Create a new AndGroup from part work items.
+    pub fn new(parts: Vec<Work<C>>) -> Self {
         Self::with_config(parts, AndGroupConfig::default())
     }
 
     #[cfg(test)]
-    pub(crate) fn producer_nodes(&self) -> impl Iterator<Item = &Node<C>> {
-        self.producers.iter().map(|producer| &producer.node)
+    pub(crate) fn producer_work_sets(&self) -> impl Iterator<Item = &WorkSet<C>> {
+        self.producers.iter().map(|producer| &producer.work)
     }
 
-    pub fn with_config(parts: Vec<Node<C>>, config: AndGroupConfig) -> Self {
+    pub fn with_config(parts: Vec<Work<C>>, config: AndGroupConfig) -> Self {
         let (hub, _rx) = WakeHub::new();
         let joiner_waker = hub.waker();
         let output_waker = hub.waker();

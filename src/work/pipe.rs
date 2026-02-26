@@ -3,7 +3,6 @@ use crate::drop_fresh::DropFresh;
 use crate::factors::Factors;
 use crate::kernel::{compose_nf, meet_nf};
 use crate::nf::NF;
-use crate::node::Node;
 use crate::rel::{Rel, RelId};
 use crate::symbol::FuncId;
 use crate::term::{Term, TermId, TermStore};
@@ -14,9 +13,9 @@ use std::sync::Arc;
 use super::{
     build_child0_tag, build_root_tag, flatten_and_parts, match_child0_tag, match_root_tag,
     nf_domain_filter, nf_left_prefix, nf_range_filter, nf_right_suffix, nf_rwl_iso, nf_rwr_iso,
-    node_from_answers, tags_compatible, wrap_compose_with_prefix_suffix,
-    wrap_node_with_prefix_suffix, wrap_rel_with_atoms, AndGroup, BindWork, CallKey, CallMode,
-    ComposeWork, Env, FixWork, ProducerSpec, RootTag, Tables, Work, WorkStep,
+    tags_compatible, wrap_compose_with_prefix_suffix, wrap_rel_with_atoms,
+    wrap_work_with_prefix_suffix, AndGroup, BindWork, CallKey, CallMode, ComposeWork, Env, FixWork,
+    ProducerSpec, RootTag, Tables, Work, WorkSet, WorkStep,
 };
 
 /// Pre-computed dispatch entry for a single atom in an Or-of-Atoms body.
@@ -220,6 +219,16 @@ impl<C: ConstraintOps> Work<C> {
             Work::Compose(compose) => compose.step(terms),
             Work::Bind(bind) => bind.step(terms),
             Work::JoinReceiver(join) => join.step(terms),
+            Work::ReplayAnswers(answers) => {
+                let Some(nf) = answers.pop_front() else {
+                    return WorkStep::Done;
+                };
+                if answers.is_empty() {
+                    WorkStep::Emit(nf, Box::new(Work::Done))
+                } else {
+                    WorkStep::Emit(nf, Box::new(Work::ReplayAnswers(std::mem::take(answers))))
+                }
+            }
             Work::Atom(nf) => {
                 // Emit the NF once, then done
                 let nf = nf.clone();
@@ -735,25 +744,25 @@ impl<C: ConstraintOps> PipeWork<C> {
         left_iso: Option<NF<C>>,
         right_iso: Option<NF<C>>,
     ) -> AndGroup<C> {
-        let nodes = parts
+        let works = parts
             .into_iter()
             .map(|part| {
                 let wrapped = wrap_rel_with_atoms(part, left_iso.clone(), right_iso.clone());
                 let mut part_pipe =
                     PipeWork::from_rel(wrapped, self.env.clone(), self.tables.clone());
                 part_pipe.call_mode = self.call_mode.clone();
-                Node::Work(Box::new(Work::Pipe(Box::new(part_pipe))))
+                Work::Pipe(Box::new(part_pipe))
             })
             .collect();
-        AndGroup::new(nodes)
+        AndGroup::new(works)
     }
 
-    /// Build a ComposeWork with the gen_node at `end` and the pipe at the opposite end.
-    fn compose_at_end(&self, end: PipeEnd, gen_node: Node<C>, pipe: PipeWork<C>) -> ComposeWork<C> {
-        let pipe_node = Node::Work(Box::new(Work::Pipe(Box::new(pipe))));
+    /// Build a ComposeWork with the generator at `end` and the pipe at the opposite end.
+    fn compose_at_end(&self, end: PipeEnd, gen_work: Work<C>, pipe: PipeWork<C>) -> ComposeWork<C> {
+        let pipe_work = Work::Pipe(Box::new(pipe));
         match end {
-            PipeEnd::Front => ComposeWork::new(gen_node, pipe_node),
-            PipeEnd::Back => ComposeWork::new(pipe_node, gen_node),
+            PipeEnd::Front => ComposeWork::new(gen_work, pipe_work),
+            PipeEnd::Back => ComposeWork::new(pipe_work, gen_work),
         }
     }
 
@@ -798,7 +807,7 @@ impl<C: ConstraintOps> PipeWork<C> {
             pipe.set_boundary(opp, None);
         }
 
-        let group_node = Node::Work(Box::new(Work::AndGroup(group)));
+        let group_work = Work::AndGroup(group);
 
         // The outer prefix/suffix: boundary that was decomposed on the opposite side
         // and already given as iso to the And group needs to be restored as an outer
@@ -826,7 +835,7 @@ impl<C: ConstraintOps> PipeWork<C> {
         if !mid_empty && (!mid_has_tabled_nodes(&pipe.mid) || pipe.boundary(opp).is_none()) {
             let bind = match end {
                 PipeEnd::Front => BindWork::new_front(
-                    group_node,
+                    WorkSet::from_work(group_work.clone()),
                     pipe.mid,
                     pipe.right,
                     pipe.env,
@@ -834,7 +843,7 @@ impl<C: ConstraintOps> PipeWork<C> {
                     pipe.call_mode,
                 ),
                 PipeEnd::Back => BindWork::new_back(
-                    group_node,
+                    WorkSet::from_work(group_work.clone()),
                     pipe.left,
                     pipe.mid,
                     pipe.env,
@@ -842,12 +851,12 @@ impl<C: ConstraintOps> PipeWork<C> {
                     pipe.call_mode,
                 ),
             };
-            let inner = Node::Work(Box::new(Work::Bind(bind)));
-            return wrap_node_with_prefix_suffix(inner, outer_prefix, outer_suffix, terms);
+            let inner = Work::Bind(bind);
+            return wrap_work_with_prefix_suffix(inner, outer_prefix, outer_suffix);
         }
 
-        let core = self.compose_at_end(end, group_node, pipe);
-        wrap_compose_with_prefix_suffix(core, outer_prefix, outer_suffix, terms)
+        let core = self.compose_at_end(end, group_work, pipe);
+        wrap_compose_with_prefix_suffix(core, outer_prefix, outer_suffix)
     }
 
     fn advance_fix(&mut self, end: PipeEnd, id: RelId, body: Arc<Rel<C>>) -> WorkStep<C> {
@@ -875,7 +884,7 @@ impl<C: ConstraintOps> PipeWork<C> {
         );
         fix_pipe.call_mode = self.call_mode.clone();
 
-        let fix_node = Node::Work(Box::new(Work::Pipe(Box::new(fix_pipe))));
+        let fix_work = Work::Pipe(Box::new(fix_pipe));
         let mut pipe = self.clone();
         if call_left.is_some() {
             pipe.left = None;
@@ -891,7 +900,7 @@ impl<C: ConstraintOps> PipeWork<C> {
             if !mid_tabled || far_boundary.is_none() {
                 let bind = match end {
                     PipeEnd::Front => BindWork::new_front(
-                        fix_node,
+                        WorkSet::from_work(fix_work.clone()),
                         pipe.mid,
                         pipe.right,
                         pipe.env,
@@ -899,7 +908,7 @@ impl<C: ConstraintOps> PipeWork<C> {
                         pipe.call_mode,
                     ),
                     PipeEnd::Back => BindWork::new_back(
-                        fix_node,
+                        WorkSet::from_work(fix_work.clone()),
                         pipe.left,
                         pipe.mid,
                         pipe.env,
@@ -911,7 +920,7 @@ impl<C: ConstraintOps> PipeWork<C> {
             }
         }
 
-        let compose = self.compose_at_end(end, fix_node, pipe);
+        let compose = self.compose_at_end(end, fix_work, pipe);
         WorkStep::More(Box::new(Work::Compose(compose)))
     }
 
@@ -1344,7 +1353,7 @@ impl<C: ConstraintOps> PipeWork<C> {
                     None => return WorkStep::Done,
                 };
                 let snapshot = table.answers_from(*watermark);
-                let replay_node = node_from_answers(snapshot);
+                let replay_source = WorkSet::from_answers(snapshot);
                 let mut pipe = self.clone();
                 if use_left {
                     pipe.left = None;
@@ -1360,7 +1369,7 @@ impl<C: ConstraintOps> PipeWork<C> {
                     if !mid_tabled || far_boundary.is_none() {
                         let bind = match end {
                             PipeEnd::Front => BindWork::new_front(
-                                replay_node,
+                                replay_source,
                                 pipe.mid,
                                 pipe.right,
                                 pipe.env,
@@ -1368,7 +1377,7 @@ impl<C: ConstraintOps> PipeWork<C> {
                                 pipe.call_mode,
                             ),
                             PipeEnd::Back => BindWork::new_back(
-                                replay_node,
+                                replay_source,
                                 pipe.left,
                                 pipe.mid,
                                 pipe.env,
@@ -1380,10 +1389,18 @@ impl<C: ConstraintOps> PipeWork<C> {
                     }
                 }
 
-                let pipe_node = Node::Work(Box::new(Work::Pipe(Box::new(pipe))));
+                let pipe_work = Work::Pipe(Box::new(pipe));
                 let compose = match end {
-                    PipeEnd::Front => ComposeWork::new_preseed(replay_node, pipe_node, terms),
-                    PipeEnd::Back => ComposeWork::new_preseed(pipe_node, replay_node, terms),
+                    PipeEnd::Front => ComposeWork::new_with_sources_preseed(
+                        replay_source,
+                        WorkSet::from_work(pipe_work),
+                        terms,
+                    ),
+                    PipeEnd::Back => ComposeWork::new_with_sources_preseed(
+                        WorkSet::from_work(pipe_work),
+                        replay_source,
+                        terms,
+                    ),
                 };
                 return WorkStep::More(Box::new(Work::Compose(compose)));
             }
@@ -1400,14 +1417,10 @@ impl<C: ConstraintOps> PipeWork<C> {
         let snapshot = table.all_answers();
         let snapshot_len = snapshot.len();
 
-        let replay_node = node_from_answers(snapshot);
         let fix = FixWork::new(key, table, snapshot_len, self.tables.clone());
-        let fix_node = Node::Work(Box::new(Work::Fix(fix)));
-
-        let gen_node = match replay_node {
-            Node::Fail => fix_node,
-            _ => Node::Or(Box::new(replay_node), Box::new(fix_node)),
-        };
+        let replay_source = WorkSet::from_answers(snapshot);
+        let fix_source = WorkSet::from_work(Work::Fix(fix));
+        let gen_source = replay_source.or_with(fix_source);
 
         let mut pipe = self.clone();
         if use_left {
@@ -1424,7 +1437,7 @@ impl<C: ConstraintOps> PipeWork<C> {
             if !mid_tabled || far_boundary.is_none() {
                 let bind = match end {
                     PipeEnd::Front => BindWork::new_front(
-                        gen_node,
+                        gen_source,
                         pipe.mid,
                         pipe.right,
                         pipe.env,
@@ -1432,7 +1445,7 @@ impl<C: ConstraintOps> PipeWork<C> {
                         pipe.call_mode,
                     ),
                     PipeEnd::Back => BindWork::new_back(
-                        gen_node,
+                        gen_source,
                         pipe.left,
                         pipe.mid,
                         pipe.env,
@@ -1444,10 +1457,18 @@ impl<C: ConstraintOps> PipeWork<C> {
             }
         }
 
-        let pipe_node = Node::Work(Box::new(Work::Pipe(Box::new(pipe))));
+        let pipe_work = Work::Pipe(Box::new(pipe));
         let compose = match end {
-            PipeEnd::Front => ComposeWork::new_preseed(gen_node, pipe_node, terms),
-            PipeEnd::Back => ComposeWork::new_preseed(pipe_node, gen_node, terms),
+            PipeEnd::Front => ComposeWork::new_with_sources_preseed(
+                gen_source,
+                WorkSet::from_work(pipe_work),
+                terms,
+            ),
+            PipeEnd::Back => ComposeWork::new_with_sources_preseed(
+                WorkSet::from_work(pipe_work),
+                gen_source,
+                terms,
+            ),
         };
         WorkStep::More(Box::new(Work::Compose(compose)))
     }

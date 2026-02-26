@@ -2,10 +2,11 @@ use crate::constraint::ConstraintOps;
 use crate::kernel::meet_nf;
 #[cfg(test)]
 use crate::nf::NF;
-use crate::node::Node;
 use crate::term::TermStore;
 
 use super::diagonal::{DiagonalJoin, DiagonalStepResult, JoinOutcome, JoinStrategy};
+#[cfg(test)]
+use super::WorkSet;
 use super::{Work, WorkStep};
 
 /// Meet work: fair diagonal join for conjunction/intersection.
@@ -82,10 +83,17 @@ pub struct MeetWork<C: ConstraintOps> {
 }
 
 impl<C: ConstraintOps> MeetWork<C> {
-    /// Create a new MeetWork from two nodes.
-    pub fn new(left: Node<C>, right: Node<C>) -> Self {
+    /// Create a new MeetWork from two work streams.
+    pub fn new(left: Work<C>, right: Work<C>) -> Self {
         Self {
             core: DiagonalJoin::new(left, right, MeetStrategy),
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn new_with_sources(left: WorkSet<C>, right: WorkSet<C>) -> Self {
+        Self {
+            core: DiagonalJoin::new_with_sources(left, right, MeetStrategy),
         }
     }
 
@@ -103,12 +111,12 @@ impl<C: ConstraintOps> MeetWork<C> {
     }
 
     #[cfg(test)]
-    pub(crate) fn left(&self) -> &Node<C> {
+    pub(crate) fn left(&self) -> &WorkSet<C> {
         &self.core.left
     }
 
     #[cfg(test)]
-    pub(crate) fn right(&self) -> &Node<C> {
+    pub(crate) fn right(&self) -> &WorkSet<C> {
         &self.core.right
     }
 
