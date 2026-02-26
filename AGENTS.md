@@ -60,6 +60,8 @@ Whenever you are asked to edit AGENTS.md, do not take these as litteral, step-by
 - When the user has already requested a task, proceed without asking for permission or prompting for confirmation; avoid “say the word” or similar re-ask phrasing.
 - When objective standards in this file or the system/developer instructions already determine the correct action, follow them without asking the user for preference or permission; only ask when those standards are insufficient to decide.
 - User preference is not the deciding factor; follow objective standards relevant to the task to determine the best action. Do not ask for preference when standards already decide.
+- stop giving me unprompted status updates unless you litterally have no pending work.
+- If yoiu do have pending work, do NOT give a status update, just do the pending work.
 
 ## Debugging and Diagnosis Protocol
 
