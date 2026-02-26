@@ -18,6 +18,7 @@ use crate::work::{
     rel_to_node, AndGroup, DiagonalStepResult, Env, FixStepResult, PipeWork, Tables, Work, WorkStep,
 };
 use rustc_hash::{FxHashMap, FxHashSet};
+use smallvec::SmallVec;
 use std::collections::VecDeque;
 use std::sync::Arc;
 
@@ -161,11 +162,7 @@ enum Frame<C: ConstraintOps> {
     Work(Box<Work<C>>),
 }
 
-enum SpawnedFrames<C: ConstraintOps> {
-    None,
-    One(Frame<C>),
-    Two(Frame<C>, Frame<C>),
-}
+type SpawnedFrames<C> = SmallVec<[Frame<C>; 2]>;
 
 enum FrameOutcome<C: ConstraintOps> {
     Emit {
@@ -181,26 +178,25 @@ enum FrameOutcome<C: ConstraintOps> {
 
 fn prepend_spawned<C: ConstraintOps>(first: Frame<C>, outcome: FrameOutcome<C>) -> FrameOutcome<C> {
     match outcome {
-        FrameOutcome::Emit { nf, cont, spawned } => FrameOutcome::Emit {
+        FrameOutcome::Emit {
             nf,
             cont,
-            spawned: spawned.prepend(first),
-        },
-        FrameOutcome::Continue { cont, spawned } => FrameOutcome::Continue {
-            cont,
-            spawned: spawned.prepend(first),
-        },
-    }
-}
-
-impl<C: ConstraintOps> SpawnedFrames<C> {
-    fn prepend(self, first: Frame<C>) -> Self {
-        match self {
-            SpawnedFrames::None => SpawnedFrames::One(first),
-            SpawnedFrames::One(second) => SpawnedFrames::Two(first, second),
-            SpawnedFrames::Two(_, _) => {
-                unreachable!("machine only supports up to two spawned frames per step")
+            mut spawned,
+        } => {
+            let mut all = SmallVec::new();
+            all.push(first);
+            all.extend(spawned.drain(..));
+            FrameOutcome::Emit {
+                nf,
+                cont,
+                spawned: all,
             }
+        }
+        FrameOutcome::Continue { cont, mut spawned } => {
+            let mut all = SmallVec::new();
+            all.push(first);
+            all.extend(spawned.drain(..));
+            FrameOutcome::Continue { cont, spawned: all }
         }
     }
 }
@@ -254,13 +250,8 @@ impl<C: ConstraintOps> AbstractMachine<C> {
     }
 
     fn queue_spawned(&mut self, spawned: SpawnedFrames<C>) {
-        match spawned {
-            SpawnedFrames::None => {}
-            SpawnedFrames::One(a) => self.queue_frame(a),
-            SpawnedFrames::Two(a, b) => {
-                self.queue_frame(a);
-                self.queue_frame(b);
-            }
+        for frame in spawned {
+            self.queue_frame(frame);
         }
     }
 
@@ -268,12 +259,12 @@ impl<C: ConstraintOps> AbstractMachine<C> {
         match self.program.instr(pc).clone() {
             Instr::Fail => FrameOutcome::Continue {
                 cont: None,
-                spawned: SpawnedFrames::None,
+                spawned: SmallVec::new(),
             },
             Instr::Emit(nf) => FrameOutcome::Emit {
                 nf: nf.as_ref().clone(),
                 cont: None,
-                spawned: SpawnedFrames::None,
+                spawned: SmallVec::new(),
             },
             Instr::Branch { left, right } => {
                 let right_frame = Frame::Exec {
@@ -292,7 +283,7 @@ impl<C: ConstraintOps> AbstractMachine<C> {
                 if parts.is_empty() {
                     return FrameOutcome::Continue {
                         cont: None,
-                        spawned: SpawnedFrames::None,
+                        spawned: SmallVec::new(),
                     };
                 }
 
@@ -309,7 +300,7 @@ impl<C: ConstraintOps> AbstractMachine<C> {
                     };
                     return FrameOutcome::Continue {
                         cont: Some(cont),
-                        spawned: SpawnedFrames::None,
+                        spawned: SmallVec::new(),
                     };
                 }
 
@@ -319,7 +310,7 @@ impl<C: ConstraintOps> AbstractMachine<C> {
                     .collect();
                 FrameOutcome::Continue {
                     cont: Some(Frame::Work(Box::new(Work::AndGroup(AndGroup::new(nodes))))),
-                    spawned: SpawnedFrames::None,
+                    spawned: SmallVec::new(),
                 }
             }
             Instr::EnterSeq(factors) => {
@@ -329,7 +320,7 @@ impl<C: ConstraintOps> AbstractMachine<C> {
                 pipe.tables = tables;
                 FrameOutcome::Continue {
                     cont: Some(Frame::Work(Box::new(Work::Pipe(Box::new(pipe))))),
-                    spawned: SpawnedFrames::None,
+                    spawned: SmallVec::new(),
                 }
             }
             Instr::EnterFix { id, body, body_pc } => {
@@ -340,14 +331,14 @@ impl<C: ConstraintOps> AbstractMachine<C> {
                         env: new_env,
                         tables,
                     }),
-                    spawned: SpawnedFrames::None,
+                    spawned: SmallVec::new(),
                 }
             }
             Instr::EnterCall(id) => {
                 let Some(_) = env.lookup(id) else {
                     return FrameOutcome::Continue {
                         cont: None,
-                        spawned: SpawnedFrames::None,
+                        spawned: SmallVec::new(),
                     };
                 };
                 let call_rel = Arc::new(Rel::Call(id));
@@ -357,7 +348,7 @@ impl<C: ConstraintOps> AbstractMachine<C> {
                 pipe.tables = tables;
                 FrameOutcome::Continue {
                     cont: Some(Frame::Work(Box::new(Work::Pipe(Box::new(pipe))))),
-                    spawned: SpawnedFrames::None,
+                    spawned: SmallVec::new(),
                 }
             }
         }
@@ -369,15 +360,15 @@ impl<C: ConstraintOps> AbstractMachine<C> {
                 FixStepResult::Emit(nf) => FrameOutcome::Emit {
                     nf,
                     cont: Some(Frame::Work(work)),
-                    spawned: SpawnedFrames::None,
+                    spawned: SmallVec::new(),
                 },
                 FixStepResult::More => FrameOutcome::Continue {
                     cont: Some(Frame::Work(work)),
-                    spawned: SpawnedFrames::None,
+                    spawned: SmallVec::new(),
                 },
                 FixStepResult::Done => FrameOutcome::Continue {
                     cont: None,
-                    spawned: SpawnedFrames::None,
+                    spawned: SmallVec::new(),
                 },
             };
         }
@@ -386,15 +377,15 @@ impl<C: ConstraintOps> AbstractMachine<C> {
                 DiagonalStepResult::Emit(nf) => FrameOutcome::Emit {
                     nf,
                     cont: Some(Frame::Work(work)),
-                    spawned: SpawnedFrames::None,
+                    spawned: SmallVec::new(),
                 },
                 DiagonalStepResult::More => FrameOutcome::Continue {
                     cont: Some(Frame::Work(work)),
-                    spawned: SpawnedFrames::None,
+                    spawned: SmallVec::new(),
                 },
                 DiagonalStepResult::Done => FrameOutcome::Continue {
                     cont: None,
-                    spawned: SpawnedFrames::None,
+                    spawned: SmallVec::new(),
                 },
             };
         }
@@ -403,15 +394,15 @@ impl<C: ConstraintOps> AbstractMachine<C> {
                 DiagonalStepResult::Emit(nf) => FrameOutcome::Emit {
                     nf,
                     cont: Some(Frame::Work(work)),
-                    spawned: SpawnedFrames::None,
+                    spawned: SmallVec::new(),
                 },
                 DiagonalStepResult::More => FrameOutcome::Continue {
                     cont: Some(Frame::Work(work)),
-                    spawned: SpawnedFrames::None,
+                    spawned: SmallVec::new(),
                 },
                 DiagonalStepResult::Done => FrameOutcome::Continue {
                     cont: None,
-                    spawned: SpawnedFrames::None,
+                    spawned: SmallVec::new(),
                 },
             };
         }
@@ -419,21 +410,26 @@ impl<C: ConstraintOps> AbstractMachine<C> {
         match work.step(terms) {
             WorkStep::Done => FrameOutcome::Continue {
                 cont: None,
-                spawned: SpawnedFrames::None,
+                spawned: SmallVec::new(),
             },
             WorkStep::Emit(nf, next_work) => FrameOutcome::Emit {
                 nf,
                 cont: Some(Frame::Work(next_work)),
-                spawned: SpawnedFrames::None,
+                spawned: SmallVec::new(),
             },
             WorkStep::More(next_work) => FrameOutcome::Continue {
                 cont: Some(Frame::Work(next_work)),
-                spawned: SpawnedFrames::None,
+                spawned: SmallVec::new(),
             },
-            WorkStep::Split(left, right) => FrameOutcome::Continue {
-                cont: None,
-                spawned: SpawnedFrames::Two(Frame::Node(*left), Frame::Node(*right)),
-            },
+            WorkStep::Split(left, right) => {
+                let mut spawned = SmallVec::new();
+                spawned.push(Frame::Node(*left));
+                spawned.push(Frame::Node(*right));
+                FrameOutcome::Continue {
+                    cont: None,
+                    spawned,
+                }
+            }
         }
     }
 
@@ -442,15 +438,15 @@ impl<C: ConstraintOps> AbstractMachine<C> {
             NodeStep::Emit(nf, rest) => FrameOutcome::Emit {
                 nf: *nf,
                 cont: Some(Frame::Node(rest)),
-                spawned: SpawnedFrames::None,
+                spawned: SmallVec::new(),
             },
             NodeStep::Continue(rest) => FrameOutcome::Continue {
                 cont: Some(Frame::Node(rest)),
-                spawned: SpawnedFrames::None,
+                spawned: SmallVec::new(),
             },
             NodeStep::Exhausted => FrameOutcome::Continue {
                 cont: None,
-                spawned: SpawnedFrames::None,
+                spawned: SmallVec::new(),
             },
         }
     }
