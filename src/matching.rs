@@ -8,6 +8,46 @@ use std::cell::RefCell;
 #[cfg(feature = "tracing")]
 use crate::trace::{debug_span, trace};
 
+/// Classification of a dereferenced TermId for matching dispatch.
+enum TermKind {
+    Var(u32),
+    App(FuncId),
+    InlineNullary(u32),
+    Invalid,
+}
+
+/// Classify a term using a read guard (for locked access).
+#[inline]
+fn classify_locked(tid: TermId, guard: &TermReadGuard<'_>) -> TermKind {
+    if tid.is_inline_var() {
+        return TermKind::Var(tid.inline_var_index());
+    }
+    if tid.is_inline_nullary() {
+        return TermKind::InlineNullary(tid.inline_nullary_func_raw());
+    }
+    match guard.get(tid) {
+        Some(Term::Var(idx)) => TermKind::Var(*idx),
+        Some(Term::App(f, _)) => TermKind::App(*f),
+        None => TermKind::Invalid,
+    }
+}
+
+/// Classify a term using exclusive access (for unlocked access).
+#[inline]
+fn classify_unlocked(tid: TermId, terms: &mut TermStore) -> TermKind {
+    if tid.is_inline_var() {
+        return TermKind::Var(tid.inline_var_index());
+    }
+    if tid.is_inline_nullary() {
+        return TermKind::InlineNullary(tid.inline_nullary_func_raw());
+    }
+    match terms.get_unlocked(tid) {
+        Some(Term::Var(idx)) => TermKind::Var(*idx),
+        Some(Term::App(f, _)) => TermKind::App(*f),
+        None => TermKind::Invalid,
+    }
+}
+
 /// Thread-local memoization cache for `shift_term` results.
 ///
 /// Keyed by a packed u64 encoding `(TermId, offset)`. Invalidated when the
@@ -58,28 +98,8 @@ pub(crate) fn unify_into(
             continue;
         }
 
-        enum TermKind {
-            Var(u32),
-            App(FuncId),
-            InlineNullary(u32),
-            Invalid,
-        }
-
-        let classify = |tid: TermId| -> TermKind {
-            if tid.is_inline_var() {
-                return TermKind::Var(tid.inline_var_index());
-            }
-            if tid.is_inline_nullary() {
-                return TermKind::InlineNullary(tid.inline_nullary_func_raw());
-            }
-            match guard.get(tid) {
-                Some(Term::Var(idx)) => TermKind::Var(*idx),
-                Some(Term::App(f, _)) => TermKind::App(*f),
-                None => TermKind::Invalid,
-            }
-        };
-        let a_kind = classify(a_deref);
-        let b_kind = classify(b_deref);
+        let a_kind = classify_locked(a_deref, guard);
+        let b_kind = classify_locked(b_deref, guard);
 
         match (a_kind, b_kind) {
             (TermKind::Var(idx_a), TermKind::Var(idx_b)) => {
@@ -189,148 +209,10 @@ pub(crate) fn match_terms_combined_shifted(
     shifted_vars: &[TermId],
     terms: &mut TermStore,
 ) -> Option<Subst> {
-    #[cfg(feature = "tracing")]
-    let _span = debug_span!("match_terms", ?t1, ?t2).entered();
-
     if shifted_vars.is_empty() {
         return match_terms_combined(t1, t2, terms);
     }
-
-    let mut subst = Subst::new();
-    // Worklist entries: (left_term, right_term, right_is_raw).
-    // `right_is_raw` is true when the right term is from the unshifted
-    // namespace and its variables need virtual shifting.
-    let mut worklist: SmallVec<[(TermId, TermId, bool); 32]> = SmallVec::new();
-    worklist.push((t1, t2, true));
-
-    while let Some((a, b, b_raw)) = worklist.pop() {
-        // Dereference left side through the substitution.
-        let a_deref = deref_unlocked(a, &subst, terms);
-
-        // Dereference right side: if raw, virtually shift the variable first.
-        let b_deref = if b_raw {
-            deref_shifted_unlocked(b, shifted_vars, &subst, terms)
-        } else {
-            deref_unlocked(b, &subst, terms)
-        };
-
-        // Fast equality check: skip if both sides resolve to the same TermId.
-        // When b_raw is true and b was an App (deref_shifted returns Apps as-is),
-        // b_deref == a_deref does NOT mean they are semantically equal because
-        // the right-side's children still need shifting. Only skip when:
-        // - b_raw is false (right side already in shared namespace), OR
-        // - b_raw is true but b_deref was obtained by shifting a Var (b_deref != b,
-        //   meaning deref went through shifted_vars and then subst), OR
-        // - both terms are ground (shifting doesn't affect ground terms).
-        if a_deref == b_deref && (!b_raw || b_deref != b || a_deref.is_ground()) {
-            continue;
-        }
-
-        // Classify both terms without cloning children.
-        // Handle inline TermIds directly.
-        enum TermKind {
-            Var(u32),
-            App(FuncId),
-            InlineNullary(u32),
-            Invalid,
-        }
-
-        let classify_unlocked = |tid: TermId, terms_ref: &mut TermStore| -> TermKind {
-            if tid.is_inline_var() {
-                return TermKind::Var(tid.inline_var_index());
-            }
-            if tid.is_inline_nullary() {
-                return TermKind::InlineNullary(tid.inline_nullary_func_raw());
-            }
-            match terms_ref.get_unlocked(tid) {
-                Some(Term::Var(idx)) => TermKind::Var(*idx),
-                Some(Term::App(f, _)) => TermKind::App(*f),
-                None => TermKind::Invalid,
-            }
-        };
-        let a_kind = classify_unlocked(a_deref, terms);
-        let b_kind = classify_unlocked(b_deref, terms);
-
-        match (a_kind, b_kind) {
-            (TermKind::Var(idx_a), TermKind::Var(idx_b)) => {
-                if idx_a < idx_b {
-                    subst.bind(idx_b, a_deref);
-                } else {
-                    subst.bind(idx_a, b_deref);
-                }
-            }
-            (TermKind::Var(idx), TermKind::App(_) | TermKind::InlineNullary(_)) => {
-                // When binding a left-side Var to a right-side subtree,
-                // materialize the shifted version if the subtree is raw.
-                let b_shifted = if b_raw && b_deref == b && !b_deref.is_inline_nullary() {
-                    shift_term(b, shifted_vars, terms)
-                } else {
-                    b_deref
-                };
-                if occurs_unlocked(idx, b_shifted, &subst, terms) {
-                    return None;
-                }
-                subst.bind(idx, b_shifted);
-            }
-            (TermKind::App(_) | TermKind::InlineNullary(_), TermKind::Var(idx)) => {
-                if occurs_unlocked(idx, a_deref, &subst, terms) {
-                    return None;
-                }
-                subst.bind(idx, a_deref);
-            }
-            (TermKind::InlineNullary(f1), TermKind::InlineNullary(f2)) => {
-                if f1 != f2 {
-                    #[cfg(feature = "tracing")]
-                    trace!("match_functor_mismatch");
-                    return None;
-                }
-            }
-            (TermKind::App(f1), TermKind::App(f2)) => {
-                if f1 != f2 {
-                    #[cfg(feature = "tracing")]
-                    trace!("match_functor_mismatch");
-                    return None;
-                }
-                let children_raw = b_raw && b_deref == b;
-                let (ac, bc) = {
-                    let nodes = terms.nodes.get_mut();
-                    let a_children = match nodes.get(a_deref.index()) {
-                        Some(Term::App(_, c)) => c.clone(),
-                        _ => return None,
-                    };
-                    let b_children = match nodes.get(b_deref.index()) {
-                        Some(Term::App(_, c)) => c.clone(),
-                        _ => return None,
-                    };
-                    (a_children, b_children)
-                };
-                if ac.len() != bc.len() {
-                    #[cfg(feature = "tracing")]
-                    trace!("match_arity_mismatch");
-                    return None;
-                }
-                for (c1, c2) in ac.iter().zip(bc.iter()) {
-                    worklist.push((*c1, *c2, children_raw));
-                }
-            }
-            (TermKind::InlineNullary(_), TermKind::App(..))
-            | (TermKind::App(..), TermKind::InlineNullary(_)) => {
-                #[cfg(feature = "tracing")]
-                trace!("match_arity_mismatch");
-                return None;
-            }
-            _ => {
-                #[cfg(feature = "tracing")]
-                trace!("match_invalid_term");
-                return None;
-            }
-        }
-    }
-
-    #[cfg(feature = "tracing")]
-    trace!(bindings = subst.len(), "match_success");
-
-    Some(subst)
+    match_terms_combined_shifted_with_left_renaming(t1, t2, &[], shifted_vars, terms)
 }
 
 /// Match two terms where left-side variables are renamed via `left_rhs_map`
@@ -358,8 +240,9 @@ pub(crate) fn match_terms_combined_shifted_with_left_renaming(
     // `left_is_raw` means the left term's variables need renaming via left_rhs_map.
     // `right_is_raw` means the right term's variables need shifting via shifted_vars.
     let mut worklist: SmallVec<[(TermId, TermId, bool, bool); 32]> = SmallVec::new();
+    let use_left_rename = !left_rhs_map.is_empty();
     let use_right_shift = !shifted_vars.is_empty();
-    worklist.push((t1, t2, true, use_right_shift));
+    worklist.push((t1, t2, use_left_rename, use_right_shift));
 
     while let Some((a, b, a_raw, b_raw)) = worklist.pop() {
         // Dereference left side: if raw, rename the variable first.
@@ -388,28 +271,8 @@ pub(crate) fn match_terms_combined_shifted_with_left_renaming(
 
         // Classify both terms without cloning children.
         // Handle inline TermIds directly.
-        enum TermKind {
-            Var(u32),
-            App(FuncId),
-            InlineNullary(u32),
-            Invalid,
-        }
-
-        let classify_unlocked2 = |tid: TermId, terms_ref: &mut TermStore| -> TermKind {
-            if tid.is_inline_var() {
-                return TermKind::Var(tid.inline_var_index());
-            }
-            if tid.is_inline_nullary() {
-                return TermKind::InlineNullary(tid.inline_nullary_func_raw());
-            }
-            match terms_ref.get_unlocked(tid) {
-                Some(Term::Var(idx)) => TermKind::Var(*idx),
-                Some(Term::App(f, _)) => TermKind::App(*f),
-                None => TermKind::Invalid,
-            }
-        };
-        let a_kind = classify_unlocked2(a_deref, terms);
-        let b_kind = classify_unlocked2(b_deref, terms);
+        let a_kind = classify_unlocked(a_deref, terms);
+        let b_kind = classify_unlocked(b_deref, terms);
 
         match (a_kind, b_kind) {
             (TermKind::Var(idx_a), TermKind::Var(idx_b)) => {
@@ -456,17 +319,13 @@ pub(crate) fn match_terms_combined_shifted_with_left_renaming(
                 }
                 let children_a_raw = a_raw && a_deref == a;
                 let children_b_raw = b_raw && b_deref == b;
-                let (ac, bc) = {
-                    let nodes = terms.nodes.get_mut();
-                    let a_children = match nodes.get(a_deref.index()) {
-                        Some(Term::App(_, c)) => c.clone(),
-                        _ => return None,
-                    };
-                    let b_children = match nodes.get(b_deref.index()) {
-                        Some(Term::App(_, c)) => c.clone(),
-                        _ => return None,
-                    };
-                    (a_children, b_children)
+                let ac = match terms.get_unlocked(a_deref) {
+                    Some(Term::App(_, c)) => c.clone(),
+                    _ => return None,
+                };
+                let bc = match terms.get_unlocked(b_deref) {
+                    Some(Term::App(_, c)) => c.clone(),
+                    _ => return None,
                 };
                 if ac.len() != bc.len() {
                     #[cfg(feature = "tracing")]
@@ -514,13 +373,11 @@ fn deref_left_renamed_unlocked(
     let idx = if term.is_inline_var() {
         term.inline_var_index()
     } else if term.is_inline_nullary() {
-        return term; // Nullary constant: return as-is.
+        return term;
     } else {
-        // Store ref: check if it's a variable.
-        let nodes = terms.nodes.get_mut();
-        match nodes.get(term.index()) {
+        match terms.get_unlocked(term) {
             Some(Term::Var(idx)) => *idx,
-            _ => return term, // App or invalid: return as-is
+            _ => return term,
         }
     };
 
@@ -531,45 +388,16 @@ fn deref_left_renamed_unlocked(
         j,
         left_rhs_map.len()
     );
-    let renamed_idx = left_rhs_map[j];
-
-    // Check if the subst has a binding for this renamed index.
-    match subst.get(renamed_idx) {
-        Some(bound) => {
-            // Follow substitution chain from the bound term.
-            let nodes = terms.nodes.get_mut();
-            let mut current = bound;
-            loop {
-                if current.is_inline_var() {
-                    match subst.get(current.inline_var_index()) {
-                        Some(next) => current = next,
-                        None => return current,
-                    }
-                    continue;
-                }
-                if current.is_inline() {
-                    return current;
-                }
-                match nodes.get(current.index()) {
-                    Some(Term::Var(vidx)) => match subst.get(*vidx) {
-                        Some(next) => current = next,
-                        None => return current,
-                    },
-                    _ => return current,
-                }
-            }
-        }
-        None => {
-            // Not bound — create a TermId for Var(renamed_idx).
-            terms.var_unlocked(renamed_idx)
-        }
-    }
+    deref_unlocked(TermId::inline_var(left_rhs_map[j]), subst, terms)
 }
 
-/// Rename all variables in a term using the left_rhs_map.
-/// This is the materialization counterpart of deref_left_renamed_unlocked,
-/// called only when binding a right-side variable to a left-side subtree.
-fn rename_term(term: TermId, left_rhs_map: &[u32], terms: &mut TermStore) -> TermId {
+/// Walk a term tree, replacing every variable `Var(j)` with `map_var(j)`.
+/// Rebuilds App nodes only when children change; reuses the original TermId otherwise.
+pub(crate) fn transform_vars(
+    term: TermId,
+    terms: &mut TermStore,
+    map_var: impl Fn(usize) -> TermId,
+) -> TermId {
     if term.is_ground() {
         return term;
     }
@@ -588,18 +416,15 @@ fn rename_term(term: TermId, left_rhs_map: &[u32], terms: &mut TermStore) -> Ter
         match item {
             Work::BuildApp(orig_tid, func, n) => {
                 let start = result_stack.len() - n;
-                let all_same = {
-                    let nodes = terms.nodes.get_mut();
-                    match nodes.get(orig_tid.index()) {
-                        Some(Term::App(_, orig_children)) => {
-                            orig_children.len() == n
-                                && orig_children
-                                    .iter()
-                                    .zip(&result_stack[start..])
-                                    .all(|(a, b)| *a == *b)
-                        }
-                        _ => false,
+                let all_same = match terms.get_unlocked(orig_tid) {
+                    Some(Term::App(_, orig_children)) => {
+                        orig_children.len() == n
+                            && orig_children
+                                .iter()
+                                .zip(&result_stack[start..])
+                                .all(|(a, b)| *a == *b)
                     }
+                    _ => false,
                 };
                 if all_same {
                     result_stack.truncate(start);
@@ -615,43 +440,28 @@ fn rename_term(term: TermId, left_rhs_map: &[u32], terms: &mut TermStore) -> Ter
                     result_stack.push(tid);
                     continue;
                 }
-                // Fast path: inline variable.
                 if tid.is_inline_var() {
-                    let j = tid.inline_var_index() as usize;
-                    debug_assert!(j < left_rhs_map.len());
-                    result_stack.push(terms.var_unlocked(left_rhs_map[j]));
+                    result_stack.push(map_var(tid.inline_var_index() as usize));
                     continue;
                 }
-                // Store ref (non-ground).
-                let var_action: Option<u32> = {
-                    let nodes = terms.nodes.get_mut();
-                    match nodes.get(tid.index()) {
-                        Some(Term::Var(idx)) => {
-                            let j = *idx as usize;
-                            debug_assert!(j < left_rhs_map.len());
-                            Some(left_rhs_map[j])
-                        }
-                        Some(Term::App(_, children)) if children.is_empty() => {
-                            result_stack.push(tid);
-                            None
-                        }
-                        Some(Term::App(f, children)) => {
-                            let func = *f;
-                            let n = children.len();
-                            work_stack.push(Work::BuildApp(tid, func, n));
-                            for i in (0..n).rev() {
-                                work_stack.push(Work::Visit(children[i]));
-                            }
-                            None
-                        }
-                        None => {
-                            result_stack.push(tid);
-                            None
+                match terms.get_unlocked(tid) {
+                    Some(Term::Var(idx)) => {
+                        result_stack.push(map_var(*idx as usize));
+                    }
+                    Some(Term::App(_, children)) if children.is_empty() => {
+                        result_stack.push(tid);
+                    }
+                    Some(Term::App(f, children)) => {
+                        let func = *f;
+                        let n = children.len();
+                        work_stack.push(Work::BuildApp(tid, func, n));
+                        for i in (0..n).rev() {
+                            work_stack.push(Work::Visit(children[i]));
                         }
                     }
-                };
-                if let Some(renamed_idx) = var_action {
-                    result_stack.push(terms.var_unlocked(renamed_idx));
+                    None => {
+                        result_stack.push(tid);
+                    }
                 }
             }
         }
@@ -659,6 +469,13 @@ fn rename_term(term: TermId, left_rhs_map: &[u32], terms: &mut TermStore) -> Ter
 
     debug_assert_eq!(result_stack.len(), 1);
     result_stack.pop().unwrap()
+}
+
+/// Rename all variables in a term using the left_rhs_map.
+/// This is the materialization counterpart of deref_left_renamed_unlocked,
+/// called only when binding a right-side variable to a left-side subtree.
+fn rename_term(term: TermId, left_rhs_map: &[u32], terms: &mut TermStore) -> TermId {
+    transform_vars(term, terms, |j| TermId::inline_var(left_rhs_map[j]))
 }
 
 /// Split a combined substitution into (left, right) parts, resolving each
@@ -724,7 +541,6 @@ fn deref_locked(term: TermId, subst: &Subst, guard: &TermReadGuard<'_>) -> TermI
 /// Requires exclusive (`&mut`) access to the TermStore.
 #[inline]
 fn deref_unlocked(term: TermId, subst: &Subst, terms: &mut TermStore) -> TermId {
-    let nodes = terms.nodes.get_mut();
     let mut current = term;
     loop {
         if current.is_inline_var() {
@@ -738,7 +554,7 @@ fn deref_unlocked(term: TermId, subst: &Subst, terms: &mut TermStore) -> TermId 
             // Inline nullary - not a variable, stop.
             return current;
         }
-        match nodes.get(current.index()) {
+        match terms.get_unlocked(current) {
             Some(Term::Var(idx)) => match subst.get(*idx) {
                 Some(bound) => current = bound,
                 None => return current,
@@ -761,78 +577,25 @@ fn deref_shifted_unlocked(
     subst: &Subst,
     terms: &mut TermStore,
 ) -> TermId {
-    // Check for inline var first (most common case for raw terms).
-    if term.is_inline_var() {
-        let j = term.inline_var_index() as usize;
-        debug_assert!(
-            j < shifted_vars.len(),
-            "var index {} exceeds shifted_vars length {}",
-            j,
-            shifted_vars.len()
-        );
-        let shifted = shifted_vars[j];
-        // Now dereference through the substitution from the shifted var.
-        let nodes = terms.nodes.get_mut();
-        let mut current = shifted;
-        loop {
-            if current.is_inline_var() {
-                match subst.get(current.inline_var_index()) {
-                    Some(bound) => current = bound,
-                    None => return current,
-                }
-                continue;
-            }
-            if current.is_inline() {
-                return current;
-            }
-            match nodes.get(current.index()) {
-                Some(Term::Var(vidx)) => match subst.get(*vidx) {
-                    Some(bound) => current = bound,
-                    None => return current,
-                },
-                _ => return current,
-            }
-        }
-    }
-    // Inline nullary: return as-is (not a variable).
-    if term.is_inline_nullary() {
+    // Extract variable index from term (inline var, store var, or non-var).
+    let idx = if term.is_inline_var() {
+        term.inline_var_index()
+    } else if term.is_inline_nullary() {
         return term;
-    }
-    // Store ref: check if it's a variable.
-    let nodes = terms.nodes.get_mut();
-    match nodes.get(term.index()) {
-        Some(Term::Var(idx)) => {
-            let j = *idx as usize;
-            debug_assert!(
-                j < shifted_vars.len(),
-                "var index {} exceeds shifted_vars length {}",
-                j,
-                shifted_vars.len()
-            );
-            let shifted = shifted_vars[j];
-            let mut current = shifted;
-            loop {
-                if current.is_inline_var() {
-                    match subst.get(current.inline_var_index()) {
-                        Some(bound) => current = bound,
-                        None => return current,
-                    }
-                    continue;
-                }
-                if current.is_inline() {
-                    return current;
-                }
-                match nodes.get(current.index()) {
-                    Some(Term::Var(vidx)) => match subst.get(*vidx) {
-                        Some(bound) => current = bound,
-                        None => return current,
-                    },
-                    _ => return current,
-                }
-            }
+    } else {
+        match terms.get_unlocked(term) {
+            Some(Term::Var(idx)) => *idx,
+            _ => return term,
         }
-        _ => term,
-    }
+    };
+    let j = idx as usize;
+    debug_assert!(
+        j < shifted_vars.len(),
+        "var index {} exceeds shifted_vars length {}",
+        j,
+        shifted_vars.len()
+    );
+    deref_unlocked(shifted_vars[j], subst, terms)
 }
 
 /// Shift all variables in a term using the pre-created shifted_vars mapping.
@@ -867,127 +630,37 @@ fn shift_term(term: TermId, shifted_vars: &[TermId], terms: &mut TermStore) -> T
     let gen = terms.generation();
     let cache_key = ShiftCache::pack_key(term, offset);
 
-    // Check the thread-local cache.
-    let cached = SHIFT_CACHE.with(|c| {
-        let cache = c.borrow();
-        if cache.generation == gen {
-            cache.entries.get(&cache_key).copied()
-        } else {
-            None
+    SHIFT_CACHE.with(|c| {
+        // Check the cache.
+        {
+            let cache = c.borrow();
+            if cache.generation == gen {
+                if let Some(&result) = cache.entries.get(&cache_key) {
+                    return result;
+                }
+            }
         }
-    });
-    if let Some(result) = cached {
-        return result;
-    }
 
-    let result = shift_term_uncached(term, shifted_vars, terms);
+        let result = shift_term_uncached(term, shifted_vars, terms);
 
-    // Store in cache (only for non-trivial shifts where the result differs).
-    if result != term {
-        SHIFT_CACHE.with(|c| {
+        // Store in cache (only for non-trivial shifts where the result differs).
+        if result != term {
             let mut cache = c.borrow_mut();
             if cache.generation != gen {
                 cache.entries.clear();
                 cache.generation = gen;
             }
             cache.entries.insert(cache_key, result);
-        });
-    }
+        }
 
-    result
+        result
+    })
 }
 
 /// Inner implementation of shift_term without caching. Performs the actual
 /// stack-based tree walk and variable substitution.
 fn shift_term_uncached(term: TermId, shifted_vars: &[TermId], terms: &mut TermStore) -> TermId {
-    // Use a stack-based approach similar to apply_subst_core.
-    enum Work {
-        Visit(TermId),
-        BuildApp(TermId, FuncId, usize),
-    }
-
-    let mut work_stack: SmallVec<[Work; 16]> = SmallVec::new();
-    let mut result_stack: SmallVec<[TermId; 16]> = SmallVec::new();
-
-    work_stack.push(Work::Visit(term));
-
-    while let Some(item) = work_stack.pop() {
-        match item {
-            Work::BuildApp(orig_tid, func, n) => {
-                let start = result_stack.len() - n;
-                let all_same = {
-                    let nodes = terms.nodes.get_mut();
-                    match nodes.get(orig_tid.index()) {
-                        Some(Term::App(_, orig_children)) => {
-                            orig_children.len() == n
-                                && orig_children
-                                    .iter()
-                                    .zip(&result_stack[start..])
-                                    .all(|(a, b)| *a == *b)
-                        }
-                        _ => false,
-                    }
-                };
-                if all_same {
-                    result_stack.truncate(start);
-                    result_stack.push(orig_tid);
-                } else {
-                    let new_term = terms.app_from_slice_unlocked(func, &result_stack[start..]);
-                    result_stack.truncate(start);
-                    result_stack.push(new_term);
-                }
-            }
-            Work::Visit(tid) => {
-                if tid.is_ground() {
-                    result_stack.push(tid);
-                    continue;
-                }
-                // Fast path: inline variable.
-                if tid.is_inline_var() {
-                    let j = tid.inline_var_index() as usize;
-                    debug_assert!(
-                        j < shifted_vars.len(),
-                        "var index {} exceeds shifted_vars length {}",
-                        j,
-                        shifted_vars.len()
-                    );
-                    result_stack.push(shifted_vars[j]);
-                    continue;
-                }
-                // Store ref (non-ground).
-                let nodes = terms.nodes.get_mut();
-                match nodes.get(tid.index()) {
-                    Some(Term::Var(idx)) => {
-                        let j = *idx as usize;
-                        debug_assert!(
-                            j < shifted_vars.len(),
-                            "var index {} exceeds shifted_vars length {}",
-                            j,
-                            shifted_vars.len()
-                        );
-                        result_stack.push(shifted_vars[j]);
-                    }
-                    Some(Term::App(_, children)) if children.is_empty() => {
-                        result_stack.push(tid);
-                    }
-                    Some(Term::App(f, children)) => {
-                        let func = *f;
-                        let n = children.len();
-                        work_stack.push(Work::BuildApp(tid, func, n));
-                        for i in (0..n).rev() {
-                            work_stack.push(Work::Visit(children[i]));
-                        }
-                    }
-                    None => {
-                        result_stack.push(tid);
-                    }
-                }
-            }
-        }
-    }
-
-    debug_assert_eq!(result_stack.len(), 1);
-    result_stack.pop().unwrap()
+    transform_vars(term, terms, |j| shifted_vars[j])
 }
 
 /// Generate an occurs-check function parameterized by term access method.

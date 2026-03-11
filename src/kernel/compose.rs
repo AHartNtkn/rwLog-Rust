@@ -1,12 +1,13 @@
 use crate::constraint::ConstraintOps;
 use crate::nf::{collect_tensor, factor_tensor_with_subst, SubstParams, NF};
 use crate::perf_counters;
-use crate::term::{Term, TermStore};
+use crate::term::TermStore;
 #[cfg(feature = "tracing")]
 use crate::trace::{debug_span, trace};
 
 use super::util::{
-    build_remap_map, match_term_lists_shifted_with_left_renaming_combined, pre_create_shifted_vars,
+    apply_and_normalize_constraints, match_term_lists_shifted_with_left_renaming_combined,
+    pre_create_shifted_vars, root_functor_mismatch,
 };
 
 /// Compose two NFs in sequence: a ; b
@@ -52,24 +53,13 @@ fn compose_nf_impl<C: ConstraintOps>(a: &NF<C>, b: &NF<C>, terms: &mut TermStore
     }
 
     // Root functor precheck: if the first build pattern of `a` and the first match
-    // pattern of `b` are both App nodes with different root functors, composition
-    // must fail (match_term_lists_shifted would fail at the first term). This avoids
-    // the cost of collect_tensor, pre_create_shifted_vars, and match_term_lists_shifted
-    // for incompatible pairs. Uses get_unlocked for zero-overhead access.
-    if !a.build_pats.is_empty() {
-        let a_root = match terms.get_unlocked(a.build_pats[0]) {
-            Some(Term::App(f, _)) => Some(*f),
-            _ => None, // Variable-rooted or missing: skip precheck
-        };
-        let b_root = match terms.get_unlocked(b.match_pats[0]) {
-            Some(Term::App(f, _)) => Some(*f),
-            _ => None, // Variable-rooted or missing: skip precheck
-        };
-        if let (Some(af), Some(bf)) = (a_root, b_root) {
-            if af != bf {
-                return None;
-            }
-        }
+    // pattern of `b` have incompatible root structure, composition must fail.
+    // This avoids the cost of collect_tensor, pre_create_shifted_vars, and
+    // match_term_lists_shifted for incompatible pairs.
+    if !a.build_pats.is_empty()
+        && root_functor_mismatch(a.build_pats[0], b.match_pats[0], terms)
+    {
+        return None;
     }
 
     // Compute max var indices from NF metadata in O(1), avoiding term tree walks.
@@ -118,35 +108,18 @@ fn compose_nf_impl<C: ConstraintOps>(a: &NF<C>, b: &NF<C>, terms: &mut TermStore
         }
     };
 
-    // Apply the combined subst directly to constraints. Each constraint's args
-    // only reference variables from their own side, so the extra bindings for
-    // the other side are simply never accessed. Chain resolution through
-    // apply_subst naturally follows cross-side bindings when needed.
-    let a_constraint = a.drop_fresh.constraint.apply_subst(&combined_subst, terms);
-    let b_constraint =
-        match build_remap_map(&b.drop_fresh.constraint, b_max_var, b_var_offset, terms) {
-            Some(map) => {
-                b.drop_fresh
-                    .constraint
-                    .remap_and_apply_subst(&map, &combined_subst, terms)
-            }
-            None => b.drop_fresh.constraint.apply_subst(&combined_subst, terms),
-        };
-
-    let combined_constraint = match a_constraint.combine_owned(b_constraint) {
-        Some(c) => c,
-        None => {
-            #[cfg(feature = "tracing")]
-            trace!("compose_constraint_conflict");
-            return None;
-        }
-    };
-
-    let (normalized, subst_opt) = match combined_constraint.normalize_owned(terms) {
+    let (normalized, subst_opt) = match apply_and_normalize_constraints(
+        &a.drop_fresh.constraint,
+        &b.drop_fresh.constraint,
+        b_max_var,
+        b_var_offset,
+        &combined_subst,
+        terms,
+    ) {
         Some(result) => result,
         None => {
             #[cfg(feature = "tracing")]
-            trace!("compose_constraint_unsat");
+            trace!("compose_constraint_failed");
             return None;
         }
     };
@@ -469,7 +442,6 @@ theory no_c {
         let (symbols, mut terms) = setup();
         let pair = symbols.intern("Pair");
         let fst = symbols.intern("Fst");
-        let _snd = symbols.intern("Snd");
         let v0 = terms.var(0);
         let v1 = terms.var(1);
 

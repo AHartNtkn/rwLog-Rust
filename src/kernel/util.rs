@@ -2,13 +2,14 @@
 //!
 //! This module contains helper functions used by both compose and meet operations.
 
+use crate::constraint::ConstraintOps;
 use crate::matching::{
     match_terms_combined, match_terms_combined_shifted,
     match_terms_combined_shifted_with_left_renaming,
 };
 use crate::nf::collect_vars_ordered;
 use crate::subst::{apply_subst, apply_subst_shifted, Subst};
-use crate::term::{TermId, TermStore};
+use crate::term::{Term, TermId, TermStore};
 use smallvec::SmallVec;
 
 /// Find the maximum variable index in a list of patterns.
@@ -144,9 +145,10 @@ pub fn match_term_lists_shifted_with_left_renaming_combined(
         return None;
     }
 
-    // Pre-compute the Option-wrapped renaming map once, outside the loop.
-    // This avoids a heap allocation on every iteration of the fallback path.
-    let rhs_map_opt: Vec<Option<u32>> = left_rhs_map.iter().map(|&v| Some(v)).collect();
+    // Lazily computed Option-wrapped renaming map. Only allocated when the
+    // fallback path (idx > 0) is reached, avoiding the heap allocation for
+    // the common single-pattern case.
+    let mut rhs_map_opt: Option<Vec<Option<u32>>> = None;
 
     let mut subst = Subst::new();
     for (idx, (&l, &r)) in left.iter().zip(right.iter()).enumerate() {
@@ -160,7 +162,9 @@ pub fn match_term_lists_shifted_with_left_renaming_combined(
             )?;
             subst = match_subst;
         } else {
-            let l_renamed = crate::nf::apply_var_renaming(l, &rhs_map_opt, terms);
+            let map = rhs_map_opt
+                .get_or_insert_with(|| left_rhs_map.iter().map(|&v| Some(v)).collect());
+            let l_renamed = crate::nf::apply_var_renaming(l, map, terms);
             let l_sub = apply_subst(l_renamed, &subst, terms);
             let r_sub = apply_subst_shifted(r, &subst, right_offset, shifted_vars, terms);
             let match_subst = match_terms_combined(l_sub, r_sub, terms)?;
@@ -174,22 +178,101 @@ pub fn match_term_lists_shifted_with_left_renaming_combined(
 ///
 /// The result applies `existing` first, then `new`.
 pub fn compose_subst(existing: &Subst, new: &Subst, terms: &mut TermStore) -> Subst {
+    if existing.is_empty() {
+        return new.clone();
+    }
+    if new.is_empty() {
+        return existing.clone();
+    }
     let mut combined = Subst::new();
     for (var, term) in existing.iter() {
         let updated = apply_subst(term, new, terms);
         combined.bind(var, updated);
     }
     for (var, term) in new.iter() {
-        combined.bind(var, term);
+        // Only add bindings from `new` that aren't already in `existing`'s domain.
+        // Overlapping vars were already handled in the first loop as
+        // apply_subst(existing[var], new), which is the correct composition.
+        if existing.get(var).is_none() {
+            combined.bind(var, term);
+        }
     }
     combined
+}
+
+/// Check if two term IDs have provably different root functors, meaning
+/// their matching/meet must fail. Handles both inline nullary constants
+/// (compare TermIds directly) and non-inline App nodes (compare root functors).
+/// Returns false for variables or other inline types (cannot rule out match).
+#[inline]
+pub fn root_functor_mismatch(a_id: TermId, b_id: TermId, terms: &mut TermStore) -> bool {
+    // Inline nullary constants: different TermIds = different ground terms.
+    if a_id.is_inline_nullary() && b_id.is_inline_nullary() {
+        return a_id != b_id;
+    }
+    // Non-inline App nodes: compare root functors.
+    if !a_id.is_inline() && !b_id.is_inline() {
+        let a_root = match terms.get_unlocked(a_id) {
+            Some(Term::App(f, _)) => Some(*f),
+            _ => None,
+        };
+        let b_root = match terms.get_unlocked(b_id) {
+            Some(Term::App(f, _)) => Some(*f),
+            _ => None,
+        };
+        if let (Some(af), Some(bf)) = (a_root, b_root) {
+            return af != bf;
+        }
+    }
+    // One inline nullary + one non-inline App: they have different structure.
+    // An inline nullary is always a 0-ary App, while non-inline App has arity >= 1.
+    // These can never match.
+    if (a_id.is_inline_nullary() && !b_id.is_inline())
+        || (!a_id.is_inline() && b_id.is_inline_nullary())
+    {
+        // Check: non-inline side is actually an App (not a variable ref).
+        let non_inline = if a_id.is_inline_nullary() { b_id } else { a_id };
+        if let Some(Term::App(_, _)) = terms.get_unlocked(non_inline) {
+            return true; // 0-ary vs >=1-ary: definitely different
+        }
+    }
+    false
+}
+
+/// Apply substitution to both constraints, combine, and normalize.
+///
+/// This is the shared constraint-handling pipeline used by both compose_nf and meet_nf:
+/// 1. Apply `subst` to a's constraint
+/// 2. Optionally remap b's constraint variables by `b_var_offset`, then apply `subst`
+/// 3. Combine the two constraints
+/// 4. Normalize the combined constraint
+///
+/// Returns `None` if constraints conflict or are unsatisfiable.
+pub fn apply_and_normalize_constraints<C: ConstraintOps>(
+    a_constraint: &C,
+    b_constraint: &C,
+    b_max_var: Option<u32>,
+    b_var_offset: u32,
+    subst: &Subst,
+    terms: &mut TermStore,
+) -> Option<(C, Option<Subst>)> {
+    let a_applied = a_constraint.apply_subst(subst, terms);
+    let b_applied = match build_remap_map(b_constraint, b_max_var, b_var_offset, terms) {
+        Some(map) => b_constraint.remap_and_apply_subst(&map, subst, terms),
+        None => b_constraint.apply_subst(subst, terms),
+    };
+    let combined = a_applied.combine_owned(b_applied)?;
+    combined.normalize_owned(terms)
 }
 
 /// Build a remap map that shifts all variable indices by `offset`.
 ///
 /// Returns `None` if no remapping is needed (offset is zero or no variables exist).
 /// The map has `map[i] = Some(i + offset)` for `i` in `0..=max`.
-pub fn build_remap_map<C: crate::constraint::ConstraintOps>(
+///
+/// Constraint-only variables can have indices outside `rwt_max_var()`,
+/// so we must collect constraint vars and take the max of both.
+fn build_remap_map<C: ConstraintOps>(
     constraint: &C,
     max_var: Option<u32>,
     offset: u32,
@@ -200,9 +283,7 @@ pub fn build_remap_map<C: crate::constraint::ConstraintOps>(
     }
     let mut constraint_vars = Vec::new();
     constraint.collect_vars(terms, &mut constraint_vars);
-    constraint_vars.sort_unstable();
-    constraint_vars.dedup();
-    let max_constraint = constraint_vars.last().copied();
+    let max_constraint = constraint_vars.iter().copied().max();
     let max_all = max_var.max(max_constraint);
     max_all.map(|max| (0..=max).map(|i| Some(i + offset)).collect())
 }

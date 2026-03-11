@@ -2,8 +2,9 @@
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 use rwlog::perf_corpus::{
-    apply_filters, environment_fingerprint, lint_cases, lint_full_corpus, load_cases, sort_cases,
-    summary_string, validate_cases, CorpusFilters, EnvironmentFingerprint,
+    apply_filters, csv_escape, csv_escape_opt, environment_fingerprint, lint_cases,
+    lint_full_corpus, load_cases, sort_cases, summary_string, validate_cases, CorpusFilters,
+    EnvironmentFingerprint,
 };
 use serde::Serialize;
 
@@ -63,8 +64,7 @@ fn main() {
         println!("{}", summary_string(&cases, &filters));
     }
 
-    let lint_ok = true;
-    if lint {
+    let lint_ok = if lint {
         match lint_full_corpus() {
             Ok(report) => {
                 if !json && !csv {
@@ -83,10 +83,12 @@ fn main() {
         if !json && !csv {
             println!("lint: ok");
         }
-    }
+        true
+    } else {
+        false
+    };
 
-    let validate_ok = true;
-    if validate {
+    let validate_ok = if validate {
         match validate_cases(&cases) {
             Ok(()) => {
                 if !json && !csv {
@@ -98,7 +100,10 @@ fn main() {
                 std::process::exit(1);
             }
         }
-    }
+        true
+    } else {
+        false
+    };
 
     if json {
         let rows: Vec<SanityCaseRow> = cases
@@ -172,21 +177,6 @@ fn main() {
                 csv_escape_opt(env.run_id.as_deref()),
             );
         }
-    }
-}
-
-fn csv_escape(s: &str) -> String {
-    if s.contains(',') || s.contains('"') || s.contains('\n') {
-        format!("\"{}\"", s.replace('"', "\"\""))
-    } else {
-        s.to_string()
-    }
-}
-
-fn csv_escape_opt(s: Option<&str>) -> String {
-    match s {
-        Some(v) => csv_escape(v),
-        None => String::new(),
     }
 }
 

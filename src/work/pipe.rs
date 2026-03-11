@@ -14,7 +14,7 @@ use std::sync::Arc;
 use super::{
     build_child0_tag, build_root_tag, flatten_and_parts, match_child0_tag, match_root_tag,
     nf_domain_filter, nf_left_prefix, nf_range_filter, nf_right_suffix, nf_rwl_iso, nf_rwr_iso,
-    node_from_answers, tags_compatible, wrap_compose_with_prefix_suffix,
+    node_from_answers, tags_compatible,
     wrap_node_with_prefix_suffix, wrap_rel_with_atoms, AndGroup, BindWork, CallKey, CallMode,
     ComposeWork, Env, FixWork, ProducerSpec, RootTag, Tables, Work, WorkStep,
 };
@@ -240,10 +240,10 @@ impl<C: ConstraintOps> PipeWork<C> {
     ) -> Self {
         PipeWork {
             left,
+            mid_normalized: mid.is_empty(),
             mid,
             right,
             flip: false,
-            mid_normalized: false,
             env,
             tables,
             call_mode: CallMode::Normal,
@@ -387,8 +387,8 @@ impl<C: ConstraintOps> PipeWork<C> {
     /// Push a Seq's contents onto mid at the given end.
     fn push_seq_end(&mut self, end: PipeEnd, seq: Arc<[Arc<Rel<C>>]>) {
         match end {
-            PipeEnd::Front => self.mid.push_front_slice_from_seq(seq),
-            PipeEnd::Back => self.mid.push_back_slice_from_seq(seq),
+            PipeEnd::Front => self.mid.push_front_seq(seq),
+            PipeEnd::Back => self.mid.push_back_seq(seq),
         }
     }
 
@@ -506,11 +506,11 @@ impl<C: ConstraintOps> PipeWork<C> {
             }
             Some(existing) => {
                 // Compose: front = existing ; nf, back = nf ; existing
-                let (a, b) = match end {
-                    PipeEnd::Front => (existing.clone(), nf),
-                    PipeEnd::Back => (nf, existing.clone()),
+                let result = match end {
+                    PipeEnd::Front => compose_nf(existing, &nf, terms),
+                    PipeEnd::Back => compose_nf(&nf, existing, terms),
                 };
-                match compose_nf(&a, &b, terms) {
+                match result {
                     Some(composed) => {
                         self.set_boundary(end, Some(composed));
                         true
@@ -748,13 +748,63 @@ impl<C: ConstraintOps> PipeWork<C> {
         AndGroup::new(nodes)
     }
 
-    /// Build a ComposeWork with the gen_node at `end` and the pipe at the opposite end.
-    fn compose_at_end(&self, end: PipeEnd, gen_node: Node<C>, pipe: PipeWork<C>) -> ComposeWork<C> {
-        let pipe_node = Node::Work(Box::new(Work::Pipe(Box::new(pipe))));
-        match end {
-            PipeEnd::Front => ComposeWork::new(gen_node, pipe_node),
-            PipeEnd::Back => ComposeWork::new(pipe_node, gen_node),
+    /// Build BindWork or ComposeWork for connecting a source node to the remaining pipe.
+    ///
+    /// Uses BindWork (cheaper, no diagonal join) when mid has no tabled nodes or
+    /// the far-side boundary is absent. Falls back to ComposeWork otherwise.
+    /// When `preseed` is true, uses `ComposeWork::new_preseed` (for tabled calls
+    /// where existing answers should be pre-seeded).
+    ///
+    /// Returns `Work` rather than `WorkStep` so callers can wrap the result
+    /// (e.g. with prefix/suffix layers) before converting to a `WorkStep`.
+    fn bind_or_compose_work(
+        &self,
+        end: PipeEnd,
+        source: Node<C>,
+        pipe: PipeWork<C>,
+        preseed: bool,
+        terms: &mut TermStore,
+    ) -> Work<C> {
+        if !pipe.mid.is_empty()
+            && (!mid_has_tabled_nodes(&pipe.mid) || pipe.boundary(end.opposite()).is_none())
+        {
+            let bind = match end {
+                PipeEnd::Front => BindWork::new_front(
+                    source, pipe.mid, pipe.right, pipe.env, pipe.tables, pipe.call_mode,
+                ),
+                PipeEnd::Back => BindWork::new_back(
+                    source, pipe.left, pipe.mid, pipe.env, pipe.tables, pipe.call_mode,
+                ),
+            };
+            return Work::Bind(bind);
         }
+        let pipe_node = Node::Work(Box::new(Work::Pipe(Box::new(pipe))));
+        let compose = if preseed {
+            match end {
+                PipeEnd::Front => ComposeWork::new_preseed(source, pipe_node, terms),
+                PipeEnd::Back => ComposeWork::new_preseed(pipe_node, source, terms),
+            }
+        } else {
+            match end {
+                PipeEnd::Front => ComposeWork::new(source, pipe_node),
+                PipeEnd::Back => ComposeWork::new(pipe_node, source),
+            }
+        };
+        Work::Compose(compose)
+    }
+
+    /// Convenience wrapper: build BindWork or ComposeWork and return as WorkStep.
+    fn bind_or_compose_at_end(
+        &self,
+        end: PipeEnd,
+        source: Node<C>,
+        pipe: PipeWork<C>,
+        preseed: bool,
+        terms: &mut TermStore,
+    ) -> WorkStep<C> {
+        WorkStep::More(Box::new(
+            self.bind_or_compose_work(end, source, pipe, preseed, terms),
+        ))
     }
 
     // ========================================================================
@@ -784,6 +834,7 @@ impl<C: ConstraintOps> PipeWork<C> {
 
         let opp = end.opposite();
         let mut pipe = self.clone();
+        pipe.dispatch_cache = None;
 
         // The boundary on the advancing end is consumed by the And group.
         pipe.set_boundary(end, None);
@@ -822,35 +873,12 @@ impl<C: ConstraintOps> PipeWork<C> {
             }
         };
 
-        // BindWork when mid has no tabled nodes or far boundary is absent.
-        if !mid_empty && (!mid_has_tabled_nodes(&pipe.mid) || pipe.boundary(opp).is_none()) {
-            let bind = match end {
-                PipeEnd::Front => BindWork::new_front(
-                    group_node,
-                    pipe.mid,
-                    pipe.right,
-                    pipe.env,
-                    pipe.tables,
-                    pipe.call_mode,
-                ),
-                PipeEnd::Back => BindWork::new_back(
-                    group_node,
-                    pipe.left,
-                    pipe.mid,
-                    pipe.env,
-                    pipe.tables,
-                    pipe.call_mode,
-                ),
-            };
-            let inner = Node::Work(Box::new(Work::Bind(bind)));
-            return wrap_node_with_prefix_suffix(inner, outer_prefix, outer_suffix, terms);
-        }
-
-        let core = self.compose_at_end(end, group_node, pipe);
-        wrap_compose_with_prefix_suffix(core, outer_prefix, outer_suffix, terms)
+        let work = self.bind_or_compose_work(end, group_node, pipe, false, terms);
+        let inner = Node::Work(Box::new(work));
+        wrap_node_with_prefix_suffix(inner, outer_prefix, outer_suffix, terms)
     }
 
-    fn advance_fix(&mut self, end: PipeEnd, id: RelId, body: Arc<Rel<C>>) -> WorkStep<C> {
+    fn advance_fix(&mut self, end: PipeEnd, id: RelId, body: Arc<Rel<C>>, terms: &mut TermStore) -> WorkStep<C> {
         self.pop_end(end);
         // Near boundary always participates; far boundary only when mid is empty.
         let far_available = self.mid.is_empty();
@@ -877,6 +905,7 @@ impl<C: ConstraintOps> PipeWork<C> {
 
         let fix_node = Node::Work(Box::new(Work::Pipe(Box::new(fix_pipe))));
         let mut pipe = self.clone();
+        pipe.dispatch_cache = None;
         if call_left.is_some() {
             pipe.left = None;
         }
@@ -884,35 +913,7 @@ impl<C: ConstraintOps> PipeWork<C> {
             pipe.right = None;
         }
 
-        // BindWork when mid has no tabled nodes or far boundary is absent.
-        if !pipe.mid.is_empty() {
-            let mid_tabled = mid_has_tabled_nodes(&pipe.mid);
-            let far_boundary = pipe.boundary(end.opposite());
-            if !mid_tabled || far_boundary.is_none() {
-                let bind = match end {
-                    PipeEnd::Front => BindWork::new_front(
-                        fix_node,
-                        pipe.mid,
-                        pipe.right,
-                        pipe.env,
-                        pipe.tables,
-                        pipe.call_mode,
-                    ),
-                    PipeEnd::Back => BindWork::new_back(
-                        fix_node,
-                        pipe.left,
-                        pipe.mid,
-                        pipe.env,
-                        pipe.tables,
-                        pipe.call_mode,
-                    ),
-                };
-                return WorkStep::More(Box::new(Work::Bind(bind)));
-            }
-        }
-
-        let compose = self.compose_at_end(end, fix_node, pipe);
-        WorkStep::More(Box::new(Work::Compose(compose)))
+        self.bind_or_compose_at_end(end, fix_node, pipe, false, terms)
     }
 
     // ========================================================================
@@ -1035,7 +1036,7 @@ impl<C: ConstraintOps> PipeWork<C> {
         }
 
         // Flat Or of Atoms: dispatch by root functor
-        if let Some(filtered) = self.try_dispatch_or_atoms(body, end, terms) {
+        if let Some(filtered) = self.try_dispatch_or_atoms(&body, end, terms) {
             self.pop_end(end);
             match filtered {
                 DispatchResult::Fail => return Err(WorkStep::Done),
@@ -1124,13 +1125,13 @@ impl<C: ConstraintOps> PipeWork<C> {
     /// or no boundary to dispatch against).
     fn try_dispatch_or_atoms(
         &mut self,
-        body: Arc<Rel<C>>,
+        body: &Rel<C>,
         end: PipeEnd,
         terms: &mut TermStore,
     ) -> Option<DispatchResult<C>> {
         // Unwrap Fix wrapper if present, getting a reference to the Or body
-        let or_body: &Rel<C> = match body.as_ref() {
-            Rel::Or(_, _) => body.as_ref(),
+        let or_body: &Rel<C> = match body {
+            Rel::Or(_, _) => body,
             Rel::Fix(_, inner) => match inner.as_ref() {
                 Rel::Or(_, _) => inner.as_ref(),
                 _ => return None,
@@ -1156,51 +1157,37 @@ impl<C: ConstraintOps> PipeWork<C> {
             return None;
         };
 
-        // Filter entries by compatible root functor using pre-computed tags
-        let mut compatible: Vec<Arc<NF<C>>> = table
+        // Compute child0 tag for depth-2 filtering (cheap, always available)
+        let boundary_child0_tag = match end {
+            PipeEnd::Front => build_child0_tag(boundary, terms),
+            PipeEnd::Back => match_child0_tag(boundary, terms),
+        };
+        let use_depth2 = matches!(boundary_child0_tag, RootTag::Functor(_));
+
+        // Single-pass filter: root functor + optional depth-2 child0 functor
+        let compatible: Vec<Arc<NF<C>>> = table
             .iter()
             .filter(|entry| {
                 let (build_tag, match_tag) = match end {
                     PipeEnd::Front => (boundary_tag, entry.match_root),
                     PipeEnd::Back => (entry.build_root, boundary_tag),
                 };
-                tags_compatible(build_tag, match_tag)
+                if !tags_compatible(build_tag, match_tag) {
+                    return false;
+                }
+                if use_depth2 {
+                    let (build_c0, match_c0) = match end {
+                        PipeEnd::Front => (boundary_child0_tag, entry.match_child0),
+                        PipeEnd::Back => (entry.build_child0, boundary_child0_tag),
+                    };
+                    if !tags_compatible(build_c0, match_c0) {
+                        return false;
+                    }
+                }
+                true
             })
             .map(|entry| entry.atom.clone())
             .collect();
-
-        // Depth-2 dispatch: if many atoms survive root-functor filtering,
-        // apply a secondary filter on child[0]'s functor using pre-computed tags.
-        const DEPTH2_THRESHOLD: usize = 8;
-        if compatible.len() > DEPTH2_THRESHOLD {
-            let boundary_child0_tag = match end {
-                PipeEnd::Front => build_child0_tag(boundary, terms),
-                PipeEnd::Back => match_child0_tag(boundary, terms),
-            };
-            if let RootTag::Functor(_) = boundary_child0_tag {
-                // Re-filter using the cached table entries for child0 tags
-                compatible = table
-                    .iter()
-                    .filter(|entry| {
-                        // First check root compatibility (same as above)
-                        let (build_tag, match_tag) = match end {
-                            PipeEnd::Front => (boundary_tag, entry.match_root),
-                            PipeEnd::Back => (entry.build_root, boundary_tag),
-                        };
-                        if !tags_compatible(build_tag, match_tag) {
-                            return false;
-                        }
-                        // Then check child0 compatibility
-                        let (build_c0, match_c0) = match end {
-                            PipeEnd::Front => (boundary_child0_tag, entry.match_child0),
-                            PipeEnd::Back => (entry.build_child0, boundary_child0_tag),
-                        };
-                        tags_compatible(build_c0, match_c0)
-                    })
-                    .map(|entry| entry.atom.clone())
-                    .collect();
-            }
-        }
 
         if compatible.is_empty() {
             Some(DispatchResult::Fail)
@@ -1231,7 +1218,7 @@ impl<C: ConstraintOps> PipeWork<C> {
         match rel.as_ref() {
             Rel::Or(a, b) => self.advance_or(end, a.clone(), b.clone()),
             Rel::And(_, _) => self.advance_and(end, rel.clone(), terms),
-            Rel::Fix(id, body) => self.advance_fix(end, *id, body.clone()),
+            Rel::Fix(id, body) => self.advance_fix(end, *id, body.clone(), terms),
             Rel::Call(id) => self.advance_call(end, *id, terms),
             // Atom/Zero/Seq should have been normalized in try_normalize_step
             _ => WorkStep::Done,
@@ -1346,6 +1333,7 @@ impl<C: ConstraintOps> PipeWork<C> {
                 let snapshot = table.answers_from(*watermark);
                 let replay_node = node_from_answers(snapshot);
                 let mut pipe = self.clone();
+                pipe.dispatch_cache = None;
                 if use_left {
                     pipe.left = None;
                 }
@@ -1353,39 +1341,7 @@ impl<C: ConstraintOps> PipeWork<C> {
                     pipe.right = None;
                 }
 
-                // BindWork when mid has no tabled nodes or far boundary is absent.
-                if !pipe.mid.is_empty() {
-                    let mid_tabled = mid_has_tabled_nodes(&pipe.mid);
-                    let far_boundary = pipe.boundary(end.opposite());
-                    if !mid_tabled || far_boundary.is_none() {
-                        let bind = match end {
-                            PipeEnd::Front => BindWork::new_front(
-                                replay_node,
-                                pipe.mid,
-                                pipe.right,
-                                pipe.env,
-                                pipe.tables,
-                                pipe.call_mode,
-                            ),
-                            PipeEnd::Back => BindWork::new_back(
-                                replay_node,
-                                pipe.left,
-                                pipe.mid,
-                                pipe.env,
-                                pipe.tables,
-                                pipe.call_mode,
-                            ),
-                        };
-                        return WorkStep::More(Box::new(Work::Bind(bind)));
-                    }
-                }
-
-                let pipe_node = Node::Work(Box::new(Work::Pipe(Box::new(pipe))));
-                let compose = match end {
-                    PipeEnd::Front => ComposeWork::new_preseed(replay_node, pipe_node, terms),
-                    PipeEnd::Back => ComposeWork::new_preseed(pipe_node, replay_node, terms),
-                };
-                return WorkStep::More(Box::new(Work::Compose(compose)));
+                return self.bind_or_compose_at_end(end, replay_node, pipe, true, terms);
             }
         }
 
@@ -1410,6 +1366,7 @@ impl<C: ConstraintOps> PipeWork<C> {
         };
 
         let mut pipe = self.clone();
+        pipe.dispatch_cache = None;
         if use_left {
             pipe.left = None;
         }
@@ -1417,54 +1374,12 @@ impl<C: ConstraintOps> PipeWork<C> {
             pipe.right = None;
         }
 
-        // BindWork when mid has no tabled nodes or far boundary is absent.
-        if !pipe.mid.is_empty() {
-            let mid_tabled = mid_has_tabled_nodes(&pipe.mid);
-            let far_boundary = pipe.boundary(end.opposite());
-            if !mid_tabled || far_boundary.is_none() {
-                let bind = match end {
-                    PipeEnd::Front => BindWork::new_front(
-                        gen_node,
-                        pipe.mid,
-                        pipe.right,
-                        pipe.env,
-                        pipe.tables,
-                        pipe.call_mode,
-                    ),
-                    PipeEnd::Back => BindWork::new_back(
-                        gen_node,
-                        pipe.left,
-                        pipe.mid,
-                        pipe.env,
-                        pipe.tables,
-                        pipe.call_mode,
-                    ),
-                };
-                return WorkStep::More(Box::new(Work::Bind(bind)));
-            }
-        }
-
-        let pipe_node = Node::Work(Box::new(Work::Pipe(Box::new(pipe))));
-        let compose = match end {
-            PipeEnd::Front => ComposeWork::new_preseed(gen_node, pipe_node, terms),
-            PipeEnd::Back => ComposeWork::new_preseed(pipe_node, gen_node, terms),
-        };
-        WorkStep::More(Box::new(Work::Compose(compose)))
+        self.bind_or_compose_at_end(end, gen_node, pipe, true, terms)
     }
 }
 
 impl<C: ConstraintOps> Default for PipeWork<C> {
     fn default() -> Self {
-        Self {
-            left: None,
-            mid: Factors::new(),
-            right: None,
-            flip: false,
-            mid_normalized: true,
-            env: Env::new(),
-            tables: Tables::new(),
-            call_mode: CallMode::Normal,
-            dispatch_cache: None,
-        }
+        Self::new()
     }
 }

@@ -1,6 +1,6 @@
 use crate::chr::ChrState;
 use crate::engine::Engine;
-use crate::parser::{ChrConstraintBuilder, Parser};
+use crate::parser::{ChrConstraintBuilder, Parser, RelDef};
 use crate::perf_counters;
 use crate::rel::Rel;
 use crate::repl::split_statements;
@@ -18,19 +18,28 @@ use std::time::{SystemTime, UNIX_EPOCH};
 pub type CorpusConstraint = ChrState;
 pub const CORPUS_SCHEMA_VERSION: u32 = 1;
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct EnvironmentFingerprint {
     pub os: String,
     pub arch: String,
+    #[serde(default)]
     pub cpu_model: Option<String>,
     pub rustc_version: String,
+    #[serde(default)]
     pub rustflags: Option<String>,
+    #[serde(default)]
     pub timestamp_unix_s: u64,
+    #[serde(default)]
     pub hostname: Option<String>,
+    #[serde(default)]
     pub git_sha: Option<String>,
+    #[serde(default)]
     pub github_run_id: Option<String>,
+    #[serde(default)]
     pub github_job: Option<String>,
+    #[serde(default)]
     pub github_ref: Option<String>,
+    #[serde(default)]
     pub run_id: Option<String>,
 }
 
@@ -100,7 +109,7 @@ impl CaseTier {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum DeterminismClass {
     Deterministic,
     Nondeterministic,
@@ -127,7 +136,7 @@ impl DeterminismClass {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum AnswerShape {
     Single,
     Finite,
@@ -277,27 +286,7 @@ pub struct PreparedCase {
     env: Env<CorpusConstraint>,
 }
 
-#[derive(Clone, Copy, Debug, Default, Serialize)]
-pub struct ExecutionCounters {
-    pub engine_steps: u64,
-    pub engine_emits: u64,
-    pub engine_continues: u64,
-    pub engine_exhausted: u64,
-    pub compose_attempts: u64,
-    pub compose_successes: u64,
-    pub compose_failures: u64,
-    pub meet_attempts: u64,
-    pub meet_successes: u64,
-    pub meet_failures: u64,
-    pub compose_unique_pairs: u64,
-    pub meet_unique_pairs: u64,
-    pub fixpoint_producer_starts: u64,
-    pub fixpoint_verification_starts: u64,
-    pub fixpoint_verification_steps: u64,
-    pub or_spine_walks: u64,
-    pub or_spine_total_siblings: u64,
-    pub or_spine_max_siblings: u64,
-}
+pub type ExecutionCounters = perf_counters::PerfCountersSnapshot;
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct RunStats {
@@ -319,6 +308,32 @@ pub enum TierFilter {
     All,
     Quick,
     Stress,
+}
+
+/// Filter for gate/probe data sources in history snapshots.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SourceFilter {
+    Gate,
+    Probe,
+    All,
+}
+
+impl SourceFilter {
+    pub fn to_str(self) -> &'static str {
+        match self {
+            SourceFilter::Gate => "gate",
+            SourceFilter::Probe => "probe",
+            SourceFilter::All => "all",
+        }
+    }
+
+    pub fn includes_gate(self) -> bool {
+        matches!(self, SourceFilter::Gate | SourceFilter::All)
+    }
+
+    pub fn includes_probe(self) -> bool {
+        matches!(self, SourceFilter::Probe | SourceFilter::All)
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -487,12 +502,7 @@ pub fn apply_filters(mut cases: Vec<CorpusCase>, filters: &CorpusFilters) -> Vec
 
 pub fn sort_cases(cases: &mut [CorpusCase]) {
     cases.sort_by(|a, b| {
-        (a.tier, a.category, a.determinism.as_str(), &a.id).cmp(&(
-            b.tier,
-            b.category,
-            b.determinism.as_str(),
-            &b.id,
-        ))
+        (a.tier, a.category, a.determinism, &a.id).cmp(&(b.tier, b.category, b.determinism, &b.id))
     });
 }
 
@@ -881,31 +891,6 @@ pub fn prepare_case(case: &CorpusCase) -> PreparedCase {
     PreparedCase { rel, terms, env }
 }
 
-fn execution_counters_from_snapshot(
-    snapshot: perf_counters::PerfCountersSnapshot,
-) -> ExecutionCounters {
-    ExecutionCounters {
-        engine_steps: snapshot.engine_steps,
-        engine_emits: snapshot.engine_emits,
-        engine_continues: snapshot.engine_continues,
-        engine_exhausted: snapshot.engine_exhausted,
-        compose_attempts: snapshot.compose_attempts,
-        compose_successes: snapshot.compose_successes,
-        compose_failures: snapshot.compose_failures,
-        meet_attempts: snapshot.meet_attempts,
-        meet_successes: snapshot.meet_successes,
-        meet_failures: snapshot.meet_failures,
-        compose_unique_pairs: snapshot.compose_unique_pairs,
-        meet_unique_pairs: snapshot.meet_unique_pairs,
-        fixpoint_producer_starts: snapshot.fixpoint_producer_starts,
-        fixpoint_verification_starts: snapshot.fixpoint_verification_starts,
-        fixpoint_verification_steps: snapshot.fixpoint_verification_steps,
-        or_spine_walks: snapshot.or_spine_walks,
-        or_spine_total_siblings: snapshot.or_spine_total_siblings,
-        or_spine_max_siblings: snapshot.or_spine_max_siblings,
-    }
-}
-
 fn run_prepared_inner(case: &CorpusCase, prepared: PreparedCase) -> usize {
     let mut engine = Engine::new_with_env(prepared.rel, prepared.terms, prepared.env);
     match case.mode {
@@ -932,15 +917,219 @@ fn run_prepared_inner(case: &CorpusCase, prepared: PreparedCase) -> usize {
 }
 
 pub fn run_prepared_with_stats(case: &CorpusCase, prepared: PreparedCase) -> RunStats {
-    let (answers, snapshot) = perf_counters::capture(|| run_prepared_inner(case, prepared));
-    RunStats {
-        answers,
-        counters: execution_counters_from_snapshot(snapshot),
-    }
+    let (answers, counters) = perf_counters::capture(|| run_prepared_inner(case, prepared));
+    RunStats { answers, counters }
 }
 
 pub fn run_prepared(case: &CorpusCase, prepared: PreparedCase) -> usize {
-    run_prepared_with_stats(case, prepared).answers
+    run_prepared_inner(case, prepared)
+}
+
+/// Look up a single corpus case by ID, bypassing environment filters.
+pub fn get_case(id: &str) -> CorpusCase {
+    load_cases()
+        .into_iter()
+        .find(|c| c.id == id)
+        .unwrap_or_else(|| panic!("corpus case '{}' not found", id))
+}
+
+/// Load cases, apply env filters with optional ID filter, sort, and panic on empty.
+pub fn select_cases(id_filter: Option<String>) -> Vec<CorpusCase> {
+    let mut filters = CorpusFilters::from_env();
+    if let Some(id) = id_filter {
+        filters.filter_substring = Some(id);
+    }
+    let mut cases = apply_filters(load_cases(), &filters);
+    sort_cases(&mut cases);
+    if cases.is_empty() {
+        panic!("no corpus cases selected");
+    }
+    cases
+}
+
+/// Escape a string for CSV output.
+pub fn csv_escape(s: &str) -> String {
+    if s.contains(',') || s.contains('"') || s.contains('\n') {
+        format!("\"{}\"", s.replace('"', "\"\""))
+    } else {
+        s.to_string()
+    }
+}
+
+/// Escape an optional string for CSV output.
+pub fn csv_escape_opt(s: Option<&str>) -> String {
+    match s {
+        Some(v) => csv_escape(v),
+        None => String::new(),
+    }
+}
+
+/// Mean of a slice of f64 values.
+pub fn stats_mean(values: &[f64]) -> f64 {
+    values.iter().sum::<f64>() / (values.len() as f64)
+}
+
+/// Sample standard deviation (Bessel-corrected, divides by N-1).
+pub fn stats_stddev(values: &[f64]) -> f64 {
+    if values.len() < 2 {
+        return 0.0;
+    }
+    let m = stats_mean(values);
+    let var = values
+        .iter()
+        .map(|v| {
+            let d = v - m;
+            d * d
+        })
+        .sum::<f64>()
+        / (values.len() - 1) as f64;
+    var.sqrt()
+}
+
+/// Median of a pre-sorted f64 slice.
+pub fn stats_median_sorted(sorted: &[f64]) -> f64 {
+    debug_assert!(
+        sorted.windows(2).all(|w| w[0] <= w[1]),
+        "stats_median_sorted requires sorted input"
+    );
+    sorted[sorted.len() / 2]
+}
+
+/// Median of a mutable u64 slice (sorts in place).
+pub fn stats_median_u64(values: &mut [u64]) -> u64 {
+    values.sort_unstable();
+    values[values.len() / 2]
+}
+
+/// Percentile of a pre-sorted f64 slice (p in 0.0..=1.0).
+pub fn stats_percentile(sorted: &[f64], p: f64) -> f64 {
+    let idx = ((sorted.len() as f64) * p).ceil() as usize - 1;
+    sorted[idx.min(sorted.len() - 1)]
+}
+
+/// Coefficient of variation as a percentage.
+pub fn stats_cv_pct(values: &[f64]) -> f64 {
+    if values.len() < 2 {
+        return 0.0;
+    }
+    let m = stats_mean(values);
+    if m <= 0.0 {
+        return 0.0;
+    }
+    (stats_stddev(values) / m) * 100.0
+}
+
+/// Median absolute deviation as a percentage of the median.
+pub fn stats_mad_pct(sorted: &[f64]) -> f64 {
+    if sorted.is_empty() {
+        return 0.0;
+    }
+    let median = stats_median_sorted(sorted);
+    if median <= 0.0 {
+        return 0.0;
+    }
+    let mut abs_dev: Vec<f64> = sorted.iter().map(|v| (v - median).abs()).collect();
+    abs_dev.sort_by(|a, b| a.partial_cmp(b).expect("finite float"));
+    (stats_median_sorted(&abs_dev) / median) * 100.0
+}
+
+/// 95% CI half-width as a percentage of the mean.
+pub fn stats_ci95_halfwidth_pct(values: &[f64]) -> f64 {
+    if values.len() < 2 {
+        return 0.0;
+    }
+    let m = stats_mean(values);
+    if m <= 0.0 {
+        return 0.0;
+    }
+    let se = stats_stddev(values) / (values.len() as f64).sqrt();
+    ((1.96 * se) / m) * 100.0
+}
+
+// ---------------------------------------------------------------------------
+// History snapshot types and loading (for reading gate/probe JSON output)
+// ---------------------------------------------------------------------------
+
+/// Minimal gate row for reading historical snapshots.
+#[derive(Clone, Debug, Deserialize)]
+pub struct SnapshotGateRow {
+    pub id: String,
+    pub median_us: f64,
+    pub p95_us: f64,
+}
+
+/// Gate report as read from a history snapshot.
+#[derive(Clone, Debug, Deserialize)]
+pub struct SnapshotGateReport {
+    #[serde(default)]
+    pub environment: Option<EnvironmentFingerprint>,
+    pub rows: Vec<SnapshotGateRow>,
+}
+
+/// Minimal run/probe row for reading historical snapshots.
+#[derive(Clone, Debug, Deserialize)]
+pub struct SnapshotRunRow {
+    pub id: String,
+    pub median_us: f64,
+    pub p95_us: f64,
+}
+
+/// Run/probe report as read from a history snapshot.
+#[derive(Clone, Debug, Deserialize)]
+pub struct SnapshotRunReport {
+    #[serde(default)]
+    pub environment: Option<EnvironmentFingerprint>,
+    pub rows: Vec<SnapshotRunRow>,
+}
+
+/// A single history snapshot directory containing gate and/or probe results.
+#[derive(Clone, Debug)]
+pub struct PerfSnapshot {
+    pub name: String,
+    pub gate: Option<SnapshotGateReport>,
+    pub probe: Option<SnapshotRunReport>,
+}
+
+/// Load and deserialize a JSON file, returning None on any error.
+pub fn load_json<T: for<'de> Deserialize<'de>>(path: &std::path::Path) -> Option<T> {
+    let text = fs::read_to_string(path).ok()?;
+    serde_json::from_str(&text).ok()
+}
+
+/// Load a single history snapshot from a directory.
+pub fn load_snapshot(dir: &std::path::Path) -> Option<PerfSnapshot> {
+    let name = dir.file_name()?.to_str()?.to_string();
+    let gate = load_json::<SnapshotGateReport>(&dir.join("gate.json"))
+        .or_else(|| load_json::<SnapshotGateReport>(&dir.join("quick_gate.json")));
+    let probe = load_json::<SnapshotRunReport>(&dir.join("probe.json"))
+        .or_else(|| load_json::<SnapshotRunReport>(&dir.join("quick_probe.json")))
+        .or_else(|| load_json::<SnapshotRunReport>(&dir.join("stress_probe.json")));
+    if gate.is_none() && probe.is_none() {
+        return None;
+    }
+    Some(PerfSnapshot { name, gate, probe })
+}
+
+/// Load all history snapshots from a directory, sorted by name.
+pub fn load_snapshots(history_dir: &std::path::Path) -> Vec<PerfSnapshot> {
+    let entries = fs::read_dir(history_dir)
+        .unwrap_or_else(|e| panic!("read_dir {}: {}", history_dir.display(), e));
+    let mut dirs = Vec::new();
+    for entry in entries {
+        let entry = entry.expect("dir entry");
+        let path = entry.path();
+        if path.is_dir() {
+            dirs.push(path);
+        }
+    }
+    dirs.sort();
+    let mut snapshots = Vec::new();
+    for dir in dirs {
+        if let Some(s) = load_snapshot(&dir) {
+            snapshots.push(s);
+        }
+    }
+    snapshots
 }
 
 pub fn validate_case(case: &CorpusCase) -> Result<(), String> {
@@ -1002,7 +1191,7 @@ fn parse_program_defs(
             continue;
         }
         if line.starts_with("rel ") {
-            if let Some((name, rel)) = parser.parse_rel_def(line).expect("parse relation") {
+            if let RelDef::Relation(name, rel) = parser.parse_rel_def(line).expect("parse relation") {
                 defs.insert(name, rel);
             }
             continue;
@@ -1013,16 +1202,10 @@ fn parse_program_defs(
 }
 
 fn build_env(defs: &HashMap<String, Rel<CorpusConstraint>>) -> Env<CorpusConstraint> {
-    let mut env = Env::new();
-    for rel in defs.values() {
-        if let Rel::Fix(id, body) = rel {
-            env = env.bind(*id, body.clone());
-        }
-    }
-    env
+    Env::from_defs(defs)
 }
 
-fn peano(n: usize) -> String {
+pub fn peano(n: usize) -> String {
     if n == 0 {
         "z".to_string()
     } else {
@@ -1362,29 +1545,16 @@ fn perm_constraint_program(n: usize) -> String {
 }
 
 fn expand_template(name: &str) -> String {
-    if name == "PROGRAM_ADD" {
-        return add_program().to_string();
-    }
-    if name == "PROGRAM_EVEN_ODD" {
-        return even_odd_program().to_string();
-    }
-    if name == "PROGRAM_EQ_NEQ" {
-        return eq_neq_program().to_string();
-    }
-    if name == "PROGRAM_RANGES" {
-        return range_program().to_string();
-    }
-    if name == "PROGRAM_PEEL" {
-        return peel_program().to_string();
-    }
-    if name == "PROGRAM_TREECALC" {
-        return include_str!("../examples/treecalc.txt").to_string();
-    }
-    if name == "PROGRAM_TREECALC_SYNTH" {
-        return treecalc_synth_program().to_string();
-    }
-    if name == "PROGRAM_WIDE_INC" {
-        return wide_inc_program().to_string();
+    match name {
+        "PROGRAM_ADD" => return add_program().to_string(),
+        "PROGRAM_EVEN_ODD" => return even_odd_program().to_string(),
+        "PROGRAM_EQ_NEQ" => return eq_neq_program().to_string(),
+        "PROGRAM_RANGES" => return range_program().to_string(),
+        "PROGRAM_PEEL" => return peel_program().to_string(),
+        "PROGRAM_TREECALC" => return include_str!("../examples/treecalc.txt").to_string(),
+        "PROGRAM_TREECALC_SYNTH" => return treecalc_synth_program().to_string(),
+        "PROGRAM_WIDE_INC" => return wide_inc_program().to_string(),
+        _ => {}
     }
 
     let parts: Vec<&str> = name.split(':').collect();

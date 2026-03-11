@@ -34,15 +34,6 @@ impl SymbolStore {
         self.rodeo.try_resolve(&id)
     }
 
-    /// Check if a symbol string has already been interned.
-    pub fn contains(&self, name: &str) -> bool {
-        self.rodeo.contains(name)
-    }
-
-    /// Get the FuncId for a symbol if it exists, without interning.
-    pub fn get(&self, name: &str) -> Option<FuncId> {
-        self.rodeo.get(name)
-    }
 }
 
 impl Default for SymbolStore {
@@ -56,14 +47,6 @@ mod tests {
     use super::*;
 
     // ========== HAPPY PATH TESTS ==========
-
-    #[test]
-    fn intern_returns_func_id() {
-        let store = SymbolStore::new();
-        let id = store.intern("Cons");
-        // Should return a valid FuncId (just check it doesn't panic)
-        let _ = id;
-    }
 
     #[test]
     fn intern_same_string_returns_same_id() {
@@ -113,49 +96,6 @@ mod tests {
                 "Each FuncId should resolve to its original string"
             );
         }
-    }
-
-    #[test]
-    fn contains_returns_true_for_interned_symbol() {
-        let store = SymbolStore::new();
-        store.intern("True");
-        assert!(
-            store.contains("True"),
-            "contains should return true for interned symbol"
-        );
-    }
-
-    #[test]
-    fn contains_returns_false_for_unknown_symbol() {
-        let store = SymbolStore::new();
-        store.intern("True");
-        assert!(
-            !store.contains("False"),
-            "contains should return false for non-interned symbol"
-        );
-    }
-
-    #[test]
-    fn get_returns_some_for_interned_symbol() {
-        let store = SymbolStore::new();
-        let id = store.intern("Pair");
-        let retrieved = store.get("Pair");
-        assert_eq!(
-            retrieved,
-            Some(id),
-            "get should return the same FuncId as intern"
-        );
-    }
-
-    #[test]
-    fn get_returns_none_for_unknown_symbol() {
-        let store = SymbolStore::new();
-        store.intern("Pair");
-        let retrieved = store.get("Triple");
-        assert_eq!(
-            retrieved, None,
-            "get should return None for non-interned symbol"
-        );
     }
 
     #[test]

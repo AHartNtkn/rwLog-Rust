@@ -26,14 +26,26 @@ mod pipe;
 pub use and_group::{AndGroup, AndGroupConfig};
 pub use bind::BindWork;
 pub use compose::ComposeWork;
-pub(crate) use diagonal::DiagonalStepResult;
 pub use fix::{
-    step_table_producer, CallKey, Env, FixStepResult, FixWork, ProducerSpec, ProducerState,
-    ProducerStep, Table, Tables,
+    step_table_producer, CallKey, Env, FixWork, ProducerSpec, ProducerState, ProducerStep, Table,
+    Tables,
 };
 pub use join_receiver::JoinReceiverWork;
 pub use meet::MeetWork;
 pub use pipe::PipeWork;
+
+/// Result of stepping a work item in-place (without reallocating the Box<Work>).
+///
+/// Used by Fix, Compose, and Meet work items that support in-place mutation.
+#[derive(Clone, Debug)]
+pub enum InPlaceStepResult<C: ConstraintOps> {
+    /// Emit an answer; the work item has been updated in-place for continuation.
+    Emit(NF<C>),
+    /// No answer yet; the work item has been updated in-place for continuation.
+    More,
+    /// Done; no more answers.
+    Done,
+}
 
 #[cfg(test)]
 mod tests;
@@ -217,15 +229,6 @@ fn wrap_node_with_prefix_suffix<C: ConstraintOps>(
     }
 }
 
-fn wrap_compose_with_prefix_suffix<C: ConstraintOps>(
-    core: ComposeWork<C>,
-    prefix: Option<NF<C>>,
-    suffix: Option<NF<C>>,
-    terms: &mut TermStore,
-) -> WorkStep<C> {
-    let node = Node::Work(Box::new(Work::Compose(core)));
-    wrap_node_with_prefix_suffix(node, prefix, suffix, terms)
-}
 
 fn build_var_list(arity: u32, terms: &mut TermStore) -> SmallVec<[TermId; 1]> {
     let mut vars = SmallVec::new();

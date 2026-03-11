@@ -8,7 +8,8 @@ use crate::constraint::ConstraintOps;
 use crate::nf::NF;
 use crate::perf_counters;
 use crate::term::TermStore;
-use crate::work::{DiagonalStepResult, FixStepResult, Work, WorkStep};
+use crate::work::{InPlaceStepResult, Work, WorkStep};
+use smallvec::SmallVec;
 
 /// Search tree node.
 ///
@@ -58,7 +59,7 @@ fn or_node<C: ConstraintOps>(left: Node<C>, right: Node<C>) -> Node<C> {
 ///
 /// Given siblings [D, C, B] and leaf A', produces Or(D, Or(C, Or(B, A'))).
 /// Iterates in reverse so the outermost sibling ends up at the top.
-fn rebuild_or_chain<C: ConstraintOps>(siblings: Vec<Node<C>>, leaf: Node<C>) -> Node<C> {
+fn rebuild_or_chain<C: ConstraintOps>(siblings: SmallVec<[Node<C>; 4]>, leaf: Node<C>) -> Node<C> {
     let mut result = leaf;
     for sib in siblings.into_iter().rev() {
         result = or_node(sib, result);
@@ -76,7 +77,8 @@ fn rebuild_or_chain<C: ConstraintOps>(siblings: Vec<Node<C>>, leaf: Node<C>) -> 
 /// Example: Or(Or(Or(A,B),C),D) → step A to A' → Or(D, Or(C, Or(B, A')))
 #[inline(never)]
 fn step_or<C: ConstraintOps>(left: Node<C>, right: Node<C>, terms: &mut TermStore) -> NodeStep<C> {
-    let mut siblings: Vec<Node<C>> = vec![right];
+    let mut siblings: SmallVec<[Node<C>; 4]> = SmallVec::new();
+    siblings.push(right);
     let mut current = left;
 
     // Walk down the left spine, collecting siblings and pruning Fail
@@ -122,25 +124,19 @@ pub fn step_node<C: ConstraintOps>(node: Node<C>, terms: &mut TermStore) -> Node
         Node::Work(mut work) => {
             // Fast paths: step in-place, reusing the existing Box<Work>.
             // This avoids take_self + alloc + free on every step.
-            if let Work::Fix(ref mut fix) = *work {
-                return match fix.step_in_place(terms) {
-                    FixStepResult::Emit(nf) => NodeStep::Emit(Box::new(nf), Node::Work(work)),
-                    FixStepResult::More => NodeStep::Continue(Node::Work(work)),
-                    FixStepResult::Done => NodeStep::Continue(Node::Fail),
-                };
-            }
-            if let Work::Compose(ref mut compose) = *work {
-                return match compose.step_in_place(terms) {
-                    DiagonalStepResult::Emit(nf) => NodeStep::Emit(Box::new(nf), Node::Work(work)),
-                    DiagonalStepResult::More => NodeStep::Continue(Node::Work(work)),
-                    DiagonalStepResult::Done => NodeStep::Continue(Node::Fail),
-                };
-            }
-            if let Work::Meet(ref mut meet) = *work {
-                return match meet.step_in_place(terms) {
-                    DiagonalStepResult::Emit(nf) => NodeStep::Emit(Box::new(nf), Node::Work(work)),
-                    DiagonalStepResult::More => NodeStep::Continue(Node::Work(work)),
-                    DiagonalStepResult::Done => NodeStep::Continue(Node::Fail),
+            let in_place = match *work {
+                Work::Fix(ref mut fix) => Some(fix.step_in_place(terms)),
+                Work::Compose(ref mut compose) => Some(compose.step_in_place(terms)),
+                Work::Meet(ref mut meet) => Some(meet.step_in_place(terms)),
+                _ => None,
+            };
+            if let Some(result) = in_place {
+                return match result {
+                    InPlaceStepResult::Emit(nf) => {
+                        NodeStep::Emit(Box::new(nf), Node::Work(work))
+                    }
+                    InPlaceStepResult::More => NodeStep::Continue(Node::Work(work)),
+                    InPlaceStepResult::Done => NodeStep::Continue(Node::Fail),
                 };
             }
             match work.step(terms) {
@@ -160,25 +156,8 @@ pub fn step_node<C: ConstraintOps>(node: Node<C>, terms: &mut TermStore) -> Node
 #[cfg(test)]
 mod tests {
     use super::Node;
-    use crate::drop_fresh::DropFresh;
-    use crate::nf::NF;
-    use crate::symbol::SymbolStore;
-    use crate::term::TermStore;
-    use crate::test_utils::{make_identity_nf, setup};
-    use smallvec::SmallVec;
+    use crate::test_utils::{make_identity_nf, make_rule_nf, setup};
 
-    /// Create an NF with patterns for testing
-    fn make_test_nf(symbols: &SymbolStore, terms: &TermStore) -> NF<()> {
-        let a = symbols.intern("A");
-        let b = symbols.intern("B");
-        let ta = terms.app0(a);
-        let tb = terms.app0(b);
-        NF::new(
-            SmallVec::from_slice(&[ta]),
-            DropFresh::identity(0),
-            SmallVec::from_slice(&[tb]),
-        )
-    }
 
     // ========================================================================
     // FAIL TESTS
@@ -279,7 +258,7 @@ mod tests {
     #[test]
     fn emit_single_answer() {
         let (symbols, terms) = setup();
-        let nf = make_test_nf(&symbols, &terms);
+        let nf = make_rule_nf("A", "B", &symbols, &terms);
         let node: Node<()> = Node::Emit(Box::new(nf.clone()), Box::new(Node::Fail));
 
         match node {
@@ -404,7 +383,7 @@ mod tests {
     fn fail_is_equal_to_fail() {
         let node1: Node<()> = Node::Fail;
         let node2: Node<()> = Node::Fail;
-        // This tests that PartialEq is derived
+        // Node doesn't derive PartialEq (Work doesn't impl it), so use pattern matching
         assert!(matches!((&node1, &node2), (Node::Fail, Node::Fail)));
     }
 

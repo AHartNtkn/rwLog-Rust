@@ -2,26 +2,19 @@ mod common;
 
 use common::*;
 
+use common::{build_raw_term, RawTerm, PROPTEST_MAX_VAR};
 use proptest::prelude::*;
 use rwlog::matching::match_terms_disjoint;
 use rwlog::nf::apply_var_renaming;
 use rwlog::subst::apply_subst;
 use rwlog::symbol::SymbolStore;
 use rwlog::term::{TermId, TermStore};
-use smallvec::SmallVec;
 
-const MAX_VAR: u32 = 4;
 const FUNCTOR_NAMES: [&str; 5] = ["a", "b", "c", "f", "g"];
-
-#[derive(Clone, Debug)]
-enum RawTerm {
-    Var(u32),
-    App { f: usize, kids: Vec<RawTerm> },
-}
 
 fn raw_term_strategy() -> impl Strategy<Value = RawTerm> {
     let leaf = prop_oneof![
-        (0..=MAX_VAR).prop_map(RawTerm::Var),
+        (0..=PROPTEST_MAX_VAR).prop_map(RawTerm::Var),
         Just(RawTerm::App { f: 0, kids: vec![] }),
         Just(RawTerm::App { f: 1, kids: vec![] }),
         Just(RawTerm::App { f: 2, kids: vec![] }),
@@ -41,23 +34,9 @@ fn raw_term_strategy() -> impl Strategy<Value = RawTerm> {
     })
 }
 
-fn build_term(raw: &RawTerm, var_offset: u32, symbols: &SymbolStore, terms: &TermStore) -> TermId {
-    match raw {
-        RawTerm::Var(v) => terms.var(*v + var_offset),
-        RawTerm::App { f, kids } => {
-            let func = symbols.intern(FUNCTOR_NAMES[*f]);
-            let mut child_ids: SmallVec<[TermId; 4]> = SmallVec::new();
-            for kid in kids {
-                child_ids.push(build_term(kid, var_offset, symbols, terms));
-            }
-            terms.app(func, child_ids)
-        }
-    }
-}
-
-fn swap_right_vars(
+fn swap_vars(
     term: TermId,
-    right_offset: u32,
+    offset: u32,
     swap_a: u32,
     swap_b: u32,
     terms: &mut TermStore,
@@ -65,29 +44,15 @@ fn swap_right_vars(
     if swap_a == swap_b {
         return term;
     }
-    let max = right_offset + MAX_VAR;
+    let max = offset + PROPTEST_MAX_VAR;
     let mut map = vec![None; max as usize + 1];
     for i in 0..=max {
         map[i as usize] = Some(i);
     }
-    let a = right_offset + swap_a;
-    let b = right_offset + swap_b;
+    let a = offset + swap_a;
+    let b = offset + swap_b;
     map[a as usize] = Some(b);
     map[b as usize] = Some(a);
-    apply_var_renaming(term, &map, terms)
-}
-
-fn swap_left_vars(term: TermId, swap_a: u32, swap_b: u32, terms: &mut TermStore) -> TermId {
-    if swap_a == swap_b {
-        return term;
-    }
-    let max = MAX_VAR;
-    let mut map = vec![None; max as usize + 1];
-    for i in 0..=max {
-        map[i as usize] = Some(i);
-    }
-    map[swap_a as usize] = Some(swap_b);
-    map[swap_b as usize] = Some(swap_a);
     apply_var_renaming(term, &map, terms)
 }
 
@@ -111,16 +76,16 @@ proptest! {
     fn match_invariant_under_rhs_renaming(
         lhs in raw_term_strategy(),
         rhs in raw_term_strategy(),
-        swap_a in 0..=MAX_VAR,
-        swap_b in 0..=MAX_VAR,
+        swap_a in 0..=PROPTEST_MAX_VAR,
+        swap_b in 0..=PROPTEST_MAX_VAR,
     ) {
         let symbols = SymbolStore::new();
         let mut terms = TermStore::new();
-        let offset = MAX_VAR + 7;
+        let offset = PROPTEST_MAX_VAR + 7;
 
-        let left = build_term(&lhs, 0, &symbols, &terms);
-        let right = build_term(&rhs, offset, &symbols, &terms);
-        let right_swapped = swap_right_vars(right, offset, swap_a, swap_b, &mut terms);
+        let left = build_raw_term(&lhs, 0, &FUNCTOR_NAMES, &symbols, &terms);
+        let right = build_raw_term(&rhs, offset, &FUNCTOR_NAMES, &symbols, &terms);
+        let right_swapped = swap_vars(right, offset, swap_a, swap_b, &mut terms);
 
         let m1 = match_terms_disjoint(left, right, offset, &mut terms);
         let m2 = match_terms_disjoint(left, right_swapped, offset, &mut terms);
@@ -137,16 +102,16 @@ proptest! {
     fn match_invariant_under_lhs_renaming(
         lhs in raw_term_strategy(),
         rhs in raw_term_strategy(),
-        swap_a in 0..=MAX_VAR,
-        swap_b in 0..=MAX_VAR,
+        swap_a in 0..=PROPTEST_MAX_VAR,
+        swap_b in 0..=PROPTEST_MAX_VAR,
     ) {
         let symbols = SymbolStore::new();
         let mut terms = TermStore::new();
-        let offset = MAX_VAR + 9;
+        let offset = PROPTEST_MAX_VAR + 9;
 
-        let left = build_term(&lhs, 0, &symbols, &terms);
-        let left_swapped = swap_left_vars(left, swap_a, swap_b, &mut terms);
-        let right = build_term(&rhs, offset, &symbols, &terms);
+        let left = build_raw_term(&lhs, 0, &FUNCTOR_NAMES, &symbols, &terms);
+        let left_swapped = swap_vars(left, 0, swap_a, swap_b, &mut terms);
+        let right = build_raw_term(&rhs, offset, &FUNCTOR_NAMES, &symbols, &terms);
 
         let m1 = match_terms_disjoint(left, right, offset, &mut terms);
         let m2 = match_terms_disjoint(left_swapped, right, offset, &mut terms);

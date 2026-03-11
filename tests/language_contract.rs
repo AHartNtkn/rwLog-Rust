@@ -5,9 +5,9 @@ use common::*;
 use rwlog::chr::ChrState;
 use rwlog::engine::Engine;
 use rwlog::nf::direct_rule_terms;
-use rwlog::parser::{ChrConstraintBuilder, Parser};
+use rwlog::parser::{ChrConstraintBuilder, Parser, RelDef};
 use rwlog::rel::Rel;
-use rwlog::repl::{split_statements, Repl};
+use rwlog::repl::{split_statements, Repl, ReplError};
 use rwlog::work::Env;
 
 use std::collections::{HashMap, HashSet};
@@ -73,7 +73,7 @@ fn parse_program_defs(
             continue;
         }
         if line.starts_with("rel ") {
-            if let Some((name, rel)) = parser.parse_rel_def(line).map_err(|e| e.to_string())? {
+            if let RelDef::Relation(name, rel) = parser.parse_rel_def(line).map_err(|e| e.to_string())? {
                 pending_rels.push((name, rel));
             }
             continue;
@@ -92,16 +92,6 @@ fn parse_program_defs(
     Ok(defs)
 }
 
-fn build_env(defs: &HashMap<String, Rel<TestConstraint>>) -> Env<TestConstraint> {
-    let mut env = Env::new();
-    for rel in defs.values() {
-        if let Rel::Fix(id, body) = rel {
-            env = env.bind(*id, body.clone());
-        }
-    }
-    env
-}
-
 fn collect_query_pairs_with_cap(
     program: &str,
     query: &str,
@@ -110,7 +100,7 @@ fn collect_query_pairs_with_cap(
     let mut parser = Parser::with_chr();
     let defs = parse_program_defs(&mut parser, program).expect("parse program");
     let rel = parser.parse_rel_body(query).expect("parse query");
-    let env = build_env(&defs);
+    let env = Env::from_defs(&defs);
     let terms = parser.take_terms();
     let mut engine = Engine::new_with_env(rel, terms, env);
 
@@ -746,7 +736,7 @@ fn repl_next_requires_positive_integer_argument() {
         .process_input("next 0")
         .expect_err("next 0 should error");
     assert!(
-        err_zero.contains("must be > 0"),
+        err_zero.to_string().contains("must be > 0"),
         "unexpected error: {err_zero}"
     );
 
@@ -754,7 +744,7 @@ fn repl_next_requires_positive_integer_argument() {
         .process_input("next nope")
         .expect_err("next nope should error");
     assert!(
-        err_bad.contains("Invalid count for 'next'"),
+        err_bad.to_string().contains("Invalid count for 'next'"),
         "unexpected error: {err_bad}"
     );
 }
@@ -866,10 +856,11 @@ rel bad {
     let err = repl
         .process_input(&format!("load {}", file.path().display()))
         .expect_err("load should fail");
+    let err_msg = err.to_string();
     assert!(
-        err.contains("Parse error") || err.contains("Unterminated block definition"),
+        err_msg.contains("Parse error") || err_msg.contains("Unterminated block definition"),
         "unexpected error: {}",
-        err
+        err_msg
     );
 }
 
@@ -916,10 +907,10 @@ fn repl_process_cell_supports_mixed_definition_and_query() {
 fn repl_exit_and_quit_return_quit_signal() {
     let mut repl = Repl::new();
     let quit_err = repl.process_input("quit").expect_err("quit should error");
-    assert_eq!(quit_err, "quit");
+    assert_eq!(quit_err, ReplError::Quit);
 
     let exit_err = repl.process_input("exit").expect_err("exit should error");
-    assert_eq!(exit_err, "quit");
+    assert_eq!(exit_err, ReplError::Quit);
 }
 
 #[test]
@@ -1250,7 +1241,7 @@ fn macro_undefined_call_errors_in_repl() {
         .process_input("@z ; undefined_macro([$x -> $x])")
         .expect_err("should fail");
     assert!(
-        err.contains("Parse error"),
+        err.to_string().contains("Parse error"),
         "Expected parse error for undefined macro, got: {}",
         err
     );
@@ -1265,7 +1256,7 @@ fn macro_wrong_arity_errors_in_repl() {
         .process_input("@z ; foo([$x -> $x], [$y -> $y])")
         .expect_err("should fail");
     assert!(
-        err.contains("Parse error"),
+        err.to_string().contains("Parse error"),
         "Expected parse error for wrong arity, got: {}",
         err
     );

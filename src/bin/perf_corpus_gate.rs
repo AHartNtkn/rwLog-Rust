@@ -2,8 +2,9 @@
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 use rwlog::perf_corpus::{
-    apply_filters, environment_fingerprint, load_cases, prepare_case, run_prepared, sort_cases,
-    CorpusCase, CorpusFilters, EnvironmentFingerprint, TierFilter,
+    apply_filters, csv_escape, csv_escape_opt, environment_fingerprint, load_cases, prepare_case,
+    run_prepared, sort_cases, stats_ci95_halfwidth_pct, stats_cv_pct, stats_mad_pct,
+    stats_percentile, CorpusCase, CorpusFilters, EnvironmentFingerprint, TierFilter,
 };
 use serde::Deserialize;
 use serde::Serialize;
@@ -168,7 +169,7 @@ fn run_samples_adaptive(
         if out.len() >= max_samples {
             break;
         }
-        let cv_pct = coefficient_of_variation_pct(&out);
+        let cv_pct = stats_cv_pct(&out);
         if cv_pct <= target_cv_pct {
             break;
         }
@@ -178,70 +179,6 @@ fn run_samples_adaptive(
     out
 }
 
-fn percentile(sorted: &[f64], p: f64) -> f64 {
-    let idx = ((sorted.len() as f64) * p).ceil() as usize - 1;
-    sorted[idx.min(sorted.len() - 1)]
-}
-
-fn median_sorted(sorted: &[f64]) -> f64 {
-    sorted[sorted.len() / 2]
-}
-
-fn mean(values: &[f64]) -> f64 {
-    values.iter().sum::<f64>() / (values.len() as f64)
-}
-
-fn stddev(values: &[f64]) -> f64 {
-    if values.len() < 2 {
-        return 0.0;
-    }
-    let m = mean(values);
-    let var = values
-        .iter()
-        .map(|v| {
-            let d = v - m;
-            d * d
-        })
-        .sum::<f64>()
-        / (values.len() as f64);
-    var.sqrt()
-}
-
-fn coefficient_of_variation_pct(values: &[f64]) -> f64 {
-    if values.len() < 2 {
-        return 0.0;
-    }
-    let m = mean(values);
-    if m <= 0.0 {
-        return 0.0;
-    }
-    (stddev(values) / m) * 100.0
-}
-
-fn median_absolute_deviation_pct(sorted: &[f64]) -> f64 {
-    if sorted.is_empty() {
-        return 0.0;
-    }
-    let median = median_sorted(sorted);
-    if median <= 0.0 {
-        return 0.0;
-    }
-    let mut abs_dev: Vec<f64> = sorted.iter().map(|v| (v - median).abs()).collect();
-    abs_dev.sort_by(|a, b| a.partial_cmp(b).expect("finite float"));
-    (median_sorted(&abs_dev) / median) * 100.0
-}
-
-fn ci95_halfwidth_pct(values: &[f64]) -> f64 {
-    if values.len() < 2 {
-        return 0.0;
-    }
-    let m = mean(values);
-    if m <= 0.0 {
-        return 0.0;
-    }
-    let se = stddev(values) / (values.len() as f64).sqrt();
-    ((1.96 * se) / m) * 100.0
-}
 
 fn main() {
     let json = std::env::args().any(|arg| arg == "--json");
@@ -294,12 +231,12 @@ fn main() {
             gated.max_samples,
             gated.target_cv_pct,
         );
-        let cv_pct = coefficient_of_variation_pct(&samples);
+        let cv_pct = stats_cv_pct(&samples);
         samples.sort_by(|a, b| a.partial_cmp(b).expect("finite float"));
-        let median = percentile(&samples, 0.50);
-        let p95 = percentile(&samples, 0.95);
-        let mad_pct = median_absolute_deviation_pct(&samples);
-        let ci95_pct = ci95_halfwidth_pct(&samples);
+        let median = stats_percentile(&samples, 0.50);
+        let p95 = stats_percentile(&samples, 0.95);
+        let mad_pct = stats_mad_pct(&samples);
+        let ci95_pct = stats_ci95_halfwidth_pct(&samples);
 
         let median_budget = gated.max_median_us * (1.0 + cfg.tolerance_pct / 100.0);
         let p95_budget = gated.max_p95_us * (1.0 + cfg.tolerance_pct / 100.0);
@@ -438,17 +375,3 @@ fn main() {
     }
 }
 
-fn csv_escape(s: &str) -> String {
-    if s.contains(',') || s.contains('"') || s.contains('\n') {
-        format!("\"{}\"", s.replace('"', "\"\""))
-    } else {
-        s.to_string()
-    }
-}
-
-fn csv_escape_opt(s: Option<&str>) -> String {
-    match s {
-        Some(v) => csv_escape(v),
-        None => String::new(),
-    }
-}

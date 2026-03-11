@@ -19,20 +19,8 @@
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
-use rwlog::perf_corpus::{
-    apply_filters, load_cases, prepare_case, run_prepared, sort_cases, CorpusFilters,
-};
+use rwlog::perf_corpus::{get_case, prepare_case, run_prepared};
 use std::time::{Duration, Instant};
-
-fn get_case(id: &str) -> rwlog::perf_corpus::CorpusCase {
-    let filters = CorpusFilters::from_env();
-    let mut cases = apply_filters(load_cases(), &filters);
-    sort_cases(&mut cases);
-    cases
-        .into_iter()
-        .find(|c| c.id == id)
-        .unwrap_or_else(|| panic!("case '{}' not found", id))
-}
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();

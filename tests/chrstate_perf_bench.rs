@@ -58,11 +58,11 @@ fn run_benchmark() {
         for _ in 0..n_runs {
             let prepared = perf_corpus::prepare_case(target);
             let start = Instant::now();
-            let (_answers, snap) =
+            let (answers, snap) =
                 rwlog::perf_counters::capture(|| perf_corpus::run_prepared(target, prepared));
             let elapsed = start.elapsed();
             let us_per_step = elapsed.as_micros() as f64 / snap.engine_steps as f64;
-            timings.push((elapsed, snap.engine_steps, us_per_step, _answers));
+            timings.push((elapsed, snap.engine_steps, us_per_step, answers));
         }
 
         timings.sort_by_key(|a| a.0);

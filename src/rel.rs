@@ -88,7 +88,7 @@ mod tests {
     use crate::nf::NF;
     use crate::symbol::SymbolStore;
     use crate::term::TermStore;
-    use crate::test_utils::{make_rule_nf, setup};
+    use crate::test_utils::{make_ground_nf, make_rule_nf, setup};
     use smallvec::SmallVec;
     use std::sync::Arc;
 
@@ -112,14 +112,7 @@ mod tests {
 
     /// Create distinguishable Rels for testing order
     fn make_labeled_atom(label: &str, symbols: &SymbolStore, terms: &TermStore) -> Rel<()> {
-        let sym = symbols.intern(label);
-        let t = terms.app0(sym);
-        let nf = NF::new(
-            SmallVec::from_slice(&[t]),
-            DropFresh::identity(0),
-            SmallVec::from_slice(&[t]),
-        );
-        Rel::Atom(Arc::new(nf))
+        Rel::Atom(Arc::new(make_ground_nf(label, symbols, terms)))
     }
 
     // ========================================================================

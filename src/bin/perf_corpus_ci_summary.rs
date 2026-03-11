@@ -1,26 +1,11 @@
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
+use rwlog::perf_corpus::EnvironmentFingerprint;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-struct EnvironmentFingerprint {
-    os: String,
-    arch: String,
-    #[serde(default)]
-    cpu_model: Option<String>,
-    rustc_version: String,
-    #[serde(default)]
-    rustflags: Option<String>,
-    timestamp_unix_s: u64,
-    #[serde(default)]
-    git_sha: Option<String>,
-    #[serde(default)]
-    run_id: Option<String>,
-}
 
 #[derive(Clone, Debug, Deserialize)]
 struct SanityCaseRow {
@@ -140,7 +125,7 @@ fn parse_args() -> Args {
     let mut status_json_out = None;
     let mut fail_on_gate_regression = false;
 
-    let mut args = std::env::args().skip(1).peekable();
+    let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         if arg == "--title" {
             title = args.next().expect("--title requires value");
@@ -276,7 +261,9 @@ fn build_status_report(
     let mut checks = Vec::new();
     checks.push(StatusCheck {
         name: "sanity_lint".to_string(),
-        status: if sanity.lint_ok {
+        status: if !sanity.lint_requested {
+            "skip".to_string()
+        } else if sanity.lint_ok {
             "pass".to_string()
         } else {
             "fail".to_string()
@@ -288,7 +275,9 @@ fn build_status_report(
     });
     checks.push(StatusCheck {
         name: "sanity_validate".to_string(),
-        status: if sanity.validate_ok {
+        status: if !sanity.validate_requested {
+            "skip".to_string()
+        } else if sanity.validate_ok {
             "pass".to_string()
         } else {
             "fail".to_string()
@@ -329,7 +318,9 @@ fn build_status_report(
     }
 
     let gate_failed = gate_status.as_ref().map(|g| g.failed).unwrap_or(false);
-    let overall_status = if sanity.lint_ok && sanity.validate_ok && !gate_failed {
+    let lint_pass = !sanity.lint_requested || sanity.lint_ok;
+    let validate_pass = !sanity.validate_requested || sanity.validate_ok;
+    let overall_status = if lint_pass && validate_pass && !gate_failed {
         "pass".to_string()
     } else {
         "fail".to_string()

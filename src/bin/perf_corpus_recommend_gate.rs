@@ -2,8 +2,8 @@
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 use rwlog::perf_corpus::{
-    apply_filters, environment_fingerprint, load_cases, prepare_case, run_prepared, sort_cases,
-    CorpusCase, CorpusFilters, EnvironmentFingerprint, TierFilter,
+    apply_filters, csv_escape, environment_fingerprint, load_cases, prepare_case, run_prepared,
+    sort_cases, stats_percentile, CorpusCase, CorpusFilters, EnvironmentFingerprint, TierFilter,
 };
 use serde::Deserialize;
 use serde::Serialize;
@@ -102,11 +102,6 @@ fn run_samples(case: &CorpusCase, samples: usize, warmup: usize) -> Vec<f64> {
     out
 }
 
-fn percentile(sorted: &[f64], p: f64) -> f64 {
-    let idx = ((sorted.len() as f64) * p).ceil() as usize - 1;
-    sorted[idx.min(sorted.len() - 1)]
-}
-
 fn parse_args() -> Args {
     let cfg = load_gate_config();
     let mut args_out = Args {
@@ -123,7 +118,7 @@ fn parse_args() -> Args {
         apply_file: PathBuf::from("benches/perf_corpus_cases.toml"),
     };
 
-    let mut args = std::env::args().skip(1).peekable();
+    let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         if arg == "--samples" {
             args_out.samples = args
@@ -228,14 +223,6 @@ fn recommend_base(
     recommended
 }
 
-fn csv_escape(s: &str) -> String {
-    if s.contains(',') || s.contains('"') || s.contains('\n') {
-        format!("\"{}\"", s.replace('"', "\"\""))
-    } else {
-        s.to_string()
-    }
-}
-
 fn parse_case_id(block: &str) -> Option<String> {
     for line in block.lines() {
         let trimmed = line.trim();
@@ -318,13 +305,7 @@ fn apply_recommendations_to_file(
     let prefix = &content[..first_case_pos];
     let case_text = &content[first_case_pos..];
 
-    let mut offsets = Vec::new();
-    for (idx, _) in case_text.match_indices(marker) {
-        offsets.push(idx);
-    }
-    if offsets.is_empty() {
-        return Err(format!("failed to parse case blocks in {}", path.display()));
-    }
+    let offsets: Vec<usize> = case_text.match_indices(marker).map(|(idx, _)| idx).collect();
 
     let mut patches: BTreeMap<String, (f64, f64)> = BTreeMap::new();
     for row in rows {
@@ -399,8 +380,8 @@ fn main() {
             .expect("quick case missing quick_gate_max_p95_us");
 
         let samples_us = run_samples(case, args.samples, args.warmup);
-        let observed_median = percentile(&samples_us, 0.50);
-        let observed_p95 = percentile(&samples_us, 0.95);
+        let observed_median = stats_percentile(&samples_us, 0.50);
+        let observed_p95 = stats_percentile(&samples_us, 0.95);
 
         let recommended_median = recommend_base(
             observed_median,

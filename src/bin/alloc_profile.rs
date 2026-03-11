@@ -1,11 +1,7 @@
-//! Allocation profiler: runs the recursive_even_backward_first64 workload
-//! with a size-bucketed counting allocator to understand allocation patterns.
-//!
-//! Also supports a --perf mode that just runs the workload N times for perf profiling.
+//! Allocation profiler: runs a corpus workload with a size-bucketed counting
+//! allocator to understand allocation patterns.
 
-use rwlog::perf_corpus::{
-    apply_filters, load_cases, prepare_case, run_prepared, sort_cases, CorpusFilters,
-};
+use rwlog::perf_corpus::{get_case, prepare_case, run_prepared};
 use std::alloc::{GlobalAlloc, Layout};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
@@ -136,25 +132,16 @@ fn print_buckets() {
         total_deallocs,
         total_allocs as i64 - total_deallocs as i64
     );
-    println!(
-        "\nAvg alloc size: {:.1} bytes",
-        total_bytes as f64 / total_allocs as f64
-    );
-}
-
-fn get_case(id: &str) -> rwlog::perf_corpus::CorpusCase {
-    let filters = CorpusFilters::from_env();
-    let mut cases = apply_filters(load_cases(), &filters);
-    sort_cases(&mut cases);
-    cases
-        .into_iter()
-        .find(|c| c.id == id)
-        .unwrap_or_else(|| panic!("case '{}' not found", id))
+    if total_allocs > 0 {
+        println!(
+            "\nAvg alloc size: {:.1} bytes",
+            total_bytes as f64 / total_allocs as f64
+        );
+    }
 }
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
-    let perf_mode = args.iter().any(|a| a == "--perf");
     let case_id = args
         .iter()
         .position(|a| a == "--id")
@@ -166,26 +153,10 @@ fn main() {
         .position(|a| a == "--iters")
         .and_then(|i| args.get(i + 1))
         .and_then(|s| s.parse().ok())
-        .unwrap_or(if perf_mode { 20 } else { 3 });
+        .unwrap_or(3);
 
     let case = get_case(case_id);
 
-    if perf_mode {
-        // Just run the workload repeatedly for perf profiling
-        eprintln!(
-            "Running '{}' {} times for perf profiling...",
-            case_id, iters
-        );
-        for _ in 0..iters {
-            let prepared = prepare_case(&case);
-            let n = run_prepared(&case, prepared);
-            std::hint::black_box(n);
-        }
-        eprintln!("Done.");
-        return;
-    }
-
-    // Bucket-tracking mode
     println!("=== Allocation Profile for '{}' ===\n", case_id);
 
     // Warmup (not tracked)

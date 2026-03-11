@@ -43,9 +43,6 @@ pub struct PredId(pub u32);
 pub struct RuleId(pub u32);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct OccId(pub u32);
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Cid(pub u32);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -53,6 +50,11 @@ pub struct RVar(pub u32);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct BuiltinId(pub u32);
+
+impl BuiltinId {
+    /// The builtin equality constraint (`$x = $y`).
+    pub const EQ: BuiltinId = BuiltinId(0);
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct PatId(pub u32);
@@ -470,10 +472,12 @@ impl BodyProg {
                         Some(v) => v,
                         None => return false,
                     };
-                    let cid = Cid(data.next_cid);
-                    data.next_cid = data.next_cid.saturating_add(1);
+                    let cid = data.alloc_cid();
                     let specs = &program.preds[pred.0 as usize].index_specs;
                     data.store.add_chr(cid, *pred, &av, terms, specs);
+                    if data.all_args_ground && !av.iter().all(|a| a.is_ground()) {
+                        data.all_args_ground = false;
+                    }
                     data.agenda.push_back(cid);
                 }
                 BodyInstr::AddBuiltin { bid, args } => {
@@ -502,11 +506,9 @@ fn collect_args(
     terms: &mut TermStore,
     env: &RVarEnv,
 ) -> Option<SmallVec<[TermId; 8]>> {
-    let mut av: SmallVec<[TermId; 8]> = SmallVec::new();
-    for a in args.iter() {
-        av.push(eval_arg_expr(pats, terms, env, *a)?);
-    }
-    Some(av)
+    args.iter()
+        .map(|a| eval_arg_expr(pats, terms, env, *a))
+        .collect()
 }
 
 fn eval_arg_expr(
@@ -683,7 +685,6 @@ pub struct ChrStore {
     pub all_args: Vec<TermId>,
     pub preds: Vec<PredStore>,
     pub alive_count: u32,
-    pub dead_count: u32,
     /// When true, PredStore indexes are not populated because the program
     /// uses only single-head simplification rules that never read them.
     skip_indexes: bool,
@@ -696,7 +697,6 @@ impl ChrStore {
             all_args: Vec::new(),
             preds: Vec::new(),
             alive_count: 0,
-            dead_count: 0,
             skip_indexes: false,
         }
     }
@@ -707,14 +707,6 @@ impl ChrStore {
         let start = inst.arg_start as usize;
         let end = start + inst.arg_count as usize;
         &self.all_args[start..end]
-    }
-
-    /// Get a mutable args slice for a CInstance.
-    #[inline]
-    pub fn args_mut(&mut self, inst: &CInstance) -> &mut [TermId] {
-        let start = inst.arg_start as usize;
-        let end = start + inst.arg_count as usize;
-        &mut self.all_args[start..end]
     }
 
     pub fn new(preds: &[PredDecl], skip_indexes: bool) -> Self {
@@ -731,7 +723,6 @@ impl ChrStore {
             all_args: Vec::new(),
             preds: pred_stores,
             alive_count: 0,
-            dead_count: 0,
             skip_indexes,
         }
     }
@@ -769,60 +760,45 @@ impl ChrStore {
             if inst.alive {
                 inst.alive = false;
                 self.alive_count = self.alive_count.saturating_sub(1);
-                self.dead_count += 1;
             }
         }
     }
 
     fn rebuild_indexes(&mut self, preds: &[PredDecl], terms: &TermStore) {
+        self.alive_count = self.inst.iter().filter(|i| i.alive).count() as u32;
         if self.skip_indexes {
-            // Still recount alive/dead but skip all index construction.
-            self.alive_count = 0;
-            self.dead_count = 0;
-            for inst in self.inst.iter() {
-                if inst.alive {
-                    self.alive_count += 1;
-                } else {
-                    self.dead_count += 1;
-                }
-            }
             return;
         }
         self.preds = preds
             .iter()
             .map(|p| PredStore::new(&p.index_specs))
             .collect();
-        self.alive_count = 0;
-        self.dead_count = 0;
         for inst in self.inst.iter() {
             if inst.alive {
-                self.alive_count += 1;
                 let pred = inst.pred;
                 let specs = &preds[pred.0 as usize].index_specs;
                 let args = &self.all_args
                     [inst.arg_start as usize..(inst.arg_start as usize + inst.arg_count as usize)];
                 self.preds[pred.0 as usize].insert(inst.cid, args, terms, specs);
-            } else {
-                self.dead_count += 1;
             }
         }
     }
 
-    /// Index only constraints starting from `from` position.
+    /// Populate indexes for constraints starting from `from` position.
     /// Assumes indexes for constraints before `from` are already up-to-date.
+    /// Does NOT update alive_count/dead_count — those are maintained by
+    /// add_chr/mark_dead/combine.
     fn index_from(&mut self, from: usize, preds: &[PredDecl], terms: &TermStore) {
+        if self.skip_indexes {
+            return;
+        }
         for inst in self.inst[from..].iter() {
             if inst.alive {
-                if !self.skip_indexes {
-                    let pred = inst.pred;
-                    let specs = &preds[pred.0 as usize].index_specs;
-                    let args = &self.all_args[inst.arg_start as usize
-                        ..(inst.arg_start as usize + inst.arg_count as usize)];
-                    self.preds[pred.0 as usize].insert(inst.cid, args, terms, specs);
-                }
-                self.alive_count += 1;
-            } else {
-                self.dead_count += 1;
+                let pred = inst.pred;
+                let specs = &preds[pred.0 as usize].index_specs;
+                let args = &self.all_args
+                    [inst.arg_start as usize..(inst.arg_start as usize + inst.arg_count as usize)];
+                self.preds[pred.0 as usize].insert(inst.cid, args, terms, specs);
             }
         }
     }
@@ -852,10 +828,8 @@ pub struct JoinStep {
 
 #[derive(Clone, Debug)]
 pub struct Occurrence {
-    pub occ_id: OccId,
     pub anchor_head: u8,
     pub steps: SmallVec<[JoinStep; 4]>,
-    pub removed_mask: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -941,7 +915,7 @@ impl Default for ChrProgramBuilder {
 impl ChrProgramBuilder {
     pub fn new() -> Self {
         let mut builtins = BuiltinRegistry::default();
-        // BuiltinId(0): equality — `$x = $y` in rule bodies calls unify_into.
+        // BuiltinId::EQ: equality — `$x = $y` in rule bodies calls unify_into.
         builtins.builtins.push(Builtin {
             arity: 2,
             guard: |_eq_subst, _terms, args| args[0] == args[1],
@@ -1024,13 +998,7 @@ impl ChrProgramBuilder {
             }
 
             let n_rvars = max_rvar_in_heads(&heads, &self.pats);
-            let occs = compile_occurrences(
-                RuleId(idx as u32),
-                &heads,
-                &self.preds,
-                &self.pats,
-                removed_mask,
-            );
+            let occs = compile_occurrences(&heads, &self.preds, &self.pats);
 
             let is_propagation = removed_mask == 0;
 
@@ -1151,20 +1119,16 @@ fn collect_rvars(p: PatId, pats: &PatArena, max: &mut Option<u32>) {
 }
 
 fn compile_occurrences(
-    _rid: RuleId,
     heads: &[HeadPat],
     preds: &[PredDecl],
     pats: &PatArena,
-    removed_mask: u64,
 ) -> Box<[Occurrence]> {
     let mut occs = Vec::with_capacity(heads.len());
     for anchor in 0..heads.len() {
         let steps = compile_join_steps(anchor, heads, preds, pats);
         occs.push(Occurrence {
-            occ_id: OccId(anchor as u32),
             anchor_head: anchor as u8,
             steps,
-            removed_mask,
         });
     }
     occs.into_boxed_slice()
@@ -1193,11 +1157,7 @@ fn compile_join_steps(
             let pred_decl = &preds[head.pred.0 as usize];
             let (score, probe, key) = best_probe_for_head(head, pred_decl, pats, &bound);
             if score < best_score
-                || (score == best_score
-                    && match best_idx {
-                        None => true,
-                        Some(b) => head_idx < b,
-                    })
+                || (score == best_score && best_idx.is_none_or(|b| head_idx < b))
             {
                 best_score = score;
                 best_idx = Some(head_idx);
@@ -1304,19 +1264,16 @@ fn best_probe_for_head(
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
-pub enum TokenKey {
-    Small(SmallVec<[Cid; 4]>),
-    Large(SmallVec<[Cid; 8]>),
-}
+pub struct TokenKey(SmallVec<[Cid; 4]>);
 
 impl TokenKey {
     fn from_cids(mut cids: Vec<Cid>) -> Self {
         cids.sort();
-        if cids.len() <= 4 {
-            TokenKey::Small(cids.into_iter().collect())
-        } else {
-            TokenKey::Large(cids.into_iter().collect())
-        }
+        TokenKey(cids.into_iter().collect())
+    }
+
+    fn cids(&self) -> &[Cid] {
+        &self.0
     }
 }
 
@@ -1339,6 +1296,7 @@ impl TokenStore {
     }
 }
 
+#[derive(Clone)]
 pub struct ChrStateData {
     pub(crate) store: ChrStore,
     /// Accumulated equality substitution from builtin `$x = $y` in rule bodies.
@@ -1359,22 +1317,32 @@ pub struct ChrStateData {
     pub(crate) all_args_ground: bool,
 }
 
-impl Clone for ChrStateData {
-    fn clone(&self) -> Self {
+impl ChrStateData {
+    fn new_empty(program: &ChrProgram) -> Self {
+        let tokens = if program.all_single_head_simplification {
+            TokenStore::empty()
+        } else {
+            TokenStore::new(program.rules.len())
+        };
         Self {
-            store: self.store.clone(),
-            eq_subst: self.eq_subst.clone(),
-            tokens: self.tokens.clone(),
-            next_cid: self.next_cid,
-            agenda: self.agenda.clone(),
-            failed: self.failed,
-            fixpoint_watermark: self.fixpoint_watermark,
-            all_args_ground: self.all_args_ground,
+            store: ChrStore::new(&program.preds, program.all_single_head_simplification),
+            eq_subst: Subst::default(),
+            tokens,
+            next_cid: 0,
+            agenda: VecDeque::new(),
+            failed: false,
+            fixpoint_watermark: 0,
+            all_args_ground: true,
         }
     }
-}
 
-impl ChrStateData {
+    /// Allocate the next constraint ID.
+    fn alloc_cid(&mut self) -> Cid {
+        let cid = Cid(self.next_cid);
+        self.next_cid = self.next_cid.saturating_add(1);
+        cid
+    }
+
     /// Recompute the `all_args_ground` flag by checking all alive constraint args.
     fn recompute_all_args_ground(&mut self) {
         self.all_args_ground = self.store.inst.iter().all(|inst| {
@@ -1409,23 +1377,9 @@ impl ChrState {
     #[inline]
     pub fn data_mut(&mut self) -> &mut ChrStateData {
         let program = &self.program;
-        let arc = self.data.get_or_insert_with(|| {
-            let tokens = if program.all_single_head_simplification {
-                TokenStore::empty()
-            } else {
-                TokenStore::new(program.rules.len())
-            };
-            Arc::new(ChrStateData {
-                store: ChrStore::new(&program.preds, program.all_single_head_simplification),
-                eq_subst: Subst::default(),
-                tokens,
-                next_cid: 0,
-                agenda: VecDeque::new(),
-                failed: false,
-                fixpoint_watermark: 0,
-                all_args_ground: true, // empty store has no args
-            })
-        });
+        let arc = self
+            .data
+            .get_or_insert_with(|| Arc::new(ChrStateData::new_empty(program)));
         Arc::make_mut(arc)
     }
 
@@ -1444,49 +1398,20 @@ impl ChrState {
     }
 
     pub fn new(program: Arc<ChrProgram>) -> Self {
-        let skip_idx = program.all_single_head_simplification;
-        let tokens = if skip_idx {
-            TokenStore::empty()
-        } else {
-            TokenStore::new(program.rules.len())
-        };
+        let data = ChrStateData::new_empty(&program);
         Self {
-            data: Some(Arc::new(ChrStateData {
-                store: ChrStore::new(&program.preds, skip_idx),
-                eq_subst: Subst::default(),
-                tokens,
-                next_cid: 0,
-                agenda: VecDeque::new(),
-                failed: false,
-                fixpoint_watermark: 0,
-                all_args_ground: true, // empty store has no args
-            })),
+            data: Some(Arc::new(data)),
             program,
         }
     }
 
     pub fn introduce(&mut self, pred: PredId, args: &[TermId], terms: &TermStore) -> Cid {
         let program = &self.program;
-        let arc = self.data.get_or_insert_with(|| {
-            let tokens = if program.all_single_head_simplification {
-                TokenStore::empty()
-            } else {
-                TokenStore::new(program.rules.len())
-            };
-            Arc::new(ChrStateData {
-                store: ChrStore::new(&program.preds, program.all_single_head_simplification),
-                eq_subst: Subst::default(),
-                tokens,
-                next_cid: 0,
-                agenda: VecDeque::new(),
-                failed: false,
-                fixpoint_watermark: 0,
-                all_args_ground: true,
-            })
-        });
+        let arc = self
+            .data
+            .get_or_insert_with(|| Arc::new(ChrStateData::new_empty(program)));
         let d = Arc::make_mut(arc);
-        let cid = Cid(d.next_cid);
-        d.next_cid = d.next_cid.saturating_add(1);
+        let cid = d.alloc_cid();
         let specs = &program.preds[pred.0 as usize].index_specs;
         d.store.add_chr(cid, pred, args, terms, specs);
         // Update all_args_ground: if it was true and new args have non-ground terms, set to false
@@ -1530,19 +1455,11 @@ impl ChrState {
             let indexed = &program.triggers[pred.0 as usize];
 
             let inst_args = d.store.args(inst);
-            let first_arg_functor: Option<FuncId> = inst_args.first().and_then(|tid| {
-                terms.with_term(*tid, |t| match t? {
-                    Term::App(f, _) => Some(*f),
-                    Term::Var(_) => None,
-                })
-            });
-
-            let indexed_occs = first_arg_functor
+            let indexed_occs = first_arg_functor(inst_args, terms)
                 .and_then(|f| indexed.by_functor.get(&f))
                 .map(|v| v.as_slice())
                 .unwrap_or(&[]);
 
-            let mut fired = false;
             for occ_ref in indexed_occs.iter().chain(indexed.fallback.iter()) {
                 if let Some(tuple) = Self::find_match_by_ids_reuse(
                     program,
@@ -1564,11 +1481,9 @@ impl ChrState {
                         d.failed = true;
                         return;
                     }
-                    fired = true;
                     break;
                 }
             }
-            let _ = fired;
         }
     }
 
@@ -1591,14 +1506,7 @@ impl ChrState {
             let indexed = &program.triggers[pred.0 as usize];
 
             let inst_args = d.store.args(inst);
-            let first_arg_functor: Option<FuncId> = inst_args.first().and_then(|tid| {
-                terms.with_term(*tid, |t| match t? {
-                    Term::App(f, _) => Some(*f),
-                    Term::Var(_) => None,
-                })
-            });
-
-            let indexed_occs = first_arg_functor
+            let indexed_occs = first_arg_functor(inst_args, terms)
                 .and_then(|f| indexed.by_functor.get(&f))
                 .map(|v| v.as_slice())
                 .unwrap_or(&[]);
@@ -1610,17 +1518,14 @@ impl ChrState {
                 let anchor_head = &rule.heads[anchor_idx];
                 let anchor_flat = &rule.head_flat_ops[anchor_idx];
 
-                env.ensure_capacity(rule.n_rvars);
                 env.reset();
 
-                let inst_ref = &d.store.inst[cid.0 as usize];
-                let inst_ref_args = d.store.args(inst_ref);
                 if !match_head(
                     terms,
                     anchor_head,
                     anchor_flat,
-                    inst_ref,
-                    inst_ref_args,
+                    inst.pred,
+                    inst_args,
                     &mut env,
                 ) {
                     continue;
@@ -1680,7 +1585,6 @@ impl ChrState {
     ) -> Option<Vec<Cid>> {
         let rule = &program.rules[rid.0 as usize];
         let occ = &rule.occs[occ_idx as usize];
-        env.ensure_capacity(rule.n_rvars);
         env.reset();
         let mut chosen: Vec<Option<Cid>> = vec![None; rule.heads.len()];
         let anchor_idx = occ.anchor_head as usize;
@@ -1688,7 +1592,7 @@ impl ChrState {
         let anchor_flat = &rule.head_flat_ops[anchor_idx];
         let inst = &data.store.inst[active.0 as usize];
         let inst_args = data.store.args(inst);
-        if !match_head(terms, anchor_head, anchor_flat, inst, inst_args, env) {
+        if !match_head(terms, anchor_head, anchor_flat, inst.pred, inst_args, env) {
             return None;
         }
         chosen[occ.anchor_head as usize] = Some(active);
@@ -1772,7 +1676,7 @@ impl ChrState {
             let flat_ops = &ctx.rule.head_flat_ops[head_idx];
             let inst = &ctx.data.store.inst[cid.0 as usize];
             let inst_args = ctx.data.store.args(inst);
-            if match_head(ctx.terms, head, flat_ops, inst, inst_args, env) {
+            if match_head(ctx.terms, head, flat_ops, inst.pred, inst_args, env) {
                 chosen[step.head as usize] = Some(cid);
                 if let Some(tuple) = Self::search_steps_inner(ctx, step_idx + 1, env, chosen) {
                     return Some(tuple);
@@ -1876,28 +1780,17 @@ impl ChrState {
     }
 }
 
-fn match_head(
-    terms: &TermStore,
-    head: &HeadPat,
-    flat_ops: &[FlatMatchOp],
-    inst: &CInstance,
-    inst_args: &[TermId],
-    env: &mut RVarEnv,
-) -> bool {
-    if head.pred != inst.pred {
-        return false;
-    }
-    if head.args.len() != inst_args.len() {
-        return false;
-    }
-    let guard = terms.read_lock();
-    match_flat_ops(flat_ops, &guard, inst_args, env)
+/// Extract the top-level functor of the first term in `args`, if it is an App node.
+fn first_arg_functor(args: &[TermId], terms: &TermStore) -> Option<FuncId> {
+    args.first().and_then(|tid| {
+        terms.with_term(*tid, |t| match t? {
+            Term::App(f, _) => Some(*f),
+            Term::Var(_) => None,
+        })
+    })
 }
 
-/// Like `match_head` but takes `pred` and `args` directly instead of a
-/// `CInstance`.  Used for inline matching before storing constraints.
-#[inline(always)]
-fn match_head_direct(
+fn match_head(
     terms: &TermStore,
     head: &HeadPat,
     flat_ops: &[FlatMatchOp],
@@ -1930,14 +1823,7 @@ fn try_inline_match(
 ) -> Result<bool, ()> {
     let indexed = &program.triggers[pred.0 as usize];
 
-    let first_arg_functor: Option<FuncId> = args.first().and_then(|tid| {
-        terms.with_term(*tid, |t| match t? {
-            Term::App(f, _) => Some(*f),
-            Term::Var(_) => None,
-        })
-    });
-
-    let indexed_occs = first_arg_functor
+    let indexed_occs = first_arg_functor(args, terms)
         .and_then(|f| indexed.by_functor.get(&f))
         .map(|v| v.as_slice())
         .unwrap_or(&[]);
@@ -1949,10 +1835,9 @@ fn try_inline_match(
         let anchor_head = &rule.heads[anchor_idx];
         let anchor_flat = &rule.head_flat_ops[anchor_idx];
 
-        env.ensure_capacity(rule.n_rvars);
         env.reset();
 
-        if !match_head_direct(terms, anchor_head, anchor_flat, pred, args, env) {
+        if !match_head(terms, anchor_head, anchor_flat, pred, args, env) {
             continue;
         }
 
@@ -2011,10 +1896,12 @@ fn exec_body_inline(
                     Ok(false) => {
                         // No rule matched; store the constraint but do NOT
                         // push to agenda (we already tried all rules).
-                        let cid = Cid(data.next_cid);
-                        data.next_cid = data.next_cid.saturating_add(1);
+                        let cid = data.alloc_cid();
                         let specs = &program.preds[pred.0 as usize].index_specs;
                         data.store.add_chr(cid, *pred, &av, terms, specs);
+                        if data.all_args_ground && !av.iter().all(|a| a.is_ground()) {
+                            data.all_args_ground = false;
+                        }
                     }
                     Err(()) => return false,
                 }
@@ -2144,60 +2031,24 @@ impl<'a> ByteReader<'a> {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq, Ord, PartialOrd)]
 struct AliveRec {
     pred: PredId,
     args: SmallVec<[TermId; 4]>,
     old_cid: u32,
 }
 
-impl PartialEq for AliveRec {
-    fn eq(&self, other: &Self) -> bool {
-        self.pred == other.pred
-            && self.args.as_slice() == other.args.as_slice()
-            && self.old_cid == other.old_cid
-    }
-}
-
-impl Eq for AliveRec {}
-
-impl Ord for AliveRec {
-    fn cmp(&self, other: &Self) -> Ordering {
-        match self.pred.cmp(&other.pred) {
-            Ordering::Equal => match self.args.as_slice().cmp(other.args.as_slice()) {
-                Ordering::Equal => self.old_cid.cmp(&other.old_cid),
-                x => x,
-            },
-            x => x,
-        }
-    }
-}
-
-impl PartialOrd for AliveRec {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
 pub(crate) fn freeze_chr(st: &ChrState) -> Vec<u8> {
     let d = match &st.data {
-        None => {
+        Some(d) if d.store.alive_count > 0 => d,
+        _ => {
             let mut w = ByteWriter::new();
             w.push_u32(0);
             w.push_u32(0);
             w.push_u32(0);
             return w.into_vec();
         }
-        Some(d) => d,
     };
-
-    if d.store.alive_count == 0 {
-        let mut w = ByteWriter::new();
-        w.push_u32(0);
-        w.push_u32(0);
-        w.push_u32(0);
-        return w.into_vec();
-    }
 
     let mut alive: Vec<AliveRec> = Vec::new();
     for (i, inst) in d.store.inst.iter().enumerate() {
@@ -2244,7 +2095,7 @@ pub(crate) fn freeze_chr(st: &ChrState) -> Vec<u8> {
         let mut toks: Vec<TokenKey> = Vec::new();
         'tok: for t in set.iter() {
             let mut cids: Vec<Cid> = Vec::new();
-            for Cid(old) in token_cids(t).iter().copied() {
+            for Cid(old) in t.cids().iter().copied() {
                 let m = *remap.get(old as usize).unwrap_or(&u32::MAX);
                 if m == u32::MAX {
                     continue 'tok;
@@ -2266,7 +2117,7 @@ pub(crate) fn freeze_chr(st: &ChrState) -> Vec<u8> {
         w.push_u32(*rid);
         w.push_u32(toks.len() as u32);
         for t in toks.iter() {
-            let cids = token_cids(t);
+            let cids = t.cids();
             w.push_u32(cids.len() as u32);
             for cid in cids {
                 w.push_u32(cid.0);
@@ -2277,15 +2128,8 @@ pub(crate) fn freeze_chr(st: &ChrState) -> Vec<u8> {
     w.into_vec()
 }
 
-fn token_cids(token: &TokenKey) -> &[Cid] {
-    match token {
-        TokenKey::Small(sv) => sv.as_slice(),
-        TokenKey::Large(sv) => sv.as_slice(),
-    }
-}
-
 fn format_token(token: &TokenKey) -> Vec<u32> {
-    token_cids(token).iter().map(|c| c.0).collect()
+    token.0.iter().map(|c| c.0).collect()
 }
 
 #[cfg(test)]
@@ -2330,7 +2174,7 @@ pub(crate) fn thaw_chr(
         let set = d.tokens.fired.get_mut(rid)?;
         for _ in 0..n_tokens {
             let k = r.read_u32()? as usize;
-            let mut sv: SmallVec<[Cid; 8]> = SmallVec::new();
+            let mut sv: SmallVec<[Cid; 4]> = SmallVec::new();
             for _ in 0..k {
                 sv.push(Cid(r.read_u32()?));
             }
@@ -2431,11 +2275,6 @@ fn normalize_owned_uncached(
     let preds = &state.program.preds;
     let sd = Arc::make_mut(state.data.as_mut().unwrap());
     let subst = std::mem::take(&mut sd.eq_subst);
-    let subst_opt = if subst.is_empty() {
-        None
-    } else {
-        Some(subst.clone())
-    };
     if !subst.is_empty() {
         let args_changed = ChrState::apply_subst_to_data(sd, &subst, terms);
         sd.store.rebuild_indexes(preds, terms);
@@ -2449,7 +2288,66 @@ fn normalize_owned_uncached(
     }
     sd.agenda.clear();
     sd.recompute_all_args_ground();
+    let subst_opt = if subst.is_empty() {
+        None
+    } else {
+        Some(subst)
+    };
     Some((state, subst_opt))
+}
+
+/// Merge all alive constraints and propagation tokens from `od` into `md`.
+/// Both sides must belong to the same ChrProgram.
+fn merge_other_into(md: &mut ChrStateData, od: &ChrStateData, rules: &[Rule]) {
+    md.agenda.clear();
+
+    let mut remap: Vec<Option<Cid>> = vec![None; od.store.inst.len()];
+    for (idx, inst) in od.store.inst.iter().enumerate() {
+        if !inst.alive {
+            continue;
+        }
+        let cid = md.alloc_cid();
+        let other_args = od.store.args(inst);
+        let arg_start = md.store.all_args.len() as u32;
+        let arg_count = other_args.len() as u16;
+        md.store.all_args.extend_from_slice(other_args);
+        md.store.inst.push(CInstance {
+            cid,
+            pred: inst.pred,
+            arg_start,
+            arg_count,
+            alive: true,
+        });
+        remap[idx] = Some(cid);
+        md.store.alive_count += 1;
+    }
+
+    if md.all_args_ground && !od.all_args_ground {
+        md.all_args_ground = false;
+    }
+
+    for (rid, set) in od.tokens.fired.iter().enumerate() {
+        if !rules[rid].is_propagation {
+            continue;
+        }
+        for token in set.iter() {
+            let mut cids = Vec::new();
+            let mut ok = true;
+            for cid in token.cids().iter().copied() {
+                let mapped = remap.get(cid.0 as usize).and_then(|c| *c);
+                if let Some(ncid) = mapped {
+                    cids.push(ncid);
+                } else {
+                    ok = false;
+                    break;
+                }
+            }
+            if ok {
+                let new_token = TokenKey::from_cids(cids);
+                md.tokens.fired[rid].insert(new_token);
+            }
+        }
+    }
 }
 
 impl crate::constraint::ConstraintOps for ChrState {
@@ -2490,53 +2388,7 @@ impl crate::constraint::ConstraintOps for ChrState {
             (Some(_sd), Some(od)) => {
                 let mut merged = self.clone();
                 let md = Arc::make_mut(merged.data.as_mut().unwrap());
-                md.agenda.clear();
-
-                let mut remap: Vec<Option<Cid>> = vec![None; od.store.inst.len()];
-                for (idx, inst) in od.store.inst.iter().enumerate() {
-                    if !inst.alive {
-                        continue;
-                    }
-                    let cid = Cid(md.next_cid);
-                    md.next_cid = md.next_cid.saturating_add(1);
-                    let other_args = od.store.args(inst);
-                    let arg_start = md.store.all_args.len() as u32;
-                    let arg_count = other_args.len() as u16;
-                    md.store.all_args.extend_from_slice(other_args);
-                    md.store.inst.push(CInstance {
-                        cid,
-                        pred: inst.pred,
-                        arg_start,
-                        arg_count,
-                        alive: true,
-                    });
-                    remap[idx] = Some(cid);
-                    md.store.alive_count += 1;
-                }
-
-                for (rid, set) in od.tokens.fired.iter().enumerate() {
-                    if !other.program.rules[rid].is_propagation {
-                        continue;
-                    }
-                    for token in set.iter() {
-                        let mut cids = Vec::new();
-                        let mut ok = true;
-                        for cid in token_cids(token).iter().copied() {
-                            let mapped = remap.get(cid.0 as usize).and_then(|c| *c);
-                            if let Some(ncid) = mapped {
-                                cids.push(ncid);
-                            } else {
-                                ok = false;
-                                break;
-                            }
-                        }
-                        if ok {
-                            let new_token = TokenKey::from_cids(cids);
-                            md.tokens.fired[rid].insert(new_token);
-                        }
-                    }
-                }
-
+                merge_other_into(md, od, &self.program.rules);
                 Some(merged)
             }
         }
@@ -2663,61 +2515,8 @@ impl crate::constraint::ConstraintOps for ChrState {
             (None, Some(_)) => Some(other),
             (Some(_), None) => Some(self),
             (Some(_), Some(od)) => {
-                // Reuse self's allocation instead of cloning.
                 let md = Arc::make_mut(self.data.as_mut().unwrap());
-                md.agenda.clear();
-
-                let mut remap: Vec<Option<Cid>> = vec![None; od.store.inst.len()];
-                for (idx, inst) in od.store.inst.iter().enumerate() {
-                    if !inst.alive {
-                        continue;
-                    }
-                    let cid = Cid(md.next_cid);
-                    md.next_cid = md.next_cid.saturating_add(1);
-                    let other_args = od.store.args(inst);
-                    let arg_start = md.store.all_args.len() as u32;
-                    let arg_count = other_args.len() as u16;
-                    md.store.all_args.extend_from_slice(other_args);
-                    md.store.inst.push(CInstance {
-                        cid,
-                        pred: inst.pred,
-                        arg_start,
-                        arg_count,
-                        alive: true,
-                    });
-                    remap[idx] = Some(cid);
-                    md.store.alive_count += 1;
-                }
-
-                // Update all_args_ground: if self was ground and other's alive args are all ground,
-                // combined is still ground. Otherwise recompute.
-                if md.all_args_ground && !od.all_args_ground {
-                    md.all_args_ground = false;
-                }
-
-                for (rid, set) in od.tokens.fired.iter().enumerate() {
-                    if !other.program.rules[rid].is_propagation {
-                        continue;
-                    }
-                    for token in set.iter() {
-                        let mut cids = Vec::new();
-                        let mut ok = true;
-                        for cid in token_cids(token).iter().copied() {
-                            let mapped = remap.get(cid.0 as usize).and_then(|c| *c);
-                            if let Some(ncid) = mapped {
-                                cids.push(ncid);
-                            } else {
-                                ok = false;
-                                break;
-                            }
-                        }
-                        if ok {
-                            let new_token = TokenKey::from_cids(cids);
-                            md.tokens.fired[rid].insert(new_token);
-                        }
-                    }
-                }
-
+                merge_other_into(md, od, &self.program.rules);
                 Some(self)
             }
         }

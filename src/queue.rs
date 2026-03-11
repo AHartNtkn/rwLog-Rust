@@ -1,7 +1,7 @@
 use crate::nf::NF;
 use crossbeam_channel::{Receiver, RecvTimeoutError, Sender, TryRecvError, TrySendError};
+#[cfg(test)]
 use parking_lot::Mutex;
-use rustc_hash::FxHashSet;
 use std::hash::Hash;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -209,10 +209,6 @@ impl<C> AnswerReceiver<C> {
 
 pub enum AnswerSink<C> {
     Queue(AnswerSender<C>),
-    DedupQueue {
-        sender: AnswerSender<C>,
-        seen: Arc<Mutex<FxHashSet<NF<C>>>>,
-    },
     #[cfg(test)]
     Collector(Arc<Mutex<Vec<NF<C>>>>),
 }
@@ -221,23 +217,9 @@ impl<C: Clone + Eq + Hash> AnswerSink<C> {
     pub fn push(&mut self, nf: NF<C>) -> SinkResult {
         match self {
             AnswerSink::Queue(sender) => sender.try_send(nf),
-            AnswerSink::DedupQueue { sender, seen } => {
-                let mut guard = seen.lock();
-                if guard.contains(&nf) {
-                    return SinkResult::Accepted;
-                }
-                match sender.try_send(nf.clone()) {
-                    SinkResult::Accepted => {
-                        guard.insert(nf);
-                        SinkResult::Accepted
-                    }
-                    other => other,
-                }
-            }
             #[cfg(test)]
             AnswerSink::Collector(out) => {
-                let mut guard = out.lock();
-                guard.push(nf);
+                out.lock().push(nf);
                 SinkResult::Accepted
             }
         }
@@ -246,7 +228,6 @@ impl<C: Clone + Eq + Hash> AnswerSink<C> {
     pub fn blocked_on(&self) -> Option<BlockedOn> {
         match self {
             AnswerSink::Queue(sender) => Some(sender.blocked_on()),
-            AnswerSink::DedupQueue { sender, .. } => Some(sender.blocked_on()),
             #[cfg(test)]
             AnswerSink::Collector(_) => None,
         }

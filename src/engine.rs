@@ -159,7 +159,7 @@ mod tests {
     use crate::kernel::dual_nf;
     use crate::nf::{direct_rule_terms, NF};
     use crate::parser::Parser;
-    use crate::parser::{ChrConstraintBuilder, ConstraintBuilder};
+    use crate::parser::{ChrConstraintBuilder, ConstraintBuilder, RelDef};
     use crate::rel::dual;
     use crate::rel::Rel;
     use crate::repl::split_statements;
@@ -184,7 +184,7 @@ mod tests {
                 continue;
             }
             if line.starts_with("rel ") {
-                if let Some((_, rel)) = parser.parse_rel_def(line).expect("parse rel def") {
+                if let RelDef::Relation(_, rel) = parser.parse_rel_def(line).expect("parse rel def") {
                     all_rels.push(rel);
                 }
             }
@@ -269,13 +269,7 @@ rel app {
 }
     "#;
 
-    fn peano_str(n: usize) -> String {
-        if n == 0 {
-            "z".to_string()
-        } else {
-            format!("(s {})", peano_str(n - 1))
-        }
-    }
+    use crate::perf_corpus::peano as peano_str;
 
     fn assert_simple_eval(query: &str, input: &str, expected: &str) {
         let mut parser = Parser::new();
@@ -325,6 +319,99 @@ rel app {
             }
         }
         Err("did not exhaust within step limit")
+    }
+
+    /// Parse a query and collect all answers (no CHR constraints).
+    fn collect_query_answers(query_str: &str) -> Vec<NF<()>> {
+        let mut parser = Parser::new();
+        let rel = parser.parse_rel_body(query_str).expect("parse query");
+        let terms = parser.take_terms();
+        let mut engine: Engine<()> = Engine::new(rel, terms);
+        engine.collect_answers()
+    }
+
+    /// Create a CHR engine from a definition string and query string.
+    /// Returns the engine and parser (for access to symbols).
+    fn chr_engine(
+        def: &str,
+        query_str: &str,
+    ) -> (Engine<ChrState>, Parser<ChrConstraintBuilder>) {
+        let mut parser = Parser::with_chr();
+        let (_rel, env) = parse_rel_def_with_env_chr(&mut parser, def);
+        let query = parser.parse_rel_body(query_str).expect("parse query");
+        let terms = parser.take_terms();
+        let engine = Engine::new_with_env(query, terms, env);
+        (engine, parser)
+    }
+
+    /// Run engine.step() up to max_steps, collecting up to max_answers emitted NFs
+    /// with eprintln tracing. Returns collected answers.
+    fn collect_answers_traced(
+        engine: &mut Engine<ChrState>,
+        symbols: &SymbolStore,
+        label: &str,
+        max_steps: usize,
+        max_answers: usize,
+    ) -> Vec<NF<ChrState>> {
+        let mut answers = Vec::new();
+        let mut total_steps = 0;
+        loop {
+            if total_steps >= max_steps {
+                break;
+            }
+            match engine.step() {
+                StepResult::Emit(nf) => {
+                    let rendered = engine
+                        .format_nf(&nf, symbols)
+                        .unwrap_or_else(|_| "<error>".to_string());
+                    eprintln!(
+                        "  {} answer {}: {} (step {})",
+                        label,
+                        answers.len() + 1,
+                        rendered,
+                        total_steps
+                    );
+                    answers.push(nf);
+                    if answers.len() >= max_answers {
+                        break;
+                    }
+                }
+                StepResult::Exhausted => {
+                    eprintln!("  {} exhausted at step {}", label, total_steps);
+                    break;
+                }
+                StepResult::Continue => {}
+            }
+            total_steps += 1;
+        }
+        eprintln!(
+            "  {}: {} answers in {} steps",
+            label,
+            answers.len(),
+            total_steps
+        );
+        answers
+    }
+
+    /// Run engine until first emit, assert it produced an answer, render and
+    /// eprintln it. Returns the NF.
+    fn assert_first_answer_chr(
+        engine: &mut Engine<ChrState>,
+        symbols: &SymbolStore,
+        label: &str,
+        max_steps: usize,
+    ) -> NF<ChrState> {
+        let nf = run_until_emit(engine, max_steps).unwrap_or_else(|| {
+            panic!(
+                "BUG: {} should produce answer within {} steps",
+                label, max_steps
+            )
+        });
+        let rendered = engine
+            .format_nf(&nf, symbols)
+            .unwrap_or_else(|_| "<error>".to_string());
+        eprintln!("  {}: {}", label, rendered);
+        nf
     }
 
     // ========================================================================
@@ -1599,21 +1686,19 @@ rel killer {
 
         let mut engine: Engine<()> = Engine::new(query, terms);
 
-        // CRITICAL: Must terminate within bounded steps
-        let max_steps = 1000;
-        let mut step_count = 0;
+        // CRITICAL: Must terminate within bounded answers
+        let max_answers = 1000;
         let mut answers = Vec::new();
 
-        while step_count < max_steps {
+        while answers.len() < max_answers {
             match engine.next() {
                 Some(nf) => answers.push(nf),
                 None => break,
             }
-            step_count += 1;
         }
 
         assert!(
-            step_count < max_steps,
+            answers.len() < max_answers,
             "TERMINATION FAILURE: recursive relation with constraint did not terminate"
         );
         // Should find exactly one answer: (s z) -> (s z) from base-like path
@@ -1630,10 +1715,7 @@ rel add {
 }
 "#;
 
-        let (_, rel_def) = parser
-            .parse_rel_def(def)
-            .expect("parse add")
-            .expect("not a macro");
+        let (_, rel_def) = parser.parse_rel_def(def).expect("parse add").into_relation();
         let env = match &rel_def {
             Rel::Fix(id, body) => Env::new().bind(*id, body.clone()),
             _ => Env::new(),
@@ -1644,20 +1726,18 @@ rel add {
         let terms = parser.take_terms();
         let mut engine: Engine<()> = Engine::new_with_env(query, terms, env);
 
-        let max_steps = 2000;
-        let mut step_count = 0;
+        let max_answers = 2000;
         let mut answers = Vec::new();
 
-        while step_count < max_steps {
+        while answers.len() < max_answers {
             match engine.next() {
                 Some(nf) => answers.push(nf),
                 None => break,
             }
-            step_count += 1;
         }
 
         assert!(
-            step_count < max_steps,
+            answers.len() < max_answers,
             "TERMINATION FAILURE: add ; id_(s z) did not terminate"
         );
         assert!(
@@ -1797,35 +1877,10 @@ rel add {
     // ------------------------------------------------------------------------
 
     fn treecalc_app_case(input: &str, expected: &str) {
-        let mut parser = Parser::new();
-        let def = include_str!("../examples/treecalc.txt");
-        let (_app_rel, env) = parse_rel_def_with_env(&mut parser, def);
-
-        let query = parser
-            .parse_rel_body(&format!("@{} ; app", input))
-            .expect("parse app query");
-        let input_term = parser.parse_term(input).expect("parse input").term_id;
-        let expected_term = parser.parse_term(expected).expect("parse expected").term_id;
-
-        let mut terms = parser.take_terms();
-        let expected_nf = NF::factor(input_term, expected_term, (), &mut terms);
-
-        let mut engine: Engine<()> = Engine::new_with_env(query, terms, env);
-        let first = engine.next();
-        assert!(
-            first.is_some(),
-            "Expected treecalc answer for input {}",
-            input
-        );
-        assert_eq!(
-            first.unwrap(),
-            expected_nf,
-            "Treecalc head result mismatch for input {}",
-            input
-        );
+        treecalc_case(input, expected, "app");
     }
 
-    fn treecalc_app_case_with_limit(input: &str, expected: &str, query_suffix: &str) {
+    fn treecalc_case(input: &str, expected: &str, query_suffix: &str) {
         let mut parser = Parser::new();
         let def = include_str!("../examples/treecalc.txt");
         let (_app_rel, env) = parse_rel_def_with_env(&mut parser, def);
@@ -1959,17 +2014,12 @@ rel add {
         // The test checks that every emitted answer has a clean LHS. The
         // query may not produce valid answers (the buggy answer was the
         // only one found before the fix), so we don't require any answers.
-        let mut parser = Parser::with_chr();
-        let (_app_rel, env) = parse_rel_def_with_env_chr(&mut parser, PROGRAM_SYNTH_DEF);
-
         let query_str = concat!(
             "[[$x { (no_c $x) } -> (f $x (c z))] ; app ; ",
             "[$x -> (f $x (c (s z)))] ; app ; ",
             "@(a (a (c (s z)) (c z)) (c z))]"
         );
-        let query = parser.parse_rel_body(query_str).expect("parse query");
-        let terms = parser.take_terms();
-        let mut engine: Engine<ChrState> = Engine::new_with_env(query, terms, env);
+        let (mut engine, parser) = chr_engine(PROGRAM_SYNTH_DEF, query_str);
         // Use a minimal step limit. With the old buggy cache hash, the
         // invalid answer appeared almost immediately (~0.21s). With the fix,
         // no answers appear because invalid branches are correctly pruned.
@@ -2220,7 +2270,7 @@ rel add {
 
     #[test]
     fn treecalc_app_and_group_two_conjuncts_example_9() {
-        treecalc_app_case_with_limit(
+        treecalc_case(
             "(f (f (f l (b l)) (f (b l) (b l))) (f l (f (b l) (b l))))",
             "(f l l)",
             "[app & app]",
@@ -2229,7 +2279,7 @@ rel add {
 
     #[test]
     fn treecalc_app_and_group_nested_conjuncts_example_9() {
-        treecalc_app_case_with_limit(
+        treecalc_case(
             "(f (f (f l (b l)) (f (b l) (b l))) (f l (f (b l) (b l))))",
             "(f l l)",
             "[[app & app] & app]",
@@ -2238,7 +2288,7 @@ rel add {
 
     #[test]
     fn treecalc_app_and_group_three_conjuncts_example_9() {
-        treecalc_app_case_with_limit(
+        treecalc_case(
             "(f (f (f l (b l)) (f (b l) (b l))) (f l (f (b l) (b l))))",
             "(f l l)",
             "[app & app & app]",
@@ -2247,14 +2297,7 @@ rel add {
 
     #[test]
     fn seq_with_and_non_iso_left_boundary_does_not_distribute() {
-        let mut parser = Parser::new();
-        let rel = parser
-            .parse_rel_body("[[c -> a] | [c -> b]] ; [[a -> z] & [b -> z]]")
-            .expect("parse query");
-        let terms = parser.take_terms();
-        let mut engine: Engine<()> = Engine::new(rel, terms);
-
-        let answers = engine.collect_answers();
+        let answers = collect_query_answers("[[c -> a] | [c -> b]] ; [[a -> z] & [b -> z]]");
         assert!(
             answers.is_empty(),
             "Non-iso left boundary must not distribute across And"
@@ -2263,14 +2306,7 @@ rel add {
 
     #[test]
     fn seq_with_and_non_iso_right_boundary_does_not_distribute() {
-        let mut parser = Parser::new();
-        let rel = parser
-            .parse_rel_body("[[a -> z] & [b -> z]] ; [[c -> a] | [c -> b]]")
-            .expect("parse query");
-        let terms = parser.take_terms();
-        let mut engine: Engine<()> = Engine::new(rel, terms);
-
-        let answers = engine.collect_answers();
+        let answers = collect_query_answers("[[a -> z] & [b -> z]] ; [[c -> a] | [c -> b]]");
         assert!(
             answers.is_empty(),
             "Non-iso right boundary must not distribute across And"
@@ -2279,21 +2315,14 @@ rel add {
 
     #[test]
     fn and_associativity_simple_equivalence() {
-        let mut parser = Parser::new();
-        let rel_left = parser
-            .parse_rel_body("[[a -> a] & [[a -> a] & [a -> a]]]")
-            .expect("parse left");
-        let terms_left = parser.take_terms();
-        let mut engine_left: Engine<()> = Engine::new(rel_left, terms_left);
-        let answers_left: HashSet<NF<()>> = engine_left.collect_answers().into_iter().collect();
-
-        let mut parser = Parser::new();
-        let rel_right = parser
-            .parse_rel_body("[[[a -> a] & [a -> a]] & [a -> a]]")
-            .expect("parse right");
-        let terms_right = parser.take_terms();
-        let mut engine_right: Engine<()> = Engine::new(rel_right, terms_right);
-        let answers_right: HashSet<NF<()>> = engine_right.collect_answers().into_iter().collect();
+        let answers_left: HashSet<NF<()>> =
+            collect_query_answers("[[a -> a] & [[a -> a] & [a -> a]]]")
+                .into_iter()
+                .collect();
+        let answers_right: HashSet<NF<()>> =
+            collect_query_answers("[[[a -> a] & [a -> a]] & [a -> a]]")
+                .into_iter()
+                .collect();
 
         assert_eq!(
             answers_left, answers_right,
@@ -2304,21 +2333,8 @@ rel add {
 
     #[test]
     fn and_associativity_with_disjoint_branch_is_empty() {
-        let mut parser = Parser::new();
-        let rel_left = parser
-            .parse_rel_body("[[a -> a] & [[a -> a] & [b -> b]]]")
-            .expect("parse left");
-        let terms_left = parser.take_terms();
-        let mut engine_left: Engine<()> = Engine::new(rel_left, terms_left);
-        let answers_left = engine_left.collect_answers();
-
-        let mut parser = Parser::new();
-        let rel_right = parser
-            .parse_rel_body("[[[a -> a] & [a -> a]] & [b -> b]]")
-            .expect("parse right");
-        let terms_right = parser.take_terms();
-        let mut engine_right: Engine<()> = Engine::new(rel_right, terms_right);
-        let answers_right = engine_right.collect_answers();
+        let answers_left = collect_query_answers("[[a -> a] & [[a -> a] & [b -> b]]]");
+        let answers_right = collect_query_answers("[[[a -> a] & [a -> a]] & [b -> b]]");
 
         assert!(
             answers_left.is_empty(),
@@ -2576,14 +2592,7 @@ rel add {
         ]));
 
         let mut engine: Engine<()> = Engine::new(query, terms);
-
-        let mut answers = Vec::new();
-        for _ in 0..50 {
-            match engine.next() {
-                Some(nf) => answers.push(nf),
-                None => break,
-            }
-        }
+        let answers: Vec<_> = engine.by_ref().take(50).collect();
 
         assert!(
             !answers.is_empty(),
@@ -2642,25 +2651,13 @@ rel add {
         let rel = Rel::Or(Arc::new(seq), Arc::new(Rel::Atom(Arc::new(nf_d))));
 
         let mut engine: Engine<()> = Engine::new(rel.clone(), terms);
-        let mut outputs = Vec::new();
-        for _ in 0..10 {
-            match engine.next() {
-                Some(nf) => outputs.push(nf),
-                None => break,
-            }
-        }
+        let outputs: Vec<_> = engine.by_ref().take(10).collect();
 
-        let mut terms = std::mem::take(&mut engine.terms);
+        let mut terms = engine.into_terms();
         let expected: Vec<NF<()>> = outputs.iter().map(|nf| dual_nf(nf, &mut terms)).collect();
         let dual_rel = dual(&rel, &mut terms);
         let mut dual_engine: Engine<()> = Engine::new(dual_rel, terms);
-        let mut dual_outputs = Vec::new();
-        for _ in 0..outputs.len() {
-            match dual_engine.next() {
-                Some(nf) => dual_outputs.push(nf),
-                None => break,
-            }
-        }
+        let dual_outputs: Vec<_> = dual_engine.by_ref().take(outputs.len()).collect();
 
         assert_eq!(dual_outputs, expected);
     }
@@ -2706,32 +2703,18 @@ rel lamEq {
     /// Currently, requesting the second answer hangs.
     #[test]
     fn lam_eq_beta_under_lam_does_not_hang() {
-        let mut parser = Parser::with_chr();
-        let (_rel, env) = parse_rel_def_with_env_chr(&mut parser, LAM_EQ_DEF);
-
         let query_str =
             "(lam $x (app (lam $x $x) $z)) { (var $x) } -> (lam $x (app (lam $x $x) $z)) ; lamEq";
-        let query = parser.parse_rel_body(query_str).expect("parse lamEq query");
-        let terms = parser.take_terms();
+        let (mut engine, parser) = chr_engine(LAM_EQ_DEF, query_str);
 
-        let mut engine: Engine<ChrState> = Engine::new_with_env(query, terms, env);
-
-        // First answer should be the identity - get it
-        let max_steps = 100_000;
-        let first = run_until_emit(&mut engine, max_steps);
-        assert!(
-            first.is_some(),
-            "Expected lamEq identity answer within {} steps",
-            max_steps
-        );
+        // First answer should be the identity
+        assert_first_answer_chr(&mut engine, parser.symbols(), "lamEq identity", 100_000);
 
         // Second answer should be the beta-reduced form (lam $x $z)
-        // This is where the hang occurs
-        let second = run_until_emit(&mut engine, max_steps);
+        let second = run_until_emit(&mut engine, 100_000);
         assert!(
             second.is_some(),
-            "BUG: lamEq should produce beta-reduced answer (lam $x $z) within {} steps, but it hangs",
-            max_steps
+            "BUG: lamEq should produce beta-reduced answer (lam $x $z) within 100000 steps, but it hangs",
         );
     }
 
@@ -2740,46 +2723,14 @@ rel lamEq {
     /// produce `(app (lam $x $x) $z) -> $z`?
     #[test]
     fn lam_eq_bare_beta_reduction() {
-        let mut parser = Parser::with_chr();
-        let (_rel, env) = parse_rel_def_with_env_chr(&mut parser, LAM_EQ_DEF);
-
-        // Direct beta reduction without the outer lambda
         let query_str = "(app (lam $x $x) $z) { (var $x) } -> (app (lam $x $x) $z) ; lamEq";
-        let query = parser.parse_rel_body(query_str).expect("parse lamEq query");
-        let terms = parser.take_terms();
-
-        let mut engine: Engine<ChrState> = Engine::new_with_env(query, terms, env);
-
-        let max_steps = 100_000;
-
-        // Collect answers with step counting
-        let mut answers = Vec::new();
-        let mut total_steps = 0;
-        loop {
-            if total_steps >= max_steps {
-                break;
-            }
-            match engine.step() {
-                StepResult::Emit(nf) => {
-                    let rendered = engine
-                        .format_nf(&nf, parser.symbols())
-                        .unwrap_or_else(|_| "<error>".to_string());
-                    eprintln!("  bare beta answer {}: {}", answers.len() + 1, rendered);
-                    answers.push(nf);
-                    if answers.len() >= 10 {
-                        break;
-                    }
-                }
-                StepResult::Exhausted => break,
-                StepResult::Continue => {}
-            }
-            total_steps += 1;
-        }
-
-        eprintln!(
-            "  bare beta: {} answers in {} steps",
-            answers.len(),
-            total_steps
+        let (mut engine, parser) = chr_engine(LAM_EQ_DEF, query_str);
+        let answers = collect_answers_traced(
+            &mut engine,
+            parser.symbols(),
+            "bare beta",
+            100_000,
+            10,
         );
         assert!(
             answers.len() >= 2,
@@ -2791,51 +2742,13 @@ rel lamEq {
     /// Diagnostic: does lamEq by itself produce any answers?
     #[test]
     fn lam_eq_standalone_produces_answers() {
-        let mut parser = Parser::with_chr();
-        let (_rel, env) = parse_rel_def_with_env_chr(&mut parser, LAM_EQ_DEF);
-
-        let query_str = "lamEq";
-        let query = parser.parse_rel_body(query_str).expect("parse lamEq");
-        let terms = parser.take_terms();
-
-        let mut engine: Engine<ChrState> = Engine::new_with_env(query, terms, env);
-
-        let max_steps = 100_000;
-        let mut answers = Vec::new();
-        let mut total_steps = 0;
-        loop {
-            if total_steps >= max_steps {
-                break;
-            }
-            match engine.step() {
-                StepResult::Emit(nf) => {
-                    let rendered = engine
-                        .format_nf(&nf, parser.symbols())
-                        .unwrap_or_else(|_| "<error>".to_string());
-                    eprintln!(
-                        "  lamEq standalone answer {}: {} (step {})",
-                        answers.len() + 1,
-                        rendered,
-                        total_steps
-                    );
-                    answers.push(nf);
-                    if answers.len() >= 5 {
-                        break;
-                    }
-                }
-                StepResult::Exhausted => {
-                    eprintln!("  lamEq standalone exhausted at step {}", total_steps);
-                    break;
-                }
-                StepResult::Continue => {}
-            }
-            total_steps += 1;
-        }
-
-        eprintln!(
-            "  lamEq standalone: {} answers in {} steps",
-            answers.len(),
-            total_steps
+        let (mut engine, parser) = chr_engine(LAM_EQ_DEF, "lamEq");
+        let answers = collect_answers_traced(
+            &mut engine,
+            parser.symbols(),
+            "lamEq standalone",
+            100_000,
+            5,
         );
         assert!(
             !answers.is_empty(),
@@ -2889,28 +2802,9 @@ rel s {
     /// Inlining the matching eval branch works — recursive eval calls inside are fine.
     #[test]
     fn simplelam_k_eval_inlined_branch_works() {
-        let mut parser = Parser::with_chr();
-        let (_rel, env) = parse_rel_def_with_env_chr(&mut parser, SIMPLELAM_DEF);
-
-        // Inline only the matching branch (case 3: lam with nil spine)
-        // but still use eval recursively inside
         let query_str = r#"k ; $p -> (pair $p nil) ; [(pair (lam $x $y) nil) -> (lam $x $r) & [(pair (lam $x $y) nil) -> (pair $y nil) ; eval ; $r -> (lam $x $r)]]"#;
-        let query = parser.parse_rel_body(query_str).expect("parse inlined query");
-        let terms = parser.take_terms();
-
-        let mut engine: Engine<ChrState> = Engine::new_with_env(query, terms, env);
-
-        let max_steps = 500_000;
-        let first = run_until_emit(&mut engine, max_steps);
-        assert!(
-            first.is_some(),
-            "BUG: inlined eval branch should produce answer within {} steps",
-            max_steps
-        );
-        let rendered = engine
-            .format_nf(first.as_ref().unwrap(), parser.symbols())
-            .unwrap_or_else(|_| "<error>".to_string());
-        eprintln!("  simplelam inlined: {}", rendered);
+        let (mut engine, parser) = chr_engine(SIMPLELAM_DEF, query_str);
+        assert_first_answer_chr(&mut engine, parser.symbols(), "simplelam inlined", 500_000);
     }
 
     /// `k ; $p -> (pair $p nil) ; eval` must produce an answer.
@@ -2919,26 +2813,8 @@ rel s {
     /// the right side to explore its full infinite search space.
     #[test]
     fn simplelam_k_eval_full_must_not_starve() {
-        let mut parser = Parser::with_chr();
-        let (_rel, env) = parse_rel_def_with_env_chr(&mut parser, SIMPLELAM_DEF);
-
-        let query_str = "k ; $p -> (pair $p nil) ; eval";
-        let query = parser.parse_rel_body(query_str).expect("parse full eval query");
-        let terms = parser.take_terms();
-
-        let mut engine: Engine<ChrState> = Engine::new_with_env(query, terms, env);
-
-        let max_steps = 500_000;
-        let first = run_until_emit(&mut engine, max_steps);
-        assert!(
-            first.is_some(),
-            "BUG: full eval should produce answer within {} steps",
-            max_steps
-        );
-        let rendered = engine
-            .format_nf(first.as_ref().unwrap(), parser.symbols())
-            .unwrap_or_else(|_| "<error>".to_string());
-        eprintln!("  simplelam full eval: {}", rendered);
+        let (mut engine, parser) = chr_engine(SIMPLELAM_DEF, "k ; $p -> (pair $p nil) ; eval");
+        assert_first_answer_chr(&mut engine, parser.symbols(), "simplelam full eval", 500_000);
     }
 
     /// Evaluate S applied to K: `(S K)` should reduce to a lambda term.
@@ -2946,27 +2822,10 @@ rel s {
     /// then evaluates it.
     #[test]
     fn simplelam_sk_eval_must_produce_answer() {
-        let mut parser = Parser::with_chr();
-        let (_rel, env) = parse_rel_def_with_env_chr(&mut parser, SIMPLELAM_DEF);
-
         let query_str =
             "[[s ; $s -> (a $s $k1)] & [k ; $k1 -> (a $s $k1)]] ; $p -> (pair $p nil) ; eval";
-        let query = parser.parse_rel_body(query_str).expect("parse SK eval query");
-        let terms = parser.take_terms();
-
-        let mut engine: Engine<ChrState> = Engine::new_with_env(query, terms, env);
-
-        let max_steps = 500_000;
-        let first = run_until_emit(&mut engine, max_steps);
-        assert!(
-            first.is_some(),
-            "BUG: SK eval should produce answer within {} steps",
-            max_steps
-        );
-        let rendered = engine
-            .format_nf(first.as_ref().unwrap(), parser.symbols())
-            .unwrap_or_else(|_| "<error>".to_string());
-        eprintln!("  simplelam SK eval: {}", rendered);
+        let (mut engine, parser) = chr_engine(SIMPLELAM_DEF, query_str);
+        assert_first_answer_chr(&mut engine, parser.symbols(), "simplelam SK eval", 500_000);
     }
 
     /// Evaluate S(K,K): `(a (a s k) k)` should reduce to the identity combinator.
@@ -2974,45 +2833,31 @@ rel s {
     /// The result is `(lam x (var x))` — the identity function.
     #[test]
     fn simplelam_skk_eval_produces_identity() {
-        let mut parser = Parser::with_chr();
-        let (_rel, env) = parse_rel_def_with_env_chr(&mut parser, SIMPLELAM_DEF);
-
         let query_str = concat!(
             "[[s ; $s -> (a (a $s $k1) $k2)]",
             " & [k ; $k1 -> (a (a $s $k1) $k2)]",
             " & [k ; $k2 -> (a (a $s $k1) $k2)]]",
             " ; $p -> (pair $p nil) ; eval"
         );
-        let query = parser.parse_rel_body(query_str).expect("parse SKK eval query");
-        let terms = parser.take_terms();
-
-        let mut engine: Engine<ChrState> = Engine::new_with_env(query, terms, env);
-
-        let max_steps = 500_000;
-        let first = run_until_emit(&mut engine, max_steps);
-        assert!(
-            first.is_some(),
-            "BUG: SKK eval should produce answer within {} steps",
-            max_steps
+        let (mut engine, parser) = chr_engine(SIMPLELAM_DEF, query_str);
+        let nf = assert_first_answer_chr(
+            &mut engine,
+            parser.symbols(),
+            "simplelam SKK eval",
+            500_000,
         );
-        let rendered = engine
-            .format_nf(first.as_ref().unwrap(), parser.symbols())
-            .unwrap_or_else(|_| "<error>".to_string());
-        eprintln!("  simplelam SKK eval: {}", rendered);
 
-        // Strip constraints: "LHS { ... } -> RHS" becomes "LHS -> RHS"
-        let without_constraints = if let Some(open) = rendered.find('{') {
-            let close = rendered.find('}').expect("unmatched { in rendered NF");
-            let before = rendered[..open].trim_end();
-            let after = rendered[close + 1..].trim_start();
-            format!("{} {}", before, after)
-        } else {
-            rendered.clone()
-        };
+        // Structurally verify the RHS is (lam $1 (var $1)) — the identity combinator.
+        let (lhs, rhs) =
+            direct_rule_terms(&nf, engine.terms_mut()).expect("expected unary rule");
+        let lhs_str =
+            crate::term::format_term(lhs, engine.terms_mut(), parser.symbols()).unwrap();
+        let rhs_str =
+            crate::term::format_term(rhs, engine.terms_mut(), parser.symbols()).unwrap();
         assert_eq!(
-            without_constraints, "$0 -> (lam $1 (var $1))",
-            "SKK should evaluate to the identity combinator, got: {}",
-            rendered
+            format!("{} -> {}", lhs_str, rhs_str),
+            "$0 -> (lam $1 (var $1))",
+            "SKK should evaluate to the identity combinator"
         );
     }
 
@@ -3022,74 +2867,29 @@ rel s {
     /// from finding the answer.
     #[test]
     fn program_synth_flip_must_not_hang() {
-        let mut parser = Parser::with_chr();
-        let (_app_rel, env) = parse_rel_def_with_env_chr(&mut parser, PROGRAM_SYNTH_DEF);
-
         let query_str = concat!(
             "[[$x { (no_c $x) } -> (f $x (c z))] ; app ; ",
             "[$x -> (f $x (c (s z)))] ; app ; @(a (c (s z)) (c z))]"
         );
-        let query = parser.parse_rel_body(query_str).expect("parse query");
-        let terms = parser.take_terms();
-        let mut engine: Engine<ChrState> = Engine::new_with_env(query, terms, env);
-
-        let max_steps = 500_000;
-        let first = run_until_emit(&mut engine, max_steps);
-        assert!(
-            first.is_some(),
-            "BUG: flip synthesis should produce answer within {} steps",
-            max_steps
+        let (mut engine, parser) = chr_engine(PROGRAM_SYNTH_DEF, query_str);
+        assert_first_answer_chr(
+            &mut engine,
+            parser.symbols(),
+            "flip synthesis",
+            500_000,
         );
     }
 
     #[test]
     fn lam_eq_compose_plain_identity() {
-        let mut parser = Parser::with_chr();
-        let (_rel, env) = parse_rel_def_with_env_chr(&mut parser, LAM_EQ_DEF);
-
-        // No constraint - just identity for app term composed with lamEq
         let query_str = "(app (lam $x $x) $z) -> (app (lam $x $x) $z) ; lamEq";
-        let query = parser.parse_rel_body(query_str).expect("parse lamEq query");
-        let terms = parser.take_terms();
-
-        let mut engine: Engine<ChrState> = Engine::new_with_env(query, terms, env);
-
-        let max_steps = 100_000;
-        let mut answers = Vec::new();
-        let mut total_steps = 0;
-        loop {
-            if total_steps >= max_steps {
-                break;
-            }
-            match engine.step() {
-                StepResult::Emit(nf) => {
-                    let rendered = engine
-                        .format_nf(&nf, parser.symbols())
-                        .unwrap_or_else(|_| "<error>".to_string());
-                    eprintln!(
-                        "  plain id+lamEq answer {}: {} (step {})",
-                        answers.len() + 1,
-                        rendered,
-                        total_steps
-                    );
-                    answers.push(nf);
-                    if answers.len() >= 5 {
-                        break;
-                    }
-                }
-                StepResult::Exhausted => {
-                    eprintln!("  plain id+lamEq exhausted at step {}", total_steps);
-                    break;
-                }
-                StepResult::Continue => {}
-            }
-            total_steps += 1;
-        }
-
-        eprintln!(
-            "  plain id+lamEq: {} answers in {} steps",
-            answers.len(),
-            total_steps
+        let (mut engine, parser) = chr_engine(LAM_EQ_DEF, query_str);
+        let answers = collect_answers_traced(
+            &mut engine,
+            parser.symbols(),
+            "plain id+lamEq",
+            100_000,
+            5,
         );
         assert!(
             answers.len() >= 2,

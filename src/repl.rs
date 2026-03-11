@@ -8,12 +8,34 @@
 
 use crate::chr::ChrState;
 use crate::engine::Engine;
-use crate::parser::{ChrConstraintBuilder, Parser};
+use crate::parser::{ChrConstraintBuilder, Parser, RelDef};
 use crate::rel::Rel;
 use crate::work::Env;
 use std::collections::HashMap;
+use std::fmt;
 
 type ReplConstraint = ChrState;
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum ReplError {
+    Quit,
+    Error(String),
+}
+
+impl fmt::Display for ReplError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ReplError::Quit => write!(f, "quit"),
+            ReplError::Error(msg) => write!(f, "{msg}"),
+        }
+    }
+}
+
+impl From<String> for ReplError {
+    fn from(msg: String) -> Self {
+        ReplError::Error(msg)
+    }
+}
 
 /// REPL state.
 pub struct Repl {
@@ -35,7 +57,7 @@ impl Repl {
     }
 
     /// Process a single command line.
-    pub fn process_input(&mut self, input: &str) -> Result<Option<String>, String> {
+    pub fn process_input(&mut self, input: &str) -> Result<Option<String>, ReplError> {
         let line = input.trim();
 
         if line.is_empty() || line.starts_with('#') {
@@ -47,7 +69,7 @@ impl Repl {
         }
 
         if line == "quit" || line == "exit" {
-            return Err("quit".to_string());
+            return Err(ReplError::Quit);
         }
 
         if line == "list" {
@@ -64,43 +86,43 @@ impl Repl {
                     .parse()
                     .map_err(|_| "Invalid count for 'next'. Usage: next [N]".to_string())?;
                 if n == 0 {
-                    return Err("Count for 'next' must be > 0".to_string());
+                    return Err("Count for 'next' must be > 0".to_string().into());
                 }
                 n
             };
-            return self.next_answers(count);
+            return Ok(self.next_answers(count)?);
         }
 
         if line == "reset" {
-            self.reset_active_query();
+            self.finish_active_query();
             return Ok(Some("Query reset.".to_string()));
         }
 
         if let Some(path) = line.strip_prefix("load ") {
-            self.reset_active_query();
-            return self.load_file(path.trim());
+            self.finish_active_query();
+            return Ok(self.load_file(path.trim())?);
         }
 
         // Try to parse as a relation definition
         if line.starts_with("theory ") {
-            self.reset_active_query();
-            return self.define_theory(line);
+            self.finish_active_query();
+            return Ok(self.define_theory(line)?);
         }
 
         if line.starts_with("rel ") {
-            self.reset_active_query();
-            return self.define_relation(line);
+            self.finish_active_query();
+            return Ok(self.define_relation(line)?);
         }
 
-        self.reset_active_query();
-        self.run_query(line)
+        self.finish_active_query();
+        Ok(self.run_query(line)?)
     }
 
     /// Process a notebook cell.
     ///
     /// If the cell starts with `rel`, treat it as a single definition.
     /// Otherwise, process non-empty lines individually.
-    pub fn process_cell(&mut self, input: &str) -> Result<Option<String>, String> {
+    pub fn process_cell(&mut self, input: &str) -> Result<Option<String>, ReplError> {
         let trimmed = input.trim();
         if trimmed.is_empty() {
             return Ok(None);
@@ -226,11 +248,11 @@ Syntax:
             }
             if line.starts_with("rel ") {
                 match self.parser.parse_rel_def(line) {
-                    Ok(Some((name, rel))) => {
+                    Ok(RelDef::Relation(name, rel)) => {
                         pending_rels.push((name, rel));
                         count += 1;
                     }
-                    Ok(None) => {
+                    Ok(RelDef::Macro(_, _)) => {
                         macro_count += 1;
                     }
                     Err(e) => {
@@ -267,18 +289,12 @@ Syntax:
 
     fn define_relation(&mut self, input: &str) -> Result<Option<String>, String> {
         match self.parser.parse_rel_def(input) {
-            Ok(Some((name, rel))) => {
+            Ok(RelDef::Relation(name, rel)) => {
                 self.definitions.insert(name.clone(), rel);
                 Ok(Some(format!("Defined relation '{}'", name)))
             }
-            Ok(None) => {
-                // Macro definition — stored in parser. Extract name/arity for message.
-                let macros = self.parser.macro_names();
-                if let Some((name, arity)) = macros.last() {
-                    Ok(Some(format!("Defined macro '{}/{}'", name, arity)))
-                } else {
-                    Ok(Some("Defined macro".to_string()))
-                }
+            Ok(RelDef::Macro(name, arity)) => {
+                Ok(Some(format!("Defined macro '{}/{}'", name, arity)))
             }
             Err(e) => Err(format!("Parse error: {}", e)),
         }
@@ -332,10 +348,6 @@ Syntax:
         }
     }
 
-    fn reset_active_query(&mut self) {
-        self.finish_active_query();
-    }
-
     fn finish_active_query(&mut self) {
         if let Some(engine) = self.active_engine.take() {
             let terms = engine.into_terms();
@@ -345,13 +357,7 @@ Syntax:
     }
 
     fn build_env(&self) -> Env<ReplConstraint> {
-        let mut env = Env::new();
-        for rel in self.definitions.values() {
-            if let Rel::Fix(id, body) = rel {
-                env = env.bind(*id, body.clone());
-            }
-        }
-        env
+        Env::from_defs(&self.definitions)
     }
 }
 
@@ -386,8 +392,13 @@ pub fn split_statements(input: &str) -> Result<Vec<String>, String> {
         }
         current.push_str(line);
 
-        brace_depth += line.chars().filter(|&ch| ch == '{').count() as i32;
-        brace_depth -= line.chars().filter(|&ch| ch == '}').count() as i32;
+        for ch in line.chars() {
+            match ch {
+                '{' => brace_depth += 1,
+                '}' => brace_depth -= 1,
+                _ => {}
+            }
+        }
 
         if brace_depth == 0 {
             outputs.push(current.trim().to_string());

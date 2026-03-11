@@ -13,7 +13,7 @@
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 use rwlog::jupyter::{default_kernel_dir, install_kernel_spec};
-use rwlog::repl::Repl;
+use rwlog::repl::{Repl, ReplError};
 use std::io::{self, BufRead, Write};
 use std::path::PathBuf;
 
@@ -66,7 +66,7 @@ fn run_repl() {
             Ok(_) => match repl.process_input(&line) {
                 Ok(Some(output)) => println!("{}", output),
                 Ok(None) => {}
-                Err(e) if e == "quit" => {
+                Err(ReplError::Quit) => {
                     println!("Goodbye!");
                     break;
                 }
@@ -81,23 +81,22 @@ fn run_repl() {
 }
 
 fn handle_kernel(args: Vec<String>) {
-    let mut iter = args.into_iter();
-    match iter.next().as_deref() {
-        Some("install") => handle_kernel_install(iter.collect()),
-        other => handle_kernel_run(other, iter.collect()),
+    match args.first().map(|s| s.as_str()) {
+        Some("install") => handle_kernel_install(&args[1..]),
+        _ => handle_kernel_run(&args),
     }
 }
 
-fn handle_kernel_install(args: Vec<String>) {
+fn handle_kernel_install(args: &[String]) {
     let mut name = "rwlog".to_string();
     let mut dir: Option<PathBuf> = None;
-    let mut iter = args.into_iter();
+    let mut iter = args.iter();
 
     while let Some(arg) = iter.next() {
         match arg.as_str() {
             "--name" => {
                 if let Some(val) = iter.next() {
-                    name = val;
+                    name = val.clone();
                 }
             }
             "--dir" => {
@@ -140,19 +139,13 @@ fn handle_kernel_install(args: Vec<String>) {
     }
 }
 
-fn handle_kernel_run(first: Option<&str>, rest: Vec<String>) {
-    let mut connection_file: Option<String> = None;
-    let mut args = Vec::new();
-    if let Some(arg) = first {
-        args.push(arg.to_string());
-    }
-    args.extend(rest);
-
-    let mut iter = args.into_iter();
+fn handle_kernel_run(args: &[String]) {
+    let mut connection_file: Option<&str> = None;
+    let mut iter = args.iter();
     while let Some(arg) = iter.next() {
         match arg.as_str() {
             "--connection-file" | "-f" => {
-                connection_file = iter.next();
+                connection_file = iter.next().map(|s| s.as_str());
             }
             "--help" | "-h" => {
                 println!("rwlog kernel --connection-file <path>");
@@ -165,13 +158,11 @@ fn handle_kernel_run(first: Option<&str>, rest: Vec<String>) {
         }
     }
 
-    let connection_file = match connection_file {
-        Some(path) => PathBuf::from(path),
-        None => {
-            eprintln!("Missing --connection-file");
-            return;
-        }
+    let Some(path) = connection_file else {
+        eprintln!("Missing --connection-file");
+        return;
     };
+    let connection_file = PathBuf::from(path);
 
     #[cfg(feature = "jupyter")]
     {

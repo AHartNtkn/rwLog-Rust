@@ -98,16 +98,14 @@ fn bench_backtrack(c: &mut Criterion) {
                 || {
                     let mut terms = TermStore::new();
                     let symbols = SymbolStore::new();
-                    let mut rel = {
-                        let nf = make_ground_nf("A0", &symbols, &mut terms);
-                        Arc::new(Rel::Atom(Arc::new(nf)))
-                    };
-                    for idx in 1..=depth {
-                        let nf = make_ground_nf(&format!("A{idx}"), &symbols, &mut terms);
-                        let next = Arc::new(Rel::Atom(Arc::new(nf)));
-                        rel = Arc::new(Rel::Or(rel, next));
-                    }
-                    Engine::new(rel.as_ref().clone(), terms)
+                    let atoms: Vec<_> = (0..=depth)
+                        .map(|idx| {
+                            let nf = make_ground_nf(&format!("A{idx}"), &symbols, &mut terms);
+                            Arc::new(Rel::Atom(Arc::new(nf)))
+                        })
+                        .collect();
+                    let rel = build_or_chain(atoms);
+                    Engine::new(rel, terms)
                 },
                 |mut engine| black_box(engine.collect_answers()),
                 BatchSize::SmallInput,
@@ -118,31 +116,29 @@ fn bench_backtrack(c: &mut Criterion) {
     group.finish();
 }
 
-/// Benchmark Peano addition for varying input sizes.
-fn bench_peano_add(c: &mut Criterion) {
-    let mut group = c.benchmark_group("peano_add");
+/// Benchmark NF factoring for Peano-term inputs of varying sizes.
+fn bench_nf_factor_peano(c: &mut Criterion) {
+    let mut group = c.benchmark_group("nf_factor_peano");
 
     for n in [1, 3, 5] {
         group.bench_with_input(BenchmarkId::new("n", n), &n, |b, &n| {
-            let mut terms = TermStore::new();
-            let symbols = SymbolStore::new();
-
-            let z = symbols.intern("z");
-            let s = symbols.intern("s");
-            let cons = symbols.intern("cons");
-
-            // Build input: (cons peano(n) peano(n))
-            let num = build_peano(n, z, s, &terms);
-            let input_term = terms.app2(cons, num, num);
-
-            // Create an NF from this
-            let v0 = terms.var(0);
-            let _input_nf = NF::factor(input_term, v0, (), &mut terms);
-
-            b.iter(|| {
-                // Benchmark NF creation (factoring)
-                black_box(NF::factor(input_term, v0, (), &mut terms))
-            });
+            b.iter_batched(
+                || {
+                    let terms = TermStore::new();
+                    let symbols = SymbolStore::new();
+                    let z = symbols.intern("z");
+                    let s = symbols.intern("s");
+                    let cons = symbols.intern("cons");
+                    let num = build_peano(n, z, s, &terms);
+                    let input_term = terms.app2(cons, num, num);
+                    let v0 = terms.var(0);
+                    (terms, input_term, v0)
+                },
+                |(mut terms, input_term, v0)| {
+                    black_box(NF::factor(input_term, v0, (), &mut terms))
+                },
+                BatchSize::SmallInput,
+            );
         });
     }
 
@@ -154,6 +150,6 @@ criterion_group!(
     bench_step_rule,
     bench_step_alt,
     bench_backtrack,
-    bench_peano_add
+    bench_nf_factor_peano
 );
 criterion_main!(benches);

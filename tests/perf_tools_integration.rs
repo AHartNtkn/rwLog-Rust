@@ -1,116 +1,29 @@
+mod common;
+
+use common::process_helpers::*;
 use serde_json::json;
 use serde_json::Value;
 use std::fs;
-use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
-use std::sync::atomic::{AtomicU64, Ordering};
 
-static NEXT_TMP_ID: AtomicU64 = AtomicU64::new(0);
-const MANIFEST_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml");
-const EXE_SUFFIX: &str = std::env::consts::EXE_SUFFIX;
-
-fn bin_path(name: &str) -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("target")
-        .join("debug")
-        .join(format!("{name}{EXE_SUFFIX}"))
-}
-
-fn run_bin(name: &str, args: &[&str], envs: &[(&str, &str)]) -> Output {
-    let path = bin_path(name);
-    let mut cmd = if path.exists() {
-        Command::new(path)
-    } else {
-        let mut fallback = Command::new("cargo");
-        fallback
-            .arg("run")
-            .arg("--quiet")
-            .arg("--manifest-path")
-            .arg(MANIFEST_PATH)
-            .arg("--bin")
-            .arg(name)
-            .arg("--");
-        fallback
-    };
-    cmd.args(args);
-    for (k, v) in envs {
-        cmd.env(k, v);
-    }
-    cmd.output()
-        .unwrap_or_else(|e| panic!("failed to run binary '{name}': {e}"))
-}
-
-fn run_bin_in_dir(name: &str, args: &[&str], cwd: &Path) -> Output {
-    let path = bin_path(name);
-    let mut cmd = if path.exists() {
-        Command::new(path)
-    } else {
-        let mut fallback = Command::new("cargo");
-        fallback
-            .arg("run")
-            .arg("--quiet")
-            .arg("--manifest-path")
-            .arg(MANIFEST_PATH)
-            .arg("--bin")
-            .arg(name)
-            .arg("--");
-        fallback
-    };
-    cmd.args(args)
-        .current_dir(cwd)
-        .output()
-        .unwrap_or_else(|e| panic!("failed to run binary '{name}' in {}: {e}", cwd.display()))
-}
-
-fn run_bash(script_path: &str, args: &[&str]) -> Output {
-    run_bash_with_env(script_path, args, &[])
-}
-
-fn run_bash_with_env(script_path: &str, args: &[&str], envs: &[(&str, &str)]) -> Output {
-    let mut cmd = Command::new("bash");
-    cmd.arg(script_path).args(args);
-    for (k, v) in envs {
-        cmd.env(k, v);
-    }
-    cmd.output()
-        .unwrap_or_else(|e| panic!("failed to run script '{script_path}': {e}"))
-}
-
-fn assert_success(output: &Output, context: &str) {
-    if !output.status.success() {
-        panic!(
-            "{context} failed with status {:?}\nstdout:\n{}\nstderr:\n{}",
-            output.status.code(),
-            String::from_utf8_lossy(&output.stdout),
-            String::from_utf8_lossy(&output.stderr)
-        );
-    }
-}
-
-fn temp_dir(prefix: &str) -> PathBuf {
-    let mut p = std::env::temp_dir();
-    let id = NEXT_TMP_ID.fetch_add(1, Ordering::Relaxed);
-    p.push(format!("rwlog-{prefix}-{}-{}", std::process::id(), id));
-    fs::create_dir_all(&p).expect("create temp dir");
-    p
-}
-
-fn write_json(path: &Path, value: &Value) {
-    fs::write(
-        path,
-        serde_json::to_vec_pretty(value).expect("serialize json"),
-    )
-    .expect("write json");
-}
-
-fn parse_stdout_json(output: &Output, context: &str) -> Value {
-    serde_json::from_slice::<Value>(&output.stdout).unwrap_or_else(|e| {
-        panic!(
-            "{context}: failed to parse stdout as JSON: {e}\nstdout:\n{}\nstderr:\n{}",
-            String::from_utf8_lossy(&output.stdout),
-            String::from_utf8_lossy(&output.stderr)
-        )
+fn fake_environment() -> Value {
+    json!({
+        "os": "linux",
+        "arch": "x86_64",
+        "cpu_model": null,
+        "rustc_version": "rustc test",
+        "rustflags": null,
+        "timestamp_unix_s": 1,
+        "git_sha": "abc",
+        "run_id": "run1"
     })
+}
+
+fn create_probe_snapshots(history_dir: &std::path::Path, data: &[(&str, Value)]) {
+    for (name, value) in data {
+        let dir = history_dir.join(name);
+        fs::create_dir_all(&dir).unwrap_or_else(|e| panic!("create {name}: {e}"));
+        write_json(&dir.join("probe.json"), value);
+    }
 }
 
 #[test]
@@ -225,17 +138,18 @@ fn recommend_apply_and_trend_and_summary_and_diff_behave_as_expected() {
     assert!(copied_cases_text.contains("quick_gate_max_p95_us ="));
 
     let history = tmp.join("history");
-    let s1 = history.join("s1");
-    let s2 = history.join("s2");
-    fs::create_dir_all(&s1).expect("create snapshot s1");
-    fs::create_dir_all(&s2).expect("create snapshot s2");
-    write_json(
-        &s1.join("probe.json"),
-        &json!({"rows":[{"id":"id1","median_us":10.0,"p95_us":12.0}]}),
-    );
-    write_json(
-        &s2.join("probe.json"),
-        &json!({"rows":[{"id":"id1","median_us":12.0,"p95_us":14.0}]}),
+    create_probe_snapshots(
+        &history,
+        &[
+            (
+                "s1",
+                json!({"rows":[{"id":"id1","median_us":10.0,"p95_us":12.0}]}),
+            ),
+            (
+                "s2",
+                json!({"rows":[{"id":"id1","median_us":12.0,"p95_us":14.0}]}),
+            ),
+        ],
     );
 
     let trend_json = run_bin(
@@ -278,6 +192,7 @@ fn recommend_apply_and_trend_and_summary_and_diff_behave_as_expected() {
     );
     assert_eq!(trend_fail.status.code(), Some(1));
 
+    let env = fake_environment();
     let sanity_json_path = tmp.join("sanity.json");
     let gate_json_path = tmp.join("gate.json");
     let probe_json_path = tmp.join("probe.json");
@@ -286,60 +201,33 @@ fn recommend_apply_and_trend_and_summary_and_diff_behave_as_expected() {
     write_json(
         &sanity_json_path,
         &json!({
-            "environment":{
-                "os":"linux",
-                "arch":"x86_64",
-                "cpu_model":null,
-                "rustc_version":"rustc test",
-                "rustflags":null,
-                "timestamp_unix_s":1,
-                "git_sha":"abc",
-                "run_id":"run1"
-            },
-            "selected_cases":1,
-            "lint_requested":true,
-            "lint_ok":true,
-            "validate_requested":true,
-            "validate_ok":true,
-            "rows":[{"tier":"quick","category":"finite_det"}]
+            "environment": env,
+            "selected_cases": 1,
+            "lint_requested": true,
+            "lint_ok": true,
+            "validate_requested": true,
+            "validate_ok": true,
+            "rows": [{"tier": "quick", "category": "finite_det"}]
         }),
     );
     write_json(
         &gate_json_path,
         &json!({
-            "environment":{
-                "os":"linux",
-                "arch":"x86_64",
-                "cpu_model":null,
-                "rustc_version":"rustc test",
-                "rustflags":null,
-                "timestamp_unix_s":1,
-                "git_sha":"abc",
-                "run_id":"run1"
-            },
-            "samples":1,
-            "warmup":0,
-            "tolerance_pct":25.0,
-            "rows":[{"id":"id1","median_us":1.0,"p95_us":2.0,"budget_median_us":3.0,"budget_p95_us":4.0,"ok":false}],
-            "failed":true
+            "environment": env,
+            "samples": 1,
+            "warmup": 0,
+            "tolerance_pct": 25.0,
+            "rows": [{"id": "id1", "median_us": 1.0, "p95_us": 2.0, "budget_median_us": 3.0, "budget_p95_us": 4.0, "ok": false}],
+            "failed": true
         }),
     );
     write_json(
         &probe_json_path,
         &json!({
-            "environment":{
-                "os":"linux",
-                "arch":"x86_64",
-                "cpu_model":null,
-                "rustc_version":"rustc test",
-                "rustflags":null,
-                "timestamp_unix_s":1,
-                "git_sha":"abc",
-                "run_id":"run1"
-            },
-            "iters":1,
-            "phase":"end_to_end",
-            "rows":[{"id":"id1","category":"finite_det","median_us":1.0,"p95_us":2.0,"engine_steps":3,"compose_attempts":4,"meet_attempts":5}]
+            "environment": env,
+            "iters": 1,
+            "phase": "end_to_end",
+            "rows": [{"id": "id1", "category": "finite_det", "median_us": 1.0, "p95_us": 2.0, "engine_steps": 3, "compose_attempts": 4, "meet_attempts": 5}]
         }),
     );
 
@@ -529,17 +417,18 @@ fn capture_snapshot_and_trend_scripts_work() {
 fn trend_gate_script_fails_on_regression_with_env_defaults() {
     let tmp = temp_dir("trend-gate");
     let history_dir = tmp.join("history");
-    let s1 = history_dir.join("s1");
-    let s2 = history_dir.join("s2");
-    fs::create_dir_all(&s1).expect("create s1");
-    fs::create_dir_all(&s2).expect("create s2");
-    write_json(
-        &s1.join("probe.json"),
-        &json!({"rows":[{"id":"id1","median_us":10.0,"p95_us":12.0}]}),
-    );
-    write_json(
-        &s2.join("probe.json"),
-        &json!({"rows":[{"id":"id1","median_us":12.0,"p95_us":14.0}]}),
+    create_probe_snapshots(
+        &history_dir,
+        &[
+            (
+                "s1",
+                json!({"rows":[{"id":"id1","median_us":10.0,"p95_us":12.0}]}),
+            ),
+            (
+                "s2",
+                json!({"rows":[{"id":"id1","median_us":12.0,"p95_us":14.0}]}),
+            ),
+        ],
     );
 
     let out = run_bash_with_env(
@@ -566,23 +455,24 @@ fn trend_gate_script_fails_on_regression_with_env_defaults() {
 fn trend_env_compat_mode_can_fail_on_mixed_environments() {
     let tmp = temp_dir("trend-env-compat");
     let history_dir = tmp.join("history");
-    let s1 = history_dir.join("s1");
-    let s2 = history_dir.join("s2");
-    fs::create_dir_all(&s1).expect("create s1");
-    fs::create_dir_all(&s2).expect("create s2");
-    write_json(
-        &s1.join("probe.json"),
-        &json!({
-            "environment":{"os":"linux","arch":"x86_64","cpu_model":"cpu-a","rustc_version":"rustc test"},
-            "rows":[{"id":"id1","median_us":10.0,"p95_us":12.0}]
-        }),
-    );
-    write_json(
-        &s2.join("probe.json"),
-        &json!({
-            "environment":{"os":"linux","arch":"x86_64","cpu_model":"cpu-b","rustc_version":"rustc test"},
-            "rows":[{"id":"id1","median_us":12.0,"p95_us":14.0}]
-        }),
+    create_probe_snapshots(
+        &history_dir,
+        &[
+            (
+                "s1",
+                json!({
+                    "environment":{"os":"linux","arch":"x86_64","cpu_model":"cpu-a","rustc_version":"rustc test"},
+                    "rows":[{"id":"id1","median_us":10.0,"p95_us":12.0}]
+                }),
+            ),
+            (
+                "s2",
+                json!({
+                    "environment":{"os":"linux","arch":"x86_64","cpu_model":"cpu-b","rustc_version":"rustc test"},
+                    "rows":[{"id":"id1","median_us":12.0,"p95_us":14.0}]
+                }),
+            ),
+        ],
     );
 
     let fail = run_bin(
@@ -687,41 +577,40 @@ fn prune_history_script_reports_and_applies_deletions() {
 fn perf_health_audit_reports_stale_noisy_and_redundant_patterns() {
     let tmp = temp_dir("perf-health");
     let history_dir = tmp.join("history");
-    let s1 = history_dir.join("s1");
-    let s2 = history_dir.join("s2");
-    let s3 = history_dir.join("s3");
-    fs::create_dir_all(&s1).expect("create s1");
-    fs::create_dir_all(&s2).expect("create s2");
-    fs::create_dir_all(&s3).expect("create s3");
 
-    write_json(
-        &s1.join("probe.json"),
-        &json!({
-            "rows":[
-                {"id":"identity_atom","median_us":10.0,"p95_us":11.0},
-                {"id":"sequence_chain_len12","median_us":10.0,"p95_us":11.0},
-                {"id":"recursive_add_forward_n8","median_us":10.0,"p95_us":12.0}
-            ]
-        }),
-    );
-    write_json(
-        &s2.join("probe.json"),
-        &json!({
-            "rows":[
-                {"id":"identity_atom","median_us":11.0,"p95_us":12.0},
-                {"id":"sequence_chain_len12","median_us":11.0,"p95_us":12.0},
-                {"id":"recursive_add_forward_n8","median_us":40.0,"p95_us":45.0}
-            ]
-        }),
-    );
-    write_json(
-        &s3.join("probe.json"),
-        &json!({
-            "rows":[
-                {"id":"identity_atom","median_us":12.0,"p95_us":13.0},
-                {"id":"sequence_chain_len12","median_us":12.0,"p95_us":13.0}
-            ]
-        }),
+    create_probe_snapshots(
+        &history_dir,
+        &[
+            (
+                "s1",
+                json!({
+                    "rows":[
+                        {"id":"identity_atom","median_us":10.0,"p95_us":11.0},
+                        {"id":"sequence_chain_len12","median_us":10.0,"p95_us":11.0},
+                        {"id":"recursive_add_forward_n8","median_us":10.0,"p95_us":12.0}
+                    ]
+                }),
+            ),
+            (
+                "s2",
+                json!({
+                    "rows":[
+                        {"id":"identity_atom","median_us":11.0,"p95_us":12.0},
+                        {"id":"sequence_chain_len12","median_us":11.0,"p95_us":12.0},
+                        {"id":"recursive_add_forward_n8","median_us":40.0,"p95_us":45.0}
+                    ]
+                }),
+            ),
+            (
+                "s3",
+                json!({
+                    "rows":[
+                        {"id":"identity_atom","median_us":12.0,"p95_us":13.0},
+                        {"id":"sequence_chain_len12","median_us":12.0,"p95_us":13.0}
+                    ]
+                }),
+            ),
+        ],
     );
 
     let out = run_bin(

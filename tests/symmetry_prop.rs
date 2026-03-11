@@ -1,23 +1,18 @@
+mod common;
+
+use common::{build_raw_term, RawTerm, PROPTEST_MAX_VAR};
 use proptest::prelude::*;
 use rwlog::constraint::ConstraintOps;
 use rwlog::kernel::{compose_nf, dual_nf, meet_nf};
 use rwlog::nf::{collect_tensor, factor_tensor, NF};
 use rwlog::symbol::SymbolStore;
-use rwlog::term::{TermId, TermStore};
-use smallvec::SmallVec;
+use rwlog::term::TermStore;
 
-const MAX_VAR: u32 = 4;
 const FUNCTOR_NAMES: [&str; 6] = ["a", "b", "c", "f", "g", "h"];
-
-#[derive(Clone, Debug)]
-enum RawTerm {
-    Var(u32),
-    App { f: usize, kids: Vec<RawTerm> },
-}
 
 fn raw_term_strategy() -> impl Strategy<Value = RawTerm> {
     let leaf = prop_oneof![
-        (0..=MAX_VAR).prop_map(RawTerm::Var),
+        (0..=PROPTEST_MAX_VAR).prop_map(RawTerm::Var),
         Just(RawTerm::App { f: 0, kids: vec![] }),
         Just(RawTerm::App { f: 1, kids: vec![] }),
         Just(RawTerm::App { f: 2, kids: vec![] }),
@@ -41,35 +36,9 @@ fn raw_term_strategy() -> impl Strategy<Value = RawTerm> {
     })
 }
 
-prop_compose! {
-    fn nf_parts_strategy()
-        (
-            lhs in raw_term_strategy(),
-            rhs in raw_term_strategy(),
-        )
-        -> (RawTerm, RawTerm)
-    {
-        (lhs, rhs)
-    }
-}
-
-fn build_term(raw: &RawTerm, symbols: &SymbolStore, terms: &TermStore) -> TermId {
-    match raw {
-        RawTerm::Var(v) => terms.var(*v),
-        RawTerm::App { f, kids } => {
-            let func = symbols.intern(FUNCTOR_NAMES[*f]);
-            let mut child_ids: SmallVec<[TermId; 4]> = SmallVec::new();
-            for kid in kids {
-                child_ids.push(build_term(kid, symbols, terms));
-            }
-            terms.app(func, child_ids)
-        }
-    }
-}
-
 fn build_nf(lhs: &RawTerm, rhs: &RawTerm, symbols: &SymbolStore, terms: &mut TermStore) -> NF<()> {
-    let lhs_id = build_term(lhs, symbols, terms);
-    let rhs_id = build_term(rhs, symbols, terms);
+    let lhs_id = build_raw_term(lhs, 0, &FUNCTOR_NAMES, symbols, terms);
+    let rhs_id = build_raw_term(rhs, 0, &FUNCTOR_NAMES, symbols, terms);
     NF::factor(lhs_id, rhs_id, (), terms)
 }
 
@@ -82,10 +51,9 @@ proptest! {
     #![proptest_config(ProptestConfig { cases: 256, .. ProptestConfig::default() })]
 
     #[test]
-    fn dual_is_involution(parts in nf_parts_strategy()) {
+    fn dual_is_involution(lhs in raw_term_strategy(), rhs in raw_term_strategy()) {
         let mut terms = TermStore::new();
         let symbols = SymbolStore::new();
-        let (lhs, rhs) = parts;
         let nf = build_nf(&lhs, &rhs, &symbols, &mut terms);
 
         let dual = dual_nf(&nf, &mut terms);
@@ -97,13 +65,13 @@ proptest! {
 
     #[test]
     fn compose_dual_law(
-        a_parts in nf_parts_strategy(),
-        b_parts in nf_parts_strategy()
+        a_lhs in raw_term_strategy(),
+        a_rhs in raw_term_strategy(),
+        b_lhs in raw_term_strategy(),
+        b_rhs in raw_term_strategy(),
     ) {
         let mut terms = TermStore::new();
         let symbols = SymbolStore::new();
-        let (a_lhs, a_rhs) = a_parts;
-        let (b_lhs, b_rhs) = b_parts;
 
         let a = build_nf(&a_lhs, &a_rhs, &symbols, &mut terms);
         let b = build_nf(&b_lhs, &b_rhs, &symbols, &mut terms);
@@ -126,13 +94,13 @@ proptest! {
 
     #[test]
     fn meet_dual_law(
-        a_parts in nf_parts_strategy(),
-        b_parts in nf_parts_strategy()
+        a_lhs in raw_term_strategy(),
+        a_rhs in raw_term_strategy(),
+        b_lhs in raw_term_strategy(),
+        b_rhs in raw_term_strategy(),
     ) {
         let mut terms = TermStore::new();
         let symbols = SymbolStore::new();
-        let (a_lhs, a_rhs) = a_parts;
-        let (b_lhs, b_rhs) = b_parts;
 
         let a = build_nf(&a_lhs, &a_rhs, &symbols, &mut terms);
         let b = build_nf(&b_lhs, &b_rhs, &symbols, &mut terms);

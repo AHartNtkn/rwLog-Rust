@@ -4,7 +4,7 @@ use crate::node::{step_node, Node, NodeStep};
 use crate::term::TermStore;
 use std::collections::VecDeque;
 
-use super::{Work, WorkStep};
+use super::{InPlaceStepResult, Work, WorkStep};
 
 /// A no-op hasher that passes through a pre-hashed u64 value.
 ///
@@ -27,16 +27,6 @@ impl std::hash::Hasher for IdentityHasher {
 
 type IdentityBuildHasher = std::hash::BuildHasherDefault<IdentityHasher>;
 type U64HashSet = std::collections::HashSet<u64, IdentityBuildHasher>;
-
-/// Result of stepping a DiagonalJoin in-place (no allocation).
-pub(crate) enum DiagonalStepResult<C: ConstraintOps> {
-    /// Emit an answer; DiagonalJoin has been updated in-place for continuation.
-    Emit(NF<C>),
-    /// No answer yet; DiagonalJoin has been updated in-place for continuation.
-    More,
-    /// Done; no more answers.
-    Done,
-}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum JoinOutcome {
@@ -196,58 +186,29 @@ impl<C: ConstraintOps, S: JoinStrategy<C> + Default> DiagonalJoin<C, S> {
     }
 
     pub(crate) fn step(&mut self, terms: &mut TermStore, wrap: fn(Self) -> Work<C>) -> WorkStep<C> {
-        if let Some(nf) = self.pop_pending() {
-            return WorkStep::Emit(nf, Box::new(wrap(self.take_self())));
-        }
-
-        let left_exhausted = matches!(*self.left, Node::Fail);
-        let right_exhausted = matches!(*self.right, Node::Fail);
-
-        if let Some(nf) = self.with_strategy_mut(|strategy, join| strategy.pre_step(join, terms)) {
-            return WorkStep::Emit(nf, Box::new(wrap(self.take_self())));
-        }
-
-        if let Some(outcome) = self
-            .strategy
-            .check_done(self, left_exhausted, right_exhausted)
-        {
-            return match outcome {
-                JoinOutcome::Done => WorkStep::Done,
-                JoinOutcome::More => WorkStep::More(Box::new(wrap(self.take_self()))),
-            };
-        }
-
-        let pull_from_right = if left_exhausted {
-            true
-        } else if right_exhausted {
-            false
-        } else {
-            self.flip
-        };
-
-        if pull_from_right {
-            self.pull_side(JoinSide::Right, terms, wrap)
-        } else {
-            self.pull_side(JoinSide::Left, terms, wrap)
+        match self.step_in_place(terms) {
+            InPlaceStepResult::Emit(nf) => WorkStep::Emit(nf, Box::new(wrap(self.take_self()))),
+            InPlaceStepResult::More => WorkStep::More(Box::new(wrap(self.take_self()))),
+            InPlaceStepResult::Done => WorkStep::Done,
         }
     }
 
     /// Step in-place, returning a simple result without allocating Box<Work>.
     ///
     /// Same logic as `step()` but mutates self in-place and returns
-    /// `DiagonalStepResult` instead of `WorkStep`. The caller reuses the
+    /// `InPlaceStepResult` instead of `WorkStep`. The caller reuses the
     /// existing `Box<Work>` for the continuation, eliminating 3 heap
     /// allocations per step (2× dummy Box<Node::Fail> + 1× Box<Work>).
-    pub(crate) fn step_in_place(&mut self, terms: &mut TermStore) -> DiagonalStepResult<C> {
+    pub(crate) fn step_in_place(&mut self, terms: &mut TermStore) -> InPlaceStepResult<C> {
         if let Some(nf) = self.pop_pending() {
-            return DiagonalStepResult::Emit(nf);
+            return InPlaceStepResult::Emit(nf);
         }
 
         let left_exhausted = matches!(*self.left, Node::Fail);
         let right_exhausted = matches!(*self.right, Node::Fail);
 
         if let Some(nf) = self.with_strategy_mut(|strategy, join| strategy.pre_step(join, terms)) {
-            return DiagonalStepResult::Emit(nf);
+            return InPlaceStepResult::Emit(nf);
         }
 
         if let Some(outcome) = self
@@ -255,8 +216,8 @@ impl<C: ConstraintOps, S: JoinStrategy<C> + Default> DiagonalJoin<C, S> {
             .check_done(self, left_exhausted, right_exhausted)
         {
             return match outcome {
-                JoinOutcome::Done => DiagonalStepResult::Done,
-                JoinOutcome::More => DiagonalStepResult::More,
+                JoinOutcome::Done => InPlaceStepResult::Done,
+                JoinOutcome::More => InPlaceStepResult::More,
             };
         }
 
@@ -279,7 +240,7 @@ impl<C: ConstraintOps, S: JoinStrategy<C> + Default> DiagonalJoin<C, S> {
         &mut self,
         side: JoinSide,
         terms: &mut TermStore,
-    ) -> DiagonalStepResult<C> {
+    ) -> InPlaceStepResult<C> {
         let current = match side {
             JoinSide::Left => std::mem::replace(&mut *self.left, Node::Fail),
             JoinSide::Right => std::mem::replace(&mut *self.right, Node::Fail),
@@ -315,9 +276,9 @@ impl<C: ConstraintOps, S: JoinStrategy<C> + Default> DiagonalJoin<C, S> {
                 }
 
                 if let Some(result) = self.pop_pending() {
-                    DiagonalStepResult::Emit(result)
+                    InPlaceStepResult::Emit(result)
                 } else {
-                    DiagonalStepResult::More
+                    InPlaceStepResult::More
                 }
             }
             NodeStep::Continue(rest) => {
@@ -331,7 +292,7 @@ impl<C: ConstraintOps, S: JoinStrategy<C> + Default> DiagonalJoin<C, S> {
                         self.flip = false;
                     }
                 }
-                DiagonalStepResult::More
+                InPlaceStepResult::More
             }
             NodeStep::Exhausted => {
                 match side {
@@ -344,7 +305,7 @@ impl<C: ConstraintOps, S: JoinStrategy<C> + Default> DiagonalJoin<C, S> {
                         self.flip = false;
                     }
                 }
-                DiagonalStepResult::More
+                InPlaceStepResult::More
             }
         }
     }
@@ -356,78 +317,4 @@ impl<C: ConstraintOps, S: JoinStrategy<C> + Default> DiagonalJoin<C, S> {
         result
     }
 
-    fn pull_side(
-        &mut self,
-        side: JoinSide,
-        terms: &mut TermStore,
-        wrap: fn(Self) -> Work<C>,
-    ) -> WorkStep<C> {
-        let current = match side {
-            JoinSide::Left => std::mem::replace(&mut *self.left, Node::Fail),
-            JoinSide::Right => std::mem::replace(&mut *self.right, Node::Fail),
-        };
-
-        match step_node(current, terms) {
-            NodeStep::Emit(nf, rest) => {
-                let nf_val = *nf;
-                let hash = nf_val.hash_value();
-                match side {
-                    JoinSide::Left => {
-                        *self.left = rest;
-                        if self.seen_l_set.insert(hash) {
-                            let idx = self.seen_l.len();
-                            self.seen_l.push(nf_val);
-                            self.with_strategy_mut(|strategy, join| {
-                                strategy.on_new_left(join, idx, terms);
-                            });
-                        }
-                        self.flip = true;
-                    }
-                    JoinSide::Right => {
-                        *self.right = rest;
-                        if self.seen_r_set.insert(hash) {
-                            let idx = self.seen_r.len();
-                            self.seen_r.push(nf_val);
-                            self.with_strategy_mut(|strategy, join| {
-                                strategy.on_new_right(join, idx, terms);
-                            });
-                        }
-                        self.flip = false;
-                    }
-                }
-
-                if let Some(result) = self.pop_pending() {
-                    WorkStep::Emit(result, Box::new(wrap(self.take_self())))
-                } else {
-                    WorkStep::More(Box::new(wrap(self.take_self())))
-                }
-            }
-            NodeStep::Continue(rest) => {
-                match side {
-                    JoinSide::Left => {
-                        *self.left = rest;
-                        self.flip = true;
-                    }
-                    JoinSide::Right => {
-                        *self.right = rest;
-                        self.flip = false;
-                    }
-                }
-                WorkStep::More(Box::new(wrap(self.take_self())))
-            }
-            NodeStep::Exhausted => {
-                match side {
-                    JoinSide::Left => {
-                        *self.left = Node::Fail;
-                        self.flip = true;
-                    }
-                    JoinSide::Right => {
-                        *self.right = Node::Fail;
-                        self.flip = false;
-                    }
-                }
-                WorkStep::More(Box::new(wrap(self.take_self())))
-            }
-        }
-    }
 }

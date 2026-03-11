@@ -1,6 +1,6 @@
 use rwlog::perf_corpus::{
-    apply_filters, environment_fingerprint, load_cases, prepare_case, run_prepared_with_stats,
-    sort_cases, CorpusCase, CorpusFilters, EnvironmentFingerprint,
+    csv_escape, csv_escape_opt, environment_fingerprint, prepare_case, run_prepared_with_stats,
+    select_cases, stats_median_u64, EnvironmentFingerprint,
 };
 use serde::Serialize;
 use std::alloc::{GlobalAlloc, Layout};
@@ -146,24 +146,6 @@ fn parse_args() -> (Option<String>, usize, bool, bool) {
     (id_filter, iters, json, csv)
 }
 
-fn select_cases(id_filter: Option<String>) -> Vec<CorpusCase> {
-    let mut filters = CorpusFilters::from_env();
-    if let Some(id) = id_filter {
-        filters.filter_substring = Some(id);
-    }
-    let mut cases = apply_filters(load_cases(), &filters);
-    sort_cases(&mut cases);
-    if cases.is_empty() {
-        panic!("no corpus cases selected");
-    }
-    cases
-}
-
-fn median_u64(values: &mut [u64]) -> u64 {
-    values.sort_unstable();
-    values[values.len() / 2]
-}
-
 fn main() {
     let (id_filter, iters, json, csv) = parse_args();
     let cases = select_cases(id_filter);
@@ -217,19 +199,19 @@ fn main() {
             exec_meet_successes.push(stats.counters.meet_successes);
         }
 
-        let parse_calls_m = median_u64(&mut parse_calls);
-        let parse_bytes_m = median_u64(&mut parse_bytes);
-        let parse_realloc_m = median_u64(&mut parse_realloc);
-        let exec_calls_m = median_u64(&mut exec_calls);
-        let exec_bytes_m = median_u64(&mut exec_bytes);
-        let exec_realloc_m = median_u64(&mut exec_realloc);
-        let exec_steps_m = median_u64(&mut exec_steps);
-        let exec_emits_m = median_u64(&mut exec_emits);
-        let exec_continues_m = median_u64(&mut exec_continues);
-        let exec_compose_attempts_m = median_u64(&mut exec_compose_attempts);
-        let exec_compose_successes_m = median_u64(&mut exec_compose_successes);
-        let exec_meet_attempts_m = median_u64(&mut exec_meet_attempts);
-        let exec_meet_successes_m = median_u64(&mut exec_meet_successes);
+        let parse_calls_m = stats_median_u64(&mut parse_calls);
+        let parse_bytes_m = stats_median_u64(&mut parse_bytes);
+        let parse_realloc_m = stats_median_u64(&mut parse_realloc);
+        let exec_calls_m = stats_median_u64(&mut exec_calls);
+        let exec_bytes_m = stats_median_u64(&mut exec_bytes);
+        let exec_realloc_m = stats_median_u64(&mut exec_realloc);
+        let exec_steps_m = stats_median_u64(&mut exec_steps);
+        let exec_emits_m = stats_median_u64(&mut exec_emits);
+        let exec_continues_m = stats_median_u64(&mut exec_continues);
+        let exec_compose_attempts_m = stats_median_u64(&mut exec_compose_attempts);
+        let exec_compose_successes_m = stats_median_u64(&mut exec_compose_successes);
+        let exec_meet_attempts_m = stats_median_u64(&mut exec_meet_attempts);
+        let exec_meet_successes_m = stats_median_u64(&mut exec_meet_successes);
 
         let row = AllocRow {
             id: case.id.clone(),
@@ -322,20 +304,5 @@ fn main() {
                 csv_escape_opt(env.run_id.as_deref()),
             );
         }
-    }
-}
-
-fn csv_escape(s: &str) -> String {
-    if s.contains(',') || s.contains('"') || s.contains('\n') {
-        format!("\"{}\"", s.replace('"', "\"\""))
-    } else {
-        s.to_string()
-    }
-}
-
-fn csv_escape_opt(s: Option<&str>) -> String {
-    match s {
-        Some(v) => csv_escape(v),
-        None => String::new(),
     }
 }

@@ -14,6 +14,7 @@ use crate::rel::Rel;
 use crate::term::TermStore;
 use crate::test_utils::{make_ground_nf, make_identity_nf, make_rule_nf, setup};
 use smallvec::SmallVec;
+use std::mem::size_of;
 use std::sync::Arc;
 
 /// Create variable identity NF (x -> x) using a specific TermStore
@@ -336,57 +337,6 @@ fn seq_does_not_spawn_pipe_per_and_answer_dual() {
 }
 
 // ========================================================================
-// WORK ENUM TESTS
-// ========================================================================
-
-#[test]
-fn work_atom_construction() {
-    let nf = make_identity_nf();
-    let work: Work<()> = Work::Atom(nf);
-    assert!(matches!(work, Work::Atom(_)));
-}
-
-#[test]
-fn work_pipe_construction() {
-    let pipe = PipeWork::new();
-    let work: Work<()> = Work::Pipe(Box::new(pipe));
-    assert!(matches!(work, Work::Pipe(_)));
-}
-
-// ========================================================================
-// WORKSTEP ENUM TESTS
-// ========================================================================
-
-#[test]
-fn workstep_done_construction() {
-    let step: WorkStep<()> = WorkStep::Done;
-    assert!(matches!(step, WorkStep::Done));
-}
-
-#[test]
-fn workstep_emit_construction() {
-    let nf = make_identity_nf();
-    let work = Work::Atom(make_identity_nf());
-    let step: WorkStep<()> = WorkStep::Emit(nf, Box::new(work));
-    assert!(matches!(step, WorkStep::Emit(_, _)));
-}
-
-#[test]
-fn workstep_split_construction() {
-    let left: Node<()> = Node::Fail;
-    let right: Node<()> = Node::Fail;
-    let step: WorkStep<()> = WorkStep::Split(Box::new(left), Box::new(right));
-    assert!(matches!(step, WorkStep::Split(_, _)));
-}
-
-#[test]
-fn workstep_more_construction() {
-    let work = Work::Atom(make_identity_nf());
-    let step: WorkStep<()> = WorkStep::More(Box::new(work));
-    assert!(matches!(step, WorkStep::More(_)));
-}
-
-// ========================================================================
 // PIPEWORK CONSTRUCTION TESTS
 // ========================================================================
 
@@ -432,11 +382,16 @@ fn pipework_with_right_boundary_only() {
 // ========================================================================
 
 #[test]
-fn pipework_step_empty_returns_done() {
+fn pipework_step_empty_emits_identity() {
     let mut terms = TermStore::new();
     let mut pipe: PipeWork<()> = PipeWork::new();
     let step = pipe.step(&mut terms);
-    assert!(matches!(step, WorkStep::Emit(_, _)));
+    match step {
+        WorkStep::Emit(nf, _) => {
+            assert_eq!(nf, NF::identity(()), "Empty pipe should emit identity NF");
+        }
+        other => panic!("Expected WorkStep::Emit, got {:?}", other),
+    }
 }
 
 #[test]
@@ -581,15 +536,34 @@ fn pipework_step_atom_composes_with_left_boundary() {
     let (symbols, mut terms) = setup();
     let left = make_ground_nf("X", &symbols, &terms);
     let atom_nf = make_ground_nf("X", &symbols, &terms);
+    let expected = compose_nf(&left, &atom_nf, &mut terms).expect("compose should succeed");
     let rels = vec![atom_rel(atom_nf)];
     let mid = factors_from_rels(rels);
 
     let mut pipe: PipeWork<()> = PipeWork::with_boundaries(Some(left), mid, None);
     let step = pipe.step(&mut terms);
 
-    // Should compose and continue or emit
-    // Depends on implementation - More or Emit
-    assert!(matches!(step, WorkStep::Emit(_, _) | WorkStep::More(_)));
+    // Atom is absorbed into left boundary via compose; the pipe then emits the result.
+    match step {
+        WorkStep::Emit(nf, _) => {
+            assert_eq!(nf, expected, "Should emit composed left ; atom");
+        }
+        WorkStep::More(work) => match *work {
+            Work::Pipe(mut next_pipe) => {
+                assert!(next_pipe.left.is_some(), "Atom should compose into left boundary");
+                assert!(next_pipe.mid.is_empty(), "Mid should be empty after absorb");
+                let step2 = next_pipe.step(&mut terms);
+                match step2 {
+                    WorkStep::Emit(nf, _) => {
+                        assert_eq!(nf, expected, "Should emit composed left ; atom");
+                    }
+                    other => panic!("Expected Emit on second step, got {:?}", other),
+                }
+            }
+            _ => panic!("Expected Work::Pipe"),
+        },
+        other => panic!("Expected Emit or More(Pipe), got {:?}", other),
+    }
 }
 
 // ========================================================================
@@ -1048,28 +1022,8 @@ fn pipework_step_zero_with_boundaries_returns_done() {
 fn pipework_step_incompatible_compose_returns_done() {
     let (symbols, mut terms) = setup();
     // A -> B cannot compose with C -> D
-    let a_to_b = {
-        let a = symbols.intern("A");
-        let b = symbols.intern("B");
-        let ta = terms.app0(a);
-        let tb = terms.app0(b);
-        NF::new(
-            SmallVec::from_slice(&[ta]),
-            DropFresh::identity(0),
-            SmallVec::from_slice(&[tb]),
-        )
-    };
-    let c_to_d = {
-        let c = symbols.intern("C");
-        let d = symbols.intern("D");
-        let tc = terms.app0(c);
-        let td = terms.app0(d);
-        NF::new(
-            SmallVec::from_slice(&[tc]),
-            DropFresh::identity(0),
-            SmallVec::from_slice(&[td]),
-        )
-    };
+    let a_to_b = make_rule_nf("A", "B", &symbols, &terms);
+    let c_to_d = make_rule_nf("C", "D", &symbols, &terms);
 
     let mid = factors_from_rels(vec![atom_rel(c_to_d)]);
     let mut pipe: PipeWork<()> = PipeWork::with_boundaries(Some(a_to_b), mid, None);
@@ -1253,23 +1207,9 @@ fn pipework_step_right_boundary_composes() {
     // mid = [Or(...), Atom(X->Y), Atom(Y->Z)]
     // After normalization: right = X->Z (composed)
 
-    let x = symbols.intern("X");
-    let y = symbols.intern("Y");
-    let z = symbols.intern("Z");
-    let tx = terms.app0(x);
-    let ty = terms.app0(y);
-    let tz = terms.app0(z);
-
-    let x_to_y = NF::new(
-        SmallVec::from_slice(&[tx]),
-        DropFresh::identity(0),
-        SmallVec::from_slice(&[ty]),
-    );
-    let y_to_z = NF::new(
-        SmallVec::from_slice(&[ty]),
-        DropFresh::identity(0),
-        SmallVec::from_slice(&[tz]),
-    );
+    let x_to_y = make_rule_nf("X", "Y", &symbols, &terms);
+    let y_to_z = make_rule_nf("Y", "Z", &symbols, &terms);
+    let tz = terms.app0(symbols.intern("Z"));
 
     let or_rel = Arc::new(Rel::Or(Arc::new(Rel::Zero), Arc::new(Rel::Zero)));
     let atom1 = Arc::new(Rel::Atom(Arc::new(x_to_y)));
@@ -1678,6 +1618,17 @@ fn meetwork_step_flip_alternates_sides() {
         steps >= 2,
         "Should take multiple steps with multiple answers"
     );
+    // Flip should alternate: consecutive values should differ
+    assert!(
+        flip_values.len() >= 2,
+        "Should have recorded at least 2 flip values"
+    );
+    let has_alternation = flip_values.windows(2).any(|w| w[0] != w[1]);
+    assert!(
+        has_alternation,
+        "Flip should alternate between true and false across steps, got {:?}",
+        flip_values
+    );
 }
 
 #[test]
@@ -1964,8 +1915,8 @@ fn meetwork_both_exhaust_simultaneously() {
     }
 
     assert!(done, "Should eventually reach Done");
-    // 2x2 = 4 combinations possible
-    assert!(emit_count >= 1, "Should produce at least one meet result");
+    // Both sides emit identity NFs that deduplicate to 1 unique each, so 1×1 = 1 meet
+    assert_eq!(emit_count, 1, "Should produce exactly one meet result (deduplicated identities)");
 }
 
 // ========================================================================
@@ -1982,7 +1933,7 @@ fn meetwork_seen_l_grows_after_left_emit() {
     assert!(meet.seen_l().is_empty(), "seen_l should start empty");
 
     // Step to pull from left
-    loop {
+    for _ in 0..20 {
         let step = meet.step(&mut terms);
         match step {
             WorkStep::Done => break,
@@ -2016,7 +1967,7 @@ fn meetwork_seen_r_grows_after_right_emit() {
 
     // Step to pull from right (may need flip to be true)
     meet.set_flip(true); // Force pull from right
-    loop {
+    for _ in 0..20 {
         let step = meet.step(&mut terms);
         match step {
             WorkStep::Done => break,
@@ -2032,8 +1983,11 @@ fn meetwork_seen_r_grows_after_right_emit() {
         }
     }
 
-    // Note: This test may fail if implementation skips exhausted sides
-    // The important thing is that seen_r gets populated when right emits
+    assert_eq!(
+        meet.seen_r().len(),
+        1,
+        "seen_r should have 1 entry after pulling from right"
+    );
 }
 
 // ========================================================================
@@ -2080,23 +2034,16 @@ fn meetwork_handles_or_on_left() {
         }
     }
 
-    // 2 from left Or + 1 from right = at least 2 meets
-    assert!(
-        emit_count >= 1,
-        "Should produce at least one meet result from Or"
+    // All identities deduplicate, so despite Or having 2 branches, only 1 unique meet
+    assert_eq!(
+        emit_count, 1,
+        "Should produce exactly one meet result (deduplicated identities)"
     );
 }
 
 // ========================================================================
 // MEETWORK INTEGRATION WITH WORK ENUM
 // ========================================================================
-
-#[test]
-fn work_meet_construction() {
-    let meet: MeetWork<()> = MeetWork::new(Node::Fail, Node::Fail);
-    let work: Work<()> = Work::Meet(meet);
-    assert!(matches!(work, Work::Meet(_)));
-}
 
 #[test]
 fn work_meet_step_delegates_to_meetwork() {
@@ -2114,10 +2061,9 @@ fn work_meet_step_delegates_to_meetwork() {
 
 #[test]
 fn meetwork_symmetric_produces_same_results() {
-    let (symbols, mut terms1) = setup();
-    let (_, mut terms2) = setup();
+    let (symbols, mut terms) = setup();
 
-    let nf_a = make_ground_nf("A", &symbols, &terms1);
+    let nf_a = make_ground_nf("A", &symbols, &terms);
     let id = make_identity_nf();
 
     // Meet(A, id) vs Meet(id, A) should produce same results
@@ -2125,9 +2071,11 @@ fn meetwork_symmetric_produces_same_results() {
         Node::Emit(Box::new(nf_a.clone()), Box::new(Node::Fail)),
         Node::Emit(Box::new(id.clone()), Box::new(Node::Fail)),
     );
+    let nf_a2 = make_ground_nf("A", &symbols, &terms);
+    let id2 = make_identity_nf();
     let mut meet2: MeetWork<()> = MeetWork::new(
-        Node::Emit(Box::new(id), Box::new(Node::Fail)),
-        Node::Emit(Box::new(nf_a), Box::new(Node::Fail)),
+        Node::Emit(Box::new(id2), Box::new(Node::Fail)),
+        Node::Emit(Box::new(nf_a2), Box::new(Node::Fail)),
     );
 
     let mut count1 = 0;
@@ -2135,7 +2083,7 @@ fn meetwork_symmetric_produces_same_results() {
 
     // Run both to completion
     for _ in 0..30 {
-        let step = meet1.step(&mut terms1);
+        let step = meet1.step(&mut terms);
         match step {
             WorkStep::Emit(_, rest) => {
                 count1 += 1;
@@ -2155,7 +2103,7 @@ fn meetwork_symmetric_produces_same_results() {
     }
 
     for _ in 0..30 {
-        let step = meet2.step(&mut terms2);
+        let step = meet2.step(&mut terms);
         match step {
             WorkStep::Emit(_, rest) => {
                 count2 += 1;
@@ -2186,7 +2134,7 @@ fn meetwork_symmetric_produces_same_results() {
 
 #[test]
 fn meetwork_size_reasonable() {
-    use std::mem::size_of;
+
     let size = size_of::<MeetWork<()>>();
     // MeetWork has several fields including Vecs and VecDeque
     // Should still be reasonably sized
@@ -2210,13 +2158,15 @@ fn meetwork_many_answers_terminates() {
 
     let mut meet: MeetWork<()> = MeetWork::new(left, right);
 
-    // Should terminate within reasonable steps
-    let mut steps = 0;
-    let max_steps = 1000;
-    loop {
+    // All identities deduplicate, so 1×1 = 1 meet. Should terminate quickly.
+    let mut done = false;
+    for _ in 0..50 {
         let step = meet.step(&mut terms);
         match step {
-            WorkStep::Done => break,
+            WorkStep::Done => {
+                done = true;
+                break;
+            }
             WorkStep::Emit(_, rest) => match *rest {
                 Work::Meet(m) => meet = m,
                 _ => break,
@@ -2228,11 +2178,8 @@ fn meetwork_many_answers_terminates() {
             }
             _ => break,
         }
-        steps += 1;
-        if steps > max_steps {
-            panic!("MeetWork did not terminate within {} steps", max_steps);
-        }
     }
+    assert!(done, "MeetWork did not terminate within 50 steps");
 }
 
 // ========================================================================
@@ -2470,41 +2417,6 @@ fn callkey_includes_adjacent_atom_as_far_boundary() {
 }
 
 // ========================================================================
-// PRODUCERSTATE TESTS
-// ========================================================================
-
-#[test]
-fn producerstate_not_started() {
-    let state = ProducerState::NotStarted;
-    assert_eq!(state, ProducerState::NotStarted);
-    assert_ne!(state, ProducerState::Running);
-    assert_ne!(state, ProducerState::Done);
-}
-
-#[test]
-fn producerstate_running() {
-    let state = ProducerState::Running;
-    assert_eq!(state, ProducerState::Running);
-    assert_ne!(state, ProducerState::NotStarted);
-    assert_ne!(state, ProducerState::Done);
-}
-
-#[test]
-fn producerstate_done() {
-    let state = ProducerState::Done;
-    assert_eq!(state, ProducerState::Done);
-    assert_ne!(state, ProducerState::NotStarted);
-    assert_ne!(state, ProducerState::Running);
-}
-
-#[test]
-fn producerstate_is_clone() {
-    let state1 = ProducerState::Running;
-    let state2 = state1.clone();
-    assert_eq!(state1, state2);
-}
-
-// ========================================================================
 // TABLE TESTS
 // ========================================================================
 
@@ -2541,7 +2453,6 @@ fn table_add_multiple_answers() {
 
 #[test]
 fn table_start_producer() {
-    use std::sync::Arc;
 
     let table: Table<()> = Table::new();
     assert_eq!(table.producer_state(), ProducerState::NotStarted);
@@ -2563,7 +2474,6 @@ fn table_start_producer() {
 
 #[test]
 fn table_finish_producer() {
-    use std::sync::Arc;
 
     let table: Table<()> = Table::new();
     let spec = ProducerSpec {
@@ -2862,7 +2772,6 @@ fn fixwork_handle_emits_existing_answers() {
 }
 
 fn run_fixwork_starts_producer_and_emits_answer(use_dual: bool) {
-    use std::sync::Arc;
 
     let (symbols, mut terms) = setup();
     let key = Arc::new(CallKey::new(0, 0, None, None));
@@ -2901,7 +2810,6 @@ fn fixwork_starts_producer_and_emits_answer_dual() {
 }
 
 fn run_fixwork_advances_running_producer_and_emits(use_dual: bool) {
-    use std::sync::Arc;
 
     let (symbols, mut terms) = setup();
     let key = Arc::new(CallKey::new(0, 0, None, None));
@@ -2940,7 +2848,6 @@ fn fixwork_advances_running_producer_and_emits_dual() {
 }
 
 fn run_fixwork_skips_duplicate_answer(use_dual: bool) {
-    use std::sync::Arc;
 
     let (symbols, mut terms) = setup();
     let key = Arc::new(CallKey::new(0, 0, None, None));
@@ -2980,7 +2887,6 @@ fn fixwork_skips_duplicate_answer_dual() {
 }
 
 fn run_fixwork_exhausted_marks_done(use_dual: bool) {
-    use std::sync::Arc;
 
     let (symbols, mut terms) = setup();
     let key = Arc::new(CallKey::new(0, 0, None, None));
@@ -3016,7 +2922,6 @@ fn fixwork_exhausted_marks_done_dual() {
 
 #[test]
 fn fix_producer_dedups_duplicate_answers() {
-    use std::sync::Arc;
 
     let (symbols, mut terms) = setup();
     let tables = Tables::new();
@@ -3099,7 +3004,6 @@ fn fix_producer_continues_when_consumer_queue_full_dual() {
 
 #[test]
 fn fix_producer_broadcasts_answers_to_all_consumers() {
-    use std::sync::Arc;
 
     let (symbols, mut terms) = setup();
     let tables = Tables::new();
@@ -3168,7 +3072,6 @@ fn fix_producer_broadcasts_answers_to_all_consumers() {
 
 #[test]
 fn fix_consumer_replays_existing_answers() {
-    use std::sync::Arc;
 
     let (symbols, mut terms) = setup();
     let table = Arc::new(Table::new());
@@ -3209,7 +3112,6 @@ fn fixwork_handle_done_when_table_done() {
 
 #[test]
 fn call_replay_interleaves_with_new_answers() {
-    use std::sync::Arc;
 
     let (symbols, mut terms) = setup();
     let nf_a1 = make_ground_nf("A1", &symbols, &terms);
@@ -3293,15 +3195,6 @@ fn call_replay_interleaves_with_new_answers() {
 // ========================================================================
 
 #[test]
-fn work_fix_construction() {
-    let key = Arc::new(CallKey::new(0, 0, None, None));
-    let table = Arc::new(Table::new());
-    let fix: FixWork<()> = FixWork::new(key, table, 0, Tables::new());
-    let work: Work<()> = Work::Fix(fix);
-    assert!(matches!(work, Work::Fix(_)));
-}
-
-#[test]
 fn work_fix_step_delegates() {
     let (_, mut terms) = setup();
     let key = Arc::new(CallKey::new(0, 0, None, None));
@@ -3321,7 +3214,7 @@ fn work_fix_step_delegates() {
 
 #[test]
 fn fixwork_size_reasonable() {
-    use std::mem::size_of;
+
     let size = size_of::<FixWork<()>>();
     // FixWork contains Arc, Box, etc.
     assert!(
@@ -3333,7 +3226,7 @@ fn fixwork_size_reasonable() {
 
 #[test]
 fn table_size_reasonable() {
-    use std::mem::size_of;
+
     let size = size_of::<Table<()>>();
     assert!(
         size < 1200,
@@ -3380,13 +3273,8 @@ fn table_locks_are_independent() {
 }
 
 #[test]
-fn table_locks_are_independent_dual() {
-    assert_table_lock_independent();
-}
-
-#[test]
 fn tables_size_reasonable() {
-    use std::mem::size_of;
+
     let size = size_of::<Tables<()>>();
     assert!(
         size < 128,
@@ -3397,7 +3285,7 @@ fn tables_size_reasonable() {
 
 #[test]
 fn env_size_reasonable() {
-    use std::mem::size_of;
+
     let size = size_of::<Env<()>>();
     assert!(
         size < 128,
@@ -3408,7 +3296,7 @@ fn env_size_reasonable() {
 
 #[test]
 fn callkey_size_reasonable() {
-    use std::mem::size_of;
+
     let size = size_of::<CallKey<()>>();
     // CallKey contains Option<NF<C>> which can be large
     assert!(
@@ -3503,8 +3391,8 @@ fn join_receiver_blocks_when_empty_dual() {
     run_join_receiver_blocks_when_empty(true);
 }
 
-fn run_andgroup_closed_empty_part_terminates_even_if_other_blocks(use_dual: bool) {
-    let _ = use_dual;
+#[test]
+fn andgroup_closed_empty_part_terminates_even_if_other_blocks() {
     let (_, mut terms) = setup();
 
     let (_tx0, rx0) = AnswerQueue::bounded::<()>(1);
@@ -3539,14 +3427,4 @@ fn run_andgroup_closed_empty_part_terminates_even_if_other_blocks(use_dual: bool
     );
 
     drop(_tx1);
-}
-
-#[test]
-fn andgroup_closed_empty_part_terminates_even_if_other_blocks() {
-    run_andgroup_closed_empty_part_terminates_even_if_other_blocks(false);
-}
-
-#[test]
-fn andgroup_closed_empty_part_terminates_even_if_other_blocks_dual() {
-    run_andgroup_closed_empty_part_terminates_even_if_other_blocks(true);
 }

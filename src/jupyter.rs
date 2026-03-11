@@ -395,60 +395,35 @@ impl Kernel {
             self.execute_input_message(msg, &code),
         ];
 
-        match self.repl.process_cell(&code) {
-            Ok(Some(output)) => {
-                iopub.push(self.execute_result_message(msg, &output));
-                iopub.push(self.status_message(msg, "idle"));
-                KernelResponse {
-                    shell: Some(self.make_reply(
-                        "execute_reply",
-                        msg,
-                        json!({
-                            "status": "ok",
-                            "execution_count": self.execution_count,
-                            "payload": [],
-                            "user_expressions": {},
-                        }),
-                    )),
-                    iopub,
-                    shutdown: false,
+        let shell_content = match self.repl.process_cell(&code) {
+            Ok(output) => {
+                if let Some(text) = output {
+                    iopub.push(self.execute_result_message(msg, &text));
                 }
-            }
-            Ok(None) => {
-                iopub.push(self.status_message(msg, "idle"));
-                KernelResponse {
-                    shell: Some(self.make_reply(
-                        "execute_reply",
-                        msg,
-                        json!({
-                            "status": "ok",
-                            "execution_count": self.execution_count,
-                            "payload": [],
-                            "user_expressions": {},
-                        }),
-                    )),
-                    iopub,
-                    shutdown: false,
-                }
+                json!({
+                    "status": "ok",
+                    "execution_count": self.execution_count,
+                    "payload": [],
+                    "user_expressions": {},
+                })
             }
             Err(err) => {
-                iopub.push(self.error_message(msg, "Error", &err));
-                iopub.push(self.status_message(msg, "idle"));
-                KernelResponse {
-                    shell: Some(self.make_reply(
-                        "execute_reply",
-                        msg,
-                        json!({
-                            "status": "error",
-                            "ename": "Error",
-                            "evalue": err,
-                            "traceback": [],
-                        }),
-                    )),
-                    iopub,
-                    shutdown: false,
-                }
+                let msg_text = err.to_string();
+                iopub.push(self.error_message(msg, "Error", &msg_text));
+                json!({
+                    "status": "error",
+                    "ename": "Error",
+                    "evalue": msg_text,
+                    "traceback": [],
+                })
             }
+        };
+
+        iopub.push(self.status_message(msg, "idle"));
+        KernelResponse {
+            shell: Some(self.make_reply("execute_reply", msg, shell_content)),
+            iopub,
+            shutdown: false,
         }
     }
 
@@ -550,6 +525,28 @@ fn endpoint(transport: &str, ip: &str, port: u16) -> String {
 mod tests {
     use super::*;
 
+    fn test_message(msg_type: &str, content: Value) -> JupyterMessage {
+        JupyterMessage {
+            ids: vec![],
+            header: JupyterHeader {
+                msg_id: "1".to_string(),
+                session: "s".to_string(),
+                username: "u".to_string(),
+                date: "0".to_string(),
+                msg_type: msg_type.to_string(),
+                version: "5.3".to_string(),
+            },
+            parent_header: json!({}),
+            metadata: json!({}),
+            content,
+            buffers: Vec::new(),
+        }
+    }
+
+    fn test_kernel() -> Kernel {
+        Kernel::new("s".to_string(), "u".to_string(), String::new())
+    }
+
     #[test]
     fn connection_info_parses() {
         let json = r#"{
@@ -572,22 +569,8 @@ mod tests {
 
     #[test]
     fn message_roundtrip_with_signature() {
-        let header = JupyterHeader {
-            msg_id: "1".to_string(),
-            session: "s".to_string(),
-            username: "u".to_string(),
-            date: "0".to_string(),
-            msg_type: "execute_request".to_string(),
-            version: "5.3".to_string(),
-        };
-        let msg = JupyterMessage {
-            ids: vec![b"abc".to_vec()],
-            header,
-            parent_header: json!({}),
-            metadata: json!({}),
-            content: json!({"code": "help"}),
-            buffers: Vec::new(),
-        };
+        let mut msg = test_message("execute_request", json!({"code": "help"}));
+        msg.ids = vec![b"abc".to_vec()];
 
         let frames = msg.encode("secret").expect("encode");
         let decoded = JupyterMessage::decode(frames, "secret").expect("decode");
@@ -598,22 +581,7 @@ mod tests {
 
     #[test]
     fn message_decode_rejects_bad_signature() {
-        let header = JupyterHeader {
-            msg_id: "1".to_string(),
-            session: "s".to_string(),
-            username: "u".to_string(),
-            date: "0".to_string(),
-            msg_type: "execute_request".to_string(),
-            version: "5.3".to_string(),
-        };
-        let msg = JupyterMessage {
-            ids: vec![],
-            header,
-            parent_header: json!({}),
-            metadata: json!({}),
-            content: json!({"code": "help"}),
-            buffers: Vec::new(),
-        };
+        let msg = test_message("execute_request", json!({"code": "help"}));
 
         let mut frames = msg.encode("secret").expect("encode");
         let delim_pos = frames
@@ -646,23 +614,8 @@ mod tests {
 
     #[test]
     fn kernel_execute_request_emits_execute_result_only() {
-        let mut kernel = Kernel::new("s".to_string(), "u".to_string(), String::new());
-        let header = JupyterHeader {
-            msg_id: "1".to_string(),
-            session: "s".to_string(),
-            username: "u".to_string(),
-            date: "0".to_string(),
-            msg_type: "execute_request".to_string(),
-            version: "5.3".to_string(),
-        };
-        let msg = JupyterMessage {
-            ids: vec![],
-            header,
-            parent_header: json!({}),
-            metadata: json!({}),
-            content: json!({"code": "rel f { a -> b }\nf"}),
-            buffers: Vec::new(),
-        };
+        let mut kernel = test_kernel();
+        let msg = test_message("execute_request", json!({"code": "rel f { a -> b }\nf"}));
 
         let response = kernel.handle_message(&msg);
         let result = response
@@ -685,23 +638,8 @@ mod tests {
 
     #[test]
     fn kernel_info_request_emits_idle_status() {
-        let mut kernel = Kernel::new("s".to_string(), "u".to_string(), String::new());
-        let header = JupyterHeader {
-            msg_id: "1".to_string(),
-            session: "s".to_string(),
-            username: "u".to_string(),
-            date: "0".to_string(),
-            msg_type: "kernel_info_request".to_string(),
-            version: "5.3".to_string(),
-        };
-        let msg = JupyterMessage {
-            ids: vec![],
-            header,
-            parent_header: json!({}),
-            metadata: json!({}),
-            content: json!({}),
-            buffers: Vec::new(),
-        };
+        let mut kernel = test_kernel();
+        let msg = test_message("kernel_info_request", json!({}));
 
         let response = kernel.handle_message(&msg);
         assert!(
@@ -715,23 +653,8 @@ mod tests {
 
     #[test]
     fn comm_info_request_returns_empty_comms() {
-        let mut kernel = Kernel::new("s".to_string(), "u".to_string(), String::new());
-        let header = JupyterHeader {
-            msg_id: "1".to_string(),
-            session: "s".to_string(),
-            username: "u".to_string(),
-            date: "0".to_string(),
-            msg_type: "comm_info_request".to_string(),
-            version: "5.3".to_string(),
-        };
-        let msg = JupyterMessage {
-            ids: vec![],
-            header,
-            parent_header: json!({}),
-            metadata: json!({}),
-            content: json!({}),
-            buffers: Vec::new(),
-        };
+        let mut kernel = test_kernel();
+        let msg = test_message("comm_info_request", json!({}));
 
         let response = kernel.handle_message(&msg);
         let shell = response.shell.expect("comm_info_reply");
@@ -741,23 +664,8 @@ mod tests {
 
     #[test]
     fn kernel_execute_request_emits_error_only() {
-        let mut kernel = Kernel::new("s".to_string(), "u".to_string(), String::new());
-        let header = JupyterHeader {
-            msg_id: "1".to_string(),
-            session: "s".to_string(),
-            username: "u".to_string(),
-            date: "0".to_string(),
-            msg_type: "execute_request".to_string(),
-            version: "5.3".to_string(),
-        };
-        let msg = JupyterMessage {
-            ids: vec![],
-            header,
-            parent_header: json!({}),
-            metadata: json!({}),
-            content: json!({"code": "rel { invalid"}),
-            buffers: Vec::new(),
-        };
+        let mut kernel = test_kernel();
+        let msg = test_message("execute_request", json!({"code": "rel { invalid"}));
 
         let response = kernel.handle_message(&msg);
         assert!(

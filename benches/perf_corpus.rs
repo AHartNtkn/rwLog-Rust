@@ -34,20 +34,12 @@ fn selected_cases() -> &'static [CorpusCase] {
     })
 }
 
-fn mode_suffix(mode: RunMode) -> &'static str {
-    match mode {
-        RunMode::FirstAnswer => "first_answer",
-        RunMode::FirstN(_) => "first_n",
-        RunMode::Exhaust => "exhaust",
-    }
-}
-
 fn bench_corpus_execute(c: &mut Criterion) {
     for mode in [RunMode::FirstAnswer, RunMode::FirstN(1), RunMode::Exhaust] {
-        let mode_name = mode_suffix(mode);
+        let mode_name = mode.as_str();
         let mut group = c.benchmark_group(format!("corpus_execute_{mode_name}"));
         for case in selected_cases() {
-            if mode_suffix(case.mode) != mode_name {
+            if case.mode.as_str() != mode_name {
                 continue;
             }
             group.bench_with_input(
@@ -70,7 +62,7 @@ fn bench_corpus_parse(c: &mut Criterion) {
     let mut group = c.benchmark_group("corpus_parse");
     for case in selected_cases() {
         group.bench_with_input(
-            BenchmarkId::new(mode_suffix(case.mode), case_bench_id(case)),
+            BenchmarkId::new(case.mode.as_str(), case_bench_id(case)),
             case,
             |b, case| {
                 b.iter(|| black_box(prepare_case(case)));
@@ -82,10 +74,10 @@ fn bench_corpus_parse(c: &mut Criterion) {
 
 fn bench_corpus_end_to_end(c: &mut Criterion) {
     for mode in [RunMode::FirstAnswer, RunMode::FirstN(1), RunMode::Exhaust] {
-        let mode_name = mode_suffix(mode);
+        let mode_name = mode.as_str();
         let mut group = c.benchmark_group(format!("corpus_end_to_end_{mode_name}"));
         for case in selected_cases() {
-            if mode_suffix(case.mode) != mode_name {
+            if case.mode.as_str() != mode_name {
                 continue;
             }
             group.bench_with_input(

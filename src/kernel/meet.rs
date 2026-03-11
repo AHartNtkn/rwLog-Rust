@@ -1,14 +1,15 @@
 use crate::constraint::ConstraintOps;
 use crate::nf::{collect_tensor, factor_tensor_with_subst, SubstParams, NF};
 use crate::perf_counters;
-use crate::term::{Term, TermId, TermStore};
+use crate::term::TermStore;
 #[cfg(feature = "tracing")]
 use crate::trace::{debug_span, trace};
 use std::hash::{Hash, Hasher};
 
 use super::util::{
-    build_remap_map, match_rhs_lists_with_pre_subst, match_term_lists_shifted_combined,
-    max_var_index_terms, pre_create_shifted_vars,
+    apply_and_normalize_constraints, match_rhs_lists_with_pre_subst,
+    match_term_lists_shifted_combined, max_var_index_terms, pre_create_shifted_vars,
+    root_functor_mismatch,
 };
 
 /// Compute the meet (intersection) of two NFs.
@@ -28,45 +29,6 @@ pub fn meet_nf<C: ConstraintOps>(a: &NF<C>, b: &NF<C>, terms: &mut TermStore) ->
     let result = meet_nf_impl(a, b, terms);
     perf_counters::record_meet_result(result.is_some());
     result
-}
-
-/// Check if two term IDs have provably different root functors, meaning
-/// their matching/meet must fail. Handles both inline nullary constants
-/// (compare TermIds directly) and non-inline App nodes (compare root functors).
-/// Returns false for variables or other inline types (cannot rule out match).
-#[inline]
-fn meet_root_functor_mismatch(a_id: TermId, b_id: TermId, terms: &mut TermStore) -> bool {
-    // Inline nullary constants: different TermIds = different ground terms.
-    if a_id.is_inline_nullary() && b_id.is_inline_nullary() {
-        return a_id != b_id;
-    }
-    // Non-inline App nodes: compare root functors.
-    if !a_id.is_inline() && !b_id.is_inline() {
-        let a_root = match terms.get_unlocked(a_id) {
-            Some(Term::App(f, _)) => Some(*f),
-            _ => None,
-        };
-        let b_root = match terms.get_unlocked(b_id) {
-            Some(Term::App(f, _)) => Some(*f),
-            _ => None,
-        };
-        if let (Some(af), Some(bf)) = (a_root, b_root) {
-            return af != bf;
-        }
-    }
-    // One inline nullary + one non-inline App: they have different structure.
-    // An inline nullary is always a 0-ary App, while non-inline App has arity >= 1.
-    // These can never match.
-    if (a_id.is_inline_nullary() && !b_id.is_inline())
-        || (!a_id.is_inline() && b_id.is_inline_nullary())
-    {
-        // Check: non-inline side is actually an App (not a variable ref).
-        let non_inline = if a_id.is_inline_nullary() { b_id } else { a_id };
-        if let Some(Term::App(_, _)) = terms.get_unlocked(non_inline) {
-            return true; // 0-ary vs >=1-ary: definitely different
-        }
-    }
-    false
 }
 
 fn meet_nf_impl<C: ConstraintOps>(a: &NF<C>, b: &NF<C>, terms: &mut TermStore) -> Option<NF<C>> {
@@ -95,12 +57,12 @@ fn meet_nf_impl<C: ConstraintOps>(a: &NF<C>, b: &NF<C>, terms: &mut TermStore) -
     // different terms — matching will fail. For non-inline App terms, compare
     // root functors. Variables and other inline types skip the precheck.
     if !a.match_pats.is_empty()
-        && meet_root_functor_mismatch(a.match_pats[0], b.match_pats[0], terms)
+        && root_functor_mismatch(a.match_pats[0], b.match_pats[0], terms)
     {
         return None;
     }
     if !a.build_pats.is_empty()
-        && meet_root_functor_mismatch(a.build_pats[0], b.build_pats[0], terms)
+        && root_functor_mismatch(a.build_pats[0], b.build_pats[0], terms)
     {
         return None;
     }
@@ -165,31 +127,18 @@ fn meet_nf_impl<C: ConstraintOps>(a: &NF<C>, b: &NF<C>, terms: &mut TermStore) -
         }
     };
 
-    // Apply the composed substitution to constraints in one pass each.
-    let a_constraint = a.drop_fresh.constraint.apply_subst(&meet_subst, terms);
-    let b_constraint =
-        match build_remap_map(&b.drop_fresh.constraint, b_max_var, b_var_offset, terms) {
-            Some(map) => b
-                .drop_fresh
-                .constraint
-                .remap_and_apply_subst(&map, &meet_subst, terms),
-            None => b.drop_fresh.constraint.apply_subst(&meet_subst, terms),
-        };
-
-    let combined = match a_constraint.combine_owned(b_constraint) {
-        Some(c) => c,
-        None => {
-            #[cfg(feature = "tracing")]
-            trace!("meet_constraint_conflict");
-            return None;
-        }
-    };
-
-    let (normalized, subst_opt) = match combined.normalize_owned(terms) {
+    let (normalized, subst_opt) = match apply_and_normalize_constraints(
+        &a.drop_fresh.constraint,
+        &b.drop_fresh.constraint,
+        b_max_var,
+        b_var_offset,
+        &meet_subst,
+        terms,
+    ) {
         Some(result) => result,
         None => {
             #[cfg(feature = "tracing")]
-            trace!("meet_constraint_unsat");
+            trace!("meet_constraint_failed");
             return None;
         }
     };
@@ -693,7 +642,6 @@ theory neq_only {
     #[test]
     fn meet_append_rules() {
         let (symbols, mut terms) = setup();
-        let _cons = symbols.intern("Cons");
         let nil = symbols.intern("Nil");
         let append = symbols.intern("Append");
         let v0 = terms.var(0);

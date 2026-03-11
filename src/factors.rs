@@ -22,13 +22,14 @@ pub struct Slice<C> {
 
 impl<C> Slice<C> {
     /// Create a new Slice covering the entire array.
-    pub fn new(arc: Arc<[Arc<Rel<C>>]>) -> Self {
+    fn new(arc: Arc<[Arc<Rel<C>>]>) -> Self {
         let end = arc.len();
         Self { arc, start: 0, end }
     }
 
     /// Create a Slice with a specific range.
-    pub fn with_range(arc: Arc<[Arc<Rel<C>>]>, start: usize, end: usize) -> Self {
+    #[cfg(test)]
+    fn with_range(arc: Arc<[Arc<Rel<C>>]>, start: usize, end: usize) -> Self {
         debug_assert!(start <= end);
         debug_assert!(end <= arc.len());
         Self { arc, start, end }
@@ -86,7 +87,7 @@ impl<C> Slice<C> {
 
 /// A rope-of-slices for efficient deque operations on Rel sequences.
 ///
-/// Maintains a list of slices, allowing O(1) push/pop from both ends.
+/// Maintains a small list of slices, allowing efficient push/pop from both ends.
 /// Empty slices are automatically filtered out to maintain the invariant
 /// that all slices in `chunks` are non-empty (or `chunks` is empty).
 #[derive(Clone, Debug)]
@@ -127,7 +128,7 @@ impl<C> Factors<C> {
 
     /// Collect all elements into a Vec in order.
     pub fn to_vec(&self) -> Vec<Arc<Rel<C>>> {
-        let mut out = Vec::new();
+        let mut out = Vec::with_capacity(self.len());
         for slice in &self.chunks {
             for idx in slice.start..slice.end {
                 out.push(Arc::clone(&slice.arc[idx]));
@@ -189,14 +190,14 @@ impl<C> Factors<C> {
     }
 
     /// Push a slice to the front. Empty slices are ignored.
-    pub fn push_front_slice(&mut self, slice: Slice<C>) {
+    fn push_front_slice(&mut self, slice: Slice<C>) {
         if !slice.is_empty() {
             self.chunks.insert(0, slice);
         }
     }
 
     /// Push a slice to the back. Empty slices are ignored.
-    pub fn push_back_slice(&mut self, slice: Slice<C>) {
+    fn push_back_slice(&mut self, slice: Slice<C>) {
         if !slice.is_empty() {
             self.chunks.push(slice);
         }
@@ -204,23 +205,23 @@ impl<C> Factors<C> {
 
     /// Push a single Rel to the front.
     pub fn push_front_rel(&mut self, rel: Arc<Rel<C>>) {
-        let arr: Arc<[Arc<Rel<C>>]> = Arc::from(vec![rel]);
+        let arr: Arc<[Arc<Rel<C>>]> = Arc::from([rel]);
         self.push_front_slice(Slice::new(arr));
     }
 
     /// Push a single Rel to the back.
     pub fn push_back_rel(&mut self, rel: Arc<Rel<C>>) {
-        let arr: Arc<[Arc<Rel<C>>]> = Arc::from(vec![rel]);
+        let arr: Arc<[Arc<Rel<C>>]> = Arc::from([rel]);
         self.push_back_slice(Slice::new(arr));
     }
 
     /// Push a Seq's contents to the front as a slice.
-    pub fn push_front_slice_from_seq(&mut self, seq: Arc<[Arc<Rel<C>>]>) {
+    pub fn push_front_seq(&mut self, seq: Arc<[Arc<Rel<C>>]>) {
         self.push_front_slice(Slice::new(seq));
     }
 
     /// Push a Seq's contents to the back as a slice.
-    pub fn push_back_slice_from_seq(&mut self, seq: Arc<[Arc<Rel<C>>]>) {
+    pub fn push_back_seq(&mut self, seq: Arc<[Arc<Rel<C>>]>) {
         self.push_back_slice(Slice::new(seq));
     }
 }
@@ -856,65 +857,65 @@ mod tests {
     }
 
     #[test]
-    fn push_front_slice_from_seq_adds_all_elements() {
+    fn push_front_seq_adds_all_elements() {
         let mut f = factors_with_single_slice(2);
         let seq = make_arc_slice(3);
         let first_of_seq = Arc::clone(&seq[0]);
 
-        f.push_front_slice_from_seq(seq);
+        f.push_front_seq(seq);
 
         assert_eq!(f.len(), 5);
         assert!(Arc::ptr_eq(f.front().unwrap(), &first_of_seq));
     }
 
     #[test]
-    fn push_front_slice_from_seq_empty_is_noop() {
+    fn push_front_seq_empty_is_noop() {
         let mut f = factors_with_single_slice(2);
         let seq = make_arc_slice(0);
 
-        f.push_front_slice_from_seq(seq);
+        f.push_front_seq(seq);
 
         assert_eq!(f.len(), 2);
     }
 
     #[test]
-    fn push_back_slice_from_seq_adds_all_elements() {
+    fn push_back_seq_adds_all_elements() {
         let mut f = factors_with_single_slice(2);
         let seq = make_arc_slice(3);
         let last_of_seq = Arc::clone(&seq[2]);
 
-        f.push_back_slice_from_seq(seq);
+        f.push_back_seq(seq);
 
         assert_eq!(f.len(), 5);
         assert!(Arc::ptr_eq(f.back().unwrap(), &last_of_seq));
     }
 
     #[test]
-    fn push_back_slice_from_seq_empty_is_noop() {
+    fn push_back_seq_empty_is_noop() {
         let mut f = factors_with_single_slice(2);
         let seq = make_arc_slice(0);
 
-        f.push_back_slice_from_seq(seq);
+        f.push_back_seq(seq);
 
         assert_eq!(f.len(), 2);
     }
 
     #[test]
-    fn push_front_slice_from_seq_to_empty_factors() {
+    fn push_front_seq_to_empty_factors() {
         let mut f: Factors<()> = Factors::new();
         let seq = make_arc_slice(3);
 
-        f.push_front_slice_from_seq(seq);
+        f.push_front_seq(seq);
 
         assert_eq!(f.len(), 3);
     }
 
     #[test]
-    fn push_back_slice_from_seq_to_empty_factors() {
+    fn push_back_seq_to_empty_factors() {
         let mut f: Factors<()> = Factors::new();
         let seq = make_arc_slice(3);
 
-        f.push_back_slice_from_seq(seq);
+        f.push_back_seq(seq);
 
         assert_eq!(f.len(), 3);
     }

@@ -156,38 +156,39 @@ fn main() {
         size_of::<std::sync::Arc<chr::ChrProgram>>()
     );
 
-    // CallMode is not re-exported, skip it
-
-    println!("\n--- Size Chain (why Work is 624 bytes) ---");
-    println!("  ChrState:          {:>4} B", size_of::<C>());
     println!(
-        "  DropFresh<C>:      {:>4} B (contains ChrState: {}B + map: {}B + 2×u32)",
+        "\n--- Size Chain (why Work is {} bytes) ---",
+        size_of::<work::Work<C>>()
+    );
+    println!("  ChrState:          {:>4} bytes", size_of::<C>());
+    println!(
+        "  DropFresh<C>:      {:>4} bytes (contains ChrState: {} + map: {} + 2×u32)",
         size_of::<drop_fresh::DropFresh<C>>(),
         size_of::<C>(),
         size_of::<smallvec::SmallVec<[(u32, u32); 4]>>()
     );
     println!(
-        "  NF<C>:             {:>4} B (2× SmallVec<[TermId;1]>: {}B + DropFresh: {}B)",
+        "  NF<C>:             {:>4} bytes (2× SmallVec<[TermId;1]>: {} + DropFresh: {})",
         size_of::<nf::NF<C>>(),
         size_of::<smallvec::SmallVec<[rwlog::term::TermId; 1]>>(),
         size_of::<drop_fresh::DropFresh<C>>()
     );
     println!(
-        "  Option<NF<C>>:     {:>4} B",
+        "  Option<NF<C>>:     {:>4} bytes",
         size_of::<Option<nf::NF<C>>>()
     );
     println!(
-        "  PipeWork<C>:       {:>4} B (2× Option<NF<C>>: {}B + Factors: {}B + ...)",
+        "  PipeWork<C>:       {:>4} bytes (2× Option<NF<C>>: {} + Factors: {} + ...)",
         size_of::<PipeWork<C>>(),
         size_of::<Option<nf::NF<C>>>() * 2,
         size_of::<factors::Factors<C>>()
     );
     println!(
-        "  Work<C>:           {:>4} B (sized to ComposeWork; PipeWork boxed)",
+        "  Work<C>:           {:>4} bytes (sized to ComposeWork; PipeWork boxed)",
         size_of::<work::Work<C>>()
     );
     println!(
-        "  Box<Work<C>>:      {:>4} B on stack, {:>4} B heap alloc",
+        "  Box<Work<C>>:      {:>4} bytes on stack, {:>4} bytes heap alloc",
         size_of::<Box<work::Work<C>>>(),
         size_of::<work::Work<C>>()
     );

@@ -1,20 +1,14 @@
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
-use rwlog::perf_corpus::load_cases;
-use serde::Deserialize;
+use rwlog::perf_corpus::{
+    csv_escape, load_cases, load_snapshots, PerfSnapshot, SourceFilter, stats_cv_pct,
+    stats_mad_pct,
+};
 use serde::Serialize;
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
-use std::fs;
-use std::path::{Path, PathBuf};
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum SourceFilter {
-    Gate,
-    Probe,
-    All,
-}
+use std::path::PathBuf;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum MetricFilter {
@@ -44,52 +38,6 @@ struct Args {
     default_noise_target_cv_pct: f64,
     json: bool,
     csv: bool,
-}
-
-#[derive(Clone, Debug, Deserialize)]
-struct EnvironmentFingerprint {
-    os: String,
-    arch: String,
-    #[serde(default)]
-    cpu_model: Option<String>,
-    rustc_version: String,
-}
-
-#[derive(Clone, Debug, Deserialize)]
-struct GateRow {
-    id: String,
-    median_us: f64,
-    p95_us: f64,
-    #[allow(dead_code)]
-    ok: bool,
-}
-
-#[derive(Clone, Debug, Deserialize)]
-struct GateReport {
-    #[serde(default)]
-    environment: Option<EnvironmentFingerprint>,
-    rows: Vec<GateRow>,
-}
-
-#[derive(Clone, Debug, Deserialize)]
-struct RunRow {
-    id: String,
-    median_us: f64,
-    p95_us: f64,
-}
-
-#[derive(Clone, Debug, Deserialize)]
-struct RunReport {
-    #[serde(default)]
-    environment: Option<EnvironmentFingerprint>,
-    rows: Vec<RunRow>,
-}
-
-#[derive(Clone, Debug)]
-struct Snapshot {
-    name: String,
-    gate: Option<GateReport>,
-    probe: Option<RunReport>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -272,61 +220,6 @@ fn parse_args() -> Args {
     args_out
 }
 
-fn load_json<T: for<'de> Deserialize<'de>>(path: &Path) -> Option<T> {
-    let text = fs::read_to_string(path).ok()?;
-    serde_json::from_str(&text).ok()
-}
-
-fn load_snapshot(dir: &Path) -> Option<Snapshot> {
-    let name = dir.file_name()?.to_str()?.to_string();
-    let gate = load_json::<GateReport>(&dir.join("gate.json"))
-        .or_else(|| load_json::<GateReport>(&dir.join("quick_gate.json")));
-    let probe = load_json::<RunReport>(&dir.join("probe.json"))
-        .or_else(|| load_json::<RunReport>(&dir.join("quick_probe.json")))
-        .or_else(|| load_json::<RunReport>(&dir.join("stress_probe.json")));
-    if gate.is_none() && probe.is_none() {
-        return None;
-    }
-    Some(Snapshot { name, gate, probe })
-}
-
-fn load_snapshots(history_dir: &Path) -> Vec<Snapshot> {
-    let entries = fs::read_dir(history_dir)
-        .unwrap_or_else(|e| panic!("read_dir {}: {}", history_dir.display(), e));
-    let mut dirs = Vec::new();
-    for entry in entries {
-        let entry = entry.expect("dir entry");
-        let path = entry.path();
-        if path.is_dir() {
-            dirs.push(path);
-        }
-    }
-    dirs.sort();
-    let mut snapshots = Vec::new();
-    for dir in dirs {
-        if let Some(s) = load_snapshot(&dir) {
-            snapshots.push(s);
-        }
-    }
-    snapshots
-}
-
-fn csv_escape(s: &str) -> String {
-    if s.contains(',') || s.contains('"') || s.contains('\n') {
-        format!("\"{}\"", s.replace('"', "\"\""))
-    } else {
-        s.to_string()
-    }
-}
-
-fn source_to_str(source: SourceFilter) -> &'static str {
-    match source {
-        SourceFilter::Gate => "gate",
-        SourceFilter::Probe => "probe",
-        SourceFilter::All => "all",
-    }
-}
-
 fn metric_to_str(metric: MetricFilter) -> &'static str {
     match metric {
         MetricFilter::Median => "median",
@@ -343,31 +236,31 @@ fn env_mode_to_str(mode: EnvCompatMode) -> &'static str {
     }
 }
 
-fn snapshot_env(snapshot: &Snapshot) -> Option<&EnvironmentFingerprint> {
-    if let Some(g) = &snapshot.gate {
-        if let Some(env) = &g.environment {
-            return Some(env);
-        }
-    }
-    if let Some(p) = &snapshot.probe {
-        if let Some(env) = &p.environment {
-            return Some(env);
-        }
-    }
-    None
+fn snapshot_env(snapshot: &PerfSnapshot) -> Option<(&str, &str, Option<&str>, &str)> {
+    let env = snapshot
+        .gate
+        .as_ref()
+        .and_then(|g| g.environment.as_ref())
+        .or_else(|| snapshot.probe.as_ref().and_then(|p| p.environment.as_ref()))?;
+    Some((
+        &env.os,
+        &env.arch,
+        env.cpu_model.as_deref(),
+        &env.rustc_version,
+    ))
 }
 
-fn env_mismatch_fields(snapshots: &[Snapshot]) -> Vec<String> {
-    let mut os_vals = BTreeSet::new();
-    let mut arch_vals = BTreeSet::new();
-    let mut cpu_vals = BTreeSet::new();
-    let mut rustc_vals = BTreeSet::new();
+fn env_mismatch_fields(snapshots: &[PerfSnapshot]) -> Vec<String> {
+    let mut os_vals: BTreeSet<&str> = BTreeSet::new();
+    let mut arch_vals: BTreeSet<&str> = BTreeSet::new();
+    let mut cpu_vals: BTreeSet<Option<&str>> = BTreeSet::new();
+    let mut rustc_vals: BTreeSet<&str> = BTreeSet::new();
     for snapshot in snapshots {
-        if let Some(env) = snapshot_env(snapshot) {
-            os_vals.insert(env.os.clone());
-            arch_vals.insert(env.arch.clone());
-            cpu_vals.insert(env.cpu_model.clone().unwrap_or_else(|| "-".to_string()));
-            rustc_vals.insert(env.rustc_version.clone());
+        if let Some((os, arch, cpu, rustc)) = snapshot_env(snapshot) {
+            os_vals.insert(os);
+            arch_vals.insert(arch);
+            cpu_vals.insert(cpu);
+            rustc_vals.insert(rustc);
         }
     }
     let mut out = Vec::new();
@@ -386,56 +279,6 @@ fn env_mismatch_fields(snapshots: &[Snapshot]) -> Vec<String> {
     out
 }
 
-fn median_sorted(sorted: &[f64]) -> f64 {
-    sorted[sorted.len() / 2]
-}
-
-fn mean(values: &[f64]) -> f64 {
-    values.iter().sum::<f64>() / (values.len() as f64)
-}
-
-fn stddev(values: &[f64]) -> f64 {
-    if values.len() < 2 {
-        return 0.0;
-    }
-    let m = mean(values);
-    let var = values
-        .iter()
-        .map(|v| {
-            let d = v - m;
-            d * d
-        })
-        .sum::<f64>()
-        / (values.len() as f64);
-    var.sqrt()
-}
-
-fn coefficient_of_variation_pct(values: &[f64]) -> f64 {
-    if values.len() < 2 {
-        return 0.0;
-    }
-    let m = mean(values);
-    if m <= 0.0 {
-        return 0.0;
-    }
-    (stddev(values) / m) * 100.0
-}
-
-fn median_absolute_deviation_pct(values: &[f64]) -> f64 {
-    if values.is_empty() {
-        return 0.0;
-    }
-    let mut sorted = values.to_vec();
-    sorted.sort_by(|a, b| a.partial_cmp(b).expect("finite floats"));
-    let median = median_sorted(&sorted);
-    if median <= 0.0 {
-        return 0.0;
-    }
-    let mut abs_dev: Vec<f64> = sorted.iter().map(|v| (v - median).abs()).collect();
-    abs_dev.sort_by(|a, b| a.partial_cmp(b).expect("finite floats"));
-    (median_sorted(&abs_dev) / median) * 100.0
-}
-
 fn case_noise_targets(default_noise_target_cv_pct: f64) -> BTreeMap<String, f64> {
     let mut out = BTreeMap::new();
     for case in load_cases() {
@@ -449,7 +292,7 @@ fn case_noise_targets(default_noise_target_cv_pct: f64) -> BTreeMap<String, f64>
 }
 
 fn aggregate_rows(
-    snapshots: &[Snapshot],
+    snapshots: &[PerfSnapshot],
     source: SourceFilter,
     metric: MetricFilter,
     case_noise_targets: &BTreeMap<String, f64>,
@@ -460,7 +303,7 @@ fn aggregate_rows(
         if let Some(gate) = snapshot
             .gate
             .as_ref()
-            .filter(|_| source == SourceFilter::Gate || source == SourceFilter::All)
+            .filter(|_| source.includes_gate())
         {
             for row in &gate.rows {
                 if metric == MetricFilter::Median || metric == MetricFilter::All {
@@ -480,7 +323,7 @@ fn aggregate_rows(
         if let Some(probe) = snapshot
             .probe
             .as_ref()
-            .filter(|_| source == SourceFilter::Probe || source == SourceFilter::All)
+            .filter(|_| source.includes_probe())
         {
             for row in &probe.rows {
                 if metric == MetricFilter::Median || metric == MetricFilter::All {
@@ -506,13 +349,12 @@ fn aggregate_rows(
         }
         let first = values.first().expect("first value");
         let last = values.last().expect("last value");
-        let mut min_v = f64::INFINITY;
-        let mut max_v = f64::NEG_INFINITY;
-        let numeric_values: Vec<f64> = values.iter().map(|(_, v)| *v).collect();
-        for (_, v) in &values {
-            min_v = min_v.min(*v);
-            max_v = max_v.max(*v);
-        }
+        let mut sorted_values: Vec<f64> = values.iter().map(|(_, v)| *v).collect();
+        let volatility_cv_pct = stats_cv_pct(&sorted_values);
+        sorted_values.sort_by(|a, b| a.partial_cmp(b).expect("finite floats"));
+        let min_v = sorted_values[0];
+        let max_v = sorted_values[sorted_values.len() - 1];
+        let volatility_mad_pct = stats_mad_pct(&sorted_values);
         let delta = last.1 - first.1;
         let delta_pct = if first.1 == 0.0 {
             0.0
@@ -520,8 +362,6 @@ fn aggregate_rows(
             (delta / first.1) * 100.0
         };
         let slope = delta / ((values.len() - 1) as f64);
-        let volatility_cv_pct = coefficient_of_variation_pct(&numeric_values);
-        let volatility_mad_pct = median_absolute_deviation_pct(&numeric_values);
         let noise_target_cv_pct = case_noise_targets
             .get(&id)
             .copied()
@@ -560,28 +400,23 @@ fn effective_threshold_pct(row: &TrendRow, base_threshold_pct: f64) -> f64 {
     base_threshold_pct + (row.volatility_cv_pct - row.noise_target_cv_pct).max(0.0)
 }
 
-fn is_regression(row: &TrendRow, threshold_pct: f64, min_regression_confidence: f64) -> bool {
-    let threshold = effective_threshold_pct(row, threshold_pct);
-    row.delta_pct > threshold && row.regression_confidence >= min_regression_confidence
-}
-
-fn annotate_regressions(rows: &mut [TrendRow], threshold_pct: f64, min_regression_confidence: f64) {
-    for row in rows {
-        let threshold = effective_threshold_pct(row, threshold_pct);
-        let over = is_regression(row, threshold_pct, min_regression_confidence);
-        row.effective_threshold_pct = Some(threshold);
-        row.regression_over_effective_threshold = Some(over);
-    }
-}
-
-fn count_regressions(
-    rows: &[TrendRow],
+fn annotate_regressions(
+    rows: &mut [TrendRow],
     threshold_pct: f64,
     min_regression_confidence: f64,
 ) -> usize {
-    rows.iter()
-        .filter(|r| is_regression(r, threshold_pct, min_regression_confidence))
-        .count()
+    let mut count = 0;
+    for row in rows {
+        let threshold = effective_threshold_pct(row, threshold_pct);
+        let over =
+            row.delta_pct > threshold && row.regression_confidence >= min_regression_confidence;
+        row.effective_threshold_pct = Some(threshold);
+        row.regression_over_effective_threshold = Some(over);
+        if over {
+            count += 1;
+        }
+    }
+    count
 }
 
 fn main() {
@@ -651,14 +486,13 @@ fn main() {
     }
 
     let regressions_over_threshold = args.fail_regressions_pct.map(|threshold_pct| {
-        annotate_regressions(&mut rows, threshold_pct, args.min_regression_confidence);
-        count_regressions(&rows, threshold_pct, args.min_regression_confidence)
+        annotate_regressions(&mut rows, threshold_pct, args.min_regression_confidence)
     });
 
     if args.json {
         let report = TrendReport {
             history_dir: args.history_dir.display().to_string(),
-            source: source_to_str(args.source).to_string(),
+            source: args.source.to_str().to_string(),
             metric: metric_to_str(args.metric).to_string(),
             env_compat: env_mode_to_str(args.env_compat).to_string(),
             env_mismatch_fields: mismatch_fields.clone(),
@@ -716,7 +550,7 @@ fn main() {
         "perf trend history_dir={} snapshots={} source={} metric={} env_compat={} env_mismatch_fields={} window={} top={} fail_regressions_pct={} min_regression_confidence={:.3} default_noise_target_cv_pct={:.3}",
         args.history_dir.display(),
         snapshots.len(),
-        source_to_str(args.source),
+        args.source.to_str(),
         metric_to_str(args.metric),
         env_mode_to_str(args.env_compat),
         if mismatch_fields.is_empty() {
@@ -778,7 +612,7 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use super::{count_regressions, TrendRow};
+    use super::{annotate_regressions, TrendRow};
 
     fn mk_row(delta_pct: f64, volatility_cv_pct: f64, volatility_mad_pct: f64) -> TrendRow {
         TrendRow {
@@ -809,30 +643,30 @@ mod tests {
     }
 
     #[test]
-    fn count_regressions_counts_only_positive_deltas_above_threshold() {
-        let rows = vec![
+    fn annotate_regressions_counts_only_positive_deltas_above_threshold() {
+        let mut rows = vec![
             mk_row(-5.0, 5.0, 5.0),
             mk_row(0.0, 5.0, 5.0),
             mk_row(4.9, 5.0, 5.0),
             mk_row(5.1, 5.0, 5.0),
             mk_row(9.0, 5.0, 5.0),
         ];
-        assert_eq!(count_regressions(&rows, 5.0, 0.5), 2);
+        assert_eq!(annotate_regressions(&mut rows, 5.0, 0.5), 2);
     }
 
     #[test]
-    fn count_regressions_ignores_equal_threshold() {
-        let rows = vec![mk_row(5.0, 5.0, 5.0), mk_row(5.00001, 5.0, 5.0)];
-        assert_eq!(count_regressions(&rows, 5.0, 0.5), 1);
+    fn annotate_regressions_ignores_equal_threshold() {
+        let mut rows = vec![mk_row(5.0, 5.0, 5.0), mk_row(5.00001, 5.0, 5.0)];
+        assert_eq!(annotate_regressions(&mut rows, 5.0, 0.5), 1);
     }
 
     #[test]
-    fn count_regressions_respects_confidence_floor() {
-        let rows = vec![
+    fn annotate_regressions_respects_confidence_floor() {
+        let mut rows = vec![
             mk_row(12.0, 30.0, 20.0),
             mk_row(15.0, 8.0, 3.0),
             mk_row(30.0, 80.0, 25.0),
         ];
-        assert_eq!(count_regressions(&rows, 10.0, 2.0), 1);
+        assert_eq!(annotate_regressions(&mut rows, 10.0, 2.0), 1);
     }
 }

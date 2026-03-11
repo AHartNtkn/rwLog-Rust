@@ -122,16 +122,10 @@ impl TermId {
         TermId(TAG_INLINE_NULLARY | func_raw)
     }
 
-    /// Get the variable range (min_var, max_var) for this TermId if it is an inline variable.
-    /// Returns None for non-variable inline terms and store references (use var_ranges vec for those).
+    /// Create an inline nullary constant TermId from a FuncId.
     #[inline(always)]
-    pub fn inline_var_range(self) -> Option<(u32, u32)> {
-        if self.is_inline_var() {
-            let idx = self.inline_var_index();
-            Some((idx, idx))
-        } else {
-            None
-        }
+    pub fn from_nullary_func(func: FuncId) -> Self {
+        Self::inline_nullary(func.into_inner().get())
     }
 }
 
@@ -160,13 +154,13 @@ static TERMSTORE_GENERATION: AtomicU64 = AtomicU64::new(0);
 pub struct TermStore {
     /// Central storage of all terms, indexed by TermId (using index() to strip tag bits).
     /// Does NOT contain variables or nullary App entries (those are inline in TermId).
-    pub(crate) nodes: RwLock<Vec<Term>>,
+    nodes: RwLock<Vec<Term>>,
     /// Per-term variable range: (min_var, max_var) for non-ground stored terms.
     /// Indexed in parallel with `nodes`. For ground terms the values are meaningless
     /// (callers skip via `is_ground()`). For non-ground App terms, stores the minimum
     /// and maximum variable indices reachable in the subtree, enabling O(1) rejection
     /// in occurs checks.
-    pub(crate) var_ranges: RwLock<Vec<(u32, u32)>>,
+    var_ranges: RwLock<Vec<(u32, u32)>>,
     /// Sharded hashcons maps for reducing contention. Uses FxHash for speed.
     shards: [RwLock<HashMap<Term, TermId, FxBuildHasher>>; NUM_SHARDS],
     /// Counter for generating unique TermIds.
@@ -203,7 +197,7 @@ impl TermStore {
         match &term {
             Term::Var(idx) => return TermId::inline_var(*idx),
             Term::App(func, children) if children.is_empty() => {
-                return TermId::inline_nullary(func.into_inner().get());
+                return TermId::from_nullary_func(*func);
             }
             _ => {}
         }
@@ -235,63 +229,15 @@ impl TermStore {
             PAYLOAD_MASK
         );
 
-        // Compute ground flag and variable range from children.
-        // At this point, term is guaranteed to be an App with at least one child.
+        let mut nodes = self.nodes.write();
+        let mut vr = self.var_ranges.write();
         let (is_ground, var_range) = match &term {
             Term::App(_, children) => {
-                let mut all_ground = true;
-                let mut min_v = u32::MAX;
-                let mut max_v = 0u32;
-                let var_ranges_guard = self.var_ranges.read();
-                for c in children.iter() {
-                    if c.is_ground() {
-                        continue;
-                    }
-                    all_ground = false;
-                    if c.is_inline_var() {
-                        let idx = c.inline_var_index();
-                        min_v = min_v.min(idx);
-                        max_v = max_v.max(idx);
-                    } else {
-                        // Non-ground store ref: look up child's range
-                        if let Some(&(cmin, cmax)) = var_ranges_guard.get(c.index()) {
-                            min_v = min_v.min(cmin);
-                            max_v = max_v.max(cmax);
-                        }
-                    }
-                }
-                (all_ground, (min_v, max_v))
+                Self::compute_ground_and_var_range(children, &vr)
             }
             Term::Var(_) => unreachable!("variables are handled above"),
         };
-
-        {
-            let mut nodes = self.nodes.write();
-            let idx = raw_index as usize;
-            if nodes.len() <= idx {
-                nodes.resize(idx + 1, Term::Var(0));
-            }
-            nodes[idx] = term.clone();
-        }
-        {
-            let mut vr = self.var_ranges.write();
-            let idx = raw_index as usize;
-            if vr.len() <= idx {
-                vr.resize(idx + 1, (u32::MAX, 0));
-            }
-            vr[idx] = var_range;
-        }
-
-        let id = TermId(
-            raw_index
-                | if is_ground {
-                    TAG_STORE_GROUND
-                } else {
-                    TAG_STORE_NONGROUND
-                },
-        );
-        map.insert(term, id);
-        id
+        Self::store_term(raw_index, is_ground, var_range, term, &mut nodes, &mut vr, &mut map)
     }
 
     /// Create a variable term.
@@ -305,7 +251,7 @@ impl TermStore {
     /// Nullary apps are encoded inline. Non-nullary apps are hashconsed.
     pub fn app(&self, func: FuncId, children: SmallVec<[TermId; 4]>) -> TermId {
         if children.is_empty() {
-            return TermId::inline_nullary(func.into_inner().get());
+            return TermId::from_nullary_func(func);
         }
         self.intern(Term::App(func, children))
     }
@@ -313,7 +259,7 @@ impl TermStore {
     /// Create a nullary (0-arity) application.
     #[inline(always)]
     pub fn app0(&self, func: FuncId) -> TermId {
-        TermId::inline_nullary(func.into_inner().get())
+        TermId::from_nullary_func(func)
     }
 
     /// Create a unary (1-arity) application.
@@ -329,16 +275,7 @@ impl TermStore {
     /// Resolve a TermId to its term (cloning).
     /// Prefer `with_term` for read-only access to avoid cloning.
     pub fn resolve(&self, id: TermId) -> Option<Term> {
-        if id.is_inline_var() {
-            return Some(Term::Var(id.inline_var_index()));
-        }
-        if id.is_inline_nullary() {
-            let func_raw = id.inline_nullary_func_raw();
-            let func = Self::func_id_from_raw(func_raw)?;
-            return Some(Term::App(func, SmallVec::new()));
-        }
-        let nodes = self.nodes.read();
-        nodes.get(id.index()).cloned()
+        self.with_term(id, |opt| opt.cloned())
     }
 
     /// Access a term by reference without cloning.
@@ -375,33 +312,18 @@ impl TermStore {
     /// Check if a term is a variable.
     #[inline]
     pub fn is_var(&self, id: TermId) -> Option<u32> {
-        if id.is_inline_var() {
-            return Some(id.inline_var_index());
-        }
-        if id.is_inline_nullary() {
-            return None;
-        }
-        let nodes = self.nodes.read();
-        match nodes.get(id.index()) {
+        self.with_term(id, |opt| match opt {
             Some(Term::Var(idx)) => Some(*idx),
             _ => None,
-        }
+        })
     }
 
     /// Check if a term is an application, returning functor and children.
     pub fn is_app(&self, id: TermId) -> Option<(FuncId, SmallVec<[TermId; 4]>)> {
-        if id.is_inline_var() {
-            return None;
-        }
-        if id.is_inline_nullary() {
-            let func = Self::func_id_from_raw(id.inline_nullary_func_raw())?;
-            return Some((func, SmallVec::new()));
-        }
-        let nodes = self.nodes.read();
-        match nodes.get(id.index()) {
+        self.with_term(id, |opt| match opt {
             Some(Term::App(f, children)) => Some((*f, children.clone())),
             _ => None,
-        }
+        })
     }
 
     /// Get a term by index without locking. Requires exclusive (`&mut`) access.
@@ -441,7 +363,7 @@ impl TermStore {
         match &term {
             Term::Var(idx) => return TermId::inline_var(*idx),
             Term::App(func, children) if children.is_empty() => {
-                return TermId::inline_nullary(func.into_inner().get());
+                return TermId::from_nullary_func(*func);
             }
             _ => {}
         }
@@ -461,61 +383,17 @@ impl TermStore {
             PAYLOAD_MASK
         );
 
-        // Compute ground flag and variable range from children.
-        // At this point, term is guaranteed to be an App with at least one child.
         let (is_ground, var_range) = match &term {
             Term::App(_, children) => {
-                let mut all_ground = true;
-                let mut min_v = u32::MAX;
-                let mut max_v = 0u32;
-                let vr = self.var_ranges.get_mut();
-                for c in children.iter() {
-                    if c.is_ground() {
-                        continue;
-                    }
-                    all_ground = false;
-                    if c.is_inline_var() {
-                        let idx = c.inline_var_index();
-                        min_v = min_v.min(idx);
-                        max_v = max_v.max(idx);
-                    } else {
-                        // Non-ground store ref: look up child's range
-                        if let Some(&(cmin, cmax)) = vr.get(c.index()) {
-                            min_v = min_v.min(cmin);
-                            max_v = max_v.max(cmax);
-                        }
-                    }
-                }
-                (all_ground, (min_v, max_v))
+                Self::compute_ground_and_var_range(children, self.var_ranges.get_mut())
             }
             Term::Var(_) => unreachable!("variables are handled above"),
         };
 
         let nodes = self.nodes.get_mut();
-        let idx = raw_index as usize;
-        if nodes.len() <= idx {
-            nodes.resize(idx + 1, Term::Var(0));
-        }
-        nodes[idx] = term.clone();
-
-        {
-            let vr = self.var_ranges.get_mut();
-            if vr.len() <= idx {
-                vr.resize(idx + 1, (u32::MAX, 0));
-            }
-            vr[idx] = var_range;
-        }
-
-        let id = TermId(
-            raw_index
-                | if is_ground {
-                    TAG_STORE_GROUND
-                } else {
-                    TAG_STORE_NONGROUND
-                },
-        );
-        self.shards[shard_idx].get_mut().insert(term, id);
-        id
+        let vr = self.var_ranges.get_mut();
+        let shard = self.shards[shard_idx].get_mut();
+        Self::store_term(raw_index, is_ground, var_range, term, nodes, vr, shard)
     }
 
     /// Create an application term from a slice without locking.
@@ -523,16 +401,9 @@ impl TermStore {
     #[inline]
     pub fn app_from_slice_unlocked(&mut self, func: FuncId, children: &[TermId]) -> TermId {
         if children.is_empty() {
-            return TermId::inline_nullary(func.into_inner().get());
+            return TermId::from_nullary_func(func);
         }
         self.intern_unlocked(Term::App(func, SmallVec::from_slice(children)))
-    }
-
-    /// Create a variable term without locking. Requires exclusive (`&mut`) access.
-    /// Pure arithmetic, no store access.
-    #[inline(always)]
-    pub fn var_unlocked(&mut self, index: u32) -> TermId {
-        TermId::inline_var(index)
     }
 
     /// Convert a raw u32 FuncId value back to a FuncId (Spur).
@@ -545,6 +416,65 @@ impl TermStore {
         // Since we stored func.into_inner().get() which is the NonZeroU32 value,
         // and Spur::into_usize() returns key-1, we need try_from_usize(raw-1).
         FuncId::try_from_usize(nz.get() as usize - 1)
+    }
+
+    /// Compute ground flag and variable range from an App's children.
+    /// Returns (is_ground, (min_var, max_var)).
+    fn compute_ground_and_var_range(
+        children: &[TermId],
+        var_ranges: &[(u32, u32)],
+    ) -> (bool, (u32, u32)) {
+        let mut all_ground = true;
+        let mut min_v = u32::MAX;
+        let mut max_v = 0u32;
+        for c in children.iter() {
+            if c.is_ground() {
+                continue;
+            }
+            all_ground = false;
+            if c.is_inline_var() {
+                let idx = c.inline_var_index();
+                min_v = min_v.min(idx);
+                max_v = max_v.max(idx);
+            } else if let Some(&(cmin, cmax)) = var_ranges.get(c.index()) {
+                min_v = min_v.min(cmin);
+                max_v = max_v.max(cmax);
+            }
+        }
+        (all_ground, (min_v, max_v))
+    }
+
+    /// Store a term at the given raw index in nodes and var_ranges, and return its TermId.
+    fn store_term(
+        raw_index: u32,
+        is_ground: bool,
+        var_range: (u32, u32),
+        term: Term,
+        nodes: &mut Vec<Term>,
+        var_ranges: &mut Vec<(u32, u32)>,
+        shard: &mut HashMap<Term, TermId, FxBuildHasher>,
+    ) -> TermId {
+        let idx = raw_index as usize;
+        if nodes.len() <= idx {
+            nodes.resize(idx + 1, Term::Var(0));
+        }
+        nodes[idx] = term.clone();
+
+        if var_ranges.len() <= idx {
+            var_ranges.resize(idx + 1, (u32::MAX, 0));
+        }
+        var_ranges[idx] = var_range;
+
+        let id = TermId(
+            raw_index
+                | if is_ground {
+                    TAG_STORE_GROUND
+                } else {
+                    TAG_STORE_NONGROUND
+                },
+        );
+        shard.insert(term, id);
+        id
     }
 
     /// Get the shard index for a term (for hashconsing distribution).
@@ -593,11 +523,10 @@ pub fn format_term(
 ) -> Result<String, String> {
     fn render(
         term: TermId,
-        terms: &TermStore,
+        guard: &TermReadGuard<'_>,
         symbols: &SymbolStore,
         out: &mut String,
     ) -> Result<(), String> {
-        // Handle inline TermIds without store access.
         if term.is_inline_var() {
             out.push('$');
             out.push_str(&term.inline_var_index().to_string());
@@ -612,7 +541,7 @@ pub fn format_term(
             out.push_str(name);
             return Ok(());
         }
-        match terms.resolve(term) {
+        match guard.get(term) {
             Some(Term::Var(idx)) => {
                 out.push('$');
                 out.push_str(&idx.to_string());
@@ -620,7 +549,7 @@ pub fn format_term(
             }
             Some(Term::App(func, children)) => {
                 let name = symbols
-                    .resolve(func)
+                    .resolve(*func)
                     .ok_or_else(|| format!("Unknown symbol for func id {:?}", func))?;
                 if children.is_empty() {
                     out.push_str(name);
@@ -630,7 +559,7 @@ pub fn format_term(
                     out.push_str(name);
                     for child in children.iter() {
                         out.push(' ');
-                        render(*child, terms, symbols, out)?;
+                        render(*child, guard, symbols, out)?;
                     }
                     out.push(')');
                     Ok(())
@@ -640,8 +569,9 @@ pub fn format_term(
         }
     }
 
+    let guard = terms.read_lock();
     let mut out = String::new();
-    render(term, terms, symbols, &mut out)?;
+    render(term, &guard, symbols, &mut out)?;
     Ok(out)
 }
 
@@ -658,14 +588,6 @@ mod tests {
     use crate::test_utils::setup;
 
     // ========== HAPPY PATH: VARIABLE TESTS ==========
-
-    #[test]
-    fn var_creates_term_id() {
-        let (_, terms) = setup();
-        let id = terms.var(0);
-        // Should not panic
-        let _ = id;
-    }
 
     #[test]
     fn var_same_index_returns_same_id() {
@@ -1038,30 +960,6 @@ mod tests {
     }
 
     // ========== THREAD SAFETY TESTS ==========
-
-    #[test]
-    fn concurrent_var_creation() {
-        use std::sync::Arc;
-        use std::thread;
-
-        let terms = Arc::new(TermStore::new());
-        let mut handles = vec![];
-
-        // 10 threads all create var(42)
-        for _ in 0..10 {
-            let terms_clone = Arc::clone(&terms);
-            handles.push(thread::spawn(move || terms_clone.var(42)));
-        }
-
-        let ids: Vec<_> = handles.into_iter().map(|h| h.join().unwrap()).collect();
-
-        // All should be same
-        let first = ids[0];
-        assert!(
-            ids.iter().all(|&id| id == first),
-            "Concurrent var(42) should all return same TermId"
-        );
-    }
 
     #[test]
     fn concurrent_app_creation() {

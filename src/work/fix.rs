@@ -61,6 +61,20 @@ impl<C: Clone> Env<C> {
         Self { map: new_map }
     }
 
+    /// Build an environment from a map of named relations.
+    /// Only `Rel::Fix` entries are bound (others are ignored).
+    pub fn from_defs<S: std::borrow::Borrow<str>>(
+        defs: &std::collections::HashMap<S, Rel<C>>,
+    ) -> Self {
+        let mut env = Self::new();
+        for rel in defs.values() {
+            if let Rel::Fix(id, body) = rel {
+                env = env.bind(*id, body.clone());
+            }
+        }
+        env
+    }
+
     /// Look up a binding.
     pub(crate) fn lookup(&self, id: RelId) -> Option<&Binding<C>> {
         self.map.get(&id)
@@ -226,6 +240,7 @@ impl<C: ConstraintOps> Table<C> {
             let mut guard = self.producer.lock();
             guard.state = ProducerState::Done;
             guard.producer = None;
+            guard.producer_task_active = false;
         }
         self.answers.lock().waker.wake();
     }
@@ -261,10 +276,6 @@ impl<C: ConstraintOps> Table<C> {
             guard.producer_task_active = true;
             true
         }
-    }
-
-    pub fn producer_spec_is_some(&self) -> bool {
-        self.producer.lock().spec.is_some()
     }
 
     pub fn producer_spec_clone(&self) -> Option<ProducerSpec<C>> {
@@ -389,14 +400,12 @@ pub fn step_table_producer<C: ConstraintOps>(
 ) -> ProducerStep {
     let state = table.producer_state();
     if state == ProducerState::Done {
-        table.set_producer_task_active(false);
         return ProducerStep::Done;
     }
 
     if state == ProducerState::NotStarted {
         let Some(spec) = table.producer_spec_clone() else {
             table.finish_producer();
-            table.set_producer_task_active(false);
             return ProducerStep::Done;
         };
         // First iteration: watermark = 0, replay all existing answers
@@ -422,7 +431,6 @@ pub fn step_table_producer<C: ConstraintOps>(
             if has_new {
                 let Some(spec) = table.producer_spec_clone() else {
                     table.finish_producer();
-                    table.set_producer_task_active(false);
                     return ProducerStep::Done;
                 };
                 // Semi-naive: the delta for the next iteration starts at the
@@ -435,7 +443,6 @@ pub fn step_table_producer<C: ConstraintOps>(
                 ProducerStep::Progress
             } else {
                 table.finish_producer();
-                table.set_producer_task_active(false);
                 ProducerStep::Done
             }
         }
@@ -473,9 +480,12 @@ impl<C: ConstraintOps> Tables<C> {
         if let Some(table) = self.map.get(key) {
             return table.value().clone();
         }
-        let table = Arc::new(Table::with_waker(self.waker()));
-        let entry = self.map.entry(key.clone()).or_insert(table.clone());
-        entry.value().clone()
+        let waker = self.waker();
+        self.map
+            .entry(key.clone())
+            .or_insert_with(|| Arc::new(Table::with_waker(waker)))
+            .value()
+            .clone()
     }
 
     pub fn waker(&self) -> QueueWaker {
@@ -489,15 +499,7 @@ impl<C: ConstraintOps> Default for Tables<C> {
     }
 }
 
-/// Result of stepping a FixWork in-place (no allocation).
-pub enum FixStepResult<C: ConstraintOps> {
-    /// Emit an answer; FixWork has been updated in-place for continuation.
-    Emit(NF<C>),
-    /// No answer yet; FixWork has been updated in-place for continuation.
-    More,
-    /// Done; no more answers.
-    Done,
-}
+use super::InPlaceStepResult;
 
 /// FixWork: table handle that streams answers and steps the producer inline.
 ///
@@ -534,9 +536,9 @@ impl<C: ConstraintOps> FixWork<C> {
     /// Step this FixWork handle, allocating a new Box<Work> for continuation.
     pub fn step(&mut self, terms: &mut TermStore) -> WorkStep<C> {
         match self.step_in_place(terms) {
-            FixStepResult::Emit(nf) => WorkStep::Emit(nf, Box::new(Work::Fix(self.clone()))),
-            FixStepResult::More => WorkStep::More(Box::new(Work::Fix(self.clone()))),
-            FixStepResult::Done => WorkStep::Done,
+            InPlaceStepResult::Emit(nf) => WorkStep::Emit(nf, Box::new(Work::Fix(self.clone()))),
+            InPlaceStepResult::More => WorkStep::More(Box::new(Work::Fix(self.clone()))),
+            InPlaceStepResult::Done => WorkStep::Done,
         }
     }
 
@@ -544,21 +546,21 @@ impl<C: ConstraintOps> FixWork<C> {
     ///
     /// Modifies `answer_index` and returns the step outcome.
     /// The caller can reuse the existing Box<Work> instead of allocating.
-    pub fn step_in_place(&mut self, terms: &mut TermStore) -> FixStepResult<C> {
+    pub fn step_in_place(&mut self, terms: &mut TermStore) -> InPlaceStepResult<C> {
         if let Some(nf) = self.table.answer_at(self.answer_index) {
             self.answer_index += 1;
-            return FixStepResult::Emit(nf);
+            return InPlaceStepResult::Emit(nf);
         }
 
         if self.table.is_done() {
-            return FixStepResult::Done;
+            return InPlaceStepResult::Done;
         }
 
         if !self.table.try_mark_producer_active() {
             if self.table.is_done() {
-                return FixStepResult::Done;
+                return InPlaceStepResult::Done;
             }
-            return FixStepResult::More;
+            return InPlaceStepResult::More;
         }
 
         let step = step_table_producer(&self.table, terms, &self.tables);
@@ -566,12 +568,12 @@ impl<C: ConstraintOps> FixWork<C> {
 
         if let Some(nf) = self.table.answer_at(self.answer_index) {
             self.answer_index += 1;
-            return FixStepResult::Emit(nf);
+            return InPlaceStepResult::Emit(nf);
         }
 
         match step {
-            ProducerStep::Done => FixStepResult::Done,
-            ProducerStep::Progress | ProducerStep::Blocked => FixStepResult::More,
+            ProducerStep::Done => InPlaceStepResult::Done,
+            ProducerStep::Progress | ProducerStep::Blocked => InPlaceStepResult::More,
         }
     }
 }

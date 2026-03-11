@@ -4,7 +4,8 @@ use crate::node::Node;
 use crate::term::TermStore;
 use std::collections::VecDeque;
 
-use super::diagonal::{DiagonalJoin, DiagonalStepResult, JoinOutcome, JoinStrategy};
+use super::diagonal::{DiagonalJoin, JoinOutcome, JoinStrategy};
+use super::InPlaceStepResult;
 use super::{build_root_tag, match_root_tag, tags_compatible, RootTag, Work, WorkStep};
 
 #[derive(Clone, Debug)]
@@ -43,50 +44,22 @@ impl ComposeStrategy {
         }
     }
 
-    /// Collect indices of right NFs that are compatible with a given build root tag.
+    /// Collect indices of NFs from `tags` (up to `limit`) that are compatible
+    /// with `query_tag`. A `Wildcard` query is compatible with everything;
+    /// a `Functor(f)` query is compatible with `Functor(f)` or `Wildcard`.
     ///
-    /// A left NF with build tag `Functor(f)` is compatible with right NFs that have
-    /// match tag `Functor(f)` (same functor) or `Wildcard` (variable-headed).
-    /// A left NF with build tag `Wildcard` is compatible with ALL right NFs.
-    fn compatible_right_indices(&self, build_tag: RootTag, right_limit: usize) -> Vec<usize> {
-        match build_tag {
-            RootTag::Wildcard => {
-                // Variable-headed build: compatible with everything
-                (0..right_limit).collect()
-            }
+    /// `tags_compatible` is commutative, so this works for both directions
+    /// (build→match and match→build).
+    fn compatible_indices(query_tag: RootTag, tags: &[RootTag], limit: usize) -> Vec<usize> {
+        match query_tag {
+            RootTag::Wildcard => (0..limit).collect(),
             RootTag::Functor(f) => {
                 let mut indices = Vec::new();
-                for (idx, tag) in self.right_match_tags.iter().enumerate() {
-                    if idx >= right_limit {
+                for (idx, tag) in tags.iter().enumerate() {
+                    if idx >= limit {
                         break;
                     }
                     if tags_compatible(RootTag::Functor(f), *tag) {
-                        indices.push(idx);
-                    }
-                }
-                indices
-            }
-        }
-    }
-
-    /// Collect indices of left NFs that are compatible with a given match root tag.
-    ///
-    /// A right NF with match tag `Functor(f)` is compatible with left NFs that have
-    /// build tag `Functor(f)` (same functor) or `Wildcard` (variable-headed).
-    /// A right NF with match tag `Wildcard` is compatible with ALL left NFs.
-    fn compatible_left_indices(&self, match_tag: RootTag, left_limit: usize) -> Vec<usize> {
-        match match_tag {
-            RootTag::Wildcard => {
-                // Variable-headed match: compatible with everything
-                (0..left_limit).collect()
-            }
-            RootTag::Functor(f) => {
-                let mut indices = Vec::new();
-                for (idx, tag) in self.left_build_tags.iter().enumerate() {
-                    if idx >= left_limit {
-                        break;
-                    }
-                    if tags_compatible(*tag, RootTag::Functor(f)) {
                         indices.push(idx);
                     }
                 }
@@ -107,7 +80,7 @@ impl ComposeStrategy {
         if right_limit == 0 {
             return;
         }
-        let compatible_r = self.compatible_right_indices(build_tag, right_limit);
+        let compatible_r = Self::compatible_indices(build_tag, &self.right_match_tags, right_limit);
         if compatible_r.is_empty() {
             return;
         }
@@ -130,7 +103,7 @@ impl ComposeStrategy {
         if left_limit == 0 {
             return;
         }
-        let compatible_l = self.compatible_left_indices(match_tag, left_limit);
+        let compatible_l = Self::compatible_indices(match_tag, &self.left_build_tags, left_limit);
         if compatible_l.is_empty() {
             return;
         }
@@ -387,7 +360,7 @@ impl<C: ConstraintOps> ComposeWork<C> {
     }
 
     #[inline(never)]
-    pub(crate) fn step_in_place(&mut self, terms: &mut TermStore) -> DiagonalStepResult<C> {
+    pub(crate) fn step_in_place(&mut self, terms: &mut TermStore) -> InPlaceStepResult<C> {
         self.core.step_in_place(terms)
     }
 

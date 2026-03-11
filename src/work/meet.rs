@@ -5,7 +5,8 @@ use crate::nf::NF;
 use crate::node::Node;
 use crate::term::TermStore;
 
-use super::diagonal::{DiagonalJoin, DiagonalStepResult, JoinOutcome, JoinStrategy};
+use super::diagonal::{DiagonalJoin, JoinOutcome, JoinStrategy};
+use super::InPlaceStepResult;
 use super::{Work, WorkStep};
 
 /// Meet work: fair diagonal join for conjunction/intersection.
@@ -22,14 +23,8 @@ use super::{Work, WorkStep};
 /// 2. Alternate pulling from left/right (flip)
 /// 3. When new answer arrives, meet with all seen from other side
 /// 4. Push successful meets to pending
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 struct MeetStrategy;
-
-impl Default for MeetStrategy {
-    fn default() -> Self {
-        MeetStrategy
-    }
-}
 
 impl<C: ConstraintOps> JoinStrategy<C> for MeetStrategy {
     fn on_new_left(
@@ -94,7 +89,7 @@ impl<C: ConstraintOps> MeetWork<C> {
     }
 
     #[inline(never)]
-    pub(crate) fn step_in_place(&mut self, terms: &mut TermStore) -> DiagonalStepResult<C> {
+    pub(crate) fn step_in_place(&mut self, terms: &mut TermStore) -> InPlaceStepResult<C> {
         self.core.step_in_place(terms)
     }
 

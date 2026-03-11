@@ -37,13 +37,7 @@ impl<C: Default> DropFresh<C> {
     /// Create an identity DropFresh of the given arity.
     /// Maps position i to position i for all i in 0..arity.
     pub fn identity(arity: u32) -> Self {
-        let map: SmallVec<[(u32, u32); 4]> = (0..arity).map(|i| (i, i)).collect();
-        Self {
-            in_arity: arity,
-            out_arity: arity,
-            map,
-            constraint: C::default(),
-        }
+        Self::identity_with_constraint(arity, C::default())
     }
 }
 
@@ -59,9 +53,7 @@ impl<C> DropFresh<C> {
             constraint,
         }
     }
-}
 
-impl<C: Clone> DropFresh<C> {
     /// Create a new DropFresh with validation.
     /// Returns None if the mapping is not monotone or out of bounds.
     pub fn new(
@@ -97,6 +89,7 @@ impl<C: Clone> DropFresh<C> {
     /// Compose two DropFresh values: self ; other.
     /// The output arity of self must match the input arity of other.
     /// Returns None if arities don't match.
+    #[cfg(test)]
     pub fn compose(&self, other: &DropFresh<C>) -> Option<DropFresh<C>>
     where
         C: Default,
@@ -145,23 +138,16 @@ impl<C: Clone> DropFresh<C> {
     }
 
     /// Get the number of positions that are mapped (shared between in and out).
+    #[cfg(test)]
     pub fn shared_count(&self) -> usize {
         self.map.len()
     }
 
     /// Check if this is an identity DropFresh.
+    /// With the monotonicity invariant, n pairs from {0..n-1} x {0..n-1}
+    /// that are strictly increasing in both coordinates can only be the diagonal.
     pub fn is_identity(&self) -> bool {
-        if self.in_arity != self.out_arity {
-            return false;
-        }
-        if self.map.len() != self.in_arity as usize {
-            return false;
-        }
-        // Check that each position maps to itself
-        self.map
-            .iter()
-            .enumerate()
-            .all(|(i, &(inp, out))| inp == i as u32 && out == i as u32)
+        self.in_arity == self.out_arity && self.map.len() == self.in_arity as usize
     }
 
     /// Check if this DropFresh connects no positions.
@@ -170,6 +156,7 @@ impl<C: Clone> DropFresh<C> {
     }
 
     /// Get the output position for a given input position, if mapped.
+    #[cfg(test)]
     pub fn forward(&self, input_pos: u32) -> Option<u32> {
         // Binary search since map is sorted by input position
         self.map
@@ -179,6 +166,7 @@ impl<C: Clone> DropFresh<C> {
     }
 
     /// Get the input position for a given output position, if mapped.
+    #[cfg(test)]
     pub fn backward(&self, output_pos: u32) -> Option<u32> {
         // Linear search since map is sorted by input, not output
         // (Could optimize with a parallel sorted structure if needed)
@@ -186,6 +174,26 @@ impl<C: Clone> DropFresh<C> {
             .iter()
             .find(|&&(_, out)| out == output_pos)
             .map(|&(inp, _)| inp)
+    }
+
+    /// Compute the dual (converse) of this DropFresh.
+    ///
+    /// Swaps input and output arities and inverts the mapping.
+    /// Properties: dual(dual(w)) == w (involution), constraint preserved.
+    #[cfg(test)]
+    pub fn dual(&self) -> Self
+    where
+        C: Clone,
+    {
+        let mut inverted: SmallVec<[(u32, u32); 4]> =
+            self.map.iter().map(|&(i, j)| (j, i)).collect();
+        inverted.sort_by_key(|&(first, _)| first);
+        Self {
+            in_arity: self.out_arity,
+            out_arity: self.in_arity,
+            map: inverted,
+            constraint: self.constraint.clone(),
+        }
     }
 
     /// Validate that the DropFresh is well-formed.
@@ -549,5 +557,153 @@ mod tests {
             None,
             "Should return None for out of range output"
         );
+    }
+
+    // ========== DUAL TESTS ==========
+
+    #[test]
+    fn dual_identity_zero_arity() {
+        let df: DropFresh<()> = DropFresh::identity(0);
+        let dual = df.dual();
+        assert!(dual.is_identity());
+        assert_eq!(dual.in_arity, 0);
+        assert_eq!(dual.out_arity, 0);
+    }
+
+    #[test]
+    fn dual_identity_single() {
+        let df: DropFresh<()> = DropFresh::identity(1);
+        let dual = df.dual();
+        assert!(dual.is_identity());
+        assert_eq!(dual.map.as_slice(), &[(0, 0)]);
+    }
+
+    #[test]
+    fn dual_identity_multiple() {
+        let df: DropFresh<()> = DropFresh::identity(5);
+        assert!(df.dual().is_identity());
+    }
+
+    #[test]
+    fn dual_swaps_arities() {
+        let df = DropFresh::new(3, 7, SmallVec::from_slice(&[(0, 2), (2, 5)]), ()).unwrap();
+        let dual = df.dual();
+        assert_eq!(dual.in_arity, 7);
+        assert_eq!(dual.out_arity, 3);
+    }
+
+    #[test]
+    fn dual_involution() {
+        let df =
+            DropFresh::new(4, 3, SmallVec::from_slice(&[(0, 0), (2, 1), (3, 2)]), ()).unwrap();
+        let dual2 = df.dual().dual();
+        assert_eq!(dual2.in_arity, df.in_arity);
+        assert_eq!(dual2.out_arity, df.out_arity);
+        assert_eq!(dual2.map, df.map);
+    }
+
+    #[test]
+    fn dual_involution_complex() {
+        let df = DropFresh::new(
+            6,
+            5,
+            SmallVec::from_slice(&[(1, 0), (2, 2), (4, 3), (5, 4)]),
+            (),
+        )
+        .unwrap();
+        let dual2 = df.dual().dual();
+        assert_eq!(dual2.in_arity, df.in_arity);
+        assert_eq!(dual2.out_arity, df.out_arity);
+        assert_eq!(dual2.map, df.map);
+    }
+
+    #[test]
+    fn dual_simple_inversion() {
+        let df = DropFresh::new(2, 3, SmallVec::from_slice(&[(0, 1), (1, 2)]), ()).unwrap();
+        let dual = df.dual();
+        assert_eq!(dual.map.as_slice(), &[(1, 0), (2, 1)]);
+    }
+
+    #[test]
+    fn dual_preserves_monotonicity() {
+        let df =
+            DropFresh::new(4, 5, SmallVec::from_slice(&[(0, 1), (1, 3), (3, 4)]), ()).unwrap();
+        let dual = df.dual();
+        for i in 1..dual.map.len() {
+            assert!(
+                dual.map[i].0 > dual.map[i - 1].0,
+                "first coord must be strictly increasing"
+            );
+            assert!(
+                dual.map[i].1 > dual.map[i - 1].1,
+                "second coord must be strictly increasing"
+            );
+        }
+    }
+
+    #[test]
+    fn dual_empty_map_disconnect() {
+        let df: DropFresh<()> = DropFresh::disconnect(3, 4, ());
+        let dual = df.dual();
+        assert_eq!(dual.in_arity, 4);
+        assert_eq!(dual.out_arity, 3);
+        assert!(dual.map.is_empty());
+    }
+
+    #[test]
+    fn dual_zero_in_arity() {
+        let df: DropFresh<()> = DropFresh::disconnect(0, 3, ());
+        let dual = df.dual();
+        assert_eq!(dual.in_arity, 3);
+        assert_eq!(dual.out_arity, 0);
+    }
+
+    #[test]
+    fn dual_zero_out_arity() {
+        let df: DropFresh<()> = DropFresh::disconnect(3, 0, ());
+        let dual = df.dual();
+        assert_eq!(dual.in_arity, 0);
+        assert_eq!(dual.out_arity, 3);
+    }
+
+    #[test]
+    fn dual_drops_become_adds() {
+        let df = DropFresh::new(5, 2, SmallVec::from_slice(&[(1, 0), (3, 1)]), ()).unwrap();
+        let dual = df.dual();
+        assert_eq!(dual.in_arity, 2);
+        assert_eq!(dual.out_arity, 5);
+        assert_eq!(dual.map.as_slice(), &[(0, 1), (1, 3)]);
+    }
+
+    #[test]
+    fn dual_adds_become_drops() {
+        let df = DropFresh::new(2, 5, SmallVec::from_slice(&[(0, 1), (1, 3)]), ()).unwrap();
+        let dual = df.dual();
+        assert_eq!(dual.in_arity, 5);
+        assert_eq!(dual.out_arity, 2);
+        assert_eq!(dual.map.as_slice(), &[(1, 0), (3, 1)]);
+    }
+
+    #[test]
+    fn dual_single_mapping() {
+        let df = DropFresh::new(3, 4, SmallVec::from_slice(&[(2, 1)]), ()).unwrap();
+        let dual = df.dual();
+        assert_eq!(dual.in_arity, 4);
+        assert_eq!(dual.out_arity, 3);
+        assert_eq!(dual.map.as_slice(), &[(1, 2)]);
+    }
+
+    #[test]
+    fn dual_boundary_indices() {
+        let df = DropFresh::new(4, 5, SmallVec::from_slice(&[(0, 0), (3, 4)]), ()).unwrap();
+        let dual = df.dual();
+        assert_eq!(dual.map.as_slice(), &[(0, 0), (4, 3)]);
+    }
+
+    #[test]
+    fn dual_preserves_constraint() {
+        let df = DropFresh::new(2, 3, SmallVec::from_slice(&[(0, 1)]), 42).unwrap();
+        let dual = df.dual();
+        assert_eq!(dual.constraint, 42);
     }
 }

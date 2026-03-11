@@ -18,7 +18,7 @@
 // When tracing feature is enabled, re-export from tracing crate
 #[cfg(feature = "tracing")]
 pub use tracing::{
-    debug, debug_span, error, error_span, event, info, info_span, instrument, span, trace,
+    debug, debug_span, error, error_span, event, info, info_span, span, trace,
     trace_span, warn, warn_span, Level, Span,
 };
 
@@ -61,8 +61,6 @@ mod noop {
         pub const ERROR: Level = Level;
     }
 
-    /// No-op instrument attribute (identity function)
-    pub use core::convert::identity as instrument;
 }
 
 #[cfg(not(feature = "tracing"))]

@@ -22,11 +22,11 @@ struct JoinPart<C> {
 #[derive(Debug)]
 pub struct AndJoiner<C: ConstraintOps> {
     parts: Vec<JoinPart<C>>,
-    pub(crate) seen: Vec<Vec<NF<C>>>,
+    seen: Vec<Vec<NF<C>>>,
     seen_sets: Vec<HashSet<NF<C>>>,
-    pub(crate) pending: VecDeque<NF<C>>,
+    pending: VecDeque<NF<C>>,
     pending_set: HashSet<NF<C>>,
-    pub(crate) turn: usize,
+    turn: usize,
     waker: QueueWaker,
     last_empty_epoch: Option<u64>,
 }
@@ -85,7 +85,8 @@ impl<C: ConstraintOps> AndJoiner<C> {
     }
 
     fn push_pending(&mut self, nf: NF<C>) {
-        if self.pending_set.insert(nf.clone()) {
+        if !self.pending_set.contains(&nf) {
+            self.pending_set.insert(nf.clone());
             self.pending.push_back(nf);
         }
     }
@@ -97,6 +98,7 @@ impl<C: ConstraintOps> AndJoiner<C> {
         }
 
         let mut acc = vec![nf];
+        let mut next = Vec::new();
         for (j, seen_j) in self.seen.iter().enumerate() {
             if j == idx {
                 continue;
@@ -105,7 +107,6 @@ impl<C: ConstraintOps> AndJoiner<C> {
                 return;
             }
 
-            let mut next = Vec::new();
             for left in acc.iter() {
                 for right in seen_j.iter() {
                     if let Some(met) = meet_nf(left, right, terms) {
@@ -116,7 +117,8 @@ impl<C: ConstraintOps> AndJoiner<C> {
             if next.is_empty() {
                 return;
             }
-            acc = next;
+            std::mem::swap(&mut acc, &mut next);
+            next.clear();
         }
 
         for result in acc {
@@ -124,22 +126,25 @@ impl<C: ConstraintOps> AndJoiner<C> {
         }
     }
 
-    pub fn step(&mut self, terms: &mut TermStore, sink: &mut AnswerSink<C>) -> JoinStep {
-        if let Some(nf) = self.pending.front().cloned() {
-            match sink.push(nf.clone()) {
-                SinkResult::Accepted => {
-                    self.pending.pop_front();
-                    self.pending_set.remove(&nf);
-                    return JoinStep::Progress;
-                }
-                SinkResult::Full => {
-                    return JoinStep::Blocked(
-                        sink.blocked_on()
-                            .expect("queue sink should provide a waker"),
-                    )
-                }
-                SinkResult::Closed => return JoinStep::Done,
+    fn try_drain_pending(&mut self, sink: &mut AnswerSink<C>) -> Option<JoinStep> {
+        let nf = self.pending.front()?;
+        match sink.push(nf.clone()) {
+            SinkResult::Accepted => {
+                let nf = self.pending.pop_front().unwrap();
+                self.pending_set.remove(&nf);
+                Some(JoinStep::Progress)
             }
+            SinkResult::Full => Some(JoinStep::Blocked(
+                sink.blocked_on()
+                    .expect("queue sink should provide a waker"),
+            )),
+            SinkResult::Closed => Some(JoinStep::Done),
+        }
+    }
+
+    pub fn step(&mut self, terms: &mut TermStore, sink: &mut AnswerSink<C>) -> JoinStep {
+        if let Some(step) = self.try_drain_pending(sink) {
+            return step;
         }
 
         if self.parts.is_empty() {
@@ -185,25 +190,13 @@ impl<C: ConstraintOps> AndJoiner<C> {
                 RecvResult::Item(nf) => {
                     self.last_empty_epoch = None;
                     self.turn = (idx + 1) % part_count;
-                    if self.seen_sets[idx].insert(nf.clone()) {
+                    if !self.seen_sets[idx].contains(&nf) {
+                        self.seen_sets[idx].insert(nf.clone());
                         self.seen[idx].push(nf.clone());
                         self.enqueue_meets(idx, nf, terms);
                     }
-                    if let Some(result) = self.pending.front().cloned() {
-                        match sink.push(result.clone()) {
-                            SinkResult::Accepted => {
-                                self.pending.pop_front();
-                                self.pending_set.remove(&result);
-                                return JoinStep::Progress;
-                            }
-                            SinkResult::Full => {
-                                return JoinStep::Blocked(
-                                    sink.blocked_on()
-                                        .expect("queue sink should provide a waker"),
-                                )
-                            }
-                            SinkResult::Closed => return JoinStep::Done,
-                        }
+                    if let Some(step) = self.try_drain_pending(sink) {
+                        return step;
                     }
                     return JoinStep::Progress;
                 }

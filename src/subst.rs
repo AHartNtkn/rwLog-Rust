@@ -49,7 +49,6 @@ impl Subst {
     }
 
     /// Number of bound variables.
-    #[cfg(test)]
     pub fn len(&self) -> usize {
         self.bindings.iter().filter(|b| b.is_some()).count()
     }
@@ -104,7 +103,7 @@ pub fn apply_subst(term: TermId, subst: &Subst, terms: &mut TermStore) -> TermId
     if term.is_ground() {
         return term;
     }
-    apply_subst_core::<false>(term, subst, 0, &[], terms)
+    apply_subst_core::<false>(term, subst, &[], terms)
 }
 
 /// Apply a substitution to an unshifted term, virtually shifting variables by
@@ -131,7 +130,7 @@ pub fn apply_subst_shifted(
     if term.is_ground() {
         return term;
     }
-    apply_subst_core::<true>(term, subst, var_offset, shifted_vars, terms)
+    apply_subst_core::<true>(term, subst, shifted_vars, terms)
 }
 
 /// Core substitution application with optional virtual variable shifting.
@@ -150,7 +149,6 @@ pub fn apply_subst_shifted(
 fn apply_subst_core<const SHIFTED: bool>(
     term: TermId,
     subst: &Subst,
-    _var_offset: u32,
     shifted_vars: &[TermId],
     terms: &mut TermStore,
 ) -> TermId {
@@ -180,8 +178,7 @@ fn apply_subst_core<const SHIFTED: bool>(
                 // If not, reuse the original TermId to skip hashcons lookup.
                 // orig_tid is always a store ref (only non-leaf App nodes get BuildApp).
                 let all_same = if orig_tid.is_store_ref() {
-                    let nodes = terms.nodes.get_mut();
-                    match nodes.get(orig_tid.index()) {
+                    match terms.get_unlocked(orig_tid) {
                         Some(Term::App(_, orig_children)) => {
                             orig_children.len() == n
                                 && orig_children
@@ -225,15 +222,14 @@ fn apply_subst_core<const SHIFTED: bool>(
                         tid
                     };
 
-                    let nodes = terms.nodes.get_mut();
-                    let resolved = resolve_var_chain_unlocked(start_tid, subst, nodes);
+                    let resolved = resolve_var_chain_unlocked(start_tid, subst);
 
                     // Check what resolved is:
                     if resolved.is_inline() {
                         // Inline var or inline nullary - push directly.
                         result_stack.push(resolved);
                     } else {
-                        match nodes.get(resolved.index()) {
+                        match terms.get_unlocked(resolved) {
                             Some(Term::App(f, children)) if !children.is_empty() => {
                                 let func = *f;
                                 let n = children.len();
@@ -260,7 +256,7 @@ fn apply_subst_core<const SHIFTED: bool>(
                 // Skipping a raw subtree would return the unshifted term, which is wrong.
                 if !SHIFTED || !raw {
                     if let Some((s_min, s_max)) = subst_range {
-                        if let Some(&(t_min, t_max)) = terms.var_ranges.get_mut().get(tid.index()) {
+                        if let Some((t_min, t_max)) = terms.var_range_unlocked(tid) {
                             if t_max < s_min || t_min > s_max {
                                 result_stack.push(tid);
                                 continue;
@@ -270,44 +266,7 @@ fn apply_subst_core<const SHIFTED: bool>(
                 }
 
                 // Read the term.
-                let nodes = terms.nodes.get_mut();
-
-                match nodes.get(tid.index()) {
-                    Some(Term::Var(idx)) => {
-                        let idx_val = *idx;
-                        let start_tid = if SHIFTED && raw {
-                            let j = idx_val as usize;
-                            debug_assert!(
-                                j < shifted_vars.len(),
-                                "var index {} exceeds shifted_vars length {}",
-                                j,
-                                shifted_vars.len()
-                            );
-                            shifted_vars[j]
-                        } else {
-                            tid
-                        };
-
-                        let resolved = resolve_var_chain_unlocked(start_tid, subst, nodes);
-
-                        if resolved.is_inline() {
-                            result_stack.push(resolved);
-                        } else {
-                            match nodes.get(resolved.index()) {
-                                Some(Term::App(f, children)) if !children.is_empty() => {
-                                    let func = *f;
-                                    let n = children.len();
-                                    work_stack.push(Work::BuildApp(resolved, func, n));
-                                    for i in (0..n).rev() {
-                                        work_stack.push(Work::Visit(children[i], false));
-                                    }
-                                }
-                                _ => {
-                                    result_stack.push(resolved);
-                                }
-                            }
-                        }
-                    }
+                match terms.get_unlocked(tid) {
                     Some(Term::App(_, children)) if children.is_empty() => {
                         result_stack.push(tid);
                     }
@@ -319,7 +278,8 @@ fn apply_subst_core<const SHIFTED: bool>(
                             work_stack.push(Work::Visit(children[i], SHIFTED && raw));
                         }
                     }
-                    None => {
+                    // Term::Var is never stored (always inline); None means invalid index.
+                    _ => {
                         result_stack.push(tid);
                     }
                 }
@@ -334,45 +294,36 @@ fn apply_subst_core<const SHIFTED: bool>(
 /// Follow a chain of variable substitutions using direct slice access.
 /// Returns the final term in the chain.
 ///
-/// Well-formed substitutions from matching do not contain cycles, so we use
-/// a simple depth limit rather than tracking visited nodes.
+/// Well-formed substitutions from matching do not contain cycles.
+/// Each step resolves to either a non-variable (terminating) or a different
+/// variable, so chains are bounded by the number of bound variables.
 #[inline]
-pub(crate) fn resolve_var_chain_unlocked(start: TermId, subst: &Subst, nodes: &[Term]) -> TermId {
+pub(crate) fn resolve_var_chain_unlocked(start: TermId, subst: &Subst) -> TermId {
     let mut current = start;
-    // Depth limit to handle malformed substitutions gracefully.
-    // In practice, chains are very short (1-3 steps).
-    let max_depth = subst.bindings.len();
-    let mut depth = 0;
+    #[cfg(debug_assertions)]
+    let mut depth = 0u32;
     loop {
-        if depth >= max_depth {
-            return current;
+        #[cfg(debug_assertions)]
+        {
+            depth += 1;
+            debug_assert!(
+                (depth as usize) <= subst.bindings.len() + 1,
+                "cycle detected in substitution chain starting from {:?}",
+                start
+            );
         }
-        // Fast path: inline variable - no store lookup needed.
         if current.is_inline_var() {
             match subst.get(current.inline_var_index()) {
                 Some(bound) if bound != current => {
                     current = bound;
-                    depth += 1;
                 }
                 _ => return current,
             }
             continue;
         }
-        // Inline nullary or ground store ref - not a variable, stop.
-        if current.is_ground() {
-            return current;
-        }
-        // Store ref - look up in nodes.
-        match nodes.get(current.index()) {
-            Some(Term::Var(idx)) => match subst.get(*idx) {
-                Some(bound) if bound != current => {
-                    current = bound;
-                    depth += 1;
-                }
-                _ => return current,
-            },
-            _ => return current,
-        }
+        // Non-inline-var: ground terms, inline nullaries, and store-ref Apps
+        // are all non-variables — the chain terminates here.
+        return current;
     }
 }
 

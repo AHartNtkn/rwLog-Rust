@@ -1,5 +1,7 @@
 #![allow(dead_code)]
 
+pub mod process_helpers;
+
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -8,6 +10,7 @@ use rwlog::nf::{direct_rule_terms, NF};
 use rwlog::rel::Rel;
 use rwlog::symbol::{FuncId, SymbolStore};
 use rwlog::term::{Term, TermId, TermStore};
+use smallvec::SmallVec;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Shape {
@@ -217,4 +220,34 @@ where
         .map(|(lhs, rhs)| canonicalize_shape_pair(rhs, lhs))
         .collect();
     assert_pairs(dual_pairs, &expected_dual);
+}
+
+// Shared proptest helpers for generating random terms.
+
+pub const PROPTEST_MAX_VAR: u32 = 4;
+
+#[derive(Clone, Debug)]
+pub enum RawTerm {
+    Var(u32),
+    App { f: usize, kids: Vec<RawTerm> },
+}
+
+pub fn build_raw_term(
+    raw: &RawTerm,
+    var_offset: u32,
+    functor_names: &[&str],
+    symbols: &SymbolStore,
+    terms: &TermStore,
+) -> TermId {
+    match raw {
+        RawTerm::Var(v) => terms.var(*v + var_offset),
+        RawTerm::App { f, kids } => {
+            let func = symbols.intern(functor_names[*f]);
+            let mut child_ids: SmallVec<[TermId; 4]> = SmallVec::new();
+            for kid in kids {
+                child_ids.push(build_raw_term(kid, var_offset, functor_names, symbols, terms));
+            }
+            terms.app(func, child_ids)
+        }
+    }
 }

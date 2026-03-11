@@ -1,25 +1,19 @@
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
-use rwlog::perf_corpus::load_cases;
-use serde::Deserialize;
+use rwlog::perf_corpus::{
+    load_cases, load_snapshots, PerfSnapshot, SourceFilter, stats_cv_pct, stats_mad_pct,
+    stats_mean, stats_median_sorted,
+};
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
-use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 /// Time-series data keyed by (source, metric, case_id) -> list of (snapshot_name, value).
 type MetricSeries = BTreeMap<(String, String, String), Vec<(String, f64)>>;
 
 /// Series grouped by (source, metric) -> list of (case_id, values).
 type GroupedSeries = BTreeMap<(String, String), Vec<(String, Vec<(String, f64)>)>>;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum SourceFilter {
-    Gate,
-    Probe,
-    All,
-}
 
 #[derive(Clone, Debug)]
 struct Args {
@@ -31,37 +25,6 @@ struct Args {
     redundancy_corr_min: f64,
     top_redundant: usize,
     json: bool,
-}
-
-#[derive(Clone, Debug, Deserialize)]
-struct GateRow {
-    id: String,
-    median_us: f64,
-    p95_us: f64,
-}
-
-#[derive(Clone, Debug, Deserialize)]
-struct GateReport {
-    rows: Vec<GateRow>,
-}
-
-#[derive(Clone, Debug, Deserialize)]
-struct RunRow {
-    id: String,
-    median_us: f64,
-    p95_us: f64,
-}
-
-#[derive(Clone, Debug, Deserialize)]
-struct RunReport {
-    rows: Vec<RunRow>,
-}
-
-#[derive(Clone, Debug)]
-struct Snapshot {
-    name: String,
-    gate: Option<GateReport>,
-    probe: Option<RunReport>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -208,108 +171,12 @@ fn parse_args() -> Args {
     args_out
 }
 
-fn load_json<T: for<'de> Deserialize<'de>>(path: &Path) -> Option<T> {
-    let text = fs::read_to_string(path).ok()?;
-    serde_json::from_str(&text).ok()
-}
-
-fn load_snapshot(dir: &Path) -> Option<Snapshot> {
-    let name = dir.file_name()?.to_str()?.to_string();
-    let gate = load_json::<GateReport>(&dir.join("gate.json"))
-        .or_else(|| load_json::<GateReport>(&dir.join("quick_gate.json")));
-    let probe = load_json::<RunReport>(&dir.join("probe.json"))
-        .or_else(|| load_json::<RunReport>(&dir.join("quick_probe.json")))
-        .or_else(|| load_json::<RunReport>(&dir.join("stress_probe.json")));
-    if gate.is_none() && probe.is_none() {
-        return None;
-    }
-    Some(Snapshot { name, gate, probe })
-}
-
-fn load_snapshots(history_dir: &Path) -> Vec<Snapshot> {
-    let entries = fs::read_dir(history_dir)
-        .unwrap_or_else(|e| panic!("read_dir {}: {}", history_dir.display(), e));
-    let mut dirs = Vec::new();
-    for entry in entries {
-        let entry = entry.expect("dir entry");
-        let path = entry.path();
-        if path.is_dir() {
-            dirs.push(path);
-        }
-    }
-    dirs.sort();
-    let mut snapshots = Vec::new();
-    for dir in dirs {
-        if let Some(s) = load_snapshot(&dir) {
-            snapshots.push(s);
-        }
-    }
-    snapshots
-}
-
-fn source_to_str(source: SourceFilter) -> &'static str {
-    match source {
-        SourceFilter::Gate => "gate",
-        SourceFilter::Probe => "probe",
-        SourceFilter::All => "all",
-    }
-}
-
-fn median(values: &[f64]) -> f64 {
-    let mut sorted = values.to_vec();
-    sorted.sort_by(|a, b| a.partial_cmp(b).expect("finite floats"));
-    sorted[sorted.len() / 2]
-}
-
-fn mean(values: &[f64]) -> f64 {
-    values.iter().sum::<f64>() / (values.len() as f64)
-}
-
-fn stddev(values: &[f64]) -> f64 {
-    if values.len() < 2 {
-        return 0.0;
-    }
-    let m = mean(values);
-    let var = values
-        .iter()
-        .map(|v| {
-            let d = v - m;
-            d * d
-        })
-        .sum::<f64>()
-        / (values.len() as f64);
-    var.sqrt()
-}
-
-fn cv_pct(values: &[f64]) -> f64 {
-    if values.len() < 2 {
-        return 0.0;
-    }
-    let m = mean(values);
-    if m <= 0.0 {
-        return 0.0;
-    }
-    (stddev(values) / m) * 100.0
-}
-
-fn mad_pct(values: &[f64]) -> f64 {
-    if values.is_empty() {
-        return 0.0;
-    }
-    let med = median(values);
-    if med <= 0.0 {
-        return 0.0;
-    }
-    let abs_dev: Vec<f64> = values.iter().map(|v| (v - med).abs()).collect();
-    (median(&abs_dev) / med) * 100.0
-}
-
 fn pearson_corr(xs: &[f64], ys: &[f64]) -> Option<f64> {
     if xs.len() != ys.len() || xs.len() < 2 {
         return None;
     }
-    let mx = mean(xs);
-    let my = mean(ys);
+    let mx = stats_mean(xs);
+    let my = stats_mean(ys);
     let mut num = 0.0;
     let mut den_x = 0.0;
     let mut den_y = 0.0;
@@ -327,64 +194,63 @@ fn pearson_corr(xs: &[f64], ys: &[f64]) -> Option<f64> {
     Some(num / den)
 }
 
-fn collect_series(snapshots: &[Snapshot], source: SourceFilter) -> MetricSeries {
+fn push_rows(
+    series: &mut MetricSeries,
+    snapshot_name: &str,
+    source_str: &str,
+    rows: impl Iterator<Item = (String, f64, f64)>,
+) {
+    for (id, median, p95) in rows {
+        series
+            .entry((source_str.to_string(), "median".to_string(), id.clone()))
+            .or_default()
+            .push((snapshot_name.to_string(), median));
+        series
+            .entry((source_str.to_string(), "p95".to_string(), id))
+            .or_default()
+            .push((snapshot_name.to_string(), p95));
+    }
+}
+
+fn collect_series(snapshots: &[PerfSnapshot], source: SourceFilter) -> MetricSeries {
     let mut series: MetricSeries = BTreeMap::new();
     for snapshot in snapshots {
-        if let Some(gate) = snapshot
-            .gate
-            .as_ref()
-            .filter(|_| source == SourceFilter::Gate || source == SourceFilter::All)
-        {
-            for row in &gate.rows {
-                series
-                    .entry(("gate".to_string(), "median".to_string(), row.id.clone()))
-                    .or_default()
-                    .push((snapshot.name.clone(), row.median_us));
-                series
-                    .entry(("gate".to_string(), "p95".to_string(), row.id.clone()))
-                    .or_default()
-                    .push((snapshot.name.clone(), row.p95_us));
-            }
+        if let Some(gate) = snapshot.gate.as_ref().filter(|_| source.includes_gate()) {
+            push_rows(
+                &mut series,
+                &snapshot.name,
+                "gate",
+                gate.rows
+                    .iter()
+                    .map(|r| (r.id.clone(), r.median_us, r.p95_us)),
+            );
         }
-        if let Some(probe) = snapshot
-            .probe
-            .as_ref()
-            .filter(|_| source == SourceFilter::Probe || source == SourceFilter::All)
-        {
-            for row in &probe.rows {
-                series
-                    .entry(("probe".to_string(), "median".to_string(), row.id.clone()))
-                    .or_default()
-                    .push((snapshot.name.clone(), row.median_us));
-                series
-                    .entry(("probe".to_string(), "p95".to_string(), row.id.clone()))
-                    .or_default()
-                    .push((snapshot.name.clone(), row.p95_us));
-            }
+        if let Some(probe) = snapshot.probe.as_ref().filter(|_| source.includes_probe()) {
+            push_rows(
+                &mut series,
+                &snapshot.name,
+                "probe",
+                probe
+                    .rows
+                    .iter()
+                    .map(|r| (r.id.clone(), r.median_us, r.p95_us)),
+            );
         }
     }
     series
 }
 
-fn latest_present_ids(snapshots: &[Snapshot], source: SourceFilter) -> BTreeSet<String> {
+fn latest_present_ids(snapshots: &[PerfSnapshot], source: SourceFilter) -> BTreeSet<String> {
     let mut out = BTreeSet::new();
     let Some(latest) = snapshots.last() else {
         return out;
     };
-    if let Some(gate) = latest
-        .gate
-        .as_ref()
-        .filter(|_| source == SourceFilter::Gate || source == SourceFilter::All)
-    {
+    if let Some(gate) = latest.gate.as_ref().filter(|_| source.includes_gate()) {
         for row in &gate.rows {
             out.insert(row.id.clone());
         }
     }
-    if let Some(probe) = latest
-        .probe
-        .as_ref()
-        .filter(|_| source == SourceFilter::Probe || source == SourceFilter::All)
-    {
+    if let Some(probe) = latest.probe.as_ref().filter(|_| source.includes_probe()) {
         for row in &probe.rows {
             out.insert(row.id.clone());
         }
@@ -394,7 +260,7 @@ fn latest_present_ids(snapshots: &[Snapshot], source: SourceFilter) -> BTreeSet<
 
 fn stale_cases(
     series: &MetricSeries,
-    snapshots: &[Snapshot],
+    snapshots: &[PerfSnapshot],
     source: SourceFilter,
     min_points: usize,
 ) -> Vec<StaleCase> {
@@ -432,16 +298,17 @@ fn noisy_cases(series: &MetricSeries, noisy_cv_pct_threshold: f64) -> Vec<NoisyC
         if values.len() < 2 {
             continue;
         }
-        let nums: Vec<f64> = values.iter().map(|(_, v)| *v).collect();
-        let cv = cv_pct(&nums);
+        let mut nums: Vec<f64> = values.iter().map(|(_, v)| *v).collect();
+        let cv = stats_cv_pct(&nums);
         if cv > noisy_cv_pct_threshold {
+            nums.sort_by(|a, b| a.partial_cmp(b).expect("finite floats"));
             out.push(NoisyCase {
                 source: source.clone(),
                 metric: metric.clone(),
                 id: id.clone(),
                 points: nums.len(),
                 cv_pct: cv,
-                mad_pct: mad_pct(&nums),
+                mad_pct: stats_mad_pct(&nums),
             });
         }
     }
@@ -457,7 +324,7 @@ fn noisy_cases(series: &MetricSeries, noisy_cv_pct_threshold: f64) -> Vec<NoisyC
 }
 
 fn redundant_pairs(
-    series: &MetricSeries,
+    series: MetricSeries,
     min_points: usize,
     corr_min: f64,
     top: usize,
@@ -465,19 +332,21 @@ fn redundant_pairs(
     let mut grouped: GroupedSeries = BTreeMap::new();
     for ((source, metric, id), values) in series {
         grouped
-            .entry((source.clone(), metric.clone()))
+            .entry((source, metric))
             .or_default()
-            .push((id.clone(), values.clone()));
+            .push((id, values));
     }
 
     let mut out = Vec::new();
-    for ((source, metric), cases) in grouped {
+    for ((source, metric), cases) in &grouped {
+        let case_maps: Vec<BTreeMap<&str, f64>> = cases
+            .iter()
+            .map(|(_, vals)| vals.iter().map(|(s, v)| (s.as_str(), *v)).collect())
+            .collect();
         for i in 0..cases.len() {
             for j in (i + 1)..cases.len() {
                 let (id_a, vals_a) = &cases[i];
-                let (id_b, vals_b) = &cases[j];
-                let map_b: BTreeMap<&str, f64> =
-                    vals_b.iter().map(|(snap, v)| (snap.as_str(), *v)).collect();
+                let map_b = &case_maps[j];
                 let mut xs = Vec::new();
                 let mut ys = Vec::new();
                 for (snap, va) in vals_a {
@@ -495,14 +364,16 @@ fn redundant_pairs(
                 if corr < corr_min {
                     continue;
                 }
-                let med_a = median(&xs);
-                let med_b = median(&ys);
+                xs.sort_by(|a, b| a.partial_cmp(b).expect("finite floats"));
+                ys.sort_by(|a, b| a.partial_cmp(b).expect("finite floats"));
+                let med_a = stats_median_sorted(&xs);
+                let med_b = stats_median_sorted(&ys);
                 let ratio = if med_b == 0.0 { 0.0 } else { med_a / med_b };
                 out.push(RedundantPair {
                     source: source.clone(),
                     metric: metric.clone(),
                     left_id: id_a.clone(),
-                    right_id: id_b.clone(),
+                    right_id: cases[j].0.clone(),
                     points: xs.len(),
                     corr,
                     median_ratio: ratio,
@@ -551,7 +422,7 @@ fn main() {
     let stale = stale_cases(&series, &snapshots, args.source, args.min_points);
     let noisy = noisy_cases(&series, args.noisy_cv_pct);
     let redundant = redundant_pairs(
-        &series,
+        series,
         args.min_points,
         args.redundancy_corr_min,
         args.top_redundant,
@@ -559,7 +430,7 @@ fn main() {
 
     let report = HealthReport {
         history_dir: args.history_dir.display().to_string(),
-        source: source_to_str(args.source).to_string(),
+        source: args.source.to_str().to_string(),
         window: args.window,
         snapshots_scanned: snapshots.len(),
         min_points: args.min_points,

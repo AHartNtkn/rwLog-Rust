@@ -432,7 +432,7 @@ fn normalize_cache_must_not_return_stale_result_for_additive_collision() {
 }
 
 // =========================================================================
-// Equality builtin tests ($x = $y via BuiltinId(0))
+// Equality builtin tests ($x = $y via BuiltinId::EQ)
 // =========================================================================
 
 /// Rule body posts `$X = val` → normalization extracts the substitution.
@@ -453,7 +453,7 @@ fn equality_in_body_produces_subst() {
     let a_z_pat = builder.pat_app(a_sym, vec![z_pat]);
 
     let body = BodyProg::new(vec![BodyInstr::AddBuiltin {
-        bid: BuiltinId(0),
+        bid: BuiltinId::EQ,
         args: vec![ArgExpr::RVar(RVar(0)), ArgExpr::Pat(a_z_pat)].into_boxed_slice(),
     }]);
     builder.rule(vec![], vec![head_p], GuardProg::empty(), body, 0);
@@ -497,7 +497,7 @@ fn equality_of_identical_ground_terms_succeeds() {
 
     let body = BodyProg::new(vec![
         BodyInstr::AddBuiltin {
-            bid: BuiltinId(0),
+            bid: BuiltinId::EQ,
             args: vec![ArgExpr::RVar(RVar(0)), ArgExpr::RVar(RVar(1))].into_boxed_slice(),
         },
         BodyInstr::AddChr {
@@ -537,7 +537,7 @@ fn equality_of_different_ground_terms_fails_body() {
 
     let body = BodyProg::new(vec![
         BodyInstr::AddBuiltin {
-            bid: BuiltinId(0),
+            bid: BuiltinId::EQ,
             args: vec![ArgExpr::RVar(RVar(0)), ArgExpr::RVar(RVar(1))].into_boxed_slice(),
         },
         BodyInstr::AddChr {
@@ -575,7 +575,7 @@ fn equality_structural_decomposition_binds_variable() {
     let head_p = HeadPat::new(p, vec![x, y]);
 
     let body = BodyProg::new(vec![BodyInstr::AddBuiltin {
-        bid: BuiltinId(0),
+        bid: BuiltinId::EQ,
         args: vec![ArgExpr::RVar(RVar(0)), ArgExpr::RVar(RVar(1))].into_boxed_slice(),
     }]);
     builder.rule(vec![], vec![head_p], GuardProg::empty(), body, 0);
@@ -614,7 +614,7 @@ fn equality_occurs_check_fails() {
     let head_p = HeadPat::new(p, vec![x, y]);
 
     let body = BodyProg::new(vec![BodyInstr::AddBuiltin {
-        bid: BuiltinId(0),
+        bid: BuiltinId::EQ,
         args: vec![ArgExpr::RVar(RVar(0)), ArgExpr::RVar(RVar(1))].into_boxed_slice(),
     }]);
     builder.rule(vec![], vec![head_p], GuardProg::empty(), body, 0);
@@ -653,15 +653,15 @@ fn equality_multiple_bindings_accumulate() {
 
     let body = BodyProg::new(vec![
         BodyInstr::AddBuiltin {
-            bid: BuiltinId(0),
+            bid: BuiltinId::EQ,
             args: vec![ArgExpr::RVar(RVar(0)), ArgExpr::Pat(a_pat)].into_boxed_slice(),
         },
         BodyInstr::AddBuiltin {
-            bid: BuiltinId(0),
+            bid: BuiltinId::EQ,
             args: vec![ArgExpr::RVar(RVar(1)), ArgExpr::Pat(b_pat)].into_boxed_slice(),
         },
         BodyInstr::AddBuiltin {
-            bid: BuiltinId(0),
+            bid: BuiltinId::EQ,
             args: vec![ArgExpr::RVar(RVar(2)), ArgExpr::Pat(c_pat)].into_boxed_slice(),
         },
     ]);

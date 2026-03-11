@@ -71,6 +71,32 @@ impl<C: ConstraintOps> AndProducer<C> {
         self.sender = None;
     }
 
+    /// Try to deliver an NF to the sender. On success, returns Progress.
+    /// On Full, stashes the NF in pending and returns Blocked.
+    /// On Closed/no sender, marks done and returns Done.
+    fn try_deliver(&mut self, nf: NF<C>) -> AndProducerStep {
+        let Some(sender) = self.sender.as_ref() else {
+            self.done = true;
+            return AndProducerStep::Done;
+        };
+        match sender.try_send(nf.clone()) {
+            SinkResult::Accepted => {
+                self.blocked = None;
+                AndProducerStep::Progress
+            }
+            SinkResult::Full => {
+                self.pending = Some(nf);
+                self.blocked = Some(sender.blocked_on());
+                AndProducerStep::Blocked
+            }
+            SinkResult::Closed => {
+                self.done = true;
+                self.close_sender();
+                AndProducerStep::Done
+            }
+        }
+    }
+
     fn step(&mut self, terms: &mut TermStore) -> AndProducerStep {
         if self.done {
             return AndProducerStep::Done;
@@ -83,53 +109,14 @@ impl<C: ConstraintOps> AndProducer<C> {
         }
 
         if let Some(nf) = self.pending.take() {
-            let Some(sender) = self.sender.as_ref() else {
-                self.done = true;
-                return AndProducerStep::Done;
-            };
-            match sender.try_send(nf.clone()) {
-                SinkResult::Accepted => {
-                    self.blocked = None;
-                    return AndProducerStep::Progress;
-                }
-                SinkResult::Full => {
-                    self.pending = Some(nf);
-                    self.blocked = Some(sender.blocked_on());
-                    return AndProducerStep::Blocked;
-                }
-                SinkResult::Closed => {
-                    self.done = true;
-                    self.close_sender();
-                    return AndProducerStep::Done;
-                }
-            }
+            return self.try_deliver(nf);
         }
 
         let current = std::mem::replace(&mut self.node, Node::Fail);
         match step_node(current, terms) {
             NodeStep::Emit(nf, rest) => {
-                let nf = *nf;
                 self.node = rest;
-                let Some(sender) = self.sender.as_ref() else {
-                    self.done = true;
-                    return AndProducerStep::Done;
-                };
-                match sender.try_send(nf.clone()) {
-                    SinkResult::Accepted => {
-                        self.blocked = None;
-                        AndProducerStep::Progress
-                    }
-                    SinkResult::Full => {
-                        self.pending = Some(nf);
-                        self.blocked = Some(sender.blocked_on());
-                        AndProducerStep::Blocked
-                    }
-                    SinkResult::Closed => {
-                        self.done = true;
-                        self.close_sender();
-                        AndProducerStep::Done
-                    }
-                }
+                self.try_deliver(*nf)
             }
             NodeStep::Continue(rest) => {
                 self.node = rest;
@@ -266,9 +253,6 @@ impl<C: ConstraintOps> AndGroup<C> {
         }
 
         let total = self.producers.len() + 1;
-        if total == 0 {
-            return WorkStep::Done;
-        }
 
         for offset in 0..total {
             let idx = (self.turn + offset) % total;

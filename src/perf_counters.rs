@@ -1,9 +1,10 @@
+use serde::Serialize;
 use std::cell::Cell;
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
 pub struct PerfCountersSnapshot {
     pub engine_steps: u64,
     pub engine_emits: u64,
@@ -44,7 +45,6 @@ static FIXPOINT_VERIFICATION_STEPS: AtomicU64 = AtomicU64::new(0);
 static OR_SPINE_WALKS: AtomicU64 = AtomicU64::new(0);
 static OR_SPINE_TOTAL_SIBLINGS: AtomicU64 = AtomicU64::new(0);
 static OR_SPINE_MAX_SIBLINGS: AtomicU64 = AtomicU64::new(0);
-static COMPOSE_PAIR_SET: Mutex<Option<HashSet<u64>>> = Mutex::new(None);
 static MEET_PAIR_SET: Mutex<Option<HashSet<u64>>> = Mutex::new(None);
 static CAPTURE_LOCK: Mutex<()> = Mutex::new(());
 
@@ -83,16 +83,10 @@ pub fn reset() {
     OR_SPINE_WALKS.store(0, Ordering::Relaxed);
     OR_SPINE_TOTAL_SIBLINGS.store(0, Ordering::Relaxed);
     OR_SPINE_MAX_SIBLINGS.store(0, Ordering::Relaxed);
-    *COMPOSE_PAIR_SET.lock().unwrap() = Some(HashSet::new());
     *MEET_PAIR_SET.lock().unwrap() = Some(HashSet::new());
 }
 
 pub fn snapshot() -> PerfCountersSnapshot {
-    let compose_unique = COMPOSE_PAIR_SET
-        .lock()
-        .unwrap()
-        .as_ref()
-        .map_or(0, |s| s.len() as u64);
     let meet_unique = MEET_PAIR_SET
         .lock()
         .unwrap()
@@ -109,7 +103,7 @@ pub fn snapshot() -> PerfCountersSnapshot {
         meet_attempts: MEET_ATTEMPTS.load(Ordering::Relaxed),
         meet_successes: MEET_SUCCESSES.load(Ordering::Relaxed),
         meet_failures: MEET_FAILURES.load(Ordering::Relaxed),
-        compose_unique_pairs: compose_unique,
+        compose_unique_pairs: 0,
         meet_unique_pairs: meet_unique,
         fixpoint_producer_starts: FIXPOINT_PRODUCER_STARTS.load(Ordering::Relaxed),
         fixpoint_verification_starts: FIXPOINT_VERIFICATION_STARTS.load(Ordering::Relaxed),
@@ -169,16 +163,6 @@ pub fn record_compose_result(success: bool) {
             bump(&COMPOSE_SUCCESSES);
         } else {
             bump(&COMPOSE_FAILURES);
-        }
-    }
-}
-
-pub fn record_compose_pair_hash(hash: u64) {
-    if enabled() {
-        if let Ok(mut guard) = COMPOSE_PAIR_SET.lock() {
-            if let Some(set) = guard.as_mut() {
-                set.insert(hash);
-            }
         }
     }
 }

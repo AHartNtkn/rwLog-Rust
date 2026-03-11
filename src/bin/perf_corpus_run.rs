@@ -2,8 +2,8 @@
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 use rwlog::perf_corpus::{
-    apply_filters, environment_fingerprint, load_cases, prepare_case, run_prepared_with_stats,
-    sort_cases, CorpusCase, CorpusFilters, EnvironmentFingerprint, ExecutionCounters,
+    csv_escape, csv_escape_opt, environment_fingerprint, prepare_case, run_prepared_with_stats,
+    select_cases, stats_median_u64, EnvironmentFingerprint, ExecutionCounters,
 };
 use serde::Serialize;
 use std::collections::BTreeMap;
@@ -25,9 +25,7 @@ impl Phase {
             other => panic!("--phase must be parse|execute|end_to_end, got '{other}'"),
         }
     }
-}
 
-impl Phase {
     fn as_str(self) -> &'static str {
         match self {
             Phase::Parse => "parse",
@@ -119,23 +117,6 @@ fn parse_args() -> (Option<String>, usize, Phase, bool, bool) {
     (id_filter, iters, phase, json, csv)
 }
 
-fn select_cases(id_filter: Option<String>) -> Vec<CorpusCase> {
-    let mut filters = CorpusFilters::from_env();
-    if let Some(id) = id_filter {
-        filters.filter_substring = Some(id);
-    }
-    let mut cases = apply_filters(load_cases(), &filters);
-    sort_cases(&mut cases);
-    if cases.is_empty() {
-        panic!("no corpus cases selected");
-    }
-    cases
-}
-
-fn median_u64(values: &mut [u64]) -> u64 {
-    values.sort_unstable();
-    values[values.len() / 2]
-}
 
 /// Collect per-iteration counter vectors and compute medians.
 struct CounterAccumulator {
@@ -230,24 +211,24 @@ impl CounterAccumulator {
 
     fn medians(&mut self) -> Medians {
         Medians {
-            engine_steps: median_u64(&mut self.engine_steps),
-            engine_emits: median_u64(&mut self.engine_emits),
-            engine_continues: median_u64(&mut self.engine_continues),
-            engine_exhausted: median_u64(&mut self.engine_exhausted),
-            compose_attempts: median_u64(&mut self.compose_attempts),
-            compose_successes: median_u64(&mut self.compose_successes),
-            compose_failures: median_u64(&mut self.compose_failures),
-            compose_unique_pairs: median_u64(&mut self.compose_unique_pairs),
-            meet_attempts: median_u64(&mut self.meet_attempts),
-            meet_successes: median_u64(&mut self.meet_successes),
-            meet_failures: median_u64(&mut self.meet_failures),
-            meet_unique_pairs: median_u64(&mut self.meet_unique_pairs),
-            fixpoint_producer_starts: median_u64(&mut self.fixpoint_producer_starts),
-            fixpoint_verification_starts: median_u64(&mut self.fixpoint_verification_starts),
-            fixpoint_verification_steps: median_u64(&mut self.fixpoint_verification_steps),
-            or_spine_walks: median_u64(&mut self.or_spine_walks),
-            or_spine_total_siblings: median_u64(&mut self.or_spine_total_siblings),
-            or_spine_max_siblings: median_u64(&mut self.or_spine_max_siblings),
+            engine_steps: stats_median_u64(&mut self.engine_steps),
+            engine_emits: stats_median_u64(&mut self.engine_emits),
+            engine_continues: stats_median_u64(&mut self.engine_continues),
+            engine_exhausted: stats_median_u64(&mut self.engine_exhausted),
+            compose_attempts: stats_median_u64(&mut self.compose_attempts),
+            compose_successes: stats_median_u64(&mut self.compose_successes),
+            compose_failures: stats_median_u64(&mut self.compose_failures),
+            compose_unique_pairs: stats_median_u64(&mut self.compose_unique_pairs),
+            meet_attempts: stats_median_u64(&mut self.meet_attempts),
+            meet_successes: stats_median_u64(&mut self.meet_successes),
+            meet_failures: stats_median_u64(&mut self.meet_failures),
+            meet_unique_pairs: stats_median_u64(&mut self.meet_unique_pairs),
+            fixpoint_producer_starts: stats_median_u64(&mut self.fixpoint_producer_starts),
+            fixpoint_verification_starts: stats_median_u64(&mut self.fixpoint_verification_starts),
+            fixpoint_verification_steps: stats_median_u64(&mut self.fixpoint_verification_steps),
+            or_spine_walks: stats_median_u64(&mut self.or_spine_walks),
+            or_spine_total_siblings: stats_median_u64(&mut self.or_spine_total_siblings),
+            or_spine_max_siblings: stats_median_u64(&mut self.or_spine_max_siblings),
         }
     }
 }
@@ -486,24 +467,34 @@ fn print_breakdown(rows: &[RunRow]) {
     println!("=== BY TIER ===");
     println!();
 
-    let mut by_tier: BTreeMap<&str, (usize, f64, u64)> = BTreeMap::new();
+    struct TierStats {
+        count: usize,
+        time_us: f64,
+        steps: u64,
+    }
+
+    let mut by_tier: BTreeMap<&str, TierStats> = BTreeMap::new();
     for r in rows {
-        let e = by_tier.entry(&r.tier).or_insert((0, 0.0, 0));
-        e.0 += 1;
-        e.1 += r.median_us;
-        e.2 += r.engine_steps;
+        let e = by_tier.entry(&r.tier).or_insert(TierStats {
+            count: 0,
+            time_us: 0.0,
+            steps: 0,
+        });
+        e.count += 1;
+        e.time_us += r.median_us;
+        e.steps += r.engine_steps;
     }
     let mut tier_entries: Vec<_> = by_tier.iter().collect();
-    tier_entries.sort_by(|a, b| b.1 .1.partial_cmp(&a.1 .1).unwrap());
-    for (tier, (count, time, steps)) in &tier_entries {
+    tier_entries.sort_by(|a, b| b.1.time_us.partial_cmp(&a.1.time_us).unwrap());
+    for (tier, s) in &tier_entries {
         let pct = if total_us > 0.0 {
-            time / total_us * 100.0
+            s.time_us / total_us * 100.0
         } else {
             0.0
         };
         println!(
             "  {:<10} {:>2} cases {:>10.1} us ({:>5.1}%)  steps={}",
-            tier, count, time, pct, steps
+            tier, s.count, s.time_us, pct, s.steps
         );
     }
 
@@ -543,11 +534,7 @@ fn print_breakdown(rows: &[RunRow]) {
         );
     }
     if total_or_walks > 0 {
-        let avg_siblings = if total_or_walks > 0 {
-            total_or_siblings as f64 / total_or_walks as f64
-        } else {
-            0.0
-        };
+        let avg_siblings = total_or_siblings as f64 / total_or_walks as f64;
         println!(
             "  or_spine: {} walks, avg {:.1} siblings/walk, max {}",
             total_or_walks, avg_siblings, max_or_siblings,
@@ -730,17 +717,3 @@ fn print_csv(rows: &[RunRow], env: &EnvironmentFingerprint) {
     }
 }
 
-fn csv_escape(s: &str) -> String {
-    if s.contains(',') || s.contains('"') || s.contains('\n') {
-        format!("\"{}\"", s.replace('"', "\"\""))
-    } else {
-        s.to_string()
-    }
-}
-
-fn csv_escape_opt(s: Option<&str>) -> String {
-    match s {
-        Some(v) => csv_escape(v),
-        None => String::new(),
-    }
-}
