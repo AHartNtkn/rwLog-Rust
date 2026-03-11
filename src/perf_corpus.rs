@@ -1332,64 +1332,6 @@ fn peel_program() -> &'static str {
     "rel peel { (f $x) -> $x }"
 }
 
-fn treecalc_synth_program() -> &'static str {
-    r#"
-theory treecalc_constraints {
-    constraint no_c/1
-
-    (no_c l) <=> .
-    (no_c (b $x)) <=> (no_c $x).
-    (no_c (f $x $y)) <=> (no_c $x), (no_c $y).
-    (no_c (c $n)) <=> fail.
-    (no_c (a $n $m)) <=> fail.
-}
-
-rel app {
-    # Rule 0a: Catch uninterpreted constants
-    (f (c $x) $y) -> (a (c $x) $y)
-    |
-    # Rule 0b: Accumulate caught applications
-    (f (a $x $y) $z) -> (a (a $x $y) $z)
-    |
-    # Rule 1: app(L, z) => B(z)
-    (f l $z) -> (b $z)
-    |
-    # Rule 2: app(B(y), z) => F(y, z)
-    (f (b $y) $z) -> (f $y $z)
-    |
-    # Rule 3: app(F(L, y), z) => y
-    (f (f l $y) $z) -> $y
-    |
-    # Rule 4: app(F(F(w, x), y), L) => w
-    (f (f (f $w $x) $y) l) -> $w
-    |
-    # Rule 5: app(F(B(x), y), z) => app(app(x, z), app(y, z))
-    [
-        [(f (f (b $x) $y) $z) -> (f $x $z) ; app ; $x -> (f $x $y)]
-        &
-        [(f (f (b $x) $y) $z) -> (f $y $z) ; app ; $y -> (f $x $y)]
-        ; app
-    ]
-    |
-    # Rule 6: app(F(F(w, x), y), B(u)) => app(x, u)
-    [
-        (f (f (f $w $x) $y) (b $u)) -> (f $x $u)
-        ; app
-    ]
-    |
-    # Rule 7: app(F(F(w, x), y), F(u, v)) => app(app(y, u), v)
-    [
-        (f (f (f $w $x) $y) (f $u $v)) -> (f (f $y $u) $v)
-        ;
-        [(f (f $a $b) $c) -> (f $a $b) ; app ; $a -> (f $a $b)]
-        &
-        (f (f $a $b) $c) -> (f $d $c)
-        ; app
-    ]
-}
-"#
-}
-
 fn dispatch_program(n_rules: usize) -> String {
     let mut rules = Vec::with_capacity(n_rules);
     for i in 0..n_rules {
@@ -1551,8 +1493,6 @@ fn expand_template(name: &str) -> String {
         "PROGRAM_EQ_NEQ" => return eq_neq_program().to_string(),
         "PROGRAM_RANGES" => return range_program().to_string(),
         "PROGRAM_PEEL" => return peel_program().to_string(),
-        "PROGRAM_TREECALC" => return include_str!("../examples/treecalc.txt").to_string(),
-        "PROGRAM_TREECALC_SYNTH" => return treecalc_synth_program().to_string(),
         "PROGRAM_WIDE_INC" => return wide_inc_program().to_string(),
         _ => {}
     }
