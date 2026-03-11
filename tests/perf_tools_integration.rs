@@ -18,13 +18,6 @@ fn fake_environment() -> Value {
     })
 }
 
-fn create_probe_snapshots(history_dir: &std::path::Path, data: &[(&str, Value)]) {
-    for (name, value) in data {
-        let dir = history_dir.join(name);
-        fs::create_dir_all(&dir).unwrap_or_else(|e| panic!("create {name}: {e}"));
-        write_json(&dir.join("probe.json"), value);
-    }
-}
 
 #[test]
 fn perf_binaries_smoke_json_and_csv() {

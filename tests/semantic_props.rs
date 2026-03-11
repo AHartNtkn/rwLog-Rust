@@ -2,37 +2,12 @@ mod common;
 
 use common::*;
 
-use common::{build_raw_term, RawTerm, PROPTEST_MAX_VAR};
 use proptest::prelude::*;
 use rwlog::matching::match_terms_disjoint;
 use rwlog::nf::apply_var_renaming;
 use rwlog::subst::apply_subst;
 use rwlog::symbol::SymbolStore;
 use rwlog::term::{TermId, TermStore};
-
-const FUNCTOR_NAMES: [&str; 5] = ["a", "b", "c", "f", "g"];
-
-fn raw_term_strategy() -> impl Strategy<Value = RawTerm> {
-    let leaf = prop_oneof![
-        (0..=PROPTEST_MAX_VAR).prop_map(RawTerm::Var),
-        Just(RawTerm::App { f: 0, kids: vec![] }),
-        Just(RawTerm::App { f: 1, kids: vec![] }),
-        Just(RawTerm::App { f: 2, kids: vec![] }),
-    ];
-
-    leaf.prop_recursive(3, 16, 4, |inner| {
-        prop_oneof![
-            inner.clone().prop_map(|t| RawTerm::App {
-                f: 3,
-                kids: vec![t]
-            }),
-            (inner.clone(), inner.clone()).prop_map(|(a, b)| RawTerm::App {
-                f: 4,
-                kids: vec![a, b],
-            }),
-        ]
-    })
-}
 
 fn swap_vars(
     term: TermId,
@@ -46,9 +21,6 @@ fn swap_vars(
     }
     let max = offset + PROPTEST_MAX_VAR;
     let mut map = vec![None; max as usize + 1];
-    for i in 0..=max {
-        map[i as usize] = Some(i);
-    }
     let a = offset + swap_a;
     let b = offset + swap_b;
     map[a as usize] = Some(b);

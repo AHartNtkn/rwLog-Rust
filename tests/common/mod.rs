@@ -5,6 +5,8 @@ pub mod process_helpers;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
+use proptest::prelude::*;
+
 use rwlog::engine::Engine;
 use rwlog::nf::{direct_rule_terms, NF};
 use rwlog::rel::Rel;
@@ -28,6 +30,10 @@ pub fn shape_atom(name: &str) -> Shape {
 
 pub fn shape_app(name: &str, kids: Vec<Shape>) -> Shape {
     Shape::App(name.to_string(), kids)
+}
+
+pub fn shape_cons(left: Shape, right: Shape) -> Shape {
+    shape_app("cons", vec![left, right])
 }
 
 pub fn shape_peano(n: usize) -> Shape {
@@ -81,8 +87,8 @@ pub fn rel_at(term: TermId, terms: &mut TermStore) -> Rel<()> {
 }
 
 pub fn rel_seq(parts: Vec<Rel<()>>) -> Rel<()> {
-    let arcs: Vec<Arc<Rel<()>>> = parts.into_iter().map(Arc::new).collect();
-    Rel::Seq(Arc::from(arcs))
+    let arcs: Arc<[Arc<Rel<()>>]> = parts.into_iter().map(Arc::new).collect();
+    Rel::Seq(arcs)
 }
 
 pub fn rel_or(left: Rel<()>, right: Rel<()>) -> Rel<()> {
@@ -165,11 +171,12 @@ pub fn collect_pair_shapes(
 }
 
 pub fn assert_pairs(actual: Vec<(Shape, Shape)>, expected: &[(Shape, Shape)]) {
-    let actual_set: HashSet<(Shape, Shape)> = actual.iter().cloned().collect();
     let expected_set: HashSet<(Shape, Shape)> = expected.iter().cloned().collect();
+    let actual_len = actual.len();
+    let actual_set: HashSet<(Shape, Shape)> = actual.into_iter().collect();
     assert_eq!(actual_set, expected_set, "answer set mismatch");
     assert_eq!(
-        actual.len(),
+        actual_len,
         expected_set.len(),
         "expected no duplicate answers"
     );
@@ -222,9 +229,50 @@ where
     assert_pairs(dual_pairs, &expected_dual);
 }
 
+pub fn assert_nf_pair_with_dual<C: rwlog::constraint::ConstraintOps + Clone>(
+    nf: &NF<C>,
+    expected: (Shape, Shape),
+    terms: &mut TermStore,
+    symbols: &SymbolStore,
+) {
+    let pair = nf_pair_shape(nf, terms, symbols);
+    assert_eq!(pair, expected);
+    let dual = rwlog::kernel::dual_nf(nf, terms);
+    let dual_pair = nf_pair_shape(&dual, terms, symbols);
+    let expected_dual = canonicalize_shape_pair(&expected.1, &expected.0);
+    assert_eq!(dual_pair, expected_dual);
+}
+
 // Shared proptest helpers for generating random terms.
 
 pub const PROPTEST_MAX_VAR: u32 = 4;
+pub const FUNCTOR_NAMES: [&str; 6] = ["a", "b", "c", "f", "g", "h"];
+
+pub fn raw_term_strategy() -> impl Strategy<Value = RawTerm> {
+    let leaf = prop_oneof![
+        (0..=PROPTEST_MAX_VAR).prop_map(RawTerm::Var),
+        Just(RawTerm::App { f: 0, kids: vec![] }),
+        Just(RawTerm::App { f: 1, kids: vec![] }),
+        Just(RawTerm::App { f: 2, kids: vec![] }),
+    ];
+
+    leaf.prop_recursive(3, 16, 4, |inner| {
+        prop_oneof![
+            inner.clone().prop_map(|t| RawTerm::App {
+                f: 3,
+                kids: vec![t]
+            }),
+            (inner.clone(), inner.clone()).prop_map(|(a, b)| RawTerm::App {
+                f: 4,
+                kids: vec![a, b],
+            }),
+            (inner.clone(), inner).prop_map(|(a, b)| RawTerm::App {
+                f: 5,
+                kids: vec![a, b],
+            }),
+        ]
+    })
+}
 
 #[derive(Clone, Debug)]
 pub enum RawTerm {

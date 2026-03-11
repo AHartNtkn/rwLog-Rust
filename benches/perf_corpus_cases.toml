@@ -24,10 +24,6 @@ answer_shape = "single"
 infinite_stream = false
 quick_gate_max_median_us = 3000.0
 quick_gate_max_p95_us = 6000.0
-noise_target_cv_pct = 35.0
-noise_flaky_cv_pct = 55.0
-adaptive_min_samples = 15
-adaptive_max_samples = 40
 notes = "Lowest-overhead deterministic baseline."
 
 [[case]]
@@ -47,10 +43,6 @@ answer_shape = "single"
 infinite_stream = false
 quick_gate_max_median_us = 12000.0
 quick_gate_max_p95_us = 24000.0
-noise_target_cv_pct = 35.0
-noise_flaky_cv_pct = 55.0
-adaptive_min_samples = 15
-adaptive_max_samples = 40
 
 [[case]]
 id = "sequence_chain_len64"
@@ -85,10 +77,6 @@ answer_shape = "finite"
 infinite_stream = false
 quick_gate_max_median_us = 20000.0
 quick_gate_max_p95_us = 40000.0
-noise_target_cv_pct = 35.0
-noise_flaky_cv_pct = 55.0
-adaptive_min_samples = 15
-adaptive_max_samples = 40
 
 [[case]]
 id = "disjunction_wide_64_first16"
@@ -108,10 +96,6 @@ answer_shape = "prefix_stream"
 infinite_stream = false
 quick_gate_max_median_us = 30000.0
 quick_gate_max_p95_us = 60000.0
-noise_target_cv_pct = 35.0
-noise_flaky_cv_pct = 55.0
-adaptive_min_samples = 15
-adaptive_max_samples = 40
 
 [[case]]
 id = "disjunction_wide_256_first64"
@@ -147,10 +131,6 @@ answer_shape = "single"
 infinite_stream = false
 quick_gate_max_median_us = 20000.0
 quick_gate_max_p95_us = 40000.0
-noise_target_cv_pct = 35.0
-noise_flaky_cv_pct = 55.0
-adaptive_min_samples = 15
-adaptive_max_samples = 40
 
 [[case]]
 id = "conjunction_cross_16x16"
@@ -185,10 +165,6 @@ answer_shape = "single"
 infinite_stream = false
 quick_gate_max_median_us = 20000.0
 quick_gate_max_p95_us = 40000.0
-noise_target_cv_pct = 35.0
-noise_flaky_cv_pct = 55.0
-adaptive_min_samples = 15
-adaptive_max_samples = 40
 
 [[case]]
 id = "deep_term_depth_128"
@@ -223,10 +199,6 @@ answer_shape = "single"
 infinite_stream = false
 quick_gate_max_median_us = 20000.0
 quick_gate_max_p95_us = 45000.0
-noise_target_cv_pct = 35.0
-noise_flaky_cv_pct = 55.0
-adaptive_min_samples = 15
-adaptive_max_samples = 40
 
 [[case]]
 id = "recursive_add_backward_n8"
@@ -245,10 +217,6 @@ answer_shape = "finite"
 infinite_stream = false
 quick_gate_max_median_us = 35000.0
 quick_gate_max_p95_us = 70000.0
-noise_target_cv_pct = 35.0
-noise_flaky_cv_pct = 55.0
-adaptive_min_samples = 15
-adaptive_max_samples = 40
 
 [[case]]
 id = "recursive_add_forward_n24"
@@ -300,10 +268,6 @@ answer_shape = "prefix_stream"
 infinite_stream = true
 quick_gate_max_median_us = 30000.0
 quick_gate_max_p95_us = 70000.0
-noise_target_cv_pct = 35.0
-noise_flaky_cv_pct = 55.0
-adaptive_min_samples = 15
-adaptive_max_samples = 40
 
 [[case]]
 id = "recursive_even_backward_first64"
@@ -339,10 +303,6 @@ answer_shape = "single"
 infinite_stream = false
 quick_gate_max_median_us = 30000.0
 quick_gate_max_p95_us = 60000.0
-noise_target_cv_pct = 35.0
-noise_flaky_cv_pct = 55.0
-adaptive_min_samples = 15
-adaptive_max_samples = 40
 
 [[case]]
 id = "constraints_nonzero_deep_success"
@@ -377,10 +337,6 @@ answer_shape = "single"
 infinite_stream = false
 quick_gate_max_median_us = 30000.0
 quick_gate_max_p95_us = 60000.0
-noise_target_cv_pct = 35.0
-noise_flaky_cv_pct = 55.0
-adaptive_min_samples = 15
-adaptive_max_samples = 40
 
 [[case]]
 id = "treecalc_first_answer"
@@ -399,10 +355,6 @@ answer_shape = "prefix_stream"
 infinite_stream = true
 quick_gate_max_median_us = 50000.0
 quick_gate_max_p95_us = 120000.0
-noise_target_cv_pct = 35.0
-noise_flaky_cv_pct = 55.0
-adaptive_min_samples = 15
-adaptive_max_samples = 40
 notes = "Representative real-world recursive workload from examples/treecalc.txt."
 
 [[case]]
@@ -547,10 +499,6 @@ answer_shape = "single"
 infinite_stream = false
 quick_gate_max_median_us = 100000.0
 quick_gate_max_p95_us = 200000.0
-noise_target_cv_pct = 35.0
-noise_flaky_cv_pct = 55.0
-adaptive_min_samples = 15
-adaptive_max_samples = 40
 
 [[case]]
 id = "deep_rewrite_depth256"
@@ -747,10 +695,6 @@ answer_shape = "single"
 infinite_stream = false
 quick_gate_max_median_us = 50000.0
 quick_gate_max_p95_us = 100000.0
-noise_target_cv_pct = 35.0
-noise_flaky_cv_pct = 55.0
-adaptive_min_samples = 15
-adaptive_max_samples = 40
 
 [[case]]
 id = "multi_head_chr_join"

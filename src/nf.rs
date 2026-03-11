@@ -163,6 +163,14 @@ impl<C: Hash> NF<C> {
         )
     }
 
+    /// Check if this NF is the empty identity: no patterns, zero-arity DropFresh.
+    pub fn is_empty_identity(&self) -> bool {
+        self.match_pats.is_empty()
+            && self.build_pats.is_empty()
+            && self.drop_fresh.in_arity == 0
+            && self.drop_fresh.out_arity == 0
+    }
+
     /// Maximum variable index in the direct-rule (RwT) form of this NF.
     ///
     /// After `collect_tensor`, match_pats use vars `0..in_arity-1` and
@@ -196,22 +204,23 @@ impl<C: ConstraintOps> NF<C> {
 
 /// Collect a tensor NF into direct-rule form by pushing wiring into RHS vars.
 pub fn collect_tensor<C: Clone>(nf: &NF<C>, terms: &mut TermStore) -> RwT<C> {
-    let rhs_map = &nf.cached_rhs_map;
-    let rhs_direct: SmallVec<[TermId; 1]> = nf
-        .build_pats
-        .iter()
-        .map(|&t| {
-            crate::matching::transform_vars(t, terms, |j| {
-                TermId::inline_var(rhs_map[j])
-            })
-        })
-        .collect();
-
     RwT {
         lhs: nf.match_pats.clone(),
-        rhs: rhs_direct,
+        rhs: collect_tensor_rhs(nf, terms),
         constraint: nf.drop_fresh.constraint.clone(),
     }
+}
+
+/// Transform build_pats to direct form by applying the cached_rhs_map.
+/// Returns only the RHS terms, avoiding the match_pats clone and constraint clone.
+pub fn collect_tensor_rhs<C>(nf: &NF<C>, terms: &mut TermStore) -> SmallVec<[TermId; 1]> {
+    let rhs_map = &nf.cached_rhs_map;
+    nf.build_pats
+        .iter()
+        .map(|&t| {
+            crate::matching::transform_vars(t, terms, |j| TermId::inline_var(rhs_map[j]))
+        })
+        .collect()
 }
 
 /// Factor a tensor rewrite (lists of patterns) into NF.
@@ -294,7 +303,7 @@ fn build_factor_wiring<C: ConstraintOps>(
     };
 
     // Build RHS variable ordering: shared vars in LHS order, then RHS-only vars.
-    let mut rhs_ordered: Vec<u32> = Vec::new();
+    let mut rhs_ordered: SmallVec<[u32; 8]> = SmallVec::new();
     for &var in lhs_vars.iter() {
         if rhs_contains(var) {
             rhs_ordered.push(var);
@@ -406,54 +415,39 @@ fn collect_vars_helper(
     vars: &mut Vec<u32>,
     seen: &mut std::collections::HashSet<u32>,
 ) {
-    // Use read_lock once for the entire traversal (no per-node locking).
     let guard = terms.read_lock();
     let mut stack: SmallVec<[TermId; 16]> = SmallVec::new();
-    // Use a bitset for small variable indices (0..64) to avoid HashSet overhead.
-    // Variables >= 64 fall back to the HashSet.
     let mut seen_bits: u64 = 0;
-    // Pre-populate seen_bits from any vars already in `seen` (from previous terms in a list).
     for &v in seen.iter() {
         if v < 64 {
             seen_bits |= 1u64 << v;
         }
     }
+
+    let mut insert_var = |v: u32| {
+        if v < 64 {
+            let bit = 1u64 << v;
+            if seen_bits & bit == 0 {
+                seen_bits |= bit;
+                seen.insert(v);
+                vars.push(v);
+            }
+        } else if seen.insert(v) {
+            vars.push(v);
+        }
+    };
+
     stack.push(term);
     while let Some(tid) = stack.pop() {
-        // Ground terms contain no variables — skip entire subtree.
         if tid.is_ground() {
             continue;
         }
-        // Fast path: inline variable.
         if tid.is_inline_var() {
-            let v = tid.inline_var_index();
-            if v < 64 {
-                let bit = 1u64 << v;
-                if seen_bits & bit == 0 {
-                    seen_bits |= bit;
-                    seen.insert(v);
-                    vars.push(v);
-                }
-            } else if seen.insert(v) {
-                vars.push(v);
-            }
+            insert_var(tid.inline_var_index());
             continue;
         }
-        // Store ref (non-ground).
         match guard.get(tid) {
-            Some(Term::Var(idx)) => {
-                let v = *idx;
-                if v < 64 {
-                    let bit = 1u64 << v;
-                    if seen_bits & bit == 0 {
-                        seen_bits |= bit;
-                        seen.insert(v);
-                        vars.push(v);
-                    }
-                } else if seen.insert(v) {
-                    vars.push(v);
-                }
-            }
+            Some(Term::Var(idx)) => insert_var(*idx),
             Some(Term::App(_, children)) => {
                 for child in children.iter().rev() {
                     stack.push(*child);
@@ -646,7 +640,7 @@ fn traverse_subst_and_remap(
 
         work_stack.clear();
         result_stack.clear();
-        work_stack.push(Work::Visit(term, params.shifted));
+        work_stack.push(Work::Visit(term, !params.shifted_vars.is_empty()));
 
         while let Some(item) = work_stack.pop() {
             match item {
@@ -784,29 +778,95 @@ fn renumber_vars_through_subst_list(
 }
 
 /// Collect variables from a list of terms by walking through one or two substitutions
-/// (optionally with virtual shifting). Discovers variable indices using the shared
-/// traversal — rebuilt terms are discarded.
+/// (optionally with virtual shifting). Read-only: does not build any new terms.
 fn collect_vars_through_subst_list(
     terms_list: &[TermId],
     params: &SubstParams<'_>,
-    terms: &mut TermStore,
+    terms: &TermStore,
 ) -> Vec<u32> {
+    use crate::subst::resolve_var_chain_unlocked;
+
+    let shifted = !params.shifted_vars.is_empty();
+    let guard = terms.read_lock();
     let mut vars = Vec::new();
     let mut seen_bits: u64 = 0;
     let mut seen_large: std::collections::HashSet<u32> = std::collections::HashSet::new();
+    // Stack entries: (TermId, needs_shift). Resolved App children don't need shifting.
+    let mut stack: SmallVec<[(TermId, bool); 16]> = SmallVec::new();
 
-    let _ = traverse_subst_and_remap(terms_list, params, terms, |final_idx| {
-        if final_idx < 64 {
-            let bit = 1u64 << final_idx;
+    let mut insert_var = |v: u32| {
+        if v < 64 {
+            let bit = 1u64 << v;
             if seen_bits & bit == 0 {
                 seen_bits |= bit;
-                vars.push(final_idx);
+                vars.push(v);
             }
-        } else if seen_large.insert(final_idx) {
-            vars.push(final_idx);
+        } else if seen_large.insert(v) {
+            vars.push(v);
         }
-        final_idx
-    });
+    };
+
+    for &term in terms_list {
+        if term.is_ground() {
+            continue;
+        }
+        stack.clear();
+        stack.push((term, shifted));
+
+        while let Some((tid, raw)) = stack.pop() {
+            if tid.is_ground() || tid.is_inline_nullary() {
+                continue;
+            }
+
+            // Extract variable index or push App children.
+            let var_idx = if tid.is_inline_var() {
+                tid.inline_var_index()
+            } else {
+                match guard.get(tid) {
+                    Some(Term::Var(idx)) => *idx,
+                    Some(Term::App(_, children)) => {
+                        for child in children.iter().rev() {
+                            stack.push((*child, raw));
+                        }
+                        continue;
+                    }
+                    None => continue,
+                }
+            };
+
+            // Resolve through substitution chain.
+            let start_tid = if raw {
+                let j = var_idx as usize;
+                debug_assert!(j < params.shifted_vars.len());
+                params.shifted_vars[j]
+            } else {
+                tid
+            };
+            let mut resolved = resolve_var_chain_unlocked(start_tid, params.subst);
+            if let Some(s2) = params.subst2 {
+                resolved = resolve_var_chain_unlocked(resolved, s2);
+            }
+
+            // Classify resolved term.
+            if resolved.is_inline_var() {
+                insert_var(resolved.inline_var_index());
+            } else if resolved.is_inline_nullary() || resolved.is_ground() {
+                // Ground — no variables to collect.
+            } else {
+                match guard.get(resolved) {
+                    Some(Term::Var(final_idx)) => insert_var(*final_idx),
+                    Some(Term::App(_, children)) => {
+                        // Push resolved children for further traversal.
+                        // These are already resolved, so no shifting needed.
+                        for child in children.iter().rev() {
+                            stack.push((*child, false));
+                        }
+                    }
+                    None => {}
+                }
+            }
+        }
+    }
 
     vars
 }
@@ -819,9 +879,8 @@ pub(crate) struct SubstParams<'a> {
     pub subst: &'a crate::subst::Subst,
     /// Optional secondary substitution (e.g., from constraint normalization).
     pub subst2: Option<&'a crate::subst::Subst>,
-    /// Whether variables need virtual shifting before substitution lookup.
-    pub shifted: bool,
-    /// Pre-created shifted variable TermIds (only used when shifted=true).
+    /// Pre-created shifted variable TermIds. Non-empty means variables need
+    /// virtual shifting before substitution lookup.
     pub shifted_vars: &'a [TermId],
 }
 
@@ -910,15 +969,8 @@ pub fn direct_rule_terms<C: Clone>(nf: &NF<C>, terms: &mut TermStore) -> Option<
     if nf.match_pats.len() != 1 || nf.build_pats.len() != 1 {
         return None;
     }
-
-    let lhs = nf.match_pats[0];
-    let rhs = nf.build_pats[0];
-    let rhs_map = &nf.cached_rhs_map;
-
-    let rhs_direct = crate::matching::transform_vars(rhs, terms, |j| {
-        TermId::inline_var(rhs_map[j])
-    });
-    Some((lhs, rhs_direct))
+    let rwt = collect_tensor(nf, terms);
+    Some((rwt.lhs[0], rwt.rhs[0]))
 }
 
 pub fn format_nf<C: Clone + ConstraintDisplay>(

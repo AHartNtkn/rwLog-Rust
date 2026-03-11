@@ -612,8 +612,8 @@ fn split_or_returns_work_pipe_not_fail() {
     let (symbols, mut terms) = setup();
     let nf_a = make_ground_nf("A", &symbols, &terms);
     let nf_b = make_ground_nf("B", &symbols, &terms);
-    let a: Arc<Rel<()>> = Arc::new(Rel::Atom(Arc::new(nf_a)));
-    let b: Arc<Rel<()>> = Arc::new(Rel::Atom(Arc::new(nf_b)));
+    let a = atom_rel(nf_a);
+    let b = atom_rel(nf_b);
     let or_rel = Arc::new(Rel::Or(a, b));
     let mid = factors_from_rels(vec![or_rel]);
 
@@ -639,8 +639,8 @@ fn split_or_left_branch_has_a_factor() {
     let (symbols, mut terms) = setup();
     let nf_a = make_ground_nf("A", &symbols, &terms);
     let nf_b = make_ground_nf("B", &symbols, &terms);
-    let a: Arc<Rel<()>> = Arc::new(Rel::Atom(Arc::new(nf_a.clone())));
-    let b: Arc<Rel<()>> = Arc::new(Rel::Atom(Arc::new(nf_b)));
+    let a = atom_rel(nf_a.clone());
+    let b = atom_rel(nf_b);
     let or_rel = Arc::new(Rel::Or(a, b));
     let mid = factors_from_rels(vec![or_rel]);
 
@@ -672,8 +672,8 @@ fn split_or_right_branch_has_b_factor() {
     let (symbols, mut terms) = setup();
     let nf_a = make_ground_nf("A", &symbols, &terms);
     let nf_b = make_ground_nf("B", &symbols, &terms);
-    let a: Arc<Rel<()>> = Arc::new(Rel::Atom(Arc::new(nf_a)));
-    let b: Arc<Rel<()>> = Arc::new(Rel::Atom(Arc::new(nf_b.clone())));
+    let a = atom_rel(nf_a);
+    let b = atom_rel(nf_b.clone());
     let or_rel = Arc::new(Rel::Or(a, b));
     let mid = factors_from_rels(vec![or_rel]);
 
@@ -706,8 +706,8 @@ fn split_or_preserves_left_boundary() {
     let boundary = make_ground_nf("BOUNDARY", &symbols, &terms);
     let nf_a = make_ground_nf("A", &symbols, &terms);
     let nf_b = make_ground_nf("B", &symbols, &terms);
-    let a: Arc<Rel<()>> = Arc::new(Rel::Atom(Arc::new(nf_a)));
-    let b: Arc<Rel<()>> = Arc::new(Rel::Atom(Arc::new(nf_b)));
+    let a = atom_rel(nf_a);
+    let b = atom_rel(nf_b);
     let or_rel = Arc::new(Rel::Or(a, b));
     let mid = factors_from_rels(vec![or_rel]);
 
@@ -742,8 +742,8 @@ fn split_or_preserves_right_boundary() {
     let boundary = make_ground_nf("BOUNDARY", &symbols, &terms);
     let nf_a = make_ground_nf("A", &symbols, &terms);
     let nf_b = make_ground_nf("B", &symbols, &terms);
-    let a: Arc<Rel<()>> = Arc::new(Rel::Atom(Arc::new(nf_a)));
-    let b: Arc<Rel<()>> = Arc::new(Rel::Atom(Arc::new(nf_b)));
+    let a = atom_rel(nf_a);
+    let b = atom_rel(nf_b);
     let or_rel = Arc::new(Rel::Or(a, b));
     let mid = factors_from_rels(vec![or_rel]);
 
@@ -782,15 +782,13 @@ fn pipework_resolves_and_then_simple_atom_call() {
     let (symbols, mut terms) = setup();
     let left_nf = make_ground_nf("L", &symbols, &terms);
     let right_nf = left_nf.clone();
-    let left_rel: Arc<Rel<()>> = Arc::new(Rel::Atom(Arc::new(left_nf)));
-    let right_rel: Arc<Rel<()>> = Arc::new(Rel::Atom(Arc::new(right_nf)));
+    let left_rel = atom_rel(left_nf);
+    let right_rel = atom_rel(right_nf);
     let and_rel: Arc<Rel<()>> = Arc::new(Rel::And(left_rel, right_rel));
     let call_rel: Arc<Rel<()>> = Arc::new(Rel::Call(0));
     let mid = factors_from_rels(vec![and_rel, call_rel]);
 
-    let body = Arc::new(Rel::Atom(Arc::new(make_ground_nf(
-        "BODY", &symbols, &terms,
-    ))));
+    let body = atom_rel(make_ground_nf("BODY", &symbols, &terms));
     let mut pipe: PipeWork<()> = PipeWork::with_mid(mid);
     pipe.env = Env::new().bind(0, body);
     pipe.flip = true;
@@ -812,9 +810,9 @@ fn pipework_and_group_wraps_parts_with_iso_boundaries() {
     let nf_b = make_ground_nf("B", &symbols, &terms);
     let nf_c = make_ground_nf("C", &symbols, &terms);
 
-    let part_a: Arc<Rel<()>> = Arc::new(Rel::Atom(Arc::new(nf_a)));
-    let part_b: Arc<Rel<()>> = Arc::new(Rel::Atom(Arc::new(nf_b)));
-    let part_c: Arc<Rel<()>> = Arc::new(Rel::Atom(Arc::new(nf_c)));
+    let part_a = atom_rel(nf_a);
+    let part_b = atom_rel(nf_b);
+    let part_c = atom_rel(nf_c);
     let part_or: Arc<Rel<()>> = Arc::new(Rel::Or(part_b, part_c));
     let and_rel: Arc<Rel<()>> = Arc::new(Rel::And(part_a, part_or));
     let mid = factors_from_rels(vec![and_rel]);
@@ -830,8 +828,8 @@ fn pipework_and_group_wraps_parts_with_iso_boundaries() {
     };
     let group = find_and_group_in_work(&work).expect("Expected AndGroup in work tree");
 
-    let expected_left_iso = super::nf_rwr_iso(&left_nf, &mut terms);
-    let expected_right_iso = super::nf_rwl_iso(&right_nf, &mut terms);
+    let expected_left_iso = super::nf_rwr_iso(&left_nf);
+    let expected_right_iso = super::nf_rwl_iso(&right_nf);
 
     for node in group.producer_nodes() {
         let pipe = unwrap_work_pipe(node.clone());
@@ -865,8 +863,8 @@ fn split_or_preserves_both_boundaries() {
     let right_boundary = make_ground_nf("RIGHT", &symbols, &terms);
     let nf_a = make_ground_nf("A", &symbols, &terms);
     let nf_b = make_ground_nf("B", &symbols, &terms);
-    let a: Arc<Rel<()>> = Arc::new(Rel::Atom(Arc::new(nf_a)));
-    let b: Arc<Rel<()>> = Arc::new(Rel::Atom(Arc::new(nf_b)));
+    let a = atom_rel(nf_a);
+    let b = atom_rel(nf_b);
     let or_rel = Arc::new(Rel::Or(a, b));
     let mid = factors_from_rels(vec![or_rel]);
 
@@ -932,13 +930,13 @@ fn split_or_preserves_env() {
     let nf_a = make_ground_nf("A", &symbols, &terms);
     let nf_b = make_ground_nf("B", &symbols, &terms);
     let nf_body = make_ground_nf("BODY", &symbols, &terms);
-    let a: Arc<Rel<()>> = Arc::new(Rel::Atom(Arc::new(nf_a)));
-    let b: Arc<Rel<()>> = Arc::new(Rel::Atom(Arc::new(nf_b)));
+    let a = atom_rel(nf_a);
+    let b = atom_rel(nf_b);
     let or_rel = Arc::new(Rel::Or(a, b));
     let mid = factors_from_rels(vec![or_rel]);
 
     // Create pipe with env containing a binding
-    let env = Env::new().bind(42, Arc::new(Rel::Atom(Arc::new(nf_body))));
+    let env = Env::new().bind(42, atom_rel(nf_body));
     let mut pipe: PipeWork<()> = PipeWork::with_env_and_tables(None, mid, None, env, Tables::new());
     let step = pipe.step(&mut terms);
 
@@ -1108,7 +1106,7 @@ fn pipework_step_back_atom_absorbs_to_right() {
 
     // Put an Or at front so front isn't an Atom
     let or_rel = Arc::new(Rel::Or(Arc::new(Rel::Zero), Arc::new(Rel::Zero)));
-    let atom_rel = Arc::new(Rel::Atom(Arc::new(nf.clone())));
+    let atom_rel = atom_rel(nf.clone());
 
     let mid = factors_from_rels(vec![or_rel, atom_rel]);
     let mut pipe: PipeWork<()> = PipeWork::with_mid(mid);
@@ -1152,9 +1150,9 @@ fn pipework_step_absorbs_both_ends_before_advancing() {
     let nf_a = make_ground_nf("A", &symbols, &terms);
     let nf_b = make_ground_nf("B", &symbols, &terms);
 
-    let atom_a = Arc::new(Rel::Atom(Arc::new(nf_a.clone())));
+    let atom_a = atom_rel(nf_a.clone());
     let or_rel = Arc::new(Rel::Or(Arc::new(Rel::Zero), Arc::new(Rel::Zero)));
-    let atom_b = Arc::new(Rel::Atom(Arc::new(nf_b.clone())));
+    let atom_b = atom_rel(nf_b.clone());
 
     let mid = factors_from_rels(vec![atom_a, or_rel, atom_b]);
     let mut pipe: PipeWork<()> = PipeWork::with_mid(mid);
@@ -1212,8 +1210,8 @@ fn pipework_step_right_boundary_composes() {
     let tz = terms.app0(symbols.intern("Z"));
 
     let or_rel = Arc::new(Rel::Or(Arc::new(Rel::Zero), Arc::new(Rel::Zero)));
-    let atom1 = Arc::new(Rel::Atom(Arc::new(x_to_y)));
-    let atom2 = Arc::new(Rel::Atom(Arc::new(y_to_z)));
+    let atom1 = atom_rel(x_to_y);
+    let atom2 = atom_rel(y_to_z);
 
     let mid = factors_from_rels(vec![or_rel, atom1, atom2]);
     let mut pipe: PipeWork<()> = PipeWork::with_mid(mid);
@@ -1378,7 +1376,7 @@ fn meetwork_step_right_fail_returns_done() {
 fn meetwork_steps_work_nodes() {
     let (symbols, mut terms) = setup();
     let nf = make_ground_nf("A", &symbols, &terms);
-    let rel = Arc::new(Rel::Atom(Arc::new(nf.clone())));
+    let rel = atom_rel(nf.clone());
     let factors = Factors::from_seq(Arc::from(vec![rel]));
     let left_pipe = PipeWork::with_mid(factors);
     let left = Node::Work(Box::new(Work::Pipe(Box::new(left_pipe))));
@@ -2252,7 +2250,7 @@ fn env_bind_overwrites_existing() {
     let env: Env<()> = Env::new();
     let rel1: Arc<Rel<()>> = Arc::new(Rel::Zero);
     let nf = make_identity_nf();
-    let rel2: Arc<Rel<()>> = Arc::new(Rel::Atom(Arc::new(nf)));
+    let rel2 = atom_rel(nf);
 
     let env2 = env.bind(0, rel1.clone());
     let env3 = env2.bind(0, rel2.clone());
@@ -2389,7 +2387,7 @@ fn callkey_includes_adjacent_atom_as_far_boundary() {
     let nf_a = make_ground_nf("A", &symbols, &terms);
     let nf_b = make_ground_nf("B", &symbols, &terms);
     let body_nf = make_ground_nf("BODY", &symbols, &terms);
-    let body: Arc<Rel<()>> = Arc::new(Rel::Atom(Arc::new(body_nf)));
+    let body = atom_rel(body_nf);
     let env = Env::new().bind(0, body);
 
     let call = Arc::new(Rel::Call(0));
@@ -2782,7 +2780,7 @@ fn run_fixwork_starts_producer_and_emits_answer(use_dual: bool) {
     }
     let spec = ProducerSpec {
         key: key.clone(),
-        body: Arc::new(Rel::Atom(Arc::new(nf.clone()))),
+        body: atom_rel(nf.clone()),
         left: None,
         right: None,
         env: Env::new(),
@@ -2821,7 +2819,7 @@ fn run_fixwork_advances_running_producer_and_emits(use_dual: bool) {
     let producer_node = Node::Emit(Box::new(nf.clone()), Box::new(Node::Fail));
     let spec = ProducerSpec {
         key: key.clone(),
-        body: Arc::new(Rel::Atom(Arc::new(nf.clone()))),
+        body: atom_rel(nf.clone()),
         left: None,
         right: None,
         env: Env::new(),
@@ -2861,7 +2859,7 @@ fn run_fixwork_skips_duplicate_answer(use_dual: bool) {
     let producer_node = Node::Emit(Box::new(nf.clone()), Box::new(Node::Fail));
     let spec = ProducerSpec {
         key: key.clone(),
-        body: Arc::new(Rel::Atom(Arc::new(nf.clone()))),
+        body: atom_rel(nf.clone()),
         left: None,
         right: None,
         env: Env::new(),
@@ -2897,7 +2895,7 @@ fn run_fixwork_exhausted_marks_done(use_dual: bool) {
     }
     let spec = ProducerSpec {
         key: key.clone(),
-        body: Arc::new(Rel::Atom(Arc::new(nf))),
+        body: atom_rel(nf),
         left: None,
         right: None,
         env: Env::new(),
@@ -2933,7 +2931,7 @@ fn fix_producer_dedups_duplicate_answers() {
     );
     let spec = ProducerSpec {
         key: Arc::new(CallKey::new(0, 0, None, None)),
-        body: Arc::new(Rel::Atom(Arc::new(nf.clone()))),
+        body: atom_rel(nf.clone()),
         left: None,
         right: None,
         env: Env::new(),
@@ -2969,7 +2967,7 @@ fn run_fix_producer_continues_when_consumer_queue_full(use_dual: bool) {
     );
     let spec = ProducerSpec {
         key: Arc::new(CallKey::new(0, 0, None, None)),
-        body: Arc::new(Rel::Atom(Arc::new(nf_a.clone()))),
+        body: atom_rel(nf_a.clone()),
         left: None,
         right: None,
         env: Env::new(),
@@ -3016,7 +3014,7 @@ fn fix_producer_broadcasts_answers_to_all_consumers() {
     );
     let spec = ProducerSpec {
         key: Arc::new(CallKey::new(0, 0, None, None)),
-        body: Arc::new(Rel::Atom(Arc::new(nf_a.clone()))),
+        body: atom_rel(nf_a.clone()),
         left: None,
         right: None,
         env: Env::new(),
@@ -3118,7 +3116,7 @@ fn call_replay_interleaves_with_new_answers() {
     let nf_a2 = make_ground_nf("A2", &symbols, &terms);
     let nf_b = make_ground_nf("B", &symbols, &terms);
     let body_nf = make_ground_nf("BODY", &symbols, &terms);
-    let body: Arc<Rel<()>> = Arc::new(Rel::Atom(Arc::new(body_nf)));
+    let body = atom_rel(body_nf);
     let env = Env::new().bind(0, body.clone());
 
     let call = Arc::new(Rel::Call(0));

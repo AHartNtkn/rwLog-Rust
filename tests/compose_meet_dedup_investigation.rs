@@ -4,6 +4,14 @@
 /// Run with: cargo test --test compose_meet_dedup_investigation --release -- --nocapture
 use rwlog::perf_corpus::{self, CorpusFilters, TierFilter};
 
+fn dup_pct(unique: u64, total: u64) -> f64 {
+    if total > 0 {
+        100.0 * (1.0 - unique as f64 / total as f64)
+    } else {
+        0.0
+    }
+}
+
 #[test]
 #[ignore] // Investigation benchmark: only meaningful in --release mode
 fn measure_compose_meet_duplication() {
@@ -38,16 +46,8 @@ fn measure_compose_meet_duplication() {
         total_meet += snap.meet_attempts;
         total_meet_unique += snap.meet_unique_pairs;
 
-        let compose_dup_pct = if snap.compose_attempts > 0 {
-            100.0 * (1.0 - snap.compose_unique_pairs as f64 / snap.compose_attempts as f64)
-        } else {
-            0.0
-        };
-        let meet_dup_pct = if snap.meet_attempts > 0 {
-            100.0 * (1.0 - snap.meet_unique_pairs as f64 / snap.meet_attempts as f64)
-        } else {
-            0.0
-        };
+        let compose_dup_pct = dup_pct(snap.compose_unique_pairs, snap.compose_attempts);
+        let meet_dup_pct = dup_pct(snap.meet_unique_pairs, snap.meet_attempts);
 
         println!(
             "{:<40} {:>8} {:>8} {:>8} {:>8} {:>5.1}% {:>8} {:>8} {:>5.1}%",
@@ -64,16 +64,8 @@ fn measure_compose_meet_duplication() {
     }
 
     println!("{:-<140}", "");
-    let total_compose_dup = if total_compose > 0 {
-        100.0 * (1.0 - total_compose_unique as f64 / total_compose as f64)
-    } else {
-        0.0
-    };
-    let total_meet_dup = if total_meet > 0 {
-        100.0 * (1.0 - total_meet_unique as f64 / total_meet as f64)
-    } else {
-        0.0
-    };
+    let total_compose_dup = dup_pct(total_compose_unique, total_compose);
+    let total_meet_dup = dup_pct(total_meet_unique, total_meet);
     println!(
         "{:<40} {:>8} {:>8} {:>8} {:>8} {:>5.1}% {:>8} {:>8} {:>5.1}%",
         "TOTAL",

@@ -336,6 +336,19 @@ impl SourceFilter {
     }
 }
 
+impl std::str::FromStr for SourceFilter {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, String> {
+        match s {
+            "gate" => Ok(SourceFilter::Gate),
+            "probe" => Ok(SourceFilter::Probe),
+            "all" => Ok(SourceFilter::All),
+            _ => Err(format!("Unknown source filter '{}' (expected gate|probe|all)", s)),
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct CorpusFilters {
     pub tier: TierFilter,
@@ -507,9 +520,8 @@ pub fn sort_cases(cases: &mut [CorpusCase]) {
 }
 
 pub fn lint_cases(cases: &[CorpusCase]) -> Result<(), String> {
-    let (meta, all_cases) = load_meta_and_cases();
-    // If caller passed a strict subset, lint full corpus policy and then local invariants for the subset.
-    lint_cases_with_meta(&meta, &all_cases)?;
+    // Full corpus policy is already validated by load_meta_and_cases() (called by load_cases()).
+    // Only validate per-row invariants for the given subset.
     lint_case_rows(cases)
 }
 
@@ -1046,48 +1058,59 @@ pub fn stats_ci95_halfwidth_pct(values: &[f64]) -> f64 {
     ((1.96 * se) / m) * 100.0
 }
 
+/// Pearson correlation coefficient between two series.
+///
+/// Returns None if the series have different lengths, fewer than 2 points,
+/// or if either series has zero variance.
+pub fn pearson_corr(xs: &[f64], ys: &[f64]) -> Option<f64> {
+    if xs.len() != ys.len() || xs.len() < 2 {
+        return None;
+    }
+    let mx = stats_mean(xs);
+    let my = stats_mean(ys);
+    let mut num = 0.0;
+    let mut den_x = 0.0;
+    let mut den_y = 0.0;
+    for (x, y) in xs.iter().zip(ys.iter()) {
+        let dx = x - mx;
+        let dy = y - my;
+        num += dx * dy;
+        den_x += dx * dx;
+        den_y += dy * dy;
+    }
+    let den = (den_x * den_y).sqrt();
+    if den == 0.0 {
+        return None;
+    }
+    Some(num / den)
+}
+
 // ---------------------------------------------------------------------------
 // History snapshot types and loading (for reading gate/probe JSON output)
 // ---------------------------------------------------------------------------
 
-/// Minimal gate row for reading historical snapshots.
+/// A single row in a history snapshot (gate or probe).
 #[derive(Clone, Debug, Deserialize)]
-pub struct SnapshotGateRow {
+pub struct SnapshotRow {
     pub id: String,
     pub median_us: f64,
     pub p95_us: f64,
 }
 
-/// Gate report as read from a history snapshot.
+/// A report from a history snapshot (gate or probe).
 #[derive(Clone, Debug, Deserialize)]
-pub struct SnapshotGateReport {
+pub struct SnapshotReport {
     #[serde(default)]
     pub environment: Option<EnvironmentFingerprint>,
-    pub rows: Vec<SnapshotGateRow>,
-}
-
-/// Minimal run/probe row for reading historical snapshots.
-#[derive(Clone, Debug, Deserialize)]
-pub struct SnapshotRunRow {
-    pub id: String,
-    pub median_us: f64,
-    pub p95_us: f64,
-}
-
-/// Run/probe report as read from a history snapshot.
-#[derive(Clone, Debug, Deserialize)]
-pub struct SnapshotRunReport {
-    #[serde(default)]
-    pub environment: Option<EnvironmentFingerprint>,
-    pub rows: Vec<SnapshotRunRow>,
+    pub rows: Vec<SnapshotRow>,
 }
 
 /// A single history snapshot directory containing gate and/or probe results.
 #[derive(Clone, Debug)]
 pub struct PerfSnapshot {
     pub name: String,
-    pub gate: Option<SnapshotGateReport>,
-    pub probe: Option<SnapshotRunReport>,
+    pub gate: Option<SnapshotReport>,
+    pub probe: Option<SnapshotReport>,
 }
 
 /// Load and deserialize a JSON file, returning None on any error.
@@ -1099,11 +1122,11 @@ pub fn load_json<T: for<'de> Deserialize<'de>>(path: &std::path::Path) -> Option
 /// Load a single history snapshot from a directory.
 pub fn load_snapshot(dir: &std::path::Path) -> Option<PerfSnapshot> {
     let name = dir.file_name()?.to_str()?.to_string();
-    let gate = load_json::<SnapshotGateReport>(&dir.join("gate.json"))
-        .or_else(|| load_json::<SnapshotGateReport>(&dir.join("quick_gate.json")));
-    let probe = load_json::<SnapshotRunReport>(&dir.join("probe.json"))
-        .or_else(|| load_json::<SnapshotRunReport>(&dir.join("quick_probe.json")))
-        .or_else(|| load_json::<SnapshotRunReport>(&dir.join("stress_probe.json")));
+    let gate = load_json::<SnapshotReport>(&dir.join("gate.json"))
+        .or_else(|| load_json::<SnapshotReport>(&dir.join("quick_gate.json")));
+    let probe = load_json::<SnapshotReport>(&dir.join("probe.json"))
+        .or_else(|| load_json::<SnapshotReport>(&dir.join("quick_probe.json")))
+        .or_else(|| load_json::<SnapshotReport>(&dir.join("stress_probe.json")));
     if gate.is_none() && probe.is_none() {
         return None;
     }
@@ -1127,6 +1150,27 @@ pub fn load_snapshots(history_dir: &std::path::Path) -> Vec<PerfSnapshot> {
     for dir in dirs {
         if let Some(s) = load_snapshot(&dir) {
             snapshots.push(s);
+        }
+    }
+    snapshots
+}
+
+/// Load snapshots, keeping only the last `window` entries (or all if None).
+pub fn load_snapshots_windowed(
+    dir: &std::path::Path,
+    window: Option<usize>,
+) -> Vec<PerfSnapshot> {
+    if !dir.exists() {
+        panic!("History directory not found: {}", dir.display());
+    }
+    let mut snapshots = load_snapshots(dir);
+    if snapshots.is_empty() {
+        panic!("No snapshots found in {}", dir.display());
+    }
+    if let Some(w) = window {
+        if snapshots.len() > w {
+            let keep_from = snapshots.len() - w;
+            snapshots = snapshots.split_off(keep_from);
         }
     }
     snapshots
@@ -1399,6 +1443,85 @@ fn wide_term(width: usize, depth: usize) -> String {
     format!("(t {})", branches.join(" "))
 }
 
+pub(crate) fn treecalc_program() -> &'static str {
+    r#"rel app {
+    (f l $z) -> (b $z)
+    |
+    (f (b $y) $z) -> (f $y $z)
+    |
+    (f (f l $y) $z) -> $y
+    |
+    (f (f (f $w $x) $y) l) -> $w
+    |
+    [
+        [(f (f (b $x) $y) $z) -> (f $x $z) ; app ; $x -> (f $x $y)]
+        &
+        [(f (f (b $x) $y) $z) -> (f $y $z) ; app ; $y -> (f $x $y)]
+        ; app
+    ]
+    |
+    [
+        (f (f (f $w $x) $y) (b $u)) -> (f $x $u)
+        ; app
+    ]
+    |
+    [
+        (f (f (f $w $x) $y) (f $u $v)) -> (f (f $y $u) $v)
+        ;
+        [(f (f $a $b) $c) -> (f $a $b) ; app ; $a -> (f $a $b)]
+        &
+        (f (f $a $b) $c) -> (f $d $c)
+        ; app
+    ]
+}"#
+}
+
+fn treecalc_synth_program() -> &'static str {
+    r#"theory treecalc_constraints {
+    constraint no_c/1
+    (no_c l) <=> .
+    (no_c (b $x)) <=> (no_c $x).
+    (no_c (f $x $y)) <=> (no_c $x), (no_c $y).
+    (no_c (c $n)) <=> fail.
+    (no_c (a $n $m)) <=> fail.
+}
+
+rel app {
+    (f l $z) -> (b $z)
+    |
+    (f (b $y) $z) -> (f $y $z)
+    |
+    (f (f l $y) $z) -> $y
+    |
+    (f (f (f $w $x) $y) l) -> $w
+    |
+    [
+        [(f (f (b $x) $y) $z) -> (f $x $z) ; app ; $x -> (f $x $y)]
+        &
+        [(f (f (b $x) $y) $z) -> (f $y $z) ; app ; $y -> (f $x $y)]
+        ; app
+    ]
+    |
+    [
+        (f (f (f $w $x) $y) (b $u)) -> (f $x $u)
+        ; app
+    ]
+    |
+    [
+        (f (f (f $w $x) $y) (f $u $v)) -> (f (f $y $u) $v)
+        ;
+        [(f (f $a $b) $c) -> (f $a $b) ; app ; $a -> (f $a $b)]
+        &
+        (f (f $a $b) $c) -> (f $d $c)
+        ; app
+    ]
+    |
+    (f (c $x) $y) -> (a (c $x) $y)
+    |
+    (f (a $x $y) $z) -> (a (a $x $y) $z)
+}"#
+}
+
 fn graph_reach_program(n: usize) -> String {
     assert!(n >= 2);
     let mut edges = Vec::with_capacity(n - 1);
@@ -1494,6 +1617,8 @@ fn expand_template(name: &str) -> String {
         "PROGRAM_RANGES" => return range_program().to_string(),
         "PROGRAM_PEEL" => return peel_program().to_string(),
         "PROGRAM_WIDE_INC" => return wide_inc_program().to_string(),
+        "PROGRAM_TREECALC" => return treecalc_program().to_string(),
+        "PROGRAM_TREECALC_SYNTH" => return treecalc_synth_program().to_string(),
         _ => {}
     }
 

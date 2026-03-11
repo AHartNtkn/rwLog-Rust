@@ -93,11 +93,6 @@ impl<C: ConstraintOps> Engine<C> {
         matches!(self.root, Node::Fail)
     }
 
-    /// Get reference to the term store.
-    pub fn terms(&self) -> &TermStore {
-        &self.terms
-    }
-
     /// Get mutable reference to the term store.
     pub fn terms_mut(&mut self) -> &mut TermStore {
         &mut self.terms
@@ -1881,36 +1876,7 @@ rel add {
     }
 
     fn treecalc_def() -> &'static str {
-        r#"rel app {
-    (f l $z) -> (b $z)
-    |
-    (f (b $y) $z) -> (f $y $z)
-    |
-    (f (f l $y) $z) -> $y
-    |
-    (f (f (f $w $x) $y) l) -> $w
-    |
-    [
-        [(f (f (b $x) $y) $z) -> (f $x $z) ; app ; $x -> (f $x $y)]
-        &
-        [(f (f (b $x) $y) $z) -> (f $y $z) ; app ; $y -> (f $x $y)]
-        ; app
-    ]
-    |
-    [
-        (f (f (f $w $x) $y) (b $u)) -> (f $x $u)
-        ; app
-    ]
-    |
-    [
-        (f (f (f $w $x) $y) (f $u $v)) -> (f (f $y $u) $v)
-        ;
-        [(f (f $a $b) $c) -> (f $a $b) ; app ; $a -> (f $a $b)]
-        &
-        (f (f $a $b) $c) -> (f $d $c)
-        ; app
-    ]
-}"#
+        crate::perf_corpus::treecalc_program()
     }
 
     fn treecalc_case(input: &str, expected: &str, query_suffix: &str) {
@@ -2119,8 +2085,7 @@ rel add {
             run_until_emit(&mut dual_engine, max_steps).expect("expected dual answer");
     }
 
-    fn treecalc_def_chr() -> &'static str {
-        r#"theory treecalc_constraints {
+    const TREECALC_NO_C_THEORY: &str = r#"theory treecalc_constraints {
     constraint no_c/1
     (no_c l) <=> .
     (no_c (b $x)) <=> (no_c $x).
@@ -2128,43 +2093,17 @@ rel add {
     (no_c (c $n)) <=> fail.
 }
 
-rel app {
-    (f l $z) -> (b $z)
-    |
-    (f (b $y) $z) -> (f $y $z)
-    |
-    (f (f l $y) $z) -> $y
-    |
-    (f (f (f $w $x) $y) l) -> $w
-    |
-    [
-        [(f (f (b $x) $y) $z) -> (f $x $z) ; app ; $x -> (f $x $y)]
-        &
-        [(f (f (b $x) $y) $z) -> (f $y $z) ; app ; $y -> (f $x $y)]
-        ; app
-    ]
-    |
-    [
-        (f (f (f $w $x) $y) (b $u)) -> (f $x $u)
-        ; app
-    ]
-    |
-    [
-        (f (f (f $w $x) $y) (f $u $v)) -> (f (f $y $u) $v)
-        ;
-        [(f (f $a $b) $c) -> (f $a $b) ; app ; $a -> (f $a $b)]
-        &
-        (f (f $a $b) $c) -> (f $d $c)
-        ; app
-    ]
-}"#
+"#;
+
+    fn treecalc_def_chr() -> String {
+        format!("{}{}", TREECALC_NO_C_THEORY, crate::perf_corpus::treecalc_program())
     }
 
     #[test]
     fn treecalc_identity_with_no_c_constraint() {
         let mut parser = Parser::with_chr();
         let def = treecalc_def_chr();
-        let (_app_rel, env) = parse_rel_def_with_env_chr(&mut parser, def);
+        let (_app_rel, env) = parse_rel_def_with_env_chr(&mut parser, &def);
 
         let expected_prog = parser
             .parse_term("(f (b (b l)) l)")

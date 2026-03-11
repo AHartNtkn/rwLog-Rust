@@ -161,22 +161,15 @@ impl ComposeStrategy {
         join.pop_pending()
     }
 
-    fn is_empty_identity<C: ConstraintOps>(nf: &crate::nf::NF<C>) -> bool {
-        nf.match_pats.is_empty()
-            && nf.build_pats.is_empty()
-            && nf.drop_fresh.in_arity == 0
-            && nf.drop_fresh.out_arity == 0
-    }
-
     fn compose_pair<C: ConstraintOps>(
         left_nf: &crate::nf::NF<C>,
         right_nf: &crate::nf::NF<C>,
         terms: &mut TermStore,
     ) -> Option<crate::nf::NF<C>> {
-        if Self::is_empty_identity(right_nf) {
+        if right_nf.is_empty_identity() {
             return Some(left_nf.clone());
         }
-        if Self::is_empty_identity(left_nf) {
+        if left_nf.is_empty_identity() {
             return Some(right_nf.clone());
         }
         compose_nf(left_nf, right_nf, terms)
@@ -262,10 +255,10 @@ impl<C: ConstraintOps> JoinStrategy<C> for ComposeStrategy {
         left_exhausted: bool,
         right_exhausted: bool,
     ) -> Option<JoinOutcome> {
-        if left_exhausted && join.seen_l.is_empty() && self.pair_queue.is_empty() {
+        if left_exhausted && join.seen_l_len() == 0 && self.pair_queue.is_empty() {
             return Some(JoinOutcome::Done);
         }
-        if right_exhausted && join.seen_r.is_empty() && self.pair_queue.is_empty() {
+        if right_exhausted && join.seen_r_len() == 0 && self.pair_queue.is_empty() {
             return Some(JoinOutcome::Done);
         }
         if left_exhausted && right_exhausted {

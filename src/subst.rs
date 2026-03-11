@@ -7,6 +7,9 @@ use smallvec::SmallVec;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Subst {
     bindings: Vec<Option<TermId>>,
+    bound_count: usize,
+    min_bound: u32,
+    max_bound: u32,
 }
 
 impl Subst {
@@ -14,6 +17,9 @@ impl Subst {
     pub fn new() -> Self {
         Self {
             bindings: Vec::new(),
+            bound_count: 0,
+            min_bound: u32::MAX,
+            max_bound: 0,
         }
     }
 
@@ -24,7 +30,12 @@ impl Subst {
         if idx >= self.bindings.len() {
             self.bindings.resize(idx + 1, None);
         }
+        if self.bindings[idx].is_none() {
+            self.bound_count += 1;
+        }
         self.bindings[idx] = Some(term);
+        self.min_bound = self.min_bound.min(var);
+        self.max_bound = self.max_bound.max(var);
     }
 
     /// Get the binding for a variable, if any.
@@ -45,12 +56,12 @@ impl Subst {
 
     /// Check if the substitution is empty (no bindings).
     pub fn is_empty(&self) -> bool {
-        self.bindings.iter().all(|b| b.is_none())
+        self.bound_count == 0
     }
 
     /// Number of bound variables.
     pub fn len(&self) -> usize {
-        self.bindings.iter().filter(|b| b.is_some()).count()
+        self.bound_count
     }
 
     /// Iterator over (var_index, term_id) pairs for bound variables.
@@ -65,19 +76,10 @@ impl Subst {
     /// Returns None if no variables are bound.
     #[inline]
     pub fn bound_var_range(&self) -> Option<(u32, u32)> {
-        let mut min_bound = u32::MAX;
-        let mut max_bound = 0u32;
-        for (i, b) in self.bindings.iter().enumerate() {
-            if b.is_some() {
-                let idx = i as u32;
-                min_bound = min_bound.min(idx);
-                max_bound = max_bound.max(idx);
-            }
-        }
-        if min_bound > max_bound {
+        if self.bound_count == 0 {
             None
         } else {
-            Some((min_bound, max_bound))
+            Some((self.min_bound, self.max_bound))
         }
     }
 }

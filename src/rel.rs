@@ -82,8 +82,7 @@ pub fn dual<C: ConstraintOps>(rel: &Rel<C>, terms: &mut TermStore) -> Rel<C> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Rel, RelId};
-    use crate::constraint::ConstraintOps;
+    use super::{dual, Rel, RelId};
     use crate::drop_fresh::DropFresh;
     use crate::nf::NF;
     use crate::symbol::SymbolStore;
@@ -91,10 +90,6 @@ mod tests {
     use crate::test_utils::{make_ground_nf, make_rule_nf, setup};
     use smallvec::SmallVec;
     use std::sync::Arc;
-
-    fn dual<C: ConstraintOps>(rel: &Rel<C>, terms: &mut TermStore) -> Rel<C> {
-        super::dual(rel, terms)
-    }
 
     /// Create an NF with variables: F(x) -> G(x)
     fn make_var_nf(symbols: &SymbolStore, terms: &TermStore) -> NF<()> {

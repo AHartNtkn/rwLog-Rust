@@ -203,9 +203,6 @@ impl ChrConstraintBuilder {
         Self { builder, program }
     }
 
-    pub fn program(&self) -> Arc<ChrProgram> {
-        self.program.clone()
-    }
 }
 
 impl Default for ChrConstraintBuilder {
@@ -309,10 +306,6 @@ impl Parser<NoConstraintBuilder> {
         Self::from_parts(SymbolStore::new(), TermStore::new(), NoConstraintBuilder)
     }
 
-    /// Create a parser with existing symbol and term stores.
-    pub fn with_stores(symbols: SymbolStore, terms: TermStore) -> Self {
-        Self::from_parts(symbols, terms, NoConstraintBuilder)
-    }
 }
 
 impl<B: ConstraintBuilder> Parser<B> {
@@ -333,10 +326,6 @@ impl<B: ConstraintBuilder> Parser<B> {
 
     pub fn with_builder(builder: B) -> Self {
         Self::from_parts(SymbolStore::new(), TermStore::new(), builder)
-    }
-
-    pub fn with_stores_and_builder(symbols: SymbolStore, terms: TermStore, builder: B) -> Self {
-        Self::from_parts(symbols, terms, builder)
     }
 
     fn alloc_rel_id(&mut self) -> RelId {
@@ -480,11 +469,6 @@ impl<B: ConstraintBuilder> Parser<B> {
     /// Restore the term store after temporary extraction.
     pub fn restore_terms(&mut self, terms: TermStore) {
         self.terms = terms;
-    }
-
-    /// Consume the parser and return the stores.
-    pub fn into_stores(self) -> (SymbolStore, TermStore) {
-        (self.symbols, self.terms)
     }
 
     /// Parse a term from a string.

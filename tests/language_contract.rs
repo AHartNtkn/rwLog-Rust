@@ -146,9 +146,6 @@ fn assert_query_contains(
     }
 }
 
-fn cons_shape(left: Shape, right: Shape) -> Shape {
-    shape_app("cons", vec![left, right])
-}
 
 const BASIC_PROGRAM: &str = r#"
 rel id {
@@ -457,12 +454,12 @@ fn add_forward_examples_compute_expected_sums() {
     assert_query_exact(
         ADD_PROGRAM,
         "@(cons z (s (s z))) ; add",
-        &[(cons_shape(shape_peano(0), shape_peano(2)), shape_peano(2))],
+        &[(shape_cons(shape_peano(0), shape_peano(2)), shape_peano(2))],
     );
     assert_query_exact(
         ADD_PROGRAM,
         "@(cons (s (s z)) (s z)) ; add",
-        &[(cons_shape(shape_peano(2), shape_peano(1)), shape_peano(3))],
+        &[(shape_cons(shape_peano(2), shape_peano(1)), shape_peano(3))],
     );
 }
 
@@ -472,9 +469,9 @@ fn add_backward_for_two_returns_all_partitions() {
         ADD_PROGRAM,
         "add ; @(s (s z))",
         &[
-            (cons_shape(shape_peano(0), shape_peano(2)), shape_peano(2)),
-            (cons_shape(shape_peano(1), shape_peano(1)), shape_peano(2)),
-            (cons_shape(shape_peano(2), shape_peano(0)), shape_peano(2)),
+            (shape_cons(shape_peano(0), shape_peano(2)), shape_peano(2)),
+            (shape_cons(shape_peano(1), shape_peano(1)), shape_peano(2)),
+            (shape_cons(shape_peano(2), shape_peano(0)), shape_peano(2)),
         ],
     );
 }
@@ -485,10 +482,10 @@ fn add_backward_for_three_returns_all_partitions() {
         ADD_PROGRAM,
         "add ; @(s (s (s z)))",
         &[
-            (cons_shape(shape_peano(0), shape_peano(3)), shape_peano(3)),
-            (cons_shape(shape_peano(1), shape_peano(2)), shape_peano(3)),
-            (cons_shape(shape_peano(2), shape_peano(1)), shape_peano(3)),
-            (cons_shape(shape_peano(3), shape_peano(0)), shape_peano(3)),
+            (shape_cons(shape_peano(0), shape_peano(3)), shape_peano(3)),
+            (shape_cons(shape_peano(1), shape_peano(2)), shape_peano(3)),
+            (shape_cons(shape_peano(2), shape_peano(1)), shape_peano(3)),
+            (shape_cons(shape_peano(3), shape_peano(0)), shape_peano(3)),
         ],
     );
 }

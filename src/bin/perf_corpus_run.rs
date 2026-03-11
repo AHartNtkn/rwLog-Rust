@@ -82,7 +82,7 @@ fn parse_args() -> (Option<String>, usize, Phase, bool, bool) {
     let mut json = false;
     let mut csv = false;
 
-    let mut args = std::env::args().skip(1).peekable();
+    let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         if arg == "--id" {
             id_filter = Some(args.next().expect("--id requires value"));

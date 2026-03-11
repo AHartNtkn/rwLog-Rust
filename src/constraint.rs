@@ -69,9 +69,6 @@ pub trait ConstraintOps: Clone + Eq + Hash + Default + Send + Sync {
 
     /// Check if this is the trivial (empty) constraint.
     fn is_empty(&self) -> bool;
-
-    /// Check if this constraint is satisfiable.
-    fn is_satisfiable(&self) -> bool;
 }
 
 pub trait ConstraintDisplay {
@@ -109,10 +106,6 @@ impl ConstraintOps for () {
     fn is_empty(&self) -> bool {
         true
     }
-
-    fn is_satisfiable(&self) -> bool {
-        true
-    }
 }
 
 impl ConstraintDisplay for () {}
@@ -127,12 +120,6 @@ mod tests {
     fn unit_constraint_is_empty() {
         let c: () = ();
         assert!(c.is_empty());
-    }
-
-    #[test]
-    fn unit_constraint_is_satisfiable() {
-        let c: () = ();
-        assert!(c.is_satisfiable());
     }
 
     #[test]

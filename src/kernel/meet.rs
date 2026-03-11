@@ -1,5 +1,5 @@
 use crate::constraint::ConstraintOps;
-use crate::nf::{collect_tensor, factor_tensor_with_subst, SubstParams, NF};
+use crate::nf::{collect_tensor_rhs, factor_tensor_with_subst, SubstParams, NF};
 use crate::perf_counters;
 use crate::term::TermStore;
 #[cfg(feature = "tracing")]
@@ -8,8 +8,7 @@ use std::hash::{Hash, Hasher};
 
 use super::util::{
     apply_and_normalize_constraints, match_rhs_lists_with_pre_subst,
-    match_term_lists_shifted_combined, max_var_index_terms, pre_create_shifted_vars,
-    root_functor_mismatch,
+    match_term_lists_shifted_combined, pre_create_shifted_vars, root_functor_mismatch,
 };
 
 /// Compute the meet (intersection) of two NFs.
@@ -67,35 +66,18 @@ fn meet_nf_impl<C: ConstraintOps>(a: &NF<C>, b: &NF<C>, terms: &mut TermStore) -
         return None;
     }
 
-    let rw1 = collect_tensor(a, terms);
-    let rw2 = collect_tensor(b, terms);
-
     // Compute max var indices from NF metadata in O(1), avoiding term tree walks.
     let b_max_var = b.rwt_max_var();
     let b_var_offset = a.rwt_max_var().map(|v| v + 1).unwrap_or(0);
 
-    debug_assert_eq!(
-        b_max_var,
-        max_var_index_terms(&rw2.lhs, terms).max(max_var_index_terms(&rw2.rhs, terms)),
-        "rwt_max_var mismatch for b in meet_nf"
-    );
-    debug_assert_eq!(
-        b_var_offset,
-        max_var_index_terms(&rw1.lhs, terms)
-            .max(max_var_index_terms(&rw1.rhs, terms))
-            .map(|v| v + 1)
-            .unwrap_or(0),
-        "rwt_max_var mismatch for a (b_var_offset) in meet_nf"
-    );
-
     // Pre-create shifted variable TermIds for virtual shifting.
     let shifted_vars = pre_create_shifted_vars(b_max_var, b_var_offset, terms);
 
-    // LHS matching: return raw combined substitution (skip split_match_subst).
+    // LHS matching: use match_pats directly (no clone needed).
     // Left-side vars at indices < b_var_offset, right-side at >= b_var_offset.
     let lhs_combined = match match_term_lists_shifted_combined(
-        &rw1.lhs,
-        &rw2.lhs,
+        &a.match_pats,
+        &b.match_pats,
         b_var_offset,
         &shifted_vars,
         terms,
@@ -108,12 +90,17 @@ fn meet_nf_impl<C: ConstraintOps>(a: &NF<C>, b: &NF<C>, terms: &mut TermStore) -
         }
     };
 
+    // LHS matching succeeded — now compute direct-form RHS (deferred from before
+    // matching to avoid work on the common failure path).
+    let rhs1 = collect_tensor_rhs(a, terms);
+    let rhs2 = collect_tensor_rhs(b, terms);
+
     // Fused RHS matching: apply lhs_combined to each RHS pair on the fly and match,
     // avoiding bulk intermediate term creation from apply_subst_list/apply_subst_shifted_list.
     // Returns the fully composed substitution (lhs_combined + rhs_match) directly.
     let meet_subst = match match_rhs_lists_with_pre_subst(
-        &rw1.rhs,
-        &rw2.rhs,
+        &rhs1,
+        &rhs2,
         &lhs_combined,
         b_var_offset,
         &shifted_vars,
@@ -143,21 +130,19 @@ fn meet_nf_impl<C: ConstraintOps>(a: &NF<C>, b: &NF<C>, terms: &mut TermStore) -
         }
     };
 
-    // Use fused factor_tensor_with_subst: pass original rw1.lhs and rw1.rhs
+    // Use fused factor_tensor_with_subst: pass original a's patterns
     // with the composed substitution, avoiding intermediate term creation.
-    // rw1.lhs has left-side vars only (no shifting needed).
-    // rw1.rhs has left-side vars only (no shifting needed).
+    // a's patterns have left-side vars only (no shifting needed).
     let params = SubstParams {
         subst: &meet_subst,
         subst2: subst_opt.as_ref(),
-        shifted: false,
         shifted_vars: &[],
     };
 
     #[cfg(feature = "tracing")]
     trace!("meet_success");
     Some(factor_tensor_with_subst(
-        &rw1.lhs, &params, &rw1.rhs, &params, normalized, terms,
+        &a.match_pats, &params, &rhs1, &params, normalized, terms,
     ))
 }
 

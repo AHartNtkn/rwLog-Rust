@@ -56,6 +56,7 @@ impl<C> DropFresh<C> {
 
     /// Create a new DropFresh with validation.
     /// Returns None if the mapping is not monotone or out of bounds.
+    #[cfg(test)]
     pub fn new(
         in_arity: u32,
         out_arity: u32,
@@ -77,6 +78,7 @@ impl<C> DropFresh<C> {
 
     /// Create a DropFresh that drops all inputs and produces all fresh outputs.
     /// No inputs are connected to outputs.
+    #[cfg(test)]
     pub fn disconnect(in_arity: u32, out_arity: u32, constraint: C) -> Self {
         Self {
             in_arity,
@@ -151,6 +153,7 @@ impl<C> DropFresh<C> {
     }
 
     /// Check if this DropFresh connects no positions.
+    #[cfg(test)]
     pub fn is_disconnect(&self) -> bool {
         self.map.is_empty()
     }
@@ -197,6 +200,7 @@ impl<C> DropFresh<C> {
     }
 
     /// Validate that the DropFresh is well-formed.
+    #[cfg(test)]
     fn validate(&self) -> bool {
         // Empty map is always valid
         if self.map.is_empty() {

@@ -2,7 +2,7 @@
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 use rwlog::perf_corpus::{
-    csv_escape, load_cases, load_snapshots, PerfSnapshot, SourceFilter, stats_cv_pct,
+    csv_escape, load_cases, load_snapshots_windowed, PerfSnapshot, SourceFilter, stats_cv_pct,
     stats_mad_pct,
 };
 use serde::Serialize;
@@ -95,7 +95,7 @@ fn parse_args() -> Args {
         csv: false,
     };
 
-    let mut args = std::env::args().skip(1).peekable();
+    let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         if arg == "--history-dir" {
             args_out.history_dir =
@@ -103,12 +103,11 @@ fn parse_args() -> Args {
             continue;
         }
         if arg == "--source" {
-            args_out.source = match args.next().expect("--source requires value").as_str() {
-                "gate" => SourceFilter::Gate,
-                "probe" => SourceFilter::Probe,
-                "all" => SourceFilter::All,
-                other => panic!("--source must be gate|probe|all, got '{other}'"),
-            };
+            args_out.source = args
+                .next()
+                .expect("--source requires value")
+                .parse()
+                .unwrap_or_else(|e| panic!("{e}"));
             continue;
         }
         if arg == "--metric" {
@@ -421,25 +420,7 @@ fn annotate_regressions(
 
 fn main() {
     let args = parse_args();
-    if !args.history_dir.exists() {
-        panic!(
-            "history dir '{}' does not exist",
-            args.history_dir.display()
-        );
-    }
-    let mut snapshots = load_snapshots(&args.history_dir);
-    if snapshots.is_empty() {
-        panic!(
-            "no recognizable snapshots in '{}'; expected subdirs containing gate/probe json",
-            args.history_dir.display()
-        );
-    }
-    if let Some(window) = args.window {
-        if snapshots.len() > window {
-            let keep_from = snapshots.len() - window;
-            snapshots = snapshots.split_off(keep_from);
-        }
-    }
+    let snapshots = load_snapshots_windowed(&args.history_dir, args.window);
 
     let mismatch_fields = if args.env_compat == EnvCompatMode::Off {
         Vec::new()

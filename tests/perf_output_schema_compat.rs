@@ -116,17 +116,12 @@ fn perf_json_and_csv_outputs_match_schema_fixture() {
 
     // Trend needs history data
     let history = temp_dir("schema-trend-history");
-    let s1 = history.join("s1");
-    let s2 = history.join("s2");
-    fs::create_dir_all(&s1).expect("create s1");
-    fs::create_dir_all(&s2).expect("create s2");
-    write_json(
-        &s1.join("probe.json"),
-        &json!({"rows":[{"id":"id1","median_us":10.0,"p95_us":12.0}]}),
-    );
-    write_json(
-        &s2.join("probe.json"),
-        &json!({"rows":[{"id":"id1","median_us":12.0,"p95_us":14.0}]}),
+    create_probe_snapshots(
+        &history,
+        &[
+            ("s1", json!({"rows":[{"id":"id1","median_us":10.0,"p95_us":12.0}]})),
+            ("s2", json!({"rows":[{"id":"id1","median_us":12.0,"p95_us":14.0}]})),
+        ],
     );
     let history_str = history.to_str().expect("utf8 path");
     let trend_args = &[

@@ -1,4 +1,4 @@
-use crate::subst::{apply_subst, Subst};
+use crate::subst::{apply_subst, resolve_var_chain_unlocked, Subst};
 use crate::symbol::FuncId;
 use crate::term::{Term, TermId, TermReadGuard, TermStore};
 use hashbrown::HashMap;
@@ -16,37 +16,35 @@ enum TermKind {
     Invalid,
 }
 
-/// Classify a term using a read guard (for locked access).
-#[inline]
-fn classify_locked(tid: TermId, guard: &TermReadGuard<'_>) -> TermKind {
-    if tid.is_inline_var() {
-        return TermKind::Var(tid.inline_var_index());
-    }
-    if tid.is_inline_nullary() {
-        return TermKind::InlineNullary(tid.inline_nullary_func_raw());
-    }
-    match guard.get(tid) {
-        Some(Term::Var(idx)) => TermKind::Var(*idx),
-        Some(Term::App(f, _)) => TermKind::App(*f),
-        None => TermKind::Invalid,
-    }
+macro_rules! classify_impl {
+    ($fn_name:ident ( $store_param:ident : $store_ty:ty ), get_term($g_tid:ident) => $get_term:expr $(,)?) => {
+        #[inline]
+        fn $fn_name(tid: TermId, $store_param: $store_ty) -> TermKind {
+            if tid.is_inline_var() {
+                return TermKind::Var(tid.inline_var_index());
+            }
+            if tid.is_inline_nullary() {
+                return TermKind::InlineNullary(tid.inline_nullary_func_raw());
+            }
+            let $g_tid = tid;
+            match $get_term {
+                Some(Term::Var(idx)) => TermKind::Var(*idx),
+                Some(Term::App(f, _)) => TermKind::App(*f),
+                None => TermKind::Invalid,
+            }
+        }
+    };
 }
 
-/// Classify a term using exclusive access (for unlocked access).
-#[inline]
-fn classify_unlocked(tid: TermId, terms: &mut TermStore) -> TermKind {
-    if tid.is_inline_var() {
-        return TermKind::Var(tid.inline_var_index());
-    }
-    if tid.is_inline_nullary() {
-        return TermKind::InlineNullary(tid.inline_nullary_func_raw());
-    }
-    match terms.get_unlocked(tid) {
-        Some(Term::Var(idx)) => TermKind::Var(*idx),
-        Some(Term::App(f, _)) => TermKind::App(*f),
-        None => TermKind::Invalid,
-    }
-}
+classify_impl!(
+    classify_locked(guard: &TermReadGuard<'_>),
+    get_term(tid) => guard.get(tid),
+);
+
+classify_impl!(
+    classify_unlocked(terms: &mut TermStore),
+    get_term(tid) => terms.get_unlocked(tid),
+);
 
 /// Thread-local memoization cache for `shift_term` results.
 ///
@@ -247,16 +245,16 @@ pub(crate) fn match_terms_combined_shifted_with_left_renaming(
     while let Some((a, b, a_raw, b_raw)) = worklist.pop() {
         // Dereference left side: if raw, rename the variable first.
         let a_deref = if a_raw {
-            deref_left_renamed_unlocked(a, left_rhs_map, &subst, terms)
+            deref_left_renamed_unlocked(a, left_rhs_map, &subst)
         } else {
-            deref_unlocked(a, &subst, terms)
+            resolve_var_chain_unlocked(a, &subst)
         };
 
         // Dereference right side: if raw, virtually shift the variable first.
         let b_deref = if b_raw {
-            deref_shifted_unlocked(b, shifted_vars, &subst, terms)
+            deref_shifted_unlocked(b, shifted_vars, &subst)
         } else {
-            deref_unlocked(b, &subst, terms)
+            resolve_var_chain_unlocked(b, &subst)
         };
 
         // Fast equality check (same logic as match_terms_combined_shifted).
@@ -357,7 +355,7 @@ pub(crate) fn match_terms_combined_shifted_with_left_renaming(
 }
 
 /// Dereference a "raw" (unrenamed) left-side term through variable renaming
-/// and then through the substitution, using lock-free access.
+/// and then through the substitution.
 ///
 /// If the term is `Var(j)`, maps it to `Var(left_rhs_map[j])` before looking
 /// up in the substitution. If the term is an App, returns it as-is (children
@@ -367,28 +365,18 @@ fn deref_left_renamed_unlocked(
     term: TermId,
     left_rhs_map: &[u32],
     subst: &Subst,
-    terms: &mut TermStore,
 ) -> TermId {
-    // Extract variable index: check inline var first, then store ref.
-    let idx = if term.is_inline_var() {
-        term.inline_var_index()
-    } else if term.is_inline_nullary() {
+    if !term.is_inline_var() {
         return term;
-    } else {
-        match terms.get_unlocked(term) {
-            Some(Term::Var(idx)) => *idx,
-            _ => return term,
-        }
-    };
-
-    let j = idx as usize;
+    }
+    let j = term.inline_var_index() as usize;
     debug_assert!(
         j < left_rhs_map.len(),
         "var index {} exceeds left_rhs_map length {}",
         j,
         left_rhs_map.len()
     );
-    deref_unlocked(TermId::inline_var(left_rhs_map[j]), subst, terms)
+    resolve_var_chain_unlocked(TermId::inline_var(left_rhs_map[j]), subst)
 }
 
 /// Walk a term tree, replacing every variable `Var(j)` with `map_var(j)`.
@@ -537,65 +525,25 @@ fn deref_locked(term: TermId, subst: &Subst, guard: &TermReadGuard<'_>) -> TermI
     }
 }
 
-/// Dereference a term through the substitution using lock-free access.
-/// Requires exclusive (`&mut`) access to the TermStore.
-#[inline]
-fn deref_unlocked(term: TermId, subst: &Subst, terms: &mut TermStore) -> TermId {
-    let mut current = term;
-    loop {
-        if current.is_inline_var() {
-            match subst.get(current.inline_var_index()) {
-                Some(bound) => current = bound,
-                None => return current,
-            }
-            continue;
-        }
-        if current.is_inline() {
-            // Inline nullary - not a variable, stop.
-            return current;
-        }
-        match terms.get_unlocked(current) {
-            Some(Term::Var(idx)) => match subst.get(*idx) {
-                Some(bound) => current = bound,
-                None => return current,
-            },
-            _ => return current,
-        }
-    }
-}
-
 /// Dereference a "raw" (unshifted) right-side term through virtual shifting
-/// and then through the substitution, using lock-free access.
+/// and then through the substitution.
 ///
 /// If the term is `Var(j)`, maps it to `shifted_vars[j]` (i.e., `Var(j + offset)`)
 /// before looking up in the substitution. If the term is an App, returns it as-is
 /// (children will be processed with raw=true in the worklist).
 #[inline]
-fn deref_shifted_unlocked(
-    term: TermId,
-    shifted_vars: &[TermId],
-    subst: &Subst,
-    terms: &mut TermStore,
-) -> TermId {
-    // Extract variable index from term (inline var, store var, or non-var).
-    let idx = if term.is_inline_var() {
-        term.inline_var_index()
-    } else if term.is_inline_nullary() {
+fn deref_shifted_unlocked(term: TermId, shifted_vars: &[TermId], subst: &Subst) -> TermId {
+    if !term.is_inline_var() {
         return term;
-    } else {
-        match terms.get_unlocked(term) {
-            Some(Term::Var(idx)) => *idx,
-            _ => return term,
-        }
-    };
-    let j = idx as usize;
+    }
+    let j = term.inline_var_index() as usize;
     debug_assert!(
         j < shifted_vars.len(),
         "var index {} exceeds shifted_vars length {}",
         j,
         shifted_vars.len()
     );
-    deref_unlocked(shifted_vars[j], subst, terms)
+    resolve_var_chain_unlocked(shifted_vars[j], subst)
 }
 
 /// Shift all variables in a term using the pre-created shifted_vars mapping.
@@ -643,8 +591,7 @@ fn shift_term(term: TermId, shifted_vars: &[TermId], terms: &mut TermStore) -> T
 
         let result = shift_term_uncached(term, shifted_vars, terms);
 
-        // Store in cache (only for non-trivial shifts where the result differs).
-        if result != term {
+        {
             let mut cache = c.borrow_mut();
             if cache.generation != gen {
                 cache.entries.clear();
@@ -695,18 +642,17 @@ macro_rules! occurs_check_impl {
                 let $vr_tid = term;
                 if let Some((min_v, max_v)) = $var_range {
                     if var < min_v || var > max_v {
-                        let range_size = max_v.saturating_sub(min_v);
-                        if range_size <= 64 {
-                            let mut reachable = false;
-                            for v in min_v..=max_v {
-                                if subst.get(v).is_some() {
-                                    reachable = true;
-                                    break;
-                                }
-                            }
-                            if !reachable {
-                                return false;
-                            }
+                        // The target variable is outside this subtree's structural range.
+                        // It can only appear if a variable within the range is bound to
+                        // something that contains `var`. Check via O(1) range intersection:
+                        // if no bound variable falls within [min_v, max_v], substitution
+                        // cannot introduce `var`.
+                        let reachable = match subst.bound_var_range() {
+                            Some((b_min, b_max)) => b_max >= min_v && b_min <= max_v,
+                            None => false,
+                        };
+                        if !reachable {
+                            return false;
                         }
                     }
                 }
@@ -761,7 +707,7 @@ macro_rules! occurs_check_impl {
 occurs_check_impl!(
     occurs_unlocked(terms: &mut TermStore),
     var_range(tid) => terms.var_range_unlocked(tid),
-    deref(t, s) => deref_unlocked(t, s, terms),
+    deref(t, s) => resolve_var_chain_unlocked(t, s),
     get_term(tid) => terms.get_unlocked(tid),
 );
 

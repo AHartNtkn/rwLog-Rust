@@ -4,29 +4,7 @@ use crate::node::{step_node, Node, NodeStep};
 use crate::term::TermStore;
 use std::collections::VecDeque;
 
-use super::{InPlaceStepResult, Work, WorkStep};
-
-/// A no-op hasher that passes through a pre-hashed u64 value.
-///
-/// Used with `FxHashSet<u64>` where the u64 keys are already well-distributed
-/// hash values (NF::hash_value()). Avoids double-hashing overhead.
-#[derive(Default)]
-struct IdentityHasher(u64);
-
-impl std::hash::Hasher for IdentityHasher {
-    fn finish(&self) -> u64 {
-        self.0
-    }
-    fn write(&mut self, _bytes: &[u8]) {
-        // Not used for u64 keys
-    }
-    fn write_u64(&mut self, i: u64) {
-        self.0 = i;
-    }
-}
-
-type IdentityBuildHasher = std::hash::BuildHasherDefault<IdentityHasher>;
-type U64HashSet = std::collections::HashSet<u64, IdentityBuildHasher>;
+use super::{InPlaceStepResult, U64HashSet, Work, WorkStep};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum JoinOutcome {

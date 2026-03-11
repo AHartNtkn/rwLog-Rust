@@ -33,10 +33,8 @@ impl<C: ConstraintOps> JoinStrategy<C> for MeetStrategy {
         left_idx: usize,
         terms: &mut TermStore,
     ) {
-        let left = join.seen_l_at(left_idx).clone();
         for idx in 0..join.seen_r_len() {
-            let right = join.seen_r_at(idx).clone();
-            if let Some(met) = meet_nf(&left, &right, terms) {
+            if let Some(met) = meet_nf(join.seen_l_at(left_idx), join.seen_r_at(idx), terms) {
                 join.push_pending(met);
             }
         }
@@ -48,10 +46,8 @@ impl<C: ConstraintOps> JoinStrategy<C> for MeetStrategy {
         right_idx: usize,
         terms: &mut TermStore,
     ) {
-        let right = join.seen_r_at(right_idx).clone();
         for idx in 0..join.seen_l_len() {
-            let left = join.seen_l_at(idx).clone();
-            if let Some(met) = meet_nf(&left, &right, terms) {
+            if let Some(met) = meet_nf(join.seen_l_at(idx), join.seen_r_at(right_idx), terms) {
                 join.push_pending(met);
             }
         }

@@ -2,8 +2,8 @@
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 use rwlog::perf_corpus::{
-    load_cases, load_snapshots, PerfSnapshot, SourceFilter, stats_cv_pct, stats_mad_pct,
-    stats_mean, stats_median_sorted,
+    load_cases, load_snapshots_windowed, pearson_corr, PerfSnapshot, SourceFilter, stats_cv_pct,
+    stats_mad_pct, stats_median_sorted,
 };
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
@@ -82,7 +82,7 @@ fn parse_args() -> Args {
         json: false,
     };
 
-    let mut args = std::env::args().skip(1).peekable();
+    let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         if arg == "--history-dir" {
             args_out.history_dir =
@@ -90,12 +90,11 @@ fn parse_args() -> Args {
             continue;
         }
         if arg == "--source" {
-            args_out.source = match args.next().expect("--source requires value").as_str() {
-                "gate" => SourceFilter::Gate,
-                "probe" => SourceFilter::Probe,
-                "all" => SourceFilter::All,
-                other => panic!("--source must be gate|probe|all, got '{other}'"),
-            };
+            args_out.source = args
+                .next()
+                .expect("--source requires value")
+                .parse()
+                .unwrap_or_else(|e| panic!("{e}"));
             continue;
         }
         if arg == "--window" {
@@ -169,29 +168,6 @@ fn parse_args() -> Args {
     );
     assert!(args_out.top_redundant > 0, "--top-redundant must be > 0");
     args_out
-}
-
-fn pearson_corr(xs: &[f64], ys: &[f64]) -> Option<f64> {
-    if xs.len() != ys.len() || xs.len() < 2 {
-        return None;
-    }
-    let mx = stats_mean(xs);
-    let my = stats_mean(ys);
-    let mut num = 0.0;
-    let mut den_x = 0.0;
-    let mut den_y = 0.0;
-    for (x, y) in xs.iter().zip(ys.iter()) {
-        let dx = x - mx;
-        let dy = y - my;
-        num += dx * dy;
-        den_x += dx * dx;
-        den_y += dy * dy;
-    }
-    let den = (den_x * den_y).sqrt();
-    if den == 0.0 {
-        return None;
-    }
-    Some(num / den)
 }
 
 fn push_rows(
@@ -398,25 +374,7 @@ fn redundant_pairs(
 
 fn main() {
     let args = parse_args();
-    if !args.history_dir.exists() {
-        panic!(
-            "history dir '{}' does not exist",
-            args.history_dir.display()
-        );
-    }
-    let mut snapshots = load_snapshots(&args.history_dir);
-    if snapshots.is_empty() {
-        panic!(
-            "no recognizable snapshots in '{}'; expected subdirs containing gate/probe json",
-            args.history_dir.display()
-        );
-    }
-    if let Some(window) = args.window {
-        if snapshots.len() > window {
-            let keep_from = snapshots.len() - window;
-            snapshots = snapshots.split_off(keep_from);
-        }
-    }
+    let snapshots = load_snapshots_windowed(&args.history_dir, args.window);
 
     let series = collect_series(&snapshots, args.source);
     let stale = stale_cases(&series, &snapshots, args.source, args.min_points);

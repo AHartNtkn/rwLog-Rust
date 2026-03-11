@@ -290,6 +290,19 @@ impl Kernel {
         )
     }
 
+    fn simple_reply(
+        &mut self,
+        reply_type: &str,
+        msg: &JupyterMessage,
+        content: Value,
+    ) -> KernelResponse {
+        KernelResponse {
+            shell: Some(self.make_reply(reply_type, msg, content)),
+            iopub: vec![self.status_message(msg, "idle")],
+            shutdown: false,
+        }
+    }
+
     pub fn handle_message(&mut self, msg: &JupyterMessage) -> KernelResponse {
         match msg.header.msg_type.as_str() {
             "kernel_info_request" => KernelResponse {
@@ -315,18 +328,11 @@ impl Kernel {
                 ],
                 shutdown: false,
             },
-            "is_complete_request" => KernelResponse {
-                shell: Some(self.make_reply(
-                    "is_complete_reply",
-                    msg,
-                    json!({
-                        "status": "complete",
-                        "indent": "",
-                    }),
-                )),
-                iopub: vec![self.status_message(msg, "idle")],
-                shutdown: false,
-            },
+            "is_complete_request" => self.simple_reply(
+                "is_complete_reply",
+                msg,
+                json!({ "status": "complete", "indent": "" }),
+            ),
             "shutdown_request" => {
                 let restart = msg
                     .content
@@ -343,40 +349,30 @@ impl Kernel {
                     shutdown: true,
                 }
             }
-            "comm_info_request" => KernelResponse {
-                shell: Some(self.make_reply("comm_info_reply", msg, json!({ "comms": {} }))),
-                iopub: vec![self.status_message(msg, "idle")],
-                shutdown: false,
-            },
-            "complete_request" => KernelResponse {
-                shell: Some(self.make_reply(
-                    "complete_reply",
-                    msg,
-                    json!({
-                        "status": "ok",
-                        "matches": [],
-                        "cursor_start": 0,
-                        "cursor_end": 0,
-                        "metadata": {},
-                    }),
-                )),
-                iopub: vec![self.status_message(msg, "idle")],
-                shutdown: false,
-            },
+            "comm_info_request" => {
+                self.simple_reply("comm_info_reply", msg, json!({ "comms": {} }))
+            }
+            "complete_request" => self.simple_reply(
+                "complete_reply",
+                msg,
+                json!({
+                    "status": "ok",
+                    "matches": [],
+                    "cursor_start": 0,
+                    "cursor_end": 0,
+                    "metadata": {},
+                }),
+            ),
             "execute_request" => self.handle_execute_request(msg),
-            _ => KernelResponse {
-                shell: Some(self.make_reply(
-                    "error",
-                    msg,
-                    json!({
-                        "ename": "UnsupportedMessage",
-                        "evalue": format!("Unsupported message type: {}", msg.header.msg_type),
-                        "traceback": [],
-                    }),
-                )),
-                iopub: vec![self.status_message(msg, "idle")],
-                shutdown: false,
-            },
+            _ => self.simple_reply(
+                "error",
+                msg,
+                json!({
+                    "ename": "UnsupportedMessage",
+                    "evalue": format!("Unsupported message type: {}", msg.header.msg_type),
+                    "traceback": [],
+                }),
+            ),
         }
     }
 

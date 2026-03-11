@@ -259,7 +259,7 @@ impl TermStore {
     /// Create a nullary (0-arity) application.
     #[inline(always)]
     pub fn app0(&self, func: FuncId) -> TermId {
-        TermId::from_nullary_func(func)
+        self.app(func, SmallVec::new())
     }
 
     /// Create a unary (1-arity) application.
@@ -312,10 +312,11 @@ impl TermStore {
     /// Check if a term is a variable.
     #[inline]
     pub fn is_var(&self, id: TermId) -> Option<u32> {
-        self.with_term(id, |opt| match opt {
-            Some(Term::Var(idx)) => Some(*idx),
-            _ => None,
-        })
+        if id.is_inline_var() {
+            Some(id.inline_var_index())
+        } else {
+            None
+        }
     }
 
     /// Check if a term is an application, returning functor and children.
@@ -455,16 +456,6 @@ impl TermStore {
         shard: &mut HashMap<Term, TermId, FxBuildHasher>,
     ) -> TermId {
         let idx = raw_index as usize;
-        if nodes.len() <= idx {
-            nodes.resize(idx + 1, Term::Var(0));
-        }
-        nodes[idx] = term.clone();
-
-        if var_ranges.len() <= idx {
-            var_ranges.resize(idx + 1, (u32::MAX, 0));
-        }
-        var_ranges[idx] = var_range;
-
         let id = TermId(
             raw_index
                 | if is_ground {
@@ -473,7 +464,23 @@ impl TermStore {
                     TAG_STORE_NONGROUND
                 },
         );
-        shard.insert(term, id);
+
+        // Common case: sequential allocation. Use push to avoid placeholder+overwrite.
+        if idx == nodes.len() {
+            shard.insert(term.clone(), id);
+            nodes.push(term);
+            var_ranges.push(var_range);
+        } else {
+            // Gap case (concurrent allocation): fill intermediate slots, then write.
+            if nodes.len() <= idx {
+                nodes.resize(idx + 1, Term::Var(0));
+                var_ranges.resize(idx + 1, (u32::MAX, 0));
+            }
+            shard.insert(term.clone(), id);
+            nodes[idx] = term;
+            var_ranges[idx] = var_range;
+        }
+
         id
     }
 

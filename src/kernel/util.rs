@@ -7,16 +7,35 @@ use crate::matching::{
     match_terms_combined, match_terms_combined_shifted,
     match_terms_combined_shifted_with_left_renaming,
 };
-use crate::nf::collect_vars_ordered;
 use crate::subst::{apply_subst, apply_subst_shifted, Subst};
 use crate::term::{Term, TermId, TermStore};
 use smallvec::SmallVec;
 
 /// Find the maximum variable index in a list of patterns.
+///
+/// Uses the TermStore's cached var_range metadata for O(1) per stored term,
+/// and inline variable index extraction for inline vars. No tree traversal.
+#[cfg(test)]
 pub fn max_var_index_terms(pats: &[TermId], terms: &TermStore) -> Option<u32> {
-    pats.iter()
-        .flat_map(|&term| collect_vars_ordered(term, terms).into_iter())
-        .max()
+    let guard = terms.read_lock();
+    let mut max_var: Option<u32> = None;
+    for &tid in pats {
+        let term_max = if tid.is_inline_var() {
+            Some(tid.inline_var_index())
+        } else if tid.is_ground() {
+            None
+        } else if let Some((_, t_max)) = guard.var_range(tid) {
+            Some(t_max)
+        } else {
+            None
+        };
+        max_var = match (max_var, term_max) {
+            (Some(a), Some(b)) => Some(a.max(b)),
+            (a, None) => a,
+            (None, b) => b,
+        };
+    }
+    max_var
 }
 
 /// Pre-create shifted variable TermIds for virtual shifting.
@@ -177,7 +196,7 @@ pub fn match_term_lists_shifted_with_left_renaming_combined(
 /// Compose two substitutions.
 ///
 /// The result applies `existing` first, then `new`.
-pub fn compose_subst(existing: &Subst, new: &Subst, terms: &mut TermStore) -> Subst {
+fn compose_subst(existing: &Subst, new: &Subst, terms: &mut TermStore) -> Subst {
     if existing.is_empty() {
         return new.clone();
     }
@@ -206,6 +225,10 @@ pub fn compose_subst(existing: &Subst, new: &Subst, terms: &mut TermStore) -> Su
 /// Returns false for variables or other inline types (cannot rule out match).
 #[inline]
 pub fn root_functor_mismatch(a_id: TermId, b_id: TermId, terms: &mut TermStore) -> bool {
+    // Variables can match anything — cannot rule out.
+    if a_id.is_inline_var() || b_id.is_inline_var() {
+        return false;
+    }
     // Inline nullary constants: different TermIds = different ground terms.
     if a_id.is_inline_nullary() && b_id.is_inline_nullary() {
         return a_id != b_id;

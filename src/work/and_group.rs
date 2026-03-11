@@ -7,9 +7,10 @@ use crate::queue::{
 };
 use crate::term::TermStore;
 use parking_lot::Mutex;
-use std::collections::VecDeque;
+
 use std::sync::Arc;
 
+use super::fix::ProducerStep;
 use super::{Work, WorkStep};
 
 /// AndGroup work: queue-backed join for n-ary conjunction/intersection.
@@ -42,13 +43,6 @@ struct AndProducer<C: ConstraintOps> {
     done: bool,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum AndProducerStep {
-    Progress,
-    Blocked,
-    Done,
-}
-
 impl<C: ConstraintOps> AndProducer<C> {
     fn new(node: Node<C>, sender: AnswerSender<C>) -> Self {
         Self {
@@ -74,37 +68,37 @@ impl<C: ConstraintOps> AndProducer<C> {
     /// Try to deliver an NF to the sender. On success, returns Progress.
     /// On Full, stashes the NF in pending and returns Blocked.
     /// On Closed/no sender, marks done and returns Done.
-    fn try_deliver(&mut self, nf: NF<C>) -> AndProducerStep {
+    fn try_deliver(&mut self, nf: NF<C>) -> ProducerStep {
         let Some(sender) = self.sender.as_ref() else {
             self.done = true;
-            return AndProducerStep::Done;
+            return ProducerStep::Done;
         };
         match sender.try_send(nf.clone()) {
             SinkResult::Accepted => {
                 self.blocked = None;
-                AndProducerStep::Progress
+                ProducerStep::Progress
             }
             SinkResult::Full => {
                 self.pending = Some(nf);
                 self.blocked = Some(sender.blocked_on());
-                AndProducerStep::Blocked
+                ProducerStep::Blocked
             }
             SinkResult::Closed => {
                 self.done = true;
                 self.close_sender();
-                AndProducerStep::Done
+                ProducerStep::Done
             }
         }
     }
 
-    fn step(&mut self, terms: &mut TermStore) -> AndProducerStep {
+    fn step(&mut self, terms: &mut TermStore) -> ProducerStep {
         if self.done {
-            return AndProducerStep::Done;
+            return ProducerStep::Done;
         }
 
         if let Some(blocked) = &self.blocked {
             if !blocked.is_stale() {
-                return AndProducerStep::Blocked;
+                return ProducerStep::Blocked;
             }
         }
 
@@ -123,16 +117,16 @@ impl<C: ConstraintOps> AndProducer<C> {
                 if matches!(self.node, Node::Fail) {
                     self.done = true;
                     self.close_sender();
-                    return AndProducerStep::Done;
+                    return ProducerStep::Done;
                 }
                 self.blocked = None;
-                AndProducerStep::Progress
+                ProducerStep::Progress
             }
             NodeStep::Exhausted => {
                 self.node = Node::Fail;
                 self.done = true;
                 self.close_sender();
-                AndProducerStep::Done
+                ProducerStep::Done
             }
         }
     }
@@ -179,14 +173,7 @@ impl<C: ConstraintOps> AndGroup<C> {
         let (out_tx, out_rx) =
             AnswerQueue::bounded_with_waker(config.output_queue_capacity, output_waker);
 
-        let joiner = AndJoiner::from_state(
-            receivers,
-            vec![false; producers.len()],
-            vec![Vec::new(); producers.len()],
-            VecDeque::new(),
-            0,
-            joiner_waker,
-        );
+        let joiner = AndJoiner::with_waker(receivers, joiner_waker);
 
         Self {
             producers,

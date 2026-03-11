@@ -610,6 +610,61 @@ mod tests {
     }
 
     #[test]
+    fn call_hint_must_not_clear_far_side_pipe_boundary() {
+        // Regression test: handle_call peeks at the adjacent Atom to add a
+        // hint to the CallKey. The buggy version used call_right.is_some()
+        // (after the hint set it) to decide whether to clear pipe.right in
+        // the continuation pipe, instead of the original use_right boolean
+        // (computed before the hint). This incorrectly clears the far-side
+        // boundary, letting answers through that should be filtered.
+        //
+        // Both r and t must have non-flat bodies (Seq, not single Atom or
+        // flat Or of Atoms) to bypass the batch call advancement fast path
+        // and reach handle_call.
+        //
+        // Pipe after absorbing @a/@b into boundaries:
+        //   left=@a, mid=[Call(r), Atom(id), Call(t)], right=@b
+        //
+        // Step from Front pops Call(r):
+        //   mid=[Atom(id), Call(t)] → non-empty → use_right=false
+        //   peek_end(Front) → Atom(id) → hint sets call_right
+        //   BUG: call_right.is_some() → pipe.right = None → @b lost
+        //   FIX: use_right=false → pipe.right preserved
+        let mut repl = Repl::new();
+        // r: identity prefix forces Seq body, semantically a -> b | a -> c
+        repl.process_input("rel r { [$x -> $x ; [a -> b | a -> c]] }")
+            .expect("define r");
+        // t: Seq of two identities; not a single Atom, so batch path skips it
+        repl.process_input("rel t { [$x -> $x ; $x -> $x] }")
+            .expect("define t");
+        let output = repl
+            .process_input("[@a ; r ; [$x -> $x] ; t ; @b]")
+            .expect("run query")
+            .unwrap_or_default();
+        assert!(
+            output.contains("a -> b"),
+            "Expected a -> b in output, got: {output}"
+        );
+        // Advance to exhaustion: the only answer should be a -> b.
+        let mut full = output.clone();
+        loop {
+            let more = repl
+                .process_input("next")
+                .expect("next")
+                .unwrap_or_default();
+            if more.contains("No more answers") {
+                break;
+            }
+            full.push('\n');
+            full.push_str(&more);
+        }
+        assert!(
+            !full.contains("a -> c"),
+            "BUG: a -> c leaked; handle_call hint cleared far-side boundary: {full}"
+        );
+    }
+
+    #[test]
     fn treecalc_flip_query_produces_correct_output() {
         let mut repl = Repl::new();
 

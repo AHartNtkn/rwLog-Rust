@@ -1,40 +1,13 @@
 mod common;
 
-use common::{build_raw_term, RawTerm, PROPTEST_MAX_VAR};
+use common::*;
+
 use proptest::prelude::*;
 use rwlog::constraint::ConstraintOps;
 use rwlog::kernel::{compose_nf, dual_nf, meet_nf};
 use rwlog::nf::{collect_tensor, factor_tensor, NF};
 use rwlog::symbol::SymbolStore;
 use rwlog::term::TermStore;
-
-const FUNCTOR_NAMES: [&str; 6] = ["a", "b", "c", "f", "g", "h"];
-
-fn raw_term_strategy() -> impl Strategy<Value = RawTerm> {
-    let leaf = prop_oneof![
-        (0..=PROPTEST_MAX_VAR).prop_map(RawTerm::Var),
-        Just(RawTerm::App { f: 0, kids: vec![] }),
-        Just(RawTerm::App { f: 1, kids: vec![] }),
-        Just(RawTerm::App { f: 2, kids: vec![] }),
-    ];
-
-    leaf.prop_recursive(3, 16, 4, |inner| {
-        prop_oneof![
-            inner.clone().prop_map(|t| RawTerm::App {
-                f: 3,
-                kids: vec![t]
-            }),
-            (inner.clone(), inner.clone()).prop_map(|(a, b)| RawTerm::App {
-                f: 4,
-                kids: vec![a, b],
-            }),
-            (inner.clone(), inner).prop_map(|(a, b)| RawTerm::App {
-                f: 5,
-                kids: vec![a, b],
-            }),
-        ]
-    })
-}
 
 fn build_nf(lhs: &RawTerm, rhs: &RawTerm, symbols: &SymbolStore, terms: &mut TermStore) -> NF<()> {
     let lhs_id = build_raw_term(lhs, 0, &FUNCTOR_NAMES, symbols, terms);

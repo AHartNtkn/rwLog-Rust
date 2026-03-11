@@ -1,8 +1,3 @@
 samples = 15
 warmup = 5
 tolerance_pct = 25.0
-adaptive_step = 5
-adaptive_max_samples = 40
-default_target_cv_pct = 35.0
-default_flaky_cv_pct = 55.0
-enforce_noise = false

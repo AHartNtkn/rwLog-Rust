@@ -74,43 +74,34 @@ fn intersection_after_composition_respects_shared_prefix() {
 
 #[test]
 fn intersection_before_composition_matches_post_intersection() {
+    use rwlog::rel::Rel;
+
     let symbols = SymbolStore::new();
 
-    let actual_pre = {
-        let mut terms = TermStore::new();
-        let f = sym(&symbols, "f");
-        let g = sym(&symbols, "g");
-        let h = sym(&symbols, "h");
-        let a = t_atom(&symbols, &terms, "a");
-        let v0 = t_var(&terms, 0);
-        let v1 = t_var(&terms, 1);
+    let build_and_collect =
+        |combine: fn(Rel<()>, Rel<()>, Rel<()>) -> Rel<()>| -> Vec<(Shape, Shape)> {
+            let mut terms = TermStore::new();
+            let f = sym(&symbols, "f");
+            let g = sym(&symbols, "g");
+            let h = sym(&symbols, "h");
+            let a = t_atom(&symbols, &terms, "a");
+            let v0 = t_var(&terms, 0);
+            let v1 = t_var(&terms, 1);
 
-        let r1 = rel_rule(t_app1(&terms, f, v0), t_app1(&terms, g, v0), &mut terms);
-        let r2 = rel_rule(t_app1(&terms, f, a), t_app1(&terms, g, v1), &mut terms);
-        let d = rel_rule(t_app1(&terms, g, v0), t_app1(&terms, h, v0), &mut terms);
+            let r1 = rel_rule(t_app1(&terms, f, v0), t_app1(&terms, g, v0), &mut terms);
+            let r2 = rel_rule(t_app1(&terms, f, a), t_app1(&terms, g, v1), &mut terms);
+            let d = rel_rule(t_app1(&terms, g, v0), t_app1(&terms, h, v0), &mut terms);
 
-        let rel = rel_seq(vec![rel_and(r1, r2), d]);
-        collect_pair_shapes(rel, terms, &symbols, None)
-    };
+            let rel = combine(r1, r2, d);
+            collect_pair_shapes(rel, terms, &symbols, None)
+        };
 
-    let actual_post = {
-        let mut terms = TermStore::new();
-        let f = sym(&symbols, "f");
-        let g = sym(&symbols, "g");
-        let h = sym(&symbols, "h");
-        let a = t_atom(&symbols, &terms, "a");
-        let v0 = t_var(&terms, 0);
-        let v1 = t_var(&terms, 1);
-
-        let r1 = rel_rule(t_app1(&terms, f, v0), t_app1(&terms, g, v0), &mut terms);
-        let r2 = rel_rule(t_app1(&terms, f, a), t_app1(&terms, g, v1), &mut terms);
-        let d = rel_rule(t_app1(&terms, g, v0), t_app1(&terms, h, v0), &mut terms);
-
+    let actual_pre = build_and_collect(|r1, r2, d| rel_seq(vec![rel_and(r1, r2), d]));
+    let actual_post = build_and_collect(|r1, r2, d| {
         let left = rel_seq(vec![r1, d.clone()]);
         let right = rel_seq(vec![r2, d]);
-        let rel = rel_and(left, right);
-        collect_pair_shapes(rel, terms, &symbols, None)
-    };
+        rel_and(left, right)
+    });
 
     assert_pairs(actual_pre, &actual_post);
 }

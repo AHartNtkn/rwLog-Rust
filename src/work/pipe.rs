@@ -206,7 +206,28 @@ pub struct PipeWork<C: ConstraintOps> {
     pub(crate) call_mode: CallMode<C>,
     /// Cached dispatch tables for Or-of-Atoms bodies, keyed by Arc pointer address.
     /// Lazily allocated only when dispatch is actually used.
-    dispatch_cache: Option<Box<DispatchCache<C>>>,
+    dispatch_cache: Option<DispatchCache<C>>,
+}
+
+impl<C: ConstraintOps> PipeWork<C> {
+    /// Clone this pipe for a child continuation, without the dispatch cache.
+    ///
+    /// Every child pipe clears the dispatch cache (it references Or bodies
+    /// from the parent's Env that may no longer be relevant). This avoids
+    /// deep-cloning the HashMap only to immediately discard it.
+    fn clone_for_child(&self) -> Self {
+        PipeWork {
+            left: self.left.clone(),
+            mid: self.mid.clone(),
+            right: self.right.clone(),
+            flip: self.flip,
+            mid_normalized: self.mid_normalized,
+            env: self.env.clone(),
+            tables: self.tables.clone(),
+            call_mode: self.call_mode.clone(),
+            dispatch_cache: None,
+        }
+    }
 }
 
 impl<C: ConstraintOps> Work<C> {
@@ -473,26 +494,15 @@ impl<C: ConstraintOps> PipeWork<C> {
 
     /// Emit the composed boundaries when mid is empty.
     fn emit_boundaries(&self, terms: &mut TermStore) -> WorkStep<C> {
-        match (&self.left, &self.right) {
-            (None, None) => {
-                // Empty pipe - emit identity
-                WorkStep::Emit(NF::identity(C::default()), Box::new(Work::Done))
-            }
-            (Some(left), None) => {
-                // Only left boundary
-                WorkStep::Emit(left.clone(), Box::new(Work::Done))
-            }
-            (None, Some(right)) => {
-                // Only right boundary
-                WorkStep::Emit(right.clone(), Box::new(Work::Done))
-            }
-            (Some(left), Some(right)) => {
-                // Compose left and right
-                match compose_nf(left, right, terms) {
-                    Some(composed) => WorkStep::Emit(composed, Box::new(Work::Done)),
-                    None => WorkStep::Done, // Composition failed
-                }
-            }
+        let result = match (&self.left, &self.right) {
+            (None, None) => Some(NF::identity(C::default())),
+            (Some(left), None) => Some(left.clone()),
+            (None, Some(right)) => Some(right.clone()),
+            (Some(left), Some(right)) => compose_nf(left, right, terms),
+        };
+        match result {
+            Some(nf) => WorkStep::Emit(nf, Box::new(Work::Done)),
+            None => WorkStep::Done,
         }
     }
 
@@ -524,8 +534,8 @@ impl<C: ConstraintOps> PipeWork<C> {
     fn split_or(&self, end: PipeEnd, a: Arc<Rel<C>>, b: Arc<Rel<C>>) -> WorkStep<C> {
         // Create two pipes - one with branch a, one with branch b.
         // Both keep the same boundaries, env, tables, and remaining mid.
-        let mut left_pipe = self.clone();
-        let mut right_pipe = self.clone();
+        let mut left_pipe = self.clone_for_child();
+        let mut right_pipe = self.clone_for_child();
         left_pipe.push_end(end, a);
         right_pipe.push_end(end, b);
         // Pushed elements may introduce normalizable structure.
@@ -694,15 +704,11 @@ impl<C: ConstraintOps> PipeWork<C> {
     fn boundary_prefix_iso(
         &self,
         end: PipeEnd,
-        terms: &mut TermStore,
     ) -> (Option<NF<C>>, Option<NF<C>>) {
         match self.boundary(end) {
             Some(nf) => match end {
-                PipeEnd::Front => (Some(nf_left_prefix(nf, terms)), Some(nf_rwr_iso(nf, terms))),
-                PipeEnd::Back => (
-                    Some(nf_right_suffix(nf, terms)),
-                    Some(nf_rwl_iso(nf, terms)),
-                ),
+                PipeEnd::Front => (Some(nf_left_prefix(nf)), Some(nf_rwr_iso(nf))),
+                PipeEnd::Back => (Some(nf_right_suffix(nf)), Some(nf_rwl_iso(nf))),
             },
             None => (None, None),
         }
@@ -720,10 +726,9 @@ impl<C: ConstraintOps> PipeWork<C> {
         end: PipeEnd,
         which: PipeEnd,
         mid_empty: bool,
-        terms: &mut TermStore,
     ) -> (Option<NF<C>>, Option<NF<C>>) {
         if which == end || mid_empty {
-            self.boundary_prefix_iso(which, terms)
+            self.boundary_prefix_iso(which)
         } else {
             (self.boundary(which).clone(), None)
         }
@@ -758,7 +763,6 @@ impl<C: ConstraintOps> PipeWork<C> {
     /// Returns `Work` rather than `WorkStep` so callers can wrap the result
     /// (e.g. with prefix/suffix layers) before converting to a `WorkStep`.
     fn bind_or_compose_work(
-        &self,
         end: PipeEnd,
         source: Node<C>,
         pipe: PipeWork<C>,
@@ -795,16 +799,15 @@ impl<C: ConstraintOps> PipeWork<C> {
 
     /// Convenience wrapper: build BindWork or ComposeWork and return as WorkStep.
     fn bind_or_compose_at_end(
-        &self,
         end: PipeEnd,
         source: Node<C>,
         pipe: PipeWork<C>,
         preseed: bool,
         terms: &mut TermStore,
     ) -> WorkStep<C> {
-        WorkStep::More(Box::new(
-            self.bind_or_compose_work(end, source, pipe, preseed, terms),
-        ))
+        WorkStep::More(Box::new(Self::bind_or_compose_work(
+            end, source, pipe, preseed, terms,
+        )))
     }
 
     // ========================================================================
@@ -827,14 +830,13 @@ impl<C: ConstraintOps> PipeWork<C> {
         let parts = flatten_and_parts(rel);
         let mid_empty = self.mid.is_empty();
         let (left_prefix, left_iso) =
-            self.and_boundary_context(end, PipeEnd::Front, mid_empty, terms);
+            self.and_boundary_context(end, PipeEnd::Front, mid_empty);
         let (right_suffix, right_iso) =
-            self.and_boundary_context(end, PipeEnd::Back, mid_empty, terms);
+            self.and_boundary_context(end, PipeEnd::Back, mid_empty);
         let group = self.build_and_group(parts, left_iso.clone(), right_iso.clone());
 
         let opp = end.opposite();
-        let mut pipe = self.clone();
-        pipe.dispatch_cache = None;
+        let mut pipe = self.clone_for_child();
 
         // The boundary on the advancing end is consumed by the And group.
         pipe.set_boundary(end, None);
@@ -873,25 +875,32 @@ impl<C: ConstraintOps> PipeWork<C> {
             }
         };
 
-        let work = self.bind_or_compose_work(end, group_node, pipe, false, terms);
+        let work = Self::bind_or_compose_work(end, group_node, pipe, false, terms);
         let inner = Node::Work(Box::new(work));
         wrap_node_with_prefix_suffix(inner, outer_prefix, outer_suffix, terms)
     }
 
-    fn advance_fix(&mut self, end: PipeEnd, id: RelId, body: Arc<Rel<C>>, terms: &mut TermStore) -> WorkStep<C> {
-        self.pop_end(end);
-        // Near boundary always participates; far boundary only when mid is empty.
+    /// Compute which boundaries participate in a Call or Fix.
+    ///
+    /// The near-side boundary always participates; the far side only when mid is empty.
+    fn call_boundaries(&self, end: PipeEnd) -> (Option<NF<C>>, Option<NF<C>>) {
         let far_available = self.mid.is_empty();
-        let call_left = if matches!(end, PipeEnd::Front) || far_available {
+        let left = if matches!(end, PipeEnd::Front) || far_available {
             self.left.clone()
         } else {
             None
         };
-        let call_right = if matches!(end, PipeEnd::Back) || far_available {
+        let right = if matches!(end, PipeEnd::Back) || far_available {
             self.right.clone()
         } else {
             None
         };
+        (left, right)
+    }
+
+    fn advance_fix(&mut self, end: PipeEnd, id: RelId, body: Arc<Rel<C>>, terms: &mut TermStore) -> WorkStep<C> {
+        self.pop_end(end);
+        let (call_left, call_right) = self.call_boundaries(end);
         let bound_env = self.env.bind(id, body.clone());
 
         let mut fix_pipe = PipeWork::from_rel_with_boundaries(
@@ -904,8 +913,7 @@ impl<C: ConstraintOps> PipeWork<C> {
         fix_pipe.call_mode = self.call_mode.clone();
 
         let fix_node = Node::Work(Box::new(Work::Pipe(Box::new(fix_pipe))));
-        let mut pipe = self.clone();
-        pipe.dispatch_cache = None;
+        let mut pipe = self.clone_for_child();
         if call_left.is_some() {
             pipe.left = None;
         }
@@ -913,7 +921,7 @@ impl<C: ConstraintOps> PipeWork<C> {
             pipe.right = None;
         }
 
-        self.bind_or_compose_at_end(end, fix_node, pipe, false, terms)
+        Self::bind_or_compose_at_end(end, fix_node, pipe, false, terms)
     }
 
     // ========================================================================
@@ -1108,7 +1116,7 @@ impl<C: ConstraintOps> PipeWork<C> {
         let table = Self::build_dispatch_table(atoms, terms);
         let cache = self
             .dispatch_cache
-            .get_or_insert_with(|| Box::new(DispatchCache::default()));
+            .get_or_insert_with(DispatchCache::default);
         cache.insert(cache_key, table.clone());
         Some(table)
     }
@@ -1276,13 +1284,11 @@ impl<C: ConstraintOps> PipeWork<C> {
         let Some(binding) = self.env.lookup(id) else {
             return WorkStep::Done;
         };
-        // The near-side boundary always participates; the far side only when mid is empty.
-        let far_available = self.mid.is_empty();
-        let use_left = matches!(end, PipeEnd::Front) || far_available;
-        let use_right = matches!(end, PipeEnd::Back) || far_available;
-
-        let mut call_left = if use_left { self.left.clone() } else { None };
-        let mut call_right = if use_right { self.right.clone() } else { None };
+        let (mut call_left, mut call_right) = self.call_boundaries(end);
+        // Record which sides participate BEFORE hint code may add boundaries
+        // that only affect the CallKey, not the continuation pipe.
+        let use_left = matches!(end, PipeEnd::Front) || self.mid.is_empty();
+        let use_right = matches!(end, PipeEnd::Back) || self.mid.is_empty();
 
         // Peek at the adjacent mid element in the far direction for an Atom
         // hint. After the Call is popped, peek_end(end) returns the next
@@ -1332,8 +1338,7 @@ impl<C: ConstraintOps> PipeWork<C> {
                 };
                 let snapshot = table.answers_from(*watermark);
                 let replay_node = node_from_answers(snapshot);
-                let mut pipe = self.clone();
-                pipe.dispatch_cache = None;
+                let mut pipe = self.clone_for_child();
                 if use_left {
                     pipe.left = None;
                 }
@@ -1341,7 +1346,7 @@ impl<C: ConstraintOps> PipeWork<C> {
                     pipe.right = None;
                 }
 
-                return self.bind_or_compose_at_end(end, replay_node, pipe, true, terms);
+                return Self::bind_or_compose_at_end(end, replay_node, pipe, true, terms);
             }
         }
 
@@ -1365,8 +1370,7 @@ impl<C: ConstraintOps> PipeWork<C> {
             _ => Node::Or(Box::new(replay_node), Box::new(fix_node)),
         };
 
-        let mut pipe = self.clone();
-        pipe.dispatch_cache = None;
+        let mut pipe = self.clone_for_child();
         if use_left {
             pipe.left = None;
         }
@@ -1374,7 +1378,7 @@ impl<C: ConstraintOps> PipeWork<C> {
             pipe.right = None;
         }
 
-        self.bind_or_compose_at_end(end, gen_node, pipe, true, terms)
+        Self::bind_or_compose_at_end(end, gen_node, pipe, true, terms)
     }
 }
 

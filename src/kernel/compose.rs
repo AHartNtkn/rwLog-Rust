@@ -1,9 +1,10 @@
 use crate::constraint::ConstraintOps;
-use crate::nf::{collect_tensor, factor_tensor_with_subst, SubstParams, NF};
+use crate::nf::{collect_tensor_rhs, factor_tensor_with_subst, SubstParams, NF};
 use crate::perf_counters;
 use crate::term::TermStore;
 #[cfg(feature = "tracing")]
 use crate::trace::{debug_span, trace};
+use std::hash::{Hash, Hasher};
 
 use super::util::{
     apply_and_normalize_constraints, match_term_lists_shifted_with_left_renaming_combined,
@@ -22,6 +23,12 @@ use super::util::{
 ///
 /// Returns None if composition fails (matching failure at interface).
 pub fn compose_nf<C: ConstraintOps>(a: &NF<C>, b: &NF<C>, terms: &mut TermStore) -> Option<NF<C>> {
+    if perf_counters::is_enabled() {
+        let mut h = rustc_hash::FxHasher::default();
+        a.hash(&mut h);
+        b.hash(&mut h);
+        perf_counters::record_compose_pair_hash(h.finish());
+    }
     let result = compose_nf_impl(a, b, terms);
     perf_counters::record_compose_result(result.is_some());
     result
@@ -123,13 +130,13 @@ fn compose_nf_impl<C: ConstraintOps>(a: &NF<C>, b: &NF<C>, terms: &mut TermStore
             return None;
         }
     };
-    // Success path: compute the RHS of b via collect_tensor (only for successes).
+    // Success path: compute the RHS of b via collect_tensor_rhs (only for successes).
     // a's LHS is just a.match_pats (no renaming needed).
-    // b's RHS needs the rhs_map applied via collect_tensor.
-    let rw2 = collect_tensor(b, terms);
+    // b's RHS needs the rhs_map applied.
+    let rhs2 = collect_tensor_rhs(b, terms);
 
     // Use fused factor_tensor_with_subst to avoid creating intermediate
-    // substituted terms. The original patterns (a.match_pats, rw2.rhs) are passed
+    // substituted terms. The original patterns (a.match_pats, rhs2) are passed
     // directly along with the substitutions, and factor_tensor_with_subst
     // resolves variables through the substitutions during its collect+renumber
     // passes, eliminating the need for apply_subst_list + apply_subst_shifted_list.
@@ -138,23 +145,20 @@ fn compose_nf_impl<C: ConstraintOps>(a: &NF<C>, b: &NF<C>, terms: &mut TermStore
     // contain left-side vars (< b_var_offset), and the rhs patterns only
     // contain right-side vars (>= b_var_offset), so each side naturally
     // resolves only its own bindings through the combined subst.
-    let rhs_shifted = b_var_offset > 0 && !shifted_vars.is_empty();
     let lhs_params = SubstParams {
         subst: &combined_subst,
         subst2: subst_opt.as_ref(),
-        shifted: false,
         shifted_vars: &[],
     };
     let rhs_params = SubstParams {
         subst: &combined_subst,
         subst2: subst_opt.as_ref(),
-        shifted: rhs_shifted,
         shifted_vars: &shifted_vars,
     };
     let result = factor_tensor_with_subst(
         &a.match_pats,
         &lhs_params,
-        &rw2.rhs,
+        &rhs2,
         &rhs_params,
         normalized,
         terms,

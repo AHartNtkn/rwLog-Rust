@@ -156,15 +156,6 @@ impl RVarEnv {
         }
     }
 
-    /// Grow internal vectors if needed to accommodate `n_rvars` slots.
-    pub fn ensure_capacity(&mut self, n_rvars: u32) {
-        let n = n_rvars as usize;
-        if n > self.stamp.len() {
-            self.stamp.resize(n, 0);
-            self.val.resize(n, TermId::from_raw(0));
-        }
-    }
-
     pub fn reset(&mut self) {
         self.gen = self.gen.wrapping_add(1);
         if self.gen == 0 {
@@ -441,19 +432,6 @@ impl BodyProg {
         Self {
             code: code.into_boxed_slice(),
         }
-    }
-
-    pub fn exec(
-        &self,
-        pats: &PatArena,
-        terms: &mut TermStore,
-        reg: &BuiltinRegistry,
-        env: &RVarEnv,
-        st: &mut ChrState,
-    ) -> bool {
-        let program = Arc::clone(&st.program);
-        let d = st.data_mut();
-        self.exec_with_data(pats, terms, reg, env, &program, d)
     }
 
     fn exec_with_data(
@@ -1370,11 +1348,6 @@ impl Clone for ChrState {
 
 impl ChrState {
     #[inline]
-    pub fn data(&self) -> Option<&ChrStateData> {
-        self.data.as_deref()
-    }
-
-    #[inline]
     pub fn data_mut(&mut self) -> &mut ChrStateData {
         let program = &self.program;
         let arc = self
@@ -1392,10 +1365,6 @@ impl ChrState {
         }
     }
 
-    #[inline]
-    pub fn has_data(&self) -> bool {
-        self.data.is_some()
-    }
 
     pub fn new(program: Arc<ChrProgram>) -> Self {
         let data = ChrStateData::new_empty(&program);
@@ -2199,10 +2168,6 @@ impl ChrProgram {
             .map(|decl| decl.name.as_str())
     }
 
-    pub fn pred_arity(&self, pred: PredId) -> Option<u8> {
-        self.preds.get(pred.0 as usize).map(|decl| decl.arity)
-    }
-
     pub fn empty() -> Arc<Self> {
         Arc::new(ChrProgram {
             preds: Box::new([]),
@@ -2352,46 +2317,7 @@ fn merge_other_into(md: &mut ChrStateData, od: &ChrStateData, rules: &[Rule]) {
 
 impl crate::constraint::ConstraintOps for ChrState {
     fn combine(&self, other: &Self) -> Option<Self> {
-        if let Some(d) = &self.data {
-            if d.failed {
-                return None;
-            }
-        }
-        if let Some(d) = &other.data {
-            if d.failed {
-                return None;
-            }
-        }
-        if self.program.program_id != other.program.program_id {
-            let self_empty = self.is_empty();
-            let other_empty = other.is_empty();
-            if self_empty && other_empty {
-                return Some(if self.program.program_id <= other.program.program_id {
-                    self.clone()
-                } else {
-                    other.clone()
-                });
-            }
-            if self_empty {
-                return Some(other.clone());
-            }
-            if other_empty {
-                return Some(self.clone());
-            }
-            return None;
-        }
-
-        match (&self.data, &other.data) {
-            (None, None) => Some(self.clone()),
-            (None, Some(_)) => Some(other.clone()),
-            (Some(_), None) => Some(self.clone()),
-            (Some(_sd), Some(od)) => {
-                let mut merged = self.clone();
-                let md = Arc::make_mut(merged.data.as_mut().unwrap());
-                merge_other_into(md, od, &self.program.rules);
-                Some(merged)
-            }
-        }
+        self.clone().combine_owned(other.clone())
     }
 
     fn normalize(&self, terms: &mut TermStore) -> Option<(Self, Option<Subst>)> {
@@ -2651,12 +2577,6 @@ impl crate::constraint::ConstraintOps for ChrState {
         }
     }
 
-    fn is_satisfiable(&self) -> bool {
-        match &self.data {
-            None => true,
-            Some(d) => !d.failed,
-        }
-    }
 }
 
 impl ConstraintDisplay for ChrState {

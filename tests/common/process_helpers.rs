@@ -16,29 +16,27 @@ pub fn bin_path(name: &str) -> PathBuf {
 }
 
 pub fn run_bin(name: &str, args: &[&str], envs: &[(&str, &str)]) -> Output {
-    run_bin_impl(name, args, envs, None)
+    run_bin_full(name, args, envs, None)
 }
 
 pub fn run_bin_in_dir(name: &str, args: &[&str], cwd: &Path) -> Output {
-    run_bin_impl(name, args, &[], Some(cwd))
+    run_bin_full(name, args, &[], Some(cwd))
 }
 
-fn run_bin_impl(name: &str, args: &[&str], envs: &[(&str, &str)], cwd: Option<&Path>) -> Output {
+pub fn run_bin_full(
+    name: &str,
+    args: &[&str],
+    envs: &[(&str, &str)],
+    cwd: Option<&Path>,
+) -> Output {
     let path = bin_path(name);
-    let mut cmd = if path.exists() {
-        Command::new(path)
-    } else {
-        let mut fallback = Command::new("cargo");
-        fallback
-            .arg("run")
-            .arg("--quiet")
-            .arg("--manifest-path")
-            .arg(MANIFEST_PATH)
-            .arg("--bin")
-            .arg(name)
-            .arg("--");
-        fallback
+    let context = match cwd {
+        Some(dir) => format!("'{name}' in {}", dir.display()),
+        None => format!("'{name}'"),
     };
+
+    // Try direct execution first; fall back to cargo run on NotFound.
+    let mut cmd = Command::new(&path);
     cmd.args(args);
     for (k, v) in envs {
         cmd.env(k, v);
@@ -46,13 +44,31 @@ fn run_bin_impl(name: &str, args: &[&str], envs: &[(&str, &str)], cwd: Option<&P
     if let Some(dir) = cwd {
         cmd.current_dir(dir);
     }
-    let context = if let Some(dir) = cwd {
-        format!("'{name}' in {}", dir.display())
-    } else {
-        format!("'{name}'")
-    };
-    cmd.output()
-        .unwrap_or_else(|e| panic!("failed to run binary {context}: {e}"))
+    match cmd.output() {
+        Ok(output) => return output,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => panic!("failed to run binary {context}: {e}"),
+    }
+
+    let mut fallback = Command::new("cargo");
+    fallback
+        .arg("run")
+        .arg("--quiet")
+        .arg("--manifest-path")
+        .arg(MANIFEST_PATH)
+        .arg("--bin")
+        .arg(name)
+        .arg("--");
+    fallback.args(args);
+    for (k, v) in envs {
+        fallback.env(k, v);
+    }
+    if let Some(dir) = cwd {
+        fallback.current_dir(dir);
+    }
+    fallback
+        .output()
+        .unwrap_or_else(|e| panic!("failed to run binary {context} via cargo: {e}"))
 }
 
 pub fn run_bash(script_path: &str, args: &[&str]) -> Output {
@@ -91,7 +107,7 @@ pub fn parse_stdout_json(output: &Output, context: &str) -> Value {
 }
 
 pub fn first_csv_header(output: &Output, context: &str) -> Vec<String> {
-    let text = String::from_utf8(output.stdout.clone()).unwrap_or_else(|e| {
+    let text = std::str::from_utf8(&output.stdout).unwrap_or_else(|e| {
         panic!(
             "{context}: stdout is not utf-8: {e}\nstderr:\n{}",
             String::from_utf8_lossy(&output.stderr)
@@ -118,4 +134,12 @@ pub fn write_json(path: &Path, value: &Value) {
         serde_json::to_vec_pretty(value).expect("serialize json"),
     )
     .expect("write json");
+}
+
+pub fn create_probe_snapshots(history_dir: &Path, data: &[(&str, Value)]) {
+    for (name, value) in data {
+        let dir = history_dir.join(name);
+        fs::create_dir_all(&dir).unwrap_or_else(|e| panic!("create {name}: {e}"));
+        write_json(&dir.join("probe.json"), value);
+    }
 }

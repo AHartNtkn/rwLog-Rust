@@ -14,6 +14,28 @@ use crate::term::{Term, TermId, TermStore};
 use smallvec::SmallVec;
 use std::sync::Arc;
 
+/// A no-op hasher that passes through a pre-hashed u64 value.
+///
+/// Used with `HashSet<u64>` where the u64 keys are already well-distributed
+/// hash values (NF::hash_value()). Avoids double-hashing overhead.
+#[derive(Default)]
+pub(crate) struct IdentityHasher(u64);
+
+impl std::hash::Hasher for IdentityHasher {
+    fn finish(&self) -> u64 {
+        self.0
+    }
+    fn write(&mut self, _bytes: &[u8]) {
+        // Not used for u64 keys
+    }
+    fn write_u64(&mut self, i: u64) {
+        self.0 = i;
+    }
+}
+
+pub(crate) type IdentityBuildHasher = std::hash::BuildHasherDefault<IdentityHasher>;
+pub(crate) type U64HashSet = std::collections::HashSet<u64, IdentityBuildHasher>;
+
 mod and_group;
 mod bind;
 mod compose;
@@ -230,45 +252,41 @@ fn wrap_node_with_prefix_suffix<C: ConstraintOps>(
 }
 
 
-fn build_var_list(arity: u32, terms: &mut TermStore) -> SmallVec<[TermId; 1]> {
-    let mut vars = SmallVec::new();
-    for idx in 0..arity {
-        vars.push(terms.var(idx));
-    }
-    vars
+fn build_var_list(arity: u32) -> SmallVec<[TermId; 1]> {
+    (0..arity).map(TermId::inline_var).collect()
 }
 
-fn nf_rwl_iso<C: ConstraintOps>(nf: &NF<C>, terms: &mut TermStore) -> NF<C> {
+fn nf_rwl_iso<C: ConstraintOps>(nf: &NF<C>) -> NF<C> {
     let in_arity = nf.drop_fresh.in_arity;
     NF::new(
         nf.match_pats.clone(),
         DropFresh::identity(in_arity),
-        build_var_list(in_arity, terms),
+        build_var_list(in_arity),
     )
 }
 
-fn nf_rwr_iso<C: ConstraintOps>(nf: &NF<C>, terms: &mut TermStore) -> NF<C> {
+fn nf_rwr_iso<C: ConstraintOps>(nf: &NF<C>) -> NF<C> {
     let out_arity = nf.drop_fresh.out_arity;
     NF::new(
-        build_var_list(out_arity, terms),
+        build_var_list(out_arity),
         DropFresh::identity(out_arity),
         nf.build_pats.clone(),
     )
 }
 
-fn nf_left_prefix<C: ConstraintOps>(nf: &NF<C>, terms: &mut TermStore) -> NF<C> {
+fn nf_left_prefix<C: ConstraintOps>(nf: &NF<C>) -> NF<C> {
     let out_arity = nf.drop_fresh.out_arity;
     NF::new(
         nf.match_pats.clone(),
         nf.drop_fresh.clone(),
-        build_var_list(out_arity, terms),
+        build_var_list(out_arity),
     )
 }
 
-fn nf_right_suffix<C: ConstraintOps>(nf: &NF<C>, terms: &mut TermStore) -> NF<C> {
+fn nf_right_suffix<C: ConstraintOps>(nf: &NF<C>) -> NF<C> {
     let in_arity = nf.drop_fresh.in_arity;
     NF::new(
-        build_var_list(in_arity, terms),
+        build_var_list(in_arity),
         nf.drop_fresh.clone(),
         nf.build_pats.clone(),
     )

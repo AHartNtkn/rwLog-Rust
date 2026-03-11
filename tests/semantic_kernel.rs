@@ -19,12 +19,7 @@ fn compose_nf_basic_ground_rule() {
     let right = NF::factor(b, c, (), &mut terms);
     let composed = compose_nf(&left, &right, &mut terms).expect("compose should succeed");
 
-    let pair = nf_pair_shape(&composed, &mut terms, &symbols);
-    assert_eq!(pair, (shape_atom("a"), shape_atom("c")));
-
-    let dual = dual_nf(&composed, &mut terms);
-    let dual_pair = nf_pair_shape(&dual, &mut terms, &symbols);
-    assert_eq!(dual_pair, (shape_atom("c"), shape_atom("a")));
+    assert_nf_pair_with_dual(&composed, (shape_atom("a"), shape_atom("c")), &mut terms, &symbols);
 }
 
 #[test]
@@ -41,23 +36,14 @@ fn compose_nf_non_ground_structural() {
     let right = NF::factor(t_app1(&terms, g, v1), t_app1(&terms, h, v1), (), &mut terms);
     let composed = compose_nf(&left, &right, &mut terms).expect("compose should succeed");
 
-    let pair = nf_pair_shape(&composed, &mut terms, &symbols);
-    assert_eq!(
-        pair,
+    assert_nf_pair_with_dual(
+        &composed,
         (
             shape_app("f", vec![shape_var(0)]),
-            shape_app("h", vec![shape_var(0)])
-        )
-    );
-
-    let dual = dual_nf(&composed, &mut terms);
-    let dual_pair = nf_pair_shape(&dual, &mut terms, &symbols);
-    assert_eq!(
-        dual_pair,
-        (
             shape_app("h", vec![shape_var(0)]),
-            shape_app("f", vec![shape_var(0)])
-        )
+        ),
+        &mut terms,
+        &symbols,
     );
 }
 
@@ -72,12 +58,12 @@ fn compose_nf_renames_apart_variables() {
     let right = NF::factor(v1, v0, (), &mut terms);
     let composed = compose_nf(&left, &right, &mut terms).expect("compose should succeed");
 
-    let pair = nf_pair_shape(&composed, &mut terms, &symbols);
-    assert_eq!(pair, (shape_var(0), shape_var(1)));
-
-    let dual = dual_nf(&composed, &mut terms);
-    let dual_pair = nf_pair_shape(&dual, &mut terms, &symbols);
-    assert_eq!(dual_pair, (shape_var(0), shape_var(1)));
+    assert_nf_pair_with_dual(
+        &composed,
+        (shape_var(0), shape_var(1)),
+        &mut terms,
+        &symbols,
+    );
 }
 
 #[test]
@@ -136,23 +122,14 @@ fn meet_nf_non_ground_structural() {
     let right = NF::factor(t_app1(&terms, f, v1), t_app1(&terms, g, v1), (), &mut terms);
     let met = meet_nf(&left, &right, &mut terms).expect("meet should succeed");
 
-    let pair = nf_pair_shape(&met, &mut terms, &symbols);
-    assert_eq!(
-        pair,
+    assert_nf_pair_with_dual(
+        &met,
         (
             shape_app("f", vec![shape_var(0)]),
-            shape_app("g", vec![shape_var(0)])
-        )
-    );
-
-    let dual = dual_nf(&met, &mut terms);
-    let dual_pair = nf_pair_shape(&dual, &mut terms, &symbols);
-    assert_eq!(
-        dual_pair,
-        (
             shape_app("g", vec![shape_var(0)]),
-            shape_app("f", vec![shape_var(0)])
-        )
+        ),
+        &mut terms,
+        &symbols,
     );
 }
 
@@ -167,10 +144,10 @@ fn meet_nf_renames_apart_variables() {
     let right = NF::factor(v1, v0, (), &mut terms);
     let met = meet_nf(&left, &right, &mut terms).expect("meet should succeed");
 
-    let pair = nf_pair_shape(&met, &mut terms, &symbols);
-    assert_eq!(pair, (shape_var(0), shape_var(1)));
-
-    let dual = dual_nf(&met, &mut terms);
-    let dual_pair = nf_pair_shape(&dual, &mut terms, &symbols);
-    assert_eq!(dual_pair, (shape_var(0), shape_var(1)));
+    assert_nf_pair_with_dual(
+        &met,
+        (shape_var(0), shape_var(1)),
+        &mut terms,
+        &symbols,
+    );
 }

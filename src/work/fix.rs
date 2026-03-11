@@ -6,11 +6,11 @@ use crate::queue::{BlockedOn, QueueWaker, WakeHub};
 use crate::rel::{Rel, RelId};
 use crate::term::TermStore;
 use dashmap::DashMap;
-use rustc_hash::{FxHashMap, FxHashSet};
+use rustc_hash::FxHashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
-use super::{CallMode, PipeWork, Work, WorkStep};
+use super::{CallMode, PipeWork, U64HashSet, Work, WorkStep};
 
 // FixWork: Call-context tabling for recursive calls
 // ============================================================================
@@ -150,7 +150,7 @@ pub struct ProducerSpec<C: ConstraintOps> {
 #[derive(Debug)]
 pub(crate) struct TableAnswers<C: ConstraintOps> {
     answers: Vec<NF<C>>,
-    seen: FxHashSet<NF<C>>,
+    seen: U64HashSet,
     waker: QueueWaker,
 }
 
@@ -186,7 +186,7 @@ impl<C: ConstraintOps> Table<C> {
         Self {
             answers: FastLock::new(TableAnswers {
                 answers: Vec::new(),
-                seen: FxHashSet::default(),
+                seen: U64HashSet::default(),
                 waker,
             }),
             producer: FastLock::new(TableProducer {
@@ -203,7 +203,7 @@ impl<C: ConstraintOps> Table<C> {
     /// Add an answer to the table.
     pub fn add_answer(&self, nf: NF<C>) -> bool {
         let mut answers = self.answers.lock();
-        if answers.seen.insert(nf.clone()) {
+        if answers.seen.insert(nf.hash_value()) {
             answers.answers.push(nf);
             answers.waker.wake();
             true
@@ -232,6 +232,40 @@ impl<C: ConstraintOps> Table<C> {
         if guard.spec.is_none() {
             guard.spec = Some(spec);
         }
+    }
+
+    /// Initialize producer for first iteration.
+    ///
+    /// If spec exists, builds a replay producer, starts it, and returns `Some(spec)`.
+    /// If no spec, finishes the producer and returns `None`.
+    /// Consolidates `producer_state + producer_spec_clone + start_producer + answers_len`
+    /// into two lock acquisitions instead of four.
+    fn initialize_producer(&self) -> Option<ProducerSpec<C>> {
+        let mut guard = self.producer.lock();
+        let spec = guard.spec.clone()?;
+        let answers_len = self.answers.lock().answers.len();
+        guard.state = ProducerState::Running;
+        guard.iteration_start_len = answers_len;
+        Some(spec)
+    }
+
+    /// Try to advance to the next fixpoint iteration after producer exhaustion.
+    ///
+    /// Returns `Some(spec, watermark)` if new answers exist (iteration should continue),
+    /// or `None` if fixpoint reached (no new answers).
+    /// Consolidates `answers_len + iteration_start_len + producer_spec_clone +
+    /// set_replay_watermark + set_iteration_start_len` into two lock acquisitions.
+    fn try_advance_iteration(&self) -> Option<(ProducerSpec<C>, usize)> {
+        let mut guard = self.producer.lock();
+        let answers_len = self.answers.lock().answers.len();
+        if answers_len <= guard.iteration_start_len {
+            return None;
+        }
+        let spec = guard.spec.clone()?;
+        let watermark = guard.iteration_start_len;
+        guard.replay_watermark = watermark;
+        guard.iteration_start_len = answers_len;
+        Some((spec, watermark))
     }
 
     /// Mark the producer as done.
@@ -278,32 +312,12 @@ impl<C: ConstraintOps> Table<C> {
         }
     }
 
-    pub fn producer_spec_clone(&self) -> Option<ProducerSpec<C>> {
-        self.producer.lock().spec.clone()
-    }
-
     pub fn take_producer_node(&self) -> Option<Node<C>> {
         self.producer.lock().producer.take()
     }
 
     pub fn set_producer_node(&self, node: Node<C>) {
         self.producer.lock().producer = Some(node);
-    }
-
-    pub fn iteration_start_len(&self) -> usize {
-        self.producer.lock().iteration_start_len
-    }
-
-    pub fn set_iteration_start_len(&self, len: usize) {
-        self.producer.lock().iteration_start_len = len;
-    }
-
-    pub fn replay_watermark(&self) -> usize {
-        self.producer.lock().replay_watermark
-    }
-
-    pub fn set_replay_watermark(&self, watermark: usize) {
-        self.producer.lock().replay_watermark = watermark;
     }
 
     pub fn producer_has_node(&self) -> bool {
@@ -404,13 +418,13 @@ pub fn step_table_producer<C: ConstraintOps>(
     }
 
     if state == ProducerState::NotStarted {
-        let Some(spec) = table.producer_spec_clone() else {
+        let Some(spec) = table.initialize_producer() else {
             table.finish_producer();
             return ProducerStep::Done;
         };
         // First iteration: watermark = 0, replay all existing answers
         let producer_node = make_replay_producer(&spec, tables, 0);
-        table.start_producer(producer_node, spec, table.answers_len());
+        table.set_producer_node(producer_node);
     }
 
     let current = table.take_producer_node().unwrap_or(Node::Fail);
@@ -427,18 +441,10 @@ pub fn step_table_producer<C: ConstraintOps>(
             ProducerStep::Progress
         }
         NodeStep::Exhausted => {
-            let has_new = table.answers_len() > table.iteration_start_len();
-            if has_new {
-                let Some(spec) = table.producer_spec_clone() else {
-                    table.finish_producer();
-                    return ProducerStep::Done;
-                };
+            if let Some((spec, watermark)) = table.try_advance_iteration() {
                 // Semi-naive: the delta for the next iteration starts at the
                 // previous iteration_start_len. Only answers from this index
                 // onward will be replayed by ReplayOnly calls.
-                let watermark = table.iteration_start_len();
-                table.set_replay_watermark(watermark);
-                table.set_iteration_start_len(table.answers_len());
                 table.set_producer_node(make_replay_producer(&spec, tables, watermark));
                 ProducerStep::Progress
             } else {
