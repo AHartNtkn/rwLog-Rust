@@ -1880,9 +1880,42 @@ rel add {
         treecalc_case(input, expected, "app");
     }
 
+    fn treecalc_def() -> &'static str {
+        r#"rel app {
+    (f l $z) -> (b $z)
+    |
+    (f (b $y) $z) -> (f $y $z)
+    |
+    (f (f l $y) $z) -> $y
+    |
+    (f (f (f $w $x) $y) l) -> $w
+    |
+    [
+        [(f (f (b $x) $y) $z) -> (f $x $z) ; app ; $x -> (f $x $y)]
+        &
+        [(f (f (b $x) $y) $z) -> (f $y $z) ; app ; $y -> (f $x $y)]
+        ; app
+    ]
+    |
+    [
+        (f (f (f $w $x) $y) (b $u)) -> (f $x $u)
+        ; app
+    ]
+    |
+    [
+        (f (f (f $w $x) $y) (f $u $v)) -> (f (f $y $u) $v)
+        ;
+        [(f (f $a $b) $c) -> (f $a $b) ; app ; $a -> (f $a $b)]
+        &
+        (f (f $a $b) $c) -> (f $d $c)
+        ; app
+    ]
+}"#
+    }
+
     fn treecalc_case(input: &str, expected: &str, query_suffix: &str) {
         let mut parser = Parser::new();
-        let def = include_str!("../examples/treecalc.txt");
+        let def = treecalc_def();
         let (_app_rel, env) = parse_rel_def_with_env(&mut parser, def);
 
         let query_str = format!("@{} ; {}", input, query_suffix);
@@ -2086,10 +2119,51 @@ rel add {
             run_until_emit(&mut dual_engine, max_steps).expect("expected dual answer");
     }
 
+    fn treecalc_def_chr() -> &'static str {
+        r#"theory treecalc_constraints {
+    constraint no_c/1
+    (no_c l) <=> .
+    (no_c (b $x)) <=> (no_c $x).
+    (no_c (f $x $y)) <=> (no_c $x), (no_c $y).
+    (no_c (c $n)) <=> fail.
+}
+
+rel app {
+    (f l $z) -> (b $z)
+    |
+    (f (b $y) $z) -> (f $y $z)
+    |
+    (f (f l $y) $z) -> $y
+    |
+    (f (f (f $w $x) $y) l) -> $w
+    |
+    [
+        [(f (f (b $x) $y) $z) -> (f $x $z) ; app ; $x -> (f $x $y)]
+        &
+        [(f (f (b $x) $y) $z) -> (f $y $z) ; app ; $y -> (f $x $y)]
+        ; app
+    ]
+    |
+    [
+        (f (f (f $w $x) $y) (b $u)) -> (f $x $u)
+        ; app
+    ]
+    |
+    [
+        (f (f (f $w $x) $y) (f $u $v)) -> (f (f $y $u) $v)
+        ;
+        [(f (f $a $b) $c) -> (f $a $b) ; app ; $a -> (f $a $b)]
+        &
+        (f (f $a $b) $c) -> (f $d $c)
+        ; app
+    ]
+}"#
+    }
+
     #[test]
     fn treecalc_identity_with_no_c_constraint() {
         let mut parser = Parser::with_chr();
-        let def = include_str!("../examples/treecalc.txt");
+        let def = treecalc_def_chr();
         let (_app_rel, env) = parse_rel_def_with_env_chr(&mut parser, def);
 
         let expected_prog = parser
@@ -2207,7 +2281,7 @@ rel add {
     #[test]
     fn treecalc_app_rule_count() {
         let mut parser = Parser::new();
-        let def = include_str!("../examples/treecalc.txt");
+        let def = treecalc_def();
         let (rel, _env) = parse_rel_def_with_env(&mut parser, def);
         let body = match rel {
             Rel::Fix(_, body) => body,

@@ -610,6 +610,73 @@ mod tests {
     }
 
     #[test]
+    fn treecalc_flip_query_produces_correct_output() {
+        let mut repl = Repl::new();
+
+        // Define the treecalc theory and app relation (from program_synth notebook)
+        let setup = r#"theory treecalc_constraints {
+    constraint no_c/1
+    (no_c l) <=> .
+    (no_c (b $x)) <=> (no_c $x).
+    (no_c (f $x $y)) <=> (no_c $x), (no_c $y).
+    (no_c (c $n)) <=> fail.
+    (no_c (a $n $m)) <=> fail.
+}
+
+rel app {
+    (f (c $x) $y) -> (a (c $x) $y)
+    |
+    (f (a $x $y) $z) -> (a (a $x $y) $z)
+    |
+    (f l $z) -> (b $z)
+    |
+    (f (b $y) $z) -> (f $y $z)
+    |
+    (f (f l $y) $z) -> $y
+    |
+    (f (f (f $w $x) $y) l) -> $w
+    |
+    [
+        [(f (f (b $x) $y) $z) -> (f $x $z) ; app ; $x -> (f $x $y)]
+        &
+        [(f (f (b $x) $y) $z) -> (f $y $z) ; app ; $y -> (f $x $y)]
+        ; app
+    ]
+    |
+    [
+        (f (f (f $w $x) $y) (b $u)) -> (f $x $u)
+        ; app
+    ]
+    |
+    [
+        (f (f (f $w $x) $y) (f $u $v)) -> (f (f $y $u) $v)
+        ;
+        [(f (f $a $b) $c) -> (f $a $b) ; app ; $a -> (f $a $b)]
+        &
+        (f (f $a $b) $c) -> (f $d $c)
+        ; app
+    ]
+}"#;
+
+        repl.process_cell(setup).expect("setup treecalc");
+
+        // Run the flip query
+        let query = "[[$x { (no_c $x) } -> (f $x (c z))] ; app ; [$x -> (f $x (c (s z)))] ; app ; @(a (c (s z)) (c z))]";
+        let output = repl
+            .process_input(query)
+            .expect("run flip query")
+            .unwrap_or_default();
+
+        // The first answer's RHS must be (a (c (s z)) (c z)) — the @-filter ensures this.
+        // A bug that breaks evaluation might produce wrong RHS like $0 or other garbage.
+        assert!(
+            output.contains("-> (a (c (s z)) (c z))"),
+            "First answer must have RHS (a (c (s z)) (c z)), got: {}",
+            output
+        );
+    }
+
+    #[test]
     fn theory_notebook_demo_cells_run() {
         let mut repl = Repl::new();
         let root = Path::new(env!("CARGO_MANIFEST_DIR"));
