@@ -15,16 +15,19 @@ The two dissatisfactions under examination:
 The short version of the conclusions:
 
 * On (1): the unified language is a graphical relational language, i.e.
-  point-free n-ary relational algebra with wires in place of names. In it,
-  "constraint" is not a kind of object but a mode of presentation: a `rel` is a
-  generator presented definitionally (it equals a diagram and may be unfolded),
-  a constraint predicate is a generator presented axiomatically (directed
-  equations between diagrams, nothing to unfold). CHR is the axioms half of
-  "generators and axioms" and is already relational. Constructors are the
-  axiomatically presented generators whose theory is complete. What is tacked
-  on today is that constructor axioms and user axioms run in two engines joined
-  by substitutions. The remaining language decision is evaluation strategy,
-  generate vs residuate, which is independent of presentation.
+  point-free n-ary relational algebra with wires in place of names. In it a
+  `rel` is a μ-bound generator (least solution of `R = D[R]`, evaluated by
+  unfolding, answers witnessed) and a constraint predicate is a free generator
+  with an inequational theory (evaluated by rewriting toward a solved form,
+  answers are what the axioms fail to refute). These are two semantics, not
+  two strategies. They coincide exactly when the theory is
+  satisfaction-complete: a solved-form store is guaranteed nonempty. That is
+  the condition under which residual answers are genuine covering spans and
+  one witness semantics covers everything. Constructors are the free
+  generators whose theory is complete. What is tacked on today is that the
+  two axiom sets run in two engines joined by substitutions, and that the
+  engine accepts any theory's final store as an answer without knowing
+  whether the theory is satisfaction-complete.
 * Labeled superposition has a precise relational meaning: a union whose choice
   is a named existential variable of finite type. Two superpositions with the
   same label share that variable. That single idea explains why unlabeled
@@ -199,20 +202,43 @@ What is tacked on today is implementation: constructor axioms are hardcoded in
 exchange information through substitutions (1.2). One rewriter over one axiom
 set removes the seam.
 
-What remains a genuine language decision is evaluation strategy, which is
-independent of presentation:
+It is tempting to say that what remains is a choice of evaluation strategy,
+generate vs residuate, independent of presentation. That is wrong, and the
+fact that it looks like a free choice is the symptom of two semantics being
+formulated as one thing. Ask what a residual means:
 
-* **generate**: unfold a definitional generator eagerly and enumerate;
-* **residuate**: rewrite a generator only when a redex forms at one of its
-  ports.
+* Generated `no_c`: every emitted span is **witnessed**; each instance is a
+  proven member of the least fixpoint.
+* Residuated `no_c` never woken: `$x {(no_c $x)} -> …` means every `x` the
+  axioms **fail to refute**. This is CHR's qualified answer and CLP's
+  residual store.
 
-The search control that constraints provide today (`no_c`, `norm`) comes from
-the second strategy, not from being axiomatic; `no_c` could be defined and
-residuated. Making strategy explicit, per definition or per call site, is the
-substantive change. Two obligations come with it: completeness of search must
-be re-argued with suspended nodes present (a generating node must not be
-starved by a residuating one), and only complete theories may be solved into
-the span, which the engine should track per theory rather than per namespace.
+Witness semantics is the least fixpoint of a definition and needs a fixpoint
+operator the equational theory of the graphical algebra cannot express by
+itself. Consistency semantics is satisfaction in any model of the axioms and
+never witnesses anything; it only refutes (the paper's section 2.3: constraints
+prune but do not grow the search space). The two agree exactly when the
+theory is **satisfaction-complete**: a store in solved form is guaranteed
+nonempty. `no_c` on structural terms, disequality over an infinite alphabet,
+Peano ordering, and choice-variable exclusion (at least one coordinate
+survives) all have this property, which is why residuating them looks like a
+mere strategy. `p(x) <=> p(x)` does not: witnessed it is empty, unrefuted it
+is everything.
+
+Consequences:
+
+* The language must carry the μ-bound vs axiomatic distinction explicitly.
+  `rel`/`theory` happens to track it syntactically, but the engine treats any
+  theory's final store as an answer.
+* The admission condition on a theory is not "has CHR rules" but "has a
+  solved form with a nonemptiness guarantee". A theory without it should be
+  rejected or its answers marked conditional.
+* Residuation of a μ-bound generator is a sound strategy only under the same
+  side condition (the delayed unfolding is provably nonempty); otherwise it
+  silently changes which relation was computed.
+* Under the admission condition, everything sits under one witness semantics
+  and residual atoms are legitimate compressed witnesses. That is the
+  condition under which "one graphical relational language" is actually true.
 
 ---
 
