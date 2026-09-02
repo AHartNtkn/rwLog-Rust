@@ -14,16 +14,17 @@ The two dissatisfactions under examination:
 
 The short version of the conclusions:
 
-* On (1): once the two are unified, the core is a constraint language. The
-  n-ary graphical view makes a span a 2-port atom, composition a conjunction
-  over a shared existential wire, converse a port relabeling, answers the
-  Herbrand solved form, and (with labeled superposition) union a finite-domain
-  choice variable. Unifiability is one theory in the store among others. What
-  survives of the relational calculus is the point-free surface syntax and
-  the algebraic laws that justify a normalization strategy. What is "tacked
-  on" today is not constraints but the split into two solvers with a
-  substitution-shaped seam, and a syntactic `rel`/`theory` distinction where
-  the real one is generate vs residuate.
+* On (1): the unified language is a graphical relational language, i.e.
+  point-free n-ary relational algebra with wires in place of names. In it,
+  "constraint" is not a kind of object but a mode of presentation: a `rel` is a
+  generator presented definitionally (it equals a diagram and may be unfolded),
+  a constraint predicate is a generator presented axiomatically (directed
+  equations between diagrams, nothing to unfold). CHR is the axioms half of
+  "generators and axioms" and is already relational. Constructors are the
+  axiomatically presented generators whose theory is complete. What is tacked
+  on today is that constructor axioms and user axioms run in two engines joined
+  by substitutions. The remaining language decision is evaluation strategy,
+  generate vs residuate, which is independent of presentation.
 * Labeled superposition has a precise relational meaning: a union whose choice
   is a named existential variable of finite type. Two superpositions with the
   same label share that variable. That single idea explains why unlabeled
@@ -167,59 +168,51 @@ extra generator family (`≠`) with a known solver.
 The question is: after unifying the two, does the result look more like a
 relational language or more like a constraint language?
 
-At the core, a constraint language, in one specific sense that needs
-stating carefully. It does not mean compiling programs into a store solved by
-something other than graph rewriting. The store *is* the hypergraph (atoms are
-hyperedges, variables are nodes) and solving it *is* local hypergraph
-rewriting; CHR execution and the constructor rules of the paper's section 3.2
-are both rules of that kind. What "constraint language" asserts is the move
-the paper already makes from section 2 to section 3: the object being
-rewritten is the graph of n-ary atoms over shared wires, evaluated by local
-per-theory rules, not an expression of the binary relational algebra being
-normalized by fusion rules. The nodes-and-wires picture of 1.1 is where the
-two views coincide, not evidence for the relational side. Taking the n-ary graphical view
-of the paper's section 3, each specifically relational device reduces:
+A relational one, in the graphical sense: point-free n-ary relational algebra
+in which wires replace variable names. Nothing about wiring is intrinsically
+about constraints; a hypergraph with shared wires is not "a store with shared
+variables" in any sense that favours the constraint reading. (An earlier
+draft of this section said the opposite by equivocating between the two.)
 
-* a binary span `s -> t` is a 2-port atom; the n-ary case is a predicate
-  `R(p1 .. pn)`;
-* composition is conjunction over a shared, existentially bound wire;
-* converse is port relabeling, trivial in an undirected store, and "no
-  inputs, no outputs" is exactly the store's stance;
-* two-sided matching is unification after closing each span at its boundary
-  and renaming apart, i.e. a scoping discipline, not a different operation;
-* answers-as-spans are the Herbrand solved form of the store;
-* with labeled superposition (section 2), union is a finite-domain choice
-  variable and a failed coordinate is an exclusion constraint on it.
+Within that language, "constraint" names a mode of presentation of a
+generator, not a different kind of thing:
 
-So the second perspective is the accurate one about semantics and machine.
-The constructor theory is one theory in the store; the relational calculus is
-redundant as a semantic primitive. The one place where "graph plus external
-search" versus "one graph" is a genuine choice is disjunction: today it lives
-outside the graph as the `Or` spine, and section 2 argues for moving it inside
-as labeled superposition nodes rewritten by the same local rules.
+* **Definitional**: a `rel` is a generator that equals a diagram, possibly
+  recursively. Evaluation may unfold it.
+* **Axiomatic**: a constraint predicate is a generator equipped with directed
+  equations between diagrams. `(neq $x $x) <=> fail` is `merge ; neq = 0`. A
+  multi-head rule is an axiom whose left-hand side contains two generator
+  nodes. There is nothing to unfold; the generator is only ever rewritten.
 
-What survives is the presentation and the algebra. The relational calculus is
-the point-free syntax for writing stores compositionally without naming
-ports, and its laws (the fusion rules, distributivity, the strict inclusion
-`R;(S∩T) ⊆ (R;S)∩(R;T)`) are what justify a normalization strategy, its
-laziness, and its fairness. A store alone gives "propagate to fixpoint" and no
-guidance. That is the sense in which the first perspective is right about the
-surface.
+Rewriting diagrams modulo Frobenius structure against a set of axioms is the
+graphical algebra's native notion of a theory (this is what string diagram
+rewrite theory formalises). CHR is therefore the axioms half of "generators
+and axioms", and is already relational. Constructors are the axiomatically
+presented generators whose theory is complete (1.1), which is why they can be
+solved into the span while other axiomatic generators remain residual.
+"Unifiability is a constraint" is true in exactly this sense; "so the
+relational calculus is redundant" does not follow, because the constructor
+axioms act on wired nodes and the wiring is the calculus.
 
-Design consequences:
+What is tacked on today is implementation: constructor axioms are hardcoded in
+`kernel/` and `matching.rs`, user axioms are interpreted in `chr/`, and the two
+exchange information through substitutions (1.2). One rewriter over one axiom
+set removes the seam.
 
-* One store, one rewrite engine, several theories: constructors (complete,
-  solved into the span), user predicates (residual), choice variables (finite
-  domain, section 2.5), term disequality (section 2.8).
-* The language-level distinction is **generate vs residuate**, declared per
-  relation or per call site, not `rel` vs `theory`. `no_c` is written once as
-  a relation and used as a guard by asking it to residuate; multi-head rules
-  are what a residuating relation may use.
-* Only theories with most-general solutions may be solved into the span;
-  everything else stays as residual nodes. The engine should know which
-  theories are which rather than tying it to the constructor namespace.
-* Completeness of search must be re-argued with suspended nodes present: a
-  generating relation must never be starved by a residuating one.
+What remains a genuine language decision is evaluation strategy, which is
+independent of presentation:
+
+* **generate**: unfold a definitional generator eagerly and enumerate;
+* **residuate**: rewrite a generator only when a redex forms at one of its
+  ports.
+
+The search control that constraints provide today (`no_c`, `norm`) comes from
+the second strategy, not from being axiomatic; `no_c` could be defined and
+residuated. Making strategy explicit, per definition or per call site, is the
+substantive change. Two obligations come with it: completeness of search must
+be re-argued with suspended nodes present (a generating node must not be
+starved by a residuating one), and only complete theories may be solved into
+the span, which the engine should track per theory rather than per namespace.
 
 ---
 
