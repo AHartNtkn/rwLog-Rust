@@ -167,9 +167,17 @@ extra generator family (`≠`) with a known solver.
 The question is: after unifying the two, does the result look more like a
 relational language or more like a constraint language?
 
-At the core, a constraint language. The nodes-and-wires picture of 1.1 is
-where the two coincide, not evidence for the relational side: a hypergraph of
-atoms over shared wires is a constraint store. Taking the n-ary graphical view
+At the core, a constraint language, in one specific sense that needs
+stating carefully. It does not mean compiling programs into a store solved by
+something other than graph rewriting. The store *is* the hypergraph (atoms are
+hyperedges, variables are nodes) and solving it *is* local hypergraph
+rewriting; CHR execution and the constructor rules of the paper's section 3.2
+are both rules of that kind. What "constraint language" asserts is the move
+the paper already makes from section 2 to section 3: the object being
+rewritten is the graph of n-ary atoms over shared wires, evaluated by local
+per-theory rules, not an expression of the binary relational algebra being
+normalized by fusion rules. The nodes-and-wires picture of 1.1 is where the
+two views coincide, not evidence for the relational side. Taking the n-ary graphical view
 of the paper's section 3, each specifically relational device reduces:
 
 * a binary span `s -> t` is a 2-port atom; the n-ary case is a predicate
@@ -185,7 +193,10 @@ of the paper's section 3, each specifically relational device reduces:
 
 So the second perspective is the accurate one about semantics and machine.
 The constructor theory is one theory in the store; the relational calculus is
-redundant as a semantic primitive.
+redundant as a semantic primitive. The one place where "graph plus external
+search" versus "one graph" is a genuine choice is disjunction: today it lives
+outside the graph as the `Or` spine, and section 2 argues for moving it inside
+as labeled superposition nodes rewritten by the same local rules.
 
 What survives is the presentation and the algebra. The relational calculus is
 the point-free syntax for writing stores compositionally without naming
