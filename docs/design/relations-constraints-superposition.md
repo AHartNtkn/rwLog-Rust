@@ -14,13 +14,16 @@ The two dissatisfactions under examination:
 
 The short version of the conclusions:
 
-* Both dichotomies in (1) are false. Constraints and constructors are the same
-  kind of thing (generators of a hypergraph), and the relational calculus is
-  the wiring between them. What is currently "tacked on" is not constraints
-  but the fact that the two kinds of generator have two separate solvers and a
-  substitution-shaped seam between them. The real distinction the language
-  needs is *generate* vs *residuate*, which is an evaluation mode, not a
-  syntactic category.
+* On (1): once the two are unified, the core is a constraint language. The
+  n-ary graphical view makes a span a 2-port atom, composition a conjunction
+  over a shared existential wire, converse a port relabeling, answers the
+  Herbrand solved form, and (with labeled superposition) union a finite-domain
+  choice variable. Unifiability is one theory in the store among others. What
+  survives of the relational calculus is the point-free surface syntax and
+  the algebraic laws that justify a normalization strategy. What is "tacked
+  on" today is not constraints but the split into two solvers with a
+  substitution-shaped seam, and a syntactic `rel`/`theory` distinction where
+  the real one is generate vs residuate.
 * Labeled superposition has a precise relational meaning: a union whose choice
   is a named existential variable of finite type. Two superpositions with the
   same label share that variable. That single idea explains why unlabeled
@@ -161,35 +164,51 @@ extra generator family (`≠`) with a known solver.
 
 ### 1.4 Answer to question 1
 
-Neither "drop constraints" nor "drop relations".
+The question is: after unifying the two, does the result look more like a
+relational language or more like a constraint language?
 
-* The relational calculus is the wiring. It cannot be removed; without it
-  there is no composition, no intersection, no converse, no existential.
-  Everything a "constraint language" does still needs this. CHR-as-a-language
-  has it implicitly (shared variables in a flat store) but loses the canonical
-  span normal form, which is rwlog's whole value.
-* Constraints are the atoms. Constructors are the atoms with the good theory.
-  User predicates are atoms with user theories. There is one graph and one
-  notion of normal form: no rewrite applies.
-* The language-level distinction that should exist is **generate vs
-  residuate**, declared per relation (or per call site), not `rel` vs
-  `theory`. Under that reading, `no_c` is written once as a relation and used
-  as a guard by asking for it to residuate. `theory` blocks become the special
-  case of a residuating relation whose rules mention more than one atom on the
-  left (multi-head).
+At the core, a constraint language. The nodes-and-wires picture of 1.1 is
+where the two coincide, not evidence for the relational side: a hypergraph of
+atoms over shared wires is a constraint store. Taking the n-ary graphical view
+of the paper's section 3, each specifically relational device reduces:
 
-Two things to keep in view if this is pursued:
+* a binary span `s -> t` is a 2-port atom; the n-ary case is a predicate
+  `R(p1 .. pn)`;
+* composition is conjunction over a shared, existentially bound wire;
+* converse is port relabeling, trivial in an undirected store, and "no
+  inputs, no outputs" is exactly the store's stance;
+* two-sided matching is unification after closing each span at its boundary
+  and renaming apart, i.e. a scoping discipline, not a different operation;
+* answers-as-spans are the Herbrand solved form of the store;
+* with labeled superposition (section 2), union is a finite-domain choice
+  variable and a failed coordinate is an exclusion constraint on it.
 
-* Completeness of search under residuation. A residuated atom that is never
-  woken stays in the answer as a residual. That is already the semantics
-  today ("residual constraints in output"), so nothing is lost, but a
-  generating relation must never be starved by a residuating one; the
-  fairness argument for interleaving has to be re-done with suspended nodes
-  in the picture.
-* Canonicity. Only theories with most-general solutions may be *solved into*
-  the span; everything else stays as residual nodes. The engine should know
-  which theories are which; it should not be a property of the constructor
-  namespace.
+So the second perspective is the accurate one about semantics and machine.
+The constructor theory is one theory in the store; the relational calculus is
+redundant as a semantic primitive.
+
+What survives is the presentation and the algebra. The relational calculus is
+the point-free syntax for writing stores compositionally without naming
+ports, and its laws (the fusion rules, distributivity, the strict inclusion
+`R;(S∩T) ⊆ (R;S)∩(R;T)`) are what justify a normalization strategy, its
+laziness, and its fairness. A store alone gives "propagate to fixpoint" and no
+guidance. That is the sense in which the first perspective is right about the
+surface.
+
+Design consequences:
+
+* One store, one rewrite engine, several theories: constructors (complete,
+  solved into the span), user predicates (residual), choice variables (finite
+  domain, section 2.5), term disequality (section 2.8).
+* The language-level distinction is **generate vs residuate**, declared per
+  relation or per call site, not `rel` vs `theory`. `no_c` is written once as
+  a relation and used as a guard by asking it to residuate; multi-head rules
+  are what a residuating relation may use.
+* Only theories with most-general solutions may be solved into the span;
+  everything else stays as residual nodes. The engine should know which
+  theories are which rather than tying it to the constructor namespace.
+* Completeness of search must be re-argued with suspended nodes present: a
+  generating relation must never be starved by a residuating one.
 
 ---
 
