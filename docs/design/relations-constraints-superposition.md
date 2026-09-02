@@ -15,19 +15,20 @@ The two dissatisfactions under examination:
 The short version of the conclusions:
 
 * On (1): the unified language is a graphical relational language, i.e.
-  point-free n-ary relational algebra with wires in place of names. In it a
-  `rel` is a μ-bound generator (least solution of `R = D[R]`, evaluated by
-  unfolding, answers witnessed) and a constraint predicate is a free generator
-  with an inequational theory (evaluated by rewriting toward a solved form,
-  answers are what the axioms fail to refute). These are two semantics, not
-  two strategies. They coincide exactly when the theory is
-  satisfaction-complete: a solved-form store is guaranteed nonempty. That is
-  the condition under which residual answers are genuine covering spans and
-  one witness semantics covers everything. Constructors are the free
-  generators whose theory is complete. What is tacked on today is that the
-  two axiom sets run in two engines joined by substitutions, and that the
-  engine accepts any theory's final store as an answer without knowing
-  whether the theory is satisfaction-complete.
+  point-free n-ary relational algebra with wires in place of names. It has one
+  kind of generator (a relation symbol with axioms; a recursive definition
+  `R = D[R]` is an axiom too) and one intended model: the term model, in which
+  constructors are the free algebra and recursive equations denote least
+  fixpoints. What separates today's `rel` from today's `theory` is not a kind
+  but a proof obligation: unfolding a recursive definition is complete for its
+  least fixpoint by construction, while a user rule set may not decide
+  membership or may leave stores that are unsatisfiable in the intended
+  model. An answer with a residual is sound iff the residual is inhabited.
+  Generating discharges that by producing a witness; residuating discharges
+  it by a solved-form guarantee for the theory, or not at all. Today the
+  engine admits any rule set and reports its final store as an answer without
+  checking. That, and the two-engine split joined by substitutions, is what is
+  tacked on.
 * Labeled superposition has a precise relational meaning: a union whose choice
   is a named existential variable of finite type. Two superpositions with the
   same label share that variable. That single idea explains why unlabeled
@@ -173,72 +174,60 @@ relational language or more like a constraint language?
 
 A relational one, in the graphical sense: point-free n-ary relational algebra
 in which wires replace variable names. Nothing about wiring is intrinsically
-about constraints; a hypergraph with shared wires is not "a store with shared
-variables" in any sense that favours the constraint reading. (An earlier
-draft of this section said the opposite by equivocating between the two.)
+about constraints. (Earlier drafts of this section said otherwise, and then
+tried to split generators into "definitional" and "axiomatic" kinds; both were
+wrong, for the reasons below.)
 
-Within that language, "constraint" names a mode of presentation of a
-generator, not a different kind of thing:
+**One kind of generator.** A relation symbol comes with axioms, i.e.
+(in)equations between diagrams. A recursive definition `R = D[R]` is such an
+axiom. There is no second kind of symbol. What a `rel` adds is not a
+different kind of axiom but the requirement that `R` be the *least* solution,
+and that requirement is not equational: Park induction, `D[S] ⊆ S ⇒ R ⊆ S`
+for all `S`, is a rule schema over all relations.
 
-* **Definitional**: a `rel` is a generator that equals a diagram, possibly
-  recursively. Evaluation may unfold it.
-* **Axiomatic**: a constraint predicate is a generator equipped with directed
-  equations between diagrams. `(neq $x $x) <=> fail` is `merge ; neq = 0`. A
-  multi-head rule is an axiom whose left-hand side contains two generator
-  nodes. There is nothing to unfold; the generator is only ever rewritten.
+**One intended model.** That requirement belongs to the model, not to the
+symbol. Everything in the language is interpreted in the term model:
+constructors are the free algebra (which is why Clark's equality theory needs
+domain closure to be complete), recursive equations denote least fixpoints
+there, `neq` means ground disequality there, `no_c` means a specific set of
+ground terms there. No theory is meant to be read in arbitrary models of its
+axioms.
 
-Rewriting diagrams modulo Frobenius structure against a set of axioms is the
-graphical algebra's native notion of a theory (this is what string diagram
-rewrite theory formalises). CHR is therefore the axioms half of "generators
-and axioms", and is already relational. Constructors are the axiomatically
-presented generators whose theory is complete (1.1), which is why they can be
-solved into the span while other axiomatic generators remain residual.
-"Unifiability is a constraint" is true in exactly this sense; "so the
-relational calculus is redundant" does not follow, because the constructor
-axioms act on wired nodes and the wiring is the calculus.
+**What actually distinguishes `rel` from `theory`: completeness of the
+rewrite system for the intended model.** Unfolding a recursive definition is
+complete for its least fixpoint by construction: every ground member has a
+finite derivation, so unfolding generates the whole relation. A user CHR rule
+set carries no such guarantee; it may fail to decide membership, or leave a
+store that has no solution in the intended model. This is a proof obligation
+on the rule set, not a property of the symbol.
 
-What is tacked on today is implementation: constructor axioms are hardcoded in
-`kernel/` and `matching.rs`, user axioms are interpreted in `chr/`, and the two
-exchange information through substitutions (1.2). One rewriter over one axiom
-set removes the seam.
+**Answers.** An answer with a residual is sound iff the residual is inhabited
+in the intended model. A span is inhabited by construction. A store in solved
+form is inhabited by the solved-form theorem for that theory (disequality
+over an infinite alphabet, Peano ordering, structural predicates like `no_c`,
+choice-variable exclusion with at least one coordinate surviving). A residual
+left by an arbitrary rule set is inhabited only if someone proved it.
 
-It is tempting to say that what remains is a choice of evaluation strategy,
-generate vs residuate, independent of presentation. That is wrong, and the
-fact that it looks like a free choice is the symptom of two semantics being
-formulated as one thing. Ask what a residual means:
+**Generate vs residuate** are then two ways of discharging one obligation,
+not two semantics. Generating discharges inhabitation by producing the
+witness. Residuating discharges it by the theory's solved-form guarantee, or
+not at all. The second is a legitimate strategy exactly under that side
+condition. Today the engine does not check the side condition: it admits any
+rule set as a theory and reports its final store as an answer.
 
-* Generated `no_c`: every emitted span is **witnessed**; each instance is a
-  proven member of the least fixpoint.
-* Residuated `no_c` never woken: `$x {(no_c $x)} -> …` means every `x` the
-  axioms **fail to refute**. This is CHR's qualified answer and CLP's
-  residual store.
+Design consequences:
 
-Witness semantics is the least fixpoint of a definition and needs a fixpoint
-operator the equational theory of the graphical algebra cannot express by
-itself. Consistency semantics is satisfaction in any model of the axioms and
-never witnesses anything; it only refutes (the paper's section 2.3: constraints
-prune but do not grow the search space). The two agree exactly when the
-theory is **satisfaction-complete**: a store in solved form is guaranteed
-nonempty. `no_c` on structural terms, disequality over an infinite alphabet,
-Peano ordering, and choice-variable exclusion (at least one coordinate
-survives) all have this property, which is why residuating them looks like a
-mere strategy. `p(x) <=> p(x)` does not: witnessed it is empty, unrefuted it
-is everything.
-
-Consequences:
-
-* The language must carry the μ-bound vs axiomatic distinction explicitly.
-  `rel`/`theory` happens to track it syntactically, but the engine treats any
-  theory's final store as an answer.
-* The admission condition on a theory is not "has CHR rules" but "has a
-  solved form with a nonemptiness guarantee". A theory without it should be
-  rejected or its answers marked conditional.
-* Residuation of a μ-bound generator is a sound strategy only under the same
-  side condition (the delayed unfolding is provably nonempty); otherwise it
-  silently changes which relation was computed.
-* Under the admission condition, everything sits under one witness semantics
-  and residual atoms are legitimate compressed witnesses. That is the
-  condition under which "one graphical relational language" is actually true.
+* One rewriter over one axiom set; constructor axioms, user axioms, and the
+  unfolding equations of recursive definitions are all rules of the same
+  system. This removes the substitution-shaped seam of 1.2.
+* Admission of a theory requires a solved form with an inhabitation
+  guarantee. Without it, either reject the theory or mark its answers as
+  conditional. The engine should track this per theory, not per namespace.
+* Residuating a recursive definition is allowed under the same condition,
+  which in general means: eventually unfold, or prove the folded call
+  inhabited.
+* Completeness of search must be re-argued with suspended nodes present: a
+  generating node must not be starved by a residuating one.
 
 ---
 
