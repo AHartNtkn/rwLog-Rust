@@ -41,6 +41,33 @@ theorem orBranches_not_or : ∀ (e : Rel), ∀ l ∈ orBranches e, ∀ a b, l �
   | .conv _, l, hl => by simp only [orBranches, List.mem_singleton] at hl; subst hl; simp
   | .call _, l, hl => by simp only [orBranches, List.mem_singleton] at hl; subst hl; simp
 
+/-- A goal's answers cover a derivation once its table covers the matching
+derivation of its key. -/
+theorem dc_from_key {ts : Tables} {d : Goal} {t : Table} (hf : findTable ts d.norm.2 = some t)
+    (hgd : GoodG d) (hgt : GoodG t.goal) {s s' : Span}
+    (h4 : GDen d s.den = oR d.norm.1 (GDen d.norm.2 s'.den))
+    (H : DC P.theory t.answers (GDen t.goal s'.den)) :
+    DC P.theory (answersOf ts d) (GDen d s.den) := by
+  have hdc := dc_orient d.norm.1 H
+  rw [same_gden (findTable_spec hf).2 hgt (goodG_norm hgd), ← h4, ← answersOf_eq hf] at hdc
+  exact hdc
+
+/-- Moving a derivation onto a goal's key does not raise the measure. -/
+theorem norm_meas (d : Goal) {w : Nat} {s : Span} (h : DW P w d.e s) :
+    ∃ w' s', DW P w' d.norm.2.e s' ∧ 2 * w' + isOr d.norm.2.e ≤ 2 * w + isOr d.e ∧
+      GDen d s.den = oR d.norm.1 (GDen d.norm.2 s'.den) := by
+  obtain ⟨w', s', h1, h2, h3, h4⟩ := norm_fwd d h
+  refine ⟨w', s', h1, ?_, h4⟩
+  by_cases hor : ∃ a b, d.e = .or a b
+  · obtain ⟨a, b, hab⟩ := hor
+    have h1 : isOr d.e = 1 := by rw [hab]; rfl
+    rw [h1]; have := isOr_le d.norm.2.e; omega
+  · simp only [not_exists] at hor
+    rw [isOr_zero hor]
+    rcases h3 hor with h3 | h3
+    · have := isOr_le d.norm.2.e; omega
+    · rw [isOr_zero h3]; omega
+
 /-- A goal's answers cover a derivation once its table covers the derivations
 of the table's goal that weigh no more. -/
 theorem dc_via_table {ts : Tables} {d : Goal} {t : Table} (hf : findTable ts d.norm.2 = some t)
@@ -48,23 +75,10 @@ theorem dc_via_table {ts : Tables} {d : Goal} {t : Table} (hf : findTable ts d.n
     (H : ∀ w' s', DW P w' t.goal.e s' → 2 * w' + isOr t.goal.e ≤ 2 * w + isOr d.e →
       DC P.theory t.answers (GDen t.goal s'.den)) :
     DC P.theory (answersOf ts d) (GDen d s.den) := by
-  obtain ⟨w', s', h1, h2, h3, h4⟩ := norm_fwd d hdw
-  have hs := (findTable_spec hf).2
-  have he := same_e hs
-  rw [← he] at h1
-  have hm : 2 * w' + isOr t.goal.e ≤ 2 * w + isOr d.e := by
-    by_cases hor : ∃ a b, d.e = .or a b
-    · obtain ⟨a, b, hab⟩ := hor
-      have h1 : isOr d.e = 1 := by rw [hab]; rfl
-      rw [h1]; have := isOr_le t.goal.e; omega
-    · simp only [not_exists] at hor
-      rw [isOr_zero hor]
-      rcases h3 hor with h3 | h3
-      · have := isOr_le t.goal.e; omega
-      · rw [he, isOr_zero h3]; omega
-  have hdc := dc_orient d.norm.1 (H w' s' h1 hm)
-  rw [same_gden hs hgt (goodG_norm hgd), ← h4, ← answersOf_eq hf] at hdc
-  exact hdc
+  obtain ⟨w', s', h1, hm, h4⟩ := norm_meas d hdw
+  have he := same_e (findTable_spec hf).2
+  rw [← he] at h1 hm
+  exact dc_from_key hf hgd hgt h4 (H w' s' h1 hm)
 
 /-- A complete table's goal is covered on every derivation. -/
 theorem dc_done {ts : Tables} (hI : TInv P ts) {d : Goal} (hgd : GoodG d)
