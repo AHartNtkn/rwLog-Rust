@@ -112,6 +112,17 @@ def zs : List String :=
 #guard runR001 loopNat (.and (.call "nat") (.call "loop")) 40 == ([], true)
 #guard runR001 loopNat (.and (.call "loop") (.call "nat")) 40 == ([], true)
 
+/-! ## Queries the Rust interpreter diverges on
+
+These have an empty or one-answer meaning, and the interpreter runs forever
+on them (properties doc, Experiments). R001 halts: the join over the
+recursive table closes even while the pushes keep making new boundaries. -/
+
+#guard runR001 (prog [("upr", upr)]) (.seq (.call "upr") (.at_ (c "foo"))) 40 == (["foo -> foo"], true)
+#guard runR001 (prog [("upr", upr)]) (.seq (.at_ (c "z")) (.seq (.call "upr") (.at_ (c "foo")))) 40 ==
+  ([], true)
+#guard runR001 (prog [("lr", lr)]) (.seq (.at_ (num 1)) (.seq (.call "lr") (.at_ (c "z")))) 40 == ([], true)
+
 /-! ## P1.1 and P1.4: order and direction do not change the trace -/
 
 #guard traceR001 loopNat (.or (.call "nat") (.rw (c "a") (c "b"))) 12 ==
