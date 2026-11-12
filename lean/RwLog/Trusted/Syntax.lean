@@ -128,10 +128,12 @@ only depends on which constraints occur in it. -/
 
 abbrev Store := List Pat
 
-/-- A rule body: `fail`, or equations together with a (possibly empty)
-conjunction of constraints. The body with neither is the drop body `.`.
-Equations are not constraints and never enter a store: on a ground store an
-equation is a test, and on a non-ground span it instantiates the span. -/
+/-- A rule body: `fail`, or a conjunction of equations `s = t` and
+constraints. The empty conjunction is the drop body `.`.
+
+An equation is not a constraint and never enters a store: when the rule fires
+it equates terms of the span it fires in, so on a ground instance it either
+holds or refutes. -/
 inductive Body where
   | fail
   | conj (eqs : List (Pat × Pat)) (cs : List Pat)
@@ -170,22 +172,23 @@ def TRule.Decreasing (ρ : TRule) : Bool :=
     let H := ρ.heads.diff cs
     !H.isEmpty && B.all fun b => H.any fun h => Pat.smaller b h
 
+/-- The equations of a body. -/
+def Body.eqs : Body → List (Pat × Pat)
+  | .fail => []
+  | .conj eqs _ => eqs
 
 /-- The constraints a body adds. -/
 def Body.atoms : Body → List Pat
   | .fail => []
   | .conj _ cs => cs
 
-/-- The equations of a body. -/
-def Body.eqs : Body → List (Pat × Pat)
-  | .fail => []
-  | .conj eqs _ => eqs
-
-/-- A rule is well formed when it has a head, every variable of its body
-(constraints and equations) occurs in its heads, and it is decreasing. A rule fires by matching its
-heads, so a body variable not bound by them would have no value; reading it
-existentially would let a rule refute through a value it chose itself, which
-is not what the rule says. Decreasing rules make rule firing terminate. -/
+/-- A rule is well formed when it has a head, every variable of its body,
+in constraints and in equations, occurs in its heads, and it is decreasing.
+Rules fire by matching their heads, so the heads determine the whole body. A
+fresh body variable would need an existential reading, and an equation with
+one could make constraint solving on non-ground stores diverge (`(p $x) <=> $x
+= (s $y), (p $y).`), so the rule language excludes it. Decreasing rules make
+rule firing terminate. -/
 def TRule.WellFormed (ρ : TRule) : Prop :=
   ρ.heads ≠ [] ∧ (∀ c ∈ ρ.body.atoms, ∀ v ∈ c.vars, ∃ h ∈ ρ.heads, v ∈ h.vars) ∧
     (∀ e ∈ ρ.body.eqs, ∀ v ∈ e.1.vars ++ e.2.vars, ∃ h ∈ ρ.heads, v ∈ h.vars) ∧

@@ -45,13 +45,18 @@ end GRel
 /-! ## Constraint theories
 
 `Refutes T S` holds when the rules of `T` derive `fail` from the ground store
-`S`. A rule fires when its heads, under one substitution, are distinct members
-of the store; it then either refutes the store (body `fail`) or replaces the
-matched constraints by its body. The body's equations are tests on the
-ground instance: when one fails, the firing refutes the store, and when all
-hold, the firing goes on. A store holds exactly when it is not
-refuted. `Refutes` asks whether *some* sequence of firings reaches `fail`, so
-refutability never depends on the order in which rules are tried. -/
+`S`. A rule fires when its heads, under one substitution `σ`, are distinct
+members of the store. A `fail` body refutes the store. A conjunction body
+refutes the store if one of its equations fails under `σ`; otherwise it
+removes the matched heads and adds its constraints. This is the ground
+reading of an equation unifying the span the rule fires in: the ground
+instances that unification removes are exactly those where the equation
+fails. Equations never enter a store.
+
+A store holds exactly when it is not refuted. `Refutes` asks whether *some*
+sequence of firings reaches `fail`, so refutability never depends on the order
+in which rules are tried. In a well-formed theory (`TRule.WellFormed`) every
+body variable occurs in the heads, so `σ` determines the whole body. -/
 
 /-- The heads of a rule, instantiated. -/
 def TRule.headsAt (ρ : TRule) (σ : Nat → GTerm) : List GTerm := ρ.heads.map (Term.bind σ)

@@ -18,8 +18,9 @@ answers, independently of any engine:
 The theory is the case file's `eq_neq` in the agreed rule language (heads
 only, no guards): the two guarded `nonzero` rules become
 `(nonzero z) <=> fail.`, which refutes exactly the stores the guarded pair
-was meant to refute. Case 4's `pin` theory uses `=` in a rule body, which the
-agreed rule language does not have; it is not stated here.
+was meant to refute. Case 4's `pin` theory, `(pin $x) <=> $x = z.`, uses an
+equation in a rule body; `c4_pin` shows the span then means exactly its
+instance with `$x` set to `z`.
 -/
 import RwLog.Trusted.Semantics
 
@@ -146,14 +147,12 @@ theorem not_refutes_nonzero_sz : ¬ Refutes eqNeq {gc "nonzero" [gs gz]} := by
       simp only [reduceCtorEq] at hb <;>
       have := hf.2 _ List.mem_cons_self <;>
       simp [pa, ps, pv, gc, gs, gz, bind_mk, mk_eq_mk, sym_ne_mk] at this
-  | eq hρ σ hb hf _ _ =>
-    subst hS
+  | eq hρ σ hb hf he hne =>
     simp only [eqNeq, List.mem_cons, List.not_mem_nil, or_false] at hρ
     rcases hρ with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;>
-      simp only [reduceCtorEq] at hb <;>
-      have := hf.2 _ List.mem_cons_self <;>
-      simp [pa, ps, pv, gc, gs, gz, bind_mk, mk_eq_mk] at this
-  | conj hρ σ hb hf _ _ =>
+      simp only [reduceCtorEq, Body.conj.injEq] at hb <;>
+      (obtain ⟨rfl, -⟩ := hb; simp at he)
+  | conj hρ σ hb hf _ _ _ =>
     subst hS
     simp only [eqNeq, List.mem_cons, List.not_mem_nil, or_false] at hρ
     rcases hρ with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;>
@@ -193,6 +192,73 @@ theorem c4_eq_and_neq :
   · simp [TRule.headsAt, pa, bind_mk, mk_eq_mk]
   · simp [TRule.headsAt, Store.at]
 
+/-! ## Case 4: an equation in a rule body unifies the span
+
+Equality is not a constraint: `(pin $x) <=> $x = z.` instantiates `$x` to
+`z` in the span the rule fires in. On ground instances that means the
+instances with `$x ≠ z` are refuted and the others keep no residual store. -/
+
+/-- `theory pin { (pin $x) <=> $x = z. }` -/
+def pinTheory : Theory := [⟨[pa "pin" [pv 0]], .conj [(pv 0, ps "z")] []⟩]
+
+theorem pinTheory_wellFormed : ∀ ρ ∈ pinTheory, ρ.WellFormed := by decide
+
+def pinProg : Program := ⟨[], pinTheory⟩
+
+/-- The store `{(pin z)}` is not refuted: the equation holds and the head is
+removed. -/
+theorem not_refutes_pin_z : ¬ Refutes pinTheory {gc "pin" [gz]} := by
+  intro h
+  suffices ∀ S, Refutes pinTheory S → ¬ S ⊆ {gc "pin" [gz]} from this _ h le_rfl
+  intro S h
+  induction h with
+  | fail hρ σ hb hf =>
+    simp only [pinTheory, List.mem_singleton] at hρ
+    subst hρ
+    cases hb
+  | eq hρ σ hb hf he hne =>
+    intro hS
+    simp only [pinTheory, List.mem_singleton] at hρ
+    subst hρ
+    simp only [Body.conj.injEq] at hb
+    obtain ⟨rfl, rfl⟩ := hb
+    have hm := hS (hf.2 _ List.mem_cons_self)
+    simp [pa, pv, gc, bind_mk, mk_eq_mk] at hm
+    simp only [List.mem_singleton] at he
+    subst he
+    exact hne (by simp [pv, ps, hm, gz])
+  | conj hρ σ hb hf he _ ih =>
+    intro hS
+    apply ih
+    intro x hx
+    simp only [pinTheory, List.mem_singleton] at hρ
+    subst hρ
+    simp only [Body.conj.injEq] at hb
+    obtain ⟨rfl, rfl⟩ := hb
+    simp only [List.map_nil, List.toFinset_nil, Finset.mem_union, Finset.mem_sdiff,
+      Finset.notMem_empty, or_false] at hx
+    exact hS hx.1
+
+/-- `(pair $x $y) { (pin $x) } -> $y` means exactly `(pair z $y) -> $y`. -/
+theorem c4_pin :
+    pinProg.obs (.rw (pa "pair" [pv 0, pv 1]) (pv 1) [pa "pin" [pv 0]]) =
+      {p | ∃ b, p = (gpair gz b, b)} := by
+  ext ⟨a, b⟩
+  constructor
+  · rintro ⟨S, h, hn⟩
+    obtain ⟨σ, rfl, rfl, rfl⟩ := mem_span.1 h
+    by_cases hz : σ 0 = gz
+    · exact ⟨σ 1, by simp [gpair, pa, pv, bind_mk, hz]⟩
+    · exact absurd (.eq (ρ := ⟨[pa "pin" [pv 0]], .conj [(pv 0, ps "z")] []⟩)
+        (by simp [pinProg, pinTheory]) σ rfl ⟨by simp [TRule.headsAt],
+          by simp [TRule.headsAt, Store.at]⟩ List.mem_cons_self (by simpa [pv, ps, gz] using hz)) hn
+  · rintro ⟨b, hb⟩
+    simp only [Prod.mk.injEq] at hb
+    obtain ⟨rfl, rfl⟩ := hb
+    refine ⟨{gc "pin" [gz]}, mem_span.2 ⟨fun n => if n = 0 then gz else b, ?_, ?_, ?_⟩,
+      not_refutes_pin_z⟩ <;>
+      simp [Store.at, gpair, gc, pa, pv, bind_mk]
+
 /-! ## Stores combine across composition -/
 
 /-- `(pair $x $y) { (neq $x $y) } -> $x` alone relates `(pair z (s z))` to `z`. -/
@@ -210,7 +276,7 @@ theorem not_refutes_neq_z_sz : ¬ Refutes eqNeq {gc "neq" [gz, gs gz]} := by
       have := hS (hf.2 _ List.mem_cons_self) <;>
       simp [pa, ps, pv, gc, gs, gz, bind_mk, mk_eq_mk, mk_ne_sym] at this
     exact sym_ne_mk (this.1.symm.trans this.2)
-  | eq hρ σ hb hf he _ =>
+  | eq hρ σ hb hf he hne =>
     intro _
     simp only [eqNeq, List.mem_cons, List.not_mem_nil, or_false] at hρ
     rcases hρ with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;>
