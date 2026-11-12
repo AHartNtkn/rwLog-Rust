@@ -270,32 +270,43 @@ def boundary_lifting : Prop :=
 Owned by the Tier 0 group and shared with the termination group: they hold
 for every table of a run started from any goal. -/
 
+/-- A goal's boundaries are interfaces: each is diagonal (`l = r`) and its
+store mentions only variables of `l`. The root goal `⟨none, q, none⟩` and
+every pushed goal have this form. -/
+def Interfaced (g : Goal) : Prop :=
+  ∀ b ∈ g.lb.toList ++ g.rb.toList, b.l = b.r ∧ ∀ c ∈ b.c, ∀ v ∈ c.vars, v ∈ b.l.vars
+
 /-- The tables after `n` rounds of the run started on `g`. -/
 def tablesAt (P : Program) (g : Goal) (n : Nat) : Tables := (stateAfter (State.ofGoal P g) n).tables
 
-/-- Every answer of a table is, up to the theory, a derivable answer of its
-goal. -/
+/-- Every answer of a table that is not dead is, up to the theory, a derivable
+answer of its goal. (A dead answer the engine could not refute can be read
+across a shared table into a goal whose derivations are all refuted.) -/
 def table_sound : Prop :=
-  ∀ P g, (∀ ρ ∈ P.theory, ρ.WellFormed) → ∀ n, ∀ t ∈ tablesAt P g n, ∀ a ∈ t.answers,
-    ∃ y, GDerives P t.goal y ∧ a.CoversLive P.theory y ∧ y.CoversLive P.theory a
+  ∀ P g, (∀ ρ ∈ P.theory, ρ.WellFormed) → Interfaced g → ∀ n, ∀ t ∈ tablesAt P g n, ∀ a ∈ t.answers,
+    a.Dead P.theory ∨ ∃ y, GDerives P t.goal y ∧ a.CoversLive P.theory y ∧ y.CoversLive P.theory a
 
 /-- A complete table covers every derivable answer of its goal that is not
 dead. -/
 def completion_sound : Prop :=
-  ∀ P g, (∀ ρ ∈ P.theory, ρ.WellFormed) → ∀ n, ∀ t ∈ tablesAt P g n, t.done = true →
+  ∀ P g, (∀ ρ ∈ P.theory, ρ.WellFormed) → Interfaced g → ∀ n, ∀ t ∈ tablesAt P g n, t.done = true →
     ∀ s, GDerives P t.goal s → s.Dead P.theory ∨ ∃ a ∈ t.answers, a.CoversLive P.theory s
 
 /-- Every derivable answer of a table's goal that is not dead is eventually
 covered by that table. -/
 def table_fair : Prop :=
-  ∀ P g, (∀ ρ ∈ P.theory, ρ.WellFormed) → ∀ n, ∀ t ∈ tablesAt P g n,
+  ∀ P g, (∀ ρ ∈ P.theory, ρ.WellFormed) → Interfaced g → ∀ n, ∀ t ∈ tablesAt P g n,
     ∀ s, GDerives P t.goal s → s.Dead P.theory ∨
       ∃ m, ∃ t' ∈ tablesAt P g m, t'.goal = t.goal ∧ ∃ a ∈ t'.answers, a.CoversLive P.theory s
 
-/-- Goals that share a table derive the same answers up to the theory. -/
+/-- Goals that share a table derive the same answers up to the theory, apart
+from dead ones: with `(p $0), (p $1) <=> (q $0).` and `(q $0) <=> fail.`, the
+boundaries `$x {(p $y)} -> $x` and `$x {(p $y), (p $z)} -> $x` share a table,
+but only the second store has a weight-lowering firing to its refutation. -/
 def gderives_same : Prop :=
-  ∀ P (g h : Goal), (∀ ρ ∈ P.theory, ρ.WellFormed) → g.same h = true →
-    ∀ y, GDerives P g y → ∃ y', GDerives P h y' ∧ y'.CoversLive P.theory y ∧ y.CoversLive P.theory y'
+  ∀ P (g h : Goal), (∀ ρ ∈ P.theory, ρ.WellFormed) → Interfaced g → g.same h = true →
+    ∀ y, GDerives P g y → y.Dead P.theory ∨
+      ∃ y', GDerives P h y' ∧ y'.CoversLive P.theory y ∧ y.CoversLive P.theory y'
 
 /-! ### Tier 0 and P3.0 -/
 
