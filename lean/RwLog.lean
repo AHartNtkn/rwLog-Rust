@@ -25,8 +25,13 @@ import RwLog.Rungs.R001.Proofs.Kernel
 import RwLog.Rungs.R001.Proofs.Derivations
 import RwLog.Rungs.R001.Proofs.TheoryMono
 import RwLog.Rungs.R001.Proofs.Checker
+import RwLog.Rungs.R001.Proofs.SimplifyMono
 import RwLog.Rungs.R001.Proofs.Tier0
 import RwLog.Rungs.R001.Proofs.Termination
+import RwLog.Rungs.R001.Proofs.Exact.Basic
+import RwLog.Rungs.R001.Proofs.Exact.Cands
+import RwLog.Rungs.R001.Proofs.Exact.Inv
+import RwLog.Rungs.R001.Proofs.Exact.Fair
 import RwLog.Rungs.R001.Proofs.Symmetry
 import RwLog.Rungs.R001.Proofs.SymmetryLists
 import RwLog.Rungs.R001.Proofs.SymmetryGoals
