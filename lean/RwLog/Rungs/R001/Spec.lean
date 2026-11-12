@@ -114,23 +114,24 @@ inductive Reach (P : Program) (root : Goal) : Goal → Prop
       Reach P root g → g.e = .and a b → GDerives P (andRight g b) y → Reach P root (andPush a y)
 
 /-- `F` is a finite cover of the goal's derivable answers by derivable
-answers, up to the theory. -/
+answers. Coverage is exact (`Span.Covers`), the coverage the machine decides
+when it drops a candidate: a cover that holds only up to the theory does not
+stop a table from growing. -/
 def CoverBy (P : Program) (g : Goal) (F : List Span) : Prop :=
-  (∀ f ∈ F, GDerives P g f) ∧
-    ∀ s, GDerives P g s → s.Dead P.theory ∨ ∃ f ∈ F, f.CoversLive P.theory s
+  (∀ f ∈ F, GDerives P g f) ∧ ∀ s, GDerives P g s → ∃ f ∈ F, f.Covers s
 
 def FiniteCover (P : Program) (g : Goal) : Prop := ∃ F, CoverBy P g F
 
 /-! ### Termination certificates
 
-A certificate lists finitely many goals, each with a finite cover of its
-answers and a rank. Each goal either unfolds to a call-free normal form (the
+A certificate lists finitely many goals, each with a finite list of answers
+closed under the machine's strategies (`Cert.Valid`) and a rank. Each goal either unfolds to a call-free normal form (the
 unfolding strategy) or picks one strategy whose goals are listed;
 a push may only use a finished side of strictly lower rank, while the other
 dependencies, which may be mutually recursive, need rank no higher. The
 machine terminates exactly on the queries that have a certificate
 (`Obligation.terminates_iff_cert`), so this is R001's termination class,
-stated without reference to the machine's state. -/
+stated without reference to a run. -/
 
 structure CertEntry where
   goal : Goal
@@ -166,10 +167,24 @@ def certStrategies (P : Program) (C : List CertEntry) (g : Goal) : List (List (G
      (L, true) :: (maxima (certCover C L)).map fun x => (andPush b x, false),
      (R, true) :: (maxima (certCover C R)).map fun y => (andPush a y, false)]
 
-def Cert.Valid (P : Program) (C : List CertEntry) (root : Goal) : Prop :=
+/-- The tables a certificate stands for: each listed goal, its cover as its
+answers, complete. -/
+def certTables (C : List CertEntry) : Tables := C.map fun e => ⟨e.goal, e.cover, true⟩
+
+/-- A valid certificate at unfolding depth `D`: it lists the root; every
+cover holds only derivable answers; every cover is closed, in that each
+candidate the machine would compute for the goal from the certificate's
+tables (`produce`) is exactly covered by the goal's cover; and every goal
+either unfolds to a call-free form by depth `D` or has a strategy whose
+goals are listed with suitable ranks. Closure is stated over what the machine
+computes from the covers rather than over all derivable answers, so it does
+not depend on which of several equivalent derivations simplification
+happens to see. -/
+def Cert.Valid (P : Program) (C : List CertEntry) (D : Nat) (root : Goal) : Prop :=
   (∃ e ∈ C, e.goal.same root.norm.2 = true) ∧
-  ∀ e ∈ C, CoverBy P e.goal e.cover ∧
-    ((∃ d, unfoldFinal P d e.goal = true) ∨
+  ∀ e ∈ C, (∀ f ∈ e.cover, GDerives P e.goal f) ∧
+    (∀ x ∈ (produce P D (certTables C) e.goal).1, ∃ f ∈ e.cover, f.Covers x) ∧
+    (unfoldFinal P D e.goal = true ∨
       ∃ st ∈ certStrategies P C e.goal, ∀ d ∈ st, ∃ e' ∈ C, e'.goal.same d.1.norm.2 = true ∧
         (if d.2 then e'.rank < e.rank else e'.rank ≤ e.rank))
 
@@ -315,7 +330,7 @@ def derivation_general : Prop :=
 query has a termination certificate. -/
 def terminates_iff_cert : Prop :=
   ∀ P q, P.WellFormed q →
-    (runtime.Terminates P q ↔ ∃ C, Cert.Valid P C ⟨none, q, none⟩)
+    (runtime.Terminates P q ↔ ∃ C D, Cert.Valid P C D ⟨none, q, none⟩)
 
 /-- P2.1: if only finitely many goals can arise (up to equivalent
 boundaries) and each has finitely many answers up to coverage, the machine
