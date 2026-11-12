@@ -92,6 +92,10 @@ def Store.at (c : Store) (σ : Nat → GTerm) : GStore := (c.map (Term.bind σ))
 def Span.den (s : Span) : GRel :=
   {x | ∃ σ : Nat → GTerm, x = (s.l.bind σ, s.r.bind σ, s.c.at σ)}
 
+/-- Every span has a ground instance: the signature has a constant. -/
+theorem Span.den_nonempty (s : Span) : (s.den).Nonempty :=
+  ⟨_, fun _ => .sym "", rfl⟩
+
 /-! ## Relations -/
 
 /-- Denotation of an expression, given the meaning `ρ` of each name. -/

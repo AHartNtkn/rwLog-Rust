@@ -119,7 +119,8 @@ theorem sound : runtime.Sound := by
   exact roundSpans_sound hj
 
 theorem complete : runtime.Complete := by
-  intro P q _ s hs hne
+  intro P q _ s hs
+  have hne := Span.den_nonempty s
   obtain ⟨d, hd⟩ := hs.derivesN
   have hex : ∃ j, roundFinal P q j = true ∨ j = d := ⟨d, Or.inr rfl⟩
   classical
@@ -193,18 +194,70 @@ theorem honest_exhaustion : runtime.HonestExhaustion := by
     exact Set.mem_biUnion (hall a ha) (hsub hxs)
   · exact Set.iUnion₂_subset fun a ha => sound P q ‹_› n a ha
 
-theorem terminates : runtime.TerminatesOn FinitelyNormalising := by
-  intro P q _ ⟨k, hk⟩
-  classical
-  have hex : ∃ j, roundFinal P q j = true := ⟨k, roundFinal_iff.2 hk⟩
-  let j := Nat.find hex
-  have hj : roundFinal P q j = true := Nat.find_spec hex
-  have hbefore : ∀ i < j, roundFinal P q i = false := by
-    intro i hi; simpa using Nat.find_min hex hi
-  obtain ⟨N, pre, _, hrun⟩ := reach j hbefore
-  refine ⟨N + ((roundSpans P q j).length + 1), ?_⟩
-  unfold Runtime.Halts; change (runtime.run (State.start P q 0) _).2 = true
-  rw [hrun, run_start_final hj]
+/-- The machine reports it is done exactly when some round is final. -/
+theorem terminates_iff : runtime.Terminates P q ↔ ∃ k, roundFinal P q k = true := by
+  constructor
+  · rintro ⟨n, h⟩
+    obtain ⟨k, hk, _⟩ := halted_final h
+    exact ⟨k, hk⟩
+  · rintro ⟨k, hk⟩
+    classical
+    have hex : ∃ j, roundFinal P q j = true := ⟨k, hk⟩
+    let j := Nat.find hex
+    have hj : roundFinal P q j = true := Nat.find_spec hex
+    have hbefore : ∀ i < j, roundFinal P q i = false := by
+      intro i hi; simpa using Nat.find_min hex hi
+    obtain ⟨N, pre, _, hrun⟩ := reach j hbefore
+    refine ⟨N + ((roundSpans P q j).length + 1), ?_⟩
+    unfold Runtime.Halts; change (runtime.run (State.start P q 0) _).2 = true
+    rw [hrun, run_start_final hj]
+
+theorem terminates : runtime.TerminatesOn FinitelyNormalising :=
+  fun _ _ _ ⟨k, hk⟩ => terminates_iff.2 ⟨k, roundFinal_iff.2 hk⟩
+
+/-! ## Everything a run emits -/
+
+theorem run_answers_aux : ∀ (n : Nat) (st : State),
+    (∀ j < st.round, roundFinal st.P st.q j = false) →
+    (∀ a ∈ st.queue, a ∈ roundSpans st.P st.q st.round) →
+    ∀ a ∈ (runtime.run st n).1,
+      ∃ k, (∀ j < k, roundFinal st.P st.q j = false) ∧ a ∈ roundSpans st.P st.q k
+  | 0, _, _, _, a, ha => by simp [Runtime.run] at ha
+  | n + 1, ⟨P, q, k, l⟩, hpre, hst, a, ha => by
+    cases l with
+    | cons b l =>
+      simp only [Runtime.run, runtime, step, List.mem_cons] at ha
+      rcases ha with rfl | ha
+      · exact ⟨k, hpre, hst _ (List.mem_cons_self ..)⟩
+      · exact run_answers_aux n ⟨P, q, k, l⟩ hpre (fun x hx => hst x (List.mem_cons_of_mem _ hx)) a ha
+    | nil =>
+      rw [run_empty] at ha
+      split at ha
+      · simp at ha
+      · rename_i hk
+        refine run_answers_aux n (State.start P q (k + 1)) (fun j hj => ?_) (fun x hx => hx) a ha
+        rcases Nat.lt_succ_iff_lt_or_eq.1 hj with hj | rfl
+        · exact hpre j hj
+        · simpa [State.start] using hk
+
+/-- The answers of a run are exactly the spans of the rounds up to the
+first final one. -/
+theorem mem_answers {a : Span} :
+    a ∈ runtime.Answers P q ↔ ∃ k, (∀ j < k, roundFinal P q j = false) ∧ a ∈ roundSpans P q k := by
+  constructor
+  · rintro ⟨n, ha⟩
+    exact run_answers_aux n (State.start P q 0) (fun j hj => absurd hj (Nat.not_lt_zero j))
+      (fun x hx => hx) a ha
+  · rintro ⟨k, hk, ha⟩
+    obtain ⟨N, pre, _, hrun⟩ := reach k hk
+    refine ⟨N + (roundSpans P q k).length, ?_⟩
+    show a ∈ (runtime.run (State.start P q 0) _).1
+    rw [hrun]
+    have := run_queue (State.start P q k) 0
+    rw [Nat.add_zero] at this
+    change a ∈ pre ++ (runtime.run (State.start P q k) (State.start P q k).queue.length).1
+    rw [this]
+    simp [State.start, ha]
 
 end R000
 

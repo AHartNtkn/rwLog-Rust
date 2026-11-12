@@ -22,3 +22,27 @@ new axiom.
 
 /-- info: 'RwLog.R000.terminates' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.R000.terminates
+
+/-- info: 'RwLog.R000.dual_answers' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R000.dual_answers
+
+/-- info: 'RwLog.R000.dual_terminates' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R000.dual_terminates
+
+/-- info: 'RwLog.R000.or_comm_answers' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R000.or_comm_answers
+
+/-- info: 'RwLog.R000.or_comm_terminates' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R000.or_comm_terminates
+
+/-- info: 'RwLog.R000.or_assoc_answers' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R000.or_assoc_answers
+
+/-- info: 'RwLog.R000.or_assoc_terminates' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R000.or_assoc_terminates
+
+/-- info: 'RwLog.R000.theory_answers' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R000.theory_answers
+
+/-- info: 'RwLog.R000.theory_terminates' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R000.theory_terminates

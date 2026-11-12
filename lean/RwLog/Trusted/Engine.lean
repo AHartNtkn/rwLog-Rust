@@ -112,11 +112,10 @@ variable (R : Runtime)
 def Sound : Prop :=
   ∀ P q, P.WellFormed q → ∀ n, ∀ a ∈ R.emitted (R.init P q) n, a.den ⊆ P.sem q
 
-/-- Every derivable span with at least one ground instance is covered by a
-single emitted answer after finitely many steps. (A span with no ground
-instance covers nothing, so nothing is lost by not emitting it.) -/
+/-- Every derivable span is covered by a single emitted answer after
+finitely many steps. -/
 def Complete : Prop :=
-  ∀ P q, P.WellFormed q → ∀ s, Derives P q s → (s.den).Nonempty →
+  ∀ P q, P.WellFormed q → ∀ s, Derives P q s →
     ∃ n, ∃ a ∈ R.emitted (R.init P q) n, s.den ⊆ a.den
 
 /-- If the runtime reports it is done, the answers it emitted cover the
@@ -128,6 +127,17 @@ def HonestExhaustion : Prop :=
 /-- The runtime reports it is done on every query of a class. -/
 def TerminatesOn (C : Program → Rel → Prop) : Prop :=
   ∀ P q, P.WellFormed q → C P q → ∃ n, R.Halts (R.init P q) n
+
+/-! ## Observing a whole run
+
+Properties that compare runs (duality, order independence) are stated on
+everything a run ever emits and on whether it ever reports that it is done. -/
+
+/-- Every answer the run on `q` emits at some point. -/
+def Answers (P : Program) (q : Rel) : Set Span := {a | ∃ n, a ∈ R.emitted (R.init P q) n}
+
+/-- The run on `q` reports that it is done at some point. -/
+def Terminates (P : Program) (q : Rel) : Prop := ∃ n, R.Halts (R.init P q) n
 
 end Runtime
 
