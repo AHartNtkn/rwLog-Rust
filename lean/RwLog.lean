@@ -27,3 +27,4 @@ import RwLog.Rungs.R001.Proofs.TheoryMono
 import RwLog.Rungs.R001.Proofs.Checker
 import RwLog.Rungs.R001.Proofs.Tier0
 import RwLog.Rungs.R001.Proofs.Termination
+import RwLog.Rungs.R001.Proofs.Symmetry
