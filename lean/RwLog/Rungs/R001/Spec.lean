@@ -123,6 +123,12 @@ def CoverBy (P : Program) (g : Goal) (F : List Span) : Prop :=
 
 def FiniteCover (P : Program) (g : Goal) : Prop := ∃ F, CoverBy P g F
 
+/-- A goal's boundaries are interfaces: each is diagonal (`l = r`) and its
+store mentions only variables of `l`. The root goal `⟨none, q, none⟩` and
+every pushed goal have this form. -/
+def Goal.Interfaced (g : Goal) : Prop :=
+  ∀ b ∈ g.lb.toList ++ g.rb.toList, b.l = b.r ∧ ∀ c ∈ b.c, ∀ v ∈ c.vars, v ∈ b.l.vars
+
 /-! ### Termination certificates
 
 A certificate lists finitely many goals, each with a finite list of answers
@@ -173,6 +179,7 @@ answers, complete. -/
 def certTables (C : List CertEntry) : Tables := C.map fun e => ⟨e.goal, e.cover, true⟩
 
 /-- A valid certificate at unfolding depth `D`: it lists the root; every
+listed goal has interface boundaries; every
 cover holds only derivable answers; every cover is closed, in that each
 candidate the machine would compute for the goal from the certificate's
 tables (`produce`) is exactly covered by the goal's cover; and every goal
@@ -183,7 +190,7 @@ not depend on which of several equivalent derivations simplification
 happens to see. -/
 def Cert.Valid (P : Program) (C : List CertEntry) (D : Nat) (root : Goal) : Prop :=
   (∃ e ∈ C, e.goal.same root.norm.2 = true) ∧
-  ∀ e ∈ C, (∀ f ∈ e.cover, GDerives P e.goal f) ∧
+  ∀ e ∈ C, e.goal.Interfaced ∧ (∀ f ∈ e.cover, GDerives P e.goal f) ∧
     (∀ x ∈ (produce P D (certTables C) e.goal).1, ∃ f ∈ e.cover, f.Covers x) ∧
     (unfoldFinal P D e.goal = true ∨
       ∃ st ∈ certStrategies P C e.goal, ∀ d ∈ st, ∃ e' ∈ C, e'.goal.same d.1.norm.2 = true ∧
@@ -270,12 +277,6 @@ def boundary_lifting : Prop :=
 Owned by the Tier 0 group and shared with the termination group: they hold
 for every table of a run started from any goal. -/
 
-/-- A goal's boundaries are interfaces: each is diagonal (`l = r`) and its
-store mentions only variables of `l`. The root goal `⟨none, q, none⟩` and
-every pushed goal have this form. -/
-def Interfaced (g : Goal) : Prop :=
-  ∀ b ∈ g.lb.toList ++ g.rb.toList, b.l = b.r ∧ ∀ c ∈ b.c, ∀ v ∈ c.vars, v ∈ b.l.vars
-
 /-- The tables after `n` rounds of the run started on `g`. -/
 def tablesAt (P : Program) (g : Goal) (n : Nat) : Tables := (stateAfter (State.ofGoal P g) n).tables
 
@@ -283,13 +284,13 @@ def tablesAt (P : Program) (g : Goal) (n : Nat) : Tables := (stateAfter (State.o
 answer of its goal. (A dead answer the engine could not refute can be read
 across a shared table into a goal whose derivations are all refuted.) -/
 def table_sound : Prop :=
-  ∀ P g, (∀ ρ ∈ P.theory, ρ.WellFormed) → Interfaced g → ∀ n, ∀ t ∈ tablesAt P g n, ∀ a ∈ t.answers,
+  ∀ P g, (∀ ρ ∈ P.theory, ρ.WellFormed) → g.Interfaced → ∀ n, ∀ t ∈ tablesAt P g n, ∀ a ∈ t.answers,
     a.Dead P.theory ∨ ∃ y, GDerives P t.goal y ∧ a.CoversLive P.theory y ∧ y.CoversLive P.theory a
 
 /-- A complete table covers every derivable answer of its goal that is not
 dead. -/
 def completion_sound : Prop :=
-  ∀ P g, (∀ ρ ∈ P.theory, ρ.WellFormed) → Interfaced g → ∀ n, ∀ t ∈ tablesAt P g n, t.done = true →
+  ∀ P g, (∀ ρ ∈ P.theory, ρ.WellFormed) → g.Interfaced → ∀ n, ∀ t ∈ tablesAt P g n, t.done = true →
     ∀ s, GDerives P t.goal s → s.Dead P.theory ∨ ∃ a ∈ t.answers, a.CoversLive P.theory s
 
 /-- The tables after `m` rounds run unconditionally from `g`, whether or not
@@ -303,7 +304,7 @@ completes, which can leave a table the root did not wait on unfinished: from
 `call nat ; 0` the root completes by unfolding while the `call nat` table has
 no answers. -/
 def table_fair : Prop :=
-  ∀ P g, (∀ ρ ∈ P.theory, ρ.WellFormed) → Interfaced g → ∀ n, ∀ t ∈ tablesAt P g n,
+  ∀ P g, (∀ ρ ∈ P.theory, ρ.WellFormed) → g.Interfaced → ∀ n, ∀ t ∈ tablesAt P g n,
     ∀ s, GDerives P t.goal s → s.Dead P.theory ∨
       ∃ m, ∃ t' ∈ roundsAt P g m, t'.goal = t.goal ∧ ∃ a ∈ t'.answers, a.CoversLive P.theory s
 
@@ -312,7 +313,7 @@ from dead ones: with `(p $0), (p $1) <=> (q $0).` and `(q $0) <=> fail.`, the
 boundaries `$x {(p $y)} -> $x` and `$x {(p $y), (p $z)} -> $x` share a table,
 but only the second store has a weight-lowering firing to its refutation. -/
 def gderives_same : Prop :=
-  ∀ P (g h : Goal), (∀ ρ ∈ P.theory, ρ.WellFormed) → Interfaced g → g.same h = true →
+  ∀ P (g h : Goal), (∀ ρ ∈ P.theory, ρ.WellFormed) → g.Interfaced → g.same h = true →
     ∀ y, GDerives P g y → y.Dead P.theory ∨
       ∃ y', GDerives P h y' ∧ y'.CoversLive P.theory y ∧ y.CoversLive P.theory y'
 

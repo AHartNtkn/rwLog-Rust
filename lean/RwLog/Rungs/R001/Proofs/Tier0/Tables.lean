@@ -19,7 +19,7 @@ namespace Tier0
 
 open Lifting (LCov LEq Live PId bden W)
 
-theorem goodG_of_interfaced {g : Goal} (h : Obligation.Interfaced g) : GoodG g := by
+theorem goodG_of_interfaced {g : Goal} (h : g.Interfaced) : GoodG g := by
   obtain ⟨lb, e, rb⟩ := g
   constructor
   · cases lb with
