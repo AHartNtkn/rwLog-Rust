@@ -106,7 +106,7 @@ include hSS hwf
 
 theorem live_unref {z c : Span} (h : c ∈ live P.theory z) : P.theory.refutes? c.c = false := by
   simp only [live, Option.mem_toList] at h
-  exact (hSS P.theory z c _ hwf h).1
+  exact (hSS P.theory z c hwf h).1
 
 theorem composeLive_unref {x y c : Span} (h : c ∈ composeLive P.theory x y) :
     P.theory.refutes? c.c = false := by
@@ -209,24 +209,12 @@ theorem deps_good {dd : Nat} {ts : Tables} {g d : Goal} (hg : GoodG g)
         exact goodG_andPush a y
       · simp at hp
 
-/-- The store of an interface of an unrefuted answer is unrefuted. -/
-theorem iface_unref (hRM : Obligation.refutes_mono) (hwf : ∀ ρ ∈ P.theory, ρ.WellFormed)
-    {x : Span} (hx : P.theory.refutes? x.c = false) (p : Pat) :
-    P.theory.refutes? (x.storeOn p) = false := by
-  by_contra h
-  rw [Bool.not_eq_false] at h
-  have := hRM P.theory P.theory (x.storeOn p) x.c Term.var hwf (fun _ h => h)
-    (fun a ha => by rw [Term.bind_var_id]; exact (mem_storeOn.1 ha).1) h
-  rw [hx] at this; exact Bool.false_ne_true this
-
-theorem bound_unref (hRM : Obligation.refutes_mono) (hwf : ∀ ρ ∈ P.theory, ρ.WellFormed)
-    {x : Span} (hx : P.theory.refutes? x.c = false) :
+theorem bound_unref {x : Span} (hx : P.theory.refutes? x.c = false) :
     (∀ b, bound x.rightIface = some b → P.theory.refutes? b.c = false) ∧
       (∀ b, bound x.leftIface = some b → P.theory.refutes? b.c = false) := by
-  constructor <;> intro b hb <;> rw [bound_some hb] <;> exact iface_unref hRM hwf hx _
+  constructor <;> intro b hb <;> rw [bound_some hb] <;> exact storeOn_unref hx _
 
-theorem deps_bu (hRM : Obligation.refutes_mono) (hwf : ∀ ρ ∈ P.theory, ρ.WellFormed)
-    {dd : Nat} {ts : Tables} (hI : TInv P ts) {g d : Goal} (hg : BU P.theory g)
+theorem deps_bu {dd : Nat} {ts : Tables} (hI : TInv P ts) {g d : Goal} (hg : BU P.theory g)
     (hd : d ∈ (produce P dd ts g).2) : BU P.theory d := by
   obtain ⟨lb, e, rb⟩ := g
   simp only [produce] at hd
@@ -251,11 +239,11 @@ theorem deps_bu (hRM : Obligation.refutes_mono) (hwf : ∀ ρ ∈ P.theory, ρ.W
     · exact ⟨fun _ h => (by cases h), hg.2⟩
     · split at hp
       · obtain ⟨x, hx, rfl⟩ := List.mem_map.1 hp
-        exact ⟨(bound_unref hRM hwf (answersOf_unref hI (maxima_sub hx))).1, hg.2⟩
+        exact ⟨(bound_unref (answersOf_unref hI (maxima_sub hx))).1, hg.2⟩
       · simp at hp
     · split at hp
       · obtain ⟨y, hy, rfl⟩ := List.mem_map.1 hp
-        exact ⟨hg.1, (bound_unref hRM hwf (answersOf_unref hI (maxima_sub hy))).2⟩
+        exact ⟨hg.1, (bound_unref (answersOf_unref hI (maxima_sub hy))).2⟩
       · simp at hp
   | and a b =>
     simp only [produce.produceStrategies, List.mem_append, List.mem_cons, List.mem_map,
@@ -265,12 +253,12 @@ theorem deps_bu (hRM : Obligation.refutes_mono) (hwf : ∀ ρ ∈ P.theory, ρ.W
     · exact hg
     · split at hp
       · obtain ⟨x, hx, rfl⟩ := List.mem_map.1 hp
-        have := bound_unref hRM hwf (answersOf_unref hI (maxima_sub hx))
+        have := bound_unref (answersOf_unref hI (maxima_sub hx))
         exact ⟨this.2, this.1⟩
       · simp at hp
     · split at hp
       · obtain ⟨y, hy, rfl⟩ := List.mem_map.1 hp
-        have := bound_unref hRM hwf (answersOf_unref hI (maxima_sub hy))
+        have := bound_unref (answersOf_unref hI (maxima_sub hy))
         exact ⟨this.2, this.1⟩
       · simp at hp
 

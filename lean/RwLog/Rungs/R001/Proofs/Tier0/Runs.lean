@@ -38,14 +38,13 @@ theorem iter_succ' (st : State) : ∀ k, iter (round st).1 k = iter st (k + 1)
 
 section
 variable (hSE : Obligation.simplify_exact) (hSS : Obligation.simplify_stable)
-  (hRM : Obligation.refutes_mono)
-include hSE hSS hRM
+include hSE hSS
 
 theorem tinv_iter {st : State} (hwf : ∀ ρ ∈ st.P.theory, ρ.WellFormed) (hI : TInv st.P st.tables) :
     ∀ k, TInv st.P (iter st k).tables
   | 0 => hI
   | k + 1 => by
-    have h := tinv_round hSE hSS hRM (st := iter st k) (by rw [iter_P]; exact hwf)
+    have h := tinv_round hSE hSS (st := iter st k) (by rw [iter_P]; exact hwf)
       (by rw [iter_P]; exact tinv_iter hwf hI k)
     rw [iter_P] at h
     exact h

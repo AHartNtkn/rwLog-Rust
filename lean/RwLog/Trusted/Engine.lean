@@ -18,6 +18,7 @@ exhaustion) are stated here against the specification, so a rung cannot
 weaken them.
 -/
 import RwLog.SpanLayer.Derives
+import RwLog.Trusted.Semantics
 
 namespace RwLog
 
@@ -97,12 +98,12 @@ structure Preprocessor where
   run : ArtifactStore → Program → Rel → Program × Rel × ArtifactStore
   theory_eq : ∀ A P q, (run A P q).1.theory = P.theory
   equiv : ∀ A P q, P.WellFormed q →
-    GRel.Equiv P.theory ((run A P q).1.sem (run A P q).2.1) (P.sem q)
+    MEquiv P.theory (fun M => (run A P q).1.semAt M (run A P q).2.1) (fun M => P.semAt M q)
 
 def Preprocessor.id : Preprocessor where
   run A P q := (P, q, A)
   theory_eq _ _ _ := rfl
-  equiv _ P q _ := GRel.Equiv.refl _ (P.sem q)
+  equiv _ _ _ _ _ _ := rfl
 
 structure Rung where
   pre : Preprocessor
@@ -111,37 +112,34 @@ structure Rung where
 /-! ## Properties every rung proves (Tier 0)
 
 They are stated for the runtime against the program and query it is run on,
-which is the output of the rung's preprocessor. -/
+which is the output of the rung's preprocessor, and against the
+specification in every model of the program's theory. -/
 
 namespace Runtime
 
 variable (R : Runtime)
 
-/-- Every emitted answer claims only what the query does: each of its ground
-triples is backed by a triple of the query with the same pair and a store no
-stronger under the program's theory (`GRel.Backed`). An engine may therefore
-rewrite an answer's store by the theory. -/
+/-- In every model, every emitted answer relates only pairs the query
+relates. -/
 def Sound : Prop :=
-  ∀ P q, P.WellFormed q → ∀ n, ∀ a ∈ R.emitted (R.init P q) n, (a.den).Backed P.theory (P.sem q)
+  ∀ P q, P.WellFormed q → ∀ n, ∀ a ∈ R.emitted (R.init P q) n,
+    ∀ M, P.theory.Model M → a.denAt M ⊆ P.semAt M q
 
 /-- Every derivable span is covered by a single emitted answer after
-finitely many steps, unless every ground instance of it carries a store the
-theory refutes (such a span is observably empty, so an engine may prune it).
-Coverage is up to refutation (`Span.CoversLive`): each ground triple of the
-span whose store the theory cannot refute is matched by a triple of the answer
-with the same pair and a store that is no larger. An engine may therefore
-instantiate an answer by an equation its theory forces. -/
+finitely many steps: in every model, the answer relates every pair the span
+relates. A span that relates nothing in any model needs no answer, so an
+engine may prune it. Because one answer must cover the whole span, an engine
+that only emits ground answers cannot be complete. -/
 def Complete : Prop :=
   ∀ P q, P.WellFormed q → ∀ s, Derives P q s →
-    s.Dead P.theory ∨ ∃ n, ∃ a ∈ R.emitted (R.init P q) n, a.CoversLive P.theory s
+    (∀ M, P.theory.Model M → s.denAt M = ∅) ∨
+      ∃ n, ∃ a ∈ R.emitted (R.init P q) n, ∀ M, P.theory.Model M → s.denAt M ⊆ a.denAt M
 
 /-- If the runtime reports it is done, the answers it emitted cover the
-query: they are equivalent to it under the program's theory
-(`GRel.Equiv`), so they carry the same pairs within every store the theory
-cannot refute. -/
+query exactly, in every model. -/
 def HonestExhaustion : Prop :=
   ∀ P q, P.WellFormed q → ∀ n, R.Halts (R.init P q) n →
-    GRel.Equiv P.theory (P.sem q) (⋃ a ∈ R.emitted (R.init P q) n, a.den)
+    ∀ M, P.theory.Model M → P.semAt M q = ⋃ a ∈ R.emitted (R.init P q) n, a.denAt M
 
 /-- The runtime reports it is done on every query of a class. -/
 def TerminatesOn (C : Program → Rel → Prop) : Prop :=

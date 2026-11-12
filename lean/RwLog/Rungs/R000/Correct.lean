@@ -1,15 +1,20 @@
 /-
 # Rung zero is correct
 
-* `sound`: every emitted answer denotes only triples of the query.
-* `complete`: every derivable span with a ground instance is covered by one
-  emitted answer after finitely many steps.
+* `sound`: every emitted answer relates only pairs of the query, in every
+  interpretation.
+* `complete`: every derivable span is covered by one emitted answer after
+  finitely many steps, in every interpretation.
 * `honest_exhaustion`: when the machine reports it is done, the emitted
-  answers cover the query exactly.
+  answers cover the query exactly, in every interpretation.
+
+Each is proved first for ground triples (`sound_tri`, `complete_tri`,
+`honest_exhaustion_tri`) and carried to the specification by the bridge.
 * `terminates`: the machine reports it is done on every finitely normalising
   query (some number of unfoldings leaves a finite union of spans).
 -/
 import RwLog.Rungs.R000.Engine
+import RwLog.SpanLayer.Bridge
 import Mathlib.Data.Nat.Find
 
 namespace RwLog
@@ -113,17 +118,15 @@ theorem run_sound_aux : ∀ (n : Nat) (st : State),
 
 /-! ## The theorems -/
 
-/-- Rung zero's answers denote only triples of the query, exactly. -/
-theorem sound_subset {P : Program} {q : Rel} {n : Nat} {a : Span}
-    (ha : a ∈ runtime.emitted (runtime.init P q) n) : a.den ⊆ P.sem q := by
+/-- Every emitted answer denotes only triples of the query. -/
+theorem sound_tri {n : Nat} {a : Span} (ha : a ∈ runtime.emitted (runtime.init P q) n) :
+    a.den ⊆ P.sem q := by
   obtain ⟨j, hj⟩ := run_sound_aux n (State.start P q 0) (fun x hx => hx) a ha
   exact roundSpans_sound hj
 
-theorem sound : runtime.Sound :=
-  fun _ _ _ _ _ ha => GRel.Backed.of_subset (sound_subset ha)
-
-theorem complete : runtime.Complete := by
-  intro P q _ s hs
+/-- Every derivable span is covered, as triples, by one emitted answer. -/
+theorem complete_tri {s : Span} (hs : Derives P q s) :
+    ∃ n, ∃ a ∈ runtime.emitted (runtime.init P q) n, s.den ⊆ a.den := by
   have hne := Span.den_nonempty s
   obtain ⟨d, hd⟩ := hs.derivesN
   have hex : ∃ j, roundFinal P q j = true ∨ j = d := ⟨d, Or.inr rfl⟩
@@ -142,7 +145,7 @@ theorem complete : runtime.Complete := by
     (by rcases hj with h | h
         · exact Or.inr h
         · exact Or.inl (by omega))
-  refine Or.inr ⟨N + (roundSpans P q j).length, a, ?_, (Span.Covers.of_den_subset hsub).live⟩
+  refine ⟨N + (roundSpans P q j).length, a, ?_, hsub⟩
   show a ∈ (runtime.run (State.start P q 0) _).1
   rw [hrun]
   have := run_queue (State.start P q j) 0
@@ -184,9 +187,9 @@ theorem halted_final {n : Nat} (h : runtime.Halts (runtime.init P q) n) :
   rw [heq]; change a ∈ (runtime.run (State.start P q 0) _).1; rw [hfin]
   simp [ha]
 
-/-- Rung zero's exhaustion is exact: the emitted answers carry exactly the
-triples of the query. -/
-theorem honest_exhaustion_eq {n : Nat} (h : runtime.Halts (runtime.init P q) n) :
+/-- When the machine halts, the emitted answers cover the query exactly, as
+triples. -/
+theorem honest_exhaustion_tri {n : Nat} (h : runtime.Halts (runtime.init P q) n) :
     P.sem q = ⋃ a ∈ runtime.emitted (runtime.init P q) n, a.den := by
   apply le_antisymm
   · obtain ⟨k, hk, hall⟩ := halted_final h
@@ -198,11 +201,34 @@ theorem honest_exhaustion_eq {n : Nat} (h : runtime.Halts (runtime.init P q) n) 
       (by rw [Nat.sub_add_cancel (le_max_right d k)]; exact hd.mono (le_max_left d k))
       ⟨x, hxs⟩ (Or.inr hk)
     exact Set.mem_biUnion (hall a ha) (hsub hxs)
-  · exact Set.iUnion₂_subset fun a ha => sound_subset ha
+  · exact Set.iUnion₂_subset fun a ha => sound_tri ha
+
+/-! ## The Tier 0 properties against the specification
+
+Each follows from its triple form through the bridge: in every
+interpretation, a span or expression relates the pairs of its triples whose
+store lies inside it. They hold in every interpretation, not only in models. -/
+
+theorem sound : runtime.Sound := by
+  intro P q _ n a ha M _
+  rw [Span.denAt_eq, Program.semAt_eq]
+  exact GRel.at_mono (sound_tri ha) M
+
+theorem complete : runtime.Complete := by
+  intro P q _ s hs
+  obtain ⟨n, a, ha, hsub⟩ := complete_tri hs
+  refine Or.inr ⟨n, a, ha, fun M _ => ?_⟩
+  rw [Span.denAt_eq, Span.denAt_eq]
+  exact GRel.at_mono hsub M
 
 theorem honest_exhaustion : runtime.HonestExhaustion := by
-  intro P q hwf n h M
-  rw [honest_exhaustion_eq h]
+  intro P q _ n h M _
+  rw [Program.semAt_eq, honest_exhaustion_tri h]
+  ext p
+  simp only [GRel.at, Set.mem_iUnion, Span.denAt_eq, Set.mem_ofPred_eq]
+  constructor
+  · rintro ⟨S, ⟨a, ha, hS⟩, hM⟩; exact ⟨a, ha, S, hS, hM⟩
+  · rintro ⟨a, ha, S, hS, hM⟩; exact ⟨S, ⟨a, ha, hS⟩, hM⟩
 
 /-- The machine reports it is done exactly when some round is final. -/
 theorem terminates_iff : runtime.Terminates P q ↔ ∃ k, roundFinal P q k = true := by

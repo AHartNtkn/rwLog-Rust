@@ -1,5 +1,9 @@
 import RwLog.Trusted.Syntax
 import RwLog.Trusted.Semantics
+import RwLog.Theory.Firing
+import RwLog.SpanLayer.Triples
+import RwLog.SpanLayer.Bridge
+import RwLog.SpanLayer.Coverage
 import RwLog.Kernel.Solve
 import RwLog.Kernel.Span
 import RwLog.SpanLayer.Derives

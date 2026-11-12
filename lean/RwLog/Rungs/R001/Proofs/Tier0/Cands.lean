@@ -25,11 +25,6 @@ to the theory, for one derivation of the goal. -/
 def AnsRef (P : Program) (ts : Tables) : Prop :=
   ∀ d : Goal, GoodG d → ∀ a ∈ answersOf ts d, ∃ s, Derives P d.e s ∧ Ref P.theory a (GDen d s.den)
 
-theorem ref_nonempty {T : Theory} {c : Span} {X : GRel} (h : Ref T c X) : X.Nonempty := by
-  obtain ⟨y, hy⟩ := Span.den_nonempty c
-  obtain ⟨x, hx, -⟩ := h.1 y hy
-  exact ⟨x, hx⟩
-
 theorem gden_nonempty {g : Goal} {R : GRel} (h : (GDen g R).Nonempty) : R.Nonempty :=
   GRel.comp_nonempty_left (GRel.comp_nonempty_right h)
 
@@ -145,8 +140,8 @@ theorem spanAnswer_dc {T : Theory} (hSE : Obligation.simplify_exact) (hwf : ∀ 
   rw [spanAnswer_eq]
   cases hw : spanBoth lb s rb with
   | none =>
-    left; intro x hx
-    rw [spanBoth_none hw] at hx; exact absurd hx (Set.notMem_empty x)
+    left; intro M _
+    rw [spanBoth_none hw]; exact at_empty M
   | some w =>
     exact live_dc hSE hwf (lcov_of_subset (spanBoth_some hw).ge)
 
@@ -193,7 +188,7 @@ theorem cands_ref {dd : Nat} {ts : Tables} (hA : AnsRef P ts) {h : Goal} (hg : G
       obtain ⟨s₂, hs₂, hr₂⟩ := hA _ hR y hy
       have hr := composeLive_ref hSE hwf hr₁ hr₂ hc
       rw [seqLeft, seqRight, gden_seq lb rb a b (.seq a b)] at hr
-      obtain ⟨s, hs, hsd⟩ := compose_isSome (gden_nonempty (ref_nonempty hr))
+      obtain ⟨s, hs, hsd⟩ := compose_isSome (gden_nonempty (hr.nonempty))
       exact ⟨s, .seq hs₁ hs₂ hs, by rw [hsd]; exact hr⟩
     · split at hp
       · simp only [List.mem_map] at hp
@@ -205,7 +200,7 @@ theorem cands_ref {dd : Nat} {ts : Tables} (hA : AnsRef P ts) {h : Goal} (hg : G
         rw [gden_pushL] at hr
         have hr' := hr.trans (Backed.comp hr₁.1 (Backed.refl _)) (hr₁.2.comp (Lifting.LCov.refl _))
         rw [seqLeft, gden_seqL lb rb a (.seq a b)] at hr'
-        obtain ⟨s, hs, hsd⟩ := compose_isSome (gden_nonempty (ref_nonempty hr'))
+        obtain ⟨s, hs, hsd⟩ := compose_isSome (gden_nonempty (hr'.nonempty))
         exact ⟨s, .seq hs₁ hs₂ hs, by rw [hsd]; exact hr'⟩
       · simp at hp
     · split at hp
@@ -218,7 +213,7 @@ theorem cands_ref {dd : Nat} {ts : Tables} (hA : AnsRef P ts) {h : Goal} (hg : G
         rw [gden_pushR] at hr
         have hr' := hr.trans (Backed.comp (Backed.refl _) hr₂.1) ((Lifting.LCov.refl _).comp hr₂.2)
         rw [seqRight, gden_seqR lb rb b (.seq a b)] at hr'
-        obtain ⟨s, hs, hsd⟩ := compose_isSome (gden_nonempty (ref_nonempty hr'))
+        obtain ⟨s, hs, hsd⟩ := compose_isSome (gden_nonempty (hr'.nonempty))
         exact ⟨s, .seq hs₁ hs₂ hs, by rw [hsd]; exact hr'⟩
       · simp at hp
   | and a b =>
@@ -232,7 +227,7 @@ theorem cands_ref {dd : Nat} {ts : Tables} (hA : AnsRef P ts) {h : Goal} (hg : G
       obtain ⟨s₂, hs₂, hr₂⟩ := hA _ hR y hy
       have hr := meetLive_ref hSE hwf hr₁ hr₂ hc
       rw [andLeft, andRight, gden_and hg a b (.and a b)] at hr
-      obtain ⟨s, hs, hsd⟩ := meet_isSome (gden_nonempty (ref_nonempty hr))
+      obtain ⟨s, hs, hsd⟩ := meet_isSome (gden_nonempty (hr.nonempty))
       exact ⟨s, .and hs₁ hs₂ hs, by rw [hsd]; exact hr⟩
     · split at hp
       · simp only [List.mem_map] at hp
@@ -245,7 +240,7 @@ theorem cands_ref {dd : Nat} {ts : Tables} (hA : AnsRef P ts) {h : Goal} (hg : G
         have e₁ := gden_and hg a b (.and a b) s₁.den s₂.den
         simp only [GDen] at e₁ hr'
         rw [e₁] at hr'
-        obtain ⟨s, hs, hsd⟩ := meet_isSome (gden_nonempty (g := ⟨lb, .and a b, rb⟩) (ref_nonempty hr'))
+        obtain ⟨s, hs, hsd⟩ := meet_isSome (gden_nonempty (g := ⟨lb, .and a b, rb⟩) (hr'.nonempty))
         exact ⟨s, .and hs₁ hs₂ hs, by rw [GDen, hsd]; exact hr'⟩
       · simp at hp
     · split at hp
@@ -259,7 +254,7 @@ theorem cands_ref {dd : Nat} {ts : Tables} (hA : AnsRef P ts) {h : Goal} (hg : G
         have e₁ := gden_and hg a b (.and a b) s₁.den s₂.den
         simp only [GDen] at e₁ hr'
         rw [Lifting.meet_comm, e₁] at hr'
-        obtain ⟨s, hs, hsd⟩ := meet_isSome (gden_nonempty (g := ⟨lb, .and a b, rb⟩) (ref_nonempty hr'))
+        obtain ⟨s, hs, hsd⟩ := meet_isSome (gden_nonempty (g := ⟨lb, .and a b, rb⟩) (hr'.nonempty))
         exact ⟨s, .and hs₁ hs₂ hs, by rw [GDen, hsd]; exact hr'⟩
       · simp at hp
 

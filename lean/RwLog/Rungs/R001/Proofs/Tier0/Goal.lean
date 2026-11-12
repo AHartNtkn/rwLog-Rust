@@ -190,51 +190,46 @@ theorem meet_ifaces (x : Span) (B : GRel) :
       · exact Or.inr h
       · exact Or.inl (h₃ h)
 
+/-- Under sub-identity boundaries, `B ; A ; C` relates a pair in a model when
+`A` does and the boundaries hold on its ends. -/
+theorem fn_at {B C A : GRel} (hB : Fn B) (hC : Fn C) {M : Interp} {u v : GTerm} :
+    (u, v) ∈ (B.comp (A.comp C)).at M ↔
+      (u, u) ∈ B.at M ∧ (u, v) ∈ A.at M ∧ (v, v) ∈ C.at M := by
+  rw [Lifting.at_comp, Lifting.at_comp]
+  constructor
+  · rintro ⟨m, hb, m', ha, hc⟩
+    obtain ⟨Sb, hb, hbM⟩ := hb
+    obtain ⟨Sc, hc, hcM⟩ := hc
+    dsimp only at ha hb hc
+    obtain ⟨rfl, -⟩ := hB _ _ _ hb
+    obtain ⟨rfl, -⟩ := hC _ _ _ hc
+    exact ⟨⟨Sb, hb, hbM⟩, ha, ⟨Sc, hc, hcM⟩⟩
+  · rintro ⟨hb, ha, hc⟩
+    exact ⟨u, hb, v, ha, hc⟩
+
+theorem andPush_at {B C A A' xd : GRel} (hB : Fn B) (hC : Fn C) {M : Interp}
+    (hx : xd.at M ⊆ (B.comp (A.comp C)).at M) :
+    (xd.meet A').at M ⊆ ((B.comp (A.comp C)).meet (B.comp (A'.comp C))).at M := by
+  rw [Lifting.at_meet, Lifting.at_meet]
+  rintro ⟨u, v⟩ ⟨hxd, ha'⟩
+  have h := hx hxd
+  obtain ⟨hb, -, hc⟩ := (fn_at hB hC).1 h
+  exact ⟨h, (fn_at hB hC).2 ⟨hb, ha', hc⟩⟩
+
 /-- Conjoining an answer with what runs inside its own interfaces, transferred
 to the boundaries of the goal the answer came from. -/
-theorem andPush_backed {T : Theory} {B C A A' : GRel} {xd : GRel} (hB : Fn B) (hC : Fn C)
-    (hx : xd.Backed T (B.comp (A.comp C))) :
-    (xd.meet A').Backed T ((B.comp (A.comp C)).meet (B.comp (A'.comp C))) := by
-  rintro ⟨u, v, S⟩ ⟨Sx, S₂, hxd, ha', hS⟩
-  simp only at hS hxd ha'
-  obtain ⟨⟨u', v', Sb⟩, hb, e1, e2, hns⟩ := hx _ hxd
-  simp only at e1 e2 hns
-  subst e1 e2
-  obtain ⟨m, S₁, S₂₃, hb₁, hac, e₃⟩ := hb
-  obtain ⟨m', Sa, Sc, ha, hc, e₄⟩ := hac
-  simp only at hb₁ ha hc e₃ e₄
-  obtain ⟨hm, -⟩ := hB _ _ _ hb₁
-  subst m
-  obtain ⟨hm', -⟩ := hC _ _ _ hc
-  subst m'
-  subst S₂₃
-  refine ⟨(u', v', (S₁ ∪ (Sa ∪ Sc)) ∪ (S₁ ∪ (S₂ ∪ Sc))),
-    ⟨S₁ ∪ (Sa ∪ Sc), S₁ ∪ (S₂ ∪ Sc), ⟨u', S₁, Sa ∪ Sc, hb₁, ⟨v', Sa, Sc, ha, hc, rfl⟩, rfl⟩,
-      ⟨u', S₁, S₂ ∪ Sc, hb₁, ⟨v', S₂, Sc, ha', hc, rfl⟩, rfl⟩, rfl⟩, rfl, rfl, ?_⟩
-  have e : (S₁ ∪ (Sa ∪ Sc)) ∪ (S₁ ∪ (S₂ ∪ Sc)) = (S₁ ∪ (Sa ∪ Sc)) ∪ S₂ := by
-    ext x; simp only [Finset.mem_union]; tauto
-  simp only
-  rw [e, hS, ← e₃]
-  exact Lifting.ns_union hns (Lifting.ns_refl _)
+theorem andPush_backed {B C A A' : GRel} {xd : GRel} (hB : Fn B) (hC : Fn C)
+    (hx : Backed T xd (B.comp (A.comp C))) :
+    Backed T (xd.meet A') ((B.comp (A.comp C)).meet (B.comp (A'.comp C))) :=
+  ⟨fun M hM => andPush_at hB hC (hx.1 M hM), andPush_at hB hC hx.2⟩
 
-theorem andPush_dom {T : Theory} {B C A A' : GRel} {xd : GRel} (hB : Fn B) (hC : Fn C)
+theorem andPush_dom {B C A A' : GRel} {xd : GRel} (hB : Fn B) (hC : Fn C)
     (hx : Lifting.LCov T xd (B.comp (A.comp C))) :
     Lifting.LCov T (xd.meet A') ((B.comp (A.comp C)).meet (B.comp (A'.comp C))) := by
-  rintro u v S ⟨S₁, S₂, h₁, h₂, hS⟩ hn
-  simp only at hS h₁ h₂
-  subst hS
-  obtain ⟨m, Sb, S', hb, hac, e₁⟩ := h₂
-  obtain ⟨m', Sa', Sc', ha', hc', e₂⟩ := hac
-  simp only at hb ha' hc' e₁ e₂
-  obtain ⟨hm, -⟩ := hB _ _ _ hb
-  subst m
-  obtain ⟨hm', -⟩ := hC _ _ _ hc'
-  subst m'
-  obtain ⟨Sx, hxd, hns⟩ := hx _ _ _ h₁ (fun h => hn (h.mono Finset.subset_union_left))
-  refine ⟨Sx ∪ Sa', ⟨Sx, Sa', hxd, ha', rfl⟩,
-    Lifting.ns_union hns (GStore.NoStronger.of_subset ?_)⟩
-  rw [e₁, e₂]
-  intro x hx; simp only [Finset.mem_union]; tauto
+  intro M hM
+  rw [Lifting.at_meet, Lifting.at_meet]
+  rintro ⟨u, v⟩ ⟨h, h'⟩
+  exact ⟨hx M hM h, ((fn_at hB hC).1 h').2.1⟩
 
 /-! ## Goals as table keys -/
 

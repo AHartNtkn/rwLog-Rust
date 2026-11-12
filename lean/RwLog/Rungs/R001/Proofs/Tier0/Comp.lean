@@ -239,8 +239,7 @@ theorem tinv_ofGoal {g : Goal} (hg : GoodG g) (hb : BU P.theory g) :
 
 section
 variable (hSE : Obligation.simplify_exact) (hSS : Obligation.simplify_stable)
-  (hRM : Obligation.refutes_mono)
-include hSE hSS hRM
+include hSE hSS
 
 theorem tinv_round {st : State} (hwf : ∀ ρ ∈ st.P.theory, ρ.WellFormed) (hI : TInv st.P st.tables) :
     TInv st.P (round st).1.tables := by
@@ -277,7 +276,7 @@ theorem tinv_round {st : State} (hwf : ∀ ρ ∈ st.P.theory, ρ.WellFormed) (h
   · intro t' ht'
     rcases key t' ht' with ⟨t, ht, hg, -, -⟩ | ⟨-, -, t, ht, d, hd, hg⟩
     · rw [hg]; exact hI.bu t ht
-    · rw [hg]; exact bu_norm (deps_bu hRM hwf hI (hI.bu t ht) hd)
+    · rw [hg]; exact bu_norm (deps_bu hI (hI.bu t ht) hd)
   · intro t' ht' a ha
     rcases key t' ht' with ⟨t, ht, -, hans, -⟩ | ⟨hans, -⟩
     · rw [hans, List.mem_append] at ha

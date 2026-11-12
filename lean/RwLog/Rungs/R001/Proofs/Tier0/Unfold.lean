@@ -74,8 +74,8 @@ theorem unfold_dc {d : Nat} {g : Goal} {s : Span} (hf : unfoldFinal P d g = true
   have hne : (GDen g s.den).Nonempty := by
     by_contra hn
     apply hd
-    intro x hx
-    exact absurd ⟨x, hx⟩ hn
+    intro M _
+    exact Set.eq_empty_of_forall_notMem fun _ ⟨_, hx, _⟩ => hn ⟨_, hx⟩
   obtain ⟨z, hz, hzd⟩ := rel_join h hne
   obtain ⟨m, hm⟩ := derives_iff_derivesN.1 hz
   obtain ⟨a, ha, hsub⟩ := roundSpans_cover (k := d) (n := m) (hm.mono (by omega))
