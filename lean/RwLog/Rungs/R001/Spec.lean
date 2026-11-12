@@ -335,19 +335,85 @@ unrefuted instance and no answer is less general than its derivation. -/
 def derivation_general : Prop :=
   ∀ P q, P.WellFormed q → ∀ a ∈ runtime.Answers P q, ∃ s, Derives P q s ∧ a.Refines P.theory s
 
-/-! ### Termination -/
+/-! ### Termination
+
+The certificate and the termination lemmas built on it need simplification to
+respect coverage and composition, which a general rewriting theory breaks:
+
+* with `(q (s $0)) <=> (q $0).`, `(k $0) {(q $0)} -> (k $0)` covers
+  `(k (s z)) {(q (s z))} -> (k (s z))`, but not its simplification
+  `(k (s z)) {(q z)} -> (k (s z))`: an instance can enable a firing its
+  generalisation does not have;
+* with `(p $0), (r $0) <=> (t $0).`, `(k $0) {(p $0)} -> (k $0)` covers
+  `(k a) {(p a), (r a)} -> (k a)`, which simplifies to `(k a) {(t a)} -> (k a)`:
+  an atom the covering answer lacks consumes one it has.
+
+They are stated for uniform queries (`Uniform`), a checkable class on which
+neither can happen. It contains every theory-free program, every
+refutation rule, and every single-head rule that fires on all atoms of its
+predicate, such as `(pin $x) <=> $x = z.`. Widening it to confluent theories
+needs coverage that compares answers modulo the theory. -/
+
+/-- The atom is `(f t₁ … tₙ)` with a symbol `f`, not a variable at its head. -/
+def symbolHeaded (a : Pat) : Bool := a.spine.isSome
+
+/-- A uniform rule refutes, or has one head `(f $x₁ … $xₙ)` with pairwise
+distinct variables. Such a rule fires on a symbol-headed atom exactly when the
+atom has `f` and `n` arguments, so it fires on an atom exactly when it fires on
+each instance, and rewriting one atom never needs another. Its body atoms are
+symbol-headed, so stores stay symbol-headed. -/
+def uniformRule (ρ : TRule) : Bool :=
+  match ρ.body, ρ.heads with
+  | .fail, _ => true
+  | .conj _ cs, [h] =>
+    cs.all symbolHeaded &&
+      match h.spine with
+      | some (_, args) =>
+        let vs := args.filterMap fun a => match a with
+          | .var v => some v
+          | _ => none
+        vs.length = args.length && vs.Nodup
+      | none => false
+  | .conj _ _, _ => false
+
+/-- The spans of an expression. -/
+def relSpans : Rel → List Span
+  | .zero | .call _ => []
+  | .span s => [s]
+  | .or a b | .and a b | .seq a b => relSpans a ++ relSpans b
+  | .conv a => relSpans a
+
+/-- A uniform query: every rule of the theory is uniform, and every constraint
+in the program and the query is symbol-headed (an atom `($x a)` could become
+`(f a)` by instantiation and start to fire). -/
+def Uniform (P : Program) (q : Rel) : Prop :=
+  (∀ ρ ∈ P.theory, uniformRule ρ = true) ∧
+    ∀ s ∈ relSpans q ++ P.defs.flatMap (relSpans ·.2), ∀ a ∈ s.c, symbolHeaded a = true
+
+/-- Simplification keeps coverage and composes, on spans whose constraints
+are symbol-headed, under a theory of uniform rules. -/
+def uniform_simplify : Prop :=
+  ∀ T : Theory, (∀ ρ ∈ T, ρ.WellFormed) → (∀ ρ ∈ T, uniformRule ρ = true) →
+    (∀ f x : Span, (∀ a ∈ f.c ++ x.c, symbolHeaded a = true) → f.Covers x →
+      T.simplify x = none ∨
+        ∃ f' x', T.simplify f = some f' ∧ T.simplify x = some x' ∧ f'.Covers x') ∧
+    (∀ s t : Span, (∀ a ∈ s.c ++ t.c, symbolHeaded a = true) →
+      Option.Rel Span.Equiv (((T.simplify t).bind s.compose).bind T.simplify)
+        ((s.compose t).bind T.simplify) ∧
+      Option.Rel Span.Equiv (((T.simplify s).bind (·.compose t)).bind T.simplify)
+        ((s.compose t).bind T.simplify))
 
 /-- The termination class, exactly: the machine halts on a query iff the
 query has a termination certificate. -/
 def terminates_iff_cert : Prop :=
-  ∀ P q, P.WellFormed q →
+  ∀ P q, P.WellFormed q → Uniform P q →
     (runtime.Terminates P q ↔ ∃ C D, Cert.Valid P C D ⟨none, q, none⟩)
 
 /-- P2.1: if only finitely many goals can arise (up to equivalent
 boundaries) and each has finitely many answers up to coverage, the machine
 halts. -/
 def tabling_termination : Prop :=
-  ∀ P q, P.WellFormed q →
+  ∀ P q, P.WellFormed q → Uniform P q →
     (∃ Gs : List Goal, ∀ g, Reach P ⟨none, q, none⟩ g → ∃ h ∈ Gs, h.same g.norm.2 = true) →
     (∀ g, Reach P ⟨none, q, none⟩ g → FiniteCover P g) →
     runtime.Terminates P q
@@ -367,7 +433,7 @@ def addition_fixed_modes : Prop :=
 /-- P1.2: a side that fails finitely makes `;` and `&` fail finitely, on
 either side and whatever the other side does. -/
 def empty_side : Prop :=
-  ∀ P (a b : Rel), P.WellFormed (.seq a b) →
+  ∀ P (a b : Rel), P.WellFormed (.seq a b) → Uniform P (.seq a b) →
     runtime.Terminates P a → runtime.Answers P a = ∅ →
     runtime.Terminates P (.seq a b) ∧ runtime.Terminates P (.seq b a) ∧
     runtime.Terminates P (.and a b) ∧ runtime.Terminates P (.and b a)
@@ -375,20 +441,20 @@ def empty_side : Prop :=
 /-- P1.3 for `;`, left side finite: if `a` halts and `b` halts under the
 interface of each answer of `a`, then `a ; b` halts. -/
 def finite_side_seq_left : Prop :=
-  ∀ P (a b : Rel), P.WellFormed (.seq a b) → runtime.Terminates P a →
+  ∀ P (a b : Rel), P.WellFormed (.seq a b) → Uniform P (.seq a b) → runtime.Terminates P a →
     (∀ x ∈ runtime.Answers P a, GoalTerminates P ⟨bound x.rightIface, b, none⟩) →
     runtime.Terminates P (.seq a b)
 
 /-- P1.3 for `;`, right side finite (the mirror image). -/
 def finite_side_seq_right : Prop :=
-  ∀ P (a b : Rel), P.WellFormed (.seq a b) → runtime.Terminates P b →
+  ∀ P (a b : Rel), P.WellFormed (.seq a b) → Uniform P (.seq a b) → runtime.Terminates P b →
     (∀ y ∈ runtime.Answers P b, GoalTerminates P ⟨none, a, bound y.leftIface⟩) →
     runtime.Terminates P (.seq a b)
 
 /-- P1.3 for `&`: if `a` halts and `b` halts restricted to the input and
 output shape of each answer of `a`, then `a & b` and `b & a` halt. -/
 def finite_side_and : Prop :=
-  ∀ P (a b : Rel), P.WellFormed (.and a b) → runtime.Terminates P a →
+  ∀ P (a b : Rel), P.WellFormed (.and a b) → Uniform P (.and a b) → runtime.Terminates P a →
     (∀ x ∈ runtime.Answers P a, GoalTerminates P (andPush b x)) →
     runtime.Terminates P (.and a b) ∧ runtime.Terminates P (.and b a)
 

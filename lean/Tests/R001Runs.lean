@@ -1,5 +1,6 @@
 import Tests.R000Runs
 import RwLog.Rungs.R001.Engine
+import RwLog.Rungs.R001.Spec
 
 /-!
 # Running rung R001
@@ -239,6 +240,21 @@ def dupT : Theory := [rule [ap "h" [v 0, v 1, v 2]] (.conj [] [ap "b" [v 0, v 0]
 theorem dupT_wellFormed : ∀ ρ ∈ dupT, ρ.WellFormed := by decide
 #guard runR001 ⟨[], dupT⟩ (.rw (v 0) (v 0) [ap "h" [v 0, v 1, v 2]]) 20 ==
   (["$0 { (h $0 $1 $2) } -> $0"], true)
+
+/-! ## The uniform class the termination theorems are stated for -/
+
+#guard pinT.all (R001.Obligation.uniformRule · = true)
+#guard sameT.all (R001.Obligation.uniformRule · = true)
+#guard pinKeepT.all (R001.Obligation.uniformRule · = true)
+-- Refutation rules are uniform whatever their heads.
+#guard twiceT.all (R001.Obligation.uniformRule · = true)
+-- A head with a constructor argument is not: an instance can start to fire.
+#guard !eqNeq.all (R001.Obligation.uniformRule · = true)
+#guard !noC.all (R001.Obligation.uniformRule · = true)
+-- Two heads that rewrite are not.
+#guard !mergeT.all (R001.Obligation.uniformRule · = true)
+-- A repeated variable in the head is not.
+#guard !(R001.Obligation.uniformRule (rule [ap "p" [v 0, v 0]] (.conj [] [])))
 
 /-! ## R001 halts on everything rung zero halts on
 
