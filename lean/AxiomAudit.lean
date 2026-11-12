@@ -110,6 +110,12 @@ new axiom.
 /-- info: 'RwLog.Conformance.pinKeep_model_empty' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Conformance.pinKeep_model_empty
 
+/-- info: 'RwLog.Conformance.c4_pin_at' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Conformance.c4_pin_at
+
+/-- info: 'RwLog.Conformance.c4_pinKeep_at' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Conformance.c4_pinKeep_at
+
 /-- info: 'RwLog.Refutes.sound' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Refutes.sound
 

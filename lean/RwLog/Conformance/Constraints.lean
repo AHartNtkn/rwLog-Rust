@@ -3,8 +3,10 @@
 
 The conformance cases from the Rust interpreter review
 (`conformance/rust-interpreter-findings.md`, cases 2 and 4) that involve
-constraints, stated as theorems about the observable relation `Program.obs`
-(the pairs some model of the theory relates) and proved. They check that the
+constraints, stated per model where the answer is a family over models
+(`c4_pin_at`, `c4_pinKeep_at`), and through the display projection
+`Program.obs` (the pairs some model relates) where a pair is ruled out in
+every model or kept in an intended one. They check that the
 specification itself gives the intended answers, independently of any engine:
 
 * a constraint no model allows removes the pair (`c2_nonzero_z`,
@@ -244,6 +246,23 @@ theorem c4_pin :
       fun n => if n = 0 then gz else b, ?_, ?_, ?_⟩ <;>
       simp [gpair, gc, pa, pv, bind_mk]
 
+/-- In every model of `pin`, `(pair $x $y) { (pin $x) } -> $y` relates exactly
+`(pair z b)` to `b`. -/
+theorem c4_pin_at (M : Interp) (hM : pinTheory.Model M) :
+    pinProg.semAt M (.rw (pa "pair" [pv 0, pv 1]) (pv 1) [pa "pin" [pv 0]]) =
+      {p | ∃ b, p = (gpair gz b, b)} := by
+  ext ⟨a, b⟩
+  constructor
+  · rintro ⟨σ, rfl, rfl, hc⟩
+    have hz := ((pin_models_iff M).1 hM (σ 0)).1 (by simpa [pa, pv, gc, bind_mk] using hc)
+    exact ⟨σ 1, by simp [gpair, pa, pv, bind_mk, hz]⟩
+  · rintro ⟨b, hb⟩
+    simp only [Prod.mk.injEq] at hb
+    obtain ⟨rfl, rfl⟩ := hb
+    have hp : Term.mk "pin" [gz] ∈ M := ((pin_models_iff M).1 hM gz).2 rfl
+    refine ⟨fun n => if n = 0 then gz else b, ?_, ?_, ?_⟩ <;>
+      simp [gpair, pa, pv, bind_mk, hp]
+
 /-! ## Writing the head back is weaker, not the same
 
 `(pin $x) <=> $x = z, (pin z).` reads: `(pin a)` holds exactly when `a` is
@@ -251,8 +270,9 @@ theorem c4_pin :
 nothing, so this theory has two kinds of model: those where `(pin z)` holds
 and those where no `pin` atom holds at all (`pinKeep_models_iff`). The empty
 interpretation is a model of it but not of `pin` (`pinKeep_model_empty`,
-`pin_not_model_empty`). The observable relation of the span is unchanged,
-because it asks for some model (`c4_pinKeep`). -/
+`pin_not_model_empty`). Per model, the span is empty in the models without
+`(pin z)` (`c4_pinKeep_at`); only the display projection `obs`, which asks
+for some model, is unchanged (`c4_pinKeep`). -/
 
 /-- `theory pin_keep { (pin $x) <=> $x = z, (pin z). }` -/
 def pinKeep : Theory := [⟨[pa "pin" [pv 0]], .conj [(pv 0, ps "z")] [pa "pin" [ps "z"]]⟩]
@@ -297,5 +317,23 @@ theorem c4_pinKeep :
     refine ⟨{gc "pin" [gz]}, (pinKeep_models_iff _).2 fun a => by simp [gc, mk_eq_mk],
       fun n => if n = 0 then gz else b, ?_, ?_, ?_⟩ <;>
       simp [gpair, gc, pa, pv, bind_mk]
+
+/-- In a model of `pin_keep`, the span relates `(pair z b)` to `b` when
+`(pin z)` holds in that model, and nothing otherwise. -/
+theorem c4_pinKeep_at (M : Interp) (hM : pinKeep.Model M) :
+    pinKeepProg.semAt M (.rw (pa "pair" [pv 0, pv 1]) (pv 1) [pa "pin" [pv 0]]) =
+      {p | gc "pin" [gz] ∈ M ∧ ∃ b, p = (gpair gz b, b)} := by
+  ext ⟨a, b⟩
+  constructor
+  · rintro ⟨σ, rfl, rfl, hc⟩
+    obtain ⟨hz, hp⟩ := ((pinKeep_models_iff M).1 hM (σ 0)).1
+      (by simpa [pa, pv, gc, bind_mk] using hc)
+    exact ⟨hp, σ 1, by simp [gpair, pa, pv, bind_mk, hz]⟩
+  · rintro ⟨hp, b, hb⟩
+    simp only [Prod.mk.injEq] at hb
+    obtain ⟨rfl, rfl⟩ := hb
+    simp only [gc] at hp
+    refine ⟨fun n => if n = 0 then gz else b, ?_, ?_, ?_⟩ <;>
+      simp [gpair, pa, pv, bind_mk, hp]
 
 end RwLog.Conformance

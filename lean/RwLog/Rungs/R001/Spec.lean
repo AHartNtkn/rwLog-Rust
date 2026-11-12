@@ -390,27 +390,45 @@ def conv_trace : Prop :=
   ∀ P q n, runtime.trace (runtime.init P (.conv q)) n =
     (runtime.trace (runtime.init P q) n).map (·.map Span.swap)
 
+/-- Simplification respects equivalent spans. The mirrored run enumerates a
+composition's candidates transposed, so its tables can keep a different member
+of a class of equivalent candidates, and later steps simplify those members.
+This fails for some theories. The engine commits to the first weight-lowering
+firing it finds: with `(r $0), (r $1) <=> (t $0).` the store `[(r a), (r b)]`
+becomes `{(t a)}` and `[(r b), (r a)]` becomes `{(t b)}`. It also fails for
+`(p z) <=> .` with `(p (f $0)) <=> fail.`, where `$w {(p z)} -> $w` and
+`$w {(p z), (p $y)} -> $w` are equivalent but simplify to `$w -> $w` and
+`$w {(p $y)} -> $w`. It holds for the empty theory. -/
+def SimplifyRespectsEquiv (T : Theory) : Prop :=
+  ∀ z z' : Span, z.Equiv z' → Option.Rel Span.Equiv (T.simplify z) (T.simplify z')
+
 /-- P1.4 strong, for the mirrored program: running the mirror image of a
-query in the mirrored program is the mirror image of the run, step for step. -/
+query in the mirrored program is the mirror image of the run, step for step.
+The mirror can keep different but equivalent representatives in its tables,
+so this is stated for theories whose simplification respects equivalence. -/
 def dual_trace : Prop :=
-  ∀ P q n, (∀ ρ ∈ P.theory, ρ.WellFormed) → TraceEquiv (runtime.trace (runtime.init P.dual q.dual) n)
-    ((runtime.trace (runtime.init P q) n).map (·.map Span.swap))
+  ∀ P q n, (∀ ρ ∈ P.theory, ρ.WellFormed) → SimplifyRespectsEquiv P.theory →
+    TraceEquiv (runtime.trace (runtime.init P.dual q.dual) n)
+      ((runtime.trace (runtime.init P q) n).map (·.map Span.swap))
 
 /-! ### Constraints -/
 
-/-- P2.3: adding refutation rules never turns a halting query into a
-diverging one. -/
-def theory_mono_terminates : Prop :=
-  ∀ P (T : Theory) q, P.WellFormed q → (∀ ρ ∈ T, ρ.WellFormed) → (∀ ρ ∈ P.theory, ρ ∈ T) →
-    runtime.Terminates P q → runtime.Terminates { P with theory := T } q
+/- P2.3 asked also that adding rules never turns a halting query into a
+diverging one. That is false for R001: with `r = $0 {(link (f $0) $1)} -> $1 |
+r ; r`, the theory `(link $0 $1) <=> .` deletes every `link` atom and the
+query halts with `$0 -> $1`, while adding `(link (f $0) $1) <=> (k $0 $1).`
+(taken first) leaves chains `{(k $0 $1), (k $1 $2), …}` that no earlier answer
+covers, so the query never halts. Whether adding only `fail` rules preserves
+halting is open (`/mnt/project-files/r001/constraint-redesign-notes.md`). -/
 
-/-- P2.3: adding rules only removes answers: each answer under the larger
-theory is covered, on its instances the larger theory cannot refute, by an
-answer under the smaller one. (The larger theory may force more equations, so
-its answers can be instances of the smaller theory's.) -/
+/-- P2.3: adding rules only removes answers: in every model of the larger
+theory, each answer under it relates only pairs that one answer under the
+smaller theory relates, unless it relates nothing in any such model. (Every
+model of the larger theory is a model of the smaller one.) -/
 def theory_mono_answers : Prop :=
   ∀ P (T : Theory) q, P.WellFormed q → (∀ ρ ∈ T, ρ.WellFormed) → (∀ ρ ∈ P.theory, ρ ∈ T) →
-    ∀ a ∈ runtime.Answers { P with theory := T } q, ∃ b ∈ runtime.Answers P q, b.CoversLive T a
+    ∀ a ∈ runtime.Answers { P with theory := T } q,
+      a.Dead T ∨ ∃ b ∈ runtime.Answers P q, b.CoversLive T a
 
 /-- P2.4: refuted spans are cut at once. No table of any reachable state
 holds an answer, or has a boundary, whose store the theory refutes, so no
