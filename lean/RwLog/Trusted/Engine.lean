@@ -117,9 +117,12 @@ namespace Runtime
 
 variable (R : Runtime)
 
-/-- Every emitted answer denotes only triples of the query. -/
+/-- Every emitted answer claims only what the query does: each of its ground
+triples is backed by a triple of the query with the same pair and a store no
+stronger under the program's theory (`GRel.Backed`). An engine may therefore
+rewrite an answer's store by the theory. -/
 def Sound : Prop :=
-  ∀ P q, P.WellFormed q → ∀ n, ∀ a ∈ R.emitted (R.init P q) n, a.den ⊆ P.sem q
+  ∀ P q, P.WellFormed q → ∀ n, ∀ a ∈ R.emitted (R.init P q) n, (a.den).Backed P.theory (P.sem q)
 
 /-- Every derivable span is covered by a single emitted answer after
 finitely many steps, unless every ground instance of it carries a store the

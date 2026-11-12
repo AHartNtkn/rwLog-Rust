@@ -113,10 +113,14 @@ theorem run_sound_aux : ∀ (n : Nat) (st : State),
 
 /-! ## The theorems -/
 
-theorem sound : runtime.Sound := by
-  intro P q _ n a ha
+/-- Rung zero's answers denote only triples of the query, exactly. -/
+theorem sound_subset {P : Program} {q : Rel} {n : Nat} {a : Span}
+    (ha : a ∈ runtime.emitted (runtime.init P q) n) : a.den ⊆ P.sem q := by
   obtain ⟨j, hj⟩ := run_sound_aux n (State.start P q 0) (fun x hx => hx) a ha
   exact roundSpans_sound hj
+
+theorem sound : runtime.Sound :=
+  fun _ _ _ _ _ ha => GRel.Backed.of_subset (sound_subset ha)
 
 theorem complete : runtime.Complete := by
   intro P q _ s hs
@@ -182,7 +186,7 @@ theorem halted_final {n : Nat} (h : runtime.Halts (runtime.init P q) n) :
 
 /-- Rung zero's exhaustion is exact: the emitted answers carry exactly the
 triples of the query. -/
-theorem honest_exhaustion_eq {n : Nat} (hwf : P.WellFormed q) (h : runtime.Halts (runtime.init P q) n) :
+theorem honest_exhaustion_eq {n : Nat} (h : runtime.Halts (runtime.init P q) n) :
     P.sem q = ⋃ a ∈ runtime.emitted (runtime.init P q) n, a.den := by
   apply le_antisymm
   · obtain ⟨k, hk, hall⟩ := halted_final h
@@ -194,11 +198,11 @@ theorem honest_exhaustion_eq {n : Nat} (hwf : P.WellFormed q) (h : runtime.Halts
       (by rw [Nat.sub_add_cancel (le_max_right d k)]; exact hd.mono (le_max_left d k))
       ⟨x, hxs⟩ (Or.inr hk)
     exact Set.mem_biUnion (hall a ha) (hsub hxs)
-  · exact Set.iUnion₂_subset fun a ha => sound P q hwf n a ha
+  · exact Set.iUnion₂_subset fun a ha => sound_subset ha
 
 theorem honest_exhaustion : runtime.HonestExhaustion := by
   intro P q hwf n h M
-  rw [honest_exhaustion_eq hwf h]
+  rw [honest_exhaustion_eq h]
 
 /-- The machine reports it is done exactly when some round is final. -/
 theorem terminates_iff : runtime.Terminates P q ↔ ∃ k, roundFinal P q k = true := by

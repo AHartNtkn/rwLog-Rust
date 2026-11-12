@@ -215,17 +215,17 @@ def refutes_complete_symbolic : Prop :=
     T.refutesWithin n c = true → T.refutes? c = true
 
 /-- Simplification is exact: a dropped span is dead, and a kept span refines
-the original, so it loses only refuted instances. -/
+the original, so up to the theory it loses only refuted instances. -/
 def simplify_exact : Prop :=
   ∀ (T : Theory) (s : Span), (∀ ρ ∈ T, ρ.WellFormed) →
     (T.simplify s = none → s.Dead T) ∧ (∀ s', T.simplify s = some s' → s'.Refines T s)
 
-/-- Simplification is complete for its symbolic firings: a simplified span
-has no symbolic refutation and no symbolic firing that forces an equation,
-however many firings are taken. So the instantiation budget is enough. -/
+/-- Simplification runs to the end: a simplified span has no symbolic
+refutation, no symbolic firing that forces an equation however many firings
+are taken, and no atom with a sole firing left. So the budgets are enough. -/
 def simplify_stable : Prop :=
   ∀ (T : Theory) (s s' : Span) (n : Nat), (∀ ρ ∈ T, ρ.WellFormed) → T.simplify s = some s' →
-    T.refutesWithin n s'.c = false ∧ T.bindWithin n s'.c = none
+    T.refutesWithin n s'.c = false ∧ T.bindWithin n s'.c = none ∧ T.drop? s'.c = none
 
 /-- Interfaces are exact: `s ; s.rightIface = s` and `s.leftIface ; s = s`,
 and a trivial interface is the identity. -/

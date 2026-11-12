@@ -87,7 +87,7 @@ def zs : List String :=
 #guard runR001 ⟨[], noC⟩ (.seq (.rw (v 0) (v 0) [ap "no_c" [v 0]]) (.at_ (ap "a" [c "k", ap "c" [c "z"]]))) 20 ==
   ([], true)
 #guard runR001 ⟨[], noC⟩ (.seq (.rw (v 0) (v 0) [ap "no_c" [v 0]]) (.at_ (ap "a" [c "k", v 0]))) 20 ==
-  (["(a k $1) { (no_c (a k $1)) } -> (a k $1)"], true)
+  (["(a k $1) { (no_c $1) } -> (a k $1)"], true)
 
 /-! ## Conformance case 5 and P1.3: a finite conjunct restricts the other -/
 
@@ -127,8 +127,9 @@ recursive table closes even while the pushes keep making new boundaries. -/
 
 An equation is not a constraint: when its rule fires on a span, the span is
 instantiated by the equation's most general unifier, and refuted when there
-is none. The store keeps its atoms, instantiated (dropping one is a separate
-decision); the answers below are observably exact. -/
+is none. An atom that only one single-head rule can fire on is replaced by
+that rule's body, so `(pin z)` leaves the store; an atom another rule could
+still use stays. -/
 
 /-- `theory pin { (pin $x) <=> $x = z. }` from conformance case 4. -/
 def pinT : Theory := [rule [ap "pin" [v 0]] (.conj [(v 0, c "z")] [])]
@@ -147,32 +148,45 @@ theorem cycT_wellFormed : ∀ ρ ∈ cycT, ρ.WellFormed := by decide
 theorem wrapT_wellFormed : ∀ ρ ∈ wrapT, ρ.WellFormed := by decide
 
 -- Conformance case 4, `pin`: the equation instantiates `$x` to `z`.
-#guard runR001 ⟨[], pinT⟩ pinSpan 20 == (["(pair z $1) { (pin z) } -> $1"], true)
+#guard runR001 ⟨[], pinT⟩ pinSpan 20 == (["(pair z $1) -> $1"], true)
 -- An input the equation rules out leaves nothing.
 #guard runR001 ⟨[], pinT⟩ (.seq (.at_ (ap "pair" [num 1, c "a"])) pinSpan) 20 == ([], true)
 #guard runR001 ⟨[], pinT⟩ (.seq (.at_ (ap "pair" [num 0, c "a"])) pinSpan) 20 ==
-  (["(pair z a) { (pin z) } -> a"], true)
+  (["(pair z a) -> a"], true)
 -- Run backwards, the equation still reaches the input side.
-#guard runR001 ⟨[], pinT⟩ (.conv pinSpan) 20 == (["$1 { (pin z) } -> (pair z $1)"], true)
+#guard runR001 ⟨[], pinT⟩ (.conv pinSpan) 20 == (["$1 -> (pair z $1)"], true)
 -- The equation fires inside a composition: the left span's output meets the
 -- right span's store.
 #guard runR001 ⟨[], pinT⟩ (.seq (.rw (v 0) (ap "pair" [v 0, c "b"])) pinSpan) 20 ==
-  (["z { (pin z) } -> b"], true)
+  (["z -> b"], true)
 -- An equation between two variables identifies them.
 #guard runR001 ⟨[], sameT⟩ (.rw (ap "pair" [v 0, v 1]) (v 0) [ap "same" [v 0, v 1]]) 20 ==
-  (["(pair $1 $1) { (same $1 $1) } -> $1"], true)
--- Two atoms each force an equation; both apply, and the atoms that become
--- equal are kept once.
+  (["(pair $1 $1) -> $1"], true)
+-- Two atoms each force an equation; both apply.
 #guard runR001 ⟨[], pinT⟩ (.rw (ap "pair" [v 0, v 1]) (v 0) [ap "pin" [v 0], ap "pin" [v 1]]) 20 ==
-  (["(pair z z) { (pin z) } -> z"], true)
+  (["(pair z z) -> z"], true)
 -- An equation with no finite solution refutes the span.
 #guard runR001 ⟨[], cycT⟩ (.rw (v 0) (v 0) [ap "cyc" [v 0]]) 20 == ([], true)
 -- An equation reached after an earlier firing still instantiates the span.
 #guard runR001 ⟨[], wrapT⟩ (.rw (v 0) (v 0) [ap "wrap" [ap "f" [v 0]]]) 20 ==
-  (["z { (wrap (f z)) } -> z"], true)
+  (["z -> z"], true)
 -- An equation can prune a recursive relation to one answer, and the query halts.
+
 #guard runR001 ⟨[("nat", nat)], pinT⟩ (.seq (.call "nat") (.rw (v 0) (v 0) [ap "pin" [v 0]])) 60 ==
-  (["z { (pin z) } -> z"], true)
+  (["z -> z"], true)
+
+/-- `pin` together with `(pin z), bad <=> fail.`: another rule can use
+`(pin z)`, so dropping it would lose the refutation of `{(pin z), bad}`. -/
+def pinBadT : Theory := pinT ++ [rule [ap "pin" [c "z"], c "bad"] .fail]
+theorem pinBadT_wellFormed : ∀ ρ ∈ pinBadT, ρ.WellFormed := by decide
+
+-- The equation still applies, but `(pin z)` stays on the answer.
+#guard runR001 ⟨[], pinBadT⟩ pinSpan 20 == (["(pair z $1) { (pin z) } -> $1"], true)
+-- So a later `bad` still refutes it.
+#guard runR001 ⟨[], pinBadT⟩ (.seq pinSpan (.rw (v 0) (v 0) [c "bad"])) 20 == ([], true)
+-- An atom on which the sole firing rule adds nothing is dropped outright,
+-- and one whose sole firing adds atoms is replaced by them.
+#guard runR001 ⟨[], noC⟩ (.rw (v 0) (v 0) [ap "no_c" [ap "a" [c "k", c "s"]]]) 20 == (["$0 -> $0"], true)
 
 /-! ## P1.1 and P1.4: order and direction do not change the trace -/
 

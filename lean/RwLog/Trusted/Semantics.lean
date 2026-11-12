@@ -271,21 +271,44 @@ def Span.Equiv (a b : Span) : Prop := a.Covers b ∧ b.Covers a
 the theory refutes. A dead span has no observable pair. -/
 def Span.Dead (T : Theory) (s : Span) : Prop := ∀ σ : Nat → GTerm, Refutes T (s.c.at σ)
 
+/-- `S` is no stronger than `S'` under a theory: every context that refutes
+`S` also refutes `S'`. What a store means is which contexts refute it
+(`GRel.Equiv`), so a store may stand in for any store it is no stronger than.
+A contained store is no stronger (`GStore.NoStronger.of_subset`). -/
+def GStore.NoStronger (T : Theory) (S S' : GStore) : Prop :=
+  ∀ C : GStore, Refutes T (S ∪ C) → Refutes T (S' ∪ C)
+
+theorem GStore.NoStronger.of_subset {T : Theory} {S S' : GStore} (h : S ⊆ S') :
+    GStore.NoStronger T S S' :=
+  fun _ hr => hr.mono (Finset.union_subset_union h le_rfl)
+
+/-- Every triple of `R` is backed by a triple of `R'` with the same pair and a
+store no stronger than its own: `R` claims nothing `R'` does not. -/
+def GRel.Backed (T : Theory) (R R' : GRel) : Prop :=
+  ∀ y ∈ R, ∃ x ∈ R', x.1 = y.1 ∧ x.2.1 = y.2.1 ∧ GStore.NoStronger T x.2.2 y.2.2
+
+theorem GRel.Backed.of_subset {T : Theory} {R R' : GRel} (h : R ⊆ R') : R.Backed T R' :=
+  fun y hy => ⟨y, h hy, rfl, rfl, GStore.NoStronger.of_subset le_rfl⟩
+
 /-- `a` covers the unrefuted instances of `s`: every ground triple of `s`
 whose store the theory cannot refute is matched by a triple of `a` with the
-same pair and a store contained in it. This is coverage up to refutation, the
-coverage an engine owes when it prunes and simplifies. -/
+same pair and a store no stronger than its own. This is coverage up to the
+theory, the coverage an engine owes when it prunes and simplifies. -/
 def Span.CoversLive (T : Theory) (a s : Span) : Prop :=
-  ∀ x ∈ s.den, ¬ Refutes T x.2.2 → ∃ y ∈ a.den, y.1 = x.1 ∧ y.2.1 = x.2.1 ∧ y.2.2 ⊆ x.2.2
+  ∀ x ∈ s.den, ¬ Refutes T x.2.2 →
+    ∃ y ∈ a.den, y.1 = x.1 ∧ y.2.1 = x.2.1 ∧ GStore.NoStronger T y.2.2 x.2.2
 
-/-- `a` refines `s` under a theory: `a` denotes some of the triples of `s`,
-including every one whose store the theory cannot refute. Instantiating a span
-by an equation its theory forces is a refinement. -/
+/-- `a` refines `s` under a theory: `a` claims nothing `s` does not, and
+covers every instance of `s` the theory cannot refute. Instantiating a span by
+an equation its theory forces, and replacing a store by one the theory
+rewrites it to, are refinements. -/
 def Span.Refines (T : Theory) (a s : Span) : Prop :=
-  a.den ⊆ s.den ∧ ∀ x ∈ s.den, ¬ Refutes T x.2.2 → x ∈ a.den
+  (a.den).Backed T s.den ∧ a.CoversLive T s
 
 theorem Span.Covers.live {T : Theory} {a s : Span} (h : a.Covers s) : a.CoversLive T s :=
-  fun x hx _ => h x hx
+  fun x hx _ => by
+    obtain ⟨y, hy, h1, h2, h3⟩ := h x hx
+    exact ⟨y, hy, h1, h2, GStore.NoStronger.of_subset h3⟩
 
 theorem Span.Covers.refl (a : Span) : a.Covers a :=
   fun x hx => ⟨x, hx, rfl, rfl, le_rfl⟩

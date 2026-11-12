@@ -29,7 +29,15 @@ three outcomes:
 `Theory.refutes? T c` decides, from the store alone, that every ground
 instance of `c` is refuted (obligation `Kernel.refutes_sound`); it follows
 `refuted` and `next` firings only. `Theory.simplify T s` instantiates the span
-`s` by every equation its theory forces and drops it if it is refuted.
+`s` by every equation its theory forces, replaces each atom that only one
+single-head rule can fire on by that rule's body (`Theory.soleFiring`), and
+drops the span if it is refuted.
+
+Replacing an atom by a rule body is sound only when nothing else could use the
+atom: refutation is existential over firings, so with `(pin $x) <=> $x = z.`
+and `(pin z), bad <=> fail.` the store `{(pin z)}` is refuted in the context
+`{bad}` while the empty store is not. A sole firing is exactly the case where
+the replacement keeps the store's meaning in every context.
 
 Bounds, all proved rather than tuned:
 
@@ -113,18 +121,57 @@ def Span.inst (s : Span) (θ : Nat → Pat) : Span :=
 /-- The distinct variables of a store. -/
 def Store.varCount (c : Store) : Nat := (c.flatMap Term.vars).eraseDups.length
 
-/-- Simplify within `n` instantiations: `none` when the span is refuted. -/
-def Theory.simplifyWithin (T : Theory) : Nat → Span → Option Span
-  | 0, s => if T.refutes? s.c then none else some s
-  | n + 1, s =>
+/-- Every head of the theory, with its rule's index and its own index. -/
+def Theory.indexedHeads (T : Theory) : List ((Nat × Nat) × Pat) :=
+  T.zipIdx.flatMap fun (ρ, i) => ρ.heads.zipIdx.map fun (h, j) => ((i, j), h)
+
+/-- The body that replaces the atom `a` when `a` admits a sole firing: a
+single-head rule matches `a`, its equations hold syntactically under the
+match, and no other head of the theory has a common instance with `a`. Every
+ground instance of `a` can then be fired on only by that rule, and firing it
+removes the instance and adds the body, so in every context a store with `a`
+is refuted exactly when the store with `a` replaced by the body is. -/
+def Theory.soleFiring (T : Theory) (a : Pat) : Option (List Pat) :=
+  T.zipIdx.findSome? fun (ρ, i) =>
+    match ρ.heads, ρ.body with
+    | [h], .conj eqs cs =>
+      (matchInto h a []).bind fun θ =>
+        if (eqs.all fun e => e.1.bind θ.apply = e.2.bind θ.apply) &&
+            T.indexedHeads.all (fun (k, h') => k == (i, 0) || !unifiableApart a h') then
+          some (cs.map (Term.bind θ.apply))
+        else none
+    | _, _ => none
+
+/-- Replace the first atom of the store that admits a sole firing by that
+firing's body. -/
+def Theory.drop? (T : Theory) (c : Store) : Option Store :=
+  c.findSome? fun a => (T.soleFiring a).map fun body => (c.filter (· ≠ a) ++ body).eraseDups
+
+/-- Simplify with a budget of `n` instantiations, and of `w` sole firings
+between two instantiations: `none` when the span is refuted. -/
+def Theory.simplifyWithin (T : Theory) : Nat → Nat → Span → Option Span
+  | n + 1, w + 1, s =>
     if T.refutes? s.c then none
     else match T.bind? s.c with
-      | none => some s
-      | some θ => T.simplifyWithin n (s.inst θ)
+      | some θ =>
+        let s' := s.inst θ
+        T.simplifyWithin n (T.storeWeight s'.c + 1) s'
+      | none => match T.drop? s.c with
+        | none => some s
+        | some c' => T.simplifyWithin (n + 1) w ⟨s.l, s.r, c'⟩
+  | _, _, s => if T.refutes? s.c then none else some s
+termination_by n w => (n, w)
 
-/-- Instantiate a span by every equation its theory forces, and drop it when
-the theory refutes it. -/
+/-- Simplify a span by its theory: instantiate it by every equation the theory
+forces, replace every atom that admits a sole firing by that firing's body, and
+drop the span when the theory refutes it.
+
+The budgets are bounds, not tuning: an instantiation removes a variable of the
+store and a sole firing never adds one, so there are at most as many
+instantiations as the store has variables; a sole firing of a decreasing rule
+lowers `storeWeight`, so between two instantiations there are at most
+`storeWeight` of them (obligation `Kernel.simplify_stable`). -/
 def Theory.simplify (T : Theory) (s : Span) : Option Span :=
-  T.simplifyWithin (s.c.varCount + 1) s
+  T.simplifyWithin (s.c.varCount + 1) (T.storeWeight s.c + 1) s
 
 end RwLog
