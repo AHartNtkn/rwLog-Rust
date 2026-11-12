@@ -83,11 +83,14 @@ new axiom.
 /-- info: 'RwLog.Conformance.pinTheory_wellFormed' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Conformance.pinTheory_wellFormed
 
-/-- info: 'RwLog.Conformance.pinKeep_span' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLog.Conformance.pinKeep_span
+/-- info: 'RwLog.Conformance.c4_pinKeep' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Conformance.c4_pinKeep
 
-/-- info: 'RwLog.Conformance.pinKeep_meets_bad' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLog.Conformance.pinKeep_meets_bad
+/-- info: 'RwLog.Conformance.pinKeep_model_empty' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Conformance.pinKeep_model_empty
+
+/-- info: 'RwLog.Refutes.sound' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Refutes.sound
 
 /-- info: 'RwLog.Conformance.pinKeep_wellFormed' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Conformance.pinKeep_wellFormed
