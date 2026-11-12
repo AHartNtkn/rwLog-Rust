@@ -245,6 +245,12 @@ def simplify_stable : Prop :=
   ∀ (T : Theory) (s s' : Span) (n : Nat), (∀ ρ ∈ T, ρ.WellFormed) → T.simplify s = some s' →
     T.refutesWithin n s'.c = false ∧ T.bindWithin n s'.c = none ∧ T.drop? s'.c = none
 
+/-- Simplification respects equivalent spans: two equivalent spans are both
+dropped, or both kept as equivalent spans. -/
+def simplify_equiv : Prop :=
+  ∀ (T : Theory) (z z' : Span), (∀ ρ ∈ T, ρ.WellFormed) → z.Equiv z' →
+    Option.Rel Span.Equiv (T.simplify z) (T.simplify z')
+
 /-- Interfaces are exact: `s ; s.rightIface = s` and `s.leftIface ; s = s`,
 and a trivial interface is the identity. -/
 def iface_exact : Prop :=
@@ -402,7 +408,7 @@ def conv_trace : Prop :=
 /-- P1.4 strong, for the mirrored program: running the mirror image of a
 query in the mirrored program is the mirror image of the run, step for step. -/
 def dual_trace : Prop :=
-  ∀ P q n, TraceEquiv (runtime.trace (runtime.init P.dual q.dual) n)
+  ∀ P q n, (∀ ρ ∈ P.theory, ρ.WellFormed) → TraceEquiv (runtime.trace (runtime.init P.dual q.dual) n)
     ((runtime.trace (runtime.init P q) n).map (·.map Span.swap))
 
 /-! ### Constraints -/
