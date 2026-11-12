@@ -23,4 +23,6 @@ import RwLog.Rungs.R001.Engine
 import RwLog.Rungs.R001.Spec
 import RwLog.Rungs.R001.Proofs.Kernel
 import RwLog.Rungs.R001.Proofs.Derivations
+import RwLog.Rungs.R001.Proofs.TheoryMono
+import RwLog.Rungs.R001.Proofs.Checker
 import RwLog.Rungs.R001.Proofs.Tier0

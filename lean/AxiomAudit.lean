@@ -122,6 +122,16 @@ new axiom.
 /-- info: 'RwLog.Conformance.pinKeep_wellFormed' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Conformance.pinKeep_wellFormed
 
+/-- info: 'RwLog.R001.theory_mono_answers' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R001.theory_mono_answers
+/-- info: 'RwLog.R001.refutes_sound' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R001.refutes_sound
+
+/-- info: 'RwLog.R001.simplify_exact' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R001.simplify_exact
+
+/-- info: 'RwLog.R001.simplify_stable' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R001.simplify_stable
 /-- info: 'RwLog.R001.sound' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.R001.sound
 
