@@ -259,6 +259,104 @@ theorem c4_pin :
       not_refutes_pin_z⟩ <;>
       simp [Store.at, gpair, gc, pa, pv, bind_mk]
 
+/-! ## Firing replaces the head; keeping it means writing it back
+
+`<=>` always replaces its heads by its body. A rule that should keep its
+constraint writes it back: `(pin $x) <=> $x = z, (pin z).` The kept
+constraint can then still meet another rule, here `(pin z), bad <=> fail.` -/
+
+/-- `(pin $x) <=> $x = z, (pin z).` and `(pin z), bad <=> fail.` -/
+def pinKeep : Theory := [
+  ⟨[pa "pin" [pv 0]], .conj [(pv 0, ps "z")] [pa "pin" [ps "z"]]⟩,
+  ⟨[pa "pin" [ps "z"], ps "bad"], .fail⟩]
+
+theorem pinKeep_wellFormed : ∀ ρ ∈ pinKeep, ρ.WellFormed := by decide
+
+/-- `{(pin z)}` is not refuted: firing the first rule rewrites it to itself. -/
+theorem not_refutes_pinKeep_z : ¬ Refutes pinKeep {gc "pin" [gz]} := by
+  intro h
+  suffices ∀ S, Refutes pinKeep S → ¬ S ⊆ {gc "pin" [gz]} from this _ h le_rfl
+  intro S h
+  induction h with
+  | fail hρ σ hb hf =>
+    intro hS
+    simp only [pinKeep, List.mem_cons, List.not_mem_nil, or_false] at hρ
+    rcases hρ with rfl | rfl
+    · cases hb
+    · have hm := hS (hf.2 _ (List.mem_cons_of_mem _ List.mem_cons_self))
+      simp [ps, gc, gz, sym_ne_mk] at hm
+  | eq hρ σ hb hf he hne =>
+    intro hS
+    simp only [pinKeep, List.mem_cons, List.not_mem_nil, or_false] at hρ
+    rcases hρ with rfl | rfl
+    · simp only [Body.conj.injEq] at hb
+      obtain ⟨rfl, rfl⟩ := hb
+      have hm := hS (hf.2 _ List.mem_cons_self)
+      simp [pa, pv, gc, bind_mk, mk_eq_mk] at hm
+      simp only [List.mem_singleton] at he
+      subst he
+      exact hne (by simp [pv, ps, hm, gz])
+    · cases hb
+  | conj hρ σ hb hf _ _ ih =>
+    intro hS
+    simp only [pinKeep, List.mem_cons, List.not_mem_nil, or_false] at hρ
+    rcases hρ with rfl | rfl
+    · simp only [Body.conj.injEq] at hb
+      obtain ⟨rfl, rfl⟩ := hb
+      apply ih
+      intro x hx
+      simp only [Finset.mem_union, Finset.mem_sdiff, List.map_cons, List.map_nil,
+        List.toFinset_cons, List.toFinset_nil, Finset.mem_insert, Finset.notMem_empty,
+        or_false] at hx
+      rcases hx with hx | rfl
+      · exact hS hx.1
+      · simp [pa, ps, gc, gz, bind_mk]
+    · cases hb
+
+/-- With the head written back, `(pair $x $y) { (pin $x) } -> $y` still means
+exactly `(pair z $y) -> $y`. -/
+theorem pinKeep_span :
+    (⟨[], pinKeep⟩ : Program).obs (.rw (pa "pair" [pv 0, pv 1]) (pv 1) [pa "pin" [pv 0]]) =
+      {p | ∃ b, p = (gpair gz b, b)} := by
+  ext ⟨a, b⟩
+  constructor
+  · rintro ⟨S, h, hn⟩
+    obtain ⟨σ, rfl, rfl, rfl⟩ := mem_span.1 h
+    by_cases hz : σ 0 = gz
+    · exact ⟨σ 1, by simp [gpair, pa, pv, bind_mk, hz]⟩
+    · exact absurd (.eq (ρ := ⟨[pa "pin" [pv 0]], .conj [(pv 0, ps "z")] [pa "pin" [ps "z"]]⟩)
+        (by simp [pinKeep]) σ rfl ⟨by simp [TRule.headsAt],
+          by simp [TRule.headsAt, Store.at]⟩ List.mem_cons_self (by simpa [pv, ps, gz] using hz)) hn
+  · rintro ⟨b, hb⟩
+    simp only [Prod.mk.injEq] at hb
+    obtain ⟨rfl, rfl⟩ := hb
+    refine ⟨{gc "pin" [gz]}, mem_span.2 ⟨fun n => if n = 0 then gz else b, ?_, ?_, ?_⟩,
+      not_refutes_pinKeep_z⟩ <;>
+      simp [Store.at, gpair, gc, pa, pv, bind_mk]
+
+/-- The kept `(pin z)` still meets `bad`: composing with a span that carries
+`bad` refutes every instance. -/
+theorem pinKeep_meets_bad :
+    (⟨[], pinKeep⟩ : Program).obs
+      (.seq (.rw (pa "pair" [pv 0, pv 1]) (pv 1) [pa "pin" [pv 0]]) (.rw (pv 0) (pv 0) [ps "bad"])) =
+      ∅ := by
+  apply Set.eq_empty_of_forall_notMem
+  rintro ⟨a, b⟩ ⟨S, ⟨m, S₁, S₂, h₁, h₂, h₃⟩, hn⟩
+  apply hn
+  obtain ⟨σ₁, -, -, rfl⟩ := mem_span.1 h₁
+  obtain ⟨σ₂, -, -, rfl⟩ := mem_span.1 h₂
+  simp only at h₃
+  subst h₃
+  by_cases hz : σ₁ 0 = gz
+  · -- the pin rule rewrites `(pin z)` to itself; `(pin z), bad <=> fail` fires
+    refine .fail (ρ := ⟨[pa "pin" [ps "z"], ps "bad"], .fail⟩) (by simp [pinKeep])
+      (fun _ => gz) rfl ⟨?_, ?_⟩
+    · simp [TRule.headsAt, pa, ps, bind_mk, mk_ne_sym]
+    · simp [TRule.headsAt, Store.at, pa, pv, ps, bind_mk, hz, gz]
+  · exact .eq (ρ := ⟨[pa "pin" [pv 0]], .conj [(pv 0, ps "z")] [pa "pin" [ps "z"]]⟩)
+      (by simp [pinKeep]) σ₁ rfl ⟨by simp [TRule.headsAt],
+        by simp [TRule.headsAt, Store.at]⟩ List.mem_cons_self (by simpa [pv, ps, gz] using hz)
+
 /-! ## Stores combine across composition -/
 
 /-- `(pair $x $y) { (neq $x $y) } -> $x` alone relates `(pair z (s z))` to `z`. -/
