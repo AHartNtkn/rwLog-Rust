@@ -82,3 +82,15 @@ new axiom.
 
 /-- info: 'RwLog.Conformance.pinTheory_wellFormed' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Conformance.pinTheory_wellFormed
+
+/-- info: 'RwLog.R001.covers_iff' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R001.covers_iff
+
+/-- info: 'RwLog.R001.iface_exact' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R001.iface_exact
+
+/-- info: 'RwLog.R001.iface_equiv' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R001.iface_equiv
+
+/-- info: 'RwLog.R001.denote_dual' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R001.denote_dual
