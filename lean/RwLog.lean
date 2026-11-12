@@ -40,3 +40,4 @@ import RwLog.Rungs.R001.Proofs.SymmetryCands
 import RwLog.Rungs.R001.Proofs.SymmetryUnfold
 import RwLog.Rungs.R001.Proofs.SymmetryProduce
 import RwLog.Rungs.R001.Proofs.SymmetryRound
+import RwLog.Rungs.R001.Proofs.SymmetryDual
