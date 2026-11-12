@@ -197,7 +197,7 @@ theorem honest_exhaustion_eq {n : Nat} (hwf : P.WellFormed q) (h : runtime.Halts
   · exact Set.iUnion₂_subset fun a ha => sound P q hwf n a ha
 
 theorem honest_exhaustion : runtime.HonestExhaustion := by
-  intro P q hwf n h M _
+  intro P q hwf n h M
   rw [honest_exhaustion_eq hwf h]
 
 /-- The machine reports it is done exactly when some round is final. -/
