@@ -128,11 +128,15 @@ only depends on which constraints occur in it. -/
 
 abbrev Store := List Pat
 
-/-- A rule body: `fail`, or a (possibly empty) conjunction of constraints.
-The empty conjunction is the drop body `.`. -/
+/-- A rule body: `fail`, or a conjunction of equations `s = t` and
+constraints. The empty conjunction is the drop body `.`.
+
+An equation is not a constraint and never enters a store: when the rule fires
+it equates terms of the span it fires in, so on a ground instance it either
+holds or refutes. -/
 inductive Body where
   | fail
-  | conj (cs : List Pat)
+  | conj (eqs : List (Pat × Pat)) (cs : List Pat)
   deriving DecidableEq, Repr
 
 /-- A refutation rule `h₁, …, hₙ <=> body`. Rules fire by matching their heads
@@ -144,18 +148,25 @@ structure TRule where
 
 abbrev Theory := List TRule
 
+/-- The equations of a body. -/
+def Body.eqs : Body → List (Pat × Pat)
+  | .fail => []
+  | .conj eqs _ => eqs
+
 /-- The constraints a body adds. -/
 def Body.atoms : Body → List Pat
   | .fail => []
-  | .conj cs => cs
+  | .conj _ cs => cs
 
-/-- A rule is well formed when it has a head and every variable of its body
-occurs in its heads. A rule fires by matching its heads, so a body variable
-not bound by them would have no value; reading it existentially would let a
-rule refute through a value it chose itself, which is not what the rule
-says. -/
+/-- A rule is well formed when it has a head and every variable of its body,
+in constraints and in equations, occurs in its heads. Rules fire by matching
+their heads, so the heads determine the whole body. A fresh body variable
+would need an existential reading, and an equation with one could make
+constraint solving on non-ground stores diverge (`(p $x) <=> $x = (s $y),
+(p $y).`), so the rule language excludes it. -/
 def TRule.WellFormed (ρ : TRule) : Prop :=
-  ρ.heads ≠ [] ∧ ∀ c ∈ ρ.body.atoms, ∀ v ∈ c.vars, ∃ h ∈ ρ.heads, v ∈ h.vars
+  ρ.heads ≠ [] ∧ (∀ c ∈ ρ.body.atoms, ∀ v ∈ c.vars, ∃ h ∈ ρ.heads, v ∈ h.vars) ∧
+    (∀ e ∈ ρ.body.eqs, ∀ v ∈ e.1.vars ++ e.2.vars, ∃ h ∈ ρ.heads, v ∈ h.vars)
 
 instance (ρ : TRule) : Decidable ρ.WellFormed := by
   unfold TRule.WellFormed; infer_instance

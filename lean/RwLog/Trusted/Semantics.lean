@@ -45,11 +45,18 @@ end GRel
 /-! ## Constraint theories
 
 `Refutes T S` holds when the rules of `T` derive `fail` from the ground store
-`S`. A rule fires when its heads, under one substitution, are distinct members
-of the store; it then either refutes the store (body `fail`) or replaces the
-matched constraints by its body. A store holds exactly when it is not
-refuted. `Refutes` asks whether *some* sequence of firings reaches `fail`, so
-refutability never depends on the order in which rules are tried. -/
+`S`. A rule fires when its heads, under one substitution `σ`, are distinct
+members of the store. A `fail` body refutes the store. A conjunction body
+refutes the store if one of its equations fails under `σ`; otherwise it
+removes the matched heads and adds its constraints. This is the ground
+reading of an equation unifying the span the rule fires in: the ground
+instances that unification removes are exactly those where the equation
+fails. Equations never enter a store.
+
+A store holds exactly when it is not refuted. `Refutes` asks whether *some*
+sequence of firings reaches `fail`, so refutability never depends on the order
+in which rules are tried. In a well-formed theory (`TRule.WellFormed`) every
+body variable occurs in the heads, so `σ` determines the whole body. -/
 
 /-- The heads of a rule, instantiated. -/
 def TRule.headsAt (ρ : TRule) (σ : Nat → GTerm) : List GTerm := ρ.heads.map (Term.bind σ)
@@ -61,8 +68,12 @@ def TRule.Fires (ρ : TRule) (σ : Nat → GTerm) (S : GStore) : Prop :=
 inductive Refutes (T : Theory) : GStore → Prop
   | fail {S : GStore} {ρ : TRule} (hρ : ρ ∈ T) (σ : Nat → GTerm)
       (hb : ρ.body = .fail) (hf : ρ.Fires σ S) : Refutes T S
-  | conj {S : GStore} {ρ : TRule} {cs : List Pat} (hρ : ρ ∈ T) (σ : Nat → GTerm)
-      (hb : ρ.body = .conj cs) (hf : ρ.Fires σ S)
+  | eq {S : GStore} {ρ : TRule} {eqs : List (Pat × Pat)} {cs : List Pat} {e : Pat × Pat}
+      (hρ : ρ ∈ T) (σ : Nat → GTerm) (hb : ρ.body = .conj eqs cs) (hf : ρ.Fires σ S)
+      (he : e ∈ eqs) (hne : e.1.bind σ ≠ e.2.bind σ) : Refutes T S
+  | conj {S : GStore} {ρ : TRule} {eqs : List (Pat × Pat)} {cs : List Pat} (hρ : ρ ∈ T)
+      (σ : Nat → GTerm) (hb : ρ.body = .conj eqs cs) (hf : ρ.Fires σ S)
+      (heq : ∀ e ∈ eqs, e.1.bind σ = e.2.bind σ)
       (h : Refutes T (S \ (ρ.headsAt σ).toFinset ∪ (cs.map (Term.bind σ)).toFinset)) :
       Refutes T S
 
@@ -143,9 +154,12 @@ theorem Refutes.mono {T : Theory} {S : GStore} (h : Refutes T S) :
   | fail hρ σ hb hf =>
     intro S' hS
     exact .fail hρ σ hb ⟨hf.1, fun x hx => hS (hf.2 x hx)⟩
-  | conj hρ σ hb hf _ ih =>
+  | eq hρ σ hb hf he hne =>
     intro S' hS
-    refine .conj hρ σ hb ⟨hf.1, fun x hx => hS (hf.2 x hx)⟩ (ih ?_)
+    exact .eq hρ σ hb ⟨hf.1, fun x hx => hS (hf.2 x hx)⟩ he hne
+  | conj hρ σ hb hf heq _ ih =>
+    intro S' hS
+    refine .conj hρ σ hb ⟨hf.1, fun x hx => hS (hf.2 x hx)⟩ heq (ih ?_)
     exact Finset.union_subset_union (Finset.sdiff_subset_sdiff hS le_rfl) le_rfl
 
 namespace GRel
