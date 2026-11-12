@@ -101,7 +101,7 @@ theorem run_sound_aux : ∀ (n : Nat) (st : State),
   | n + 1, ⟨P, q, k, l⟩, hst, a, ha => by
     cases l with
     | cons b l =>
-      simp only [Runtime.run, runtime, step, List.mem_cons] at ha
+      simp only [Runtime.run, runtime, step, List.cons_append, List.nil_append, List.mem_cons] at ha
       rcases ha with rfl | ha
       · exact ⟨k, hst _ (List.mem_cons_self ..)⟩
       · exact run_sound_aux n ⟨P, q, k, l⟩ (fun x hx => hst x (List.mem_cons_of_mem _ hx)) a ha
@@ -138,7 +138,7 @@ theorem complete : runtime.Complete := by
     (by rcases hj with h | h
         · exact Or.inr h
         · exact Or.inl (by omega))
-  refine ⟨N + (roundSpans P q j).length, a, ?_, hsub⟩
+  refine Or.inr ⟨N + (roundSpans P q j).length, a, ?_, Span.Covers.of_den_subset hsub⟩
   show a ∈ (runtime.run (State.start P q 0) _).1
   rw [hrun]
   have := run_queue (State.start P q j) 0
@@ -180,8 +180,10 @@ theorem halted_final {n : Nat} (h : runtime.Halts (runtime.init P q) n) :
   rw [heq]; change a ∈ (runtime.run (State.start P q 0) _).1; rw [hfin]
   simp [ha]
 
-theorem honest_exhaustion : runtime.HonestExhaustion := by
-  intro P q _ n h
+/-- Rung zero's exhaustion is exact: the emitted answers carry exactly the
+triples of the query. -/
+theorem honest_exhaustion_eq {n : Nat} (hwf : P.WellFormed q) (h : runtime.Halts (runtime.init P q) n) :
+    P.sem q = ⋃ a ∈ runtime.emitted (runtime.init P q) n, a.den := by
   apply le_antisymm
   · obtain ⟨k, hk, hall⟩ := halted_final h
     intro x hx
@@ -192,7 +194,11 @@ theorem honest_exhaustion : runtime.HonestExhaustion := by
       (by rw [Nat.sub_add_cancel (le_max_right d k)]; exact hd.mono (le_max_left d k))
       ⟨x, hxs⟩ (Or.inr hk)
     exact Set.mem_biUnion (hall a ha) (hsub hxs)
-  · exact Set.iUnion₂_subset fun a ha => sound P q ‹_› n a ha
+  · exact Set.iUnion₂_subset fun a ha => sound P q hwf n a ha
+
+theorem honest_exhaustion : runtime.HonestExhaustion := by
+  intro P q hwf n h M _
+  rw [honest_exhaustion_eq hwf h]
 
 /-- The machine reports it is done exactly when some round is final. -/
 theorem terminates_iff : runtime.Terminates P q ↔ ∃ k, roundFinal P q k = true := by
@@ -226,7 +232,7 @@ theorem run_answers_aux : ∀ (n : Nat) (st : State),
   | n + 1, ⟨P, q, k, l⟩, hpre, hst, a, ha => by
     cases l with
     | cons b l =>
-      simp only [Runtime.run, runtime, step, List.mem_cons] at ha
+      simp only [Runtime.run, runtime, step, List.cons_append, List.nil_append, List.mem_cons] at ha
       rcases ha with rfl | ha
       · exact ⟨k, hpre, hst _ (List.mem_cons_self ..)⟩
       · exact run_answers_aux n ⟨P, q, k, l⟩ hpre (fun x hx => hst x (List.mem_cons_of_mem _ hx)) a ha

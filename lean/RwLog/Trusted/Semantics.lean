@@ -184,4 +184,35 @@ theorem Equiv.observe_eq {T : Theory} {R S : GRel} (h : Equiv T R S) :
 
 end GRel
 
+/-! ## Coverage and dead spans
+
+These are the two notions the execution theorems are stated with, once an
+engine may prune refuted answers and drop answers that a more general one
+already covers. -/
+
+/-- `a` covers `s`: every ground triple of `s` is matched by a triple of `a`
+with the same pair and a store contained in it. A covering answer carries
+every pair the covered one carries, within every store. -/
+def Span.Covers (a s : Span) : Prop :=
+  ∀ x ∈ s.den, ∃ y ∈ a.den, y.1 = x.1 ∧ y.2.1 = x.2.1 ∧ y.2.2 ⊆ x.2.2
+
+/-- Two spans are equivalent answers when each covers the other. -/
+def Span.Equiv (a b : Span) : Prop := a.Covers b ∧ b.Covers a
+
+/-- A span is dead under a theory when every ground instance carries a store
+the theory refutes. A dead span has no observable pair. -/
+def Span.Dead (T : Theory) (s : Span) : Prop := ∀ σ : Nat → GTerm, Refutes T (s.c.at σ)
+
+theorem Span.Covers.refl (a : Span) : a.Covers a :=
+  fun x hx => ⟨x, hx, rfl, rfl, le_rfl⟩
+
+theorem Span.Covers.trans {a b c : Span} (h₁ : a.Covers b) (h₂ : b.Covers c) : a.Covers c := by
+  intro x hx
+  obtain ⟨y, hy, h1, h2, h3⟩ := h₂ x hx
+  obtain ⟨z, hz, k1, k2, k3⟩ := h₁ y hy
+  exact ⟨z, hz, k1.trans h1, k2.trans h2, k3.trans h3⟩
+
+theorem Span.Covers.of_den_subset {a s : Span} (h : s.den ⊆ a.den) : a.Covers s :=
+  fun x hx => ⟨x, h hx, rfl, rfl, le_rfl⟩
+
 end RwLog

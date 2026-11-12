@@ -144,18 +144,44 @@ structure TRule where
 
 abbrev Theory := List TRule
 
+/-! ### Terminating theories
+
+The semantics requires every theory to terminate. A rule is well formed
+only if it passes the following decidable check, which guarantees
+termination of rule firing on every store, ground or not.
+
+`Pat.smaller u t` is the substitution-stable strict order: `u` is smaller than
+`t` and no variable occurs more often in `u` than in `t`, so `uθ` is smaller
+than `tθ` for every substitution `θ`. A rule is decreasing when its body is
+smaller than its heads in the multiset extension of that order
+(Dershowitz–Manna): after cancelling atoms that occur in both, some head is
+left, and every remaining body atom is smaller than some remaining head. -/
+
+def Pat.smaller (u t : Pat) : Bool :=
+  decide (u.size < t.size) && u.vars.all fun v => decide (u.vars.count v ≤ t.vars.count v)
+
+def TRule.Decreasing (ρ : TRule) : Bool :=
+  match ρ.body with
+  | .fail => true
+  | .conj cs =>
+    let B := cs.diff ρ.heads
+    let H := ρ.heads.diff cs
+    !H.isEmpty && B.all fun b => H.any fun h => Pat.smaller b h
+
+
 /-- The constraints a body adds. -/
 def Body.atoms : Body → List Pat
   | .fail => []
   | .conj cs => cs
 
-/-- A rule is well formed when it has a head and every variable of its body
-occurs in its heads. A rule fires by matching its heads, so a body variable
-not bound by them would have no value; reading it existentially would let a
-rule refute through a value it chose itself, which is not what the rule
-says. -/
+/-- A rule is well formed when it has a head, every variable of its body
+occurs in its heads, and it is decreasing. A rule fires by matching its
+heads, so a body variable not bound by them would have no value; reading it
+existentially would let a rule refute through a value it chose itself, which
+is not what the rule says. Decreasing rules make rule firing terminate. -/
 def TRule.WellFormed (ρ : TRule) : Prop :=
-  ρ.heads ≠ [] ∧ ∀ c ∈ ρ.body.atoms, ∀ v ∈ c.vars, ∃ h ∈ ρ.heads, v ∈ h.vars
+  ρ.heads ≠ [] ∧ (∀ c ∈ ρ.body.atoms, ∀ v ∈ c.vars, ∃ h ∈ ρ.heads, v ∈ h.vars) ∧
+    ρ.Decreasing = true
 
 instance (ρ : TRule) : Decidable ρ.WellFormed := by
   unfold TRule.WellFormed; infer_instance
@@ -213,6 +239,18 @@ def calls : Rel → List Name
 
 def CallFree (e : Rel) : Prop := e.calls = []
 
+/-- The mirror image of an expression: every span is swapped and every
+sequence is reversed. It denotes the converse (`denote_dual`), with calls
+read in the mirrored program `Program.dual`. -/
+def dual : Rel → Rel
+  | zero => zero
+  | span s => span s.swap
+  | or a b => or a.dual b.dual
+  | and a b => and a.dual b.dual
+  | seq a b => seq b.dual a.dual
+  | conv a => conv a.dual
+  | call n => call n
+
 instance (e : Rel) : Decidable e.CallFree := inferInstanceAs (Decidable (_ = _))
 
 end Rel
@@ -239,6 +277,11 @@ def WellFormed (P : Program) (q : Rel) : Prop :=
 
 instance (P : Program) (q : Rel) : Decidable (P.WellFormed q) := by
   unfold WellFormed; infer_instance
+
+/-- The mirrored program: every body is mirrored, and the theory is
+unchanged. -/
+def dual (P : Program) : Program :=
+  { P with defs := P.defs.map fun d => (d.1, d.2.dual) }
 
 end Program
 

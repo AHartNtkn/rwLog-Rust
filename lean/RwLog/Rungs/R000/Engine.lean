@@ -41,8 +41,8 @@ def State.start (P : Program) (q : Rel) (k : Nat) : State := ⟨P, q, k, roundSp
 
 def step (st : State) : Step State :=
   match st.queue with
-  | a :: rest => .emit a { st with queue := rest }
-  | [] => if roundFinal st.P st.q st.round then .done else .tau (State.start st.P st.q (st.round + 1))
+  | a :: rest => .emit [a] { st with queue := rest }
+  | [] => if roundFinal st.P st.q st.round then .done else .emit [] (State.start st.P st.q (st.round + 1))
 
 def runtime : Runtime where
   State := State
