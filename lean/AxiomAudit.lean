@@ -172,3 +172,6 @@ new axiom.
 
 /-- info: 'RwLog.R001.or_assoc' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.R001.or_assoc
+
+/-- info: 'RwLog.R001.dual_trace' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R001.dual_trace
