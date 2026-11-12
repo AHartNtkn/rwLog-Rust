@@ -6,6 +6,7 @@ The general machinery lives here: when a run is finished, table keys
 closed set, and tables only grow from round to round.
 -/
 import RwLog.Rungs.R001.Proofs.Kernel
+import RwLog.Rungs.R001.Proofs.Tier0
 
 namespace RwLog
 
@@ -386,6 +387,162 @@ theorem completing_spec (P : Program) (d : Nat) (ts ts' : Tables) (i : Nat)
   have hsub := gfpFrom_sub (okAt P d ts ts') _ _ i hi
   simp only [List.mem_filter, List.mem_range, Bool.and_eq_true, Bool.not_eq_true'] at hsub
   exact ⟨hsub.1, hsub.2.1, hsub.2.2, gfpFrom_closed _ _ _ le_rfl i hi⟩
+
+/-! ## Certificate covers are complete
+
+A valid certificate's covers cover every derivation of their goals, for every
+theory (up to the theory, as `Tier0.DC`). The proof is the completion
+soundness argument of Tier 0 run on the certificate's tables, where every
+table is complete: by induction on the weight of the derivation, the strategy
+the certificate names reads goals listed in the certificate, whose covers
+cover the lighter derivations of their pieces, so the goal's candidates cover
+the derivation, and the closure condition moves that onto the cover. Ranks are
+not needed for this: a push reads only the pieces of the one derivation. -/
+
+theorem findTable_certTables (C : List CertEntry) (g : Goal) :
+    findTable (certTables C) g = (C.find? fun e => e.goal.same g).map fun e => ⟨e.goal, e.cover, true⟩ := by
+  unfold findTable certTables
+  rw [List.find?_map]
+  rfl
+
+theorem answersOf_certTables (C : List CertEntry) (g : Goal) :
+    answersOf (certTables C) g = certCover C g := by
+  unfold answersOf certCover
+  simp only [findTable_certTables]
+  cases C.find? (fun e => e.goal.same g.norm.2) <;> rfl
+
+theorem certTables_found {C : List CertEntry} {d : Goal}
+    (h : ∃ e' ∈ C, e'.goal.same d.norm.2 = true) :
+    ∃ e'' ∈ C, findTable (certTables C) d.norm.2 = some ⟨e''.goal, e''.cover, true⟩ := by
+  rw [findTable_certTables]
+  obtain ⟨e', he', hs⟩ := h
+  cases hf : C.find? (fun e => e.goal.same d.norm.2) with
+  | none => exact absurd hf (List.find?_isSome.2 ⟨e', he', hs⟩ |> Option.isSome_iff_ne_none.1)
+  | some e'' => exact ⟨e'', List.mem_of_find?_eq_some hf, rfl⟩
+
+theorem doneOf_certTables {C : List CertEntry} {d : Goal}
+    (h : ∃ e' ∈ C, e'.goal.same d.norm.2 = true) : doneOf (certTables C) d = true := by
+  obtain ⟨e'', -, hf⟩ := certTables_found h
+  unfold doneOf; rw [hf]
+
+section
+variable {P : Program} (hSE : Obligation.simplify_exact) (hwf : ∀ ρ ∈ P.theory, ρ.WellFormed)
+include hSE hwf
+
+open Tier0 in
+/-- Every cover of a valid certificate covers, up to the theory, every
+derivation of its goal. -/
+theorem cert_covers_complete {C : List CertEntry} {D : Nat} {root : Goal}
+    (hC : Cert.Valid P C D root) :
+    ∀ m, ∀ e ∈ C, ∀ (w : Nat) (s : Span), DW P w e.goal.e s → 2 * w + isOr e.goal.e ≤ m →
+      DC P.theory e.cover (GDen e.goal s.den) := by
+  intro m
+  induction m using Nat.strong_induction_on with
+  | _ m IH =>
+  intro e he w s hw hm
+  obtain ⟨hint, -, hclos, hstrat⟩ := hC.2 e he
+  have hgG : GoodG e.goal := goodG_of_interfaced hint
+  -- the closure moves coverage of the candidates onto the cover
+  suffices hc : DC P.theory (produce P D (certTables C) e.goal).1 (GDen e.goal s.den) from
+    hc.covers hclos
+  -- a listed goal covers its lighter derivations
+  have hD : ∀ d : Goal, (∃ e' ∈ C, e'.goal.same d.norm.2 = true) → GoodG d → ∀ w' s',
+      DW P w' d.e s' → 2 * w' + isOr d.e < 2 * w + isOr e.goal.e →
+      DC P.theory (answersOf (certTables C) d) (GDen d s'.den) := by
+    intro d hd hgd w' s' hw' hlt
+    obtain ⟨e'', he'', hf⟩ := certTables_found hd
+    have hgt : GoodG e''.goal := goodG_of_interfaced (hC.2 e'' he'').1
+    exact dc_via_table hf hgd hgt hw' fun w'' s'' h'' hle =>
+      IH _ (by simp only at hle; omega) e'' he'' w'' s'' h'' le_rfl
+  clear IH hm hclos
+  rcases hstrat with hf | ⟨st, hst, hdeps⟩
+  · exact dc_unfold hSE hwf hf hw.derives
+  have hfound : ∀ d ∈ st, ∃ e' ∈ C, e'.goal.same d.1.norm.2 = true :=
+    fun d hd => let ⟨e', he', hs, _⟩ := hdeps d hd; ⟨e', he', hs⟩
+  clear hdeps
+  generalize e.goal = G at *
+  obtain ⟨lb, e, rb⟩ := G
+  cases e with
+  | zero => cases hw
+  | span s₀ => cases hw with | span => exact dc_span hSE hwf lb rb _
+  | or a b =>
+    simp only [certStrategies, List.mem_singleton] at hst
+    subst hst
+    obtain ⟨l, hl, hwl⟩ := (dw_orBranches _).1 hw
+    have hl' := orBranches_not_or _ l hl
+    refine dc_or hl (hD ⟨lb, l, rb⟩ ?_ hgG w s hwl ?_)
+    · exact hfound (⟨lb, l, rb⟩, false) (by simp only [orLeaves, List.mem_map]; exact ⟨_, ⟨l, hl, rfl⟩, rfl⟩)
+    · rw [isOr_zero hl']; simp [isOr]
+  | call n =>
+    simp only [certStrategies, List.mem_singleton] at hst
+    subst hst
+    cases hw with
+    | call hw =>
+      exact dc_call (hD _ (hfound _ (List.mem_singleton_self _)) hgG _ s hw
+        (meas_lt _ _ (Nat.lt_succ_self _) rfl))
+  | conv a =>
+    simp only [certStrategies, List.mem_singleton] at hst
+    subst hst
+    cases hw with
+    | conv hw =>
+      exact dc_conv (hD _ (hfound _ (List.mem_singleton_self _)) (goodG_convGoal hgG a) _ _ hw
+        (meas_lt _ _ (Nat.lt_succ_self _) rfl))
+  | seq a b =>
+    cases hw with
+    | seq hw₁ hw₂ hc =>
+      rw [compose_some hc]
+      have hL : GoodG ⟨lb, a, none⟩ := ⟨hgG.1, trivial⟩
+      have hR : GoodG ⟨none, b, rb⟩ := ⟨trivial, hgG.2⟩
+      simp only [certStrategies, List.mem_cons, List.not_mem_nil, or_false] at hst
+      rcases hst with rfl | rfl | rfl
+      · exact dc_seq_join hSE hwf
+          (hD _ (hfound (seqLeft ⟨lb, .seq a b, rb⟩ a, false) (by simp)) hL _ _ hw₁ (meas_lt _ _ (by omega) rfl))
+          (hD _ (hfound (seqRight ⟨lb, .seq a b, rb⟩ b, false) (by simp)) hR _ _ hw₂ (meas_lt _ _ (by omega) rfl))
+      · have hLf := hfound _ (List.mem_cons_self ..)
+        refine dc_seq_pushL hSE hwf (doneOf_certTables hLf)
+          (hD _ hLf hL _ _ hw₁ (meas_lt _ _ (by omega) rfl)) fun x hx => ?_
+        rw [answersOf_certTables] at hx
+        exact hD _ (hfound (seqPushL ⟨lb, .seq a b, rb⟩ b x, false)
+            (List.mem_cons_of_mem _ (List.mem_map.2 ⟨x, hx, rfl⟩)))
+          (Tier0.goodG_pushL hgG b x) _ _ hw₂ (meas_lt _ _ (by omega) rfl)
+      · have hRf := hfound _ (List.mem_cons_self ..)
+        refine dc_seq_pushR hSE hwf (doneOf_certTables hRf)
+          (hD _ hRf hR _ _ hw₂ (meas_lt _ _ (by omega) rfl)) fun y hy => ?_
+        rw [answersOf_certTables] at hy
+        exact hD _ (hfound (seqPushR ⟨lb, .seq a b, rb⟩ a y, false)
+            (List.mem_cons_of_mem _ (List.mem_map.2 ⟨y, hy, rfl⟩)))
+          (Tier0.goodG_pushR hgG a y) _ _ hw₁ (meas_lt _ _ (by omega) rfl)
+  | and a b =>
+    cases hw with
+    | and hw₁ hw₂ hc =>
+      rw [meet_some hc]
+      simp only [certStrategies, List.mem_cons, List.not_mem_nil, or_false] at hst
+      rcases hst with rfl | rfl | rfl
+      · exact dc_and_join hSE hwf hgG
+          (hD ⟨lb, a, rb⟩ (hfound (andLeft ⟨lb, .and a b, rb⟩ a, false) (by simp)) hgG _ _ hw₁ (meas_lt _ _ (by omega) rfl))
+          (hD ⟨lb, b, rb⟩ (hfound (andRight ⟨lb, .and a b, rb⟩ b, false) (by simp)) hgG _ _ hw₂ (meas_lt _ _ (by omega) rfl))
+      · have hLf := hfound _ (List.mem_cons_self ..)
+        refine dc_and_pushL hSE hwf hgG (doneOf_certTables hLf)
+          (hD ⟨lb, a, rb⟩ hLf hgG _ _ hw₁ (meas_lt _ _ (by omega) rfl)) fun x hx => ?_
+        rw [answersOf_certTables] at hx
+        exact hD _ (hfound (andPush b x, false) (List.mem_cons_of_mem _ (List.mem_map.2 ⟨x, hx, rfl⟩)))
+          (goodG_andPush b x) _ _ hw₂ (meas_lt _ _ (by omega) rfl)
+      · have hRf := hfound _ (List.mem_cons_self ..)
+        refine dc_and_pushR hSE hwf hgG (doneOf_certTables hRf)
+          (hD ⟨lb, b, rb⟩ hRf hgG _ _ hw₂ (meas_lt _ _ (by omega) rfl)) fun y hy => ?_
+        rw [answersOf_certTables] at hy
+        exact hD _ (hfound (andPush a y, false) (List.mem_cons_of_mem _ (List.mem_map.2 ⟨y, hy, rfl⟩)))
+          (goodG_andPush a y) _ _ hw₁ (meas_lt _ _ (by omega) rfl)
+
+/-- Every cover of a valid certificate covers, up to the theory, every
+derivation of its goal. -/
+theorem cert_covers_derives {C : List CertEntry} {D : Nat} {root : Goal}
+    (hC : Cert.Valid P C D root) {e : CertEntry} (he : e ∈ C) {s : Span}
+    (hs : Derives P e.goal.e s) : Tier0.DC P.theory e.cover (Tier0.GDen e.goal s.den) := by
+  obtain ⟨w, hw⟩ := Tier0.dw_of_derives hs
+  exact cert_covers_complete hSE hwf hC _ e he w s hw le_rfl
+
+end
 
 end R001
 
