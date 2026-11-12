@@ -1,6 +1,6 @@
 name = "RwLog"
 allowNonModules = true
-defaultTargets = ["RwLog"]
+defaultTargets = ["RwLog", "AxiomAudit"]
 
 [leanOptions]
 pp.unicode.fun = true
@@ -14,4 +14,8 @@ rev = "v4.35.0"
 
 [[lean_lib]]
 name = "RwLog"
+allowNonModules = true
+
+[[lean_lib]]
+name = "AxiomAudit"
 allowNonModules = true
