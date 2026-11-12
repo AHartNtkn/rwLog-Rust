@@ -93,7 +93,7 @@ structure Preprocessor where
 def Preprocessor.id : Preprocessor where
   run A P q := (P, q, A)
   theory_eq _ _ _ := rfl
-  equiv _ _ _ _ _ _ := rfl
+  equiv _ P q _ := GRel.Equiv.refl _ (P.sem q)
 
 structure Rung where
   pre : Preprocessor
