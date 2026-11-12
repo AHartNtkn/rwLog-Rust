@@ -4,7 +4,8 @@
 Soundness, completeness up to dead spans, honest exhaustion,
 derivation-general answers (P0.1 to P0.3, P3.0), refuted spans cut at once
 (P2.4), no subsumed answers and finitely many answers on halting queries
-(P3.1 to P3.3).
+(P3.1 to P3.3). The table invariants shared with the termination group are
+in `Tier0/Tables.lean`.
 
 All of them read the invariant every reachable table satisfies (`TInv`,
 `Tier0/Inv.lean`, preserved by a round in `Tier0/Comp.lean`), and
@@ -12,7 +13,7 @@ completeness also reads fairness (`Tier0/Fair.lean`). They assume that
 simplification is exact; `prompt_pruning` also assumes that it runs to the end
 (`UInv`).
 -/
-import RwLog.Rungs.R001.Proofs.Tier0.Fair
+import RwLog.Rungs.R001.Proofs.Tier0.Tables
 import Mathlib.Data.Set.Finite.Basic
 
 namespace RwLog
