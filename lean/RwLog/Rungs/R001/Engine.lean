@@ -57,7 +57,7 @@ an exact check on the whole state, not a counter. When every table stops
 changing, `S` contains all of them, so the machine never stalls.
 -/
 import RwLog.Kernel.Refute
-import RwLog.Trusted.Engine
+import RwLog.Rungs.R000.Engine
 
 namespace RwLog
 
@@ -103,14 +103,102 @@ def Goal.same (g h : Goal) : Bool := decide (g.e = h.e) && boundEq g.lb h.lb && 
 /-- The mirror image of a goal: `(lb ; e ; rb)ᵒ = rbᵒ ; eᵒ ; lbᵒ`. -/
 def Goal.dual (g : Goal) : Goal := ⟨g.rb.map Span.swap, g.e.dual, g.lb.map Span.swap⟩
 
-/-- Strip converses: `norm g = (flip, g')` with `g` the converse of `g'` when
-`flip` holds, and `g'.e` not a converse. -/
-def Goal.norm : Goal → Bool × Goal
+/-! ### Canonical expressions
+
+`|` is associative, commutative and idempotent, with `0` as unit, on the
+nose, so goals are keyed by a canonical form: every `|` nest is flattened into
+its branches, `0` branches are dropped, the branches are sorted by a fixed
+linear order and deduplicated, and the result is rebuilt right-nested. Goals
+that differ only in how their `|` branches are ordered or grouped then share
+one table, so the machine's run cannot depend on it. -/
+
+/-- A structural linear order on patterns. -/
+def patCmp : Pat → Pat → Ordering
+  | .var a, .var b => compare a b
+  | .var _, _ => .lt
+  | _, .var _ => .gt
+  | .sym f, .sym g => compare f g
+  | .sym _, _ => .lt
+  | _, .sym _ => .gt
+  | .app a b, .app c d => (patCmp a c).then (patCmp b d)
+
+/-- Lexicographic extension of an order to lists. -/
+def listCmp {α : Type} (f : α → α → Ordering) : List α → List α → Ordering
+  | [], [] => .eq
+  | [], _ :: _ => .lt
+  | _ :: _, [] => .gt
+  | x :: xs, y :: ys => (f x y).then (listCmp f xs ys)
+
+def spanCmp (a b : Span) : Ordering :=
+  ((patCmp a.l b.l).then (patCmp a.r b.r)).then (listCmp patCmp a.c b.c)
+
+/-- A structural linear order on expressions. -/
+def relCmp : Rel → Rel → Ordering
+  | .zero, .zero => .eq
+  | .zero, _ => .lt
+  | _, .zero => .gt
+  | .span a, .span b => spanCmp a b
+  | .span _, _ => .lt
+  | _, .span _ => .gt
+  | .or a b, .or c d => (relCmp a c).then (relCmp b d)
+  | .or _ _, _ => .lt
+  | _, .or _ _ => .gt
+  | .and a b, .and c d => (relCmp a c).then (relCmp b d)
+  | .and _ _, _ => .lt
+  | _, .and _ _ => .gt
+  | .seq a b, .seq c d => (relCmp a c).then (relCmp b d)
+  | .seq _ _, _ => .lt
+  | _, .seq _ _ => .gt
+  | .conv a, .conv b => relCmp a b
+  | .conv _, _ => .lt
+  | _, .conv _ => .gt
+  | .call m, .call n => compare m n
+
+/-- The branches of a `|` nest. -/
+def orBranches : Rel → List Rel
+  | .or a b => orBranches a ++ orBranches b
+  | e => [e]
+
+/-- Rebuild a right-nested `|` from branches. -/
+def mkOr : List Rel → Rel
+  | [] => .zero
+  | [e] => e
+  | e :: es => .or e (mkOr es)
+
+/-- Sorted, without repeats. -/
+def sortedBranches (es : List Rel) : List Rel :=
+  ((es.filter (· ≠ .zero)).mergeSort fun a b => relCmp a b != .gt).eraseDups
+
+/-- The canonical form of an expression. -/
+def canon : Rel → Rel
+  | .zero => .zero
+  | .span s => .span s
+  | .or a b => mkOr (sortedBranches (orBranches (canon a) ++ orBranches (canon b)))
+  | .and a b => .and (canon a) (canon b)
+  | .seq a b => .seq (canon a) (canon b)
+  | .conv a => .conv (canon a)
+  | .call n => .call n
+
+/-- Strip converses from a canonical expression. -/
+def Goal.stripConv : Goal → Bool × Goal
   | ⟨lb, .conv a, rb⟩ =>
-    let r := Goal.norm ⟨rb.map Span.swap, a, lb.map Span.swap⟩
+    let r := Goal.stripConv ⟨rb.map Span.swap, a, lb.map Span.swap⟩
     (!r.1, r.2)
   | g => (false, g)
 termination_by g => sizeOf g.e
+
+/-- The table key of a goal: `norm g = (flip, g')` with `g'` canonical, not a
+converse, and `g` the converse of `g'` when `flip` holds. -/
+def Goal.norm (g : Goal) : Bool × Goal := Goal.stripConv ⟨g.lb, canon g.e, g.rb⟩
+
+/-- The expression `lb ; e ; rb` of a goal. -/
+def Goal.rel (g : Goal) : Rel :=
+  let core := match g.rb with
+    | none => g.e
+    | some r => .seq g.e (.span r)
+  match g.lb with
+  | none => core
+  | some l => .seq (.span l) core
 
 /-- A table: a goal, the answers found so far, and whether it is complete. -/
 structure Table where
@@ -207,9 +295,25 @@ def andPush (e : Rel) (x : Span) : Goal := ⟨bound x.leftIface, e, bound x.righ
 def callGoal (P : Program) (g : Goal) (n : Name) : Goal := ⟨g.lb, P.body n, g.rb⟩
 def convGoal (g : Goal) (a : Rel) : Goal := ⟨g.rb.map Span.swap, a, g.lb.map Span.swap⟩
 
+/-- The unfolding strategy, raced by every goal: unfold the calls of
+`lb ; e ; rb` to depth `d` and normalize, as rung zero does. When no product
+is left with a call, its spans are every answer of the goal, and the goal can
+complete through this strategy with no dependencies. So every goal rung zero
+finishes, R001 finishes too, whether or not its halves terminate on their
+own. -/
+def unfoldFinal (P : Program) (d : Nat) (g : Goal) : Bool := R000.roundFinal P g.rel d
+
+def unfoldAnswers (P : Program) (d : Nat) (g : Goal) : List Span :=
+  if unfoldFinal P d g then (R000.roundSpans P g.rel d).flatMap (live P.theory) else []
+
 /-- The candidate answers of a goal, computed from the tables at the start of
-a round, and the goals it needs. -/
-def produce (P : Program) (ts : Tables) (g : Goal) : List Span × List Goal :=
+a round at unfolding depth `d`, and the goals it needs. -/
+def produce (P : Program) (d : Nat) (ts : Tables) (g : Goal) : List Span × List Goal :=
+  let r := produceStrategies P ts g
+  (unfoldAnswers P d g ++ r.1, r.2)
+where
+  /-- The candidates of the strategies that read other tables. -/
+  produceStrategies (P : Program) (ts : Tables) (g : Goal) : List Span × List Goal :=
   let T := P.theory
   match g.e with
   | .zero => ([], [])
@@ -247,9 +351,13 @@ def produce (P : Program) (ts : Tables) (g : Goal) : List Span × List Goal :=
           ++ pr.flatMap (fun p => (answersOf ts p.2).flatMap fun x => meetLive T x p.1),
      [L, R] ++ pl.map Prod.snd ++ pr.map Prod.snd)
 
-/-- The strategies of a goal, each given by the goals it depends on. The
-goal may complete through any one of them. -/
-def strategies (P : Program) (ts : Tables) (g : Goal) : List (List Goal) :=
+/-- The strategies of a goal at unfolding depth `d`, each given by the goals
+it depends on. The goal may complete through any one of them. -/
+def strategies (P : Program) (d : Nat) (ts : Tables) (g : Goal) : List (List Goal) :=
+  (if unfoldFinal P d g then [[]] else []) ++ tableStrategies P ts g
+where
+  /-- The strategies that read other tables. -/
+  tableStrategies (P : Program) (ts : Tables) (g : Goal) : List (List Goal) :=
   match g.e with
   | .zero => [[]]
   | .span _ => [[]]
@@ -282,47 +390,49 @@ def gfpFrom (ok : List Nat → Nat → Bool) : Nat → List Nat → List Nat
 /-- The tables that complete at the end of a round. `ts` is the state at the
 start of the round and `ts'` the state after this round's answers were
 added. -/
-def completing (P : Program) (ts ts' : Tables) : List Nat :=
+def completing (P : Program) (d : Nat) (ts ts' : Tables) : List Nat :=
   let n := ts.length
   let gained (j : Nat) : Bool := decide ((ts'.getD j ⟨⟨none, .zero, none⟩, [], false⟩).answers.length
     ≠ (ts.getD j ⟨⟨none, .zero, none⟩, [], false⟩).answers.length)
   let isDone (j : Nat) : Bool := (ts.getD j ⟨⟨none, .zero, none⟩, [], false⟩).done
   let S0 := (List.range n).filter fun i => !isDone i && !gained i
   let ok (S : List Nat) (i : Nat) : Bool :=
-    (strategies P ts (ts.getD i ⟨⟨none, .zero, none⟩, [], false⟩).goal).any fun deps =>
+    (strategies P d ts (ts.getD i ⟨⟨none, .zero, none⟩, [], false⟩).goal).any fun deps =>
       deps.all fun d =>
         match indexOf ts d.norm.2 with
         | none => false
         | some j => !gained j && (isDone j || S.contains j)
   gfpFrom ok S0.length S0
 
-/-- The machine state: the program, the tables (the root first), and whether
-the query is the converse of the root goal. -/
+/-- The machine state: the program, the tables (the root first), whether
+the query is the converse of the root goal, and the number of rounds run,
+which is the unfolding depth of the unfolding strategy. -/
 structure State where
   P : Program
   tables : Tables
   rootFlip : Bool
+  depth : Nat
 
 /-- One round. Returns the new state and the answers the root gained. -/
 def round (st : State) : State × List Span :=
   let ts := st.tables
-  let outs := ts.map fun t => if t.done then ([], []) else produce st.P ts t.goal
+  let outs := ts.map fun t => if t.done then ([], []) else produce st.P st.depth ts t.goal
   let ts1 : Tables := (ts.zip outs).map fun p => { p.1 with answers := p.1.answers ++ fresh p.1.answers p.2.1 }
   let reqs := (outs.flatMap Prod.snd).map fun g => g.norm.2
   let newGoals := reqs.foldl
     (fun acc g => if ts.any (fun t => t.goal.same g) || acc.any (fun h => h.same g) then acc else acc ++ [g]) []
-  let S := completing st.P ts ts1
+  let S := completing st.P st.depth ts ts1
   let ts2 : Tables := ts1.mapIdx fun i t => if S.contains i then { t with done := true } else t
   let ts3 : Tables := ts2 ++ newGoals.map fun g => ⟨g, [], false⟩
   let rootNew := match ts.head?, ts1.head? with
     | some t, some t' => t'.answers.drop t.answers.length
     | _, _ => []
-  (⟨st.P, ts3, st.rootFlip⟩, orient st.rootFlip rootNew)
+  (⟨st.P, ts3, st.rootFlip, st.depth + 1⟩, orient st.rootFlip rootNew)
 
 /-- The state for a goal: its table alone. -/
 def State.ofGoal (P : Program) (g : Goal) : State :=
   let n := g.norm
-  ⟨P, [⟨n.2, [], false⟩], n.1⟩
+  ⟨P, [⟨n.2, [], false⟩], n.1, 0⟩
 
 /-- The root table is complete. -/
 def State.finished (st : State) : Bool :=

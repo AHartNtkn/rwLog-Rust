@@ -70,6 +70,8 @@ def directGoals (P : Program) (g : Goal) : List Goal :=
 compute from derivable answers of the goals they read, keeping only spans
 the theory does not refute. Tables only ever hold such answers. -/
 inductive GDerives (P : Program) : Goal → Span → Prop
+  | unfold {g : Goal} {d : Nat} {x : Span} :
+      x ∈ unfoldAnswers P d g → GDerives P g x
   | span {lb rb : Option Span} {s x : Span} :
       x ∈ spanAnswer P.theory lb s rb → GDerives P ⟨lb, .span s, rb⟩ x
   | orl {g : Goal} {a b : Rel} {x : Span} :
@@ -114,16 +116,18 @@ inductive Reach (P : Program) (root : Goal) : Goal → Prop
       Reach P root g → g.e = .and a b → GDerives P (andRight g b) y → Reach P root (andPush a y)
 
 /-- `F` is a finite cover of the goal's derivable answers by derivable
-answers. -/
+answers, up to the theory. -/
 def CoverBy (P : Program) (g : Goal) (F : List Span) : Prop :=
-  (∀ f ∈ F, GDerives P g f) ∧ ∀ s, GDerives P g s → ∃ f ∈ F, f.Covers s
+  (∀ f ∈ F, GDerives P g f) ∧
+    ∀ s, GDerives P g s → s.Dead P.theory ∨ ∃ f ∈ F, f.CoversLive P.theory s
 
 def FiniteCover (P : Program) (g : Goal) : Prop := ∃ F, CoverBy P g F
 
 /-! ### Termination certificates
 
 A certificate lists finitely many goals, each with a finite cover of its
-answers and a rank. Each goal picks one strategy whose goals are listed;
+answers and a rank. Each goal either unfolds to a call-free normal form (the
+unfolding strategy) or picks one strategy whose goals are listed;
 a push may only use a finished side of strictly lower rank, while the other
 dependencies, which may be mutually recursive, need rank no higher. The
 machine terminates exactly on the queries that have a certificate
@@ -167,8 +171,9 @@ def certStrategies (P : Program) (C : List CertEntry) (g : Goal) : List (List (G
 def Cert.Valid (P : Program) (C : List CertEntry) (root : Goal) : Prop :=
   (∃ e ∈ C, e.goal.same root.norm.2 = true) ∧
   ∀ e ∈ C, CoverBy P e.goal e.cover ∧
-    ∃ st ∈ certStrategies P C e.goal, ∀ d ∈ st, ∃ e' ∈ C, e'.goal.same d.1.norm.2 = true ∧
-      (if d.2 then e'.rank < e.rank else e'.rank ≤ e.rank)
+    ((∃ d, unfoldFinal P d e.goal = true) ∨
+      ∃ st ∈ certStrategies P C e.goal, ∀ d ∈ st, ∃ e' ∈ C, e'.goal.same d.1.norm.2 = true ∧
+        (if d.2 then e'.rank < e.rank else e'.rank ≤ e.rank))
 
 /-! ### The addition program, for the fixed-mode termination statement -/
 
@@ -245,14 +250,48 @@ def iface_equiv : Prop :=
 def denote_dual : Prop := ∀ (P : Program) (e : Rel), P.dual.sem e.dual = (P.sem e).inv
 
 /-- Boundary lifting, the lemma most of the engine proofs share: what a
-goal with boundaries derives is, on unrefuted instances, the boundaries
-composed with what the goal without boundaries derives. -/
+goal with interface boundaries (sub-identities, `l = r`) derives is, on
+unrefuted instances and for spans that are not dead, the boundaries composed
+with what the goal without boundaries derives. -/
 def boundary_lifting : Prop :=
   ∀ (P : Program) (g : Goal), (∀ ρ ∈ P.theory, ρ.WellFormed) →
-    (∀ y, GDerives P g y → ∃ y₀, GDerives P ⟨none, g.e, none⟩ y₀ ∧
+    (∀ b ∈ g.lb.toList ++ g.rb.toList, b.l = b.r) →
+    (∀ y, GDerives P g y → ¬ y.Dead P.theory → ∃ y₀, GDerives P ⟨none, g.e, none⟩ y₀ ∧
       ∃ z ∈ spanAnswer P.theory g.lb y₀ g.rb, z.CoversLive P.theory y ∧ y.CoversLive P.theory z) ∧
     (∀ y₀, GDerives P ⟨none, g.e, none⟩ y₀ → ∀ z ∈ spanAnswer P.theory g.lb y₀ g.rb,
-      ∃ y, GDerives P g y ∧ y.CoversLive P.theory z)
+      ¬ z.Dead P.theory → ∃ y, GDerives P g y ∧ y.CoversLive P.theory z)
+
+/-! ### Table invariants
+
+Owned by the Tier 0 group and shared with the termination group: they hold
+for every table of a run started from any goal. -/
+
+/-- The tables after `n` rounds of the run started on `g`. -/
+def tablesAt (P : Program) (g : Goal) (n : Nat) : Tables := (stateAfter (State.ofGoal P g) n).tables
+
+/-- Every answer of a table is, up to the theory, a derivable answer of its
+goal. -/
+def table_sound : Prop :=
+  ∀ P g, (∀ ρ ∈ P.theory, ρ.WellFormed) → ∀ n, ∀ t ∈ tablesAt P g n, ∀ a ∈ t.answers,
+    ∃ y, GDerives P t.goal y ∧ a.CoversLive P.theory y ∧ y.CoversLive P.theory a
+
+/-- A complete table covers every derivable answer of its goal that is not
+dead. -/
+def completion_sound : Prop :=
+  ∀ P g, (∀ ρ ∈ P.theory, ρ.WellFormed) → ∀ n, ∀ t ∈ tablesAt P g n, t.done = true →
+    ∀ s, GDerives P t.goal s → s.Dead P.theory ∨ ∃ a ∈ t.answers, a.CoversLive P.theory s
+
+/-- Every derivable answer of a table's goal that is not dead is eventually
+covered by that table. -/
+def table_fair : Prop :=
+  ∀ P g, (∀ ρ ∈ P.theory, ρ.WellFormed) → ∀ n, ∀ t ∈ tablesAt P g n,
+    ∀ s, GDerives P t.goal s → s.Dead P.theory ∨
+      ∃ m, ∃ t' ∈ tablesAt P g m, t'.goal = t.goal ∧ ∃ a ∈ t'.answers, a.CoversLive P.theory s
+
+/-- Goals that share a table derive the same answers up to the theory. -/
+def gderives_same : Prop :=
+  ∀ P (g h : Goal), (∀ ρ ∈ P.theory, ρ.WellFormed) → g.same h = true →
+    ∀ y, GDerives P g y → ∃ y', GDerives P h y' ∧ y'.CoversLive P.theory y ∧ y.CoversLive P.theory y'
 
 /-! ### Tier 0 and P3.0 -/
 
@@ -331,20 +370,15 @@ def finite_side_and : Prop :=
 
 /-! ### Order and direction -/
 
-/-- P1.1, step for step: swapping the branches of `|` changes nothing but the
-order of answers inside a step. -/
+/-- P1.1, exactly: swapping the branches of `|` does not change the run. -/
 def or_comm_trace : Prop :=
-  ∀ P (a b : Rel) n, TraceEquiv (runtime.trace (runtime.init P (.or a b)) n)
-    (runtime.trace (runtime.init P (.or b a)) n)
+  ∀ P (a b : Rel) n, runtime.trace (runtime.init P (.or a b)) n =
+    runtime.trace (runtime.init P (.or b a)) n
 
-/-- P1.1 for regrouping `|`: the same answers up to equivalence, and the same
-termination. (Regrouping moves a branch one table deeper, so its answers
-arrive one step later; this is why it is not step for step.) -/
+/-- P1.1 for regrouping `|`, exactly: regrouping does not change the run. -/
 def or_assoc : Prop :=
-  ∀ P (a b c : Rel), P.WellFormed (.or (.or a b) c) →
-    (∀ x ∈ runtime.Answers P (.or (.or a b) c), ∃ y ∈ runtime.Answers P (.or a (.or b c)), y.Equiv x) ∧
-    (∀ y ∈ runtime.Answers P (.or a (.or b c)), ∃ x ∈ runtime.Answers P (.or (.or a b) c), x.Equiv y) ∧
-    (runtime.Terminates P (.or (.or a b) c) ↔ runtime.Terminates P (.or a (.or b c)))
+  ∀ P (a b c : Rel) n, runtime.trace (runtime.init P (.or (.or a b) c)) n =
+    runtime.trace (runtime.init P (.or a (.or b c))) n
 
 /-- P1.4 strong, for the converse: running `conv q` is running `q` with every
 answer swapped, step for step and exactly. -/

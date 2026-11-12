@@ -200,7 +200,28 @@ theorem mergeT_wellFormed : ∀ ρ ∈ mergeT, ρ.WellFormed := by decide
   (.seq (.rw (v 0) (v 0) [ap "p" [ap "f" [v 0]]])
     (.seq (.at_ (c "z")) (.rw (v 0) (v 0) [ap "q" [v 0], ap "r" [ap "g" [v 0]]]))) 20 == ([], true)
 
+/-! ## R001 halts on everything rung zero halts on
+
+Neither half of these sequences terminates on its own, but rung zero's
+normalizer kills every product, and every goal races that unfolding. -/
+
+def natUpr : Program := prog [("nat", nat), ("upr", upr)]
+#guard runR001 natUpr
+  (.seq (.seq (.call "nat") (.at_ (ap "s" [v 0]))) (.seq (.at_ (c "z")) (.call "upr"))) 25 == ([], true)
+-- The halves behind definitions, and spread over `|`.
+def splitP : Program := prog [("nat", nat), ("upr", upr),
+  ("x", .or (.seq (.call "nat") (.at_ (ap "s" [v 0]))) (.seq (.call "nat") (.at_ (ap "c" [v 0])))),
+  ("y", .or (.seq (.at_ (c "z")) (.call "upr")) (.seq (.at_ (c "d")) (.call "upr")))]
+#guard runR001 splitP (.seq (.call "x") (.call "y")) 25 == ([], true)
+
 /-! ## P1.1 and P1.4: order and direction do not change the trace -/
+
+-- Swapping and regrouping `|` give the very same run, even when a branch is
+-- a recursive call that would otherwise share the root's table.
+#guard traceR001 (prog [("lr", lr)]) (.or (.at_ (c "z")) (.seq (.call "lr") (.rw (v 0) (ap "s" [v 0])))) 8 ==
+  traceR001 (prog [("lr", lr)]) (.or (.seq (.call "lr") (.rw (v 0) (ap "s" [v 0]))) (.at_ (c "z"))) 8
+#guard traceR001 empty (.or (.or (.at_ (c "z")) .zero) (.rw (v 0) (v 0))) 10 ==
+  traceR001 empty (.or (.at_ (c "z")) (.or .zero (.rw (v 0) (v 0)))) 10
 
 #guard traceR001 loopNat (.or (.call "nat") (.rw (c "a") (c "b"))) 12 ==
   traceR001 loopNat (.or (.rw (c "a") (c "b")) (.call "nat")) 12
