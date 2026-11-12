@@ -42,8 +42,8 @@ theorem dep_found (st : State) (k i : Nat) (hi : i < (iter st k).tables.length)
   exact ⟨j, hj⟩
 
 section
-variable (hSE : Obligation.simplify_exact) (hSS : Obligation.simplify_stable)
-include hSE hSS
+variable (hSE : Obligation.simplify_exact)
+include hSE
 
 /-- Every derivation of a table's goal is eventually covered by the table,
 for good. -/
@@ -56,7 +56,7 @@ theorem fair {st : State} (hwf : ∀ ρ ∈ st.P.theory, ρ.WellFormed) (hI : TI
   induction m using Nat.strong_induction_on with
   | _ m IH =>
   intro k i hi w s hw hm
-  have hIk := tinv_iter hSE hSS hwf hI
+  have hIk := tinv_iter hSE hwf hI
   have hP := iter_P st
   -- once covered, covered for good
   suffices hev : ∃ k₁, ∃ hi₁ : i < (iter st k₁).tables.length, k ≤ k₁ ∧

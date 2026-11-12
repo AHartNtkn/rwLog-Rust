@@ -8,8 +8,9 @@ derivation-general answers (P0.1 to P0.3, P3.0), refuted spans cut at once
 
 All of them read the invariant every reachable table satisfies (`TInv`,
 `Tier0/Inv.lean`, preserved by a round in `Tier0/Comp.lean`), and
-completeness also reads fairness (`Tier0/Fair.lean`). They assume two
-kernel obligations: simplification is exact and runs to the end.
+completeness also reads fairness (`Tier0/Fair.lean`). They assume that
+simplification is exact; `prompt_pruning` also assumes that it runs to the end
+(`UInv`).
 -/
 import RwLog.Rungs.R001.Proofs.Tier0.Fair
 import Mathlib.Data.Set.Finite.Basic
@@ -72,13 +73,12 @@ theorem emitted_root (P : Program) (q : Rel) (n : Nat) :
     · exact .inr h
 
 section
-variable (hSE : Obligation.simplify_exact) (hSS : Obligation.simplify_stable)
-include hSE hSS
+variable (hSE : Obligation.simplify_exact)
+include hSE
 
 theorem tinv_root {P : Program} {q : Rel} (hwf : ∀ ρ ∈ P.theory, ρ.WellFormed) (k : Nat) :
     TInv P (iter (State.ofGoal P ⟨none, q, none⟩) k).tables :=
-  tinv_iter hSE hSS (st := State.ofGoal P ⟨none, q, none⟩) hwf
-    (tinv_ofGoal (goodG_root q) ⟨fun _ h => (by simp at h), fun _ h => (by simp at h)⟩) k
+  tinv_iter hSE (st := State.ofGoal P ⟨none, q, none⟩) hwf (tinv_ofGoal (goodG_root q)) k
 
 /-- Every emitted answer refines one derivation of the query. -/
 theorem emitted_ref {P : Program} {q : Rel} (hwf : ∀ ρ ∈ P.theory, ρ.WellFormed) {n : Nat} {a : Span}
@@ -88,7 +88,7 @@ theorem emitted_ref {P : Program} {q : Rel} (hwf : ∀ ρ ∈ P.theory, ρ.WellF
   rw [he, orient_eq, List.mem_map] at ha
   obtain ⟨a₀, ha₀, rfl⟩ := ha
   obtain ⟨_, hg⟩ := root_goal P q k
-  obtain ⟨s, hs, hr⟩ := (tinv_root hSE hSS hwf k).ref _ (List.getElem_mem h0) a₀ ha₀
+  obtain ⟨s, hs, hr⟩ := (tinv_root hSE hwf k).ref _ (List.getElem_mem h0) a₀ ha₀
   rw [hg] at hs hr
   obtain ⟨hd, heq⟩ := norm_back ⟨none, q, none⟩ hs
   refine ⟨_, hd, ?_⟩
@@ -108,7 +108,7 @@ theorem root_done_dc {P : Program} {q : Rel} (hwf : ∀ ρ ∈ P.theory, ρ.Well
   rw [h4]
   apply dc_orient
   obtain ⟨_, hgk⟩ := root_goal P q k
-  have := (tinv_root hSE hSS hwf k).comp _ (List.getElem_mem h0) hd s' (by rw [hgk]; exact h1.derives)
+  have := (tinv_root hSE hwf k).comp _ (List.getElem_mem h0) hd s' (by rw [hgk]; exact h1.derives)
   rwa [hgk] at this
 
 /-- After `k₀` rounds, or once the run halts, the root covers a derivation for
@@ -117,13 +117,13 @@ theorem emitted_dc {P : Program} {q : Rel} (hwf : ∀ ρ ∈ P.theory, ρ.WellFo
     (hs : Derives P q s) :
     ∃ n, DC P.theory (runtime.emitted (runtime.init P q) n) s.den := by
   set st := State.ofGoal P ⟨none, q, none⟩
-  have hI := tinv_root hSE hSS (q := q) hwf
+  have hI := tinv_root hSE (q := q) hwf
   obtain ⟨w, hw⟩ := dw_of_derives hs
   obtain ⟨w', s', h1, -, h4⟩ := norm_meas (P := P) ⟨none, q, none⟩ hw
   rw [gden_root] at h4
   obtain ⟨h00, hg0⟩ := root_goal P q 0
   rw [← hg0] at h1
-  obtain ⟨k₀, hk₀⟩ := fair hSE hSS (st := st) hwf (hI 0) _ 0 0 h00 w' s' h1 le_rfl
+  obtain ⟨k₀, hk₀⟩ := fair hSE (st := st) hwf (hI 0) _ 0 0 h00 w' s' h1 le_rfl
   refine ⟨k₀, ?_⟩
   obtain ⟨k, h0, he, -, -, hkn⟩ := emitted_root P q k₀
   rw [he, h4]
@@ -144,21 +144,21 @@ end Tier0
 open Tier0
 
 section
-variable (hSE : Obligation.simplify_exact) (hSS : Obligation.simplify_stable)
-include hSE hSS
+variable (hSE : Obligation.simplify_exact)
+include hSE
 
 /-- P0.1: in every model of the theory, every emitted answer relates only
 pairs the query relates. -/
 theorem sound : Obligation.sound := by
   intro P q hP n a ha M hM
-  obtain ⟨s, hs, hr⟩ := emitted_ref hSE hSS hP.2.2 ha
+  obtain ⟨s, hs, hr⟩ := emitted_ref hSE hP.2.2 ha
   rw [Span.denAt_eq, Program.semAt_eq]
   exact (hr.1.trans (Backed.of_subset hs.den_subset)).1 M hM
 
 /-- P3.0: every emitted answer refines the span of one derivation. -/
 theorem derivation_general : Obligation.derivation_general := by
   intro P q hP a ⟨n, ha⟩
-  obtain ⟨s, hs, hr⟩ := emitted_ref hSE hSS hP.2.2 ha
+  obtain ⟨s, hs, hr⟩ := emitted_ref hSE hP.2.2 ha
   refine ⟨s, hs, fun M hM => ?_⟩
   rw [Span.denAt_eq, Span.denAt_eq]
   exact Set.Subset.antisymm (hr.1.1 M hM) (hr.2 M hM)
@@ -167,7 +167,7 @@ theorem derivation_general : Obligation.derivation_general := by
 dead. -/
 theorem complete : Obligation.complete := by
   intro P q hP s hs
-  obtain ⟨n, hdc⟩ := emitted_dc hSE hSS hP.2.2 hs
+  obtain ⟨n, hdc⟩ := emitted_dc hSE hP.2.2 hs
   rcases hdc with hd | ⟨a, ha, hdom⟩
   · exact .inl (deadR_den.1 hd)
   · exact .inr ⟨n, a, ha, Lifting.coversLive_iff.2 hdom⟩
@@ -177,10 +177,10 @@ theorem honest_exhaustion : Obligation.honest_exhaustion := by
   intro P q hP n hh
   obtain ⟨k, h0, he, -, hd, -⟩ := emitted_root P q n
   have hcov : ∀ s, Derives P q s → DC P.theory (runtime.emitted (runtime.init P q) n) s.den := by
-    intro s hs; rw [he]; exact root_done_dc hSE hSS hP.2.2 h0 (hd hh) hs
+    intro s hs; rw [he]; exact root_done_dc hSE hP.2.2 h0 (hd hh) hs
   have hback : ∀ a ∈ runtime.emitted (runtime.init P q) n, Backed P.theory a.den (P.sem q) := by
     intro a ha
-    obtain ⟨s, hs, hr⟩ := emitted_ref hSE hSS hP.2.2 ha
+    obtain ⟨s, hs, hr⟩ := emitted_ref hSE hP.2.2 ha
     exact hr.1.trans (Backed.of_subset hs.den_subset)
   intro M hM
   ext ⟨u, v⟩
@@ -200,26 +200,13 @@ theorem honest_exhaustion : Obligation.honest_exhaustion := by
     rw [Span.denAt_eq] at hx
     exact (hback a ha).1 M hM hx
 
-/-- P2.4: no table of a reachable state holds a refuted answer or has a
-refuted boundary. -/
-theorem prompt_pruning : Obligation.prompt_pruning := by
-  intro P q hP n t ht
-  obtain ⟨k, -, -, hsa, -, -⟩ := emitted_root P q n
-  rw [hsa] at ht
-  have hI := tinv_root hSE hSS (q := q) hP.2.2 k
-  refine ⟨hI.unref t ht, fun b hb => ?_⟩
-  simp only [List.mem_append, Option.mem_toList] at hb
-  rcases hb with hb | hb
-  · exact (hI.bu t ht).1 b hb
-  · exact (hI.bu t ht).2 b hb
-
 /-- P3.1, P3.2: no emitted answer is covered by an earlier one. -/
 theorem no_subsumed : Obligation.no_subsumed := by
   intro P q hP n
   obtain ⟨k, h0, he, -, -, -⟩ := emitted_root P q n
   rw [he, orient_eq]
   refine List.Pairwise.map _ (fun a b hab hc => ?_)
-    ((tinv_root hSE hSS (q := q) hP.2.2 k).pw _ (List.getElem_mem h0))
+    ((tinv_root hSE (q := q) hP.2.2 k).pw _ (List.getElem_mem h0))
   cases hf : (Goal.norm ⟨none, q, none⟩).1
   · rw [hf] at hc
     simp only [oS, Bool.false_eq_true, ite_false] at hc
@@ -230,6 +217,20 @@ theorem no_subsumed : Obligation.no_subsumed := by
     exact absurd (covers?_complete this) (by simp [hab])
 
 end
+
+/-- P2.4: no table of a reachable state holds a refuted answer or has a
+refuted boundary. -/
+theorem prompt_pruning (hSS : Obligation.simplify_stable) : Obligation.prompt_pruning := by
+  intro P q hP n t ht
+  obtain ⟨k, -, -, hsa, -, -⟩ := emitted_root P q n
+  rw [hsa] at ht
+  have hI := uinv_iter hSS (st := State.ofGoal P ⟨none, q, none⟩) hP.2.2
+    (uinv_ofGoal ⟨fun _ h => (by simp at h), fun _ h => (by simp at h)⟩) k
+  refine ⟨hI.unref t ht, fun b hb => ?_⟩
+  simp only [List.mem_append, Option.mem_toList] at hb
+  rcases hb with hb | hb
+  · exact (hI.bu t ht).1 b hb
+  · exact (hI.bu t ht).2 b hb
 
 /-- Emitting only appends. -/
 theorem Runtime.run_prefix (R : Runtime) : ∀ (m j : Nat) (s : R.State),

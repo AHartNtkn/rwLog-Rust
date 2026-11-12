@@ -230,16 +230,54 @@ theorem compl_dc {st : State} (hwf : ∀ ρ ∈ st.P.theory, ρ.WellFormed) (hI 
 
 end
 
-/-! ## The invariant holds on every reachable state -/
+/-! ## The invariants hold on every reachable state -/
 
-theorem tinv_ofGoal {g : Goal} (hg : GoodG g) (hb : BU P.theory g) :
-    TInv P (State.ofGoal P g).tables := by
+theorem tinv_ofGoal {g : Goal} (hg : GoodG g) : TInv P (State.ofGoal P g).tables := by
   constructor <;> simp only [State.ofGoal, List.mem_singleton] <;> rintro t rfl <;>
-    simp [goodG_norm hg, bu_norm hb]
+    simp [goodG_norm hg]
+
+theorem uinv_ofGoal {g : Goal} (hb : BU P.theory g) : UInv P (State.ofGoal P g).tables := by
+  constructor <;> simp only [State.ofGoal, List.mem_singleton] <;> rintro t rfl <;>
+    simp [bu_norm hb]
+
+/-- A table after a round is an old table with its fresh answers, or a new
+empty table for a goal an old one reads. -/
+theorem round_cases (st : State) {t' : Table} (ht' : t' ∈ (round st).1.tables) :
+    (∃ t ∈ st.tables, t'.goal = t.goal ∧ t'.answers = t.answers ++ fresh t.answers (outOf st t).1) ∨
+      (t'.answers = [] ∧ ∃ t ∈ st.tables,
+        ∃ d ∈ (produce st.P st.depth st.tables t.goal).2, t'.goal = d.norm.2) := by
+  rcases mem_round ht' with ⟨i, hi, rfl⟩ | ⟨g, hg, rfl⟩
+  · exact .inl ⟨_, List.getElem_mem hi, after_goal _ _ _, after_answers _ _ _⟩
+  · obtain ⟨t, ht, -, d, hd, rfl⟩ := mem_reqs (mem_newGoals hg)
+    exact .inr ⟨rfl, t, ht, d, hd, rfl⟩
+
+/-- The fresh answers of a table are candidates of its goal. -/
+theorem fresh_cand (st : State) {t : Table} {a : Span} (ha : a ∈ fresh t.answers (outOf st t).1) :
+    a ∈ (produce st.P st.depth st.tables t.goal).1 := by
+  have ha' := (fresh_sub ha).1
+  cases hdn : t.done
+  · rwa [outOf_not_done hdn] at ha'
+  · rw [outOf_done hdn] at ha'; simp at ha'
+
+theorem uinv_round (hSS : Obligation.simplify_stable) {st : State}
+    (hwf : ∀ ρ ∈ st.P.theory, ρ.WellFormed) (hU : UInv st.P st.tables) :
+    UInv st.P (round st).1.tables := by
+  constructor
+  · intro t' ht'
+    rcases round_cases st ht' with ⟨t, ht, hg, -⟩ | ⟨-, t, ht, d, hd, hg⟩
+    · rw [hg]; exact hU.bu t ht
+    · rw [hg]; exact bu_norm (deps_bu hU (hU.bu t ht) hd)
+  · intro t' ht' a ha
+    rcases round_cases st ht' with ⟨t, ht, -, hans⟩ | ⟨hans, -⟩
+    · rw [hans, List.mem_append] at ha
+      rcases ha with ha | ha
+      · exact hU.unref t ht a ha
+      · exact cands_unref hSS hwf hU (fresh_cand st ha)
+    · rw [hans] at ha; simp at ha
 
 section
-variable (hSE : Obligation.simplify_exact) (hSS : Obligation.simplify_stable)
-include hSE hSS
+variable (hSE : Obligation.simplify_exact)
+include hSE
 
 theorem tinv_round {st : State} (hwf : ∀ ρ ∈ st.P.theory, ρ.WellFormed) (hI : TInv st.P st.tables) :
     TInv st.P (round st).1.tables := by
@@ -261,36 +299,18 @@ theorem tinv_round {st : State} (hwf : ∀ ρ ∈ st.P.theory, ρ.WellFormed) (h
         exact compl_dc hSE hwf hI _ i (List.contains_iff_mem.1 hd) hi w s hw le_rfl
     · obtain ⟨t, ht, -, d, hd, rfl⟩ := mem_reqs (mem_newGoals hg)
       exact .inr ⟨rfl, rfl, t, ht, d, hd, rfl⟩
-  have cand : ∀ t ∈ st.tables, ∀ a ∈ fresh t.answers (outOf st t).1,
-      a ∈ (produce st.P st.depth st.tables t.goal).1 := by
-    intro t _ a ha
-    have ha' := (fresh_sub ha).1
-    cases hdn : t.done
-    · rwa [outOf_not_done hdn] at ha'
-    · rw [outOf_done hdn] at ha'; simp at ha'
   constructor
   · intro t' ht'
     rcases key t' ht' with ⟨t, ht, hg, -, -⟩ | ⟨-, -, t, ht, d, hd, hg⟩
     · rw [hg]; exact hI.good t ht
     · rw [hg]; exact goodG_norm (deps_good (hI.good t ht) hd)
-  · intro t' ht'
-    rcases key t' ht' with ⟨t, ht, hg, -, -⟩ | ⟨-, -, t, ht, d, hd, hg⟩
-    · rw [hg]; exact hI.bu t ht
-    · rw [hg]; exact bu_norm (deps_bu hI (hI.bu t ht) hd)
-  · intro t' ht' a ha
-    rcases key t' ht' with ⟨t, ht, -, hans, -⟩ | ⟨hans, -⟩
-    · rw [hans, List.mem_append] at ha
-      rcases ha with ha | ha
-      · exact hI.unref t ht a ha
-      · exact cands_unref hSS hwf hI (cand t ht a ha)
-    · rw [hans] at ha; simp at ha
   · intro t' ht' a ha
     rcases key t' ht' with ⟨t, ht, hg, hans, -⟩ | ⟨hans, -⟩
     · rw [hg]
       rw [hans, List.mem_append] at ha
       rcases ha with ha | ha
       · exact hI.ref t ht a ha
-      · exact cands_ref hSE hwf (ansRef_of hI) (hI.good t ht) (cand t ht a ha)
+      · exact cands_ref hSE hwf (ansRef_of hI) (hI.good t ht) (fresh_cand st ha)
     · rw [hans] at ha; simp at ha
   · intro t' ht'
     rcases key t' ht' with ⟨t, ht, -, hans, -⟩ | ⟨hans, -⟩

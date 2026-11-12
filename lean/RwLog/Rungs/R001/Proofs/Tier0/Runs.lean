@@ -36,20 +36,25 @@ theorem iter_succ' (st : State) : ∀ k, iter (round st).1 k = iter st (k + 1)
   | 0 => rfl
   | k + 1 => by simp only [iter, iter_succ' st k]
 
-section
-variable (hSE : Obligation.simplify_exact) (hSS : Obligation.simplify_stable)
-include hSE hSS
-
-theorem tinv_iter {st : State} (hwf : ∀ ρ ∈ st.P.theory, ρ.WellFormed) (hI : TInv st.P st.tables) :
+theorem tinv_iter (hSE : Obligation.simplify_exact) {st : State}
+    (hwf : ∀ ρ ∈ st.P.theory, ρ.WellFormed) (hI : TInv st.P st.tables) :
     ∀ k, TInv st.P (iter st k).tables
   | 0 => hI
   | k + 1 => by
-    have h := tinv_round hSE hSS (st := iter st k) (by rw [iter_P]; exact hwf)
-      (by rw [iter_P]; exact tinv_iter hwf hI k)
+    have h := tinv_round hSE (st := iter st k) (by rw [iter_P]; exact hwf)
+      (by rw [iter_P]; exact tinv_iter hSE hwf hI k)
     rw [iter_P] at h
     exact h
 
-end
+theorem uinv_iter (hSS : Obligation.simplify_stable) {st : State}
+    (hwf : ∀ ρ ∈ st.P.theory, ρ.WellFormed) (hU : UInv st.P st.tables) :
+    ∀ k, UInv st.P (iter st k).tables
+  | 0 => hU
+  | k + 1 => by
+    have h := uinv_round hSS (st := iter st k) (by rw [iter_P]; exact hwf)
+      (by rw [iter_P]; exact uinv_iter hSS hwf hU k)
+    rw [iter_P] at h
+    exact h
 
 /-! ## Tables only grow -/
 

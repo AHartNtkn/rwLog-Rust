@@ -48,12 +48,15 @@ theorem bu_norm {T : Theory} {g : Goal} (h : BU T g) : BU T g.norm.2 :=
 /-- The invariant of the tables of a reachable state. -/
 structure TInv (P : Program) (ts : Tables) : Prop where
   good : ∀ t ∈ ts, GoodG t.goal
-  bu : ∀ t ∈ ts, BU P.theory t.goal
-  unref : ∀ t ∈ ts, ∀ a ∈ t.answers, P.theory.refutes? a.c = false
   ref : ∀ t ∈ ts, ∀ a ∈ t.answers, ∃ s, Derives P t.goal.e s ∧ Ref P.theory a (GDen t.goal s.den)
   pw : ∀ t ∈ ts, t.answers.Pairwise fun a b => a.covers? b = false
   comp : ∀ t ∈ ts, t.done = true → ∀ s, Derives P t.goal.e s →
     DC P.theory t.answers (GDen t.goal s.den)
+
+/-- Nothing in the tables is refuted: neither a boundary nor an answer. -/
+structure UInv (P : Program) (ts : Tables) : Prop where
+  bu : ∀ t ∈ ts, BU P.theory t.goal
+  unref : ∀ t ∈ ts, ∀ a ∈ t.answers, P.theory.refutes? a.c = false
 
 /-! ## Reading the tables -/
 
@@ -92,7 +95,7 @@ theorem ansRef_of {ts : Tables} (hI : TInv P ts) : AnsRef P ts := by
   rw [heq, ← same_gden hs (hI.good t ht) (goodG_norm hd)]
   exact ref_oS _ hr
 
-theorem answersOf_unref {ts : Tables} (hI : TInv P ts) {d : Goal} {a : Span} (h : a ∈ answersOf ts d) :
+theorem answersOf_unref {ts : Tables} (hI : UInv P ts) {d : Goal} {a : Span} (h : a ∈ answersOf ts d) :
     P.theory.refutes? a.c = false := by
   obtain ⟨t, hf, a₀, ha₀, rfl⟩ := answersOf_mem h
   rw [oS_c]
@@ -122,7 +125,7 @@ theorem meetLive_unref {x y c : Span} (h : c ∈ meetLive P.theory x y) :
   · exact live_unref hSS hwf h
   · simp at h
 
-theorem cands_unref {dd : Nat} {ts : Tables} (hI : TInv P ts) {g : Goal} {c : Span}
+theorem cands_unref {dd : Nat} {ts : Tables} (hI : UInv P ts) {g : Goal} {c : Span}
     (hc : c ∈ (produce P dd ts g).1) : P.theory.refutes? c.c = false := by
   simp only [produce, List.mem_append] at hc
   rcases hc with hc | hc
@@ -214,7 +217,7 @@ theorem bound_unref {x : Span} (hx : P.theory.refutes? x.c = false) :
       (∀ b, bound x.leftIface = some b → P.theory.refutes? b.c = false) := by
   constructor <;> intro b hb <;> rw [bound_some hb] <;> exact storeOn_unref hx _
 
-theorem deps_bu {dd : Nat} {ts : Tables} (hI : TInv P ts) {g d : Goal} (hg : BU P.theory g)
+theorem deps_bu {dd : Nat} {ts : Tables} (hI : UInv P ts) {g d : Goal} (hg : BU P.theory g)
     (hd : d ∈ (produce P dd ts g).2) : BU P.theory d := by
   obtain ⟨lb, e, rb⟩ := g
   simp only [produce] at hd
