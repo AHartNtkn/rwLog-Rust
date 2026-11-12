@@ -152,6 +152,36 @@ theorem classEq_toList {o o' : Option Span} (h : Option.Rel Span.Equiv o o') :
     · simp only [Option.toList_some, List.mem_singleton] at hx; subst hx; exact e
     · simp only [Option.toList_some, List.mem_singleton] at hy; subst hy; exact e
 
+/-- The key step: optional spans whose meanings are mutually covering, one
+the converse of the other, give the same classes of candidates up to
+swapping, when simplification respects equivalent spans. -/
+theorem liveO_mirror {T : Theory} (hK : Obligation.SimplifyRespectsEquiv T)
+    {o' o : Option Span} (h : GEq (Span.denO o') (Span.denO o).inv) :
+    ClassEq (liveO T o') ((liveO T o).map Span.swap) := by
+  have h' : GEq (Span.denO o') (Span.denO (o.map Span.swap)) := by
+    cases o with
+    | none => simpa [Span.denO, GRel.inv] using h
+    | some a => exact h.trans (swap_geq a).symm
+  cases o with
+  | none =>
+    have hr := optionRel_of_geq h'
+    cases o' with
+    | none => exact ClassEq.refl _
+    | some a' => cases hr
+  | some a =>
+    cases o' with
+    | none =>
+      have hr := optionRel_of_geq h'
+      cases hr
+    | some a' =>
+      have e : a'.Equiv a.swap := by
+        have hr := optionRel_of_geq h'
+        cases hr with
+        | some e => exact e
+      simp only [liveO]
+      rw [← live_swap]
+      exact classEq_toList (hK a' a.swap e)
+
 end R001
 
 end RwLog
