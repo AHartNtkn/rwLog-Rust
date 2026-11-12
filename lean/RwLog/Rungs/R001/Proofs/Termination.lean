@@ -332,6 +332,61 @@ theorem round_requested (st : State) (i : Nat) (h : i < st.tables.length)
     simp only [round]
     exact List.mem_append_right _ (List.mem_map.2 ⟨g, hg, rfl⟩)
 
+/-! ## Completion of a closed set of stable tables -/
+
+/-- The default table `getD` falls back to. -/
+abbrev noTable : Table := ⟨⟨none, .zero, none⟩, [], false⟩
+
+/-- Table `j` gained answers between `ts` and `ts'`. -/
+def gainedAt (ts ts' : Tables) (j : Nat) : Bool :=
+  decide ((ts'.getD j noTable).answers.length ≠ (ts.getD j noTable).answers.length)
+
+/-- The completion test of `completing`, for a candidate set `S`. -/
+def okAt (P : Program) (d : Nat) (ts ts' : Tables) (S : List Nat) (i : Nat) : Bool :=
+  (strategies P d ts (ts.getD i noTable).goal).any fun deps =>
+    deps.all fun g =>
+      match indexOf ts g.norm.2 with
+      | none => false
+      | some j => !gainedAt ts ts' j && ((ts.getD j noTable).done || S.contains j)
+
+theorem okAt_mono (P : Program) (d : Nat) (ts ts' : Tables) : OkMono (okAt P d ts ts') := by
+  intro S S' hS i h
+  simp only [okAt, List.any_eq_true, List.all_eq_true] at h ⊢
+  obtain ⟨deps, hd, h⟩ := h
+  refine ⟨deps, hd, fun g hg => ?_⟩
+  have := h g hg
+  split at this
+  · exact absurd this (by simp)
+  · rename_i j hj
+    simp only [Bool.and_eq_true, Bool.not_eq_true', Bool.or_eq_true] at this ⊢
+    refine ⟨this.1, this.2.elim .inl fun h => .inr ?_⟩
+    simp only [List.contains_iff_mem] at h ⊢
+    exact hS j h
+
+/-- Every set of incomplete tables that gained nothing and is closed under the
+completion test is marked complete. -/
+theorem completing_closed (P : Program) (d : Nat) (ts ts' : Tables) (X : List Nat)
+    (hlt : ∀ i ∈ X, i < ts.length) (hnd : ∀ i ∈ X, (ts.getD i noTable).done = false)
+    (hng : ∀ i ∈ X, gainedAt ts ts' i = false) (hok : ∀ i ∈ X, okAt P d ts ts' X i = true) :
+    ∀ i ∈ X, i ∈ completing P d ts ts' := by
+  intro i hi
+  have := subset_gfpFrom (okAt_mono P d ts ts') X hok
+    ((List.range ts.length).filter fun i => !(ts.getD i noTable).done && !gainedAt ts ts' i).length
+    ((List.range ts.length).filter fun i => !(ts.getD i noTable).done && !gainedAt ts ts' i)
+    (fun j hj => List.mem_filter.2 ⟨List.mem_range.2 (hlt j hj), by rw [hnd j hj, hng j hj]; rfl⟩) i hi
+  exact this
+
+/-- What completion guarantees: a table that completes in a round was
+incomplete, gained nothing, and passes the completion test against the
+completing set. -/
+theorem completing_spec (P : Program) (d : Nat) (ts ts' : Tables) (i : Nat)
+    (hi : i ∈ completing P d ts ts') :
+    i < ts.length ∧ (ts.getD i noTable).done = false ∧ gainedAt ts ts' i = false ∧
+      okAt P d ts ts' (completing P d ts ts') i = true := by
+  have hsub := gfpFrom_sub (okAt P d ts ts') _ _ i hi
+  simp only [List.mem_filter, List.mem_range, Bool.and_eq_true, Bool.not_eq_true'] at hsub
+  exact ⟨hsub.1, hsub.2.1, hsub.2.2, gfpFrom_closed _ _ _ le_rfl i hi⟩
+
 end R001
 
 end RwLog
