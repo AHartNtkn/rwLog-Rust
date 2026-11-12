@@ -23,10 +23,14 @@ variables. So a symbolic firing has three outcomes:
   no model contains it, and instantiating the whole span by `θ` keeps exactly
   the instances some model can contain. Equations never enter the store.
 
-The engine takes a `next` firing only when it lowers `storeWeight`, a measure
-on the symbolic store. That makes every search below terminate by construction,
-for every theory. A firing that changes nothing, such as a write-back rule
-firing on what it writes back, never lowers the weight, so it is never taken.
+The engine takes a `next` firing only from a decreasing rule
+(`TRule.decreasing`, a check on the rule itself) and only when it lowers
+`storeWeight`, a measure on the symbolic store. The weight makes every search
+below terminate by construction, for every theory. The rule check makes the
+choice stable under instantiation: a single-head decreasing rule lowers the
+weight of every instance it fires on, so whatever fires on a span fires on
+each of its instances. A firing that changes nothing, such as a write-back rule
+firing on what it writes back, is not decreasing, so it is never taken.
 Leaving a firing untaken never changes a meaning, because every firing
 preserves it; it can only leave a refutation unfound.
 
@@ -67,6 +71,30 @@ store is a set, so copies are kept once. -/
 def Store.replace (c ms bs : Store) : Store :=
   (c.filter (fun a => !ms.contains a) ++ bs).eraseDups
 
+/-- `u` is smaller than `t` under every substitution: it is smaller, and no
+variable occurs more often in `u` than in `t`. -/
+def Pat.smaller (u t : Pat) : Bool :=
+  decide (u.size < t.size) && u.vars.all fun v => decide (u.vars.count v ≤ t.vars.count v)
+
+/-- A rule decreases when, once its equations hold (under their most general
+unifier `μ`), its body is smaller than its heads in the multiset extension of
+`Pat.smaller`: after cancelling the atoms it writes back, some head is left and
+every other body atom is smaller than a head that is left. This is a property
+of the rule, so a firing of a decreasing rule on a store is a decreasing
+firing on every instance of the store. A rule whose equations have no unifier
+never takes a step. -/
+def TRule.decreasing (ρ : TRule) : Bool :=
+  match ρ.body with
+  | .fail => true
+  | .conj eqs cs =>
+    match solve eqs with
+    | none => true
+    | some μ =>
+      let H := ρ.heads.map (Term.bind μ)
+      let B := cs.map (Term.bind μ)
+      let H' := H.diff B
+      !H'.isEmpty && (B.diff H).all fun b => H'.any fun h => Pat.smaller b h
+
 /-- All symbolic firings of one rule on a store, one for each match of its
 heads. -/
 def TRule.firings (ρ : TRule) (c : Store) : List Firing :=
@@ -90,7 +118,9 @@ def Theory.storeWeight (T : Theory) (c : Store) : Nat := (c.map fun a => T.base 
 def Theory.refutes? (T : Theory) (c : Store) : Bool :=
   T.any fun ρ => (ρ.firings c).any fun
     | .refuted => true
-    | .next c' => if T.storeWeight c' < T.storeWeight c then T.refutes? c' else false
+    | .next c' =>
+      if ρ.decreasing then (if T.storeWeight c' < T.storeWeight c then T.refutes? c' else false)
+      else false
     | .bind _ => false
 termination_by T.storeWeight c
 
@@ -98,7 +128,9 @@ termination_by T.storeWeight c
 def Theory.bind? (T : Theory) (c : Store) : Option (Nat → Pat) :=
   T.findSome? fun ρ => (ρ.firings c).findSome? fun
     | .refuted => none
-    | .next c' => if T.storeWeight c' < T.storeWeight c then T.bind? c' else none
+    | .next c' =>
+      if ρ.decreasing then (if T.storeWeight c' < T.storeWeight c then T.bind? c' else none)
+      else none
     | .bind θ => some θ
 termination_by T.storeWeight c
 
@@ -106,7 +138,8 @@ termination_by T.storeWeight c
 def Theory.step? (T : Theory) (c : Store) :
     Option {c' : Store // T.storeWeight c' < T.storeWeight c} :=
   T.findSome? fun ρ => (ρ.firings c).findSome? fun
-    | .next c' => if h : T.storeWeight c' < T.storeWeight c then some ⟨c', h⟩ else none
+    | .next c' =>
+      if h : ρ.decreasing && T.storeWeight c' < T.storeWeight c then some ⟨c', by simp_all⟩ else none
     | _ => none
 
 /-- Take weight-lowering firings until none is left. -/

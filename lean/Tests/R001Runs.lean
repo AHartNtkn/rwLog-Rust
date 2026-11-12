@@ -219,11 +219,26 @@ rule's axiom holds for `$x = $y` as well. -/
 def twiceT : Theory := [rule [ap "q" [v 0], ap "q" [v 1]] .fail]
 theorem twiceT_wellFormed : ∀ ρ ∈ twiceT, ρ.WellFormed := by decide
 #guard runR001 ⟨[], twiceT⟩ (.rw (v 0) (v 0) [ap "q" [v 0]]) 20 == ([], true)
-/-- `(r $x) <=> (t $x).` and `(t $x) <=> .`: a body atom already in the store
-is kept once. -/
-def mergeTwiceT : Theory := [rule [ap "r" [v 0]] (.conj [] [ap "t" [v 0]]), rule [ap "t" [v 0]] (.conj [] [])]
+/-- `(r (f $x)) <=> (t $x).` and `(t $x) <=> .`: a body atom already in the
+store is kept once. -/
+def mergeTwiceT : Theory :=
+  [rule [ap "r" [ap "f" [v 0]]] (.conj [] [ap "t" [v 0]]), rule [ap "t" [v 0]] (.conj [] [])]
 theorem mergeTwiceT_wellFormed : ∀ ρ ∈ mergeTwiceT, ρ.WellFormed := by decide
-#guard runR001 ⟨[], mergeTwiceT⟩ (.rw (v 0) (v 0) [ap "r" [v 0], ap "t" [v 0]]) 20 == (["$0 -> $0"], true)
+#guard runR001 ⟨[], mergeTwiceT⟩ (.rw (v 0) (v 0) [ap "r" [ap "f" [v 0]], ap "t" [v 0]]) 20 ==
+  (["$0 -> $0"], true)
+/-- `(r $x) <=> (t $x).` keeps the size, so it is not decreasing and never
+replaces an atom, even where the result would merge with an atom already
+there. -/
+def sameSizeT : Theory := [rule [ap "r" [v 0]] (.conj [] [ap "t" [v 0]])]
+theorem sameSizeT_wellFormed : ∀ ρ ∈ sameSizeT, ρ.WellFormed := by decide
+#guard runR001 ⟨[], sameSizeT⟩ (.rw (v 0) (v 0) [ap "r" [v 0], ap "t" [v 0]]) 20 ==
+  (["$0 { (r $0), (t $0) } -> $0"], true)
+/-- `(h $x $y $z) <=> (b $x $x).` is smaller than its head, but not under every
+substitution (`$x` occurs twice), so it is not decreasing. -/
+def dupT : Theory := [rule [ap "h" [v 0, v 1, v 2]] (.conj [] [ap "b" [v 0, v 0]])]
+theorem dupT_wellFormed : ∀ ρ ∈ dupT, ρ.WellFormed := by decide
+#guard runR001 ⟨[], dupT⟩ (.rw (v 0) (v 0) [ap "h" [v 0, v 1, v 2]]) 20 ==
+  (["$0 { (h $0 $1 $2) } -> $0"], true)
 
 /-! ## R001 halts on everything rung zero halts on
 

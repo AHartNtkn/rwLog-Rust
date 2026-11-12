@@ -475,7 +475,7 @@ termination_by T.storeWeight c
 /-! ## Normalizing -/
 
 theorem step_spec {T : Theory} {c : Store} {c' : {c' : Store // T.storeWeight c' < T.storeWeight c}}
-    (h : T.step? c = some c') : ∃ ρ ∈ T, Firing.next c'.1 ∈ ρ.firings c := by
+    (h : T.step? c = some c') : ∃ ρ ∈ T, ρ.decreasing = true ∧ Firing.next c'.1 ∈ ρ.firings c := by
   rw [Theory.step?] at h
   obtain ⟨ρ, hρ, h⟩ := List.exists_of_findSome?_eq_some h
   obtain ⟨f, hf, h⟩ := List.exists_of_findSome?_eq_some h
@@ -484,7 +484,7 @@ theorem step_spec {T : Theory} {c : Store} {c' : {c' : Store // T.storeWeight c'
   | next c'' =>
     simp only at h
     split_ifs at h with hlt
-    cases h; exact hf
+    cases h; rw [Bool.and_eq_true] at hlt; exact ⟨hlt.1, hf⟩
   | refuted => cases h
   | bind _ => cases h
 
@@ -495,7 +495,7 @@ theorem normalize_holds {T : Theory} (hwf : ∀ ρ ∈ T, ρ.WellFormed) {M : In
   split
   · rfl
   · rename_i c' hs
-    obtain ⟨ρ, hρ, hf⟩ := step_spec hs
+    obtain ⟨ρ, hρ, -, hf⟩ := step_spec hs
     have := c'.2
     exact (normalize_holds hwf hM σ c'.1).trans (firing_ground hwf hM hρ hf σ).symm
 termination_by T.storeWeight c
@@ -512,10 +512,10 @@ termination_by T.storeWeight c
 theorem refutes_of_step {T : Theory} {c : Store}
     {c' : {c' : Store // T.storeWeight c' < T.storeWeight c}} (hs : T.step? c = some c')
     (h : T.refutes? c'.1 = true) : T.refutes? c = true := by
-  obtain ⟨ρ, hρ, hf⟩ := step_spec hs
+  obtain ⟨ρ, hρ, hd, hf⟩ := step_spec hs
   rw [Theory.refutes?]
   simp only [List.any_eq_true]
-  exact ⟨ρ, hρ, _, hf, by simp [c'.2, h]⟩
+  exact ⟨ρ, hρ, _, hf, by simp [hd, c'.2, h]⟩
 
 theorem refutes_normalize {T : Theory} (c : Store) (h : T.refutes? (T.normalize c) = true) :
     T.refutes? c = true := by
@@ -530,11 +530,11 @@ termination_by T.storeWeight c
 theorem bind_isSome_of_step {T : Theory} {c : Store}
     {c' : {c' : Store // T.storeWeight c' < T.storeWeight c}} (hs : T.step? c = some c')
     (h : (T.bind? c'.1).isSome = true) : (T.bind? c).isSome = true := by
-  obtain ⟨ρ, hρ, hf⟩ := step_spec hs
+  obtain ⟨ρ, hρ, hd, hf⟩ := step_spec hs
   rw [Theory.bind?, List.findSome?_isSome_iff]
   refine ⟨ρ, hρ, ?_⟩
   rw [List.findSome?_isSome_iff]
-  exact ⟨_, hf, by simpa [c'.2] using h⟩
+  exact ⟨_, hf, by simpa [hd, c'.2] using h⟩
 
 theorem bind_normalize {T : Theory} (c : Store) (h : (T.bind? (T.normalize c)).isSome = true) :
     (T.bind? c).isSome = true := by

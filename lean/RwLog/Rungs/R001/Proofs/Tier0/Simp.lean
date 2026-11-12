@@ -133,13 +133,18 @@ theorem refutes_subperm (T : Theory) : ∀ (n : Nat) (c' c : Store), T.storeWeig
     refine ⟨_, ⟨r, hr', rfl⟩, ?_⟩
     rw [hb] at hF
     simp only [firingOfEqs] at hF ⊢
-    split_ifs at hF ⊢
-    · dsimp only at hF ⊢
-      split_ifs at hF with hw
-      obtain ⟨hw', hs'⟩ := replace_mono T hsub r.2 (cs.map (Term.bind r.1.apply)) hw
-      simp only [hw', ↓reduceIte]
-      exact ih _ (hn ▸ hw) _ _ rfl hs' hF
-    · cases hs : solve (eqs.map fun e => (e.1.bind r.1.apply, e.2.bind r.1.apply)) <;>
+    by_cases hd : ρ.decreasing = true
+    · split_ifs at hF ⊢
+      · dsimp only at hF ⊢
+        split_ifs at hF with hw
+        obtain ⟨hw', hs'⟩ := replace_mono T hsub r.2 (cs.map (Term.bind r.1.apply)) hw
+        simp only [hw', ↓reduceIte]
+        exact ih _ (hn ▸ hw) _ _ rfl hs' hF
+      · cases hs : solve (eqs.map fun e => (e.1.bind r.1.apply, e.2.bind r.1.apply)) <;>
+          simp only [hs] at hF ⊢
+        exact absurd hF Bool.false_ne_true
+    · split_ifs at hF ⊢
+      cases hs : solve (eqs.map fun e => (e.1.bind r.1.apply, e.2.bind r.1.apply)) <;>
         simp only [hs] at hF ⊢
       exact absurd hF Bool.false_ne_true
 
