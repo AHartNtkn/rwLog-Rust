@@ -334,6 +334,57 @@ theorem two_le_length_of_mem {L : List Rel} (hL : L.Nodup) {x y : Rel} (hx : x �
   | [u], hx, hy => simp at hx hy; exact absurd (hx.trans hy.symm) hxy
   | u :: v :: rest, _, _ => exact ⟨u, v, rest, rfl⟩
 
+/-- The mirror of a canonical `|` has at least two branches after
+canonicalization. -/
+theorem canon_dual_or_two {b c : Rel} (hc : canon (Rel.or b c) = Rel.or b c) :
+    ∃ u v rest, sortedBranches (orBranches (canon (Rel.or b c).dual)) = u :: v :: rest := by
+  -- the branches of `E` are canonical, nonzero and at least two
+  have hE := hc
+  rw [show canon (Rel.or b c) = mkOr (sortedBranches (orBranches (canon b) ++ orBranches (canon c)))
+    from rfl] at hE
+  have hT : ∀ x ∈ sortedBranches (orBranches (canon b) ++ orBranches (canon c)), NotOr x :=
+    fun x hx => by
+      rw [mem_sortedBranches, List.mem_append] at hx
+      exact hx.1.elim notOr_of_mem_orBranches notOr_of_mem_orBranches
+  obtain ⟨x, y, rest, hxy⟩ := mkOr_or hE hT
+  have hnd := (pairwise_sortedBranches (orBranches (canon b) ++ orBranches (canon c))).imp
+    fun h => h.2
+  rw [hxy] at hnd
+  have hne : x ≠ y := (List.pairwise_cons.1 hnd).1 y (by simp)
+  have hmem : ∀ z ∈ sortedBranches (orBranches (canon b) ++ orBranches (canon c)),
+      z ≠ .zero ∧ canon z = z ∧ z ∈ orBranches (Rel.or b c |> canon) := by
+    intro z hz
+    have hz0 := (mem_sortedBranches.1 hz).2
+    refine ⟨hz0, ?_, ?_⟩
+    · obtain ⟨l, _, rfl⟩ := (mem_orBranches_canon (.or b c) hz0).1
+        ((mem_orBranches_canon_or hz0).2 (List.mem_append.1 (mem_sortedBranches.1 hz).1))
+      exact canon_idem l
+    · rw [hc]; exact (mem_orBranches_canon_or hz0).2 (List.mem_append.1 (mem_sortedBranches.1 hz).1)
+        |> fun h => by rw [← hc]; exact h
+  have hx := hmem x (by rw [hxy]; simp)
+  have hy := hmem y (by rw [hxy]; simp)
+  -- their mirrors are distinct non-`0` branches of the canonical mirror
+  have himg : ∀ z, z ≠ .zero ∧ canon z = z ∧ z ∈ orBranches (canon (Rel.or b c)) →
+      canon z.dual ≠ .zero ∧ canon z.dual ∈ sortedBranches (orBranches (canon (Rel.or b c).dual)) := by
+    rintro z ⟨hz0, hzc, hz⟩
+    have h0 : canon z.dual ≠ .zero := by
+      intro h0
+      apply hz0
+      rw [← hzc, ← canon_dual_canon z, ← canon_dual z, h0]; rfl
+    refine ⟨h0, mem_sortedBranches.2 ⟨?_, h0⟩⟩
+    rw [mem_orBranches_canon _ h0, orBranches_dual]
+    rw [hc] at hz
+    exact ⟨z.dual, List.mem_map.2 ⟨z, hz, rfl⟩, rfl⟩
+  have hx' := himg x hx
+  have hy' := himg y hy
+  have hne' : canon x.dual ≠ canon y.dual := by
+    intro e
+    apply hne
+    rw [← hx.2.1, ← hy.2.1, ← canon_dual_canon x, ← canon_dual_canon y, ← canon_dual x,
+      ← canon_dual y, e]
+  have hnd' := (pairwise_sortedBranches (orBranches (canon (Rel.or b c).dual))).imp fun h => h.2
+  exact two_le_length_of_mem hnd' hx'.2 hy'.2 hne'
+
 /-- The mirror of a canonical non-converse expression is not a converse after
 canonicalization: so the key of a mirrored key carries no orientation. -/
 theorem canon_dual_not_conv {E : Rel} (hc : canon E = E) (hn : ∀ a, E ≠ .conv a) :
@@ -344,54 +395,7 @@ theorem canon_dual_not_conv {E : Rel} (hc : canon E = E) (hn : ∀ a, E ≠ .con
   | zero | span _ | and _ _ | seq _ _ | call _ => simp [Rel.dual, canon] at h
   | or b c =>
     rw [canon_eq_mkOr (Rel.or b c).dual] at h
-    have hS : ∀ x ∈ sortedBranches (orBranches (canon (Rel.or b c).dual)), NotOr x := fun x hx =>
-      notOr_of_mem_orBranches (mem_sortedBranches.1 hx).1
-    -- the branches of `E` are canonical, nonzero and at least two
-    have hE := hc
-    rw [show canon (Rel.or b c) = mkOr (sortedBranches (orBranches (canon b) ++ orBranches (canon c)))
-      from rfl] at hE
-    have hT : ∀ x ∈ sortedBranches (orBranches (canon b) ++ orBranches (canon c)), NotOr x :=
-      fun x hx => by
-        rw [mem_sortedBranches, List.mem_append] at hx
-        exact hx.1.elim notOr_of_mem_orBranches notOr_of_mem_orBranches
-    obtain ⟨x, y, rest, hxy⟩ := mkOr_or hE hT
-    have hnd := (pairwise_sortedBranches (orBranches (canon b) ++ orBranches (canon c))).imp
-      fun h => h.2
-    rw [hxy] at hnd
-    have hne : x ≠ y := (List.pairwise_cons.1 hnd).1 y (by simp)
-    have hmem : ∀ z ∈ sortedBranches (orBranches (canon b) ++ orBranches (canon c)),
-        z ≠ .zero ∧ canon z = z ∧ z ∈ orBranches (Rel.or b c |> canon) := by
-      intro z hz
-      have hz0 := (mem_sortedBranches.1 hz).2
-      refine ⟨hz0, ?_, ?_⟩
-      · obtain ⟨l, _, rfl⟩ := (mem_orBranches_canon (.or b c) hz0).1
-          ((mem_orBranches_canon_or hz0).2 (List.mem_append.1 (mem_sortedBranches.1 hz).1))
-        exact canon_idem l
-      · rw [hc]; exact (mem_orBranches_canon_or hz0).2 (List.mem_append.1 (mem_sortedBranches.1 hz).1)
-          |> fun h => by rw [← hc]; exact h
-    have hx := hmem x (by rw [hxy]; simp)
-    have hy := hmem y (by rw [hxy]; simp)
-    -- their mirrors are distinct non-`0` branches of the canonical mirror
-    have himg : ∀ z, z ≠ .zero ∧ canon z = z ∧ z ∈ orBranches (canon (Rel.or b c)) →
-        canon z.dual ≠ .zero ∧ canon z.dual ∈ sortedBranches (orBranches (canon (Rel.or b c).dual)) := by
-      rintro z ⟨hz0, hzc, hz⟩
-      have h0 : canon z.dual ≠ .zero := by
-        intro h0
-        apply hz0
-        rw [← hzc, ← canon_dual_canon z, ← canon_dual z, h0]; rfl
-      refine ⟨h0, mem_sortedBranches.2 ⟨?_, h0⟩⟩
-      rw [mem_orBranches_canon _ h0, orBranches_dual]
-      rw [hc] at hz
-      exact ⟨z.dual, List.mem_map.2 ⟨z, hz, rfl⟩, rfl⟩
-    have hx' := himg x hx
-    have hy' := himg y hy
-    have hne' : canon x.dual ≠ canon y.dual := by
-      intro e
-      apply hne
-      rw [← hx.2.1, ← hy.2.1, ← canon_dual_canon x, ← canon_dual_canon y, ← canon_dual x,
-        ← canon_dual y, e]
-    have hnd' := (pairwise_sortedBranches (orBranches (canon (Rel.or b c).dual))).imp fun h => h.2
-    obtain ⟨u, v, rest', hl⟩ := two_le_length_of_mem hnd' hx'.2 hy'.2 hne'
+    obtain ⟨u, v, rest', hl⟩ := canon_dual_or_two hc
     rw [hl] at h
     cases h
 
