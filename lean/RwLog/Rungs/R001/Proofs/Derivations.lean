@@ -21,9 +21,9 @@ machine's pruning invisible: `simplify` drops only dead spans
 (`Kernel.simplify_exact`), and every intermediate span of a derivation of a
 live answer is live.
 
-Relations are compared by `LCov`: `LCov T R S` says every triple of `S` whose
-store the theory cannot refute is matched by a triple of `R` with the same
-pair and a store no stronger. `Span.CoversLive` is `LCov` on denotations.
+Relations are compared by `LCov`: `LCov T R S` says that in every model of
+the theory, `R` relates every pair `S` relates (`GRel.at`). `Span.CoversLive`
+is `LCov` on denotations.
 -/
 import RwLog.Rungs.R001.Proofs.Kernel
 import RwLog.Rungs.R000.Properties
@@ -36,102 +36,81 @@ namespace Lifting
 
 variable {T : Theory}
 
-/-! ## Stores no stronger than others -/
+/-! ## Pairs in a model -/
 
-theorem ns_refl (S : GStore) : GStore.NoStronger T S S := fun _ h => h
+theorem at_comp (R S : GRel) (M : Interp) : (R.comp S).at M = PRel.comp (R.at M) (S.at M) := by
+  ext ⟨a, b⟩
+  constructor
+  · rintro ⟨_, ⟨m, S₁, S₂, h₁, h₂, rfl⟩, hM⟩
+    obtain ⟨hM₁, hM₂⟩ := union_subset_iff_coe.1 hM
+    exact ⟨m, ⟨S₁, h₁, hM₁⟩, ⟨S₂, h₂, hM₂⟩⟩
+  · rintro ⟨m, ⟨S₁, h₁, hM₁⟩, ⟨S₂, h₂, hM₂⟩⟩
+    exact ⟨S₁ ∪ S₂, ⟨m, S₁, S₂, h₁, h₂, rfl⟩, union_subset_iff_coe.2 ⟨hM₁, hM₂⟩⟩
 
-theorem ns_trans {A B C : GStore} (h₁ : GStore.NoStronger T A B) (h₂ : GStore.NoStronger T B C) :
-    GStore.NoStronger T A C := fun D h => h₂ D (h₁ D h)
+theorem at_meet (R S : GRel) (M : Interp) : (R.meet S).at M = R.at M ∩ S.at M := by
+  ext ⟨a, b⟩
+  constructor
+  · rintro ⟨_, ⟨S₁, S₂, h₁, h₂, rfl⟩, hM⟩
+    obtain ⟨hM₁, hM₂⟩ := union_subset_iff_coe.1 hM
+    exact ⟨⟨S₁, h₁, hM₁⟩, ⟨S₂, h₂, hM₂⟩⟩
+  · rintro ⟨⟨S₁, h₁, hM₁⟩, ⟨S₂, h₂, hM₂⟩⟩
+    exact ⟨S₁ ∪ S₂, ⟨S₁, S₂, h₁, h₂, rfl⟩, union_subset_iff_coe.2 ⟨hM₁, hM₂⟩⟩
 
-theorem ns_union {A A' B B' : GStore} (ha : GStore.NoStronger T A A')
-    (hb : GStore.NoStronger T B B') : GStore.NoStronger T (A ∪ B) (A' ∪ B') := by
-  intro C h
-  have e₁ : A ∪ B ∪ C = A ∪ (B ∪ C) := Finset.union_assoc _ _ _
-  have h₁ : Refutes T (A' ∪ (B ∪ C)) := ha (B ∪ C) (e₁ ▸ h)
-  have e₂ : A' ∪ (B ∪ C) = B ∪ (A' ∪ C) := Finset.union_left_comm _ _ _
-  have h₂ : Refutes T (B' ∪ (A' ∪ C)) := hb (A' ∪ C) (e₂ ▸ h₁)
-  have e₃ : B' ∪ (A' ∪ C) = A' ∪ B' ∪ C := by
-    rw [Finset.union_left_comm, ← Finset.union_assoc]
-  exact e₃ ▸ h₂
-
-theorem ns_live {A B : GStore} (h : GStore.NoStronger T A B) (hB : ¬ Refutes T B) :
-    ¬ Refutes T A := fun hA => hB (by simpa using h ∅ (by simpa using hA))
+theorem at_inv (R : GRel) (M : Interp) : R.inv.at M = PRel.inv (R.at M) := by
+  ext ⟨a, b⟩
+  exact ⟨fun ⟨S, h, hM⟩ => ⟨S, h, hM⟩, fun ⟨S, h, hM⟩ => ⟨S, h, hM⟩⟩
 
 /-! ## Covering up to the theory -/
 
-/-- `R` covers the live triples of `S`: every triple of `S` whose store the
-theory cannot refute is matched by a triple of `R` with the same pair and a
-store no stronger. -/
-def LCov (T : Theory) (R S : GRel) : Prop :=
-  ∀ a b X, (a, b, X) ∈ S → ¬ Refutes T X → ∃ Y, (a, b, Y) ∈ R ∧ GStore.NoStronger T Y X
+/-- In every model of the theory, `R` relates every pair `S` relates. -/
+def LCov (T : Theory) (R S : GRel) : Prop := ∀ M, T.Model M → S.at M ⊆ R.at M
 
-/-- Equivalence up to the theory: each covers the live triples of the other. -/
+/-- In every model of the theory, `R` and `S` relate the same pairs. -/
 def LEq (T : Theory) (R S : GRel) : Prop := LCov T R S ∧ LCov T S R
 
-/-- Some triple's store is not refuted. -/
-def Live (T : Theory) (R : GRel) : Prop := ∃ a b X, (a, b, X) ∈ R ∧ ¬ Refutes T X
+/-- Some model of the theory lets `R` relate a pair. -/
+def Live (T : Theory) (R : GRel) : Prop := ∃ M, T.Model M ∧ (R.at M).Nonempty
 
 theorem coversLive_iff {a s : Span} : a.CoversLive T s ↔ LCov T a.den s.den := by
-  constructor
-  · intro h x y X hx hn
-    obtain ⟨⟨x', y', Y⟩, hy, h₁, h₂, h₃⟩ := h (x, y, X) hx hn
-    simp only at h₁ h₂
-    subst h₁ h₂
-    exact ⟨Y, hy, h₃⟩
-  · rintro h ⟨x, y, X⟩ hx hn
-    obtain ⟨Y, hy, hY⟩ := h x y X hx hn
-    exact ⟨(x, y, Y), hy, rfl, rfl, hY⟩
+  simp only [Span.CoversLive, LCov, Span.denAt_eq]
 
 theorem not_dead_iff {s : Span} : ¬ s.Dead T ↔ Live T s.den := by
-  constructor
-  · intro h
-    simp only [Span.Dead, not_forall] at h
-    obtain ⟨σ, hσ⟩ := h
-    exact ⟨_, _, _, ⟨σ, rfl⟩, hσ⟩
-  · rintro ⟨a, b, X, ⟨σ, he⟩, hn⟩ hd
-    simp only [Prod.mk.injEq] at he
-    exact hn (he.2.2 ▸ hd σ)
+  simp only [Span.Dead, Live, Span.denAt_eq, not_forall, Set.nonempty_iff_ne_empty, exists_prop]
 
-theorem LCov.refl (R : GRel) : LCov T R R := fun _ _ X h _ => ⟨X, h, ns_refl X⟩
+theorem LCov.refl (R : GRel) : LCov T R R := fun _ _ => le_rfl
 
-theorem LCov.trans {R S U : GRel} (h₁ : LCov T R S) (h₂ : LCov T S U) : LCov T R U := by
-  intro a b X hx hn
-  obtain ⟨Y, hy, hYX⟩ := h₂ a b X hx hn
-  obtain ⟨Z, hz, hZY⟩ := h₁ a b Y hy (ns_live hYX hn)
-  exact ⟨Z, hz, ns_trans hZY hYX⟩
+theorem LCov.trans {R S U : GRel} (h₁ : LCov T R S) (h₂ : LCov T S U) : LCov T R U :=
+  fun M hM => (h₂ M hM).trans (h₁ M hM)
 
 theorem LCov.of_eq {R S : GRel} (h : R = S) : LCov T R S := h ▸ LCov.refl R
 
 theorem LCov.of_sub {R S : GRel} (h : ∀ a b X, (a, b, X) ∈ S → ∃ Y, (a, b, Y) ∈ R ∧ Y ⊆ X) :
-    LCov T R S := fun a b X hx _ =>
-  let ⟨Y, hy, hYX⟩ := h a b X hx
-  ⟨Y, hy, GStore.NoStronger.of_subset hYX⟩
+    LCov T R S := by
+  rintro M - ⟨a, b⟩ ⟨X, hx, hM⟩
+  obtain ⟨Y, hy, hYX⟩ := h a b X hx
+  exact ⟨Y, hy, fun t ht => hM (hYX ht)⟩
 
 theorem LCov.live {R S : GRel} (h : LCov T R S) (hS : Live T S) : Live T R := by
-  obtain ⟨a, b, X, hx, hn⟩ := hS
-  obtain ⟨Y, hy, hYX⟩ := h a b X hx hn
-  exact ⟨a, b, Y, hy, ns_live hYX hn⟩
+  obtain ⟨M, hM, p, hp⟩ := hS
+  exact ⟨M, hM, p, h M hM hp⟩
 
 theorem LCov.comp {R R' S S' : GRel} (h₁ : LCov T R R') (h₂ : LCov T S S') :
     LCov T (R.comp S) (R'.comp S') := by
-  rintro a b X ⟨m, X₁, X₂, hx₁, hx₂, hX⟩ hn
-  have hX : X = X₁ ∪ X₂ := hX
-  subst hX
-  obtain ⟨Y₁, hy₁, e₁⟩ := h₁ a m X₁ hx₁ fun h => hn (h.mono Finset.subset_union_left)
-  obtain ⟨Y₂, hy₂, e₂⟩ := h₂ m b X₂ hx₂ fun h => hn (h.mono Finset.subset_union_right)
-  exact ⟨Y₁ ∪ Y₂, ⟨m, Y₁, Y₂, hy₁, hy₂, rfl⟩, ns_union e₁ e₂⟩
+  intro M hM
+  rw [at_comp, at_comp]
+  rintro p ⟨m, ha, hb⟩
+  exact ⟨m, h₁ M hM ha, h₂ M hM hb⟩
 
 theorem LCov.meet {R R' S S' : GRel} (h₁ : LCov T R R') (h₂ : LCov T S S') :
     LCov T (R.meet S) (R'.meet S') := by
-  rintro a b X ⟨X₁, X₂, hx₁, hx₂, hX⟩ hn
-  have hX : X = X₁ ∪ X₂ := hX
-  subst hX
-  obtain ⟨Y₁, hy₁, e₁⟩ := h₁ a b X₁ hx₁ fun h => hn (h.mono Finset.subset_union_left)
-  obtain ⟨Y₂, hy₂, e₂⟩ := h₂ a b X₂ hx₂ fun h => hn (h.mono Finset.subset_union_right)
-  exact ⟨Y₁ ∪ Y₂, ⟨Y₁, Y₂, hy₁, hy₂, rfl⟩, ns_union e₁ e₂⟩
+  intro M hM
+  rw [at_meet, at_meet]
+  exact Set.inter_subset_inter (h₁ M hM) (h₂ M hM)
 
-theorem LCov.inv {R S : GRel} (h : LCov T R S) : LCov T R.inv S.inv :=
-  fun a b X hx hn => h b a X hx hn
+theorem LCov.inv {R S : GRel} (h : LCov T R S) : LCov T R.inv S.inv := by
+  intro M hM
+  rw [at_inv, at_inv]
+  exact fun p hp => h M hM hp
 
 theorem LEq.refl (R : GRel) : LEq T R R := ⟨LCov.refl R, LCov.refl R⟩
 
@@ -151,30 +130,30 @@ theorem LEq.meet {R R' S S' : GRel} (h₁ : LEq T R R') (h₂ : LEq T S S') :
 theorem LEq.inv {R S : GRel} (h : LEq T R S) : LEq T R.inv S.inv := ⟨h.1.inv, h.2.inv⟩
 
 theorem live_comp {R S : GRel} (h : Live T (R.comp S)) : Live T R ∧ Live T S := by
-  obtain ⟨a, b, X, ⟨m, X₁, X₂, h₁, h₂, hX⟩, hn⟩ := h
-  have hX : X = X₁ ∪ X₂ := hX
-  subst hX
-  exact ⟨⟨a, m, X₁, h₁, fun h => hn (h.mono Finset.subset_union_left)⟩,
-    ⟨m, b, X₂, h₂, fun h => hn (h.mono Finset.subset_union_right)⟩⟩
+  obtain ⟨M, hM, p, hp⟩ := h
+  rw [at_comp] at hp
+  obtain ⟨m, ha, hb⟩ := hp
+  exact ⟨⟨M, hM, _, ha⟩, ⟨M, hM, _, hb⟩⟩
 
 theorem live_meet {R S : GRel} (h : Live T (R.meet S)) : Live T R ∧ Live T S := by
-  obtain ⟨a, b, X, ⟨X₁, X₂, h₁, h₂, hX⟩, hn⟩ := h
-  have hX : X = X₁ ∪ X₂ := hX
-  subst hX
-  exact ⟨⟨a, b, X₁, h₁, fun h => hn (h.mono Finset.subset_union_left)⟩,
-    ⟨a, b, X₂, h₂, fun h => hn (h.mono Finset.subset_union_right)⟩⟩
+  obtain ⟨M, hM, p, hp⟩ := h
+  rw [at_meet] at hp
+  exact ⟨⟨M, hM, _, hp.1⟩, ⟨M, hM, _, hp.2⟩⟩
 
 theorem live_inv {R : GRel} (h : Live T R.inv) : Live T R := by
-  obtain ⟨a, b, X, hx, hn⟩ := h
-  exact ⟨b, a, X, hx, hn⟩
+  obtain ⟨M, hM, p, hp⟩ := h
+  rw [at_inv] at hp
+  exact ⟨M, hM, _, hp⟩
 
 theorem live_inv' {R : GRel} (h : Live T R) : Live T R.inv := by
-  obtain ⟨a, b, X, hx, hn⟩ := h
-  exact ⟨b, a, X, hx, hn⟩
+  obtain ⟨M, hM, ⟨a, b⟩, hp⟩ := h
+  refine ⟨M, hM, (b, a), ?_⟩
+  rw [at_inv]
+  exact hp
 
 theorem Live.nonempty {R : GRel} (h : Live T R) : R.Nonempty := by
-  obtain ⟨a, b, X, hx, _⟩ := h
-  exact ⟨_, hx⟩
+  obtain ⟨M, -, p, S, hS, -⟩ := h
+  exact ⟨_, hS⟩
 
 /-! ## Sub-identities -/
 
@@ -391,18 +370,17 @@ theorem liveO_spec {o : Option Span} {D : GRel} (hD : Span.denO o = D) :
   | none =>
     subst hD
     refine ⟨fun z hz => by simp [liveO] at hz, ?_⟩
-    rintro ⟨_, _, _, h, _⟩
+    rintro ⟨M, -, p, S, h, -⟩
     exact absurd h (Set.notMem_empty _)
   | some u =>
     subst hD
     refine ⟨fun z hz => ?_, fun hl => ?_⟩
     · have hz : T.simplify u = some z := by simpa [liveO, live] using hz
-      obtain ⟨hb, hc⟩ := (hS T u hT).2 z hz
-      refine ⟨coversLive_iff.1 hc, fun a b X hx _ => ?_⟩
-      obtain ⟨⟨a', b', Y⟩, hy, h₁, h₂, h₃⟩ := hb (a, b, X) hx
-      simp only at h₁ h₂
-      subst h₁ h₂
-      exact ⟨Y, hy, h₃⟩
+      have he := (hS T u hT).2 z hz
+      have hd : ∀ M, T.Model M → (z.den).at M = (Span.denO (some u)).at M := fun M hM => by
+        show (z.den).at M = (u.den).at M
+        rw [← Span.denAt_eq, ← Span.denAt_eq, he M hM]
+      exact ⟨fun M hM => (hd M hM).ge, fun M hM => (hd M hM).le⟩
     · cases hs : T.simplify u with
       | none => exact absurd ((hS T u hT).1 hs) (not_dead_iff.2 hl)
       | some z => exact ⟨z, by simp [liveO, live, hs]⟩

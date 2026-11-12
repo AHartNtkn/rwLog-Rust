@@ -131,16 +131,15 @@ abbrev Store := List Pat
 /-- A rule body: `fail`, or a conjunction of equations `s = t` and
 constraints. The empty conjunction is the drop body `.`.
 
-An equation is not a constraint and never enters a store: when the rule fires
-it equates terms of the span it fires in, so on a ground instance it either
-holds or refutes. -/
+An equation is not a constraint and never enters a store: on a ground
+instance it holds exactly when its two sides are the same term. -/
 inductive Body where
   | fail
   | conj (eqs : List (Pat × Pat)) (cs : List Pat)
   deriving DecidableEq, Repr
 
-/-- A refutation rule `h₁, …, hₙ <=> body`. Rules fire by matching their heads
-against distinct constraints of the store. -/
+/-- A rule `h₁, …, hₙ <=> body`: the heads all hold exactly when the body
+does (`RwLog.Trusted.Semantics`). -/
 structure TRule where
   heads : List Pat
   body : Body
@@ -158,14 +157,12 @@ def Body.atoms : Body → List Pat
   | .fail => []
   | .conj _ cs => cs
 
-/-- A rule is well formed when it has a head and every variable of its body,
-in constraints and in equations, occurs in its heads.
-Rules fire by matching their heads, so the heads determine the whole body. A
-fresh body variable would need an existential reading, and an equation with
-one could make constraint solving on non-ground stores diverge (`(p $x) <=> $x
-= (s $y), (p $y).`), so the rule language excludes it. -/
+/-- A rule is well formed when it is range-restricted: every variable of its
+body, in constraints and in equations, occurs in its heads. This is a rule of
+the language, not of the meaning: the semantics gives every rule a meaning,
+reading body-only variables existentially. -/
 def TRule.WellFormed (ρ : TRule) : Prop :=
-  ρ.heads ≠ [] ∧ (∀ c ∈ ρ.body.atoms, ∀ v ∈ c.vars, ∃ h ∈ ρ.heads, v ∈ h.vars) ∧
+  (∀ c ∈ ρ.body.atoms, ∀ v ∈ c.vars, ∃ h ∈ ρ.heads, v ∈ h.vars) ∧
     (∀ e ∈ ρ.body.eqs, ∀ v ∈ e.1.vars ++ e.2.vars, ∃ h ∈ ρ.heads, v ∈ h.vars)
 
 instance (ρ : TRule) : Decidable ρ.WellFormed := by

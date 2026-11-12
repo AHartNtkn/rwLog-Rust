@@ -29,6 +29,7 @@ machine keeps one representative of each class of equivalent answers.
 -/
 import RwLog.Rungs.R001.Engine
 import RwLog.Rungs.R000.Engine
+import RwLog.SpanLayer.Coverage
 
 namespace RwLog
 
@@ -216,12 +217,14 @@ namespace Obligation
 is infinite). -/
 def covers_iff : Prop := ∀ a s : Span, a.covers? s = true ↔ a.Covers s
 
-/-- Symbolic refutation is sound for every ground instance. -/
+/-- Symbolic refutation is sound: no model of the theory contains any ground
+instance of a refuted store. -/
 def refutes_sound : Prop :=
-  ∀ (T : Theory) (c : Store), T.refutes? c = true → ∀ σ : Nat → GTerm, Refutes T (c.at σ)
+  ∀ (T : Theory) (c : Store), (∀ ρ ∈ T, ρ.WellFormed) → T.refutes? c = true →
+    ∀ (σ : Nat → GTerm) (M : Interp), T.Model M → ¬ ∀ x ∈ c, x.bind σ ∈ M
 
-/-- Simplification is exact: a dropped span is dead, and a kept span refines
-the original, so up to the theory it loses only refuted instances. -/
+/-- Simplification is exact: a dropped span is dead, and a kept span relates
+the same pairs as the original in every model of the theory. -/
 def simplify_exact : Prop :=
   ∀ (T : Theory) (s : Span), (∀ ρ ∈ T, ρ.WellFormed) →
     (T.simplify s = none → s.Dead T) ∧ (∀ s', T.simplify s = some s' → s'.Refines T s)

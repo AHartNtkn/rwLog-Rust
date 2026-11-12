@@ -4,25 +4,33 @@
 The conformance cases from the Rust interpreter review
 (`conformance/rust-interpreter-findings.md`, cases 2 and 4) that involve
 constraints, stated as theorems about the observable relation `Program.obs`
-and proved. They check that the specification itself gives the intended
-answers, independently of any engine:
+(the pairs some model of the theory relates) and proved. They check that the
+specification itself gives the intended answers, independently of any engine:
 
-* a constraint refuted by the theory removes the pair (`c2_nonzero_z`,
+* a constraint no model allows removes the pair (`c2_nonzero_z`,
   `c2_different_pair_zz`, `c4_neq_self`, `c4_eq_and_neq`);
-* a constraint the theory cannot refute keeps the pair, so the semantics does
-  not refute too much (`c2_nonzero_sz`, `different_alone`);
-* stores carried by different spans combine under `;`, so a multi-head rule
-  can refute the combination although each span alone is satisfiable
-  (`stores_combine_across_seq`).
+* a constraint some model allows keeps the pair, so the semantics does not
+  remove too much (`c2_nonzero_sz`, `different_alone`; the model is the
+  intended one, `stdModel`);
+* constraints from different spans meet in the same model, so a multi-head
+  rule can rule out a composition although each span alone is satisfiable
+  (`stores_combine_across_seq`);
+* an equation in a rule body restricts the span to the instances where it
+  holds (`c4_pin`).
 
 The theory is the case file's `eq_neq` in the agreed rule language (heads
 only, no guards): the two guarded `nonzero` rules become
-`(nonzero z) <=> fail.`, which refutes exactly the stores the guarded pair
-was meant to refute. Case 4's `pin` theory, `(pin $x) <=> $x = z.`, uses an
-equation in a rule body; `c4_pin` shows the span then means exactly its
-instance with `$x` set to `z`.
+`(nonzero z) <=> fail.`.
+
+Under the declarative reading a rule is an equivalence, so
+`(pin $x) <=> $x = z.` already states that `(pin z)` holds. Writing the head
+back, `(pin $x) <=> $x = z, (pin z).`, is not a restatement: it makes
+`(pin z) ↔ (pin z)`, so it no longer forces `(pin z)`, and it gains the
+models without any `pin` atom (`pinKeep_models_iff`). Whether a firing keeps
+or drops `(pin z)` from a store is a question about how an engine computes,
+not about what the program means.
 -/
-import RwLog.Trusted.Semantics
+import RwLog.Theory.Firing
 
 namespace RwLog.Conformance
 
@@ -86,117 +94,116 @@ theorem mk_ne_sym {V : Type} {f g : Sym} {x : Term V} {xs : List (Term V)} :
 theorem sym_ne_mk {V : Type} {f g : Sym} {x : Term V} {xs : List (Term V)} :
     Term.sym g ≠ Term.mk f (x :: xs) := fun h => mk_ne_sym h.symm
 
-/-- Fire a `fail` rule whose single head instantiates to a member of the
-store. -/
-theorem refutes_of_single {T : Theory} {S : GStore} {ρ : TRule} (hρ : ρ ∈ T)
-    (hb : ρ.body = .fail) (h : Pat) (hh : ρ.heads = [h]) (σ : Nat → GTerm)
-    (hm : h.bind σ ∈ S) : Refutes T S :=
-  .fail hρ σ hb ⟨by simp [TRule.headsAt, hh], by simp [TRule.headsAt, hh, hm]⟩
+/-- A rule of the theory holds in every model. -/
+theorem rule {T : Theory} {M : Interp} (hM : T.Model M) {ρ : TRule} (hρ : ρ ∈ T)
+    (hw : ρ.WellFormed) (σ : Nat → GTerm) :
+    (∀ h ∈ ρ.heads, h.bind σ ∈ M) ↔ ρ.body.HoldsAt M σ :=
+  (TRule.holdsIn_iff hw).1 (hM ρ hρ) σ
 
-/-! ## Unpacking span denotations -/
+/-! ## The intended model of `eq_neq` -/
 
-theorem mem_span {s : Span} {a b : GTerm} {S : GStore} :
-    (a, b, S) ∈ s.den ↔ ∃ σ : Nat → GTerm, a = s.l.bind σ ∧ b = s.r.bind σ ∧ S = s.c.at σ := by
-  simp [Span.den]
+/-- `eq` is syntactic equality, `neq` is its negation, and `nonzero` holds
+of every term other than `z`. -/
+def stdModel : Interp :=
+  {x | (∃ a, x = gc "eq" [a, a]) ∨ (∃ a b, a ≠ b ∧ x = gc "neq" [a, b]) ∨
+    (∃ a, a ≠ gz ∧ x = gc "nonzero" [a])}
 
-/-! ## Case 2: a constraint is checked against the store, not guessed -/
+theorem mem_stdModel {x : GTerm} : x ∈ stdModel ↔ (∃ a, x = gc "eq" [a, a]) ∨
+    (∃ a b, a ≠ b ∧ x = gc "neq" [a, b]) ∨ (∃ a, a ≠ gz ∧ x = gc "nonzero" [a]) := Iff.rfl
+
+theorem stdModel_model : eqNeq.Model stdModel := by
+  intro ρ hρ
+  rw [TRule.holdsIn_iff (eqNeq_wellFormed ρ hρ)]
+  intro σ
+  simp only [eqNeq, List.mem_cons, List.not_mem_nil, or_false] at hρ
+  rcases hρ with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;>
+    simp [Body.HoldsAt, mem_stdModel, pa, ps, pv, gc, gz, bind_mk, mk_eq_mk, mk_ne_sym, sym_ne_mk]
+  exact fun h => h.symm
+
+/-! ## Case 2: a constraint is checked against the theory, not guessed -/
 
 /-- `[$q -> $q] ; nonzero_ok ; @z` is empty. -/
 theorem c2_nonzero_z : prog.obs (.seq idQ (.seq nonzeroOk (.at_ (ps "z")))) = ∅ := by
   apply Set.eq_empty_of_forall_notMem
-  rintro ⟨a, b⟩ ⟨S, ⟨m, S₁, S₂, -, ⟨m', S₃, S₄, h₃, h₄, h₅⟩, h₆⟩, hn⟩
-  apply hn
-  obtain ⟨σ₃, -, rfl, rfl⟩ := mem_span.1 h₃
-  obtain ⟨σ₄, h₄, -, -⟩ := mem_span.1 h₄
-  simp only [ps, Term.bind_sym] at h₄
-  refine refutes_of_single (ρ := ⟨[pa "nonzero" [ps "z"]], .fail⟩) (by simp [prog, eqNeq])
-    rfl _ rfl (fun _ => gz) ?_
-  simp only [pv, Term.bind_var] at h₄
-  simp only at h₅ h₆
-  rw [h₆, h₅]
-  simp [Store.at, pa, pv, ps, bind_mk, h₄]
+  rintro ⟨a, b⟩ ⟨M, hM, m, -, m', ⟨σ, -, h₁, hc⟩, ⟨τ, h₂, -, -⟩⟩
+  have hz := (rule hM (ρ := ⟨[pa "nonzero" [ps "z"]], .fail⟩) (by simp [prog, eqNeq]) (by decide)
+    (fun _ => gz)).1
+  apply hz
+  simp only [ps, Term.bind_sym] at h₂
+  have := hc _ List.mem_cons_self
+  simp only [pa, pv, bind_mk, List.map, Term.bind_var] at this
+  simp only [pv, Term.bind_var] at h₁
+  simpa [pa, ps, bind_mk, ← h₁, h₂] using this
 
 /-- `[$q -> $q] ; different ; @(pair z z)` is empty. -/
 theorem c2_different_pair_zz :
     prog.obs (.seq idQ (.seq different (.at_ (pa "pair" [ps "z", ps "z"])))) = ∅ := by
   apply Set.eq_empty_of_forall_notMem
-  rintro ⟨a, b⟩ ⟨S, ⟨m, S₁, S₂, -, ⟨m', S₃, S₄, h₃, h₄, h₅⟩, h₆⟩, hn⟩
+  rintro ⟨a, b⟩ ⟨M, hM, m, -, m', ⟨σ, -, h₁, hc⟩, ⟨τ, h₂, -, -⟩⟩
+  have hn := (rule hM (ρ := ⟨[pa "neq" [pv 0, pv 0]], .fail⟩) (by simp [prog, eqNeq]) (by decide)
+    (fun _ => gz)).1
   apply hn
-  obtain ⟨σ₃, -, h₃, hS₃⟩ := mem_span.1 h₃
-  obtain ⟨σ₄, h₄, -, -⟩ := mem_span.1 h₄
-  simp only [pa, pv, bind_mk, List.map, Term.bind_var] at h₃
-  simp only [pa, ps, bind_mk, List.map, Term.bind_sym] at h₄
-  rw [h₄, mk_eq_mk] at h₃
-  simp only [List.cons.injEq, true_and] at h₃
-  refine refutes_of_single (ρ := ⟨[pa "neq" [pv 0, pv 0]], .fail⟩) (by simp [prog, eqNeq])
-    rfl _ rfl (fun _ => gz) ?_
-  simp only at h₅ h₆
-  rw [h₆, h₅, hS₃]
-  simp [Store.at, pa, pv, bind_mk, ← h₃.1, ← h₃.2.1, gz]
+  simp only [pa, ps, pv, bind_mk, List.map, Term.bind_var, Term.bind_sym] at h₁ h₂
+  rw [h₂, mk_eq_mk] at h₁
+  simp only [List.cons.injEq, true_and, and_true] at h₁
+  have := hc _ List.mem_cons_self
+  simp only [pa, pv, bind_mk, List.map, Term.bind_var] at this
+  simpa [pa, pv, gz, bind_mk, ← h₁.1, ← h₁.2] using this
 
-/-- `[$q -> $q] ; nonzero_ok ; @(s z)` relates `(s z)` to itself: the store
-`{(nonzero (s z))}` cannot be refuted. -/
-theorem not_refutes_nonzero_sz : ¬ Refutes eqNeq {gc "nonzero" [gs gz]} := by
-  intro h
-  generalize hS : ({gc "nonzero" [gs gz]} : GStore) = S at h
-  induction h with
-  | fail hρ σ hb hf =>
-    subst hS
-    simp only [eqNeq, List.mem_cons, List.not_mem_nil, or_false] at hρ
-    rcases hρ with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;>
-      simp only [reduceCtorEq] at hb <;>
-      have := hf.2 _ List.mem_cons_self <;>
-      simp [pa, ps, pv, gc, gs, gz, bind_mk, mk_eq_mk, sym_ne_mk] at this
-  | eq hρ σ hb hf he hne =>
-    simp only [eqNeq, List.mem_cons, List.not_mem_nil, or_false] at hρ
-    rcases hρ with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;>
-      simp only [reduceCtorEq, Body.conj.injEq] at hb <;>
-      (obtain ⟨rfl, -⟩ := hb; simp at he)
-  | conj hρ σ hb hf _ _ _ =>
-    subst hS
-    simp only [eqNeq, List.mem_cons, List.not_mem_nil, or_false] at hρ
-    rcases hρ with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;>
-      simp only [reduceCtorEq] at hb <;>
-      have := hf.2 _ List.mem_cons_self <;>
-      simp [pa, ps, pv, gc, gs, gz, bind_mk, mk_eq_mk] at this
-
+/-- `[$q -> $q] ; nonzero_ok ; @(s z)` relates `(s z)` to itself. -/
 theorem c2_nonzero_sz :
     (gs gz, gs gz) ∈ prog.obs (.seq idQ (.seq nonzeroOk (.at_ (pa "s" [ps "z"])))) := by
-  refine ⟨{gc "nonzero" [gs gz]}, ⟨gs gz, ∅, {gc "nonzero" [gs gz]},
-    ⟨fun _ => gs gz, ?_⟩, ⟨gs gz, {gc "nonzero" [gs gz]}, ∅,
-      ⟨fun _ => gs gz, ?_⟩, ⟨fun _ => gz, ?_⟩, ?_⟩, ?_⟩, not_refutes_nonzero_sz⟩ <;>
-    simp [Store.at, pa, pv, ps, gs, gc, gz, bind_mk]
+  refine ⟨stdModel, stdModel_model, gs gz, ⟨fun _ => gs gz, ?_, ?_, ?_⟩, gs gz,
+    ⟨fun _ => gs gz, ?_, ?_, ?_⟩, ⟨fun _ => gz, ?_, ?_, ?_⟩⟩ <;>
+    simp [mem_stdModel, pa, pv, ps, gs, gc, gz, bind_mk, mk_eq_mk, mk_ne_sym]
 
-/-! ## Case 4: a rule's own unsatisfiable store denotes nothing -/
+/-! ## Case 4: a rule's own unsatisfiable constraints denote nothing -/
 
 /-- `$x { (neq $x $x) } -> $x` is empty. -/
 theorem c4_neq_self : prog.obs (.rw (pv 0) (pv 0) [pa "neq" [pv 0, pv 0]]) = ∅ := by
   apply Set.eq_empty_of_forall_notMem
-  rintro ⟨a, b⟩ ⟨S, h, hn⟩
-  apply hn
-  obtain ⟨σ, -, -, rfl⟩ := mem_span.1 h
-  exact refutes_of_single (ρ := ⟨[pa "neq" [pv 0, pv 0]], .fail⟩) (by simp [prog, eqNeq])
-    rfl _ rfl σ (by simp [Store.at])
+  rintro ⟨a, b⟩ ⟨M, hM, σ, -, -, hc⟩
+  exact (rule hM (ρ := ⟨[pa "neq" [pv 0, pv 0]], .fail⟩) (by simp [prog, eqNeq]) (by decide) σ).1
+    (by simpa using hc)
 
-/-- `(pair $x $y) { (eq $x $y), (neq $x $y) } -> $x` is empty: the two-head
-rule fires on two distinct members of the store. -/
+/-- `(pair $x $y) { (eq $x $y), (neq $x $y) } -> $x` is empty. -/
 theorem c4_eq_and_neq :
     prog.obs (.rw (pa "pair" [pv 0, pv 1]) (pv 0) [pa "eq" [pv 0, pv 1], pa "neq" [pv 0, pv 1]]) =
       ∅ := by
   apply Set.eq_empty_of_forall_notMem
-  rintro ⟨a, b⟩ ⟨S, h, hn⟩
-  apply hn
-  obtain ⟨σ, -, -, rfl⟩ := mem_span.1 h
-  refine .fail (ρ := ⟨[pa "eq" [pv 0, pv 1], pa "neq" [pv 0, pv 1]], .fail⟩)
-    (by simp [prog, eqNeq]) σ rfl ⟨?_, ?_⟩
-  · simp [TRule.headsAt, pa, bind_mk, mk_eq_mk]
-  · simp [TRule.headsAt, Store.at]
+  rintro ⟨a, b⟩ ⟨M, hM, σ, -, -, hc⟩
+  exact (rule hM (ρ := ⟨[pa "eq" [pv 0, pv 1], pa "neq" [pv 0, pv 1]], .fail⟩)
+    (by simp [prog, eqNeq]) (by decide) σ).1 (by simpa using hc)
 
-/-! ## Case 4: an equation in a rule body unifies the span
+/-- `(pair $x $y) { (neq $x $y) } -> $x` alone relates `(pair z (s z))` to `z`. -/
+theorem different_alone :
+    (gpair gz (gs gz), gz) ∈
+      prog.obs (.rw (pa "pair" [pv 0, pv 1]) (pv 0) [pa "neq" [pv 0, pv 1]]) := by
+  refine ⟨stdModel, stdModel_model, fun n => if n = 0 then gz else gs gz, ?_, ?_, ?_⟩ <;>
+    simp [mem_stdModel, pa, pv, gpair, gs, gc, gz, bind_mk, mk_eq_mk, sym_ne_mk]
 
-Equality is not a constraint: `(pin $x) <=> $x = z.` instantiates `$x` to
-`z` in the span the rule fires in. On ground instances that means the
-instances with `$x ≠ z` are refuted and the others keep no residual store. -/
+/-- `[(pair $x $y) { (eq $x $y) } -> (pair $x $y)] ; [(pair $x $y) { (neq $x $y) } -> $x]`
+is empty: each span's constraint holds in some model alone, but `;` asks for
+both in the same model, and `(eq $x $y), (neq $x $y) <=> fail` rules that
+out. -/
+theorem stores_combine_across_seq :
+    prog.obs (.seq (.rw (pa "pair" [pv 0, pv 1]) (pa "pair" [pv 0, pv 1]) [pa "eq" [pv 0, pv 1]])
+      (.rw (pa "pair" [pv 0, pv 1]) (pv 0) [pa "neq" [pv 0, pv 1]])) = ∅ := by
+  apply Set.eq_empty_of_forall_notMem
+  rintro ⟨a, b⟩ ⟨M, hM, m, ⟨σ₁, -, hm₁, hc₁⟩, ⟨σ₂, hm₂, -, hc₂⟩⟩
+  simp only [pa, pv, bind_mk, List.map, Term.bind_var] at hm₁ hm₂
+  rw [hm₁, mk_eq_mk] at hm₂
+  simp only [List.cons.injEq, true_and, and_true] at hm₂
+  have he := hc₁ _ List.mem_cons_self
+  have hn := hc₂ _ List.mem_cons_self
+  simp only [pa, pv, bind_mk, List.map, Term.bind_var] at he hn
+  rw [← hm₂.1, ← hm₂.2] at hn
+  exact (rule hM (ρ := ⟨[pa "eq" [pv 0, pv 1], pa "neq" [pv 0, pv 1]], .fail⟩)
+    (by simp [prog, eqNeq]) (by decide) σ₁).1 (by simp [pa, pv, bind_mk, he, hn])
+
+/-! ## Case 4: an equation in a rule body restricts the span
+
+`(pin $x) <=> $x = z.` makes `(pin a)` hold exactly when `a` is `z`. -/
 
 /-- `theory pin { (pin $x) <=> $x = z. }` -/
 def pinTheory : Theory := [⟨[pa "pin" [pv 0]], .conj [(pv 0, ps "z")] []⟩]
@@ -205,39 +212,21 @@ theorem pinTheory_wellFormed : ∀ ρ ∈ pinTheory, ρ.WellFormed := by decide
 
 def pinProg : Program := ⟨[], pinTheory⟩
 
-/-- The store `{(pin z)}` is not refuted: the equation holds and the head is
-removed. -/
-theorem not_refutes_pin_z : ¬ Refutes pinTheory {gc "pin" [gz]} := by
-  intro h
-  suffices ∀ S, Refutes pinTheory S → ¬ S ⊆ {gc "pin" [gz]} from this _ h le_rfl
-  intro S h
-  induction h with
-  | fail hρ σ hb hf =>
+/-- The models of `pin` are the interpretations in which `(pin a)` holds
+exactly for `a = z`. -/
+theorem pin_models_iff (M : Interp) :
+    pinTheory.Model M ↔ ∀ a, gc "pin" [a] ∈ M ↔ a = gz := by
+  constructor
+  · intro hM a
+    have := rule hM (ρ := ⟨[pa "pin" [pv 0]], .conj [(pv 0, ps "z")] []⟩) (by simp [pinTheory]) (by decide)
+      (fun _ => a)
+    simpa [Body.HoldsAt, pa, pv, ps, gc, gz, bind_mk] using this
+  · intro h ρ hρ
+    rw [TRule.holdsIn_iff (pinTheory_wellFormed ρ hρ)]
+    intro σ
     simp only [pinTheory, List.mem_singleton] at hρ
     subst hρ
-    cases hb
-  | eq hρ σ hb hf he hne =>
-    intro hS
-    simp only [pinTheory, List.mem_singleton] at hρ
-    subst hρ
-    simp only [Body.conj.injEq] at hb
-    obtain ⟨rfl, rfl⟩ := hb
-    have hm := hS (hf.2 _ List.mem_cons_self)
-    simp [pa, pv, gc, bind_mk, mk_eq_mk] at hm
-    simp only [List.mem_singleton] at he
-    subst he
-    exact hne (by simp [pv, ps, hm, gz])
-  | conj hρ σ hb hf he _ ih =>
-    intro hS
-    apply ih
-    intro x hx
-    simp only [pinTheory, List.mem_singleton] at hρ
-    subst hρ
-    simp only [Body.conj.injEq] at hb
-    obtain ⟨rfl, rfl⟩ := hb
-    simp only [List.map_nil, List.toFinset_nil, Finset.mem_union, Finset.mem_sdiff,
-      Finset.notMem_empty, or_false] at hx
-    exact hS hx.1
+    simpa [Body.HoldsAt, pa, pv, ps, gc, gz, bind_mk] using h (σ 0)
 
 /-- `(pair $x $y) { (pin $x) } -> $y` means exactly `(pair z $y) -> $y`. -/
 theorem c4_pin :
@@ -245,83 +234,68 @@ theorem c4_pin :
       {p | ∃ b, p = (gpair gz b, b)} := by
   ext ⟨a, b⟩
   constructor
-  · rintro ⟨S, h, hn⟩
-    obtain ⟨σ, rfl, rfl, rfl⟩ := mem_span.1 h
-    by_cases hz : σ 0 = gz
-    · exact ⟨σ 1, by simp [gpair, pa, pv, bind_mk, hz]⟩
-    · exact absurd (.eq (ρ := ⟨[pa "pin" [pv 0]], .conj [(pv 0, ps "z")] []⟩)
-        (by simp [pinProg, pinTheory]) σ rfl ⟨by simp [TRule.headsAt],
-          by simp [TRule.headsAt, Store.at]⟩ List.mem_cons_self (by simpa [pv, ps, gz] using hz)) hn
+  · rintro ⟨M, hM, σ, rfl, rfl, hc⟩
+    have hz := ((pin_models_iff M).1 hM (σ 0)).1 (by simpa [pa, pv, gc, bind_mk] using hc)
+    exact ⟨σ 1, by simp [gpair, pa, pv, bind_mk, hz]⟩
   · rintro ⟨b, hb⟩
     simp only [Prod.mk.injEq] at hb
     obtain ⟨rfl, rfl⟩ := hb
-    refine ⟨{gc "pin" [gz]}, mem_span.2 ⟨fun n => if n = 0 then gz else b, ?_, ?_, ?_⟩,
-      not_refutes_pin_z⟩ <;>
-      simp [Store.at, gpair, gc, pa, pv, bind_mk]
+    refine ⟨{gc "pin" [gz]}, (pin_models_iff _).2 fun a => by simp [gc, mk_eq_mk],
+      fun n => if n = 0 then gz else b, ?_, ?_, ?_⟩ <;>
+      simp [gpair, gc, pa, pv, bind_mk]
 
-/-! ## Stores combine across composition -/
+/-! ## Writing the head back is weaker, not the same
 
-/-- `(pair $x $y) { (neq $x $y) } -> $x` alone relates `(pair z (s z))` to `z`. -/
-theorem not_refutes_neq_z_sz : ¬ Refutes eqNeq {gc "neq" [gz, gs gz]} := by
-  intro h
-  -- Invariant: every store reached stays inside `{(neq z (s z))}`.
-  suffices ∀ S, Refutes eqNeq S → ¬ S ⊆ {gc "neq" [gz, gs gz]} from this _ h le_rfl
-  intro S h
-  induction h with
-  | fail hρ σ hb hf =>
-    intro hS
-    simp only [eqNeq, List.mem_cons, List.not_mem_nil, or_false] at hρ
-    rcases hρ with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;>
-      simp only [reduceCtorEq] at hb <;>
-      have := hS (hf.2 _ List.mem_cons_self) <;>
-      simp [pa, ps, pv, gc, gs, gz, bind_mk, mk_eq_mk, mk_ne_sym] at this
-    exact sym_ne_mk (this.1.symm.trans this.2)
-  | eq hρ σ hb hf he hne =>
-    intro _
-    simp only [eqNeq, List.mem_cons, List.not_mem_nil, or_false] at hρ
-    rcases hρ with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;>
-      simp only [reduceCtorEq, Body.conj.injEq] at hb <;>
-      (obtain ⟨rfl, -⟩ := hb; simp at he)
-  | conj hρ σ hb hf _ _ ih =>
-    intro hS
-    simp only [eqNeq, List.mem_cons, List.not_mem_nil, or_false] at hρ
-    rcases hρ with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;>
-      simp only [reduceCtorEq, Body.conj.injEq] at hb <;>
-      have hm := hS (hf.2 _ List.mem_cons_self)
-    all_goals
-      first
-      | (simp [pa, ps, pv, gc, gs, gz, bind_mk, mk_eq_mk, mk_ne_sym] at hm; done)
-      | (obtain ⟨rfl, rfl⟩ := hb
-         apply ih
-         intro x hx
-         simp only [List.map_nil, List.toFinset_nil, Finset.mem_union, Finset.mem_sdiff, Finset.notMem_empty, or_false] at hx
-         exact hS hx.1)
+`(pin $x) <=> $x = z, (pin z).` reads: `(pin a)` holds exactly when `a` is
+`z` and `(pin z)` holds. For `a = z` that is `(pin z) ↔ (pin z)`, which says
+nothing, so this theory has two kinds of model: those where `(pin z)` holds
+and those where no `pin` atom holds at all (`pinKeep_models_iff`). The empty
+interpretation is a model of it but not of `pin` (`pinKeep_model_empty`,
+`pin_not_model_empty`). The observable relation of the span is unchanged,
+because it asks for some model (`c4_pinKeep`). -/
 
-theorem different_alone :
-    (gpair gz (gs gz), gz) ∈
-      prog.obs (.rw (pa "pair" [pv 0, pv 1]) (pv 0) [pa "neq" [pv 0, pv 1]]) :=
-  ⟨{gc "neq" [gz, gs gz]}, ⟨fun n => if n = 0 then gz else gs gz, by
-    simp [Store.at, pa, pv, gpair, gc, bind_mk]⟩, not_refutes_neq_z_sz⟩
+/-- `theory pin_keep { (pin $x) <=> $x = z, (pin z). }` -/
+def pinKeep : Theory := [⟨[pa "pin" [pv 0]], .conj [(pv 0, ps "z")] [pa "pin" [ps "z"]]⟩]
 
-/-- `[(pair $x $y) { (eq $x $y) } -> (pair $x $y)] ; [(pair $x $y) { (neq $x $y) } -> $x]`
-is empty: each span's store is satisfiable alone, but `;` combines them and
-the rule `(eq $x $y), (neq $x $y) <=> fail` refutes the combination. -/
-theorem stores_combine_across_seq :
-    prog.obs (.seq (.rw (pa "pair" [pv 0, pv 1]) (pa "pair" [pv 0, pv 1]) [pa "eq" [pv 0, pv 1]])
-      (.rw (pa "pair" [pv 0, pv 1]) (pv 0) [pa "neq" [pv 0, pv 1]])) = ∅ := by
-  apply Set.eq_empty_of_forall_notMem
-  rintro ⟨a, b⟩ ⟨S, ⟨m, S₁, S₂, h₁, h₂, h₃⟩, hn⟩
-  apply hn
-  obtain ⟨σ₁, -, hm₁, rfl⟩ := mem_span.1 h₁
-  obtain ⟨σ₂, hm₂, -, rfl⟩ := mem_span.1 h₂
-  simp only [pa, pv, bind_mk, List.map, Term.bind_var] at hm₁ hm₂
-  rw [hm₁, mk_eq_mk] at hm₂
-  simp only [List.cons.injEq, true_and, and_true] at hm₂
-  refine .fail (ρ := ⟨[pa "eq" [pv 0, pv 1], pa "neq" [pv 0, pv 1]], .fail⟩)
-    (by simp [prog, eqNeq]) σ₁ rfl ⟨?_, ?_⟩
-  · simp [TRule.headsAt, pa, bind_mk, mk_eq_mk]
-  · simp only at h₃
-    rw [h₃]
-    simp [TRule.headsAt, Store.at, pa, pv, bind_mk, hm₂.1, hm₂.2]
+theorem pinKeep_wellFormed : ∀ ρ ∈ pinKeep, ρ.WellFormed := by decide
+
+def pinKeepProg : Program := ⟨[], pinKeep⟩
+
+theorem pinKeep_models_iff (M : Interp) :
+    pinKeep.Model M ↔ ∀ a, gc "pin" [a] ∈ M ↔ a = gz ∧ gc "pin" [gz] ∈ M := by
+  constructor
+  · intro hM a
+    have := rule hM (ρ := ⟨[pa "pin" [pv 0]], .conj [(pv 0, ps "z")] [pa "pin" [ps "z"]]⟩)
+      (by simp [pinKeep]) (by decide) (fun _ => a)
+    simpa [Body.HoldsAt, pa, pv, ps, gc, gz, bind_mk] using this
+  · intro h ρ hρ
+    rw [TRule.holdsIn_iff (pinKeep_wellFormed ρ hρ)]
+    intro σ
+    simp only [pinKeep, List.mem_singleton] at hρ
+    subst hρ
+    simpa [Body.HoldsAt, pa, pv, ps, gc, gz, bind_mk] using h (σ 0)
+
+theorem pinKeep_model_empty : pinKeep.Model ∅ :=
+  (pinKeep_models_iff ∅).2 fun _ => by simp
+
+theorem pin_not_model_empty : ¬ pinTheory.Model ∅ := fun h =>
+  ((pin_models_iff ∅).1 h gz).2 rfl
+
+/-- The span means the same under `pin_keep` as under `pin`. -/
+theorem c4_pinKeep :
+    pinKeepProg.obs (.rw (pa "pair" [pv 0, pv 1]) (pv 1) [pa "pin" [pv 0]]) =
+      {p | ∃ b, p = (gpair gz b, b)} := by
+  ext ⟨a, b⟩
+  constructor
+  · rintro ⟨M, hM, σ, rfl, rfl, hc⟩
+    have hz := (((pinKeep_models_iff M).1 hM (σ 0)).1
+      (by simpa [pa, pv, gc, bind_mk] using hc)).1
+    exact ⟨σ 1, by simp [gpair, pa, pv, bind_mk, hz]⟩
+  · rintro ⟨b, hb⟩
+    simp only [Prod.mk.injEq] at hb
+    obtain ⟨rfl, rfl⟩ := hb
+    refine ⟨{gc "pin" [gz]}, (pinKeep_models_iff _).2 fun a => by simp [gc, mk_eq_mk],
+      fun n => if n = 0 then gz else b, ?_, ?_, ?_⟩ <;>
+      simp [gpair, gc, pa, pv, bind_mk]
 
 end RwLog.Conformance
