@@ -46,3 +46,33 @@ new axiom.
 
 /-- info: 'RwLog.R000.theory_terminates' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.R000.theory_terminates
+
+/-- info: 'RwLog.R000.terminates_recursionFree' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R000.terminates_recursionFree
+
+/-- info: 'RwLog.R000.terminates_callTreeFinite' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R000.terminates_callTreeFinite
+
+/-- info: 'RwLog.Conformance.c2_nonzero_z' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Conformance.c2_nonzero_z
+
+/-- info: 'RwLog.Conformance.c2_different_pair_zz' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Conformance.c2_different_pair_zz
+
+/-- info: 'RwLog.Conformance.c2_nonzero_sz' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Conformance.c2_nonzero_sz
+
+/-- info: 'RwLog.Conformance.c4_neq_self' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Conformance.c4_neq_self
+
+/-- info: 'RwLog.Conformance.c4_eq_and_neq' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Conformance.c4_eq_and_neq
+
+/-- info: 'RwLog.Conformance.different_alone' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Conformance.different_alone
+
+/-- info: 'RwLog.Conformance.stores_combine_across_seq' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Conformance.stores_combine_across_seq
+
+/-- info: 'RwLog.Conformance.eqNeq_wellFormed' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Conformance.eqNeq_wellFormed

@@ -66,15 +66,6 @@ inductive Refutes (T : Theory) : GStore → Prop
       (h : Refutes T (S \ (ρ.headsAt σ).toFinset ∪ (cs.map (Term.bind σ)).toFinset)) :
       Refutes T S
 
-/-- A rule is well formed when it has a head and every variable of its body
-occurs in its heads. (A body variable not bound by the heads would have to
-hold for every value, which firing by matching cannot express.) -/
-def TRule.WellFormed (ρ : TRule) : Prop :=
-  ρ.heads ≠ [] ∧
-  match ρ.body with
-  | .fail => True
-  | .conj cs => ∀ c ∈ cs, ∀ v ∈ c.vars, ∃ h ∈ ρ.heads, v ∈ h.vars
-
 namespace GRel
 
 /-- The observable pairs: those carrying a store the theory cannot refute. -/

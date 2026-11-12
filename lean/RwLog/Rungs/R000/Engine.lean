@@ -55,9 +55,11 @@ def rung : Rung where
   pre := Preprocessor.id
   rt := runtime
 
-/-- The class of queries rung zero must finish on: some number of rounds of
+/-- The class of queries rung zero finishes on: some number of rounds of
 unfolding leaves, after normalization, a finite union of spans (no product
-still contains a call). -/
+still contains a call). This is phrased through rung zero's own normalizer;
+`RwLog.R000.Termination` proves it contains every query whose call tree is
+finite, in particular every recursion-free query. -/
 def FinitelyNormalising (P : Program) (q : Rel) : Prop :=
   ∃ k, ∀ p ∈ norm false (unfoldN P k q), (toRel p).calls = []
 

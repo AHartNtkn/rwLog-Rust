@@ -144,6 +144,22 @@ structure TRule where
 
 abbrev Theory := List TRule
 
+/-- The constraints a body adds. -/
+def Body.atoms : Body → List Pat
+  | .fail => []
+  | .conj cs => cs
+
+/-- A rule is well formed when it has a head and every variable of its body
+occurs in its heads. A rule fires by matching its heads, so a body variable
+not bound by them would have no value; reading it existentially would let a
+rule refute through a value it chose itself, which is not what the rule
+says. -/
+def TRule.WellFormed (ρ : TRule) : Prop :=
+  ρ.heads ≠ [] ∧ ∀ c ∈ ρ.body.atoms, ∀ v ∈ c.vars, ∃ h ∈ ρ.heads, v ∈ h.vars
+
+instance (ρ : TRule) : Decidable ρ.WellFormed := by
+  unfold TRule.WellFormed; infer_instance
+
 /-! ## Spans
 
 A span `l {c} -> r` carries one constraint store. Stores are not attached to
@@ -213,11 +229,13 @@ namespace Program
 name, so the default is never observed by them. -/
 def body (P : Program) (n : Name) : Rel := ((P.defs.lookup n)).getD .zero
 
-/-- A program is well formed when its names are distinct and every called
-name, in a body or in the query, is defined. -/
+/-- A program is well formed when its names are distinct, every called
+name, in a body or in the query, is defined, and every rule of its theory is
+well formed. -/
 def WellFormed (P : Program) (q : Rel) : Prop :=
   (P.defs.map Prod.fst).Nodup ∧
-  ∀ n ∈ q.calls ++ (P.defs.flatMap fun d => d.2.calls), n ∈ P.defs.map Prod.fst
+  (∀ n ∈ q.calls ++ (P.defs.flatMap fun d => d.2.calls), n ∈ P.defs.map Prod.fst) ∧
+  ∀ ρ ∈ P.theory, ρ.WellFormed
 
 instance (P : Program) (q : Rel) : Decidable (P.WellFormed q) := by
   unfold WellFormed; infer_instance
