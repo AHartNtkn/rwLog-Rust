@@ -15,13 +15,11 @@ namespace R001
 
 namespace Tier0
 
+open Lifting (bden)
+
 open R000
 
 variable {P : Program}
-
-theorem gden_W (g : Goal) (R : GRel) : GDen g R = Lifting.W g.lb R g.rb := by
-  obtain ⟨lb, e, rb⟩ := g
-  cases lb <;> cases rb <;> rfl
 
 theorem rel_split {g : Goal} {z : Span} (h : Derives P g.rel z) :
     ∃ s, Derives P g.e s ∧ z.den = GDen g s.den := by
@@ -34,19 +32,19 @@ theorem rel_join {g : Goal} {s : Span} (h : Derives P g.e s) (hne : (GDen g s.de
   cases lb with
   | none =>
     cases rb with
-    | none => exact ⟨s, h, by simp [GDen, bD, GRel.id_comp, GRel.comp_id]⟩
+    | none => exact ⟨s, h, by simp [GDen, bden, GRel.id_comp, GRel.comp_id]⟩
     | some r =>
-      simp only [GDen, bD, GRel.id_comp] at hne ⊢
+      simp only [GDen, bden, GRel.id_comp] at hne ⊢
       obtain ⟨z, hz, hzd⟩ := compose_isSome hne
       exact ⟨z, .seq h (.span r) hz, hzd⟩
   | some l =>
     cases rb with
     | none =>
-      simp only [GDen, bD, GRel.comp_id] at hne ⊢
+      simp only [GDen, bden, GRel.comp_id] at hne ⊢
       obtain ⟨z, hz, hzd⟩ := compose_isSome hne
       exact ⟨z, .seq (.span l) h hz, hzd⟩
     | some r =>
-      simp only [GDen, bD] at hne ⊢
+      simp only [GDen, bden] at hne ⊢
       obtain ⟨y, hy, hyd⟩ := compose_isSome (GRel.comp_nonempty_right hne)
       rw [← hyd] at hne ⊢
       obtain ⟨z, hz, hzd⟩ := compose_isSome hne
@@ -83,7 +81,7 @@ theorem unfold_dc {d : Nat} {g : Goal} {s : Span} (hf : unfoldFinal P d g = true
   obtain ⟨a, ha, hsub⟩ := roundSpans_cover (k := d) (n := m) (hm.mono (by omega))
     (by rw [hzd]; exact hne) (.inr hf)
   have hdc := live_dc hSE hwf (T := P.theory) (z := a) (X := GDen g s.den)
-    (by rw [← hzd]; exact Dom.of_subset hsub)
+    (by rw [← hzd]; exact lcov_of_subset hsub)
   refine hdc.mono fun c hc => ?_
   unfold unfoldAnswers
   simp only [hf, ite_true]

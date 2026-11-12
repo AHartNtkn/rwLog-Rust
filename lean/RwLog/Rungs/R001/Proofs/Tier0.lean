@@ -161,7 +161,7 @@ theorem sound : Obligation.sound := by
 theorem derivation_general : Obligation.derivation_general := by
   intro P q hP a ⟨n, ha⟩
   obtain ⟨s, hs, hr⟩ := emitted_ref hSE hSS hRM hP.2.2 ha
-  exact ⟨s, hs, hr.1, hr.2⟩
+  exact ⟨s, hs, hr.1, Lifting.coversLive_iff.2 hr.2⟩
 
 /-- P0.2: every derivable span is covered by an emitted answer, unless it is
 dead. -/
@@ -170,7 +170,7 @@ theorem complete : Obligation.complete := by
   obtain ⟨n, hdc⟩ := emitted_dc hSE hSS hRM hP.2.2 hs
   rcases hdc with hd | ⟨a, ha, hdom⟩
   · exact .inl (deadR_den.1 hd)
-  · exact .inr ⟨n, a, ha, hdom⟩
+  · exact .inr ⟨n, a, ha, Lifting.coversLive_iff.2 hdom⟩
 
 /-- P0.3: on halting, the emitted answers are equivalent to the query. -/
 theorem honest_exhaustion : Obligation.honest_exhaustion := by
@@ -192,9 +192,7 @@ theorem honest_exhaustion : Obligation.honest_exhaustion := by
     have hnS : ¬ Refutes P.theory S := fun h => hn (h.mono Finset.subset_union_left)
     rcases hcov s hs with hdead | ⟨a, ha, hdom⟩
     · exact absurd (hdead _ hx) hnS
-    · obtain ⟨⟨y₁, y₂, Y⟩, hy, e1, e2, hns⟩ := hdom _ hx hnS
-      simp only at e1 e2 hns
-      subst e1 e2
+    · obtain ⟨Y, hy, hns⟩ := hdom _ _ _ hx hnS
       exact ⟨Y, Set.mem_iUnion₂.2 ⟨a, ha, hy⟩, fun h => hn (hns C h)⟩
   · rintro ⟨S, hS, hn⟩
     obtain ⟨a, ha, hx⟩ := Set.mem_iUnion₂.1 hS

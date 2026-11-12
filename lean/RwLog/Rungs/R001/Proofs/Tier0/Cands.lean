@@ -16,6 +16,8 @@ namespace R001
 
 namespace Tier0
 
+open Lifting (bden)
+
 variable {P : Program}
 
 /-- Every answer the tables give a goal with interface boundaries stands, up
@@ -31,39 +33,34 @@ theorem ref_nonempty {T : Theory} {c : Span} {X : GRel} (h : Ref T c X) : X.None
 theorem gden_nonempty {g : Goal} {R : GRel} (h : (GDen g R).Nonempty) : R.Nonempty :=
   GRel.comp_nonempty_left (GRel.comp_nonempty_right h)
 
-theorem Dom.of_covers {T : Theory} {a b : Span} (h : a.Covers b) : Dom T a.den b.den := by
-  intro x hx _
-  obtain ⟨y, hy, e1, e2, e3⟩ := h x hx
-  exact ⟨y, hy, e1, e2, NS.sub e3⟩
-
 /-! ## Relations of the sub-goals -/
 
 theorem gden_seq (lb rb : Option Span) (a b e : Rel) (R₁ R₂ : GRel) :
     (GDen ⟨lb, a, none⟩ R₁).comp (GDen ⟨none, b, rb⟩ R₂) = GDen ⟨lb, e, rb⟩ (R₁.comp R₂) := by
-  simp only [GDen, bD, GRel.comp_id, GRel.id_comp, GRel.comp_assoc]
+  simp only [GDen, bden, GRel.comp_id, GRel.id_comp, GRel.comp_assoc]
 
 theorem gden_seqL (lb rb : Option Span) (a e : Rel) (R₁ R₂ : GRel) :
-    (GDen ⟨lb, a, none⟩ R₁).comp (R₂.comp (bD rb)) = GDen ⟨lb, e, rb⟩ (R₁.comp R₂) := by
-  simp only [GDen, bD, GRel.comp_id, GRel.comp_assoc]
+    (GDen ⟨lb, a, none⟩ R₁).comp (R₂.comp (bden rb)) = GDen ⟨lb, e, rb⟩ (R₁.comp R₂) := by
+  simp only [GDen, bden, GRel.comp_id, GRel.comp_assoc]
 
 theorem gden_seqR (lb rb : Option Span) (b e : Rel) (R₁ R₂ : GRel) :
-    ((bD lb).comp R₁).comp (GDen ⟨none, b, rb⟩ R₂) = GDen ⟨lb, e, rb⟩ (R₁.comp R₂) := by
-  simp only [GDen, bD, GRel.id_comp, GRel.comp_assoc]
+    ((bden lb).comp R₁).comp (GDen ⟨none, b, rb⟩ R₂) = GDen ⟨lb, e, rb⟩ (R₁.comp R₂) := by
+  simp only [GDen, bden, GRel.id_comp, GRel.comp_assoc]
 
 theorem gden_pushL (x : Span) (b : Rel) (rb : Option Span) (R : GRel) :
-    (x.den).comp (GDen (⟨bound x.rightIface, b, rb⟩ : Goal) R) = (x.den).comp (R.comp (bD rb)) := by
-  simp only [GDen, bD_bound (rfl : x.rightIface.l = x.rightIface.r), ← GRel.comp_assoc,
+    (x.den).comp (GDen (⟨bound x.rightIface, b, rb⟩ : Goal) R) = (x.den).comp (R.comp (bden rb)) := by
+  simp only [GDen, Lifting.bden_bound (rfl : x.rightIface.l = x.rightIface.r), ← GRel.comp_assoc,
     comp_rightIface]
 
 theorem gden_pushR (y : Span) (a : Rel) (lb : Option Span) (R : GRel) :
-    (GDen (⟨lb, a, bound y.leftIface⟩ : Goal) R).comp y.den = ((bD lb).comp R).comp y.den := by
-  simp only [GDen, bD_bound (rfl : y.leftIface.l = y.leftIface.r), GRel.comp_assoc,
+    (GDen (⟨lb, a, bound y.leftIface⟩ : Goal) R).comp y.den = ((bden lb).comp R).comp y.den := by
+  simp only [GDen, Lifting.bden_bound (rfl : y.leftIface.l = y.leftIface.r), GRel.comp_assoc,
     leftIface_comp]
 
 theorem gden_andPush (x : Span) (e : Rel) (R : GRel) :
     (x.den).meet (GDen (andPush e x) R) = (x.den).meet R := by
-  simp only [GDen, andPush, bD_bound (rfl : x.leftIface.l = x.leftIface.r),
-    bD_bound (rfl : x.rightIface.l = x.rightIface.r), meet_ifaces]
+  simp only [GDen, andPush, Lifting.bden_bound (rfl : x.leftIface.l = x.leftIface.r),
+    Lifting.bden_bound (rfl : x.rightIface.l = x.rightIface.r), meet_ifaces]
 
 theorem gden_and {g : Goal} (hg : GoodG g) (a b e : Rel) (R₁ R₂ : GRel) :
     (GDen ⟨g.lb, a, g.rb⟩ R₁).meet (GDen ⟨g.lb, b, g.rb⟩ R₂) = GDen ⟨g.lb, e, g.rb⟩ (R₁.meet R₂) :=
@@ -93,12 +90,6 @@ theorem spanAnswer_eq (T : Theory) (lb : Option Span) (s : Span) (rb : Option Sp
       | some z => live T z
       | none => []) := rfl
 
-theorem comp_empty_left {R S : GRel} (h : R = ∅) : R.comp S = ∅ := by
-  subst h; ext x; simp [GRel.comp]
-
-theorem comp_empty_right {R S : GRel} (h : S = ∅) : R.comp S = ∅ := by
-  subst h; ext x; simp [GRel.comp]
-
 theorem spanBoth_some {lb rb : Option Span} {s w : Span} (h : spanBoth lb s rb = some w) :
     w.den = GDen ⟨lb, .span s, rb⟩ s.den := by
   cases lb with
@@ -106,20 +97,20 @@ theorem spanBoth_some {lb rb : Option Span} {s w : Span} (h : spanBoth lb s rb =
     cases rb with
     | none =>
       simp only [spanBoth, Option.bind_some, Option.some.injEq] at h
-      subst h; simp [GDen, bD, GRel.id_comp, GRel.comp_id]
+      subst h; simp [GDen, bden, GRel.id_comp, GRel.comp_id]
     | some r =>
       simp only [spanBoth, Option.bind_some] at h
-      rw [compose_some h]; simp [GDen, bD, GRel.id_comp]
+      rw [compose_some h]; simp [GDen, bden, GRel.id_comp]
   | some l =>
     cases rb with
     | none =>
       simp only [spanBoth, Option.bind_eq_some_iff, Option.some.injEq] at h
       obtain ⟨u, hu, rfl⟩ := h
-      rw [compose_some hu]; simp [GDen, bD, GRel.comp_id]
+      rw [compose_some hu]; simp [GDen, bden, GRel.comp_id]
     | some r =>
       simp only [spanBoth, Option.bind_eq_some_iff] at h
       obtain ⟨u, hu, hw⟩ := h
-      rw [compose_some hw, compose_some hu]; simp [GDen, bD, GRel.comp_assoc]
+      rw [compose_some hw, compose_some hu]; simp [GDen, bden, GRel.comp_assoc]
 
 theorem spanBoth_none {lb rb : Option Span} {s : Span} (h : spanBoth lb s rb = none) :
     GDen ⟨lb, .span s, rb⟩ s.den = ∅ := by
@@ -129,11 +120,11 @@ theorem spanBoth_none {lb rb : Option Span} {s : Span} (h : spanBoth lb s rb = n
     | none => simp [spanBoth] at h
     | some r =>
       simp only [spanBoth, Option.bind_some] at h
-      simp only [GDen, bD, GRel.id_comp]; exact compose_none h
+      simp only [GDen, bden, GRel.id_comp]; exact compose_none h
   | some l =>
-    simp only [GDen, bD]
+    simp only [GDen, bden]
     cases hu : l.compose s with
-    | none => rw [← GRel.comp_assoc]; exact comp_empty_left (compose_none hu)
+    | none => rw [← GRel.comp_assoc]; rw [compose_none hu]; exact Lifting.empty_comp _
     | some u =>
       cases rb with
       | none => simp [spanBoth, hu] at h
@@ -157,7 +148,7 @@ theorem spanAnswer_dc {T : Theory} (hSE : Obligation.simplify_exact) (hwf : ∀ 
     left; intro x hx
     rw [spanBoth_none hw] at hx; exact absurd hx (Set.notMem_empty x)
   | some w =>
-    exact live_dc hSE hwf (Dom.of_subset (spanBoth_some hw).ge)
+    exact live_dc hSE hwf (lcov_of_subset (spanBoth_some hw).ge)
 
 section
 variable (hSE : Obligation.simplify_exact) (hwf : ∀ ρ ∈ P.theory, ρ.WellFormed)
@@ -212,7 +203,7 @@ theorem cands_ref {dd : Nat} {ts : Tables} (hA : AnsRef P ts) {h : Goal} (hg : G
         have hr := composeLive_ref hSE hwf (Ref.self x) hr₂ hc
         simp only [seqPushL] at hr
         rw [gden_pushL] at hr
-        have hr' := hr.trans (Backed.comp hr₁.1 (Backed.refl _)) (Dom.comp hr₁.2 (Dom.refl _))
+        have hr' := hr.trans (Backed.comp hr₁.1 (Backed.refl _)) (hr₁.2.comp (Lifting.LCov.refl _))
         rw [seqLeft, gden_seqL lb rb a (.seq a b)] at hr'
         obtain ⟨s, hs, hsd⟩ := compose_isSome (gden_nonempty (ref_nonempty hr'))
         exact ⟨s, .seq hs₁ hs₂ hs, by rw [hsd]; exact hr'⟩
@@ -225,7 +216,7 @@ theorem cands_ref {dd : Nat} {ts : Tables} (hA : AnsRef P ts) {h : Goal} (hg : G
         have hr := composeLive_ref hSE hwf hr₁ (Ref.self y) hc
         simp only [seqPushR] at hr
         rw [gden_pushR] at hr
-        have hr' := hr.trans (Backed.comp (Backed.refl _) hr₂.1) (Dom.comp (Dom.refl _) hr₂.2)
+        have hr' := hr.trans (Backed.comp (Backed.refl _) hr₂.1) ((Lifting.LCov.refl _).comp hr₂.2)
         rw [seqRight, gden_seqR lb rb b (.seq a b)] at hr'
         obtain ⟨s, hs, hsd⟩ := compose_isSome (gden_nonempty (ref_nonempty hr'))
         exact ⟨s, .seq hs₁ hs₂ hs, by rw [hsd]; exact hr'⟩
@@ -263,11 +254,11 @@ theorem cands_ref {dd : Nat} {ts : Tables} (hA : AnsRef P ts) {h : Goal} (hg : G
         obtain ⟨s₂, hs₂, hr₂⟩ := hA _ hR y (maxima_sub hy)
         obtain ⟨s₁, hs₁, hr₁⟩ := hA _ (goodG_andPush a y) x hx
         have hr := meetLive_ref hSE hwf hr₁ (Ref.self y) hc
-        rw [meet_comm', gden_andPush] at hr
+        rw [Lifting.meet_comm, gden_andPush] at hr
         have hr' := hr.trans (andPush_backed fB fC hr₂.1) (andPush_dom fB fC hr₂.2)
         have e₁ := gden_and hg a b (.and a b) s₁.den s₂.den
         simp only [GDen] at e₁ hr'
-        rw [meet_comm', e₁] at hr'
+        rw [Lifting.meet_comm, e₁] at hr'
         obtain ⟨s, hs, hsd⟩ := meet_isSome (gden_nonempty (g := ⟨lb, .and a b, rb⟩) (ref_nonempty hr'))
         exact ⟨s, .and hs₁ hs₂ hs, by rw [GDen, hsd]; exact hr'⟩
       · simp at hp
@@ -324,15 +315,15 @@ theorem dc_seq_pushL {dd : Nat} {ts : Tables} {lb rb : Option Span} {a b : Rel} 
   rcases h₁ with h₁ | ⟨x₀, hx₀, h₁⟩
   · exact Or.inl h₁.comp_left
   obtain ⟨x, hx, hcov⟩ := maxima_cover hx₀
-  have hdx : Dom P.theory x.den (GDen ⟨lb, a, none⟩ R₁) := (Dom.of_covers hcov).trans h₁
-  have hD : Dom P.theory ((x.den).comp (R₂.comp (bD rb)))
-      ((GDen ⟨lb, a, none⟩ R₁).comp (R₂.comp (bD rb))) := Dom.comp hdx (Dom.refl _)
+  have hdx : Lifting.LCov P.theory x.den (GDen ⟨lb, a, none⟩ R₁) := (lcov_of_covers hcov).trans h₁
+  have hD : Lifting.LCov P.theory ((x.den).comp (R₂.comp (bden rb)))
+      ((GDen ⟨lb, a, none⟩ R₁).comp (R₂.comp (bden rb))) := hdx.comp (Lifting.LCov.refl _)
   rcases h₂ x hx with h₂ | ⟨y, hy, h₂⟩
   · refine Or.inl (DeadR.of_dom hD ?_)
     have := (h₂.comp_right (X := x.den))
     simp only [seqPushL] at this
     rwa [gden_pushL] at this
-  · have h := composeLive_dc hSE hwf (Dom.refl x.den) h₂
+  · have h := composeLive_dc hSE hwf (Lifting.LCov.refl x.den) h₂
     simp only [seqPushL] at h
     rw [gden_pushL] at h
     refine cands_of_strat ((h.dom hD).mono fun c hc => ?_)
@@ -351,15 +342,15 @@ theorem dc_seq_pushR {dd : Nat} {ts : Tables} {lb rb : Option Span} {a b : Rel} 
   rcases h₂ with h₂ | ⟨y₀, hy₀, h₂⟩
   · exact Or.inl h₂.comp_right
   obtain ⟨y, hy, hcov⟩ := maxima_cover hy₀
-  have hdy : Dom P.theory y.den (GDen ⟨none, b, rb⟩ R₂) := (Dom.of_covers hcov).trans h₂
-  have hD : Dom P.theory (((bD lb).comp R₁).comp y.den)
-      (((bD lb).comp R₁).comp (GDen ⟨none, b, rb⟩ R₂)) := Dom.comp (Dom.refl _) hdy
+  have hdy : Lifting.LCov P.theory y.den (GDen ⟨none, b, rb⟩ R₂) := (lcov_of_covers hcov).trans h₂
+  have hD : Lifting.LCov P.theory (((bden lb).comp R₁).comp y.den)
+      (((bden lb).comp R₁).comp (GDen ⟨none, b, rb⟩ R₂)) := (Lifting.LCov.refl _).comp hdy
   rcases h₁ y hy with h₁ | ⟨x, hx, h₁⟩
   · refine Or.inl (DeadR.of_dom hD ?_)
     have := (h₁.comp_left (Y := y.den))
     simp only [seqPushR] at this
     rwa [gden_pushR] at this
-  · have h := composeLive_dc hSE hwf h₁ (Dom.refl y.den)
+  · have h := composeLive_dc hSE hwf h₁ (Lifting.LCov.refl y.den)
     simp only [seqPushR] at h
     rw [gden_pushR] at h
     refine cands_of_strat ((h.dom hD).mono fun c hc => ?_)
@@ -389,14 +380,14 @@ theorem dc_and_pushL {dd : Nat} {ts : Tables} {lb rb : Option Span} (hg : GoodG 
   rcases h₁ with h₁ | ⟨x₀, hx₀, h₁⟩
   · exact Or.inl h₁.meet_left
   obtain ⟨x, hx, hcov⟩ := maxima_cover hx₀
-  have hdx : Dom P.theory x.den (GDen ⟨lb, a, rb⟩ R₁) := (Dom.of_covers hcov).trans h₁
-  have hD : Dom P.theory ((x.den).meet R₂) ((GDen ⟨lb, a, rb⟩ R₁).meet (GDen ⟨lb, b, rb⟩ R₂)) :=
+  have hdx : Lifting.LCov P.theory x.den (GDen ⟨lb, a, rb⟩ R₁) := (lcov_of_covers hcov).trans h₁
+  have hD : Lifting.LCov P.theory ((x.den).meet R₂) ((GDen ⟨lb, a, rb⟩ R₁).meet (GDen ⟨lb, b, rb⟩ R₂)) :=
     andPush_dom (bnd_fn hg.1) (bnd_fn hg.2) hdx
   rcases h₂ x hx with h₂ | ⟨y, hy, h₂⟩
   · refine Or.inl (DeadR.of_dom hD ?_)
     have := (h₂.meet_right (X := x.den))
     rwa [gden_andPush] at this
-  · have h := meetLive_dc hSE hwf (Dom.refl x.den) h₂
+  · have h := meetLive_dc hSE hwf (Lifting.LCov.refl x.den) h₂
     rw [gden_andPush] at h
     refine cands_of_strat ((h.dom hD).mono fun c hc => ?_)
     simp only [produce.produceStrategies, andLeft, hd, ite_true, List.mem_append,
@@ -410,19 +401,19 @@ theorem dc_and_pushR {dd : Nat} {ts : Tables} {lb rb : Option Span} (hg : GoodG 
     (h₁ : ∀ y ∈ maxima (answersOf ts ⟨lb, b, rb⟩),
       DC P.theory (answersOf ts (andPush a y)) (GDen (andPush a y) R₁)) :
     DC P.theory (produce P dd ts ⟨lb, .and a b, rb⟩).1 (GDen ⟨lb, .and a b, rb⟩ (R₁.meet R₂)) := by
-  rw [← gden_and hg a b (.and a b), meet_comm']
+  rw [← gden_and hg a b (.and a b), Lifting.meet_comm]
   rcases h₂ with h₂ | ⟨y₀, hy₀, h₂⟩
   · exact Or.inl h₂.meet_left
   obtain ⟨y, hy, hcov⟩ := maxima_cover hy₀
-  have hdy : Dom P.theory y.den (GDen ⟨lb, b, rb⟩ R₂) := (Dom.of_covers hcov).trans h₂
-  have hD : Dom P.theory ((y.den).meet R₁) ((GDen ⟨lb, b, rb⟩ R₂).meet (GDen ⟨lb, a, rb⟩ R₁)) :=
+  have hdy : Lifting.LCov P.theory y.den (GDen ⟨lb, b, rb⟩ R₂) := (lcov_of_covers hcov).trans h₂
+  have hD : Lifting.LCov P.theory ((y.den).meet R₁) ((GDen ⟨lb, b, rb⟩ R₂).meet (GDen ⟨lb, a, rb⟩ R₁)) :=
     andPush_dom (bnd_fn hg.1) (bnd_fn hg.2) hdy
   rcases h₁ y hy with h₁ | ⟨x, hx, h₁⟩
   · refine Or.inl (DeadR.of_dom hD ?_)
     have := (h₁.meet_right (X := y.den))
     rwa [gden_andPush] at this
-  · have h := meetLive_dc hSE hwf h₁ (Dom.refl y.den)
-    rw [meet_comm', gden_andPush] at h
+  · have h := meetLive_dc hSE hwf h₁ (Lifting.LCov.refl y.den)
+    rw [Lifting.meet_comm, gden_andPush] at h
     refine cands_of_strat ((h.dom hD).mono fun c hc => ?_)
     simp only [produce.produceStrategies, andRight, hd, ite_true, List.mem_append,
       List.mem_flatMap, List.mem_map]

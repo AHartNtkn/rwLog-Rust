@@ -16,17 +16,17 @@ namespace R001
 
 namespace Tier0
 
+open Lifting (bden)
+
 variable {T : Theory}
 
 /-! ## Boundaries -/
 
-/-- The relation of an optional boundary; no boundary is the identity. -/
-def bD : Option Span → GRel
-  | none => GRel.id
-  | some s => s.den
+/-- The relation `lb ; R ; rb` of a goal whose expression denotes `R`
+(`Lifting.W` of the goal's boundaries). -/
+def GDen (g : Goal) (R : GRel) : GRel := (bden g.lb).comp (R.comp (bden g.rb))
 
-/-- The relation `lb ; R ; rb` of a goal whose expression denotes `R`. -/
-def GDen (g : Goal) (R : GRel) : GRel := (bD g.lb).comp (R.comp (bD g.rb))
+theorem gden_W (g : Goal) (R : GRel) : GDen g R = Lifting.W g.lb R g.rb := rfl
 
 /-- An interface: both sides are one pattern and the store only mentions its
 variables. -/
@@ -70,7 +70,7 @@ theorem fn_id : Fn GRel.id := by
   simp only at h3
   rw [h2, h3]
 
-theorem bnd_fn : ∀ {o : Option Span}, GoodBO o → Fn (bD o)
+theorem bnd_fn : ∀ {o : Option Span}, GoodBO o → Fn (bden o)
   | none, _ => fn_id
   | some _, h => Bnd.fn h
 
@@ -79,10 +79,6 @@ theorem Fn.inv {B : GRel} (h : Fn B) : Fn B.inv := by
   obtain ⟨e, h'⟩ := h u' u S hx
   subst e
   exact ⟨rfl, h'⟩
-
-theorem bD_map_swap : ∀ o : Option Span, bD (o.map Span.swap) = (bD o).inv
-  | none => by ext ⟨a, b, S⟩; simp only [bD, Option.map, GRel.id, GRel.inv, Set.mem_ofPred_eq]; constructor <;> rintro ⟨h1, h2⟩ <;> exact ⟨h1.symm, h2⟩
-  | some s => by simp [bD, swap_den]
 
 theorem Bnd.swap {b : Span} (h : Bnd b) : Bnd b.swap :=
   ⟨h.1.symm, fun a ha v hv => by
@@ -99,13 +95,6 @@ theorem goodBO_map_swap : ∀ {o : Option Span}, GoodBO o → GoodBO (o.map Span
   | some _, h => Bnd.swap h
 
 /-- The boundary of an interface denotes the interface. -/
-theorem bD_bound {s : Span} (h : s.l = s.r) : bD (bound s) = s.den := by
-  cases hb : bound s with
-  | none =>
-    obtain ⟨⟨v, hv⟩, hc⟩ := bound_none hb
-    exact (den_trivial hv (h ▸ hv) hc).symm
-  | some s' => rw [bound_some hb]; rfl
-
 theorem goodBO_bound {s : Span} (h : GoodB s) : GoodBO (bound s) := by
   cases hb : bound s with
   | none => trivial
@@ -145,10 +134,6 @@ theorem meet_bound {B C : GRel} (hB : Fn B) (hC : Fn C) (A A' : GRel) :
     refine ⟨Sb ∪ (Sa ∪ Sc), Sb ∪ (Sa' ∪ Sc), ⟨u, Sb, Sa ∪ Sc, hb, ⟨m', Sa, Sc, ha, hc, rfl⟩, rfl⟩,
       ⟨u, Sb, Sa' ∪ Sc, hb, ⟨m', Sa', Sc, ha', hc, rfl⟩, rfl⟩, ?_⟩
     rw [hS, e₁, e₂]; ext x; simp only [Finset.mem_union]; tauto
-
-theorem meet_comm' (R S : GRel) : R.meet S = S.meet R := by
-  ext ⟨u, v, X⟩
-  constructor <;> rintro ⟨S₁, S₂, h₁, h₂, rfl⟩ <;> exact ⟨S₂, S₁, h₂, h₁, Finset.union_comm _ _⟩
 
 /-- An answer conjoined with what runs inside its interfaces is the answer
 conjoined with what runs there unrestricted. -/
@@ -230,13 +215,13 @@ theorem andPush_backed {T : Theory} {B C A A' : GRel} {xd : GRel} (hB : Fn B) (h
     ext x; simp only [Finset.mem_union]; tauto
   simp only
   rw [e, hS, ← e₃]
-  exact NS.union hns (NS.refl _)
+  exact Lifting.ns_union hns (Lifting.ns_refl _)
 
 theorem andPush_dom {T : Theory} {B C A A' : GRel} {xd : GRel} (hB : Fn B) (hC : Fn C)
-    (hx : Dom T xd (B.comp (A.comp C))) :
-    Dom T (xd.meet A') ((B.comp (A.comp C)).meet (B.comp (A'.comp C))) := by
-  rintro ⟨u, v, S⟩ ⟨S₁, S₂, h₁, h₂, hS⟩ hn
-  simp only at hS hn h₁ h₂
+    (hx : Lifting.LCov T xd (B.comp (A.comp C))) :
+    Lifting.LCov T (xd.meet A') ((B.comp (A.comp C)).meet (B.comp (A'.comp C))) := by
+  rintro u v S ⟨S₁, S₂, h₁, h₂, hS⟩ hn
+  simp only at hS h₁ h₂
   subst hS
   obtain ⟨m, Sb, S', hb, hac, e₁⟩ := h₂
   obtain ⟨m', Sa', Sc', ha', hc', e₂⟩ := hac
@@ -245,18 +230,16 @@ theorem andPush_dom {T : Theory} {B C A A' : GRel} {xd : GRel} (hB : Fn B) (hC :
   subst m
   obtain ⟨hm', -⟩ := hC _ _ _ hc'
   subst m'
-  obtain ⟨⟨u', v', Sx⟩, hxd, f1, f2, hns⟩ :=
-    hx _ h₁ (fun h => hn (h.mono Finset.subset_union_left))
-  simp only at f1 f2 hns
-  subst f1 f2
-  refine ⟨(u', v', Sx ∪ Sa'), ⟨Sx, Sa', hxd, ha', rfl⟩, rfl, rfl, NS.union hns (NS.sub ?_)⟩
+  obtain ⟨Sx, hxd, hns⟩ := hx _ _ _ h₁ (fun h => hn (h.mono Finset.subset_union_left))
+  refine ⟨Sx ∪ Sa', ⟨Sx, Sa', hxd, ha', rfl⟩,
+    Lifting.ns_union hns (GStore.NoStronger.of_subset ?_)⟩
   rw [e₁, e₂]
   intro x hx; simp only [Finset.mem_union]; tauto
 
 /-! ## Goals as table keys -/
 
 theorem boundEq_den {a b : Option Span} (ha : GoodBO a) (hb : GoodBO b)
-    (h : boundEq a b = true) : bD a = bD b := by
+    (h : boundEq a b = true) : bden a = bden b := by
   cases a with
   | none => cases b with
     | none => rfl
@@ -269,7 +252,7 @@ theorem boundEq_den {a b : Option Span} (ha : GoodBO a) (hb : GoodBO b)
       have hba := covers?_sound h.2
       have fa := Bnd.fn ha
       have fb := Bnd.fn hb
-      simp only [bD]
+      simp only [bden]
       ext ⟨u, u', S⟩
       constructor
       · intro hx
@@ -316,14 +299,14 @@ theorem same_refl (g : Goal) : g.same g = true := by
   simp [Goal.same, boundEq_refl]
 
 theorem gden_root (e : Rel) (R : GRel) : GDen ⟨none, e, none⟩ R = R := by
-  simp [GDen, bD, GRel.comp_id, GRel.id_comp]
+  simp [GDen, bden, GRel.comp_id, GRel.id_comp]
 
 theorem goodG_convGoal {g : Goal} (h : GoodG g) (a : Rel) : GoodG (convGoal g a) :=
   ⟨goodBO_map_swap h.2, goodBO_map_swap h.1⟩
 
 theorem gden_conv (g : Goal) (a : Rel) (R : GRel) :
     GDen ⟨g.lb, .conv a, g.rb⟩ R.inv = (GDen (convGoal g a) R).inv := by
-  simp only [GDen, convGoal, bD_map_swap, RwLog.GRel.inv_comp, RwLog.GRel.inv_inv,
+  simp only [GDen, convGoal, Lifting.bden_swap, RwLog.GRel.inv_comp, RwLog.GRel.inv_inv,
     RwLog.GRel.comp_assoc]
 
 /-- A span oriented by a flag. -/
