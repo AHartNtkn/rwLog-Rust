@@ -390,21 +390,24 @@ def conv_trace : Prop :=
   ∀ P q n, runtime.trace (runtime.init P (.conv q)) n =
     (runtime.trace (runtime.init P q) n).map (·.map Span.swap)
 
-/-- Simplification does not depend on the order of a store's atoms. The
-engine commits to the first weight-lowering firing it finds, so for a theory
-whose stores have several normal forms the order can matter: with
-`(r $0), (r $1) <=> (t $0).`, the store `[(r a), (r b)]` becomes `{(t a)}` and
-`[(r b), (r a)]` becomes `{(t b)}` (both have the same models). A theory with
-one normal form per store has this property. -/
-def StoreOrderFree (T : Theory) : Prop :=
-  ∀ (s : Span) (c : Store), s.c.Perm c → Option.Rel Span.Equiv (T.simplify s) (T.simplify ⟨s.l, s.r, c⟩)
+/-- Simplification respects equivalent spans. The mirrored run enumerates a
+composition's candidates transposed, so its tables can keep a different member
+of a class of equivalent candidates, and later steps simplify those members.
+This fails for some theories. The engine commits to the first weight-lowering
+firing it finds: with `(r $0), (r $1) <=> (t $0).` the store `[(r a), (r b)]`
+becomes `{(t a)}` and `[(r b), (r a)]` becomes `{(t b)}`. It also fails for
+`(p z) <=> .` with `(p (f $0)) <=> fail.`, where `$w {(p z)} -> $w` and
+`$w {(p z), (p $y)} -> $w` are equivalent but simplify to `$w -> $w` and
+`$w {(p $y)} -> $w`. It holds for the empty theory. -/
+def SimplifyRespectsEquiv (T : Theory) : Prop :=
+  ∀ z z' : Span, z.Equiv z' → Option.Rel Span.Equiv (T.simplify z) (T.simplify z')
 
 /-- P1.4 strong, for the mirrored program: running the mirror image of a
 query in the mirrored program is the mirror image of the run, step for step.
-Mirroring reverses the order in which composition joins stores, so this is
-stated for theories whose simplification ignores that order. -/
+The mirror can keep different but equivalent representatives in its tables,
+so this is stated for theories whose simplification respects equivalence. -/
 def dual_trace : Prop :=
-  ∀ P q n, (∀ ρ ∈ P.theory, ρ.WellFormed) → StoreOrderFree P.theory →
+  ∀ P q n, (∀ ρ ∈ P.theory, ρ.WellFormed) → SimplifyRespectsEquiv P.theory →
     TraceEquiv (runtime.trace (runtime.init P.dual q.dual) n)
       ((runtime.trace (runtime.init P q) n).map (·.map Span.swap))
 
