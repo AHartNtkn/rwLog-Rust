@@ -87,7 +87,7 @@ def zs : List String :=
 #guard runR001 ⟨[], noC⟩ (.seq (.rw (v 0) (v 0) [ap "no_c" [v 0]]) (.at_ (ap "a" [c "k", ap "c" [c "z"]]))) 20 ==
   ([], true)
 #guard runR001 ⟨[], noC⟩ (.seq (.rw (v 0) (v 0) [ap "no_c" [v 0]]) (.at_ (ap "a" [c "k", v 0]))) 20 ==
-  (["(a k $1) { (no_c $1) } -> (a k $1)"], true)
+  (["(a k $1) { (no_c (a k $1)) } -> (a k $1)"], true)
 
 /-! ## Conformance case 5 and P1.3: a finite conjunct restricts the other -/
 
@@ -127,8 +127,8 @@ recursive table closes even while the pushes keep making new boundaries. -/
 
 An equation is not a constraint: when its rule fires on a span, the span is
 instantiated by the equation's most general unifier, and refuted when there
-is none. An atom that only one single-head rule can fire on is replaced by
-that rule's body, so `(pin z)` leaves the store; an atom another rule could
+is none. An atom that only one single-head rule without body constraints can
+fire on is deleted, so `(pin z)` leaves the store; an atom another rule could
 still use stays. -/
 
 /-- `theory pin { (pin $x) <=> $x = z. }` from conformance case 4. -/
@@ -168,8 +168,9 @@ theorem wrapT_wellFormed : ∀ ρ ∈ wrapT, ρ.WellFormed := by decide
 -- An equation with no finite solution refutes the span.
 #guard runR001 ⟨[], cycT⟩ (.rw (v 0) (v 0) [ap "cyc" [v 0]]) 20 == ([], true)
 -- An equation reached after an earlier firing still instantiates the span.
+-- `(wrap (f z))` stays: its rule adds a constraint.
 #guard runR001 ⟨[], wrapT⟩ (.rw (v 0) (v 0) [ap "wrap" [ap "f" [v 0]]]) 20 ==
-  (["z -> z"], true)
+  (["z { (wrap (f z)) } -> z"], true)
 -- An equation can prune a recursive relation to one answer, and the query halts.
 
 #guard runR001 ⟨[("nat", nat)], pinT⟩ (.seq (.call "nat") (.rw (v 0) (v 0) [ap "pin" [v 0]])) 60 ==
@@ -184,9 +185,20 @@ theorem pinBadT_wellFormed : ∀ ρ ∈ pinBadT, ρ.WellFormed := by decide
 #guard runR001 ⟨[], pinBadT⟩ pinSpan 20 == (["(pair z $1) { (pin z) } -> $1"], true)
 -- So a later `bad` still refutes it.
 #guard runR001 ⟨[], pinBadT⟩ (.seq pinSpan (.rw (v 0) (v 0) [c "bad"])) 20 == ([], true)
--- An atom on which the sole firing rule adds nothing is dropped outright,
--- and one whose sole firing adds atoms is replaced by them.
-#guard runR001 ⟨[], noC⟩ (.rw (v 0) (v 0) [ap "no_c" [ap "a" [c "k", c "s"]]]) 20 == (["$0 -> $0"], true)
+-- An atom whose only rule adds constraints stays: replacing it by them could
+-- merge them with atoms a context already holds and lose a refutation.
+#guard runR001 ⟨[], noC⟩ (.rw (v 0) (v 0) [ap "no_c" [ap "a" [c "k", c "s"]]]) 20 ==
+  (["$0 { (no_c (a k s)) } -> $0"], true)
+/-- The checker group's counterexample to replacing an atom by a body. -/
+def mergeT : Theory :=
+  [ rule [ap "p" [ap "f" [v 0]]] (.conj [] [ap "q" [v 0]]),
+    rule [ap "q" [v 0], ap "r" [ap "g" [v 0]]] (.conj [] [ap "t" [v 0]]),
+    rule [ap "q" [v 0], ap "t" [v 0]] .fail ]
+theorem mergeT_wellFormed : ∀ ρ ∈ mergeT, ρ.WellFormed := by decide
+-- `{(p (f z)), (q z), (r (g z))}` is refuted, so the composition is empty.
+#guard runR001 ⟨[], mergeT⟩
+  (.seq (.rw (v 0) (v 0) [ap "p" [ap "f" [v 0]]])
+    (.seq (.at_ (c "z")) (.rw (v 0) (v 0) [ap "q" [v 0], ap "r" [ap "g" [v 0]]]))) 20 == ([], true)
 
 /-! ## P1.1 and P1.4: order and direction do not change the trace -/
 

@@ -38,8 +38,8 @@ step emits the answers the root table gained in that round.
 
 Candidates are simplified before they enter a table (`Theory.simplify`):
 every equation the theory forces on a candidate's store instantiates the
-whole candidate, an atom that only one single-head rule can fire on is
-replaced by that rule's body, and a candidate whose store the theory refutes
+whole candidate, an atom that only one single-head rule without body
+constraints can fire on is deleted, and a candidate whose store the theory refutes
 (`Theory.refutes?`) is dropped. A candidate is also dropped when it is
 covered by an answer already in the table or strictly covered by another
 candidate of the same round; among equivalent candidates one is kept. So
