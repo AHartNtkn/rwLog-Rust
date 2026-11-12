@@ -60,7 +60,7 @@ def directGoals (P : Program) (g : Goal) : List Goal :=
   match g.e with
   | .zero => []
   | .span _ => []
-  | .or a b => [⟨g.lb, a, g.rb⟩, ⟨g.lb, b, g.rb⟩]
+  | .or a b => orLeaves g a b
   | .call n => [callGoal P g n]
   | .conv a => [convGoal g a]
   | .seq a b => [seqLeft g a, seqRight g b]
@@ -74,10 +74,8 @@ inductive GDerives (P : Program) : Goal → Span → Prop
       x ∈ unfoldAnswers P d g → GDerives P g x
   | span {lb rb : Option Span} {s x : Span} :
       x ∈ spanAnswer P.theory lb s rb → GDerives P ⟨lb, .span s, rb⟩ x
-  | orl {g : Goal} {a b : Rel} {x : Span} :
-      g.e = .or a b → GDerives P ⟨g.lb, a, g.rb⟩ x → GDerives P g x
-  | orr {g : Goal} {a b : Rel} {x : Span} :
-      g.e = .or a b → GDerives P ⟨g.lb, b, g.rb⟩ x → GDerives P g x
+  | or {g : Goal} {a b : Rel} {h : Goal} {x : Span} :
+      g.e = .or a b → h ∈ orLeaves g a b → GDerives P h x → GDerives P g x
   | call {g : Goal} {n : Name} {x : Span} :
       g.e = .call n → GDerives P (callGoal P g n) x → GDerives P g x
   | conv {g : Goal} {a : Rel} {x : Span} :
@@ -152,7 +150,7 @@ def certStrategies (P : Program) (C : List CertEntry) (g : Goal) : List (List (G
   match g.e with
   | .zero => [[]]
   | .span _ => [[]]
-  | .or a b => [[(⟨g.lb, a, g.rb⟩, false), (⟨g.lb, b, g.rb⟩, false)]]
+  | .or a b => [(orLeaves g a b).map fun h => (h, false)]
   | .call n => [[(callGoal P g n, false)]]
   | .conv a => [[(convGoal g a, false)]]
   | .seq a b =>

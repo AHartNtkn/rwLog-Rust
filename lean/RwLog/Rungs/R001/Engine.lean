@@ -110,7 +110,9 @@ nose, so goals are keyed by a canonical form: every `|` nest is flattened into
 its branches, `0` branches are dropped, the branches are sorted by a fixed
 linear order and deduplicated, and the result is rebuilt right-nested. Goals
 that differ only in how their `|` branches are ordered or grouped then share
-one table, so the machine's run cannot depend on it. -/
+one table, and a `|` goal reads all its branches directly (`orLeaves`), so
+neither the order nor the grouping of branches, nor how a mirrored run sorts
+them, changes when an answer arrives. -/
 
 /-- A structural linear order on patterns. -/
 def patCmp : Pat → Pat → Ordering
@@ -306,6 +308,12 @@ def unfoldFinal (P : Program) (d : Nat) (g : Goal) : Bool := R000.roundFinal P g
 def unfoldAnswers (P : Program) (d : Nat) (g : Goal) : List Span :=
   if unfoldFinal P d g then (R000.roundSpans P g.rel d).flatMap (live P.theory) else []
 
+/-- The goals a `|` goal reads: one for each branch of its whole `|` nest, so
+no table sits between a `|` goal and its branches, and how the nest is
+grouped never delays a branch. -/
+def orLeaves (g : Goal) (a b : Rel) : List Goal :=
+  (orBranches (.or a b)).map fun c => ⟨g.lb, c, g.rb⟩
+
 /-- The candidate answers of a goal, computed from the tables at the start of
 a round at unfolding depth `d`, and the goals it needs. -/
 def produce (P : Program) (d : Nat) (ts : Tables) (g : Goal) : List Span × List Goal :=
@@ -319,9 +327,8 @@ where
   | .zero => ([], [])
   | .span s => (spanAnswer T g.lb s g.rb, [])
   | .or a b =>
-    let ga : Goal := ⟨g.lb, a, g.rb⟩
-    let gb : Goal := ⟨g.lb, b, g.rb⟩
-    (answersOf ts ga ++ answersOf ts gb, [ga, gb])
+    let gs := orLeaves g a b
+    (gs.flatMap (answersOf ts), gs)
   | .call n =>
     let gb := callGoal P g n
     (answersOf ts gb, [gb])
@@ -361,7 +368,7 @@ where
   match g.e with
   | .zero => [[]]
   | .span _ => [[]]
-  | .or a b => [[⟨g.lb, a, g.rb⟩, ⟨g.lb, b, g.rb⟩]]
+  | .or a b => [orLeaves g a b]
   | .call n => [[callGoal P g n]]
   | .conv a => [[convGoal g a]]
   | .seq a b =>
