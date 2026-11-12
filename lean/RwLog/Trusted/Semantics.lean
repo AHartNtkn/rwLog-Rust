@@ -164,37 +164,91 @@ theorem Refutes.mono {T : Theory} {S : GStore} (h : Refutes T S) :
 
 namespace GRel
 
-/-- The pairs a relation carries using only constraints from the store `M`. -/
-def within (R : GRel) (M : GStore) : Set (GTerm × GTerm) :=
-  {p | ∃ S ⊆ M, (p.1, p.2, S) ∈ R}
+/-- The pairs `R` carries in the context of an extra ground store `C`: some
+triple for the pair has a store that, together with `C`, the theory cannot
+refute. Composition and conjunction with other relations add exactly such
+extra stores. -/
+def liveIn (T : Theory) (R : GRel) (C : GStore) : Set (GTerm × GTerm) :=
+  {p | ∃ S, (p.1, p.2, S) ∈ R ∧ ¬ Refutes T (S ∪ C)}
 
-/-- Equivalence of meanings under a theory: for every non-refutable store `M`,
-the same pairs are carried within `M`. This ignores triples whose store is
-refutable and triples whose store is a superset of another's for the same
-pair, and every operator acts pointwise in `M`. -/
+/-- Equivalence of meanings under a theory: in every context store `C`, the
+same pairs are carried. It ignores triples whose store is refutable and
+triples whose store is a superset of another's for the same pair, it is a
+congruence for the operators (`Equiv.union`, `Equiv.comp`, `Equiv.meet`,
+`Equiv.inv`), and it lets a store be replaced by one the theory rewrites it
+to, since what matters about a store is only which contexts refute it. -/
 def Equiv (T : Theory) (R S : GRel) : Prop :=
-  ∀ M : GStore, ¬ Refutes T M → R.within M = S.within M
+  ∀ C : GStore, R.liveIn T C = S.liveIn T C
 
-/-- The observable pairs are the union, over non-refutable stores `M`, of the
-pairs carried within `M`. -/
-theorem observe_eq_iUnion_within (T : Theory) (R : GRel) :
-    R.observe T = ⋃ (M : GStore) (_ : ¬ Refutes T M), R.within M := by
+theorem observe_eq_liveIn (T : Theory) (R : GRel) : R.observe T = R.liveIn T ∅ := by
   ext ⟨a, b⟩
-  simp only [observe, within, Set.mem_ofPred_eq, Set.mem_iUnion]
-  constructor
-  · rintro ⟨S, hS, hn⟩
-    exact ⟨S, hn, S, le_rfl, hS⟩
-  · rintro ⟨M, hM, S, hSM, hS⟩
-    exact ⟨S, hS, fun h => hM (h.mono hSM)⟩
+  have h : ∀ S : GStore, S ∪ ∅ = S := fun S => by ext; simp
+  simp only [observe, liveIn, Set.mem_ofPred_eq, h]
 
 /-- Equivalent meanings have the same observable pairs. -/
 theorem Equiv.observe_eq {T : Theory} {R S : GRel} (h : Equiv T R S) :
     R.observe T = S.observe T := by
-  rw [observe_eq_iUnion_within, observe_eq_iUnion_within]
-  refine Set.iUnion_congr fun M => ?_
-  by_cases hM : Refutes T M
-  · simp [hM]
-  · simp [hM, h M hM]
+  rw [observe_eq_liveIn, observe_eq_liveIn, h ∅]
+
+theorem Equiv.refl (T : Theory) (R : GRel) : Equiv T R R := fun _ => rfl
+
+theorem Equiv.symm {T : Theory} {R S : GRel} (h : Equiv T R S) : Equiv T S R :=
+  fun C => (h C).symm
+
+theorem Equiv.trans {T : Theory} {R S U : GRel} (h₁ : Equiv T R S) (h₂ : Equiv T S U) :
+    Equiv T R U := fun C => (h₁ C).trans (h₂ C)
+
+theorem Equiv.union {T : Theory} {R R' S S' : GRel} (h₁ : Equiv T R R') (h₂ : Equiv T S S') :
+    Equiv T (R ∪ S) (R' ∪ S') := by
+  intro C
+  have e₁ := h₁ C; have e₂ := h₂ C
+  ext p
+  simp only [liveIn, Set.mem_union, Set.mem_ofPred_eq] at e₁ e₂ ⊢
+  constructor
+  · rintro ⟨S₀, h | h, hn⟩
+    · obtain ⟨S₁, h', hn'⟩ := (Set.ext_iff.1 e₁ p).1 ⟨S₀, h, hn⟩; exact ⟨S₁, Or.inl h', hn'⟩
+    · obtain ⟨S₁, h', hn'⟩ := (Set.ext_iff.1 e₂ p).1 ⟨S₀, h, hn⟩; exact ⟨S₁, Or.inr h', hn'⟩
+  · rintro ⟨S₀, h | h, hn⟩
+    · obtain ⟨S₁, h', hn'⟩ := (Set.ext_iff.1 e₁ p).2 ⟨S₀, h, hn⟩; exact ⟨S₁, Or.inl h', hn'⟩
+    · obtain ⟨S₁, h', hn'⟩ := (Set.ext_iff.1 e₂ p).2 ⟨S₀, h, hn⟩; exact ⟨S₁, Or.inr h', hn'⟩
+
+theorem Equiv.inv {T : Theory} {R R' : GRel} (h : Equiv T R R') : Equiv T R.inv R'.inv := by
+  intro C
+  ext ⟨a, b⟩
+  have := Set.ext_iff.1 (h C) (b, a)
+  simpa [liveIn, GRel.inv] using this
+
+theorem liveIn_comp_subset {T : Theory} {R R' S S' : GRel} (h₁ : Equiv T R R') (h₂ : Equiv T S S')
+    (C : GStore) : (R.comp S).liveIn T C ⊆ (R'.comp S').liveIn T C := by
+  rintro ⟨a, b⟩ ⟨_, ⟨m, S₁, S₂, hR, hS, rfl⟩, hn⟩
+  obtain ⟨S₁', hR', hn₁⟩ := (Set.ext_iff.1 (h₁ (S₂ ∪ C)) (a, m)).1
+    ⟨S₁, hR, by rwa [← Finset.union_assoc]⟩
+  obtain ⟨S₂', hS', hn₂⟩ := (Set.ext_iff.1 (h₂ (S₁' ∪ C)) (m, b)).1
+    ⟨S₂, hS, by rwa [← Finset.union_assoc, Finset.union_comm S₂ S₁', Finset.union_assoc]⟩
+  refine ⟨S₁' ∪ S₂', ⟨m, S₁', S₂', hR', hS', rfl⟩, ?_⟩
+  have hc : S₁' ∪ S₂' ∪ C = S₂' ∪ (S₁' ∪ C) := by
+    rw [Finset.union_comm S₁' S₂', Finset.union_assoc]
+  rwa [hc]
+
+theorem Equiv.comp {T : Theory} {R R' S S' : GRel} (h₁ : Equiv T R R') (h₂ : Equiv T S S') :
+    Equiv T (R.comp S) (R'.comp S') := fun C =>
+  (liveIn_comp_subset h₁ h₂ C).antisymm (liveIn_comp_subset h₁.symm h₂.symm C)
+
+theorem liveIn_meet_subset {T : Theory} {R R' S S' : GRel} (h₁ : Equiv T R R') (h₂ : Equiv T S S')
+    (C : GStore) : (R.meet S).liveIn T C ⊆ (R'.meet S').liveIn T C := by
+  rintro ⟨a, b⟩ ⟨_, ⟨S₁, S₂, hR, hS, rfl⟩, hn⟩
+  obtain ⟨S₁', hR', hn₁⟩ := (Set.ext_iff.1 (h₁ (S₂ ∪ C)) (a, b)).1
+    ⟨S₁, hR, by rwa [← Finset.union_assoc]⟩
+  obtain ⟨S₂', hS', hn₂⟩ := (Set.ext_iff.1 (h₂ (S₁' ∪ C)) (a, b)).1
+    ⟨S₂, hS, by rwa [← Finset.union_assoc, Finset.union_comm S₂ S₁', Finset.union_assoc]⟩
+  refine ⟨S₁' ∪ S₂', ⟨S₁', S₂', hR', hS', rfl⟩, ?_⟩
+  have hc : S₁' ∪ S₂' ∪ C = S₂' ∪ (S₁' ∪ C) := by
+    rw [Finset.union_comm S₁' S₂', Finset.union_assoc]
+  rwa [hc]
+
+theorem Equiv.meet {T : Theory} {R R' S S' : GRel} (h₁ : Equiv T R R') (h₂ : Equiv T S S') :
+    Equiv T (R.meet S) (R'.meet S') := fun C =>
+  (liveIn_meet_subset h₁ h₂ C).antisymm (liveIn_meet_subset h₁.symm h₂.symm C)
 
 end GRel
 
