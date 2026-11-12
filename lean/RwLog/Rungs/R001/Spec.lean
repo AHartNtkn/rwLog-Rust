@@ -214,6 +214,19 @@ def refutes_complete_symbolic : Prop :=
   ∀ (T : Theory) (c : Store) (n : Nat), (∀ ρ ∈ T, ρ.WellFormed) →
     T.refutesWithin n c = true → T.refutes? c = true
 
+/-- Simplification is exact: a dropped span is dead, and a kept span refines
+the original, so it loses only refuted instances. -/
+def simplify_exact : Prop :=
+  ∀ (T : Theory) (s : Span), (∀ ρ ∈ T, ρ.WellFormed) →
+    (T.simplify s = none → s.Dead T) ∧ (∀ s', T.simplify s = some s' → s'.Refines T s)
+
+/-- Simplification is complete for its symbolic firings: a simplified span
+has no symbolic refutation and no symbolic firing that forces an equation,
+however many firings are taken. So the instantiation budget is enough. -/
+def simplify_stable : Prop :=
+  ∀ (T : Theory) (s s' : Span) (n : Nat), (∀ ρ ∈ T, ρ.WellFormed) → T.simplify s = some s' →
+    T.refutesWithin n s'.c = false ∧ T.bindWithin n s'.c = none
+
 /-- Interfaces are exact: `s ; s.rightIface = s` and `s.leftIface ; s = s`,
 and a trivial interface is the identity. -/
 def iface_exact : Prop :=
@@ -232,15 +245,14 @@ def iface_equiv : Prop :=
 def denote_dual : Prop := ∀ (P : Program) (e : Rel), P.dual.sem e.dual = (P.sem e).inv
 
 /-- Boundary lifting, the lemma most of the engine proofs share: what a
-goal with boundaries derives is, up to equivalence, the boundaries composed
-with what the goal without boundaries derives, as long as the result is not
-refuted. -/
+goal with boundaries derives is, on unrefuted instances, the boundaries
+composed with what the goal without boundaries derives. -/
 def boundary_lifting : Prop :=
   ∀ (P : Program) (g : Goal), (∀ ρ ∈ P.theory, ρ.WellFormed) →
     (∀ y, GDerives P g y → ∃ y₀, GDerives P ⟨none, g.e, none⟩ y₀ ∧
-      ∃ z ∈ spanAnswer P.theory g.lb y₀ g.rb, z.Equiv y) ∧
+      ∃ z ∈ spanAnswer P.theory g.lb y₀ g.rb, z.CoversLive P.theory y ∧ y.CoversLive P.theory z) ∧
     (∀ y₀, GDerives P ⟨none, g.e, none⟩ y₀ → ∀ z ∈ spanAnswer P.theory g.lb y₀ g.rb,
-      ∃ y, GDerives P g y ∧ y.Covers z)
+      ∃ y, GDerives P g y ∧ y.CoversLive P.theory z)
 
 /-! ### Tier 0 and P3.0 -/
 
@@ -254,10 +266,11 @@ def complete : Prop := runtime.Complete
 /-- P0.3: on halting, the emitted answers are equivalent to the query. -/
 def honest_exhaustion : Prop := runtime.HonestExhaustion
 
-/-- P3.0: every emitted answer is exactly (as ground triples) the span of one
-derivation, so no answer is less general than its derivation. -/
+/-- P3.0: every emitted answer refines the span of one derivation: it is
+that span, instantiated only by equations the theory forces, so it keeps every
+unrefuted instance and no answer is less general than its derivation. -/
 def derivation_general : Prop :=
-  ∀ P q, P.WellFormed q → ∀ a ∈ runtime.Answers P q, ∃ s, Derives P q s ∧ s.den = a.den
+  ∀ P q, P.WellFormed q → ∀ a ∈ runtime.Answers P q, ∃ s, Derives P q s ∧ a.Refines P.theory s
 
 /-! ### Termination -/
 
@@ -353,11 +366,13 @@ def theory_mono_terminates : Prop :=
   ∀ P (T : Theory) q, P.WellFormed q → (∀ ρ ∈ T, ρ.WellFormed) → (∀ ρ ∈ P.theory, ρ ∈ T) →
     runtime.Terminates P q → runtime.Terminates { P with theory := T } q
 
-/-- P2.3: adding refutation rules only removes answers: each answer under the
-larger theory is covered by an answer under the smaller one. -/
+/-- P2.3: adding rules only removes answers: each answer under the larger
+theory is covered, on its instances the larger theory cannot refute, by an
+answer under the smaller one. (The larger theory may force more equations, so
+its answers can be instances of the smaller theory's.) -/
 def theory_mono_answers : Prop :=
   ∀ P (T : Theory) q, P.WellFormed q → (∀ ρ ∈ T, ρ.WellFormed) → (∀ ρ ∈ P.theory, ρ ∈ T) →
-    ∀ a ∈ runtime.Answers { P with theory := T } q, ∃ b ∈ runtime.Answers P q, b.Covers a
+    ∀ a ∈ runtime.Answers { P with theory := T } q, ∃ b ∈ runtime.Answers P q, b.CoversLive T a
 
 /-- P2.4: refuted spans are cut at once. No table of any reachable state
 holds an answer, or has a boundary, whose store the theory refutes, so no

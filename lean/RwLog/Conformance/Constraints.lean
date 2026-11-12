@@ -33,14 +33,14 @@ def pa (f : Sym) (args : List Pat) : Pat := Term.mk f args
 
 /-- `eq_neq` from the case file, guards removed. -/
 def eqNeq : Theory := [
-  ⟨[pa "eq" [pv 0, pv 0]], .conj []⟩,
+  ⟨[pa "eq" [pv 0, pv 0]], .conj [] []⟩,
   ⟨[pa "eq" [ps "z", pa "s" [pv 0]]], .fail⟩,
   ⟨[pa "eq" [pa "s" [pv 0], ps "z"]], .fail⟩,
-  ⟨[pa "eq" [pa "s" [pv 0], pa "s" [pv 1]]], .conj [pa "eq" [pv 0, pv 1]]⟩,
+  ⟨[pa "eq" [pa "s" [pv 0], pa "s" [pv 1]]], .conj [] [pa "eq" [pv 0, pv 1]]⟩,
   ⟨[pa "neq" [pv 0, pv 0]], .fail⟩,
-  ⟨[pa "neq" [ps "z", pa "s" [pv 0]]], .conj []⟩,
-  ⟨[pa "neq" [pa "s" [pv 0], ps "z"]], .conj []⟩,
-  ⟨[pa "neq" [pa "s" [pv 0], pa "s" [pv 1]]], .conj [pa "neq" [pv 0, pv 1]]⟩,
+  ⟨[pa "neq" [ps "z", pa "s" [pv 0]]], .conj [] []⟩,
+  ⟨[pa "neq" [pa "s" [pv 0], ps "z"]], .conj [] []⟩,
+  ⟨[pa "neq" [pa "s" [pv 0], pa "s" [pv 1]]], .conj [] [pa "neq" [pv 0, pv 1]]⟩,
   ⟨[pa "eq" [pv 0, pv 1], pa "neq" [pv 0, pv 1]], .fail⟩,
   ⟨[pa "nonzero" [ps "z"]], .fail⟩]
 
@@ -146,6 +146,13 @@ theorem not_refutes_nonzero_sz : ¬ Refutes eqNeq {gc "nonzero" [gs gz]} := by
       simp only [reduceCtorEq] at hb <;>
       have := hf.2 _ List.mem_cons_self <;>
       simp [pa, ps, pv, gc, gs, gz, bind_mk, mk_eq_mk, sym_ne_mk] at this
+  | eq hρ σ hb hf _ _ =>
+    subst hS
+    simp only [eqNeq, List.mem_cons, List.not_mem_nil, or_false] at hρ
+    rcases hρ with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;>
+      simp only [reduceCtorEq] at hb <;>
+      have := hf.2 _ List.mem_cons_self <;>
+      simp [pa, ps, pv, gc, gs, gz, bind_mk, mk_eq_mk] at this
   | conj hρ σ hb hf _ _ =>
     subst hS
     simp only [eqNeq, List.mem_cons, List.not_mem_nil, or_false] at hρ
@@ -203,7 +210,13 @@ theorem not_refutes_neq_z_sz : ¬ Refutes eqNeq {gc "neq" [gz, gs gz]} := by
       have := hS (hf.2 _ List.mem_cons_self) <;>
       simp [pa, ps, pv, gc, gs, gz, bind_mk, mk_eq_mk, mk_ne_sym] at this
     exact sym_ne_mk (this.1.symm.trans this.2)
-  | conj hρ σ hb hf _ ih =>
+  | eq hρ σ hb hf he _ =>
+    intro _
+    simp only [eqNeq, List.mem_cons, List.not_mem_nil, or_false] at hρ
+    rcases hρ with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;>
+      simp only [reduceCtorEq, Body.conj.injEq] at hb <;>
+      (obtain ⟨rfl, -⟩ := hb; simp at he)
+  | conj hρ σ hb hf _ _ ih =>
     intro hS
     simp only [eqNeq, List.mem_cons, List.not_mem_nil, or_false] at hρ
     rcases hρ with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;>
@@ -212,7 +225,7 @@ theorem not_refutes_neq_z_sz : ¬ Refutes eqNeq {gc "neq" [gz, gs gz]} := by
     all_goals
       first
       | (simp [pa, ps, pv, gc, gs, gz, bind_mk, mk_eq_mk, mk_ne_sym] at hm; done)
-      | (subst hb
+      | (obtain ⟨rfl, rfl⟩ := hb
          apply ih
          intro x hx
          simp only [List.map_nil, List.toFinset_nil, Finset.mem_union, Finset.mem_sdiff, Finset.notMem_empty, or_false] at hx

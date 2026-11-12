@@ -47,7 +47,9 @@ end GRel
 `Refutes T S` holds when the rules of `T` derive `fail` from the ground store
 `S`. A rule fires when its heads, under one substitution, are distinct members
 of the store; it then either refutes the store (body `fail`) or replaces the
-matched constraints by its body. A store holds exactly when it is not
+matched constraints by its body. The body's equations are tests on the
+ground instance: when one fails, the firing refutes the store, and when all
+hold, the firing goes on. A store holds exactly when it is not
 refuted. `Refutes` asks whether *some* sequence of firings reaches `fail`, so
 refutability never depends on the order in which rules are tried. -/
 
@@ -61,8 +63,12 @@ def TRule.Fires (ρ : TRule) (σ : Nat → GTerm) (S : GStore) : Prop :=
 inductive Refutes (T : Theory) : GStore → Prop
   | fail {S : GStore} {ρ : TRule} (hρ : ρ ∈ T) (σ : Nat → GTerm)
       (hb : ρ.body = .fail) (hf : ρ.Fires σ S) : Refutes T S
-  | conj {S : GStore} {ρ : TRule} {cs : List Pat} (hρ : ρ ∈ T) (σ : Nat → GTerm)
-      (hb : ρ.body = .conj cs) (hf : ρ.Fires σ S)
+  | eq {S : GStore} {ρ : TRule} {eqs : List (Pat × Pat)} {cs : List Pat} {e : Pat × Pat}
+      (hρ : ρ ∈ T) (σ : Nat → GTerm) (hb : ρ.body = .conj eqs cs) (hf : ρ.Fires σ S)
+      (he : e ∈ eqs) (hne : e.1.bind σ ≠ e.2.bind σ) : Refutes T S
+  | conj {S : GStore} {ρ : TRule} {eqs : List (Pat × Pat)} {cs : List Pat} (hρ : ρ ∈ T)
+      (σ : Nat → GTerm) (hb : ρ.body = .conj eqs cs) (hf : ρ.Fires σ S)
+      (heq : ∀ e ∈ eqs, e.1.bind σ = e.2.bind σ)
       (h : Refutes T (S \ (ρ.headsAt σ).toFinset ∪ (cs.map (Term.bind σ)).toFinset)) :
       Refutes T S
 
@@ -143,9 +149,12 @@ theorem Refutes.mono {T : Theory} {S : GStore} (h : Refutes T S) :
   | fail hρ σ hb hf =>
     intro S' hS
     exact .fail hρ σ hb ⟨hf.1, fun x hx => hS (hf.2 x hx)⟩
-  | conj hρ σ hb hf _ ih =>
+  | eq hρ σ hb hf he hne =>
     intro S' hS
-    refine .conj hρ σ hb ⟨hf.1, fun x hx => hS (hf.2 x hx)⟩ (ih ?_)
+    exact .eq hρ σ hb ⟨hf.1, fun x hx => hS (hf.2 x hx)⟩ he hne
+  | conj hρ σ hb hf heq _ ih =>
+    intro S' hS
+    refine .conj hρ σ hb ⟨hf.1, fun x hx => hS (hf.2 x hx)⟩ heq (ih ?_)
     exact Finset.union_subset_union (Finset.sdiff_subset_sdiff hS le_rfl) le_rfl
 
 namespace GRel
@@ -202,6 +211,22 @@ def Span.Equiv (a b : Span) : Prop := a.Covers b ∧ b.Covers a
 /-- A span is dead under a theory when every ground instance carries a store
 the theory refutes. A dead span has no observable pair. -/
 def Span.Dead (T : Theory) (s : Span) : Prop := ∀ σ : Nat → GTerm, Refutes T (s.c.at σ)
+
+/-- `a` covers the unrefuted instances of `s`: every ground triple of `s`
+whose store the theory cannot refute is matched by a triple of `a` with the
+same pair and a store contained in it. This is coverage up to refutation, the
+coverage an engine owes when it prunes and simplifies. -/
+def Span.CoversLive (T : Theory) (a s : Span) : Prop :=
+  ∀ x ∈ s.den, ¬ Refutes T x.2.2 → ∃ y ∈ a.den, y.1 = x.1 ∧ y.2.1 = x.2.1 ∧ y.2.2 ⊆ x.2.2
+
+/-- `a` refines `s` under a theory: `a` denotes some of the triples of `s`,
+including every one whose store the theory cannot refute. Instantiating a span
+by an equation its theory forces is a refinement. -/
+def Span.Refines (T : Theory) (a s : Span) : Prop :=
+  a.den ⊆ s.den ∧ ∀ x ∈ s.den, ¬ Refutes T x.2.2 → x ∈ a.den
+
+theorem Span.Covers.live {T : Theory} {a s : Span} (h : a.Covers s) : a.CoversLive T s :=
+  fun x hx _ => h x hx
 
 theorem Span.Covers.refl (a : Span) : a.Covers a :=
   fun x hx => ⟨x, hx, rfl, rfl, le_rfl⟩

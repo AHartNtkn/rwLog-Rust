@@ -25,21 +25,21 @@ def rule (heads : List Pat) (body : Body) : TRule := ⟨heads, body⟩
 
 /-- Equality and disequality over Peano numerals, as refutation rules only. -/
 def eqNeq : Theory :=
-  [ rule [ap "eq" [v 0, v 0]] (.conj []),
+  [ rule [ap "eq" [v 0, v 0]] (.conj [] []),
     rule [ap "eq" [c "z", ap "s" [v 0]]] .fail,
     rule [ap "eq" [ap "s" [v 0], c "z"]] .fail,
-    rule [ap "eq" [ap "s" [v 0], ap "s" [v 1]]] (.conj [ap "eq" [v 0, v 1]]),
+    rule [ap "eq" [ap "s" [v 0], ap "s" [v 1]]] (.conj [] [ap "eq" [v 0, v 1]]),
     rule [ap "neq" [v 0, v 0]] .fail,
-    rule [ap "neq" [c "z", ap "s" [v 0]]] (.conj []),
-    rule [ap "neq" [ap "s" [v 0], c "z"]] (.conj []),
-    rule [ap "neq" [ap "s" [v 0], ap "s" [v 1]]] (.conj [ap "neq" [v 0, v 1]]),
+    rule [ap "neq" [c "z", ap "s" [v 0]]] (.conj [] []),
+    rule [ap "neq" [ap "s" [v 0], c "z"]] (.conj [] []),
+    rule [ap "neq" [ap "s" [v 0], ap "s" [v 1]]] (.conj [] [ap "neq" [v 0, v 1]]),
     rule [ap "eq" [v 0, v 1], ap "neq" [v 0, v 1]] .fail ]
 
 /-- `no_c` from the SK notebook. -/
 def noC : Theory :=
-  [ rule [ap "no_c" [c "k"]] (.conj []),
-    rule [ap "no_c" [c "s"]] (.conj []),
-    rule [ap "no_c" [ap "a" [v 0, v 1]]] (.conj [ap "no_c" [v 0], ap "no_c" [v 1]]),
+  [ rule [ap "no_c" [c "k"]] (.conj [] []),
+    rule [ap "no_c" [c "s"]] (.conj [] []),
+    rule [ap "no_c" [ap "a" [v 0, v 1]]] (.conj [] [ap "no_c" [v 0], ap "no_c" [v 1]]),
     rule [ap "no_c" [ap "c" [v 0]]] .fail ]
 
 def upP : Program := prog [("up", up)]
@@ -122,6 +122,57 @@ recursive table closes even while the pushes keep making new boundaries. -/
 #guard runR001 (prog [("upr", upr)]) (.seq (.at_ (c "z")) (.seq (.call "upr") (.at_ (c "foo")))) 40 ==
   ([], true)
 #guard runR001 (prog [("lr", lr)]) (.seq (.at_ (num 1)) (.seq (.call "lr") (.at_ (c "z")))) 40 == ([], true)
+
+/-! ## Equations in rule bodies instantiate the span they fire in
+
+An equation is not a constraint: when its rule fires on a span, the span is
+instantiated by the equation's most general unifier, and refuted when there
+is none. The store keeps its atoms, instantiated (dropping one is a separate
+decision); the answers below are observably exact. -/
+
+/-- `theory pin { (pin $x) <=> $x = z. }` from conformance case 4. -/
+def pinT : Theory := [rule [ap "pin" [v 0]] (.conj [(v 0, c "z")] [])]
+/-- `(same $x $y) <=> $x = $y.` -/
+def sameT : Theory := [rule [ap "same" [v 0, v 1]] (.conj [(v 0, v 1)] [])]
+/-- `(cyc $x) <=> $x = (s $x).`: no finite term solves it. -/
+def cycT : Theory := [rule [ap "cyc" [v 0]] (.conj [(v 0, ap "s" [v 0])] [])]
+/-- `(wrap (f $x)) <=> (pin $x).` and the `pin` rule: the equation is
+reached only after a firing that adds a constraint. -/
+def wrapT : Theory := rule [ap "wrap" [ap "f" [v 0]]] (.conj [] [ap "pin" [v 0]]) :: pinT
+def pinSpan : Rel := .rw (ap "pair" [v 0, v 1]) (v 1) [ap "pin" [v 0]]
+
+theorem pinT_wellFormed : ∀ ρ ∈ pinT, ρ.WellFormed := by decide
+theorem sameT_wellFormed : ∀ ρ ∈ sameT, ρ.WellFormed := by decide
+theorem cycT_wellFormed : ∀ ρ ∈ cycT, ρ.WellFormed := by decide
+theorem wrapT_wellFormed : ∀ ρ ∈ wrapT, ρ.WellFormed := by decide
+
+-- Conformance case 4, `pin`: the equation instantiates `$x` to `z`.
+#guard runR001 ⟨[], pinT⟩ pinSpan 20 == (["(pair z $1) { (pin z) } -> $1"], true)
+-- An input the equation rules out leaves nothing.
+#guard runR001 ⟨[], pinT⟩ (.seq (.at_ (ap "pair" [num 1, c "a"])) pinSpan) 20 == ([], true)
+#guard runR001 ⟨[], pinT⟩ (.seq (.at_ (ap "pair" [num 0, c "a"])) pinSpan) 20 ==
+  (["(pair z a) { (pin z) } -> a"], true)
+-- Run backwards, the equation still reaches the input side.
+#guard runR001 ⟨[], pinT⟩ (.conv pinSpan) 20 == (["$1 { (pin z) } -> (pair z $1)"], true)
+-- The equation fires inside a composition: the left span's output meets the
+-- right span's store.
+#guard runR001 ⟨[], pinT⟩ (.seq (.rw (v 0) (ap "pair" [v 0, c "b"])) pinSpan) 20 ==
+  (["z { (pin z) } -> b"], true)
+-- An equation between two variables identifies them.
+#guard runR001 ⟨[], sameT⟩ (.rw (ap "pair" [v 0, v 1]) (v 0) [ap "same" [v 0, v 1]]) 20 ==
+  (["(pair $1 $1) { (same $1 $1) } -> $1"], true)
+-- Two atoms each force an equation; both apply, and the atoms that become
+-- equal are kept once.
+#guard runR001 ⟨[], pinT⟩ (.rw (ap "pair" [v 0, v 1]) (v 0) [ap "pin" [v 0], ap "pin" [v 1]]) 20 ==
+  (["(pair z z) { (pin z) } -> z"], true)
+-- An equation with no finite solution refutes the span.
+#guard runR001 ⟨[], cycT⟩ (.rw (v 0) (v 0) [ap "cyc" [v 0]]) 20 == ([], true)
+-- An equation reached after an earlier firing still instantiates the span.
+#guard runR001 ⟨[], wrapT⟩ (.rw (v 0) (v 0) [ap "wrap" [ap "f" [v 0]]]) 20 ==
+  (["z { (wrap (f z)) } -> z"], true)
+-- An equation can prune a recursive relation to one answer, and the query halts.
+#guard runR001 ⟨[("nat", nat)], pinT⟩ (.seq (.call "nat") (.rw (v 0) (v 0) [ap "pin" [v 0]])) 60 ==
+  (["z { (pin z) } -> z"], true)
 
 /-! ## P1.1 and P1.4: order and direction do not change the trace -/
 

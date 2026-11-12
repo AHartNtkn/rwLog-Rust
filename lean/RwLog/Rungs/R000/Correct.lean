@@ -138,7 +138,7 @@ theorem complete : runtime.Complete := by
     (by rcases hj with h | h
         · exact Or.inr h
         · exact Or.inl (by omega))
-  refine Or.inr ⟨N + (roundSpans P q j).length, a, ?_, Span.Covers.of_den_subset hsub⟩
+  refine Or.inr ⟨N + (roundSpans P q j).length, a, ?_, (Span.Covers.of_den_subset hsub).live⟩
   show a ∈ (runtime.run (State.start P q 0) _).1
   rw [hrun]
   have := run_queue (State.start P q j) 0

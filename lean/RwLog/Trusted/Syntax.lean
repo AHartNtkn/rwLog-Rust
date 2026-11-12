@@ -128,11 +128,13 @@ only depends on which constraints occur in it. -/
 
 abbrev Store := List Pat
 
-/-- A rule body: `fail`, or a (possibly empty) conjunction of constraints.
-The empty conjunction is the drop body `.`. -/
+/-- A rule body: `fail`, or equations together with a (possibly empty)
+conjunction of constraints. The body with neither is the drop body `.`.
+Equations are not constraints and never enter a store: on a ground store an
+equation is a test, and on a non-ground span it instantiates the span. -/
 inductive Body where
   | fail
-  | conj (cs : List Pat)
+  | conj (eqs : List (Pat × Pat)) (cs : List Pat)
   deriving DecidableEq, Repr
 
 /-- A refutation rule `h₁, …, hₙ <=> body`. Rules fire by matching their heads
@@ -163,7 +165,7 @@ def Pat.smaller (u t : Pat) : Bool :=
 def TRule.Decreasing (ρ : TRule) : Bool :=
   match ρ.body with
   | .fail => true
-  | .conj cs =>
+  | .conj _ cs =>
     let B := cs.diff ρ.heads
     let H := ρ.heads.diff cs
     !H.isEmpty && B.all fun b => H.any fun h => Pat.smaller b h
@@ -172,15 +174,21 @@ def TRule.Decreasing (ρ : TRule) : Bool :=
 /-- The constraints a body adds. -/
 def Body.atoms : Body → List Pat
   | .fail => []
-  | .conj cs => cs
+  | .conj _ cs => cs
+
+/-- The equations of a body. -/
+def Body.eqs : Body → List (Pat × Pat)
+  | .fail => []
+  | .conj eqs _ => eqs
 
 /-- A rule is well formed when it has a head, every variable of its body
-occurs in its heads, and it is decreasing. A rule fires by matching its
+(constraints and equations) occurs in its heads, and it is decreasing. A rule fires by matching its
 heads, so a body variable not bound by them would have no value; reading it
 existentially would let a rule refute through a value it chose itself, which
 is not what the rule says. Decreasing rules make rule firing terminate. -/
 def TRule.WellFormed (ρ : TRule) : Prop :=
   ρ.heads ≠ [] ∧ (∀ c ∈ ρ.body.atoms, ∀ v ∈ c.vars, ∃ h ∈ ρ.heads, v ∈ h.vars) ∧
+    (∀ e ∈ ρ.body.eqs, ∀ v ∈ e.1.vars ++ e.2.vars, ∃ h ∈ ρ.heads, v ∈ h.vars) ∧
     ρ.Decreasing = true
 
 instance (ρ : TRule) : Decidable ρ.WellFormed := by

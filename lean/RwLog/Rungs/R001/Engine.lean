@@ -36,8 +36,10 @@ step emits the answers the root table gained in that round.
   This is boundary pushing (`@t ; R` follows `R` under the boundary `t`) and
   finite-side propagation for both `;` and `&`, with no preferred direction.
 
-Candidates are filtered before they enter a table: a candidate whose store
-the theory refutes (`Theory.refutes?`) is dropped, and so is a candidate
+Candidates are simplified before they enter a table (`Theory.simplify`):
+every equation the theory forces on a candidate's store instantiates the
+whole candidate, and a candidate whose store the theory refutes
+(`Theory.refutes?`) is dropped. A candidate is also dropped when it is
 covered by an answer already in the table or strictly covered by another
 candidate of the same round; among equivalent candidates one is kept. So
 tables, and the answers the root emits, hold no refuted, duplicate or
@@ -144,8 +146,9 @@ def doneOf (ts : Tables) (g : Goal) : Bool :=
 
 /-! ## Kernel steps with pruning -/
 
-/-- Keep a span unless the theory refutes its store. -/
-def live (T : Theory) (s : Span) : List Span := if T.refutes? s.c then [] else [s]
+/-- Simplify a span by its theory: instantiate it by every equation the
+theory forces, and drop it if the theory refutes it. -/
+def live (T : Theory) (s : Span) : List Span := (T.simplify s).toList
 
 def composeLive (T : Theory) (x y : Span) : List Span :=
   match x.compose y with

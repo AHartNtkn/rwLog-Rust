@@ -124,11 +124,13 @@ def Sound : Prop :=
 /-- Every derivable span is covered by a single emitted answer after
 finitely many steps, unless every ground instance of it carries a store the
 theory refutes (such a span is observably empty, so an engine may prune it).
-Coverage is `Span.Covers`: each ground triple of the span is matched by a
-triple of the answer with the same pair and a store that is no larger. -/
+Coverage is up to refutation (`Span.CoversLive`): each ground triple of the
+span whose store the theory cannot refute is matched by a triple of the answer
+with the same pair and a store that is no larger. An engine may therefore
+instantiate an answer by an equation its theory forces. -/
 def Complete : Prop :=
   ∀ P q, P.WellFormed q → ∀ s, Derives P q s →
-    s.Dead P.theory ∨ ∃ n, ∃ a ∈ R.emitted (R.init P q) n, a.Covers s
+    s.Dead P.theory ∨ ∃ n, ∃ a ∈ R.emitted (R.init P q) n, a.CoversLive P.theory s
 
 /-- If the runtime reports it is done, the answers it emitted cover the
 query: they are equivalent to it under the program's theory
