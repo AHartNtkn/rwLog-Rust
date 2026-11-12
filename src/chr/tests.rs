@@ -686,3 +686,230 @@ fn equality_multiple_bindings_accumulate() {
     assert_eq!(subst.get(1), Some(b), "Var(1) should be bound to b");
     assert_eq!(subst.get(2), Some(c), "Var(2) should be bound to c");
 }
+
+// ============================================================================
+// GUARD ENTAILMENT
+// ============================================================================
+//
+// A CHR guard must be *entailed* by the current store: it has to hold for
+// every instantiation of the open variables in the constraint arguments.
+// Checking it syntactically on TermIds is unsound for `neq` (an unbound
+// variable is syntactically different from `z`, yet may later become `z`).
+
+/// Program: `p(X, Y) <=> <guard on X, Y> | q(X).`
+fn guarded_pair_program(guard: GuardInstr) -> (Arc<ChrProgram>, PredId, PredId) {
+    let mut builder = ChrProgramBuilder::new();
+    let p = builder.pred("p", 2, vec![]);
+    let q = builder.pred("q", 1, vec![]);
+    let x = builder.pat_var(RVar(0));
+    let y = builder.pat_var(RVar(1));
+    let head_p = HeadPat::new(p, vec![x, y]);
+    let body_q = BodyProg::new(vec![BodyInstr::AddChr {
+        pred: q,
+        args: vec![ArgExpr::RVar(RVar(0))].into_boxed_slice(),
+    }]);
+    builder.rule(vec![], vec![head_p], GuardProg::new(vec![guard]), body_q, 0);
+    (builder.build(), p, q)
+}
+
+fn neq_guard() -> GuardInstr {
+    GuardInstr::Neq(GVal::RVar(RVar(0)), GVal::RVar(RVar(1)))
+}
+
+fn eq_guard() -> GuardInstr {
+    GuardInstr::Eq(GVal::RVar(RVar(0)), GVal::RVar(RVar(1)))
+}
+
+/// Introduce `p(a, b)`, solve, and report whether the guarded rule fired.
+fn guarded_rule_fires(guard: GuardInstr, a: TermId, b: TermId, terms: &mut TermStore) -> bool {
+    let (program, p, q) = guarded_pair_program(guard);
+    let mut state = ChrState::new(program);
+    state.introduce(p, &[a, b], terms);
+    assert!(state.solve_to_fixpoint(terms));
+    let fired = alive_args_for_pred(state.store(), q).len() == 1;
+    let kept = alive_args_for_pred(state.store(), p).len() == 1;
+    assert_ne!(fired, kept, "p must be removed exactly when the rule fires");
+    fired
+}
+
+#[test]
+fn neq_guard_is_not_entailed_for_unbound_variable_against_constant() {
+    let (symbols, mut terms) = setup();
+    let v0 = terms.var(0);
+    let z = terms.app0(symbols.intern("z"));
+    assert!(
+        !guarded_rule_fires(neq_guard(), v0, z, &mut terms),
+        "BUG: neq($0, z) fired although $0 may still become z"
+    );
+}
+
+#[test]
+fn neq_guard_is_not_entailed_for_two_distinct_variables() {
+    let (_symbols, mut terms) = setup();
+    let v0 = terms.var(0);
+    let v1 = terms.var(1);
+    assert!(
+        !guarded_rule_fires(neq_guard(), v0, v1, &mut terms),
+        "BUG: neq($0, $1) fired although $0 and $1 may be instantiated equally"
+    );
+}
+
+#[test]
+fn neq_guard_is_not_entailed_for_unifiable_compound_terms() {
+    let (symbols, mut terms) = setup();
+    let s = symbols.intern("s");
+    let z = terms.app0(symbols.intern("z"));
+    let s_v0 = terms.app1(s, terms.var(0));
+    let s_z = terms.app1(s, z);
+    assert!(
+        !guarded_rule_fires(neq_guard(), s_v0, s_z, &mut terms),
+        "BUG: neq((s $0), (s z)) fired although $0 may become z"
+    );
+}
+
+#[test]
+fn neq_guard_is_entailed_for_non_unifiable_terms_with_variables() {
+    let (symbols, mut terms) = setup();
+    let s = symbols.intern("s");
+    let z = terms.app0(symbols.intern("z"));
+    let s_v0 = terms.app1(s, terms.var(0));
+    assert!(
+        guarded_rule_fires(neq_guard(), s_v0, z, &mut terms),
+        "neq((s $0), z) holds for every instantiation of $0"
+    );
+}
+
+#[test]
+fn neq_guard_is_entailed_for_distinct_ground_terms() {
+    let (symbols, mut terms) = setup();
+    let a = terms.app0(symbols.intern("A"));
+    let b = terms.app0(symbols.intern("B"));
+    assert!(guarded_rule_fires(neq_guard(), a, b, &mut terms));
+}
+
+#[test]
+fn neq_guard_is_not_entailed_for_identical_terms() {
+    let (_symbols, mut terms) = setup();
+    let v0 = terms.var(0);
+    assert!(!guarded_rule_fires(neq_guard(), v0, v0, &mut terms));
+}
+
+#[test]
+fn neq_guard_respects_occurs_check() {
+    // $0 and (s $0) can never be equal (finite terms), so neq is entailed.
+    let (symbols, mut terms) = setup();
+    let v0 = terms.var(0);
+    let s_v0 = terms.app1(symbols.intern("s"), v0);
+    assert!(guarded_rule_fires(neq_guard(), v0, s_v0, &mut terms));
+}
+
+#[test]
+fn eq_guard_is_entailed_for_identical_variable() {
+    let (_symbols, mut terms) = setup();
+    let v0 = terms.var(0);
+    assert!(guarded_rule_fires(eq_guard(), v0, v0, &mut terms));
+}
+
+#[test]
+fn eq_guard_is_not_entailed_for_distinct_variables() {
+    let (_symbols, mut terms) = setup();
+    let v0 = terms.var(0);
+    let v1 = terms.var(1);
+    assert!(
+        !guarded_rule_fires(eq_guard(), v0, v1, &mut terms),
+        "BUG: eq($0, $1) fired although $0 and $1 may differ"
+    );
+}
+
+#[test]
+fn eq_guard_is_not_entailed_for_variable_against_constant() {
+    let (symbols, mut terms) = setup();
+    let v0 = terms.var(0);
+    let z = terms.app0(symbols.intern("z"));
+    assert!(!guarded_rule_fires(eq_guard(), v0, z, &mut terms));
+}
+
+/// Program over one variable:
+///   bind(X) <=> X = z.
+///   p(X, Y) <=> <guard> | q(X).
+/// The guard is evaluated against the store's equality substitution.
+fn guard_after_binding_program(guard: GuardInstr) -> (Arc<ChrProgram>, PredId, PredId, PredId) {
+    let mut builder = ChrProgramBuilder::new();
+    let p = builder.pred("p", 2, vec![]);
+    let q = builder.pred("q", 1, vec![]);
+    let bind = builder.pred("bind", 2, vec![]);
+
+    let bx = builder.pat_var(RVar(0));
+    let by = builder.pat_var(RVar(1));
+    let head_bind = HeadPat::new(bind, vec![bx, by]);
+    let body_bind = BodyProg::new(vec![BodyInstr::AddBuiltin {
+        bid: BuiltinId::EQ,
+        args: vec![ArgExpr::RVar(RVar(0)), ArgExpr::RVar(RVar(1))].into_boxed_slice(),
+    }]);
+    builder.rule(vec![], vec![head_bind], GuardProg::empty(), body_bind, 0);
+
+    let x = builder.pat_var(RVar(0));
+    let y = builder.pat_var(RVar(1));
+    let head_p = HeadPat::new(p, vec![x, y]);
+    let body_q = BodyProg::new(vec![BodyInstr::AddChr {
+        pred: q,
+        args: vec![ArgExpr::RVar(RVar(0))].into_boxed_slice(),
+    }]);
+    builder.rule(vec![], vec![head_p], GuardProg::new(vec![guard]), body_q, 0);
+    (builder.build(), p, q, bind)
+}
+
+#[test]
+fn neq_guard_sees_equalities_added_by_rule_bodies() {
+    let (symbols, mut terms) = setup();
+    let (program, p, q, bind) = guard_after_binding_program(neq_guard());
+    let v0 = terms.var(0);
+    let z = terms.app0(symbols.intern("z"));
+    let mut state = ChrState::new(program);
+    // bind($0, z) first, so $0 = z is in the store when p($0, z) is tried.
+    state.introduce(bind, &[v0, z], &terms);
+    state.introduce(p, &[v0, z], &terms);
+    let (state, subst) = state.normalize_owned(&mut terms).expect("consistent store");
+    assert_eq!(subst.and_then(|s| s.get(0)), Some(z));
+    assert!(
+        alive_args_for_pred(state.store(), q).is_empty(),
+        "BUG: neq($0, z) fired although the store already says $0 = z"
+    );
+}
+
+#[test]
+fn eq_guard_sees_equalities_added_by_rule_bodies() {
+    let (symbols, mut terms) = setup();
+    let (program, p, q, bind) = guard_after_binding_program(eq_guard());
+    let v0 = terms.var(0);
+    let z = terms.app0(symbols.intern("z"));
+    let mut state = ChrState::new(program);
+    state.introduce(bind, &[v0, z], &terms);
+    state.introduce(p, &[v0, z], &terms);
+    let (state, _subst) = state.normalize_owned(&mut terms).expect("consistent store");
+    assert_eq!(
+        alive_args_for_pred(state.store(), q).len(),
+        1,
+        "eq($0, z) is entailed once the store says $0 = z"
+    );
+}
+
+#[test]
+fn normalize_reaches_fixpoint_after_body_equalities_instantiate_suspended_constraints() {
+    // p($0, z) is introduced first and suspends (eq($0, z) not yet entailed).
+    // bind($0, z) then adds $0 = z, which instantiates p's argument to
+    // p(z, z). Normalization must wake p up and fire the rule.
+    let (symbols, mut terms) = setup();
+    let (program, p, q, bind) = guard_after_binding_program(eq_guard());
+    let v0 = terms.var(0);
+    let z = terms.app0(symbols.intern("z"));
+    let mut state = ChrState::new(program);
+    state.introduce(p, &[v0, z], &terms);
+    state.introduce(bind, &[v0, z], &terms);
+    let (state, _subst) = state.normalize_owned(&mut terms).expect("consistent store");
+    assert!(
+        alive_args_for_pred(state.store(), p).is_empty(),
+        "BUG: p(z, z) left suspended after normalization although its guard is entailed"
+    );
+    assert_eq!(alive_args_for_pred(state.store(), q).len(), 1);
+}

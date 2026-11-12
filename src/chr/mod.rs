@@ -13,14 +13,22 @@ use std::hash::{Hash, Hasher};
 use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
 use std::sync::Arc;
 
+/// Exact cache key for a pre-normalization store: the program and the
+/// canonical serialization produced by `freeze_chr`.
+#[derive(Clone, PartialEq, Eq, Hash)]
+struct NormalizeKey {
+    program_id: u64,
+    frozen: Vec<u8>,
+}
+
 /// Thread-local cache for normalize_owned results.
 ///
-/// Keyed by a fast hash of the pre-normalization ChrState (alive constraints
-/// and their term arguments). The cache is invalidated when the TermStore
-/// generation changes (indicating a new engine run with a fresh TermStore).
+/// Keyed by the exact canonical form of the pre-normalization ChrState. The
+/// cache is invalidated when the TermStore generation changes (indicating a
+/// new engine run with a fresh TermStore).
 struct NormalizeCache {
     generation: u64,
-    entries: HashMap<u64, Option<(ChrState, Option<Subst>)>>,
+    entries: HashMap<NormalizeKey, Option<(ChrState, Option<Subst>)>>,
 }
 
 impl NormalizeCache {
@@ -326,6 +334,13 @@ impl GuardProg {
         }
     }
 
+    /// Decide whether the guard is *entailed* by the current store.
+    ///
+    /// Constraint arguments may contain open variables, and a guard only
+    /// lets its rule fire when it holds for every instantiation of them that
+    /// is consistent with the store's equalities (`eq_subst`). A guard that
+    /// is not yet entailed leaves the constraint suspended; it is retried
+    /// whenever its arguments become more instantiated.
     pub fn eval(
         &self,
         pats: &PatArena,
@@ -341,14 +356,14 @@ impl GuardProg {
                         Some(pair) => pair,
                         None => return false,
                     };
-                    ta == tb
+                    equality_entailed(eq_subst, ta, tb, terms)
                 }
                 GuardInstr::Neq(a, b) => {
                     let (ta, tb) = match eval_gval_pair(env, *a, *b) {
                         Some(pair) => pair,
                         None => return false,
                     };
-                    ta != tb
+                    !equality_satisfiable(eq_subst, ta, tb, terms)
                 }
                 GuardInstr::TopFunctor { t, f, arity } => {
                     let tt = match eval_gval(env, *t) {
@@ -385,6 +400,35 @@ impl GuardProg {
         }
         true
     }
+}
+
+/// `a = b` is entailed by the store's equalities: unifying `a` and `b` under
+/// `eq_subst` succeeds without binding any variable, so the two terms are
+/// equal under every instantiation consistent with the store.
+pub(crate) fn equality_entailed(eq_subst: &Subst, a: TermId, b: TermId, terms: &TermStore) -> bool {
+    if a == b {
+        return true;
+    }
+    let mut extended = eq_subst.clone();
+    let guard = terms.read_lock();
+    unify_into(&mut extended, a, b, &guard) && extended.len() == eq_subst.len()
+}
+
+/// `a = b` is consistent with the store's equalities: some instantiation
+/// makes them equal. Its negation, `a != b` holding under every
+/// instantiation, is exactly the entailment condition for disequality.
+pub(crate) fn equality_satisfiable(
+    eq_subst: &Subst,
+    a: TermId,
+    b: TermId,
+    terms: &TermStore,
+) -> bool {
+    if a == b {
+        return true;
+    }
+    let mut extended = eq_subst.clone();
+    let guard = terms.read_lock();
+    unify_into(&mut extended, a, b, &guard)
 }
 
 fn eval_gval_pair(env: &RVarEnv, a: GVal, b: GVal) -> Option<(TermId, TermId)> {
@@ -896,7 +940,7 @@ impl ChrProgramBuilder {
         // BuiltinId::EQ: equality — `$x = $y` in rule bodies calls unify_into.
         builtins.builtins.push(Builtin {
             arity: 2,
-            guard: |_eq_subst, _terms, args| args[0] == args[1],
+            guard: |eq_subst, terms, args| equality_entailed(eq_subst, args[0], args[1], terms),
             add: |eq_subst, terms, args| {
                 let guard = terms.read_lock();
                 unify_into(eq_subst, args[0], args[1], &guard)
@@ -965,8 +1009,8 @@ impl ChrProgramBuilder {
         for (idx, draft) in self.rules.into_iter().enumerate() {
             let mut heads = Vec::new();
             let kept_len = draft.kept.len();
-            heads.extend(draft.kept.into_iter());
-            heads.extend(draft.removed.into_iter());
+            heads.extend(draft.kept);
+            heads.extend(draft.removed);
 
             let mut removed_mask = 0u64;
             for i in kept_len..heads.len() {
@@ -2233,31 +2277,42 @@ fn normalize_owned_uncached(
             ChrState::enqueue_above_watermark(sd);
         }
     }
-    if !state.solve_to_fixpoint(terms) {
-        return None;
-    }
-
-    let preds = &state.program.preds;
-    let sd = Arc::make_mut(state.data.as_mut().unwrap());
-    let subst = std::mem::take(&mut sd.eq_subst);
-    if !subst.is_empty() {
+    // Equalities added by rule bodies (`$x = t`) accumulate in `eq_subst`
+    // during a solve. Applying them instantiates the arguments of constraints
+    // that may already have been tried and suspended, so those constraints
+    // must be solved again. Repeat until a solve adds no equality that
+    // changes any argument: only then is the store at a true fixpoint.
+    let mut total = Subst::new();
+    loop {
+        if !state.solve_to_fixpoint(terms) {
+            return None;
+        }
+        let preds = &state.program.preds;
+        let sd = Arc::make_mut(state.data.as_mut().unwrap());
+        let subst = std::mem::take(&mut sd.eq_subst);
+        if subst.is_empty() {
+            break;
+        }
+        for (var, term) in subst.iter() {
+            debug_assert!(
+                total.get(var).is_none(),
+                "variable bound in an earlier round cannot occur in substituted arguments"
+            );
+            total.bind(var, term);
+        }
         let args_changed = ChrState::apply_subst_to_data(sd, &subst, terms);
         sd.store.rebuild_indexes(preds, terms);
-        if args_changed {
-            sd.fixpoint_watermark = 0;
-        } else {
-            sd.fixpoint_watermark = sd.next_cid;
+        if !args_changed {
+            break;
         }
-    } else {
-        sd.fixpoint_watermark = sd.next_cid;
+        ChrState::enqueue_all_alive_in(sd);
     }
+
+    let sd = Arc::make_mut(state.data.as_mut().unwrap());
+    sd.fixpoint_watermark = sd.next_cid;
     sd.agenda.clear();
     sd.recompute_all_args_ground();
-    let subst_opt = if subst.is_empty() {
-        None
-    } else {
-        Some(subst)
-    };
+    let subst_opt = if total.is_empty() { None } else { Some(total) };
     Some((state, subst_opt))
 }
 
@@ -2332,49 +2387,12 @@ impl crate::constraint::ConstraintOps for ChrState {
             return None;
         }
 
-        // Compute a fast hash of the pre-normalization ChrState for cache lookup.
-        // Includes: program_id, alive constraint predicates and their term args,
-        // and fired propagation tokens (for propagation rule correctness).
-        //
-        // Per-constraint hashes are sorted before chaining to ensure order-independence
-        // (the constraint store is a multiset) while avoiding the collision weakness
-        // of commutative addition (where different multisets with the same sum collide).
-        let state_hash = {
-            let d = self.data.as_ref().unwrap();
-            const MUL: u64 = 6364136223846793005;
-
-            // Hash each alive constraint independently, collect into sorted array,
-            // then chain-multiply for a collision-resistant order-independent hash.
-            let mut per_constraint_hashes: SmallVec<[u64; 8]> = SmallVec::new();
-            for inst in d.store.inst.iter() {
-                if inst.alive {
-                    // Per-constraint hash: order-dependent WITHIN a single constraint's
-                    // predicate and args (which is correct — arg order matters).
-                    let mut ch = inst.pred.0 as u64;
-                    for arg in d.store.args(inst) {
-                        ch = ch.wrapping_mul(MUL).wrapping_add(arg.raw() as u64);
-                    }
-                    per_constraint_hashes.push(ch);
-                }
-            }
-            per_constraint_hashes.sort_unstable();
-
-            let mut constraints_hash = 0u64;
-            for ch in per_constraint_hashes {
-                constraints_hash = constraints_hash.wrapping_mul(MUL).wrapping_add(ch);
-            }
-
-            // Final combination: alive_count, sorted constraint hash chain,
-            // per-rule fired token counts, and program_id.
-            let mut h = 0u64;
-            h = h.wrapping_mul(MUL).wrapping_add(d.store.alive_count as u64);
-            h = h.wrapping_mul(MUL).wrapping_add(constraints_hash);
-            // Include fired token counts for propagation-rule correctness.
-            for set in d.tokens.fired.iter() {
-                h = h.wrapping_mul(MUL).wrapping_add(set.len() as u64);
-            }
-            h = h.wrapping_mul(MUL).wrapping_add(self.program.program_id);
-            h
+        // The cache is keyed by the exact canonical form of the store (alive
+        // constraints as a multiset plus propagation history), so a hit is
+        // only ever the result of normalizing an identical store.
+        let key = NormalizeKey {
+            program_id: self.program.program_id,
+            frozen: freeze_chr(&self),
         };
 
         // Check the thread-local cache for a previously computed result.
@@ -2385,7 +2403,7 @@ impl crate::constraint::ConstraintOps for ChrState {
                 c.entries.clear();
                 c.generation = generation;
             }
-            c.entries.get(&state_hash).cloned()
+            c.entries.get(&key).cloned()
         });
 
         if let Some(hit) = cached {
@@ -2399,7 +2417,7 @@ impl crate::constraint::ConstraintOps for ChrState {
         NORMALIZE_CACHE.with(|cache| {
             let mut c = cache.borrow_mut();
             if c.generation == generation {
-                c.entries.insert(state_hash, result.clone());
+                c.entries.insert(key, result.clone());
             }
         });
 

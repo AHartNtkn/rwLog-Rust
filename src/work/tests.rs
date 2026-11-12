@@ -3426,3 +3426,148 @@ fn andgroup_closed_empty_part_terminates_even_if_other_blocks() {
 
     drop(_tx1);
 }
+
+// ============================================================================
+// REPLAY KEY GENERALIZATION MUST KEEP THE RELAXED BOUNDARY
+// ============================================================================
+//
+// Inside a producer iteration for key K0 = (r, no boundaries), a recursive
+// call whose own key carries a real boundary B may be answered from K0's
+// table (K0 is more general). The replayed answers are answers of the bare
+// relation, so B must still be composed onto them by the continuation pipe.
+// Dropping B makes `r` and `r ; id` disagree.
+
+fn parse_atom_nf(parser: &mut crate::parser::Parser, src: &str) -> NF<()> {
+    match parser.parse_rel_body(src).expect("parse atom") {
+        Rel::Atom(nf) => nf.as_ref().clone(),
+        other => panic!("expected atom for {src}, got {other:?}"),
+    }
+}
+
+/// Run a replay-only pipe `left ; Call(0) ; right` against a K0 table seeded
+/// with `seed`, advancing the call from `end_is_back`'s end, and collect
+/// every emitted answer.
+fn replay_generalized_call_answers(
+    left: Option<&str>,
+    right: Option<&str>,
+    seed: &str,
+    advance_back: bool,
+) -> (Vec<NF<()>>, crate::parser::Parser) {
+    let mut parser = crate::parser::Parser::new();
+    let seed_nf = parse_atom_nf(&mut parser, seed);
+    let left_nf = left.map(|s| parse_atom_nf(&mut parser, s));
+    let right_nf = right.map(|s| parse_atom_nf(&mut parser, s));
+    let mut terms = parser.take_terms();
+
+    // A recursive body, so the call is not short-circuited by the
+    // single-atom / flat-or-of-atoms fast paths and reaches tabling.
+    let body = Rel::Or(
+        Arc::new(Rel::Atom(Arc::new(seed_nf.clone()))),
+        Arc::new(Rel::Call(0)),
+    );
+    let env: Env<()> = Env::new().bind(0, Arc::new(body));
+    let bind_id = env.lookup(0).expect("binding").id;
+    let tables: Tables<()> = Tables::new();
+    let k0 = Arc::new(CallKey::new(0, bind_id, None, None));
+    let table = tables.get_or_create(&k0);
+    assert!(table.add_answer(seed_nf));
+
+    let mut pipe = PipeWork::with_env_and_tables(
+        left_nf,
+        factors_from_rels(vec![Arc::new(Rel::Call(0))]),
+        right_nf,
+        env,
+        tables,
+    );
+    pipe.call_mode = super::CallMode::ReplayOnly(k0, 0);
+    pipe.flip = advance_back;
+
+    let mut node = Node::Work(Box::new(Work::Pipe(Box::new(pipe))));
+    let mut answers = Vec::new();
+    for _ in 0..1_000 {
+        match step_node(node, &mut terms) {
+            NodeStep::Emit(nf, rest) => {
+                answers.push(*nf);
+                node = rest;
+            }
+            NodeStep::Continue(rest) => node = rest,
+            NodeStep::Exhausted => {
+                parser.restore_terms(terms);
+                return (answers, parser);
+            }
+        }
+    }
+    panic!("replay pipe did not exhaust");
+}
+
+#[test]
+fn replay_generalized_front_call_keeps_right_boundary() {
+    let (answers, mut parser) =
+        replay_generalized_call_answers(None, Some("$x -> (s $x)"), "z -> z", false);
+    let expected = parse_atom_nf(&mut parser, "z -> (s z)");
+    assert_eq!(
+        answers,
+        vec![expected],
+        "BUG: generalizing the call key to the boundary-free replay key dropped the right boundary"
+    );
+}
+
+#[test]
+fn replay_generalized_back_call_keeps_left_boundary() {
+    let (answers, mut parser) =
+        replay_generalized_call_answers(Some("(s $x) -> $x"), None, "z -> z", true);
+    let expected = parse_atom_nf(&mut parser, "(s z) -> z");
+    assert_eq!(
+        answers,
+        vec![expected],
+        "BUG: generalizing the call key to the boundary-free replay key dropped the left boundary"
+    );
+}
+
+// ============================================================================
+// ANSWER DE-DUPLICATION IS EXACT
+// ============================================================================
+//
+// De-duplication must compare NFs, not their 64-bit hashes: two distinct
+// answers whose hashes collide are both answers.
+
+fn colliding_pair() -> (NF<()>, NF<()>) {
+    let (symbols, terms) = setup();
+    let a = make_rule_nf("A", "B", &symbols, &terms).with_cached_hash_for_test(42);
+    let b = make_rule_nf("C", "D", &symbols, &terms).with_cached_hash_for_test(42);
+    assert_ne!(a, b, "test setup: the two NFs must be distinct");
+    assert_eq!(a.hash_value(), b.hash_value(), "test setup: hashes must collide");
+    (a, b)
+}
+
+#[test]
+fn table_keeps_distinct_answers_with_colliding_hashes() {
+    let (a, b) = colliding_pair();
+    let table: Table<()> = Table::new();
+    assert!(table.add_answer(a.clone()));
+    assert!(
+        table.add_answer(b.clone()),
+        "BUG: a distinct answer was dropped because its hash collided"
+    );
+    assert!(!table.add_answer(a.clone()), "a true duplicate is still dropped");
+    assert_eq!(table.all_answers(), vec![a, b]);
+}
+
+#[test]
+fn meet_pending_keeps_distinct_answers_with_colliding_hashes() {
+    let (a, b) = colliding_pair();
+    let (_, mut terms) = setup();
+    let mut meet: MeetWork<()> = MeetWork::new(Node::Fail, Node::Fail);
+    meet.push_pending_for_test(a.clone());
+    meet.push_pending_for_test(b.clone());
+    meet.push_pending_for_test(a.clone());
+    let mut emitted = Vec::new();
+    while let super::InPlaceStepResult::Emit(nf) = meet.step_in_place(&mut terms) {
+        emitted.push(nf);
+    }
+    assert_eq!(
+        emitted,
+        vec![a, b],
+        "BUG: pending de-duplication must keep b and drop only the repeated a"
+    );
+}

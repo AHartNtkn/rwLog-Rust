@@ -2,7 +2,7 @@ use crate::constraint::ConstraintOps;
 use crate::kernel::meet_nf;
 use crate::nf::NF;
 use crate::term::TermStore;
-use crate::work::U64HashSet;
+use crate::work::NfSet;
 use std::collections::VecDeque;
 
 use crate::queue::{AnswerReceiver, AnswerSink, BlockedOn, QueueWaker, RecvResult, SinkResult};
@@ -24,9 +24,9 @@ struct JoinPart<C> {
 pub struct AndJoiner<C: ConstraintOps> {
     parts: Vec<JoinPart<C>>,
     seen: Vec<Vec<NF<C>>>,
-    seen_sets: Vec<U64HashSet>,
+    seen_sets: Vec<NfSet<C>>,
     pending: VecDeque<NF<C>>,
-    pending_set: U64HashSet,
+    pending_set: NfSet<C>,
     turn: usize,
     waker: QueueWaker,
     last_empty_epoch: Option<u64>,
@@ -45,9 +45,9 @@ impl<C: ConstraintOps> AndJoiner<C> {
         Self {
             parts,
             seen: vec![Vec::new(); count],
-            seen_sets: vec![U64HashSet::default(); count],
+            seen_sets: vec![NfSet::default(); count],
             pending: VecDeque::new(),
-            pending_set: U64HashSet::default(),
+            pending_set: NfSet::default(),
             turn: 0,
             waker,
             last_empty_epoch: None,
@@ -60,7 +60,7 @@ impl<C: ConstraintOps> AndJoiner<C> {
     }
 
     fn push_pending(&mut self, nf: NF<C>) {
-        if self.pending_set.insert(nf.hash_value()) {
+        if self.pending_set.insert(nf.clone()) {
             self.pending.push_back(nf);
         }
     }
@@ -105,7 +105,7 @@ impl<C: ConstraintOps> AndJoiner<C> {
         match sink.push(nf.clone()) {
             SinkResult::Accepted => {
                 let nf = self.pending.pop_front().unwrap();
-                self.pending_set.remove(&nf.hash_value());
+                self.pending_set.remove(&nf);
                 Some(JoinStep::Progress)
             }
             SinkResult::Full => Some(JoinStep::Blocked(
@@ -164,7 +164,7 @@ impl<C: ConstraintOps> AndJoiner<C> {
                 RecvResult::Item(nf) => {
                     self.last_empty_epoch = None;
                     self.turn = (idx + 1) % part_count;
-                    if self.seen_sets[idx].insert(nf.hash_value()) {
+                    if self.seen_sets[idx].insert(nf.clone()) {
                         self.seen[idx].push(nf.clone());
                         self.enqueue_meets(idx, nf, terms);
                     }

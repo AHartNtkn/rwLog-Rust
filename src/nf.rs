@@ -132,6 +132,24 @@ impl<C: Hash> NF<C> {
         self.inner.cached_hash
     }
 
+    /// Copy of this NF whose cached hash is replaced by `hash`, to build two
+    /// distinct NFs with colliding hashes in tests.
+    #[cfg(test)]
+    pub(crate) fn with_cached_hash_for_test(&self, hash: u64) -> Self
+    where
+        C: Clone,
+    {
+        Self {
+            inner: Arc::new(NfInner {
+                match_pats: self.inner.match_pats.clone(),
+                drop_fresh: self.inner.drop_fresh.clone(),
+                build_pats: self.inner.build_pats.clone(),
+                cached_hash: hash,
+                cached_rhs_map: self.inner.cached_rhs_map.clone(),
+            }),
+        }
+    }
+
     /// Create a new NF directly (assumes already normalized).
     pub fn new(
         match_pats: SmallVec<[TermId; 1]>,
@@ -200,6 +218,36 @@ impl<C: ConstraintOps> NF<C> {
     pub fn factor(lhs: TermId, rhs: TermId, constraint: C, terms: &mut TermStore) -> Self {
         factor_tensor(smallvec::smallvec![lhs], smallvec::smallvec![rhs], constraint, terms)
     }
+}
+
+/// Bring an NF's constraint to its normal form.
+///
+/// Rule atoms are factored with the constraint exactly as written. Solving it
+/// can fail (the rule denotes the empty relation, returned as `None`), can
+/// discharge or rewrite constraints, and can bind pattern variables through
+/// equalities; the bindings are applied to both sides before re-factoring.
+pub fn normalize_nf_constraint<C: ConstraintOps>(nf: NF<C>, terms: &mut TermStore) -> Option<NF<C>> {
+    if nf.drop_fresh.constraint.is_empty() {
+        return Some(nf);
+    }
+    let direct = collect_tensor(&nf, terms);
+    let (constraint, subst) = direct.constraint.normalize_owned(terms)?;
+    let (lhs, rhs) = match subst {
+        Some(subst) => (
+            direct
+                .lhs
+                .iter()
+                .map(|&t| crate::subst::apply_subst(t, &subst, terms))
+                .collect(),
+            direct
+                .rhs
+                .iter()
+                .map(|&t| crate::subst::apply_subst(t, &subst, terms))
+                .collect(),
+        ),
+        None => (direct.lhs, direct.rhs),
+    };
+    Some(factor_tensor(lhs, rhs, constraint, terms))
 }
 
 /// Collect a tensor NF into direct-rule form by pushing wiring into RHS vars.

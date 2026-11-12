@@ -511,6 +511,93 @@ rel nat {
     );
 }
 
+const LEFT_RECURSIVE_PROGRAM: &str = r#"
+rel lr {
+    z -> z
+    |
+    lr ; $x -> (s $x)
+}
+"#;
+
+fn left_recursive_first_answers(n: usize) -> Vec<(Shape, Shape)> {
+    (0..n).map(|k| (shape_peano(0), shape_peano(k))).collect()
+}
+
+#[test]
+fn left_recursion_bare_query_enumerates_every_answer() {
+    assert_query_contains(
+        LEFT_RECURSIVE_PROGRAM,
+        "lr",
+        6,
+        &left_recursive_first_answers(6),
+    );
+}
+
+#[test]
+fn left_recursion_bare_query_agrees_with_identity_suffix() {
+    let (bare, _) = collect_query_pairs_with_cap(LEFT_RECURSIVE_PROGRAM, "lr", 6);
+    let (suffixed, _) =
+        collect_query_pairs_with_cap(LEFT_RECURSIVE_PROGRAM, "lr ; [$q -> $q]", 6);
+    let bare: HashSet<_> = bare.into_iter().collect();
+    let suffixed: HashSet<_> = suffixed.into_iter().collect();
+    assert_eq!(bare, suffixed, "R and R ; id must have the same answers");
+}
+
+#[test]
+fn left_recursion_with_output_bound_is_exact() {
+    assert_query_exact(
+        LEFT_RECURSIVE_PROGRAM,
+        "lr ; @(s (s z))",
+        &[(shape_peano(0), shape_peano(2))],
+    );
+}
+
+#[test]
+fn left_recursion_with_input_bound_enumerates_every_answer() {
+    assert_query_contains(
+        LEFT_RECURSIVE_PROGRAM,
+        "@z ; lr",
+        6,
+        &left_recursive_first_answers(6),
+    );
+}
+
+const NAT_PROGRAM: &str = r#"
+rel nat {
+    z -> z
+    |
+    [(s $x) -> $x ; nat ; $y -> (s $y)]
+}
+"#;
+
+// A conjunct that is a single rule bounds the inputs and outputs of the whole
+// conjunction, so `A & R` must restrict R to A's domain and range, exactly as
+// `A ; R` restricts R's input. Otherwise an infinite R is enumerated forever.
+
+#[test]
+fn conjunction_with_disjoint_ground_rule_terminates_empty() {
+    assert_query_exact(NAT_PROGRAM, "[b -> a] & nat", &[]);
+}
+
+#[test]
+fn conjunction_with_disjoint_ground_rule_on_right_terminates_empty() {
+    assert_query_exact(NAT_PROGRAM, "nat & [b -> a]", &[]);
+}
+
+#[test]
+fn conjunction_with_ground_rule_finds_single_answer_and_terminates() {
+    assert_query_exact(
+        NAT_PROGRAM,
+        "[(s z) -> (s z)] & nat",
+        &[(shape_peano(1), shape_peano(1))],
+    );
+}
+
+#[test]
+fn conjunction_with_rule_whose_output_mismatches_terminates_empty() {
+    assert_query_exact(NAT_PROGRAM, "[(s z) -> z] & nat", &[]);
+}
+
 #[test]
 fn mutual_recursion_even_odd_computes_expected_results() {
     assert_query_exact(
@@ -600,6 +687,134 @@ fn nonzero_guard_accepts_successor() {
         EQ_NEQ_PROGRAM,
         "@(s z) ; nonzero_ok",
         &[(shape_peano(1), shape_peano(1))],
+    );
+}
+
+// A guard decides whether a rule fires on the constraint as it stands. On an
+// open variable `(neq $x z)` is not entailed (the variable may still become
+// `z`), so `(nonzero $x)` must stay suspended until `$x` is known.
+
+fn eq_neq_with_nat() -> String {
+    format!(
+        "{EQ_NEQ_PROGRAM}\nrel nat {{\n    z -> z\n    |\n    [(s $x) -> $x ; nat ; $y -> (s $y)]\n}}\n"
+    )
+}
+
+#[test]
+fn nonzero_guard_on_open_variable_rejects_zero_bound_later() {
+    assert_query_exact(EQ_NEQ_PROGRAM, "[$q -> $q] ; nonzero_ok ; @z", &[]);
+}
+
+#[test]
+fn nonzero_guard_on_open_variable_rejects_zero_reached_through_recursion() {
+    assert_query_exact(&eq_neq_with_nat(), "nonzero_ok ; nat ; @z", &[]);
+}
+
+#[test]
+fn nonzero_guard_on_open_variable_accepts_successor_bound_later() {
+    assert_query_exact(
+        EQ_NEQ_PROGRAM,
+        "[$q -> $q] ; nonzero_ok ; @(s z)",
+        &[(shape_peano(1), shape_peano(1))],
+    );
+}
+
+#[test]
+fn nonzero_guard_on_open_variable_enumerates_only_successors() {
+    let (answers, _) = collect_query_pairs_with_cap(&eq_neq_with_nat(), "nonzero_ok ; nat", 4);
+    assert!(
+        !answers.contains(&(shape_peano(0), shape_peano(0))),
+        "BUG: z passed the nonzero guard: {answers:?}"
+    );
+    assert_query_contains(
+        &eq_neq_with_nat(),
+        "nonzero_ok ; nat",
+        4,
+        &[
+            (shape_peano(1), shape_peano(1)),
+            (shape_peano(2), shape_peano(2)),
+            (shape_peano(3), shape_peano(3)),
+        ],
+    );
+}
+
+#[test]
+fn nonzero_guard_on_open_variable_keeps_constraint_suspended() {
+    let mut repl = Repl::new();
+    let file = TempFile::new("nonzero_suspended", EQ_NEQ_PROGRAM);
+    repl.process_input(&format!("load {}", file.path().display()))
+        .expect("load program");
+    let out = repl
+        .process_input("[$q -> $q] ; nonzero_ok")
+        .expect("run query")
+        .expect("query output");
+    assert!(
+        out.contains("(nonzero $0)"),
+        "BUG: (nonzero $0) was discharged on an open variable: {out}"
+    );
+}
+
+#[test]
+fn disequality_constraint_on_open_pair_rejects_equal_pair_bound_later() {
+    assert_query_exact(EQ_NEQ_PROGRAM, "[$q -> $q] ; different ; @(pair z z)", &[]);
+}
+
+// A rule's own constraint is solved when the rule is read, so a rule whose
+// constraint is unsatisfiable denotes the empty relation even when it is
+// queried on its own, without any composition.
+
+#[test]
+fn bare_rule_with_unsatisfiable_constraint_has_no_answers() {
+    assert_query_exact(EQ_NEQ_PROGRAM, "$x { (neq $x $x) } -> $x", &[]);
+}
+
+#[test]
+fn bare_rule_with_contradictory_constraints_has_no_answers() {
+    assert_query_exact(
+        EQ_NEQ_PROGRAM,
+        "(pair $x $y) { (eq $x $y), (neq $x $y) } -> $x",
+        &[],
+    );
+}
+
+#[test]
+fn relation_with_unsatisfiable_rule_constraint_has_no_answers() {
+    let program = format!("{EQ_NEQ_PROGRAM}\nrel never {{\n    $x {{ (neq $x $x) }} -> $x\n}}\n");
+    assert_query_exact(&program, "never", &[]);
+}
+
+#[test]
+fn bare_rule_constraint_is_reported_in_solved_form() {
+    // (neq (s $x) z) is solved to true, so the answer carries no constraint.
+    let mut repl = Repl::new();
+    let file = TempFile::new("solved_form", EQ_NEQ_PROGRAM);
+    repl.process_input(&format!("load {}", file.path().display()))
+        .expect("load program");
+    let out = repl
+        .process_input("(s $x) { (neq (s $x) z) } -> $x")
+        .expect("run query")
+        .expect("query output");
+    assert!(
+        out.contains("1. (s $0) -> $0"),
+        "BUG: the rule's constraint was not solved: {out}"
+    );
+}
+
+#[test]
+fn bare_rule_constraint_equalities_bind_rule_patterns() {
+    let program = r#"
+theory pin {
+    constraint pin/1
+    (pin $x) <=> $x = z.
+}
+"#;
+    assert_query_exact(
+        program,
+        "(pair $x $y) { (pin $x) } -> $y",
+        &[(
+            shape_app("pair", vec![shape_peano(0), shape_var(0)]),
+            shape_var(0),
+        )],
     );
 }
 

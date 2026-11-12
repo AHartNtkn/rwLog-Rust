@@ -10,7 +10,7 @@ use rustc_hash::FxHashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
-use super::{CallMode, PipeWork, U64HashSet, Work, WorkStep};
+use super::{CallMode, NfSet, PipeWork, Work, WorkStep};
 
 // FixWork: Call-context tabling for recursive calls
 // ============================================================================
@@ -150,7 +150,7 @@ pub struct ProducerSpec<C: ConstraintOps> {
 #[derive(Debug)]
 pub(crate) struct TableAnswers<C: ConstraintOps> {
     answers: Vec<NF<C>>,
-    seen: U64HashSet,
+    seen: NfSet<C>,
     waker: QueueWaker,
 }
 
@@ -186,7 +186,7 @@ impl<C: ConstraintOps> Table<C> {
         Self {
             answers: FastLock::new(TableAnswers {
                 answers: Vec::new(),
-                seen: U64HashSet::default(),
+                seen: NfSet::default(),
                 waker,
             }),
             producer: FastLock::new(TableProducer {
@@ -203,7 +203,7 @@ impl<C: ConstraintOps> Table<C> {
     /// Add an answer to the table.
     pub fn add_answer(&self, nf: NF<C>) -> bool {
         let mut answers = self.answers.lock();
-        if answers.seen.insert(nf.hash_value()) {
+        if answers.seen.insert(nf.clone()) {
             answers.answers.push(nf);
             answers.waker.wake();
             true

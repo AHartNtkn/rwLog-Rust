@@ -14,27 +14,12 @@ use crate::term::{Term, TermId, TermStore};
 use smallvec::SmallVec;
 use std::sync::Arc;
 
-/// A no-op hasher that passes through a pre-hashed u64 value.
+/// Exact set of NFs, used to de-duplicate answers.
 ///
-/// Used with `HashSet<u64>` where the u64 keys are already well-distributed
-/// hash values (NF::hash_value()). Avoids double-hashing overhead.
-#[derive(Default)]
-pub(crate) struct IdentityHasher(u64);
-
-impl std::hash::Hasher for IdentityHasher {
-    fn finish(&self) -> u64 {
-        self.0
-    }
-    fn write(&mut self, _bytes: &[u8]) {
-        // Not used for u64 keys
-    }
-    fn write_u64(&mut self, i: u64) {
-        self.0 = i;
-    }
-}
-
-pub(crate) type IdentityBuildHasher = std::hash::BuildHasherDefault<IdentityHasher>;
-pub(crate) type U64HashSet = std::collections::HashSet<u64, IdentityBuildHasher>;
+/// Membership is decided by `NF`'s structural equality. The NF's cached hash
+/// only picks the bucket, so two distinct NFs whose hashes collide are both
+/// kept.
+pub(crate) type NfSet<C> = rustc_hash::FxHashSet<NF<C>>;
 
 mod and_group;
 mod bind;
@@ -136,25 +121,69 @@ fn flatten_and_parts<C: ConstraintOps>(rel: Arc<Rel<C>>) -> Vec<Arc<Rel<C>>> {
     parts
 }
 
+/// Wrap `rel` as `prefixes ; rel ; suffixes`.
 fn wrap_rel_with_atoms<C: ConstraintOps>(
     rel: Arc<Rel<C>>,
-    prefix: Option<NF<C>>,
-    suffix: Option<NF<C>>,
+    prefixes: &[NF<C>],
+    suffixes: &[NF<C>],
 ) -> Rel<C> {
-    if prefix.is_none() && suffix.is_none() {
+    if prefixes.is_empty() && suffixes.is_empty() {
         return rel.as_ref().clone();
     }
 
-    let mut factors: Vec<Arc<Rel<C>>> = Vec::new();
-    if let Some(nf) = prefix {
-        factors.push(Arc::new(Rel::Atom(Arc::new(nf))));
-    }
+    let atom = |nf: &NF<C>| Arc::new(Rel::Atom(Arc::new(nf.clone())));
+    let mut factors: Vec<Arc<Rel<C>>> = Vec::with_capacity(prefixes.len() + 1 + suffixes.len());
+    factors.extend(prefixes.iter().map(atom));
     factors.push(rel);
-    if let Some(nf) = suffix {
-        factors.push(Arc::new(Rel::Atom(Arc::new(nf))));
-    }
-
+    factors.extend(suffixes.iter().map(atom));
     Rel::Seq(Arc::from(factors))
+}
+
+/// Partial identity on the terms matched by `pats`, with no constraint.
+/// `pats` is one side of a normalized NF, so its variables are exactly
+/// `0..arity`.
+///
+/// Returns `None` when the filter accepts everything (all patterns are
+/// distinct variables), since applying it would be a no-op.
+fn pattern_shape_filter<C: ConstraintOps>(
+    pats: &SmallVec<[TermId; 1]>,
+    arity: u32,
+) -> Option<NF<C>> {
+    let mut seen: SmallVec<[u32; 4]> = SmallVec::new();
+    let trivial = pats.iter().all(|t| {
+        t.is_inline_var() && {
+            let idx = t.inline_var_index();
+            let fresh = !seen.contains(&idx);
+            seen.push(idx);
+            fresh
+        }
+    });
+    if trivial {
+        return None;
+    }
+    Some(NF::new(pats.clone(), DropFresh::identity(arity), pats.clone()))
+}
+
+/// Input and output shape filters implied by the single-rule conjuncts of an
+/// And.
+///
+/// Every answer of `A & R` is an answer of the rule `A`, so its input matches
+/// A's match patterns and its output matches A's build patterns. Restricting
+/// every conjunct to those shapes (`dom(A) ; R ; ran(A)`) leaves the
+/// intersection unchanged, and lets a conjunct like a recursive call prune by
+/// the shapes instead of being enumerated in full. The filters drop A's
+/// constraint: a constraint-free filter is weaker than A, so it is still
+/// implied by A and keeps the restriction exact.
+fn conjunct_shape_filters<C: ConstraintOps>(parts: &[Arc<Rel<C>>]) -> (Vec<NF<C>>, Vec<NF<C>>) {
+    let mut domain = Vec::new();
+    let mut range = Vec::new();
+    for part in parts {
+        if let Rel::Atom(nf) = part.as_ref() {
+            domain.extend(pattern_shape_filter(&nf.match_pats, nf.drop_fresh.in_arity));
+            range.extend(pattern_shape_filter(&nf.build_pats, nf.drop_fresh.out_arity));
+        }
+    }
+    (domain, range)
 }
 
 /// Convert a Rel to a Node tree with the given environment and tables.
@@ -169,21 +198,14 @@ pub fn rel_to_node<C: ConstraintOps>(rel: &Rel<C>, env: &Env<C>, tables: &Tables
             Box::new(rel_to_node(b, env, tables)),
         ),
 
-        Rel::And(a, b) => {
-            let mut parts = Vec::new();
-            collect_and_parts(a.clone(), &mut parts);
-            collect_and_parts(b.clone(), &mut parts);
-            if parts.is_empty() {
-                return Node::Fail;
-            }
-            if parts.len() == 1 {
-                return rel_to_node(parts[0].as_ref(), env, tables);
-            }
-            let nodes = parts
-                .into_iter()
-                .map(|part| rel_to_node(part.as_ref(), env, tables))
-                .collect();
-            Node::Work(Box::new(Work::AndGroup(AndGroup::new(nodes))))
+        // And is evaluated by the pipe (`PipeWork::advance_and`), which
+        // owns the boundary and conjunct-shape handling for conjunctions.
+        Rel::And(_, _) => {
+            let factors = Factors::from_seq(Arc::from(vec![Arc::new(rel.clone())]));
+            let mut pipe = PipeWork::with_mid(factors);
+            pipe.env = env.clone();
+            pipe.tables = tables.clone();
+            Node::Work(Box::new(Work::Pipe(Box::new(pipe))))
         }
 
         Rel::Seq(factors) => {

@@ -17,7 +17,7 @@ use crate::chr::{
     GuardInstr, GuardProg, HeadPat, PatId, PredId, RVar,
 };
 use crate::constraint::ConstraintOps;
-use crate::nf::NF;
+use crate::nf::{normalize_nf_constraint, NF};
 use crate::rel::{Rel, RelId};
 use crate::symbol::SymbolStore;
 use crate::term::{TermId, TermStore};
@@ -560,7 +560,18 @@ impl<B: ConstraintBuilder> Parser<B> {
         }
     }
 
-    /// Parse a rule: `lhs -> rhs`
+    /// The relation denoted by a parsed rule: its NF with the constraint
+    /// solved, or `Zero` when the constraint is unsatisfiable.
+    fn rule_rel(&mut self, rule: NF<B::Constraint>) -> Rel<B::Constraint> {
+        match normalize_nf_constraint(rule, &mut self.terms) {
+            Some(nf) => Rel::Atom(Arc::new(nf)),
+            None => Rel::Zero,
+        }
+    }
+
+    /// Parse a rule `lhs -> rhs` into its factored NF, with the constraint
+    /// exactly as written (not yet solved). Rules inside relation bodies go
+    /// through `rule_rel`, which also solves the constraint.
     pub fn parse_rule(&mut self, input: &str) -> Result<NF<B::Constraint>, ParseError> {
         let mut pos = 0;
         let rule = self.parse_rule_inner(input, &mut pos)?;
@@ -887,7 +898,7 @@ impl<B: ConstraintBuilder> Parser<B> {
         } else if ch == '$' || ch == '(' {
             // Rule starting with term
             let rule = self.parse_rule_inner(input, pos)?;
-            Ok(Rel::Atom(Arc::new(rule)))
+            Ok(self.rule_rel(rule))
         } else if ch.is_ascii_lowercase() {
             // Could be atom (start of rule), relation call, or macro call.
             let start_pos = *pos;
@@ -902,7 +913,7 @@ impl<B: ConstraintBuilder> Parser<B> {
                 // It's a rule: restore position and parse as rule
                 *pos = start_pos;
                 let rule = self.parse_rule_inner(input, pos)?;
-                Ok(Rel::Atom(Arc::new(rule)))
+                Ok(self.rule_rel(rule))
             } else if *pos < input.len() && peek_char(input, *pos) == Some('(') {
                 // Macro call: name(arg1, arg2, ...)
                 self.parse_macro_call(input, pos, &name, start_pos)
@@ -1500,20 +1511,16 @@ impl<B: ConstraintBuilder> Parser<B> {
                 (ParamKind::Term, MacroArg::Term(actual_tid)) => {
                     if let Some(Some(pattern)) = eq.term_patterns.get(i) {
                         // Match pattern against actual term.
-                        match match_terms_combined(*pattern, *actual_tid, &self.terms) {
-                            Some(subst) => {
-                                // Merge into combined_term_subst.
-                                for (var, binding) in subst.iter() {
-                                    if let Some(existing) = combined_term_subst.get(var) {
-                                        if existing != binding {
-                                            return None; // Conflicting bindings.
-                                        }
-                                    } else {
-                                        combined_term_subst.bind(var, binding);
-                                    }
+                        let subst = match_terms_combined(*pattern, *actual_tid, &self.terms)?;
+                        // Merge into combined_term_subst.
+                        for (var, binding) in subst.iter() {
+                            if let Some(existing) = combined_term_subst.get(var) {
+                                if existing != binding {
+                                    return None; // Conflicting bindings.
                                 }
+                            } else {
+                                combined_term_subst.bind(var, binding);
                             }
-                            None => return None,
                         }
                     } else {
                         return None;

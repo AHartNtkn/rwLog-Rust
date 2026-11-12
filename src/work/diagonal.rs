@@ -4,7 +4,7 @@ use crate::node::{step_node, Node, NodeStep};
 use crate::term::TermStore;
 use std::collections::VecDeque;
 
-use super::{InPlaceStepResult, U64HashSet, Work, WorkStep};
+use super::{InPlaceStepResult, NfSet, Work, WorkStep};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum JoinOutcome {
@@ -62,10 +62,10 @@ pub(crate) struct DiagonalJoin<C: ConstraintOps, S: JoinStrategy<C> + Default> {
     pub(crate) right: Box<Node<C>>,
     pub(crate) seen_l: Vec<NF<C>>,
     pub(crate) seen_r: Vec<NF<C>>,
-    seen_l_set: U64HashSet,
-    seen_r_set: U64HashSet,
+    seen_l_set: NfSet<C>,
+    seen_r_set: NfSet<C>,
     pending: VecDeque<NF<C>>,
-    pending_set: U64HashSet,
+    pending_set: NfSet<C>,
     pub(crate) flip: bool,
     pub(crate) strategy: S,
 }
@@ -77,10 +77,10 @@ impl<C: ConstraintOps, S: JoinStrategy<C> + Default> DiagonalJoin<C, S> {
             right: Box::new(right),
             seen_l: Vec::new(),
             seen_r: Vec::new(),
-            seen_l_set: U64HashSet::default(),
-            seen_r_set: U64HashSet::default(),
+            seen_l_set: NfSet::default(),
+            seen_r_set: NfSet::default(),
             pending: VecDeque::new(),
-            pending_set: U64HashSet::default(),
+            pending_set: NfSet::default(),
             flip: false,
             strategy,
         }
@@ -95,14 +95,8 @@ impl<C: ConstraintOps, S: JoinStrategy<C> + Default> DiagonalJoin<C, S> {
         seen_r: Vec<NF<C>>,
         strategy: S,
     ) -> Self {
-        let mut seen_l_set = U64HashSet::default();
-        for nf in &seen_l {
-            seen_l_set.insert(nf.hash_value());
-        }
-        let mut seen_r_set = U64HashSet::default();
-        for nf in &seen_r {
-            seen_r_set.insert(nf.hash_value());
-        }
+        let seen_l_set: NfSet<C> = seen_l.iter().cloned().collect();
+        let seen_r_set: NfSet<C> = seen_r.iter().cloned().collect();
         Self {
             left: Box::new(left),
             right: Box::new(right),
@@ -111,7 +105,7 @@ impl<C: ConstraintOps, S: JoinStrategy<C> + Default> DiagonalJoin<C, S> {
             seen_l_set,
             seen_r_set,
             pending: VecDeque::new(),
-            pending_set: U64HashSet::default(),
+            pending_set: NfSet::default(),
             flip: false,
             strategy,
         }
@@ -125,15 +119,14 @@ impl<C: ConstraintOps, S: JoinStrategy<C> + Default> DiagonalJoin<C, S> {
     }
 
     pub(crate) fn push_pending(&mut self, nf: NF<C>) {
-        let hash = nf.hash_value();
-        if self.pending_set.insert(hash) {
+        if self.pending_set.insert(nf.clone()) {
             self.pending.push_back(nf);
         }
     }
 
     pub(crate) fn pop_pending(&mut self) -> Option<NF<C>> {
         let nf = self.pending.pop_front()?;
-        self.pending_set.remove(&nf.hash_value());
+        self.pending_set.remove(&nf);
         Some(nf)
     }
 
@@ -227,11 +220,10 @@ impl<C: ConstraintOps, S: JoinStrategy<C> + Default> DiagonalJoin<C, S> {
         match step_node(current, terms) {
             NodeStep::Emit(nf, rest) => {
                 let nf_val = *nf;
-                let hash = nf_val.hash_value();
                 match side {
                     JoinSide::Left => {
                         *self.left = rest;
-                        if self.seen_l_set.insert(hash) {
+                        if self.seen_l_set.insert(nf_val.clone()) {
                             let idx = self.seen_l.len();
                             self.seen_l.push(nf_val);
                             self.with_strategy_mut(|strategy, join| {
@@ -242,7 +234,7 @@ impl<C: ConstraintOps, S: JoinStrategy<C> + Default> DiagonalJoin<C, S> {
                     }
                     JoinSide::Right => {
                         *self.right = rest;
-                        if self.seen_r_set.insert(hash) {
+                        if self.seen_r_set.insert(nf_val.clone()) {
                             let idx = self.seen_r.len();
                             self.seen_r.push(nf_val);
                             self.with_strategy_mut(|strategy, join| {

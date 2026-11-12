@@ -12,7 +12,7 @@ use smallvec::SmallVec;
 use std::sync::Arc;
 
 use super::{
-    build_child0_tag, build_root_tag, flatten_and_parts, match_child0_tag, match_root_tag,
+    build_child0_tag, build_root_tag, conjunct_shape_filters, flatten_and_parts, match_child0_tag, match_root_tag,
     nf_domain_filter, nf_left_prefix, nf_range_filter, nf_right_suffix, nf_rwl_iso, nf_rwr_iso,
     node_from_answers, tags_compatible,
     wrap_node_with_prefix_suffix, wrap_rel_with_atoms, AndGroup, BindWork, CallKey, CallMode,
@@ -740,10 +740,13 @@ impl<C: ConstraintOps> PipeWork<C> {
         left_iso: Option<NF<C>>,
         right_iso: Option<NF<C>>,
     ) -> AndGroup<C> {
+        let (domain_filters, range_filters) = conjunct_shape_filters(&parts);
+        let prefixes: Vec<NF<C>> = left_iso.into_iter().chain(domain_filters).collect();
+        let suffixes: Vec<NF<C>> = range_filters.into_iter().chain(right_iso).collect();
         let nodes = parts
             .into_iter()
             .map(|part| {
-                let wrapped = wrap_rel_with_atoms(part, left_iso.clone(), right_iso.clone());
+                let wrapped = wrap_rel_with_atoms(part, &prefixes, &suffixes);
                 let mut part_pipe =
                     PipeWork::from_rel(wrapped, self.env.clone(), self.tables.clone());
                 part_pipe.call_mode = self.call_mode.clone();
@@ -1320,8 +1323,9 @@ impl<C: ConstraintOps> PipeWork<C> {
         ));
         if let CallMode::ReplayOnly(replay_key, watermark) = &self.call_mode {
             // Subsumption: if the replay_key is strictly more general (fewer
-            // boundaries) for the same relation, use it as our key. The pipe's
-            // own boundaries will filter answers, so this is sound. This avoids
+            // boundaries) for the same relation, use it as our key. The pipe
+            // keeps the relaxed boundary (see `call_continuation`) and composes
+            // it onto the replayed answers, so this is sound. This avoids
             // creating redundant inner tables entirely.
             // Guard: only attempt generalization when rel IDs match (cheap int
             // comparison) but keys differ. For mutual recursion (even/odd),
@@ -1338,14 +1342,7 @@ impl<C: ConstraintOps> PipeWork<C> {
                 };
                 let snapshot = table.answers_from(*watermark);
                 let replay_node = node_from_answers(snapshot);
-                let mut pipe = self.clone_for_child();
-                if use_left {
-                    pipe.left = None;
-                }
-                if use_right {
-                    pipe.right = None;
-                }
-
+                let pipe = self.call_continuation(&key, use_left, use_right);
                 return Self::bind_or_compose_at_end(end, replay_node, pipe, true, terms);
             }
         }
@@ -1362,6 +1359,7 @@ impl<C: ConstraintOps> PipeWork<C> {
         let snapshot_len = snapshot.len();
 
         let replay_node = node_from_answers(snapshot);
+        let pipe = self.call_continuation(&key, use_left, use_right);
         let fix = FixWork::new(key, table, snapshot_len, self.tables.clone());
         let fix_node = Node::Work(Box::new(Work::Fix(fix)));
 
@@ -1370,15 +1368,27 @@ impl<C: ConstraintOps> PipeWork<C> {
             _ => Node::Or(Box::new(replay_node), Box::new(fix_node)),
         };
 
+        Self::bind_or_compose_at_end(end, gen_node, pipe, true, terms)
+    }
+
+    /// Build the pipe that continues after a call answered from the table `key`.
+    ///
+    /// A pipe boundary participating in the call (`use_left` / `use_right`) is
+    /// handed over to the call only when `key` carries it: the table's answers
+    /// then already include it. When `key` was generalized to a key without
+    /// that boundary, the table's answers do not include it, so the pipe keeps
+    /// the boundary and composes it onto every answer.
+    fn call_continuation(&self, key: &CallKey<C>, use_left: bool, use_right: bool) -> Self {
         let mut pipe = self.clone_for_child();
-        if use_left {
+        if use_left && key.left.is_some() {
+            debug_assert!(key.left == self.left);
             pipe.left = None;
         }
-        if use_right {
+        if use_right && key.right.is_some() {
+            debug_assert!(key.right == self.right);
             pipe.right = None;
         }
-
-        Self::bind_or_compose_at_end(end, gen_node, pipe, true, terms)
+        pipe
     }
 }
 

@@ -30,6 +30,11 @@ theory ranges {
     (lt z (s $y)) <=> .
     (lt (s $x) (s $y)) <=> (lt $x $y).
     (lt $x z) <=> fail.
+    # Strict order: irreflexive and asymmetric. Without these, a store such
+    # as (lt $x $y), (lt $y $x) is reported as an answer although no
+    # numbers satisfy it.
+    (lt $x $x) <=> fail.
+    (lt $x $y), (lt $y $x) <=> fail.
 
     # Membership: between X RANGE
     (between $x (range (closed $lo) (closed $hi))) <=> (leq $lo $x), (leq $x $hi).
