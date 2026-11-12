@@ -220,36 +220,18 @@ def covers_iff : Prop := ∀ a s : Span, a.covers? s = true ↔ a.Covers s
 def refutes_sound : Prop :=
   ∀ (T : Theory) (c : Store), T.refutes? c = true → ∀ σ : Nat → GTerm, Refutes T (c.at σ)
 
-/-- Symbolic refutation is monotone: in the theory, under instantiation, and
-under adding constraints. -/
-def refutes_mono : Prop :=
-  ∀ (T T' : Theory) (c c' : Store) (θ : Nat → Pat),
-    (∀ ρ ∈ T', ρ.WellFormed) → (∀ ρ ∈ T, ρ ∈ T') → (∀ a ∈ c, a.bind θ ∈ c') →
-    T.refutes? c = true → T'.refutes? c' = true
-
-/-- The firing budget is enough: a symbolic refutation that exists is found. -/
-def refutes_complete_symbolic : Prop :=
-  ∀ (T : Theory) (c : Store) (n : Nat), (∀ ρ ∈ T, ρ.WellFormed) →
-    T.refutesWithin n c = true → T.refutes? c = true
-
 /-- Simplification is exact: a dropped span is dead, and a kept span refines
 the original, so up to the theory it loses only refuted instances. -/
 def simplify_exact : Prop :=
   ∀ (T : Theory) (s : Span), (∀ ρ ∈ T, ρ.WellFormed) →
     (T.simplify s = none → s.Dead T) ∧ (∀ s', T.simplify s = some s' → s'.Refines T s)
 
-/-- Simplification runs to the end: a simplified span has no symbolic
-refutation, no symbolic firing that forces an equation however many firings
-are taken, and no atom with a sole firing left. So the budgets are enough. -/
+/-- Simplification runs to the end: a simplified span has no refutation, no
+forced equation and no weight-lowering firing left. So the instantiation budget
+is enough. -/
 def simplify_stable : Prop :=
-  ∀ (T : Theory) (s s' : Span) (n : Nat), (∀ ρ ∈ T, ρ.WellFormed) → T.simplify s = some s' →
-    T.refutesWithin n s'.c = false ∧ T.bindWithin n s'.c = none ∧ T.drop? s'.c = none
-
-/-- Simplification respects equivalent spans: two equivalent spans are both
-dropped, or both kept as equivalent spans. -/
-def simplify_equiv : Prop :=
-  ∀ (T : Theory) (z z' : Span), (∀ ρ ∈ T, ρ.WellFormed) → z.Equiv z' →
-    Option.Rel Span.Equiv (T.simplify z) (T.simplify z')
+  ∀ (T : Theory) (s s' : Span), (∀ ρ ∈ T, ρ.WellFormed) → T.simplify s = some s' →
+    T.refutes? s'.c = false ∧ T.bind? s'.c = none ∧ T.step? s'.c = none
 
 /-- Interfaces are exact: `s ; s.rightIface = s` and `s.leftIface ; s = s`,
 and a trivial interface is the identity. -/

@@ -1,5 +1,5 @@
 /-
-# One-way matching, coverage and unifiability
+# One-way matching and coverage
 
 * `matchInto p t θ` extends the partial substitution `θ` so that `p`
   instantiated by it is `t`. Only the variables of `p` are bound; the
@@ -9,9 +9,6 @@
 * `Span.covers? a s` decides whether `a` covers `s` (`Span.Covers`): match
   `a`'s two sides onto `s`'s and every constraint of `a` onto some constraint
   of `s`.
-* `unifiable a b` decides whether two patterns over one namespace have a
-  common instance; `unifiableApart a b` does so for patterns from separate
-  namespaces.
 
 The specifications these must meet are stated in `Rungs/R001/Spec.lean`
 (`Kernel` obligations).
@@ -51,17 +48,5 @@ def Span.covers? (a s : Span) : Bool :=
   match (matchInto a.l s.l []).bind (matchInto a.r s.r) with
   | none => false
   | some θ => !(matchAll a.c s.c θ).isEmpty
-
-/-- Two patterns over one namespace have a common instance. -/
-def unifiable (a b : Pat) : Bool := (solve [(a, b)]).isSome
-
-/-- Two patterns from separate namespaces have a common instance: their
-variables are renamed apart first. -/
-def unifiableApart (a b : Pat) : Bool := (solve [(Pat.left a, Pat.right b)]).isSome
-
-/-- No two members of the list have a common instance. -/
-def pairwiseApart : List Pat → Bool
-  | [] => true
-  | a :: as => as.all (fun b => !unifiable a b) && pairwiseApart as
 
 end RwLog

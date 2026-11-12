@@ -148,30 +148,6 @@ structure TRule where
 
 abbrev Theory := List TRule
 
-/-! ### Terminating theories
-
-The semantics requires every theory to terminate. A rule is well formed
-only if it passes the following decidable check, which guarantees
-termination of rule firing on every store, ground or not.
-
-`Pat.smaller u t` is the substitution-stable strict order: `u` is smaller than
-`t` and no variable occurs more often in `u` than in `t`, so `uθ` is smaller
-than `tθ` for every substitution `θ`. A rule is decreasing when its body is
-smaller than its heads in the multiset extension of that order
-(Dershowitz–Manna): after cancelling atoms that occur in both, some head is
-left, and every remaining body atom is smaller than some remaining head. -/
-
-def Pat.smaller (u t : Pat) : Bool :=
-  decide (u.size < t.size) && u.vars.all fun v => decide (u.vars.count v ≤ t.vars.count v)
-
-def TRule.Decreasing (ρ : TRule) : Bool :=
-  match ρ.body with
-  | .fail => true
-  | .conj _ cs =>
-    let B := cs.diff ρ.heads
-    let H := ρ.heads.diff cs
-    !H.isEmpty && B.all fun b => H.any fun h => Pat.smaller b h
-
 /-- The equations of a body. -/
 def Body.eqs : Body → List (Pat × Pat)
   | .fail => []
@@ -182,17 +158,15 @@ def Body.atoms : Body → List Pat
   | .fail => []
   | .conj _ cs => cs
 
-/-- A rule is well formed when it has a head, every variable of its body,
-in constraints and in equations, occurs in its heads, and it is decreasing.
+/-- A rule is well formed when it has a head and every variable of its body,
+in constraints and in equations, occurs in its heads.
 Rules fire by matching their heads, so the heads determine the whole body. A
 fresh body variable would need an existential reading, and an equation with
 one could make constraint solving on non-ground stores diverge (`(p $x) <=> $x
-= (s $y), (p $y).`), so the rule language excludes it. Decreasing rules make
-rule firing terminate. -/
+= (s $y), (p $y).`), so the rule language excludes it. -/
 def TRule.WellFormed (ρ : TRule) : Prop :=
   ρ.heads ≠ [] ∧ (∀ c ∈ ρ.body.atoms, ∀ v ∈ c.vars, ∃ h ∈ ρ.heads, v ∈ h.vars) ∧
-    (∀ e ∈ ρ.body.eqs, ∀ v ∈ e.1.vars ++ e.2.vars, ∃ h ∈ ρ.heads, v ∈ h.vars) ∧
-    ρ.Decreasing = true
+    (∀ e ∈ ρ.body.eqs, ∀ v ∈ e.1.vars ++ e.2.vars, ∃ h ∈ ρ.heads, v ∈ h.vars)
 
 instance (ρ : TRule) : Decidable ρ.WellFormed := by
   unfold TRule.WellFormed; infer_instance

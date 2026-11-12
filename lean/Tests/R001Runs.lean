@@ -86,8 +86,9 @@ def zs : List String :=
 -- Pruning inside a structure: `no_c` refutes once a `(c _)` appears anywhere.
 #guard runR001 ⟨[], noC⟩ (.seq (.rw (v 0) (v 0) [ap "no_c" [v 0]]) (.at_ (ap "a" [c "k", ap "c" [c "z"]]))) 20 ==
   ([], true)
+-- `(no_c (a k $1))` is replaced by its body; `(no_c k)` then fires away.
 #guard runR001 ⟨[], noC⟩ (.seq (.rw (v 0) (v 0) [ap "no_c" [v 0]]) (.at_ (ap "a" [c "k", v 0]))) 20 ==
-  (["(a k $1) { (no_c (a k $1)) } -> (a k $1)"], true)
+  (["(a k $1) { (no_c $1) } -> (a k $1)"], true)
 
 /-! ## Conformance case 5 and P1.3: a finite conjunct restricts the other -/
 
@@ -127,9 +128,8 @@ recursive table closes even while the pushes keep making new boundaries. -/
 
 An equation is not a constraint: when its rule fires on a span, the span is
 instantiated by the equation's most general unifier, and refuted when there
-is none. An atom that only one single-head rule without body constraints can
-fire on is deleted, so `(pin z)` leaves the store; an atom another rule could
-still use stays. -/
+is none. A firing replaces the matched atoms by the rule's body, so `(pin z)`
+leaves the store; a rule keeps an atom by writing it back. -/
 
 /-- `theory pin { (pin $x) <=> $x = z. }` from conformance case 4. -/
 def pinT : Theory := [rule [ap "pin" [v 0]] (.conj [(v 0, c "z")] [])]
@@ -168,28 +168,27 @@ theorem wrapT_wellFormed : ∀ ρ ∈ wrapT, ρ.WellFormed := by decide
 -- An equation with no finite solution refutes the span.
 #guard runR001 ⟨[], cycT⟩ (.rw (v 0) (v 0) [ap "cyc" [v 0]]) 20 == ([], true)
 -- An equation reached after an earlier firing still instantiates the span.
--- `(wrap (f z))` stays: its rule adds a constraint.
 #guard runR001 ⟨[], wrapT⟩ (.rw (v 0) (v 0) [ap "wrap" [ap "f" [v 0]]]) 20 ==
-  (["z { (wrap (f z)) } -> z"], true)
+  (["z -> z"], true)
 -- An equation can prune a recursive relation to one answer, and the query halts.
 
 #guard runR001 ⟨[("nat", nat)], pinT⟩ (.seq (.call "nat") (.rw (v 0) (v 0) [ap "pin" [v 0]])) 60 ==
   (["z -> z"], true)
 
-/-- `pin` together with `(pin z), bad <=> fail.`: another rule can use
-`(pin z)`, so dropping it would lose the refutation of `{(pin z), bad}`. -/
+/-- `pin` together with `(pin z), bad <=> fail.` -/
 def pinBadT : Theory := pinT ++ [rule [ap "pin" [c "z"], c "bad"] .fail]
 theorem pinBadT_wellFormed : ∀ ρ ∈ pinBadT, ρ.WellFormed := by decide
 
--- The equation still applies, but `(pin z)` stays on the answer.
-#guard runR001 ⟨[], pinBadT⟩ pinSpan 20 == (["(pair z $1) { (pin z) } -> $1"], true)
--- So a later `bad` still refutes it.
+-- `(pin z)` is replaced by the empty body.
+#guard runR001 ⟨[], pinBadT⟩ pinSpan 20 == (["(pair z $1) -> $1"], true)
+-- A `bad` met before simplification refutes the composition.
 #guard runR001 ⟨[], pinBadT⟩ (.seq pinSpan (.rw (v 0) (v 0) [c "bad"])) 20 == ([], true)
--- An atom whose only rule adds constraints stays: replacing it by them could
--- merge them with atoms a context already holds and lose a refutation.
+-- An atom is replaced by the constraints of its rule's body, which fire in turn.
 #guard runR001 ⟨[], noC⟩ (.rw (v 0) (v 0) [ap "no_c" [ap "a" [c "k", c "s"]]]) 20 ==
-  (["$0 { (no_c (a k s)) } -> $0"], true)
-/-- The checker group's counterexample to replacing an atom by a body. -/
+  (["$0 -> $0"], true)
+#guard runR001 ⟨[], noC⟩ (.rw (v 0) (v 0) [ap "no_c" [ap "a" [c "k", ap "c" [v 0]]]]) 20 == ([], true)
+/-- A theory where replacing `(p (f z))` by `(q z)` merges it with a `(q z)`
+already in the store. -/
 def mergeT : Theory :=
   [ rule [ap "p" [ap "f" [v 0]]] (.conj [] [ap "q" [v 0]]),
     rule [ap "q" [v 0], ap "r" [ap "g" [v 0]]] (.conj [] [ap "t" [v 0]]),
@@ -199,6 +198,32 @@ theorem mergeT_wellFormed : ∀ ρ ∈ mergeT, ρ.WellFormed := by decide
 #guard runR001 ⟨[], mergeT⟩
   (.seq (.rw (v 0) (v 0) [ap "p" [ap "f" [v 0]]])
     (.seq (.at_ (c "z")) (.rw (v 0) (v 0) [ap "q" [v 0], ap "r" [ap "g" [v 0]]]))) 20 == ([], true)
+
+/-! ## Write-back, no-op firings and rules that never lower the weight -/
+
+/-- `(pin $x) <=> $x = z, (pin z).`: the equation applies and the atom is
+written back. -/
+def pinKeepT : Theory := [rule [ap "pin" [v 0]] (.conj [(v 0, c "z")] [ap "pin" [c "z"]])]
+theorem pinKeepT_wellFormed : ∀ ρ ∈ pinKeepT, ρ.WellFormed := by decide
+-- The span is instantiated, the atom stays, and firing it again changes
+-- nothing, so it is not taken and the query halts.
+#guard runR001 ⟨[], pinKeepT⟩ (.rw (v 0) (v 0) [ap "pin" [v 0]]) 20 == (["z { (pin z) } -> z"], true)
+#guard runR001 ⟨[], pinKeepT⟩ (.seq (.at_ (num 1)) (.rw (v 0) (v 0) [ap "pin" [v 0]])) 20 == ([], true)
+/-- `(p $x) <=> (p (s $x)).`: firing it never lowers the weight, so it is never
+taken. The store keeps `(p $x)`, which every model may contain or not. -/
+def growT : Theory := [rule [ap "p" [v 0]] (.conj [] [ap "p" [ap "s" [v 0]]])]
+theorem growT_wellFormed : ∀ ρ ∈ growT, ρ.WellFormed := by decide
+#guard runR001 ⟨[], growT⟩ (.rw (v 0) (v 0) [ap "p" [v 0]]) 20 == (["$0 { (p $0) } -> $0"], true)
+/-- `(q $x), (q $y) <=> fail.`: both heads may land on one atom, since the
+rule's axiom holds for `$x = $y` as well. -/
+def twiceT : Theory := [rule [ap "q" [v 0], ap "q" [v 1]] .fail]
+theorem twiceT_wellFormed : ∀ ρ ∈ twiceT, ρ.WellFormed := by decide
+#guard runR001 ⟨[], twiceT⟩ (.rw (v 0) (v 0) [ap "q" [v 0]]) 20 == ([], true)
+/-- `(r $x) <=> (t $x).` and `(t $x) <=> .`: a body atom already in the store
+is kept once. -/
+def mergeTwiceT : Theory := [rule [ap "r" [v 0]] (.conj [] [ap "t" [v 0]]), rule [ap "t" [v 0]] (.conj [] [])]
+theorem mergeTwiceT_wellFormed : ∀ ρ ∈ mergeTwiceT, ρ.WellFormed := by decide
+#guard runR001 ⟨[], mergeTwiceT⟩ (.rw (v 0) (v 0) [ap "r" [v 0], ap "t" [v 0]]) 20 == (["$0 -> $0"], true)
 
 /-! ## R001 halts on everything rung zero halts on
 
