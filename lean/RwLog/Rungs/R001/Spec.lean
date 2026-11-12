@@ -292,12 +292,20 @@ def completion_sound : Prop :=
   ∀ P g, (∀ ρ ∈ P.theory, ρ.WellFormed) → Interfaced g → ∀ n, ∀ t ∈ tablesAt P g n, t.done = true →
     ∀ s, GDerives P t.goal s → s.Dead P.theory ∨ ∃ a ∈ t.answers, a.CoversLive P.theory s
 
+/-- The tables after `m` rounds run unconditionally from `g`, whether or not
+the root has completed. -/
+def roundsAt (P : Program) (g : Goal) (m : Nat) : Tables :=
+  ((fun st => (round st).1)^[m] (State.ofGoal P g)).tables
+
 /-- Every derivable answer of a table's goal that is not dead is eventually
-covered by that table. -/
+covered by that table, if rounds keep running. A run stops once the root
+completes, which can leave a table the root did not wait on unfinished: from
+`call nat ; 0` the root completes by unfolding while the `call nat` table has
+no answers. -/
 def table_fair : Prop :=
   ∀ P g, (∀ ρ ∈ P.theory, ρ.WellFormed) → Interfaced g → ∀ n, ∀ t ∈ tablesAt P g n,
     ∀ s, GDerives P t.goal s → s.Dead P.theory ∨
-      ∃ m, ∃ t' ∈ tablesAt P g m, t'.goal = t.goal ∧ ∃ a ∈ t'.answers, a.CoversLive P.theory s
+      ∃ m, ∃ t' ∈ roundsAt P g m, t'.goal = t.goal ∧ ∃ a ∈ t'.answers, a.CoversLive P.theory s
 
 /-- Goals that share a table derive the same answers up to the theory, apart
 from dead ones: with `(p $0), (p $1) <=> (q $0).` and `(q $0) <=> fail.`, the
