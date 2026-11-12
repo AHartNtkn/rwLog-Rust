@@ -106,7 +106,7 @@ theorem run_sound_aux : ∀ (n : Nat) (st : State),
   | n + 1, ⟨P, q, k, l⟩, hst, a, ha => by
     cases l with
     | cons b l =>
-      simp only [Runtime.run, runtime, step, List.mem_cons] at ha
+      simp only [Runtime.run, runtime, step, List.cons_append, List.nil_append, List.mem_cons] at ha
       rcases ha with rfl | ha
       · exact ⟨k, hst _ (List.mem_cons_self ..)⟩
       · exact run_sound_aux n ⟨P, q, k, l⟩ (fun x hx => hst x (List.mem_cons_of_mem _ hx)) a ha
@@ -217,7 +217,7 @@ theorem sound : runtime.Sound := by
 theorem complete : runtime.Complete := by
   intro P q _ s hs
   obtain ⟨n, a, ha, hsub⟩ := complete_tri hs
-  refine ⟨n, a, ha, fun M _ => ?_⟩
+  refine Or.inr ⟨n, a, ha, fun M _ => ?_⟩
   rw [Span.denAt_eq, Span.denAt_eq]
   exact GRel.at_mono hsub M
 
@@ -262,7 +262,7 @@ theorem run_answers_aux : ∀ (n : Nat) (st : State),
   | n + 1, ⟨P, q, k, l⟩, hpre, hst, a, ha => by
     cases l with
     | cons b l =>
-      simp only [Runtime.run, runtime, step, List.mem_cons] at ha
+      simp only [Runtime.run, runtime, step, List.cons_append, List.nil_append, List.mem_cons] at ha
       rcases ha with rfl | ha
       · exact ⟨k, hpre, hst _ (List.mem_cons_self ..)⟩
       · exact run_answers_aux n ⟨P, q, k, l⟩ hpre (fun x hx => hst x (List.mem_cons_of_mem _ hx)) a ha
