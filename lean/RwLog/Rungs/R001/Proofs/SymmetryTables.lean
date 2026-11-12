@@ -13,6 +13,8 @@ namespace RwLog
 
 namespace R001
 
+namespace Symmetry
+
 /-! ## Keys of mirrored goals -/
 
 /-- The key of the mirror of a key. -/
@@ -172,6 +174,8 @@ theorem doneOf_mirror {tsA tsB : Tables} (R : TabsRel tsA tsB) {g h : Goal} (hm 
   rcases findTable_mirror R (isKey_norm g) hm.2 with ⟨tA, tB, hA, hB, hr⟩ | ⟨hA, hB⟩
   · simp only [hA, hB, hr.2.2]
   · simp only [hA, hB]
+
+end Symmetry
 
 end R001
 

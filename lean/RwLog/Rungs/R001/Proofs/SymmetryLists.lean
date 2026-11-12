@@ -20,21 +20,23 @@ namespace RwLog
 
 namespace R001
 
+namespace Symmetry
+
 /-! ## Equivalent spans -/
 
 theorem covers?_iff (a s : Span) : a.covers? s = true ↔ a.Covers s := covers_iff a s
 
-theorem Span.Equiv.refl (a : Span) : a.Equiv a := ⟨Span.Covers.refl a, Span.Covers.refl a⟩
+theorem _root_.RwLog.Span.Equiv.refl (a : Span) : a.Equiv a := ⟨Span.Covers.refl a, Span.Covers.refl a⟩
 
-theorem Span.Equiv.symm {a b : Span} (h : a.Equiv b) : b.Equiv a := ⟨h.2, h.1⟩
+theorem _root_.RwLog.Span.Equiv.symm {a b : Span} (h : a.Equiv b) : b.Equiv a := ⟨h.2, h.1⟩
 
-theorem Span.Equiv.trans {a b c : Span} (h₁ : a.Equiv b) (h₂ : b.Equiv c) : a.Equiv c :=
+theorem _root_.RwLog.Span.Equiv.trans {a b c : Span} (h₁ : a.Equiv b) (h₂ : b.Equiv c) : a.Equiv c :=
   ⟨h₁.1.trans h₂.1, h₂.2.trans h₁.2⟩
 
-theorem Span.Equiv.swap {a b : Span} (h : a.Equiv b) : a.swap.Equiv b.swap :=
+theorem _root_.RwLog.Span.Equiv.swap {a b : Span} (h : a.Equiv b) : a.swap.Equiv b.swap :=
   ⟨covers_swap h.1, covers_swap h.2⟩
 
-theorem Span.Covers.of_swap {a b : Span} (h : a.swap.Covers b.swap) : a.Covers b := by
+theorem _root_.RwLog.Span.Covers.of_swap {a b : Span} (h : a.swap.Covers b.swap) : a.Covers b := by
   simpa using covers_swap h
 
 theorem covers?_swap (a b : Span) : a.swap.covers? b.swap = a.covers? b := by
@@ -54,17 +56,17 @@ theorem equiv_of_den_eq {a b : Span} (h : a.den = b.den) : a.Equiv b :=
 
 /-! ## `StepEquiv` -/
 
-theorem StepEquiv.refl (xs : List Span) : StepEquiv xs xs :=
+theorem _root_.RwLog.R001.StepEquiv.refl (xs : List Span) : StepEquiv xs xs :=
   ⟨xs, List.Perm.refl _, List.forall₂_same.2 fun x _ => Span.Equiv.refl x⟩
 
-theorem StepEquiv.of_perm {xs ys : List Span} (h : xs.Perm ys) : StepEquiv xs ys :=
+theorem _root_.RwLog.R001.StepEquiv.of_perm {xs ys : List Span} (h : xs.Perm ys) : StepEquiv xs ys :=
   ⟨xs, h, List.forall₂_same.2 fun x _ => Span.Equiv.refl x⟩
 
-theorem StepEquiv.of_forall₂ {xs ys : List Span} (h : List.Forall₂ Span.Equiv xs ys) :
+theorem _root_.RwLog.R001.StepEquiv.of_forall₂ {xs ys : List Span} (h : List.Forall₂ Span.Equiv xs ys) :
     StepEquiv xs ys :=
   ⟨ys, List.Perm.refl _, h⟩
 
-theorem StepEquiv.symm {xs ys : List Span} (h : StepEquiv xs ys) : StepEquiv ys xs := by
+theorem _root_.RwLog.R001.StepEquiv.symm {xs ys : List Span} (h : StepEquiv xs ys) : StepEquiv ys xs := by
   obtain ⟨ys', hp, hf⟩ := h
   obtain ⟨m, hm, hmp⟩ := List.perm_comp_forall₂ hp.symm (hf.flip)
   exact ⟨m, hmp, hm.imp fun _ _ h => Span.Equiv.symm h⟩
@@ -83,7 +85,7 @@ theorem forall₂_mem_left {α β : Type} {R : α → β → Prop} : ∀ {xs : L
     · obtain ⟨y, hy, r⟩ := forall₂_mem_left hs hx
       exact ⟨y, List.mem_cons_of_mem _ hy, r⟩
 
-theorem StepEquiv.trans {xs ys zs : List Span} (h₁ : StepEquiv xs ys) (h₂ : StepEquiv ys zs) :
+theorem _root_.RwLog.R001.StepEquiv.trans {xs ys zs : List Span} (h₁ : StepEquiv xs ys) (h₂ : StepEquiv ys zs) :
     StepEquiv xs zs := by
   obtain ⟨ys', hp, hf⟩ := h₁
   obtain ⟨zs', hq, hg⟩ := h₂
@@ -91,31 +93,31 @@ theorem StepEquiv.trans {xs ys zs : List Span} (h₁ : StepEquiv xs ys) (h₂ : 
   refine ⟨m, hmp.trans hq, ?_⟩
   exact forall₂_equiv_trans hf hm
 
-theorem StepEquiv.append {xs ys xs' ys' : List Span} (h : StepEquiv xs ys) (h' : StepEquiv xs' ys') :
+theorem _root_.RwLog.R001.StepEquiv.append {xs ys xs' ys' : List Span} (h : StepEquiv xs ys) (h' : StepEquiv xs' ys') :
     StepEquiv (xs ++ xs') (ys ++ ys') := by
   obtain ⟨u, hp, hf⟩ := h
   obtain ⟨u', hp', hf'⟩ := h'
   exact ⟨u ++ u', hp.append hp', List.rel_append hf hf'⟩
 
-theorem StepEquiv.map_swap {xs ys : List Span} (h : StepEquiv xs ys) :
+theorem _root_.RwLog.R001.StepEquiv.map_swap {xs ys : List Span} (h : StepEquiv xs ys) :
     StepEquiv (xs.map Span.swap) (ys.map Span.swap) := by
   obtain ⟨u, hp, hf⟩ := h
   refine ⟨u.map Span.swap, hp.map _, ?_⟩
   rw [List.forall₂_map_left_iff, List.forall₂_map_right_iff]
   exact hf.imp fun _ _ h => Span.Equiv.swap h
 
-theorem StepEquiv.length {xs ys : List Span} (h : StepEquiv xs ys) : xs.length = ys.length := by
+theorem _root_.RwLog.R001.StepEquiv.length {xs ys : List Span} (h : StepEquiv xs ys) : xs.length = ys.length := by
   obtain ⟨u, hp, hf⟩ := h
   rw [hf.length_eq, hp.length_eq]
 
-theorem StepEquiv.mem {xs ys : List Span} (h : StepEquiv xs ys) {x : Span} (hx : x ∈ xs) :
+theorem _root_.RwLog.R001.StepEquiv.mem {xs ys : List Span} (h : StepEquiv xs ys) {x : Span} (hx : x ∈ xs) :
     ∃ y ∈ ys, x.Equiv y := by
   obtain ⟨u, hp, hf⟩ := h
   obtain ⟨y, hy, hxy⟩ := forall₂_mem_left hf hx
   exact ⟨y, hp.subset hy, hxy⟩
 
 /-- `flatMap` over related lists with related images. -/
-theorem StepEquiv.flatMap {α : Type} {xs ys : List α} (R : α → α → Prop)
+theorem _root_.RwLog.R001.StepEquiv.flatMap {α : Type} {xs ys : List α} (R : α → α → Prop)
     (hxy : ∃ ys', ys'.Perm ys ∧ List.Forall₂ R xs ys')
     {f g : α → List Span} (hfg : ∀ x y, R x y → StepEquiv (f x) (g y)) :
     StepEquiv (xs.flatMap f) (ys.flatMap g) := by
@@ -394,6 +396,8 @@ theorem maxima_map_swap (xs : List Span) :
 theorem fresh_map_swap (old cands : List Span) :
     fresh (old.map Span.swap) (cands.map Span.swap) = (fresh old cands).map Span.swap := by
   simp only [fresh, List.filter_map, List.any_map, Function.comp_def, covers?_swap, maxima_map_swap]
+
+end Symmetry
 
 end R001
 

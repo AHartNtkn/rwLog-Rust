@@ -15,6 +15,8 @@ namespace RwLog
 
 namespace R001
 
+namespace Symmetry
+
 /-! ## The round, restated -/
 
 /-- The candidates a table computes in a round. -/
@@ -734,9 +736,11 @@ theorem init_rel (P : Program) (q : Rel) :
   · exact Option.Rel.some ⟨m.2, StepEquiv.refl _, rfl⟩
 
 /-- **P1.4 strong, for the mirrored program.** -/
-theorem dual_trace : Obligation.dual_trace := by
+theorem _root_.RwLog.R001.dual_trace : Obligation.dual_trace := by
   intro P q n _ hK
   exact trace_rel hK n _ _ (init_rel P q)
+
+end Symmetry
 
 end R001
 

@@ -18,6 +18,8 @@ namespace RwLog
 
 namespace R001
 
+namespace Symmetry
+
 /-! ## Mutual coverage of ground relations -/
 
 /-- `R` covers `S`: every triple of `S` is matched by a triple of `R` with the
@@ -77,9 +79,9 @@ theorem GCov.eq_empty {R S : GRel} (h : GCov R S) (hR : R = ∅) : S = ∅ := by
   obtain ⟨y, hy, -⟩ := h x hx
   rw [hR] at hy; exact hy
 
-theorem Span.Equiv.geq {a b : Span} (h : a.Equiv b) : GEq a.den b.den := ⟨h.1, h.2⟩
+theorem _root_.RwLog.Span.Equiv.geq {a b : Span} (h : a.Equiv b) : GEq a.den b.den := ⟨h.1, h.2⟩
 
-theorem Span.Equiv.of_geq {a b : Span} (h : GEq a.den b.den) : a.Equiv b := ⟨h.1, h.2⟩
+theorem _root_.RwLog.Span.Equiv.of_geq {a b : Span} (h : GEq a.den b.den) : a.Equiv b := ⟨h.1, h.2⟩
 
 theorem swap_geq (a : Span) : GEq a.swap.den a.den.inv := GEq.of_eq (swap_den a)
 
@@ -117,7 +119,7 @@ theorem optionRel_of_geq {o o' : Option Span} (h : GEq (Span.denO o) (Span.denO 
       rw [denO_empty_iff] at this; cases this
     | some b => exact .some (Span.Equiv.of_geq h)
 
-theorem Span.inst_swap (s : Span) (θ : Nat → Pat) : s.swap.inst θ = (s.inst θ).swap := rfl
+theorem _root_.RwLog.Span.inst_swap (s : Span) (θ : Nat → Pat) : s.swap.inst θ = (s.inst θ).swap := rfl
 
 theorem simplifyWithin_swap (T : Theory) : ∀ (n : Nat) (s : Span),
     T.simplifyWithin n s.swap = (T.simplifyWithin n s).map Span.swap
@@ -134,7 +136,7 @@ theorem simplifyWithin_swap (T : Theory) : ∀ (n : Nat) (s : Span),
       | none => simp [Span.swap]
       | some θ => simp only [Span.inst_swap]; exact simplifyWithin_swap T n (s.inst θ)
 
-theorem Store.varCount_swap (s : Span) : s.swap.c = s.c := rfl
+theorem _root_.RwLog.Store.varCount_swap (s : Span) : s.swap.c = s.c := rfl
 
 theorem simplify_swap (T : Theory) (s : Span) : T.simplify s.swap = (T.simplify s).map Span.swap :=
   simplifyWithin_swap T _ s
@@ -181,6 +183,8 @@ theorem liveO_mirror {T : Theory} (hK : Obligation.SimplifyRespectsEquiv T)
       simp only [liveO]
       rw [← live_swap]
       exact classEq_toList (hK a' a.swap e)
+
+end Symmetry
 
 end R001
 

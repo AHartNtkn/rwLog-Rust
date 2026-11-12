@@ -24,6 +24,8 @@ namespace RwLog
 
 namespace R001
 
+namespace Symmetry
+
 open R000
 
 /-! ## Orientation of meanings -/
@@ -1288,7 +1290,7 @@ theorem classEq_live {T : Theory} (hK : Obligation.SimplifyRespectsEquiv T) {xs 
     obtain ⟨x, hx, exy⟩ := (one e).2 _ (List.mem_map.2 ⟨y₀, hy₀, rfl⟩)
     exact ⟨x, List.mem_flatMap.2 ⟨b, hb, hx⟩, exy⟩
 
-theorem Program.dual_theory (P : Program) : P.dual.theory = P.theory := rfl
+theorem _root_.RwLog.Program.dual_theory (P : Program) : P.dual.theory = P.theory := rfl
 
 /-- A goal and the corresponding goal of the mirrored run finish rung zero
 in the same round and give the same classes of answers, swapped. -/
@@ -1306,6 +1308,8 @@ theorem unfold_mirror (hK : Obligation.SimplifyRespectsEquiv P.theory) {g h : Go
   · rw [Program.dual_theory]
     exact classEq_live hK (hm.roundSpans d)
   · exact ClassEq.refl _
+
+end Symmetry
 
 end R001
 

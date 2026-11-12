@@ -17,6 +17,8 @@ namespace RwLog
 
 namespace R001
 
+namespace Symmetry
+
 /-! ## Lists of swapped answers -/
 
 /-- Spans of the mirrored run corresponding, up to equivalence, to the swaps
@@ -571,6 +573,8 @@ theorem produce_mirror (hK : Obligation.SimplifyRespectsEquiv P.theory) (R : Tab
     exact hu.append hc
   · simp only [strategies, hf]
     exact (SRel.ite ⟨fun _ h => absurd h List.not_mem_nil, fun _ h => absurd h List.not_mem_nil⟩).append hs
+
+end Symmetry
 
 end R001
 

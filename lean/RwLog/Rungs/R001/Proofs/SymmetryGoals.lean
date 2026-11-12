@@ -15,6 +15,8 @@ namespace RwLog
 
 namespace R001
 
+namespace Symmetry
+
 /-! ## Boundaries and goals as table keys -/
 
 theorem covers?_refl (a : Span) : a.covers? a = true := (covers?_iff _ _).2 (Span.Covers.refl a)
@@ -69,16 +71,16 @@ theorem Goal.same_trans {g h k : Goal} (e₁ : g.same h = true) (e₂ : h.same k
   simp only [Goal.same, Bool.and_eq_true, decide_eq_true_eq] at e₁ e₂ ⊢
   exact ⟨⟨e₁.1.1.trans e₂.1.1, boundEq_trans e₁.1.2 e₂.1.2⟩, boundEq_trans e₁.2 e₂.2⟩
 
-theorem Goal.same_iff {g h : Goal} :
+theorem _root_.RwLog.R001.Goal.same_iff {g h : Goal} :
     g.same h = true ↔ g.e = h.e ∧ boundEq g.lb h.lb = true ∧ boundEq g.rb h.rb = true := by
   simp only [Goal.same, Bool.and_eq_true, decide_eq_true_eq, and_assoc]
 
-theorem Goal.same_dual {g h : Goal} (e : g.same h = true) : g.dual.same h.dual = true := by
+theorem _root_.RwLog.R001.Goal.same_dual {g h : Goal} (e : g.same h = true) : g.dual.same h.dual = true := by
   rw [Goal.same_iff] at e ⊢
   simp only [Goal.dual, boundEq_swap]
   exact ⟨by rw [e.1], e.2.2, e.2.1⟩
 
-theorem Rel.dual_dual : ∀ e : Rel, e.dual.dual = e
+theorem _root_.RwLog.Rel.dual_dual : ∀ e : Rel, e.dual.dual = e
   | .zero => rfl
   | .span s => by simp [Rel.dual]
   | .or a b => by simp [Rel.dual, Rel.dual_dual a, Rel.dual_dual b]
@@ -87,7 +89,7 @@ theorem Rel.dual_dual : ∀ e : Rel, e.dual.dual = e
   | .conv a => by simp [Rel.dual, Rel.dual_dual a]
   | .call _ => rfl
 
-theorem Goal.dual_dual (g : Goal) : g.dual.dual = g := by
+theorem _root_.RwLog.R001.Goal.dual_dual (g : Goal) : g.dual.dual = g := by
   obtain ⟨lb, e, rb⟩ := g
   simp [Goal.dual, Option.map_map, Function.comp_def, Rel.dual_dual]
 
@@ -398,6 +400,8 @@ theorem canon_dual_not_conv {E : Rel} (hc : canon E = E) (hn : ∀ a, E ≠ .con
     obtain ⟨u, v, rest', hl⟩ := canon_dual_or_two hc
     rw [hl] at h
     cases h
+
+end Symmetry
 
 end R001
 
