@@ -43,33 +43,6 @@ theorem bind_agree {σ τ : V → Term W} {t : Term V} (h : t.bind σ = t.bind �
     · exact iht h.1 w hw
     · exact ihu h.2 w hw
 
-theorem syms_bind_sub {σ : V → Term W} {t : Term V} {f : Sym} (h : f ∈ (t.bind σ).syms) :
-    f ∈ t.syms ∨ ∃ v ∈ t.vars, f ∈ (σ v).syms := by
-  induction t with
-  | var v => exact .inr ⟨v, by simp [Term.vars], h⟩
-  | sym g => exact .inl (by simpa [Term.syms] using h)
-  | app t u iht ihu =>
-    simp only [bind_app, Term.syms, List.mem_append] at h
-    rcases h with h | h
-    · rcases iht h with h | ⟨v, hv, h⟩
-      · exact .inl (by simp [Term.syms, h])
-      · exact .inr ⟨v, by simp [Term.vars, hv], h⟩
-    · rcases ihu h with h | ⟨v, hv, h⟩
-      · exact .inl (by simp [Term.syms, h])
-      · exact .inr ⟨v, by simp [Term.vars, hv], h⟩
-
-theorem syms_var_sub {σ : V → Term W} {t : Term V} {v : V} (hv : v ∈ t.vars) {f : Sym}
-    (h : f ∈ (σ v).syms) : f ∈ (t.bind σ).syms := by
-  induction t with
-  | var w => simp [Term.vars] at hv; subst hv; exact h
-  | sym g => simp [Term.vars] at hv
-  | app t u iht ihu =>
-    simp only [Term.vars, List.mem_append] at hv
-    simp only [bind_app, Term.syms, List.mem_append]
-    rcases hv with hv | hv
-    · exact .inl (iht hv)
-    · exact .inr (ihu hv)
-
 end TermFacts
 
 /-! ## Fresh symbols

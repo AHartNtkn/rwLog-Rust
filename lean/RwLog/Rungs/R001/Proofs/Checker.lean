@@ -6,130 +6,13 @@ open Term
 
 namespace Checker
 
-/-! ## One-way matching -/
-
-/-- `θ'` keeps every binding of `θ`. -/
-def Ext (θ θ' : PSubst) : Prop := ∀ v x, θ.lookup v = some x → θ'.lookup v = some x
-
-theorem Ext.refl (θ : PSubst) : Ext θ θ := fun _ _ h => h
-
-theorem Ext.trans {a b c : PSubst} (h₁ : Ext a b) (h₂ : Ext b c) : Ext a c :=
-  fun v x h => h₂ v x (h₁ v x h)
-
-theorem lookup_cons (v w : Nat) (t : Pat) (θ : PSubst) :
-    List.lookup w ((v, t) :: θ) = if w = v then some t else θ.lookup w := by
-  by_cases h : w = v
-  · subst h; simp [List.lookup]
-  · have hb : (w == v) = false := by simpa using h
-    simp [List.lookup, hb, h]
-
-/-- What a successful match guarantees. -/
-theorem matchInto_sound :
-    ∀ (p t : Pat) (θ θ' : PSubst), matchInto p t θ = some θ' →
-      Ext θ θ' ∧ (∀ v ∈ p.vars, ∃ x, θ'.lookup v = some x) ∧
-      ∀ θ'', Ext θ' θ'' → p.bind θ''.apply = t
-  | .var v, t, θ, θ', h => by
-    simp only [matchInto] at h
-    cases hl : θ.lookup v with
-    | some u =>
-      rw [hl] at h
-      by_cases hu : u = t
-      · simp [hu] at h; subst h; subst hu
-        refine ⟨Ext.refl _, fun w hw => ?_, fun θ'' h'' => ?_⟩
-        · simp [vars] at hw; subst hw; exact ⟨_, hl⟩
-        · simp [PSubst.apply, h'' v u hl]
-      · simp [hu] at h
-    | none =>
-      rw [hl] at h; simp at h; subst h
-      refine ⟨fun w x hw => ?_, fun w hw => ?_, fun θ'' h'' => ?_⟩
-      · rw [lookup_cons]; by_cases hwv : w = v
-        · subst hwv; rw [hl] at hw; cases hw
-        · simp [hwv, hw]
-      · simp [vars] at hw; subst hw; exact ⟨t, by simp [List.lookup]⟩
-      · simp [PSubst.apply, h'' v t (by simp [List.lookup])]
-  | .sym f, .sym g, θ, θ', h => by
-    simp only [matchInto] at h
-    by_cases hfg : f = g
-    · simp [hfg] at h; subst h; subst hfg
-      exact ⟨Ext.refl _, fun w hw => by simp [vars] at hw, fun _ _ => rfl⟩
-    · simp [hfg] at h
-  | .app p q, .app t u, θ, θ', h => by
-    simp only [matchInto, Option.bind_eq_some_iff] at h
-    obtain ⟨θ₁, h₁, h₂⟩ := h
-    obtain ⟨e₁, b₁, k₁⟩ := matchInto_sound p t θ θ₁ h₁
-    obtain ⟨e₂, b₂, k₂⟩ := matchInto_sound q u θ₁ θ' h₂
-    refine ⟨e₁.trans e₂, fun w hw => ?_, fun θ'' h'' => ?_⟩
-    · simp only [vars, List.mem_append] at hw
-      rcases hw with hw | hw
-      · obtain ⟨x, hx⟩ := b₁ w hw; exact ⟨x, e₂ w x hx⟩
-      · exact b₂ w hw
-    · simp [k₁ θ'' (e₂.trans h''), k₂ θ'' h'']
-  | .sym _, .var _, _, _, h => by simp [matchInto] at h
-  | .sym _, .app _ _, _, _, h => by simp [matchInto] at h
-  | .app _ _, .var _, _, _, h => by simp [matchInto] at h
-  | .app _ _, .sym _, _, _, h => by simp [matchInto] at h
-
-
-theorem matchAll_sound :
-    ∀ (ps ts : List Pat) (θ : PSubst) (r : PSubst × List Pat), r ∈ matchAll ps ts θ →
-      Ext θ r.1 ∧ (∀ p ∈ ps, ∀ v ∈ p.vars, ∃ x, r.1.lookup v = some x) ∧
-      (∀ t ∈ r.2, t ∈ ts) ∧ ∀ θ'', Ext r.1 θ'' → ps.map (Term.bind θ''.apply) = r.2
-  | [], ts, θ, r, h => by
-    simp [matchAll] at h; subst h
-    exact ⟨Ext.refl _, by simp, by simp, fun _ _ => rfl⟩
-  | p :: ps, ts, θ, r, h => by
-    simp only [matchAll, List.mem_flatMap] at h
-    obtain ⟨t, ht, h⟩ := h
-    cases hm : matchInto p t θ with
-    | none => rw [hm] at h; simp at h
-    | some θ₁ =>
-      rw [hm] at h
-      simp only [List.mem_map] at h
-      obtain ⟨r', hr', rfl⟩ := h
-      obtain ⟨e₁, b₁, k₁⟩ := matchInto_sound p t θ θ₁ hm
-      obtain ⟨e₂, b₂, m₂, k₂⟩ := matchAll_sound ps ts θ₁ r' hr'
-      refine ⟨e₁.trans e₂, ?_, ?_, fun θ'' h'' => ?_⟩
-      · intro q hq v hv
-        simp only [List.mem_cons] at hq
-        rcases hq with rfl | hq
-        · obtain ⟨x, hx⟩ := b₁ v hv; exact ⟨x, e₂ v x hx⟩
-        · exact b₂ q hq v hv
-      · intro u hu
-        simp only [List.mem_cons] at hu
-        rcases hu with rfl | hu
-        · exact ht
-        · exact m₂ u hu
-      · simp [k₁ θ'' (e₂.trans h''), k₂ θ'' h'']
-
+open Matching
 
 /-! ## Variables eliminated by a most general unifier -/
 
 section SolveVars
 
 variable {V W : Type} [DecidableEq V]
-
-omit [DecidableEq V] in
-theorem vars_bind_mem {σ : V → Term W} {u : W} :
-    ∀ {t : Term V}, u ∈ (t.bind σ).vars → ∃ v ∈ t.vars, u ∈ (σ v).vars
-  | .var v, h => ⟨v, by simp [vars], h⟩
-  | .sym _, h => by simp [vars] at h
-  | .app t t', h => by
-    simp only [bind_app, vars, List.mem_append] at h
-    rcases h with h | h
-    · obtain ⟨v, hv, hu⟩ := vars_bind_mem h; exact ⟨v, by simp [vars, hv], hu⟩
-    · obtain ⟨v, hv, hu⟩ := vars_bind_mem h; exact ⟨v, by simp [vars, hv], hu⟩
-
-omit [DecidableEq V] in
-theorem vars_sub_bind {σ : V → Term W} {v : V} :
-    ∀ {t : Term V}, v ∈ t.vars → ∀ u ∈ (σ v).vars, u ∈ (t.bind σ).vars
-  | .var w, h, u, hu => by simp [vars] at h; subst h; simpa using hu
-  | .sym _, h, _, _ => by simp [vars] at h
-  | .app t t', h, u, hu => by
-    simp only [vars, List.mem_append] at h
-    simp only [bind_app, vars, List.mem_append]
-    rcases h with h | h
-    · exact Or.inl (vars_sub_bind h u hu)
-    · exact Or.inr (vars_sub_bind h u hu)
 
 /-- What `solve` guarantees about variables: it leaves variables outside the
 equations alone, sends the equations' variables to terms over them, and when
@@ -323,14 +206,11 @@ theorem mem_storeVars {c : Store} {v : Nat} : v ∈ storeVars c ↔ ∃ a ∈ c,
 def instEqs (eqs : List (Pat × Pat)) (r : PSubst × List Pat) : List (Pat × Pat) :=
   eqs.map fun e => (e.1.bind r.1.apply, e.2.bind r.1.apply)
 
-/-- The successor store of a firing. -/
-def succ (c : Store) (r : PSubst × List Pat) (cs : List Pat) : Store :=
-  c.replace r.2 (cs.map (Term.bind r.1.apply))
-
 theorem mem_firings {ρ : TRule} {c : Store} {f : Firing} (h : f ∈ ρ.firings c) :
     ∃ r ∈ matchAll ρ.heads c [],
       (ρ.body = .fail ∧ f = .refuted) ∨
-        ∃ eqs cs, ρ.body = .conj eqs cs ∧ f = firingOfEqs (instEqs eqs r) (succ c r cs) := by
+        ∃ eqs cs, ρ.body = .conj eqs cs ∧
+          f = firingOfEqs (instEqs eqs r) (cs.map (Term.bind r.1.apply)) := by
   simp only [TRule.firings, List.mem_map] at h
   obtain ⟨r, hr, h⟩ := h
   refine ⟨r, hr, ?_⟩
@@ -338,9 +218,13 @@ theorem mem_firings {ρ : TRule} {c : Store} {f : Firing} (h : f ∈ ρ.firings 
   | fail => rw [hb] at h; exact Or.inl ⟨rfl, h.symm⟩
   | conj eqs cs => rw [hb] at h; exact Or.inr ⟨eqs, cs, rfl, h.symm⟩
 
-theorem mem_succ {c : Store} {r : PSubst × List Pat} {cs : List Pat} {x : Pat} :
-    x ∈ succ c r cs ↔ (x ∈ c ∧ x ∉ r.2) ∨ x ∈ cs.map (Term.bind r.1.apply) := by
-  simp [succ, Store.replace, List.mem_eraseDups]
+theorem mem_theory_firings {T : Theory} {c : Store} {f : Firing} (h : f ∈ T.firings c) :
+    ∃ ρ ∈ T, f ∈ ρ.firings c := by
+  simp only [Theory.firings, List.mem_flatMap] at h
+  obtain ⟨ρ, hρ, h⟩ := h
+  split_ifs at h
+  · exact ⟨ρ, hρ, h⟩
+  · simp at h
 
 /-- The ground substitution of a symbolic firing at a ground instance. -/
 def gsub (r : PSubst × List Pat) (σ : Nat → GTerm) : Nat → GTerm :=
@@ -394,7 +278,7 @@ theorem unifies_instEqs {eqs : List (Pat × Pat)} {r : PSubst × List Pat} {σ :
 model. -/
 def GroundFact (M : Interp) (σ : Nat → GTerm) (c : Store) : Firing → Prop
   | .refuted => ¬ Holds M σ c
-  | .next c' => Holds M σ c ↔ Holds M σ c'
+  | .add bs => Holds M σ c → Holds M σ bs
   | .bind θ => Holds M σ c → ∀ v, (θ v).bind σ = σ v
 
 theorem firing_ground {T : Theory} (hwf : ∀ ρ ∈ T, ρ.WellFormed) {M : Interp} (hM : T.Model M)
@@ -413,28 +297,110 @@ theorem firing_ground {T : Theory} (hwf : ∀ ρ ∈ T, ρ.WellFormed) {M : Inte
       exact ⟨unifies_instEqs.2 this.1, this.2⟩
     unfold firingOfEqs
     split_ifs with hall
-    · have heq : ∀ e ∈ eqs, e.1.bind (gsub r σ) = e.2.bind (gsub r σ) := by
-        intro e he
-        simp only [List.all_eq_true, decide_eq_true_eq, instEqs, List.mem_map,
-          forall_exists_index, and_imp, forall_apply_eq_imp_iff₂] at hall
-        rw [bind_gsub, bind_gsub, hall e he]
-      constructor
-      · intro hc x hx
-        rcases mem_succ.1 hx with ⟨hx, -⟩ | hx
-        · exact hc x hx
-        · obtain ⟨b, hb', rfl⟩ := List.mem_map.1 hx
-          rw [← bind_gsub]; exact (hbody' hc).2 b hb'
-      · intro hc' x hx
-        by_cases hxr : x ∈ r.2
-        · have hh := hiff.2 (by
-            rw [hb]
-            exact ⟨heq, fun b hb' => by
-              rw [bind_gsub]; exact hc' _ (mem_succ.2 (Or.inr (List.mem_map_of_mem hb')))⟩)
-          exact (heads_hold hr).1 hh x hxr
-        · exact hc' x (mem_succ.2 (Or.inl ⟨hx, hxr⟩))
+    · intro hc x hx
+      obtain ⟨b, hb', rfl⟩ := List.mem_map.1 hx
+      rw [← bind_gsub]; exact (hbody' hc).2 b hb'
     · cases hs : solve (instEqs eqs r) with
       | none => exact fun hc => solve_none hs σ (hbody' hc).1
       | some θ => exact fun hc v => (solve_some hs).2 σ (hbody' hc).1 v
+
+/-! ## The closure -/
+
+theorem firingOfEqs_add {eqs : List (Pat × Pat)} {bs bs' : Store}
+    (h : firingOfEqs eqs bs = .add bs') : bs' = bs := by
+  unfold firingOfEqs at h
+  split_ifs at h
+  · cases h; rfl
+  · cases hs : solve eqs <;> rw [hs] at h <;> cases h
+
+/-- An atom a round of the closure adds is added by a firing. -/
+theorem mem_new {T : Theory} {c : Store} {x : Pat} (hx : x ∈ T.newAtoms c) :
+    ∃ bs, Firing.add bs ∈ T.firings c ∧ x ∈ bs := by
+  simp only [Theory.newAtoms, List.mem_filter, List.mem_eraseDups, List.mem_flatMap] at hx
+  obtain ⟨⟨f, hf, hxf⟩, -⟩ := hx
+  cases f with
+  | add bs => exact ⟨bs, hf, hxf⟩
+  | refuted => simp [Firing.added] at hxf
+  | bind _ => simp [Firing.added] at hxf
+
+/-- A property of the store's atoms that every firing passes on to the atoms
+it adds holds of the closure. -/
+theorem saturate_induct {T : Theory} (P : Pat → Prop)
+    (hadd : ∀ d : Store, (∀ x ∈ d, P x) → ∀ bs, Firing.add bs ∈ T.firings d → ∀ x ∈ bs, P x) :
+    ∀ c : Store, (∀ x ∈ c, P x) → ∀ x ∈ T.saturate c, P x := by
+  intro c hc x hx
+  rw [Theory.saturate] at hx
+  split at hx
+  · exact hc x hx
+  · refine saturate_induct P hadd _ (fun y hy => ?_) x hx
+    rcases List.mem_append.1 hy with hy | hy
+    · exact hc y hy
+    · obtain ⟨bs, hf, hyb⟩ := mem_new hy
+      exact hadd c hc bs hf y hyb
+termination_by c => T.room c
+decreasing_by exact Theory.room_lt ‹_›
+
+/-- The closure holds wherever the store does. -/
+theorem saturate_holds {T : Theory} (hwf : ∀ ρ ∈ T, ρ.WellFormed) {M : Interp} (hM : T.Model M)
+    (σ : Nat → GTerm) {c : Store} (hc : Holds M σ c) : Holds M σ (T.saturate c) := by
+  intro x hx
+  refine saturate_induct (T := T) (fun x => x.bind σ ∈ M) ?_ c hc x hx
+  intro d hd bs hf
+  obtain ⟨ρ, hρ, hf⟩ := mem_theory_firings hf
+  exact firing_ground hwf hM hρ hf σ hd
+
+/-- A firing on a store is a firing on every larger store. -/
+theorem firings_mono {T : Theory} {d e : Store} (h : ∀ x ∈ d, x ∈ e) {f : Firing}
+    (hf : f ∈ T.firings d) : f ∈ T.firings e := by
+  simp only [Theory.firings, List.mem_flatMap] at hf ⊢
+  obtain ⟨ρ, hρ, hf⟩ := hf
+  refine ⟨ρ, hρ, ?_⟩
+  split_ifs at hf ⊢
+  · simp only [TRule.firings, List.mem_map] at hf ⊢
+    obtain ⟨r, hr, rfl⟩ := hf
+    exact ⟨r, matchAll_mono h _ _ _ hr, rfl⟩
+  · exact hf
+
+/-- The closure of a store lies in the closure of every larger store. -/
+theorem saturate_mono (T : Theory) {c' c : Store} (h : ∀ x ∈ c', x ∈ c) :
+    ∀ x ∈ T.saturate c', x ∈ T.saturate c := by
+  refine saturate_induct (T := T) (fun x => x ∈ T.saturate c) ?_ c'
+    (fun x hx => T.sub_saturate c x (h x hx))
+  intro d hd bs hf x hx
+  by_contra hn
+  have hnew : x ∈ T.newAtoms (T.saturate c) := by
+    simp only [Theory.newAtoms, List.mem_filter, List.mem_eraseDups, List.mem_flatMap,
+      Bool.not_eq_true']
+    refine ⟨⟨_, firings_mono hd hf, hx⟩, ?_⟩
+    cases hc : (T.saturate c).contains x
+    · rfl
+    · exact absurd (List.contains_iff_mem.1 hc) hn
+  rw [T.saturate_closed c] at hnew
+  cases hnew
+
+/-- Refuting a store refutes every store that contains it. -/
+theorem refutes_mono (T : Theory) {c' c : Store} (hsub : ∀ x ∈ c', x ∈ c)
+    (h : T.refutes? c' = true) : T.refutes? c = true := by
+  rw [Theory.refutes?] at h ⊢
+  simp only [List.any_eq_true] at h ⊢
+  obtain ⟨f, hf, hr⟩ := h
+  exact ⟨f, firings_mono (saturate_mono T hsub) hf, hr⟩
+
+/-- Two stores with the same members have closures with the same members. -/
+theorem saturate_congr (T : Theory) {c c' : Store} (h : ∀ x, x ∈ c ↔ x ∈ c') :
+    ∀ x, x ∈ T.saturate c ↔ x ∈ T.saturate c' :=
+  fun x => ⟨saturate_mono T (fun y hy => (h y).1 hy) x, saturate_mono T (fun y hy => (h y).2 hy) x⟩
+
+theorem refutes_congr (T : Theory) {c c' : Store} (h : ∀ x, x ∈ c ↔ x ∈ c') :
+    T.refutes? c = T.refutes? c' := by
+  apply Bool.eq_iff_iff.2
+  exact ⟨refutes_mono T fun y hy => (h y).1 hy, refutes_mono T fun y hy => (h y).2 hy⟩
+
+theorem bind_none_congr (T : Theory) {c c' : Store} (h : ∀ x, x ∈ c ↔ x ∈ c')
+    (hb : T.bind? c = none) : T.bind? c' = none := by
+  rw [Theory.bind?, List.findSome?_eq_none_iff] at hb ⊢
+  intro f hf
+  exact hb f (firings_mono (fun y hy => (saturate_congr T h y).2 hy) hf)
 
 /-! ## `refutes_sound` -/
 
@@ -443,16 +409,12 @@ theorem refutes_ground {T : Theory} (hwf : ∀ ρ ∈ T, ρ.WellFormed) {M : Int
     ¬ Holds M σ c := by
   rw [Theory.refutes?] at h
   simp only [List.any_eq_true] at h
-  obtain ⟨ρ, hρ, f, hf, h⟩ := h
-  have g := firing_ground hwf hM hρ hf σ
+  obtain ⟨f, hf, h⟩ := h
+  obtain ⟨ρ, hρ, hf⟩ := mem_theory_firings hf
   cases f with
-  | refuted => exact g
-  | next c' =>
-    simp only at h
-    split_ifs at h with hlt
-    exact fun hc => refutes_ground hwf hM σ c' h (g.1 hc)
+  | refuted => exact fun hc => firing_ground hwf hM hρ hf σ (saturate_holds hwf hM σ hc)
+  | add _ => simp at h
   | bind _ => simp at h
-termination_by T.storeWeight c
 
 /-! ## Forced equations -/
 
@@ -460,33 +422,61 @@ theorem bind_ground {T : Theory} (hwf : ∀ ρ ∈ T, ρ.WellFormed) {M : Interp
     (hM : T.Model M) (σ : Nat → GTerm) (c : Store) {θ : Nat → Pat}
     (h : T.bind? c = some θ) : Holds M σ c → ∀ v, (θ v).bind σ = σ v := by
   rw [Theory.bind?] at h
-  obtain ⟨ρ, hρ, h⟩ := List.exists_of_findSome?_eq_some h
   obtain ⟨f, hf, h⟩ := List.exists_of_findSome?_eq_some h
-  have g := firing_ground hwf hM hρ hf σ
+  obtain ⟨ρ, hρ, hf⟩ := mem_theory_firings hf
   cases f with
   | refuted => cases h
-  | next c' =>
-    simp only at h
-    split_ifs at h with hlt
-    exact fun hc => bind_ground hwf hM σ c' h (g.1 hc)
-  | bind θ' => cases h; exact g
-termination_by T.storeWeight c
+  | add _ => cases h
+  | bind θ' => cases h; exact fun hc => firing_ground hwf hM hρ hf σ (saturate_holds hwf hM σ hc)
 
-/-! ## Normalizing -/
+/-! ## Rewriting a store for showing -/
+
+theorem mem_replace {c ms bs : Store} {x : Pat} :
+    x ∈ c.replace ms bs ↔ (x ∈ c ∧ x ∉ ms) ∨ x ∈ bs := by
+  simp [Store.replace, List.mem_eraseDups]
+
+theorem rewrite_holds {T : Theory} (hwf : ∀ ρ ∈ T, ρ.WellFormed) {M : Interp} (hM : T.Model M)
+    {ρ : TRule} (hρ : ρ ∈ T) {c c' : Store} (h : c' ∈ ρ.rewrites c) (σ : Nat → GTerm) :
+    Holds M σ c' ↔ Holds M σ c := by
+  unfold TRule.rewrites at h
+  cases hb : ρ.body with
+  | fail => rw [hb] at h; cases h
+  | conj eqs cs =>
+    rw [hb] at h
+    simp only [List.mem_filterMap] at h
+    obtain ⟨r, hr, h⟩ := h
+    split_ifs at h with hall
+    cases h
+    have hiff := rule_iff (hwf ρ hρ) (hM ρ hρ) (gsub r σ)
+    rw [hb] at hiff
+    have hrc : ∀ x ∈ r.2, x ∈ c := (matchAll_sound _ _ _ _ hr).2.2.1
+    have heq : ∀ e ∈ eqs, e.1.bind (gsub r σ) = e.2.bind (gsub r σ) := by
+      intro e he
+      simp only [List.all_eq_true, decide_eq_true_eq] at hall
+      rw [bind_gsub, bind_gsub, hall e he]
+    constructor
+    · intro hc' x hx
+      by_cases hxr : x ∈ r.2
+      · have hh := hiff.2 ⟨heq, fun b hb' => by
+          rw [bind_gsub]; exact hc' _ (mem_replace.2 (Or.inr (List.mem_map_of_mem hb')))⟩
+        exact (heads_hold hr).1 hh x hxr
+      · exact hc' x (mem_replace.2 (Or.inl ⟨hx, hxr⟩))
+    · intro hc x hx
+      rcases mem_replace.1 hx with ⟨hx, -⟩ | hx
+      · exact hc x hx
+      · obtain ⟨b, hb', rfl⟩ := List.mem_map.1 hx
+        rw [← bind_gsub]
+        exact (hiff.1 ((heads_hold hr).2 fun x hx => hc x (hrc x hx))).2 b hb'
 
 theorem step_spec {T : Theory} {c : Store} {c' : {c' : Store // T.storeWeight c' < T.storeWeight c}}
-    (h : T.step? c = some c') : ∃ ρ ∈ T, ρ.decreasing = true ∧ Firing.next c'.1 ∈ ρ.firings c := by
+    (h : T.step? c = some c') : ∃ ρ ∈ T, c'.1 ∈ ρ.rewrites c := by
   rw [Theory.step?] at h
   obtain ⟨ρ, hρ, h⟩ := List.exists_of_findSome?_eq_some h
-  obtain ⟨f, hf, h⟩ := List.exists_of_findSome?_eq_some h
-  refine ⟨ρ, hρ, ?_⟩
-  cases f with
-  | next c'' =>
-    simp only at h
-    split_ifs at h with hlt
-    cases h; rw [Bool.and_eq_true] at hlt; exact ⟨hlt.1, hf⟩
-  | refuted => cases h
-  | bind _ => cases h
+  split_ifs at h
+  obtain ⟨d, hd, h⟩ := List.exists_of_findSome?_eq_some h
+  split_ifs at h
+  cases h
+  exact ⟨ρ, hρ, hd⟩
 
 theorem normalize_holds {T : Theory} (hwf : ∀ ρ ∈ T, ρ.WellFormed) {M : Interp}
     (hM : T.Model M) (σ : Nat → GTerm) (c : Store) :
@@ -495,55 +485,9 @@ theorem normalize_holds {T : Theory} (hwf : ∀ ρ ∈ T, ρ.WellFormed) {M : In
   split
   · rfl
   · rename_i c' hs
-    obtain ⟨ρ, hρ, -, hf⟩ := step_spec hs
+    obtain ⟨ρ, hρ, hf⟩ := step_spec hs
     have := c'.2
-    exact (normalize_holds hwf hM σ c'.1).trans (firing_ground hwf hM hρ hf σ).symm
-termination_by T.storeWeight c
-
-theorem normalize_step (T : Theory) (c : Store) : T.step? (T.normalize c) = none := by
-  rw [Theory.normalize]
-  split
-  · assumption
-  · rename_i c' _
-    have := c'.2
-    exact normalize_step T c'.1
-termination_by T.storeWeight c
-
-theorem refutes_of_step {T : Theory} {c : Store}
-    {c' : {c' : Store // T.storeWeight c' < T.storeWeight c}} (hs : T.step? c = some c')
-    (h : T.refutes? c'.1 = true) : T.refutes? c = true := by
-  obtain ⟨ρ, hρ, hd, hf⟩ := step_spec hs
-  rw [Theory.refutes?]
-  simp only [List.any_eq_true]
-  exact ⟨ρ, hρ, _, hf, by simp [hd, c'.2, h]⟩
-
-theorem refutes_normalize {T : Theory} (c : Store) (h : T.refutes? (T.normalize c) = true) :
-    T.refutes? c = true := by
-  rw [Theory.normalize] at h
-  split at h
-  · exact h
-  · rename_i c' hs
-    have := c'.2
-    exact refutes_of_step hs (refutes_normalize c'.1 h)
-termination_by T.storeWeight c
-
-theorem bind_isSome_of_step {T : Theory} {c : Store}
-    {c' : {c' : Store // T.storeWeight c' < T.storeWeight c}} (hs : T.step? c = some c')
-    (h : (T.bind? c'.1).isSome = true) : (T.bind? c).isSome = true := by
-  obtain ⟨ρ, hρ, hd, hf⟩ := step_spec hs
-  rw [Theory.bind?, List.findSome?_isSome_iff]
-  refine ⟨ρ, hρ, ?_⟩
-  rw [List.findSome?_isSome_iff]
-  exact ⟨_, hf, by simpa [hd, c'.2] using h⟩
-
-theorem bind_normalize {T : Theory} (c : Store) (h : (T.bind? (T.normalize c)).isSome = true) :
-    (T.bind? c).isSome = true := by
-  rw [Theory.normalize] at h
-  split at h
-  · exact h
-  · rename_i c' hs
-    have := c'.2
-    exact bind_isSome_of_step hs (bind_normalize c'.1 h)
+    exact (normalize_holds hwf hM σ c'.1).trans (rewrite_holds hwf hM hρ hf σ)
 termination_by T.storeWeight c
 
 /-! ## Meanings of spans -/
@@ -585,7 +529,7 @@ theorem sw_bind {T : Theory} {n : Nat} {s : Span} {θ : Nat → Pat} (hr : T.ref
 
 theorem sw_done {T : Theory} {n : Nat} {s : Span} (hr : T.refutes? s.c = false)
     (hb : n = 0 ∨ T.bind? s.c = none) :
-    T.simplifyWithin n s = some ⟨s.l, s.r, T.normalize s.c⟩ := by
+    T.simplifyWithin n s = some ⟨s.l, s.r, s.c.eraseDups⟩ := by
   rcases hb with rfl | hb
   · unfold Theory.simplifyWithin; simp [hr]
   · unfold Theory.simplifyWithin; simp [hr, hb]
@@ -601,11 +545,11 @@ theorem exact_refuted {T : Theory} (hwf : ∀ ρ ∈ T, ρ.WellFormed) {s : Span
   rintro ⟨σ, -, -, hc⟩
   exact refutes_ground hwf hM σ s.c hr hc
 
-theorem exact_done {T : Theory} (hwf : ∀ ρ ∈ T, ρ.WellFormed) (s : Span) :
-    Exact T s (some ⟨s.l, s.r, T.normalize s.c⟩) := by
+theorem exact_done (T : Theory) (s : Span) :
+    Exact T s (some ⟨s.l, s.r, s.c.eraseDups⟩) := by
   refine ⟨fun h => (by cases h), fun s' h => ?_⟩
   cases h
-  exact fun M hM => denAt_store fun σ => normalize_holds hwf hM σ s.c
+  exact fun M _ => denAt_store fun σ => by simp [Holds, List.mem_eraseDups]
 
 theorem simplifyWithin_exact {T : Theory} (hwf : ∀ ρ ∈ T, ρ.WellFormed) :
     ∀ (n : Nat) (s : Span), Exact T s (T.simplifyWithin n s) := by
@@ -614,7 +558,7 @@ theorem simplifyWithin_exact {T : Theory} (hwf : ∀ ρ ∈ T, ρ.WellFormed) :
   | zero =>
     intro s
     cases hr : T.refutes? s.c
-    · rw [sw_done hr (Or.inl rfl)]; exact exact_done hwf s
+    · rw [sw_done hr (Or.inl rfl)]; exact exact_done T s
     · rw [sw_refuted hr]; exact exact_refuted hwf hr
   | succ n ih =>
     intro s
@@ -626,7 +570,7 @@ theorem simplifyWithin_exact {T : Theory} (hwf : ∀ ρ ∈ T, ρ.WellFormed) :
         refine ⟨fun h M hM => ?_, fun s' h M hM => ?_⟩
         · rw [← inst_denAt hwf hM hb]; exact i1 h M hM
         · rw [i2 s' h M hM, inst_denAt hwf hM hb]
-      | none => rw [sw_done hr (Or.inr hb)]; exact exact_done hwf s
+      | none => rw [sw_done hr (Or.inr hb)]; exact exact_done T s
     · rw [sw_refuted hr]; exact exact_refuted hwf hr
 
 /-! ## Forced equations stay inside the store -/
@@ -641,13 +585,6 @@ theorem vars_body_sub {ρ : TRule} {c : Store} {r : PSubst × List Pat}
     exact (matchAll_sound _ _ _ _ hr).2.2.1 _ this
   exact mem_storeVars.2 ⟨_, hmem, vars_sub_bind hvh u hu⟩
 
-theorem firingOfEqs_next {eqs : List (Pat × Pat)} {c c' : Store}
-    (h : firingOfEqs eqs c = .next c') : c' = c := by
-  unfold firingOfEqs at h
-  split_ifs at h
-  · cases h; rfl
-  · cases hs : solve eqs <;> rw [hs] at h <;> cases h
-
 theorem firingOfEqs_bind {eqs : List (Pat × Pat)} {c : Store} {θ : Nat → Pat}
     (h : firingOfEqs eqs c = .bind θ) :
     solve eqs = some θ ∧ (eqs.all fun e => decide (e.1 = e.2)) = false := by
@@ -659,19 +596,24 @@ theorem firingOfEqs_bind {eqs : List (Pat × Pat)} {c : Store} {θ : Nat → Pat
     | none => rw [hs] at h; cases h
     | some θ' => rw [hs] at h; cases h; exact ⟨rfl, by simpa using hall⟩
 
-theorem storeVars_next {T : Theory} (hwf : ∀ ρ ∈ T, ρ.WellFormed) {ρ : TRule} (hρ : ρ ∈ T)
-    {c c' : Store} (hf : Firing.next c' ∈ ρ.firings c) : storeVars c' ⊆ storeVars c := by
+/-- The closure adds no variable: every variable of a rule's body occurs in its
+heads, which the firing matched to members. -/
+theorem storeVars_saturate {T : Theory} (hwf : ∀ ρ ∈ T, ρ.WellFormed) (c : Store) :
+    storeVars (T.saturate c) ⊆ storeVars c := by
+  intro u hu
+  obtain ⟨a, ha, hu⟩ := mem_storeVars.1 hu
+  refine saturate_induct (T := T) (fun a => ∀ u ∈ a.vars, u ∈ storeVars c) ?_ c
+    (fun x hx u hu => mem_storeVars.2 ⟨x, hx, hu⟩) a ha u hu
+  intro d hd bs hf x hx u hu
+  obtain ⟨ρ, hρ, hf⟩ := mem_theory_firings hf
   obtain ⟨r, hr, h⟩ := mem_firings hf
   rcases h with ⟨-, h⟩ | ⟨eqs, cs, hb, h⟩
   · cases h
-  · rw [firingOfEqs_next h.symm]
-    intro u hu
-    obtain ⟨a, ha, hu⟩ := mem_storeVars.1 hu
-    rcases mem_succ.1 ha with ⟨ha, -⟩ | ha
-    · exact mem_storeVars.2 ⟨a, ha, hu⟩
-    · obtain ⟨b, hb', rfl⟩ := List.mem_map.1 ha
-      have := (hwf ρ hρ).1; rw [hb] at this
-      exact vars_body_sub hr (this b hb') hu
+  · rw [firingOfEqs_add h.symm] at hx
+    obtain ⟨b, hb', rfl⟩ := List.mem_map.1 hx
+    have := (hwf ρ hρ).1; rw [hb] at this
+    obtain ⟨y, hy, hu'⟩ := mem_storeVars.1 (vars_body_sub hr (this b hb') hu)
+    exact hd y hy u hu'
 
 /-- A forced instantiation solves non-trivial equations over the store's
 variables. -/
@@ -680,22 +622,18 @@ theorem bind_solve {T : Theory} (hwf : ∀ ρ ∈ T, ρ.WellFormed) (c : Store) 
     ∃ E : Eqns Nat, solve E = some θ ∧ (E.all fun e => decide (e.1 = e.2)) = false ∧
       ∀ v ∈ Eqns.vars E, v ∈ storeVars c := by
   rw [Theory.bind?] at h
-  obtain ⟨ρ, hρ, h⟩ := List.exists_of_findSome?_eq_some h
   obtain ⟨f, hf, h⟩ := List.exists_of_findSome?_eq_some h
+  obtain ⟨ρ, hρ, hf⟩ := mem_theory_firings hf
   cases f with
   | refuted => cases h
-  | next c' =>
-    simp only at h
-    split_ifs at h with hlt
-    obtain ⟨E, hs, hall, hv⟩ := bind_solve hwf c' h
-    exact ⟨E, hs, hall, fun v hv' => storeVars_next hwf hρ hf (hv v hv')⟩
+  | add _ => cases h
   | bind θ' =>
     cases h
     obtain ⟨r, hr, hfr⟩ := mem_firings hf
     rcases hfr with ⟨-, h⟩ | ⟨eqs, cs, hb, h⟩
     · cases h
     · obtain ⟨hs, hall⟩ := firingOfEqs_bind h.symm
-      refine ⟨_, hs, hall, fun v hv => ?_⟩
+      refine ⟨_, hs, hall, fun v hv => storeVars_saturate hwf c ?_⟩
       have heqv := (hwf ρ hρ).2; rw [hb] at heqv
       simp only [Eqns.vars, instEqs, List.flatMap_map, List.mem_flatMap,
         List.mem_append] at hv
@@ -703,7 +641,6 @@ theorem bind_solve {T : Theory} (hwf : ∀ ρ ∈ T, ρ.WellFormed) (c : Store) 
       rcases hv with hv | hv
       · exact vars_body_sub hr (fun w hw => heqv e he w (List.mem_append_left _ hw)) hv
       · exact vars_body_sub hr (fun w hw => heqv e he w (List.mem_append_right _ hw)) hv
-termination_by T.storeWeight c
 
 /-- A forced instantiation removes a variable from the store. -/
 theorem varCount_inst_lt {T : Theory} (hwf : ∀ ρ ∈ T, ρ.WellFormed) {s : Span}
@@ -744,28 +681,18 @@ theorem bind_none_of_ground {T : Theory} (hwf : ∀ ρ ∈ T, ρ.WellFormed) {c 
 
 /-! ## `simplify_stable` -/
 
-theorem stable_done {T : Theory} {s : Span} (hr : T.refutes? s.c = false)
-    (hb : T.bind? s.c = none) :
-    T.refutes? (T.normalize s.c) = false ∧ T.bind? (T.normalize s.c) = none ∧
-      T.step? (T.normalize s.c) = none := by
-  refine ⟨?_, ?_, normalize_step T s.c⟩
-  · cases h' : T.refutes? (T.normalize s.c)
-    · rfl
-    · rw [refutes_normalize (T := T) s.c h'] at hr; cases hr
-  · cases h' : T.bind? (T.normalize s.c)
-    · rfl
-    · have := bind_normalize (T := T) s.c (by rw [h']; rfl); rw [hb] at this; cases this
-
 theorem simplifyWithin_stable {T : Theory} (hwf : ∀ ρ ∈ T, ρ.WellFormed) :
     ∀ (n : Nat) (s s' : Span), s.c.varCount ≤ n → T.simplifyWithin n s = some s' →
-      T.refutes? s'.c = false ∧ T.bind? s'.c = none ∧ T.step? s'.c = none := by
+      T.refutes? s'.c = false ∧ T.bind? s'.c = none := by
   intro n
   induction n with
   | zero =>
     intro s s' hn h
     cases hr : T.refutes? s.c
     · rw [sw_done hr (Or.inl rfl)] at h; cases h
-      exact stable_done hr (bind_none_of_ground hwf (by omega))
+      exact ⟨by rw [← hr]; exact refutes_congr T (by simp [List.mem_eraseDups]),
+        bind_none_congr T (c := s.c) (by simp [List.mem_eraseDups])
+          (bind_none_of_ground hwf (by omega))⟩
     · rw [sw_refuted hr] at h; cases h
   | succ n ih =>
     intro s s' hn h
@@ -776,7 +703,8 @@ theorem simplifyWithin_stable {T : Theory} (hwf : ∀ ρ ∈ T, ρ.WellFormed) :
         exact ih _ s' (by have := varCount_inst_lt hwf hb; omega) h
       | none =>
         rw [sw_done hr (Or.inr hb)] at h; cases h
-        exact stable_done hr hb
+        exact ⟨by rw [← hr]; exact refutes_congr T (by simp [List.mem_eraseDups]),
+          bind_none_congr T (by simp [List.mem_eraseDups]) hb⟩
     · rw [sw_refuted hr] at h; cases h
 
 end Checker
@@ -787,6 +715,9 @@ theorem R001.refutes_sound : R001.Obligation.refutes_sound := by
 
 theorem R001.simplify_exact : R001.Obligation.simplify_exact :=
   fun _ s hwf => Checker.simplifyWithin_exact hwf _ s
+
+theorem R001.present_exact : R001.Obligation.present_exact :=
+  fun _ s hwf _ hM => Checker.denAt_store fun σ => Checker.normalize_holds hwf hM σ s.c
 
 theorem R001.simplify_stable : R001.Obligation.simplify_stable := by
   intro T s s' hwf h

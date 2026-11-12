@@ -38,9 +38,10 @@ step emits the answers the root table gained in that round.
 
 Candidates are simplified before they enter a table (`Theory.simplify`):
 every equation the theory forces on a candidate's store instantiates the
-whole candidate, its store is rewritten by the theory's rules (a firing
-replaces the matched atoms by the body), and a candidate whose store the theory refutes
-(`Theory.refutes?`) is dropped. A candidate is also dropped when it is
+whole candidate, and a candidate whose store the theory refutes
+(`Theory.refutes?`) is dropped. Stores are kept as written: what the theory
+derives from them is recomputed by a monotone closure, so syntactic coverage
+between stores is kept by simplification. A candidate is also dropped when it is
 covered by an answer already in the table or strictly covered by another
 candidate of the same round; among equivalent candidates one is kept. So
 tables, and the answers the root emits, hold no refuted, duplicate or

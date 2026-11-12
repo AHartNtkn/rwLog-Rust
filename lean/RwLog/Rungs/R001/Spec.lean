@@ -236,12 +236,36 @@ def simplify_exact : Prop :=
   ∀ (T : Theory) (s : Span), (∀ ρ ∈ T, ρ.WellFormed) →
     (T.simplify s = none → s.Dead T) ∧ (∀ s', T.simplify s = some s' → s'.Refines T s)
 
-/-- Simplification runs to the end: a simplified span has no refutation, no
-forced equation and no weight-lowering firing left. So the instantiation budget
-is enough. -/
+/-- Simplification runs to the end: a simplified span has no refutation and
+no forced equation left. So the instantiation budget is enough. -/
 def simplify_stable : Prop :=
   ∀ (T : Theory) (s s' : Span), (∀ ρ ∈ T, ρ.WellFormed) → T.simplify s = some s' →
-    T.refutes? s'.c = false ∧ T.bind? s'.c = none ∧ T.step? s'.c = none
+    T.refutes? s'.c = false ∧ T.bind? s'.c = none
+
+/-- Showing an answer keeps its meaning: the shown answer relates the same
+pairs as the answer in every model of the theory. -/
+def present_exact : Prop :=
+  ∀ (T : Theory) (s : Span), (∀ ρ ∈ T, ρ.WellFormed) → (T.present s).Refines T s
+
+/-- Simplification keeps coverage and commutes with composition and
+intersection, for every theory. The closure only adds atoms, so whatever it
+derives from a store it derives from every instance of the store and every
+larger store: if `f` covers `x` and `x` is not refuted, `f` is not refuted,
+and the equations it forces hold in the simplified `x`. -/
+def simplify_mono : Prop :=
+  ∀ T : Theory, (∀ ρ ∈ T, ρ.WellFormed) →
+    (∀ f x : Span, f.Covers x →
+      T.simplify x = none ∨
+        ∃ f' x', T.simplify f = some f' ∧ T.simplify x = some x' ∧ f'.Covers x') ∧
+    (∀ s t : Span,
+      Option.Rel Span.Equiv (((T.simplify t).bind s.compose).bind T.simplify)
+        ((s.compose t).bind T.simplify) ∧
+      Option.Rel Span.Equiv (((T.simplify s).bind (·.compose t)).bind T.simplify)
+        ((s.compose t).bind T.simplify) ∧
+      Option.Rel Span.Equiv (((T.simplify t).bind s.meet).bind T.simplify)
+        ((s.meet t).bind T.simplify) ∧
+      Option.Rel Span.Equiv (((T.simplify s).bind (·.meet t)).bind T.simplify)
+        ((s.meet t).bind T.simplify))
 
 /-- Interfaces are exact: `s ; s.rightIface = s` and `s.leftIface ; s = s`,
 and a trivial interface is the identity. -/
@@ -309,9 +333,7 @@ def table_fair : Prop :=
       ∃ m, ∃ t' ∈ roundsAt P g m, t'.goal = t.goal ∧ ∃ a ∈ t'.answers, a.CoversLive P.theory s
 
 /-- Goals that share a table derive the same answers up to the theory, apart
-from dead ones: with `(p $0), (p $1) <=> (q $0).` and `(q $0) <=> fail.`, the
-boundaries `$x {(p $y)} -> $x` and `$x {(p $y), (p $z)} -> $x` share a table,
-but only the second store has a weight-lowering firing to its refutation. -/
+from dead ones. -/
 def gderives_same : Prop :=
   ∀ P (g h : Goal), (∀ ρ ∈ P.theory, ρ.WellFormed) → g.Interfaced → g.same h = true →
     ∀ y, GDerives P g y → y.Dead P.theory ∨
@@ -337,83 +359,40 @@ def derivation_general : Prop :=
 
 /-! ### Termination
 
-The certificate and the termination lemmas built on it need simplification to
-respect coverage and composition, which a general rewriting theory breaks:
+The termination statements hold for every well-formed theory. They rest on
+`simplify_mono`: tables keep stores as written and compare them
+syntactically, and simplification only refutes and instantiates, by a
+monotone closure, so it keeps coverage and composes. Rewriting stores in place
+would break both, even for confluent terminating theories:
 
 * with `(q (s $0)) <=> (q $0).`, `(k $0) {(q $0)} -> (k $0)` covers
-  `(k (s z)) {(q (s z))} -> (k (s z))`, but not its simplification
+  `(k (s z)) {(q (s z))} -> (k (s z))`, but not its rewritten form
   `(k (s z)) {(q z)} -> (k (s z))`: an instance can enable a firing its
   generalisation does not have;
 * with `(p $0), (r $0) <=> (t $0).`, `(k $0) {(p $0)} -> (k $0)` covers
-  `(k a) {(p a), (r a)} -> (k a)`, which simplifies to `(k a) {(t a)} -> (k a)`:
+  `(k a) {(p a), (r a)} -> (k a)`, which rewrites to `(k a) {(t a)} -> (k a)`:
   an atom the covering answer lacks consumes one it has.
 
-They are stated for uniform queries (`Uniform`), a checkable class on which
-neither can happen. It contains every theory-free program, every
-refutation rule, and every single-head rule that fires on all atoms of its
-predicate, such as `(pin $x) <=> $x = z.`. Widening it to confluent theories
-needs coverage that compares answers modulo the theory. -/
+Comparing rewritten stores modulo the theory instead would make coverage
+undecidable once a store has variables its sides lack: under `no_c`,
+`$x {(no_c $y)} -> $x` covers `$x -> $x` because `$y` can be `k`, and deciding
+such coverage is unification modulo the theory.
 
-/-- The atom is `(f t₁ … tₙ)` with a symbol `f`, not a variable at its head. -/
-def symbolHeaded (a : Pat) : Bool := a.spine.isSome
-
-/-- A uniform rule refutes, or has one head `(f $x₁ … $xₙ)` with pairwise
-distinct variables. Such a rule fires on a symbol-headed atom exactly when the
-atom has `f` and `n` arguments, so it fires on an atom exactly when it fires on
-each instance, and rewriting one atom never needs another. Its body atoms are
-symbol-headed, so stores stay symbol-headed. -/
-def uniformRule (ρ : TRule) : Bool :=
-  match ρ.body, ρ.heads with
-  | .fail, _ => true
-  | .conj _ cs, [h] =>
-    cs.all symbolHeaded &&
-      match h.spine with
-      | some (_, args) =>
-        let vs := args.filterMap fun a => match a with
-          | .var v => some v
-          | _ => none
-        vs.length = args.length && vs.Nodup
-      | none => false
-  | .conj _ _, _ => false
-
-/-- The spans of an expression. -/
-def relSpans : Rel → List Span
-  | .zero | .call _ => []
-  | .span s => [s]
-  | .or a b | .and a b | .seq a b => relSpans a ++ relSpans b
-  | .conv a => relSpans a
-
-/-- A uniform query: every rule of the theory is uniform, and every constraint
-in the program and the query is symbol-headed (an atom `($x a)` could become
-`(f a)` by instantiation and start to fire). -/
-def Uniform (P : Program) (q : Rel) : Prop :=
-  (∀ ρ ∈ P.theory, uniformRule ρ = true) ∧
-    ∀ s ∈ relSpans q ++ P.defs.flatMap (relSpans ·.2), ∀ a ∈ s.c, symbolHeaded a = true
-
-/-- Simplification keeps coverage and composes, on spans whose constraints
-are symbol-headed, under a theory of uniform rules. -/
-def uniform_simplify : Prop :=
-  ∀ T : Theory, (∀ ρ ∈ T, ρ.WellFormed) → (∀ ρ ∈ T, uniformRule ρ = true) →
-    (∀ f x : Span, (∀ a ∈ f.c ++ x.c, symbolHeaded a = true) → f.Covers x →
-      T.simplify x = none ∨
-        ∃ f' x', T.simplify f = some f' ∧ T.simplify x = some x' ∧ f'.Covers x') ∧
-    (∀ s t : Span, (∀ a ∈ s.c ++ t.c, symbolHeaded a = true) →
-      Option.Rel Span.Equiv (((T.simplify t).bind s.compose).bind T.simplify)
-        ((s.compose t).bind T.simplify) ∧
-      Option.Rel Span.Equiv (((T.simplify s).bind (·.compose t)).bind T.simplify)
-        ((s.compose t).bind T.simplify))
+The price is that a recursion whose stores grow, such as
+`r = $0 {(link $0 $1)} -> $1 | r ; r` with `(link $0 $1) <=> .`, does not halt:
+its answers keep longer and longer chains of atoms, none covering the next. -/
 
 /-- The termination class, exactly: the machine halts on a query iff the
 query has a termination certificate. -/
 def terminates_iff_cert : Prop :=
-  ∀ P q, P.WellFormed q → Uniform P q →
+  ∀ P q, P.WellFormed q →
     (runtime.Terminates P q ↔ ∃ C D, Cert.Valid P C D ⟨none, q, none⟩)
 
 /-- P2.1: if only finitely many goals can arise (up to equivalent
 boundaries) and each has finitely many answers up to coverage, the machine
 halts. -/
 def tabling_termination : Prop :=
-  ∀ P q, P.WellFormed q → Uniform P q →
+  ∀ P q, P.WellFormed q →
     (∃ Gs : List Goal, ∀ g, Reach P ⟨none, q, none⟩ g → ∃ h ∈ Gs, h.same g.norm.2 = true) →
     (∀ g, Reach P ⟨none, q, none⟩ g → FiniteCover P g) →
     runtime.Terminates P q
@@ -433,7 +412,7 @@ def addition_fixed_modes : Prop :=
 /-- P1.2: a side that fails finitely makes `;` and `&` fail finitely, on
 either side and whatever the other side does. -/
 def empty_side : Prop :=
-  ∀ P (a b : Rel), P.WellFormed (.seq a b) → Uniform P (.seq a b) →
+  ∀ P (a b : Rel), P.WellFormed (.seq a b) →
     runtime.Terminates P a → runtime.Answers P a = ∅ →
     runtime.Terminates P (.seq a b) ∧ runtime.Terminates P (.seq b a) ∧
     runtime.Terminates P (.and a b) ∧ runtime.Terminates P (.and b a)
@@ -441,20 +420,20 @@ def empty_side : Prop :=
 /-- P1.3 for `;`, left side finite: if `a` halts and `b` halts under the
 interface of each answer of `a`, then `a ; b` halts. -/
 def finite_side_seq_left : Prop :=
-  ∀ P (a b : Rel), P.WellFormed (.seq a b) → Uniform P (.seq a b) → runtime.Terminates P a →
+  ∀ P (a b : Rel), P.WellFormed (.seq a b) → runtime.Terminates P a →
     (∀ x ∈ runtime.Answers P a, GoalTerminates P ⟨bound x.rightIface, b, none⟩) →
     runtime.Terminates P (.seq a b)
 
 /-- P1.3 for `;`, right side finite (the mirror image). -/
 def finite_side_seq_right : Prop :=
-  ∀ P (a b : Rel), P.WellFormed (.seq a b) → Uniform P (.seq a b) → runtime.Terminates P b →
+  ∀ P (a b : Rel), P.WellFormed (.seq a b) → runtime.Terminates P b →
     (∀ y ∈ runtime.Answers P b, GoalTerminates P ⟨none, a, bound y.leftIface⟩) →
     runtime.Terminates P (.seq a b)
 
 /-- P1.3 for `&`: if `a` halts and `b` halts restricted to the input and
 output shape of each answer of `a`, then `a & b` and `b & a` halt. -/
 def finite_side_and : Prop :=
-  ∀ P (a b : Rel), P.WellFormed (.and a b) → Uniform P (.and a b) → runtime.Terminates P a →
+  ∀ P (a b : Rel), P.WellFormed (.and a b) → runtime.Terminates P a →
     (∀ x ∈ runtime.Answers P a, GoalTerminates P (andPush b x)) →
     runtime.Terminates P (.and a b) ∧ runtime.Terminates P (.and b a)
 
@@ -479,33 +458,27 @@ def conv_trace : Prop :=
 /-- Simplification respects equivalent spans. The mirrored run enumerates a
 composition's candidates transposed, so its tables can keep a different member
 of a class of equivalent candidates, and later steps simplify those members.
-This fails for some theories. The engine commits to the first weight-lowering
-firing it finds: with `(r $0), (r $1) <=> (t $0).` the store `[(r a), (r b)]`
-becomes `{(t a)}` and `[(r b), (r a)]` becomes `{(t b)}`. It also fails for
-`(p z) <=> .` with `(p (f $0)) <=> fail.`, where `$w {(p z)} -> $w` and
-`$w {(p z), (p $y)} -> $w` are equivalent but simplify to `$w -> $w` and
-`$w {(p $y)} -> $w`. It holds for the empty theory. -/
+It holds for every well-formed theory, by the coverage half of
+`simplify_mono` applied both ways. -/
 def SimplifyRespectsEquiv (T : Theory) : Prop :=
   ∀ z z' : Span, z.Equiv z' → Option.Rel Span.Equiv (T.simplify z) (T.simplify z')
 
 /-- P1.4 strong, for the mirrored program: running the mirror image of a
 query in the mirrored program is the mirror image of the run, step for step.
-The mirror can keep different but equivalent representatives in its tables,
-so this is stated for theories whose simplification respects equivalence. -/
+The mirror can keep different but equivalent representatives in its tables
+(`SimplifyRespectsEquiv`). -/
 def dual_trace : Prop :=
-  ∀ P q n, (∀ ρ ∈ P.theory, ρ.WellFormed) → SimplifyRespectsEquiv P.theory →
+  ∀ P q n, (∀ ρ ∈ P.theory, ρ.WellFormed) →
     TraceEquiv (runtime.trace (runtime.init P.dual q.dual) n)
       ((runtime.trace (runtime.init P q) n).map (·.map Span.swap))
 
 /-! ### Constraints -/
 
 /- P2.3 asked also that adding rules never turns a halting query into a
-diverging one. That is false for R001: with `r = $0 {(link (f $0) $1)} -> $1 |
-r ; r`, the theory `(link $0 $1) <=> .` deletes every `link` atom and the
-query halts with `$0 -> $1`, while adding `(link (f $0) $1) <=> (k $0 $1).`
-(taken first) leaves chains `{(k $0 $1), (k $1 $2), …}` that no earlier answer
-covers, so the query never halts. Whether adding only `fail` rules preserves
-halting is open (`/mnt/project-files/r001/constraint-redesign-notes.md`). -/
+diverging one. A larger theory refutes more and forces more equations, and
+both are monotone, but an instantiated answer can stop covering a later
+candidate that the smaller theory's answer covered, so this is open
+(`/mnt/project-files/r001/constraint-redesign-notes.md`). -/
 
 /-- P2.3: adding rules only removes answers: in every model of the larger
 theory, each answer under it relates only pairs that one answer under the

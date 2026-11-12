@@ -8,13 +8,19 @@ import RwLog.Rungs.R001.Spec
 These checks run the proper-baseline machine (the `Runtime` its theorems are
 about) on the conformance cases and on the queries the execution properties
 name, and fail the build if its output changes. `runR001` returns the answers
-emitted within the step budget and whether the machine reported that it is
-done; an `exact` case must report done.
+emitted within the step budget, as shown to the user (`Theory.present`
+rewrites each store by the theory), and whether the machine reported that it
+is done; an `exact` case must report done. `rawR001` returns the answers as the
+tables keep them, with stores as written.
 -/
 
 namespace RwLog.Tests
 
 def runR001 (P : Program) (q : Rel) (fuel : Nat) : List String × Bool :=
+  let r := R001.runtime.run (R001.runtime.init P q) fuel
+  (r.1.map fun a => showSpan (P.theory.present a), r.2)
+
+def rawR001 (P : Program) (q : Rel) (fuel : Nat) : List String × Bool :=
   let r := R001.runtime.run (R001.runtime.init P q) fuel
   (r.1.map showSpan, r.2)
 
@@ -129,8 +135,9 @@ recursive table closes even while the pushes keep making new boundaries. -/
 
 An equation is not a constraint: when its rule fires on a span, the span is
 instantiated by the equation's most general unifier, and refuted when there
-is none. A firing replaces the matched atoms by the rule's body, so `(pin z)`
-leaves the store; a rule keeps an atom by writing it back. -/
+is none. In the answer shown, a firing replaces the matched atoms by the
+rule's body, so `(pin z)` leaves the store; a rule keeps an atom by writing it
+back. -/
 
 /-- `theory pin { (pin $x) <=> $x = z. }` from conformance case 4. -/
 def pinT : Theory := [rule [ap "pin" [v 0]] (.conj [(v 0, c "z")] [])]
@@ -200,7 +207,7 @@ theorem mergeT_wellFormed : ∀ ρ ∈ mergeT, ρ.WellFormed := by decide
   (.seq (.rw (v 0) (v 0) [ap "p" [ap "f" [v 0]]])
     (.seq (.at_ (c "z")) (.rw (v 0) (v 0) [ap "q" [v 0], ap "r" [ap "g" [v 0]]]))) 20 == ([], true)
 
-/-! ## Write-back, no-op firings and rules that never lower the weight -/
+/-! ## Write-back, no-op firings and rules that never rewrite -/
 
 /-- `(pin $x) <=> $x = z, (pin z).`: the equation applies and the atom is
 written back. -/
@@ -210,8 +217,9 @@ theorem pinKeepT_wellFormed : ∀ ρ ∈ pinKeepT, ρ.WellFormed := by decide
 -- nothing, so it is not taken and the query halts.
 #guard runR001 ⟨[], pinKeepT⟩ (.rw (v 0) (v 0) [ap "pin" [v 0]]) 20 == (["z { (pin z) } -> z"], true)
 #guard runR001 ⟨[], pinKeepT⟩ (.seq (.at_ (num 1)) (.rw (v 0) (v 0) [ap "pin" [v 0]])) 20 == ([], true)
-/-- `(p $x) <=> (p (s $x)).`: firing it never lowers the weight, so it is never
-taken. The store keeps `(p $x)`, which every model may contain or not. -/
+/-- `(p $x) <=> (p (s $x)).`: its body is larger than its head, so it is
+neither bounded nor decreasing and is never used. The store keeps `(p $x)`,
+which every model may contain or not. -/
 def growT : Theory := [rule [ap "p" [v 0]] (.conj [] [ap "p" [ap "s" [v 0]]])]
 theorem growT_wellFormed : ∀ ρ ∈ growT, ρ.WellFormed := by decide
 #guard runR001 ⟨[], growT⟩ (.rw (v 0) (v 0) [ap "p" [v 0]]) 20 == (["$0 { (p $0) } -> $0"], true)
@@ -241,20 +249,49 @@ theorem dupT_wellFormed : ∀ ρ ∈ dupT, ρ.WellFormed := by decide
 #guard runR001 ⟨[], dupT⟩ (.rw (v 0) (v 0) [ap "h" [v 0, v 1, v 2]]) 20 ==
   (["$0 { (h $0 $1 $2) } -> $0"], true)
 
-/-! ## The uniform class the termination theorems are stated for -/
+/-! ## Tables keep stores as written; refutation and equations come from a closure -/
 
-#guard pinT.all (R001.Obligation.uniformRule · = true)
-#guard sameT.all (R001.Obligation.uniformRule · = true)
-#guard pinKeepT.all (R001.Obligation.uniformRule · = true)
--- Refutation rules are uniform whatever their heads.
-#guard twiceT.all (R001.Obligation.uniformRule · = true)
--- A head with a constructor argument is not: an instance can start to fire.
-#guard !eqNeq.all (R001.Obligation.uniformRule · = true)
-#guard !noC.all (R001.Obligation.uniformRule · = true)
--- Two heads that rewrite are not.
-#guard !mergeT.all (R001.Obligation.uniformRule · = true)
--- A repeated variable in the head is not.
-#guard !(R001.Obligation.uniformRule (rule [ap "p" [v 0, v 0]] (.conj [] [])))
+-- The table's answer keeps `(pin z)`; only the shown answer drops it.
+#guard rawR001 ⟨[], pinT⟩ pinSpan 20 == (["(pair z $1) { (pin z) } -> $1"], true)
+#guard rawR001 ⟨[], noC⟩ (.seq (.rw (v 0) (v 0) [ap "no_c" [v 0]]) (.at_ (ap "a" [c "k", v 0]))) 20 ==
+  (["(a k $1) { (no_c (a k $1)) } -> (a k $1)"], true)
+-- The closure derives `(eq $0 $1)` beside `(eq (s $0) (s $1))`, which meets `(neq $0 $1)`.
+#guard runR001 ⟨[], eqNeq⟩
+  (.rw (ap "pair" [v 0, v 1]) (v 0) [ap "eq" [ap "s" [v 0], ap "s" [v 1]], ap "neq" [v 0, v 1]]) 20 ==
+  ([], true)
+/-- `(q (s $x)) <=> (q $x).` -/
+def peelT : Theory := [rule [ap "q" [ap "s" [v 0]]] (.conj [] [ap "q" [v 0]])]
+theorem peelT_wellFormed : ∀ ρ ∈ peelT, ρ.WellFormed := by decide
+-- `(k $0) {(q $0)}` covers `(k (s z)) {(q (s z))}` because the latter's store is
+-- kept as written, so one answer is kept. Shown, its store is rewritten.
+#guard rawR001 ⟨[], peelT⟩
+  (.or (.rw (ap "k" [v 0]) (ap "k" [v 0]) [ap "q" [v 0]])
+    (.rw (ap "k" [num 1]) (ap "k" [num 1]) [ap "q" [num 1]])) 20 ==
+  (["(k $0) { (q $0) } -> (k $0)"], true)
+#guard runR001 ⟨[], peelT⟩ (.rw (ap "k" [num 1]) (ap "k" [num 1]) [ap "q" [num 1]]) 20 ==
+  (["(k (s z)) { (q z) } -> (k (s z))"], true)
+/-- `(p $x), (r $x) <=> fail.` beside `(p (f $x)) <=> (r $x).` -/
+def crossT : Theory :=
+  [ rule [ap "p" [v 0], ap "r" [v 0]] .fail,
+    rule [ap "p" [ap "f" [v 0]]] (.conj [] [ap "r" [v 0]]) ]
+theorem crossT_wellFormed : ∀ ρ ∈ crossT, ρ.WellFormed := by decide
+-- The closure keeps `(p (f z))` beside the `(r z)` it derives, so `(p z)` still
+-- meets `(r z)`.
+#guard runR001 ⟨[], crossT⟩ (.rw (v 0) (v 0) [ap "p" [ap "f" [c "z"]], ap "p" [c "z"]]) 20 == ([], true)
+
+/-! ## Which rules the closure uses -/
+
+#guard eqNeq.all (·.bounded)
+#guard noC.all (·.bounded)
+#guard pinT.all (·.bounded)
+-- A rule that writes its head back is bounded.
+#guard pinKeepT.all (·.bounded)
+#guard mergeT.all (·.bounded)
+-- A body larger than, or as large as, the heads is not.
+#guard !growT.all (·.bounded)
+#guard !sameSizeT.all (·.bounded)
+-- Nor is a body that can outgrow its head under a substitution.
+#guard !dupT.all (·.bounded)
 
 /-! ## R001 halts on everything rung zero halts on
 

@@ -132,6 +132,9 @@ new axiom.
 
 /-- info: 'RwLog.R001.simplify_stable' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.R001.simplify_stable
+
+/-- info: 'RwLog.R001.present_exact' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R001.present_exact
 /-- info: 'RwLog.R001.sound' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.R001.sound
 
@@ -173,5 +176,5 @@ new axiom.
 /-- info: 'RwLog.R001.or_assoc' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.R001.or_assoc
 
-/-- info: 'RwLog.R001.dual_trace' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLog.R001.dual_trace
+/-- info: 'RwLog.R001.Symmetry.dual_trace_of_mono' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R001.Symmetry.dual_trace_of_mono

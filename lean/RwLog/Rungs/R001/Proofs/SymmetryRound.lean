@@ -735,10 +735,32 @@ theorem init_rel (P : Program) (q : Rel) :
     exact ⟨_, List.mem_singleton_self _, m.2, StepEquiv.refl _, rfl⟩
   · exact Option.Rel.some ⟨m.2, StepEquiv.refl _, rfl⟩
 
-/-- **P1.4 strong, for the mirrored program.** -/
-theorem _root_.RwLog.R001.dual_trace : Obligation.dual_trace := by
-  intro P q n _ hK
-  exact trace_rel hK n _ _ (init_rel P q)
+/-- **P1.4 strong, for the mirrored program**, for a theory whose
+simplification respects equivalent spans. -/
+theorem dual_trace_of_respects (P : Program) (q : Rel) (n : Nat)
+    (hK : Obligation.SimplifyRespectsEquiv P.theory) :
+    TraceEquiv (runtime.trace (runtime.init P.dual q.dual) n)
+      ((runtime.trace (runtime.init P q) n).map (·.map Span.swap)) :=
+  trace_rel hK n _ _ (init_rel P q)
+
+/-- Simplification respects equivalent spans whenever it keeps coverage. -/
+theorem respects_of_mono (hm : Obligation.simplify_mono) {T : Theory}
+    (hwf : ∀ ρ ∈ T, ρ.WellFormed) : Obligation.SimplifyRespectsEquiv T := by
+  intro z z' h
+  rcases (hm T hwf).1 z z' h.1 with h₁ | ⟨f, x, hf, hx, hfx⟩
+  · rcases (hm T hwf).1 z' z h.2 with h₂ | ⟨_, _, h₃, _, _⟩
+    · rw [h₁, h₂]; exact .none
+    · rw [h₁] at h₃; cases h₃
+  · rcases (hm T hwf).1 z' z h.2 with h₂ | ⟨a, b, ha, hb, hab⟩
+    · rw [hf] at h₂; cases h₂
+    · rw [hf, hx]
+      rw [hx] at ha; rw [hf] at hb
+      cases ha; cases hb
+      exact .some ⟨hfx, hab⟩
+
+/-- **P1.4 strong, for the mirrored program**, from `simplify_mono`. -/
+theorem dual_trace_of_mono (hm : Obligation.simplify_mono) : Obligation.dual_trace :=
+  fun P q n hwf => dual_trace_of_respects P q n (respects_of_mono hm hwf)
 
 end Symmetry
 
