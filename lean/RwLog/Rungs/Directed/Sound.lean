@@ -373,6 +373,18 @@ theorem emitted_ref (P : Program) (q : Rel) (hP : P.WellFormed q) (n : Nat) :
       ∃ s, Derives P q s ∧ Ref P.theory a s.den :=
   emitted_ref_from hP.2.2 n _ (sinv_start P q)
 
+/-- In every model of the theory, every answer the goal-directed machine emits
+relates only pairs the query relates. -/
+theorem sound : machine.runtime.Sound := by
+  intro P q hP n a ha M hM
+  rw [Span.denAt_eq, ProgramOf.semAt_eq]
+  exact Runtime.Tier0Cert.sound_of_ref (R := machine.runtime) emitted_ref P q hP n a ha M hM
+
+/-- Every answer the goal-directed machine emits is the span of one
+derivation, in every model of the theory. -/
+theorem derivationGeneral : machine.runtime.DerivationGeneral :=
+  Runtime.derivationGeneral_of_ref emitted_ref
+
 end Directed
 
 end RwLog

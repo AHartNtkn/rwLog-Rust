@@ -707,3 +707,60 @@ new axiom.
 
 /-- info: 'RwLog.R005.admits' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.R005.admits
+
+/-- info: 'RwLog.Directed.engine_costed' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Directed.engine_costed
+
+/-- info: 'RwLog.Directed.emitted_ref' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Directed.emitted_ref
+
+/-- info: 'RwLog.Directed.sound' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Directed.sound
+
+/-- info: 'RwLog.Directed.derivationGeneral' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Directed.derivationGeneral
+
+/-- info: 'RwLog.Hedge.follows_first' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Hedge.follows_first
+
+/-- info: 'RwLog.Hedge.follows_second' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Hedge.follows_second
+
+/-- info: 'RwLog.Hedge.sound' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Hedge.sound
+
+/-- info: 'RwLog.Hedge.derivationGeneral' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Hedge.derivationGeneral
+
+/-- info: 'RwLog.Hedge.noSubsumed' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Hedge.noSubsumed
+
+/-- info: 'RwLog.Hedge.honest' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Hedge.honest
+
+/-- info: 'RwLog.Hedge.complete' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Hedge.complete
+
+/-- info: 'RwLog.Hedge.terminatesWhere' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Hedge.terminatesWhere
+
+/-- info: 'RwLog.Hedge.emptySide' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Hedge.emptySide
+
+/-- info: 'RwLog.Hedge.step_sim' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Hedge.step_sim
+
+/-- info: 'RwLog.Hedge.convTrace_of' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Hedge.convTrace_of
+
+/-- info: 'RwLog.Hedge.dualTrace_of' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Hedge.dualTrace_of
+
+/-- info: 'RwLog.Hedge.tabled_step_sizes' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Hedge.tabled_step_sizes
+
+/-- info: 'RwLog.Hedge.directed_step_sizes' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Hedge.directed_step_sizes
+
+/-- info: 'RwLog.Hedge.directed_step_pos' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Hedge.directed_step_pos
