@@ -10,8 +10,10 @@ their tests and every proof about R005 exist only at the tag. Master has the
 specification, the kernel, the shared libraries, and R005's machine written
 once against the derivation kernel (`Rungs/Tabled/`, `Rungs/Mirror/`,
 `Rungs/R005/Engine.lean`), built and run on the conformance cases
-(`Tests/R005Runs.lean`). Its kept properties are not re-established yet
-(roadmap M3 part B and M4), so no rung is admitted on master. `PARKED.md`
+(`Tests/R005Runs.lean`). The tabled machines of R001 and R004 have their
+properties at every lawful domain (`Rungs/R005/Tables.lean`); the mirrored
+machine's kept properties are not re-established yet (roadmap M3 part B, M4
+and L58), so no rung is admitted on master. `PARKED.md`
 lists the files still out of the build: the proofs of epoch 1 about the tabled
 machine, the mirrored machine and the naive machine, written against the old
 kernel and the old step. What this file says about them describes them as
@@ -181,6 +183,34 @@ has the unfolders: `eagerRace` (unfold every call to a depth, then evaluate),
 it goes, from either end) and `sharedRace` (the walk with equal sub-chains
 evaluated once); `raced` races them with `K.race`. Each machine exists once
 and nothing is proved of a second copy (roadmap L04).
+
+The theorems about the tabled machine are proved on that text, for any
+unfolding race that meets a specification (`Tabled.UOk` in
+`Rungs/Tabled/Invariant.lean`: its answers are answers of the goal, and when
+it says the unfolding is final they cover every derivation of the goal).
+`Rungs/Tabled/Correct.lean` has them for a race that meets it at every lawful
+domain (`Tabled.Good`): `complete`, `pointComplete`, `honestExhaustion`,
+`honestProgress`, `noSubsumed`, `finalMaximal`. The files before it are the
+steps: what the rules of the derivation kernel return (`Framework/Rules.lean`),
+the tables read as values (`Tables`, `Round`), what the candidates of a goal
+cover (`Semantics`, `Covers`, `Candidates`, `Strategies`), the invariant of a
+round (`Invariant`), and that every derivation is covered in the end
+(`Eventually`, `Run`). They use derivations bounded by depth
+(`Kernel/NormalFormDepth.lean`) and the reading of a node by its kind
+(`Kernel/NormalFormSplit.lean`, `NormalFormSpans.lean`, `NormalFormSize.lean`).
+
+`Rungs/Tabled/Unfolding/` proves that each race meets the specification.
+`Sem.lean` says what an unfolding to a depth stands for (`GR P d`: the
+derivations on which every node is read). For each evaluation one file reads
+its text as a value (`EagerVal`, `WalkVal`, `SharedVal`) and one proves the
+specification of what it builds (`Eager`: `POk`, `eagerRace_ok`; `Dir`,
+`WalkChain`, `Walk`: `WOk`, `walkRace_ok` in both directions; `Shared`:
+`SmOk` with the memo's invariant `MemoOk`, `sharedRace_ok`). `Races.lean`
+has `Tabled.good_eagerRace`, `good_walkRace`, `good_sharedRace`, `UOk.race`
+(two races side by side), and `good_raced` for the race of R004 and R005.
+`Rungs/R005/Tables.lean` puts these together: `R001.tableKeeps` and
+`R004.tableKeeps`, with nothing asked of the domain but `Domain.Lawful`.
+What R005 is held to beyond that list needs exact interfaces (roadmap L58).
 
 `Rungs/Framework/Writing.lean` proves what holds of every engine because an
 engine is handed the normal form of the query: `Engine.orComm`, `orAssoc`,

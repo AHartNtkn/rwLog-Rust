@@ -259,3 +259,30 @@ new axiom.
 #guard_msgs in #print axioms RwLog.Engine.andComm
 /-- info: 'RwLog.Engine.andAssoc' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Engine.andAssoc
+
+/-! ## The tabled machine with an unfolding race that meets its specification -/
+
+/-- info: 'RwLog.Tabled.good_eagerRace' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Tabled.good_eagerRace
+/-- info: 'RwLog.Tabled.good_walkRace' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Tabled.good_walkRace
+/-- info: 'RwLog.Tabled.good_sharedRace' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Tabled.good_sharedRace
+/-- info: 'RwLog.Tabled.good_raced' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Tabled.good_raced
+/-- info: 'RwLog.Tabled.complete' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Tabled.complete
+/-- info: 'RwLog.Tabled.pointComplete' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Tabled.pointComplete
+/-- info: 'RwLog.Tabled.honestExhaustion' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Tabled.honestExhaustion
+/-- info: 'RwLog.Tabled.honestProgress' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Tabled.honestProgress
+/-- info: 'RwLog.Tabled.noSubsumed' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Tabled.noSubsumed
+/-- info: 'RwLog.Tabled.finalMaximal' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Tabled.finalMaximal
+/-- info: 'RwLog.R001.tableKeeps' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R001.tableKeeps
+/-- info: 'RwLog.R004.tableKeeps' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R004.tableKeeps
