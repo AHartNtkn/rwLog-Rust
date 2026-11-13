@@ -9,7 +9,7 @@
   derivation of their goals.
 -/
 import RwLog.Rungs.R001.Proofs.Exact.Inv
-import RwLog.Rungs.R001.Proofs.Termination
+import RwLog.Rungs.R001.Proofs.TerminationBasics
 
 namespace RwLog
 

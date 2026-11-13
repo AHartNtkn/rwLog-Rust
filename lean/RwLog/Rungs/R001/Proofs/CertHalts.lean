@@ -11,7 +11,7 @@ the completion test, because each has the strategy the certificate names for
 it, and that strategy's goals are listed with rank at most `r`, or below `r`
 for the side a push waits on (`closed_complete`).
 -/
-import RwLog.Rungs.R001.Proofs.Termination
+import RwLog.Rungs.R001.Proofs.TerminationBasics
 import RwLog.Rungs.R001.Proofs.Exact.Derives
 import RwLog.Rungs.R001.Proofs.Exact.Laws
 import RwLog.Rungs.R001.Proofs.Exact.Fair
