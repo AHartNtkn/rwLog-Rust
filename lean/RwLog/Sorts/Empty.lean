@@ -17,33 +17,33 @@ namespace RwLog
 namespace Sorts
 
 /-- The sorts a declaration names for arguments. -/
-def SortDef.kidNames (d : SortDef) : List Name :=
+def _root_.RwLog.SortDef.kidNames (d : SortDef) : List Name :=
   d.cases.flatMap (fun c => c.2.filterMap id) ++ (d.rest.bind (·.2)).toList
 
 /-- Every name declared or mentioned. -/
-def names (S : Decls) : Finset Name := (S.flatMap fun p => p.1 :: p.2.kidNames).toFinset
+def names (S : Sorts) : Finset Name := (S.flatMap fun p => p.1 :: p.2.kidNames).toFinset
 
 /-- The roots some sort of `c` has a case for. -/
-def caseKeys (S : Decls) (c : Conj) : Finset (Sym × Nat) :=
+def caseKeys (S : Sorts) (c : Conj) : Finset (Sym × Nat) :=
   c.biUnion fun n =>
     match S.lookup n with
     | some d => (d.cases.map fun cs => (cs.1, cs.2.length)).toFinset
     | none => ∅
 
 /-- Every sort of `c` is declared and has a rest. -/
-def RestOK (S : Decls) (c : Conj) : Prop :=
+def RestOK (S : Sorts) (c : Conj) : Prop :=
   ∀ n ∈ c, ((S.lookup n).bind (·.rest)).isSome = true
 
-instance (S : Decls) (c : Conj) : Decidable (RestOK S c) := by unfold RestOK; infer_instance
+instance (S : Sorts) (c : Conj) : Decidable (RestOK S c) := by unfold RestOK; infer_instance
 
 /-- One round: the conjunctions that have a member given that those in `P` do. -/
-def grow (S : Decls) (P : Finset Conj) : Finset Conj :=
+def grow (S : Sorts) (P : Finset Conj) : Finset Conj :=
   (names S).powerset.filter fun c =>
     RestOK S c ∨ ∃ key ∈ caseKeys S c,
       Accepts S c key.1 key.2 ∧ ∀ i < key.2, kidC S c key.1 key.2 i ∈ P
 
 /-- The conjunctions that have a member. -/
-def live (S : Decls) : Finset Conj := saturate (names S).powerset (grow S)
+def live (S : Sorts) : Finset Conj := saturate (names S).powerset (grow S)
 
 theorem mem_of_lookup {α β : Type} [BEq α] [LawfulBEq α] {l : List (α × β)} {a : α} {b : β}
     (h : l.lookup a = some b) : (a, b) ∈ l := by
@@ -59,7 +59,7 @@ theorem mem_of_lookup {α β : Type} [BEq α] [LawfulBEq α] {l : List (α × β
     · exact List.mem_cons_of_mem _ (ih h)
 
 /-- What `step` returns, case by case. -/
-theorem step_cases {S : Decls} {n : Name} {f : Sym} {k : Nat} {ks : List (Option Name)}
+theorem step_cases {S : Sorts} {n : Name} {f : Sym} {k : Nat} {ks : List (Option Name)}
     (h : step S n f k = some ks) :
     ∃ d, S.lookup n = some d ∧
       ((∃ cs ∈ d.cases, cs.1 = f ∧ cs.2.length = k ∧ ks = cs.2) ∨
@@ -90,7 +90,7 @@ theorem step_cases {S : Decls} {n : Name} {f : Sym} {k : Nat} {ks : List (Option
         · rename_i hex; cases h; exact ⟨ex, r, hr, hex, rfl⟩
       · cases h
 
-theorem kidC_subset_names {S : Decls} {c : Conj} {f : Sym} {k i : Nat} :
+theorem kidC_subset_names {S : Sorts} {c : Conj} {f : Sym} {k i : Nat} :
     kidC S c f k i ⊆ names S := by
   intro m hm
   obtain ⟨n, _, ks, hs, hg⟩ := mem_kidC.mp hm
@@ -109,7 +109,7 @@ theorem kidC_subset_names {S : Decls} {c : Conj} {f : Sym} {k i : Nat} :
     simp [hr, this]
 
 /-- A conjunction with a member only names declared sorts. -/
-theorem subset_names_of_memC {S : Decls} {c : Conj} {t : GTerm} (h : MemC S c t) :
+theorem subset_names_of_memC {S : Sorts} {c : Conj} {t : GTerm} (h : MemC S c t) :
     c ⊆ names S := by
   intro n hn
   obtain ⟨f, ts, rfl, _⟩ := exists_mk t
@@ -119,13 +119,13 @@ theorem subset_names_of_memC {S : Decls} {c : Conj} {t : GTerm} (h : MemC S c t)
   exact ⟨(n, d), mem_of_lookup hd, by simp⟩
 
 /-- The symbols the declarations mention. -/
-def usedSyms (S : Decls) : Finset Sym :=
+def usedSyms (S : Sorts) : Finset Sym :=
   (S.flatMap fun p => p.2.cases.map (·.1) ++
     (match p.2.rest with
       | some (ex, _) => ex.map (·.1)
       | none => [])).toFinset
 
-theorem restOK_memC {S : Decls} {c : Conj} (h : RestOK S c) : ∃ t, MemC S c t := by
+theorem restOK_memC {S : Sorts} {c : Conj} (h : RestOK S c) : ∃ t, MemC S c t := by
   obtain ⟨g, hg⟩ := Infinite.exists_notMem_finset (usedSyms S)
   refine ⟨Term.mk g [], fun n hn => ?_⟩
   have hr := h n hn
@@ -156,7 +156,7 @@ theorem restOK_memC {S : Decls} {c : Conj} (h : RestOK S c) : ∃ t, MemC S c t 
       rw [this]
       simp [hrest, hne]
 
-theorem mem_live_iff {S : Decls} {c : Conj} : c ∈ live S ↔ ∃ t, MemC S c t := by
+theorem mem_live_iff {S : Sorts} {c : Conj} : c ∈ live S ↔ ∃ t, MemC S c t := by
   constructor
   · revert c
     apply saturate.induction
@@ -201,7 +201,7 @@ theorem mem_live_iff {S : Decls} {c : Conj} : c ∈ live S ↔ ∃ t, MemC S c t
         · simp [hd, hr]
 
 /-- Whether a conjunction of sorts has a member is decidable. -/
-instance (S : Decls) (c : Conj) : Decidable (∃ t, MemC S c t) :=
+instance (S : Sorts) (c : Conj) : Decidable (∃ t, MemC S c t) :=
   decidable_of_iff _ mem_live_iff
 
 end Sorts

@@ -18,19 +18,19 @@ namespace RwLog
 namespace Sorts
 
 /-- Some member of `c` is not in the sort `n`. -/
-def Out (S : Decls) (c : Conj) (n : Name) : Prop := ∃ t, MemC S c t ∧ mem S n t = false
+def Out (S : Sorts) (c : Conj) (n : Name) : Prop := ∃ t, MemC S c t ∧ mem S n t = false
 
 /-- The roots the rest of `n` excludes. -/
-def exKeys (S : Decls) (n : Name) : Finset (Sym × Nat) :=
+def exKeys (S : Sorts) (n : Name) : Finset (Sym × Nat) :=
   match (S.lookup n).bind (·.rest) with
   | some (ex, _) => ex.toFinset
   | none => ∅
 
 /-- The sorts the rests of `c` require of arguments. -/
-def restKids (S : Decls) (c : Conj) : Conj :=
+def restKids (S : Sorts) (c : Conj) : Conj :=
   c.biUnion fun s => (((S.lookup s).bind (·.rest)).bind (·.2)).toFinset
 
-theorem mem_caseKeys {S : Decls} {c : Conj} {f : Sym} {k : Nat} :
+theorem mem_caseKeys {S : Sorts} {c : Conj} {f : Sym} {k : Nat} :
     (f, k) ∈ caseKeys S c ↔
       ∃ s ∈ c, ∃ d, S.lookup s = some d ∧ ∃ cs ∈ d.cases, cs.1 = f ∧ cs.2.length = k := by
   simp only [caseKeys, Finset.mem_biUnion]
@@ -47,7 +47,7 @@ theorem mem_caseKeys {S : Decls} {c : Conj} {f : Sym} {k : Nat} :
     simp only [hd, List.mem_toFinset, List.mem_map, Prod.mk.injEq]
     exact ⟨cs, hcs, h1, h2⟩
 
-theorem mem_restKids {S : Decls} {c : Conj} {m : Name} :
+theorem mem_restKids {S : Sorts} {c : Conj} {m : Name} :
     m ∈ restKids S c ↔ ∃ s ∈ c, ∃ d ex, S.lookup s = some d ∧ d.rest = some (ex, some m) := by
   simp only [restKids, Finset.mem_biUnion, Option.mem_toFinset, Option.mem_def]
   constructor
@@ -66,7 +66,7 @@ theorem mem_restKids {S : Decls} {c : Conj} {m : Name} :
 
 /-- When no sort of `c` has a case for the root, the arguments are in the
 sorts the rests require. -/
-theorem kidC_of_rest {S : Decls} {c : Conj} {f : Sym} {k i : Nat}
+theorem kidC_of_rest {S : Sorts} {c : Conj} {f : Sym} {k i : Nat}
     (hkey : (f, k) ∉ caseKeys S c) (hacc : Accepts S c f k) (hi : i < k) :
     kidC S c f k i = restKids S c := by
   ext m
@@ -91,7 +91,7 @@ theorem kidC_of_rest {S : Decls} {c : Conj} {f : Sym} {k i : Nat}
     · rw [hr] at hr'; cases hr'
       simp [hi]
 
-theorem restKids_subset_names {S : Decls} {c : Conj} : restKids S c ⊆ names S := by
+theorem restKids_subset_names {S : Sorts} {c : Conj} : restKids S c ⊆ names S := by
   intro m hm
   obtain ⟨s, _, d, ex, hd, hr⟩ := mem_restKids.mp hm
   simp only [names, List.mem_toFinset, List.mem_flatMap]
@@ -99,9 +99,9 @@ theorem restKids_subset_names {S : Decls} {c : Conj} : restKids S c ⊆ names S 
   simp [SortDef.kidNames, hr]
 
 /-- The sort the rest of `n` requires of arguments. -/
-def restKid (S : Decls) (n : Name) : Option Name := ((S.lookup n).bind (·.rest)).bind (·.2)
+def restKid (S : Sorts) (n : Name) : Option Name := ((S.lookup n).bind (·.rest)).bind (·.2)
 
-theorem restKid_eq {S : Decls} {n m : Name} :
+theorem restKid_eq {S : Sorts} {n m : Name} :
     restKid S n = some m ↔ ∃ d ex, S.lookup n = some d ∧ d.rest = some (ex, some m) := by
   unfold restKid
   cases hd : S.lookup n with
@@ -111,13 +111,13 @@ theorem restKid_eq {S : Decls} {n m : Name} :
     | none => simp [hr]
     | some er => obtain ⟨ex, r⟩ := er; simp [hr]
 
-theorem stepKid_eq {S : Decls} {n : Name} {f : Sym} {k i : Nat} {m : Name} :
+theorem stepKid_eq {S : Sorts} {n : Name} {f : Sym} {k i : Nat} {m : Name} :
     (step S n f k).bind (·[i]?) = some (some m) ↔
       ∃ ks, step S n f k = some ks ∧ ks[i]? = some (some m) := by
   cases step S n f k <;> simp
 
 /-- One round for `Out`. -/
-def growOut (S : Decls) (P : Finset (Conj × Name)) : Finset (Conj × Name) :=
+def growOut (S : Sorts) (P : Finset (Conj × Name)) : Finset (Conj × Name) :=
   ((names S).powerset ×ˢ names S).filter fun p =>
     (RestOK S p.1 ∧ ((S.lookup p.2).bind (·.rest)).isSome = false) ∨
     (RestOK S p.1 ∧ ∃ m ∈ names S,
@@ -131,10 +131,10 @@ def growOut (S : Decls) (P : Finset (Conj × Name)) : Finset (Conj × Name) :=
 
 /-- The pairs `(c, n)`, with `n` a mentioned name, such that `c` has a member
 outside `n`. -/
-def outs (S : Decls) : Finset (Conj × Name) :=
+def outs (S : Sorts) : Finset (Conj × Name) :=
   saturate ((names S).powerset ×ˢ names S) (growOut S)
 
-theorem mem_false_of_kid {S : Decls} {n : Name} {f : Sym} {ts : List GTerm}
+theorem mem_false_of_kid {S : Sorts} {n : Name} {f : Sym} {ts : List GTerm}
     {ks : List (Option Name)} {i : Nat} {m : Name} (hs : step S n f ts.length = some ks)
     (hi : i < ts.length) (hg : ks[i]? = some (some m)) (hm : mem S m ts[i] = false) :
     mem S n (Term.mk f ts) = false := by
@@ -145,7 +145,7 @@ theorem mem_false_of_kid {S : Decls} {n : Name} {f : Sym} {ts : List GTerm}
   have := hall i hi
   simp [hg, memO, hm] at this
 
-theorem outs_sound {S : Decls} : ∀ p ∈ outs S, Out S p.1 p.2 := by
+theorem outs_sound {S : Sorts} : ∀ p ∈ outs S, Out S p.1 p.2 := by
   apply saturate.induction
   rintro P hP ⟨c, n⟩ hc
   simp only [growOut, Finset.mem_inter, Finset.mem_filter, restKid_eq, stepKid_eq] at hc
@@ -231,7 +231,7 @@ theorem outs_sound {S : Decls} : ∀ p ∈ outs S, Out S p.1 p.2 := by
       · refine mem_false_of_kid (i := i) (by simpa using hs) (by simpa using hi) hg' ?_
         simpa using hum
 
-theorem outs_complete {S : Decls} {c : Conj} {n : Name} (hn : n ∈ names S) (h : Out S c n) :
+theorem outs_complete {S : Sorts} {c : Conj} {n : Name} (hn : n ∈ names S) (h : Out S c n) :
     (c, n) ∈ outs S := by
   obtain ⟨t, ht, htn⟩ := h
   induction hsz : t.size using Nat.strong_induction_on generalizing c n t with
@@ -327,7 +327,7 @@ theorem outs_complete {S : Decls} {c : Conj} {n : Name} (hn : n ∈ names S) (h 
           exact ih _ (by subst hsz; exact hlt _ (List.getElem_mem hi)) hmn _ hkid hm rfl
 
 /-- A name no declaration mentions is the empty sort. -/
-theorem mem_false_of_not_names {S : Decls} {n : Name} (hn : n ∉ names S) (t : GTerm) :
+theorem mem_false_of_not_names {S : Sorts} {n : Name} (hn : n ∉ names S) (t : GTerm) :
     mem S n t = false := by
   by_contra h
   rw [Bool.not_eq_false] at h
@@ -335,7 +335,7 @@ theorem mem_false_of_not_names {S : Decls} {n : Name} (hn : n ∉ names S) (t : 
     rw [Finset.mem_singleton] at hm; subst hm; exact h
   exact hn (subset_names_of_memC this (by simp))
 
-theorem out_iff {S : Decls} {c : Conj} {n : Name} :
+theorem out_iff {S : Sorts} {c : Conj} {n : Name} :
     Out S c n ↔ if n ∈ names S then (c, n) ∈ outs S else c ∈ live S := by
   split
   · rename_i hn
@@ -344,13 +344,13 @@ theorem out_iff {S : Decls} {c : Conj} {n : Name} :
     rw [mem_live_iff]
     exact ⟨fun ⟨t, ht, _⟩ => ⟨t, ht⟩, fun ⟨t, ht⟩ => ⟨t, ht, mem_false_of_not_names hn t⟩⟩
 
-instance (S : Decls) (c : Conj) (n : Name) : Decidable (Out S c n) :=
+instance (S : Sorts) (c : Conj) (n : Name) : Decidable (Out S c n) :=
   decidable_of_iff _ out_iff.symm
 
 /-- Every member of `c` is in `n`. -/
-def Incl (S : Decls) (c : Conj) (n : Name) : Prop := ∀ t, MemC S c t → mem S n t = true
+def Incl (S : Sorts) (c : Conj) (n : Name) : Prop := ∀ t, MemC S c t → mem S n t = true
 
-theorem incl_iff_not_out {S : Decls} {c : Conj} {n : Name} : Incl S c n ↔ ¬ Out S c n := by
+theorem incl_iff_not_out {S : Sorts} {c : Conj} {n : Name} : Incl S c n ↔ ¬ Out S c n := by
   constructor
   · rintro h ⟨t, ht, hf⟩
     rw [h t ht] at hf; cases hf
@@ -359,7 +359,7 @@ theorem incl_iff_not_out {S : Decls} {c : Conj} {n : Name} : Incl S c n ↔ ¬ O
     rw [Bool.not_eq_true] at hm
     exact h ⟨t, ht, hm⟩
 
-instance (S : Decls) (c : Conj) (n : Name) : Decidable (Incl S c n) :=
+instance (S : Sorts) (c : Conj) (n : Name) : Decidable (Incl S c n) :=
   decidable_of_iff _ incl_iff_not_out.symm
 
 end Sorts

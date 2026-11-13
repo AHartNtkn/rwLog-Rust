@@ -17,27 +17,27 @@ namespace Sorts
 abbrev Conj := Finset Name
 
 /-- `t` is in every sort of `c`. -/
-def MemC (S : Decls) (c : Conj) (t : GTerm) : Prop := ∀ n ∈ c, mem S n t = true
+def MemC (S : Sorts) (c : Conj) (t : GTerm) : Prop := ∀ n ∈ c, mem S n t = true
 
-instance (S : Decls) (c : Conj) (t : GTerm) : Decidable (MemC S c t) := by
+instance (S : Sorts) (c : Conj) (t : GTerm) : Decidable (MemC S c t) := by
   unfold MemC; infer_instance
 
 /-- Every sort of `c` accepts the root `f` with `k` arguments. -/
-def Accepts (S : Decls) (c : Conj) (f : Sym) (k : Nat) : Prop :=
+def Accepts (S : Sorts) (c : Conj) (f : Sym) (k : Nat) : Prop :=
   ∀ n ∈ c, (step S n f k).isSome = true
 
-instance (S : Decls) (c : Conj) (f : Sym) (k : Nat) : Decidable (Accepts S c f k) := by
+instance (S : Sorts) (c : Conj) (f : Sym) (k : Nat) : Decidable (Accepts S c f k) := by
   unfold Accepts; infer_instance
 
 /-- The sorts required of argument `i` of a term with root `f` and `k`
 arguments that is in `c`. -/
-def kidC (S : Decls) (c : Conj) (f : Sym) (k : Nat) (i : Nat) : Conj :=
+def kidC (S : Sorts) (c : Conj) (f : Sym) (k : Nat) (i : Nat) : Conj :=
   c.biUnion fun n =>
     match step S n f k with
     | some ks => (ks[i]?.join).toFinset
     | none => ∅
 
-theorem mem_kidC {S : Decls} {c : Conj} {f : Sym} {k i : Nat} {m : Name} :
+theorem mem_kidC {S : Sorts} {c : Conj} {f : Sym} {k i : Nat} {m : Name} :
     m ∈ kidC S c f k i ↔ ∃ n ∈ c, ∃ ks, step S n f k = some ks ∧ ks[i]? = some (some m) := by
   simp only [kidC, Finset.mem_biUnion]
   constructor
@@ -53,7 +53,7 @@ theorem mem_kidC {S : Decls} {c : Conj} {f : Sym} {k i : Nat} {m : Name} :
   · rintro ⟨n, hn, ks, hs, hg⟩
     exact ⟨n, hn, by simp [hs, hg]⟩
 
-theorem memC_mk {S : Decls} {c : Conj} {f : Sym} {ts : List GTerm} :
+theorem memC_mk {S : Sorts} {c : Conj} {f : Sym} {ts : List GTerm} :
     MemC S c (Term.mk f ts) ↔
       Accepts S c f ts.length ∧
         ∀ i (h : i < ts.length), MemC S (kidC S c f ts.length i) ts[i] := by

@@ -60,3 +60,4 @@ import RwLog.Rungs.Framework.Answer
 import RwLog.Rungs.Framework.Fairness
 import RwLog.Sorts.Incl
 import RwLog.Sorts.Indep
+import RwLog.Sorts.Trusted

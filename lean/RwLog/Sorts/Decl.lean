@@ -11,23 +11,14 @@ declaration without a rest rejects every symbol that has no case.
 Membership is computed by one pass over the curried term (`kids`), and is
 characterised on surface terms `(f t₁ … tₙ)` by `mem_mk`.
 -/
-import RwLog.Trusted.Syntax
+import RwLog.Trusted.Semantics
 
 namespace RwLog
 namespace Sorts
 
-/-- One sort declaration. -/
-structure SortDef where
-  cases : List (Sym × List (Option Name))
-  rest : Option (List (Sym × Nat) × Option Name)
-  deriving DecidableEq, Repr
-
-/-- The declared sorts of a program. -/
-abbrev Decls := List (Name × SortDef)
-
 /-- The sorts of the arguments of a term with root `f` and `n` arguments, when
 the declaration accepts that root. -/
-def SortDef.step (d : SortDef) (f : Sym) (n : Nat) : Option (List (Option Name)) :=
+def _root_.RwLog.SortDef.step (d : SortDef) (f : Sym) (n : Nat) : Option (List (Option Name)) :=
   match d.cases.find? (fun c => c.1 = f ∧ c.2.length = n) with
   | some c => some c.2
   | none =>
@@ -35,7 +26,7 @@ def SortDef.step (d : SortDef) (f : Sym) (n : Nat) : Option (List (Option Name))
     | some (ex, k) => if (f, n) ∈ ex then none else some (List.replicate n k)
     | none => none
 
-theorem SortDef.step_length {d : SortDef} {f : Sym} {n : Nat} {ks : List (Option Name)}
+theorem _root_.RwLog.SortDef.step_length {d : SortDef} {f : Sym} {n : Nat} {ks : List (Option Name)}
     (h : d.step f n = some ks) : ks.length = n := by
   unfold SortDef.step at h
   split at h
@@ -50,10 +41,10 @@ theorem SortDef.step_length {d : SortDef} {f : Sym} {n : Nat} {ks : List (Option
     · cases h
 
 /-- One step of a named sort; an undeclared name is the empty sort. -/
-def step (S : Decls) (n : Name) (f : Sym) (k : Nat) : Option (List (Option Name)) :=
+def step (S : Sorts) (n : Name) (f : Sym) (k : Nat) : Option (List (Option Name)) :=
   (S.lookup n).bind fun d => d.step f k
 
-theorem step_length {S : Decls} {n : Name} {f : Sym} {k : Nat} {ks : List (Option Name)}
+theorem step_length {S : Sorts} {n : Name} {f : Sym} {k : Nat} {ks : List (Option Name)}
     (h : step S n f k = some ks) : ks.length = k := by
   unfold step at h
   cases hd : S.lookup n with
@@ -63,7 +54,7 @@ theorem step_length {S : Decls} {n : Name} {f : Sym} {k : Nat} {ks : List (Optio
 /-- The argument sorts of the surface term of which `t` is the function part
 with `extra` arguments still to come, when sort `n` accepts everything read so
 far. Membership of an argument is checked as it is passed. -/
-def kids (S : Decls) : GTerm → Name → Nat → Option (List (Option Name))
+def kids (S : Sorts) : GTerm → Name → Nat → Option (List (Option Name))
   | .sym f, n, extra => step S n f extra
   | .app t u, n, extra =>
     match kids S t n (extra + 1) with
@@ -75,15 +66,15 @@ def kids (S : Decls) : GTerm → Name → Nat → Option (List (Option Name))
       | some (some m) => if (kids S u m 0).isSome then some ks else none
 
 /-- `t` is a member of the sort named `n`. -/
-def mem (S : Decls) (n : Name) (t : GTerm) : Bool := (kids S t n 0).isSome
+def mem (S : Sorts) (n : Name) (t : GTerm) : Bool := (kids S t n 0).isSome
 
 /-- `t` is in the sort `k`, where `none` is the sort of all terms. -/
-def memO (S : Decls) (k : Option Name) (t : GTerm) : Bool :=
+def memO (S : Sorts) (k : Option Name) (t : GTerm) : Bool :=
   match k with
   | none => true
   | some m => mem S m t
 
-theorem kids_length {S : Decls} : ∀ {t : GTerm} {n : Name} {extra : Nat} {ks : List (Option Name)},
+theorem kids_length {S : Sorts} : ∀ {t : GTerm} {n : Name} {extra : Nat} {ks : List (Option Name)},
     kids S t n extra = some ks → extra ≤ ks.length
   | .sym f, n, extra, ks, h => by
     simp only [kids] at h; exact Nat.le_of_eq (step_length h).symm
@@ -101,7 +92,7 @@ theorem kids_length {S : Decls} : ∀ {t : GTerm} {n : Name} {extra : Nat} {ks :
         · cases h
 
 /-- Reading one more argument. -/
-theorem kids_app {S : Decls} {t u : GTerm} {n : Name} {extra : Nat} {ks : List (Option Name)} :
+theorem kids_app {S : Sorts} {t u : GTerm} {n : Name} {extra : Nat} {ks : List (Option Name)} :
     kids S (.app t u) n extra = some ks ↔
       kids S t n (extra + 1) = some ks ∧
         memO S (ks[ks.length - extra - 1]?.getD none) u = true := by
@@ -136,7 +127,7 @@ theorem kids_app {S : Decls} {t u : GTerm} {n : Name} {extra : Nat} {ks : List (
         simp [h2]
 
 /-- Reading the arguments `args` after a function part `t`. -/
-theorem kids_foldl {S : Decls} (n : Name) :
+theorem kids_foldl {S : Sorts} (n : Name) :
     ∀ (args : List GTerm) (t : GTerm) (extra : Nat) (ks : List (Option Name)),
       kids S (args.foldl .app t) n extra = some ks ↔
         kids S t n (extra + args.length) = some ks ∧
@@ -179,7 +170,7 @@ theorem kids_foldl {S : Decls} (n : Name) :
 
 /-- Membership of a surface term: the sort accepts the root, and every
 argument is in the sort the root assigns to its position. -/
-theorem mem_mk {S : Decls} {n : Name} {f : Sym} {ts : List GTerm} :
+theorem mem_mk {S : Sorts} {n : Name} {f : Sym} {ts : List GTerm} :
     mem S n (Term.mk f ts) = true ↔
       ∃ ks, step S n f ts.length = some ks ∧
         ∀ i (h : i < ts.length), memO S (ks[i]?.getD none) ts[i] = true := by
