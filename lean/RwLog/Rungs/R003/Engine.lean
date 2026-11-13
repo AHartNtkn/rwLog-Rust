@@ -14,7 +14,7 @@ The two answers are the same up to spans that repeat an earlier one, which
 the tabled machine drops in any case, so R003 takes the very same steps as
 R001 (obligation `runtime_eq`) and keeps every property proved of it.
 -/
-import RwLog.Rungs.R003.Race
+import RwLog.Rungs.Framework.Race
 import RwLog.Rungs.R003.Shared
 
 namespace RwLog
