@@ -3,11 +3,11 @@
 
 `Term.subs t` is the set of subterms of `t`, and `Eqns.subs E` the set of
 subterms of both sides of every equation. Their sizes are what the base
-machine pays for: its store keeps one node for each distinct subterm
-(`Trusted/Base.lean`), so a term costs `(subs t).card` nodes however often a
+machine pays for: its store (`verified/rust/src/store.rs`) keeps one node for
+each distinct subterm, so a term costs `(subs t).card` nodes however often a
 subterm is repeated in it, never more than `t.size` (`Term.card_subs_le_size`).
 
-For the cost of solving equations (`Kernel/Machine/Solve.lean`):
+For the cost of solving equations on that store:
 
 * eliminating a variable makes the set of subterms strictly smaller
   (`Eqns.card_subs_subst_lt`), because the variable and the term it is
