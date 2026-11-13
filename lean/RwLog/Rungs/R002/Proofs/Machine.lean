@@ -14,7 +14,8 @@ machine only has the oracle's verdicts for the tables that were not complete at
 the start of the round. The fixpoint only ever looks at such tables
 (`gfpFrom_congr`), so the two agree.
 -/
-import RwLog.Rungs.R002.Proofs.CostVal
+import RwLog.Rungs.Framework.Cost
+import RwLog.Lib.Gfp
 import RwLog.Rungs.R002.Tabled
 
 namespace RwLog

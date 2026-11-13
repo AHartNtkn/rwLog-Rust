@@ -934,71 +934,6 @@ theorem seqP_assoc {A B C : List (List Rel)} (hA : ∀ p ∈ A, p ≠ []) (hB : 
         cases key with
         | some e => exact ⟨r, mem_seqP.2 ⟨pq, mem_seqP.2 ⟨p, hp, q, hq, hpq⟩, s, hs, hr⟩, e⟩
 
-/-! ## Unfolding -/
-
-section Unfold
-
-variable (P : Program)
-
-theorem unfoldN_zero' (k : Nat) : unfoldN P k .zero = .zero := by
-  induction k with
-  | zero => rfl
-  | succ k ih => rw [unfoldN, Function.iterate_succ_apply', ← unfoldN, ih]; rfl
-
-theorem unfoldN_span (k : Nat) (s : Span) : unfoldN P k (.span s) = .span s := by
-  induction k with
-  | zero => rfl
-  | succ k ih => rw [unfoldN, Function.iterate_succ_apply', ← unfoldN, ih]; rfl
-
-theorem unfoldN_seq (k : Nat) (a b : Rel) :
-    unfoldN P k (.seq a b) = .seq (unfoldN P k a) (unfoldN P k b) := by
-  induction k with
-  | zero => rfl
-  | succ k ih =>
-    simp only [unfoldN, Function.iterate_succ_apply'] at ih ⊢
-    rw [ih]; rfl
-
-theorem unfoldN_and (k : Nat) (a b : Rel) :
-    unfoldN P k (.and a b) = .and (unfoldN P k a) (unfoldN P k b) := by
-  induction k with
-  | zero => rfl
-  | succ k ih =>
-    simp only [unfoldN, Function.iterate_succ_apply'] at ih ⊢
-    rw [ih]; rfl
-
-theorem unfoldN_or' (k : Nat) (a b : Rel) :
-    unfoldN P k (.or a b) = .or (unfoldN P k a) (unfoldN P k b) := by
-  induction k with
-  | zero => rfl
-  | succ k ih =>
-    simp only [unfoldN, Function.iterate_succ_apply'] at ih ⊢
-    rw [ih]; rfl
-
-theorem unfoldN_conv' (k : Nat) (a : Rel) : unfoldN P k (.conv a) = .conv (unfoldN P k a) := by
-  induction k with
-  | zero => rfl
-  | succ k ih =>
-    simp only [unfoldN, Function.iterate_succ_apply'] at ih ⊢
-    rw [ih]; rfl
-
-theorem unfold_dual : ∀ e : Rel, unfold P.dual e.dual = (unfold P e).dual
-  | .zero => rfl
-  | .span _ => rfl
-  | .or a b => by simp only [Rel.dual, unfold, unfold_dual a, unfold_dual b]
-  | .and a b => by simp only [Rel.dual, unfold, unfold_dual a, unfold_dual b]
-  | .seq a b => by simp only [Rel.dual, unfold, unfold_dual a, unfold_dual b]
-  | .conv a => by simp only [Rel.dual, unfold, unfold_dual a]
-  | .call n => by simp only [Rel.dual, unfold, Program.dual_body]
-
-theorem unfoldN_dual (k : Nat) (e : Rel) : unfoldN P.dual k e.dual = (unfoldN P k e).dual := by
-  induction k with
-  | zero => rfl
-  | succ k ih =>
-    simp only [unfoldN, Function.iterate_succ_apply'] at ih ⊢
-    rw [ih, unfold_dual]
-
-end Unfold
-
 /-! ## Corresponding expressions -/
 
 /-- Two expressions, of the programs `P` and `Q`, have corresponding
@@ -1035,13 +970,13 @@ theorem Mk.span {m : Bool} {a b : Span} (h : OC m a b) : Mk m P Q (.span a) (.sp
 
 theorem Mk.zero {m : Bool} : Mk m P Q .zero .zero := by
   intro neg k
-  rw [unfoldN_zero', unfoldN_zero']
+  rw [unfoldN_zero, unfoldN_zero]
   exact ⟨fun p hp => by simp [norm] at hp, fun p hp => by simp [norm] at hp⟩
 
 theorem Mk.or {m : Bool} {a b a' b' : Rel} (ha : Mk m P Q a a') (hb : Mk m P Q b b') :
     Mk m P Q (.or a b) (.or a' b') := by
   intro neg k
-  rw [unfoldN_or', unfoldN_or']
+  rw [unfoldN_or, unfoldN_or]
   exact (ha neg k).append (hb neg k)
 
 theorem Mk.and {m : Bool} {a b a' b' : Rel} (ha : Mk m P Q a a') (hb : Mk m P Q b b') :
@@ -1052,7 +987,7 @@ theorem Mk.and {m : Bool} {a b a' b' : Rel} (ha : Mk m P Q a a') (hb : Mk m P Q 
 
 theorem Mk.conv {m : Bool} {a a' : Rel} (ha : Mk m P Q a a') : Mk m P Q (.conv a) (.conv a') := by
   intro neg k
-  rw [unfoldN_conv', unfoldN_conv']
+  rw [unfoldN_conv, unfoldN_conv]
   exact ha (!neg) k
 
 /-- A sequence in the order of a direction: reversed under a mirror. -/
@@ -1119,10 +1054,10 @@ variable (Q : Program) (neg : Bool) (k : Nat)
 
 theorem mem_prods_mkOr : ∀ (Ls : List Rel) (p : List Rel),
     p ∈ norm neg (unfoldN Q k (mkOr Ls)) ↔ ∃ e ∈ Ls, p ∈ norm neg (unfoldN Q k e)
-  | [], p => by simp [mkOr, unfoldN_zero', norm]
+  | [], p => by simp [mkOr, unfoldN_zero, norm]
   | [e], p => by simp [mkOr]
   | e :: e' :: es, p => by
-    rw [show mkOr (e :: e' :: es) = .or e (mkOr (e' :: es)) from rfl, unfoldN_or']
+    rw [show mkOr (e :: e' :: es) = .or e (mkOr (e' :: es)) from rfl, unfoldN_or]
     simp only [norm, List.mem_append, mem_prods_mkOr (e' :: es) p, List.mem_cons]
     constructor
     · rintro (h | ⟨x, hx, h⟩)
@@ -1135,7 +1070,7 @@ theorem mem_prods_mkOr : ∀ (Ls : List Rel) (p : List Rel),
 theorem mem_prods_branches : ∀ (X : Rel) (p : List Rel),
     p ∈ norm neg (unfoldN Q k X) ↔ ∃ e ∈ orBranches X, p ∈ norm neg (unfoldN Q k e)
   | .or a b, p => by
-    rw [unfoldN_or']
+    rw [unfoldN_or]
     simp only [norm, List.mem_append, orBranches, mem_prods_branches a p, mem_prods_branches b p]
     constructor
     · rintro (⟨x, hx, h⟩ | ⟨x, hx, h⟩)
@@ -1154,7 +1089,7 @@ theorem mem_prods_sorted (L : List Rel) (p : List Rel) :
   · rintro ⟨e, he, h⟩
     refine ⟨e, mem_sortedBranches.2 ⟨he, ?_⟩, h⟩
     rintro rfl
-    simp [unfoldN_zero', norm] at h
+    simp [unfoldN_zero, norm] at h
 
 end Canon
 

@@ -22,6 +22,7 @@ the fusion of their swaps in the other order does, because every span has a
 ground instance.
 -/
 import RwLog.Rungs.R000.Correct
+import RwLog.Rungs.R000.Unfold
 
 namespace RwLog
 
@@ -42,21 +43,6 @@ theorem terminates_congr {P' : Program} {q q' : Rel}
     (hf : ∀ k, roundFinal P q k = roundFinal P' q' k) :
     runtime.Terminates P q ↔ runtime.Terminates P' q' := by
   simp only [terminates_iff, hf]
-
-theorem unfoldN_or (k : Nat) (a b : Rel) :
-    unfoldN P k (.or a b) = .or (unfoldN P k a) (unfoldN P k b) := by
-  induction k with
-  | zero => rfl
-  | succ k ih =>
-    simp only [unfoldN, Function.iterate_succ_apply'] at ih ⊢
-    rw [ih]; rfl
-
-theorem unfoldN_conv (k : Nat) (a : Rel) : unfoldN P k (.conv a) = .conv (unfoldN P k a) := by
-  induction k with
-  | zero => rfl
-  | succ k ih =>
-    simp only [unfoldN, Function.iterate_succ_apply'] at ih ⊢
-    rw [ih]; rfl
 
 /-! ## P1.1: disjunct order independence -/
 
