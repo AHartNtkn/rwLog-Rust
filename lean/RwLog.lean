@@ -104,3 +104,4 @@ import RwLog.Lib.Firsts
 import RwLog.Rungs.R003.Proofs.Ranges
 import RwLog.Rungs.R003.Proofs.Products
 import RwLog.Rungs.R003.Proofs.SharedExact
+import RwLog.Rungs.R003.Proofs.Same

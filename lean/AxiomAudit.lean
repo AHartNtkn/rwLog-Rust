@@ -427,3 +427,21 @@ new axiom.
 
 /-- info: 'RwLog.R003.shared_exact' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.R003.shared_exact
+
+/-- info: 'RwLog.R003.unfolder_exact' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R003.unfolder_exact
+
+/-- info: 'RwLog.R003.runtime_eq' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R003.runtime_eq
+
+/-- info: 'RwLog.R003.sound' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R003.sound
+
+/-- info: 'RwLog.R003.complete' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R003.complete
+
+/-- info: 'RwLog.R003.honest_exhaustion' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R003.honest_exhaustion
+
+/-- info: 'RwLog.R003.simulates' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R003.simulates
