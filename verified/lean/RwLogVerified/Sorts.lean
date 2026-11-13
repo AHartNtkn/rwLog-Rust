@@ -7,6 +7,7 @@ one step of a sort on a root (`Sorts.step`) and membership (`Sorts.mem`).
 -/
 import RwLogVerified.Compose
 import RwLog.Sorts.Decl
+import RwLog.Trusted.Cost
 
 open Aeneas Aeneas.Std Result
 
@@ -861,5 +862,284 @@ theorem step_spec (hnm : Function.Injective nm) (S : Sorts) {sp : Pat}
           rw [step_of_lookup f ag.length hlk, defStep_rest hfc hdr]
           simp only [hin, ↓reduceIte]
           exact ⟨ti, rfl, by simpa [List.map_replicate] using hr5⟩
+
+/-! ## Ground terms: head, arguments, and membership by the arguments -/
+
+theorem toPat_inj : ∀ {a b : GTerm}, (GTerm.toPat a) = (GTerm.toPat b) → a = b
+  | .var v, _, _ => v.elim
+  | _, .var v, _ => v.elim
+  | .sym f, .sym g, h => by simpa [GTerm.toPat, Term.rename] using h
+  | .sym f, .app c d, h => by simp [GTerm.toPat, Term.rename] at h
+  | .app a b, .sym g, h => by simp [GTerm.toPat, Term.rename] at h
+  | .app a b, .app c d, h => by
+    simp only [GTerm.toPat, Term.rename, Term.bind_app, Term.app.injEq] at h
+    rw [toPat_inj (a := a) (b := c) h.1, toPat_inj (a := b) (b := d) h.2]
+
+/-- The symbol at the head of a ground term and its arguments, before the
+arguments `acc`. -/
+def gspine : GTerm → List GTerm → Sym × List GTerm
+  | .var v, _ => v.elim
+  | .sym f, acc => (f, acc)
+  | .app g u, acc => gspine g (u :: acc)
+
+theorem unspine_toPat : ∀ (g : GTerm) (acc : List GTerm),
+    unspine (GTerm.toPat g) (acc.map GTerm.toPat) =
+      (.sym (gspine g acc).1, (gspine g acc).2.map GTerm.toPat)
+  | .var v, _ => v.elim
+  | .sym f, acc => rfl
+  | .app g u, acc => by
+    have := unspine_toPat g (u :: acc)
+    simpa [GTerm.toPat, Term.rename, unspine, gspine] using this
+
+theorem nargs_toPat : ∀ (g : GTerm) (acc : List GTerm),
+    nargs (GTerm.toPat g) + acc.length = (gspine g acc).2.length
+  | .var v, _ => v.elim
+  | .sym f, acc => by simp [GTerm.toPat, Term.rename, nargs, gspine]
+  | .app g u, acc => by
+    have := nargs_toPat g (u :: acc)
+    simp only [GTerm.toPat, Term.rename, Term.bind_app, nargs, gspine, List.length_cons] at this ⊢
+    omega
+
+theorem gspine_mk : ∀ (g : GTerm) (acc : List GTerm),
+    acc.foldl .app g = Term.mk (gspine g acc).1 (gspine g acc).2
+  | .var v, _ => v.elim
+  | .sym f, acc => rfl
+  | .app g u, acc => by
+    have := gspine_mk g (u :: acc)
+    simpa [gspine] using this
+
+theorem gspine_mem : ∀ (g : GTerm) (acc : List GTerm) (a : GTerm), a ∈ (gspine g acc).2 →
+    a ∈ acc ∨ (a ∈ g.subs ∧ a.size < g.size)
+  | .var v, _, _, _ => v.elim
+  | .sym f, acc, a, h => Or.inl h
+  | .app g u, acc, a, h => by
+    rcases gspine_mem g (u :: acc) a h with h | h
+    · rcases List.mem_cons.1 h with rfl | h
+      · exact Or.inr ⟨by simp [Term.subs, Term.self_mem_subs], by simp only [Term.size]; omega⟩
+      · exact Or.inl h
+    · exact Or.inr ⟨by simp [Term.subs, h.1], by simp only [Term.size]; omega⟩
+
+/-- Membership of a ground term by its head and its arguments. -/
+theorem mem_iff_zip {S : Sorts} {n : Name} {g : GTerm} :
+    Sorts.mem S n g = true ↔
+      ∃ ks, Sorts.step S n (gspine g []).1 (gspine g []).2.length = some ks ∧
+        ∀ m a, (some m, a) ∈ ks.zip (gspine g []).2 → Sorts.mem S m a = true := by
+  have hg : g = Term.mk (gspine g []).1 (gspine g []).2 := by simpa using gspine_mk g []
+  generalize (gspine g []).1 = f at hg ⊢
+  generalize (gspine g []).2 = ts at hg ⊢
+  subst hg
+  rw [Sorts.mem_mk]
+  constructor
+  · rintro ⟨ks, hs, hall⟩
+    refine ⟨ks, hs, ?_⟩
+    intro m a hz
+    obtain ⟨i, hi, e⟩ := List.mem_iff_getElem.1 hz
+    rw [List.getElem_zip] at e
+    simp only [List.length_zip, Nat.lt_min] at hi
+    simp only [Prod.mk.injEq] at e
+    have := hall i hi.2
+    rw [List.getElem?_eq_getElem hi.1, e.1, e.2] at this
+    simpa [Sorts.memO] using this
+  · rintro ⟨ks, hs, hz⟩
+    refine ⟨ks, hs, ?_⟩
+    intro i hi
+    have hl := Sorts.step_length hs
+    have hik : i < ks.length := by omega
+    rw [List.getElem?_eq_getElem hik]
+    cases hk : ks[i] with
+    | none => simp [Sorts.memO]
+    | some m =>
+      simp only [Option.getD_some, Sorts.memO]
+      apply hz m ts[i]
+      refine List.mem_iff_getElem.2 ⟨i, by simp only [List.length_zip, Nat.lt_min]; exact ⟨hik, hi⟩, ?_⟩
+      rw [List.getElem_zip, hk]
+
+/-- Every pair of a set is a member when each pair of the set has a step and
+the pairs of its arguments are in the set. -/
+theorem closed_mem {S : Sorts} (F : Name × GTerm → Prop)
+    (h : ∀ x, F x → ∃ ks, Sorts.step S x.1 (gspine x.2 []).1 (gspine x.2 []).2.length = some ks ∧
+      ∀ m a, (some m, a) ∈ ks.zip (gspine x.2 []).2 → F (m, a)) :
+    ∀ (k : Nat) (x : Name × GTerm), x.2.size ≤ k → F x → Sorts.mem S x.1 x.2 = true := by
+  intro k
+  induction k with
+  | zero =>
+    intro x hk hx
+    obtain ⟨m, g⟩ := x
+    cases g with
+    | var v => exact v.elim
+    | sym f => simp [Term.size] at hk
+    | app a b => simp [Term.size] at hk
+  | succ k ih =>
+    intro x hk hx
+    obtain ⟨ks, hs, hall⟩ := h x hx
+    rw [mem_iff_zip]
+    refine ⟨ks, hs, ?_⟩
+    intro m a hz
+    have ha := (List.of_mem_zip hz).2
+    rcases gspine_mem x.2 [] a ha with h' | h'
+    · cases h'
+    · exact ih (m, a) (by simp only; omega) (hall m a hz)
+
+/-! ## Putting the arguments on the stack -/
+
+theorem Repr.sym_node {nodes : List store.Node} {i : Nat} {c : Sym} (h : Repr nm nodes i (.sym c)) :
+    (nodes[i]? = some .Nil ∧ c = nm none) ∨ ∃ f : U32, nodes[i]? = some (.Sym f) ∧ c = nm (some f.val) := by
+  generalize ht : Term.sym c = t at h
+  cases h with
+  | var _ => cases ht
+  | sym h => cases ht; exact Or.inr ⟨_, h, rfl⟩
+  | nil h => cases ht; exact Or.inl ⟨h, rfl⟩
+  | app _ _ _ => cases ht
+
+theorem is_nil_w (s : store.Store) (p : store.TermId) (hI : Wf s)
+    (hp : p.val < s.nodes.val.length) (hroom : Room s 1) :
+    sorts.is_nil s p ⦃ b s' => (b = true ↔ s.nodes.val[p.val]? = some .Nil) ∧ KeptW s s' 1 ⦄ := by
+  unfold sorts.is_nil
+  step with read_w s p hI hp hroom as ⟨n, s1, hn, hK⟩
+  cases n <;> simp_all
+
+/-- `is_nil` on a sort or any term: is it any term? -/
+theorem is_nil_kid (hnm : Function.Injective nm) (s : store.Store) (p : store.TermId)
+    {k : Option Name} (hI : Wf s) (hp : Repr nm s.nodes.val p.val (kidPat (nm none) k))
+    (hk : ∀ m, k = some m → m ≠ nm none) (hroom : Room s 1) :
+    sorts.is_nil s p ⦃ b s' => (b = true ↔ k = none) ∧ KeptW s s' 1 ⦄ := by
+  refine WP.spec_mono (is_nil_w s p hI hp.lt hroom) ?_
+  rintro ⟨b, s'⟩ ⟨hb, hK⟩
+  refine ⟨?_, hK⟩
+  rw [hb]
+  cases k with
+  | none =>
+    simp only [kidPat] at hp
+    rcases hp.sym_node with h | ⟨f, -, e⟩
+    · simp [h.1]
+    · cases hnm e
+  | some m =>
+    simp only [kidPat] at hp
+    rcases hp.sym_node with h | ⟨f, h, -⟩
+    · exact absurd h.2 (hk m rfl)
+    · simp [h]
+
+theorem push_args_loop_spec (hnm : Function.Injective nm) :
+    ∀ (ks : List (Option Name)) (ag : List Pat) (s : store.Store) (kids args : store.TermId),
+    Wf s → ks.length = ag.length →
+    Repr nm s.nodes.val kids.val (encList (nm none) (ks.map (kidPat (nm none)))) →
+    Repr nm s.nodes.val args.val (encList (nm none) ag) →
+    (∀ m, some m ∈ ks → m ≠ nm none) → Room s (4 * ks.length + 1) →
+    sorts.push_args_loop kids s args ⦃ s' =>
+      Wf s' ∧ s'.nodes.val = s.nodes.val ∧ tbl s' = tbl s ∧
+        s'.ticks.val ≤ s.ticks.val + 4 * ks.length + 1 ∧ s.ticks.val ≤ s'.ticks.val ∧
+        ∃ fs, stk s' = fs ++ stk s ∧ fs.length ≤ ks.length ∧
+          (∀ f ∈ fs, ∃ m a, (some m, a) ∈ ks.zip ag ∧ Repr nm s.nodes.val (fkey f) (.sym m) ∧
+            Repr nm s.nodes.val (faux f) a) ∧
+          ∀ m a, (some m, a) ∈ ks.zip ag → ∃ f ∈ fs, Repr nm s.nodes.val (fkey f) (.sym m) ∧
+            Repr nm s.nodes.val (faux f) a ⦄ := by
+  intro ks
+  induction ks with
+  | nil =>
+    intro ag s kids args hW hlen hk ha hz hroom
+    unfold sorts.push_args_loop
+    rw [loop]
+    simp only [sorts.push_args_loop.body]
+    step with uncons_repr s kids hW hk (by unfold Room at hroom ⊢; omega) as ⟨r0, hK, ho⟩
+    obtain ⟨o, s1⟩ := r0
+    simp only at hK ho ⊢
+    subst ho
+    have ht := hK.ticks
+    have hfin : Wf s1 ∧ s1.nodes.val = s.nodes.val ∧ tbl s1 = tbl s ∧
+        s1.ticks.val ≤ s.ticks.val + 4 * ([] : List (Option Name)).length + 1 ∧
+        s.ticks.val ≤ s1.ticks.val ∧
+        ∃ fs, stk s1 = fs ++ stk s ∧ fs.length ≤ ([] : List (Option Name)).length ∧
+          (∀ f ∈ fs, ∃ m a, (some m, a) ∈ ([] : List (Option Name)).zip ag ∧
+            Repr nm s.nodes.val (fkey f) (.sym m) ∧ Repr nm s.nodes.val (faux f) a) ∧
+          ∀ m a, (some m, a) ∈ ([] : List (Option Name)).zip ag →
+            ∃ f ∈ fs, Repr nm s.nodes.val (fkey f) (.sym m) ∧ Repr nm s.nodes.val (faux f) a :=
+      ⟨hK.wf, hK.nodes, hK.tbl, by simp; omega, by omega, [], by simp [hK.stk], by simp, by simp,
+        by simp⟩
+    step*
+    exact hfin
+  | cons k ks ih =>
+    intro ag s kids args hW hlen hk ha hz hroom
+    cases ag with
+    | nil => simp at hlen
+    | cons a ag =>
+    have hroom' := hroom
+    unfold Room at hroom'
+    simp only [List.length_cons] at hroom' hlen
+    unfold sorts.push_args_loop
+    rw [loop]
+    simp only [sorts.push_args_loop.body]
+    step with uncons_repr s kids hW hk (by unfold Room; omega) as ⟨r0, hK, ho⟩
+    obtain ⟨o, s1⟩ := r0
+    simp only at hK ho ⊢
+    obtain ⟨kk, kt, rfl, rkk, rkt⟩ := ho
+    have ht1 := hK.ticks
+    step with uncons_repr s1 args hK.wf (by rw [hK.nodes]; exact ha) (by unfold Room; omega)
+      as ⟨r1, hK2, ho2⟩
+    obtain ⟨o2, s2⟩ := r1
+    simp only [encList] at hK2 ho2 ⊢
+    obtain ⟨aa, at', rfl, raa, rat⟩ := ho2
+    rw [hK.nodes] at raa rat
+    have ht2 := hK2.ticks
+    have hn2 : s2.nodes.val = s.nodes.val := by rw [hK2.nodes, hK.nodes]
+    step with is_nil_kid hnm s2 kk hK2.wf (by rw [hn2]; exact rkk)
+      (fun m hm => hz m (by simp [hm])) (by unfold Room; omega) as ⟨r2, hb, hK3⟩
+    obtain ⟨b, s3⟩ := r2
+    simp only at hb hK3 ⊢
+    have ht3 := hK3.ticks
+    have hn3 : s3.nodes.val = s.nodes.val := by rw [hK3.nodes, hn2]
+    have htb3 : tbl s3 = tbl s := by rw [hK3.tbl, hK2.tbl, hK.tbl]
+    have hst3 : stk s3 = stk s := by rw [hK3.stk, hK2.stk, hK.stk]
+    have hz' : ∀ m, some m ∈ ks → m ≠ nm none := fun m hm => hz m (List.mem_cons_of_mem _ hm)
+    cases k with
+    | none =>
+      rw [show b = true from hb.2 rfl]
+      simp only [uncurry, ↓reduceIte, bind_ok]
+      have IH := ih ag s3 kt at' hK3.wf (by omega) (by rw [hn3]; exact rkt)
+        (by rw [hn3]; exact rat) hz' (by unfold Room; omega)
+      unfold sorts.push_args_loop at IH
+      refine WP.spec_mono IH ?_
+      rintro s' ⟨hW', e1, e2, e3, e3', fs, e4, e5, e6, e7⟩
+      rw [hn3] at e6 e7
+      refine ⟨hW', by rw [e1, hn3], by rw [e2, htb3], by simp only [List.length_cons]; omega,
+        by omega, fs, by rw [e4, hst3], by simp only [List.length_cons]; omega, ?_, ?_⟩
+      · intro f hf
+        obtain ⟨m, a', hm, h1, h2⟩ := e6 f hf
+        exact ⟨m, a', by simp [hm], h1, h2⟩
+      · intro m a' hm
+        simp only [List.zip_cons_cons, List.mem_cons, Prod.mk.injEq, reduceCtorEq, false_and,
+          false_or] at hm
+        exact e7 m a' hm
+    | some m0 =>
+      have hbf : b = false := by
+        cases b
+        · rfl
+        · exact absurd (hb.1 rfl) (by simp)
+      rw [hbf]
+      simp only [uncurry, Bool.false_eq_true, ↓reduceIte]
+      step with push_w s3 (.Visit kk aa) hK3.wf (by unfold Room; omega) as ⟨s4, p1, p2, p3, hW4, p5⟩
+      have hn4 : s4.nodes.val = s.nodes.val := by rw [p1, hn3]
+      have IH := ih ag s4 kt at' hW4 (by omega) (by rw [hn4]; exact rkt)
+        (by rw [hn4]; exact rat) hz' (by unfold Room; omega)
+      unfold sorts.push_args_loop at IH
+      refine WP.spec_mono IH ?_
+      rintro s' ⟨hW', e1, e2, e3, e3', fs, e4, e5, e6, e7⟩
+      rw [hn4] at e6 e7
+      simp only [kidPat] at rkk
+      refine ⟨hW', by rw [e1, hn4], by rw [e2, p2, htb3], by simp only [List.length_cons]; omega,
+        by omega, fs ++ [.Visit kk aa], by rw [e4, p5, hst3]; simp,
+        by simp only [List.length_append, List.length_cons, List.length_nil]; omega, ?_, ?_⟩
+      · intro f hf
+        rcases List.mem_append.1 hf with hf | hf
+        · obtain ⟨m, a', hm, h1, h2⟩ := e6 f hf
+          exact ⟨m, a', by simp [hm], h1, h2⟩
+        · simp only [List.mem_singleton] at hf
+          subst hf
+          exact ⟨m0, a, by simp, rkk, raa⟩
+      · intro m a' hm
+        simp only [List.zip_cons_cons, List.mem_cons, Prod.mk.injEq, Option.some.injEq] at hm
+        rcases hm with ⟨rfl, rfl⟩ | hm
+        · exact ⟨.Visit kk aa, by simp, rkk, raa⟩
+        · obtain ⟨f, hf, h1, h2⟩ := e7 m a' hm
+          exact ⟨f, by simp [hf], h1, h2⟩
 
 end RwLogVerified
