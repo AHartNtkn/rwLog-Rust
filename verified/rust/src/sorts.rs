@@ -51,9 +51,8 @@ pub fn same_len(s: &mut Store, a0: TermId, b0: TermId) -> bool {
             },
             _ => {
                 go = false;
-                match s.read(b) {
-                    Node::App(_, _) => same = false,
-                    _ => (),
+                if let Node::App(_, _) = s.read(b) {
+                    same = false;
                 }
             }
         }
