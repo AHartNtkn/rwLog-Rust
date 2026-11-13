@@ -112,7 +112,7 @@ impl Store {
     }
 
     fn tick(&mut self) {
-        self.ticks += 2;
+        self.ticks += 1;
     }
 
     /// The variable `0`.
