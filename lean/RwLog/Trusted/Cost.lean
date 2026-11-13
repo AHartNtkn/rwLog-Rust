@@ -633,13 +633,14 @@ structure Engine where
   step : {S N A : Type} → {M : Type → Type} → [DerivationKernel S N A M] →
     State S N A → M (StepOf A (State S N A))
 
-/-- The state of an engine at a kernel of a constraint domain `dom`, on its
-type `R` of representatives: the program, the root node, and the engine's own
-state at the derivation kernel of that program. -/
-structure Engine.StateAt (E : Engine) {R : Type} [Answer R] (dom : Sorts → Domain R) where
+/-- The state of an engine at a kernel of a constraint domain `dom`, whose
+type of representatives `R S` depends on the sorts: the program, the root
+node, and the engine's own state at the derivation kernel of that program. -/
+structure Engine.StateAt (E : Engine) {R : Sorts → Type} [∀ S, Answer (R S)]
+    (dom : ∀ S, Domain (R S)) where
   P : Program
   root : Rel
-  st : E.State R Rel (Ans (dom P.sorts) P)
+  st : E.State (R P.sorts) Rel (Ans (dom P.sorts) P)
 
 /-- The representative of an answer of the root goal; nothing for an answer
 of another goal. -/
@@ -649,46 +650,51 @@ def Ans.rootSpan {R : Type} [Answer R] [DecidableEq R] {D : Domain R} {P : Progr
 
 /-- What the machine reports of a step of the engine: of the answers it
 emits or stands by in its final report, those of the root goal, as
-representatives, at one tick for each answer looked at. A progress
-certificate is reported as it is. -/
-def Engine.report (E : Engine) {R : Type} [Answer R] [DecidableEq R] (dom : Sorts → Domain R)
-    (P : Program) (root : Rel) :
-    StepOf (Ans (dom P.sorts) P) (E.State R Rel (Ans (dom P.sorts) P)) →
-      Cost (StepOf R (E.StateAt dom))
+representatives with the sorts they are representatives for, at one tick for
+each answer looked at. A progress certificate is reported as it is. -/
+def Engine.report (E : Engine) {R : Sorts → Type} [∀ S, Answer (R S)] [∀ S, DecidableEq (R S)]
+    (dom : ∀ S, Domain (R S)) (P : Program) (root : Rel) :
+    StepOf (Ans (dom P.sorts) P) (E.State (R P.sorts) Rel (Ans (dom P.sorts) P)) →
+      Cost (StepOf ((S : Sorts) × R S) (E.StateAt dom))
   | .emit as st' => do
     Cost.tick as.length
-    pure (.emit (as.filterMap (Ans.rootSpan root)) ⟨P, root, st'⟩)
+    pure (.emit ((as.filterMap (Ans.rootSpan root)).map (Sigma.mk P.sorts)) ⟨P, root, st'⟩)
   | .progress n st' => pure (.progress n ⟨P, root, st'⟩)
   | .done final => do
     Cost.tick final.length
-    pure (.done (final.filterMap (Ans.rootSpan root)))
+    pure (.done ((final.filterMap (Ans.rootSpan root)).map (Sigma.mk P.sorts)))
 
 /-- The engine at a constraint domain and a kernel that returns what the
-domain returns: a machine with the cost that kernel charges. The domain and
-its kernel are given for the sorts of each program, on one type `R` of
-representatives, and the machine's answers are representatives.
+domain returns: a machine with the cost that kernel charges. The type of
+representatives, the domain and its kernel are given for the sorts of each
+program: which values are canonical depends on the sorts declared, so one
+type for every program could not satisfy the laws of a domain. An answer of
+the machine is a representative with the sorts it is a representative for
+(`Answer` of a dependent pair, `Trusted/Runtime.lean`).
 
 Building the first state brings the program and the query to their normal
 form (`Charged.load`) and runs the engine's `init` on the root node. A step
 is the engine's step, reported by `Engine.report`. -/
-def Engine.costedAt (E : Engine) {R : Type} [Answer R] [DecidableEq R] (dom : Sorts → Domain R)
-    (K : Sorts → Kernel R Cost) (hK : ∀ S, (K S).Refines (dom S)) : CostedRuntime where
-  Ans := R
+def Engine.costedAt (E : Engine) {R : Sorts → Type} [∀ S, Answer (R S)] [∀ S, DecidableEq (R S)]
+    (dom : ∀ S, Domain (R S)) (K : ∀ S, Kernel (R S) Cost) (hK : ∀ S, (K S).Refines (dom S)) :
+    CostedRuntime where
+  Ans := (S : Sorts) × R S
   State := E.StateAt dom
   init P q := do
     let root ← Charged.load P q
-    let st ← @Engine.init E R Rel (Ans (dom P.sorts) P) Cost
+    let st ← @Engine.init E (R P.sorts) Rel (Ans (dom P.sorts) P) Cost
       (DerivationKernel.over (dom P.sorts) (K P.sorts) (hK P.sorts) P) root
     pure ⟨P, root, st⟩
   step s :=
-    @Engine.step E R Rel (Ans (dom s.P.sorts) s.P) Cost
+    @Engine.step E (R s.P.sorts) Rel (Ans (dom s.P.sorts) s.P) Cost
       (DerivationKernel.over (dom s.P.sorts) (K s.P.sorts) (hK s.P.sorts) s.P) s.st >>=
       E.report dom s.P s.root
 
 /-- The engine at the kernel of spans as they are written: a machine with
 its cost. -/
 def Engine.costed (E : Engine) : CostedRuntime :=
-  E.costedAt (fun _ => Domain.written) (fun _ => Kernel.std) (fun _ => Kernel.std_refines)
+  E.costedAt (R := fun _ => Span) (fun _ => Domain.written) (fun _ => Kernel.std)
+    (fun _ => Kernel.std_refines)
 
 /-! ## Whole rungs
 

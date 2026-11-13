@@ -284,8 +284,9 @@ normal form and of answers: reading a node, and the rules that make an answer
 handed the root node of the query's normal form, can touch a span, a node or
 an answer only through those operations, and can only spend what they charge.
 `Engine.costedAt` is the engine at a constraint domain and a kernel that
-returns what the domain returns (`Kernel.Refines`), given for the sorts of
-each program: an answer is a goal and a representative with the proof that
+returns what the domain returns (`Kernel.Refines`). The type of
+representatives, the domain and the kernel are given for the sorts of each
+program, because which values are canonical depends on the sorts declared: an answer is a goal and a representative with the proof that
 the representative is a valid answer of the goal (`Ans D P`), and the answers
 reported are those of the root goal with no boundary. `Engine.costed` is the
 engine at `DerivationKernel.std P`, the kernel of spans as written, where

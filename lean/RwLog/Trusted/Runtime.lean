@@ -57,6 +57,13 @@ class Answer (A : Type) where
   swap : A → A
   den_swap : ∀ M a, den M (swap a) = (den M a).inv
 
+/-- A family of answer types gives the answers of all of them: an answer with
+its index. -/
+instance {ι : Type} {R : ι → Type} [∀ i, Answer (R i)] : Answer ((i : ι) × R i) where
+  den M a := Answer.den M a.2
+  swap a := ⟨a.1, Answer.swap a.2⟩
+  den_swap M a := Answer.den_swap M a.2
+
 /-- Spans are answers. -/
 instance : Answer Span where
   den M s := s.denAt M
