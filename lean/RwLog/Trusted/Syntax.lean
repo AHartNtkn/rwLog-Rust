@@ -51,6 +51,20 @@ theorem spine_mk (f : Sym) (args : List (Term V)) :
     spine (mk f args) = some (f, args) := by
   simp [mk, spine_foldl, spine]
 
+/-- The term is first-order: no variable is applied to an argument, so every
+application is a symbol with its arguments. The surface syntax writes no
+other term. -/
+def firstOrder : Term V → Bool
+  | var _ => true
+  | sym _ => true
+  | app (var _) _ => false
+  | app t u => firstOrder t && firstOrder u
+
+/-- The term can be a constraint: it is first-order and is not a variable. -/
+def isAtom : Term V → Bool
+  | var _ => false
+  | t => firstOrder t
+
 /-- The curried encoding of surface terms is faithful. -/
 theorem mk_inj {f g : Sym} {xs ys : List (Term V)} (h : mk f xs = mk g ys) :
     f = g ∧ xs = ys := by
@@ -122,51 +136,45 @@ end Term
 
 /-! ## Constraints
 
-A constraint is a term (its head symbol names the constraint). A store is a
-finite set of constraints; in syntax it is written as a list, and its meaning
-only depends on which constraints occur in it. -/
+A constraint is a term, and a store is a list of constraints. Two shapes of
+constraint have a meaning (`Trusted/Semantics.lean`): `(s t)`, which says
+that `t` belongs to the sort `s`, and `(!= t u)`, which says that `t` and `u`
+are different terms. -/
 
 abbrev Store := List Pat
 
-/-- A rule body: `fail`, or a conjunction of equations `s = t` and
-constraints. The empty conjunction is the drop body `.`.
+/-- The symbol of the built-in disequality `(!= t u)`. -/
+def neSym : Sym := "!="
 
-An equation is not a constraint and never enters a store: on a ground
-instance it holds exactly when its two sides are the same term. -/
-inductive Body where
-  | fail
-  | conj (eqs : List (Pat × Pat)) (cs : List Pat)
+/-! ## Sorts
+
+A sort is a set of ground terms, declared by a grammar that is decided by
+the head symbol of a term and the number of its arguments.
+
+`cases` lists shapes `(f s₁ … sₙ)`: a term with head `f` and `n` arguments
+belongs to the sort when each argument belongs to the sort named for it, and
+`none` in place of a name allows any term. The first case with the head and
+the number of arguments of the term is the one that is read. A term that no
+case reads belongs to the sort only if `rest` is `some (ex, a)`, its head
+with its number of arguments is not in `ex`, and each of its arguments
+belongs to the sort `a` names (`none` allows any term). So
+
+* `prog = l | (b prog) | (f prog prog)` is the cases `l`, `(b prog)` and
+  `(f prog prog)` with `rest := none`;
+* `name`, every term that is not `(app _ _)` or `(lam _ _)`, is no case with
+  `rest := some ([(app, 2), (lam, 2)], none)`;
+* `neut = name | (app neut norm)` is the case `(app neut norm)` with
+  `rest := some ([(lam, 2)], none)`;
+* `no_c`, every term in which `(c _)` occurs nowhere, is no case with
+  `rest := some ([(c, 1)], some no_c)`. -/
+
+structure SortDef where
+  cases : List (Sym × List (Option Name))
+  rest : Option (List (Sym × Nat) × Option Name)
   deriving DecidableEq, Repr
 
-/-- A rule `h₁, …, hₙ <=> body`: the heads all hold exactly when the body
-does (`RwLog.Trusted.Semantics`). -/
-structure TRule where
-  heads : List Pat
-  body : Body
-  deriving DecidableEq, Repr
-
-abbrev Theory := List TRule
-
-/-- The equations of a body. -/
-def Body.eqs : Body → List (Pat × Pat)
-  | .fail => []
-  | .conj eqs _ => eqs
-
-/-- The constraints a body adds. -/
-def Body.atoms : Body → List Pat
-  | .fail => []
-  | .conj _ cs => cs
-
-/-- A rule is well formed when it is range-restricted: every variable of its
-body, in constraints and in equations, occurs in its heads. This is a rule of
-the language, not of the meaning: the semantics gives every rule a meaning,
-reading body-only variables existentially. -/
-def TRule.WellFormed (ρ : TRule) : Prop :=
-  (∀ c ∈ ρ.body.atoms, ∀ v ∈ c.vars, ∃ h ∈ ρ.heads, v ∈ h.vars) ∧
-    (∀ e ∈ ρ.body.eqs, ∀ v ∈ e.1.vars ++ e.2.vars, ∃ h ∈ ρ.heads, v ∈ h.vars)
-
-instance (ρ : TRule) : Decidable ρ.WellFormed := by
-  unfold TRule.WellFormed; infer_instance
+/-- The sorts a program declares. -/
+abbrev Sorts := List (Name × SortDef)
 
 /-! ## Spans
 
@@ -186,6 +194,11 @@ namespace Span
 def swap (s : Span) : Span := ⟨s.r, s.l, s.c⟩
 
 @[simp] theorem swap_swap (s : Span) : s.swap.swap = s := rfl
+
+/-- The span is first-order: its sides are, and each constraint of its store
+is first-order and is not a variable. -/
+def firstOrder (s : Span) : Bool :=
+  s.l.firstOrder && s.r.firstOrder && s.c.all Term.isAtom
 
 end Span
 
@@ -208,6 +221,16 @@ inductive RelOf (S : Type) where
 
 /-- The expressions of the language. -/
 abbrev Rel := RelOf Span
+
+/-- The spans of an expression. -/
+def RelOf.spans {S : Type} : RelOf S → List S
+  | .zero => []
+  | .span s => [s]
+  | .or a b => spans a ++ spans b
+  | .and a b => spans a ++ spans b
+  | .seq a b => spans a ++ spans b
+  | .conv a => spans a
+  | .call _ => []
 
 /-- Names called by an expression. -/
 def RelOf.calls {S : Type} : RelOf S → List Name
@@ -249,7 +272,7 @@ end RelOf
 
 structure ProgramOf (S : Type) where
   defs : List (Name × RelOf S)
-  theory : Theory
+  sorts : Sorts
 
 /-- The programs of the language. -/
 abbrev Program := ProgramOf Span
@@ -261,18 +284,7 @@ def ProgramOf.body {S : Type} (P : ProgramOf S) (n : Name) : RelOf S :=
 
 namespace ProgramOf
 
-/-- A program is well formed when its names are distinct, every called
-name, in a body or in the query, is defined, and every rule of its theory is
-well formed. -/
-def WellFormed (P : Program) (q : Rel) : Prop :=
-  (P.defs.map Prod.fst).Nodup ∧
-  (∀ n ∈ q.calls ++ (P.defs.flatMap fun d => d.2.calls), n ∈ P.defs.map Prod.fst) ∧
-  ∀ ρ ∈ P.theory, ρ.WellFormed
-
-instance (P : Program) (q : Rel) : Decidable (P.WellFormed q) := by
-  unfold WellFormed; infer_instance
-
-/-- The mirrored program: every body is mirrored, and the theory is
+/-- The mirrored program: every body is mirrored, and the sorts are
 unchanged. -/
 def dual (P : Program) : Program :=
   { P with defs := P.defs.map fun d => (d.1, d.2.dual) }

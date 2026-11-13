@@ -22,8 +22,6 @@ Also for every runtime:
 
 * `derivationGeneral_of_refines`: answers that each stand for a derivation
   are derivation-general, and sound.
-* `theory_mono_answers`: adding rules to the theory only removes answers, for
-  any runtime that is complete with derivation-general answers.
 * `Complete.pointwise`: completeness pair by pair, the form that survives a
   preprocessor (`Rung.pointComplete`).
 -/
@@ -33,23 +31,6 @@ import RwLog.Trusted.Properties
 import RwLog.SpanLayer.Modulo
 
 namespace RwLog
-
-/-- Every model of a larger theory is a model of a smaller one. -/
-theorem Theory.Model.of_subset {T T' : Theory} (h : ∀ ρ ∈ T, ρ ∈ T') {M : Interp}
-    (hM : T'.Model M) : T.Model M :=
-  fun ρ hρ => hM ρ (h ρ hρ)
-
-/-- Derivations read only the definitions, never the theory. -/
-theorem derives_theory {P : Program} {T : Theory} {e : Rel} {s : Span}
-    (h : Derives { P with theory := T } e s) : Derives P e s := by
-  induction h with
-  | span s => exact .span s
-  | orl _ ih => exact .orl ih
-  | orr _ ih => exact .orr ih
-  | seq _ _ hc ih₁ ih₂ => exact .seq ih₁ ih₂ hc
-  | and _ _ hc ih₁ ih₂ => exact .and ih₁ ih₂ hc
-  | conv _ ih => exact .conv ih
-  | call _ ih => exact .call ih
 
 /-- In every interpretation, a derivable span relates only pairs the query
 relates. -/
@@ -83,7 +64,8 @@ structure Tier0Cert : Prop where
   sound : R.Sound
   cover : R.Complete
   exhaust : ∀ P q, P.WellFormed q → ∀ n, R.Halts (R.init P q) n → ∀ s, Derives P q s →
-    Answer.Dead P.theory s ∨ ∃ a ∈ R.emitted (R.init P q) n, Answer.CoversLive P.theory a s
+    Answer.Dead P.sorts.interp s ∨
+      ∃ a ∈ R.emitted (R.init P q) n, Answer.Covers P.sorts.interp a s
 
 variable {R}
 
@@ -91,18 +73,18 @@ variable {R}
 has been emitted when the run halts. -/
 theorem HonestExhaustion.of_cover (hs : R.Sound)
     (h : ∀ P q, P.WellFormed q → ∀ n, R.Halts (R.init P q) n → ∀ s, Derives P q s →
-      Answer.Dead P.theory s ∨ ∃ a ∈ R.emitted (R.init P q) n, Answer.CoversLive P.theory a s) :
+      Answer.Dead P.sorts.interp s ∨
+        ∃ a ∈ R.emitted (R.init P q) n, Answer.Covers P.sorts.interp a s) :
     R.HonestExhaustion := by
-  intro P q hP n hh M hM
+  intro P q hP n hh
   apply Set.Subset.antisymm
   · intro p hp
     obtain ⟨s, hs', hps⟩ := ProgramOf.exists_derives hp
     rcases h P q hP n hh s hs' with hdead | ⟨a, ha, hcov⟩
-    · have := hdead M hM
-      change s.denAt M = ∅ at this
+    · have : s.denAt P.sorts.interp = ∅ := hdead
       rw [this] at hps; exact absurd hps (Set.notMem_empty _)
-    · exact Set.mem_iUnion₂.2 ⟨a, ha, hcov M hM hps⟩
-  · exact Set.iUnion₂_subset fun a ha => hs P q hP n a ha M hM
+    · exact Set.mem_iUnion₂.2 ⟨a, ha, hcov hps⟩
+  · exact Set.iUnion₂_subset fun a ha => hs P q hP n a ha
 
 /-- A certificate gives the three trusted Tier 0 statements. -/
 theorem Tier0Cert.tier0 (c : R.Tier0Cert) : R.Tier0 :=
@@ -111,48 +93,28 @@ theorem Tier0Cert.tier0 (c : R.Tier0Cert) : R.Tier0 :=
 /-- Answers that each refine the span of a derivation are sound. -/
 theorem sound_of_refines
     (h : ∀ P q, P.WellFormed q → ∀ n, ∀ a ∈ R.emitted (R.init P q) n,
-      ∃ s, Derives P q s ∧ Answer.Refines P.theory a s) : R.Sound := by
-  intro P q hP n a ha M hM
+      ∃ s, Derives P q s ∧ Answer.Refines P.sorts.interp a s) : R.Sound := by
+  intro P q hP n a ha
   obtain ⟨s, hs, hr⟩ := h P q hP n a ha
-  rw [hr M hM]
-  exact hs.denAt_subset M
+  have hr' : Answer.den P.sorts.interp a = s.denAt P.sorts.interp := hr
+  rw [hr']
+  exact hs.denAt_subset _
 
 /-- Answers that each refine the span of a derivation are
 derivation-general. -/
 theorem derivationGeneral_of_refines
     (h : ∀ P q, P.WellFormed q → ∀ n, ∀ a ∈ R.emitted (R.init P q) n,
-      ∃ s, Derives P q s ∧ Answer.Refines P.theory a s) : R.DerivationGeneral :=
+      ∃ s, Derives P q s ∧ Answer.Refines P.sorts.interp a s) : R.DerivationGeneral :=
   fun P q hP a ⟨n, ha⟩ => h P q hP n a ha
 
 /-- Completeness gives completeness pair by pair. -/
 theorem Complete.pointwise (h : R.Complete) : R.PointComplete := by
-  intro P q hP M hM p hp
+  intro P q hP p hp
   obtain ⟨s, hs, hps⟩ := ProgramOf.exists_derives hp
   rcases h P q hP s hs with hdead | ⟨n, a, ha, hcov⟩
-  · have := hdead M hM
-    change s.denAt M = ∅ at this
+  · have : s.denAt P.sorts.interp = ∅ := hdead
     rw [this] at hps; exact absurd hps (Set.notMem_empty _)
-  · exact ⟨n, a, ha, hcov M hM hps⟩
-
-/-- P2.3 for every runtime: adding rules only removes answers. In every model
-of the larger theory `T`, each answer under it relates only pairs that one
-answer under the smaller theory relates, unless it relates nothing in any such
-model. Derivations do not read the theory, so the derivation behind an answer
-under `T` is one under the smaller theory, where completeness covers it. -/
-theorem theory_mono_answers (hgen : R.DerivationGeneral) (hcomp : R.Complete) :
-    R.TheoryMonoAnswers := by
-  intro P T q hwf hT hsub a ha
-  have hwf' : ProgramOf.WellFormed { P with theory := T } q := ⟨hwf.1, hwf.2.1, hT⟩
-  obtain ⟨s, hs, hrefine⟩ := hgen _ q hwf' a ha
-  rcases hcomp P q hwf s (derives_theory hs) with hdead | ⟨n, b, hb, hcov⟩
-  · left
-    intro M hM
-    rw [hrefine M hM]
-    exact hdead M (Theory.Model.of_subset hsub hM)
-  · right
-    refine ⟨b, ⟨n, hb⟩, fun M hM => ?_⟩
-    rw [hrefine M hM]
-    exact hcov M (Theory.Model.of_subset hsub hM)
+  · exact ⟨n, a, ha, hcov hps⟩
 
 end Runtime
 

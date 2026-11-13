@@ -1,10 +1,11 @@
 /-
-# Relations up to the theory, and up to stores
+# Relations in a set of interpretations, and up to stores
 
 The vocabulary proofs about answers are written in. All of it is about sets
 of ground triples (`GRel`) and is independent of any rung.
 
-* In every model of the theory: `LCov T R S` (`R` relates every pair `S`
+* `T` is a set of interpretations, for a program the one interpretation of
+  its sorts. In every interpretation of `T`: `LCov T R S` (`R` relates every pair `S`
   relates), `LEq` (both ways), `Live T R` (some model lets `R` relate a
   pair), `DeadR T R` (none does). `Span.CoversLive` is `LCov` on
   denotations.
@@ -18,7 +19,7 @@ of ground triples (`GRel`) and is independent of any rung.
 * Exactly, whatever the theory: `GCov R S` (every triple of `S` is matched by
   one of `R` with the same pair and a smaller store; `Span.Covers` is `GCov`
   on denotations), `GEq` (both ways), and `Dom`, the same thing read as
-  `LCov` for the empty theory so that the algebra above applies.
+  `LCov` over every interpretation so that the algebra above applies.
 
 Every operator of the relation algebra preserves these.
 -/
@@ -27,7 +28,7 @@ import RwLog.SpanLayer.Algebra
 
 namespace RwLog
 
-variable {T : Theory}
+variable {T : Interp → Prop}
 
 /-! ## Pairs in a model -/
 
@@ -56,19 +57,13 @@ theorem at_inv (R : GRel) (M : Interp) : R.inv.at M = PRel.inv (R.at M) := by
 /-! ## Covering up to the theory -/
 
 /-- In every model of the theory, `R` relates every pair `S` relates. -/
-def LCov (T : Theory) (R S : GRel) : Prop := ∀ M, T.Model M → S.at M ⊆ R.at M
+def LCov (T : Interp → Prop) (R S : GRel) : Prop := ∀ M, T M → S.at M ⊆ R.at M
 
 /-- In every model of the theory, `R` and `S` relate the same pairs. -/
-def LEq (T : Theory) (R S : GRel) : Prop := LCov T R S ∧ LCov T S R
+def LEq (T : Interp → Prop) (R S : GRel) : Prop := LCov T R S ∧ LCov T S R
 
 /-- Some model of the theory lets `R` relate a pair. -/
-def Live (T : Theory) (R : GRel) : Prop := ∃ M, T.Model M ∧ (R.at M).Nonempty
-
-theorem coversLive_iff {a s : Span} : a.CoversLive T s ↔ LCov T a.den s.den := by
-  simp only [Span.CoversLive, LCov, Span.denAt_eq]
-
-theorem not_dead_iff {s : Span} : ¬ s.Dead T ↔ Live T s.den := by
-  simp only [Span.Dead, Live, Span.denAt_eq, not_forall, Set.nonempty_iff_ne_empty, exists_prop]
+def Live (T : Interp → Prop) (R : GRel) : Prop := ∃ M, T M ∧ (R.at M).Nonempty
 
 theorem LCov.refl (R : GRel) : LCov T R R := fun _ _ => le_rfl
 
@@ -289,23 +284,23 @@ theorem meet_iface {X Li W Ri : GRel} (hLi : PId Li) (hRi : PId Ri)
 /-! ## Dead relations, answers and coverage -/
 
 /-- No model of the theory lets the relation relate a pair. -/
-def DeadR (T : Theory) (X : GRel) : Prop := ∀ M, T.Model M → X.at M = ∅
+def DeadR (T : Interp → Prop) (X : GRel) : Prop := ∀ M, T M → X.at M = ∅
 
 /-- `Y` relates only pairs `X` relates: in every model of the theory, and
 among the pairs of their triples. -/
-def Backed (T : Theory) (Y X : GRel) : Prop := LCov T X Y ∧ Y.at Set.univ ⊆ X.at Set.univ
+def Backed (T : Interp → Prop) (Y X : GRel) : Prop := LCov T X Y ∧ Y.at Set.univ ⊆ X.at Set.univ
 
 /-- The answer `a` stands for `X`: it relates only pairs of `X`, and in every
 model of the theory every pair of `X`. -/
-def Ref (T : Theory) (a : Span) (X : GRel) : Prop := Backed T a.den X ∧ LCov T a.den X
+def Ref (T : Interp → Prop) (a : Span) (X : GRel) : Prop := Backed T a.den X ∧ LCov T a.den X
 
 /-- `X` is dead, or one answer of `A` covers it. -/
-def DC (T : Theory) (A : List Span) (X : GRel) : Prop := DeadR T X ∨ ∃ a ∈ A, LCov T a.den X
+def DC (T : Interp → Prop) (A : List Span) (X : GRel) : Prop := DeadR T X ∨ ∃ a ∈ A, LCov T a.den X
 
 theorem lcov_of_subset {X Y : GRel} (h : X ⊆ Y) : LCov T Y X := fun M _ => GRel.at_mono h M
 
 theorem lcov_of_covers {a b : Span} (h : a.Covers b) : LCov T a.den b.den :=
-  coversLive_iff.1 h.live
+  fun M _ => by rw [← Span.denAt_eq, ← Span.denAt_eq]; exact h.at_subset M
 
 theorem Backed.of_subset {Y X : GRel} (h : Y ⊆ X) : Backed T Y X :=
   ⟨lcov_of_subset h, GRel.at_mono h _⟩
@@ -409,9 +404,6 @@ theorem DeadR.meet_right {X Y : GRel} (h : DeadR T Y) : DeadR T (X.meet Y) := by
   intro M hM
   rw [at_meet, h M hM, Set.inter_empty]
 
-theorem deadR_den {s : Span} : DeadR T s.den ↔ s.Dead T := by
-  simp only [DeadR, Span.Dead, Span.denAt_eq]
-
 /-! ## Exact coverage of ground relations -/
 
 /-- `R` covers `S`: every triple of `S` is matched by a triple of `R` with the
@@ -481,14 +473,12 @@ theorem swap_geq (a : Span) : GEq a.swap.den a.den.inv := GEq.of_eq (swap_den a)
 
 /-- `X` dominates `Y`: each triple of `Y` is matched by one of `X` with the
 same pair and a smaller store. -/
-abbrev Dom (X Y : GRel) : Prop := LCov ([] : Theory) X Y
-
-theorem model_nil (M : Interp) : Theory.Model [] M := fun _ h => absurd h List.not_mem_nil
+abbrev Dom (X Y : GRel) : Prop := LCov (fun _ => True) X Y
 
 theorem dom_iff {X Y : GRel} : Dom X Y ↔ ∀ a b S, (a, b, S) ∈ Y → ∃ S', (a, b, S') ∈ X ∧ S' ⊆ S := by
   constructor
   · intro h a b S hS
-    obtain ⟨S', hS', hM⟩ := h (↑S) (model_nil _) (show (a, b) ∈ Y.at ↑S from ⟨S, hS, le_rfl⟩)
+    obtain ⟨S', hS', hM⟩ := h (↑S) trivial (show (a, b) ∈ Y.at ↑S from ⟨S, hS, le_rfl⟩)
     exact ⟨S', hS', fun t ht => hM ht⟩
   · intro h
     exact LCov.of_sub h

@@ -28,10 +28,10 @@ import RwLog.Rungs.Framework.Trace
 
 namespace RwLog
 
-/-- Equivalent answers relate the same pairs in every model. -/
-theorem Answer.Equiv.refines {A B : Type} [Answer A] [Answer B] {a : A} {b : B}
-    (h : Answer.Equiv a b) (T : Theory) : Answer.Refines T a b :=
-  fun M _ => h.den_eq M
+/-- Equivalent answers relate the same pairs. -/
+theorem Answer.Equiv.refines {A B : Type} [Answer A] [Answer B] {M : Interp} {a : A} {b : B}
+    (h : Answer.Equiv M a b) : Answer.Refines M a b :=
+  h.den_eq
 
 namespace Runtime
 
@@ -39,41 +39,41 @@ variable {R R' : Runtime}
 
 /-! ## Answer-level refinement -/
 
-/-- If every answer of `R'` is covered, up to the theory, by an answer of a
+/-- If every answer of `R'` is covered by an answer of a
 sound `R`, then `R'` is sound. -/
 theorem Sound.of_covered (hs : R.Sound)
     (h : ∀ P q, P.WellFormed q → ∀ a' ∈ R'.Answers P q,
-      ∃ a ∈ R.Answers P q, Answer.CoversLive P.theory a a') : R'.Sound := by
-  intro P q hP n a' ha' M hM
+      ∃ a ∈ R.Answers P q, Answer.Covers P.sorts.interp a a') : R'.Sound := by
+  intro P q hP n a' ha'
   obtain ⟨a, ⟨m, ha⟩, hc⟩ := h P q hP a' ⟨n, ha'⟩
-  exact (hc M hM).trans (hs P q hP m a ha M hM)
+  exact Set.Subset.trans hc (hs P q hP m a ha)
 
-/-- If every answer of a complete `R` is dead or covered, up to the theory, by
+/-- If every answer of a complete `R` is dead or covered by
 an answer of `R'`, then `R'` is complete. -/
 theorem Complete.of_covering (hc : R.Complete)
     (h : ∀ P q, P.WellFormed q → ∀ a ∈ R.Answers P q,
-      Answer.Dead P.theory a ∨ ∃ a' ∈ R'.Answers P q, Answer.CoversLive P.theory a' a) :
+      Answer.Dead P.sorts.interp a ∨ ∃ a' ∈ R'.Answers P q, Answer.Covers P.sorts.interp a' a) :
     R'.Complete := by
   intro P q hP s hs
   rcases hc P q hP s hs with hd | ⟨n, a, ha, hcov⟩
   · exact .inl hd
   · rcases h P q hP a ⟨n, ha⟩ with hd | ⟨a', ⟨m, ha'⟩, hc'⟩
-    · exact .inl fun M hM => Set.subset_empty_iff.1 ((hcov M hM).trans (hd M hM).subset)
-    · exact .inr ⟨m, a', ha', fun M hM => (hcov M hM).trans (hc' M hM)⟩
+    · exact .inl (Set.subset_empty_iff.1 (Set.Subset.trans hcov (Eq.subset hd)))
+    · exact .inr ⟨m, a', ha', Set.Subset.trans hcov hc'⟩
 
 /-- If `R'` is sound and, when it halts, has covered every answer of a
 complete `R`, then `R'` exhausts honestly. -/
 theorem HonestExhaustion.transfer (hs : R'.Sound) (hc : R.Complete)
     (h : ∀ P q, P.WellFormed q → ∀ n, R'.Halts (R'.init P q) n → ∀ a ∈ R.Answers P q,
-      Answer.Dead P.theory a ∨
-        ∃ a' ∈ R'.emitted (R'.init P q) n, Answer.CoversLive P.theory a' a) :
+      Answer.Dead P.sorts.interp a ∨
+        ∃ a' ∈ R'.emitted (R'.init P q) n, Answer.Covers P.sorts.interp a' a) :
     R'.HonestExhaustion := by
   refine HonestExhaustion.of_cover hs fun P q hP n hh s hs' => ?_
   rcases hc P q hP s hs' with hd | ⟨m, a, ha, hcov⟩
   · exact .inl hd
   · rcases h P q hP n hh a ⟨m, ha⟩ with hd | ⟨a', ha', hc'⟩
-    · exact .inl fun M hM => Set.subset_empty_iff.1 ((hcov M hM).trans (hd M hM).subset)
-    · exact .inr ⟨a', ha', fun M hM => (hcov M hM).trans (hc' M hM)⟩
+    · exact .inl (Set.subset_empty_iff.1 (Set.Subset.trans hcov (Eq.subset hd)))
+    · exact .inr ⟨a', ha', Set.Subset.trans hcov hc'⟩
 
 /-- `R'` halts wherever `R` does, so it terminates on every class `R` does. -/
 theorem TerminatesOn.transfer {C : Program → Rel → Prop} (ht : R.TerminatesOn C)
@@ -86,16 +86,17 @@ theorem TerminatesOn.transfer {C : Program → Rel → Prop} (ht : R.TerminatesO
 same answers up to order and equivalence, and they halt together. -/
 structure SameRun (R' R : Runtime) : Prop where
   emitted : ∀ P q, P.WellFormed q → ∀ n,
-    StepEquiv (R'.emitted (R'.init P q) n) (R.emitted (R.init P q) n)
+    StepEquiv P.sorts.interp (R'.emitted (R'.init P q) n) (R.emitted (R.init P q) n)
   halts : ∀ P q, P.WellFormed q → ∀ n, R'.Halts (R'.init P q) n ↔ R.Halts (R.init P q) n
 
 /-- A lockstep simulation of the states, started from the initial states,
 makes the runs the same. -/
-theorem SameRun.of_sim (Sim : R'.State → R.State → Prop)
-    (hinit : ∀ P q, P.WellFormed q → Sim (R'.init P q) (R.init P q))
-    (hstep : ∀ s' s, Sim s' s → StepOf.Rel StepEquiv Sim (R'.step s') (R.step s)) : SameRun R' R :=
-  ⟨fun P q hP n => emitted_of_sim hstep n (hinit P q hP),
-    fun P q hP n => halts_iff_of_sim hstep n (hinit P q hP)⟩
+theorem SameRun.of_sim (Sim : Interp → R'.State → R.State → Prop)
+    (hinit : ∀ P q, P.WellFormed q → Sim P.sorts.interp (R'.init P q) (R.init P q))
+    (hstep : ∀ M s' s, Sim M s' s → StepOf.Rel (StepEquiv M) (Sim M) (R'.step s') (R.step s)) :
+    SameRun R' R :=
+  ⟨fun P q hP n => emitted_of_sim (hstep _) n (hinit P q hP),
+    fun P q hP n => halts_iff_of_sim (hstep _) n (hinit P q hP)⟩
 
 theorem SameRun.refl (R : Runtime) : SameRun R R :=
   ⟨fun _ _ _ _ => StepEquiv.refl _, fun _ _ _ _ => Iff.rfl⟩
@@ -109,24 +110,24 @@ theorem SameRun.symm (h : SameRun R' R) : SameRun R R' :=
 
 theorem SameRun.answer (h : SameRun R' R) {P : Program} {q : Rel} (hP : P.WellFormed q) {n : Nat}
     {a' : R'.Ans} (ha' : a' ∈ R'.emitted (R'.init P q) n) :
-    ∃ a ∈ R.emitted (R.init P q) n, Answer.Equiv a' a :=
+    ∃ a ∈ R.emitted (R.init P q) n, Answer.Equiv P.sorts.interp a' a :=
   (h.emitted P q hP n).mem ha'
 
 theorem SameRun.sound (h : SameRun R' R) (hs : R.Sound) : R'.Sound :=
   hs.of_covered fun _ _ hP _ ⟨n, ha'⟩ =>
     let ⟨a, ha, e⟩ := h.answer hP ha'
-    ⟨a, ⟨n, ha⟩, e.2.live⟩
+    ⟨a, ⟨n, ha⟩, e.2⟩
 
 theorem SameRun.complete (h : SameRun R' R) (hc : R.Complete) : R'.Complete :=
   hc.of_covering fun _ _ hP _ ⟨n, ha⟩ =>
     let ⟨a', ha', e⟩ := h.symm.answer hP ha
-    .inr ⟨a', ⟨n, ha'⟩, e.2.live⟩
+    .inr ⟨a', ⟨n, ha'⟩, e.2⟩
 
 theorem SameRun.honest (h : SameRun R' R) (t : R.Tier0) : R'.HonestExhaustion :=
   HonestExhaustion.transfer (h.sound t.sound) t.complete fun P q hP n hh a ⟨m, ha⟩ =>
     have ha : a ∈ R.emitted (R.init P q) n := R.emitted_of_halts ((h.halts P q hP n).1 hh) m ha
     let ⟨a', ha', e⟩ := h.symm.answer hP ha
-    .inr ⟨a', ha', e.2.live⟩
+    .inr ⟨a', ha', e.2⟩
 
 /-- Tier 0 transfers between runtimes that run the same. -/
 theorem SameRun.tier0 (h : SameRun R' R) (t : R.Tier0) : R'.Tier0 :=
@@ -137,7 +138,7 @@ theorem SameRun.derivationGeneral (h : SameRun R' R) (hg : R.DerivationGeneral) 
   intro P q hP a' ⟨n, ha'⟩
   obtain ⟨a, ha, e⟩ := h.answer hP ha'
   obtain ⟨s, hs, hr⟩ := hg P q hP a ⟨n, ha⟩
-  exact ⟨s, hs, fun M hM => (e.refines P.theory M hM).trans (hr M hM)⟩
+  exact ⟨s, hs, e.refines.trans hr⟩
 
 theorem SameRun.terminatesOn (h : SameRun R' R) {C : Program → Rel → Prop}
     (ht : R.TerminatesOn C) : R'.TerminatesOn C :=
@@ -155,13 +156,13 @@ variable (G : Rung)
 def prog (A : ArtifactStore) (P : Program) (q : Rel) : Program := (G.pre.run A P q).val.1
 def query (A : ArtifactStore) (P : Program) (q : Rel) : Rel := (G.pre.run A P q).val.2.1
 
-theorem semAt_pre {A : ArtifactStore} {P : Program} {q : Rel} (hP : P.WellFormed q) {M : Interp}
-    (hM : P.theory.Model M) : (G.prog A P q).semAt M (G.query A P q) = P.semAt M q :=
-  G.pre.equiv A P q hP M hM
+theorem pairs_pre {A : ArtifactStore} {P : Program} {q : Rel} (hP : P.WellFormed q) :
+    (G.prog A P q).pairs (G.query A P q) = P.pairs q :=
+  G.pre.equiv A P q hP
 
-theorem model_pre {A : ArtifactStore} {P : Program} {q : Rel} {M : Interp}
-    (hM : P.theory.Model M) : (G.prog A P q).theory.Model M := by
-  unfold prog; rw [G.pre.theory_eq]; exact hM
+theorem sorts_pre {A : ArtifactStore} {P : Program} {q : Rel} :
+    (G.prog A P q).sorts = P.sorts :=
+  G.pre.sorts_eq A P q
 
 /-- The rung runs its machine: from the same state the two runs are the
 same. -/
@@ -219,36 +220,36 @@ theorem certifies_runtime (A : ArtifactStore) (P : Program) (q : Rel) (k n : Nat
 
 /-- Every answer of the rung relates only pairs the original query relates. -/
 theorem sound (hs : G.rt.Sound) (A : ArtifactStore) : (G.runtime A).Sound := by
-  intro P q hP n a ha M hM
+  intro P q hP n a ha
   rw [G.emitted_runtime] at ha
-  rw [← G.semAt_pre hP hM]
-  exact hs _ _ (G.pre.wf A P q hP) n a ha M (G.model_pre hM)
+  rw [← G.pairs_pre hP, ← G.sorts_pre (A := A) (q := q)]
+  exact hs _ _ (G.pre.wf A P q hP) n a ha
 
 /-- Every pair the original query relates is related by some answer of the
 rung. -/
 theorem pointComplete (hc : G.rt.PointComplete) (A : ArtifactStore) :
     (G.runtime A).PointComplete := by
-  intro P q hP M hM p hp
-  rw [← G.semAt_pre hP hM] at hp
-  obtain ⟨n, a, ha, hpa⟩ := hc _ _ (G.pre.wf A P q hP) M (G.model_pre hM) p hp
+  intro P q hP p hp
+  rw [← G.pairs_pre hP] at hp
+  obtain ⟨n, a, ha, hpa⟩ := hc _ _ (G.pre.wf A P q hP) p hp
+  rw [G.pre.sorts_eq] at hpa
   exact ⟨n, a, by rw [G.emitted_runtime]; exact ha, hpa⟩
 
 /-- When the rung reports that it is done, its answers cover the original
 query exactly. -/
 theorem honest (hh : G.rt.HonestExhaustion) (A : ArtifactStore) :
     (G.runtime A).HonestExhaustion := by
-  intro P q hP n hn M hM
-  rw [← G.semAt_pre hP hM, G.emitted_runtime]
-  exact hh _ _ (G.pre.wf A P q hP) n ((G.halts_runtime A P q n).1 hn) M (G.model_pre hM)
+  intro P q hP n hn
+  rw [← G.pairs_pre hP, G.emitted_runtime, ← G.sorts_pre (A := A) (q := q)]
+  exact hh _ _ (G.pre.wf A P q hP) n ((G.halts_runtime A P q n).1 hn)
 
 /-- A progress certificate of the rung is true of the original query. -/
 theorem honestProgress (hh : G.rt.HonestProgress) (A : ArtifactStore) :
     (G.runtime A).HonestProgress := by
-  intro P q hP k n hc M hM p hp
-  rw [← G.semAt_pre hP hM] at hp
-  rw [G.emitted_runtime]
-  exact hh _ _ (G.pre.wf A P q hP) k n ((G.certifies_runtime A P q k n).1 hc) M
-    (G.model_pre hM) p hp
+  intro P q hP k n hc p hp
+  rw [← G.pairs_pre hP] at hp
+  rw [G.emitted_runtime, ← G.sorts_pre (A := A) (q := q)]
+  exact hh _ _ (G.pre.wf A P q hP) k n ((G.certifies_runtime A P q k n).1 hc) p hp
 
 /-- The rung with the identity preprocessor is its machine. -/
 theorem runtime_id (R : Runtime) (A : ArtifactStore) : (Rung.mk .id R).runtime A = R := rfl

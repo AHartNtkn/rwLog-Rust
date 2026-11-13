@@ -13,8 +13,8 @@ and `Rung.Keeps G Base` for a whole rung, preprocessor and machine together.
 
 * P0.1 to P0.3 (`Sound`, `Complete`, `HonestExhaustion`,
   `Trusted/Runtime.lean`), and completeness against the ground semantics pair
-  by pair (`PointComplete`): in every model, every pair the query relates is
-  related by an emitted answer;
+  by pair (`PointComplete`): every pair the query relates is related by an
+  emitted answer;
 * `HonestProgress` (`Trusted/Runtime.lean`): a progress certificate for level
   `n` is true when it is emitted;
 * P3.0 `DerivationGeneral`: no answer is less general than its derivation;
@@ -27,11 +27,14 @@ and `Rung.Keeps G Base` for a whole rung, preprocessor and machine together.
 * P1.4 strong `ConvTrace`, `DualTrace`: the run of the converse, and of the
   mirrored query in the mirrored program, is the mirror image of the run,
   step for step;
-* P2.3 `TheoryMonoAnswers`: adding rules to the theory only removes answers;
 * P3.1 and P3.2 `NoSubsumed`: no answer is covered by an earlier one.
 
 "Step for step" is up to the order of the answers of one step and up to
-equivalent answers (`TraceEquiv`).
+equivalent answers (`TraceEquiv`). Answers are compared by what they relate
+in the interpretation of the program's sorts.
+
+There is no property about extending a theory: a program has sorts, not
+rules.
 
 ## Stated here, and fields of `Keeps` from the first machine that has them
 
@@ -69,21 +72,22 @@ namespace RwLog
 section
 variable {A B : Type} [Answer A] [Answer B]
 
-/-- Two answer lists of one step agree up to order and equivalent answers.
-The two lists may hold answers of two different types. -/
-def StepEquiv (xs : List A) (ys : List B) : Prop :=
-  ∃ ys', ys'.Perm ys ∧ List.Forall₂ Answer.Equiv xs ys'
+/-- Two answer lists of one step agree up to order and answers equivalent in
+`M`. The two lists may hold answers of two different types. -/
+def StepEquiv (M : Interp) (xs : List A) (ys : List B) : Prop :=
+  ∃ ys', ys'.Perm ys ∧ List.Forall₂ (Answer.Equiv M) xs ys'
 
 /-- What two steps show agrees: answers and final reports up to `StepEquiv`,
 and certificates for the same level. -/
-def ShownEquiv : Shown A → Shown B → Prop
-  | .answers xs, .answers ys => StepEquiv xs ys
+def ShownEquiv (M : Interp) : Shown A → Shown B → Prop
+  | .answers xs, .answers ys => StepEquiv M xs ys
   | .level n, .level m => n = m
-  | .final xs, .final ys => StepEquiv xs ys
+  | .final xs, .final ys => StepEquiv M xs ys
   | _, _ => False
 
 /-- Two traces agree step for step, up to `ShownEquiv`. -/
-def TraceEquiv (t : List (Shown A)) (t' : List (Shown B)) : Prop := List.Forall₂ ShownEquiv t t'
+def TraceEquiv (M : Interp) (t : List (Shown A)) (t' : List (Shown B)) : Prop :=
+  List.Forall₂ (ShownEquiv M) t t'
 
 end
 
@@ -112,9 +116,9 @@ inductive RelOf.SameWriting : Rel → Rel → Prop
   | conv {a a' : Rel} : SameWriting a a' → SameWriting (.conv a) (.conv a')
 
 /-- Two programs define the same names in the same order, with bodies that
-are the same up to `RelOf.SameWriting`, under the same theory. -/
+are the same up to `RelOf.SameWriting`, with the same sorts. -/
 def ProgramOf.SameWriting (P P' : Program) : Prop :=
-  P'.theory = P.theory ∧
+  P'.sorts = P.sorts ∧
     List.Forall₂ (fun d d' => d.1 = d'.1 ∧ RelOf.SameWriting d.2 d'.2) P.defs P'.defs
 
 namespace Runtime
@@ -123,17 +127,18 @@ variable (R : Runtime)
 
 /-! ## Properties of one machine -/
 
-/-- Completeness against the ground semantics, pair by pair: in every model,
-every pair the query relates is related by some emitted answer. -/
+/-- Completeness against the ground semantics, pair by pair: every pair the
+query relates is related by some emitted answer. -/
 def PointComplete : Prop :=
-  ∀ P q, P.WellFormed q → ∀ M, P.theory.Model M → ∀ p ∈ P.semAt M q,
-    ∃ n, ∃ a ∈ R.emitted (R.init P q) n, p ∈ Answer.den M a
+  ∀ P q, P.WellFormed q → ∀ p ∈ P.pairs q,
+    ∃ n, ∃ a ∈ R.emitted (R.init P q) n, p ∈ Answer.den P.sorts.interp a
 
-/-- P3.0: every emitted answer refines the span of one derivation: in every
-model of the theory it relates exactly the pairs that span relates, so no
-answer is less general than its derivation. -/
+/-- P3.0: every emitted answer refines the span of one derivation: it
+relates exactly the pairs that span relates, so no answer is less general
+than its derivation. -/
 def DerivationGeneral : Prop :=
-  ∀ P q, P.WellFormed q → ∀ a ∈ R.Answers P q, ∃ s, Derives P q s ∧ Answer.Refines P.theory a s
+  ∀ P q, P.WellFormed q → ∀ a ∈ R.Answers P q,
+    ∃ s, Derives P q s ∧ Answer.Refines P.sorts.interp a s
 
 /-- The runtime halts on every query the base halts on. -/
 def TerminatesWhere (Base : Runtime) : Prop :=
@@ -188,21 +193,14 @@ def ConvTrace : Prop :=
 query in the mirrored program is the mirror image of the run, step for
 step. -/
 def DualTrace : Prop :=
-  ∀ P q n, (∀ ρ ∈ P.theory, ρ.WellFormed) →
-    TraceEquiv (R.trace (R.init P.dual q.dual) n) ((R.trace (R.init P q) n).map Shown.swap)
-
-/-- P2.3: adding rules only removes answers: in every model of the larger
-theory, each answer under it relates only pairs that one answer under the
-smaller theory relates, unless it relates nothing in any such model. -/
-def TheoryMonoAnswers : Prop :=
-  ∀ P (T : Theory) q, P.WellFormed q → (∀ ρ ∈ T, ρ.WellFormed) → (∀ ρ ∈ P.theory, ρ ∈ T) →
-    ∀ a ∈ R.Answers { P with theory := T } q,
-      Answer.Dead T a ∨ ∃ b ∈ R.Answers P q, Answer.CoversLive T b a
+  ∀ P q n, P.sorts.WellFormed →
+    TraceEquiv P.sorts.interp (R.trace (R.init P.dual q.dual) n)
+      ((R.trace (R.init P q) n).map Shown.swap)
 
 /-- P3.1 and P3.2: no emitted answer is covered by an earlier one. -/
 def NoSubsumed : Prop :=
   ∀ P q, P.WellFormed q → ∀ n,
-    (R.emitted (R.init P q) n).Pairwise fun a b => ¬ Answer.Covers a b
+    (R.emitted (R.init P q) n).Pairwise fun a b => ¬ Answer.Covers P.sorts.interp a b
 
 /-- When a run reports that it is done, its final report is the set of
 maximal emitted answers: every reported answer was emitted, every emitted
@@ -212,8 +210,8 @@ equivalent maximal answers. -/
 def FinalMaximal : Prop :=
   ∀ P q, P.WellFormed q → ∀ n fin, R.final (R.init P q) n = some fin →
     (∀ a ∈ fin, a ∈ R.emitted (R.init P q) n) ∧
-    (∀ a ∈ R.emitted (R.init P q) n, ∃ b ∈ fin, Answer.Covers b a) ∧
-    fin.Pairwise fun a b => ¬ Answer.Covers a b ∧ ¬ Answer.Covers b a
+    (∀ a ∈ R.emitted (R.init P q) n, ∃ b ∈ fin, Answer.Covers P.sorts.interp b a) ∧
+    fin.Pairwise fun a b => ¬ Answer.Covers P.sorts.interp a b ∧ ¬ Answer.Covers P.sorts.interp b a
 
 /-! ## What is kept -/
 
@@ -232,7 +230,6 @@ structure KeepsPointwise (Base : Runtime) : Prop where
   emptySide : R.EmptySide
   convTrace : R.ConvTrace
   dualTrace : R.DualTrace
-  theoryMono : R.TheoryMonoAnswers
   noSubsumed : R.NoSubsumed
 
 /-- Every property a machine keeps: the list of `KeepsPointwise`, and
@@ -328,12 +325,12 @@ structure Fair (C : CostedRuntime) (c : Nat) : Prop where
   within `c * (f * n + size)` ticks, `f` being the alternatives that compete
   with it along the nesting, multiplied. -/
   share : ∀ P q q' f, P.WellFormed q → Alternative P q q' f →
-    ∀ M, P.theory.Model M → ∀ x n, C.Covered P q' M x n →
-      C.CoversWithin P q M x (c * (f * C.paid P q' n + P.size + q.size))
+    ∀ x n, C.Covered P q' P.sorts.interp x n →
+      C.CoversWithin P q P.sorts.interp x (c * (f * C.paid P q' n + P.size + q.size))
   /-- A pair covered within `n` ticks by an alternative run alone is covered
   within `c * n` steps, however deep the alternative is nested. -/
   flat : ∀ P q q' f, P.WellFormed q → Alternative P q q' f →
-    ∀ M, P.theory.Model M → ∀ x n, C.Covered P q' M x n →
-      ∃ m, m ≤ c * C.paid P q' n ∧ C.Covered P q M x m
+    ∀ x n, C.Covered P q' P.sorts.interp x n →
+      ∃ m, m ≤ c * C.paid P q' n ∧ C.Covered P q P.sorts.interp x m
 
 end RwLog

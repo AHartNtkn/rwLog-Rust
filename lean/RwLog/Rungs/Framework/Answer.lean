@@ -1,12 +1,11 @@
 /-
 # Comparing answers by what they denote
 
-`Answer.Covers` and `Answer.Equiv` (`Trusted/Runtime.lean`) are a preorder and
-an equivalence on answers of any types, and converse respects both. On spans
-they are the syntactic coverage of the span layer (`Span.covers_iff`,
-`Span.equiv_iff`), which the kernel decides by matching, and the coverage,
-deadness and refinement modulo a theory of `SpanLayer/Coverage.lean` are the
-generic ones by definition.
+`Answer.Covers M` and `Answer.Equiv M` (`Trusted/Runtime.lean`) are a preorder
+and an equivalence on answers of any types, in any interpretation `M`, and
+converse respects both. On spans, coverage in every interpretation is the
+coverage of spans as written of the span layer (`Span.covers_iff`,
+`Span.equiv_iff`), which is decided by matching.
 -/
 import RwLog.Trusted.Runtime
 import RwLog.SpanLayer.Coverage
@@ -15,50 +14,43 @@ namespace RwLog
 
 namespace Answer
 
-variable {A B C : Type} [Answer A] [Answer B] [Answer C]
+variable {A B C : Type} [Answer A] [Answer B] [Answer C] {M : Interp}
 
-theorem Covers.refl (a : A) : Covers a a := fun _ => le_rfl
+theorem Covers.refl (a : A) : Covers M a a := le_rfl
 
-theorem Covers.trans {a : A} {b : B} {c : C} (h₁ : Covers a b) (h₂ : Covers b c) : Covers a c :=
-  fun M => (h₂ M).trans (h₁ M)
+theorem Covers.trans {a : A} {b : B} {c : C} (h₁ : Covers M a b) (h₂ : Covers M b c) :
+    Covers M a c :=
+  Set.Subset.trans h₂ h₁
 
 /-- Converse respects coverage. -/
-theorem Covers.swap {a : A} {b : B} (h : Covers a b) : Covers (swap a) (swap b) := by
-  intro M p hp
+theorem Covers.swap {a : A} {b : B} (h : Covers M a b) : Covers M (swap a) (swap b) := by
+  intro p hp
   rw [den_swap] at hp ⊢
-  exact h M hp
+  exact h hp
 
-theorem Covers.live {T : Theory} {a : A} {b : B} (h : Covers a b) : CoversLive T a b :=
-  fun M _ => h M
+theorem Equiv.refl (a : A) : Equiv M a a := ⟨Covers.refl a, Covers.refl a⟩
 
-theorem Equiv.refl (a : A) : Equiv a a := ⟨Covers.refl a, Covers.refl a⟩
+theorem Equiv.symm {a : A} {b : B} (h : Equiv M a b) : Equiv M b a := ⟨h.2, h.1⟩
 
-theorem Equiv.symm {a : A} {b : B} (h : Equiv a b) : Equiv b a := ⟨h.2, h.1⟩
-
-theorem Equiv.trans {a : A} {b : B} {c : C} (h₁ : Equiv a b) (h₂ : Equiv b c) : Equiv a c :=
+theorem Equiv.trans {a : A} {b : B} {c : C} (h₁ : Equiv M a b) (h₂ : Equiv M b c) : Equiv M a c :=
   ⟨h₁.1.trans h₂.1, h₂.2.trans h₁.2⟩
 
-theorem Equiv.swap {a : A} {b : B} (h : Equiv a b) : Equiv (swap a) (swap b) :=
+theorem Equiv.swap {a : A} {b : B} (h : Equiv M a b) : Equiv M (swap a) (swap b) :=
   ⟨h.1.swap, h.2.swap⟩
 
-/-- Equivalent answers relate the same pairs in every interpretation. -/
-theorem Equiv.den_eq {a : A} {b : B} (h : Equiv a b) (M : Interp) : den M a = den M b :=
-  Set.Subset.antisymm (h.2 M) (h.1 M)
-
-theorem CoversLive.refl (T : Theory) (a : A) : CoversLive T a a := fun _ _ => le_rfl
-
-theorem CoversLive.trans {T : Theory} {a : A} {b : B} {c : C} (h₁ : CoversLive T a b)
-    (h₂ : CoversLive T b c) : CoversLive T a c :=
-  fun M hM => (h₂ M hM).trans (h₁ M hM)
+/-- Equivalent answers relate the same pairs. -/
+theorem Equiv.den_eq {a : A} {b : B} (h : Equiv M a b) : den M a = den M b :=
+  Set.Subset.antisymm h.2 h.1
 
 end Answer
 
 /-! ## Spans -/
 
-/-- Syntactic coverage of spans is coverage of what they denote: a triple of
-`s` is matched by a triple of `a` with a smaller store exactly when, in every
-interpretation, `a` relates what `s` relates. -/
-theorem Span.covers_iff {a s : Span} : a.Covers s ↔ Answer.Covers a s := by
+/-- Coverage of spans as written is coverage of what they denote whatever
+constraints hold: a triple of `s` is matched by a triple of `a` with a
+smaller store exactly when, in every interpretation, `a` relates what `s`
+relates. -/
+theorem Span.covers_iff {a s : Span} : a.Covers s ↔ ∀ M, Answer.Covers M a s := by
   constructor
   · exact fun h M => h.at_subset M
   · rintro h ⟨p, q, S⟩ hx
@@ -70,15 +62,9 @@ theorem Span.covers_iff {a s : Span} : a.Covers s ↔ Answer.Covers a s := by
     obtain ⟨S', hS', hsub⟩ := this
     exact ⟨(p, q, S'), hS', rfl, rfl, Finset.coe_subset.1 hsub⟩
 
-theorem Span.equiv_iff {a b : Span} : a.Equiv b ↔ Answer.Equiv a b :=
-  and_congr Span.covers_iff Span.covers_iff
-
-theorem Span.coversLive_iff {T : Theory} {a s : Span} :
-    a.CoversLive T s ↔ Answer.CoversLive T a s := Iff.rfl
-
-theorem Span.dead_iff {T : Theory} {s : Span} : s.Dead T ↔ Answer.Dead T s := Iff.rfl
-
-theorem Span.refines_iff {T : Theory} {a s : Span} : a.Refines T s ↔ Answer.Refines T a s :=
-  Iff.rfl
+theorem Span.equiv_iff {a b : Span} : a.Equiv b ↔ ∀ M, Answer.Equiv M a b := by
+  unfold Span.Equiv Answer.Equiv
+  rw [Span.covers_iff, Span.covers_iff]
+  exact ⟨fun h M => ⟨h.1 M, h.2 M⟩, fun h => ⟨fun M => (h M).1, fun M => (h M).2⟩⟩
 
 end RwLog

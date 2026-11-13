@@ -38,9 +38,9 @@ theorem CoversWithin.mono {P : Program} {q : Rel} {M : Interp} {x : GTerm × GTe
 query when it halts. -/
 theorem coversWithin_of_halts (hC : C.runtime.HonestExhaustion) {P : Program} {q : Rel}
     (hwf : P.WellFormed q) {n c : Nat} (hn : C.runtime.Halts (C.start P q) n)
-    (hc : C.paid P q n ≤ c) {M : Interp} (hM : P.theory.Model M) {x : GTerm × GTerm}
-    (hx : x ∈ P.semAt M q) : C.CoversWithin P q M x c := by
-  have h := hC P q hwf n hn M hM
+    (hc : C.paid P q n ≤ c) {x : GTerm × GTerm}
+    (hx : x ∈ P.pairs q) : C.CoversWithin P q P.sorts.interp x c := by
+  have h := hC P q hwf n hn
   rw [h] at hx
   simp only [Set.mem_iUnion] at hx
   obtain ⟨a, ha, hxa⟩ := hx
@@ -66,22 +66,22 @@ theorem Simulates.of_steps {Old New : CostedRuntime} {p : Nat → Nat → Nat}
     (h : ∀ P q, P.WellFormed q → ∀ n, ∃ m,
       New.paid P q m ≤ p (Old.paid P q n) (P.size + q.size) ∧
       (∀ a ∈ Old.runtime.emitted (Old.start P q) n,
-        ∃ b ∈ New.runtime.emitted (New.start P q) m, Answer.CoversLive P.theory b a) ∧
+        ∃ b ∈ New.runtime.emitted (New.start P q) m, Answer.Covers P.sorts.interp b a) ∧
       (Old.runtime.Halts (Old.start P q) n → New.runtime.Halts (New.start P q) m)) :
     Simulates Old New p := by
   intro P q hwf n
   obtain ⟨m, hs, hcov, hh⟩ := h P q hwf n
   refine ⟨?_, fun hn => ⟨m, hh hn, hs⟩⟩
-  rintro M hM x ⟨a, ha, hx⟩
+  rintro x ⟨a, ha, hx⟩
   obtain ⟨b, hb, hba⟩ := hcov a ha
-  exact ⟨m, ⟨b, hb, hba M hM hx⟩, hs⟩
+  exact ⟨m, ⟨b, hb, hba hx⟩, hs⟩
 
 /-- A simulation within `p` is a simulation within any larger bound. -/
 theorem Simulates.mono {Old New : CostedRuntime} {p p' : Nat → Nat → Nat}
     (h : Simulates Old New p) (hp : ∀ c n, p c n ≤ p' c n) : Simulates Old New p' := by
   intro P q hwf n
   obtain ⟨h1, h2⟩ := h P q hwf n
-  refine ⟨fun M hM x hx => CostedRuntime.CoversWithin.mono _ (h1 M hM x hx) (hp _ _), fun hn => ?_⟩
+  refine ⟨fun x hx => CostedRuntime.CoversWithin.mono _ (h1 x hx) (hp _ _), fun hn => ?_⟩
   obtain ⟨m, hm, hs⟩ := h2 hn
   exact ⟨m, hm, le_trans hs (hp _ _)⟩
 

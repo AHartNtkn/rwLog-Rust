@@ -39,23 +39,21 @@ structure Preprocessor where
   (`Trusted/Kernel.lean`), so that what it costs is not its own to declare. -/
   gen : {S : Type} → {M : Type → Type} → [Kernel S M] →
     ArtifactStore → ProgramOf S → RelOf S → M (ProgramOf S × RelOf S × ArtifactStore)
-  theory_eq : ∀ A (P : Program) (q : Rel), (gen (M := Cost) A P q).val.1.theory = P.theory
+  sorts_eq : ∀ A (P : Program) (q : Rel), (gen (M := Cost) A P q).val.1.sorts = P.sorts
   wf : ∀ A (P : Program) (q : Rel), P.WellFormed q →
     (gen (M := Cost) A P q).val.1.WellFormed (gen (M := Cost) A P q).val.2.1
   equiv : ∀ A (P : Program) (q : Rel), P.WellFormed q →
-    MEquiv P.theory
-      (fun M => (gen (M := Cost) A P q).val.1.semAt M (gen (M := Cost) A P q).val.2.1)
-      (fun M => P.semAt M q)
+    (gen (M := Cost) A P q).val.1.pairs (gen (M := Cost) A P q).val.2.1 = P.pairs q
 
-/-- The preprocessor at the kernel of the language. -/
+/-- The preprocessor at the kernel of spans as they are written. -/
 @[reducible] def Preprocessor.run (p : Preprocessor) (A : ArtifactStore) (P : Program) (q : Rel) :
     Cost (Program × Rel × ArtifactStore) := p.gen A P q
 
 def Preprocessor.id : Preprocessor where
   gen A P q := pure (P, q, A)
-  theory_eq _ _ _ := rfl
+  sorts_eq _ _ _ := rfl
   wf _ _ _ h := h
-  equiv _ _ _ _ _ _ := rfl
+  equiv _ _ _ _ := rfl
 
 structure Rung where
   pre : Preprocessor
