@@ -150,6 +150,23 @@ theorem findL_ticks_le (f : α → Cost Bool) :
 
 end Cost
 
+/-! ## The search charges vanish where there is nothing to search -/
+
+@[simp] theorem matchAllWork_nil (ts : List Pat) (θ : PSubst) : matchAllWork [] ts θ = 0 := rfl
+
+/-- A covering span without a store is charged the two sizes. -/
+@[simp] theorem Charged.coversWork_nil {a : Span} (h : a.c = []) (s : Span) :
+    Charged.coversWork a s = 0 := by
+  unfold Charged.coversWork
+  cases (matchInto a.l s.l []).bind (matchInto a.r s.r) <;> simp [h]
+
+@[simp] theorem Theory.firingsWork_nil (c : Store) : Theory.firingsWork [] c = 0 := rfl
+
+/-- The empty theory searches for nothing. -/
+@[simp] theorem Theory.saturateWork_nil (c : Store) : Theory.saturateWork [] c = 0 := by
+  rw [Theory.saturateWork]
+  simp [Theory.newAtoms, Theory.firings]
+
 /-! ## Costed runtimes -/
 
 namespace CostedRuntime

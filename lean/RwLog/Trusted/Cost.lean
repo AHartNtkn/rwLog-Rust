@@ -16,9 +16,16 @@ when it builds one:
 * composing or conjoining two spans: the sizes of both spans and of the result;
 * testing whether a chain of spans composes, without building the result: the
   sizes of the spans;
-* a coverage test: the sizes of both spans;
+* a coverage test: the sizes of both spans, and the search that places the
+  covering span's store in the other's (`matchAllWork`): every attempt to
+  match one constraint onto another, at every point of the search, by the
+  sizes of the two. With an empty store there is no search;
 * simplifying a span by a theory: for each instantiation stage, the size of
-  the theory times the size of the span and of the closure of its store.
+  the theory times the size of the span and of the closure of its store, and
+  the search for firings: every round of the closure, and the two readings of
+  the closed store, match the heads of every bounded rule against the store
+  (`Theory.firingsWork`, `Theory.saturateWork`). With an empty theory there
+  is no search.
 
 List traversal over data that was already charged is free. A term is charged
 by its size wherever it is used, never by one, so sharing or interning cannot
@@ -186,11 +193,34 @@ def Span.chain : List Span → Option Span
   | [] => some ⟨.var 0, .var 0, []⟩
   | s :: rest => rest.foldl (fun acc t => acc.bind (·.compose t)) (some s)
 
-/-- What simplifying a span costs: at each instantiation stage, the theory is
-matched against the closure of the span's store. -/
+/-- The work of `matchAll`: every attempt to match a pattern onto a member of
+the store, at every point of the search, charged by the sizes of the two. -/
+def matchAllWork : List Pat → List Pat → PSubst → Nat
+  | [], _, _ => 0
+  | p :: ps, ts, θ =>
+    (ts.map fun t => p.size + t.size +
+      match matchInto p t θ with
+      | some θ' => matchAllWork ps ts θ'
+      | none => 0).sum
+
+/-- The work of listing the firings of a theory on a store: the heads of each
+bounded rule are matched against the store. -/
+def Theory.firingsWork (T : Theory) (c : Store) : Nat :=
+  (T.map fun ρ => if ρ.bounded then matchAllWork ρ.heads c [] else 0).sum
+
+/-- The work of closing a store: the firings are listed in every round. -/
+def Theory.saturateWork (T : Theory) (c : Store) : Nat :=
+  T.firingsWork c + if _ : T.newAtoms c = [] then 0 else T.saturateWork (c ++ T.newAtoms c)
+termination_by T.room c
+decreasing_by exact Theory.room_lt ‹_›
+
+/-- What simplifying a span costs: at each instantiation stage, the store is
+closed, and the theory is matched against the closure twice, once to look for
+a refutation and once for a forced equation. -/
 def Theory.simplifyCharge (T : Theory) : Nat → Span → Nat
   | n, s =>
-    let w := (T.size + 1) * (s.size + Store.size (T.saturate s.c) + 1)
+    let w := (T.size + 1) * (s.size + Store.size (T.saturate s.c) + 1) +
+      T.saturateWork s.c + 2 * T.firingsWork (T.saturate s.c)
     if T.refutes? s.c then w
     else match n, T.bind? s.c with
       | n + 1, some θ => w + T.simplifyCharge n (s.inst θ)
@@ -213,7 +243,14 @@ def meet (x y : Span) : Cost (Option Span) :=
 def composable (xs : List Span) : Cost Bool :=
   ⟨(Span.chain xs).isSome, (xs.map Span.size).sum⟩
 
-def covers (a s : Span) : Cost Bool := ⟨a.covers? s, a.size + s.size⟩
+/-- The search of a coverage test: once the two sides match, the store of `a`
+is placed in the store of `s`. -/
+def coversWork (a s : Span) : Nat :=
+  match (matchInto a.l s.l []).bind (matchInto a.r s.r) with
+  | none => 0
+  | some θ => matchAllWork a.c s.c θ
+
+def covers (a s : Span) : Cost Bool := ⟨a.covers? s, a.size + s.size + coversWork a s⟩
 
 def simplify (T : Theory) (s : Span) : Cost (Option Span) :=
   ⟨T.simplify s, T.simplifyCharge s.c.varCount s⟩
