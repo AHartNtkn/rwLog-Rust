@@ -70,6 +70,7 @@ import RwLog.Kernel.Chain
 import RwLog.Kernel.Size
 import RwLog.Rungs.Framework.Cost
 import RwLog.Rungs.Framework.CostCalculus
+import RwLog.Rungs.Framework.CostSpec
 import RwLog.Rungs.R002.Spec
 import RwLog.Rungs.R002.Proofs.Eager
 import RwLog.Rungs.R002.Proofs.Chains
@@ -105,3 +106,11 @@ import RwLog.Rungs.R003.Proofs.Ranges
 import RwLog.Rungs.R003.Proofs.Products
 import RwLog.Rungs.R003.Proofs.SharedExact
 import RwLog.Rungs.R003.Proofs.Same
+import RwLog.Rungs.R003.Proofs.Separation.Family
+import RwLog.Rungs.R003.Proofs.Separation.Walk
+import RwLog.Rungs.R003.Proofs.Separation.SharedEval
+import RwLog.Rungs.R003.Proofs.Separation.Race
+import RwLog.Rungs.R003.Proofs.Separation.Tables
+import RwLog.Rungs.R003.Proofs.Separation.Stages
+import RwLog.Rungs.R003.Proofs.Separation.Round
+import RwLog.Rungs.R003.Proofs.Separation.Run
