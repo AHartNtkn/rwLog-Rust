@@ -60,6 +60,8 @@ Work is done one kernel operation at a time. A goal that is asked to work passes
 
 A table is complete when one of its strategies has combined everything from complete sub-tables (for a union, when all members are complete), and by R001's exact check on the whole state for goals that depend on themselves. Nothing more is spent on a complete table, and its other strategies are dropped.
 
+**Revision, 2026-11-13: requests alternate between two rules.** The rule above (the *share* rule) halves a goal's share at every level of nesting, so an answer under `k` nested choices that each have a member which never finishes arrives after about `2^k` requests (section 5.4). So every second request is instead one *flat round*: each opened goal that is not complete does one unit of its own work. The flat round alone is slow when many goals are open, which is where the share rule is good; alternating costs at most twice the better of the two. A strategy's spent ticks count work done under either rule.
+
 The balance takes one weight per strategy and uses equal weights. Other weights are roadmap item L32 and need no new machine.
 
 ### What a step is
@@ -136,6 +138,20 @@ Reading:
 - On E, where the output is exponential, the balance costs about `k` times the best fixed bracketing.
 
 What the prototype does not cover: recursion, constraints, push strategies, `&`. So it says nothing about F3 in general.
+
+### 5.4 Nested choices with a member that never finishes
+
+`q = inf | ((s $x) -> $x ; q) | (z -> z)` asked at `s^k z`, with `inf` distinct at each level and never finishing (the roadmap thread's example for the fairness bound L36). `scripts/symmetric_engine_fair_or.py` is a model of the two request rules on this shape only, one tick per unit of work; it is not the prototype of 5.3 and has no terms in it. Ticks until the answer:
+
+| k | share rule alone | share rule alternating with a flat round |
+|---|---|---|
+| 4 | 46 | 17 |
+| 8 | 766 | 41 |
+| 12 | 12286 | 73 |
+| 16 | 196606 | 113 |
+| 20 | 3145726 | 161 |
+
+The share rule alone is `3 * 2^k - 2`. With the flat round it is quadratic in `k`. This is why section 3 alternates the two.
 
 ## 6. What milestones 3 and 5 must freeze
 
