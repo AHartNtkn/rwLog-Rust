@@ -44,6 +44,7 @@ import RwLog.Kernel.Chain
 import RwLog.Kernel.Size
 import RwLog.Rungs.Framework.Cost
 import RwLog.Rungs.Framework.Latency
+import RwLog.Rungs.Framework.Admission
 import RwLog.Rungs.Framework.CostCalculus
 import RwLog.Rungs.Framework.CostSpec
 import RwLog.Rungs.Framework.Traverse
