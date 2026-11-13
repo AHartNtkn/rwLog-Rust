@@ -1500,20 +1500,16 @@ impl<B: ConstraintBuilder> Parser<B> {
                 (ParamKind::Term, MacroArg::Term(actual_tid)) => {
                     if let Some(Some(pattern)) = eq.term_patterns.get(i) {
                         // Match pattern against actual term.
-                        match match_terms_combined(*pattern, *actual_tid, &self.terms) {
-                            Some(subst) => {
-                                // Merge into combined_term_subst.
-                                for (var, binding) in subst.iter() {
-                                    if let Some(existing) = combined_term_subst.get(var) {
-                                        if existing != binding {
-                                            return None; // Conflicting bindings.
-                                        }
-                                    } else {
-                                        combined_term_subst.bind(var, binding);
-                                    }
+                        let subst = match_terms_combined(*pattern, *actual_tid, &self.terms)?;
+                        // Merge into combined_term_subst.
+                        for (var, binding) in subst.iter() {
+                            if let Some(existing) = combined_term_subst.get(var) {
+                                if existing != binding {
+                                    return None; // Conflicting bindings.
                                 }
+                            } else {
+                                combined_term_subst.bind(var, binding);
                             }
-                            None => return None,
                         }
                     } else {
                         return None;

@@ -1,9 +1,20 @@
 name: Perf Corpus Quick Gate
 
+# This gate measures the Rust implementation. Changes confined to the Lean
+# formalization or to documentation cannot move its numbers, so they do not
+# trigger it.
 on:
   pull_request:
+    paths-ignore:
+      - "lean/**"
+      - ".github/workflows/lean.yml"
+      - "**/*.md"
   push:
-    branches: [ main ]
+    branches: [ master ]
+    paths-ignore:
+      - "lean/**"
+      - ".github/workflows/lean.yml"
+      - "**/*.md"
 
 jobs:
   perf-quick:
@@ -70,7 +81,7 @@ jobs:
             --metric median \
             --window 20 \
             --top 200 \
-            --env-compat warn \
+            --env-compat same \
             --fail-regressions-pct 10
           cargo run --release --bin perf_corpus_trend -- \
             --history-dir .perf-history-cache \

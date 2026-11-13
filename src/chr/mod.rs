@@ -965,8 +965,8 @@ impl ChrProgramBuilder {
         for (idx, draft) in self.rules.into_iter().enumerate() {
             let mut heads = Vec::new();
             let kept_len = draft.kept.len();
-            heads.extend(draft.kept.into_iter());
-            heads.extend(draft.removed.into_iter());
+            heads.extend(draft.kept);
+            heads.extend(draft.removed);
 
             let mut removed_mask = 0u64;
             for i in kept_len..heads.len() {
