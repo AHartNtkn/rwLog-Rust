@@ -9,6 +9,10 @@ advances one of the two runs or both, the leader takes `n` steps, and the
 other run at most `g + n`; a round is one race, or two when the runs are
 level.
 
+They cost at least the cheaper of what `C` pays for `n` steps from `x` and
+for `g + n` steps from `y` (`spent_ge`): every step either run takes is the
+winner of a race, and a race costs at least its winner.
+
 Every step of the machine costs at least a tick (`step_pos`).
 
 Neither fact depends on what the runs emit.
@@ -56,6 +60,17 @@ theorem spent_catch {x y y' : C.State} {as : List Span} (g : Nat) (f : Bool) (n 
   | done =>
     have hv' : ((machine C).step ⟨x, y, f, g + 1⟩).val = .done := by rw [h]; exact hv
     rw [(machine C).spent_succ_done hv', (machine C).spent_succ_done hv, ht]
+
+/-- A race costs at least the step that wins it. -/
+theorem win_le {x y : C.State} (h : wins x y = true) : (C.step x).ticks ≤ raced x y := by
+  have hwin := winner_le_raceCost (C.step x).ticks (C.step y).ticks
+  have : firstWins (C.step x).ticks (C.step y).ticks = true := h
+  rwa [this] at hwin
+
+theorem lose_le {x y : C.State} (h : wins x y = false) : (C.step y).ticks ≤ raced x y := by
+  have hwin := winner_le_raceCost (C.step x).ticks (C.step y).ticks
+  have : firstWins (C.step x).ticks (C.step y).ticks = false := h
+  rwa [this] at hwin
 
 /-! ## From above -/
 
@@ -231,6 +246,136 @@ theorem spent_le : ∀ (n g : Nat) (f : Bool) (x y : C.State), SpentLe C n g f x
     | succ g ihg =>
       intro f x y
       exact spent_le_behind ih g f x y fun as y' _ => ihg f x y'
+
+/-! ## From below -/
+
+/-- The statement of `spent_ge` for one number of steps. -/
+def SpentGe (C : CostedRuntime) (n g : Nat) (f : Bool) (x y : C.State) : Prop :=
+  min (C.spent x n) (C.spent y (g + n)) ≤ (machine C).spent ⟨x, y, f, g⟩ n
+
+theorem spent_ge_level {n : Nat} (ih : ∀ g f x y, SpentGe C n g f x y)
+    (f : Bool) (x y : C.State) : SpentGe C (n + 1) 0 f x y := by
+  unfold SpentGe
+  rw [Nat.zero_add]
+  have hdx : (C.step x).val = .done → C.spent x (n + 1) = (C.step x).ticks := fun h => by
+    rw [C.spent_succ_done h]
+  have hdy : (C.step y).val = .done → C.spent y (n + 1) = (C.step y).ticks := fun h => by
+    rw [C.spent_succ_done h]
+  have hdone : (machine C).step ⟨x, y, f, 0⟩ = ⟨.done, 1 + raced x y + raced y x⟩ →
+      (machine C).spent ⟨x, y, f, 0⟩ (n + 1) = 1 + raced x y + raced y x := fun hs => by
+    rw [(machine C).spent_succ_done (congrArg Cost.val hs), hs]
+  have hnext : ∀ (bs : List Span) (x' y' : C.State) (f' : Bool) (g' : Nat),
+      (machine C).step ⟨x, y, f, 0⟩ =
+        ⟨.emit bs ⟨x', y', f', g'⟩, 1 + raced x y + raced y x⟩ →
+      (machine C).spent ⟨x, y, f, 0⟩ (n + 1) =
+        1 + raced x y + raced y x + (machine C).spent ⟨x', y', f', g'⟩ n :=
+    fun bs x' y' f' g' hs => by
+      rw [(machine C).spent_succ_emit (congrArg Cost.val hs), hs]
+  have alone : wins x y = true → wins y x = false →
+      min (C.spent x (n + 1)) (C.spent y (n + 1)) ≤ (machine C).spent ⟨x, y, f, 0⟩ (n + 1) := by
+    intro w1 w2
+    have hw := win_le w1
+    cases hx : (C.step x).val with
+    | emit as x' =>
+      rw [hnext _ x' y f 1 (go_alone_emit f w1 w2 hx), C.spent_succ_emit hx]
+      have h1 := ih 1 f x' y
+      unfold SpentGe at h1
+      rw [show 1 + n = n + 1 by omega] at h1
+      omega
+    | done => rw [hdone (go_alone_done f w1 w2 hx), hdx hx]; omega
+  have over : wins x y = false → wins y x = true →
+      min (C.spent x (n + 1)) (C.spent y (n + 1)) ≤ (machine C).spent ⟨x, y, f, 0⟩ (n + 1) := by
+    intro w1 w2
+    have hw := win_le w2
+    cases hy : (C.step y).val with
+    | emit bs y' =>
+      rw [hnext _ y' x (!f) 1 (go_overtake f w1 w2 hy), C.spent_succ_emit hy]
+      have h1 := ih 1 (!f) y' x
+      unfold SpentGe at h1
+      rw [show 1 + n = n + 1 by omega] at h1
+      omega
+    | done => rw [hdone (go_overtake_done f w1 w2 hy), hdy hy]; omega
+  have both : wins x y = wins y x →
+      min (C.spent x (n + 1)) (C.spent y (n + 1)) ≤ (machine C).spent ⟨x, y, f, 0⟩ (n + 1) := by
+    intro w
+    have hab : (C.step x).ticks + (C.step y).ticks ≤ raced x y + raced y x := by
+      cases h1 : wins x y
+      · have := lose_le h1
+        have := lose_le (w ▸ h1 : wins y x = false)
+        omega
+      · have := win_le h1
+        have := win_le (w ▸ h1 : wins y x = true)
+        omega
+    cases hx : (C.step x).val with
+    | emit as x' =>
+      cases hy : (C.step y).val with
+      | emit bs y' =>
+        rw [hnext _ x' y' f 0 (go_both_emit f w hx hy), C.spent_succ_emit hx, C.spent_succ_emit hy]
+        have h1 := ih 0 f x' y'
+        unfold SpentGe at h1
+        rw [Nat.zero_add] at h1
+        omega
+      | done => rw [hdone (go_both_done f w (.inr hy)), hdy hy]; omega
+    | done => rw [hdone (go_both_done f w (.inl hx)), hdx hx]; omega
+  cases h1 : wins x y <;> cases h2 : wins y x
+  · exact both (by rw [h1, h2])
+  · exact over h1 h2
+  · exact alone h1 h2
+  · exact both (by rw [h1, h2])
+
+theorem spent_ge_behind {n : Nat} (ih : ∀ g f x y, SpentGe C n g f x y)
+    (g : Nat) (f : Bool) (x y : C.State)
+    (hc : ∀ as y', (C.step y).val = .emit as y' → SpentGe C (n + 1) g f x y') :
+    SpentGe C (n + 1) (g + 1) f x y := by
+  unfold SpentGe
+  by_cases hw : wins x y = true
+  · have hwl := win_le hw
+    cases hx : (C.step x).val with
+    | emit as x' =>
+      have hs : (machine C).step ⟨x, y, f, g + 1⟩ =
+          ⟨.emit (orient f as) ⟨x', y, f, g + 2⟩, 1 + raced x y⟩ := go_lead_emit g f hw hx
+      rw [(machine C).spent_succ_emit (congrArg Cost.val hs), hs, C.spent_succ_emit hx]
+      have h1 := ih (g + 2) f x' y
+      unfold SpentGe at h1
+      rw [show g + 2 + n = g + 1 + (n + 1) by omega] at h1
+      show _ ≤ 1 + raced x y + _
+      omega
+    | done =>
+      have hs : (machine C).step ⟨x, y, f, g + 1⟩ = ⟨.done, 1 + raced x y⟩ :=
+        go_lead_done g f hw hx
+      rw [(machine C).spent_succ_done (congrArg Cost.val hs), hs, C.spent_succ_done hx]
+      show _ ≤ 1 + raced x y
+      omega
+  · have hw : wins x y = false := by simpa using hw
+    have hwl := lose_le hw
+    cases hy : (C.step y).val with
+    | done =>
+      have hs : (machine C).step ⟨x, y, f, g + 1⟩ = ⟨.done, 1 + raced x y⟩ :=
+        go_lag_done g f hw hy
+      rw [(machine C).spent_succ_done (congrArg Cost.val hs), hs,
+        show g + 1 + (n + 1) = (g + 1 + n) + 1 by omega, C.spent_succ_done hy]
+      show _ ≤ 1 + raced x y
+      omega
+    | emit bs y' =>
+      have h1 := hc bs y' hy
+      unfold SpentGe at h1
+      rw [spent_catch g f n hw hy, show g + 1 + (n + 1) = (g + (n + 1)) + 1 by omega,
+        C.spent_succ_emit hy]
+      omega
+
+/-- The first `n` steps of the mirrored machine cost at least the cheaper of
+`n` steps of the leader and `g + n` steps of the other run. -/
+theorem spent_ge : ∀ (n g : Nat) (f : Bool) (x y : C.State), SpentGe C n g f x y := by
+  intro n
+  induction n with
+  | zero => intro g f x y; exact Nat.le_trans (Nat.min_le_left _ _) (Nat.le_refl 0)
+  | succ n ih =>
+    intro g
+    induction g with
+    | zero => intro f x y; exact spent_ge_level ih f x y
+    | succ g ihg =>
+      intro f x y
+      exact spent_ge_behind ih g f x y fun as y' _ => ihg f x y'
 
 end Mirror
 

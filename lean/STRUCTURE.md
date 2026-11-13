@@ -148,6 +148,7 @@ states for swapped and regrouped `|`. It gives:
 `Mirror.trace_go` / `trace_start` (it emits what `C` emits, step for step, up
 to order and equivalence), `Mirror.spent_le` / `paid_le_min` (the first `n`
 steps cost at most `2 n` rounds of at most 14 times the cheaper run),
+`Mirror.spent_ge` / `paid_ge_min` (and at least the cheaper run),
 `Mirror.dualBisim` and `convBisim` (its runs on the mirror image and on the
 converse cost exactly what its run on the query costs, step for step),
 `Mirror.directionFree`, `Mirror.simulates` (it simulates `C` within
