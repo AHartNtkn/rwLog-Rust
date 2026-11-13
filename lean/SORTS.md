@@ -150,6 +150,13 @@ Two things to know about the instance:
   the pairs its store denotes under `S`. `Raw.toSpan_den` says that the span
   it is printed as relates the same pairs in `S.interp`.
 
-Still owed: deciding `Sorts.WellFormed` when a program is read (L56),
-`Engine.costed` at `Sorts.dom` (L55), and the operations in Rust with
-derived charges (L39).
+The read-time check (L56, `WF.lean`): `Sorts.WellFormed` is decided by two
+least fixpoints over the conjunctions of declared sorts, `big S` (two
+different members) and `fin S` (finitely many members), and the sorts are well
+formed exactly when no conjunction is in both (`wellFormed_iff`). With it
+`ProgramOf.WellFormed` is decidable; `ProgramOf.check` is the function and
+`ProgramOf.check_iff` says it is exact. `Tests/SortsRuns.lean` runs it on the
+sorts of section 5 and on the declarations section 4 rejects.
+
+Still owed: `Engine.costed` at `Sorts.dom` (L55) and the operations in Rust
+with derived charges (L39).

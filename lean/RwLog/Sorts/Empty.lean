@@ -125,9 +125,11 @@ def usedSyms (S : Sorts) : Finset Sym :=
       | some (ex, _) => ex.map (·.1)
       | none => [])).toFinset
 
-theorem restOK_memC {S : Sorts} {c : Conj} (h : RestOK S c) : ∃ t, MemC S c t := by
-  obtain ⟨g, hg⟩ := Infinite.exists_notMem_finset (usedSyms S)
-  refine ⟨Term.mk g [], fun n hn => ?_⟩
+/-- When every sort of `c` has a rest, a symbol no declaration mentions is in
+`c`. -/
+theorem restOK_fresh {S : Sorts} {c : Conj} (h : RestOK S c) {g : Sym} (hg : g ∉ usedSyms S) :
+    MemC S c (Term.mk g []) := by
+  intro n hn
   have hr := h n hn
   cases hd : S.lookup n with
   | none => simp [hd] at hr
@@ -155,6 +157,10 @@ theorem restOK_memC {S : Sorts} {c : Conj} (h : RestOK S c) : ∃ t, MemC S c t 
         simp [hnc cs hcs]
       rw [this]
       simp [hrest, hne]
+
+theorem restOK_memC {S : Sorts} {c : Conj} (h : RestOK S c) : ∃ t, MemC S c t := by
+  obtain ⟨g, hg⟩ := Infinite.exists_notMem_finset (usedSyms S)
+  exact ⟨_, restOK_fresh h hg⟩
 
 theorem mem_live_iff {S : Sorts} {c : Conj} : c ∈ live S ↔ ∃ t, MemC S c t := by
   constructor
