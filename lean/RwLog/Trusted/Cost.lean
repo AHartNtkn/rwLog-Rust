@@ -42,7 +42,8 @@ is done (`ExhaustsWithin`); it is infinite on most queries.
 
 What a machine has used on an input by the end of its first `n` steps is a
 number, and there is one such number for each resource (`Meter`). Time is the
-ticks paid (`Meter.time`). Simulation and separation are written once, for any
+ticks paid (`Meter.time`) and space is the most cells live at any moment so
+far (`Meter.space`). Simulation and separation are written once, for any
 resource.
 
 ## Improvement
@@ -259,6 +260,9 @@ abbrev Meter := (C : CostedRuntime) → Program → Rel → Nat → Nat
 
 /-- Time: the ticks paid. -/
 def Meter.time : Meter := fun C => C.paid
+
+/-- Space: the most cells live at any moment so far. -/
+def Meter.space : Meter := fun C => C.space
 
 namespace CostedRuntime
 
@@ -528,11 +532,13 @@ inductive Gap where
 /-- What a gain is a gain in. -/
 inductive Resource where
   | time
+  | space
   deriving DecidableEq, Repr
 
 /-- The meter of a resource. -/
 def Resource.meter : Resource → Meter
   | .time => Meter.time
+  | .space => Meter.space
 
 /-- The kind of win that admits a rung: a gain of some size in some
 resource. -/
@@ -597,7 +603,8 @@ end Bounds
 /-- `New` improves on `Old` by a win of the given kind, on the class `C`,
 with the numerals `b`: the class is proper with members of size at most
 `b.size`; `New` is never worse in time than `b.sim kind.gap` of `Old` on any
-answer of any input; and it is separated from `Old` on `C`, in the resource
+answer of any input, and never worse in space within the same bound unless
+the win is an exponential gain in time; and it is separated from `Old` on `C`, in the resource
 of the kind, with `Old` at `b.lo kind.gap` or more, `New` within `b.hi` on a
 member and within `b.ctx kind.gap` in context. The ratio of a polynomial win
 grows. -/
@@ -606,6 +613,8 @@ structure Improves (kind : Kind) (Old New : CostedRuntime) (b : Bounds) (C : Pro
   proper : C.Proper b.size
   grows : kind.gap = .polynomial → 0 < b.gain
   simulates : Simulates Old New (b.sim kind.gap)
+  simulatesSpace : kind ≠ ⟨.time, .exponential⟩ →
+    SimulatesBy Meter.space Old New (b.sim kind.gap)
   separates : SeparatesOn kind.resource.meter Old New C (b.lo kind.gap) b.hi (b.ctx kind.gap)
 
 /-! ## Engines
