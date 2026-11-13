@@ -181,3 +181,27 @@ new axiom.
 
 /-- info: 'RwLog.R001.Symmetry.dual_trace_of_mono' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.R001.Symmetry.dual_trace_of_mono
+
+/-- info: 'RwLog.R001.terminates_iff_cert' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R001.terminates_iff_cert
+
+/-- info: 'RwLog.R001.terminates_finitelyNormalising' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R001.terminates_finitelyNormalising
+
+/-- info: 'RwLog.R001.finite_side_seq_left' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R001.finite_side_seq_left
+
+/-- info: 'RwLog.R001.finite_side_seq_right' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R001.finite_side_seq_right
+
+/-- info: 'RwLog.R001.finite_side_and' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R001.finite_side_and
+
+/-- info: 'RwLog.R001.empty_side' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R001.empty_side
+
+/-- info: 'RwLog.R001.tabling_termination' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R001.tabling_termination
+
+/-- info: 'RwLog.R001.addition_fixed_modes' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R001.addition_fixed_modes

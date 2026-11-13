@@ -14,11 +14,14 @@ The obligations of the termination group.
   make a certificate (`Combine.seqL_cert` and its three variants).
 * `tabling_termination`: finitely many keys with finite covers are a
   certificate in which every goal reads its direct goals (`Tabling.tabling_cert`).
+* `addition_fixed_modes`: induction on the fixed number, over every boundary
+  the pushes can produce (`Addition.forward`, `Addition.backward`).
 -/
 import RwLog.Rungs.R001.Proofs.CertHalts
 import RwLog.Rungs.R001.Proofs.CertOfHalt
 import RwLog.Rungs.R001.Proofs.CertCombine
 import RwLog.Rungs.R001.Proofs.Tabling
+import RwLog.Rungs.R001.Proofs.Addition
 
 namespace RwLog
 
@@ -139,6 +142,13 @@ theorem tabling_termination : Obligation.tabling_termination := by
   intro P q hwf hG hfc
   obtain ⟨C, hC⟩ := Tabling.tabling_cert (simpLaws_of_wf hwf.2.2) (goodG_root q) hG hfc
   exact terminates_of_cert hwf.2.2 ⟨C, 0, hC⟩
+
+/-! ## Addition -/
+
+theorem addition_fixed_modes : Obligation.addition_fixed_modes := fun n m k =>
+  have hwf : ∀ ρ ∈ Examples.addProg.theory, ρ.WellFormed := fun _ h => nomatch h
+  ⟨terminates_of_cert hwf (Addition.forward_root n m),
+    terminates_of_cert hwf (Addition.backward_root k)⟩
 
 end R001
 

@@ -39,6 +39,8 @@ import RwLog.Rungs.R001.Proofs.CertHalts
 import RwLog.Rungs.R001.Proofs.CertOfHalt
 import RwLog.Rungs.R001.Proofs.CertCombine
 import RwLog.Rungs.R001.Proofs.Tabling
+import RwLog.Rungs.R001.Proofs.CertGoals
+import RwLog.Rungs.R001.Proofs.Addition
 import RwLog.Rungs.R001.Proofs.Termination
 import RwLog.Rungs.R001.Proofs.Symmetry
 import RwLog.Rungs.R001.Proofs.SymmetryLists
