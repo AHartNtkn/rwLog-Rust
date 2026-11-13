@@ -108,7 +108,13 @@ sort depth((s $n)) = (imp depth($n) depth($n)) | (neg depth($n)) | other   # dep
 `neq` is `!=`, with `: name` beside it where the notebook meant names only.
 `eq` is a shared variable. `lt`, `leq` and `between` in `range_sets.txt` are
 relations joined with `&`: "below 3" is a finite set, so it is not a sort.
-The surface syntax above is the prototype's and is settled with the parser.
+The surface syntax is read by `src/sorts.rs`, whose module comment is its
+definition. It turns each declaration into a `SortDef`, and rejects
+declarations that are not decided by the root symbol or not well formed, with
+the names of the sorts at fault. `other` is the roots no other alternative of
+the declaration accepts, so `(neg depth($n)) | other` keeps the case for
+`neg`. An instance of an indexed sort is declared and checked when a span
+first names it (`SortEnv::resolve`).
 
 ## 6. The Lean (`lean/RwLog/Sorts`)
 
