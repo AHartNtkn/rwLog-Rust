@@ -16,6 +16,7 @@ pub mod perf_counters;
 pub mod queue;
 pub mod rel;
 pub mod repl;
+pub mod sorts;
 pub mod subst;
 pub mod symbol;
 pub mod term;
