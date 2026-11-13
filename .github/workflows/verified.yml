@@ -39,3 +39,57 @@ jobs:
           lake-package-directory: verified/lean
           use-mathlib-cache: true
           build-args: "--wfail"
+
+  # The generated Lean is committed, so the proofs are about the Rust only if
+  # the committed files are what the Rust translates to. This job translates
+  # the Rust again with Charon and Aeneas at the recorded commits and fails on
+  # any difference.
+  extraction:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check that every recorded version agrees
+        run: verified/check-versions.sh
+      - uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            extra-substituters = https://hacl.cachix.org
+            extra-trusted-public-keys = hacl.cachix.org-1:FzsZ2xsByOwKwIWNPII7yMOelJNDZ12mDAj3d1eGX0c=
+      # Aeneas's binary cache does not keep every commit, and building the two
+      # tools takes about a quarter of an hour. Their closures are kept in a
+      # local nix binary cache, saved under the recorded versions. Nix takes a
+      # path from it only if it is the path the recorded commit evaluates to.
+      - name: Restore Charon and Aeneas built at the recorded commits
+        id: tools
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/aeneas-tools
+          key: aeneas-tools-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('verified/versions.env') }}
+      - name: Fetch or build Charon and Aeneas at the recorded commits
+        env:
+          RESTORED: ${{ steps.tools.outputs.cache-hit }}
+        run: |
+          . verified/versions.env
+          flake="github:AeneasVerif/aeneas/$AENEAS_COMMIT"
+          kept=()
+          if [[ "$RESTORED" == true ]]; then
+            kept=(--extra-substituters "file://$HOME/aeneas-tools?trusted=1")
+          fi
+          nix build -L "${kept[@]}" --out-link "$RUNNER_TEMP/aeneas" "$flake#aeneas"
+          nix build -L "${kept[@]}" --out-link "$RUNNER_TEMP/charon" "$flake#charon"
+          echo "$RUNNER_TEMP/aeneas/bin" >> "$GITHUB_PATH"
+          echo "$RUNNER_TEMP/charon/bin" >> "$GITHUB_PATH"
+      - name: Copy the built tools to a local binary cache
+        if: steps.tools.outputs.cache-hit != 'true'
+        run: |
+          nix copy --to "file://$HOME/aeneas-tools?compression=zstd" \
+            "$RUNNER_TEMP/aeneas" "$RUNNER_TEMP/charon"
+          du -sh "$HOME/aeneas-tools"
+      - name: Keep the built tools for later runs
+        if: steps.tools.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/aeneas-tools
+          key: ${{ steps.tools.outputs.cache-primary-key }}
+      - name: Translate the Rust and compare with the committed Lean
+        run: verified/extract.sh --check
