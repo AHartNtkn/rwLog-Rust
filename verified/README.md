@@ -131,7 +131,9 @@ the Rust in `rust/src`.
 
 `extract.sh` needs `charon` and `aeneas` on `PATH` and refuses to run unless
 they were built from the recorded commits. The header of `extract.sh` gives
-the `nix shell` command that fetches both from Aeneas's binary cache.
+the `nix shell` command that fetches or builds both. Building them takes about
+a quarter of an hour; CI keeps the built tools and reuses them until
+`versions.env` changes.
 
 ## Versions
 

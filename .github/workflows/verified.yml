@@ -55,13 +55,32 @@ jobs:
           extra_nix_config: |
             extra-substituters = https://hacl.cachix.org
             extra-trusted-public-keys = hacl.cachix.org-1:FzsZ2xsByOwKwIWNPII7yMOelJNDZ12mDAj3d1eGX0c=
-      - name: Fetch Charon and Aeneas at the recorded commits
+      # Aeneas's binary cache does not keep every commit, and building the two
+      # tools takes about a quarter of an hour. Their closures are kept in a
+      # local nix binary cache, saved under the recorded versions. Nix takes a
+      # path from it only if it is the path the recorded commit evaluates to.
+      - name: Restore Charon and Aeneas built at the recorded commits
+        id: tools
+        uses: actions/cache@v4
+        with:
+          path: ~/aeneas-tools
+          key: aeneas-tools-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('verified/versions.env') }}
+      - name: Fetch or build Charon and Aeneas at the recorded commits
         run: |
           . verified/versions.env
           flake="github:AeneasVerif/aeneas/$AENEAS_COMMIT"
-          nix build -L --out-link "$RUNNER_TEMP/aeneas" "$flake#aeneas"
-          nix build -L --out-link "$RUNNER_TEMP/charon" "$flake#charon"
+          store="file://$HOME/aeneas-tools"
+          mkdir -p "$HOME/aeneas-tools"
+          nix build -L --extra-substituters "$store?trusted=1" \
+            --out-link "$RUNNER_TEMP/aeneas" "$flake#aeneas"
+          nix build -L --extra-substituters "$store?trusted=1" \
+            --out-link "$RUNNER_TEMP/charon" "$flake#charon"
           echo "$RUNNER_TEMP/aeneas/bin" >> "$GITHUB_PATH"
           echo "$RUNNER_TEMP/charon/bin" >> "$GITHUB_PATH"
+      - name: Keep the built tools for later runs
+        if: steps.tools.outputs.cache-hit != 'true'
+        run: |
+          nix copy --to "file://$HOME/aeneas-tools" "$RUNNER_TEMP/aeneas" "$RUNNER_TEMP/charon"
+          du -sh "$HOME/aeneas-tools"
       - name: Translate the Rust and compare with the committed Lean
         run: verified/extract.sh --check
