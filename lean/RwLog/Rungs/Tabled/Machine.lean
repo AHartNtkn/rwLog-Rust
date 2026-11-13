@@ -301,10 +301,16 @@ def step (U : Oracle) (st : State) : Cost (Step State) :=
     let r ← round U st
     pure (.emit r.2 r.1)
 
+/-- The state for a goal: its table alone. Bringing the goal to its table key
+is charged. -/
+def ofGoal (P : Program) (g : Goal) : Cost State := do
+  let n ← norm g
+  pure ⟨P, [⟨n.2, [], false⟩], n.1, 0⟩
+
 /-- The tabled round machine with a given unfolding oracle. -/
 def machine (U : Oracle) : CostedRuntime where
   State := State
-  init P q := pure (State.ofGoal P ⟨none, q, none⟩)
+  init P q := ofGoal P ⟨none, q, none⟩
   step := step U
 
 /-! ## A round, split at the oracle -/

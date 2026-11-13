@@ -129,7 +129,7 @@ theorem same_g0_gD (k : Nat) : (g0 k).same (gD k) = false := by simp [Goal.same,
 theorem same_gA_gD (k : Nat) : gA.same (gD k) = false := by simp [Goal.same]
 
 theorem round_st0 (k : Nat) : (Tabled.round unfolder (st0 k)).val.2 = [aa] ∧
-    (Tabled.round unfolder (st0 k)).ticks ≤ 1000 * (k + 2) := by
+    (Tabled.round unfolder (st0 k)).ticks + 12 * (k + 2) ≤ 1000 * (k + 2) := by
   obtain ⟨T, hT, hu⟩ := unfolder_g0 k
   have hcov : aa.covers? aa = true := by decide
   refine ⟨?_, ?_⟩

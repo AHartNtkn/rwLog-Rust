@@ -164,14 +164,15 @@ theorem simulates : Obligation.simulates := by
   have hc : costed.runtime = R001.runtime := runtime_eq
   have hb : baseline.runtime = R001.runtime := baseline_exact
   refine ⟨n, ?_, ?_, ?_⟩
-  · have hp : costed.paid P q n = costed.spent (State.ofGoal P ⟨none, q, none⟩) n :=
+  · have hp : costed.paid P q n = q.size + costed.spent (State.ofGoal P ⟨none, q, none⟩) n :=
       Tabled.paid_eq onDemand P q n
-    have hp' : baseline.paid P q n = baseline.spent (State.ofGoal P ⟨none, q, none⟩) n :=
+    have hp' : baseline.paid P q n = q.size + baseline.spent (State.ofGoal P ⟨none, q, none⟩) n :=
       Tabled.paid_eq eager P q n
     rw [hp, hp']
-    exact Nat.le_trans
-      (spent_le (P.size + q.size) n (State.ofGoal P ⟨none, q, none⟩) (Nat.le_add_right _ _))
-      (F_le _ _)
+    exact Nat.le_trans (Nat.le_trans
+      (Nat.add_le_add (self_le_F (P.size + q.size) q.size)
+        (spent_le (P.size + q.size) n (State.ofGoal P ⟨none, q, none⟩) (Nat.le_add_right _ _)))
+      (F_add _ _ _)) (F_le _ _)
   · show ∀ a ∈ baseline.runtime.emitted (baseline.runtime.init P q) n,
       ∃ b ∈ costed.runtime.emitted (costed.runtime.init P q) n, b.CoversLive P.theory a
     rw [hc, hb]

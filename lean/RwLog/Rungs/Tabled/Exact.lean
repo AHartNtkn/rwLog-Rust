@@ -208,11 +208,12 @@ theorem machine_runtime (U : Oracle) (hU : U.Exact) : (machine U).runtime = R001
   show (⟨State, fun P q => State.ofGoal P ⟨none, q, none⟩, fun s => (step U s).val⟩ : Runtime) = _
   rw [hstep]; rfl
 
-/-- The tabled machine builds its first state for free: what it has paid is
-what its steps spent. -/
+/-- The tabled machine pays the size of the query to build its first state:
+what it has paid is that and what its steps spent. -/
 theorem paid_eq (U : Oracle) (P : Program) (q : Rel) (n : Nat) :
-    (machine U).paid P q n = (machine U).spent ((machine U).start P q) n :=
-  (machine U).paid_of_init_free rfl n
+    (machine U).paid P q n = q.size + (machine U).spent ((machine U).start P q) n := by
+  show goalSize ⟨none, q, none⟩ + 0 + _ = _
+  simp [goalSize]
 
 end Tabled
 
