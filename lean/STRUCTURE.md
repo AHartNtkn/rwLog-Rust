@@ -67,7 +67,11 @@ for it. `Tests/MiddleRuns.lean` holds its measurements on R004 and R005.
 the engine stays within a polynomial of R005: the inputs on which the first
 design fails, the changes measured, and the lemmas still open. Its prototype is
 `scripts/symmetric_engine_tables.py`, and R005's side of each comparison is
-`Tests/SimulationRuns.lean` (parked with R005, `PARKED.md`).
+`Tests/SimulationRuns.lean` (parked with R005, `PARKED.md`). `scripts/r005_interpreter.py`
+is R005 at the tag `epoch-1` outside Lean, counting the same ticks (`check` compares it
+with every number Lean guards for those inputs); it is what decides the inputs Lean does
+not evaluate in reasonable time. `scripts/symmetric_engine_halting.py` runs random small
+programs on both and compares where each halts.
 
 `CONSTRAINT_LANGUAGE.md` is the design note for the rule language of milestone
 M5: the rules a theory may have, the check made when a theory is read, why

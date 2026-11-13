@@ -83,6 +83,10 @@ def union(*ns):
     out = sorted(set(out), key=repr)
     return out[0] if len(out) == 1 else ('union', tuple(out))
 
+def has_call(n):
+    """Does the node contain a call? A node with none has finitely many answers."""
+    return n[0] == 'call' or (n[0] in ('chain', 'union') and any(has_call(m) for m in n[1]))
+
 # ---------------------------------------------------------------- the machine
 class Goal:
     def __init__(g, M, lb, node, rb, structural):
@@ -91,6 +95,7 @@ class Goal:
         g.done = False; g.strats = None; g.onstack = False
         g.structural = structural                 # not opened by a push or by opening a call
         g.own = 0                                 # ticks of this goal's own work
+        g.stamp, g.delta, g.level = -1, 0, {}     # for the split balance
     def add(g, a, producer):
         g.by.setdefault(producer, []).append(a)
         if a not in g.seen: g.seen.add(a); g.ans.append(a)
@@ -104,14 +109,17 @@ class Goal:
             es = n[1]; g.strats = []
             for k in range(1, len(es)):
                 a, b = chain(*es[:k]), chain(*es[k:])
+                first = len(g.strats)
                 g.strats.append(Join(g, a, b))
                 if M.push:
                     g.strats.append(Push(g, a, b, True))
                     g.strats.append(Push(g, a, b, False))
                 if M.cover:
                     for left in (True, False):
+                        if M.check_calls and not has_call(a if left else b): continue
                         pats = M.edge(a if left else b, left)
                         if pats: g.strats.append(Cover(g, a, b, left, pats))
+                for s in g.strats[first:]: s.split = 'check' if (M.check_apart and isinstance(s, Cover)) else k
             if M.open_calls:
                 for i, e in enumerate(es):
                     if e[0] == 'call':
@@ -120,9 +128,48 @@ class Goal:
                         g.strats.append(Copy(g, [(g.lb, chain(*es[:i], m, *es[i + 1:]), g.rb) for m in ms], False))
     def check(g):
         if not g.done and g.strats is not None and any(s.complete() for s in g.strats): g.done = True
+    def advance(g):
+        """The split balance: one round of this goal. The strategies of one split of a chain (its
+        join, its two pushes, its interface checks) are one group. Only the groups that stand lowest
+        work (if none of them can do anything, the next lowest, and so on): each strategy of such a
+        group does one unit, or everything its inputs allow where the goal has only one group, and each
+        goal the group reads has its own round. A group's level rises by what its strategies did and by what the
+        levels of the goals it reads rose; the level of a goal is the lowest level among its groups.
+        Returns how much the level of this goal rose. A goal has one round per round of the machine,
+        whoever asks, and a goal met again below itself adds nothing."""
+        M = g.M
+        if g.done: return 0
+        if g.stamp == M.round: return g.delta
+        g.stamp, g.delta = M.round, 0
+        g.expand()
+        groups = {}
+        for i, s in enumerate(g.strats): groups.setdefault(i if M.each else s.split, []).append(s)
+        for k in groups: g.level.setdefault(k, 0)
+        low = min(g.level[k] for k in groups)
+        whole = M.units == 'all' or (M.units == 'alone' and len(groups) == 1)
+        for lv in sorted(set(g.level.values())):
+            moved = False
+            for k, ss in groups.items():
+                if g.level[k] != lv: continue
+                d = 0; subs = []
+                for s in ss:
+                    t = s.step()
+                    while t:
+                        s.spent += t; s.own += t; g.own += t; d += t; M.round_ticks += t
+                        t = s.step() if whole else 0
+                    for h in s.feeds():
+                        if h not in subs: subs.append(h)
+                for h in subs: d += h.advance()
+                g.level[k] += d
+                moved = moved or d > 0
+            if moved: break      # a group that can do nothing passes its turn to the next lowest
+        g.check()
+        g.delta = min(g.level[k] for k in groups) - low
+        return g.delta
     def give(g):
         """The share rule: pass one request to the strategy that has spent least."""
         if g.done or g.onstack: return 0
+        if g.M.rule == 'sim3' and (g.lb is not None or g.rb is not None): return 0
         g.expand(); g.onstack = True; t = 0
         for s in sorted(g.strats, key=lambda s: s.spent):
             t = s.run()
@@ -146,7 +193,7 @@ class Goal:
         return total
 
 class Strat:
-    def __init__(s, g): s.g = g; s.spent = 0; s.own = 0; s.fed = {}
+    def __init__(s, g): s.g = g; s.spent = 0; s.own = 0; s.fed = {}; s.split = 0
     def sub(s, key, structural=True):
         h = s.g.M.goal(*key, structural and s.g.structural)
         s.fed.setdefault(h, 0); return h
@@ -261,19 +308,28 @@ class Cover(Strat):
     from the text need not be complete, or even opened."""
     def __init__(s, g, a, b, left, pats):
         super().__init__(g)
-        s.subs = [s.sub((p, b, g.rb) if left else (g.lb, a, p), False) for p in pats]
-    def step(s): return 0
-    def live(s): return not any(h.ans for h in s.subs)
-    def feeds(s): return s.subs if s.live() else []
-    def pending(s): return not s.live()
-    def complete(s): return all(h.done and not h.ans for h in s.subs)
+        s.keys = [(p, b, g.rb) if left else (g.lb, a, p) for p in pats]; s.subs = None
+    def step(s):
+        # opening the goals is work: one tick each, when the strategy first runs
+        if s.subs is not None: return 0
+        s.subs = [s.sub(k, False) for k in s.keys]
+        return len(s.subs)
+    def live(s): return s.subs is None or not any(h.ans for h in s.subs)
+    def feeds(s): return s.subs if (s.subs is not None and s.live()) else []
+    def pending(s): return s.subs is None or not s.live()
+    def complete(s): return s.subs is not None and all(h.done and not h.ans for h in s.subs)
 
 class Machine:
     """rule: 'share' | 'flat' (every opened goal) | 'sflat' (goals not opened by a push or an opened call)
              | 'alt' (share and flat in turn, as the design note has it) | 'alt-s' (share and sflat in turn)
              | 'bal' (share and flat, whichever has spent fewer ticks) | 'bal-s' (the same with sflat).
-    units: 'goal' (a flat round is one unit per goal, as designed) | 'strategy' (one unit per strategy)."""
-    def __init__(M, prog, query, rule='alt', push=True, open_calls=False, e1=False, units='goal', cover=False):
+    units: 'goal' (a flat round is one unit per goal, as designed) | 'strategy' (one unit per strategy) | 'all'
+           (whole rounds) | 'alone' (the split balance: a unit where a goal has several groups, all where one).
+    cover: the interface check. check_calls: only for a side that contains a call. check_apart: the checks of
+           a goal are one group of their own instead of belonging to the group of their split.
+    each: every strategy is a group of its own (measured and rejected)."""
+    def __init__(M, prog, query, rule='alt', push=True, open_calls=False, e1=False, units='goal', cover=False, each=False, check_apart=False, check_calls=False):
+        M.each = each; M.check_apart = check_apart; M.check_calls = check_calls
         M.prog, M.rule, M.push, M.open_calls, M.e1, M.units, M.cover = prog, rule, push, open_calls, e1, units, cover
         M.edges = {}
         M.by_rule = {'share': 0, 'flat': 0}
@@ -321,7 +377,8 @@ class Machine:
         def quiet(s, S):
             if s.pending(): return False
             if isinstance(s, SpanS): return s.ran
-            if isinstance(s, (Copy, Cover)): return all(h.done or h in S for h in s.subs)
+            if isinstance(s, Cover): return s.subs is not None and all(h.done or h in S for h in s.subs)
+            if isinstance(s, Copy): return all(h.done or h in S for h in s.subs)
             if isinstance(s, Join): return all(h.done or h in S for h in (s.a, s.b))
             return s.side.done and all(e[1].done or e[1] in S for e in s.subs)
         # a Cover is quiet only while its goals have no answer, which `pending` already says
@@ -331,14 +388,25 @@ class Machine:
             S = T
         for g in S: g.done = True
         return bool(S)
-    def flat(M, structural_only):
+    def flat(M, structural_only, bounded_only=False):
         t = 0
         for g in list(M.order):
-            if not g.done and (g.structural or not structural_only): t += g.unit()
+            if g.done or (structural_only and not g.structural): continue
+            if bounded_only and g.lb is None and g.rb is None: continue
+            t += g.unit()
         return t
     def request(M):
         M.requests += 1
         r = M.rule
+        if r == 'level':
+            M.round = M.requests; M.round_ticks = 0
+            M.root.advance(); M.closure()
+            return M.round_ticks
+        if r == 'sim3':
+            # whole rounds for the goals that carry a boundary, the share rule for the rest
+            t = M.flat(False, True) + M.root.give()
+            M.closure()
+            return t
         if r in ('alt', 'alt-s'): r = ('share' if M.requests % 2 else ('flat' if r == 'alt' else 'sflat'))
         if r in ('bal', 'bal-s'):
             r = 'share' if M.by_rule['share'] <= M.by_rule['flat'] else ('flat' if r == 'bal' else 'sflat')
@@ -491,6 +559,38 @@ TABLES = {
               for n, f, ks in (('counting down', countdown, (2, 4, 8, 16)), ('the ladder', ladder, (2, 4, 6, 8, 10, 12)),
                                ('bit^k ; ($x -> t_k) ; unbit^k with pushes', mid, range(2, 9)))],
 }
+# ---------------------------------------------------------------- the second attack (section 9 of the note)
+SB = ('split balance', dict(rule='level', units='alone'))
+SBC = ('split balance, check on sides with a call', dict(rule='level', units='alone', cover=True, check_apart=True, check_calls=True))
+SBF = ('split balance, check on every side', dict(rule='level', units='alone', cover=True))
+SIM3 = ('whole rounds for bounded goals, share for the rest', dict(rule='sim3', units='all'))
+def t9():
+    print('\n9. p ; q and the same with identity spans')
+    for name, opts in (SB, SBC, SBF, WCHECK, ('share, interface check', dict(rule='share', cover=True))):
+        for ids in (False, True):
+            prog, q, _ = clash(ids); M = Machine(prog, q, **opts); r = M.run(limit=300_000)
+            print('    %-44s halt: %-6s requests: %-4d goals: %d' % (name, r[2], M.requests, r[3]))
+TABLES.update({
+ '8': lambda: [table('8. The split balance: %s' % n, f, ks, [SB, SBC], cols=c, limit=lim)
+               for n, f, ks, c, lim in (
+                   ('counting down', countdown, (2, 4, 8, 16, 32), ('halt', 'req', 'goals'), 3_000_000),
+                   ('the ladder', ladder, (4, 8, 12, 16, 20, 24, 28, 32, 40), ('halt', 'req', 'goals'), 30_000_000),
+                   ('bit^k ; ($x -> t_k) ; unbit^k with pushes', mid, range(2, 11), ('halt', 'req', 'goals'), 30_000_000),
+                   ('fair OR, one member that never finishes', lambda k: fair(k, 1), (2, 4, 6, 8, 10, 12), ('first', 'req', 'goals'), 1_000_000),
+                   ('fair OR, three such members', lambda k: fair(k, 3), (2, 4, 6, 8, 10, 12), ('first', 'req', 'goals'), 1_000_000),
+                   ('strings of k bits', strings, (2, 4, 6, 8, 10), ('first', 'req', 'goals'), 5_000_000))],
+ '9': t9,
+ '10': lambda: [table('10. The interface check on every side: %s' % n, f, ks,
+                      [SBF, WCHECK, ('share, interface check', dict(rule='share', cover=True))], cols=('halt', 'req', 'goals'), limit=30_000_000)
+                for n, f, ks in (('bit^k ; ($x -> t_k) ; unbit^k with pushes', mid, range(2, 8)), ('the ladder', ladder, (8, 16, 24, 32)))],
+ '11': lambda: [table('11. Whole rounds only for goals that carry a boundary (billboard SIM3): %s' % n, f, ks, [SIM3], cols=c, limit=5_000_000)
+                for n, f, ks, c in (('counting down', countdown, (2, 4, 8, 16, 32), ('halt', 'req', 'goals')),
+                                    ('the ladder', ladder, (4, 8, 12, 16), ('halt', 'req', 'goals')),
+                                    ('bit^k ; ($x -> t_k) ; unbit^k with pushes', mid, range(2, 8), ('halt', 'req', 'goals')),
+                                    ('fair OR, three members that never finish', lambda k: fair(k, 3), (2, 4, 6, 8), ('first', 'req', 'goals')))],
+ '12': lambda: table('12. The ladder past n = 12 under the rules of sections 3 and 4', ladder, (12, 16, 20, 24, 28),
+                     [SH, FL, WHOLE], cols=('halt', 'goals'), limit=30_000_000),
+})
 if __name__ == '__main__':
     print('Ticks at the first answer, ticks at halt, goals opened; "req" is requests to the root at the first')
     print('answer. "-" is: not within the tick limit (3,000,000; 1,000,000 in 3b, 6, 6b and 7), or never.')
