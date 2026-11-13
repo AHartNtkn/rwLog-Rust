@@ -21,13 +21,13 @@ set_option maxRecDepth 2048
 namespace rwlog_core
 
 /-- [rwlog_core::store::Trie]
-    Source: 'src/store.rs', lines 80:0-83:1 -/
+    Source: 'src/store.rs', lines 100:0-103:1 -/
 structure store.Trie where
   kids : Array Std.Usize 17#usize
   val : Std.Usize
 
 /-- [rwlog_core::store::Slot]
-    Source: 'src/store.rs', lines 68:0-73:1 -/
+    Source: 'src/store.rs', lines 88:0-93:1 -/
 structure store.Slot where
   ea : Std.U64
   va : Std.Usize
@@ -35,13 +35,21 @@ structure store.Slot where
   vb : Std.Usize
 
 /-- [rwlog_core::store::TermId]
-    Source: 'src/store.rs', lines 41:0-41:25
+    Source: 'src/store.rs', lines 50:0-50:25
     Visibility: public -/
 @[reducible]
 def store.TermId := Std.Usize
 
+/-- [rwlog_core::store::Frame]
+    Source: 'src/store.rs', lines 77:0-82:1
+    Visibility: public -/
+@[discriminant isize]
+inductive store.Frame where
+| Visit : store.TermId → store.TermId → store.Frame
+| Build : store.TermId → store.TermId → store.Frame
+
 /-- [rwlog_core::store::Node]
-    Source: 'src/store.rs', lines 44:0-55:1
+    Source: 'src/store.rs', lines 53:0-64:1
     Visibility: public -/
 @[discriminant isize]
 inductive store.Node where
@@ -53,18 +61,20 @@ inductive store.Node where
 | Nil : store.Node
 
 /-- [rwlog_core::store::Store]
-    Source: 'src/store.rs', lines 85:0-92:1
+    Source: 'src/store.rs', lines 105:0-115:1
     Visibility: public -/
 structure store.Store where
   nodes : alloc.vec.Vec store.Node
   slots : alloc.vec.Vec store.Slot
   trie : alloc.vec.Vec store.Trie
+  stack : alloc.vec.Vec store.Frame
+  sp : Std.Usize
   ea : Std.U64
   eb : Std.U64
   ticks : Std.U64
 
 /-- [rwlog_core::store::Tbl]
-    Source: 'src/store.rs', lines 59:0-62:1
+    Source: 'src/store.rs', lines 68:0-71:1
     Visibility: public -/
 @[discriminant isize]
 inductive store.Tbl where

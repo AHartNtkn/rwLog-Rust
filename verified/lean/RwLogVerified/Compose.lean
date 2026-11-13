@@ -69,7 +69,7 @@ theorem encList_of_app {nodes : List store.Node} {xs : List Pat} {i : Nat} {e re
 def spanSubs (z : Sym) (sp : Span) : Finset Pat := sp.l.subs ∪ sp.r.subs ∪ (encList z sp.c).subs
 
 /-- The ticks renaming a span may spend. -/
-def renameCost (z : Sym) (sp : Span) : Nat := 4 + 5 * (spanSubs z sp).card
+def renameCost (z : Sym) (sp : Span) : Nat := 16 + 14 * (spanSubs z sp).card
 
 theorem rename_spec (hnm : Function.Injective nm) (s : store.Store) (f : term.Leaf)
     (x : span.Span) {sp : Span} {σ : Nat → Pat} (hI : Inv s) (hx : SpanAt nm s.nodes.val x sp)
@@ -107,24 +107,32 @@ theorem rename_spec (hnm : Function.Injective nm) (s : store.Store) (f : term.Le
 
 /-! ## Appending lists -/
 
-theorem append_spec (xs : List Pat) : ∀ (s : store.Store) (a b : store.TermId) {ys : List Pat},
-    Inv s → Repr nm s.nodes.val a.val (encList (nm none) xs) →
-    Repr nm s.nodes.val b.val (encList (nm none) ys) → Room s (2 * xs.length + 1) →
-    term.append s a b ⦃ r s' =>
-      Inv s' ∧ Extends s s' ∧ Repr nm s'.nodes.val r.val (encList (nm none) (xs ++ ys)) ∧
-        s'.ticks.val ≤ s.ticks.val + 2 * xs.length + 1 ⦄ := by
+/-- The loop of `append` pushes the members of the list, the last on
+top. -/
+theorem append_push_spec (xs : List Pat) : ∀ (s : store.Store) (l : store.TermId),
+    Wf s → Repr nm s.nodes.val l.val (encList (nm none) xs) → Room s (2 * xs.length + 1) →
+    term.append_loop l s ⦃ s' =>
+      Wf s' ∧ s'.nodes.val = s.nodes.val ∧ tbl s' = tbl s ∧
+        s'.ticks.val = s.ticks.val + 2 * xs.length + 1 ∧
+        ∃ fs, stk s' = fs ++ stk s ∧
+          List.Forall₂ (fun f t => Repr nm s.nodes.val (fkey f) t) fs xs.reverse ⦄ := by
+  unfold term.append_loop
   induction xs with
   | nil =>
-    intro s a b ys hI ha hb hroom
-    unfold term.append
-    step with read_spec s a hI ha.lt (by unfold Room at hroom ⊢; omega) as ⟨nd, s1, hnd, hK⟩
-    have hfin : Inv s1 ∧ Extends s s1 ∧
-        Repr nm s1.nodes.val b.val (encList (nm none) ([] ++ ys)) ∧
-        s1.ticks.val ≤ s.ticks.val + 2 * ([] : List Pat).length + 1 :=
-      ⟨hK.inv, Extends.of_eq hK.nodes, by rw [hK.nodes]; exact hb, by have := hK.ticks; simp; omega⟩
+    intro s l hW hl hroom
+    rw [loop]
+    simp only [term.append_loop.body]
+    step with read_w s l hW hl.lt (by unfold Room at hroom ⊢; omega) as ⟨r0, hnd, hK⟩
+    obtain ⟨nd, s1⟩ := r0
+    simp only at hnd hK ⊢
+    have hfin : Wf s1 ∧ s1.nodes.val = s.nodes.val ∧ tbl s1 = tbl s ∧
+        s1.ticks.val = s.ticks.val + 2 * ([] : List Pat).length + 1 ∧
+        ∃ fs, stk s1 = fs ++ stk s ∧
+          List.Forall₂ (fun f t => Repr nm s.nodes.val (fkey f) t) fs ([] : List Pat).reverse :=
+      ⟨hK.wf, hK.nodes, hK.tbl, by have := hK.ticks; simp; omega, [], by simp [hK.stk], by simp⟩
     cases nd with
     | App h t =>
-      obtain ⟨ta, tb, e', -, -⟩ := ha.of_app hnd
+      obtain ⟨ta, tb, e', -, -⟩ := hl.of_app hnd
       cases e'
     | V0 => step*
     | VL _ => step*
@@ -132,27 +140,113 @@ theorem append_spec (xs : List Pat) : ∀ (s : store.Store) (a b : store.TermId)
     | Sym _ => step*
     | Nil => step*
   | cons t ts ih =>
-    intro s a b ys hI ha hb hroom
-    unfold term.append
+    intro s l hW hl hroom
     have hroom' := hroom
     unfold Room at hroom'
     simp only [List.length_cons] at hroom'
-    step with read_spec s a hI ha.lt (by unfold Room; omega) as ⟨nd, s1, hnd, hK⟩
-    obtain ⟨p, q, hnode, hp, hq⟩ := Repr.app_inv (ta := t) (tb := encList (nm none) ts) ha
+    rw [loop]
+    simp only [term.append_loop.body]
+    step with read_w s l hW hl.lt (by unfold Room; omega) as ⟨r0, hnd, hK⟩
+    obtain ⟨nd, s1⟩ := r0
+    simp only at hnd hK ⊢
+    obtain ⟨p, q, hnode, hp, hq⟩ := Repr.app_inv (ta := t) (tb := encList (nm none) ts) hl
     rw [hnode] at hnd
     cases hnd
     have ht1 := hK.ticks
     have hn1 := hK.nodes
-    simp only
-    step with ih s1 q b (ys := ys) hK.inv (by rw [hn1]; exact hq) (by rw [hn1]; exact hb)
-      (by unfold Room; omega) as ⟨r, s2, hI2, hx2, hr2, ht2⟩
-    have hs2 : Extends s s2 := (Extends.of_eq hn1).trans hx2
-    step with alloc_spec s2 (.App p r) hI2 ⟨(hs2.repr hp).lt, hr2.lt⟩ (by unfold Room; omega)
-      as ⟨o, s3, hI3, ht3, htb3, m3, hm3, hr3⟩
-    have hx3 : Extends s2 s3 := ⟨m3, hm3⟩
-    simp only [norm] at hr3
-    refine ⟨hI3, hs2.trans hx3, ?_, by simp only [List.length_cons]; omega⟩
-    exact .app hr3 (hx3.repr (hs2.repr hp)) (hx3.repr hr2)
+    step with push_w s1 (.Visit p p) hK.wf (by unfold Room; omega) as ⟨s2, a1, a2, a3, hW2, a5⟩
+    have hn2 : s2.nodes.val = s.nodes.val := by rw [a1, hn1]
+    refine WP.spec_mono (ih s2 q hW2 (by rw [hn2]; exact hq) (by unfold Room; omega)) ?_
+    rintro s3 ⟨hW3, b1, b2, b3, fs, b4, b5⟩
+    refine ⟨hW3, by rw [b1, hn2], by rw [b2, a2, hK.tbl],
+      by simp only [List.length_cons]; omega, fs ++ [.Visit p p], ?_, ?_⟩
+    · rw [b4, a5, hK.stk]; simp
+    · rw [List.reverse_cons]
+      rw [hn2] at b5
+      exact List.rel_append b5 (.cons hp .nil)
+
+/-- `unstack` pops the nodes on the stack and puts each before the list built
+so far. -/
+theorem unstack_spec : ∀ (fs : List store.Frame) (ts acc : List Pat) (s : store.Store)
+    (r : store.TermId), Wf s → stk s = fs →
+    List.Forall₂ (fun f t => Repr nm s.nodes.val (fkey f) t) fs ts →
+    Repr nm s.nodes.val r.val (encList (nm none) acc) → Room s (2 * fs.length + 1) →
+    term.unstack_loop s r ⦃ r' s' =>
+      Inv s' ∧ Extends s s' ∧ Repr nm s'.nodes.val r'.val (encList (nm none) (ts.reverse ++ acc)) ∧
+        s'.ticks.val ≤ s.ticks.val + 2 * fs.length + 1 ⦄ := by
+  unfold term.unstack_loop
+  intro fs
+  induction fs with
+  | nil =>
+    intro ts acc s r hW hstk hF hr hroom
+    cases hF
+    rw [loop]
+    simp only [term.unstack_loop.body]
+    step with pop_w s hW (by unfold Room at hroom ⊢; omega) as ⟨r0, p1, p2, p3, hW1, po, pst⟩
+    obtain ⟨o, s1⟩ := r0
+    simp only at p1 p2 p3 hW1 po pst ⊢
+    rw [hstk] at po pst
+    simp only [List.head?_nil] at po
+    subst po
+    step*
+    exact ⟨⟨hW1, pst⟩, Extends.of_eq p1, by rw [p1]; simpa using hr, by simp; omega⟩
+  | cons f fs ih =>
+    intro ts acc s r hW hstk hF hr hroom
+    have hroom' := hroom
+    unfold Room at hroom'
+    simp only [List.length_cons] at hroom'
+    cases hF with
+    | cons hf hF' =>
+    rename_i t ts'
+    rw [loop]
+    simp only [term.unstack_loop.body]
+    step with pop_w s hW (by unfold Room; omega) as ⟨r0, p1, p2, p3, hW1, po, pst⟩
+    obtain ⟨o, s1⟩ := r0
+    simp only at p1 p2 p3 hW1 po pst ⊢
+    rw [hstk] at po pst
+    simp only [List.head?_cons] at po
+    simp only [List.tail_cons] at pst
+    subst po
+    simp only [uncurry]
+    rw [node_of_eq f]
+    simp only [bind_ok]
+    have hx1 : Extends s s1 := Extends.of_eq p1
+    step with alloc_w s1 (.App (fid f) r) hW1
+      ⟨by rw [fid_val]; exact (hx1.repr hf).lt, (hx1.repr hr).lt⟩ (by unfold Room; omega)
+      as ⟨r0, hW2, ht2, htb2, more, hmore, hr1, hstk2⟩
+    obtain ⟨r1, s2⟩ := r0
+    simp only at hW2 ht2 htb2 hmore hr1 hstk2 ⊢
+    have hx2 : Extends s1 s2 := ⟨more, hmore⟩
+    have hx : Extends s s2 := hx1.trans hx2
+    simp only [norm] at hr1
+    have hrep : Repr nm s2.nodes.val r1.val (encList (nm none) (t :: acc)) :=
+      .app hr1 (by rw [fid_val]; exact hx.repr hf) (hx.repr hr)
+    have IH := ih ts' (t :: acc) s2 r1 hW2 (by rw [hstk2, pst])
+      (hF'.imp fun _ _ h => hx.repr h) hrep (by unfold Room; omega)
+    simp only [uncurry, bind_ok]
+    refine WP.spec_mono IH ?_
+    rintro ⟨r', s'⟩ ⟨h1, h2, h3, h4⟩
+    refine ⟨h1, hx.trans h2, ?_, by simp only [List.length_cons]; omega⟩
+    simpa using h3
+
+theorem append_spec (xs : List Pat) (s : store.Store) (a b : store.TermId) {ys : List Pat}
+    (hI : Inv s) (ha : Repr nm s.nodes.val a.val (encList (nm none) xs))
+    (hb : Repr nm s.nodes.val b.val (encList (nm none) ys)) (hroom : Room s (4 * xs.length + 2)) :
+    term.append s a b ⦃ r s' =>
+      Inv s' ∧ Extends s s' ∧ Repr nm s'.nodes.val r.val (encList (nm none) (xs ++ ys)) ∧
+        s'.ticks.val ≤ s.ticks.val + 4 * xs.length + 2 ⦄ := by
+  unfold term.append
+  have hroom' := hroom
+  unfold Room at hroom'
+  step with append_push_spec (nm := nm) xs s a hI.toWf ha (by unfold Room; omega)
+    as ⟨s1, hW1, hn1, htb1, ht1, fs, hstk1, hF⟩
+  rw [hI.empty, List.append_nil] at hstk1
+  have hlen : fs.length = xs.length := by simpa using hF.length_eq
+  have hx1 : Extends s s1 := Extends.of_eq hn1
+  step with unstack_spec (nm := nm) fs xs.reverse ys s1 b hW1 hstk1
+    (hF.imp fun _ _ h => hx1.repr h) (hx1.repr hb) (by unfold Room; omega)
+    as ⟨r, s2, h1, h2, h3, h4⟩
+  refine ⟨h1, hx1.trans h2, by simpa using h3, by omega⟩
 
 /-! ## Packing and unpacking -/
 
@@ -254,7 +348,7 @@ def composeOut (z : Sym) (x y : Span) : Pat :=
 
 /-- The ticks `compose` may spend. -/
 def composeCost (z : Sym) (x y : Span) : Nat :=
-  renameCost z x + renameCost z y + (2 * x.c.length + 1) + 5 +
+  renameCost z x + renameCost z y + (4 * x.c.length + 2) + 5 +
     (solveCost (composeEqs x y) (composeOut z x y) + 2)
 
 theorem compose_spec (hnm : Function.Injective nm) (s : store.Store) (x y : span.Span)
@@ -314,7 +408,7 @@ def meetOut (z : Sym) (x y : Span) : Pat :=
 
 /-- The ticks `meet` may spend. -/
 def meetCost (z : Sym) (x y : Span) : Nat :=
-  renameCost z x + renameCost z y + (2 * x.c.length + 1) + 7 +
+  renameCost z x + renameCost z y + (4 * x.c.length + 2) + 7 +
     (solveCost (meetEqs x y) (meetOut z x y) + 2)
 
 theorem meet_spec (hnm : Function.Injective nm) (s : store.Store) (x y : span.Span)

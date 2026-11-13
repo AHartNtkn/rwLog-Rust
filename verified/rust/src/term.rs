@@ -1,6 +1,6 @@
 //! Copying a term with its variables replaced, and the occurs check.
 
-use crate::store::{Node, Store, Tbl, TermId};
+use crate::store::{Frame, Node, Store, Tbl, TermId};
 
 /// What a variable becomes when a term is rebuilt.
 #[derive(Clone, Copy)]
@@ -27,59 +27,109 @@ fn leaf(s: &mut Store, f: Leaf, p: TermId) -> TermId {
     }
 }
 
+/// The node a frame names.
+pub fn node_of(fr: Frame) -> TermId {
+    match fr {
+        Frame::Visit(q, _) => q,
+        Frame::Build(q, _) => q,
+    }
+}
+
 /// The term `p` with each variable replaced as `f` says. Table `A` holds
 /// what each node already visited became, so a node that occurs many times
 /// is rebuilt once. Clear the table before the first call with a given `f`.
+///
+/// An application waits on the stack, as a `Build` frame under its two
+/// parts, until both parts have an entry in the table.
 pub fn rebuild(s: &mut Store, f: Leaf, p: TermId) -> TermId {
+    s.push(Frame::Visit(p, p));
+    while let Some(fr) = s.pop() {
+        match fr {
+            Frame::Visit(q, _) => match s.get(Tbl::A, q) {
+                Some(_) => (),
+                None => match s.read(q) {
+                    Node::App(a, b) => {
+                        s.push(Frame::Build(q, q));
+                        s.push(Frame::Visit(b, b));
+                        s.push(Frame::Visit(a, a));
+                    }
+                    Node::Sym(_) => s.set(Tbl::A, q, q),
+                    Node::Nil => s.set(Tbl::A, q, q),
+                    _ => {
+                        let r = leaf(s, f, q);
+                        s.set(Tbl::A, q, r);
+                    }
+                },
+            },
+            Frame::Build(q, _) => match s.read(q) {
+                Node::App(a, b) => match s.get(Tbl::A, a) {
+                    Some(ra) => match s.get(Tbl::A, b) {
+                        Some(rb) => {
+                            let r = s.alloc(Node::App(ra, rb));
+                            s.set(Tbl::A, q, r);
+                        }
+                        None => panic!(),
+                    },
+                    None => panic!(),
+                },
+                _ => panic!(),
+            },
+        }
+    }
     match s.get(Tbl::A, p) {
         Some(r) => r,
-        None => {
-            let r = match s.read(p) {
-                Node::V0 => leaf(s, f, p),
-                Node::VL(_) => leaf(s, f, p),
-                Node::VR(_) => leaf(s, f, p),
-                Node::Sym(_) => p,
-                Node::Nil => p,
-                Node::App(a, b) => {
-                    let ra = rebuild(s, f, a);
-                    let rb = rebuild(s, f, b);
-                    s.alloc(Node::App(ra, rb))
-                }
-            };
-            s.set(Tbl::A, p, r);
-            r
-        }
+        None => panic!(),
     }
 }
 
-/// Does the variable `x` occur in the term `p`? Table `B` holds the answer
-/// for each node already visited. Clear it before the first call with a
-/// given `x`.
+/// Does the variable `x` occur in the term `p`? Table `B` flags the nodes
+/// already visited. Clear it before the call.
 pub fn occurs(s: &mut Store, x: TermId, p: TermId) -> bool {
-    match s.get_flag(Tbl::B, p) {
-        Some(b) => b,
-        None => {
-            let b = match s.read(p) {
-                Node::V0 => s.same(p, x),
-                Node::VL(_) => s.same(p, x),
-                Node::VR(_) => s.same(p, x),
-                Node::Sym(_) => false,
-                Node::Nil => false,
-                Node::App(a, c) => occurs(s, x, a) || occurs(s, x, c),
-            };
-            s.set_flag(Tbl::B, p, b);
-            b
+    let mut found = false;
+    s.push(Frame::Visit(p, p));
+    while let Some(fr) = s.pop() {
+        let q = node_of(fr);
+        match s.get_flag(Tbl::B, q) {
+            Some(_) => (),
+            None => {
+                s.set_flag(Tbl::B, q, true);
+                match s.read(q) {
+                    Node::App(a, b) => {
+                        s.push(Frame::Visit(b, b));
+                        s.push(Frame::Visit(a, a));
+                    }
+                    Node::Sym(_) => (),
+                    Node::Nil => (),
+                    _ => {
+                        if s.same(q, x) {
+                            found = true;
+                            s.drop_stack();
+                        }
+                    }
+                }
+            }
         }
     }
+    found
 }
 
-/// The list `a` followed by the list `b`.
-pub fn append(s: &mut Store, a: TermId, b: TermId) -> TermId {
-    match s.read(a) {
-        Node::App(h, t) => {
-            let r = append(s, t, b);
-            s.alloc(Node::App(h, r))
-        }
-        _ => b,
+/// The nodes on the stack as a list in front of the list `r`: the node at
+/// the top of the stack comes last. The stack is left empty.
+pub fn unstack(s: &mut Store, r: TermId) -> TermId {
+    let mut r = r;
+    while let Some(fr) = s.pop() {
+        r = s.alloc(Node::App(node_of(fr), r));
     }
+    r
+}
+
+/// The list `a` followed by the list `b`. The members of `a` go on the
+/// stack, and come off it in front of `b`.
+pub fn append(s: &mut Store, a: TermId, b: TermId) -> TermId {
+    let mut l = a;
+    while let Node::App(h, t) = s.read(l) {
+        s.push(Frame::Visit(h, h));
+        l = t;
+    }
+    unstack(s, b)
 }

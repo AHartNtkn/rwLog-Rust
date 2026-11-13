@@ -21,8 +21,55 @@ set_option maxRecDepth 2048
 
 namespace rwlog_core
 
+/-- [rwlog_core::store::{rwlog_core::store::Store}::tick]:
+    Source: 'src/store.rs', lines 146:4-148:5 -/
+def store.Store.tick (self : store.Store) : Result store.Store := do
+  let i ← self.ticks + 1#u64
+  ok { self with ticks := i }
+
+/-- [rwlog_core::store::{rwlog_core::store::Store}::drop_stack]:
+    Source: 'src/store.rs', lines 370:4-373:5
+    Visibility: public -/
+def store.Store.drop_stack (self : store.Store) : Result store.Store := do
+  let self1 ← store.Store.tick self
+  ok { self1 with sp := 0#usize }
+
+/-- [rwlog_core::store::{rwlog_core::store::Store}::pop]:
+    Source: 'src/store.rs', lines 359:4-367:5
+    Visibility: public -/
+def store.Store.pop
+  (self : store.Store) : Result ((Option store.Frame) × store.Store) := do
+  let self1 ← store.Store.tick self
+  if self1.sp = 0#usize
+  then ok (none, self1)
+  else
+    let i ← self1.sp - 1#usize
+    let f ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice store.Frame)
+        self1.stack i
+    ok (some f, { self1 with sp := i })
+
+/-- [rwlog_core::store::{rwlog_core::store::Store}::push]:
+    Source: 'src/store.rs', lines 347:4-355:5
+    Visibility: public -/
+def store.Store.push
+  (self : store.Store) (f : store.Frame) : Result store.Store := do
+  let self1 ← store.Store.tick self
+  let i := alloc.vec.Vec.len self1.stack
+  let v ←
+    if self1.sp < i
+    then
+      do
+      let (_, index_mut_back) ←
+        alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+          store.Frame) self1.stack self1.sp
+      ok (index_mut_back f)
+    else alloc.vec.Vec.push self1.stack f
+  let i1 ← self1.sp + 1#usize
+  ok { self1 with stack := v, sp := i1 }
+
 /-- [rwlog_core::store::{rwlog_core::store::Store}::set_cell]:
-    Source: 'src/store.rs', lines 265:4-276:5 -/
+    Source: 'src/store.rs', lines 298:4-309:5 -/
 def store.Store.set_cell
   (self : store.Store) (t : store.Tbl) (k : store.TermId) (v : Std.Usize) :
   Result store.Store
@@ -49,14 +96,8 @@ def store.Store.set_cell
     let v2 := index_mut_back1 { s1 with vb := v }
     ok { self with slots := v2 }
 
-/-- [rwlog_core::store::{rwlog_core::store::Store}::tick]:
-    Source: 'src/store.rs', lines 114:4-116:5 -/
-def store.Store.tick (self : store.Store) : Result store.Store := do
-  let i ← self.ticks + 1#u64
-  ok { self with ticks := i }
-
 /-- [rwlog_core::store::{rwlog_core::store::Store}::set]:
-    Source: 'src/store.rs', lines 290:4-293:5
+    Source: 'src/store.rs', lines 323:4-326:5
     Visibility: public -/
 def store.Store.set
   (self : store.Store) (t : store.Tbl) (k : store.TermId) (v : store.TermId) :
@@ -66,7 +107,7 @@ def store.Store.set
   store.Store.set_cell self1 t k v
 
 /-- [rwlog_core::store::{rwlog_core::store::Store}::cell]:
-    Source: 'src/store.rs', lines 257:4-263:5 -/
+    Source: 'src/store.rs', lines 290:4-296:5 -/
 def store.Store.cell
   (self : store.Store) (t : store.Tbl) (k : store.TermId) :
   Result (Bool × Std.Usize)
@@ -79,7 +120,7 @@ def store.Store.cell
   | store.Tbl.B => ok (sl.eb = self.eb, sl.vb)
 
 /-- [rwlog_core::store::{rwlog_core::store::Store}::get]:
-    Source: 'src/store.rs', lines 279:4-287:5
+    Source: 'src/store.rs', lines 312:4-320:5
     Visibility: public -/
 def store.Store.get
   (self : store.Store) (t : store.Tbl) (k : store.TermId) :
@@ -92,7 +133,7 @@ def store.Store.get
   else ok (none, self1)
 
 /-- [rwlog_core::store::{rwlog_core::store::Store}::same]:
-    Source: 'src/store.rs', lines 130:4-133:5
+    Source: 'src/store.rs', lines 162:4-165:5
     Visibility: public -/
 def store.Store.same
   (self : store.Store) (a : store.TermId) (b : store.TermId) :
@@ -102,7 +143,7 @@ def store.Store.same
   ok (a = b, self1)
 
 /-- [rwlog_core::store::{rwlog_core::store::Store}::read]:
-    Source: 'src/store.rs', lines 124:4-127:5
+    Source: 'src/store.rs', lines 156:4-159:5
     Visibility: public -/
 def store.Store.read
   (self : store.Store) (id : store.TermId) :
@@ -114,54 +155,105 @@ def store.Store.read
       self1.nodes id
   ok (n, self1)
 
+/-- [rwlog_core::cover::mmatch]: loop body 0:
+    Source: 'src/cover.rs', lines 17:4-59:5
+    Visibility: public -/
+@[rust_loop_body]
+def cover.mmatch_loop.body
+  (s : store.Store) (ok1 : Bool) :
+  Result (ControlFlow (store.Store × Bool) (Bool × store.Store))
+  := do
+  let (o, s1) ← store.Store.pop s
+  match o with
+  | none => ok (done (ok1, s1))
+  | some fr =>
+    match fr with
+    | store.Frame.Visit q u =>
+      let (o1, s2) ← store.Store.get s1 store.Tbl.A q
+      match o1 with
+      | none =>
+        let (n, s3) ← store.Store.read s2 q
+        match n with
+        | store.Node.V0 =>
+          let s4 ← store.Store.set s3 store.Tbl.A q u
+          ok (cont (s4, ok1))
+        | store.Node.VL _ =>
+          let s4 ← store.Store.set s3 store.Tbl.A q u
+          ok (cont (s4, ok1))
+        | store.Node.VR _ =>
+          let s4 ← store.Store.set s3 store.Tbl.A q u
+          ok (cont (s4, ok1))
+        | store.Node.Sym _ =>
+          let (b, s4) ← store.Store.same s3 q u
+          if b
+          then
+            let s5 ← store.Store.set s4 store.Tbl.A q u
+            ok (cont (s5, ok1))
+          else let s5 ← store.Store.drop_stack s4
+               ok (cont (s5, false))
+        | store.Node.App q1 q2 =>
+          let (n1, s4) ← store.Store.read s3 u
+          match n1 with
+          | store.Node.V0 =>
+            let s5 ← store.Store.drop_stack s4
+            ok (cont (s5, false))
+          | store.Node.VL _ =>
+            let s5 ← store.Store.drop_stack s4
+            ok (cont (s5, false))
+          | store.Node.VR _ =>
+            let s5 ← store.Store.drop_stack s4
+            ok (cont (s5, false))
+          | store.Node.Sym _ =>
+            let s5 ← store.Store.drop_stack s4
+            ok (cont (s5, false))
+          | store.Node.App u1 u2 =>
+            let s5 ← store.Store.push s4 (store.Frame.Build q u)
+            let s6 ← store.Store.push s5 (store.Frame.Visit q2 u2)
+            let s7 ← store.Store.push s6 (store.Frame.Visit q1 u1)
+            ok (cont (s7, ok1))
+          | store.Node.Nil =>
+            let s5 ← store.Store.drop_stack s4
+            ok (cont (s5, false))
+        | store.Node.Nil =>
+          let (b, s4) ← store.Store.same s3 q u
+          if b
+          then
+            let s5 ← store.Store.set s4 store.Tbl.A q u
+            ok (cont (s5, ok1))
+          else let s5 ← store.Store.drop_stack s4
+               ok (cont (s5, false))
+      | some w =>
+        let (b, s3) ← store.Store.same s2 w u
+        if b
+        then ok (cont (s3, ok1))
+        else let s4 ← store.Store.drop_stack s3
+             ok (cont (s4, false))
+    | store.Frame.Build q u =>
+      let s2 ← store.Store.set s1 store.Tbl.A q u
+      ok (cont (s2, ok1))
+
+/-- [rwlog_core::cover::mmatch]: loop 0:
+    Source: 'src/cover.rs', lines 17:4-59:5
+    Visibility: public -/
+@[rust_loop]
+def cover.mmatch_loop
+  (s : store.Store) (ok1 : Bool) : Result (Bool × store.Store) := do
+  loop
+    (fun (s1, ok2) => cover.mmatch_loop.body s1 ok2)
+    (s, ok1)
+
 /-- [rwlog_core::cover::mmatch]:
-    Source: 'src/cover.rs', lines 10:0-31:1
+    Source: 'src/cover.rs', lines 14:0-61:1
     Visibility: public -/
 def cover.mmatch
   (s : store.Store) (p : store.TermId) (t : store.TermId) :
   Result (Bool × store.Store)
   := do
-  let (o, s1) ← store.Store.get s store.Tbl.A p
-  match o with
-  | none =>
-    let (n, s2) ← store.Store.read s1 p
-    let (s3, ok1) ←
-      match n with
-      | store.Node.V0 => ok (s2, true)
-      | store.Node.VL _ => ok (s2, true)
-      | store.Node.VR _ => ok (s2, true)
-      | store.Node.Sym _ =>
-        do
-        let (ok2, s4) ← store.Store.same s2 p t
-        ok (s4, ok2)
-      | store.Node.App p1 p2 =>
-        do
-        let (n1, s4) ← store.Store.read s2 t
-        match n1 with
-        | store.Node.V0 => ok (s4, false)
-        | store.Node.VL _ => ok (s4, false)
-        | store.Node.VR _ => ok (s4, false)
-        | store.Node.Sym _ => ok (s4, false)
-        | store.Node.App t1 t2 =>
-          let (b, s5) ← cover.mmatch s4 p1 t1
-          if b
-          then let (ok2, s6) ← cover.mmatch s5 p2 t2
-               ok (s6, ok2)
-          else ok (s5, false)
-        | store.Node.Nil => ok (s4, false)
-      | store.Node.Nil =>
-        do
-        let (ok2, s4) ← store.Store.same s2 p t
-        ok (s4, ok2)
-    if ok1
-    then let s4 ← store.Store.set s3 store.Tbl.A p t
-         ok (ok1, s4)
-    else ok (ok1, s3)
-  | some u => store.Store.same s1 u t
-partial_fixpoint
+  let s1 ← store.Store.push s (store.Frame.Visit p t)
+  cover.mmatch_loop s1 true
 
 /-- [rwlog_core::store::{rwlog_core::store::Store}::clear]:
-    Source: 'src/store.rs', lines 247:4-253:5
+    Source: 'src/store.rs', lines 280:4-286:5
     Visibility: public -/
 def store.Store.clear
   (self : store.Store) (t : store.Tbl) : Result store.Store := do
@@ -173,7 +265,7 @@ def store.Store.clear
                    ok { self1 with eb := i }
 
 /-- [rwlog_core::cover::covers_plain]:
-    Source: 'src/cover.rs', lines 34:0-37:1
+    Source: 'src/cover.rs', lines 64:0-67:1
     Visibility: public -/
 def cover.covers_plain
   (s : store.Store) (a : span.Span) (x : span.Span) :
@@ -186,7 +278,7 @@ def cover.covers_plain
   else ok (false, s2)
 
 /-- [rwlog_core::cover::span_eq]:
-    Source: 'src/cover.rs', lines 40:0-42:1
+    Source: 'src/cover.rs', lines 70:0-72:1
     Visibility: public -/
 def cover.span_eq
   (s : store.Store) (x : span.Span) (y : span.Span) :
@@ -201,8 +293,16 @@ def cover.span_eq
     else ok (false, s2)
   else ok (false, s1)
 
+/-- [rwlog_core::term::node_of]:
+    Source: 'src/term.rs', lines 31:0-36:1
+    Visibility: public -/
+def term.node_of (fr : store.Frame) : Result store.TermId := do
+  match fr with
+  | store.Frame.Visit q _ => ok q
+  | store.Frame.Build q _ => ok q
+
 /-- [rwlog_core::store::{rwlog_core::store::Store}::set_flag]:
-    Source: 'src/store.rs', lines 307:4-311:5
+    Source: 'src/store.rs', lines 340:4-344:5
     Visibility: public -/
 def store.Store.set_flag
   (self : store.Store) (t : store.Tbl) (k : store.TermId) (b : Bool) :
@@ -215,7 +315,7 @@ def store.Store.set_flag
   store.Store.set_cell self1 t k v
 
 /-- [rwlog_core::store::{rwlog_core::store::Store}::get_flag]:
-    Source: 'src/store.rs', lines 296:4-304:5
+    Source: 'src/store.rs', lines 329:4-337:5
     Visibility: public -/
 def store.Store.get_flag
   (self : store.Store) (t : store.Tbl) (k : store.TermId) :
@@ -227,68 +327,137 @@ def store.Store.get_flag
   then ok (some (v != 0#usize), self1)
   else ok (none, self1)
 
-/-- [rwlog_core::cover::mark]:
-    Source: 'src/cover.rs', lines 46:0-57:1 -/
-def cover.mark (s : store.Store) (p : store.TermId) : Result store.Store := do
-  let (o, s1) ← store.Store.get_flag s store.Tbl.A p
+/-- [rwlog_core::cover::mark]: loop body 0:
+    Source: 'src/cover.rs', lines 77:4-89:5 -/
+@[rust_loop_body]
+def cover.mark_loop.body
+  (s : store.Store) : Result (ControlFlow store.Store store.Store) := do
+  let (o, s1) ← store.Store.pop s
   match o with
-  | none =>
-    let (n, s2) ← store.Store.read s1 p
-    let s3 ←
+  | none => ok (done s1)
+  | some fr =>
+    let q ← term.node_of fr
+    let (o1, s2) ← store.Store.get_flag s1 store.Tbl.A q
+    match o1 with
+    | none =>
+      let s3 ← store.Store.set_flag s2 store.Tbl.A q true
+      let (n, s4) ← store.Store.read s3 q
       match n with
-      | store.Node.V0 => ok s2
-      | store.Node.VL _ => ok s2
-      | store.Node.VR _ => ok s2
-      | store.Node.Sym _ => ok s2
-      | store.Node.App a b => do
-                              let s4 ← cover.mark s2 a
-                              cover.mark s4 b
-      | store.Node.Nil => ok s2
-    store.Store.set_flag s3 store.Tbl.A p true
-  | some _ => ok s1
-partial_fixpoint
+      | store.Node.V0 => ok (cont s4)
+      | store.Node.VL _ => ok (cont s4)
+      | store.Node.VR _ => ok (cont s4)
+      | store.Node.Sym _ => ok (cont s4)
+      | store.Node.App a b =>
+        let s5 ← store.Store.push s4 (store.Frame.Visit b b)
+        let s6 ← store.Store.push s5 (store.Frame.Visit a a)
+        ok (cont s6)
+      | store.Node.Nil => ok (cont s4)
+    | some _ => ok (cont s2)
+
+/-- [rwlog_core::cover::mark]: loop 0:
+    Source: 'src/cover.rs', lines 77:4-89:5 -/
+@[rust_loop]
+def cover.mark_loop (s : store.Store) : Result store.Store := do
+  loop
+    (fun s1 => cover.mark_loop.body s1)
+    s
+
+/-- [rwlog_core::cover::mark]:
+    Source: 'src/cover.rs', lines 75:0-90:1 -/
+def cover.mark (s : store.Store) (p : store.TermId) : Result store.Store := do
+  let s1 ← store.Store.push s (store.Frame.Visit p p)
+  cover.mark_loop s1
+
+/-- [rwlog_core::cover::is_set]:
+    Source: 'src/cover.rs', lines 93:0-98:1 -/
+def cover.is_set (o : Option Bool) : Result Bool := do
+  match o with
+  | none => ok false
+  | some b => ok b
+
+/-- [rwlog_core::cover::all_marked]: loop body 0:
+    Source: 'src/cover.rs', lines 107:4-134:5 -/
+@[rust_loop_body]
+def cover.all_marked_loop.body
+  (s : store.Store) : Result (ControlFlow store.Store store.Store) := do
+  let (o, s1) ← store.Store.pop s
+  match o with
+  | none => ok (done s1)
+  | some fr =>
+    match fr with
+    | store.Frame.Visit q _ =>
+      let (o1, s2) ← store.Store.get_flag s1 store.Tbl.B q
+      match o1 with
+      | none =>
+        let (n, s3) ← store.Store.read s2 q
+        match n with
+        | store.Node.V0 =>
+          let (o2, s4) ← store.Store.get_flag s3 store.Tbl.A q
+          let m := core.option.Option.is_some o2
+          let s5 ← store.Store.set_flag s4 store.Tbl.B q m
+          ok (cont s5)
+        | store.Node.VL _ =>
+          let (o2, s4) ← store.Store.get_flag s3 store.Tbl.A q
+          let m := core.option.Option.is_some o2
+          let s5 ← store.Store.set_flag s4 store.Tbl.B q m
+          ok (cont s5)
+        | store.Node.VR _ =>
+          let (o2, s4) ← store.Store.get_flag s3 store.Tbl.A q
+          let m := core.option.Option.is_some o2
+          let s5 ← store.Store.set_flag s4 store.Tbl.B q m
+          ok (cont s5)
+        | store.Node.Sym _ =>
+          let s4 ← store.Store.set_flag s3 store.Tbl.B q true
+          ok (cont s4)
+        | store.Node.App a b =>
+          let s4 ← store.Store.push s3 (store.Frame.Build q q)
+          let s5 ← store.Store.push s4 (store.Frame.Visit b b)
+          let s6 ← store.Store.push s5 (store.Frame.Visit a a)
+          ok (cont s6)
+        | store.Node.Nil =>
+          let s4 ← store.Store.set_flag s3 store.Tbl.B q true
+          ok (cont s4)
+      | some _ => ok (cont s2)
+    | store.Frame.Build q _ =>
+      let (n, s2) ← store.Store.read s1 q
+      match n with
+      | store.Node.V0 => fail panic
+      | store.Node.VL _ => fail panic
+      | store.Node.VR _ => fail panic
+      | store.Node.Sym _ => fail panic
+      | store.Node.App a b =>
+        let (o1, s3) ← store.Store.get_flag s2 store.Tbl.B a
+        let fa ← cover.is_set o1
+        let (o2, s4) ← store.Store.get_flag s3 store.Tbl.B b
+        let fb ← cover.is_set o2
+        if fa
+        then let s5 ← store.Store.set_flag s4 store.Tbl.B q fb
+             ok (cont s5)
+        else
+          let s5 ← store.Store.set_flag s4 store.Tbl.B q false
+          ok (cont s5)
+      | store.Node.Nil => fail panic
+
+/-- [rwlog_core::cover::all_marked]: loop 0:
+    Source: 'src/cover.rs', lines 107:4-134:5 -/
+@[rust_loop]
+def cover.all_marked_loop (s : store.Store) : Result store.Store := do
+  loop
+    (fun s1 => cover.all_marked_loop.body s1)
+    s
 
 /-- [rwlog_core::cover::all_marked]:
-    Source: 'src/cover.rs', lines 61:0-77:1 -/
+    Source: 'src/cover.rs', lines 105:0-136:1 -/
 def cover.all_marked
   (s : store.Store) (p : store.TermId) : Result (Bool × store.Store) := do
-  let (o, s1) ← store.Store.get_flag s store.Tbl.B p
-  match o with
-  | none =>
-    let (n, s2) ← store.Store.read s1 p
-    let (s3, b) ←
-      match n with
-      | store.Node.V0 =>
-        do
-        let (o1, s4) ← store.Store.get_flag s2 store.Tbl.A p
-        let b1 := core.option.Option.is_some o1
-        ok (s4, b1)
-      | store.Node.VL _ =>
-        do
-        let (o1, s4) ← store.Store.get_flag s2 store.Tbl.A p
-        let b1 := core.option.Option.is_some o1
-        ok (s4, b1)
-      | store.Node.VR _ =>
-        do
-        let (o1, s4) ← store.Store.get_flag s2 store.Tbl.A p
-        let b1 := core.option.Option.is_some o1
-        ok (s4, b1)
-      | store.Node.Sym _ => ok (s2, true)
-      | store.Node.App a c =>
-        do
-        let (b1, s4) ← cover.all_marked s2 a
-        if b1
-        then let (b2, s5) ← cover.all_marked s4 c
-             ok (s5, b2)
-        else ok (s4, false)
-      | store.Node.Nil => ok (s2, true)
-    let s4 ← store.Store.set_flag s3 store.Tbl.B p b
-    ok (b, s4)
-  | some b => ok (b, s1)
-partial_fixpoint
+  let s1 ← store.Store.push s (store.Frame.Visit p p)
+  let s2 ← cover.all_marked_loop s1
+  let (o, s3) ← store.Store.get_flag s2 store.Tbl.B p
+  let b ← cover.is_set o
+  ok (b, s3)
 
 /-- [rwlog_core::store::{rwlog_core::store::Store}::is_var]:
-    Source: 'src/store.rs', lines 173:4-182:5 -/
+    Source: 'src/store.rs', lines 206:4-215:5 -/
 def store.Store.is_var
   (self : store.Store) (a : store.TermId) : Result Bool := do
   let n ←
@@ -303,7 +472,7 @@ def store.Store.is_var
   | store.Node.Nil => ok false
 
 /-- [rwlog_core::store::{rwlog_core::store::Store}::kid]:
-    Source: 'src/store.rs', lines 143:4-153:5 -/
+    Source: 'src/store.rs', lines 175:4-185:5 -/
 def store.Store.kid
   (self : store.Store) (p : Std.Usize) (d : Std.Usize) :
   Result (Std.Usize × store.Store)
@@ -326,23 +495,44 @@ def store.Store.kid
     let v1 := index_mut_back { t1 with kids := a1 }
     ok (n, { self with trie := v1 })
 
+/-- [rwlog_core::store::{rwlog_core::store::Store}::digits]: loop body 0:
+    Source: 'src/store.rs', lines 192:8-195:9 -/
+@[rust_loop_body]
+def store.Store.digits_loop.body
+  (self : store.Store) (q : Std.Usize) (y : Std.Usize) :
+  Result (ControlFlow (store.Store × Std.Usize × Std.Usize) (Std.Usize ×
+    store.Store))
+  := do
+  if y != 0#usize
+  then
+    let i ← y % 16#usize
+    let (q1, self1) ← store.Store.kid self q i
+    let y1 ← y / 16#usize
+    ok (cont (self1, q1, y1))
+  else ok (done (q, self))
+
+/-- [rwlog_core::store::{rwlog_core::store::Store}::digits]: loop 0:
+    Source: 'src/store.rs', lines 192:8-195:9 -/
+@[rust_loop]
+def store.Store.digits_loop
+  (self : store.Store) (q : Std.Usize) (y : Std.Usize) :
+  Result (Std.Usize × store.Store)
+  := do
+  loop
+    (fun (self1, q1, y1) => store.Store.digits_loop.body self1 q1 y1)
+    (self, q, y)
+
 /-- [rwlog_core::store::{rwlog_core::store::Store}::digits]:
-    Source: 'src/store.rs', lines 157:4-164:5 -/
+    Source: 'src/store.rs', lines 189:4-197:5 -/
+@[reducible]
 def store.Store.digits
   (self : store.Store) (p : Std.Usize) (x : Std.Usize) :
   Result (Std.Usize × store.Store)
   := do
-  if x = 0#usize
-  then ok (p, self)
-  else
-    let i ← x / 16#usize
-    let (q, self1) ← store.Store.digits self p i
-    let i1 ← x % 16#usize
-    store.Store.kid self1 q i1
-partial_fixpoint
+  store.Store.digits_loop self p x
 
 /-- [rwlog_core::store::{rwlog_core::store::Store}::word]:
-    Source: 'src/store.rs', lines 168:4-171:5 -/
+    Source: 'src/store.rs', lines 201:4-204:5 -/
 def store.Store.word
   (self : store.Store) (p : Std.Usize) (x : Std.Usize) :
   Result (Std.Usize × store.Store)
@@ -351,7 +541,7 @@ def store.Store.word
   store.Store.kid self1 q 16#usize
 
 /-- [rwlog_core::store::{rwlog_core::store::Store}::path]:
-    Source: 'src/store.rs', lines 187:4-220:5 -/
+    Source: 'src/store.rs', lines 220:4-253:5 -/
 def store.Store.path
   (self : store.Store) (n : store.Node) :
   Result ((store.Node × Std.Usize) × store.Store)
@@ -397,7 +587,7 @@ def store.Store.path
     ok ((store.Node.Nil, i), self1)
 
 /-- [rwlog_core::store::{rwlog_core::store::Store}::intern]:
-    Source: 'src/store.rs', lines 224:4-236:5 -/
+    Source: 'src/store.rs', lines 257:4-269:5 -/
 def store.Store.intern
   (self : store.Store) (n : store.Node) :
   Result (store.TermId × store.Store)
@@ -424,7 +614,7 @@ def store.Store.intern
     ok (len, { self1 with nodes := v, slots := v1, trie := v2 })
 
 /-- [rwlog_core::store::{rwlog_core::store::Store}::alloc]:
-    Source: 'src/store.rs', lines 241:4-244:5
+    Source: 'src/store.rs', lines 274:4-277:5
     Visibility: public -/
 def store.Store.alloc
   (self : store.Store) (n : store.Node) :
@@ -433,29 +623,119 @@ def store.Store.alloc
   let self1 ← store.Store.tick self
   store.Store.intern self1 n
 
+/-- [rwlog_core::term::unstack]: loop body 0:
+    Source: 'src/term.rs', lines 120:4-122:5
+    Visibility: public -/
+@[rust_loop_body]
+def term.unstack_loop.body
+  (s : store.Store) (r : store.TermId) :
+  Result (ControlFlow (store.Store × store.TermId) (store.TermId ×
+    store.Store))
+  := do
+  let (o, s1) ← store.Store.pop s
+  match o with
+  | none => ok (done (r, s1))
+  | some fr =>
+    let ti ← term.node_of fr
+    let (r1, s2) ← store.Store.alloc s1 (store.Node.App ti r)
+    ok (cont (s2, r1))
+
+/-- [rwlog_core::term::unstack]: loop 0:
+    Source: 'src/term.rs', lines 120:4-122:5
+    Visibility: public -/
+@[rust_loop]
+def term.unstack_loop
+  (s : store.Store) (r : store.TermId) :
+  Result (store.TermId × store.Store)
+  := do
+  loop
+    (fun (s1, r1) => term.unstack_loop.body s1 r1)
+    (s, r)
+
+/-- [rwlog_core::term::unstack]:
+    Source: 'src/term.rs', lines 118:0-124:1
+    Visibility: public -/
+@[reducible]
+def term.unstack
+  (s : store.Store) (r : store.TermId) :
+  Result (store.TermId × store.Store)
+  := do
+  term.unstack_loop s r
+
+/-- [rwlog_core::cover::keep]: loop body 0:
+    Source: 'src/cover.rs', lines 143:4-146:5 -/
+@[rust_loop_body]
+def cover.keep_loop0.body
+  (l : store.TermId) (s : store.Store) :
+  Result (ControlFlow (store.TermId × store.Store) store.Store)
+  := do
+  let (n, s1) ← store.Store.read s l
+  match n with
+  | store.Node.V0 => ok (done s1)
+  | store.Node.VL _ => ok (done s1)
+  | store.Node.VR _ => ok (done s1)
+  | store.Node.Sym _ => ok (done s1)
+  | store.Node.App h t =>
+    let (_, s2) ← cover.all_marked s1 h
+    ok (cont (t, s2))
+  | store.Node.Nil => ok (done s1)
+
+/-- [rwlog_core::cover::keep]: loop 0:
+    Source: 'src/cover.rs', lines 143:4-146:5 -/
+@[rust_loop]
+def cover.keep_loop0
+  (l : store.TermId) (s : store.Store) : Result store.Store := do
+  loop
+    (fun (l1, s1) => cover.keep_loop0.body l1 s1)
+    (l, s)
+
+/-- [rwlog_core::cover::keep]: loop body 1:
+    Source: 'src/cover.rs', lines 148:4-153:5 -/
+@[rust_loop_body]
+def cover.keep_loop1.body
+  (l : store.TermId) (s : store.Store) :
+  Result (ControlFlow (store.TermId × store.Store) (store.Store ×
+    store.TermId))
+  := do
+  let (n, s1) ← store.Store.read s l
+  match n with
+  | store.Node.V0 => ok (done (s1, l))
+  | store.Node.VL _ => ok (done (s1, l))
+  | store.Node.VR _ => ok (done (s1, l))
+  | store.Node.Sym _ => ok (done (s1, l))
+  | store.Node.App h t =>
+    let (o, s2) ← store.Store.get_flag s1 store.Tbl.B h
+    let b ← cover.is_set o
+    if b
+    then
+      let s3 ← store.Store.push s2 (store.Frame.Visit h h)
+      ok (cont (t, s3))
+    else ok (cont (t, s2))
+  | store.Node.Nil => ok (done (s1, l))
+
+/-- [rwlog_core::cover::keep]: loop 1:
+    Source: 'src/cover.rs', lines 148:4-153:5 -/
+@[rust_loop]
+def cover.keep_loop1
+  (l : store.TermId) (s : store.Store) :
+  Result (store.Store × store.TermId)
+  := do
+  loop
+    (fun (l1, s1) => cover.keep_loop1.body l1 s1)
+    (l, s)
+
 /-- [rwlog_core::cover::keep]:
-    Source: 'src/cover.rs', lines 80:0-92:1 -/
+    Source: 'src/cover.rs', lines 141:0-155:1 -/
 def cover.keep
   (s : store.Store) (c : store.TermId) :
   Result (store.TermId × store.Store)
   := do
-  let (n, s1) ← store.Store.read s c
-  match n with
-  | store.Node.V0 => ok (c, s1)
-  | store.Node.VL _ => ok (c, s1)
-  | store.Node.VR _ => ok (c, s1)
-  | store.Node.Sym _ => ok (c, s1)
-  | store.Node.App h t =>
-    let (r, s2) ← cover.keep s1 t
-    let (b, s3) ← cover.all_marked s2 h
-    if b
-    then store.Store.alloc s3 (store.Node.App h r)
-    else ok (r, s3)
-  | store.Node.Nil => ok (c, s1)
-partial_fixpoint
+  let s1 ← cover.keep_loop0 c s
+  let (s2, l) ← cover.keep_loop1 c s1
+  term.unstack s2 l
 
 /-- [rwlog_core::cover::is_var]:
-    Source: 'src/cover.rs', lines 94:0-96:1 -/
+    Source: 'src/cover.rs', lines 157:0-159:1 -/
 def cover.is_var
   (s : store.Store) (p : store.TermId) : Result (Bool × store.Store) := do
   let (n, s1) ← store.Store.read s p
@@ -468,7 +748,7 @@ def cover.is_var
   | store.Node.Nil => ok (false, s1)
 
 /-- [rwlog_core::cover::is_nil]:
-    Source: 'src/cover.rs', lines 98:0-100:1 -/
+    Source: 'src/cover.rs', lines 161:0-163:1 -/
 def cover.is_nil
   (s : store.Store) (p : store.TermId) : Result (Bool × store.Store) := do
   let (n, s1) ← store.Store.read s p
@@ -481,7 +761,7 @@ def cover.is_nil
   | store.Node.Nil => ok (true, s1)
 
 /-- [rwlog_core::cover::iface]:
-    Source: 'src/cover.rs', lines 105:0-116:1 -/
+    Source: 'src/cover.rs', lines 168:0-179:1 -/
 def cover.iface
   (s : store.Store) (p : store.TermId) (c : store.TermId) :
   Result ((Option span.Span) × store.Store)
@@ -502,7 +782,7 @@ def cover.iface
   else ok (some { l := p, r := p, c := c2 }, s6)
 
 /-- [rwlog_core::cover::right_bound]:
-    Source: 'src/cover.rs', lines 119:0-121:1
+    Source: 'src/cover.rs', lines 182:0-184:1
     Visibility: public -/
 def cover.right_bound
   (s : store.Store) (x : span.Span) :
@@ -511,7 +791,7 @@ def cover.right_bound
   cover.iface s x.r x.c
 
 /-- [rwlog_core::cover::left_bound]:
-    Source: 'src/cover.rs', lines 124:0-126:1
+    Source: 'src/cover.rs', lines 187:0-189:1
     Visibility: public -/
 def cover.left_bound
   (s : store.Store) (x : span.Span) :
@@ -555,44 +835,72 @@ def span.kind
   | store.Node.App a b => ok (span.Kind.App a b, s1)
   | store.Node.Nil => ok (span.Kind.Atom, s1)
 
+/-- [rwlog_core::term::occurs]: loop body 0:
+    Source: 'src/term.rs', lines 90:4-112:5
+    Visibility: public -/
+@[rust_loop_body]
+def term.occurs_loop.body
+  (x : store.TermId) (s : store.Store) (found : Bool) :
+  Result (ControlFlow (store.Store × Bool) (Bool × store.Store))
+  := do
+  let (o, s1) ← store.Store.pop s
+  match o with
+  | none => ok (done (found, s1))
+  | some fr =>
+    let q ← term.node_of fr
+    let (o1, s2) ← store.Store.get_flag s1 store.Tbl.B q
+    match o1 with
+    | none =>
+      let s3 ← store.Store.set_flag s2 store.Tbl.B q true
+      let (n, s4) ← store.Store.read s3 q
+      match n with
+      | store.Node.V0 =>
+        let (b, s5) ← store.Store.same s4 q x
+        if b
+        then let s6 ← store.Store.drop_stack s5
+             ok (cont (s6, true))
+        else ok (cont (s5, found))
+      | store.Node.VL _ =>
+        let (b, s5) ← store.Store.same s4 q x
+        if b
+        then let s6 ← store.Store.drop_stack s5
+             ok (cont (s6, true))
+        else ok (cont (s5, found))
+      | store.Node.VR _ =>
+        let (b, s5) ← store.Store.same s4 q x
+        if b
+        then let s6 ← store.Store.drop_stack s5
+             ok (cont (s6, true))
+        else ok (cont (s5, found))
+      | store.Node.Sym _ => ok (cont (s4, found))
+      | store.Node.App a b =>
+        let s5 ← store.Store.push s4 (store.Frame.Visit b b)
+        let s6 ← store.Store.push s5 (store.Frame.Visit a a)
+        ok (cont (s6, found))
+      | store.Node.Nil => ok (cont (s4, found))
+    | some _ => ok (cont (s2, found))
+
+/-- [rwlog_core::term::occurs]: loop 0:
+    Source: 'src/term.rs', lines 90:4-112:5
+    Visibility: public -/
+@[rust_loop]
+def term.occurs_loop
+  (s : store.Store) (x : store.TermId) (found : Bool) :
+  Result (Bool × store.Store)
+  := do
+  loop
+    (fun (s1, found1) => term.occurs_loop.body x s1 found1)
+    (s, found)
+
 /-- [rwlog_core::term::occurs]:
-    Source: 'src/term.rs', lines 58:0-74:1
+    Source: 'src/term.rs', lines 87:0-114:1
     Visibility: public -/
 def term.occurs
   (s : store.Store) (x : store.TermId) (p : store.TermId) :
   Result (Bool × store.Store)
   := do
-  let (o, s1) ← store.Store.get_flag s store.Tbl.B p
-  match o with
-  | none =>
-    let (n, s2) ← store.Store.read s1 p
-    let (s3, b) ←
-      match n with
-      | store.Node.V0 =>
-        do
-        let (b1, s4) ← store.Store.same s2 p x
-        ok (s4, b1)
-      | store.Node.VL _ =>
-        do
-        let (b1, s4) ← store.Store.same s2 p x
-        ok (s4, b1)
-      | store.Node.VR _ =>
-        do
-        let (b1, s4) ← store.Store.same s2 p x
-        ok (s4, b1)
-      | store.Node.Sym _ => ok (s2, false)
-      | store.Node.App a c =>
-        do
-        let (b1, s4) ← term.occurs s2 x a
-        if b1
-        then ok (s4, true)
-        else let (b2, s5) ← term.occurs s4 x c
-             ok (s5, b2)
-      | store.Node.Nil => ok (s2, false)
-    let s4 ← store.Store.set_flag s3 store.Tbl.B p b
-    ok (b, s4)
-  | some b => ok (b, s1)
-partial_fixpoint
+  let s1 ← store.Store.push s (store.Frame.Visit p p)
+  term.occurs_loop s1 x false
 
 /-- [rwlog_core::span::act]:
     Source: 'src/span.rs', lines 46:0-80:1
@@ -651,40 +959,93 @@ def term.leaf
     then ok (u, s1)
     else ok (p, s1)
 
+/-- [rwlog_core::term::rebuild]: loop body 0:
+    Source: 'src/term.rs', lines 46:4-78:5
+    Visibility: public -/
+@[rust_loop_body]
+def term.rebuild_loop.body
+  (f : term.Leaf) (s : store.Store) :
+  Result (ControlFlow store.Store store.Store)
+  := do
+  let (o, s1) ← store.Store.pop s
+  match o with
+  | none => ok (done s1)
+  | some fr =>
+    match fr with
+    | store.Frame.Visit q _ =>
+      let (o1, s2) ← store.Store.get s1 store.Tbl.A q
+      match o1 with
+      | none =>
+        let (n, s3) ← store.Store.read s2 q
+        match n with
+        | store.Node.V0 =>
+          let (r, s4) ← term.leaf s3 f q
+          let s5 ← store.Store.set s4 store.Tbl.A q r
+          ok (cont s5)
+        | store.Node.VL _ =>
+          let (r, s4) ← term.leaf s3 f q
+          let s5 ← store.Store.set s4 store.Tbl.A q r
+          ok (cont s5)
+        | store.Node.VR _ =>
+          let (r, s4) ← term.leaf s3 f q
+          let s5 ← store.Store.set s4 store.Tbl.A q r
+          ok (cont s5)
+        | store.Node.Sym _ =>
+          let s4 ← store.Store.set s3 store.Tbl.A q q
+          ok (cont s4)
+        | store.Node.App a b =>
+          let s4 ← store.Store.push s3 (store.Frame.Build q q)
+          let s5 ← store.Store.push s4 (store.Frame.Visit b b)
+          let s6 ← store.Store.push s5 (store.Frame.Visit a a)
+          ok (cont s6)
+        | store.Node.Nil =>
+          let s4 ← store.Store.set s3 store.Tbl.A q q
+          ok (cont s4)
+      | some _ => ok (cont s2)
+    | store.Frame.Build q _ =>
+      let (n, s2) ← store.Store.read s1 q
+      match n with
+      | store.Node.V0 => fail panic
+      | store.Node.VL _ => fail panic
+      | store.Node.VR _ => fail panic
+      | store.Node.Sym _ => fail panic
+      | store.Node.App a b =>
+        let (o1, s3) ← store.Store.get s2 store.Tbl.A a
+        match o1 with
+        | none => fail panic
+        | some ra =>
+          let (o2, s4) ← store.Store.get s3 store.Tbl.A b
+          match o2 with
+          | none => fail panic
+          | some rb =>
+            let (r, s5) ← store.Store.alloc s4 (store.Node.App ra rb)
+            let s6 ← store.Store.set s5 store.Tbl.A q r
+            ok (cont s6)
+      | store.Node.Nil => fail panic
+
+/-- [rwlog_core::term::rebuild]: loop 0:
+    Source: 'src/term.rs', lines 46:4-78:5
+    Visibility: public -/
+@[rust_loop]
+def term.rebuild_loop
+  (s : store.Store) (f : term.Leaf) : Result store.Store := do
+  loop
+    (fun s1 => term.rebuild_loop.body f s1)
+    s
+
 /-- [rwlog_core::term::rebuild]:
-    Source: 'src/term.rs', lines 33:0-53:1
+    Source: 'src/term.rs', lines 44:0-83:1
     Visibility: public -/
 def term.rebuild
   (s : store.Store) (f : term.Leaf) (p : store.TermId) :
   Result (store.TermId × store.Store)
   := do
-  let (o, s1) ← store.Store.get s store.Tbl.A p
+  let s1 ← store.Store.push s (store.Frame.Visit p p)
+  let s2 ← term.rebuild_loop s1 f
+  let (o, s3) ← store.Store.get s2 store.Tbl.A p
   match o with
-  | none =>
-    let (n, s2) ← store.Store.read s1 p
-    let (s3, r) ←
-      match n with
-      | store.Node.V0 => do
-                         let (r1, s4) ← term.leaf s2 f p
-                         ok (s4, r1)
-      | store.Node.VL _ => do
-                           let (r1, s4) ← term.leaf s2 f p
-                           ok (s4, r1)
-      | store.Node.VR _ => do
-                           let (r1, s4) ← term.leaf s2 f p
-                           ok (s4, r1)
-      | store.Node.Sym _ => ok (s2, p)
-      | store.Node.App a b =>
-        do
-        let (ra, s4) ← term.rebuild s2 f a
-        let (rb, s5) ← term.rebuild s4 f b
-        let (r1, s6) ← store.Store.alloc s5 (store.Node.App ra rb)
-        ok (s6, r1)
-      | store.Node.Nil => ok (s2, p)
-    let s4 ← store.Store.set s3 store.Tbl.A p r
-    ok (r, s4)
-  | some r => ok (r, s1)
-partial_fixpoint
+  | none => fail panic
+  | some r => ok (r, s3)
 
 /-- [rwlog_core::span::solve_into]: loop body 0:
     Source: 'src/span.rs', lines 91:4-116:5
@@ -820,24 +1181,44 @@ def span.finish
        ok (some s2, s3)
   else ok (none, s1)
 
+/-- [rwlog_core::term::append]: loop body 0:
+    Source: 'src/term.rs', lines 130:4-133:5
+    Visibility: public -/
+@[rust_loop_body]
+def term.append_loop.body
+  (l : store.TermId) (s : store.Store) :
+  Result (ControlFlow (store.TermId × store.Store) store.Store)
+  := do
+  let (n, s1) ← store.Store.read s l
+  match n with
+  | store.Node.V0 => ok (done s1)
+  | store.Node.VL _ => ok (done s1)
+  | store.Node.VR _ => ok (done s1)
+  | store.Node.Sym _ => ok (done s1)
+  | store.Node.App h t =>
+    let s2 ← store.Store.push s1 (store.Frame.Visit h h)
+    ok (cont (t, s2))
+  | store.Node.Nil => ok (done s1)
+
+/-- [rwlog_core::term::append]: loop 0:
+    Source: 'src/term.rs', lines 130:4-133:5
+    Visibility: public -/
+@[rust_loop]
+def term.append_loop
+  (l : store.TermId) (s : store.Store) : Result store.Store := do
+  loop
+    (fun (l1, s1) => term.append_loop.body l1 s1)
+    (l, s)
+
 /-- [rwlog_core::term::append]:
-    Source: 'src/term.rs', lines 77:0-85:1
+    Source: 'src/term.rs', lines 128:0-135:1
     Visibility: public -/
 def term.append
   (s : store.Store) (a : store.TermId) (b : store.TermId) :
   Result (store.TermId × store.Store)
   := do
-  let (n, s1) ← store.Store.read s a
-  match n with
-  | store.Node.V0 => ok (b, s1)
-  | store.Node.VL _ => ok (b, s1)
-  | store.Node.VR _ => ok (b, s1)
-  | store.Node.Sym _ => ok (b, s1)
-  | store.Node.App h t =>
-    let (r, s2) ← term.append s1 t b
-    store.Store.alloc s2 (store.Node.App h r)
-  | store.Node.Nil => ok (b, s1)
-partial_fixpoint
+  let s1 ← term.append_loop a s
+  term.unstack s1 b
 
 /-- [rwlog_core::span::compose]:
     Source: 'src/span.rs', lines 158:0-167:1
@@ -931,112 +1312,133 @@ def span.composable
   | store.Node.Nil => ok (true, s1)
 
 /-- [rwlog_core::store::{impl core::clone::Clone for rwlog_core::store::TermId}::clone]:
-    Source: 'src/store.rs', lines 40:9-40:14
+    Source: 'src/store.rs', lines 49:9-49:14
     Visibility: public -/
 def store.TermId.Insts.CoreCloneClone.clone
   (self : store.TermId) : Result store.TermId := do
   ok self
 
 /-- Trait implementation: [rwlog_core::store::{impl core::clone::Clone for rwlog_core::store::TermId}]
-    Source: 'src/store.rs', lines 40:9-40:14 -/
+    Source: 'src/store.rs', lines 49:9-49:14 -/
 @[reducible]
 def store.TermId.Insts.CoreCloneClone : core.clone.Clone store.TermId := {
   clone := store.TermId.Insts.CoreCloneClone.clone
 }
 
 /-- Trait implementation: [rwlog_core::store::{impl core::marker::Copy for rwlog_core::store::TermId}]
-    Source: 'src/store.rs', lines 40:16-40:20 -/
+    Source: 'src/store.rs', lines 49:16-49:20 -/
 @[reducible]
 def store.TermId.Insts.CoreMarkerCopy : core.marker.Copy store.TermId := {
   cloneInst := store.TermId.Insts.CoreCloneClone
 }
 
 /-- [rwlog_core::store::{impl core::clone::Clone for rwlog_core::store::Node}::clone]:
-    Source: 'src/store.rs', lines 43:9-43:14
+    Source: 'src/store.rs', lines 52:9-52:14
     Visibility: public -/
 def store.Node.Insts.CoreCloneClone.clone
   (self : store.Node) : Result store.Node := do
   ok self
 
 /-- Trait implementation: [rwlog_core::store::{impl core::clone::Clone for rwlog_core::store::Node}]
-    Source: 'src/store.rs', lines 43:9-43:14 -/
+    Source: 'src/store.rs', lines 52:9-52:14 -/
 @[reducible]
 def store.Node.Insts.CoreCloneClone : core.clone.Clone store.Node := {
   clone := store.Node.Insts.CoreCloneClone.clone
 }
 
 /-- Trait implementation: [rwlog_core::store::{impl core::marker::Copy for rwlog_core::store::Node}]
-    Source: 'src/store.rs', lines 43:16-43:20 -/
+    Source: 'src/store.rs', lines 52:16-52:20 -/
 @[reducible]
 def store.Node.Insts.CoreMarkerCopy : core.marker.Copy store.Node := {
   cloneInst := store.Node.Insts.CoreCloneClone
 }
 
 /-- [rwlog_core::store::{impl core::clone::Clone for rwlog_core::store::Tbl}::clone]:
-    Source: 'src/store.rs', lines 58:9-58:14
+    Source: 'src/store.rs', lines 67:9-67:14
     Visibility: public -/
 def store.Tbl.Insts.CoreCloneClone.clone
   (self : store.Tbl) : Result store.Tbl := do
   ok self
 
 /-- Trait implementation: [rwlog_core::store::{impl core::clone::Clone for rwlog_core::store::Tbl}]
-    Source: 'src/store.rs', lines 58:9-58:14 -/
+    Source: 'src/store.rs', lines 67:9-67:14 -/
 @[reducible]
 def store.Tbl.Insts.CoreCloneClone : core.clone.Clone store.Tbl := {
   clone := store.Tbl.Insts.CoreCloneClone.clone
 }
 
 /-- Trait implementation: [rwlog_core::store::{impl core::marker::Copy for rwlog_core::store::Tbl}]
-    Source: 'src/store.rs', lines 58:16-58:20 -/
+    Source: 'src/store.rs', lines 67:16-67:20 -/
 @[reducible]
 def store.Tbl.Insts.CoreMarkerCopy : core.marker.Copy store.Tbl := {
   cloneInst := store.Tbl.Insts.CoreCloneClone
 }
 
+/-- [rwlog_core::store::{impl core::clone::Clone for rwlog_core::store::Frame}::clone]:
+    Source: 'src/store.rs', lines 76:9-76:14
+    Visibility: public -/
+def store.Frame.Insts.CoreCloneClone.clone
+  (self : store.Frame) : Result store.Frame := do
+  ok self
+
+/-- Trait implementation: [rwlog_core::store::{impl core::clone::Clone for rwlog_core::store::Frame}]
+    Source: 'src/store.rs', lines 76:9-76:14 -/
+@[reducible]
+def store.Frame.Insts.CoreCloneClone : core.clone.Clone store.Frame := {
+  clone := store.Frame.Insts.CoreCloneClone.clone
+}
+
+/-- Trait implementation: [rwlog_core::store::{impl core::marker::Copy for rwlog_core::store::Frame}]
+    Source: 'src/store.rs', lines 76:16-76:20 -/
+@[reducible]
+def store.Frame.Insts.CoreMarkerCopy : core.marker.Copy store.Frame := {
+  cloneInst := store.Frame.Insts.CoreCloneClone
+}
+
 /-- [rwlog_core::store::{impl core::clone::Clone for rwlog_core::store::Slot}::clone]:
-    Source: 'src/store.rs', lines 67:9-67:14
+    Source: 'src/store.rs', lines 87:9-87:14
     Visibility: public -/
 def store.Slot.Insts.CoreCloneClone.clone
   (self : store.Slot) : Result store.Slot := do
   ok self
 
 /-- Trait implementation: [rwlog_core::store::{impl core::clone::Clone for rwlog_core::store::Slot}]
-    Source: 'src/store.rs', lines 67:9-67:14 -/
+    Source: 'src/store.rs', lines 87:9-87:14 -/
 @[reducible]
 def store.Slot.Insts.CoreCloneClone : core.clone.Clone store.Slot := {
   clone := store.Slot.Insts.CoreCloneClone.clone
 }
 
 /-- Trait implementation: [rwlog_core::store::{impl core::marker::Copy for rwlog_core::store::Slot}]
-    Source: 'src/store.rs', lines 67:16-67:20 -/
+    Source: 'src/store.rs', lines 87:16-87:20 -/
 @[reducible]
 def store.Slot.Insts.CoreMarkerCopy : core.marker.Copy store.Slot := {
   cloneInst := store.Slot.Insts.CoreCloneClone
 }
 
 /-- [rwlog_core::store::{impl core::clone::Clone for rwlog_core::store::Trie}::clone]:
-    Source: 'src/store.rs', lines 79:9-79:14
+    Source: 'src/store.rs', lines 99:9-99:14
     Visibility: public -/
 def store.Trie.Insts.CoreCloneClone.clone
   (self : store.Trie) : Result store.Trie := do
   ok self
 
 /-- Trait implementation: [rwlog_core::store::{impl core::clone::Clone for rwlog_core::store::Trie}]
-    Source: 'src/store.rs', lines 79:9-79:14 -/
+    Source: 'src/store.rs', lines 99:9-99:14 -/
 @[reducible]
 def store.Trie.Insts.CoreCloneClone : core.clone.Clone store.Trie := {
   clone := store.Trie.Insts.CoreCloneClone.clone
 }
 
 /-- Trait implementation: [rwlog_core::store::{impl core::marker::Copy for rwlog_core::store::Trie}]
-    Source: 'src/store.rs', lines 79:16-79:20 -/
+    Source: 'src/store.rs', lines 99:16-99:20 -/
 @[reducible]
 def store.Trie.Insts.CoreMarkerCopy : core.marker.Copy store.Trie := {
   cloneInst := store.Trie.Insts.CoreCloneClone
 }
 
 /-- [rwlog_core::store::{rwlog_core::store::Store}::new]:
-    Source: 'src/store.rs', lines 102:4-107:5
+    Source: 'src/store.rs', lines 125:4-139:5
     Visibility: public -/
 def store.Store.new : Result store.Store := do
   let a := Array.repeat 17#usize 0#usize
@@ -1049,6 +1451,8 @@ def store.Store.new : Result store.Store := do
         nodes := (alloc.vec.Vec.new store.Node),
         slots := (alloc.vec.Vec.new store.Slot),
         trie := v,
+        stack := (alloc.vec.Vec.new store.Frame),
+        sp := 0#usize,
         ea := 1#u64,
         eb := 1#u64,
         ticks := 0#u64
@@ -1056,13 +1460,13 @@ def store.Store.new : Result store.Store := do
   ok s
 
 /-- [rwlog_core::store::{impl core::default::Default for rwlog_core::store::Store}::default]:
-    Source: 'src/store.rs', lines 95:4-97:5
+    Source: 'src/store.rs', lines 118:4-120:5
     Visibility: public -/
 def store.Store.Insts.CoreDefaultDefault.default : Result store.Store := do
   store.Store.new
 
 /-- Trait implementation: [rwlog_core::store::{impl core::default::Default for rwlog_core::store::Store}]
-    Source: 'src/store.rs', lines 94:0-98:1 -/
+    Source: 'src/store.rs', lines 117:0-121:1 -/
 @[reducible]
 def store.Store.Insts.CoreDefaultDefault : core.default.Default store.Store
   := {
@@ -1070,19 +1474,19 @@ def store.Store.Insts.CoreDefaultDefault : core.default.Default store.Store
 }
 
 /-- [rwlog_core::store::{rwlog_core::store::Store}::ticks]:
-    Source: 'src/store.rs', lines 110:4-112:5
+    Source: 'src/store.rs', lines 142:4-144:5
     Visibility: public -/
 def store.Store.impl.ticks (self : store.Store) : Result Std.U64 := do
   ok self.ticks
 
 /-- [rwlog_core::store::{rwlog_core::store::Store}::root]:
-    Source: 'src/store.rs', lines 119:4-121:5
+    Source: 'src/store.rs', lines 151:4-153:5
     Visibility: public -/
 def store.Store.root (self : store.Store) : Result store.TermId := do
   ok 0#usize
 
 /-- [rwlog_core::store::{rwlog_core::store::Store}::word_eq]:
-    Source: 'src/store.rs', lines 136:4-139:5
+    Source: 'src/store.rs', lines 168:4-171:5
     Visibility: public -/
 def store.Store.word_eq
   (self : store.Store) (a : Std.U32) (b : Std.U32) :
