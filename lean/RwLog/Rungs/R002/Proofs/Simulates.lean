@@ -18,6 +18,7 @@ over the rounds of a run, and `F N c ≤ 5 c³ (N + 2)³`.
 -/
 import RwLog.Rungs.R002.Proofs.Dominated
 import RwLog.Rungs.R002.Proofs.Same
+import RwLog.Rungs.Framework.Latency
 
 namespace RwLog
 
@@ -158,6 +159,7 @@ theorem spent_le (N : Nat) : ∀ (n : Nat) (st : State), st.P.size ≤ N →
 /-- R002 simulates R001 within `5 c³ (n + 2)³`, where `c` is what R001 has
 paid and `n` the size of the program and the query. -/
 theorem simulates : Obligation.simulates := by
+  refine Simulates.of_steps ?_
   intro P q _ n
   have hc : costed.runtime = R001.runtime := runtime_eq
   have hb : baseline.runtime = R001.runtime := baseline_exact

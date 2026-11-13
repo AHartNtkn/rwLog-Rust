@@ -6,7 +6,9 @@ never restates it.
 
 ```
 Trusted/        the specification: syntax, semantics, Runtime, Rung, the Tier-0 properties,
-                and the cost model (Cost.lean) by which rungs from R002 on are judged
+                and the cost model (Cost.lean) by which rungs from R002 on are judged:
+                cost is coverage latency, the ticks until an emitted answer covers a
+                ground pair, and never depends on a query halting
 Theory/         constraint theories and firing
 Kernel/         the executable kernel (match, solve, span, refute) and its proofs
 SpanLayer/      span-level semantics, derivations, coverage vocabulary
@@ -80,6 +82,16 @@ rung unchanged.
   same rules (`Spends.bind`, `Spends.mapL`, `Spends.mapL_zip`), and bounds on
   the ticks of each traversal from a bound on each member
   (`anyL_ticks_le_mul`, ...).
+
+* `Latency.lean`: how the improvement statements of `Trusted/Cost.lean`, which
+  measure the ticks until an answer covers a ground pair, are established.
+  `Simulates.of_steps` (the new machine covers each answer of the old one,
+  step by step, at a bounded cost), `CostedRuntime.coversWithin_of_halts` (on
+  an input that halts, an honest machine has covered every pair of the query
+  by the time it halts, so a separating family that halts needs only its
+  target pairs to be in the denotation), and
+  `CostedRuntime.le_spent_of_covered` (a machine that has emitted nothing in
+  `N` steps has paid for `N + 1` before it covers anything).
 
 `Rungs/Tabled/` is the base for costed rungs that keep R001's tables and change
 something else. `Machine.lean` is R001's machine written in the cost monad
