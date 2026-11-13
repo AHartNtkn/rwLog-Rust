@@ -39,3 +39,29 @@ jobs:
           lake-package-directory: verified/lean
           use-mathlib-cache: true
           build-args: "--wfail"
+
+  # The generated Lean is committed, so the proofs are about the Rust only if
+  # the committed files are what the Rust translates to. This job translates
+  # the Rust again with Charon and Aeneas at the recorded commits and fails on
+  # any difference.
+  extraction:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check that every recorded version agrees
+        run: verified/check-versions.sh
+      - uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            extra-substituters = https://hacl.cachix.org
+            extra-trusted-public-keys = hacl.cachix.org-1:FzsZ2xsByOwKwIWNPII7yMOelJNDZ12mDAj3d1eGX0c=
+      - name: Fetch Charon and Aeneas at the recorded commits
+        run: |
+          . verified/versions.env
+          flake="github:AeneasVerif/aeneas/$AENEAS_COMMIT"
+          nix build -L --out-link "$RUNNER_TEMP/aeneas" "$flake#aeneas"
+          nix build -L --out-link "$RUNNER_TEMP/charon" "$flake#charon"
+          echo "$RUNNER_TEMP/aeneas/bin" >> "$GITHUB_PATH"
+          echo "$RUNNER_TEMP/charon/bin" >> "$GITHUB_PATH"
+      - name: Translate the Rust and compare with the committed Lean
+        run: verified/extract.sh --check

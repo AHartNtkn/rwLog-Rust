@@ -15,6 +15,8 @@ lean/
   RwLogVerified/    proofs about RwlogCore against lean/RwLog
   AxiomAudit.lean   the headline theorems use only Lean's three standard axioms
 extract.sh          regenerates lean/RwlogCore
+versions.env        the Aeneas, Charon, Lean and mathlib versions, upgraded together
+check-versions.sh   checks that every file naming a version agrees with versions.env
 ```
 
 ## What is proved
@@ -58,8 +60,29 @@ cd verified/lean && lake exe cache get && lake build --wfail
 ```
 
 The Lean build needs neither Charon nor Aeneas, because the generated files
-are committed. After changing `rust/src`, run `./extract.sh` with `charon`
-and `aeneas` on `PATH`, built from the Aeneas commit pinned in
-`lean/lakefile.toml` and the Charon commit in that checkout's `charon-pin`.
-Aeneas and the Lean project must use the same Lean version; the pinned commit
-is the last one on Lean 4.35.0.
+are committed.
+
+## The generated Lean follows the Rust
+
+After changing `rust/src`, run `./extract.sh` and commit what it writes to
+`lean/RwlogCore`. CI (the `extraction` job of
+`.github/workflows/verified.yml`) fetches Charon and Aeneas, runs
+`./extract.sh --check`, and fails if the committed files differ from what the
+Rust translates to. So on any commit where CI passes, the theorems are about
+the Rust in `rust/src`.
+
+`extract.sh` needs `charon` and `aeneas` on `PATH` and refuses to run unless
+they were built from the recorded commits. The header of `extract.sh` gives
+the `nix shell` command that fetches both from Aeneas's binary cache.
+
+## Versions
+
+`versions.env` is the one record of the Aeneas commit, the Charon commit, the
+Lean version and the mathlib version. They are upgraded together, in one
+commit: each Aeneas commit works with one Charon commit and one Lean and
+mathlib version, and `lean/` and `verified/lean` build as one Lean project.
+The files that have to repeat a version (`lean-toolchain`, `lakefile.toml`
+and `lake-manifest.json` in `lean/` and `verified/lean`) are compared with
+the record by `./check-versions.sh`, which also checks the record against
+what the Aeneas commit itself asks for. CI runs it on every change to
+`lean/` or `verified/`.
