@@ -184,7 +184,8 @@ def swapped (init : Program → Rel → Cost C.State) : CostedRuntime where
   Ans := C.Ans
   State := C.State
   init := init
-  step s := ⟨(C.step s).val.swap, (C.step s).ticks⟩
+  step s := ⟨(C.step s).val.swap, (C.step s).ticks, (C.step s).peak, (C.step s).held,
+    (C.step s).held_le⟩
 
 theorem swapped_spent (init : Program → Rel → Cost C.State) : ∀ (n : Nat) (s : C.State), (C.swapped init).spent s n = C.spent s n
   | 0, _ => rfl

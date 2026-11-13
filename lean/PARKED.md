@@ -20,9 +20,23 @@ all of them build.
 | `RwLog/Rungs/Framework/` `Race`, `RaceWinner` | what `Cost.race` returns and spends, in ticks only; to be restated with the space component when the port needs them |
 | `Tests/` `R005Runs`, `DirectedRuns`, `MiddleRuns` | runs and measurements of the above |
 
+The runtime and its kept properties were restated on the same day (roadmap
+L28, L35, L38, L40): a runtime has its own type of answers with a denotation,
+a step has a third output (a progress certificate), and a machine that is
+done gives a final report. The files below define or reason about a machine
+with the two-output step and no final report. They are out of the build for
+the same reason and on the same terms.
+
+| Files | What they are |
+|---|---|
+| `RwLog/Rungs/Naive/` `Engine`, `Correct`, `Properties` | the naive machine (R000 of epoch 1) as a `Runtime`, and its theorems |
+| `RwLog/Rungs/Tabled/Base/` (all: `Engine`, `Spec`, `Proofs/`) | the tabled machine (R001 of epoch 1) as a `Runtime`, and its theorems |
+| `Tests/` `NaiveRuns`, `TabledRuns` | runs of the two on the conformance cases |
+
 Still built: the specification, `Kernel/`, `SpanLayer/`, `Lib/`,
-`Rungs/Naive/`, `Rungs/Tabled/Base/` (the tabled machine as a plain
-`Runtime`), and the rest of `Rungs/Framework/`.
+`Rungs/Naive/` `Chain`, `Normalize`, `NormalizeCorrect` and `Unfold`
+(normalisation and unfolding, which mention no machine), and the rest of
+`Rungs/Framework/`. No machine is in the build until R005 is ported.
 
 A file leaves this list when it is ported and imported again, or is deleted
 because the port did not need it. The list must be empty when M4 is declared

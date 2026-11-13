@@ -12,10 +12,12 @@ R005 is made of, so that R005 can be ported once as the yardstick for the next
 engine (roadmap M3 part B and M4). No rung is admitted on master until then.
 The trusted statements are being restated; a kept file that stops compiling
 against them is parked, not repaired. `PARKED.md` lists the files that are out
-of the build since the kernel and the cost monad were restated: everything
-below that is written against the old kernel (`Rungs/Tabled/` outside `Base`,
-`Rungs/R005`, `Mirror`, `Directed`, `Hedge`, `Framework/Race*`). What this file
-says about them describes them as they are at the tag.
+of the build since the kernel, the cost monad and the runtime were restated:
+everything below that is written against the old kernel or defines a machine
+with the old step (`Rungs/Tabled/`, `Rungs/R005`, `Mirror`, `Directed`,
+`Hedge`, `Framework/Race*`, and `Engine`, `Correct` and `Properties` of
+`Rungs/Naive/`). What this file says about them describes them as they are at
+the tag. No machine is in the build until R005 is ported.
 
 ```
 Trusted/        the specification: syntax, semantics, answers, steps and runtimes with the
@@ -53,8 +55,9 @@ Rungs/R005/     the top rung of epoch 1, parked: its machine (Engine.lean), the 
                 statements with no proofs (Spec.lean)
 Conformance/    behaviours pinned against the Rust implementation
 AxiomAudit.lean every headline and shared theorem, checked to use only the three standard axioms
-Tests/          executable runs: the naive and the tabled machine on the conformance cases, R005
-                beside R004, and the measurements
+Tests/          executable runs: the charges of the kernel (ChargeRuns, built); the naive and
+                the tabled machine on the conformance cases, R005 beside R004, and the
+                measurements (parked)
 ```
 
 `SYMMETRIC_ENGINE.md` is the design note for the engine of milestone M6: what it
@@ -162,7 +165,7 @@ rung unchanged.
   `CostedRuntime.le_spent_of_covered` (a machine that has emitted nothing in
   `N` steps has paid for `N + 1` before it covers anything).
 
-`Rungs/Tabled/` is the base for costed rungs that keep R001's tables and change
+`Rungs/Tabled/` (parked) is the base for costed rungs that keep R001's tables and change
 something else. `Base/` is R001 itself as a plain `Runtime` (`R001.runtime`)
 with its statements and proofs. `Machine.lean` is R001's machine written in the cost monad
 with the unfolding race left to an `Oracle`; `Tabled.round_split` isolates
