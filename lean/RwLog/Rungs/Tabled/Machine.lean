@@ -83,6 +83,7 @@ structure GoalOf (S N : Type) where
   lb : Option S
   node : N
   rb : Option S
+  deriving DecidableEq
 
 /-- A table: a goal, the answers found so far, and whether it is complete. -/
 structure TableOf (S N A : Type) where
