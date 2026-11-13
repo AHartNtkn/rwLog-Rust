@@ -3,60 +3,90 @@
 
 ## Constraints
 
-An *interpretation* `M` is a set of ground constraint atoms: the atoms taken
-to hold. A theory says which interpretations are allowed. A rule
-`h₁, …, hₙ <=> B` is the axiom that, for every ground instance of the
-variables of the heads, all heads hold exactly when some ground values of
-the variables occurring only in the body make the body hold. `fail` is
-false, `.` is true, an atom holds when it is in `M`, and an equation holds
-when its two sides are the same term. `T.Model M` says every rule of `T`
-holds in `M`. This is defined for every theory: it assumes neither range
-restriction, nor termination, nor confluence.
-This is the declarative reading of constraint handling rules. Firing rules,
-stores and refutation are how an engine computes with it, and they live
-outside this file.
+An *interpretation* `M` is a set of ground constraints: the ones taken to
+hold. The sorts of a program fix one interpretation, `Sorts.interp`:
 
-So `(pin $x) <=> $x = z.` makes `(pin a)` hold exactly when `a` is `z`, and
-`(pin $x) <=> $x = z, (pin z).` says the same thing while also stating that
-`(pin z)` holds.
+* `(s t)` holds exactly when the ground term `t` belongs to the sort `s`
+  (`Sorts.Mem`, read off the declaration of `s`; a name with no declaration
+  is the empty sort);
+* `(!= t u)` holds exactly when `t` and `u` are different terms;
+* no other constraint holds.
+
+The sorts of a well-formed program are such that finitely many of them have
+no term in common, or one, or infinitely many (`Sorts.WellFormed`).
+
+The spans of a well-formed program are first-order (`Span.firstOrder`): no
+variable is applied to an argument, and no constraint is a variable. The
+surface syntax writes no other span. The meaning below is given for every
+span; a constraint domain is held to spans that are first-order
+(`Trusted/Domain.lean`).
+
+There are no rules and no models: the sorts of a program are sets of ground
+terms, and nothing else is said about constraints.
 
 ## Relations
 
-In one interpretation, an expression denotes a set of pairs of ground terms.
-A span `l {c} -> r` relates `lσ` to `rσ` when every atom of `cσ` holds in
-`M`. Union, intersection, composition and converse are the usual ones, and
-recursion is the least fixpoint, all in the same `M`. A pair is observable
-when some model of the program's theory relates it. Two meanings are
-equivalent under a theory when they agree in every model; since every
-operator works in one `M` at a time, this is a congruence.
+In an interpretation, an expression denotes a set of pairs of ground terms.
+A span `l {c} -> r` relates `lσ` to `rσ` when every constraint of `cσ` holds:
+one substitution produces both sides and satisfies the sorts and the
+disequalities of the store. Union, intersection, composition and converse
+are the usual ones, and recursion is the least fixpoint. The meaning of an
+expression in a program (`ProgramOf.pairs`) is its denotation in the
+interpretation of the program's sorts.
+
+The denotation is stated for any interpretation because an answer of a
+machine need not be a span (`Trusted/Runtime.lean`): what an answer relates
+is asked given which constraints hold.
 -/
 import RwLog.Trusted.Syntax
 import Mathlib.Order.FixedPoints
+import Mathlib.Data.Set.Finite.Basic
 
 namespace RwLog
 
-/-! ## Interpretations and models -/
+/-! ## Interpretations and sorts -/
 
-/-- An interpretation: the ground constraint atoms that hold. -/
+/-- An interpretation: the ground constraints that hold. -/
 abbrev Interp := Set GTerm
 
-/-- A rule body holds under `σ` in `M`. -/
-def Body.HoldsAt (M : Interp) (σ : Nat → GTerm) : Body → Prop
-  | .fail => False
-  | .conj eqs cs => (∀ e ∈ eqs, e.1.bind σ = e.2.bind σ) ∧ ∀ c ∈ cs, c.bind σ ∈ M
+/-- The case of a sort that reads a term with head `f` and `n` arguments: the
+sorts named for the arguments. -/
+def SortDef.caseOf (d : SortDef) (f : Sym) (n : Nat) : Option (List (Option Name)) :=
+  (d.cases.find? fun c => c.1 = f ∧ c.2.length = n).map Prod.snd
 
-/-- `v` occurs in a head of the rule. -/
-def TRule.HeadVar (ρ : TRule) (v : Nat) : Prop := ∃ h ∈ ρ.heads, v ∈ h.vars
+/-- The ground term belongs to the sort of that name. -/
+inductive Sorts.Mem (S : Sorts) : Name → GTerm → Prop
+  /-- A case reads the term, and each argument belongs to the sort named for
+  it. -/
+  | case {n : Name} {d : SortDef} {t : GTerm} {f : Sym} {ts : List GTerm}
+      {as : List (Option Name)} :
+      S.lookup n = some d → t.spine = some (f, ts) → d.caseOf f ts.length = some as →
+      (∀ (i : Nat) (m : Name) (u : GTerm), as[i]? = some (some m) → ts[i]? = some u → Mem S m u) →
+      Mem S n t
+  /-- No case reads the term, the sort has every other term but the listed
+  ones, and each argument belongs to the sort named for the arguments. -/
+  | rest {n : Name} {d : SortDef} {t : GTerm} {f : Sym} {ts : List GTerm} {ex : List (Sym × Nat)}
+      {a : Option Name} :
+      S.lookup n = some d → t.spine = some (f, ts) → d.caseOf f ts.length = none →
+      d.rest = some (ex, a) → (f, ts.length) ∉ ex →
+      (∀ (m : Name) (u : GTerm), a = some m → u ∈ ts → Mem S m u) → Mem S n t
 
-/-- A rule holds in `M`: for every ground `σ`, its heads all hold under `σ`
-exactly when the body holds under some `τ` that agrees with `σ` on the
-variables of the heads (the body-only variables are existential). -/
-def TRule.HoldsIn (M : Interp) (ρ : TRule) : Prop :=
-  ∀ σ : Nat → GTerm, (∀ h ∈ ρ.heads, h.bind σ ∈ M) ↔
-    ∃ τ : Nat → GTerm, (∀ v, ρ.HeadVar v → τ v = σ v) ∧ ρ.body.HoldsAt M τ
+/-- The ground constraint holds under the sorts. -/
+def Sorts.Holds (S : Sorts) : GTerm → Prop
+  | .app (.sym s) t => S.Mem s t
+  | .app (.app (.sym f) t) u => f = neSym ∧ t ≠ u
+  | _ => False
 
-/-- `M` is a model of the theory: every rule holds in it. -/
-def Theory.Model (T : Theory) (M : Interp) : Prop := ∀ ρ ∈ T, ρ.HoldsIn M
+/-- The interpretation the sorts fix: the constraints that hold. -/
+def Sorts.interp (S : Sorts) : Interp := {a | S.Holds a}
+
+/-- The sorts are well formed: the terms that belong to all of finitely many
+sorts are none, one, or infinitely many. A finite choice is written as a
+union of relations and not as a sort, so a variable of a store that is not
+bound has infinitely many values. -/
+def Sorts.WellFormed (S : Sorts) : Prop :=
+  ∀ ns : List Name, {t : GTerm | ∀ n ∈ ns, S.Mem n t} = ∅ ∨
+    (∃ t, {t : GTerm | ∀ n ∈ ns, S.Mem n t} = {t}) ∨ {t : GTerm | ∀ n ∈ ns, S.Mem n t}.Infinite
 
 /-! ## Relations in one interpretation -/
 
@@ -111,27 +141,17 @@ theorem ProgramOf.meaningAt_eq (P : Program) (M : Interp) (n : Name) :
   have := OrderHom.map_lfp (P.stepAt M)
   exact (congrFun this n).symm
 
-/-- The observable relation: the pairs some model of the theory relates. -/
-def ProgramOf.obs (P : Program) (e : Rel) : PRel :=
-  {p | ∃ M, P.theory.Model M ∧ p ∈ P.semAt M e}
+/-- A program is well formed when its names are distinct, every called name,
+in a body or in the query, is defined, its sorts are well formed, and every
+span, in a body or in the query, is first-order. -/
+def ProgramOf.WellFormed (P : Program) (q : Rel) : Prop :=
+  (P.defs.map Prod.fst).Nodup ∧
+  (∀ n ∈ q.calls ++ (P.defs.flatMap fun d => d.2.calls), n ∈ P.defs.map Prod.fst) ∧
+  P.sorts.WellFormed ∧
+  ∀ s ∈ q.spans ++ (P.defs.flatMap fun d => d.2.spans), s.firstOrder = true
 
-/-! ## Equivalence -/
-
-/-- Two interpretation-indexed meanings are equivalent under a theory when
-they agree in every model. -/
-def MEquiv (T : Theory) (R S : Interp → PRel) : Prop :=
-  ∀ M, T.Model M → R M = S M
-
-/-- Equivalent queries have the same observable pairs. -/
-theorem MEquiv.obs_eq {P P' : Program} {e e' : Rel} (ht : P'.theory = P.theory)
-    (h : MEquiv P.theory (fun M => P'.semAt M e') (fun M => P.semAt M e)) :
-    P'.obs e' = P.obs e := by
-  ext p
-  simp only [ProgramOf.obs, Set.mem_ofPred_eq, ht]
-  constructor
-  · rintro ⟨M, hM, hp⟩
-    have := h M hM; simp only at this; exact ⟨M, hM, this ▸ hp⟩
-  · rintro ⟨M, hM, hp⟩
-    have := h M hM; simp only at this; exact ⟨M, hM, this.symm ▸ hp⟩
+/-- The meaning of an expression in a program: its pairs in the
+interpretation of the program's sorts. -/
+def ProgramOf.pairs (P : Program) (e : Rel) : PRel := P.semAt P.sorts.interp e
 
 end RwLog

@@ -2,8 +2,9 @@
 # The kernel rung of the Rust store
 
 `rustKernel z` is a kernel on the spans of the language (`RwLog.Kernel`,
-`lean/RwLog/Trusted/Kernel.lean`). It returns what the specification kernel
-`Kernel.std` returns (`rustKernel_refines`), and the charge of each operation
+`lean/RwLog/Trusted/Kernel.lean`). It returns what the domain of spans as
+they are written returns (`rustKernel_refines`, against `Domain.written`),
+as `Kernel.std` does, and the charge of each operation
 on terms is the number of ticks within which the Rust function on the store
 of `verified/rust/src/store.rs` returns that result:
 
@@ -26,10 +27,10 @@ advances the tick counter by at most the operation's charge.
 `nm` of the theorems). The charges count distinct subterms, and a list of
 constraints is a term that ends in `z`.
 
-Not derived here, and charged as `Kernel.std` charges them: `simplify` and
-`covers` when the covering span has constraints (their algorithms are
-replaced first, roadmap L39). `swap` exchanges two fields and touches no
-store. `tick`, `race` and `metered` are those of the cost monad.
+Not derived here, and charged as `Kernel.std` charges them: `rep`, which
+returns the span it is given, and `covers` when the covering span has
+constraints (the kernel of the sorts replaces both, roadmap L39 and L48).
+`swap` exchanges two fields and touches no store. `tick`, `race` and `metered` are those of the cost monad.
 
 Space. The store only grows and an allocation is a tick, so an operation
 that may add nodes is charged its tick bound as the cells it holds
@@ -41,7 +42,8 @@ the function returns, and its depth is under the ticks spent (a push is a
 tick), which is the peak of `Charged.op`.
 
 The operations on nodes and on answers of a `DerivationKernel` are not
-derived on the store: `DerivationKernel.over (rustKernel z)` charges them as
+derived on the store: `DerivationKernel.over Domain.written (rustKernel z)`
+charges them as
 `Trusted/Charged.lean` postulates (roadmap L45).
 -/
 import RwLog.Trusted.KernelRung
@@ -61,30 +63,31 @@ proved of the Rust functions. -/
   race := Cost.race
   metered := Cost.metered
   swap := Span.swap
+  rep := Charged.rep
   compose x y := Charged.op (x.compose y) (composeCost z x y) (composeCost z x y)
   meet x y := Charged.op (x.meet y) (meetCost z x y) (meetCost z x y)
   composable xs := Charged.op (Span.chain xs).isSome (composableCost z xs) (composableCost z xs)
   covers a s := if a.c = [] then Charged.op (a.covers? s) (coversPlainCost a) 0 else Charged.covers a s
-  simplify := Charged.simplify
   eq x y := Charged.op (decide (x = y)) 3 0
   rightBound s := Charged.op (bound s.rightIface) (ifaceCost s.r s.c) (ifaceCost s.r s.c)
   leftBound s := Charged.op (bound s.leftIface) (ifaceCost s.l s.c) (ifaceCost s.l s.c)
 
-/-- The Rust kernel returns what the specification kernel returns. -/
-theorem rustKernel_refines (z : Sym) : Kernel.Refines (rustKernel z) where
+/-- The Rust kernel returns what the domain of spans as they are written
+returns. -/
+theorem rustKernel_refines (z : Sym) : Kernel.Refines Domain.written (rustKernel z) where
   monad := rfl
   tick := rfl
   race _ _ _ := rfl
   metered _ _ := rfl
   swap := rfl
+  rep _ := rfl
   compose _ _ := rfl
   meet _ _ := rfl
-  composable _ := rfl
+  composable xs := (Domain.written_composable xs).symm
   covers a s := by
     show (if a.c = [] then Charged.op (a.covers? s) (coversPlainCost a) 0 else Charged.covers a s).val
       = a.covers? s
     split <;> rfl
-  simplify _ _ := rfl
   eq _ _ := rfl
   rightBound _ := rfl
   leftBound _ := rfl

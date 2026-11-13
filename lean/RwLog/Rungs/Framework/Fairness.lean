@@ -28,6 +28,7 @@ It has `2 ^ (k + 1)` answers, one for each word, each with a derivation of
 size `3 * k + 2`, and no sound span relates the pairs of two words
 (`no_shared_span`), so covering them takes `2 ^ (k + 1)` answers.
 -/
+import RwLog.SpanLayer.Sorts
 import RwLog.Rungs.Framework.Latency
 import RwLog.Trusted.Properties
 import Mathlib.Data.Vector.Basic
@@ -112,11 +113,12 @@ end CostedRuntime
 when run alone is covered by the time the machine has paid for building its
 first state and for `m ≤ c * n` steps, each at most the dearest of them. -/
 theorem Fair.flat_ticks {C : CostedRuntime} {c : Nat} (h : Fair C c) {P : Program} {q q' : Rel}
-    {f : Nat} (hwf : P.WellFormed q) (ha : Alternative P q q' f) {M : Interp}
-    (hM : P.theory.Model M) {x : GTerm × GTerm} {n : Nat} (hx : C.Covered P q' M x n) :
+    {f : Nat} (hwf : P.WellFormed q) (ha : Alternative P q q' f)
+    {x : GTerm × GTerm} {n : Nat} (hx : C.Covered P q' P.sorts.interp x n) :
     ∃ m, m ≤ c * C.paid P q' n ∧
-      C.CoversWithin P q M x ((C.init P q).ticks + m * C.dearest (C.start P q) m) := by
-  obtain ⟨m, hm, hc⟩ := h.flat P q q' f hwf ha M hM x n hx
+      C.CoversWithin P q P.sorts.interp x
+        ((C.init P q).ticks + m * C.dearest (C.start P q) m) := by
+  obtain ⟨m, hm, hc⟩ := h.flat P q q' f hwf ha x n hx
   exact ⟨m, hm, m, hc, C.paid_le_steps P q m⟩
 
 /-! ## The final report -/
@@ -126,14 +128,15 @@ ones: an emitted answer that covers it is covered by it. -/
 theorem Runtime.FinalMaximal.maximal {R : Runtime} (h : R.FinalMaximal) {P : Program} {q : Rel}
     (hwf : P.WellFormed q) {n : Nat} {fin : List R.Ans} (hf : R.final (R.init P q) n = some fin)
     {a : R.Ans} (ha : a ∈ fin) {b : R.Ans} (hb : b ∈ R.emitted (R.init P q) n)
-    (hba : Answer.Covers b a) : Answer.Covers a b := by
+    (hba : Answer.Covers P.sorts.interp b a) : Answer.Covers P.sorts.interp a b := by
   obtain ⟨-, hcov, hpw⟩ := h P q hwf n fin hf
   obtain ⟨c, hc, hcb⟩ := hcov b hb
-  have hca : Answer.Covers c a := fun M => (hba M).trans (hcb M)
+  have hca : Answer.Covers P.sorts.interp c a := Set.Subset.trans hba hcb
   by_cases hac : c = a
   · exact hac ▸ hcb
   · exfalso
-    have : Std.Symm fun x y : R.Ans => ¬ Answer.Covers x y ∧ ¬ Answer.Covers y x :=
+    have : Std.Symm fun x y : R.Ans =>
+        ¬ Answer.Covers P.sorts.interp x y ∧ ¬ Answer.Covers P.sorts.interp y x :=
       ⟨fun _ _ h => ⟨h.2, h.1⟩⟩
     exact (hpw.forall hc ha hac).1 hca
 
@@ -173,8 +176,8 @@ theorem GDerives.semAt {P : Program} {M : Interp} {d : Nat} {e : Rel} {p : GTerm
 /-- The first wording: every pair with a derivation of size `d` is covered
 within `coeff * (d + size + 1) ^ deg` ticks. -/
 def FirstWording (C : CostedRuntime) (coeff deg : Nat) : Prop :=
-  ∀ P q, P.WellFormed q → ∀ M, P.theory.Model M → ∀ d x, GDerives P M d q x →
-    C.CoversWithin P q M x (coeff * (d + P.size + q.size + 1) ^ deg)
+  ∀ P q, P.WellFormed q → ∀ d x, GDerives P P.sorts.interp d q x →
+    C.CoversWithin P q P.sorts.interp x (coeff * (d + P.size + q.size + 1) ^ deg)
 
 /-- The machine has paid a tick for each answer it has emitted. -/
 def CostedRuntime.PaysPerAnswer (C : CostedRuntime) : Prop :=
@@ -228,7 +231,7 @@ def bits : Nat → Rel
   | 0 => bit
   | k + 1 => .seq bit (bits k)
 
-/-- The program with no definition and no rule. -/
+/-- The program with no definition and no sort. -/
 def prog : Program := ⟨[], []⟩
 
 /-- The ground term the targets start from. -/
@@ -238,11 +241,19 @@ theorem bits_calls : ∀ k, (bits k).calls = []
   | 0 => rfl
   | k + 1 => by simp [bits, RelOf.calls, bits_calls k, bit]
 
-theorem wellFormed (k : Nat) : prog.WellFormed (bits k) := by
-  refine ⟨List.nodup_nil, ?_, by simp [prog]⟩
-  simp [bits_calls, prog]
+theorem bits_spans : ∀ k, ∀ s ∈ (bits k).spans, s.firstOrder = true
+  | 0 => by decide
+  | k + 1 => by
+    intro s hs
+    simp only [bits, RelOf.spans, List.mem_append] at hs
+    rcases hs with hs | hs
+    · revert s; decide
+    · exact bits_spans k s hs
 
-theorem model (M : Interp) : prog.theory.Model M := fun _ h => by simp [prog] at h
+theorem wellFormed (k : Nat) : prog.WellFormed (bits k) := by
+  refine ⟨List.nodup_nil, ?_, Sorts.wellFormed_nil, ?_⟩
+  · simp [bits_calls, prog]
+  · simpa [prog] using bits_spans k
 
 theorem bits_size : ∀ k, (bits k).size ≤ 12 * (k + 1)
   | 0 => by decide
@@ -308,55 +319,167 @@ theorem wrapO_inj {V : Type} : ∀ {w w' : List Bool} {t t' : Term V}, w.length 
     simp only [wrapO, Term.app.injEq, Term.sym.injEq] at h
     rw [bitSym_inj h.1, wrapO_inj (by simpa using hl) h.2]
 
+/-- Put a ground term for a symbol. -/
+def subSym (c : Sym) (g : GTerm) : GTerm → GTerm
+  | .var e => nomatch e
+  | .sym s => if s = c then g else .sym s
+  | .app t u => .app (subSym c g t) (subSym c g u)
+
+theorem subSym_fresh {c : Sym} {g : GTerm} : ∀ {t : GTerm}, c ∉ t.syms → subSym c g t = t
+  | .var e, _ => nomatch e
+  | .sym s, h => by
+    have : s ≠ c := fun e => h (by simp [Term.syms, e])
+    simp [subSym, this]
+  | .app t u, h => by
+    simp only [Term.syms, List.mem_append, not_or] at h
+    simp only [subSym, subSym_fresh h.1, subSym_fresh h.2]
+
+/-- An instance with a fresh symbol for one variable gives the instance back
+when the value of the variable is put for the symbol. -/
+theorem subSym_bind {c : Sym} {σ : Nat → GTerm} {v : Nat} : ∀ {t : Pat},
+    c ∉ (t.bind σ).syms →
+      subSym c (σ v) (t.bind (Function.update σ v (.sym c))) = t.bind σ
+  | .var x, h => by
+    by_cases hx : x = v
+    · subst hx; simp [Term.bind, subSym]
+    · simp only [Term.bind, Function.update_of_ne hx]
+      exact subSym_fresh h
+  | .sym s, h => by
+    have : s ≠ c := fun e => h (by simp [Term.bind, Term.syms, e])
+    simp [Term.bind, subSym, this]
+  | .app t u, h => by
+    simp only [Term.bind, Term.syms, List.mem_append, not_or] at h
+    simp only [Term.bind, subSym, subSym_bind h.1, subSym_bind h.2]
+
+/-- With no sort declared, the constraints that hold are the disequations of
+different terms. -/
+theorem holds_nil {g : GTerm} :
+    Sorts.Holds [] g ↔ ∃ t u, g = .app (.app (.sym neSym) t) u ∧ t ≠ u := by
+  constructor
+  · intro h
+    match g, h with
+    | .app (.sym _) _, h => exact absurd h Sorts.not_mem_nil
+    | .app (.app (.sym f) t) u, h => exact ⟨t, u, by rw [h.1], h.2⟩
+  · rintro ⟨t, u, rfl, h⟩
+    exact ⟨rfl, h⟩
+
+/-- A letter, or a letter on top of a term. -/
+def Lettered (d : GTerm) : Prop := ∃ b, d = .sym (bitSym b) ∨ ∃ t, d = .app (.sym (bitSym b)) t
+
+theorem bitSym_ne_neSym (b : Bool) : bitSym b ≠ neSym := by cases b <;> decide
+
+/-- A constraint that holds once a lettered term is put for a symbol held
+before, with no sort declared. -/
+theorem holds_of_subSym {c : Sym} {d g : GTerm} (hd : Lettered d)
+    (h : Sorts.Holds [] (subSym c d g)) : Sorts.Holds [] g := by
+  obtain ⟨b, hd⟩ := hd
+  obtain ⟨t, u, e, hne⟩ := holds_nil.1 h
+  have hsym : ∀ {x : GTerm} {f : Sym}, subSym c d x = .sym f → f ≠ bitSym b → x = .sym f := by
+    intro x f hx hf
+    match x, hx with
+    | .sym s, hx =>
+      simp only [subSym] at hx
+      split at hx
+      · rcases hd with rfl | ⟨_, rfl⟩
+        · cases hx; exact absurd rfl hf
+        · cases hx
+      · exact hx
+  match g, e with
+  | .sym s, e =>
+    simp only [subSym] at e
+    split at e
+    · rcases hd with rfl | ⟨_, rfl⟩ <;> cases e
+    · cases e
+  | .app (.sym s) g₂, e =>
+    simp only [subSym, Term.app.injEq] at e
+    split at e
+    · rcases hd with rfl | ⟨_, rfl⟩
+      · cases e.1
+      · simp only [Term.app.injEq, Term.sym.injEq] at e
+        exact absurd e.1.1 (bitSym_ne_neSym b)
+    · cases e.1
+  | .app (.app g₁ g₂) g₃, e =>
+    simp only [subSym, Term.app.injEq] at e
+    obtain ⟨⟨e₁, rfl⟩, rfl⟩ := e
+    rw [hsym e₁ (bitSym_ne_neSym b).symm]
+    exact ⟨rfl, fun e' => hne (by rw [e'])⟩
+
 /-- A pattern with instances under two different words of the same length has
-an instance that is under no word of that length: where the two words first
-differ, the pattern has a variable, and that variable can be `z`. -/
+a variable, lettered in the first instance, such that the first instance with
+a symbol that is no letter for that variable is under no word of that length:
+where the two words first differ, the pattern has a variable. -/
 theorem no_shared_pattern : ∀ (w w' : List Bool) (r : Pat) (σ σ' : Nat → GTerm) (t t' : GTerm),
     w.length = w'.length → w ≠ w' → r.bind σ = wrapO w t → r.bind σ' = wrapO w' t' →
-    ¬ ∃ (w'' : List Bool) (s : GTerm), w''.length = w.length ∧ r.bind (fun _ => z) = wrapO w'' s
+    ∃ v, Lettered (σ v) ∧ ∀ c : Sym, (∀ b, c ≠ bitSym b) →
+      ¬ ∃ (w'' : List Bool) (s : GTerm), w''.length = w.length ∧
+        r.bind (Function.update σ v (.sym c)) = wrapO w'' s
   | [], [], _, _, _, _, _, _, hne, _, _ => absurd rfl hne
   | [], _ :: _, _, _, _, _, _, hl, _, _, _ => by simp at hl
   | _ :: _, [], _, _, _, _, _, hl, _, _, _ => by simp at hl
   | b :: w, b' :: w', r, σ, σ', t, t', hl, hne, h, h' => by
-    rintro ⟨w'', s, hl'', he⟩
-    cases w'' with
-    | nil => simp at hl''
-    | cons b'' w'' =>
-      cases r with
-      | var v => simp [Term.bind, wrapO, z] at he
-      | sym f => simp [Term.bind, wrapO] at h
-      | app r₁ r₂ =>
-        simp only [Term.bind, wrapO, Term.app.injEq] at h h' he
-        cases r₁ with
-        | var v =>
-          simp only [Term.bind, z, Term.sym.injEq] at he
-          exact bitSym_ne_z b'' he.1.symm
-        | app _ _ => simp [Term.bind] at h
-        | sym f =>
-          simp only [Term.bind, Term.sym.injEq] at h h'
-          have hb : b = b' := bitSym_inj (h.1.symm.trans h'.1)
-          have hne' : w ≠ w' := fun hw => hne (by rw [hb, hw])
-          exact no_shared_pattern w w' r₂ σ σ' _ _ (by simpa using hl) hne' h.2 h'.2
-            ⟨w'', s, by simpa using hl'', he.2⟩
+    cases r with
+    | var v =>
+      refine ⟨v, ⟨b, .inr ⟨_, h⟩⟩, ?_⟩
+      rintro c - ⟨w'', s, hl'', he⟩
+      cases w'' with
+      | nil => simp at hl''
+      | cons b'' w'' => simp [Term.bind, wrapO] at he
+    | sym f => simp [Term.bind, wrapO] at h
+    | app r₁ r₂ =>
+      simp only [Term.bind, wrapO, Term.app.injEq] at h h'
+      cases r₁ with
+      | var v =>
+        refine ⟨v, ⟨b, .inl h.1⟩, ?_⟩
+        rintro c hc ⟨w'', s, hl'', he⟩
+        cases w'' with
+        | nil => simp at hl''
+        | cons b'' w'' =>
+          simp only [Term.bind, wrapO, Term.app.injEq, Function.update_self, Term.sym.injEq] at he
+          exact hc b'' he.1
+      | app _ _ => simp [Term.bind] at h
+      | sym f =>
+        simp only [Term.bind, Term.sym.injEq] at h h'
+        have hb : b = b' := bitSym_inj (h.1.symm.trans h'.1)
+        have hne' : w ≠ w' := fun hw => hne (by rw [hb, hw])
+        obtain ⟨v, hv, hno⟩ := no_shared_pattern w w' r₂ σ σ' _ _ (by simpa using hl) hne' h.2 h'.2
+        refine ⟨v, hv, ?_⟩
+        rintro c hc ⟨w'', s, hl'', he⟩
+        cases w'' with
+        | nil => simp at hl''
+        | cons b'' w'' =>
+          simp only [Term.bind, wrapO, Term.app.injEq] at he
+          exact hno c hc ⟨w'', s, by simpa using hl'', he.2⟩
 
 /-- A span that relates only pairs of `bits k` does not relate `z` to two
 different words on top of `z`. -/
 theorem no_shared_span {k : Nat} {a : Span}
-    (hs : a.denAt Set.univ ⊆ prog.semAt Set.univ (bits k)) {w w' : List Bool}
+    (hs : a.denAt prog.sorts.interp ⊆ prog.semAt prog.sorts.interp (bits k)) {w w' : List Bool}
     (hw : w.length = k + 1) (hw' : w'.length = k + 1)
-    (h : (z, wrapR w z) ∈ a.denAt Set.univ) (h' : (z, wrapR w' z) ∈ a.denAt Set.univ) :
+    (h : (z, wrapR w z) ∈ a.denAt prog.sorts.interp)
+    (h' : (z, wrapR w' z) ∈ a.denAt prog.sorts.interp) :
     w = w' := by
   by_contra hne
-  obtain ⟨σ, -, hr, -⟩ := h
+  obtain ⟨σ, -, hr, hc⟩ := h
   obtain ⟨σ', -, hr', -⟩ := h'
-  have hz : (a.l.bind (fun _ => z), a.r.bind (fun _ => z)) ∈ a.denAt Set.univ :=
-    ⟨fun _ => z, rfl, rfl, fun _ _ => Set.mem_univ _⟩
-  obtain ⟨w'', hw'', he⟩ := mem_bits k (hs hz)
-  simp only at hr hr' he
-  rw [wrapR_eq] at hr hr' he
-  exact no_shared_pattern w.reverse w'.reverse a.r σ σ' z z (by simp [hw, hw'])
+  simp only at hr hr'
+  rw [wrapR_eq] at hr hr'
+  obtain ⟨v, hv, hno⟩ := no_shared_pattern w.reverse w'.reverse a.r σ σ' z z (by simp [hw, hw'])
     (fun h => hne (List.reverse_injective h)) hr.symm hr'.symm
-    ⟨w''.reverse, _, by simp [hw, hw''], he⟩
+  obtain ⟨c, hfresh⟩ := Infinite.exists_notMem_finset
+    (a.c.flatMap (fun t => (t.bind σ).syms) ++ ["o", "i"]).toFinset
+  simp only [List.mem_toFinset, List.mem_append, List.mem_flatMap, not_or, not_exists,
+    not_and] at hfresh
+  have hcb : ∀ b, c ≠ bitSym b := by
+    intro b e
+    cases b <;> simp [bitSym] at e <;> simp [e] at hfresh
+  have hτ : (a.l.bind (Function.update σ v (.sym c)), a.r.bind (Function.update σ v (.sym c))) ∈
+      a.denAt prog.sorts.interp :=
+    ⟨_, rfl, rfl, fun t ht => holds_of_subSym (c := c) hv (by
+      rw [subSym_bind (hfresh.1 t ht)]; exact hc t ht)⟩
+  obtain ⟨w'', hw'', he⟩ := mem_bits k (hs hτ)
+  simp only at he
+  rw [wrapR_eq] at he
+  exact hno c hcb ⟨w''.reverse, _, by simp [hw, hw''], he⟩
 
 /-- An exponential outgrows every polynomial. -/
 theorem exists_pow_lt (coeff deg : Nat) : ∃ k : Nat, coeff * (15 * (k + 1)) ^ deg < 2 ^ (k + 1) := by
@@ -393,22 +516,22 @@ theorem firstWording_false (State : Type) (init : Program → Rel → Cost State
   obtain ⟨k, hk⟩ := exists_pow_lt coeff deg
   -- every word is covered within the bound
   have hcov : ∀ w : List.Vector Bool (k + 1),
-      C.CoversWithin prog (bits k) Set.univ (z, wrapR w.1 z)
+      C.CoversWithin prog (bits k) prog.sorts.interp (z, wrapR w.1 z)
         (coeff * (3 * k + 2 + prog.size + (bits k).size + 1) ^ deg) := fun w =>
-    hfw prog (bits k) (wellFormed k) Set.univ (model _) _ _ (derives _ k w.1 w.2 z)
+    hfw prog (bits k) (wellFormed k) _ _ (derives _ k w.1 w.2 z)
   choose n hn using hcov
   -- by the largest of those step counts every word is covered
   obtain ⟨w₀, -, hw₀⟩ := Finset.exists_mem_eq_sup Finset.univ ⟨List.Vector.replicate (k + 1) false,
     Finset.mem_univ _⟩ n
   set N := Finset.univ.sup n with hN
-  have hall : ∀ w : List.Vector Bool (k + 1), C.Covered prog (bits k) Set.univ (z, wrapR w.1 z) N :=
+  have hall : ∀ w : List.Vector Bool (k + 1), C.Covered prog (bits k) prog.sorts.interp (z, wrapR w.1 z) N :=
     fun w => CostedRuntime.Covered.mono C (hn w).1 (Finset.le_sup (Finset.mem_univ w))
   have hpaid : C.paid prog (bits k) N ≤
       coeff * (3 * k + 2 + prog.size + (bits k).size + 1) ^ deg := hw₀ ▸ (hn w₀).2
   -- each word is covered by its own answer
   set L := C.runtime.emitted (C.start prog (bits k)) N with hL
   have hidx : ∀ w : List.Vector Bool (k + 1), ∃ i : Fin L.length,
-      (z, wrapR w.1 z) ∈ (L.get i).denAt Set.univ := by
+      (z, wrapR w.1 z) ∈ (L.get i).denAt prog.sorts.interp := by
     intro w
     obtain ⟨a, ha, hx⟩ := hall w
     obtain ⟨i, hi, rfl⟩ := List.getElem_of_mem ha
@@ -416,8 +539,8 @@ theorem firstWording_false (State : Type) (init : Program → Rel → Cost State
   choose idx hidx using hidx
   have hinj : Function.Injective idx := by
     intro w w' h
-    have hs : (L.get (idx w)).denAt Set.univ ⊆ prog.semAt Set.univ (bits k) :=
-      hsound prog (bits k) (wellFormed k) N _ (List.get_mem L (idx w)) Set.univ (model _)
+    have hs : (L.get (idx w)).denAt prog.sorts.interp ⊆ prog.semAt prog.sorts.interp (bits k) :=
+      hsound prog (bits k) (wellFormed k) N _ (List.get_mem L (idx w))
     exact Subtype.ext (no_shared_span hs w.2 w'.2 (hidx w) (h ▸ hidx w'))
   have hcard := Fintype.card_le_of_injective idx hinj
   rw [card_vector, Fintype.card_bool, Fintype.card_fin] at hcard

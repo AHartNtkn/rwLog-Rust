@@ -180,13 +180,6 @@ end Cost
   unfold Charged.coversWork
   cases (matchInto a.l s.l []).bind (matchInto a.r s.r) <;> simp [h]
 
-@[simp] theorem Theory.firingsWork_nil (c : Store) : Theory.firingsWork [] c = 0 := rfl
-
-/-- The empty theory searches for nothing. -/
-@[simp] theorem Theory.saturateWork_nil (c : Store) : Theory.saturateWork [] c = 0 := by
-  rw [Theory.saturateWork]
-  simp [Theory.newAtoms, Theory.firings]
-
 /-! ## Costed runtimes -/
 
 namespace CostedRuntime

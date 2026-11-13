@@ -1,6 +1,6 @@
 import RwLog.Trusted.Syntax
 import RwLog.Trusted.Semantics
-import RwLog.Theory.Firing
+import RwLog.SpanLayer.Sorts
 import RwLog.SpanLayer.Triples
 import RwLog.SpanLayer.Bridge
 import RwLog.SpanLayer.Coverage
@@ -19,20 +19,14 @@ import RwLog.Trusted.Engine
 import RwLog.Rungs.Naive.Normalize
 import RwLog.Rungs.Naive.Unfold
 import RwLog.Rungs.Naive.NormalizeCorrect
-import RwLog.Conformance.Constraints
 import RwLog.Kernel.Match
-import RwLog.Kernel.Refute
 import RwLog.Kernel.Covers
 import RwLog.Kernel.Iface
-import RwLog.Kernel.RefuteCorrect
-import RwLog.Kernel.SimplifyMono
 import RwLog.SpanLayer.Dual
 import RwLog.SpanLayer.Modulo
 import RwLog.Lib.List
 import RwLog.Lib.Gfp
-import RwLog.Kernel.Live
 import RwLog.Kernel.Maxima
-import RwLog.Kernel.ExactCover
 import RwLog.Kernel.Canon
 import RwLog.Trusted.Charged
 import RwLog.Trusted.Kernel
@@ -59,6 +53,7 @@ import RwLog.Kernel.NormalForm
 import RwLog.Kernel.NormalFormCorrect
 import RwLog.Kernel.NormalFormStable
 import RwLog.Kernel.Derivation
+import RwLog.Kernel.DomainLaws
 import RwLog.Rungs.Framework.Derivation
 import RwLog.Trusted.Runtime
 import RwLog.Rungs.Framework.Answer
