@@ -67,12 +67,14 @@ import RwLog.Rungs.R001.Proofs.SymmetryProduce
 import RwLog.Rungs.R001.Proofs.SymmetryRound
 import RwLog.Trusted.Cost
 import RwLog.Kernel.Chain
+import RwLog.Kernel.Size
 import RwLog.Rungs.Framework.Cost
+import RwLog.Rungs.Framework.CostCalculus
 import RwLog.Rungs.R002.Spec
 import RwLog.Rungs.R002.Proofs.Eager
 import RwLog.Rungs.R002.Proofs.Chains
 import RwLog.Rungs.R002.Proofs.OnDemand
-import RwLog.Rungs.R002.Proofs.Machine
+import RwLog.Rungs.Tabled.Exact
 import RwLog.Rungs.R002.Proofs.SameMachine
 import RwLog.Rungs.R002.Proofs.Same
 import RwLog.Rungs.R002.Proofs.WalkCost
@@ -80,7 +82,6 @@ import RwLog.Rungs.R002.Proofs.Dominated
 import RwLog.Rungs.R002.Proofs.Simulates
 import RwLog.Rungs.R002.Proofs.Lower
 import RwLog.Rungs.R002.Proofs.Separation.Family
-import RwLog.Rungs.R002.Proofs.Separation.Calculus
 import RwLog.Rungs.R002.Proofs.Separation.State
 import RwLog.Rungs.R002.Proofs.Separation.Race
 import RwLog.Rungs.R002.Proofs.Separation.Lookups

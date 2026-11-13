@@ -16,7 +16,7 @@ computes R001's unfolding race. So:
 takes the one it needs as a hypothesis. With them in hand, every obligation of
 this file is one application, e.g. `baseline_exact_of eager_exact`.
 -/
-import RwLog.Rungs.R002.Proofs.Machine
+import RwLog.Rungs.Tabled.Exact
 import RwLog.Rungs.R002.Spec
 import RwLog.Rungs.R001.Proofs.Tier0
 

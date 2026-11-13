@@ -42,7 +42,7 @@ neighbours only when both sides are single spans, so nothing is pruned inside
 it, and its result is tested when it is formed. A call left at depth zero is
 a barrier too.
 -/
-import RwLog.Rungs.R002.Tabled
+import RwLog.Rungs.Tabled.Machine
 
 namespace RwLog
 

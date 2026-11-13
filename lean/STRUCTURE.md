@@ -12,6 +12,7 @@ Kernel/         the executable kernel (match, solve, span, refute) and its proof
 SpanLayer/      span-level semantics, derivations, coverage vocabulary
 Lib/            facts about lists and greatest fixpoints that mention no rwlog type
 Rungs/Framework generic theorems about any Runtime / Rung
+Rungs/Tabled/   the tabled round machine in the cost monad, open in its unfolding oracle
 Rungs/R00N/     one rung: Engine, (Spec), proofs
 Conformance/    behaviours pinned against the Rust implementation
 AxiomAudit.lean every headline and shared theorem, checked to use only the three standard axioms
@@ -33,6 +34,8 @@ Tests/          executable runs per rung
 | Chains of spans | `Kernel/Chain.lean` | `Span.denO_chain`, `Span.chain_isSome_iff`, `chain_isSome_fuse`, `chain_eq_none_of_compose`, `GRel.chain` |
 | Unfolding equations | `Rungs/R000/Unfold.lean` | `unfoldN_succ`, `unfoldN_succ'`, `unfoldN_call`, `unfoldN_add`, `unfoldN_or/and/seq/conv`, `unfoldN_dual` |
 | Shape of normal-form products | `Rungs/R000/Products.lean` | `joinSeq_cases`, `joinSeq_ne_nil`, `mkAnd_ne_nil`, `norm_ne_nil` |
+| Sizes charged by the cost model | `Kernel/Size.lean` (and `Term.size_pos` in `Kernel/Solve.lean`) | `Span.size_pos`, `Span.size_swap`, `Rel.size_pos` |
+| Sums over lists | `Lib/List.lean` | `sum_flatMap_map`, `sum_filterMap_map`, `le_sum_map_of_mem`, `sum_map_le` |
 | Converse of a program | `SpanLayer/Dual.lean` | `Program.sem_dual` |
 | Greatest fixpoints by iteration | `Lib/Gfp.lean` | `gfpFrom`, `gfpFrom_closed`, `subset_gfpFrom` |
 
@@ -65,6 +68,20 @@ rung unchanged.
   (`Cost.mapL_val`, `filterL_val`, `anyL_val`, `foldL_val`, ...); the ticks of
   the total traversals are sums (`mapL_ticks`, ...) and of the early-exit ones
   are bounded by the sum; `CostedRuntime.spent_mono`, `spent_of_halts`.
+
+* `CostCalculus.lean`: `Cost.Costs m v c` (`m` returns `v` and spends at most
+  `c`), with one rule per monad operation and per traversal (`Costs.bind`,
+  `Costs.mapL`, `Costs.foldL`, ...), so the value and a cost bound of a long
+  `do` block are derived together.
+
+`Rungs/Tabled/` is the base for costed rungs that keep R001's tables and change
+something else. `Machine.lean` is R001's machine written in the cost monad
+with the unfolding race left to an `Oracle`; `Tabled.round_split` isolates
+what a round spends asking the oracle. `Exact.lean` proves
+`Tabled.machine_runtime`: with any oracle whose value is R001's unfolding race
+(`Oracle.Exact`), the machine's runtime is `R001.runtime`, so all of R001's
+theorems apply. A rung that changes only the oracle (as R002 does) proves its
+oracle exact and bounds its ticks; nothing about tables is reproved.
 
 A rung whose machine is equal to an earlier one as a `Runtime` (R002 against
 R001) uses `SameRun.of_eq`, or simply rewrites.

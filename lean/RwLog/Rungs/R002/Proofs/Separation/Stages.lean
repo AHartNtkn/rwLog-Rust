@@ -7,6 +7,7 @@ asked for, and creates tables for the new ones. Here is what each of these
 stages returns and spends on the tables `tabs k d` of the run. Completion is
 in `Completion.lean`.
 -/
+import Mathlib.Tactic.Ring
 import RwLog.Rungs.R002.Proofs.Separation.Lookups
 
 namespace RwLog

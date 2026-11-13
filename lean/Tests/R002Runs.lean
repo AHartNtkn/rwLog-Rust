@@ -104,7 +104,7 @@ def raceGoals : List (Program × R001.Goal) := [
 -- The bound of `onDemand_dominated` on the same goals.
 #guard raceGoals.all fun pg => (List.range 5).all fun d =>
   (R002.onDemand pg.1 d pg.2).ticks ≤
-    4 * ((R002.eager pg.1 d pg.2).ticks + pg.1.size + R002.goalSize pg.2 + 1) ^ 3
+    4 * ((R002.eager pg.1 d pg.2).ticks + pg.1.size + goalSize pg.2 + 1) ^ 3
 
 /-! ## Costs -/
 

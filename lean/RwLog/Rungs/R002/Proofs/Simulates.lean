@@ -5,7 +5,7 @@ Both machines are the tabled round machine with their own oracle, and the two
 oracles return the same answers, so the machines go through the same states.
 A round of either spends one tick, then what its incomplete tables spend
 asking the oracle, then what the rest of the round spends on the oracle's
-answers (`round_split`). Only the middle part differs.
+answers (`Tabled.round_split`). Only the middle part differs.
 
 Each incomplete table is charged the size of its goal before it asks, so by
 `onDemand_dominated` what a table spends in R002 is at most `F N x`, where
@@ -77,9 +77,6 @@ theorem F_table {N p g e o : Nat} (hg : 1 ≤ g) (hp : p ≤ N) (ho : o ≤ 4 * 
   rw [← Nat.mul_assoc] at h3
   omega
 
-theorem Rel.size_pos (e : Rel) : 1 ≤ e.size := by
-  cases e <;> simp only [Rel.size] <;> omega
-
 theorem goalSize_pos (g : Goal) : 1 ≤ goalSize g := by
   have := Rel.size_pos g.e
   unfold goalSize
@@ -87,30 +84,14 @@ theorem goalSize_pos (g : Goal) : 1 ≤ goalSize g := by
 
 /-! ## A round, split at the oracle -/
 
-/-- What a table does with the oracle in a round. -/
-def ask (U : Oracle) (st : State) (t : Table) : Cost (Bool × List Span) :=
-  if t.done then pure (false, []) else do
-    tick (goalSize t.goal)
-    U st.P st.depth t.goal
-
-/-- A round is one tick, the tables asking the oracle, and a remainder that
-sees only what the oracle answered. -/
-theorem round_split (st : State) :
-    ∃ K : List (Bool × List Span) → Cost (State × List Span), ∀ U : Oracle,
-      Tabled.round U st = (do
-        tick 1
-        let us ← mapL (ask U st) st.tables
-        K us) :=
-  ⟨_, fun _ => rfl⟩
-
-theorem ask_val (st : State) (t : Table) : (ask onDemand st t).val = (ask eager st t).val := by
-  unfold ask
+theorem ask_val (st : State) (t : Table) : (Tabled.ask onDemand st t).val = (Tabled.ask eager st t).val := by
+  unfold Tabled.ask
   simp only [ite_val, pure_val, bind_val, onDemand_exact st.P st.depth t.goal,
     eager_exact st.P st.depth t.goal]
 
 theorem ask_ticks {N : Nat} (st : State) (hP : st.P.size ≤ N) (t : Table) :
-    (ask onDemand st t).ticks ≤ F N (ask eager st t).ticks := by
-  unfold ask
+    (Tabled.ask onDemand st t).ticks ≤ F N (Tabled.ask eager st t).ticks := by
+  unfold Tabled.ask
   simp only [ite_ticks, pure_ticks, bind_ticks, tick_ticks]
   split
   · exact Nat.zero_le _
@@ -118,19 +99,19 @@ theorem ask_ticks {N : Nat} (st : State) (hP : st.P.size ≤ N) (t : Table) :
 
 theorem round_ticks {N : Nat} (st : State) (hP : st.P.size ≤ N) :
     (Tabled.round onDemand st).ticks ≤ F N (Tabled.round eager st).ticks := by
-  obtain ⟨K, hK⟩ := round_split st
-  have hv : (mapL (ask onDemand st) st.tables).val = (mapL (ask eager st) st.tables).val := by
+  obtain ⟨K, hK⟩ := Tabled.round_split st
+  have hv : (mapL (Tabled.ask onDemand st) st.tables).val = (mapL (Tabled.ask eager st) st.tables).val := by
     rw [mapL_val, mapL_val]
     exact List.map_congr_left fun t _ => ask_val st t
-  have ht : (mapL (ask onDemand st) st.tables).ticks ≤
-      F N (mapL (ask eager st) st.tables).ticks := by
+  have ht : (mapL (Tabled.ask onDemand st) st.tables).ticks ≤
+      F N (mapL (Tabled.ask eager st) st.tables).ticks := by
     rw [mapL_ticks, mapL_ticks]
     exact Nat.le_trans (sum_map_le fun t _ => ask_ticks st hP t) (F_sum N _ _)
   rw [hK onDemand, hK eager]
   simp only [bind_ticks, tick_ticks, hv]
-  have h1 := self_le_F N (1 + (K (mapL (ask eager st) st.tables).val).ticks)
-  have h2 := F_add N (mapL (ask eager st) st.tables).ticks
-    (1 + (K (mapL (ask eager st) st.tables).val).ticks)
+  have h1 := self_le_F N (1 + (K (mapL (Tabled.ask eager st) st.tables).val).ticks)
+  have h2 := F_add N (mapL (Tabled.ask eager st) st.tables).ticks
+    (1 + (K (mapL (Tabled.ask eager st) st.tables).val).ticks)
   refine Nat.le_trans ?_ (Nat.le_trans h2 (Nat.le_of_eq (congrArg (F N) (by omega))))
   omega
 

@@ -8,7 +8,6 @@ together, one statement at a time. For the free list traversals of
 `Trusted/Cost.lean` the value is the list function of the same name.
 -/
 import RwLog.Trusted.Cost
-import Mathlib.Tactic.Ring
 
 namespace RwLog
 
