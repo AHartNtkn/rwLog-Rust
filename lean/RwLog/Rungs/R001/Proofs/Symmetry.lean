@@ -6,7 +6,7 @@
   differ only in `rootFlip`, and a round never reads `rootFlip` except to
   orient the root's new answers.
 -/
-import RwLog.Rungs.R001.Spec
+import RwLog.Rungs.R001.Proofs.Base
 
 namespace RwLog
 
@@ -15,10 +15,6 @@ namespace R001
 namespace Symmetry
 
 /-! ## `conv_trace` -/
-
-theorem orient_not (f : Bool) (xs : List Span) :
-    orient (!f) xs = (orient f xs).map Span.swap := by
-  cases f <;> simp [orient, Function.comp_def]
 
 /-- Flipping the root's orientation leaves the tables alone. -/
 theorem round_flip (st : State) :
@@ -774,10 +770,6 @@ theorem pairwise_eraseDups {α : Type} [BEq α] [LawfulBEq α] {R : α → α �
 /-- `relCmp` as a Boolean `≤`. -/
 theorem relLE_iff (a b : Rel) : (relCmp a b != .gt) = (relCmp a b).isLE := by
   cases relCmp a b <;> rfl
-
-theorem mem_sortedBranches {xs : List Rel} {z : Rel} :
-    z ∈ sortedBranches xs ↔ z ∈ xs ∧ z ≠ .zero := by
-  simp [sortedBranches, List.mem_eraseDups, List.mem_mergeSort, List.mem_filter]
 
 theorem pairwise_sortedBranches (xs : List Rel) :
     (sortedBranches xs).Pairwise fun a b => (relCmp a b != .gt) = true ∧ a ≠ b := by

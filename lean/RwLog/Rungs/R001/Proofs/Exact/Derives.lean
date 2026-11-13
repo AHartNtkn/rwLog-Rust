@@ -17,7 +17,7 @@ namespace R001
 
 namespace Exact
 
-open Lifting (bden)
+
 open Tier0
 
 variable {P : Program} (hL : SimpLaws P.theory)
@@ -163,7 +163,7 @@ theorem realise : ∀ m, ∀ g : Goal, GoodG g → ∀ (w : Nat) (s : Span), DW 
       obtain ⟨u', hu', hc⟩ := simp_mono hL (covers_of_dom (by rw [hu]; exact hv)) hs
       refine ⟨u', .span ?_, hc⟩
       rw [spanAnswer_eq, hub]
-      simp [live, hu']
+      simp [liveO, live, hu']
   | or a b =>
     obtain ⟨l, hl, hwl⟩ := (dw_orBranches _).1 hw
     have hl' := orBranches_not_or _ l hl

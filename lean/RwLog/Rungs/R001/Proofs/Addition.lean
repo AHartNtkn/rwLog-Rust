@@ -44,11 +44,11 @@ theorem sub_pairs {T : Theory} {X : GRel} {x : Span} (h : Under T X x) {u u' : G
 /-- A cover answer lets a term through its right interface. -/
 theorem inDom_right (x : Span) : ∃ u, InDom (bound x.rightIface) u :=
   ⟨x.r.bind fun _ => .sym "", _, by
-    rw [bden_bound rfl]; exact ⟨fun _ => .sym "", rfl⟩⟩
+    rw [Lifting.bden_bound rfl]; exact ⟨fun _ => .sym "", rfl⟩⟩
 
 theorem inDom_left (y : Span) : ∃ u, InDom (bound y.leftIface) u :=
   ⟨y.l.bind fun _ => .sym "", _, by
-    rw [bden_bound rfl]; exact ⟨fun _ => .sym "", rfl⟩⟩
+    rw [Lifting.bden_bound rfl]; exact ⟨fun _ => .sym "", rfl⟩⟩
 
 section Laws
 
@@ -81,7 +81,7 @@ theorem span_push_right {lb : Option Span} {s₀ : Span} (hlb : GoodBO lb) {C : 
   obtain ⟨s, hder, hsub⟩ := cover_sub hL (L := ⟨lb, .span s₀, none⟩) ⟨hlb, trivial⟩ hC hx
   cases hder
   obtain ⟨S, hS⟩ := hu
-  rw [bden_bound rfl] at hS
+  rw [Lifting.bden_bound rfl] at hS
   obtain ⟨σ, hσ⟩ := hS
   simp only [Span.rightIface, Prod.mk.injEq] at hσ
   obtain ⟨S', hS'⟩ := sub_pairs hsub (show (x.l.bind σ, x.r.bind σ, x.c.at σ) ∈ x.den from ⟨σ, rfl⟩)
@@ -103,7 +103,7 @@ theorem span_push_left {rb : Option Span} {s₀ : Span} (hrb : GoodBO rb) {C : L
   obtain ⟨s, hder, hsub⟩ := cover_sub hL (L := ⟨none, .span s₀, rb⟩) ⟨trivial, hrb⟩ hC hy
   cases hder
   obtain ⟨S, hS⟩ := hu
-  rw [bden_bound rfl] at hS
+  rw [Lifting.bden_bound rfl] at hS
   obtain ⟨σ, hσ⟩ := hS
   simp only [Span.leftIface, Prod.mk.injEq] at hσ
   obtain ⟨S', hS'⟩ := sub_pairs hsub (show (y.l.bind σ, y.r.bind σ, y.c.at σ) ∈ y.den from ⟨σ, rfl⟩)

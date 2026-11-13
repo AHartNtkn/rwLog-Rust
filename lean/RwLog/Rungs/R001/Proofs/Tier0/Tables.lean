@@ -17,7 +17,7 @@ namespace R001
 
 namespace Tier0
 
-open Lifting (bden W)
+open Lifting (W)
 
 theorem goodG_of_interfaced {g : Goal} (h : g.Interfaced) : GoodG g := by
   obtain ⟨lb, e, rb⟩ := g

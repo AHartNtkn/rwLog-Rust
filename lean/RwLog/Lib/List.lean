@@ -23,4 +23,12 @@ theorem length_eraseDups {α : Type} [DecidableEq α] (l : List α) :
   rw [← List.toFinset_card_of_nodup (nodup_eraseDups l)]
   congr 1; ext; simp
 
+theorem zip_map_self {α β : Type} (f : α → β) : ∀ l : List α, l.zip (l.map f) = l.map fun x => (x, f x)
+  | [] => rfl
+  | x :: l => by simp [zip_map_self f l]
+
+theorem map_zip_map_self {α β γ : Type} (f : α → β) (h : α × β → γ) (l : List α) :
+    (l.zip (l.map f)).map h = l.map fun a => h (a, f a) := by
+  rw [zip_map_self, List.map_map]; rfl
+
 end RwLog

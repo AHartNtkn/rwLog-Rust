@@ -40,14 +40,6 @@ def newOf (ts : Tables) (reqs : List Goal) : List Goal :=
   reqs.foldl
     (fun acc g => if ts.any (fun t => t.goal.same g) || acc.any (fun h => h.same g) then acc else acc ++ [g]) []
 
-theorem zip_map_self {α β γ : Type} (l : List α) (f : α → β) (g : α × β → γ) :
-    (l.zip (l.map f)).map g = l.map fun x => g (x, f x) := by
-  induction l with
-  | nil => rfl
-  | cons x l ih => simp [ih]
-
-def dflt : Table := ⟨⟨none, .zero, none⟩, [], false⟩
-
 theorem round_eq (st : State) :
     round st =
       (⟨st.P,
@@ -63,7 +55,7 @@ theorem round_eq (st : State) :
       if t.done then (([] : List Span), ([] : List Goal)) else produce st.P st.depth st.tables t.goal)).map
         fun p => { p.1 with answers := p.1.answers ++ fresh p.1.answers p.2.1 }) =
       st.tables.map (upd st.P st.depth st.tables) := by
-    rw [zip_map_self]
+    rw [map_zip_map_self]
     congr 1; funext t
     simp only [upd, candsOf]
     split <;> rfl

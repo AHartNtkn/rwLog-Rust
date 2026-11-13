@@ -5,7 +5,6 @@ The general machinery lives here: when a run is finished, table keys
 (`Goal.same`) form an equivalence, the completion fixpoint contains every
 closed set, and tables only grow from round to round.
 -/
-import RwLog.Rungs.R001.Proofs.Kernel
 import RwLog.Rungs.R001.Proofs.Tier0
 
 namespace RwLog
@@ -103,84 +102,6 @@ theorem goalTerminates_iff (P : Program) (g : Goal) :
     GoalTerminates P g ↔ ∃ k, (stateAfter (State.ofGoal P g) k).finished = true :=
   halts_iff _
 
-/-! ## Table keys form an equivalence -/
-
-theorem boundEq_refl : ∀ a : Option Span, boundEq a a = true
-  | none => rfl
-  | some a => by simp [boundEq, covers?_refl]
-
-theorem boundEq_symm : ∀ {a b : Option Span}, boundEq a b = true → boundEq b a = true
-  | none, none, _ => rfl
-  | some a, some b, h => by
-    simp only [boundEq, Bool.and_eq_true] at h ⊢; exact ⟨h.2, h.1⟩
-  | none, some _, h => by simp [boundEq] at h
-  | some _, none, h => by simp [boundEq] at h
-
-theorem boundEq_trans : ∀ {a b c : Option Span}, boundEq a b = true → boundEq b c = true →
-    boundEq a c = true
-  | none, none, none, _, _ => rfl
-  | some a, some b, some c, h₁, h₂ => by
-    simp only [boundEq, Bool.and_eq_true] at h₁ h₂ ⊢
-    exact ⟨covers?_trans h₁.1 h₂.1, covers?_trans h₂.2 h₁.2⟩
-  | none, some _, _, h, _ => by simp [boundEq] at h
-  | some _, none, _, h, _ => by simp [boundEq] at h
-  | none, none, some _, _, h => by simp [boundEq] at h
-  | some _, some _, none, _, h => by simp [boundEq] at h
-
-theorem Goal.same_refl (g : Goal) : g.same g = true := by
-  simp [Goal.same, boundEq_refl]
-
-theorem Goal.same_symm {g h : Goal} (hs : g.same h = true) : h.same g = true := by
-  simp only [Goal.same, Bool.and_eq_true, decide_eq_true_eq] at hs ⊢
-  exact ⟨⟨hs.1.1.symm, boundEq_symm hs.1.2⟩, boundEq_symm hs.2⟩
-
-theorem Goal.same_trans {g h k : Goal} (h₁ : g.same h = true) (h₂ : h.same k = true) :
-    g.same k = true := by
-  simp only [Goal.same, Bool.and_eq_true, decide_eq_true_eq] at h₁ h₂ ⊢
-  exact ⟨⟨h₁.1.1.trans h₂.1.1, boundEq_trans h₁.1.2 h₂.1.2⟩, boundEq_trans h₁.2 h₂.2⟩
-
-/-! ## The completion fixpoint -/
-
-/-- `ok` only grows with its set argument. -/
-def OkMono (ok : List Nat → Nat → Bool) : Prop :=
-  ∀ S S' : List Nat, (∀ j ∈ S, j ∈ S') → ∀ i, ok S i = true → ok S' i = true
-
-/-- Every set inside `S` that is closed under `ok` survives the shrinking. -/
-theorem subset_gfpFrom {ok : List Nat → Nat → Bool} (hm : OkMono ok) (X : List Nat)
-    (hX : ∀ i ∈ X, ok X i = true) : ∀ n S, (∀ i ∈ X, i ∈ S) → ∀ i ∈ X, i ∈ gfpFrom ok n S
-  | 0, S, hS => hS
-  | n + 1, S, hS => by
-    have hS' : ∀ i ∈ X, i ∈ S.filter (ok S) := fun i hi =>
-      List.mem_filter.2 ⟨hS i hi, hm X S hS i (hX i hi)⟩
-    simp only [gfpFrom]
-    split
-    · exact hS
-    · exact subset_gfpFrom hm X hX n _ hS'
-
-theorem gfpFrom_sub (ok : List Nat → Nat → Bool) : ∀ n S, ∀ i ∈ gfpFrom ok n S, i ∈ S
-  | 0, _ => fun _ h => h
-  | n + 1, S => by
-    simp only [gfpFrom]
-    split
-    · exact fun _ h => h
-    · exact fun i hi => (List.mem_filter.1 (gfpFrom_sub ok n _ i hi)).1
-
-/-- With enough passes the result is closed under `ok`. -/
-theorem gfpFrom_closed (ok : List Nat → Nat → Bool) : ∀ n S, S.length ≤ n →
-    ∀ i ∈ gfpFrom ok n S, ok (gfpFrom ok n S) i = true
-  | 0, S, h => by
-    rw [List.length_eq_zero_iff.1 (Nat.le_zero.1 h)]; simp [gfpFrom]
-  | n + 1, S, h => by
-    simp only [gfpFrom]
-    split
-    · rename_i hl
-      intro i hi
-      have := List.filter_eq_self.1 (List.Sublist.eq_of_length (List.filter_sublist) hl)
-      simpa using this i hi
-    · rename_i hl
-      have : (S.filter (ok S)).length < S.length :=
-        lt_of_le_of_ne (List.filter_sublist.length_le) hl
-      exact gfpFrom_closed ok n _ (by omega)
 
 end R001
 
@@ -191,17 +112,6 @@ namespace RwLog
 namespace R001
 
 /-! ## Tables only grow -/
-
-theorem round_P (st : State) : (round st).1.P = st.P := rfl
-theorem round_depth (st : State) : (round st).1.depth = st.depth + 1 := rfl
-theorem round_rootFlip (st : State) : (round st).1.rootFlip = st.rootFlip := rfl
-
-theorem zip_map_self {α β : Type} (f : α → β) : ∀ l : List α, l.zip (l.map f) = l.map fun x => (x, f x)
-  | [] => rfl
-  | x :: l => by simp [zip_map_self f l]
-
-theorem fresh_nil (old : List Span) : fresh old [] = [] := by
-  simp [fresh, maxima]
 
 /-- One round keeps every table at its position, with the same goal, extends
 its answers, and leaves a complete table as it is. -/
@@ -380,7 +290,7 @@ theorem completing_spec (P : Program) (d : Nat) (ts ts' : Tables) (i : Nat)
       okAt P d ts ts' (completing P d ts ts') i = true := by
   have hsub := gfpFrom_sub (okAt P d ts ts') _ _ i hi
   simp only [List.mem_filter, List.mem_range, Bool.and_eq_true, Bool.not_eq_true'] at hsub
-  exact ⟨hsub.1, hsub.2.1, hsub.2.2, gfpFrom_closed _ _ _ le_rfl i hi⟩
+  exact ⟨hsub.1, hsub.2.1, hsub.2.2, (gfpFrom_closed _ _ _ le_rfl i hi).2⟩
 
 /-! ## Certificate covers are complete
 

@@ -18,7 +18,7 @@ namespace R001
 
 namespace Exact
 
-open Lifting (bden)
+
 open Tier0
 
 variable {P : Program}

@@ -15,7 +15,7 @@ namespace R001
 
 namespace Tier0
 
-open Lifting (bden)
+
 
 variable {P : Program}
 
@@ -71,19 +71,6 @@ theorem goodG_andPush (e : Rel) (x : Span) : GoodG (andPush e x) :=
 
 /-! ## Candidates stand for derivations -/
 
-/-- The span a goal `⟨lb, s, rb⟩` composes to, if any. -/
-def spanBoth (lb : Option Span) (s : Span) (rb : Option Span) : Option Span :=
-  (match lb with
-    | none => some s
-    | some l => l.compose s).bind fun s' => match rb with
-    | none => some s'
-    | some r => s'.compose r
-
-theorem spanAnswer_eq (T : Theory) (lb : Option Span) (s : Span) (rb : Option Span) :
-    spanAnswer T lb s rb = (match spanBoth lb s rb with
-      | some z => live T z
-      | none => []) := rfl
-
 theorem spanBoth_some {lb rb : Option Span} {s w : Span} (h : spanBoth lb s rb = some w) :
     w.den = GDen ⟨lb, .span s, rb⟩ s.den := by
   cases lb with
@@ -130,7 +117,7 @@ theorem spanAnswer_den {T : Theory} {lb rb : Option Span} {s z : Span}
     (h : z ∈ spanAnswer T lb s rb) : ∃ w, z ∈ live T w ∧ w.den = GDen ⟨lb, .span s, rb⟩ s.den := by
   rw [spanAnswer_eq] at h
   cases hw : spanBoth lb s rb with
-  | none => rw [hw] at h; simp at h
+  | none => rw [hw] at h; simp [liveO] at h
   | some w => rw [hw] at h; exact ⟨w, h, spanBoth_some hw⟩
 
 theorem spanAnswer_dc {T : Theory} (hwf : ∀ ρ ∈ T, ρ.WellFormed)

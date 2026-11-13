@@ -25,7 +25,7 @@ Relations are compared by `LCov`: `LCov T R S` says that in every model of
 the theory, `R` relates every pair `S` relates (`GRel.at`). `Span.CoversLive`
 is `LCov` on denotations.
 -/
-import RwLog.Rungs.R001.Proofs.Kernel
+import RwLog.Rungs.R001.Proofs.Base
 import RwLog.Kernel.Live
 import RwLog.Rungs.R000.Properties
 
@@ -38,11 +38,6 @@ namespace Lifting
 variable {T : Theory}
 
 /-! ## Boundaries -/
-
-/-- The meaning of an optional boundary: none is the identity. -/
-def bden : Option Span → GRel
-  | none => GRel.id
-  | some s => s.den
 
 /-- `lb ; A ; rb`. -/
 def W (lb : Option Span) (A : GRel) (rb : Option Span) : GRel := wrap (bden lb) A (bden rb)
@@ -95,37 +90,24 @@ section Kernel
 variable (hT : ∀ ρ ∈ T, ρ.WellFormed)
 include hT
 
-/-- The composite `lb ; s ; rb` before simplification. -/
-def rawO (lb : Option Span) (s : Span) (rb : Option Span) : Option Span :=
-  (match lb with
-    | none => some s
-    | some l => l.compose s).bind fun s' => match rb with
-      | none => some s'
-      | some r => s'.compose r
-
 omit hT in
-theorem spanAnswer_eq (lb : Option Span) (s : Span) (rb : Option Span) :
-    spanAnswer T lb s rb = liveO T (rawO lb s rb) := by
-  cases lb <;> cases rb <;> rfl
-
-omit hT in
-theorem rawO_den (lb : Option Span) (s : Span) (rb : Option Span) :
-    Span.denO (rawO lb s rb) = W lb s.den rb := by
+theorem spanBoth_den (lb : Option Span) (s : Span) (rb : Option Span) :
+    Span.denO (spanBoth lb s rb) = W lb s.den rb := by
   cases lb with
   | none =>
     cases rb with
-    | none => simp only [rawO, Option.bind_some, Span.denO, W_none]
+    | none => simp only [spanBoth, Option.bind_some, Span.denO, W_none]
     | some r =>
-      simp only [rawO, Option.bind_some, compose_den, W, wrap, bden, GRel.id_comp]
+      simp only [spanBoth, Option.bind_some, compose_den, W, wrap, bden, GRel.id_comp]
   | some l =>
     cases rb with
     | none =>
-      have : rawO (some l) s none = l.compose s := by
-        cases h : l.compose s <;> simp [rawO, h]
+      have : spanBoth (some l) s none = l.compose s := by
+        cases h : l.compose s <;> simp [spanBoth, h]
       rw [this, compose_den]
       simp only [W, wrap, bden, GRel.comp_id]
     | some r =>
-      simp only [rawO, W, wrap, bden]
+      simp only [spanBoth, W, wrap, bden]
       cases hc : l.compose s with
       | none =>
         rw [← GRel.comp_assoc, compose_none hc, empty_comp]; rfl
@@ -137,7 +119,7 @@ theorem spanAnswer_spec (lb : Option Span) (s : Span) (rb : Option Span) :
     (∀ z ∈ spanAnswer T lb s rb, LEq T z.den (W lb s.den rb)) ∧
       (Live T (W lb s.den rb) → ∃ z, z ∈ spanAnswer T lb s rb) := by
   rw [spanAnswer_eq]
-  exact liveO_spec hT (rawO_den lb s rb)
+  exact liveO_spec hT (spanBoth_den lb s rb)
 
 end Kernel
 

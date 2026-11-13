@@ -233,7 +233,7 @@ theorem strat_ok {P : Program} {C : List CertEntry} (s : State) (hP : s.P = P) (
     simp only [strategies.tableStrategies, List.any_cons, List.any_nil, Bool.or_false,
       List.all_cons, List.all_nil, Bool.and_true]
     exact dep _ (convGoal ⟨lb', .conv a, rb'⟩ a) false (by simp [produce, produce.produceStrategies])
-      (same_mk _ (by rwa [Symmetry.boundEq_swap]) (by rwa [Symmetry.boundEq_swap])) (by simp)
+      (same_mk _ (by rwa [boundEq_swap]) (by rwa [boundEq_swap])) (by simp)
   | seq a b =>
     have hL' : seqLeft ⟨lb, .seq a b, rb⟩ a ∈ (produce s.P s.depth s.tables ⟨lb, .seq a b, rb⟩).2 := by
       simp [produce, produce.produceStrategies]

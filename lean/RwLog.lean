@@ -26,12 +26,14 @@ import RwLog.Kernel.SimplifyMono
 import RwLog.SpanLayer.Dual
 import RwLog.SpanLayer.Modulo
 import RwLog.Lib.List
+import RwLog.Lib.Gfp
 import RwLog.Kernel.Live
 import RwLog.Kernel.Maxima
 import RwLog.Kernel.ExactCover
 import RwLog.Rungs.R001.Engine
 import RwLog.Rungs.R001.Spec
 import RwLog.Rungs.R001.Proofs.Kernel
+import RwLog.Rungs.R001.Proofs.Base
 import RwLog.Rungs.R001.Proofs.Derivations
 import RwLog.Rungs.R001.Proofs.TheoryMono
 import RwLog.Rungs.R001.Proofs.Tier0

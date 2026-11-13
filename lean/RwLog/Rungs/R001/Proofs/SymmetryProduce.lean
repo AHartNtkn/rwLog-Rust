@@ -81,51 +81,23 @@ theorem meetLive_mirror (hK : Obligation.SimplifyRespectsEquiv T) {x y x' y' : S
   rw [meet_den, meet_den, GRel.inv_meet]
   exact ((Span.Equiv.geq hx).trans (swap_geq x)).meet ((Span.Equiv.geq hy).trans (swap_geq y))
 
-/-- The meaning of `lb ; s ; rb` as `spanAnswer` fuses it. -/
-def bden : Option Span → GRel
-  | none => GRel.id
-  | some l => l.den
-
-def spanBoth (lb : Option Span) (s : Span) (rb : Option Span) : Option Span :=
-  let left : Option Span := match lb with
-    | none => some s
-    | some l => l.compose s
-  left.bind fun s' => match rb with
-    | none => some s'
-    | some r => s'.compose r
-
-theorem spanAnswer_eq (lb : Option Span) (s : Span) (rb : Option Span) :
-    spanAnswer T lb s rb = liveO T (spanBoth lb s rb) := by
-  show (match spanBoth lb s rb with | some z => live T z | none => []) = _
-  cases spanBoth lb s rb <;> rfl
-
-theorem comp_empty (R : GRel) : R.comp ∅ = ∅ := by
-  ext ⟨a, b, X⟩; simp [GRel.comp]
-
-theorem empty_comp (R : GRel) : (∅ : GRel).comp R = ∅ := by
-  ext ⟨a, b, X⟩; simp [GRel.comp]
-
 theorem spanBoth_den (lb : Option Span) (s : Span) (rb : Option Span) :
     Span.denO (spanBoth lb s rb) = ((bden lb).comp s.den).comp (bden rb) := by
-  have hleft : Span.denO (match lb with | none => some s | some l => l.compose s) =
-      (bden lb).comp s.den := by
-    cases lb with
-    | none => simp [Span.denO, bden, GRel.id_comp]
-    | some l => exact compose_den l s
-  unfold spanBoth
-  revert hleft
-  cases (match lb with | none => some s | some l => l.compose s) with
+  cases lb with
   | none =>
-    intro hleft
-    simp only [Option.bind_none, Span.denO] at hleft ⊢
-    rw [← hleft, empty_comp]
-  | some s' =>
-    intro hleft
-    simp only [Option.bind_some, Span.denO] at hleft ⊢
-    rw [← hleft]
     cases rb with
-    | none => simp [bden, GRel.comp_id]
-    | some r => exact compose_den s' r
+    | none => simp only [spanBoth, Option.bind_some, Span.denO, bden, GRel.id_comp, GRel.comp_id]
+    | some r => simp only [spanBoth, Option.bind_some, compose_den, bden, GRel.id_comp]
+  | some l =>
+    simp only [spanBoth, bden]
+    cases hc : l.compose s with
+    | none => simp only [Option.bind_none, Span.denO]; rw [compose_none hc, empty_comp]
+    | some u =>
+      simp only [Option.bind_some]
+      rw [← compose_some hc]
+      cases rb with
+      | none => simp only [Span.denO, GRel.comp_id]
+      | some r => exact compose_den u r
 
 theorem bden_mirror {o o' : Option Span} (h : boundEq (o.map Span.swap) o' = true) :
     GEq (bden o') (bden o).inv := by

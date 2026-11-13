@@ -26,7 +26,7 @@ theorem iter_P (st : State) : ∀ k, (iter st k).P = st.P
 
 theorem iter_flip (st : State) : ∀ k, (iter st k).rootFlip = st.rootFlip
   | 0 => rfl
-  | k + 1 => (round_flip _).trans (iter_flip st k)
+  | k + 1 => (round_rootFlip _).trans (iter_flip st k)
 
 theorem iter_add (st : State) (k : Nat) : ∀ m, iter (iter st k) m = iter st (k + m)
   | 0 => rfl
@@ -199,7 +199,7 @@ theorem run_root : ∀ (n : Nat) (st : State), st.tables ≠ [] →
       obtain ⟨i1, ⟨r, i2⟩, i3⟩ := run_root n (round st).1 (round_ne_nil hne)
       have hr0 : rootAns st = t₀.answers := by simp [rootAns, h]
       refine ⟨?_, ⟨fresh t₀.answers (outOf st t₀).1 ++ r, ?_⟩, i3⟩
-      · rw [i1, e1, round_flip, i2, e2, hr0]
+      · rw [i1, e1, round_rootFlip, i2, e2, hr0]
         simp [orient_eq, List.append_assoc]
       · rw [i2, e2, hr0, List.append_assoc]
 

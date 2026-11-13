@@ -18,9 +18,6 @@ import RwLog.Kernel.Live
 
 namespace RwLog
 
-theorem Span.Equiv.swap' {a s : Span} (h : a.Equiv s) : a.swap.Equiv s.swap :=
-  ⟨covers_swap h.1, covers_swap h.2⟩
-
 /-- Composition is monotone in coverage. -/
 theorem compose_mono {a b x y z : Span} (ha : a.Covers x) (hb : b.Covers y)
     (hz : x.compose y = some z) : ∃ z', a.compose b = some z' ∧ z'.Covers z := by

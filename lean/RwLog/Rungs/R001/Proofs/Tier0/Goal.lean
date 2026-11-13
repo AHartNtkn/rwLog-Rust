@@ -16,7 +16,7 @@ namespace R001
 
 namespace Tier0
 
-open Lifting (bden)
+
 
 variable {T : Theory}
 
@@ -286,13 +286,6 @@ theorem same_gden {h g : Goal} (hs : h.same g = true) (hh : GoodG h) (hg : GoodG
   simp only [Goal.same, Bool.and_eq_true, decide_eq_true_eq] at hs
   simp only [GDen, boundEq_den hh.1 hg.1 hs.1.2, boundEq_den hh.2 hg.2 hs.2]
 
-theorem boundEq_refl : ∀ o : Option Span, boundEq o o = true
-  | none => rfl
-  | some a => by simp [boundEq, covers?_complete (Span.Covers.refl a)]
-
-theorem same_refl (g : Goal) : g.same g = true := by
-  simp [Goal.same, boundEq_refl]
-
 theorem gden_root (e : Rel) (R : GRel) : GDen ⟨none, e, none⟩ R = R := by
   simp [GDen, bden, GRel.comp_id, GRel.id_comp]
 
@@ -325,10 +318,6 @@ theorem oS_not (f : Bool) (s : Span) : oS (!f) s = (oS f s).swap := by
 
 theorem oR_not (f : Bool) (R : GRel) : oR (!f) R = (oR f R).inv := by
   cases f <;> simp [oR, RwLog.GRel.inv_inv]
-
-theorem orient_not (f : Bool) (xs : List Span) : orient (!f) xs = (orient f xs).map Span.swap := by
-  rw [orient_eq, orient_eq, List.map_map]
-  congr 1; funext s; exact oS_not f s
 
 theorem ref_oS {a : Span} {X : GRel} (f : Bool) (h : Ref T a X) : Ref T (oS f a) (oR f X) := by
   cases f

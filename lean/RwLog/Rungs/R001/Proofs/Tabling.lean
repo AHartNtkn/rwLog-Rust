@@ -109,7 +109,7 @@ theorem key_direct {root : Goal} : ∀ (n : Nat) (g : Goal), sizeOf g.e ≤ n �
     have hraw : ∀ z ∈ sortedBranches (orBranches (canon a) ++ orBranches (canon b)),
         ∃ l ∈ orBranches (.or a b), canon l = z := by
       intro z hz
-      obtain ⟨hz1, hz0⟩ := Symmetry.mem_sortedBranches.1 hz
+      obtain ⟨hz1, hz0⟩ := mem_sortedBranches.1 hz
       rcases List.mem_append.1 hz1 with h | h
       · obtain ⟨l, hl, e⟩ := (mem_orBranches_canon a hz0).1 h
         exact ⟨l, by simp [orBranches, hl], e⟩

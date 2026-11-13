@@ -61,6 +61,7 @@ import RwLog.Kernel.Refute
 import RwLog.Kernel.Iface
 import RwLog.Kernel.Live
 import RwLog.Kernel.Maxima
+import RwLog.Lib.Gfp
 import RwLog.Rungs.R000.Engine
 
 namespace RwLog
@@ -350,14 +351,6 @@ where
       ++ (if doneOf ts R then [R :: (maxima (answersOf ts R)).map (andPush a)] else [])
 
 /-! ## One round -/
-
-/-- Shrink `S` to the largest subset closed under `ok`. Each pass that changes
-`S` removes a member, so `S.length` passes reach the fixpoint. -/
-def gfpFrom (ok : List Nat → Nat → Bool) : Nat → List Nat → List Nat
-  | 0, S => S
-  | n + 1, S =>
-    let S' := S.filter (ok S)
-    if S'.length = S.length then S else gfpFrom ok n S'
 
 /-- The tables that complete at the end of a round. `ts` is the state at the
 start of the round and `ts'` the state after this round's answers were

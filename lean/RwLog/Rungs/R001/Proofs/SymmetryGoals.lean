@@ -19,56 +19,6 @@ namespace Symmetry
 
 /-! ## Boundaries and goals as table keys -/
 
-theorem boundEq_refl : ∀ a : Option Span, boundEq a a = true
-  | none => rfl
-  | some a => by simp [boundEq, covers?_refl]
-
-theorem boundEq_symm : ∀ {a b : Option Span}, boundEq a b = true → boundEq b a = true
-  | none, none, _ => rfl
-  | some a, some b, h => by
-    simp only [boundEq, Bool.and_eq_true] at h ⊢; exact ⟨h.2, h.1⟩
-  | none, some _, h | some _, none, h => by cases h
-
-theorem boundEq_trans : ∀ {a b c : Option Span}, boundEq a b = true → boundEq b c = true →
-    boundEq a c = true
-  | none, none, none, _, _ => rfl
-  | some a, some b, some c, h₁, h₂ => by
-    simp only [boundEq, Bool.and_eq_true] at h₁ h₂ ⊢
-    exact ⟨covers?_trans h₁.1 h₂.1, covers?_trans h₂.2 h₁.2⟩
-  | none, some _, _, h, _ | some _, none, _, h, _ => by cases h
-  | none, none, some _, _, h | some _, some _, none, _, h => by cases h
-
-theorem boundEq_swap : ∀ (a b : Option Span),
-    boundEq (a.map Span.swap) (b.map Span.swap) = boundEq a b
-  | none, none => rfl
-  | some a, some b => by simp [boundEq, covers?_swap]
-  | none, some _ => rfl
-  | some _, none => rfl
-
-/-- `boundEq` as an equivalence between the boundaries' spans. -/
-theorem boundEq_equiv : ∀ {a b : Option Span}, boundEq a b = true → Option.Rel Span.Equiv a b
-  | none, none, _ => .none
-  | some a, some b, h => by
-    simp only [boundEq, Bool.and_eq_true, covers?_iff] at h
-    exact .some ⟨h.1, h.2⟩
-  | none, some _, h | some _, none, h => by cases h
-
-theorem Goal.same_refl (g : Goal) : g.same g = true := by
-  simp [Goal.same, boundEq_refl]
-
-theorem Goal.same_symm {g h : Goal} (e : g.same h = true) : h.same g = true := by
-  simp only [Goal.same, Bool.and_eq_true, decide_eq_true_eq] at e ⊢
-  exact ⟨⟨e.1.1.symm, boundEq_symm e.1.2⟩, boundEq_symm e.2⟩
-
-theorem Goal.same_trans {g h k : Goal} (e₁ : g.same h = true) (e₂ : h.same k = true) :
-    g.same k = true := by
-  simp only [Goal.same, Bool.and_eq_true, decide_eq_true_eq] at e₁ e₂ ⊢
-  exact ⟨⟨e₁.1.1.trans e₂.1.1, boundEq_trans e₁.1.2 e₂.1.2⟩, boundEq_trans e₁.2 e₂.2⟩
-
-theorem _root_.RwLog.R001.Goal.same_iff {g h : Goal} :
-    g.same h = true ↔ g.e = h.e ∧ boundEq g.lb h.lb = true ∧ boundEq g.rb h.rb = true := by
-  simp only [Goal.same, Bool.and_eq_true, decide_eq_true_eq, and_assoc]
-
 theorem _root_.RwLog.R001.Goal.same_dual {g h : Goal} (e : g.same h = true) : g.dual.same h.dual = true := by
   rw [Goal.same_iff] at e ⊢
   simp only [Goal.dual, boundEq_swap]
