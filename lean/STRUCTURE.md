@@ -66,6 +66,11 @@ Tests/          executable runs: the charges of the kernel (ChargeRuns, built); 
 `SYMMETRIC_ENGINE.md` is the design note for the engine of milestone M6: what it
 is, what was measured, and what the trusted files and the kernel must provide
 for it. `Tests/MiddleRuns.lean` holds its measurements on R004 and R005.
+`SYMMETRIC_ENGINE_SIMULATION.md` is the attack on that design's main risk, whether
+the engine stays within a polynomial of R005: the inputs on which the first
+design fails, the changes measured, and the lemmas still open. Its prototype is
+`scripts/symmetric_engine_tables.py`, and R005's side of each comparison is
+`Tests/SimulationRuns.lean` (parked with R005, `PARKED.md`).
 
 The constraint system is sorts with a built-in disequality (roadmap L48, L51).
 The trusted files have no rules, theories or models: `Trusted/Semantics.lean`
