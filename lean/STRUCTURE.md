@@ -11,7 +11,11 @@ specification, the kernel, the shared libraries, and the text of the machines
 R005 is made of, so that R005 can be ported once as the yardstick for the next
 engine (roadmap M3 part B and M4). No rung is admitted on master until then.
 The trusted statements are being restated; a kept file that stops compiling
-against them is parked, not repaired.
+against them is parked, not repaired. `PARKED.md` lists the files that are out
+of the build since the kernel and the cost monad were restated: everything
+below that is written against the old kernel (`Rungs/Tabled/` outside `Base`,
+`Rungs/R005`, `Mirror`, `Directed`, `Hedge`, `Framework/Race*`). What this file
+says about them describes them as they are at the tag.
 
 ```
 Trusted/        the specification: syntax, semantics, Runtime, Rung, the Tier-0 properties,
@@ -23,7 +27,9 @@ Trusted/        the specification: syntax, semantics, Runtime, Rung, the Tier-0 
                 cost is coverage latency, the ticks until an emitted answer covers a
                 ground pair, and never depends on a query halting
 Theory/         constraint theories and firing
-Kernel/         the executable kernel (match, solve, span, refute) and its proofs
+Kernel/         the executable kernel (match, solve, span, refute) and its proofs; the normal form
+                of expressions (NormalForm.lean, NormalFormCorrect.lean, Order.lean) and the
+                derivation kernel's rules (Derivation.lean)
 SpanLayer/      span-level semantics, derivations, coverage vocabulary
 Lib/            facts about lists and greatest fixpoints that mention no rwlog type
 Rungs/Framework generic theorems about any Runtime / Rung
@@ -67,6 +73,10 @@ for it. `Tests/MiddleRuns.lean` holds its measurements on R004 and R005.
 | Coverage modulo a theory | `SpanLayer/Modulo.lean` | `LCov`, `LEq`, `Live`, `DeadR`, `Backed`, `Ref`, `DC`, `GCov`, `GEq`, `Dom` |
 | Chains of spans | `Kernel/Chain.lean` | `Span.denO_chain`, `Span.chain_isSome_iff`, `chain_isSome_fuse`, `chain_eq_none_of_compose`, `GRel.chain` |
 | Unfolding equations | `Rungs/Naive/Unfold.lean` | `unfoldN_succ`, `unfoldN_succ'`, `unfoldN_call`, `unfoldN_add`, `unfoldN_or/and/seq/conv`, `unfoldN_dual` |
+| The normal form of an expression and its nodes | `Kernel/NormalForm.lean` | `normB`, `RelOf.norm`, `RelOf.normConv`, `NodeView`, `RelOf.view`, `interval`, `without`, `mkSeq`, `mkAnd` |
+| The normal form means what the expression means | `Kernel/NormalFormCorrect.lean` | `gd_normB`, `derives_norm_iff`, `sem_norm`, `sem_normConv`; equal normal forms: `normB_seq_assoc`, `normB_and_comm`, `normB_and_assoc`, `normB_or_comm`, `normB_or_assoc`, `normB_or_self`; derivations as ground relations: `DerivesG`, `GD` |
+| The structural order is linear; sorted lists are determined by their members | `Kernel/Order.lean` | `relCmp_trans`, `relCmp_eq`, `sortedBranches_eq`, `pairwise_sortedBranches` |
+| Valid answers of a goal and the rules that make them | `Kernel/Derivation.lean` | `Goal`, `Valid`, `Valid.leaf`, `simp`, `join`, `meet`, `inj`, `unfold`, `unfoldConv`, `swap`, `Valid.sound`, `Valid.general` |
 | Sizes charged by the cost model | `Kernel/Size.lean` (and `Term.size_pos` in `Kernel/Solve.lean`) | `Span.size_pos`, `Span.size_swap`, `Rel.size_pos` |
 | Sums over lists | `Lib/List.lean` | `sum_flatMap_map`, `sum_filterMap_map`, `le_sum_map_of_mem`, `sum_map_le` |
 | Converse of a program | `SpanLayer/Dual.lean` | `Program.sem_dual` |
@@ -98,7 +108,12 @@ rung unchanged.
   from a simulation. `Rung.sound`, `Rung.pointComplete` and `Rung.honest`
   carry runtime theorems through a preprocessor.
 
-* `Cost.lean`: the cost monad of `Trusted/Cost.lean` is a lawful monad; the
+* `Derivation.lean`: every engine is sound and derivation-general, at every
+  kernel that refines the specification kernel (`Engine.sound`,
+  `Engine.derivationGeneral`). An answer exists only with the proof that it
+  is valid, so the two theorems use nothing about the engine.
+
+* `Cost.lean`: the cost monad of `Trusted/CostMonad.lean` is a lawful monad; the
   value of each free traversal is the list function of the same name
   (`Cost.mapL_val`, `filterL_val`, `anyL_val`, `foldL_val`, ...); the ticks of
   the total traversals are sums (`mapL_ticks`, ...) and of the early-exit ones
@@ -217,25 +232,40 @@ from costed bisimulations of `A` and of `B` (`Hedge.step_sim`,
 `convTrace_of`, `dualTrace_of`). `Framework/Reach.lean` is the runs of any
 runtime as a relation between states, which these proofs induct on.
 
-An engine cannot declare its own cost. `Trusted/Kernel.lean` is the class
-`Kernel S M`: an abstract type of spans, an abstract monad, and the operations
-on spans, each returning in the monad. An `Engine` (`Trusted/Cost.lean`) is a
-machine written for every kernel, so it can only touch a span through those
-operations and can only spend what they charge; `Engine.costed` is the engine
-at `Kernel.std`, the kernel of the language, where each operation is the
-charged primitive of `Trusted/Charged.lean`. `Advances` and `Admits` are
-stated on engines.
+An engine cannot declare its own cost and cannot make up an answer.
+`Trusted/Kernel.lean` has two classes. `Kernel S M` is an abstract type of
+spans, an abstract monad, and the operations on spans, each returning in the
+monad, with `metered` (run a computation and return what it spent).
+`DerivationKernel S N A M` extends it with abstract types of nodes of the
+normal form and of answers: reading a node, and the rules that make an answer
+(`leaf`, `simp`, `join`, `meetA`, `inj`, `unfold`, `swapA`). An `Engine`
+(`Trusted/Cost.lean`) is a machine written for every derivation kernel: it is
+handed the root node of the query's normal form, can touch a span, a node or
+an answer only through those operations, and can only spend what they charge.
+`Engine.costed` is the engine at `DerivationKernel.std P`, where each
+operation on spans is the charged primitive of `Trusted/Charged.lean`, an
+answer is a goal and a span with the proof that the span is a valid answer of
+the goal (`Ans P`), and the answers reported are those of the root goal with
+no boundary. `Advances` and `Admits` are stated on engines.
+
+The cost monad (`Trusted/CostMonad.lean`) counts ticks and space: `peak` is
+the most cells live at once and `held` the cells still live at the end. Cells
+are released only when a computation is abandoned (`Cost.within`, and so
+`Cost.race`). `CostedRuntime.space P q n` is the peak of the first `n` steps.
 
 `Kernel.std` is the specification kernel: its values are the specification
 and its charges are postulated. A kernel rung (`Trusted/KernelRung.lean`) is
-another `Kernel Span Cost` that returns the same values (`Kernel.Refines`)
-and whose charges are theorems about a machine; `Engine.costedAt` is an
-engine at such a kernel. The first one is `rustKernel`
+another `Kernel Span Cost` that returns the same values (`Kernel.Refines`,
+in `Trusted/Kernel.lean`) and whose charges are theorems about a machine;
+`Engine.costedAt` is an engine at the derivation kernel over such a kernel
+(`DerivationKernel.over`). The first one is `rustKernel`
 (`verified/lean/RwLogVerified/Kernel.lean`): the charge of each operation on
 terms is the tick bound proved of the Rust function on the store of
-`verified/rust/src/store.rs`. See `verified/README.md`.
+`verified/rust/src/store.rs`. See `verified/README.md`. The operations on
+nodes and the interning of answers are charged as postulated at every kernel
+rung so far (roadmap L45).
 
-Each machine is therefore written twice, in the same words. `Gen.lean`
+In epoch 1 each machine was written twice, in the same words (these files are parked). `Gen.lean`
 (`Rungs/Tabled/`, `Rungs/Mirror/`, `Rungs/R005/Unfolder/R002/` to `R004/`) is the engine,
 against the kernel.
 `Machine.lean`, `Unfold.lean`, `Shared.lean` and `Pruned.lean` are the same

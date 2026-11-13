@@ -28,9 +28,17 @@ constraints is a term that ends in `z`.
 
 Not derived here, and charged as `Kernel.std` charges them: `simplify` and
 `covers` when the covering span has constraints (their algorithms are
-replaced first, roadmap L39), and `eqRel` and `canon` (they leave the kernel,
-roadmap L30). `swap` exchanges two fields and touches no store. `size` and
-`idSpan` are free as in `Kernel.std`.
+replaced first, roadmap L39). `swap` exchanges two fields and touches no
+store. `tick`, `race` and `metered` are those of the cost monad.
+
+Space. The store only grows and an allocation is a tick, so an operation
+that may add nodes is charged its tick bound as the cells it holds
+(`Charged.op v t t`). `span_eq` and `covers_plain` leave the store as it was
+(their theorems say so) and hold nothing.
+
+The operations on nodes and on answers of a `DerivationKernel` are not
+derived on the store: `DerivationKernel.over (rustKernel z)` charges them as
+`Trusted/Charged.lean` postulates (roadmap L45).
 -/
 import RwLog.Trusted.KernelRung
 import RwLogVerified.Chain
@@ -47,39 +55,33 @@ proved of the Rust functions. -/
 @[reducible] def rustKernel (z : Sym) : Kernel Span Cost where
   tick := Cost.tick
   race := Cost.race
-  size := Span.size
-  idSpan := ⟨.var 0, .var 0, []⟩
+  metered := Cost.metered
   swap := Span.swap
-  compose x y := ⟨x.compose y, composeCost z x y⟩
-  meet x y := ⟨x.meet y, meetCost z x y⟩
-  composable xs := ⟨(Span.chain xs).isSome, composableCost z xs⟩
-  covers a s := if a.c = [] then ⟨a.covers? s, coversPlainCost a⟩ else Charged.covers a s
+  compose x y := Charged.op (x.compose y) (composeCost z x y) (composeCost z x y)
+  meet x y := Charged.op (x.meet y) (meetCost z x y) (meetCost z x y)
+  composable xs := Charged.op (Span.chain xs).isSome (composableCost z xs) (composableCost z xs)
+  covers a s := if a.c = [] then Charged.op (a.covers? s) (coversPlainCost a) 0 else Charged.covers a s
   simplify := Charged.simplify
-  eq x y := ⟨decide (x = y), 3⟩
-  eqRel := Charged.eqRel
-  canon := Charged.canon
-  rightBound s := ⟨bound s.rightIface, ifaceCost s.r s.c⟩
-  leftBound s := ⟨bound s.leftIface, ifaceCost s.l s.c⟩
+  eq x y := Charged.op (decide (x = y)) 3 0
+  rightBound s := Charged.op (bound s.rightIface) (ifaceCost s.r s.c) (ifaceCost s.r s.c)
+  leftBound s := Charged.op (bound s.leftIface) (ifaceCost s.l s.c) (ifaceCost s.l s.c)
 
 /-- The Rust kernel returns what the specification kernel returns. -/
 theorem rustKernel_refines (z : Sym) : Kernel.Refines (rustKernel z) where
   monad := rfl
   tick := rfl
   race _ _ _ := rfl
-  size := rfl
-  idSpan := rfl
+  metered _ _ := rfl
   swap := rfl
   compose _ _ := rfl
   meet _ _ := rfl
   composable _ := rfl
   covers a s := by
-    show (if a.c = [] then (⟨a.covers? s, coversPlainCost a⟩ : Cost Bool) else Charged.covers a s).val
+    show (if a.c = [] then Charged.op (a.covers? s) (coversPlainCost a) 0 else Charged.covers a s).val
       = a.covers? s
     split <;> rfl
   simplify _ _ := rfl
   eq _ _ := rfl
-  eqRel _ _ := rfl
-  canon _ := rfl
   rightBound _ := rfl
   leftBound _ := rfl
 
@@ -137,7 +139,7 @@ theorem covers_realised (hnm : Function.Injective nm) :
       (fun q => (rustKernel (nm none)).covers q.1 q.2) := by
   rintro s ⟨a, x⟩ ⟨sa, sx⟩ hI ⟨⟨ha, hx⟩, hc⟩ hroom
   have hc : sa.c = [] := hc
-  have e : (rustKernel (nm none)).covers sa sx = ⟨sa.covers? sx, coversPlainCost sa⟩ := by
+  have e : (rustKernel (nm none)).covers sa sx = Charged.op (sa.covers? sx) (coversPlainCost sa) 0 := by
     show (if sa.c = [] then _ else _) = _
     simp [hc]
   simp only [e] at hroom ⊢

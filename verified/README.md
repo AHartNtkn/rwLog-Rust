@@ -68,16 +68,28 @@ the end of a list reads back as.
 `composable`, `eq`, `rightBound`, `leftBound`, and `covers` when the covering
 span has no constraints, is the tick bound of the table above
 (`compose_realised` and its siblings). An engine runs at it with
-`Engine.costedAt`; `RwLogVerified/KernelRuns.lean` runs rung R002's engine at
-both kernels.
+`Engine.costedAt`, on the derivation kernel `DerivationKernel.over (rustKernel z)`.
+`RwLogVerified/KernelRuns.lean` checks the charges of both kernels on a
+worked composition; it runs no engine, because none is written against the
+derivation kernel yet (`lean/PARKED.md`).
 
 What is not derived, and why:
 
 * `simplify`, and `covers` when the covering span has constraints, keep the
   charges of `Kernel.std` until their algorithms are replaced (roadmap L39).
-* `eqRel` and `canon` keep the charges of `Kernel.std` until they leave the
-  kernel (roadmap L30).
-* `size` and `idSpan` are free, as in `Kernel.std` (roadmap L44).
+* The operations on nodes of the normal form and the rules that make answers
+  (`DerivationKernel`) are charged as `lean/RwLog/Trusted/Charged.lean`
+  postulates. They are not yet written on the store (roadmap L45).
+
+`eqRel`, `canon`, `size` and `idSpan` are no longer operations of the kernel
+(roadmap L30, L44).
+
+Space. `Cost` has a space component. The store only grows and an allocation
+is a tick, so an operation that may add nodes is charged its tick bound as
+cells held; `span_eq` and `covers_plain` leave the store as it was and hold
+nothing. That an operation adds at most as many nodes as it spends ticks is
+read off the primitives (each allocation is one tick) and is not a theorem
+of `Realises` (roadmap L45).
 
 What the theorems assume:
 

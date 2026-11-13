@@ -51,7 +51,7 @@ whatever the engine does (`Rungs/Framework/Derivation.lean`).
 
 `DerivationKernel.over K hK P` is the derivation kernel of the program `P` on
 the spans of a kernel `K` that returns what the specification kernel returns
-(`Kernel.Refines`, `Trusted/KernelRung.lean`): its answers carry the proof
+(`Kernel.Refines`, below): its answers carry the proof
 that they are valid, each rule spends what `K` charges for the operations on
 spans it performs, and the operations on nodes are charged as in
 `Trusted/Charged.lean`.
