@@ -105,6 +105,31 @@ theorem le_raceFrom_ticks {α : Type} (x y : Cost α) : ∀ (n b : Nat), x.ticks
 theorem le_race_ticks {α : Type} (x y : Cost α) : min x.ticks y.ticks ≤ (race x y).ticks :=
   le_raceFrom_ticks x y x.ticks 0 (by omega)
 
+/-! ## Which of the two finished -/
+
+theorem raceFrom_cases {α : Type} (x y : Cost α) : ∀ (n b : Nat), x.ticks - b ≤ n →
+    b ≤ 2 * y.ticks →
+    ((raceFrom x y b).val = x.val ∧ x.ticks ≤ 2 * y.ticks) ∨
+      ((raceFrom x y b).val = y.val ∧ y.ticks < x.ticks)
+  | n, b, hn, hb => by
+    rw [raceFrom_eq]
+    by_cases hx : x.ticks ≤ b
+    · exact .inl ⟨by simp only [hx, ite_true], by omega⟩
+    · by_cases hy : y.ticks ≤ b
+      · exact .inr ⟨by simp only [hx, hy, ite_true, ite_false], by omega⟩
+      · simp only [hx, hy, ite_false]
+        match n, hn with
+        | 0, hn => omega
+        | n + 1, hn => exact raceFrom_cases x y n (2 * b + 1) (by omega) (by omega)
+
+/-- The race returns the result of the first when the first needs at most
+twice what the second needs, and otherwise the result of the second, which
+then needs less than the first. -/
+theorem race_cases {α : Type} (x y : Cost α) :
+    ((race x y).val = x.val ∧ x.ticks ≤ 2 * y.ticks) ∨
+      ((race x y).val = y.val ∧ y.ticks < x.ticks) :=
+  raceFrom_cases x y x.ticks 0 (by omega) (by omega)
+
 end Cost
 
 end RwLog
