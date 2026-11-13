@@ -16,11 +16,11 @@ refines a domain that is lawful at well-formed sorts each machine
   the grouping of `;`, or the order or grouping of `&` (true of every
   engine).
 
-Nothing here uses more of the domain than `Domain.Lawful`. What R005 is held
-to beyond this list (halting where R001 halts, the run on a converse and on
-the mirrored program, the empty side, and all of it for the mirrored
-machine) needs the two runs of the mirror to gain the same answers in the
-same round, which needs interfaces to be exact (roadmap L58).
+Nothing here uses that an interface is exact. What R005 is held to beyond
+this list (halting where R001 halts, the run on a converse and on the
+mirrored program, the empty side, and all of it for the mirrored machine)
+needs the two runs of the mirror to gain the same answers in the same round,
+which does (`Domain.Lawful.rightBound_end`, roadmap L58).
 -/
 import RwLog.Rungs.R005.Engine
 import RwLog.Rungs.Tabled.Unfolding.Races

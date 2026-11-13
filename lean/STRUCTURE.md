@@ -12,8 +12,8 @@ once against the derivation kernel (`Rungs/Tabled/`, `Rungs/Mirror/`,
 `Rungs/R005/Engine.lean`), built and run on the conformance cases
 (`Tests/R005Runs.lean`). The tabled machines of R001 and R004 have their
 properties at every lawful domain (`Rungs/R005/Tables.lean`); the mirrored
-machine's kept properties are not re-established yet (roadmap M3 part B, M4
-and L58), so no rung is admitted on master. `PARKED.md`
+machine's kept properties are not re-established yet (roadmap M3 part B and
+M4), so no rung is admitted on master. `PARKED.md`
 lists the files still out of the build: the proofs of epoch 1 about the tabled
 machine, the mirrored machine and the naive machine, written against the old
 kernel and the old step. What this file says about them describes them as
@@ -209,12 +209,12 @@ specification of what it builds (`Eager`: `POk`, `eagerRace_ok`; `Dir`,
 has `Tabled.good_eagerRace`, `good_walkRace`, `good_sharedRace`, `UOk.race`
 (two races side by side), and `good_raced` for the race of R004 and R005.
 `Rungs/R005/Tables.lean` puts these together: `R001.tableKeeps` and
-`R004.tableKeeps`, with nothing asked of the domain but `Domain.Lawful`.
-What R005 is held to beyond that list needs exact interfaces (roadmap L58).
+`R004.tableKeeps`, which do not use that an interface is exact. What R005 is
+held to beyond that list does (roadmap L58).
 
-`Kernel/ExactIface.lean` states exact interfaces as a hypothesis outside the
-trusted statements (`Domain.ExactIface`) and the set of terms a boundary lets
-through (`bset`, `bset_rightBound`, `bset_leftBound`).
+`Kernel/ExactIface.lean` has the set of terms a boundary lets through and
+what it is for an interface, which is exact by the laws of a domain (`bset`,
+`bset_rightBound`, `bset_leftBound`).
 `Rungs/Tabled/Unfolding/Model.lean` says what an unfolding to a depth relates,
 product by product, with no machine in it (`SE`, `Final`), and has the algebra
 of sequencing sets of products in either direction (`seqSets`, `chainS`,

@@ -2,8 +2,8 @@
 # A walk hands on exactly the products of the unfolding
 
 `Unfolding/Model.lean` says what the unfolding of a node to a depth relates,
-product by product (`SE`). Here: when interfaces are exact
-(`Domain.ExactIface`), what a walk holds of the items it hands on (`semI`:
+product by product (`SE`). Here: because interfaces are exact
+(`Domain.Lawful.rightBound_end`), what a walk holds of the items it hands on (`semI`:
 the pairs of an answer, the far ends of an open product) is what a walk
 holds of exactly those products (`walk_ex`), in either direction and under
 whatever was pushed on the near side.
@@ -407,7 +407,7 @@ theorem farD_foldl (rev : Bool) : ∀ (rest : List (Set SP)) (S : Set SP),
 
 section laws
 
-variable (hL : D.Lawful P.sorts.interp) (hE : D.ExactIface P.sorts.interp)
+variable (hL : D.Lawful P.sorts.interp)
   (K : Kernel R Cost) (hK : K.Refines D)
 
 local notation "𝕄" => P.sorts.interp
@@ -465,15 +465,15 @@ theorem leaf_ex (rev : Bool) {c : Near R} {far : Option R} (hc : IsBound D c.bou
   · exact key _ _ hc hf
   · exact key _ _ hf hc
 
-include hL hE in
+include hL in
 omit [DecidableEq R] in
 /-- The interface of a representative on the far side lets through exactly
 its far ends. -/
 theorem bset_farBound (rev : Bool) (s : R) :
     bset 𝕄 (farBoundV D rev s) = farEnds rev (den 𝕄 s) := by
   cases rev
-  · exact bset_rightBound hL hE s
-  · exact bset_leftBound hL hE s
+  · exact bset_rightBound hL s
+  · exact bset_leftBound hL s
 
 include hL in
 omit [DecidableEq R] in
@@ -497,7 +497,7 @@ theorem nearAfterV_isBound (rev : Bool) (it : It D P) :
   | closed a => exact nearB_isBound hL rev (some a.span)
   | opn t => rw [nearAfterV_bound]; exact nearB_isBound hL rev t
 
-include hL hE in
+include hL in
 omit [DecidableEq R] in
 /-- The products of the next member under what an item pushes: its products
 from anywhere, restricted to the ends the walk holds. -/
@@ -508,7 +508,7 @@ theorem ws_after (rev : Bool) (d : Nat) (it : It D P) (x : Rel) {fr : Option R}
   cases it with
   | closed a =>
     show pushSet rev (bset 𝕄 (farBoundV D rev a.span)) _ = _
-    rw [bset_farBound hL hE]
+    rw [bset_farBound hL]
     rfl
   | opn t =>
     cases t with
@@ -517,7 +517,7 @@ theorem ws_after (rev : Bool) (d : Nat) (it : It D P) (x : Rel) {fr : Option R}
       exact (pushSet_univ rev (sed_live d x univ_nonempty' (bset_nonempty hL hf))).symm
     | some t =>
       show pushSet rev (bset 𝕄 (farBoundV D rev t)) _ = _
-      rw [bset_farBound hL hE]
+      rw [bset_farBound hL]
       rfl
 
 include hL in
@@ -634,7 +634,7 @@ def MemEx (rev : Bool) (d : Nat) (wv : Near R → Rel → Option R → List (It 
     Sem 𝕄 rev (wv c x fr) = WT P 𝕄 rev d c x fr ∧
       ∀ b, Item.closed b ∈ wv c x fr → b.goal = goalD rev c.bound x fr
 
-include hL hE in
+include hL in
 /-- One member more: the items of the next member under what an item pushes,
 each after that item, are what the walk holds of the item followed by the
 products of that member. -/
@@ -648,7 +648,7 @@ theorem step_ex (rev : Bool) (d : Nat) {wv : Near R → Rel → Option R → Lis
   have hT : Sem 𝕄 rev (wv (nearAfterV D rev it) x fr) =
       farD rev '' pushSet rev (ifaceI rev (semI 𝕄 rev it))
         (SED P 𝕄 rev d Set.univ x (bset 𝕄 fr)) := by
-    rw [hsem, WT, ws_after hL hE rev d it x hf]
+    rw [hsem, WT, ws_after hL rev d it x hf]
   constructor
   · rintro ⟨it₁, h₁, hex⟩
     have hext := (extend_ex hL K hK rev hit (fun b hb => hgoal b (hb ▸ h₁)) s).1 hex
@@ -665,7 +665,7 @@ theorem step_ex (rev : Bool) (d : Nat) {wv : Near R → Rel → Option R → Lis
     exact ⟨it₁, h₁, (extend_ex hL K hK rev hit (fun b hb => hgoal b (hb ▸ h₁)) s).2
       (by rw [e]; exact hext)⟩
 
-include hL hE in
+include hL in
 /-- After an item, the rest of a chain. -/
 theorem seq_tail (rev : Bool) (d : Nat) (wv : Near R → Rel → Option R → List (It D P))
     (far : Option R) (hfar : IsBound D far) :
@@ -675,7 +675,7 @@ theorem seq_tail (rev : Bool) (d : Nat) (wv : Near R → Rel → Option R → Li
   | [], h, _, _, _ => absurd rfl h
   | [x], _, HW, it, hit => by
     ext s
-    have hstep := step_ex hL hE K hK rev d HW hit hfar s
+    have hstep := step_ex hL K hK rev d HW hit hfar s
     constructor
     · rintro ⟨it'', h, rfl⟩
       obtain ⟨it₁, h₁, he⟩ := (mem_seqV_one K hK rev wv far).1 h
@@ -693,7 +693,7 @@ theorem seq_tail (rev : Bool) (d : Nat) (wv : Near R → Rel → Option R → Li
     have ih := seq_tail rev d wv far hfar (y :: zs) (by simp) HW'
     obtain ⟨-, hgoal⟩ := HW x (by simp) (nearAfterV D rev it) none
       (nearAfterV_isBound hL rev it) (isBound_none D)
-    have hstep := step_ex hL hE K hK rev d HWx hit (isBound_none D)
+    have hstep := step_ex hL K hK rev d HWx hit (isBound_none D)
     ext s
     constructor
     · rintro ⟨it'', h, rfl⟩
@@ -710,7 +710,7 @@ theorem seq_tail (rev : Bool) (d : Nat) (wv : Near R → Rel → Option R → Li
       obtain ⟨it'', h', e⟩ := hj
       exact ⟨it'', (mem_seqV_two K hK rev wv far).2 ⟨it₁, h₁, it', he, h'⟩, e⟩
 
-include hL hE in
+include hL in
 /-- The items of a chain are what the walk holds of its products. -/
 theorem chain_ex (rev : Bool) (d : Nat) (wv : Near R → Rel → Option R → List (It D P))
     {far : Option R} (hfar : IsBound D far) {e : Rel} {xs : List Rel}
@@ -722,7 +722,7 @@ theorem chain_ex (rev : Bool) (d : Nat) (wv : Near R → Rel → Option R → Li
   rw [ws_chain h hys, farD_foldl]
   obtain ⟨hsem, hgoal⟩ := HW y₀ (by simp) c none hc (isBound_none D)
   have HW' : MemEx (P := P) rev d wv (y₁ :: zs) := fun z hz => HW z (List.mem_cons_of_mem _ hz)
-  have tail := seq_tail hL hE K hK rev d wv far hfar (y₁ :: zs) (by simp) HW'
+  have tail := seq_tail hL K hK rev d wv far hfar (y₁ :: zs) (by simp) HW'
   have hn : ∀ it₁ ∈ wv c y₀ none, ItNone rev it₁ := by
     intro it₁ h₁
     cases it₁ with
@@ -1155,7 +1155,7 @@ theorem meet_pushed_ex (rev : Bool) (wv wvo : Rel → List (It D P)) (S : Rel �
 
 /-! ## The walk -/
 
-include hL hE in
+include hL in
 /-- What a walk holds of the items it hands on is what a walk holds of the
 products of the unfolding, under its near context. -/
 theorem walk_ex (hP : ProgFO P) (rev : Bool) : ∀ (d : Nat) (c : Near R) (n : Rel)
@@ -1250,7 +1250,7 @@ theorem walk_ex (hP : ProgFO P) (rev : Bool) : ∀ (d : Nat) (c : Near R) (n : R
         cases t with
         | nil => rw [hys] at h2'; simp at h2'
         | cons y₁ zs =>
-          refine chain_ex hL hE K hK rev d (walkV K hK rev d) hf hv hys
+          refine chain_ex hL K hK rev d (walkV K hK rev d) hf hv hys
             (fun x hx c' fr hc' hfr => ?_) c hc
           have hxm : x ∈ xs := hin x (by rw [hys]; exact hx)
           have hxn := (hmem x hxm).1
@@ -1302,7 +1302,7 @@ theorem walk_ex (hP : ProgFO P) (rev : Bool) : ∀ (d : Nat) (c : Near R) (n : R
 
 /-! ## The race -/
 
-include hL hE in
+include hL in
 /-- The race answered by a walk says the unfolding is final exactly when it
 has no open product. -/
 theorem walkRace_final (hP : ProgFO P) (rev : Bool) (d : Nat) (g : GoalOf R Rel)
@@ -1313,7 +1313,7 @@ theorem walkRace_final (hP : ProgFO P) (rev : Bool) (d : Nat) (g : GoalOf R Rel)
     cases rev <;> first | exact hg.lb | exact hg.rb
   have hf : IsBound D (if rev then g.lb else g.rb) := by
     cases rev <;> first | exact hg.lb | exact hg.rb
-  have hex := walk_ex hL hE K hK hP rev d ⟨if rev then g.rb else g.lb, false⟩ g.node
+  have hex := walk_ex hL K hK hP rev d ⟨if rev then g.rb else g.lb, false⟩ g.node
     (if rev then g.lb else g.rb) hn hf hg.normal hg.fo
   have hS : WS P 𝕄 rev d ⟨if rev then g.rb else g.lb, false⟩ g.node (if rev then g.lb else g.rb) =
       SE P 𝕄 d (bset 𝕄 g.lb) g.node (bset 𝕄 g.rb) := by

@@ -1,7 +1,7 @@
 /-
 # The shared evaluation holds exactly the products of the unfolding
 
-When interfaces are exact (`Domain.ExactIface`), what the summary of a node
+Because interfaces are exact (`Domain.Lawful.rightBound_end`), what the summary of a node
 holds (`SemS`: the pairs of its answers, the terms each interface of an open
 product lets through) is what a left-to-right walk holds of the products of
 the unfolding (`evalS_ex`), whatever the memo held, as long as the memo was
@@ -264,19 +264,19 @@ end suf
 
 section laws
 
-variable (hL : D.Lawful P.sorts.interp) (hE : D.ExactIface P.sorts.interp)
+variable (hL : D.Lawful P.sorts.interp)
   (K : Kernel R Cost) (hK : K.Refines D)
 
 local notation "𝕄" => P.sorts.interp
 
-include hL hE in
+include hL in
 omit [DecidableEq R] in
 theorem wsuf_after_closed (d : Nat) (a : R) (tl : List Rel) (far : Option R) :
     WSuf P 𝕄 d ⟨D.rightBound a, true⟩ tl far =
       pushSet false (ifaceI false (.closed (den 𝕄 a)))
         (chainS (membS (SED P 𝕄 false d) Set.univ (bset 𝕄 far) tl)) := by
   show pushSet false (bset 𝕄 (D.rightBound a)) _ = _
-  rw [bset_rightBound hL hE]
+  rw [bset_rightBound hL]
   rfl
 
 include hL in
@@ -335,7 +335,7 @@ theorem ext_closed {a : Ans D P} {l fr : Option R} {n₁ n₂ : Rel} {t : Sm D P
         obtain ⟨o, ho, e⟩ := sems_opn_iff.1 hj
         exact ⟨o, ho, e.trans (SI.opn.inj hi).symm⟩
 
-include hL hE in
+include hL in
 omit [DecidableEq R] in
 /-- After an open product: the interfaces of the answers of a summary, and
 its open products. -/
@@ -358,7 +358,7 @@ theorem ext_open (F₀ : Set GTerm) (t : Sm D P) :
       rcases List.mem_append.1 ho with h | h
       · obtain ⟨b, hb, rfl⟩ := List.mem_map.1 h
         refine ⟨.closed (den 𝕄 b.span), .inl ⟨b, hb, rfl⟩, ?_⟩
-        rw [bset_rightBound hL hE]
+        rw [bset_rightBound hL]
         exact .oc
       · exact ⟨_, .inr ⟨o, h, rfl⟩, .oo⟩
     · rintro ⟨j, hj, hext⟩
@@ -367,7 +367,7 @@ theorem ext_open (F₀ : Set GTerm) (t : Sm D P) :
       | oc =>
         obtain ⟨b, hb, rfl⟩ := sems_closed_iff.1 hj
         refine ⟨D.rightBound b.span, List.mem_append_left _ (List.mem_map.2 ⟨b, hb, rfl⟩), ?_⟩
-        rw [bset_rightBound hL hE]
+        rw [bset_rightBound hL]
         exact (SI.opn.inj hi).symm
       | oo =>
         obtain ⟨o, ho, e⟩ := sems_opn_iff.1 hj
@@ -375,7 +375,7 @@ theorem ext_open (F₀ : Set GTerm) (t : Sm D P) :
 
 /-! ## A chain -/
 
-include hL hE in
+include hL in
 /-- The first member's summary, each of its products followed by the summary
 of the rest. -/
 theorem suf_body_ex (Inv : Mm D P → Prop) {c : Near R} {x : Rel} {tl : List Rel} {far : Option R}
@@ -401,7 +401,7 @@ theorem suf_body_ex (Inv : Mm D P → Prop) {c : Near R} {x : Rel} {tl : List Re
     (fun a ha m hm => by
       obtain ⟨⟨hok, hex⟩, hinv⟩ := hsv ⟨D.rightBound a.span, true⟩ m hm (isBound_right hL _)
       refine ⟨?_, hinv⟩
-      rw [ext_closed hL K hK (h₁.goal a ha) hok.goal, hex, wsuf_after_closed hL hE, seq_ext])
+      rw [ext_closed hL K hK (h₁.goal a ha) hok.goal, hex, wsuf_after_closed hL, seq_ext])
   obtain ⟨hmF₂, F₂⟩ := fold_spec (ι := Option R)
     (fun o m => ([], (sv ⟨o, o.isSome⟩ m).1.closed.map (fun b => D.rightBound b.span) ++
         (sv ⟨o, o.isSome⟩ m).1.opens, (sv ⟨o, o.isSome⟩ m).2))
@@ -412,7 +412,7 @@ theorem suf_body_ex (Inv : Mm D P → Prop) {c : Near R} {x : Rel} {tl : List Re
     (fun o ho m hm => by
       obtain ⟨⟨-, hex⟩, hinv⟩ := hsv ⟨o, o.isSome⟩ m hm (h₁.bound o ho)
       refine ⟨?_, hinv⟩
-      rw [ext_open hL hE (bset 𝕄 o), hex, wsuf_after_open hL d o hf, seq_ext])
+      rw [ext_open hL (bset 𝕄 o), hex, wsuf_after_open hL d o hf, seq_ext])
   refine ⟨?_, hmF₂⟩
   unfold sufBodyV
   rw [fold_sem F₂ _ (fun _ _ _ q => q), fold_sem F₁ _ (fun _ _ _ q => q), farD_seqSets]
@@ -491,7 +491,7 @@ def MembersEx (d : Nat) (ys : List Rel) : Prop :=
     IsBound D c.bound → IsBound D fr →
     SemS 𝕄 (wv c x fr m).1 = WT P 𝕄 false d c x fr ∧ MemoEx (wv c x fr m).2
 
-include hL hE in
+include hL in
 /-- The summary of the members of a chain from the `i`-th on. -/
 theorem suf_ex {n : Rel} {d : Nat} {far : Option R} (hfar : IsBound D far) (hn : Normal n)
     (hfo : n.FO) {xsAll : List Rel} (hv : n.view.forget = .chain xsAll) :
@@ -519,7 +519,7 @@ theorem suf_ex {n : Rel} {d : Nat} {far : Option R} (hfar : IsBound D far) (hn :
       intro m' hm' hmx'
       obtain ⟨h₁, hm₁⟩ := HW x (by simp) c none m' hm' hc (isBound_none D)
       obtain ⟨hs₁, hx₁⟩ := HX x (by simp) c none m' hm' hmx' hc (isBound_none D)
-      have := suf_body_ex hL hE K hK (fun m => MemoOk m ∧ MemoEx m) hfar _ h₁ hs₁ ⟨hm₁, hx₁⟩
+      have := suf_body_ex hL K hK (fun m => MemoOk m ∧ MemoEx m) hfar _ h₁ hs₁ ⟨hm₁, hx₁⟩
         (sufSV K hK wv n d far (i + 1) (y :: zs))
         (fun c' m₂ hm₂ hc' => by
           obtain ⟨hok, hmok⟩ := suf_ok hL K hK wv hfar hn hfo hv (y :: zs) (i + 1) c' m₂ (by simp)
@@ -681,7 +681,7 @@ theorem meet_assemble_pushed {T : Set SI} {xs : List Rel} (S : Rel → Set SP) {
 
 /-! ## The whole unfolding -/
 
-include hL hE in
+include hL in
 /-- The summary of a node holds the products of its unfolding, and the memo
 stays right. -/
 theorem evalS_ex (hP : ProgFO P) : ∀ (d : Nat) (c : Near R) (n : Rel) (far : Option R)
@@ -782,7 +782,7 @@ theorem evalS_ex (hP : ProgFO P) : ∀ (d : Nat) (c : Near R) (n : Rel) (far : O
       obtain ⟨h2, hmem, -⟩ := hn.view_chain hvc
       dsimp only
       have hxs : xs ≠ [] := by rintro rfl; simp at h2
-      have key := suf_ex hL hE K hK (evalSV K hK d) hf hn hfo hv xs 0 c m hxs rfl
+      have key := suf_ex hL K hK (evalSV K hK d) hf hn hfo hv xs 0 c m hxs rfl
         (fun x hx c' fr m₂ hm₂ hc' hfr => ok c' x fr m₂ hm₂ hc' hfr (hmem x hx).1
           (hfo.view_members (by rw [hvc]; exact hx)))
         (fun x hx c' fr m₂ hm₂ hmx₂ hc' hfr => ih c' x fr m₂ hm₂ hmx₂ hc' hfr (hmem x hx).1
@@ -871,13 +871,13 @@ theorem evalS_ex (hP : ProgFO P) : ∀ (d : Nat) (c : Near R) (n : Rel) (far : O
 
 /-! ## The race -/
 
-include hL hE in
+include hL in
 /-- The race answered with shared work says the unfolding is final exactly
 when it has no open product. -/
 theorem sharedRace_final (hP : ProgFO P) (d : Nat) (g : GoalOf R Rel) (hg : GoalOk D g) :
     (sharedRace (K := DerivationKernel.over D K hK P) d g).val.1 = true ↔
       Final P 𝕄 d (bset 𝕄 g.lb) g.node (bset 𝕄 g.rb) := by
-  obtain ⟨hex, -⟩ := evalS_ex hL hE K hK hP d ⟨g.lb, false⟩ g.node g.rb []
+  obtain ⟨hex, -⟩ := evalS_ex hL K hK hP d ⟨g.lb, false⟩ g.node g.rb []
     (fun p hp => by cases hp) (fun p hp => by cases hp) hg.lb hg.rb hg.normal hg.fo
   have hS : WS P 𝕄 false d ⟨g.lb, false⟩ g.node g.rb =
       SE P 𝕄 d (bset 𝕄 g.lb) g.node (bset 𝕄 g.rb) := rfl
