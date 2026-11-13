@@ -19,12 +19,21 @@
 
 use crate::store::{Frame, Node, Store, Tbl, TermId};
 
+/// The first member of a list and the rest, or nothing when the node is not
+/// an application. One tick.
+pub fn uncons(s: &mut Store, l: TermId) -> Option<(TermId, TermId)> {
+    match s.read(l) {
+        Node::App(h, t) => Some((h, t)),
+        _ => None,
+    }
+}
+
 /// The symbol at the head of a term and the list of its arguments, in
 /// order.
 pub fn spine(s: &mut Store, t: TermId) -> (TermId, TermId) {
     let mut args = s.alloc(Node::Nil);
     let mut h = t;
-    while let Node::App(g, u) = s.read(h) {
+    while let Some((g, u)) = uncons(s, h) {
         args = s.alloc(Node::App(u, args));
         h = g;
     }
@@ -38,22 +47,20 @@ pub fn same_len(s: &mut Store, a0: TermId, b0: TermId) -> bool {
     let mut same = true;
     let mut go = true;
     while go {
-        match s.read(a) {
-            Node::App(_, ta) => match s.read(b) {
-                Node::App(_, tb) => {
+        match uncons(s, a) {
+            Some((_, ta)) => match uncons(s, b) {
+                Some((_, tb)) => {
                     a = ta;
                     b = tb;
                 }
-                _ => {
+                None => {
                     same = false;
                     go = false;
                 }
             },
-            _ => {
+            None => {
                 go = false;
-                if let Node::App(_, _) = s.read(b) {
-                    same = false;
-                }
+                same = uncons(s, b).is_none();
             }
         }
     }
@@ -67,9 +74,9 @@ fn find(s: &mut Store, list0: TermId, key: TermId, args: TermId) -> Option<TermI
     let mut found = None;
     let mut go = true;
     while go {
-        match s.read(list) {
-            Node::App(e, rest) => match s.read(e) {
-                Node::App(k, v) => {
+        match uncons(s, list) {
+            Some((e, rest)) => match uncons(s, e) {
+                Some((k, v)) => {
                     if s.same(k, key) && same_len(s, v, args) {
                         found = Some(v);
                         go = false;
@@ -77,9 +84,9 @@ fn find(s: &mut Store, list0: TermId, key: TermId, args: TermId) -> Option<TermI
                         list = rest;
                     }
                 }
-                _ => panic!(),
+                None => panic!(),
             },
-            _ => go = false,
+            None => go = false,
         }
     }
     found
@@ -91,22 +98,22 @@ pub fn lookup(s: &mut Store, sorts0: TermId, name: TermId) -> Option<(TermId, Te
     let mut found = None;
     let mut go = true;
     while go {
-        match s.read(sorts) {
-            Node::App(e, more) => match s.read(e) {
-                Node::App(n, d) => {
+        match uncons(s, sorts) {
+            Some((e, more)) => match uncons(s, e) {
+                Some((n, d)) => {
                     if s.same(n, name) {
-                        match s.read(d) {
-                            Node::App(cases, rest) => found = Some((cases, rest)),
-                            _ => panic!(),
+                        match uncons(s, d) {
+                            Some(def) => found = Some(def),
+                            None => panic!(),
                         }
                         go = false;
                     } else {
                         sorts = more;
                     }
                 }
-                _ => panic!(),
+                None => panic!(),
             },
-            _ => go = false,
+            None => go = false,
         }
     }
     found
@@ -116,7 +123,7 @@ pub fn lookup(s: &mut Store, sorts0: TermId, name: TermId) -> Option<(TermId, Te
 fn fill(s: &mut Store, args0: TermId, kid: TermId) -> TermId {
     let mut out = s.alloc(Node::Nil);
     let mut args = args0;
-    while let Node::App(_, t) = s.read(args) {
+    while let Some((_, t)) = uncons(s, args) {
         out = s.alloc(Node::App(kid, out));
         args = t;
     }
@@ -132,14 +139,38 @@ pub fn step(s: &mut Store, sorts: TermId, name: TermId, head: TermId, args: Term
         None => None,
         Some((cases, rest)) => match find(s, cases, head, args) {
             Some(kids) => Some(kids),
-            None => match s.read(rest) {
-                Node::App(excluded, kid) => match find(s, excluded, head, args) {
+            None => match uncons(s, rest) {
+                Some((excluded, kid)) => match find(s, excluded, head, args) {
                     Some(_) => None,
                     None => Some(fill(s, args, kid)),
                 },
-                _ => None,
+                None => None,
             },
         },
+    }
+}
+
+/// Is the node the end of a list?
+fn is_nil(s: &mut Store, p: TermId) -> bool {
+    matches!(s.read(p), Node::Nil)
+}
+
+/// Put on the stack each argument with the sort it must be in. An argument
+/// that may be any term is left out. The two lists have the same length.
+fn push_args(s: &mut Store, kids0: TermId, args0: TermId) {
+    let mut kids = kids0;
+    let mut args = args0;
+    while let Some((k, kt)) = uncons(s, kids) {
+        match uncons(s, args) {
+            Some((a, at)) => {
+                if !is_nil(s, k) {
+                    s.push(Frame::Visit(k, a));
+                }
+                kids = kt;
+                args = at;
+            }
+            None => panic!(),
+        }
     }
 }
 
@@ -152,50 +183,25 @@ pub fn member(s: &mut Store, sorts: TermId, name: TermId, t: TermId) -> bool {
     let mut ok = true;
     s.push(Frame::Visit(name, t));
     while let Some(fr) = s.pop() {
-        match fr {
-            Frame::Visit(n, u) => {
-                let pair = s.alloc(Node::App(n, u));
-                match s.get_flag(Tbl::B, pair) {
-                    Some(_) => (),
+        let (n, u) = match fr {
+            Frame::Visit(n, u) => (n, u),
+            Frame::Build(n, u) => (n, u),
+        };
+        let pair = s.alloc(Node::App(n, u));
+        match s.get_flag(Tbl::B, pair) {
+            Some(_) => (),
+            None => {
+                s.set_flag(Tbl::B, pair, true);
+                let (head, args) = spine(s, u);
+                match step(s, sorts, n, head, args) {
                     None => {
-                        s.set_flag(Tbl::B, pair, true);
-                        let (head, args) = spine(s, u);
-                        match step(s, sorts, n, head, args) {
-                            None => {
-                                ok = false;
-                                s.drop_stack();
-                            }
-                            Some(kids) => push_args(s, kids, args),
-                        }
+                        ok = false;
+                        s.drop_stack();
                     }
+                    Some(kids) => push_args(s, kids, args),
                 }
             }
-            Frame::Build(_, _) => panic!(),
         }
     }
     ok
-}
-
-/// Put on the stack each argument with the sort it must be in. An argument
-/// that may be any term is left out. The two lists have the same length.
-fn push_args(s: &mut Store, kids0: TermId, args0: TermId) {
-    let mut kids = kids0;
-    let mut args = args0;
-    let mut go = true;
-    while go {
-        match s.read(kids) {
-            Node::App(k, kt) => match s.read(args) {
-                Node::App(a, at) => {
-                    match s.read(k) {
-                        Node::Nil => (),
-                        _ => s.push(Frame::Visit(k, a)),
-                    }
-                    kids = kt;
-                    args = at;
-                }
-                _ => panic!(),
-            },
-            _ => go = false,
-        }
-    }
 }
