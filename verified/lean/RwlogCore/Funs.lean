@@ -228,26 +228,28 @@ def store.Store.get_flag
   else ok (none, self1)
 
 /-- [rwlog_core::cover::mark]:
-    Source: 'src/cover.rs', lines 45:0-56:1 -/
+    Source: 'src/cover.rs', lines 46:0-57:1 -/
 def cover.mark (s : store.Store) (p : store.TermId) : Result store.Store := do
   let (o, s1) ← store.Store.get_flag s store.Tbl.A p
   match o with
   | none =>
-    let s2 ← store.Store.set_flag s1 store.Tbl.A p true
-    let (n, s3) ← store.Store.read s2 p
-    match n with
-    | store.Node.V0 => ok s3
-    | store.Node.VL _ => ok s3
-    | store.Node.VR _ => ok s3
-    | store.Node.Sym _ => ok s3
-    | store.Node.App a b => let s4 ← cover.mark s3 a
-                            cover.mark s4 b
-    | store.Node.Nil => ok s3
+    let (n, s2) ← store.Store.read s1 p
+    let s3 ←
+      match n with
+      | store.Node.V0 => ok s2
+      | store.Node.VL _ => ok s2
+      | store.Node.VR _ => ok s2
+      | store.Node.Sym _ => ok s2
+      | store.Node.App a b => do
+                              let s4 ← cover.mark s2 a
+                              cover.mark s4 b
+      | store.Node.Nil => ok s2
+    store.Store.set_flag s3 store.Tbl.A p true
   | some _ => ok s1
 partial_fixpoint
 
 /-- [rwlog_core::cover::all_marked]:
-    Source: 'src/cover.rs', lines 60:0-76:1 -/
+    Source: 'src/cover.rs', lines 61:0-77:1 -/
 def cover.all_marked
   (s : store.Store) (p : store.TermId) : Result (Bool × store.Store) := do
   let (o, s1) ← store.Store.get_flag s store.Tbl.B p
@@ -432,7 +434,7 @@ def store.Store.alloc
   store.Store.intern self1 n
 
 /-- [rwlog_core::cover::keep]:
-    Source: 'src/cover.rs', lines 79:0-91:1 -/
+    Source: 'src/cover.rs', lines 80:0-92:1 -/
 def cover.keep
   (s : store.Store) (c : store.TermId) :
   Result (store.TermId × store.Store)
@@ -453,7 +455,7 @@ def cover.keep
 partial_fixpoint
 
 /-- [rwlog_core::cover::is_var]:
-    Source: 'src/cover.rs', lines 93:0-95:1 -/
+    Source: 'src/cover.rs', lines 94:0-96:1 -/
 def cover.is_var
   (s : store.Store) (p : store.TermId) : Result (Bool × store.Store) := do
   let (n, s1) ← store.Store.read s p
@@ -466,7 +468,7 @@ def cover.is_var
   | store.Node.Nil => ok (false, s1)
 
 /-- [rwlog_core::cover::is_nil]:
-    Source: 'src/cover.rs', lines 97:0-99:1 -/
+    Source: 'src/cover.rs', lines 98:0-100:1 -/
 def cover.is_nil
   (s : store.Store) (p : store.TermId) : Result (Bool × store.Store) := do
   let (n, s1) ← store.Store.read s p
@@ -479,7 +481,7 @@ def cover.is_nil
   | store.Node.Nil => ok (true, s1)
 
 /-- [rwlog_core::cover::iface]:
-    Source: 'src/cover.rs', lines 104:0-115:1 -/
+    Source: 'src/cover.rs', lines 105:0-116:1 -/
 def cover.iface
   (s : store.Store) (p : store.TermId) (c : store.TermId) :
   Result ((Option span.Span) × store.Store)
@@ -500,7 +502,7 @@ def cover.iface
   else ok (some { l := p, r := p, c := c2 }, s6)
 
 /-- [rwlog_core::cover::right_bound]:
-    Source: 'src/cover.rs', lines 118:0-120:1
+    Source: 'src/cover.rs', lines 119:0-121:1
     Visibility: public -/
 def cover.right_bound
   (s : store.Store) (x : span.Span) :
@@ -509,7 +511,7 @@ def cover.right_bound
   cover.iface s x.r x.c
 
 /-- [rwlog_core::cover::left_bound]:
-    Source: 'src/cover.rs', lines 123:0-125:1
+    Source: 'src/cover.rs', lines 124:0-126:1
     Visibility: public -/
 def cover.left_bound
   (s : store.Store) (x : span.Span) :

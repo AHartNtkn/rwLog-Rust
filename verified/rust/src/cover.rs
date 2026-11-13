@@ -41,16 +41,17 @@ pub fn span_eq(s: &mut Store, x: Span, y: Span) -> bool {
     s.same(x.l, y.l) && s.same(x.r, y.r) && s.same(x.c, y.c)
 }
 
-/// Flag every node of the term `p` in table `A`. A variable is not entered.
+/// Flag every node of the term `p` in table `A`. A node is flagged after
+/// its parts, so a flagged node has all its parts flagged.
 fn mark(s: &mut Store, p: TermId) {
     match s.get_flag(Tbl::A, p) {
         Some(_) => (),
         None => {
-            s.set_flag(Tbl::A, p, true);
             if let Node::App(a, b) = s.read(p) {
                 mark(s, a);
                 mark(s, b);
             }
+            s.set_flag(Tbl::A, p, true);
         }
     }
 }
