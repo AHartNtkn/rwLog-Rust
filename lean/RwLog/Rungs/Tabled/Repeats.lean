@@ -434,7 +434,11 @@ theorem step_ticks_of_skips {U V : Oracle} (h : U.SkipsRepeats V) {c : Nat} (hc 
 runtime. -/
 theorem machine_runtime_of_skips {U V : Oracle} (h : U.SkipsRepeats V) :
     (machine U).runtime = (machine V).runtime := by
-  simp only [CostedRuntime.runtime, machine, step_val_of_skips h]
+  have hstep : (fun s => (step U s).val) = fun s => (step V s).val :=
+    funext (step_val_of_skips h)
+  show (⟨State, fun P q => State.ofGoal P ⟨none, q, none⟩, fun s => (step U s).val⟩ : Runtime) =
+    ⟨State, fun P q => State.ofGoal P ⟨none, q, none⟩, fun s => (step V s).val⟩
+  rw [hstep]
 
 /-- With an oracle that computes R001's unfolding race up to repeated
 answers, the charged tabled machine is R001. -/

@@ -279,20 +279,25 @@ end Charged
 
 /-! ## Costed runtimes -/
 
-/-- A small-step machine whose step is a charged computation. -/
+/-- A small-step machine whose step is a charged computation. Building its
+first state from the program and the query is a charged computation too:
+whatever a machine does before its first step is paid for by every answer. -/
 structure CostedRuntime where
   State : Type
-  init : Program → Rel → State
+  init : Program → Rel → Cost State
   step : State → Cost (Step State)
 
 namespace CostedRuntime
 
 variable (C : CostedRuntime)
 
+/-- The state the machine starts in. -/
+def start (P : Program) (q : Rel) : C.State := (C.init P q).val
+
 /-- The machine with the ticks forgotten. -/
 def runtime : Runtime where
   State := C.State
-  init := C.init
+  init := C.start
   step s := (C.step s).val
 
 /-- The ticks spent in the first `n` steps. A finished machine spends
@@ -303,6 +308,10 @@ def spent : C.State → Nat → Nat
     (C.step s).ticks + match (C.step s).val with
       | .emit _ s' => spent s' n
       | .done => 0
+
+/-- The ticks paid on `q` by the end of the first `n` steps: building the
+first state, and the steps. -/
+def paid (P : Program) (q : Rel) (n : Nat) : Nat := (C.init P q).ticks + C.spent (C.start P q) n
 
 end CostedRuntime
 
@@ -315,17 +324,17 @@ variable (C : CostedRuntime)
 /-- Some answer emitted in the first `n` steps on `q` relates the pair `x`
 in `M`. -/
 def Covered (P : Program) (q : Rel) (M : Interp) (x : GTerm × GTerm) (n : Nat) : Prop :=
-  ∃ a ∈ C.runtime.emitted (C.init P q) n, x ∈ a.denAt M
+  ∃ a ∈ C.runtime.emitted (C.start P q) n, x ∈ a.denAt M
 
 /-- The coverage latency of `x` in `M` is at most `c`: the machine has spent
 at most `c` ticks by some step at which an emitted answer relates `x`. -/
 def CoversWithin (P : Program) (q : Rel) (M : Interp) (x : GTerm × GTerm) (c : Nat) : Prop :=
-  ∃ n, C.Covered P q M x n ∧ C.spent (C.init P q) n ≤ c
+  ∃ n, C.Covered P q M x n ∧ C.paid P q n ≤ c
 
 /-- The exhaustion latency is at most `c`: the machine has spent at most `c`
 ticks by some step at which it has reported that it is done. -/
 def ExhaustsWithin (P : Program) (q : Rel) (c : Nat) : Prop :=
-  ∃ n, C.runtime.Halts (C.init P q) n ∧ C.spent (C.init P q) n ≤ c
+  ∃ n, C.runtime.Halts (C.start P q) n ∧ C.paid P q n ≤ c
 
 end CostedRuntime
 
@@ -339,9 +348,9 @@ bound. -/
 def Simulates (Old New : CostedRuntime) (p : Nat → Nat → Nat) : Prop :=
   ∀ P q, P.WellFormed q → ∀ n,
     (∀ M, P.theory.Model M → ∀ x, Old.Covered P q M x n →
-      New.CoversWithin P q M x (p (Old.spent (Old.init P q) n) (P.size + q.size))) ∧
-    (Old.runtime.Halts (Old.init P q) n →
-      New.ExhaustsWithin P q (p (Old.spent (Old.init P q) n) (P.size + q.size)))
+      New.CoversWithin P q M x (p (Old.paid P q n) (P.size + q.size))) ∧
+    (Old.runtime.Halts (Old.start P q) n →
+      New.ExhaustsWithin P q (p (Old.paid P q n) (P.size + q.size)))
 
 /-- `New` is separated from `Old` on a family of well-formed inputs of size
 at most `size k` whose theories have a model, by the nonempty sets of ground
@@ -355,7 +364,7 @@ def Separates (Old New : CostedRuntime) (fam : Nat → Program × Rel) (tgt : Na
     ∀ M, (fam k).1.theory.Model M → ∀ x ∈ tgt k,
       New.CoversWithin (fam k).1 (fam k).2 M x (hi k) ∧
       ∀ n, Old.Covered (fam k).1 (fam k).2 M x n →
-        lo k ≤ Old.spent (Old.init (fam k).1 (fam k).2) n
+        lo k ≤ Old.paid (fam k).1 (fam k).2 n
 
 /-- The special case for inputs that halt: `New` reports that it is done
 within `hi k` ticks, and `Old` has paid at least `lo k` whenever it has. This
@@ -364,7 +373,7 @@ def SeparatesExhaustion (Old New : CostedRuntime) (fam : Nat → Program × Rel)
     (size lo hi : Nat → Nat) : Prop :=
   ∀ k, (fam k).1.WellFormed (fam k).2 ∧ (fam k).1.size + (fam k).2.size ≤ size k ∧
     New.ExhaustsWithin (fam k).1 (fam k).2 (hi k) ∧
-    (∀ n, Old.runtime.Halts (Old.init (fam k).1 (fam k).2) n →
-      lo k ≤ Old.spent (Old.init (fam k).1 (fam k).2) n)
+    (∀ n, Old.runtime.Halts (Old.start (fam k).1 (fam k).2) n →
+      lo k ≤ Old.paid (fam k).1 (fam k).2 n)
 
 end RwLog

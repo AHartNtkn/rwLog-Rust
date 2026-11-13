@@ -37,8 +37,8 @@ theorem CoversWithin.mono {P : Program} {q : Rel} {M : Interp} {x : GTerm × GTe
 /-- On an input that halts, an honest machine has covered every pair of the
 query when it halts. -/
 theorem coversWithin_of_halts (hC : C.runtime.HonestExhaustion) {P : Program} {q : Rel}
-    (hwf : P.WellFormed q) {n c : Nat} (hn : C.runtime.Halts (C.init P q) n)
-    (hc : C.spent (C.init P q) n ≤ c) {M : Interp} (hM : P.theory.Model M) {x : GTerm × GTerm}
+    (hwf : P.WellFormed q) {n c : Nat} (hn : C.runtime.Halts (C.start P q) n)
+    (hc : C.paid P q n ≤ c) {M : Interp} (hM : P.theory.Model M) {x : GTerm × GTerm}
     (hx : x ∈ P.semAt M q) : C.CoversWithin P q M x c := by
   have h := hC P q hwf n hn M hM
   rw [h] at hx
@@ -64,10 +64,10 @@ number of steps of `New` costs at most `p` of what `Old` paid, has emitted an
 answer covering each answer `Old` has emitted, and has halted if `Old` has. -/
 theorem Simulates.of_steps {Old New : CostedRuntime} {p : Nat → Nat → Nat}
     (h : ∀ P q, P.WellFormed q → ∀ n, ∃ m,
-      New.spent (New.init P q) m ≤ p (Old.spent (Old.init P q) n) (P.size + q.size) ∧
-      (∀ a ∈ Old.runtime.emitted (Old.init P q) n,
-        ∃ b ∈ New.runtime.emitted (New.init P q) m, b.CoversLive P.theory a) ∧
-      (Old.runtime.Halts (Old.init P q) n → New.runtime.Halts (New.init P q) m)) :
+      New.paid P q m ≤ p (Old.paid P q n) (P.size + q.size) ∧
+      (∀ a ∈ Old.runtime.emitted (Old.start P q) n,
+        ∃ b ∈ New.runtime.emitted (New.start P q) m, b.CoversLive P.theory a) ∧
+      (Old.runtime.Halts (Old.start P q) n → New.runtime.Halts (New.start P q) m)) :
     Simulates Old New p := by
   intro P q hwf n
   obtain ⟨m, hs, hcov, hh⟩ := h P q hwf n

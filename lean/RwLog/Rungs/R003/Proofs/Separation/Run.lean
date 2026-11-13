@@ -35,7 +35,7 @@ theorem norm_root (k : Nat) : (⟨none, sepRel k, none⟩ : Goal).norm = (false,
   exact h
 
 theorem init_eq (k : Nat) (U : Oracle) :
-    (Tabled.machine U).init (sepFam k).1 (sepFam k).2 = ⟨P0, tabs k [] [], false, 0⟩ := by
+    (Tabled.machine U).start (sepFam k).1 (sepFam k).2 = ⟨P0, tabs k [] [], false, 0⟩ := by
   show State.ofGoal P0 ⟨none, sepRel k, none⟩ = _
   simp [State.ofGoal, norm_root]
 
@@ -78,9 +78,9 @@ theorem step_done {U : Oracle} {st : State} (h : st.finished = true) :
 
 /-- R003 halts after two rounds, within `2000 (k + 2)³`. -/
 theorem costed_halts (k : Nat) :
-    costed.runtime.Halts (costed.init (sepFam k).1 (sepFam k).2) 3 ∧
-      costed.spent (costed.init (sepFam k).1 (sepFam k).2) 3 ≤ 2000 * (k + 2) ^ 3 := by
-  have hi : costed.init (sepFam k).1 (sepFam k).2 = ⟨P0, tabs k [] [], false, 0⟩ :=
+    costed.runtime.Halts (costed.start (sepFam k).1 (sepFam k).2) 3 ∧
+      costed.spent (costed.start (sepFam k).1 (sepFam k).2) 3 ≤ 2000 * (k + 2) ^ 3 := by
+  have hi : costed.start (sepFam k).1 (sepFam k).2 = ⟨P0, tabs k [] [], false, 0⟩ :=
     init_eq k unfolder
   rw [hi]
   obtain ⟨t1, dn, tl, e1, h1, -⟩ := round_spends k 0 (a0 := []) (rest := []) (Or.inl rfl)
@@ -176,11 +176,15 @@ theorem separates : Obligation.separates := by
   refine ⟨Sep.wellFormed k, Sep.size_le k, ⟨∅, Sep.model_nil k⟩, ⟨(.sym "z", .sym "z"), rfl⟩, ?_⟩
   intro M hM x hx
   obtain ⟨hh, hs⟩ := Sep.costed_halts k
-  refine ⟨costed.coversWithin_of_halts honest_exhaustion (Sep.wellFormed k) hh hs hM
-    (Sep.sem_target M hx k), ?_⟩
+  refine ⟨costed.coversWithin_of_halts honest_exhaustion (Sep.wellFormed k) hh
+    (le_of_eq_of_le (Tabled.paid_eq unfolder _ _ _) hs) hM (Sep.sem_target M hx k), ?_⟩
   rintro n ⟨a, ha, -⟩
-  have hi : R002.costed.init (sepFam k).1 (sepFam k).2 = ⟨Sep.P0, Sep.tabs k [] [], false, 0⟩ :=
+  have hi : R002.costed.start (sepFam k).1 (sepFam k).2 = ⟨Sep.P0, Sep.tabs k [] [], false, 0⟩ :=
     Sep.init_eq k R002.onDemand
+  have hp : R002.costed.paid (sepFam k).1 (sepFam k).2 n =
+      R002.costed.spent (R002.costed.start (sepFam k).1 (sepFam k).2) n :=
+    Tabled.paid_eq R002.onDemand _ _ n
+  rw [hp]
   rw [hi] at ha ⊢
   exact R002.costed.le_spent_of_covered (N := 0) rfl
     (le_trans (Sep.r002_first k) (Sep.spent_ge_step _ _ 0)) ha
@@ -189,10 +193,16 @@ theorem separates : Obligation.separates := by
 at least `2 ^ k` whenever it has halted. -/
 theorem separates_exhaustion : Obligation.separates_exhaustion := by
   intro k
-  refine ⟨Sep.wellFormed k, Sep.size_le k, ⟨3, Sep.costed_halts k⟩, ?_⟩
+  obtain ⟨hh, hs⟩ := Sep.costed_halts k
+  refine ⟨Sep.wellFormed k, Sep.size_le k,
+    ⟨3, hh, le_of_eq_of_le (Tabled.paid_eq unfolder _ _ _) hs⟩, ?_⟩
   intro n hn
-  have hi : R002.costed.init (sepFam k).1 (sepFam k).2 = ⟨Sep.P0, Sep.tabs k [] [], false, 0⟩ :=
+  have hi : R002.costed.start (sepFam k).1 (sepFam k).2 = ⟨Sep.P0, Sep.tabs k [] [], false, 0⟩ :=
     Sep.init_eq k R002.onDemand
+  have hp : R002.costed.paid (sepFam k).1 (sepFam k).2 n =
+      R002.costed.spent (R002.costed.start (sepFam k).1 (sepFam k).2) n :=
+    Tabled.paid_eq R002.onDemand _ _ n
+  rw [hp]
   rw [hi] at hn ⊢
   cases n with
   | zero => simp [Runtime.Halts, Runtime.run] at hn

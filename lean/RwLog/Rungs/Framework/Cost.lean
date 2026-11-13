@@ -175,7 +175,13 @@ variable (C : CostedRuntime)
 
 @[simp] theorem runtime_step (s : C.State) : C.runtime.step s = (C.step s).val := rfl
 
-@[simp] theorem runtime_init (P : Program) (q : Rel) : C.runtime.init P q = C.init P q := rfl
+@[simp] theorem runtime_init (P : Program) (q : Rel) : C.runtime.init P q = C.start P q := rfl
+
+/-- A machine whose first state is built for free has paid what its steps
+spent. -/
+theorem paid_of_init_free {P : Program} {q : Rel} (h : (C.init P q).ticks = 0) (n : Nat) :
+    C.paid P q n = C.spent (C.start P q) n := by
+  simp [paid, h]
 
 @[simp] theorem spent_zero (s : C.State) : C.spent s 0 = 0 := rfl
 
