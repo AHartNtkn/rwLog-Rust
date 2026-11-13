@@ -171,6 +171,20 @@ theorem inv_next (hI : Inv D P ts) : Inv D P (nextTables K hK U ts depth) := by
         (fun a ha => List.mem_append_left _ ha) subset_rfl
     · cases hdone
 
+/-! ## No answer of a table is covered by an earlier one -/
+
+/-- No answer of a table is covered by an earlier answer of the table. -/
+def NoCov (D : Domain R) (P : Program) (ts : List (TableOf R Rel (Ans D P))) : Prop :=
+  ∀ t ∈ ts, t.answers.Pairwise fun y x => covB D P y x = false
+
+theorem nocov_next (h : NoCov D P ts) : NoCov D P (nextTables K hK U ts depth) := by
+  intro t' ht'
+  rcases mem_next.1 ht' with ⟨i, hi, rfl⟩ | ⟨g, hg, rfl⟩
+  · refine List.pairwise_append.2 ⟨h _ (List.getElem_mem hi), ?_, fun a ha b hb => ?_⟩
+    · exact (fresh_pairwise K hK _ _).imp fun h => h.1
+    · exact (mem_fresh K hK hb).2 a ha
+  · exact List.Pairwise.nil
+
 end Tabled
 
 end RwLog
