@@ -77,7 +77,7 @@ def ActOK (nm : Option Nat → Sym) (nodes : List store.Node) (t u : Pat) : span
 def actCost (t u : Pat) : span.Act → Nat
   | .Skip => 1
   | .Split _ _ _ _ => 3
-  | _ => 5 + 5 * (t.subs ∪ u.subs).card
+  | _ => 8 + 8 * (t.subs ∪ u.subs).card
 
 theorem actOK_elim_left {nodes : List store.Node} {p q : store.TermId} {v : Nat} {u : Pat}
     (hv : VarAt nodes p.val v) (hq : Repr nm nodes q.val u) (hne : u ≠ .var v)
@@ -91,7 +91,7 @@ theorem actOK_elim_right {nodes : List store.Node} {p q : store.TermId} {w : Nat
 
 theorem act_spec (hnm : Function.Injective nm) (s : store.Store) (p q : store.TermId) {t u : Pat}
     (hI : Inv s) (hp : Repr nm s.nodes.val p.val t) (hq : Repr nm s.nodes.val q.val u)
-    (hroom : Room s (5 + 5 * (t.subs ∪ u.subs).card)) :
+    (hroom : Room s (8 + 8 * (t.subs ∪ u.subs).card)) :
     span.act s p q ⦃ a s' =>
       Inv s' ∧ s'.nodes.val = s.nodes.val ∧ tbl s' .A = tbl s .A ∧ ActOK nm s.nodes.val t u a ∧
         s'.ticks.val ≤ s.ticks.val + actCost t u a ∧ s.ticks.val ≤ s'.ticks.val ⦄ := by
@@ -133,7 +133,7 @@ theorem act_spec (hnm : Function.Injective nm) (s : store.Store) (p q : store.Te
           let (b1, s5) ← term.occurs s4 x w
           if b1 then ok (span.Act.Fail, s5) else ok (span.Act.Elim x w, s5)) ⦃ a s' =>
             Inv s' ∧ s'.nodes.val = s.nodes.val ∧ tbl s' .A = tbl s .A ∧ P a ∧
-              s'.ticks.val ≤ s.ticks.val + 5 + 5 * (t.subs ∪ u.subs).card ∧
+              s'.ticks.val ≤ s.ticks.val + 8 + 8 * (t.subs ∪ u.subs).card ∧
               s.ticks.val ≤ s'.ticks.val ⦄ := by
       intro s3 hK3 x w xv tw hx hw hcard P hPf hPe
       have ht3 := hK3.ticks
@@ -141,9 +141,8 @@ theorem act_spec (hnm : Function.Injective nm) (s : store.Store) (p q : store.Te
       have htb3 : tbl s3 = tbl s := by rw [hK3.tbl, htb2]
       step with clear_spec s3 .B hK3.inv (by unfold Room; omega) as ⟨s4, c1, c2, c3, c4, c5⟩
       have hn4 : s4.nodes.val = s.nodes.val := by rw [c1, hn3]
-      have hpc := pending_card_le (nm := nm) s4.nodes.val (tbl s4 .B) tw.subs
       step with occurs_spec hnm s4 x w (t := tw) (xv := xv) tw.subs c3 (by rw [hn4]; exact hw)
-        (by rw [hn4]; exact hx) (by intro k v hk; rw [c4] at hk; cases hk)
+        (by rw [hn4]; exact hx) (fun k => by rw [c4])
         (Finset.Subset.refl _) (by unfold Room; omega) as ⟨b1, s5, hO⟩
       have hcO := hO.cost
       have hn5 : s5.nodes.val = s.nodes.val := by rw [hO.nodes, hn4]
@@ -185,7 +184,7 @@ theorem act_spec (hnm : Function.Injective nm) (s : store.Store) (p q : store.Te
         obtain ⟨ta, tb, rfl, ha, hb⟩ := hk1
         simp only
         refine WP.spec_mono (hocc s3 hK3 p q v _ hv hq hcu (fun a => ActOK nm s.nodes.val (.var v) (.app ta tb) a ∧
-            actCost (.var v) (.app ta tb) a = 5 + 5 * ((Term.var v).subs ∪ (ta.app tb).subs).card)
+            actCost (.var v) (.app ta tb) a = 8 + 8 * ((Term.var v).subs ∪ (ta.app tb).subs).card)
           (fun h => ⟨fun E o => solveOn_occurs_left h E o, rfl⟩)
           (fun h => ⟨actOK_elim_left hv hq (by simp) h, rfl⟩)) ?_
         rintro ⟨a', s'⟩ ⟨h1, h2, h3, ⟨h4, h4c⟩, h5, h6⟩
@@ -229,7 +228,7 @@ theorem act_spec (hnm : Function.Injective nm) (s : store.Store) (p q : store.Te
         obtain ⟨w, rfl, hw⟩ := hk1
         simp only
         refine WP.spec_mono (hocc s3 hK3 q p w _ hw hp hct (fun a => ActOK nm s.nodes.val (.app ta tb) (.var w) a ∧
-            actCost (.app ta tb) (.var w) a = 5 + 5 * ((ta.app tb).subs ∪ (Term.var w).subs).card)
+            actCost (.app ta tb) (.var w) a = 8 + 8 * ((ta.app tb).subs ∪ (Term.var w).subs).card)
           (fun h => ⟨fun E o => solveOn_occurs_right h E o, rfl⟩)
           (fun h => ⟨actOK_elim_right hw hp (by simp) h, rfl⟩)) ?_
         rintro ⟨a', s'⟩ ⟨h1, h2, h3, ⟨h4, h4c⟩, h5, h6⟩
@@ -293,21 +292,22 @@ def SolveRes (nm : Option Nat → Sym) (nodes : List store.Node) (R : Option Pat
 
 /-- The invariant of the loop. `s0` is the store at the start, `B` the tick
 count the loop must stay under, and `R` the answer of the specification. -/
-def SolveInv (nm : Option Nat → Sym) (s0 : store.Store) (B : Nat) (R : Option Pat) :
+def SolveInv (nm : Option Nat → Sym) (s0 : store.Store) (D L B : Nat) (R : Option Pat) :
     store.Store × store.TermId × store.TermId × Bool × Bool → Prop
   | (s, eqs, out, ok, go) => Inv s ∧ Extends s0 s ∧
     if go then ok = true ∧ ∃ E o, Repr nm s.nodes.val eqs.val (encEqs nm E) ∧
-        Repr nm s.nodes.val out.val o ∧ solveOn E o = R ∧ s.ticks.val + solveCost E o ≤ B
+        Repr nm s.nodes.val out.val o ∧ solveOn E o = R ∧ Good D L E o ∧
+        s.ticks.val + pot D (L + D) E ≤ B
     else s.ticks.val ≤ B ∧ SolveRes nm s.nodes.val R ok out
 
-theorem SolveInv.ticks_le {s0 : store.Store} {B : Nat} {R : Option Pat}
-    {x : store.Store × store.TermId × store.TermId × Bool × Bool} (h : SolveInv nm s0 B R x) :
+theorem SolveInv.ticks_le {s0 : store.Store} {D L B : Nat} {R : Option Pat}
+    {x : store.Store × store.TermId × store.TermId × Bool × Bool} (h : SolveInv nm s0 D L B R x) :
     x.1.ticks.val ≤ B := by
   obtain ⟨s, eqs, out, ok, go⟩ := x
   obtain ⟨-, -, h⟩ := h
   cases go
   · exact h.1
-  · obtain ⟨-, E, o, -, -, -, hc⟩ := h
+  · obtain ⟨-, E, o, -, -, -, -, hc⟩ := h
     simp only
     omega
 
@@ -315,16 +315,17 @@ def SolvePost (nm : Option Nat → Sym) (s0 : store.Store) (B : Nat) (R : Option
     store.Store × store.TermId × Bool → Prop
   | (s, out, ok) => Inv s ∧ Extends s0 s ∧ s.ticks.val ≤ B ∧ SolveRes nm s.nodes.val R ok out
 
-def BodyPost (nm : Option Nat → Sym) (s0 : store.Store) (B : Nat) (R : Option Pat) (t0 : Nat) :
+def BodyPost (nm : Option Nat → Sym) (s0 : store.Store) (D L B : Nat) (R : Option Pat)
+    (t0 : Nat) :
     ControlFlow (store.Store × store.TermId × store.TermId × Bool × Bool)
       (store.Store × store.TermId × Bool) → Prop
   | .done y => SolvePost nm s0 B R y
-  | .cont x => SolveInv nm s0 B R x ∧ t0 < x.1.ticks.val
+  | .cont x => SolveInv nm s0 D L B R x ∧ t0 < x.1.ticks.val
 
-theorem solve_body_spec (hnm : Function.Injective nm) (s0 : store.Store) (B : Nat)
+theorem solve_body_spec (hnm : Function.Injective nm) (s0 : store.Store) (D L B : Nat)
     (R : Option Pat) (hB : 40 * B + 100 ≤ Usize.max) (st : store.Store) (eqs out : store.TermId)
-    (ok go : Bool) (h : SolveInv nm s0 B R (st, eqs, out, ok, go)) :
-    span.solve_into_loop.body st eqs out ok go ⦃ r => BodyPost nm s0 B R st.ticks.val r ⦄ := by
+    (ok go : Bool) (h : SolveInv nm s0 D L B R (st, eqs, out, ok, go)) :
+    span.solve_into_loop.body st eqs out ok go ⦃ r => BodyPost nm s0 D L B R st.ticks.val r ⦄ := by
   unfold span.solve_into_loop.body
   obtain ⟨hI, hE0, h⟩ := h
   cases go with
@@ -334,18 +335,19 @@ theorem solve_body_spec (hnm : Function.Injective nm) (s0 : store.Store) (B : Na
     exact ⟨hI, hE0, h.1, h.2⟩
   | true =>
     simp only [↓reduceIte] at h ⊢
-    obtain ⟨hok, E, o, he, ho, hR, hc⟩ := h
+    obtain ⟨hok, E, o, he, ho, hR, hG, hc⟩ := h
     subst hok
-    have hge := solveCost_ge E o
+    have hge := pot_ge D (L + D) E
+    have hDc := hG.dcount_le
     step with read_spec st eqs hI he.lt (by unfold Room; omega) as ⟨nd, s1, hnd, hK1⟩
     have ht1 := hK1.ticks
     have hn1 := hK1.nodes
     have hstop : (∀ a b, nd ≠ .App a b) →
-        BodyPost nm s0 B R st.ticks.val (ControlFlow.cont (s1, eqs, out, true, false)) := by
+        BodyPost nm s0 D L B R st.ticks.val (ControlFlow.cont (s1, eqs, out, true, false)) := by
       intro hna
       have hE := enc_of_not_app he hnd hna
       subst hE
-      refine ⟨⟨hK1.inv, hE0.trans (Extends.of_eq hn1), ?_⟩, by simp only; omega⟩
+      refine ⟨⟨hK1.inv, hE0.trans (Extends.of_eq hn1 (by omega)), ?_⟩, by simp only; omega⟩
       simp only [Bool.false_eq_true, ↓reduceIte]
       refine ⟨by omega, ?_⟩
       simp only [SolveRes, ↓reduceIte]
@@ -378,7 +380,7 @@ theorem solve_body_spec (hnm : Function.Injective nm) (s0 : store.Store) (B : Na
         (by rw [hn2]; exact hq) (by unfold Room; omega) as ⟨a, s3, hI3, hn3', htA3, hact, ht3, hm3⟩
       rw [hn2] at hact
       have hn3 : s3.nodes.val = st.nodes.val := by rw [hn3', hn2]
-      have hext3 : Extends s0 s3 := hE0.trans (Extends.of_eq hn3)
+      have hext3 : Extends s0 s3 := hE0.trans (Extends.of_eq hn3 (by omega))
       cases a with
       | Skip =>
         simp only [ActOK] at hact
@@ -387,9 +389,9 @@ theorem solve_body_spec (hnm : Function.Injective nm) (s0 : store.Store) (B : Na
         step*
         refine ⟨⟨hI3, hext3, ?_⟩, by simp only; omega⟩
         simp only [↓reduceIte, true_and]
-        refine ⟨E', o, by rw [hn3]; exact hrest, by rw [hn3]; exact ho, ?_, ?_⟩
+        refine ⟨E', o, by rw [hn3]; exact hrest, by rw [hn3]; exact ho, ?_, hG.skip, ?_⟩
         · rw [← hR, solveOn_refl]
-        · have := solveCost_skip t E' o
+        · have := pot_skip D (L + D) t E'
           omega
       | Fail =>
         simp only [ActOK] at hact
@@ -403,46 +405,44 @@ theorem solve_body_spec (hnm : Function.Injective nm) (s0 : store.Store) (B : Na
       | Split a c b d =>
         obtain ⟨ta, tb, tc, td, rfl, rfl, hne, ha, hc', hb, hd⟩ := hact
         simp only [actCost] at ht3
-        have hcs := solveCost_split E' o hne
+        have hcs := pot_split D (L + D) E' hne
         simp only
         step with alloc_spec s3 (.App b d) hI3 ⟨by rw [hn3]; exact hb.lt, by rw [hn3]; exact hd.lt⟩
-          (by unfold Room; omega) as ⟨e2, s4, hI4, ht4, htb4, m4, hm4, hr4⟩
-        have hx4 : Extends s3 s4 := ⟨m4, hm4⟩
-        have hst4 : Extends st s4 := (Extends.of_eq hn3).trans hx4
+          (by unfold Room; omega) as ⟨e2, s4, hI4, ht4, htb4, hx4, hr4⟩
+        have hst4 : Extends st s4 := (Extends.of_eq hn3 (by omega)).trans hx4
         simp only [norm] at hr4
         have hre2 : Repr nm s4.nodes.val e2.val (.app tb td) :=
           .app hr4 (hst4.repr hb) (hst4.repr hd)
         step with alloc_spec s4 (.App e2 rest) hI4 ⟨hre2.lt, (hst4.repr hrest).lt⟩
-          (by unfold Room; omega) as ⟨r2, s5, hI5, ht5, htb5, m5, hm5, hr5⟩
-        have hx5 : Extends s4 s5 := ⟨m5, hm5⟩
+          (by unfold Room; omega) as ⟨r2, s5, hI5, ht5, htb5, hx5, hr5⟩
         have hst5 : Extends st s5 := hst4.trans hx5
         simp only [norm] at hr5
         have hrr2 : Repr nm s5.nodes.val r2.val (encEqs nm ((tb, td) :: E')) :=
           .app hr5 (hx5.repr hre2) (hst5.repr hrest)
         step with alloc_spec s5 (.App a c) hI5 ⟨(hst5.repr ha).lt, (hst5.repr hc').lt⟩
-          (by unfold Room; omega) as ⟨e1, s6, hI6, ht6, htb6, m6, hm6, hr6⟩
-        have hx6 : Extends s5 s6 := ⟨m6, hm6⟩
+          (by unfold Room; omega) as ⟨e1, s6, hI6, ht6, htb6, hx6, hr6⟩
         have hst6 : Extends st s6 := hst5.trans hx6
         simp only [norm] at hr6
         have hre1 : Repr nm s6.nodes.val e1.val (.app ta tc) :=
           .app hr6 (hst6.repr ha) (hst6.repr hc')
         step with alloc_spec s6 (.App e1 r2) hI6 ⟨hre1.lt, (hx6.repr hrr2).lt⟩
-          (by unfold Room; omega) as ⟨eqs1, s7, hI7, ht7, htb7, m7, hm7, hr7⟩
-        have hx7 : Extends s6 s7 := ⟨m7, hm7⟩
+          (by unfold Room; omega) as ⟨eqs1, s7, hI7, ht7, htb7, hx7, hr7⟩
         have hst7 : Extends st s7 := hst6.trans hx7
         simp only [norm] at hr7
         have hreqs : Repr nm s7.nodes.val eqs1.val (encEqs nm ((ta, tc) :: (tb, td) :: E')) :=
           .app hr7 (hx7.repr hre1) (hx7.repr (hx6.repr hrr2))
         refine ⟨⟨hI7, hE0.trans hst7, ?_⟩, by simp only; omega⟩
         simp only [↓reduceIte, true_and]
-        refine ⟨_, o, hreqs, hst7.repr ho, ?_, by omega⟩
+        refine ⟨_, o, hreqs, hst7.repr ho, ?_, hG.split, by omega⟩
         rw [← hR, solveOn_split]
       | Elim x w =>
         obtain ⟨xv, tu, hx, hw, hxn, hor, hsol⟩ := hact
         simp only [actCost] at ht3
-        have hce := solveCost_elim E' o hxn hor
-        have hdt := dcount_tail t u E' o
-        simp only [List.length_cons] at hce hge
+        have hG' := hG.elim hxn hor
+        have hce := pot_elim D (L + D) E' hxn hor hG'.lead_le
+        have hdt := hG.skip.dcount_le
+        have hlen := hG.len
+        simp only [List.length_cons] at hlen
         simp only
         step with clear_spec s3 .A hI3 (by unfold Room; omega) as ⟨s4, c1, c2, c3, c4, c5⟩
         have hn4 : s4.nodes.val = st.nodes.val := by rw [c1, hn3]
@@ -463,10 +463,10 @@ theorem solve_body_spec (hnm : Function.Injective nm) (s0 : store.Store) (B : Na
         have hc6 := hR6.cost
         have hm5 := hR5.mono
         have hm6 := hR6.mono
-        refine ⟨⟨hR6.inv, hE0.trans ((Extends.of_eq hn4).trans (hR5.ext.trans hR6.ext)), ?_⟩,
+        refine ⟨⟨hR6.inv, hE0.trans ((Extends.of_eq hn4 (by omega)).trans (hR5.ext.trans hR6.ext)), ?_⟩,
           by simp only; omega⟩
         simp only [↓reduceIte, true_and]
-        refine ⟨Eqns.subst xv tu E', _, ?_, hR6.repr, ?_, by omega⟩
+        refine ⟨Eqns.subst xv tu E', _, ?_, hR6.repr, ?_, hG', by omega⟩
         · rw [← enc_subst]; exact hR6.ext.repr hR5.repr
         · rw [← hR, hsol]
 
@@ -484,14 +484,14 @@ theorem solve_into_spec (hnm : Function.Injective nm) (s : store.Store) (eqs out
   have hloop := loop.spec_decr_nat
     (fun x : store.Store × store.TermId × store.TermId × Bool × Bool =>
       s.ticks.val + solveCost E o + 1 - x.1.ticks.val)
-    (SolveInv nm s (s.ticks.val + solveCost E o) (solveOn E o))
+    (SolveInv nm s (dcount E o) E.length (s.ticks.val + solveCost E o) (solveOn E o))
     (SolvePost nm s (s.ticks.val + solveCost E o) (solveOn E o))
     (fun x : store.Store × store.TermId × store.TermId × Bool × Bool =>
       span.solve_into_loop.body x.1 x.2.1 x.2.2.1 x.2.2.2.1 x.2.2.2.2)
     (s, eqs, out, true, true)
     (by
       rintro ⟨st, eqs', out', ok', go'⟩ hinv
-      refine WP.spec_mono (solve_body_spec hnm s _ _ hB st eqs' out' ok' go' hinv) ?_
+      refine WP.spec_mono (solve_body_spec hnm s _ _ _ _ hB st eqs' out' ok' go' hinv) ?_
       intro r hr
       cases r with
       | done y => exact hr
@@ -501,7 +501,7 @@ theorem solve_into_spec (hnm : Function.Injective nm) (s : store.Store) (eqs out
         exact ⟨h1, by simp only; omega⟩)
     ⟨hI, Extends.refl s, by
       simp only [↓reduceIte, true_and]
-      exact ⟨E, o, he, ho, rfl, Nat.le_refl _⟩⟩
+      exact ⟨E, o, he, ho, rfl, Good.init E o, Nat.le_refl _⟩⟩
   step with hloop as ⟨s', out', ok', hy⟩
   have hy' : Inv s' ∧ Extends s s' ∧ s'.ticks.val ≤ s.ticks.val + solveCost E o ∧
       SolveRes nm s'.nodes.val (solveOn E o) ok' out' := hy

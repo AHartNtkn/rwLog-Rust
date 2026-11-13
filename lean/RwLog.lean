@@ -51,6 +51,7 @@ import RwLog.Kernel.TermFacts
 import RwLog.Kernel.Order
 import RwLog.Kernel.NormalForm
 import RwLog.Kernel.NormalFormCorrect
+import RwLog.Kernel.NormalFormStable
 import RwLog.Kernel.Derivation
 import RwLog.Kernel.DomainLaws
 import RwLog.Rungs.Framework.Derivation

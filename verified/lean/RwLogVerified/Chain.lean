@@ -84,7 +84,7 @@ theorem composable_body_spec (hnm : Function.Injective nm) (s0 : store.Store) (B
       have hys := encList_of_not_app hrest hnd hna
       have hys' : ys = [] := List.map_eq_nil_iff.1 hys
       subst hys'
-      refine ⟨⟨hK1.inv, hE0.trans (Extends.of_eq hn1), ?_⟩, by simp [chainMeasure]⟩
+      refine ⟨⟨hK1.inv, hE0.trans (Extends.of_eq hn1 (by omega)), ?_⟩, by simp [chainMeasure]⟩
       simp only [Bool.false_eq_true, ↓reduceIte]
       exact ⟨by omega, by rw [← hR]; rfl⟩
     cases nd with
@@ -110,7 +110,7 @@ theorem composable_body_spec (hnm : Function.Injective nm) (s0 : store.Store) (B
         ⟨by rw [hn2]; exact hl, by rw [hn2]; exact hr, by rw [hn2]; exact hcc⟩
       step with compose_spec hnm s2 acc y' (sx := sacc) (sy := y) hI2
         (by rw [hn2']; exact hacc) hy' (by unfold Room; omega) as ⟨o, s3, hI3, hx3, ho, ht3⟩
-      have hst3 : Extends st s3 := (Extends.of_eq hn2').trans hx3
+      have hst3 : Extends st s3 := (Extends.of_eq hn2' (by omega)).trans hx3
       cases o with
       | none =>
         cases hcomp : sacc.compose y with
@@ -156,7 +156,7 @@ theorem composable_spec (hnm : Function.Injective nm) (s : store.Store) (xs : st
     have hys := encList_of_not_app hxs hnd hna
     have hys' : spans = [] := List.map_eq_nil_iff.1 hys
     subst hys'
-    exact ⟨hK1.inv, Extends.of_eq hn1, rfl, by omega⟩
+    exact ⟨hK1.inv, Extends.of_eq hn1 (by omega), rfl, by omega⟩
   cases nd with
   | V0 => step*; exact hstop (by simp)
   | VL a => step*; exact hstop (by simp)
@@ -193,6 +193,6 @@ theorem composable_spec (hnm : Function.Injective nm) (s : store.Store) (xs : st
         exact ⟨x, rest, hacc, by rw [hn2']; exact ht, rfl, Nat.le_refl _⟩⟩
     refine WP.spec_mono hloop ?_
     rintro ⟨b, s'⟩ ⟨h1, h2, h3, h4⟩
-    exact ⟨h1, (Extends.of_eq hn2').trans h2, h4, by simp only at h3 ⊢; omega⟩
+    exact ⟨h1, (Extends.of_eq hn2' (by omega)).trans h2, h4, by simp only at h3 ⊢; omega⟩
 
 end RwLogVerified

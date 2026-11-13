@@ -35,6 +35,15 @@ new axiom.
 /-- info: 'RwLogVerified.clear_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLogVerified.clear_spec
 
+/-- info: 'RwLogVerified.push_w' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.push_w
+
+/-- info: 'RwLogVerified.pop_w' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.pop_w
+
+/-- info: 'RwLogVerified.drop_stack_w' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.drop_stack_w
+
 /-- info: 'RwLogVerified.rebuild_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLogVerified.rebuild_spec
 
@@ -55,6 +64,9 @@ new axiom.
 
 /-- info: 'RwLogVerified.rename_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLogVerified.rename_spec
+
+/-- info: 'RwLogVerified.unstack_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.unstack_spec
 
 /-- info: 'RwLogVerified.append_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLogVerified.append_spec

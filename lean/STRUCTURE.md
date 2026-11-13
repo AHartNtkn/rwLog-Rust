@@ -35,8 +35,9 @@ Trusted/        the specification: syntax with sort declarations, semantics (wha
                 ground pair, and never depends on a query halting
 Kernel/         the executable kernel of spans as written (match, solve, span) and its proofs;
                 the normal form of expressions (NormalForm.lean, NormalFormCorrect.lean,
-                Order.lean), the derivation kernel's rules over any constraint domain
-                (Derivation.lean) and the algebra of a lawful domain (DomainLaws.lean)
+                NormalFormStable.lean, Order.lean), the derivation kernel's rules over any
+                constraint domain (Derivation.lean) and the algebra of a lawful domain
+                (DomainLaws.lean)
 SpanLayer/      span-level semantics, derivations, coverage vocabulary
 Lib/            facts about lists and greatest fixpoints that mention no rwlog type
 Rungs/Framework generic theorems about any Runtime / Rung
@@ -70,12 +71,10 @@ The constraint system is sorts with a built-in disequality (roadmap L48, L51).
 The trusted files have no rules, theories or models: `Trusted/Semantics.lean`
 says what a sort and a constraint mean, and `Trusted/Domain.lean` says what
 any constraint system gives an engine (`Domain`) and what it satisfies
-(`Domain.Lawful`). The instance for sorts is not on master yet (roadmap M5);
-until it is, `Engine.costed` runs at the domain of spans as written
-(`Domain.written`), which looks at no constraint and is not lawful.
-`CONSTRAINT_LANGUAGE.md` is the design note for the rule language that was
-considered before; it is superseded and kept for its analysis of canonical
-representatives (its section 8), which the interface follows.
+(`Domain.Lawful`). The instance for sorts is not on master yet (roadmap M5,
+design in `SORTS.md`); until it is, `Engine.costed` runs at the domain of
+spans as written (`Domain.written`), which looks at no constraint and is not
+lawful.
 
 ## What is shared, and where to look first
 
@@ -91,6 +90,7 @@ representatives (its section 8), which the interface follows.
 | Unfolding equations | `Rungs/Naive/Unfold.lean` | `unfoldN_succ`, `unfoldN_succ'`, `unfoldN_call`, `unfoldN_add`, `unfoldN_or/and/seq/conv`, `unfoldN_dual` |
 | The normal form of an expression and its nodes | `Kernel/NormalForm.lean` | `normB`, `RelOf.norm`, `RelOf.normConv`, `NodeView`, `RelOf.view`, `interval`, `without`, `mkSeq`, `mkAnd` |
 | The normal form means what the expression means | `Kernel/NormalFormCorrect.lean` | `gd_normB`, `derives_norm_iff`, `sem_norm`, `sem_normConv`; equal normal forms: `normB_seq_assoc`, `normB_and_comm`, `normB_and_assoc`, `normB_or_comm`, `normB_or_assoc`, `normB_or_self`; derivations as ground relations: `DerivesG`, `GD` |
+| The normal form is stable: which expressions are nodes, and every node the kernel reads or makes is one | `Kernel/NormalFormStable.lean` | `Normal`, `normal_normB`, `Normal.norm_eq`, `normal_iff_norm_eq`, `normB_normB`, `Normal.normConv_normConv`, `Normal.view_members`, `view_chain`, `view_meet`, `view_union`, `Normal.interval`, `without`, `join`, `meet`; a node is its members rebuilt: `Normal.mkSeq_seqParts`, `mkAnd_andParts`, `mkOr_unionParts`; sorted lists: `sortedParts_of_sorted`, `sortedBranches_of_strict`, `eq_of_perm_of_sorted`, `eq_of_mem_iff_of_strict` |
 | The structural order is linear; sorted lists are determined by their members | `Kernel/Order.lean` | `relCmp_trans`, `relCmp_eq`, `sortedBranches_eq`, `pairwise_sortedBranches` |
 | Valid answers of a goal and the rules that make them | `Kernel/Derivation.lean` | `Goal`, `Valid`, `Valid.leaf`, `join`, `meet`, `inj`, `unfold`, `unfoldConv`, `swap`, `Valid.sound`, `Valid.general` |
 | Sizes charged by the cost model | `Kernel/Size.lean` (and `Term.size_pos` in `Kernel/Solve.lean`) | `Span.size_pos`, `Span.size_swap`, `Rel.size_pos` |

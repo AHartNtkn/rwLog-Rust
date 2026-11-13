@@ -21,12 +21,6 @@ open rwlog_core RwLog RwLog.Term
 
 variable {nm : Option Nat → Sym}
 
-theorem var_mem_subs_iff {v : Nat} {t : Pat} : Term.var v ∈ t.subs ↔ v ∈ t.vars := by
-  induction t with
-  | var w => simp [Term.subs, Term.vars]
-  | sym f => simp [Term.subs, Term.vars]
-  | app a b iha ihb => simp [Term.subs, Term.vars, iha, ihb]
-
 /-! ## Flagging the subterms of a term -/
 
 /-- The nodes with an entry in the table are exactly the terms of `M`. -/
@@ -59,172 +53,296 @@ structure MarkPost (nm : Option Nat → Sym) (s s' : store.Store) (M : Finset Pa
   tblB : tbl s' .B = tbl s .B
   marked : Marked nm s'.nodes.val (tbl s' .A) (M ∪ tp.subs)
   grow : ∀ k, tbl s .A k ≠ none → tbl s' .A k ≠ none
-  cost : s'.ticks.val + 4 * (pending nm s'.nodes.val (tbl s' .A) S).card ≤
-    s.ticks.val + 1 + 4 * (pending nm s.nodes.val (tbl s .A) S).card
+  cost : s'.ticks.val + 8 * (pending nm s'.nodes.val (tbl s' .A) S).card ≤
+    s.ticks.val + 4 + 8 * (pending nm s.nodes.val (tbl s .A) S).card
+  mono : s.ticks.val ≤ s'.ticks.val
 
-/-- The state after the parts of the node are flagged and before the node
-is. -/
-structure MarkMid (nm : Option Nat → Sym) (s s3 : store.Store) (M : Finset Pat) (tp : Pat)
-    (S : Finset Pat) : Prop where
-  inv : Inv s3
-  nodes : s3.nodes.val = s.nodes.val
-  tblB : tbl s3 .B = tbl s .B
-  marked : ∃ M3, Marked nm s3.nodes.val (tbl s3 .A) M3 ∧ insert tp M3 = M ∪ tp.subs
-  grow : ∀ k, tbl s .A k ≠ none → tbl s3 .A k ≠ none
-  cost : s3.ticks.val + 4 * (pending nm s3.nodes.val (tbl s3 .A) (S.erase tp)).card ≤
-    s.ticks.val + 4 + 4 * (pending nm s.nodes.val (tbl s .A) (S.erase tp)).card
+/-- The state of a flagging walk: `A0` is the table at the start. A flagged
+node stands for a term of `M` or of the term walked, and the parts of a
+flagged application are flagged or on the stack. -/
+structure KSt (nm : Option Nat → Sym) (n0 : List store.Node) (tp : Pat) (p : Nat)
+    (M : Finset Pat) (A0 A : Nat → Option Nat) (st : List store.Frame) : Prop where
+  grow : ∀ k, A0 k ≠ none → A k ≠ none
+  sound : ∀ k, A k ≠ none → ∃ t ∈ M ∪ tp.subs, Repr nm n0 k t
+  frames : ∀ f ∈ st, ∃ t ∈ tp.subs, Repr nm n0 (fkey f) t
+  app : ∀ k (a b : store.TermId), A k ≠ none → n0[k]? = some (.App a b) →
+    (A a.val ≠ none ∨ ∃ f ∈ st, fkey f = a.val) ∧ (A b.val ≠ none ∨ ∃ f ∈ st, fkey f = b.val)
+  root : A p ≠ none ∨ ∃ f ∈ st, fkey f = p
 
-theorem closed_union {M : Finset Pat} {t : Pat} (hM : ∀ u ∈ M, u.subs ⊆ M) :
-    ∀ u ∈ M ∪ t.subs, u.subs ⊆ M ∪ t.subs := by
-  intro u hu
-  rcases Finset.mem_union.1 hu with h | h
-  · exact (hM u h).trans Finset.subset_union_left
-  · exact (Term.subs_trans h).trans Finset.subset_union_right
+variable {n0 : List store.Node} {tp : Pat} {p : Nat} {M : Finset Pat} {A0 A : Nat → Option Nat}
 
-theorem mark_spec_aux (hnm : Function.Injective nm) (n : Nat) :
-    ∀ (s : store.Store) (p : store.TermId) (tp : Pat) (M S : Finset Pat),
-      tp.size ≤ n → Inv s → Repr nm s.nodes.val p.val tp →
-      Marked nm s.nodes.val (tbl s .A) M → (∀ u ∈ M, u.subs ⊆ M) → tp.subs ⊆ S →
-      Room s (1 + 4 * (pending nm s.nodes.val (tbl s .A) S).card) →
-      cover.mark s p ⦃ s' => MarkPost nm s s' M tp S ⦄ := by
-  induction n with
-  | zero =>
-    intro s p tp M S hsz
-    cases tp <;> simp [Term.size] at hsz
-  | succ n ih =>
-    intro s p tp M S hsz hI hp hM hcl hS hroom
-    unfold cover.mark
-    have hroom' := hroom
-    unfold Room at hroom'
-    step with get_flag_spec s .A p hI hp.lt (by unfold Room; omega) as ⟨o, s1, ho, hK1⟩
-    have ht1 := hK1.ticks
-    have hn1 := hK1.nodes
-    cases hA : tbl s .A p.val with
-    | some v =>
-      rw [hA] at ho
-      simp only [Option.map_some] at ho
-      subst ho
+theorem KSt.start (hnm : Function.Injective nm) (hN : NodesOK n0) (hM : Marked nm n0 A0 M)
+    (hcl : ∀ u ∈ M, u.subs ⊆ M) (q : store.TermId) (hp : Repr nm n0 q.val tp) :
+    KSt nm n0 tp q.val M A0 A0 [.Visit q q] := by
+  refine ⟨fun _ h => h, fun k hk => ?_, fun f hf => ?_, fun k a b hk hn => ?_,
+    Or.inr ⟨_, List.mem_singleton_self _, rfl⟩⟩
+  · obtain ⟨t, ht, hr⟩ := hM.sound k hk
+    exact ⟨t, Finset.mem_union_left _ ht, hr⟩
+  · simp only [List.mem_singleton] at hf
+    subst hf
+    exact ⟨tp, Term.self_mem_subs tp, hp⟩
+  · obtain ⟨t, ht, hr⟩ := hM.sound k hk
+    obtain ⟨ta, tb, e, ha, hb⟩ := hr.of_app hn
+    subst e
+    have hsa : ta ∈ M := hcl _ ht (by simp [Term.subs, Term.self_mem_subs])
+    have hsb : tb ∈ M := hcl _ ht (by simp [Term.subs, Term.self_mem_subs])
+    exact ⟨Or.inl ((hM.iff hnm hN ha).2 hsa), Or.inl ((hM.iff hnm hN hb).2 hsb)⟩
+
+/-- The node of the top frame is flagged already. -/
+theorem KSt.hit {f : store.Frame} {st : List store.Frame} (h : KSt nm n0 tp p M A0 A (f :: st))
+    (hA : A (fkey f) ≠ none) : KSt nm n0 tp p M A0 A st := by
+  have hmem : ∀ k, (A k ≠ none ∨ ∃ g ∈ f :: st, fkey g = k) → (A k ≠ none ∨ ∃ g ∈ st, fkey g = k) := by
+    rintro k (h | ⟨g, hg, e⟩)
+    · exact Or.inl h
+    · rcases List.mem_cons.1 hg with rfl | hg
+      · exact Or.inl (e ▸ hA)
+      · exact Or.inr ⟨g, hg, e⟩
+  refine ⟨h.grow, h.sound, fun g hg => h.frames g (List.mem_cons_of_mem _ hg),
+    fun k a b hk hn => ?_, hmem _ h.root⟩
+  obtain ⟨h1, h2⟩ := h.app k a b hk hn
+  exact ⟨hmem _ h1, hmem _ h2⟩
+
+/-- The node of the top frame is flagged. The new stack `st'` holds the old
+one and frames for the parts of the node. -/
+theorem KSt.set {f : store.Frame} {st st' : List store.Frame}
+    (h : KSt nm n0 tp p M A0 A (f :: st)) (r : Nat) (hsub : ∀ g ∈ st, g ∈ st')
+    (hfr : ∀ g ∈ st', ∃ t ∈ tp.subs, Repr nm n0 (fkey g) t)
+    (hkids : ∀ a b : store.TermId, n0[fkey f]? = some (.App a b) →
+      (∃ g ∈ st', fkey g = a.val) ∧ ∃ g ∈ st', fkey g = b.val) :
+    KSt nm n0 tp p M A0 (Function.update A (fkey f) (some r)) st' := by
+  have hgrow : ∀ k, A k ≠ none → Function.update A (fkey f) (some r) k ≠ none := by
+    intro k hk
+    by_cases e : k = fkey f
+    · rw [e]; simp
+    · rw [Function.update_of_ne e]; exact hk
+  have hself : Function.update A (fkey f) (some r) (fkey f) ≠ none := by simp
+  have hmem : ∀ k, (A k ≠ none ∨ ∃ g ∈ f :: st, fkey g = k) →
+      (Function.update A (fkey f) (some r) k ≠ none ∨ ∃ g ∈ st', fkey g = k) := by
+    rintro k (h | ⟨g, hg, e⟩)
+    · exact Or.inl (hgrow k h)
+    · rcases List.mem_cons.1 hg with rfl | hg
+      · exact Or.inl (e ▸ hself)
+      · exact Or.inr ⟨g, hsub g hg, e⟩
+  refine ⟨fun k hk => hgrow k (h.grow k hk), fun k hk => ?_, hfr, fun k a b hk hn => ?_,
+    hmem _ h.root⟩
+  · by_cases e : k = fkey f
+    · obtain ⟨t, ht, hr⟩ := h.frames f List.mem_cons_self
+      exact ⟨t, Finset.mem_union_right _ ht, e ▸ hr⟩
+    · rw [Function.update_of_ne e] at hk
+      exact h.sound k hk
+  · by_cases e : k = fkey f
+    · subst e
+      obtain ⟨h1, h2⟩ := hkids a b hn
+      exact ⟨Or.inr h1, Or.inr h2⟩
+    · rw [Function.update_of_ne e] at hk
+      obtain ⟨h1, h2⟩ := h.app k a b hk hn
+      exact ⟨hmem _ h1, hmem _ h2⟩
+
+/-- With an empty stack, every subterm of the term walked is flagged. -/
+theorem KSt.done
+    (h : KSt nm n0 tp p M A0 A []) (hM : Marked nm n0 A0 M) (hp : Repr nm n0 p tp) :
+    Marked nm n0 A (M ∪ tp.subs) := by
+  have key : ∀ (t : Pat) (k : Nat), Repr nm n0 k t → A k ≠ none →
+      ∀ u ∈ t.subs, ∃ k', Repr nm n0 k' u ∧ A k' ≠ none := by
+    intro t
+    induction t with
+    | var v =>
+      intro k hk hA u hu
+      simp only [Term.subs, Finset.mem_singleton] at hu
+      subst hu
+      exact ⟨k, hk, hA⟩
+    | sym f =>
+      intro k hk hA u hu
+      simp only [Term.subs, Finset.mem_singleton] at hu
+      subst hu
+      exact ⟨k, hk, hA⟩
+    | app ta tb iha ihb =>
+      intro k hk hA u hu
+      simp only [Term.subs, Finset.mem_insert, Finset.mem_union] at hu
+      obtain ⟨a, b, hn, ha, hb⟩ := Repr.app_inv hk
+      obtain ⟨h1, h2⟩ := h.app k a b hA hn
+      rcases hu with rfl | hu | hu
+      · exact ⟨k, hk, hA⟩
+      · refine iha _ ha ?_ u hu
+        rcases h1 with h1 | ⟨f, hf, -⟩
+        · exact h1
+        · simp at hf
+      · refine ihb _ hb ?_ u hu
+        rcases h2 with h2 | ⟨f, hf, -⟩
+        · exact h2
+        · simp at hf
+  have hroot : A p ≠ none := by
+    rcases h.root with h | ⟨f, hf, -⟩
+    · exact h
+    · simp at hf
+  refine ⟨h.sound, fun t ht => ?_⟩
+  rcases Finset.mem_union.1 ht with ht | ht
+  · obtain ⟨k, hr, hk⟩ := hM.complete t ht
+    exact ⟨k, hr, h.grow k hk⟩
+  · exact key tp p hp hroot t ht
+
+/-- The invariant of the loop of `mark`. -/
+def KInv (nm : Option Nat → Sym) (s0 : store.Store) (tp : Pat) (p : Nat) (M S : Finset Pat)
+    (B : Nat) (s : store.Store) : Prop :=
+  Wf s ∧ s.nodes.val = s0.nodes.val ∧ tbl s .B = tbl s0 .B ∧
+    KSt nm s0.nodes.val tp p M (tbl s0 .A) (tbl s .A) (stk s) ∧
+    s.ticks.val + 1 + 2 * (stk s).length +
+      8 * (pending nm s0.nodes.val (tbl s .A) S).card ≤ B
+
+def KDone (nm : Option Nat → Sym) (s0 : store.Store) (tp : Pat) (p : Nat) (M S : Finset Pat)
+    (B : Nat) (s : store.Store) : Prop :=
+  Wf s ∧ stk s = [] ∧ s.nodes.val = s0.nodes.val ∧ tbl s .B = tbl s0 .B ∧
+    KSt nm s0.nodes.val tp p M (tbl s0 .A) (tbl s .A) [] ∧
+    s.ticks.val + 8 * (pending nm s0.nodes.val (tbl s .A) S).card ≤ B
+
+def KBodyPost (nm : Option Nat → Sym) (s0 : store.Store) (tp : Pat) (p : Nat) (M S : Finset Pat)
+    (B : Nat) (t0 : Nat) : ControlFlow store.Store store.Store → Prop
+  | .done s' => KDone nm s0 tp p M S B s' ∧ t0 ≤ s'.ticks.val
+  | .cont s' => KInv nm s0 tp p M S B s' ∧ t0 < s'.ticks.val
+
+theorem mark_body_spec (hnm : Function.Injective nm) (s0 : store.Store) (tp : Pat) (p : Nat)
+    (M S : Finset Pat) (B : Nat) (hB : 40 * B + 100 ≤ Usize.max) (hN : NodesOK s0.nodes.val)
+    (hS : tp.subs ⊆ S) (s : store.Store) (h : KInv nm s0 tp p M S B s) :
+    cover.mark_loop.body s ⦃ r => KBodyPost nm s0 tp p M S B s.ticks.val r ⦄ := by
+  unfold cover.mark_loop.body
+  obtain ⟨hW, hn, hTB, hK, hc⟩ := h
+  step with pop_w s hW (by unfold Room; omega) as ⟨o, s1, e1, e2, e3, hW1, eo, est⟩
+  cases hst : stk s with
+  | nil =>
+    rw [hst] at eo est hK hc
+    simp only [List.head?_nil, List.tail_nil] at eo est
+    subst eo
+    simp only [WP.spec_ok]
+    simp only [List.length_nil] at hc
+    exact ⟨⟨hW1, est, by rw [e1, hn], by rw [e2, hTB], by rw [e2]; exact hK, by rw [e2]; omega⟩,
+      by omega⟩
+  | cons fr st =>
+    rw [hst] at eo est hK hc
+    simp only [List.head?_cons, List.tail_cons] at eo est
+    subst eo
+    simp only [List.length_cons] at hc
+    obtain ⟨tq, htq, hq⟩ := hK.frames fr List.mem_cons_self
+    have hFr' : ∀ g ∈ st, ∃ t ∈ tp.subs, Repr nm s0.nodes.val (fkey g) t :=
+      fun g hg => hK.frames g (List.mem_cons_of_mem _ hg)
+    simp only [node_of_eq]
+    step with get_flag_w s1 .A (fid fr) hW1 (by rw [e1, hn, fid_val]; exact hq.lt)
+      (by unfold Room; omega) as ⟨o1, s2, ho1, hK2⟩
+    rw [e2, fid_val] at ho1
+    have ht2 := hK2.ticks
+    have hn2 : s2.nodes.val = s.nodes.val := by rw [hK2.nodes, e1]
+    have htb2 : tbl s2 = tbl s := by rw [hK2.tbl, e2]
+    have hstk2 : stk s2 = st := by rw [hK2.stk, est]
+    cases hAq : tbl s .A (fkey fr) with
+    | some w =>
+      rw [hAq] at ho1
+      simp only [Option.map_some] at ho1
+      subst ho1
       simp only [WP.spec_ok]
-      have hin : tp ∈ M := (hM.iff hnm hI.nodesOK hp).1 (by rw [hA]; simp)
-      have hun : M ∪ tp.subs = M := Finset.union_eq_left.2 (hcl tp hin)
-      refine ⟨hK1.inv, hn1, by rw [hK1.tbl], ?_, fun k hk => by rw [hK1.tbl]; exact hk, ?_⟩
-      · rw [hun, hn1, hK1.tbl]; exact hM
-      · rw [hn1, hK1.tbl]; omega
+      refine ⟨⟨hK2.wf, by rw [hn2, hn], by rw [htb2, hTB], ?_, ?_⟩, by omega⟩
+      · rw [htb2, hstk2]
+        exact hK.hit (by rw [hAq]; simp)
+      · rw [htb2, hstk2]; omega
     | none =>
-      rw [hA] at ho
-      simp only [Option.map_none] at ho
-      subst ho
-      have htS : tp ∈ S := hS (Term.self_mem_subs tp)
-      have hpend := mem_pending_of_none hnm hI.nodesOK hp hA htS
-      have hP := pending_erase_card hpend
+      rw [hAq] at ho1
+      simp only [Option.map_none] at ho1
+      subst ho1
       simp only
-      step with read_spec s1 p hK1.inv (by rw [hn1]; exact hp.lt) (by unfold Room; omega)
-        as ⟨nd, s2, hnd, hK2⟩
-      rw [hn1] at hnd
-      have ht2 := hK2.ticks
-      have hn2 : s2.nodes.val = s.nodes.val := by rw [hK2.nodes, hn1]
-      have htb2 : tbl s2 = tbl s := by rw [hK2.tbl, hK1.tbl]
-      refine WP.spec_bind (Pₘ := fun s3 => MarkMid nm s s3 M tp S) ?_ ?_
-      · have hleaf : tp.subs = {tp} → MarkMid nm s s2 M tp S := by
-          intro hsub
-          refine ⟨hK2.inv, hn2, by rw [htb2], ⟨M, by rw [hn2, htb2]; exact hM, ?_⟩,
-            (fun k hk => by rw [htb2]; exact hk), by rw [hn2, htb2]; omega⟩
-          rw [hsub]
-          ext u
-          simp only [Finset.mem_insert, Finset.mem_union, Finset.mem_singleton]
-          tauto
-        cases nd with
-        | V0 =>
-          obtain ⟨v, hv, -⟩ := hp.of_var hnd trivial
-          simp only [WP.spec_ok]
-          exact hleaf (by rw [hv]; rfl)
-        | VL a =>
-          obtain ⟨v, hv, -⟩ := hp.of_var hnd trivial
-          simp only [WP.spec_ok]
-          exact hleaf (by rw [hv]; rfl)
-        | VR a =>
-          obtain ⟨v, hv, -⟩ := hp.of_var hnd trivial
-          simp only [WP.spec_ok]
-          exact hleaf (by rw [hv]; rfl)
-        | Sym g =>
-          simp only [WP.spec_ok]
-          exact hleaf (by rw [hp.of_sym hnd]; rfl)
-        | Nil =>
-          simp only [WP.spec_ok]
-          exact hleaf (by rw [hp.of_nil hnd]; rfl)
-        | App a b =>
-          obtain ⟨ta, tb, e, ha, hb⟩ := hp.of_app hnd
-          subst e
-          simp only [Term.size] at hsz
-          have hSa := subs_left_erase hS
-          have hSb := subs_right_erase hS
-          simp only
-          step with ih s2 a ta M (S.erase (Term.app ta tb)) (by omega) hK2.inv
-            (by rw [hn2]; exact ha) (by rw [hn2, htb2]; exact hM) hcl hSa
-            (by rw [hn2, htb2]; unfold Room; omega) as ⟨s4, h4⟩
-          have hc4 := h4.cost
-          rw [hn2, htb2] at hc4
-          have hn4 : s4.nodes.val = s.nodes.val := by rw [h4.nodes, hn2]
-          refine WP.spec_mono (ih s4 b tb (M ∪ ta.subs) (S.erase (Term.app ta tb)) (by omega)
-            h4.inv (by rw [hn4]; exact hb) h4.marked (closed_union hcl) hSb
-            (by unfold Room; omega)) ?_
-          intro s5 h5
-          have hc5 := h5.cost
-          refine ⟨h5.inv, by rw [h5.nodes, hn4], by rw [h5.tblB, h4.tblB, htb2],
-            ⟨_, h5.marked, ?_⟩, (fun k hk => h5.grow k (h4.grow k (by rw [htb2]; exact hk))),
-            by omega⟩
-          ext u
-          simp only [Term.subs, Finset.mem_insert, Finset.mem_union]
-          tauto
-      · intro s3 hmid
-        obtain ⟨M3, hM3, hins⟩ := hmid.marked
-        have hc := hmid.cost
-        have hp3 : Repr nm s3.nodes.val p.val tp := by rw [hmid.nodes]; exact hp
-        refine WP.spec_mono (set_flag_spec s3 .A p true hmid.inv hp3.lt (by unfold Room; omega)) ?_
-        rintro s' ⟨g1, g2, g3, g4, g5⟩
-        refine ⟨g3, by rw [g1, hmid.nodes], by rw [g5 .B (by simp), hmid.tblB], ?_, ?_, ?_⟩
-        · rw [← hins, g1, g4]
-          refine ⟨fun k hk => ?_, fun t ht => ?_⟩
-          · by_cases e : k = p.val
-            · subst e; exact ⟨tp, Finset.mem_insert_self _ _, hp3⟩
-            · rw [Function.update_of_ne e] at hk
-              obtain ⟨t, ht, hr⟩ := hM3.sound k hk
-              exact ⟨t, Finset.mem_insert_of_mem ht, hr⟩
-          · rcases Finset.mem_insert.1 ht with rfl | ht
-            · exact ⟨p.val, hp3, by simp⟩
-            · obtain ⟨k, hr, hk⟩ := hM3.complete t ht
-              refine ⟨k, hr, ?_⟩
-              by_cases e : k = p.val
-              · subst e; simp
-              · rw [Function.update_of_ne e]; exact hk
-        · intro k hk
-          rw [g4]
-          by_cases e : k = p.val
-          · subst e; simp
-          · rw [Function.update_of_ne e]; exact hmid.grow k hk
-        · have hsub : pending nm s'.nodes.val (tbl s' .A) S ⊆
-              pending nm s3.nodes.val (tbl s3 .A) (S.erase tp) := by
-            have := pending_after_set (nm := nm) (nodes := s3.nodes.val) (more := [])
-              (A := tbl s3 .A) (A' := tbl s' .A) (S := S) (t := tp) (p := p.val)
-              (by simpa using hp3) (by rw [g4]; simp)
-              (by
-                intro k hk
-                rw [g4]
-                by_cases e : k = p.val
-                · subst e; simp
-                · rw [Function.update_of_ne e]; exact hk)
-            simpa [g1] using this
-          have h1 := Finset.card_le_card hsub
+      have hP := pending_set_card hnm hN hq hAq (hS htq) 1
+      step with set_flag_w s2 .A (fid fr) true hK2.wf (by rw [hn2, hn, fid_val]; exact hq.lt)
+        (by unfold Room; omega) as ⟨s3, g1, g2, g3, g4, g5, g6⟩
+      rw [htb2, fid_val] at g4
+      simp only [↓reduceIte] at g4
+      have hn3 : s3.nodes.val = s.nodes.val := by rw [g1, hn2]
+      have hB3 : tbl s3 .B = tbl s .B := by rw [g5 .B (by simp), htb2]
+      have hstk3 : stk s3 = st := by rw [g6, hstk2]
+      step with read_w s3 (fid fr) g3 (by rw [hn3, hn, fid_val]; exact hq.lt)
+        (by unfold Room; omega) as ⟨nd, s4, hnd, hK4⟩
+      rw [hn3, hn, fid_val] at hnd
+      have ht4 := hK4.ticks
+      have hn4 : s4.nodes.val = s.nodes.val := by rw [hK4.nodes, hn3]
+      have hA4 : tbl s4 .A = Function.update (tbl s .A) (fkey fr) (some 1) := by
+        rw [hK4.tbl, g4]
+      have hB4 : tbl s4 .B = tbl s .B := by rw [hK4.tbl, hB3]
+      have hstk4 : stk s4 = st := by rw [hK4.stk, hstk3]
+      have hplain : (∀ a b, nd ≠ .App a b) →
+          KBodyPost nm s0 tp p M S B s.ticks.val (.cont s4) := by
+        intro hna
+        refine ⟨⟨hK4.wf, by rw [hn4, hn], by rw [hB4, hTB], ?_, ?_⟩, by omega⟩
+        · rw [hA4, hstk4]
+          refine hK.set 1 (fun _ h => h) hFr' fun a b e => ?_
+          rw [hnd] at e
+          cases e
+          exact absurd rfl (hna a b)
+        · rw [hA4, hstk4]; omega
+      cases nd with
+      | V0 => simp only [WP.spec_ok]; exact hplain (by simp)
+      | VL a => simp only [WP.spec_ok]; exact hplain (by simp)
+      | VR a => simp only [WP.spec_ok]; exact hplain (by simp)
+      | Sym g => simp only [WP.spec_ok]; exact hplain (by simp)
+      | Nil => simp only [WP.spec_ok]; exact hplain (by simp)
+      | App a b =>
+        obtain ⟨ta, tb, e, ha, hb⟩ := hq.of_app hnd
+        subst e
+        simp only
+        step with push_w s4 (.Visit b b) hK4.wf (by unfold Room; omega)
+          as ⟨s5, b1, b2, b3, hW5, b5⟩
+        step with push_w s5 (.Visit a a) hW5 (by unfold Room; omega)
+          as ⟨s6, c1, c2, c3, hW6, c5⟩
+        have hstk6 : stk s6 = .Visit a a :: .Visit b b :: st := by rw [c5, b5, hstk4]
+        refine ⟨⟨hW6, by rw [c1, b1, hn4, hn], by rw [c2, b2, hB4, hTB], ?_, ?_⟩,
+          by omega⟩
+        · rw [c2, b2, hA4, hstk6]
+          refine hK.set 1 (fun g hg => by simp [hg]) ?_ fun a' b' e => ?_
+          · intro g hg
+            simp only [List.mem_cons] at hg
+            rcases hg with rfl | rfl | hg
+            · exact ⟨ta, Term.subs_trans htq (by simp [Term.subs, Term.self_mem_subs]), ha⟩
+            · exact ⟨tb, Term.subs_trans htq (by simp [Term.subs, Term.self_mem_subs]), hb⟩
+            · exact hFr' g hg
+          · rw [hnd] at e
+            cases e
+            exact ⟨⟨.Visit a a, by simp, rfl⟩, ⟨.Visit b b, by simp, rfl⟩⟩
+        · rw [c2, b2, hA4, hstk6]
+          simp only [List.length_cons]
           omega
 
-/-- `mark` flags every subterm of the term. It spends one tick, and four more
-for each term of `S` that had no entry and gets one. -/
+/-- `mark` flags every subterm of the term. It spends four ticks, and eight
+more for each term of `S` that had no entry and gets one. -/
 theorem mark_spec (hnm : Function.Injective nm) (s : store.Store) (p : store.TermId) {tp : Pat}
     {M : Finset Pat} (S : Finset Pat) (hI : Inv s) (hp : Repr nm s.nodes.val p.val tp)
     (hM : Marked nm s.nodes.val (tbl s .A) M) (hcl : ∀ u ∈ M, u.subs ⊆ M) (hS : tp.subs ⊆ S)
-    (hroom : Room s (1 + 4 * (pending nm s.nodes.val (tbl s .A) S).card)) :
-    cover.mark s p ⦃ s' => MarkPost nm s s' M tp S ⦄ :=
-  mark_spec_aux hnm tp.size s p tp M S (Nat.le_refl _) hI hp hM hcl hS hroom
+    (hroom : Room s (4 + 8 * (pending nm s.nodes.val (tbl s .A) S).card)) :
+    cover.mark s p ⦃ s' => MarkPost nm s s' M tp S ⦄ := by
+  unfold cover.mark cover.mark_loop
+  have hroom' := hroom
+  unfold Room at hroom'
+  step with push_w s (.Visit p p) hI.toWf (by unfold Room; omega) as ⟨s1, a1, a2, a3, hW1, a5⟩
+  rw [hI.empty] at a5
+  let B := s.ticks.val + 4 + 8 * (pending nm s.nodes.val (tbl s .A) S).card
+  have hloop := loop.spec_decr_nat
+    (fun x : store.Store => B + 1 - x.ticks.val)
+    (fun x => KInv nm s tp p.val M S B x ∧ s.ticks.val ≤ x.ticks.val)
+    (fun x => MarkPost nm s x M tp S)
+    (fun x : store.Store => cover.mark_loop.body x) s1
+    (by
+      intro x hinv
+      obtain ⟨hinv, hlow⟩ := hinv
+      refine WP.spec_mono (mark_body_spec hnm s tp p.val M S B (by omega) hI.nodesOK hS x hinv) ?_
+      intro r hr
+      cases r with
+      | done y =>
+        obtain ⟨⟨h1, h2, h3, h4, h5, h6⟩, h7⟩ := hr
+        exact ⟨⟨h1, h2⟩, h3, h4, by rw [h3]; exact h5.done hM hp, h5.grow,
+          by rw [h3]; exact h6, by omega⟩
+      | cont x' =>
+        obtain ⟨h1, h2⟩ := hr
+        have hc := h1.2.2.2.2
+        exact ⟨⟨h1, by omega⟩, by omega⟩)
+    ⟨⟨hW1, a1, by rw [a2], by rw [a5, a2]; exact KSt.start hnm hI.nodesOK hM hcl p hp, by
+      rw [a5, a2]
+      simp only [List.length_singleton]
+      omega⟩, by omega⟩
+  exact hloop
 
 /-! ## Are all variables of a term flagged? -/
 
@@ -239,30 +357,33 @@ def AllOK (nm : Option Nat → Sym) (nodes : List store.Node) (B : Nat → Optio
     (M : Finset Pat) : Prop :=
   ∀ k w, B k = some w → ∃ t, Repr nm nodes k t ∧ (w ≠ 0 ↔ AllIn M t)
 
+theorem AllOK.set {nodes : List store.Node} {Bt : Nat → Option Nat} {k w : Nat} {t : Pat}
+    (h : AllOK nm nodes Bt M) (hk : Repr nm nodes k t) (hw : w ≠ 0 ↔ AllIn M t) :
+    AllOK nm nodes (Function.update Bt k (some w)) M := by
+  intro k' w' hk'
+  by_cases e : k' = k
+  · subst e
+    simp only [Function.update_self, Option.some.injEq] at hk'
+    subst hk'
+    exact ⟨t, hk, hw⟩
+  · rw [Function.update_of_ne e] at hk'
+    exact h k' w' hk'
+
 /-- What `all_marked` leaves. -/
 structure AllPost (nm : Option Nat → Sym) (s s' : store.Store) (M : Finset Pat) (t : Pat)
-    (S : Finset Pat) (b : Bool) : Prop where
+    (S : Finset Pat) (p : Nat) (b : Bool) : Prop where
   inv : Inv s'
   nodes : s'.nodes.val = s.nodes.val
   res : b = decide (AllIn M t)
   memo : AllOK nm s'.nodes.val (tbl s' .B) M
   tblA : tbl s' .A = tbl s .A
   grow : ∀ k, tbl s .B k ≠ none → tbl s' .B k ≠ none
-  cost : s'.ticks.val + 5 * (pending nm s'.nodes.val (tbl s' .B) S).card ≤
-    s.ticks.val + 1 + 5 * (pending nm s.nodes.val (tbl s .B) S).card
+  set : tbl s' .B p ≠ none
+  cost : s'.ticks.val + 13 * (pending nm s'.nodes.val (tbl s' .B) S).card ≤
+    s.ticks.val + 5 + 13 * (pending nm s.nodes.val (tbl s .B) S).card
+  mono : s.ticks.val ≤ s'.ticks.val
 
-structure AllMid (nm : Option Nat → Sym) (s s3 : store.Store) (M : Finset Pat) (t : Pat)
-    (S : Finset Pat) (b : Bool) : Prop where
-  inv : Inv s3
-  nodes : s3.nodes.val = s.nodes.val
-  res : b = decide (AllIn M t)
-  memo : AllOK nm s3.nodes.val (tbl s3 .B) M
-  tblA : tbl s3 .A = tbl s .A
-  grow : ∀ k, tbl s .B k ≠ none → tbl s3 .B k ≠ none
-  cost : s3.ticks.val + 5 * (pending nm s3.nodes.val (tbl s3 .B) (S.erase t)).card ≤
-    s.ticks.val + 5 + 5 * (pending nm s.nodes.val (tbl s .B) (S.erase t)).card
-
-theorem allIn_app {M : Finset Pat} {a b : Pat} : AllIn M (.app a b) ↔ AllIn M a ∧ AllIn M b := by
+theorem allIn_app {a b : Pat} : AllIn M (.app a b) ↔ AllIn M a ∧ AllIn M b := by
   simp only [AllIn, Term.vars, List.mem_append]
   constructor
   · exact fun h => ⟨fun v hv => h v (Or.inl hv), fun v hv => h v (Or.inr hv)⟩
@@ -270,183 +391,505 @@ theorem allIn_app {M : Finset Pat} {a b : Pat} : AllIn M (.app a b) ↔ AllIn M 
     · exact h1 v hv
     · exact h2 v hv
 
-theorem all_marked_spec_aux (hnm : Function.Injective nm) (n : Nat) :
-    ∀ (s : store.Store) (p : store.TermId) (tp : Pat) (M S : Finset Pat),
-      tp.size ≤ n → Inv s → Repr nm s.nodes.val p.val tp →
-      Marked nm s.nodes.val (tbl s .A) M → AllOK nm s.nodes.val (tbl s .B) M → tp.subs ⊆ S →
-      Room s (1 + 5 * (pending nm s.nodes.val (tbl s .B) S).card) →
-      cover.all_marked s p ⦃ b s' => AllPost nm s s' M tp S b ⦄ := by
-  induction n with
-  | zero =>
-    intro s p tp M S hsz
-    cases tp <;> simp [Term.size] at hsz
-  | succ n ih =>
-    intro s p tp M S hsz hI hp hM hB hS hroom
-    unfold cover.all_marked
-    have hroom' := hroom
-    unfold Room at hroom'
-    step with get_flag_spec s .B p hI hp.lt (by unfold Room; omega) as ⟨o, s1, ho, hK1⟩
-    have ht1 := hK1.ticks
-    have hn1 := hK1.nodes
-    cases hBp : tbl s .B p.val with
-    | some w =>
-      rw [hBp] at ho
-      simp only [Option.map_some] at ho
-      subst ho
-      simp only [WP.spec_ok]
-      obtain ⟨t', h1, h2⟩ := hB _ _ hBp
-      have := hp.unique h1
+/-- The invariant of the loop of `all_marked`. -/
+def AInv (nm : Option Nat → Sym) (s0 : store.Store) (tp : Pat) (p : Nat) (M S : Finset Pat)
+    (B : Nat) (s : store.Store) : Prop :=
+  Wf s ∧ s.nodes.val = s0.nodes.val ∧ tbl s .A = tbl s0 .A ∧
+    AllOK nm s0.nodes.val (tbl s .B) M ∧
+    RSt nm s0.nodes.val tp p (tbl s0 .B) (tbl s .B) (stk s) ∧
+    ∃ U, Unb nm s0.nodes.val (tbl s .B) S (stk s) U ∧
+      s.ticks.val + 1 + 2 * nV (stk s) + 5 * nB (stk s) + 13 * U.card ≤ B
+
+def ADone (nm : Option Nat → Sym) (s0 : store.Store) (tp : Pat) (p : Nat) (M S : Finset Pat)
+    (B : Nat) (s : store.Store) : Prop :=
+  Wf s ∧ stk s = [] ∧ s.nodes.val = s0.nodes.val ∧ tbl s .A = tbl s0 .A ∧
+    AllOK nm s0.nodes.val (tbl s .B) M ∧
+    RSt nm s0.nodes.val tp p (tbl s0 .B) (tbl s .B) [] ∧
+    s.ticks.val + 13 * (pending nm s0.nodes.val (tbl s .B) S).card ≤ B
+
+def ABodyPost (nm : Option Nat → Sym) (s0 : store.Store) (tp : Pat) (p : Nat) (M S : Finset Pat)
+    (B : Nat) (t0 : Nat) : ControlFlow store.Store store.Store → Prop
+  | .done s' => ADone nm s0 tp p M S B s' ∧ t0 ≤ s'.ticks.val
+  | .cont s' => AInv nm s0 tp p M S B s' ∧ t0 < s'.ticks.val
+
+theorem all_marked_body_spec (hnm : Function.Injective nm) (s0 : store.Store) (tp : Pat)
+    (p : Nat) (M S : Finset Pat) (B : Nat) (hB : 40 * B + 100 ≤ Usize.max)
+    (hN : NodesOK s0.nodes.val) (hMk : Marked nm s0.nodes.val (tbl s0 .A) M) (hS : tp.subs ⊆ S)
+    (s : store.Store) (h : AInv nm s0 tp p M S B s) :
+    cover.all_marked_loop.body s ⦃ r => ABodyPost nm s0 tp p M S B s.ticks.val r ⦄ := by
+  unfold cover.all_marked_loop.body
+  obtain ⟨hW, hn, hTA, hAO, hSt, U, hU, hc⟩ := h
+  step with pop_w s hW (by unfold Room; omega) as ⟨o, s1, e1, e2, e3, hW1, eo, est⟩
+  cases hst : stk s with
+  | nil =>
+    rw [hst] at eo est hSt hU hc
+    simp only [List.head?_nil, List.tail_nil] at eo est
+    subst eo
+    simp only [WP.spec_ok]
+    have := hU.card_le
+    simp only [nV_nil, nB_nil] at hc
+    exact ⟨⟨hW1, est, by rw [e1, hn], by rw [e2, hTA], by rw [e2]; exact hAO,
+      by rw [e2]; exact hSt, by rw [e2]; omega⟩, by omega⟩
+  | cons fr st =>
+    rw [hst] at eo est hSt hU hc
+    simp only [List.head?_cons, List.tail_cons] at eo est
+    subst eo
+    obtain ⟨hfa, tq, htq, hq⟩ := hSt.frames fr List.mem_cons_self
+    -- the answer for the node of the frame is written
+    have hset : ∀ (s3 : store.Store) (m : Bool), Wf s3 → s3.nodes.val = s.nodes.val →
+        tbl s3 = tbl s → stk s3 = st → tbl s .B (fkey fr) = none →
+        ((if m = true then 1 else 0 : Nat) ≠ 0 ↔ AllIn M tq) → s.ticks.val ≤ s3.ticks.val →
+        s3.ticks.val + 2 + 2 * nV st + 5 * nB st + 13 * (U.erase tq).card ≤ B →
+        (do
+          let s5 ← store.Store.set_flag s3 store.Tbl.B (fid fr) m
+          ok (ControlFlow.cont s5 : ControlFlow store.Store store.Store)) ⦃ r =>
+          ABodyPost nm s0 tp p M S B s.ticks.val r ⦄ := by
+      intro s3 m hW3 hn3 htb3 hstk3 hnone hw hlt hcost
+      step with set_flag_w s3 .B (fid fr) m hW3 (by rw [hn3, hn, fid_val]; exact hq.lt)
+        (by unfold Room; omega) as ⟨s5, g1, g2, g3, g4, g5, g6⟩
+      rw [htb3, fid_val] at g4
+      refine ⟨⟨g3, by rw [g1, hn3, hn], by rw [g5 .A (by simp), htb3, hTA], ?_, ?_,
+        U.erase tq, ?_, ?_⟩, by omega⟩
+      · rw [g4]; exact hAO.set hq hw
+      · rw [g4, g6, hstk3]; exact hSt.set hnone _
+      · rw [g4, g6, hstk3]
+        simpa using hU.set hq [] (if m = true then 1 else 0)
+      · rw [g6, hstk3]; omega
+    cases fr with
+    | Visit q u =>
+      have : q = u := by simp only [faux, fkey] at hfa; scalar_tac
       subst this
-      refine ⟨hK1.inv, hn1, decide_eq_decide.2 h2, by rw [hn1, hK1.tbl]; exact hB, by rw [hK1.tbl],
-        (fun k hk => by rw [hK1.tbl]; exact hk), by rw [hn1, hK1.tbl]; omega⟩
-    | none =>
-      rw [hBp] at ho
-      simp only [Option.map_none] at ho
-      subst ho
-      have htS : tp ∈ S := hS (Term.self_mem_subs tp)
-      have hpend := mem_pending_of_none hnm hI.nodesOK hp hBp htS
-      have hP := pending_erase_card hpend
+      simp only [fkey] at hq hset
+      simp only [nV_visit, nB_visit] at hc
       simp only
-      step with read_spec s1 p hK1.inv (by rw [hn1]; exact hp.lt) (by unfold Room; omega)
-        as ⟨nd, s2, hnd, hK2⟩
-      rw [hn1] at hnd
+      step with get_flag_w s1 .B q hW1 (by rw [e1, hn]; exact hq.lt) (by unfold Room; omega)
+        as ⟨o1, s2, ho1, hK2⟩
+      rw [e2] at ho1
       have ht2 := hK2.ticks
-      have hn2 : s2.nodes.val = s.nodes.val := by rw [hK2.nodes, hn1]
-      have htb2 : tbl s2 = tbl s := by rw [hK2.tbl, hK1.tbl]
-      refine WP.spec_bind (Pₘ := fun r => AllMid nm s r.1 M tp S r.2) ?_ ?_
-      · have hvar : ∀ v, tp = Term.var v →
+      have hn2 : s2.nodes.val = s.nodes.val := by rw [hK2.nodes, e1]
+      have htb2 : tbl s2 = tbl s := by rw [hK2.tbl, e2]
+      have hstk2 : stk s2 = st := by rw [hK2.stk, est]
+      cases hBq : tbl s .B q.val with
+      | some w =>
+        rw [hBq] at ho1
+        simp only [Option.map_some] at ho1
+        subst ho1
+        simp only [WP.spec_ok]
+        refine ⟨⟨hK2.wf, by rw [hn2, hn], by rw [htb2, hTA], by rw [htb2]; exact hAO, ?_,
+          U, ?_, ?_⟩, by omega⟩
+        · rw [htb2, hstk2]; exact hSt.hit (by simp only [fkey]; rw [hBq]; simp)
+        · rw [htb2, hstk2]; exact hU.pop_visit trivial
+        · rw [hstk2]; omega
+      | none =>
+        rw [hBq] at ho1
+        simp only [Option.map_none] at ho1
+        subst ho1
+        have htU : tq ∈ U := hU.mem_top hnm hN hSt.waits hq hBq (hS htq)
+        have hU1 := card_erase_add_one htU
+        simp only
+        step with read_w s2 q hK2.wf (by rw [hn2, hn]; exact hq.lt) (by unfold Room; omega)
+          as ⟨nd, s3, hnd, hK3⟩
+        rw [hn2, hn] at hnd
+        have ht3 := hK3.ticks
+        have hn3 : s3.nodes.val = s.nodes.val := by rw [hK3.nodes, hn2]
+        have htb3 : tbl s3 = tbl s := by rw [hK3.tbl, htb2]
+        have hstk3 : stk s3 = st := by rw [hK3.stk, hstk2]
+        have hvar : ∀ v, tq = Term.var v →
             (do
-              let (o1, s4) ← store.Store.get_flag s2 store.Tbl.A p
-              let b1 := core.option.Option.is_some o1
-              ok (s4, b1)) ⦃ r => AllMid nm s r.1 M tp S r.2 ⦄ := by
+              let (o2, s4) ← store.Store.get_flag s3 store.Tbl.A q
+              let m := core.option.Option.is_some o2
+              let s5 ← store.Store.set_flag s4 store.Tbl.B q m
+              ok (ControlFlow.cont s5 : ControlFlow store.Store store.Store)) ⦃ r =>
+              ABodyPost nm s0 tp p M S B s.ticks.val r ⦄ := by
           intro v hv
           subst hv
-          step with get_flag_spec s2 .A p hK2.inv (by rw [hn2]; exact hp.lt)
-            (by unfold Room; omega) as ⟨o1, s4, ho1, hK4⟩
+          step with get_flag_w s3 .A q hK3.wf (by rw [hn3, hn]; exact hq.lt)
+            (by unfold Room; omega) as ⟨o2, s4, ho2, hK4⟩
+          rw [htb3, hTA] at ho2
           have ht4 := hK4.ticks
-          have hn4 : s4.nodes.val = s.nodes.val := by rw [hK4.nodes, hn2]
-          have htb4 : tbl s4 = tbl s := by rw [hK4.tbl, htb2]
-          refine ⟨hK4.inv, hn4, ?_, by rw [hn4, htb4]; exact hB, by rw [htb4],
-            (fun k hk => by rw [htb4]; exact hk), by rw [hn4, htb4]; omega⟩
-          have hiff := hM.iff hnm hI.nodesOK hp
+          have hiff := hMk.iff hnm hN hq
+          refine hset s4 (core.option.Option.is_some o2) hK4.wf (by rw [hK4.nodes, hn3])
+            (by rw [hK4.tbl, htb3]) (by rw [hK4.stk, hstk3]) hBq ?_ (by omega) (by omega)
           have hall : AllIn M (Term.var v) ↔ Term.var v ∈ M := by simp [AllIn, Term.vars]
-          rw [htb2] at ho1
-          by_cases hin : Term.var v ∈ M
-          · have hne := hiff.2 hin
-            obtain ⟨w, hw⟩ := Option.ne_none_iff_exists'.1 hne
-            simp [ho1, hw, hall, hin]
-          · have hnone : tbl s .A p.val = none := by
-              by_contra h; exact hin (hiff.1 h)
-            simp [ho1, hnone, hall, hin]
-        have hatom : (∀ v, v ∉ tp.vars) → AllMid nm s s2 M tp S true := by
-          intro hv
-          refine ⟨hK2.inv, hn2, ?_, by rw [hn2, htb2]; exact hB, by rw [htb2],
-            (fun k hk => by rw [htb2]; exact hk), by rw [hn2, htb2]; omega⟩
-          have : AllIn M tp := fun v h => absurd h (hv v)
-          simp [this]
+          rw [hall, ← hiff, ho2]
+          cases tbl s0 .A q.val <;> simp
+        have hatom : ∀ f, tq = Term.sym f →
+            (do
+              let s4 ← store.Store.set_flag s3 store.Tbl.B q true
+              ok (ControlFlow.cont s4 : ControlFlow store.Store store.Store)) ⦃ r =>
+              ABodyPost nm s0 tp p M S B s.ticks.val r ⦄ := by
+          intro f hf
+          subst hf
+          exact hset s3 true hK3.wf hn3 htb3 hstk3 hBq (by simp [AllIn, Term.vars]) (by omega)
+            (by omega)
         cases nd with
         | V0 =>
-          obtain ⟨v, hv, -⟩ := hp.of_var hnd trivial
+          obtain ⟨v, hv, -⟩ := hq.of_var hnd trivial
           exact hvar v hv
         | VL a =>
-          obtain ⟨v, hv, -⟩ := hp.of_var hnd trivial
+          obtain ⟨v, hv, -⟩ := hq.of_var hnd trivial
           exact hvar v hv
         | VR a =>
-          obtain ⟨v, hv, -⟩ := hp.of_var hnd trivial
+          obtain ⟨v, hv, -⟩ := hq.of_var hnd trivial
           exact hvar v hv
-        | Sym g =>
-          simp only [WP.spec_ok]
-          exact hatom (by rw [hp.of_sym hnd]; simp [Term.vars])
-        | Nil =>
-          simp only [WP.spec_ok]
-          exact hatom (by rw [hp.of_nil hnd]; simp [Term.vars])
-        | App a c =>
-          obtain ⟨ta, tb, e, ha, hc⟩ := hp.of_app hnd
-          subst e
-          simp only [Term.size] at hsz
-          have hSa := subs_left_erase hS
-          have hSb := subs_right_erase hS
+        | Sym g => exact hatom _ (hq.of_sym hnd)
+        | Nil => exact hatom _ (hq.of_nil hnd)
+        | App a b =>
           simp only
-          step with ih s2 a ta M (S.erase (Term.app ta tb)) (by omega) hK2.inv
-            (by rw [hn2]; exact ha) (by rw [hn2, htb2]; exact hM) (by rw [hn2, htb2]; exact hB) hSa
-            (by rw [hn2, htb2]; unfold Room; omega) as ⟨b1, s4, h4⟩
-          have hc4 := h4.cost
-          rw [hn2, htb2] at hc4
-          have hn4 : s4.nodes.val = s.nodes.val := by rw [h4.nodes, hn2]
-          cases b1 with
-          | false =>
-            simp only [Bool.false_eq_true, ↓reduceIte, WP.spec_ok]
-            have hna : ¬ AllIn M ta := by simpa using h4.res.symm
-            refine ⟨h4.inv, hn4, ?_, h4.memo, by rw [h4.tblA, htb2],
-              (fun k hk => h4.grow k (by rw [htb2]; exact hk)), by omega⟩
-            simp [allIn_app, hna]
-          | true =>
-            simp only [↓reduceIte]
-            have hya : AllIn M ta := by simpa using h4.res.symm
-            step with ih s4 c tb M (S.erase (Term.app ta tb)) (by omega) h4.inv
-              (by rw [hn4]; exact hc) (by rw [hn4, h4.tblA, htb2]; exact hM) h4.memo hSb
-              (by unfold Room; omega) as ⟨b2, s5, h5⟩
-            have hc5 := h5.cost
-            refine ⟨h5.inv, by rw [h5.nodes, hn4], ?_, h5.memo, by rw [h5.tblA, h4.tblA, htb2],
-              (fun k hk => h5.grow k (h4.grow k (by rw [htb2]; exact hk))), by omega⟩
-            rw [h5.res]
-            simp [allIn_app, hya]
-      · rintro ⟨s3, b⟩ hmid
-        have hmid : AllMid nm s s3 M tp S b := hmid
-        have hc := hmid.cost
-        have hp3 : Repr nm s3.nodes.val p.val tp := by rw [hmid.nodes]; exact hp
-        step with set_flag_spec s3 .B p b hmid.inv hp3.lt (by unfold Room; omega)
-          as ⟨s4, g1, g2, g3, g4, g5⟩
-        refine ⟨g3, by rw [g1, hmid.nodes], hmid.res, ?_, by rw [g5 .A (by simp), hmid.tblA], ?_, ?_⟩
-        · rw [g1, g4]
-          intro k w hk
-          by_cases e : k = p.val
-          · subst e
-            simp only [Function.update_self, Option.some.injEq] at hk
-            subst hk
-            refine ⟨tp, hp3, ?_⟩
-            rw [hmid.res]
-            by_cases h : AllIn M tp <;> simp [h]
-          · rw [Function.update_of_ne e] at hk
-            exact hmid.memo k w hk
-        · intro k hk
-          rw [g4]
-          by_cases e : k = p.val
-          · subst e; simp
-          · rw [Function.update_of_ne e]; exact hmid.grow k hk
-        · have hsub : pending nm s4.nodes.val (tbl s4 .B) S ⊆
-              pending nm s3.nodes.val (tbl s3 .B) (S.erase tp) := by
-            have := pending_after_set (nm := nm) (nodes := s3.nodes.val) (more := [])
-              (A := tbl s3 .B) (A' := tbl s4 .B) (S := S) (t := tp) (p := p.val)
-              (by simpa using hp3) (by rw [g4]; simp)
-              (by
-                intro k hk
-                rw [g4]
-                by_cases e : k = p.val
-                · subst e; simp
-                · rw [Function.update_of_ne e]; exact hk)
-            simpa [g1] using this
-          have h1 := Finset.card_le_card hsub
-          omega
+          step with push_w s3 (.Build q q) hK3.wf (by unfold Room; omega)
+            as ⟨s4, a1, a2, a3, hW4, a5⟩
+          step with push_w s4 (.Visit b b) hW4 (by unfold Room; omega)
+            as ⟨s5, b1, b2, b3, hW5, b5⟩
+          step with push_w s5 (.Visit a a) hW5 (by unfold Room; omega)
+            as ⟨s6, c1, c2, c3, hW6, c5⟩
+          have htb6 : tbl s6 = tbl s := by rw [c2, b2, a2, htb3]
+          have hstk6 : stk s6 = .Visit a a :: .Visit b b :: .Build q q :: st := by
+            rw [c5, b5, a5, hstk3]
+          refine ⟨⟨hW6, by rw [c1, b1, a1, hn3, hn], by rw [htb6, hTA], by rw [htb6]; exact hAO,
+            ?_, U.erase tq, ?_, ?_⟩, by omega⟩
+          · rw [htb6, hstk6]; exact hSt.expand hN hBq hnd
+          · rw [htb6, hstk6]; exact hU.expand hq
+          · rw [hstk6]
+            simp only [nV_visit, nV_build, nB_visit, nB_build]
+            omega
+    | Build q u =>
+      simp only [fkey] at hq hset
+      simp only [nV_build, nB_build] at hc
+      obtain ⟨a, b, hn0, hnone, hBa, hBb⟩ := hSt.top
+      obtain ⟨ta, tb, e, ha, hb⟩ := hq.of_app hn0
+      subst e
+      have hEr := Finset.card_erase_le (s := U) (a := Term.app ta tb)
+      simp only
+      step with read_w s1 q hW1 (by rw [e1, hn]; exact hq.lt) (by unfold Room; omega)
+        as ⟨nd, s2, hnd, hK2⟩
+      rw [e1, hn, hn0] at hnd
+      cases hnd
+      have ht2 := hK2.ticks
+      have hn2 : s2.nodes.val = s.nodes.val := by rw [hK2.nodes, e1]
+      have htb2 : tbl s2 = tbl s := by rw [hK2.tbl, e2]
+      simp only
+      step with get_flag_w s2 .B a hK2.wf (by rw [hn2, hn]; exact ha.lt) (by unfold Room; omega)
+        as ⟨o1, s3, ho1, hK3⟩
+      rw [htb2] at ho1
+      have ht3 := hK3.ticks
+      have hn3 : s3.nodes.val = s.nodes.val := by rw [hK3.nodes, hn2]
+      have htb3 : tbl s3 = tbl s := by rw [hK3.tbl, htb2]
+      cases hwa : tbl s .B a.val with
+      | none => exact absurd hwa hBa
+      | some wa =>
+      rw [hwa] at ho1
+      simp only [Option.map_some] at ho1
+      subst ho1
+      simp only [cover.is_set, core.option.Option.unwrap_or_some, bind_ok]
+      step with get_flag_w s3 .B b hK3.wf (by rw [hn3, hn]; exact hb.lt) (by unfold Room; omega)
+        as ⟨o2, s4, ho2, hK4⟩
+      rw [htb3] at ho2
+      have ht4 := hK4.ticks
+      have hn4 : s4.nodes.val = s.nodes.val := by rw [hK4.nodes, hn3]
+      have htb4 : tbl s4 = tbl s := by rw [hK4.tbl, htb3]
+      have hstk4 : stk s4 = st := by rw [hK4.stk, hK3.stk, hK2.stk, est]
+      cases hwb : tbl s .B b.val with
+      | none => exact absurd hwb hBb
+      | some wb =>
+      rw [hwb] at ho2
+      simp only [Option.map_some] at ho2
+      subst ho2
+      simp only [core.option.Option.unwrap_or_some]
+      obtain ⟨ta', h1, hra⟩ := hAO _ _ hwa
+      have := ha.unique h1
+      subst this
+      obtain ⟨tb', h2, hrb⟩ := hAO _ _ hwb
+      have := hb.unique h2
+      subst this
+      by_cases ha0 : wa ≠ 0
+      · simp only [decide_eq_true ha0, ↓reduceIte]
+        refine hset s4 (decide (wb ≠ 0)) hK4.wf hn4 htb4 hstk4 hnone ?_ (by omega) (by omega)
+        rw [allIn_app, ← hra, ← hrb]
+        by_cases hb0 : wb ≠ 0 <;> simp [ha0, hb0]
+      · simp only [decide_eq_false ha0, Bool.false_eq_true, ↓reduceIte]
+        refine hset s4 false hK4.wf hn4 htb4 hstk4 hnone ?_ (by omega) (by omega)
+        rw [allIn_app, ← hra]
+        simp [ha0]
 
-/-- `all_marked` answers whether every variable of the term is flagged. It
-spends one tick, and five more for each term of `S` that had no answer and
-gets one. -/
+/-- `all_marked` decides whether every variable of the term is flagged, and
+leaves the answer for the node in table `B`. It spends five ticks, and
+thirteen more for each term of `S` that had no answer and gets one. -/
 theorem all_marked_spec (hnm : Function.Injective nm) (s : store.Store) (p : store.TermId)
     {tp : Pat} {M : Finset Pat} (S : Finset Pat) (hI : Inv s)
     (hp : Repr nm s.nodes.val p.val tp) (hM : Marked nm s.nodes.val (tbl s .A) M)
     (hB : AllOK nm s.nodes.val (tbl s .B) M) (hS : tp.subs ⊆ S)
-    (hroom : Room s (1 + 5 * (pending nm s.nodes.val (tbl s .B) S).card)) :
-    cover.all_marked s p ⦃ b s' => AllPost nm s s' M tp S b ⦄ :=
-  all_marked_spec_aux hnm tp.size s p tp M S (Nat.le_refl _) hI hp hM hB hS hroom
+    (hroom : Room s (5 + 13 * (pending nm s.nodes.val (tbl s .B) S).card)) :
+    cover.all_marked s p ⦃ b s' => AllPost nm s s' M tp S p.val b ⦄ := by
+  unfold cover.all_marked cover.all_marked_loop
+  have hroom' := hroom
+  unfold Room at hroom'
+  step with push_w s (.Visit p p) hI.toWf (by unfold Room; omega) as ⟨s1, a1, a2, a3, hW1, a5⟩
+  rw [hI.empty] at a5
+  let B := s.ticks.val + 4 + 13 * (pending nm s.nodes.val (tbl s .B) S).card
+  have hloop := loop.spec_decr_nat
+    (fun x : store.Store => B + 1 - x.ticks.val)
+    (fun x => AInv nm s tp p.val M S B x ∧ s.ticks.val ≤ x.ticks.val)
+    (fun x => ADone nm s tp p.val M S B x ∧ s.ticks.val ≤ x.ticks.val)
+    (fun x : store.Store => cover.all_marked_loop.body x) s1
+    (by
+      intro x hinv
+      obtain ⟨hinv, hlow⟩ := hinv
+      refine WP.spec_mono (all_marked_body_spec hnm s tp p.val M S B (by omega) hI.nodesOK hM hS
+        x hinv) ?_
+      intro r hr
+      cases r with
+      | done y => exact ⟨hr.1, Nat.le_trans hlow hr.2⟩
+      | cont x' =>
+        obtain ⟨h1, h2⟩ := hr
+        have hc := h1.2.2.2.2.2
+        obtain ⟨U, -, hc⟩ := hc
+        exact ⟨⟨h1, by omega⟩, by omega⟩)
+    ⟨⟨hW1, a1, by rw [a2], by rw [a2]; exact hB,
+      ⟨by rw [a2]; exact fun _ _ h => h, by
+        rw [a5]
+        intro f' hf'
+        simp only [List.mem_singleton] at hf'
+        subst hf'
+        exact ⟨rfl, tp, Term.self_mem_subs tp, hp⟩, by
+        rw [a5]
+        intro q u hq
+        simp at hq, by rw [a5]; exact Waits.single p p, by
+        rw [a5]; exact Or.inr ⟨_, List.mem_singleton_self _, rfl⟩⟩,
+      _, Unb.start _ _ _ _, by
+        rw [a5, a2]
+        simp only [nV_visit, nV_nil, nB_visit, nB_nil]
+        omega⟩, by omega⟩
+  step with hloop as ⟨s2, hD, hlow2⟩
+  obtain ⟨hW2, hemp, hn2, hTA2, hAO2, hSt2, hc2⟩ := hD
+  have hBp := hSt2.done
+  step with get_flag_w s2 .B p hW2 (by rw [hn2]; exact hp.lt) (by unfold Room; omega)
+    as ⟨o, s3, ho, hK3⟩
+  have ht3 := hK3.ticks
+  cases hw : tbl s2 .B p.val with
+  | none => exact absurd hw hBp
+  | some w =>
+    rw [hw] at ho
+    simp only [Option.map_some] at ho
+    subst ho
+    simp only [cover.is_set, core.option.Option.unwrap_or_some, bind_ok, WP.spec_ok]
+    obtain ⟨t', h1, hr⟩ := hAO2 _ _ hw
+    have := hp.unique h1
+    subst this
+    refine ⟨⟨hK3.wf, by rw [hK3.stk]; exact hemp⟩, by rw [hK3.nodes, hn2], decide_eq_decide.2 hr,
+      by rw [hK3.nodes, hn2, hK3.tbl]; exact hAO2, by rw [hK3.tbl, hTA2], ?_,
+      by rw [hK3.tbl, hw]; simp, by rw [hK3.nodes, hn2, hK3.tbl]; omega, by omega⟩
+    intro k hk
+    rw [hK3.tbl]
+    cases hk0 : tbl s .B k with
+    | none => exact absurd hk0 hk
+    | some v => rw [hSt2.keep k v hk0]; simp
 
-theorem AllOK.extends {s s' : store.Store} {B : Nat → Option Nat} {M : Finset Pat}
+theorem AllOK.extends {s s' : store.Store} {B : Nat → Option Nat}
     (h : AllOK nm s.nodes.val B M) (he : Extends s s') : AllOK nm s'.nodes.val B M :=
   fun k w hk => by
     obtain ⟨t, hr, hw⟩ := h k w hk
     exact ⟨t, he.repr hr, hw⟩
 
+
 /-! ## Filtering the constraints -/
+
+/-- The first loop of `keep` leaves in table `B` the answer for every
+constraint. It spends one tick, six for each constraint, and thirteen for
+each term of `S` that had no answer and gets one. -/
+theorem keep_flag_spec (hnm : Function.Injective nm) (M S : Finset Pat) :
+    ∀ (cs : List Pat) (s : store.Store) (l : store.TermId), Inv s →
+      Repr nm s.nodes.val l.val (encList (nm none) cs) →
+      Marked nm s.nodes.val (tbl s .A) M → AllOK nm s.nodes.val (tbl s .B) M →
+      (∀ a ∈ cs, a.subs ⊆ S) →
+      Room s (1 + 6 * cs.length + 13 * (pending nm s.nodes.val (tbl s .B) S).card) →
+      cover.keep_loop0 l s ⦃ s' =>
+        Inv s' ∧ s'.nodes.val = s.nodes.val ∧ tbl s' .A = tbl s .A ∧
+        AllOK nm s'.nodes.val (tbl s' .B) M ∧
+        (∀ k, tbl s .B k ≠ none → tbl s' .B k ≠ none) ∧
+        (∀ a ∈ cs, ∀ k, Repr nm s.nodes.val k a → tbl s' .B k ≠ none) ∧
+        s'.ticks.val + 13 * (pending nm s'.nodes.val (tbl s' .B) S).card ≤
+          s.ticks.val + 1 + 6 * cs.length + 13 * (pending nm s.nodes.val (tbl s .B) S).card ∧
+        s.ticks.val ≤ s'.ticks.val ⦄ := by
+  unfold cover.keep_loop0
+  intro cs
+  induction cs with
+  | nil =>
+    intro s l hI hl hM hB hS hroom
+    rw [loop]
+    simp only [cover.keep_loop0.body]
+    step with read_spec s l hI hl.lt (by unfold Room at hroom ⊢; omega) as ⟨r0, hnd, hK⟩
+    obtain ⟨nd, s1⟩ := r0
+    simp only at hnd hK ⊢
+    have hfin : Inv s1 ∧ s1.nodes.val = s.nodes.val ∧ tbl s1 .A = tbl s .A ∧
+        AllOK nm s1.nodes.val (tbl s1 .B) M ∧
+        (∀ k, tbl s .B k ≠ none → tbl s1 .B k ≠ none) ∧
+        (∀ a ∈ ([] : List Pat), ∀ k, Repr nm s.nodes.val k a → tbl s1 .B k ≠ none) ∧
+        s1.ticks.val + 13 * (pending nm s1.nodes.val (tbl s1 .B) S).card ≤
+          s.ticks.val + 1 + 6 * ([] : List Pat).length +
+            13 * (pending nm s.nodes.val (tbl s .B) S).card ∧
+        s.ticks.val ≤ s1.ticks.val :=
+      ⟨hK.inv, hK.nodes, by rw [hK.tbl], by rw [hK.nodes, hK.tbl]; exact hB,
+        by rw [hK.tbl]; exact fun _ h => h, by simp,
+        by have := hK.ticks; rw [hK.nodes, hK.tbl]; simp only [List.length_nil]; omega,
+        by have := hK.ticks; omega⟩
+    cases nd with
+    | App h t =>
+      obtain ⟨ta, tb, e', -, -⟩ := hl.of_app hnd
+      cases e'
+    | V0 => step*
+    | VL _ => step*
+    | VR _ => step*
+    | Sym _ => step*
+    | Nil => step*
+  | cons a ts ih =>
+    intro s l hI hl hM hB hS hroom
+    have hroom' := hroom
+    unfold Room at hroom'
+    simp only [List.length_cons] at hroom'
+    rw [loop]
+    simp only [cover.keep_loop0.body]
+    step with read_spec s l hI hl.lt (by unfold Room; omega) as ⟨r0, hnd, hK⟩
+    obtain ⟨nd, s1⟩ := r0
+    simp only at hnd hK ⊢
+    obtain ⟨h, t, hnode, hh, ht⟩ := Repr.app_inv (ta := a) (tb := encList (nm none) ts) hl
+    rw [hnode] at hnd
+    cases hnd
+    have ht1 := hK.ticks
+    have hn1 := hK.nodes
+    step with all_marked_spec hnm s1 h S hK.inv (by rw [hn1]; exact hh)
+      (by rw [hn1, hK.tbl]; exact hM) (by rw [hn1, hK.tbl]; exact hB)
+      (hS a List.mem_cons_self) (by rw [hn1, hK.tbl]; unfold Room; omega) as ⟨r0, h3⟩
+    obtain ⟨b, s2⟩ := r0
+    simp only at h3 ⊢
+    simp only [uncurry, bind_ok]
+    have hc3 := h3.cost
+    rw [hn1, hK.tbl] at hc3
+    have hn2 : s2.nodes.val = s.nodes.val := by rw [h3.nodes, hn1]
+    have hA2 : tbl s2 .A = tbl s .A := by rw [h3.tblA, hK.tbl]
+    refine WP.spec_mono (ih s2 t h3.inv (by rw [hn2]; exact ht) (by rw [hn2, hA2]; exact hM)
+      h3.memo (fun x hx => hS x (List.mem_cons_of_mem _ hx)) (by unfold Room; omega)) ?_
+    rintro s3 ⟨hI3, b1, b2, b3, b4, b5, b6, b7⟩
+    rw [hn2] at b5
+    have hm3 := h3.mono
+    refine ⟨hI3, by rw [b1, hn2], by rw [b2, hA2], b3,
+      fun k hk => b4 k (h3.grow k (by rw [hK.tbl]; exact hk)), ?_,
+      by simp only [List.length_cons]; omega, by omega⟩
+    intro x hx k hk
+    rcases List.mem_cons.1 hx with rfl | hx
+    · have : k = h.val := Repr.inj hnm hI.nodesOK hk hh
+      subst this
+      exact b4 _ h3.set
+    · exact b5 x hx k hk
+
+/-- The second loop of `keep` pushes the constraints whose answer is yes,
+the last on top. -/
+theorem keep_push_spec (M : Finset Pat) : ∀ (cs : List Pat) (s : store.Store) (l : store.TermId),
+    Wf s → Repr nm s.nodes.val l.val (encList (nm none) cs) →
+    AllOK nm s.nodes.val (tbl s .B) M →
+    (∀ a ∈ cs, ∀ k, Repr nm s.nodes.val k a → tbl s .B k ≠ none) →
+    Room s (3 * cs.length + 1) →
+    cover.keep_loop1 l s ⦃ s' l' =>
+      Wf s' ∧ s'.nodes.val = s.nodes.val ∧ tbl s' = tbl s ∧
+        s'.ticks.val ≤ s.ticks.val + 3 * cs.length + 1 ∧ s.ticks.val ≤ s'.ticks.val ∧
+        Repr nm s.nodes.val l'.val (encList (nm none) []) ∧
+        ∃ fs, stk s' = fs ++ stk s ∧
+          List.Forall₂ (fun f t => Repr nm s.nodes.val (fkey f) t) fs
+            (cs.filter fun a => decide (AllIn M a)).reverse ⦄ := by
+  unfold cover.keep_loop1
+  intro cs
+  induction cs with
+  | nil =>
+    intro s l hW hl hB hset hroom
+    rw [loop]
+    simp only [cover.keep_loop1.body]
+    step with read_w s l hW hl.lt (by unfold Room at hroom ⊢; omega) as ⟨r0, hnd, hK⟩
+    obtain ⟨nd, s1⟩ := r0
+    simp only at hnd hK ⊢
+    have hfin : Wf s1 ∧ s1.nodes.val = s.nodes.val ∧ tbl s1 = tbl s ∧
+        s1.ticks.val ≤ s.ticks.val + 3 * ([] : List Pat).length + 1 ∧
+        s.ticks.val ≤ s1.ticks.val ∧
+        Repr nm s.nodes.val l.val (encList (nm none) []) ∧
+        ∃ fs, stk s1 = fs ++ stk s ∧
+          List.Forall₂ (fun f t => Repr nm s.nodes.val (fkey f) t) fs
+            (([] : List Pat).filter fun a => decide (AllIn M a)).reverse :=
+      ⟨hK.wf, hK.nodes, hK.tbl, by have := hK.ticks; simp; omega, by have := hK.ticks; omega,
+        hl, [], by simp [hK.stk], by simp⟩
+    cases nd with
+    | App h t =>
+      obtain ⟨ta, tb, e', -, -⟩ := hl.of_app hnd
+      cases e'
+    | V0 => step*
+    | VL _ => step*
+    | VR _ => step*
+    | Sym _ => step*
+    | Nil => step*
+  | cons a ts ih =>
+    intro s l hW hl hB hset hroom
+    have hroom' := hroom
+    unfold Room at hroom'
+    simp only [List.length_cons] at hroom'
+    rw [loop]
+    simp only [cover.keep_loop1.body]
+    step with read_w s l hW hl.lt (by unfold Room; omega) as ⟨r0, hnd, hK⟩
+    obtain ⟨nd, s1⟩ := r0
+    simp only at hnd hK ⊢
+    obtain ⟨h, t, hnode, hh, ht⟩ := Repr.app_inv (ta := a) (tb := encList (nm none) ts) hl
+    rw [hnode] at hnd
+    cases hnd
+    have ht1 := hK.ticks
+    have hn1 := hK.nodes
+    step with get_flag_w s1 .B h hK.wf (by rw [hn1]; exact hh.lt) (by unfold Room; omega)
+      as ⟨r0, ho, hK2⟩
+    obtain ⟨o, s2⟩ := r0
+    simp only at ho hK2 ⊢
+    rw [hK.tbl] at ho
+    have ht2 := hK2.ticks
+    have hn2 : s2.nodes.val = s.nodes.val := by rw [hK2.nodes, hn1]
+    have htb2 : tbl s2 = tbl s := by rw [hK2.tbl, hK.tbl]
+    have hstk2 : stk s2 = stk s := by rw [hK2.stk, hK.stk]
+    cases hw : tbl s .B h.val with
+    | none => exact absurd hw (hset a List.mem_cons_self _ hh)
+    | some w =>
+    rw [hw] at ho
+    simp only [Option.map_some] at ho
+    subst ho
+    simp only [uncurry]
+    rw [show cover.is_set (some (decide (w ≠ 0))) = ok (decide (w ≠ 0)) from rfl]
+    simp only [bind_ok]
+    obtain ⟨t', h1, hr⟩ := hB _ _ hw
+    have := hh.unique h1
+    subst this
+    have hset' : ∀ x ∈ ts, ∀ k, Repr nm s.nodes.val k x → tbl s .B k ≠ none :=
+      fun x hx => hset x (List.mem_cons_of_mem _ hx)
+    by_cases hw0 : w ≠ 0
+    · simp only [decide_eq_true hw0, ↓reduceIte]
+      have hya : AllIn M a := hr.1 hw0
+      step with push_w s2 (.Visit h h) hK2.wf (by unfold Room; omega)
+        as ⟨s3, a1, a2, a3, hW3, a5⟩
+      have hn3 : s3.nodes.val = s.nodes.val := by rw [a1, hn2]
+      have htb3 : tbl s3 = tbl s := by rw [a2, htb2]
+      refine WP.spec_mono (ih s3 t hW3 (by rw [hn3]; exact ht) (by rw [hn3, htb3]; exact hB)
+        (by rw [hn3, htb3]; exact hset') (by unfold Room; omega)) ?_
+      rintro ⟨s4, l'⟩ ⟨hW4, b1, b2, b3, b3', b4, fs, b5, b6⟩
+      rw [hn3] at b4 b6
+      refine ⟨hW4, by rw [b1, hn3], by rw [b2, htb3],
+        by simp only [List.length_cons]; omega, by omega, b4, fs ++ [.Visit h h], ?_, ?_⟩
+      · rw [b5, a5, hstk2]; simp
+      · have e : (a :: ts).filter (fun a => decide (AllIn M a)) =
+            a :: ts.filter (fun a => decide (AllIn M a)) := by simp [hya]
+        rw [e, List.reverse_cons]
+        exact List.rel_append b6 (.cons hh .nil)
+    · simp only [decide_eq_false hw0, Bool.false_eq_true, ↓reduceIte, bind_ok]
+      have hna : ¬ AllIn M a := fun h => hw0 (hr.2 h)
+      refine WP.spec_mono (ih s2 t hK2.wf (by rw [hn2]; exact ht) (by rw [hn2, htb2]; exact hB)
+        (by rw [hn2, htb2]; exact hset') (by unfold Room; omega)) ?_
+      rintro ⟨s4, l'⟩ ⟨hW4, b1, b2, b3, b3', b4, fs, b5, b6⟩
+      rw [hn2] at b4 b6
+      refine ⟨hW4, by rw [b1, hn2], by rw [b2, htb2],
+        by simp only [List.length_cons]; omega, by omega, b4, fs, by rw [b5, hstk2], ?_⟩
+      have e : (a :: ts).filter (fun a => decide (AllIn M a)) =
+          ts.filter (fun a => decide (AllIn M a)) := by simp [hna]
+      rw [e]; exact b6
 
 /-- What `keep` leaves. -/
 structure KeepPost (nm : Option Nat → Sym) (s s' : store.Store) (M : Finset Pat) (cs : List Pat)
@@ -456,91 +899,44 @@ structure KeepPost (nm : Option Nat → Sym) (s s' : store.Store) (M : Finset Pa
   repr : Repr nm s'.nodes.val r.val (encList (nm none) (cs.filter fun a => decide (AllIn M a)))
   memo : AllOK nm s'.nodes.val (tbl s' .B) M
   tblA : tbl s' .A = tbl s .A
-  cost : s'.ticks.val + 5 * (pending nm s'.nodes.val (tbl s' .B) S).card ≤
-    s.ticks.val + 1 + 3 * cs.length + 5 * (pending nm s.nodes.val (tbl s .B) S).card
+  cost : s'.ticks.val + 13 * (pending nm s'.nodes.val (tbl s' .B) S).card ≤
+    s.ticks.val + 3 + 11 * cs.length + 13 * (pending nm s.nodes.val (tbl s .B) S).card
 
 /-- `keep` returns the constraints whose variables are all flagged, in their
-order. It spends one tick, three for each constraint, and five for each
-term of `S` that had no answer and gets one. -/
-theorem keep_spec (hnm : Function.Injective nm) (M S : Finset Pat) :
-    ∀ (cs : List Pat) (s : store.Store) (c : store.TermId), Inv s →
-      Repr nm s.nodes.val c.val (encList (nm none) cs) →
-      Marked nm s.nodes.val (tbl s .A) M → AllOK nm s.nodes.val (tbl s .B) M →
-      (∀ a ∈ cs, a.subs ⊆ S) →
-      Room s (1 + 3 * cs.length + 5 * (pending nm s.nodes.val (tbl s .B) S).card) →
-      cover.keep s c ⦃ r s' => KeepPost nm s s' M cs S r ⦄ := by
-  intro cs
-  induction cs with
-  | nil =>
-    intro s c hI hc hM hB hS hroom
-    unfold cover.keep
-    step with read_spec s c hI hc.lt (by unfold Room at hroom ⊢; omega) as ⟨nd, s1, hnd, hK⟩
-    have hfin : KeepPost nm s s1 M [] S c :=
-      ⟨hK.inv, Extends.of_eq hK.nodes, by rw [hK.nodes]; exact hc,
-        by rw [hK.nodes, hK.tbl]; exact hB, by rw [hK.tbl],
-        by have := hK.ticks; rw [hK.nodes, hK.tbl]; simp only [List.length_nil]; omega⟩
-    cases nd with
-    | App h t =>
-      obtain ⟨ta, tb, e', -, -⟩ := hc.of_app hnd
-      cases e'
-    | V0 => step*
-    | VL _ => step*
-    | VR _ => step*
-    | Sym _ => step*
-    | Nil => step*
-  | cons a ts ih =>
-    intro s c hI hc hM hB hS hroom
-    unfold cover.keep
-    have hroom' := hroom
-    unfold Room at hroom'
-    simp only [List.length_cons] at hroom'
-    step with read_spec s c hI hc.lt (by unfold Room; omega) as ⟨nd, s1, hnd, hK⟩
-    obtain ⟨h, t, hnode, hh, ht⟩ := Repr.app_inv (ta := a) (tb := encList (nm none) ts) hc
-    rw [hnode] at hnd
-    cases hnd
-    have ht1 := hK.ticks
-    have hn1 := hK.nodes
-    simp only
-    step with ih s1 t hK.inv (by rw [hn1]; exact ht) (by rw [hn1, hK.tbl]; exact hM)
-      (by rw [hn1, hK.tbl]; exact hB) (fun x hx => hS x (List.mem_cons_of_mem _ hx))
-      (by rw [hn1, hK.tbl]; unfold Room; omega) as ⟨r, s2, h2⟩
-    have hc2 := h2.cost
-    rw [hn1, hK.tbl] at hc2
-    have hx2 : Extends s s2 := (Extends.of_eq hn1).trans h2.ext
-    have hM2 : Marked nm s2.nodes.val (tbl s2 .A) M := by
-      rw [h2.tblA, hK.tbl]; exact hM.extends hx2
-    step with all_marked_spec hnm s2 h S h2.inv (hx2.repr hh) hM2 h2.memo
-      (hS a List.mem_cons_self) (by unfold Room; omega) as ⟨b, s3, h3⟩
-    have hc3 := h3.cost
-    have hx3 : Extends s s3 := hx2.trans (Extends.of_eq h3.nodes)
-    have hr3 : Repr nm s3.nodes.val r.val
-        (encList (nm none) (ts.filter fun a => decide (AllIn M a))) := by
-      rw [h3.nodes]; exact h2.repr
-    cases b with
-    | false =>
-      simp only [Bool.false_eq_true, ↓reduceIte, WP.spec_ok]
-      have hna : ¬ AllIn M a := by simpa using h3.res.symm
-      refine ⟨h3.inv, hx3, ?_, h3.memo, by rw [h3.tblA, h2.tblA, hK.tbl],
-        by simp only [List.length_cons]; omega⟩
-      have e : (a :: ts).filter (fun a => decide (AllIn M a)) =
-          ts.filter (fun a => decide (AllIn M a)) := by simp [hna]
-      rw [e]; exact hr3
-    | true =>
-      simp only [↓reduceIte]
-      have hya : AllIn M a := by simpa using h3.res.symm
-      step with alloc_spec s3 (.App h r) h3.inv ⟨(hx3.repr hh).lt, hr3.lt⟩ (by unfold Room; omega)
-        as ⟨o, s4, hI4, ht4, htb4, m4, hm4, hr4⟩
-      have hx4 : Extends s3 s4 := ⟨m4, hm4⟩
-      simp only [norm] at hr4
-      have hpm : pending nm s4.nodes.val (tbl s4 .B) S ⊆ pending nm s3.nodes.val (tbl s3 .B) S := by
-        rw [hm4, htb4]; exact pending_mono (fun k hk => hk)
-      have hcard := Finset.card_le_card hpm
-      refine ⟨hI4, hx3.trans hx4, ?_, by rw [htb4]; exact h3.memo.extends hx4,
-        by rw [htb4, h3.tblA, h2.tblA, hK.tbl], by simp only [List.length_cons]; omega⟩
-      have e : (a :: ts).filter (fun a => decide (AllIn M a)) =
-          a :: ts.filter (fun a => decide (AllIn M a)) := by simp [hya]
-      rw [e]
-      exact .app hr4 (hx4.repr (hx3.repr hh)) (hx4.repr hr3)
+order. It spends three ticks, eleven for each constraint, and thirteen for
+each term of `S` that had no answer and gets one. -/
+theorem keep_spec (hnm : Function.Injective nm) (M S : Finset Pat) (cs : List Pat)
+    (s : store.Store) (c : store.TermId) (hI : Inv s)
+    (hc : Repr nm s.nodes.val c.val (encList (nm none) cs))
+    (hM : Marked nm s.nodes.val (tbl s .A) M) (hB : AllOK nm s.nodes.val (tbl s .B) M)
+    (hS : ∀ a ∈ cs, a.subs ⊆ S)
+    (hroom : Room s (3 + 11 * cs.length + 13 * (pending nm s.nodes.val (tbl s .B) S).card)) :
+    cover.keep s c ⦃ r s' => KeepPost nm s s' M cs S r ⦄ := by
+  unfold cover.keep
+  have hroom' := hroom
+  unfold Room at hroom'
+  step with keep_flag_spec hnm M S cs s c hI hc hM hB hS (by unfold Room; omega)
+    as ⟨s1, hI1, hn1, hA1, hB1, _, hset1, hc1, hlow1⟩
+  step with keep_push_spec (nm := nm) M cs s1 c hI1.toWf (by rw [hn1]; exact hc) hB1
+    (by rw [hn1]; exact hset1) (by unfold Room; omega)
+    as ⟨s2, l, hW2, hn2, htb2, ht2, hlow2, hl, fs, hstk2, hF⟩
+  rw [hI1.empty, List.append_nil] at hstk2
+  have hlen : fs.length ≤ cs.length := by
+    have := hF.length_eq
+    simp only [List.length_reverse] at this
+    rw [this]; exact List.length_filter_le _ _
+  have hx2 : Extends s1 s2 := Extends.of_eq hn2 (by omega)
+  step with unstack_spec (nm := nm) fs (cs.filter fun a => decide (AllIn M a)).reverse [] s2 l
+    hW2 hstk2 (hF.imp fun _ _ h => hx2.repr h) (hx2.repr hl) (by unfold Room; omega)
+    as ⟨r, s3, h1, h2, h3, h4, h5⟩
+  have h2' := h2
+  obtain ⟨m3, hm3, -⟩ := h2'
+  have hpm : pending nm s3.nodes.val (tbl s3 .B) S ⊆ pending nm s1.nodes.val (tbl s1 .B) S := by
+    rw [hm3, h5, hn2, htb2]; exact pending_mono (fun k hk => hk)
+  have hcard := Finset.card_le_card hpm
+  have hx3 : Extends s1 s3 := hx2.trans h2
+  refine ⟨h1, (Extends.of_eq hn1 (by omega)).trans hx3, by simpa using h3,
+    by rw [h5, htb2]; exact hB1.extends hx3, by rw [h5, htb2, hA1], by omega⟩
 
 /-! ## The interface -/
 
@@ -615,7 +1011,7 @@ theorem cover_is_nil_spec (hnm : Function.Injective nm) (s : store.Store) (c : s
 /-- The ticks an interface may spend: linear in the distinct subterms of the
 side and of the constraints, and in the number of constraints. -/
 def ifaceCost (tp : Pat) (cs : List Pat) : Nat :=
-  6 + 4 * tp.subs.card + 3 * cs.length + 5 * (cs.toFinset.biUnion Term.subs).card
+  11 + 8 * tp.subs.card + 11 * cs.length + 13 * (cs.toFinset.biUnion Term.subs).card
 
 /-- `iface` returns the interface at the side `tp` of a span with
 constraints `cs`, as a boundary, within `ifaceCost` ticks. -/
@@ -637,6 +1033,7 @@ theorem iface_spec (hnm : Function.Injective nm) (s : store.Store) (p c : store.
   step with mark_spec hnm s1 p tp.subs hI1 (by rw [hn1]; exact hp) hM1 (by simp)
     (Finset.Subset.refl _) (by unfold Room; omega) as ⟨s2, h2⟩
   have hc2 := h2.cost
+  have hm2 := h2.mono
   have hn2 : s2.nodes.val = s.nodes.val := by rw [h2.nodes, hn1]
   step with clear_spec s2 .B h2.inv (by unfold Room; omega) as ⟨s3, hn3, ht3, hI3, hB3, ho3⟩
   have hn3' : s3.nodes.val = s.nodes.val := by rw [hn3, hn2]
@@ -650,7 +1047,7 @@ theorem iface_spec (hnm : Function.Injective nm) (s : store.Store) (p c : store.
     (fun a ha => Finset.subset_biUnion_of_mem Term.subs (List.mem_toFinset.2 ha))
     (by unfold Room; omega) as ⟨c2, s4, h4⟩
   have hc4 := h4.cost
-  have hx4 : Extends s s4 := (Extends.of_eq hn3').trans h4.ext
+  have hx4 : Extends s s4 := (Extends.of_eq hn3' (by omega)).trans h4.ext
   have hfilt : cs.filter (fun a => decide (AllIn tp.subs a)) =
       cs.filter (fun a => a.vars.all (· ∈ tp.vars)) := by
     apply List.filter_congr
@@ -662,7 +1059,7 @@ theorem iface_spec (hnm : Function.Injective nm) (s : store.Store) (p c : store.
   step with cover_is_var_spec s4 p h4.inv (hx4.repr hp) (by unfold Room; omega) as ⟨b, s5, hb, hK5⟩
   have ht5 := hK5.ticks
   refine WP.spec_bind (Pₘ := fun r => Inv r.1 ∧ r.1.nodes.val = s4.nodes.val ∧
-    r.1.ticks.val ≤ s5.ticks.val + 1 ∧
+    r.1.ticks.val ≤ s5.ticks.val + 1 ∧ s5.ticks.val ≤ r.1.ticks.val ∧
     (r.2 = true ↔ (∃ v, tp = Term.var v) ∧
       cs.filter (fun a => a.vars.all (· ∈ tp.vars)) = [])) ?_ ?_
   · cases b with
@@ -670,20 +1067,22 @@ theorem iface_spec (hnm : Function.Injective nm) (s : store.Store) (p c : store.
       simp only [↓reduceIte]
       step with cover_is_nil_spec hnm s5 c2 hK5.inv (by rw [hK5.nodes]; exact hrc)
         (by unfold Room; omega) as ⟨b1, s7, hb1, hK7⟩
-      refine ⟨hK7.inv, by rw [hK7.nodes, hK5.nodes], by have := hK7.ticks; omega, ?_⟩
+      refine ⟨hK7.inv, by rw [hK7.nodes, hK5.nodes], by have := hK7.ticks; omega,
+        by have := hK7.ticks; omega, ?_⟩
       exact ⟨fun h => ⟨hb.1 rfl, hb1.1 h⟩, fun h => hb1.2 h.2⟩
     | false =>
       simp only [Bool.false_eq_true, ↓reduceIte, WP.spec_ok]
-      refine ⟨hK5.inv, hK5.nodes, by omega, ?_⟩
+      refine ⟨hK5.inv, hK5.nodes, by omega, by omega, ?_⟩
       constructor
       · intro h; cases h
       · rintro ⟨hv, -⟩; exact absurd (hb.2 hv) (by simp)
   · rintro ⟨s6, tr⟩ hmid
     have hmid : Inv s6 ∧ s6.nodes.val = s4.nodes.val ∧ s6.ticks.val ≤ s5.ticks.val + 1 ∧
+        s5.ticks.val ≤ s6.ticks.val ∧
         (tr = true ↔ (∃ v, tp = Term.var v) ∧
           cs.filter (fun a => a.vars.all (· ∈ tp.vars)) = []) := hmid
-    obtain ⟨hI6, hn6, ht6, htr⟩ := hmid
-    have hx6 : Extends s s6 := hx4.trans (Extends.of_eq hn6)
+    obtain ⟨hI6, hn6, ht6, hlow6, htr⟩ := hmid
+    have hx6 : Extends s s6 := hx4.trans (Extends.of_eq hn6 (by omega))
     have hticks : s6.ticks.val ≤ s.ticks.val + ifaceCost tp cs := by unfold ifaceCost; omega
     cases tr with
     | true =>
@@ -724,5 +1123,4 @@ theorem left_bound_spec (hnm : Function.Injective nm) (s : store.Store) (x : spa
       s'.ticks.val ≤ s.ticks.val + ifaceCost sx.l sx.c ⦄ := by
   unfold cover.left_bound
   exact iface_spec hnm s x.l x.c hI hx.l hx.c hroom
-
 end RwLogVerified
