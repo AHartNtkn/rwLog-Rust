@@ -13,3 +13,8 @@ path = "src/lib.rs"
 # kept on so that the compiled code and the model agree on every other run too.
 [profile.release]
 overflow-checks = true
+
+# The tests enumerate terms and walk terms four hundred thousand deep, so
+# they are built with optimisation: the whole suite must end in ten seconds.
+[profile.test]
+opt-level = 2
