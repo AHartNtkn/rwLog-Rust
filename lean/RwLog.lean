@@ -113,3 +113,6 @@ import RwLog.Rungs.R003.Proofs.Separation.Tables
 import RwLog.Rungs.R003.Proofs.Separation.Stages
 import RwLog.Rungs.R003.Proofs.Separation.Round
 import RwLog.Rungs.R003.Proofs.Separation.Run
+import RwLog.Rungs.R004.Pruned
+import RwLog.Rungs.R004.Engine
+import RwLog.Rungs.R004.Spec
