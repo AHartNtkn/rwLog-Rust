@@ -359,8 +359,8 @@ def liveO (T : Theory) : Option Span → List Span
 
 section Kernel
 
-variable (hS : Obligation.simplify_exact) (hT : ∀ ρ ∈ T, ρ.WellFormed)
-include hS hT
+variable (hT : ∀ ρ ∈ T, ρ.WellFormed)
+include hT
 
 /-- Simplifying keeps a span's meaning up to the theory, and keeps every live
 span. -/
@@ -376,24 +376,24 @@ theorem liveO_spec {o : Option Span} {D : GRel} (hD : Span.denO o = D) :
     subst hD
     refine ⟨fun z hz => ?_, fun hl => ?_⟩
     · have hz : T.simplify u = some z := by simpa [liveO, live] using hz
-      have he := (hS T u hT).2 z hz
+      have he := (Theory.simplify_exact hT u).2 z hz
       have hd : ∀ M, T.Model M → (z.den).at M = (Span.denO (some u)).at M := fun M hM => by
         show (z.den).at M = (u.den).at M
         rw [← Span.denAt_eq, ← Span.denAt_eq, he M hM]
       exact ⟨fun M hM => (hd M hM).ge, fun M hM => (hd M hM).le⟩
     · cases hs : T.simplify u with
-      | none => exact absurd ((hS T u hT).1 hs) (not_dead_iff.2 hl)
+      | none => exact absurd ((Theory.simplify_exact hT u).1 hs) (not_dead_iff.2 hl)
       | some z => exact ⟨z, by simp [liveO, live, hs]⟩
 
 theorem composeLive_spec (x y : Span) :
     (∀ z ∈ composeLive T x y, LEq T z.den ((x.den).comp y.den)) ∧
       (Live T ((x.den).comp y.den) → ∃ z, z ∈ composeLive T x y) :=
-  liveO_spec hS hT (o := x.compose y) (compose_den x y)
+  liveO_spec hT (o := x.compose y) (compose_den x y)
 
 theorem meetLive_spec (x y : Span) :
     (∀ z ∈ meetLive T x y, LEq T z.den ((x.den).meet y.den)) ∧
       (Live T ((x.den).meet y.den) → ∃ z, z ∈ meetLive T x y) :=
-  liveO_spec hS hT (o := x.meet y) (meet_den x y)
+  liveO_spec hT (o := x.meet y) (meet_den x y)
 
 /-- The composite `lb ; s ; rb` before simplification. -/
 def rawO (lb : Option Span) (s : Span) (rb : Option Span) : Option Span :=
@@ -403,12 +403,12 @@ def rawO (lb : Option Span) (s : Span) (rb : Option Span) : Option Span :=
       | none => some s'
       | some r => s'.compose r
 
-omit hS hT in
+omit hT in
 theorem spanAnswer_eq (lb : Option Span) (s : Span) (rb : Option Span) :
     spanAnswer T lb s rb = liveO T (rawO lb s rb) := by
   cases lb <;> cases rb <;> rfl
 
-omit hS hT in
+omit hT in
 theorem rawO_den (lb : Option Span) (s : Span) (rb : Option Span) :
     Span.denO (rawO lb s rb) = W lb s.den rb := by
   cases lb with
@@ -437,10 +437,10 @@ theorem spanAnswer_spec (lb : Option Span) (s : Span) (rb : Option Span) :
     (∀ z ∈ spanAnswer T lb s rb, LEq T z.den (W lb s.den rb)) ∧
       (Live T (W lb s.den rb) → ∃ z, z ∈ spanAnswer T lb s rb) := by
   rw [spanAnswer_eq]
-  exact liveO_spec hS hT (rawO_den lb s rb)
+  exact liveO_spec hT (rawO_den lb s rb)
 
 theorem live_leq {u z : Span} (hz : z ∈ live T u) : LEq T z.den u.den :=
-  (liveO_spec hS hT (o := some u) rfl).1 z hz
+  (liveO_spec hT (o := some u) rfl).1 z hz
 
 end Kernel
 
@@ -547,8 +547,8 @@ theorem mem_orBranches_self {e : Rel} (h : ∀ a b, e ≠ .or a b) : e ∈ orBra
 
 section Lift
 
-variable (hS : Obligation.simplify_exact) (hT : ∀ ρ ∈ P.theory, ρ.WellFormed)
-include hS hT
+variable (hT : ∀ ρ ∈ P.theory, ρ.WellFormed)
+include hT
 
 /-- Every live answer the machine derives for a goal with sub-identity
 boundaries is, up to the theory, the boundaries composed with one span the
@@ -565,11 +565,11 @@ theorem toDerives {g : Goal} {y : Span} (h : GDerives P g y) :
       obtain ⟨s, hs, hy⟩ := hy
       obtain ⟨s', hd, he⟩ := roundSpans_derives hs
       obtain ⟨s₀, hd₀, he₀⟩ := derives_rel hd
-      exact ⟨s₀, hd₀, (live_leq hS hT hy).trans (LEq.of_eq (he.trans he₀))⟩
+      exact ⟨s₀, hd₀, (live_leq hT hy).trans (LEq.of_eq (he.trans he₀))⟩
     · simp at hy
   | @span lb rb s y hy =>
     intro _ _ _
-    exact ⟨s, .span s, (spanAnswer_spec hS hT lb s rb).1 y hy⟩
+    exact ⟨s, .span s, (spanAnswer_spec hT lb s rb).1 y hy⟩
   | @or g a b h' y hg hh _ ih =>
     intro hL hR hl
     obtain ⟨c, hc, rfl⟩ := List.mem_map.1 hh
@@ -588,7 +588,7 @@ theorem toDerives {g : Goal} {y : Span} (h : GDerives P g y) :
     exact he.inv
   | @seq g a b x w z hg _ _ hz ihx ihw =>
     intro hL hR hl
-    have hzc := (composeLive_spec hS hT x w).1 z hz
+    have hzc := (composeLive_spec hT x w).1 z hz
     obtain ⟨lx, lw⟩ := live_comp (hzc.2.live hl)
     obtain ⟨sa, hda, hea⟩ := ihx hL pid_id lx
     obtain ⟨sb, hdb, heb⟩ := ihw pid_id hR lw
@@ -599,7 +599,7 @@ theorem toDerives {g : Goal} {y : Span} (h : GDerives P g y) :
     exact ⟨s₀, by rw [hg]; exact .seq hda hdb hc, by rw [hs₀]; exact hzW⟩
   | @seqPushL g a b x w z hg _ _ hz ihx ihw =>
     intro hL hR hl
-    have hzc := (composeLive_spec hS hT x w).1 z hz
+    have hzc := (composeLive_spec hT x w).1 z hz
     obtain ⟨lx, lw⟩ := live_comp (hzc.2.live hl)
     obtain ⟨sa, hda, hea⟩ := ihx hL pid_id lx
     obtain ⟨sb, hdb, heb⟩ := ihw (pid_bound rfl) hR lw
@@ -615,7 +615,7 @@ theorem toDerives {g : Goal} {y : Span} (h : GDerives P g y) :
     exact ⟨s₀, by rw [hg]; exact .seq hda hdb hc, by rw [hs₀]; exact hzW⟩
   | @seqPushR g a b x w z hg _ _ hz ihw ihx =>
     intro hL hR hl
-    have hzc := (composeLive_spec hS hT x w).1 z hz
+    have hzc := (composeLive_spec hT x w).1 z hz
     obtain ⟨lx, lw⟩ := live_comp (hzc.2.live hl)
     obtain ⟨sb, hdb, heb⟩ := ihw pid_id hR lw
     obtain ⟨sa, hda, hea⟩ := ihx hL (pid_bound rfl) lx
@@ -631,7 +631,7 @@ theorem toDerives {g : Goal} {y : Span} (h : GDerives P g y) :
     exact ⟨s₀, by rw [hg]; exact .seq hda hdb hc, by rw [hs₀]; exact hzW⟩
   | @and g a b x w z hg _ _ hz ihx ihw =>
     intro hL hR hl
-    have hzc := (meetLive_spec hS hT x w).1 z hz
+    have hzc := (meetLive_spec hT x w).1 z hz
     obtain ⟨lx, lw⟩ := live_meet (hzc.2.live hl)
     obtain ⟨sa, hda, hea⟩ := ihx hL hR lx
     obtain ⟨sb, hdb, heb⟩ := ihw hL hR lw
@@ -642,7 +642,7 @@ theorem toDerives {g : Goal} {y : Span} (h : GDerives P g y) :
     exact ⟨s₀, by rw [hg]; exact .and hda hdb hc, by rw [hs₀]; exact hzW⟩
   | @andPushL g a b x w z hg _ _ hz ihx ihw =>
     intro hL hR hl
-    have hzc := (meetLive_spec hS hT x w).1 z hz
+    have hzc := (meetLive_spec hT x w).1 z hz
     obtain ⟨lx, lw⟩ := live_meet (hzc.2.live hl)
     obtain ⟨sa, hda, hea⟩ := ihx hL hR lx
     obtain ⟨sb, hdb, heb⟩ := ihw (pid_bound rfl) (pid_bound rfl) lw
@@ -656,7 +656,7 @@ theorem toDerives {g : Goal} {y : Span} (h : GDerives P g y) :
     exact ⟨s₀, by rw [hg]; exact .and hda hdb hc, by rw [hs₀]; exact hzW⟩
   | @andPushR g a b x w z hg _ _ hz ihw ihx =>
     intro hL hR hl
-    have hzc := (meetLive_spec hS hT x w).1 z hz
+    have hzc := (meetLive_spec hT x w).1 z hz
     obtain ⟨lx, lw⟩ := live_meet (hzc.2.live hl)
     obtain ⟨sb, hdb, heb⟩ := ihw hL hR lw
     obtain ⟨sa, hda, hea⟩ := ihx (pid_bound rfl) (pid_bound rfl) lx
@@ -690,8 +690,8 @@ theorem toGDerives {e : Rel} {s₀ : Span} (h : Derives P e s₀) :
   induction h with
   | span s =>
     intro lb rb hl
-    obtain ⟨y, hy⟩ := (spanAnswer_spec hS hT lb s rb).2 hl
-    have he := (spanAnswer_spec hS hT lb s rb).1 y hy
+    obtain ⟨y, hy⟩ := (spanAnswer_spec hT lb s rb).2 hl
+    have he := (spanAnswer_spec hT lb s rb).1 y hy
     exact ⟨.span s, by simp [orBranches], y, .span hy, he.1, fun _ _ => he.2⟩
   | orl _ ih =>
     intro lb rb hl
@@ -711,8 +711,8 @@ theorem toGDerives {e : Rel} {s₀ : Span} (h : Derives P e s₀) :
     obtain ⟨c₁, hc₁, x, hx, hx₁, hx₂⟩ := ih₁ lb none l₁
     obtain ⟨c₂, hc₂, w, hw, hw₁, hw₂⟩ := ih₂ none rb l₂
     have hcov : LCov P.theory ((x.den).comp w.den) _ := hx₁.comp hw₁
-    obtain ⟨z, hz⟩ := (composeLive_spec hS hT x w).2 (hcov.live hl)
-    have hze := (composeLive_spec hS hT x w).1 z hz
+    obtain ⟨z, hz⟩ := (composeLive_spec hT x w).2 (hcov.live hl)
+    have hze := (composeLive_spec hT x w).1 z hz
     refine ⟨.seq a b, by simp [orBranches], z,
       GDerives.seq (g := ⟨lb, .seq a b, rb⟩) rfl (lift_leaf hc₁ hx) (lift_leaf hc₂ hw) hz,
       hze.1.trans hcov, fun hL hR => ((hx₂ hL pid_id).comp (hw₂ pid_id hR)).trans hze.2⟩
@@ -724,8 +724,8 @@ theorem toGDerives {e : Rel} {s₀ : Span} (h : Derives P e s₀) :
     obtain ⟨c₂, hc₂, w, hw, hw₁, hw₂⟩ := ih₂ lb rb l₂
     have hcov : LCov P.theory ((x.den).meet w.den) (W lb ((s₁.den).meet s₂.den) rb) :=
       (hx₁.meet hw₁).trans (meet_wrap_le _ _ _ _)
-    obtain ⟨z, hz⟩ := (meetLive_spec hS hT x w).2 (hcov.live hl)
-    have hze := (meetLive_spec hS hT x w).1 z hz
+    obtain ⟨z, hz⟩ := (meetLive_spec hT x w).2 (hcov.live hl)
+    have hze := (meetLive_spec hT x w).1 z hz
     refine ⟨.and a b, by simp [orBranches], z,
       GDerives.and (g := ⟨lb, .and a b, rb⟩) rfl (lift_leaf hc₁ hx) (lift_leaf hc₂ hw) hz,
       hze.1.trans hcov, fun hL hR => ?_⟩
@@ -753,31 +753,31 @@ open Lifting in
 /-- Boundary lifting, from `Kernel.simplify_exact`: machine derivations are
 derivations up to the theory (`Lifting.toDerives`), and derivations are
 machine derivations up to the theory (`Lifting.toGDerives`). -/
-theorem boundary_lifting (hS : Obligation.simplify_exact) : Obligation.boundary_lifting := by
+theorem boundary_lifting : Obligation.boundary_lifting := by
   intro P g hT hdiag
   obtain ⟨lb, e, rb⟩ := g
   have hL : PId (bden lb) := pid_bden fun b hb => hdiag b (by simp [hb])
   have hR : PId (bden rb) := pid_bden fun b hb => hdiag b (by simp [hb])
   refine ⟨fun y hy hnd => ?_, fun y₀ hy₀ z hz hnd => ?_⟩
   · have hl := not_dead_iff.1 hnd
-    obtain ⟨s₀, hd, he⟩ := toDerives hS hT hy hL hR hl
+    obtain ⟨s₀, hd, he⟩ := toDerives hT hy hL hR hl
     have hls : Live P.theory (W none s₀.den none) := by
       rw [W_none]; exact live_wrap_mid (he.2.live hl)
-    obtain ⟨c, hc, y₀, hy₀, h₁, h₂⟩ := toGDerives hS hT hd none none hls
+    obtain ⟨c, hc, y₀, hy₀, h₁, h₂⟩ := toGDerives hT hd none none hls
     rw [W_none] at h₁ h₂
     have hW : LEq P.theory (W lb y₀.den rb) y.den :=
       (LEq.W ⟨h₁, h₂ pid_id pid_id⟩ lb rb).trans he.symm
-    obtain ⟨z, hz⟩ := (spanAnswer_spec hS hT lb y₀ rb).2 (hW.1.live hl)
-    have hzW := (spanAnswer_spec hS hT lb y₀ rb).1 z hz
+    obtain ⟨z, hz⟩ := (spanAnswer_spec hT lb y₀ rb).2 (hW.1.live hl)
+    have hzW := (spanAnswer_spec hT lb y₀ rb).1 z hz
     exact ⟨y₀, lift_leaf hc hy₀, z, hz, coversLive_iff.2 (hzW.1.trans hW.1),
       coversLive_iff.2 (hW.2.trans hzW.2)⟩
   · have hl := not_dead_iff.1 hnd
-    have hzW := (spanAnswer_spec hS hT lb y₀ rb).1 z hz
+    have hzW := (spanAnswer_spec hT lb y₀ rb).1 z hz
     have hlW := hzW.2.live hl
-    obtain ⟨s₀, hd, he⟩ := toDerives hS hT hy₀ pid_id pid_id (live_wrap_mid hlW)
+    obtain ⟨s₀, hd, he⟩ := toDerives hT hy₀ pid_id pid_id (live_wrap_mid hlW)
     rw [W_none] at he
     have hWs : LEq P.theory (W lb s₀.den rb) (W lb y₀.den rb) := LEq.W he.symm lb rb
-    obtain ⟨c, hc, y, hy, h₁, -⟩ := toGDerives hS hT hd lb rb (hWs.1.live hlW)
+    obtain ⟨c, hc, y, hy, h₁, -⟩ := toGDerives hT hd lb rb (hWs.1.live hlW)
     exact ⟨y, lift_leaf hc hy, coversLive_iff.2 (h₁.trans (hWs.1.trans hzW.2))⟩
 
 end R001

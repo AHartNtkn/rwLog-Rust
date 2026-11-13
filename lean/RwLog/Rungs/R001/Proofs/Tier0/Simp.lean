@@ -10,7 +10,6 @@
   (`simplify_pairs`).
 -/
 import RwLog.Rungs.R001.Proofs.Kernel
-import RwLog.Rungs.R001.Proofs.Checker
 
 namespace RwLog
 

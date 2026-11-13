@@ -15,12 +15,6 @@ namespace R001
 
 namespace Tier0
 
-theorem covers?_refl (a : Span) : a.covers? a = true := covers?_complete (Span.Covers.refl a)
-
-theorem covers?_trans {a b c : Span} (h₁ : a.covers? b = true) (h₂ : b.covers? c = true) :
-    a.covers? c = true :=
-  covers?_complete ((covers?_sound h₁).trans (covers?_sound h₂))
-
 theorem countP_lt {α : Type} {p q : α → Bool} :
     ∀ {l : List α}, (∀ z ∈ l, p z = true → q z = true) → (∃ z ∈ l, q z = true ∧ p z = false) →
       l.countP p < l.countP q

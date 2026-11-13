@@ -15,7 +15,7 @@ is a model of the smaller theory, since `T` contains its rules.
 Termination is not monotone in the theory (the counterexample is in
 `Spec.lean`), so there is no termination half.
 -/
-import RwLog.Rungs.R001.Spec
+import RwLog.Rungs.R001.Proofs.Tier0
 
 namespace RwLog
 
@@ -39,12 +39,11 @@ theorem derives_theory {P : Program} {T : Theory} {e : Rel} {s : Span}
   | call _ ih => exact .call ih
 
 /-- P2.3: adding rules only removes answers. -/
-theorem theory_mono_answers (hgen : Obligation.derivation_general)
-    (hcomp : Obligation.complete) : Obligation.theory_mono_answers := by
+theorem theory_mono_answers : Obligation.theory_mono_answers := by
   intro P T q hwf hT hsub a ha
   have hwf' : Program.WellFormed { P with theory := T } q := ⟨hwf.1, hwf.2.1, hT⟩
-  obtain ⟨s, hs, hrefine⟩ := hgen _ q hwf' a ha
-  rcases hcomp P q hwf s (derives_theory hs) with hdead | ⟨n, b, hb, hcov⟩
+  obtain ⟨s, hs, hrefine⟩ := derivation_general _ q hwf' a ha
+  rcases complete P q hwf s (derives_theory hs) with hdead | ⟨n, b, hb, hcov⟩
   · left
     intro M hM
     rw [hrefine M hM]

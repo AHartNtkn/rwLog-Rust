@@ -58,22 +58,10 @@ an exact check on the whole state, not a counter. When every table stops
 changing, `S` contains all of them, so the machine never stalls.
 -/
 import RwLog.Kernel.Refute
+import RwLog.Kernel.Iface
 import RwLog.Rungs.R000.Engine
 
 namespace RwLog
-
-namespace Span
-
-/-- The constraints of `s` that only mention variables of `p`. -/
-def storeOn (s : Span) (p : Pat) : Store := s.c.filter fun a => a.vars.all (· ∈ p.vars)
-
-/-- The right interface `r {c|r} -> r`: `s ; s.rightIface = s`. -/
-def rightIface (s : Span) : Span := ⟨s.r, s.r, s.storeOn s.r⟩
-
-/-- The left interface `l {c|l} -> l`: `s.leftIface ; s = s`. -/
-def leftIface (s : Span) : Span := ⟨s.l, s.l, s.storeOn s.l⟩
-
-end Span
 
 namespace R001
 

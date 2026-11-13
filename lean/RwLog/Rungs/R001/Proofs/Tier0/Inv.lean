@@ -104,25 +104,25 @@ theorem answersOf_unref {ts : Tables} (hI : UInv P ts) {d : Goal} {a : Span} (h 
 /-! ## Candidates are unrefuted -/
 
 section
-variable (hSS : Obligation.simplify_stable) (hwf : ∀ ρ ∈ P.theory, ρ.WellFormed)
-include hSS hwf
+variable (hwf : ∀ ρ ∈ P.theory, ρ.WellFormed)
+include hwf
 
 theorem live_unref {z c : Span} (h : c ∈ live P.theory z) : P.theory.refutes? c.c = false := by
   simp only [live, Option.mem_toList] at h
-  exact (hSS P.theory z c hwf h).1
+  exact (Theory.simplify_stable hwf h).1
 
 theorem composeLive_unref {x y c : Span} (h : c ∈ composeLive P.theory x y) :
     P.theory.refutes? c.c = false := by
   unfold composeLive at h
   split at h
-  · exact live_unref hSS hwf h
+  · exact live_unref hwf h
   · simp at h
 
 theorem meetLive_unref {x y c : Span} (h : c ∈ meetLive P.theory x y) :
     P.theory.refutes? c.c = false := by
   unfold meetLive at h
   split at h
-  · exact live_unref hSS hwf h
+  · exact live_unref hwf h
   · simp at h
 
 theorem cands_unref {dd : Nat} {ts : Tables} (hI : UInv P ts) {g : Goal} {c : Span}
@@ -132,7 +132,7 @@ theorem cands_unref {dd : Nat} {ts : Tables} (hI : UInv P ts) {g : Goal} {c : Sp
   · unfold unfoldAnswers at hc
     split at hc
     · obtain ⟨z, -, hz⟩ := List.mem_flatMap.1 hc
-      exact live_unref hSS hwf hz
+      exact live_unref hwf hz
     · simp at hc
   obtain ⟨lb, e, rb⟩ := g
   cases e with
@@ -140,7 +140,7 @@ theorem cands_unref {dd : Nat} {ts : Tables} (hI : UInv P ts) {g : Goal} {c : Sp
   | span s =>
     simp only [produce.produceStrategies] at hc
     obtain ⟨w, hw, -⟩ := spanAnswer_den hc
-    exact live_unref hSS hwf hw
+    exact live_unref hwf hw
   | or a b =>
     simp only [produce.produceStrategies, List.mem_flatMap] at hc
     obtain ⟨d, -, hc⟩ := hc
@@ -156,11 +156,11 @@ theorem cands_unref {dd : Nat} {ts : Tables} (hI : UInv P ts) {g : Goal} {c : Sp
   | seq a b =>
     simp only [produce.produceStrategies, List.mem_append, List.mem_flatMap] at hc
     rcases hc with (⟨x, -, y, -, hc⟩ | ⟨p, -, y, -, hc⟩) | ⟨p, -, x, -, hc⟩ <;>
-      exact composeLive_unref hSS hwf hc
+      exact composeLive_unref hwf hc
   | and a b =>
     simp only [produce.produceStrategies, List.mem_append, List.mem_flatMap] at hc
     rcases hc with (⟨x, -, y, -, hc⟩ | ⟨p, -, y, -, hc⟩) | ⟨p, -, x, -, hc⟩ <;>
-      exact meetLive_unref hSS hwf hc
+      exact meetLive_unref hwf hc
 
 end
 

@@ -107,8 +107,6 @@ theorem meas_lt {w₁ w : Nat} (e e' : Rel) (h : w₁ < w) (he' : isOr e' = 0) :
   have := isOr_le e; omega
 
 section
-variable (hSE : Obligation.simplify_exact)
-include hSE
 
 /-- A table that completes in a round covers every derivation of its goal. -/
 theorem compl_dc {st : State} (hwf : ∀ ρ ∈ st.P.theory, ρ.WellFormed) (hI : TInv st.P st.tables) :
@@ -152,11 +150,11 @@ theorem compl_dc {st : State} (hwf : ∀ ρ ∈ st.P.theory, ρ.WellFormed) (hI 
   simp only [strategies, List.mem_append] at hdeps
   rcases hdeps with hdeps | hdeps
   · by_cases hf : unfoldFinal st.P st.depth ⟨lb, e, rb⟩ = true
-    · exact dc_unfold hSE hwf hf hw.derives
+    · exact dc_unfold hwf hf hw.derives
     · simp [hf] at hdeps
   cases e with
   | zero => cases hw
-  | span s₀ => cases hw with | span => exact dc_span hSE hwf lb rb _
+  | span s₀ => cases hw with | span => exact dc_span hwf lb rb _
   | or a b =>
     simp only [strategies.tableStrategies, List.mem_singleton] at hdeps
     subst hdeps
@@ -187,20 +185,20 @@ theorem compl_dc {st : State} (hwf : ∀ ρ ∈ st.P.theory, ρ.WellFormed) (hI 
       have hR : GoodG ⟨none, b, rb⟩ := ⟨trivial, hgG.2⟩
       simp only [strategies.tableStrategies, List.mem_append, List.mem_singleton] at hdeps
       rcases hdeps with (rfl | hp) | hp
-      · exact dc_seq_join hSE hwf
+      · exact dc_seq_join hwf
           (hD _ (by simp [seqLeft]) hL _ _ hw₁ (meas_lt _ _ (by omega) rfl))
           (hD _ (by simp [seqRight]) hR _ _ hw₂ (meas_lt _ _ (by omega) rfl))
       · by_cases hdL : doneOf st.tables ⟨lb, a, none⟩ = true
         · simp only [seqLeft, hdL, ite_true, List.mem_singleton] at hp
           subst hp
-          exact dc_seq_pushL hSE hwf hdL (dc_done hI hL hdL hw₁.derives) fun x hx =>
+          exact dc_seq_pushL hwf hdL (dc_done hI hL hdL hw₁.derives) fun x hx =>
             hD _ (List.mem_cons_of_mem _ (List.mem_map_of_mem hx)) (goodG_pushL hgG b x) _ _ hw₂
               (meas_lt _ _ (by omega) rfl)
         · simp [seqLeft, hdL] at hp
       · by_cases hdR : doneOf st.tables ⟨none, b, rb⟩ = true
         · simp only [seqRight, hdR, ite_true, List.mem_singleton] at hp
           subst hp
-          exact dc_seq_pushR hSE hwf hdR (dc_done hI hR hdR hw₂.derives) fun y hy =>
+          exact dc_seq_pushR hwf hdR (dc_done hI hR hdR hw₂.derives) fun y hy =>
             hD _ (List.mem_cons_of_mem _ (List.mem_map_of_mem hy)) (goodG_pushR hgG a y) _ _ hw₁
               (meas_lt _ _ (by omega) rfl)
         · simp [seqRight, hdR] at hp
@@ -210,20 +208,20 @@ theorem compl_dc {st : State} (hwf : ∀ ρ ∈ st.P.theory, ρ.WellFormed) (hI 
       rw [meet_some hc]
       simp only [strategies.tableStrategies, List.mem_append, List.mem_singleton] at hdeps
       rcases hdeps with (rfl | hp) | hp
-      · exact dc_and_join hSE hwf hgG
+      · exact dc_and_join hwf hgG
           (hD ⟨lb, a, rb⟩ (by simp [andLeft]) hgG _ _ hw₁ (meas_lt _ _ (by omega) rfl))
           (hD ⟨lb, b, rb⟩ (by simp [andRight]) hgG _ _ hw₂ (meas_lt _ _ (by omega) rfl))
       · by_cases hdL : doneOf st.tables ⟨lb, a, rb⟩ = true
         · simp only [andLeft, hdL, ite_true, List.mem_singleton] at hp
           subst hp
-          exact dc_and_pushL hSE hwf hgG hdL (dc_done hI (d := ⟨lb, a, rb⟩) hgG hdL hw₁.derives) fun x hx =>
+          exact dc_and_pushL hwf hgG hdL (dc_done hI (d := ⟨lb, a, rb⟩) hgG hdL hw₁.derives) fun x hx =>
             hD _ (List.mem_cons_of_mem _ (List.mem_map_of_mem hx)) (goodG_andPush b x) _ _ hw₂
               (meas_lt _ _ (by omega) rfl)
         · simp [andLeft, hdL] at hp
       · by_cases hdR : doneOf st.tables ⟨lb, b, rb⟩ = true
         · simp only [andRight, hdR, ite_true, List.mem_singleton] at hp
           subst hp
-          exact dc_and_pushR hSE hwf hgG hdR (dc_done hI (d := ⟨lb, b, rb⟩) hgG hdR hw₂.derives) fun y hy =>
+          exact dc_and_pushR hwf hgG hdR (dc_done hI (d := ⟨lb, b, rb⟩) hgG hdR hw₂.derives) fun y hy =>
             hD _ (List.mem_cons_of_mem _ (List.mem_map_of_mem hy)) (goodG_andPush a y) _ _ hw₁
               (meas_lt _ _ (by omega) rfl)
         · simp [andRight, hdR] at hp
@@ -259,7 +257,7 @@ theorem fresh_cand (st : State) {t : Table} {a : Span} (ha : a ∈ fresh t.answe
   · rwa [outOf_not_done hdn] at ha'
   · rw [outOf_done hdn] at ha'; simp at ha'
 
-theorem uinv_round (hSS : Obligation.simplify_stable) {st : State}
+theorem uinv_round {st : State}
     (hwf : ∀ ρ ∈ st.P.theory, ρ.WellFormed) (hU : UInv st.P st.tables) :
     UInv st.P (round st).1.tables := by
   constructor
@@ -272,12 +270,10 @@ theorem uinv_round (hSS : Obligation.simplify_stable) {st : State}
     · rw [hans, List.mem_append] at ha
       rcases ha with ha | ha
       · exact hU.unref t ht a ha
-      · exact cands_unref hSS hwf hU (fresh_cand st ha)
+      · exact cands_unref hwf hU (fresh_cand st ha)
     · rw [hans] at ha; simp at ha
 
 section
-variable (hSE : Obligation.simplify_exact)
-include hSE
 
 theorem tinv_round {st : State} (hwf : ∀ ρ ∈ st.P.theory, ρ.WellFormed) (hI : TInv st.P st.tables) :
     TInv st.P (round st).1.tables := by
@@ -296,7 +292,7 @@ theorem tinv_round {st : State} (hwf : ∀ ρ ∈ st.P.theory, ρ.WellFormed) (h
       · right
         intro s hs
         obtain ⟨w, hw⟩ := dw_of_derives hs
-        exact compl_dc hSE hwf hI _ i (List.contains_iff_mem.1 hd) hi w s hw le_rfl
+        exact compl_dc hwf hI _ i (List.contains_iff_mem.1 hd) hi w s hw le_rfl
     · obtain ⟨t, ht, -, d, hd, rfl⟩ := mem_reqs (mem_newGoals hg)
       exact .inr ⟨rfl, rfl, t, ht, d, hd, rfl⟩
   constructor
@@ -310,7 +306,7 @@ theorem tinv_round {st : State} (hwf : ∀ ρ ∈ st.P.theory, ρ.WellFormed) (h
       rw [hans, List.mem_append] at ha
       rcases ha with ha | ha
       · exact hI.ref t ht a ha
-      · exact cands_ref hSE hwf (ansRef_of hI) (hI.good t ht) (fresh_cand st ha)
+      · exact cands_ref hwf (ansRef_of hI) (hI.good t ht) (fresh_cand st ha)
     · rw [hans] at ha; simp at ha
   · intro t' ht'
     rcases key t' ht' with ⟨t, ht, -, hans, -⟩ | ⟨hans, -⟩

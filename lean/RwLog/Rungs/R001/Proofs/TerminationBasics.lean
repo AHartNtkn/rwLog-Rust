@@ -105,12 +105,6 @@ theorem goalTerminates_iff (P : Program) (g : Goal) :
 
 /-! ## Table keys form an equivalence -/
 
-theorem covers?_refl (a : Span) : a.covers? a = true := (covers_iff a a).2 (Span.Covers.refl a)
-
-theorem covers?_trans {a b c : Span} (h₁ : a.covers? b = true) (h₂ : b.covers? c = true) :
-    a.covers? c = true :=
-  (covers_iff a c).2 (((covers_iff a b).1 h₁).trans ((covers_iff b c).1 h₂))
-
 theorem boundEq_refl : ∀ a : Option Span, boundEq a a = true
   | none => rfl
   | some a => by simp [boundEq, covers?_refl]
@@ -426,8 +420,8 @@ theorem doneOf_certTables {C : List CertEntry} {d : Goal}
   unfold doneOf; rw [hf]
 
 section
-variable {P : Program} (hSE : Obligation.simplify_exact) (hwf : ∀ ρ ∈ P.theory, ρ.WellFormed)
-include hSE hwf
+variable {P : Program} (hwf : ∀ ρ ∈ P.theory, ρ.WellFormed)
+include hwf
 
 open Tier0 in
 /-- Every cover of a valid certificate covers, up to the theory, every
@@ -456,7 +450,7 @@ theorem cert_covers_complete {C : List CertEntry} {D : Nat} {root : Goal}
       IH _ (by simp only at hle; omega) e'' he'' w'' s'' h'' le_rfl
   clear IH hm hclos
   rcases hstrat with hf | ⟨st, hst, hdeps⟩
-  · exact dc_unfold hSE hwf hf hw.derives
+  · exact dc_unfold hwf hf hw.derives
   have hfound : ∀ d ∈ st, ∃ e' ∈ C, e'.goal.same d.1.norm.2 = true :=
     fun d hd => let ⟨e', he', hs, _⟩ := hdeps d hd; ⟨e', he', hs⟩
   clear hdeps
@@ -464,7 +458,7 @@ theorem cert_covers_complete {C : List CertEntry} {D : Nat} {root : Goal}
   obtain ⟨lb, e, rb⟩ := G
   cases e with
   | zero => cases hw
-  | span s₀ => cases hw with | span => exact dc_span hSE hwf lb rb _
+  | span s₀ => cases hw with | span => exact dc_span hwf lb rb _
   | or a b =>
     simp only [certStrategies, List.mem_singleton] at hst
     subst hst
@@ -495,18 +489,18 @@ theorem cert_covers_complete {C : List CertEntry} {D : Nat} {root : Goal}
       have hR : GoodG ⟨none, b, rb⟩ := ⟨trivial, hgG.2⟩
       simp only [certStrategies, List.mem_cons, List.not_mem_nil, or_false] at hst
       rcases hst with rfl | rfl | rfl
-      · exact dc_seq_join hSE hwf
+      · exact dc_seq_join hwf
           (hD _ (hfound (seqLeft ⟨lb, .seq a b, rb⟩ a, false) (by simp)) hL _ _ hw₁ (meas_lt _ _ (by omega) rfl))
           (hD _ (hfound (seqRight ⟨lb, .seq a b, rb⟩ b, false) (by simp)) hR _ _ hw₂ (meas_lt _ _ (by omega) rfl))
       · have hLf := hfound _ (List.mem_cons_self ..)
-        refine dc_seq_pushL hSE hwf (doneOf_certTables hLf)
+        refine dc_seq_pushL hwf (doneOf_certTables hLf)
           (hD _ hLf hL _ _ hw₁ (meas_lt _ _ (by omega) rfl)) fun x hx => ?_
         rw [answersOf_certTables] at hx
         exact hD _ (hfound (seqPushL ⟨lb, .seq a b, rb⟩ b x, false)
             (List.mem_cons_of_mem _ (List.mem_map.2 ⟨x, hx, rfl⟩)))
           (Tier0.goodG_pushL hgG b x) _ _ hw₂ (meas_lt _ _ (by omega) rfl)
       · have hRf := hfound _ (List.mem_cons_self ..)
-        refine dc_seq_pushR hSE hwf (doneOf_certTables hRf)
+        refine dc_seq_pushR hwf (doneOf_certTables hRf)
           (hD _ hRf hR _ _ hw₂ (meas_lt _ _ (by omega) rfl)) fun y hy => ?_
         rw [answersOf_certTables] at hy
         exact hD _ (hfound (seqPushR ⟨lb, .seq a b, rb⟩ a y, false)
@@ -518,17 +512,17 @@ theorem cert_covers_complete {C : List CertEntry} {D : Nat} {root : Goal}
       rw [meet_some hc]
       simp only [certStrategies, List.mem_cons, List.not_mem_nil, or_false] at hst
       rcases hst with rfl | rfl | rfl
-      · exact dc_and_join hSE hwf hgG
+      · exact dc_and_join hwf hgG
           (hD ⟨lb, a, rb⟩ (hfound (andLeft ⟨lb, .and a b, rb⟩ a, false) (by simp)) hgG _ _ hw₁ (meas_lt _ _ (by omega) rfl))
           (hD ⟨lb, b, rb⟩ (hfound (andRight ⟨lb, .and a b, rb⟩ b, false) (by simp)) hgG _ _ hw₂ (meas_lt _ _ (by omega) rfl))
       · have hLf := hfound _ (List.mem_cons_self ..)
-        refine dc_and_pushL hSE hwf hgG (doneOf_certTables hLf)
+        refine dc_and_pushL hwf hgG (doneOf_certTables hLf)
           (hD ⟨lb, a, rb⟩ hLf hgG _ _ hw₁ (meas_lt _ _ (by omega) rfl)) fun x hx => ?_
         rw [answersOf_certTables] at hx
         exact hD _ (hfound (andPush b x, false) (List.mem_cons_of_mem _ (List.mem_map.2 ⟨x, hx, rfl⟩)))
           (goodG_andPush b x) _ _ hw₂ (meas_lt _ _ (by omega) rfl)
       · have hRf := hfound _ (List.mem_cons_self ..)
-        refine dc_and_pushR hSE hwf hgG (doneOf_certTables hRf)
+        refine dc_and_pushR hwf hgG (doneOf_certTables hRf)
           (hD ⟨lb, b, rb⟩ hRf hgG _ _ hw₂ (meas_lt _ _ (by omega) rfl)) fun y hy => ?_
         rw [answersOf_certTables] at hy
         exact hD _ (hfound (andPush a y, false) (List.mem_cons_of_mem _ (List.mem_map.2 ⟨y, hy, rfl⟩)))
@@ -540,7 +534,7 @@ theorem cert_covers_derives {C : List CertEntry} {D : Nat} {root : Goal}
     (hC : Cert.Valid P C D root) {e : CertEntry} (he : e ∈ C) {s : Span}
     (hs : Derives P e.goal.e s) : Tier0.DC P.theory e.cover (Tier0.GDen e.goal s.den) := by
   obtain ⟨w, hw⟩ := Tier0.dw_of_derives hs
-  exact cert_covers_complete hSE hwf hC _ e he w s hw le_rfl
+  exact cert_covers_complete hwf hC _ e he w s hw le_rfl
 
 end
 

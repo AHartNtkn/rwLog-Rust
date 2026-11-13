@@ -119,28 +119,6 @@ theorem optionRel_of_geq {o o' : Option Span} (h : GEq (Span.denO o) (Span.denO 
       rw [denO_empty_iff] at this; cases this
     | some b => exact .some (Span.Equiv.of_geq h)
 
-theorem _root_.RwLog.Span.inst_swap (s : Span) (θ : Nat → Pat) : s.swap.inst θ = (s.inst θ).swap := rfl
-
-theorem simplifyWithin_swap (T : Theory) : ∀ (n : Nat) (s : Span),
-    T.simplifyWithin n s.swap = (T.simplifyWithin n s).map Span.swap
-  | 0, s => by
-    unfold Theory.simplifyWithin
-    by_cases hr : T.refutes? s.c = true <;> simp [Span.swap, hr]
-  | n + 1, s => by
-    unfold Theory.simplifyWithin
-    have hc : s.swap.c = s.c := rfl
-    by_cases hr : T.refutes? s.c = true
-    · simp [hc, hr]
-    · simp only [hc, hr, Bool.false_eq_true, ite_false]
-      cases hb : T.bind? s.c with
-      | none => simp [Span.swap]
-      | some θ => simp only [Span.inst_swap]; exact simplifyWithin_swap T n (s.inst θ)
-
-theorem _root_.RwLog.Store.varCount_swap (s : Span) : s.swap.c = s.c := rfl
-
-theorem simplify_swap (T : Theory) (s : Span) : T.simplify s.swap = (T.simplify s).map Span.swap :=
-  simplifyWithin_swap T _ s
-
 theorem live_swap (T : Theory) (s : Span) : live T s.swap = (live T s).map Span.swap := by
   simp only [live, simplify_swap]; cases T.simplify s <;> rfl
 

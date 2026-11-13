@@ -155,29 +155,29 @@ theorem deadR_den {s : Span} : DeadR T s.den ↔ s.Dead T := by
 
 section Live
 
-variable (hSE : Obligation.simplify_exact) (hwf : ∀ ρ ∈ T, ρ.WellFormed)
-include hSE hwf
+variable (hwf : ∀ ρ ∈ T, ρ.WellFormed)
+include hwf
 
 theorem live_ref {z c : Span} (h : c ∈ live T z) : Ref T c z.den := by
-  have he := Lifting.live_leq hSE hwf h
+  have he := Lifting.live_leq hwf h
   have hs : T.simplify z = some c := by simpa [live] using h
   exact ⟨⟨he.2, simplify_pairs hs⟩, he.1⟩
 
 theorem live_dc {z : Span} {X : GRel} (h : LCov T z.den X) : DC T (live T z) X := by
   cases hs : T.simplify z with
   | none =>
-    have hd := (hSE T z hwf).1 hs
+    have hd := (Theory.simplify_exact hwf z).1 hs
     exact Or.inl (DeadR.of_dom h (deadR_den.2 hd))
   | some c =>
     have hc : c ∈ live T z := by simp [live, hs]
-    exact Or.inr ⟨c, hc, (live_ref hSE hwf hc).2.trans h⟩
+    exact Or.inr ⟨c, hc, (live_ref hwf hc).2.trans h⟩
 
 theorem composeLive_ref {x y c : Span} {X Y : GRel} (hx : Ref T x X) (hy : Ref T y Y)
     (hc : c ∈ composeLive T x y) : Ref T c (X.comp Y) := by
   unfold composeLive at hc
   split at hc
   · rename_i z hz
-    refine (live_ref hSE hwf hc).trans ?_ ?_ <;> rw [compose_some hz]
+    refine (live_ref hwf hc).trans ?_ ?_ <;> rw [compose_some hz]
     · exact hx.1.comp hy.1
     · exact hx.2.comp hy.2
   · simp at hc
@@ -187,7 +187,7 @@ theorem meetLive_ref {x y c : Span} {X Y : GRel} (hx : Ref T x X) (hy : Ref T y 
   unfold meetLive at hc
   split at hc
   · rename_i z hz
-    refine (live_ref hSE hwf hc).trans ?_ ?_ <;> rw [meet_some hz]
+    refine (live_ref hwf hc).trans ?_ ?_ <;> rw [meet_some hz]
     · exact hx.1.meet hy.1
     · exact hx.2.meet hy.2
   · simp at hc
@@ -199,7 +199,7 @@ theorem composeLive_dc {x y : Span} {X Y : GRel} (hx : LCov T x.den X) (hy : LCo
   split
   · rename_i z hz
     rw [← compose_some hz] at hd
-    exact live_dc hSE hwf hd
+    exact live_dc hwf hd
   · rename_i hz
     rw [compose_none hz] at hd
     exact Or.inl (DeadR.of_empty hd)
@@ -211,7 +211,7 @@ theorem meetLive_dc {x y : Span} {X Y : GRel} (hx : LCov T x.den X) (hy : LCov T
   split
   · rename_i z hz
     rw [← meet_some hz] at hd
-    exact live_dc hSE hwf hd
+    exact live_dc hwf hd
   · rename_i hz
     rw [meet_none hz] at hd
     exact Or.inl (DeadR.of_empty hd)
@@ -224,7 +224,7 @@ theorem join_comp_dc {xs ys : List Span} {X Y : GRel} (hx : DC T xs X) (hy : DC 
   · exact Or.inl hx.comp_left
   rcases hy with hy | ⟨y, hym, hy⟩
   · exact Or.inl hy.comp_right
-  refine (composeLive_dc hSE hwf hx hy).mono fun c hc => ?_
+  refine (composeLive_dc hwf hx hy).mono fun c hc => ?_
   simp only [List.mem_flatMap]
   exact ⟨x, hxm, y, hym, hc⟩
 
@@ -234,7 +234,7 @@ theorem join_meet_dc {xs ys : List Span} {X Y : GRel} (hx : DC T xs X) (hy : DC 
   · exact Or.inl hx.meet_left
   rcases hy with hy | ⟨y, hym, hy⟩
   · exact Or.inl hy.meet_right
-  refine (meetLive_dc hSE hwf hx hy).mono fun c hc => ?_
+  refine (meetLive_dc hwf hx hy).mono fun c hc => ?_
   simp only [List.mem_flatMap]
   exact ⟨x, hxm, y, hym, hc⟩
 

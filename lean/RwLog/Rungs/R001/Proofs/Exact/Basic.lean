@@ -29,20 +29,6 @@ namespace Exact
 
 open Lifting (LCov)
 
-/-- What the termination proofs need from simplification. -/
-structure SimpLaws (T : Theory) : Prop where
-  mono : ∀ f x : Span, f.Covers x → T.simplify x = none ∨
-    ∃ f' x', T.simplify f = some f' ∧ T.simplify x = some x' ∧ f'.Covers x'
-  compR : ∀ s t : Span, Option.Rel Span.Equiv (((T.simplify t).bind s.compose).bind T.simplify)
-    ((s.compose t).bind T.simplify)
-  compL : ∀ s t : Span, Option.Rel Span.Equiv (((T.simplify s).bind (·.compose t)).bind T.simplify)
-    ((s.compose t).bind T.simplify)
-  meetR : ∀ s t : Span, Option.Rel Span.Equiv (((T.simplify t).bind s.meet).bind T.simplify)
-    ((s.meet t).bind T.simplify)
-  meetL : ∀ s t : Span, Option.Rel Span.Equiv (((T.simplify s).bind (·.meet t)).bind T.simplify)
-    ((s.meet t).bind T.simplify)
-  swap : ∀ s : Span, T.simplify s.swap = (T.simplify s).map Span.swap
-
 /-! ## Domination -/
 
 /-- `X` dominates `Y`: each triple of `Y` is matched by one of `X` with the
@@ -84,11 +70,6 @@ theorem Dom.nonempty {X Y : GRel} (h : Dom X Y) (hY : Y.Nonempty) : X.Nonempty :
   obtain ⟨⟨a, b, S⟩, hS⟩ := hY
   obtain ⟨S', hS', -⟩ := dom_iff.1 h a b S hS
   exact ⟨_, hS'⟩
-
-theorem covers_swap {a s : Span} (h : a.Covers s) : a.swap.Covers s.swap := by
-  apply covers_of_dom
-  rw [swap_den, swap_den]
-  exact (dom_of_covers h).inv
 
 theorem Span.Equiv.swap' {a s : Span} (h : a.Equiv s) : a.swap.Equiv s.swap :=
   ⟨covers_swap h.1, covers_swap h.2⟩

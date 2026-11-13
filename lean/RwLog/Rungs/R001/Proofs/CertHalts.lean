@@ -13,7 +13,6 @@ for the side a push waits on (`closed_complete`).
 -/
 import RwLog.Rungs.R001.Proofs.TerminationBasics
 import RwLog.Rungs.R001.Proofs.Exact.Derives
-import RwLog.Rungs.R001.Proofs.Exact.Laws
 import RwLog.Rungs.R001.Proofs.Exact.Fair
 import RwLog.Rungs.R001.Proofs.Unfolding
 

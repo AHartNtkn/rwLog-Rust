@@ -24,36 +24,6 @@ namespace Symmetry
 
 /-! ## Equivalent spans -/
 
-theorem covers?_iff (a s : Span) : a.covers? s = true ↔ a.Covers s := covers_iff a s
-
-theorem _root_.RwLog.Span.Equiv.refl (a : Span) : a.Equiv a := ⟨Span.Covers.refl a, Span.Covers.refl a⟩
-
-theorem _root_.RwLog.Span.Equiv.symm {a b : Span} (h : a.Equiv b) : b.Equiv a := ⟨h.2, h.1⟩
-
-theorem _root_.RwLog.Span.Equiv.trans {a b c : Span} (h₁ : a.Equiv b) (h₂ : b.Equiv c) : a.Equiv c :=
-  ⟨h₁.1.trans h₂.1, h₂.2.trans h₁.2⟩
-
-theorem _root_.RwLog.Span.Equiv.swap {a b : Span} (h : a.Equiv b) : a.swap.Equiv b.swap :=
-  ⟨covers_swap h.1, covers_swap h.2⟩
-
-theorem _root_.RwLog.Span.Covers.of_swap {a b : Span} (h : a.swap.Covers b.swap) : a.Covers b := by
-  simpa using covers_swap h
-
-theorem covers?_swap (a b : Span) : a.swap.covers? b.swap = a.covers? b := by
-  apply Bool.eq_iff_iff.2
-  rw [covers?_iff, covers?_iff]
-  exact ⟨Span.Covers.of_swap, covers_swap⟩
-
-/-- Equivalence is read the same through `covers?`. -/
-theorem covers?_congr {a a' b b' : Span} (ha : a.Equiv a') (hb : b.Equiv b') :
-    a.covers? b = a'.covers? b' := by
-  apply Bool.eq_iff_iff.2
-  rw [covers?_iff, covers?_iff]
-  exact ⟨fun h => ha.2.trans (h.trans hb.1), fun h => ha.1.trans (h.trans hb.2)⟩
-
-theorem equiv_of_den_eq {a b : Span} (h : a.den = b.den) : a.Equiv b :=
-  ⟨Span.Covers.of_den_subset h.ge, Span.Covers.of_den_subset h.le⟩
-
 /-! ## `StepEquiv` -/
 
 theorem _root_.RwLog.R001.StepEquiv.refl (xs : List Span) : StepEquiv xs xs :=

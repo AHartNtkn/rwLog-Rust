@@ -53,8 +53,8 @@ theorem rel_join {g : Goal} {s : Span} (h : Derives P g.e s) (hne : (GDen g s.de
 /-! ## Answers of the unfolding strategy -/
 
 section
-variable (hSE : Obligation.simplify_exact) (hwf : ∀ ρ ∈ P.theory, ρ.WellFormed)
-include hSE hwf
+variable (hwf : ∀ ρ ∈ P.theory, ρ.WellFormed)
+include hwf
 
 theorem unfold_ref {d : Nat} {g : Goal} {c : Span} (h : c ∈ unfoldAnswers P d g) :
     ∃ s, Derives P g.e s ∧ Ref P.theory c (GDen g s.den) := by
@@ -64,7 +64,7 @@ theorem unfold_ref {d : Nat} {g : Goal} {c : Span} (h : c ∈ unfoldAnswers P d 
     obtain ⟨a, ha, hc⟩ := h
     obtain ⟨z, hz, hza⟩ := Lifting.roundSpans_derives ha
     obtain ⟨s, hs, hzs⟩ := rel_split hz
-    exact ⟨s, hs, (live_ref hSE hwf hc).of_eq (by rw [hza, hzs])⟩
+    exact ⟨s, hs, (live_ref hwf hc).of_eq (by rw [hza, hzs])⟩
   · simp at h
 
 theorem unfold_dc {d : Nat} {g : Goal} {s : Span} (hf : unfoldFinal P d g = true)
@@ -80,7 +80,7 @@ theorem unfold_dc {d : Nat} {g : Goal} {s : Span} (hf : unfoldFinal P d g = true
   obtain ⟨m, hm⟩ := derives_iff_derivesN.1 hz
   obtain ⟨a, ha, hsub⟩ := roundSpans_cover (k := d) (n := m) (hm.mono (by omega))
     (by rw [hzd]; exact hne) (.inr hf)
-  have hdc := live_dc hSE hwf (T := P.theory) (z := a) (X := GDen g s.den)
+  have hdc := live_dc hwf (T := P.theory) (z := a) (X := GDen g s.den)
     (by rw [← hzd]; exact lcov_of_subset hsub)
   refine hdc.mono fun c hc => ?_
   unfold unfoldAnswers

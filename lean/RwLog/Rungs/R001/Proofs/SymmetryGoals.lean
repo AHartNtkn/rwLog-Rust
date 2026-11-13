@@ -19,12 +19,6 @@ namespace Symmetry
 
 /-! ## Boundaries and goals as table keys -/
 
-theorem covers?_refl (a : Span) : a.covers? a = true := (covers?_iff _ _).2 (Span.Covers.refl a)
-
-theorem covers?_trans {a b c : Span} (h₁ : a.covers? b = true) (h₂ : b.covers? c = true) :
-    a.covers? c = true := by
-  rw [covers?_iff] at *; exact h₁.trans h₂
-
 theorem boundEq_refl : ∀ a : Option Span, boundEq a a = true
   | none => rfl
   | some a => by simp [boundEq, covers?_refl]
