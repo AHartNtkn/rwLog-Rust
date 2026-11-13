@@ -7,11 +7,12 @@ steps (`bound_le`), and by then it has emitted an answer covering each answer
 of `A`, and has halted if `A` has (`follows_first`).
 
 Why it is bounded. While `A`'s next step costs `o` and `A` carries the
-handicap `p`, `B` can only win a race it finishes in less than `p + o`, and
-each win raises `B`'s own handicap by one: after at most `2 (p + o) + 1` wins
+handicap `p`, `B` can only win a race it finishes in less than `q = p + o`,
+and each win raises `B`'s own handicap by one: after at most `2 q + 1` wins
 `A` wins. Each of those races costs at most 7 times `B`'s side, so less than
-`14 (p + o)`, and the answers `B` emits in them have sizes adding up to less
-than `p + o` each time, so comparing `A`'s answers with them stays cheap.
+`7 q`. The answers `B` hands over are no larger than what its step cost, so
+less than `q`, and entering them costs their sizes times the sizes of what was
+emitted before.
 -/
 import RwLog.Rungs.Hedge.Steps
 import RwLog.Rungs.Framework.Runtime
@@ -28,81 +29,60 @@ variable (A B : CostedRuntime)
 
 /-- What the hedge may spend to take `n` steps of `A` from the state `a`,
 when `A` carries the handicap `p`, `B` can win at most `c` more races before
-`A`'s next step, and the answers of `B` emitted so far have sizes adding up to
-`σ`. -/
+`A`'s next step, and the answers emitted so far have sizes adding up to
+`S`. -/
 def bound : Nat → A.State → Nat → Nat → Nat → Nat
   | 0, _, _, _, _ => 0
-  | n + 1, a, p, c, σ =>
-    14 * c * (p + (A.step a).ticks) + 7 * (p + (A.step a).ticks) +
-      2 * (A.step a).ticks * (σ + 2 * c * (p + (A.step a).ticks)) +
+  | n + 1, a, p, c, S =>
+    c * (7 * (p + (A.step a).ticks) + 6 * (p + (A.step a).ticks) * (p + (A.step a).ticks) +
+        2 * (p + (A.step a).ticks) * (S + c * (p + (A.step a).ticks))) +
+      7 * (p + (A.step a).ticks) +
+      2 * (A.step a).ticks * (S + c * (p + (A.step a).ticks)) +
       match (A.step a).val with
       | .emit _ a' => bound n a' (p + 1) (2 * (p + 1 + (A.step a').ticks) + 1)
-          (σ + 2 * c * (p + (A.step a).ticks))
+          (S + c * (p + (A.step a).ticks) + (A.step a).ticks)
       | .done => 0
 
-theorem bound_succ_c (n : Nat) (a : A.State) (p c σ : Nat) :
-    bound A (n + 1) a p (c + 1) σ =
-      14 * (p + (A.step a).ticks) + bound A (n + 1) a p c (σ + 2 * (p + (A.step a).ticks)) := by
-  have e : σ + 2 * (c + 1) * (p + (A.step a).ticks) =
-      σ + 2 * (p + (A.step a).ticks) + 2 * c * (p + (A.step a).ticks) := by ring
+/-- One more race for `B` to win costs one race, entering its answers, and
+what it adds to the sizes. -/
+theorem bound_succ_c (n : Nat) (a : A.State) (p c S : Nat) :
+    7 * (p + (A.step a).ticks) + 6 * (p + (A.step a).ticks) * (p + (A.step a).ticks) +
+        2 * (p + (A.step a).ticks) * S +
+        bound A (n + 1) a p c (S + (p + (A.step a).ticks)) ≤
+      bound A (n + 1) a p (c + 1) S := by
+  have e : S + (p + (A.step a).ticks) + c * (p + (A.step a).ticks) =
+      S + (c + 1) * (p + (A.step a).ticks) := by ring
+  have h : 2 * (p + (A.step a).ticks) * S ≤
+      2 * (p + (A.step a).ticks) * (S + (c + 1) * (p + (A.step a).ticks)) :=
+    Nat.mul_le_mul_left _ (Nat.le_add_right _ _)
   simp only [bound, e]
-  ring
+  linarith
 
 variable {A B}
 
 /-- The claim, for one state: `n` steps of `A` are taken within the bound. -/
-def Follows (n c : Nat) (st : State A.State B.State) (p σ : Nat) : Prop :=
+def Follows (n c : Nat) (st : State A.State B.State) (p S : Nat) : Prop :=
   Inv A B st →
   (st.live = true → padA A B st ≤ p ∧
     2 * (padA A B st + (A.step st.a).ticks) + 1 ≤ c + padB A B st) →
-  sizes st.seenB ≤ σ →
-  ∃ m, (machine A B).spent st m ≤ bound A n st.a p c σ ∧
+  sizes st.seen ≤ S →
+  ∃ m, (machine A B).spent st m ≤ bound A n st.a p c S ∧
     (∀ x ∈ A.runtime.emitted st.a n,
       ∃ y ∈ st.seen ++ (machine A B).runtime.emitted st m, y.Covers x) ∧
     (A.runtime.Halts st.a n → (machine A B).runtime.Halts st m)
-
-/-- The answers of `A` that pass the filter. -/
-def outA (st : State A.State B.State) (as : List Span) : List Span :=
-  as.filter fun x => !st.seenB.any fun t => t.covers? x
-
-/-- The state after a step of `A`. -/
-def stA (st : State A.State B.State) (as : List Span) (a' : A.State) : State A.State B.State :=
-  { st with a := a', last := true, streak := if st.last then st.streak + 1 else 1,
-            seen := st.seen ++ outA st as }
-
-theorem afterA_emit (st : State A.State B.State) (as : List Span) (a' : A.State) :
-    (afterA A B st (.emit as a')).val = .emit (outA st as) (stA st as a') ∧
-      (afterA A B st (.emit as a')).ticks = (dropCovered st.seenB as).ticks := by
-  simp [afterA, outA, stA]
-
-theorem inv_stA {st : State A.State B.State} (h : Inv A B st) (as : List Span) (a' : A.State) :
-    Inv A B (stA st as a') :=
-  ⟨h.plain, fun t ht => List.mem_append_left _ (h.sub t ht)⟩
-
-/-- What the comparison of `A`'s answers with `B`'s costs. -/
-theorem afterA_ticks_le {st : State A.State B.State} (h : Inv A B st) {as : List Span} {o σ : Nat}
-    (ho : sizes as ≤ o) (hσ : sizes st.seenB ≤ σ) :
-    (dropCovered st.seenB as).ticks ≤ 2 * o * σ := by
-  have h1 := dropCovered_ticks h.plain as
-  have h2 := length_le_sizes as
-  have h3 := length_le_sizes st.seenB
-  have h4 : as.length * sizes st.seenB ≤ o * σ := Nat.mul_le_mul (le_trans h2 ho) hσ
-  have h5 : st.seenB.length * sizes as ≤ σ * o := Nat.mul_le_mul (le_trans h3 hσ) ho
-  have h6 : 2 * o * σ = o * σ + σ * o := by ring
-  omega
 
 variable (hA : ∀ (s : A.State) (as : List Span) (s' : A.State),
   (A.step s).val = .emit as s' → sizes as ≤ (A.step s).ticks)
 
 include hA in
 /-- A step of the hedge that is a step of `A`. -/
-theorem follows_take {n : Nat} (ihn : ∀ c (st : State A.State B.State) p σ, Follows n c st p σ)
-    {c : Nat} {st : State A.State B.State} {p σ : Nat} (hinv : Inv A B st)
-    (hp : st.live = true → padA A B st ≤ p) (hσ : sizes st.seenB ≤ σ)
+theorem follows_take {n : Nat} (ihn : ∀ c (st : State A.State B.State) p S, Follows n c st p S)
+    {c : Nat} {st : State A.State B.State} {p S : Nat} (hinv : Inv A B st)
+    (hp : st.live = true → padA A B st ≤ p) (hS : sizes st.seen ≤ S)
     (hv : (step A B st).val = (afterA A B st (A.step st.a).val).val)
     (ht : (step A B st).ticks ≤ 7 * (p + (A.step st.a).ticks) +
       (afterA A B st (A.step st.a).val).ticks) :
-    ∃ m, (machine A B).spent st m ≤ bound A (n + 1) st.a p c σ ∧
+    ∃ m, (machine A B).spent st m ≤ bound A (n + 1) st.a p c S ∧
       (∀ x ∈ A.runtime.emitted st.a (n + 1),
         ∃ y ∈ st.seen ++ (machine A B).runtime.emitted st m, y.Covers x) ∧
       (A.runtime.Halts st.a (n + 1) → (machine A B).runtime.Halts st m) := by
@@ -116,8 +96,6 @@ theorem follows_take {n : Nat} (ihn : ∀ c (st : State A.State B.State) p σ, F
     · rw [(machine A B).spent_succ_done hd]
       have ht' : ((machine A B).step st).ticks ≤ 7 * (p + (A.step st.a).ticks) + 0 := ht
       simp only [bound, hr]
-      generalize 14 * c * (p + (A.step st.a).ticks) = X
-      generalize 2 * (A.step st.a).ticks * (σ + 2 * c * (p + (A.step st.a).ticks)) = Y
       omega
     · intro x hx
       unfold Runtime.emitted at hx
@@ -133,11 +111,14 @@ theorem follows_take {n : Nat} (ihn : ∀ c (st : State A.State B.State) p σ, F
     have he : ((machine A B).step st).val = .emit (outA st as) (stA st as a') := hv
     have he' : (machine A B).runtime.step st = .emit (outA st as) (stA st as a') := he
     have hea : A.runtime.step st.a = .emit as a' := hr
-    have hf := afterA_ticks_le hinv (hA st.a as a' hr) hσ
-    have hσ' : sizes (stA st as a').seenB ≤ σ + 2 * c * (p + (A.step st.a).ticks) :=
-      le_trans hσ (Nat.le_add_right _ _)
+    have hsz := hA st.a as a' hr
+    have hf := afterA_ticks_le hinv hsz hS
+    have hS' : sizes (stA st as a').seen ≤
+        S + c * (p + (A.step st.a).ticks) + (A.step st.a).ticks := by
+      have := sizes_stA st as a'
+      omega
     obtain ⟨m, hm, hcov, hh⟩ := ihn (2 * (p + 1 + (A.step a').ticks) + 1) (stA st as a') (p + 1)
-      (σ + 2 * c * (p + (A.step st.a).ticks)) (inv_stA hinv as a') (fun hl => by
+      (S + c * (p + (A.step st.a).ticks) + (A.step st.a).ticks) (inv_stA hinv as a') (fun hl => by
         have hl' : st.live = true := hl
         have := hp hl'
         have e1 : padB A B (stA st as a') = 0 := by simp [padB, stA]
@@ -146,20 +127,18 @@ theorem follows_take {n : Nat} (ihn : ∀ c (st : State A.State B.State) p σ, F
           cases st.last <;> simp
         have e3 : (stA st as a').a = a' := rfl
         rw [e1, e3]
-        constructor <;> omega) hσ'
+        constructor <;> omega) hS'
     refine ⟨m + 1, ?_, ?_, fun hn => ?_⟩
     · rw [(machine A B).spent_succ_emit he]
       have ht' : ((machine A B).step st).ticks ≤
           7 * (p + (A.step st.a).ticks) + (dropCovered st.seenB as).ticks := ht
       have hm' : (machine A B).spent (stA st as a') m ≤
           bound A n a' (p + 1) (2 * (p + 1 + (A.step a').ticks) + 1)
-            (σ + 2 * c * (p + (A.step st.a).ticks)) := hm
-      have hmul : 2 * (A.step st.a).ticks * σ ≤
-          2 * (A.step st.a).ticks * (σ + 2 * c * (p + (A.step st.a).ticks)) :=
+            (S + c * (p + (A.step st.a).ticks) + (A.step st.a).ticks) := hm
+      have hmul : 2 * (A.step st.a).ticks * S ≤
+          2 * (A.step st.a).ticks * (S + c * (p + (A.step st.a).ticks)) :=
         Nat.mul_le_mul_left _ (Nat.le_add_right _ _)
       simp only [bound, hr]
-      generalize 14 * c * (p + (A.step st.a).ticks) = X
-      generalize 2 * (A.step st.a).ticks * (σ + 2 * c * (p + (A.step st.a).ticks)) = Y at hmul ⊢
       omega
     · intro x hx
       unfold Runtime.emitted at hx ⊢
@@ -181,13 +160,99 @@ theorem follows_take {n : Nat} (ihn : ∀ c (st : State A.State B.State) p σ, F
       rw [(machine A B).runtime.run_succ_emit he']
       exact hh hn
 
-include hA in
+variable (hB : ∀ (s : B.State) (bs : List Span) (s' : B.State),
+  (B.step s).val = .emit bs s' → sizes bs ≤ (B.step s).ticks)
+
+include hB in
+/-- A step of the hedge that is a step of `B`, which `B` won. -/
+theorem follows_lose {n c : Nat}
+    (ihc : ∀ (st : State A.State B.State) p S, Follows (n + 1) c st p S)
+    {st : State A.State B.State} {p S : Nat} (hinv : Inv A B st)
+    (hp : padA A B st ≤ p)
+    (hc : 2 * (padA A B st + (A.step st.a).ticks) + 1 ≤ c + 1 + padB A B st)
+    (hS : sizes st.seen ≤ S)
+    (hv : (step A B st).val = (afterB A B st (resB st)).val)
+    (ht : (step A B st).ticks ≤ 7 * (sideB A B st).ticks + (afterB A B st (resB st)).ticks)
+    (hlt : (sideB A B st).ticks < padA A B st + (A.step st.a).ticks) :
+    ∃ m, (machine A B).spent st m ≤ bound A (n + 1) st.a p (c + 1) S ∧
+      (∀ x ∈ A.runtime.emitted st.a (n + 1),
+        ∃ y ∈ st.seen ++ (machine A B).runtime.emitted st m, y.Covers x) ∧
+      (A.runtime.Halts st.a (n + 1) → (machine A B).runtime.Halts st m) := by
+  have hb := bound_succ_c A n st.a p c S
+  have hq : (sideB A B st).ticks ≤ p + (A.step st.a).ticks := by omega
+  cases hres : resB st with
+  | none =>
+    rw [hres] at hv ht
+    let st' : State A.State B.State := { st with live := false }
+    have he : ((machine A B).step st).val = .emit [] st' := hv
+    have he' : (machine A B).runtime.step st = .emit [] st' := he
+    obtain ⟨m, hm, hcov, hh⟩ := ihc st' p (S + (p + (A.step st.a).ticks))
+      ⟨hinv.plain, hinv.sub, hinv.le⟩ (fun h => by cases h) (le_trans hS (Nat.le_add_right _ _))
+    refine ⟨m + 1, ?_, ?_, fun hn => ?_⟩
+    · rw [(machine A B).spent_succ_emit he]
+      have ht' : ((machine A B).step st).ticks ≤ 7 * (sideB A B st).ticks + 0 := ht
+      have hm' : (machine A B).spent st' m ≤
+          bound A (n + 1) st.a p c (S + (p + (A.step st.a).ticks)) := hm
+      omega
+    · intro x hx
+      obtain ⟨y, hy, hyx⟩ := hcov x hx
+      refine ⟨y, ?_, hyx⟩
+      unfold Runtime.emitted
+      rw [(machine A B).runtime.run_succ_emit he']
+      simpa [Runtime.emitted] using hy
+    · unfold Runtime.Halts
+      rw [(machine A B).runtime.run_succ_emit he']
+      exact hh hn
+  | some r =>
+    obtain ⟨ps, b'⟩ := r
+    rw [hres] at hv ht
+    obtain ⟨hbv, hbt⟩ := afterB_some st ps b'
+    rw [hbv] at hv
+    rw [hbt] at ht
+    have he : ((machine A B).step st).val = .emit (outB st ps) (stB st ps b') := hv
+    have he' : (machine A B).runtime.step st = .emit (outB st ps) (stB st ps b') := he
+    have hsz := resB_sizes hB hres
+    have hpl := resB_plain hres
+    have hπ : sizes ps ≤ p + (A.step st.a).ticks := le_trans hsz hq
+    have hf := afterB_ticks_le st hpl hπ hS
+    have hS' : sizes (stB st ps b').seen ≤ S + (p + (A.step st.a).ticks) := by
+      have := sizes_stB st ps b'
+      omega
+    obtain ⟨m, hm, hcov, hh⟩ := ihc (stB st ps b') p (S + (p + (A.step st.a).ticks))
+      (inv_stB hinv hpl b') (fun _ => by
+        have e1 : padA A B (stB st ps b') = 0 := by simp [padA, stB]
+        have e2 : padB A B (stB st ps b') = padB A B st + 1 := by
+          simp only [padB, stB]
+          cases st.last <;> simp
+        have e3 : (stB st ps b').a = st.a := rfl
+        rw [e1, e2, e3]
+        constructor <;> omega) hS'
+    refine ⟨m + 1, ?_, ?_, fun hn => ?_⟩
+    · rw [(machine A B).spent_succ_emit he]
+      have ht' : ((machine A B).step st).ticks ≤
+          7 * (sideB A B st).ticks + (Tabled.fresh st.seen ps).ticks := ht
+      have hm' : (machine A B).spent (stB st ps b') m ≤
+          bound A (n + 1) st.a p c (S + (p + (A.step st.a).ticks)) := hm
+      omega
+    · intro x hx
+      obtain ⟨y, hy, hyx⟩ := hcov x hx
+      refine ⟨y, ?_, hyx⟩
+      unfold Runtime.emitted
+      rw [(machine A B).runtime.run_succ_emit he']
+      have e : (stB st ps b').seen = st.seen ++ outB st ps := rfl
+      rw [e] at hy
+      simpa [Runtime.emitted, List.append_assoc] using hy
+    · unfold Runtime.Halts
+      rw [(machine A B).runtime.run_succ_emit he']
+      exact hh hn
+
+include hA hB in
 /-- Each number of steps of `A`, with any number of races `B` may still win. -/
-theorem follows : ∀ (n c : Nat) (st : State A.State B.State) (p σ : Nat), Follows n c st p σ := by
+theorem follows : ∀ (n c : Nat) (st : State A.State B.State) (p S : Nat), Follows n c st p S := by
   intro n
   induction n with
   | zero =>
-    intro c st p σ _ _ _
+    intro c st p S _ _ _
     refine ⟨0, Nat.le_refl _, ?_, ?_⟩
     · intro x hx; cases hx
     · intro h; cases h
@@ -195,209 +260,28 @@ theorem follows : ∀ (n c : Nat) (st : State A.State B.State) (p σ : Nat), Fol
     intro c
     induction c with
     | zero =>
-      intro st p σ hinv hl hσ
+      intro st p S hinv hl hS
       by_cases hlive : st.live = true
       · obtain ⟨hp, hc⟩ := hl hlive
-        rcases step_live hlive with ⟨hv, ht, -⟩ | ⟨hv, ht, hlt⟩
-        · refine follows_take hA ihn hinv (fun _ => hp) hσ hv (le_trans ht ?_)
+        rcases step_live hlive with ⟨hv, ht, -, -⟩ | ⟨hv, ht, hlt⟩
+        · refine follows_take hA ihn hinv (fun _ => hp) hS hv (le_trans ht ?_)
           omega
         · have := padB_le_sideB st
           omega
       · have hd : st.live = false := by simpa using hlive
         obtain ⟨hv, ht⟩ := step_dead hd
-        exact follows_take hA ihn hinv (fun h => absurd h hlive) hσ hv (by omega)
+        exact follows_take hA ihn hinv (fun h => absurd h hlive) hS hv (by omega)
     | succ c ihc =>
-      intro st p σ hinv hl hσ
+      intro st p S hinv hl hS
       by_cases hlive : st.live = true
       · obtain ⟨hp, hc⟩ := hl hlive
-        rcases step_live hlive with ⟨hv, ht, -⟩ | ⟨hv, ht, hlt⟩
-        · refine follows_take hA ihn hinv (fun _ => hp) hσ hv (le_trans ht ?_)
+        rcases step_live hlive with ⟨hv, ht, -, -⟩ | ⟨hv, ht, hlt⟩
+        · refine follows_take hA ihn hinv (fun _ => hp) hS hv (le_trans ht ?_)
           omega
-        · -- `B` won this race
-          have hpb := padB_le_sideB st
-          cases hres : resB st with
-          | none =>
-            rw [hres] at hv
-            let st' : State A.State B.State := { st with live := false }
-            have he : ((machine A B).step st).val = .emit [] st' := hv
-            have he' : (machine A B).runtime.step st = .emit [] st' := he
-            obtain ⟨m, hm, hcov, hh⟩ := ihc st' p (σ + 2 * (p + (A.step st.a).ticks))
-              ⟨hinv.plain, hinv.sub⟩ (fun h => by cases h) (le_trans hσ (Nat.le_add_right _ _))
-            refine ⟨m + 1, ?_, ?_, fun hn => ?_⟩
-            · rw [(machine A B).spent_succ_emit he, bound_succ_c]
-              have ht' : ((machine A B).step st).ticks ≤ 7 * (sideB A B st).ticks := ht
-              have hm' : (machine A B).spent st' m ≤
-                  bound A (n + 1) st.a p c (σ + 2 * (p + (A.step st.a).ticks)) := hm
-              omega
-            · intro x hx
-              obtain ⟨y, hy, hyx⟩ := hcov x hx
-              refine ⟨y, ?_, hyx⟩
-              unfold Runtime.emitted
-              rw [(machine A B).runtime.run_succ_emit he']
-              simpa [Runtime.emitted] using hy
-            · unfold Runtime.Halts
-              rw [(machine A B).runtime.run_succ_emit he']
-              exact hh hn
-          | some r =>
-            obtain ⟨out, b'⟩ := r
-            rw [hres] at hv
-            let st' : State A.State B.State :=
-              { st with b := b', last := false, streak := if st.last then 1 else st.streak + 1,
-                        seen := st.seen ++ out, seenB := st.seenB ++ out }
-            have he : ((machine A B).step st).val = .emit out st' := hv
-            have he' : (machine A B).runtime.step st = .emit out st' := he
-            have hsz := resB_sizes hres
-            have hpl := resB_plain hres
-            have hinv' : Inv A B st' :=
-              ⟨fun t ht => by
-                rcases List.mem_append.1 ht with h | h
-                · exact hinv.plain t h
-                · exact hpl t h,
-               fun t ht => by
-                rcases List.mem_append.1 ht with h | h
-                · exact List.mem_append_left _ (hinv.sub t h)
-                · exact List.mem_append_right _ h⟩
-            have hσ' : sizes st'.seenB ≤ σ + 2 * (p + (A.step st.a).ticks) := by
-              have e : sizes st'.seenB = sizes st.seenB + sizes out := sizes_append _ _
-              rw [e]
-              omega
-            obtain ⟨m, hm, hcov, hh⟩ := ihc st' p (σ + 2 * (p + (A.step st.a).ticks)) hinv'
-              (fun _ => by
-                have e1 : padA A B st' = 0 := by simp [padA, st']
-                have e2 : padB A B st' = padB A B st + 1 := by
-                  simp only [padB, st']
-                  cases st.last <;> simp
-                have e3 : st'.a = st.a := rfl
-                rw [e1, e2, e3]
-                constructor <;> omega) hσ'
-            refine ⟨m + 1, ?_, ?_, fun hn => ?_⟩
-            · rw [(machine A B).spent_succ_emit he, bound_succ_c]
-              have ht' : ((machine A B).step st).ticks ≤ 7 * (sideB A B st).ticks := ht
-              have hm' : (machine A B).spent st' m ≤
-                  bound A (n + 1) st.a p c (σ + 2 * (p + (A.step st.a).ticks)) := hm
-              omega
-            · intro x hx
-              obtain ⟨y, hy, hyx⟩ := hcov x hx
-              refine ⟨y, ?_, hyx⟩
-              unfold Runtime.emitted
-              rw [(machine A B).runtime.run_succ_emit he']
-              have e : st'.seen = st.seen ++ out := rfl
-              rw [e] at hy
-              simpa [Runtime.emitted, List.append_assoc] using hy
-            · unfold Runtime.Halts
-              rw [(machine A B).runtime.run_succ_emit he']
-              exact hh hn
+        · exact follows_lose hB ihc hinv hp hc hS hv ht hlt
       · have hd : st.live = false := by simpa using hlive
         obtain ⟨hv, ht⟩ := step_dead hd
-        exact follows_take hA ihn hinv (fun h => absurd h hlive) hσ hv (by omega)
-
-/-! ## The bound is a polynomial in what `A` spends -/
-
-/-- With `Q` at least the handicap, the number of steps and what `A` spends
-on them, the bound is at most `n (14 (2 Q + 1) Q + 7 Q)` for the races and
-`2 T (σ + 2 n (2 Q + 1) Q)` for comparing answers, `T` being what `A`
-spends. -/
-theorem bound_le (A : CostedRuntime) (Q : Nat) : ∀ (n : Nat) (a : A.State) (p σ : Nat),
-    p + n + A.spent a n ≤ Q →
-    bound A n a p (2 * (p + (A.step a).ticks) + 1) σ ≤
-      n * (14 * (2 * Q + 1) * Q + 7 * Q) + 2 * A.spent a n * (σ + n * (2 * (2 * Q + 1) * Q))
-  | 0, _, _, _, _ => Nat.zero_le _
-  | n + 1, a, p, σ, hQ => by
-    have ho : (A.step a).ticks ≤ A.spent a (n + 1) := by
-      cases hr : (A.step a).val with
-      | done => rw [A.spent_succ_done hr]
-      | emit as a' => rw [A.spent_succ_emit hr]; omega
-    have hq : p + (A.step a).ticks ≤ Q := by omega
-    have hc : 2 * (p + (A.step a).ticks) + 1 ≤ 2 * Q + 1 := by omega
-    have h1 : 14 * (2 * (p + (A.step a).ticks) + 1) * (p + (A.step a).ticks) ≤
-        14 * (2 * Q + 1) * Q := Nat.mul_le_mul (Nat.mul_le_mul_left 14 hc) hq
-    have h2 : 2 * (2 * (p + (A.step a).ticks) + 1) * (p + (A.step a).ticks) ≤
-        2 * (2 * Q + 1) * Q := Nat.mul_le_mul (Nat.mul_le_mul_left 2 hc) hq
-    have hX : 2 * (2 * Q + 1) * Q ≤ (n + 1) * (2 * (2 * Q + 1) * Q) :=
-      Nat.le_mul_of_pos_left _ (Nat.succ_pos n)
-    have h3 : 2 * (A.step a).ticks *
-        (σ + 2 * (2 * (p + (A.step a).ticks) + 1) * (p + (A.step a).ticks)) ≤
-        2 * (A.step a).ticks * (σ + (n + 1) * (2 * (2 * Q + 1) * Q)) :=
-      Nat.mul_le_mul_left _ (by omega)
-    cases hr : (A.step a).val with
-    | done =>
-      rw [A.spent_succ_done hr]
-      simp only [bound, hr]
-      have e : (n + 1) * (14 * (2 * Q + 1) * Q + 7 * Q) =
-          14 * (2 * Q + 1) * Q + 7 * Q + n * (14 * (2 * Q + 1) * Q + 7 * Q) := by ring
-      rw [e]
-      generalize n * (14 * (2 * Q + 1) * Q + 7 * Q) = Z
-      omega
-    | emit as a' =>
-      have hs := A.spent_succ_emit hr n
-      have ih := bound_le A Q n a' (p + 1)
-        (σ + 2 * (2 * (p + (A.step a).ticks) + 1) * (p + (A.step a).ticks)) (by omega)
-      have h4 : 2 * A.spent a' n * (σ + 2 * (2 * (p + (A.step a).ticks) + 1) *
-          (p + (A.step a).ticks) + n * (2 * (2 * Q + 1) * Q)) ≤
-          2 * A.spent a' n * (σ + (n + 1) * (2 * (2 * Q + 1) * Q)) :=
-        Nat.mul_le_mul_left _ (by
-          have e : (n + 1) * (2 * (2 * Q + 1) * Q) =
-            n * (2 * (2 * Q + 1) * Q) + 2 * (2 * Q + 1) * Q := by ring
-          omega)
-      rw [hs]
-      simp only [bound, hr]
-      have e : (n + 1) * (14 * (2 * Q + 1) * Q + 7 * Q) +
-          2 * ((A.step a).ticks + A.spent a' n) * (σ + (n + 1) * (2 * (2 * Q + 1) * Q)) =
-          14 * (2 * Q + 1) * Q + 7 * Q +
-            2 * (A.step a).ticks * (σ + (n + 1) * (2 * (2 * Q + 1) * Q)) +
-            (n * (14 * (2 * Q + 1) * Q + 7 * Q) +
-              2 * A.spent a' n * (σ + (n + 1) * (2 * (2 * Q + 1) * Q))) := by ring
-      rw [e]
-      have e2 : p + 1 + (A.step a').ticks = p + 1 + (A.step a').ticks := rfl
-      linarith
-
-variable {A B : CostedRuntime}
-
-/-- The hedge follows its first machine: for every number of steps of `A`
-there is a number of steps of the hedge by which it has paid at most what `A`
-paid, what `B` paid to start, and the bound; has emitted an answer covering
-each answer of `A`; and has halted if `A` has. -/
-theorem follows_first (hA : ∀ (s : A.State) (as : List Span) (s' : A.State),
-      (A.step s).val = .emit as s' → sizes as ≤ (A.step s).ticks)
-    (P : Program) (q : Rel) (n : Nat) :
-    ∃ m, (machine A B).paid P q m ≤ A.paid P q n + (B.init P q).ticks +
-        (n * (14 * (2 * (n + A.paid P q n) + 1) * (n + A.paid P q n) + 7 * (n + A.paid P q n)) +
-          2 * A.paid P q n * (n * (2 * (2 * (n + A.paid P q n) + 1) * (n + A.paid P q n)))) ∧
-      (∀ x ∈ A.runtime.emitted (A.start P q) n,
-        ∃ y ∈ (machine A B).runtime.emitted ((machine A B).start P q) m, y.Covers x) ∧
-      (A.runtime.Halts (A.start P q) n →
-        (machine A B).runtime.Halts ((machine A B).start P q) m) := by
-  let st0 : State A.State B.State := ⟨A.start P q, B.start P q, true, true, 0, [], []⟩
-  have hst : (machine A B).start P q = st0 := rfl
-  have hin : ((machine A B).init P q).ticks = (A.init P q).ticks + (B.init P q).ticks := by
-    show (init A B P q).ticks = _
-    simp [init]
-  obtain ⟨m, hm, hcov, hh⟩ := follows hA n (2 * (0 + (A.step st0.a).ticks) + 1) st0 0 0
-    (Inv.mk (fun t ht => nomatch ht) (fun t ht => nomatch ht))
-    (fun _ => ⟨Nat.le_refl _, Nat.le_refl _⟩) (Nat.le_refl _)
-  refine ⟨m, ?_, ?_, ?_⟩
-  · have hb := bound_le A (n + A.spent (A.start P q) n) n (A.start P q) 0 0 (by omega)
-    have hm' : (machine A B).spent st0 m ≤
-        bound A n (A.start P q) 0 (2 * (0 + (A.step (A.start P q)).ticks) + 1) 0 := hm
-    have hT : A.spent (A.start P q) n ≤ A.paid P q n := Nat.le_add_left _ _
-    have hQ : n + A.spent (A.start P q) n ≤ n + A.paid P q n := by omega
-    have hmono : n * (14 * (2 * (n + A.spent (A.start P q) n) + 1) * (n + A.spent (A.start P q) n) +
-          7 * (n + A.spent (A.start P q) n)) +
-        2 * A.spent (A.start P q) n *
-          (0 + n * (2 * (2 * (n + A.spent (A.start P q) n) + 1) * (n + A.spent (A.start P q) n))) ≤
-        n * (14 * (2 * (n + A.paid P q n) + 1) * (n + A.paid P q n) + 7 * (n + A.paid P q n)) +
-          2 * A.paid P q n * (n * (2 * (2 * (n + A.paid P q n) + 1) * (n + A.paid P q n))) := by
-      rw [Nat.zero_add]
-      gcongr
-    unfold CostedRuntime.paid
-    rw [hin, hst]
-    unfold CostedRuntime.paid at hmono
-    omega
-  · intro x hx
-    obtain ⟨y, hy, hyx⟩ := hcov x hx
-    have hy' : y ∈ ([] : List Span) ++ (machine A B).runtime.emitted st0 m := hy
-    exact ⟨y, by simpa [hst] using hy', hyx⟩
-  · exact fun h => hh h
+        exact follows_take hA ihn hinv (fun h => absurd h hlive) hS hv (by omega)
 
 end Hedge
 

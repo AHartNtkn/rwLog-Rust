@@ -14,6 +14,8 @@ import RwLog.Rungs.Tabled.Exact
 import RwLog.Rungs.Framework.Cost
 import RwLog.Lib.List
 import RwLog.Kernel.Size
+import Mathlib.Tactic.Ring
+import Mathlib.Tactic.Linarith
 
 namespace RwLog
 
@@ -241,6 +243,163 @@ theorem fresh_sizes_le (old cands : List Span) :
     pure !b) cands).val
   simp only [Tabled.fresh, bind_val, bind_ticks]
   omega
+
+/-! ## A coverage test with a plain span on either side costs the two sizes -/
+
+theorem matchAllWork_nil_right (ps : List Pat) (θ : PSubst) : matchAllWork ps [] θ = 0 := by
+  cases ps <;> simp [matchAllWork]
+
+theorem covers_ticks_left {a : Span} (h : a.c = []) (s : Span) :
+    (Charged.covers a s).ticks = a.size + s.size := by
+  simp [Charged.covers, Charged.coversWork_nil h]
+
+theorem covers_ticks_right (a : Span) {s : Span} (h : s.c = []) :
+    (Charged.covers a s).ticks = a.size + s.size := by
+  have : Charged.coversWork a s = 0 := by
+    unfold Charged.coversWork
+    cases (matchInto a.l s.l []).bind (matchInto a.r s.r) <;> simp [h, matchAllWork_nil_right]
+  simp [Charged.covers, this]
+
+theorem sum_pair_sizes (x : Span) : ∀ ys : List Span,
+    (ys.map fun y => y.size + x.size).sum = sizes ys + ys.length * x.size
+  | [] => by simp
+  | y :: ys => by
+    have ih := sum_pair_sizes x ys
+    simp only [List.map_cons, List.sum_cons, sizes_cons, List.length_cons, Nat.succ_mul, ih]
+    omega
+
+/-- Testing a plain span against a list costs the sizes. -/
+theorem any_covers_ticks_right (old : List Span) {x : Span} (h : x.c = []) :
+    (anyL (fun t => Charged.covers t x) old).ticks ≤ sizes old + old.length * x.size := by
+  refine le_trans (anyL_ticks_le _ _) ?_
+  rw [← sum_pair_sizes x old]
+  exact sum_map_le fun t _ => le_of_eq (covers_ticks_right t h)
+
+/-- Dropping the plain spans that a list covers costs the sizes compared. -/
+theorem filter_covered_ticks (old : List Span) : ∀ xs : List Span, (∀ x ∈ xs, x.c = []) →
+    (filterL (fun c => do
+      let b ← anyL (fun t => Charged.covers t c) old
+      pure !b) xs).ticks ≤ xs.length * sizes old + old.length * sizes xs
+  | [], _ => by simp [filterL]
+  | x :: xs, h => by
+    have ih := filter_covered_ticks old xs fun y hy => h y (List.mem_cons_of_mem _ hy)
+    have hx := any_covers_ticks_right old (h x List.mem_cons_self)
+    simp only [filterL, bind_ticks, pure_ticks, Nat.add_zero, List.length_cons,
+      sizes_cons, Nat.succ_mul, Nat.mul_add] at ih ⊢
+    omega
+
+/-- The second pass of `maxima` on plain spans. -/
+theorem keep_fold_ticks : ∀ (l acc : List Span) (sa la : Nat), (∀ x ∈ l, x.c = []) →
+    sizes acc ≤ sa → acc.length ≤ la →
+    (foldL (fun acc x => do
+      let b ← anyL (fun y => Charged.covers y x) acc
+      pure (if b then acc else acc ++ [x])) acc l).ticks ≤
+      l.length * (sa + sizes l) + (la + l.length) * sizes l
+  | [], _, _, _, _, _, _ => by simp [foldL]
+  | x :: l, acc, sa, la, h, hs, hl => by
+    have hx := any_covers_ticks_right acc (h x List.mem_cons_self)
+    have ih := keep_fold_ticks l
+      (if (anyL (fun y => Charged.covers y x) acc).val then acc else acc ++ [x])
+      (sa + x.size) (la + 1) (fun y hy => h y (List.mem_cons_of_mem _ hy))
+      (by split <;> (try simp only [sizes_append, sizes_cons, sizes_nil]) <;> omega)
+      (by split <;> (try simp only [List.length_append, List.length_cons, List.length_nil]) <;> omega)
+    simp only [foldL, bind_ticks, pure_ticks, bind_val, pure_val, Nat.add_zero, List.length_cons,
+      sizes_cons] at ih ⊢
+    have h1 : acc.length * x.size ≤ la * x.size := Nat.mul_le_mul_right _ hl
+    nlinarith
+
+/-- The maximal spans of a list of plain spans cost the sizes compared. -/
+theorem maxima_ticks_plain (xs : List Span) (h : ∀ x ∈ xs, x.c = []) :
+    (Tabled.maxima xs).ticks ≤ 6 * xs.length * sizes xs := by
+  have hA : ∀ zs : List Span, (∀ x ∈ zs, x.c = []) →
+      (filterL (fun x => do
+        let b ← anyL (fun y => do
+          let c ← Charged.covers y x
+          if c then do
+            let c' ← Charged.covers x y
+            pure !c'
+          else pure false) xs
+        pure !b) zs).ticks ≤ 2 * (zs.length * sizes xs + xs.length * sizes zs) := by
+    intro zs
+    induction zs with
+    | nil => intro _; simp [filterL]
+    | cons x zs ih =>
+      intro hz
+      have ih' := ih fun y hy => hz y (List.mem_cons_of_mem _ hy)
+      have hx : x.c = [] := hz x List.mem_cons_self
+      have h1 : (anyL (fun y => do
+          let c ← Charged.covers y x
+          if c then do
+            let c' ← Charged.covers x y
+            pure !c'
+          else pure false) xs).ticks ≤ 2 * (sizes xs + xs.length * x.size) := by
+        refine le_trans (anyL_ticks_le _ _) ?_
+        rw [← sum_pair_sizes x xs, ← sum_map_mul_left']
+        refine sum_map_le fun y _ => ?_
+        have e1 := covers_ticks_right y hx
+        have e2 := covers_ticks_left hx y
+        simp only [bind_ticks]
+        split <;> simp only [bind_ticks, pure_ticks] <;> omega
+      simp only [filterL, bind_ticks, pure_ticks, Nat.add_zero, List.length_cons, sizes_cons,
+        Nat.succ_mul, Nat.mul_add] at ih' ⊢
+      omega
+  have h1 := hA xs h
+  let top := (filterL (fun x => do
+        let b ← anyL (fun y => do
+          let c ← Charged.covers y x
+          if c then do
+            let c' ← Charged.covers x y
+            pure !c'
+          else pure false) xs
+        pure !b) xs).val
+  have hsub : top.Sublist xs := by
+    simp only [top, filterL_val]
+    exact List.filter_sublist
+  have h2 := keep_fold_ticks top [] 0 0 (fun x hx => h x (hsub.subset hx)) (Nat.le_refl _)
+    (Nat.le_refl _)
+  have h3 := sizes_sublist hsub
+  have h4 := hsub.length_le
+  have h5 : top.length * sizes top ≤ xs.length * sizes xs := Nat.mul_le_mul h4 h3
+  simp only [Tabled.maxima, bind_ticks]
+  simp only [Nat.zero_add] at h2
+  have h6 : top.length * (sizes top) + top.length * sizes top ≤ 2 * (xs.length * sizes xs) := by
+    omega
+  have e : 6 * xs.length * sizes xs = 2 * (xs.length * sizes xs + xs.length * sizes xs) +
+      2 * (xs.length * sizes xs) := by ring
+  rw [e]
+  exact Nat.add_le_add h1 (le_trans h2 h6)
+
+/-- Entering plain spans into a list costs the sizes compared. -/
+theorem fresh_ticks_plain (old : List Span) {cands : List Span} (h : ∀ c ∈ cands, c.c = []) :
+    (Tabled.fresh old cands).ticks ≤
+      cands.length * sizes old + old.length * sizes cands + 6 * cands.length * sizes cands := by
+  have h1 := filter_covered_ticks old cands h
+  let cs := (filterL (fun c => do
+      let b ← anyL (fun t => Charged.covers t c) old
+      pure !b) cands).val
+  have hsub : cs.Sublist cands := by
+    simp only [cs, filterL_val]
+    exact List.filter_sublist
+  have h2 : (Tabled.maxima (filterL (fun c => do
+      let b ← anyL (fun t => Charged.covers t c) old
+      pure !b) cands).val).ticks ≤ 6 * cs.length * sizes cs :=
+    maxima_ticks_plain cs fun x hx => h x (hsub.subset hx)
+  have h3 : 6 * cs.length * sizes cs ≤ 6 * cands.length * sizes cands :=
+    Nat.mul_le_mul (Nat.mul_le_mul_left 6 hsub.length_le) (sizes_sublist hsub)
+  simp only [Tabled.fresh, bind_ticks]
+  omega
+
+theorem maxima_sublist (xs : List Span) : (RwLog.maxima xs).Sublist xs := by
+  obtain ⟨r, hr, e⟩ := foldl_keep_sublist (fun acc x => acc.any fun y => y.covers? x)
+    (xs.filter fun x => !xs.any fun y => y.covers? x && !x.covers? y) []
+  have hm : RwLog.maxima xs = r := by
+    unfold RwLog.maxima
+    simpa using e
+  rw [hm]
+  exact hr.trans List.filter_sublist
+
+theorem fresh_sublist (old cands : List Span) : (RwLog.fresh old cands).Sublist cands :=
+  (maxima_sublist _).trans List.filter_sublist
 
 end Hedge
 

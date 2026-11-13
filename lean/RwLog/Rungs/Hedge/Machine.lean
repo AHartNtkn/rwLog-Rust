@@ -12,11 +12,15 @@ It reports what both machines find:
 * an answer of `A` is emitted unless an answer of `B` emitted earlier covers
   it;
 * an answer of `B` is emitted when it carries no constraints (`plain`) and no
-  answer emitted earlier covers it. Testing a span without constraints against
-  another costs only their sizes, so what `A`'s answers pay to be compared
-  with `B`'s is bounded by what has been spent. An answer of `B` with
+  answer emitted earlier covers it. A coverage test in which either span has
+  no constraints costs only the two sizes, so every comparison between the two
+  machines' answers is bounded by what has been spent. An answer of `B` with
   constraints is not reported: `A` finds an answer covering it in its own
   time.
+
+Only the two steps are raced. The comparisons are made after the race, by
+whichever machine took the step, so a machine's side of the race costs what
+that machine alone decides.
 
 It is done when `A` is done. `B` is a second way of finding answers sooner and
 is never relied on to find them all. When `B` is done the machine goes on
@@ -58,8 +62,8 @@ def dropCovered (old xs : List Span) : Cost (List Span) :=
 
 variable (A B : CostedRuntime)
 
-/-- What a race returns: a step of `A`, or a step of `B` with its answers
-already filtered (`none` when `B` is done). -/
+/-- What a race returns: a step of `A`, or a step of `B` with its plain
+answers (`none` when `B` is done). -/
 abbrev Won := Step A.State ⊕ Option (List Span × B.State)
 
 /-- The handicap of `A`: its streak, when it took the last step. -/
@@ -80,8 +84,7 @@ def sideB (st : State A.State B.State) : Cost (Won A B) := do
   | .done => pure (.inr none)
   | .emit bs b' => do
     let ps ← filterL plain bs
-    let out ← Tabled.fresh st.seen ps
-    pure (.inr (some (out, b')))
+    pure (.inr (some (ps, b')))
 
 /-- A step of `A` was taken. -/
 def afterA (st : State A.State B.State) (r : Step A.State) :
@@ -96,20 +99,21 @@ def afterA (st : State A.State B.State) (r : Step A.State) :
 
 /-- A step of `B` was taken. -/
 def afterB (st : State A.State B.State) (r : Option (List Span × B.State)) :
-    Step (State A.State B.State) :=
+    Cost (Step (State A.State B.State)) :=
   match r with
-  | none => .emit [] { st with live := false }
-  | some (out, b') =>
-    .emit out { st with b := b', last := false,
-                        streak := if st.last then 1 else st.streak + 1,
-                        seen := st.seen ++ out, seenB := st.seenB ++ out }
+  | none => pure (.emit [] { st with live := false })
+  | some (ps, b') => do
+    let out ← Tabled.fresh st.seen ps
+    pure (.emit out { st with b := b', last := false,
+                              streak := if st.last then 1 else st.streak + 1,
+                              seen := st.seen ++ out, seenB := st.seenB ++ out })
 
 def step (st : State A.State B.State) : Cost (Step (State A.State B.State)) :=
   if st.live then do
     let r ← race (sideA A B st) (sideB A B st)
     match r with
     | .inl r => afterA A B st r
-    | .inr r => pure (afterB A B st r)
+    | .inr r => afterB A B st r
   else do
     let r ← A.step st.a
     afterA A B st r
