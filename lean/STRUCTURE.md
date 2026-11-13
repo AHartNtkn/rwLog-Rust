@@ -32,6 +32,7 @@ Tests/          executable runs per rung
 | Coverage modulo a theory | `SpanLayer/Modulo.lean` | `LCov`, `LEq`, `Live`, `DeadR`, `Backed`, `Ref`, `DC`, `GCov`, `GEq`, `Dom` |
 | Chains of spans | `Kernel/Chain.lean` | `Span.denO_chain`, `Span.chain_isSome_iff`, `chain_isSome_fuse`, `chain_eq_none_of_compose`, `GRel.chain` |
 | Unfolding equations | `Rungs/R000/Unfold.lean` | `unfoldN_succ`, `unfoldN_succ'`, `unfoldN_call`, `unfoldN_add`, `unfoldN_or/and/seq/conv`, `unfoldN_dual` |
+| Shape of normal-form products | `Rungs/R000/Products.lean` | `joinSeq_cases`, `joinSeq_ne_nil`, `mkAnd_ne_nil`, `norm_ne_nil` |
 | Converse of a program | `SpanLayer/Dual.lean` | `Program.sem_dual` |
 | Greatest fixpoints by iteration | `Lib/Gfp.lean` | `gfpFrom`, `gfpFrom_closed`, `subset_gfpFrom` |
 
