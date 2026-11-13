@@ -75,6 +75,12 @@ rung unchanged.
   `Costs.mapL`, `Costs.foldL`, ...), so the value and a cost bound of a long
   `do` block are derived together.
 
+* `CostSpec.lean`: `Cost.Spends m c Q` (`m` spends at most `c` and its value
+  satisfies `Q`), for a computation whose value is only described, with the
+  same rules (`Spends.bind`, `Spends.mapL`, `Spends.mapL_zip`), and bounds on
+  the ticks of each traversal from a bound on each member
+  (`anyL_ticks_le_mul`, ...).
+
 `Rungs/Tabled/` is the base for costed rungs that keep R001's tables and change
 something else. `Machine.lean` is R001's machine written in the cost monad
 with the unfolding race left to an `Oracle`; `Tabled.round_split` isolates

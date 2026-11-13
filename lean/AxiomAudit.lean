@@ -445,3 +445,35 @@ new axiom.
 
 /-- info: 'RwLog.R003.simulates' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.R003.simulates
+
+/-! ## R003: the separation -/
+
+/-- info: 'RwLog.R003.Sep.walk_cRel' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R003.Sep.walk_cRel
+
+/-- info: 'RwLog.R003.Sep.onDemand_gC' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R003.Sep.onDemand_gC
+
+/-- info: 'RwLog.R003.Sep.shared_gC' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R003.Sep.shared_gC
+
+/-- info: 'RwLog.R003.Sep.race_cases' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R003.Sep.race_cases
+
+/-- info: 'RwLog.R003.Sep.walk_loses' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R003.Sep.walk_loses
+
+/-- info: 'RwLog.R003.Sep.unfolder_gC' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R003.Sep.unfolder_gC
+
+/-- info: 'RwLog.R003.Sep.round_spends' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R003.Sep.round_spends
+
+/-- info: 'RwLog.R003.Sep.costed_halts' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R003.Sep.costed_halts
+
+/-- info: 'RwLog.R003.Sep.r002_first' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R003.Sep.r002_first
+
+/-- info: 'RwLog.R003.separates' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R003.separates
