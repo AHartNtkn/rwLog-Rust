@@ -426,6 +426,115 @@ theorem strat_cov (hL : D.Lawful P.sorts.interp) (hT : TablesOk D ts) {g : GoalO
     refine (way_cov_and K hK ts hL hT hg (andSplit_of_mem K hK hg hv hw) hs' hG hne H).mono
       (fun a ha => List.mem_flatMap.2 ⟨_, hr, ha⟩) subset_rfl
 
+/-! ## The strategy that is always there -/
+
+/-- A derivation of a goal's node needs finitely many smaller derivations of
+the goals of one strategy the goal has whatever the tables hold (for a split,
+joining the two sides): once the tables cover those, the candidates cover
+it. -/
+theorem static_cov (hL : D.Lawful P.sorts.interp) {g : GoalOf R Rel} (hg : GoalOk D g) {k : Nat}
+    {G : GRel} (hG : G ∈ GDn P k g.node) (hne : (pairsOf P g G).Nonempty) :
+    ∃ needs : List (GoalOf R Rel × Nat × GRel),
+      (∀ x ∈ needs, (x.2.1 < k ∨ (x.2.1 = k ∧ x.1.node.size < g.node.size)) ∧
+        x.2.2 ∈ GDn P x.2.1 x.1.node ∧ (pairsOf P x.1 x.2.2).Nonempty) ∧
+      ∀ ts : List (TableOf R Rel (Ans D P)), TablesOk D ts →
+        (∃ strat ∈ (produceTables (K := DerivationKernel.over D K hK P) ts g).val.2,
+          ∀ x ∈ needs, x.1 ∈ strat) ∧
+        ((∀ x ∈ needs, Cov (ansOf ts x.1) (pairsOf P x.1 x.2.2)) →
+          Cov (produceTables (K := DerivationKernel.over D K hK P) ts g).val.1 (pairsOf P g G)) := by
+  cases hv : g.node.view.forget with
+  | span u =>
+    refine ⟨[], by simp, fun ts _ => ⟨⟨[], ?_, by simp⟩, fun _ => cov_span hL K hK ts g hg hv hG hne⟩⟩
+    rw [produceTables_span K hK ts g hv]; simp
+  | call n f =>
+    obtain ⟨b, hb⟩ := forget_call (P := P) hv
+    cases k with
+    | zero => rw [(gdn_bodyOf hb 0).2] at hG; cases hG
+    | succ k =>
+      rw [(gdn_bodyOf hb k).1] at hG
+      refine ⟨[(⟨g.lb, b, g.rb⟩, k, G)], ?_, fun ts hT => ⟨⟨[⟨g.lb, b, g.rb⟩], ?_, by simp⟩,
+        fun H => cov_call K hK ts g hT hv hb (H (⟨g.lb, b, g.rb⟩, k, G) (by simp))⟩⟩
+      · intro x hx
+        obtain rfl : x = (⟨g.lb, b, g.rb⟩, k, G) := by simpa using hx
+        exact ⟨.inl (Nat.lt_succ_self k), hG, hne⟩
+      · rw [produceTables_call K hK ts g hv hb]; simp
+  | union xs =>
+    have hv' := forget_union hv
+    rw [← (gdn_laws P k).gd_unionParts, ← hg.normal.view_union_eq hv'] at hG
+    obtain ⟨x, hx, hGx⟩ : ∃ x ∈ xs, G ∈ GDn P k x := by simpa using hG
+    refine ⟨[(⟨g.lb, x, g.rb⟩, k, G)], ?_, fun ts hT =>
+      ⟨⟨xs.map fun x => ⟨g.lb, x, g.rb⟩, ?_, ?_⟩,
+        fun H => cov_union K hK ts g hT hg.normal hv hx (H (⟨g.lb, x, g.rb⟩, k, G) (by simp))⟩⟩
+    · intro y hy
+      obtain rfl : y = (⟨g.lb, x, g.rb⟩, k, G) := by simpa using hy
+      exact ⟨.inr ⟨rfl, hg.normal.union_member_lt hv' hx⟩, hGx, hne⟩
+    · rw [produceTables_union K hK ts g hv]; simp
+    · intro y hy
+      obtain rfl : y = (⟨g.lb, x, g.rb⟩, k, G) := by simpa using hy
+      exact List.mem_map_of_mem hx
+  | chain xs =>
+    obtain ⟨w, hw⟩ := exists_seqSplit (P := P) K hK hg hv
+    have hsp := seqSplit_of_mem K hK hg hv hw
+    obtain ⟨kd, L, Rr⟩ := w
+    obtain ⟨hkd, llb, lrb, rlb, rrb, lok, rok, lsize, rsize, node, gdn⟩ := hsp
+    simp only at hkd llb lrb rlb rrb lsize rsize gdn lok rok
+    subst hkd
+    rw [gdn k] at hG
+    obtain ⟨G₁, hG₁, G₂, hG₂, rfl⟩ := hG
+    have e : pairsOf P g (G₁.comp G₂) = (pairsOf P L G₁).comp (pairsOf P Rr G₂) := by
+      unfold pairsOf; rw [wrap_comp, llb, lrb, rlb, rrb]
+    rw [e] at hne ⊢
+    have ne₁ : (pairsOf P L G₁).Nonempty := by
+      obtain ⟨⟨p, q⟩, m, h₁, -⟩ := hne; exact ⟨_, h₁⟩
+    have ne₂ : (pairsOf P Rr G₂).Nonempty := by
+      obtain ⟨⟨p, q⟩, m, -, h₂⟩ := hne; exact ⟨_, h₂⟩
+    refine ⟨[(L, k, G₁), (Rr, k, G₂)], ?_, fun ts hT => ⟨⟨[L, Rr], ?_, ?_⟩, fun H => ?_⟩⟩
+    · intro x hx
+      simp only [List.mem_cons, List.not_mem_nil, or_false] at hx
+      rcases hx with rfl | rfl
+      · exact ⟨.inr ⟨rfl, lsize⟩, hG₁, ne₁⟩
+      · exact ⟨.inr ⟨rfl, rsize⟩, hG₂, ne₂⟩
+    · rw [produceTables_chain K hK ts g hv]
+      exact List.mem_flatMap.2 ⟨_, List.mem_map_of_mem hw,
+        (mem_way_strats K hK ts g _ _).2 (.inl rfl)⟩
+    · intro x hx
+      simp only [List.mem_cons, List.not_mem_nil, or_false] at hx
+      rcases hx with rfl | rfl <;> simp
+    · rw [produceTables_chain K hK ts g hv]
+      exact (cov_join_seq hL K hK ts g _ hT rfl lrb rlb (H (L, k, G₁) (by simp))
+        (H (Rr, k, G₂) (by simp)) hne).mono
+        (fun a ha => List.mem_flatMap.2 ⟨_, List.mem_map_of_mem hw, ha⟩) subset_rfl
+  | meet xs =>
+    obtain ⟨w, hw⟩ := exists_andSplit (P := P) K hK hg hv
+    have hsp := andSplit_of_mem K hK hg hv hw
+    obtain ⟨kd, L, Rr⟩ := w
+    obtain ⟨hkd, llb, lrb, rlb, rrb, lok, rok, lsize, rsize, node, node', gdn⟩ := hsp
+    simp only at hkd llb lrb rlb rrb lsize rsize gdn lok rok
+    subst hkd
+    rw [gdn k] at hG
+    obtain ⟨G₁, hG₁, G₂, hG₂, rfl⟩ := hG
+    have e : pairsOf P g (G₁.meet G₂) = pairsOf P L G₁ ∩ pairsOf P Rr G₂ := by
+      unfold pairsOf; rw [wrap_meet hL hg.lb hg.rb, llb, lrb, rlb, rrb]
+    rw [e] at hne ⊢
+    have ne₁ : (pairsOf P L G₁).Nonempty := hne.mono Set.inter_subset_left
+    have ne₂ : (pairsOf P Rr G₂).Nonempty := hne.mono Set.inter_subset_right
+    refine ⟨[(L, k, G₁), (Rr, k, G₂)], ?_, fun ts hT => ⟨⟨[L, Rr], ?_, ?_⟩, fun H => ?_⟩⟩
+    · intro x hx
+      simp only [List.mem_cons, List.not_mem_nil, or_false] at hx
+      rcases hx with rfl | rfl
+      · exact ⟨.inr ⟨rfl, lsize⟩, hG₁, ne₁⟩
+      · exact ⟨.inr ⟨rfl, rsize⟩, hG₂, ne₂⟩
+    · rw [produceTables_meet K hK ts g hv]
+      exact List.mem_flatMap.2 ⟨_, List.mem_map_of_mem hw,
+        (mem_way_strats K hK ts g _ _).2 (.inl rfl)⟩
+    · intro x hx
+      simp only [List.mem_cons, List.not_mem_nil, or_false] at hx
+      rcases hx with rfl | rfl <;> simp
+    · rw [produceTables_meet K hK ts g hv]
+      exact (cov_join_and hL K hK ts g _ hT rfl (rlb.trans llb.symm) (rrb.trans lrb.symm)
+        (H (L, k, G₁) (by simp)) (H (Rr, k, G₂) (by simp)) hne).mono
+        (fun a ha => List.mem_flatMap.2 ⟨_, List.mem_map_of_mem hw, ha⟩) subset_rfl
+
 end Tabled
 
 end RwLog
