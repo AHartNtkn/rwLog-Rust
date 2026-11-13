@@ -148,6 +148,17 @@ theorem findL_ticks_le (f : α → Cost Bool) :
     simp only [findL, bind_ticks, List.map_cons, List.sum_cons]
     cases (f x).val <;> simp only [Bool.false_eq_true, ite_false, ite_true, pure_ticks] <;> omega
 
+/-- A fold whose step always spends something spends at least the length of
+the list. -/
+theorem length_le_foldL_ticks {α β : Type} (f : β → α → Cost β) (h : ∀ b x, 1 ≤ (f b x).ticks) :
+    ∀ (xs : List α) (b : β), xs.length ≤ (foldL f b xs).ticks
+  | [], _ => Nat.zero_le _
+  | x :: xs, b => by
+    have h1 := h b x
+    have h2 := length_le_foldL_ticks f h xs (f b x).val
+    simp only [foldL, bind_ticks, List.length_cons]
+    omega
+
 end Cost
 
 /-! ## Costed runtimes -/

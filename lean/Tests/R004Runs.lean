@@ -94,22 +94,46 @@ def sameRun4 (P : Program) (q : Rel) (fuel : Nat) : Bool :=
 
 /-! ## Costs -/
 
--- The separating family: both machines halt after 1 round with no answer;
--- R004 within the bound of `separates`, R003 having paid at least `2 ^ k`.
+-- The separating family, `@a | (gen k ; @q)`: the first round of R004 emits
+-- `a -> a` within the bound of `separates`; the first round of R003, before
+-- which it has emitted nothing, costs at least `2 ^ k`. The input is within
+-- the size bound.
 #guard (List.range 9).all fun k => decide ((R004.sepFam k).1.WellFormed (R004.sepFam k).2)
 #guard (List.range 9).all fun k =>
-  let r := costOf R004.costed (R004.sepFam k).1 (R004.sepFam k).2 20
-  let b := costOf R003.costed (R004.sepFam k).1 (R004.sepFam k).2 20
-  r.1 == 1 && r.2.1 && b.1 == 1 && b.2.1 && r.2.2 ≤ 1000 * (k + 2) && 2 ^ k ≤ b.2.2
-#guard runR004 (R004.sepFam 6).1 (R004.sepFam 6).2 20 == ([], true)
-#guard (costOf R004.costed (R004.sepFam 8).1 (R004.sepFam 8).2 20).2.2 == 2202
-#guard (costOf R003.costed (R004.sepFam 8).1 (R004.sepFam 8).2 20).2.2 == 170657
+  (R004.sepFam k).1.size + (R004.sepFam k).2.size ≤ 12 * (k + 2)
+#guard (List.range 9).all fun k =>
+  (traceR004 (R004.sepFam k).1 (R004.sepFam k).2 1) == [["a -> a"]] &&
+  (costOf R004.costed (R004.sepFam k).1 (R004.sepFam k).2 1).2.2 ≤ 1000 * (k + 2) &&
+  2 ^ k ≤ (costOf R003.costed (R004.sepFam k).1 (R004.sepFam k).2 1).2.2
+#guard (List.range 9).map (fun k =>
+    (costOf R004.costed (R004.sepFam k).1 (R004.sepFam k).2 1).2.2) ==
+  [408, 529, 650, 771, 892, 1013, 1134, 1255, 1376]
+#guard (List.range 9).map (fun k =>
+    (costOf R003.costed (R004.sepFam k).1 (R004.sepFam k).2 1).2.2) ==
+  [267, 626, 1134, 3118, 6076, 12130, 24632, 83308, 169826]
+
+-- Both machines halt after the second round; R004's whole run stays linear.
+#guard (List.range 4).map (fun k =>
+    (costOf R004.costed (R004.sepFam k).1 (R004.sepFam k).2 4,
+      costOf R003.costed (R004.sepFam k).1 (R004.sepFam k).2 4)) ==
+  [((2, true, 1637), 2, true, 1291), ((2, true, 2348), 2, true, 2716),
+    ((2, true, 3059), 2, true, 4588), ((2, true, 3770), 2, true, 10888)]
+#guard traceR004 (R004.sepFam 3).1 (R004.sepFam 3).2 4 == [["a -> a"], []]
 
 -- One race on the family, by `k`: the walk from the right stops at the last
--- choice.
+-- choice, `k + 37` ticks.
 #guard [8, 16, 32, 64].map (fun k =>
     (R004.pruned (R004.sepFam k).1 0 ⟨none, (R004.sepFam k).2, none⟩).ticks) ==
-  [35, 43, 59, 91]
+  [45, 53, 69, 101]
+
+-- The mirrored family, `@a | (@q ; (gen k)ᵒ)`, is cheap for R003 already:
+-- R002's walk drops a product at the first span that cannot follow what is to
+-- its left. R004 adds the same from the right. (No bound between a query and
+-- its mirror image is claimed in general.)
+#guard (List.range 6).map (fun k =>
+    ((costOf R004.costed (R004.sepFam k).1.dual (R004.sepFam k).2.dual 1).2.2,
+      (costOf R003.costed (R004.sepFam k).1.dual (R004.sepFam k).2.dual 1).2.2)) ==
+  [(411, 268), (629, 389), (750, 510), (871, 631), (992, 752), (1113, 873)]
 
 /-- The term `gen k` makes of `z` by taking the second wrapper at every choice
 but the first. -/

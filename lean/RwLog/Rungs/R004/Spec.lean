@@ -16,13 +16,27 @@ R004 is judged against R003 by cost (`Trusted/Cost.lean`).
   the same trace. Every theorem about `R001.runtime` is then a theorem about
   `R004.runtime` by rewriting; the three every rung must state are stated
   (`sound`, `complete`, `honest_exhaustion`).
-* **Never much worse.** R004 simulates R003 within a factor of 7, step for
-  step (`simulates`).
-* **Exponentially better on a family.** On `sepFam k`, a sequence of `k + 1`
-  choices between two wrappers followed by a test that no wrapped term
-  passes, R004 halts within a linear bound while R003 pays at least `2 ^ k`
-  (`separates`): its walk and its shared evaluation both build all
+* **Never much worse.** R004 simulates R003 within a factor of 7: every pair
+  R003 has covered, R004 covers at no more than 7 times the cost, and likewise
+  for exhaustion (`simulates`).
+* **Exponentially better on a family.** `sepFam k` is `@a | (gen k ; @q)`:
+  one answer, beside a sequence of `k + 1` choices between two wrappers
+  followed by a test that no wrapped term passes. R004 emits the answer
+  within a linear bound, while R003 has paid at least `2 ^ k` before it emits
+  anything (`separates`): its walk and its shared evaluation both build all
   `2 ^ (k + 1)` wrapped terms before the test is reached.
+
+## What is not claimed
+
+* **No mirror bound.** The pruning this rung adds works from the right end of
+  a sequence only, and what it races against (R002's walk) prunes from the
+  left by a different test, so the cost of a query and the cost of its
+  converse are not claimed to be within a polynomial of each other, and no
+  such obligation is stated.
+* **Only the unfolding race is improved.** The race yields answers only for a
+  goal whose unfolding is final. A goal that never becomes final is answered
+  by the tables, which this rung leaves as they are in R001: they still
+  evaluate the unconstrained side of a sequence in full.
 -/
 import RwLog.Rungs.R003.Engine
 import RwLog.Rungs.R004.Engine
@@ -35,9 +49,10 @@ namespace R004
 
 `bit` is `$x -> (0 $x) | $x -> (1 $x)`: wrap the term in one of two symbols.
 `gen k` is `k + 1` of them in a row, which relates every term to its
-`2 ^ (k + 1)` wrappings, all different. The query follows `gen k` by `@q`,
-which no wrapped term is. There are no definitions and no theory, and the
-query has no answers. -/
+`2 ^ (k + 1)` wrappings, all different. `gen k ; @q` follows it by a test
+that no wrapped term passes, so it has no answers; the query is that beside
+`@a`, whose one answer `a -> a` is the target. There are no definitions and
+no theory. -/
 
 /-- `$x -> (f $x)`. -/
 def wrap (f : Sym) : Span := ⟨.var 0, .app (.sym f) (.var 0), []⟩
@@ -48,9 +63,12 @@ def gen : Nat → Rel
   | 0 => bit
   | k + 1 => .seq bit (gen k)
 
-def sepRel (k : Nat) : Rel := .seq (gen k) (.at_ (.sym "q"))
+def sepRel (k : Nat) : Rel := .or (.at_ (.sym "a")) (.seq (gen k) (.at_ (.sym "q")))
 
 def sepFam (k : Nat) : Program × Rel := (⟨[], []⟩, sepRel k)
+
+/-- The pair the answer `a -> a` relates. -/
+def sepTarget : PRel := {(.sym "a", .sym "a")}
 
 namespace Obligation
 
@@ -90,10 +108,12 @@ def simulates : Prop := Simulates R003.costed costed fun c _ => 7 * c
 
 /-! ### Exponentially better on a family -/
 
-/-- On `sepFam k`, R004 halts within `1000 (k + 2)` ticks, and R003 has paid
-at least `2 ^ k` whenever it has halted. -/
+/-- On `sepFam k`, an input of size at most `12 (k + 2)`, R004 has covered
+the pair `(a, a)` within `1000 (k + 2)` ticks, and R003 has paid at least
+`2 ^ k` at any step at which it has covered it. -/
 def separates : Prop :=
-  Separates R003.costed costed sepFam (fun k => 2 ^ k) fun k => 1000 * (k + 2)
+  Separates R003.costed costed sepFam (fun _ => sepTarget) (fun k => 12 * (k + 2))
+    (fun k => 2 ^ k) fun k => 1000 * (k + 2)
 
 end Obligation
 

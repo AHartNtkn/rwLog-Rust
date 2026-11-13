@@ -492,3 +492,67 @@ new axiom.
 
 /-- info: 'RwLog.R003.separates_exhaustion' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.R003.separates_exhaustion
+
+/-! ## R004: the unfolding race pruned from the right -/
+
+/-- info: 'RwLog.R004.walkR_val' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R004.walkR_val
+
+/-- info: 'RwLog.R004.norm_of_not_mem_WR' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R004.norm_of_not_mem_WR
+
+/-- info: 'RwLog.R004.pruned_exact' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R004.pruned_exact
+
+/-- info: 'RwLog.R004.unfolder_ticks' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R004.unfolder_ticks
+
+/-- info: 'RwLog.R004.unfolder_exact' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R004.unfolder_exact
+
+/-- info: 'RwLog.R004.runtime_eq' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R004.runtime_eq
+
+/-- info: 'RwLog.R004.sound' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R004.sound
+
+/-- info: 'RwLog.R004.complete' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R004.complete
+
+/-- info: 'RwLog.R004.honest_exhaustion' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R004.honest_exhaustion
+
+/-- info: 'RwLog.R004.simulates' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R004.simulates
+
+/-! ## R004: the separation -/
+
+/-- info: 'RwLog.R004.Sep.norm_gen' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R004.Sep.norm_gen
+
+/-- info: 'RwLog.R004.Sep.walk_gen' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R004.Sep.walk_gen
+
+/-- info: 'RwLog.R004.Sep.onDemand_ge' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R004.Sep.onDemand_ge
+
+/-- info: 'RwLog.R004.Sep.shared_ge' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R004.Sep.shared_ge
+
+/-- info: 'RwLog.R004.Sep.r003_first' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R004.Sep.r003_first
+
+/-- info: 'RwLog.R004.Sep.pruned_g0' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R004.Sep.pruned_g0
+
+/-- info: 'RwLog.R004.Sep.unfolder_g0' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R004.Sep.unfolder_g0
+
+/-- info: 'RwLog.R004.Sep.round_st0' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R004.Sep.round_st0
+
+/-- info: 'RwLog.R004.Sep.costed_first' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R004.Sep.costed_first
+
+/-- info: 'RwLog.R004.separates' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R004.separates

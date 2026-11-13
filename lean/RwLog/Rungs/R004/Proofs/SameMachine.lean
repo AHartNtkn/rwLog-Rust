@@ -16,6 +16,7 @@ costs R004 no more than it costs R003 (`Tabled.spent_le_of_skips`). One call
 of R004's unfolder costs at most 7 times R003's (`unfolder_ticks`), and so
 does a run (`simulates`).
 -/
+import RwLog.Rungs.Framework.Latency
 import RwLog.Rungs.R004.Proofs.PrunedExact
 import RwLog.Rungs.R003.Proofs.Same
 
@@ -97,7 +98,7 @@ theorem spent_le (n : Nat) (st : R001.State) :
   Tabled.spent_le_of_skips unfolder_skips (by omega) unfolder_ticks_le n st
 
 theorem simulates : Obligation.simulates := by
-  intro P q _ n
+  refine Simulates.of_steps fun P q _ n => ?_
   have hc : costed.runtime = R001.runtime := runtime_eq
   have hb : R003.costed.runtime = R001.runtime := R003.runtime_eq
   refine ⟨n, spent_le n _, ?_, ?_⟩
