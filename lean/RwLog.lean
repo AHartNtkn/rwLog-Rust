@@ -64,3 +64,4 @@ import RwLog.Sorts.Trusted
 import RwLog.Sorts.UniqueExcl
 import RwLog.Sorts.Gaps
 import RwLog.Sorts.WF
+import RwLog.Sorts.Count
