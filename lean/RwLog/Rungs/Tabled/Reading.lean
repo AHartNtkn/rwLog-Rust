@@ -13,7 +13,7 @@ import RwLog.Rungs.Tabled.Gen
 import RwLog.Rungs.Tabled.Machine
 import RwLog.Rungs.Framework.TraverseStd
 import RwLog.Rungs.Framework.Cost
-import RwLog.Rungs.R001.Proofs.SymmetryGoals
+import RwLog.Rungs.Tabled.Base.Proofs.SymmetryGoals
 
 namespace RwLog
 

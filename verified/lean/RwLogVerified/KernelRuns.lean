@@ -13,7 +13,7 @@ polynomials in the distinct subterms with large constants (the bound for
 solving is cubic), so on small spans they are far above the sizes.
 -/
 import RwLogVerified.Kernel
-import RwLog.Rungs.R002.Gen
+import RwLog.Rungs.R005.Unfolder.R002.Gen
 
 namespace RwLogVerified.Tests
 

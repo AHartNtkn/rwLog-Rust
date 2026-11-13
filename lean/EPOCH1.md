@@ -1,6 +1,6 @@
 # Epoch 1 of the ladder
 
-The git tag `epoch-1` is the last commit at which rungs R000 to R005 all build
+The git tag `epoch-1` (commit `7909828`) is the last commit at which rungs R000 to R005 all build
 together, with every theorem named below proved and listed in
 `AxiomAudit.lean` (three standard axioms only, `lake build --wfail`). The
 commit after it removes R000 to R004 from the build. This file says what the

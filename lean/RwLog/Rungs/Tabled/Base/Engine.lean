@@ -1,0 +1,364 @@
+/-
+# Rung R001: the proper baseline
+
+R001 evaluates *goals*. A goal `⟨lb, e, rb⟩` is the relation `lb ; e ; rb`,
+where `e` is a sub-expression of the query or of a definition body and the
+optional boundaries `lb`, `rb` are interface spans `p {c} -> p` (identities
+restricted to the instances of `p` that satisfy `c`). Every goal gets a
+table, and goals are identified up to equivalent boundaries, so recursive
+calls with the same boundaries share one table (variant tabling).
+
+## Rounds
+
+The machine works in rounds, and one step is one round. In a round every
+incomplete table recomputes its candidate answers from the answers all
+tables held at the start of the round, then all tables are updated at once.
+Nothing inside a round depends on the order of tables or of answers, which
+is what makes the trace independent of the order of `|` branches and makes
+the mirrored program's trace the mirror of this one, step for step. Each
+step emits the answers the root table gained in that round.
+
+## What a goal computes
+
+* `zero`: nothing. A span: `lb ; s ; rb`, by matching.
+* `a | b`, a call, a converse: the answers of the sub-goal(s), with
+  boundaries pushed in unchanged (swapped through a converse). A goal whose
+  expression is a converse is stored as the converse of the swapped goal.
+* `a ; b` and `a & b` run three strategies side by side:
+  - *join*: combine every answer of the left sub-goal with every answer of
+    the right one (`;` composes, `&` meets). The left sub-goal of
+    `lb ; (a ; b) ; rb` is `lb ; a`, the right one `b ; rb`; for `&` both
+    keep both boundaries.
+  - *push left*: once the left sub-goal is complete, take each of its
+    maximal answers `x`, and run the right side with `x`'s interface pushed
+    in as a boundary (`x ; b ; rb` becomes `x ; (x.rightIface ; b ; rb)`).
+  - *push right*: the mirror image.
+  This is boundary pushing (`@t ; R` follows `R` under the boundary `t`) and
+  finite-side propagation for both `;` and `&`, with no preferred direction.
+
+Candidates are simplified before they enter a table (`Theory.simplify`):
+every equation the theory forces on a candidate's store instantiates the
+whole candidate, and a candidate whose store the theory refutes
+(`Theory.refutes?`) is dropped. Stores are kept as written: what the theory
+derives from them is recomputed by a monotone closure, so syntactic coverage
+between stores is kept by simplification. A candidate is also dropped when it is
+covered by an answer already in the table or strictly covered by another
+candidate of the same round; among equivalent candidates one is kept. So
+tables, and the answers the root emits, hold no refuted, duplicate or
+subsumed answers.
+
+## Completion
+
+A table is complete when its answers can no longer grow. At the end of a
+round the machine computes the largest set `S` of incomplete tables such
+that each table in `S` gained nothing this round and has a strategy all of
+whose dependencies existed at the start of the round, gained nothing, and
+are complete or in `S`. Every table in `S` is then marked complete. This is
+an exact check on the whole state, not a counter. When every table stops
+changing, `S` contains all of them, so the machine never stalls.
+-/
+import RwLog.Kernel.Refute
+import RwLog.Kernel.Iface
+import RwLog.Kernel.Canon
+import RwLog.Kernel.Live
+import RwLog.Kernel.Maxima
+import RwLog.Lib.Gfp
+import RwLog.Rungs.Naive.Engine
+
+namespace RwLog
+
+namespace R001
+
+/-- The goal `lb ; e ; rb`, for any type of spans. -/
+structure GoalOf (S : Type) where
+  lb : Option S
+  e : RelOf S
+  rb : Option S
+  deriving DecidableEq, Repr
+
+/-- The goals of the language. -/
+abbrev Goal := GoalOf Span
+
+/-- Boundaries are equal as table keys when they are equivalent. -/
+def boundEq : Option Span → Option Span → Bool
+  | none, none => true
+  | some a, some b => a.covers? b && b.covers? a
+  | _, _ => false
+
+/-- Goals are equal as table keys: the same expression and equivalent
+boundaries. -/
+def GoalOf.same (g h : Goal) : Bool := decide (g.e = h.e) && boundEq g.lb h.lb && boundEq g.rb h.rb
+
+/-- The mirror image of a goal: `(lb ; e ; rb)ᵒ = rbᵒ ; eᵒ ; lbᵒ`. -/
+def GoalOf.dual (g : Goal) : Goal := ⟨g.rb.map Span.swap, g.e.dual, g.lb.map Span.swap⟩
+
+/-! ### Canonical expressions
+
+`|` is associative, commutative and idempotent, with `0` as unit, on the
+nose, so goals are keyed by a canonical form: every `|` nest is flattened into
+its branches, `0` branches are dropped, the branches are sorted by a fixed
+linear order and deduplicated, and the result is rebuilt right-nested. Goals
+that differ only in how their `|` branches are ordered or grouped then share
+one table, and a `|` goal reads all its branches directly (`orLeaves`), so
+neither the order nor the grouping of branches, nor how a mirrored run sorts
+them, changes when an answer arrives. The canonical form (`canon`) is an
+operation of the kernel and is defined in `Kernel/Canon.lean`. -/
+
+/-- Strip converses from a canonical expression. -/
+def GoalOf.stripConv : Goal → Bool × Goal
+  | ⟨lb, .conv a, rb⟩ =>
+    let r := GoalOf.stripConv ⟨rb.map Span.swap, a, lb.map Span.swap⟩
+    (!r.1, r.2)
+  | g => (false, g)
+termination_by g => sizeOf g.e
+
+/-- The table key of a goal: `norm g = (flip, g')` with `g'` canonical, not a
+converse, and `g` the converse of `g'` when `flip` holds. -/
+def GoalOf.norm (g : Goal) : Bool × Goal := GoalOf.stripConv ⟨g.lb, canon g.e, g.rb⟩
+
+/-- The expression `lb ; e ; rb` of a goal. -/
+def GoalOf.rel {S : Type} (g : GoalOf S) : RelOf S :=
+  let core := match g.rb with
+    | none => g.e
+    | some r => .seq g.e (.span r)
+  match g.lb with
+  | none => core
+  | some l => .seq (.span l) core
+
+/-- A table: a goal, the answers found so far, and whether it is complete. -/
+structure TableOf (S : Type) where
+  goal : GoalOf S
+  answers : List S
+  done : Bool
+  deriving Repr
+
+abbrev Table := TableOf Span
+
+abbrev TablesOf (S : Type) := List (TableOf S)
+
+abbrev Tables := TablesOf Span
+
+/-- The table of a goal whose expression is not a converse. -/
+def findTable (ts : Tables) (g : Goal) : Option Table :=
+  List.find? (fun t => t.goal.same g) ts
+
+/-- The position of the table of a goal whose expression is not a
+converse. -/
+def indexOf (ts : Tables) (g : Goal) : Option Nat :=
+  List.findIdx? (fun t => t.goal.same g) ts
+
+def orient (flip : Bool) (xs : List Span) : List Span := if flip then xs.map Span.swap else xs
+
+/-- The answers a goal currently has. -/
+def answersOf (ts : Tables) (g : Goal) : List Span :=
+  let n := g.norm
+  match findTable ts n.2 with
+  | some t => orient n.1 t.answers
+  | none => []
+
+/-- The goal's table exists and is complete. -/
+def doneOf (ts : Tables) (g : Goal) : Bool :=
+  match findTable ts g.norm.2 with
+  | some t => t.done
+  | none => false
+
+/-! ## Kernel steps with pruning -/
+
+/-- `lb ; s ; rb`. -/
+def spanAnswer (T : Theory) (lb : Option Span) (s : Span) (rb : Option Span) : List Span :=
+  let left : Option Span := match lb with
+    | none => some s
+    | some l => l.compose s
+  let both : Option Span := left.bind fun s' => match rb with
+    | none => some s'
+    | some r => s'.compose r
+  match both with
+  | some z => live T z
+  | none => []
+
+/-! ## Goals: sub-goals, candidates and strategies -/
+
+/-- The sub-goals of a sequence `lb ; (a ; b) ; rb`. -/
+def seqLeft {S : Type} (g : GoalOf S) (a : RelOf S) : GoalOf S := ⟨g.lb, a, none⟩
+def seqRight {S : Type} (g : GoalOf S) (b : RelOf S) : GoalOf S := ⟨none, b, g.rb⟩
+
+/-- The goal the push-left strategy runs for a left answer `x`, and the
+mirror one for a right answer `y`. -/
+def seqPushL (g : Goal) (b : Rel) (x : Span) : Goal := ⟨bound x.rightIface, b, g.rb⟩
+def seqPushR (g : Goal) (a : Rel) (y : Span) : Goal := ⟨g.lb, a, bound y.leftIface⟩
+
+/-- The sub-goals of a conjunction `lb ; (a & b) ; rb`. -/
+def andLeft {S : Type} (g : GoalOf S) (a : RelOf S) : GoalOf S := ⟨g.lb, a, g.rb⟩
+def andRight {S : Type} (g : GoalOf S) (b : RelOf S) : GoalOf S := ⟨g.lb, b, g.rb⟩
+
+/-- The goal a conjunction runs for an answer `x` of one side. -/
+def andPush (e : Rel) (x : Span) : Goal := ⟨bound x.leftIface, e, bound x.rightIface⟩
+
+/-- The goal a call or converse forwards to. -/
+def callGoal {S : Type} (P : ProgramOf S) (g : GoalOf S) (n : Name) : GoalOf S :=
+  ⟨g.lb, P.body n, g.rb⟩
+def convGoal (g : Goal) (a : Rel) : Goal := ⟨g.rb.map Span.swap, a, g.lb.map Span.swap⟩
+
+/-- The unfolding strategy, raced by every goal: unfold the calls of
+`lb ; e ; rb` to depth `d` and normalize, as rung zero does. When no product
+is left with a call, its spans are every answer of the goal, and the goal can
+complete through this strategy with no dependencies. So every goal rung zero
+finishes, R001 finishes too, whether or not its halves terminate on their
+own. -/
+def unfoldFinal (P : Program) (d : Nat) (g : Goal) : Bool := R000.roundFinal P g.rel d
+
+def unfoldAnswers (P : Program) (d : Nat) (g : Goal) : List Span :=
+  if unfoldFinal P d g then (R000.roundSpans P g.rel d).flatMap (live P.theory) else []
+
+/-- The goals a `|` goal reads: one for each branch of its whole `|` nest, so
+no table sits between a `|` goal and its branches, and how the nest is
+grouped never delays a branch. -/
+def orLeaves {S : Type} (g : GoalOf S) (a b : RelOf S) : List (GoalOf S) :=
+  (orBranches (.or a b)).map fun c => ⟨g.lb, c, g.rb⟩
+
+/-- The candidate answers of a goal, computed from the tables at the start of
+a round at unfolding depth `d`, and the goals it needs. -/
+def produce (P : Program) (d : Nat) (ts : Tables) (g : Goal) : List Span × List Goal :=
+  let r := produceStrategies P ts g
+  (unfoldAnswers P d g ++ r.1, r.2)
+where
+  /-- The candidates of the strategies that read other tables. -/
+  produceStrategies (P : Program) (ts : Tables) (g : Goal) : List Span × List Goal :=
+  let T := P.theory
+  match g.e with
+  | .zero => ([], [])
+  | .span s => (spanAnswer T g.lb s g.rb, [])
+  | .or a b =>
+    let gs := orLeaves g a b
+    (gs.flatMap (answersOf ts), gs)
+  | .call n =>
+    let gb := callGoal P g n
+    (answersOf ts gb, [gb])
+  | .conv a =>
+    let g' := convGoal g a
+    ((answersOf ts g').map Span.swap, [g'])
+  | .seq a b =>
+    let L := seqLeft g a
+    let R := seqRight g b
+    let xs := answersOf ts L
+    let ys := answersOf ts R
+    let join := xs.flatMap fun x => ys.flatMap fun y => composeLive T x y
+    let pl := if doneOf ts L then (maxima xs).map fun x => (x, seqPushL g b x) else []
+    let pr := if doneOf ts R then (maxima ys).map fun y => (y, seqPushR g a y) else []
+    (join ++ pl.flatMap (fun p => (answersOf ts p.2).flatMap fun y => composeLive T p.1 y)
+          ++ pr.flatMap (fun p => (answersOf ts p.2).flatMap fun x => composeLive T x p.1),
+     [L, R] ++ pl.map Prod.snd ++ pr.map Prod.snd)
+  | .and a b =>
+    let L := andLeft g a
+    let R := andRight g b
+    let xs := answersOf ts L
+    let ys := answersOf ts R
+    let join := xs.flatMap fun x => ys.flatMap fun y => meetLive T x y
+    let pl := if doneOf ts L then (maxima xs).map fun x => (x, andPush b x) else []
+    let pr := if doneOf ts R then (maxima ys).map fun y => (y, andPush a y) else []
+    (join ++ pl.flatMap (fun p => (answersOf ts p.2).flatMap fun y => meetLive T p.1 y)
+          ++ pr.flatMap (fun p => (answersOf ts p.2).flatMap fun x => meetLive T x p.1),
+     [L, R] ++ pl.map Prod.snd ++ pr.map Prod.snd)
+
+/-- The strategies of a goal at unfolding depth `d`, each given by the goals
+it depends on. The goal may complete through any one of them. -/
+def strategies (P : Program) (d : Nat) (ts : Tables) (g : Goal) : List (List Goal) :=
+  (if unfoldFinal P d g then [[]] else []) ++ tableStrategies P ts g
+where
+  /-- The strategies that read other tables. -/
+  tableStrategies (P : Program) (ts : Tables) (g : Goal) : List (List Goal) :=
+  match g.e with
+  | .zero => [[]]
+  | .span _ => [[]]
+  | .or a b => [orLeaves g a b]
+  | .call n => [[callGoal P g n]]
+  | .conv a => [[convGoal g a]]
+  | .seq a b =>
+    let L := seqLeft g a
+    let R := seqRight g b
+    [[L, R]]
+      ++ (if doneOf ts L then [L :: (maxima (answersOf ts L)).map (seqPushL g b)] else [])
+      ++ (if doneOf ts R then [R :: (maxima (answersOf ts R)).map (seqPushR g a)] else [])
+  | .and a b =>
+    let L := andLeft g a
+    let R := andRight g b
+    [[L, R]]
+      ++ (if doneOf ts L then [L :: (maxima (answersOf ts L)).map (andPush b)] else [])
+      ++ (if doneOf ts R then [R :: (maxima (answersOf ts R)).map (andPush a)] else [])
+
+/-! ## One round -/
+
+/-- The tables that complete at the end of a round. `ts` is the state at the
+start of the round and `ts'` the state after this round's answers were
+added. -/
+def completing (P : Program) (d : Nat) (ts ts' : Tables) : List Nat :=
+  let n := ts.length
+  let gained (j : Nat) : Bool := decide ((ts'.getD j ⟨⟨none, .zero, none⟩, [], false⟩).answers.length
+    ≠ (ts.getD j ⟨⟨none, .zero, none⟩, [], false⟩).answers.length)
+  let isDone (j : Nat) : Bool := (ts.getD j ⟨⟨none, .zero, none⟩, [], false⟩).done
+  let S0 := (List.range n).filter fun i => !isDone i && !gained i
+  let ok (S : List Nat) (i : Nat) : Bool :=
+    (strategies P d ts (ts.getD i ⟨⟨none, .zero, none⟩, [], false⟩).goal).any fun deps =>
+      deps.all fun d =>
+        match indexOf ts d.norm.2 with
+        | none => false
+        | some j => !gained j && (isDone j || S.contains j)
+  gfpFrom ok S0.length S0
+
+/-- The machine state: the program, the tables (the root first), whether
+the query is the converse of the root goal, and the number of rounds run,
+which is the unfolding depth of the unfolding strategy. -/
+structure StateOf (S : Type) where
+  P : ProgramOf S
+  tables : TablesOf S
+  rootFlip : Bool
+  depth : Nat
+
+abbrev State := StateOf Span
+
+/-- One round. Returns the new state and the answers the root gained. -/
+def round (st : State) : State × List Span :=
+  let ts := st.tables
+  let outs := ts.map fun t => if t.done then ([], []) else produce st.P st.depth ts t.goal
+  let ts1 : Tables := (ts.zip outs).map fun p => { p.1 with answers := p.1.answers ++ fresh p.1.answers p.2.1 }
+  let reqs := (outs.flatMap Prod.snd).map fun g => g.norm.2
+  let newGoals := reqs.foldl
+    (fun acc g => if ts.any (fun t => t.goal.same g) || acc.any (fun h => h.same g) then acc else acc ++ [g]) []
+  let S := completing st.P st.depth ts ts1
+  let ts2 : Tables := ts1.mapIdx fun i t => if S.contains i then { t with done := true } else t
+  let ts3 : Tables := ts2 ++ newGoals.map fun g => ⟨g, [], false⟩
+  let rootNew := match ts.head?, ts1.head? with
+    | some t, some t' => t'.answers.drop t.answers.length
+    | _, _ => []
+  (⟨st.P, ts3, st.rootFlip, st.depth + 1⟩, orient st.rootFlip rootNew)
+
+/-- The state for a goal: its table alone. -/
+def StateOf.ofGoal (P : Program) (g : Goal) : State :=
+  let n := g.norm
+  ⟨P, [⟨n.2, [], false⟩], n.1, 0⟩
+
+/-- The root table is complete. -/
+def StateOf.finished {S : Type} (st : StateOf S) : Bool :=
+  match st.tables.head? with
+  | some t => t.done
+  | none => true
+
+def step (st : State) : Step State :=
+  if st.finished then .done else
+  let r := round st
+  .emit r.2 r.1
+
+def runtime : Runtime where
+  State := State
+  init P q := StateOf.ofGoal P ⟨none, q, none⟩
+  step := step
+
+/-- Rung R001: no preprocessing, an empty artifact store, and the tabled
+round machine. -/
+def rung : Rung where
+  pre := Preprocessor.id
+  rt := runtime
+
+end R001
+
+end RwLog

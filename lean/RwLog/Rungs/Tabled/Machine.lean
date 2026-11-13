@@ -1,7 +1,7 @@
 /-
 # The tabled round machine as a charged computation
 
-This is rung R001's machine (`RwLog.R001`, see `Rungs/R001/Engine.lean` for
+This is rung R001's machine (`RwLog.R001`, see `Rungs/Tabled/Base/Engine.lean` for
 what it does and why) written in the cost monad, definition for definition, so
 that its cost is the cost of the kernel operations it performs. It is the
 engine of `Gen.lean`, which is written against an arbitrary kernel and so
@@ -12,7 +12,7 @@ a goal and a depth, whether the goal's unfolding to that depth is final and,
 if it is, what its answers are. Each incomplete table asks the oracle once per
 round.
 
-Two oracles are given in `Rungs/R002/Unfold.lean`: R001's own way of computing the
+Two oracles are given in `Rungs/R005/Unfolder/R002/Unfold.lean`: R001's own way of computing the
 answer, and R002's. Because both go through this one machine, they are charged
 the same for everything else.
 
@@ -21,7 +21,7 @@ and the coverage tests on their boundaries; bringing a goal to its table key
 is charged by the size of the goal.
 -/
 import RwLog.Trusted.Cost
-import RwLog.Rungs.R001.Engine
+import RwLog.Rungs.Tabled.Base.Engine
 
 namespace RwLog
 

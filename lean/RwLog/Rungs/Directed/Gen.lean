@@ -1,7 +1,7 @@
 /-
 # Goal-directed tables, written against the kernel
 
-The tabled round machine (`Rungs/R001/Engine.lean`) evaluates the two factors
+The tabled round machine (`Rungs/Tabled/Base/Engine.lean`) evaluates the two factors
 of a sequence `lb ; (a ; b) ; rb` on their own and joins their answers, and
 pushes the answers of one factor into the other only once that factor is
 complete. So a factor that nothing restricts is evaluated in full, however
