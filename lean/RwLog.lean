@@ -67,5 +67,6 @@ import RwLog.Rungs.R001.Proofs.SymmetryProduce
 import RwLog.Rungs.R001.Proofs.SymmetryRound
 import RwLog.Trusted.Cost
 import RwLog.Kernel.Chain
+import RwLog.Kernel.Size
 import RwLog.Rungs.Framework.Cost
 import RwLog.Rungs.R002.Spec
