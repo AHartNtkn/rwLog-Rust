@@ -39,13 +39,13 @@ theorem unifies_congr {E : Eqns Nat} {σ σ' : Nat → GTerm}
     Term.bind_congr fun v hv => h p hp v (List.mem_append_right _ hv)
   rw [← e₁, ← e₂]; exact hu p hp
 
-namespace NormalBinds
+namespace Pre
 
-variable {S : Sorts} {r : Raw} {θ θ' : Binds}
+variable {k : Nat} {θ : Binds}
 
 /-- The variables of the value of a variable under a normal exclusion are
 free. -/
-theorem apply_free (hθ : NormalBinds S r θ) (v : Nat) :
+theorem apply_free (hθ : Pre k θ) (v : Nat) :
     ∀ y ∈ (PSubst.apply θ v).vars, ∀ b ∈ θ, b.1 ≠ y := by
   intro y hy
   rcases apply_cases θ v with e | hm
@@ -57,8 +57,8 @@ theorem apply_free (hθ : NormalBinds S r θ) (v : Nat) :
     exact (hθ.ran b hb b.1 (by simp [hb2, Term.vars])).2 b hb rfl
   · exact (hθ.ran _ hm y hy).2
 
-theorem apply_lt (hθ : NormalBinds S r θ) {v : Nat} (hv : v < r.c.length) :
-    ∀ y ∈ (PSubst.apply θ v).vars, y < r.c.length := by
+theorem apply_lt (hθ : Pre k θ) {v : Nat} (hv : v < k) :
+    ∀ y ∈ (PSubst.apply θ v).vars, y < k := by
   intro y hy
   rcases apply_cases θ v with e | hm
   · rw [e] at hy
@@ -66,12 +66,12 @@ theorem apply_lt (hθ : NormalBinds S r θ) {v : Nat} (hv : v < r.c.length) :
     subst hy; exact hv
   · exact (hθ.ran _ hm y hy).1
 
-theorem apply_fo (hθ : NormalBinds S r θ) (v : Nat) : (PSubst.apply θ v).firstOrder = true := by
+theorem apply_fo (hθ : Pre k θ) (v : Nat) : (PSubst.apply θ v).firstOrder = true := by
   rcases apply_cases θ v with e | hm
   · rw [e]; rfl
   · exact hθ.fo _ hm
 
-theorem apply_ge (hθ : NormalBinds S r θ) {v : Nat} (hv : r.c.length ≤ v) :
+theorem apply_ge (hθ : Pre k θ) {v : Nat} (hv : k ≤ v) :
     PSubst.apply θ v = .var v :=
   apply_of_not_mem fun b hb e => by have := hθ.dom b hb; omega
 
@@ -79,6 +79,12 @@ theorem apply_ge (hθ : NormalBinds S r θ) {v : Nat} (hv : r.c.length ≤ v) :
 theorem bind_apply_of_free {q : Pat} (h : ∀ y ∈ q.vars, ∀ b ∈ θ, b.1 ≠ y) (τ : Nat → GTerm) :
     q.bind (fun v => (PSubst.apply θ v).bind τ) = q.bind τ :=
   Term.bind_congr fun y hy => by rw [apply_of_not_mem (h y hy)]; rfl
+
+end Pre
+
+namespace NormalBinds
+
+variable {S : Sorts} {r : Raw} {θ θ' : Binds}
 
 open Classical in
 /-- The declared sorts that hold of every value a variable takes among the
@@ -117,7 +123,7 @@ theorem rect (hθ : NormalBinds S r θ) {τ : Nat → GTerm}
       by_contra hn'
       have := mem_false_of_not_names hn' (σb a.1)
       rw [hmem σb hσb] at this; cases this
-  · exact (bind_apply_of_free (hθ.apply_free v) τ).symm
+  · exact (Pre.bind_apply_of_free (hθ.apply_free v) τ).symm
 
 /-- A free variable of a normal exclusion takes infinitely many values. -/
 theorem up_infinite (hS : S.WellFormed) (hθ : NormalBinds S r θ) {y : Nat} (hy : y < r.c.length)
@@ -224,7 +230,7 @@ theorem apply_eq_of_subset (hS : S.WellFormed) (hθ : NormalBinds S r θ)
             exact hθ.apply_lt (hθ'.apply_lt hx z hz) v hvz
         · intro hu
           have := hu _ (List.mem_singleton.2 rfl)
-          rw [bind_apply_of_free hfree₁, bind_apply_of_free hfree₂] at this
+          rw [Pre.bind_apply_of_free hfree₁, Pre.bind_apply_of_free hfree₂] at this
           exact hτ₁ this)
     apply hσX _ (List.mem_singleton.2 rfl)
     intro p hp
@@ -320,9 +326,9 @@ theorem x_subset (hS : S.WellFormed) {t t' : Pat} {c : List Conj} {x x' : List B
     (hsol : (Raw.store ⟨t, c, x⟩).Sol S = (Raw.store ⟨t', c, x'⟩).Sol S) :
     ∀ θ' ∈ x', θ' ∈ x := by
   have tr : ∀ {θ : Binds}, NormalBinds S ⟨t', c, x'⟩ θ → NormalBinds S ⟨t, c, x⟩ θ :=
-    fun h => ⟨h.ne, h.sorted, h.dom, h.fo, h.ran, h.later, h.live, h.loose⟩
+    fun h => ⟨h.toPre, h.ne, h.live, h.loose⟩
   have tr' : ∀ {θ : Binds}, NormalBinds S ⟨t, c, x⟩ θ → NormalBinds S ⟨t', c, x'⟩ θ :=
-    fun h => ⟨h.ne, h.sorted, h.dom, h.fo, h.ran, h.later, h.live, h.loose⟩
+    fun h => ⟨h.toPre, h.ne, h.live, h.loose⟩
   -- what an exclusion of one store removes is covered by the exclusions of the other
   have cover : ∀ {u u' : Pat} {y y' : List Binds},
       (Raw.store ⟨u, c, y⟩).Sol S = (Raw.store ⟨u', c, y'⟩).Sol S → ∀ θ' ∈ y',

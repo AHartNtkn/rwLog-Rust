@@ -73,14 +73,18 @@ def FirstOcc (L : List Nat) : Prop :=
 def bindsCmp (a b : Binds) : Ordering :=
   listCmp patCmp (a.map fun p => Term.app (.var p.1) p.2) (b.map fun p => Term.app (.var p.1) p.2)
 
-/-- An exclusion of a raw store is in normal form. -/
-structure NormalBinds (S : Sorts) (r : Raw) (θ : Binds) : Prop where
-  ne : θ ≠ []
+/-- The part of a normal exclusion that is syntax: over the variables below
+`k`, solved, idempotent, with an alias binding the later variable. -/
+structure Pre (k : Nat) (θ : Binds) : Prop where
   sorted : θ.Pairwise fun a b => a.1 < b.1
-  dom : ∀ b ∈ θ, b.1 < r.c.length
+  dom : ∀ b ∈ θ, b.1 < k
   fo : ∀ b ∈ θ, b.2.firstOrder = true
-  ran : ∀ b ∈ θ, ∀ v ∈ b.2.vars, v < r.c.length ∧ ∀ b' ∈ θ, b'.1 ≠ v
+  ran : ∀ b ∈ θ, ∀ v ∈ b.2.vars, v < k ∧ ∀ b' ∈ θ, b'.1 ≠ v
   later : ∀ b ∈ θ, ∀ y, b.2 = .var y → y < b.1
+
+/-- An exclusion of a raw store is in normal form. -/
+structure NormalBinds (S : Sorts) (r : Raw) (θ : Binds) : Prop extends Pre r.c.length θ where
+  ne : θ ≠ []
   live : (r.Ex S θ).Nonempty
   loose : ∀ y, y < r.c.length → (∀ b ∈ θ, b.1 ≠ y) → ∃ σ ∈ r.Ex S θ, ∃ σ' ∈ r.Ex S θ, σ y ≠ σ' y
 
