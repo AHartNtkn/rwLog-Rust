@@ -261,9 +261,6 @@ new axiom.
 /-- info: 'RwLog.R000.unfoldN_call' does not depend on any axioms -/
 #guard_msgs in #print axioms RwLog.R000.unfoldN_call
 
-/-- info: 'RwLog.Tabled.machine_runtime' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLog.Tabled.machine_runtime
-
 /-- info: 'RwLog.Simulates.of_steps' depends on axioms: [propext] -/
 #guard_msgs in #print axioms RwLog.Simulates.of_steps
 
@@ -272,27 +269,6 @@ new axiom.
 
 /-- info: 'RwLog.CostedRuntime.le_spent_of_covered' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.CostedRuntime.le_spent_of_covered
-
-/-- info: 'RwLog.Cost.race_val' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLog.Cost.race_val
-
-/-- info: 'RwLog.Cost.race_ticks' depends on axioms: [propext, Quot.sound] -/
-#guard_msgs in #print axioms RwLog.Cost.race_ticks
-
-/-- info: 'RwLog.Thins.eraseDups' depends on axioms: [propext, Quot.sound] -/
-#guard_msgs in #print axioms RwLog.Thins.eraseDups
-
-/-- info: 'RwLog.Tabled.fresh_thins' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLog.Tabled.fresh_thins
-
-/-- info: 'RwLog.Tabled.rest_skips' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLog.Tabled.rest_skips
-
-/-- info: 'RwLog.Tabled.machine_runtime_modRepeats' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLog.Tabled.machine_runtime_modRepeats
-
-/-- info: 'RwLog.Tabled.spent_le_of_skips' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLog.Tabled.spent_le_of_skips
 
 /-! ## Lists -/
 
@@ -304,19 +280,7 @@ new axiom.
 
 /-! ## The tabled machine as an engine -/
 
-/-- info: 'RwLog.Tabled.engine_costed' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLog.Tabled.engine_costed
-
 /-! ## Direction: the mirrored machine -/
-
-/-- info: 'RwLog.Cost.race_eq' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLog.Cost.race_eq
-
-/-- info: 'RwLog.Cost.raceCost_le' depends on axioms: [propext, Quot.sound] -/
-#guard_msgs in #print axioms RwLog.Cost.raceCost_le
-
-/-- info: 'RwLog.Cost.winner_le_raceCost' depends on axioms: [propext, Quot.sound] -/
-#guard_msgs in #print axioms RwLog.Cost.winner_le_raceCost
 
 /-- info: 'RwLog.simulates_of_trace' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.simulates_of_trace
@@ -327,106 +291,22 @@ new axiom.
 /-- info: 'RwLog.DirectionFree.of_bisim' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.DirectionFree.of_bisim
 
-/-- info: 'RwLog.Tabled.convBisim' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLog.Tabled.convBisim
-
-/-- info: 'RwLog.Mirror.mirrored_costed' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLog.Mirror.mirrored_costed
-
-/-- info: 'RwLog.Mirror.trace_go' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLog.Mirror.trace_go
-
-/-- info: 'RwLog.Mirror.spent_le' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLog.Mirror.spent_le
-
-/-- info: 'RwLog.Mirror.spent_ge' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLog.Mirror.spent_ge
-
-/-- info: 'RwLog.Mirror.paid_ge_min' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLog.Mirror.paid_ge_min
-
-/-- info: 'RwLog.Mirror.step_pos' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLog.Mirror.step_pos
-
-/-- info: 'RwLog.Mirror.dualBisim' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLog.Mirror.dualBisim
-
-/-- info: 'RwLog.Mirror.convBisim' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLog.Mirror.convBisim
-
-/-- info: 'RwLog.Mirror.directionFree' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLog.Mirror.directionFree
-
-/-- info: 'RwLog.Mirror.simulates' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLog.Mirror.simulates
-
-/-- info: 'RwLog.Mirror.covered_first' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLog.Mirror.covered_first
-
-/-- info: 'RwLog.Mirror.step_from' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLog.Mirror.step_from
-
-/-- info: 'RwLog.Mirror.noSubsumed' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLog.Mirror.noSubsumed
-
-/-- info: 'RwLog.Mirror.keeps' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLog.Mirror.keeps
-
 /-! ## Goal-directed tables and the hedge -/
 
-/-- info: 'RwLog.Directed.engine_costed' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLog.Directed.engine_costed
+/-- info: 'RwLog.gd_normB' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.gd_normB
 
-/-- info: 'RwLog.Directed.emitted_ref' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLog.Directed.emitted_ref
+/-- info: 'RwLog.sem_norm' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.sem_norm
 
-/-- info: 'RwLog.Directed.sound' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLog.Directed.sound
+/-- info: 'RwLog.Valid.join' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Valid.join
 
-/-- info: 'RwLog.Directed.derivationGeneral' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLog.Directed.derivationGeneral
+/-- info: 'RwLog.Valid.meet' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Valid.meet
 
-/-- info: 'RwLog.Hedge.follows_first' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLog.Hedge.follows_first
+/-- info: 'RwLog.Engine.sound' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Engine.sound
 
-/-- info: 'RwLog.Hedge.follows_second' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLog.Hedge.follows_second
-
-/-- info: 'RwLog.Hedge.sound' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLog.Hedge.sound
-
-/-- info: 'RwLog.Hedge.derivationGeneral' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLog.Hedge.derivationGeneral
-
-/-- info: 'RwLog.Hedge.noSubsumed' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLog.Hedge.noSubsumed
-
-/-- info: 'RwLog.Hedge.honest' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLog.Hedge.honest
-
-/-- info: 'RwLog.Hedge.complete' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLog.Hedge.complete
-
-/-- info: 'RwLog.Hedge.terminatesWhere' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLog.Hedge.terminatesWhere
-
-/-- info: 'RwLog.Hedge.emptySide' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLog.Hedge.emptySide
-
-/-- info: 'RwLog.Hedge.step_sim' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLog.Hedge.step_sim
-
-/-- info: 'RwLog.Hedge.convTrace_of' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLog.Hedge.convTrace_of
-
-/-- info: 'RwLog.Hedge.dualTrace_of' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLog.Hedge.dualTrace_of
-
-/-- info: 'RwLog.Hedge.tabled_step_sizes' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLog.Hedge.tabled_step_sizes
-
-/-- info: 'RwLog.Hedge.directed_step_sizes' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLog.Hedge.directed_step_sizes
-
-/-- info: 'RwLog.Hedge.directed_step_pos' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLog.Hedge.directed_step_pos
+/-- info: 'RwLog.Engine.derivationGeneral' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Engine.derivationGeneral

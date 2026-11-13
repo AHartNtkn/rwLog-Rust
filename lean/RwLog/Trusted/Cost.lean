@@ -6,12 +6,12 @@ the trusted statement and not of a submission.
 
 ## Charged computations
 
-`Cost α` is a value together with the number of ticks spent computing it
-(`Trusted/CostMonad.lean`). The operations on spans and what each is charged
-are the charged primitives of `Trusted/Charged.lean`. An engine is written
-against an abstract kernel (`Trusted/Kernel.lean`) and can do nothing to a
-span except through those primitives, so what it spends is fixed by its text
-(`Engine`, below).
+`Cost α` is a value together with the ticks spent computing it and the space
+it used (`Trusted/CostMonad.lean`). The operations on spans, nodes and answers
+and what each is charged are in `Trusted/Charged.lean` and
+`Trusted/Kernel.lean`. An engine is written against an abstract kernel and can
+do nothing to a span, and make no answer, except through those operations, so
+what it spends is fixed by its text (`Engine`, below).
 
 A computation can be run under a budget (`Cost.within`): if it needs no more
 than the budget it is run and charged as usual, and otherwise the whole budget
@@ -127,6 +127,38 @@ def spent : C.State → Nat → Nat
 first state, and the steps. -/
 def paid (P : Program) (q : Rel) (n : Nat) : Nat := (C.init P q).ticks + C.spent (C.start P q) n
 
+/-- The most cells live at one moment of the first `n` steps, above what was
+live when they started. It is the peak of the steps run one after the other
+(`Cost.bind_peak`). -/
+def peakFrom : C.State → Nat → Nat
+  | _, 0 => 0
+  | s, n + 1 =>
+    max (C.step s).peak ((C.step s).held + match (C.step s).val with
+      | .emit _ s' => peakFrom s' n
+      | .done => 0)
+
+/-- The space used on `q` by the end of the first `n` steps: the most cells
+live at one moment, counting the building of the first state. -/
+def space (P : Program) (q : Rel) (n : Nat) : Nat :=
+  max (C.init P q).peak ((C.init P q).held + C.peakFrom (C.start P q) n)
+
+theorem peakFrom_mono (s : C.State) (n : Nat) : C.peakFrom s n ≤ C.peakFrom s (n + 1) := by
+  induction n generalizing s with
+  | zero => exact Nat.zero_le _
+  | succ n ih =>
+    simp only [peakFrom]
+    cases (C.step s).val with
+    | emit _ s' => exact max_le_max le_rfl (Nat.add_le_add_left (ih s') _)
+    | done => exact le_rfl
+
+/-- The space used never shrinks as the run goes on. -/
+theorem space_mono (P : Program) (q : Rel) {n m : Nat} (h : n ≤ m) :
+    C.space P q n ≤ C.space P q m := by
+  induction h with
+  | refl => exact le_rfl
+  | step _ ih =>
+    exact ih.trans (max_le_max le_rfl (Nat.add_le_add_left (C.peakFrom_mono _ _) _))
+
 end CostedRuntime
 
 /-! ## Latency -/
@@ -206,14 +238,16 @@ every answer swapped back: a machine for the original query. -/
 def mirror : CostedRuntime where
   State := C.State
   init P q := C.init P.dual q.dual
-  step s := ⟨(C.step s).val.swap, (C.step s).ticks⟩
+  step s := ⟨(C.step s).val.swap, (C.step s).ticks, (C.step s).peak, (C.step s).held,
+    (C.step s).held_le⟩
 
 /-- `C` run on the converse of the query, with every answer swapped back: a
 machine for the original query. -/
 def conv : CostedRuntime where
   State := C.State
   init P q := C.init P (.conv q)
-  step s := ⟨(C.step s).val.swap, (C.step s).ticks⟩
+  step s := ⟨(C.step s).val.swap, (C.step s).ticks, (C.step s).peak, (C.step s).held,
+    (C.step s).held_le⟩
 
 end CostedRuntime
 
@@ -276,21 +310,60 @@ structure Improves (Old New : CostedRuntime) (b : Bounds) (fam : Nat → Program
 /-! ## Engines
 
 A costed machine that is admitted to the ladder is not written in `Cost`. It
-is written once for every kernel (`Trusted/Kernel.lean`), and its cost is what
-that text spends at the kernel of the language. -/
+is written once for every derivation kernel (`Trusted/Kernel.lean`), and its
+cost is what that text spends at a kernel. It is handed the root node of the
+normal form of the query, and what it emits are answers of the kernel. -/
 
-/-- A machine written against an arbitrary kernel: its states over a type of
-spans, how it builds its first state, and its step. -/
+/-- A machine written against an arbitrary derivation kernel: its states over
+types of spans, nodes and answers, how it builds its first state from the
+root node, and its step. -/
 structure Engine where
-  State : Type → Type
-  init : {S : Type} → {M : Type → Type} → [Kernel S M] → ProgramOf S → RelOf S → M (State S)
-  step : {S : Type} → {M : Type → Type} → [Kernel S M] → State S → M (StepOf S (State S))
+  State : Type → Type → Type → Type
+  init : {S N A : Type} → {M : Type → Type} → [DerivationKernel S N A M] → N → M (State S N A)
+  step : {S N A : Type} → {M : Type → Type} → [DerivationKernel S N A M] →
+    State S N A → M (StepOf A (State S N A))
 
-/-- The engine at the kernel of the language: a machine with its cost. -/
-def Engine.costed (E : Engine) : CostedRuntime where
-  State := E.State Span
-  init := E.init
-  step := E.step
+/-- The state of an engine at a kernel on the spans of the language: the
+program, the root node, and the engine's own state at the derivation kernel
+of that program. -/
+structure Engine.StateAt (E : Engine) where
+  P : Program
+  root : Rel
+  st : E.State Span Rel (Ans P)
+
+/-- The span of an answer of the root goal; nothing for an answer of another
+goal. -/
+def Ans.rootSpan {P : Program} (root : Rel) (a : Ans P) : Option Span :=
+  if a.goal = ⟨none, root, none⟩ then some a.span else none
+
+/-- What the machine reports of a step of the engine: of the answers it
+emits, those of the root goal, as spans, at one tick for each answer looked
+at. -/
+def Engine.report (E : Engine) (P : Program) (root : Rel) :
+    StepOf (Ans P) (E.State Span Rel (Ans P)) → Cost (Step E.StateAt)
+  | .emit as st' => do
+    Cost.tick as.length
+    pure (.emit (as.filterMap (Ans.rootSpan root)) ⟨P, root, st'⟩)
+  | .done => pure .done
+
+/-- The engine at a kernel on the spans of the language that returns what the
+specification kernel returns: a machine with the cost that kernel charges.
+
+Building the first state brings the program and the query to their normal
+form (`Charged.load`) and runs the engine's `init` on the root node. A step
+is the engine's step, reported by `Engine.report`. -/
+def Engine.costedAt (E : Engine) (K : Kernel Span Cost) (hK : K.Refines) : CostedRuntime where
+  State := E.StateAt
+  init P q := do
+    let root ← Charged.load P q
+    let st ← @Engine.init E Span Rel (Ans P) Cost (DerivationKernel.over K hK P) root
+    pure ⟨P, root, st⟩
+  step s :=
+    @Engine.step E Span Rel (Ans s.P) Cost (DerivationKernel.over K hK s.P) s.st >>=
+      E.report s.P s.root
+
+/-- The engine at the specification kernel: a machine with its cost. -/
+def Engine.costed (E : Engine) : CostedRuntime := E.costedAt Kernel.std Kernel.std_refines
 
 /-! ## Whole rungs
 

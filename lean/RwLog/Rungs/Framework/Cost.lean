@@ -21,13 +21,22 @@ namespace Cost
 
 variable {α β : Type}
 
-@[ext] theorem ext {x y : Cost α} (hv : x.val = y.val) (ht : x.ticks = y.ticks) : x = y := by
-  cases x; cases y; cases hv; cases ht; rfl
+@[ext] theorem ext {x y : Cost α} (hv : x.val = y.val) (ht : x.ticks = y.ticks)
+    (hp : x.peak = y.peak) (hh : x.held = y.held) : x = y := by
+  cases x; cases y; cases hv; cases ht; cases hp; cases hh; rfl
+
+@[simp] theorem map_peak (f : α → β) (m : Cost α) : (f <$> m).peak = m.peak :=
+  max_eq_left m.held_le
+
+@[simp] theorem map_held (f : α → β) (m : Cost α) : (f <$> m).held = m.held := rfl
 
 instance : LawfulMonad Cost := LawfulMonad.mk'
-  (id_map := fun _ => rfl)
-  (pure_bind := fun _ _ => Cost.ext rfl (Nat.zero_add _))
-  (bind_assoc := fun _ _ _ => Cost.ext rfl (Nat.add_assoc _ _ _))
+  (id_map := fun x => Cost.ext rfl rfl (map_peak id x) rfl)
+  (pure_bind := fun _ _ => Cost.ext rfl (Nat.zero_add _)
+    (by simp only [bind_peak, pure_peak, pure_held, Nat.zero_add]; exact Nat.max_eq_right (Nat.zero_le _))
+    (Nat.zero_add _))
+  (bind_assoc := fun _ _ _ => Cost.ext rfl (Nat.add_assoc _ _ _)
+    (by simp only [bind_peak, bind_held, bind_val]; omega) (Nat.add_assoc _ _ _))
 
 @[simp] theorem map_val (f : α → β) (m : Cost α) : (f <$> m).val = f m.val := rfl
 @[simp] theorem map_ticks (f : α → β) (m : Cost α) : (f <$> m).ticks = m.ticks := rfl
