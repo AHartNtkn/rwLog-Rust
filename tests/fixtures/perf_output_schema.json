@@ -163,6 +163,8 @@
         "metric",
         "env_compat",
         "env_mismatch_fields",
+        "env_excluded_snapshots",
+        "skipped_reason",
         "window",
         "snapshots_scanned",
         "regressions_over_threshold",
