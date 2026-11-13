@@ -8,9 +8,14 @@ The obligations of the termination group.
   `CertOfHalt.cert_of_halts`).
 * `terminates_finitelyNormalising`: a query rung zero finishes has the
   one-entry certificate whose goal completes by unfolding.
+* `finite_side_seq_left`, `finite_side_seq_right`, `finite_side_and`,
+  `empty_side`: the certificate of the finite side, the certificates of the
+  pushes from its answers, and one entry for the query with the push strategy
+  make a certificate (`Combine.seqL_cert` and its three variants).
 -/
 import RwLog.Rungs.R001.Proofs.CertHalts
 import RwLog.Rungs.R001.Proofs.CertOfHalt
+import RwLog.Rungs.R001.Proofs.CertCombine
 
 namespace RwLog
 
@@ -58,6 +63,72 @@ theorem terminates_finitelyNormalising : Obligation.terminates_finitelyNormalisi
     (cert_of_unfoldFinal hwf.2.2 (goodG_root q) (k := k) ?_)
   rw [Unf.unfoldFinal_key, R000.roundFinal_iff]
   exact hk
+
+/-! ## A finite side -/
+
+section FiniteSide
+
+open Combine
+
+variable {P : Program} (hwf : ∀ ρ ∈ P.theory, ρ.WellFormed)
+include hwf
+
+theorem cert_of_terminates {a : Rel} (h : runtime.Terminates P a) :
+    ∃ C D, Cert.Valid P C D ⟨none, a, none⟩ :=
+  CertOfHalt.cert_of_halts hwf (goodG_root a) ((terminates_iff_goal P a).1 h)
+
+theorem terminates_of_cert {q : Rel} (h : ∃ C D, Cert.Valid P C D ⟨none, q, none⟩) :
+    runtime.Terminates P q :=
+  let ⟨_, _, hC⟩ := h
+  (terminates_iff_goal P q).2 (CertHalts.halts_of_cert hwf (goodG_root q) hC)
+
+theorem seq_left_halts {a b : Rel} (ha : runtime.Terminates P a)
+    (hx : ∀ x ∈ runtime.Answers P a, GoalTerminates P ⟨bound x.rightIface, b, none⟩) :
+    runtime.Terminates P (.seq a b) := by
+  obtain ⟨CL, DL, hCL⟩ := cert_of_terminates hwf ha
+  exact terminates_of_cert hwf (seqL_cert (simpLaws_of_wf hwf) hCL
+    (certs_of_answers hwf hCL (fun x => ⟨bound x.rightIface, b, none⟩)
+      (fun x x' hxe => CertHalts.same_mk _ (iface_equiv x x' hxe).1 rfl)
+      (fun x => goodG_pushL (goodG_root (.seq a b)) b x) hx))
+
+theorem seq_right_halts {a b : Rel} (hb : runtime.Terminates P b)
+    (hy : ∀ y ∈ runtime.Answers P b, GoalTerminates P ⟨none, a, bound y.leftIface⟩) :
+    runtime.Terminates P (.seq a b) := by
+  obtain ⟨CL, DL, hCL⟩ := cert_of_terminates hwf hb
+  exact terminates_of_cert hwf (seqR_cert (simpLaws_of_wf hwf) hCL
+    (certs_of_answers hwf hCL (fun y => ⟨none, a, bound y.leftIface⟩)
+      (fun x x' hxe => CertHalts.same_mk _ rfl (iface_equiv x x' hxe).2)
+      (fun y => goodG_pushR (goodG_root (.seq a b)) a y) hy))
+
+theorem and_halts {a b : Rel} (ha : runtime.Terminates P a)
+    (hx : ∀ x ∈ runtime.Answers P a, GoalTerminates P (andPush b x)) :
+    runtime.Terminates P (.and a b) ∧ runtime.Terminates P (.and b a) := by
+  obtain ⟨CL, DL, hCL⟩ := cert_of_terminates hwf ha
+  have hc := certs_of_answers hwf hCL (andPush b)
+    (fun x x' hxe => CertHalts.same_mk _ (iface_equiv x x' hxe).2 (iface_equiv x x' hxe).1)
+    (fun x => goodG_andPush b x) hx
+  exact ⟨terminates_of_cert hwf (andL_cert (simpLaws_of_wf hwf) hCL hc),
+    terminates_of_cert hwf (andR_cert (simpLaws_of_wf hwf) hCL hc)⟩
+
+end FiniteSide
+
+theorem finite_side_seq_left : Obligation.finite_side_seq_left :=
+  fun _ _ _ hwf ha hx => seq_left_halts hwf.2.2 ha hx
+
+theorem finite_side_seq_right : Obligation.finite_side_seq_right :=
+  fun _ _ _ hwf hb hy => seq_right_halts hwf.2.2 hb hy
+
+theorem finite_side_and : Obligation.finite_side_and :=
+  fun _ _ _ hwf ha hx => and_halts hwf.2.2 ha hx
+
+theorem empty_side : Obligation.empty_side := by
+  intro P a b hwf ha he
+  have hno : ∀ (g : Span → Goal), ∀ x ∈ runtime.Answers P a, GoalTerminates P (g x) := by
+    intro g x hx
+    rw [he] at hx
+    exact absurd hx (Set.notMem_empty x)
+  exact ⟨seq_left_halts hwf.2.2 ha (hno _), seq_right_halts hwf.2.2 ha (hno _),
+    and_halts hwf.2.2 ha (hno _)⟩
 
 end R001
 
