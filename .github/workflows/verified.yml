@@ -1,0 +1,41 @@
+name: Verified Rust
+
+on:
+  push:
+    paths:
+      - "verified/**"
+      - "lean/**"
+      - ".github/workflows/verified.yml"
+  pull_request:
+    paths:
+      - "verified/**"
+      - "lean/**"
+      - ".github/workflows/verified.yml"
+
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: verified/rust
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings
+      - name: Build tests
+        run: cargo test --no-run
+      - name: Run tests
+        run: timeout 10 cargo test
+
+  lean:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: leanprover/lean-action@v1
+        with:
+          lake-package-directory: verified/lean
+          use-mathlib-cache: true
+          build-args: "--wfail"
