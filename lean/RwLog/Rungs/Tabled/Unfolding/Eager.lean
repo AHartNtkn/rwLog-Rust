@@ -314,33 +314,57 @@ theorem meet_step {lb rb : Option R} (hl : IsBound D lb) (hr : IsBound D rb) {n�
     exact ⟨c, List.mem_flatMap.2 ⟨a, ha, List.mem_filterMap.2 ⟨b, hb, hcv⟩⟩, hcs⟩
 
 include hL in
-theorem meet_fold {lb rb : Option R} (hl : IsBound D lb) (hr : IsBound D rb)
-    (A : Rel → List (Ans D P)) (C : Rel → Set GRel) (tl : List Rel) :
-    (∀ x ∈ tl, NotAnd x ∧ MOk lb x rb (C x) (A x)) → ∀ {pre : List Rel}, pre ≠ [] →
-      (∀ x ∈ pre, NotAnd x) → ∀ {C₀ : Set GRel} {acc : List (Ans D P)},
-      MOk lb (mkAnd (sortedParts pre)) rb C₀ acc →
+theorem meet_fold {lb rb : Option R} (hl : IsBound D lb) (hr : IsBound D rb) (C : Rel → Set GRel) :
+    ∀ (tl : List Rel) (As : List (List (Ans D P))),
+      List.Forall₂ (fun x as => MOk lb x rb (C x) as) tl As → (∀ x ∈ tl, NotAnd x) →
+      ∀ {pre : List Rel}, pre ≠ [] → (∀ x ∈ pre, NotAnd x) →
+      ∀ {C₀ : Set GRel} {acc : List (Ans D P)}, MOk lb (mkAnd (sortedParts pre)) rb C₀ acc →
       MOk lb (mkAnd (sortedParts (pre ++ tl))) rb
         (Set.image2 GRel.meet C₀ (RwLog.andAll (tl.map C)))
-        ((tl.map A).foldl (fun acc bs => acc.flatMap fun a => bs.filterMap fun b =>
+        (As.foldl (fun acc bs => acc.flatMap fun a => bs.filterMap fun b =>
           (Ans.meetA D P K hK a b).val) acc) := by
+  intro tl
   induction tl with
   | nil =>
-    intro _ pre _ _ C₀ acc h₀
+    intro As h _ pre _ _ C₀ acc h₀
+    cases h
     simpa [RwLog.andAll, GRel.meet_top] using h₀
   | cons x tl ih =>
-    intro h pre hpre hns C₀ acc h₀
-    have hx := h x (by simp)
-    have h' := meet_step hL K hK hl hr h₀ hx.2
-    rw [andParts_mkAnd (sortedParts_ne_nil hpre)
-        (fun z hz => hns z ((sortedParts_perm _).mem_iff.1 hz)),
-      andParts_notAnd hx.1, sortedParts_eq ((sortedParts_perm pre).append_right [x])] at h'
-    have := ih (fun y hy => h y (List.mem_cons_of_mem _ hy)) (pre := pre ++ [x]) (by simp)
+    intro As h hna pre hpre hns C₀ acc h₀
+    cases h with
+    | cons hx ht =>
+      have hxn := hna x (by simp)
+      have h' := meet_step hL K hK hl hr h₀ hx
+      rw [andParts_mkAnd (sortedParts_ne_nil hpre)
+          (fun z hz => hns z ((sortedParts_perm _).mem_iff.1 hz)),
+        andParts_notAnd hxn, sortedParts_eq ((sortedParts_perm pre).append_right [x])] at h'
+      have := ih _ ht (fun y hy => hna y (List.mem_cons_of_mem _ hy)) (pre := pre ++ [x]) (by simp)
+        (fun y hy => by
+          rcases List.mem_append.1 hy with h'' | h''
+          · exact hns y h''
+          · obtain rfl : y = x := by simpa using h''
+            exact hxn) h'
+      rw [List.append_assoc, image2_meet_assoc] at this
+      exact this
+
+include hL in
+/-- The closed products of a meet from the closed products of its members. -/
+theorem meetAll_mok {lb rb : Option R} (hl : IsBound D lb) (hr : IsBound D rb) {xs : List Rel}
+    (h2 : 2 ≤ xs.length) (hna : ∀ x ∈ xs, NotAnd x) (hs : xs.Pairwise RelLE) (C : Rel → Set GRel)
+    {As : List (List (Ans D P))} (h : List.Forall₂ (fun x as => MOk lb x rb (C x) as) xs As) :
+    MOk lb (mkAnd xs) rb (RwLog.andAll (xs.map C)) (meetAllV K hK As) := by
+  cases h with
+  | nil => simp at h2
+  | @cons x₀ a₀ tl At h₀ ht =>
+    have h₀' : MOk lb (mkAnd (sortedParts [x₀])) rb (C x₀) a₀ := by
+      rw [sortedParts_of_sorted (List.pairwise_singleton _ _)]
+      exact h₀
+    have := meet_fold hL K hK hl hr C tl At ht (fun x hx => hna x (List.mem_cons_of_mem _ hx))
+      (pre := [x₀]) (by simp)
       (fun y hy => by
-        rcases List.mem_append.1 hy with h'' | h''
-        · exact hns y h''
-        · obtain rfl : y = x := by simpa using h''
-          exact hx.1) h'
-    rw [List.append_assoc, image2_meet_assoc] at this
+        obtain rfl : y = x₀ := by simpa using hy
+        exact hna _ (by simp)) h₀'
+    rw [List.singleton_append, sortedParts_of_sorted hs] at this
     exact this
 
 theorem andAll_sub (M : Interp) (O : Rel → Set GRel) : ∀ (xs : List Rel) (G : GRel),
@@ -389,26 +413,11 @@ theorem meet_ok {lb rb : Option R} (hl : IsBound D lb) (hr : IsBound D rb) {xs :
       ((meetAllV K hK ((xs.map F).map closedOf)).map .closed ++
         if ((xs.map F).all fun ps => !ps.isEmpty) && ((xs.map F).any fun ps => ps.any Prod.isOpn)
         then [.opn lb rb] else []) := by
-  obtain ⟨x₀, tl, rfl⟩ : ∃ x₀ tl, xs = x₀ :: tl := by
-    cases xs with
-    | nil => simp at h2
-    | cons a b => exact ⟨a, b, rfl⟩
-  have hm : MOk lb (mkAnd (x₀ :: tl)) rb (RwLog.andAll ((x₀ :: tl).map C))
-      (meetAllV K hK (((x₀ :: tl).map F).map closedOf)) := by
-    have h₀ : MOk lb (mkAnd (sortedParts [x₀])) rb (C x₀) (closedOf (F x₀)) := by
-      rw [sortedParts_of_sorted (List.pairwise_singleton _ _)]
-      exact (h x₀ (by simp)).mok
-    have := meet_fold hL K hK hl hr (fun x => closedOf (F x)) C tl
-      (fun x hx => ⟨hna x (List.mem_cons_of_mem _ hx), (h x (List.mem_cons_of_mem _ hx)).mok⟩)
-      (pre := [x₀]) (by simp)
-      (fun y hy => by
-        obtain rfl : y = x₀ := by simpa using hy
-        exact hna _ (by simp)) h₀
-    rw [List.singleton_append, sortedParts_of_sorted hs] at this
-    have e : ((x₀ :: tl).map F).map closedOf =
-        closedOf (F x₀) :: tl.map fun x => closedOf (F x) := by simp
-    rw [e]
-    exact this
+  have hm : MOk lb (mkAnd xs) rb (RwLog.andAll (xs.map C))
+      (meetAllV K hK ((xs.map F).map closedOf)) :=
+    meetAll_mok hL K hK hl hr h2 hna hs C (by
+      rw [List.forall₂_map_right_iff, List.forall₂_map_right_iff, List.forall₂_same]
+      exact fun x hx => (h x hx).mok)
   refine ⟨fun c hc => ?_, fun G hG hne => ?_, fun G hG hnC hne => ?_⟩
   · refine hm.goal c ?_
     rcases List.mem_append.1 (mem_closedOf.1 hc) with h' | h'
@@ -420,7 +429,7 @@ theorem meet_ok {lb rb : Option R} (hl : IsBound D lb) (hr : IsBound D rb) {xs :
     exact ⟨a, mem_closedOf.2 (List.mem_append_left _ (List.mem_map_of_mem ha)), hX⟩
   · refine ⟨lb, rb, List.mem_append_right _ ?_, fun ⟨x, z⟩ hp => ⟨admL_bound hp, admR_bound hp⟩⟩
     have hsub := andAll_sub P.sorts.interp O _ G hG
-    have hall : ((x₀ :: tl).map F).all (fun ps => !ps.isEmpty) = true := by
+    have hall : (xs.map F).all (fun ps => !ps.isEmpty) = true := by
       rw [List.all_eq_true]
       intro ps hps
       obtain ⟨x, hx, rfl⟩ := List.mem_map.1 hps
@@ -436,7 +445,7 @@ theorem meet_ok {lb rb : Option R} (hl : IsBound D lb) (hr : IsBound D rb) {xs :
         cases hF : F x with
         | nil => rw [hF] at hlr; cases hlr
         | cons _ _ => rfl
-    have hany : ((x₀ :: tl).map F).any (fun ps => ps.any Prod.isOpn) = true := by
+    have hany : (xs.map F).any (fun ps => ps.any Prod.isOpn) = true := by
       rcases andAll_cases P.sorts.interp C O _ G hG with hc | ⟨x, hx, g, hg, hn, hs'⟩
       · exact absurd hc hnC
       · obtain ⟨l, r, hlr, -⟩ := (h x hx).opn g hg hn (hne.mono (wrap_mono hs'))

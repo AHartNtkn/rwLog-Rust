@@ -119,6 +119,24 @@ theorem addSummary_val (s : Sm D P) (closed : List (Ans D P)) (opens : List (Opt
 
 /-! ## A chain -/
 
+/-- The first member's summary `s`, each of its products followed by the
+summary `sv` of the rest after the interface the product leaves. -/
+def sufBodyV (sv : Near R → Mm D P → Sm D P × Mm D P) (s : Sm D P × Mm D P) : Sm D P × Mm D P :=
+  s.1.opens.foldl
+    (fun (acc : Sm D P × Mm D P) o =>
+      (addSummaryV acc.1 []
+        ((sv ⟨o, o.isSome⟩ acc.2).1.closed.map (fun b => D.rightBound b.span) ++
+          (sv ⟨o, o.isSome⟩ acc.2).1.opens),
+        (sv ⟨o, o.isSome⟩ acc.2).2))
+    (s.1.closed.foldl
+      (fun (acc : Sm D P × Mm D P) a =>
+        (addSummaryV acc.1
+          ((sv ⟨D.rightBound a.span, true⟩ acc.2).1.closed.filterMap
+            fun b => (Ans.join D P K hK a b).val)
+          (sv ⟨D.rightBound a.span, true⟩ acc.2).1.opens,
+          (sv ⟨D.rightBound a.span, true⟩ acc.2).2))
+      (⟨[], []⟩, s.2))
+
 /-- The summary of the members `xs` of the chain `n`, which start at its
 `i`-th member, after the context `c`. -/
 def sufSV (wv : Near R → Rel → Option R → Mm D P → Sm D P × Mm D P) (n : Rel) (d : Nat)
@@ -127,21 +145,7 @@ def sufSV (wv : Near R → Rel → Option R → Mm D P → Sm D P × Mm D P) (n 
   | _, [x], c, m => wv c x far m
   | i, x :: y :: xs, c, m =>
     (if i = 0 then fun body => body m else memoV ⟨n, i, d, c, far⟩ m) fun m =>
-      (wv c x none m).1.opens.foldl
-        (fun (acc : Sm D P × Mm D P) o =>
-          (addSummaryV acc.1 []
-            ((sufSV wv n d far (i + 1) (y :: xs) ⟨o, o.isSome⟩ acc.2).1.closed.map
-                (fun b => D.rightBound b.span) ++
-              (sufSV wv n d far (i + 1) (y :: xs) ⟨o, o.isSome⟩ acc.2).1.opens),
-            (sufSV wv n d far (i + 1) (y :: xs) ⟨o, o.isSome⟩ acc.2).2))
-        ((wv c x none m).1.closed.foldl
-          (fun (acc : Sm D P × Mm D P) a =>
-            (addSummaryV acc.1
-              ((sufSV wv n d far (i + 1) (y :: xs) ⟨D.rightBound a.span, true⟩ acc.2).1.closed.filterMap
-                fun b => (Ans.join D P K hK a b).val)
-              (sufSV wv n d far (i + 1) (y :: xs) ⟨D.rightBound a.span, true⟩ acc.2).1.opens,
-              (sufSV wv n d far (i + 1) (y :: xs) ⟨D.rightBound a.span, true⟩ acc.2).2))
-          (⟨[], []⟩, (wv c x none m).2))
+      sufBodyV K hK (sufSV wv n d far (i + 1) (y :: xs)) (wv c x none m)
 
 theorem sufS_val (w : Evaluator R Rel (Ans D P) Cost)
     (wv : Near R → Rel → Option R → Mm D P → Sm D P × Mm D P)
@@ -160,11 +164,11 @@ theorem sufS_val (w : Evaluator R Rel (Ans D P) Cost)
     by_cases hi : i = 0
     · subst hi
       at_cost K hK
-      simp only [sufS, sufSV, ite_true, Cost.bind_val, Cost.pure_val, foldL_std, Cost.foldL_val,
+      simp only [sufS, sufSV, sufBodyV, ite_true, Cost.bind_val, Cost.pure_val, foldL_std, Cost.foldL_val,
         filterMapL_std, Cost.filterMapL_val, mapL_std, Cost.mapL_val, hw, ih, as, hK.rightBound,
         over_span, over_join]
     · at_cost K hK
-      simp only [sufS, sufSV, hi, ite_false, mv, Cost.bind_val, Cost.pure_val, foldL_std,
+      simp only [sufS, sufSV, sufBodyV, hi, ite_false, mv, Cost.bind_val, Cost.pure_val, foldL_std,
         Cost.foldL_val, filterMapL_std, Cost.filterMapL_val, mapL_std, Cost.mapL_val, hw, ih, as,
         hK.rightBound, over_span, over_join]
 
