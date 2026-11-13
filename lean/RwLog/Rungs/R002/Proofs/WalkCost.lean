@@ -199,7 +199,7 @@ theorem joinSeq_ticks_cases {p q r : List Rel} (h : R000.joinSeq p q = some r) :
     (∃ a b q' c, p.getLast? = some (.span a) ∧ q = .span b :: q' ∧ a.compose b = some c ∧
       r = p.dropLast ++ .span c :: q' ∧ (R002.joinSeq p q).ticks = a.size + b.size + c.size) ∨
     r = p ++ q := by
-  rcases joinSeq_cases h with ⟨a, b, q', c, hl, rfl, hc, rfl⟩ | rfl
+  rcases R000.joinSeq_cases h with ⟨a, b, q', c, hl, rfl, hc, rfl⟩ | rfl
   · refine .inl ⟨a, b, q', c, hl, rfl, hc, rfl, ?_⟩
     unfold R002.joinSeq
     rw [hl]
@@ -450,7 +450,7 @@ theorem and_pair {L R : List Span} (k : Kont) (G : List (List Rel) → Nat) (κ 
       · rw [alive_ticks_atom L R (fun s h => by cases h)]
         omega
     by_cases ha : (alive L r R).val = true
-    · have hok : Ok L R r := ⟨mkAnd_ne_nil hj, ha⟩
+    · have hok : Ok L R r := ⟨R000.mkAnd_ne_nil hj, ha⟩
       have := hk r acc hok
       rw [ite_eq_left ha, ite_eq_left ha, ite_eq_left hok]
       omega
@@ -477,7 +477,7 @@ theorem Spec.and {D S : Nat} {wa wb : Walker} {Na Nb : List (List Rel)} {ca cb :
     intro r hr
     simp only [List.mem_flatMap, List.mem_filterMap] at hr
     obtain ⟨p, -, q, -, hj⟩ := hr
-    exact mkAnd_ne_nil hj
+    exact R000.mkAnd_ne_nil hj
   ls := by
     rw [sum_flatMap_map]
     refine Nat.le_trans (sum_map_le (g := fun p => cb + (Nb.map fun q => (R002.mkAnd p q).ticks).sum)
@@ -588,7 +588,7 @@ theorem compose_of_AL {L : List Span} {p q' : List Rel} {a b : Span}
         exact hp (by rw [hl])
   obtain ⟨L', hL'⟩ := hLa
   have := h (by rw [hL']; simp) b rfl
-  rw [hL', chainDen_concat, GRel.comp_assoc] at this
+  rw [hL', chain_concat, GRel.comp_assoc] at this
   obtain ⟨c, hc, -⟩ := compose_isSome (GRel.comp_nonempty_right this)
   exact ⟨c, hc⟩
 
@@ -654,7 +654,7 @@ theorem seq_pair {L R : List Span} {p q : List Rel} (κ : List Rel → Nat) (cb 
     omega
   | some r =>
     simp only [Option.elim_some]
-    have hrne := joinSeq_ne_nil hj hp
+    have hrne := R000.joinSeq_ne_nil hj hp
     have hALr := AL_join hj hp hLp hALq
     have ht := aliveR_ticks_le r R
     rcases join_last_cases hj hp hqne with ⟨c, hc, hcJ, hJ1, hlen⟩ | ⟨hlast, hlen⟩
@@ -731,7 +731,7 @@ theorem seq_transfer {L R : List Span} {p : List Rel} {Nb : List (List Rel)} {S 
       obtain ⟨hpne, hkp⟩ := hp
       obtain ⟨hALp, hARp⟩ := keep_iff.mp hkp
       have hne := hARp (List.cons_ne_nil _ _) s hs
-      rw [chainDen_cons, ← GRel.comp_assoc] at hne
+      rw [List.map_cons, GRel.chain_cons, ← GRel.comp_assoc] at hne
       obtain ⟨c, hc, hden⟩ := compose_isSome (GRel.comp_nonempty_left hne)
       have hj : R000.joinSeq p [.span t] = some (p.dropLast ++ [.span c]) := by
         rw [joinSeq_fused (lastSpan_eq_some hs), hc]
@@ -787,7 +787,7 @@ theorem joinK_bound {L R : List Span} (k : Kont) (G : List (List Rel) → Nat) (
   | some r =>
     simp only [bind_ticks, bind_val, ite_ticks, ite_val, pure_ticks, pure_val, Option.elim_some]
     by_cases ha : (aliveR r R).val = true
-    · have hok : Ok L R r := ⟨joinSeq_ne_nil hj hp,
+    · have hok : Ok L R r := ⟨R000.joinSeq_ne_nil hj hp,
         keep_iff.mpr ⟨AL_join hj hp hLp (keep_iff.mp hq.2).1, (aliveR_iff _ _).mp ha⟩⟩
       have := hk r acc hok
       rw [ite_eq_left ha, ite_eq_left ha, ite_eq_left ha]
@@ -828,7 +828,7 @@ theorem Spec.seq {D S : Nat} {wa wb : Walker} {Na Nb : List (List Rel)} {ca cb :
     intro r hr
     simp only [List.mem_flatMap, List.mem_filterMap] at hr
     obtain ⟨p, hp, q, -, hj⟩ := hr
-    exact joinSeq_ne_nil hj (ha.ne p hp)
+    exact R000.joinSeq_ne_nil hj (ha.ne p hp)
   ls := by
     rw [sum_flatMap_map]
     refine Nat.le_trans (sum_map_le (g := fun p => cb + (Nb.map fun q => (R002.joinSeq p q).ticks).sum)
