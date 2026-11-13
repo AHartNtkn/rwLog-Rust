@@ -4,6 +4,8 @@
 
 The prototype is `scripts/symmetric_engine_tables.py`. It is the engine of the design note with recursion through tables, pushes that open one goal per answer (O4), R001's exact completion check, and the request rules as options. `python3 scripts/symmetric_engine_tables.py 2` prints table 2, and so on. The numbers for R005 are evaluated in Lean by `Tests/SimulationRuns.lean`, at commit `326b608` (the file is parked with R005, `PARKED.md`). Ticks of the prototype and ticks of R005 are not the same unit; only growth is compared, except where one side does not halt.
 
+**Revision, 2026-11-13 (second attack): section 9.** It decides the ladder, and with it reverses points 2 and 3 of the verdict below for the engine of sections 4 and 5: Lemma G is false for that engine under every request rule of sections 3 to 6. It gives a request rule that is polynomial on every family measured, the ladder included, and narrows the interface check. Sections 1 to 8 are left as they were written.
+
 ## 1. Verdict
 
 1. **The engine as designed does not simulate R005.** There are three separate failures (section 3). On the first the engine never halts where R005 halts in its second round, so it also fails `TerminatesWhere`.
@@ -189,3 +191,158 @@ Open, in order of risk:
 4. `TerminatesWhere` for the revised engine: it must halt wherever R001 halts. Follows from Lemma 1 for completion by tables; completion by the unfolding race does not arise in R001.
 
 What the revision forces to be redone: nothing built. Section 5.4 of the design note measured a model of the two rules, not the engine; its numbers are replaced by tables 4 to 4e and 6 here. The trusted statement of `Fair` should say that a step is a request to the root and that a round may cost any number of ticks, or state the flat bound in ticks and accept that it is open.
+
+## 9. Second attack (2026-11-13): the ladder decided, a rule that passes every family, the check narrowed
+
+New tools: `scripts/r005_interpreter.py` (R005 outside Lean), `scripts/symmetric_engine_halting.py` (random programs on both machines), and tables 8 to 12 of `scripts/symmetric_engine_tables.py`. Everything is still on paper and in prototypes.
+
+### 9.1 R005 outside Lean
+
+`scripts/r005_interpreter.py` is the text of R005 at the tag `epoch-1`, definition for definition: the charges of `Trusted/Charged.lean`, `Cost.within` and `Cost.race`, the tabled round machine (`Rungs/Tabled/Gen.lean`), the three unfolders and their two races (R002, R003, R004), and the mirror race (`Rungs/Mirror/Gen.lean`). It covers programs with an empty theory and no stores. Variables are numbered as Lean numbers them, because R003 compares spans as written.
+
+Lean evaluates both sides of a race to the end. The interpreter runs a race under the same doubling budgets and abandons a side at its budget, keeping what it learned, so it counts Lean's ticks in time proportional to them.
+
+*Checked:* `python3 scripts/r005_interpreter.py check` reproduces all 57 numbers that Lean guards for these inputs: the 13 of `Tests/SimulationRuns.lean` (ticks and number of rounds), and the 24 R004 runs and 20 R005 runs of the four bracketings of `mid k` in `Tests/MiddleRuns.lean`. It ran right the first time; there was no fitting.
+
+### 9.2 The ladder is decided: Lemma G is false for the engine of sections 4 and 5
+
+R005 on `@(st nil) ; r_n`, bodies written `G ; (F ; r_(i-1))` as in section 5, ticks to halt. It halts in `n + 4` rounds.
+
+| n | 4 | 8 | 12 | 16 | 20 | 24 | 28 | 32 | 34 |
+|---|---|---|---|---|---|---|---|---|---|
+| R005, millions of ticks | 3.0 | 40 | 86 | 210 | 300 | 1073 | 881 | 2650 | 1904 |
+
+From 10 to 20 the cost grows 4.5 times and from 20 to 34 it grows 6.4 times: between the second and the fourth power of `n`, with jumps where a race doubles its budget. With the bodies written `(G ; F) ; r_(i-1)` R005 pays more and grows faster (108 million at 10, 1999 million at 20, 7015 million at 24).
+
+The engine of sections 4 and 5 on the same input (table 12, and table 3 for small `n`):
+
+| n | 4 | 8 | 12 | 16 | 20 | 24 | 28 |
+|---|---|---|---|---|---|---|---|
+| whole rounds, ticks to halt | 6698 | 61456 | 299086 | 957932 | 2535512 | 7745263 | 21356619 |
+| goals opened | 208 | 1014 | 2942 | 7371 | 16236 | 49560 | 117693 |
+| share, ticks to halt | 4505 | 34863 | 176496 | 1170696 | 4116287 | over 30,000,000 | |
+| flat, a unit per goal | 7838 | 44829 | 248457 | 867997 | 2757932 | 7518855 | 19744161 |
+
+Under whole rounds the cost grows 2.65, 3.05 and 2.76 times per four steps from 16 on, where a third power would give 1.95, 1.73 and 1.59. The share rule grows between 3.5 and 6.6 times per four steps. Read as growth: exponential, against a polynomial for R005. *Measured, not proved.*
+
+**The cause.** A goal `<b, G ; F ; r_(j-1)>` has two splits. The split `G | F ; r_(j-1)` is the one R005 has on the cheap writing: `<b, G>` never completes, so nothing is pushed from the left, and `F ; r_(j-1)` is solved once from the right under two general boundaries. The other split, `G ; F | r_(j-1)`, has a left side that completes with two answers, and each answer is pushed into `r_(j-1)` as a new goal, which has the same two splits. That is a search forward from `st nil` with `2^d` goals at depth `d`, and it is a search R005 on the cheap writing never starts. Whole rounds serve every goal of it once a round. The share rule does not starve it either, and halves the share of the useful line at every level.
+
+**So verdict 2 of section 1 is withdrawn.** This failure does come from reading every split, which is how the engine gets bracketing independence. It is not a conflict between `SeqAssoc` and `Simulates` yet, because a rule that reads no bracketing repairs it on every family measured (9.4).
+
+### 9.3 The two rules that had not been tried
+
+**Each rule with its own tables (billboard SIM2).** Two copies of the machine balanced by ticks cost between once and twice the cheaper copy plus a constant, so no run is needed: it is exponential wherever both rules are. Both are on the ladder (9.2). It is rejected.
+
+**Whole rounds only for goals that carry a boundary, the share rule for the rest (SIM3)**, table 11. A request is one whole round of every open goal with a boundary and one request by the share rule that stops at goals with a boundary.
+
+| family | 2 | 4 | 6 or 8 | larger |
+|---|---|---|---|---|
+| counting down, halt | 227 | 741 | 3253 (8) | 19209 (16), 132635 (32) |
+| the ladder, halt | | 65248 | 385720 (8) | over 5,000,000 at 12 |
+| middle restriction with pushes, halt | 3395 | 214068 | over 5,000,000 at 6 | |
+| fair OR, three endless members, requests to the answer | 17 | 203 | 508 (6) | not within 5,000,000 ticks at 8 |
+
+It is exponential on the ladder, on the middle family and on fair OR. It is rejected.
+
+### 9.4 The split balance
+
+A rule that is neither of the two. It keeps whole rounds, and changes which goals take part in a round.
+
+- The strategies of one split of a chain goal (its join, its two pushes) are a *group*. A goal that is not a chain has one group.
+- Every group has a *level*. The level of a goal is the lowest level among its groups.
+- A request is a round, started at the root. In its round a goal lets only its lowest groups work. If none of them can do anything, the next lowest work, and so on. A group works by doing its own work and giving a round to every goal it reads. A goal has at most one round per request, whoever asks.
+- The level of a group rises by the ticks of its own work and by how much the levels of the goals it reads rose in the round. A goal met again below itself adds nothing.
+- Where a goal has one group, the group does everything its inputs allow, as in a whole round. Where it has several, each strategy of a working group does one unit, so that the balance can react.
+
+Two things distinguish it from the share rule. A request is not divided: every goal that a working group reads has its round, so a goal is not starved by a sibling that never finishes, and nothing is halved per level. And a group is charged the rise of the *lowest* group of each goal it reads, not what all the groups of that goal spent. So a split is not charged for the hedging done below it, and the allowance of its competitors does not grow by a factor per level of nesting. On the ladder the forward search is held to the level of the useful line.
+
+It reads no bracketing: the groups of a goal are all the splits of its interval.
+
+Table 8 (`python3 scripts/symmetric_engine_tables.py 8`), ticks to halt, or to the answer where the input does not halt:
+
+| family | values | growth |
+|---|---|---|
+| counting down, k = 2, 4, 8, 16, 32 | 264, 718, 2698, 13410, 81554 | about `k^2.6`; `2k + 4` requests |
+| the ladder, n = 8, 16, 24, 32, 40, 48, 56, 64 | 39395, 298820, 801570, 2100922, 3981533, 5356797, 8078357, 9940348 | 20 to 40: 8 times; 40 to 64: 2.5 times. About `n^3` falling to `n^2` |
+| middle restriction with pushes, k = 4, 6, 8, 10, 12, 13, 14 | 77297, 605975, 2558268, 10597431, 36382011, 51666591, 76605167 | 7 to 14: 63 times; 10 to 14: 7.2 times. About `k^6` |
+| fair OR, one endless member, k = 2 … 12, to the answer | 818, 3454, …, 81758 | `2k + 4` requests |
+| fair OR, three endless members | 1644, 7880, 24148, 57664, 117564, 214904 | `2k + 4` requests, about `k^3.3` ticks |
+| strings of k bits, to the answer | 1344, 10170, 66892, 406478, 2322080 | `2k + 4` requests; ticks about six times per two steps, as whole rounds |
+
+It is the first rule that is polynomial on both the middle family with pushes and fair OR with three endless members, and it is polynomial on the ladder. On the middle family it is far dearer than the share rule (531532 at `k = 12` against 36382011): about the sixth power against the fourth. R005 pays three times more for each step there (130823042 at `k = 10`, right-nested), so the family still separates.
+
+On the strings family it reads the table of `q` without a boundary, like whole rounds. R005 pays 16859736 and 106703299 for `k = 2, 4` there (13 and 19 rounds), which grows as fast; it was not run further.
+
+Variants measured and rejected: one unit of work everywhere (fair OR with three endless members is then exponential again: 17 and 161 requests at `k = 2, 4`, no answer within 5,000,000 ticks at 6); whole work everywhere (the middle family is exponential: all groups stand level at the start and the first rounds do everything); every strategy a group of its own (fair OR takes 45, 213, 515, 1126 requests and counting down costs 2949515 at `k = 32`).
+
+### 9.5 The interface check costs more than section 4.1 measured, and is narrowed
+
+**A correction to the prototype.** The check opened its goals when its goal was first looked at, at no charge. It now opens them when it first runs and pays one tick for each. The figures of 4.1 move a little (114 and 258 in turn; 106 and 115 under whole rounds).
+
+**The check on every side is exponential on the middle family** (table 10), ticks to halt:
+
+| k | 2 | 3 | 4 | 5 | 6 | 7 |
+|---|---|---|---|---|---|---|
+| split balance, check on every side | 3361 | 18901 | 91195 | 431036 | 2008920 | 9346012 |
+| whole rounds, check on every side | 6163 | 43047 | 241436 | 1145735 | 5123463 | 22128137 |
+| goals opened, either | 154 | 764 | 3455 | 14851 | 61960 | 253966 |
+
+Every interval of the chain has two interfaces at each edge, the goals opened under them have intervals and edges of their own, and the boundaries nest. Section 4.1 reported "up to six times" at the sizes it ran. Under the share rule the same check stays cheap in ticks (1607010 at `k = 12`) and still opens 641758 goals. On the ladder the check on every side costs the split balance 908036, 3354548, 7815065 and 22666494 ticks for `n = 24, 32, 40, 48`, against 466658, 962956 and 1622539 for the narrowed check below at 24, 32, 40: about the fifth power where the narrowed check has the second, and not decided as a polynomial.
+
+**Narrowed: the check is offered only for a side that contains a call, and the checks of a goal are one group of their own.** A side with no call has finitely many answers and its table completes; the push from the complete side then opens the other side under the interface of each answer, which is at least as exact as the interfaces read from the text. So the check adds nothing there. *Argued, not proved.* The middle family has no call, so its figures are those of table 8. With the checks as a group of their own, a check is held to the level of the cheapest split.
+
+| | halts at | goals |
+|---|---|---|
+| `p ; q` | 128 | 27 |
+| the identity variant | 342 | 48 |
+| counting down, k = 2 … 32 | 428, 1058, 3532, 15576, 85968 | 32 … 242 |
+| the ladder, n = 8, 16, 24, 32, 40 | 44785, 176925, 466658, 962956, 1622539 | 1334 … 24867 |
+| fair OR, three endless members, to the answer | 1748 … 215088, `2k + 4` requests | |
+
+The ladder grows 4.5 times from 20 to 40: about the second power.
+
+### 9.6 What O1 reduces to now
+
+The engine: the design note's engine with the split balance and the narrowed check.
+
+**Lemma 1 (rounds)** and **Lemma 2 (no repeated work)** of section 5 are about the goals R005 opens on a writing `w`. Under the split balance a goal does not work in every round, so Lemma 1 needs a new form: the group of the written split of a goal on `w` works whenever it is among the lowest. Not restated precisely.
+
+**Lemma G is replaced by two.**
+
+- **G1 (the written line is charged additively).** Fix `w`. The level of the group of the written split of a goal is at most its own work plus the levels of the goals it reads, and the level of each of those is at most the level of its own written group. So the level of the root's written group is at most the work R005 on `w` does on its goals, counted once for each reader. *Argued from the definition.* This is the step that failed for the share rule (a factor per level) and for whole rounds (no bound at all).
+- **G2 (what a group really spends is polynomial in its level).** *Open, and it is now the content of O1.* A group's level counts the lowest group of each goal it reads. What those goals really spend is the sum over their groups. Each group of a goal is within one unit of the lowest when it last worked, so a goal with `m` groups spends about `m` times its level on its own work; but the goals below it are different for different groups, and in the worst case the factor is `m` per level of nesting. Two things keep it small on the families measured: a push that opens many goals divides its level among them (the ladder), and intervals are shared between splits (the middle family). No family was found on which the factor compounds. None was looked for by search.
+
+**Lemma U (the check finishes what the unfolding race finishes).** *Open.* New evidence, `scripts/symmetric_engine_halting.py`: 200 random programs (one to three definitions, each a union of chains of up to three spans and calls over two unary constructors, and a query that is a chain of two or three). R005 halts within 8 rounds and 1,000,000 ticks on 138 of them. The engine halts on all 138, and on 35 more, within 150,000 ticks. 14 gave no verdict in the time and memory allowed. So no counterexample to Lemma U or to `TerminatesWhere` was found. The test is weaker than it looks: the engine with no check at all also halts on all 138, so none of these programs needs the check, and `p ; q` of 3.1 remains the only input known that does.
+
+The recursion guard (each call is unfolded once when an edge is read) is unchanged, and so is the doubt about it.
+
+### 9.7 Fairness
+
+Against `Fair` as it is stated (a step is a request to the root): the answer of each of the three fair OR families arrives in `2k + 4` requests under the split balance, whatever the number of endless members. So the flat bound in steps holds on what was measured.
+
+In ticks, with `n` the cost of the alternative alone and the bound `n` times the goals opened:
+
+| family, at the largest k | the alternative alone | goals | bound | split balance |
+|---|---|---|---|---|
+| one endless member, k = 12 | 2695 | 144 | 388080 | 81758 |
+| three endless members, k = 12 | 2695 | 174 | 468930 | 214904 |
+| strings, k = 10 | 5197 | 148 | 769156 | 2322080, and growing six times per two steps |
+
+So the split balance meets the flat bound in ticks on the two families with numbers and misses it on strings, as whole rounds do. One unit per strategy meets it on strings and loses fair OR with three endless members. No rule measured has the tick form on all three. On strings the cost is in the join of the root, which reads the table of `q` with no boundary; R005 reads the same table.
+
+### 9.8 Adopted, and what stays open
+
+Adopted in the design note as the revision of 2026-11-13 (fourth):
+
+1. The request rule is the split balance (9.4). The share rule, the flat round and their alternation are withdrawn.
+2. The interface check is offered only for a side that contains a call, its goals are opened when it first runs, and the checks of a goal are a group of their own (9.5).
+
+Open, in order of risk:
+
+1. **G2.** A proof, or a family with nested goals whose splits read different goals at every level.
+2. **Lemma U**, and with it `TerminatesWhere`.
+3. **The fairness bound in ticks** on a table that grows exponentially with no boundary (strings). Either `Fair` stays in steps, or a rule is found that has both tick bounds. *Decided by Anthony on 2026-11-13: fairness is stated in requests. A step of `Fair` is a request to the root, and a request may cost any number of ticks. The split balance is adopted as it stands; the tick form on strings is no longer required of it.*
+4. **The cost of the split balance on the middle family** is about the sixth power; the share rule had the fourth. Whether a finer unit of work or weights (roadmap L32) lowers it is not tried.
+5. **Bookkeeping.** The prototype does not charge for finding the lowest groups or for a round that reaches a goal and does nothing. An engine pays for both; the charge has to be bounded by the work done.
+
+Nothing built has to be redone. The freeze list of the design note is unchanged: levels are numbers kept in tables, read through `metered`.
