@@ -16,6 +16,7 @@ import RwLog.Rungs.R000.Chain
 import RwLog.Trusted.Engine
 import RwLog.Rungs.R000.Normalize
 import RwLog.Rungs.R000.Unfold
+import RwLog.Rungs.R000.Products
 import RwLog.Rungs.R000.NormalizeCorrect
 import RwLog.Rungs.R000.Engine
 import RwLog.Rungs.R000.Correct
