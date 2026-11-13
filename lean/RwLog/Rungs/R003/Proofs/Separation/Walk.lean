@@ -181,12 +181,13 @@ theorem length_flatMap_live (T : Theory) : ∀ xs : List Span,
     omega
 
 theorem length_derivs_prods : ∀ {acc : List (List Rel)}, Prods acc →
-    (acc.flatMap fun p => derivs (toRel p)).length = acc.length
+    (closed acc).length = acc.length
   | [], _ => rfl
   | p :: acc, h => by
     obtain ⟨s, rfl⟩ := h p (by simp)
     have ih := length_derivs_prods (acc := acc) fun q hq => h q (by simp [hq])
-    simp [toRel, derivs, ih]
+    simp only [closed, List.filterMap_cons, single, List.length_cons] at ih ⊢
+    rw [ih]
 
 /-- The walk on `cRel j` finds the unfolding final, returns at most
 `2 ^ (j + 1)` answers, and spends at least `2 ^ j (16 j + 3)`. -/

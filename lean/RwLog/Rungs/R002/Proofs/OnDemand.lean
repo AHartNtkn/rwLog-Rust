@@ -304,7 +304,8 @@ theorem onDemand_exact : Obligation.onDemand_exact := by
   unfold R001.unfoldAnswers R001.unfoldFinal R000.roundFinal R000.roundSpans R000.products
   split
   · rename_i h
-    simp only [List.nil_append, Bool.false_eq_true, ↓reduceIte, bind_val, pure_val, answers_val, h]
+    simp only [List.nil_append, Bool.false_eq_true, ↓reduceIte, bind_val, pure_val, answers_val, h,
+      closed_eq_derivs _ _ h]
   · rename_i h
     simp only [↓reduceIte, pure_val, h]
 

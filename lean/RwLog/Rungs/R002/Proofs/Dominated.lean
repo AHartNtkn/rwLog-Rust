@@ -324,11 +324,11 @@ theorem walk_spec (P : Program) (S : Nat) (hP : ∀ n, SB S (P.body n)) :
 
 /-- What the answers of a list of products cost. -/
 def liveCost (T : Theory) (acc : List (List Rel)) : Nat :=
-  (flatMapL (Tabled.live T) (acc.flatMap fun p => R000.derivs (toRel p))).ticks
+  (flatMapL (Tabled.live T) (closed acc)).ticks
 
 theorem liveCost_append (T : Theory) (xs ys : List (List Rel)) :
     liveCost T (xs ++ ys) = liveCost T xs + liveCost T ys := by
-  simp only [liveCost, flatMapL_ticks, List.flatMap_append, List.map_append, List.sum_append]
+  simp only [liveCost, flatMapL_ticks, closed_append, List.map_append, List.sum_append]
 
 theorem liveCost_eq_sum (T : Theory) (xs : List (List Rel)) :
     liveCost T xs = (xs.map fun p => liveCost T [p]).sum := by

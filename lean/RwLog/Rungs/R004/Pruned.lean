@@ -180,7 +180,7 @@ def pruned : Oracle := fun P d g => do
   if r.1 then pure (false, [])
   else do
     let ys ← sort r.2
-    let zs ← flatMapL (Tabled.live P.theory) (ys.flatMap fun y => derivs (toRel y.2))
+    let zs ← flatMapL (Tabled.live P.theory) (R002.closed (ys.map Prod.snd))
     let ws ← foldL R003.addSpan [] zs
     pure (true, ws)
 

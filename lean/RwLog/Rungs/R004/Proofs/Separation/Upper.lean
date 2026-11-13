@@ -83,8 +83,8 @@ theorem pruned_g0 (k : Nat) : pruned P0 0 (g0 k) = ⟨(true, [aa]), k + 37⟩ :=
     omega
   rw [pruned, hrel, hw]
   refine Cost.ext ?_ ?_
-  · simp [sort, foldL, insert, toRel, derivs, flatMapL, live_aa, R003.addSpan, anyL]
-  · simp [sort, foldL, insert, toRel, derivs, flatMapL, live_aa, R003.addSpan, anyL]
+  · simp [sort, foldL, insert, R002.closed, R002.single, flatMapL, live_aa, R003.addSpan, anyL]
+  · simp [sort, foldL, insert, R002.closed, R002.single, flatMapL, live_aa, R003.addSpan, anyL]
 
 /-- R004's race on the query: final, the answer `a -> a`, within 7 times the
 race pruned from the right. -/
@@ -128,6 +128,18 @@ theorem same_g0_gA (k : Nat) : (g0 k).same gA = false := by simp [Goal.same, sep
 theorem same_g0_gD (k : Nat) : (g0 k).same (gD k) = false := by simp [Goal.same, sepRel_eq]
 theorem same_gA_gD (k : Nat) : gA.same (gD k) = false := by simp [Goal.same]
 
+theorem tsame_g0_gA (k : Nat) :
+    Tabled.same (g0 k) gA = ⟨false, goalSize (g0 k) + goalSize gA⟩ := by
+  rw [Tabled.same_eq_of_none ⟨rfl, rfl⟩ ⟨rfl, rfl⟩, same_g0_gA]
+
+theorem tsame_g0_gD (k : Nat) :
+    Tabled.same (g0 k) (gD k) = ⟨false, goalSize (g0 k) + goalSize (gD k)⟩ := by
+  rw [Tabled.same_eq_of_none ⟨rfl, rfl⟩ ⟨rfl, rfl⟩, same_g0_gD]
+
+theorem tsame_gA_gD (k : Nat) :
+    Tabled.same gA (gD k) = ⟨false, goalSize gA + goalSize (gD k)⟩ := by
+  rw [Tabled.same_eq_of_none ⟨rfl, rfl⟩ ⟨rfl, rfl⟩, same_gA_gD]
+
 theorem round_st0 (k : Nat) : (Tabled.round unfolder (st0 k)).val.2 = [aa] ∧
     (Tabled.round unfolder (st0 k)).ticks + 12 * (k + 2) ≤ 1000 * (k + 2) := by
   obtain ⟨T, hT, hu⟩ := unfolder_g0 k
@@ -135,11 +147,11 @@ theorem round_st0 (k : Nat) : (Tabled.round unfolder (st0 k)).val.2 = [aa] ∧
   refine ⟨?_, ?_⟩
   · simp [Tabled.round, mapL, hu, Tabled.produce, Tabled.produceStrategies, sepRel_eq, orLeaves,
       orBranches, flatMapL, Tabled.answersOf, Tabled.norm, norm_gA, norm_gD, Tabled.findTable,
-      findL, Tabled.same, same_g0_gA, same_g0_gD, same_gA_gD, Tabled.fresh, filterL, anyL,
+      findL, tsame_g0_gA, tsame_g0_gD, tsame_gA_gD, Tabled.fresh, filterL, anyL,
       Tabled.maxima, foldL, Charged.covers, hcov, Tabled.completing, Tabled.gfpFrom, R001.orient]
   · simp [Tabled.round, mapL, hu, Tabled.produce, Tabled.produceStrategies, sepRel_eq, orLeaves,
       orBranches, flatMapL, Tabled.answersOf, Tabled.norm, norm_gA, norm_gD, Tabled.findTable,
-      findL, Tabled.same, same_g0_gA, same_g0_gD, same_gA_gD, Tabled.fresh, filterL, anyL,
+      findL, tsame_g0_gA, tsame_g0_gD, tsame_gA_gD, Tabled.fresh, filterL, anyL,
       Tabled.maxima, foldL, Charged.covers, hcov, Tabled.completing, Tabled.gfpFrom, R001.orient,
       goalSize_g0, goalSize_gA, goalSize_gD, size_aa]
     omega

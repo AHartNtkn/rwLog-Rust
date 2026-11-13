@@ -72,7 +72,7 @@ theorem okC_ticks {k : Nat} {a0 : List Span} {rest : Tables} (hr : RestOK k rest
       lookBound k (tabs k a0 rest).length := by
     intro d hd
     have h1 := goalSize_sub (hsub d hd)
-    have h2 := indexOf_ticks (a0 := a0) hr h1
+    have h2 := indexOf_ticks (a0 := a0) hr (key_sub (hsub d hd))
     have e : (Tabled.norm d).val.2 = d := by rw [Tabled.norm_val, norm_sub (hsub d hd)]
     have e' : (Tabled.norm d).ticks = goalSize d := rfl
     simp only [chk, bind_ticks, pure_ticks, e, e', Nat.add_zero]
@@ -161,7 +161,7 @@ theorem round_spends (k d : Nat) {a0 : List Span} {rest : Tables} (ha : a0 = [] 
     fun ts1 hts1 => ?_
   refine Spends.bind (reqs_spends houts) fun reqs hreqs => ?_
   refine Spends.bind (Spends.mono (newGoals_spends (a0 := a0) hr reqs []
-    (fun g hg => goalSize_sub (hreqs.1 g hg)) (by simp))
+    (fun g hg => key_sub (hreqs.1 g hg)) (by simp))
     (Nat.mul_le_mul hreqs.2 (Nat.mul_le_mul_right _ (by
       have := hreqs.2
       simp only [List.length_nil, hn] at this ⊢

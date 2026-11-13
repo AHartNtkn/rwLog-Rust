@@ -13,8 +13,9 @@ Two oracles are given in `Rungs/R002/Unfold.lean`: R001's own way of computing t
 answer, and R002's. Because both go through this one machine, they are charged
 the same for everything else.
 
-Table lookups are charged by the size of the keys compared, and bringing a
-goal to its table key by the size of the goal.
+Comparing two table keys is charged as the comparison of their expressions
+and the coverage tests on their boundaries; bringing a goal to its table key
+is charged by the size of the goal.
 -/
 import RwLog.Trusted.Cost
 import RwLog.Rungs.R001.Engine
@@ -35,8 +36,22 @@ namespace Tabled
 
 /-! ## Charged table operations -/
 
-/-- Compare two table keys. -/
-def same (g h : Goal) : Cost Bool := ⟨g.same h, goalSize g + goalSize h⟩
+/-- Are two boundaries equivalent? Each covers the other. -/
+def sameBound : Option Span → Option Span → Cost Bool
+  | none, none => pure true
+  | some a, some b => do
+    let x ← Charged.covers a b
+    if x then Charged.covers b a else pure false
+  | _, _ => pure false
+
+/-- Compare two table keys: the expressions as written, then the boundaries
+up to equivalence. -/
+def same (g h : Goal) : Cost Bool := do
+  let b ← Charged.eqRel g.e h.e
+  if b then do
+    let l ← sameBound g.lb h.lb
+    if l then sameBound g.rb h.rb else pure false
+  else pure false
 
 /-- Bring a goal to its table key. -/
 def norm (g : Goal) : Cost (Bool × Goal) := ⟨g.norm, goalSize g⟩

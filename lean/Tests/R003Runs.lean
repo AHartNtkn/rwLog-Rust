@@ -91,8 +91,8 @@ def sameRun3 (P : Program) (q : Rel) (fuel : Nat) : Bool :=
 
 -- Where the walk is already cheap the race costs more than the walk alone,
 -- within the factor of 7.
-#guard costOf R003.costed pathP (.call "path") 40 == (7, true, 10253)
-#guard costOf R003.costed halveP (.seq (.at_ (num 3)) (.call "halve")) 12 == (6, true, 61451)
+#guard costOf R003.costed pathP (.call "path") 40 == (7, true, 10254)
+#guard costOf R003.costed halveP (.seq (.at_ (num 3)) (.call "halve")) 12 == (6, true, 59438)
 
 /-! ## Costs -/
 
@@ -105,8 +105,8 @@ def sameRun3 (P : Program) (q : Rel) (fuel : Nat) : Bool :=
   let b := costOf R002.costed (R003.sepFam k).1 (R003.sepFam k).2 20
   r.1 == 2 && r.2.1 && b.1 == 2 && b.2.1 && r.2.2 ≤ 2000 * (k + 2) ^ 3 && 2 ^ k ≤ b.2.2
 #guard runR003 (R003.sepFam 6).1 (R003.sepFam 6).2 20 == (["$0 -> z"], true)
-#guard (costOf R003.costed (R003.sepFam 10).1 (R003.sepFam 10).2 20).2.2 == 50876
-#guard (costOf R002.costed (R003.sepFam 10).1 (R003.sepFam 10).2 20).2.2 == 16296725
+#guard (costOf R003.costed (R003.sepFam 10).1 (R003.sepFam 10).2 20).2.2 == 50963
+#guard (costOf R002.costed (R003.sepFam 10).1 (R003.sepFam 10).2 20).2.2 == 16296812
 
 -- One race on the family, by `k`: the shared evaluation grows quadratically.
 #guard [8, 16, 32, 64].map (fun k =>

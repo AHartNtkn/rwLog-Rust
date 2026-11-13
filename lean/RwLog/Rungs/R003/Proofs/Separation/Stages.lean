@@ -276,8 +276,8 @@ theorem reqs_spends {k : Nat} {ts : Tables} {outs : List (List Span × List Goal
 /-! ## The new tables -/
 
 theorem step_spends {k : Nat} {a0 : List Span} {rest : Tables} (hr : RestOK k rest)
-    {acc : List Goal} {g : Goal} (hacc : ∀ h ∈ acc, goalSize h ≤ keyBound k)
-    (hg : goalSize g ≤ keyBound k) :
+    {acc : List Goal} {g : Goal} (hacc : ∀ h ∈ acc, Key k h)
+    (hg : Key k g) :
     Spends (do
         let b ← anyL (fun t : Table => Tabled.same t.goal g) (tabs k a0 rest)
         if b then pure acc else do
@@ -287,7 +287,7 @@ theorem step_spends {k : Nat} {a0 : List Span} {rest : Tables} (hr : RestOK k re
       (fun a' => a'.length ≤ acc.length + 1 ∧ ∀ h ∈ a', h ∈ acc ∨ h = g) := by
   have h1 : (anyL (fun t : Table => Tabled.same t.goal g) (tabs k a0 rest)).ticks ≤
       (tabs k a0 rest).length * (2 * keyBound k) :=
-    anyL_ticks_le_mul fun t ht => same_ticks (goalSize_slot (slot_of_mem hr ht)) hg
+    anyL_ticks_le_mul fun t ht => same_ticks (key_slot (slot_of_mem hr ht)) hg
   have h2 : (anyL (fun h => Tabled.same h g) acc).ticks ≤ acc.length * (2 * keyBound k) :=
     anyL_ticks_le_mul fun h hh => same_ticks (hacc h hh) hg
   rw [Nat.add_mul]
@@ -305,8 +305,8 @@ theorem step_spends {k : Nat} {a0 : List Span} {rest : Tables} (hr : RestOK k re
         · exact Or.inr (List.mem_singleton.1 hh)
 
 theorem newGoals_spends {k : Nat} {a0 : List Span} {rest : Tables} (hr : RestOK k rest) :
-    ∀ (reqs acc : List Goal), (∀ g ∈ reqs, goalSize g ≤ keyBound k) →
-      (∀ g ∈ acc, goalSize g ≤ keyBound k) →
+    ∀ (reqs acc : List Goal), (∀ g ∈ reqs, Key k g) →
+      (∀ g ∈ acc, Key k g) →
       Spends (foldL (fun acc g => do
           let b ← anyL (fun t : Table => Tabled.same t.goal g) (tabs k a0 rest)
           if b then pure acc else do
@@ -327,7 +327,7 @@ theorem newGoals_spends {k : Nat} {a0 : List Span} {rest : Tables} (hr : RestOK 
       reqs.length * (((tabs k a0 rest).length + (acc.length + 1) + reqs.length) *
         (2 * keyBound k))) (Spends.bind hs fun a' ha' => ?_)
       (by simp only [List.length_cons] at e ⊢; omega) fun _ h => h
-    · have hacc' : ∀ h ∈ a', goalSize h ≤ keyBound k := by
+    · have hacc' : ∀ h ∈ a', Key k h := by
         intro h hh
         rcases ha'.2 h hh with hh | rfl
         · exact hacc h hh

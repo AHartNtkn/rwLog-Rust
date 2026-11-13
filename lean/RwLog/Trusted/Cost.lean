@@ -16,6 +16,8 @@ when it builds one:
 * composing or conjoining two spans: the sizes of both spans and of the result;
 * testing whether a chain of spans composes, without building the result: the
   sizes of the spans;
+* testing whether two spans, or two expressions, are the same as written: the
+  sizes of both;
 * a coverage test: the sizes of both spans, and the search that places the
   covering span's store in the other's (`matchAllWork`): every attempt to
   match one constraint onto another, at every point of the search, by the
@@ -187,6 +189,12 @@ def covers (a s : Span) : Cost Bool := ⟨a.covers? s, a.size + s.size + coversW
 
 def simplify (T : Theory) (s : Span) : Cost (Option Span) :=
   ⟨T.simplify s, T.simplifyCharge s.c.varCount s⟩
+
+/-- Are the two spans the same span, as written? -/
+def eq (x y : Span) : Cost Bool := ⟨decide (x = y), x.size + y.size⟩
+
+/-- Are the two expressions the same expression, as written? -/
+def eqRel (a b : Rel) : Cost Bool := ⟨decide (a = b), a.size + b.size⟩
 
 end Charged
 

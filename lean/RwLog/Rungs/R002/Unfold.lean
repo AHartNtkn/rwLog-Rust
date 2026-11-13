@@ -103,6 +103,16 @@ def mkAnd (p q : List Rel) : Cost (Option (List Rel)) :=
     pure (c.map fun c => [.span c])
   | _, _ => pure (some [.and (toRel p) (toRel q)])
 
+/-- The span of a product that is a single span. -/
+def single : List Rel → Option Span
+  | [.span s] => some s
+  | _ => none
+
+/-- The products that are a single span, as spans. A product of a normal form
+that contains no call is a single span (`open_calls`), so when no product of
+the unfolding contains a call these are all its answers. -/
+def closed (N : List (List Rel)) : List Span := N.filterMap single
+
 namespace Eager
 
 /-- The normal form as a list of products; one tick per node, a span leaf
@@ -146,7 +156,7 @@ def eager : Oracle := fun P d g => do
   let e ← Eager.unfoldN P d g.rel
   let ps ← Eager.norm false e
   if ps.all fun p => (toRel p).calls.isEmpty then do
-    let xs ← flatMapL (Tabled.live P.theory) (ps.flatMap fun p => derivs (toRel p))
+    let xs ← flatMapL (Tabled.live P.theory) (closed ps)
     pure (true, xs)
   else pure (false, [])
 
@@ -274,7 +284,7 @@ def onDemand : Oracle := fun P d g => do
     (fun p acc => pure (if (toRel p).calls.isEmpty then (false, acc ++ [p]) else (true, acc))) []
   if r.1 then pure (false, [])
   else do
-    let xs ← flatMapL (Tabled.live P.theory) (r.2.flatMap fun p => derivs (toRel p))
+    let xs ← flatMapL (Tabled.live P.theory) (closed r.2)
     pure (true, xs)
 
 end R002

@@ -51,12 +51,17 @@ abbrev wBody : Goal := ⟨none, .or (.call "w") (.call "w"), none⟩
 theorem goalSize_wBody : goalSize wBody ≤ 3 := by
   simp [goalSize, Rel.size]
 
-theorem same_costs (k d : Nat) {g : Goal} (hg : goalSize g ≤ 3) {t : Table} (ht : t ∈ tabs k d) :
-    Costs (Tabled.same t.goal g) (t.goal.same g) 6 := by
+theorem goal_open (k : Nat) (s : Slot) : (goal k s).lb = none ∧ (goal k s).rb = none := by
+  cases s <;> exact ⟨rfl, rfl⟩
+
+theorem same_costs (k d : Nat) (r : Slot) {t : Table} (ht : t ∈ tabs k d) :
+    Costs (Tabled.same t.goal (goal k r)) (t.goal.same (goal k r)) 6 := by
   obtain ⟨s, _, rfl⟩ := List.mem_map.1 ht
-  refine ⟨rfl, ?_⟩
+  refine ⟨Tabled.same_val _ _, ?_⟩
   have := goalSize_goal k s
-  show goalSize (goal k s) + goalSize g ≤ 6
+  have := goalSize_goal k r
+  show (Tabled.same (goal k s) (goal k r)).ticks ≤ 6
+  rw [Tabled.same_ticks_of_none (goal_open k s) (goal_open k r)]
   omega
 
 /-! ## Lookups -/
@@ -75,11 +80,12 @@ theorem indexOf_tabs (k d : Nat) (s : Slot) :
     funext x; exact goal_same k x s
   rw [R001.indexOf, tabs, List.findIdx?_map, e, findIdx?_beq]
 
-theorem findTable_costs (k d : Nat) {g : Goal} (hg : goalSize g ≤ 3) :
-    Costs (Tabled.findTable (tabs k d) g) (R001.findTable (tabs k d) g)
+theorem findTable_costs (k d : Nat) (r : Slot) :
+    Costs (Tabled.findTable (tabs k d) (goal k r)) (R001.findTable (tabs k d) (goal k r))
       ((slots k d).length * 6) := by
-  have := Costs.findL (f := fun t : Table => Tabled.same t.goal g) (g := fun t => t.goal.same g)
-    (xs := tabs k d) (c := 6) fun t ht => same_costs k d hg ht
+  have := Costs.findL (f := fun t : Table => Tabled.same t.goal (goal k r))
+    (g := fun t => t.goal.same (goal k r))
+    (xs := tabs k d) (c := 6) fun t ht => same_costs k d r ht
   rw [tabs, List.length_map] at this
   exact this
 
@@ -91,7 +97,7 @@ theorem answersOf_costs (k d : Nat) {g : Goal} (s : Slot) (hg : goalSize g ≤ 3
   unfold Tabled.answersOf
   refine Costs.bind (v := g.norm) ⟨rfl, hg⟩ ?_
   rw [hn]
-  have hf := findTable_costs k d (goalSize_goal k s)
+  have hf := findTable_costs k d s
   rw [findTable_tabs] at hf
   refine Costs.congr_val (Costs.mono (c' := (slots k d).length * 6)
     (Costs.bind hf (Costs.pure _)) (by omega)) ?_
@@ -113,7 +119,7 @@ theorem indexOf_costs (k d : Nat) (s : Slot) :
   refine ⟨?_, ?_⟩
   · rw [Tabled.indexOf_val, indexOf_tabs]
   · have := indexFrom_ticks (goal k s) 6 (tabs k d) 0 fun t ht =>
-      (same_costs k d (goalSize_goal k s) ht).2
+      (same_costs k d s ht).2
     rw [tabs, List.length_map] at this
     exact this
 
