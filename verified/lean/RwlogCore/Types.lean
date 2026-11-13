@@ -20,32 +20,95 @@ set_option maxRecDepth 2048
 
 namespace rwlog_core
 
+/-- [rwlog_core::store::Trie]
+    Source: 'src/store.rs', lines 80:0-83:1 -/
+structure store.Trie where
+  kids : Array Std.Usize 17#usize
+  val : Std.Usize
+
+/-- [rwlog_core::store::Slot]
+    Source: 'src/store.rs', lines 68:0-73:1 -/
+structure store.Slot where
+  ea : Std.U64
+  va : Std.Usize
+  eb : Std.U64
+  vb : Std.Usize
+
 /-- [rwlog_core::store::TermId]
-    Source: 'src/store.rs', lines 14:0-14:25
+    Source: 'src/store.rs', lines 41:0-41:25
     Visibility: public -/
 @[reducible]
 def store.TermId := Std.Usize
 
-/-- [rwlog_core::matching::Subst]
-    Source: 'src/matching.rs', lines 6:0-8:1
-    Visibility: public -/
-structure matching.Subst where
-  binds : alloc.vec.Vec (Std.U32 × store.TermId)
-
 /-- [rwlog_core::store::Node]
-    Source: 'src/store.rs', lines 17:0-21:1
+    Source: 'src/store.rs', lines 44:0-55:1
     Visibility: public -/
 @[discriminant isize]
 inductive store.Node where
-| Var : Std.U32 → store.Node
+| V0 : store.Node
+| VL : store.TermId → store.Node
+| VR : store.TermId → store.Node
 | Sym : Std.U32 → store.Node
 | App : store.TermId → store.TermId → store.Node
+| Nil : store.Node
 
 /-- [rwlog_core::store::Store]
-    Source: 'src/store.rs', lines 23:0-26:1
+    Source: 'src/store.rs', lines 85:0-92:1
     Visibility: public -/
 structure store.Store where
   nodes : alloc.vec.Vec store.Node
+  slots : alloc.vec.Vec store.Slot
+  trie : alloc.vec.Vec store.Trie
+  ea : Std.U64
+  eb : Std.U64
   ticks : Std.U64
+
+/-- [rwlog_core::store::Tbl]
+    Source: 'src/store.rs', lines 59:0-62:1
+    Visibility: public -/
+@[discriminant isize]
+inductive store.Tbl where
+| A : store.Tbl
+| B : store.Tbl
+
+/-- [rwlog_core::span::Span]
+    Source: 'src/span.rs', lines 8:0-12:1
+    Visibility: public -/
+structure span.Span where
+  l : store.TermId
+  r : store.TermId
+  c : store.TermId
+
+/-- [rwlog_core::span::Act]
+    Source: 'src/span.rs', lines 15:0-24:1
+    Visibility: public -/
+@[discriminant isize]
+inductive span.Act where
+| Skip : span.Act
+| Fail : span.Act
+| Split :
+  store.TermId →
+  store.TermId →
+  store.TermId →
+  store.TermId →
+  span.Act
+| Elim : store.TermId → store.TermId → span.Act
+
+/-- [rwlog_core::span::Kind]
+    Source: 'src/span.rs', lines 27:0-31:1 -/
+@[discriminant isize]
+inductive span.Kind where
+| Var : span.Kind
+| Atom : span.Kind
+| App : store.TermId → store.TermId → span.Kind
+
+/-- [rwlog_core::term::Leaf]
+    Source: 'src/term.rs', lines 7:0-14:1
+    Visibility: public -/
+@[discriminant isize]
+inductive term.Leaf where
+| Left : term.Leaf
+| Right : term.Leaf
+| Sub : store.TermId → store.TermId → term.Leaf
 
 end rwlog_core
