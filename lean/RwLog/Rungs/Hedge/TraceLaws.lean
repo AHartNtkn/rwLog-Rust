@@ -18,7 +18,7 @@ hedge keeps those that carry no constraints, and equivalent spans need not
 both be written without constraints.
 -/
 import RwLog.Rungs.Hedge.Laws
-import RwLog.Rungs.R001.Proofs.SymmetryLists
+import RwLog.Rungs.Tabled.Base.Proofs.SymmetryLists
 
 namespace RwLog
 

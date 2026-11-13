@@ -1,5 +1,6 @@
-import Tests.R004Runs
+import Tests.TabledRuns
 import RwLog.Rungs.R005.Spec
+import RwLog.Rungs.R005.Family
 
 /-!
 # Running rung R005
@@ -12,11 +13,34 @@ These checks run R005 and fail the build if what they compute changes.
   mirrored program, and two ticks more for its converse.
 * Costs on the family `chain k`, from both ends, beside R004's.
 
-As in `R003Runs.lean`, running a race here runs both computations to the end.
+Running a race here runs both computations to the end.
 The ticks are the cost of the machine; the time these checks take is not.
 -/
 
 namespace RwLog.Tests
+
+/-- The number of steps taken within the fuel, whether the machine halted,
+and the ticks paid: for the first state and for the steps. -/
+def costOf (C : CostedRuntime) (P : Program) (q : Rel) (fuel : Nat) : Nat × Bool × Nat :=
+  let rec go (s : C.State) : Nat → Nat → Nat → Nat × Bool × Nat
+    | 0, i, acc => (i, false, acc)
+    | f + 1, i, acc =>
+      let r := C.step s
+      match r.val with
+      | .done => (i, true, acc + r.ticks)
+      | .emit _ s' => go s' f (i + 1) (acc + r.ticks)
+  go (C.start P q) fuel 0 (C.init P q).ticks
+
+/-- `rel path { @z | path ; path }`: transitive closure written with two
+recursive calls. -/
+def path : Rel := .or (.at_ (c "z")) (.seq (.call "path") (.call "path"))
+def pathP : Program := prog [("path", path)]
+
+/-- `rel halve { z -> z | (s $x) -> $x ; halve ; halve }`: two recursive calls
+behind a pattern. -/
+def halve : Rel :=
+  .or (.at_ (c "z")) (.seq (.rw (ap "s" [v 0]) (v 0)) (.seq (.call "halve") (.call "halve")))
+def halveP : Program := prog [("halve", halve)]
 
 def traceR005 (P : Program) (q : Rel) (fuel : Nat) : List (List Span) :=
   R005.runtime.trace (R005.runtime.init P q) fuel

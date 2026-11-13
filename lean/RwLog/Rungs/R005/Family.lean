@@ -16,52 +16,43 @@ same span after one step. The mirror image of `chain k` is
 `(((c -> $x ; unbit) ; unbit) ; …) ; unbit`, and R004's shared evaluation,
 which works from the left, finds one span at every stage.
 
-So R004 pays exponentially more for `chain k` than for its mirror image. The
-two statements below are that fact, about R004 alone. They are what the
-separation of R005 from R004 needs (`Rungs/R005/Spec.lean`).
+So R004 pays exponentially more for `chain k` than for its mirror image, and
+R005 pays the same from both ends. The theorems that say so (`r004_forward`,
+`r004_mirror`, `separates`) are at the tag `epoch-1`; `Tests/R005Runs.lean`
+measures it here.
+
+`bit` and `gen` are also the building blocks of the families measured in
+`Tests/MiddleRuns.lean` and `Tests/DirectedRuns.lean`.
 -/
-import RwLog.Rungs.R004.Spec
+import RwLog.Rungs.R005.Engine
 
 namespace RwLog
 
 namespace R005
+
+/-- `$x -> (f $x)`. -/
+def wrap (f : Sym) : Span := ⟨.var 0, .app (.sym f) (.var 0), []⟩
+
+/-- A choice between two wrappers. -/
+def bit : Rel := .or (.span (wrap "0")) (.span (wrap "1"))
+
+/-- `bit ; (bit ; … ; bit)`, with `k + 1` choices. -/
+def gen : Nat → Rel
+  | 0 => bit
+  | k + 1 => .seq bit (gen k)
 
 /-- `$x -> c`: forget the term. -/
 def forget : Span := ⟨.var 0, .sym "c", []⟩
 
 /-- `bit ; (bit ; … ; (bit ; $x -> c))`, with `k + 1` choices. -/
 def chain : Nat → Rel
-  | 0 => .seq R004.bit (.span forget)
-  | k + 1 => .seq R004.bit (chain k)
+  | 0 => .seq bit (.span forget)
+  | k + 1 => .seq bit (chain k)
 
 def sepFam (k : Nat) : Program × Rel := (⟨[], []⟩, chain k)
 
 /-- The pair whose arrival is timed: `z` against `c`. -/
 def sepTarget : PRel := {(.sym "z", .sym "c")}
-
-/-- What R004's first round on the mirror image of `chain k` is allowed to
-cost. -/
-def mirrorFirst (k : Nat) : Nat := 100000 * (k + 2) ^ 3
-
-namespace Obligation
-
-/-- From the left: R004 has paid at least `2 ^ k` at any step at which it has
-covered anything on `chain k`. -/
-def r004_forward : Prop :=
-  ∀ k n M x, R004.costed.Covered (sepFam k).1 (sepFam k).2 M x n →
-    2 ^ k ≤ R004.costed.paid (sepFam k).1 (sepFam k).2 n
-
-/-- From the right: R004's first round on the mirror image of `chain k` emits
-an answer that relates `c` to `z` in every interpretation, and costs at most
-`mirrorFirst k`. -/
-def r004_mirror : Prop :=
-  ∀ k, ∃ as s',
-    (R004.costed.step (R004.costed.start (sepFam k).1.dual (sepFam k).2.dual)).val = .emit as s' ∧
-    (∃ a ∈ as, ∀ M, ((.sym "c", .sym "z") : GTerm × GTerm) ∈ a.denAt M) ∧
-    (R004.costed.step (R004.costed.start (sepFam k).1.dual (sepFam k).2.dual)).ticks ≤
-      mirrorFirst k
-
-end Obligation
 
 end R005
 

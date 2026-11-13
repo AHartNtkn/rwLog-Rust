@@ -15,7 +15,7 @@ The hedge halts only by a step of `A` that reports it is done.
 -/
 import RwLog.Rungs.Hedge.Steps
 import RwLog.Rungs.Framework.Reach
-import RwLog.Rungs.R001.Proofs.Tier0.Inv
+import RwLog.Rungs.Tabled.Base.Proofs.Tier0.Inv
 
 namespace RwLog
 

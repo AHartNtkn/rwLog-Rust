@@ -40,7 +40,7 @@ def firstOf (C : CostedRuntime) (P : Program) (q : Rel) (n : Nat) : Option (Nat 
 
 /-! ## A free factor beside an answer -/
 
-def freeProg (k : Nat) : Program := ⟨[("g", R004.gen k), ("w", .call "w")], []⟩
+def freeProg (k : Nat) : Program := ⟨[("g", R005.gen k), ("w", .call "w")], []⟩
 
 def freeRel : Rel :=
   .or (.at_ (.sym "a")) (.or (.seq (.call "g") (.at_ (.sym "q"))) (.call "w"))

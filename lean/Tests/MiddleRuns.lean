@@ -31,7 +31,7 @@ def midTarget : Nat → Pat
 def midPin (k : Nat) : Rel := .span ⟨.var 0, midTarget k, []⟩
 
 def midFactors (k : Nat) : List Rel :=
-  List.replicate k R004.bit ++ [midPin k] ++ List.replicate k midUnbit
+  List.replicate k R005.bit ++ [midPin k] ++ List.replicate k midUnbit
 
 def nestRight : List Rel → Rel
   | [] => .zero
@@ -51,7 +51,7 @@ def nestBalanced : Nat → List Rel → Rel
 
 /-- From the middle outwards: `bit ; ((… ; ($x -> t_k) ; …) ; unbit)`. -/
 def nestMiddle (k : Nat) : Rel :=
-  (List.range k).foldl (fun core _ => .seq R004.bit (.seq core midUnbit)) (midPin k)
+  (List.range k).foldl (fun core _ => .seq R005.bit (.seq core midUnbit)) (midPin k)
 
 /-- The four bracketings of `mid k`. -/
 def midWritings (k : Nat) : List Rel :=

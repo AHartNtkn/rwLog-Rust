@@ -3,7 +3,7 @@
 
 `Machine.lean` writes R001's round machine in the cost monad, leaving the
 unfolding race to an oracle. Here each of its definitions is projected onto
-the definition of `R001/Engine.lean` it was written from: forgetting the ticks
+the definition of `Base/Engine.lean` it was written from: forgetting the ticks
 gives R001's function. The result is `Tabled.machine_runtime`: with any oracle
 whose value is R001's unfolding race, the machine's runtime is `R001.runtime`,
 as an equality of runtimes.

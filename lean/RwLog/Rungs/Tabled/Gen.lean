@@ -1,7 +1,7 @@
 /-
 # The tabled round machine, written against the kernel
 
-This is the tabled round machine (`Rungs/R001/Engine.lean` says what it does
+This is the tabled round machine (`Rungs/Tabled/Base/Engine.lean` says what it does
 and why) as an engine: it is written for an arbitrary type of spans and an
 arbitrary monad, and everything it does to a span is an operation of the
 kernel (`Trusted/Kernel.lean`). Its cost is therefore not its own to declare.
@@ -16,7 +16,7 @@ definition for definition (`Rungs/Tabled/Reading.lean` proves they are equal),
 and the proofs about the machine are carried out on that reading.
 -/
 import RwLog.Trusted.Cost
-import RwLog.Rungs.R001.Engine
+import RwLog.Rungs.Tabled.Base.Engine
 import RwLog.Rungs.Framework.Traverse
 
 namespace RwLog

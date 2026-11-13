@@ -1,8 +1,17 @@
 # Structure of the Lean development
 
 The development is layered so that a new rung proves only what is new about
-its machine. Everything below `Rungs/R00N/` is shared; a rung imports it and
-never restates it.
+its machine.
+
+**Master is between epochs.** Epoch 1 of the ladder (rungs R000 to R005, on
+the size-charged cost model) is frozen at the git tag `epoch-1`; `EPOCH1.md`
+says what its theorems are about. The directories `Rungs/R000` to `Rungs/R004`,
+their tests and R005's proofs exist only at the tag. Master keeps the
+specification, the kernel, the shared libraries, and the text of the machines
+R005 is made of, so that R005 can be ported once as the yardstick for the next
+engine (roadmap M3 part B and M4). No rung is admitted on master until then.
+The trusted statements are being restated; a kept file that stops compiling
+against them is parked, not repaired.
 
 ```
 Trusted/        the specification: syntax, semantics, Runtime, Rung, the Tier-0 properties,
@@ -25,10 +34,19 @@ Rungs/Mirror/   a machine run on a query and on its mirror image side by side, f
 Rungs/Directed/ goal-directed tables: the tabled machine with no unfolding race and no
                 completion, pushing boundaries as answers arrive. Sound, not complete; not a rung
 Rungs/Hedge/    two machines run side by side, balanced by ticks, for any two machines; not a rung
-Rungs/R00N/     one rung: Engine, (Spec), proofs
+Rungs/Naive/    the naive machine (R000 of epoch 1, namespace `R000`): normalisation, unfolding to
+                a depth, and their correctness. The tabled machine's unfolding race and its
+                completeness proof rest on it
+Rungs/Tabled/Base  the tabled machine itself (R001 of epoch 1, the proper baseline, namespace
+                `R001`): Engine, Spec, and the proofs the shared libraries use (Tier 0,
+                tables, `|` order and converse)
+Rungs/R005/     the top rung of epoch 1, parked: its machine (Engine.lean), the unfolders it races
+                (Unfolder/R002 to R004, namespaces `R002` to `R004`), its family, and its
+                statements with no proofs (Spec.lean)
 Conformance/    behaviours pinned against the Rust implementation
 AxiomAudit.lean every headline and shared theorem, checked to use only the three standard axioms
-Tests/          executable runs per rung
+Tests/          executable runs: the naive and the tabled machine on the conformance cases, R005
+                beside R004, and the measurements
 ```
 
 `SYMMETRIC_ENGINE.md` is the design note for the engine of milestone M6: what it
@@ -48,8 +66,7 @@ for it. `Tests/MiddleRuns.lean` holds its measurements on R004 and R005.
 | Exact covers under composition | `Kernel/ExactCover.lean` | `Under`, `XC`, `compose_mono` |
 | Coverage modulo a theory | `SpanLayer/Modulo.lean` | `LCov`, `LEq`, `Live`, `DeadR`, `Backed`, `Ref`, `DC`, `GCov`, `GEq`, `Dom` |
 | Chains of spans | `Kernel/Chain.lean` | `Span.denO_chain`, `Span.chain_isSome_iff`, `chain_isSome_fuse`, `chain_eq_none_of_compose`, `GRel.chain` |
-| Unfolding equations | `Rungs/R000/Unfold.lean` | `unfoldN_succ`, `unfoldN_succ'`, `unfoldN_call`, `unfoldN_add`, `unfoldN_or/and/seq/conv`, `unfoldN_dual` |
-| Shape of normal-form products | `Rungs/R000/Products.lean` | `joinSeq_cases`, `joinSeq_ne_nil`, `mkAnd_ne_nil`, `norm_ne_nil` |
+| Unfolding equations | `Rungs/Naive/Unfold.lean` | `unfoldN_succ`, `unfoldN_succ'`, `unfoldN_call`, `unfoldN_add`, `unfoldN_or/and/seq/conv`, `unfoldN_dual` |
 | Sizes charged by the cost model | `Kernel/Size.lean` (and `Term.size_pos` in `Kernel/Solve.lean`) | `Span.size_pos`, `Span.size_swap`, `Rel.size_pos` |
 | Sums over lists | `Lib/List.lean` | `sum_flatMap_map`, `sum_filterMap_map`, `le_sum_map_of_mem`, `sum_map_le` |
 | Converse of a program | `SpanLayer/Dual.lean` | `Program.sem_dual` |
@@ -109,12 +126,13 @@ rung unchanged.
   `N` steps has paid for `N + 1` before it covers anything).
 
 `Rungs/Tabled/` is the base for costed rungs that keep R001's tables and change
-something else. `Machine.lean` is R001's machine written in the cost monad
+something else. `Base/` is R001 itself as a plain `Runtime` (`R001.runtime`)
+with its statements and proofs. `Machine.lean` is R001's machine written in the cost monad
 with the unfolding race left to an `Oracle`; `Tabled.round_split` isolates
 what a round spends asking the oracle. `Exact.lean` proves
 `Tabled.machine_runtime`: with any oracle whose value is R001's unfolding race
 (`Oracle.Exact`), the machine's runtime is `R001.runtime`, so all of R001's
-theorems apply. A rung that changes only the oracle (as R002 does) proves its
+theorems apply. A rung that changes only the oracle (as R002 did) proves its
 oracle exact and bounds its ticks; nothing about tables is reproved.
 `Repeats.lean` covers an oracle that returns the same answers with some
 repeats of earlier spans left out (`Oracle.SkipsRepeats`, in particular
@@ -122,12 +140,12 @@ repeats of earlier spans left out (`Oracle.SkipsRepeats`, in particular
 drop repeats themselves, so the machine is still `R001.runtime`
 (`Tabled.machine_runtime_modRepeats`), the rest of a round costs no more
 (`Tabled.rest_skips`), and a per-call bound on the oracle becomes a bound on
-the whole run (`Tabled.spent_le_of_skips`). R003 uses it.
+the whole run (`Tabled.spent_le_of_skips`). R003 used it.
 
 `Rungs/Framework/Race.lean` defines `Cost.race` and proves what it returns and spends
 (`Cost.race_val`, `Cost.race_ticks`, and from below `Cost.le_race_ticks`), for
 any two computations. A rung that adds one more way to answer the unfolding
-race races it against the previous rung's unfolder, as R004 does: simulation
+race races it against the previous rung's unfolder, as R004 did: simulation
 within 7 times is then `Tabled.spent_le_of_skips`, and a lower bound on the
 previous rung's first round is `le_race_ticks` on its two halves.
 
@@ -218,75 +236,56 @@ terms is the tick bound proved of the Rust function on the store of
 `verified/rust/src/store.rs`. See `verified/README.md`.
 
 Each machine is therefore written twice, in the same words. `Gen.lean`
-(`Rungs/Tabled/`, `Rungs/Mirror/`, `Rungs/R002/` to `R004/`) is the engine,
+(`Rungs/Tabled/`, `Rungs/Mirror/`, `Rungs/R005/Unfolder/R002/` to `R004/`) is the engine,
 against the kernel.
 `Machine.lean`, `Unfold.lean`, `Shared.lean` and `Pruned.lean` are the same
 text in `Cost` with the charged primitives written out, and all proofs are
 carried out on them. `Reading.lean` next to each proves the two equal,
-definition by definition (`Tabled.engine_costed`, `Mirror.mirrored_costed`,
-`R00N.engine_std`), by
+definition by definition (`Tabled.engine_costed`, `Mirror.mirrored_costed`;
+`R00N.engine_std` for the unfolders is at the tag), by
 unfolding both and rewriting with the equalities already proved; the tactic
-`same_text` (`Rungs/Framework/TraverseStd.lean`) closes what is left. A new
-rung writes its oracle in both forms, proves them equal the same way, and
-states `costed_engine` and `admits` on its engine.
+`same_text` (`Rungs/Framework/TraverseStd.lean`) closes what is left. This
+doubling ends with epoch 1 (roadmap L04): from the port on, each machine
+exists once and proofs are carried out on the engine text.
 
-A rung whose machine is equal to an earlier one as a `Runtime` (R002 against
-R001) uses `SameRun.of_eq`, or simply rewrites.
+A rung whose machine is equal to an earlier one as a `Runtime` (as R002 was
+to R001) uses `SameRun.of_eq`, or simply rewrites.
 
-One caveat for rungs with a real preprocessor: `Complete` (one emitted answer
-covers the derived span) does not survive preprocessing in general, only
-`PointComplete` does. State completeness of the whole rung pointwise.
+## Where epoch 1 went
 
-## Adding rung R00N
+| At the tag `epoch-1` | On master |
+|---|---|
+| `Rungs/R000/` Chain, Normalize, NormalizeCorrect, Unfold, Engine, Correct, Properties | `Rungs/Naive/`, same file names |
+| `Rungs/R000/` Products, Termination | removed |
+| `Rungs/R001/Engine.lean`, `Spec.lean` | `Rungs/Tabled/Base/`; the Spec keeps only the statements whose proofs are kept |
+| `Rungs/R001/Proofs/` Kernel, Base, Derivations, Tier0 and `Tier0/`, Symmetry, SymmetryLists, SymmetryGoals | `Rungs/Tabled/Base/Proofs/`, same file names |
+| the rest of `Rungs/R001/Proofs/` (termination certificates, exact tables, the mirror trace, `R001.keeps`) | removed |
+| `Rungs/R002/` Unfold, Gen | `Rungs/R005/Unfolder/R002/` |
+| `Rungs/R003/` Shared, Gen, Engine | `Rungs/R005/Unfolder/R003/` |
+| `Rungs/R004/` Pruned, Gen, Engine | `Rungs/R005/Unfolder/R004/` |
+| every `Spec.lean`, `Reading.lean` and `Proofs/` of R002 to R004 | removed |
+| `Rungs/R005/Proofs/` | removed; `Rungs/R005/Spec.lean` keeps the statements M4 re-establishes, unproved |
+| `R004.wrap`, `bit`, `gen` (in `R004/Spec.lean`) | `R005.wrap`, `bit`, `gen` in `Rungs/R005/Family.lean` |
+| `Tests/R000Runs.lean`, `R001Runs.lean` | `Tests/NaiveRuns.lean`, `TabledRuns.lean` |
+| `Tests/R002Runs.lean` to `R004Runs.lean` | removed; `costOf` and the `path` and `halve` programs moved to `Tests/R005Runs.lean` |
+| `R001.Obligation.finite_answers` and its proof | removed: it holds of every runtime (`Runtime.finite_answers`), so it obliged nothing (roadmap L05) |
 
-1. Put the machine in `Rungs/R00N/Engine.lean` and its tests in
-   `Tests/R00NRuns.lean`. Touch nothing outside `Rungs/R00N/` except the
-   import list in `RwLog.lean`, the audit lines in `AxiomAudit.lean`, and
-   genuinely rung-independent lemmas, which go in the shared layer.
-2. If the rung is an optimisation of an earlier rung, prove a simulation and
-   use `SameRun.of_sim`; Tier 0 and termination then come from the earlier
-   rung with no further work.
-3. Otherwise build a `Tier0Cert`. `R000/Correct.lean` (`R000.cert`) is the
-   small example, `R001/Proofs/Tier0.lean` (`R001.cert`) the large one.
-4. Use kernel theorems by name. If a proof needs a fact about `covers?`,
-   `simplify`, `compose`, `meet` or lists that is not rung-specific, add it to
-   `Kernel/`, `SpanLayer/` or `Lib/`, not to the rung.
-5. The shared layers never import a rung: `Kernel/`, `SpanLayer/`, `Lib/` and
-   `Rungs/Framework/` import nothing under `Rungs/R00N/`. A generic definition
-   a rung needs goes in the shared layer, with its lemmas.
-6. A rung from R002 on is admitted by these statements in its `Spec.lean`,
-   and by nothing weaker:
-   * `keeps : runtime.Keeps R001.runtime` (`Trusted/Properties.lean`): every
-     property of the proper baseline, stated for any runtime, and termination
-     wherever R001 terminates. Properties about one machine's internals
-     (prompt pruning, table invariants) are not in that list; a rung whose
-     machine is not R001's restates and proves them for its own state.
-   * `costed_engine : engine.costed = costed`: the machine the proofs are about
-     is the rung's engine at the kernel of the language.
-   * `admits : Admits Old New bounds dirBound pre fam tgt`
-     (`Trusted/Cost.lean`), on the engines. It has two parts.
-     `Advances`: the rung as a whole (machine run on the preprocessed input)
-     simulates its predecessor within `bounds.sim`, on a family of size at
-     most `bounds.size k` it covers the targets within `bounds.hi k` while
-     the predecessor has paid `2 ^ k`, and preprocessing costs at most `pre`.
-     `bounds` is six numerals written in the Spec. Prove `Simulates` and
-     `Separates` with whatever bounds are natural and bring them to this form
-     with `Simulates.mono` and `Separates.mono`.
-     `direction`: the rung's cost does not depend on the direction a query is
-     written in (`DirectionFree`): on the mirror image of a query in the
-     mirrored program, and on its converse, it covers the same pairs within
-     `dirBound.fn` of what it pays on the query, and the other way round.
-     `Admits.of_id` covers a rung without preprocessing, after rewriting both
-     engines to their readings.
-     R002 to R004 state only `advances : Advances ...`: their cost depends on
-     direction, so they are not admitted. R005 is the first rung that is. A
-     rung that is not built on a mirrored machine proves `DirectionFree` for
-     its own machine, with `DirectionFree.of_bisim` if its runs from the two
-     ends cost the same step for step.
-   * Building the first state (`CostedRuntime.init`) and preprocessing
-     (`Preprocessor.run`) are charged computations. A coverage test and a
-     simplification are charged for their search (`Charged.coversWork`,
-     `Theory.saturateWork`), which is nothing when the covering span has no
-     store and when the theory is empty.
-7. Add each headline theorem to `AxiomAudit.lean`. The build is
+Declarations keep their epoch 1 namespaces (`R000` to `R005`), so a name on
+master is the same name at the tag.
+
+## Rules that hold in every epoch
+
+1. Use kernel theorems by name. If a proof needs a fact about `covers?`,
+   `simplify`, `compose`, `meet` or lists that is not specific to one machine,
+   add it to `Kernel/`, `SpanLayer/` or `Lib/`, not to the machine.
+2. The shared layers never import a machine: `Kernel/`, `SpanLayer/`, `Lib/`
+   and `Rungs/Framework/` import nothing else under `Rungs/`.
+3. `Complete` (one emitted answer covers the derived span) does not survive
+   preprocessing in general, only `PointComplete` does. State completeness of
+   a whole rung pointwise.
+4. Add each headline theorem to `AxiomAudit.lean`. The build is
    `lake build --wfail`: no `sorry`, no warnings, no new axioms.
+
+How a rung is admitted is being restated (roadmap M3 part A: `Keeps` for a
+whole rung, admission for three kinds of win on a decidable class). The rule
+of epoch 1 is in `EPOCH1.md`.
