@@ -1,8 +1,8 @@
 /-
-# R004 is admitted
+# R004 advances
 
 The simulation and the separation, with the bounds brought to the form the
-admission statement asks for (`Improves`, `Trusted/Cost.lean`): a coefficient
+statement of the advance asks for (`Improves`, `Trusted/Cost.lean`): a coefficient
 and a degree for each polynomial.
 -/
 import RwLog.Rungs.R004.Proofs.SameMachine
@@ -34,8 +34,8 @@ theorem keeps : Obligation.keeps := by
 
 theorem costed_engine : Obligation.costed_engine := engine_std
 
-theorem admits : Obligation.admits :=
-  Admits.of_id (by rw [R003.engine_std, engine_std]; exact improves)
+theorem advances : Obligation.advances :=
+  Advances.of_id (by rw [R003.engine_std, engine_std]; exact improves)
 
 end R004
 

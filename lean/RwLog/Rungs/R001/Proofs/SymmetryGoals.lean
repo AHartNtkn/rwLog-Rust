@@ -10,6 +10,7 @@
 -/
 import RwLog.Rungs.R001.Proofs.Symmetry
 import RwLog.Rungs.R001.Proofs.SymmetryLists
+import RwLog.Rungs.Framework.Direction
 
 namespace RwLog
 
@@ -23,15 +24,6 @@ theorem _root_.RwLog.R001.GoalOf.same_dual {g h : Goal} (e : g.same h = true) : 
   rw [GoalOf.same_iff] at e ⊢
   simp only [GoalOf.dual, boundEq_swap]
   exact ⟨by rw [e.1], e.2.2, e.2.1⟩
-
-theorem _root_.RwLog.RelOf.dual_dual : ∀ e : Rel, e.dual.dual = e
-  | .zero => rfl
-  | .span s => by simp [RelOf.dual]
-  | .or a b => by simp [RelOf.dual, RelOf.dual_dual a, RelOf.dual_dual b]
-  | .and a b => by simp [RelOf.dual, RelOf.dual_dual a, RelOf.dual_dual b]
-  | .seq a b => by simp [RelOf.dual, RelOf.dual_dual a, RelOf.dual_dual b]
-  | .conv a => by simp [RelOf.dual, RelOf.dual_dual a]
-  | .call _ => rfl
 
 theorem _root_.RwLog.R001.GoalOf.dual_dual (g : Goal) : g.dual.dual = g := by
   obtain ⟨lb, e, rb⟩ := g

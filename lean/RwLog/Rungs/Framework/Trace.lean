@@ -60,6 +60,11 @@ theorem StepEquiv.append {xs ys xs' ys' : List Span} (h : StepEquiv xs ys) (h' :
   obtain ⟨u', hp', hf'⟩ := h'
   exact ⟨u ++ u', hp.append hp', List.rel_append hf hf'⟩
 
+theorem map_swap_swap (xs : List Span) : (xs.map Span.swap).map Span.swap = xs := by
+  rw [List.map_map]
+  have : (Span.swap ∘ Span.swap) = id := funext fun s => s.swap_swap
+  rw [this, List.map_id]
+
 theorem StepEquiv.map_swap {xs ys : List Span} (h : StepEquiv xs ys) :
     StepEquiv (xs.map Span.swap) (ys.map Span.swap) := by
   obtain ⟨u, hp, hf⟩ := h

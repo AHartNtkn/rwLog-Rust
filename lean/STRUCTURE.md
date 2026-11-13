@@ -19,6 +19,8 @@ Lib/            facts about lists and greatest fixpoints that mention no rwlog t
 Rungs/Framework generic theorems about any Runtime / Rung
 Rungs/Tabled/   the tabled round machine, open in its unfolding oracle: written against the
                 kernel (Gen.lean) and read in the cost monad (Machine.lean)
+Rungs/Mirror/   a machine run on a query and on its mirror image side by side, for any machine:
+                written against the kernel (Gen.lean) and read in the cost monad (Machine.lean)
 Rungs/R00N/     one rung: Engine, (Spec), proofs
 Conformance/    behaviours pinned against the Rust implementation
 AxiomAudit.lean every headline and shared theorem, checked to use only the three standard axioms
@@ -121,20 +123,60 @@ race races it against the previous rung's unfolder, as R004 does: simulation
 within 7 times is then `Tabled.spent_le_of_skips`, and a lower bound on the
 previous rung's first round is `le_race_ticks` on its two halves.
 
+`Rungs/Framework/RaceWinner.lean` says which computation a race returns and
+what it costs as functions of the two costs alone (`Cost.firstWins`,
+`Cost.raceCost`, `Cost.race_eq`), with `raceCost_le` (at most 7 times the
+cheaper) and `winner_le_raceCost`. Use it when the proof must follow which
+side won.
+
+`Rungs/Framework/Direction.lean` is how `DirectionFree` (`Trusted/Cost.lean`)
+is established. `CostBisim A B E rel`: two machines go through related states,
+every step at the same cost, emitting answers related by `E`; it gives equal
+`spent`, related traces, and `CostBisim.simulates` (simulation within what the
+first states cost more). `ConvBisim C rel` and `DualBisim C rel` are that for
+one machine's runs on `conv q` and `q`, and on the mirror image and the query;
+`DirectionFree.of_bisim` turns the two into `DirectionFree`.
+`simulates_of_trace` gives a simulation from traces that agree step for step
+and a bound on what the new machine has paid by the old one's step. The file
+also has the facts about `dual` (`RelOf.dual_dual`, `size_dual`,
+`ProgramOf.WellFormed.dual`).
+
+`Rungs/Mirror/` is the mirrored machine of any machine `C`: `C` on the query
+and `C` on the mirror image, raced step by step (`Gen.lean` says what a step
+does). It asks of `C`: `Runtime.DualTrace`, a `ConvBisim`, and equal first
+states for swapped and regrouped `|`. It gives:
+`Mirror.trace_go` / `trace_start` (it emits what `C` emits, step for step, up
+to order and equivalence), `Mirror.spent_le` / `paid_le_min` (the first `n`
+steps cost at most `2 n` rounds of at most 14 times the cheaper run),
+`Mirror.dualBisim` and `convBisim` (its runs on the mirror image and on the
+converse cost exactly what its run on the query costs, step for step),
+`Mirror.directionFree`, `Mirror.simulates` (it simulates `C` within
+`Mirror.bound`), `Mirror.keeps` (it has every property of `Runtime.Keeps`
+that `C` has), `Mirror.step_from` (each step emits what one step of one of
+the two runs emits, at no less than its cost) and `Mirror.covered_first`.
+`Rungs/Tabled/Direction.lean` supplies what it asks for the tabled machine
+with any oracle (`Tabled.convBisim`, `start_or_comm`, `start_or_assoc`,
+`init_ticks`, `step_pos`). R005 is the mirrored machine of R004; a later rung
+that mirrors another machine, or runs something beside a mirrored machine,
+reuses all of it.
+
 An engine cannot declare its own cost. `Trusted/Kernel.lean` is the class
 `Kernel S M`: an abstract type of spans, an abstract monad, and the operations
 on spans, each returning in the monad. An `Engine` (`Trusted/Cost.lean`) is a
 machine written for every kernel, so it can only touch a span through those
 operations and can only spend what they charge; `Engine.costed` is the engine
 at `Kernel.std`, the kernel of the language, where each operation is the
-charged primitive of `Trusted/Charged.lean`. `Admits` is stated on engines.
+charged primitive of `Trusted/Charged.lean`. `Advances` and `Admits` are
+stated on engines.
 
 Each machine is therefore written twice, in the same words. `Gen.lean`
-(`Rungs/Tabled/`, `Rungs/R002/` to `R004/`) is the engine, against the kernel.
+(`Rungs/Tabled/`, `Rungs/Mirror/`, `Rungs/R002/` to `R004/`) is the engine,
+against the kernel.
 `Machine.lean`, `Unfold.lean`, `Shared.lean` and `Pruned.lean` are the same
 text in `Cost` with the charged primitives written out, and all proofs are
 carried out on them. `Reading.lean` next to each proves the two equal,
-definition by definition (`Tabled.engine_costed`, `R00N.engine_std`), by
+definition by definition (`Tabled.engine_costed`, `Mirror.mirrored_costed`,
+`R00N.engine_std`), by
 unfolding both and rewriting with the equalities already proved; the tactic
 `same_text` (`Rungs/Framework/TraverseStd.lean`) closes what is left. A new
 rung writes its oracle in both forms, proves them equal the same way, and
@@ -164,7 +206,7 @@ covers the derived span) does not survive preprocessing in general, only
 5. The shared layers never import a rung: `Kernel/`, `SpanLayer/`, `Lib/` and
    `Rungs/Framework/` import nothing under `Rungs/R00N/`. A generic definition
    a rung needs goes in the shared layer, with its lemmas.
-6. A rung from R002 on is admitted by four statements in its `Spec.lean`,
+6. A rung from R002 on is admitted by these statements in its `Spec.lean`,
    and by nothing weaker:
    * `keeps : runtime.Keeps R001.runtime` (`Trusted/Properties.lean`): every
      property of the proper baseline, stated for any runtime, and termination
@@ -173,16 +215,26 @@ covers the derived span) does not survive preprocessing in general, only
      machine is not R001's restates and proves them for its own state.
    * `costed_engine : engine.costed = costed`: the machine the proofs are about
      is the rung's engine at the kernel of the language.
-   * `admits : Admits Old New bounds pre fam tgt` (`Trusted/Cost.lean`), on
-     the engines: the
-     rung as a whole (machine run on the preprocessed input) simulates its
-     predecessor within `bounds.sim`, on a family of size at most
-     `bounds.size k` it covers the targets within `bounds.hi k` while the
-     predecessor has paid `2 ^ k`, and preprocessing costs at most `pre`.
+   * `admits : Admits Old New bounds dirBound pre fam tgt`
+     (`Trusted/Cost.lean`), on the engines. It has two parts.
+     `Advances`: the rung as a whole (machine run on the preprocessed input)
+     simulates its predecessor within `bounds.sim`, on a family of size at
+     most `bounds.size k` it covers the targets within `bounds.hi k` while
+     the predecessor has paid `2 ^ k`, and preprocessing costs at most `pre`.
      `bounds` is six numerals written in the Spec. Prove `Simulates` and
      `Separates` with whatever bounds are natural and bring them to this form
-     with `Simulates.mono` and `Separates.mono`; `Admits.of_id` covers a rung
-     without preprocessing, after rewriting both engines to their readings.
+     with `Simulates.mono` and `Separates.mono`.
+     `direction`: the rung's cost does not depend on the direction a query is
+     written in (`DirectionFree`): on the mirror image of a query in the
+     mirrored program, and on its converse, it covers the same pairs within
+     `dirBound.fn` of what it pays on the query, and the other way round.
+     `Admits.of_id` covers a rung without preprocessing, after rewriting both
+     engines to their readings.
+     R002 to R004 state only `advances : Advances ...`: their cost depends on
+     direction, so they are not admitted. R005 is the first rung that is. A
+     rung that is not built on a mirrored machine proves `DirectionFree` for
+     its own machine, with `DirectionFree.of_bisim` if its runs from the two
+     ends cost the same step for step.
    * Building the first state (`CostedRuntime.init`) and preprocessing
      (`Preprocessor.run`) are charged computations. A coverage test and a
      simplification are charged for their search (`Charged.coversWork`,
