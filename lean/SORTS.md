@@ -4,7 +4,7 @@ Decided 2026-11-13 (roadmap L51). Replaces rule theories. Background and the
 options that were not taken: `/mnt/project-files/constraints/alternatives.md`.
 Prototype: `scripts/sorts_prototype.py` (run it with no argument; `--notebooks`
 adds two slower queries). Marks: *prototype* means the script checks it,
-*to prove* means it is owed in `lean/RwLog/Sorts`.
+*to prove* meant it was owed in `lean/RwLog/Sorts` (now proved: section 6).
 
 ## 1. What is decided
 
@@ -110,18 +110,46 @@ sort depth((s $n)) = (imp depth($n) depth($n)) | (neg depth($n)) | other   # dep
 relations joined with `&`: "below 3" is a finite set, so it is not a sort.
 The surface syntax above is the prototype's and is settled with the parser.
 
-## 6. What the Lean owes (`lean/RwLog/Sorts`)
+## 6. The Lean (`lean/RwLog/Sorts`)
 
-1. Membership is decidable; emptiness, finiteness and inclusion of conjunctions
-   are decided; the well-formedness of section 4 is decided.
-2. Unification under sorts is sound and most general.
-3. The independence lemma of section 3, and from it: the dead test is exact,
-   projection is exact, the canonical form is canonical.
-4. The instance: `S.WellFormed → (dom S).Lawful S.interp`.
-5. L08 (stores bounded by the span's variables: immediate from projection),
-   L09 (no emitted answer relates nothing: the dead test is exact).
+Proved (2026-11-13), for well-formed sorts and with no other hypothesis:
 
-One request to the trusted side, still to be agreed: patterns in a program are
-first-order (no variable in function position), which the parser guarantees
-and substitution preserves. Without it a sort cannot be pushed through
-`(app $x t)`.
+| Statement | Theorem |
+|---|---|
+| Two normal stores that denote the same terms are equal | `Raw.Normal.eq` (`UniqueExcl.lean`) |
+| A first-order problem (pattern, equations, sorts of patterns, exclusions) with a solution has a normal store | `Prob.normal` (`Reduce.lean`) |
+| A hidden variable is dropped, with the exclusions that mention it | `Raw.Normal.proj` (`Hidden.lean`) |
+| The domain of sorts satisfies every law of the interface (L51) | `dom_lawful` (`Dom.lean`) |
+| No representative relates nothing; an operation returns nothing exactly when its result relates no pair (L09) | `Rep.live`, `compose_eq_none_iff`, `meet_eq_none_iff`, `rep_eq_none_iff` (`Gaps.lean`) |
+| A representative mentions no variable outside its two sides and only declared sorts (L08) | `Rep.no_hidden` (`Gaps.lean`) |
+| A representative written as a span relates the same pairs | `Raw.toSpan_den` (`Rep.lean`) |
+
+How it is built. A *normal* store (`Raw.Normal`, `Normal.lean`) is defined by
+conditions on its solutions: variables numbered by first occurrence, every
+variable taking values with two different head symbols, each variable listed
+with every declared sort that holds of all its values, exclusions solved and
+irredundant and in a fixed order. Uniqueness is proved from those conditions.
+Existence goes: solve the equations and push the sorts down to variables
+(`Reduce.lean`); pair the pattern with all variables so none is hidden
+(`Hidden.lean`); extend the pattern at every variable with one head symbol
+until none is left (`Tight.lean`); renumber (`Renum.lean`); close the sorts
+upward, bring each exclusion to solved form (`Solved.lean`), drop the implied
+ones and sort them (`Assemble.lean`); project the hidden variables away.
+
+The operations of `dom S` are specified by what they denote: each returns the
+one normal store that relates the named pairs, or nothing when there is no
+pair. They are not programs. The programs are the Rust of L39, which is
+correct when it returns a normal store with the right denotation; uniqueness
+then makes it equal to `dom S`.
+
+Two things to know about the instance:
+
+- The type of representatives `Rep S` is empty when `S` is not well formed,
+  so the converse of a representative needs no hypothesis.
+- `Answer.den M ρ` does not depend on `M`: a representative for `S` relates
+  the pairs its store denotes under `S`. `Raw.toSpan_den` says that the span
+  it is printed as relates the same pairs in `S.interp`.
+
+Still owed: deciding `Sorts.WellFormed` when a program is read (L56),
+`Engine.costed` at `Sorts.dom` (L55), and the operations in Rust with
+derived charges (L39).
