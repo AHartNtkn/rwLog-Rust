@@ -191,8 +191,7 @@ of a chain modulo distinct primes reach every combination of residues, the
 product of the primes, from declarations whose size is their sum. So the
 charge of `rep`, `compose` and `meet` at `dom S` is a polynomial in the store
 times the number of reachable conjunctions, and that number is a property of
-the declarations: one for each declared sort when no two sorts overlap, as in
-every example of section 5.
+the declarations alone.
 
 For L39 and L55 this fixes the shape of the statement: the charges are stated
 with the number of reachable conjunctions as a parameter computed from the
