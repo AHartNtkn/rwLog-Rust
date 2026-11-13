@@ -28,6 +28,9 @@ nodes is equality of expressions.
 `normB false e` is the normal form of `e`, and `normB true e` the normal form
 of its converse. `Kernel/NormalFormCorrect.lean` proves that the normal form
 has the derivable spans, and so the meaning, of the expression.
+`Kernel/NormalFormStable.lean` proves that the normal form is stable: which
+expressions are nodes (`Normal`), that normalising a node returns it, and
+that every node read from a node or made from nodes is a node.
 -/
 import RwLog.Kernel.Canon
 
