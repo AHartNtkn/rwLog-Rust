@@ -22,7 +22,8 @@
 //!    aliases bound to the earlier variable, drop the exclusions another one
 //!    implies, and list them in order.
 
-use super::{ap, sy, v, T};
+use super::{ap, put, put_list, sy, v, T};
+use rwlog_core::store::{Node, Store, TermId};
 use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
@@ -768,4 +769,86 @@ pub fn normal(s: &Sorts, prob: &Prob) -> Option<Raw> {
     x.sort_by(binds_cmp);
     let c = order.iter().map(|y| conj.get(y).cloned().unwrap_or_default()).collect();
     Some(Raw { t: t.subst(&number), c, x })
+}
+
+// Sorts in the store.
+
+/// A sort or any term, as the store has it.
+pub fn put_kid(s: &mut Store, k: &Option<Name>) -> TermId {
+    match k {
+        None => s.alloc(Node::Nil),
+        Some(n) => s.alloc(Node::Sym(*n)),
+    }
+}
+
+fn put_ids(s: &mut Store, ids: &[TermId]) -> TermId {
+    let mut out = s.alloc(Node::Nil);
+    for id in ids.iter().rev() {
+        out = s.alloc(Node::App(*id, out));
+    }
+    out
+}
+
+/// The declarations as the store has them (`rwlog_core::sorts`).
+pub fn put_sorts(s: &mut Store, sorts: &Sorts) -> TermId {
+    let mut decls = Vec::new();
+    for (name, def) in &sorts.defs {
+        let mut cases = Vec::new();
+        for (f, kids) in &def.cases {
+            let kids: Vec<TermId> = kids.iter().map(|k| put_kid(s, k)).collect();
+            let kids = put_ids(s, &kids);
+            let f = s.alloc(Node::Sym(*f));
+            cases.push(s.alloc(Node::App(f, kids)));
+        }
+        let cases = put_ids(s, &cases);
+        let rest = match &def.rest {
+            None => s.alloc(Node::Nil),
+            Some((excluded, kid)) => {
+                let mut ex = Vec::new();
+                for (f, n) in excluded {
+                    let nil = s.alloc(Node::Nil);
+                    let units = put_ids(s, &vec![nil; *n]);
+                    let f = s.alloc(Node::Sym(*f));
+                    ex.push(s.alloc(Node::App(f, units)));
+                }
+                let ex = put_ids(s, &ex);
+                let kid = put_kid(s, kid);
+                s.alloc(Node::App(ex, kid))
+            }
+        };
+        let def = s.alloc(Node::App(cases, rest));
+        let name = s.alloc(Node::Sym(*name));
+        decls.push(s.alloc(Node::App(name, def)));
+    }
+    put_ids(s, &decls)
+}
+
+/// A pattern in the store.
+pub fn put_pat(s: &mut Store, p: &P) -> TermId {
+    put(s, &p.tree())
+}
+
+/// A list of sorts or any term, read back.
+pub fn get_kids(s: &mut Store, mut p: TermId) -> Vec<Option<Name>> {
+    let mut out = Vec::new();
+    loop {
+        match s.read(p) {
+            Node::Nil => return out,
+            Node::App(h, t) => {
+                out.push(match s.read(h) {
+                    Node::Nil => None,
+                    Node::Sym(n) => Some(n),
+                    _ => panic!("neither a sort nor any term"),
+                });
+                p = t;
+            }
+            _ => panic!("a term where a list was expected"),
+        }
+    }
+}
+
+/// The patterns as a list of the store.
+pub fn put_pats(s: &mut Store, ps: &[P]) -> TermId {
+    let ts: Vec<T> = ps.iter().map(P::tree).collect();
+    put_list(s, &ts)
 }
