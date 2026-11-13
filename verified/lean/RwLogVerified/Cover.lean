@@ -345,6 +345,7 @@ structure MatchPost (nm : Option Nat → Sym) (s s' : store.Store) (θ : PSubst)
   grow : ∀ k, tbl s .A k ≠ none → tbl s' .A k ≠ none
   cost : s'.ticks.val + 12 * (if b then (pending nm s'.nodes.val (tbl s' .A) S).card else 0) ≤
     s.ticks.val + 6 + 12 * (pending nm s.nodes.val (tbl s .A) S).card
+  mono : s.ticks.val ≤ s'.ticks.val
 
 /-- The invariant of the loop. `s0` is the store at the start, `R` the answer
 of the specification and `B` the tick count the loop stays under. Once the
@@ -368,7 +369,7 @@ def MDone (nm : Option Nat → Sym) (s0 : store.Store) (R : Option PSubst)
 def MBodyPost (nm : Option Nat → Sym) (s0 : store.Store) (tp : Pat) (R : Option PSubst)
     (S : Finset Pat) (B : Nat) (t0 : Nat) :
     ControlFlow (store.Store × Bool) (Bool × store.Store) → Prop
-  | .done y => MDone nm s0 R S B y
+  | .done y => MDone nm s0 R S B y ∧ t0 ≤ y.2.ticks.val
   | .cont x => MInv nm s0 tp R S B x ∧ t0 < x.1.ticks.val
 
 theorem mmatch_body_spec (hnm : Function.Injective nm) (s0 : store.Store) (tp : Pat)
@@ -392,16 +393,16 @@ theorem mmatch_body_spec (hnm : Function.Injective nm) (s0 : store.Store) (tp : 
     cases ok with
     | false =>
       simp only [Bool.false_eq_true, ↓reduceIte] at h
-      refine ⟨hW1, est, by rw [e1, hn], by rw [e2, hTB], by rw [e2]; exact hG,
-        by rw [h.2.1]; rfl, fun hb => (by cases hb), ?_⟩
+      refine ⟨⟨hW1, est, by rw [e1, hn], by rw [e2, hTB], by rw [e2]; exact hG,
+        by rw [h.2.1]; rfl, fun hb => (by cases hb), ?_⟩, by simp only; omega⟩
       simp only [Bool.false_eq_true, ↓reduceIte]
       omega
     | true =>
       simp only [↓reduceIte] at h
       obtain ⟨θ, U, hM, hU, hc⟩ := h
       have hR := hM.done
-      refine ⟨hW1, est, by rw [e1, hn], by rw [e2, hTB], by rw [e2]; exact hG,
-        by rw [hR]; rfl, fun _ => ⟨θ, hR, by rw [e2]; exact hM.ok⟩, ?_⟩
+      refine ⟨⟨hW1, est, by rw [e1, hn], by rw [e2, hTB], by rw [e2]; exact hG,
+        by rw [hR]; rfl, fun _ => ⟨θ, hR, by rw [e2]; exact hM.ok⟩, ?_⟩, by simp only; omega⟩
       have := hU.card_le
       simp only [nV_nil, nB_nil] at hc
       simp only [↓reduceIte]
@@ -621,18 +622,20 @@ theorem mmatch_spec (hnm : Function.Injective nm) (s : store.Store) (p t : store
   let B := s.ticks.val + 6 + 12 * (pending nm s.nodes.val (tbl s .A) S).card
   have hloop := loop.spec_decr_nat
     (fun y : store.Store × Bool => B + 1 - y.1.ticks.val)
-    (MInv nm s tp (matchInto tp tt θ) S B)
+    (fun y => MInv nm s tp (matchInto tp tt θ) S B y ∧ s.ticks.val ≤ y.1.ticks.val)
     (fun y : Bool × store.Store => MatchPost nm s y.2 θ tp tt S y.1)
     (fun y : store.Store × Bool => cover.mmatch_loop.body y.1 y.2) (s1, true)
     (by
-      rintro ⟨y, ok⟩ hinv
+      rintro ⟨y, ok⟩ ⟨hinv, hlow⟩
+      simp only at hlow
       refine WP.spec_mono (mmatch_body_spec hnm s tp _ S B (by omega) hI.nodesOK hS y ok hinv) ?_
       intro r hr
       cases r with
       | done z =>
         obtain ⟨b, z⟩ := z
-        obtain ⟨h1, h2, h3, h4, h5, h6, h7, h8⟩ := hr
-        refine ⟨⟨h1, h2⟩, h3, h4, h6, fun hb => ?_, h5, ?_⟩
+        obtain ⟨⟨h1, h2, h3, h4, h5, h6, h7, h8⟩, h9⟩ := hr
+        simp only at h9
+        refine ⟨⟨h1, h2⟩, h3, h4, h6, fun hb => ?_, h5, ?_, by simp only; omega⟩
         · obtain ⟨θ', e, hok⟩ := h7 hb
           exact ⟨θ', e, by rw [h3]; exact hok⟩
         · simp only
@@ -647,8 +650,8 @@ theorem mmatch_spec (hnm : Function.Injective nm) (s : store.Store) (p t : store
           | true => simp only [↓reduceIte] at h; obtain ⟨θ', U, -, -, hc⟩ := h; omega
           | false => simp only [Bool.false_eq_true, ↓reduceIte] at h; exact h.2.2
         simp only at h2
-        exact ⟨h1, by simp only; omega⟩)
-    ⟨hW1, a1, by rw [a2], by rw [a2]; exact fun _ h => h, by
+        exact ⟨⟨h1, by simp only; omega⟩, by simp only; omega⟩)
+    ⟨⟨hW1, a1, by rw [a2], by rw [a2]; exact fun _ h => h, by
       simp only [↓reduceIte]
       rw [a5, a2]
       refine ⟨θ, pending nm s.nodes.val (tbl s .A) S,
@@ -656,7 +659,7 @@ theorem mmatch_spec (hnm : Function.Injective nm) (s : store.Store) (p t : store
           fun q u hq => by simp at hq, Waits.single p t⟩, Unb.start _ _ _ _, ?_⟩
       · simp [run]
       · simp only [nV_visit, nV_nil, nB_visit, nB_nil]
-        omega⟩
+        omega⟩, by simp only; omega⟩
   exact hloop
 
 /-! ## Coverage by a span with no constraints -/
@@ -670,7 +673,7 @@ theorem covers_plain_spec (hnm : Function.Injective nm) (s : store.Store) (a x :
     (hc : sa.c = []) (hroom : Room s (coversPlainCost sa)) :
     cover.covers_plain s a x ⦃ b s' =>
       Inv s' ∧ s'.nodes.val = s.nodes.val ∧ b = sa.covers? sx ∧
-        s'.ticks.val ≤ s.ticks.val + coversPlainCost sa ⦄ := by
+        s'.ticks.val ≤ s.ticks.val + coversPlainCost sa ∧ s.ticks.val ≤ s'.ticks.val ⦄ := by
   unfold cover.covers_plain
   have hroom' := hroom
   unfold Room coversPlainCost at hroom'
@@ -683,6 +686,7 @@ theorem covers_plain_spec (hnm : Function.Injective nm) (s : store.Store) (a x :
     (sa.l.subs ∪ sa.r.subs) c3 (by rw [c1]; exact ha.l) (by rw [c1]; exact hx.l) hM0
     Finset.subset_union_left (by unfold Room; omega) as ⟨b, s2, h2⟩
   have hc2 := h2.cost
+  have hm2 := h2.mono
   have hn2 : s2.nodes.val = s.nodes.val := by rw [h2.nodes, c1]
   cases b with
   | false =>
@@ -693,7 +697,7 @@ theorem covers_plain_spec (hnm : Function.Injective nm) (s : store.Store) (a x :
       | none => rfl
       | some _ => rw [h] at this; cases this
     step*
-    exact ⟨h2.inv, hn2, by simp [Span.covers?, hm], by omega⟩
+    exact ⟨h2.inv, hn2, by simp [Span.covers?, hm], by omega, by omega⟩
   | true =>
     simp only [↓reduceIte] at hc2 ⊢
     obtain ⟨θ1, hm1, hM1⟩ := h2.ok rfl
@@ -702,7 +706,8 @@ theorem covers_plain_spec (hnm : Function.Injective nm) (s : store.Store) (a x :
       Finset.subset_union_right (by unfold Room; omega)) ?_
     rintro ⟨b2, s3⟩ h3
     have hc3 := h3.cost
-    refine ⟨h3.inv, by rw [h3.nodes, hn2], ?_, ?_⟩
+    have hm3 := h3.mono
+    refine ⟨h3.inv, by rw [h3.nodes, hn2], ?_, ?_, by omega⟩
     · rw [h3.res]
       simp only [Span.covers?, hm1, Option.bind_some, hc]
       cases matchInto sa.r sx.r θ1 <;> simp [matchAll]
@@ -737,7 +742,7 @@ theorem span_eq_spec (hnm : Function.Injective nm) (s : store.Store) (x y : span
     (hroom : Room s 3) :
     cover.span_eq s x y ⦃ b s' =>
       Inv s' ∧ s'.nodes.val = s.nodes.val ∧ tbl s' = tbl s ∧ b = decide (sx = sy) ∧
-        s'.ticks.val ≤ s.ticks.val + 3 ⦄ := by
+        s'.ticks.val ≤ s.ticks.val + 3 ∧ s.ticks.val ≤ s'.ticks.val ⦄ := by
   unfold cover.span_eq
   have hroom' := hroom
   unfold Room at hroom'
@@ -758,20 +763,20 @@ theorem span_eq_spec (hnm : Function.Injective nm) (s : store.Store) (x y : span
       rintro ⟨b2, s3⟩ ⟨hb2, hK3⟩
       have ht3 := hK3.ticks
       refine ⟨hK3.inv, by rw [hK3.nodes, hK2.nodes, hK1.nodes], by rw [hK3.tbl, hK2.tbl, hK1.tbl],
-        ?_, by omega⟩
+        ?_, by omega, by omega⟩
       rw [hb2]
       simp only [hiff, e1, e2, true_and]
     · have : b1 = false := by simp [hb1, e2]
       subst this
       simp only [Bool.false_eq_true, ↓reduceIte]
       step*
-      refine ⟨hK2.inv, by rw [hK2.nodes, hK1.nodes], by rw [hK2.tbl, hK1.tbl], ?_, by omega⟩
+      refine ⟨hK2.inv, by rw [hK2.nodes, hK1.nodes], by rw [hK2.tbl, hK1.tbl], ?_, by omega, by omega⟩
       simp [hiff, e2]
   · have : b = false := by simp [hb, e1]
     subst this
     simp only [Bool.false_eq_true, ↓reduceIte]
     step*
-    refine ⟨hK1.inv, hK1.nodes, hK1.tbl, ?_, by omega⟩
+    refine ⟨hK1.inv, hK1.nodes, hK1.tbl, ?_, by omega, by omega⟩
     simp [hiff, e1]
 
 end RwLogVerified

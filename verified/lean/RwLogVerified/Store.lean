@@ -961,11 +961,16 @@ theorem clear_w (s : store.Store) (t : store.Tbl) (hI : Wf s) (hroom : Room s 1)
       · rw [← hK.tbl]; funext k; simp only [tbl]
       · exact absurd rfl ht'
 
+/-- `s'` has the nodes of `s`, and maybe more, and has spent at least one
+tick for each node it added. -/
+def Extends (s s' : store.Store) : Prop :=
+  ∃ more, s'.nodes.val = s.nodes.val ++ more ∧ s.ticks.val + more.length ≤ s'.ticks.val
+
 theorem alloc_w (s : store.Store) (n : store.Node) (hI : Wf s) (hn : ArgOK s.nodes.val n)
     (hroom : Room s 1) :
     store.Store.alloc s n ⦃ id s' =>
       Wf s' ∧ s'.ticks.val = s.ticks.val + 1 ∧ tbl s' = tbl s ∧
-      (∃ more, s'.nodes.val = s.nodes.val ++ more) ∧
+      Extends s s' ∧
       s'.nodes.val[id.val]? = some (norm n) ∧ stk s' = stk s ⦄ := by
   unfold store.Store.alloc
   step with tick_spec s (hroom.tick_lt (Nat.le_refl _)) as ⟨s1, h1, h2, h3, h4, h5, h6, h7, h8⟩
@@ -1015,8 +1020,8 @@ theorem alloc_w (s : store.Store) (n : store.Node) (hI : Wf s) (hn : ArgOK s.nod
         cases t <;> simp [blankSlot, hna, hnb]
       · rw [List.getElem?_eq_none (by simp; omega), List.getElem?_eq_none (by omega)]
   · rcases hcase with ⟨e1, e2⟩ | ⟨e1, e2⟩
-    · exact ⟨[], by rw [e1, h1]; simp⟩
-    · exact ⟨[norm n], by rw [e1, h1]⟩
+    · exact ⟨[], by rw [e1, h1]; simp, by rw [gt, h6]; simp⟩
+    · exact ⟨[norm n], by rw [e1, h1], by rw [gt, h6]; simp⟩
 
 /-! ## The stack -/
 
@@ -1210,7 +1215,7 @@ theorem alloc_spec (s : store.Store) (n : store.Node) (hI : Inv s) (hn : ArgOK s
     (hroom : Room s 1) :
     store.Store.alloc s n ⦃ id s' =>
       Inv s' ∧ s'.ticks.val = s.ticks.val + 1 ∧ tbl s' = tbl s ∧
-      (∃ more, s'.nodes.val = s.nodes.val ++ more) ∧
+      Extends s s' ∧
       s'.nodes.val[id.val]? = some (norm n) ⦄ := by
   refine WP.spec_mono (alloc_w s n hI.toWf hn hroom) ?_
   rintro ⟨id, s'⟩ ⟨h1, h2, h3, h4, h5, h6⟩

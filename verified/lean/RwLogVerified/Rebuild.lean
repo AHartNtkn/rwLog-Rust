@@ -28,27 +28,32 @@ open rwlog_core RwLog
 
 variable {nm : Option Nat → Sym}
 
-/-- `s'` has the nodes of `s`, and maybe more. -/
-def Extends (s s' : store.Store) : Prop := ∃ more, s'.nodes.val = s.nodes.val ++ more
-
-theorem Extends.refl (s : store.Store) : Extends s s := ⟨[], by simp⟩
+theorem Extends.refl (s : store.Store) : Extends s s := ⟨[], by simp, by simp⟩
 
 theorem Extends.trans {a b c : store.Store} (h₁ : Extends a b) (h₂ : Extends b c) : Extends a c := by
-  obtain ⟨m₁, e₁⟩ := h₁
-  obtain ⟨m₂, e₂⟩ := h₂
-  exact ⟨m₁ ++ m₂, by rw [e₂, e₁, List.append_assoc]⟩
+  obtain ⟨m₁, e₁, t₁⟩ := h₁
+  obtain ⟨m₂, e₂, t₂⟩ := h₂
+  exact ⟨m₁ ++ m₂, by rw [e₂, e₁, List.append_assoc], by simp only [List.length_append]; omega⟩
 
-theorem Extends.of_eq {a b : store.Store} (h : b.nodes.val = a.nodes.val) : Extends a b :=
-  ⟨[], by simp [h]⟩
+/-- A store with the same nodes, later. -/
+theorem Extends.of_eq {a b : store.Store} (h : b.nodes.val = a.nodes.val)
+    (ht : a.ticks.val ≤ b.ticks.val) : Extends a b :=
+  ⟨[], by simp [h], by simpa using ht⟩
+
+/-- The nodes added are at most the ticks spent. -/
+theorem Extends.nodes_le {s s' : store.Store} (h : Extends s s') :
+    s'.nodes.val.length + s.ticks.val ≤ s.nodes.val.length + s'.ticks.val := by
+  obtain ⟨m, e, t⟩ := h
+  rw [e, List.length_append]; omega
 
 theorem Extends.repr {s s' : store.Store} (h : Extends s s') {i : Nat} {t : Pat}
     (hr : Repr nm s.nodes.val i t) : Repr nm s'.nodes.val i t := by
-  obtain ⟨m, e⟩ := h
+  obtain ⟨m, e, -⟩ := h
   rw [e]; exact hr.append m
 
 theorem Extends.varAt {s s' : store.Store} (h : Extends s s') {i n : Nat}
     (hr : VarAt s.nodes.val i n) : VarAt s'.nodes.val i n := by
-  obtain ⟨m, e⟩ := h
+  obtain ⟨m, e, -⟩ := h
   rw [e]; exact hr.append m
 
 /-! ## The terms of a set that have no table entry yet -/
@@ -124,7 +129,7 @@ theorem LeafOK.append {nodes : List store.Node} {f : term.Leaf} {σ : Nat → Pa
 
 theorem LeafOK.extends {s s' : store.Store} {f : term.Leaf} {σ : Nat → Pat}
     (h : LeafOK nm s.nodes.val f σ) (he : Extends s s') : LeafOK nm s'.nodes.val f σ := by
-  obtain ⟨m, e⟩ := he
+  obtain ⟨m, e, -⟩ := he
   rw [e]; exact h.append m
 
 /-- Every entry of the table holds what its key became. -/
@@ -149,8 +154,7 @@ theorem leaf_w (s : store.Store) (f : term.Leaf) (p : store.TermId) {σ : Nat �
   | Left =>
     simp only [LeafOK] at hf
     subst hf
-    step with alloc_w s (.VL p) hI hv.node hroom as ⟨r, s', hI', ht, htbl, more, hmore, hr, hstk⟩
-    have hext : Extends s s' := ⟨more, hmore⟩
+    step with alloc_w s (.VL p) hI hv.node hroom as ⟨r, s', hI', ht, htbl, hext, hr, hstk⟩
     refine ⟨hI', hext, ?_, htbl, by omega, by omega, hstk⟩
     simp only [norm] at hr
     split at hr
@@ -164,8 +168,7 @@ theorem leaf_w (s : store.Store) (f : term.Leaf) (p : store.TermId) {σ : Nat �
   | Right =>
     simp only [LeafOK] at hf
     subst hf
-    step with alloc_w s (.VR p) hI hv.node hroom as ⟨r, s', hI', ht, htbl, more, hmore, hr, hstk⟩
-    have hext : Extends s s' := ⟨more, hmore⟩
+    step with alloc_w s (.VR p) hI hv.node hroom as ⟨r, s', hI', ht, htbl, hext, hr, hstk⟩
     refine ⟨hI', hext, ?_, htbl, by omega, by omega, hstk⟩
     simp only [norm] at hr
     exact .var (.right hr (Extends.varAt hext hv))
@@ -173,7 +176,7 @@ theorem leaf_w (s : store.Store) (f : term.Leaf) (p : store.TermId) {σ : Nat �
     obtain ⟨xv, tu, hx, hu, e⟩ := hf
     subst e
     step with same_w s p x hI hroom as ⟨b, s1, hb, hK⟩
-    have hext : Extends s s1 := Extends.of_eq hK.nodes
+    have hext : Extends s s1 := Extends.of_eq hK.nodes (by have := hK.ticks; omega)
     split
     · rename_i hbt
       have hpx : p.val = x.val := by simpa [hb] using hbt
@@ -484,7 +487,7 @@ theorem rebuild_body_spec (hnm : Function.Injective nm) (s0 : store.Store) (f : 
     simp only [List.head?_nil, List.tail_nil] at eo est
     subst eo
     simp only [WP.spec_ok]
-    refine ⟨⟨hW1, est, hE.trans (Extends.of_eq e1), by rw [e1, e2]; exact hM,
+    refine ⟨⟨hW1, est, hE.trans (Extends.of_eq e1 (by omega)), by rw [e1, e2]; exact hM,
       by rw [e2]; exact hSt, by rw [e2, hTB], ?_⟩, by omega⟩
     have := hU.card_le
     rw [e1, e2, e3]
@@ -497,7 +500,8 @@ theorem rebuild_body_spec (hnm : Function.Injective nm) (s0 : store.Store) (f : 
     obtain ⟨hfa, tq, htq, hq0⟩ := hSt.frames fr List.mem_cons_self
     have hq : Repr nm s.nodes.val (fkey fr) tq := hE.repr hq0
     have hN : NodesOK s.nodes.val := hW.nodesOK
-    obtain ⟨more, hmore⟩ := hE
+    have hE' := hE
+    obtain ⟨more, hmore, -⟩ := hE'
     cases fr with
     | Visit q u =>
       have : q = u := by simp only [faux, fkey] at hfa; scalar_tac
@@ -517,7 +521,7 @@ theorem rebuild_body_spec (hnm : Function.Injective nm) (s0 : store.Store) (f : 
         simp only [Option.map_some] at ho1
         simp only [WP.spec_ok]
         have hA : tbl s .A q.val ≠ none := by rw [← ho1]; simp
-        refine ⟨⟨hK2.wf, ⟨more, by rw [hn2, hmore]⟩, by rw [hn2, htb2]; exact hM, ?_,
+        refine ⟨⟨hK2.wf, hE.trans (Extends.of_eq hn2 (by omega)), by rw [hn2, htb2]; exact hM, ?_,
           by rw [htb2, hTB], U, ?_, ?_⟩, by omega⟩
         · rw [htb2, hstk2]
           exact hSt.hit hA
@@ -552,12 +556,13 @@ theorem rebuild_body_spec (hnm : Function.Injective nm) (s0 : store.Store) (f : 
           step with leaf_w (nm := nm) s3 f q (σ := σ) (v := v) hK3.wf (by rw [hn3]; exact hva)
             (by rw [hn3, hmore]; exact hf.append more) (by unfold Room; omega)
             as ⟨r1, s4, hW4, hext4, hr4, htbl4, ht4, hm4, hstk4⟩
-          obtain ⟨more4, hmore4⟩ := hext4
+          have hext4' := hext4
+          obtain ⟨more4, hmore4, -⟩ := hext4'
           rw [hn3] at hmore4
           step with set_w s4 .A q r1 hW4 (by rw [hmore4]; simp; have := hq.lt; omega)
             (by unfold Room; omega) as ⟨s5, g1, g2, g3, g4, g5, g6⟩
           rw [htbl4, htb3] at g4
-          refine ⟨⟨g3, ⟨more ++ more4, by rw [g1, hmore4, hmore, List.append_assoc]⟩, ?_, ?_, ?_,
+          refine ⟨⟨g3, hE.trans ((Extends.of_eq hn3 (by omega)).trans (hext4.trans (Extends.of_eq g1 (by omega)))), ?_, ?_, ?_,
             U.erase (Term.var v), ?_, ?_⟩, by omega⟩
           · rw [g1, g4, hmore4]
             exact hM.set hq more4 (by rw [← hmore4]; exact hr4)
@@ -577,7 +582,7 @@ theorem rebuild_body_spec (hnm : Function.Injective nm) (s0 : store.Store) (f : 
           step with set_w s3 .A q q hK3.wf (by rw [hn3]; exact hq.lt) (by unfold Room; omega)
             as ⟨s5, g1, g2, g3, g4, g5, g6⟩
           rw [htb3] at g4
-          refine ⟨⟨g3, ⟨more, by rw [g1, hn3, hmore]⟩, ?_, ?_, ?_, U.erase tq, ?_, ?_⟩, by omega⟩
+          refine ⟨⟨g3, hE.trans ((Extends.of_eq hn3 (by omega)).trans (Extends.of_eq g1 (by omega))), ?_, ?_, ?_, U.erase tq, ?_, ?_⟩, by omega⟩
           · rw [g1, g4, hn3]
             have := hM.set hq [] (r := q.val) (by simpa using hr)
             simpa [fkey] using this
@@ -618,7 +623,7 @@ theorem rebuild_body_spec (hnm : Function.Injective nm) (s0 : store.Store) (f : 
           have htb6 : tbl s6 = tbl s := by rw [c2, b2, a2, htb3]
           have hstk6 : stk s6 = .Visit a a :: .Visit b b :: .Build q q :: st := by
             rw [c5, b5, a5, hstk3]
-          refine ⟨⟨hW6, ⟨more, by rw [hn6, hmore]⟩, by rw [hn6, htb6]; exact hM, ?_,
+          refine ⟨⟨hW6, hE.trans (Extends.of_eq hn6 (by omega)), by rw [hn6, htb6]; exact hM, ?_,
             by rw [htb6, hTB], U.erase tq, ?_, ?_⟩, by omega⟩
           · rw [htb6, hstk6]
             exact hSt.expand hN0 hnone hnd0
@@ -676,7 +681,9 @@ theorem rebuild_body_spec (hnm : Function.Injective nm) (s0 : store.Store) (f : 
           have := hb.unique h2
           subst this
           step with alloc_w s4 (.App ra rb) hK4.wf (by rw [hn4]; exact ⟨hra.lt, hrb.lt⟩)
-            (by unfold Room; omega) as ⟨r, s5, hW5, ht5, htbl5, more5, hmore5, hr5, hstk5⟩
+            (by unfold Room; omega) as ⟨r, s5, hW5, ht5, htbl5, hext5, hr5, hstk5⟩
+          have hext5' := hext5
+          obtain ⟨more5, hmore5, -⟩ := hext5'
           rw [hn4] at hmore5
           step with set_w s5 .A q r hW5 (by rw [hmore5]; simp; have := hq.lt; omega)
             (by unfold Room; omega) as ⟨s6, g1, g2, g3, g4, g5, g6⟩
@@ -686,7 +693,7 @@ theorem rebuild_body_spec (hnm : Function.Injective nm) (s0 : store.Store) (f : 
             rw [← hmore5]
             exact .app hr5 (by rw [hmore5]; exact hra.append more5)
               (by rw [hmore5]; exact hrb.append more5)
-          refine ⟨⟨g3, ⟨more ++ more5, by rw [g1, hmore5, hmore, List.append_assoc]⟩, ?_, ?_, ?_,
+          refine ⟨⟨g3, hE.trans ((Extends.of_eq hn4 (by omega)).trans (hext5.trans (Extends.of_eq g1 (by omega)))), ?_, ?_, ?_,
             U.erase (Term.app ta tb), ?_, ?_⟩, by omega⟩
           · rw [g1, g4, hmore5]
             exact hM.set hq more5 hr
@@ -729,7 +736,7 @@ theorem rebuild_spec (hnm : Function.Injective nm) (s : store.Store) (f : term.L
         obtain ⟨h1, h2⟩ := hr
         obtain ⟨U, -, hc⟩ := h1.cost
         exact ⟨⟨h1, by omega⟩, by omega⟩)
-    ⟨⟨hW1, Extends.of_eq a1, by rw [a1, a2]; exact hM,
+    ⟨⟨hW1, Extends.of_eq a1 (by omega), by rw [a1, a2]; exact hM,
       ⟨by rw [a2]; exact fun _ _ h => h, by
         rw [a5]
         intro f' hf'
@@ -758,7 +765,7 @@ theorem rebuild_spec (hnm : Function.Injective nm) (s : store.Store) (f : term.L
     have := hp2.unique h1
     subst this
     have ht3 := hK3.ticks
-    refine ⟨⟨hK3.wf, by rw [hK3.stk]; exact hemp⟩, hE2.trans (Extends.of_eq hK3.nodes),
+    refine ⟨⟨hK3.wf, by rw [hK3.stk]; exact hemp⟩, hE2.trans (Extends.of_eq hK3.nodes (by have := hK3.ticks; omega)),
       by rw [hK3.nodes]; exact hr, by rw [hK3.nodes, hK3.tbl]; exact hM2,
       by rw [hK3.tbl, hTB2], fun k v hk => by rw [hK3.tbl]; exact hSt2.keep k v hk, ?_, ?_⟩
     · rw [hK3.nodes, hK3.tbl]; omega

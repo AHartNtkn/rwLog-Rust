@@ -33,8 +33,12 @@ store. `tick`, `race` and `metered` are those of the cost monad.
 
 Space. The store only grows and an allocation is a tick, so an operation
 that may add nodes is charged its tick bound as the cells it holds
-(`Charged.op v t t`). `span_eq` and `covers_plain` leave the store as it was
-(their theorems say so) and hold nothing.
+(`Charged.op v t t`). `span_eq` and `covers_plain` add no node and hold
+nothing. `Realises` says both: the nodes added are at most the cells held.
+It follows from `Extends`, which says of every function on the store that
+it spent a tick for each node it added. The stack of a loop is empty when
+the function returns, and its depth is under the ticks spent (a push is a
+tick), which is the peak of `Charged.op`.
 
 The operations on nodes and on answers of a `DerivationKernel` are not
 derived on the store: `DerivationKernel.over (rustKernel z)` charges them as
@@ -87,14 +91,22 @@ theorem rustKernel_refines (z : Sym) : Kernel.Refines (rustKernel z) where
 
 /-- The Rust function `F` computes the charged operation `f`. `RA` says the
 Rust argument stands for the specification's argument in a list of nodes, and
-`RB` says the same of the results. -/
+`RB` says the same of the results. The function spends at most the ticks of
+`f`, and adds at most as many nodes as `f` holds cells. -/
 def Realises {A' A B' B : Type} (RA : List store.Node → A' → A → Prop)
     (RB : List store.Node → B' → B → Prop)
     (F : store.Store → A' → Result (B' × store.Store)) (f : A → Cost B) : Prop :=
   ∀ (s : store.Store) (a' : A') (a : A), Inv s → RA s.nodes.val a' a → Room s (f a).ticks →
     F s a' ⦃ r s' =>
       Inv s' ∧ Extends s s' ∧ RB s'.nodes.val r (f a).val ∧
-        s'.ticks.val ≤ s.ticks.val + (f a).ticks ⦄
+        s'.ticks.val ≤ s.ticks.val + (f a).ticks ∧
+        s'.nodes.val.length ≤ s.nodes.val.length + (f a).held ⦄
+
+/-- A store that grew by at most `n` ticks grew by at most `n` nodes. -/
+theorem Extends.grown {s s' : store.Store} {n : Nat} (h : Extends s s')
+    (ht : s'.ticks.val ≤ s.ticks.val + n) : s'.nodes.val.length ≤ s.nodes.val.length + n := by
+  have := h.nodes_le
+  omega
 
 variable {nm : Option Nat → Sym}
 
@@ -107,13 +119,17 @@ theorem compose_realised (hnm : Function.Injective nm) :
     Realises (SpansAt nm) (OptSpanAt nm) (fun s p => span.compose s p.1 p.2)
       (fun q => (rustKernel (nm none)).compose q.1 q.2) := by
   rintro s ⟨x, y⟩ ⟨sx, sy⟩ hI ⟨hx, hy⟩ hroom
-  exact compose_spec hnm s x y hI hx hy hroom
+  refine WP.spec_mono (compose_spec hnm s x y hI hx hy hroom) ?_
+  rintro ⟨r, s'⟩ ⟨h1, h2, h3, h4⟩
+  exact ⟨h1, h2, h3, h4, h2.grown h4⟩
 
 theorem meet_realised (hnm : Function.Injective nm) :
     Realises (SpansAt nm) (OptSpanAt nm) (fun s p => span.meet s p.1 p.2)
       (fun q => (rustKernel (nm none)).meet q.1 q.2) := by
   rintro s ⟨x, y⟩ ⟨sx, sy⟩ hI ⟨hx, hy⟩ hroom
-  exact meet_spec hnm s x y hI hx hy hroom
+  refine WP.spec_mono (meet_spec hnm s x y hI hx hy hroom) ?_
+  rintro ⟨r, s'⟩ ⟨h1, h2, h3, h4⟩
+  exact ⟨h1, h2, h3, h4, h2.grown h4⟩
 
 theorem composable_realised (hnm : Function.Injective nm) :
     Realises
@@ -122,15 +138,17 @@ theorem composable_realised (hnm : Function.Injective nm) :
       (fun _ (b b' : Bool) => b = b') span.composable
       (fun spans => (rustKernel (nm none)).composable spans) := by
   intro s xs spans hI hxs hroom
-  exact composable_spec hnm s xs hI hxs hroom
+  refine WP.spec_mono (composable_spec hnm s xs hI hxs hroom) ?_
+  rintro ⟨r, s'⟩ ⟨h1, h2, h3, h4⟩
+  exact ⟨h1, h2, h3, h4, h2.grown h4⟩
 
 theorem eq_realised (hnm : Function.Injective nm) :
     Realises (SpansAt nm) (fun _ (b b' : Bool) => b = b') (fun s p => cover.span_eq s p.1 p.2)
       (fun q => (rustKernel (nm none)).eq q.1 q.2) := by
   rintro s ⟨x, y⟩ ⟨sx, sy⟩ hI ⟨hx, hy⟩ hroom
   refine WP.spec_mono (span_eq_spec hnm s x y hI hx hy hroom) ?_
-  rintro ⟨b, s'⟩ ⟨h1, h2, -, h4, h5⟩
-  exact ⟨h1, Extends.of_eq h2, h4, h5⟩
+  rintro ⟨b, s'⟩ ⟨h1, h2, -, h4, h5, h6⟩
+  exact ⟨h1, Extends.of_eq h2 h6, h4, h5, by rw [h2]; exact Nat.le_add_right _ _⟩
 
 /-- Coverage, when the covering span has no constraints. -/
 theorem covers_realised (hnm : Function.Injective nm) :
@@ -144,19 +162,23 @@ theorem covers_realised (hnm : Function.Injective nm) :
     simp [hc]
   simp only [e] at hroom ⊢
   refine WP.spec_mono (covers_plain_spec hnm s a x hI ha hx hc hroom) ?_
-  rintro ⟨b, s'⟩ ⟨h1, h2, h3, h4⟩
-  exact ⟨h1, Extends.of_eq h2, h3, h4⟩
+  rintro ⟨b, s'⟩ ⟨h1, h2, h3, h4, h5⟩
+  exact ⟨h1, Extends.of_eq h2 h5, h3, h4, by rw [h2]; exact Nat.le_add_right _ _⟩
 
 theorem rightBound_realised (hnm : Function.Injective nm) :
     Realises (SpanAt nm) (OptSpanAt nm) cover.right_bound
       (fun sx => (rustKernel (nm none)).rightBound sx) := by
   intro s x sx hI hx hroom
-  exact right_bound_spec hnm s x hI hx hroom
+  refine WP.spec_mono (right_bound_spec hnm s x hI hx hroom) ?_
+  rintro ⟨r, s'⟩ ⟨h1, h2, h3, h4⟩
+  exact ⟨h1, h2, h3, h4, h2.grown h4⟩
 
 theorem leftBound_realised (hnm : Function.Injective nm) :
     Realises (SpanAt nm) (OptSpanAt nm) cover.left_bound
       (fun sx => (rustKernel (nm none)).leftBound sx) := by
   intro s x sx hI hx hroom
-  exact left_bound_spec hnm s x hI hx hroom
+  refine WP.spec_mono (left_bound_spec hnm s x hI hx hroom) ?_
+  rintro ⟨r, s'⟩ ⟨h1, h2, h3, h4⟩
+  exact ⟨h1, h2, h3, h4, h2.grown h4⟩
 
 end RwLogVerified

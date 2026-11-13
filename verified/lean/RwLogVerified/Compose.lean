@@ -82,7 +82,7 @@ theorem rename_spec (hnm : Function.Injective nm) (s : store.Store) (f : term.Le
   have hroom' := hroom
   unfold Room at hroom'
   step with clear_spec s .A hI (by unfold Room; omega) as ⟨s1, c1, c2, c3, c4, c5⟩
-  have hx1 : Extends s s1 := Extends.of_eq c1
+  have hx1 : Extends s s1 := Extends.of_eq c1 (by omega)
   have hpc := pending_card_le (nm := nm) s1.nodes.val (tbl s1 .A) (spanSubs (nm none) sp)
   step with rebuild_spec hnm s1 f x.l (t := sp.l) (σ := σ) (spanSubs (nm none) sp) c3
     (hx1.repr hx.l) (hf.extends hx1) (by intro k v hk; rw [c4] at hk; cases hk)
@@ -189,7 +189,7 @@ theorem unstack_spec : ∀ (fs : List store.Frame) (ts acc : List Pat) (s : stor
     simp only [List.head?_nil] at po
     subst po
     step*
-    exact ⟨⟨hW1, pst⟩, Extends.of_eq p1, by rw [p1]; simpa using hr, by simp; omega, p2⟩
+    exact ⟨⟨hW1, pst⟩, Extends.of_eq p1 (by omega), by rw [p1]; simpa using hr, by simp; omega, p2⟩
   | cons f fs ih =>
     intro ts acc s r hW hstk hF hr hroom
     have hroom' := hroom
@@ -210,13 +210,12 @@ theorem unstack_spec : ∀ (fs : List store.Frame) (ts acc : List Pat) (s : stor
     simp only [uncurry]
     rw [node_of_eq f]
     simp only [bind_ok]
-    have hx1 : Extends s s1 := Extends.of_eq p1
+    have hx1 : Extends s s1 := Extends.of_eq p1 (by omega)
     step with alloc_w s1 (.App (fid f) r) hW1
       ⟨by rw [fid_val]; exact (hx1.repr hf).lt, (hx1.repr hr).lt⟩ (by unfold Room; omega)
-      as ⟨r0, hW2, ht2, htb2, more, hmore, hr1, hstk2⟩
+      as ⟨r0, hW2, ht2, htb2, hx2, hr1, hstk2⟩
     obtain ⟨r1, s2⟩ := r0
-    simp only at hW2 ht2 htb2 hmore hr1 hstk2 ⊢
-    have hx2 : Extends s1 s2 := ⟨more, hmore⟩
+    simp only at hW2 ht2 htb2 hx2 hr1 hstk2 ⊢
     have hx : Extends s s2 := hx1.trans hx2
     simp only [norm] at hr1
     have hrep : Repr nm s2.nodes.val r1.val (encList (nm none) (t :: acc)) :=
@@ -242,7 +241,7 @@ theorem append_spec (xs : List Pat) (s : store.Store) (a b : store.TermId) {ys :
     as ⟨s1, hW1, hn1, htb1, ht1, fs, hstk1, hF⟩
   rw [hI.empty, List.append_nil] at hstk1
   have hlen : fs.length = xs.length := by simpa using hF.length_eq
-  have hx1 : Extends s s1 := Extends.of_eq hn1
+  have hx1 : Extends s s1 := Extends.of_eq hn1 (by omega)
   step with unstack_spec (nm := nm) fs xs.reverse ys s1 b hW1 hstk1
     (hF.imp fun _ _ h => hx1.repr h) (hx1.repr hb) (by unfold Room; omega)
     as ⟨r, s2, h1, h2, h3, h4, _⟩
@@ -260,13 +259,11 @@ theorem pack_spec (s : store.Store) (l r c : store.TermId) {tl tr tc : Pat} (hI 
   have hroom' := hroom
   unfold Room at hroom'
   step with alloc_spec s (.App r c) hI ⟨hr.lt, hc.lt⟩ (by unfold Room; omega)
-    as ⟨rc, s1, hI1, ht1, htb1, m1, hm1, hr1⟩
-  have hx1 : Extends s s1 := ⟨m1, hm1⟩
+    as ⟨rc, s1, hI1, ht1, htb1, hx1, hr1⟩
   simp only [norm] at hr1
   have hrc : Repr nm s1.nodes.val rc.val (.app tr tc) := .app hr1 (hx1.repr hr) (hx1.repr hc)
   step with alloc_spec s1 (.App l rc) hI1 ⟨(hx1.repr hl).lt, hrc.lt⟩ (by unfold Room; omega)
-    as ⟨o, s2, hI2, ht2, htb2, m2, hm2, hr2⟩
-  have hx2 : Extends s1 s2 := ⟨m2, hm2⟩
+    as ⟨o, s2, hI2, ht2, htb2, hx2, hr2⟩
   simp only [norm] at hr2
   exact ⟨hI2, hx1.trans hx2, .app hr2 (hx2.repr (hx1.repr hl)) (hx2.repr hrc), by omega⟩
 
@@ -321,7 +318,7 @@ theorem finish_spec (hnm : Function.Injective nm) (s : store.Store) (eqs out : s
       simp only [↓reduceIte]
       step with unpack_spec (nm := nm) s1 o' hI1 hrep (by unfold Room; omega)
         as ⟨x, s2, hI2, hn2, hl, hr, hc, ht2⟩
-      refine ⟨hI2, hx1.trans (Extends.of_eq hn2), ?_, by omega⟩
+      refine ⟨hI2, hx1.trans (Extends.of_eq hn2 (by omega)), ?_, by omega⟩
       simp only [OptSpanAt]
       exact ⟨by rw [hn2]; exact hl, by rw [hn2]; exact hr, by rw [hn2]; exact hc⟩
   | false =>
@@ -371,20 +368,17 @@ theorem compose_spec (hnm : Function.Injective nm) (s : store.Store) (x y : span
   step with pack_spec (nm := nm) s3 a.l b.r c hI3 (hx3.repr (hx2.repr ha.l)) (hx3.repr hb.r) hc
     (by unfold Room; omega) as ⟨out, s4, hI4, hx4, hout, ht4⟩
   step with alloc_spec s4 .Nil hI4 trivial (by unfold Room; omega)
-    as ⟨nil, s5, hI5, ht5, htb5, m5, hm5, hr5⟩
-  have hx5 : Extends s4 s5 := ⟨m5, hm5⟩
+    as ⟨nil, s5, hI5, ht5, htb5, hx5, hr5⟩
   simp only [norm] at hr5
   have h25 : Extends s2 s5 := hx3.trans (hx4.trans hx5)
   step with alloc_spec s5 (.App a.r b.l) hI5 ⟨(h25.repr (hx2.repr ha.r)).lt, (h25.repr hb.l).lt⟩
-    (by unfold Room; omega) as ⟨e, s6, hI6, ht6, htb6, m6, hm6, hr6⟩
-  have hx6 : Extends s5 s6 := ⟨m6, hm6⟩
+    (by unfold Room; omega) as ⟨e, s6, hI6, ht6, htb6, hx6, hr6⟩
   simp only [norm] at hr6
   have hre : Repr nm s6.nodes.val e.val (.app (sx.r.bind lsub) (sy.l.bind rsub)) :=
     .app hr6 (hx6.repr (h25.repr (hx2.repr ha.r))) (hx6.repr (h25.repr hb.l))
   have hrn : Repr nm s6.nodes.val nil.val (encEqs nm []) := hx6.repr (.nil hr5)
   step with alloc_spec s6 (.App e nil) hI6 ⟨hre.lt, hrn.lt⟩ (by unfold Room; omega)
-    as ⟨eqs, s7, hI7, ht7, htb7, m7, hm7, hr7⟩
-  have hx7 : Extends s6 s7 := ⟨m7, hm7⟩
+    as ⟨eqs, s7, hI7, ht7, htb7, hx7, hr7⟩
   simp only [norm] at hr7
   have heqs : Repr nm s7.nodes.val eqs.val (encEqs nm (composeEqs sx sy)) :=
     .app hr7 (hx7.repr hre) (hx7.repr hrn)
@@ -431,35 +425,30 @@ theorem meet_spec (hnm : Function.Injective nm) (s : store.Store) (x y : span.Sp
   step with pack_spec (nm := nm) s3 a.l a.r c hI3 (hx3.repr (hx2.repr ha.l))
     (hx3.repr (hx2.repr ha.r)) hc (by unfold Room; omega) as ⟨out, s4, hI4, hx4, hout, ht4⟩
   step with alloc_spec s4 .Nil hI4 trivial (by unfold Room; omega)
-    as ⟨nil, s5, hI5, ht5, htb5, m5, hm5, hr5⟩
-  have hx5 : Extends s4 s5 := ⟨m5, hm5⟩
+    as ⟨nil, s5, hI5, ht5, htb5, hx5, hr5⟩
   simp only [norm] at hr5
   have h25 : Extends s2 s5 := hx3.trans (hx4.trans hx5)
   step with alloc_spec s5 (.App a.r b.r) hI5 ⟨(h25.repr (hx2.repr ha.r)).lt, (h25.repr hb.r).lt⟩
-    (by unfold Room; omega) as ⟨e2, s6, hI6, ht6, htb6, m6, hm6, hr6⟩
-  have hx6 : Extends s5 s6 := ⟨m6, hm6⟩
+    (by unfold Room; omega) as ⟨e2, s6, hI6, ht6, htb6, hx6, hr6⟩
   simp only [norm] at hr6
   have h26 : Extends s2 s6 := h25.trans hx6
   have hre2 : Repr nm s6.nodes.val e2.val (.app (sx.r.bind lsub) (sy.r.bind rsub)) :=
     .app hr6 (h26.repr (hx2.repr ha.r)) (h26.repr hb.r)
   have hrn : Repr nm s6.nodes.val nil.val (encEqs nm []) := hx6.repr (.nil hr5)
   step with alloc_spec s6 (.App e2 nil) hI6 ⟨hre2.lt, hrn.lt⟩ (by unfold Room; omega)
-    as ⟨r2, s7, hI7, ht7, htb7, m7, hm7, hr7⟩
-  have hx7 : Extends s6 s7 := ⟨m7, hm7⟩
+    as ⟨r2, s7, hI7, ht7, htb7, hx7, hr7⟩
   simp only [norm] at hr7
   have h27 : Extends s2 s7 := h26.trans hx7
   have hrr2 : Repr nm s7.nodes.val r2.val (encEqs nm [(sx.r.bind lsub, sy.r.bind rsub)]) :=
     .app hr7 (hx7.repr hre2) (hx7.repr hrn)
   step with alloc_spec s7 (.App a.l b.l) hI7 ⟨(h27.repr (hx2.repr ha.l)).lt, (h27.repr hb.l).lt⟩
-    (by unfold Room; omega) as ⟨e1, s8, hI8, ht8, htb8, m8, hm8, hr8⟩
-  have hx8 : Extends s7 s8 := ⟨m8, hm8⟩
+    (by unfold Room; omega) as ⟨e1, s8, hI8, ht8, htb8, hx8, hr8⟩
   simp only [norm] at hr8
   have h28 : Extends s2 s8 := h27.trans hx8
   have hre1 : Repr nm s8.nodes.val e1.val (.app (sx.l.bind lsub) (sy.l.bind rsub)) :=
     .app hr8 (h28.repr (hx2.repr ha.l)) (h28.repr hb.l)
   step with alloc_spec s8 (.App e1 r2) hI8 ⟨hre1.lt, (hx8.repr hrr2).lt⟩ (by unfold Room; omega)
-    as ⟨eqs, s9, hI9, ht9, htb9, m9, hm9, hr9⟩
-  have hx9 : Extends s8 s9 := ⟨m9, hm9⟩
+    as ⟨eqs, s9, hI9, ht9, htb9, hx9, hr9⟩
   simp only [norm] at hr9
   have heqs : Repr nm s9.nodes.val eqs.val (encEqs nm (meetEqs sx sy)) :=
     .app hr9 (hx9.repr hre1) (hx9.repr (hx8.repr hrr2))

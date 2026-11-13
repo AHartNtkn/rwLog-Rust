@@ -347,7 +347,7 @@ theorem solve_body_spec (hnm : Function.Injective nm) (s0 : store.Store) (D L B 
       intro hna
       have hE := enc_of_not_app he hnd hna
       subst hE
-      refine ⟨⟨hK1.inv, hE0.trans (Extends.of_eq hn1), ?_⟩, by simp only; omega⟩
+      refine ⟨⟨hK1.inv, hE0.trans (Extends.of_eq hn1 (by omega)), ?_⟩, by simp only; omega⟩
       simp only [Bool.false_eq_true, ↓reduceIte]
       refine ⟨by omega, ?_⟩
       simp only [SolveRes, ↓reduceIte]
@@ -380,7 +380,7 @@ theorem solve_body_spec (hnm : Function.Injective nm) (s0 : store.Store) (D L B 
         (by rw [hn2]; exact hq) (by unfold Room; omega) as ⟨a, s3, hI3, hn3', htA3, hact, ht3, hm3⟩
       rw [hn2] at hact
       have hn3 : s3.nodes.val = st.nodes.val := by rw [hn3', hn2]
-      have hext3 : Extends s0 s3 := hE0.trans (Extends.of_eq hn3)
+      have hext3 : Extends s0 s3 := hE0.trans (Extends.of_eq hn3 (by omega))
       cases a with
       | Skip =>
         simp only [ActOK] at hact
@@ -408,29 +408,25 @@ theorem solve_body_spec (hnm : Function.Injective nm) (s0 : store.Store) (D L B 
         have hcs := pot_split D (L + D) E' hne
         simp only
         step with alloc_spec s3 (.App b d) hI3 ⟨by rw [hn3]; exact hb.lt, by rw [hn3]; exact hd.lt⟩
-          (by unfold Room; omega) as ⟨e2, s4, hI4, ht4, htb4, m4, hm4, hr4⟩
-        have hx4 : Extends s3 s4 := ⟨m4, hm4⟩
-        have hst4 : Extends st s4 := (Extends.of_eq hn3).trans hx4
+          (by unfold Room; omega) as ⟨e2, s4, hI4, ht4, htb4, hx4, hr4⟩
+        have hst4 : Extends st s4 := (Extends.of_eq hn3 (by omega)).trans hx4
         simp only [norm] at hr4
         have hre2 : Repr nm s4.nodes.val e2.val (.app tb td) :=
           .app hr4 (hst4.repr hb) (hst4.repr hd)
         step with alloc_spec s4 (.App e2 rest) hI4 ⟨hre2.lt, (hst4.repr hrest).lt⟩
-          (by unfold Room; omega) as ⟨r2, s5, hI5, ht5, htb5, m5, hm5, hr5⟩
-        have hx5 : Extends s4 s5 := ⟨m5, hm5⟩
+          (by unfold Room; omega) as ⟨r2, s5, hI5, ht5, htb5, hx5, hr5⟩
         have hst5 : Extends st s5 := hst4.trans hx5
         simp only [norm] at hr5
         have hrr2 : Repr nm s5.nodes.val r2.val (encEqs nm ((tb, td) :: E')) :=
           .app hr5 (hx5.repr hre2) (hst5.repr hrest)
         step with alloc_spec s5 (.App a c) hI5 ⟨(hst5.repr ha).lt, (hst5.repr hc').lt⟩
-          (by unfold Room; omega) as ⟨e1, s6, hI6, ht6, htb6, m6, hm6, hr6⟩
-        have hx6 : Extends s5 s6 := ⟨m6, hm6⟩
+          (by unfold Room; omega) as ⟨e1, s6, hI6, ht6, htb6, hx6, hr6⟩
         have hst6 : Extends st s6 := hst5.trans hx6
         simp only [norm] at hr6
         have hre1 : Repr nm s6.nodes.val e1.val (.app ta tc) :=
           .app hr6 (hst6.repr ha) (hst6.repr hc')
         step with alloc_spec s6 (.App e1 r2) hI6 ⟨hre1.lt, (hx6.repr hrr2).lt⟩
-          (by unfold Room; omega) as ⟨eqs1, s7, hI7, ht7, htb7, m7, hm7, hr7⟩
-        have hx7 : Extends s6 s7 := ⟨m7, hm7⟩
+          (by unfold Room; omega) as ⟨eqs1, s7, hI7, ht7, htb7, hx7, hr7⟩
         have hst7 : Extends st s7 := hst6.trans hx7
         simp only [norm] at hr7
         have hreqs : Repr nm s7.nodes.val eqs1.val (encEqs nm ((ta, tc) :: (tb, td) :: E')) :=
@@ -467,7 +463,7 @@ theorem solve_body_spec (hnm : Function.Injective nm) (s0 : store.Store) (D L B 
         have hc6 := hR6.cost
         have hm5 := hR5.mono
         have hm6 := hR6.mono
-        refine ⟨⟨hR6.inv, hE0.trans ((Extends.of_eq hn4).trans (hR5.ext.trans hR6.ext)), ?_⟩,
+        refine ⟨⟨hR6.inv, hE0.trans ((Extends.of_eq hn4 (by omega)).trans (hR5.ext.trans hR6.ext)), ?_⟩,
           by simp only; omega⟩
         simp only [↓reduceIte, true_and]
         refine ⟨Eqns.subst xv tu E', _, ?_, hR6.repr, ?_, hG', by omega⟩

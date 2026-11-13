@@ -55,6 +55,7 @@ structure MarkPost (nm : Option Nat → Sym) (s s' : store.Store) (M : Finset Pa
   grow : ∀ k, tbl s .A k ≠ none → tbl s' .A k ≠ none
   cost : s'.ticks.val + 8 * (pending nm s'.nodes.val (tbl s' .A) S).card ≤
     s.ticks.val + 4 + 8 * (pending nm s.nodes.val (tbl s .A) S).card
+  mono : s.ticks.val ≤ s'.ticks.val
 
 /-- The state of a flagging walk: `A0` is the table at the start. A flagged
 node stands for a term of `M` or of the term walked, and the parts of a
@@ -196,7 +197,7 @@ def KDone (nm : Option Nat → Sym) (s0 : store.Store) (tp : Pat) (p : Nat) (M S
 
 def KBodyPost (nm : Option Nat → Sym) (s0 : store.Store) (tp : Pat) (p : Nat) (M S : Finset Pat)
     (B : Nat) (t0 : Nat) : ControlFlow store.Store store.Store → Prop
-  | .done s' => KDone nm s0 tp p M S B s'
+  | .done s' => KDone nm s0 tp p M S B s' ∧ t0 ≤ s'.ticks.val
   | .cont s' => KInv nm s0 tp p M S B s' ∧ t0 < s'.ticks.val
 
 theorem mark_body_spec (hnm : Function.Injective nm) (s0 : store.Store) (tp : Pat) (p : Nat)
@@ -213,7 +214,8 @@ theorem mark_body_spec (hnm : Function.Injective nm) (s0 : store.Store) (tp : Pa
     subst eo
     simp only [WP.spec_ok]
     simp only [List.length_nil] at hc
-    exact ⟨hW1, est, by rw [e1, hn], by rw [e2, hTB], by rw [e2]; exact hK, by rw [e2]; omega⟩
+    exact ⟨⟨hW1, est, by rw [e1, hn], by rw [e2, hTB], by rw [e2]; exact hK, by rw [e2]; omega⟩,
+      by omega⟩
   | cons fr st =>
     rw [hst] at eo est hK hc
     simp only [List.head?_cons, List.tail_cons] at eo est
@@ -319,26 +321,27 @@ theorem mark_spec (hnm : Function.Injective nm) (s : store.Store) (p : store.Ter
   let B := s.ticks.val + 4 + 8 * (pending nm s.nodes.val (tbl s .A) S).card
   have hloop := loop.spec_decr_nat
     (fun x : store.Store => B + 1 - x.ticks.val)
-    (KInv nm s tp p.val M S B)
+    (fun x => KInv nm s tp p.val M S B x ∧ s.ticks.val ≤ x.ticks.val)
     (fun x => MarkPost nm s x M tp S)
     (fun x : store.Store => cover.mark_loop.body x) s1
     (by
       intro x hinv
+      obtain ⟨hinv, hlow⟩ := hinv
       refine WP.spec_mono (mark_body_spec hnm s tp p.val M S B (by omega) hI.nodesOK hS x hinv) ?_
       intro r hr
       cases r with
       | done y =>
-        obtain ⟨h1, h2, h3, h4, h5, h6⟩ := hr
+        obtain ⟨⟨h1, h2, h3, h4, h5, h6⟩, h7⟩ := hr
         exact ⟨⟨h1, h2⟩, h3, h4, by rw [h3]; exact h5.done hM hp, h5.grow,
-          by rw [h3]; exact h6⟩
+          by rw [h3]; exact h6, by omega⟩
       | cont x' =>
         obtain ⟨h1, h2⟩ := hr
         have hc := h1.2.2.2.2
-        exact ⟨h1, by omega⟩)
-    ⟨hW1, a1, by rw [a2], by rw [a5, a2]; exact KSt.start hnm hI.nodesOK hM hcl p hp, by
+        exact ⟨⟨h1, by omega⟩, by omega⟩)
+    ⟨⟨hW1, a1, by rw [a2], by rw [a5, a2]; exact KSt.start hnm hI.nodesOK hM hcl p hp, by
       rw [a5, a2]
       simp only [List.length_singleton]
-      omega⟩
+      omega⟩, by omega⟩
   exact hloop
 
 /-! ## Are all variables of a term flagged? -/
@@ -378,6 +381,7 @@ structure AllPost (nm : Option Nat → Sym) (s s' : store.Store) (M : Finset Pat
   set : tbl s' .B p ≠ none
   cost : s'.ticks.val + 13 * (pending nm s'.nodes.val (tbl s' .B) S).card ≤
     s.ticks.val + 5 + 13 * (pending nm s.nodes.val (tbl s .B) S).card
+  mono : s.ticks.val ≤ s'.ticks.val
 
 theorem allIn_app {a b : Pat} : AllIn M (.app a b) ↔ AllIn M a ∧ AllIn M b := by
   simp only [AllIn, Term.vars, List.mem_append]
@@ -405,7 +409,7 @@ def ADone (nm : Option Nat → Sym) (s0 : store.Store) (tp : Pat) (p : Nat) (M S
 
 def ABodyPost (nm : Option Nat → Sym) (s0 : store.Store) (tp : Pat) (p : Nat) (M S : Finset Pat)
     (B : Nat) (t0 : Nat) : ControlFlow store.Store store.Store → Prop
-  | .done s' => ADone nm s0 tp p M S B s'
+  | .done s' => ADone nm s0 tp p M S B s' ∧ t0 ≤ s'.ticks.val
   | .cont s' => AInv nm s0 tp p M S B s' ∧ t0 < s'.ticks.val
 
 theorem all_marked_body_spec (hnm : Function.Injective nm) (s0 : store.Store) (tp : Pat)
@@ -424,8 +428,8 @@ theorem all_marked_body_spec (hnm : Function.Injective nm) (s0 : store.Store) (t
     simp only [WP.spec_ok]
     have := hU.card_le
     simp only [nV_nil, nB_nil] at hc
-    exact ⟨hW1, est, by rw [e1, hn], by rw [e2, hTA], by rw [e2]; exact hAO,
-      by rw [e2]; exact hSt, by rw [e2]; omega⟩
+    exact ⟨⟨hW1, est, by rw [e1, hn], by rw [e2, hTA], by rw [e2]; exact hAO,
+      by rw [e2]; exact hSt, by rw [e2]; omega⟩, by omega⟩
   | cons fr st =>
     rw [hst] at eo est hSt hU hc
     simp only [List.head?_cons, List.tail_cons] at eo est
@@ -624,22 +628,23 @@ theorem all_marked_spec (hnm : Function.Injective nm) (s : store.Store) (p : sto
   let B := s.ticks.val + 4 + 13 * (pending nm s.nodes.val (tbl s .B) S).card
   have hloop := loop.spec_decr_nat
     (fun x : store.Store => B + 1 - x.ticks.val)
-    (AInv nm s tp p.val M S B)
-    (ADone nm s tp p.val M S B)
+    (fun x => AInv nm s tp p.val M S B x ∧ s.ticks.val ≤ x.ticks.val)
+    (fun x => ADone nm s tp p.val M S B x ∧ s.ticks.val ≤ x.ticks.val)
     (fun x : store.Store => cover.all_marked_loop.body x) s1
     (by
       intro x hinv
+      obtain ⟨hinv, hlow⟩ := hinv
       refine WP.spec_mono (all_marked_body_spec hnm s tp p.val M S B (by omega) hI.nodesOK hM hS
         x hinv) ?_
       intro r hr
       cases r with
-      | done y => exact hr
+      | done y => exact ⟨hr.1, Nat.le_trans hlow hr.2⟩
       | cont x' =>
         obtain ⟨h1, h2⟩ := hr
         have hc := h1.2.2.2.2.2
         obtain ⟨U, -, hc⟩ := hc
-        exact ⟨h1, by omega⟩)
-    ⟨hW1, a1, by rw [a2], by rw [a2]; exact hB,
+        exact ⟨⟨h1, by omega⟩, by omega⟩)
+    ⟨⟨hW1, a1, by rw [a2], by rw [a2]; exact hB,
       ⟨by rw [a2]; exact fun _ _ h => h, by
         rw [a5]
         intro f' hf'
@@ -653,8 +658,8 @@ theorem all_marked_spec (hnm : Function.Injective nm) (s : store.Store) (p : sto
       _, Unb.start _ _ _ _, by
         rw [a5, a2]
         simp only [nV_visit, nV_nil, nB_visit, nB_nil]
-        omega⟩
-  step with hloop as ⟨s2, hD⟩
+        omega⟩, by omega⟩
+  step with hloop as ⟨s2, hD, hlow2⟩
   obtain ⟨hW2, hemp, hn2, hTA2, hAO2, hSt2, hc2⟩ := hD
   have hBp := hSt2.done
   step with get_flag_w s2 .B p hW2 (by rw [hn2]; exact hp.lt) (by unfold Room; omega)
@@ -672,7 +677,7 @@ theorem all_marked_spec (hnm : Function.Injective nm) (s : store.Store) (p : sto
     subst this
     refine ⟨⟨hK3.wf, by rw [hK3.stk]; exact hemp⟩, by rw [hK3.nodes, hn2], decide_eq_decide.2 hr,
       by rw [hK3.nodes, hn2, hK3.tbl]; exact hAO2, by rw [hK3.tbl, hTA2], ?_,
-      by rw [hK3.tbl, hw]; simp, by rw [hK3.nodes, hn2, hK3.tbl]; omega⟩
+      by rw [hK3.tbl, hw]; simp, by rw [hK3.nodes, hn2, hK3.tbl]; omega, by omega⟩
     intro k hk
     rw [hK3.tbl]
     cases hk0 : tbl s .B k with
@@ -703,7 +708,8 @@ theorem keep_flag_spec (hnm : Function.Injective nm) (M S : Finset Pat) :
         (∀ k, tbl s .B k ≠ none → tbl s' .B k ≠ none) ∧
         (∀ a ∈ cs, ∀ k, Repr nm s.nodes.val k a → tbl s' .B k ≠ none) ∧
         s'.ticks.val + 13 * (pending nm s'.nodes.val (tbl s' .B) S).card ≤
-          s.ticks.val + 1 + 6 * cs.length + 13 * (pending nm s.nodes.val (tbl s .B) S).card ⦄ := by
+          s.ticks.val + 1 + 6 * cs.length + 13 * (pending nm s.nodes.val (tbl s .B) S).card ∧
+        s.ticks.val ≤ s'.ticks.val ⦄ := by
   unfold cover.keep_loop0
   intro cs
   induction cs with
@@ -720,10 +726,12 @@ theorem keep_flag_spec (hnm : Function.Injective nm) (M S : Finset Pat) :
         (∀ a ∈ ([] : List Pat), ∀ k, Repr nm s.nodes.val k a → tbl s1 .B k ≠ none) ∧
         s1.ticks.val + 13 * (pending nm s1.nodes.val (tbl s1 .B) S).card ≤
           s.ticks.val + 1 + 6 * ([] : List Pat).length +
-            13 * (pending nm s.nodes.val (tbl s .B) S).card :=
+            13 * (pending nm s.nodes.val (tbl s .B) S).card ∧
+        s.ticks.val ≤ s1.ticks.val :=
       ⟨hK.inv, hK.nodes, by rw [hK.tbl], by rw [hK.nodes, hK.tbl]; exact hB,
         by rw [hK.tbl]; exact fun _ h => h, by simp,
-        by have := hK.ticks; rw [hK.nodes, hK.tbl]; simp only [List.length_nil]; omega⟩
+        by have := hK.ticks; rw [hK.nodes, hK.tbl]; simp only [List.length_nil]; omega,
+        by have := hK.ticks; omega⟩
     cases nd with
     | App h t =>
       obtain ⟨ta, tb, e', -, -⟩ := hl.of_app hnd
@@ -760,11 +768,12 @@ theorem keep_flag_spec (hnm : Function.Injective nm) (M S : Finset Pat) :
     have hA2 : tbl s2 .A = tbl s .A := by rw [h3.tblA, hK.tbl]
     refine WP.spec_mono (ih s2 t h3.inv (by rw [hn2]; exact ht) (by rw [hn2, hA2]; exact hM)
       h3.memo (fun x hx => hS x (List.mem_cons_of_mem _ hx)) (by unfold Room; omega)) ?_
-    rintro s3 ⟨hI3, b1, b2, b3, b4, b5, b6⟩
+    rintro s3 ⟨hI3, b1, b2, b3, b4, b5, b6, b7⟩
     rw [hn2] at b5
+    have hm3 := h3.mono
     refine ⟨hI3, by rw [b1, hn2], by rw [b2, hA2], b3,
       fun k hk => b4 k (h3.grow k (by rw [hK.tbl]; exact hk)), ?_,
-      by simp only [List.length_cons]; omega⟩
+      by simp only [List.length_cons]; omega, by omega⟩
     intro x hx k hk
     rcases List.mem_cons.1 hx with rfl | hx
     · have : k = h.val := Repr.inj hnm hI.nodesOK hk hh
@@ -781,7 +790,7 @@ theorem keep_push_spec (M : Finset Pat) : ∀ (cs : List Pat) (s : store.Store) 
     Room s (3 * cs.length + 1) →
     cover.keep_loop1 l s ⦃ s' l' =>
       Wf s' ∧ s'.nodes.val = s.nodes.val ∧ tbl s' = tbl s ∧
-        s'.ticks.val ≤ s.ticks.val + 3 * cs.length + 1 ∧
+        s'.ticks.val ≤ s.ticks.val + 3 * cs.length + 1 ∧ s.ticks.val ≤ s'.ticks.val ∧
         Repr nm s.nodes.val l'.val (encList (nm none) []) ∧
         ∃ fs, stk s' = fs ++ stk s ∧
           List.Forall₂ (fun f t => Repr nm s.nodes.val (fkey f) t) fs
@@ -798,12 +807,13 @@ theorem keep_push_spec (M : Finset Pat) : ∀ (cs : List Pat) (s : store.Store) 
     simp only at hnd hK ⊢
     have hfin : Wf s1 ∧ s1.nodes.val = s.nodes.val ∧ tbl s1 = tbl s ∧
         s1.ticks.val ≤ s.ticks.val + 3 * ([] : List Pat).length + 1 ∧
+        s.ticks.val ≤ s1.ticks.val ∧
         Repr nm s.nodes.val l.val (encList (nm none) []) ∧
         ∃ fs, stk s1 = fs ++ stk s ∧
           List.Forall₂ (fun f t => Repr nm s.nodes.val (fkey f) t) fs
             (([] : List Pat).filter fun a => decide (AllIn M a)).reverse :=
-      ⟨hK.wf, hK.nodes, hK.tbl, by have := hK.ticks; simp; omega, hl, [], by simp [hK.stk],
-        by simp⟩
+      ⟨hK.wf, hK.nodes, hK.tbl, by have := hK.ticks; simp; omega, by have := hK.ticks; omega,
+        hl, [], by simp [hK.stk], by simp⟩
     cases nd with
     | App h t =>
       obtain ⟨ta, tb, e', -, -⟩ := hl.of_app hnd
@@ -860,10 +870,10 @@ theorem keep_push_spec (M : Finset Pat) : ∀ (cs : List Pat) (s : store.Store) 
       have htb3 : tbl s3 = tbl s := by rw [a2, htb2]
       refine WP.spec_mono (ih s3 t hW3 (by rw [hn3]; exact ht) (by rw [hn3, htb3]; exact hB)
         (by rw [hn3, htb3]; exact hset') (by unfold Room; omega)) ?_
-      rintro ⟨s4, l'⟩ ⟨hW4, b1, b2, b3, b4, fs, b5, b6⟩
+      rintro ⟨s4, l'⟩ ⟨hW4, b1, b2, b3, b3', b4, fs, b5, b6⟩
       rw [hn3] at b4 b6
       refine ⟨hW4, by rw [b1, hn3], by rw [b2, htb3],
-        by simp only [List.length_cons]; omega, b4, fs ++ [.Visit h h], ?_, ?_⟩
+        by simp only [List.length_cons]; omega, by omega, b4, fs ++ [.Visit h h], ?_, ?_⟩
       · rw [b5, a5, hstk2]; simp
       · have e : (a :: ts).filter (fun a => decide (AllIn M a)) =
             a :: ts.filter (fun a => decide (AllIn M a)) := by simp [hya]
@@ -873,10 +883,10 @@ theorem keep_push_spec (M : Finset Pat) : ∀ (cs : List Pat) (s : store.Store) 
       have hna : ¬ AllIn M a := fun h => hw0 (hr.2 h)
       refine WP.spec_mono (ih s2 t hK2.wf (by rw [hn2]; exact ht) (by rw [hn2, htb2]; exact hB)
         (by rw [hn2, htb2]; exact hset') (by unfold Room; omega)) ?_
-      rintro ⟨s4, l'⟩ ⟨hW4, b1, b2, b3, b4, fs, b5, b6⟩
+      rintro ⟨s4, l'⟩ ⟨hW4, b1, b2, b3, b3', b4, fs, b5, b6⟩
       rw [hn2] at b4 b6
       refine ⟨hW4, by rw [b1, hn2], by rw [b2, htb2],
-        by simp only [List.length_cons]; omega, b4, fs, by rw [b5, hstk2], ?_⟩
+        by simp only [List.length_cons]; omega, by omega, b4, fs, by rw [b5, hstk2], ?_⟩
       have e : (a :: ts).filter (fun a => decide (AllIn M a)) =
           ts.filter (fun a => decide (AllIn M a)) := by simp [hna]
       rw [e]; exact b6
@@ -906,25 +916,26 @@ theorem keep_spec (hnm : Function.Injective nm) (M S : Finset Pat) (cs : List Pa
   have hroom' := hroom
   unfold Room at hroom'
   step with keep_flag_spec hnm M S cs s c hI hc hM hB hS (by unfold Room; omega)
-    as ⟨s1, hI1, hn1, hA1, hB1, _, hset1, hc1⟩
+    as ⟨s1, hI1, hn1, hA1, hB1, _, hset1, hc1, hlow1⟩
   step with keep_push_spec (nm := nm) M cs s1 c hI1.toWf (by rw [hn1]; exact hc) hB1
     (by rw [hn1]; exact hset1) (by unfold Room; omega)
-    as ⟨s2, l, hW2, hn2, htb2, ht2, hl, fs, hstk2, hF⟩
+    as ⟨s2, l, hW2, hn2, htb2, ht2, hlow2, hl, fs, hstk2, hF⟩
   rw [hI1.empty, List.append_nil] at hstk2
   have hlen : fs.length ≤ cs.length := by
     have := hF.length_eq
     simp only [List.length_reverse] at this
     rw [this]; exact List.length_filter_le _ _
-  have hx2 : Extends s1 s2 := Extends.of_eq hn2
+  have hx2 : Extends s1 s2 := Extends.of_eq hn2 (by omega)
   step with unstack_spec (nm := nm) fs (cs.filter fun a => decide (AllIn M a)).reverse [] s2 l
     hW2 hstk2 (hF.imp fun _ _ h => hx2.repr h) (hx2.repr hl) (by unfold Room; omega)
     as ⟨r, s3, h1, h2, h3, h4, h5⟩
-  obtain ⟨m3, hm3⟩ := h2
+  have h2' := h2
+  obtain ⟨m3, hm3, -⟩ := h2'
   have hpm : pending nm s3.nodes.val (tbl s3 .B) S ⊆ pending nm s1.nodes.val (tbl s1 .B) S := by
     rw [hm3, h5, hn2, htb2]; exact pending_mono (fun k hk => hk)
   have hcard := Finset.card_le_card hpm
-  have hx3 : Extends s1 s3 := hx2.trans ⟨m3, hm3⟩
-  refine ⟨h1, (Extends.of_eq hn1).trans hx3, by simpa using h3,
+  have hx3 : Extends s1 s3 := hx2.trans h2
+  refine ⟨h1, (Extends.of_eq hn1 (by omega)).trans hx3, by simpa using h3,
     by rw [h5, htb2]; exact hB1.extends hx3, by rw [h5, htb2, hA1], by omega⟩
 
 /-! ## The interface -/
@@ -1022,6 +1033,7 @@ theorem iface_spec (hnm : Function.Injective nm) (s : store.Store) (p c : store.
   step with mark_spec hnm s1 p tp.subs hI1 (by rw [hn1]; exact hp) hM1 (by simp)
     (Finset.Subset.refl _) (by unfold Room; omega) as ⟨s2, h2⟩
   have hc2 := h2.cost
+  have hm2 := h2.mono
   have hn2 : s2.nodes.val = s.nodes.val := by rw [h2.nodes, hn1]
   step with clear_spec s2 .B h2.inv (by unfold Room; omega) as ⟨s3, hn3, ht3, hI3, hB3, ho3⟩
   have hn3' : s3.nodes.val = s.nodes.val := by rw [hn3, hn2]
@@ -1035,7 +1047,7 @@ theorem iface_spec (hnm : Function.Injective nm) (s : store.Store) (p c : store.
     (fun a ha => Finset.subset_biUnion_of_mem Term.subs (List.mem_toFinset.2 ha))
     (by unfold Room; omega) as ⟨c2, s4, h4⟩
   have hc4 := h4.cost
-  have hx4 : Extends s s4 := (Extends.of_eq hn3').trans h4.ext
+  have hx4 : Extends s s4 := (Extends.of_eq hn3' (by omega)).trans h4.ext
   have hfilt : cs.filter (fun a => decide (AllIn tp.subs a)) =
       cs.filter (fun a => a.vars.all (· ∈ tp.vars)) := by
     apply List.filter_congr
@@ -1047,7 +1059,7 @@ theorem iface_spec (hnm : Function.Injective nm) (s : store.Store) (p c : store.
   step with cover_is_var_spec s4 p h4.inv (hx4.repr hp) (by unfold Room; omega) as ⟨b, s5, hb, hK5⟩
   have ht5 := hK5.ticks
   refine WP.spec_bind (Pₘ := fun r => Inv r.1 ∧ r.1.nodes.val = s4.nodes.val ∧
-    r.1.ticks.val ≤ s5.ticks.val + 1 ∧
+    r.1.ticks.val ≤ s5.ticks.val + 1 ∧ s5.ticks.val ≤ r.1.ticks.val ∧
     (r.2 = true ↔ (∃ v, tp = Term.var v) ∧
       cs.filter (fun a => a.vars.all (· ∈ tp.vars)) = [])) ?_ ?_
   · cases b with
@@ -1055,20 +1067,22 @@ theorem iface_spec (hnm : Function.Injective nm) (s : store.Store) (p c : store.
       simp only [↓reduceIte]
       step with cover_is_nil_spec hnm s5 c2 hK5.inv (by rw [hK5.nodes]; exact hrc)
         (by unfold Room; omega) as ⟨b1, s7, hb1, hK7⟩
-      refine ⟨hK7.inv, by rw [hK7.nodes, hK5.nodes], by have := hK7.ticks; omega, ?_⟩
+      refine ⟨hK7.inv, by rw [hK7.nodes, hK5.nodes], by have := hK7.ticks; omega,
+        by have := hK7.ticks; omega, ?_⟩
       exact ⟨fun h => ⟨hb.1 rfl, hb1.1 h⟩, fun h => hb1.2 h.2⟩
     | false =>
       simp only [Bool.false_eq_true, ↓reduceIte, WP.spec_ok]
-      refine ⟨hK5.inv, hK5.nodes, by omega, ?_⟩
+      refine ⟨hK5.inv, hK5.nodes, by omega, by omega, ?_⟩
       constructor
       · intro h; cases h
       · rintro ⟨hv, -⟩; exact absurd (hb.2 hv) (by simp)
   · rintro ⟨s6, tr⟩ hmid
     have hmid : Inv s6 ∧ s6.nodes.val = s4.nodes.val ∧ s6.ticks.val ≤ s5.ticks.val + 1 ∧
+        s5.ticks.val ≤ s6.ticks.val ∧
         (tr = true ↔ (∃ v, tp = Term.var v) ∧
           cs.filter (fun a => a.vars.all (· ∈ tp.vars)) = []) := hmid
-    obtain ⟨hI6, hn6, ht6, htr⟩ := hmid
-    have hx6 : Extends s s6 := hx4.trans (Extends.of_eq hn6)
+    obtain ⟨hI6, hn6, ht6, hlow6, htr⟩ := hmid
+    have hx6 : Extends s s6 := hx4.trans (Extends.of_eq hn6 (by omega))
     have hticks : s6.ticks.val ≤ s.ticks.val + ifaceCost tp cs := by unfold ifaceCost; omega
     cases tr with
     | true =>
