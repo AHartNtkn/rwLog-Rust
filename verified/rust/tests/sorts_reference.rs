@@ -455,11 +455,27 @@ fn vars_of(p: &Prob) -> (Vec<usize>, Vec<usize>) {
 /// `small` and the others in `large`.
 fn solutions(ss: &Sorts, p: &Prob, small: &[P], large: &[P]) -> Vec<BTreeMap<usize, P>> {
     let (shown, hidden) = vars_of(p);
-    let vars: Vec<(usize, &[P])> = shown
+    // A value of one variable that breaks a sort naming no other variable is
+    // in no solution, so it is left out before the values are combined.
+    let alone = |y: usize, t: &P| {
+        let mut vs = Vec::new();
+        t.vars(&mut vs);
+        vs.iter().all(|w| *w == y)
+    };
+    let fits = |y: usize, v: &P| {
+        let sigma: BTreeMap<usize, P> = [(y, v.clone())].into_iter().collect();
+        p.a.iter().filter(|(_, t)| alone(y, t)).all(|(n, t)| ss.member(*n, &t.subst(&sigma)))
+    };
+    let values: Vec<(usize, Vec<P>)> = shown
         .iter()
         .map(|y| (*y, small))
         .chain(hidden.iter().map(|y| (*y, large)))
+        .map(|(y, u)| (y, u.iter().filter(|v| fits(y, v)).cloned().collect()))
         .collect();
+    if values.iter().any(|(_, u)| u.is_empty()) {
+        return Vec::new();
+    }
+    let vars: Vec<(usize, &[P])> = values.iter().map(|(y, u)| (*y, u.as_slice())).collect();
     let mut out = Vec::new();
     let mut at = vec![0usize; vars.len()];
     loop {
