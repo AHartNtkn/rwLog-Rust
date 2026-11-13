@@ -12,16 +12,16 @@ builds one:
   sizes of the spans;
 * testing whether two spans are the same as written: the sizes of both;
 * taking an interface of a span as a boundary: the size of the span;
+* reading a span of the program as a representative: the size of the span;
 * a coverage test: the sizes of both spans, and the search that places the
   covering span's store in the other's (`matchAllWork`): every attempt to
   match one constraint onto another, at every point of the search, by the
-  sizes of the two. With an empty store there is no search;
-* simplifying a span by a theory: for each instantiation stage, the size of
-  the theory times the size of the span and of the closure of its store, and
-  the search for firings: every round of the closure, and the two readings of
-  the closed store, match the heads of every bounded rule against the store
-  (`Theory.firingsWork`, `Theory.saturateWork`). With an empty theory there
-  is no search.
+  sizes of the two. With an empty store there is no search.
+
+These are the operations of the kernel of spans as they are written
+(`Kernel.std`, `Trusted/Kernel.lean`), which does not look at a constraint.
+The operations of the domain of sorts on stores have no charge here: they
+are charged where they are derived on a machine (roadmap L39).
 
 Swapping the two sides of a span is free.
 
@@ -36,7 +36,7 @@ A term is charged by its size wherever it is used, never by one, so sharing
 or interning cannot hide work.
 -/
 import RwLog.Trusted.CostMonad
-import RwLog.Kernel.Refute
+import RwLog.Kernel.Match
 import RwLog.Kernel.Iface
 import RwLog.Kernel.Canon
 import RwLog.Kernel.NormalForm
@@ -61,15 +61,17 @@ def RelOf.size : Rel → Nat
   | .conv a => 1 + a.size
   | .call _ => 1
 
-def Body.size : Body → Nat
-  | .fail => 1
-  | .conj eqs cs => 1 + (eqs.map fun e => e.1.size + e.2.size).sum + Store.size cs
+/-- The size of a sort declaration: its cases with their arguments, and the
+shapes it leaves out. -/
+def SortDef.size (d : SortDef) : Nat :=
+  1 + (d.cases.map fun c => 1 + c.2.length).sum +
+    match d.rest with
+    | none => 0
+    | some r => 1 + r.1.length
 
-def TRule.size (ρ : TRule) : Nat := Store.size ρ.heads + ρ.body.size
+def Sorts.size (S : Sorts) : Nat := (S.map fun d => 1 + d.2.size).sum
 
-def Theory.size (T : Theory) : Nat := (T.map TRule.size).sum
-
-def ProgramOf.size (P : Program) : Nat := (P.defs.map fun d => 1 + d.2.size).sum + P.theory.size
+def ProgramOf.size (P : Program) : Nat := (P.defs.map fun d => 1 + d.2.size).sum + P.sorts.size
 
 /-! ## Charged primitives -/
 
@@ -88,29 +90,6 @@ def matchAllWork : List Pat → List Pat → PSubst → Nat
       match matchInto p t θ with
       | some θ' => matchAllWork ps ts θ'
       | none => 0).sum
-
-/-- The work of listing the firings of a theory on a store: the heads of each
-bounded rule are matched against the store. -/
-def Theory.firingsWork (T : Theory) (c : Store) : Nat :=
-  (T.map fun ρ => if ρ.bounded then matchAllWork ρ.heads c [] else 0).sum
-
-/-- The work of closing a store: the firings are listed in every round. -/
-def Theory.saturateWork (T : Theory) (c : Store) : Nat :=
-  T.firingsWork c + if _ : T.newAtoms c = [] then 0 else T.saturateWork (c ++ T.newAtoms c)
-termination_by T.room c
-decreasing_by exact Theory.room_lt ‹_›
-
-/-- What simplifying a span costs: at each instantiation stage, the store is
-closed, and the theory is matched against the closure twice, once to look for
-a refutation and once for a forced equation. -/
-def Theory.simplifyCharge (T : Theory) : Nat → Span → Nat
-  | n, s =>
-    let w := (T.size + 1) * (s.size + Store.size (T.saturate s.c) + 1) +
-      T.saturateWork s.c + 2 * T.firingsWork (T.saturate s.c)
-    if T.refutes? s.c then w
-    else match n, T.bind? s.c with
-      | n + 1, some θ => w + T.simplifyCharge n (s.inst θ)
-      | _, _ => w
 
 namespace Charged
 
@@ -133,6 +112,9 @@ def compose (x y : Span) : Cost (Option Span) :=
 def meet (x y : Span) : Cost (Option Span) :=
   op (x.meet y) (x.size + y.size + outSize (x.meet y)) (outSize (x.meet y))
 
+/-- A span of the program, read as it is written. -/
+def rep (s : Span) : Cost (Option Span) := op (some s) s.size s.size
+
 /-- Does the chain compose? Only the test is charged: no result is built. -/
 def composable (xs : List Span) : Cost Bool :=
   op (Span.chain xs).isSome (xs.map Span.size).sum 0
@@ -145,9 +127,6 @@ def coversWork (a s : Span) : Nat :=
   | some θ => matchAllWork a.c s.c θ
 
 def covers (a s : Span) : Cost Bool := op (a.covers? s) (a.size + s.size + coversWork a s) 0
-
-def simplify (T : Theory) (s : Span) : Cost (Option Span) :=
-  op (T.simplify s) (T.simplifyCharge s.c.varCount s) (outSize (T.simplify s))
 
 /-- Are the two spans the same span, as written? -/
 def eq (x y : Span) : Cost Bool := op (decide (x = y)) (x.size + y.size) 0

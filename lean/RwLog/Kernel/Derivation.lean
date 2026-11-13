@@ -1,430 +1,390 @@
 /-
 # The derivation kernel: what an answer is, and the rules that make one
 
-A *goal* `⟨lb, node, rb⟩` is a node of the normal form
-(`Kernel/NormalForm.lean`) between two optional boundaries. A boundary is an
-interface span `p {c} -> p`; no boundary is the identity. The goal stands for
-the relation `lb ; node ; rb`.
+Everything here is for a constraint domain `D` on a type `R` of
+representatives (`Trusted/Domain.lean`).
 
-`Valid P g a` says the span `a` is an answer of the goal `g` in the program
-`P`: there is a derivable span `s` of the node (`Derives`) such that `a`
-stands for `lb ; s ; rb` (`Ref`): `a` relates only pairs of it, and in every
-model of the theory exactly its pairs. So an answer is never less general
-than its derivation.
+A *goal* `⟨lb, node, rb⟩` is a node of the normal form
+(`Kernel/NormalForm.lean`) between two optional boundaries. A boundary is a
+representative that passes `D.isBound`; no boundary is the identity. The goal
+stands for the relation `lb ; node ; rb`.
+
+`Valid D P g a` says the representative `a` is an answer of the goal `g` in
+the program `P`: its boundaries are boundaries, and, the domain being lawful
+in the interpretation of the sorts of `P`, there is a derivable span `s` of
+the node (`Derives`) such that `a` relates exactly the pairs of
+`lb ; s ; rb`. So an answer is never less general than its derivation.
 
 The rules below are the only ways the kernel makes an answer
-(`Trusted/Kernel.lean`). Each is proved to keep `Valid`:
+(`Trusted/Kernel.lean`). Each is proved to keep `Valid`, from the laws of the
+domain alone:
 
-* `Valid.leaf`: a span node, composed with the boundaries;
-* `Valid.simp`: an answer simplified by the theory;
+* `Valid.leaf`: the representative of a span node, composed with the
+  boundaries;
 * `Valid.join`: two answers of adjacent stretches of a chain, composed. The
   inner boundaries are absent, or one of them is the interface of the other
-  answer (a push). The answer is for the chain of the members of both, so
-  the grouping of `;` is not part of a derivation;
+  answer (a push), the same representative. The answer is for the chain of
+  the members of both, so the grouping of `;` is not part of a derivation;
 * `Valid.meet`: two answers of two parts of a meet, conjoined. Both have the
   boundaries of the goal, or the second has the interfaces of the first;
 * `Valid.inj`: an answer of a member of a union is an answer of the union;
 * `Valid.unfold`, `Valid.unfoldConv`: an answer of the normal form of a body,
   or of its converse, is an answer of the call;
-* `Valid.swap`: the converse of an answer is an answer of the converse node
-  between the exchanged boundaries.
+* `Valid.swap`: the converse of an answer, which is the converse of the
+  representative, is an answer of the converse node between the exchanged
+  boundaries.
 
 `Valid.sound` and `Valid.general` are what an answer of the root goal
 `⟨none, q.norm, none⟩` gives for the query `q` as written: it relates only
-pairs `q` relates, and it stands for a derivable span of `q`.
+pairs `q` relates, and exactly the pairs of a derivable span of `q`.
 -/
 import RwLog.Kernel.NormalFormCorrect
-import RwLog.Kernel.Live
-import RwLog.Kernel.Iface
+import RwLog.SpanLayer.Modulo
+import RwLog.Trusted.Domain
 
 namespace RwLog
 
+open Answer
+
 /-! ## Goals -/
 
-/-- The goal `lb ; node ; rb`. -/
-structure Goal where
-  lb : Option Span
+/-- The goal `lb ; node ; rb`, with boundaries of type `R`. -/
+structure Goal (R : Type) where
+  lb : Option R
   node : Rel
-  rb : Option Span
-  deriving DecidableEq, Repr
+  rb : Option R
+  deriving DecidableEq
 
-/-- An optional boundary is an interface span: its two sides are the same
-pattern. -/
-def IsBound (b : Option Span) : Prop := ∀ s, b = some s → s.l = s.r
+section
 
-instance (b : Option Span) : Decidable (IsBound b) :=
+variable {R : Type} [Answer R]
+
+/-- The pairs of a boundary: no boundary is the identity. -/
+def bdenAt (M : Interp) : Option R → PRel
+  | none => {p | p.2 = p.1}
+  | some b => den M b
+
+/-- The pairs of `lb ; X ; rb`. -/
+def wrapAt (M : Interp) (lb : Option R) (X : PRel) (rb : Option R) : PRel :=
+  (bdenAt M lb).comp (X.comp (bdenAt M rb))
+
+/-- An optional boundary passes the domain's test. -/
+def IsBound (D : Domain R) (b : Option R) : Prop := ∀ r, b = some r → D.isBound r = true
+
+instance (D : Domain R) (b : Option R) : Decidable (IsBound D b) :=
   match b with
   | none => .isTrue (fun _ h => by cases h)
-  | some s => if h : s.l = s.r then .isTrue (fun _ e => by cases e; exact h)
-      else .isFalse (fun k => h (k s rfl))
+  | some r => if h : D.isBound r = true then .isTrue (fun _ e => by cases e; exact h)
+      else .isFalse (fun k => h (k r rfl))
 
-/-- The meaning of a boundary: no boundary is the identity. -/
-def bden : Option Span → GRel
-  | none => GRel.id
-  | some s => s.den
+omit [Answer R] in
+theorem isBound_none (D : Domain R) : IsBound D none := fun _ h => by cases h
 
-theorem isBound_none : IsBound none := fun _ h => by cases h
+/-- The goal's boundaries are boundaries. -/
+def Goal.Wf (D : Domain R) (g : Goal R) : Prop := IsBound D g.lb ∧ IsBound D g.rb
 
-theorem pid_bden {b : Option Span} (h : IsBound b) : PId (bden b) := by
-  cases b with
-  | none => exact pid_id
-  | some s => exact pid_diag (h s rfl)
-
-theorem GRel.inv_id : GRel.id.inv = GRel.id := by
-  ext ⟨a, b, X⟩
-  simp only [GRel.inv, GRel.id, Set.mem_ofPred_eq]
-  constructor <;> rintro ⟨h₁, h₂⟩ <;> exact ⟨h₁.symm, h₂⟩
-
-theorem bden_inv {b : Option Span} (h : IsBound b) : (bden b).inv = bden b := by
-  cases b with
-  | none => exact GRel.inv_id
-  | some s =>
-    have hlr := h s rfl
-    have : s.swap = s := by cases s; simp only at hlr; subst hlr; rfl
-    show s.den.inv = s.den
-    rw [← swap_den, this]
-
-/-- An interface taken as a boundary means the interface. -/
-theorem bden_bound_rightIface (a : Span) : bden (bound a.rightIface) = a.rightIface.den := by
-  unfold bound
-  split
-  · next v hl hc => exact (den_trivial hl hl hc).symm
-  · rfl
-
-theorem bden_bound_leftIface (a : Span) : bden (bound a.leftIface) = a.leftIface.den := by
-  unfold bound
-  split
-  · next v hl hc => exact (den_trivial hl hl hc).symm
-  · rfl
-
-theorem isBound_bound_rightIface (a : Span) : IsBound (bound a.rightIface) := by
-  intro s h
-  unfold bound at h
-  split at h
-  · cases h
-  · cases h; rfl
-
-theorem isBound_bound_leftIface (a : Span) : IsBound (bound a.leftIface) := by
-  intro s h
-  unfold bound at h
-  split at h
-  · cases h
-  · cases h; rfl
+/-- The representative `a` is an answer of the goal `g`. -/
+def Valid (D : Domain R) (P : Program) (g : Goal R) (a : R) : Prop :=
+  g.Wf D ∧ (D.Lawful P.sorts.interp → ∃ s, Derives P g.node s ∧
+    den P.sorts.interp a = wrapAt P.sorts.interp g.lb (s.den.at P.sorts.interp) g.rb)
 
 /-! ## Pairs of wrapped relations -/
 
-variable {T : Theory}
+variable {D : Domain R} {M : Interp}
 
-theorem at_id (M : Interp) : GRel.id.at M = {p | p.2 = p.1} := by
-  ext ⟨a, b⟩
-  constructor
-  · rintro ⟨S, h, -⟩; exact h.1
-  · intro h; exact ⟨∅, ⟨h, rfl⟩, by simp⟩
-
-theorem mem_at_wrap {L A R : GRel} {M : Interp} {x z : GTerm} :
-    (x, z) ∈ (wrap L A R).at M ↔
-      ∃ u v, (x, u) ∈ L.at M ∧ (u, v) ∈ A.at M ∧ (v, z) ∈ R.at M := by
-  unfold wrap
-  rw [at_comp, at_comp]
+theorem mem_wrapAt {lb rb : Option R} {X : PRel} {x z : GTerm} :
+    (x, z) ∈ wrapAt M lb X rb ↔
+      ∃ u v, (x, u) ∈ bdenAt M lb ∧ (u, v) ∈ X ∧ (v, z) ∈ bdenAt M rb := by
   constructor
   · rintro ⟨u, h₁, v, h₂, h₃⟩; exact ⟨u, v, h₁, h₂, h₃⟩
   · rintro ⟨u, v, h₁, h₂, h₃⟩; exact ⟨u, h₁, v, h₂, h₃⟩
 
-theorem PId.at_eq {B : GRel} (h : PId B) {M : Interp} {x y : GTerm} (hxy : (x, y) ∈ B.at M) :
-    y = x := by
-  obtain ⟨S, hS, -⟩ := hxy; exact h _ _ _ hS
+theorem mem_bden_none {x y : GTerm} : (x, y) ∈ bdenAt M (none : Option R) ↔ y = x := Iff.rfl
 
-theorem mem_at_id {M : Interp} {x y : GTerm} : (x, y) ∈ GRel.id.at M ↔ y = x := by
-  rw [at_id]; rfl
+/-- A boundary relates a term only to itself. -/
+theorem bden_eq (hL : D.Lawful M) {b : Option R} (hb : IsBound D b) {x y : GTerm}
+    (h : (x, y) ∈ bdenAt M b) : y = x := by
+  cases b with
+  | none => exact h
+  | some r => exact hL.isBound_sub r (hb r rfl) _ h
 
-/-- A pair of a span has its right end in the right interface. -/
-theorem rightIface_at {a : Span} {M : Interp} {x y : GTerm} (h : (x, y) ∈ a.den.at M) :
-    (y, y) ∈ a.rightIface.den.at M := by
-  rw [← comp_rightIface a, at_comp] at h
-  obtain ⟨m, -, hm⟩ := h
-  have : y = m := (pid_diag (s := a.rightIface) rfl).at_eq hm
-  subst this; exact hm
-
-/-- A pair of a span has its left end in the left interface. -/
-theorem leftIface_at {a : Span} {M : Interp} {x y : GTerm} (h : (x, y) ∈ a.den.at M) :
-    (x, x) ∈ a.leftIface.den.at M := by
-  rw [← leftIface_comp a, at_comp] at h
-  obtain ⟨m, hm, -⟩ := h
-  have : m = x := (pid_diag (s := a.leftIface) rfl).at_eq hm
-  subst this; exact hm
-
-/-- `a` relates only pairs of `X`, in every model of the theory and among all
-pairs. -/
-def Below (T : Theory) (A X : GRel) : Prop :=
-  ∀ M, T.Model M ∨ M = Set.univ → A.at M ⊆ X.at M
-
-theorem ref_iff {a : Span} {X : GRel} : Ref T a X ↔ Below T a.den X ∧ LCov T a.den X := by
+theorem wrapAt_none (X : PRel) : wrapAt M (none : Option R) X none = X := by
+  ext ⟨x, z⟩
+  rw [mem_wrapAt]
   constructor
-  · rintro ⟨⟨h₁, h₂⟩, h₃⟩
-    refine ⟨fun M hM => ?_, h₃⟩
-    rcases hM with hM | rfl
-    · exact h₁ M hM
-    · exact h₂
-  · rintro ⟨h₁, h₃⟩
-    exact ⟨⟨fun M hM => h₁ M (.inl hM), h₁ _ (.inr rfl)⟩, h₃⟩
+  · rintro ⟨u, v, h₁, h₂, h₃⟩
+    obtain rfl := mem_bden_none.1 h₁
+    obtain rfl := mem_bden_none.1 h₃
+    exact h₂
+  · intro h; exact ⟨x, z, rfl, h, rfl⟩
 
-/-! ## Valid answers -/
+theorem wrapAt_mid_nonempty {lb rb : Option R} {X : PRel} (h : (wrapAt M lb X rb).Nonempty) :
+    X.Nonempty := by
+  obtain ⟨⟨x, z⟩, hp⟩ := h
+  obtain ⟨u, v, -, h₂, -⟩ := mem_wrapAt.1 hp
+  exact ⟨_, h₂⟩
 
-variable (P : Program)
+theorem wrapAt_inv (hL : D.Lawful M) {lb rb : Option R} (hl : IsBound D lb) (hr : IsBound D rb)
+    (X : PRel) : (wrapAt M lb X rb).inv = wrapAt M rb X.inv lb := by
+  ext ⟨x, z⟩
+  show (z, x) ∈ wrapAt M lb X rb ↔ _
+  rw [mem_wrapAt, mem_wrapAt]
+  constructor
+  · rintro ⟨u, v, h₁, h₂, h₃⟩
+    obtain rfl := bden_eq hL hl h₁
+    obtain rfl := bden_eq hL hr h₃
+    exact ⟨_, _, h₃, h₂, h₁⟩
+  · rintro ⟨u, v, h₁, h₂, h₃⟩
+    obtain rfl := bden_eq hL hr h₁
+    obtain rfl := bden_eq hL hl h₃
+    exact ⟨_, _, h₃, h₂, h₁⟩
 
-/-- The goal's boundaries are interface spans. -/
-def Goal.Wf (g : Goal) : Prop := IsBound g.lb ∧ IsBound g.rb
+/-- A pair of a representative has its right end in the right interface. -/
+theorem rightBound_at (hL : D.Lawful M) {a : R} {x y : GTerm} (h : (x, y) ∈ den M a) :
+    (y, y) ∈ bdenAt M (D.rightBound a) := by
+  cases hb : D.rightBound a with
+  | none => rfl
+  | some b => exact hL.rightBound_mem a b hb x y h
 
-/-- The span `a` is an answer of the goal `g`. -/
-def Valid (g : Goal) (a : Span) : Prop :=
-  g.Wf ∧ ((∀ ρ ∈ P.theory, ρ.WellFormed) →
-    ∃ s, Derives P g.node s ∧ Ref P.theory a (wrap (bden g.lb) s.den (bden g.rb)))
+/-- A pair of a representative has its left end in the left interface. -/
+theorem leftBound_at (hL : D.Lawful M) {a : R} {x y : GTerm} (h : (x, y) ∈ den M a) :
+    (x, x) ∈ bdenAt M (D.leftBound a) :=
+  rightBound_at hL (a := swap a) (x := y) (by rw [den_swap]; exact h)
 
-variable {P}
+/-- A relation of derivations that relates a pair is the relation of a
+derivable span. -/
+theorem exists_derives {P : Program} {e : Rel} {G : GRel} (hG : G ∈ GD P e)
+    (hne : (G.at M).Nonempty) : ∃ s, Derives P e s ∧ s.den = G := by
+  obtain ⟨p, S, hS, -⟩ := hne
+  exact derives_iff_derivesG.2 ⟨hG, ⟨_, hS⟩⟩
 
-/-- The span a goal `⟨lb, s, rb⟩` on a span node composes to, if any. -/
-def spanBoth (lb : Option Span) (s : Span) (rb : Option Span) : Option Span :=
-  (match lb with
-    | none => some s
-    | some l => l.compose s).bind fun s' => match rb with
-      | none => some s'
-      | some r => s'.compose r
+/-! ## The rules -/
 
-theorem spanBoth_den {lb rb : Option Span} {s z : Span} (h : spanBoth lb s rb = some z) :
-    z.den = wrap (bden lb) s.den (bden rb) := by
+variable {P : Program}
+
+/-- The representative a goal `⟨lb, s, rb⟩` on a span node composes to, if
+any. -/
+def spanBoth (D : Domain R) (lb : Option R) (s : Span) (rb : Option R) : Option R :=
+  (D.rep s).bind fun r =>
+    (match lb with
+      | none => some r
+      | some l => D.compose l r).bind fun x => match rb with
+        | none => some x
+        | some t => D.compose x t
+
+theorem spanBoth_den (hL : D.Lawful M) {lb rb : Option R} {s : Span} {z : R}
+    (h : spanBoth D lb s rb = some z) : den M z = wrapAt M lb (s.den.at M) rb := by
   unfold spanBoth at h
-  unfold wrap
-  cases lb with
-  | none =>
-    cases rb with
-    | none =>
-      simp only [Option.bind_some, Option.some.injEq] at h
-      subst h; simp [bden, GRel.id_comp, GRel.comp_id]
-    | some r =>
-      simp only [Option.bind_some] at h
-      rw [compose_some h]; simp [bden, GRel.id_comp]
-  | some l =>
-    simp only at h
-    cases hl : l.compose s with
-    | none => rw [hl] at h; cases h
-    | some s' =>
-      rw [hl] at h
+  cases hr : D.rep s with
+  | none => rw [hr] at h; cases h
+  | some r =>
+    rw [hr] at h
+    have er : den M r = s.den.at M := by rw [hL.rep_some s r hr, Span.denAt_eq]
+    simp only [Option.bind_some] at h
+    have key : ∀ (x : R) (X : PRel), den M x = X → ∀ z, (match rb with
+        | none => some x
+        | some t => D.compose x t) = some z → den M z = X.comp (bdenAt M rb) := by
+      intro x X ex z hz
       cases rb with
       | none =>
-        simp only [Option.bind_some, Option.some.injEq] at h
-        subst h; rw [compose_some hl]; simp [bden, GRel.comp_id]
-      | some r =>
+        cases hz
+        rw [ex]; ext ⟨p, q⟩
+        constructor
+        · intro hp; exact ⟨q, hp, rfl⟩
+        · rintro ⟨m, hp, hm⟩; obtain rfl := mem_bden_none.1 hm; exact hp
+      | some t => rw [hL.compose_some _ _ _ hz, ex]; rfl
+    cases lb with
+    | none =>
+      simp only [Option.bind_some] at h
+      rw [key r _ er z h]
+      ext ⟨p, q⟩
+      constructor
+      · intro hp; exact ⟨p, rfl, hp⟩
+      · rintro ⟨m, hm, hp⟩; obtain rfl := mem_bden_none.1 hm; exact hp
+    | some l =>
+      simp only at h
+      cases hl : D.compose l r with
+      | none => rw [hl] at h; cases h
+      | some x =>
+        rw [hl] at h
         simp only [Option.bind_some] at h
-        rw [compose_some h, compose_some hl, GRel.comp_assoc]; rfl
+        rw [key x _ (by rw [hL.compose_some _ _ _ hl, er]) z h]
+        ext ⟨p, q⟩
+        constructor
+        · rintro ⟨m, ⟨u, h₁, h₂⟩, h₃⟩; exact ⟨u, h₁, m, h₂, h₃⟩
+        · rintro ⟨u, h₁, m, h₂, h₃⟩; exact ⟨m, ⟨u, h₁, h₂⟩, h₃⟩
 
-/-- A span node, composed with the boundaries. -/
-theorem Valid.leaf {lb rb : Option Span} {s z : Span} (hl : IsBound lb) (hr : IsBound rb)
-    (h : spanBoth lb s rb = some z) : Valid P ⟨lb, .span s, rb⟩ z :=
-  ⟨⟨hl, hr⟩, fun _ => ⟨s, .span s, (Ref.self z).of_eq (spanBoth_den h)⟩⟩
-
-/-- An answer simplified by the theory. -/
-theorem Valid.simp {g : Goal} {a a' : Span} (h : Valid P g a)
-    (hs : P.theory.simplify a = some a') : Valid P g a' := by
-  refine ⟨h.1, fun hwf => ?_⟩
-  obtain ⟨s, hd, hr⟩ := h.2 hwf
-  exact ⟨s, hd, (live_ref hwf (by simp [live, hs])).trans hr.1 hr.2⟩
+/-- The representative of a span node, composed with the boundaries. -/
+theorem Valid.leaf {lb rb : Option R} {s : Span} {z : R} (hl : IsBound D lb) (hr : IsBound D rb)
+    (h : spanBoth D lb s rb = some z) : Valid D P ⟨lb, .span s, rb⟩ z :=
+  ⟨⟨hl, hr⟩, fun hL => ⟨s, .span s, spanBoth_den hL h⟩⟩
 
 /-- The side condition of `join`: the inner boundaries are absent, or one of
 them is the interface of the other answer. -/
-def JoinOk (a : Span) (rb₁ lb₂ : Option Span) (b : Span) : Prop :=
-  (rb₁ = none ∧ (lb₂ = none ∨ lb₂ = bound a.rightIface)) ∨
-    (lb₂ = none ∧ rb₁ = bound b.leftIface)
+def JoinOk (D : Domain R) (a : R) (rb₁ lb₂ : Option R) (b : R) : Prop :=
+  (rb₁ = none ∧ (lb₂ = none ∨ lb₂ = D.rightBound a)) ∨ (lb₂ = none ∧ rb₁ = D.leftBound b)
 
-instance (a : Span) (rb₁ lb₂ : Option Span) (b : Span) : Decidable (JoinOk a rb₁ lb₂ b) := by
+instance [DecidableEq R] (D : Domain R) (a : R) (rb₁ lb₂ : Option R) (b : R) :
+    Decidable (JoinOk D a rb₁ lb₂ b) := by
   unfold JoinOk; infer_instance
 
-theorem join_ref {a b c : Span} {L S₁ S₂ R B₁ B₂ : GRel}
-    (ha : Ref T a (wrap L S₁ B₁)) (hb : Ref T b (wrap B₂ S₂ R)) (hc : a.compose b = some c)
-    (hB₁ : PId B₁) (hB₂ : PId B₂)
-    (hok : (B₁ = GRel.id ∧ (B₂ = GRel.id ∨ B₂ = a.rightIface.den)) ∨
-      (B₂ = GRel.id ∧ B₁ = b.leftIface.den)) :
-    Ref T c (wrap L (S₁.comp S₂) R) := by
-  obtain ⟨ha₁, ha₂⟩ := ref_iff.1 ha
-  obtain ⟨hb₁, hb₂⟩ := ref_iff.1 hb
-  rw [ref_iff, compose_some hc]
-  constructor
-  · intro M hM
-    rw [at_comp]
-    rintro ⟨x, z⟩ ⟨m, hxm, hmz⟩
-    obtain ⟨u, v, h₁, h₂, h₃⟩ := mem_at_wrap.1 (ha₁ M hM hxm)
-    obtain ⟨u', v', k₁, k₂, k₃⟩ := mem_at_wrap.1 (hb₁ M hM hmz)
-    obtain rfl := hB₁.at_eq h₃
-    obtain rfl := hB₂.at_eq k₁
-    exact mem_at_wrap.2 ⟨u, v', h₁, (at_comp _ _ _).symm ▸ ⟨_, h₂, k₂⟩, k₃⟩
-  · intro M hM
-    rw [at_comp]
-    rintro ⟨x, z⟩ hxz
-    obtain ⟨u, v, h₁, h₂, h₃⟩ := mem_at_wrap.1 hxz
-    rw [at_comp] at h₂
-    obtain ⟨m, h₂, h₂'⟩ := h₂
-    rcases hok with ⟨rfl, rfl | rfl⟩ | ⟨rfl, rfl⟩
-    · exact ⟨m, ha₂ M hM (mem_at_wrap.2 ⟨u, m, h₁, h₂, mem_at_id.2 rfl⟩),
-        hb₂ M hM (mem_at_wrap.2 ⟨m, v, mem_at_id.2 rfl, h₂', h₃⟩)⟩
-    · have hxm := ha₂ M hM (mem_at_wrap.2 ⟨u, m, h₁, h₂, mem_at_id.2 rfl⟩)
-      exact ⟨m, hxm, hb₂ M hM (mem_at_wrap.2 ⟨m, v, rightIface_at hxm, h₂', h₃⟩)⟩
-    · have hmz := hb₂ M hM (mem_at_wrap.2 ⟨m, v, mem_at_id.2 rfl, h₂', h₃⟩)
-      exact ⟨m, ha₂ M hM (mem_at_wrap.2 ⟨u, m, h₁, h₂, leftIface_at hmz⟩), hmz⟩
-
-theorem wrap_mid_nonempty {L A R : GRel} (h : (wrap L A R).Nonempty) : A.Nonempty :=
-  GRel.comp_nonempty_left (GRel.comp_nonempty_right h)
-
 /-- Two answers of adjacent stretches of a chain, composed. -/
-theorem Valid.join {lb rb₁ lb₂ rb : Option Span} {x y : Rel} {a b c : Span}
-    (ha : Valid P ⟨lb, x, rb₁⟩ a) (hb : Valid P ⟨lb₂, y, rb⟩ b)
-    (hok : JoinOk a rb₁ lb₂ b) (hc : a.compose b = some c) :
-    Valid P ⟨lb, mkSeq (seqParts x ++ seqParts y), rb⟩ c := by
-  refine ⟨⟨ha.1.1, hb.1.2⟩, fun hwf => ?_⟩
-  obtain ⟨s₁, hd₁, hr₁⟩ := ha.2 hwf
-  obtain ⟨s₂, hd₂, hr₂⟩ := hb.2 hwf
-  have hok' : (bden rb₁ = GRel.id ∧ (bden lb₂ = GRel.id ∨ bden lb₂ = a.rightIface.den)) ∨
-      (bden lb₂ = GRel.id ∧ bden rb₁ = b.leftIface.den) := by
-    rcases hok with ⟨rfl, rfl | rfl⟩ | ⟨rfl, rfl⟩
-    · exact .inl ⟨rfl, .inl rfl⟩
-    · exact .inl ⟨rfl, .inr (bden_bound_rightIface a)⟩
-    · exact .inr ⟨rfl, bden_bound_leftIface b⟩
-  have href := join_ref hr₁ hr₂ hc (pid_bden ha.1.2) (pid_bden hb.1.1) hok'
-  have hne := wrap_mid_nonempty href.nonempty
+theorem Valid.join {lb rb₁ lb₂ rb : Option R} {x y : Rel} {a b c : R}
+    (ha : Valid D P ⟨lb, x, rb₁⟩ a) (hb : Valid D P ⟨lb₂, y, rb⟩ b)
+    (hok : JoinOk D a rb₁ lb₂ b) (hc : D.compose a b = some c) :
+    Valid D P ⟨lb, mkSeq (seqParts x ++ seqParts y), rb⟩ c := by
+  refine ⟨⟨ha.1.1, hb.1.2⟩, fun hL => ?_⟩
+  obtain ⟨s₁, hd₁, e₁⟩ := ha.2 hL
+  obtain ⟨s₂, hd₂, e₂⟩ := hb.2 hL
+  have hB₁ : IsBound D rb₁ := ha.1.2
+  have hB₂ : IsBound D lb₂ := hb.1.1
+  simp only at e₁ e₂
+  have key : den P.sorts.interp c =
+      wrapAt P.sorts.interp lb ((s₁.den.comp s₂.den).at P.sorts.interp) rb := by
+    rw [hL.compose_some _ _ _ hc, at_comp]
+    ext ⟨p, q⟩
+    constructor
+    · rintro ⟨m, h₁, h₂⟩
+      rw [e₁] at h₁; rw [e₂] at h₂
+      obtain ⟨u, v, p₁, p₂, p₃⟩ := mem_wrapAt.1 h₁
+      obtain ⟨u', v', q₁, q₂, q₃⟩ := mem_wrapAt.1 h₂
+      obtain rfl := bden_eq hL hB₁ p₃
+      obtain rfl := bden_eq hL hB₂ q₁
+      exact mem_wrapAt.2 ⟨u, v', p₁, ⟨_, p₂, q₂⟩, q₃⟩
+    · intro h
+      obtain ⟨u, v, p₁, ⟨m, p₂, p₂'⟩, p₃⟩ := mem_wrapAt.1 h
+      rcases hok with ⟨rfl, rfl | rfl⟩ | ⟨rfl, rfl⟩
+      · exact ⟨m, by rw [e₁]; exact mem_wrapAt.2 ⟨u, m, p₁, p₂, rfl⟩,
+          by rw [e₂]; exact mem_wrapAt.2 ⟨m, v, rfl, p₂', p₃⟩⟩
+      · have hxm : (p, m) ∈ den P.sorts.interp a := by
+          rw [e₁]; exact mem_wrapAt.2 ⟨u, m, p₁, p₂, rfl⟩
+        exact ⟨m, hxm, by rw [e₂]; exact mem_wrapAt.2 ⟨m, v, rightBound_at hL hxm, p₂', p₃⟩⟩
+      · have hmz : (m, q) ∈ den P.sorts.interp b := by
+          rw [e₂]; exact mem_wrapAt.2 ⟨m, v, rfl, p₂', p₃⟩
+        exact ⟨m, by rw [e₁]; exact mem_wrapAt.2 ⟨u, m, p₁, p₂, leftBound_at hL hmz⟩, hmz⟩
   have hG : s₁.den.comp s₂.den ∈ GD P (mkSeq (seqParts x ++ seqParts y)) := by
     rw [gd_mkSeq_append]; exact ⟨_, hd₁.derivesG, _, hd₂.derivesG, rfl⟩
-  obtain ⟨s, hs, hsd⟩ := derives_iff_derivesG.2 ⟨hG, hne⟩
-  exact ⟨s, hs, hsd ▸ href⟩
+  obtain ⟨s, hs, hsd⟩ := exists_derives hG (wrapAt_mid_nonempty (key ▸ hL.live c))
+  exact ⟨s, hs, hsd ▸ key⟩
 
 /-- The side condition of `meet`: the second answer has the boundaries of the
 first, or the interfaces of the first answer. -/
-def MeetOk (a : Span) (lb rb lb' rb' : Option Span) : Prop :=
-  (lb' = lb ∧ rb' = rb) ∨ (lb' = bound a.leftIface ∧ rb' = bound a.rightIface)
+def MeetOk (D : Domain R) (a : R) (lb rb lb' rb' : Option R) : Prop :=
+  (lb' = lb ∧ rb' = rb) ∨ (lb' = D.leftBound a ∧ rb' = D.rightBound a)
 
-instance (a : Span) (lb rb lb' rb' : Option Span) : Decidable (MeetOk a lb rb lb' rb') := by
+instance [DecidableEq R] (D : Domain R) (a : R) (lb rb lb' rb' : Option R) :
+    Decidable (MeetOk D a lb rb lb' rb') := by
   unfold MeetOk; infer_instance
 
-theorem meet_ref {a b c : Span} {L S₁ S₂ R L' R' : GRel}
-    (ha : Ref T a (wrap L S₁ R)) (hb : Ref T b (wrap L' S₂ R')) (hc : a.meet b = some c)
-    (hL : PId L) (hR : PId R) (hL' : PId L') (hR' : PId R')
-    (hok : (L' = L ∧ R' = R) ∨ (L' = a.leftIface.den ∧ R' = a.rightIface.den)) :
-    Ref T c (wrap L (S₁.meet S₂) R) := by
-  obtain ⟨ha₁, ha₂⟩ := ref_iff.1 ha
-  obtain ⟨hb₁, hb₂⟩ := ref_iff.1 hb
-  rw [ref_iff, meet_some hc]
-  constructor
-  · intro M hM
-    rw [at_meet]
-    rintro ⟨x, z⟩ ⟨hx, hy⟩
-    obtain ⟨u, v, h₁, h₂, h₃⟩ := mem_at_wrap.1 (ha₁ M hM hx)
-    obtain ⟨u', v', k₁, k₂, k₃⟩ := mem_at_wrap.1 (hb₁ M hM hy)
-    obtain rfl := hL.at_eq h₁
-    obtain rfl := hR.at_eq h₃
-    obtain rfl := hL'.at_eq k₁
-    obtain rfl := hR'.at_eq k₃
-    exact mem_at_wrap.2 ⟨_, _, h₁, (at_meet _ _ _).symm ▸ ⟨h₂, k₂⟩, h₃⟩
-  · intro M hM
-    rw [at_meet]
-    rintro ⟨x, z⟩ hxz
-    obtain ⟨u, v, h₁, h₂, h₃⟩ := mem_at_wrap.1 hxz
-    rw [at_meet] at h₂
-    obtain rfl := hL.at_eq h₁
-    obtain rfl := hR.at_eq h₃
-    have hxa := ha₂ M hM (mem_at_wrap.2 ⟨_, _, h₁, h₂.1, h₃⟩)
-    refine ⟨hxa, hb₂ M hM ?_⟩
-    rcases hok with ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩
-    · exact mem_at_wrap.2 ⟨_, _, h₁, h₂.2, h₃⟩
-    · exact mem_at_wrap.2 ⟨_, _, leftIface_at hxa, h₂.2, rightIface_at hxa⟩
-
 /-- Two answers of two parts of a meet, conjoined. -/
-theorem Valid.meet {lb rb lb' rb' : Option Span} {x y : Rel} {a b c : Span}
-    (ha : Valid P ⟨lb, x, rb⟩ a) (hb : Valid P ⟨lb', y, rb'⟩ b)
-    (hok : MeetOk a lb rb lb' rb') (hc : a.meet b = some c) :
-    Valid P ⟨lb, mkAnd (sortedParts (andParts x ++ andParts y)), rb⟩ c := by
-  refine ⟨ha.1, fun hwf => ?_⟩
-  obtain ⟨s₁, hd₁, hr₁⟩ := ha.2 hwf
-  obtain ⟨s₂, hd₂, hr₂⟩ := hb.2 hwf
-  have hok' : (bden lb' = bden lb ∧ bden rb' = bden rb) ∨
-      (bden lb' = a.leftIface.den ∧ bden rb' = a.rightIface.den) := by
-    rcases hok with ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩
-    · exact .inl ⟨rfl, rfl⟩
-    · exact .inr ⟨bden_bound_leftIface a, bden_bound_rightIface a⟩
-  have href := meet_ref hr₁ hr₂ hc (pid_bden ha.1.1) (pid_bden ha.1.2) (pid_bden hb.1.1)
-    (pid_bden hb.1.2) hok'
-  have hne := wrap_mid_nonempty href.nonempty
+theorem Valid.meet {lb rb lb' rb' : Option R} {x y : Rel} {a b c : R}
+    (ha : Valid D P ⟨lb, x, rb⟩ a) (hb : Valid D P ⟨lb', y, rb'⟩ b)
+    (hok : MeetOk D a lb rb lb' rb') (hc : D.meet a b = some c) :
+    Valid D P ⟨lb, mkAnd (sortedParts (andParts x ++ andParts y)), rb⟩ c := by
+  refine ⟨ha.1, fun hL => ?_⟩
+  obtain ⟨s₁, hd₁, e₁⟩ := ha.2 hL
+  obtain ⟨s₂, hd₂, e₂⟩ := hb.2 hL
+  have hl : IsBound D lb := ha.1.1
+  have hr : IsBound D rb := ha.1.2
+  have hl' : IsBound D lb' := hb.1.1
+  have hr' : IsBound D rb' := hb.1.2
+  simp only at e₁ e₂
+  have key : den P.sorts.interp c =
+      wrapAt P.sorts.interp lb ((s₁.den.meet s₂.den).at P.sorts.interp) rb := by
+    rw [hL.meet_some _ _ _ hc, at_meet]
+    ext ⟨p, q⟩
+    constructor
+    · rintro ⟨h₁, h₂⟩
+      rw [e₁] at h₁; rw [e₂] at h₂
+      obtain ⟨u, v, p₁, p₂, p₃⟩ := mem_wrapAt.1 h₁
+      obtain ⟨u', v', q₁, q₂, q₃⟩ := mem_wrapAt.1 h₂
+      obtain rfl := bden_eq hL hl p₁
+      obtain rfl := bden_eq hL hr p₃
+      obtain rfl := bden_eq hL hl' q₁
+      obtain rfl := bden_eq hL hr' q₃
+      exact mem_wrapAt.2 ⟨_, _, p₁, ⟨p₂, q₂⟩, p₃⟩
+    · intro h
+      obtain ⟨u, v, p₁, ⟨p₂, p₂'⟩, p₃⟩ := mem_wrapAt.1 h
+      obtain rfl := bden_eq hL hl p₁
+      obtain rfl := bden_eq hL hr p₃
+      have hxa := mem_wrapAt.2 ⟨_, _, p₁, p₂, p₃⟩
+      rw [← e₁] at hxa
+      refine ⟨hxa, ?_⟩
+      rw [e₂]
+      rcases hok with ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩
+      · exact mem_wrapAt.2 ⟨_, _, p₁, p₂', p₃⟩
+      · exact mem_wrapAt.2 ⟨_, _, leftBound_at hL hxa, p₂', rightBound_at hL hxa⟩
   have hG : s₁.den.meet s₂.den ∈ GD P (mkAnd (sortedParts (andParts x ++ andParts y))) := by
     rw [gd_mkAnd_sorted_append]; exact ⟨_, hd₁.derivesG, _, hd₂.derivesG, rfl⟩
-  obtain ⟨s, hs, hsd⟩ := derives_iff_derivesG.2 ⟨hG, hne⟩
-  exact ⟨s, hs, hsd ▸ href⟩
+  obtain ⟨s, hs, hsd⟩ := exists_derives hG (wrapAt_mid_nonempty (key ▸ hL.live c))
+  exact ⟨s, hs, hsd ▸ key⟩
 
 /-- An answer stays one when the node is replaced by a node that derives the
 same ground relation. -/
-theorem Valid.move {lb rb : Option Span} {x y : Rel} {a : Span} (h : Valid P ⟨lb, x, rb⟩ a)
-    (hxy : ∀ s, Derives P x s → s.den ∈ GD P y) : Valid P ⟨lb, y, rb⟩ a := by
-  refine ⟨h.1, fun hwf => ?_⟩
-  obtain ⟨s, hd, hr⟩ := h.2 hwf
+theorem Valid.move {lb rb : Option R} {x y : Rel} {a : R} (h : Valid D P ⟨lb, x, rb⟩ a)
+    (hxy : ∀ s, Derives P x s → s.den ∈ GD P y) : Valid D P ⟨lb, y, rb⟩ a := by
+  refine ⟨h.1, fun hL => ?_⟩
+  obtain ⟨s, hd, hr⟩ := h.2 hL
   obtain ⟨s', hs', hsd⟩ := derives_iff_derivesG.2 ⟨hxy s hd, s.den_nonempty⟩
   exact ⟨s', hs', hsd ▸ hr⟩
 
 /-- An answer of a member of a union is an answer of the union. -/
-theorem Valid.inj {lb rb : Option Span} {x u : Rel} {a : Span} (h : Valid P ⟨lb, x, rb⟩ a)
-    (hx : x ∈ u.unionParts) : Valid P ⟨lb, u, rb⟩ a :=
+theorem Valid.inj {lb rb : Option R} {x u : Rel} {a : R} (h : Valid D P ⟨lb, x, rb⟩ a)
+    (hx : x ∈ u.unionParts) : Valid D P ⟨lb, u, rb⟩ a :=
   h.move fun s hs => by
     rw [← gd_unionParts]
     exact Set.mem_biUnion hx hs.derivesG
 
 /-- An answer of the normal form of a body is an answer of the call. -/
-theorem Valid.unfold {lb rb : Option Span} {n : Name} {a : Span}
-    (h : Valid P ⟨lb, (P.body n).norm, rb⟩ a) : Valid P ⟨lb, .call n, rb⟩ a :=
+theorem Valid.unfold {lb rb : Option R} {n : Name} {a : R}
+    (h : Valid D P ⟨lb, (P.body n).norm, rb⟩ a) : Valid D P ⟨lb, .call n, rb⟩ a :=
   h.move fun s hs => by
     rw [gd_call, ← gd_norm]; exact hs.derivesG
 
 /-- An answer of the normal form of the converse of a body is an answer of
 the converse of the call. -/
-theorem Valid.unfoldConv {lb rb : Option Span} {n : Name} {a : Span}
-    (h : Valid P ⟨lb, (P.body n).normConv, rb⟩ a) : Valid P ⟨lb, .conv (.call n), rb⟩ a :=
+theorem Valid.unfoldConv {lb rb : Option R} {n : Name} {a : R}
+    (h : Valid D P ⟨lb, (P.body n).normConv, rb⟩ a) : Valid D P ⟨lb, .conv (.call n), rb⟩ a :=
   h.move fun s hs => by
     rw [gd_conv, gd_call, ← gd_normConv]; exact hs.derivesG
 
-theorem wrap_inv (L A R : GRel) : (wrap L A R).inv = wrap R.inv A.inv L.inv := by
-  unfold wrap
-  rw [GRel.inv_comp, GRel.inv_comp, GRel.comp_assoc]
-
 /-- The converse of an answer is an answer of the converse node between the
 exchanged boundaries. -/
-theorem Valid.swap {lb rb : Option Span} {x : Rel} {a : Span} (h : Valid P ⟨lb, x, rb⟩ a) :
-    Valid P ⟨rb, x.normConv, lb⟩ a.swap := by
-  refine ⟨⟨h.1.2, h.1.1⟩, fun hwf => ?_⟩
-  obtain ⟨s, hd, hr⟩ := h.2 hwf
+theorem Valid.swap {lb rb : Option R} {x : Rel} {a : R} (h : Valid D P ⟨lb, x, rb⟩ a) :
+    Valid D P ⟨rb, x.normConv, lb⟩ (swap a) := by
+  refine ⟨⟨h.1.2, h.1.1⟩, fun hL => ?_⟩
+  obtain ⟨s, hd, hr⟩ := h.2 hL
   have hG : s.swap.den ∈ GD P x.normConv := by
     rw [gd_normConv, swap_den]; exact ⟨_, hd.derivesG, rfl⟩
   obtain ⟨s', hs', hsd⟩ := derives_iff_derivesG.2 ⟨hG, s.swap.den_nonempty⟩
   refine ⟨s', hs', ?_⟩
-  have := hr.swap
-  rw [wrap_inv, bden_inv h.1.1, bden_inv h.1.2, ← swap_den, ← hsd] at this
-  exact this
+  simp only at hr ⊢
+  rw [den_swap, hr, wrapAt_inv hL h.1.1 h.1.2, hsd, swap_den, at_inv]
 
 /-! ## What an answer of the root goal gives -/
 
-theorem wrap_id (A : GRel) : wrap GRel.id A GRel.id = A := by
-  unfold wrap; rw [GRel.comp_id, GRel.id_comp]
-
-/-- An answer of the root goal stands for a derivable span of the query as
-written. -/
-theorem Valid.general {q : Rel} {a : Span} (h : Valid P ⟨none, q.norm, none⟩ a)
-    (hwf : ∀ ρ ∈ P.theory, ρ.WellFormed) : ∃ s, Derives P q s ∧ a.Refines P.theory s := by
-  obtain ⟨s₀, hd, hr⟩ := h.2 hwf
+/-- An answer of the root goal relates exactly the pairs of a derivable span
+of the query as written. -/
+theorem Valid.general {q : Rel} {a : R} (h : Valid D P ⟨none, q.norm, none⟩ a)
+    (hL : D.Lawful P.sorts.interp) :
+    ∃ s, Derives P q s ∧ Answer.Refines P.sorts.interp a s := by
+  obtain ⟨s₀, hd, hr⟩ := h.2 hL
   obtain ⟨s, hs, hsd⟩ := derives_norm_iff.1 ⟨s₀, hd, rfl⟩
-  refine ⟨s, hs, fun M hM => ?_⟩
-  have hr' : Ref P.theory a s.den := by
-    have := hr; simp only [bden, wrap_id] at this; rw [hsd]; exact this
-  rw [Span.denAt_eq, Span.denAt_eq]
-  exact le_antisymm (hr'.1.1 M hM) (hr'.2 M hM)
+  refine ⟨s, hs, ?_⟩
+  simp only [wrapAt_none] at hr
+  show den P.sorts.interp a = s.denAt P.sorts.interp
+  rw [hr, Span.denAt_eq, hsd]
 
 /-- An answer of the root goal relates only pairs the query relates. -/
-theorem Valid.sound {q : Rel} {a : Span} (h : Valid P ⟨none, q.norm, none⟩ a)
-    (hwf : ∀ ρ ∈ P.theory, ρ.WellFormed) (M : Interp) (hM : P.theory.Model M) :
-    a.denAt M ⊆ P.semAt M q := by
-  obtain ⟨s, hs, hr⟩ := h.general hwf
-  rw [hr M hM, Span.denAt_eq, ProgramOf.semAt_eq]
-  exact GRel.at_mono hs.den_subset M
+theorem Valid.sound {q : Rel} {a : R} (h : Valid D P ⟨none, q.norm, none⟩ a)
+    (hL : D.Lawful P.sorts.interp) : den P.sorts.interp a ⊆ P.pairs q := by
+  obtain ⟨s, hs, hr⟩ := h.general hL
+  have hr' : den P.sorts.interp a = s.denAt P.sorts.interp := hr
+  rw [hr', Span.denAt_eq]
+  unfold ProgramOf.pairs
+  rw [ProgramOf.semAt_eq]
+  exact GRel.at_mono hs.den_subset _
+
+end
 
 end RwLog

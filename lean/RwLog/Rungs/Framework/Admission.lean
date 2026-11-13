@@ -24,6 +24,7 @@ they are meant to say, and that each has an inhabitant.
 * For time, the statements for any resource are the ones written with ticks
   (`coversUsing_time`, `exhaustsUsing_time`).
 -/
+import RwLog.SpanLayer.Sorts
 import RwLog.Rungs.Framework.Latency
 
 namespace RwLog
@@ -216,12 +217,16 @@ theorem le_tower_size : ∀ n, n ≤ (tower n).size
   | 0 => Nat.zero_le _
   | n + 1 => by have := le_tower_size n; simp only [tower, Term.size]; omega
 
-/-- The queries `@t` in the empty program. The rank of a member is its size,
+theorem tower_firstOrder : ∀ n, (tower n).firstOrder = true
+  | 0 => rfl
+  | n + 1 => by simp [tower, Term.firstOrder, tower_firstOrder n]
+
+/-- The queries `@t`, for `t` first-order, in the empty program. The rank of a member is its size,
 and its target is the pair `(t, t)` with every variable of `t` set to `z`. -/
 def ProgClass.points : ProgClass where
-  mem P q := decide (P.defs = [] ∧ P.theory = []) &&
+  mem P q := decide (P.defs = [] ∧ P.sorts = []) &&
     match q with
-    | .span s => decide (s.r = s.l ∧ s.c = [])
+    | .span s => decide (s.r = s.l ∧ s.c = []) && s.l.firstOrder
     | _ => false
   rank _ q := q.size
   tgt _ q :=
@@ -230,39 +235,37 @@ def ProgClass.points : ProgClass where
     | _ => []
 
 theorem ProgClass.points_mem {P : Program} {q : Rel} (h : ProgClass.points.mem P q) :
-    P = ⟨[], []⟩ ∧ ∃ t, q = .span ⟨t, t, []⟩ := by
+    P = ⟨[], []⟩ ∧ ∃ t, t.firstOrder = true ∧ q = .span ⟨t, t, []⟩ := by
   simp only [points, Bool.and_eq_true, decide_eq_true_eq] at h
   obtain ⟨⟨hd, ht⟩, hq⟩ := h
   refine ⟨by cases P; simp_all, ?_⟩
   cases q with
   | span s =>
     obtain ⟨l, r, c⟩ := s
-    simp only [decide_eq_true_eq] at hq
-    obtain ⟨rfl, rfl⟩ := hq
-    exact ⟨_, rfl⟩
+    simp only [Bool.and_eq_true, decide_eq_true_eq] at hq
+    obtain ⟨⟨rfl, rfl⟩, hfo⟩ := hq
+    exact ⟨_, hfo, rfl⟩
   | _ => simp at hq
 
 /-- `points` is a proper class, with members no larger than their rank. -/
 theorem ProgClass.points_proper : ProgClass.points.Proper fun k => k where
   wf P r h := by
-    obtain ⟨rfl, t, rfl⟩ := points_mem h
-    simp [ProgramOf.WellFormed, RelOf.calls]
+    obtain ⟨rfl, t, hfo, rfl⟩ := points_mem h
+    simpa [ProgramOf.WellFormed, RelOf.calls, RelOf.spans, Span.firstOrder, hfo] using
+      Sorts.wellFormed_nil
   size_le P r h := by
-    obtain ⟨rfl, t, rfl⟩ := points_mem h
-    simp [points, ProgramOf.size, Theory.size]
-  model P r h := by
-    obtain ⟨rfl, t, rfl⟩ := points_mem h
-    exact ⟨∅, fun ρ hρ => by cases hρ⟩
+    obtain ⟨rfl, t, hfo, rfl⟩ := points_mem h
+    simp [points, ProgramOf.size, Sorts.size]
   nonempty P r h := by
-    obtain ⟨rfl, t, rfl⟩ := points_mem h
+    obtain ⟨rfl, t, hfo, rfl⟩ := points_mem h
     simp [points]
-  related P r h M _ x hx := by
-    obtain ⟨rfl, t, rfl⟩ := points_mem h
+  related P r h x hx := by
+    obtain ⟨rfl, t, hfo, rfl⟩ := points_mem h
     simp only [points, List.mem_singleton] at hx
     subst hx
     exact ⟨fun _ => .sym "z", rfl, rfl, by simp⟩
   unbounded k := by
-    refine ⟨⟨[], []⟩, .span ⟨tower k, tower k, []⟩, by simp [points], ?_⟩
+    refine ⟨⟨[], []⟩, .span ⟨tower k, tower k, []⟩, by simp [points, tower_firstOrder], ?_⟩
     have := le_tower_size k
     simp only [points, RelOf.size, Span.size]
     omega

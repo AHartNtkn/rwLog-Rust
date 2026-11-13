@@ -11,8 +11,9 @@ relation between ground terms (`den`), and every answer has a converse
 stated on these denotations, so a machine whose answers are not spans is held
 to the same statements. `Span` is the instance the language itself provides.
 
-`Answer.Covers`, `Equiv`, `CoversLive`, `Dead` and `Refines` compare answers,
-possibly of two different types, by what they denote.
+`Answer.Covers`, `Equiv`, `Dead` and `Refines` compare answers, possibly of
+two different types, by what they denote in one interpretation. The
+properties below use them in the interpretation of the program's sorts.
 
 ## Steps
 
@@ -70,21 +71,17 @@ namespace Answer
 
 variable {A B : Type} [Answer A] [Answer B]
 
-/-- `a` covers `b`: in every interpretation, `a` relates every pair `b`
-relates. -/
-def Covers (a : A) (b : B) : Prop := ∀ M, den M b ⊆ den M a
+/-- `a` covers `b` in `M`: `a` relates every pair `b` relates. -/
+def Covers (M : Interp) (a : A) (b : B) : Prop := den M b ⊆ den M a
 
-/-- Two answers are equivalent when each covers the other. -/
-def Equiv (a : A) (b : B) : Prop := Covers a b ∧ Covers b a
+/-- Two answers are equivalent in `M` when each covers the other. -/
+def Equiv (M : Interp) (a : A) (b : B) : Prop := Covers M a b ∧ Covers M b a
 
-/-- In every model of the theory, `a` relates every pair `b` relates. -/
-def CoversLive (T : Theory) (a : A) (b : B) : Prop := ∀ M, T.Model M → den M b ⊆ den M a
+/-- The answer relates no pair in `M`. -/
+def Dead (M : Interp) (a : A) : Prop := den M a = ∅
 
-/-- No model of the theory lets the answer relate a pair. -/
-def Dead (T : Theory) (a : A) : Prop := ∀ M, T.Model M → den M a = ∅
-
-/-- In every model of the theory, `a` and `b` relate the same pairs. -/
-def Refines (T : Theory) (a : A) (b : B) : Prop := ∀ M, T.Model M → den M a = den M b
+/-- `a` and `b` relate the same pairs in `M`. -/
+def Refines (M : Interp) (a : A) (b : B) : Prop := den M a = den M b
 
 end Answer
 
@@ -171,38 +168,38 @@ def Certifies (s : R.State) (k n : Nat) : Prop := (R.trace s (k + 1))[k]? = some
 /-! ## Properties every machine proves (Tier 0)
 
 They are stated for the runtime against the program and query it is run on
-and against the specification in every model of the program's theory. -/
+and against the specification, in the interpretation of the program's
+sorts. -/
 
-/-- In every model, every emitted answer relates only pairs the query
-relates. -/
+/-- Every emitted answer relates only pairs the query relates. -/
 def Sound : Prop :=
   ∀ P q, P.WellFormed q → ∀ n, ∀ a ∈ R.emitted (R.init P q) n,
-    ∀ M, P.theory.Model M → Answer.den M a ⊆ P.semAt M q
+    Answer.den P.sorts.interp a ⊆ P.pairs q
 
 /-- Every derivable span is covered by a single emitted answer after
-finitely many steps: in every model, the answer relates every pair the span
-relates. A span that relates nothing in any model needs no answer, so an
-engine may prune it. Because one answer must cover the whole span, an engine
-that only emits ground answers cannot be complete. -/
+finitely many steps: the answer relates every pair the span relates. A span
+that relates nothing needs no answer, so an engine may prune it. Because one
+answer must cover the whole span, an engine that only emits ground answers
+cannot be complete. -/
 def Complete : Prop :=
   ∀ P q, P.WellFormed q → ∀ s, Derives P q s →
-    Answer.Dead P.theory s ∨
-      ∃ n, ∃ a ∈ R.emitted (R.init P q) n, Answer.CoversLive P.theory a s
+    Answer.Dead P.sorts.interp s ∨
+      ∃ n, ∃ a ∈ R.emitted (R.init P q) n, Answer.Covers P.sorts.interp a s
 
 /-- If the runtime reports it is done, the answers it emitted cover the
-query exactly, in every model. -/
+query exactly. -/
 def HonestExhaustion : Prop :=
   ∀ P q, P.WellFormed q → ∀ n, R.Halts (R.init P q) n →
-    ∀ M, P.theory.Model M → P.semAt M q = ⋃ a ∈ R.emitted (R.init P q) n, Answer.den M a
+    P.pairs q = ⋃ a ∈ R.emitted (R.init P q) n, Answer.den P.sorts.interp a
 
 /-- A progress certificate is true when it is emitted: if the step taken
-after `k` steps certifies level `n`, then in every model every pair the query
-relates whose two terms have size at most `n` is related by an answer emitted
-in the first `k` steps. -/
+after `k` steps certifies level `n`, then every pair the query relates whose
+two terms have size at most `n` is related by an answer emitted in the first
+`k` steps. -/
 def HonestProgress : Prop :=
   ∀ P q, P.WellFormed q → ∀ k n, R.Certifies (R.init P q) k n →
-    ∀ M, P.theory.Model M → ∀ p ∈ P.semAt M q, p.1.size ≤ n → p.2.size ≤ n →
-      ∃ a ∈ R.emitted (R.init P q) k, p ∈ Answer.den M a
+    ∀ p ∈ P.pairs q, p.1.size ≤ n → p.2.size ≤ n →
+      ∃ a ∈ R.emitted (R.init P q) k, p ∈ Answer.den P.sorts.interp a
 
 /-- The runtime reports it is done on every query of a class. -/
 def TerminatesOn (C : Program → Rel → Prop) : Prop :=

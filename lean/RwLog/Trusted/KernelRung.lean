@@ -1,11 +1,12 @@
 /-
 # Kernel rungs
 
-`Kernel.std` (`Trusted/Kernel.lean`) is the specification kernel: it says
-what every operation on spans returns. What it charges is postulated.
+`Kernel.std` (`Trusted/Kernel.lean`) is the kernel of spans as they are
+written: it says what every operation on them returns. What it charges is
+postulated.
 
-A *kernel rung* is another kernel on the same spans, in the same monad of
-charged computations, that returns what the specification kernel returns
+A *kernel rung* is another kernel of the same constraint domain, in the same
+monad of charged computations, that returns what the domain returns
 (`Kernel.Refines`, `Trusted/Kernel.lean`) and whose charges are theorems
 about a machine: each charge is the number of ticks within which a program on
 the machine returns the operation's result, and its space is a bound on the
@@ -16,12 +17,13 @@ Refinement is stated operation by operation. It says nothing about the ticks,
 so an engine may behave differently at two kernels where it reads the ticks
 (`race`, `metered`): what an engine returns at a kernel rung is proved from
 `Refines`, and what it costs is proved from that rung's charges. What does
-not depend on the charges is that its answers are sound: the derivation
+not depend on the charges is that its answers are valid: the derivation
 kernel over any kernel rung makes only valid answers
 (`DerivationKernel.over`).
 
-`Engine.costedAt` (`Trusted/Cost.lean`) is an engine at a kernel rung;
-`Engine.costed` is the engine at the specification kernel.
+`Engine.costedAt` (`Trusted/Cost.lean`) is an engine at a constraint domain
+and a kernel rung of it; `Engine.costed` is the engine at the kernel of spans
+as they are written.
 
 The operations on nodes of the normal form, and the interning that the rules
 `join` and `meetA` do, are charged the same at every kernel rung
@@ -31,8 +33,10 @@ import RwLog.Trusted.Cost
 
 namespace RwLog
 
-/-- At the specification kernel `Engine.costedAt` is `Engine.costed`. -/
+/-- At the kernel of spans as they are written `Engine.costedAt` is
+`Engine.costed`. -/
 theorem Engine.costedAt_std (E : Engine) :
-    E.costedAt Kernel.std Kernel.std_refines = E.costed := rfl
+    E.costedAt (fun _ => Domain.written) (fun _ => Kernel.std) (fun _ => Kernel.std_refines) =
+      E.costed := rfl
 
 end RwLog

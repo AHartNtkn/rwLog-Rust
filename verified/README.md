@@ -64,21 +64,24 @@ the end of a list reads back as.
 ## The kernel rung
 
 `rustKernel` (`RwLogVerified/Kernel.lean`) is a `Kernel Span Cost`
-(`lean/RwLog/Trusted/Kernel.lean`). It returns what the specification kernel
-`Kernel.std` returns (`rustKernel_refines`, against `Kernel.Refines` of
-`lean/RwLog/Trusted/KernelRung.lean`), and its charge for `compose`, `meet`,
+(`lean/RwLog/Trusted/Kernel.lean`). It returns what the domain of spans as
+they are written returns (`rustKernel_refines`, against `Kernel.Refines
+Domain.written`), as the specification kernel `Kernel.std` does, and its charge for `compose`, `meet`,
 `composable`, `eq`, `rightBound`, `leftBound`, and `covers` when the covering
 span has no constraints, is the tick bound of the table above
 (`compose_realised` and its siblings). An engine runs at it with
-`Engine.costedAt`, on the derivation kernel `DerivationKernel.over (rustKernel z)`.
+`Engine.costedAt`, on the derivation kernel
+`DerivationKernel.over Domain.written (rustKernel z)`.
 `RwLogVerified/KernelRuns.lean` checks the charges of both kernels on a
 worked composition; it runs no engine, because none is written against the
 derivation kernel yet (`lean/PARKED.md`).
 
 What is not derived, and why:
 
-* `simplify`, and `covers` when the covering span has constraints, keep the
-  charges of `Kernel.std` until their algorithms are replaced (roadmap L39).
+* `rep`, and `covers` when the covering span has constraints, keep the
+  charges of `Kernel.std`. The domain of spans as written looks at no
+  constraint; the kernel of the sorts replaces it (roadmap L39 and L48), and
+  the store has no operation on sorts yet.
 * The operations on nodes of the normal form and the rules that make answers
   (`DerivationKernel`) are charged as `lean/RwLog/Trusted/Charged.lean`
   postulates. They are not yet written on the store (roadmap L45).

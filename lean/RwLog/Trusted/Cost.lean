@@ -32,7 +32,7 @@ that it is done, so the measure cannot depend on halting, and two correct
 machines may emit different answers for the same query (one general span
 where the other emits several instances), so it cannot count answers either.
 What is comparable is *coverage latency*: for a ground pair that the query
-relates in a model of the theory, the ticks a machine has spent by the first
+relates, the ticks a machine has spent by the first
 step at which some emitted answer relates that pair. `CoversWithin` says the
 coverage latency of a pair is at most a given number of ticks. *Exhaustion
 latency* is the ticks spent by the step at which the machine reports that it
@@ -62,13 +62,13 @@ A class (`ProgClass`) is three computable functions on an input: `mem`
 decides membership, `rank` is the number the gain is stated in, and `tgt`
 lists finitely many ground pairs, the answers the comparison is about. The
 facts about a class that mention no machine are `ProgClass.Proper`: members
-are well formed, their theory has a model, their size is at most a stated
-function of their rank, their targets are nonempty and related by the member
-in every model, and the rank is unbounded over the members.
+are well formed, their size is at most a stated function of their rank,
+their targets are nonempty and related by the member, and the rank is
+unbounded over the members.
 
 A context (`Context`) is an expression with one hole and further definitions.
-Plugging a member into it gives a larger program and query, under the
-member's theory. A context demands the member's answers when two things hold.
+Plugging a member into it gives a larger program and query, with the
+member's sorts. A context demands the member's answers when two things hold.
 The hole is open (`Ctx.Open`): between the hole and the root there is only
 `|` with anything, converse, and `;` with a single span that accepts every
 term on the hole's side, so nothing tells the hole which of its answers are
@@ -285,13 +285,13 @@ end CostedRuntime
 
 /-- `New` simulates `Old` within `p` in the resource `μ`: for every
 well-formed input and every number of steps of `Old`, every pair that `Old`
-has covered in a model of the theory is covered by `New` having used at most
+has covered is covered by `New` having used at most
 `p` of what `Old` has used and of the input's size, and if `Old` has halted
 then `New` halts within the same bound. -/
 def SimulatesBy (μ : Meter) (Old New : CostedRuntime) (p : Nat → Nat → Nat) : Prop :=
   ∀ P q, P.WellFormed q → ∀ n,
-    (∀ M, P.theory.Model M → ∀ x, Old.Covered P q M x n →
-      New.CoversUsing μ P q M x (p (μ Old P q n) (P.size + q.size))) ∧
+    (∀ x, Old.Covered P q P.sorts.interp x n →
+      New.CoversUsing μ P q P.sorts.interp x (p (μ Old P q n) (P.size + q.size))) ∧
     (Old.runtime.Halts (Old.start P q) n →
       New.ExhaustsUsing μ P q (p (μ Old P q n) (P.size + q.size)))
 
@@ -379,10 +379,9 @@ of a member by its rank. -/
 structure ProgClass.Proper (C : ProgClass) (size : Nat → Nat) : Prop where
   wf : ∀ P r, C.mem P r → P.WellFormed r
   size_le : ∀ P r, C.mem P r → P.size + r.size ≤ size (C.rank P r)
-  model : ∀ P r, C.mem P r → ∃ M, P.theory.Model M
   nonempty : ∀ P r, C.mem P r → C.tgt P r ≠ []
-  /-- In every model the member relates every target. -/
-  related : ∀ P r, C.mem P r → ∀ M, P.theory.Model M → ∀ x ∈ C.tgt P r, x ∈ P.semAt M r
+  /-- The member relates every target. -/
+  related : ∀ P r, C.mem P r → ∀ x ∈ C.tgt P r, x ∈ P.pairs r
   /-- There are members of every rank or more. -/
   unbounded : ∀ k, ∃ P r, C.mem P r ∧ k ≤ C.rank P r
 
@@ -468,7 +467,7 @@ namespace Context
 
 variable (K : Context)
 
-/-- The member's program with the context's definitions. The theory is the
+/-- The member's program with the context's definitions. The sorts are the
 member's. -/
 def program (P : Program) : Program := { P with defs := P.defs ++ K.defs }
 
@@ -494,11 +493,11 @@ end Context
 
 /-- `New` is separated from `Old` on the class `C` in the resource `μ`.
 
-On a member `(P, r)` of rank `k`, in every model, `New` covers every target
-having used at most `hi k`.
+On a member `(P, r)` of rank `k`, `New` covers every target having used at
+most `hi k`.
 
 In every context `K` whose hole is open and whose plugged input is well
-formed, in every model, for every pair `y` that needs the targets: `Old` has
+formed, for every pair `y` that needs the targets: `Old` has
 used at least `lo k` at any step at which it has covered `y`; and if `New`
 covers `y` having used `res` when the hole holds the targets written out,
 then it covers `y` having used at most `ctx (hi k) res K.size` when the hole
@@ -508,15 +507,16 @@ The member alone is the context that is only a hole, so the lower bound on
 `Old` holds there for every target. Neither machine has to halt. -/
 structure SeparatesOn (μ : Meter) (Old New : CostedRuntime) (C : ProgClass)
     (lo hi : Nat → Nat) (ctx : Nat → Nat → Nat → Nat) : Prop where
-  alone : ∀ P r, C.mem P r → ∀ M, P.theory.Model M → ∀ x ∈ C.tgt P r,
-    New.CoversUsing μ P r M x (hi (C.rank P r))
+  alone : ∀ P r, C.mem P r → ∀ x ∈ C.tgt P r,
+    New.CoversUsing μ P r P.sorts.interp x (hi (C.rank P r))
   inContext : ∀ P r, C.mem P r → ∀ K : Context, K.Open →
-    (K.program P).WellFormed (K.query r) → ∀ M, P.theory.Model M →
-    ∀ y, K.Demands P r M {x | x ∈ C.tgt P r} y →
-      (∀ n, Old.Covered (K.program P) (K.query r) M y n →
+    (K.program P).WellFormed (K.query r) →
+    ∀ y, K.Demands P r P.sorts.interp {x | x ∈ C.tgt P r} y →
+      (∀ n, Old.Covered (K.program P) (K.query r) P.sorts.interp y n →
         lo (C.rank P r) ≤ μ Old (K.program P) (K.query r) n) ∧
-      (∀ res, New.CoversUsing μ (K.program P) (K.query (.ofPairs (C.tgt P r))) M y res →
-        New.CoversUsing μ (K.program P) (K.query r) M y
+      (∀ res, New.CoversUsing μ (K.program P) (K.query (.ofPairs (C.tgt P r)))
+          P.sorts.interp y res →
+        New.CoversUsing μ (K.program P) (K.query r) P.sorts.interp y
           (ctx (hi (C.rank P r)) res K.size))
 
 /-! ## Three kinds of win -/
@@ -633,25 +633,28 @@ structure Engine where
   step : {S N A : Type} → {M : Type → Type} → [DerivationKernel S N A M] →
     State S N A → M (StepOf A (State S N A))
 
-/-- The state of an engine at a kernel on the spans of the language: the
-program, the root node, and the engine's own state at the derivation kernel
-of that program. -/
-structure Engine.StateAt (E : Engine) where
+/-- The state of an engine at a kernel of a constraint domain `dom`, on its
+type `R` of representatives: the program, the root node, and the engine's own
+state at the derivation kernel of that program. -/
+structure Engine.StateAt (E : Engine) {R : Type} [Answer R] (dom : Sorts → Domain R) where
   P : Program
   root : Rel
-  st : E.State Span Rel (Ans P)
+  st : E.State R Rel (Ans (dom P.sorts) P)
 
-/-- The span of an answer of the root goal; nothing for an answer of another
-goal. -/
-def Ans.rootSpan {P : Program} (root : Rel) (a : Ans P) : Option Span :=
+/-- The representative of an answer of the root goal; nothing for an answer
+of another goal. -/
+def Ans.rootSpan {R : Type} [Answer R] [DecidableEq R] {D : Domain R} {P : Program} (root : Rel)
+    (a : Ans D P) : Option R :=
   if a.goal = ⟨none, root, none⟩ then some a.span else none
 
 /-- What the machine reports of a step of the engine: of the answers it
-emits or stands by in its final report, those of the root goal, as spans, at
-one tick for each answer looked at. A progress certificate is reported as it
-is. -/
-def Engine.report (E : Engine) (P : Program) (root : Rel) :
-    StepOf (Ans P) (E.State Span Rel (Ans P)) → Cost (StepOf Span E.StateAt)
+emits or stands by in its final report, those of the root goal, as
+representatives, at one tick for each answer looked at. A progress
+certificate is reported as it is. -/
+def Engine.report (E : Engine) {R : Type} [Answer R] [DecidableEq R] (dom : Sorts → Domain R)
+    (P : Program) (root : Rel) :
+    StepOf (Ans (dom P.sorts) P) (E.State R Rel (Ans (dom P.sorts) P)) →
+      Cost (StepOf R (E.StateAt dom))
   | .emit as st' => do
     Cost.tick as.length
     pure (.emit (as.filterMap (Ans.rootSpan root)) ⟨P, root, st'⟩)
@@ -660,25 +663,32 @@ def Engine.report (E : Engine) (P : Program) (root : Rel) :
     Cost.tick final.length
     pure (.done (final.filterMap (Ans.rootSpan root)))
 
-/-- The engine at a kernel on the spans of the language that returns what the
-specification kernel returns: a machine with the cost that kernel charges.
+/-- The engine at a constraint domain and a kernel that returns what the
+domain returns: a machine with the cost that kernel charges. The domain and
+its kernel are given for the sorts of each program, on one type `R` of
+representatives, and the machine's answers are representatives.
 
 Building the first state brings the program and the query to their normal
 form (`Charged.load`) and runs the engine's `init` on the root node. A step
 is the engine's step, reported by `Engine.report`. -/
-def Engine.costedAt (E : Engine) (K : Kernel Span Cost) (hK : K.Refines) : CostedRuntime where
-  Ans := Span
-  State := E.StateAt
+def Engine.costedAt (E : Engine) {R : Type} [Answer R] [DecidableEq R] (dom : Sorts → Domain R)
+    (K : Sorts → Kernel R Cost) (hK : ∀ S, (K S).Refines (dom S)) : CostedRuntime where
+  Ans := R
+  State := E.StateAt dom
   init P q := do
     let root ← Charged.load P q
-    let st ← @Engine.init E Span Rel (Ans P) Cost (DerivationKernel.over K hK P) root
+    let st ← @Engine.init E R Rel (Ans (dom P.sorts) P) Cost
+      (DerivationKernel.over (dom P.sorts) (K P.sorts) (hK P.sorts) P) root
     pure ⟨P, root, st⟩
   step s :=
-    @Engine.step E Span Rel (Ans s.P) Cost (DerivationKernel.over K hK s.P) s.st >>=
-      E.report s.P s.root
+    @Engine.step E R Rel (Ans (dom s.P.sorts) s.P) Cost
+      (DerivationKernel.over (dom s.P.sorts) (K s.P.sorts) (hK s.P.sorts) s.P) s.st >>=
+      E.report dom s.P s.root
 
-/-- The engine at the specification kernel: a machine with its cost. -/
-def Engine.costed (E : Engine) : CostedRuntime := E.costedAt Kernel.std Kernel.std_refines
+/-- The engine at the kernel of spans as they are written: a machine with
+its cost. -/
+def Engine.costed (E : Engine) : CostedRuntime :=
+  E.costedAt (fun _ => Domain.written) (fun _ => Kernel.std) (fun _ => Kernel.std_refines)
 
 /-! ## Whole rungs
 
