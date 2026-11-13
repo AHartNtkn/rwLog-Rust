@@ -15,6 +15,7 @@ hypothesis.
 -/
 import RwLog.Rungs.R003.Proofs.SameMachine
 import RwLog.Rungs.R002.Proofs.Same
+import RwLog.Rungs.Framework.Latency
 
 namespace RwLog
 
@@ -39,6 +40,7 @@ theorem spent_le_of (h : Obligation.shared_exact) (n : Nat) (st : R001.State) :
 /-- R003 simulates R002 within a factor of 7, given that the shared
 evaluation is exact. -/
 theorem simulates_of (h : Obligation.shared_exact) : Obligation.simulates := by
+  refine Simulates.of_steps ?_
   intro P q _ n
   have hc : costed.runtime = R001.runtime := runtime_eq_of h
   have hb : R002.costed.runtime = R001.runtime := R002.runtime_eq
