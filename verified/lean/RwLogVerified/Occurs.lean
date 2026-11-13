@@ -35,6 +35,7 @@ structure OccursPost (nm : Option Nat → Sym) (s s' : store.Store) (xv : Nat) (
   keep : ∀ k v, tbl s .B k = some v → tbl s' .B k = some v
   cost : s'.ticks.val + 5 * (pending nm s'.nodes.val (tbl s' .B) S).card ≤
     s.ticks.val + 1 + 5 * (pending nm s.nodes.val (tbl s .B) S).card
+  mono : s.ticks.val ≤ s'.ticks.val
 
 /-- The last step of a miss: the answer `b`, computed in `s3`, is written to
 the table. -/
@@ -46,12 +47,13 @@ theorem occurs_finish (hnm : Function.Injective nm) {s s3 s' : store.Store} {xv 
     (hkeep : ∀ k v, tbl s .B k = some v → tbl s3 .B k = some v)
     (hc : s3.ticks.val + 5 * (pending nm s3.nodes.val (tbl s3 .B) (S.erase t)).card ≤
       s.ticks.val + 5 * (pending nm s.nodes.val (tbl s .B) (S.erase t)).card + 5)
+    (hm : s.ticks.val ≤ s3.ticks.val)
     (g1 : s'.nodes.val = s3.nodes.val) (g2 : s'.ticks.val = s3.ticks.val + 1) (g3 : Inv s')
     (g4 : tbl s' .B = Function.update (tbl s3 .B) p.val (some (if b then 1 else 0)))
     (g5 : ∀ t', t' ≠ store.Tbl.B → tbl s' t' = tbl s3 t') :
     OccursPost nm s s' xv t S b := by
   have hp3 : Repr nm s3.nodes.val p.val t := by rw [hn]; exact hp
-  refine ⟨g3, by rw [g1, hn], hb, ?_, ?_, ?_, ?_⟩
+  refine ⟨g3, by rw [g1, hn], hb, ?_, ?_, ?_, ?_, by omega⟩
   · intro k v hk
     rw [g1]
     rw [g4] at hk
@@ -111,7 +113,7 @@ theorem occurs_spec_aux (hnm : Function.Injective nm) (n : Nat) :
       have := hp.unique h1
       subst this
       refine ⟨hK1.inv, hK1.nodes, ?_, ?_, by rw [hK1.tbl],
-        fun k v hk => by rw [hK1.tbl]; exact hk, ?_⟩
+        fun k v hk => by rw [hK1.tbl]; exact hk, ?_, by have := hK1.ticks; omega⟩
       · exact decide_eq_decide.2 h2
       · rw [hK1.nodes, hK1.tbl]; exact hM
       · rw [hK1.nodes, hK1.tbl]; have := hK1.ticks; omega
@@ -153,7 +155,7 @@ theorem occurs_spec_aux (hnm : Function.Injective nm) (n : Nat) :
           (by unfold Room; omega) as ⟨s5, g1, g2, g3, g4, g5⟩
         refine occurs_finish hnm hI hp hnone htS hn4 ?_ (by rw [hn4, htb4]; exact hM)
           (by rw [htb4]) (fun k v hk => by rw [htb4]; exact hk) (by rw [hn4, htb4]; omega)
-          g1 g2 g3 g4 g5
+          (by omega) g1 g2 g3 g4 g5
         rw [hb]
         simp only [Term.vars, List.mem_singleton]
         by_cases e : p.val = x.val
@@ -173,7 +175,7 @@ theorem occurs_spec_aux (hnm : Function.Injective nm) (n : Nat) :
           as ⟨s5, g1, g2, g3, g4, g5⟩
         refine occurs_finish hnm hI hp hnone htS hn2 (by simp [hr xv])
           (by rw [hn2, htb2]; exact hM) (by rw [htb2]) (fun k v hk => by rw [htb2]; exact hk)
-          (by rw [hn2, htb2]; omega) g1 g2 g3 g4 g5
+          (by rw [hn2, htb2]; omega) (by omega) g1 g2 g3 g4 g5
       cases nd with
       | V0 =>
         obtain ⟨v, hv, hva⟩ := hp.of_var hnd trivial
@@ -215,7 +217,7 @@ theorem occurs_spec_aux (hnm : Function.Injective nm) (n : Nat) :
           have hin : xv ∈ ta.vars := by simpa using hA.res.symm
           refine occurs_finish hnm hI hp hnone htS hn4 (by simp [Term.vars, hin]) hA.memo
             (by rw [hA.tblA, htb2]) (fun k v hk => hA.keep k v (by rw [htb2]; exact hk))
-            (by omega) g1 g2 g3 g4 g5
+            (by omega) (by have := hA.mono; omega) g1 g2 g3 g4 g5
         | false =>
           have hin : xv ∉ ta.vars := by simpa using hA.res.symm
           simp only [uncurry_apply_pair, Bool.false_eq_true, ↓reduceIte]
@@ -231,7 +233,7 @@ theorem occurs_spec_aux (hnm : Function.Injective nm) (n : Nat) :
           refine occurs_finish hnm hI hp hnone htS hn5 (by rw [hBp.res]; simp [Term.vars, hin])
             hBp.memo (by rw [hBp.tblA, hA.tblA, htb2])
             (fun k v hk => hBp.keep k v (hA.keep k v (by rw [htb2]; exact hk)))
-            (by omega) g1 g2 g3 g4 g5
+            (by omega) (by have := hA.mono; have := hBp.mono; omega) g1 g2 g3 g4 g5
 
 /-- `occurs` decides whether a variable occurs in a term. It spends one tick,
 and five more for each term of `S` that had no entry in `B` and gets one. -/

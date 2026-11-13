@@ -57,6 +57,12 @@ theorem mem_pending {nodes : List store.Node} {A : Nat → Option Nat} {S : Fins
     u ∈ pending nm nodes A S ↔ u ∈ S ∧ ¬ ∃ k, Repr nm nodes k u ∧ A k ≠ none := by
   simp [pending]
 
+theorem pending_card_le (nodes : List store.Node) (A : Nat → Option Nat) (S : Finset Pat) :
+    (pending nm nodes A S).card ≤ S.card := by
+  apply Finset.card_le_card
+  intro u hu
+  exact (mem_pending.1 hu).1
+
 theorem pending_erase_card {nodes : List store.Node} {A : Nat → Option Nat} {S : Finset Pat}
     {t : Pat} (ht : t ∈ pending nm nodes A S) :
     (pending nm nodes A (S.erase t)).card + 1 = (pending nm nodes A S).card := by
@@ -131,7 +137,7 @@ theorem leaf_spec (s : store.Store) (f : term.Leaf) (p : store.TermId) {σ : Nat
     (hroom : Room s 1) :
     term.leaf s f p ⦃ r s' =>
       Inv s' ∧ Extends s s' ∧ Repr nm s'.nodes.val r.val (σ v) ∧ tbl s' = tbl s ∧
-        s'.ticks.val ≤ s.ticks.val + 1 ⦄ := by
+        s'.ticks.val ≤ s.ticks.val + 1 ∧ s.ticks.val ≤ s'.ticks.val ⦄ := by
   unfold term.leaf
   cases f with
   | Left =>
@@ -139,7 +145,7 @@ theorem leaf_spec (s : store.Store) (f : term.Leaf) (p : store.TermId) {σ : Nat
     subst hf
     step with alloc_spec s (.VL p) hI hv.node hroom as ⟨r, s', hI', ht, htbl, more, hmore, hr⟩
     have hext : Extends s s' := ⟨more, hmore⟩
-    refine ⟨hI', hext, ?_, htbl, by omega⟩
+    refine ⟨hI', hext, ?_, htbl, by omega, by omega⟩
     simp only [norm] at hr
     split at hr
     · rename_i h0
@@ -154,7 +160,7 @@ theorem leaf_spec (s : store.Store) (f : term.Leaf) (p : store.TermId) {σ : Nat
     subst hf
     step with alloc_spec s (.VR p) hI hv.node hroom as ⟨r, s', hI', ht, htbl, more, hmore, hr⟩
     have hext : Extends s s' := ⟨more, hmore⟩
-    refine ⟨hI', hext, ?_, htbl, by omega⟩
+    refine ⟨hI', hext, ?_, htbl, by omega, by omega⟩
     simp only [norm] at hr
     exact .var (.right hr (Extends.varAt hext hv))
   | Sub x u =>
@@ -168,7 +174,7 @@ theorem leaf_spec (s : store.Store) (f : term.Leaf) (p : store.TermId) {σ : Nat
       have : v = xv := by rw [hpx] at hv; exact hv.unique hx
       subst this
       step*
-      refine ⟨hK.inv, hext, ?_, hK.tbl, by have := hK.ticks; omega⟩
+      refine ⟨hK.inv, hext, ?_, hK.tbl, by have := hK.ticks; omega, by have := hK.ticks; omega⟩
       simp only [Term.single, ↓reduceIte]
       exact hext.repr hu
     · rename_i hbf
@@ -177,7 +183,7 @@ theorem leaf_spec (s : store.Store) (f : term.Leaf) (p : store.TermId) {σ : Nat
         rintro rfl
         exact hpx (hv.inj hI.nodesOK hx)
       step*
-      refine ⟨hK.inv, hext, ?_, hK.tbl, by have := hK.ticks; omega⟩
+      refine ⟨hK.inv, hext, ?_, hK.tbl, by have := hK.ticks; omega, by have := hK.ticks; omega⟩
       simp only [Term.single, hne, ↓reduceIte]
       exact .var (hext.varAt hv)
 
@@ -205,6 +211,7 @@ structure RebuildPost (nm : Option Nat → Sym) (s s' : store.Store) (σ : Nat �
   keep : ∀ k v, tbl s .A k = some v → tbl s' .A k = some v
   cost : s'.ticks.val + 5 * (pending nm s'.nodes.val (tbl s' .A) S).card ≤
     s.ticks.val + 1 + 5 * (pending nm s.nodes.val (tbl s .A) S).card
+  mono : s.ticks.val ≤ s'.ticks.val
 
 /-- The last step of a miss: the result `r`, computed in `s3`, is written to
 the table. -/
@@ -216,12 +223,13 @@ theorem rebuild_finish (hnm : Function.Injective nm) {s s3 s' : store.Store} {σ
     (hkeep : ∀ k v, tbl s .A k = some v → tbl s3 .A k = some v)
     (hc : s3.ticks.val + 5 * (pending nm s3.nodes.val (tbl s3 .A) (S.erase t)).card ≤
       s.ticks.val + 5 * (pending nm s.nodes.val (tbl s .A) (S.erase t)).card + 5)
+    (hm : s.ticks.val ≤ s3.ticks.val)
     (g1 : s'.nodes.val = s3.nodes.val) (g2 : s'.ticks.val = s3.ticks.val + 1) (g3 : Inv s')
     (g4 : tbl s' .A = Function.update (tbl s3 .A) p.val (some r.val))
     (g5 : ∀ t', t' ≠ store.Tbl.A → tbl s' t' = tbl s3 t') :
     RebuildPost nm s s' σ t S r := by
   have hp3 : Repr nm s3.nodes.val p.val t := hext.repr hp
-  refine ⟨g3, hext.trans (Extends.of_eq g1), by rw [g1]; exact hr, ?_, ?_, ?_, ?_⟩
+  refine ⟨g3, hext.trans (Extends.of_eq g1), by rw [g1]; exact hr, ?_, ?_, ?_, ?_, by omega⟩
   · intro k v hk
     rw [g1]
     rw [g4] at hk
@@ -295,7 +303,7 @@ theorem rebuild_spec_aux (hnm : Function.Injective nm) (n : Nat) :
       have := hp.unique h1
       subst this
       refine ⟨hK1.inv, Extends.of_eq hK1.nodes, by rw [hK1.nodes]; exact h2, ?_, by rw [hK1.tbl],
-        fun k v hk => by rw [hK1.tbl]; exact hk, ?_⟩
+        fun k v hk => by rw [hK1.tbl]; exact hk, ?_, by have := hK1.ticks; omega⟩
       · rw [hK1.nodes, hK1.tbl]; exact hM
       · rw [hK1.nodes, hK1.tbl]; have := hK1.ticks; omega
     | none =>
@@ -325,13 +333,13 @@ theorem rebuild_spec_aux (hnm : Function.Injective nm) (n : Nat) :
         intro v hv hva
         subst hv
         step with leaf_spec (nm := nm) s2 f p (σ := σ) (v := v) hK2.inv (by rw [hn2]; exact hva)
-          (by rw [hn2]; exact hf) (by unfold Room; omega) as ⟨x, hI4, hext4, hr4, htbl4, ht4⟩
+          (by rw [hn2]; exact hf) (by unfold Room; omega) as ⟨x, hI4, hext4, hr4, htbl4, ht4, hm4⟩
         obtain ⟨r1, s4⟩ := x
-        simp only at hI4 hext4 hr4 htbl4 ht4 ⊢
+        simp only at hI4 hext4 hr4 htbl4 ht4 hm4 ⊢
         have hp4 : p.val < s4.nodes.val.length := (hext4.repr (hext2.repr hp)).lt
         step with set_spec s4 .A p r1 hI4 hp4 (by unfold Room; omega) as ⟨s5, g1, g2, g3, g4, g5⟩
         refine rebuild_finish hnm hI hp hnone htS (hext2.trans hext4) (by simpa using hr4) ?_
-          (by rw [htbl4, htb2]) (fun k v hk => by rw [htbl4, htb2]; exact hk) ?_ g1 g2 g3 g4 g5
+          (by rw [htbl4, htb2]) (fun k v hk => by rw [htbl4, htb2]; exact hk) ?_ (by omega) g1 g2 g3 g4 g5
         · rw [htbl4, htb2]; exact hM.extends (hext2.trans hext4)
         · obtain ⟨more, hm⟩ := hext2.trans hext4
           have := Finset.card_le_card (pending_mono (nm := nm) (nodes := s.nodes.val) (more := more)
@@ -347,7 +355,7 @@ theorem rebuild_spec_aux (hnm : Function.Injective nm) (n : Nat) :
         have hp2 : p.val < s2.nodes.val.length := by rw [hn2]; exact hp.lt
         step with set_spec s2 .A p p hK2.inv hp2 (by unfold Room; omega) as ⟨s5, g1, g2, g3, g4, g5⟩
         refine rebuild_finish hnm hI hp hnone htS hext2 (by rw [hn2]; exact hr) ?_
-          (by rw [htb2]) (fun k v hk => by rw [htb2]; exact hk) ?_ g1 g2 g3 g4 g5
+          (by rw [htb2]) (fun k v hk => by rw [htb2]; exact hk) ?_ (by omega) g1 g2 g3 g4 g5
         · rw [htb2, hn2]; exact hM
         · rw [htb2, hn2]; omega
       cases nd with
@@ -397,7 +405,8 @@ theorem rebuild_spec_aux (hnm : Function.Injective nm) (n : Nat) :
         have hext6 : Extends s5 s6 := ⟨more, hmore⟩
         have hp6 : p.val < s6.nodes.val.length := ((hext5.trans hext6).repr hp).lt
         step with set_spec s6 .A p r1 hI6 hp6 (by unfold Room; omega) as ⟨s7, g1, g2, g3, g4, g5⟩
-        refine rebuild_finish hnm hI hp hnone htS (hext5.trans hext6) ?_ ?_ ?_ ?_ ?_ g1 g2 g3 g4 g5
+        refine rebuild_finish hnm hI hp hnone htS (hext5.trans hext6) ?_ ?_ ?_ ?_ ?_
+          (by have := hA.mono; have := hBp.mono; omega) g1 g2 g3 g4 g5
         · simp only [Term.bind_app]
           exact .app hr6 (hext6.repr (hBp.ext.repr hA.repr)) (hext6.repr hBp.repr)
         · rw [htbl6]; exact hBp.memo.extends hext6
