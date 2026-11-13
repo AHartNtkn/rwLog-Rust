@@ -65,3 +65,6 @@ import RwLog.Rungs.R001.Proofs.SymmetryProduce
 import RwLog.Rungs.R001.Proofs.SymmetryRound
 import RwLog.Trusted.Cost
 import RwLog.Rungs.R002.Spec
+import RwLog.Rungs.R002.Proofs.CostVal
+import RwLog.Rungs.R002.Proofs.Machine
+import RwLog.Rungs.R002.Proofs.SameMachine

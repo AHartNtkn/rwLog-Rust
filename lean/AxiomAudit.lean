@@ -267,3 +267,21 @@ new axiom.
 
 /-- info: 'RwLog.simpLaws_of_wf' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.simpLaws_of_wf
+
+/-- info: 'RwLog.R002.Tabled.machine_runtime' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R002.Tabled.machine_runtime
+
+/-- info: 'RwLog.R002.baseline_exact_of' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R002.baseline_exact_of
+
+/-- info: 'RwLog.R002.runtime_eq_of' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R002.runtime_eq_of
+
+/-- info: 'RwLog.R002.sound_of' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R002.sound_of
+
+/-- info: 'RwLog.R002.complete_of' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R002.complete_of
+
+/-- info: 'RwLog.R002.honest_exhaustion_of' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R002.honest_exhaustion_of
