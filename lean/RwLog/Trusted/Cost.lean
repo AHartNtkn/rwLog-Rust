@@ -24,6 +24,11 @@ List traversal over data that was already charged is free. A term is charged
 by its size wherever it is used, never by one, so sharing or interning cannot
 hide work.
 
+A computation can be run under a budget (`Cost.within`): if it needs no more
+than the budget it is run and charged as usual, and otherwise the whole budget
+is spent and nothing is learned from it. This is the one way to give up on a
+computation, and giving up is never cheaper than the budget allowed.
+
 ## Costed runtimes
 
 A `CostedRuntime` is a small-step machine whose step is a charged computation.
@@ -101,6 +106,12 @@ def tick (n : Nat) : Cost Unit := ⟨(), n⟩
     (m >>= f).ticks = m.ticks + (f m.val).ticks := rfl
 @[simp] theorem tick_val (n : Nat) : (tick n).val = () := rfl
 @[simp] theorem tick_ticks (n : Nat) : (tick n).ticks = n := rfl
+
+/-- Run `m` with a budget of `b` ticks. If `m` needs no more than `b` it
+runs and is charged as usual; otherwise `b` ticks are spent and there is no
+result. -/
+def within {α : Type} (b : Nat) (m : Cost α) : Cost (Option α) :=
+  if m.ticks ≤ b then ⟨some m.val, m.ticks⟩ else ⟨none, b⟩
 
 /-! ### Free list traversals
 
