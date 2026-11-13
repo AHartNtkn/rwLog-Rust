@@ -296,3 +296,9 @@ new axiom.
 
 /-- info: 'RwLog.R000.unfoldN_call' does not depend on any axioms -/
 #guard_msgs in #print axioms RwLog.R000.unfoldN_call
+
+/-- info: 'RwLog.R002.eager_exact' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R002.eager_exact
+
+/-- info: 'RwLog.R002.onDemand_exact' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R002.onDemand_exact

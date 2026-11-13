@@ -68,3 +68,6 @@ import RwLog.Trusted.Cost
 import RwLog.Kernel.Chain
 import RwLog.Rungs.Framework.Cost
 import RwLog.Rungs.R002.Spec
+import RwLog.Rungs.R002.Proofs.Eager
+import RwLog.Rungs.R002.Proofs.Chains
+import RwLog.Rungs.R002.Proofs.OnDemand
