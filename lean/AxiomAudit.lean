@@ -335,3 +335,15 @@ new axiom.
 
 /-- info: 'RwLog.R002.honest_exhaustion' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.R002.honest_exhaustion
+
+/-- info: 'RwLog.R002.walk_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R002.walk_spec
+
+/-- info: 'RwLog.R002.onDemand_dominated' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R002.onDemand_dominated
+
+/-- info: 'RwLog.R002.spent_le' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R002.spent_le
+
+/-- info: 'RwLog.R002.simulates' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R002.simulates

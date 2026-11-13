@@ -74,3 +74,6 @@ import RwLog.Rungs.R002.Proofs.OnDemand
 import RwLog.Rungs.R002.Proofs.Machine
 import RwLog.Rungs.R002.Proofs.SameMachine
 import RwLog.Rungs.R002.Proofs.Same
+import RwLog.Rungs.R002.Proofs.WalkCost
+import RwLog.Rungs.R002.Proofs.Dominated
+import RwLog.Rungs.R002.Proofs.Simulates
