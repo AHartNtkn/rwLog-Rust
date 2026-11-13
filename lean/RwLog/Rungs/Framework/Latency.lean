@@ -85,18 +85,6 @@ theorem Simulates.mono {Old New : CostedRuntime} {p p' : Nat → Nat → Nat}
   obtain ⟨m, hm, hs⟩ := h2 hn
   exact ⟨m, hm, le_trans hs (hp _ _)⟩
 
-/-- A separation holds for any larger bounds on the size of the family and on
-what the new machine pays. -/
-theorem Separates.mono {Old New : CostedRuntime} {fam : Nat → Program × Rel} {tgt : Nat → PRel}
-    {size size' lo hi hi' : Nat → Nat} (h : Separates Old New fam tgt size lo hi)
-    (hsize : ∀ k, size k ≤ size' k) (hhi : ∀ k, hi k ≤ hi' k) :
-    Separates Old New fam tgt size' lo hi' := by
-  intro k
-  obtain ⟨hwf, hs, hM, hne, hcov⟩ := h k
-  refine ⟨hwf, le_trans hs (hsize k), hM, hne, fun M hM' x hx => ?_⟩
-  obtain ⟨h1, h2⟩ := hcov M hM' x hx
-  exact ⟨CostedRuntime.CoversWithin.mono _ h1 (hhi k), h2⟩
-
 /-- A rung without preprocessing is its engine at the kernel of the
 language. -/
 theorem CostedRung.machine_id (E : Engine) (A : ArtifactStore) :
@@ -104,18 +92,18 @@ theorem CostedRung.machine_id (E : Engine) (A : ArtifactStore) :
 
 /-- Two rungs without preprocessing: the improvement of the machines, and
 preprocessing costs nothing. -/
-theorem Advances.of_id {Old New : Engine} {b : Bounds} {fam : Nat → Program × Rel}
-    {tgt : Nat → PRel} (h : Improves Old.costed New.costed b fam tgt) :
-    Advances ⟨Preprocessor.id, Old⟩ ⟨Preprocessor.id, New⟩ b (fun _ => 0) fam tgt where
+theorem Advances.of_id {kind : Kind} {Old New : Engine} {b : Bounds} {C : ProgClass}
+    (h : Improves kind Old.costed New.costed b C) :
+    Advances kind ⟨Preprocessor.id, Old⟩ ⟨Preprocessor.id, New⟩ b (fun _ => 0) C where
   improves _ := h
   preCost _ _ _ _ := Nat.le_refl 0
 
 /-- Two rungs without preprocessing: admission is the improvement of the
 machines and the direction bound of the new one. -/
-theorem Admits.of_id {Old New : Engine} {b : Bounds} {d : DirBound}
-    {fam : Nat → Program × Rel} {tgt : Nat → PRel}
-    (h : Improves Old.costed New.costed b fam tgt) (hd : DirectionFree New.costed d.fn) :
-    Admits ⟨Preprocessor.id, Old⟩ ⟨Preprocessor.id, New⟩ b d (fun _ => 0) fam tgt where
+theorem Admits.of_id {kind : Kind} {Old New : Engine} {b : Bounds} {d : DirBound}
+    {C : ProgClass} (h : Improves kind Old.costed New.costed b C)
+    (hd : DirectionFree New.costed d.fn) :
+    Admits kind ⟨Preprocessor.id, Old⟩ ⟨Preprocessor.id, New⟩ b d (fun _ => 0) C where
   toAdvances := Advances.of_id h
   direction _ := hd
 

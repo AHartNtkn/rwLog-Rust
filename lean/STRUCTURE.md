@@ -32,7 +32,7 @@ Trusted/        the specification: syntax, semantics, answers, steps and runtime
                 ground pair, and never depends on a query halting
 Theory/         constraint theories and firing
 Kernel/         the executable kernel (match, solve, span, refute) and its proofs; the normal form
-                of expressions (NormalForm.lean, NormalFormCorrect.lean, Order.lean) and the
+                of expressions (NormalForm.lean, NormalFormCorrect.lean, NormalFormStable.lean, Order.lean) and the
                 derivation kernel's rules (Derivation.lean)
 SpanLayer/      span-level semantics, derivations, coverage vocabulary
 Lib/            facts about lists and greatest fixpoints that mention no rwlog type
@@ -88,6 +88,7 @@ to be written in Rust. Its prototype is
 | Unfolding equations | `Rungs/Naive/Unfold.lean` | `unfoldN_succ`, `unfoldN_succ'`, `unfoldN_call`, `unfoldN_add`, `unfoldN_or/and/seq/conv`, `unfoldN_dual` |
 | The normal form of an expression and its nodes | `Kernel/NormalForm.lean` | `normB`, `RelOf.norm`, `RelOf.normConv`, `NodeView`, `RelOf.view`, `interval`, `without`, `mkSeq`, `mkAnd` |
 | The normal form means what the expression means | `Kernel/NormalFormCorrect.lean` | `gd_normB`, `derives_norm_iff`, `sem_norm`, `sem_normConv`; equal normal forms: `normB_seq_assoc`, `normB_and_comm`, `normB_and_assoc`, `normB_or_comm`, `normB_or_assoc`, `normB_or_self`; derivations as ground relations: `DerivesG`, `GD` |
+| The normal form is stable: which expressions are nodes, and every node the kernel reads or makes is one | `Kernel/NormalFormStable.lean` | `Normal`, `normal_normB`, `Normal.norm_eq`, `normal_iff_norm_eq`, `normB_normB`, `Normal.normConv_normConv`, `Normal.view_members`, `view_chain`, `view_meet`, `view_union`, `Normal.interval`, `without`, `join`, `meet`; a node is its members rebuilt: `Normal.mkSeq_seqParts`, `mkAnd_andParts`, `mkOr_unionParts`; sorted lists: `sortedParts_of_sorted`, `sortedBranches_of_strict`, `eq_of_perm_of_sorted`, `eq_of_mem_iff_of_strict` |
 | The structural order is linear; sorted lists are determined by their members | `Kernel/Order.lean` | `relCmp_trans`, `relCmp_eq`, `sortedBranches_eq`, `pairwise_sortedBranches` |
 | Valid answers of a goal and the rules that make them | `Kernel/Derivation.lean` | `Goal`, `Valid`, `Valid.leaf`, `simp`, `join`, `meet`, `inj`, `unfold`, `unfoldConv`, `swap`, `Valid.sound`, `Valid.general` |
 | Sizes charged by the cost model | `Kernel/Size.lean` (and `Term.size_pos` in `Kernel/Solve.lean`) | `Span.size_pos`, `Span.size_swap`, `Rel.size_pos` |
@@ -156,6 +157,15 @@ rung unchanged.
   same rules (`Spends.bind`, `Spends.mapL`, `Spends.mapL_zip`), and bounds on
   the ticks of each traversal from a bound on each member
   (`anyL_ticks_le_mul`, ...).
+
+* `Admission.lean`: what the classes and contexts of the admission rule
+  (`Trusted/Cost.lean`, reasons in `ADMISSION.md`) mean, and an inhabitant of
+  each. `Ctx.denAt_fill` (the meaning of a context applied to the meaning of
+  an expression is the meaning of the plugged expression), `Ctx.denAt_union`,
+  `denoteAt_ofPairs`, `Context.demands_alone` (the member alone demands
+  exactly its targets), `demands_orL`, `Demands.related_ofPairs` (the residue
+  is the cost of a pair its query relates), `Ctx.open_wrap`, and the proper
+  class `ProgClass.points`.
 
 * `Latency.lean`: how the improvement statements of `Trusted/Cost.lean`, which
   measure the ticks until an answer covers a ground pair, are established.
