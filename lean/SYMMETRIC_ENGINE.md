@@ -200,7 +200,7 @@ The share rule alone is `3 * 2^k - 2`. With the flat round it is quadratic in `k
 4. The rules are `leaf`, `simp`, `join`, `meetA`, `inj`, `unfold`, `swapA`. `join` takes an answer of a stretch with its right boundary absent and an answer of the next stretch whose left boundary is absent or the right interface of the first (a push), or the mirror image of that. `meetA` takes the second answer between the same boundaries or between the interfaces of the first. `simp` is a rule because simplification by the theory is how a dead answer is recognised; it does not change what the answer denotes among the pairs the theory allows.
 5. Space is `peak` and `held` in `Cost`. Only `within` releases cells (the abandoned side of a race), so an engine that never abandons has `peak = held` growing with its tables, as the L31 row expects. There is no depth component: stacks are explicit and live in the store (L43), so depth is space.
 
-Not provided, and needed by this design before M6: that the normal form is stable (`norm` of a node is the node, and the converse of the converse of a node is the node), which is what lets a goal and its converse share one table (roadmap L47); and charges for the operations on nodes that are derived on the store instead of postulated (roadmap L45).
+Provided since (roadmap L47, `Kernel/NormalFormStable.lean`): the normal form is stable (`norm` of a node is the node, and the converse of the converse of a node is the node), which is what lets a goal and its converse share one table. Not provided, and needed by this design before M6: charges for the operations on nodes that are derived on the store instead of postulated (roadmap L45).
 
 ## 8. What this replaces
 

@@ -207,6 +207,18 @@ new axiom.
 /-- info: 'RwLog.sem_norm' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.sem_norm
 
+/-- info: 'RwLog.normal_normB' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.normal_normB
+
+/-- info: 'RwLog.Normal.norm_eq' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Normal.norm_eq
+
+/-- info: 'RwLog.normB_normB' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.normB_normB
+
+/-- info: 'RwLog.Normal.view_members' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Normal.view_members
+
 /-- info: 'RwLog.Valid.join' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Valid.join
 
