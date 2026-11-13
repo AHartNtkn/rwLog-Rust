@@ -91,7 +91,7 @@ theorem open_calls : ∀ (e : Rel) (neg : Bool), ∀ p ∈ R000.norm neg e, sing
     · rw [h] at hj
       cases hj
       refine ⟨_, List.mem_singleton_self _, ?_⟩
-      simp only [Rel.calls, ne_eq, List.append_eq_nil_iff, not_and_or]
+      simp only [RelOf.calls, ne_eq, List.append_eq_nil_iff, not_and_or]
       rcases hs with hs | hs
       · obtain ⟨x, hx, hc⟩ := iha neg p hp hs
         exact .inl fun h0 => hc ((R000.calls_toRel p).mp h0 x hx)
@@ -148,7 +148,7 @@ theorem open_calls : ∀ (e : Rel) (neg : Bool), ∀ p ∈ R000.norm neg e, sing
     intro neg p hp _
     simp only [R000.norm, List.mem_singleton] at hp
     subst hp
-    exact ⟨_, List.mem_singleton_self _, by cases neg <;> simp [Rel.calls]⟩
+    exact ⟨_, List.mem_singleton_self _, by cases neg <;> simp [RelOf.calls]⟩
 
 /-- When every product is a single span, the spans derived by the products
 are those spans. -/

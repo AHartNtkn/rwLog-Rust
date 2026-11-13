@@ -24,9 +24,14 @@ import RwLog.Trusted.CostMonad
 
 namespace RwLog
 
-inductive Step (S : Type) where
-  | emit (as : List Span) (s : S)
+/-- What a step does: it emits answers and moves to a new state, or reports
+that it is done. `A` is the type of answers. -/
+inductive StepOf (A : Type) (S : Type) where
+  | emit (as : List A) (s : S)
   | done
+
+/-- A step of a machine of the language: its answers are spans. -/
+abbrev Step := StepOf Span
 
 /-- A runtime: a deterministic small-step answer enumerator. -/
 structure Runtime where

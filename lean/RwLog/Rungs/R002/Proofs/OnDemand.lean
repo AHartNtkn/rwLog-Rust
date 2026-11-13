@@ -264,10 +264,10 @@ theorem walk_val (P : Program) : ∀ (d : Nat) (e : Rel) (neg : Bool) (L R : Lis
   | zero =>
     refine walk_step P 0 fun n neg L R k acc => ?_
     rw [walk]
-    have hk : keep L R [if neg then Rel.conv (.call n) else .call n] = true :=
+    have hk : keep L R [if neg then RelOf.conv (.call n) else .call n] = true :=
       keep_iff.mpr ⟨fun _ s hs => by cases neg <;> simp [headSpan] at hs,
         fun _ s hs => by cases neg <;> simp [lastSpan] at hs⟩
-    change _ = run k ([[if neg then Rel.conv (.call n) else .call n]].filter (keep L R)) acc
+    change _ = run k ([[if neg then RelOf.conv (.call n) else .call n]].filter (keep L R)) acc
     rw [List.filter_cons, ite_eq_left hk]
     exact (run_singleton k _ acc).symm
   | succ d ih =>

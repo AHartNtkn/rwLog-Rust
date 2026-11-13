@@ -72,7 +72,7 @@ theorem or_assoc_terminates (a b c : Rel) :
 
 theorem unfold_theory (T : Theory) : unfold { P with theory := T } = unfold P := by
   funext e
-  induction e <;> simp_all [unfold, Program.body]
+  induction e <;> simp_all [unfold, ProgramOf.body]
 
 theorem products_theory (T : Theory) (q : Rel) (k : Nat) :
     products { P with theory := T } q k = products P q k := by
@@ -205,7 +205,7 @@ theorem norm_reflect {n : Nat} : ∀ (neg : Bool) (e : Rel), ∀ p ∈ norm neg 
 /-! ## The products of an expression and of its converse correspond -/
 
 /-- Whether an expression is a single span. -/
-def _root_.RwLog.Rel.isSpan : Rel → Bool
+def _root_.RwLog.RelOf.isSpan : Rel → Bool
   | .span _ => true
   | _ => false
 
@@ -224,7 +224,7 @@ theorem DE.symm {x y : Rel} (h : DE x y) : DE y x := by
 
 theorem DE.calls {x y : Rel} (h : DE x y) : x.calls = [] ↔ y.calls = [] := by
   cases h with
-  | span _ => simp [Rel.calls]
+  | span _ => simp [RelOf.calls]
   | other _ _ hc => exact hc
 
 /-- A product of an expression and a product of its converse correspond
@@ -238,12 +238,12 @@ theorem D.symm {p p' : List Rel} (h : D p p') : D p' p := by
 
 theorem calls_toRel (p : List Rel) : (toRel p).calls = [] ↔ ∀ x ∈ p, x.calls = [] := by
   induction p with
-  | nil => simp [toRel, idRel, Rel.calls]
+  | nil => simp [toRel, idRel, RelOf.calls]
   | cons f p ih =>
     cases p with
     | nil => simp [toRel]
     | cons g p =>
-      simp only [toRel, Rel.calls, List.append_eq_nil_iff] at ih ⊢
+      simp only [toRel, RelOf.calls, List.append_eq_nil_iff] at ih ⊢
       rw [ih]
       simp
 
@@ -321,8 +321,8 @@ theorem joinSeq_nofuse' {A B : List Rel} {x y : Rel} (hxy : x.isSpan = false ∨
   simp only [List.getLast?_concat, Option.some.injEq] at hl
   simp only [List.cons.injEq] at hq
   rcases hxy with h | h
-  · rw [hl] at h; simp [Rel.isSpan] at h
-  · rw [hq.1] at h; simp [Rel.isSpan] at h
+  · rw [hl] at h; simp [RelOf.isSpan] at h
+  · rw [hq.1] at h; simp [RelOf.isSpan] at h
 
 theorem joinSeq_D_aux {pa ra pb rb : List Rel} (ha : List.Forall₂ DE pa ra)
     (hb : List.Forall₂ DE pb rb) :
@@ -395,7 +395,7 @@ theorem mkAnd_other {p q : List Rel} (h : isSingleSpan p = false ∨ isSingleSpa
     mkAnd p q = some [.and (toRel p) (toRel q)] := by
   unfold mkAnd
   split
-  · simp [isSingleSpan, Rel.isSpan] at h
+  · simp [isSingleSpan, RelOf.isSpan] at h
   · rfl
 
 theorem eq_single_of_isSingleSpan {p : List Rel} (h : isSingleSpan p = true) :
@@ -403,7 +403,7 @@ theorem eq_single_of_isSingleSpan {p : List Rel} (h : isSingleSpan p = true) :
   match p, h with
   | [.span a], _ => exact ⟨a, rfl⟩
   | [.zero], h | [.or _ _], h | [.and _ _], h | [.seq _ _], h | [.conv _], h | [.call _], h
-  | [], h | _ :: _ :: _, h => simp [isSingleSpan, Rel.isSpan] at h
+  | [], h | _ :: _ :: _, h => simp [isSingleSpan, RelOf.isSpan] at h
 
 theorem mkAnd_D {p p' q q' : List Rel} (hp : D p p') (hq : D q q') :
     Option.Rel D (mkAnd p q) (mkAnd p' q') := by
@@ -416,12 +416,12 @@ theorem mkAnd_D {p p' q q' : List Rel} (hp : D p p') (hq : D q q') :
       simp only [D, List.reverse_singleton, List.forall₂_cons, List.Forall₂.nil, and_true] at hp
       cases hp with
       | span h => exact h
-      | other h => simp [Rel.isSpan] at h
+      | other h => simp [RelOf.isSpan] at h
     have hb : b'.den = (b.den).inv := by
       simp only [D, List.reverse_singleton, List.forall₂_cons, List.Forall₂.nil, and_true] at hq
       cases hq with
       | span h => exact h
-      | other h => simp [Rel.isSpan] at h
+      | other h => simp [RelOf.isSpan] at h
     simp only [mkAnd]
     have hc := meet_dual ha hb
     revert hc
@@ -437,7 +437,7 @@ theorem mkAnd_D {p p' q q' : List Rel} (hp : D p p') (hq : D q q') :
     refine .some ?_
     simp only [D, List.reverse_singleton]
     refine .cons (.other rfl rfl ?_) .nil
-    simp only [Rel.calls, List.append_eq_nil_iff, hp.calls, hq.calls]
+    simp only [RelOf.calls, List.append_eq_nil_iff, hp.calls, hq.calls]
 
 /-- Two lists of products correspond when each product of either has a
 corresponding product in the other. -/
@@ -550,7 +550,7 @@ theorem norm_corr : ∀ (neg : Bool) (e : Rel), Corr (norm neg e) (norm (!neg) e
   | neg, .call m => by
     simp only [norm, Corr, List.mem_singleton, forall_eq, exists_eq_left, D, List.reverse_singleton,
       and_self]
-    refine .cons (.other ?_ ?_ ?_) .nil <;> cases neg <;> simp [Rel.isSpan, Rel.calls]
+    refine .cons (.other ?_ ?_ ?_) .nil <;> cases neg <;> simp [RelOf.isSpan, RelOf.calls]
 
 /-! ## P1.4: weak duality -/
 

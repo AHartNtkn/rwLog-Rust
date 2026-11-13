@@ -349,7 +349,7 @@ theorem FE.derivs {m : Bool} {x y : Rel} (h : FE m x y) : DCorr m (R000.derivs x
 
 theorem FE.calls {m : Bool} {x y : Rel} (h : FE m x y) : x.calls = [] ↔ y.calls = [] := by
   cases h with
-  | span _ => simp [Rel.calls]
+  | span _ => simp [RelOf.calls]
   | other _ _ hc _ => exact hc
 
 theorem FE.isSpan {m : Bool} {x y : Rel} (h : FE m x y) : x.isSpan = y.isSpan := by
@@ -372,10 +372,10 @@ theorem FE.trans {m₁ m₂ : Bool} {x y z : Rel} (h₁ : FE m₁ x y) (h₂ : F
   | span e =>
     cases h₂ with
     | span e' => exact .span (e.trans e')
-    | other h => simp [Rel.isSpan] at h
+    | other h => simp [RelOf.isSpan] at h
   | other hx hy hc hd =>
     cases h₂ with
-    | span _ => simp [Rel.isSpan] at hy
+    | span _ => simp [RelOf.isSpan] at hy
     | other _ hz hc' hd' => exact .other hx hz (hc.trans hc') (hd.trans hd')
 
 theorem rv_rv (m : Bool) (p : List Rel) : rv m (rv m p) = p := by
@@ -625,11 +625,11 @@ theorem mkAnd_PD {m : Bool} {p p' q q' : List Rel} (hp : PD m p p') (hq : PD m q
     have ha : OC m a a' := by
       cases hp.single with
       | span h => exact h
-      | other h => simp [Rel.isSpan] at h
+      | other h => simp [RelOf.isSpan] at h
     have hb : OC m b b' := by
       cases hq.single with
       | span h => exact h
-      | other h => simp [Rel.isSpan] at h
+      | other h => simp [RelOf.isSpan] at h
     simp only [mkAnd]
     have hc := meet_corr ha hb
     revert hc
@@ -643,7 +643,7 @@ theorem mkAnd_PD {m : Bool} {p p' q q' : List Rel} (hp : PD m p p') (hq : PD m q
       rwa [← hp.isSingleSpan, ← hq.isSingleSpan]
     rw [mkAnd_other h, mkAnd_other h']
     refine .some (PD.of_single (.other rfl rfl ?_ ?_))
-    · simp only [Rel.calls, List.append_eq_nil_iff, hp.calls, hq.calls]
+    · simp only [RelOf.calls, List.append_eq_nil_iff, hp.calls, hq.calls]
     · rw [derivs_and, derivs_and]; exact mcmp_corr hp.derivs hq.derivs
 
 /-! ## Lists of products -/
@@ -778,7 +778,7 @@ def fuse : Rel → Rel → Option (List Rel)
   | x, y => some [x, y]
 
 theorem fuse_other {x y : Rel} (h : x.isSpan = false ∨ y.isSpan = false) : fuse x y = some [x, y] := by
-  cases x <;> cases y <;> simp_all [fuse, Rel.isSpan]
+  cases x <;> cases y <;> simp_all [fuse, RelOf.isSpan]
 
 theorem fuse_left {x : Rel} (h : x.isSpan = false) (y : Rel) : fuse x y = some [x, y] :=
   fuse_other (.inl h)
@@ -815,7 +815,7 @@ theorem compose_assoc_rel (a b c : Span) :
 theorem forall₂_fe_refl (p : List Rel) : List.Forall₂ (FE false) p p := PD.refl p
 
 theorem spanOr (x : Rel) : (∃ a, x = .span a) ∨ x.isSpan = false := by
-  cases x <;> simp [Rel.isSpan]
+  cases x <;> simp [RelOf.isSpan]
 
 theorem optRel_refl (o : Option (List Rel)) : Option.Rel (List.Forall₂ (FE false)) o o := by
   cases o
@@ -1019,7 +1019,7 @@ theorem Mk.assoc (a b c : Rel) : Mk false Q Q (.seq (.seq a b) c) (.seq a (.seq 
 
 /-- The products of an expression correspond to those of its mirror. -/
 theorem pcorr_dual : ∀ (neg : Bool) (e : Rel), PCorr true (norm neg e) (norm neg e.dual)
-  | _, .zero => ⟨fun p hp => by simp [norm] at hp, fun p hp => by simp [Rel.dual, norm] at hp⟩
+  | _, .zero => ⟨fun p hp => by simp [norm] at hp, fun p hp => by simp [RelOf.dual, norm] at hp⟩
   | neg, .span s => by
     have : OC true s s.swap := swap_geq s
     cases neg
@@ -1027,19 +1027,19 @@ theorem pcorr_dual : ∀ (neg : Bool) (e : Rel), PCorr true (norm neg e) (norm n
     · exact pcorr_single (.span this.swap)
   | neg, .or a b => (pcorr_dual neg a).append (pcorr_dual neg b)
   | neg, .and a b => by
-    simp only [Rel.dual, norm_and]
+    simp only [RelOf.dual, norm_and]
     exact andP_corr (pcorr_dual neg a) (pcorr_dual neg b)
   | false, .seq a b => by
-    simp only [Rel.dual, norm_seq]
+    simp only [RelOf.dual, norm_seq]
     exact seqP_corr (pcorr_dual false a) (pcorr_dual false b)
   | true, .seq a b => by
-    simp only [Rel.dual, norm_seq]
+    simp only [RelOf.dual, norm_seq]
     exact seqP_corr (pcorr_dual true b) (pcorr_dual true a)
   | neg, .conv a => pcorr_dual (!neg) a
   | neg, .call n => by
-    simp only [Rel.dual, norm]
+    simp only [RelOf.dual, norm]
     refine pcorr_single (.other ?_ ?_ Iff.rfl ⟨fun s hs => ?_, fun s hs => ?_⟩) <;>
-      cases neg <;> simp_all [Rel.isSpan, R000.derivs]
+      cases neg <;> simp_all [RelOf.isSpan, R000.derivs]
 
 theorem Mk.dual (X : Rel) : Mk true P P.dual X X.dual := by
   intro neg k
@@ -1140,12 +1140,12 @@ theorem Mk.goal {g h : Goal} (he : h.e = canon g.e.dual) (hl : boundEq (g.rb.map
       | none =>
         cases hlb with
         | some _ => simp [boundEq] at hl
-        | none => simpa [Goal.rel, Rel.dual] using hc
+        | none => simpa [Goal.rel, RelOf.dual] using hc
       | some r =>
         cases hlb with
         | none => simp [boundEq] at hl
         | some r' =>
-          simp only [Goal.rel, Rel.dual, Option.map_some] at hl ⊢
+          simp only [Goal.rel, RelOf.dual, Option.map_some] at hl ⊢
           exact Mk.seq (Mk.bound hl) hc
   | some l =>
     cases hrb with
@@ -1157,13 +1157,13 @@ theorem Mk.goal {g h : Goal} (he : h.e = canon g.e.dual) (hl : boundEq (g.rb.map
         cases hlb with
         | some _ => simp [boundEq] at hl
         | none =>
-          simp only [Goal.rel, Rel.dual]
+          simp only [Goal.rel, RelOf.dual]
           exact Mk.seq hc (Mk.bound hr)
       | some r =>
         cases hlb with
         | none => simp [boundEq] at hl
         | some r' =>
-          simp only [Goal.rel, Rel.dual, Option.map_some] at hl ⊢
+          simp only [Goal.rel, RelOf.dual, Option.map_some] at hl ⊢
           simpa [sqD] using (Mk.assoc _ _ _).trans (Mk.seq (Mk.bound hl) (Mk.seq hc (Mk.bound hr)))
 
 /-! ## The unfolding strategy of mirrored goals -/
@@ -1225,7 +1225,7 @@ theorem classEq_live {T : Theory} (hK : Obligation.SimplifyRespectsEquiv T) {xs 
     obtain ⟨x, hx, exy⟩ := (one e).2 _ (List.mem_map.2 ⟨y₀, hy₀, rfl⟩)
     exact ⟨x, List.mem_flatMap.2 ⟨b, hb, hx⟩, exy⟩
 
-theorem _root_.RwLog.Program.dual_theory (P : Program) : P.dual.theory = P.theory := rfl
+theorem _root_.RwLog.ProgramOf.dual_theory (P : Program) : P.dual.theory = P.theory := rfl
 
 /-- A goal and the corresponding goal of the mirrored run finish rung zero
 in the same round and give the same classes of answers, swapped. -/
@@ -1240,7 +1240,7 @@ theorem unfold_mirror (hK : Obligation.SimplifyRespectsEquiv P.theory) {g h : Go
   unfold unfoldAnswers
   rw [hf]
   split
-  · rw [Program.dual_theory]
+  · rw [ProgramOf.dual_theory]
     exact classEq_live hK (hm.roundSpans d)
   · exact ClassEq.refl _
 

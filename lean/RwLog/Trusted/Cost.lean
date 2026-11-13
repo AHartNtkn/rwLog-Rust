@@ -101,7 +101,7 @@ def Span.size (s : Span) : Nat := s.l.size + s.r.size + Store.size s.c
 
 /-- The size of an expression: its nodes, with each span counted by its
 size. -/
-def Rel.size : Rel → Nat
+def RelOf.size : Rel → Nat
   | .zero => 1
   | .span s => 1 + s.size
   | .or a b => 1 + a.size + b.size
@@ -118,7 +118,7 @@ def TRule.size (ρ : TRule) : Nat := Store.size ρ.heads + ρ.body.size
 
 def Theory.size (T : Theory) : Nat := (T.map TRule.size).sum
 
-def Program.size (P : Program) : Nat := (P.defs.map fun d => 1 + d.2.size).sum + P.theory.size
+def ProgramOf.size (P : Program) : Nat := (P.defs.map fun d => 1 + d.2.size).sum + P.theory.size
 
 /-! ## Charged primitives -/
 

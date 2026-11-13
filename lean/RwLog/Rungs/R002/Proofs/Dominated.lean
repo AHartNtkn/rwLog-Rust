@@ -102,13 +102,13 @@ theorem SB_mono {S S' : Nat} (h : S ≤ S') : ∀ e : Rel, SB S e → SB S' e
 theorem SB_size : ∀ e : Rel, SB e.size e
   | .zero => trivial
   | .span s => Nat.le_add_left _ _
-  | .or a b => ⟨SB_mono (by simp only [Rel.size]; omega) a (SB_size a),
-      SB_mono (by simp only [Rel.size]; omega) b (SB_size b)⟩
-  | .and a b => ⟨SB_mono (by simp only [Rel.size]; omega) a (SB_size a),
-      SB_mono (by simp only [Rel.size]; omega) b (SB_size b)⟩
-  | .seq a b => ⟨SB_mono (by simp only [Rel.size]; omega) a (SB_size a),
-      SB_mono (by simp only [Rel.size]; omega) b (SB_size b)⟩
-  | .conv a => SB_mono (by simp only [Rel.size]; omega) a (SB_size a)
+  | .or a b => ⟨SB_mono (by simp only [RelOf.size]; omega) a (SB_size a),
+      SB_mono (by simp only [RelOf.size]; omega) b (SB_size b)⟩
+  | .and a b => ⟨SB_mono (by simp only [RelOf.size]; omega) a (SB_size a),
+      SB_mono (by simp only [RelOf.size]; omega) b (SB_size b)⟩
+  | .seq a b => ⟨SB_mono (by simp only [RelOf.size]; omega) a (SB_size a),
+      SB_mono (by simp only [RelOf.size]; omega) b (SB_size b)⟩
+  | .conv a => SB_mono (by simp only [RelOf.size]; omega) a (SB_size a)
   | .call _ => trivial
 
 theorem lookup_size (n : Name) (b : Rel) : ∀ defs : List (Name × Rel), defs.lookup n = some b →
@@ -123,14 +123,12 @@ theorem lookup_size (n : Name) (b : Rel) : ∀ defs : List (Name × Rel), defs.l
       omega
 
 theorem SB_body (P : Program) (n : Name) : SB P.size (P.body n) := by
-  unfold Program.body
+  unfold ProgramOf.body
   cases h : P.defs.lookup n with
   | none => trivial
   | some b =>
     refine SB_mono ?_ b (SB_size b)
-    have := lookup_size n b P.defs h
-    unfold Program.size
-    omega
+    exact Nat.le_trans (lookup_size n b P.defs h) (Nat.le_add_right _ _)
 
 theorem SB_goal (g : R001.Goal) : SB (goalSize g) g.rel := by
   obtain ⟨lb, e, rb⟩ := g

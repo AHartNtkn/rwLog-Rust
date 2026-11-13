@@ -127,7 +127,7 @@ theorem key_direct {root : Goal} : ∀ (n : Nat) (g : Goal), sizeOf g.e ≤ n �
     generalize hbs : sortedBranches (orBranches (canon a) ++ orBranches (canon b)) = bs at *
     match bs, hbs with
     | [], _ =>
-      rw [show mkOr [] = Rel.zero from rfl, strip_nc _ (by simp)] at hd
+      rw [show mkOr [] = RelOf.zero from rfl, strip_nc _ (by simp)] at hd
       simp [directGoals] at hd
     | [c], _ =>
       obtain ⟨l, hl, rfl⟩ := hraw c (by simp)
@@ -138,7 +138,7 @@ theorem key_direct {root : Goal} : ∀ (n : Nat) (g : Goal), sizeOf g.e ≤ n �
         strip_nc _ (by simp)] at hd
       simp only [directGoals, orLeaves, List.mem_map] at hd
       obtain ⟨z, hz, rfl⟩ := hd
-      rw [show Rel.or c₁ (mkOr (c₂ :: rest)) = mkOr (c₁ :: c₂ :: rest) from rfl,
+      rw [show RelOf.or c₁ (mkOr (c₂ :: rest)) = mkOr (c₁ :: c₂ :: rest) from rfl,
         orBranches_mkOr_eq hno (by simp)] at hz
       obtain ⟨l, hl, rfl⟩ := hraw z hz
       exact ⟨⟨lb, l, rb⟩, hleaf l hl, (norm_canon _ _ _).symm⟩

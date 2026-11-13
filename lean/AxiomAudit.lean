@@ -223,8 +223,8 @@ new axiom.
 /-- info: 'RwLog.Theory.simplify_stable' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Theory.simplify_stable
 
-/-- info: 'RwLog.Program.sem_dual' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLog.Program.sem_dual
+/-- info: 'RwLog.ProgramOf.sem_dual' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.ProgramOf.sem_dual
 
 /-- info: 'RwLog.Runtime.finite_answers' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Runtime.finite_answers

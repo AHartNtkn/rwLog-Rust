@@ -79,7 +79,7 @@ theorem F_table {N p g e o : Nat} (hg : 1 ≤ g) (hp : p ≤ N) (ho : o ≤ 4 * 
   omega
 
 theorem goalSize_pos (g : Goal) : 1 ≤ goalSize g := by
-  have := Rel.size_pos g.e
+  have := RelOf.size_pos g.e
   unfold goalSize
   omega
 
@@ -149,7 +149,7 @@ theorem spent_le (N : Nat) : ∀ (n : Nat) (st : State), st.P.size ≤ N →
         unfold R001.step at h
         split at h
         · cases h
-        · simp only [Step.emit.injEq] at h
+        · simp only [StepOf.emit.injEq] at h
           rw [← h.2, round_P]
           exact hP
       rw [costed.spent_succ_emit ((costed_step_val st).trans h),

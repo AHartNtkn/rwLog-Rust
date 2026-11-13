@@ -233,7 +233,7 @@ theorem hasCert_or {lb rb : Option Span} {a b : Rel} (hg : GoodG ⟨lb, .or a b,
   match bs, hbs with
   | [], _ =>
     refine hasCert_of_deps hL hg (deps := []) (fun ts => ?_) (fun _ h => absurd h List.not_mem_nil)
-    rw [hnorm, show mkOr [] = Rel.zero from rfl, strip_nc _ (by simp)]
+    rw [hnorm, show mkOr [] = RelOf.zero from rfl, strip_nc _ (by simp)]
     simp [strategies.tableStrategies]
   | [c], _ =>
     obtain ⟨l, hl, rfl⟩ := hraw c (by simp)
@@ -244,7 +244,7 @@ theorem hasCert_or {lb rb : Option Span} {a b : Rel} (hg : GoodG ⟨lb, .or a b,
     · rw [hnorm, show mkOr (c₁ :: c₂ :: rest) = .or c₁ (mkOr (c₂ :: rest)) from rfl,
         strip_nc _ (by simp)]
       simp only [strategies.tableStrategies, List.mem_singleton, orLeaves]
-      rw [show Rel.or c₁ (mkOr (c₂ :: rest)) = mkOr (c₁ :: c₂ :: rest) from rfl,
+      rw [show RelOf.or c₁ (mkOr (c₂ :: rest)) = mkOr (c₁ :: c₂ :: rest) from rfl,
         orBranches_mkOr_eq hno (by simp)]
     · obtain ⟨z, hz, rfl⟩ := List.mem_map.1 hd
       obtain ⟨l, hl, rfl⟩ := hraw z hz

@@ -229,7 +229,7 @@ def walk (P : Program) : (d : Nat) → Bool → (e : Rel) → List Span → List
   | _, _, .zero, _, _, _, acc => do tick 1; pure (false, acc)
   | _, neg, .span s, L, R, k, acc => do
     tick 1
-    let p := [Rel.span (if neg then s.swap else s)]
+    let p := [RelOf.span (if neg then s.swap else s)]
     let a ← alive L p R
     if a then k p acc else pure (false, acc)
   | d, neg, .or a b, L, R, k, acc => do

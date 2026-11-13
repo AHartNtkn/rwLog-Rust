@@ -89,12 +89,12 @@ theorem derivesN_zero_of_callFree {n e s} (h : DerivesN P n e s) (hc : e.calls =
     DerivesN P 0 e s := by
   induction h with
   | span _ s => exact .span 0 s
-  | orl _ ih => simp [Rel.calls] at hc; exact .orl (ih hc.1)
-  | orr _ ih => simp [Rel.calls] at hc; exact .orr (ih hc.2)
-  | seq _ _ hcs ih₁ ih₂ => simp [Rel.calls] at hc; exact .seq (ih₁ hc.1) (ih₂ hc.2) hcs
-  | and _ _ hcs ih₁ ih₂ => simp [Rel.calls] at hc; exact .and (ih₁ hc.1) (ih₂ hc.2) hcs
-  | conv _ ih => simp [Rel.calls] at hc; exact .conv (ih hc)
-  | call _ _ => simp [Rel.calls] at hc
+  | orl _ ih => simp [RelOf.calls] at hc; exact .orl (ih hc.1)
+  | orr _ ih => simp [RelOf.calls] at hc; exact .orr (ih hc.2)
+  | seq _ _ hcs ih₁ ih₂ => simp [RelOf.calls] at hc; exact .seq (ih₁ hc.1) (ih₂ hc.2) hcs
+  | and _ _ hcs ih₁ ih₂ => simp [RelOf.calls] at hc; exact .and (ih₁ hc.1) (ih₂ hc.2) hcs
+  | conv _ ih => simp [RelOf.calls] at hc; exact .conv (ih hc)
+  | call _ _ => simp [RelOf.calls] at hc
 
 /-! ## Joining chains -/
 

@@ -519,7 +519,7 @@ theorem compose_of_AL {L : List Span} {p q' : List Rel} {a b : Span}
       rw [leftAfter_other, lastSpan_of_getLast? hl]
       · rfl
       · rintro a' rfl
-        simp only [List.getLast?_singleton, Option.some.injEq, Rel.span.injEq] at hl
+        simp only [List.getLast?_singleton, Option.some.injEq, RelOf.span.injEq] at hl
         exact hp (by rw [hl])
   obtain ⟨L', hL'⟩ := hLa
   have := h (by rw [hL']; simp) b rfl
@@ -544,8 +544,8 @@ theorem join_last_cases {p q r : List Rel} (h : R000.joinSeq p q = some r) (hp :
     | cons y q'' =>
       refine .inr ⟨?_, by simp only [List.length_append, List.length_cons]; omega⟩
       rw [lastSpan_append (List.cons_ne_nil _ _)]
-      exact (lastSpan_append (p := [Rel.span c]) (List.cons_ne_nil y q'')).trans
-        (lastSpan_append (p := [Rel.span b]) (List.cons_ne_nil y q'')).symm
+      exact (lastSpan_append (p := [RelOf.span c]) (List.cons_ne_nil y q'')).trans
+        (lastSpan_append (p := [RelOf.span b]) (List.cons_ne_nil y q'')).symm
   · refine .inr ⟨lastSpan_append hq, ?_⟩
     have := List.length_pos_of_ne_nil hp
     have := List.length_pos_of_ne_nil hq

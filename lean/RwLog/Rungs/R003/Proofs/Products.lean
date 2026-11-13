@@ -94,7 +94,7 @@ theorem single_join {p q r : List Rel} {z : Span} (h : R000.joinSeq p q = some r
   · match p, hp, hl with
     | [x], _, hl =>
       obtain rfl : x = .span a := by simpa using hl
-      simp only [List.dropLast_singleton, List.nil_append, List.cons.injEq, Rel.span.injEq] at hr
+      simp only [List.dropLast_singleton, List.nil_append, List.cons.injEq, RelOf.span.injEq] at hr
       obtain ⟨rfl, rfl⟩ := hr
       exact ⟨a, b, rfl, rfl, hc⟩
     | x :: y :: p', _, _ => simp at hr
@@ -138,8 +138,8 @@ theorem closed_seq (Na Nb : List (List Rel)) (ha : ∀ p ∈ Na, p ≠ []) (hb :
 theorem lastSpan_fused {l : List Rel} (b c : Span) {q' : List Rel} (hq' : q' ≠ []) :
     lastSpan (l ++ .span c :: q') = lastSpan (.span b :: q') := by
   rw [R002.lastSpan_append (List.cons_ne_nil _ _)]
-  exact (R002.lastSpan_append (p := [Rel.span c]) hq').trans
-    (R002.lastSpan_append (p := [Rel.span b]) hq').symm
+  exact (R002.lastSpan_append (p := [RelOf.span c]) hq').trans
+    (R002.lastSpan_append (p := [RelOf.span b]) hq').symm
 
 /-- Joining a single span with a product that is not one. -/
 theorem join_closed_open {x : Span} {q : List Rel} (hq : q ≠ []) (hsq : single q = none)
@@ -212,7 +212,7 @@ theorem join_open {p q : List Rel} (hp : p ≠ []) (hq : q ≠ []) (hsp : single
       rw [hj] at hr
       obtain ⟨c, hc, rfl⟩ := Option.map_eq_some_iff.mp hr
       rw [single_eq_some] at hqs
-      simp only [List.cons.injEq, Rel.span.injEq] at hqs
+      simp only [List.cons.injEq, RelOf.span.injEq] at hqs
       obtain ⟨rfl, rfl⟩ := hqs
       rw [R002.lastSpan_append (List.cons_ne_nil _ _), hl]
       exact img_compose hc Set.univ

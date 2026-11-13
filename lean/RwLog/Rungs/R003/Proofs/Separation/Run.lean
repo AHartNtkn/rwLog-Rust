@@ -151,15 +151,15 @@ theorem sem_target (M : Interp) {x : GTerm × GTerm} (hx : x ∈ sepTarget) :
 /-! ## The size of the input -/
 
 theorem size_sepRel : ∀ k, (sepRel k).size = 8 * k + 7
-  | 0 => by simp [sepRel, twoWays, Rel.size, Rel.at_, Rel.rw, Span.size, Term.size, Store.size]
+  | 0 => by simp [sepRel, twoWays, RelOf.size, RelOf.at_, RelOf.rw, Span.size, Term.size, Store.size]
   | k + 1 => by
     have ih := size_sepRel k
     have h0 := size_sepRel 0
-    simp only [sepRel, Rel.size] at ih h0 ⊢
+    simp only [sepRel, RelOf.size] at ih h0 ⊢
     omega
 
 theorem size_le (k : Nat) : (sepFam k).1.size + (sepFam k).2.size ≤ 8 * k + 7 := by
-  have e : (sepFam k).1.size = 0 := by simp [sepFam, Program.size, Theory.size]
+  have e : (sepFam k).1.size = 0 := by simp [sepFam, ProgramOf.size, Theory.size]
   have := size_sepRel k
   simp only [sepFam] at e ⊢
   omega

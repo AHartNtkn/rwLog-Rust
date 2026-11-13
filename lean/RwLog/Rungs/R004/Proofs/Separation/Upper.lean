@@ -67,8 +67,8 @@ theorem pruned_g0 (k : Nat) : pruned P0 0 (g0 k) = ⟨(true, [aa]), k + 37⟩ :=
         ⟨(false, [(.inl .leaf, [.span aa])]), 6⟩ := by
       rw [walkR]
       refine Cost.ext ?_ ?_
-      · simp [fits, collect, R002.Eager.norm, toRel, Rel.calls]
-      · simp [fits, collect, R002.Eager.norm, toRel, Rel.calls, size_aa]
+      · simp [fits, collect, R002.Eager.norm, toRel, RelOf.calls]
+      · simp [fits, collect, R002.Eager.norm, toRel, RelOf.calls, size_aa]
     have h2 : ∀ acc : List Found, walkR P0 0 false (dead k) []
         (fun y acc => collect ⟨.inr y.key, y.pe⟩ acc) acc = ⟨(false, acc), k + 27⟩ := by
       intro acc
@@ -121,7 +121,7 @@ theorem norm_gD (k : Nat) : (gD k).norm = (false, gD k) := by
   cases h
 
 theorem goalSize_g0 (k : Nat) : goalSize (g0 k) = 12 * k + 19 := by simp [goalSize, size_sepRel]
-theorem goalSize_gA : goalSize gA = 3 := by simp [goalSize, Rel.size, size_aa]
+theorem goalSize_gA : goalSize gA = 3 := by simp [goalSize, RelOf.size, size_aa]
 theorem goalSize_gD (k : Nat) : goalSize (gD k) = 12 * k + 15 := by simp [goalSize, size_dead]
 
 theorem same_g0_gA (k : Nat) : (g0 k).same gA = false := by simp [Goal.same, sepRel_eq]

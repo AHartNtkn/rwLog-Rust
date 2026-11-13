@@ -56,7 +56,7 @@ theorem walk_w (k : Nat) : ∀ (d : Nat) (acc : List (List Rel)),
     walk (prog k) d false (.call "w") [] [] topK acc = ⟨(true, acc), 2 * d + 1⟩
   | 0, acc => by
     rw [walk]
-    refine Cost.ext ?_ ?_ <;> simp [topK, toRel, Rel.calls]
+    refine Cost.ext ?_ ?_ <;> simp [topK, toRel, RelOf.calls]
   | d + 1, acc => by
     rw [walk, body_w, walk]
     refine Cost.ext ?_ ?_
@@ -80,11 +80,11 @@ theorem live_zz : Costs (Tabled.live [] zz) [zz] 3 := by
 /-! ## The race on each goal -/
 
 theorem topK_call (n : Name) (acc : List (List Rel)) : topK [.call n] acc = pure (true, acc) := by
-  simp [topK, toRel, Rel.calls]
+  simp [topK, toRel, RelOf.calls]
 
 theorem topK_span (s : Span) (acc : List (List Rel)) :
     topK [.span s] acc = pure (false, acc ++ [[.span s]]) := by
-  simp [topK, toRel, Rel.calls]
+  simp [topK, toRel, RelOf.calls]
 
 theorem onDemand_def (P : Program) (d : Nat) (g : Goal) :
     onDemand P d g = (walk P d false g.rel [] [] topK [] >>= fun r =>

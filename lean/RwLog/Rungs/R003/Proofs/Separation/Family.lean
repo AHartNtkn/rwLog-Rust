@@ -123,7 +123,7 @@ def cRel : Nat → Rel
   | j + 1 => .seq tw (cRel j)
 
 theorem canon_twoWays : canon twoWays = tw := by
-  simp [twoWays, Rel.at_, Rel.rw, canon, orBranches, sortedBranches, relCmp, spanCmp, patCmp,
+  simp [twoWays, RelOf.at_, RelOf.rw, canon, orBranches, sortedBranches, relCmp, spanCmp, patCmp,
     List.eraseDups_cons, mkOr]
 
 theorem canon_tw : canon tw = tw := by
@@ -137,11 +137,11 @@ theorem canon_cRel : ∀ k, canon (cRel k) = cRel k
   | 0 => canon_tw
   | k + 1 => by rw [cRel, canon, canon_tw, canon_cRel k]
 
-theorem size_tw : tw.size = 7 := by simp [Rel.size, Span.size, Store.size, Term.size]
+theorem size_tw : tw.size = 7 := by simp [RelOf.size, Span.size, Store.size, Term.size]
 
 theorem size_cRel : ∀ j, (cRel j).size = 8 * j + 7
   | 0 => size_tw
-  | j + 1 => by rw [cRel, Rel.size, size_tw, size_cRel j]; omega
+  | j + 1 => by rw [cRel, RelOf.size, size_tw, size_cRel j]; omega
 
 theorem cRel_zero_ne_succ (j : Nat) : cRel 0 ≠ cRel (j + 1) := by simp [cRel]
 
@@ -150,10 +150,10 @@ abbrev gC (j : Nat) : Goal := ⟨none, cRel j, none⟩
 abbrev gS (s : Span) : Goal := ⟨none, .span s, none⟩
 
 theorem calls_sepRel : ∀ k, (sepRel k).calls = []
-  | 0 => by simp [sepRel, twoWays, Rel.calls, Rel.at_, Rel.rw]
+  | 0 => by simp [sepRel, twoWays, RelOf.calls, RelOf.at_, RelOf.rw]
   | k + 1 => by
-    rw [sepRel, Rel.calls, calls_sepRel k]
-    simp [twoWays, Rel.calls, Rel.at_, Rel.rw]
+    rw [sepRel, RelOf.calls, calls_sepRel k]
+    simp [twoWays, RelOf.calls, RelOf.at_, RelOf.rw]
 
 theorem wellFormed (k : Nat) : (sepFam k).1.WellFormed (sepFam k).2 := by
   refine ⟨by simp [sepFam], ?_, by simp [sepFam]⟩

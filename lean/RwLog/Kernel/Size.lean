@@ -19,7 +19,7 @@ theorem Span.size_swap (s : Span) : s.swap.size = s.size := by
   simp only [Span.size, Span.swap]
   omega
 
-theorem Rel.size_pos (e : Rel) : 1 ≤ e.size := by
-  cases e <;> simp only [Rel.size] <;> omega
+theorem RelOf.size_pos (e : Rel) : 1 ≤ e.size := by
+  cases e <;> simp only [RelOf.size] <;> omega
 
 end RwLog

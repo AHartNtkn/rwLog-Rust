@@ -68,7 +68,7 @@ theorem HonestExhaustion.of_cover (hs : R.Sound)
   intro P q hP n hh M hM
   apply Set.Subset.antisymm
   · intro p hp
-    rw [Program.semAt_eq] at hp
+    rw [ProgramOf.semAt_eq] at hp
     obtain ⟨S, hS, hSM⟩ := hp
     rw [sem_eq_derivable, mem_derivable] at hS
     obtain ⟨s, hs', hx⟩ := hS

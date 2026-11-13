@@ -34,7 +34,7 @@ theorem IsKey.KD_KD {G : Goal} (h : IsKey G) : KD (KD G) = G := by
   have hc := h.canonical.1
   simp only at hc
   simp only [KD, Option.map_map, Function.comp_def, Span.swap_swap, Option.map_id']
-  rw [← canon_dual e.dual, Rel.dual_dual, hc]
+  rw [← canon_dual e.dual, RelOf.dual_dual, hc]
 
 theorem KD_same {G G' : Goal} (h : G.same G' = true) : (KD G).same (KD G') = true := by
   rw [Goal.same_iff] at h ⊢

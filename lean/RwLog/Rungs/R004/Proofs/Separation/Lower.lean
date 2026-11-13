@@ -38,7 +38,7 @@ def Cont (K : List Rel → List (List Rel) → Cost Walk) : Prop :=
 theorem cont_top : Cont (fun p acc =>
     pure (if (toRel p).calls.isEmpty then (false, acc ++ [p]) else (true, acc))) := by
   intro s acc
-  simp [toRel, Rel.calls]
+  simp [toRel, RelOf.calls]
 
 /-- The continuation of the first factor of a sequence: join, and hand on. -/
 theorem cont_join {K : List Rel → List (List Rel) → Cost Walk} (hK : Cont K) (a : Span)
@@ -51,14 +51,14 @@ theorem cont_join {K : List Rel → List (List Rel) → Cost Walk} (hK : Cont K)
         let x ← aliveR r R
         if x then K r acc else pure (false, acc)) := by
   intro b acc
-  have hj : (R002.joinSeq [.span a] [.span b]).val = (a.compose b).map fun c => [Rel.span c] := by
+  have hj : (R002.joinSeq [.span a] [.span b]).val = (a.compose b).map fun c => [RelOf.span c] := by
     simp [R002.joinSeq, Charged.compose]
   simp only [bind_val, hj]
   cases a.compose b with
   | none => rfl
   | some c =>
     simp only [Option.map_some, bind_val]
-    by_cases h : (aliveR [Rel.span c] R).val = true
+    by_cases h : (aliveR [RelOf.span c] R).val = true
     · simp [h, hK c acc]
     · simp [h]
 
@@ -70,7 +70,7 @@ theorem walk_span_any (s : Span) (L R : List Span)
   rw [walk]
   simp only [Bool.false_eq_true, ↓reduceIte, bind_val, bind_ticks, tick_ticks]
   refine ⟨?_, by omega⟩
-  by_cases h : (R002.alive L [Rel.span s] R).val = true
+  by_cases h : (R002.alive L [RelOf.span s] R).val = true
   · simp [h, hK s acc]
   · simp [h]
 
@@ -79,7 +79,7 @@ theorem walk_wrap {s : Span} (hs : Wrap s) {L : List Span} (hL : ∀ t ∈ L, Wr
     (K : List Rel → List (List Rel) → Cost Walk) (acc : List (List Rel)) :
     (walk P0 0 false (.span s) L [] K acc).val.1 = (K [.span s] acc).val.1 ∧
       (K [.span s] acc).ticks ≤ (walk P0 0 false (.span s) L [] K acc).ticks := by
-  have ha : (R002.alive L [Rel.span s] []).val = true := by
+  have ha : (R002.alive L [RelOf.span s] []).val = true := by
     cases L with
     | nil => simp [R002.alive, aliveL, aliveR]
     | cons a L =>
@@ -201,7 +201,7 @@ theorem onDemand_ge (k : Nat) : 2 ^ (k + 1) ≤ (onDemand P0 0 (g0 k)).ticks := 
 /-! ## The shared evaluation -/
 
 open R003 in
-theorem closed_map (S : List Span) : closed (S.map fun s => [Rel.span s]) = S := by
+theorem closed_map (S : List Span) : closed (S.map fun s => [RelOf.span s]) = S := by
   induction S with
   | nil => rfl
   | cons s S ih => simp only [closed, List.map_cons, List.filterMap_cons, single_span] at ih ⊢; rw [ih]

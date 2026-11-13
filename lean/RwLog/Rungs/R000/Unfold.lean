@@ -67,11 +67,11 @@ theorem unfoldN_call (k : Nat) (n : Name) :
 theorem unfold_dual : ∀ e : Rel, unfold P.dual e.dual = (unfold P e).dual
   | .zero => rfl
   | .span _ => rfl
-  | .or a b => by simp only [Rel.dual, unfold, unfold_dual a, unfold_dual b]
-  | .and a b => by simp only [Rel.dual, unfold, unfold_dual a, unfold_dual b]
-  | .seq a b => by simp only [Rel.dual, unfold, unfold_dual a, unfold_dual b]
-  | .conv a => by simp only [Rel.dual, unfold, unfold_dual a]
-  | .call n => by simp only [Rel.dual, unfold, Program.dual_body]
+  | .or a b => by simp only [RelOf.dual, unfold, unfold_dual a, unfold_dual b]
+  | .and a b => by simp only [RelOf.dual, unfold, unfold_dual a, unfold_dual b]
+  | .seq a b => by simp only [RelOf.dual, unfold, unfold_dual a, unfold_dual b]
+  | .conv a => by simp only [RelOf.dual, unfold, unfold_dual a]
+  | .call n => by simp only [RelOf.dual, unfold, ProgramOf.dual_body]
 
 theorem unfoldN_dual (k : Nat) (e : Rel) : unfoldN P.dual k e.dual = (unfoldN P k e).dual := by
   induction k with

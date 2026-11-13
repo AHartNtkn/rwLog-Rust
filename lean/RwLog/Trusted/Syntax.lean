@@ -189,65 +189,77 @@ def swap (s : Span) : Span := ⟨s.r, s.l, s.c⟩
 
 end Span
 
-/-! ## Relations -/
+/-! ## Relations
 
-inductive Rel where
+The syntax of expressions does not depend on what a span is, so it is given
+for any type of spans. The language is the instance at `Span`; an engine is
+written for an arbitrary type of spans, which it can only handle through the
+operations of the kernel (`Trusted/Kernel.lean`). -/
+
+inductive RelOf (S : Type) where
   | zero
-  | span (s : Span)
-  | or (a b : Rel)
-  | and (a b : Rel)
-  | seq (a b : Rel)
-  | conv (a : Rel)
+  | span (s : S)
+  | or (a b : RelOf S)
+  | and (a b : RelOf S)
+  | seq (a b : RelOf S)
+  | conv (a : RelOf S)
   | call (n : Name)
   deriving DecidableEq, Repr
 
-namespace Rel
+/-- The expressions of the language. -/
+abbrev Rel := RelOf Span
+
+/-- Names called by an expression. -/
+def RelOf.calls {S : Type} : RelOf S → List Name
+  | .zero => []
+  | .span _ => []
+  | .or a b => calls a ++ calls b
+  | .and a b => calls a ++ calls b
+  | .seq a b => calls a ++ calls b
+  | .conv a => calls a
+  | .call n => [n]
+
+namespace RelOf
 
 /-- The span `l {c} -> r`. -/
-def rw (l r : Pat) (c : Store := []) : Rel := span ⟨l, r, c⟩
+def rw (l r : Pat) (c : Store := []) : Rel := .span ⟨l, r, c⟩
 
 /-- `@t`, the identity at `t`. -/
 def at_ (t : Pat) : Rel := rw t t
-
-/-- Names called by an expression. -/
-def calls : Rel → List Name
-  | zero => []
-  | span _ => []
-  | or a b => calls a ++ calls b
-  | and a b => calls a ++ calls b
-  | seq a b => calls a ++ calls b
-  | conv a => calls a
-  | call n => [n]
 
 def CallFree (e : Rel) : Prop := e.calls = []
 
 /-- The mirror image of an expression: every span is swapped and every
 sequence is reversed. It denotes the converse (`denote_dual`), with calls
-read in the mirrored program `Program.dual`. -/
+read in the mirrored program `ProgramOf.dual`. -/
 def dual : Rel → Rel
-  | zero => zero
-  | span s => span s.swap
-  | or a b => or a.dual b.dual
-  | and a b => and a.dual b.dual
-  | seq a b => seq b.dual a.dual
-  | conv a => conv a.dual
-  | call n => call n
+  | .zero => .zero
+  | .span s => .span s.swap
+  | .or a b => .or a.dual b.dual
+  | .and a b => .and a.dual b.dual
+  | .seq a b => .seq b.dual a.dual
+  | .conv a => .conv a.dual
+  | .call n => .call n
 
 instance (e : Rel) : Decidable e.CallFree := inferInstanceAs (Decidable (_ = _))
 
-end Rel
+end RelOf
 
 /-! ## Programs -/
 
-structure Program where
-  defs : List (Name × Rel)
+structure ProgramOf (S : Type) where
+  defs : List (Name × RelOf S)
   theory : Theory
 
-namespace Program
+/-- The programs of the language. -/
+abbrev Program := ProgramOf Span
 
 /-- The body of a definition. Well-formed programs never call an undefined
 name, so the default is never observed by them. -/
-def body (P : Program) (n : Name) : Rel := ((P.defs.lookup n)).getD .zero
+def ProgramOf.body {S : Type} (P : ProgramOf S) (n : Name) : RelOf S :=
+  ((P.defs.lookup n)).getD .zero
+
+namespace ProgramOf
 
 /-- A program is well formed when its names are distinct, every called
 name, in a body or in the query, is defined, and every rule of its theory is
@@ -265,6 +277,6 @@ unchanged. -/
 def dual (P : Program) : Program :=
   { P with defs := P.defs.map fun d => (d.1, d.2.dual) }
 
-end Program
+end ProgramOf
 
 end RwLog

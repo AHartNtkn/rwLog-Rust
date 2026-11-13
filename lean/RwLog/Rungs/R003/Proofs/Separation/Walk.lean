@@ -160,7 +160,7 @@ theorem walk_cRel (d : Nat) : ∀ (j : Nat) {L : List Span}, (∀ t ∈ L, Good 
 theorem cont_top : Cont (fun p acc =>
     pure (if (toRel p).calls.isEmpty then (false, acc ++ [p]) else (true, acc))) 1 0 := by
   intro s _ acc hacc
-  simp only [toRel, Rel.calls, List.isEmpty_nil, ↓reduceIte, pure_val, pure_ticks,
+  simp only [toRel, RelOf.calls, List.isEmpty_nil, ↓reduceIte, pure_val, pure_ticks,
     List.length_append, List.length_singleton, le_refl, and_true, true_and]
   intro p hp
   rcases List.mem_append.1 hp with h | h

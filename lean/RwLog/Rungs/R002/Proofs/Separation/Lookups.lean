@@ -43,13 +43,13 @@ theorem findIdx?_beq {α : Type} [DecidableEq α] (a : α) (l : List α) :
 /-! ## Sizes -/
 
 theorem goalSize_goal (k : Nat) (s : Slot) : goalSize (goal k s) ≤ 3 := by
-  cases s <;> simp [goal, goalSize, Rel.size, Span.size, Store.size, Term.size]
+  cases s <;> simp [goal, goalSize, RelOf.size, Span.size, Store.size, Term.size]
 
 /-- The goal the table of `w` asks for: the body of `w`. -/
 abbrev wBody : Goal := ⟨none, .or (.call "w") (.call "w"), none⟩
 
 theorem goalSize_wBody : goalSize wBody ≤ 3 := by
-  simp [goalSize, Rel.size]
+  simp [goalSize, RelOf.size]
 
 theorem goal_open (k : Nat) (s : Slot) : (goal k s).lb = none ∧ (goal k s).rb = none := by
   cases s <;> exact ⟨rfl, rfl⟩

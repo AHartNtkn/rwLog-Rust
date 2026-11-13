@@ -76,18 +76,18 @@ theorem denote_mono {ρ ρ' : Name → GRel} (h : ρ ≤ ρ') :
   | .call n => h n
 
 /-- One unfolding of every definition of the program. -/
-def Program.step (P : Program) : (Name → GRel) →o (Name → GRel) where
+def ProgramOf.step (P : Program) : (Name → GRel) →o (Name → GRel) where
   toFun ρ n := denote ρ (P.body n)
   monotone' _ _ h n := denote_mono h (P.body n)
 
 /-- The meaning of every name: the least fixpoint. -/
-def Program.meaning (P : Program) : Name → GRel := OrderHom.lfp P.step
+def ProgramOf.meaning (P : Program) : Name → GRel := OrderHom.lfp P.step
 
 /-- The meaning (as triples) of an expression in a program. -/
-def Program.sem (P : Program) (e : Rel) : GRel := denote P.meaning e
+def ProgramOf.sem (P : Program) (e : Rel) : GRel := denote P.meaning e
 
 
-theorem Program.meaning_eq (P : Program) (n : Name) :
+theorem ProgramOf.meaning_eq (P : Program) (n : Name) :
     P.meaning n = denote P.meaning (P.body n) := by
   have := OrderHom.map_lfp P.step
   exact (congrFun this n).symm

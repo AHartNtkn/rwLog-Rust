@@ -214,10 +214,10 @@ theorem baseline_late (k : Nat) {n : Nat} {a : Span}
 theorem sem_chain (k : Nat) (M : Interp) : ∀ j, j ≤ k →
     ((.sym "z", .sym "z") : GTerm × GTerm) ∈ (prog k).meaningAt M (chainName j)
   | 0, _ => by
-    rw [Program.meaningAt_eq, body_zero]
+    rw [ProgramOf.meaningAt_eq, body_zero]
     exact ⟨fun _ => .sym "z", rfl, rfl, by simp⟩
   | j + 1, h => by
-    rw [Program.meaningAt_eq, body_succ (by omega)]
+    rw [ProgramOf.meaningAt_eq, body_succ (by omega)]
     exact sem_chain k M j (by omega)
 
 theorem sem_target (k : Nat) (M : Interp) {x : GTerm × GTerm} (hx : x ∈ sepTarget) :
@@ -229,15 +229,15 @@ theorem sem_target (k : Nat) (M : Interp) {x : GTerm × GTerm} (hx : x ∈ sepTa
 
 theorem size_le (k : Nat) : (sepFam k).1.size + (sepFam k).2.size ≤ 2 * k + 11 := by
   have h : ∀ n : Nat, ((List.range n).map fun i =>
-      1 + (Rel.call (chainName i)).size).sum = 2 * n := by
+      1 + (RelOf.call (chainName i)).size).sum = 2 * n := by
     intro n
     induction n with
     | zero => rfl
-    | succ n ih => rw [List.range_succ, List.map_append, List.sum_append, ih]; simp [Rel.size]; omega
+    | succ n ih => rw [List.range_succ, List.map_append, List.sum_append, ih]; simp [RelOf.size]; omega
   have e : (sepFam k).1.size + (sepFam k).2.size = 2 * k + 11 := by
-    simp only [sepFam, Program.size, sepDefs, List.map_append, List.map_map, List.sum_append,
+    simp only [sepFam, ProgramOf.size, sepDefs, List.map_append, List.map_map, List.sum_append,
       Function.comp_def, h k]
-    simp [Rel.size, Rel.at_, Rel.rw, Span.size, Term.size, Store.size, Theory.size]
+    simp [RelOf.size, RelOf.at_, RelOf.rw, Span.size, Term.size, Store.size, Theory.size]
     omega
   exact e.le
 

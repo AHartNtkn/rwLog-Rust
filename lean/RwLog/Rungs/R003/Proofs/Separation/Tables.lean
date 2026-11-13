@@ -36,7 +36,7 @@ def keyBound (k : Nat) : Nat := 8 * k + 7
 theorem goalSize_gC (j : Nat) : goalSize (gC j) = 8 * j + 7 := by simp [goalSize, size_cRel]
 
 theorem goalSize_gS {s : Span} (hs : Good s) : goalSize (gS s) = 3 := by
-  simp [goalSize, Rel.size, size_good hs]
+  simp [goalSize, RelOf.size, size_good hs]
 
 theorem goalSize_sub {k : Nat} {g : Goal} (h : Sub k g) : goalSize g ≤ keyBound k := by
   unfold keyBound
@@ -67,15 +67,15 @@ theorem norm_sub {k : Nat} {g : Goal} (h : Sub k g) : g.norm = (false, g) := by
   · exact norm_gS _
 
 theorem cRel_inj {j k : Nat} (h : cRel j = cRel k) : j = k := by
-  have := congrArg Rel.size h
+  have := congrArg RelOf.size h
   rw [size_cRel, size_cRel] at this
   omega
 
 theorem cRel_ne_span (k : Nat) {s : Span} (hs : Good s) : cRel k ≠ .span s := by
   intro h
-  have := congrArg Rel.size h
+  have := congrArg RelOf.size h
   rw [size_cRel] at this
-  simp [Rel.size, size_good hs] at this
+  simp [RelOf.size, size_good hs] at this
 
 /-- No goal that is asked for has the root's table. -/
 theorem same_root_sub {k : Nat} {g : Goal} (h : Sub k g) : (gC k).same g = false := by
