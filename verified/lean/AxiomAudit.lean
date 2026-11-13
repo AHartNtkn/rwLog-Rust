@@ -8,17 +8,8 @@ Every headline theorem must depend only on Lean's three standard axioms.
 new axiom.
 -/
 
-/-- info: 'RwLogVerified.term_eq_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLogVerified.term_eq_spec
-
-/-- info: 'RwLogVerified.match_into_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLogVerified.match_into_spec
-
-/-- info: 'RwLogVerified.match_into_empty_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLogVerified.match_into_empty_spec
-
-/-- info: 'RwLogVerified.instantiate_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLogVerified.instantiate_spec
+/-- info: 'RwLogVerified.new_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.new_spec
 
 /-- info: 'RwLogVerified.alloc_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLogVerified.alloc_spec
@@ -29,8 +20,17 @@ new axiom.
 /-- info: 'RwLogVerified.same_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLogVerified.same_spec
 
-/-- info: 'RwLogVerified.word_eq_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLogVerified.word_eq_spec
+/-- info: 'RwLogVerified.get_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.get_spec
 
-/-- info: 'RwLogVerified.lookup_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLogVerified.lookup_spec
+/-- info: 'RwLogVerified.set_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.set_spec
+
+/-- info: 'RwLogVerified.get_flag_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.get_flag_spec
+
+/-- info: 'RwLogVerified.set_flag_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.set_flag_spec
+
+/-- info: 'RwLogVerified.clear_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.clear_spec

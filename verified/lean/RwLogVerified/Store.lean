@@ -1,3 +1,19 @@
+/-
+# The Rust store, as translated by Aeneas: what each primitive does and costs
+
+`verified/rust/src/store.rs` is the base machine. This file proves, for the
+Lean that Aeneas generates from it, that every public operation keeps the
+invariant of the store (`Inv`), does what its comment says, and advances the
+tick counter by exactly one.
+
+* `Shape`: nodes refer to earlier nodes, no node occurs twice, and the trie
+  finds exactly the nodes there are. `intern_spec`: asking for a node returns
+  the one identifier of that node, adding it if it is new.
+* `tbl s t k`: what table `t` holds for `k`. `get`, `set`, `get_flag`,
+  `set_flag` and `clear` read and write this function and nothing else.
+* `Room s n`: there is room for `n` more ticks. The sizes of the store are
+  bounded by the ticks spent, so this one hypothesis rules out every overflow.
+-/
 import Aeneas
 import RwlogCore.Funs
 import RwLogVerified.Digits
@@ -544,5 +560,487 @@ theorem intern_spec (s : store.Store) (n : store.Node) (hS : Shape s) (hn : ArgO
       show (index_mut_back { kids := t1.kids, val := i }).val.length ≤ _
       have := hG.len
       omega
+
+/-! ## Tables, the invariant, and the primitives -/
+
+/-- What table `t` holds for `k`. -/
+def tbl (s : store.Store) (t : store.Tbl) (k : Nat) : Option Nat :=
+  match s.slots.val[k]? with
+  | none => none
+  | some sl =>
+    match t with
+    | .A => if sl.ea = s.ea then some sl.va.val else none
+    | .B => if sl.eb = s.eb then some sl.vb.val else none
+
+/-- The invariant of a store: its shape, the variable `0` at position `0`,
+and sizes bounded by the ticks spent. -/
+structure Inv (s : store.Store) : Prop where
+  shape : Shape s
+  root : s.nodes.val[0]? = some .V0
+  nodes_le : s.nodes.val.length ≤ s.ticks.val + 1
+  trie_le : s.trie.val.length ≤ 40 * (s.ticks.val + 1) + 1
+  ea_le : s.ea.val ≤ s.ticks.val + 1
+  eb_le : s.eb.val ≤ s.ticks.val + 1
+
+/-- There is room for `n` more ticks: no counter and no index can overflow
+within them. -/
+def Room (s : store.Store) (n : Nat) : Prop := 40 * (s.ticks.val + n) + 100 ≤ Usize.max
+
+theorem usize_le_u64 : Usize.max ≤ U64.max := by
+  rcases Usize.bounds_eq with h | h
+  · rw [h]; scalar_tac
+  · rw [h]
+
+theorem usize_max_ge : 4294967295 ≤ Usize.max := by
+  rcases Usize.bounds_eq with h | h <;> rw [h] <;> scalar_tac
+
+theorem Room.mono {s : store.Store} {n m : Nat} (h : Room s n) (hmn : m ≤ n) : Room s m := by
+  unfold Room at h ⊢; omega
+
+theorem Room.next {s s' : store.Store} {n k : Nat} (h : Room s n) (ht : s'.ticks.val ≤ s.ticks.val + k)
+    (hk : k ≤ n) : Room s' (n - k) := by
+  unfold Room at h ⊢; omega
+
+/-- Nodes and tables are as they were, and `n` ticks were spent. -/
+structure Kept (s s' : store.Store) (n : Nat) : Prop where
+  nodes : s'.nodes.val = s.nodes.val
+  tbl : tbl s' = tbl s
+  ticks : s'.ticks.val = s.ticks.val + n
+  inv : Inv s'
+
+theorem Shape.of_eq {s s' : store.Store} (h : Shape s) (hn : s'.nodes = s.nodes)
+    (hs : s'.slots = s.slots) (ht : s'.trie = s.trie) (ha : s'.ea = s.ea) (hb : s'.eb = s.eb) :
+    Shape s' := by
+  obtain ⟨f, nd, sl, epA, epB, ap, bp, wf, t1, t2⟩ := h
+  constructor <;> simp only [hn, hs, ht, ha, hb] <;> assumption
+
+theorem tbl_of_eq {s s' : store.Store} (hs : s'.slots = s.slots) (ha : s'.ea = s.ea)
+    (hb : s'.eb = s.eb) : tbl s' = tbl s := by
+  funext t k
+  simp only [tbl, hs, ha, hb]
+
+theorem tick_spec (s : store.Store) (h : s.ticks.val < U64.max) :
+    store.Store.tick s ⦃ s' =>
+      s'.nodes = s.nodes ∧ s'.slots = s.slots ∧ s'.trie = s.trie ∧ s'.ea = s.ea ∧ s'.eb = s.eb ∧
+        s'.ticks.val = s.ticks.val + 1 ⦄ := by
+  unfold store.Store.tick
+  step*
+
+theorem Room.tick_lt {s : store.Store} {n : Nat} (h : Room s n) (hn : 1 ≤ n) :
+    s.ticks.val < U64.max := by
+  have := usize_le_u64
+  unfold Room at h; omega
+
+theorem Inv.kept {s s' : store.Store} (hI : Inv s) (hn : s'.nodes = s.nodes)
+    (hs : s'.slots = s.slots) (ht : s'.trie = s.trie) (ha : s'.ea = s.ea) (hb : s'.eb = s.eb)
+    (n : Nat) (hk : s'.ticks.val = s.ticks.val + n) : Kept s s' n where
+  nodes := by rw [hn]
+  tbl := tbl_of_eq hs ha hb
+  ticks := hk
+  inv := by
+    obtain ⟨sh, rt, nl, tl, al, bl⟩ := hI
+    refine ⟨sh.of_eq hn hs ht ha hb, ?_, ?_, ?_, ?_, ?_⟩ <;> simp only [hn, ht, ha, hb, hk]
+    · exact rt
+    · omega
+    · omega
+    · omega
+    · omega
+
+@[step]
+theorem read_spec (s : store.Store) (i : store.TermId) (hI : Inv s)
+    (hi : i.val < s.nodes.val.length) (hroom : Room s 1) :
+    store.Store.read s i ⦃ n s' => s.nodes.val[i.val]? = some n ∧ Kept s s' 1 ⦄ := by
+  unfold store.Store.read
+  step with tick_spec s (hroom.tick_lt (Nat.le_refl _)) as ⟨s1, h1, h2, h3, h4, h5, h6⟩
+  have : i.val < s1.nodes.val.length := by rw [h1]; exact hi
+  step as ⟨n, hn⟩
+  refine ⟨?_, hI.kept h1 h2 h3 h4 h5 1 h6⟩
+  rw [hn]; simp only [h1]
+  exact List.getElem?_eq_getElem hi
+
+@[step]
+theorem same_spec (s : store.Store) (a b : store.TermId) (hI : Inv s) (hroom : Room s 1) :
+    store.Store.same s a b ⦃ r s' => r = decide (a.val = b.val) ∧ Kept s s' 1 ⦄ := by
+  unfold store.Store.same
+  step with tick_spec s (hroom.tick_lt (Nat.le_refl _)) as ⟨s1, h1, h2, h3, h4, h5, h6⟩
+  refine ⟨?_, hI.kept h1 h2 h3 h4 h5 1 h6⟩
+  by_cases e : a = b
+  · subst e; simp
+  · have : a.val ≠ b.val := by intro h; apply e; scalar_tac
+    simp [e, this]
+
+@[step]
+theorem word_eq_spec (s : store.Store) (a b : U32) (hI : Inv s) (hroom : Room s 1) :
+    store.Store.word_eq s a b ⦃ r s' => r = decide (a = b) ∧ Kept s s' 1 ⦄ := by
+  unfold store.Store.word_eq
+  step with tick_spec s (hroom.tick_lt (Nat.le_refl _)) as ⟨s1, h1, h2, h3, h4, h5, h6⟩
+  exact hI.kept h1 h2 h3 h4 h5 1 h6
+
+theorem cell_spec (s : store.Store) (t : store.Tbl) (k : store.TermId)
+    (hk : k.val < s.slots.val.length) :
+    store.Store.cell s t k ⦃ r => tbl s t k.val = if r.1 then some r.2.val else none ⦄ := by
+  unfold store.Store.cell
+  step as ⟨sl, hsl⟩
+  have e : s.slots.val[k.val]? = some sl := by rw [hsl]; exact List.getElem?_eq_getElem hk
+  cases t <;> simp only [tbl, e] <;> step*
+
+@[step]
+theorem get_spec (s : store.Store) (t : store.Tbl) (k : store.TermId) (hI : Inv s)
+    (hk : k.val < s.nodes.val.length) (hroom : Room s 1) :
+    store.Store.get s t k ⦃ r s' => r.map (·.val) = tbl s t k.val ∧ Kept s s' 1 ⦄ := by
+  unfold store.Store.get
+  step with tick_spec s (hroom.tick_lt (Nat.le_refl _)) as ⟨s1, h1, h2, h3, h4, h5, h6⟩
+  have hK := hI.kept h1 h2 h3 h4 h5 1 h6
+  have : k.val < s1.slots.val.length := by rw [h2, hI.shape.slots]; exact hk
+  step with cell_spec s1 t k this as ⟨live, v, hc⟩
+  rw [hK.tbl] at hc
+  split
+  · rename_i hl
+    simp only [hl, ↓reduceIte] at hc
+    step*
+    exact ⟨hc.symm, hK⟩
+  · rename_i hl
+    simp only [hl, Bool.false_eq_true, ↓reduceIte] at hc
+    step*
+    exact ⟨hc.symm, hK⟩
+
+@[step]
+theorem get_flag_spec (s : store.Store) (t : store.Tbl) (k : store.TermId) (hI : Inv s)
+    (hk : k.val < s.nodes.val.length) (hroom : Room s 1) :
+    store.Store.get_flag s t k ⦃ r s' =>
+      r = (tbl s t k.val).map (fun v => decide (v ≠ 0)) ∧ Kept s s' 1 ⦄ := by
+  unfold store.Store.get_flag
+  step with tick_spec s (hroom.tick_lt (Nat.le_refl _)) as ⟨s1, h1, h2, h3, h4, h5, h6⟩
+  have hK := hI.kept h1 h2 h3 h4 h5 1 h6
+  have : k.val < s1.slots.val.length := by rw [h2, hI.shape.slots]; exact hk
+  step with cell_spec s1 t k this as ⟨live, v, hc⟩
+  rw [hK.tbl] at hc
+  split
+  · rename_i hl
+    simp only [hl, ↓reduceIte] at hc
+    step*
+    refine ⟨?_, hK⟩
+    rw [hc]
+    by_cases e : v = 0#usize
+    · subst e; simp
+    · have : v.val ≠ 0 := by intro h; apply e; scalar_tac
+      simp [e, this]
+  · rename_i hl
+    simp only [hl, Bool.false_eq_true, ↓reduceIte] at hc
+    step*
+    exact ⟨by rw [hc]; rfl, hK⟩
+
+theorem Shape.set_slot {s s' : store.Store} (hS : Shape s) (hn : s'.nodes = s.nodes)
+    (ht : s'.trie = s.trie) (ha : s'.ea = s.ea) (hb : s'.eb = s.eb) {k : Nat} {y : store.Slot}
+    (hsl : s'.slots.val = s.slots.val.set k y) (hya : y.ea.val ≤ s.ea.val)
+    (hyb : y.eb.val ≤ s.eb.val) : Shape s' := by
+  obtain ⟨f, nd, sl, epA, epB, ap, bp, wf, t1, t2⟩ := hS
+  constructor <;> simp only [hn, ht, ha, hb, hsl] <;> try assumption
+  · simpa using sl
+  · intro x hx
+    rcases List.mem_or_eq_of_mem_set hx with h | rfl
+    · exact epA x h
+    · exact hya
+  · intro x hx
+    rcases List.mem_or_eq_of_mem_set hx with h | rfl
+    · exact epB x h
+    · exact hyb
+
+/-- What a slot holds for a table, given the table's current clearing. -/
+def slotVal (s : store.Store) (t : store.Tbl) (sl : store.Slot) : Option Nat :=
+  match t with
+  | .A => if sl.ea = s.ea then some sl.va.val else none
+  | .B => if sl.eb = s.eb then some sl.vb.val else none
+
+theorem tbl_eq_slotVal (s : store.Store) (t : store.Tbl) (k : Nat) :
+    tbl s t k = (s.slots.val[k]?).bind (slotVal s t) := by
+  unfold tbl slotVal
+  cases s.slots.val[k]? <;> cases t <;> rfl
+
+theorem tbl_set_slot {s s' : store.Store} (ha : s'.ea = s.ea) (hb : s'.eb = s.eb) {k : Nat}
+    {y : store.Slot} (hk : k < s.slots.val.length) (hsl : s'.slots.val = s.slots.val.set k y)
+    (t : store.Tbl) : tbl s' t = Function.update (tbl s t) k (slotVal s t y) := by
+  funext k'
+  have e : slotVal s' t = slotVal s t := by funext sl; cases t <;> simp [slotVal, ha, hb]
+  rw [tbl_eq_slotVal, hsl, e, List.getElem?_set]
+  by_cases hkk : k = k'
+  · subst hkk; simp [hk]
+  · have : k' ≠ k := fun h => hkk h.symm
+    simp [hkk, Function.update_of_ne this, tbl_eq_slotVal]
+
+theorem set_cell_spec (st : store.Store) (t : store.Tbl) (k : store.TermId) (v : Usize)
+    (hS : Shape st) (hk : k.val < st.slots.val.length) :
+    store.Store.set_cell st t k v ⦃ s' =>
+      s'.nodes = st.nodes ∧ s'.trie = st.trie ∧ s'.ea = st.ea ∧ s'.eb = st.eb ∧ s'.ticks = st.ticks ∧
+      Shape s' ∧ tbl s' t = Function.update (tbl st t) k.val (some v.val) ∧
+      ∀ t', t' ≠ t → tbl s' t' = tbl st t' ⦄ := by
+  have hsl : st.slots.val[k.val]? = some (st.slots.val[k.val]) := List.getElem?_eq_getElem hk
+  unfold store.Store.set_cell
+  cases t
+  · step*
+    · simp [index_mut_back_post, hk]
+    · have e : (index_mut_back1 { ea := s1.ea, va := v, eb := s1.eb, vb := s1.vb }).val =
+          st.slots.val.set k.val ⟨st.ea, v, (st.slots.val[k.val]).eb, (st.slots.val[k.val]).vb⟩ := by
+        simp [index_mut_back1_post, s1_post, index_mut_back_post, s_post]
+      refine ⟨hS.set_slot rfl rfl rfl rfl e (Nat.le_refl _) (hS.epB (st.slots.val[k.val]) (List.getElem_mem hk)), ?_, ?_⟩
+      · rw [tbl_set_slot (s := st) (s' := { st with slots := index_mut_back1 { ea := s1.ea, va := v, eb := s1.eb, vb := s1.vb } }) rfl rfl hk e]; simp [slotVal]
+      · intro t' ht'
+        cases t'
+        · exact absurd rfl ht'
+        · rw [tbl_set_slot (s := st) (s' := { st with slots := index_mut_back1 { ea := s1.ea, va := v, eb := s1.eb, vb := s1.vb } }) rfl rfl hk e]
+          funext k'
+          by_cases hkk : k' = k.val
+          · subst hkk; simp [slotVal, tbl, hsl]
+          · simp [Function.update_of_ne hkk]
+  · step*
+    · simp [index_mut_back_post, hk]
+    · have e : (index_mut_back1 { ea := s1.ea, va := s1.va, eb := s1.eb, vb := v }).val =
+          st.slots.val.set k.val ⟨(st.slots.val[k.val]).ea, (st.slots.val[k.val]).va, st.eb, v⟩ := by
+        simp [index_mut_back1_post, s1_post, index_mut_back_post, s_post]
+      refine ⟨hS.set_slot rfl rfl rfl rfl e (hS.epA (st.slots.val[k.val]) (List.getElem_mem hk)) (Nat.le_refl _), ?_, ?_⟩
+      · rw [tbl_set_slot (s := st) (s' := { st with slots := index_mut_back1 { ea := s1.ea, va := s1.va, eb := s1.eb, vb := v } }) rfl rfl hk e]; simp [slotVal]
+      · intro t' ht'
+        cases t'
+        · rw [tbl_set_slot (s := st) (s' := { st with slots := index_mut_back1 { ea := s1.ea, va := s1.va, eb := s1.eb, vb := v } }) rfl rfl hk e]
+          funext k'
+          by_cases hkk : k' = k.val
+          · subst hkk; simp [slotVal, tbl, hsl]
+          · simp [Function.update_of_ne hkk]
+        · exact absurd rfl ht'
+
+theorem Inv.of_shape {s s' : store.Store} (hI : Inv s) (hS : Shape s') (hn : s'.nodes = s.nodes)
+    (ht : s'.trie = s.trie) (ha : s'.ea = s.ea) (hb : s'.eb = s.eb)
+    (hk : s.ticks.val ≤ s'.ticks.val) : Inv s' := by
+  obtain ⟨sh, rt, nl, tl, al, bl⟩ := hI
+  refine ⟨hS, ?_, ?_, ?_, ?_, ?_⟩ <;> simp only [hn, ht, ha, hb]
+  · exact rt
+  · omega
+  · omega
+  · omega
+  · omega
+
+@[step]
+theorem set_spec (s : store.Store) (t : store.Tbl) (k v : store.TermId) (hI : Inv s)
+    (hk : k.val < s.nodes.val.length) (hroom : Room s 1) :
+    store.Store.set s t k v ⦃ s' =>
+      s'.nodes.val = s.nodes.val ∧ s'.ticks.val = s.ticks.val + 1 ∧ Inv s' ∧
+      tbl s' t = Function.update (tbl s t) k.val (some v.val) ∧
+      ∀ t', t' ≠ t → tbl s' t' = tbl s t' ⦄ := by
+  unfold store.Store.set
+  step with tick_spec s (hroom.tick_lt (Nat.le_refl _)) as ⟨s1, h1, h2, h3, h4, h5, h6⟩
+  have hK := hI.kept h1 h2 h3 h4 h5 1 h6
+  have hk1 : k.val < s1.slots.val.length := by rw [h2, hI.shape.slots]; exact hk
+  step with set_cell_spec s1 t k v hK.inv.shape hk1 as ⟨s2, g1, g2, g3, g4, g5, g6, g7, g8⟩
+  refine ⟨by rw [g1, h1], by rw [g5, h6], ?_, by rw [g7, hK.tbl], fun t' ht' => by rw [g8 t' ht', hK.tbl]⟩
+  exact hK.inv.of_shape g6 g1 g2 g3 g4 (by rw [g5])
+
+@[step]
+theorem set_flag_spec (s : store.Store) (t : store.Tbl) (k : store.TermId) (b : Bool) (hI : Inv s)
+    (hk : k.val < s.nodes.val.length) (hroom : Room s 1) :
+    store.Store.set_flag s t k b ⦃ s' =>
+      s'.nodes.val = s.nodes.val ∧ s'.ticks.val = s.ticks.val + 1 ∧ Inv s' ∧
+      tbl s' t = Function.update (tbl s t) k.val (some (if b then 1 else 0)) ∧
+      ∀ t', t' ≠ t → tbl s' t' = tbl s t' ⦄ := by
+  unfold store.Store.set_flag
+  step with tick_spec s (hroom.tick_lt (Nat.le_refl _)) as ⟨s1, h1, h2, h3, h4, h5, h6⟩
+  have hK := hI.kept h1 h2 h3 h4 h5 1 h6
+  have hk1 : k.val < s1.slots.val.length := by rw [h2, hI.shape.slots]; exact hk
+  cases b
+  · simp only [Bool.false_eq_true, ↓reduceIte]
+    step with set_cell_spec s1 t k 0#usize hK.inv.shape hk1 as ⟨s2, g1, g2, g3, g4, g5, g6, g7, g8⟩
+    refine ⟨by rw [g1, h1], by rw [g5, h6], ?_, by rw [g7, hK.tbl],
+      fun t' ht' => by rw [g8 t' ht', hK.tbl]⟩
+    exact hK.inv.of_shape g6 g1 g2 g3 g4 (by rw [g5])
+  · simp only [↓reduceIte]
+    step with set_cell_spec s1 t k 1#usize hK.inv.shape hk1 as ⟨s2, g1, g2, g3, g4, g5, g6, g7, g8⟩
+    refine ⟨by rw [g1, h1], by rw [g5, h6], ?_, by rw [g7, hK.tbl],
+      fun t' ht' => by rw [g8 t' ht', hK.tbl]⟩
+    exact hK.inv.of_shape g6 g1 g2 g3 g4 (by rw [g5])
+
+@[step]
+theorem clear_spec (s : store.Store) (t : store.Tbl) (hI : Inv s) (hroom : Room s 1) :
+    store.Store.clear s t ⦃ s' =>
+      s'.nodes.val = s.nodes.val ∧ s'.ticks.val = s.ticks.val + 1 ∧ Inv s' ∧
+      (∀ k, tbl s' t k = none) ∧ ∀ t', t' ≠ t → tbl s' t' = tbl s t' ⦄ := by
+  unfold store.Store.clear
+  step with tick_spec s (hroom.tick_lt (Nat.le_refl _)) as ⟨s1, h1, h2, h3, h4, h5, h6⟩
+  have hK := hI.kept h1 h2 h3 h4 h5 1 h6
+  have hI1 := hK.inv
+  have hmax := usize_le_u64
+  have hea := hI.ea_le
+  have heb := hI.eb_le
+  have hea1 : s1.ea.val = s.ea.val := by rw [h4]
+  have heb1 : s1.eb.val = s.eb.val := by rw [h5]
+  unfold Room at hroom
+  cases t
+  · step*
+    obtain ⟨sh, rt, nl, tl, al, bl⟩ := hI1
+    obtain ⟨f, nd, sl, epA, epB, ap, bp, wf, t1, t2⟩ := sh
+    refine ⟨by rw [h1], h6, ⟨⟨f, nd, sl, ?_, epB, ?_, bp, wf, t1, t2⟩, rt, nl, tl, ?_, bl⟩, ?_, ?_⟩
+    · intro x hx; have := epA x hx; simp only; omega
+    · simp only; omega
+    · simp only; omega
+    · intro k
+      simp only [tbl]
+      cases hsl : s1.slots.val[k]? with
+      | none => rfl
+      | some x =>
+        have := epA x (List.mem_of_getElem? hsl)
+        have hne : x.ea ≠ i := by intro e; rw [e] at this; omega
+        simp [hne]
+    · intro t' ht'
+      cases t'
+      · exact absurd rfl ht'
+      · rw [← hK.tbl]; funext k; simp only [tbl]
+  · step*
+    obtain ⟨sh, rt, nl, tl, al, bl⟩ := hI1
+    obtain ⟨f, nd, sl, epA, epB, ap, bp, wf, t1, t2⟩ := sh
+    refine ⟨by rw [h1], h6, ⟨⟨f, nd, sl, epA, ?_, ap, ?_, wf, t1, t2⟩, rt, nl, tl, al, ?_⟩, ?_, ?_⟩
+    · intro x hx; have := epB x hx; simp only; omega
+    · simp only; omega
+    · simp only; omega
+    · intro k
+      simp only [tbl]
+      cases hsl : s1.slots.val[k]? with
+      | none => rfl
+      | some x =>
+        have := epB x (List.mem_of_getElem? hsl)
+        have hne : x.eb ≠ i := by intro e; rw [e] at this; omega
+        simp [hne]
+    · intro t' ht'
+      cases t'
+      · rw [← hK.tbl]; funext k; simp only [tbl]
+      · exact absurd rfl ht'
+
+@[step]
+theorem alloc_spec (s : store.Store) (n : store.Node) (hI : Inv s) (hn : ArgOK s.nodes.val n)
+    (hroom : Room s 1) :
+    store.Store.alloc s n ⦃ id s' =>
+      Inv s' ∧ s'.ticks.val = s.ticks.val + 1 ∧ tbl s' = tbl s ∧
+      (∃ more, s'.nodes.val = s.nodes.val ++ more) ∧
+      s'.nodes.val[id.val]? = some (norm n) ⦄ := by
+  unfold store.Store.alloc
+  step with tick_spec s (hroom.tick_lt (Nat.le_refl _)) as ⟨s1, h1, h2, h3, h4, h5, h6⟩
+  have hK := hI.kept h1 h2 h3 h4 h5 1 h6
+  have hI1 := hK.inv
+  have hnl := hI.nodes_le
+  have htl := hI.trie_le
+  unfold Room at hroom
+  step with intern_spec s1 n hI1.shape (by rw [h1]; exact hn) (by rw [h3]; omega)
+    (by rw [h1]; omega) as ⟨id, s2, hS2, hid, hcase, ga, gb, gt, glen⟩
+  have hroot := hI1.root
+  refine ⟨?_, by rw [gt, h6], ?_, ?_, hid⟩
+  · rcases hcase with ⟨e1, e2⟩ | ⟨e1, e2⟩
+    · refine ⟨hS2, by rw [e1]; exact hroot, ?_, ?_, ?_, ?_⟩ <;> simp only [e1, ga, gb, gt, h1, h4, h5, h6]
+      · omega
+      · rw [h3] at glen; omega
+      · have := hI.ea_le; omega
+      · have := hI.eb_le; omega
+    · refine ⟨hS2, ?_, ?_, ?_, ?_, ?_⟩ <;> simp only [e1, ga, gb, gt, h1, h4, h5, h6]
+      · have hpos : 0 < s.nodes.val.length := by
+          have := (List.getElem?_eq_some_iff.1 hI.root).1; exact this
+        rw [List.getElem?_append_left hpos]; exact hI.root
+      · simp; omega
+      · rw [h3] at glen; omega
+      · have := hI.ea_le; omega
+      · have := hI.eb_le; omega
+  · rw [← hK.tbl]
+    rcases hcase with ⟨e1, e2⟩ | ⟨e1, e2⟩
+    · exact tbl_of_eq e2 ga gb
+    · funext t k
+      simp only [tbl, e2, ga, gb]
+      rcases Nat.lt_trichotomy k s1.slots.val.length with hlt | heq | hgt
+      · rw [List.getElem?_append_left hlt]
+      · subst heq
+        have ha := hI1.shape.ea_pos
+        have hb := hI1.shape.eb_pos
+        have hna : (0#u64 : U64) ≠ s1.ea := by intro e; rw [← e] at ha; simp at ha
+        have hnb : (0#u64 : U64) ≠ s1.eb := by intro e; rw [← e] at hb; simp at hb
+        cases t <;> simp [blankSlot, hna, hnb]
+      · rw [List.getElem?_eq_none (by simp; omega), List.getElem?_eq_none (by omega)]
+  · rcases hcase with ⟨e1, e2⟩ | ⟨e1, e2⟩
+    · exact ⟨[], by rw [e1, h1]; simp⟩
+    · exact ⟨[norm n], by rw [e1, h1]⟩
+
+theorem wf_blank : TrieM.WF [TrieM.blank] where
+  pos := by simp
+  kids_len := by intro n hn; simp only [List.mem_singleton] at hn; subst hn; simp [TrieM.blank]
+  kid_lt := by
+    intro p d
+    have : TrieM.kidAt [TrieM.blank] p d = 0 := by
+      unfold TrieM.kidAt
+      cases p with
+      | zero => exact TrieM.blank_getD d
+      | succ p => rfl
+    simp [this]
+  inj := by
+    have h0 : ∀ p d, TrieM.kidAt [TrieM.blank] p d = 0 := by
+      intro p d
+      unfold TrieM.kidAt
+      cases p with
+      | zero => exact TrieM.blank_getD d
+      | succ p => rfl
+    have : ∀ k q, TrieM.walk [TrieM.blank] 0 k = some q → k = [] := by
+      intro k q h
+      cases k with
+      | nil => rfl
+      | cons d ds => simp [TrieM.walk, h0] at h
+    intro k₁ k₂ q h₁ h₂
+    rw [this k₁ q h₁, this k₂ q h₂]
+
+theorem new_spec :
+    store.Store.new ⦃ s =>
+      Inv s ∧ s.ticks.val = 0 ∧ s.nodes.val = [store.Node.V0] ∧ ∀ t k, tbl s t k = none ⦄ := by
+  unfold store.Store.new
+  step as ⟨v, hv⟩
+  have hv' : v.val = [({ kids := Array.repeat 17#usize 0#usize, val := 0#usize } : store.Trie)] := by
+    simpa using hv
+  have htr : trieM v.val = [TrieM.blank] := by
+    rw [hv']; simp [trieM, tnM, TrieM.blank]
+  have hS : Shape ⟨alloc.vec.Vec.new store.Node, alloc.vec.Vec.new store.Slot, v, 1#u64, 1#u64,
+      0#u64⟩ := by
+    constructor
+    · intro i n h; simp at h
+    · simp
+    · simp
+    · intro sl h; simp at h
+    · intro sl h; simp at h
+    · simp
+    · simp
+    · show (trieM v.val).WF; rw [htr]; exact wf_blank
+    · intro i n h; simp at h
+    · intro q
+      show TrieM.valAt (trieM v.val) q ≠ 0 → _
+      rw [htr]
+      intro h
+      exfalso; apply h
+      unfold TrieM.valAt
+      cases q with
+      | zero => rfl
+      | succ q => rfl
+  have hbig := usize_max_ge
+  have hvl : v.val.length = 1 := by rw [hv']; rfl
+  have hroom : v.val.length + 35 ≤ Usize.max := by omega
+  have hnl : (alloc.vec.Vec.new store.Node).val.length < Usize.max := by
+    show (0 : Nat) < Usize.max; omega
+  step with intern_spec _ store.Node.V0 hS trivial hroom hnl
+    as ⟨id, s, hS2, hid, hcase, ga, gb, gt, glen⟩
+  rcases hcase with ⟨e1, e2⟩ | ⟨e1, e2⟩
+  · rw [e1] at hid; simp at hid
+  · have e1' : s.nodes.val = [store.Node.V0] := by rw [e1]; rfl
+    have e2' : s.slots.val = [blankSlot] := by rw [e2]; rfl
+    have glen' : s.trie.val.length ≤ 36 := by
+      have : s.trie.val.length ≤ v.val.length + 35 := glen
+      omega
+    have hga : s.ea.val = 1 := by rw [ga]; rfl
+    have hgb : s.eb.val = 1 := by rw [gb]; rfl
+    have hgt : s.ticks.val = 0 := by rw [gt]; rfl
+    refine ⟨⟨hS2, by rw [e1']; rfl, by rw [e1', hgt]; simp, by omega, by omega, by omega⟩, hgt,
+      e1', ?_⟩
+    intro t k
+    simp only [tbl, e2', ga, gb]
+    cases k with
+    | zero => cases t <;> simp [blankSlot]
+    | succ k => simp
 
 end RwLogVerified
