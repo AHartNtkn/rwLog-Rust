@@ -31,6 +31,8 @@ theorem improves : Obligation.improves where
       calc 500 * (k + 5) ^ 4 ≤ 500 * (5 * (k + 1)) ^ 4 := Nat.mul_le_mul_left 500 h
         _ = 312500 * (k + 1) ^ 4 := by ring
 
+theorem admits : Obligation.admits := Admits.of_id improves
+
 end R002
 
 end RwLog

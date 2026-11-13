@@ -97,4 +97,16 @@ theorem Separates.mono {Old New : CostedRuntime} {fam : Nat → Program × Rel} 
   obtain ⟨h1, h2⟩ := hcov M hM' x hx
   exact ⟨CostedRuntime.CoversWithin.mono _ h1 (hhi k), h2⟩
 
+/-- A rung without preprocessing is its machine. -/
+theorem CostedRung.machine_id (C : CostedRuntime) (A : ArtifactStore) :
+    (CostedRung.mk Preprocessor.id C).machine A = C := rfl
+
+/-- Two rungs without preprocessing: admission is the improvement of the
+machines, and preprocessing costs nothing. -/
+theorem Admits.of_id {Old New : CostedRuntime} {b : Bounds} {fam : Nat → Program × Rel}
+    {tgt : Nat → PRel} (h : Improves Old New b fam tgt) :
+    Admits ⟨Preprocessor.id, Old⟩ ⟨Preprocessor.id, New⟩ b (fun _ => 0) fam tgt where
+  improves _ := h
+  preCost _ _ _ _ := Nat.le_refl 0
+
 end RwLog

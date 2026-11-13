@@ -127,6 +127,12 @@ def bounds : Bounds := ⟨7, 1, 8, 1, 16000, 3⟩
 `sepFam` and the pairs `(t, z)`. -/
 def improves : Prop := Improves R002.costed costed bounds sepFam fun _ => sepTarget
 
+/-- The admission of the rung: R003 above R002, neither with any
+preprocessing, so preprocessing is recorded to cost nothing. -/
+def admits : Prop :=
+  Admits ⟨Preprocessor.id, R002.costed⟩ ⟨Preprocessor.id, costed⟩ bounds (fun _ => 0) sepFam
+    fun _ => sepTarget
+
 end Obligation
 
 end R003

@@ -26,6 +26,8 @@ theorem improves : Obligation.improves where
       calc 2000 * (k + 2) ^ 3 ≤ 2000 * (2 * (k + 1)) ^ 3 := Nat.mul_le_mul_left 2000 h
         _ = 16000 * (k + 1) ^ 3 := by ring
 
+theorem admits : Obligation.admits := Admits.of_id improves
+
 end R003
 
 end RwLog

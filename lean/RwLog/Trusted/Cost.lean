@@ -76,8 +76,10 @@ for each polynomial), the simulation bound is `b.sim`, the family has size at
 most `b.size k`, `New` covers the targets within `b.hi k` and `Old` has paid
 at least `2 ^ k`. Since the size of `fam k` is polynomial in `k`, `2 ^ k` is
 exponential in a root of the size of the input. A rung is admitted by a
-proof of `Improves` for bounds its specification writes out, and by nothing
-else: `Simulates` and `Separates` with other functions do not admit it.
+proof of `Admits`, which is `Improves` for the whole rung (the machine run
+on the preprocessed input) for bounds its specification writes out, together
+with a recorded bound on the cost of preprocessing, and by nothing else:
+`Simulates` and `Separates` with other functions do not admit it.
 
 `SeparatesExhaustion` is the same comparison for the report of exhaustion
 instead of answers. It is the special case for the rare queries that halt: it
@@ -115,102 +117,6 @@ def TRule.size (ρ : TRule) : Nat := Store.size ρ.heads + ρ.body.size
 def Theory.size (T : Theory) : Nat := (T.map TRule.size).sum
 
 def Program.size (P : Program) : Nat := (P.defs.map fun d => 1 + d.2.size).sum + P.theory.size
-
-/-! ## Charged computations -/
-
-/-- A value and the ticks spent computing it. -/
-structure Cost (α : Type) where
-  val : α
-  ticks : Nat
-
-namespace Cost
-
-instance : Monad Cost where
-  pure a := ⟨a, 0⟩
-  bind m f := let r := f m.val; ⟨r.val, m.ticks + r.ticks⟩
-
-/-- Spend `n` ticks. -/
-def tick (n : Nat) : Cost Unit := ⟨(), n⟩
-
-@[simp] theorem pure_val {α : Type} (a : α) : (pure a : Cost α).val = a := rfl
-@[simp] theorem pure_ticks {α : Type} (a : α) : (pure a : Cost α).ticks = 0 := rfl
-@[simp] theorem bind_val {α β : Type} (m : Cost α) (f : α → Cost β) :
-    (m >>= f).val = (f m.val).val := rfl
-@[simp] theorem bind_ticks {α β : Type} (m : Cost α) (f : α → Cost β) :
-    (m >>= f).ticks = m.ticks + (f m.val).ticks := rfl
-@[simp] theorem tick_val (n : Nat) : (tick n).val = () := rfl
-@[simp] theorem tick_ticks (n : Nat) : (tick n).ticks = n := rfl
-
-/-- Run `m` with a budget of `b` ticks. If `m` needs no more than `b` it
-runs and is charged as usual; otherwise `b` ticks are spent and there is no
-result. -/
-def within {α : Type} (b : Nat) (m : Cost α) : Cost (Option α) :=
-  if m.ticks ≤ b then ⟨some m.val, m.ticks⟩ else ⟨none, b⟩
-
-/-! ### Free list traversals
-
-These spend only what the function they are given spends. They are defined by
-plain recursion so that forgetting the ticks gives the list function of the
-same name. -/
-
-def mapL {α β : Type} (f : α → Cost β) : List α → Cost (List β)
-  | [] => pure []
-  | x :: xs => do
-    let y ← f x
-    let ys ← mapL f xs
-    pure (y :: ys)
-
-def flatMapL {α β : Type} (f : α → Cost (List β)) : List α → Cost (List β)
-  | [] => pure []
-  | x :: xs => do
-    let y ← f x
-    let ys ← flatMapL f xs
-    pure (y ++ ys)
-
-def filterL {α : Type} (f : α → Cost Bool) : List α → Cost (List α)
-  | [] => pure []
-  | x :: xs => do
-    let b ← f x
-    let ys ← filterL f xs
-    pure (if b then x :: ys else ys)
-
-def filterMapL {α β : Type} (f : α → Cost (Option β)) : List α → Cost (List β)
-  | [] => pure []
-  | x :: xs => do
-    let y ← f x
-    let ys ← filterMapL f xs
-    pure (match y with
-      | some b => b :: ys
-      | none => ys)
-
-/-- Stops at the first member that satisfies `f`, as `List.any` does. -/
-def anyL {α : Type} (f : α → Cost Bool) : List α → Cost Bool
-  | [] => pure false
-  | x :: xs => do
-    let b ← f x
-    if b then pure true else anyL f xs
-
-/-- Stops at the first member that fails `f`, as `List.all` does. -/
-def allL {α : Type} (f : α → Cost Bool) : List α → Cost Bool
-  | [] => pure true
-  | x :: xs => do
-    let b ← f x
-    if b then allL f xs else pure false
-
-def foldL {α β : Type} (f : β → α → Cost β) : β → List α → Cost β
-  | b, [] => pure b
-  | b, x :: xs => do
-    let b' ← f b x
-    foldL f b' xs
-
-/-- Stops at the first member that satisfies `f`, as `List.find?` does. -/
-def findL {α : Type} (f : α → Cost Bool) : List α → Cost (Option α)
-  | [] => pure none
-  | x :: xs => do
-    let b ← f x
-    if b then pure (some x) else findL f xs
-
-end Cost
 
 /-! ## Charged primitives -/
 
@@ -420,5 +326,44 @@ structure Improves (Old New : CostedRuntime) (b : Bounds) (fam : Nat → Program
     (tgt : Nat → PRel) : Prop where
   simulates : Simulates Old New b.sim
   separates : Separates Old New fam tgt b.size (fun k => 2 ^ k) b.hi
+
+/-! ## Whole rungs
+
+A rung is a preprocessor followed by a machine. Its run-time cost is the cost
+of its machine on the preprocessed input, compared on the original input, and
+the cost of preprocessing is recorded beside it: any preprocessing is allowed,
+and a reader sees what it costs. -/
+
+/-- A preprocessor followed by a costed machine. -/
+structure CostedRung where
+  pre : Preprocessor
+  rt : CostedRuntime
+
+namespace CostedRung
+
+variable (G : CostedRung)
+
+/-- The rung with the ticks forgotten. -/
+def rung : Rung := ⟨G.pre, G.rt.runtime⟩
+
+/-- The rung as one machine on the original input: its first state is the
+machine's first state on the preprocessed input, at the machine's charge. The
+ticks of preprocessing are not counted here (`Admits.preCost` records
+them). -/
+def machine (A : ArtifactStore) : CostedRuntime where
+  State := G.rt.State
+  init P q := G.rt.init (G.pre.run A P q).val.1 (G.pre.run A P q).val.2.1
+  step := G.rt.step
+
+end CostedRung
+
+/-- The rung `New` is admitted above `Old`: whatever the artifact store, it
+improves on `Old` at run time with the numerals `b`, and preprocessing an
+input of size `n` costs at most `pre n` ticks. `pre` is any explicit
+function: it is recorded, not capped. -/
+structure Admits (Old New : CostedRung) (b : Bounds) (pre : Nat → Nat)
+    (fam : Nat → Program × Rel) (tgt : Nat → PRel) : Prop where
+  improves : ∀ A, Improves (Old.machine A) (New.machine A) b fam tgt
+  preCost : ∀ A P q, P.WellFormed q → (New.pre.run A P q).ticks ≤ pre (P.size + q.size)
 
 end RwLog
