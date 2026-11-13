@@ -12,10 +12,13 @@ The obligations of the termination group.
   `empty_side`: the certificate of the finite side, the certificates of the
   pushes from its answers, and one entry for the query with the push strategy
   make a certificate (`Combine.seqL_cert` and its three variants).
+* `tabling_termination`: finitely many keys with finite covers are a
+  certificate in which every goal reads its direct goals (`Tabling.tabling_cert`).
 -/
 import RwLog.Rungs.R001.Proofs.CertHalts
 import RwLog.Rungs.R001.Proofs.CertOfHalt
 import RwLog.Rungs.R001.Proofs.CertCombine
+import RwLog.Rungs.R001.Proofs.Tabling
 
 namespace RwLog
 
@@ -129,6 +132,13 @@ theorem empty_side : Obligation.empty_side := by
     exact absurd hx (Set.notMem_empty x)
   exact ⟨seq_left_halts hwf.2.2 ha (hno _), seq_right_halts hwf.2.2 ha (hno _),
     and_halts hwf.2.2 ha (hno _)⟩
+
+/-! ## Tabling -/
+
+theorem tabling_termination : Obligation.tabling_termination := by
+  intro P q hwf hG hfc
+  obtain ⟨C, hC⟩ := Tabling.tabling_cert (simpLaws_of_wf hwf.2.2) (goodG_root q) hG hfc
+  exact terminates_of_cert hwf.2.2 ⟨C, 0, hC⟩
 
 end R001
 
