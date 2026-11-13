@@ -8,7 +8,6 @@ The `dc_*` lemmas: if the dependencies of a strategy cover a derivation's
 pieces, the goal's candidates cover the derivation.
 -/
 import RwLog.Rungs.R001.Proofs.Tier0.Unfold
-import RwLog.Rungs.R001.Proofs.Tier0.Maxima
 
 namespace RwLog
 
@@ -119,7 +118,7 @@ theorem spanBoth_none {lb rb : Option Span} {s : Span} (h : spanBoth lb s rb = n
   | some l =>
     simp only [GDen, bden]
     cases hu : l.compose s with
-    | none => rw [← GRel.comp_assoc]; rw [compose_none hu]; exact Lifting.empty_comp _
+    | none => rw [← GRel.comp_assoc]; rw [compose_none hu]; exact empty_comp _
     | some u =>
       cases rb with
       | none => simp [spanBoth, hu] at h
@@ -198,7 +197,7 @@ theorem cands_ref {dd : Nat} {ts : Tables} (hA : AnsRef P ts) {h : Goal} (hg : G
         have hr := composeLive_ref hwf (Ref.self x) hr₂ hc
         simp only [seqPushL] at hr
         rw [gden_pushL] at hr
-        have hr' := hr.trans (Backed.comp hr₁.1 (Backed.refl _)) (hr₁.2.comp (Lifting.LCov.refl _))
+        have hr' := hr.trans (Backed.comp hr₁.1 (Backed.refl _)) (hr₁.2.comp (LCov.refl _))
         rw [seqLeft, gden_seqL lb rb a (.seq a b)] at hr'
         obtain ⟨s, hs, hsd⟩ := compose_isSome (gden_nonempty (hr'.nonempty))
         exact ⟨s, .seq hs₁ hs₂ hs, by rw [hsd]; exact hr'⟩
@@ -211,7 +210,7 @@ theorem cands_ref {dd : Nat} {ts : Tables} (hA : AnsRef P ts) {h : Goal} (hg : G
         have hr := composeLive_ref hwf hr₁ (Ref.self y) hc
         simp only [seqPushR] at hr
         rw [gden_pushR] at hr
-        have hr' := hr.trans (Backed.comp (Backed.refl _) hr₂.1) ((Lifting.LCov.refl _).comp hr₂.2)
+        have hr' := hr.trans (Backed.comp (Backed.refl _) hr₂.1) ((LCov.refl _).comp hr₂.2)
         rw [seqRight, gden_seqR lb rb b (.seq a b)] at hr'
         obtain ⟨s, hs, hsd⟩ := compose_isSome (gden_nonempty (hr'.nonempty))
         exact ⟨s, .seq hs₁ hs₂ hs, by rw [hsd]; exact hr'⟩
@@ -249,11 +248,11 @@ theorem cands_ref {dd : Nat} {ts : Tables} (hA : AnsRef P ts) {h : Goal} (hg : G
         obtain ⟨s₂, hs₂, hr₂⟩ := hA _ hR y (maxima_sub hy)
         obtain ⟨s₁, hs₁, hr₁⟩ := hA _ (goodG_andPush a y) x hx
         have hr := meetLive_ref hwf hr₁ (Ref.self y) hc
-        rw [Lifting.meet_comm, gden_andPush] at hr
+        rw [meet_comm, gden_andPush] at hr
         have hr' := hr.trans (andPush_backed fB fC hr₂.1) (andPush_dom fB fC hr₂.2)
         have e₁ := gden_and hg a b (.and a b) s₁.den s₂.den
         simp only [GDen] at e₁ hr'
-        rw [Lifting.meet_comm, e₁] at hr'
+        rw [meet_comm, e₁] at hr'
         obtain ⟨s, hs, hsd⟩ := meet_isSome (gden_nonempty (g := ⟨lb, .and a b, rb⟩) (hr'.nonempty))
         exact ⟨s, .and hs₁ hs₂ hs, by rw [GDen, hsd]; exact hr'⟩
       · simp at hp
@@ -310,15 +309,15 @@ theorem dc_seq_pushL {dd : Nat} {ts : Tables} {lb rb : Option Span} {a b : Rel} 
   rcases h₁ with h₁ | ⟨x₀, hx₀, h₁⟩
   · exact Or.inl h₁.comp_left
   obtain ⟨x, hx, hcov⟩ := maxima_cover hx₀
-  have hdx : Lifting.LCov P.theory x.den (GDen ⟨lb, a, none⟩ R₁) := (lcov_of_covers hcov).trans h₁
-  have hD : Lifting.LCov P.theory ((x.den).comp (R₂.comp (bden rb)))
-      ((GDen ⟨lb, a, none⟩ R₁).comp (R₂.comp (bden rb))) := hdx.comp (Lifting.LCov.refl _)
+  have hdx : LCov P.theory x.den (GDen ⟨lb, a, none⟩ R₁) := (lcov_of_covers hcov).trans h₁
+  have hD : LCov P.theory ((x.den).comp (R₂.comp (bden rb)))
+      ((GDen ⟨lb, a, none⟩ R₁).comp (R₂.comp (bden rb))) := hdx.comp (LCov.refl _)
   rcases h₂ x hx with h₂ | ⟨y, hy, h₂⟩
   · refine Or.inl (DeadR.of_dom hD ?_)
     have := (h₂.comp_right (X := x.den))
     simp only [seqPushL] at this
     rwa [gden_pushL] at this
-  · have h := composeLive_dc hwf (Lifting.LCov.refl x.den) h₂
+  · have h := composeLive_dc hwf (LCov.refl x.den) h₂
     simp only [seqPushL] at h
     rw [gden_pushL] at h
     refine cands_of_strat ((h.dom hD).mono fun c hc => ?_)
@@ -337,15 +336,15 @@ theorem dc_seq_pushR {dd : Nat} {ts : Tables} {lb rb : Option Span} {a b : Rel} 
   rcases h₂ with h₂ | ⟨y₀, hy₀, h₂⟩
   · exact Or.inl h₂.comp_right
   obtain ⟨y, hy, hcov⟩ := maxima_cover hy₀
-  have hdy : Lifting.LCov P.theory y.den (GDen ⟨none, b, rb⟩ R₂) := (lcov_of_covers hcov).trans h₂
-  have hD : Lifting.LCov P.theory (((bden lb).comp R₁).comp y.den)
-      (((bden lb).comp R₁).comp (GDen ⟨none, b, rb⟩ R₂)) := (Lifting.LCov.refl _).comp hdy
+  have hdy : LCov P.theory y.den (GDen ⟨none, b, rb⟩ R₂) := (lcov_of_covers hcov).trans h₂
+  have hD : LCov P.theory (((bden lb).comp R₁).comp y.den)
+      (((bden lb).comp R₁).comp (GDen ⟨none, b, rb⟩ R₂)) := (LCov.refl _).comp hdy
   rcases h₁ y hy with h₁ | ⟨x, hx, h₁⟩
   · refine Or.inl (DeadR.of_dom hD ?_)
     have := (h₁.comp_left (Y := y.den))
     simp only [seqPushR] at this
     rwa [gden_pushR] at this
-  · have h := composeLive_dc hwf h₁ (Lifting.LCov.refl y.den)
+  · have h := composeLive_dc hwf h₁ (LCov.refl y.den)
     simp only [seqPushR] at h
     rw [gden_pushR] at h
     refine cands_of_strat ((h.dom hD).mono fun c hc => ?_)
@@ -375,14 +374,14 @@ theorem dc_and_pushL {dd : Nat} {ts : Tables} {lb rb : Option Span} (hg : GoodG 
   rcases h₁ with h₁ | ⟨x₀, hx₀, h₁⟩
   · exact Or.inl h₁.meet_left
   obtain ⟨x, hx, hcov⟩ := maxima_cover hx₀
-  have hdx : Lifting.LCov P.theory x.den (GDen ⟨lb, a, rb⟩ R₁) := (lcov_of_covers hcov).trans h₁
-  have hD : Lifting.LCov P.theory ((x.den).meet R₂) ((GDen ⟨lb, a, rb⟩ R₁).meet (GDen ⟨lb, b, rb⟩ R₂)) :=
+  have hdx : LCov P.theory x.den (GDen ⟨lb, a, rb⟩ R₁) := (lcov_of_covers hcov).trans h₁
+  have hD : LCov P.theory ((x.den).meet R₂) ((GDen ⟨lb, a, rb⟩ R₁).meet (GDen ⟨lb, b, rb⟩ R₂)) :=
     andPush_dom (bnd_fn hg.1) (bnd_fn hg.2) hdx
   rcases h₂ x hx with h₂ | ⟨y, hy, h₂⟩
   · refine Or.inl (DeadR.of_dom hD ?_)
     have := (h₂.meet_right (X := x.den))
     rwa [gden_andPush] at this
-  · have h := meetLive_dc hwf (Lifting.LCov.refl x.den) h₂
+  · have h := meetLive_dc hwf (LCov.refl x.den) h₂
     rw [gden_andPush] at h
     refine cands_of_strat ((h.dom hD).mono fun c hc => ?_)
     simp only [produce.produceStrategies, andLeft, hd, ite_true, List.mem_append,
@@ -396,19 +395,19 @@ theorem dc_and_pushR {dd : Nat} {ts : Tables} {lb rb : Option Span} (hg : GoodG 
     (h₁ : ∀ y ∈ maxima (answersOf ts ⟨lb, b, rb⟩),
       DC P.theory (answersOf ts (andPush a y)) (GDen (andPush a y) R₁)) :
     DC P.theory (produce P dd ts ⟨lb, .and a b, rb⟩).1 (GDen ⟨lb, .and a b, rb⟩ (R₁.meet R₂)) := by
-  rw [← gden_and hg a b (.and a b), Lifting.meet_comm]
+  rw [← gden_and hg a b (.and a b), meet_comm]
   rcases h₂ with h₂ | ⟨y₀, hy₀, h₂⟩
   · exact Or.inl h₂.meet_left
   obtain ⟨y, hy, hcov⟩ := maxima_cover hy₀
-  have hdy : Lifting.LCov P.theory y.den (GDen ⟨lb, b, rb⟩ R₂) := (lcov_of_covers hcov).trans h₂
-  have hD : Lifting.LCov P.theory ((y.den).meet R₁) ((GDen ⟨lb, b, rb⟩ R₂).meet (GDen ⟨lb, a, rb⟩ R₁)) :=
+  have hdy : LCov P.theory y.den (GDen ⟨lb, b, rb⟩ R₂) := (lcov_of_covers hcov).trans h₂
+  have hD : LCov P.theory ((y.den).meet R₁) ((GDen ⟨lb, b, rb⟩ R₂).meet (GDen ⟨lb, a, rb⟩ R₁)) :=
     andPush_dom (bnd_fn hg.1) (bnd_fn hg.2) hdy
   rcases h₁ y hy with h₁ | ⟨x, hx, h₁⟩
   · refine Or.inl (DeadR.of_dom hD ?_)
     have := (h₁.meet_right (X := y.den))
     rwa [gden_andPush] at this
-  · have h := meetLive_dc hwf h₁ (Lifting.LCov.refl y.den)
-    rw [Lifting.meet_comm, gden_andPush] at h
+  · have h := meetLive_dc hwf h₁ (LCov.refl y.den)
+    rw [meet_comm, gden_andPush] at h
     refine cands_of_strat ((h.dom hD).mono fun c hc => ?_)
     simp only [produce.produceStrategies, andRight, hd, ite_true, List.mem_append,
       List.mem_flatMap, List.mem_map]

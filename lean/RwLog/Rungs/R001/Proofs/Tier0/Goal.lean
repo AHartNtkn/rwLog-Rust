@@ -8,7 +8,7 @@ the term (`Fn`). This is what makes `&` with boundaries distribute
 (`meet_bound`), equivalent boundaries denote the same relation
 (`same_gden`), and interfaces absorb into the span they come from.
 -/
-import RwLog.Rungs.R001.Proofs.Tier0.Rel
+import RwLog.Rungs.R001.Proofs.Derivations
 
 namespace RwLog
 
@@ -195,7 +195,7 @@ theorem meet_ifaces (x : Span) (B : GRel) :
 theorem fn_at {B C A : GRel} (hB : Fn B) (hC : Fn C) {M : Interp} {u v : GTerm} :
     (u, v) ∈ (B.comp (A.comp C)).at M ↔
       (u, u) ∈ B.at M ∧ (u, v) ∈ A.at M ∧ (v, v) ∈ C.at M := by
-  rw [Lifting.at_comp, Lifting.at_comp]
+  rw [at_comp, at_comp]
   constructor
   · rintro ⟨m, hb, m', ha, hc⟩
     obtain ⟨Sb, hb, hbM⟩ := hb
@@ -210,7 +210,7 @@ theorem fn_at {B C A : GRel} (hB : Fn B) (hC : Fn C) {M : Interp} {u v : GTerm} 
 theorem andPush_at {B C A A' xd : GRel} (hB : Fn B) (hC : Fn C) {M : Interp}
     (hx : xd.at M ⊆ (B.comp (A.comp C)).at M) :
     (xd.meet A').at M ⊆ ((B.comp (A.comp C)).meet (B.comp (A'.comp C))).at M := by
-  rw [Lifting.at_meet, Lifting.at_meet]
+  rw [at_meet, at_meet]
   rintro ⟨u, v⟩ ⟨hxd, ha'⟩
   have h := hx hxd
   obtain ⟨hb, -, hc⟩ := (fn_at hB hC).1 h
@@ -224,10 +224,10 @@ theorem andPush_backed {B C A A' : GRel} {xd : GRel} (hB : Fn B) (hC : Fn C)
   ⟨fun M hM => andPush_at hB hC (hx.1 M hM), andPush_at hB hC hx.2⟩
 
 theorem andPush_dom {B C A A' : GRel} {xd : GRel} (hB : Fn B) (hC : Fn C)
-    (hx : Lifting.LCov T xd (B.comp (A.comp C))) :
-    Lifting.LCov T (xd.meet A') ((B.comp (A.comp C)).meet (B.comp (A'.comp C))) := by
+    (hx : LCov T xd (B.comp (A.comp C))) :
+    LCov T (xd.meet A') ((B.comp (A.comp C)).meet (B.comp (A'.comp C))) := by
   intro M hM
-  rw [Lifting.at_meet, Lifting.at_meet]
+  rw [at_meet, at_meet]
   rintro ⟨u, v⟩ ⟨h, h'⟩
   exact ⟨hx M hM h, ((fn_at hB hC).1 h').2.1⟩
 

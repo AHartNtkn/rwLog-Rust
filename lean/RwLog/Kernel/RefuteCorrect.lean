@@ -16,6 +16,7 @@ The working lemmas are in the `Checker` namespace.
 -/
 import RwLog.Kernel.Refute
 import RwLog.Kernel.Covers
+import RwLog.Lib.List
 import RwLog.SpanLayer.Coverage
 import RwLog.Theory.Firing
 
@@ -194,21 +195,6 @@ theorem solve_vars : ∀ (E : Eqns V) (θ : V → Term V), solve E = some θ →
 end SolveVars
 
 /-! ## Counting a store's variables -/
-
-theorem nodup_eraseDups {α : Type} [DecidableEq α] : ∀ l : List α, l.eraseDups.Nodup
-  | [] => by simp
-  | a :: as => by
-    rw [List.eraseDups_cons]
-    have : (as.filter fun b => !b == a).length < as.length + 1 :=
-      Nat.lt_add_one_of_le (List.length_filter_le _ as)
-    refine List.nodup_cons.2 ⟨?_, nodup_eraseDups _⟩
-    simp
-termination_by l => l.length
-
-theorem length_eraseDups {α : Type} [DecidableEq α] (l : List α) :
-    l.eraseDups.length = l.toFinset.card := by
-  rw [← List.toFinset_card_of_nodup (nodup_eraseDups l)]
-  congr 1; ext; simp
 
 /-- The variables of a store. -/
 def storeVars (c : Store) : Finset Nat := (c.flatMap Term.vars).toFinset

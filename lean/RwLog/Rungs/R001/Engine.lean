@@ -59,6 +59,8 @@ changing, `S` contains all of them, so the machine never stalls.
 -/
 import RwLog.Kernel.Refute
 import RwLog.Kernel.Iface
+import RwLog.Kernel.Live
+import RwLog.Kernel.Maxima
 import RwLog.Rungs.R000.Engine
 
 namespace RwLog
@@ -226,20 +228,6 @@ def doneOf (ts : Tables) (g : Goal) : Bool :=
 
 /-! ## Kernel steps with pruning -/
 
-/-- Simplify a span by its theory: instantiate it by every equation the
-theory forces, and drop it if the theory refutes it. -/
-def live (T : Theory) (s : Span) : List Span := (T.simplify s).toList
-
-def composeLive (T : Theory) (x y : Span) : List Span :=
-  match x.compose y with
-  | some z => live T z
-  | none => []
-
-def meetLive (T : Theory) (x y : Span) : List Span :=
-  match x.meet y with
-  | some z => live T z
-  | none => []
-
 /-- `lb ; s ; rb`. -/
 def spanAnswer (T : Theory) (lb : Option Span) (s : Span) (rb : Option Span) : List Span :=
   let left : Option Span := match lb with
@@ -251,18 +239,6 @@ def spanAnswer (T : Theory) (lb : Option Span) (s : Span) (rb : Option Span) : L
   match both with
   | some z => live T z
   | none => []
-
-/-- The answers of a list that no other member strictly covers, one per
-class of equivalent answers. -/
-def maxima (xs : List Span) : List Span :=
-  let top := xs.filter fun x => !xs.any fun y => y.covers? x && !x.covers? y
-  top.foldl (fun acc x => if acc.any fun y => y.covers? x then acc else acc ++ [x]) []
-
-/-- The candidates that enter a table holding `old`: not covered by an old
-answer, not strictly covered by another candidate, one per equivalence
-class. -/
-def fresh (old cands : List Span) : List Span :=
-  maxima (cands.filter fun c => !old.any fun t => t.covers? c)
 
 /-! ## Goals: sub-goals, candidates and strategies -/
 

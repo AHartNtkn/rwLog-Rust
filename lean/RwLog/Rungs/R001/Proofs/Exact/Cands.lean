@@ -9,7 +9,8 @@ derivation, the goal's candidates cover the derivation. They are the exact
 counterparts of the Tier 0 `dc_*` lemmas, with coverage by `Span.Covers`
 after simplification in place of coverage up to the theory.
 -/
-import RwLog.Rungs.R001.Proofs.Exact.Basic
+import RwLog.Rungs.R001.Proofs.Tier0
+import RwLog.Kernel.ExactCover
 
 namespace RwLog
 
@@ -17,7 +18,7 @@ namespace R001
 
 namespace Exact
 
-open Lifting (LCov bden PId)
+open Lifting (bden)
 open Tier0
 
 variable {P : Program}
@@ -25,7 +26,7 @@ variable {P : Program}
 /-! ## Boundaries only restrict -/
 
 theorem dom_gden {g : Goal} (hg : GoodG g) (R : GRel) : Dom R (GDen g R) :=
-  Lifting.lcov_wrap_pid (pid_of_goodBO hg.1) (pid_of_goodBO hg.2)
+  lcov_wrap_pid (pid_of_goodBO hg.1) (pid_of_goodBO hg.2)
 
 /-- Conjoining with what runs between sub-identity boundaries, when the other
 side already lies between them. -/
@@ -53,7 +54,7 @@ theorem and_dom {B C A A' xd : GRel} (hB : PId B) (hC : PId C) (h : Dom (B.comp 
 /-! ## Answers of the unfolding strategy -/
 
 theorem unfold_sub {d : Nat} {g : Goal} {c : Span} (h : c ∈ unfoldAnswers P d g) :
-    ∃ s, Derives P g.e s ∧ Sub P.theory (GDen g s.den) c := by
+    ∃ s, Derives P g.e s ∧ Under P.theory (GDen g s.den) c := by
   unfold unfoldAnswers at h
   split at h
   · simp only [List.mem_flatMap] at h
@@ -87,7 +88,7 @@ end
 /-- Every answer the tables give a goal with interface boundaries lies under
 one derivation of the goal. -/
 def AnsSub (P : Program) (ts : Tables) : Prop :=
-  ∀ d : Goal, GoodG d → ∀ a ∈ answersOf ts d, ∃ s, Derives P d.e s ∧ Sub P.theory (GDen d s.den) a
+  ∀ d : Goal, GoodG d → ∀ a ∈ answersOf ts d, ∃ s, Derives P d.e s ∧ Under P.theory (GDen d s.den) a
 
 theorem spanBoth_of_nonempty {lb rb : Option Span} {s : Span}
     (h : (GDen ⟨lb, .span s, rb⟩ s.den).Nonempty) :
@@ -121,7 +122,7 @@ variable (hL : SimpLaws P.theory)
 include hL
 
 theorem cands_sub {dd : Nat} {ts : Tables} (hA : AnsSub P ts) {h : Goal} (hg : GoodG h) {c : Span}
-    (hc : c ∈ (produce P dd ts h).1) : ∃ s, Derives P h.e s ∧ Sub P.theory (GDen h s.den) c := by
+    (hc : c ∈ (produce P dd ts h).1) : ∃ s, Derives P h.e s ∧ Under P.theory (GDen h s.den) c := by
   simp only [produce, List.mem_append] at hc
   rcases hc with hc | hc
   · exact unfold_sub hc
@@ -231,10 +232,10 @@ theorem cands_sub {dd : Nat} {ts : Tables} (hA : AnsSub P ts) {h : Goal} (hg : G
         obtain ⟨s₁, hs₁, hr₁⟩ := hA _ (goodG_andPush a y) x hx
         have hr := push_meet_subR hL (u := s₁) (Q := GDen ⟨lb, .and a b, rb⟩ ((s₁.den).meet s₂.den))
           hr₁ hr₂ (by
-            rw [Lifting.meet_comm (GDen (andPush a y) s₁.den), gden_andPush, Lifting.meet_comm]
+            rw [meet_comm (GDen (andPush a y) s₁.den), gden_andPush, meet_comm]
             exact LCov.refl _)
           (fun w hw => by
-            rw [← gden_and hg a b (.and a b), Lifting.meet_comm, Lifting.meet_comm (s₁.den)]
+            rw [← gden_and hg a b (.and a b), meet_comm, meet_comm (s₁.den)]
             exact and_dom pB pC hw) hc
         obtain ⟨s, hs, hsd⟩ := meet_isSome (gden_nonempty hr.nonempty)
         exact ⟨s, .and hs₁ hs₂ hs, by rw [hsd]; exact hr⟩
@@ -470,7 +471,7 @@ theorem xc_and_pushR {dd : Nat} {ts : Tables} {lb rb : Option Span} (hg : GoodG 
     obtain ⟨z₂, hz₂, hzc₂⟩ := meet_mono (Span.Covers.refl u₁) (hcy.trans hcy₀) hz₁
     obtain ⟨c₂, hc₂, hcc₂⟩ := simp_mono hL hzc₂ hc₁
     have hD : Dom ((GDen (andPush a y) s₁.den).meet y.den) z₂.den := by
-      rw [Lifting.meet_comm, gden_andPush, meet_some hz₂, hu₁, Lifting.meet_comm]
+      rw [meet_comm, gden_andPush, meet_some hz₂, hu₁, meet_comm]
       exact (dom_gden hg s₁.den).meet (LCov.refl _)
     obtain ⟨u₁', hu₁'⟩ := rep_gden (meet_nonempty_left (hD.nonempty z₂.den_nonempty))
     rw [← hu₁'] at hD

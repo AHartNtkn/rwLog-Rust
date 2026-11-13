@@ -17,7 +17,7 @@ namespace R001
 
 namespace Tier0
 
-open Lifting (LCov LEq Live PId bden W)
+open Lifting (bden W)
 
 theorem goodG_of_interfaced {g : Goal} (h : g.Interfaced) : GoodG g := by
   obtain ⟨lb, e, rb⟩ := g

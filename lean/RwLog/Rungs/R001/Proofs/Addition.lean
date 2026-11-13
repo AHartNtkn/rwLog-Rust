@@ -32,7 +32,7 @@ variable {P : Program}
 def InDom (o : Option Span) (u : GTerm) : Prop := ∃ S, (u, u, S) ∈ bden o
 
 /-- An answer under a relation relates only pairs of the relation. -/
-theorem sub_pairs {T : Theory} {X : GRel} {x : Span} (h : Sub T X x) {u u' : GTerm} {S : GStore}
+theorem sub_pairs {T : Theory} {X : GRel} {x : Span} (h : Under T X x) {u u' : GTerm} {S : GStore}
     (hx : (u, u', S) ∈ x.den) : ∃ S', (u, u', S') ∈ X := by
   obtain ⟨w, hdom, w', hsimp, hcov⟩ := h
   obtain ⟨S₁, hS₁, -⟩ := dom_iff.1 (covers_iff_dom.1 hcov) u u' S hx
@@ -59,7 +59,7 @@ include hL
 derivation of the root. -/
 theorem cover_sub {C : List CertEntry} {D : Nat} {L : Goal} (hg : GoodG L)
     (hC : Cert.Valid P C D L) {x : Span} (hx : x ∈ certCover C L) :
-    ∃ s, Derives P L.e s ∧ Sub P.theory (GDen L s.den) x := by
+    ∃ s, Derives P L.e s ∧ Under P.theory (GDen L s.den) x := by
   obtain ⟨e, he, hs, hcc⟩ := certCover_spec hC.1
   rw [hcc, orient_eq] at hx
   obtain ⟨f, hf, rfl⟩ := List.mem_map.1 hx

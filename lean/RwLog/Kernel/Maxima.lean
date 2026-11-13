@@ -1,5 +1,5 @@
 /-
-# Tier 0 proofs, part 4: maxima and fresh answers
+# Maxima and fresh answers
 
 `maxima` keeps, among a list of answers, those no other member strictly
 covers, one per class of equivalent answers; `fresh` filters out the answers
@@ -7,13 +7,21 @@ an old answer covers first. Every member of the list is covered by a kept one
 (strict coverage has no infinite chains in a finite list), and the kept ones
 never cover a later one.
 -/
-import RwLog.Rungs.R001.Proofs.Kernel
+import RwLog.Kernel.Covers
 
 namespace RwLog
 
-namespace R001
+/-- The answers of a list that no other member strictly covers, one per
+class of equivalent answers. -/
+def maxima (xs : List Span) : List Span :=
+  let top := xs.filter fun x => !xs.any fun y => y.covers? x && !x.covers? y
+  top.foldl (fun acc x => if acc.any fun y => y.covers? x then acc else acc ++ [x]) []
 
-namespace Tier0
+/-- The candidates that enter a table holding `old`: not covered by an old
+answer, not strictly covered by another candidate, one per equivalence
+class. -/
+def fresh (old cands : List Span) : List Span :=
+  maxima (cands.filter fun c => !old.any fun t => t.covers? c)
 
 theorem countP_lt {α : Type} {p q : α → Bool} :
     ∀ {l : List α}, (∀ z ∈ l, p z = true → q z = true) → (∃ z ∈ l, q z = true ∧ p z = false) →
@@ -135,9 +143,5 @@ theorem fresh_cover {old cands : List Span} {c : Span} (hc : c ∈ cands) :
 
 theorem fresh_pairwise (old cands : List Span) :
     (fresh old cands).Pairwise (fun a b => a.covers? b = false) := maxima_pairwise _
-
-end Tier0
-
-end R001
 
 end RwLog

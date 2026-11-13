@@ -385,7 +385,7 @@ theorem completing_spec (P : Program) (d : Nat) (ts ts' : Tables) (i : Nat)
 /-! ## Certificate covers are complete
 
 A valid certificate's covers cover every derivation of their goals, for every
-theory (up to the theory, as `Tier0.DC`). The proof is the completion
+theory (up to the theory, as `DC`). The proof is the completion
 soundness argument of Tier 0 run on the certificate's tables, where every
 table is complete: by induction on the weight of the derivation, the strategy
 the certificate names reads goals listed in the certificate, whose covers
@@ -532,7 +532,7 @@ theorem cert_covers_complete {C : List CertEntry} {D : Nat} {root : Goal}
 derivation of its goal. -/
 theorem cert_covers_derives {C : List CertEntry} {D : Nat} {root : Goal}
     (hC : Cert.Valid P C D root) {e : CertEntry} (he : e ∈ C) {s : Span}
-    (hs : Derives P e.goal.e s) : Tier0.DC P.theory e.cover (Tier0.GDen e.goal s.den) := by
+    (hs : Derives P e.goal.e s) : DC P.theory e.cover (Tier0.GDen e.goal s.den) := by
   obtain ⟨w, hw⟩ := Tier0.dw_of_derives hs
   exact cert_covers_complete hwf hC _ e he w s hw le_rfl
 

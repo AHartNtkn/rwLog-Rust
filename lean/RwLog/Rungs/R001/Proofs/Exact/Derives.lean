@@ -17,7 +17,7 @@ namespace R001
 
 namespace Exact
 
-open Lifting (LCov bden PId)
+open Lifting (bden)
 open Tier0
 
 variable {P : Program} (hL : SimpLaws P.theory)
@@ -25,7 +25,7 @@ include hL
 
 /-- A derivable answer lies under one derivation of the goal. -/
 theorem gderives_sub {g : Goal} {y : Span} (h : GDerives P g y) :
-    GoodG g → ∃ s, Derives P g.e s ∧ Sub P.theory (GDen g s.den) y := by
+    GoodG g → ∃ s, Derives P g.e s ∧ Under P.theory (GDen g s.den) y := by
   induction h with
   | unfold hx => exact fun _ => unfold_sub hx
   | @span lb rb s x hx =>
@@ -136,10 +136,10 @@ theorem gderives_sub {g : Goal} {y : Span} (h : GDerives P g y) :
     obtain ⟨s₁, hs₁, hr₁⟩ := ih₁ (goodG_andPush a y)
     have hr := push_meet_subR hL (u := s₁) (Q := GDen ⟨lb, .and a b, rb⟩ ((s₁.den).meet s₂.den))
       hr₁ hr₂ (by
-        rw [Lifting.meet_comm (GDen (andPush a y) s₁.den), gden_andPush, Lifting.meet_comm]
+        rw [meet_comm (GDen (andPush a y) s₁.den), gden_andPush, meet_comm]
         exact LCov.refl _)
       (fun w hw => by
-        rw [← gden_and hg a b (.and a b), Lifting.meet_comm, Lifting.meet_comm (s₁.den)]
+        rw [← gden_and hg a b (.and a b), meet_comm, meet_comm (s₁.den)]
         exact and_dom pB pC hw) hc
     obtain ⟨s, hs, hsd⟩ := meet_isSome (gden_nonempty hr.nonempty)
     exact ⟨s, .and hs₁ hs₂ hs, by rw [hsd]; exact hr⟩
@@ -241,7 +241,7 @@ theorem realise : ∀ m, ∀ g : Goal, GoodG g → ∀ (w : Nat) (s : Span), DW 
 /-- An answer under a derivation of a goal is covered by a derivable answer of
 the goal. -/
 theorem realise_sub {g : Goal} (hg : GoodG g) {s a : Span} (hs : Derives P g.e s)
-    (ha : Sub P.theory (GDen g s.den) a) : ∃ y, GDerives P g y ∧ y.Covers a := by
+    (ha : Under P.theory (GDen g s.den) a) : ∃ y, GDerives P g y ∧ y.Covers a := by
   obtain ⟨w, hw⟩ := dw_of_derives hs
   obtain ⟨v, hv, v', hv', hc⟩ := ha
   obtain ⟨y, hy, hcy⟩ := realise hL _ g hg w s hw le_rfl v v' hv hv'
@@ -352,7 +352,7 @@ theorem cert_xc {C : List CertEntry} {D : Nat} {root : Goal} (hC : Cert.Valid P 
 of its goal. -/
 theorem cert_cover_sub {C : List CertEntry} {D : Nat} {root : Goal} (hC : Cert.Valid P C D root)
     {e : CertEntry} (he : e ∈ C) {s a : Span} (hs : Derives P e.goal.e s)
-    (ha : Sub P.theory (GDen e.goal s.den) a) : ∃ f ∈ e.cover, f.Covers a := by
+    (ha : Under P.theory (GDen e.goal s.den) a) : ∃ f ∈ e.cover, f.Covers a := by
   obtain ⟨w, hw⟩ := dw_of_derives hs
   exact (cert_xc hL hC _ e he w s hw le_rfl).cover ha
 

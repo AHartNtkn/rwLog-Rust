@@ -24,6 +24,11 @@ import RwLog.Kernel.Iface
 import RwLog.Kernel.RefuteCorrect
 import RwLog.Kernel.SimplifyMono
 import RwLog.SpanLayer.Dual
+import RwLog.SpanLayer.Modulo
+import RwLog.Lib.List
+import RwLog.Kernel.Live
+import RwLog.Kernel.Maxima
+import RwLog.Kernel.ExactCover
 import RwLog.Rungs.R001.Engine
 import RwLog.Rungs.R001.Spec
 import RwLog.Rungs.R001.Proofs.Kernel
@@ -31,7 +36,8 @@ import RwLog.Rungs.R001.Proofs.Derivations
 import RwLog.Rungs.R001.Proofs.TheoryMono
 import RwLog.Rungs.R001.Proofs.Tier0
 import RwLog.Rungs.R001.Proofs.TerminationBasics
-import RwLog.Rungs.R001.Proofs.Exact.Basic
+import RwLog.Rungs.R001.Proofs.Tier0
+import RwLog.Kernel.ExactCover
 import RwLog.Rungs.R001.Proofs.Exact.Cands
 import RwLog.Rungs.R001.Proofs.Exact.Inv
 import RwLog.Rungs.R001.Proofs.Exact.Fair

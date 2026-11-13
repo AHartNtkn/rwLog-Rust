@@ -167,7 +167,7 @@ theorem complete : Obligation.complete := by
   obtain ⟨n, hdc⟩ := emitted_dc hP.2.2 hs
   rcases hdc with hd | ⟨a, ha, hdom⟩
   · exact .inl (deadR_den.1 hd)
-  · exact .inr ⟨n, a, ha, Lifting.coversLive_iff.2 hdom⟩
+  · exact .inr ⟨n, a, ha, coversLive_iff.2 hdom⟩
 
 /-- P0.3: on halting, the emitted answers are equivalent to the query. -/
 theorem honest_exhaustion : Obligation.honest_exhaustion := by

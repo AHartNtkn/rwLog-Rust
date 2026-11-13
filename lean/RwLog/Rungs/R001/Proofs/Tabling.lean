@@ -209,7 +209,7 @@ theorem goodE_of_finiteCover {g : Goal} (hg : GoodG g) (hF : FiniteCover P g) :
     exact ⟨s', h1.derives, this⟩)
   refine ⟨F, hk, hF1, fun s' hs' w hdom w' hsimp => ?_⟩
   obtain ⟨hder, hden⟩ := norm_back g hs'
-  have hsub : Sub P.theory (GDen g.norm.2 s'.den) w' := ⟨w, hdom, w', hsimp, Span.Covers.refl _⟩
+  have hsub : Under P.theory (GDen g.norm.2 s'.den) w' := ⟨w, hdom, w', hsimp, Span.Covers.refl _⟩
   have hsub' := sub_oS hL g.norm.1 hsub
   rw [← hden] at hsub'
   obtain ⟨y₀, hy₀, hy₀c⟩ := realise_sub hL hg hder hsub'
