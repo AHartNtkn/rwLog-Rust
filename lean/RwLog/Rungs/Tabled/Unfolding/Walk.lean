@@ -33,117 +33,188 @@ section meet
 
 variable (rev : Bool) (cl opq : Bool) (wv : Rel → List (It D P)) (near far : Option R)
 
-theorem mem_andV_none {x : Rel} {xs : List Rel} {it : It D P} :
-    it ∈ andV K hK cl opq wv far none (x :: xs) ↔
-      ∃ it₀ ∈ wv x, it ∈ andV K hK cl opq wv far (some it₀) xs := by
-  cases opq <;> simp only [andV, List.mem_flatMap]
+theorem metNext_opn {pre : Met (Ans D P)} {it : It D P} :
+    metNext K hK cl pre it = .opn ↔ pre = .opn ∨ ∃ t, it = .opn t := by
+  cases it with
+  | opn t => simp [metNext]
+  | closed b =>
+    cases pre with
+    | start => cases cl <;> simp [metNext]
+    | closed a => simp only [metNext]; split <;> simp
+    | dead => simp [metNext]
+    | opn => simp [metNext]
 
-theorem mem_andV_open {x : Rel} {xs : List Rel} {t : Option R} {it : It D P} :
-    it ∈ andV K hK cl true wv far (some (.opn t)) (x :: xs) ↔
-      ∃ it₀ ∈ wv x, it ∈ andV K hK cl true wv far (some (.opn t)) xs := by
-  simp only [andV, List.mem_flatMap]
+theorem andV_cons {pre : Met (Ans D P)} {x : Rel} {xs : List Rel}
+    (h : opq = true ∨ (pre ≠ .opn ∧ pre ≠ .dead)) :
+    andV K hK cl opq wv far pre (x :: xs) =
+      (wv x).flatMap fun it => andV K hK cl opq wv far (metNext K hK cl pre it) xs := by
+  cases opq with
+  | true => cases pre <;> rfl
+  | false =>
+    obtain ⟨h₁, h₂⟩ := h.resolve_left (by simp)
+    cases pre with
+    | start => rfl
+    | closed a => rfl
+    | dead => exact absurd rfl h₂
+    | opn => exact absurd rfl h₁
 
-theorem mem_andV_closed {x : Rel} {xs : List Rel} {a : Ans D P} {it : It D P} :
-    it ∈ andV K hK cl opq wv far (some (.closed a)) (x :: xs) ↔
-      ∃ it₀ ∈ wv x,
-        (∃ b c, it₀ = .closed b ∧ (Ans.meetA D P K hK a b).val = some c ∧
-          it ∈ andV K hK cl opq wv far (some (.closed c)) xs) ∨
-        ∃ t, it₀ = .opn t ∧ it ∈ andV K hK cl opq wv far (some (.opn t)) xs := by
-  have e : andV K hK cl opq wv far (some (.closed a)) (x :: xs) =
-      (wv x).flatMap fun it =>
-        match (some (Item.closed a) : Option (It D P)), it with
-        | none, it => andV K hK cl opq wv far (some it) xs
-        | some (.closed a), .closed b =>
-          match (Ans.meetA D P K hK a b).val with
-          | some c => andV K hK cl opq wv far (some (.closed c)) xs
-          | none => []
-        | some (.closed _), .opn t => andV K hK cl opq wv far (some (.opn t)) xs
-        | some (.opn t), _ => andV K hK cl opq wv far (some (.opn t)) xs := by
-    cases opq <;> simp only [andV] <;> congr 1
-  rw [e, List.mem_flatMap]
-  constructor
-  · rintro ⟨it₀, h₀, h⟩
-    refine ⟨it₀, h₀, ?_⟩
-    cases it₀ with
-    | closed b =>
-      left
-      simp only at h
-      cases hm : (Ans.meetA D P K hK a b).val with
-      | none => rw [hm] at h; cases h
-      | some c => rw [hm] at h; exact ⟨b, c, rfl, hm, h⟩
-    | opn t => exact .inr ⟨t, rfl, h⟩
-  · rintro ⟨it₀, h₀, ⟨b, c, rfl, hm, h⟩ | ⟨t, rfl, h⟩⟩
-    · refine ⟨_, h₀, ?_⟩
-      simp only
-      rw [hm]
-      exact h
-    · exact ⟨_, h₀, h⟩
+/-- The meet is handed on as an open product exactly when open products are
+asked for, every member still to walk has an item, and a member walked or
+still to walk has an open one. -/
+theorem mem_andV_opn : ∀ (xs : List Rel) (pre : Met (Ans D P)) (t : Option R),
+    Item.opn t ∈ andV K hK cl opq wv far pre xs ↔
+      t = far ∧ opq = true ∧ (∀ x ∈ xs, wv x ≠ []) ∧
+        (pre = .opn ∨ ∃ x ∈ xs, ∃ t', Item.opn t' ∈ wv x)
+  | [], pre, t => by
+    cases pre <;> cases cl <;> cases opq <;> simp [andV, eq_comm]
+  | x :: xs, pre, t => by
+    have ih := fun pre => mem_andV_opn xs pre t
+    by_cases h : opq = true ∨ (pre ≠ .opn ∧ pre ≠ .dead)
+    · rw [andV_cons K hK cl opq wv far h, List.mem_flatMap]
+      simp only [ih, metNext_opn]
+      constructor
+      · rintro ⟨it, hit, rfl, ho, hall, hex⟩
+        refine ⟨rfl, ho, fun y hy => ?_, ?_⟩
+        · rcases List.mem_cons.1 hy with rfl | hy
+          · exact List.ne_nil_of_mem hit
+          · exact hall y hy
+        · rcases hex with (hp | ⟨t', rfl⟩) | ⟨y, hy, t', ht'⟩
+          · exact .inl hp
+          · exact .inr ⟨_, by simp, t', hit⟩
+          · exact .inr ⟨y, List.mem_cons_of_mem _ hy, t', ht'⟩
+      · rintro ⟨rfl, ho, hall, hex⟩
+        have hall' : ∀ y ∈ xs, wv y ≠ [] := fun y hy => hall y (List.mem_cons_of_mem _ hy)
+        rcases hex with hp | ⟨y, hy, t', ht'⟩
+        · obtain ⟨it, hit⟩ := List.exists_mem_of_ne_nil _ (hall x (by simp))
+          exact ⟨it, hit, rfl, ho, hall', .inl (.inl hp)⟩
+        · rcases List.mem_cons.1 hy with rfl | hy
+          · exact ⟨_, ht', rfl, ho, hall', .inl (.inr ⟨t', rfl⟩)⟩
+          · obtain ⟨it, hit⟩ := List.exists_mem_of_ne_nil _ (hall x (by simp))
+            exact ⟨it, hit, rfl, ho, hall', .inr ⟨y, hy, t', ht'⟩⟩
+    · have ho : opq = false := by
+        cases opq
+        · rfl
+        · exact absurd (.inl rfl) h
+      subst ho
+      have : andV K hK cl false wv far pre (x :: xs) = [] := by
+        cases pre with
+        | start => exact absurd (.inr ⟨by simp, by simp⟩) h
+        | closed a => exact absurd (.inr ⟨by simp, by simp⟩) h
+        | dead => rfl
+        | opn => rfl
+      rw [this]
+      simp
 
-/-- After an open member nothing is an answer. -/
-theorem and_noclosed_open : ∀ (xs : List Rel) (t : Option R) (a : Ans D P),
-    Item.closed a ∉ andV K hK cl opq wv far (some (.opn t)) xs
-  | [], t, a => by cases opq <;> simp [andV]
-  | x :: xs, t, a => by
-    have ih := and_noclosed_open xs t a
+/-- After an open member, or when the answers walked relate nothing, nothing
+is an answer. -/
+theorem and_noclosed : ∀ (xs : List Rel) (pre : Met (Ans D P)) (a : Ans D P),
+    pre = .opn ∨ pre = .dead → Item.closed a ∉ andV K hK cl opq wv far pre xs
+  | [], pre, a, h => by
+    rcases h with rfl | rfl <;> cases opq <;> simp [andV]
+  | x :: xs, pre, a, h => by
+    have ih := fun pre h => and_noclosed xs pre a h
     cases opq with
-    | false => simp [andV]
+    | false => rcases h with rfl | rfl <;> simp [andV]
     | true =>
-      intro h
-      obtain ⟨it₀, -, h'⟩ := (mem_andV_open K hK cl wv far).1 h
-      exact ih h'
+      rw [andV_cons K hK cl true wv far (.inl rfl), List.mem_flatMap]
+      rintro ⟨it, -, h'⟩
+      refine ih _ ?_ h'
+      rcases h with rfl | rfl
+      · cases it <;> exact .inl rfl
+      · cases it
+        · exact .inr rfl
+        · exact .inl rfl
+
+theorem mem_andV_closed_cons {pre : Met (Ans D P)} {x : Rel} {xs : List Rel} {c : Ans D P} :
+    Item.closed c ∈ andV K hK cl opq wv far pre (x :: xs) ↔
+      ∃ it ∈ wv x, Item.closed c ∈ andV K hK cl opq wv far (metNext K hK cl pre it) xs := by
+  by_cases h : opq = true ∨ (pre ≠ .opn ∧ pre ≠ .dead)
+  · rw [andV_cons K hK cl opq wv far h, List.mem_flatMap]
+  · have hp : pre = .opn ∨ pre = .dead := by
+      cases pre with
+      | start => exact absurd (.inr ⟨by simp, by simp⟩) h
+      | closed a => exact absurd (.inr ⟨by simp, by simp⟩) h
+      | dead => exact .inr rfl
+      | opn => exact .inl rfl
+    constructor
+    · intro hc
+      exact absurd hc (and_noclosed K hK cl opq wv far _ pre c hp)
+    · rintro ⟨it, -, hc⟩
+      refine absurd hc (and_noclosed K hK cl opq wv far xs _ c ?_)
+      rcases hp with rfl | rfl
+      · cases it <;> exact .inl rfl
+      · cases it
+        · exact .inr rfl
+        · exact .inl rfl
+
+theorem mem_andV_closed_nil {pre : Met (Ans D P)} {c : Ans D P} :
+    Item.closed c ∈ andV K hK cl opq wv far pre [] ↔ cl = true ∧ pre = .closed c := by
+  cases pre <;> cases cl <;> cases opq <;> simp [andV, eq_comm]
+
+/-- After an answer, an answer of the meet is the `meetA` with an answer of
+the next member, carried on. -/
+theorem mem_andV_closed {x : Rel} {xs : List Rel} {a c : Ans D P} :
+    Item.closed c ∈ andV K hK cl opq wv far (.closed a) (x :: xs) ↔
+      ∃ b c', Item.closed b ∈ wv x ∧ (Ans.meetA D P K hK a b).val = some c' ∧
+        Item.closed c ∈ andV K hK cl opq wv far (.closed c') xs := by
+  rw [mem_andV_closed_cons]
+  constructor
+  · rintro ⟨it, hit, hc⟩
+    cases it with
+    | closed b =>
+      simp only [metNext] at hc
+      cases hm : (Ans.meetA D P K hK a b).val with
+      | none =>
+        rw [hm] at hc
+        exact absurd hc (and_noclosed K hK cl opq wv far xs _ c (.inr rfl))
+      | some c' =>
+        rw [hm] at hc
+        exact ⟨b, c', hit, hm, hc⟩
+    | opn t => exact absurd hc (and_noclosed K hK cl opq wv far xs _ c (.inl rfl))
+  · rintro ⟨b, c', hb, hm, hc⟩
+    refine ⟨_, hb, ?_⟩
+    simp only [metNext]
+    rw [hm]
+    exact hc
 
 /-- When the answers are not asked for, none is handed on. -/
-theorem and_noclosed_flag : ∀ (xs : List Rel) (pre : Option (It D P)) (a : Ans D P),
+theorem and_noclosed_flag : ∀ (xs : List Rel) (pre : Met (Ans D P)) (a : Ans D P),
     Item.closed a ∉ andV K hK false opq wv far pre xs
   | [], pre, a => by
-    cases pre with
-    | none => simp [andV]
-    | some p => cases p <;> cases opq <;> simp [andV]
+    rw [mem_andV_closed_nil]
+    simp
   | x :: xs, pre, a => by
-    intro h
-    cases pre with
-    | none =>
-      obtain ⟨it₀, -, h'⟩ := (mem_andV_none K hK false opq wv far).1 h
-      exact and_noclosed_flag xs _ a h'
-    | some p =>
-      cases p with
-      | closed b =>
-        obtain ⟨it₀, -, ⟨b', c, -, -, h'⟩ | ⟨t, -, h'⟩⟩ :=
-          (mem_andV_closed K hK false opq wv far).1 h
-        · exact and_noclosed_flag xs _ a h'
-        · exact and_noclosed_flag xs _ a h'
-      | opn t => exact and_noclosed_open K hK false opq wv far _ t a h
+    rw [mem_andV_closed_cons]
+    rintro ⟨it, -, h⟩
+    exact and_noclosed_flag xs _ a h
 
 /-- The answers of a meet are answers of its goal. -/
 theorem and_goal : ∀ (xs : List Rel) (pm : List Rel) (a : Ans D P), pm ≠ [] →
     (∀ y ∈ pm, NotAnd y) → a.goal = goalD rev near (mkAnd (sortedParts pm)) far →
     (∀ x ∈ xs, NotAnd x ∧ ∀ b, Item.closed b ∈ wv x → b.goal = goalD rev near x far) →
-    ∀ c, Item.closed c ∈ andV K hK cl opq wv far (some (.closed a)) xs →
+    ∀ c, Item.closed c ∈ andV K hK cl opq wv far (.closed a) xs →
       c.goal = goalD rev near (mkAnd (sortedParts (pm ++ xs))) far
   | [], pm, a, _, _, ha, _, c, hc => by
-    have : c = a := by
-      cases cl <;> simp [andV] at hc
-      exact hc
-    rw [this, List.append_nil]
+    obtain ⟨-, e⟩ := (mem_andV_closed_nil K hK cl opq wv far).1 hc
+    obtain rfl : a = c := by simpa using e
+    rw [List.append_nil]
     exact ha
   | x :: xs, pm, a, hpm, hns, ha, H, c, hc => by
-    obtain ⟨it₀, h₀, ⟨b, c', rfl, hm, h'⟩ | ⟨t, rfl, h'⟩⟩ :=
-      (mem_andV_closed K hK cl opq wv far).1 hc
-    · have hx := (H x (by simp)).1
-      have hg := meetD_goal K hK rev hm ha ((H x (by simp)).2 b h₀)
-      rw [andParts_mkAnd (sortedParts_ne_nil hpm)
-          (fun z hz => hns z ((sortedParts_perm _).mem_iff.1 hz)),
-        andParts_notAnd (H x (by simp)).1,
-        sortedParts_eq ((sortedParts_perm pm).append_right [x])] at hg
-      have := and_goal xs (pm ++ [x]) c' (by simp)
-        (fun y hy => by
-          rcases List.mem_append.1 hy with h | h
-          · exact hns y h
-          · obtain rfl : y = x := by simpa using h
-            exact hx) hg
-        (fun y hy => H y (List.mem_cons_of_mem _ hy)) c h'
-      rwa [List.append_assoc, List.singleton_append] at this
-    · exact absurd h' (and_noclosed_open K hK cl opq wv far _ t c)
+    obtain ⟨b, c', h₀, hm, h'⟩ := (mem_andV_closed K hK cl opq wv far).1 hc
+    have hx := (H x (by simp)).1
+    have hg := meetD_goal K hK rev hm ha ((H x (by simp)).2 b h₀)
+    rw [andParts_mkAnd (sortedParts_ne_nil hpm)
+        (fun z hz => hns z ((sortedParts_perm _).mem_iff.1 hz)),
+      andParts_notAnd (H x (by simp)).1,
+      sortedParts_eq ((sortedParts_perm pm).append_right [x])] at hg
+    have := and_goal xs (pm ++ [x]) c' (by simp)
+      (fun y hy => by
+        rcases List.mem_append.1 hy with h | h
+        · exact hns y h
+        · obtain rfl : y = x := by simpa using h
+          exact hx) hg
+      (fun y hy => H y (List.mem_cons_of_mem _ hy)) c h'
+    rwa [List.append_assoc, List.singleton_append] at this
 
 variable {W : PRel} (hW : W.Nonempty)
 
@@ -154,55 +225,15 @@ theorem and_closed : ∀ (xs : List Rel) (a : Ans D P) (n₀ : Rel),
     a.goal = goalD rev near n₀ far → W ⊆ den P.sorts.interp a.span →
     (∀ x ∈ xs, ∃ b, Item.closed b ∈ wv x ∧ b.goal = goalD rev near x far ∧
       W ⊆ den P.sorts.interp b.span) →
-    ∃ c, Item.closed c ∈ andV K hK true opq wv far (some (.closed a)) xs ∧
+    ∃ c, Item.closed c ∈ andV K hK true opq wv far (.closed a) xs ∧
       W ⊆ den P.sorts.interp c.span
-  | [], a, _, _, hWa, _ => ⟨a, by simp [andV], hWa⟩
+  | [], a, _, _, hWa, _ => ⟨a, (mem_andV_closed_nil K hK true opq wv far).2 ⟨rfl, rfl⟩, hWa⟩
   | x :: xs, a, n₀, ha, hWa, H => by
     obtain ⟨b, hb, hbg, hWb⟩ := H x (by simp)
     obtain ⟨c', hm, hWc, hcg⟩ := meetD hL K hK rev ha hbg hWa hWb hW
     obtain ⟨c, hc, hWc'⟩ := and_closed xs c' _ hcg hWc
       (fun y hy => H y (List.mem_cons_of_mem _ hy))
-    exact ⟨c, (mem_andV_closed K hK true opq wv far).2
-      ⟨_, hb, .inl ⟨b, c', rfl, hm, hc⟩⟩, hWc'⟩
-
-/-- After an open member the meet is handed on as an open product, when
-every other member has an item. -/
-theorem and_open_i : ∀ (xs : List Rel) (t : Option R), (∀ x ∈ xs, wv x ≠ []) →
-    Item.opn far ∈ andV K hK cl true wv far (some (.opn t)) xs
-  | [], t, _ => by simp [andV]
-  | x :: xs, t, H => by
-    obtain ⟨it₀, h₀⟩ := List.exists_mem_of_ne_nil _ (H x (by simp))
-    exact (mem_andV_open K hK cl wv far).2
-      ⟨it₀, h₀, and_open_i xs t fun y hy => H y (List.mem_cons_of_mem _ hy)⟩
-
-include hL hW in
-/-- When every member has an item that relates the pairs or is open, and one
-of them an open one, the meet is handed on as an open product. -/
-theorem and_open_ii : ∀ (xs : List Rel) (a : Ans D P) (n₀ : Rel),
-    a.goal = goalD rev near n₀ far → W ⊆ den P.sorts.interp a.span →
-    (∀ x ∈ xs, (∃ b, Item.closed b ∈ wv x ∧ b.goal = goalD rev near x far ∧
-      W ⊆ den P.sorts.interp b.span) ∨ ∃ t, Item.opn t ∈ wv x) →
-    (∃ x ∈ xs, ∃ t, Item.opn t ∈ wv x) →
-    Item.opn far ∈ andV K hK cl true wv far (some (.closed a)) xs
-  | [], _, _, _, _, _, ⟨x, hx, _⟩ => by cases hx
-  | x :: xs, a, n₀, ha, hWa, H, hex => by
-    have hne : ∀ y ∈ xs, wv y ≠ [] := fun y hy => by
-      rcases H y (List.mem_cons_of_mem _ hy) with ⟨b, hb, -⟩ | ⟨t, ht⟩
-      · exact List.ne_nil_of_mem hb
-      · exact List.ne_nil_of_mem ht
-    by_cases hx : ∃ t, Item.opn t ∈ wv x
-    · obtain ⟨t, ht⟩ := hx
-      exact (mem_andV_closed K hK cl true wv far).2
-        ⟨_, ht, .inr ⟨t, rfl, and_open_i K hK cl wv far xs t hne⟩⟩
-    · obtain ⟨b, hb, hbg, hWb⟩ := (H x (by simp)).resolve_right hx
-      obtain ⟨c', hm, hWc, hcg⟩ := meetD hL K hK rev ha hbg hWa hWb hW
-      have hex' : ∃ y ∈ xs, ∃ t, Item.opn t ∈ wv y := by
-        obtain ⟨y, hy, t, ht⟩ := hex
-        rcases List.mem_cons.1 hy with rfl | hy
-        · exact absurd ⟨t, ht⟩ hx
-        · exact ⟨y, hy, t, ht⟩
-      exact (mem_andV_closed K hK cl true wv far).2 ⟨_, hb, .inl ⟨b, c', rfl, hm,
-        and_open_ii xs c' _ hcg hWc (fun y hy => H y (List.mem_cons_of_mem _ hy)) hex'⟩⟩
+    exact ⟨c, (mem_andV_closed K hK true opq wv far).2 ⟨b, c', hb, hm, hc⟩, hWc'⟩
 
 end meet
 
@@ -216,26 +247,29 @@ include h2 hna hs in
 /-- The answers a meet hands on are answers of its goal. -/
 theorem meet_goal_part (cl opq : Bool) (wv : Rel → List (It D P))
     (hw : ∀ x ∈ xs, WOk rev near x far (C x) (O x) (wv x)) (c : Ans D P)
-    (hc : Item.closed c ∈ andV K hK cl opq wv far none xs) :
+    (hc : Item.closed c ∈ andV K hK cl opq wv far .start xs) :
     c.goal = goalD rev near (mkAnd xs) far := by
   obtain ⟨x₀, tl, rfl⟩ : ∃ x₀ tl, xs = x₀ :: tl := by
     cases xs with
     | nil => simp at h2
     | cons a b => exact ⟨a, b, rfl⟩
-  obtain ⟨it₀, h₀, h'⟩ := (mem_andV_none K hK cl opq wv far).1 hc
+  obtain ⟨it₀, h₀, h'⟩ := (mem_andV_closed_cons K hK cl opq wv far).1 hc
   cases it₀ with
   | closed b =>
-    have hb : b.goal = goalD rev near (mkAnd (sortedParts [x₀])) far := by
-      rw [sortedParts_of_sorted (List.pairwise_singleton _ _)]
-      exact (hw x₀ (by simp)).goal b h₀
-    have := and_goal K hK rev cl opq wv near far tl [x₀] b (by simp)
-      (fun y hy => by
-        obtain rfl : y = x₀ := by simpa using hy
-        exact hna _ (by simp)) hb
-      (fun y hy => ⟨hna y (List.mem_cons_of_mem _ hy),
-        (hw y (List.mem_cons_of_mem _ hy)).goal⟩) c h'
-    rwa [List.singleton_append, sortedParts_of_sorted hs] at this
-  | opn t => exact absurd h' (and_noclosed_open K hK cl opq wv far _ t c)
+    cases cl with
+    | false => exact absurd h' (and_noclosed K hK false opq wv far _ _ c (.inr rfl))
+    | true =>
+      have hb : b.goal = goalD rev near (mkAnd (sortedParts [x₀])) far := by
+        rw [sortedParts_of_sorted (List.pairwise_singleton _ _)]
+        exact (hw x₀ (by simp)).goal b h₀
+      have := and_goal K hK rev true opq wv near far tl [x₀] b (by simp)
+        (fun y hy => by
+          obtain rfl : y = x₀ := by simpa using hy
+          exact hna _ (by simp)) hb
+        (fun y hy => ⟨hna y (List.mem_cons_of_mem _ hy),
+          (hw y (List.mem_cons_of_mem _ hy)).goal⟩) c h'
+      rwa [List.singleton_append, sortedParts_of_sorted hs] at this
+  | opn t => exact absurd h' (and_noclosed K hK cl opq wv far _ _ c (.inl rfl))
 
 include hL h2 in
 /-- A derivation of a meet whose members are read whole is covered by an
@@ -244,7 +278,7 @@ theorem meet_closed_part (opq : Bool) (wv : Rel → List (It D P))
     (hw : ∀ x ∈ xs, WOk rev near x far (C x) (O x) (wv x)) {G : GRel}
     (hG : G ∈ RwLog.andAll (xs.map C))
     (hne : (wrapD P.sorts.interp rev near (G.at P.sorts.interp) far).Nonempty) :
-    ∃ a, Item.closed a ∈ andV K hK true opq wv far none xs ∧
+    ∃ a, Item.closed a ∈ andV K hK true opq wv far .start xs ∧
       wrapD P.sorts.interp rev near (G.at P.sorts.interp) far ⊆ den P.sorts.interp a.span := by
   obtain ⟨x₀, tl, rfl⟩ : ∃ x₀ tl, xs = x₀ :: tl := by
     cases xs with
@@ -261,16 +295,16 @@ theorem meet_closed_part (opq : Bool) (wv : Rel → List (It D P))
   obtain ⟨b, hb, hbg, hWb⟩ := mem x₀ (by simp)
   obtain ⟨c, hc, hWc⟩ := and_closed hL K hK rev opq wv near far hne tl b _ hbg hWb
     (fun y hy => mem y (List.mem_cons_of_mem _ hy))
-  exact ⟨c, (mem_andV_none K hK true opq wv far).2 ⟨_, hb, hc⟩, hWc⟩
+  exact ⟨c, (mem_andV_closed_cons K hK true opq wv far).2 ⟨_, hb, hc⟩, hWc⟩
 
-include hL h2 in
+include h2 in
 /-- A derivation of a meet with a member not read whole makes the meet an
 open product. -/
 theorem meet_open_part (cl : Bool) (wv : Rel → List (It D P))
     (hw : ∀ x ∈ xs, WOk rev near x far (C x) (O x) (wv x)) {G : GRel}
     (hG : G ∈ RwLog.andAll (xs.map O)) (hnC : G ∉ RwLog.andAll (xs.map C))
     (hne : (wrapD P.sorts.interp rev near (G.at P.sorts.interp) far).Nonempty) :
-    Item.opn far ∈ andV K hK cl true wv far none xs := by
+    Item.opn far ∈ andV K hK cl true wv far .start xs := by
   obtain ⟨x₀, tl, rfl⟩ : ∃ x₀ tl, xs = x₀ :: tl := by
     cases xs with
     | nil => simp at h2
@@ -293,32 +327,20 @@ theorem meet_open_part (cl : Bool) (wv : Rel → List (It D P))
     · obtain ⟨t, ht, -⟩ := (hw x hx).opn g hg hn'
         (hne.mono (wrapD_mono (M := P.sorts.interp) rev near far hs'))
       exact ⟨x, hx, t, ht⟩
-  have hne' : ∀ y ∈ tl, wv y ≠ [] := fun y hy => by
-    rcases mem y (List.mem_cons_of_mem _ hy) with ⟨b, hb, -⟩ | ⟨t, ht⟩
-    · exact List.ne_nil_of_mem hb
-    · exact List.ne_nil_of_mem ht
-  by_cases hx : ∃ t, Item.opn t ∈ wv x₀
-  · obtain ⟨t, ht⟩ := hx
-    exact (mem_andV_none K hK cl true wv far).2 ⟨_, ht, and_open_i K hK cl wv far tl t hne'⟩
-  · obtain ⟨b, hb, hbg, hWb⟩ := (mem x₀ (by simp)).resolve_right hx
-    have hex' : ∃ y ∈ tl, ∃ t, Item.opn t ∈ wv y := by
-      obtain ⟨y, hy, t, ht⟩ := hex
-      rcases List.mem_cons.1 hy with rfl | hy
-      · exact absurd ⟨t, ht⟩ hx
-      · exact ⟨y, hy, t, ht⟩
-    exact (mem_andV_none K hK cl true wv far).2 ⟨_, hb,
-      and_open_ii hL K hK rev cl wv near far hne tl b _ hbg hWb
-        (fun y hy => mem y (List.mem_cons_of_mem _ hy)) hex'⟩
+  refine (mem_andV_opn K hK cl true wv far _ _ _).2 ⟨rfl, rfl, fun y hy => ?_, .inr hex⟩
+  rcases mem y hy with ⟨b, hb, -⟩ | ⟨t, ht⟩
+  · exact List.ne_nil_of_mem hb
+  · exact List.ne_nil_of_mem ht
 
 include hL h2 hna hs in
 /-- The items of a meet where nothing was pushed. -/
 theorem meet_wok_plain (wv : Rel → List (It D P))
     (hw : ∀ x ∈ xs, WOk rev near x far (C x) (O x) (wv x)) :
     WOk rev near (mkAnd xs) far (RwLog.andAll (xs.map C)) (RwLog.andAll (xs.map O))
-      (andV K hK true true wv far none xs) :=
+      (andV K hK true true wv far .start xs) :=
   ⟨meet_goal_part K hK rev h2 hna hs C O true true wv hw,
     fun _ hG hne => meet_closed_part hL K hK rev h2 C O true wv hw hG hne,
-    fun _ hG hnC hne => ⟨far, meet_open_part hL K hK rev h2 C O true wv hw hG hnC hne,
+    fun _ hG hnC hne => ⟨far, meet_open_part K hK rev h2 C O true wv hw hG hnC hne,
       fun _ hp => adm_far rev hp⟩⟩
 
 include hL hn h2 hna hs in
@@ -328,7 +350,7 @@ theorem meet_wok_pushed (wv wvo : Rel → List (It D P))
     (hw : ∀ x ∈ xs, WOk rev near x far (C x) (O x) (wv x))
     (hwo : ∀ x ∈ xs, WOk rev none x far (C x) (O x) (wvo x)) :
     WOk rev near (mkAnd xs) far (RwLog.andAll (xs.map C)) (RwLog.andAll (xs.map O))
-      (andV K hK true false wv far none xs ++ andV K hK false true wvo far none xs) := by
+      (andV K hK true false wv far .start xs ++ andV K hK false true wvo far .start xs) := by
   refine ⟨fun c hc => ?_, fun G hG hne => ?_, fun G hG hnC hne => ?_⟩
   · rcases List.mem_append.1 hc with h | h
     · exact meet_goal_part K hK rev h2 hna hs C O true false wv hw c h
@@ -336,7 +358,7 @@ theorem meet_wok_pushed (wv wvo : Rel → List (It D P))
   · obtain ⟨a, ha, hX⟩ := meet_closed_part hL K hK rev h2 C O false wv hw hG hne
     exact ⟨a, List.mem_append_left _ ha, hX⟩
   · exact ⟨far, List.mem_append_right _
-      (meet_open_part hL K hK rev h2 C O false wvo hwo hG hnC
+      (meet_open_part K hK rev h2 C O false wvo hwo hG hnC
         (hne.mono (wrapD_none_sub hL rev hn _ far))), fun _ hp => adm_far rev hp⟩
 
 end meetNode
@@ -438,7 +460,7 @@ theorem walk_ok (hP : ProgFO P) (rev : Bool) : ∀ (d : Nat) (c : Near R) (n : R
       cases hp : c.isPushed with
       | false =>
         have e : walkV (P := P) K hK rev (d + 1) c n far =
-            andV K hK true true (fun x => walkV K hK rev d c x far) far none xs := by
+            andV K hK true true (fun x => walkV K hK rev d c x far) far .start xs := by
           simp only [walkV, hv, hp, Bool.false_eq_true, ite_false]
         rw [e]
         have := meet_wok_plain hL K hK rev h2 (fun x hx => (hmem x hx).2) hs (GR P d) (GD P)
@@ -446,8 +468,8 @@ theorem walk_ok (hP : ProgFO P) (rev : Bool) : ∀ (d : Nat) (c : Near R) (n : R
         rwa [hmk] at this
       | true =>
         have e : walkV (P := P) K hK rev (d + 1) c n far =
-            andV K hK true false (fun x => walkV K hK rev d c x far) far none xs ++
-              andV K hK false true (fun x => walkV K hK rev d c.own x far) far none xs := by
+            andV K hK true false (fun x => walkV K hK rev d c x far) far .start xs ++
+              andV K hK false true (fun x => walkV K hK rev d c.own x far) far .start xs := by
           simp only [walkV, hv, hp, ite_true]
         have ho : c.own.bound = none := by
           have h := hp

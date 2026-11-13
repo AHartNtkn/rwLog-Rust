@@ -218,83 +218,95 @@ theorem seqW_val (rev : Bool) (w : Walker R Rel (Ans D P) Cost α)
 
 /-! ## A meet -/
 
+/-- What a walk holds of the members of a meet after an item of the next
+one. -/
+def metNext (closed : Bool) : Met (Ans D P) → It D P → Met (Ans D P)
+  | _, .opn _ => .opn
+  | .start, .closed b => if closed then .closed b else .dead
+  | .closed a, .closed b =>
+    match (Ans.meetA D P K hK a b).val with
+    | some c => .closed c
+    | none => .dead
+  | .dead, .closed _ => .dead
+  | .opn, .closed _ => .opn
+
 /-- The items of a meet from the items of its members. -/
 def andV (closed opq : Bool) (w : Rel → List (It D P)) (far : Option R) :
-    Option (It D P) → List Rel → List (It D P)
+    Met (Ans D P) → List Rel → List (It D P)
   | pre, [] =>
     match pre with
-    | some (.closed a) => if closed then [.closed a] else []
-    | some (.opn _) => if opq then [.opn far] else []
-    | none => []
+    | .closed a => if closed then [.closed a] else []
+    | .opn => if opq then [.opn far] else []
+    | .start => []
+    | .dead => []
   | pre, x :: xs =>
     match pre, opq with
-    | some (.opn _), false => []
-    | _, _ => (w x).flatMap fun it =>
-        match pre, it with
-        | none, it => andV closed opq w far (some it) xs
-        | some (.closed a), .closed b =>
-          match (Ans.meetA D P K hK a b).val with
-          | some c => andV closed opq w far (some (.closed c)) xs
-          | none => []
-        | some (.closed _), .opn t => andV closed opq w far (some (.opn t)) xs
-        | some (.opn t), _ => andV closed opq w far (some (.opn t)) xs
+    | .opn, false => []
+    | .dead, false => []
+    | _, _ => (w x).flatMap fun it => andV closed opq w far (metNext K hK closed pre it) xs
 
 theorem andW_val (closed opq : Bool)
     (w : Rel → (It D P → α → Cost (Bool × α)) → α → Cost (Bool × α)) (wv : Rel → List (It D P))
     (hw : ∀ x k acc, (w x k acc).val = untilV (fun it acc => (k it acc).val) (wv x) acc)
     (far : Option R) :
-    ∀ (xs : List Rel) (pre : Option (It D P)) (k : It D P → α → Cost (Bool × α)) (acc : α),
+    ∀ (xs : List Rel) (pre : Met (Ans D P)) (k : It D P → α → Cost (Bool × α)) (acc : α),
       (andW (K := DerivationKernel.over D K hK P) closed opq w far pre xs k acc).val =
         untilV (fun it acc => (k it acc).val) (andV K hK closed opq wv far pre xs) acc
   | [], pre, k, acc => by
     at_cost K hK
     cases pre with
-    | none => simp only [andW, andV, Cost.pure_val, untilV]
-    | some it =>
-      cases it with
-      | closed a =>
-        cases closed <;>
-          simp only [andW, andV, Cost.pure_val, untilV, untilV_singleton, Bool.false_eq_true,
-            ite_false, ite_true]
-      | opn t =>
-        cases opq <;>
-          simp only [andW, andV, Cost.pure_val, untilV, untilV_singleton, Bool.false_eq_true,
-            ite_false, ite_true]
+    | start => simp only [andW, andV, Cost.pure_val, untilV]
+    | dead => simp only [andW, andV, Cost.pure_val, untilV]
+    | closed a =>
+      cases closed <;>
+        simp only [andW, andV, Cost.pure_val, untilV, untilV_singleton, Bool.false_eq_true,
+          ite_false, ite_true]
+    | opn =>
+      cases opq <;>
+        simp only [andW, andV, Cost.pure_val, untilV, untilV_singleton, Bool.false_eq_true,
+          ite_false, ite_true]
   | x :: xs, pre, k, acc => by
     have ih := andW_val closed opq w wv hw far xs
     cases pre with
-    | none =>
+    | start =>
       simp only [andW, andV]
       rw [hw, untilV_flatMap]
       congr 1
       funext it acc'
-      exact ih _ _ _
-    | some p =>
-      cases p with
-      | closed a =>
+      cases it <;> exact ih _ _ _
+    | closed a =>
+      simp only [andW, andV]
+      rw [hw, untilV_flatMap]
+      congr 1
+      funext it acc'
+      cases it with
+      | closed b =>
+        at_cost K hK
+        simp only [Cost.bind_val, over_meetA, metNext]
+        cases (Ans.meetA D P _ hK a b).val <;> simp only [ih]
+      | opn t => exact ih _ _ _
+    | dead =>
+      cases opq with
+      | false =>
+        at_cost K hK
+        simp only [andW, andV, Cost.pure_val, untilV]
+      | true =>
         simp only [andW, andV]
         rw [hw, untilV_flatMap]
         congr 1
         funext it acc'
-        cases it with
-        | closed b =>
-          at_cost K hK
-          simp only [Cost.bind_val, over_meetA]
-          cases (Ans.meetA D P _ hK a b).val with
-          | none => simp only [Cost.pure_val, untilV]
-          | some c => simp only [ih]
-        | opn t => exact ih _ _ _
-      | opn t =>
-        cases opq with
-        | false =>
-          at_cost K hK
-          simp only [andW, andV, Cost.pure_val, untilV]
-        | true =>
-          simp only [andW, andV]
-          rw [hw, untilV_flatMap]
-          congr 1
-          funext it acc'
-          exact ih _ _ _
+        cases it <;> exact ih _ _ _
+    | opn =>
+      cases opq with
+      | false =>
+        at_cost K hK
+        simp only [andW, andV, Cost.pure_val, untilV]
+      | true =>
+        simp only [andW, andV]
+        rw [hw, untilV_flatMap]
+        congr 1
+        funext it acc'
+        cases it <;> exact ih _ _ _
 
 /-! ## The walk -/
 
@@ -315,9 +327,9 @@ def walkV (rev : Bool) : Nat → Near R → Rel → Option R → List (It D P)
     | .chain xs => seqV K hK rev (walkV rev d) far none c (if rev then xs.reverse else xs)
     | .meet xs =>
       if c.isPushed then
-        andV K hK true false (fun x => walkV rev d c x far) far none xs ++
-          andV K hK false true (fun x => walkV rev d c.own x far) far none xs
-      else andV K hK true true (fun x => walkV rev d c x far) far none xs
+        andV K hK true false (fun x => walkV rev d c x far) far .start xs ++
+          andV K hK false true (fun x => walkV rev d c.own x far) far .start xs
+      else andV K hK true true (fun x => walkV rev d c x far) far .start xs
 
 theorem walk_val (rev : Bool) : ∀ (d : Nat) (c : Near R) (n : Rel) (far : Option R)
     (k : It D P → α → Cost (Bool × α)) (acc : α),

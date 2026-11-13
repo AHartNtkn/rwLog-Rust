@@ -201,6 +201,24 @@ def atom (t : Pat) : Option Span := some ⟨t, t, []⟩
 #guard agree natP (.seq (.and (.call "nat") (.rw (v 0) (v 0))) (.call "nat")) none (atom (num 1)) 9
 #guard agree callP (.call "call_first") none none 8
 #guard agree (prog [("upr", upr)]) (.seq (.call "upr") (.at_ (c "foo"))) (atom (c "z")) none 10
+-- A meet of three: two members with no pair in common beside one that is
+-- never read whole. Every evaluation says the same of it, wherever the open
+-- member stands among the members.
+#guard agree natP
+  (.and (.rw (c "a") (c "a")) (.and (.rw (c "b") (c "b")) (.call "nat"))) none none 6
+#guard agree natP
+  (.and (.or (.rw (c "a") (c "a")) (.rw (c "a") (c "c")))
+    (.and (.or (.rw (c "b") (c "b")) (.rw (c "b") (c "c"))) (.call "nat"))) none none 6
+#guard agree natP
+  (.and (.rw (c "a") (c "a"))
+    (.and (.rw (c "b") (c "b")) (.or (.call "nat") (.rw (c "q") (c "q"))))) none none 6
+#guard agree natP
+  (.and (.or (.rw (c "a") (c "a")) (.rw (c "a") (c "c")))
+    (.and (.or (.rw (c "b") (c "b")) (.rw (c "b") (c "c")))
+      (.or (.call "nat") (.rw (c "q") (c "q"))))) none none 6
+#guard agree natP
+  (.seq (.rw (v 0) (v 0))
+    (.and (.rw (c "a") (c "a")) (.and (.rw (c "b") (c "b")) (.call "nat")))) (atom (c "a")) none 6
 -- The unfolding of a goal that is final at some depth is final from there on.
 #guard (askRace Tabled.Unfold.eagerRace addP (.call "add") (atom (ap "cons" [num 2, num 1])) none 11)
   == (true, ["(cons (s (s z)) (s z)) -> (s (s (s z)))"])

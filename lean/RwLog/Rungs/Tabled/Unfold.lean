@@ -268,33 +268,47 @@ def seqW (rev : Bool) (w : Walker S N A M α) (far : Option S) :
         let c' ← nearAfter (K := K) rev it'
         seqW rev w far (some it') c' xs k acc) acc
 
+/-- What a walk holds of the members of a meet it has walked so far: nothing
+yet; the meet of their answers; that they are all answers and there is none
+to hand on (their meet relates nothing, or answers are not asked for); or
+that one of them is open. -/
+inductive Met (A : Type) where
+  | start
+  | closed (a : A)
+  | dead
+  | opn
+
 /-- Walk the members of a meet, all between the same boundaries. With
 `closed` the answers of the meet are handed on, each the `meetA` of one
 answer of every member. With `opq` the meet is handed on as an open
-product once for every choice of products of the members, not all of them
-answers. -/
+product once for every choice of one product of each member, not all of them
+answers: whatever the answers among them relate. -/
 def andW (closed opq : Bool) (w : N → (Item S A → α → M (Bool × α)) → α → M (Bool × α))
     (far : Option S) :
-    Option (Item S A) → List N → (Item S A → α → M (Bool × α)) → α → M (Bool × α)
+    Met A → List N → (Item S A → α → M (Bool × α)) → α → M (Bool × α)
   | pre, [], k, acc =>
     match pre with
-    | some (.closed a) => if closed then k (.closed a) acc else pure (false, acc)
-    | some (.opn _) => if opq then k (.opn far) acc else pure (false, acc)
-    | none => pure (false, acc)
+    | .closed a => if closed then k (.closed a) acc else pure (false, acc)
+    | .opn => if opq then k (.opn far) acc else pure (false, acc)
+    | .start => pure (false, acc)
+    | .dead => pure (false, acc)
   | pre, x :: xs, k, acc =>
     match pre, opq with
-    | some (.opn _), false => pure (false, acc)
+    | .opn, false => pure (false, acc)
+    | .dead, false => pure (false, acc)
     | _, _ =>
       w x (fun it acc =>
         match pre, it with
-        | none, it => andW closed opq w far (some it) xs k acc
-        | some (.closed a), .closed b => do
+        | _, .opn _ => andW closed opq w far .opn xs k acc
+        | .start, .closed b =>
+          andW closed opq w far (if closed then .closed b else .dead) xs k acc
+        | .closed a, .closed b => do
           let c ← K.meetA a b
           match c with
-          | some c => andW closed opq w far (some (.closed c)) xs k acc
-          | none => pure (false, acc)
-        | some (.closed _), .opn t => andW closed opq w far (some (.opn t)) xs k acc
-        | some (.opn t), _ => andW closed opq w far (some (.opn t)) xs k acc) acc
+          | some c => andW closed opq w far (.closed c) xs k acc
+          | none => andW closed opq w far .dead xs k acc
+        | .dead, .closed _ => andW closed opq w far .dead xs k acc
+        | .opn, .closed _ => andW closed opq w far .opn xs k acc) acc
 
 /-- Go through the products of the unfolding of a node to depth `d`, between
 the near context `c` and the far boundary, handing each to `k` until `k` says
@@ -329,10 +343,10 @@ def walk (rev : Bool) : Nat → Walker S N A M α
       seqW (K := K) rev (walk rev d : Walker S N A M α) far none c (if rev then xs.reverse else xs) k acc
     | .meet xs =>
       if c.isPushed then do
-        let r ← andW (K := K) true false (fun x => walk rev d c x far) far none xs k acc
+        let r ← andW (K := K) true false (fun x => walk rev d c x far) far .start xs k acc
         if r.1 then pure r
-        else andW (K := K) false true (fun x => walk rev d c.own x far) far none xs k r.2
-      else andW (K := K) true true (fun x => walk rev d c x far) far none xs k acc
+        else andW (K := K) false true (fun x => walk rev d c.own x far) far .start xs k r.2
+      else andW (K := K) true true (fun x => walk rev d c x far) far .start xs k acc
 
 /-- The unfolding race answered by a walk that stops at the first open
 product: from the left boundary to the right one, or with `rev` from the
