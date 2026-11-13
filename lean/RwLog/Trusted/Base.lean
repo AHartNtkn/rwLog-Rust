@@ -9,15 +9,18 @@ spends on this machine, and the machine has one unit of cost.
 A *store* is a sequence of nodes. A node is a variable, a symbol, or an
 application of two earlier nodes; a *pointer* is the position of a node. Nodes
 are only ever added at the end and never changed, so a pointer means the same
-term for as long as it exists, and two terms can share a subterm by pointing
-at the same node. Every store starts with the node of the variable `0`.
+term for as long as it exists, and two terms share a subterm by pointing at
+the same node. No node is stored twice: asking for a node that is already
+there returns its pointer. So two pointers stand for the same term exactly
+when they are the same pointer (`Heap.tm_inj`, `Kernel/Machine/Heap.lean`).
+Every store starts with the node of the variable `0`.
 
 A program is written for every machine (`Base`): the type of pointers, of
 variable words and of symbol words are abstract, and so is the monad. All it
 can do to a term is
 
 * read the node at a pointer,
-* add a node,
+* ask for the pointer of a node, which adds the node if it is new,
 * ask whether two pointers are the same pointer,
 * compare two variable words or two symbol words (equality and order),
 * renumber a variable word into the left or right half of the variables
@@ -26,10 +29,11 @@ can do to a term is
   its keys are pointers and words, and its entries are whatever the program
   likes, other tables included.
 
-Each of these is one tick. Nothing else tells a program anything about a
-pointer or a word, and it cannot touch the ticks except by spending more
-(`tick`). What it does between two of these (control, and moving the values it
-holds) is free.
+Each of these is one tick, whatever the store holds. Nothing else tells a
+program anything about a pointer or a word; in particular pointers have no
+order. A program cannot touch the ticks except by spending more (`tick`), and
+it can run a computation and learn what it spent (`metered`). What it does
+between two of these (control, and moving the values it holds) is free.
 
 Recursion on the store is not bounded in advance: a program may be defined as
 a fixed point (`partial_fixpoint`), so the monad has an order in which the
@@ -42,13 +46,14 @@ about it, with its result and its cost.
 numbers, symbol words are symbols, a table is an association list, and a
 computation maps a store to nothing (it failed or did not finish) or to a
 result, a store and the ticks spent. Reading a position outside the store
-fails, and so does adding an application whose parts are not already in the
+fails, and so does asking for an application whose parts are not in the
 store, so every node of every store points backwards. `Heap.tm` reads a
 pointer as the term it stands for.
 
 This is the machine the Rust implementation is measured on: the store is an
-arena, a table is a vector the program owns and uses once, and the ticks are
-a counter in the arena's interface.
+arena whose allocation looks the node up in a trie of tables first, a table is
+a vector the program owns and uses once, and the ticks are a counter in the
+arena's interface.
 -/
 import RwLog.Trusted.CostMonad
 import RwLog.Trusted.Syntax
@@ -82,11 +87,14 @@ class Base (P : Type) (V F : outParam Type) (M : outParam (Type → Type)) exten
   [mono : MonoBind M]
   /-- Spend ticks. -/
   tick : Nat → M Unit
+  /-- Run a computation and return what it spent with its result. -/
+  metered : {α : Type} → M α → M (α × Nat)
   /-- The node of the variable `0`, which every store starts with. -/
   root : P
   /-- The node at a pointer. -/
   read : P → M (Node P V F)
-  /-- Add a node. -/
+  /-- The pointer of a node. The node is added if the store does not have
+  it. -/
   alloc : Node P V F → M P
   /-- Are the two pointers the same pointer? -/
   same : P → P → M Bool
@@ -123,25 +131,30 @@ instance (n : Nat) (c : Cell) : Decidable (c.Fits n) := by
   cases c <;> unfold Cell.Fits <;> infer_instance
 
 /-- A store: its nodes in the order they were added. An application points
-at two earlier nodes. -/
+at two earlier nodes, and no node occurs twice. -/
 structure Heap where
   cells : List Cell
   back : ∀ (i a b : Nat), cells[i]? = some (Node.app a b) → a < i ∧ b < i
+  nodup : cells.Nodup
 
 namespace Heap
 
 /-- The store every computation starts from: the variable `0`. -/
-def init : Heap := ⟨[.var 0], by
-  intro i a b h
-  cases i with
-  | zero => simp at h
-  | succ i => simp at h⟩
+def init : Heap where
+  cells := [.var 0]
+  back := by
+    intro i a b h
+    cases i with
+    | zero => simp at h
+    | succ i => simp at h
+  nodup := by simp
 
 def size (h : Heap) : Nat := h.cells.length
 
-/-- Add a node at the end. -/
-def push (h : Heap) (c : Cell) (hc : c.Fits h.size) : Heap :=
-  ⟨h.cells ++ [c], by
+/-- Add a new node at the end. -/
+def push (h : Heap) (c : Cell) (hc : c.Fits h.size) (hn : c ∉ h.cells) : Heap where
+  cells := h.cells ++ [c]
+  back := by
     intro i a b hi
     rcases Nat.lt_trichotomy i h.cells.length with hlt | heq | hgt
     · rw [List.getElem?_append_left hlt] at hi
@@ -151,7 +164,14 @@ def push (h : Heap) (c : Cell) (hc : c.Fits h.size) : Heap :=
       subst hi
       exact hc
     · rw [List.getElem?_eq_none (by simp; omega)] at hi
-      cases hi⟩
+      cases hi
+  nodup := by
+    rw [List.nodup_append]
+    refine ⟨h.nodup, by simp, ?_⟩
+    intro a ha b hb e
+    simp only [List.mem_singleton] at hb
+    subst hb e
+    exact hn ha
 
 /-- The term a node stands for, given the terms of the nodes before it. -/
 def cellTerm (acc : List Pat) : Cell → Pat
@@ -231,10 +251,16 @@ def tick (n : Nat) : Mach Unit := fun h => some ⟨((), h), n⟩
 /-- The node at `p`. It fails outside the store. -/
 def read (p : Nat) : Mach Cell := fun h => (h.cells[p]?).map fun c => ⟨(c, h), 1⟩
 
-/-- Add a node and return its position. It fails on an application whose
+/-- The position of a node: where it is, if the store has it, and otherwise
+the end of the store, where it is added. It fails on a new application whose
 parts are not in the store. -/
 def alloc (c : Cell) : Mach Nat := fun h =>
-  if hc : c.Fits h.size then some ⟨(h.size, h.push c hc), 1⟩ else none
+  if hn : c ∈ h.cells then some ⟨(h.cells.idxOf c, h), 1⟩
+  else if hc : c.Fits h.size then some ⟨(h.size, h.push c hc hn), 1⟩ else none
+
+/-- Run `m` and return what it spent with its result. -/
+def metered {α : Type} (m : Mach α) : Mach (α × Nat) := fun h =>
+  (m h).map fun r => ⟨((r.val.1, r.ticks), r.val.2), r.ticks⟩
 
 /-- A step that only computes: one tick, and the store is not touched. -/
 def step {α : Type} (a : α) : Mach α := fun h => some ⟨(a, h), 1⟩
@@ -255,6 +281,7 @@ end Mach
 /-- The machine of the language. -/
 instance Base.std : Base Nat Nat Sym Mach where
   tick := Mach.tick
+  metered := Mach.metered
   root := 0
   read := Mach.read
   alloc := Mach.alloc
