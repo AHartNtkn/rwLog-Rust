@@ -9,9 +9,13 @@ Both machines start with the root table alone.
 * R002's first round runs its walk on the root, which goes through all
   `2 ^ (k + 1)` products and costs at least `2 ^ k`.
 
-Together with well-formedness this is obligation `separates`.
+R002 emits nothing before that round is paid for, and R003 is honest about
+exhaustion, so it has covered every pair of the query by the time it halts.
+Together with well-formedness this is obligation `separates`, and the halting
+bounds are `separates_exhaustion`.
 -/
 import RwLog.Rungs.R003.Proofs.Separation.Round
+import RwLog.Rungs.Framework.Latency
 import Mathlib.Tactic.GCongr
 import Mathlib.Tactic.IntervalCases
 
@@ -132,13 +136,60 @@ theorem spent_ge_step (C : CostedRuntime) (s : C.State) (n : Nat) :
   | done => rw [C.spent_succ_done hs]
   | emit as s' => rw [C.spent_succ_emit hs]; omega
 
+/-! ## The pairs the query relates -/
+
+theorem sem_target (M : Interp) {x : GTerm × GTerm} (hx : x ∈ sepTarget) :
+    ∀ k, x ∈ (sepFam k).1.semAt M (sepFam k).2
+  | 0 => Or.inr ⟨fun _ => x.1, rfl, hx, by simp⟩
+  | k + 1 => by
+    have ih : ((.sym "z", .sym "z") : GTerm × GTerm) ∈ (sepFam k).1.semAt M (sepFam k).2 :=
+      sem_target M (x := (.sym "z", .sym "z")) rfl k
+    exact ⟨.sym "z", Or.inr ⟨fun _ => x.1, rfl, rfl, by simp⟩, hx ▸ ih⟩
+
+/-! ## The size of the input -/
+
+theorem size_sepRel : ∀ k, (sepRel k).size = 8 * k + 7
+  | 0 => by simp [sepRel, twoWays, Rel.size, Rel.at_, Rel.rw, Span.size, Term.size, Store.size]
+  | k + 1 => by
+    have ih := size_sepRel k
+    have h0 := size_sepRel 0
+    simp only [sepRel, Rel.size] at ih h0 ⊢
+    omega
+
+theorem size_le (k : Nat) : (sepFam k).1.size + (sepFam k).2.size ≤ 8 * k + 7 := by
+  have e : (sepFam k).1.size = 0 := by simp [sepFam, Program.size, Theory.size]
+  have := size_sepRel k
+  simp only [sepFam] at e ⊢
+  omega
+
+theorem model_nil (k : Nat) : (sepFam k).1.theory.Model ∅ := by
+  intro ρ h
+  exact absurd h List.not_mem_nil
+
 end Sep
+
+/-- On `sepFam k`, R003 has covered every pair `(t, z)` within `2000 (k + 2)³`
+ticks, and R002 has paid at least `2 ^ k` at any step at which it has covered
+one. -/
+theorem separates : Obligation.separates := by
+  intro k
+  refine ⟨Sep.wellFormed k, Sep.size_le k, ⟨∅, Sep.model_nil k⟩, ⟨(.sym "z", .sym "z"), rfl⟩, ?_⟩
+  intro M hM x hx
+  obtain ⟨hh, hs⟩ := Sep.costed_halts k
+  refine ⟨costed.coversWithin_of_halts honest_exhaustion (Sep.wellFormed k) hh hs hM
+    (Sep.sem_target M hx k), ?_⟩
+  rintro n ⟨a, ha, -⟩
+  have hi : R002.costed.init (sepFam k).1 (sepFam k).2 = ⟨Sep.P0, Sep.tabs k [] [], false, 0⟩ :=
+    Sep.init_eq k R002.onDemand
+  rw [hi] at ha ⊢
+  exact R002.costed.le_spent_of_covered (N := 0) rfl
+    (le_trans (Sep.r002_first k) (Sep.spent_ge_step _ _ 0)) ha
 
 /-- On `sepFam k`, R003 halts within `2000 (k + 2)³` ticks, and R002 has paid
 at least `2 ^ k` whenever it has halted. -/
-theorem separates : Obligation.separates := by
+theorem separates_exhaustion : Obligation.separates_exhaustion := by
   intro k
-  refine ⟨Sep.wellFormed k, ⟨3, Sep.costed_halts k⟩, ?_⟩
+  refine ⟨Sep.wellFormed k, Sep.size_le k, ⟨3, Sep.costed_halts k⟩, ?_⟩
   intro n hn
   have hi : R002.costed.init (sepFam k).1 (sepFam k).2 = ⟨Sep.P0, Sep.tabs k [] [], false, 0⟩ :=
     Sep.init_eq k R002.onDemand

@@ -20,11 +20,15 @@ R003 is judged against R002 by cost (`Trusted/Cost.lean`).
   `R003.runtime` by rewriting; the three every rung must state are stated
   (`sound`, `complete`, `honest_exhaustion`).
 * **Never much worse.** R003 simulates R002 within a factor of 7, step for
-  step (`simulates`).
+  step (`simulates`): every pair R002 has covered, R003 covers at no more than
+  7 times the cost, whether or not the query ever halts.
 * **Exponentially better on a family.** On `sepFam k`, a sequence of `k + 1`
-  choices between two spans that lead to the same place, R003 halts within a
-  polynomial of `k` while R002 pays at least `2 ^ k` (`separates`): its walk
-  follows every one of the `2 ^ (k + 1)` ways through.
+  choices between two spans that lead to the same place, the query relates
+  every term to `z`. R003 covers every such pair within a polynomial of `k`,
+  while R002 has paid at least `2 ^ k` before it emits any answer
+  (`separates`): its walk follows every one of the `2 ^ (k + 1)` ways through.
+  The family happens to halt, and the same bounds hold for the report of
+  exhaustion (`separates_exhaustion`).
 -/
 import RwLog.Rungs.R002.Engine
 import RwLog.Rungs.R003.Engine
@@ -47,6 +51,10 @@ def sepRel : Nat → Rel
   | k + 1 => .seq twoWays (sepRel k)
 
 def sepFam (k : Nat) : Program × Rel := (⟨[], []⟩, sepRel k)
+
+/-- The pairs whose arrival is timed on `sepFam`: every term against `z`,
+which is every pair the query relates. -/
+def sepTarget : PRel := {x | x.2 = .sym "z"}
 
 namespace Obligation
 
@@ -96,10 +104,19 @@ def simulates : Prop := Simulates R002.costed costed fun c _ => 7 * c
 
 /-! ### Exponentially better on a family -/
 
-/-- On `sepFam k`, R003 halts within `2000 (k + 2)³` ticks, and R002 has paid
-at least `2 ^ k` whenever it has halted. -/
+/-- `sepFam k` has size at most `8 k + 7`. On it, R003 has covered every pair `(t, z)` within `2000 (k + 2)³`
+ticks, and R002 has paid at least `2 ^ k` at any step at which it has covered
+one. -/
 def separates : Prop :=
-  Separates R002.costed costed sepFam (fun k => 2 ^ k) fun k => 2000 * (k + 2) ^ 3
+  Separates R002.costed costed sepFam (fun _ => sepTarget) (fun k => 8 * k + 7) (fun k => 2 ^ k)
+    fun k => 2000 * (k + 2) ^ 3
+
+/-- The same bounds for the report of exhaustion: R003 halts within
+`2000 (k + 2)³` ticks, and R002 has paid at least `2 ^ k` whenever it has
+halted. -/
+def separates_exhaustion : Prop :=
+  SeparatesExhaustion R002.costed costed sepFam (fun k => 8 * k + 7) (fun k => 2 ^ k)
+    fun k => 2000 * (k + 2) ^ 3
 
 end Obligation
 

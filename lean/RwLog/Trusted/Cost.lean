@@ -42,19 +42,39 @@ A `CostedRuntime` is a small-step machine whose step is a charged computation.
 Forgetting the ticks gives an ordinary `Runtime`, the one the correctness
 theorems are about, so cost and behaviour cannot drift apart.
 
+## Latency
+
+Cost is how soon answers arrive. Almost no query worth running ever reports
+that it is done, so the measure cannot depend on halting, and two correct
+machines may emit different answers for the same query (one general span
+where the other emits several instances), so it cannot count answers either.
+What is comparable is *coverage latency*: for a ground pair that the query
+relates in a model of the theory, the ticks a machine has spent by the first
+step at which some emitted answer relates that pair. `CoversWithin` says the
+coverage latency of a pair is at most a given number of ticks. *Exhaustion
+latency* is the ticks spent by the step at which the machine reports that it
+is done (`ExhaustsWithin`); it is infinite on most queries.
+
 ## Improvement
 
-`Simulates Old New p`: whatever `Old` has emitted and whether it has halted
-after some number of steps, `New` has covered and matched it at a cost bounded
-by the explicit function `p` of the cost `Old` paid and of the size of the
-input. This bounds both coverage latency and exhaustion latency.
+`Simulates Old New p`: every pair is covered by `New` at a cost bounded by
+the explicit function `p` of the cost at which `Old` covers it and of the size
+of the input, and likewise for exhaustion when `Old` halts. Nothing here
+depends on either machine halting.
 
-`Separates Old New fam lo hi`: on the family `fam`, `New` halts within cost
-`hi k`, while `Old` has paid at least `lo k` whenever it has halted.
+`Separates Old New fam tgt size lo hi`: the input `fam k` has size at most
+`size k`; every pair of the target `tgt k` (a nonempty set of ground pairs) is
+covered by `New` within `hi k` ticks; and `Old` has paid at least `lo k` ticks
+before covering any of them. The inputs of the family need not halt on either
+machine.
 
 A rung improves on its predecessor when it simulates it with a polynomial `p`
-and is separated from it by a family with `hi` polynomial and `lo`
+and is separated from it by a family with `size` and `hi` polynomial and `lo`
 exponential, all given as explicit numerals.
+
+`SeparatesExhaustion` is the same comparison for the report of exhaustion
+instead of answers. It is the special case for the rare queries that halt: it
+is recorded where it holds, and it does not admit a rung.
 -/
 import RwLog.Trusted.Engine
 import RwLog.Kernel.Refute
@@ -286,26 +306,64 @@ def spent : C.State → Nat → Nat
 
 end CostedRuntime
 
+/-! ## Latency -/
+
+namespace CostedRuntime
+
+variable (C : CostedRuntime)
+
+/-- Some answer emitted in the first `n` steps on `q` relates the pair `x`
+in `M`. -/
+def Covered (P : Program) (q : Rel) (M : Interp) (x : GTerm × GTerm) (n : Nat) : Prop :=
+  ∃ a ∈ C.runtime.emitted (C.init P q) n, x ∈ a.denAt M
+
+/-- The coverage latency of `x` in `M` is at most `c`: the machine has spent
+at most `c` ticks by some step at which an emitted answer relates `x`. -/
+def CoversWithin (P : Program) (q : Rel) (M : Interp) (x : GTerm × GTerm) (c : Nat) : Prop :=
+  ∃ n, C.Covered P q M x n ∧ C.spent (C.init P q) n ≤ c
+
+/-- The exhaustion latency is at most `c`: the machine has spent at most `c`
+ticks by some step at which it has reported that it is done. -/
+def ExhaustsWithin (P : Program) (q : Rel) (c : Nat) : Prop :=
+  ∃ n, C.runtime.Halts (C.init P q) n ∧ C.spent (C.init P q) n ≤ c
+
+end CostedRuntime
+
 /-! ## Improvement -/
 
 /-- `New` simulates `Old` within `p`: for every well-formed input and every
-number of steps of `Old`, some number of steps of `New` costs at most `p` of
-what `Old` paid and of the input's size, covers in every model every answer
-`Old` has emitted, and has halted if `Old` has. -/
+number of steps of `Old`, every pair that `Old` has covered in a model of the
+theory is covered by `New` within `p` of what `Old` has paid and of the
+input's size, and if `Old` has halted then `New` halts within the same
+bound. -/
 def Simulates (Old New : CostedRuntime) (p : Nat → Nat → Nat) : Prop :=
-  ∀ P q, P.WellFormed q → ∀ n, ∃ m,
-    New.spent (New.init P q) m ≤ p (Old.spent (Old.init P q) n) (P.size + q.size) ∧
-    (∀ a ∈ Old.runtime.emitted (Old.init P q) n,
-      ∃ b ∈ New.runtime.emitted (New.init P q) m, b.CoversLive P.theory a) ∧
-    (Old.runtime.Halts (Old.init P q) n → New.runtime.Halts (New.init P q) m)
+  ∀ P q, P.WellFormed q → ∀ n,
+    (∀ M, P.theory.Model M → ∀ x, Old.Covered P q M x n →
+      New.CoversWithin P q M x (p (Old.spent (Old.init P q) n) (P.size + q.size))) ∧
+    (Old.runtime.Halts (Old.init P q) n →
+      New.ExhaustsWithin P q (p (Old.spent (Old.init P q) n) (P.size + q.size)))
 
-/-- `New` is separated from `Old` on a family of well-formed inputs: `New`
-halts within cost `hi k`, and `Old` has paid at least `lo k` whenever it has
-halted. -/
-def Separates (Old New : CostedRuntime) (fam : Nat → Program × Rel) (lo hi : Nat → Nat) : Prop :=
-  ∀ k, (fam k).1.WellFormed (fam k).2 ∧
-    (∃ m, New.runtime.Halts (New.init (fam k).1 (fam k).2) m ∧
-      New.spent (New.init (fam k).1 (fam k).2) m ≤ hi k) ∧
+/-- `New` is separated from `Old` on a family of well-formed inputs of size
+at most `size k` whose theories have a model, by the nonempty sets of ground
+pairs `tgt k`: in every model, `New` covers every pair of `tgt k` within
+`hi k` ticks, and `Old` has paid at least `lo k` ticks at any step at which it
+has covered one. Neither machine has to halt. -/
+def Separates (Old New : CostedRuntime) (fam : Nat → Program × Rel) (tgt : Nat → PRel)
+    (size lo hi : Nat → Nat) : Prop :=
+  ∀ k, (fam k).1.WellFormed (fam k).2 ∧ (fam k).1.size + (fam k).2.size ≤ size k ∧
+    (∃ M, (fam k).1.theory.Model M) ∧ (tgt k).Nonempty ∧
+    ∀ M, (fam k).1.theory.Model M → ∀ x ∈ tgt k,
+      New.CoversWithin (fam k).1 (fam k).2 M x (hi k) ∧
+      ∀ n, Old.Covered (fam k).1 (fam k).2 M x n →
+        lo k ≤ Old.spent (Old.init (fam k).1 (fam k).2) n
+
+/-- The special case for inputs that halt: `New` reports that it is done
+within `hi k` ticks, and `Old` has paid at least `lo k` whenever it has. This
+does not admit a rung. -/
+def SeparatesExhaustion (Old New : CostedRuntime) (fam : Nat → Program × Rel)
+    (size lo hi : Nat → Nat) : Prop :=
+  ∀ k, (fam k).1.WellFormed (fam k).2 ∧ (fam k).1.size + (fam k).2.size ≤ size k ∧
+    New.ExhaustsWithin (fam k).1 (fam k).2 (hi k) ∧
     (∀ n, Old.runtime.Halts (Old.init (fam k).1 (fam k).2) n →
       lo k ≤ Old.spent (Old.init (fam k).1 (fam k).2) n)
 
