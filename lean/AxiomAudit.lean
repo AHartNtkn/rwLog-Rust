@@ -302,3 +302,36 @@ new axiom.
 
 /-- info: 'RwLog.R002.onDemand_exact' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.R002.onDemand_exact
+
+/-- info: 'RwLog.R002.Tabled.machine_runtime' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R002.Tabled.machine_runtime
+
+/-- info: 'RwLog.R002.baseline_exact_of' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R002.baseline_exact_of
+
+/-- info: 'RwLog.R002.runtime_eq_of' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R002.runtime_eq_of
+
+/-- info: 'RwLog.R002.sound_of' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R002.sound_of
+
+/-- info: 'RwLog.R002.complete_of' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R002.complete_of
+
+/-- info: 'RwLog.R002.honest_exhaustion_of' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R002.honest_exhaustion_of
+
+/-- info: 'RwLog.R002.baseline_exact' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R002.baseline_exact
+
+/-- info: 'RwLog.R002.runtime_eq' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R002.runtime_eq
+
+/-- info: 'RwLog.R002.sound' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R002.sound
+
+/-- info: 'RwLog.R002.complete' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R002.complete
+
+/-- info: 'RwLog.R002.honest_exhaustion' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R002.honest_exhaustion

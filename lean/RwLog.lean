@@ -71,3 +71,6 @@ import RwLog.Rungs.R002.Spec
 import RwLog.Rungs.R002.Proofs.Eager
 import RwLog.Rungs.R002.Proofs.Chains
 import RwLog.Rungs.R002.Proofs.OnDemand
+import RwLog.Rungs.R002.Proofs.Machine
+import RwLog.Rungs.R002.Proofs.SameMachine
+import RwLog.Rungs.R002.Proofs.Same
