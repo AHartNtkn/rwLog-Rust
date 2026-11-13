@@ -16,6 +16,7 @@ than `p + o` each time, so comparing `A`'s answers with them stays cheap.
 import RwLog.Rungs.Hedge.Steps
 import RwLog.Rungs.Framework.Runtime
 import Mathlib.Tactic.Ring
+import Mathlib.Tactic.Linarith
 
 namespace RwLog
 
@@ -289,6 +290,114 @@ theorem follows : ∀ (n c : Nat) (st : State A.State B.State) (p σ : Nat), Fol
       · have hd : st.live = false := by simpa using hlive
         obtain ⟨hv, ht⟩ := step_dead hd
         exact follows_take hA ihn hinv (fun h => absurd h hlive) hσ hv (by omega)
+
+/-! ## The bound is a polynomial in what `A` spends -/
+
+/-- With `Q` at least the handicap, the number of steps and what `A` spends
+on them, the bound is at most `n (14 (2 Q + 1) Q + 7 Q)` for the races and
+`2 T (σ + 2 n (2 Q + 1) Q)` for comparing answers, `T` being what `A`
+spends. -/
+theorem bound_le (A : CostedRuntime) (Q : Nat) : ∀ (n : Nat) (a : A.State) (p σ : Nat),
+    p + n + A.spent a n ≤ Q →
+    bound A n a p (2 * (p + (A.step a).ticks) + 1) σ ≤
+      n * (14 * (2 * Q + 1) * Q + 7 * Q) + 2 * A.spent a n * (σ + n * (2 * (2 * Q + 1) * Q))
+  | 0, _, _, _, _ => Nat.zero_le _
+  | n + 1, a, p, σ, hQ => by
+    have ho : (A.step a).ticks ≤ A.spent a (n + 1) := by
+      cases hr : (A.step a).val with
+      | done => rw [A.spent_succ_done hr]
+      | emit as a' => rw [A.spent_succ_emit hr]; omega
+    have hq : p + (A.step a).ticks ≤ Q := by omega
+    have hc : 2 * (p + (A.step a).ticks) + 1 ≤ 2 * Q + 1 := by omega
+    have h1 : 14 * (2 * (p + (A.step a).ticks) + 1) * (p + (A.step a).ticks) ≤
+        14 * (2 * Q + 1) * Q := Nat.mul_le_mul (Nat.mul_le_mul_left 14 hc) hq
+    have h2 : 2 * (2 * (p + (A.step a).ticks) + 1) * (p + (A.step a).ticks) ≤
+        2 * (2 * Q + 1) * Q := Nat.mul_le_mul (Nat.mul_le_mul_left 2 hc) hq
+    have hX : 2 * (2 * Q + 1) * Q ≤ (n + 1) * (2 * (2 * Q + 1) * Q) :=
+      Nat.le_mul_of_pos_left _ (Nat.succ_pos n)
+    have h3 : 2 * (A.step a).ticks *
+        (σ + 2 * (2 * (p + (A.step a).ticks) + 1) * (p + (A.step a).ticks)) ≤
+        2 * (A.step a).ticks * (σ + (n + 1) * (2 * (2 * Q + 1) * Q)) :=
+      Nat.mul_le_mul_left _ (by omega)
+    cases hr : (A.step a).val with
+    | done =>
+      rw [A.spent_succ_done hr]
+      simp only [bound, hr]
+      have e : (n + 1) * (14 * (2 * Q + 1) * Q + 7 * Q) =
+          14 * (2 * Q + 1) * Q + 7 * Q + n * (14 * (2 * Q + 1) * Q + 7 * Q) := by ring
+      rw [e]
+      generalize n * (14 * (2 * Q + 1) * Q + 7 * Q) = Z
+      omega
+    | emit as a' =>
+      have hs := A.spent_succ_emit hr n
+      have ih := bound_le A Q n a' (p + 1)
+        (σ + 2 * (2 * (p + (A.step a).ticks) + 1) * (p + (A.step a).ticks)) (by omega)
+      have h4 : 2 * A.spent a' n * (σ + 2 * (2 * (p + (A.step a).ticks) + 1) *
+          (p + (A.step a).ticks) + n * (2 * (2 * Q + 1) * Q)) ≤
+          2 * A.spent a' n * (σ + (n + 1) * (2 * (2 * Q + 1) * Q)) :=
+        Nat.mul_le_mul_left _ (by
+          have e : (n + 1) * (2 * (2 * Q + 1) * Q) =
+            n * (2 * (2 * Q + 1) * Q) + 2 * (2 * Q + 1) * Q := by ring
+          omega)
+      rw [hs]
+      simp only [bound, hr]
+      have e : (n + 1) * (14 * (2 * Q + 1) * Q + 7 * Q) +
+          2 * ((A.step a).ticks + A.spent a' n) * (σ + (n + 1) * (2 * (2 * Q + 1) * Q)) =
+          14 * (2 * Q + 1) * Q + 7 * Q +
+            2 * (A.step a).ticks * (σ + (n + 1) * (2 * (2 * Q + 1) * Q)) +
+            (n * (14 * (2 * Q + 1) * Q + 7 * Q) +
+              2 * A.spent a' n * (σ + (n + 1) * (2 * (2 * Q + 1) * Q))) := by ring
+      rw [e]
+      have e2 : p + 1 + (A.step a').ticks = p + 1 + (A.step a').ticks := rfl
+      linarith
+
+variable {A B : CostedRuntime}
+
+/-- The hedge follows its first machine: for every number of steps of `A`
+there is a number of steps of the hedge by which it has paid at most what `A`
+paid, what `B` paid to start, and the bound; has emitted an answer covering
+each answer of `A`; and has halted if `A` has. -/
+theorem follows_first (hA : ∀ (s : A.State) (as : List Span) (s' : A.State),
+      (A.step s).val = .emit as s' → sizes as ≤ (A.step s).ticks)
+    (P : Program) (q : Rel) (n : Nat) :
+    ∃ m, (machine A B).paid P q m ≤ A.paid P q n + (B.init P q).ticks +
+        (n * (14 * (2 * (n + A.paid P q n) + 1) * (n + A.paid P q n) + 7 * (n + A.paid P q n)) +
+          2 * A.paid P q n * (n * (2 * (2 * (n + A.paid P q n) + 1) * (n + A.paid P q n)))) ∧
+      (∀ x ∈ A.runtime.emitted (A.start P q) n,
+        ∃ y ∈ (machine A B).runtime.emitted ((machine A B).start P q) m, y.Covers x) ∧
+      (A.runtime.Halts (A.start P q) n →
+        (machine A B).runtime.Halts ((machine A B).start P q) m) := by
+  let st0 : State A.State B.State := ⟨A.start P q, B.start P q, true, true, 0, [], []⟩
+  have hst : (machine A B).start P q = st0 := rfl
+  have hin : ((machine A B).init P q).ticks = (A.init P q).ticks + (B.init P q).ticks := by
+    show (init A B P q).ticks = _
+    simp [init]
+  obtain ⟨m, hm, hcov, hh⟩ := follows hA n (2 * (0 + (A.step st0.a).ticks) + 1) st0 0 0
+    (Inv.mk (fun t ht => nomatch ht) (fun t ht => nomatch ht))
+    (fun _ => ⟨Nat.le_refl _, Nat.le_refl _⟩) (Nat.le_refl _)
+  refine ⟨m, ?_, ?_, ?_⟩
+  · have hb := bound_le A (n + A.spent (A.start P q) n) n (A.start P q) 0 0 (by omega)
+    have hm' : (machine A B).spent st0 m ≤
+        bound A n (A.start P q) 0 (2 * (0 + (A.step (A.start P q)).ticks) + 1) 0 := hm
+    have hT : A.spent (A.start P q) n ≤ A.paid P q n := Nat.le_add_left _ _
+    have hQ : n + A.spent (A.start P q) n ≤ n + A.paid P q n := by omega
+    have hmono : n * (14 * (2 * (n + A.spent (A.start P q) n) + 1) * (n + A.spent (A.start P q) n) +
+          7 * (n + A.spent (A.start P q) n)) +
+        2 * A.spent (A.start P q) n *
+          (0 + n * (2 * (2 * (n + A.spent (A.start P q) n) + 1) * (n + A.spent (A.start P q) n))) ≤
+        n * (14 * (2 * (n + A.paid P q n) + 1) * (n + A.paid P q n) + 7 * (n + A.paid P q n)) +
+          2 * A.paid P q n * (n * (2 * (2 * (n + A.paid P q n) + 1) * (n + A.paid P q n))) := by
+      rw [Nat.zero_add]
+      gcongr
+    unfold CostedRuntime.paid
+    rw [hin, hst]
+    unfold CostedRuntime.paid at hmono
+    omega
+  · intro x hx
+    obtain ⟨y, hy, hyx⟩ := hcov x hx
+    have hy' : y ∈ ([] : List Span) ++ (machine A B).runtime.emitted st0 m := hy
+    exact ⟨y, by simpa [hst] using hy', hyx⟩
+  · exact fun h => hh h
 
 end Hedge
 
