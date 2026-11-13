@@ -1,9 +1,12 @@
 /-
-# `ConvTrace` as stated is false for every engine
+# The trace of a converse, in order, is not the swapped trace
 
 `Runtime.ConvTrace` (`Trusted/Properties.lean`) says the run on `conv q` is
-the run on `q` with every answer swapped, as an equation between traces: the
-answers of each step are the same list, in the same order.
+the run on `q` with every answer swapped, step for step, up to the order of
+the answers of a step and up to equivalent answers. It was once stated as an
+equation between traces (`Runtime.ConvTraceInOrder` here): the answers of
+each step the same list, in the same order. This file proves that no engine
+has that, which is why the statement is not that.
 
 An engine (`Trusted/Cost.lean`) is handed the root node of the normal form of
 the query and nothing else of the query. The query
@@ -12,7 +15,7 @@ the query and nothing else of the query. The query
 
 and its converse have the same normal form: converse is pushed inward and
 swaps each span, and the members of a union are a sorted set. So an engine
-starts both in the same state, and `ConvTrace` asks that its trace on this
+starts both in the same state, and the equation asks that its trace on this
 query is its own image under swapping every answer, in order. Then the first
 answer it emits is its own converse, so it relates `(a, b)` exactly when it
 relates `(b, a)`. A machine that is derivation-general emits only answers
@@ -20,14 +23,10 @@ that relate the pairs of one derivable span, here `a -> b` or `b -> a`, which
 relate one of the two pairs and not the other; and a machine that is complete
 pair by pair emits an answer.
 
-So no engine has `ConvTrace` together with `DerivationGeneral` and
-`PointComplete`, at any domain and any kernel, and `Runtime.Keeps` holds of
-no engine (`Engine.not_keeps`). Nothing about the engine or the domain is
+So no engine has `ConvTraceInOrder` together with `DerivationGeneral` and
+`PointComplete`, at any domain and any kernel
+(`Engine.not_convTraceInOrder`). Nothing about the engine or the domain is
 used but that the first state depends on the query through its normal form.
-
-The run of an engine on a converse can be the mirror image of its run only up
-to the order of the answers of a step, which is how `DualTrace` is stated
-(`TraceEquiv`).
 -/
 import RwLog.Rungs.Framework.Writing
 import RwLog.Rungs.Framework.Runtime
@@ -79,12 +78,19 @@ theorem derives {s : Span} (h : Derives P q s) : s = ab ∨ s = ab.swap := by
 
 end ConvTraceFalse
 
+/-- The run on `conv q` is the run on `q` with every answer swapped, as an
+equation between traces: the same answers at every step, in the same
+order. -/
+def Runtime.ConvTraceInOrder (R : Runtime) : Prop :=
+  ∀ P q n, R.trace (R.init P (.conv q)) n = (R.trace (R.init P q) n).map Shown.swap
+
 open ConvTraceFalse in
 /-- A machine that starts `(a -> b) | (b -> a)` and its converse in the same
-state does not have `ConvTrace` together with `DerivationGeneral` and
+state does not have `ConvTraceInOrder` together with `DerivationGeneral` and
 `PointComplete`. -/
-theorem Runtime.not_convTrace_of_init (R : Runtime) (hinit : R.init P (.conv q) = R.init P q)
-    (hG : R.DerivationGeneral) (hC : R.PointComplete) : ¬ R.ConvTrace := by
+theorem Runtime.not_convTraceInOrder_of_init (R : Runtime)
+    (hinit : R.init P (.conv q) = R.init P q) (hG : R.DerivationGeneral)
+    (hC : R.PointComplete) : ¬ R.ConvTraceInOrder := by
   intro hT
   have hab : ((.sym "a", .sym "b") : GTerm × GTerm) ∈ P.pairs q := by
     unfold ProgramOf.pairs
@@ -127,21 +133,13 @@ namespace Engine
 variable (E : Engine) {R : Sorts → Type} [∀ S, Answer (R S)] [∀ S, DecidableEq (R S)]
   (dom : ∀ S, Domain (R S)) (K : ∀ S, Kernel (R S) Cost) (hK : ∀ S, (K S).Refines (dom S))
 
-/-- **No engine has `ConvTrace` as it is stated** together with
+/-- **No engine has the trace of a converse in order** together with
 `DerivationGeneral` and `PointComplete`, at any domain and any kernel. -/
-theorem not_convTrace (hG : (E.costedAt dom K hK).runtime.DerivationGeneral)
+theorem not_convTraceInOrder (hG : (E.costedAt dom K hK).runtime.DerivationGeneral)
     (hC : (E.costedAt dom K hK).runtime.PointComplete) :
-    ¬ (E.costedAt dom K hK).runtime.ConvTrace :=
-  Runtime.not_convTrace_of_init _ (E.init_of_norm dom K hK _ ConvTraceFalse.norm_conv) hG hC
-
-/-- **`Keeps` holds of no engine**, whatever the base. -/
-theorem not_keeps (Base : Runtime) : ¬ (E.costedAt dom K hK).runtime.Keeps Base := fun h =>
-  E.not_convTrace dom K hK h.derivationGeneral h.pointComplete h.convTrace
-
-/-- Nor does `KeepsPointwise`, so no rung of an engine has `Rung.Keeps`. -/
-theorem not_keepsPointwise (Base : Runtime) :
-    ¬ (E.costedAt dom K hK).runtime.KeepsPointwise Base := fun h =>
-  E.not_convTrace dom K hK h.derivationGeneral h.pointComplete h.convTrace
+    ¬ (E.costedAt dom K hK).runtime.ConvTraceInOrder :=
+  Runtime.not_convTraceInOrder_of_init _
+    (E.init_of_norm dom K hK _ ConvTraceFalse.norm_conv) hG hC
 
 end Engine
 

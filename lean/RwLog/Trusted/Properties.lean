@@ -185,9 +185,13 @@ def EmptySide : Prop :=
     R.Terminates P (.and a b) ∧ R.Terminates P (.and b a)
 
 /-- P1.4 strong, for the converse: running `conv q` is running `q` with every
-answer swapped, step for step. -/
+answer swapped, step for step. Like `DualTrace`, it is up to the order of the
+answers of one step and up to equivalent answers: a machine is not held to an
+order among the answers of a step. -/
 def ConvTrace : Prop :=
-  ∀ P q n, R.trace (R.init P (.conv q)) n = (R.trace (R.init P q) n).map Shown.swap
+  ∀ P q n, P.sorts.WellFormed →
+    TraceEquiv P.sorts.interp (R.trace (R.init P (.conv q)) n)
+      ((R.trace (R.init P q) n).map Shown.swap)
 
 /-- P1.4 strong, for the mirrored program: running the mirror image of a
 query in the mirrored program is the mirror image of the run, step for

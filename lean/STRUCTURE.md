@@ -185,9 +185,10 @@ and nothing is proved of a second copy (roadmap L04).
 `Rungs/Framework/Writing.lean` proves what holds of every engine because an
 engine is handed the normal form of the query: `Engine.orComm`, `orAssoc`,
 `seqAssoc`, `andComm`, `andAssoc`. `Rungs/Framework/ConvTrace.lean` proves
-that `Runtime.ConvTrace` as stated holds of no engine
-(`Engine.not_convTrace`), so neither does `Runtime.Keeps` (`Engine.not_keeps`;
-roadmap L57).
+that no engine has the trace of a converse as an equation, in order
+(`Engine.not_convTraceInOrder`), which is why `Runtime.ConvTrace` is stated
+up to the order of the answers of a step and up to equivalent answers
+(roadmap L57).
 
 `Rungs/Framework/Race.lean` defines `Cost.race` and proves what it returns and spends
 (`Cost.race_val`, `Cost.race_ticks`, and from below `Cost.le_race_ticks`), for
