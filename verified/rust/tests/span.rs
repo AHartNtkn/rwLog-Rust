@@ -222,6 +222,21 @@ fn compose_of_a_chain_of_doubling_spans_is_polynomial() {
 }
 
 #[test]
+fn compose_of_the_decrement_with_itself_stays_within_its_proved_bound() {
+    // (b (a x) y) -> (b x y), composed with itself. The Lean theorem
+    // `compose_spec` bounds the ticks by `composeCost`, which is 83460 on
+    // these two spans (`RwLogVerified/KernelRuns.lean`).
+    let b = |l: T, r: T| ap(ap(sy(1), l), r);
+    let dec = span(b(ap(sy(0), v(0)), v(1)), b(v(0), v(1)));
+    let mut s = Store::new();
+    let d = put_span(&mut s, &dec);
+    let (r, t) = spent(&mut s, |s| compose(s, d, d));
+    assert!(r.is_some(), "the decrement composes with itself");
+    assert!(t <= 83460, "spent {t} ticks, above the proved bound");
+    println!("compose of the decrement with itself: {t} ticks");
+}
+
+#[test]
 fn meet_fails_when_the_right_sides_clash() {
     let x = span(v(0), sy(0));
     let y = span(v(0), sy(1));

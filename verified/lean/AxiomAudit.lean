@@ -34,3 +34,87 @@ new axiom.
 
 /-- info: 'RwLogVerified.clear_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLogVerified.clear_spec
+
+/-- info: 'RwLogVerified.rebuild_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.rebuild_spec
+
+/-- info: 'RwLogVerified.occurs_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.occurs_spec
+
+/-- info: 'RwLogVerified.act_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.act_spec
+
+/-- info: 'RwLogVerified.solve_into_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.solve_into_spec
+
+/-- info: 'RwLogVerified.compose_bridge' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.compose_bridge
+
+/-- info: 'RwLogVerified.meet_bridge' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.meet_bridge
+
+/-- info: 'RwLogVerified.rename_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.rename_spec
+
+/-- info: 'RwLogVerified.append_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.append_spec
+
+/-- info: 'RwLogVerified.compose_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.compose_spec
+
+/-- info: 'RwLogVerified.meet_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.meet_spec
+
+/-- info: 'RwLogVerified.composable_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.composable_spec
+
+/-- info: 'RwLogVerified.mmatch_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.mmatch_spec
+
+/-- info: 'RwLogVerified.covers_plain_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.covers_plain_spec
+
+/-- info: 'RwLogVerified.span_eq_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.span_eq_spec
+
+/-- info: 'RwLogVerified.mark_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.mark_spec
+
+/-- info: 'RwLogVerified.all_marked_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.all_marked_spec
+
+/-- info: 'RwLogVerified.keep_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.keep_spec
+
+/-- info: 'RwLogVerified.iface_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.iface_spec
+
+/-- info: 'RwLogVerified.right_bound_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.right_bound_spec
+
+/-- info: 'RwLogVerified.left_bound_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.left_bound_spec
+
+/-- info: 'RwLogVerified.rustKernel_refines' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.rustKernel_refines
+
+/-- info: 'RwLogVerified.compose_realised' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.compose_realised
+
+/-- info: 'RwLogVerified.meet_realised' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.meet_realised
+
+/-- info: 'RwLogVerified.composable_realised' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.composable_realised
+
+/-- info: 'RwLogVerified.eq_realised' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.eq_realised
+
+/-- info: 'RwLogVerified.covers_realised' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.covers_realised
+
+/-- info: 'RwLogVerified.rightBound_realised' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.rightBound_realised
+
+/-- info: 'RwLogVerified.leftBound_realised' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.leftBound_realised

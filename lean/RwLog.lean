@@ -72,6 +72,7 @@ import RwLog.Kernel.Canon
 import RwLog.Trusted.Charged
 import RwLog.Trusted.Kernel
 import RwLog.Trusted.Cost
+import RwLog.Trusted.KernelRung
 import RwLog.Trusted.CostMonad
 import RwLog.Trusted.Properties
 import RwLog.Kernel.Chain
