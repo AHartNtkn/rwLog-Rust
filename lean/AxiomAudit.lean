@@ -634,6 +634,12 @@ new axiom.
 /-- info: 'RwLog.Mirror.spent_le' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Mirror.spent_le
 
+/-- info: 'RwLog.Mirror.spent_ge' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Mirror.spent_ge
+
+/-- info: 'RwLog.Mirror.paid_ge_min' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Mirror.paid_ge_min
+
 /-- info: 'RwLog.Mirror.step_pos' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Mirror.step_pos
 
