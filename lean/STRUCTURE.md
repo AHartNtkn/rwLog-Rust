@@ -38,6 +38,7 @@ Tests/          executable runs per rung
 | Sums over lists | `Lib/List.lean` | `sum_flatMap_map`, `sum_filterMap_map`, `le_sum_map_of_mem`, `sum_map_le` |
 | Converse of a program | `SpanLayer/Dual.lean` | `Program.sem_dual` |
 | Greatest fixpoints by iteration | `Lib/Gfp.lean` | `gfpFrom`, `gfpFrom_closed`, `subset_gfpFrom` |
+| First occurrences of a list | `Lib/Firsts.lean` | `addNew`, `addAll`, `firsts`, `firsts_eq_eraseDups`, `addAll_firsts`, `addAll_flatMap_firsts`, `addAll_flatMap_congr` |
 
 ## The rung framework
 
@@ -74,6 +75,12 @@ rung unchanged.
   `Costs.mapL`, `Costs.foldL`, ...), so the value and a cost bound of a long
   `do` block are derived together.
 
+* `CostSpec.lean`: `Cost.Spends m c Q` (`m` spends at most `c` and its value
+  satisfies `Q`), for a computation whose value is only described, with the
+  same rules (`Spends.bind`, `Spends.mapL`, `Spends.mapL_zip`), and bounds on
+  the ticks of each traversal from a bound on each member
+  (`anyL_ticks_le_mul`, ...).
+
 `Rungs/Tabled/` is the base for costed rungs that keep R001's tables and change
 something else. `Machine.lean` is R001's machine written in the cost monad
 with the unfolding race left to an `Oracle`; `Tabled.round_split` isolates
@@ -82,6 +89,16 @@ what a round spends asking the oracle. `Exact.lean` proves
 (`Oracle.Exact`), the machine's runtime is `R001.runtime`, so all of R001's
 theorems apply. A rung that changes only the oracle (as R002 does) proves its
 oracle exact and bounds its ticks; nothing about tables is reproved.
+`Repeats.lean` covers an oracle that returns the same answers with some
+repeats of earlier spans left out (`Oracle.SkipsRepeats`, in particular
+`Oracle.ExactModRepeats`: R001's answers or their `eraseDups`). The tables
+drop repeats themselves, so the machine is still `R001.runtime`
+(`Tabled.machine_runtime_modRepeats`), the rest of a round costs no more
+(`Tabled.rest_skips`), and a per-call bound on the oracle becomes a bound on
+the whole run (`Tabled.spent_le_of_skips`). R003 uses it.
+
+`Rungs/Framework/Race.lean` proves what `Cost.race` returns and spends
+(`Cost.race_val`, `Cost.race_ticks`), for any two computations.
 
 A rung whose machine is equal to an earlier one as a `Runtime` (R002 against
 R001) uses `SameRun.of_eq`, or simply rewrites.
