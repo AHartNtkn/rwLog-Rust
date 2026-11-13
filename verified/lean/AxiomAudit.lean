@@ -130,3 +130,27 @@ new axiom.
 
 /-- info: 'RwLogVerified.leftBound_realised' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLogVerified.leftBound_realised
+
+/-- info: 'RwLogVerified.spine_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.spine_spec
+
+/-- info: 'RwLogVerified.same_len_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.same_len_spec
+
+/-- info: 'RwLogVerified.find_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.find_spec
+
+/-- info: 'RwLogVerified.lookup_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.lookup_spec
+
+/-- info: 'RwLogVerified.fill_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.fill_spec
+
+/-- info: 'RwLogVerified.step_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.step_spec
+
+/-- info: 'RwLogVerified.push_args_loop_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.push_args_loop_spec
+
+/-- info: 'RwLogVerified.member_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.member_spec

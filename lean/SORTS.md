@@ -164,5 +164,38 @@ formed exactly when no conjunction is in both (`wellFormed_iff`). With it
 `ProgramOf.check_iff` says it is exact. `Tests/SortsRuns.lean` runs it on the
 sorts of section 5 and on the declarations section 4 rejects.
 
-Still owed: `Engine.costed` at `Sorts.dom` (L55) and the operations in Rust
-with derived charges (L39).
+Still owed: `Engine.costed` at `Sorts.dom` (L55) and the operations of the
+store in Rust with derived charges (L39); section 7 says what is done.
+
+## 7. The Rust (`verified/rust/src/sorts.rs`) and what its charges depend on
+
+The declarations are lists of the store, so the Rust reads them with the same
+charged steps as it reads terms. Proved against section 6
+(`verified/lean/RwLogVerified/Sorts.lean`):
+
+| Rust | Specification | Ticks at most |
+|---|---|---|
+| `sorts::step` | `Sorts.step` | `sortsCost S + 2 m + 2`, `m` the arguments; `sortsCost S` is linear in the written size of the declarations |
+| `sorts::member` | `Sorts.mem` | 5, and `sortsCost S + 11 m + 6` for each pair of a declared sort and a distinct subterm with `m` arguments |
+
+Membership is therefore linear in the term for fixed declarations, and a term
+with a repeated subterm pays for it once for each sort.
+
+The operations of the store are not of that kind, and the bound that can be
+proved for them is not polynomial in the declarations. Emptiness, the count of
+members up to two, and inclusion are fixpoints over the conjunctions of
+declared sorts that can be reached from the conjunctions the store holds. A
+conjunction is a set of declared sorts, and the sets that can be reached are
+not bounded by a polynomial in the declarations: sorts that count the length
+of a chain modulo distinct primes reach every combination of residues, the
+product of the primes, from declarations whose size is their sum. So the
+charge of `rep`, `compose` and `meet` at `dom S` is a polynomial in the store
+times the number of reachable conjunctions, and that number is a property of
+the declarations: one for each declared sort when no two sorts overlap, as in
+every example of section 5.
+
+For L39 and L55 this fixes the shape of the statement: the charges are stated
+with the number of reachable conjunctions as a parameter computed from the
+program (the read-time check of L56 already computes that set), not as a
+polynomial in the size of the program alone.
+
