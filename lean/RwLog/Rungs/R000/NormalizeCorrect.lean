@@ -131,7 +131,7 @@ theorem joinSeq_complete {n p q s₁ s₂} (h₁ : DerivesN P n (toRel p) s₁)
     obtain rfl : sb = b := by cases hsb; rfl
     have hsub : (s₁.den).comp s₂.den ⊆ (sp.den).comp (((sa.den).comp sb.den).comp sq.den) := by
       calc (s₁.den).comp s₂.den
-          ⊆ ((sp.den).comp sa.den).comp ((sb.den).comp sq.den) := GRel.comp_mono hs₁ hs₂
+          ⊆ ((sp.den).comp sa.den).comp ((sb.den).comp sq.den) := GRel.comp_mono hs₁.le hs₂.le
         _ = (sp.den).comp (((sa.den).comp sb.den).comp sq.den) := by
           simp only [GRel.comp_assoc]
     have hne' := hne.mono hsub
@@ -140,9 +140,10 @@ theorem joinSeq_complete {n p q s₁ s₂} (h₁ : DerivesN P n (toRel p) s₁)
     refine ⟨_, by rw [hc]; rfl, ?_⟩
     rw [← hcd] at hsub hne'
     obtain ⟨t, ht, ht'⟩ := chain_cons_join (.span n c) hsq (GRel.comp_nonempty_right hne')
-    obtain ⟨u, hu, hu'⟩ := chain_join _ _ hsp ht (hne'.mono (GRel.comp_mono le_rfl ht'))
-    exact ⟨u, hu, hsub.trans ((GRel.comp_mono le_rfl ht').trans hu')⟩
-  · exact ⟨_, rfl, chain_join _ _ h₁ h₂ hne⟩
+    obtain ⟨u, hu, hu'⟩ := chain_join _ _ hsp ht (hne'.mono (GRel.comp_mono le_rfl ht'.le))
+    exact ⟨u, hu, hsub.trans ((GRel.comp_mono le_rfl ht'.le).trans hu'.le)⟩
+  · obtain ⟨s, hs, he⟩ := chain_join _ _ h₁ h₂ hne
+    exact ⟨_, rfl, s, hs, he.le⟩
 
 /-! ## Conjoining products -/
 

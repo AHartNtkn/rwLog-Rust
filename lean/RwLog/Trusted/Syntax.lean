@@ -221,6 +221,18 @@ def calls : Rel → List Name
 
 def CallFree (e : Rel) : Prop := e.calls = []
 
+/-- The mirror image of an expression: every span is swapped and every
+sequence is reversed. It denotes the converse (`denote_dual`), with calls
+read in the mirrored program `Program.dual`. -/
+def dual : Rel → Rel
+  | zero => zero
+  | span s => span s.swap
+  | or a b => or a.dual b.dual
+  | and a b => and a.dual b.dual
+  | seq a b => seq b.dual a.dual
+  | conv a => conv a.dual
+  | call n => call n
+
 instance (e : Rel) : Decidable e.CallFree := inferInstanceAs (Decidable (_ = _))
 
 end Rel
@@ -247,6 +259,11 @@ def WellFormed (P : Program) (q : Rel) : Prop :=
 
 instance (P : Program) (q : Rel) : Decidable (P.WellFormed q) := by
   unfold WellFormed; infer_instance
+
+/-- The mirrored program: every body is mirrored, and the theory is
+unchanged. -/
+def dual (P : Program) : Program :=
+  { P with defs := P.defs.map fun d => (d.1, d.2.dual) }
 
 end Program
 

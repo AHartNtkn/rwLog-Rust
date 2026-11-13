@@ -106,7 +106,7 @@ theorem theory_terminates (T : Theory) (q : Rel) :
 theorem joinSeq_split {n : Nat} {p q r : List Rel} {s : Span} (h : joinSeq p q = some r)
     (hd : DerivesN P n (toRel r) s) :
     ∃ s₁ s₂, DerivesN P n (toRel p) s₁ ∧ DerivesN P n (toRel q) s₂ ∧
-      s.den ⊆ (s₁.den).comp s₂.den := by
+      s.den = (s₁.den).comp s₂.den := by
   unfold joinSeq at h
   split at h
   · rename_i a b q' hl
@@ -115,41 +115,40 @@ theorem joinSeq_split {n : Nat} {p q r : List Rel} {s : Span} (h : joinSeq p q =
     obtain ⟨sp, t, hsp, ht, hs⟩ := chain_split _ _ hd (Span.den_nonempty s)
     obtain ⟨sc, sq, hsc, hsq, ht'⟩ := chain_cons_split ht
     obtain rfl : sc = c := by cases hsc; rfl
-    have hsub : s.den ⊆ ((sp.den).comp a.den).comp ((b.den).comp sq.den) := by
-      refine hs.trans ((GRel.comp_mono le_rfl ht').trans ?_)
-      rw [compose_some hc]
+    have hsub : s.den = ((sp.den).comp a.den).comp ((b.den).comp sq.den) := by
+      rw [hs, ht', compose_some hc]
       simp only [GRel.comp_assoc]
-      exact le_rfl
-    have hne := (Span.den_nonempty s).mono hsub
+    have hne : (((sp.den).comp a.den).comp ((b.den).comp sq.den)).Nonempty :=
+      hsub ▸ Span.den_nonempty s
     obtain ⟨u, hu, hu'⟩ := chain_join p.dropLast [.span a] hsp (.span n a)
       (GRel.comp_nonempty_left hne)
     obtain ⟨v, hv, hv'⟩ := chain_cons_join (.span n b) hsq (GRel.comp_nonempty_right hne)
-    exact ⟨u, v, by rw [hp]; exact hu, hv, hsub.trans (GRel.comp_mono hu' hv')⟩
+    exact ⟨u, v, by rw [hp]; exact hu, hv, by rw [hsub, hu', hv']⟩
   · cases h
     exact chain_split _ _ hd (Span.den_nonempty s)
 
 theorem mkAnd_split {n : Nat} {p q r : List Rel} {s : Span} (h : mkAnd p q = some r)
     (hd : DerivesN P n (toRel r) s) :
     ∃ s₁ s₂, DerivesN P n (toRel p) s₁ ∧ DerivesN P n (toRel q) s₂ ∧
-      s.den ⊆ (s₁.den).meet s₂.den := by
+      s.den = (s₁.den).meet s₂.den := by
   unfold mkAnd at h
   split at h
   · rename_i a b
     obtain ⟨c, hc, rfl⟩ := Option.map_eq_some_iff.1 h
     cases hd
-    exact ⟨a, b, .span n a, .span n b, (meet_some hc).le⟩
+    exact ⟨a, b, .span n a, .span n b, meet_some hc⟩
   · cases h
     cases hd with
-    | and h₁ h₂ hc => exact ⟨_, _, h₁, h₂, (meet_some hc).le⟩
+    | and h₁ h₂ hc => exact ⟨_, _, h₁, h₂, meet_some hc⟩
 
 theorem inv_nonempty {R : GRel} (h : R.inv.Nonempty) : R.Nonempty := by
   obtain ⟨_, hx⟩ := h
   exact ⟨_, hx⟩
 
-/-- Every span a product of `norm neg e` derives is covered by a span `e`
-derives, oriented by `neg`. The converse of `norm_complete`. -/
+/-- Every span a product of `norm neg e` derives denotes what a span `e`
+derives denotes, oriented by `neg`. The converse of `norm_complete`. -/
 theorem norm_reflect {n : Nat} : ∀ (neg : Bool) (e : Rel), ∀ p ∈ norm neg e, ∀ s,
-    DerivesN P n (toRel p) s → ∃ s', DerivesN P n e s' ∧ s.den ⊆ (orientS neg s').den
+    DerivesN P n (toRel p) s → ∃ s', DerivesN P n e s' ∧ s.den = (orientS neg s').den
   | _, .zero, p, hp, _, _ => by simp [norm] at hp
   | neg, .span s, p, hp, t, ht => by
     simp only [norm, List.mem_singleton] at hp
@@ -171,8 +170,8 @@ theorem norm_reflect {n : Nat} : ∀ (neg : Bool) (e : Rel), ∀ p ∈ norm neg 
     obtain ⟨u₁, hu₁, hs₁⟩ := norm_reflect false a p₁ hp₁ s₁ h₁
     obtain ⟨u₂, hu₂, hs₂⟩ := norm_reflect false b p₂ hp₂ s₂ h₂
     simp only [orientS, Bool.false_eq_true, ite_false] at hs₁ hs₂ ⊢
-    have hsub := hs.trans (GRel.comp_mono hs₁ hs₂)
-    obtain ⟨u, hu, hud⟩ := compose_isSome ((Span.den_nonempty t).mono hsub)
+    have hsub : t.den = (u₁.den).comp u₂.den := by rw [hs, hs₁, hs₂]
+    obtain ⟨u, hu, hud⟩ := compose_isSome (hsub ▸ Span.den_nonempty t)
     exact ⟨u, .seq hu₁ hu₂ hu, by rw [hud]; exact hsub⟩
   | true, .seq a b, p, hp, t, ht => by
     simp only [norm, List.mem_flatMap, List.mem_filterMap] at hp
@@ -181,9 +180,9 @@ theorem norm_reflect {n : Nat} : ∀ (neg : Bool) (e : Rel), ∀ p ∈ norm neg 
     obtain ⟨ub, hub, hs₁⟩ := norm_reflect true b p₁ hp₁ s₁ h₁
     obtain ⟨ua, hua, hs₂⟩ := norm_reflect true a p₂ hp₂ s₂ h₂
     simp only [orientS, ite_true, swap_den] at hs₁ hs₂ ⊢
-    have hsub : t.den ⊆ ((ua.den).comp ub.den).inv := by
-      rw [GRel.inv_comp]; exact hs.trans (GRel.comp_mono hs₁ hs₂)
-    obtain ⟨u, hu, hud⟩ := compose_isSome (inv_nonempty ((Span.den_nonempty t).mono hsub))
+    have hsub : t.den = ((ua.den).comp ub.den).inv := by
+      rw [GRel.inv_comp, hs, hs₁, hs₂]
+    obtain ⟨u, hu, hud⟩ := compose_isSome (inv_nonempty (hsub ▸ Span.den_nonempty t))
     exact ⟨u, .seq hua hub hu, by rw [hud]; exact hsub⟩
   | neg, .and a b, p, hp, t, ht => by
     simp only [norm, List.mem_flatMap, List.mem_filterMap] at hp
@@ -191,15 +190,16 @@ theorem norm_reflect {n : Nat} : ∀ (neg : Bool) (e : Rel), ∀ p ∈ norm neg 
     obtain ⟨s₁, s₂, h₁, h₂, hs⟩ := mkAnd_split hj ht
     obtain ⟨u₁, hu₁, hs₁⟩ := norm_reflect neg a p₁ hp₁ s₁ h₁
     obtain ⟨u₂, hu₂, hs₂⟩ := norm_reflect neg b p₂ hp₂ s₂ h₂
-    have hsub := hs.trans (GRel.meet_mono hs₁ hs₂)
+    have hsub : t.den = ((orientS neg u₁).den).meet (orientS neg u₂).den := by
+      rw [hs, hs₁, hs₂]
     rw [orientS_den, orientS_den] at hsub
     cases neg
     · simp only [Bool.false_eq_true, ite_false] at hsub
-      obtain ⟨u, hu, hud⟩ := meet_isSome ((Span.den_nonempty t).mono hsub)
+      obtain ⟨u, hu, hud⟩ := meet_isSome (hsub ▸ Span.den_nonempty t)
       exact ⟨u, .and hu₁ hu₂ hu, by simp only [orientS, Bool.false_eq_true, ite_false]; rw [hud]; exact hsub⟩
     · simp only [ite_true] at hsub
       rw [← GRel.inv_meet] at hsub
-      obtain ⟨u, hu, hud⟩ := meet_isSome (inv_nonempty ((Span.den_nonempty t).mono hsub))
+      obtain ⟨u, hu, hud⟩ := meet_isSome (inv_nonempty (hsub ▸ Span.den_nonempty t))
       exact ⟨u, .and hu₁ hu₂ hu, by simp only [orientS, ite_true, swap_den]; rw [hud]; exact hsub⟩
   | neg, .conv a, p, hp, t, ht => by
     simp only [norm] at hp
@@ -211,10 +211,10 @@ theorem norm_reflect {n : Nat} : ∀ (neg : Bool) (e : Rel), ∀ p ∈ norm neg 
     simp only [norm, List.mem_singleton] at hp
     subst hp
     cases neg
-    · exact ⟨t, ht, le_rfl⟩
+    · exact ⟨t, ht, rfl⟩
     · simp only [ite_true] at ht
       cases ht with
-      | conv h => exact ⟨_, h, le_rfl⟩
+      | conv h => exact ⟨_, h, rfl⟩
 
 /-! ## The products of an expression and of its converse correspond -/
 
@@ -591,7 +591,7 @@ theorem roundSpans_conv_le {q : Rel} {k : Nat} {a : Span} (ha : a ∈ roundSpans
   obtain ⟨p₂, hp₂, t, ht, hst⟩ := norm_complete hs' false (Span.den_nonempty _)
   refine ⟨t, List.mem_flatMap.2 ⟨p₂, hp₂, mem_derivs.2 ht⟩, ?_⟩
   simp only [orientS, ite_true, Bool.false_eq_true, ite_false, swap_den] at hsub hst ⊢
-  exact hsub.trans (GRel.inv_mono hst)
+  exact hsub.le.trans (GRel.inv_mono hst)
 
 theorem roundSpans_conv_ge {q : Rel} {k : Nat} {b : Span} (hb : b ∈ roundSpans P q k) :
     ∃ a ∈ roundSpans P (.conv q) k, b.swap.den ⊆ a.den := by
@@ -603,7 +603,7 @@ theorem roundSpans_conv_ge {q : Rel} {k : Nat} {b : Span} (hb : b ∈ roundSpans
   · simp only [roundSpans, products_conv, List.mem_flatMap]
     exact ⟨p₂, hp₂, mem_derivs.2 ht⟩
   · simp only [orientS, ite_true, Bool.false_eq_true, ite_false, swap_den] at hsub hst ⊢
-    exact (GRel.inv_mono hsub).trans hst
+    exact (GRel.inv_mono hsub.le).trans hst
 
 /-- **P1.4, answers.** Every answer of the converse of a query is covered by
 the swap of an answer of the query, and the swap of every answer of the

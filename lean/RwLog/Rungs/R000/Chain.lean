@@ -40,58 +40,58 @@ theorem derivesN_idRel {n s} (h : DerivesN P n idRel s) : s = Span.idSpan := by
 
 theorem chain_cons_split {n f p s} (h : DerivesN P n (toRel (f :: p)) s) :
     ∃ s₁ s₂, DerivesN P n f s₁ ∧ DerivesN P n (toRel p) s₂ ∧
-      s.den ⊆ (s₁.den).comp s₂.den := by
+      s.den = (s₁.den).comp s₂.den := by
   cases p with
   | nil =>
     refine ⟨s, Span.idSpan, h, .span n _, ?_⟩
     rw [Span.den_idSpan, GRel.comp_id]
   | cons g p =>
     cases h with
-    | seq h₁ h₂ hc => exact ⟨_, _, h₁, h₂, (compose_some hc).le⟩
+    | seq h₁ h₂ hc => exact ⟨_, _, h₁, h₂, compose_some hc⟩
 
 theorem chain_cons_join {n f p s₁ s₂} (h₁ : DerivesN P n f s₁) (h₂ : DerivesN P n (toRel p) s₂)
     (hne : ((s₁.den).comp s₂.den).Nonempty) :
-    ∃ s, DerivesN P n (toRel (f :: p)) s ∧ (s₁.den).comp s₂.den ⊆ s.den := by
+    ∃ s, DerivesN P n (toRel (f :: p)) s ∧ (s₁.den).comp s₂.den = s.den := by
   cases p with
   | nil =>
     rw [derivesN_idRel h₂, Span.den_idSpan, GRel.comp_id]
-    exact ⟨s₁, h₁, le_rfl⟩
+    exact ⟨s₁, h₁, rfl⟩
   | cons g p =>
     obtain ⟨s, hc, hs⟩ := compose_isSome hne
-    exact ⟨s, .seq h₁ h₂ hc, hs.ge⟩
+    exact ⟨s, .seq h₁ h₂ hc, hs.symm⟩
 
 theorem chain_split {n} : ∀ (p q : List Rel) {s}, DerivesN P n (toRel (p ++ q)) s →
     (s.den).Nonempty →
     ∃ s₁ s₂, DerivesN P n (toRel p) s₁ ∧ DerivesN P n (toRel q) s₂ ∧
-      s.den ⊆ (s₁.den).comp s₂.den
+      s.den = (s₁.den).comp s₂.den
   | [], q, s, h, _ => by
     refine ⟨Span.idSpan, s, .span n _, h, ?_⟩
     rw [Span.den_idSpan, GRel.id_comp]
   | f :: p, q, s, h, hne => by
     rw [List.cons_append] at h
     obtain ⟨sf, s', hf, h', hs⟩ := chain_cons_split h
-    have hne' : (s'.den).Nonempty := GRel.comp_nonempty_right (hne.mono hs)
+    have hne' : (s'.den).Nonempty := GRel.comp_nonempty_right (hs ▸ hne)
     obtain ⟨sp, sq, hp, hq, hs'⟩ := chain_split p q h' hne'
-    have hsub : s.den ⊆ ((sf.den).comp sp.den).comp sq.den := by
-      rw [GRel.comp_assoc]; exact hs.trans (GRel.comp_mono le_rfl hs')
-    obtain ⟨t, ht, ht'⟩ := chain_cons_join hf hp (GRel.comp_nonempty_left (hne.mono hsub))
-    exact ⟨t, sq, ht, hq, hsub.trans (GRel.comp_mono ht' le_rfl)⟩
+    have hsub : s.den = ((sf.den).comp sp.den).comp sq.den := by
+      rw [GRel.comp_assoc, hs, hs']
+    obtain ⟨t, ht, ht'⟩ := chain_cons_join hf hp (GRel.comp_nonempty_left (hsub ▸ hne))
+    exact ⟨t, sq, ht, hq, by rw [hsub, ht']⟩
 
 theorem chain_join {n} : ∀ (p q : List Rel) {s₁ s₂}, DerivesN P n (toRel p) s₁ →
     DerivesN P n (toRel q) s₂ → ((s₁.den).comp s₂.den).Nonempty →
-    ∃ s, DerivesN P n (toRel (p ++ q)) s ∧ (s₁.den).comp s₂.den ⊆ s.den
+    ∃ s, DerivesN P n (toRel (p ++ q)) s ∧ (s₁.den).comp s₂.den = s.den
   | [], q, s₁, s₂, h₁, h₂, _ => by
     rw [derivesN_idRel h₁, Span.den_idSpan, GRel.id_comp]
-    exact ⟨s₂, h₂, le_rfl⟩
+    exact ⟨s₂, h₂, rfl⟩
   | f :: p, q, s₁, s₂, h₁, h₂, hne => by
     obtain ⟨sf, sp, hf, hp, hs⟩ := chain_cons_split h₁
-    have hsub : (s₁.den).comp s₂.den ⊆ (sf.den).comp ((sp.den).comp s₂.den) := by
-      rw [← GRel.comp_assoc]; exact GRel.comp_mono hs le_rfl
-    have hne' := hne.mono hsub
+    have hsub : (s₁.den).comp s₂.den = (sf.den).comp ((sp.den).comp s₂.den) := by
+      rw [hs, GRel.comp_assoc]
+    have hne' := hsub ▸ hne
     obtain ⟨t, ht, ht'⟩ := chain_join p q hp h₂ (GRel.comp_nonempty_right hne')
-    have hne'' := hne'.mono (GRel.comp_mono le_rfl ht')
+    have hne'' : ((sf.den).comp t.den).Nonempty := ht' ▸ hne'
     obtain ⟨u, hu, hu'⟩ := chain_cons_join hf ht hne''
     rw [List.cons_append]
-    exact ⟨u, hu, hsub.trans ((GRel.comp_mono le_rfl ht').trans hu')⟩
+    exact ⟨u, hu, by rw [hsub, ht', hu']⟩
 
 end RwLog
