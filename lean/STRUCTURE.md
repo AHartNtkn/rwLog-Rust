@@ -65,9 +65,11 @@ is, what was measured, and what the trusted files and the kernel must provide
 for it. `Tests/MiddleRuns.lean` holds its measurements on R004 and R005.
 
 `CONSTRAINT_LANGUAGE.md` is the design note for the rule language of milestone
-M5: the rules a theory may have, the check made when a theory is read, why
-refutation by firing is exact, canonical representatives of spans, coverage,
-and the algorithms to be written in Rust. Its prototype is
+M5: how a theory is classified when it is read (detected confluent or not;
+nothing is rejected), the exact path of a detected theory and why its
+refutation is exact, the fallback path of every other theory and what it
+guarantees, canonical representatives of spans, coverage, and the algorithms
+to be written in Rust. Its prototype is
 `scripts/constraint_language_prototype.py`; no Lean implements it yet.
 
 ## What is shared, and where to look first
