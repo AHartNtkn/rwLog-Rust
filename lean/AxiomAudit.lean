@@ -241,3 +241,8 @@ new axiom.
 
 /-- info: 'RwLog.Valid.sound' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Valid.sound
+
+/-! ## What no engine has -/
+
+/-- info: 'RwLog.Engine.not_keeps' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Engine.not_keeps
