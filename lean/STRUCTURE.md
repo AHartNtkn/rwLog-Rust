@@ -97,7 +97,7 @@ drop repeats themselves, so the machine is still `R001.runtime`
 (`Tabled.rest_skips`), and a per-call bound on the oracle becomes a bound on
 the whole run (`Tabled.spent_le_of_skips`). R003 uses it.
 
-`Rungs/Framework/Race.lean` proves what `Cost.race` returns and spends
+`Rungs/Framework/Race.lean` defines `Cost.race` and proves what it returns and spends
 (`Cost.race_val`, `Cost.race_ticks`), for any two computations.
 
 A rung whose machine is equal to an earlier one as a `Runtime` (R002 against
@@ -121,5 +121,8 @@ covers the derived span) does not survive preprocessing in general, only
 4. Use kernel theorems by name. If a proof needs a fact about `covers?`,
    `simplify`, `compose`, `meet` or lists that is not rung-specific, add it to
    `Kernel/`, `SpanLayer/` or `Lib/`, not to the rung.
-5. Add each headline theorem to `AxiomAudit.lean`. The build is
+5. The shared layers never import a rung: `Kernel/`, `SpanLayer/`, `Lib/` and
+   `Rungs/Framework/` import nothing under `Rungs/R00N/`. A generic definition
+   a rung needs goes in the shared layer, with its lemmas.
+6. Add each headline theorem to `AxiomAudit.lean`. The build is
    `lake build --wfail`: no `sorry`, no warnings, no new axioms.
