@@ -8,7 +8,7 @@ stops there, two ticks per level. So the race costs at most `2 d + k + 5` on
 any goal of the run, where the eager unfolder builds `2 ^ d` copies of `w`.
 -/
 import RwLog.Rungs.R002.Proofs.Separation.State
-import RwLog.Rungs.R002.Proofs.Separation.Calculus
+import RwLog.Rungs.Framework.CostCalculus
 import RwLog.Rungs.Framework.Cost
 
 namespace RwLog

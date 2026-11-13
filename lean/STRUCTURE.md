@@ -12,6 +12,7 @@ Kernel/         the executable kernel (match, solve, span, refute) and its proof
 SpanLayer/      span-level semantics, derivations, coverage vocabulary
 Lib/            facts about lists and greatest fixpoints that mention no rwlog type
 Rungs/Framework generic theorems about any Runtime / Rung
+Rungs/Tabled/   the tabled round machine in the cost monad, open in its unfolding oracle
 Rungs/R00N/     one rung: Engine, (Spec), proofs
 Conformance/    behaviours pinned against the Rust implementation
 AxiomAudit.lean every headline and shared theorem, checked to use only the three standard axioms
@@ -72,6 +73,15 @@ rung unchanged.
   `c`), with one rule per monad operation and per traversal (`Costs.bind`,
   `Costs.mapL`, `Costs.foldL`, ...), so the value and a cost bound of a long
   `do` block are derived together.
+
+`Rungs/Tabled/` is the base for costed rungs that keep R001's tables and change
+something else. `Machine.lean` is R001's machine written in the cost monad
+with the unfolding race left to an `Oracle`; `Tabled.round_split` isolates
+what a round spends asking the oracle. `Exact.lean` proves
+`Tabled.machine_runtime`: with any oracle whose value is R001's unfolding race
+(`Oracle.Exact`), the machine's runtime is `R001.runtime`, so all of R001's
+theorems apply. A rung that changes only the oracle (as R002 does) proves its
+oracle exact and bounds its ticks; nothing about tables is reproved.
 
 A rung whose machine is equal to an earlier one as a `Runtime` (R002 against
 R001) uses `SameRun.of_eq`, or simply rewrites.

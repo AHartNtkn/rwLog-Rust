@@ -9,7 +9,7 @@ a goal and a depth, whether the goal's unfolding to that depth is final and,
 if it is, what its answers are. Each incomplete table asks the oracle once per
 round.
 
-Two oracles are given in `Unfold.lean`: R001's own way of computing the
+Two oracles are given in `Rungs/R002/Unfold.lean`: R001's own way of computing the
 answer, and R002's. Because both go through this one machine, they are charged
 the same for everything else.
 
@@ -20,8 +20,6 @@ import RwLog.Trusted.Cost
 import RwLog.Rungs.R001.Engine
 
 namespace RwLog
-
-namespace R002
 
 open R001 Cost
 
@@ -309,8 +307,25 @@ def machine (U : Oracle) : CostedRuntime where
   init P q := State.ofGoal P ⟨none, q, none⟩
   step := step U
 
-end Tabled
+/-! ## A round, split at the oracle -/
 
-end R002
+/-- What a table does with the oracle in a round. -/
+def ask (U : Oracle) (st : State) (t : Table) : Cost (Bool × List Span) :=
+  if t.done then pure (false, []) else do
+    tick (goalSize t.goal)
+    U st.P st.depth t.goal
+
+/-- A round is one tick, the tables asking the oracle, and a remainder that
+sees only what the oracle answered. Two oracles with the same answers
+therefore differ in cost only by what the tables spend asking. -/
+theorem round_split (st : State) :
+    ∃ K : List (Bool × List Span) → Cost (State × List Span), ∀ U : Oracle,
+      round U st = (do
+        tick 1
+        let us ← mapL (ask U st) st.tables
+        K us) :=
+  ⟨_, fun _ => rfl⟩
+
+end Tabled
 
 end RwLog

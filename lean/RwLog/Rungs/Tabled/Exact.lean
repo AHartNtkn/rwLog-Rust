@@ -1,7 +1,7 @@
 /-
 # The charged tabled machine is R001
 
-`Tabled.lean` writes R001's round machine in the cost monad, leaving the
+`Machine.lean` writes R001's round machine in the cost monad, leaving the
 unfolding race to an oracle. Here each of its definitions is projected onto
 the definition of `R001/Engine.lean` it was written from: forgetting the ticks
 gives R001's function. The result is `Tabled.machine_runtime`: with any oracle
@@ -16,11 +16,10 @@ the start of the round. The fixpoint only ever looks at such tables
 -/
 import RwLog.Rungs.Framework.Cost
 import RwLog.Lib.Gfp
-import RwLog.Rungs.R002.Tabled
+import RwLog.Lib.List
+import RwLog.Rungs.Tabled.Machine
 
 namespace RwLog
-
-namespace R002
 
 open R001 Cost
 
@@ -176,11 +175,6 @@ theorem completing_val (P : Program) (d : Nat) (finals : List Bool) (ts ts' : Ta
 
 /-! ## One round -/
 
-theorem map_zip_map_self {α β γ : Type} (f : α → β) (h : α × β → γ) :
-    ∀ xs : List α, (xs.zip (xs.map f)).map h = xs.map fun x => h (x, f x)
-  | [] => rfl
-  | x :: xs => by simp [map_zip_map_self f h xs]
-
 theorem ite_or {α : Type} (a b : Bool) (x y : α) :
     (if a = true then x else if b = true then x else y) = if (a || b) = true then x else y := by
   cases a <;> cases b <;> rfl
@@ -213,7 +207,5 @@ theorem machine_runtime (U : Oracle) (hU : U.Exact) : (machine U).runtime = R001
   simp only [CostedRuntime.runtime, machine, R001.runtime, step_val U hU]
 
 end Tabled
-
-end R002
 
 end RwLog

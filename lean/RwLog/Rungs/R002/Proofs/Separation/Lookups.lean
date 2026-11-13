@@ -7,7 +7,7 @@ run has size at most three, so comparing two keys costs at most six and a
 lookup at most six per table.
 -/
 import RwLog.Rungs.R002.Proofs.Separation.Race
-import RwLog.Rungs.R002.Proofs.Machine
+import RwLog.Rungs.Tabled.Exact
 
 namespace RwLog
 
