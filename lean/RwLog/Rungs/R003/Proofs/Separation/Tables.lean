@@ -231,7 +231,8 @@ theorem fresh_xz_good {cs : List Span} (hg : ∀ x ∈ cs, Good x) : fresh [xz] 
 /-! ## What the fresh answers cost -/
 
 theorem covers_ticks {a b : Span} (ha : Good a) (hb : Good b) : (Charged.covers a b).ticks = 4 := by
-  simp [Charged.covers, size_good ha, size_good hb]
+  have hc : a.c = [] := by rcases ha with rfl | rfl <;> rfl
+  simp [Charged.covers, size_good ha, size_good hb, Charged.coversWork_nil hc]
 
 theorem fold_ticks : ∀ (top acc : List Span), (∀ x ∈ top, Good x) → (∀ x ∈ acc, Good x) →
     (foldL (fun acc x => do

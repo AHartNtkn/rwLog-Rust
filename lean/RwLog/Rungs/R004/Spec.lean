@@ -25,20 +25,23 @@ R004 is judged against R003 by cost (`Trusted/Cost.lean`).
   within a linear bound, while R003 has paid at least `2 ^ k` before it emits
   anything (`separates`): its walk and its shared evaluation both build all
   `2 ^ (k + 1)` wrapped terms before the test is reached.
+* **Admission.** The rung keeps every property of the baseline (`keeps`) and
+  is admitted above R003 with the numerals `bounds` (`admits`).
 
 ## What is not claimed
 
 * **No mirror bound.** The pruning this rung adds works from the right end of
   a sequence only, and what it races against (R002's walk) prunes from the
   left by a different test, so the cost of a query and the cost of its
-  converse are not claimed to be within a polynomial of each other, and no
-  such obligation is stated.
+  converse are not claimed to be within a polynomial of each other. Whether
+  they are is not known, and no such obligation is stated.
 * **Only the unfolding race is improved.** The race yields answers only for a
   goal whose unfolding is final. A goal that never becomes final is answered
   by the tables, which this rung leaves as they are in R001: they still
   evaluate the unconstrained side of a sequence in full.
 -/
 import RwLog.Rungs.R003.Engine
+import RwLog.Trusted.Properties
 import RwLog.Rungs.R004.Engine
 
 namespace RwLog
@@ -114,6 +117,27 @@ the pair `(a, a)` within `1000 (k + 2)` ticks, and R003 has paid at least
 def separates : Prop :=
   Separates R003.costed costed sepFam (fun _ => sepTarget) (fun k => 12 * (k + 2))
     (fun k => 2 ^ k) fun k => 1000 * (k + 2)
+
+/-! ### Admission -/
+
+/-- R004 keeps every property of the proper baseline, and halts wherever
+R001 halts (`Trusted/Properties.lean`). -/
+def keeps : Prop := runtime.Keeps R001.runtime
+
+/-- The numerals R004 is admitted with: simulation within `7 (c + n + 1)`,
+the `k`-th input of size at most `24 (k + 1)`, covered within `2000 (k + 1)`
+ticks. -/
+def bounds : Bounds := ⟨7, 1, 24, 1, 2000, 1⟩
+
+/-- The admission statement: R004 improves on R003 with these numerals, on
+`sepFam` and the pair `(a, a)`. -/
+def improves : Prop := Improves R003.costed costed bounds sepFam fun _ => sepTarget
+
+/-- The admission of the rung: R004 above R003, neither with any
+preprocessing, so preprocessing is recorded to cost nothing. -/
+def admits : Prop :=
+  Admits ⟨Preprocessor.id, R003.costed⟩ ⟨Preprocessor.id, costed⟩ bounds (fun _ => 0) sepFam
+    fun _ => sepTarget
 
 end Obligation
 

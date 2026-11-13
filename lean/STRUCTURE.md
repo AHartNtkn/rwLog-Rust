@@ -6,6 +6,7 @@ never restates it.
 
 ```
 Trusted/        the specification: syntax, semantics, Runtime, Rung, the Tier-0 properties,
+                the properties every rung keeps (Properties.lean), the cost monad (CostMonad.lean),
                 and the cost model (Cost.lean) by which rungs from R002 on are judged:
                 cost is coverage latency, the ticks until an emitted answer covers a
                 ground pair, and never depends on a query halting
@@ -141,5 +142,26 @@ covers the derived span) does not survive preprocessing in general, only
 5. The shared layers never import a rung: `Kernel/`, `SpanLayer/`, `Lib/` and
    `Rungs/Framework/` import nothing under `Rungs/R00N/`. A generic definition
    a rung needs goes in the shared layer, with its lemmas.
-6. Add each headline theorem to `AxiomAudit.lean`. The build is
+6. A rung from R002 on is admitted by three statements in its `Spec.lean`,
+   and by nothing weaker:
+   * `keeps : runtime.Keeps R001.runtime` (`Trusted/Properties.lean`): every
+     property of the proper baseline, stated for any runtime, and termination
+     wherever R001 terminates. Properties about one machine's internals
+     (prompt pruning, table invariants) are not in that list; a rung whose
+     machine is not R001's restates and proves them for its own state.
+   * `admits : Admits Old New bounds pre fam tgt` (`Trusted/Cost.lean`): the
+     rung as a whole (machine run on the preprocessed input) simulates its
+     predecessor within `bounds.sim`, on a family of size at most
+     `bounds.size k` it covers the targets within `bounds.hi k` while the
+     predecessor has paid `2 ^ k`, and preprocessing costs at most `pre`.
+     `bounds` is six numerals written in the Spec. Prove `Simulates` and
+     `Separates` with whatever bounds are natural and bring them to this form
+     with `Simulates.mono` and `Separates.mono`; `Admits.of_id` covers a rung
+     without preprocessing.
+   * Building the first state (`CostedRuntime.init`) and preprocessing
+     (`Preprocessor.run`) are charged computations. A coverage test and a
+     simplification are charged for their search (`Charged.coversWork`,
+     `Theory.saturateWork`), which is nothing when the covering span has no
+     store and when the theory is empty.
+7. Add each headline theorem to `AxiomAudit.lean`. The build is
    `lake build --wfail`: no `sorry`, no warnings, no new axioms.

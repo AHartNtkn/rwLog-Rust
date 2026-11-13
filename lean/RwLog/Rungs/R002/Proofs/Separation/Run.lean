@@ -32,7 +32,7 @@ open Cost R001
 /-! ## The steps -/
 
 theorem init_eq (k : Nat) (U : Oracle) :
-    (Tabled.machine U).init (sepFam k).1 (sepFam k).2 = st k 0 := by
+    (Tabled.machine U).start (sepFam k).1 (sepFam k).2 = st k 0 := by
   show State.ofGoal (prog k) (gR k) = st k 0
   simp [State.ofGoal, norm_gR, st, tabs, slots, tab, goal, ans, hasAns, isDone]
 
@@ -118,9 +118,9 @@ theorem costed_run (k : Nat) : ∀ (r d : Nat), d + r = k + 4 →
       omega
 
 theorem costed_halts (k : Nat) :
-    costed.runtime.Halts (costed.init (sepFam k).1 (sepFam k).2) (k + 5) ∧
-      costed.spent (costed.init (sepFam k).1 (sepFam k).2) (k + 5) ≤ 500 * (k + 5) ^ 4 := by
-  have hi : costed.init (sepFam k).1 (sepFam k).2 = st k 0 := init_eq k onDemand
+    costed.runtime.Halts (costed.start (sepFam k).1 (sepFam k).2) (k + 5) ∧
+      costed.spent (costed.start (sepFam k).1 (sepFam k).2) (k + 5) ≤ 500 * (k + 5) ^ 4 := by
+  have hi : costed.start (sepFam k).1 (sepFam k).2 = st k 0 := init_eq k onDemand
   rw [hi]
   obtain ⟨h1, h2⟩ := costed_run k (k + 4) 0 (by omega)
   refine ⟨h1, le_trans h2 ?_⟩
@@ -199,9 +199,9 @@ theorem baseline_spent (k : Nat) : ∀ (r d : Nat), d + r = k + 1 →
 
 /-- R001 has paid `2 ^ k` at any step at which it has emitted an answer. -/
 theorem baseline_late (k : Nat) {n : Nat} {a : Span}
-    (ha : a ∈ baseline.runtime.emitted (baseline.init (sepFam k).1 (sepFam k).2) n) :
-    2 ^ k ≤ baseline.spent (baseline.init (sepFam k).1 (sepFam k).2) n := by
-  have hi : baseline.init (sepFam k).1 (sepFam k).2 = st k 0 := init_eq k eager
+    (ha : a ∈ baseline.runtime.emitted (baseline.start (sepFam k).1 (sepFam k).2) n) :
+    2 ^ k ≤ baseline.spent (baseline.start (sepFam k).1 (sepFam k).2) n := by
+  have hi : baseline.start (sepFam k).1 (sepFam k).2 = st k 0 := init_eq k eager
   rw [hi] at ha ⊢
   exact baseline.le_spent_of_covered (N := k + 1) (baseline_quiet k (k + 1) 0 (by omega))
     (baseline_spent k (k + 1) 0 (by omega)) ha
@@ -251,18 +251,24 @@ theorem separates : Obligation.separates := by
   refine ⟨Sep.wellFormed k, Sep.size_le k, ⟨∅, Sep.model_nil k⟩, ⟨_, rfl⟩, ?_⟩
   intro M hM x hx
   obtain ⟨hh, hs⟩ := Sep.costed_halts k
-  refine ⟨costed.coversWithin_of_halts honest_exhaustion (Sep.wellFormed k) hh hs hM
-    (Sep.sem_target k M hx), ?_⟩
+  have hp := Tabled.paid_eq onDemand (sepFam k).1 (sepFam k).2 (k + 5)
+  refine ⟨costed.coversWithin_of_halts honest_exhaustion (Sep.wellFormed k) hh
+    (le_of_eq_of_le hp hs) hM (Sep.sem_target k M hx), ?_⟩
   rintro n ⟨a, ha, -⟩
-  exact Sep.baseline_late k ha
+  exact le_of_le_of_eq (Sep.baseline_late k ha) (Tabled.paid_eq eager _ _ n).symm
 
 /-- On `sepFam k`, R002 halts within `500 (k + 5)⁴` ticks, and R001 has paid
 at least `2 ^ k` whenever it has halted. -/
 theorem separates_exhaustion : Obligation.separates_exhaustion := by
   intro k
-  refine ⟨Sep.wellFormed k, Sep.size_le k, ⟨k + 5, Sep.costed_halts k⟩, ?_⟩
+  obtain ⟨hh, hs⟩ := Sep.costed_halts k
+  refine ⟨Sep.wellFormed k, Sep.size_le k,
+    ⟨k + 5, hh, le_of_eq_of_le (Tabled.paid_eq onDemand _ _ _) hs⟩, ?_⟩
   intro n hn
-  have hi : baseline.init (sepFam k).1 (sepFam k).2 = Sep.st k 0 := Sep.init_eq k eager
+  have hi : baseline.start (sepFam k).1 (sepFam k).2 = Sep.st k 0 := Sep.init_eq k eager
+  have hp : baseline.paid (sepFam k).1 (sepFam k).2 n =
+      baseline.spent (baseline.start (sepFam k).1 (sepFam k).2) n := Tabled.paid_eq eager _ _ n
+  rw [hp]
   rw [hi] at hn ⊢
   exact Sep.baseline_run k (k + 1) 0 (by omega) n hn
 

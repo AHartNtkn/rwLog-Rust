@@ -369,7 +369,7 @@ theorem unfold_g0 (k : Nat) :
 abbrev st0 (k : Nat) : R001.State := ⟨P0, [⟨g0 k, [], false⟩], false, 0⟩
 
 theorem init_eq (k : Nat) (U : Oracle) :
-    (Tabled.machine U).init (sepFam k).1 (sepFam k).2 = st0 k := by
+    (Tabled.machine U).start (sepFam k).1 (sepFam k).2 = st0 k := by
   show R001.State.ofGoal P0 (g0 k) = _
   rw [R001.State.ofGoal, norm_g0]
 

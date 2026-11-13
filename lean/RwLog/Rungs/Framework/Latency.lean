@@ -37,8 +37,8 @@ theorem CoversWithin.mono {P : Program} {q : Rel} {M : Interp} {x : GTerm × GTe
 /-- On an input that halts, an honest machine has covered every pair of the
 query when it halts. -/
 theorem coversWithin_of_halts (hC : C.runtime.HonestExhaustion) {P : Program} {q : Rel}
-    (hwf : P.WellFormed q) {n c : Nat} (hn : C.runtime.Halts (C.init P q) n)
-    (hc : C.spent (C.init P q) n ≤ c) {M : Interp} (hM : P.theory.Model M) {x : GTerm × GTerm}
+    (hwf : P.WellFormed q) {n c : Nat} (hn : C.runtime.Halts (C.start P q) n)
+    (hc : C.paid P q n ≤ c) {M : Interp} (hM : P.theory.Model M) {x : GTerm × GTerm}
     (hx : x ∈ P.semAt M q) : C.CoversWithin P q M x c := by
   have h := hC P q hwf n hn M hM
   rw [h] at hx
@@ -64,10 +64,10 @@ number of steps of `New` costs at most `p` of what `Old` paid, has emitted an
 answer covering each answer `Old` has emitted, and has halted if `Old` has. -/
 theorem Simulates.of_steps {Old New : CostedRuntime} {p : Nat → Nat → Nat}
     (h : ∀ P q, P.WellFormed q → ∀ n, ∃ m,
-      New.spent (New.init P q) m ≤ p (Old.spent (Old.init P q) n) (P.size + q.size) ∧
-      (∀ a ∈ Old.runtime.emitted (Old.init P q) n,
-        ∃ b ∈ New.runtime.emitted (New.init P q) m, b.CoversLive P.theory a) ∧
-      (Old.runtime.Halts (Old.init P q) n → New.runtime.Halts (New.init P q) m)) :
+      New.paid P q m ≤ p (Old.paid P q n) (P.size + q.size) ∧
+      (∀ a ∈ Old.runtime.emitted (Old.start P q) n,
+        ∃ b ∈ New.runtime.emitted (New.start P q) m, b.CoversLive P.theory a) ∧
+      (Old.runtime.Halts (Old.start P q) n → New.runtime.Halts (New.start P q) m)) :
     Simulates Old New p := by
   intro P q hwf n
   obtain ⟨m, hs, hcov, hh⟩ := h P q hwf n
@@ -75,5 +75,38 @@ theorem Simulates.of_steps {Old New : CostedRuntime} {p : Nat → Nat → Nat}
   rintro M hM x ⟨a, ha, hx⟩
   obtain ⟨b, hb, hba⟩ := hcov a ha
   exact ⟨m, ⟨b, hb, hba M hM hx⟩, hs⟩
+
+/-- A simulation within `p` is a simulation within any larger bound. -/
+theorem Simulates.mono {Old New : CostedRuntime} {p p' : Nat → Nat → Nat}
+    (h : Simulates Old New p) (hp : ∀ c n, p c n ≤ p' c n) : Simulates Old New p' := by
+  intro P q hwf n
+  obtain ⟨h1, h2⟩ := h P q hwf n
+  refine ⟨fun M hM x hx => CostedRuntime.CoversWithin.mono _ (h1 M hM x hx) (hp _ _), fun hn => ?_⟩
+  obtain ⟨m, hm, hs⟩ := h2 hn
+  exact ⟨m, hm, le_trans hs (hp _ _)⟩
+
+/-- A separation holds for any larger bounds on the size of the family and on
+what the new machine pays. -/
+theorem Separates.mono {Old New : CostedRuntime} {fam : Nat → Program × Rel} {tgt : Nat → PRel}
+    {size size' lo hi hi' : Nat → Nat} (h : Separates Old New fam tgt size lo hi)
+    (hsize : ∀ k, size k ≤ size' k) (hhi : ∀ k, hi k ≤ hi' k) :
+    Separates Old New fam tgt size' lo hi' := by
+  intro k
+  obtain ⟨hwf, hs, hM, hne, hcov⟩ := h k
+  refine ⟨hwf, le_trans hs (hsize k), hM, hne, fun M hM' x hx => ?_⟩
+  obtain ⟨h1, h2⟩ := hcov M hM' x hx
+  exact ⟨CostedRuntime.CoversWithin.mono _ h1 (hhi k), h2⟩
+
+/-- A rung without preprocessing is its machine. -/
+theorem CostedRung.machine_id (C : CostedRuntime) (A : ArtifactStore) :
+    (CostedRung.mk Preprocessor.id C).machine A = C := rfl
+
+/-- Two rungs without preprocessing: admission is the improvement of the
+machines, and preprocessing costs nothing. -/
+theorem Admits.of_id {Old New : CostedRuntime} {b : Bounds} {fam : Nat → Program × Rel}
+    {tgt : Nat → PRel} (h : Improves Old New b fam tgt) :
+    Admits ⟨Preprocessor.id, Old⟩ ⟨Preprocessor.id, New⟩ b (fun _ => 0) fam tgt where
+  improves _ := h
+  preCost _ _ _ _ := Nat.le_refl 0
 
 end RwLog

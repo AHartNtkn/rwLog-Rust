@@ -161,6 +161,23 @@ theorem length_le_foldL_ticks {α β : Type} (f : β → α → Cost β) (h : �
 
 end Cost
 
+/-! ## The search charges vanish where there is nothing to search -/
+
+@[simp] theorem matchAllWork_nil (ts : List Pat) (θ : PSubst) : matchAllWork [] ts θ = 0 := rfl
+
+/-- A covering span without a store is charged the two sizes. -/
+@[simp] theorem Charged.coversWork_nil {a : Span} (h : a.c = []) (s : Span) :
+    Charged.coversWork a s = 0 := by
+  unfold Charged.coversWork
+  cases (matchInto a.l s.l []).bind (matchInto a.r s.r) <;> simp [h]
+
+@[simp] theorem Theory.firingsWork_nil (c : Store) : Theory.firingsWork [] c = 0 := rfl
+
+/-- The empty theory searches for nothing. -/
+@[simp] theorem Theory.saturateWork_nil (c : Store) : Theory.saturateWork [] c = 0 := by
+  rw [Theory.saturateWork]
+  simp [Theory.newAtoms, Theory.firings]
+
 /-! ## Costed runtimes -/
 
 namespace CostedRuntime
@@ -169,7 +186,13 @@ variable (C : CostedRuntime)
 
 @[simp] theorem runtime_step (s : C.State) : C.runtime.step s = (C.step s).val := rfl
 
-@[simp] theorem runtime_init (P : Program) (q : Rel) : C.runtime.init P q = C.init P q := rfl
+@[simp] theorem runtime_init (P : Program) (q : Rel) : C.runtime.init P q = C.start P q := rfl
+
+/-- A machine whose first state is built for free has paid what its steps
+spent. -/
+theorem paid_of_init_free {P : Program} {q : Rel} (h : (C.init P q).ticks = 0) (n : Nat) :
+    C.paid P q n = C.spent (C.start P q) n := by
+  simp [paid, h]
 
 @[simp] theorem spent_zero (s : C.State) : C.spent s 0 = 0 := rfl
 

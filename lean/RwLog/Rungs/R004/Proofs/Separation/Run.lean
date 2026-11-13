@@ -41,7 +41,7 @@ theorem separates : Obligation.separates := by
   subst hx'
   refine ⟨?_, ?_⟩
   · obtain ⟨⟨s', hs⟩, ht⟩ := Sep.costed_first k
-    have hi : costed.init (sepFam k).1 (sepFam k).2 = Sep.st0 k := Sep.init_eq k unfolder
+    have hi : costed.start (sepFam k).1 (sepFam k).2 = Sep.st0 k := Sep.init_eq k unfolder
     refine ⟨1, ⟨Sep.aa, ?_, ⟨fun _ => .sym "", rfl, rfl, by simp⟩⟩, ?_⟩
     · rw [hi]
       have r1 : costed.runtime.step (Sep.st0 k) = .emit [Sep.aa] s' := hs
@@ -49,11 +49,17 @@ theorem separates : Obligation.separates := by
       rw [costed.runtime.run_succ_emit r1]
       simp
     · have h0 : costed.spent s' 0 = 0 := rfl
-      rw [hi, costed.spent_succ_emit hs, h0, Nat.add_zero]
+      have hp : costed.paid (sepFam k).1 (sepFam k).2 1 =
+          costed.spent (costed.start (sepFam k).1 (sepFam k).2) 1 := Tabled.paid_eq unfolder _ _ 1
+      rw [hp, hi, costed.spent_succ_emit hs, h0, Nat.add_zero]
       exact ht
   · rintro n ⟨a, ha, -⟩
-    have hi : R003.costed.init (sepFam k).1 (sepFam k).2 = Sep.st0 k :=
+    have hi : R003.costed.start (sepFam k).1 (sepFam k).2 = Sep.st0 k :=
       Sep.init_eq k R003.unfolder
+    have hp : R003.costed.paid (sepFam k).1 (sepFam k).2 n =
+        R003.costed.spent (R003.costed.start (sepFam k).1 (sepFam k).2) n :=
+      Tabled.paid_eq R003.unfolder _ _ n
+    rw [hp]
     rw [hi] at ha ⊢
     exact R003.costed.le_spent_of_covered (N := 0) rfl
       (le_trans (Sep.r003_first k) (R003.Sep.spent_ge_step _ _ 0)) ha

@@ -33,7 +33,7 @@ def costOf (C : CostedRuntime) (P : Program) (q : Rel) (fuel : Nat) : Nat × Boo
       match r.val with
       | .done => (i, true, acc + r.ticks)
       | .emit _ s' => go s' f (i + 1) (acc + r.ticks)
-  go (C.init P q) fuel 0 0
+  go (C.start P q) fuel 0 0
 
 /-! ## The same run as R001 -/
 
@@ -41,7 +41,7 @@ def sameRun (P : Program) (q : Rel) (fuel : Nat) : Bool :=
   traceR002 P q fuel == traceR001 P q fuel &&
     (R002.runtime.run (R002.runtime.init P q) fuel).2 ==
       (R001.runtime.run (R001.runtime.init P q) fuel).2 &&
-    (R002.baseline.runtime.trace (R002.baseline.init P q) fuel).map (·.map showSpan) ==
+    (R002.baseline.runtime.trace (R002.baseline.start P q) fuel).map (·.map showSpan) ==
       traceR001 P q fuel
 
 #guard sameRun addP (.seq (.at_ (ap "cons" [num 2, num 1])) (.call "add")) 30

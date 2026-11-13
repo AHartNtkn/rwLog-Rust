@@ -304,7 +304,7 @@ def step (U : Oracle) (st : State) : Cost (Step State) :=
 /-- The tabled round machine with a given unfolding oracle. -/
 def machine (U : Oracle) : CostedRuntime where
   State := State
-  init P q := State.ofGoal P ⟨none, q, none⟩
+  init P q := pure (State.ofGoal P ⟨none, q, none⟩)
   step := step U
 
 /-! ## A round, split at the oracle -/
