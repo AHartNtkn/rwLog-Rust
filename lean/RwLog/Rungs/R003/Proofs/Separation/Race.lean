@@ -10,6 +10,7 @@ costs more than that, so the race never returns more than 32 answers.
 -/
 import RwLog.Rungs.R003.Proofs.Separation.Walk
 import RwLog.Rungs.R003.Proofs.Separation.SharedEval
+import RwLog.Rungs.R003.Proofs.Same
 
 namespace RwLog
 
@@ -85,14 +86,14 @@ theorem two_le_ansBound (k : Nat) : 2 ≤ ansBound k := by
 
 /-- The race on `cRel j`: at most 7 times the shared evaluation; final; only
 the two spans, `$x -> z` among them; at most `ansBound j` answers. -/
-theorem unfolder_gC (hr : Obligation.race_ticks) (hs : Obligation.shared_exact) (d j : Nat) :
+theorem unfolder_gC (d j : Nat) :
     (unfolder P0 d (gC j)).ticks ≤ 7 * sharedBound j ∧ (unfolder P0 d (gC j)).val.1 = true ∧
       (∀ x ∈ (unfolder P0 d (gC j)).val.2, Good x) ∧ xz ∈ (unfolder P0 d (gC j)).val.2 ∧
       (unfolder P0 d (gC j)).val.2.length ≤ ansBound j := by
   obtain ⟨sv, st⟩ := shared_gC d j
   obtain ⟨w1, w2, w3⟩ := onDemand_gC d j
   have hex := R002.onDemand_exact P0 d (gC j)
-  have hsx := hs P0 d (gC j)
+  have hsx := R003.shared_exact P0 d (gC j)
   rw [sv] at hsx
   have hdup : (unfoldAnswers P0 d (gC j)).eraseDups = [xz, zz] := (congrArg Prod.snd hsx).symm
   have hmem : ∀ x, x ∈ (onDemand P0 d (gC j)).val.2 ↔ x = xz ∨ x = zz := by
@@ -101,7 +102,7 @@ theorem unfolder_gC (hr : Obligation.race_ticks) (hs : Obligation.shared_exact) 
     simp
   have hlen2 : 2 ≤ ansBound j := two_le_ansBound j
   refine ⟨?_, ?_⟩
-  · have := hr _ (onDemand P0 d (gC j)) (shared P0 d (gC j))
+  · have := R003.race_ticks _ (onDemand P0 d (gC j)) (shared P0 d (gC j))
     show (Cost.race _ _).ticks ≤ _
     omega
   · show (Cost.race (onDemand P0 d (gC j)) (shared P0 d (gC j))).val.1 = true ∧ _
@@ -134,11 +135,11 @@ theorem onDemand_gS (d : Nat) {s : Span} (hs : Good s) : (onDemand P0 d (gS s)).
   rw [onDemand, hrel, walk]
   simp [R002.alive, aliveL, aliveR, toRel, Rel.calls, derivs, hl]
 
-theorem unfolder_gS (hr : Obligation.race_ticks) (d : Nat) {s : Span} (hs : Good s) :
+theorem unfolder_gS (d : Nat) {s : Span} (hs : Good s) :
     (unfolder P0 d (gS s)).ticks ≤ 56 ∧ (unfolder P0 d (gS s)).val = (true, [s]) := by
   obtain ⟨sv, st⟩ := shared_gS d hs
   refine ⟨?_, ?_⟩
-  · have := hr _ (onDemand P0 d (gS s)) (shared P0 d (gS s))
+  · have := R003.race_ticks _ (onDemand P0 d (gS s)) (shared P0 d (gS s))
     show (Cost.race _ _).ticks ≤ _
     omega
   · show (Cost.race (onDemand P0 d (gS s)) (shared P0 d (gS s))).val = _

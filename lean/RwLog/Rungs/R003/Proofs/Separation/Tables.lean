@@ -51,7 +51,11 @@ theorem goalSize_slot {k : Nat} {g : Goal} (h : Slot k g) : goalSize g ≤ keyBo
   · exact goalSize_sub h
 
 theorem norm_gC (j : Nat) : (gC j).norm = (false, gC j) := by
-  cases j <;> simp [Goal.norm, canon_cRel, Goal.stripConv, cRel]
+  cases j with
+  | zero => simp [Goal.norm, cRel, canon_tw, Goal.stripConv]
+  | succ j =>
+    simp only [Goal.norm, canon_cRel]
+    simp [cRel, Goal.stripConv]
 
 theorem norm_gS (s : Span) : (gS s).norm = (false, gS s) := by
   simp [Goal.norm, canon, Goal.stripConv]
@@ -72,7 +76,6 @@ theorem cRel_ne_span (k : Nat) {s : Span} (hs : Good s) : cRel k ≠ .span s := 
   have := congrArg Rel.size h
   rw [size_cRel] at this
   simp [Rel.size, size_good hs] at this
-  omega
 
 /-- No goal that is asked for has the root's table. -/
 theorem same_root_sub {k : Nat} {g : Goal} (h : Sub k g) : (gC k).same g = false := by
