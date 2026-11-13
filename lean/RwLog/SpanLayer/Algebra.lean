@@ -68,6 +68,18 @@ theorem nonempty_mono {R S : GRel} (h : R ⊆ S) (hR : R.Nonempty) : S.Nonempty 
 
 end GRel
 
+theorem empty_comp (R : GRel) : (∅ : GRel).comp R = ∅ := by
+  ext ⟨a, b, X⟩
+  simp only [GRel.comp, Set.mem_ofPred_eq, Set.mem_empty_iff_false, iff_false]
+  rintro ⟨_, _, _, h, _⟩
+  exact h
+
+theorem comp_empty (R : GRel) : R.comp (∅ : GRel) = ∅ := by
+  ext ⟨a, b, X⟩
+  simp only [GRel.comp, Set.mem_ofPred_eq, Set.mem_empty_iff_false, iff_false]
+  rintro ⟨_, _, _, _, h, _⟩
+  exact h
+
 /-- The identity span `$0 -> $0`. -/
 def Span.idSpan : Span := ⟨.var 0, .var 0, []⟩
 

@@ -5,7 +5,8 @@ its machine. Everything below `Rungs/R00N/` is shared; a rung imports it and
 never restates it.
 
 ```
-Trusted/        the specification: syntax, semantics, Runtime, Rung, the Tier-0 properties
+Trusted/        the specification: syntax, semantics, Runtime, Rung, the Tier-0 properties,
+                and the cost model (Cost.lean) by which rungs from R002 on are judged
 Theory/         constraint theories and firing
 Kernel/         the executable kernel (match, solve, span, refute) and its proofs
 SpanLayer/      span-level semantics, derivations, coverage vocabulary
@@ -29,6 +30,8 @@ Tests/          executable runs per rung
 | Maximal answers and freshness | `Kernel/Maxima.lean` | `maxima`, `fresh` and their lemmas |
 | Exact covers under composition | `Kernel/ExactCover.lean` | `Under`, `XC`, `compose_mono` |
 | Coverage modulo a theory | `SpanLayer/Modulo.lean` | `LCov`, `LEq`, `Live`, `DeadR`, `Backed`, `Ref`, `DC`, `GCov`, `GEq`, `Dom` |
+| Chains of spans | `Kernel/Chain.lean` | `Span.denO_chain`, `Span.chain_isSome_iff`, `chain_isSome_fuse`, `chain_eq_none_of_compose`, `GRel.chain` |
+| Unfolding equations | `Rungs/R000/Unfold.lean` | `unfoldN_succ`, `unfoldN_succ'`, `unfoldN_call`, `unfoldN_add`, `unfoldN_or/and/seq/conv`, `unfoldN_dual` |
 | Converse of a program | `SpanLayer/Dual.lean` | `Program.sem_dual` |
 | Greatest fixpoints by iteration | `Lib/Gfp.lean` | `gfpFrom`, `gfpFrom_closed`, `subset_gfpFrom` |
 
@@ -55,6 +58,15 @@ rung unchanged.
   (`SameRun.tier0`, `SameRun.terminatesOn`), and `SameRun.of_sim` builds it
   from a simulation. `Rung.sound`, `Rung.pointComplete` and `Rung.honest`
   carry runtime theorems through a preprocessor.
+
+* `Cost.lean`: the cost monad of `Trusted/Cost.lean` is a lawful monad; the
+  value of each free traversal is the list function of the same name
+  (`Cost.mapL_val`, `filterL_val`, `anyL_val`, `foldL_val`, ...); the ticks of
+  the total traversals are sums (`mapL_ticks`, ...) and of the early-exit ones
+  are bounded by the sum; `CostedRuntime.spent_mono`, `spent_of_halts`.
+
+A rung whose machine is equal to an earlier one as a `Runtime` (R002 against
+R001) uses `SameRun.of_eq`, or simply rewrites.
 
 One caveat for rungs with a real preprocessor: `Complete` (one emitted answer
 covers the derived span) does not survive preprocessing in general, only

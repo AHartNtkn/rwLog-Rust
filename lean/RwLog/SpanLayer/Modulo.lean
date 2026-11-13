@@ -163,12 +163,6 @@ theorem pid_diag {s : Span} (h : s.l = s.r) : PId s.den := by
   simp only [Prod.mk.injEq] at he
   rw [he.1, he.2.1, h]
 
-theorem empty_comp (R : GRel) : (∅ : GRel).comp R = ∅ := by
-  ext ⟨a, b, X⟩
-  simp only [GRel.comp, Set.mem_ofPred_eq, Set.mem_empty_iff_false, iff_false]
-  rintro ⟨_, _, _, h, _⟩
-  exact h
-
 theorem meet_comm (R S : GRel) : R.meet S = S.meet R := by
   ext ⟨a, b, X⟩
   constructor <;> rintro ⟨X₁, X₂, h₁, h₂, hX⟩ <;>
