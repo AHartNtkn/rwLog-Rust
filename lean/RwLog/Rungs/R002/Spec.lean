@@ -24,8 +24,11 @@ and cost exponentially less on a family of inputs.
 * **Exponentially better on a family.** While its root table is open, each
   round of R001 costs at least the number of nodes of the root goal's
   unfolding to the round before (`baseline_lower`), for every program and
-  query. On the family `sepFam`, R002 halts within a cubic polynomial of `k`
-  while R001 pays at least `2 ^ k` (`separates`).
+  query. On the family `sepFam`, R002 halts within a quartic polynomial of `k`
+  while R001 pays at least `2 ^ k` (`separates`). The quartic is the tabled
+  machine's own cost on a chain of `k` open tables (the completion check peels
+  one table per pass and looks each one up by position); the unfolding race
+  no longer contributes more than that.
 -/
 import RwLog.Rungs.R002.Engine
 
@@ -104,9 +107,9 @@ def baseline_lower : Prop :=
   ∀ (st : R001.State) (t : R001.Table), st.tables.head? = some t → t.done = false →
     ∀ i, i < st.depth → nodes (R000.unfoldN st.P i t.goal.rel) ≤ (baseline.step st).ticks
 
-/-- On `sepFam k`, R002 halts within `500 (k + 1)³` ticks, and R001 has paid
+/-- On `sepFam k`, R002 halts within `500 (k + 1)⁴` ticks, and R001 has paid
 at least `2 ^ k` whenever it has halted. -/
-def separates : Prop := Separates baseline costed sepFam (fun k => 2 ^ k) fun k => 500 * (k + 1) ^ 3
+def separates : Prop := Separates baseline costed sepFam (fun k => 2 ^ k) fun k => 500 * (k + 1) ^ 4
 
 end Obligation
 
