@@ -1,7 +1,7 @@
 /-
 # What solving a list of equations costs
 
-The Rust `solve_into` keeps its equations as a list in the store. `enc` is
+The Rust `solve_into` keeps its equations as a list in the store. `encEqs` is
 that list as a term, so the facts about terms apply to it.
 
 `solveCost E o` bounds the ticks `solve_into` spends on the equations `E`
@@ -26,39 +26,39 @@ open RwLog RwLog.Term
 variable {nm : Option Nat → Sym}
 
 /-- A list of equations as a term. -/
-def enc (nm : Option Nat → Sym) : Eqns Nat → Pat
+def encEqs (nm : Option Nat → Sym) : Eqns Nat → Pat
   | [] => .sym (nm none)
-  | p :: E => .app (.app p.1 p.2) (enc nm E)
+  | p :: E => .app (.app p.1 p.2) (encEqs nm E)
 
 theorem enc_subst (x : Nat) (u : Pat) (E : Eqns Nat) :
-    (enc nm E).bind (single x u) = enc nm (Eqns.subst x u E) := by
+    (encEqs nm E).bind (single x u) = encEqs nm (Eqns.subst x u E) := by
   induction E with
   | nil => rfl
   | cons p E ih =>
-    show _ = enc nm ((p.1.bind (single x u), p.2.bind (single x u)) :: Eqns.subst x u E)
-    simp only [enc, Term.bind_app, ih]
+    show _ = encEqs nm ((p.1.bind (single x u), p.2.bind (single x u)) :: Eqns.subst x u E)
+    simp only [encEqs, Term.bind_app, ih]
 
 /-- The nodes of the list itself: each suffix and each pair. -/
 def spine (nm : Option Nat → Sym) : Eqns Nat → Finset Pat
   | [] => {.sym (nm none)}
-  | p :: E => insert (enc nm (p :: E)) (insert (.app p.1 p.2) (spine nm E))
+  | p :: E => insert (encEqs nm (p :: E)) (insert (.app p.1 p.2) (spine nm E))
 
 theorem card_spine_le (E : Eqns Nat) : (spine nm E).card ≤ 2 * E.length + 1 := by
   induction E with
   | nil => simp [spine]
   | cons p E ih =>
     simp only [spine, List.length_cons]
-    have h1 := Finset.card_insert_le (enc nm (p :: E)) (insert (Term.app p.1 p.2) (spine nm E))
+    have h1 := Finset.card_insert_le (encEqs nm (p :: E)) (insert (Term.app p.1 p.2) (spine nm E))
     have h2 := Finset.card_insert_le (Term.app p.1 p.2) (spine nm E)
     omega
 
-theorem subs_enc_subset (E : Eqns Nat) : (enc nm E).subs ⊆ Eqns.subs E ∪ spine nm E := by
+theorem subs_enc_subset (E : Eqns Nat) : (encEqs nm E).subs ⊆ Eqns.subs E ∪ spine nm E := by
   induction E with
-  | nil => simp [enc, spine, Term.subs]
+  | nil => simp [encEqs, spine, Term.subs]
   | cons p E ih =>
     intro w hw
-    simp only [enc, Term.subs, Finset.mem_insert, Finset.mem_union] at hw
-    simp only [Eqns.subs, spine, enc, Finset.mem_union, Finset.mem_insert]
+    simp only [encEqs, Term.subs, Finset.mem_insert, Finset.mem_union] at hw
+    simp only [Eqns.subs, spine, encEqs, Finset.mem_union, Finset.mem_insert]
     rcases hw with h | (h | h | h) | h
     · exact Or.inr (Or.inl h)
     · exact Or.inr (Or.inr (Or.inl h))
@@ -72,8 +72,8 @@ theorem subs_enc_subset (E : Eqns Nat) : (enc nm E).subs ⊆ Eqns.subs E ∪ spi
 def dcount (E : Eqns Nat) (o : Pat) : Nat := (Eqns.subs E ∪ o.subs).card
 
 theorem card_subs_enc_le (E : Eqns Nat) (o : Pat) :
-    ((enc nm E).subs ∪ o.subs).card ≤ dcount E o + 2 * E.length + 1 := by
-  have hsub : (enc nm E).subs ∪ o.subs ⊆ (Eqns.subs E ∪ o.subs) ∪ spine nm E := by
+    ((encEqs nm E).subs ∪ o.subs).card ≤ dcount E o + 2 * E.length + 1 := by
+  have hsub : (encEqs nm E).subs ∪ o.subs ⊆ (Eqns.subs E ∪ o.subs) ∪ spine nm E := by
     intro w hw
     rcases Finset.mem_union.1 hw with h | h
     · rcases Finset.mem_union.1 (subs_enc_subset E h) with h' | h'

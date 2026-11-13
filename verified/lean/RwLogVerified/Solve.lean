@@ -258,20 +258,20 @@ theorem Repr.app_inv {nodes : List store.Node} {i : Nat} {ta tb : Pat}
   | app h ha hb => cases ht; exact ⟨_, _, h, ha, hb⟩
 
 theorem enc_of_not_app {nodes : List store.Node} {E : Eqns Nat} {i : Nat} {n : store.Node}
-    (h : Repr nm nodes i (enc nm E)) (hn : nodes[i]? = some n) (hna : ∀ a b, n ≠ .App a b) :
+    (h : Repr nm nodes i (encEqs nm E)) (hn : nodes[i]? = some n) (hna : ∀ a b, n ≠ .App a b) :
     E = [] := by
   cases E with
   | nil => rfl
   | cons p E =>
-    obtain ⟨a, b, h1, _, _⟩ := Repr.app_inv (ta := .app p.1 p.2) (tb := enc nm E) h
+    obtain ⟨a, b, h1, _, _⟩ := Repr.app_inv (ta := .app p.1 p.2) (tb := encEqs nm E) h
     rw [hn] at h1
     cases h1
     exact absurd rfl (hna a b)
 
 theorem enc_of_app {nodes : List store.Node} {E : Eqns Nat} {i : Nat} {e rest : store.TermId}
-    (h : Repr nm nodes i (enc nm E)) (hn : nodes[i]? = some (.App e rest)) :
+    (h : Repr nm nodes i (encEqs nm E)) (hn : nodes[i]? = some (.App e rest)) :
     ∃ t u E', E = (t, u) :: E' ∧ Repr nm nodes e.val (.app t u) ∧
-      Repr nm nodes rest.val (enc nm E') := by
+      Repr nm nodes rest.val (encEqs nm E') := by
   cases E with
   | nil =>
     obtain ⟨ta, tb, e', -, -⟩ := h.of_app hn
@@ -279,7 +279,7 @@ theorem enc_of_app {nodes : List store.Node} {E : Eqns Nat} {i : Nat} {e rest : 
   | cons p E =>
     obtain ⟨ta, tb, e', ha, hb⟩ := h.of_app hn
     obtain ⟨t, u⟩ := p
-    simp only [enc, Term.app.injEq] at e'
+    simp only [encEqs, Term.app.injEq] at e'
     obtain ⟨rfl, rfl⟩ := e'
     exact ⟨t, u, E, rfl, ha, hb⟩
 
@@ -296,7 +296,7 @@ count the loop must stay under, and `R` the answer of the specification. -/
 def SolveInv (nm : Option Nat → Sym) (s0 : store.Store) (B : Nat) (R : Option Pat) :
     store.Store × store.TermId × store.TermId × Bool × Bool → Prop
   | (s, eqs, out, ok, go) => Inv s ∧ Extends s0 s ∧
-    if go then ok = true ∧ ∃ E o, Repr nm s.nodes.val eqs.val (enc nm E) ∧
+    if go then ok = true ∧ ∃ E o, Repr nm s.nodes.val eqs.val (encEqs nm E) ∧
         Repr nm s.nodes.val out.val o ∧ solveOn E o = R ∧ s.ticks.val + solveCost E o ≤ B
     else s.ticks.val ≤ B ∧ SolveRes nm s.nodes.val R ok out
 
@@ -417,7 +417,7 @@ theorem solve_body_spec (hnm : Function.Injective nm) (s0 : store.Store) (B : Na
         have hx5 : Extends s4 s5 := ⟨m5, hm5⟩
         have hst5 : Extends st s5 := hst4.trans hx5
         simp only [norm] at hr5
-        have hrr2 : Repr nm s5.nodes.val r2.val (enc nm ((tb, td) :: E')) :=
+        have hrr2 : Repr nm s5.nodes.val r2.val (encEqs nm ((tb, td) :: E')) :=
           .app hr5 (hx5.repr hre2) (hst5.repr hrest)
         step with alloc_spec s5 (.App a c) hI5 ⟨(hst5.repr ha).lt, (hst5.repr hc').lt⟩
           (by unfold Room; omega) as ⟨e1, s6, hI6, ht6, htb6, m6, hm6, hr6⟩
@@ -431,7 +431,7 @@ theorem solve_body_spec (hnm : Function.Injective nm) (s0 : store.Store) (B : Na
         have hx7 : Extends s6 s7 := ⟨m7, hm7⟩
         have hst7 : Extends st s7 := hst6.trans hx7
         simp only [norm] at hr7
-        have hreqs : Repr nm s7.nodes.val eqs1.val (enc nm ((ta, tc) :: (tb, td) :: E')) :=
+        have hreqs : Repr nm s7.nodes.val eqs1.val (encEqs nm ((ta, tc) :: (tb, td) :: E')) :=
           .app hr7 (hx7.repr hre1) (hx7.repr (hx6.repr hrr2))
         refine ⟨⟨hI7, hE0.trans hst7, ?_⟩, by simp only; omega⟩
         simp only [↓reduceIte, true_and]
@@ -448,16 +448,16 @@ theorem solve_body_spec (hnm : Function.Injective nm) (s0 : store.Store) (B : Na
         have hn4 : s4.nodes.val = st.nodes.val := by rw [c1, hn3]
         have hSc := card_subs_enc_le (nm := nm) E' o
         have hpc := pending_card_le (nm := nm) s4.nodes.val (tbl s4 .A)
-          ((enc nm E').subs ∪ o.subs)
+          ((encEqs nm E').subs ∪ o.subs)
         have hleaf : LeafOK nm s4.nodes.val (term.Leaf.Sub x w) (single xv tu) :=
           ⟨xv, tu, by rw [hn4]; exact hx, by rw [hn4]; exact hw, rfl⟩
-        step with rebuild_spec hnm s4 (term.Leaf.Sub x w) rest (t := enc nm E')
-          (σ := single xv tu) ((enc nm E').subs ∪ o.subs) c3 (by rw [hn4]; exact hrest) hleaf
+        step with rebuild_spec hnm s4 (term.Leaf.Sub x w) rest (t := encEqs nm E')
+          (σ := single xv tu) ((encEqs nm E').subs ∪ o.subs) c3 (by rw [hn4]; exact hrest) hleaf
           (by intro k v hk; rw [c4] at hk; cases hk) Finset.subset_union_left
           (by unfold Room; omega) as ⟨eqs1, s5, hR5⟩
         have hc5 := hR5.cost
         step with rebuild_spec hnm s5 (term.Leaf.Sub x w) out (t := o)
-          (σ := single xv tu) ((enc nm E').subs ∪ o.subs) hR5.inv
+          (σ := single xv tu) ((encEqs nm E').subs ∪ o.subs) hR5.inv
           (hR5.ext.repr (by rw [hn4]; exact ho)) (hleaf.extends hR5.ext) hR5.memo
           Finset.subset_union_right (by unfold Room; omega) as ⟨out1, s6, hR6⟩
         have hc6 := hR6.cost
@@ -474,7 +474,7 @@ theorem solve_body_spec (hnm : Function.Injective nm) (s0 : store.Store) (B : Na
 applied, or reports that there is none, and spends at most `solveCost`
 ticks. -/
 theorem solve_into_spec (hnm : Function.Injective nm) (s : store.Store) (eqs out : store.TermId)
-    {E : Eqns Nat} {o : Pat} (hI : Inv s) (he : Repr nm s.nodes.val eqs.val (enc nm E))
+    {E : Eqns Nat} {o : Pat} (hI : Inv s) (he : Repr nm s.nodes.val eqs.val (encEqs nm E))
     (ho : Repr nm s.nodes.val out.val o) (hroom : Room s (solveCost E o)) :
     span.solve_into s eqs out ⦃ r s' =>
       Inv s' ∧ Extends s s' ∧ s'.ticks.val ≤ s.ticks.val + solveCost E o ∧
