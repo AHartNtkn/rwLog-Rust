@@ -95,3 +95,7 @@ import RwLog.Rungs.R003.Race
 import RwLog.Rungs.R003.Shared
 import RwLog.Rungs.R003.Engine
 import RwLog.Rungs.R003.Spec
+import RwLog.Lib.Firsts
+import RwLog.Rungs.R003.Proofs.Ranges
+import RwLog.Rungs.R003.Proofs.Products
+import RwLog.Rungs.R003.Proofs.SharedExact
