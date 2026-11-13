@@ -648,4 +648,218 @@ theorem fill_spec {kp : Pat} (ag : List Pat) (s : store.Store) (args kid : store
   have hR1 : Ran s s1 1 := ⟨hW1, hx1, htb1, hst1, by omega⟩
   exact ⟨(hR1.trans hR).mono (by omega), by simpa using hr⟩
 
+/-! ## One step of a sort -/
+
+/-- The ticks searching the cases of a declaration may spend. -/
+def casesCost : List (Sym × List (Option Name)) → Nat
+  | [] => 1
+  | c :: cs => 5 + 2 * c.2.length + casesCost cs
+
+/-- The ticks searching the excluded symbols of a declaration may spend. -/
+def exCost : List (Sym × Nat) → Nat
+  | [] => 1
+  | e :: es => 5 + 2 * e.2 + exCost es
+
+/-- The ticks one declaration may cost a step. -/
+def defCost (d : SortDef) : Nat :=
+  casesCost d.cases + 1 +
+    match d.rest with
+    | none => 0
+    | some r => exCost r.1
+
+/-- The ticks the declarations may cost a step. -/
+def sortsCost : Sorts → Nat
+  | [] => 2
+  | d :: S => 3 + defCost d.2 + sortsCost S
+
+/-- The ticks one step of a sort on a term with `m` arguments may spend. -/
+def stepCost (S : Sorts) (m : Nat) : Nat := sortsCost S + 2 * m + 2
+
+theorem entsCost_cases (z : Sym) (cs : List (Sym × List (Option Name))) :
+    entsCost (cs.map (caseEnt z)) = casesCost cs := by
+  induction cs with
+  | nil => rfl
+  | cons c cs ih => simp only [List.map_cons, entsCost, casesCost, ih, caseEnt, List.length_map]
+
+theorem entsCost_ex {ex : List (Sym × Nat)} {xs : List (Pat × List Pat)}
+    (h : List.Forall₂ ExAt ex xs) : entsCost xs = exCost ex := by
+  induction h with
+  | nil => rfl
+  | cons hx _ ih => simp only [entsCost, exCost, ih, hx.2]
+
+theorem sortsCost_ge (S : Sorts) : 3 * S.length + 2 ≤ sortsCost S := by
+  induction S with
+  | nil => simp [sortsCost]
+  | cons d S ih => simp only [List.length_cons, sortsCost]; omega
+
+theorem lookup_cost {S : Sorts} {n : Name} {d : SortDef} (h : S.lookup n = some d) :
+    3 * S.length + 2 + defCost d ≤ sortsCost S := by
+  induction S with
+  | nil => simp [List.lookup] at h
+  | cons e S ih =>
+    obtain ⟨m, d'⟩ := e
+    simp only [List.lookup] at h
+    have hge := sortsCost_ge S
+    split at h
+    · cases h
+      simp only [List.length_cons, sortsCost]; omega
+    · have := ih h
+      simp only [List.length_cons, sortsCost]; omega
+
+theorem find_cases (z : Sym) (f : Sym) (m : Nat) (cs : List (Sym × List (Option Name))) :
+    (cs.map (caseEnt z)).find? (fun e => decide (e.1 = .sym f ∧ e.2.length = m)) =
+      (cs.find? (fun c => c.1 = f ∧ c.2.length = m)).map (caseEnt z) := by
+  rw [List.find?_map]
+  congr 2
+  funext c
+  simp [caseEnt]
+
+theorem find_ex (f : Sym) (m : Nat) {ex : List (Sym × Nat)} {xs : List (Pat × List Pat)}
+    (h : List.Forall₂ ExAt ex xs) :
+    (xs.find? (fun e => decide (e.1 = .sym f ∧ e.2.length = m))).isSome = decide ((f, m) ∈ ex) := by
+  induction h with
+  | nil => simp
+  | @cons e x ex' xs' hx _ ih =>
+    obtain ⟨g, k⟩ := e
+    obtain ⟨x1, x2⟩ := x
+    have h1 : x1 = .sym g := hx.1
+    have h2 : x2.length = k := hx.2
+    subst h1 h2
+    by_cases hc : g = f ∧ x2.length = m
+    · simp [hc.1, hc.2]
+    · have h1 : ¬((f, m) = (g, x2.length)) := fun h => hc (by cases h; exact ⟨rfl, rfl⟩)
+      have h2 : ¬((Term.sym g : Pat) = Term.sym f ∧ x2.length = m) :=
+        fun h => hc ⟨by simpa using h.1, h.2⟩
+      rw [List.find?_cons_of_neg (by simp only [decide_eq_true_eq]; exact h2), ih]
+      simp [h1]
+
+theorem step_of_lookup {S : Sorts} {n : Name} {d : SortDef} (f : Sym) (m : Nat)
+    (h : S.lookup n = some d) : Sorts.step S n f m = d.step f m := by
+  unfold Sorts.step
+  rw [h]
+  rfl
+
+theorem defStep_case {d : SortDef} {f : Sym} {m : Nat} {c : Sym × List (Option Name)}
+    (h : d.cases.find? (fun c => c.1 = f ∧ c.2.length = m) = some c) : d.step f m = some c.2 := by
+  unfold SortDef.step
+  rw [h]
+
+theorem defStep_none {d : SortDef} {f : Sym} {m : Nat}
+    (h : d.cases.find? (fun c => c.1 = f ∧ c.2.length = m) = none) (hr : d.rest = none) :
+    d.step f m = none := by
+  unfold SortDef.step
+  rw [h, hr]
+
+theorem defStep_rest {d : SortDef} {f : Sym} {m : Nat} {ex : List (Sym × Nat)} {k : Option Name}
+    (h : d.cases.find? (fun c => c.1 = f ∧ c.2.length = m) = none) (hr : d.rest = some (ex, k)) :
+    d.step f m = if (f, m) ∈ ex then none else some (List.replicate m k) := by
+  unfold SortDef.step
+  rw [h, hr]
+
+/-- `step` is one step of a sort: the sort of each argument of a term with
+that symbol and those arguments, or nothing. -/
+theorem step_spec (hnm : Function.Injective nm) (S : Sorts) {sp : Pat}
+    (hS : SortsAt (nm none) S sp) (s : store.Store) (decls nme head args : store.TermId)
+    {n f : Sym} {ag : List Pat} (hW : Wf s) (hd : Repr nm s.nodes.val decls.val sp)
+    (hn : Repr nm s.nodes.val nme.val (.sym n)) (hh : Repr nm s.nodes.val head.val (.sym f))
+    (ha : Repr nm s.nodes.val args.val (encList (nm none) ag))
+    (hroom : Room s (stepCost S ag.length)) :
+    sorts.step s decls nme head args ⦃ o s' =>
+      Ran s s' (stepCost S ag.length) ∧
+        match Sorts.step S n f ag.length with
+        | some ks => ∃ k, o = some k ∧
+            Repr nm s'.nodes.val k.val (encList (nm none) (ks.map (kidPat (nm none))))
+        | none => o = none ⦄ := by
+  unfold sorts.step
+  have hroom' := hroom
+  unfold Room stepCost at hroom'
+  have hge := sortsCost_ge S
+  step with lookup_spec hnm S hS s decls nme hW hd hn (by unfold Room; omega) as ⟨o, s1, hR1, hl⟩
+  have ht1 := hR1.ticks
+  cases hlk : S.lookup n with
+  | none =>
+    rw [hlk] at hl
+    simp only at hl
+    subst hl
+    simp only [WP.spec_ok]
+    refine ⟨hR1.mono (by unfold stepCost; omega), ?_⟩
+    simp [Sorts.step, hlk]
+  | some d =>
+    rw [hlk] at hl
+    obtain ⟨c, r, rp, rfl, rc, rr, hrest⟩ := hl
+    have hcost := lookup_cost hlk
+    have hcs := entsCost_cases (nm none) d.cases
+    have hdc : casesCost d.cases + 1 ≤ defCost d := by unfold defCost; omega
+    step with find_spec hnm (d.cases.map (caseEnt (nm none))) s1 c head args hR1.wf
+      (hR1.ext.repr rc) (hR1.ext.repr hh) (hR1.ext.repr ha) (by unfold Room; omega)
+      as ⟨o1, s2, hR2, hf⟩
+    have ht2 := hR2.ticks
+    have R2 := hR1.trans hR2
+    rw [find_cases] at hf
+    cases hfc : d.cases.find? (fun c => c.1 = f ∧ c.2.length = ag.length) with
+    | some cs =>
+      rw [hfc] at hf
+      obtain ⟨v, rfl, rv⟩ := hf
+      simp only [WP.spec_ok]
+      refine ⟨R2.mono (by unfold stepCost; omega), ?_⟩
+      rw [step_of_lookup f ag.length hlk, defStep_case hfc]
+      exact ⟨v, rfl, rv⟩
+    | none =>
+      rw [hfc] at hf
+      simp only [Option.map_none] at hf
+      subst hf
+      simp only
+      step with uncons_repr s2 r R2.wf (R2.ext.repr rr) (by unfold Room; omega) as ⟨o3, s3, hK3, ho3⟩
+      have ht3 := hK3.ticks
+      have R3 := R2.trans hK3.ran
+      cases hdr : d.rest with
+      | none =>
+        rw [hdr] at hrest
+        simp only [RestAt] at hrest
+        subst hrest
+        simp only at ho3
+        subst ho3
+        simp only [WP.spec_ok]
+        refine ⟨R3.mono (by unfold stepCost; omega), ?_⟩
+        rw [step_of_lookup f ag.length hlk, defStep_none hfc hdr]
+      | some rk =>
+        obtain ⟨ex, kd⟩ := rk
+        rw [hdr] at hrest
+        obtain ⟨xs, hxs, rfl⟩ := hrest
+        simp only at ho3
+        obtain ⟨exid, kid, rfl, rex, rkid⟩ := ho3
+        have hxc : entsCost xs = exCost ex := entsCost_ex hxs
+        have hdc' : casesCost d.cases + 1 + exCost ex = defCost d := by simp only [defCost, hdr]
+        step with find_spec hnm xs s3 exid head args R3.wf (hK3.ran.ext.repr rex)
+          (R3.ext.repr hh) (R3.ext.repr ha) (by unfold Room; omega) as ⟨o4, s4, hR4, hf4⟩
+        have ht4 := hR4.ticks
+        have R4 := R3.trans hR4
+        have hex := find_ex f ag.length hxs
+        by_cases hin : (f, ag.length) ∈ ex
+        · rw [decide_eq_true hin, Option.isSome_iff_exists] at hex
+          obtain ⟨e, he⟩ := hex
+          rw [he] at hf4
+          obtain ⟨v, rfl, -⟩ := hf4
+          simp only [WP.spec_ok]
+          refine ⟨R4.mono (by unfold stepCost; omega), ?_⟩
+          rw [step_of_lookup f ag.length hlk, defStep_rest hfc hdr]
+          simp only [hin, ↓reduceIte]
+        · rw [decide_eq_false hin] at hex
+          have he : List.find? (fun e => decide (e.1 = Term.sym f ∧ e.2.length = ag.length)) xs
+              = none := by
+            cases h : List.find? (fun e => decide (e.1 = Term.sym f ∧ e.2.length = ag.length)) xs
+            · rfl
+            · rw [h] at hex; cases hex
+          rw [he] at hf4
+          simp only at hf4
+          subst hf4
+          step with fill_spec (nm := nm) (kp := kidPat (nm none) kd) ag s4 args kid R4.wf
+            (R4.ext.repr ha) ((hK3.ran.trans hR4).ext.repr rkid) (by unfold Room; omega)
+            as ⟨ti, s5, hR5, hr5⟩
+          have ht5 := hR5.ticks
+          refine ⟨(R4.trans hR5).mono (by unfold stepCost; omega), ?_⟩
+          rw [step_of_lookup f ag.length hlk, defStep_rest hfc hdr]
+          simp only [hin, ↓reduceIte]
+          exact ⟨ti, rfl, by simpa [List.map_replicate] using hr5⟩
+
 end RwLogVerified
