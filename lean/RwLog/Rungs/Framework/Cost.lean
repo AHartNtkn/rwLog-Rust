@@ -6,6 +6,11 @@ the facts every costed rung needs to relate its machine to an uncosted one:
 `Cost` is a lawful monad, the value of each traversal is the list function of
 the same name, the ticks of the total traversals are sums, and the spending of
 a costed runtime grows with the number of steps.
+
+A pitfall when adding value lemmas for a rung's own costed functions: do not
+prove them by `rfl` even when that works. `simp` then uses them
+definitionally and leaves a stale `Decidable` instance on any `if` whose
+condition it rewrites. Prove them `by simp only [...]`.
 -/
 import RwLog.Trusted.Cost
 import RwLog.Rungs.Framework.Runtime
@@ -26,6 +31,14 @@ instance : LawfulMonad Cost := LawfulMonad.mk'
 
 @[simp] theorem map_val (f : α → β) (m : Cost α) : (f <$> m).val = f m.val := rfl
 @[simp] theorem map_ticks (f : α → β) (m : Cost α) : (f <$> m).ticks = m.ticks := rfl
+
+@[simp] theorem ite_val (c : Prop) [Decidable c] (a b : Cost α) :
+    (if c then a else b).val = if c then a.val else b.val := by
+  split <;> rfl
+
+@[simp] theorem ite_ticks (c : Prop) [Decidable c] (a b : Cost α) :
+    (if c then a else b).ticks = if c then a.ticks else b.ticks := by
+  split <;> rfl
 
 /-! ## Values of the traversals -/
 
