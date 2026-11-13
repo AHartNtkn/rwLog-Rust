@@ -29,16 +29,6 @@ theorem exists_sep {u w : Pat} (h : u ≠ w) : ∃ τ : Nat → GTerm, u.bind τ
     fun f hf => Fresh.lt_lenBound (by simp [hf])
   exact ⟨frz _, fun e => h (by rw [← thaw_frz u hu, e, thaw_frz w hw])⟩
 
-theorem unifies_congr {E : Eqns Nat} {σ σ' : Nat → GTerm}
-    (h : ∀ p ∈ E, ∀ v ∈ p.1.vars ++ p.2.vars, σ v = σ' v) (hu : Eqns.Unifies σ E) :
-    Eqns.Unifies σ' E := by
-  intro p hp
-  have e₁ : p.1.bind σ = p.1.bind σ' :=
-    Term.bind_congr fun v hv => h p hp v (List.mem_append_left _ hv)
-  have e₂ : p.2.bind σ = p.2.bind σ' :=
-    Term.bind_congr fun v hv => h p hp v (List.mem_append_right _ hv)
-  rw [← e₁, ← e₂]; exact hu p hp
-
 namespace Pre
 
 variable {k : Nat} {θ : Binds}

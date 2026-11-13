@@ -151,3 +151,84 @@ theorem solve_fo {V : Type} [DecidableEq V] (E : Eqns V) :
   | case14 a b g E => intro _ θ h; cases h
 
 end RwLog
+
+namespace RwLog
+namespace Term
+
+variable {V W : Type}
+
+theorem bind_foldl (σ : V → Term W) : ∀ (as : List (Term V)) (acc : Term V),
+    (as.foldl app acc).bind σ = (as.map (bind σ)).foldl app (acc.bind σ)
+  | [], _ => rfl
+  | a :: as, acc => by simp [bind_foldl σ as]
+
+/-- Substitution goes to the arguments of a surface term. -/
+theorem bind_mk (σ : V → Term W) (f : Sym) (as : List (Term V)) :
+    (mk f as).bind σ = mk f (as.map (bind σ)) := by
+  simp [mk, bind_foldl]
+
+theorem vars_foldl : ∀ (as : List (Term V)) (acc : Term V),
+    (as.foldl app acc).vars = acc.vars ++ as.flatMap vars
+  | [], _ => by simp
+  | a :: as, acc => by simp [vars_foldl as, vars, List.append_assoc]
+
+theorem vars_mk (f : Sym) (as : List (Term V)) : (mk f as).vars = as.flatMap vars := by
+  simp [mk, vars_foldl, vars]
+
+theorem syms_foldl_length : ∀ (as : List (Term V)) (acc : Term V),
+    acc.syms.length ≤ (as.foldl app acc).syms.length
+  | [], _ => Nat.le_refl _
+  | a :: as, acc => by
+    have := syms_foldl_length as (app acc a)
+    simp only [syms, List.length_append] at this
+    simp only [List.foldl_cons]
+    omega
+
+theorem syms_mk_pos (f : Sym) (as : List (Term V)) : 1 ≤ (mk f as).syms.length := by
+  have := syms_foldl_length as (sym f)
+  simpa [mk, syms] using this
+
+theorem fo_foldl : ∀ (as : List (Term V)) (acc : Term V), acc.firstOrder = true →
+    (∀ x, acc ≠ var x) → (∀ a ∈ as, a.firstOrder = true) → (as.foldl app acc).firstOrder = true
+  | [], _, h, _, _ => h
+  | a :: as, acc, h, hv, has => by
+    simp only [List.foldl_cons]
+    exact fo_foldl as (app acc a) (fo_app_mk h (has a List.mem_cons_self) hv) (by simp)
+      fun b hb => has b (List.mem_cons_of_mem _ hb)
+
+/-- A surface term with first-order arguments is first-order. -/
+theorem fo_mk (f : Sym) (as : List (Term V)) (h : ∀ a ∈ as, a.firstOrder = true) :
+    (mk f as).firstOrder = true :=
+  fo_foldl as (sym f) rfl (by simp) h
+
+theorem syms_length_bind_le (σ : V → Term W) : ∀ t : Term V,
+    t.syms.length ≤ (t.bind σ).syms.length
+  | var _ => by simp [syms]
+  | sym _ => Nat.le_refl _
+  | app t u => by
+    have := syms_length_bind_le σ t
+    have := syms_length_bind_le σ u
+    simp only [bind_app, syms, List.length_append]
+    omega
+
+/-- Replacing a variable that occurs by a term with a symbol adds symbols. -/
+theorem syms_length_bind_single_lt [DecidableEq V] {v : V} {u : Term V}
+    (hu : 1 ≤ u.syms.length) : ∀ {t : Term V}, v ∈ t.vars →
+    t.syms.length < (t.bind (single v u)).syms.length
+  | var w, h => by
+    simp only [vars, List.mem_singleton] at h
+    subst h
+    simp only [bind_var, single, ite_true, syms, List.length_nil]
+    omega
+  | sym _, h => by simp [vars] at h
+  | app a b, h => by
+    simp only [vars, List.mem_append] at h
+    have ha := syms_length_bind_le (single v u) a
+    have hb := syms_length_bind_le (single v u) b
+    simp only [bind_app, syms, List.length_append]
+    rcases h with h | h
+    · have := syms_length_bind_single_lt hu h; omega
+    · have := syms_length_bind_single_lt hu h; omega
+
+end Term
+end RwLog
