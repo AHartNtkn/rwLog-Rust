@@ -347,3 +347,12 @@ new axiom.
 
 /-- info: 'RwLog.R002.simulates' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.R002.simulates
+
+/-- info: 'RwLog.R002.baseline_lower' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R002.baseline_lower
+
+/-- info: 'RwLog.R002.Sep.round_costs' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R002.Sep.round_costs
+
+/-- info: 'RwLog.R002.separates' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R002.separates
