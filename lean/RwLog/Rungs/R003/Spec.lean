@@ -118,6 +118,15 @@ def separates_exhaustion : Prop :=
   SeparatesExhaustion R002.costed costed sepFam (fun k => 8 * k + 7) (fun k => 2 ^ k)
     fun k => 2000 * (k + 2) ^ 3
 
+/-- The numerals R003 is admitted with: simulation within `7 (c + n + 1)`,
+the `k`-th input of size at most `8 (k + 1)`, covered within `16000 (k + 1)³`
+ticks. -/
+def bounds : Bounds := ⟨7, 1, 8, 1, 16000, 3⟩
+
+/-- The admission statement: R003 improves on R002 with these numerals, on
+`sepFam` and the pairs `(t, z)`. -/
+def improves : Prop := Improves R002.costed costed bounds sepFam fun _ => sepTarget
+
 end Obligation
 
 end R003

@@ -70,7 +70,14 @@ machine.
 
 A rung improves on its predecessor when it simulates it with a polynomial `p`
 and is separated from it by a family with `size` and `hi` polynomial and `lo`
-exponential, all given as explicit numerals.
+exponential, all given as explicit numerals. `Improves Old New b fam tgt` is
+that statement: `b : Bounds` holds the numerals (a coefficient and a degree
+for each polynomial), the simulation bound is `b.sim`, the family has size at
+most `b.size k`, `New` covers the targets within `b.hi k` and `Old` has paid
+at least `2 ^ k`. Since the size of `fam k` is polynomial in `k`, `2 ^ k` is
+exponential in a root of the size of the input. A rung is admitted by a
+proof of `Improves` for bounds its specification writes out, and by nothing
+else: `Simulates` and `Separates` with other functions do not admit it.
 
 `SeparatesExhaustion` is the same comparison for the report of exhaustion
 instead of answers. It is the special case for the rare queries that halt: it
@@ -375,5 +382,43 @@ def SeparatesExhaustion (Old New : CostedRuntime) (fam : Nat → Program × Rel)
     New.ExhaustsWithin (fam k).1 (fam k).2 (hi k) ∧
     (∀ n, Old.runtime.Halts (Old.start (fam k).1 (fam k).2) n →
       lo k ≤ Old.paid (fam k).1 (fam k).2 n)
+
+/-! ## Admission -/
+
+/-- The numerals of an improvement: a coefficient and a degree for each of
+the three polynomials. -/
+structure Bounds where
+  simCoeff : Nat
+  simDeg : Nat
+  sizeCoeff : Nat
+  sizeDeg : Nat
+  hiCoeff : Nat
+  hiDeg : Nat
+
+namespace Bounds
+
+/-- The simulation bound `simCoeff * (c + n + 1) ^ simDeg`, for what the old
+machine has paid `c` and the size of the input `n`. -/
+def sim (b : Bounds) (c n : Nat) : Nat := b.simCoeff * (c + n + 1) ^ b.simDeg
+
+/-- The bound `sizeCoeff * (k + 1) ^ sizeDeg` on the size of the `k`-th
+input. -/
+def size (b : Bounds) (k : Nat) : Nat := b.sizeCoeff * (k + 1) ^ b.sizeDeg
+
+/-- The bound `hiCoeff * (k + 1) ^ hiDeg` on what the new machine pays on the
+`k`-th input. -/
+def hi (b : Bounds) (k : Nat) : Nat := b.hiCoeff * (k + 1) ^ b.hiDeg
+
+end Bounds
+
+/-- `New` improves on `Old`: it is never worse than the polynomial `b.sim`
+of `Old`'s cost on any answer of any input, and on the family `fam`, whose
+`k`-th member has size at most the polynomial `b.size k`, it covers the
+targets within the polynomial `b.hi k` while `Old` has paid at least `2 ^ k`
+before covering any of them. -/
+structure Improves (Old New : CostedRuntime) (b : Bounds) (fam : Nat → Program × Rel)
+    (tgt : Nat → PRel) : Prop where
+  simulates : Simulates Old New b.sim
+  separates : Separates Old New fam tgt b.size (fun k => 2 ^ k) b.hi
 
 end RwLog

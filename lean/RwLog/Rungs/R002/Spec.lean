@@ -129,6 +129,15 @@ def separates_exhaustion : Prop :=
   SeparatesExhaustion baseline costed sepFam (fun k => 2 * k + 11) (fun k => 2 ^ k)
     fun k => 500 * (k + 5) ^ 4
 
+/-- The numerals R002 is admitted with: simulation within `40 (c + n + 1)⁶`,
+the `k`-th input of size at most `11 (k + 1)`, covered within
+`312500 (k + 1)⁴` ticks. -/
+def bounds : Bounds := ⟨40, 6, 11, 1, 312500, 4⟩
+
+/-- The admission statement: R002 improves on R001 with these numerals, on
+`sepFam` and the pair `(z, z)`. -/
+def improves : Prop := Improves baseline costed bounds sepFam fun _ => sepTarget
+
 end Obligation
 
 end R002

@@ -492,3 +492,9 @@ new axiom.
 
 /-- info: 'RwLog.R003.separates_exhaustion' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.R003.separates_exhaustion
+
+/-- info: 'RwLog.R002.improves' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R002.improves
+
+/-- info: 'RwLog.R003.improves' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R003.improves

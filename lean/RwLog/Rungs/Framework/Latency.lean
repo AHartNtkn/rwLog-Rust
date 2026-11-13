@@ -76,4 +76,25 @@ theorem Simulates.of_steps {Old New : CostedRuntime} {p : Nat → Nat → Nat}
   obtain ⟨b, hb, hba⟩ := hcov a ha
   exact ⟨m, ⟨b, hb, hba M hM hx⟩, hs⟩
 
+/-- A simulation within `p` is a simulation within any larger bound. -/
+theorem Simulates.mono {Old New : CostedRuntime} {p p' : Nat → Nat → Nat}
+    (h : Simulates Old New p) (hp : ∀ c n, p c n ≤ p' c n) : Simulates Old New p' := by
+  intro P q hwf n
+  obtain ⟨h1, h2⟩ := h P q hwf n
+  refine ⟨fun M hM x hx => CostedRuntime.CoversWithin.mono _ (h1 M hM x hx) (hp _ _), fun hn => ?_⟩
+  obtain ⟨m, hm, hs⟩ := h2 hn
+  exact ⟨m, hm, le_trans hs (hp _ _)⟩
+
+/-- A separation holds for any larger bounds on the size of the family and on
+what the new machine pays. -/
+theorem Separates.mono {Old New : CostedRuntime} {fam : Nat → Program × Rel} {tgt : Nat → PRel}
+    {size size' lo hi hi' : Nat → Nat} (h : Separates Old New fam tgt size lo hi)
+    (hsize : ∀ k, size k ≤ size' k) (hhi : ∀ k, hi k ≤ hi' k) :
+    Separates Old New fam tgt size' lo hi' := by
+  intro k
+  obtain ⟨hwf, hs, hM, hne, hcov⟩ := h k
+  refine ⟨hwf, le_trans hs (hsize k), hM, hne, fun M hM' x hx => ?_⟩
+  obtain ⟨h1, h2⟩ := hcov M hM' x hx
+  exact ⟨CostedRuntime.CoversWithin.mono _ h1 (hhi k), h2⟩
+
 end RwLog
