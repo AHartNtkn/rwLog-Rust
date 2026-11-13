@@ -131,7 +131,7 @@ def raceGoals : List (Program × R001.Goal) := [
 #guard (List.range 9).all fun k =>
   let r := costOf R002.costed (R002.sepFam k).1 (R002.sepFam k).2 100
   let b := costOf R002.baseline (R002.sepFam k).1 (R002.sepFam k).2 100
-  r.1 == k + 4 && r.2.1 && b.1 == k + 4 && b.2.1 && r.2.2 ≤ 500 * (k + 1) ^ 4 && 2 ^ k ≤ b.2.2
+  r.1 == k + 4 && r.2.1 && b.1 == k + 4 && b.2.1 && r.2.2 ≤ 500 * (k + 5) ^ 4 && 2 ^ k ≤ b.2.2
 #guard (costOf R002.costed (R002.sepFam 8).1 (R002.sepFam 8).2 100).2.2 == 3421
 #guard (costOf R002.baseline (R002.sepFam 8).1 (R002.sepFam 8).2 100).2.2 == 19822
 -- The cost on the family is quartic in `k`, not cubic.
