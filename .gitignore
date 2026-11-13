@@ -4,3 +4,4 @@ examples/.ipynb_checkpoints/
 /lean/.lake/
 /verified/lean/.lake/
 /verified/rust/target/
+__pycache__/
