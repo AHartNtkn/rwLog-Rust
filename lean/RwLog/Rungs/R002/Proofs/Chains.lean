@@ -6,7 +6,7 @@ the chain on its left or its last span does not compose with the chain on its
 right. This file proves the facts about products that make that exact:
 
 * a chain of spans composes exactly when the composition of the ground
-  relations of its spans is not empty (`chain_isSome`), so being alive is a
+  relations of its spans is not empty (`Span.chain_isSome_iff`), so being alive is a
   statement about ground relations (`AL`, `AR`, `keep_iff`);
 * how the first and the last span of a joined product come from the two
   products joined (`joinSeq_head`, `joinSeq_last`, `joinSeq_junction`);
@@ -17,6 +17,8 @@ right. This file proves the facts about products that make that exact:
   between the chains of the sequence (`seq_filter`).
 -/
 import RwLog.Rungs.R002.Proofs.Eager
+import RwLog.Kernel.Chain
+import RwLog.Rungs.R000.Products
 
 namespace RwLog
 
@@ -26,69 +28,10 @@ open Cost
 
 /-! ## Chains as ground relations -/
 
-theorem empty_comp (S : GRel) : GRel.comp ∅ S = ∅ := by
-  apply Set.eq_empty_of_forall_notMem
-  rintro x ⟨m, S₁, S₂, h, _⟩
-  exact Set.notMem_empty _ h
-
-/-- The ground relation of a chain of spans. -/
-def chainDen (xs : List Span) : GRel := xs.foldl (fun X t => X.comp t.den) GRel.id
-
-theorem chainDen_nil : chainDen [] = GRel.id := rfl
-
-theorem foldl_comp (xs : List Span) (X : GRel) :
-    xs.foldl (fun X t => X.comp t.den) X = X.comp (chainDen xs) := by
-  induction xs generalizing X with
-  | nil => exact (GRel.comp_id X).symm
-  | cons t xs ih =>
-    unfold chainDen
-    simp only [List.foldl_cons]
-    rw [ih, ih (GRel.id.comp t.den), GRel.id_comp, GRel.comp_assoc]
-
-theorem chainDen_cons (s : Span) (xs : List Span) :
-    chainDen (s :: xs) = s.den.comp (chainDen xs) := by
-  unfold chainDen
-  simp only [List.foldl_cons]
-  rw [foldl_comp, GRel.id_comp]
-  rfl
-
-theorem chainDen_concat (xs : List Span) (s : Span) :
-    chainDen (xs ++ [s]) = (chainDen xs).comp s.den := by
-  unfold chainDen
-  rw [List.foldl_append]
-  rfl
-
-theorem denO_foldl (xs : List Span) (o : Option Span) :
-    Span.denO (xs.foldl (fun acc t => acc.bind (·.compose t)) o) =
-      xs.foldl (fun X t => X.comp t.den) (Span.denO o) := by
-  induction xs generalizing o with
-  | nil => rfl
-  | cons t xs ih =>
-    simp only [List.foldl_cons]
-    rw [ih]
-    congr 1
-    cases o with
-    | none => exact (empty_comp _).symm
-    | some s => exact compose_den s t
-
-theorem isSome_iff_denO (o : Option Span) : o.isSome = true ↔ (Span.denO o).Nonempty := by
-  cases o with
-  | none => simp [Span.denO]
-  | some s => simp [Span.denO, s.den_nonempty]
-
-/-- A chain composes exactly when its ground relation is not empty. -/
-theorem chain_isSome (xs : List Span) :
-    (Span.chain xs).isSome = true ↔ (chainDen xs).Nonempty := by
-  cases xs with
-  | nil =>
-    simp only [Span.chain, Option.isSome_some, true_iff]
-    rw [chainDen_nil, ← Span.den_idSpan]
-    exact Span.den_nonempty _
-  | cons s xs =>
-    rw [isSome_iff_denO]
-    unfold Span.chain
-    rw [denO_foldl, chainDen_cons, foldl_comp]
-    rfl
+theorem chain_concat (xs : List Span) (s : Span) :
+    GRel.chain ((xs ++ [s]).map Span.den) = (GRel.chain (xs.map Span.den)).comp s.den := by
+  rw [List.map_append, GRel.chain_append, List.map_cons, List.map_nil, GRel.chain_cons,
+    GRel.chain_nil, GRel.comp_id]
 
 theorem comp_nonempty_of_compose {a b c : Span} (h : a.compose b = some c) :
     (a.den.comp b.den).Nonempty := compose_some h ▸ c.den_nonempty
@@ -97,11 +40,11 @@ theorem comp_nonempty_of_compose {a b c : Span} (h : a.compose b = some c) :
 
 /-- The first span of the product, if it has one, composes with the chain. -/
 def AL (L : List Span) (p : List Rel) : Prop :=
-  L ≠ [] → ∀ s, headSpan p = some s → ((chainDen L).comp s.den).Nonempty
+  L ≠ [] → ∀ s, headSpan p = some s → ((GRel.chain (L.map Span.den)).comp s.den).Nonempty
 
 /-- The last span of the product, if it has one, composes with the chain. -/
 def AR (p : List Rel) (R : List Span) : Prop :=
-  R ≠ [] → ∀ s, lastSpan p = some s → (s.den.comp (chainDen R)).Nonempty
+  R ≠ [] → ∀ s, lastSpan p = some s → (s.den.comp (GRel.chain (R.map Span.den))).Nonempty
 
 theorem aliveL_iff (L : List Span) (p : List Rel) : (aliveL L p).val = true ↔ AL L p := by
   unfold aliveL AL
@@ -111,7 +54,7 @@ theorem aliveL_iff (L : List Span) (p : List Rel) : (aliveL L p).val = true ↔ 
     cases h : headSpan p with
     | none => simp
     | some s =>
-      simp only [Charged.composable, chain_isSome, chainDen_concat]
+      simp only [Charged.composable, Span.chain_isSome_iff, chain_concat]
       constructor
       · intro hn _ t ht
         cases ht
@@ -127,8 +70,8 @@ theorem aliveR_iff (p : List Rel) (R : List Span) : (aliveR p R).val = true ↔ 
     cases h : lastSpan p with
     | none => simp
     | some s =>
-      simp only [Charged.composable, chain_isSome]
-      rw [chainDen_cons s (x :: R)]
+      simp only [Charged.composable, Span.chain_isSome_iff]
+      rw [List.map_cons, GRel.chain_cons]
       constructor
       · intro hn _ t ht
         cases ht
@@ -193,23 +136,12 @@ theorem joinSeq_fused {p : List Rel} {a : Span} (h : p.getLast? = some (.span a)
   unfold R000.joinSeq
   rw [h]
 
-theorem joinSeq_cases {p q r : List Rel} (h : R000.joinSeq p q = some r) :
-    (∃ a b q' c, p.getLast? = some (.span a) ∧ q = .span b :: q' ∧ a.compose b = some c ∧
-      r = p.dropLast ++ .span c :: q') ∨ r = p ++ q := by
-  unfold R000.joinSeq at h
-  split at h
-  · rename_i a b q' hl
-    obtain ⟨c, hc, rfl⟩ := Option.map_eq_some_iff.mp h
-    exact .inl ⟨a, b, q', c, hl, rfl, hc, rfl⟩
-  · cases h
-    exact .inr rfl
-
 /-- The first span of a joined product is the first span of its first part,
 unless the first part is a single span that was fused. -/
 theorem joinSeq_head {p q r : List Rel} (h : R000.joinSeq p q = some r) (hp : p ≠ []) :
     (∃ a b q' c, p = [.span a] ∧ q = .span b :: q' ∧ a.compose b = some c ∧
       r = .span c :: q') ∨ headSpan r = headSpan p := by
-  rcases joinSeq_cases h with ⟨a, b, q', c, hl, rfl, hc, rfl⟩ | rfl
+  rcases R000.joinSeq_cases h with ⟨a, b, q', c, hl, rfl, hc, rfl⟩ | rfl
   · match p, hp, hl with
     | [x], _, hl =>
       have hx : x = .span a := by simpa using hl
@@ -224,7 +156,7 @@ unless the second part is a single span that was fused. -/
 theorem joinSeq_last {p q r : List Rel} (h : R000.joinSeq p q = some r) (hq : q ≠ []) :
     (∃ a b c, lastSpan p = some a ∧ q = [.span b] ∧ a.compose b = some c ∧
       lastSpan r = some c) ∨ lastSpan r = lastSpan q := by
-  rcases joinSeq_cases h with ⟨a, b, q', c, hl, rfl, hc, rfl⟩ | rfl
+  rcases R000.joinSeq_cases h with ⟨a, b, q', c, hl, rfl, hc, rfl⟩ | rfl
   · cases q' with
     | nil =>
       exact .inl ⟨a, b, c, lastSpan_of_getLast? hl, rfl, hc, lastSpan_of_getLast? (by simp)⟩
@@ -244,20 +176,6 @@ theorem joinSeq_junction {p q r : List Rel} {a b : Span} (h : R000.joinSeq p q =
   obtain ⟨c, hc, rfl⟩ := Option.map_eq_some_iff.mp h
   exact ⟨c, q', hc, rfl, rfl⟩
 
-theorem joinSeq_ne_nil {p q r : List Rel} (h : R000.joinSeq p q = some r) (hp : p ≠ []) :
-    r ≠ [] := by
-  rcases joinSeq_cases h with ⟨a, b, q', c, -, -, -, rfl⟩ | rfl
-  · simp
-  · simp [hp]
-
-theorem mkAnd_ne_nil {p q r : List Rel} (h : R000.mkAnd p q = some r) : r ≠ [] := by
-  unfold R000.mkAnd at h
-  split at h
-  · obtain ⟨c, -, rfl⟩ := Option.map_eq_some_iff.mp h
-    simp
-  · cases h
-    simp
-
 theorem leftAfter_other {L : List Span} {p : List Rel} (h : ∀ a, p ≠ [.span a]) :
     leftAfter L p = (lastSpan p).toList := by
   unfold leftAfter
@@ -275,7 +193,7 @@ theorem AL_join {L : List Span} {p q r : List Rel} (h : R000.joinSeq p q = some 
   rcases joinSeq_head h hp with ⟨a, b, q', c, rfl, rfl, hc, rfl⟩ | hh
   · obtain rfl : c = s := by simpa [headSpan] using hs
     have := hq (by simp [leftAfter]) b rfl
-    rw [show leftAfter L [.span a] = L ++ [a] from rfl, chainDen_concat, GRel.comp_assoc,
+    rw [show leftAfter L [.span a] = L ++ [a] from rfl, chain_concat, GRel.comp_assoc,
       ← compose_some hc] at this
     exact this
   · exact hLp hL s (hh ▸ hs)
@@ -291,11 +209,11 @@ theorem alive_second {L R : List Span} {p q r : List Rel} (h : R000.joinSeq p q 
     · obtain ⟨a, rfl⟩ := hp
       rw [joinSeq_fused (a := a) rfl] at h
       obtain ⟨c, hc, rfl⟩ := Option.map_eq_some_iff.mp h
-      rw [show leftAfter L [.span a] = L ++ [a] from rfl, chainDen_concat, GRel.comp_assoc,
+      rw [show leftAfter L [.span a] = L ++ [a] from rfl, chain_concat, GRel.comp_assoc,
         ← compose_some hc]
       by_cases hL0 : L = []
       · subst hL0
-        rw [chainDen_nil, GRel.id_comp]
+        rw [List.map_nil, GRel.chain_nil, GRel.id_comp]
         exact c.den_nonempty
       · exact hL hL0 c rfl
     · have hp' : ∀ a, p ≠ [.span a] := fun a ha => hp ⟨a, ha⟩
@@ -304,7 +222,7 @@ theorem alive_second {L R : List Span} {p q r : List Rel} (h : R000.joinSeq p q 
       | none => rw [hl] at hne; exact (hne rfl).elim
       | some a =>
         obtain ⟨c, _, hc, _, _⟩ := joinSeq_junction h hl rfl
-        rw [show (some a).toList = [a] from rfl, chainDen_cons, chainDen_nil, GRel.comp_id]
+        rw [show (some a).toList = [a] from rfl, List.map_cons, GRel.chain_cons, List.map_nil, GRel.chain_nil, GRel.comp_id]
         exact comp_nonempty_of_compose hc
   · intro hne s hs
     have hq : q ≠ [] := by
@@ -347,15 +265,15 @@ theorem alive_first {L R R' : List Span} {Nb : List (List Rel)} {p q r : List Re
     · obtain rfl : q = [.span t] := by simpa using hq
       obtain ⟨c, q', hc, hq', rfl⟩ := joinSeq_junction h hs rfl
       obtain rfl : q' = [] := by simpa using hq'.symm
-      rw [chainDen_cons, ← GRel.comp_assoc, ← compose_some hc]
+      rw [List.map_cons, GRel.chain_cons, ← GRel.comp_assoc, ← compose_some hc]
       by_cases hR0 : R = []
       · subst hR0
-        rw [chainDen_nil, GRel.comp_id]
+        rw [List.map_nil, GRel.chain_nil, GRel.comp_id]
         exact c.den_nonempty
       · exact hR hR0 c (lastSpan_of_getLast? (by simp))
     · obtain ⟨hh, G, hhq, hG⟩ := hQ q hq
       obtain ⟨c, q', hc, -, -⟩ := joinSeq_junction h hs hhq
-      rw [chainDen_cons, chainDen_nil, GRel.comp_id]
+      rw [List.map_cons, GRel.chain_cons, List.map_nil, GRel.chain_nil, GRel.comp_id]
       have := comp_nonempty_of_compose hc
       rw [hG, ← GRel.comp_assoc] at this
       exact GRel.comp_nonempty_left this
