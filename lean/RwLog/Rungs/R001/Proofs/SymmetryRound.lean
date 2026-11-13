@@ -698,20 +698,18 @@ theorem round_rel {P : Program} (hK : Obligation.SimplifyRespectsEquiv P.theory)
 
 /-! ## The trace -/
 
-theorem trace_rel {P : Program} (hK : Obligation.SimplifyRespectsEquiv P.theory) :
-    ∀ (n : Nat) (stA stB : State), StRel P stA stB →
-      TraceEquiv (runtime.trace stB n) ((runtime.trace stA n).map (·.map Span.swap))
-  | 0, _, _, _ => List.Forall₂.nil
-  | n + 1, stA, stB, h => by
-    simp only [Runtime.trace]
-    have hs : ∀ st : State, runtime.step st = step st := fun _ => rfl
-    rw [hs, hs]
-    unfold step
-    rw [h.finished]
-    cases stA.finished
-    · have r := round_rel hK h
-      exact List.Forall₂.cons r.2 (trace_rel hK n _ _ r.1)
-    · exact List.Forall₂.nil
+theorem trace_rel {P : Program} (hK : Obligation.SimplifyRespectsEquiv P.theory)
+    (n : Nat) (stA stB : State) (h : StRel P stA stB) :
+    TraceEquiv (runtime.trace stB n) ((runtime.trace stA n).map (·.map Span.swap)) := by
+  rw [TraceEquiv, List.forall₂_map_right_iff]
+  refine Runtime.trace_of_sim (R := runtime) (R' := runtime) (Sim := fun b a => StRel P a b)
+    (E := fun bs as => StepEquiv bs (as.map Span.swap)) (fun sB sA h => ?_) n stB stA h
+  show Step.Rel _ _ (step sB) (step sA)
+  unfold step
+  rw [h.finished]
+  cases sA.finished
+  · exact ⟨(round_rel hK h).2, (round_rel hK h).1⟩
+  · exact trivial
 
 theorem init_rel (P : Program) (q : Rel) :
     StRel P (runtime.init P q) (runtime.init P.dual q.dual) := by

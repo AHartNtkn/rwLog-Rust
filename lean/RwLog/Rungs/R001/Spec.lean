@@ -30,6 +30,7 @@ machine keeps one representative of each class of equivalent answers.
 import RwLog.Rungs.R001.Engine
 import RwLog.Rungs.R000.Engine
 import RwLog.SpanLayer.Coverage
+import RwLog.Rungs.Framework.Trace
 
 namespace RwLog
 
@@ -48,13 +49,6 @@ def stateAfter (st : State) : Nat → State
     match step st with
     | .emit _ st' => stateAfter st' n
     | .done => st
-
-/-- Two answer lists of one step agree up to order and equivalent answers. -/
-def StepEquiv (xs ys : List Span) : Prop :=
-  ∃ ys', ys'.Perm ys ∧ List.Forall₂ Span.Equiv xs ys'
-
-/-- Two traces agree step for step, up to `StepEquiv`. -/
-def TraceEquiv (t t' : List (List Span)) : Prop := List.Forall₂ StepEquiv t t'
 
 /-- The goals a goal reads directly, whatever its strategy. -/
 def directGoals (P : Program) (g : Goal) : List Goal :=

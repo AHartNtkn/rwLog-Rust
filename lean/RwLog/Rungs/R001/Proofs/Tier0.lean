@@ -14,7 +14,7 @@ simplification is exact; `prompt_pruning` also assumes that it runs to the end
 (`UInv`).
 -/
 import RwLog.Rungs.R001.Proofs.Tier0.Tables
-import Mathlib.Data.Set.Finite.Basic
+import RwLog.Rungs.Framework.Tier0
 
 namespace RwLog
 
@@ -144,58 +144,34 @@ open Tier0
 
 section
 
+/-- The Tier 0 certificate: every emitted answer stands for a derivation of
+the query, every derivation is eventually dead or covered, and a complete root
+covers every derivation. -/
+theorem cert : runtime.Tier0Cert where
+  sound := Runtime.Tier0Cert.sound_of_ref fun _ _ hP _ _ ha => emitted_ref hP.2.2 ha
+  cover _ _ hP _ hs := emitted_dc hP.2.2 hs
+  exhaust P q hP n hh s hs := by
+    obtain ⟨k, h0, he, -, hd, -⟩ := emitted_root P q n
+    rw [he]; exact root_done_dc hP.2.2 h0 (hd hh) hs
+
 /-- P0.1: in every model of the theory, every emitted answer relates only
 pairs the query relates. -/
-theorem sound : Obligation.sound := by
-  intro P q hP n a ha M hM
-  obtain ⟨s, hs, hr⟩ := emitted_ref hP.2.2 ha
-  rw [Span.denAt_eq, Program.semAt_eq]
-  exact (hr.1.trans (Backed.of_subset hs.den_subset)).1 M hM
+theorem sound : Obligation.sound := cert.toSound
 
 /-- P3.0: every emitted answer refines the span of one derivation. -/
-theorem derivation_general : Obligation.derivation_general := by
-  intro P q hP a ⟨n, ha⟩
-  obtain ⟨s, hs, hr⟩ := emitted_ref hP.2.2 ha
-  refine ⟨s, hs, fun M hM => ?_⟩
-  rw [Span.denAt_eq, Span.denAt_eq]
-  exact Set.Subset.antisymm (hr.1.1 M hM) (hr.2 M hM)
+theorem derivation_general : Obligation.derivation_general :=
+  Runtime.derivationGeneral_of_ref fun _ _ hP _ _ ha => emitted_ref hP.2.2 ha
 
 /-- P0.2: every derivable span is covered by an emitted answer, unless it is
 dead. -/
-theorem complete : Obligation.complete := by
-  intro P q hP s hs
-  obtain ⟨n, hdc⟩ := emitted_dc hP.2.2 hs
-  rcases hdc with hd | ⟨a, ha, hdom⟩
-  · exact .inl (deadR_den.1 hd)
-  · exact .inr ⟨n, a, ha, coversLive_iff.2 hdom⟩
+theorem complete : Obligation.complete := cert.toComplete
 
 /-- P0.3: on halting, the emitted answers are equivalent to the query. -/
-theorem honest_exhaustion : Obligation.honest_exhaustion := by
-  intro P q hP n hh
-  obtain ⟨k, h0, he, -, hd, -⟩ := emitted_root P q n
-  have hcov : ∀ s, Derives P q s → DC P.theory (runtime.emitted (runtime.init P q) n) s.den := by
-    intro s hs; rw [he]; exact root_done_dc hP.2.2 h0 (hd hh) hs
-  have hback : ∀ a ∈ runtime.emitted (runtime.init P q) n, Backed P.theory a.den (P.sem q) := by
-    intro a ha
-    obtain ⟨s, hs, hr⟩ := emitted_ref hP.2.2 ha
-    exact hr.1.trans (Backed.of_subset hs.den_subset)
-  intro M hM
-  ext ⟨u, v⟩
-  rw [Program.semAt_eq]
-  constructor
-  · rintro ⟨S, hS, hSM⟩
-    rw [sem_eq_derivable, mem_derivable] at hS
-    obtain ⟨s, hs, hx⟩ := hS
-    rcases hcov s hs with hdead | ⟨a, ha, hdom⟩
-    · have := hdead M hM
-      exact absurd (show (u, v) ∈ s.den.at M from ⟨S, hx, hSM⟩) (this ▸ Set.notMem_empty _)
-    · refine Set.mem_iUnion₂.2 ⟨a, ha, ?_⟩
-      rw [Span.denAt_eq]
-      exact hdom M hM ⟨S, hx, hSM⟩
-  · intro h
-    obtain ⟨a, ha, hx⟩ := Set.mem_iUnion₂.1 h
-    rw [Span.denAt_eq] at hx
-    exact (hback a ha).1 M hM hx
+theorem honest_exhaustion : Obligation.honest_exhaustion := cert.toHonest
+
+/-- P2.3: adding rules to the theory only removes answers. -/
+theorem theory_mono_answers : Obligation.theory_mono_answers :=
+  Runtime.theory_mono_answers derivation_general complete
 
 /-- P3.1, P3.2: no emitted answer is covered by an earlier one. -/
 theorem no_subsumed : Obligation.no_subsumed := by
@@ -229,33 +205,8 @@ theorem prompt_pruning : Obligation.prompt_pruning := by
   · exact (hI.bu t ht).1 b hb
   · exact (hI.bu t ht).2 b hb
 
-/-- Emitting only appends. -/
-theorem Runtime.run_prefix (R : Runtime) : ∀ (m j : Nat) (s : R.State),
-    ∃ r, (R.run s (m + j)).1 = (R.run s m).1 ++ r
-  | 0, j, s => ⟨(R.run s j).1, by simp [Runtime.run]⟩
-  | m + 1, j, s => by
-    rw [show m + 1 + j = (m + j) + 1 by omega]
-    simp only [Runtime.run]
-    split
-    · rename_i as s' _
-      obtain ⟨r, hr⟩ := Runtime.run_prefix R m j s'
-      exact ⟨r, by rw [hr, List.append_assoc]⟩
-    · exact ⟨[], by simp⟩
-
 /-- P3.3: a halting query has finitely many answers. -/
-theorem finite_answers : Obligation.finite_answers := by
-  intro P q _ ⟨n, hn⟩
-  refine (List.finite_toSet (runtime.emitted (runtime.init P q) n)).subset ?_
-  rintro a ⟨m, ha⟩
-  show a ∈ runtime.emitted (runtime.init P q) n
-  rcases le_total m n with h | h
-  · obtain ⟨j, rfl⟩ := Nat.exists_eq_add_of_le h
-    obtain ⟨r, hr⟩ := Runtime.run_prefix runtime m j (runtime.init P q)
-    unfold Runtime.emitted at ha ⊢
-    rw [hr]; exact List.mem_append_left _ ha
-  · obtain ⟨j, rfl⟩ := Nat.exists_eq_add_of_le h
-    unfold Runtime.emitted at ha ⊢
-    rwa [runtime.run_halted hn j] at ha
+theorem finite_answers : Obligation.finite_answers := fun _ _ _ h => runtime.finite_answers h
 
 end R001
 

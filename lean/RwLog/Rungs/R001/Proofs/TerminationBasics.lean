@@ -21,78 +21,44 @@ theorem step_of_not_finished {st : State} (h : st.finished = false) :
     step st = .emit (round st).2 (round st).1 := by
   unfold step; simp [h]
 
-theorem stateAfter_finished {st : State} (h : st.finished = true) : ∀ k, stateAfter st k = st
-  | 0 => rfl
-  | k + 1 => by
-    have : step st = .done := (step_done_iff st).2 h
-    simp only [stateAfter, this]
+/-- The specification's `stateAfter` is the generic one for this runtime. -/
+theorem stateAfter_eq : ∀ (k : Nat) (st : State), stateAfter st k = runtime.stateAfter st k
+  | 0, _ => rfl
+  | k + 1, st => by
+    cases h : step st with
+    | done =>
+      have h' : runtime.step st = .done := h
+      simp only [stateAfter, Runtime.stateAfter, h, h']
+    | emit as st' =>
+      have h' : runtime.step st = .emit as st' := h
+      simp only [stateAfter, Runtime.stateAfter, h, h']
+      exact stateAfter_eq k st'
+
+theorem stateAfter_finished {st : State} (h : st.finished = true) (k : Nat) :
+    stateAfter st k = st := by
+  rw [stateAfter_eq]; exact runtime.stateAfter_done ((step_done_iff st).2 h) k
 
 theorem stateAfter_succ_of_not_finished {st : State} (h : st.finished = false) (k : Nat) :
     stateAfter st (k + 1) = stateAfter (round st).1 k := by
-  simp only [stateAfter, step_of_not_finished h]
+  rw [stateAfter_eq, stateAfter_eq]
+  exact runtime.stateAfter_succ_emit (step_of_not_finished h) k
 
-theorem stateAfter_add (st : State) : ∀ m k, stateAfter st (m + k) = stateAfter (stateAfter st m) k
-  | 0, k => by simp [stateAfter]
-  | m + 1, k => by
-    cases hf : st.finished with
-    | true =>
-      rw [stateAfter_finished hf, stateAfter_finished hf, stateAfter_finished hf]
-    | false =>
-      rw [show m + 1 + k = (m + k) + 1 by omega, stateAfter_succ_of_not_finished hf,
-        stateAfter_succ_of_not_finished hf, stateAfter_add _ m k]
+theorem stateAfter_add (st : State) (m k : Nat) :
+    stateAfter st (m + k) = stateAfter (stateAfter st m) k := by
+  rw [stateAfter_eq, stateAfter_eq, stateAfter_eq]; exact runtime.stateAfter_add st m k
 
 /-- A run of `n + 1` steps reports that it is done exactly when one of the
 first `n + 1` states is finished. -/
-theorem run_succ_done_iff : ∀ (n : Nat) (st : State),
-    (runtime.run st (n + 1)).2 = true ↔ ∃ k ≤ n, (stateAfter st k).finished = true
-  | 0, st => by
-    show (Runtime.run runtime st 1).2 = true ↔ _
-    simp only [Runtime.run]
-    cases hf : st.finished with
-    | true =>
-      have : runtime.step st = .done := (step_done_iff st).2 hf
-      simp only [this]
-      exact ⟨fun _ => ⟨0, le_rfl, hf⟩, fun _ => trivial⟩
-    | false =>
-      have : runtime.step st = .emit (round st).2 (round st).1 := step_of_not_finished hf
-      simp only [this]
-      constructor
-      · intro h; cases h
-      · rintro ⟨k, hk, h⟩
-        rw [Nat.le_zero.1 hk] at h; simp [stateAfter, hf] at h
-  | n + 1, st => by
-    show (Runtime.run runtime st (n + 2)).2 = true ↔ _
-    simp only [Runtime.run]
-    cases hf : st.finished with
-    | true =>
-      have : runtime.step st = .done := (step_done_iff st).2 hf
-      simp only [this]
-      exact ⟨fun _ => ⟨0, Nat.zero_le _, hf⟩, fun _ => trivial⟩
-    | false =>
-      have : runtime.step st = .emit (round st).2 (round st).1 := step_of_not_finished hf
-      simp only [this]
-      have ih := run_succ_done_iff n (round st).1
-      change (runtime.run (round st).1 (n + 1)).2 = true ↔ _
-      rw [ih]
-      constructor
-      · rintro ⟨k, hk, h⟩
-        exact ⟨k + 1, by omega, by rw [stateAfter_succ_of_not_finished hf]; exact h⟩
-      · rintro ⟨k, hk, h⟩
-        cases k with
-        | zero => simp [stateAfter, hf] at h
-        | succ k =>
-          rw [stateAfter_succ_of_not_finished hf] at h
-          exact ⟨k, by omega, h⟩
+theorem run_succ_done_iff (n : Nat) (st : State) :
+    (runtime.run st (n + 1)).2 = true ↔ ∃ k ≤ n, (stateAfter st k).finished = true := by
+  refine (runtime.halts_succ_iff n st).trans ?_
+  refine exists_congr fun k => and_congr_right fun _ => ?_
+  rw [← stateAfter_eq]; exact step_done_iff _
 
 theorem halts_iff (st : State) :
     (∃ n, (runtime.run st n).2 = true) ↔ ∃ k, (stateAfter st k).finished = true := by
-  constructor
-  · rintro ⟨n, h⟩
-    cases n with
-    | zero => simp [Runtime.run] at h
-    | succ n => obtain ⟨k, -, hk⟩ := (run_succ_done_iff n st).1 h; exact ⟨k, hk⟩
-  · rintro ⟨k, hk⟩
-    exact ⟨k + 1, (run_succ_done_iff k st).2 ⟨k, le_rfl, hk⟩⟩
+  refine (runtime.halts_iff_stateAfter st).trans (exists_congr fun k => ?_)
+  rw [← stateAfter_eq]; exact step_done_iff _
 
 theorem terminates_iff (P : Program) (q : Rel) :
     runtime.Terminates P q ↔ ∃ k, (stateAfter (State.ofGoal P ⟨none, q, none⟩) k).finished = true :=
