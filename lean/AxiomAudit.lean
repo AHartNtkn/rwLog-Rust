@@ -267,3 +267,32 @@ new axiom.
 
 /-- info: 'RwLog.simpLaws_of_wf' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.simpLaws_of_wf
+
+/-! ## Chains, costs and equal runtimes -/
+
+/-- info: 'RwLog.Span.denO_chain' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Span.denO_chain
+
+/-- info: 'RwLog.Span.chain_isSome_iff' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Span.chain_isSome_iff
+
+/-- info: 'RwLog.Span.chain_isSome_fuse' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Span.chain_isSome_fuse
+
+/-- info: 'RwLog.Span.chain_eq_none_of_compose' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Span.chain_eq_none_of_compose
+
+/-- info: 'RwLog.Runtime.SameRun.of_eq' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Runtime.SameRun.of_eq
+
+/-- info: 'RwLog.CostedRuntime.spent_mono' depends on axioms: [propext] -/
+#guard_msgs in #print axioms RwLog.CostedRuntime.spent_mono
+
+/-- info: 'RwLog.CostedRuntime.spent_of_halts' depends on axioms: [propext] -/
+#guard_msgs in #print axioms RwLog.CostedRuntime.spent_of_halts
+
+/-- info: 'RwLog.Cost.mapL_val' depends on axioms: [propext] -/
+#guard_msgs in #print axioms RwLog.Cost.mapL_val
+
+/-- info: 'RwLog.R000.unfoldN_call' does not depend on any axioms -/
+#guard_msgs in #print axioms RwLog.R000.unfoldN_call
