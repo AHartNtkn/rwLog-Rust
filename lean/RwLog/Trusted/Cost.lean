@@ -20,7 +20,8 @@ computation, and giving up is never cheaper than the budget allowed.
 
 ## Costed runtimes
 
-A `CostedRuntime` is a small-step machine whose step is a charged computation.
+A `CostedRuntime` is a small-step machine, with its type of answers
+(`Trusted/Runtime.lean`), whose step is a charged computation.
 Forgetting the ticks gives an ordinary `Runtime`, the one the correctness
 theorems are about, so cost and behaviour cannot drift apart.
 
@@ -97,9 +98,13 @@ namespace RwLog
 first state from the program and the query is a charged computation too:
 whatever a machine does before its first step is paid for by every answer. -/
 structure CostedRuntime where
+  Ans : Type
+  [answer : Answer Ans]
   State : Type
   init : Program → Rel → Cost State
-  step : State → Cost (Step State)
+  step : State → Cost (StepOf Ans State)
+
+attribute [instance] CostedRuntime.answer
 
 namespace CostedRuntime
 
@@ -110,6 +115,7 @@ def start (P : Program) (q : Rel) : C.State := (C.init P q).val
 
 /-- The machine with the ticks forgotten. -/
 def runtime : Runtime where
+  Ans := C.Ans
   State := C.State
   init := C.start
   step s := (C.step s).val
@@ -121,7 +127,8 @@ def spent : C.State → Nat → Nat
   | s, n + 1 =>
     (C.step s).ticks + match (C.step s).val with
       | .emit _ s' => spent s' n
-      | .done => 0
+      | .progress _ s' => spent s' n
+      | .done _ => 0
 
 /-- The ticks paid on `q` by the end of the first `n` steps: building the
 first state, and the steps. -/
@@ -135,7 +142,8 @@ def peakFrom : C.State → Nat → Nat
   | s, n + 1 =>
     max (C.step s).peak ((C.step s).held + match (C.step s).val with
       | .emit _ s' => peakFrom s' n
-      | .done => 0)
+      | .progress _ s' => peakFrom s' n
+      | .done _ => 0)
 
 /-- The space used on `q` by the end of the first `n` steps: the most cells
 live at one moment, counting the building of the first state. -/
@@ -149,7 +157,8 @@ theorem peakFrom_mono (s : C.State) (n : Nat) : C.peakFrom s n ≤ C.peakFrom s 
     simp only [peakFrom]
     cases (C.step s).val with
     | emit _ s' => exact max_le_max le_rfl (Nat.add_le_add_left (ih s') _)
-    | done => exact le_rfl
+    | progress _ s' => exact max_le_max le_rfl (Nat.add_le_add_left (ih s') _)
+    | done _ => exact le_rfl
 
 /-- The space used never shrinks as the run goes on. -/
 theorem space_mono (P : Program) (q : Rel) {n m : Nat} (h : n ≤ m) :
@@ -170,7 +179,7 @@ variable (C : CostedRuntime)
 /-- Some answer emitted in the first `n` steps on `q` relates the pair `x`
 in `M`. -/
 def Covered (P : Program) (q : Rel) (M : Interp) (x : GTerm × GTerm) (n : Nat) : Prop :=
-  ∃ a ∈ C.runtime.emitted (C.start P q) n, x ∈ a.denAt M
+  ∃ a ∈ C.runtime.emitted (C.start P q) n, x ∈ Answer.den M a
 
 /-- The coverage latency of `x` in `M` is at most `c`: the machine has spent
 at most `c` ticks by some step at which an emitted answer relates `x`. -/
@@ -224,11 +233,6 @@ def SeparatesExhaustion (Old New : CostedRuntime) (fam : Nat → Program × Rel)
 
 /-! ## Direction -/
 
-/-- A step with every answer swapped. -/
-def Step.swap {S : Type} : Step S → Step S
-  | .emit as s => .emit (as.map Span.swap) s
-  | .done => .done
-
 namespace CostedRuntime
 
 variable (C : CostedRuntime)
@@ -236,6 +240,7 @@ variable (C : CostedRuntime)
 /-- `C` run on the mirror image of the query in the mirrored program, with
 every answer swapped back: a machine for the original query. -/
 def mirror : CostedRuntime where
+  Ans := C.Ans
   State := C.State
   init P q := C.init P.dual q.dual
   step s := ⟨(C.step s).val.swap, (C.step s).ticks, (C.step s).peak, (C.step s).held,
@@ -244,6 +249,7 @@ def mirror : CostedRuntime where
 /-- `C` run on the converse of the query, with every answer swapped back: a
 machine for the original query. -/
 def conv : CostedRuntime where
+  Ans := C.Ans
   State := C.State
   init P q := C.init P (.conv q)
   step s := ⟨(C.step s).val.swap, (C.step s).ticks, (C.step s).peak, (C.step s).held,
@@ -337,14 +343,18 @@ def Ans.rootSpan {P : Program} (root : Rel) (a : Ans P) : Option Span :=
   if a.goal = ⟨none, root, none⟩ then some a.span else none
 
 /-- What the machine reports of a step of the engine: of the answers it
-emits, those of the root goal, as spans, at one tick for each answer looked
-at. -/
+emits or stands by in its final report, those of the root goal, as spans, at
+one tick for each answer looked at. A progress certificate is reported as it
+is. -/
 def Engine.report (E : Engine) (P : Program) (root : Rel) :
-    StepOf (Ans P) (E.State Span Rel (Ans P)) → Cost (Step E.StateAt)
+    StepOf (Ans P) (E.State Span Rel (Ans P)) → Cost (StepOf Span E.StateAt)
   | .emit as st' => do
     Cost.tick as.length
     pure (.emit (as.filterMap (Ans.rootSpan root)) ⟨P, root, st'⟩)
-  | .done => pure .done
+  | .progress n st' => pure (.progress n ⟨P, root, st'⟩)
+  | .done final => do
+    Cost.tick final.length
+    pure (.done (final.filterMap (Ans.rootSpan root)))
 
 /-- The engine at a kernel on the spans of the language that returns what the
 specification kernel returns: a machine with the cost that kernel charges.
@@ -353,6 +363,7 @@ Building the first state brings the program and the query to their normal
 form (`Charged.load`) and runs the engine's `init` on the root node. A step
 is the engine's step, reported by `Engine.report`. -/
 def Engine.costedAt (E : Engine) (K : Kernel Span Cost) (hK : K.Refines) : CostedRuntime where
+  Ans := Span
   State := E.StateAt
   init P q := do
     let root ← Charged.load P q
@@ -392,6 +403,7 @@ machine's first state on the preprocessed input, at the machine's charge. The
 ticks of preprocessing are not counted here (`Admits.preCost` records
 them). -/
 def machine (A : ArtifactStore) : CostedRuntime where
+  Ans := G.rt.Ans
   State := G.rt.State
   init P q := G.rt.init (G.pre.run A P q).val.1 (G.pre.run A P q).val.2.1
   step := G.rt.step

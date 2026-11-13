@@ -12,14 +12,18 @@ R005 is made of, so that R005 can be ported once as the yardstick for the next
 engine (roadmap M3 part B and M4). No rung is admitted on master until then.
 The trusted statements are being restated; a kept file that stops compiling
 against them is parked, not repaired. `PARKED.md` lists the files that are out
-of the build since the kernel and the cost monad were restated: everything
-below that is written against the old kernel (`Rungs/Tabled/` outside `Base`,
-`Rungs/R005`, `Mirror`, `Directed`, `Hedge`, `Framework/Race*`). What this file
-says about them describes them as they are at the tag.
+of the build since the kernel, the cost monad and the runtime were restated:
+everything below that is written against the old kernel or defines a machine
+with the old step (`Rungs/Tabled/`, `Rungs/R005`, `Mirror`, `Directed`,
+`Hedge`, `Framework/Race*`, and `Engine`, `Correct` and `Properties` of
+`Rungs/Naive/`). What this file says about them describes them as they are at
+the tag. No machine is in the build until R005 is ported.
 
 ```
-Trusted/        the specification: syntax, semantics, Runtime, Rung, the Tier-0 properties,
-                the properties every rung keeps (Properties.lean), the cost monad (CostMonad.lean),
+Trusted/        the specification: syntax, semantics, answers, steps and runtimes with the
+                Tier-0 properties (Runtime.lean), Rung and Preprocessor (Engine.lean),
+                the properties every machine and every whole rung keeps and the fairness
+                bound (Properties.lean), the cost monad (CostMonad.lean),
                 the charged primitives (Charged.lean), the kernel an engine is written
                 against (Kernel.lean), what another kernel must prove to stand in for
                 it (KernelRung.lean),
@@ -51,8 +55,9 @@ Rungs/R005/     the top rung of epoch 1, parked: its machine (Engine.lean), the 
                 statements with no proofs (Spec.lean)
 Conformance/    behaviours pinned against the Rust implementation
 AxiomAudit.lean every headline and shared theorem, checked to use only the three standard axioms
-Tests/          executable runs: the naive and the tabled machine on the conformance cases, R005
-                beside R004, and the measurements
+Tests/          executable runs: the charges of the kernel (ChargeRuns, built); the naive and
+                the tabled machine on the conformance cases, R005 beside R004, and the
+                measurements (parked)
 ```
 
 `SYMMETRIC_ENGINE.md` is the design note for the engine of milestone M6: what it
@@ -95,24 +100,38 @@ and the algorithms to be written in Rust. Its prototype is
 `Rungs/Framework/` is about an arbitrary `Runtime`, so it applies to every
 rung unchanged.
 
-* `Runtime.lean`: runs, prefixes, halting, `stateAfter`, traces.
-  `Runtime.finite_answers`, `halts_iff_stateAfter`, `emitted_eq_flatten_trace`.
-* `Trace.lean`: `StepEquiv` / `TraceEquiv`, and simulation.
-  Give a relation `Sim` on states with `Step.Rel E Sim (R.step s) (R'.step s')`
-  and get `Runtime.trace_of_sim`, `halts_iff_of_sim`, `emitted_of_sim`.
-  This is how the symmetry theorems (converse, `or` commutativity) are proved.
-* `Tier0.lean`: `Runtime.Tier0Cert`. A rung proves three facts about its own
-  machine (each emitted answer is covered by the semantics; each derivation is
-  eventually dominated by an emitted answer; at halt the answers dominate
-  everything) and receives `Sound`, `Complete` and `HonestExhaustion` from
-  `Tier0Cert.tier0`. `derivationGeneral_of_ref` and `theory_mono_answers` are
-  generic too.
+* `Runtime.lean`: runs, prefixes, halting, the final report, `stateAfter`,
+  traces, certificates. `halts_iff_stateAfter`, `emitted_eq_flatMap_trace`,
+  `final_eq_some_iff`, `certifies_iff`.
+* `Answer.lean`: `Answer.Covers` and `Answer.Equiv` are a preorder and an
+  equivalence on answers of any types and converse respects them. On spans
+  they are the coverage the kernel decides (`Span.covers_iff`,
+  `Span.equiv_iff`).
+* `Trace.lean`: `StepEquiv` / `ShownEquiv` / `TraceEquiv`, and simulation.
+  Give a relation `Sim` on states with
+  `StepOf.Rel E Sim (R.step s) (R'.step s')` and get `Runtime.trace_of_sim`,
+  `halts_iff_of_sim`, `traceEquiv_of_sim`, `emitted_of_sim`. The two runtimes
+  may have different types of answers.
+* `Tier0.lean`: `Runtime.Tier0Cert`. A rung proves that it is sound, that each
+  derivation is eventually dead or covered by an emitted answer, and that at
+  halt every derivation is, and receives `HonestExhaustion` from
+  `Tier0Cert.tier0` (`HonestExhaustion.of_cover`). `sound_of_refines`,
+  `derivationGeneral_of_refines`, `Complete.pointwise` and
+  `theory_mono_answers` are generic too.
 * `Transfer.lean`: moving theorems between rungs. `SameRun R' R` says two
   runtimes emit equivalent answers and halt together; it carries `Tier0`,
   `DerivationGeneral` and `TerminatesOn` from `R` to `R'`
   (`SameRun.tier0`, `SameRun.terminatesOn`), and `SameRun.of_sim` builds it
-  from a simulation. `Rung.sound`, `Rung.pointComplete` and `Rung.honest`
-  carry runtime theorems through a preprocessor.
+  from a simulation. A rung is one runtime on the original input
+  (`Rung.runtime`, `Trusted/Properties.lean`); `Rung.sound`,
+  `Rung.pointComplete`, `Rung.honest` and `Rung.honestProgress` carry the
+  machine's theorems through the preprocessor, and `Rung.Keeps.of_id` is
+  `Rung.Keeps` for a machine with the identity preprocessor.
+* `Fairness.lean`: what the fairness bound of `Trusted/Properties.lean` means
+  (`Alternative.semAt_subset`, `Fair.flat_ticks`,
+  `Runtime.FinalMaximal.maximal`), and `firstWording_false`: a bound
+  polynomial in the size of an answer's derivation and of the input is false
+  for every sound machine that emits spans and pays a tick for each.
 
 * `Derivation.lean`: every engine is sound and derivation-general, at every
   kernel that refines the specification kernel (`Engine.sound`,
@@ -146,7 +165,7 @@ rung unchanged.
   `CostedRuntime.le_spent_of_covered` (a machine that has emitted nothing in
   `N` steps has paid for `N + 1` before it covers anything).
 
-`Rungs/Tabled/` is the base for costed rungs that keep R001's tables and change
+`Rungs/Tabled/` (parked) is the base for costed rungs that keep R001's tables and change
 something else. `Base/` is R001 itself as a plain `Runtime` (`R001.runtime`)
 with its statements and proofs. `Machine.lean` is R001's machine written in the cost monad
 with the unfolding race left to an `Oracle`; `Tabled.round_split` isolates
