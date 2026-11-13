@@ -238,14 +238,16 @@ every answer swapped back: a machine for the original query. -/
 def mirror : CostedRuntime where
   State := C.State
   init P q := C.init P.dual q.dual
-  step s := ⟨(C.step s).val.swap, (C.step s).ticks, (C.step s).peak, (C.step s).held⟩
+  step s := ⟨(C.step s).val.swap, (C.step s).ticks, (C.step s).peak, (C.step s).held,
+    (C.step s).held_le⟩
 
 /-- `C` run on the converse of the query, with every answer swapped back: a
 machine for the original query. -/
 def conv : CostedRuntime where
   State := C.State
   init P q := C.init P (.conv q)
-  step s := ⟨(C.step s).val.swap, (C.step s).ticks, (C.step s).peak, (C.step s).held⟩
+  step s := ⟨(C.step s).val.swap, (C.step s).ticks, (C.step s).peak, (C.step s).held,
+    (C.step s).held_le⟩
 
 end CostedRuntime
 

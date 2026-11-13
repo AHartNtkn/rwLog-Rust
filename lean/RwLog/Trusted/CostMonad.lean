@@ -34,20 +34,23 @@ structure Cost (α : Type) where
   ticks : Nat
   peak : Nat
   held : Nat
+  /-- What is left live was live at some moment. -/
+  held_le : held ≤ peak
 
 namespace Cost
 
 instance : Monad Cost where
-  pure a := ⟨a, 0, 0, 0⟩
+  pure a := ⟨a, 0, 0, 0, Nat.le_refl _⟩
   bind m f := let r := f m.val
-    ⟨r.val, m.ticks + r.ticks, max m.peak (m.held + r.peak), m.held + r.held⟩
+    ⟨r.val, m.ticks + r.ticks, max m.peak (m.held + r.peak), m.held + r.held,
+      Nat.le_trans (Nat.add_le_add_left r.held_le _) (Nat.le_max_right _ _)⟩
 
 /-- Spend `n` ticks. Nothing is allocated. -/
-def tick (n : Nat) : Cost Unit := ⟨(), n, 0, 0⟩
+def tick (n : Nat) : Cost Unit := ⟨(), n, 0, 0, Nat.le_refl _⟩
 
 /-- Run a computation and return what it spent beside its value. Reading the
 tick counter is free. -/
-def metered {α : Type} (m : Cost α) : Cost (α × Nat) := ⟨(m.val, m.ticks), m.ticks, m.peak, m.held⟩
+def metered {α : Type} (m : Cost α) : Cost (α × Nat) := ⟨(m.val, m.ticks), m.ticks, m.peak, m.held, m.held_le⟩
 
 @[simp] theorem pure_val {α : Type} (a : α) : (pure a : Cost α).val = a := rfl
 @[simp] theorem pure_ticks {α : Type} (a : α) : (pure a : Cost α).ticks = 0 := rfl
@@ -76,7 +79,8 @@ result. A computation that is given up on is rolled back: it leaves nothing
 live, and while it ran it had at most its own peak live, and at most one cell
 for each tick it was allowed. -/
 def within {α : Type} (b : Nat) (m : Cost α) : Cost (Option α) :=
-  if m.ticks ≤ b then ⟨some m.val, m.ticks, m.peak, m.held⟩ else ⟨none, b, min b m.peak, 0⟩
+  if m.ticks ≤ b then ⟨some m.val, m.ticks, m.peak, m.held, m.held_le⟩
+  else ⟨none, b, min b m.peak, 0, Nat.zero_le _⟩
 
 /-! ### Free list traversals
 
@@ -155,7 +159,8 @@ def withinP {α : Type} (b : Nat) (m : Cost α) :
     unfold within
     split
     · intro h; cases h
-    · intro _; omega⟩, (within b m).ticks, (within b m).peak, (within b m).held⟩
+    · intro _; omega⟩, (within b m).ticks, (within b m).peak, (within b m).held,
+    (within b m).held_le⟩
 
 /-- Run `x` and `y` under the budget `b`, then `2 b + 1`, and so on, until one
 of them finishes. -/

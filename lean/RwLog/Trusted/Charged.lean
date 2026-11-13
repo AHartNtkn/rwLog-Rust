@@ -121,7 +121,7 @@ def outSize : Option Span → Nat
 
 /-- An operation that returns `v` in `t` ticks and leaves `h` cells live. Its
 peak is the larger of the two: an allocation is a tick. -/
-def op {α : Type} (v : α) (t h : Nat) : Cost α := ⟨v, t, max t h, h⟩
+def op {α : Type} (v : α) (t h : Nat) : Cost α := ⟨v, t, max t h, h, le_max_right _ _⟩
 
 @[simp] theorem op_val {α : Type} (v : α) (t h : Nat) : (op v t h).val = v := rfl
 @[simp] theorem op_ticks {α : Type} (v : α) (t h : Nat) : (op v t h).ticks = t := rfl

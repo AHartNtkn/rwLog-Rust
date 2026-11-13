@@ -196,7 +196,7 @@ variable {P : Program}
 def ofCost (r : Cost (Option Span)) (f : ∀ c, r.val = some c → Ans P) : Cost (Option (Ans P)) :=
   ⟨match h : r.val with
     | some c => some (f c h)
-    | none => none, r.ticks, r.peak, r.held⟩
+    | none => none, r.ticks, r.peak, r.held, r.held_le⟩
 
 /-- Compose a span with the boundaries of a goal, at the charge of `K`. -/
 def spanBothK (K : Kernel Span Cost) (lb : Option Span) (s : Span) (rb : Option Span) :
