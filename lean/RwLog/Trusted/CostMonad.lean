@@ -1,9 +1,22 @@
 /-
 # Charged computations
 
-`Cost α` is a value together with the number of ticks spent computing it.
-This file has the monad, the budget (`Cost.within`) and the free list
-traversals. The charged primitives, and what the ticks are used for, are in
+`Cost α` is a value together with what computing it used: the ticks spent,
+and the space, counted in cells of the store.
+
+Space has two numbers. `peak` is the most cells that were live at one moment
+of the computation, above what was live when it started. `held` is the cells
+the computation leaves live when it returns: what it built and handed on.
+Running `m` and then `f` peaks at the larger of the peak of `m` and what `m`
+holds plus the peak of `f`, and holds what both hold. An allocation is a
+tick, so no operation of the kernel has a peak above its ticks.
+
+There is no depth component. The only depth a run has is that of the call
+stack, and the verified kernel keeps its stacks in the store (roadmap L43),
+where they are counted as space.
+
+This file has the monad, the budget (`Cost.within`), reading what a
+computation spent (`Cost.metered`) and the free list traversals. The charged primitives, and what the ticks are used for, are in
 `Trusted/Cost.lean`. It comes first because a preprocessor is a charged
 computation too (`Trusted/Engine.lean`).
 -/
@@ -14,19 +27,27 @@ namespace RwLog
 
 /-! ## Charged computations -/
 
-/-- A value and the ticks spent computing it. -/
+/-- A value, the ticks spent computing it, the most cells live at one moment
+while computing it, and the cells it leaves live. -/
 structure Cost (α : Type) where
   val : α
   ticks : Nat
+  peak : Nat
+  held : Nat
 
 namespace Cost
 
 instance : Monad Cost where
-  pure a := ⟨a, 0⟩
-  bind m f := let r := f m.val; ⟨r.val, m.ticks + r.ticks⟩
+  pure a := ⟨a, 0, 0, 0⟩
+  bind m f := let r := f m.val
+    ⟨r.val, m.ticks + r.ticks, max m.peak (m.held + r.peak), m.held + r.held⟩
 
-/-- Spend `n` ticks. -/
-def tick (n : Nat) : Cost Unit := ⟨(), n⟩
+/-- Spend `n` ticks. Nothing is allocated. -/
+def tick (n : Nat) : Cost Unit := ⟨(), n, 0, 0⟩
+
+/-- Run a computation and return what it spent beside its value. Reading the
+tick counter is free. -/
+def metered {α : Type} (m : Cost α) : Cost (α × Nat) := ⟨(m.val, m.ticks), m.ticks, m.peak, m.held⟩
 
 @[simp] theorem pure_val {α : Type} (a : α) : (pure a : Cost α).val = a := rfl
 @[simp] theorem pure_ticks {α : Type} (a : α) : (pure a : Cost α).ticks = 0 := rfl
@@ -36,12 +57,26 @@ def tick (n : Nat) : Cost Unit := ⟨(), n⟩
     (m >>= f).ticks = m.ticks + (f m.val).ticks := rfl
 @[simp] theorem tick_val (n : Nat) : (tick n).val = () := rfl
 @[simp] theorem tick_ticks (n : Nat) : (tick n).ticks = n := rfl
+@[simp] theorem pure_peak {α : Type} (a : α) : (pure a : Cost α).peak = 0 := rfl
+@[simp] theorem pure_held {α : Type} (a : α) : (pure a : Cost α).held = 0 := rfl
+@[simp] theorem bind_peak {α β : Type} (m : Cost α) (f : α → Cost β) :
+    (m >>= f).peak = max m.peak (m.held + (f m.val).peak) := rfl
+@[simp] theorem bind_held {α β : Type} (m : Cost α) (f : α → Cost β) :
+    (m >>= f).held = m.held + (f m.val).held := rfl
+@[simp] theorem tick_peak (n : Nat) : (tick n).peak = 0 := rfl
+@[simp] theorem tick_held (n : Nat) : (tick n).held = 0 := rfl
+@[simp] theorem metered_val {α : Type} (m : Cost α) : (metered m).val = (m.val, m.ticks) := rfl
+@[simp] theorem metered_ticks {α : Type} (m : Cost α) : (metered m).ticks = m.ticks := rfl
+@[simp] theorem metered_peak {α : Type} (m : Cost α) : (metered m).peak = m.peak := rfl
+@[simp] theorem metered_held {α : Type} (m : Cost α) : (metered m).held = m.held := rfl
 
 /-- Run `m` with a budget of `b` ticks. If `m` needs no more than `b` it
 runs and is charged as usual; otherwise `b` ticks are spent and there is no
-result. -/
+result. A computation that is given up on is rolled back: it leaves nothing
+live, and while it ran it had at most its own peak live, and at most one cell
+for each tick it was allowed. -/
 def within {α : Type} (b : Nat) (m : Cost α) : Cost (Option α) :=
-  if m.ticks ≤ b then ⟨some m.val, m.ticks⟩ else ⟨none, b⟩
+  if m.ticks ≤ b then ⟨some m.val, m.ticks, m.peak, m.held⟩ else ⟨none, b, min b m.peak, 0⟩
 
 /-! ### Free list traversals
 
@@ -120,7 +155,7 @@ def withinP {α : Type} (b : Nat) (m : Cost α) :
     unfold within
     split
     · intro h; cases h
-    · intro _; omega⟩, (within b m).ticks⟩
+    · intro _; omega⟩, (within b m).ticks, (within b m).peak, (within b m).held⟩
 
 /-- Run `x` and `y` under the budget `b`, then `2 b + 1`, and so on, until one
 of them finishes. -/
