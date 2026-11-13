@@ -22,11 +22,18 @@ Rungs/Tabled/   the tabled round machine, open in its unfolding oracle: written 
                 kernel (Gen.lean) and read in the cost monad (Machine.lean)
 Rungs/Mirror/   a machine run on a query and on its mirror image side by side, for any machine:
                 written against the kernel (Gen.lean) and read in the cost monad (Machine.lean)
+Rungs/Directed/ goal-directed tables: the tabled machine with no unfolding race and no
+                completion, pushing boundaries as answers arrive. Sound, not complete; not a rung
+Rungs/Hedge/    two machines run side by side, balanced by ticks, for any two machines; not a rung
 Rungs/R00N/     one rung: Engine, (Spec), proofs
 Conformance/    behaviours pinned against the Rust implementation
 AxiomAudit.lean every headline and shared theorem, checked to use only the three standard axioms
 Tests/          executable runs per rung
 ```
+
+`SYMMETRIC_ENGINE.md` is the design note for the engine of milestone M6: what it
+is, what was measured, and what the trusted files and the kernel must provide
+for it. `Tests/MiddleRuns.lean` holds its measurements on R004 and R005.
 
 ## What is shared, and where to look first
 
@@ -149,6 +156,7 @@ states for swapped and regrouped `|`. It gives:
 `Mirror.trace_go` / `trace_start` (it emits what `C` emits, step for step, up
 to order and equivalence), `Mirror.spent_le` / `paid_le_min` (the first `n`
 steps cost at most `2 n` rounds of at most 14 times the cheaper run),
+`Mirror.spent_ge` / `paid_ge_min` (and at least the cheaper run),
 `Mirror.dualBisim` and `convBisim` (its runs on the mirror image and on the
 converse cost exactly what its run on the query costs, step for step),
 `Mirror.directionFree`, `Mirror.simulates` (it simulates `C` within
@@ -160,6 +168,36 @@ with any oracle (`Tabled.convBisim`, `start_or_comm`, `start_or_assoc`,
 `init_ticks`, `step_pos`). R005 is the mirrored machine of R004; a later rung
 that mirrors another machine, or runs something beside a mirrored machine,
 reuses all of it.
+
+`Rungs/Directed/` is the goal-directed tabled machine (`Gen.lean` says what
+it does): a sequence restricted at one end (a boundary, or a factor that is a
+span) is evaluated from that end, each answer's interface pushed into the
+other factor as it arrives, with no join against the free factor, no
+unfolding race and no completion. It is written against the kernel and read
+in the cost monad (`Directed.engine_costed`). It is sound and
+derivation-general (`Directed.emitted_ref`, `sound`, `derivationGeneral`),
+it is not complete and never reports exhaustion, so it is a component and
+not a rung. `Tests/DirectedRuns.lean` measures it beside R004: constant cost
+on a family where R004's free factor costs `4 ^ k`, and hundreds of times
+R004's cost on a family where driving from the restricted end is the wrong
+order. The second is why it cannot stand alone.
+
+`Rungs/Hedge/` is `Hedge.machine A B` for any two machines: each step races
+the next step of `A` against the next step of `B`, the machine that took the
+last steps handicapped by the length of its streak, emits `A`'s answers not
+covered by what `B` gave and `B`'s answers that are plain (conjoined with
+themselves they do not grow) and new, and halts only when `A` does. It asks that a step's
+ticks bound the sizes of what it emits (`Hedge.tabled_step_sizes`,
+`directed_step_sizes` supply this for the tabled and the goal-directed
+machines). It gives: `Hedge.follows_first` and `follows_second` (whatever
+`A`, or `B`, has emitted is covered within an explicit polynomial of what
+that machine paid, and exhaustion follows `A`), the baseline properties that
+do not mention traces from `A`'s alone plus soundness and derivation
+generality of `B` (`Hedge.sound`, `derivationGeneral`, `noSubsumed`,
+`honest`, `complete`, `terminatesWhere`, `emptySide`), and the trace laws
+from costed bisimulations of `A` and of `B` (`Hedge.step_sim`,
+`convTrace_of`, `dualTrace_of`). `Framework/Reach.lean` is the runs of any
+runtime as a relation between states, which these proofs induct on.
 
 An engine cannot declare its own cost. `Trusted/Kernel.lean` is the class
 `Kernel S M`: an abstract type of spans, an abstract monad, and the operations

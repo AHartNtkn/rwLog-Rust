@@ -333,6 +333,19 @@ theorem paid_le_min (P : Program) (q : Rel) (n : Nat) :
   rw [init_ticks, start_eq]
   omega
 
+/-- The mirrored machine pays at least the cheaper of what `C` pays on the
+query and on its mirror image. -/
+theorem paid_ge_min (P : Program) (q : Rel) (n : Nat) :
+    min (C.paid P q n) (C.paid P.dual q.dual n) ≤ (machine C).paid P q n := by
+  have h := spent_ge n 0 true (C.start P q) (C.start P.dual q.dual)
+  unfold SpentGe at h
+  rw [Nat.zero_add] at h
+  show min ((C.init P q).ticks + C.spent (C.start P q) n)
+    ((C.init P.dual q.dual).ticks + C.spent (C.start P.dual q.dual) n) ≤
+    ((machine C).init P q).ticks + (machine C).spent ((machine C).start P q) n
+  rw [init_ticks, start_eq]
+  omega
+
 /-- The first `n` steps of the mirrored machine, in terms of the first `n`
 steps of `C` on the query. -/
 theorem paid_le (P : Program) (q : Rel) (n : Nat) :
