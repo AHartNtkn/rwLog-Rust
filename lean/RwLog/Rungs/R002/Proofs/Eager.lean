@@ -6,29 +6,13 @@ same name, the charged unfolding and normalizer give rung zero's, and so
 `eager` returns exactly `(R001.unfoldFinal, R001.unfoldAnswers)`.
 -/
 import RwLog.Rungs.R002.Spec
+import RwLog.Rungs.Framework.Cost
 
 namespace RwLog
 
 namespace R002
 
 open Cost
-
-/-! ## Forgetting the ticks of a traversal -/
-
-theorem flatMapL_val {α β : Type} (f : α → Cost (List β)) (xs : List α) :
-    (flatMapL f xs).val = xs.flatMap fun x => (f x).val := by
-  induction xs with
-  | nil => rfl
-  | cons x xs ih =>
-    simp only [flatMapL, bind_val, pure_val, ih, List.flatMap_cons]
-
-theorem filterMapL_val {α β : Type} (f : α → Cost (Option β)) (xs : List α) :
-    (filterMapL f xs).val = xs.filterMap fun x => (f x).val := by
-  induction xs with
-  | nil => rfl
-  | cons x xs ih =>
-    simp only [filterMapL, bind_val, pure_val, ih, List.filterMap_cons]
-    cases (f x).val <;> rfl
 
 /-! ## The charged normalizer is rung zero's -/
 

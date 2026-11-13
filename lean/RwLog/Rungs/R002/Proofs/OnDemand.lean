@@ -10,7 +10,7 @@ is dropped, and the continuation collects the products until one contains a
 call; `onDemand_exact` follows.
 -/
 import RwLog.Rungs.R002.Proofs.Chains
-import RwLog.Rungs.R000.Properties
+import RwLog.Rungs.R000.Unfold
 
 namespace RwLog
 
@@ -75,58 +75,7 @@ theorem run_filterMap (k k₂ : List Rel → List (List Rel) → Cost Walk)
       simp only [List.filter_cons]
       cases hg : g r <;> simp [run, ih]
 
-/-! ## Unfolding commutes with the constructors -/
-
-theorem unfoldN_zero (P : Program) (k : Nat) : R000.unfoldN P k .zero = .zero := by
-  induction k with
-  | zero => rfl
-  | succ k ih => exact ih
-
-theorem unfoldN_span (P : Program) (k : Nat) (s : Span) :
-    R000.unfoldN P k (.span s) = .span s := by
-  induction k with
-  | zero => rfl
-  | succ k ih => exact ih
-
-theorem unfoldN_seq (P : Program) (k : Nat) (a b : Rel) :
-    R000.unfoldN P k (.seq a b) = .seq (R000.unfoldN P k a) (R000.unfoldN P k b) := by
-  induction k generalizing a b with
-  | zero => rfl
-  | succ k ih => exact ih (R000.unfold P a) (R000.unfold P b)
-
-theorem unfoldN_and (P : Program) (k : Nat) (a b : Rel) :
-    R000.unfoldN P k (.and a b) = .and (R000.unfoldN P k a) (R000.unfoldN P k b) := by
-  induction k generalizing a b with
-  | zero => rfl
-  | succ k ih => exact ih (R000.unfold P a) (R000.unfold P b)
-
 /-! ## What the expression says about its products -/
-
-theorem norm_ne_nil : ∀ (e : Rel) (neg : Bool), ∀ p ∈ R000.norm neg e, p ≠ [] := by
-  intro e
-  induction e with
-  | zero => intro neg p hp; simp [R000.norm] at hp
-  | span s => intro neg p hp; simp only [R000.norm, List.mem_singleton] at hp; simp [hp]
-  | or a b iha ihb =>
-    intro neg p hp
-    simp only [R000.norm, List.mem_append] at hp
-    exact hp.elim (iha neg p) (ihb neg p)
-  | and a b iha ihb =>
-    intro neg r hr
-    simp only [R000.norm, List.mem_flatMap, List.mem_filterMap] at hr
-    obtain ⟨p, -, q, -, hj⟩ := hr
-    exact mkAnd_ne_nil hj
-  | seq a b iha ihb =>
-    intro neg r hr
-    cases neg
-    · simp only [R000.norm, List.mem_flatMap, List.mem_filterMap] at hr
-      obtain ⟨p, hp, q, -, hj⟩ := hr
-      exact joinSeq_ne_nil hj (iha _ p hp)
-    · simp only [R000.norm, List.mem_flatMap, List.mem_filterMap] at hr
-      obtain ⟨p, hp, q, -, hj⟩ := hr
-      exact joinSeq_ne_nil hj (ihb _ p hp)
-  | conv a iha => intro neg p hp; exact iha (!neg) p hp
-  | call n => intro neg p hp; simp only [R000.norm, List.mem_singleton] at hp; simp [hp]
 
 /-- An expression that is a span has that span as its only product. -/
 theorem static_true (P : Program) (d : Nat) : ∀ (e : Rel) (neg : Bool) (t : Span),
@@ -137,7 +86,7 @@ theorem static_true (P : Program) (d : Nat) : ∀ (e : Rel) (neg : Bool) (t : Sp
   | span s =>
     intro neg t h
     simp only [staticFirst, Option.some.injEq, Prod.mk.injEq, and_true] at h
-    rw [unfoldN_span, R000.norm, h]
+    rw [R000.unfoldN_span, R000.norm, h]
   | or a b _ _ => intro neg t h; cases neg <;> simp [staticFirst] at h
   | and a b _ _ => intro neg t h; cases neg <;> simp [staticFirst] at h
   | seq a b _ _ => intro neg t h; cases neg <;> simp [staticFirst] at h
@@ -158,14 +107,14 @@ theorem static_head (P : Program) (d : Nat) : ∀ (e : Rel) (neg : Bool) (t : Sp
   | span s =>
     intro neg t fl h q hq
     simp only [staticFirst, Option.some.injEq, Prod.mk.injEq] at h
-    rw [unfoldN_span, R000.norm, h.1, List.mem_singleton] at hq
+    rw [R000.unfoldN_span, R000.norm, h.1, List.mem_singleton] at hq
     subst hq
     exact ⟨t, GRel.id, rfl, (GRel.comp_id _).symm⟩
   | or a b _ _ => intro neg t fl h; cases neg <;> simp [staticFirst] at h
   | and a b _ _ => intro neg t fl h; cases neg <;> simp [staticFirst] at h
   | seq a b iha ihb =>
     intro neg t fl h r hr
-    rw [unfoldN_seq] at hr
+    rw [R000.unfoldN_seq] at hr
     cases neg
     · simp only [staticFirst, Option.map_eq_some_iff, Prod.mk.injEq] at h
       obtain ⟨⟨t', fl'⟩, ha, rfl, -⟩ := h
@@ -261,11 +210,11 @@ theorem walk_step (P : Program) (d : Nat)
   induction e with
   | zero =>
     intro neg L R k acc
-    rw [unfoldN_zero, walk]
+    rw [R000.unfoldN_zero, walk]
     rfl
   | span s =>
     intro neg L R k acc
-    rw [unfoldN_span, walk]
+    rw [R000.unfoldN_span, walk]
     exact spanK_val k L R _ acc
   | or a b iha ihb =>
     intro neg L R k acc
@@ -274,25 +223,25 @@ theorem walk_step (P : Program) (d : Nat)
     split <;> rfl
   | seq a b iha ihb =>
     intro neg L R k acc
-    rw [unfoldN_seq]
+    rw [R000.unfoldN_seq]
     cases neg
     · rw [walk]
       simp only [bind_val]
-      rw [iha, R000.norm, ← seq_filter _ _ L R _ (fun p hp => norm_ne_nil _ _ p hp)
+      rw [iha, R000.norm, ← seq_filter _ _ L R _ (fun p hp => R000.norm_ne_nil _ _ p hp)
         (static_rightOf P d false b R)]
       refine run_flatMap k _ _ _ (fun p acc => ?_) acc
       rw [ihb]
       exact run_filterMap k _ _ _ (fun q acc => joinK_val k R p q acc) _ _
     · rw [walk]
       simp only [bind_val]
-      rw [ihb, R000.norm, ← seq_filter _ _ L R _ (fun p hp => norm_ne_nil _ _ p hp)
+      rw [ihb, R000.norm, ← seq_filter _ _ L R _ (fun p hp => R000.norm_ne_nil _ _ p hp)
         (static_rightOf P d true a R)]
       refine run_flatMap k _ _ _ (fun p acc => ?_) acc
       rw [iha]
       exact run_filterMap k _ _ _ (fun q acc => joinK_val k R p q acc) _ _
   | and a b iha ihb =>
     intro neg L R k acc
-    rw [unfoldN_and, walk]
+    rw [R000.unfoldN_and, walk]
     simp only [bind_val]
     rw [iha, R000.norm, List.filter_flatMap, filter_keep_nil]
     refine run_flatMap k _ _ _ (fun p acc => ?_) acc
