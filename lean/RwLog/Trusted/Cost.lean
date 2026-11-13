@@ -87,20 +87,27 @@ of the context costs. Neither machine has to halt.
 
 ## Three kinds of win
 
-A rung improves on its predecessor in one of three ways (`Kind`), and the
+A rung improves on its predecessor by a win of some kind (`Kind`), and the
 numerals of the improvement are explicit (`Bounds`).
 
-* Exponential in time. The old machine has paid at least `2 ^ k`; the new one
-  simulates it within a polynomial, and the bound in context is a polynomial.
-* Polynomial in time. The old machine has paid at least
+A kind is a resource (time or space) and the size of the gain (`Gap`).
+
+* An exponential gain. The old machine has used at least `2 ^ k` of the
+  resource; the new one simulates it within a polynomial, and the bound in
+  context is a polynomial.
+* A polynomial gain. The old machine has used at least
   `(k + 1) ^ gain * hi k` with `gain` positive, so the ratio grows without
   bound. The new machine simulates the old one within a constant factor,
   `simCoeff * (c + 1)`, with no term in the size of the input: a gain of
   unbounded ratio can then never be given back by later polynomial rungs. The
   bound in context is linear in `hi k` and in the residue.
-* Space. As exponential in time, with space in place of ticks in the
-  separation, and the old machine simulated within a polynomial both in ticks
-  and in space.
+
+The simulation is required in time for every kind. It is required in space
+too, within the same bound, for every kind except an exponential gain in
+time: that one is usually bought with space (a table), and what it uses is
+reported and not capped. So a polynomial rung, in either resource, keeps both
+resources within a constant factor, and polynomial rungs cannot trade a gain
+in one for a loss in the other.
 
 Since the size of a member is polynomial in its rank, `2 ^ k` is exponential
 in a root of the size of the input. `Improves kind Old New b C` is the
@@ -510,18 +517,29 @@ structure SeparatesOn (μ : Meter) (Old New : CostedRuntime) (C : ProgClass)
 
 /-! ## Three kinds of win -/
 
-/-- The kind of win that admits a rung. -/
-inductive Kind where
-  /-- Exponential in time. -/
-  | expTime
-  /-- Polynomial in time, with a ratio that grows without bound. -/
-  | polyTime
+/-- How large a gain is. -/
+inductive Gap where
+  /-- The old machine uses `2 ^ k` where the new one uses a polynomial. -/
+  | exponential
+  /-- The old machine uses `(k + 1) ^ gain` times what the new one uses. -/
+  | polynomial
   deriving DecidableEq, Repr
 
-/-- The resource a kind of win is a gain in. -/
-def Kind.meter : Kind → Meter
-  | .expTime => Meter.time
-  | .polyTime => Meter.time
+/-- What a gain is a gain in. -/
+inductive Resource where
+  | time
+  deriving DecidableEq, Repr
+
+/-- The meter of a resource. -/
+def Resource.meter : Resource → Meter
+  | .time => Meter.time
+
+/-- The kind of win that admits a rung: a gain of some size in some
+resource. -/
+structure Kind where
+  resource : Resource
+  gap : Gap
+  deriving DecidableEq, Repr
 
 /-- The numerals of an improvement. -/
 structure Bounds where
@@ -555,39 +573,40 @@ def hi (b : Bounds) (k : Nat) : Nat := b.hiCoeff * (k + 1) ^ b.hiDeg
 of the input `n`. For a polynomial win it is the constant factor
 `simCoeff * (c + 1)`, whatever the size; otherwise the polynomial
 `simCoeff * (c + n + 1) ^ simDeg`. -/
-def sim (b : Bounds) : Kind → Nat → Nat → Nat
-  | .polyTime, c, _ => b.simCoeff * (c + 1)
-  | .expTime, c, n => b.simCoeff * (c + n + 1) ^ b.simDeg
+def sim (b : Bounds) : Gap → Nat → Nat → Nat
+  | .polynomial, c, _ => b.simCoeff * (c + 1)
+  | .exponential, c, n => b.simCoeff * (c + n + 1) ^ b.simDeg
 
 /-- What the old machine has used at least, on a member of rank `k`. For a
 polynomial win it is `(k + 1) ^ gain` times the new machine's bound;
 otherwise `2 ^ k`. -/
-def lo (b : Bounds) : Kind → Nat → Nat
-  | .polyTime, k => (k + 1) ^ b.gain * b.hi k
-  | .expTime, k => 2 ^ k
+def lo (b : Bounds) : Gap → Nat → Nat
+  | .polynomial, k => (k + 1) ^ b.gain * b.hi k
+  | .exponential, k => 2 ^ k
 
 /-- The bound in context, for the new machine's bound on the member `h`, the
 residue `res` and the size of the context `n`. For a polynomial win it is
 linear in `h` and `res`, `ctxCoeff * (n + 1) ^ ctxDeg * (h + res + 1)`;
 otherwise the polynomial `ctxCoeff * (h + res + n + 1) ^ ctxDeg`. -/
-def ctx (b : Bounds) : Kind → Nat → Nat → Nat → Nat
-  | .polyTime, h, res, n => b.ctxCoeff * (n + 1) ^ b.ctxDeg * (h + res + 1)
-  | .expTime, h, res, n => b.ctxCoeff * (h + res + n + 1) ^ b.ctxDeg
+def ctx (b : Bounds) : Gap → Nat → Nat → Nat → Nat
+  | .polynomial, h, res, n => b.ctxCoeff * (n + 1) ^ b.ctxDeg * (h + res + 1)
+  | .exponential, h, res, n => b.ctxCoeff * (h + res + n + 1) ^ b.ctxDeg
 
 end Bounds
 
 /-- `New` improves on `Old` by a win of the given kind, on the class `C`,
 with the numerals `b`: the class is proper with members of size at most
-`b.size`; `New` is never worse than `b.sim kind` of `Old` on any answer of
-any input; and it is separated from `Old` on `C`, in the resource of the
-kind, with `Old` at `b.lo kind` or more, `New` within `b.hi` on a member and
-within `b.ctx kind` in context. The ratio of a polynomial win grows. -/
+`b.size`; `New` is never worse in time than `b.sim kind.gap` of `Old` on any
+answer of any input; and it is separated from `Old` on `C`, in the resource
+of the kind, with `Old` at `b.lo kind.gap` or more, `New` within `b.hi` on a
+member and within `b.ctx kind.gap` in context. The ratio of a polynomial win
+grows. -/
 structure Improves (kind : Kind) (Old New : CostedRuntime) (b : Bounds) (C : ProgClass) :
     Prop where
   proper : C.Proper b.size
-  grows : kind = .polyTime → 0 < b.gain
-  simulates : Simulates Old New (b.sim kind)
-  separates : SeparatesOn kind.meter Old New C (b.lo kind) b.hi (b.ctx kind)
+  grows : kind.gap = .polynomial → 0 < b.gain
+  simulates : Simulates Old New (b.sim kind.gap)
+  separates : SeparatesOn kind.resource.meter Old New C (b.lo kind.gap) b.hi (b.ctx kind.gap)
 
 /-! ## Engines
 

@@ -1,4 +1,4 @@
-# Admission: three kinds of win, on a class, in context
+# Admission: wins in time and space, on a class, in context
 
 This note settles the design of the admission rule in `RwLog/Trusted/Cost.lean`
 (ledger rows L33 and L02 of the roadmap) and records why each choice was made.
@@ -112,20 +112,25 @@ The member alone is the hole with no further definitions; the bound `hi k`
 is also required there directly, so `hi` is what the new machine pays on a
 member and not that up to `ctx`.
 
-## 5. Three kinds, one statement
+## 5. The kinds of win, one statement
 
-A kind fixes a resource and three functions of the numerals.
+A kind is a resource (time or space) and the size of the gap (exponential or
+polynomial). The size of the gap fixes three functions of the numerals; the
+resource fixes what is measured.
 
-| kind | resource | old machine has used at least | simulation of the old machine | in context |
-|---|---|---|---|---|
-| exponential time | ticks | `2 ^ k` | polynomial in its ticks and the size | polynomial |
-| polynomial time | ticks | `(k + 1) ^ gain * hi k`, `gain ≥ 1` | `simCoeff * (c + 1)`: a constant factor | linear in `hi k` and the residue |
-| space | space | `2 ^ k` | polynomial, in ticks and in space | polynomial |
+| gap | old machine has used at least | simulation of the old machine | in context |
+|---|---|---|---|
+| exponential | `2 ^ k` | polynomial in what it used and the size | polynomial |
+| polynomial | `(k + 1) ^ gain * hi k`, `gain ≥ 1` | `simCoeff * (c + 1)`: a constant factor | linear in `hi k` and the residue |
 
 The separation (`SeparatesOn`) and the simulation (`SimulatesBy`) are written
-once, for any resource; a kind only chooses the resource and the bounds.
-`Admits` takes the kind as its first argument, so every admission says which
-it is.
+once, for any resource. `Admits` takes the kind as its first argument, so
+every admission says which it is.
+
+**Which resources are simulated.** Time, for every kind. Space too, within
+the same bound, for every kind except an exponential gain in time. That
+exception is deliberate: the usual exponential gain in time is a table, which
+is bought with space; what such a rung uses is reported, not capped.
 
 **Why a constant factor for a polynomial win.** With a polynomial simulation,
 one rung could gain `k ^ g` on a class and lose `k ^ g` elsewhere, and the
@@ -133,18 +138,15 @@ next could do the reverse, for ever. With a constant factor a gain whose
 ratio is unbounded can never be given back by later polynomial rungs: after
 `m` of them the loss is at most a constant. The bound has no term in the size
 of the input, since on inputs the old machine answers quickly such a term is
-an unbounded loss.
+an unbounded loss. The factor is required in both resources, because
+otherwise a polynomial rung in time and one in space could undo each other's
+gains in turn. So polynomial wins in time and in space are admitted on the
+same terms.
 
-**What is not protected.** An exponential or a space rung may lose a
-polynomial in time, so it may give back the gain of an earlier polynomial
-rung. That is the priority Anthony set: exponential wins are taken first. A
-time rung is not held to any bound in space, because the usual exponential
-gain in time (a table) is bought with space; what it uses is reported, not
-capped.
-
-**Space.** The gain is exponential, as for time. A polynomial gain in space
-would need a constant-factor simulation in space and a rule for how it trades
-against polynomial gains in time; it is on the billboard, not decided.
+**What is not protected.** A rung with an exponential gain may lose a
+polynomial, so it may give back the gain of an earlier polynomial rung. That
+is the priority Anthony set: exponential wins are taken first while there are
+any.
 
 ## 6. Priority
 
