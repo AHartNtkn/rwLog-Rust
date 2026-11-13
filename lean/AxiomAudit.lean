@@ -205,3 +205,6 @@ new axiom.
 
 /-- info: 'RwLog.R001.addition_fixed_modes' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.R001.addition_fixed_modes
+
+/-- info: 'RwLog.R001.dual_trace' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R001.dual_trace
