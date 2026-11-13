@@ -226,6 +226,11 @@ items it hands on is what a walk holds of exactly those products (`walk_ex`,
 in either direction and under whatever was pushed), so a walk gives the same
 verdict (`walkRace_final`).
 
+`SharedExact.lean` proves the same of the evaluation that shares the suffixes
+of a chain and remembers what it has evaluated: a summary holds exactly the
+products of its node (`evalS_ex`, with the memo holding that of every entry),
+so the shared evaluation gives the same verdict (`sharedRace_final`).
+
 `Rungs/Framework/Writing.lean` proves what holds of every engine because an
 engine is handed the normal form of the query: `Engine.orComm`, `orAssoc`,
 `seqAssoc`, `andComm`, `andAssoc`. `Rungs/Framework/ConvTrace.lean` proves
