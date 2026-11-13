@@ -514,11 +514,11 @@ new axiom.
 /-- info: 'RwLog.R004.costed_engine' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.R004.costed_engine
 
-/-- info: 'RwLog.R002.admits' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLog.R002.admits
+/-- info: 'RwLog.R002.advances' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R002.advances
 
-/-- info: 'RwLog.R003.admits' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLog.R003.admits
+/-- info: 'RwLog.R003.advances' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R003.advances
 
 /-- info: 'RwLog.R001.keeps' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.R001.keeps
@@ -599,5 +599,5 @@ new axiom.
 /-- info: 'RwLog.R004.keeps' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.R004.keeps
 
-/-- info: 'RwLog.R004.admits' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLog.R004.admits
+/-- info: 'RwLog.R004.advances' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R004.advances

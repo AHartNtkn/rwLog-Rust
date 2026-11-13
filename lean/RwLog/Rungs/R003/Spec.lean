@@ -124,12 +124,12 @@ def separates_exhaustion : Prop :=
 R001 halts (`Trusted/Properties.lean`). -/
 def keeps : Prop := runtime.Keeps R001.runtime
 
-/-- The numerals R003 is admitted with: simulation within `7 (c + n + 1)`,
+/-- The numerals R003 advances with: simulation within `7 (c + n + 1)`,
 the `k`-th input of size at most `8 (k + 1)`, covered within `16000 (k + 1)³`
 ticks. -/
 def bounds : Bounds := ⟨7, 1, 8, 1, 16000, 3⟩
 
-/-- The admission statement: R003 improves on R002 with these numerals, on
+/-- The improvement: R003 improves on R002 with these numerals, on
 `sepFam` and the pairs `(t, z)`. -/
 def improves : Prop := Improves R002.costed costed bounds sepFam fun _ => sepTarget
 
@@ -137,10 +137,14 @@ def improves : Prop := Improves R002.costed costed bounds sepFam fun _ => sepTar
 language: `costed` is what `engine` computes there. -/
 def costed_engine : Prop := engine.costed = costed
 
-/-- The admission of the rung: R003 above R002, neither with any
-preprocessing, so preprocessing is recorded to cost nothing. -/
-def admits : Prop :=
-  Admits ⟨Preprocessor.id, R002.engine⟩ ⟨Preprocessor.id, engine⟩ bounds (fun _ => 0) sepFam
+/-- The advance of the rung: R003 above R002, neither with any
+preprocessing, so preprocessing is recorded to cost nothing.
+
+R003 is not admitted (`Admits`, `Trusted/Cost.lean`), because its cost depends on
+the direction a query is written in: its shared evaluation is keyed on what stands to the left of a sub-expression, never on what stands to its right.
+R005 is the first rung that is. -/
+def advances : Prop :=
+  Advances ⟨Preprocessor.id, R002.engine⟩ ⟨Preprocessor.id, engine⟩ bounds (fun _ => 0) sepFam
     fun _ => sepTarget
 
 end Obligation

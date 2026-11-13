@@ -25,16 +25,20 @@ R004 is judged against R003 by cost (`Trusted/Cost.lean`).
   within a linear bound, while R003 has paid at least `2 ^ k` before it emits
   anything (`separates`): its walk and its shared evaluation both build all
   `2 ^ (k + 1)` wrapped terms before the test is reached.
-* **Admission.** The rung keeps every property of the baseline (`keeps`) and
-  is admitted above R003 with the numerals `bounds` (`admits`).
+* **Advance.** The rung keeps every property of the baseline (`keeps`) and
+  advances on R003 with the numerals `bounds` (`advances`). It is not
+  admitted: see "No mirror bound" below.
 
 ## What is not claimed
 
-* **No mirror bound.** The pruning this rung adds works from the right end of
-  a sequence only, and what it races against (R002's walk) prunes from the
-  left by a different test, so the cost of a query and the cost of its
-  converse are not claimed to be within a polynomial of each other. Whether
-  they are is not known, and no such obligation is stated.
+* **No mirror bound.** The cost of a query and the cost of its mirror image
+  are not within a polynomial of each other. The pruning this rung adds
+  mirrors R002's walk, but nothing mirrors R003's shared evaluation, which is
+  keyed on what stands to the left of a sub-expression: on
+  `bit ; (bit ; … ; (bit ; $x -> c))` R004 pays `2 ^ k`, and on the mirror
+  image a polynomial (`Rungs/R005/Family.lean`). So the rung does not pass
+  `DirectionFree` (`Trusted/Cost.lean`) and is not admitted. R005 is this
+  machine made independent of direction.
 * **Only the unfolding race is improved.** The race yields answers only for a
   goal whose unfolding is final. A goal that never becomes final is answered
   by the tables, which this rung leaves as they are in R001: they still
@@ -119,18 +123,18 @@ def separates : Prop :=
   Separates R003.costed costed sepFam (fun _ => sepTarget) (fun k => 12 * (k + 2))
     (fun k => 2 ^ k) fun k => 1000 * (k + 2)
 
-/-! ### Admission -/
+/-! ### Advance -/
 
 /-- R004 keeps every property of the proper baseline, and halts wherever
 R001 halts (`Trusted/Properties.lean`). -/
 def keeps : Prop := runtime.Keeps R001.runtime
 
-/-- The numerals R004 is admitted with: simulation within `7 (c + n + 1)`,
+/-- The numerals R004 advances with: simulation within `7 (c + n + 1)`,
 the `k`-th input of size at most `24 (k + 1)`, covered within `2000 (k + 1)`
 ticks. -/
 def bounds : Bounds := ⟨7, 1, 24, 1, 2000, 1⟩
 
-/-- The admission statement: R004 improves on R003 with these numerals, on
+/-- The improvement: R004 improves on R003 with these numerals, on
 `sepFam` and the pair `(a, a)`. -/
 def improves : Prop := Improves R003.costed costed bounds sepFam fun _ => sepTarget
 
@@ -138,10 +142,14 @@ def improves : Prop := Improves R003.costed costed bounds sepFam fun _ => sepTar
 language: `costed` is what `engine` computes there. -/
 def costed_engine : Prop := engine.costed = costed
 
-/-- The admission of the rung: R004 above R003, neither with any
-preprocessing, so preprocessing is recorded to cost nothing. -/
-def admits : Prop :=
-  Admits ⟨Preprocessor.id, R003.engine⟩ ⟨Preprocessor.id, engine⟩ bounds (fun _ => 0) sepFam
+/-- The advance of the rung: R004 above R003, neither with any
+preprocessing, so preprocessing is recorded to cost nothing.
+
+R004 is not admitted (`Admits`, `Trusted/Cost.lean`), because its cost depends on
+the direction a query is written in: its walk from the right mirrors R002's walk, but nothing mirrors R003's shared evaluation (`Rungs/R005/Family.lean` is a family on which it pays exponentially more than on the mirror image).
+R005 is the first rung that is. -/
+def advances : Prop :=
+  Advances ⟨Preprocessor.id, R003.engine⟩ ⟨Preprocessor.id, engine⟩ bounds (fun _ => 0) sepFam
     fun _ => sepTarget
 
 end Obligation
