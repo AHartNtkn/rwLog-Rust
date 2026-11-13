@@ -173,7 +173,7 @@ theorem unstack_spec : ∀ (fs : List store.Frame) (ts acc : List Pat) (s : stor
     Repr nm s.nodes.val r.val (encList (nm none) acc) → Room s (2 * fs.length + 1) →
     term.unstack_loop s r ⦃ r' s' =>
       Inv s' ∧ Extends s s' ∧ Repr nm s'.nodes.val r'.val (encList (nm none) (ts.reverse ++ acc)) ∧
-        s'.ticks.val ≤ s.ticks.val + 2 * fs.length + 1 ⦄ := by
+        s'.ticks.val ≤ s.ticks.val + 2 * fs.length + 1 ∧ tbl s' = tbl s ⦄ := by
   unfold term.unstack_loop
   intro fs
   induction fs with
@@ -189,7 +189,7 @@ theorem unstack_spec : ∀ (fs : List store.Frame) (ts acc : List Pat) (s : stor
     simp only [List.head?_nil] at po
     subst po
     step*
-    exact ⟨⟨hW1, pst⟩, Extends.of_eq p1, by rw [p1]; simpa using hr, by simp; omega⟩
+    exact ⟨⟨hW1, pst⟩, Extends.of_eq p1, by rw [p1]; simpa using hr, by simp; omega, p2⟩
   | cons f fs ih =>
     intro ts acc s r hW hstk hF hr hroom
     have hroom' := hroom
@@ -225,8 +225,8 @@ theorem unstack_spec : ∀ (fs : List store.Frame) (ts acc : List Pat) (s : stor
       (hF'.imp fun _ _ h => hx.repr h) hrep (by unfold Room; omega)
     simp only [uncurry, bind_ok]
     refine WP.spec_mono IH ?_
-    rintro ⟨r', s'⟩ ⟨h1, h2, h3, h4⟩
-    refine ⟨h1, hx.trans h2, ?_, by simp only [List.length_cons]; omega⟩
+    rintro ⟨r', s'⟩ ⟨h1, h2, h3, h4, h5⟩
+    refine ⟨h1, hx.trans h2, ?_, by simp only [List.length_cons]; omega, by rw [h5, htb2, p2]⟩
     simpa using h3
 
 theorem append_spec (xs : List Pat) (s : store.Store) (a b : store.TermId) {ys : List Pat}
@@ -245,7 +245,7 @@ theorem append_spec (xs : List Pat) (s : store.Store) (a b : store.TermId) {ys :
   have hx1 : Extends s s1 := Extends.of_eq hn1
   step with unstack_spec (nm := nm) fs xs.reverse ys s1 b hW1 hstk1
     (hF.imp fun _ _ h => hx1.repr h) (hx1.repr hb) (by unfold Room; omega)
-    as ⟨r, s2, h1, h2, h3, h4⟩
+    as ⟨r, s2, h1, h2, h3, h4, _⟩
   refine ⟨h1, hx1.trans h2, by simpa using h3, by omega⟩
 
 /-! ## Packing and unpacking -/

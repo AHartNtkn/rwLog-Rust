@@ -11,6 +11,10 @@ tick counter by exactly one.
   the one identifier of that node, adding it if it is new.
 * `tbl s t k`: what table `t` holds for `k`. `get`, `set`, `get_flag`,
   `set_flag` and `clear` read and write this function and nothing else.
+* `stk s`: the frames on the stack of the store, the top first. `push`,
+  `pop` and `drop_stack` change this list and nothing else. `Wf` is the
+  invariant with any stack and `Inv` is `Wf` with the stack empty: a
+  function of the kernel starts and ends at `Inv`, and its loop runs at `Wf`.
 * `Room s n`: there is room for `n` more ticks. The sizes of the store are
   bounded by the ticks spent, so this one hypothesis rules out every overflow.
 -/

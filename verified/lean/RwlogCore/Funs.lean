@@ -369,14 +369,12 @@ def cover.mark (s : store.Store) (p : store.TermId) : Result store.Store := do
   cover.mark_loop s1
 
 /-- [rwlog_core::cover::is_set]:
-    Source: 'src/cover.rs', lines 93:0-98:1 -/
+    Source: 'src/cover.rs', lines 93:0-95:1 -/
 def cover.is_set (o : Option Bool) : Result Bool := do
-  match o with
-  | none => ok false
-  | some b => ok b
+  ok (core.option.Option.unwrap_or o false)
 
 /-- [rwlog_core::cover::all_marked]: loop body 0:
-    Source: 'src/cover.rs', lines 107:4-134:5 -/
+    Source: 'src/cover.rs', lines 104:4-131:5 -/
 @[rust_loop_body]
 def cover.all_marked_loop.body
   (s : store.Store) : Result (ControlFlow store.Store store.Store) := do
@@ -439,7 +437,7 @@ def cover.all_marked_loop.body
       | store.Node.Nil => fail panic
 
 /-- [rwlog_core::cover::all_marked]: loop 0:
-    Source: 'src/cover.rs', lines 107:4-134:5 -/
+    Source: 'src/cover.rs', lines 104:4-131:5 -/
 @[rust_loop]
 def cover.all_marked_loop (s : store.Store) : Result store.Store := do
   loop
@@ -447,7 +445,7 @@ def cover.all_marked_loop (s : store.Store) : Result store.Store := do
     s
 
 /-- [rwlog_core::cover::all_marked]:
-    Source: 'src/cover.rs', lines 105:0-136:1 -/
+    Source: 'src/cover.rs', lines 102:0-133:1 -/
 def cover.all_marked
   (s : store.Store) (p : store.TermId) : Result (Bool × store.Store) := do
   let s1 ← store.Store.push s (store.Frame.Visit p p)
@@ -663,7 +661,7 @@ def term.unstack
   term.unstack_loop s r
 
 /-- [rwlog_core::cover::keep]: loop body 0:
-    Source: 'src/cover.rs', lines 143:4-146:5 -/
+    Source: 'src/cover.rs', lines 140:4-143:5 -/
 @[rust_loop_body]
 def cover.keep_loop0.body
   (l : store.TermId) (s : store.Store) :
@@ -681,7 +679,7 @@ def cover.keep_loop0.body
   | store.Node.Nil => ok (done s1)
 
 /-- [rwlog_core::cover::keep]: loop 0:
-    Source: 'src/cover.rs', lines 143:4-146:5 -/
+    Source: 'src/cover.rs', lines 140:4-143:5 -/
 @[rust_loop]
 def cover.keep_loop0
   (l : store.TermId) (s : store.Store) : Result store.Store := do
@@ -690,7 +688,7 @@ def cover.keep_loop0
     (l, s)
 
 /-- [rwlog_core::cover::keep]: loop body 1:
-    Source: 'src/cover.rs', lines 148:4-153:5 -/
+    Source: 'src/cover.rs', lines 145:4-150:5 -/
 @[rust_loop_body]
 def cover.keep_loop1.body
   (l : store.TermId) (s : store.Store) :
@@ -714,7 +712,7 @@ def cover.keep_loop1.body
   | store.Node.Nil => ok (done (s1, l))
 
 /-- [rwlog_core::cover::keep]: loop 1:
-    Source: 'src/cover.rs', lines 148:4-153:5 -/
+    Source: 'src/cover.rs', lines 145:4-150:5 -/
 @[rust_loop]
 def cover.keep_loop1
   (l : store.TermId) (s : store.Store) :
@@ -725,7 +723,7 @@ def cover.keep_loop1
     (l, s)
 
 /-- [rwlog_core::cover::keep]:
-    Source: 'src/cover.rs', lines 141:0-155:1 -/
+    Source: 'src/cover.rs', lines 138:0-152:1 -/
 def cover.keep
   (s : store.Store) (c : store.TermId) :
   Result (store.TermId × store.Store)
@@ -735,7 +733,7 @@ def cover.keep
   term.unstack s2 l
 
 /-- [rwlog_core::cover::is_var]:
-    Source: 'src/cover.rs', lines 157:0-159:1 -/
+    Source: 'src/cover.rs', lines 154:0-156:1 -/
 def cover.is_var
   (s : store.Store) (p : store.TermId) : Result (Bool × store.Store) := do
   let (n, s1) ← store.Store.read s p
@@ -748,7 +746,7 @@ def cover.is_var
   | store.Node.Nil => ok (false, s1)
 
 /-- [rwlog_core::cover::is_nil]:
-    Source: 'src/cover.rs', lines 161:0-163:1 -/
+    Source: 'src/cover.rs', lines 158:0-160:1 -/
 def cover.is_nil
   (s : store.Store) (p : store.TermId) : Result (Bool × store.Store) := do
   let (n, s1) ← store.Store.read s p
@@ -761,7 +759,7 @@ def cover.is_nil
   | store.Node.Nil => ok (true, s1)
 
 /-- [rwlog_core::cover::iface]:
-    Source: 'src/cover.rs', lines 168:0-179:1 -/
+    Source: 'src/cover.rs', lines 165:0-176:1 -/
 def cover.iface
   (s : store.Store) (p : store.TermId) (c : store.TermId) :
   Result ((Option span.Span) × store.Store)
@@ -782,7 +780,7 @@ def cover.iface
   else ok (some { l := p, r := p, c := c2 }, s6)
 
 /-- [rwlog_core::cover::right_bound]:
-    Source: 'src/cover.rs', lines 182:0-184:1
+    Source: 'src/cover.rs', lines 179:0-181:1
     Visibility: public -/
 def cover.right_bound
   (s : store.Store) (x : span.Span) :
@@ -791,7 +789,7 @@ def cover.right_bound
   cover.iface s x.r x.c
 
 /-- [rwlog_core::cover::left_bound]:
-    Source: 'src/cover.rs', lines 187:0-189:1
+    Source: 'src/cover.rs', lines 184:0-186:1
     Visibility: public -/
 def cover.left_bound
   (s : store.Store) (x : span.Span) :

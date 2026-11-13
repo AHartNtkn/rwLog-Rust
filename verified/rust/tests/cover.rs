@@ -95,7 +95,10 @@ fn matching_visits_a_shared_pattern_node_once() {
     s.clear(Tbl::A);
     let (r, ticks) = spent(&mut s, |s| mmatch(s, p, t));
     assert!(r);
-    assert!(ticks <= 6 * 41, "spent {ticks} ticks on 41 nodes");
+    // `mmatch_spec`: six ticks, and twelve for each distinct subterm of the
+    // pattern.
+    assert!(ticks <= 6 + 12 * 41, "spent {ticks} ticks on 41 nodes");
+    println!("matching of 41 shared nodes: {ticks} ticks of {}", 6 + 12 * 41);
 }
 
 #[test]

@@ -7,10 +7,12 @@
 * `RwLogVerified.Store`: the invariant of the Rust store; each primitive
   keeps it, does what it says, and costs one tick.
 * `RwLogVerified.Repr`: an identifier stands for a specification term.
+* `RwLogVerified.Walk`: what the frames on the stack of a loop over a term
+  stand for.
 * `RwLogVerified.Rebuild`, `Occurs`: applying a binding to a term and the
   occurs check, each once per distinct subterm.
 * `RwLogVerified.SolveCost`, `Solve`: the unifier `solve_into` returns what
-  `RwLog.Eqns.solveOn` returns, within a polynomial in the distinct subterms.
+  `RwLog.Eqns.solveOn` returns, within the number of variables times the distinct subterms and equations.
 * `RwLogVerified.SpanSpec`, `Compose`: `compose` and `meet` of spans.
 * `RwLogVerified.Chain`: the test that a chain of spans composes.
 * `RwLogVerified.MatchSpec`, `Cover`: one-way matching, coverage when the
@@ -27,6 +29,7 @@ import RwLogVerified.Digits
 import RwLogVerified.TrieModel
 import RwLogVerified.Store
 import RwLogVerified.Repr
+import RwLogVerified.Walk
 import RwLogVerified.Rebuild
 import RwLogVerified.Occurs
 import RwLogVerified.SolveCost

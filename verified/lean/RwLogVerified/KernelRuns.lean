@@ -9,8 +9,9 @@ differs.
 On this query the two runs emit the same answers. The ticks differ: the
 specification kernel charges the sizes of the spans, and the Rust kernel
 charges the tick bounds proved of the Rust functions. Those bounds are
-polynomials in the distinct subterms with large constants (the bound for
-solving is cubic), so on small spans they are far above the sizes.
+linear in the distinct subterms, except the bound for solving, which is the
+number of variables times the distinct subterms and equations
+(`RwLogVerified.SolveCost`), so on small spans they are above the sizes.
 -/
 import RwLogVerified.Kernel
 import RwLog.Rungs.R002.Gen
@@ -41,7 +42,7 @@ def atRust : List Span × Bool × Nat :=
 
 -- What the eight steps cost at each kernel.
 #guard atStd.2 == (false, 21862)
-#guard atRust.2 == (false, 24699297)
+#guard atRust.2 == (false, 2397663)
 
 -- One composition of `(b (a $x) $y) -> (b $x $y)` with itself.
 def dec : Span :=
@@ -50,6 +51,21 @@ def dec : Span :=
 
 #guard ((rustKernel "nil").compose dec dec).val == (Kernel.std.compose dec dec).val
 #guard (Kernel.std.compose dec dec).ticks == 38
-#guard ((rustKernel "nil").compose dec dec).ticks == 83460
+#guard ((rustKernel "nil").compose dec dec).ticks == 5474
+
+/-- `(x_i (x_{i+1} … x_{i+n}))`. -/
+def wideT : Nat → Nat → Pat
+  | 0, i => .var i
+  | n + 1, i => .app (.var i) (wideT n (i + 1))
+
+/-- The identity on a tuple of `n` variables. -/
+def wide (n : Nat) : Span := ⟨wideT (n - 1) 0, wideT (n - 1) 0, []⟩
+
+-- Composing `wide n` with itself solves `n` equations between variables.
+-- Each removes a variable and rebuilds what is left, so the Rust spends ticks
+-- that grow with the square of `n` (`verified/rust/tests/span.rs` measures
+-- 104, 292, 863, 2785, 9749 and 36157), and so does the charge.
+#guard [1, 2, 4, 8, 16, 32].map (fun n => ((rustKernel "nil").compose (wide n) (wide n)).ticks)
+  == [896, 2734, 9386, 34594, 132626, 519154]
 
 end RwLogVerified.Tests

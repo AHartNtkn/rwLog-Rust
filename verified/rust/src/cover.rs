@@ -91,10 +91,7 @@ fn mark(s: &mut Store, p: TermId) {
 
 /// Is the flag set?
 fn is_set(o: Option<bool>) -> bool {
-    match o {
-        Some(b) => b,
-        None => false,
-    }
+    o.unwrap_or(false)
 }
 
 /// Is every variable of the term `p` flagged in table `A`? Table `B` holds

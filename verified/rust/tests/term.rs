@@ -74,7 +74,9 @@ fn rebuild_visits_a_shared_node_once() {
     }
     s.clear(Tbl::A);
     let (_, t) = spent(&mut s, |s| rebuild(s, Leaf::Right, p));
-    assert!(t <= 6 * 41, "spent {t} ticks on 41 nodes");
+    // `rebuild_spec`: five ticks, and fourteen for each distinct subterm.
+    assert!(t <= 5 + 14 * 41, "spent {t} ticks on 41 nodes");
+    println!("rebuild of 41 shared nodes: {t} ticks of {}", 5 + 14 * 41);
 }
 
 #[test]
@@ -101,7 +103,9 @@ fn occurs_visits_a_shared_node_once() {
     s.clear(Tbl::B);
     let (r, t) = spent(&mut s, |s| occurs(s, x, p));
     assert!(!r);
-    assert!(t <= 5 * 41, "spent {t} ticks on 41 nodes");
+    // `occurs_spec`: four ticks, and eight for each distinct subterm.
+    assert!(t <= 4 + 8 * 41, "spent {t} ticks on 41 nodes");
+    println!("occurs in 41 shared nodes: {t} ticks of {}", 4 + 8 * 41);
 }
 
 #[test]

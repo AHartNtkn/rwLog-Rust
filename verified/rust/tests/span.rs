@@ -224,7 +224,7 @@ fn compose_of_a_chain_of_doubling_spans_is_polynomial() {
 #[test]
 fn compose_of_the_decrement_with_itself_stays_within_its_proved_bound() {
     // (b (a x) y) -> (b x y), composed with itself. The Lean theorem
-    // `compose_spec` bounds the ticks by `composeCost`, which is 83460 on
+    // `compose_spec` bounds the ticks by `composeCost`, which is 5474 on
     // these two spans (`RwLogVerified/KernelRuns.lean`).
     let b = |l: T, r: T| ap(ap(sy(1), l), r);
     let dec = span(b(ap(sy(0), v(0)), v(1)), b(v(0), v(1)));
@@ -232,8 +232,36 @@ fn compose_of_the_decrement_with_itself_stays_within_its_proved_bound() {
     let d = put_span(&mut s, &dec);
     let (r, t) = spent(&mut s, |s| compose(s, d, d));
     assert!(r.is_some(), "the decrement composes with itself");
-    assert!(t <= 83460, "spent {t} ticks, above the proved bound");
+    assert!(t <= 5474, "spent {t} ticks, above the proved bound");
     println!("compose of the decrement with itself: {t} ticks");
+}
+
+/// The span `(x_0 (x_1 … x_{n-1})) -> (x_0 (x_1 … x_{n-1}))`.
+fn wide(n: u128) -> TSpan {
+    let mut t = v(n - 1);
+    for i in (0..n - 1).rev() {
+        t = ap(v(i), t);
+    }
+    span(t.clone(), t)
+}
+
+#[test]
+fn compose_of_wide_identities_stays_within_its_proved_bound() {
+    // Composing the span with itself solves n equations between variables.
+    // Each one removes a variable and rebuilds what is left, so the ticks
+    // grow with the square of n. The bounds are `composeCost` on these
+    // spans (`RwLogVerified/KernelRuns.lean`).
+    let derived =
+        [(1u128, 896u64), (2, 2734), (4, 9386), (8, 34594), (16, 132626), (32, 519154)];
+    for (n, bound) in derived {
+        let w = wide(n);
+        let mut s = Store::new();
+        let d = put_span(&mut s, &w);
+        let (r, t) = spent(&mut s, |s| compose(s, d, d));
+        assert!(r.is_some(), "the identity on {n} variables composes with itself");
+        assert!(t <= bound, "spent {t} ticks on {n} variables, above the proved bound {bound}");
+        println!("compose of the identity on {n} variables with itself: {t} ticks of {bound}");
+    }
 }
 
 #[test]
