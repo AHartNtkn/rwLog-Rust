@@ -31,6 +31,7 @@ R003 is judged against R002 by cost (`Trusted/Cost.lean`).
   exhaustion (`separates_exhaustion`).
 -/
 import RwLog.Rungs.R002.Engine
+import RwLog.Trusted.Properties
 import RwLog.Rungs.R003.Engine
 
 namespace RwLog
@@ -117,6 +118,25 @@ halted. -/
 def separates_exhaustion : Prop :=
   SeparatesExhaustion R002.costed costed sepFam (fun k => 8 * k + 7) (fun k => 2 ^ k)
     fun k => 2000 * (k + 2) ^ 3
+
+/-- R003 keeps every property of the proper baseline, and halts wherever
+R001 halts (`Trusted/Properties.lean`). -/
+def keeps : Prop := runtime.Keeps R001.runtime
+
+/-- The numerals R003 is admitted with: simulation within `7 (c + n + 1)`,
+the `k`-th input of size at most `8 (k + 1)`, covered within `16000 (k + 1)³`
+ticks. -/
+def bounds : Bounds := ⟨7, 1, 8, 1, 16000, 3⟩
+
+/-- The admission statement: R003 improves on R002 with these numerals, on
+`sepFam` and the pairs `(t, z)`. -/
+def improves : Prop := Improves R002.costed costed bounds sepFam fun _ => sepTarget
+
+/-- The admission of the rung: R003 above R002, neither with any
+preprocessing, so preprocessing is recorded to cost nothing. -/
+def admits : Prop :=
+  Admits ⟨Preprocessor.id, R002.costed⟩ ⟨Preprocessor.id, costed⟩ bounds (fun _ => 0) sepFam
+    fun _ => sepTarget
 
 end Obligation
 

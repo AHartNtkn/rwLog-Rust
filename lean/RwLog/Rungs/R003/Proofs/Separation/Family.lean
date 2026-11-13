@@ -109,7 +109,7 @@ theorem live_good {s : Span} (h : Good s) : Costs (Tabled.live [] s) [s] 3 := by
     · simp [Tabled.live, Charged.simplify, Theory.simplify, Theory.simplifyWithin,
         Theory.refutes?, Theory.firings, Store.varCount]
     · simp [Tabled.live, Charged.simplify, Theory.simplifyCharge, Theory.refutes?,
-        Theory.firings, Store.varCount, saturate_nil, Theory.size, Span.size, Store.size,
+        Theory.firings, Store.varCount, saturate_nil, Theory.saturateWork_nil, Theory.firingsWork_nil, Theory.size, Span.size, Store.size,
         Term.size]
 
 /-! ## The expressions -/

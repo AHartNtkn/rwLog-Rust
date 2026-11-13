@@ -492,3 +492,24 @@ new axiom.
 
 /-- info: 'RwLog.R003.separates_exhaustion' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.R003.separates_exhaustion
+
+/-- info: 'RwLog.R002.improves' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R002.improves
+
+/-- info: 'RwLog.R003.improves' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R003.improves
+
+/-- info: 'RwLog.R002.admits' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R002.admits
+
+/-- info: 'RwLog.R003.admits' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R003.admits
+
+/-- info: 'RwLog.R001.keeps' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R001.keeps
+
+/-- info: 'RwLog.R002.keeps' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R002.keeps
+
+/-- info: 'RwLog.R003.keeps' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R003.keeps

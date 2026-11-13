@@ -16,9 +16,16 @@ when it builds one:
 * composing or conjoining two spans: the sizes of both spans and of the result;
 * testing whether a chain of spans composes, without building the result: the
   sizes of the spans;
-* a coverage test: the sizes of both spans;
+* a coverage test: the sizes of both spans, and the search that places the
+  covering span's store in the other's (`matchAllWork`): every attempt to
+  match one constraint onto another, at every point of the search, by the
+  sizes of the two. With an empty store there is no search;
 * simplifying a span by a theory: for each instantiation stage, the size of
-  the theory times the size of the span and of the closure of its store.
+  the theory times the size of the span and of the closure of its store, and
+  the search for firings: every round of the closure, and the two readings of
+  the closed store, match the heads of every bounded rule against the store
+  (`Theory.firingsWork`, `Theory.saturateWork`). With an empty theory there
+  is no search.
 
 List traversal over data that was already charged is free. A term is charged
 by its size wherever it is used, never by one, so sharing or interning cannot
@@ -63,7 +70,16 @@ machine.
 
 A rung improves on its predecessor when it simulates it with a polynomial `p`
 and is separated from it by a family with `size` and `hi` polynomial and `lo`
-exponential, all given as explicit numerals.
+exponential, all given as explicit numerals. `Improves Old New b fam tgt` is
+that statement: `b : Bounds` holds the numerals (a coefficient and a degree
+for each polynomial), the simulation bound is `b.sim`, the family has size at
+most `b.size k`, `New` covers the targets within `b.hi k` and `Old` has paid
+at least `2 ^ k`. Since the size of `fam k` is polynomial in `k`, `2 ^ k` is
+exponential in a root of the size of the input. A rung is admitted by a
+proof of `Admits`, which is `Improves` for the whole rung (the machine run
+on the preprocessed input) for bounds its specification writes out, together
+with a recorded bound on the cost of preprocessing, and by nothing else:
+`Simulates` and `Separates` with other functions do not admit it.
 
 `SeparatesExhaustion` is the same comparison for the report of exhaustion
 instead of answers. It is the special case for the rare queries that halt: it
@@ -102,102 +118,6 @@ def Theory.size (T : Theory) : Nat := (T.map TRule.size).sum
 
 def Program.size (P : Program) : Nat := (P.defs.map fun d => 1 + d.2.size).sum + P.theory.size
 
-/-! ## Charged computations -/
-
-/-- A value and the ticks spent computing it. -/
-structure Cost (α : Type) where
-  val : α
-  ticks : Nat
-
-namespace Cost
-
-instance : Monad Cost where
-  pure a := ⟨a, 0⟩
-  bind m f := let r := f m.val; ⟨r.val, m.ticks + r.ticks⟩
-
-/-- Spend `n` ticks. -/
-def tick (n : Nat) : Cost Unit := ⟨(), n⟩
-
-@[simp] theorem pure_val {α : Type} (a : α) : (pure a : Cost α).val = a := rfl
-@[simp] theorem pure_ticks {α : Type} (a : α) : (pure a : Cost α).ticks = 0 := rfl
-@[simp] theorem bind_val {α β : Type} (m : Cost α) (f : α → Cost β) :
-    (m >>= f).val = (f m.val).val := rfl
-@[simp] theorem bind_ticks {α β : Type} (m : Cost α) (f : α → Cost β) :
-    (m >>= f).ticks = m.ticks + (f m.val).ticks := rfl
-@[simp] theorem tick_val (n : Nat) : (tick n).val = () := rfl
-@[simp] theorem tick_ticks (n : Nat) : (tick n).ticks = n := rfl
-
-/-- Run `m` with a budget of `b` ticks. If `m` needs no more than `b` it
-runs and is charged as usual; otherwise `b` ticks are spent and there is no
-result. -/
-def within {α : Type} (b : Nat) (m : Cost α) : Cost (Option α) :=
-  if m.ticks ≤ b then ⟨some m.val, m.ticks⟩ else ⟨none, b⟩
-
-/-! ### Free list traversals
-
-These spend only what the function they are given spends. They are defined by
-plain recursion so that forgetting the ticks gives the list function of the
-same name. -/
-
-def mapL {α β : Type} (f : α → Cost β) : List α → Cost (List β)
-  | [] => pure []
-  | x :: xs => do
-    let y ← f x
-    let ys ← mapL f xs
-    pure (y :: ys)
-
-def flatMapL {α β : Type} (f : α → Cost (List β)) : List α → Cost (List β)
-  | [] => pure []
-  | x :: xs => do
-    let y ← f x
-    let ys ← flatMapL f xs
-    pure (y ++ ys)
-
-def filterL {α : Type} (f : α → Cost Bool) : List α → Cost (List α)
-  | [] => pure []
-  | x :: xs => do
-    let b ← f x
-    let ys ← filterL f xs
-    pure (if b then x :: ys else ys)
-
-def filterMapL {α β : Type} (f : α → Cost (Option β)) : List α → Cost (List β)
-  | [] => pure []
-  | x :: xs => do
-    let y ← f x
-    let ys ← filterMapL f xs
-    pure (match y with
-      | some b => b :: ys
-      | none => ys)
-
-/-- Stops at the first member that satisfies `f`, as `List.any` does. -/
-def anyL {α : Type} (f : α → Cost Bool) : List α → Cost Bool
-  | [] => pure false
-  | x :: xs => do
-    let b ← f x
-    if b then pure true else anyL f xs
-
-/-- Stops at the first member that fails `f`, as `List.all` does. -/
-def allL {α : Type} (f : α → Cost Bool) : List α → Cost Bool
-  | [] => pure true
-  | x :: xs => do
-    let b ← f x
-    if b then allL f xs else pure false
-
-def foldL {α β : Type} (f : β → α → Cost β) : β → List α → Cost β
-  | b, [] => pure b
-  | b, x :: xs => do
-    let b' ← f b x
-    foldL f b' xs
-
-/-- Stops at the first member that satisfies `f`, as `List.find?` does. -/
-def findL {α : Type} (f : α → Cost Bool) : List α → Cost (Option α)
-  | [] => pure none
-  | x :: xs => do
-    let b ← f x
-    if b then pure (some x) else findL f xs
-
-end Cost
-
 /-! ## Charged primitives -/
 
 /-- A chain of spans composed from the left; `none` when some composition has
@@ -206,11 +126,34 @@ def Span.chain : List Span → Option Span
   | [] => some ⟨.var 0, .var 0, []⟩
   | s :: rest => rest.foldl (fun acc t => acc.bind (·.compose t)) (some s)
 
-/-- What simplifying a span costs: at each instantiation stage, the theory is
-matched against the closure of the span's store. -/
+/-- The work of `matchAll`: every attempt to match a pattern onto a member of
+the store, at every point of the search, charged by the sizes of the two. -/
+def matchAllWork : List Pat → List Pat → PSubst → Nat
+  | [], _, _ => 0
+  | p :: ps, ts, θ =>
+    (ts.map fun t => p.size + t.size +
+      match matchInto p t θ with
+      | some θ' => matchAllWork ps ts θ'
+      | none => 0).sum
+
+/-- The work of listing the firings of a theory on a store: the heads of each
+bounded rule are matched against the store. -/
+def Theory.firingsWork (T : Theory) (c : Store) : Nat :=
+  (T.map fun ρ => if ρ.bounded then matchAllWork ρ.heads c [] else 0).sum
+
+/-- The work of closing a store: the firings are listed in every round. -/
+def Theory.saturateWork (T : Theory) (c : Store) : Nat :=
+  T.firingsWork c + if _ : T.newAtoms c = [] then 0 else T.saturateWork (c ++ T.newAtoms c)
+termination_by T.room c
+decreasing_by exact Theory.room_lt ‹_›
+
+/-- What simplifying a span costs: at each instantiation stage, the store is
+closed, and the theory is matched against the closure twice, once to look for
+a refutation and once for a forced equation. -/
 def Theory.simplifyCharge (T : Theory) : Nat → Span → Nat
   | n, s =>
-    let w := (T.size + 1) * (s.size + Store.size (T.saturate s.c) + 1)
+    let w := (T.size + 1) * (s.size + Store.size (T.saturate s.c) + 1) +
+      T.saturateWork s.c + 2 * T.firingsWork (T.saturate s.c)
     if T.refutes? s.c then w
     else match n, T.bind? s.c with
       | n + 1, some θ => w + T.simplifyCharge n (s.inst θ)
@@ -233,7 +176,14 @@ def meet (x y : Span) : Cost (Option Span) :=
 def composable (xs : List Span) : Cost Bool :=
   ⟨(Span.chain xs).isSome, (xs.map Span.size).sum⟩
 
-def covers (a s : Span) : Cost Bool := ⟨a.covers? s, a.size + s.size⟩
+/-- The search of a coverage test: once the two sides match, the store of `a`
+is placed in the store of `s`. -/
+def coversWork (a s : Span) : Nat :=
+  match (matchInto a.l s.l []).bind (matchInto a.r s.r) with
+  | none => 0
+  | some θ => matchAllWork a.c s.c θ
+
+def covers (a s : Span) : Cost Bool := ⟨a.covers? s, a.size + s.size + coversWork a s⟩
 
 def simplify (T : Theory) (s : Span) : Cost (Option Span) :=
   ⟨T.simplify s, T.simplifyCharge s.c.varCount s⟩
@@ -242,20 +192,25 @@ end Charged
 
 /-! ## Costed runtimes -/
 
-/-- A small-step machine whose step is a charged computation. -/
+/-- A small-step machine whose step is a charged computation. Building its
+first state from the program and the query is a charged computation too:
+whatever a machine does before its first step is paid for by every answer. -/
 structure CostedRuntime where
   State : Type
-  init : Program → Rel → State
+  init : Program → Rel → Cost State
   step : State → Cost (Step State)
 
 namespace CostedRuntime
 
 variable (C : CostedRuntime)
 
+/-- The state the machine starts in. -/
+def start (P : Program) (q : Rel) : C.State := (C.init P q).val
+
 /-- The machine with the ticks forgotten. -/
 def runtime : Runtime where
   State := C.State
-  init := C.init
+  init := C.start
   step s := (C.step s).val
 
 /-- The ticks spent in the first `n` steps. A finished machine spends
@@ -266,6 +221,10 @@ def spent : C.State → Nat → Nat
     (C.step s).ticks + match (C.step s).val with
       | .emit _ s' => spent s' n
       | .done => 0
+
+/-- The ticks paid on `q` by the end of the first `n` steps: building the
+first state, and the steps. -/
+def paid (P : Program) (q : Rel) (n : Nat) : Nat := (C.init P q).ticks + C.spent (C.start P q) n
 
 end CostedRuntime
 
@@ -278,17 +237,17 @@ variable (C : CostedRuntime)
 /-- Some answer emitted in the first `n` steps on `q` relates the pair `x`
 in `M`. -/
 def Covered (P : Program) (q : Rel) (M : Interp) (x : GTerm × GTerm) (n : Nat) : Prop :=
-  ∃ a ∈ C.runtime.emitted (C.init P q) n, x ∈ a.denAt M
+  ∃ a ∈ C.runtime.emitted (C.start P q) n, x ∈ a.denAt M
 
 /-- The coverage latency of `x` in `M` is at most `c`: the machine has spent
 at most `c` ticks by some step at which an emitted answer relates `x`. -/
 def CoversWithin (P : Program) (q : Rel) (M : Interp) (x : GTerm × GTerm) (c : Nat) : Prop :=
-  ∃ n, C.Covered P q M x n ∧ C.spent (C.init P q) n ≤ c
+  ∃ n, C.Covered P q M x n ∧ C.paid P q n ≤ c
 
 /-- The exhaustion latency is at most `c`: the machine has spent at most `c`
 ticks by some step at which it has reported that it is done. -/
 def ExhaustsWithin (P : Program) (q : Rel) (c : Nat) : Prop :=
-  ∃ n, C.runtime.Halts (C.init P q) n ∧ C.spent (C.init P q) n ≤ c
+  ∃ n, C.runtime.Halts (C.start P q) n ∧ C.paid P q n ≤ c
 
 end CostedRuntime
 
@@ -302,9 +261,9 @@ bound. -/
 def Simulates (Old New : CostedRuntime) (p : Nat → Nat → Nat) : Prop :=
   ∀ P q, P.WellFormed q → ∀ n,
     (∀ M, P.theory.Model M → ∀ x, Old.Covered P q M x n →
-      New.CoversWithin P q M x (p (Old.spent (Old.init P q) n) (P.size + q.size))) ∧
-    (Old.runtime.Halts (Old.init P q) n →
-      New.ExhaustsWithin P q (p (Old.spent (Old.init P q) n) (P.size + q.size)))
+      New.CoversWithin P q M x (p (Old.paid P q n) (P.size + q.size))) ∧
+    (Old.runtime.Halts (Old.start P q) n →
+      New.ExhaustsWithin P q (p (Old.paid P q n) (P.size + q.size)))
 
 /-- `New` is separated from `Old` on a family of well-formed inputs of size
 at most `size k` whose theories have a model, by the nonempty sets of ground
@@ -318,7 +277,7 @@ def Separates (Old New : CostedRuntime) (fam : Nat → Program × Rel) (tgt : Na
     ∀ M, (fam k).1.theory.Model M → ∀ x ∈ tgt k,
       New.CoversWithin (fam k).1 (fam k).2 M x (hi k) ∧
       ∀ n, Old.Covered (fam k).1 (fam k).2 M x n →
-        lo k ≤ Old.spent (Old.init (fam k).1 (fam k).2) n
+        lo k ≤ Old.paid (fam k).1 (fam k).2 n
 
 /-- The special case for inputs that halt: `New` reports that it is done
 within `hi k` ticks, and `Old` has paid at least `lo k` whenever it has. This
@@ -327,7 +286,84 @@ def SeparatesExhaustion (Old New : CostedRuntime) (fam : Nat → Program × Rel)
     (size lo hi : Nat → Nat) : Prop :=
   ∀ k, (fam k).1.WellFormed (fam k).2 ∧ (fam k).1.size + (fam k).2.size ≤ size k ∧
     New.ExhaustsWithin (fam k).1 (fam k).2 (hi k) ∧
-    (∀ n, Old.runtime.Halts (Old.init (fam k).1 (fam k).2) n →
-      lo k ≤ Old.spent (Old.init (fam k).1 (fam k).2) n)
+    (∀ n, Old.runtime.Halts (Old.start (fam k).1 (fam k).2) n →
+      lo k ≤ Old.paid (fam k).1 (fam k).2 n)
+
+/-! ## Admission -/
+
+/-- The numerals of an improvement: a coefficient and a degree for each of
+the three polynomials. -/
+structure Bounds where
+  simCoeff : Nat
+  simDeg : Nat
+  sizeCoeff : Nat
+  sizeDeg : Nat
+  hiCoeff : Nat
+  hiDeg : Nat
+
+namespace Bounds
+
+/-- The simulation bound `simCoeff * (c + n + 1) ^ simDeg`, for what the old
+machine has paid `c` and the size of the input `n`. -/
+def sim (b : Bounds) (c n : Nat) : Nat := b.simCoeff * (c + n + 1) ^ b.simDeg
+
+/-- The bound `sizeCoeff * (k + 1) ^ sizeDeg` on the size of the `k`-th
+input. -/
+def size (b : Bounds) (k : Nat) : Nat := b.sizeCoeff * (k + 1) ^ b.sizeDeg
+
+/-- The bound `hiCoeff * (k + 1) ^ hiDeg` on what the new machine pays on the
+`k`-th input. -/
+def hi (b : Bounds) (k : Nat) : Nat := b.hiCoeff * (k + 1) ^ b.hiDeg
+
+end Bounds
+
+/-- `New` improves on `Old`: it is never worse than the polynomial `b.sim`
+of `Old`'s cost on any answer of any input, and on the family `fam`, whose
+`k`-th member has size at most the polynomial `b.size k`, it covers the
+targets within the polynomial `b.hi k` while `Old` has paid at least `2 ^ k`
+before covering any of them. -/
+structure Improves (Old New : CostedRuntime) (b : Bounds) (fam : Nat → Program × Rel)
+    (tgt : Nat → PRel) : Prop where
+  simulates : Simulates Old New b.sim
+  separates : Separates Old New fam tgt b.size (fun k => 2 ^ k) b.hi
+
+/-! ## Whole rungs
+
+A rung is a preprocessor followed by a machine. Its run-time cost is the cost
+of its machine on the preprocessed input, compared on the original input, and
+the cost of preprocessing is recorded beside it: any preprocessing is allowed,
+and a reader sees what it costs. -/
+
+/-- A preprocessor followed by a costed machine. -/
+structure CostedRung where
+  pre : Preprocessor
+  rt : CostedRuntime
+
+namespace CostedRung
+
+variable (G : CostedRung)
+
+/-- The rung with the ticks forgotten. -/
+def rung : Rung := ⟨G.pre, G.rt.runtime⟩
+
+/-- The rung as one machine on the original input: its first state is the
+machine's first state on the preprocessed input, at the machine's charge. The
+ticks of preprocessing are not counted here (`Admits.preCost` records
+them). -/
+def machine (A : ArtifactStore) : CostedRuntime where
+  State := G.rt.State
+  init P q := G.rt.init (G.pre.run A P q).val.1 (G.pre.run A P q).val.2.1
+  step := G.rt.step
+
+end CostedRung
+
+/-- The rung `New` is admitted above `Old`: whatever the artifact store, it
+improves on `Old` at run time with the numerals `b`, and preprocessing an
+input of size `n` costs at most `pre n` ticks. `pre` is any explicit
+function: it is recorded, not capped. -/
+structure Admits (Old New : CostedRung) (b : Bounds) (pre : Nat → Nat)
+    (fam : Nat → Program × Rel) (tgt : Nat → PRel) : Prop where
+  improves : ∀ A, Improves (Old.machine A) (New.machine A) b fam tgt
+  preCost : ∀ A P q, P.WellFormed q → (New.pre.run A P q).ticks ≤ pre (P.size + q.size)
 
 end RwLog

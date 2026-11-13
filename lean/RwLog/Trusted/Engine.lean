@@ -5,8 +5,9 @@ A rung is a *preprocessor* followed by a *runtime*.
 
 * The preprocessor turns a program and a query into an ordinary program and
   query with the same meaning. It may read and extend a store of proven
-  artifacts that is shared across programs. Rung zero's preprocessor is the
-  identity and its store is empty.
+  artifacts that is shared across programs. It is a charged computation, and
+  its cost is recorded apart from the cost of running. Rung zero's
+  preprocessor is the identity and its store is empty.
 * The runtime is a deterministic small-step machine: each step emits a
   finite list of answer spans (possibly empty), or reports that it is done.
   A step may emit several answers at once: an engine that advances many
@@ -19,6 +20,7 @@ weaken them.
 -/
 import RwLog.SpanLayer.Derives
 import RwLog.Trusted.Semantics
+import RwLog.Trusted.CostMonad
 
 namespace RwLog
 
@@ -93,16 +95,22 @@ structure ArtifactStore where
 def ArtifactStore.empty : ArtifactStore := {}
 
 /-- A preprocessor: produces an ordinary program and query with an
-equivalent meaning, and may extend the artifact store. -/
+equivalent meaning, and may extend the artifact store. It is a charged
+computation, so what preprocessing costs is recorded; it is reported next to
+a rung's run-time claim and is not part of the run-time cost. Its output is
+well formed whenever its input is, so the runtime's theorems apply to it. -/
 structure Preprocessor where
-  run : ArtifactStore → Program → Rel → Program × Rel × ArtifactStore
-  theory_eq : ∀ A P q, (run A P q).1.theory = P.theory
+  run : ArtifactStore → Program → Rel → Cost (Program × Rel × ArtifactStore)
+  theory_eq : ∀ A P q, (run A P q).val.1.theory = P.theory
+  wf : ∀ A P q, P.WellFormed q → (run A P q).val.1.WellFormed (run A P q).val.2.1
   equiv : ∀ A P q, P.WellFormed q →
-    MEquiv P.theory (fun M => (run A P q).1.semAt M (run A P q).2.1) (fun M => P.semAt M q)
+    MEquiv P.theory (fun M => (run A P q).val.1.semAt M (run A P q).val.2.1)
+      (fun M => P.semAt M q)
 
 def Preprocessor.id : Preprocessor where
-  run A P q := (P, q, A)
+  run A P q := pure (P, q, A)
   theory_eq _ _ _ := rfl
+  wf _ _ _ h := h
   equiv _ _ _ _ _ _ := rfl
 
 structure Rung where

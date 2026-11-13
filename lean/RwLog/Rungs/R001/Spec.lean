@@ -31,6 +31,7 @@ import RwLog.Rungs.R001.Engine
 import RwLog.Rungs.R000.Engine
 import RwLog.SpanLayer.Coverage
 import RwLog.Rungs.Framework.Trace
+import RwLog.Trusted.Properties
 
 namespace RwLog
 
@@ -503,6 +504,12 @@ def no_subsumed : Prop :=
 answers. -/
 def finite_answers : Prop :=
   ∀ P q, P.WellFormed q → runtime.Terminates P q → (runtime.Answers P q).Finite
+
+/-! ### The list every later rung is held to -/
+
+/-- R001 has every property a rung keeps (`Trusted/Properties.lean`). Its
+termination class is its own. -/
+def keeps : Prop := runtime.Keeps runtime
 
 end Obligation
 

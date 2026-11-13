@@ -168,8 +168,8 @@ namespace Rung
 variable (G : Rung)
 
 /-- The program and query the runtime is run on. -/
-def prog (A : ArtifactStore) (P : Program) (q : Rel) : Program := (G.pre.run A P q).1
-def query (A : ArtifactStore) (P : Program) (q : Rel) : Rel := (G.pre.run A P q).2.1
+def prog (A : ArtifactStore) (P : Program) (q : Rel) : Program := (G.pre.run A P q).val.1
+def query (A : ArtifactStore) (P : Program) (q : Rel) : Rel := (G.pre.run A P q).val.2.1
 
 /-- What the rung has emitted for `P`, `q` within `n` steps. -/
 def emitted (A : ArtifactStore) (P : Program) (q : Rel) (n : Nat) : List Span :=
@@ -184,31 +184,30 @@ theorem model_pre {A : ArtifactStore} {P : Program} {q : Rel} {M : Interp}
   unfold prog; rw [G.pre.theory_eq]; exact hM
 
 /-- Every answer of the rung relates only pairs the original query relates. -/
-theorem sound (hs : G.rt.Sound) {A : ArtifactStore} {P : Program} {q : Rel} (hP : P.WellFormed q)
-    (hP' : (G.prog A P q).WellFormed (G.query A P q)) (n : Nat) :
+theorem sound (hs : G.rt.Sound) {A : ArtifactStore} {P : Program} {q : Rel} (hP : P.WellFormed q) (n : Nat) :
     ∀ a ∈ G.emitted A P q n, ∀ M, P.theory.Model M → a.denAt M ⊆ P.semAt M q := by
   intro a ha M hM
   rw [← G.semAt_pre hP hM]
-  exact hs _ _ hP' n a ha M (G.model_pre hM)
+  exact hs _ _ (G.pre.wf A P q hP) n a ha M (G.model_pre hM)
 
 /-- Every pair the original query relates is related by some answer of the
 rung. -/
 theorem pointComplete (hc : G.rt.Complete) {A : ArtifactStore} {P : Program} {q : Rel}
-    (hP : P.WellFormed q) (hP' : (G.prog A P q).WellFormed (G.query A P q)) :
+    (hP : P.WellFormed q) :
     ∀ M, P.theory.Model M → ∀ p ∈ P.semAt M q, ∃ n, ∃ a ∈ G.emitted A P q n, p ∈ a.denAt M := by
   intro M hM p hp
   rw [← G.semAt_pre hP hM] at hp
-  exact hc.pointwise _ _ hP' M (G.model_pre hM) p hp
+  exact hc.pointwise _ _ (G.pre.wf A P q hP) M (G.model_pre hM) p hp
 
 /-- When the rung reports that it is done, its answers cover the original
 query exactly. -/
 theorem honest (hh : G.rt.HonestExhaustion) {A : ArtifactStore} {P : Program} {q : Rel}
-    (hP : P.WellFormed q) (hP' : (G.prog A P q).WellFormed (G.query A P q)) (n : Nat)
+    (hP : P.WellFormed q) (n : Nat)
     (hn : G.rt.Halts (G.rt.init (G.prog A P q) (G.query A P q)) n) :
     ∀ M, P.theory.Model M → P.semAt M q = ⋃ a ∈ G.emitted A P q n, a.denAt M := by
   intro M hM
   rw [← G.semAt_pre hP hM]
-  exact hh _ _ hP' n hn M (G.model_pre hM)
+  exact hh _ _ (G.pre.wf A P q hP) n hn M (G.model_pre hM)
 
 end Rung
 
