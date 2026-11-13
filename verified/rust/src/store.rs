@@ -181,11 +181,12 @@ impl Store {
         }
     }
 
-    /// The identifier of a node. The node is added if the store does not
-    /// have it.
-    fn intern(&mut self, n: Node) -> TermId {
+    /// The node as it is stored (`VL(V0)` is `V0`) and the trie node its key
+    /// leads to. The parts of the node must be in the store, and the part of
+    /// a variable must be a variable.
+    fn path(&mut self, n: Node) -> (Node, usize) {
         let len = self.nodes.len();
-        let (m, q) = match n {
+        match n {
             Node::V0 => (Node::V0, self.kid(0, 0)),
             Node::Nil => (Node::Nil, self.kid(0, 1)),
             Node::VL(a) => {
@@ -215,11 +216,18 @@ impl Store {
                 let p1 = self.word(p, a.0);
                 (n, self.word(p1, b.0))
             }
-        };
+        }
+    }
+
+    /// The identifier of a node. The node is added if the store does not
+    /// have it.
+    fn intern(&mut self, n: Node) -> TermId {
+        let (m, q) = self.path(n);
         let v = self.trie[q].val;
         if v != 0 {
             TermId(v - 1)
         } else {
+            let len = self.nodes.len();
             self.nodes.push(m);
             self.slots.push(Slot { ea: 0, va: 0, eb: 0, vb: 0 });
             self.trie[q].val = len + 1;

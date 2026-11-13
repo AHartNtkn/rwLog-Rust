@@ -8,8 +8,7 @@ keeps every walk there was and adds only walks that end at the new node, so
 it keeps the walks from the root injective: two keys never lead to the same
 trie node.
 -/
-import Mathlib.Data.List.Basic
-import Mathlib.Tactic
+import Aeneas
 
 namespace RwLogVerified
 

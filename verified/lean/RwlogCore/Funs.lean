@@ -22,7 +22,7 @@ set_option maxRecDepth 2048
 namespace rwlog_core
 
 /-- [rwlog_core::store::{rwlog_core::store::Store}::set_cell]:
-    Source: 'src/store.rs', lines 257:4-268:5 -/
+    Source: 'src/store.rs', lines 265:4-276:5 -/
 def store.Store.set_cell
   (self : store.Store) (t : store.Tbl) (k : store.TermId) (v : Std.Usize) :
   Result store.Store
@@ -56,7 +56,7 @@ def store.Store.tick (self : store.Store) : Result store.Store := do
   ok { self with ticks := i }
 
 /-- [rwlog_core::store::{rwlog_core::store::Store}::set]:
-    Source: 'src/store.rs', lines 282:4-285:5
+    Source: 'src/store.rs', lines 290:4-293:5
     Visibility: public -/
 def store.Store.set
   (self : store.Store) (t : store.Tbl) (k : store.TermId) (v : store.TermId) :
@@ -66,7 +66,7 @@ def store.Store.set
   store.Store.set_cell self1 t k v
 
 /-- [rwlog_core::store::{rwlog_core::store::Store}::cell]:
-    Source: 'src/store.rs', lines 249:4-255:5 -/
+    Source: 'src/store.rs', lines 257:4-263:5 -/
 def store.Store.cell
   (self : store.Store) (t : store.Tbl) (k : store.TermId) :
   Result (Bool × Std.Usize)
@@ -79,7 +79,7 @@ def store.Store.cell
   | store.Tbl.B => ok (sl.eb = self.eb, sl.vb)
 
 /-- [rwlog_core::store::{rwlog_core::store::Store}::get]:
-    Source: 'src/store.rs', lines 271:4-279:5
+    Source: 'src/store.rs', lines 279:4-287:5
     Visibility: public -/
 def store.Store.get
   (self : store.Store) (t : store.Tbl) (k : store.TermId) :
@@ -161,7 +161,7 @@ def cover.mmatch
 partial_fixpoint
 
 /-- [rwlog_core::store::{rwlog_core::store::Store}::clear]:
-    Source: 'src/store.rs', lines 239:4-245:5
+    Source: 'src/store.rs', lines 247:4-253:5
     Visibility: public -/
 def store.Store.clear
   (self : store.Store) (t : store.Tbl) : Result store.Store := do
@@ -202,7 +202,7 @@ def cover.span_eq
   else ok (false, s1)
 
 /-- [rwlog_core::store::{rwlog_core::store::Store}::set_flag]:
-    Source: 'src/store.rs', lines 299:4-303:5
+    Source: 'src/store.rs', lines 307:4-311:5
     Visibility: public -/
 def store.Store.set_flag
   (self : store.Store) (t : store.Tbl) (k : store.TermId) (b : Bool) :
@@ -215,7 +215,7 @@ def store.Store.set_flag
   store.Store.set_cell self1 t k v
 
 /-- [rwlog_core::store::{rwlog_core::store::Store}::get_flag]:
-    Source: 'src/store.rs', lines 288:4-296:5
+    Source: 'src/store.rs', lines 296:4-304:5
     Visibility: public -/
 def store.Store.get_flag
   (self : store.Store) (t : store.Tbl) (k : store.TermId) :
@@ -348,58 +348,59 @@ def store.Store.word
   let (q, self1) ← store.Store.digits self p x
   store.Store.kid self1 q 16#usize
 
+/-- [rwlog_core::store::{rwlog_core::store::Store}::path]:
+    Source: 'src/store.rs', lines 187:4-220:5 -/
+def store.Store.path
+  (self : store.Store) (n : store.Node) :
+  Result ((store.Node × Std.Usize) × store.Store)
+  := do
+  let len := alloc.vec.Vec.len self.nodes
+  match n with
+  | store.Node.V0 =>
+    let (i, self1) ← store.Store.kid self 0#usize 0#usize
+    ok ((store.Node.V0, i), self1)
+  | store.Node.VL a =>
+    massert (a < len)
+    let b ← store.Store.is_var self a
+    massert b
+    if a = 0#usize
+    then
+      let (i, self1) ← store.Store.kid self 0#usize 0#usize
+      ok ((store.Node.V0, i), self1)
+    else
+      let (p, self1) ← store.Store.kid self 0#usize 2#usize
+      let (i, self2) ← store.Store.word self1 p a
+      ok ((n, i), self2)
+  | store.Node.VR a =>
+    massert (a < len)
+    let b ← store.Store.is_var self a
+    massert b
+    let (p, self1) ← store.Store.kid self 0#usize 3#usize
+    let (i, self2) ← store.Store.word self1 p a
+    ok ((n, i), self2)
+  | store.Node.Sym f =>
+    let (p, self1) ← store.Store.kid self 0#usize 4#usize
+    let i ← lift (UScalar.cast .Usize f)
+    let (i1, self2) ← store.Store.word self1 p i
+    ok ((n, i1), self2)
+  | store.Node.App a b =>
+    massert (a < len)
+    massert (b < len)
+    let (p, self1) ← store.Store.kid self 0#usize 5#usize
+    let (p1, self2) ← store.Store.word self1 p a
+    let (i, self3) ← store.Store.word self2 p1 b
+    ok ((n, i), self3)
+  | store.Node.Nil =>
+    let (i, self1) ← store.Store.kid self 0#usize 1#usize
+    ok ((store.Node.Nil, i), self1)
+
 /-- [rwlog_core::store::{rwlog_core::store::Store}::intern]:
-    Source: 'src/store.rs', lines 186:4-228:5 -/
+    Source: 'src/store.rs', lines 224:4-236:5 -/
 def store.Store.intern
   (self : store.Store) (n : store.Node) :
   Result (store.TermId × store.Store)
   := do
-  let len := alloc.vec.Vec.len self.nodes
-  let (self1, m, q) ←
-    match n with
-    | store.Node.V0 =>
-      do
-      let (i, self2) ← store.Store.kid self 0#usize 0#usize
-      ok (self2, store.Node.V0, i)
-    | store.Node.VL a =>
-      do
-      massert (a < len)
-      let b ← store.Store.is_var self a
-      massert b
-      if a = 0#usize
-      then
-        let (i, self2) ← store.Store.kid self 0#usize 0#usize
-        ok (self2, store.Node.V0, i)
-      else
-        let (p, self2) ← store.Store.kid self 0#usize 2#usize
-        let (i, self3) ← store.Store.word self2 p a
-        ok (self3, n, i)
-    | store.Node.VR a =>
-      do
-      massert (a < len)
-      let b ← store.Store.is_var self a
-      massert b
-      let (p, self2) ← store.Store.kid self 0#usize 3#usize
-      let (i, self3) ← store.Store.word self2 p a
-      ok (self3, n, i)
-    | store.Node.Sym f =>
-      do
-      let (p, self2) ← store.Store.kid self 0#usize 4#usize
-      let i ← lift (UScalar.cast .Usize f)
-      let (i1, self3) ← store.Store.word self2 p i
-      ok (self3, n, i1)
-    | store.Node.App a b =>
-      do
-      massert (a < len)
-      massert (b < len)
-      let (p, self2) ← store.Store.kid self 0#usize 5#usize
-      let (p1, self3) ← store.Store.word self2 p a
-      let (i, self4) ← store.Store.word self3 p1 b
-      ok (self4, n, i)
-    | store.Node.Nil =>
-      do
-      let (i, self2) ← store.Store.kid self 0#usize 1#usize
-      ok (self2, store.Node.Nil, i)
+  let ((m, q), self1) ← store.Store.path self n
   let t ←
     alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice store.Trie)
       self1.trie q
@@ -407,6 +408,7 @@ def store.Store.intern
   then let i ← t.val - 1#usize
        ok (i, self1)
   else
+    let len := alloc.vec.Vec.len self1.nodes
     let v ← alloc.vec.Vec.push self1.nodes m
     let v1 ←
       alloc.vec.Vec.push self1.slots
@@ -420,7 +422,7 @@ def store.Store.intern
     ok (len, { self1 with nodes := v, slots := v1, trie := v2 })
 
 /-- [rwlog_core::store::{rwlog_core::store::Store}::alloc]:
-    Source: 'src/store.rs', lines 233:4-236:5
+    Source: 'src/store.rs', lines 241:4-244:5
     Visibility: public -/
 def store.Store.alloc
   (self : store.Store) (n : store.Node) :
