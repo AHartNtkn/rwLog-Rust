@@ -212,6 +212,16 @@ has `Tabled.good_eagerRace`, `good_walkRace`, `good_sharedRace`, `UOk.race`
 `R004.tableKeeps`, with nothing asked of the domain but `Domain.Lawful`.
 What R005 is held to beyond that list needs exact interfaces (roadmap L58).
 
+`Kernel/ExactIface.lean` states exact interfaces as a hypothesis outside the
+trusted statements (`Domain.ExactIface`) and the set of terms a boundary lets
+through (`bset`, `bset_rightBound`, `bset_leftBound`).
+`Rungs/Tabled/Unfolding/Model.lean` says what an unfolding to a depth relates,
+product by product, with no machine in it (`SE`, `Final`), and has the algebra
+of sequencing sets of products in either direction (`seqSets`, `chainS`,
+`chainD`, `pushSet`, `seqI_iff_push_ext`). `EagerExact.lean` proves that the
+whole unfolding builds exactly those products (`eager_ex`), so the unfolding
+race is final exactly when the model has no open product (`eagerRace_final`).
+
 `Rungs/Framework/Writing.lean` proves what holds of every engine because an
 engine is handed the normal form of the query: `Engine.orComm`, `orAssoc`,
 `seqAssoc`, `andComm`, `andAssoc`. `Rungs/Framework/ConvTrace.lean` proves

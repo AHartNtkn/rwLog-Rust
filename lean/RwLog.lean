@@ -54,6 +54,7 @@ import RwLog.Kernel.NormalFormCorrect
 import RwLog.Kernel.NormalFormStable
 import RwLog.Kernel.Derivation
 import RwLog.Kernel.DomainLaws
+import RwLog.Kernel.ExactIface
 import RwLog.Rungs.Framework.Derivation
 import RwLog.Trusted.Runtime
 import RwLog.Rungs.Framework.Answer
@@ -93,4 +94,6 @@ import RwLog.Rungs.Tabled.Unfolding.Walk
 import RwLog.Rungs.Tabled.Unfolding.SharedVal
 import RwLog.Rungs.Tabled.Unfolding.Shared
 import RwLog.Rungs.Tabled.Unfolding.Races
+import RwLog.Rungs.Tabled.Unfolding.Model
+import RwLog.Rungs.Tabled.Unfolding.EagerExact
 import RwLog.Rungs.R005.Tables
