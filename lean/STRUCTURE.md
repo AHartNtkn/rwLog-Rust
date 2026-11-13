@@ -20,8 +20,11 @@ with the old step (`Rungs/Tabled/`, `Rungs/R005`, `Mirror`, `Directed`,
 the tag. No machine is in the build until R005 is ported.
 
 ```
-Trusted/        the specification: syntax, semantics, answers, steps and runtimes with the
-                Tier-0 properties (Runtime.lean), Rung and Preprocessor (Engine.lean),
+Trusted/        the specification: syntax with sort declarations, semantics (what a sort
+                and a span mean, Semantics.lean), answers, steps and runtimes with the
+                Tier-0 properties (Runtime.lean), what a constraint system gives an
+                engine and the laws it satisfies (Domain.lean), Rung and Preprocessor
+                (Engine.lean),
                 the properties every machine and every whole rung keeps and the fairness
                 bound (Properties.lean), the cost monad (CostMonad.lean),
                 the charged primitives (Charged.lean), the kernel an engine is written
@@ -30,10 +33,10 @@ Trusted/        the specification: syntax, semantics, answers, steps and runtime
                 and the cost model (Cost.lean) by which rungs from R002 on are judged:
                 cost is coverage latency, the ticks until an emitted answer covers a
                 ground pair, and never depends on a query halting
-Theory/         constraint theories and firing
-Kernel/         the executable kernel (match, solve, span, refute) and its proofs; the normal form
-                of expressions (NormalForm.lean, NormalFormCorrect.lean, Order.lean) and the
-                derivation kernel's rules (Derivation.lean)
+Kernel/         the executable kernel of spans as written (match, solve, span) and its proofs;
+                the normal form of expressions (NormalForm.lean, NormalFormCorrect.lean,
+                Order.lean), the derivation kernel's rules over any constraint domain
+                (Derivation.lean) and the algebra of a lawful domain (DomainLaws.lean)
 SpanLayer/      span-level semantics, derivations, coverage vocabulary
 Lib/            facts about lists and greatest fixpoints that mention no rwlog type
 Rungs/Framework generic theorems about any Runtime / Rung
@@ -53,7 +56,6 @@ Rungs/Tabled/Base  the tabled machine itself (R001 of epoch 1, the proper baseli
 Rungs/R005/     the top rung of epoch 1, parked: its machine (Engine.lean), the unfolders it races
                 (Unfolder/R002 to R004, namespaces `R002` to `R004`), its family, and its
                 statements with no proofs (Spec.lean)
-Conformance/    behaviours pinned against the Rust implementation
 AxiomAudit.lean every headline and shared theorem, checked to use only the three standard axioms
 Tests/          executable runs: the charges of the kernel (ChargeRuns, built); the naive and
                 the tabled machine on the conformance cases, R005 beside R004, and the
@@ -64,11 +66,16 @@ Tests/          executable runs: the charges of the kernel (ChargeRuns, built); 
 is, what was measured, and what the trusted files and the kernel must provide
 for it. `Tests/MiddleRuns.lean` holds its measurements on R004 and R005.
 
-`CONSTRAINT_LANGUAGE.md` is the design note for the rule language of milestone
-M5: the rules a theory may have, the check made when a theory is read, why
-refutation by firing is exact, canonical representatives of spans, coverage,
-and the algorithms to be written in Rust. Its prototype is
-`scripts/constraint_language_prototype.py`; no Lean implements it yet.
+The constraint system is sorts with a built-in disequality (roadmap L48, L51).
+The trusted files have no rules, theories or models: `Trusted/Semantics.lean`
+says what a sort and a constraint mean, and `Trusted/Domain.lean` says what
+any constraint system gives an engine (`Domain`) and what it satisfies
+(`Domain.Lawful`). The instance for sorts is not on master yet (roadmap M5);
+until it is, `Engine.costed` runs at the domain of spans as written
+(`Domain.written`), which looks at no constraint and is not lawful.
+`CONSTRAINT_LANGUAGE.md` is the design note for the rule language that was
+considered before; it is superseded and kept for its analysis of canonical
+representatives (its section 8), which the interface follows.
 
 ## What is shared, and where to look first
 
@@ -76,18 +83,16 @@ and the algorithms to be written in Rust. Its prototype is
 |---|---|---|
 | The coverage checker is exact | `Kernel/Covers.lean` | `Span.covers?_iff`, `covers?_refl/trans/swap/congr`, `Span.Equiv.*`, `matchAll_complete` |
 | Interfaces of a span | `Kernel/Iface.lean` | `Span.storeOn`, `rightIface`, `leftIface`, `comp_rightIface`, `rightIface_covers` |
-| Refutation and simplification are exact | `Kernel/RefuteCorrect.lean` | `Theory.refutes?_sound`, `Theory.simplify_exact`, `Theory.present_exact`, `Theory.simplify_stable` |
-| Simplification respects coverage and converse | `Kernel/SimplifyMono.lean` | `SimpLaws`, `simpLaws_of_wf`, `SimpLaws.respects`, `simplify_swap` |
-| Live spans, live compose and meet | `Kernel/Live.lean` | `live`, `liveO`, `composeLive`, `meetLive`, `liveO_spec`, `live_swap` |
+| The algebra of a lawful constraint domain | `Kernel/DomainLaws.lean` | `Domain.denO`, `Lawful.denO_inj`, `swap_swap`, `rep_swap`, `compose_swap`, `meet_swap`, `swap_of_isBound`, `covers_swap`, `compose_assoc`, `meet_comm`, `meet_assoc`, `meet_self`, `covers_antisymm` |
+| No sorts are well-formed sorts; first-order spans | `SpanLayer/Sorts.lean` | `Sorts.wellFormed_nil`, `Sorts.not_mem_nil`, `GTerm.univ_infinite`, `Span.firstOrder_swap` |
 | Maximal answers and freshness | `Kernel/Maxima.lean` | `maxima`, `fresh` and their lemmas |
-| Exact covers under composition | `Kernel/ExactCover.lean` | `Under`, `XC`, `compose_mono` |
-| Coverage modulo a theory | `SpanLayer/Modulo.lean` | `LCov`, `LEq`, `Live`, `DeadR`, `Backed`, `Ref`, `DC`, `GCov`, `GEq`, `Dom` |
+| Coverage in the interpretations of a class | `SpanLayer/Modulo.lean` | `LCov`, `LEq`, `Live`, `DeadR`, `Backed`, `Ref`, `DC`, `GCov`, `GEq`, `Dom` |
 | Chains of spans | `Kernel/Chain.lean` | `Span.denO_chain`, `Span.chain_isSome_iff`, `chain_isSome_fuse`, `chain_eq_none_of_compose`, `GRel.chain` |
 | Unfolding equations | `Rungs/Naive/Unfold.lean` | `unfoldN_succ`, `unfoldN_succ'`, `unfoldN_call`, `unfoldN_add`, `unfoldN_or/and/seq/conv`, `unfoldN_dual` |
 | The normal form of an expression and its nodes | `Kernel/NormalForm.lean` | `normB`, `RelOf.norm`, `RelOf.normConv`, `NodeView`, `RelOf.view`, `interval`, `without`, `mkSeq`, `mkAnd` |
 | The normal form means what the expression means | `Kernel/NormalFormCorrect.lean` | `gd_normB`, `derives_norm_iff`, `sem_norm`, `sem_normConv`; equal normal forms: `normB_seq_assoc`, `normB_and_comm`, `normB_and_assoc`, `normB_or_comm`, `normB_or_assoc`, `normB_or_self`; derivations as ground relations: `DerivesG`, `GD` |
 | The structural order is linear; sorted lists are determined by their members | `Kernel/Order.lean` | `relCmp_trans`, `relCmp_eq`, `sortedBranches_eq`, `pairwise_sortedBranches` |
-| Valid answers of a goal and the rules that make them | `Kernel/Derivation.lean` | `Goal`, `Valid`, `Valid.leaf`, `simp`, `join`, `meet`, `inj`, `unfold`, `unfoldConv`, `swap`, `Valid.sound`, `Valid.general` |
+| Valid answers of a goal and the rules that make them | `Kernel/Derivation.lean` | `Goal`, `Valid`, `Valid.leaf`, `join`, `meet`, `inj`, `unfold`, `unfoldConv`, `swap`, `Valid.sound`, `Valid.general` |
 | Sizes charged by the cost model | `Kernel/Size.lean` (and `Term.size_pos` in `Kernel/Solve.lean`) | `Span.size_pos`, `Span.size_swap`, `Rel.size_pos` |
 | Sums over lists | `Lib/List.lean` | `sum_flatMap_map`, `sum_filterMap_map`, `le_sum_map_of_mem`, `sum_map_le` |
 | Converse of a program | `SpanLayer/Dual.lean` | `Program.sem_dual` |
@@ -116,8 +121,7 @@ rung unchanged.
   derivation is eventually dead or covered by an emitted answer, and that at
   halt every derivation is, and receives `HonestExhaustion` from
   `Tier0Cert.tier0` (`HonestExhaustion.of_cover`). `sound_of_refines`,
-  `derivationGeneral_of_refines`, `Complete.pointwise` and
-  `theory_mono_answers` are generic too.
+  `derivationGeneral_of_refines` and `Complete.pointwise` are generic too.
 * `Transfer.lean`: moving theorems between rungs. `SameRun R' R` says two
   runtimes emit equivalent answers and halt together; it carries `Tier0`,
   `DerivationGeneral` and `TerminatesOn` from `R` to `R'`
@@ -134,8 +138,8 @@ rung unchanged.
   for every sound machine that emits spans and pays a tick for each.
 
 * `Derivation.lean`: every engine is sound and derivation-general, at every
-  kernel that refines the specification kernel (`Engine.sound`,
-  `Engine.derivationGeneral`). An answer exists only with the proof that it
+  kernel of a constraint domain that is lawful at well-formed sorts
+  (`Engine.sound`, `Engine.derivationGeneral`). An answer exists only with the proof that it
   is valid, so the two theorems use nothing about the engine.
 
 * `Cost.lean`: the cost monad of `Trusted/CostMonad.lean` is a lawful monad; the
@@ -268,29 +272,35 @@ runtime as a relation between states, which these proofs induct on.
 
 An engine cannot declare its own cost and cannot make up an answer.
 `Trusted/Kernel.lean` has two classes. `Kernel S M` is an abstract type of
-spans, an abstract monad, and the operations on spans, each returning in the
-monad, with `metered` (run a computation and return what it spent).
+representatives of spans with their stores, an abstract monad, and the
+operations of a constraint domain on them (`Trusted/Domain.lean`), each
+returning in the monad, with `metered` (run a computation and return what it
+spent). There is no simplification: every operation returns a
+representative, or nothing when the result relates no pair.
 `DerivationKernel S N A M` extends it with abstract types of nodes of the
 normal form and of answers: reading a node, and the rules that make an answer
-(`leaf`, `simp`, `join`, `meetA`, `inj`, `unfold`, `swapA`). An `Engine`
+(`leaf`, `join`, `meetA`, `inj`, `unfold`, `swapA`). An `Engine`
 (`Trusted/Cost.lean`) is a machine written for every derivation kernel: it is
 handed the root node of the query's normal form, can touch a span, a node or
 an answer only through those operations, and can only spend what they charge.
-`Engine.costed` is the engine at `DerivationKernel.std P`, where each
-operation on spans is the charged primitive of `Trusted/Charged.lean`, an
-answer is a goal and a span with the proof that the span is a valid answer of
-the goal (`Ans P`), and the answers reported are those of the root goal with
-no boundary. `Advances` and `Admits` are stated on engines.
+`Engine.costedAt` is the engine at a constraint domain and a kernel that
+returns what the domain returns (`Kernel.Refines`), given for the sorts of
+each program: an answer is a goal and a representative with the proof that
+the representative is a valid answer of the goal (`Ans D P`), and the answers
+reported are those of the root goal with no boundary. `Engine.costed` is the
+engine at `DerivationKernel.std P`, the kernel of spans as written, where
+each operation is the charged primitive of `Trusted/Charged.lean`. `Advances` and `Admits` are stated on engines.
 
 The cost monad (`Trusted/CostMonad.lean`) counts ticks and space: `peak` is
 the most cells live at once and `held` the cells still live at the end. Cells
 are released only when a computation is abandoned (`Cost.within`, and so
 `Cost.race`). `CostedRuntime.space P q n` is the peak of the first `n` steps.
 
-`Kernel.std` is the specification kernel: its values are the specification
-and its charges are postulated. A kernel rung (`Trusted/KernelRung.lean`) is
-another `Kernel Span Cost` that returns the same values (`Kernel.Refines`,
-in `Trusted/Kernel.lean`) and whose charges are theorems about a machine;
+`Kernel.std` is the kernel of spans as written: its values are those of
+`Domain.written` and its charges are postulated. A kernel rung
+(`Trusted/KernelRung.lean`) is another kernel that returns what a domain
+returns (`Kernel.Refines`, in `Trusted/Kernel.lean`) and whose charges are
+theorems about a machine;
 `Engine.costedAt` is an engine at the derivation kernel over such a kernel
 (`DerivationKernel.over`). The first one is `rustKernel`
 (`verified/lean/RwLogVerified/Kernel.lean`): the charge of each operation on
@@ -340,7 +350,7 @@ master is the same name at the tag.
 ## Rules that hold in every epoch
 
 1. Use kernel theorems by name. If a proof needs a fact about `covers?`,
-   `simplify`, `compose`, `meet` or lists that is not specific to one machine,
+   `compose`, `meet` or lists that is not specific to one machine,
    add it to `Kernel/`, `SpanLayer/` or `Lib/`, not to the machine.
 2. The shared layers never import a machine: `Kernel/`, `SpanLayer/`, `Lib/`
    and `Rungs/Framework/` import nothing else under `Rungs/`.

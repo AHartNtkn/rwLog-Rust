@@ -1,5 +1,7 @@
 # The constraint rule language
 
+**Superseded on 2026-11-13.** The constraint system is sorts with a built-in disequality (roadmap L48, L51), stated in `RwLog/Trusted/Semantics.lean` and `RwLog/Trusted/Domain.lean`. No rule language is implemented. This note is kept for its analysis, in particular section 8 on canonical representatives and the orientation bit, which the interface follows.
+
 Design note for milestone 5 of the roadmap (L11, L12, L09, L08, L10, canonical spans, L17 first part, and the list of algorithms for L39). Written 2026-11-13. No Lean or Rust is changed by this note. A prototype of everything decided here is `scripts/constraint_language_prototype.py`; run it with no argument, and it checks every example theory and every claim marked *prototype* below.
 
 Each claim carries one of four marks. *Argued*: a proof is given here on paper and is owed in Lean. *Prototype*: the script checks it on the examples. *Open*: not known. *Impossible*: a counterexample or a reduction is given.

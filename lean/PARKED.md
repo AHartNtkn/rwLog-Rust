@@ -38,6 +38,14 @@ Still built: the specification, `Kernel/`, `SpanLayer/`, `Lib/`,
 (normalisation and unfolding, which mention no machine), and the rest of
 `Rungs/Framework/`. No machine is in the build until R005 is ported.
 
+The trusted statements were restated on 2026-11-13 for sorts (roadmap L48,
+L51): rules, theories and models are gone, an engine handles representatives
+of a constraint domain, and the kernel has no simplification. `Theory/`,
+`Conformance/`, and `Kernel/` `Refute`, `RefuteCorrect`, `SimplifyMono`,
+`Live` and `ExactCover` are deleted from master and exist at the tag. The
+parked files above use them, so the port restates what it needs against
+`Trusted/Domain.lean`.
+
 A file leaves this list when it is ported and imported again, or is deleted
 because the port did not need it. The list must be empty when M4 is declared
 done (roadmap L46).

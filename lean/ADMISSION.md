@@ -24,9 +24,9 @@ A class is three computable functions on an input (a program and a query):
 `mem` decides membership, `rank` is the number the gain is stated in, and
 `tgt` lists finitely many ground pairs, the answers the comparison is about.
 `ProgClass.Proper` holds the facts about the class that mention no machine:
-members are well formed and their theory has a model, their size is at most a
-polynomial in their rank, the targets are nonempty and are related by the
-member in every model, and the rank is unbounded over the members. The last
+members are well formed, their size is at most a polynomial in their rank,
+the targets are nonempty and are related by the member, and the rank is
+unbounded over the members. The last
 one is what makes a gain stated in the rank a statement about infinitely many
 sizes.
 
@@ -37,9 +37,9 @@ writes them into a program.
 
 A context is an expression with one hole and a list of further definitions.
 Plugging a member `(P, r)` into it gives the program `P` with the further
-definitions and the query with `r` in the hole. The theory is the member's: a
-program has one theory, and a class says for itself which theories its members
-may carry.
+definitions and the query with `r` in the hole. The sorts are the member's: a
+program has one list of sorts, and a class says for itself which sorts its
+members may declare.
 
 Two conditions make a context one that demands the member's answers. They are
 separate because they exclude different things.
@@ -57,7 +57,7 @@ which `r` is hard. No condition on meanings can tell the two apart, since
 condition is on the text.
 
 **The pair needs the targets (`Context.Demands`, semantic).** A pair `y` of
-the plugged query is compared when, in the model at hand, the context relates
+the plugged query is compared when, in the interpretation of the member's sorts, the context relates
 `y` with the targets in the hole, and does not relate it with everything the
 member relates except the targets in the hole. This excludes `Zero ; r`,
 where nothing is demanded, and `r | s` at a pair that `s` relates by itself.

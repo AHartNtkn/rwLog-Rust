@@ -73,7 +73,7 @@ The hole is open (`Ctx.Open`): between the hole and the root there is only
 `|` with anything, converse, and `;` with a single span that accepts every
 term on the hole's side, so nothing tells the hole which of its answers are
 wanted. And the pair that is compared needs the targets
-(`Context.Demands`): in the model at hand the context relates it with the
+(`Context.Demands`): in the interpretation of the sorts the context relates it with the
 targets in the hole, and does not relate it with everything the member
 relates except the targets.
 
@@ -359,7 +359,7 @@ def DirBound.fn (d : DirBound) (c n : Nat) : Nat := d.coeff * (c + n + 1) ^ d.de
 def GTerm.toPat (t : GTerm) : Pat := t.rename Empty.elim
 
 /-- The pairs of a list written out as an expression: a union of ground
-spans. It relates exactly the pairs of the list, in every model. -/
+spans. It relates exactly the pairs of the list, in every interpretation. -/
 def RelOf.ofPairs : List (GTerm × GTerm) → Rel
   | [] => .zero
   | x :: xs => .or (.span ⟨x.1.toPat, x.2.toPat, []⟩) (ofPairs xs)
