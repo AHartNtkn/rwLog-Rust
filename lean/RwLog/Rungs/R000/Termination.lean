@@ -64,9 +64,6 @@ theorem le_sum_of_mem {l : List Nat} {x : Nat} (h : x ∈ l) : x ≤ l.sum := by
     · simp
     · have := ih h; simp; omega
 
-theorem unfoldN_succ (k : Nat) (e : Rel) : unfoldN P (k + 1) e = unfold P (unfoldN P k e) := by
-  simp only [unfoldN, Function.iterate_succ_apply']
-
 theorem RecursionFree.callTreeFinite {q : Rel} (h : RecursionFree P q) : CallTreeFinite P q := by
   obtain ⟨r, hr⟩ := h
   let K := (q.calls.map r).sum + 1

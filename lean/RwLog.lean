@@ -15,6 +15,8 @@ import RwLog.Rungs.Framework.Transfer
 import RwLog.Rungs.R000.Chain
 import RwLog.Trusted.Engine
 import RwLog.Rungs.R000.Normalize
+import RwLog.Rungs.R000.Unfold
+import RwLog.Rungs.R000.Products
 import RwLog.Rungs.R000.NormalizeCorrect
 import RwLog.Rungs.R000.Engine
 import RwLog.Rungs.R000.Correct
@@ -63,3 +65,7 @@ import RwLog.Rungs.R001.Proofs.SymmetryCands
 import RwLog.Rungs.R001.Proofs.SymmetryUnfold
 import RwLog.Rungs.R001.Proofs.SymmetryProduce
 import RwLog.Rungs.R001.Proofs.SymmetryRound
+import RwLog.Trusted.Cost
+import RwLog.Kernel.Chain
+import RwLog.Rungs.Framework.Cost
+import RwLog.Rungs.R002.Spec

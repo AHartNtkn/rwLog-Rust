@@ -113,6 +113,13 @@ theorem SameRun.of_sim (Sim : R'.State → R.State → Prop)
   ⟨fun P q hP n => emitted_of_sim hstep n (hinit P q hP),
     fun P q hP n => halts_iff_of_sim hstep n (hinit P q hP)⟩
 
+theorem SameRun.refl (R : Runtime) : SameRun R R :=
+  ⟨fun _ _ _ _ => StepEquiv.refl _, fun _ _ _ _ => Iff.rfl⟩
+
+/-- Equal runtimes run the same. With `SameRun.tier0` and the other transfer
+theorems this carries a rung's results to a machine proved equal to it. -/
+theorem SameRun.of_eq (h : R' = R) : SameRun R' R := h ▸ SameRun.refl R'
+
 theorem SameRun.symm (h : SameRun R' R) : SameRun R R' :=
   ⟨fun P q hP n => (h.emitted P q hP n).symm, fun P q hP n => (h.halts P q hP n).symm⟩
 

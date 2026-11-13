@@ -64,4 +64,18 @@ theorem gfpFrom_sub (ok : List Nat → Nat → Bool) : ∀ n S, ∀ i ∈ gfpFro
     · exact fun i hi => (List.mem_filter.1 (gfpFrom_sub ok n _ i hi)).1
 
 
+/-- `gfpFrom` only asks `ok` about members of the set it started from. -/
+theorem gfpFrom_congr {ok ok' : List Nat → Nat → Bool} {p : Nat → Prop}
+    (h : ∀ S i, p i → ok S i = ok' S i) :
+    ∀ (n : Nat) (S : List Nat), (∀ i ∈ S, p i) → gfpFrom ok n S = gfpFrom ok' n S
+  | 0, _, _ => rfl
+  | n + 1, S, hS => by
+    have hf : S.filter (ok S) = S.filter (ok' S) :=
+      List.filter_congr fun i hi => h S i (hS i hi)
+    unfold gfpFrom
+    simp only [hf]
+    split
+    · rfl
+    · exact gfpFrom_congr h n _ fun i hi => hS i (List.mem_filter.1 hi).1
+
 end RwLog
