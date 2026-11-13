@@ -88,122 +88,165 @@ theorem ProgramOf.WellFormed.dual {P : Program} {q : Rel} (h : P.WellFormed q) :
     obtain ⟨d0, hd0, rfl⟩ := hd
     exact List.mem_flatMap.2 ⟨d0, hd0, (RelOf.mem_calls_dual d0.2).1 hnd⟩
 
-/-! ## Runs, as far as they emit -/
+/-! ## Runs, as far as they show -/
 
 namespace Runtime
 
 variable (R : Runtime)
 
-/-- A run that stopped early has reported that it is done one step after its
-last answer. -/
-theorem halts_trace_length_succ : ∀ (n : Nat) (s : R.State), (R.trace s n).length < n →
-    R.Halts s ((R.trace s n).length + 1)
-  | 0, _, h => by simp [trace] at h
-  | n + 1, s, h => by
+/-- Running for as many steps as the trace is long gives the same trace: a
+trace is shorter than the number of steps only when the run is done. -/
+theorem trace_trace_length : ∀ (n : Nat) (s : R.State),
+    R.trace s (R.trace s n).length = R.trace s n
+  | 0, _ => rfl
+  | n + 1, s => by
     cases hs : R.step s with
-    | done =>
-      rw [R.trace_succ_done hs]
-      show (R.run s 1).2 = true
-      rw [R.run_succ_done hs]
+    | done fin => rw [R.trace_succ_done hs]; exact R.trace_succ_done hs 0
     | emit as s' =>
-      rw [R.trace_succ_emit hs] at h ⊢
-      have ih := halts_trace_length_succ n s' (by simpa using h)
-      show (R.run s ((R.trace s' n).length + 1 + 1)).2 = true
-      rw [R.run_succ_emit hs]
-      exact ih
+      rw [R.trace_succ_emit hs, List.length_cons, R.trace_succ_emit hs, trace_trace_length n s']
+    | progress k s' =>
+      rw [R.trace_succ_progress hs, List.length_cons, R.trace_succ_progress hs,
+        trace_trace_length n s']
+
+/-- Two numbers of steps with the same trace have emitted the same answers
+and halted together. -/
+theorem emitted_eq_of_trace {s : R.State} {m n : Nat} (h : R.trace s m = R.trace s n) :
+    R.emitted s m = R.emitted s n := by
+  rw [R.emitted_eq_flatMap_trace, R.emitted_eq_flatMap_trace, h]
+
+theorem halts_iff_trace {s : R.State} {n : Nat} :
+    R.Halts s n ↔ ∃ fin, (R.trace s n).getLast? = some (.final fin) := by
+  rw [R.halts_iff_final]
+  exact exists_congr fun fin => R.final_eq_some_iff n s fin
 
 end Runtime
+
+/-- Traces that agree step for step end with a final report together. -/
+theorem TraceEquiv.final {A B : Type} [Answer A] [Answer B] :
+    ∀ {t : List (Shown A)} {t' : List (Shown B)}, TraceEquiv t t' →
+      (∃ fin, t'.getLast? = some (.final fin)) → ∃ fin, t.getLast? = some (.final fin)
+  | _, _, .nil, ⟨_, h⟩ => by simp at h
+  | _, _, .cons (a := x) (b := y) h .nil, ⟨fin, hf⟩ => by
+    simp only [List.getLast?_singleton, Option.some.injEq] at hf
+    subst hf
+    cases x with
+    | final xs => exact ⟨xs, rfl⟩
+    | answers xs => exact h.elim
+    | level n => exact h.elim
+  | _, _, .cons _ (.cons h' hs), ⟨fin, hf⟩ => by
+    rw [List.getLast?_cons_cons] at hf ⊢
+    exact TraceEquiv.final (.cons h' hs) ⟨fin, hf⟩
+
+/-- Swapping twice gives equivalent answers. -/
+theorem StepEquiv.swap_swap {A : Type} [Answer A] (xs : List A) :
+    StepEquiv ((xs.map Answer.swap).map Answer.swap) xs := by
+  refine StepEquiv.of_forall₂ ?_
+  rw [List.map_map, List.forall₂_map_left_iff]
+  refine List.forall₂_same.2 fun a _ => ?_
+  have h : ∀ M, Answer.den M (Answer.swap (Answer.swap a)) = Answer.den M a := by
+    intro M; rw [Answer.den_swap, Answer.den_swap]; rfl
+  exact ⟨fun M => (h M).ge, fun M => (h M).le⟩
 
 namespace CostedRuntime
 
 variable (C : CostedRuntime)
 
-/-- A machine whose emitting steps each cost a tick has spent at least one
-tick per step it has emitted. -/
-theorem trace_length_le_spent
-    (hpos : ∀ s as s', (C.step s).val = .emit as s' → 1 ≤ (C.step s).ticks) :
+/-- A machine whose steps each cost a tick has spent at least one tick per
+step it has shown. -/
+theorem trace_length_le_spent (hpos : ∀ s, 1 ≤ (C.step s).ticks) :
     ∀ (n : Nat) (s : C.State), (C.runtime.trace s n).length ≤ C.spent s n
   | 0, _ => Nat.le_refl 0
   | n + 1, s => by
+    have := hpos s
     cases hs : (C.step s).val with
-    | done =>
-      rw [C.runtime.trace_succ_done (show C.runtime.step s = .done from hs)]
-      exact Nat.zero_le _
+    | done fin =>
+      rw [C.runtime.trace_succ_done (show C.runtime.step s = .done fin from hs),
+        C.spent_succ_done hs]
+      simpa using this
     | emit as s' =>
       rw [C.runtime.trace_succ_emit (show C.runtime.step s = .emit as s' from hs),
         C.spent_succ_emit hs]
       have := trace_length_le_spent hpos n s'
-      have := hpos s as s' hs
+      simp only [List.length_cons]
+      omega
+    | progress k s' =>
+      rw [C.runtime.trace_succ_progress (show C.runtime.step s = .progress k s' from hs),
+        C.spent_succ_progress hs]
+      have := trace_length_le_spent hpos n s'
       simp only [List.length_cons]
       omega
 
 /-! ## The machine on the mirror image and on the converse -/
 
-theorem mirror_spent : ∀ (n : Nat) (s : C.State), C.mirror.spent s n = C.spent s n
-  | 0, _ => rfl
-  | n + 1, s => by
-    cases hs : (C.step s).val with
-    | done =>
-      have hs' : (C.mirror.step s).val = .done := by
-        show (C.step s).val.swap = _; rw [hs]; rfl
-      rw [C.mirror.spent_succ_done hs', C.spent_succ_done hs]; rfl
-    | emit as s' =>
-      have hs' : (C.mirror.step s).val = .emit (as.map Span.swap) s' := by
-        show (C.step s).val.swap = _; rw [hs]; rfl
-      rw [C.mirror.spent_succ_emit hs', C.spent_succ_emit hs]
-      exact congrArg ((C.step s).ticks + ·) (mirror_spent n s')
+/-- `C` with every answer swapped and another way to build the first state:
+`C.mirror` and `C.conv` are both of this form. -/
+def swapped (init : Program → Rel → Cost C.State) : CostedRuntime where
+  Ans := C.Ans
+  State := C.State
+  init := init
+  step s := ⟨(C.step s).val.swap, (C.step s).ticks, (C.step s).peak, (C.step s).held,
+    (C.step s).held_le⟩
 
-theorem mirror_trace : ∀ (n : Nat) (s : C.State),
-    C.mirror.runtime.trace s n = (C.runtime.trace s n).map (·.map Span.swap)
+theorem swapped_spent (init : Program → Rel → Cost C.State) : ∀ (n : Nat) (s : C.State), (C.swapped init).spent s n = C.spent s n
   | 0, _ => rfl
   | n + 1, s => by
     cases hs : (C.step s).val with
-    | done =>
-      have hs' : C.mirror.runtime.step s = .done := by
+    | done fin =>
+      have hs' : ((C.swapped init).step s).val = .done (fin.map Answer.swap) := by
         show (C.step s).val.swap = _; rw [hs]; rfl
-      rw [C.mirror.runtime.trace_succ_done hs',
-        C.runtime.trace_succ_done (show C.runtime.step s = .done from hs)]; rfl
+      rw [(C.swapped init).spent_succ_done hs', C.spent_succ_done hs]; rfl
     | emit as s' =>
-      have hs' : C.mirror.runtime.step s = .emit (as.map Span.swap) s' := by
+      have hs' : ((C.swapped init).step s).val = .emit (as.map Answer.swap) s' := by
         show (C.step s).val.swap = _; rw [hs]; rfl
-      rw [C.mirror.runtime.trace_succ_emit hs',
+      rw [(C.swapped init).spent_succ_emit hs', C.spent_succ_emit hs]
+      exact congrArg ((C.step s).ticks + ·) (swapped_spent init n s')
+    | progress k s' =>
+      have hs' : ((C.swapped init).step s).val = .progress k s' := by
+        show (C.step s).val.swap = _; rw [hs]; rfl
+      rw [(C.swapped init).spent_succ_progress hs', C.spent_succ_progress hs]
+      exact congrArg ((C.step s).ticks + ·) (swapped_spent init n s')
+
+theorem swapped_trace (init : Program → Rel → Cost C.State) : ∀ (n : Nat) (s : C.State),
+    (C.swapped init).runtime.trace s n = (C.runtime.trace s n).map Shown.swap
+  | 0, _ => rfl
+  | n + 1, s => by
+    cases hs : (C.step s).val with
+    | done fin =>
+      have hs' : (C.swapped init).runtime.step s = .done (fin.map Answer.swap) := by
+        show (C.step s).val.swap = _; rw [hs]; rfl
+      rw [(C.swapped init).runtime.trace_succ_done hs',
+        C.runtime.trace_succ_done (show C.runtime.step s = .done fin from hs)]; rfl
+    | emit as s' =>
+      have hs' : (C.swapped init).runtime.step s = .emit (as.map Answer.swap) s' := by
+        show (C.step s).val.swap = _; rw [hs]; rfl
+      rw [(C.swapped init).runtime.trace_succ_emit hs',
         C.runtime.trace_succ_emit (show C.runtime.step s = .emit as s' from hs), List.map_cons]
-      exact congrArg (as.map Span.swap :: ·) (mirror_trace n s')
+      exact congrArg (Shown.answers (as.map Answer.swap) :: ·) (swapped_trace init n s')
+    | progress k s' =>
+      have hs' : (C.swapped init).runtime.step s = .progress k s' := by
+        show (C.step s).val.swap = _; rw [hs]; rfl
+      rw [(C.swapped init).runtime.trace_succ_progress hs',
+        C.runtime.trace_succ_progress (show C.runtime.step s = .progress k s' from hs),
+        List.map_cons]
+      exact congrArg (Shown.level k :: ·) (swapped_trace init n s')
+
+theorem mirror_spent (n : Nat) (s : C.State) : C.mirror.spent s n = C.spent s n :=
+  C.swapped_spent _ n s
+
+theorem mirror_trace (n : Nat) (s : C.State) :
+    C.mirror.runtime.trace s n = (C.runtime.trace s n).map Shown.swap :=
+  C.swapped_trace _ n s
 
 theorem mirror_paid (P : Program) (q : Rel) (n : Nat) :
     C.mirror.paid P q n = C.paid P.dual q.dual n := by
   exact congrArg ((C.init P.dual q.dual).ticks + ·) (C.mirror_spent n _)
 
-theorem conv_spent : ∀ (n : Nat) (s : C.State), C.conv.spent s n = C.spent s n
-  | 0, _ => rfl
-  | n + 1, s => by
-    cases hs : (C.step s).val with
-    | done =>
-      have hs' : (C.conv.step s).val = .done := by
-        show (C.step s).val.swap = _; rw [hs]; rfl
-      rw [C.conv.spent_succ_done hs', C.spent_succ_done hs]; rfl
-    | emit as s' =>
-      have hs' : (C.conv.step s).val = .emit (as.map Span.swap) s' := by
-        show (C.step s).val.swap = _; rw [hs]; rfl
-      rw [C.conv.spent_succ_emit hs', C.spent_succ_emit hs]
-      exact congrArg ((C.step s).ticks + ·) (conv_spent n s')
+theorem conv_spent (n : Nat) (s : C.State) : C.conv.spent s n = C.spent s n :=
+  C.swapped_spent _ n s
 
-theorem conv_trace : ∀ (n : Nat) (s : C.State),
-    C.conv.runtime.trace s n = (C.runtime.trace s n).map (·.map Span.swap)
-  | 0, _ => rfl
-  | n + 1, s => by
-    cases hs : (C.step s).val with
-    | done =>
-      have hs' : C.conv.runtime.step s = .done := by
-        show (C.step s).val.swap = _; rw [hs]; rfl
-      rw [C.conv.runtime.trace_succ_done hs',
-        C.runtime.trace_succ_done (show C.runtime.step s = .done from hs)]; rfl
-    | emit as s' =>
-      have hs' : C.conv.runtime.step s = .emit (as.map Span.swap) s' := by
-        show (C.step s).val.swap = _; rw [hs]; rfl
-      rw [C.conv.runtime.trace_succ_emit hs',
-        C.runtime.trace_succ_emit (show C.runtime.step s = .emit as s' from hs), List.map_cons]
-      exact congrArg (as.map Span.swap :: ·) (conv_trace n s')
+theorem conv_trace (n : Nat) (s : C.State) :
+    C.conv.runtime.trace s n = (C.runtime.trace s n).map Shown.swap :=
+  C.swapped_trace _ n s
 
 theorem conv_paid (P : Program) (q : Rel) (n : Nat) :
     C.conv.paid P q n = C.paid P (.conv q) n := by
@@ -215,63 +258,43 @@ end CostedRuntime
 
 /-- `B` simulates `A` within `p` when, on every input, the trace of `B` agrees
 with the trace of `A` step for step, and `B` has paid at most `p` of what `A`
-has paid by any step up to one past the last at which `A` emitted. -/
+has paid by any step up to the last that `A` has shown. -/
 theorem simulates_of_trace {A B : CostedRuntime} {p : Nat → Nat → Nat}
     (h : ∀ P q, P.WellFormed q →
       (∀ m, TraceEquiv (B.runtime.trace (B.start P q) m) (A.runtime.trace (A.start P q) m)) ∧
-      ∀ n m, m ≤ n → m ≤ (A.runtime.trace (A.start P q) n).length + 1 →
+      ∀ n m, m ≤ n → m ≤ (A.runtime.trace (A.start P q) n).length →
         B.paid P q m ≤ p (A.paid P q n) (P.size + q.size)) :
     Simulates A B p := by
   refine Simulates.of_steps fun P q hwf n => ?_
   obtain ⟨ht, hc⟩ := h P q hwf
   obtain ⟨L, hL⟩ : ∃ L, (A.runtime.trace (A.start P q) n).length = L := ⟨_, rfl⟩
-  have hlen : ∀ (n : Nat) (s : A.runtime.State), (A.runtime.trace s n).length ≤ n := by
-    intro n
-    induction n with
-    | zero => intro s; exact Nat.le_refl 0
-    | succ n ih =>
-      intro s
-      cases hs : A.runtime.step s with
-      | done => rw [A.runtime.trace_succ_done hs]; exact Nat.zero_le _
-      | emit as s' =>
-        rw [A.runtime.trace_succ_emit hs]
-        exact Nat.succ_le_succ (ih s')
-  have hLn : L ≤ n := hL ▸ hlen n (A.start P q)
-  have hhalt : L < n → A.runtime.Halts (A.start P q) (L + 1) := fun hlt =>
-    hL ▸ A.runtime.halts_trace_length_succ n (A.start P q) (hL ▸ hlt)
-  have hB : ∀ m, A.runtime.Halts (A.start P q) m → B.runtime.Halts (B.start P q) m := by
-    intro m hm
-    refine (B.runtime.halts_iff_trace_length m (B.start P q)).2 ?_
-    have h1 := (A.runtime.halts_iff_trace_length m (A.start P q)).1 hm
-    have h2 := (ht m).length_eq
-    omega
-  have hem : ∀ m, ∀ a ∈ A.runtime.emitted (A.start P q) m,
-      ∃ b ∈ B.runtime.emitted (B.start P q) m, b.CoversLive P.theory a := by
-    intro m a ha
-    have he : StepEquiv (A.runtime.emitted (A.start P q) m) (B.runtime.emitted (B.start P q) m) := by
-      have h1 := A.runtime.emitted_eq_flatten_trace m (A.start P q)
-      have h2 := B.runtime.emitted_eq_flatten_trace m (B.start P q)
-      exact h1 ▸ h2 ▸ (TraceEquiv.flatten (ht m)).symm
+  have hLn : L ≤ n := hL ▸ A.runtime.trace_length_le n (A.start P q)
+  have htr : A.runtime.trace (A.start P q) L = A.runtime.trace (A.start P q) n :=
+    hL ▸ A.runtime.trace_trace_length n (A.start P q)
+  refine ⟨L, hc n L hLn (le_of_eq hL.symm), fun a ha => ?_, fun hn => ?_⟩
+  · rw [← A.runtime.emitted_eq_of_trace htr] at ha
+    have he : StepEquiv (A.runtime.emitted (A.start P q) L) (B.runtime.emitted (B.start P q) L) := by
+      have h1 := A.runtime.emitted_eq_flatMap_trace L (A.start P q)
+      have h2 := B.runtime.emitted_eq_flatMap_trace L (B.start P q)
+      exact h1 ▸ h2 ▸ (TraceEquiv.emits (ht L)).symm
     obtain ⟨b, hb, e⟩ := he.mem ha
     exact ⟨b, hb, e.2.live⟩
-  by_cases hlt : L < n
-  · refine ⟨L + 1, hc n (L + 1) (by omega) (le_of_eq (congrArg (· + 1) hL.symm)),
-      fun a ha => ?_, fun _ => hB _ (hhalt hlt)⟩
-    exact hem (L + 1) a (A.runtime.emitted_of_halts (hhalt hlt) n ha)
-  · exact ⟨n, hc n n (Nat.le_refl _) (by omega), hem n, hB n⟩
+  · refine (B.runtime.halts_iff_trace (s := B.start P q)).2 (TraceEquiv.final (ht L) ?_)
+    rw [htr]
+    exact (A.runtime.halts_iff_trace (s := A.start P q)).1 hn
 
 /-! ## Runs that cost the same, step for step -/
 
 /-- From states related by `rel`, `A` and `B` take steps that cost the same,
-emit answers related by `E`, and end in related states. -/
-structure CostBisim (A B : CostedRuntime) (E : List Span → List Span → Prop)
+show answers related by `E`, and end in related states. -/
+structure CostBisim (A B : CostedRuntime) (E : List A.Ans → List B.Ans → Prop)
     (rel : A.State → B.State → Prop) : Prop where
   ticks : ∀ s t, rel s t → (A.step s).ticks = (B.step t).ticks
-  step : ∀ s t, rel s t → Step.Rel E rel (A.step s).val (B.step t).val
+  step : ∀ s t, rel s t → StepOf.Rel E rel (A.step s).val (B.step t).val
 
 namespace CostBisim
 
-variable {A B : CostedRuntime} {E : List Span → List Span → Prop}
+variable {A B : CostedRuntime} {E : List A.Ans → List B.Ans → Prop}
   {rel : A.State → B.State → Prop}
 
 theorem spent (h : CostBisim A B E rel) : ∀ (n : Nat) (s : A.State) (t : B.State), rel s t →
@@ -280,32 +303,28 @@ theorem spent (h : CostBisim A B E rel) : ∀ (n : Nat) (s : A.State) (t : B.Sta
   | n + 1, s, t, hr => by
     have hs := h.step s t hr
     have ht := h.ticks s t hr
-    cases h1 : (A.step s).val with
-    | done =>
-      cases h2 : (B.step t).val with
-      | done => rw [A.spent_succ_done h1, B.spent_succ_done h2, ht]
-      | emit as' t' => rw [h1, h2] at hs; exact hs.elim
-    | emit as s' =>
-      cases h2 : (B.step t).val with
-      | done => rw [h1, h2] at hs; exact hs.elim
-      | emit as' t' =>
-        rw [h1, h2] at hs
-        rw [A.spent_succ_emit h1, B.spent_succ_emit h2, ht, spent h n s' t' hs.2]
+    cases h1 : (A.step s).val <;> cases h2 : (B.step t).val <;> rw [h1, h2] at hs <;>
+      first
+      | exact hs.elim
+      | rw [A.spent_succ_emit h1, B.spent_succ_emit h2, ht, spent h n _ _ hs.2]
+      | rw [A.spent_succ_progress h1, B.spent_succ_progress h2, ht, spent h n _ _ hs.2]
+      | rw [A.spent_succ_done h1, B.spent_succ_done h2, ht]
 
 theorem trace (h : CostBisim A B E rel) (n : Nat) (s : A.State) (t : B.State) (hr : rel s t) :
-    List.Forall₂ E (A.runtime.trace s n) (B.runtime.trace t n) :=
+    List.Forall₂ (Shown.Rel E) (A.runtime.trace s n) (B.runtime.trace t n) :=
   Runtime.trace_of_sim (R := A.runtime) (R' := B.runtime) h.step n s t hr
 
-theorem mono {E' : List Span → List Span → Prop} (h : CostBisim A B E rel)
+theorem mono {E' : List A.Ans → List B.Ans → Prop} (h : CostBisim A B E rel)
     (hE : ∀ as bs, E as bs → E' as bs) : CostBisim A B E' rel where
   ticks := h.ticks
   step s t hr := by
     have hs := h.step s t hr
-    cases h1 : (A.step s).val <;> cases h2 : (B.step t).val <;> rw [h1, h2] at hs
-    · exact ⟨hE _ _ hs.1, hs.2⟩
-    · exact hs
-    · exact hs
-    · exact hs
+    cases h1 : (A.step s).val <;> cases h2 : (B.step t).val <;> rw [h1, h2] at hs <;>
+      first
+      | exact hs.elim
+      | exact ⟨hE _ _ hs.1, hs.2⟩
+      | exact hs
+      | exact hE _ _ hs
 
 /-- The same relation read from the other side. -/
 theorem flip (h : CostBisim A B E rel) :
@@ -313,53 +332,46 @@ theorem flip (h : CostBisim A B E rel) :
   ticks t s hr := (h.ticks s t hr).symm
   step t s hr := by
     have hs := h.step s t hr
-    cases h1 : (A.step s).val <;> cases h2 : (B.step t).val <;> rw [h1, h2] at hs
-    · exact hs
-    · exact hs
-    · exact hs
-    · exact hs
+    cases h1 : (A.step s).val <;> cases h2 : (B.step t).val <;> rw [h1, h2] at hs <;>
+      first
+      | exact hs.elim
+      | exact ⟨hs.1.symm, hs.2⟩
+      | exact hs
 
 /-- With the second machine's answers swapped back. -/
-theorem toMirror (h : CostBisim A B (fun as bs => E as (bs.map Span.swap)) rel) :
+theorem toMirror (h : CostBisim A B (fun as bs => E as (bs.map Answer.swap)) rel) :
     CostBisim A B.mirror E rel where
   ticks := h.ticks
   step s t hr := by
     have hs := h.step s t hr
-    show Step.Rel E rel (A.step s).val (B.step t).val.swap
-    cases h1 : (A.step s).val <;> cases h2 : (B.step t).val <;> rw [h1, h2] at hs
-    · exact hs
-    · exact hs
-    · exact hs
-    · exact hs
+    show StepOf.Rel E rel (A.step s).val (B.step t).val.swap
+    cases h1 : (A.step s).val <;> cases h2 : (B.step t).val <;> rw [h1, h2] at hs <;> exact hs
 
 /-- With the first machine's answers swapped back. -/
-theorem ofMirror (h : CostBisim A B (fun as bs => E (as.map Span.swap) bs) rel) :
+theorem ofMirror (h : CostBisim A B (fun as bs => E (as.map Answer.swap) bs) rel) :
     CostBisim A.mirror B E rel where
   ticks := h.ticks
   step s t hr := by
     have hs := h.step s t hr
-    show Step.Rel E rel (A.step s).val.swap (B.step t).val
-    cases h1 : (A.step s).val <;> cases h2 : (B.step t).val <;> rw [h1, h2] at hs
-    · exact hs
-    · exact hs
-    · exact hs
-    · exact hs
+    show StepOf.Rel E rel (A.step s).val.swap (B.step t).val
+    cases h1 : (A.step s).val <;> cases h2 : (B.step t).val <;> rw [h1, h2] at hs <;> exact hs
 
-theorem toConv (h : CostBisim A B (fun as bs => E as (bs.map Span.swap)) rel) :
+theorem toConv (h : CostBisim A B (fun as bs => E as (bs.map Answer.swap)) rel) :
     CostBisim A B.conv E rel := ⟨h.toMirror.ticks, h.toMirror.step⟩
 
-theorem ofConv (h : CostBisim A B (fun as bs => E (as.map Span.swap) bs) rel) :
+theorem ofConv (h : CostBisim A B (fun as bs => E (as.map Answer.swap) bs) rel) :
     CostBisim A.conv B E rel := ⟨h.ofMirror.ticks, h.ofMirror.step⟩
 
 /-- Two machines that start in related states, take steps of the same cost
-and emit the same answers up to order and equivalence: the second simulates
+and show the same answers up to order and equivalence: the second simulates
 the first within what its first state costs more. -/
 theorem simulates (h : CostBisim A B StepEquiv rel) (k : Nat)
     (hstart : ∀ P q, P.WellFormed q → rel (A.start P q) (B.start P q))
     (hinit : ∀ P q, (B.init P q).ticks ≤ (A.init P q).ticks + k) :
     Simulates A B fun c _ => c + k := by
   refine simulates_of_trace fun P q hwf => ⟨fun m => ?_, fun n m hmn _ => ?_⟩
-  · exact TraceEquiv.symm (h.trace m _ _ (hstart P q hwf))
+  · exact TraceEquiv.symm
+      ((h.trace m _ _ (hstart P q hwf)).imp fun _ _ h => shownEquiv_iff.2 h)
   · show (B.init P q).ticks + B.spent (B.start P q) m ≤
       (A.init P q).ticks + A.spent (A.start P q) n + k
     rw [← h.spent m _ _ (hstart P q hwf)]
@@ -372,16 +384,16 @@ end CostBisim
 /-! ## The run on the converse -/
 
 /-- The run of `C` on `conv q` and its run on `q` go through states related
-by `rel`: every step costs the same and emits the same answers swapped. -/
+by `rel`: every step costs the same and shows the same answers swapped. -/
 structure ConvBisim (C : CostedRuntime) (rel : C.State → C.State → Prop) : Prop
-    extends CostBisim C C (fun xs ys => xs = ys.map Span.swap) rel where
+    extends CostBisim C C (fun xs ys => xs = ys.map Answer.swap) rel where
   start : ∀ P q, rel (C.start P (.conv q)) (C.start P q)
 
 /-- The run of `C` on the mirror image and its run on the query go through
-states related by `rel`: every step costs the same and emits the same answers
+states related by `rel`: every step costs the same and shows the same answers
 swapped, up to order and equivalence. -/
 structure DualBisim (C : CostedRuntime) (rel : C.State → C.State → Prop) : Prop
-    extends CostBisim C C (fun xs ys => StepEquiv xs (ys.map Span.swap)) rel where
+    extends CostBisim C C (fun xs ys => StepEquiv xs (ys.map Answer.swap)) rel where
   start : ∀ P q, P.WellFormed q → rel (C.start P q) (C.start P.dual q.dual)
 
 /-- A machine whose runs on the mirror image and on the converse cost what
@@ -398,21 +410,21 @@ theorem DirectionFree.of_bisim {C : CostedRuntime} {D rel : C.State → C.State 
     hd.toCostBisim.toMirror.simulates k hd.start fun P q =>
       show (C.init P.dual q.dual).ticks ≤ _ by rw [hdi]; omega
   ofMirror := by
-    have h1 : CostBisim C C (fun xs ys => StepEquiv (xs.map Span.swap) ys)
+    have h1 : CostBisim C C (fun xs ys => StepEquiv (xs.map Answer.swap) ys)
         (fun t s => D s t) :=
       hd.toCostBisim.flip.mono fun _ _ h => h.symm
     exact h1.ofMirror.simulates k (fun P q hwf => hd.start P q hwf) fun P q =>
       show _ ≤ (C.init P.dual q.dual).ticks + k by rw [hdi]; omega
   toConv := by
-    have h1 : CostBisim C C (fun xs ys => StepEquiv xs (ys.map Span.swap))
+    have h1 : CostBisim C C (fun xs ys => StepEquiv xs (ys.map Answer.swap))
         (fun t s => rel s t) :=
       hc.toCostBisim.flip.mono fun as bs h => by
-        subst h; rw [map_swap_swap]; exact StepEquiv.refl _
+        subst h; exact (StepEquiv.swap_swap as).symm
     exact h1.toConv.simulates k (fun P q _ => hc.start P q) fun P q => hci P q
   ofConv := by
-    have h1 : CostBisim C C (fun xs ys => StepEquiv (xs.map Span.swap) ys) rel :=
+    have h1 : CostBisim C C (fun xs ys => StepEquiv (xs.map Answer.swap) ys) rel :=
       hc.toCostBisim.mono fun as bs h => by
-        subst h; rw [map_swap_swap]; exact StepEquiv.refl _
+        subst h; exact StepEquiv.swap_swap bs
     exact h1.ofConv.simulates k (fun P q _ => hc.start P q) fun P q =>
       show _ ≤ (C.init P (.conv q)).ticks + k by have := hci' P q; omega
 

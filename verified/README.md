@@ -19,6 +19,8 @@ lean/
   RwLogVerified/    proofs about RwlogCore against lean/RwLog
   AxiomAudit.lean   the headline theorems use only Lean's three standard axioms
 extract.sh          regenerates lean/RwlogCore
+versions.env        the Aeneas, Charon, Lean and mathlib versions, upgraded together
+check-versions.sh   checks that every file naming a version agrees with versions.env
 ```
 
 ## The base machine
@@ -68,16 +70,28 @@ the end of a list reads back as.
 `composable`, `eq`, `rightBound`, `leftBound`, and `covers` when the covering
 span has no constraints, is the tick bound of the table above
 (`compose_realised` and its siblings). An engine runs at it with
-`Engine.costedAt`; `RwLogVerified/KernelRuns.lean` runs rung R002's engine at
-both kernels.
+`Engine.costedAt`, on the derivation kernel `DerivationKernel.over (rustKernel z)`.
+`RwLogVerified/KernelRuns.lean` checks the charges of both kernels on a
+worked composition; it runs no engine, because none is written against the
+derivation kernel yet (`lean/PARKED.md`).
 
 What is not derived, and why:
 
 * `simplify`, and `covers` when the covering span has constraints, keep the
   charges of `Kernel.std` until their algorithms are replaced (roadmap L39).
-* `eqRel` and `canon` keep the charges of `Kernel.std` until they leave the
-  kernel (roadmap L30).
-* `size` and `idSpan` are free, as in `Kernel.std` (roadmap L44).
+* The operations on nodes of the normal form and the rules that make answers
+  (`DerivationKernel`) are charged as `lean/RwLog/Trusted/Charged.lean`
+  postulates. They are not yet written on the store (roadmap L45).
+
+`eqRel`, `canon`, `size` and `idSpan` are no longer operations of the kernel
+(roadmap L30, L44).
+
+Space. `Cost` has a space component. The store only grows and an allocation
+is a tick, so an operation that may add nodes is charged its tick bound as
+cells held; `span_eq` and `covers_plain` leave the store as it was and hold
+nothing. That an operation adds at most as many nodes as it spends ticks is
+read off the primitives (each allocation is one tick) and is not a theorem
+of `Realises` (roadmap L45).
 
 What the theorems assume:
 
@@ -116,8 +130,31 @@ cd verified/lean && lake exe cache get && lake build --wfail
 ```
 
 The Lean build needs neither Charon nor Aeneas, because the generated files
-are committed. After changing `rust/src`, run `./extract.sh` with `charon`
-and `aeneas` on `PATH`, built from the Aeneas commit pinned in
-`lean/lakefile.toml` and the Charon commit in that checkout's `charon-pin`.
-Aeneas and the Lean project must use the same Lean version; the pinned commit
-is the last one on Lean 4.35.0.
+are committed.
+
+## The generated Lean follows the Rust
+
+After changing `rust/src`, run `./extract.sh` and commit what it writes to
+`lean/RwlogCore`. CI (the `extraction` job of
+`.github/workflows/verified.yml`) fetches Charon and Aeneas, runs
+`./extract.sh --check`, and fails if the committed files differ from what the
+Rust translates to. So on any commit where CI passes, the theorems are about
+the Rust in `rust/src`.
+
+`extract.sh` needs `charon` and `aeneas` on `PATH` and refuses to run unless
+they were built from the recorded commits. The header of `extract.sh` gives
+the `nix shell` command that fetches or builds both. Building them takes about
+a quarter of an hour; CI keeps the built tools and reuses them until
+`versions.env` changes.
+
+## Versions
+
+`versions.env` is the one record of the Aeneas commit, the Charon commit, the
+Lean version and the mathlib version. They are upgraded together, in one
+commit: each Aeneas commit works with one Charon commit and one Lean and
+mathlib version, and `lean/` and `verified/lean` build as one Lean project.
+The files that have to repeat a version (`lean-toolchain`, `lakefile.toml`
+and `lake-manifest.json` in `lean/` and `verified/lean`) are compared with
+the record by `./check-versions.sh`, which also checks the record against
+what the Aeneas commit itself asks for. CI runs it on every change to
+`lean/` or `verified/`.

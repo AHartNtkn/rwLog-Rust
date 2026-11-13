@@ -192,6 +192,16 @@ The share rule alone is `3 * 2^k - 2`. With the flat round it is quadratic in `k
 
 **O5. The orientation in point 2 is arbitrary.** It makes mirror cost exact and adds nothing to cost robustness, which comes only from the balance. If the balance were dropped, the engine would still pass the mirror criterion and would be bad on half its inputs. The admission requirement that catches this is `Simulates` against R005, not `DirectionFree`.
 
+**Revision, 2026-11-13: what the restated kernel provides.** The `Kernel`, L30 and L31 rows are delivered in `Trusted/Kernel.lean`, `Trusted/CostMonad.lean`, `Kernel/NormalForm.lean` and `Kernel/Derivation.lean`. Five points differ from, or add to, what the table says.
+
+1. Two classes. `Kernel S M` keeps the operations on spans, with `metered`, and without `canon`, `eqRel`, `size` and `idSpan`. `DerivationKernel S N A M` extends it with nodes and answers. An engine is written against the second.
+2. `size` and `idSpan` leave the kernel (L44). On a hash-consed store the size of a term as a tree is not a word the machine holds, and storing it at allocation would need unbounded arithmetic per node. The balance reads costs with `metered`. An absent boundary is the identity and a chain has at least two members, so no identity span is needed.
+3. Nodes of the normal form are expressions in a fixed shape (`RelOf.norm`): chains flattened, meets sorted as multisets, unions sorted as sets, converse only on calls. Adjacent spans of a chain are not fused. The converse of a node is `normConv`, and a call node carries a flag for the converse of its body. `sem_norm` is the theorem that the normal form denotes what the expression denotes.
+4. The rules are `leaf`, `simp`, `join`, `meetA`, `inj`, `unfold`, `swapA`. `join` takes an answer of a stretch with its right boundary absent and an answer of the next stretch whose left boundary is absent or the right interface of the first (a push), or the mirror image of that. `meetA` takes the second answer between the same boundaries or between the interfaces of the first. `simp` is a rule because simplification by the theory is how a dead answer is recognised; it does not change what the answer denotes among the pairs the theory allows.
+5. Space is `peak` and `held` in `Cost`. Only `within` releases cells (the abandoned side of a race), so an engine that never abandons has `peak = held` growing with its tables, as the L31 row expects. There is no depth component: stacks are explicit and live in the store (L43), so depth is space.
+
+Provided since (roadmap L47, `Kernel/NormalFormStable.lean`): the normal form is stable (`norm` of a node is the node, and the converse of the converse of a node is the node), which is what lets a goal and its converse share one table. Not provided, and needed by this design before M6: charges for the operations on nodes that are derived on the store instead of postulated (roadmap L45).
+
 ## 8. What this replaces
 
 - Rung 6 as a rung (a hedge of R005 and goal-directed tables). Its push-without-join strategy, its balancing lemmas in `Rungs/Hedge` and its two families are reused.

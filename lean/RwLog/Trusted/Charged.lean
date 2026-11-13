@@ -10,9 +10,7 @@ builds one:
 * composing or conjoining two spans: the sizes of both spans and of the result;
 * testing whether a chain of spans composes, without building the result: the
   sizes of the spans;
-* testing whether two spans, or two expressions, are the same as written: the
-  sizes of both;
-* bringing an expression to its canonical form: its size;
+* testing whether two spans are the same as written: the sizes of both;
 * taking an interface of a span as a boundary: the size of the span;
 * a coverage test: the sizes of both spans, and the search that places the
   covering span's store in the other's (`matchAllWork`): every attempt to
@@ -25,7 +23,14 @@ builds one:
   (`Theory.firingsWork`, `Theory.saturateWork`). With an empty theory there
   is no search.
 
-Swapping the two sides of a span and reading its size are free.
+Swapping the two sides of a span is free.
+
+Space: an operation that builds a span holds the size of what it built, and a
+test holds nothing. While it runs, an operation has at most one cell live for
+each tick it spends (`Charged.op`).
+
+These charges are postulated. A kernel rung (`Trusted/KernelRung.lean`)
+replaces them by charges derived on a machine.
 
 A term is charged by its size wherever it is used, never by one, so sharing
 or interning cannot hide work.
@@ -34,6 +39,7 @@ import RwLog.Trusted.CostMonad
 import RwLog.Kernel.Refute
 import RwLog.Kernel.Iface
 import RwLog.Kernel.Canon
+import RwLog.Kernel.NormalForm
 import RwLog.SpanLayer.Coverage
 
 namespace RwLog
@@ -113,15 +119,23 @@ def outSize : Option Span → Nat
   | none => 0
   | some s => s.size
 
+/-- An operation that returns `v` in `t` ticks and leaves `h` cells live. Its
+peak is the larger of the two: an allocation is a tick. -/
+def op {α : Type} (v : α) (t h : Nat) : Cost α := ⟨v, t, max t h, h, le_max_right _ _⟩
+
+@[simp] theorem op_val {α : Type} (v : α) (t h : Nat) : (op v t h).val = v := rfl
+@[simp] theorem op_ticks {α : Type} (v : α) (t h : Nat) : (op v t h).ticks = t := rfl
+@[simp] theorem op_held {α : Type} (v : α) (t h : Nat) : (op v t h).held = h := rfl
+
 def compose (x y : Span) : Cost (Option Span) :=
-  ⟨x.compose y, x.size + y.size + outSize (x.compose y)⟩
+  op (x.compose y) (x.size + y.size + outSize (x.compose y)) (outSize (x.compose y))
 
 def meet (x y : Span) : Cost (Option Span) :=
-  ⟨x.meet y, x.size + y.size + outSize (x.meet y)⟩
+  op (x.meet y) (x.size + y.size + outSize (x.meet y)) (outSize (x.meet y))
 
 /-- Does the chain compose? Only the test is charged: no result is built. -/
 def composable (xs : List Span) : Cost Bool :=
-  ⟨(Span.chain xs).isSome, (xs.map Span.size).sum⟩
+  op (Span.chain xs).isSome (xs.map Span.size).sum 0
 
 /-- The search of a coverage test: once the two sides match, the store of `a`
 is placed in the store of `s`. -/
@@ -130,25 +144,70 @@ def coversWork (a s : Span) : Nat :=
   | none => 0
   | some θ => matchAllWork a.c s.c θ
 
-def covers (a s : Span) : Cost Bool := ⟨a.covers? s, a.size + s.size + coversWork a s⟩
+def covers (a s : Span) : Cost Bool := op (a.covers? s) (a.size + s.size + coversWork a s) 0
 
 def simplify (T : Theory) (s : Span) : Cost (Option Span) :=
-  ⟨T.simplify s, T.simplifyCharge s.c.varCount s⟩
+  op (T.simplify s) (T.simplifyCharge s.c.varCount s) (outSize (T.simplify s))
 
 /-- Are the two spans the same span, as written? -/
-def eq (x y : Span) : Cost Bool := ⟨decide (x = y), x.size + y.size⟩
-
-/-- Are the two expressions the same expression, as written? -/
-def eqRel (a b : Rel) : Cost Bool := ⟨decide (a = b), a.size + b.size⟩
-
-/-- The canonical form of an expression. -/
-def canon (e : Rel) : Cost Rel := ⟨RwLog.canon e, e.size⟩
+def eq (x y : Span) : Cost Bool := op (decide (x = y)) (x.size + y.size) 0
 
 /-- The right interface of a span, as a boundary. -/
-def rightBound (s : Span) : Cost (Option Span) := ⟨bound s.rightIface, s.size⟩
+def rightBound (s : Span) : Cost (Option Span) :=
+  op (bound s.rightIface) s.size (outSize (bound s.rightIface))
 
 /-- The left interface of a span, as a boundary. -/
-def leftBound (s : Span) : Cost (Option Span) := ⟨bound s.leftIface, s.size⟩
+def leftBound (s : Span) : Cost (Option Span) :=
+  op (bound s.leftIface) s.size (outSize (bound s.leftIface))
+
+/-! ## Nodes of the normal form
+
+The query and the bodies are brought to their normal form
+(`Kernel/NormalForm.lean`) and interned before the first step. A node is then
+an identifier: comparing two is one tick, and reading a node is one tick for
+the node and one for each member. A node that is made later (a stretch of a
+chain, a meet without one member, a joined chain, a merged meet) is interned
+at one tick, and one cell, for each of its members. -/
+
+/-- Bringing the program and the query to their normal form and interning
+every node with its converse: sorting the members of a meet or a union
+compares them as written, so the charge is quadratic in the size of the
+input. -/
+def load (P : Program) (q : Rel) : Cost Rel :=
+  op q.norm ((P.size + q.size) ^ 2) (2 * (P.size + q.size))
+
+/-- The number of members a node is read with. -/
+def members : NodeView Span Rel → Nat
+  | .span _ => 0
+  | .call _ _ => 0
+  | .chain xs => xs.length
+  | .meet xs => xs.length
+  | .union xs => xs.length
+
+/-- Read a node. -/
+def view (n : Rel) : Cost (NodeView Span Rel) := op n.view (1 + members n.view) 0
+
+/-- The stretch `[i, j)` of a chain, as a node. -/
+def interval (n : Rel) (i j : Nat) : Cost (Option Rel) := op (n.interval i j) (1 + (j - i)) (j - i)
+
+/-- A meet without its `i`-th member, as a node. -/
+def without (n : Rel) (i : Nat) : Cost (Option Rel) :=
+  op (n.without i) (1 + n.meetParts.length) n.meetParts.length
+
+/-- The node of the body a call node reads: the normal form of the body, or
+of its converse. -/
+def bodyOf (P : Program) : Rel → Option Rel
+  | .call n => some (P.body n).norm
+  | .conv (.call n) => some (P.body n).normConv
+  | _ => none
+
+def body (P : Program) (n : Rel) : Cost (Option Rel) := op (bodyOf P n) 1 0
+
+/-- The converse of a node. It was interned with the node. -/
+def convNode (n : Rel) : Cost Rel := op n.normConv 1 0
+
+/-- Are the two nodes the same node? -/
+def eqNode (m n : Rel) : Cost Bool := op (decide (m = n)) 1 0
 
 end Charged
 

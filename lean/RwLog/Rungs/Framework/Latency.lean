@@ -49,12 +49,12 @@ theorem coversWithin_of_halts (hC : C.runtime.HonestExhaustion) {P : Program} {q
 /-- A machine that has emitted nothing in its first `N` steps has paid for
 `N + 1` steps at any step at which it has covered a pair. -/
 theorem le_spent_of_covered {s : C.State} {N lo : Nat} (hq : C.runtime.emitted s N = [])
-    (hlo : lo ≤ C.spent s (N + 1)) {n : Nat} {a : Span} (ha : a ∈ C.runtime.emitted s n) :
+    (hlo : lo ≤ C.spent s (N + 1)) {n : Nat} {a : C.Ans} (ha : a ∈ C.runtime.emitted s n) :
     lo ≤ C.spent s n := by
   by_cases h : n ≤ N
   · have := C.runtime.emitted_subset s h ha
     rw [hq] at this
-    simp at this
+    exact absurd this List.not_mem_nil
   · exact le_trans hlo (C.spent_mono s (by omega))
 
 end CostedRuntime
@@ -66,7 +66,7 @@ theorem Simulates.of_steps {Old New : CostedRuntime} {p : Nat → Nat → Nat}
     (h : ∀ P q, P.WellFormed q → ∀ n, ∃ m,
       New.paid P q m ≤ p (Old.paid P q n) (P.size + q.size) ∧
       (∀ a ∈ Old.runtime.emitted (Old.start P q) n,
-        ∃ b ∈ New.runtime.emitted (New.start P q) m, b.CoversLive P.theory a) ∧
+        ∃ b ∈ New.runtime.emitted (New.start P q) m, Answer.CoversLive P.theory b a) ∧
       (Old.runtime.Halts (Old.start P q) n → New.runtime.Halts (New.start P q) m)) :
     Simulates Old New p := by
   intro P q hwf n
@@ -85,18 +85,6 @@ theorem Simulates.mono {Old New : CostedRuntime} {p p' : Nat → Nat → Nat}
   obtain ⟨m, hm, hs⟩ := h2 hn
   exact ⟨m, hm, le_trans hs (hp _ _)⟩
 
-/-- A separation holds for any larger bounds on the size of the family and on
-what the new machine pays. -/
-theorem Separates.mono {Old New : CostedRuntime} {fam : Nat → Program × Rel} {tgt : Nat → PRel}
-    {size size' lo hi hi' : Nat → Nat} (h : Separates Old New fam tgt size lo hi)
-    (hsize : ∀ k, size k ≤ size' k) (hhi : ∀ k, hi k ≤ hi' k) :
-    Separates Old New fam tgt size' lo hi' := by
-  intro k
-  obtain ⟨hwf, hs, hM, hne, hcov⟩ := h k
-  refine ⟨hwf, le_trans hs (hsize k), hM, hne, fun M hM' x hx => ?_⟩
-  obtain ⟨h1, h2⟩ := hcov M hM' x hx
-  exact ⟨CostedRuntime.CoversWithin.mono _ h1 (hhi k), h2⟩
-
 /-- A rung without preprocessing is its engine at the kernel of the
 language. -/
 theorem CostedRung.machine_id (E : Engine) (A : ArtifactStore) :
@@ -104,18 +92,18 @@ theorem CostedRung.machine_id (E : Engine) (A : ArtifactStore) :
 
 /-- Two rungs without preprocessing: the improvement of the machines, and
 preprocessing costs nothing. -/
-theorem Advances.of_id {Old New : Engine} {b : Bounds} {fam : Nat → Program × Rel}
-    {tgt : Nat → PRel} (h : Improves Old.costed New.costed b fam tgt) :
-    Advances ⟨Preprocessor.id, Old⟩ ⟨Preprocessor.id, New⟩ b (fun _ => 0) fam tgt where
+theorem Advances.of_id {kind : Kind} {Old New : Engine} {b : Bounds} {C : ProgClass}
+    (h : Improves kind Old.costed New.costed b C) :
+    Advances kind ⟨Preprocessor.id, Old⟩ ⟨Preprocessor.id, New⟩ b (fun _ => 0) C where
   improves _ := h
   preCost _ _ _ _ := Nat.le_refl 0
 
 /-- Two rungs without preprocessing: admission is the improvement of the
 machines and the direction bound of the new one. -/
-theorem Admits.of_id {Old New : Engine} {b : Bounds} {d : DirBound}
-    {fam : Nat → Program × Rel} {tgt : Nat → PRel}
-    (h : Improves Old.costed New.costed b fam tgt) (hd : DirectionFree New.costed d.fn) :
-    Admits ⟨Preprocessor.id, Old⟩ ⟨Preprocessor.id, New⟩ b d (fun _ => 0) fam tgt where
+theorem Admits.of_id {kind : Kind} {Old New : Engine} {b : Bounds} {d : DirBound}
+    {C : ProgClass} (h : Improves kind Old.costed New.costed b C)
+    (hd : DirectionFree New.costed d.fn) :
+    Admits kind ⟨Preprocessor.id, Old⟩ ⟨Preprocessor.id, New⟩ b d (fun _ => 0) C where
   toAdvances := Advances.of_id h
   direction _ := hd
 

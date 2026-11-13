@@ -19,7 +19,7 @@
   covering span has no constraints, and equality of spans.
 * `RwLogVerified.Iface`: the interfaces of a span as boundaries.
 * `RwLogVerified.Kernel`: the kernel rung whose charges are those bounds.
-* `RwLogVerified.KernelRuns`: an engine run at that kernel.
+* `RwLogVerified.KernelRuns`: its charges on a worked composition.
 
 Every theorem says the Rust function does not panic, returns the
 specification's result, and advances the store's tick counter by at most a

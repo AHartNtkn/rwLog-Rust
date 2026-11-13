@@ -21,13 +21,22 @@ namespace Cost
 
 variable {α β : Type}
 
-@[ext] theorem ext {x y : Cost α} (hv : x.val = y.val) (ht : x.ticks = y.ticks) : x = y := by
-  cases x; cases y; cases hv; cases ht; rfl
+@[ext] theorem ext {x y : Cost α} (hv : x.val = y.val) (ht : x.ticks = y.ticks)
+    (hp : x.peak = y.peak) (hh : x.held = y.held) : x = y := by
+  cases x; cases y; cases hv; cases ht; cases hp; cases hh; rfl
+
+@[simp] theorem map_peak (f : α → β) (m : Cost α) : (f <$> m).peak = m.peak :=
+  max_eq_left m.held_le
+
+@[simp] theorem map_held (f : α → β) (m : Cost α) : (f <$> m).held = m.held := rfl
 
 instance : LawfulMonad Cost := LawfulMonad.mk'
-  (id_map := fun _ => rfl)
-  (pure_bind := fun _ _ => Cost.ext rfl (Nat.zero_add _))
-  (bind_assoc := fun _ _ _ => Cost.ext rfl (Nat.add_assoc _ _ _))
+  (id_map := fun x => Cost.ext rfl rfl (map_peak id x) rfl)
+  (pure_bind := fun _ _ => Cost.ext rfl (Nat.zero_add _)
+    (by simp only [bind_peak, pure_peak, pure_held, Nat.zero_add]; exact Nat.max_eq_right (Nat.zero_le _))
+    (Nat.zero_add _))
+  (bind_assoc := fun _ _ _ => Cost.ext rfl (Nat.add_assoc _ _ _)
+    (by simp only [bind_peak, bind_held, bind_val]; omega) (Nat.add_assoc _ _ _))
 
 @[simp] theorem map_val (f : α → β) (m : Cost α) : (f <$> m).val = f m.val := rfl
 @[simp] theorem map_ticks (f : α → β) (m : Cost α) : (f <$> m).ticks = m.ticks := rfl
@@ -196,12 +205,16 @@ theorem paid_of_init_free {P : Program} {q : Rel} (h : (C.init P q).ticks = 0) (
 
 @[simp] theorem spent_zero (s : C.State) : C.spent s 0 = 0 := rfl
 
-theorem spent_succ_emit {s s' : C.State} {as : List Span} (h : (C.step s).val = .emit as s')
+theorem spent_succ_emit {s s' : C.State} {as : List C.Ans} (h : (C.step s).val = .emit as s')
     (n : Nat) : C.spent s (n + 1) = (C.step s).ticks + C.spent s' n := by
   simp only [spent, h]
 
-theorem spent_succ_done {s : C.State} (h : (C.step s).val = .done) (n : Nat) :
-    C.spent s (n + 1) = (C.step s).ticks := by
+theorem spent_succ_progress {s s' : C.State} {k : Nat} (h : (C.step s).val = .progress k s')
+    (n : Nat) : C.spent s (n + 1) = (C.step s).ticks + C.spent s' n := by
+  simp only [spent, h]
+
+theorem spent_succ_done {s : C.State} {fin : List C.Ans} (h : (C.step s).val = .done fin)
+    (n : Nat) : C.spent s (n + 1) = (C.step s).ticks := by
   simp only [spent, h, Nat.add_zero]
 
 /-- Spending grows with the number of steps. -/
@@ -210,25 +223,35 @@ theorem spent_mono : ∀ (s : C.State) {m n : Nat}, m ≤ n → C.spent s m ≤ 
   | s, m + 1, 0, h => absurd h (Nat.not_succ_le_zero m)
   | s, m + 1, n + 1, h => by
     cases hs : (C.step s).val with
-    | done => rw [C.spent_succ_done hs, C.spent_succ_done hs]
+    | done fin => rw [C.spent_succ_done hs, C.spent_succ_done hs]
     | emit as s' =>
       rw [C.spent_succ_emit hs, C.spent_succ_emit hs]
+      exact Nat.add_le_add_left (spent_mono s' (Nat.le_of_succ_le_succ h)) _
+    | progress k s' =>
+      rw [C.spent_succ_progress hs, C.spent_succ_progress hs]
       exact Nat.add_le_add_left (spent_mono s' (Nat.le_of_succ_le_succ h)) _
 
 /-- A halted machine spends nothing more. -/
 theorem spent_of_halts : ∀ (s : C.State) {m n : Nat}, C.runtime.Halts s m → m ≤ n →
     C.spent s n = C.spent s m
-  | _, 0, _, hm, _ => by simp [Runtime.Halts, Runtime.run] at hm
+  | s, 0, _, hm, _ => absurd hm (C.runtime.halts_zero s)
   | s, m + 1, 0, _, h => absurd h (Nat.not_succ_le_zero m)
   | s, m + 1, n + 1, hm, h => by
     cases hs : (C.step s).val with
-    | done => rw [C.spent_succ_done hs, C.spent_succ_done hs]
+    | done fin => rw [C.spent_succ_done hs, C.spent_succ_done hs]
     | emit as s' =>
       have hs' : C.runtime.step s = .emit as s' := hs
-      rw [C.spent_succ_emit hs, C.spent_succ_emit hs]
-      unfold Runtime.Halts at hm
-      rw [C.runtime.run_succ_emit hs'] at hm
-      rw [spent_of_halts s' hm (Nat.le_of_succ_le_succ h)]
+      rw [C.spent_succ_emit hs, C.spent_succ_emit hs,
+        spent_of_halts s' ((C.runtime.halts_succ_emit hs' m).1 hm) (Nat.le_of_succ_le_succ h)]
+    | progress k s' =>
+      have hs' : C.runtime.step s = .progress k s' := hs
+      rw [C.spent_succ_progress hs, C.spent_succ_progress hs,
+        spent_of_halts s' ((C.runtime.halts_succ_progress hs' m).1 hm)
+          (Nat.le_of_succ_le_succ h)]
+
+/-- What has been paid grows with the number of steps. -/
+theorem paid_mono (P : Program) (q : Rel) {m n : Nat} (h : m ≤ n) : C.paid P q m ≤ C.paid P q n :=
+  Nat.add_le_add_left (C.spent_mono _ h) _
 
 end CostedRuntime
 

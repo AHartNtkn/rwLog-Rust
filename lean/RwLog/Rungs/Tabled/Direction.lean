@@ -15,7 +15,7 @@ These are what the mirrored machine (`Rungs/Mirror`) asks of the machine it
 mirrors.
 -/
 import RwLog.Rungs.Tabled.Exact
-import RwLog.Rungs.R001.Proofs.Symmetry
+import RwLog.Rungs.Tabled.Base.Proofs.Symmetry
 import RwLog.Rungs.Framework.Direction
 
 namespace RwLog

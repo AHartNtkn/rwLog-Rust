@@ -15,7 +15,7 @@ argument either.
 import RwLog.Rungs.Directed.Machine
 import RwLog.Rungs.Tabled.Exact
 import RwLog.Rungs.Framework.TraverseStd
-import RwLog.Rungs.R001.Proofs.Tier0
+import RwLog.Rungs.Tabled.Base.Proofs.Tier0
 
 namespace RwLog
 
