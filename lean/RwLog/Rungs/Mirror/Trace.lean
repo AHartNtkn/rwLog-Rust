@@ -25,11 +25,6 @@ theorem TraceEquiv.map_swap {t t' : List (List Span)} (h : TraceEquiv t t') :
   | nil => exact .nil
   | cons h _ ih => exact .cons h.map_swap ih
 
-theorem map_swap_swap (xs : List Span) : (xs.map Span.swap).map Span.swap = xs := by
-  rw [List.map_map]
-  have : (Span.swap ∘ Span.swap) = id := funext fun s => s.swap_swap
-  rw [this, List.map_id]
-
 theorem trace_swap_swap (t : List (List Span)) :
     (t.map (·.map Span.swap)).map (·.map Span.swap) = t := by
   rw [List.map_map]
@@ -142,25 +137,98 @@ theorem Behind.snoc {z z' : C.State} {bs : List Span} (hz : (C.step z).val = .em
 def TraceGo (C : CostedRuntime) (n g : Nat) (f : Bool) (x y : C.State) : Prop :=
   TraceEquiv ((machine C).runtime.trace ⟨x, y, f, g⟩ n) ((C.runtime.trace x n).map (orient f))
 
-/-- One more step, given the statement for one step fewer and, when the other
-run catches up by one, the statement from there. -/
-theorem trace_step {n : Nat}
+/-- One more step from level runs, given the statement for one step fewer. -/
+theorem trace_level {n : Nat}
     (ih : ∀ g f x y z, Behind C g y z → Mir C x z → TraceGo C n g f x y)
-    (g : Nat) (f : Bool) (x y z : C.State) (hb : Behind C g y z) (hm : Mir C x z)
-    (hc : ∀ g' as y', g = g' + 1 → (C.step y).val = .emit as y' → TraceGo C (n + 1) g' f x y') :
-    TraceGo C (n + 1) g f x y := by
+    (f : Bool) (x y : C.State) (hm : Mir C x y) : TraceGo C (n + 1) 0 f x y := by
+  unfold TraceGo
+  have alone : wins x y = true → wins y x = false →
+      TraceEquiv ((machine C).runtime.trace ⟨x, y, f, 0⟩ (n + 1))
+        ((C.runtime.trace x (n + 1)).map (orient f)) := by
+    intro h1 h2
+    cases hx : (C.step x).val with
+    | emit as x' =>
+      have hs : (machine C).runtime.step ⟨x, y, f, 0⟩ = .emit (orient f as) ⟨x', y, f, 1⟩ :=
+        congrArg Cost.val (go_alone_emit f h1 h2 hx)
+      rw [(machine C).runtime.trace_succ_emit hs,
+        C.runtime.trace_succ_emit (show C.runtime.step x = .emit as x' from hx), List.map_cons]
+      obtain ⟨bs, y', hy, -, hm'⟩ := hm.emit hx
+      exact List.Forall₂.cons (StepEquiv.refl _) (ih 1 f x' y y' ⟨bs, y', hy, rfl⟩ hm')
+    | done =>
+      have hs : (machine C).runtime.step ⟨x, y, f, 0⟩ = .done :=
+        congrArg Cost.val (go_alone_done f h1 h2 hx)
+      rw [(machine C).runtime.trace_succ_done hs,
+        C.runtime.trace_succ_done (show C.runtime.step x = .done from hx)]
+      exact List.Forall₂.nil
+  have over : wins x y = false → wins y x = true →
+      TraceEquiv ((machine C).runtime.trace ⟨x, y, f, 0⟩ (n + 1))
+        ((C.runtime.trace x (n + 1)).map (orient f)) := by
+    intro h1 h2
+    cases hy : (C.step y).val with
+    | done =>
+      have hs : (machine C).runtime.step ⟨x, y, f, 0⟩ = .done :=
+        congrArg Cost.val (go_overtake_done f h1 h2 hy)
+      rw [(machine C).runtime.trace_succ_done hs,
+        C.runtime.trace_succ_done (show C.runtime.step x = .done from hm.symm.done hy)]
+      exact List.Forall₂.nil
+    | emit bs y' =>
+      obtain ⟨as, x', hx, he, hm'⟩ := hm.symm.emit hy
+      have hs : (machine C).runtime.step ⟨x, y, f, 0⟩ =
+          .emit (orient (!f) bs) ⟨y', x, !f, 1⟩ :=
+        congrArg Cost.val (go_overtake f h1 h2 hy)
+      rw [(machine C).runtime.trace_succ_emit hs,
+        C.runtime.trace_succ_emit (show C.runtime.step x = .emit as x' from hx), List.map_cons]
+      refine List.Forall₂.cons ?_ ?_
+      · rw [← orient_swap]
+        exact (orient_congr f he).symm
+      · have h1 : TraceGo C n 1 (!f) y' x := ih 1 (!f) y' x x' ⟨as, x', hx, rfl⟩ hm'
+        refine TraceEquiv.trans h1 ?_
+        have h2 := trace_orient f (hm' n).symm
+        rwa [map_orient_swap] at h2
+  have both : wins x y = wins y x →
+      TraceEquiv ((machine C).runtime.trace ⟨x, y, f, 0⟩ (n + 1))
+        ((C.runtime.trace x (n + 1)).map (orient f)) := by
+    intro h
+    cases hx : (C.step x).val with
+    | emit as x' =>
+      obtain ⟨bs, y', hy, -, hm'⟩ := hm.emit hx
+      have hs : (machine C).runtime.step ⟨x, y, f, 0⟩ = .emit (orient f as) ⟨x', y', f, 0⟩ :=
+        congrArg Cost.val (go_both_emit f h hx hy)
+      rw [(machine C).runtime.trace_succ_emit hs,
+        C.runtime.trace_succ_emit (show C.runtime.step x = .emit as x' from hx), List.map_cons]
+      exact List.Forall₂.cons (StepEquiv.refl _) (ih 0 f x' y' y' rfl hm')
+    | done =>
+      have hs : (machine C).runtime.step ⟨x, y, f, 0⟩ = .done :=
+        congrArg Cost.val (go_both_done f h (.inl hx))
+      rw [(machine C).runtime.trace_succ_done hs,
+        C.runtime.trace_succ_done (show C.runtime.step x = .done from hx)]
+      exact List.Forall₂.nil
+  cases h1 : wins x y <;> cases h2 : wins y x
+  · exact both (by rw [h1, h2])
+  · exact over h1 h2
+  · exact alone h1 h2
+  · exact both (by rw [h1, h2])
+
+/-- One more step with the other run behind, given the statement for one step
+fewer and the statement from where the other run has caught up by one. -/
+theorem trace_behind {n : Nat}
+    (ih : ∀ g f x y z, Behind C g y z → Mir C x z → TraceGo C n g f x y)
+    (g : Nat) (f : Bool) (x y z : C.State) (hb : Behind C (g + 1) y z) (hm : Mir C x z)
+    (hc : ∀ as y', (C.step y).val = .emit as y' → TraceGo C (n + 1) g f x y') :
+    TraceGo C (n + 1) (g + 1) f x y := by
   unfold TraceGo
   by_cases hw : wins x y = true
   · cases hx : (C.step x).val with
     | emit as x' =>
-      have hs : (machine C).runtime.step ⟨x, y, f, g⟩ = .emit (orient f as) ⟨x', y, f, g + 1⟩ :=
+      have hs : (machine C).runtime.step ⟨x, y, f, g + 1⟩ =
+          .emit (orient f as) ⟨x', y, f, g + 2⟩ :=
         congrArg Cost.val (go_lead_emit g f hw hx)
       rw [(machine C).runtime.trace_succ_emit hs,
         C.runtime.trace_succ_emit (show C.runtime.step x = .emit as x' from hx), List.map_cons]
       obtain ⟨bs, z', hz, -, hm'⟩ := hm.emit hx
-      exact List.Forall₂.cons (StepEquiv.refl _) (ih (g + 1) f x' y z' (hb.snoc hz) hm')
+      exact List.Forall₂.cons (StepEquiv.refl _) (ih (g + 2) f x' y z' (hb.snoc hz) hm')
     | done =>
-      have hs : (machine C).runtime.step ⟨x, y, f, g⟩ = .done :=
+      have hs : (machine C).runtime.step ⟨x, y, f, g + 1⟩ = .done :=
         congrArg Cost.val (go_lead_done g f hw hx)
       rw [(machine C).runtime.trace_succ_done hs,
         C.runtime.trace_succ_done (show C.runtime.step x = .done from hx)]
@@ -168,45 +236,15 @@ theorem trace_step {n : Nat}
   · have hw : wins x y = false := by simpa using hw
     cases hy : (C.step y).val with
     | done =>
-      have hs : (machine C).runtime.step ⟨x, y, f, g⟩ = .done :=
-        congrArg Cost.val (go_lag_done g f hw hy)
-      have hx : (C.step x).val = .done := by
-        cases g with
-        | zero =>
-          have : y = z := hb
-          subst this
-          exact hm.symm.done hy
-        | succ g =>
-          obtain ⟨as, y', hy', -⟩ := hb
-          rw [hy] at hy'; cases hy'
-      rw [(machine C).runtime.trace_succ_done hs,
-        C.runtime.trace_succ_done (show C.runtime.step x = .done from hx)]
-      exact List.Forall₂.nil
+      obtain ⟨as, y', hy', -⟩ := hb
+      rw [hy] at hy'; cases hy'
     | emit bs y' =>
-      cases g with
-      | zero =>
-        have : y = z := hb
-        subst this
-        obtain ⟨as, x', hx, he, hm'⟩ := hm.symm.emit hy
-        have hs : (machine C).runtime.step ⟨x, y, f, 0⟩ =
-            .emit (orient (!f) bs) ⟨y', x, !f, 1⟩ :=
-        congrArg Cost.val (go_overtake f hw hy)
-        rw [(machine C).runtime.trace_succ_emit hs,
-          C.runtime.trace_succ_emit (show C.runtime.step x = .emit as x' from hx), List.map_cons]
-        refine List.Forall₂.cons ?_ ?_
-        · rw [← orient_swap]
-          exact (orient_congr f he).symm
-        · have h1 : TraceGo C n 1 (!f) y' x := ih 1 (!f) y' x x' ⟨as, x', hx, rfl⟩ hm'
-          refine TraceEquiv.trans h1 ?_
-          have h2 := trace_orient f (hm' n).symm
-          rwa [map_orient_swap] at h2
-      | succ g =>
-        have hs : (machine C).runtime.step ⟨x, y, f, g + 1⟩ =
-            (machine C).runtime.step ⟨x, y', f, g⟩ := by
-          show (go C (g + 1) f x y).val = (go C g f x y').val
-          rw [go_catch g f hw hy]
-        rw [(machine C).runtime.trace_congr hs]
-        exact hc g bs y' rfl hy
+      have hs : (machine C).runtime.step ⟨x, y, f, g + 1⟩ =
+          (machine C).runtime.step ⟨x, y', f, g⟩ := by
+        show (go C (g + 1) f x y).val = (go C g f x y').val
+        rw [go_catch g f hw hy]
+      rw [(machine C).runtime.trace_congr hs]
+      exact hc bs y' hy
 
 /-- Started with the leader at `x` and the other run `g` steps behind a state
 that mirrors `x`, the mirrored machine emits, step for step, what `C` emits
@@ -221,12 +259,12 @@ theorem trace_go : ∀ (n g : Nat) (f : Bool) (x y z : C.State), Behind C g y z 
     induction g with
     | zero =>
       intro f x y z hb hm
-      exact trace_step ih 0 f x y z hb hm fun g' _ _ h _ => by omega
+      have : y = z := hb
+      subst this
+      exact trace_level ih f x y hm
     | succ g ihg =>
       intro f x y z hb hm
-      refine trace_step ih (g + 1) f x y z hb hm fun g' as y' hg hy => ?_
-      have hg' : g = g' := by omega
-      subst hg'
+      refine trace_behind ih g f x y z hb hm fun as y' hy => ?_
       obtain ⟨as0, y0, hy0, hb0⟩ := hb
       rw [hy] at hy0
       cases hy0
