@@ -160,6 +160,52 @@ theorem unfold_val {a c : Ans D P} {n : Rel} :
       · exact (h₂ _ rfl).elim
       · cases h'
 
+/-! ## A rule whose side condition holds returns an answer -/
+
+theorem leaf_ok {lb rb : Option R} {s : Span} {z : R} (hl : IsBound D lb) (hr : IsBound D rb)
+    (hs : spanBoth D lb s rb = some z) :
+    ∃ c, (leaf D P K hK lb (.span s) rb).val = some c ∧ c.span = z ∧
+      c.goal = ⟨lb, .span s, rb⟩ :=
+  ⟨⟨⟨lb, .span s, rb⟩, z, Valid.leaf hl hr hs⟩,
+    (leaf_val K hK).2 ⟨s, rfl, hl, hr, hs, rfl⟩, rfl, rfl⟩
+
+theorem join_ok {a b : Ans D P} {z : R} (h : JoinOk D a.span a.goal.rb b.goal.lb b.span)
+    (hc : D.compose a.span b.span = some z) :
+    ∃ c, (join D P K hK a b).val = some c ∧ c.span = z ∧
+      c.goal = ⟨a.goal.lb, mkSeq (seqParts a.goal.node ++ seqParts b.goal.node), b.goal.rb⟩ :=
+  ⟨⟨_, z, Valid.join a.valid b.valid h hc⟩, (join_val K hK).2 ⟨h, hc, rfl⟩, rfl, rfl⟩
+
+theorem meetA_ok {a b : Ans D P} {z : R}
+    (h : MeetOk D a.span a.goal.lb a.goal.rb b.goal.lb b.goal.rb)
+    (hc : D.meet a.span b.span = some z) :
+    ∃ c, (meetA D P K hK a b).val = some c ∧ c.span = z ∧
+      c.goal = ⟨a.goal.lb, mkAnd (sortedParts (andParts a.goal.node ++ andParts b.goal.node)),
+        a.goal.rb⟩ :=
+  ⟨⟨_, z, Valid.meet (x := a.goal.node) (y := b.goal.node) a.valid b.valid h hc⟩,
+    (meetA_val K hK).2 ⟨h, hc, rfl⟩, rfl, rfl⟩
+
+omit [DecidableEq R] in
+theorem inj_ok {a : Ans D P} {u : Rel} {i : Nat} (h : u.unionParts[i]? = some a.goal.node) :
+    ∃ c, (inj D P a u i).val = some c ∧ c.span = a.span ∧ c.goal = ⟨a.goal.lb, u, a.goal.rb⟩ :=
+  ⟨⟨_, a.span, a.valid.inj (List.mem_of_getElem? h)⟩, inj_val.2 ⟨h, rfl, rfl⟩, rfl, rfl⟩
+
+omit [DecidableEq R] in
+theorem unfold_ok {a : Ans D P} {n : Rel} (h : Charged.bodyOf P n = some a.goal.node) :
+    ∃ c, (unfold D P a n).val = some c ∧ c.span = a.span ∧ c.goal = ⟨a.goal.lb, n, a.goal.rb⟩ := by
+  cases hv : (unfold D P a n).val with
+  | some c => exact ⟨c, rfl, (unfold_val.1 hv).2⟩
+  | none =>
+    exfalso
+    unfold unfold at hv
+    simp only [Cost.bind_val, Cost.pure_val] at hv
+    unfold Charged.bodyOf at h
+    split at h
+    · have h' := (Option.some.inj h).symm
+      simp only at hv; rw [dite_eq_left_of_eq_true (eq_true h')] at hv; cases hv
+    · have h' := (Option.some.inj h).symm
+      simp only at hv; rw [dite_eq_left_of_eq_true (eq_true h')] at hv; cases hv
+    · cases h
+
 end Ans
 
 end RwLog
