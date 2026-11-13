@@ -47,10 +47,10 @@ abbrev prog (k : Nat) : Program := ⟨sepDefs k, []⟩
 abbrev zz : Span := ⟨.sym "z", .sym "z", []⟩
 
 theorem body_w (k : Nat) : (prog k).body "w" = .or (.call "w") (.call "w") := by
-  simp [Program.body, sepDefs]
+  simp [ProgramOf.body, sepDefs]
 
 theorem lookup_chain (i : Nat) : ∀ l : List Nat, i ∈ l →
-    (l.map fun i => (chainName (i + 1), Rel.call (chainName i))).lookup (chainName (i + 1)) =
+    (l.map fun i => (chainName (i + 1), (RelOf.call (chainName i) : Rel))).lookup (chainName (i + 1)) =
       some (.call (chainName i))
   | [], h => by simp at h
   | a :: l, h => by
@@ -68,7 +68,7 @@ theorem lookup_chain (i : Nat) : ∀ l : List Nat, i ∈ l →
 
 theorem body_zero (k : Nat) : (prog k).body (chainName 0) = .span zz := by
   have : (chainName 0 == "w") = false := by simpa using chainName_ne_w 0
-  simp [Program.body, sepDefs, List.lookup, this, Rel.at_, Rel.rw]
+  simp [ProgramOf.body, sepDefs, List.lookup, this, RelOf.at_, RelOf.rw]
 
 theorem body_succ {k i : Nat} (h : i < k) :
     (prog k).body (chainName (i + 1)) = .call (chainName i) := by
@@ -77,7 +77,7 @@ theorem body_succ {k i : Nat} (h : i < k) :
     simp only [beq_eq_false_iff_ne, ne_eq]
     intro h'; have := chainName_inj h'; omega
   have h3 := lookup_chain i (List.range k) (List.mem_range.2 h)
-  simp only [Program.body, sepDefs, List.cons_append, List.nil_append, List.lookup, h1, h2, h3]
+  simp only [ProgramOf.body, sepDefs, List.cons_append, List.nil_append, List.lookup, h1, h2, h3]
   rfl
 
 theorem wellFormed (k : Nat) : (sepFam k).1.WellFormed (sepFam k).2 := by
@@ -101,7 +101,7 @@ theorem wellFormed (k : Nat) : (sepFam k).1.WellFormed (sepFam k).2 := by
   · intro n hn
     simp only [sepFam, List.mem_append, List.mem_flatMap] at hn
     rcases hn with hn | ⟨d, hd, hn⟩
-    · simp only [Rel.calls, List.cons_append, List.nil_append, List.mem_cons, List.not_mem_nil,
+    · simp only [RelOf.calls, List.cons_append, List.nil_append, List.mem_cons, List.not_mem_nil,
         or_false] at hn
       rcases hn with rfl | rfl
       · exact hmem k le_rfl
@@ -109,11 +109,11 @@ theorem wellFormed (k : Nat) : (sepFam k).1.WellFormed (sepFam k).2 := by
     · simp only [sepDefs, List.cons_append, List.nil_append, List.mem_cons, List.mem_map,
         List.mem_range] at hd
       rcases hd with rfl | rfl | ⟨i, hi, rfl⟩
-      · simp only [Rel.calls, List.cons_append, List.nil_append, List.mem_cons, List.not_mem_nil,
+      · simp only [RelOf.calls, List.cons_append, List.nil_append, List.mem_cons, List.not_mem_nil,
           or_false, or_self] at hn
         subst hn; simp [sepFam, sepDefs]
-      · simp [Rel.calls, Rel.at_, Rel.rw] at hn
-      · simp only [Rel.calls, List.mem_cons, List.not_mem_nil, or_false] at hn
+      · simp [RelOf.calls, RelOf.at_, RelOf.rw] at hn
+      · simp only [RelOf.calls, List.mem_cons, List.not_mem_nil, or_false] at hn
         subst hn; exact hmem i (by omega)
 
 /-! ## Goals and their table keys -/
@@ -127,30 +127,30 @@ abbrev gW : Goal := ⟨none, .call "w", none⟩
 abbrev gZ : Goal := ⟨none, .span zz, none⟩
 
 theorem norm_gC (j : Nat) : (gC j).norm = (false, gC j) := by
-  simp [Goal.norm, canon, Goal.stripConv]
+  simp [GoalOf.norm, canon, GoalOf.stripConv]
 
 theorem norm_gW : gW.norm = (false, gW) := by
-  simp [Goal.norm, canon, Goal.stripConv]
+  simp [GoalOf.norm, canon, GoalOf.stripConv]
 
 theorem norm_gZ : gZ.norm = (false, gZ) := by
-  simp [Goal.norm, canon, Goal.stripConv]
+  simp [GoalOf.norm, canon, GoalOf.stripConv]
 
 theorem canon_root (k : Nat) :
     canon (.or (.call (chainName k)) (.call "w")) = .or (.call (chainName k)) (.call "w") := by
-  have h1 : Rel.call (chainName k) ≠ Rel.call "w" := by
+  have h1 : (RelOf.call (chainName k) : Rel) ≠ RelOf.call "w" := by
     simpa using chainName_ne_w k
-  have h2 : (Rel.call "w" == Rel.call (chainName k)) = false := by
+  have h2 : ((RelOf.call "w" : Rel) == RelOf.call (chainName k)) = false := by
     simpa using fun h => chainName_ne_w k h.symm
   simp [canon, orBranches, sortedBranches, relCmp, chainName_lt_w, List.eraseDups_cons,
     h2, mkOr]
 
 theorem norm_gR (k : Nat) : (gR k).norm = (false, gR k) := by
-  simp [Goal.norm, canon_root, Goal.stripConv]
+  simp [GoalOf.norm, canon_root, GoalOf.stripConv]
 
 /-- The body of `w` has the key of `w`. -/
 theorem norm_wBody : (⟨none, .or (.call "w") (.call "w"), none⟩ : Goal).norm = (false, gW) := by
-  simp [Goal.norm, canon, orBranches, sortedBranches, relCmp, List.eraseDups_cons, mkOr,
-    Goal.stripConv]
+  simp [GoalOf.norm, canon, orBranches, sortedBranches, relCmp, List.eraseDups_cons, mkOr,
+    GoalOf.stripConv]
 
 end Sep
 

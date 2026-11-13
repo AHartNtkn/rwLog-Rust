@@ -4,7 +4,7 @@
 The specification (`RwLog.Trusted.Semantics`) gives an expression a meaning
 in each interpretation `M`. The execution layer computes ground triples
 `(a, b, S)` instead. They agree: in `M`, an expression relates exactly the
-pairs of its triples whose store lies inside `M` (`Program.semAt_eq`), and
+pairs of its triples whose store lies inside `M` (`ProgramOf.semAt_eq`), and
 likewise for a span (`Span.denAt_eq`). So an inclusion or equality of triple
 sets gives the same inclusion or equality in every interpretation.
 -/
@@ -90,7 +90,7 @@ theorem denote_at_sup (M : Interp) {ρ : Name → GRel} {ρM : Name → PRel}
 
 /-- **Bridge.** In every interpretation, the meaning of a name is the pairs of
 its triples whose store lies inside the interpretation. -/
-theorem Program.meaningAt_eq_at (P : Program) (M : Interp) (n : Name) :
+theorem ProgramOf.meaningAt_eq_at (P : Program) (M : Interp) (n : Name) :
     P.meaningAt M n = (P.meaning n).at M := by
   apply le_antisymm
   · -- the pairs of the triples form a pre-fixed point of the step in `M`
@@ -116,7 +116,7 @@ theorem Program.meaningAt_eq_at (P : Program) (M : Interp) (n : Name) :
 
 /-- **Bridge.** In every interpretation, an expression relates exactly the
 pairs of its triples whose store lies inside the interpretation. -/
-theorem Program.semAt_eq (P : Program) (M : Interp) (e : Rel) : P.semAt M e = (P.sem e).at M := by
+theorem ProgramOf.semAt_eq (P : Program) (M : Interp) (e : Rel) : P.semAt M e = (P.sem e).at M := by
   apply le_antisymm
   · exact denote_at_sup M (fun n => (P.meaningAt_eq_at M n).le) e
   · exact denote_at_sub M (fun n => (P.meaningAt_eq_at M n).ge) e

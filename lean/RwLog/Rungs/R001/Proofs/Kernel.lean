@@ -8,7 +8,7 @@ of them and adds what is specific to R001's boundaries (`bound`, `boundEq`).
 * `covers_iff`: `Span.covers?_iff` (`Kernel/Covers.lean`).
 * `iface_exact`, `iface_equiv`: `Kernel/Iface.lean`, plus the facts about
   trivial boundaries below.
-* `denote_dual`: `Program.sem_dual` (`SpanLayer/Dual.lean`).
+* `denote_dual`: `ProgramOf.sem_dual` (`SpanLayer/Dual.lean`).
 * `refutes_sound`, `simplify_exact`, `simplify_stable`, `present_exact`:
   `Kernel/RefuteCorrect.lean`.
 * `simplify_mono`: `simpLaws_of_wf` (`Kernel/SimplifyMono.lean`).
@@ -90,7 +90,7 @@ theorem iface_equiv : Obligation.iface_equiv := by
   rw [leftIface_eq, leftIface_eq]
   exact boundEq_of_equiv (rightIface_covers (covers_swap hxy)) (rightIface_covers (covers_swap hyx))
 
-theorem denote_dual : Obligation.denote_dual := Program.sem_dual
+theorem denote_dual : Obligation.denote_dual := ProgramOf.sem_dual
 
 /-! ## The constraint checker -/
 

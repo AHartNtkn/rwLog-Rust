@@ -144,7 +144,7 @@ def r3 : Span := ⟨.var 0, Term.mk "s" [.var 0], []⟩
 theorem add_eq : add = .or (.span r1) (.seq (.span r2) (.seq (.call "add") (.span r3))) := rfl
 
 theorem body_add : addProg.body "add" = add := by
-  simp [Program.body, addProg]
+  simp [ProgramOf.body, addProg]
 
 theorem laws : SimpLaws addProg.theory := simpLaws_of_wf (fun _ h => nomatch h)
 

@@ -163,8 +163,8 @@ theorem joinSeq_last {p q r : List Rel} (h : R000.joinSeq p q = some r) (hq : q 
     | cons y q'' =>
       right
       rw [lastSpan_append (List.cons_ne_nil _ _)]
-      exact (lastSpan_append (p := [Rel.span c]) (List.cons_ne_nil y q'')).trans
-        (lastSpan_append (p := [Rel.span b]) (List.cons_ne_nil y q'')).symm
+      exact (lastSpan_append (p := [RelOf.span c]) (List.cons_ne_nil y q'')).trans
+        (lastSpan_append (p := [RelOf.span b]) (List.cons_ne_nil y q'')).symm
   · exact .inr (lastSpan_append hq)
 
 /-- Two spans that meet are fused. -/

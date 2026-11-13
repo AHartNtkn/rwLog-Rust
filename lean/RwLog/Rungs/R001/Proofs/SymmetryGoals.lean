@@ -1,7 +1,7 @@
 /-
 # Rung R001, Symmetry: table keys of mirrored goals
 
-* `Goal.same` is an equivalence relation, preserved by mirroring and by
+* `GoalOf.same` is an equivalence relation, preserved by mirroring and by
   normalization.
 * The canonical form is idempotent and commutes with mirroring up to
   canonicalization: `canon e.dual = canon (canon e).dual`.
@@ -19,28 +19,28 @@ namespace Symmetry
 
 /-! ## Boundaries and goals as table keys -/
 
-theorem _root_.RwLog.R001.Goal.same_dual {g h : Goal} (e : g.same h = true) : g.dual.same h.dual = true := by
-  rw [Goal.same_iff] at e ⊢
-  simp only [Goal.dual, boundEq_swap]
+theorem _root_.RwLog.R001.GoalOf.same_dual {g h : Goal} (e : g.same h = true) : g.dual.same h.dual = true := by
+  rw [GoalOf.same_iff] at e ⊢
+  simp only [GoalOf.dual, boundEq_swap]
   exact ⟨by rw [e.1], e.2.2, e.2.1⟩
 
-theorem _root_.RwLog.Rel.dual_dual : ∀ e : Rel, e.dual.dual = e
+theorem _root_.RwLog.RelOf.dual_dual : ∀ e : Rel, e.dual.dual = e
   | .zero => rfl
-  | .span s => by simp [Rel.dual]
-  | .or a b => by simp [Rel.dual, Rel.dual_dual a, Rel.dual_dual b]
-  | .and a b => by simp [Rel.dual, Rel.dual_dual a, Rel.dual_dual b]
-  | .seq a b => by simp [Rel.dual, Rel.dual_dual a, Rel.dual_dual b]
-  | .conv a => by simp [Rel.dual, Rel.dual_dual a]
+  | .span s => by simp [RelOf.dual]
+  | .or a b => by simp [RelOf.dual, RelOf.dual_dual a, RelOf.dual_dual b]
+  | .and a b => by simp [RelOf.dual, RelOf.dual_dual a, RelOf.dual_dual b]
+  | .seq a b => by simp [RelOf.dual, RelOf.dual_dual a, RelOf.dual_dual b]
+  | .conv a => by simp [RelOf.dual, RelOf.dual_dual a]
   | .call _ => rfl
 
-theorem _root_.RwLog.R001.Goal.dual_dual (g : Goal) : g.dual.dual = g := by
+theorem _root_.RwLog.R001.GoalOf.dual_dual (g : Goal) : g.dual.dual = g := by
   obtain ⟨lb, e, rb⟩ := g
-  simp [Goal.dual, Option.map_map, Function.comp_def, Rel.dual_dual]
+  simp [GoalOf.dual, Option.map_map, Function.comp_def, RelOf.dual_dual]
 
 /-! ## Mirroring and the canonical form -/
 
-theorem orBranches_dual : ∀ e : Rel, orBranches e.dual = (orBranches e).map Rel.dual
-  | .or a b => by simp [Rel.dual, orBranches, orBranches_dual a, orBranches_dual b]
+theorem orBranches_dual : ∀ e : Rel, orBranches e.dual = (orBranches e).map RelOf.dual
+  | .or a b => by simp [RelOf.dual, orBranches, orBranches_dual a, orBranches_dual b]
   | .zero | .span _ | .and _ _ | .seq _ _ | .conv _ | .call _ => rfl
 
 theorem notOr_canon_of_notOr {e : Rel} (h : NotOr e) : NotOr (canon e) := by
@@ -101,7 +101,7 @@ theorem canon_ext {E E' : Rel}
   rw [canon_eq_mkOr E, canon_eq_mkOr E', sortedBranches_eq h]
 
 theorem sizeOf_lt_of_mem_orBranches {a b l : Rel} (h : l ∈ orBranches (.or a b)) :
-    sizeOf l < sizeOf (Rel.or a b) := by
+    sizeOf l < sizeOf (RelOf.or a b) := by
   have key : ∀ (e l : Rel), l ∈ orBranches e → sizeOf l ≤ sizeOf e := by
     intro e
     induction e with
@@ -142,15 +142,15 @@ termination_by e => sizeOf e
 decreasing_by all_goals first | exact this | (simp_wf; try omega)
 
 theorem dual_zero_iff {e : Rel} : e.dual = .zero ↔ e = .zero := by
-  cases e <;> simp [Rel.dual]
+  cases e <;> simp [RelOf.dual]
 
 theorem canon_dual : ∀ e : Rel, canon e.dual = canon (canon e).dual
   | .zero => rfl
   | .span _ => rfl
   | .call _ => rfl
-  | .and a b => by simp only [Rel.dual, canon, canon_dual a, canon_dual b]
-  | .seq a b => by simp only [Rel.dual, canon, canon_dual a, canon_dual b]
-  | .conv a => by simp only [Rel.dual, canon, canon_dual a]
+  | .and a b => by simp only [RelOf.dual, canon, canon_dual a, canon_dual b]
+  | .seq a b => by simp only [RelOf.dual, canon, canon_dual a, canon_dual b]
+  | .conv a => by simp only [RelOf.dual, canon, canon_dual a]
   | .or a b => by
     refine canon_ext fun z hz => ?_
     rw [mem_orBranches_canon _ hz, mem_orBranches_canon _ hz, orBranches_dual, orBranches_dual]
@@ -172,28 +172,28 @@ decreasing_by all_goals first | exact this | (simp_wf; try omega)
 /-! ## Keys of mirrored goals -/
 
 theorem stripConv_conv (lb rb : Option Span) (a : Rel) :
-    Goal.stripConv ⟨lb, .conv a, rb⟩ =
-      (!(Goal.stripConv ⟨rb.map Span.swap, a, lb.map Span.swap⟩).1,
-        (Goal.stripConv ⟨rb.map Span.swap, a, lb.map Span.swap⟩).2) := by
-  rw [Goal.stripConv]
+    GoalOf.stripConv ⟨lb, .conv a, rb⟩ =
+      (!(GoalOf.stripConv ⟨rb.map Span.swap, a, lb.map Span.swap⟩).1,
+        (GoalOf.stripConv ⟨rb.map Span.swap, a, lb.map Span.swap⟩).2) := by
+  rw [GoalOf.stripConv]
 
 theorem stripConv_other (lb rb : Option Span) (e : Rel) (h : ∀ a, e ≠ .conv a) :
-    Goal.stripConv ⟨lb, e, rb⟩ = (false, ⟨lb, e, rb⟩) := by
+    GoalOf.stripConv ⟨lb, e, rb⟩ = (false, ⟨lb, e, rb⟩) := by
   cases e with
   | conv a => exact absurd rfl (h a)
-  | _ => rw [Goal.stripConv]; simp
+  | _ => rw [GoalOf.stripConv]; simp
 
 theorem stripConv_dual : ∀ (C : Rel) (lb rb : Option Span),
-    Goal.stripConv ⟨rb.map Span.swap, canon C.dual, lb.map Span.swap⟩ =
-      let r := Goal.stripConv ⟨lb, C, rb⟩
-      let r' := Goal.stripConv ⟨r.2.rb.map Span.swap, canon r.2.e.dual, r.2.lb.map Span.swap⟩
+    GoalOf.stripConv ⟨rb.map Span.swap, canon C.dual, lb.map Span.swap⟩ =
+      let r := GoalOf.stripConv ⟨lb, C, rb⟩
+      let r' := GoalOf.stripConv ⟨r.2.rb.map Span.swap, canon r.2.e.dual, r.2.lb.map Span.swap⟩
       (r.1 ^^ r'.1, r'.2)
   | .conv a, lb, rb => by
     have ih := stripConv_dual a (rb.map Span.swap) (lb.map Span.swap)
     simp only [Option.map_map, Function.comp_def, Span.swap_swap, Option.map_id'] at ih
-    simp only [Rel.dual, canon, stripConv_conv, Option.map_map, Function.comp_def, Span.swap_swap,
+    simp only [RelOf.dual, canon, stripConv_conv, Option.map_map, Function.comp_def, Span.swap_swap,
       Option.map_id', ih]
-    cases (Goal.stripConv ⟨rb.map Span.swap, a, lb.map Span.swap⟩).1 <;> simp
+    cases (GoalOf.stripConv ⟨rb.map Span.swap, a, lb.map Span.swap⟩).1 <;> simp
   | .zero, lb, rb | .span _, lb, rb | .or _ _, lb, rb | .and _ _, lb, rb | .seq _ _, lb, rb
   | .call _, lb, rb => by
     rw [stripConv_other lb rb _ (fun a h => by cases h)]
@@ -201,13 +201,13 @@ theorem stripConv_dual : ∀ (C : Rel) (lb rb : Option Span),
 
 theorem norm_dual (g : Goal) :
     g.dual.norm = (g.norm.1 ^^ g.norm.2.dual.norm.1, g.norm.2.dual.norm.2) := by
-  simp only [Goal.norm, Goal.dual]
+  simp only [GoalOf.norm, GoalOf.dual]
   rw [canon_dual, stripConv_dual]
 
 theorem stripConv_same : ∀ (C : Rel) {lb lb' rb rb' : Option Span},
     boundEq lb lb' = true → boundEq rb rb' = true →
-    (Goal.stripConv ⟨lb, C, rb⟩).1 = (Goal.stripConv ⟨lb', C, rb'⟩).1 ∧
-      (Goal.stripConv ⟨lb, C, rb⟩).2.same (Goal.stripConv ⟨lb', C, rb'⟩).2 = true
+    (GoalOf.stripConv ⟨lb, C, rb⟩).1 = (GoalOf.stripConv ⟨lb', C, rb'⟩).1 ∧
+      (GoalOf.stripConv ⟨lb, C, rb⟩).2.same (GoalOf.stripConv ⟨lb', C, rb'⟩).2 = true
   | .conv a, lb, lb', rb, rb', hl, hr => by
     rw [stripConv_conv, stripConv_conv]
     have := stripConv_same a (lb := rb.map Span.swap) (lb' := rb'.map Span.swap)
@@ -218,11 +218,11 @@ theorem stripConv_same : ∀ (C : Rel) {lb lb' rb rb' : Option Span},
   | .or _ _, lb, lb', rb, rb', hl, hr | .and _ _, lb, lb', rb, rb', hl, hr
   | .seq _ _, lb, lb', rb, rb', hl, hr | .call _, lb, lb', rb, rb', hl, hr => by
     rw [stripConv_other _ _ _ (fun a h => by cases h), stripConv_other _ _ _ (fun a h => by cases h)]
-    exact ⟨rfl, Goal.same_iff.2 ⟨rfl, hl, hr⟩⟩
+    exact ⟨rfl, GoalOf.same_iff.2 ⟨rfl, hl, hr⟩⟩
 
 theorem norm_same {g h : Goal} (e : g.same h = true) :
     g.norm.1 = h.norm.1 ∧ g.norm.2.same h.norm.2 = true := by
-  rw [Goal.same_iff] at e
+  rw [GoalOf.same_iff] at e
   obtain ⟨lb, eg, rb⟩ := g
   obtain ⟨lb', eh, rb'⟩ := h
   simp only at e
@@ -236,11 +236,11 @@ theorem norm_same {g h : Goal} (e : g.same h = true) :
 def IsKey (G : Goal) : Prop := G.norm = (false, G)
 
 theorem stripConv_canonical : ∀ (C : Rel) (lb rb : Option Span), canon C = C →
-    canon (Goal.stripConv ⟨lb, C, rb⟩).2.e = (Goal.stripConv ⟨lb, C, rb⟩).2.e ∧
-      ∀ a, (Goal.stripConv ⟨lb, C, rb⟩).2.e ≠ .conv a
+    canon (GoalOf.stripConv ⟨lb, C, rb⟩).2.e = (GoalOf.stripConv ⟨lb, C, rb⟩).2.e ∧
+      ∀ a, (GoalOf.stripConv ⟨lb, C, rb⟩).2.e ≠ .conv a
   | .conv a, lb, rb, h => by
     rw [stripConv_conv]
-    simp only [canon, Rel.conv.injEq] at h
+    simp only [canon, RelOf.conv.injEq] at h
     exact stripConv_canonical a _ _ h
   | .zero, lb, rb, h | .span _, lb, rb, h | .or _ _, lb, rb, h | .and _ _, lb, rb, h
   | .seq _ _, lb, rb, h | .call _, lb, rb, h => by
@@ -250,11 +250,11 @@ theorem stripConv_canonical : ∀ (C : Rel) (lb rb : Option Span), canon C = C �
 theorem isKey_of {G : Goal} (hc : canon G.e = G.e) (hn : ∀ a, G.e ≠ .conv a) : IsKey G := by
   obtain ⟨lb, e, rb⟩ := G
   simp only at hc hn
-  simp only [IsKey, Goal.norm, hc, stripConv_other _ _ _ hn]
+  simp only [IsKey, GoalOf.norm, hc, stripConv_other _ _ _ hn]
 
 theorem IsKey.canonical {G : Goal} (h : IsKey G) : canon G.e = G.e ∧ ∀ a, G.e ≠ .conv a := by
   have := stripConv_canonical (canon G.e) G.lb G.rb (canon_idem _)
-  unfold IsKey Goal.norm at h
+  unfold IsKey GoalOf.norm at h
   rw [h] at this
   exact this
 
@@ -265,7 +265,7 @@ theorem isKey_norm (g : Goal) : IsKey g.norm.2 := by
 theorem IsKey.norm_eq {G : Goal} (h : IsKey G) : G.norm = (false, G) := h
 
 theorem canon_dual_canon (x : Rel) : canon (canon (canon x).dual).dual = canon x := by
-  rw [← canon_dual x, ← canon_dual x.dual, Rel.dual_dual]
+  rw [← canon_dual x, ← canon_dual x.dual, RelOf.dual_dual]
 
 theorem mkOr_or : ∀ {S : List Rel} {a b : Rel}, mkOr S = .or a b → (∀ x ∈ S, NotOr x) →
     ∃ x y rest, S = x :: y :: rest
@@ -282,11 +282,11 @@ theorem two_le_length_of_mem {L : List Rel} (hL : L.Nodup) {x y : Rel} (hx : x �
 
 /-- The mirror of a canonical `|` has at least two branches after
 canonicalization. -/
-theorem canon_dual_or_two {b c : Rel} (hc : canon (Rel.or b c) = Rel.or b c) :
-    ∃ u v rest, sortedBranches (orBranches (canon (Rel.or b c).dual)) = u :: v :: rest := by
+theorem canon_dual_or_two {b c : Rel} (hc : canon (RelOf.or b c) = RelOf.or b c) :
+    ∃ u v rest, sortedBranches (orBranches (canon (RelOf.or b c).dual)) = u :: v :: rest := by
   -- the branches of `E` are canonical, nonzero and at least two
   have hE := hc
-  rw [show canon (Rel.or b c) = mkOr (sortedBranches (orBranches (canon b) ++ orBranches (canon c)))
+  rw [show canon (RelOf.or b c) = mkOr (sortedBranches (orBranches (canon b) ++ orBranches (canon c)))
     from rfl] at hE
   have hT : ∀ x ∈ sortedBranches (orBranches (canon b) ++ orBranches (canon c)), NotOr x :=
     fun x hx => by
@@ -298,7 +298,7 @@ theorem canon_dual_or_two {b c : Rel} (hc : canon (Rel.or b c) = Rel.or b c) :
   rw [hxy] at hnd
   have hne : x ≠ y := (List.pairwise_cons.1 hnd).1 y (by simp)
   have hmem : ∀ z ∈ sortedBranches (orBranches (canon b) ++ orBranches (canon c)),
-      z ≠ .zero ∧ canon z = z ∧ z ∈ orBranches (Rel.or b c |> canon) := by
+      z ≠ .zero ∧ canon z = z ∧ z ∈ orBranches (RelOf.or b c |> canon) := by
     intro z hz
     have hz0 := (mem_sortedBranches.1 hz).2
     refine ⟨hz0, ?_, ?_⟩
@@ -310,8 +310,8 @@ theorem canon_dual_or_two {b c : Rel} (hc : canon (Rel.or b c) = Rel.or b c) :
   have hx := hmem x (by rw [hxy]; simp)
   have hy := hmem y (by rw [hxy]; simp)
   -- their mirrors are distinct non-`0` branches of the canonical mirror
-  have himg : ∀ z, z ≠ .zero ∧ canon z = z ∧ z ∈ orBranches (canon (Rel.or b c)) →
-      canon z.dual ≠ .zero ∧ canon z.dual ∈ sortedBranches (orBranches (canon (Rel.or b c).dual)) := by
+  have himg : ∀ z, z ≠ .zero ∧ canon z = z ∧ z ∈ orBranches (canon (RelOf.or b c)) →
+      canon z.dual ≠ .zero ∧ canon z.dual ∈ sortedBranches (orBranches (canon (RelOf.or b c).dual)) := by
     rintro z ⟨hz0, hzc, hz⟩
     have h0 : canon z.dual ≠ .zero := by
       intro h0
@@ -328,7 +328,7 @@ theorem canon_dual_or_two {b c : Rel} (hc : canon (Rel.or b c) = Rel.or b c) :
     apply hne
     rw [← hx.2.1, ← hy.2.1, ← canon_dual_canon x, ← canon_dual_canon y, ← canon_dual x,
       ← canon_dual y, e]
-  have hnd' := (pairwise_sortedBranches (orBranches (canon (Rel.or b c).dual))).imp fun h => h.2
+  have hnd' := (pairwise_sortedBranches (orBranches (canon (RelOf.or b c).dual))).imp fun h => h.2
   exact two_le_length_of_mem hnd' hx'.2 hy'.2 hne'
 
 /-- The mirror of a canonical non-converse expression is not a converse after
@@ -338,9 +338,9 @@ theorem canon_dual_not_conv {E : Rel} (hc : canon E = E) (hn : ∀ a, E ≠ .con
   intro a h
   cases E with
   | conv b => exact hn b rfl
-  | zero | span _ | and _ _ | seq _ _ | call _ => simp [Rel.dual, canon] at h
+  | zero | span _ | and _ _ | seq _ _ | call _ => simp [RelOf.dual, canon] at h
   | or b c =>
-    rw [canon_eq_mkOr (Rel.or b c).dual] at h
+    rw [canon_eq_mkOr (RelOf.or b c).dual] at h
     obtain ⟨u, v, rest', hl⟩ := canon_dual_or_two hc
     rw [hl] at h
     cases h

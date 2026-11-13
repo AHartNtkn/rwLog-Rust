@@ -21,36 +21,6 @@ namespace RwLog
 
 namespace Cost
 
-/-! ## The race -/
-
-/-- `within`, keeping the fact that a computation that was given up on needed
-more than the budget. The value and the ticks are those of `within`. -/
-def withinP {α : Type} (b : Nat) (m : Cost α) :
-    Cost { o : Option α // o = none → b < m.ticks } :=
-  ⟨⟨(within b m).val, by
-    unfold within
-    split
-    · intro h; cases h
-    · intro _; omega⟩, (within b m).ticks⟩
-
-/-- Run `x` and `y` under the budget `b`, then `2 b + 1`, and so on, until one
-of them finishes. -/
-def raceFrom {α : Type} (x y : Cost α) (b : Nat) : Cost α := do
-  let r ← withinP b x
-  match r with
-  | ⟨some v, _⟩ => pure v
-  | ⟨none, h⟩ => do
-    have _ : b < x.ticks := h rfl
-    let r' ← within b y
-    match r' with
-    | some v => pure v
-    | none => raceFrom x y (2 * b + 1)
-termination_by x.ticks - b
-decreasing_by omega
-
-/-- Run `x` and `y` side by side until one of them finishes. -/
-def race {α : Type} (x y : Cost α) : Cost α := raceFrom x y 0
-
 /-! ## What it returns and what it spends -/
 
 variable {α : Type}

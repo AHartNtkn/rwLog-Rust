@@ -114,7 +114,7 @@ theorem foldl_addKey : ∀ (reqs acc : List Goal),
             exact .inr ⟨List.mem_cons_self .., fun t ht => by simpa using hc.1 t ht⟩
         · exact .inr ⟨List.mem_cons_of_mem _ h, h'⟩
       · rcases List.mem_cons.1 hx with rfl | hx
-        · exact .inr ⟨x, ih₃ x (by simp), Goal.same_refl x⟩
+        · exact .inr ⟨x, ih₃ x (by simp), GoalOf.same_refl x⟩
         · exact ih₂ x hx
       · apply ih₄
         rw [List.pairwise_append]
@@ -485,9 +485,9 @@ theorem new_fwd {g : Goal} (h : g ∈ newOf tsA (reqsOf P d tsA)) :
     obtain ⟨tA, htA, hT⟩ := R.bwd t ht
     have : tA.goal.same g = true :=
       same_of_KD_same (R.keyA tA htA) (isKey_reqs hg)
-        (Goal.same_trans (Goal.same_symm hT.1) (Goal.same_trans e hs))
+        (GoalOf.same_trans (GoalOf.same_symm hT.1) (GoalOf.same_trans e hs))
     rw [hfresh tA htA] at this; cases this
-  · exact ⟨g', hg', Goal.same_trans e hs⟩
+  · exact ⟨g', hg', GoalOf.same_trans e hs⟩
 
 theorem new_bwd {g' : Goal} (h : g' ∈ newOf tsB (reqsOf P.dual d tsB)) :
     ∃ g ∈ newOf tsA (reqsOf P d tsA), g'.same (KD g) = true := by
@@ -497,9 +497,9 @@ theorem new_bwd {g' : Goal} (h : g' ∈ newOf tsB (reqsOf P.dual d tsB)) :
   · exfalso
     obtain ⟨tB, htB, hT⟩ := R.fwd t ht
     have : tB.goal.same g' = true :=
-      Goal.same_trans hT.1 (Goal.same_trans (KD_same e) (Goal.same_symm hs))
+      GoalOf.same_trans hT.1 (GoalOf.same_trans (KD_same e) (GoalOf.same_symm hs))
     rw [hfresh tB htB] at this; cases this
-  · exact ⟨g, hg, Goal.same_trans hs (Goal.same_symm (KD_same e))⟩
+  · exact ⟨g, hg, GoalOf.same_trans hs (GoalOf.same_symm (KD_same e))⟩
 
 end Reqs
 
@@ -512,15 +512,15 @@ theorem mem_mkT {gs : List Goal} {t : Table} (h : t ∈ gs.map mkT) : ∃ g ∈ 
   obtain ⟨g, hg, rfl⟩ := List.mem_map.1 h
   exact ⟨g, hg, rfl⟩
 
-theorem mem_goals {ts ts' : Tables} (hg : ts'.map Table.goal = ts.map Table.goal) {t : Table}
+theorem mem_goals {ts ts' : Tables} (hg : ts'.map TableOf.goal = ts.map TableOf.goal) {t : Table}
     (ht : t ∈ ts') : ∃ t₀ ∈ ts, t₀.goal = t.goal := by
-  have : t.goal ∈ ts.map Table.goal := hg ▸ List.mem_map_of_mem ht
+  have : t.goal ∈ ts.map TableOf.goal := hg ▸ List.mem_map_of_mem ht
   exact List.mem_map.1 this
 
 /-- Old tables updated position by position, and new tables for keys that
 correspond, give corresponding tables. -/
 theorem tabsRel_extend {tsA tsB ts2A ts2B : Tables} (R : TabsRel tsA tsB)
-    (hgA : ts2A.map Table.goal = tsA.map Table.goal) (hgB : ts2B.map Table.goal = tsB.map Table.goal)
+    (hgA : ts2A.map TableOf.goal = tsA.map TableOf.goal) (hgB : ts2B.map TableOf.goal = tsB.map TableOf.goal)
     (hT : ∀ i j (hi : i < ts2A.length) (hj : j < ts2B.length), IR tsA tsB i j → TabRel ts2A[i] ts2B[j])
     {nA nB : List Goal} (kA : ∀ g ∈ nA, IsKey g) (kB : ∀ g ∈ nB, IsKey g)
     (pA : nA.Pairwise fun g h => g.same h = false) (pB : nB.Pairwise fun g h => g.same h = false)
@@ -530,7 +530,7 @@ theorem tabsRel_extend {tsA tsB ts2A ts2B : Tables} (R : TabsRel tsA tsB)
   have hlA : ts2A.length = tsA.length := by simpa using congrArg List.length hgA
   have hlB : ts2B.length = tsB.length := by simpa using congrArg List.length hgB
   have keys : ∀ {ts ts2 : Tables} {ns : List Goal}, (∀ t ∈ ts, IsKey t.goal) →
-      ts2.map Table.goal = ts.map Table.goal → (∀ g ∈ ns, IsKey g) →
+      ts2.map TableOf.goal = ts.map TableOf.goal → (∀ g ∈ ns, IsKey g) →
       ∀ t ∈ ts2 ++ ns.map mkT, IsKey t.goal := by
     intro ts ts2 ns k hg kn t ht
     rcases List.mem_append.1 ht with ht | ht
@@ -539,13 +539,13 @@ theorem tabsRel_extend {tsA tsB ts2A ts2B : Tables} (R : TabsRel tsA tsB)
     · obtain ⟨g, hg, rfl⟩ := mem_mkT ht
       exact kn g hg
   have nd : ∀ {ts ts2 : Tables} {ns : List Goal}, (ts.Pairwise fun t t' => t.goal.same t'.goal = false) →
-      ts2.map Table.goal = ts.map Table.goal → (ns.Pairwise fun g h => g.same h = false) →
+      ts2.map TableOf.goal = ts.map TableOf.goal → (ns.Pairwise fun g h => g.same h = false) →
       (∀ g ∈ ns, ∀ t ∈ ts, t.goal.same g = false) →
       (ts2 ++ ns.map mkT).Pairwise fun t t' => t.goal.same t'.goal = false := by
     intro ts ts2 ns n hg pn fn
     rw [List.pairwise_append]
     refine ⟨?_, ?_, fun t ht t' ht' => ?_⟩
-    · have h1 : (ts.map Table.goal).Pairwise (fun g h : Goal => g.same h = false) :=
+    · have h1 : (ts.map TableOf.goal).Pairwise (fun g h : Goal => g.same h = false) :=
         List.pairwise_map.2 n
       rw [← hg] at h1
       exact List.pairwise_map.1 h1
@@ -578,7 +578,7 @@ def mark (S : List Nat) (ts : Tables) : Tables :=
   ts.mapIdx fun i t => if S.contains i then { t with done := true } else t
 
 theorem mark_goals (S : List Nat) (P : Program) (d : Nat) (ts : Tables) :
-    (mark S (ts.map (upd P d ts))).map Table.goal = ts.map Table.goal := by
+    (mark S (ts.map (upd P d ts))).map TableOf.goal = ts.map TableOf.goal := by
   apply List.ext_getElem (by simp [mark])
   intro i h₁ h₂
   simp only [mark, List.getElem_map, List.getElem_mapIdx]
@@ -619,7 +619,7 @@ structure StRel (P : Program) (stA stB : State) : Prop where
 theorem StRel.finished {P : Program} {stA stB : State} (h : StRel P stA stB) :
     stB.finished = stA.finished := by
   have hh := h.head
-  unfold State.finished
+  unfold StateOf.finished
   revert hh
   cases stA.tables.head? <;> cases stB.tables.head? <;> intro hh
   · rfl

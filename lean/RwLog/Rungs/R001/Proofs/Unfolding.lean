@@ -8,7 +8,7 @@ goal's expression is final (`unfoldFinal`). Three facts about that test:
   more replaces calls by bodies; a product without calls is left as it is, and
   a product that fused to nothing still fuses to nothing, because the spans at
   the ends of a product only get composed with more (`E`).
-* `unfoldFinal_same`: goals that share a table (`Goal.same`) are final at the
+* `unfoldFinal_same`: goals that share a table (`GoalOf.same`) are final at the
   same depths.
 * `roundFinal_key`: a query and its table key are final at the same depths.
 -/
@@ -159,7 +159,7 @@ theorem join_last {A B A₀ : List Rel} {x y z : Rel} {p : List Rel}
     · have : (A ++ [x]) ++ [y] = A₀ ++ [z] := by simpa using hp
       obtain ⟨-, rfl⟩ := concat_inj this
       exact .inl ⟨[], rfl⟩
-    · have : A ++ [Rel.span c] = A₀ ++ [z] := by simpa using hp
+    · have : A ++ [RelOf.span c] = A₀ ++ [z] := by simpa using hp
       obtain ⟨-, rfl⟩ := concat_inj this
       exact .inr ⟨a, b, c, rfl, rfl, rfl, rfl, hc⟩
   · obtain ⟨B₁, w, rfl⟩ := exists_concat hB
@@ -285,11 +285,11 @@ theorem mkAnd_E {pa pb pa' pb' p' : List Rel} (Ea : E pa pa') (Eb : E pb pb')
   · refine ⟨_, mkAnd_other hs, ?_, ?_, ?_⟩
     · intro hcf
       have hc := hcf _ (List.mem_singleton_self _)
-      simp only [Rel.calls, List.append_eq_nil_iff] at hc
+      simp only [RelOf.calls, List.append_eq_nil_iff] at hc
       rw [Ea.same ((calls_toRel pa).1 hc.1), Eb.same ((calls_toRel pb).1 hc.2), mkAnd_other hs] at h
       exact (Option.some.inj h).symm
     · intro A x hx
-      have : ([] : List Rel) ++ [Rel.and (toRel pa) (toRel pb)] = A ++ [x] := hx
+      have : ([] : List Rel) ++ [RelOf.and (toRel pa) (toRel pb)] = A ++ [x] := hx
       obtain ⟨-, rfl⟩ := concat_inj this
       obtain ⟨P', z', e⟩ := exists_concat (mkAnd_ne_nil h)
       exact ⟨P', z', e, fun a ha => by cases ha⟩
@@ -351,9 +351,9 @@ theorem unfold_E : ∀ (neg : Bool) (e : Rel), ∀ p' ∈ norm neg (unfold P e),
     refine ⟨_, by simp only [norm]; exact List.mem_singleton_self _, ?_, ?_, ?_⟩
     · intro hcf
       have := hcf _ (List.mem_singleton_self _)
-      cases neg <;> simp [Rel.calls] at this
+      cases neg <;> simp [RelOf.calls] at this
     · intro A x hx
-      have hx' : ([] : List Rel) ++ [if neg then Rel.conv (.call n) else .call n] = A ++ [x] := hx
+      have hx' : ([] : List Rel) ++ [if neg then RelOf.conv (.call n) else .call n] = A ++ [x] := hx
       obtain ⟨-, rfl⟩ := concat_inj hx'
       obtain ⟨P', z', e⟩ := exists_concat (norm_ne_nil _ _ _ hp')
       exact ⟨P', z', e, fun a ha => by cases neg <;> simp at ha⟩
@@ -394,9 +394,9 @@ theorem final_mono {q : Rel} {k : Nat} (h : roundFinal P q k = true) :
 theorem mk_rel {g h : Goal} (hs : g.same h = true) : Mk false P P g.rel h.rel := by
   obtain ⟨glb, ge, grb⟩ := g
   obtain ⟨hlb, he, hrb⟩ := h
-  simp only [Goal.same, Bool.and_eq_true, decide_eq_true_eq] at hs
+  simp only [GoalOf.same, Bool.and_eq_true, decide_eq_true_eq] at hs
   obtain ⟨⟨rfl, hl⟩, hr⟩ := hs
-  have core : Mk false P P (Goal.rel ⟨none, ge, grb⟩) (Goal.rel ⟨none, ge, hrb⟩) := by
+  have core : Mk false P P (GoalOf.rel ⟨none, ge, grb⟩) (GoalOf.rel ⟨none, ge, hrb⟩) := by
     cases grb with
     | none => cases hrb with
       | none => exact Mk.refl _
@@ -425,7 +425,7 @@ theorem unfoldFinal_mono {g : Goal} {d : Nat} (h : unfoldFinal P d g = true) :
 /-! ## The table key of a query -/
 
 theorem strip_root : ∀ (e : Rel) (k : Nat),
-    ∃ e₀, (Goal.stripConv ⟨none, e, none⟩).2 = ⟨none, e₀, none⟩ ∧
+    ∃ e₀, (GoalOf.stripConv ⟨none, e, none⟩).2 = ⟨none, e₀, none⟩ ∧
       roundFinal P e₀ k = roundFinal P e k
   | .conv a, k => by
     rw [Tier0.strip_conv]
@@ -440,9 +440,9 @@ theorem strip_root : ∀ (e : Rel) (k : Nat),
 
 /-- A query and its table key are final at the same depths. -/
 theorem unfoldFinal_key (q : Rel) (k : Nat) :
-    unfoldFinal P k (Goal.norm ⟨none, q, none⟩).2 = roundFinal P q k := by
+    unfoldFinal P k (GoalOf.norm ⟨none, q, none⟩).2 = roundFinal P q k := by
   obtain ⟨e₀, h1, h2⟩ := strip_root P (canon q) k
-  have hn : (Goal.norm ⟨none, q, none⟩).2 = ⟨none, e₀, none⟩ := h1
+  have hn : (GoalOf.norm ⟨none, q, none⟩).2 = ⟨none, e₀, none⟩ := h1
   rw [hn]
   show roundFinal P e₀ k = _
   rw [h2]

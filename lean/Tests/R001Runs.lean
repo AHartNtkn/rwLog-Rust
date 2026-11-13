@@ -318,7 +318,7 @@ def splitP : Program := prog [("nat", nat), ("upr", upr),
 
 #guard traceR001 loopNat (.or (.call "nat") (.rw (c "a") (c "b"))) 12 ==
   traceR001 loopNat (.or (.rw (c "a") (c "b")) (.call "nat")) 12
-#guard traceR001 addP.dual (Rel.dual (.seq (.call "add") (.at_ (num 2)))) 30 ==
+#guard traceR001 addP.dual (RelOf.dual (.seq (.call "add") (.at_ (num 2)))) 30 ==
   (R001.runtime.trace (R001.runtime.init addP (.seq (.call "add") (.at_ (num 2)))) 30).map
     (·.map fun a => showSpan a.swap)
 

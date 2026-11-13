@@ -7,6 +7,7 @@ same name, the charged unfolding and normalizer give rung zero's, and so
 -/
 import RwLog.Rungs.R002.Spec
 import RwLog.Rungs.Framework.Cost
+import RwLog.Rungs.R002.Proofs.Closed
 
 namespace RwLog
 
@@ -75,9 +76,8 @@ theorem norm_val (neg : Bool) (e : Rel) : (norm neg e).val = R000.norm neg e := 
 end Eager
 
 /-- The answers of a final unfolding, with the ticks forgotten. -/
-theorem answers_val (T : Theory) (ps : List (List Rel)) :
-    (flatMapL (Tabled.live T) (ps.flatMap fun p => R000.derivs (toRel p))).val =
-      (ps.flatMap fun p => R000.derivs (toRel p)).flatMap (RwLog.live T) := by
+theorem answers_val (T : Theory) (xs : List Span) :
+    (flatMapL (Tabled.live T) xs).val = xs.flatMap (RwLog.live T) := by
   rw [flatMapL_val]; rfl
 
 /-- The eager unfolder computes R001's unfolding race. -/
@@ -88,7 +88,7 @@ theorem eager_exact : Obligation.eager_exact := by
   unfold R001.unfoldAnswers R001.unfoldFinal R000.roundFinal R000.roundSpans R000.products
   split
   · rename_i h
-    simp only [bind_val, pure_val, answers_val, h]
+    simp only [bind_val, pure_val, answers_val, h, closed_eq_derivs _ _ h]
   · rename_i h
     simp only [pure_val, h]
 

@@ -24,7 +24,7 @@ def traceR002 (P : Program) (q : Rel) (fuel : Nat) : List (List String) :=
   (R002.runtime.trace (R002.runtime.init P q) fuel).map (·.map showSpan)
 
 /-- The number of steps taken within the fuel, whether the machine halted,
-and the ticks spent. -/
+and the ticks paid: for the first state and for the steps. -/
 def costOf (C : CostedRuntime) (P : Program) (q : Rel) (fuel : Nat) : Nat × Bool × Nat :=
   let rec go (s : C.State) : Nat → Nat → Nat → Nat × Bool × Nat
     | 0, i, acc => (i, false, acc)
@@ -33,7 +33,7 @@ def costOf (C : CostedRuntime) (P : Program) (q : Rel) (fuel : Nat) : Nat × Boo
       match r.val with
       | .done => (i, true, acc + r.ticks)
       | .emit _ s' => go s' f (i + 1) (acc + r.ticks)
-  go (C.start P q) fuel 0 0
+  go (C.start P q) fuel 0 (C.init P q).ticks
 
 /-! ## The same run as R001 -/
 
@@ -114,16 +114,16 @@ def raceGoals : List (Program × R001.Goal) := [
      (R002.onDemand pathP d ⟨none, .call "path", none⟩).ticks)) ==
   [(1, 1), (8, 6), (38, 23), (270, 58), (8366, 103)]
 
--- The whole run of `path`: R002 halts after 7 rounds having spent 4091 ticks.
+-- The whole run of `path`: R002 halts after 7 rounds having paid 4092 ticks.
 -- R001 takes the same steps, and has spent over thirteen million ticks after
 -- 5 of them.
-#guard costOf R002.costed pathP (.call "path") 40 == (7, true, 4091)
-#guard costOf R002.baseline pathP (.call "path") 5 == (5, false, 13393269)
+#guard costOf R002.costed pathP (.call "path") 40 == (7, true, 4092)
+#guard costOf R002.baseline pathP (.call "path") 5 == (5, false, 13393270)
 
 -- Two recursive calls driven by an input: `@3 ; halve`.
 #guard runR002 halveP (.seq (.at_ (num 3)) (.call "halve")) 12 == (["(s (s (s z))) -> z"], true)
-#guard costOf R002.costed halveP (.seq (.at_ (num 3)) (.call "halve")) 12 == (6, true, 30483)
-#guard costOf R002.baseline halveP (.seq (.at_ (num 3)) (.call "halve")) 5 == (5, false, 437910)
+#guard costOf R002.costed halveP (.seq (.at_ (num 3)) (.call "halve")) 12 == (6, true, 28610)
+#guard costOf R002.baseline halveP (.seq (.at_ (num 3)) (.call "halve")) 5 == (5, false, 437199)
 
 -- The separating family: both machines halt after `k + 4` rounds; R002 within
 -- the bound of `separates`, R001 having paid at least `2 ^ k`.
@@ -132,9 +132,9 @@ def raceGoals : List (Program × R001.Goal) := [
   let r := costOf R002.costed (R002.sepFam k).1 (R002.sepFam k).2 100
   let b := costOf R002.baseline (R002.sepFam k).1 (R002.sepFam k).2 100
   r.1 == k + 4 && r.2.1 && b.1 == k + 4 && b.2.1 && r.2.2 ≤ 500 * (k + 5) ^ 4 && 2 ^ k ≤ b.2.2
-#guard (costOf R002.costed (R002.sepFam 8).1 (R002.sepFam 8).2 100).2.2 == 3421
-#guard (costOf R002.baseline (R002.sepFam 8).1 (R002.sepFam 8).2 100).2.2 == 19822
+#guard (costOf R002.costed (R002.sepFam 8).1 (R002.sepFam 8).2 100).2.2 == 3424
+#guard (costOf R002.baseline (R002.sepFam 8).1 (R002.sepFam 8).2 100).2.2 == 19825
 -- The cost on the family is quartic in `k`, not cubic.
-#guard (costOf R002.costed (R002.sepFam 100).1 (R002.sepFam 100).2 200).2.2 == 2036552
+#guard (costOf R002.costed (R002.sepFam 100).1 (R002.sepFam 100).2 200).2.2 == 2036555
 
 end RwLog.Tests

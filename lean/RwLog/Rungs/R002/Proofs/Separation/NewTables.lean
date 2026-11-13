@@ -157,16 +157,16 @@ theorem collect_costs (k d : Nat) : ∀ (rs l : List Slot),
         ((sstep (slots k d) l r).map (goal k)) (6 * (slots k d).length + 6 * l.length) := by
       have h1 := Costs.anyL (xs := tabs k d) (c := 6)
         (f := fun t : Table => Tabled.same t.goal (goal k r)) (g := fun t => t.goal.same (goal k r))
-        fun t ht => same_costs k d (goalSize_goal k r) ht
+        fun t ht => same_costs k d r ht
       rw [any_same_tabs, tabs, List.length_map] at h1
       have h2 := Costs.anyL (xs := l.map (goal k)) (c := 6)
         (f := fun h => Tabled.same h (goal k r)) (g := fun h => h.same (goal k r))
         (by
           intro h hh
           obtain ⟨x, _, rfl⟩ := List.mem_map.1 hh
-          refine ⟨rfl, ?_⟩
+          refine ⟨Tabled.same_val _ _, ?_⟩
           have := goalSize_goal k x; have := goalSize_goal k r
-          show goalSize (goal k x) + goalSize (goal k r) ≤ 6
+          rw [Tabled.same_ticks_of_none (goal_open k x) (goal_open k r)]
           omega)
       rw [any_same_map, List.length_map] at h2
       refine Costs.mono (c := (slots k d).length * 6 + (l.length * 6 + 0)) ?_ (by omega)

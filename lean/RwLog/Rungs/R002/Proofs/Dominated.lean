@@ -102,13 +102,13 @@ theorem SB_mono {S S' : Nat} (h : S ≤ S') : ∀ e : Rel, SB S e → SB S' e
 theorem SB_size : ∀ e : Rel, SB e.size e
   | .zero => trivial
   | .span s => Nat.le_add_left _ _
-  | .or a b => ⟨SB_mono (by simp only [Rel.size]; omega) a (SB_size a),
-      SB_mono (by simp only [Rel.size]; omega) b (SB_size b)⟩
-  | .and a b => ⟨SB_mono (by simp only [Rel.size]; omega) a (SB_size a),
-      SB_mono (by simp only [Rel.size]; omega) b (SB_size b)⟩
-  | .seq a b => ⟨SB_mono (by simp only [Rel.size]; omega) a (SB_size a),
-      SB_mono (by simp only [Rel.size]; omega) b (SB_size b)⟩
-  | .conv a => SB_mono (by simp only [Rel.size]; omega) a (SB_size a)
+  | .or a b => ⟨SB_mono (by simp only [RelOf.size]; omega) a (SB_size a),
+      SB_mono (by simp only [RelOf.size]; omega) b (SB_size b)⟩
+  | .and a b => ⟨SB_mono (by simp only [RelOf.size]; omega) a (SB_size a),
+      SB_mono (by simp only [RelOf.size]; omega) b (SB_size b)⟩
+  | .seq a b => ⟨SB_mono (by simp only [RelOf.size]; omega) a (SB_size a),
+      SB_mono (by simp only [RelOf.size]; omega) b (SB_size b)⟩
+  | .conv a => SB_mono (by simp only [RelOf.size]; omega) a (SB_size a)
   | .call _ => trivial
 
 theorem lookup_size (n : Name) (b : Rel) : ∀ defs : List (Name × Rel), defs.lookup n = some b →
@@ -123,14 +123,12 @@ theorem lookup_size (n : Name) (b : Rel) : ∀ defs : List (Name × Rel), defs.l
       omega
 
 theorem SB_body (P : Program) (n : Name) : SB P.size (P.body n) := by
-  unfold Program.body
+  unfold ProgramOf.body
   cases h : P.defs.lookup n with
   | none => trivial
   | some b =>
     refine SB_mono ?_ b (SB_size b)
-    have := lookup_size n b P.defs h
-    unfold Program.size
-    omega
+    exact Nat.le_trans (lookup_size n b P.defs h) (Nat.le_add_right _ _)
 
 theorem SB_goal (g : R001.Goal) : SB (goalSize g) g.rel := by
   obtain ⟨lb, e, rb⟩ := g
@@ -324,11 +322,11 @@ theorem walk_spec (P : Program) (S : Nat) (hP : ∀ n, SB S (P.body n)) :
 
 /-- What the answers of a list of products cost. -/
 def liveCost (T : Theory) (acc : List (List Rel)) : Nat :=
-  (flatMapL (Tabled.live T) (acc.flatMap fun p => R000.derivs (toRel p))).ticks
+  (flatMapL (Tabled.live T) (closed acc)).ticks
 
 theorem liveCost_append (T : Theory) (xs ys : List (List Rel)) :
     liveCost T (xs ++ ys) = liveCost T xs + liveCost T ys := by
-  simp only [liveCost, flatMapL_ticks, List.flatMap_append, List.map_append, List.sum_append]
+  simp only [liveCost, flatMapL_ticks, closed_append, List.map_append, List.sum_append]
 
 theorem liveCost_eq_sum (T : Theory) (xs : List (List Rel)) :
     liveCost T xs = (xs.map fun p => liveCost T [p]).sum := by

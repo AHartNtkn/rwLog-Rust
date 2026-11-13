@@ -101,12 +101,15 @@ theorem simulates : Obligation.simulates := by
   refine Simulates.of_steps fun P q _ n => ?_
   have hc : costed.runtime = R001.runtime := runtime_eq
   have hb : R003.costed.runtime = R001.runtime := R003.runtime_eq
-  have hp : costed.paid P q n = costed.spent (R001.State.ofGoal P ⟨none, q, none⟩) n :=
+  have hp : costed.paid P q n = q.size + costed.spent (R001.StateOf.ofGoal P ⟨none, q, none⟩) n :=
     Tabled.paid_eq unfolder P q n
   have hp' : R003.costed.paid P q n =
-      R003.costed.spent (R001.State.ofGoal P ⟨none, q, none⟩) n :=
+      q.size + R003.costed.spent (R001.StateOf.ofGoal P ⟨none, q, none⟩) n :=
     Tabled.paid_eq R003.unfolder P q n
-  refine ⟨n, by rw [hp, hp']; exact spent_le n _, ?_, ?_⟩
+  refine ⟨n, by
+    rw [hp, hp']
+    have := spent_le n (R001.StateOf.ofGoal P ⟨none, q, none⟩)
+    omega, ?_, ?_⟩
   · show ∀ a ∈ R003.costed.runtime.emitted (R003.costed.runtime.init P q) n,
       ∃ b ∈ costed.runtime.emitted (costed.runtime.init P q) n, b.CoversLive P.theory a
     rw [hc, hb]

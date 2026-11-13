@@ -185,10 +185,10 @@ theorem pruned_exact : Obligation.pruned_exact := by
     have hsnd : (walkR P d false g.rel [] collect []).val.2 =
         (WR false (unfoldN P d g.rel) []).reverse.flatMap found := by
       rw [walkR_val, run_collect_snd _ _ hall, List.append_nil]
-    have hspans : ((sort (walkR P d false g.rel [] collect []).val.2).val.flatMap fun y =>
-        derivs (toRel y.2)) = R000.roundSpans P g.rel d := by
-      rw [hsnd, sort_val, sort_found, R000.roundSpans, R000.products, ← found_products,
-        List.flatMap_map]
+    have hspans : R002.closed ((sort (walkR P d false g.rel [] collect []).val.2).val.map
+        Prod.snd) = R000.roundSpans P g.rel d := by
+      rw [hsnd, sort_val, sort_found, found_products]
+      exact R002.closed_eq_derivs _ _ hf
     simp only [hfst, Bool.not_true, Bool.false_eq_true, ↓reduceIte, bind_val, pure_val,
       flatMapL_val, Tabled.live_val, R003.foldSpan_val, Prod.mk.injEq, true_and]
     rw [hspans, ← firsts_eq_eraseDups]

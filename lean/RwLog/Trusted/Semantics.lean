@@ -96,23 +96,23 @@ theorem denoteAt_mono (M : Interp) {ρ ρ' : Name → PRel} (h : ρ ≤ ρ') :
   | .call n => h n
 
 /-- One unfolding of every definition of the program, in `M`. -/
-def Program.stepAt (P : Program) (M : Interp) : (Name → PRel) →o (Name → PRel) where
+def ProgramOf.stepAt (P : Program) (M : Interp) : (Name → PRel) →o (Name → PRel) where
   toFun ρ n := denoteAt M ρ (P.body n)
   monotone' _ _ h n := denoteAt_mono M h (P.body n)
 
 /-- The meaning of every name in `M`: the least fixpoint. -/
-def Program.meaningAt (P : Program) (M : Interp) : Name → PRel := OrderHom.lfp (P.stepAt M)
+def ProgramOf.meaningAt (P : Program) (M : Interp) : Name → PRel := OrderHom.lfp (P.stepAt M)
 
 /-- The meaning of an expression in a program, in `M`. -/
-def Program.semAt (P : Program) (M : Interp) (e : Rel) : PRel := denoteAt M (P.meaningAt M) e
+def ProgramOf.semAt (P : Program) (M : Interp) (e : Rel) : PRel := denoteAt M (P.meaningAt M) e
 
-theorem Program.meaningAt_eq (P : Program) (M : Interp) (n : Name) :
+theorem ProgramOf.meaningAt_eq (P : Program) (M : Interp) (n : Name) :
     P.meaningAt M n = denoteAt M (P.meaningAt M) (P.body n) := by
   have := OrderHom.map_lfp (P.stepAt M)
   exact (congrFun this n).symm
 
 /-- The observable relation: the pairs some model of the theory relates. -/
-def Program.obs (P : Program) (e : Rel) : PRel :=
+def ProgramOf.obs (P : Program) (e : Rel) : PRel :=
   {p | ∃ M, P.theory.Model M ∧ p ∈ P.semAt M e}
 
 /-! ## Equivalence -/
@@ -127,7 +127,7 @@ theorem MEquiv.obs_eq {P P' : Program} {e e' : Rel} (ht : P'.theory = P.theory)
     (h : MEquiv P.theory (fun M => P'.semAt M e') (fun M => P.semAt M e)) :
     P'.obs e' = P.obs e := by
   ext p
-  simp only [Program.obs, Set.mem_ofPred_eq, ht]
+  simp only [ProgramOf.obs, Set.mem_ofPred_eq, ht]
   constructor
   · rintro ⟨M, hM, hp⟩
     have := h M hM; simp only at this; exact ⟨M, hM, this ▸ hp⟩

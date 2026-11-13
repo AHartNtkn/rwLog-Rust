@@ -122,7 +122,7 @@ theorem answersOf_iter (st : State) {k k' : Nat} (hk : k ≤ k') {d : Goal} {a :
 /-! ## The root -/
 
 /-- The answers of the root table. -/
-def rootAns (st : State) : List Span := (st.tables.head?.map Table.answers).getD []
+def rootAns (st : State) : List Span := (st.tables.head?.map TableOf.answers).getD []
 
 theorem round_emit (st : State) (t₀ : Table) (rest : Tables) (h : st.tables = t₀ :: rest) :
     (round st).2 = orient st.rootFlip (fresh t₀.answers (outOf st t₀).1) ∧

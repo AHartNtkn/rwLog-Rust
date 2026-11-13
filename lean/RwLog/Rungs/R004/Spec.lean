@@ -43,6 +43,7 @@ R004 is judged against R003 by cost (`Trusted/Cost.lean`).
 import RwLog.Rungs.R003.Engine
 import RwLog.Trusted.Properties
 import RwLog.Rungs.R004.Engine
+import RwLog.Rungs.R004.Gen
 
 namespace RwLog
 
@@ -133,10 +134,14 @@ def bounds : Bounds := ⟨7, 1, 24, 1, 2000, 1⟩
 `sepFam` and the pair `(a, a)`. -/
 def improves : Prop := Improves R003.costed costed bounds sepFam fun _ => sepTarget
 
+/-- The machine these obligations are about is an engine at the kernel of the
+language: `costed` is what `engine` computes there. -/
+def costed_engine : Prop := engine.costed = costed
+
 /-- The admission of the rung: R004 above R003, neither with any
 preprocessing, so preprocessing is recorded to cost nothing. -/
 def admits : Prop :=
-  Admits ⟨Preprocessor.id, R003.costed⟩ ⟨Preprocessor.id, costed⟩ bounds (fun _ => 0) sepFam
+  Admits ⟨Preprocessor.id, R003.engine⟩ ⟨Preprocessor.id, engine⟩ bounds (fun _ => 0) sepFam
     fun _ => sepTarget
 
 end Obligation

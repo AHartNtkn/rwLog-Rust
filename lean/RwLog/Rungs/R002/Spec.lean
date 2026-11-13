@@ -36,6 +36,7 @@ and cost exponentially less on a family of inputs.
   (`separates_exhaustion`).
 -/
 import RwLog.Rungs.R002.Engine
+import RwLog.Rungs.R002.Gen
 import RwLog.Trusted.Properties
 
 namespace RwLog
@@ -143,10 +144,17 @@ def bounds : Bounds := ⟨40, 6, 11, 1, 312500, 4⟩
 `sepFam` and the pair `(z, z)`. -/
 def improves : Prop := Improves baseline costed bounds sepFam fun _ => sepTarget
 
-/-- The admission of the rung: R002 above R001, neither with any
-preprocessing, so preprocessing is recorded to cost nothing. -/
+/-- The machines these obligations are about are engines at the kernel of the
+language: `baseline` is what `baselineEngine` computes there, and `costed` is
+what `engine` computes there. -/
+def baseline_engine : Prop := baselineEngine.costed = baseline
+def costed_engine : Prop := engine.costed = costed
+
+/-- The admission of the rung: the engine of R002 above the engine of R001,
+neither with any preprocessing, so preprocessing is recorded to cost
+nothing. -/
 def admits : Prop :=
-  Admits ⟨Preprocessor.id, baseline⟩ ⟨Preprocessor.id, costed⟩ bounds (fun _ => 0) sepFam
+  Admits ⟨Preprocessor.id, baselineEngine⟩ ⟨Preprocessor.id, engine⟩ bounds (fun _ => 0) sepFam
     fun _ => sepTarget
 
 end Obligation

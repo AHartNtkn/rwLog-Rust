@@ -5,7 +5,7 @@ The conformance cases from the Rust interpreter review
 (`conformance/rust-interpreter-findings.md`, cases 2 and 4) that involve
 constraints, stated per model where the answer is a family over models
 (`c4_pin_at`, `c4_pinKeep_at`), and through the display projection
-`Program.obs` (the pairs some model relates) where a pair is ruled out in
+`ProgramOf.obs` (the pairs some model relates) where a pair is ruled out in
 every model or kept in an intended one. They check that the
 specification itself gives the intended answers, independently of any engine:
 

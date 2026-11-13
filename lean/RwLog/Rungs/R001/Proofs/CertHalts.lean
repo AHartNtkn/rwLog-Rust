@@ -78,11 +78,11 @@ theorem indexOf_same (ts : Tables) {g h : Goal} (hs : g.same h = true) :
   congr 1
   funext t
   cases h1 : t.goal.same g with
-  | true => exact (Goal.same_trans h1 hs).symm
+  | true => exact (GoalOf.same_trans h1 hs).symm
   | false =>
     cases h2 : t.goal.same h with
     | false => rfl
-    | true => rw [Goal.same_trans h2 (Goal.same_symm hs)] at h1; cases h1
+    | true => rw [GoalOf.same_trans h2 (GoalOf.same_symm hs)] at h1; cases h1
 
 theorem iter_depth (st : State) : ∀ k, (iter st k).depth = st.depth + k
   | 0 => rfl
@@ -171,7 +171,7 @@ def depOK (s : State) (X : List Nat) (g : Goal) : Bool :=
 
 theorem same_mk {lb lb' rb rb' : Option Span} (e : Rel) (hl : boundEq lb lb' = true)
     (hr : boundEq rb rb' = true) : (⟨lb, e, rb⟩ : Goal).same ⟨lb', e, rb'⟩ = true :=
-  Goal.same_iff.2 ⟨rfl, hl, hr⟩
+  GoalOf.same_iff.2 ⟨rfl, hl, hr⟩
 
 /-- A table whose goal equals a listed goal has, among its strategies, the
 one the certificate names, provided the goals it reads pass the test when
@@ -190,7 +190,7 @@ theorem strat_ok {P : Program} {C : List CertEntry} (s : State) (hP : s.P = P) (
   subst hP
   obtain ⟨lb, ex, rb⟩ := tg
   obtain ⟨lb', ex', rb'⟩ := eg
-  obtain ⟨he, hl, hr⟩ := Goal.same_iff.1 hs
+  obtain ⟨he, hl, hr⟩ := GoalOf.same_iff.1 hs
   simp only at he hl hr
   subst he
   obtain ⟨st, hst, hall⟩ := hst
@@ -407,7 +407,7 @@ theorem closed_complete {s : State} (hP : s.P = P) (hI : XInv P s.tables) (r : N
         depOK s (openAt C s.tables r) g = true := by
       rintro g hg ge hsg ⟨e', he', h1, h2⟩
       have hs' : e'.goal.same g.norm.2 = true :=
-        Goal.same_trans h1 (Goal.same_symm (Symmetry.norm_same hsg).2)
+        GoalOf.same_trans h1 (GoalOf.same_symm (Symmetry.norm_same hsg).2)
       obtain ⟨j, hlt, hj1, hj2⟩ := dep_index hex hj hd hg he' hs'
       simp only [depOK, hj1]
       rw [gained_false hlt (hng e' he' j hlt hj2)]
@@ -422,7 +422,7 @@ theorem closed_complete {s : State} (hP : s.P = P) (hI : XInv P s.tables) (r : N
           ∀ x' ∈ maxima (answersOf s.tables g), ∃ x ∈ maxima (certCover C ge), x'.Equiv x := by
       rintro g hg ge hsg ⟨e', he', h1, h2⟩
       have hn := Symmetry.norm_same hsg
-      have hs' : e'.goal.same g.norm.2 = true := Goal.same_trans h1 (Goal.same_symm hn.2)
+      have hs' : e'.goal.same g.norm.2 = true := GoalOf.same_trans h1 (GoalOf.same_symm hn.2)
       obtain ⟨j, hlt, hj1, hj2⟩ := dep_index hex hj hd hg he' hs'
       have hdj := hlow e' he' h2 j hlt hj2
       refine ⟨by rw [doneOf_of_index hj1 hlt]; exact hdj, ?_⟩
@@ -433,7 +433,7 @@ theorem closed_complete {s : State} (hP : s.P = P) (hI : XInv P s.tables) (r : N
         have hs'' : e''.goal.same ge.norm.2 = true :=
           List.find?_some (p := fun e : CertEntry => e.goal.same ge.norm.2) hf
         have hj3 : indexOf s.tables e''.goal = some j := by
-          rw [indexOf_same _ (Goal.same_trans hs'' (Goal.same_symm hn.2))]; exact hj1
+          rw [indexOf_same _ (GoalOf.same_trans hs'' (GoalOf.same_symm hn.2))]; exact hj1
         have hcc : certCover C ge = orient ge.norm.1 e''.cover := by simp [certCover, hf]
         rw [hcc, answersOf_of_index hj1 hlt, hn.1]
         intro x' hx'
@@ -569,13 +569,13 @@ theorem halts_of_cert {P : Program} (hwf : ∀ ρ ∈ P.theory, ρ.WellFormed) {
   have hL := simpLaws_of_wf hwf
   rw [goalTerminates_iff, halts_iff_iter]
   obtain ⟨e, he, hs⟩ := hC.1
-  have hm0 : indexOf (State.ofGoal P root).tables e.goal = some 0 := by
-    simp [State.ofGoal, indexOf, Goal.same_symm hs]
-  obtain ⟨K, hK⟩ := ranks_complete hL hC (st := State.ofGoal P root) rfl (xinv_ofGoal hroot)
+  have hm0 : indexOf (StateOf.ofGoal P root).tables e.goal = some 0 := by
+    simp [StateOf.ofGoal, indexOf, GoalOf.same_symm hs]
+  obtain ⟨K, hK⟩ := ranks_complete hL hC (st := StateOf.ofGoal P root) rfl (xinv_ofGoal hroot)
     (e.rank + 1)
   obtain ⟨hj, hd⟩ := hK K le_rfl e he (Nat.lt_succ_self _) 0 (indexOf_iter _ (Nat.zero_le K) hm0)
   refine ⟨K, ?_⟩
-  simp [State.finished, List.head?_eq_getElem?, List.getElem?_eq_getElem hj, hd]
+  simp [StateOf.finished, List.head?_eq_getElem?, List.getElem?_eq_getElem hj, hd]
 
 end CertHalts
 

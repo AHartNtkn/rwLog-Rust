@@ -56,7 +56,7 @@ theorem walk_w (k : Nat) : ∀ (d : Nat) (acc : List (List Rel)),
     walk (prog k) d false (.call "w") [] [] topK acc = ⟨(true, acc), 2 * d + 1⟩
   | 0, acc => by
     rw [walk]
-    refine Cost.ext ?_ ?_ <;> simp [topK, toRel, Rel.calls]
+    refine Cost.ext ?_ ?_ <;> simp [topK, toRel, RelOf.calls]
   | d + 1, acc => by
     rw [walk, body_w, walk]
     refine Cost.ext ?_ ?_
@@ -80,16 +80,16 @@ theorem live_zz : Costs (Tabled.live [] zz) [zz] 3 := by
 /-! ## The race on each goal -/
 
 theorem topK_call (n : Name) (acc : List (List Rel)) : topK [.call n] acc = pure (true, acc) := by
-  simp [topK, toRel, Rel.calls]
+  simp [topK, toRel, RelOf.calls]
 
 theorem topK_span (s : Span) (acc : List (List Rel)) :
     topK [.span s] acc = pure (false, acc ++ [[.span s]]) := by
-  simp [topK, toRel, Rel.calls]
+  simp [topK, toRel, RelOf.calls]
 
 theorem onDemand_def (P : Program) (d : Nat) (g : Goal) :
     onDemand P d g = (walk P d false g.rel [] [] topK [] >>= fun r =>
       if r.1 then pure (false, []) else
-        flatMapL (Tabled.live P.theory) (r.2.flatMap fun p => derivs (toRel p)) >>= fun xs =>
+        flatMapL (Tabled.live P.theory) (closed r.2) >>= fun xs =>
           pure (true, xs)) := rfl
 
 theorem live_zz_val : (Tabled.live [] zz).val = [zz] := live_zz.1
@@ -120,8 +120,8 @@ theorem race_chain (k d j : Nat) (hj : j ≤ k) :
     have ht := live_zz_ticks
     simp only [h, h', ↓reduceIte, topK_span, List.nil_append]
     refine ⟨?_, ?_⟩
-    · simp [toRel, derivs, live_zz_val]
-    · simp [toRel, derivs, flatMapL]; omega
+    · simp [closed, single, live_zz_val]
+    · simp [closed, single, flatMapL]; omega
 
 theorem race_w (k d : Nat) : Costs (onDemand (prog k) d gW) (false, []) (2 * d + k + 5) := by
   have hrel : gW.rel = .call "w" := rfl
@@ -133,8 +133,8 @@ theorem race_z (k d : Nat) : Costs (onDemand (prog k) d gZ) (true, [zz]) (2 * d 
   have ht := live_zz_ticks
   rw [onDemand_def, hrel, walk]
   refine ⟨?_, ?_⟩
-  · simp [alive, aliveL, aliveR, topK_span, toRel, derivs, live_zz_val]
-  · simp [alive, aliveL, aliveR, topK_span, toRel, derivs, flatMapL]; omega
+  · simp [alive, aliveL, aliveR, topK_span, closed, single, live_zz_val]
+  · simp [alive, aliveL, aliveR, topK_span, closed, single, flatMapL]; omega
 
 /-- The race on the goal of every table of the run. -/
 theorem race (k d : Nat) (s : Slot) (hs : s.inAt k d) :

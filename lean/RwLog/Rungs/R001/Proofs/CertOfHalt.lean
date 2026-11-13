@@ -155,7 +155,7 @@ def Listed (C : List CertEntry) (ρ : Nat) (d : Goal) (fl : Bool) : Prop :=
 theorem Listed.same {C : List CertEntry} {ρ : Nat} {d d' : Goal} {fl : Bool}
     (h : Listed C ρ d fl) (hs : d.same d' = true) : Listed C ρ d' fl := by
   obtain ⟨e', he', h1, h2⟩ := h
-  exact ⟨e', he', Goal.same_trans h1 (Symmetry.norm_same hs).2, h2⟩
+  exact ⟨e', he', GoalOf.same_trans h1 (Symmetry.norm_same hs).2, h2⟩
 
 theorem strat_cert {P : Program} {C : List CertEntry} (ts : Tables) (ρ : Nat) (g : Goal)
     (M : Goal → Prop) (hf : ∀ d, M d → Listed C ρ d false)
@@ -427,7 +427,7 @@ theorem cert_valid {st : State} (hL : SimpLaws st.P.theory) (hI : XInv st.P st.t
             obtain ⟨j', hj', hd', rfl⟩ := mem_certOf.1 he''
             have htj' := List.getElem_mem hj'
             have hss : (iter st k).tables[j].goal.same (iter st K).tables[j'].goal = true :=
-              Goal.same_trans hsame (Goal.same_symm hs'')
+              GoalOf.same_trans hsame (GoalOf.same_symm hs'')
             have hcc : certCover (certOf st K) L =
                 orient L.norm.1 (coverOf st.P (iter st K).tables[j']) := by
               simp [certCover, hf]
@@ -437,7 +437,7 @@ theorem cert_valid {st : State} (hL : SimpLaws st.P.theory) (hI : XInv st.P st.t
             · obtain ⟨a'', ha'', h1⟩ := coverOf_back hL hIK htj' hd' f hf'
               obtain ⟨a, ha, h2⟩ := done_mutual hIk hIK htj htj' hdn hss a'' ha''
               exact ⟨a, ha, h2.trans h1⟩
-            · obtain ⟨a'', ha'', h1⟩ := done_mutual hIK hIk htj' htj hd' (Goal.same_symm hss) a ha
+            · obtain ⟨a'', ha'', h1⟩ := done_mutual hIK hIk htj' htj hd' (GoalOf.same_symm hss) a ha
               obtain ⟨f, hf', h2⟩ := (coverOf_spec hL hIK htj').2 a'' ha''
               exact ⟨f, hf', h2.trans h1⟩
       · intro d hd
@@ -450,21 +450,21 @@ theorem cert_of_halts {P : Program} (hwf : ∀ ρ ∈ P.theory, ρ.WellFormed) {
   have hL := simpLaws_of_wf hwf
   rw [goalTerminates_iff, halts_iff_iter] at h
   obtain ⟨K, hK⟩ := h
-  have hne := iter_ne_nil (st := State.ofGoal P root) (by simp [State.ofGoal]) K
-  have h0lt : 0 < (iter (State.ofGoal P root) K).tables.length := List.length_pos_iff.2 hne
-  have hd0 : (iter (State.ofGoal P root) K).tables[0].done = true := by
-    simpa [State.finished, List.head?_eq_getElem?, List.getElem?_eq_getElem h0lt] using hK
-  have h0 : ∀ i, doneAt (State.ofGoal P root) 0 i = false := by
+  have hne := iter_ne_nil (st := StateOf.ofGoal P root) (by simp [StateOf.ofGoal]) K
+  have h0lt : 0 < (iter (StateOf.ofGoal P root) K).tables.length := List.length_pos_iff.2 hne
+  have hd0 : (iter (StateOf.ofGoal P root) K).tables[0].done = true := by
+    simpa [StateOf.finished, List.head?_eq_getElem?, List.getElem?_eq_getElem h0lt] using hK
+  have h0 : ∀ i, doneAt (StateOf.ofGoal P root) 0 i = false := by
     intro i
-    cases i <;> simp [doneAt, iter, State.ofGoal]
-  obtain ⟨_, hext⟩ := iter_ext_le (State.ofGoal P root) (Nat.zero_le K) 0
-    (by simp [iter, State.ofGoal])
-  refine ⟨certOf (State.ofGoal P root) K, K, ⟨_, mem_certOf.2 ⟨0, h0lt, hd0, rfl⟩, ?_⟩, ?_⟩
-  · show (iter (State.ofGoal P root) K).tables[0].goal.same root.norm.2 = true
+    cases i <;> simp [doneAt, iter, StateOf.ofGoal]
+  obtain ⟨_, hext⟩ := iter_ext_le (StateOf.ofGoal P root) (Nat.zero_le K) 0
+    (by simp [iter, StateOf.ofGoal])
+  refine ⟨certOf (StateOf.ofGoal P root) K, K, ⟨_, mem_certOf.2 ⟨0, h0lt, hd0, rfl⟩, ?_⟩, ?_⟩
+  · show (iter (StateOf.ofGoal P root) K).tables[0].goal.same root.norm.2 = true
     rw [hext.1]
-    exact Goal.same_refl _
-  · have := cert_valid (st := State.ofGoal P root) hL (xinv_ofGoal hroot) h0 K
-    simpa [State.ofGoal] using this
+    exact GoalOf.same_refl _
+  · have := cert_valid (st := StateOf.ofGoal P root) hL (xinv_ofGoal hroot) h0 K
+    simpa [StateOf.ofGoal] using this
 
 end CertOfHalt
 

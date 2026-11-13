@@ -3,7 +3,10 @@
 
 This is rung R001's machine (`RwLog.R001`, see `Rungs/R001/Engine.lean` for
 what it does and why) written in the cost monad, definition for definition, so
-that its cost is the cost of the kernel operations it performs. The only part
+that its cost is the cost of the kernel operations it performs. It is the
+engine of `Gen.lean`, which is written against an arbitrary kernel and so
+cannot choose what it is charged, read at the kernel of the language
+(`Reading.lean`); the proofs about the machine are carried out here. The only part
 left open is the unfolding race: the machine takes an `Oracle` that says, for
 a goal and a depth, whether the goal's unfolding to that depth is final and,
 if it is, what its answers are. Each incomplete table asks the oracle once per
@@ -13,8 +16,9 @@ Two oracles are given in `Rungs/R002/Unfold.lean`: R001's own way of computing t
 answer, and R002's. Because both go through this one machine, they are charged
 the same for everything else.
 
-Table lookups are charged by the size of the keys compared, and bringing a
-goal to its table key by the size of the goal.
+Comparing two table keys is charged as the comparison of their expressions
+and the coverage tests on their boundaries; bringing a goal to its table key
+is charged by the size of the goal.
 -/
 import RwLog.Trusted.Cost
 import RwLog.Rungs.R001.Engine
@@ -35,8 +39,22 @@ namespace Tabled
 
 /-! ## Charged table operations -/
 
-/-- Compare two table keys. -/
-def same (g h : Goal) : Cost Bool := ⟨g.same h, goalSize g + goalSize h⟩
+/-- Are two boundaries equivalent? Each covers the other. -/
+def sameBound : Option Span → Option Span → Cost Bool
+  | none, none => pure true
+  | some a, some b => do
+    let x ← Charged.covers a b
+    if x then Charged.covers b a else pure false
+  | _, _ => pure false
+
+/-- Compare two table keys: the expressions as written, then the boundaries
+up to equivalence. -/
+def same (g h : Goal) : Cost Bool := do
+  let b ← Charged.eqRel g.e h.e
+  if b then do
+    let l ← sameBound g.lb h.lb
+    if l then sameBound g.rb h.rb else pure false
+  else pure false
 
 /-- Bring a goal to its table key. -/
 def norm (g : Goal) : Cost (Bool × Goal) := ⟨g.norm, goalSize g⟩
@@ -116,6 +134,30 @@ def fresh (old cands : List Span) : Cost (List Span) := do
     pure !b) cands
   maxima cs
 
+/-! ## Pushed goals
+
+The goal a strategy runs for an answer of the other side takes an interface
+of that answer as a boundary, at the kernel's charge. -/
+
+def seqPushL (g : Goal) (b : Rel) (x : Span) : Cost Goal := do
+  let c ← Charged.rightBound x
+  pure ⟨c, b, g.rb⟩
+
+def seqPushR (g : Goal) (a : Rel) (y : Span) : Cost Goal := do
+  let c ← Charged.leftBound y
+  pure ⟨g.lb, a, c⟩
+
+def andPush (e : Rel) (x : Span) : Cost Goal := do
+  let l ← Charged.leftBound x
+  let r ← Charged.rightBound x
+  pure ⟨l, e, r⟩
+
+/-- Each answer with the goal pushed for it. -/
+def pushes (f : Span → Cost Goal) (xs : List Span) : Cost (List (Span × Goal)) :=
+  mapL (fun x => do
+    let p ← f x
+    pure (x, p)) xs
+
 /-! ## Candidates and strategies -/
 
 /-- The candidates of the strategies that read other tables, and the goals
@@ -148,12 +190,12 @@ def produceStrategies (P : Program) (ts : Tables) (g : Goal) : Cost (List Span �
     let dl ← doneOf ts L
     let pl ← if dl then do
         let m ← maxima xs
-        pure (m.map fun x => (x, seqPushL g b x))
+        pushes (seqPushL g b) m
       else pure []
     let dr ← doneOf ts R
     let pr ← if dr then do
         let m ← maxima ys
-        pure (m.map fun y => (y, seqPushR g a y))
+        pushes (seqPushR g a) m
       else pure []
     let cl ← flatMapL (fun p => do
       let ys' ← answersOf ts p.2
@@ -171,12 +213,12 @@ def produceStrategies (P : Program) (ts : Tables) (g : Goal) : Cost (List Span �
     let dl ← doneOf ts L
     let pl ← if dl then do
         let m ← maxima xs
-        pure (m.map fun x => (x, andPush b x))
+        pushes (andPush b) m
       else pure []
     let dr ← doneOf ts R
     let pr ← if dr then do
         let m ← maxima ys
-        pure (m.map fun y => (y, andPush a y))
+        pushes (andPush a) m
       else pure []
     let cl ← flatMapL (fun p => do
       let ys' ← answersOf ts p.2
@@ -207,13 +249,15 @@ def tableStrategies (P : Program) (ts : Tables) (g : Goal) : Cost (List (List Go
     let sl ← if dl then do
         let xs ← answersOf ts L
         let m ← maxima xs
-        pure [L :: m.map (seqPushL g b)]
+        let ps ← mapL (seqPushL g b) m
+        pure [L :: ps]
       else pure []
     let dr ← doneOf ts R
     let sr ← if dr then do
         let ys ← answersOf ts R
         let m ← maxima ys
-        pure [R :: m.map (seqPushR g a)]
+        let ps ← mapL (seqPushR g a) m
+        pure [R :: ps]
       else pure []
     pure ([[L, R]] ++ sl ++ sr)
   | .and a b => do
@@ -223,13 +267,15 @@ def tableStrategies (P : Program) (ts : Tables) (g : Goal) : Cost (List (List Go
     let sl ← if dl then do
         let xs ← answersOf ts L
         let m ← maxima xs
-        pure [L :: m.map (andPush b)]
+        let ps ← mapL (andPush b) m
+        pure [L :: ps]
       else pure []
     let dr ← doneOf ts R
     let sr ← if dr then do
         let ys ← answersOf ts R
         let m ← maxima ys
-        pure [R :: m.map (andPush a)]
+        let ps ← mapL (andPush a) m
+        pure [R :: ps]
       else pure []
     pure ([[L, R]] ++ sl ++ sr)
 
@@ -301,10 +347,16 @@ def step (U : Oracle) (st : State) : Cost (Step State) :=
     let r ← round U st
     pure (.emit r.2 r.1)
 
+/-- The state for a goal: its table alone. Bringing the goal to its table key
+is charged. -/
+def ofGoal (P : Program) (g : Goal) : Cost State := do
+  let n ← norm g
+  pure ⟨P, [⟨n.2, [], false⟩], n.1, 0⟩
+
 /-- The tabled round machine with a given unfolding oracle. -/
 def machine (U : Oracle) : CostedRuntime where
   State := State
-  init P q := pure (State.ofGoal P ⟨none, q, none⟩)
+  init P q := ofGoal P ⟨none, q, none⟩
   step := step U
 
 /-! ## A round, split at the oracle -/

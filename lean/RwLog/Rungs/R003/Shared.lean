@@ -45,17 +45,21 @@ open R001 Cost
 left: the spans of the ones without a call, in the normalizer's order and
 without repeats, and, for each one with a call, what it leaves to its right
 (`none`: no restriction). -/
-structure Summary where
-  spans : List Span
-  opens : List (Option Span)
+structure SummaryOf (S : Type) where
+  spans : List S
+  opens : List (Option S)
+
+abbrev Summary := SummaryOf Span
 
 /-- What a summary was computed for: the expression (its converse with `neg`),
 the unfolding depth, and the interface to its left. -/
-structure Key where
+structure KeyOf (S : Type) where
   neg : Bool
-  e : Rel
+  e : RelOf S
   d : Nat
-  ctx : Option Span
+  ctx : Option S
+
+abbrev Key := KeyOf Span
 
 abbrev Memo := List (Key × Summary)
 

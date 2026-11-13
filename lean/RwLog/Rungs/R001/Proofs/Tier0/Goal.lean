@@ -278,12 +278,12 @@ theorem boundEq_den {a b : Option Span} (ha : GoodBO a) (hb : GoodBO b)
         exact hy
 
 theorem same_e {h g : Goal} (hs : h.same g = true) : h.e = g.e := by
-  simp only [Goal.same, Bool.and_eq_true, decide_eq_true_eq] at hs
+  simp only [GoalOf.same, Bool.and_eq_true, decide_eq_true_eq] at hs
   exact hs.1.1
 
 theorem same_gden {h g : Goal} (hs : h.same g = true) (hh : GoodG h) (hg : GoodG g)
     (R : GRel) : GDen h R = GDen g R := by
-  simp only [Goal.same, Bool.and_eq_true, decide_eq_true_eq] at hs
+  simp only [GoalOf.same, Bool.and_eq_true, decide_eq_true_eq] at hs
   simp only [GDen, boundEq_den hh.1 hg.1 hs.1.2, boundEq_den hh.2 hg.2 hs.2]
 
 theorem gden_root (e : Rel) (R : GRel) : GDen ⟨none, e, none⟩ R = R := by

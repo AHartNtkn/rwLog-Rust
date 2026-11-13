@@ -217,8 +217,8 @@ theorem compl_xc {st : State} (hL : SimpLaws st.P.theory) (hI : XInv st.P st.tab
 
 /-! ## The invariant holds on every reachable state -/
 
-theorem xinv_ofGoal {g : Goal} (hg : GoodG g) : XInv P (State.ofGoal P g).tables := by
-  constructor <;> simp only [State.ofGoal, List.mem_singleton] <;> rintro t rfl <;>
+theorem xinv_ofGoal {g : Goal} (hg : GoodG g) : XInv P (StateOf.ofGoal P g).tables := by
+  constructor <;> simp only [StateOf.ofGoal, List.mem_singleton] <;> rintro t rfl <;>
     simp [goodG_norm hg]
 
 theorem xinv_round {st : State} (hL : SimpLaws st.P.theory) (hI : XInv st.P st.tables) :

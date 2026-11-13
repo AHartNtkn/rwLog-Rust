@@ -71,19 +71,19 @@ theorem key_direct {root : Goal} : ∀ (n : Nat) (g : Goal), sizeOf g.e ≤ n �
   cases e with
   | zero =>
     rw [show (⟨lb, .zero, rb⟩ : Goal).norm.2 = ⟨lb, .zero, rb⟩ by
-      simp only [Goal.norm, canon]; rw [strip_nc _ (by simp)]] at hd
+      simp only [GoalOf.norm, canon]; rw [strip_nc _ (by simp)]] at hd
     simp [directGoals] at hd
   | span s =>
     rw [show (⟨lb, .span s, rb⟩ : Goal).norm.2 = ⟨lb, .span s, rb⟩ by
-      simp only [Goal.norm, canon]; rw [strip_nc _ (by simp)]] at hd
+      simp only [GoalOf.norm, canon]; rw [strip_nc _ (by simp)]] at hd
     simp [directGoals] at hd
   | call m =>
     rw [show (⟨lb, .call m, rb⟩ : Goal).norm.2 = ⟨lb, .call m, rb⟩ by
-      simp only [Goal.norm, canon]; rw [strip_nc _ (by simp)]] at hd
+      simp only [GoalOf.norm, canon]; rw [strip_nc _ (by simp)]] at hd
     exact ⟨d, .direct hr hd, rfl⟩
   | seq a b =>
     rw [show (⟨lb, .seq a b, rb⟩ : Goal).norm.2 = ⟨lb, .seq (canon a) (canon b), rb⟩ by
-      simp only [Goal.norm, canon]; rw [strip_nc _ (by simp)]] at hd
+      simp only [GoalOf.norm, canon]; rw [strip_nc _ (by simp)]] at hd
     simp only [directGoals, List.mem_cons, List.not_mem_nil, or_false] at hd
     rcases hd with rfl | rfl
     · exact ⟨seqLeft ⟨lb, .seq a b, rb⟩ a, .direct hr (by simp [directGoals]),
@@ -92,7 +92,7 @@ theorem key_direct {root : Goal} : ∀ (n : Nat) (g : Goal), sizeOf g.e ≤ n �
         (norm_canon _ _ _).symm⟩
   | and a b =>
     rw [show (⟨lb, .and a b, rb⟩ : Goal).norm.2 = ⟨lb, .and (canon a) (canon b), rb⟩ by
-      simp only [Goal.norm, canon]; rw [strip_nc _ (by simp)]] at hd
+      simp only [GoalOf.norm, canon]; rw [strip_nc _ (by simp)]] at hd
     simp only [directGoals, List.mem_cons, List.not_mem_nil, or_false] at hd
     rcases hd with rfl | rfl
     · exact ⟨andLeft ⟨lb, .and a b, rb⟩ a, .direct hr (by simp [directGoals]),
@@ -101,7 +101,7 @@ theorem key_direct {root : Goal} : ∀ (n : Nat) (g : Goal), sizeOf g.e ≤ n �
         (norm_canon _ _ _).symm⟩
   | conv a =>
     have hk : (⟨lb, .conv a, rb⟩ : Goal).norm.2 = (convGoal ⟨lb, .conv a, rb⟩ a).norm.2 := by
-      simp only [Goal.norm, canon, convGoal]; rw [strip_conv]
+      simp only [GoalOf.norm, canon, convGoal]; rw [strip_conv]
     rw [hk] at hd
     exact IH (sizeOf a) (by simp at hn; omega) (convGoal ⟨lb, .conv a, rb⟩ a) le_rfl
       (.direct hr (by simp [directGoals])) d hd
@@ -121,13 +121,13 @@ theorem key_direct {root : Goal} : ∀ (n : Nat) (g : Goal), sizeOf g.e ≤ n �
     have hleaf : ∀ l ∈ orBranches (.or a b), Reach P root ⟨lb, l, rb⟩ := fun l hl =>
       .direct hr (by simp only [directGoals, orLeaves, List.mem_map]; exact ⟨l, hl, rfl⟩)
     have hnorm : (⟨lb, .or a b, rb⟩ : Goal).norm =
-        Goal.stripConv ⟨lb, mkOr (sortedBranches (orBranches (canon a) ++ orBranches (canon b))), rb⟩ :=
+        GoalOf.stripConv ⟨lb, mkOr (sortedBranches (orBranches (canon a) ++ orBranches (canon b))), rb⟩ :=
       rfl
     rw [hnorm] at hd
     generalize hbs : sortedBranches (orBranches (canon a) ++ orBranches (canon b)) = bs at *
     match bs, hbs with
     | [], _ =>
-      rw [show mkOr [] = Rel.zero from rfl, strip_nc _ (by simp)] at hd
+      rw [show mkOr [] = RelOf.zero from rfl, strip_nc _ (by simp)] at hd
       simp [directGoals] at hd
     | [c], _ =>
       obtain ⟨l, hl, rfl⟩ := hraw c (by simp)
@@ -138,7 +138,7 @@ theorem key_direct {root : Goal} : ∀ (n : Nat) (g : Goal), sizeOf g.e ≤ n �
         strip_nc _ (by simp)] at hd
       simp only [directGoals, orLeaves, List.mem_map] at hd
       obtain ⟨z, hz, rfl⟩ := hd
-      rw [show Rel.or c₁ (mkOr (c₂ :: rest)) = mkOr (c₁ :: c₂ :: rest) from rfl,
+      rw [show RelOf.or c₁ (mkOr (c₂ :: rest)) = mkOr (c₁ :: c₂ :: rest) from rfl,
         orBranches_mkOr_eq hno (by simp)] at hz
       obtain ⟨l, hl, rfl⟩ := hraw z hz
       exact ⟨⟨lb, l, rb⟩, hleaf l hl, (norm_canon _ _ _).symm⟩
@@ -178,7 +178,7 @@ theorem reps {root : Goal} : ∀ Gs : List Goal, ∃ Ks : List Goal, (∀ k ∈ 
         · exact h1 k hk
       · rintro g hr ⟨h', hh', hs⟩
         rcases List.mem_cons.1 hh' with rfl | hh'
-        · exact ⟨g₀, List.mem_cons_self, Goal.same_trans (Goal.same_symm hs₀) hs⟩
+        · exact ⟨g₀, List.mem_cons_self, GoalOf.same_trans (GoalOf.same_symm hs₀) hs⟩
         · obtain ⟨k, hk, hks⟩ := h2 g hr ⟨h', hh', hs⟩
           exact ⟨k, List.mem_cons_of_mem _ hk, hks⟩
     · refine ⟨Ks, h1, ?_⟩

@@ -230,12 +230,12 @@ end
 
 /-! ## The invariants hold on every reachable state -/
 
-theorem tinv_ofGoal {g : Goal} (hg : GoodG g) : TInv P (State.ofGoal P g).tables := by
-  constructor <;> simp only [State.ofGoal, List.mem_singleton] <;> rintro t rfl <;>
+theorem tinv_ofGoal {g : Goal} (hg : GoodG g) : TInv P (StateOf.ofGoal P g).tables := by
+  constructor <;> simp only [StateOf.ofGoal, List.mem_singleton] <;> rintro t rfl <;>
     simp [goodG_norm hg]
 
-theorem uinv_ofGoal {g : Goal} (hb : BU P.theory g) : UInv P (State.ofGoal P g).tables := by
-  constructor <;> simp only [State.ofGoal, List.mem_singleton] <;> rintro t rfl <;>
+theorem uinv_ofGoal {g : Goal} (hb : BU P.theory g) : UInv P (StateOf.ofGoal P g).tables := by
+  constructor <;> simp only [StateOf.ofGoal, List.mem_singleton] <;> rintro t rfl <;>
     simp [bu_norm hb]
 
 /-- A table after a round is an old table with its fresh answers, or a new

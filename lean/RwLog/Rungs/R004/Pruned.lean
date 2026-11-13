@@ -80,10 +80,12 @@ end Key
 /-- A derivation of the unfolded goal: the branches it takes, and the
 expression that is left when they are taken. The expression is read left to
 right as it stands: converses are already pushed to its spans and calls. -/
-structure Path where
+structure PathOf (S : Type) where
   key : Key
-  pe : Rel
+  pe : RelOf S
   deriving DecidableEq, Repr
+
+abbrev Path := PathOf Span
 
 /-- The spans a derivation starts with, followed by the chain `R` when the
 derivation is nothing but spans. -/
@@ -180,7 +182,7 @@ def pruned : Oracle := fun P d g => do
   if r.1 then pure (false, [])
   else do
     let ys ← sort r.2
-    let zs ← flatMapL (Tabled.live P.theory) (ys.flatMap fun y => derivs (toRel y.2))
+    let zs ← flatMapL (Tabled.live P.theory) (R002.closed (ys.map Prod.snd))
     let ws ← foldL R003.addSpan [] zs
     pure (true, ws)
 

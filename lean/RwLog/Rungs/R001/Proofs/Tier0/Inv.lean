@@ -31,7 +31,7 @@ theorem bu_convGoal {T : Theory} {g : Goal} (h : BU T g) (a : Rel) : BU T (convG
   ⟨bu_map_swap h.2, bu_map_swap h.1⟩
 
 theorem bu_strip {T : Theory} : ∀ (e : Rel) (lb rb : Option Span), BU T ⟨lb, e, rb⟩ →
-    BU T (Goal.stripConv ⟨lb, e, rb⟩).2
+    BU T (GoalOf.stripConv ⟨lb, e, rb⟩).2
   | .conv a, lb, rb, h => by
     rw [strip_conv]
     exact bu_strip a _ _ ⟨bu_map_swap h.2, bu_map_swap h.1⟩

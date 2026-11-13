@@ -35,8 +35,69 @@ namespace Tabled
 they are not used as definitional rewrites: rewriting the condition of an `if`
 definitionally leaves its decidability instance behind. -/
 
+@[simp] theorem sameBound_val (a b : Option Span) : (sameBound a b).val = boundEq a b := by
+  rcases a with _ | a <;> rcases b with _ | b <;>
+    simp only [sameBound, boundEq, pure_val, bind_val, ite_val, Charged.covers]
+  cases a.covers? b <;> simp
+
 @[simp] theorem same_val (g h : Goal) : (same g h).val = g.same h := by
-  simp only [same]
+  simp only [same, GoalOf.same, bind_val, ite_val, pure_val, sameBound_val, Charged.eqRel]
+  by_cases h1 : g.e = h.e <;> simp [h1]
+
+/-- Comparing two keys without boundaries costs their sizes. -/
+theorem same_ticks_none (a b : Rel) :
+    (same ⟨none, a, none⟩ ⟨none, b, none⟩).ticks = a.size + b.size := by
+  simp only [same, bind_ticks, ite_ticks, pure_ticks, sameBound, Charged.eqRel, pure_val]
+  split <;> simp
+
+theorem same_ticks_of_none {g h : Goal} (hg : g.lb = none ∧ g.rb = none)
+    (hh : h.lb = none ∧ h.rb = none) : (same g h).ticks = goalSize g + goalSize h := by
+  obtain ⟨gl, ge, gr⟩ := g
+  obtain ⟨hl, he, hr⟩ := h
+  obtain ⟨rfl, rfl⟩ := hg
+  obtain ⟨rfl, rfl⟩ := hh
+  rw [same_ticks_none]
+  simp [goalSize]
+
+theorem same_eq_of_none {g h : Goal} (hg : g.lb = none ∧ g.rb = none)
+    (hh : h.lb = none ∧ h.rb = none) : same g h = ⟨g.same h, goalSize g + goalSize h⟩ := by
+  have h1 := same_val g h
+  have h2 := same_ticks_of_none hg hh
+  cases hs : same g h with
+  | mk v t =>
+    rw [hs] at h1 h2
+    cases h1; cases h2; rfl
+
+/-- The search of the coverage tests on two boundaries. -/
+def boundWork : Option Span → Option Span → Nat
+  | some a, some b => Charged.coversWork a b + Charged.coversWork b a
+  | _, _ => 0
+
+theorem sameBound_ticks_le (a b : Option Span) :
+    (sameBound a b).ticks ≤
+      2 * ((a.toList ++ b.toList).map Span.size).sum + boundWork a b := by
+  cases a <;> cases b <;>
+    simp only [sameBound, boundWork, pure_ticks, bind_ticks, ite_ticks, Charged.covers,
+      Option.toList, List.nil_append, List.map_nil, List.sum_nil, Nat.zero_le]
+  split <;> simp <;> omega
+
+/-- Comparing two keys costs at most twice their sizes and the search of the
+coverage tests on their boundaries. -/
+theorem same_ticks_le (g h : Goal) :
+    (same g h).ticks ≤ 2 * (goalSize g + goalSize h) + boundWork g.lb h.lb + boundWork g.rb h.rb := by
+  obtain ⟨gl, ge, gr⟩ := g
+  obtain ⟨hl, he, hr⟩ := h
+  have h1 := sameBound_ticks_le gl hl
+  have h2 := sameBound_ticks_le gr hr
+  have e : goalSize ⟨gl, ge, gr⟩ + goalSize ⟨hl, he, hr⟩ = ge.size + he.size +
+      ((gl.toList ++ hl.toList).map Span.size).sum +
+      ((gr.toList ++ hr.toList).map Span.size).sum := by
+    cases gl <;> cases gr <;> cases hl <;> cases hr <;> simp [goalSize] <;> omega
+  rw [e]
+  simp only [same, bind_ticks, ite_ticks, pure_ticks, Charged.eqRel]
+  split
+  · split <;> omega
+  · omega
 
 @[simp] theorem norm_val (g : Goal) : (norm g).val = g.norm := by
   simp only [norm]
@@ -111,6 +172,20 @@ theorem indexFrom_val (g : Goal) : ∀ (ts : Tables) (i : Nat),
 
 @[simp] theorem fresh_val (old cands : List Span) : (fresh old cands).val = RwLog.fresh old cands := by
   simp [fresh, RwLog.fresh, Charged.covers]
+
+/-! ## Pushed goals -/
+
+@[simp] theorem seqPushL_val (g : Goal) (b : Rel) (x : Span) :
+    (seqPushL g b x).val = R001.seqPushL g b x := rfl
+
+@[simp] theorem seqPushR_val (g : Goal) (a : Rel) (y : Span) :
+    (seqPushR g a y).val = R001.seqPushR g a y := rfl
+
+@[simp] theorem andPush_val (e : Rel) (x : Span) : (andPush e x).val = R001.andPush e x := rfl
+
+@[simp] theorem pushes_val (f : Span → Cost Goal) (xs : List Span) :
+    (pushes f xs).val = xs.map fun x => (x, (f x).val) := by
+  simp [pushes]
 
 /-! ## Candidates and strategies -/
 
@@ -205,14 +280,15 @@ theorem step_val (U : Oracle) (hU : U.Exact) (st : State) : (step U st).val = R0
 machine is R001: the same states, the same initial state, the same step. -/
 theorem machine_runtime (U : Oracle) (hU : U.Exact) : (machine U).runtime = R001.runtime := by
   have hstep : (fun s => (step U s).val) = R001.step := funext (step_val U hU)
-  show (⟨State, fun P q => State.ofGoal P ⟨none, q, none⟩, fun s => (step U s).val⟩ : Runtime) = _
+  show (⟨State, fun P q => StateOf.ofGoal P ⟨none, q, none⟩, fun s => (step U s).val⟩ : Runtime) = _
   rw [hstep]; rfl
 
-/-- The tabled machine builds its first state for free: what it has paid is
-what its steps spent. -/
+/-- The tabled machine pays the size of the query to build its first state:
+what it has paid is that and what its steps spent. -/
 theorem paid_eq (U : Oracle) (P : Program) (q : Rel) (n : Nat) :
-    (machine U).paid P q n = (machine U).spent ((machine U).start P q) n :=
-  (machine U).paid_of_init_free rfl n
+    (machine U).paid P q n = q.size + (machine U).spent ((machine U).start P q) n := by
+  show goalSize ⟨none, q, none⟩ + 0 + _ = _
+  simp [goalSize]
 
 end Tabled
 

@@ -67,8 +67,8 @@ theorem pruned_g0 (k : Nat) : pruned P0 0 (g0 k) = ⟨(true, [aa]), k + 37⟩ :=
         ⟨(false, [(.inl .leaf, [.span aa])]), 6⟩ := by
       rw [walkR]
       refine Cost.ext ?_ ?_
-      · simp [fits, collect, R002.Eager.norm, toRel, Rel.calls]
-      · simp [fits, collect, R002.Eager.norm, toRel, Rel.calls, size_aa]
+      · simp [fits, collect, R002.Eager.norm, toRel, RelOf.calls]
+      · simp [fits, collect, R002.Eager.norm, toRel, RelOf.calls, size_aa]
     have h2 : ∀ acc : List Found, walkR P0 0 false (dead k) []
         (fun y acc => collect ⟨.inr y.key, y.pe⟩ acc) acc = ⟨(false, acc), k + 27⟩ := by
       intro acc
@@ -83,8 +83,8 @@ theorem pruned_g0 (k : Nat) : pruned P0 0 (g0 k) = ⟨(true, [aa]), k + 37⟩ :=
     omega
   rw [pruned, hrel, hw]
   refine Cost.ext ?_ ?_
-  · simp [sort, foldL, insert, toRel, derivs, flatMapL, live_aa, R003.addSpan, anyL]
-  · simp [sort, foldL, insert, toRel, derivs, flatMapL, live_aa, R003.addSpan, anyL]
+  · simp [sort, foldL, insert, R002.closed, R002.single, flatMapL, live_aa, R003.addSpan, anyL]
+  · simp [sort, foldL, insert, R002.closed, R002.single, flatMapL, live_aa, R003.addSpan, anyL]
 
 /-- R004's race on the query: final, the answer `a -> a`, within 7 times the
 race pruned from the right. -/
@@ -111,35 +111,47 @@ abbrev gA : Goal := ⟨none, .span aa, none⟩
 abbrev gD (k : Nat) : Goal := ⟨none, dead k, none⟩
 
 theorem norm_gA : gA.norm = (false, gA) := by
-  rw [Goal.norm, canon, Goal.stripConv]
+  rw [GoalOf.norm, canon, GoalOf.stripConv]
   intro lb a rb h
   cases h
 
 theorem norm_gD (k : Nat) : (gD k).norm = (false, gD k) := by
-  rw [Goal.norm, canon_dead, Goal.stripConv]
+  rw [GoalOf.norm, canon_dead, GoalOf.stripConv]
   intro lb a rb h
   cases h
 
 theorem goalSize_g0 (k : Nat) : goalSize (g0 k) = 12 * k + 19 := by simp [goalSize, size_sepRel]
-theorem goalSize_gA : goalSize gA = 3 := by simp [goalSize, Rel.size, size_aa]
+theorem goalSize_gA : goalSize gA = 3 := by simp [goalSize, RelOf.size, size_aa]
 theorem goalSize_gD (k : Nat) : goalSize (gD k) = 12 * k + 15 := by simp [goalSize, size_dead]
 
-theorem same_g0_gA (k : Nat) : (g0 k).same gA = false := by simp [Goal.same, sepRel_eq]
-theorem same_g0_gD (k : Nat) : (g0 k).same (gD k) = false := by simp [Goal.same, sepRel_eq]
-theorem same_gA_gD (k : Nat) : gA.same (gD k) = false := by simp [Goal.same]
+theorem same_g0_gA (k : Nat) : (g0 k).same gA = false := by simp [GoalOf.same, sepRel_eq]
+theorem same_g0_gD (k : Nat) : (g0 k).same (gD k) = false := by simp [GoalOf.same, sepRel_eq]
+theorem same_gA_gD (k : Nat) : gA.same (gD k) = false := by simp [GoalOf.same]
+
+theorem tsame_g0_gA (k : Nat) :
+    Tabled.same (g0 k) gA = ⟨false, goalSize (g0 k) + goalSize gA⟩ := by
+  rw [Tabled.same_eq_of_none ⟨rfl, rfl⟩ ⟨rfl, rfl⟩, same_g0_gA]
+
+theorem tsame_g0_gD (k : Nat) :
+    Tabled.same (g0 k) (gD k) = ⟨false, goalSize (g0 k) + goalSize (gD k)⟩ := by
+  rw [Tabled.same_eq_of_none ⟨rfl, rfl⟩ ⟨rfl, rfl⟩, same_g0_gD]
+
+theorem tsame_gA_gD (k : Nat) :
+    Tabled.same gA (gD k) = ⟨false, goalSize gA + goalSize (gD k)⟩ := by
+  rw [Tabled.same_eq_of_none ⟨rfl, rfl⟩ ⟨rfl, rfl⟩, same_gA_gD]
 
 theorem round_st0 (k : Nat) : (Tabled.round unfolder (st0 k)).val.2 = [aa] ∧
-    (Tabled.round unfolder (st0 k)).ticks ≤ 1000 * (k + 2) := by
+    (Tabled.round unfolder (st0 k)).ticks + 12 * (k + 2) ≤ 1000 * (k + 2) := by
   obtain ⟨T, hT, hu⟩ := unfolder_g0 k
   have hcov : aa.covers? aa = true := by decide
   refine ⟨?_, ?_⟩
   · simp [Tabled.round, mapL, hu, Tabled.produce, Tabled.produceStrategies, sepRel_eq, orLeaves,
       orBranches, flatMapL, Tabled.answersOf, Tabled.norm, norm_gA, norm_gD, Tabled.findTable,
-      findL, Tabled.same, same_g0_gA, same_g0_gD, same_gA_gD, Tabled.fresh, filterL, anyL,
+      findL, tsame_g0_gA, tsame_g0_gD, tsame_gA_gD, Tabled.fresh, filterL, anyL,
       Tabled.maxima, foldL, Charged.covers, hcov, Tabled.completing, Tabled.gfpFrom, R001.orient]
   · simp [Tabled.round, mapL, hu, Tabled.produce, Tabled.produceStrategies, sepRel_eq, orLeaves,
       orBranches, flatMapL, Tabled.answersOf, Tabled.norm, norm_gA, norm_gD, Tabled.findTable,
-      findL, Tabled.same, same_g0_gA, same_g0_gD, same_gA_gD, Tabled.fresh, filterL, anyL,
+      findL, tsame_g0_gA, tsame_g0_gD, tsame_gA_gD, Tabled.fresh, filterL, anyL,
       Tabled.maxima, foldL, Charged.covers, hcov, Tabled.completing, Tabled.gfpFrom, R001.orient,
       goalSize_g0, goalSize_gA, goalSize_gD, size_aa]
     omega

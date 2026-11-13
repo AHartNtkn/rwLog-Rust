@@ -107,17 +107,17 @@ def sameRun4 (P : Program) (q : Rel) (fuel : Nat) : Bool :=
   2 ^ k ≤ (costOf R003.costed (R004.sepFam k).1 (R004.sepFam k).2 1).2.2
 #guard (List.range 9).map (fun k =>
     (costOf R004.costed (R004.sepFam k).1 (R004.sepFam k).2 1).2.2) ==
-  [408, 529, 650, 771, 892, 1013, 1134, 1255, 1376]
+  [427, 560, 693, 826, 959, 1092, 1225, 1358, 1491]
 #guard (List.range 9).map (fun k =>
     (costOf R003.costed (R004.sepFam k).1 (R004.sepFam k).2 1).2.2) ==
-  [267, 626, 1134, 3118, 6076, 12130, 24632, 83308, 169826]
+  [286, 657, 1177, 3173, 6143, 12209, 24723, 83411, 169941]
 
 -- Both machines halt after the second round; R004's whole run stays linear.
 #guard (List.range 4).map (fun k =>
     (costOf R004.costed (R004.sepFam k).1 (R004.sepFam k).2 4,
       costOf R003.costed (R004.sepFam k).1 (R004.sepFam k).2 4)) ==
-  [((2, true, 1637), 2, true, 1291), ((2, true, 2348), 2, true, 2716),
-    ((2, true, 3059), 2, true, 4588), ((2, true, 3770), 2, true, 10888)]
+  [((2, true, 1656), 2, true, 1310), ((2, true, 2379), 2, true, 2747),
+    ((2, true, 3102), 2, true, 4631), ((2, true, 3825), 2, true, 10943)]
 #guard traceR004 (R004.sepFam 3).1 (R004.sepFam 3).2 4 == [["a -> a"], []]
 
 -- One race on the family, by `k`: the walk from the right stops at the last
@@ -133,7 +133,7 @@ def sameRun4 (P : Program) (q : Rel) (fuel : Nat) : Bool :=
 #guard (List.range 6).map (fun k =>
     ((costOf R004.costed (R004.sepFam k).1.dual (R004.sepFam k).2.dual 1).2.2,
       (costOf R003.costed (R004.sepFam k).1.dual (R004.sepFam k).2.dual 1).2.2)) ==
-  [(411, 268), (629, 389), (750, 510), (871, 631), (992, 752), (1113, 873)]
+  [(430, 287), (660, 420), (793, 553), (926, 686), (1059, 819), (1192, 952)]
 
 /-- The term `gen k` makes of `z` by taking the second wrapper at every choice
 but the first. -/
@@ -150,7 +150,7 @@ def oneOf (k : Nat) : Rel := .seq (.at_ (.sym "z")) (.seq (R004.gen k) (.at_ (wr
 -- `k` and R003's doubles.
 #guard [2, 4, 6, 8].map (fun k =>
     ((costOf R004.costed ⟨[], []⟩ (oneOf k) 20).2.2, (costOf R003.costed ⟨[], []⟩ (oneOf k) 20).2.2)) ==
-  [(9365, 11748), (17247, 41252), (30073, 260098), (34025, 1067382)]
+  [(9420, 11803), (17334, 41339), (30192, 260217), (34176, 1067533)]
 
 -- The limit of this rung: with the test as the second factor of the query
 -- itself, `gen k ; @t`, the machine opens a table for `gen k` alone in the
@@ -159,6 +159,6 @@ def oneOf (k : Nat) : Rel := .seq (.at_ (.sym "z")) (.seq (R004.gen k) (.at_ (wr
 #guard [2, 4, 6].map (fun k =>
     let q : Rel := .seq (R004.gen k) (.at_ (wrapped k))
     ((costOf R004.costed ⟨[], []⟩ q 20).2.2, (costOf R003.costed ⟨[], []⟩ q 20).2.2)) ==
-  [(14563, 11935), (136721, 86883), (1166237, 1056577)]
+  [(14614, 11986), (136804, 86966), (1166352, 1056692)]
 
 end RwLog.Tests

@@ -42,10 +42,10 @@ def RecursionFree (P : Program) (q : Rel) : Prop :=
 
 theorem mem_calls_unfold {m : Name} :
     ∀ e : Rel, m ∈ (unfold P e).calls ↔ ∃ n ∈ e.calls, m ∈ (P.body n).calls
-  | .zero => by simp [unfold, Rel.calls]
-  | .span _ => by simp [unfold, Rel.calls]
+  | .zero => by simp [unfold, RelOf.calls]
+  | .span _ => by simp [unfold, RelOf.calls]
   | .or a b | .and a b | .seq a b => by
-    simp only [unfold, Rel.calls, List.mem_append, mem_calls_unfold a, mem_calls_unfold b]
+    simp only [unfold, RelOf.calls, List.mem_append, mem_calls_unfold a, mem_calls_unfold b]
     constructor
     · rintro (⟨n, hn, h⟩ | ⟨n, hn, h⟩)
       · exact ⟨n, Or.inl hn, h⟩
@@ -53,8 +53,8 @@ theorem mem_calls_unfold {m : Name} :
     · rintro ⟨n, hn | hn, h⟩
       · exact Or.inl ⟨n, hn, h⟩
       · exact Or.inr ⟨n, hn, h⟩
-  | .conv a => by simp only [unfold, Rel.calls, mem_calls_unfold a]
-  | .call n => by simp [unfold, Rel.calls]
+  | .conv a => by simp only [unfold, RelOf.calls, mem_calls_unfold a]
+  | .call n => by simp [unfold, RelOf.calls]
 
 theorem le_sum_of_mem {l : List Nat} {x : Nat} (h : x ∈ l) : x ≤ l.sum := by
   induction l with
@@ -112,9 +112,9 @@ theorem mkAnd_callFree {p q r : List Rel} (hp : ∀ x ∈ p, x.calls = [])
   unfold mkAnd at h
   split at h
   · obtain ⟨c, -, rfl⟩ := Option.map_eq_some_iff.1 h
-    simp [Rel.calls]
+    simp [RelOf.calls]
   · cases h
-    simp only [List.mem_singleton, forall_eq, Rel.calls, List.append_eq_nil_iff]
+    simp only [List.mem_singleton, forall_eq, RelOf.calls, List.append_eq_nil_iff]
     exact ⟨(calls_toRel p).2 hp, (calls_toRel q).2 hq⟩
 
 /-- Normalizing a call-free expression leaves only call-free products. -/
@@ -124,31 +124,31 @@ theorem norm_callFree : ∀ (neg : Bool) (e : Rel), e.calls = [] →
   | neg, .span s, _, p, hp => by
     simp only [norm, List.mem_singleton] at hp
     subst hp
-    simp [Rel.calls]
+    simp [RelOf.calls]
   | neg, .or a b, he, p, hp => by
-    simp only [Rel.calls, List.append_eq_nil_iff] at he
+    simp only [RelOf.calls, List.append_eq_nil_iff] at he
     rcases List.mem_append.1 hp with hp | hp
     · exact norm_callFree neg a he.1 p hp
     · exact norm_callFree neg b he.2 p hp
   | false, .seq a b, he, p, hp => by
-    simp only [Rel.calls, List.append_eq_nil_iff] at he
+    simp only [RelOf.calls, List.append_eq_nil_iff] at he
     simp only [norm, List.mem_flatMap, List.mem_filterMap] at hp
     obtain ⟨p₁, hp₁, p₂, hp₂, hj⟩ := hp
     exact joinSeq_callFree (norm_callFree false a he.1 p₁ hp₁) (norm_callFree false b he.2 p₂ hp₂) hj
   | true, .seq a b, he, p, hp => by
-    simp only [Rel.calls, List.append_eq_nil_iff] at he
+    simp only [RelOf.calls, List.append_eq_nil_iff] at he
     simp only [norm, List.mem_flatMap, List.mem_filterMap] at hp
     obtain ⟨p₁, hp₁, p₂, hp₂, hj⟩ := hp
     exact joinSeq_callFree (norm_callFree true b he.2 p₁ hp₁) (norm_callFree true a he.1 p₂ hp₂) hj
   | neg, .and a b, he, p, hp => by
-    simp only [Rel.calls, List.append_eq_nil_iff] at he
+    simp only [RelOf.calls, List.append_eq_nil_iff] at he
     simp only [norm, List.mem_flatMap, List.mem_filterMap] at hp
     obtain ⟨p₁, hp₁, p₂, hp₂, hj⟩ := hp
     exact mkAnd_callFree (norm_callFree neg a he.1 p₁ hp₁) (norm_callFree neg b he.2 p₂ hp₂) hj
   | neg, .conv a, he, p, hp => by
     simp only [norm] at hp
     exact norm_callFree (!neg) a he p hp
-  | _, .call n, he, _, _ => by simp [Rel.calls] at he
+  | _, .call n, he, _, _ => by simp [RelOf.calls] at he
 
 theorem CallTreeFinite.finitelyNormalising {q : Rel} (h : CallTreeFinite P q) :
     FinitelyNormalising P q := by

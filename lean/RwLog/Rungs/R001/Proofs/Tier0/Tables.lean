@@ -56,8 +56,8 @@ theorem tinv_tablesAt {P : Program} {g : Goal}
     (hwf : ∀ ρ ∈ P.theory, ρ.WellFormed) (hg : GoodG g) (n : Nat) :
     TInv P (Obligation.tablesAt P g n) := by
   unfold Obligation.tablesAt
-  rcases stateAfter_cases (State.ofGoal P g) n with ⟨k, -, -, h⟩ | ⟨-, h⟩ <;> rw [h] <;>
-    exact tinv_iter (st := State.ofGoal P g) hwf (tinv_ofGoal hg) _
+  rcases stateAfter_cases (StateOf.ofGoal P g) n with ⟨k, -, -, h⟩ | ⟨-, h⟩ <;> rw [h] <;>
+    exact tinv_iter (st := StateOf.ofGoal P g) hwf (tinv_ofGoal hg) _
 
 theorem iter_eq_iterate (st : State) : ∀ k, iter st k = (fun st => (round st).1)^[k] st
   | 0 => rfl
@@ -65,9 +65,9 @@ theorem iter_eq_iterate (st : State) : ∀ k, iter st k = (fun st => (round st).
 
 /-- Every table of a run is some table after unconditional rounds. -/
 theorem tablesAt_iter (P : Program) (g : Goal) (n : Nat) :
-    ∃ k, Obligation.tablesAt P g n = (iter (State.ofGoal P g) k).tables := by
+    ∃ k, Obligation.tablesAt P g n = (iter (StateOf.ofGoal P g) k).tables := by
   unfold Obligation.tablesAt
-  rcases stateAfter_cases (State.ofGoal P g) n with ⟨k, -, -, h⟩ | ⟨-, h⟩
+  rcases stateAfter_cases (StateOf.ofGoal P g) n with ⟨k, -, -, h⟩ | ⟨-, h⟩
   · exact ⟨k, by rw [h]⟩
   · exact ⟨n, by rw [h]⟩
 
@@ -113,7 +113,7 @@ theorem table_fair : Obligation.table_fair := by
   by_cases hdd : s.Dead P.theory
   · exact .inl hdd
   have hgG := goodG_of_interfaced hg
-  set st := State.ofGoal P g
+  set st := StateOf.ofGoal P g
   obtain ⟨k, hk⟩ := tablesAt_iter P g n
   rw [hk] at ht
   obtain ⟨i, hi, rfl⟩ := List.mem_iff_getElem.1 ht
@@ -142,7 +142,7 @@ theorem gderives_same : Obligation.gderives_same := by
   have hgG := goodG_of_interfaced hg
   obtain ⟨s₀, hs₀, he⟩ :=
     toDerives hwf hy (pid_of_goodBO hgG.1) (pid_of_goodBO hgG.2) (not_dead_iff.1 hd)
-  simp only [Goal.same, Bool.and_eq_true, decide_eq_true_eq] at hs
+  simp only [GoalOf.same, Bool.and_eq_true, decide_eq_true_eq] at hs
   obtain ⟨⟨he', hl⟩, hr⟩ := hs
   obtain ⟨bl, pl⟩ := boundEq_leq (T := P.theory) hl
   obtain ⟨br, pr⟩ := boundEq_leq (T := P.theory) hr

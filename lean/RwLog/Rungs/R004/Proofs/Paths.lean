@@ -36,22 +36,22 @@ def seq (p q : Path) : Path := ⟨.pair p.key q.key, .seq p.pe q.pe⟩
 def and (p q : Path) : Path := ⟨.pair p.key q.key, .and p.pe q.pe⟩
 
 theorem inl_inj {x y : Path} (h : x.inl = y.inl) : x = y := by
-  cases x; cases y; simp only [inl, Path.mk.injEq, Key.inl.injEq] at h; simp [h]
+  cases x; cases y; simp only [inl, PathOf.mk.injEq, Key.inl.injEq] at h; simp [h]
 
 theorem inr_inj {x y : Path} (h : x.inr = y.inr) : x = y := by
-  cases x; cases y; simp only [inr, Path.mk.injEq, Key.inr.injEq] at h; simp [h]
+  cases x; cases y; simp only [inr, PathOf.mk.injEq, Key.inr.injEq] at h; simp [h]
 
 theorem inl_ne_inr (x y : Path) : x.inl ≠ y.inr := by
   intro h; simp [inl, inr] at h
 
 theorem seq_inj {p q p' q' : Path} (h : p.seq q = p'.seq q') : p = p' ∧ q = q' := by
   cases p; cases q; cases p'; cases q'
-  simp only [seq, Path.mk.injEq, Key.pair.injEq, Rel.seq.injEq] at h
+  simp only [seq, PathOf.mk.injEq, Key.pair.injEq, RelOf.seq.injEq] at h
   simp [h]
 
 theorem and_inj {p q p' q' : Path} (h : p.and q = p'.and q') : p = p' ∧ q = q' := by
   cases p; cases q; cases p'; cases q'
-  simp only [and, Path.mk.injEq, Key.pair.injEq, Rel.and.injEq] at h
+  simp only [and, PathOf.mk.injEq, Key.pair.injEq, RelOf.and.injEq] at h
   simp [h]
 
 end Path

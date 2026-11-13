@@ -90,7 +90,7 @@ theorem derivationGeneral_of_ref
 
 theorem Tier0Cert.toSound (c : R.Tier0Cert) : R.Sound := by
   intro P q hP n a ha M hM
-  rw [Span.denAt_eq, Program.semAt_eq]
+  rw [Span.denAt_eq, ProgramOf.semAt_eq]
   exact c.sound P q hP n a ha M hM
 
 theorem Tier0Cert.toComplete (c : R.Tier0Cert) : R.Complete := by
@@ -103,7 +103,7 @@ theorem Tier0Cert.toComplete (c : R.Tier0Cert) : R.Complete := by
 theorem Tier0Cert.toHonest (c : R.Tier0Cert) : R.HonestExhaustion := by
   intro P q hP n hh M hM
   ext ⟨u, v⟩
-  rw [Program.semAt_eq]
+  rw [ProgramOf.semAt_eq]
   constructor
   · rintro ⟨S, hS, hSM⟩
     rw [sem_eq_derivable, mem_derivable] at hS
@@ -125,7 +125,7 @@ theorem Tier0Cert.tier0 (c : R.Tier0Cert) : R.Tier0 := ⟨c.toSound, c.toComplet
 /-- Completeness gives completeness pair by pair. -/
 theorem Complete.pointwise (h : R.Complete) : R.PointComplete := by
   intro P q hP M hM p hp
-  rw [Program.semAt_eq] at hp
+  rw [ProgramOf.semAt_eq] at hp
   obtain ⟨S, hS, hSM⟩ := hp
   rw [sem_eq_derivable, mem_derivable] at hS
   obtain ⟨s, hs, hx⟩ := hS
@@ -145,7 +145,7 @@ theorem theory_mono_answers (hgen : R.DerivationGeneral) (hcomp : R.Complete)
     ∀ a ∈ R.Answers { P with theory := T } q,
       a.Dead T ∨ ∃ b ∈ R.Answers P q, b.CoversLive T a := by
   intro a ha
-  have hwf' : Program.WellFormed { P with theory := T } q := ⟨hwf.1, hwf.2.1, hT⟩
+  have hwf' : ProgramOf.WellFormed { P with theory := T } q := ⟨hwf.1, hwf.2.1, hT⟩
   obtain ⟨s, hs, hrefine⟩ := hgen _ q hwf' a ha
   rcases hcomp P q hwf s (derives_theory hs) with hdead | ⟨n, b, hb, hcov⟩
   · left

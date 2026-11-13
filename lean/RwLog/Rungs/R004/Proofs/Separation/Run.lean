@@ -20,7 +20,7 @@ open Cost R001
 /-- R004's first round emits `a -> a`, within `1000 (k + 2)` ticks. -/
 theorem costed_first (k : Nat) :
     (∃ s', (costed.step (st0 k)).val = .emit [aa] s') ∧
-      (costed.step (st0 k)).ticks ≤ 1000 * (k + 2) := by
+      (costed.step (st0 k)).ticks + 12 * (k + 2) ≤ 1000 * (k + 2) := by
   obtain ⟨hv, ht⟩ := round_st0 k
   obtain ⟨sv, st⟩ := R003.Sep.step_emit (U := unfolder) (st := st0 k) rfl
   rw [hv] at sv
@@ -49,20 +49,22 @@ theorem separates : Obligation.separates := by
       rw [costed.runtime.run_succ_emit r1]
       simp
     · have h0 : costed.spent s' 0 = 0 := rfl
-      have hp : costed.paid (sepFam k).1 (sepFam k).2 1 =
+      have hp : costed.paid (sepFam k).1 (sepFam k).2 1 = (sepFam k).2.size +
           costed.spent (costed.start (sepFam k).1 (sepFam k).2) 1 := Tabled.paid_eq unfolder _ _ 1
+      have hq := Sep.size_le k
       rw [hp, hi, costed.spent_succ_emit hs, h0, Nat.add_zero]
-      exact ht
+      show _ ≤ 1000 * (k + 2)
+      omega
   · rintro n ⟨a, ha, -⟩
     have hi : R003.costed.start (sepFam k).1 (sepFam k).2 = Sep.st0 k :=
       Sep.init_eq k R003.unfolder
-    have hp : R003.costed.paid (sepFam k).1 (sepFam k).2 n =
+    have hp : R003.costed.paid (sepFam k).1 (sepFam k).2 n = (sepFam k).2.size +
         R003.costed.spent (R003.costed.start (sepFam k).1 (sepFam k).2) n :=
       Tabled.paid_eq R003.unfolder _ _ n
     rw [hp]
     rw [hi] at ha ⊢
-    exact R003.costed.le_spent_of_covered (N := 0) rfl
-      (le_trans (Sep.r003_first k) (R003.Sep.spent_ge_step _ _ 0)) ha
+    exact le_trans (R003.costed.le_spent_of_covered (N := 0) rfl
+      (le_trans (Sep.r003_first k) (R003.Sep.spent_ge_step _ _ 0)) ha) (Nat.le_add_left _ _)
 
 end R004
 

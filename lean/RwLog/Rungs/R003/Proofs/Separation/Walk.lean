@@ -160,7 +160,7 @@ theorem walk_cRel (d : Nat) : ∀ (j : Nat) {L : List Span}, (∀ t ∈ L, Good 
 theorem cont_top : Cont (fun p acc =>
     pure (if (toRel p).calls.isEmpty then (false, acc ++ [p]) else (true, acc))) 1 0 := by
   intro s _ acc hacc
-  simp only [toRel, Rel.calls, List.isEmpty_nil, ↓reduceIte, pure_val, pure_ticks,
+  simp only [toRel, RelOf.calls, List.isEmpty_nil, ↓reduceIte, pure_val, pure_ticks,
     List.length_append, List.length_singleton, le_refl, and_true, true_and]
   intro p hp
   rcases List.mem_append.1 hp with h | h
@@ -181,12 +181,13 @@ theorem length_flatMap_live (T : Theory) : ∀ xs : List Span,
     omega
 
 theorem length_derivs_prods : ∀ {acc : List (List Rel)}, Prods acc →
-    (acc.flatMap fun p => derivs (toRel p)).length = acc.length
+    (closed acc).length = acc.length
   | [], _ => rfl
   | p :: acc, h => by
     obtain ⟨s, rfl⟩ := h p (by simp)
     have ih := length_derivs_prods (acc := acc) fun q hq => h q (by simp [hq])
-    simp [toRel, derivs, ih]
+    simp only [closed, List.filterMap_cons, single, List.length_cons] at ih ⊢
+    rw [ih]
 
 /-- The walk on `cRel j` finds the unfolding final, returns at most
 `2 ^ (j + 1)` answers, and spends at least `2 ^ j (16 j + 3)`. -/

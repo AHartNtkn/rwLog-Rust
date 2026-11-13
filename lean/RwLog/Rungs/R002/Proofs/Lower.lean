@@ -66,7 +66,7 @@ theorem Tabled.round_ticks_ge (U : Oracle) (st : R001.State) (t : R001.Table)
 
 theorem baseline_lower : Obligation.baseline_lower := by
   intro st t ht hd i hi
-  have hfin : st.finished = false := by simp [R001.State.finished, ht, hd]
+  have hfin : st.finished = false := by simp [R001.StateOf.finished, ht, hd]
   have h1 := eager_ticks_ge st.P hi t.goal
   have h2 := Tabled.round_ticks_ge eager st t ht hd
   have : (baseline.step st).ticks = (Tabled.round eager st).ticks := by

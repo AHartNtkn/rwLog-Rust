@@ -41,7 +41,7 @@ namespace R001
 
 /-- The run of the machine started on a single goal. -/
 def GoalTerminates (P : Program) (g : Goal) : Prop :=
-  ∃ n, (runtime.run (State.ofGoal P g) n).2 = true
+  ∃ n, (runtime.run (StateOf.ofGoal P g) n).2 = true
 
 /-- The state after `n` steps (a finished state stays put). -/
 def stateAfter (st : State) : Nat → State
@@ -121,7 +121,7 @@ def FiniteCover (P : Program) (g : Goal) : Prop := ∃ F, CoverBy P g F
 /-- A goal's boundaries are interfaces: each is diagonal (`l = r`) and its
 store mentions only variables of `l`. The root goal `⟨none, q, none⟩` and
 every pushed goal have this form. -/
-def Goal.Interfaced (g : Goal) : Prop :=
+def GoalOf.Interfaced (g : Goal) : Prop :=
   ∀ b ∈ g.lb.toList ++ g.rb.toList, b.l = b.r ∧ ∀ c ∈ b.c, ∀ v ∈ c.vars, v ∈ b.l.vars
 
 /-! ### Termination certificates
@@ -297,7 +297,7 @@ Owned by the Tier 0 group and shared with the termination group: they hold
 for every table of a run started from any goal. -/
 
 /-- The tables after `n` rounds of the run started on `g`. -/
-def tablesAt (P : Program) (g : Goal) (n : Nat) : Tables := (stateAfter (State.ofGoal P g) n).tables
+def tablesAt (P : Program) (g : Goal) (n : Nat) : Tables := (stateAfter (StateOf.ofGoal P g) n).tables
 
 /-- Every answer of a table that is not dead is, up to the theory, a derivable
 answer of its goal. (A dead answer the engine could not refute can be read
@@ -315,7 +315,7 @@ def completion_sound : Prop :=
 /-- The tables after `m` rounds run unconditionally from `g`, whether or not
 the root has completed. -/
 def roundsAt (P : Program) (g : Goal) (m : Nat) : Tables :=
-  ((fun st => (round st).1)^[m] (State.ofGoal P g)).tables
+  ((fun st => (round st).1)^[m] (StateOf.ofGoal P g)).tables
 
 /-- Every derivable answer of a table's goal that is not dead is eventually
 covered by that table, if rounds keep running. A run stops once the root

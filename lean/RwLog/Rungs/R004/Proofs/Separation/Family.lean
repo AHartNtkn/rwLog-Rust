@@ -187,8 +187,8 @@ theorem wrapDen_nonempty (bs : List Sym) : (wrapDen bs).Nonempty := ⟨_, .sym "
 
 /-- A wrapper fused before each span of a list of wrappings. -/
 theorem join_wrap (f : Sym) : ∀ {l : List (List Sym)} {S : List Span}, List.Forall₂ Den l S →
-    ∃ S', (S.map fun s => [Rel.span s]).filterMap (joinSeq [.span (wrap f)]) =
-        S'.map (fun s => [Rel.span s]) ∧ List.Forall₂ Den (l.map (· ++ [f])) S'
+    ∃ S', (S.map fun s => [RelOf.span s]).filterMap (joinSeq [.span (wrap f)]) =
+        S'.map (fun s => [RelOf.span s]) ∧ List.Forall₂ Den (l.map (· ++ [f])) S'
   | _, _, .nil => ⟨[], rfl, .nil⟩
   | _, _, .cons (a := bs) (b := s) h t => by
     obtain ⟨S', e, h'⟩ := join_wrap f t
@@ -204,7 +204,7 @@ theorem join_wrap (f : Sym) : ∀ {l : List (List Sym)} {S : List Span}, List.Fo
       simp [joinSeq, hc]
 
 /-- The normal form of `gen j`: one span for each string of wrappers. -/
-theorem norm_gen_den : ∀ j, ∃ S, norm false (gen j) = S.map (fun s => [Rel.span s]) ∧
+theorem norm_gen_den : ∀ j, ∃ S, norm false (gen j) = S.map (fun s => [RelOf.span s]) ∧
     List.Forall₂ Den (strs j) S
   | 0 => ⟨[w0, w1], rfl, .cons (den_wrap_eq _) (.cons (den_wrap_eq _) .nil)⟩
   | j + 1 => by
@@ -240,7 +240,7 @@ theorem nodup_of_forall₂ {α β : Type} {R : α → β → Prop}
 
 /-- The normal form of `gen j` is `2 ^ (j + 1)` single spans, all
 different. -/
-theorem norm_gen (j : Nat) : ∃ S : List Span, norm false (gen j) = S.map (fun s => [Rel.span s]) ∧
+theorem norm_gen (j : Nat) : ∃ S : List Span, norm false (gen j) = S.map (fun s => [RelOf.span s]) ∧
     S.Nodup ∧ S.length = 2 ^ (j + 1) := by
   obtain ⟨S, e, h⟩ := norm_gen_den j
   refine ⟨S, e, ?_, by rw [← h.length_eq, length_strs]⟩
@@ -306,31 +306,31 @@ theorem canon_sepRel (k : Nat) : canon (sepRel k) = sepRel k := by
   simp [orBranches, sortedBranches, relCmp, List.eraseDups_cons, mkOr]
 
 theorem size_gen : ∀ k, (gen k).size = 12 * k + 11
-  | 0 => by simp [gen, bit, wrap, Rel.size, Span.size, Term.size, Store.size]
+  | 0 => by simp [gen, bit, wrap, RelOf.size, Span.size, Term.size, Store.size]
   | k + 1 => by
     have h0 := size_gen 0
     have ih := size_gen k
-    simp only [gen, Rel.size] at h0 ih ⊢
+    simp only [gen, RelOf.size] at h0 ih ⊢
     omega
 
 theorem size_dead (k : Nat) : (dead k).size = 12 * k + 15 := by
-  simp only [Rel.size, size_gen, size_qq]; omega
+  simp only [RelOf.size, size_gen, size_qq]; omega
 
 theorem size_sepRel (k : Nat) : (sepRel k).size = 12 * k + 19 := by
-  rw [sepRel_eq, Rel.size, size_dead]; simp only [Rel.size, size_aa]; omega
+  rw [sepRel_eq, RelOf.size, size_dead]; simp only [RelOf.size, size_aa]; omega
 
 theorem size_le (k : Nat) : (sepFam k).1.size + (sepFam k).2.size ≤ 12 * (k + 2) := by
-  have e : (sepFam k).1.size = 0 := by simp [sepFam, Program.size, Theory.size]
+  have e : (sepFam k).1.size = 0 := by simp [sepFam, ProgramOf.size, Theory.size]
   have := size_sepRel k
   simp only [sepFam] at e ⊢
   omega
 
 theorem calls_gen : ∀ k, (gen k).calls = []
-  | 0 => by simp [gen, bit, Rel.calls]
-  | k + 1 => by rw [gen, Rel.calls, calls_gen k]; simp [bit, Rel.calls]
+  | 0 => by simp [gen, bit, RelOf.calls]
+  | k + 1 => by rw [gen, RelOf.calls, calls_gen k]; simp [bit, RelOf.calls]
 
 theorem calls_sepRel (k : Nat) : (sepRel k).calls = [] := by
-  simp [sepRel_eq, Rel.calls, calls_gen]
+  simp [sepRel_eq, RelOf.calls, calls_gen]
 
 theorem wellFormed (k : Nat) : (sepFam k).1.WellFormed (sepFam k).2 := by
   refine ⟨by simp [sepFam], ?_, by simp [sepFam]⟩
@@ -345,7 +345,7 @@ theorem model_nil (k : Nat) : (sepFam k).1.theory.Model ∅ := by
 abbrev g0 (k : Nat) : Goal := ⟨none, sepRel k, none⟩
 
 theorem norm_g0 (k : Nat) : (g0 k).norm = (false, g0 k) := by
-  rw [Goal.norm, canon_sepRel, sepRel_eq, Goal.stripConv]
+  rw [GoalOf.norm, canon_sepRel, sepRel_eq, GoalOf.stripConv]
   · rfl
   · intro lb a rb h
     cases h
@@ -360,7 +360,7 @@ theorem unfold_g0 (k : Nat) :
     rw [unfoldN_zero, norm, norm_dead]
     rfl
   have hf : unfoldFinal P0 0 (g0 k) = true := by
-    simp [unfoldFinal, R000.roundFinal, hp, toRel, Rel.calls]
+    simp [unfoldFinal, R000.roundFinal, hp, toRel, RelOf.calls]
   refine ⟨hf, ?_⟩
   simp [unfoldAnswers, hf, R000.roundSpans, hp, toRel, derivs, live, Theory.simplify,
     Theory.simplifyWithin, Theory.refutes?, Theory.firings, Store.varCount]
@@ -370,8 +370,8 @@ abbrev st0 (k : Nat) : R001.State := ⟨P0, [⟨g0 k, [], false⟩], false, 0⟩
 
 theorem init_eq (k : Nat) (U : Oracle) :
     (Tabled.machine U).start (sepFam k).1 (sepFam k).2 = st0 k := by
-  show R001.State.ofGoal P0 (g0 k) = _
-  rw [R001.State.ofGoal, norm_g0]
+  show R001.StateOf.ofGoal P0 (g0 k) = _
+  rw [R001.StateOf.ofGoal, norm_g0]
 
 end Sep
 

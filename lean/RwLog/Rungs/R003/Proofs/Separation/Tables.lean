@@ -36,7 +36,7 @@ def keyBound (k : Nat) : Nat := 8 * k + 7
 theorem goalSize_gC (j : Nat) : goalSize (gC j) = 8 * j + 7 := by simp [goalSize, size_cRel]
 
 theorem goalSize_gS {s : Span} (hs : Good s) : goalSize (gS s) = 3 := by
-  simp [goalSize, Rel.size, size_good hs]
+  simp [goalSize, RelOf.size, size_good hs]
 
 theorem goalSize_sub {k : Nat} {g : Goal} (h : Sub k g) : goalSize g ≤ keyBound k := by
   unfold keyBound
@@ -52,13 +52,13 @@ theorem goalSize_slot {k : Nat} {g : Goal} (h : Slot k g) : goalSize g ≤ keyBo
 
 theorem norm_gC (j : Nat) : (gC j).norm = (false, gC j) := by
   cases j with
-  | zero => simp [Goal.norm, cRel, canon_tw, Goal.stripConv]
+  | zero => simp [GoalOf.norm, cRel, canon_tw, GoalOf.stripConv]
   | succ j =>
-    simp only [Goal.norm, canon_cRel]
-    simp [cRel, Goal.stripConv]
+    simp only [GoalOf.norm, canon_cRel]
+    simp [cRel, GoalOf.stripConv]
 
 theorem norm_gS (s : Span) : (gS s).norm = (false, gS s) := by
-  simp [Goal.norm, canon, Goal.stripConv]
+  simp [GoalOf.norm, canon, GoalOf.stripConv]
 
 theorem norm_sub {k : Nat} {g : Goal} (h : Sub k g) : g.norm = (false, g) := by
   rcases h with ⟨j, _, rfl⟩ | rfl | rfl
@@ -67,23 +67,23 @@ theorem norm_sub {k : Nat} {g : Goal} (h : Sub k g) : g.norm = (false, g) := by
   · exact norm_gS _
 
 theorem cRel_inj {j k : Nat} (h : cRel j = cRel k) : j = k := by
-  have := congrArg Rel.size h
+  have := congrArg RelOf.size h
   rw [size_cRel, size_cRel] at this
   omega
 
 theorem cRel_ne_span (k : Nat) {s : Span} (hs : Good s) : cRel k ≠ .span s := by
   intro h
-  have := congrArg Rel.size h
+  have := congrArg RelOf.size h
   rw [size_cRel] at this
-  simp [Rel.size, size_good hs] at this
+  simp [RelOf.size, size_good hs] at this
 
 /-- No goal that is asked for has the root's table. -/
 theorem same_root_sub {k : Nat} {g : Goal} (h : Sub k g) : (gC k).same g = false := by
   rcases h with ⟨j, hj, rfl⟩ | rfl | rfl
   · have : cRel k ≠ cRel j := fun e => by have := cRel_inj e; omega
-    simp [Goal.same, this]
-  · simp [Goal.same, cRel_ne_span k good_xz]
-  · simp [Goal.same, cRel_ne_span k good_zz]
+    simp [GoalOf.same, this]
+  · simp [GoalOf.same, cRel_ne_span k good_xz]
+  · simp [GoalOf.same, cRel_ne_span k good_zz]
 
 /-! ## The tables -/
 
@@ -132,9 +132,23 @@ theorem doneOf_sub {k : Nat} {a0 : List Span} {rest : Tables} (hr : RestOK k res
 
 /-! ## What a lookup costs -/
 
-theorem same_ticks {k : Nat} {g h : Goal} (hg : goalSize g ≤ keyBound k)
-    (hh : goalSize h ≤ keyBound k) : (Tabled.same g h).ticks ≤ 2 * keyBound k := by
-  show goalSize g + goalSize h ≤ _
+/-- A table key of the run: within the size bound, and without boundaries. -/
+def Key (k : Nat) (g : Goal) : Prop := goalSize g ≤ keyBound k ∧ g.lb = none ∧ g.rb = none
+
+theorem key_sub {k : Nat} {g : Goal} (h : Sub k g) : Key k g := by
+  refine ⟨goalSize_sub h, ?_⟩
+  rcases h with ⟨j, -, rfl⟩ | rfl | rfl <;> exact ⟨rfl, rfl⟩
+
+theorem key_slot {k : Nat} {g : Goal} (h : Slot k g) : Key k g := by
+  rcases h with rfl | h
+  · exact ⟨goalSize_slot (Or.inl rfl), rfl, rfl⟩
+  · exact key_sub h
+
+theorem same_ticks {k : Nat} {g h : Goal} (hg : Key k g) (hh : Key k h) :
+    (Tabled.same g h).ticks ≤ 2 * keyBound k := by
+  rw [Tabled.same_ticks_of_none hg.2 hh.2]
+  have := hg.1
+  have := hh.1
   omega
 
 /-- What one lookup costs at most among `n` tables: the key, and a comparison
@@ -142,20 +156,20 @@ with each table. -/
 def lookBound (k n : Nat) : Nat := (2 * n + 1) * keyBound k
 
 theorem findTable_ticks {k : Nat} {a0 : List Span} {rest : Tables} (hr : RestOK k rest) {g : Goal}
-    (hg : goalSize g ≤ keyBound k) :
+    (hg : Key k g) :
     (Tabled.findTable (tabs k a0 rest) g).ticks ≤ (tabs k a0 rest).length * (2 * keyBound k) :=
-  findL_ticks_le_mul fun _ ht => same_ticks (goalSize_slot (slot_of_mem hr ht)) hg
+  findL_ticks_le_mul fun _ ht => same_ticks (key_slot (slot_of_mem hr ht)) hg
 
 theorem indexOf_ticks {k : Nat} {a0 : List Span} {rest : Tables} (hr : RestOK k rest) {g : Goal}
-    (hg : goalSize g ≤ keyBound k) :
+    (hg : Key k g) :
     (Tabled.indexOf (tabs k a0 rest) g).ticks ≤ (tabs k a0 rest).length * (2 * keyBound k) :=
-  R002.Sep.indexFrom_ticks g _ _ 0 fun _ ht => same_ticks (goalSize_slot (slot_of_mem hr ht)) hg
+  R002.Sep.indexFrom_ticks g _ _ 0 fun _ ht => same_ticks (key_slot (slot_of_mem hr ht)) hg
 
 theorem answersOf_costs {k : Nat} {a0 : List Span} {rest : Tables} (hr : RestOK k rest) {g : Goal}
     (hg : Sub k g) :
     Costs (Tabled.answersOf (tabs k a0 rest) g) [] (lookBound k (tabs k a0 rest).length) := by
   refine ⟨by rw [Tabled.answersOf_val, answersOf_sub hr hg], ?_⟩
-  have h1 := findTable_ticks (a0 := a0) hr (goalSize_sub hg)
+  have h1 := findTable_ticks (a0 := a0) hr (key_sub hg)
   have h2 := goalSize_sub hg
   have e : (Tabled.norm g).val.2 = g := by rw [Tabled.norm_val, norm_sub hg]
   have e' : (Tabled.norm g).ticks = goalSize g := rfl
@@ -168,7 +182,7 @@ theorem doneOf_costs {k : Nat} {a0 : List Span} {rest : Tables} (hr : RestOK k r
     (hg : Sub k g) :
     Costs (Tabled.doneOf (tabs k a0 rest) g) false (lookBound k (tabs k a0 rest).length) := by
   refine ⟨by rw [Tabled.doneOf_val, doneOf_sub hr hg], ?_⟩
-  have h1 := findTable_ticks (a0 := a0) hr (goalSize_sub hg)
+  have h1 := findTable_ticks (a0 := a0) hr (key_sub hg)
   have h2 := goalSize_sub hg
   have e : (Tabled.norm g).val.2 = g := by rw [Tabled.norm_val, norm_sub hg]
   have e' : (Tabled.norm g).ticks = goalSize g := rfl

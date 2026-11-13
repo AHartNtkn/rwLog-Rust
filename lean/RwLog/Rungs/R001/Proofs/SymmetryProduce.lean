@@ -288,7 +288,7 @@ theorem seq_step (hK : Obligation.SimplifyRespectsEquiv P.theory) (R : TabsRel t
   have pushLR : ∀ x y', y'.Equiv x.swap → Mirror (seqPushL G b x) (seqPushR H a' y') :=
     fun x y' e => mirror_mk ha hl (push_r_mirror e)
   simp only [StepMirror, produce.produceStrategies, strategies.tableStrategies, hG, hH,
-    Program.dual_theory]
+    ProgramOf.dual_theory]
   generalize hxs : answersOf tsA (seqLeft G a) = xs
   generalize hys : answersOf tsA (seqRight G b) = ys
   generalize hxs' : answersOf tsB (seqLeft H a') = xs'
@@ -361,7 +361,7 @@ theorem and_step (hK : Obligation.SimplifyRespectsEquiv P.theory) (R : TabsRel t
   have pushA : ∀ y y', y'.Equiv y.swap → Mirror (andPush a y) (andPush a' y') :=
     fun y y' e => mirror_mk ha (push_r_mirror e) (push_l_mirror e)
   simp only [StepMirror, produce.produceStrategies, strategies.tableStrategies, hG, hH,
-    Program.dual_theory]
+    ProgramOf.dual_theory]
   generalize hxs : answersOf tsA (andLeft G a) = xs
   generalize hys : answersOf tsA (andRight G b) = ys
   generalize hxs' : answersOf tsB (andLeft H a') = xs'
@@ -417,7 +417,7 @@ theorem call_step (R : TabsRel tsA tsB) {G H : Goal} {n : Name} (hG : G.e = .cal
     (hl : boundEq (G.rb.map Span.swap) H.lb = true) (hr : boundEq (G.lb.map Span.swap) H.rb = true) :
     StepMirror P tsA tsB G H := by
   have m : Mirror (callGoal P G n) (callGoal P.dual H n) :=
-    mirror_mk (by simp only [callGoal, Program.dual_body]) hl hr
+    mirror_mk (by simp only [callGoal, ProgramOf.dual_body]) hl hr
   simp only [StepMirror, produce.produceStrategies, strategies.tableStrategies, hG, hH]
   refine ⟨ClassEq.of_stepEquiv (answersOf_mirror R m), MSet.cons m ?_, SRel.single (MSet.cons m ?_)⟩ <;>
     exact ⟨fun _ h => absurd h List.not_mem_nil, fun _ h => absurd h List.not_mem_nil⟩
@@ -427,7 +427,7 @@ theorem span_step (hK : Obligation.SimplifyRespectsEquiv P.theory) {G H : Goal} 
     (hl : boundEq (G.rb.map Span.swap) H.lb = true) (hr : boundEq (G.lb.map Span.swap) H.rb = true) :
     StepMirror P tsA tsB G H := by
   simp only [StepMirror, produce.produceStrategies, strategies.tableStrategies, hG, hH,
-    Program.dual_theory]
+    ProgramOf.dual_theory]
   have e : MSet [] [] := ⟨fun _ h => absurd h List.not_mem_nil, fun _ h => absurd h List.not_mem_nil⟩
   exact ⟨spanAnswer_mirror hK s hl hr, e, SRel.single e⟩
 
@@ -448,10 +448,10 @@ theorem notOr_sorted {L : List Rel} (h : ∀ x ∈ L, NotOr x) : ∀ x ∈ sorte
   fun x hx => h x (mem_sortedBranches.1 hx).1
 
 /-- The branches of a canonical `|` are canonical and not `0`. -/
-theorem branches_canonical {a b : Rel} (hc : canon (Rel.or a b) = Rel.or a b) {c : Rel}
-    (h : c ∈ orBranches (Rel.or a b)) : c ≠ .zero ∧ canon c = c := by
+theorem branches_canonical {a b : Rel} (hc : canon (RelOf.or a b) = RelOf.or a b) {c : Rel}
+    (h : c ∈ orBranches (RelOf.or a b)) : c ≠ .zero ∧ canon c = c := by
   have hE := hc
-  rw [show canon (Rel.or a b) = mkOr (sortedBranches (orBranches (canon a) ++ orBranches (canon b)))
+  rw [show canon (RelOf.or a b) = mkOr (sortedBranches (orBranches (canon a) ++ orBranches (canon b)))
     from rfl] at hE
   have hT : ∀ x ∈ sortedBranches (orBranches (canon a) ++ orBranches (canon b)), NotOr x :=
     notOr_sorted fun x hx => (List.mem_append.1 hx).elim notOr_of_mem_orBranches notOr_of_mem_orBranches
@@ -462,7 +462,7 @@ theorem branches_canonical {a b : Rel} (hc : canon (Rel.or a b) = Rel.or a b) {c
   rw [hbr] at h
   have h0 := (mem_sortedBranches.1 h).2
   refine ⟨h0, ?_⟩
-  have : c ∈ orBranches (canon (Rel.or a b)) := by rw [hc, hbr]; exact h
+  have : c ∈ orBranches (canon (RelOf.or a b)) := by rw [hc, hbr]; exact h
   obtain ⟨l, _, rfl⟩ := (mem_orBranches_canon (.or a b) h0).1 this
   exact canon_idem l
 
@@ -472,17 +472,17 @@ theorem canon_dual_ne_zero {c : Rel} (h0 : c ≠ .zero) (hc : canon c = c) : can
   rw [← hc, ← canon_dual_canon c, ← canon_dual c, h]; rfl
 
 theorem or_step (R : TabsRel tsA tsB) {G H : Goal} {a b : Rel} (hG : G.e = .or a b)
-    (hc : canon (Rel.or a b) = Rel.or a b) (hH : H.e = canon (Rel.or a b).dual)
+    (hc : canon (RelOf.or a b) = RelOf.or a b) (hH : H.e = canon (RelOf.or a b).dual)
     (hl : boundEq (G.rb.map Span.swap) H.lb = true) (hr : boundEq (G.lb.map Span.swap) H.rb = true) :
     StepMirror P tsA tsB G H := by
   obtain ⟨u, v, rest, hs⟩ := canon_dual_or_two hc
-  have hT : ∀ x ∈ sortedBranches (orBranches (canon (Rel.or a b).dual)), NotOr x :=
+  have hT : ∀ x ∈ sortedBranches (orBranches (canon (RelOf.or a b).dual)), NotOr x :=
     notOr_sorted fun x hx => notOr_of_mem_orBranches hx
   have hH' : H.e = .or u (mkOr (v :: rest)) := by
     rw [hH, canon_eq_mkOr, hs]; rfl
-  have hbr : orBranches (Rel.or u (mkOr (v :: rest))) = u :: v :: rest := by
+  have hbr : orBranches (RelOf.or u (mkOr (v :: rest))) = u :: v :: rest := by
     rw [← hs, ← orBranches_mkOr_eq hT (by rw [hs]; simp), hs]; rfl
-  have memB : ∀ z, z ∈ u :: v :: rest ↔ z ≠ .zero ∧ ∃ c ∈ orBranches (Rel.or a b), canon c.dual = z := by
+  have memB : ∀ z, z ∈ u :: v :: rest ↔ z ≠ .zero ∧ ∃ c ∈ orBranches (RelOf.or a b), canon c.dual = z := by
     intro z
     rw [← hs, mem_sortedBranches]
     constructor
@@ -533,7 +533,7 @@ theorem produce_mirror (hK : Obligation.SimplifyRespectsEquiv P.theory) (R : Tab
     ClassEq (produce P.dual d tsB H).1 ((produce P d tsA G).1.map Span.swap) ∧
       MSet (produce P d tsA G).2 (produce P.dual d tsB H).2 ∧
       SRel (strategies P d tsA G) (strategies P.dual d tsB H) := by
-  rw [Goal.same_iff] at hm
+  rw [GoalOf.same_iff] at hm
   obtain ⟨he, hl, hr⟩ := hm
   simp only [KD] at he hl hr
   have hl' := boundEq_symm hl

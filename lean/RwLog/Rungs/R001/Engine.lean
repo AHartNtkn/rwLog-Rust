@@ -59,6 +59,7 @@ changing, `S` contains all of them, so the machine never stalls.
 -/
 import RwLog.Kernel.Refute
 import RwLog.Kernel.Iface
+import RwLog.Kernel.Canon
 import RwLog.Kernel.Live
 import RwLog.Kernel.Maxima
 import RwLog.Lib.Gfp
@@ -68,19 +69,15 @@ namespace RwLog
 
 namespace R001
 
-/-- A boundary, with the trivial interface `$x -> $x` (the identity)
-represented as no boundary. -/
-def bound (s : Span) : Option Span :=
-  match s.l, s.c with
-  | .var _, [] => none
-  | _, _ => some s
-
-/-- The goal `lb ; e ; rb`. -/
-structure Goal where
-  lb : Option Span
-  e : Rel
-  rb : Option Span
+/-- The goal `lb ; e ; rb`, for any type of spans. -/
+structure GoalOf (S : Type) where
+  lb : Option S
+  e : RelOf S
+  rb : Option S
   deriving DecidableEq, Repr
+
+/-- The goals of the language. -/
+abbrev Goal := GoalOf Span
 
 /-- Boundaries are equal as table keys when they are equivalent. -/
 def boundEq : Option Span → Option Span → Bool
@@ -90,10 +87,10 @@ def boundEq : Option Span → Option Span → Bool
 
 /-- Goals are equal as table keys: the same expression and equivalent
 boundaries. -/
-def Goal.same (g h : Goal) : Bool := decide (g.e = h.e) && boundEq g.lb h.lb && boundEq g.rb h.rb
+def GoalOf.same (g h : Goal) : Bool := decide (g.e = h.e) && boundEq g.lb h.lb && boundEq g.rb h.rb
 
 /-- The mirror image of a goal: `(lb ; e ; rb)ᵒ = rbᵒ ; eᵒ ; lbᵒ`. -/
-def Goal.dual (g : Goal) : Goal := ⟨g.rb.map Span.swap, g.e.dual, g.lb.map Span.swap⟩
+def GoalOf.dual (g : Goal) : Goal := ⟨g.rb.map Span.swap, g.e.dual, g.lb.map Span.swap⟩
 
 /-! ### Canonical expressions
 
@@ -104,89 +101,23 @@ linear order and deduplicated, and the result is rebuilt right-nested. Goals
 that differ only in how their `|` branches are ordered or grouped then share
 one table, and a `|` goal reads all its branches directly (`orLeaves`), so
 neither the order nor the grouping of branches, nor how a mirrored run sorts
-them, changes when an answer arrives. -/
-
-/-- A structural linear order on patterns. -/
-def patCmp : Pat → Pat → Ordering
-  | .var a, .var b => compare a b
-  | .var _, _ => .lt
-  | _, .var _ => .gt
-  | .sym f, .sym g => compare f g
-  | .sym _, _ => .lt
-  | _, .sym _ => .gt
-  | .app a b, .app c d => (patCmp a c).then (patCmp b d)
-
-/-- Lexicographic extension of an order to lists. -/
-def listCmp {α : Type} (f : α → α → Ordering) : List α → List α → Ordering
-  | [], [] => .eq
-  | [], _ :: _ => .lt
-  | _ :: _, [] => .gt
-  | x :: xs, y :: ys => (f x y).then (listCmp f xs ys)
-
-def spanCmp (a b : Span) : Ordering :=
-  ((patCmp a.l b.l).then (patCmp a.r b.r)).then (listCmp patCmp a.c b.c)
-
-/-- A structural linear order on expressions. -/
-def relCmp : Rel → Rel → Ordering
-  | .zero, .zero => .eq
-  | .zero, _ => .lt
-  | _, .zero => .gt
-  | .span a, .span b => spanCmp a b
-  | .span _, _ => .lt
-  | _, .span _ => .gt
-  | .or a b, .or c d => (relCmp a c).then (relCmp b d)
-  | .or _ _, _ => .lt
-  | _, .or _ _ => .gt
-  | .and a b, .and c d => (relCmp a c).then (relCmp b d)
-  | .and _ _, _ => .lt
-  | _, .and _ _ => .gt
-  | .seq a b, .seq c d => (relCmp a c).then (relCmp b d)
-  | .seq _ _, _ => .lt
-  | _, .seq _ _ => .gt
-  | .conv a, .conv b => relCmp a b
-  | .conv _, _ => .lt
-  | _, .conv _ => .gt
-  | .call m, .call n => compare m n
-
-/-- The branches of a `|` nest. -/
-def orBranches : Rel → List Rel
-  | .or a b => orBranches a ++ orBranches b
-  | e => [e]
-
-/-- Rebuild a right-nested `|` from branches. -/
-def mkOr : List Rel → Rel
-  | [] => .zero
-  | [e] => e
-  | e :: es => .or e (mkOr es)
-
-/-- Sorted, without repeats. -/
-def sortedBranches (es : List Rel) : List Rel :=
-  ((es.filter (· ≠ .zero)).mergeSort fun a b => relCmp a b != .gt).eraseDups
-
-/-- The canonical form of an expression. -/
-def canon : Rel → Rel
-  | .zero => .zero
-  | .span s => .span s
-  | .or a b => mkOr (sortedBranches (orBranches (canon a) ++ orBranches (canon b)))
-  | .and a b => .and (canon a) (canon b)
-  | .seq a b => .seq (canon a) (canon b)
-  | .conv a => .conv (canon a)
-  | .call n => .call n
+them, changes when an answer arrives. The canonical form (`canon`) is an
+operation of the kernel and is defined in `Kernel/Canon.lean`. -/
 
 /-- Strip converses from a canonical expression. -/
-def Goal.stripConv : Goal → Bool × Goal
+def GoalOf.stripConv : Goal → Bool × Goal
   | ⟨lb, .conv a, rb⟩ =>
-    let r := Goal.stripConv ⟨rb.map Span.swap, a, lb.map Span.swap⟩
+    let r := GoalOf.stripConv ⟨rb.map Span.swap, a, lb.map Span.swap⟩
     (!r.1, r.2)
   | g => (false, g)
 termination_by g => sizeOf g.e
 
 /-- The table key of a goal: `norm g = (flip, g')` with `g'` canonical, not a
 converse, and `g` the converse of `g'` when `flip` holds. -/
-def Goal.norm (g : Goal) : Bool × Goal := Goal.stripConv ⟨g.lb, canon g.e, g.rb⟩
+def GoalOf.norm (g : Goal) : Bool × Goal := GoalOf.stripConv ⟨g.lb, canon g.e, g.rb⟩
 
 /-- The expression `lb ; e ; rb` of a goal. -/
-def Goal.rel (g : Goal) : Rel :=
+def GoalOf.rel {S : Type} (g : GoalOf S) : RelOf S :=
   let core := match g.rb with
     | none => g.e
     | some r => .seq g.e (.span r)
@@ -195,13 +126,17 @@ def Goal.rel (g : Goal) : Rel :=
   | some l => .seq (.span l) core
 
 /-- A table: a goal, the answers found so far, and whether it is complete. -/
-structure Table where
-  goal : Goal
-  answers : List Span
+structure TableOf (S : Type) where
+  goal : GoalOf S
+  answers : List S
   done : Bool
   deriving Repr
 
-abbrev Tables := List Table
+abbrev Table := TableOf Span
+
+abbrev TablesOf (S : Type) := List (TableOf S)
+
+abbrev Tables := TablesOf Span
 
 /-- The table of a goal whose expression is not a converse. -/
 def findTable (ts : Tables) (g : Goal) : Option Table :=
@@ -244,8 +179,8 @@ def spanAnswer (T : Theory) (lb : Option Span) (s : Span) (rb : Option Span) : L
 /-! ## Goals: sub-goals, candidates and strategies -/
 
 /-- The sub-goals of a sequence `lb ; (a ; b) ; rb`. -/
-def seqLeft (g : Goal) (a : Rel) : Goal := ⟨g.lb, a, none⟩
-def seqRight (g : Goal) (b : Rel) : Goal := ⟨none, b, g.rb⟩
+def seqLeft {S : Type} (g : GoalOf S) (a : RelOf S) : GoalOf S := ⟨g.lb, a, none⟩
+def seqRight {S : Type} (g : GoalOf S) (b : RelOf S) : GoalOf S := ⟨none, b, g.rb⟩
 
 /-- The goal the push-left strategy runs for a left answer `x`, and the
 mirror one for a right answer `y`. -/
@@ -253,14 +188,15 @@ def seqPushL (g : Goal) (b : Rel) (x : Span) : Goal := ⟨bound x.rightIface, b,
 def seqPushR (g : Goal) (a : Rel) (y : Span) : Goal := ⟨g.lb, a, bound y.leftIface⟩
 
 /-- The sub-goals of a conjunction `lb ; (a & b) ; rb`. -/
-def andLeft (g : Goal) (a : Rel) : Goal := ⟨g.lb, a, g.rb⟩
-def andRight (g : Goal) (b : Rel) : Goal := ⟨g.lb, b, g.rb⟩
+def andLeft {S : Type} (g : GoalOf S) (a : RelOf S) : GoalOf S := ⟨g.lb, a, g.rb⟩
+def andRight {S : Type} (g : GoalOf S) (b : RelOf S) : GoalOf S := ⟨g.lb, b, g.rb⟩
 
 /-- The goal a conjunction runs for an answer `x` of one side. -/
 def andPush (e : Rel) (x : Span) : Goal := ⟨bound x.leftIface, e, bound x.rightIface⟩
 
 /-- The goal a call or converse forwards to. -/
-def callGoal (P : Program) (g : Goal) (n : Name) : Goal := ⟨g.lb, P.body n, g.rb⟩
+def callGoal {S : Type} (P : ProgramOf S) (g : GoalOf S) (n : Name) : GoalOf S :=
+  ⟨g.lb, P.body n, g.rb⟩
 def convGoal (g : Goal) (a : Rel) : Goal := ⟨g.rb.map Span.swap, a, g.lb.map Span.swap⟩
 
 /-- The unfolding strategy, raced by every goal: unfold the calls of
@@ -277,7 +213,7 @@ def unfoldAnswers (P : Program) (d : Nat) (g : Goal) : List Span :=
 /-- The goals a `|` goal reads: one for each branch of its whole `|` nest, so
 no table sits between a `|` goal and its branches, and how the nest is
 grouped never delays a branch. -/
-def orLeaves (g : Goal) (a b : Rel) : List Goal :=
+def orLeaves {S : Type} (g : GoalOf S) (a b : RelOf S) : List (GoalOf S) :=
   (orBranches (.or a b)).map fun c => ⟨g.lb, c, g.rb⟩
 
 /-- The candidate answers of a goal, computed from the tables at the start of
@@ -372,11 +308,13 @@ def completing (P : Program) (d : Nat) (ts ts' : Tables) : List Nat :=
 /-- The machine state: the program, the tables (the root first), whether
 the query is the converse of the root goal, and the number of rounds run,
 which is the unfolding depth of the unfolding strategy. -/
-structure State where
-  P : Program
-  tables : Tables
+structure StateOf (S : Type) where
+  P : ProgramOf S
+  tables : TablesOf S
   rootFlip : Bool
   depth : Nat
+
+abbrev State := StateOf Span
 
 /-- One round. Returns the new state and the answers the root gained. -/
 def round (st : State) : State × List Span :=
@@ -395,12 +333,12 @@ def round (st : State) : State × List Span :=
   (⟨st.P, ts3, st.rootFlip, st.depth + 1⟩, orient st.rootFlip rootNew)
 
 /-- The state for a goal: its table alone. -/
-def State.ofGoal (P : Program) (g : Goal) : State :=
+def StateOf.ofGoal (P : Program) (g : Goal) : State :=
   let n := g.norm
   ⟨P, [⟨n.2, [], false⟩], n.1, 0⟩
 
 /-- The root table is complete. -/
-def State.finished (st : State) : Bool :=
+def StateOf.finished {S : Type} (st : StateOf S) : Bool :=
   match st.tables.head? with
   | some t => t.done
   | none => true
@@ -412,7 +350,7 @@ def step (st : State) : Step State :=
 
 def runtime : Runtime where
   State := State
-  init P q := State.ofGoal P ⟨none, q, none⟩
+  init P q := StateOf.ofGoal P ⟨none, q, none⟩
   step := step
 
 /-- Rung R001: no preprocessing, an empty artifact store, and the tabled

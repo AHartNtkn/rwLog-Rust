@@ -133,7 +133,7 @@ theorem onDemand_gS (d : Nat) {s : Span} (hs : Good s) : (onDemand P0 d (gS s)).
   have hrel : (gS s).rel = .span s := rfl
   have hl : RwLog.live [] s = [s] := (live_good hs).1
   rw [onDemand, hrel, walk]
-  simp [R002.alive, aliveL, aliveR, toRel, Rel.calls, derivs, hl]
+  simp [R002.alive, aliveL, aliveR, toRel, RelOf.calls, closed, single, hl]
 
 theorem unfolder_gS (d : Nat) {s : Span} (hs : Good s) :
     (unfolder P0 d (gS s)).ticks ≤ 56 ∧ (unfolder P0 d (gS s)).val = (true, [s]) := by
