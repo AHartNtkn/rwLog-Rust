@@ -96,4 +96,5 @@ import RwLog.Rungs.Tabled.Unfolding.Shared
 import RwLog.Rungs.Tabled.Unfolding.Races
 import RwLog.Rungs.Tabled.Unfolding.Model
 import RwLog.Rungs.Tabled.Unfolding.EagerExact
+import RwLog.Rungs.Tabled.Unfolding.WalkExact
 import RwLog.Rungs.R005.Tables

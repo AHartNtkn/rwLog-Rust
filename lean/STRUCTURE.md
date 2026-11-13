@@ -221,6 +221,10 @@ of sequencing sets of products in either direction (`seqSets`, `chainS`,
 `chainD`, `pushSet`, `seqI_iff_push_ext`). `EagerExact.lean` proves that the
 whole unfolding builds exactly those products (`eager_ex`), so the unfolding
 race is final exactly when the model has no open product (`eagerRace_final`).
+`WalkExact.lean` proves, under exact interfaces, that what a walk holds of the
+items it hands on is what a walk holds of exactly those products (`walk_ex`,
+in either direction and under whatever was pushed), so a walk gives the same
+verdict (`walkRace_final`).
 
 `Rungs/Framework/Writing.lean` proves what holds of every engine because an
 engine is handed the normal form of the query: `Engine.orComm`, `orAssoc`,
