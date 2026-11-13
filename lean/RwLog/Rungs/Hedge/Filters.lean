@@ -114,14 +114,23 @@ theorem store_nil_of_size {c : Store} (h : Store.size c = 0) : c = [] := by
 
 /-- A span that `plain` accepts carries no constraints. -/
 theorem plain_sound {x : Span} (h : (plain x).val = true) : x.c = [] := by
-  simp only [plain, bind_val, Charged.meet, pure_val] at h
+  simp only [plain, bind_val, Charged.meet, pure_val, Bool.and_eq_true] at h
   cases hm : x.meet x with
-  | none => rw [hm] at h; cases h
+  | none => rw [hm] at h; cases h.1
   | some z =>
     rw [hm] at h
-    have hz : z.size ≤ x.size := of_decide_eq_true h
+    have hz : z.size ≤ x.size := of_decide_eq_true h.1
     have := size_meet_self hm
     exact store_nil_of_size (by omega)
+
+/-- The test returns the same and costs the same for a span and for its
+converse. -/
+theorem plain_swap (x : Span) : plain x.swap = plain x := by
+  refine Cost.ext ?_ ?_
+  · simp only [plain, bind_val, pure_val, Span.swap_swap, Span.size_swap]
+    exact Bool.and_comm _ _
+  · simp only [plain, bind_ticks, pure_ticks, Charged.meet, Span.swap_swap, Span.size_swap]
+    omega
 
 /-! ## `dropCovered` -/
 

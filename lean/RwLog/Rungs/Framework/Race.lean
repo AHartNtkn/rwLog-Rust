@@ -130,6 +130,37 @@ theorem race_cases {α : Type} (x y : Cost α) :
       ((race x y).val = y.val ∧ y.ticks < x.ticks) :=
   raceFrom_cases x y x.ticks 0 (by omega) (by omega)
 
+/-! ## Races of computations that cost the same -/
+
+theorem raceFrom_sim {α β : Type} (x y : Cost α) (x' y' : Cost β) (hx : x'.ticks = x.ticks)
+    (hy : y'.ticks = y.ticks) : ∀ (n b : Nat), x.ticks - b ≤ n →
+    (raceFrom x' y' b).ticks = (raceFrom x y b).ticks ∧
+      (((raceFrom x y b).val = x.val ∧ (raceFrom x' y' b).val = x'.val) ∨
+        ((raceFrom x y b).val = y.val ∧ (raceFrom x' y' b).val = y'.val))
+  | n, b, hn => by
+    rw [raceFrom_eq x y, raceFrom_eq x' y', hx, hy]
+    by_cases h1 : x.ticks ≤ b
+    · simp only [h1, ite_true]
+      exact ⟨trivial, .inl ⟨trivial, trivial⟩⟩
+    · by_cases h2 : y.ticks ≤ b
+      · simp only [h1, h2, ite_true, ite_false]
+        exact ⟨trivial, .inr ⟨trivial, trivial⟩⟩
+      · simp only [h1, h2, ite_false]
+        match n, hn with
+        | 0, hn => omega
+        | n + 1, hn =>
+          obtain ⟨ht, hv⟩ := raceFrom_sim x y x' y' hx hy n (2 * b + 1) (by omega)
+          exact ⟨by rw [ht], hv⟩
+
+/-- Two races whose sides cost the same cost the same and are won by the same
+side. -/
+theorem race_sim {α β : Type} (x y : Cost α) (x' y' : Cost β) (hx : x'.ticks = x.ticks)
+    (hy : y'.ticks = y.ticks) :
+    (race x' y').ticks = (race x y).ticks ∧
+      (((race x y).val = x.val ∧ (race x' y').val = x'.val) ∨
+        ((race x y).val = y.val ∧ (race x' y').val = y'.val)) :=
+  raceFrom_sim x y x' y' hx hy x.ticks 0 (by omega)
+
 end Cost
 
 end RwLog

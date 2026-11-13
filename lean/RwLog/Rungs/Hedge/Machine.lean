@@ -47,12 +47,18 @@ structure State (α β : Type) where
   seen : List Span
   seenB : List Span
 
-/-- The span carries no constraints: conjoined with itself it does not grow. -/
+/-- The span carries no constraints: conjoined with itself it does not grow.
+The test is made on the span and on its converse, so that it returns the same
+and costs the same for a span and for its converse. -/
 def plain (x : Span) : Cost Bool := do
   let z ← Charged.meet x x
-  pure (match z with
-    | some z => decide (z.size ≤ x.size)
-    | none => false)
+  let z' ← Charged.meet x.swap x.swap
+  pure ((match z with
+      | some z => decide (z.size ≤ x.size)
+      | none => false) &&
+    (match z' with
+      | some z => decide (z.size ≤ x.size)
+      | none => false))
 
 /-- The spans that no span of `old` covers. -/
 def dropCovered (old xs : List Span) : Cost (List Span) :=
