@@ -70,7 +70,7 @@ jobs:
             --metric median \
             --window 14 \
             --top 200 \
-            --env-compat warn \
+            --env-compat same \
             --fail-regressions-pct 15
           cargo run --release --bin perf_corpus_trend -- \
             --history-dir .perf-history-stress-cache \

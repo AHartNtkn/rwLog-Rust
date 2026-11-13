@@ -12,7 +12,9 @@ This runbook is for failures from:
 2. Check whether this is:
    - quick gate budget breach (`gate.failed = true`)
    - trend regression threshold breach (non-zero regressions over threshold)
-   - environment mismatch (`env_mismatch_fields` non-empty, especially in `--env-compat fail` mode)
+   - environment mismatch in `--env-compat fail` mode (exit code 2, `env_mismatch_fields` names the differing fields)
+
+   The trend tool only compares snapshots recorded in the same environment (OS, architecture, CPU model, rustc version) as the newest one. This is the default, `--env-compat same`. Snapshots from other environments are listed in `env_excluded_snapshots` and take no part in the comparison. When no earlier snapshot shares the newest snapshot's environment, the tool reports `skipped: no snapshot from the same environment` and exits 0. `--env-compat off` compares every snapshot regardless of environment and is only meaningful for history gathered on one machine.
 3. Confirm corpus scope and config used in CI:
    - tier/filter env vars
    - `perf/quick_gate.toml`
@@ -51,7 +53,7 @@ cargo run --release --bin perf_corpus_gate -- --json
 # targeted probe reruns
 RWLOG_CORPUS_FILTER=<case_id> cargo run --release --bin perf_corpus_run -- --phase end_to_end --iters 20 --json
 
-# trend with stricter environment checks
+# trend that refuses to run when the window mixes environments
 cargo run --release --bin perf_corpus_trend -- --history-dir perf/history --env-compat fail --source all --metric median --window 20 --json
 ```
 

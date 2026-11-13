@@ -2,8 +2,8 @@
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 use rwlog::perf_corpus::{
-    csv_escape, load_cases, load_snapshots_windowed, PerfSnapshot, SourceFilter, stats_cv_pct,
-    stats_mad_pct,
+    csv_escape, load_cases, load_snapshots_windowed, stats_cv_pct, stats_mad_pct, PerfSnapshot,
+    SourceFilter,
 };
 use serde::Serialize;
 use std::collections::BTreeMap;
@@ -19,9 +19,30 @@ enum MetricFilter {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum EnvCompatMode {
-    Warn,
+    /// Compare the newest snapshot only against snapshots recorded in the
+    /// same environment; snapshots from other environments are excluded.
+    Same,
+    /// Refuse to report (exit 2) when the window mixes environments.
     Fail,
+    /// Ignore environments and compare every snapshot in the window.
     Off,
+}
+
+const SKIPPED_NO_SAME_ENV: &str = "no snapshot from the same environment";
+
+/// The part of an environment fingerprint that decides whether two timings
+/// are comparable. `None` means the snapshot recorded no environment.
+type EnvKey<'a> = Option<(&'a str, &'a str, Option<&'a str>, &'a str)>;
+
+/// The snapshots a trend is computed over, in history order.
+#[derive(Debug)]
+struct Selection {
+    snapshots: Vec<PerfSnapshot>,
+    /// Names of snapshots left out because their environment differs from
+    /// the newest snapshot's.
+    excluded: Vec<String>,
+    /// Environment fields that differ among the snapshots considered.
+    mismatch_fields: Vec<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -70,6 +91,8 @@ struct TrendReport {
     metric: String,
     env_compat: String,
     env_mismatch_fields: Vec<String>,
+    env_excluded_snapshots: Vec<String>,
+    skipped_reason: Option<String>,
     window: Option<usize>,
     snapshots_scanned: usize,
     regressions_over_threshold: Option<usize>,
@@ -84,7 +107,7 @@ fn parse_args() -> Args {
         history_dir: PathBuf::from("perf/history"),
         source: SourceFilter::All,
         metric: MetricFilter::Median,
-        env_compat: EnvCompatMode::Warn,
+        env_compat: EnvCompatMode::Same,
         window: None,
         top: 20,
         filter: None,
@@ -121,10 +144,10 @@ fn parse_args() -> Args {
         }
         if arg == "--env-compat" {
             args_out.env_compat = match args.next().expect("--env-compat requires value").as_str() {
-                "warn" => EnvCompatMode::Warn,
+                "same" => EnvCompatMode::Same,
                 "fail" => EnvCompatMode::Fail,
                 "off" => EnvCompatMode::Off,
-                other => panic!("--env-compat must be warn|fail|off, got '{other}'"),
+                other => panic!("--env-compat must be same|fail|off, got '{other}'"),
             };
             continue;
         }
@@ -184,7 +207,7 @@ fn parse_args() -> Args {
         }
         if arg == "--help" || arg == "-h" {
             println!(
-                "Usage: perf_corpus_trend [--history-dir PATH] [--source gate|probe|all] [--metric median|p95|all] [--env-compat warn|fail|off] [--window N] [--top N] [--filter SUBSTR] [--fail-regressions-pct F] [--min-regression-confidence F] [--default-noise-target-cv-pct F] [--json|--csv]"
+                "Usage: perf_corpus_trend [--history-dir PATH] [--source gate|probe|all] [--metric median|p95|all] [--env-compat same|fail|off] [--window N] [--top N] [--filter SUBSTR] [--fail-regressions-pct F] [--min-regression-confidence F] [--default-noise-target-cv-pct F] [--json|--csv]"
             );
             std::process::exit(0);
         }
@@ -229,13 +252,13 @@ fn metric_to_str(metric: MetricFilter) -> &'static str {
 
 fn env_mode_to_str(mode: EnvCompatMode) -> &'static str {
     match mode {
-        EnvCompatMode::Warn => "warn",
+        EnvCompatMode::Same => "same",
         EnvCompatMode::Fail => "fail",
         EnvCompatMode::Off => "off",
     }
 }
 
-fn snapshot_env(snapshot: &PerfSnapshot) -> Option<(&str, &str, Option<&str>, &str)> {
+fn snapshot_env(snapshot: &PerfSnapshot) -> EnvKey<'_> {
     let env = snapshot
         .gate
         .as_ref()
@@ -278,6 +301,75 @@ fn env_mismatch_fields(snapshots: &[PerfSnapshot]) -> Vec<String> {
     out
 }
 
+fn keep_last(mut snapshots: Vec<PerfSnapshot>, window: Option<usize>) -> Vec<PerfSnapshot> {
+    if let Some(w) = window {
+        if snapshots.len() > w {
+            let keep_from = snapshots.len() - w;
+            snapshots = snapshots.split_off(keep_from);
+        }
+    }
+    snapshots
+}
+
+/// Choose which snapshots of `history` (oldest first) the trend covers.
+///
+/// Timings from different machines or compilers are not comparable, so in
+/// `Same` mode only snapshots whose environment equals the newest
+/// snapshot's are kept, and the window counts those snapshots alone.
+fn select_snapshots(
+    history: Vec<PerfSnapshot>,
+    mode: EnvCompatMode,
+    window: Option<usize>,
+) -> Selection {
+    match mode {
+        EnvCompatMode::Off => Selection {
+            snapshots: keep_last(history, window),
+            excluded: Vec::new(),
+            mismatch_fields: Vec::new(),
+        },
+        EnvCompatMode::Fail => {
+            let snapshots = keep_last(history, window);
+            let mismatch_fields = env_mismatch_fields(&snapshots);
+            Selection {
+                snapshots,
+                excluded: Vec::new(),
+                mismatch_fields,
+            }
+        }
+        EnvCompatMode::Same => {
+            let mismatch_fields = env_mismatch_fields(&history);
+            let Some(newest) = history.last() else {
+                return Selection {
+                    snapshots: Vec::new(),
+                    excluded: Vec::new(),
+                    mismatch_fields,
+                };
+            };
+            let same_env: Vec<bool> = {
+                let newest_env = snapshot_env(newest);
+                history
+                    .iter()
+                    .map(|s| snapshot_env(s) == newest_env)
+                    .collect()
+            };
+            let mut kept = Vec::new();
+            let mut excluded = Vec::new();
+            for (snapshot, same) in history.into_iter().zip(same_env) {
+                if same {
+                    kept.push(snapshot);
+                } else {
+                    excluded.push(snapshot.name);
+                }
+            }
+            Selection {
+                snapshots: keep_last(kept, window),
+                excluded,
+                mismatch_fields,
+            }
+        }
+    }
+}
+
 fn case_noise_targets(default_noise_target_cv_pct: f64) -> BTreeMap<String, f64> {
     let mut out = BTreeMap::new();
     for case in load_cases() {
@@ -299,11 +391,7 @@ fn aggregate_rows(
 ) -> Vec<TrendRow> {
     let mut series: BTreeMap<(String, String, String), Vec<(String, f64)>> = BTreeMap::new();
     for snapshot in snapshots {
-        if let Some(gate) = snapshot
-            .gate
-            .as_ref()
-            .filter(|_| source.includes_gate())
-        {
+        if let Some(gate) = snapshot.gate.as_ref().filter(|_| source.includes_gate()) {
             for row in &gate.rows {
                 if metric == MetricFilter::Median || metric == MetricFilter::All {
                     series
@@ -319,11 +407,7 @@ fn aggregate_rows(
                 }
             }
         }
-        if let Some(probe) = snapshot
-            .probe
-            .as_ref()
-            .filter(|_| source.includes_probe())
-        {
+        if let Some(probe) = snapshot.probe.as_ref().filter(|_| source.includes_probe()) {
             for row in &probe.rows {
                 if metric == MetricFilter::Median || metric == MetricFilter::All {
                     series
@@ -420,27 +504,26 @@ fn annotate_regressions(
 
 fn main() {
     let args = parse_args();
-    let snapshots = load_snapshots_windowed(&args.history_dir, args.window);
-
-    let mismatch_fields = if args.env_compat == EnvCompatMode::Off {
-        Vec::new()
-    } else {
-        env_mismatch_fields(&snapshots)
-    };
-    if !mismatch_fields.is_empty() {
-        let msg = format!(
-            "environment mismatch across snapshots (fields: {})",
+    let Selection {
+        snapshots,
+        excluded,
+        mismatch_fields,
+    } = select_snapshots(
+        load_snapshots_windowed(&args.history_dir, None),
+        args.env_compat,
+        args.window,
+    );
+    if args.env_compat == EnvCompatMode::Fail && !mismatch_fields.is_empty() {
+        eprintln!(
+            "error: environment mismatch across snapshots (fields: {})",
             mismatch_fields.join(", ")
         );
-        match args.env_compat {
-            EnvCompatMode::Warn => eprintln!("warning: {}", msg),
-            EnvCompatMode::Fail => {
-                eprintln!("error: {}", msg);
-                std::process::exit(2);
-            }
-            EnvCompatMode::Off => {}
-        }
+        std::process::exit(2);
     }
+    // Every earlier snapshot was recorded in another environment, so there
+    // is nothing the newest snapshot can be compared against.
+    let skipped_reason =
+        (snapshots.len() < 2 && !excluded.is_empty()).then_some(SKIPPED_NO_SAME_ENV);
 
     let case_noise_targets = case_noise_targets(args.default_noise_target_cv_pct);
     let mut rows = aggregate_rows(
@@ -476,7 +559,9 @@ fn main() {
             source: args.source.to_str().to_string(),
             metric: metric_to_str(args.metric).to_string(),
             env_compat: env_mode_to_str(args.env_compat).to_string(),
-            env_mismatch_fields: mismatch_fields.clone(),
+            env_mismatch_fields: mismatch_fields,
+            env_excluded_snapshots: excluded,
+            skipped_reason: skipped_reason.map(str::to_string),
             window: args.window,
             snapshots_scanned: snapshots.len(),
             regressions_over_threshold,
@@ -493,6 +578,9 @@ fn main() {
     }
 
     if args.csv {
+        if let Some(reason) = skipped_reason {
+            eprintln!("skipped: {reason}");
+        }
         println!(
             "source,metric,id,points,first_snapshot,last_snapshot,first_us,last_us,delta_us,delta_pct,min_us,max_us,slope_us_per_snapshot,volatility_cv_pct,volatility_mad_pct,noise_target_cv_pct,regression_confidence,effective_threshold_pct,regression_over_effective_threshold"
         );
@@ -528,7 +616,7 @@ fn main() {
     }
 
     println!(
-        "perf trend history_dir={} snapshots={} source={} metric={} env_compat={} env_mismatch_fields={} window={} top={} fail_regressions_pct={} min_regression_confidence={:.3} default_noise_target_cv_pct={:.3}",
+        "perf trend history_dir={} snapshots={} source={} metric={} env_compat={} env_mismatch_fields={} env_excluded_snapshots={} window={} top={} fail_regressions_pct={} min_regression_confidence={:.3} default_noise_target_cv_pct={:.3}",
         args.history_dir.display(),
         snapshots.len(),
         args.source.to_str(),
@@ -539,11 +627,11 @@ fn main() {
         } else {
             mismatch_fields.join(",")
         },
+        excluded.len(),
         args.window
             .map(|w| w.to_string())
             .unwrap_or_else(|| "-".to_string()),
-        args.top
-        ,
+        args.top,
         args.fail_regressions_pct
             .map(|t| format!("{:.3}", t))
             .unwrap_or_else(|| "-".to_string()),
@@ -553,6 +641,9 @@ fn main() {
     println!(
         "source | metric | id | points | first_snapshot | last_snapshot | first_us | last_us | delta_us | delta_pct | cv_pct | mad_pct | confidence | eff_threshold | over_threshold | slope_us/snap"
     );
+    if let Some(reason) = skipped_reason {
+        println!("skipped: {reason}");
+    }
     for row in &rows {
         println!(
             "{} | {} | {} | {} | {} | {} | {:.3} | {:.3} | {:+.3} | {:+.4}% | {:.3}% | {:.3}% | {:.3} | {} | {} | {:+.4}",
@@ -593,7 +684,273 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use super::{annotate_regressions, TrendRow};
+    use super::{annotate_regressions, select_snapshots, EnvCompatMode, Selection, TrendRow};
+    use rwlog::perf_corpus::{EnvironmentFingerprint, PerfSnapshot, SnapshotReport};
+
+    fn env(os: &str, arch: &str, cpu_model: Option<&str>, rustc: &str) -> EnvironmentFingerprint {
+        EnvironmentFingerprint {
+            os: os.to_string(),
+            arch: arch.to_string(),
+            cpu_model: cpu_model.map(str::to_string),
+            rustc_version: rustc.to_string(),
+            rustflags: None,
+            timestamp_unix_s: 0,
+            hostname: None,
+            git_sha: None,
+            github_run_id: None,
+            github_job: None,
+            github_ref: None,
+            run_id: None,
+        }
+    }
+
+    fn cpu(cpu_model: &str) -> Option<EnvironmentFingerprint> {
+        Some(env("linux", "x86_64", Some(cpu_model), "rustc 1.0"))
+    }
+
+    fn probe_snapshot(name: &str, environment: Option<EnvironmentFingerprint>) -> PerfSnapshot {
+        PerfSnapshot {
+            name: name.to_string(),
+            gate: None,
+            probe: Some(SnapshotReport {
+                environment,
+                rows: Vec::new(),
+            }),
+        }
+    }
+
+    fn history(entries: &[(&str, Option<EnvironmentFingerprint>)]) -> Vec<PerfSnapshot> {
+        entries
+            .iter()
+            .map(|(name, environment)| probe_snapshot(name, environment.clone()))
+            .collect()
+    }
+
+    fn kept(selection: &Selection) -> Vec<&str> {
+        selection
+            .snapshots
+            .iter()
+            .map(|s| s.name.as_str())
+            .collect()
+    }
+
+    #[test]
+    fn same_mode_keeps_every_snapshot_when_environments_agree() {
+        let sel = select_snapshots(
+            history(&[("s1", cpu("a")), ("s2", cpu("a")), ("s3", cpu("a"))]),
+            EnvCompatMode::Same,
+            None,
+        );
+        assert_eq!(kept(&sel), ["s1", "s2", "s3"]);
+        assert!(sel.excluded.is_empty());
+        assert!(sel.mismatch_fields.is_empty());
+    }
+
+    #[test]
+    fn same_mode_excludes_older_snapshot_from_other_cpu() {
+        let sel = select_snapshots(
+            history(&[("s1", cpu("b")), ("s2", cpu("a")), ("s3", cpu("a"))]),
+            EnvCompatMode::Same,
+            None,
+        );
+        assert_eq!(kept(&sel), ["s2", "s3"]);
+        assert_eq!(sel.excluded, ["s1"]);
+        assert_eq!(sel.mismatch_fields, ["cpu_model"]);
+    }
+
+    #[test]
+    fn same_mode_keeps_only_newest_when_no_earlier_snapshot_matches() {
+        let sel = select_snapshots(
+            history(&[("s1", cpu("a")), ("s2", cpu("a")), ("s3", cpu("b"))]),
+            EnvCompatMode::Same,
+            None,
+        );
+        assert_eq!(kept(&sel), ["s3"]);
+        assert_eq!(sel.excluded, ["s1", "s2"]);
+    }
+
+    #[test]
+    fn same_mode_keeps_interleaved_matches_in_history_order() {
+        let sel = select_snapshots(
+            history(&[
+                ("s1", cpu("a")),
+                ("s2", cpu("b")),
+                ("s3", cpu("a")),
+                ("s4", cpu("b")),
+                ("s5", cpu("a")),
+            ]),
+            EnvCompatMode::Same,
+            None,
+        );
+        assert_eq!(kept(&sel), ["s1", "s3", "s5"]);
+        assert_eq!(sel.excluded, ["s2", "s4"]);
+    }
+
+    #[test]
+    fn same_mode_window_counts_only_matching_snapshots() {
+        let sel = select_snapshots(
+            history(&[
+                ("s1", cpu("a")),
+                ("s2", cpu("a")),
+                ("s3", cpu("b")),
+                ("s4", cpu("b")),
+                ("s5", cpu("a")),
+            ]),
+            EnvCompatMode::Same,
+            Some(2),
+        );
+        assert_eq!(kept(&sel), ["s2", "s5"]);
+        assert_eq!(sel.excluded, ["s3", "s4"]);
+    }
+
+    #[test]
+    fn same_mode_excludes_snapshot_with_different_os() {
+        let newest = env("linux", "x86_64", Some("a"), "rustc 1.0");
+        let other = env("macos", "x86_64", Some("a"), "rustc 1.0");
+        let sel = select_snapshots(
+            history(&[("s1", Some(other)), ("s2", Some(newest))]),
+            EnvCompatMode::Same,
+            None,
+        );
+        assert_eq!(kept(&sel), ["s2"]);
+        assert_eq!(sel.mismatch_fields, ["os"]);
+    }
+
+    #[test]
+    fn same_mode_excludes_snapshot_with_different_arch() {
+        let newest = env("linux", "x86_64", Some("a"), "rustc 1.0");
+        let other = env("linux", "aarch64", Some("a"), "rustc 1.0");
+        let sel = select_snapshots(
+            history(&[("s1", Some(other)), ("s2", Some(newest))]),
+            EnvCompatMode::Same,
+            None,
+        );
+        assert_eq!(kept(&sel), ["s2"]);
+        assert_eq!(sel.mismatch_fields, ["arch"]);
+    }
+
+    #[test]
+    fn same_mode_excludes_snapshot_with_different_rustc() {
+        let newest = env("linux", "x86_64", Some("a"), "rustc 1.1");
+        let other = env("linux", "x86_64", Some("a"), "rustc 1.0");
+        let sel = select_snapshots(
+            history(&[("s1", Some(other)), ("s2", Some(newest))]),
+            EnvCompatMode::Same,
+            None,
+        );
+        assert_eq!(kept(&sel), ["s2"]);
+        assert_eq!(sel.mismatch_fields, ["rustc_version"]);
+    }
+
+    #[test]
+    fn same_mode_excludes_snapshot_with_unknown_cpu_when_newest_cpu_is_known() {
+        let unknown_cpu = env("linux", "x86_64", None, "rustc 1.0");
+        let sel = select_snapshots(
+            history(&[("s1", Some(unknown_cpu)), ("s2", cpu("a"))]),
+            EnvCompatMode::Same,
+            None,
+        );
+        assert_eq!(kept(&sel), ["s2"]);
+        assert_eq!(sel.excluded, ["s1"]);
+    }
+
+    #[test]
+    fn same_mode_excludes_snapshot_without_environment_when_newest_has_one() {
+        let sel = select_snapshots(
+            history(&[("s1", None), ("s2", cpu("a"))]),
+            EnvCompatMode::Same,
+            None,
+        );
+        assert_eq!(kept(&sel), ["s2"]);
+        assert_eq!(sel.excluded, ["s1"]);
+    }
+
+    #[test]
+    fn same_mode_excludes_snapshot_with_environment_when_newest_has_none() {
+        let sel = select_snapshots(
+            history(&[("s1", cpu("a")), ("s2", None), ("s3", None)]),
+            EnvCompatMode::Same,
+            None,
+        );
+        assert_eq!(kept(&sel), ["s2", "s3"]);
+        assert_eq!(sel.excluded, ["s1"]);
+    }
+
+    #[test]
+    fn same_mode_ignores_fields_that_vary_between_runs_on_one_machine() {
+        let mut earlier = env("linux", "x86_64", Some("a"), "rustc 1.0");
+        earlier.hostname = Some("runner-1".to_string());
+        earlier.timestamp_unix_s = 1;
+        earlier.git_sha = Some("abc".to_string());
+        earlier.github_run_id = Some("1".to_string());
+        let mut newest = env("linux", "x86_64", Some("a"), "rustc 1.0");
+        newest.hostname = Some("runner-2".to_string());
+        newest.timestamp_unix_s = 2;
+        newest.git_sha = Some("def".to_string());
+        newest.github_run_id = Some("2".to_string());
+        let sel = select_snapshots(
+            history(&[("s1", Some(earlier)), ("s2", Some(newest))]),
+            EnvCompatMode::Same,
+            None,
+        );
+        assert_eq!(kept(&sel), ["s1", "s2"]);
+        assert!(sel.excluded.is_empty());
+    }
+
+    #[test]
+    fn same_mode_reads_environment_from_gate_report_when_present() {
+        let mut gate_only = probe_snapshot("s1", None);
+        gate_only.gate = gate_only.probe.take();
+        gate_only.gate.as_mut().expect("gate report").environment = cpu("b");
+        let sel = select_snapshots(
+            vec![gate_only, probe_snapshot("s2", cpu("a"))],
+            EnvCompatMode::Same,
+            None,
+        );
+        assert_eq!(kept(&sel), ["s2"]);
+        assert_eq!(sel.excluded, ["s1"]);
+    }
+
+    #[test]
+    fn same_mode_on_empty_history_selects_nothing() {
+        let sel = select_snapshots(Vec::new(), EnvCompatMode::Same, None);
+        assert!(sel.snapshots.is_empty());
+        assert!(sel.excluded.is_empty());
+    }
+
+    #[test]
+    fn off_mode_keeps_last_window_regardless_of_environment() {
+        let sel = select_snapshots(
+            history(&[("s1", cpu("a")), ("s2", cpu("b")), ("s3", cpu("c"))]),
+            EnvCompatMode::Off,
+            Some(2),
+        );
+        assert_eq!(kept(&sel), ["s2", "s3"]);
+        assert!(sel.excluded.is_empty());
+        assert!(sel.mismatch_fields.is_empty());
+    }
+
+    #[test]
+    fn fail_mode_reports_mismatch_inside_window() {
+        let sel = select_snapshots(
+            history(&[("s1", cpu("a")), ("s2", cpu("b"))]),
+            EnvCompatMode::Fail,
+            Some(2),
+        );
+        assert_eq!(kept(&sel), ["s1", "s2"]);
+        assert_eq!(sel.mismatch_fields, ["cpu_model"]);
+    }
+
+    #[test]
+    fn fail_mode_ignores_mismatch_older_than_window() {
+        let sel = select_snapshots(
+            history(&[("s1", cpu("b")), ("s2", cpu("a")), ("s3", cpu("a"))]),
+            EnvCompatMode::Fail,
+            Some(2),
+        );
+        assert_eq!(kept(&sel), ["s2", "s3"]);
+        assert!(sel.mismatch_fields.is_empty());
+    }
 
     fn mk_row(delta_pct: f64, volatility_cv_pct: f64, volatility_mad_pct: f64) -> TrendRow {
         TrendRow {

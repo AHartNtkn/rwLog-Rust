@@ -444,70 +444,180 @@ fn trend_gate_script_fails_on_regression_with_env_defaults() {
     assert!(stdout.contains("regressions over threshold"));
 }
 
+fn env_probe_snapshot(cpu_model: &str, median_us: f64) -> Value {
+    json!({
+        "environment": {
+            "os": "linux",
+            "arch": "x86_64",
+            "cpu_model": cpu_model,
+            "rustc_version": "rustc test"
+        },
+        "rows": [{"id": "id1", "median_us": median_us, "p95_us": median_us + 2.0}]
+    })
+}
+
+fn run_trend(history_dir: &std::path::Path, extra: &[&str]) -> std::process::Output {
+    let mut args = vec![
+        "--history-dir",
+        history_dir.to_str().expect("utf8 path"),
+        "--source",
+        "probe",
+        "--metric",
+        "median",
+    ];
+    args.extend_from_slice(extra);
+    run_bin("perf_corpus_trend", &args, &[])
+}
+
 #[test]
-fn trend_env_compat_mode_can_fail_on_mixed_environments() {
-    let tmp = temp_dir("trend-env-compat");
+fn trend_env_compat_fail_exits_2_on_mixed_environments() {
+    let tmp = temp_dir("trend-env-fail");
     let history_dir = tmp.join("history");
     create_probe_snapshots(
         &history_dir,
         &[
-            (
-                "s1",
-                json!({
-                    "environment":{"os":"linux","arch":"x86_64","cpu_model":"cpu-a","rustc_version":"rustc test"},
-                    "rows":[{"id":"id1","median_us":10.0,"p95_us":12.0}]
-                }),
-            ),
-            (
-                "s2",
-                json!({
-                    "environment":{"os":"linux","arch":"x86_64","cpu_model":"cpu-b","rustc_version":"rustc test"},
-                    "rows":[{"id":"id1","median_us":12.0,"p95_us":14.0}]
-                }),
-            ),
+            ("s1", env_probe_snapshot("cpu-a", 10.0)),
+            ("s2", env_probe_snapshot("cpu-b", 12.0)),
         ],
     );
 
-    let fail = run_bin(
-        "perf_corpus_trend",
-        &[
-            "--history-dir",
-            history_dir.to_str().expect("utf8 path"),
-            "--source",
-            "probe",
-            "--metric",
-            "median",
-            "--env-compat",
-            "fail",
-            "--json",
-        ],
-        &[],
-    );
+    let fail = run_trend(&history_dir, &["--env-compat", "fail", "--json"]);
     assert_eq!(fail.status.code(), Some(2));
-
-    let warn = run_bin(
-        "perf_corpus_trend",
-        &[
-            "--history-dir",
-            history_dir.to_str().expect("utf8 path"),
-            "--source",
-            "probe",
-            "--metric",
-            "median",
-            "--env-compat",
-            "warn",
-            "--json",
-        ],
-        &[],
+    let stderr = String::from_utf8_lossy(&fail.stderr);
+    assert!(
+        stderr.contains("cpu_model"),
+        "fail mode must name the mismatching field, got: {stderr}"
     );
-    assert_success(&warn, "perf_corpus_trend --env-compat warn --json");
-    let warn_json = parse_stdout_json(&warn, "trend env compat warn json");
-    let mismatch_fields = warn_json["env_mismatch_fields"]
-        .as_array()
-        .expect("env_mismatch_fields array");
-    assert!(mismatch_fields
-        .iter()
-        .any(|v| v.as_str() == Some("cpu_model")));
+}
+
+#[test]
+fn trend_does_not_compare_snapshots_from_different_environments() {
+    // The only earlier snapshot was measured on a different CPU. A 10x
+    // difference between machines is not a regression in the code.
+    let tmp = temp_dir("trend-env-skip");
+    let history_dir = tmp.join("history");
+    create_probe_snapshots(
+        &history_dir,
+        &[
+            ("s1", env_probe_snapshot("cpu-a", 10.0)),
+            ("s2", env_probe_snapshot("cpu-b", 100.0)),
+        ],
+    );
+
+    let gate = run_trend(&history_dir, &["--fail-regressions-pct", "10"]);
+    assert_success(&gate, "trend gate across different environments");
+    let stdout = String::from_utf8_lossy(&gate.stdout);
+    assert!(
+        stdout.contains("skipped: no snapshot from the same environment"),
+        "expected skip notice, got: {stdout}"
+    );
+
+    let json_out = run_trend(&history_dir, &["--fail-regressions-pct", "10", "--json"]);
+    assert_success(&json_out, "trend gate across different environments --json");
+    let report = parse_stdout_json(&json_out, "trend skip json");
+    assert_eq!(report["env_compat"].as_str(), Some("same"));
+    assert_eq!(
+        report["skipped_reason"].as_str(),
+        Some("no snapshot from the same environment")
+    );
+    assert_eq!(report["rows"].as_array().map(Vec::len), Some(0));
+    assert_eq!(report["regressions_over_threshold"].as_u64(), Some(0));
+    assert_eq!(report["snapshots_scanned"].as_u64(), Some(1));
+    assert_eq!(report["env_excluded_snapshots"], json!(["s1"]));
+    assert_eq!(report["env_mismatch_fields"], json!(["cpu_model"]));
+}
+
+#[test]
+fn trend_compares_newest_snapshot_against_earlier_ones_from_its_environment() {
+    // s2 ran on another CPU and is far slower; s1 and s3 share a CPU and
+    // are within noise of each other. Only s1 -> s3 is a valid comparison.
+    let tmp = temp_dir("trend-env-same");
+    let history_dir = tmp.join("history");
+    create_probe_snapshots(
+        &history_dir,
+        &[
+            ("s1", env_probe_snapshot("cpu-a", 10.0)),
+            ("s2", env_probe_snapshot("cpu-b", 100.0)),
+            ("s3", env_probe_snapshot("cpu-a", 10.5)),
+        ],
+    );
+
+    let out = run_trend(&history_dir, &["--fail-regressions-pct", "10", "--json"]);
+    assert_success(&out, "trend over same-environment snapshots");
+    let report = parse_stdout_json(&out, "trend same env json");
+    assert!(report["skipped_reason"].is_null());
+    assert_eq!(report["snapshots_scanned"].as_u64(), Some(2));
+    assert_eq!(report["env_excluded_snapshots"], json!(["s2"]));
+    let row = &report["rows"][0];
+    assert_eq!(row["points"].as_u64(), Some(2));
+    assert_eq!(row["first_snapshot"].as_str(), Some("s1"));
+    assert_eq!(row["last_snapshot"].as_str(), Some("s3"));
+    assert_eq!(row["max_us"].as_f64(), Some(10.5));
+    assert_eq!(report["regressions_over_threshold"].as_u64(), Some(0));
+}
+
+#[test]
+fn trend_still_fails_on_regression_within_one_environment() {
+    // The faster snapshot from another CPU in between must not hide a real
+    // regression between the two snapshots that share an environment.
+    let tmp = temp_dir("trend-env-regress");
+    let history_dir = tmp.join("history");
+    create_probe_snapshots(
+        &history_dir,
+        &[
+            ("s1", env_probe_snapshot("cpu-a", 10.0)),
+            ("s2", env_probe_snapshot("cpu-b", 5.0)),
+            ("s3", env_probe_snapshot("cpu-a", 20.0)),
+        ],
+    );
+
+    let out = run_trend(&history_dir, &["--fail-regressions-pct", "10"]);
+    assert_eq!(out.status.code(), Some(1));
+}
+
+#[test]
+fn trend_window_counts_only_same_environment_snapshots() {
+    // With --window 2 the two newest cpu-a snapshots are s2 and s4; the
+    // cpu-b snapshot between them must not use up a window slot.
+    let tmp = temp_dir("trend-env-window");
+    let history_dir = tmp.join("history");
+    create_probe_snapshots(
+        &history_dir,
+        &[
+            ("s1", env_probe_snapshot("cpu-a", 50.0)),
+            ("s2", env_probe_snapshot("cpu-a", 10.0)),
+            ("s3", env_probe_snapshot("cpu-b", 100.0)),
+            ("s4", env_probe_snapshot("cpu-a", 10.0)),
+        ],
+    );
+
+    let out = run_trend(&history_dir, &["--window", "2", "--json"]);
+    assert_success(&out, "trend window over same-environment snapshots");
+    let report = parse_stdout_json(&out, "trend env window json");
+    let row = &report["rows"][0];
+    assert_eq!(row["first_snapshot"].as_str(), Some("s2"));
+    assert_eq!(row["last_snapshot"].as_str(), Some("s4"));
+}
+
+#[test]
+fn trend_env_compat_off_compares_across_environments() {
+    let tmp = temp_dir("trend-env-off");
+    let history_dir = tmp.join("history");
+    create_probe_snapshots(
+        &history_dir,
+        &[
+            ("s1", env_probe_snapshot("cpu-a", 10.0)),
+            ("s2", env_probe_snapshot("cpu-b", 100.0)),
+        ],
+    );
+
+    let out = run_trend(&history_dir, &["--env-compat", "off", "--json"]);
+    assert_success(&out, "trend --env-compat off");
+    let report = parse_stdout_json(&out, "trend env off json");
+    assert_eq!(report["snapshots_scanned"].as_u64(), Some(2));
+    assert_eq!(report["rows"][0]["first_snapshot"].as_str(), Some("s1"));
+    assert_eq!(report["rows"][0]["last_snapshot"].as_str(), Some("s2"));
+    assert_eq!(report["env_excluded_snapshots"], json!([]));
 }
 
 #[test]
