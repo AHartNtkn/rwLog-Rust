@@ -23,4 +23,4 @@ allowNonModules = true
 [[lean_lib]]
 name = "Tests"
 allowNonModules = true
-globs = ["Tests.ChargeRuns"]
+globs = ["Tests.ChargeRuns", "Tests.SortsRuns"]

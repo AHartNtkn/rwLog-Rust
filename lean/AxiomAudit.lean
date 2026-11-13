@@ -241,3 +241,26 @@ new axiom.
 
 /-- info: 'RwLog.Valid.sound' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Valid.sound
+
+/-! ## The constraint domain of sorts -/
+
+/-- info: 'RwLog.Sorts.Raw.Normal.eq' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.Raw.Normal.eq
+
+/-- info: 'RwLog.Sorts.Prob.normal' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.Prob.normal
+
+/-- info: 'RwLog.Sorts.dom_lawful' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.dom_lawful
+
+/-- info: 'RwLog.Sorts.Rep.no_hidden' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.Rep.no_hidden
+
+/-- info: 'RwLog.Sorts.Raw.toSpan_den' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.Raw.toSpan_den
+
+/-- info: 'RwLog.Sorts.wellFormed_iff' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.wellFormed_iff
+
+/-- info: 'RwLog.ProgramOf.check_iff' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.ProgramOf.check_iff

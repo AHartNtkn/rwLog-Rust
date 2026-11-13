@@ -4,7 +4,7 @@ Decided 2026-11-13 (roadmap L51). Replaces rule theories. Background and the
 options that were not taken: `/mnt/project-files/constraints/alternatives.md`.
 Prototype: `scripts/sorts_prototype.py` (run it with no argument; `--notebooks`
 adds two slower queries). Marks: *prototype* means the script checks it,
-*to prove* means it is owed in `lean/RwLog/Sorts`.
+*to prove* meant it was owed in `lean/RwLog/Sorts` (now proved: section 6).
 
 ## 1. What is decided
 
@@ -39,7 +39,7 @@ disequations, each a disjunction of `var != term`.
 | meet of two sorts on one variable | union of the two conjunctions; dead if the intersection is empty |
 | binding `$x` to `(f t1 … tn)` | one step of each state of `$x` on `f/n`, pushed on to the arguments; dead if a state rejects `f/n` |
 | adding `t != u` | unify `t` and `u` under the sorts: no unifier, the disequation is true and dropped; unifier with no binding, the store is dead; otherwise keep the bindings as the disjunction |
-| canonical form | a variable whose sort allows one root symbol is expanded to it (so a one-term sort binds its variable); a disequation the rest entails is dropped; each variable's conjunction is replaced by a canonical one with the same language |
+| canonical form | work with the values a variable can still take: its sort without the ground terms it is told to differ from. If they all have one root symbol the variable is expanded to it (so a one-term sort binds its variable, and `$x : nat, $x != z` becomes `(s $y)` with `$y : nat`); otherwise its conjunction becomes every declared sort that holds them all, with the implied ones dropped in a fixed order. Inside the unifier of a disequation a variable left with one value is bound to it. A disequation the rest entails is dropped. A disequation is written as its unifier, with aliased variables named by the first of them |
 | projection onto the sides of a span | delete every sort and every disequation that mentions a variable occurring in neither side |
 | entailment | inclusion of sorts; a disequation is entailed when adding its unifier kills the store |
 
@@ -51,9 +51,17 @@ finitely many conjunctions reachable from the declared sorts.
 - **Dead test and projection are exact** (*prototype*): 400 random stores
   against enumeration of ground instances, including the two extensions.
 - **Nothing splits and the canonical form is canonical on the decided domain**
-  (*prototype*): 300 random stores rewritten with implied, reordered and
-  weakened constraints give the same form, and 70 different forms have
-  different ground solutions.
+  (*prototype*): 900 random stores rewritten with implied, reordered and
+  weakened constraints give the same form, and 220 different forms have
+  different ground solutions (three more seeds of 600 agree).
+  The first version of this claim was wrong. It treated sorts and
+  disequations separately, and `$x : nat, $x != z` and `(s $y), $y : nat` are
+  one set with two forms. A stronger random test found it. The fix is the
+  "values a variable can still take" rule above, and the reason it is enough
+  is the independence lemma (`Sorts/Indep.lean`): a product of infinite sets
+  is never covered by finitely many proper solution sets of equations, so the
+  only way disequations can shrink the least pattern around a store is by
+  removing single ground values from one variable.
 - **Why a hidden variable can always be dropped** (*to prove*): its sort is
   infinite, and each disequation forbids at most one value for the variable
   chosen last, so finitely many disequations never exhaust it. This is also
@@ -102,18 +110,53 @@ sort depth((s $n)) = (imp depth($n) depth($n)) | (neg depth($n)) | other   # dep
 relations joined with `&`: "below 3" is a finite set, so it is not a sort.
 The surface syntax above is the prototype's and is settled with the parser.
 
-## 6. What the Lean owes (`lean/RwLog/Sorts`)
+## 6. The Lean (`lean/RwLog/Sorts`)
 
-1. Membership is decidable; emptiness, finiteness and inclusion of conjunctions
-   are decided; the well-formedness of section 4 is decided.
-2. Unification under sorts is sound and most general.
-3. The independence lemma of section 3, and from it: the dead test is exact,
-   projection is exact, the canonical form is canonical.
-4. The instance: `S.WellFormed → (dom S).Lawful S.interp`.
-5. L08 (stores bounded by the span's variables: immediate from projection),
-   L09 (no emitted answer relates nothing: the dead test is exact).
+Proved (2026-11-13), for well-formed sorts and with no other hypothesis:
 
-One request to the trusted side, still to be agreed: patterns in a program are
-first-order (no variable in function position), which the parser guarantees
-and substitution preserves. Without it a sort cannot be pushed through
-`(app $x t)`.
+| Statement | Theorem |
+|---|---|
+| Two normal stores that denote the same terms are equal | `Raw.Normal.eq` (`UniqueExcl.lean`) |
+| A first-order problem (pattern, equations, sorts of patterns, exclusions) with a solution has a normal store | `Prob.normal` (`Reduce.lean`) |
+| A hidden variable is dropped, with the exclusions that mention it | `Raw.Normal.proj` (`Hidden.lean`) |
+| The domain of sorts satisfies every law of the interface (L51) | `dom_lawful` (`Dom.lean`) |
+| No representative relates nothing; an operation returns nothing exactly when its result relates no pair (L09) | `Rep.live`, `compose_eq_none_iff`, `meet_eq_none_iff`, `rep_eq_none_iff` (`Gaps.lean`) |
+| A representative mentions no variable outside its two sides and only declared sorts (L08) | `Rep.no_hidden` (`Gaps.lean`) |
+| A representative written as a span relates the same pairs | `Raw.toSpan_den` (`Rep.lean`) |
+
+How it is built. A *normal* store (`Raw.Normal`, `Normal.lean`) is defined by
+conditions on its solutions: variables numbered by first occurrence, every
+variable taking values with two different head symbols, each variable listed
+with every declared sort that holds of all its values, exclusions solved and
+irredundant and in a fixed order. Uniqueness is proved from those conditions.
+Existence goes: solve the equations and push the sorts down to variables
+(`Reduce.lean`); pair the pattern with all variables so none is hidden
+(`Hidden.lean`); extend the pattern at every variable with one head symbol
+until none is left (`Tight.lean`); renumber (`Renum.lean`); close the sorts
+upward, bring each exclusion to solved form (`Solved.lean`), drop the implied
+ones and sort them (`Assemble.lean`); project the hidden variables away.
+
+The operations of `dom S` are specified by what they denote: each returns the
+one normal store that relates the named pairs, or nothing when there is no
+pair. They are not programs. The programs are the Rust of L39, which is
+correct when it returns a normal store with the right denotation; uniqueness
+then makes it equal to `dom S`.
+
+Two things to know about the instance:
+
+- The type of representatives `Rep S` is empty when `S` is not well formed,
+  so the converse of a representative needs no hypothesis.
+- `Answer.den M ρ` does not depend on `M`: a representative for `S` relates
+  the pairs its store denotes under `S`. `Raw.toSpan_den` says that the span
+  it is printed as relates the same pairs in `S.interp`.
+
+The read-time check (L56, `WF.lean`): `Sorts.WellFormed` is decided by two
+least fixpoints over the conjunctions of declared sorts, `big S` (two
+different members) and `fin S` (finitely many members), and the sorts are well
+formed exactly when no conjunction is in both (`wellFormed_iff`). With it
+`ProgramOf.WellFormed` is decidable; `ProgramOf.check` is the function and
+`ProgramOf.check_iff` says it is exact. `Tests/SortsRuns.lean` runs it on the
+sorts of section 5 and on the declarations section 4 rejects.
+
+Still owed: `Engine.costed` at `Sorts.dom` (L55) and the operations in Rust
+with derived charges (L39).

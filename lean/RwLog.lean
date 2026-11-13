@@ -58,3 +58,9 @@ import RwLog.Rungs.Framework.Derivation
 import RwLog.Trusted.Runtime
 import RwLog.Rungs.Framework.Answer
 import RwLog.Rungs.Framework.Fairness
+import RwLog.Sorts.Incl
+import RwLog.Sorts.Indep
+import RwLog.Sorts.Trusted
+import RwLog.Sorts.UniqueExcl
+import RwLog.Sorts.Gaps
+import RwLog.Sorts.WF

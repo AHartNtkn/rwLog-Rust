@@ -374,6 +374,60 @@ class Sorts:
         ups = frozenset(st for st in set(self.tables) | set(conj) if self.included(conj, st))
         return self.reduce(ups)
 
+    def root_value(self, conj, key):
+        """The one member of conj with this root symbol, when there is exactly one."""
+        if key in (OTHER0, OTHER1):
+            return None
+        kids = self.step_conj(conj, key)
+        if kids is None:
+            return None
+        args = []
+        for k in kids:
+            m = self.members(k)
+            if m is None or len(m) != 1:
+                return None
+            args.append(m[0])
+        return (key[0],) + tuple(args)
+
+    def diff_within(self, conj, state, ground):
+        """Is every member of conj that `state` rejects one of the ground terms?"""
+        if self.included(conj, state):
+            return True
+        if not ground:
+            return False
+        for key in self.classes(conj, (state,)):
+            kids = self.step_conj(conj, key)
+            if kids is None or not all(self.nonempty(k) for k in kids):
+                continue
+            skids = self.step(state, key)
+            if key in (OTHER0, OTHER1):
+                # infinitely many symbols: nothing here may be rejected
+                if skids is None or not all(s == ANY or self.included(k, s)
+                                            for k, s in zip(kids, skids)):
+                    return False
+                continue
+            here = [g for g in ground if g[0] == key[0] and len(g) - 1 == key[1]]
+            if skids is None:
+                if self.root_value(conj, key) not in here:
+                    return False
+                continue
+            for i, (k, s) in enumerate(zip(kids, skids)):
+                if s == ANY or self.included(k, s):
+                    continue
+                # members rejected at argument i: the other arguments are free, so
+                # each must have one value for the rejected set to be finite
+                fixed = []
+                for j, kj in enumerate(kids):
+                    if j != i:
+                        m = self.members(kj)
+                        if m is None or len(m) != 1:
+                            return False
+                        fixed.append(m[0])
+                sub = [g[1 + i] for g in here if list(g[1:1 + i] + g[2 + i:]) == fixed]
+                if not self.diff_within(k, s, sub):
+                    return False
+        return True
+
     def accepts(self, state, t):
         kids = self.step(state, (t[0], len(t) - 1))
         return kids is not None and all(self.accepts(k, a) for k, a in zip(kids, t[1:]))
@@ -446,17 +500,43 @@ class Domain:
         self.S = sorts
         self.fresh_ids = itertools.count()
 
-    def single_root(self, conj):
-        """The one root symbol every member of conj has, if there is exactly one."""
-        found = None
+    def live_roots(self, conj, excluded=()):
+        """The root symbols of the members of conj that are not excluded ground
+        terms.  A root whose only member is excluded is gone."""
+        out = []
         for key in self.S.classes(conj):
             kids = self.S.step_conj(conj, key)
             if kids is None or not all(self.S.nonempty(k) for k in kids):
                 continue
-            if key in (OTHER0, OTHER1) or found is not None:
-                return None
-            found = key
-        return found
+            if excluded and self.S.root_value(conj, key) in excluded:
+                continue
+            out.append(key)
+        return out
+
+    def bind_single_values(self, sub, sorts, bound):
+        """Bind every variable whose sort has exactly one member.  Mutates."""
+        again = True
+        while again:
+            again = False
+            for v, conj in list(sorts.items()):
+                if v in sub:
+                    continue
+                m = self.S.members(conj)
+                if m is not None and len(m) == 1:
+                    if not self.unify_core(sub, sorts, v, m[0], bound):
+                        return False
+                    again = True
+        return True
+
+    def solve_equations(self, st, pairs):
+        """The store with the equations added, as (sub, sorts, newly bound), or
+        None when they cannot all hold."""
+        sub, sorts, bound = dict(st.sub), dict(st.sorts), []
+        if not all(self.unify_core(sub, sorts, x, t, bound) for x, t in pairs):
+            return None
+        if not self.bind_single_values(sub, sorts, bound):
+            return None
+        return sub, sorts, bound
 
     # -- the core: substitution and sorts only -------------------------------
 
@@ -509,10 +589,10 @@ class Domain:
             # 1. disequations
             new_dis = []
             for d in st.dis:
-                sub, sorts, bound = dict(st.sub), dict(st.sorts), []
-                ok = all(self.unify_core(sub, sorts, x, t, bound) for x, t in d)
-                if not ok:
+                solved = self.solve_equations(st, d)
+                if solved is None:
                     continue                      # the two sides cannot be equal
+                sub, sorts, bound = solved
                 if not bound:
                     return []                     # the two sides are equal
                 nd = tuple(sorted(((x, walk_all(sub[x], sub)) for x in bound), key=repr))
@@ -560,25 +640,45 @@ class Domain:
             if new_abs != st.absent or sorts != st.sorts or extra_dis:
                 st = Store(st.sub, sorts, st.dis + tuple(extra_dis), new_abs)
                 changed = True
-            # 3. a variable whose sort allows one root symbol is expanded to it
-            #    (so a variable with exactly one possible value is bound to it)
+            # 3. the values a variable can take are its sort without the ground terms
+            #    it is told to differ from.  If they all have one root symbol the
+            #    variable is expanded to it (so a variable with one possible value is
+            #    bound to it); otherwise its sort becomes the smallest one holding
+            #    them all.
             for v, conj in list(st.sorts.items()):
-                if v in st.sub:
+                if v in st.sub or v not in st.sorts:
                     continue
-                key = self.single_root(st.sorts.get(v, frozenset()))
-                if key is not None:
+                conj = st.sorts[v]
+                excluded = [t for d in st.dis if len(d) == 1 and d[0][0] == v
+                            for t in [d[0][1]] if not term_vars(t)]
+                roots = self.live_roots(conj, excluded)
+                if not roots:
+                    return []
+                if len(roots) == 1 and roots[0] not in (OTHER0, OTHER1):
+                    key = roots[0]
                     value = (key[0],) + tuple(V(('e', next(self.fresh_ids))) for _ in range(key[1]))
                     sub, sorts, bound = dict(st.sub), dict(st.sorts), []
                     if not self.unify_core(sub, sorts, v, value, bound):
                         return []
                     st = Store(sub, sorts, st.dis, st.absent)
                     changed = True
+                    continue
+                if excluded:
+                    more = frozenset(s2 for s2 in S.tables
+                                     if s2 not in conj and not S.included(conj, s2)
+                                     and S.diff_within(conj, s2, excluded))
+                    if more:
+                        sorts = dict(st.sorts)
+                        sorts[v] = conj | more
+                        st = Store(st.sub, sorts, st.dis, st.absent)
+                        changed = True
             # 3b. a disequation that the rest of the store entails is dropped
             if not changed and len(st.dis) > 1:
                 for i, d in enumerate(st.dis):
                     rest = st.dis[:i] + st.dis[i + 1:]
-                    sub, sorts, bound = dict(st.sub), dict(st.sorts), []
-                    if all(self.unify_core(sub, sorts, x, t, bound) for x, t in d):
+                    solved = self.solve_equations(st, d)
+                    if solved is not None:
+                        sub, sorts, bound = solved
                         if not self.normalize(Store(sub, sorts, rest, st.absent)):
                             st = Store(st.sub, st.sorts, rest, st.absent)
                             changed = True
@@ -628,9 +728,10 @@ class Domain:
     def add_neq(self, st, a, b):
         a, b = walk_all(a, st.sub), walk_all(b, st.sub)
         # A disequation enters as "the unifier of a and b does not hold".
-        sub, sorts, bound = dict(st.sub), dict(st.sorts), []
-        if not self.unify_core(sub, sorts, a, b, bound):
+        solved = self.solve_equations(st, [(a, b)])
+        if solved is None:
             return [st]
+        sub, sorts, bound = solved
         if not bound:
             return []
         d = tuple(sorted(((x, walk_all(sub[x], sub)) for x in bound), key=repr))
@@ -703,8 +804,30 @@ def view(st, keep):
         for s in conj:
             cs.append('%s : %s' % (show(v, names), show_state(s)))
     for d in st.dis:
-        parts = ['%s != %s' % tuple(sorted([show(x, names), show(walk_all(t, st.sub), names)]))
-                 for x, t in d]
+        # One way to write "these equations do not all hold": every variable the
+        # equations move, with aliased variables named by the first of them.
+        theta = {x: walk_all(t, st.sub) for x, t in d}
+        order = sorted(names, key=lambda v: names[v])
+        first = {}
+        for v in order:
+            img = theta.get(v, v)
+            if is_var(img):
+                first.setdefault(img, v)
+
+        def rename(t):
+            if is_var(t):
+                return first.get(t, t)
+            return (t[0],) + tuple(rename(a) for a in t[1:])
+        parts = []
+        for v in order:
+            img = rename(walk_all(theta.get(v, v), theta))
+            if is_var(img) and img != v:
+                parts.append('%s != %s' % (show(img, names), show(v, names)))
+            elif img != v:
+                parts.append('%s != %s' % (show(v, names), show(img, names)))
+        for x, t in d:
+            if x not in names:
+                parts.append('%s != %s' % (show(x, names), show(walk_all(t, st.sub), names)))
         cs.append(' or '.join(sorted(parts)))
     for a, t in st.absent:
         cs.append('%s notin %s' % (show(a, names), show(t, names)))
@@ -1132,6 +1255,11 @@ sort below(z) = none
 sort below((s $n)) = z | (s below($n))
 sort atleast(z) = nat
 sort atleast((s $n)) = (s atleast($n))
+# pairs of sorts that differ by one term, and sorts that share exactly one term
+sort zk = z | k | (s nat)
+sort kk = k | (s nat)
+sort fz = z | (f nat nat)
+sort gz = z | (g nat)
 """
 
 
@@ -1257,6 +1385,20 @@ def sort_checks():
                 ('even', None), ('atleast', num(2))]
     check('no finite conjunction among nat, pos, prog, name, norm, even, atleast(2)',
           P.finite_conjunctions(infinite) == [], P.finite_conjunctions(infinite)[:2])
+    def canon1(cons, keep):
+        return [view(p, keep) for st0 in build(D, cons) for p in D.project(st0, keep)]
+    check('$x : nat, $x != z is (s $y) with $y : nat',
+          canon1([('sort', x, ('nat', None)), ('neq', x, ('z',))], [x]) == [(['(s $0)'], ['$0 : nat'])],
+          canon1([('sort', x, ('nat', None)), ('neq', x, ('z',))], [x]))
+    check('$x : zk, $x != z is $x : kk',
+          canon1([('sort', x, ('zk', None)), ('neq', x, ('z',))], [x])
+          == canon1([('sort', x, ('kk', None))], [x]),
+          canon1([('sort', x, ('zk', None)), ('neq', x, ('z',))], [x]))
+    check('$x : fz, $y : gz, $x != $y is "not both z"',
+          canon1([('sort', x, ('fz', None)), ('sort', y, ('gz', None)), ('neq', x, y)], [x, y])
+          == canon1([('sort', x, ('fz', None)), ('sort', y, ('gz', None)),
+                     ('neq', ('p', x, y), ('p', ('z',), ('z',)))], [x, y]),
+          canon1([('sort', x, ('fz', None)), ('sort', y, ('gz', None)), ('neq', x, y)], [x, y]))
     bad = [c0 for c0, _ in P.finite_conjunctions([('bit', None), ('below', num(3)), ('nat', None)])]
     check('bit and below(3) are reported as finite when the program is read',
           frozenset([('bit', None)]) in bad and frozenset([('below', num(3))]) in bad, bad)
@@ -1446,12 +1588,13 @@ def canon_checks(P, rounds, seed=2):
     some ground instance."""
     S, D = P.sorts, P.dom
     pool = [('nat', None), ('pos', None), ('prog', None), ATOM, ('even', None), ('odd', None),
-            ('name', None), ('atleast', num(2))]
+            ('name', None), ('atleast', num(2)), ('atleast', num(1)), ('zk', None), ('kk', None),
+            ('fz', None), ('gz', None)]
     supers = {('even', None): [('nat', None)],
               ('odd', None): [('nat', None), ('pos', None)], ('atleast', num(2)): [('pos', None), ('nat', None)],
               ATOM: [('name', None)]}
     U = [num(n) for n in range(5)] + [T(t) for t in (
-        'l', '(b l)', '(f l l)', '(b (b l))', 'a1', 'a2', 'a3', '(s l)', '(s a1)', '(f z z)',
+        'l', '(b l)', '(f l l)', '(b (b l))', 'a1', 'a2', 'a3', 'k', '(g z)', '(g (s z))', '(f z (s z))', '(f (s z) (s z))', '(s l)', '(s a1)', '(f z z)',
         '(f z l)', '(f a1 a2)', '(g a1)', '(f (s z) z)', '(f l (b l))', '(s (s a1))', '(app a1 a2)', '(lam a1 a1)')]
     for st0 in pool + [x0 for v0 in supers.values() for x0 in v0]:
         if st0 != ATOM:
@@ -1467,8 +1610,9 @@ def canon_checks(P, rounds, seed=2):
             if rng.random() < 0.45:
                 cons.append(('sort', a, rng.choice(pool)))
             else:
-                b = rng.choice(vs + [('z',), ('l',), ('s', rng.choice(vs)),
-                                     ('f', rng.choice(vs), rng.choice(vs)), ('s', ('z',))])
+                b = rng.choice(vs + [('z',), ('l',), ('k',), ('s', rng.choice(vs)), ('z',), ('k',),
+                                     ('f', rng.choice(vs), rng.choice(vs)), ('s', ('z',)),
+                                     ('s', ('s', ('z',)))])
                 cons.append(('neq', a, b))
         return cons
 
@@ -1511,12 +1655,12 @@ def canon_checks(P, rounds, seed=2):
     # different canonical forms have different solutions
     sols = {}
     clash = None
-    for key, cons in list(table.items())[:70]:
+    for key, cons in list(table.items())[:220]:
         sol = solutions(cons)
         if sol in sols and sols[sol][0] != key:
             clash = clash or (sols[sol][1], cons, sols[sol][0], key)
         sols.setdefault(sol, (key, cons))
-    check('different canonical forms have different ground solutions (%d forms)' % min(len(table), 70),
+    check('different canonical forms have different ground solutions (%d forms)' % min(len(table), 220),
           clash is None, clash)
 
 
@@ -1714,7 +1858,7 @@ def main():
     slow = '--notebooks' in sys.argv
     P = sort_checks()
     brute_checks(P, rounds=400)
-    canon_checks(P, rounds=300)
+    canon_checks(P, rounds=900)
     notebook_checks(slow)
     print()
     print('%d failure(s)' % len(FAILS))

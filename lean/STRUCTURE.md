@@ -71,10 +71,11 @@ The constraint system is sorts with a built-in disequality (roadmap L48, L51).
 The trusted files have no rules, theories or models: `Trusted/Semantics.lean`
 says what a sort and a constraint mean, and `Trusted/Domain.lean` says what
 any constraint system gives an engine (`Domain`) and what it satisfies
-(`Domain.Lawful`). The instance for sorts is not on master yet (roadmap M5,
-design in `SORTS.md`); until it is, `Engine.costed` runs at the domain of
-spans as written (`Domain.written`), which looks at no constraint and is not
-lawful.
+(`Domain.Lawful`). The instance for sorts is `Sorts.dom` (`Sorts/Dom.lean`),
+with `Sorts.dom_lawful : S.WellFormed → (dom S).Lawful S.interp`; `SORTS.md`
+section 6 lists its files. `Engine.costed` still runs at the domain of spans
+as written (`Domain.written`), which looks at no constraint and is not
+lawful, until it is restated at `Sorts.dom` (roadmap L55).
 
 ## What is shared, and where to look first
 
@@ -82,6 +83,7 @@ lawful.
 |---|---|---|
 | The coverage checker is exact | `Kernel/Covers.lean` | `Span.covers?_iff`, `covers?_refl/trans/swap/congr`, `Span.Equiv.*`, `matchAll_complete` |
 | Interfaces of a span | `Kernel/Iface.lean` | `Span.storeOn`, `rightIface`, `leftIface`, `comp_rightIface`, `rightIface_covers` |
+| The constraint domain of sorts | `Sorts/Dom.lean`, `Sorts/Rep.lean`, `Sorts/Gaps.lean` | `Sorts.Rep`, `Sorts.dom`, `dom_lawful`, `Rep.ext_rel`, `exists_rep`, `Prob.normal`, `Raw.Normal.eq`, `Rep.no_hidden`, `Raw.toSpan_den` |
 | The algebra of a lawful constraint domain | `Kernel/DomainLaws.lean` | `Domain.denO`, `Lawful.denO_inj`, `swap_swap`, `rep_swap`, `compose_swap`, `meet_swap`, `swap_of_isBound`, `covers_swap`, `compose_assoc`, `meet_comm`, `meet_assoc`, `meet_self`, `covers_antisymm` |
 | No sorts are well-formed sorts; first-order spans | `SpanLayer/Sorts.lean` | `Sorts.wellFormed_nil`, `Sorts.not_mem_nil`, `GTerm.univ_infinite`, `Span.firstOrder_swap` |
 | Maximal answers and freshness | `Kernel/Maxima.lean` | `maxima`, `fresh` and their lemmas |
