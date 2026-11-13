@@ -89,7 +89,7 @@ theorem seq_left_halts {a b : Rel} (ha : runtime.Terminates P a)
     (hx : ∀ x ∈ runtime.Answers P a, GoalTerminates P ⟨bound x.rightIface, b, none⟩) :
     runtime.Terminates P (.seq a b) := by
   obtain ⟨CL, DL, hCL⟩ := cert_of_terminates hwf ha
-  exact terminates_of_cert hwf (seqL_cert (simpLaws_of_wf hwf) hCL
+  exact terminates_of_cert hwf (seqL_cert (simpLaws_of_wf hwf) (goodG_root _) hCL
     (certs_of_answers hwf hCL (fun x => ⟨bound x.rightIface, b, none⟩)
       (fun x x' hxe => CertHalts.same_mk _ (iface_equiv x x' hxe).1 rfl)
       (fun x => goodG_pushL (goodG_root (.seq a b)) b x) hx))
@@ -98,7 +98,7 @@ theorem seq_right_halts {a b : Rel} (hb : runtime.Terminates P b)
     (hy : ∀ y ∈ runtime.Answers P b, GoalTerminates P ⟨none, a, bound y.leftIface⟩) :
     runtime.Terminates P (.seq a b) := by
   obtain ⟨CL, DL, hCL⟩ := cert_of_terminates hwf hb
-  exact terminates_of_cert hwf (seqR_cert (simpLaws_of_wf hwf) hCL
+  exact terminates_of_cert hwf (seqR_cert (simpLaws_of_wf hwf) (goodG_root _) hCL
     (certs_of_answers hwf hCL (fun y => ⟨none, a, bound y.leftIface⟩)
       (fun x x' hxe => CertHalts.same_mk _ rfl (iface_equiv x x' hxe).2)
       (fun y => goodG_pushR (goodG_root (.seq a b)) a y) hy))

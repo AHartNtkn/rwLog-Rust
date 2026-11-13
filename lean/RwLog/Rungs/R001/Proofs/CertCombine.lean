@@ -383,8 +383,8 @@ theorem valid_root_eq {C : List CertEntry} {D : Nat} {r r' : Goal} (h : Cert.Val
     (hs : r.norm = r'.norm) : Cert.Valid P C D r' :=
   valid_root h (by rw [hs]; exact Goal.same_refl _)
 
-theorem norm_seq_root (a b : Rel) :
-    (⟨none, .seq a b, none⟩ : Goal).norm.2 = ⟨none, .seq (canon a) (canon b), none⟩ := by
+theorem norm_seq_root (lb rb : Option Span) (a b : Rel) :
+    (⟨lb, .seq a b, rb⟩ : Goal).norm.2 = ⟨lb, .seq (canon a) (canon b), rb⟩ := by
   simp only [Goal.norm, canon]
   rw [strip_nc _ (by simp)]
 
@@ -398,54 +398,57 @@ section Laws
 variable (hL : SimpLaws P.theory)
 include hL
 
-/-- `a ; b` has a certificate when `a` has one and `b` has one under the
-interface of each maximal answer of `a`'s cover. -/
-theorem seqL_cert {a b : Rel} {CL : List CertEntry} {DL : Nat}
-    (hCL : Cert.Valid P CL DL ⟨none, a, none⟩)
-    (hx : ∀ x ∈ maxima (certCover CL ⟨none, a, none⟩),
-      ∃ C D, Cert.Valid P C D ⟨bound x.rightIface, b, none⟩) :
-    ∃ C D, Cert.Valid P C D ⟨none, .seq a b, none⟩ := by
-  have hG : GoodG ⟨none, .seq (canon a) (canon b), none⟩ := goodG_root _
-  obtain ⟨C, D, h⟩ := push_cert hL (G := ⟨none, .seq (canon a) (canon b), none⟩)
-    (L := ⟨none, canon a, none⟩) hG (seqPushL ⟨none, .seq (canon a) (canon b), none⟩ (canon b))
+/-- `lb ; (a ; b) ; rb` has a certificate when `lb ; a` has one and `b ; rb`
+has one under the interface of each maximal answer of that cover. -/
+theorem seqL_cert {lb rb : Option Span} {a b : Rel} (hg : GoodG ⟨lb, .seq a b, rb⟩)
+    {CL : List CertEntry} {DL : Nat} (hCL : Cert.Valid P CL DL ⟨lb, a, none⟩)
+    (hx : ∀ x ∈ maxima (certCover CL ⟨lb, a, none⟩),
+      ∃ C D, Cert.Valid P C D ⟨bound x.rightIface, b, rb⟩) :
+    ∃ C D, Cert.Valid P C D ⟨lb, .seq a b, rb⟩ := by
+  have hG : GoodG ⟨lb, .seq (canon a) (canon b), rb⟩ := hg
+  have hgL : GoodG ⟨lb, canon a, none⟩ := ⟨hg.1, trivial⟩
+  obtain ⟨C, D, h⟩ := push_cert hL (G := ⟨lb, .seq (canon a) (canon b), rb⟩)
+    (L := ⟨lb, canon a, none⟩) hG (seqPushL ⟨lb, .seq (canon a) (canon b), rb⟩ (canon b))
     (fun C => by simp [certStrategies, seqLeft])
-    (fun x x' hxe => same_mk _ (iface_equiv x x' hxe).1 rfl)
+    (fun x x' hxe => same_mk _ (iface_equiv x x' hxe).1 (boundEq_refl rb))
     (fun D ts hI hd hp s hs => by
       obtain ⟨w, hw⟩ := dw_of_derives hs
       cases hw with
       | seq hw₁ hw₂ hc =>
         rw [compose_some hc]
-        exact xc_seq_pushL hL hd (xc_done hL hI (goodG_root _) hd hw₁.derives) fun x hx =>
+        exact xc_seq_pushL hL hd (xc_done hL hI hgL hd hw₁.derives) fun x hx =>
           xc_done hL hI (goodG_pushL hG _ x) (hp x hx) hw₂.derives)
     (valid_root_eq hCL (norm_canon _ _ _).symm)
     (fun x hx' => by
-      rw [certCover_norm CL (norm_canon none none a)] at hx'
+      rw [certCover_norm CL (norm_canon lb none a)] at hx'
       obtain ⟨C, D, hC⟩ := hx x hx'
       exact ⟨C, D, valid_root_eq hC (norm_canon _ _ _).symm⟩)
   exact ⟨C, D, h _ (by rw [norm_seq_root]; exact Goal.same_refl _)⟩
 
-/-- The mirror image: `a ; b` has a certificate when `b` has one and `a` has
-one under the interface of each maximal answer of `b`'s cover. -/
-theorem seqR_cert {a b : Rel} {CL : List CertEntry} {DL : Nat}
-    (hCL : Cert.Valid P CL DL ⟨none, b, none⟩)
-    (hx : ∀ y ∈ maxima (certCover CL ⟨none, b, none⟩),
-      ∃ C D, Cert.Valid P C D ⟨none, a, bound y.leftIface⟩) :
-    ∃ C D, Cert.Valid P C D ⟨none, .seq a b, none⟩ := by
-  have hG : GoodG ⟨none, .seq (canon a) (canon b), none⟩ := goodG_root _
-  obtain ⟨C, D, h⟩ := push_cert hL (G := ⟨none, .seq (canon a) (canon b), none⟩)
-    (L := ⟨none, canon b, none⟩) hG (seqPushR ⟨none, .seq (canon a) (canon b), none⟩ (canon a))
+/-- The mirror image: `lb ; (a ; b) ; rb` has a certificate when `b ; rb` has
+one and `lb ; a` has one under the interface of each maximal answer of that
+cover. -/
+theorem seqR_cert {lb rb : Option Span} {a b : Rel} (hg : GoodG ⟨lb, .seq a b, rb⟩)
+    {CL : List CertEntry} {DL : Nat} (hCL : Cert.Valid P CL DL ⟨none, b, rb⟩)
+    (hx : ∀ y ∈ maxima (certCover CL ⟨none, b, rb⟩),
+      ∃ C D, Cert.Valid P C D ⟨lb, a, bound y.leftIface⟩) :
+    ∃ C D, Cert.Valid P C D ⟨lb, .seq a b, rb⟩ := by
+  have hG : GoodG ⟨lb, .seq (canon a) (canon b), rb⟩ := hg
+  have hgR : GoodG ⟨none, canon b, rb⟩ := ⟨trivial, hg.2⟩
+  obtain ⟨C, D, h⟩ := push_cert hL (G := ⟨lb, .seq (canon a) (canon b), rb⟩)
+    (L := ⟨none, canon b, rb⟩) hG (seqPushR ⟨lb, .seq (canon a) (canon b), rb⟩ (canon a))
     (fun C => by simp [certStrategies, seqRight])
-    (fun x x' hxe => same_mk _ rfl (iface_equiv x x' hxe).2)
+    (fun x x' hxe => same_mk _ (boundEq_refl lb) (iface_equiv x x' hxe).2)
     (fun D ts hI hd hp s hs => by
       obtain ⟨w, hw⟩ := dw_of_derives hs
       cases hw with
       | seq hw₁ hw₂ hc =>
         rw [compose_some hc]
-        exact xc_seq_pushR hL hd (xc_done hL hI (goodG_root _) hd hw₂.derives) fun y hy =>
+        exact xc_seq_pushR hL hd (xc_done hL hI hgR hd hw₂.derives) fun y hy =>
           xc_done hL hI (goodG_pushR hG _ y) (hp y hy) hw₁.derives)
     (valid_root_eq hCL (norm_canon _ _ _).symm)
     (fun y hy' => by
-      rw [certCover_norm CL (norm_canon none none b)] at hy'
+      rw [certCover_norm CL (norm_canon none rb b)] at hy'
       obtain ⟨C, D, hC⟩ := hx y hy'
       exact ⟨C, D, valid_root_eq hC (norm_canon _ _ _).symm⟩)
   exact ⟨C, D, h _ (by rw [norm_seq_root]; exact Goal.same_refl _)⟩
