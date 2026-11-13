@@ -18,7 +18,7 @@ all of them build.
 | `RwLog/Rungs/Directed/` (all) | goal-directed tables |
 | `RwLog/Rungs/Hedge/` (all) | two machines side by side |
 | `RwLog/Rungs/Framework/` `Race`, `RaceWinner` | what `Cost.race` returns and spends, in ticks only; to be restated with the space component when the port needs them |
-| `Tests/` `R005Runs`, `DirectedRuns`, `MiddleRuns` | runs and measurements of the above |
+| `Tests/` `R005Runs`, `DirectedRuns`, `MiddleRuns`, `SimulationRuns` | runs and measurements of the above (`SimulationRuns` was added while parked; it checks at `326b608`, and holds what R005 pays on the inputs of `SYMMETRIC_ENGINE_SIMULATION.md`) |
 
 The runtime and its kept properties were restated on the same day (roadmap
 L28, L35, L38, L40): a runtime has its own type of answers with a denotation,
