@@ -64,3 +64,4 @@ import RwLog.Trusted.Runtime
 import RwLog.Rungs.Framework.Answer
 import RwLog.Rungs.Framework.Fairness
 import RwLog.Sorts.Incl
+import RwLog.Sorts.Indep
