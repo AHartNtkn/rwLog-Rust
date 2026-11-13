@@ -1,196 +1,137 @@
 /-
 # Ground semantics (the specification)
 
-An expression denotes a set of *ground triples* `(a, b, S)`: input term,
-output term, and the finite set `S` of ground constraints the pair carries.
-A span `l {c} -> r` denotes its instances `(lσ, rσ, cσ)`. Composition and
-conjunction combine the stores of the two sides, so a constraint from one
-span can interact with a constraint from another. Recursion is the least
-fixpoint.
+## Constraints
 
-The observable relation keeps the pairs that carry a store the program's
-theory cannot refute (`GRel.observe`). Refutability is monotone in the store
-(`Refutes.mono`), so discarding refuted triples early never changes what is
-observed. Because constraints of different spans interact, the observable
-pairs of `R ; S` are not determined by the observable pairs of `R` and `S`
-alone; equality of meaning is therefore equality of triples.
+An *interpretation* `M` is a set of ground constraint atoms: the atoms taken
+to hold. A theory says which interpretations are allowed. A rule
+`h₁, …, hₙ <=> B` is the axiom that, for every ground instance of the
+variables of the heads, all heads hold exactly when some ground values of
+the variables occurring only in the body make the body hold. `fail` is
+false, `.` is true, an atom holds when it is in `M`, and an equation holds
+when its two sides are the same term. `T.Model M` says every rule of `T`
+holds in `M`. This is defined for every theory: it assumes neither range
+restriction, nor termination, nor confluence.
+This is the declarative reading of constraint handling rules. Firing rules,
+stores and refutation are how an engine computes with it, and they live
+outside this file.
+
+So `(pin $x) <=> $x = z.` makes `(pin a)` hold exactly when `a` is `z`, and
+`(pin $x) <=> $x = z, (pin z).` says the same thing while also stating that
+`(pin z)` holds.
+
+## Relations
+
+In one interpretation, an expression denotes a set of pairs of ground terms.
+A span `l {c} -> r` relates `lσ` to `rσ` when every atom of `cσ` holds in
+`M`. Union, intersection, composition and converse are the usual ones, and
+recursion is the least fixpoint, all in the same `M`. A pair is observable
+when some model of the program's theory relates it. Two meanings are
+equivalent under a theory when they agree in every model; since every
+operator works in one `M` at a time, this is a congruence.
 -/
 import RwLog.Trusted.Syntax
 import Mathlib.Order.FixedPoints
-import Mathlib.Data.Finset.Basic
 
 namespace RwLog
 
-/-- A finite set of ground constraints. -/
-abbrev GStore := Finset GTerm
+/-! ## Interpretations and models -/
 
-/-- Ground triples: input, output, store. -/
-abbrev GRel := Set (GTerm × GTerm × GStore)
+/-- An interpretation: the ground constraint atoms that hold. -/
+abbrev Interp := Set GTerm
 
-namespace GRel
+/-- A rule body holds under `σ` in `M`. -/
+def Body.HoldsAt (M : Interp) (σ : Nat → GTerm) : Body → Prop
+  | .fail => False
+  | .conj eqs cs => (∀ e ∈ eqs, e.1.bind σ = e.2.bind σ) ∧ ∀ c ∈ cs, c.bind σ ∈ M
 
-/-- Composition: the middle terms agree and the stores are combined. -/
-def comp (R S : GRel) : GRel :=
-  {x | ∃ m S₁ S₂, (x.1, m, S₁) ∈ R ∧ (m, x.2.1, S₂) ∈ S ∧ x.2.2 = S₁ ∪ S₂}
+/-- `v` occurs in a head of the rule. -/
+def TRule.HeadVar (ρ : TRule) (v : Nat) : Prop := ∃ h ∈ ρ.heads, v ∈ h.vars
 
-/-- Conjunction: both relate the same pair, and the stores are combined. -/
-def meet (R S : GRel) : GRel :=
-  {x | ∃ S₁ S₂, (x.1, x.2.1, S₁) ∈ R ∧ (x.1, x.2.1, S₂) ∈ S ∧ x.2.2 = S₁ ∪ S₂}
+/-- A rule holds in `M`: for every ground `σ`, its heads all hold under `σ`
+exactly when the body holds under some `τ` that agrees with `σ` on the
+variables of the heads (the body-only variables are existential). -/
+def TRule.HoldsIn (M : Interp) (ρ : TRule) : Prop :=
+  ∀ σ : Nat → GTerm, (∀ h ∈ ρ.heads, h.bind σ ∈ M) ↔
+    ∃ τ : Nat → GTerm, (∀ v, ρ.HeadVar v → τ v = σ v) ∧ ρ.body.HoldsAt M τ
 
-/-- Converse. -/
-def inv (R : GRel) : GRel := {x | (x.2.1, x.1, x.2.2) ∈ R}
+/-- `M` is a model of the theory: every rule holds in it. -/
+def Theory.Model (T : Theory) (M : Interp) : Prop := ∀ ρ ∈ T, ρ.HoldsIn M
 
-end GRel
+/-! ## Relations in one interpretation -/
 
-/-! ## Constraint theories
+/-- A relation between ground terms. -/
+abbrev PRel := Set (GTerm × GTerm)
 
-`Refutes T S` holds when the rules of `T` derive `fail` from the ground store
-`S`. A rule fires when its heads, under one substitution, are distinct members
-of the store; it then either refutes the store (body `fail`) or replaces the
-matched constraints by its body. A store holds exactly when it is not
-refuted. `Refutes` asks whether *some* sequence of firings reaches `fail`, so
-refutability never depends on the order in which rules are tried. -/
+namespace PRel
 
-/-- The heads of a rule, instantiated. -/
-def TRule.headsAt (ρ : TRule) (σ : Nat → GTerm) : List GTerm := ρ.heads.map (Term.bind σ)
+def comp (R S : PRel) : PRel := {p | ∃ m, (p.1, m) ∈ R ∧ (m, p.2) ∈ S}
 
-/-- The heads of the rule, instantiated by `σ`, are distinct members of `S`. -/
-def TRule.Fires (ρ : TRule) (σ : Nat → GTerm) (S : GStore) : Prop :=
-  (ρ.headsAt σ).Nodup ∧ ∀ h ∈ ρ.headsAt σ, h ∈ S
+def inv (R : PRel) : PRel := {p | (p.2, p.1) ∈ R}
 
-inductive Refutes (T : Theory) : GStore → Prop
-  | fail {S : GStore} {ρ : TRule} (hρ : ρ ∈ T) (σ : Nat → GTerm)
-      (hb : ρ.body = .fail) (hf : ρ.Fires σ S) : Refutes T S
-  | conj {S : GStore} {ρ : TRule} {cs : List Pat} (hρ : ρ ∈ T) (σ : Nat → GTerm)
-      (hb : ρ.body = .conj cs) (hf : ρ.Fires σ S)
-      (h : Refutes T (S \ (ρ.headsAt σ).toFinset ∪ (cs.map (Term.bind σ)).toFinset)) :
-      Refutes T S
+end PRel
 
-/-- A rule is well formed when it has a head and every variable of its body
-occurs in its heads. (A body variable not bound by the heads would have to
-hold for every value, which firing by matching cannot express.) -/
-def TRule.WellFormed (ρ : TRule) : Prop :=
-  ρ.heads ≠ [] ∧
-  match ρ.body with
-  | .fail => True
-  | .conj cs => ∀ c ∈ cs, ∀ v ∈ c.vars, ∃ h ∈ ρ.heads, v ∈ h.vars
+/-- The pairs a span relates in `M`. -/
+def Span.denAt (M : Interp) (s : Span) : PRel :=
+  {p | ∃ σ : Nat → GTerm, p.1 = s.l.bind σ ∧ p.2 = s.r.bind σ ∧ ∀ c ∈ s.c, c.bind σ ∈ M}
 
-namespace GRel
-
-/-- The observable pairs: those carrying a store the theory cannot refute. -/
-def observe (T : Theory) (R : GRel) : Set (GTerm × GTerm) :=
-  {p | ∃ S, (p.1, p.2, S) ∈ R ∧ ¬ Refutes T S}
-
-end GRel
-
-/-! ## Spans -/
-
-/-- Instantiate a store. -/
-def Store.at (c : Store) (σ : Nat → GTerm) : GStore := (c.map (Term.bind σ)).toFinset
-
-/-- The ground triples a span denotes. -/
-def Span.den (s : Span) : GRel :=
-  {x | ∃ σ : Nat → GTerm, x = (s.l.bind σ, s.r.bind σ, s.c.at σ)}
-
-/-- Every span has a ground instance: the signature has a constant. -/
-theorem Span.den_nonempty (s : Span) : (s.den).Nonempty :=
-  ⟨_, fun _ => .sym "", rfl⟩
-
-/-! ## Relations -/
-
-/-- Denotation of an expression, given the meaning `ρ` of each name. -/
-def denote (ρ : Name → GRel) : Rel → GRel
+/-- Denotation of an expression in `M`, given the meaning `ρ` of each name. -/
+def denoteAt (M : Interp) (ρ : Name → PRel) : Rel → PRel
   | .zero => ∅
-  | .span s => s.den
-  | .or a b => denote ρ a ∪ denote ρ b
-  | .and a b => (denote ρ a).meet (denote ρ b)
-  | .seq a b => (denote ρ a).comp (denote ρ b)
-  | .conv a => (denote ρ a).inv
+  | .span s => s.denAt M
+  | .or a b => denoteAt M ρ a ∪ denoteAt M ρ b
+  | .and a b => denoteAt M ρ a ∩ denoteAt M ρ b
+  | .seq a b => (denoteAt M ρ a).comp (denoteAt M ρ b)
+  | .conv a => (denoteAt M ρ a).inv
   | .call n => ρ n
 
-theorem denote_mono {ρ ρ' : Name → GRel} (h : ρ ≤ ρ') :
-    ∀ e, denote ρ e ⊆ denote ρ' e
+theorem denoteAt_mono (M : Interp) {ρ ρ' : Name → PRel} (h : ρ ≤ ρ') :
+    ∀ e, denoteAt M ρ e ⊆ denoteAt M ρ' e
   | .zero => le_rfl
   | .span _ => le_rfl
-  | .or a b => Set.union_subset_union (denote_mono h a) (denote_mono h b)
-  | .and a b => fun _ ⟨S₁, S₂, h1, h2, hu⟩ =>
-      ⟨S₁, S₂, denote_mono h a h1, denote_mono h b h2, hu⟩
-  | .seq a b => fun _ ⟨m, S₁, S₂, h1, h2, hu⟩ =>
-      ⟨m, S₁, S₂, denote_mono h a h1, denote_mono h b h2, hu⟩
-  | .conv a => fun _ hp => denote_mono h a hp
+  | .or a b => Set.union_subset_union (denoteAt_mono M h a) (denoteAt_mono M h b)
+  | .and a b => Set.inter_subset_inter (denoteAt_mono M h a) (denoteAt_mono M h b)
+  | .seq a b => fun _ ⟨m, h1, h2⟩ => ⟨m, denoteAt_mono M h a h1, denoteAt_mono M h b h2⟩
+  | .conv a => fun _ hp => denoteAt_mono M h a hp
   | .call n => h n
 
-/-- One unfolding of every definition of the program. -/
-def Program.step (P : Program) : (Name → GRel) →o (Name → GRel) where
-  toFun ρ n := denote ρ (P.body n)
-  monotone' _ _ h n := denote_mono h (P.body n)
+/-- One unfolding of every definition of the program, in `M`. -/
+def Program.stepAt (P : Program) (M : Interp) : (Name → PRel) →o (Name → PRel) where
+  toFun ρ n := denoteAt M ρ (P.body n)
+  monotone' _ _ h n := denoteAt_mono M h (P.body n)
 
-/-- The meaning of every name: the least fixpoint. -/
-def Program.meaning (P : Program) : Name → GRel := OrderHom.lfp P.step
+/-- The meaning of every name in `M`: the least fixpoint. -/
+def Program.meaningAt (P : Program) (M : Interp) : Name → PRel := OrderHom.lfp (P.stepAt M)
 
-/-- The meaning (as triples) of an expression in a program. -/
-def Program.sem (P : Program) (e : Rel) : GRel := denote P.meaning e
+/-- The meaning of an expression in a program, in `M`. -/
+def Program.semAt (P : Program) (M : Interp) (e : Rel) : PRel := denoteAt M (P.meaningAt M) e
 
-/-- The observable relation of an expression in a program. -/
-def Program.obs (P : Program) (e : Rel) : Set (GTerm × GTerm) :=
-  (P.sem e).observe P.theory
-
-theorem Program.meaning_eq (P : Program) (n : Name) :
-    P.meaning n = denote P.meaning (P.body n) := by
-  have := OrderHom.map_lfp P.step
+theorem Program.meaningAt_eq (P : Program) (M : Interp) (n : Name) :
+    P.meaningAt M n = denoteAt M (P.meaningAt M) (P.body n) := by
+  have := OrderHom.map_lfp (P.stepAt M)
   exact (congrFun this n).symm
 
-end RwLog
+/-- The observable relation: the pairs some model of the theory relates. -/
+def Program.obs (P : Program) (e : Rel) : PRel :=
+  {p | ∃ M, P.theory.Model M ∧ p ∈ P.semAt M e}
 
-namespace RwLog
+/-! ## Equivalence -/
 
-/-- Refutability is monotone: more constraints can only make refutation
-easier. -/
-theorem Refutes.mono {T : Theory} {S : GStore} (h : Refutes T S) :
-    ∀ {S'}, S ⊆ S' → Refutes T S' := by
-  induction h with
-  | fail hρ σ hb hf =>
-    intro S' hS
-    exact .fail hρ σ hb ⟨hf.1, fun x hx => hS (hf.2 x hx)⟩
-  | conj hρ σ hb hf _ ih =>
-    intro S' hS
-    refine .conj hρ σ hb ⟨hf.1, fun x hx => hS (hf.2 x hx)⟩ (ih ?_)
-    exact Finset.union_subset_union (Finset.sdiff_subset_sdiff hS le_rfl) le_rfl
+/-- Two interpretation-indexed meanings are equivalent under a theory when
+they agree in every model. -/
+def MEquiv (T : Theory) (R S : Interp → PRel) : Prop :=
+  ∀ M, T.Model M → R M = S M
 
-namespace GRel
-
-/-- The pairs a relation carries using only constraints from the store `M`. -/
-def within (R : GRel) (M : GStore) : Set (GTerm × GTerm) :=
-  {p | ∃ S ⊆ M, (p.1, p.2, S) ∈ R}
-
-/-- Equivalence of meanings under a theory: for every non-refutable store `M`,
-the same pairs are carried within `M`. This ignores triples whose store is
-refutable and triples whose store is a superset of another's for the same
-pair, and every operator acts pointwise in `M`. -/
-def Equiv (T : Theory) (R S : GRel) : Prop :=
-  ∀ M : GStore, ¬ Refutes T M → R.within M = S.within M
-
-/-- The observable pairs are the union, over non-refutable stores `M`, of the
-pairs carried within `M`. -/
-theorem observe_eq_iUnion_within (T : Theory) (R : GRel) :
-    R.observe T = ⋃ (M : GStore) (_ : ¬ Refutes T M), R.within M := by
-  ext ⟨a, b⟩
-  simp only [observe, within, Set.mem_ofPred_eq, Set.mem_iUnion]
+/-- Equivalent queries have the same observable pairs. -/
+theorem MEquiv.obs_eq {P P' : Program} {e e' : Rel} (ht : P'.theory = P.theory)
+    (h : MEquiv P.theory (fun M => P'.semAt M e') (fun M => P.semAt M e)) :
+    P'.obs e' = P.obs e := by
+  ext p
+  simp only [Program.obs, Set.mem_ofPred_eq, ht]
   constructor
-  · rintro ⟨S, hS, hn⟩
-    exact ⟨S, hn, S, le_rfl, hS⟩
-  · rintro ⟨M, hM, S, hSM, hS⟩
-    exact ⟨S, hS, fun h => hM (h.mono hSM)⟩
-
-/-- Equivalent meanings have the same observable pairs. -/
-theorem Equiv.observe_eq {T : Theory} {R S : GRel} (h : Equiv T R S) :
-    R.observe T = S.observe T := by
-  rw [observe_eq_iUnion_within, observe_eq_iUnion_within]
-  refine Set.iUnion_congr fun M => ?_
-  by_cases hM : Refutes T M
-  · simp [hM]
-  · simp [hM, h M hM]
-
-end GRel
+  · rintro ⟨M, hM, hp⟩
+    have := h M hM; simp only at this; exact ⟨M, hM, this ▸ hp⟩
+  · rintro ⟨M, hM, hp⟩
+    have := h M hM; simp only at this; exact ⟨M, hM, this.symm ▸ hp⟩
 
 end RwLog

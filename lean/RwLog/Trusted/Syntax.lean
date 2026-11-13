@@ -128,21 +128,45 @@ only depends on which constraints occur in it. -/
 
 abbrev Store := List Pat
 
-/-- A rule body: `fail`, or a (possibly empty) conjunction of constraints.
-The empty conjunction is the drop body `.`. -/
+/-- A rule body: `fail`, or a conjunction of equations `s = t` and
+constraints. The empty conjunction is the drop body `.`.
+
+An equation is not a constraint and never enters a store: on a ground
+instance it holds exactly when its two sides are the same term. -/
 inductive Body where
   | fail
-  | conj (cs : List Pat)
+  | conj (eqs : List (Pat × Pat)) (cs : List Pat)
   deriving DecidableEq, Repr
 
-/-- A refutation rule `h₁, …, hₙ <=> body`. Rules fire by matching their heads
-against distinct constraints of the store. -/
+/-- A rule `h₁, …, hₙ <=> body`: the heads all hold exactly when the body
+does (`RwLog.Trusted.Semantics`). -/
 structure TRule where
   heads : List Pat
   body : Body
   deriving DecidableEq, Repr
 
 abbrev Theory := List TRule
+
+/-- The equations of a body. -/
+def Body.eqs : Body → List (Pat × Pat)
+  | .fail => []
+  | .conj eqs _ => eqs
+
+/-- The constraints a body adds. -/
+def Body.atoms : Body → List Pat
+  | .fail => []
+  | .conj _ cs => cs
+
+/-- A rule is well formed when it is range-restricted: every variable of its
+body, in constraints and in equations, occurs in its heads. This is a rule of
+the language, not of the meaning: the semantics gives every rule a meaning,
+reading body-only variables existentially. -/
+def TRule.WellFormed (ρ : TRule) : Prop :=
+  (∀ c ∈ ρ.body.atoms, ∀ v ∈ c.vars, ∃ h ∈ ρ.heads, v ∈ h.vars) ∧
+    (∀ e ∈ ρ.body.eqs, ∀ v ∈ e.1.vars ++ e.2.vars, ∃ h ∈ ρ.heads, v ∈ h.vars)
+
+instance (ρ : TRule) : Decidable ρ.WellFormed := by
+  unfold TRule.WellFormed; infer_instance
 
 /-! ## Spans
 
@@ -213,11 +237,13 @@ namespace Program
 name, so the default is never observed by them. -/
 def body (P : Program) (n : Name) : Rel := ((P.defs.lookup n)).getD .zero
 
-/-- A program is well formed when its names are distinct and every called
-name, in a body or in the query, is defined. -/
+/-- A program is well formed when its names are distinct, every called
+name, in a body or in the query, is defined, and every rule of its theory is
+well formed. -/
 def WellFormed (P : Program) (q : Rel) : Prop :=
   (P.defs.map Prod.fst).Nodup ∧
-  ∀ n ∈ q.calls ++ (P.defs.flatMap fun d => d.2.calls), n ∈ P.defs.map Prod.fst
+  (∀ n ∈ q.calls ++ (P.defs.flatMap fun d => d.2.calls), n ∈ P.defs.map Prod.fst) ∧
+  ∀ ρ ∈ P.theory, ρ.WellFormed
 
 instance (P : Program) (q : Rel) : Decidable (P.WellFormed q) := by
   unfold WellFormed; infer_instance

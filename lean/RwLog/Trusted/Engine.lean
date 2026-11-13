@@ -7,20 +7,23 @@ A rung is a *preprocessor* followed by a *runtime*.
   query with the same meaning. It may read and extend a store of proven
   artifacts that is shared across programs. Rung zero's preprocessor is the
   identity and its store is empty.
-* The runtime is a deterministic small-step machine: each step emits an
-  answer span, takes a silent step, or reports that it is done.
+* The runtime is a deterministic small-step machine: each step emits a
+  finite list of answer spans (possibly empty), or reports that it is done.
+  A step may emit several answers at once: an engine that advances many
+  independent pieces of work in one step, such as rung R001, produces their
+  answers together, and the order inside one step carries no meaning.
 
 The properties every rung must prove (soundness, completeness, honest
 exhaustion) are stated here against the specification, so a rung cannot
 weaken them.
 -/
 import RwLog.SpanLayer.Derives
+import RwLog.Trusted.Semantics
 
 namespace RwLog
 
 inductive Step (S : Type) where
-  | emit (a : Span) (s : S)
-  | tau (s : S)
+  | emit (as : List Span) (s : S)
   | done
 
 /-- A runtime: a deterministic small-step answer enumerator. -/
@@ -39,9 +42,17 @@ def run : R.State → Nat → List Span × Bool
   | _, 0 => ([], false)
   | s, n + 1 =>
     match R.step s with
-    | .emit a s' => let r := run s' n; (a :: r.1, r.2)
-    | .tau s' => run s' n
+    | .emit as s' => let r := run s' n; (as ++ r.1, r.2)
     | .done => ([], true)
+
+/-- The observable trace of the first `n` steps: what each step emitted,
+in order, ending at the step that reported it is done. -/
+def trace : R.State → Nat → List (List Span)
+  | _, 0 => []
+  | s, n + 1 =>
+    match R.step s with
+    | .emit as s' => as :: trace s' n
+    | .done => []
 
 /-- Answers emitted within the first `n` steps. -/
 def emitted (s : R.State) (n : Nat) : List Span := (R.run s n).1
@@ -59,8 +70,7 @@ theorem run_halted {s : R.State} {n : Nat} (h : R.Halts s n) :
     rw [show n + 1 + m = (n + m) + 1 by omega]
     unfold run
     cases hs : R.step s with
-    | emit a s' => simp only [hs] at h ⊢; rw [ih h m]
-    | tau s' => simp only [hs] at h ⊢; exact ih h m
+    | emit as s' => simp only [hs] at h ⊢; rw [ih h m]
     | done => rfl
 
 theorem run_halted_eq {s : R.State} {n m : Nat} (hn : R.Halts s n) (hm : R.Halts s m) :
@@ -88,7 +98,7 @@ structure Preprocessor where
   run : ArtifactStore → Program → Rel → Program × Rel × ArtifactStore
   theory_eq : ∀ A P q, (run A P q).1.theory = P.theory
   equiv : ∀ A P q, P.WellFormed q →
-    GRel.Equiv P.theory ((run A P q).1.sem (run A P q).2.1) (P.sem q)
+    MEquiv P.theory (fun M => (run A P q).1.semAt M (run A P q).2.1) (fun M => P.semAt M q)
 
 def Preprocessor.id : Preprocessor where
   run A P q := (P, q, A)
@@ -102,27 +112,34 @@ structure Rung where
 /-! ## Properties every rung proves (Tier 0)
 
 They are stated for the runtime against the program and query it is run on,
-which is the output of the rung's preprocessor. -/
+which is the output of the rung's preprocessor, and against the
+specification in every model of the program's theory. -/
 
 namespace Runtime
 
 variable (R : Runtime)
 
-/-- Every emitted answer denotes only triples of the query. -/
+/-- In every model, every emitted answer relates only pairs the query
+relates. -/
 def Sound : Prop :=
-  ∀ P q, P.WellFormed q → ∀ n, ∀ a ∈ R.emitted (R.init P q) n, a.den ⊆ P.sem q
+  ∀ P q, P.WellFormed q → ∀ n, ∀ a ∈ R.emitted (R.init P q) n,
+    ∀ M, P.theory.Model M → a.denAt M ⊆ P.semAt M q
 
 /-- Every derivable span is covered by a single emitted answer after
-finitely many steps. -/
+finitely many steps: in every model, the answer relates every pair the span
+relates. A span that relates nothing in any model needs no answer, so an
+engine may prune it. Because one answer must cover the whole span, an engine
+that only emits ground answers cannot be complete. -/
 def Complete : Prop :=
   ∀ P q, P.WellFormed q → ∀ s, Derives P q s →
-    ∃ n, ∃ a ∈ R.emitted (R.init P q) n, s.den ⊆ a.den
+    (∀ M, P.theory.Model M → s.denAt M = ∅) ∨
+      ∃ n, ∃ a ∈ R.emitted (R.init P q) n, ∀ M, P.theory.Model M → s.denAt M ⊆ a.denAt M
 
 /-- If the runtime reports it is done, the answers it emitted cover the
-query exactly. -/
+query exactly, in every model. -/
 def HonestExhaustion : Prop :=
   ∀ P q, P.WellFormed q → ∀ n, R.Halts (R.init P q) n →
-    P.sem q = ⋃ a ∈ R.emitted (R.init P q) n, a.den
+    ∀ M, P.theory.Model M → P.semAt M q = ⋃ a ∈ R.emitted (R.init P q) n, a.denAt M
 
 /-- The runtime reports it is done on every query of a class. -/
 def TerminatesOn (C : Program → Rel → Prop) : Prop :=

@@ -13,7 +13,7 @@ ground triples (`compose_den`, `meet_den`, `swap_den`); `none` means the
 ground result is empty.
 -/
 import RwLog.Kernel.Solve
-import RwLog.Trusted.Semantics
+import RwLog.SpanLayer.Triples
 import Mathlib.Logic.Equiv.Nat
 
 namespace RwLog
