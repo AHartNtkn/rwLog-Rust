@@ -407,3 +407,23 @@ new axiom.
 
 /-- info: 'RwLog.R003.simulates_of' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.R003.simulates_of
+
+/-! ## R003: the shared evaluation -/
+
+/-- info: 'RwLog.firsts_eq_eraseDups' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.firsts_eq_eraseDups
+
+/-- info: 'RwLog.addAll_flatMap_firsts' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.addAll_flatMap_firsts
+
+/-- info: 'RwLog.R003.closed_seq' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R003.closed_seq
+
+/-- info: 'RwLog.R003.openR_seq' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R003.openR_seq
+
+/-- info: 'RwLog.R003.eval_ok' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R003.eval_ok
+
+/-- info: 'RwLog.R003.shared_exact' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R003.shared_exact
