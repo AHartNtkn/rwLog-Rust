@@ -963,7 +963,7 @@ def sorts.find
     Visibility: public -/
 @[rust_loop_body]
 def sorts.lookup_loop.body
-  («name» : store.TermId) (s : store.Store) (sorts : store.TermId)
+  («name» : store.TermId) (s : store.Store) (decls : store.TermId)
   (found : Option (store.TermId × store.TermId)) (go : Bool) :
   Result (ControlFlow (store.Store × store.TermId × (Option (store.TermId ×
     store.TermId)) × Bool) ((Option (store.TermId × store.TermId)) ×
@@ -971,9 +971,9 @@ def sorts.lookup_loop.body
   := do
   if go
   then
-    let (o, s1) ← sorts.uncons s sorts
+    let (o, s1) ← sorts.uncons s decls
     match o with
-    | none => ok (cont (s1, sorts, found, false))
+    | none => ok (cont (s1, decls, found, false))
     | some p =>
       let (e, more) := p
       let (o1, s2) ← sorts.uncons s1 e
@@ -987,7 +987,7 @@ def sorts.lookup_loop.body
           let (o2, s4) ← sorts.uncons s3 d
           match o2 with
           | none => fail panic
-          | some _ => ok (cont (s4, sorts, o2, false))
+          | some _ => ok (cont (s4, decls, o2, false))
         else ok (cont (s3, more, found, go))
   else ok (done (found, s))
 
@@ -996,24 +996,24 @@ def sorts.lookup_loop.body
     Visibility: public -/
 @[rust_loop]
 def sorts.lookup_loop
-  (s : store.Store) («name» : store.TermId) (sorts : store.TermId)
+  (s : store.Store) («name» : store.TermId) (decls : store.TermId)
   (found : Option (store.TermId × store.TermId)) (go : Bool) :
   Result ((Option (store.TermId × store.TermId)) × store.Store)
   := do
   loop
-    (fun (s1, sorts1, found1, go1) => sorts.lookup_loop.body «name» s1 sorts1
+    (fun (s1, decls1, found1, go1) => sorts.lookup_loop.body «name» s1 decls1
       found1 go1)
-    (s, sorts, found, go)
+    (s, decls, found, go)
 
 /-- [rwlog_core::sorts::lookup]:
     Source: 'src/sorts.rs', lines 96:0-120:1
     Visibility: public -/
 @[reducible]
 def sorts.lookup
-  (s : store.Store) (sorts0 : store.TermId) («name» : store.TermId) :
+  (s : store.Store) (decls0 : store.TermId) («name» : store.TermId) :
   Result ((Option (store.TermId × store.TermId)) × store.Store)
   := do
-  sorts.lookup_loop s «name» sorts0 none true
+  sorts.lookup_loop s «name» decls0 none true
 
 /-- [rwlog_core::sorts::fill]: loop body 0:
     Source: 'src/sorts.rs', lines 126:4-129:5 -/
@@ -1057,11 +1057,11 @@ def sorts.fill
     Source: 'src/sorts.rs', lines 137:0-151:1
     Visibility: public -/
 def sorts.step
-  (s : store.Store) (sorts : store.TermId) («name» : store.TermId)
+  (s : store.Store) (decls : store.TermId) («name» : store.TermId)
   (head : store.TermId) (args : store.TermId) :
   Result ((Option store.TermId) × store.Store)
   := do
-  let (o, s1) ← sorts.lookup s sorts «name»
+  let (o, s1) ← sorts.lookup s decls «name»
   match o with
   | none => ok (none, s1)
   | some p =>
@@ -1144,7 +1144,7 @@ def sorts.push_args
     Visibility: public -/
 @[rust_loop_body]
 def sorts.member_loop.body
-  (sorts : store.TermId) (s : store.Store) (ok1 : Bool) :
+  (decls : store.TermId) (s : store.Store) (ok1 : Bool) :
   Result (ControlFlow (store.Store × Bool) (Bool × store.Store))
   := do
   let (o, s1) ← store.Store.pop s
@@ -1161,7 +1161,7 @@ def sorts.member_loop.body
     | none =>
       let s4 ← store.Store.set_flag s3 store.Tbl.B pair true
       let ((head, args), s5) ← sorts.spine s4 u
-      let (o2, s6) ← sorts.step s5 sorts n head args
+      let (o2, s6) ← sorts.step s5 decls n head args
       match o2 with
       | none => let s7 ← store.Store.drop_stack s6
                 ok (cont (s7, false))
@@ -1175,23 +1175,23 @@ def sorts.member_loop.body
     Visibility: public -/
 @[rust_loop]
 def sorts.member_loop
-  (s : store.Store) (sorts : store.TermId) (ok1 : Bool) :
+  (s : store.Store) (decls : store.TermId) (ok1 : Bool) :
   Result (Bool × store.Store)
   := do
   loop
-    (fun (s1, ok2) => sorts.member_loop.body sorts s1 ok2)
+    (fun (s1, ok2) => sorts.member_loop.body decls s1 ok2)
     (s, ok1)
 
 /-- [rwlog_core::sorts::member]:
     Source: 'src/sorts.rs', lines 182:0-207:1
     Visibility: public -/
 def sorts.member
-  (s : store.Store) (sorts : store.TermId) («name» : store.TermId)
+  (s : store.Store) (decls : store.TermId) («name» : store.TermId)
   (t : store.TermId) :
   Result (Bool × store.Store)
   := do
   let s1 ← store.Store.push s (store.Frame.Visit «name» t)
-  sorts.member_loop s1 sorts true
+  sorts.member_loop s1 decls true
 
 /-- [rwlog_core::span::{impl core::clone::Clone for rwlog_core::span::Span}::clone]:
     Source: 'src/span.rs', lines 7:9-7:14

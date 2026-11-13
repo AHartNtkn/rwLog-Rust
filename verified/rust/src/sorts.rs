@@ -93,12 +93,12 @@ fn find(s: &mut Store, list0: TermId, key: TermId, args: TermId) -> Option<TermI
 }
 
 /// The declaration of the sort `name`: its cases and its rest.
-pub fn lookup(s: &mut Store, sorts0: TermId, name: TermId) -> Option<(TermId, TermId)> {
-    let mut sorts = sorts0;
+pub fn lookup(s: &mut Store, decls0: TermId, name: TermId) -> Option<(TermId, TermId)> {
+    let mut decls = decls0;
     let mut found = None;
     let mut go = true;
     while go {
-        match uncons(s, sorts) {
+        match uncons(s, decls) {
             Some((e, more)) => match uncons(s, e) {
                 Some((n, d)) => {
                     if s.same(n, name) {
@@ -108,7 +108,7 @@ pub fn lookup(s: &mut Store, sorts0: TermId, name: TermId) -> Option<(TermId, Te
                         }
                         go = false;
                     } else {
-                        sorts = more;
+                        decls = more;
                     }
                 }
                 None => panic!(),
@@ -134,8 +134,8 @@ fn fill(s: &mut Store, args0: TermId, kid: TermId) -> TermId {
 /// arguments `args`: the sort of each argument, or nothing when the sort has
 /// no term with that symbol and that number of arguments. A name with no
 /// declaration is the empty sort.
-pub fn step(s: &mut Store, sorts: TermId, name: TermId, head: TermId, args: TermId) -> Option<TermId> {
-    match lookup(s, sorts, name) {
+pub fn step(s: &mut Store, decls: TermId, name: TermId, head: TermId, args: TermId) -> Option<TermId> {
+    match lookup(s, decls, name) {
         None => None,
         Some((cases, rest)) => match find(s, cases, head, args) {
             Some(kids) => Some(kids),
@@ -179,7 +179,7 @@ fn push_args(s: &mut Store, kids0: TermId, args0: TermId) {
 /// read once for each sort. Clear it before the call.
 ///
 /// A pair still to do waits on the stack as a `Visit` frame.
-pub fn member(s: &mut Store, sorts: TermId, name: TermId, t: TermId) -> bool {
+pub fn member(s: &mut Store, decls: TermId, name: TermId, t: TermId) -> bool {
     let mut ok = true;
     s.push(Frame::Visit(name, t));
     while let Some(fr) = s.pop() {
@@ -193,7 +193,7 @@ pub fn member(s: &mut Store, sorts: TermId, name: TermId, t: TermId) -> bool {
             None => {
                 s.set_flag(Tbl::B, pair, true);
                 let (head, args) = spine(s, u);
-                match step(s, sorts, n, head, args) {
+                match step(s, decls, n, head, args) {
                     None => {
                         ok = false;
                         s.drop_stack();
