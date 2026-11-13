@@ -10,11 +10,16 @@ Both machines start in `st k 0` and take the same `k + 4` rounds through
   alone costs at least the number of nodes of the query unfolded `k` times,
   which is at least `2 ^ k` because `w` doubles with every level.
 
-Together with well-formedness this is obligation `separates`.
+R001 emits nothing in the `k + 2` rounds up to and including that one, so it
+has paid `2 ^ k` before any answer arrives; R002 is honest about exhaustion,
+so it has covered `(z, z)` by the time it halts. Together with well-formedness
+this is obligation `separates`, and the halting bounds are
+`separates_exhaustion`.
 -/
 import RwLog.Rungs.R002.Proofs.Separation.Round
 import RwLog.Rungs.R002.Proofs.Lower
 import RwLog.Rungs.R002.Proofs.Same
+import RwLog.Rungs.Framework.Latency
 
 namespace RwLog
 
@@ -166,13 +171,96 @@ theorem baseline_run (k : Nat) : ∀ (r d : Nat), d + r = k + 1 → ∀ n,
     rw [baseline.spent_succ_emit hv]
     exact le_trans (baseline_run k r (d + 1) (by omega) n hn') (Nat.le_add_left _ _)
 
+/-- R001 emits nothing in the rounds up to depth `k + 1`. -/
+theorem baseline_quiet (k : Nat) : ∀ (r d : Nat), d + r ≤ k + 2 →
+    baseline.runtime.emitted (st k d) r = []
+  | 0, _, _ => rfl
+  | r + 1, d, h => by
+    have hv := baseline_step_open k d (by omega)
+    have ih := baseline_quiet k r (d + 1) (by omega)
+    have he : emit k d = [] := by simp [emit]; omega
+    show (baseline.runtime.run (st k d) (r + 1)).1 = []
+    rw [baseline.runtime.run_succ_emit hv, he]
+    exact ih
+
+/-- R001 has paid `2 ^ k` once it has been through depth `k + 1`. -/
+theorem baseline_spent (k : Nat) : ∀ (r d : Nat), d + r = k + 1 →
+    2 ^ k ≤ baseline.spent (st k d) (r + 1)
+  | 0, d, h => by
+    have hd : d = k + 1 := by omega
+    subst hd
+    have hv := baseline_step_open k (k + 1) (by omega)
+    rw [baseline.spent_succ_emit hv]
+    exact le_trans (baseline_round k) (Nat.le_add_right _ _)
+  | r + 1, d, h => by
+    have hv := baseline_step_open k d (by omega)
+    rw [baseline.spent_succ_emit hv]
+    exact le_trans (baseline_spent k r (d + 1) (by omega)) (Nat.le_add_left _ _)
+
+/-- R001 has paid `2 ^ k` at any step at which it has emitted an answer. -/
+theorem baseline_late (k : Nat) {n : Nat} {a : Span}
+    (ha : a ∈ baseline.runtime.emitted (baseline.init (sepFam k).1 (sepFam k).2) n) :
+    2 ^ k ≤ baseline.spent (baseline.init (sepFam k).1 (sepFam k).2) n := by
+  have hi : baseline.init (sepFam k).1 (sepFam k).2 = st k 0 := init_eq k eager
+  rw [hi] at ha ⊢
+  exact baseline.le_spent_of_covered (N := k + 1) (baseline_quiet k (k + 1) 0 (by omega))
+    (baseline_spent k (k + 1) 0 (by omega)) ha
+
+/-! ## The pair the query relates -/
+
+theorem sem_chain (k : Nat) (M : Interp) : ∀ j, j ≤ k →
+    ((.sym "z", .sym "z") : GTerm × GTerm) ∈ (prog k).meaningAt M (chainName j)
+  | 0, _ => by
+    rw [Program.meaningAt_eq, body_zero]
+    exact ⟨fun _ => .sym "z", rfl, rfl, by simp⟩
+  | j + 1, h => by
+    rw [Program.meaningAt_eq, body_succ (by omega)]
+    exact sem_chain k M j (by omega)
+
+theorem sem_target (k : Nat) (M : Interp) {x : GTerm × GTerm} (hx : x ∈ sepTarget) :
+    x ∈ (sepFam k).1.semAt M (sepFam k).2 := by
+  obtain rfl : x = (.sym "z", .sym "z") := hx
+  exact Or.inl (sem_chain k M k le_rfl)
+
+/-! ## The size of the input -/
+
+theorem size_le (k : Nat) : (sepFam k).1.size + (sepFam k).2.size ≤ 2 * k + 11 := by
+  have h : ∀ n : Nat, ((List.range n).map fun i =>
+      1 + (Rel.call (chainName i)).size).sum = 2 * n := by
+    intro n
+    induction n with
+    | zero => rfl
+    | succ n ih => rw [List.range_succ, List.map_append, List.sum_append, ih]; simp [Rel.size]; omega
+  have e : (sepFam k).1.size + (sepFam k).2.size = 2 * k + 11 := by
+    simp only [sepFam, Program.size, sepDefs, List.map_append, List.map_map, List.sum_append,
+      Function.comp_def, h k]
+    simp [Rel.size, Rel.at_, Rel.rw, Span.size, Term.size, Store.size, Theory.size]
+    omega
+  exact e.le
+
+theorem model_nil (k : Nat) : (sepFam k).1.theory.Model ∅ := by
+  intro ρ h
+  exact absurd h List.not_mem_nil
+
 end Sep
+
+/-- On `sepFam k`, R002 has covered `(z, z)` within `500 (k + 5)⁴` ticks, and
+R001 has paid at least `2 ^ k` at any step at which it has covered it. -/
+theorem separates : Obligation.separates := by
+  intro k
+  refine ⟨Sep.wellFormed k, Sep.size_le k, ⟨∅, Sep.model_nil k⟩, ⟨_, rfl⟩, ?_⟩
+  intro M hM x hx
+  obtain ⟨hh, hs⟩ := Sep.costed_halts k
+  refine ⟨costed.coversWithin_of_halts honest_exhaustion (Sep.wellFormed k) hh hs hM
+    (Sep.sem_target k M hx), ?_⟩
+  rintro n ⟨a, ha, -⟩
+  exact Sep.baseline_late k ha
 
 /-- On `sepFam k`, R002 halts within `500 (k + 5)⁴` ticks, and R001 has paid
 at least `2 ^ k` whenever it has halted. -/
-theorem separates : Obligation.separates := by
+theorem separates_exhaustion : Obligation.separates_exhaustion := by
   intro k
-  refine ⟨Sep.wellFormed k, ⟨k + 5, Sep.costed_halts k⟩, ?_⟩
+  refine ⟨Sep.wellFormed k, Sep.size_le k, ⟨k + 5, Sep.costed_halts k⟩, ?_⟩
   intro n hn
   have hi : baseline.init (sepFam k).1 (sepFam k).2 = Sep.st k 0 := Sep.init_eq k eager
   rw [hi] at hn ⊢

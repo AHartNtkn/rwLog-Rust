@@ -357,6 +357,18 @@ new axiom.
 /-- info: 'RwLog.R002.separates' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.R002.separates
 
+/-- info: 'RwLog.R002.separates_exhaustion' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R002.separates_exhaustion
+
+/-- info: 'RwLog.Simulates.of_steps' depends on axioms: [propext] -/
+#guard_msgs in #print axioms RwLog.Simulates.of_steps
+
+/-- info: 'RwLog.CostedRuntime.coversWithin_of_halts' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.CostedRuntime.coversWithin_of_halts
+
+/-- info: 'RwLog.CostedRuntime.le_spent_of_covered' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.CostedRuntime.le_spent_of_covered
+
 /-- info: 'RwLog.Cost.race_val' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Cost.race_val
 
@@ -477,3 +489,6 @@ new axiom.
 
 /-- info: 'RwLog.R003.separates' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.R003.separates
+
+/-- info: 'RwLog.R003.separates_exhaustion' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R003.separates_exhaustion

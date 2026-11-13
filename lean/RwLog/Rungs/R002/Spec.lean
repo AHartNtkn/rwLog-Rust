@@ -20,15 +20,20 @@ and cost exponentially less on a family of inputs.
 * **Never much worse.** One call of the on-demand unfolder costs at most a
   cubic polynomial of what the eager one costs on the same goal
   (`onDemand_dominated`), and so R002 simulates R001 within an explicit cubic
-  polynomial (`simulates`).
+  polynomial (`simulates`): every pair R001 has covered, R002 covers at a cost
+  at most that polynomial of what R001 had paid, whether or not the query
+  ever halts.
 * **Exponentially better on a family.** While its root table is open, each
   round of R001 costs at least the number of nodes of the root goal's
   unfolding to the round before (`baseline_lower`), for every program and
-  query. On the family `sepFam`, R002 halts within a quartic polynomial of `k`
-  while R001 pays at least `2 ^ k` (`separates`). The quartic is the tabled
-  machine's own cost on a chain of `k` open tables (the completion check peels
-  one table per pass and looks each one up by position); the unfolding race
-  no longer contributes more than that.
+  query. On the family `sepFam`, the one pair the query relates, `(z, z)`, is
+  covered by R002 within a quartic polynomial of `k`, while R001 has paid at
+  least `2 ^ k` before it emits any answer (`separates`). The quartic is the
+  tabled machine's own cost on a chain of `k` open tables (the completion
+  check peels one table per pass and looks each one up by position); the
+  unfolding race no longer contributes more than that. The family happens to
+  halt, and the same bounds hold for the report of exhaustion
+  (`separates_exhaustion`).
 -/
 import RwLog.Rungs.R002.Engine
 
@@ -62,6 +67,10 @@ def sepDefs (k : Nat) : List (Name × Rel) :=
 
 def sepFam (k : Nat) : Program × Rel :=
   (⟨sepDefs k, []⟩, .or (.call (chainName k)) (.call "w"))
+
+/-- The pair whose arrival is timed on `sepFam`: `(z, z)`, the only pair the
+query relates. -/
+def sepTarget : PRel := {(.sym "z", .sym "z")}
 
 namespace Obligation
 
@@ -107,9 +116,18 @@ def baseline_lower : Prop :=
   ∀ (st : R001.State) (t : R001.Table), st.tables.head? = some t → t.done = false →
     ∀ i, i < st.depth → nodes (R000.unfoldN st.P i t.goal.rel) ≤ (baseline.step st).ticks
 
-/-- On `sepFam k`, R002 halts within `500 (k + 5)⁴` ticks, and R001 has paid
-at least `2 ^ k` whenever it has halted. -/
-def separates : Prop := Separates baseline costed sepFam (fun k => 2 ^ k) fun k => 500 * (k + 5) ^ 4
+/-- `sepFam k` has size at most `2 k + 11`. On it, R002 has covered `(z, z)` within `500 (k + 5)⁴` ticks, and
+R001 has paid at least `2 ^ k` at any step at which it has covered it. -/
+def separates : Prop :=
+  Separates baseline costed sepFam (fun _ => sepTarget) (fun k => 2 * k + 11) (fun k => 2 ^ k)
+    fun k => 500 * (k + 5) ^ 4
+
+/-- The same bounds for the report of exhaustion on `sepFam k`: R002 halts within
+`500 (k + 5)⁴` ticks, and R001 has paid at least `2 ^ k` whenever it has
+halted. -/
+def separates_exhaustion : Prop :=
+  SeparatesExhaustion baseline costed sepFam (fun k => 2 * k + 11) (fun k => 2 ^ k)
+    fun k => 500 * (k + 5) ^ 4
 
 end Obligation
 
