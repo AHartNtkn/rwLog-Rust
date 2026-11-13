@@ -319,20 +319,68 @@ theorem trace_start (hdual : C.runtime.DualTrace) {P : Program} {q : Rel} (hwf :
   unfold TraceGo at this
   rwa [orient_true, List.map_id] at this
 
+/-- The first `n` steps of the mirrored machine cost at most the two first
+states and `2 n` rounds, each of at most one tick more than 14 times the
+cheaper of the first `n` steps of `C` on the query and on its mirror
+image. -/
+theorem paid_le_min (P : Program) (q : Rel) (n : Nat) :
+    (machine C).paid P q n ≤ (C.init P q).ticks + (C.init P.dual q.dual).ticks +
+      2 * n * (1 + 14 * min (C.spent (C.start P q) n) (C.spent (C.start P.dual q.dual) n)) := by
+  have h := spent_le n 0 true (C.start P q) (C.start P.dual q.dual)
+  unfold SpentLe at h
+  rw [Nat.add_zero, Nat.zero_add] at h
+  show ((machine C).init P q).ticks + (machine C).spent ((machine C).start P q) n ≤ _
+  rw [init_ticks, start_eq]
+  omega
+
 /-- The first `n` steps of the mirrored machine, in terms of the first `n`
 steps of `C` on the query. -/
 theorem paid_le (P : Program) (q : Rel) (n : Nat) :
     (machine C).paid P q n ≤ (C.init P q).ticks + (C.init P.dual q.dual).ticks +
       2 * n * (1 + 14 * C.spent (C.start P q) n) := by
-  have h := spent_le n 0 true (C.start P q) (C.start P.dual q.dual)
-  unfold SpentLe at h
-  have h2 : (2 * n + 0) * (1 + 14 * min (C.spent (C.start P q) n)
-      (C.spent (C.start P.dual q.dual) (0 + n))) ≤ 2 * n * (1 + 14 * C.spent (C.start P q) n) :=
+  have h := paid_le_min (C := C) P q n
+  have h2 : 2 * n * (1 + 14 * min (C.spent (C.start P q) n)
+      (C.spent (C.start P.dual q.dual) n)) ≤ 2 * n * (1 + 14 * C.spent (C.start P q) n) :=
     Nat.mul_le_mul (Nat.le_refl _)
       (Nat.add_le_add_left (Nat.mul_le_mul_left 14 (Nat.min_le_left _ _)) 1)
-  show ((machine C).init P q).ticks + (machine C).spent ((machine C).start P q) n ≤ _
-  rw [init_ticks, start_eq]
   omega
+
+/-- What the first step of `C` on the mirror image relates, swapped, the
+first step of the mirrored machine on the query relates. -/
+theorem covered_first (hdual : C.runtime.DualTrace) {P : Program} {q : Rel} (hwf : P.WellFormed q)
+    {as : List Span} {s' : C.State}
+    (hs : (C.step (C.start P.dual q.dual)).val = .emit as s') {a : Span} (ha : a ∈ as)
+    {M : Interp} {x : GTerm × GTerm} (hx : (x.2, x.1) ∈ a.denAt M) :
+    (machine C).Covered P q M x 1 := by
+  have h1 := mir_start hdual hwf 1
+  rw [C.runtime.trace_succ_emit (show C.runtime.step (C.start P.dual q.dual) = .emit as s' from hs)]
+    at h1
+  have h2 := trace_start hdual hwf 1
+  cases hx0 : (C.step (C.start P q)).val with
+  | done =>
+    rw [C.runtime.trace_succ_done (show C.runtime.step (C.start P q) = .done from hx0)] at h1
+    cases h1
+  | emit bs x' =>
+    rw [C.runtime.trace_succ_emit (show C.runtime.step (C.start P q) = .emit bs x' from hx0)]
+      at h1 h2
+    cases hm : ((machine C).step ((machine C).start P q)).val with
+    | done =>
+      rw [(machine C).runtime.trace_succ_done
+        (show (machine C).runtime.step ((machine C).start P q) = .done from hm)] at h2
+      cases h2
+    | emit ms m' =>
+      have hm' : (machine C).runtime.step ((machine C).start P q) = .emit ms m' := hm
+      rw [(machine C).runtime.trace_succ_emit hm'] at h2
+      rw [List.map_cons] at h1
+      obtain ⟨e1, -⟩ := List.forall₂_cons.1 h1
+      obtain ⟨e2, -⟩ := List.forall₂_cons.1 h2
+      obtain ⟨b', hb', eb⟩ := e1.mem ha
+      obtain ⟨b, hb, rfl⟩ := List.mem_map.1 hb'
+      obtain ⟨m, hm0, em⟩ := e2.symm.mem hb
+      refine ⟨m, ?_, em.2.at_subset M (Span.mem_denAt_swap.1 (eb.2.at_subset M hx))⟩
+      show m ∈ ((machine C).runtime.run ((machine C).start P q) 1).1
+      rw [(machine C).runtime.run_succ_emit hm']
+      exact List.mem_append_left _ hm0
 
 /-- The mirrored machine simulates `C` within `bound`, for a machine whose
 first state costs at most the size of the input and whose emitting steps cost
