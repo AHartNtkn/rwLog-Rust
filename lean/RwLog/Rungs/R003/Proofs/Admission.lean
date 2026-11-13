@@ -7,6 +7,7 @@ and a degree for each polynomial.
 -/
 import RwLog.Rungs.R003.Proofs.Same
 import RwLog.Rungs.R003.Proofs.Separation.Run
+import RwLog.Rungs.R001.Proofs.Keeps
 
 namespace RwLog
 
@@ -25,6 +26,12 @@ theorem improves : Obligation.improves where
       have h : (k + 2) ^ 3 ≤ (2 * (k + 1)) ^ 3 := Nat.pow_le_pow_left (by omega) 3
       calc 2000 * (k + 2) ^ 3 ≤ 2000 * (2 * (k + 1)) ^ 3 := Nat.mul_le_mul_left 2000 h
         _ = 16000 * (k + 1) ^ 3 := by ring
+
+theorem keeps : Obligation.keeps := by
+  have h : runtime = R001.runtime := runtime_eq
+  unfold Obligation.keeps
+  rw [h]
+  exact R001.keeps
 
 theorem admits : Obligation.admits := Admits.of_id improves
 

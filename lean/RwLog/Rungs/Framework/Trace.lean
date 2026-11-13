@@ -12,16 +12,10 @@
   rung, the same rung on a mirrored or reordered query).
 -/
 import RwLog.Rungs.Framework.Runtime
+import RwLog.Trusted.Properties
 import RwLog.Kernel.Covers
 
 namespace RwLog
-
-/-- Two answer lists of one step agree up to order and equivalent answers. -/
-def StepEquiv (xs ys : List Span) : Prop :=
-  ∃ ys', ys'.Perm ys ∧ List.Forall₂ Span.Equiv xs ys'
-
-/-- Two traces agree step for step, up to `StepEquiv`. -/
-def TraceEquiv (t t' : List (List Span)) : Prop := List.Forall₂ StepEquiv t t'
 
 theorem StepEquiv.refl (xs : List Span) : StepEquiv xs xs :=
   ⟨xs, List.Perm.refl _, List.forall₂_same.2 fun x _ => Span.Equiv.refl x⟩

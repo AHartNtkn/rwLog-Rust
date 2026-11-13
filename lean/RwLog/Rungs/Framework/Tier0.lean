@@ -26,6 +26,7 @@ Also for every runtime:
   preprocessor (`Rung.pointComplete`).
 -/
 import RwLog.Rungs.Framework.Runtime
+import RwLog.Trusted.Properties
 import RwLog.SpanLayer.Modulo
 
 namespace RwLog
@@ -56,18 +57,6 @@ structure Tier0 : Prop where
   sound : R.Sound
   complete : R.Complete
   honest : R.HonestExhaustion
-
-/-- P3.0: every emitted answer refines the span of one derivation: it is that
-span, instantiated only by equations the theory forces, so no answer is less
-general than its derivation. -/
-def DerivationGeneral : Prop :=
-  ∀ P q, P.WellFormed q → ∀ a ∈ R.Answers P q, ∃ s, Derives P q s ∧ a.Refines P.theory s
-
-/-- Completeness pair by pair: in every model, every pair the query relates is
-related by some emitted answer. -/
-def PointComplete : Prop :=
-  ∀ P q, P.WellFormed q → ∀ M, P.theory.Model M → ∀ p ∈ P.semAt M q,
-    ∃ n, ∃ a ∈ R.emitted (R.init P q) n, p ∈ a.denAt M
 
 /-- What a rung proves about the ground triples of its answers. -/
 structure Tier0Cert : Prop where

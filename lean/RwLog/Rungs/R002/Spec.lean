@@ -36,6 +36,7 @@ and cost exponentially less on a family of inputs.
   (`separates_exhaustion`).
 -/
 import RwLog.Rungs.R002.Engine
+import RwLog.Trusted.Properties
 
 namespace RwLog
 
@@ -128,6 +129,10 @@ halted. -/
 def separates_exhaustion : Prop :=
   SeparatesExhaustion baseline costed sepFam (fun k => 2 * k + 11) (fun k => 2 ^ k)
     fun k => 500 * (k + 5) ^ 4
+
+/-- R002 keeps every property of the proper baseline, and halts wherever
+R001 halts (`Trusted/Properties.lean`). -/
+def keeps : Prop := runtime.Keeps R001.runtime
 
 /-- The numerals R002 is admitted with: simulation within `40 (c + n + 1)⁶`,
 the `k`-th input of size at most `11 (k + 1)`, covered within

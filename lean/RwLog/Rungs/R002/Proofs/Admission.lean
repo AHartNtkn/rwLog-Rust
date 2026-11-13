@@ -7,6 +7,7 @@ and a degree for each polynomial.
 -/
 import RwLog.Rungs.R002.Proofs.Simulates
 import RwLog.Rungs.R002.Proofs.Separation.Run
+import RwLog.Rungs.R001.Proofs.Keeps
 
 namespace RwLog
 
@@ -30,6 +31,12 @@ theorem improves : Obligation.improves where
       have h : (k + 5) ^ 4 ≤ (5 * (k + 1)) ^ 4 := Nat.pow_le_pow_left (by omega) 4
       calc 500 * (k + 5) ^ 4 ≤ 500 * (5 * (k + 1)) ^ 4 := Nat.mul_le_mul_left 500 h
         _ = 312500 * (k + 1) ^ 4 := by ring
+
+theorem keeps : Obligation.keeps := by
+  have h : runtime = R001.runtime := runtime_eq
+  unfold Obligation.keeps
+  rw [h]
+  exact R001.keeps
 
 theorem admits : Obligation.admits := Admits.of_id improves
 
