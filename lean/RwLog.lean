@@ -95,6 +95,11 @@ import RwLog.Rungs.R003.Race
 import RwLog.Rungs.R003.Shared
 import RwLog.Rungs.R003.Engine
 import RwLog.Rungs.R003.Spec
+import RwLog.Rungs.Framework.Race
+import RwLog.Rungs.Tabled.Repeats
+import RwLog.Rungs.R003.Proofs.Race
+import RwLog.Rungs.R003.Proofs.SameMachine
+import RwLog.Rungs.R003.Proofs.Simulates
 import RwLog.Lib.Firsts
 import RwLog.Rungs.R003.Proofs.Ranges
 import RwLog.Rungs.R003.Proofs.Products
