@@ -41,6 +41,7 @@ Tests/          executable runs per rung
 | Sums over lists | `Lib/List.lean` | `sum_flatMap_map`, `sum_filterMap_map`, `le_sum_map_of_mem`, `sum_map_le` |
 | Converse of a program | `SpanLayer/Dual.lean` | `Program.sem_dual` |
 | Greatest fixpoints by iteration | `Lib/Gfp.lean` | `gfpFrom`, `gfpFrom_closed`, `subset_gfpFrom` |
+| Insertion sort by a strict order | `Lib/Insert.lean` | `insertBy`, `sortBy`, `sortBy_eq` (a duplicate-free list sorts to the ordered list with the same members) |
 | First occurrences of a list | `Lib/Firsts.lean` | `addNew`, `addAll`, `firsts`, `firsts_eq_eraseDups`, `addAll_firsts`, `addAll_flatMap_firsts`, `addAll_flatMap_congr` |
 
 ## The rung framework
@@ -111,7 +112,11 @@ drop repeats themselves, so the machine is still `R001.runtime`
 the whole run (`Tabled.spent_le_of_skips`). R003 uses it.
 
 `Rungs/Framework/Race.lean` defines `Cost.race` and proves what it returns and spends
-(`Cost.race_val`, `Cost.race_ticks`), for any two computations.
+(`Cost.race_val`, `Cost.race_ticks`, and from below `Cost.le_race_ticks`), for
+any two computations. A rung that adds one more way to answer the unfolding
+race races it against the previous rung's unfolder, as R004 does: simulation
+within 7 times is then `Tabled.spent_le_of_skips`, and a lower bound on the
+previous rung's first round is `le_race_ticks` on its two halves.
 
 A rung whose machine is equal to an earlier one as a `Runtime` (R002 against
 R001) uses `SameRun.of_eq`, or simply rewrites.

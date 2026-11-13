@@ -106,6 +106,7 @@ import RwLog.Rungs.R003.Proofs.Race
 import RwLog.Rungs.R003.Proofs.SameMachine
 import RwLog.Rungs.R003.Proofs.Simulates
 import RwLog.Lib.Firsts
+import RwLog.Lib.Insert
 import RwLog.Rungs.R003.Proofs.Ranges
 import RwLog.Rungs.R003.Proofs.Products
 import RwLog.Rungs.R003.Proofs.SharedExact
@@ -119,3 +120,15 @@ import RwLog.Rungs.R003.Proofs.Separation.Stages
 import RwLog.Rungs.R003.Proofs.Separation.Round
 import RwLog.Rungs.R003.Proofs.Separation.Run
 import RwLog.Rungs.R003.Proofs.Admission
+import RwLog.Rungs.R004.Pruned
+import RwLog.Rungs.R004.Engine
+import RwLog.Rungs.R004.Spec
+import RwLog.Rungs.R004.Proofs.Paths
+import RwLog.Rungs.R004.Proofs.Sound
+import RwLog.Rungs.R004.Proofs.PrunedExact
+import RwLog.Rungs.R004.Proofs.SameMachine
+import RwLog.Rungs.R004.Proofs.Separation.Family
+import RwLog.Rungs.R004.Proofs.Separation.Lower
+import RwLog.Rungs.R004.Proofs.Separation.Upper
+import RwLog.Rungs.R004.Proofs.Separation.Run
+import RwLog.Rungs.R004.Proofs.Admission

@@ -8,6 +8,7 @@ budget `x` is tried first.
 
 * `race_val`: its result is the result of `x` or of `y`.
 * `race_ticks`: it spends at most 7 times what the cheaper of the two needs.
+* `le_race_ticks`: it spends at least what the cheaper of the two needs.
 
 Let `m` be the smaller of the two costs. A budget `b < m` fails twice and
 costs `2 b`; the first budget `b ≥ m` costs at most `b + m`. The budgets
@@ -114,6 +115,25 @@ theorem race_ticks (x y : Cost α) : (race x y).ticks ≤ 7 * min x.ticks y.tick
     · simp only [hx, ite_true]; omega
     · have hy : y.ticks ≤ 0 := by omega
       simp only [hx, hy, ite_true, ite_false]; omega
+
+/-- A race costs at least what the cheaper of the two costs. -/
+theorem le_raceFrom_ticks {α : Type} (x y : Cost α) : ∀ (n b : Nat), x.ticks - b ≤ n →
+    min x.ticks y.ticks ≤ (raceFrom x y b).ticks
+  | n, b, hn => by
+    rw [raceFrom_eq]
+    by_cases hx : x.ticks ≤ b
+    · simp only [hx, ite_true]; omega
+    · by_cases hy : y.ticks ≤ b
+      · simp only [hx, hy, ite_true, ite_false]; omega
+      · simp only [hx, hy, ite_false]
+        match n, hn with
+        | 0, hn => omega
+        | n + 1, hn =>
+          have := le_raceFrom_ticks x y n (2 * b + 1) (by omega)
+          omega
+
+theorem le_race_ticks {α : Type} (x y : Cost α) : min x.ticks y.ticks ≤ (race x y).ticks :=
+  le_raceFrom_ticks x y x.ticks 0 (by omega)
 
 end Cost
 
