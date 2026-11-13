@@ -72,16 +72,6 @@ theorem sameRun (hdual : C.runtime.DualTrace) : SameRun (machine C).runtime C.ru
 
 /-! ## What one step emits -/
 
-theorem win_le {x y : C.State} (h : wins x y = true) : (C.step x).ticks ≤ raced x y := by
-  have hwin := winner_le_raceCost (C.step x).ticks (C.step y).ticks
-  have : firstWins (C.step x).ticks (C.step y).ticks = true := h
-  rwa [this] at hwin
-
-theorem lose_le {x y : C.State} (h : wins x y = false) : (C.step y).ticks ≤ raced x y := by
-  have hwin := winner_le_raceCost (C.step x).ticks (C.step y).ticks
-  have : firstWins (C.step x).ticks (C.step y).ticks = false := h
-  rwa [this] at hwin
-
 /-- What a step of the mirrored machine emits is what one step of one of the
 two runs emits, as answers to the query or swapped, and the step costs at
 least what that step costs. `Q` is any property of the states of `C` that its
