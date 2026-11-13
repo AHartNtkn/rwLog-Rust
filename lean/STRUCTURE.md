@@ -68,6 +68,11 @@ rung unchanged.
   the total traversals are sums (`mapL_ticks`, ...) and of the early-exit ones
   are bounded by the sum; `CostedRuntime.spent_mono`, `spent_of_halts`.
 
+* `CostCalculus.lean`: `Cost.Costs m v c` (`m` returns `v` and spends at most
+  `c`), with one rule per monad operation and per traversal (`Costs.bind`,
+  `Costs.mapL`, `Costs.foldL`, ...), so the value and a cost bound of a long
+  `do` block are derived together.
+
 A rung whose machine is equal to an earlier one as a `Runtime` (R002 against
 R001) uses `SameRun.of_eq`, or simply rewrites.
 
