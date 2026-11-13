@@ -1,33 +1,63 @@
 //! Coverage by one-way matching, the interfaces of a span, and equality.
 
 use crate::span::Span;
-use crate::store::{Node, Store, Tbl, TermId};
+use crate::store::{Frame, Node, Store, Tbl, TermId};
+use crate::term::{node_of, unstack};
 
 /// Does the pattern `p`, with its variables bound as table `A` says, match
 /// the term `t`? The variables of `t` are rigid. Table `A` holds what each
 /// node of the pattern already matched: for a variable that is its binding.
 /// A match that succeeds adds to the table.
+///
+/// An application of the pattern waits on the stack, as a `Build` frame
+/// under its two parts, and gets its entry when both parts have matched.
 pub fn mmatch(s: &mut Store, p: TermId, t: TermId) -> bool {
-    match s.get(Tbl::A, p) {
-        Some(u) => s.same(u, t),
-        None => {
-            let ok = match s.read(p) {
-                Node::V0 => true,
-                Node::VL(_) => true,
-                Node::VR(_) => true,
-                Node::Sym(_) => s.same(p, t),
-                Node::Nil => s.same(p, t),
-                Node::App(p1, p2) => match s.read(t) {
-                    Node::App(t1, t2) => mmatch(s, p1, t1) && mmatch(s, p2, t2),
-                    _ => false,
+    let mut ok = true;
+    s.push(Frame::Visit(p, t));
+    while let Some(fr) = s.pop() {
+        match fr {
+            Frame::Visit(q, u) => match s.get(Tbl::A, q) {
+                Some(w) => {
+                    if !s.same(w, u) {
+                        ok = false;
+                        s.drop_stack();
+                    }
+                }
+                None => match s.read(q) {
+                    Node::App(q1, q2) => match s.read(u) {
+                        Node::App(u1, u2) => {
+                            s.push(Frame::Build(q, u));
+                            s.push(Frame::Visit(q2, u2));
+                            s.push(Frame::Visit(q1, u1));
+                        }
+                        _ => {
+                            ok = false;
+                            s.drop_stack();
+                        }
+                    },
+                    Node::Sym(_) => {
+                        if s.same(q, u) {
+                            s.set(Tbl::A, q, u);
+                        } else {
+                            ok = false;
+                            s.drop_stack();
+                        }
+                    }
+                    Node::Nil => {
+                        if s.same(q, u) {
+                            s.set(Tbl::A, q, u);
+                        } else {
+                            ok = false;
+                            s.drop_stack();
+                        }
+                    }
+                    _ => s.set(Tbl::A, q, u),
                 },
-            };
-            if ok {
-                s.set(Tbl::A, p, t);
-            }
-            ok
+            },
+            Frame::Build(q, u) => s.set(Tbl::A, q, u),
         }
     }
+    ok
 }
 
 /// Does `a`, which has no constraints, cover `x`?
@@ -41,54 +71,84 @@ pub fn span_eq(s: &mut Store, x: Span, y: Span) -> bool {
     s.same(x.l, y.l) && s.same(x.r, y.r) && s.same(x.c, y.c)
 }
 
-/// Flag every node of the term `p` in table `A`. A node is flagged after
-/// its parts, so a flagged node has all its parts flagged.
+/// Flag every node of the term `p` in table `A`.
 fn mark(s: &mut Store, p: TermId) {
-    match s.get_flag(Tbl::A, p) {
-        Some(_) => (),
-        None => {
-            if let Node::App(a, b) = s.read(p) {
-                mark(s, a);
-                mark(s, b);
+    s.push(Frame::Visit(p, p));
+    while let Some(fr) = s.pop() {
+        let q = node_of(fr);
+        match s.get_flag(Tbl::A, q) {
+            Some(_) => (),
+            None => {
+                s.set_flag(Tbl::A, q, true);
+                if let Node::App(a, b) = s.read(q) {
+                    s.push(Frame::Visit(b, b));
+                    s.push(Frame::Visit(a, a));
+                }
             }
-            s.set_flag(Tbl::A, p, true);
         }
     }
+}
+
+/// Is the flag set?
+fn is_set(o: Option<bool>) -> bool {
+    o.unwrap_or(false)
 }
 
 /// Is every variable of the term `p` flagged in table `A`? Table `B` holds
 /// the answer for each node already visited.
+///
+/// An application waits on the stack, as a `Build` frame under its two
+/// parts, until both parts have their answer.
 fn all_marked(s: &mut Store, p: TermId) -> bool {
-    match s.get_flag(Tbl::B, p) {
-        Some(b) => b,
-        None => {
-            let b = match s.read(p) {
-                Node::V0 => s.get_flag(Tbl::A, p).is_some(),
-                Node::VL(_) => s.get_flag(Tbl::A, p).is_some(),
-                Node::VR(_) => s.get_flag(Tbl::A, p).is_some(),
-                Node::Sym(_) => true,
-                Node::Nil => true,
-                Node::App(a, c) => all_marked(s, a) && all_marked(s, c),
-            };
-            s.set_flag(Tbl::B, p, b);
-            b
+    s.push(Frame::Visit(p, p));
+    while let Some(fr) = s.pop() {
+        match fr {
+            Frame::Visit(q, _) => match s.get_flag(Tbl::B, q) {
+                Some(_) => (),
+                None => match s.read(q) {
+                    Node::App(a, b) => {
+                        s.push(Frame::Build(q, q));
+                        s.push(Frame::Visit(b, b));
+                        s.push(Frame::Visit(a, a));
+                    }
+                    Node::Sym(_) => s.set_flag(Tbl::B, q, true),
+                    Node::Nil => s.set_flag(Tbl::B, q, true),
+                    _ => {
+                        let m = s.get_flag(Tbl::A, q).is_some();
+                        s.set_flag(Tbl::B, q, m);
+                    }
+                },
+            },
+            Frame::Build(q, _) => match s.read(q) {
+                Node::App(a, b) => {
+                    let fa = is_set(s.get_flag(Tbl::B, a));
+                    let fb = is_set(s.get_flag(Tbl::B, b));
+                    s.set_flag(Tbl::B, q, fa && fb);
+                }
+                _ => panic!(),
+            },
         }
     }
+    is_set(s.get_flag(Tbl::B, p))
 }
 
-/// The members of the list `c` whose variables are all flagged.
+/// The members of the list `c` whose variables are all flagged. The first
+/// pass decides each member, the second puts the members to keep on the
+/// stack, and the third takes them off it in front of the end of the list.
 fn keep(s: &mut Store, c: TermId) -> TermId {
-    match s.read(c) {
-        Node::App(h, t) => {
-            let r = keep(s, t);
-            if all_marked(s, h) {
-                s.alloc(Node::App(h, r))
-            } else {
-                r
-            }
-        }
-        _ => c,
+    let mut l = c;
+    while let Node::App(h, t) = s.read(l) {
+        all_marked(s, h);
+        l = t;
     }
+    let mut l = c;
+    while let Node::App(h, t) = s.read(l) {
+        if is_set(s.get_flag(Tbl::B, h)) {
+            s.push(Frame::Visit(h, h));
+        }
+        l = t;
+    }
+    unstack(s, l)
 }
 
 fn is_var(s: &mut Store, p: TermId) -> bool {

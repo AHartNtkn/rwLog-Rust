@@ -2,7 +2,7 @@
 # The key of a node in the trie
 
 `alloc` finds a node by a key: a list of digits below seventeen. A number is
-written in base sixteen, the most significant digit first, and ended by the
+written in base sixteen, the least significant digit first, and ended by the
 digit sixteen, so no number's key is the start of another's and keys can be
 written one after the other. Different nodes have different keys.
 -/
@@ -10,15 +10,15 @@ import Aeneas
 
 namespace RwLogVerified
 
-/-- The digits of `x` in base sixteen, the most significant first. Zero has
+/-- The digits of `x` in base sixteen, the least significant first. Zero has
 no digits. -/
 def digits (x : Nat) : List Nat :=
-  if _ : x = 0 then [] else digits (x / 16) ++ [x % 16]
+  if _ : x = 0 then [] else x % 16 :: digits (x / 16)
 decreasing_by omega
 
 theorem digits_zero : digits 0 = [] := by rw [digits]; simp
 
-theorem digits_pos {x : Nat} (h : x ≠ 0) : digits x = digits (x / 16) ++ [x % 16] := by
+theorem digits_pos {x : Nat} (h : x ≠ 0) : digits x = x % 16 :: digits (x / 16) := by
   rw [digits]; simp [h]
 
 theorem digits_lt (x : Nat) : ∀ d ∈ digits x, d < 16 := by
@@ -28,22 +28,21 @@ theorem digits_lt (x : Nat) : ∀ d ∈ digits x, d < 16 := by
     · subst h; simp [digits_zero]
     · rw [digits_pos h]
       intro d hd
-      rcases List.mem_append.1 hd with hd | hd
+      rcases List.mem_cons.1 hd with hd | hd
+      · omega
       · exact ih (x / 16) (by omega) d hd
-      · simp only [List.mem_singleton] at hd; omega
 
 /-- The number a list of digits writes. -/
-def ofDigits (ds : List Nat) : Nat := ds.foldl (fun acc d => acc * 16 + d) 0
-
-theorem ofDigits_append (ds : List Nat) (d : Nat) : ofDigits (ds ++ [d]) = ofDigits ds * 16 + d := by
-  simp [ofDigits, List.foldl_append]
+def ofDigits : List Nat → Nat
+  | [] => 0
+  | d :: ds => d + 16 * ofDigits ds
 
 theorem ofDigits_digits (x : Nat) : ofDigits (digits x) = x := by
   induction x using Nat.strong_induction_on with
   | _ x ih =>
     by_cases h : x = 0
     · subst h; simp [digits_zero, ofDigits]
-    · rw [digits_pos h, ofDigits_append, ih (x / 16) (by omega)]; omega
+    · rw [digits_pos h, ofDigits, ih (x / 16) (by omega)]; omega
 
 theorem digits_inj {x y : Nat} (h : digits x = digits y) : x = y := by
   rw [← ofDigits_digits x, ← ofDigits_digits y, h]
@@ -56,7 +55,7 @@ theorem digits_length_le (k x : Nat) (h : x < 16 ^ k) : (digits x).length ≤ k 
   | succ k ih =>
     by_cases hx : x = 0
     · subst hx; simp [digits_zero]
-    · rw [digits_pos hx, List.length_append, List.length_singleton]
+    · rw [digits_pos hx, List.length_cons]
       have := ih (x / 16) (by rw [pow_succ] at h; omega)
       omega
 

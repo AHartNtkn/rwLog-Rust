@@ -8,7 +8,7 @@ replaces the interpreter in `src/` is built (roadmap M9, ledger L13 and L24).
 ```
 rust/               the Rust crate `rwlog_core`
   src/store.rs      the base machine: a hash-consed store of term nodes, two tables
-                    indexed by identifier, and a tick counter
+                    indexed by identifier, a stack of frames, and a tick counter
   src/term.rs       applying a binding, the occurs check, renaming, lists
   src/span.rs       the unifier, and `compose`, `meet` and the chain test on spans
   src/cover.rs      one-way matching, coverage without constraints, equality of spans,
@@ -29,8 +29,17 @@ check-versions.sh   checks that every file naming a version agrees with versions
 store, and equal terms are one node, so a term is charged by its distinct
 subterms and not by its size as a tree. One tick is one node read, one
 allocation (interning included), one comparison of identifiers or words, or
-one read, write or clearing of a table indexed by identifier. Nothing else
-in the crate can touch the tick counter, and no other collection is used.
+one read, write or clearing of a table indexed by identifier, or one push,
+pop or emptying of the stack. Nothing else in the crate can touch the tick
+counter, and no other collection is used.
+
+No function of the crate calls itself. A function that walks a term is a
+loop: the nodes still to visit are frames on the stack of the store, and a
+push or a pop is a tick like any other step. So the depth of a walk is paid
+for in ticks and held in the store, and the machine's own call stack has a
+fixed depth. `tests/no_recursion.rs` fails if the translation contains a
+recursive definition, and `tests/deep.rs` runs every walk on terms and lists
+four hundred thousand deep.
 
 A variable is a node too: the base name, or the left or the right of a name.
 Renaming a span apart is one allocation for each variable, and the names
@@ -45,16 +54,79 @@ nodes, and advances the tick counter by at most a stated amount.
 
 | Rust | Specification | Ticks at most | Theorem |
 |---|---|---|---|
-| `Store::read`, `alloc`, `same`, table reads and writes | one node read, append, comparison or table access | exactly 1 | `Store.lean` |
-| `term::rebuild` | `Term.subst` | 1, and 5 for each distinct subterm not yet done | `rebuild_spec` |
-| `term::occurs` | membership in `Term.vars` | 1, and 5 for each distinct subterm not yet done | `occurs_spec` |
-| `span::solve_into` | `Eqns.solveOn` | `solveCost`: cubic in the distinct subterms of the equations and the output | `solve_into_spec` |
-| `span::compose`, `span::meet` | `Span.compose`, `Span.meet` | `composeCost`, `meetCost`: two renamings, one append, one solve | `compose_spec`, `meet_spec` |
-| `span::composable` | `(Span.chain xs).isSome` | `composableCost`: the compositions it performs | `composable_spec` |
-| `cover::mmatch` | `matchInto` | 2, and 6 for each distinct subterm of the pattern | `mmatch_spec` |
-| `cover::covers_plain` | `Span.covers?`, covering span without constraints | `5 + 6 * D`, `D` the distinct subterms of the covering span | `covers_plain_spec` |
+| `Store::read`, `alloc`, `same`, table reads and writes, `push`, `pop`, `drop_stack` | one node read, append, comparison, table access or stack step | exactly 1 | `Store.lean` |
+| `term::rebuild` | `Term.subst` | `5 + 14 n`, `n` the distinct subterms not yet done | `rebuild_spec` |
+| `term::occurs` | membership in `Term.vars` | `4 + 8 n`, `n` the distinct subterms | `occurs_spec` |
+| `term::append` | `++` on lists | `4 n + 2`, `n` the length of the first list | `append_spec` |
+| `span::solve_into` | `Eqns.solveOn` | `solveCost`, see below | `solve_into_spec` |
+| `span::compose`, `span::meet` | `Span.compose`, `Span.meet` | `composeCost`, `meetCost`: two renamings (`16 + 14 n` each, `n` the distinct subterms of the span), one append, one solve, and 7 or 9 | `compose_spec`, `meet_spec` |
+| `span::composable` | `(Span.chain xs).isSome` | `composableCost`: the compositions it performs, and 3 | `composable_spec` |
+| `cover::mmatch` | `matchInto` | `6 + 12 n`, `n` the distinct subterms of the pattern not yet matched | `mmatch_spec` |
+| `cover::covers_plain` | `Span.covers?`, covering span without constraints | `13 + 12 D`, `D` the distinct subterms of the covering span | `covers_plain_spec` |
 | `cover::span_eq` | equality of spans | 3 | `span_eq_spec` |
-| `cover::right_bound`, `left_bound` | `bound s.rightIface`, `bound s.leftIface` | `ifaceCost`: linear in the distinct subterms of the side and of the constraints | `right_bound_spec`, `left_bound_spec` |
+| `cover::right_bound`, `left_bound` | `bound s.rightIface`, `bound s.leftIface` | `ifaceCost`: `11 + 8 D + 11 k + 13 C`, `D` the distinct subterms of the side, `k` the constraints, `C` their distinct subterms | `right_bound_spec`, `left_bound_spec` |
+
+Every theorem also says that the function spent a tick for each node it
+added (`Extends`, `Extends.nodes_le`).
+
+### The bound for the unifier
+
+`solveCost E o` (`RwLogVerified/SolveCost.lean`) bounds `solve_into` on the
+equations `E` with the output term `o`. With `L` the number of equations,
+`D` the distinct subterms of the equations and of `o`, and `V` the distinct
+variables of the equations, it is
+
+    10 + 8 D + 3 L + 12 lead + V (35 + 62 D + 28 L),    lead ≤ D.
+
+The loop drops an equation between a term and itself (3 ticks), splits an
+equation between two applications (9 ticks), or eliminates a variable, which
+rebuilds every equation left and the output. A variable is eliminated at
+most `V` times. Between two eliminations there are at most `D` splits. The
+list never holds more than `L + D` equations, because the equations that
+splitting adds are the right halves still pending along one path down a
+term.
+
+The bound is `V (D + L)` up to a constant, and it cannot be of a lower
+order for this algorithm: an elimination rebuilds every distinct subterm
+that is left and every cell of the list, and there are problems where every
+equation eliminates a variable while the rest is still there. Composing the
+identity on `n` variables with itself is one: the table below shows the
+ticks spent growing with the square of `n`, as the bound does.
+
+The constant is not the best possible. On that family the bound is about
+fourteen times what is spent. Three things account for most of it: every
+elimination is charged for the whole problem as it started and not for
+what is left; every variable is charged an elimination, and here half of
+them are eliminated; and each rebuild is charged every subterm at the full
+price of an application that changes.
+
+### Measured against derived
+
+Ticks spent by the Rust (`rust/tests`, which also assert each bound) against
+the charge of the theorem.
+
+| Run | Spent | Bound | `Kernel.std` |
+|---|---|---|---|
+| `rebuild` of a term of 41 distinct subterms and 2^40 leaves | 568 | 579 | |
+| `occurs` on the same shape | 326 | 332 | |
+| `mmatch` of that pattern against that term | 486 | 498 | |
+| `compose` of `(b (a $x) $y) -> (b $x $y)` with itself | 548 | 5474 | 38 |
+| `compose` of the identity on 1 variable with itself | 104 | 896 | 6 |
+| on 2 variables | 292 | 2734 | 18 |
+| on 4 variables | 863 | 9386 | 42 |
+| on 8 variables | 2785 | 34594 | 90 |
+| on 16 variables | 9749 | 132626 | 186 |
+| on 32 variables | 36157 | 519154 | 378 |
+
+The walks are within a few ticks of their bounds. A composition is within
+a factor of ten to fifteen, all of it in the unifier. Before the stack the
+first composition spent 257 ticks against a bound of 83460; a push and a
+pop are now paid for, and the bound is fifteen times smaller.
+`RwLogVerified/KernelRuns.lean` pins the bounds of the compositions.
+
+`Kernel.std` charges the sizes of the spans as trees. It is linear where
+the machine is quadratic, so it is not a bound on the machine, and it is
+exponentially larger on terms with sharing.
 
 `Repr nm nodes i t` (`RwLogVerified/Repr.lean`) says that identifier `i`
 stands for the specification term `t`. Symbols are words in Rust and strings
@@ -88,22 +160,16 @@ What is not derived, and why:
 
 Space. `Cost` has a space component. The store only grows and an allocation
 is a tick, so an operation that may add nodes is charged its tick bound as
-cells held; `span_eq` and `covers_plain` leave the store as it was and hold
-nothing. That an operation adds at most as many nodes as it spends ticks is
-read off the primitives (each allocation is one tick) and is not a theorem
-of `Realises` (roadmap L45).
+cells held; `span_eq` and `covers_plain` add no node and hold nothing.
+`Realises` says so: an operation adds at most as many nodes as it holds
+cells. The stack is empty when an operation returns, and while it runs its
+depth is under the ticks spent, which is the peak of the charge.
 
 What the theorems assume:
 
 * Room on the tick counter: `40 * (ticks + bound) + 100` fits in a `usize`.
-  The node and table indices are bounded through the ticks.
-* The call stack. `rebuild`, `occurs`, `mark`, `mmatch`, `keep` and `append`
-  recurse on the term, and Aeneas does not model the depth of the stack
-  (roadmap L43).
-
-The bounds are sound and loose. Composing `(b (a $x) $y) -> (b $x $y)` with
-itself spends 257 ticks in Rust (`tests/span.rs`); `composeCost` is 83460,
-and `Kernel.std` charges 38 (roadmap L42).
+  The node, table and stack indices are bounded through the ticks (roadmap
+  L43, counter overflow).
 
 ## Rules for the Rust
 
@@ -117,10 +183,11 @@ be reasoned about. Found by trial at the pinned commits:
   table is written by hand over `Vec`.
 * Loops over indices. Use `break` or a result variable where a loop would
   return from several places.
+* No recursion. A walk over a term is a loop over the stack of the store.
 * The only code that may touch the tick counter or the fields of `TermId` is
   `store.rs`.
-* All data lives in the store and its two tables. No function outside
-  `store.rs` owns a `Vec` or any other collection.
+* All data lives in the store, its two tables and its stack. No function
+  outside `store.rs` owns a `Vec` or any other collection.
 
 ## Building
 

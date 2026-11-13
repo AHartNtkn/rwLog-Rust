@@ -2,7 +2,7 @@
 
 mod common;
 use common::*;
-use rwlog_core::store::{Node, Store, Tbl};
+use rwlog_core::store::{Frame, Node, Store, Tbl, TermId};
 
 #[test]
 fn new_store_has_spent_nothing() {
@@ -252,4 +252,109 @@ fn cells_survive_later_allocations() {
         s.alloc(Node::Sym(f));
     }
     assert!(s.get(Tbl::A, a).is_some());
+}
+
+/// Is the frame the one with these two nodes, and of this kind?
+fn is_frame(s: &mut Store, f: Option<Frame>, a: TermId, b: TermId, build: bool) -> bool {
+    match f {
+        Some(Frame::Visit(x, y)) => !build && s.same(x, a) && s.same(y, b),
+        Some(Frame::Build(x, y)) => build && s.same(x, a) && s.same(y, b),
+        None => false,
+    }
+}
+
+#[test]
+fn pop_of_an_empty_stack_is_nothing() {
+    let mut s = Store::new();
+    assert!(s.pop().is_none());
+}
+
+#[test]
+fn frames_come_off_the_stack_last_in_first_out() {
+    let mut s = Store::new();
+    let a = s.alloc(Node::Sym(1));
+    let b = s.alloc(Node::Sym(2));
+    s.push(Frame::Visit(a, b));
+    s.push(Frame::Build(b, a));
+    let f = s.pop();
+    assert!(is_frame(&mut s, f, b, a, true));
+    let f = s.pop();
+    assert!(is_frame(&mut s, f, a, b, false));
+    assert!(s.pop().is_none());
+}
+
+#[test]
+fn a_frame_pushed_after_a_pop_replaces_the_popped_one() {
+    let mut s = Store::new();
+    let a = s.alloc(Node::Sym(1));
+    let b = s.alloc(Node::Sym(2));
+    s.push(Frame::Visit(a, a));
+    s.push(Frame::Visit(b, b));
+    s.pop();
+    s.push(Frame::Build(a, b));
+    let f = s.pop();
+    assert!(is_frame(&mut s, f, a, b, true));
+    let f = s.pop();
+    assert!(is_frame(&mut s, f, a, a, false));
+    assert!(s.pop().is_none());
+}
+
+#[test]
+fn drop_stack_empties_the_stack() {
+    let mut s = Store::new();
+    let a = s.root();
+    for _ in 0..5 {
+        s.push(Frame::Visit(a, a));
+    }
+    s.drop_stack();
+    assert!(s.pop().is_none());
+}
+
+#[test]
+fn the_stack_holds_many_frames() {
+    let mut s = Store::new();
+    let a = s.root();
+    let b = s.alloc(Node::Sym(3));
+    for i in 0..10_000 {
+        s.push(if i % 2 == 0 {
+            Frame::Visit(a, b)
+        } else {
+            Frame::Build(b, a)
+        });
+    }
+    for i in (0..10_000).rev() {
+        let f = s.pop();
+        let ok = if i % 2 == 0 {
+            is_frame(&mut s, f, a, b, false)
+        } else {
+            is_frame(&mut s, f, b, a, true)
+        };
+        assert!(ok, "frame {i}");
+    }
+    assert!(s.pop().is_none());
+}
+
+#[test]
+fn each_stack_primitive_costs_one_tick() {
+    let mut s = Store::new();
+    let a = s.root();
+    let ((), t) = spent(&mut s, |s| {
+        s.push(Frame::Visit(a, a));
+        s.pop();
+        s.pop();
+        s.drop_stack();
+    });
+    assert_eq!(t, 4);
+}
+
+#[test]
+fn the_stack_does_not_touch_the_tables() {
+    let mut s = Store::new();
+    let a = s.alloc(Node::Sym(1));
+    s.clear(Tbl::A);
+    s.set(Tbl::A, a, a);
+    s.push(Frame::Visit(a, a));
+    s.drop_stack();
+    let r = s.get(Tbl::A, a).expect("a value");
+    assert!(s.same(r, a));
 }

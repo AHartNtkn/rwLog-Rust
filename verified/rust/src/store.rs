@@ -25,10 +25,19 @@
 //! `clear` empties it. Every node has a cell in each table from the moment
 //! it is allocated, so an access never has to grow anything.
 //!
+//! # The stack
+//!
+//! There is one stack of frames (`push`, `pop`, `drop_stack`). A function
+//! that walks a term keeps on it the nodes it has still to do, so no function
+//! of this crate calls itself and the depth of a term costs room on this
+//! stack, which is counted, and none on the call stack. A function that uses
+//! the stack starts with it empty and leaves it empty.
+//!
 //! # Cost
 //!
-//! `read`, `alloc`, `same`, `word_eq`, `clear`, `get`, `set`, `get_flag` and
-//! `set_flag` each spend one tick, and nothing else spends any. Each does an
+//! `read`, `alloc`, `same`, `word_eq`, `clear`, `get`, `set`, `get_flag`,
+//! `set_flag`, `push`, `pop` and `drop_stack` each spend one tick, and
+//! nothing else spends any. Each does an
 //! amount of work bounded by a constant of this file: `alloc` finds the node
 //! in a trie whose depth is at most two machine words in base sixteen.
 //!
@@ -61,6 +70,17 @@ pub enum Tbl {
     B,
 }
 
+/// What a walk over a term has still to do. A frame names a node, and a
+/// second one: the node of the other term when two terms are walked together,
+/// and the same node again otherwise.
+#[derive(Clone, Copy)]
+pub enum Frame {
+    /// Do the node.
+    Visit(TermId, TermId),
+    /// The parts of the node are done: finish the node.
+    Build(TermId, TermId),
+}
+
 /// The cells of one node: for each table, the value and the number of the
 /// clearing it was written after. A cell written before the last clearing is
 /// empty.
@@ -86,6 +106,9 @@ pub struct Store {
     nodes: Vec<Node>,
     slots: Vec<Slot>,
     trie: Vec<Trie>,
+    /// The frames of the stack are `stack[..sp]`; the last is the top.
+    stack: Vec<Frame>,
+    sp: usize,
     ea: u64,
     eb: u64,
     ticks: u64,
@@ -100,7 +123,16 @@ impl Default for Store {
 impl Store {
     /// The store that holds the variable `0` and nothing else.
     pub fn new() -> Store {
-        let mut s = Store { nodes: Vec::new(), slots: Vec::new(), trie: Vec::new(), ea: 1, eb: 1, ticks: 0 };
+        let mut s = Store {
+            nodes: Vec::new(),
+            slots: Vec::new(),
+            trie: Vec::new(),
+            stack: Vec::new(),
+            sp: 0,
+            ea: 1,
+            eb: 1,
+            ticks: 0,
+        };
         s.trie.push(Trie { kids: [0; 17], val: 0 });
         s.intern(Node::V0);
         s
@@ -153,14 +185,15 @@ impl Store {
     }
 
     /// The trie node reached from `p` by the digits of `x` in base sixteen,
-    /// the most significant first.
+    /// the least significant first.
     fn digits(&mut self, p: usize, x: usize) -> usize {
-        if x == 0 {
-            p
-        } else {
-            let q = self.digits(p, x / 16);
-            self.kid(q, x % 16)
+        let mut q = p;
+        let mut y = x;
+        while y != 0 {
+            q = self.kid(q, y % 16);
+            y /= 16;
         }
+        q
     }
 
     /// The trie node reached from `p` by the digits of `x` and the mark that
@@ -308,5 +341,34 @@ impl Store {
         self.tick();
         let v = if b { 1 } else { 0 };
         self.set_cell(t, k, v)
+    }
+
+    /// Put a frame on the stack. One tick.
+    pub fn push(&mut self, f: Frame) {
+        self.tick();
+        if self.sp < self.stack.len() {
+            self.stack[self.sp] = f;
+        } else {
+            self.stack.push(f);
+        }
+        self.sp += 1;
+    }
+
+    /// Take the top frame off the stack. Nothing, when the stack is empty.
+    /// One tick.
+    pub fn pop(&mut self) -> Option<Frame> {
+        self.tick();
+        if self.sp == 0 {
+            None
+        } else {
+            self.sp -= 1;
+            Some(self.stack[self.sp])
+        }
+    }
+
+    /// Empty the stack. One tick.
+    pub fn drop_stack(&mut self) {
+        self.tick();
+        self.sp = 0;
     }
 }
