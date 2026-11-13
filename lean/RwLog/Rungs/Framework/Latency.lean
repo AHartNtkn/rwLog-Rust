@@ -102,12 +102,21 @@ language. -/
 theorem CostedRung.machine_id (E : Engine) (A : ArtifactStore) :
     (CostedRung.mk Preprocessor.id E).machine A = E.costed := rfl
 
-/-- Two rungs without preprocessing: admission is the improvement of the
-machines, and preprocessing costs nothing. -/
-theorem Admits.of_id {Old New : Engine} {b : Bounds} {fam : Nat → Program × Rel}
+/-- Two rungs without preprocessing: the improvement of the machines, and
+preprocessing costs nothing. -/
+theorem Advances.of_id {Old New : Engine} {b : Bounds} {fam : Nat → Program × Rel}
     {tgt : Nat → PRel} (h : Improves Old.costed New.costed b fam tgt) :
-    Admits ⟨Preprocessor.id, Old⟩ ⟨Preprocessor.id, New⟩ b (fun _ => 0) fam tgt where
+    Advances ⟨Preprocessor.id, Old⟩ ⟨Preprocessor.id, New⟩ b (fun _ => 0) fam tgt where
   improves _ := h
   preCost _ _ _ _ := Nat.le_refl 0
+
+/-- Two rungs without preprocessing: admission is the improvement of the
+machines and the direction bound of the new one. -/
+theorem Admits.of_id {Old New : Engine} {b : Bounds} {d : DirBound}
+    {fam : Nat → Program × Rel} {tgt : Nat → PRel}
+    (h : Improves Old.costed New.costed b fam tgt) (hd : DirectionFree New.costed d.fn) :
+    Admits ⟨Preprocessor.id, Old⟩ ⟨Preprocessor.id, New⟩ b d (fun _ => 0) fam tgt where
+  toAdvances := Advances.of_id h
+  direction _ := hd
 
 end RwLog

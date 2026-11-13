@@ -57,11 +57,31 @@ that statement: `b : Bounds` holds the numerals (a coefficient and a degree
 for each polynomial), the simulation bound is `b.sim`, the family has size at
 most `b.size k`, `New` covers the targets within `b.hi k` and `Old` has paid
 at least `2 ^ k`. Since the size of `fam k` is polynomial in `k`, `2 ^ k` is
-exponential in a root of the size of the input. A rung is admitted by a
-proof of `Admits`, which is `Improves` for the whole rung (its engine at the
-kernel of the language, run on the preprocessed input) for bounds its specification writes out, together
-with a recorded bound on the cost of preprocessing, and by nothing else:
-`Simulates` and `Separates` with other functions do not admit it.
+exponential in a root of the size of the input. `Advances` is `Improves` for
+the whole rung (its engine at the kernel of the language, run on the
+preprocessed input) for bounds its specification writes out, together with a
+recorded bound on the cost of preprocessing.
+
+## Direction
+
+A relation can be asked for from either end, and what an answer costs must not
+depend on which end the query was written from. There are two ways to write a
+query the other way round: `conv q`, in the same program, and the mirror image
+`q.dual` in the mirrored program, in which every span is swapped and every
+sequence reversed. `C.conv` and `C.mirror` are the machine `C` run on those,
+with every answer swapped back, so both are machines for the original query.
+`DirectionFree C p` says that `C` and each of them simulate each other within
+`p`: whenever one has covered a pair, the other covers it within `p` of what
+the first has paid, and likewise for exhaustion. So no pair arrives more than
+polynomially later because the query was written from the other end.
+
+## Admission
+
+A rung is admitted by a proof of `Admits`, and by nothing else: it advances
+on its predecessor (`Advances`), and its cost does not depend on direction,
+within a polynomial whose numerals its specification writes out. `Simulates`
+and `Separates` with other functions do not admit it, and neither does an
+improvement that holds from one end only.
 
 `SeparatesExhaustion` is the same comparison for the report of exhaustion
 instead of answers. It is the special case for the rare queries that halt: it
@@ -170,6 +190,51 @@ def SeparatesExhaustion (Old New : CostedRuntime) (fam : Nat → Program × Rel)
     (∀ n, Old.runtime.Halts (Old.start (fam k).1 (fam k).2) n →
       lo k ≤ Old.paid (fam k).1 (fam k).2 n)
 
+/-! ## Direction -/
+
+/-- A step with every answer swapped. -/
+def Step.swap {S : Type} : Step S → Step S
+  | .emit as s => .emit (as.map Span.swap) s
+  | .done => .done
+
+namespace CostedRuntime
+
+variable (C : CostedRuntime)
+
+/-- `C` run on the mirror image of the query in the mirrored program, with
+every answer swapped back: a machine for the original query. -/
+def mirror : CostedRuntime where
+  State := C.State
+  init P q := C.init P.dual q.dual
+  step s := ⟨(C.step s).val.swap, (C.step s).ticks⟩
+
+/-- `C` run on the converse of the query, with every answer swapped back: a
+machine for the original query. -/
+def conv : CostedRuntime where
+  State := C.State
+  init P q := C.init P (.conv q)
+  step s := ⟨(C.step s).val.swap, (C.step s).ticks⟩
+
+end CostedRuntime
+
+/-- The cost of `C` does not depend on the direction a query is written in,
+within `p`: `C` and `C` run on the mirror image simulate each other within
+`p`, and so do `C` and `C` run on the converse. -/
+structure DirectionFree (C : CostedRuntime) (p : Nat → Nat → Nat) : Prop where
+  toMirror : Simulates C C.mirror p
+  ofMirror : Simulates C.mirror C p
+  toConv : Simulates C C.conv p
+  ofConv : Simulates C.conv C p
+
+/-- The numerals of a direction bound: a coefficient and a degree. -/
+structure DirBound where
+  coeff : Nat
+  deg : Nat
+
+/-- The bound `coeff * (c + n + 1) ^ deg`, for what the other machine has
+paid `c` and the size of the input `n`. -/
+def DirBound.fn (d : DirBound) (c n : Nat) : Nat := d.coeff * (c + n + 1) ^ d.deg
+
 /-! ## Admission -/
 
 /-- The numerals of an improvement: a coefficient and a degree for each of
@@ -260,13 +325,21 @@ def machine (A : ArtifactStore) : CostedRuntime where
 
 end CostedRung
 
-/-- The rung `New` is admitted above `Old`: whatever the artifact store, it
+/-- The rung `New` advances on `Old`: whatever the artifact store, it
 improves on `Old` at run time with the numerals `b`, and preprocessing an
 input of size `n` costs at most `pre n` ticks. `pre` is any explicit
 function: it is recorded, not capped. -/
-structure Admits (Old New : CostedRung) (b : Bounds) (pre : Nat → Nat)
+structure Advances (Old New : CostedRung) (b : Bounds) (pre : Nat → Nat)
     (fam : Nat → Program × Rel) (tgt : Nat → PRel) : Prop where
   improves : ∀ A, Improves (Old.machine A) (New.machine A) b fam tgt
   preCost : ∀ A P q, P.WellFormed q → (New.pre.run A P q).ticks ≤ pre (P.size + q.size)
+
+/-- The rung `New` is admitted above `Old`: it advances on `Old`, and
+whatever the artifact store, its cost does not depend on direction, within
+the polynomial `d`. -/
+structure Admits (Old New : CostedRung) (b : Bounds) (d : DirBound) (pre : Nat → Nat)
+    (fam : Nat → Program × Rel) (tgt : Nat → PRel) : Prop
+    extends Advances Old New b pre fam tgt where
+  direction : ∀ A, DirectionFree (New.machine A) d.fn
 
 end RwLog

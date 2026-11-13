@@ -135,12 +135,12 @@ def separates_exhaustion : Prop :=
 R001 halts (`Trusted/Properties.lean`). -/
 def keeps : Prop := runtime.Keeps R001.runtime
 
-/-- The numerals R002 is admitted with: simulation within `40 (c + n + 1)⁶`,
+/-- The numerals R002 advances with: simulation within `40 (c + n + 1)⁶`,
 the `k`-th input of size at most `11 (k + 1)`, covered within
 `312500 (k + 1)⁴` ticks. -/
 def bounds : Bounds := ⟨40, 6, 11, 1, 312500, 4⟩
 
-/-- The admission statement: R002 improves on R001 with these numerals, on
+/-- The improvement: R002 improves on R001 with these numerals, on
 `sepFam` and the pair `(z, z)`. -/
 def improves : Prop := Improves baseline costed bounds sepFam fun _ => sepTarget
 
@@ -150,11 +150,15 @@ what `engine` computes there. -/
 def baseline_engine : Prop := baselineEngine.costed = baseline
 def costed_engine : Prop := engine.costed = costed
 
-/-- The admission of the rung: the engine of R002 above the engine of R001,
+/-- The advance of the rung: the engine of R002 above the engine of R001,
 neither with any preprocessing, so preprocessing is recorded to cost
-nothing. -/
-def admits : Prop :=
-  Admits ⟨Preprocessor.id, baselineEngine⟩ ⟨Preprocessor.id, engine⟩ bounds (fun _ => 0) sepFam
+nothing.
+
+R002 is not admitted (`Admits`, `Trusted/Cost.lean`), because its cost depends on
+the direction a query is written in: its walk carries everything to the left of a factor and looks only one span ahead to its right.
+R005 is the first rung that is. -/
+def advances : Prop :=
+  Advances ⟨Preprocessor.id, baselineEngine⟩ ⟨Preprocessor.id, engine⟩ bounds (fun _ => 0) sepFam
     fun _ => sepTarget
 
 end Obligation
