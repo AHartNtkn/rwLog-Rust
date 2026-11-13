@@ -20,6 +20,12 @@ itself renamed, so a canonical form gives both the same value `L -> R`, and
 exchanging sides would force `L = R`. A domain therefore keeps an orientation
 with the canonical span, and the converse changes the orientation.
 
+A domain is for one list of sorts, and so is its type of representatives:
+which values are canonical depends on the sorts declared (two sorts with the
+same members give one representative), so an engine is given a type of
+representatives and a domain for the sorts of each program
+(`Engine.costedAt`, `Trusted/Cost.lean`).
+
 ## Operations
 
 * `rep s`: the representative of a span as it is written, with its store in

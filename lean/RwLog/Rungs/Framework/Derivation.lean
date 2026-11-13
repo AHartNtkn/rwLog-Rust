@@ -43,36 +43,40 @@ theorem mem_emitted_succ (R : Runtime) {s : R.State} {n : Nat} {a : R.Ans}
 
 namespace Engine
 
-variable (E : Engine) {R : Type} [Answer R] [DecidableEq R] (dom : Sorts → Domain R)
-  (K : Sorts → Kernel R Cost) (hK : ∀ S, (K S).Refines (dom S))
+variable (E : Engine) {R : Sorts → Type} [∀ S, Answer (R S)] [∀ S, DecidableEq (R S)]
+  (dom : ∀ S, Domain (R S)) (K : ∀ S, Kernel (R S) Cost) (hK : ∀ S, (K S).Refines (dom S))
 
 /-- What a step of the machine does, read off the engine's step. -/
 theorem costedAt_step_val (s : E.StateAt dom) :
     ((E.costedAt dom K hK).step s).val =
-      match (@Engine.step E R Rel (Ans (dom s.P.sorts) s.P) Cost
+      match (@Engine.step E (R s.P.sorts) Rel (Ans (dom s.P.sorts) s.P) Cost
         (DerivationKernel.over (dom s.P.sorts) (K s.P.sorts) (hK s.P.sorts) s.P) s.st).val with
-      | .emit as st' => .emit (as.filterMap (Ans.rootSpan (R := R) s.root)) ⟨s.P, s.root, st'⟩
+      | .emit as st' =>
+        .emit ((as.filterMap (Ans.rootSpan s.root)).map (Sigma.mk s.P.sorts)) ⟨s.P, s.root, st'⟩
       | .progress k st' => .progress k ⟨s.P, s.root, st'⟩
-      | .done final => .done (final.filterMap (Ans.rootSpan (R := R) s.root)) :=
-  bind_val_of (@Engine.step E R Rel (Ans (dom s.P.sorts) s.P) Cost
+      | .done final => .done ((final.filterMap (Ans.rootSpan s.root)).map (Sigma.mk s.P.sorts)) :=
+  bind_val_of (@Engine.step E (R s.P.sorts) Rel (Ans (dom s.P.sorts) s.P) Cost
         (DerivationKernel.over (dom s.P.sorts) (K s.P.sorts) (hK s.P.sorts) s.P) s.st)
     (E.report dom s.P s.root)
     (fun r => match r with
-      | .emit as st' => .emit (as.filterMap (Ans.rootSpan (R := R) s.root)) ⟨s.P, s.root, st'⟩
+      | .emit as st' =>
+        .emit ((as.filterMap (Ans.rootSpan s.root)).map (Sigma.mk s.P.sorts)) ⟨s.P, s.root, st'⟩
       | .progress k st' => .progress k ⟨s.P, s.root, st'⟩
-      | .done final => .done (final.filterMap (Ans.rootSpan (R := R) s.root)))
+      | .done final => .done ((final.filterMap (Ans.rootSpan s.root)).map (Sigma.mk s.P.sorts)))
     fun r => by cases r <;> rfl
 
-/-- Every span the machine emits is a valid answer of the root goal of the
-state it was started in. -/
+/-- Every answer the machine emits is a representative for the sorts of the
+program, and a valid answer of the root goal of the state it was started
+in. -/
 theorem emitted_valid : ∀ (n : Nat) (s : E.StateAt dom),
-    ∀ a ∈ (E.costedAt dom K hK).runtime.emitted s n, Valid (dom s.P.sorts) s.P ⟨none, s.root, none⟩ a
+    ∀ a ∈ (E.costedAt dom K hK).runtime.emitted s n,
+      ∃ r : R s.P.sorts, a = ⟨s.P.sorts, r⟩ ∧ Valid (dom s.P.sorts) s.P ⟨none, s.root, none⟩ r
   | 0, _, a, h => by simp [Runtime.emitted, Runtime.run] at h
   | n + 1, s, a, h => by
     have hs : (E.costedAt dom K hK).runtime.step s = ((E.costedAt dom K hK).step s).val := rfl
     rcases mem_emitted_succ _ h with ⟨as, s', hstep, h⟩ | ⟨k, s', hstep, h⟩
     · rw [hs, costedAt_step_val] at hstep
-      cases hr : (@Engine.step E R Rel (Ans (dom s.P.sorts) s.P) Cost
+      cases hr : (@Engine.step E (R s.P.sorts) Rel (Ans (dom s.P.sorts) s.P) Cost
         (DerivationKernel.over (dom s.P.sorts) (K s.P.sorts) (hK s.P.sorts) s.P) s.st).val with
       | done _ => rw [hr] at hstep; cases hstep
       | progress _ _ => rw [hr] at hstep; cases hstep
@@ -80,7 +84,9 @@ theorem emitted_valid : ∀ (n : Nat) (s : E.StateAt dom),
         rw [hr] at hstep
         cases hstep
         rcases h with h | h
-        · obtain ⟨ans, -, hans⟩ := List.mem_filterMap.1 h
+        · obtain ⟨r, hr', rfl⟩ := List.mem_map.1 h
+          obtain ⟨ans, -, hans⟩ := List.mem_filterMap.1 hr'
+          refine ⟨r, rfl, ?_⟩
           unfold Ans.rootSpan at hans
           split at hans
           · next hg =>
@@ -89,7 +95,7 @@ theorem emitted_valid : ∀ (n : Nat) (s : E.StateAt dom),
           · cases hans
         · exact emitted_valid n ⟨s.P, s.root, st'⟩ a h
     · rw [hs, costedAt_step_val] at hstep
-      cases hr : (@Engine.step E R Rel (Ans (dom s.P.sorts) s.P) Cost
+      cases hr : (@Engine.step E (R s.P.sorts) Rel (Ans (dom s.P.sorts) s.P) Cost
         (DerivationKernel.over (dom s.P.sorts) (K s.P.sorts) (hK s.P.sorts) s.P) s.st).val with
       | done _ => rw [hr] at hstep; cases hstep
       | emit _ _ => rw [hr] at hstep; cases hstep
@@ -104,23 +110,26 @@ theorem start_P (P : Program) (q : Rel) : ((E.costedAt dom K hK).start P q).P = 
 
 theorem start_root (P : Program) (q : Rel) : ((E.costedAt dom K hK).start P q).root = q.norm := rfl
 
-theorem valid_of_emitted {P : Program} {q : Rel} {n : Nat} {a : R}
+theorem valid_of_emitted {P : Program} {q : Rel} {n : Nat} {a : (S : Sorts) × R S}
     (h : a ∈ (E.costedAt dom K hK).runtime.emitted ((E.costedAt dom K hK).runtime.init P q) n) :
-    Valid (dom P.sorts) P ⟨none, q.norm, none⟩ a :=
+    ∃ r : R P.sorts, a = ⟨P.sorts, r⟩ ∧ Valid (dom P.sorts) P ⟨none, q.norm, none⟩ r :=
   emitted_valid E dom K hK n _ a h
 
 /-- **Every engine is sound**, at every kernel that returns what a domain
 returns that is lawful at well-formed sorts. -/
 theorem sound (hD : ∀ S : Sorts, S.WellFormed → (dom S).Lawful S.interp) :
-    (E.costedAt dom K hK).runtime.Sound := fun P _ hwf _ _ ha =>
-  (valid_of_emitted E dom K hK ha).sound (hD P.sorts hwf.2.2.1)
+    (E.costedAt dom K hK).runtime.Sound := fun P _ hwf _ _ ha => by
+  obtain ⟨r, rfl, hv⟩ := valid_of_emitted E dom K hK ha
+  exact hv.sound (hD P.sorts hwf.2.2.1)
 
 /-- **No answer of an engine is less general than its derivation**, at every
 kernel that returns what a domain returns that is lawful at well-formed
 sorts. -/
 theorem derivationGeneral (hD : ∀ S : Sorts, S.WellFormed → (dom S).Lawful S.interp) :
     (E.costedAt dom K hK).runtime.DerivationGeneral :=
-  fun P _ hwf _ ⟨_, ha⟩ => (valid_of_emitted E dom K hK ha).general (hD P.sorts hwf.2.2.1)
+  fun P _ hwf _ ⟨_, ha⟩ => by
+    obtain ⟨r, rfl, hv⟩ := valid_of_emitted E dom K hK ha
+    exact hv.general (hD P.sorts hwf.2.2.1)
 
 end Engine
 
