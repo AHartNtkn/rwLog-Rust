@@ -5,8 +5,9 @@ A rung is a *preprocessor* followed by a *runtime*.
 
 * The preprocessor turns a program and a query into an ordinary program and
   query with the same meaning. It may read and extend a store of proven
-  artifacts that is shared across programs. It is a charged computation, and
-  its cost is recorded apart from the cost of running. Rung zero's
+  artifacts that is shared across programs. It is written against the kernel
+  (`Trusted/Kernel.lean`), so it is a charged computation, and its cost is
+  recorded apart from the cost of running. Rung zero's
   preprocessor is the identity and its store is empty.
 * The runtime is a deterministic small-step machine: each step emits a
   finite list of answer spans (possibly empty), or reports that it is done.
@@ -20,7 +21,7 @@ weaken them.
 -/
 import RwLog.SpanLayer.Derives
 import RwLog.Trusted.Semantics
-import RwLog.Trusted.CostMonad
+import RwLog.Trusted.Kernel
 
 namespace RwLog
 
@@ -105,15 +106,24 @@ computation, so what preprocessing costs is recorded; it is reported next to
 a rung's run-time claim and is not part of the run-time cost. Its output is
 well formed whenever its input is, so the runtime's theorems apply to it. -/
 structure Preprocessor where
-  run : ArtifactStore → Program → Rel → Cost (Program × Rel × ArtifactStore)
-  theory_eq : ∀ A P q, (run A P q).val.1.theory = P.theory
-  wf : ∀ A P q, P.WellFormed q → (run A P q).val.1.WellFormed (run A P q).val.2.1
-  equiv : ∀ A P q, P.WellFormed q →
-    MEquiv P.theory (fun M => (run A P q).val.1.semAt M (run A P q).val.2.1)
+  /-- The preprocessor, written against an arbitrary kernel
+  (`Trusted/Kernel.lean`), so that what it costs is not its own to declare. -/
+  gen : {S : Type} → {M : Type → Type} → [Kernel S M] →
+    ArtifactStore → ProgramOf S → RelOf S → M (ProgramOf S × RelOf S × ArtifactStore)
+  theory_eq : ∀ A (P : Program) (q : Rel), (gen (M := Cost) A P q).val.1.theory = P.theory
+  wf : ∀ A (P : Program) (q : Rel), P.WellFormed q →
+    (gen (M := Cost) A P q).val.1.WellFormed (gen (M := Cost) A P q).val.2.1
+  equiv : ∀ A (P : Program) (q : Rel), P.WellFormed q →
+    MEquiv P.theory
+      (fun M => (gen (M := Cost) A P q).val.1.semAt M (gen (M := Cost) A P q).val.2.1)
       (fun M => P.semAt M q)
 
+/-- The preprocessor at the kernel of the language. -/
+@[reducible] def Preprocessor.run (p : Preprocessor) (A : ArtifactStore) (P : Program) (q : Rel) :
+    Cost (Program × Rel × ArtifactStore) := p.gen A P q
+
 def Preprocessor.id : Preprocessor where
-  run A P q := pure (P, q, A)
+  gen A P q := pure (P, q, A)
   theory_eq _ _ _ := rfl
   wf _ _ _ h := h
   equiv _ _ _ _ _ _ := rfl

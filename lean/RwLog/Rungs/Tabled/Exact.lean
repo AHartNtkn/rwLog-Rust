@@ -173,6 +173,20 @@ theorem indexFrom_val (g : Goal) : ∀ (ts : Tables) (i : Nat),
 @[simp] theorem fresh_val (old cands : List Span) : (fresh old cands).val = RwLog.fresh old cands := by
   simp [fresh, RwLog.fresh, Charged.covers]
 
+/-! ## Pushed goals -/
+
+@[simp] theorem seqPushL_val (g : Goal) (b : Rel) (x : Span) :
+    (seqPushL g b x).val = R001.seqPushL g b x := rfl
+
+@[simp] theorem seqPushR_val (g : Goal) (a : Rel) (y : Span) :
+    (seqPushR g a y).val = R001.seqPushR g a y := rfl
+
+@[simp] theorem andPush_val (e : Rel) (x : Span) : (andPush e x).val = R001.andPush e x := rfl
+
+@[simp] theorem pushes_val (f : Span → Cost Goal) (xs : List Span) :
+    (pushes f xs).val = xs.map fun x => (x, (f x).val) := by
+  simp [pushes]
+
 /-! ## Candidates and strategies -/
 
 @[simp] theorem produceStrategies_val (P : Program) (ts : Tables) (g : Goal) :

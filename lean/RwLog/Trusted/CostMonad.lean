@@ -8,6 +8,7 @@ traversals. The charged primitives, and what the ticks are used for, are in
 computation too (`Trusted/Engine.lean`).
 -/
 import Mathlib.Data.List.Basic
+import Mathlib.Tactic.Common
 
 namespace RwLog
 
@@ -104,6 +105,40 @@ def findL {α : Type} (f : α → Cost Bool) : List α → Cost (Option α)
   | x :: xs => do
     let b ← f x
     if b then pure (some x) else findL f xs
+
+/-! ## Running two computations side by side
+
+`race x y` runs `x` and `y` under budgets that double until one of them
+finishes, and returns that one's result. It spends between once and 7 times
+what the cheaper of the two needs (`Rungs/Framework/Race.lean`). -/
+
+/-- `within`, keeping the fact that a computation that was given up on needed
+more than the budget. The value and the ticks are those of `within`. -/
+def withinP {α : Type} (b : Nat) (m : Cost α) :
+    Cost { o : Option α // o = none → b < m.ticks } :=
+  ⟨⟨(within b m).val, by
+    unfold within
+    split
+    · intro h; cases h
+    · intro _; omega⟩, (within b m).ticks⟩
+
+/-- Run `x` and `y` under the budget `b`, then `2 b + 1`, and so on, until one
+of them finishes. -/
+def raceFrom {α : Type} (x y : Cost α) (b : Nat) : Cost α := do
+  let r ← withinP b x
+  match r with
+  | ⟨some v, _⟩ => pure v
+  | ⟨none, h⟩ => do
+    have _ : b < x.ticks := h rfl
+    let r' ← within b y
+    match r' with
+    | some v => pure v
+    | none => raceFrom x y (2 * b + 1)
+termination_by x.ticks - b
+decreasing_by omega
+
+/-- Run `x` and `y` side by side until one of them finishes. -/
+def race {α : Type} (x y : Cost α) : Cost α := raceFrom x y 0
 
 end Cost
 

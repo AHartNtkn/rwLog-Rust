@@ -7,6 +7,8 @@ never restates it.
 ```
 Trusted/        the specification: syntax, semantics, Runtime, Rung, the Tier-0 properties,
                 the properties every rung keeps (Properties.lean), the cost monad (CostMonad.lean),
+                the charged primitives (Charged.lean), the kernel an engine is written
+                against (Kernel.lean),
                 and the cost model (Cost.lean) by which rungs from R002 on are judged:
                 cost is coverage latency, the ticks until an emitted answer covers a
                 ground pair, and never depends on a query halting
@@ -15,7 +17,8 @@ Kernel/         the executable kernel (match, solve, span, refute) and its proof
 SpanLayer/      span-level semantics, derivations, coverage vocabulary
 Lib/            facts about lists and greatest fixpoints that mention no rwlog type
 Rungs/Framework generic theorems about any Runtime / Rung
-Rungs/Tabled/   the tabled round machine in the cost monad, open in its unfolding oracle
+Rungs/Tabled/   the tabled round machine, open in its unfolding oracle: written against the
+                kernel (Gen.lean) and read in the cost monad (Machine.lean)
 Rungs/R00N/     one rung: Engine, (Spec), proofs
 Conformance/    behaviours pinned against the Rust implementation
 AxiomAudit.lean every headline and shared theorem, checked to use only the three standard axioms
@@ -118,6 +121,25 @@ race races it against the previous rung's unfolder, as R004 does: simulation
 within 7 times is then `Tabled.spent_le_of_skips`, and a lower bound on the
 previous rung's first round is `le_race_ticks` on its two halves.
 
+An engine cannot declare its own cost. `Trusted/Kernel.lean` is the class
+`Kernel S M`: an abstract type of spans, an abstract monad, and the operations
+on spans, each returning in the monad. An `Engine` (`Trusted/Cost.lean`) is a
+machine written for every kernel, so it can only touch a span through those
+operations and can only spend what they charge; `Engine.costed` is the engine
+at `Kernel.std`, the kernel of the language, where each operation is the
+charged primitive of `Trusted/Charged.lean`. `Admits` is stated on engines.
+
+Each machine is therefore written twice, in the same words. `Gen.lean`
+(`Rungs/Tabled/`, `Rungs/R002/` to `R004/`) is the engine, against the kernel.
+`Machine.lean`, `Unfold.lean`, `Shared.lean` and `Pruned.lean` are the same
+text in `Cost` with the charged primitives written out, and all proofs are
+carried out on them. `Reading.lean` next to each proves the two equal,
+definition by definition (`Tabled.engine_costed`, `R00N.engine_std`), by
+unfolding both and rewriting with the equalities already proved; the tactic
+`same_text` (`Rungs/Framework/TraverseStd.lean`) closes what is left. A new
+rung writes its oracle in both forms, proves them equal the same way, and
+states `costed_engine` and `admits` on its engine.
+
 A rung whose machine is equal to an earlier one as a `Runtime` (R002 against
 R001) uses `SameRun.of_eq`, or simply rewrites.
 
@@ -142,14 +164,17 @@ covers the derived span) does not survive preprocessing in general, only
 5. The shared layers never import a rung: `Kernel/`, `SpanLayer/`, `Lib/` and
    `Rungs/Framework/` import nothing under `Rungs/R00N/`. A generic definition
    a rung needs goes in the shared layer, with its lemmas.
-6. A rung from R002 on is admitted by three statements in its `Spec.lean`,
+6. A rung from R002 on is admitted by four statements in its `Spec.lean`,
    and by nothing weaker:
    * `keeps : runtime.Keeps R001.runtime` (`Trusted/Properties.lean`): every
      property of the proper baseline, stated for any runtime, and termination
      wherever R001 terminates. Properties about one machine's internals
      (prompt pruning, table invariants) are not in that list; a rung whose
      machine is not R001's restates and proves them for its own state.
-   * `admits : Admits Old New bounds pre fam tgt` (`Trusted/Cost.lean`): the
+   * `costed_engine : engine.costed = costed`: the machine the proofs are about
+     is the rung's engine at the kernel of the language.
+   * `admits : Admits Old New bounds pre fam tgt` (`Trusted/Cost.lean`), on
+     the engines: the
      rung as a whole (machine run on the preprocessed input) simulates its
      predecessor within `bounds.sim`, on a family of size at most
      `bounds.size k` it covers the targets within `bounds.hi k` while the
@@ -157,7 +182,7 @@ covers the derived span) does not survive preprocessing in general, only
      `bounds` is six numerals written in the Spec. Prove `Simulates` and
      `Separates` with whatever bounds are natural and bring them to this form
      with `Simulates.mono` and `Separates.mono`; `Admits.of_id` covers a rung
-     without preprocessing.
+     without preprocessing, after rewriting both engines to their readings.
    * Building the first state (`CostedRuntime.init`) and preprocessing
      (`Preprocessor.run`) are charged computations. A coverage test and a
      simplification are charged for their search (`Charged.coversWork`,

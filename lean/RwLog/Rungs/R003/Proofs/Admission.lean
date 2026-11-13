@@ -8,6 +8,7 @@ and a degree for each polynomial.
 import RwLog.Rungs.R003.Proofs.Same
 import RwLog.Rungs.R003.Proofs.Separation.Run
 import RwLog.Rungs.R001.Proofs.Keeps
+import RwLog.Rungs.R003.Reading
 
 namespace RwLog
 
@@ -33,7 +34,10 @@ theorem keeps : Obligation.keeps := by
   rw [h]
   exact R001.keeps
 
-theorem admits : Obligation.admits := Admits.of_id improves
+theorem costed_engine : Obligation.costed_engine := engine_std
+
+theorem admits : Obligation.admits :=
+  Admits.of_id (by rw [R002.engine_std, engine_std]; exact improves)
 
 end R003
 

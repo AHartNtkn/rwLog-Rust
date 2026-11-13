@@ -92,7 +92,7 @@ def sameRun3 (P : Program) (q : Rel) (fuel : Nat) : Bool :=
 -- Where the walk is already cheap the race costs more than the walk alone,
 -- within the factor of 7.
 #guard costOf R003.costed pathP (.call "path") 40 == (7, true, 10254)
-#guard costOf R003.costed halveP (.seq (.at_ (num 3)) (.call "halve")) 12 == (6, true, 59438)
+#guard costOf R003.costed halveP (.seq (.at_ (num 3)) (.call "halve")) 12 == (6, true, 59578)
 
 /-! ## Costs -/
 

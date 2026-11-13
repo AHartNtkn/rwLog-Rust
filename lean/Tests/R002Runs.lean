@@ -122,8 +122,8 @@ def raceGoals : List (Program × R001.Goal) := [
 
 -- Two recursive calls driven by an input: `@3 ; halve`.
 #guard runR002 halveP (.seq (.at_ (num 3)) (.call "halve")) 12 == (["(s (s (s z))) -> z"], true)
-#guard costOf R002.costed halveP (.seq (.at_ (num 3)) (.call "halve")) 12 == (6, true, 28470)
-#guard costOf R002.baseline halveP (.seq (.at_ (num 3)) (.call "halve")) 5 == (5, false, 437129)
+#guard costOf R002.costed halveP (.seq (.at_ (num 3)) (.call "halve")) 12 == (6, true, 28610)
+#guard costOf R002.baseline halveP (.seq (.at_ (num 3)) (.call "halve")) 5 == (5, false, 437199)
 
 -- The separating family: both machines halt after `k + 4` rounds; R002 within
 -- the bound of `separates`, R001 having paid at least `2 ^ k`.
