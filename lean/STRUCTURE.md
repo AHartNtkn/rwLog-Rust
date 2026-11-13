@@ -30,6 +30,10 @@ AxiomAudit.lean every headline and shared theorem, checked to use only the three
 Tests/          executable runs per rung
 ```
 
+`SYMMETRIC_ENGINE.md` is the design note for the engine of milestone M6: what it
+is, what was measured, and what the trusted files and the kernel must provide
+for it. `Tests/MiddleRuns.lean` holds its measurements on R004 and R005.
+
 ## What is shared, and where to look first
 
 | You need | It is in | Entry points |
