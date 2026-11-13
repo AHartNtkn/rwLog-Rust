@@ -23,15 +23,19 @@ theorem bind_val_of {α β : Type} (m : Cost α) (f : α → Cost β) (g : α �
 
 /-- An answer emitted within `n + 1` steps is emitted by the first step or
 within `n` steps of the state after it. -/
-theorem mem_emitted_succ (R : Runtime) {s : R.State} {n : Nat} {a : Span}
+theorem mem_emitted_succ (R : Runtime) {s : R.State} {n : Nat} {a : R.Ans}
     (h : a ∈ R.emitted s (n + 1)) :
-    ∃ as s', R.step s = .emit as s' ∧ (a ∈ as ∨ a ∈ R.emitted s' n) := by
+    (∃ as s', R.step s = .emit as s' ∧ (a ∈ as ∨ a ∈ R.emitted s' n)) ∨
+      ∃ k s', R.step s = .progress k s' ∧ a ∈ R.emitted s' n := by
   unfold Runtime.emitted Runtime.run at h
   cases hs : R.step s with
   | emit as s' =>
     rw [hs] at h
-    exact ⟨as, s', rfl, List.mem_append.1 h⟩
-  | done => rw [hs] at h; simp at h
+    exact .inl ⟨as, s', rfl, List.mem_append.1 h⟩
+  | progress k s' =>
+    rw [hs] at h
+    exact .inr ⟨k, s', rfl, h⟩
+  | done _ => rw [hs] at h; simp at h
 
 namespace Engine
 
@@ -42,12 +46,14 @@ theorem costedAt_step_val (s : E.StateAt) :
     ((E.costedAt K hK).step s).val =
       match (@Engine.step E Span Rel (Ans s.P) Cost (DerivationKernel.over K hK s.P) s.st).val with
       | .emit as st' => .emit (as.filterMap (Ans.rootSpan s.root)) ⟨s.P, s.root, st'⟩
-      | .done => .done :=
+      | .progress k st' => .progress k ⟨s.P, s.root, st'⟩
+      | .done final => .done (final.filterMap (Ans.rootSpan s.root)) :=
   bind_val_of (@Engine.step E Span Rel (Ans s.P) Cost (DerivationKernel.over K hK s.P) s.st)
     (E.report s.P s.root)
     (fun r => match r with
       | .emit as st' => .emit (as.filterMap (Ans.rootSpan s.root)) ⟨s.P, s.root, st'⟩
-      | .done => .done)
+      | .progress k st' => .progress k ⟨s.P, s.root, st'⟩
+      | .done final => .done (final.filterMap (Ans.rootSpan s.root)))
     fun r => by cases r <;> rfl
 
 /-- Every span the machine emits is a valid answer of the root goal of the
@@ -56,23 +62,32 @@ theorem emitted_valid : ∀ (n : Nat) (s : E.StateAt),
     ∀ a ∈ (E.costedAt K hK).runtime.emitted s n, Valid s.P ⟨none, s.root, none⟩ a
   | 0, _, a, h => by simp [Runtime.emitted, Runtime.run] at h
   | n + 1, s, a, h => by
-    obtain ⟨as, s', hstep, h⟩ := mem_emitted_succ _ h
     have hs : (E.costedAt K hK).runtime.step s = ((E.costedAt K hK).step s).val := rfl
-    rw [hs, costedAt_step_val] at hstep
-    cases hr : (@Engine.step E Span Rel (Ans s.P) Cost (DerivationKernel.over K hK s.P) s.st).val with
-    | done => rw [hr] at hstep; cases hstep
-    | emit bs st' =>
-      rw [hr] at hstep
-      cases hstep
-      rcases h with h | h
-      · obtain ⟨ans, -, hans⟩ := List.mem_filterMap.1 h
-        unfold Ans.rootSpan at hans
-        split at hans
-        · next hg =>
-          cases hans
-          exact hg ▸ ans.valid
-        · cases hans
-      · exact emitted_valid n ⟨s.P, s.root, st'⟩ a h
+    rcases mem_emitted_succ _ h with ⟨as, s', hstep, h⟩ | ⟨k, s', hstep, h⟩
+    · rw [hs, costedAt_step_val] at hstep
+      cases hr : (@Engine.step E Span Rel (Ans s.P) Cost (DerivationKernel.over K hK s.P) s.st).val with
+      | done _ => rw [hr] at hstep; cases hstep
+      | progress _ _ => rw [hr] at hstep; cases hstep
+      | emit bs st' =>
+        rw [hr] at hstep
+        cases hstep
+        rcases h with h | h
+        · obtain ⟨ans, -, hans⟩ := List.mem_filterMap.1 h
+          unfold Ans.rootSpan at hans
+          split at hans
+          · next hg =>
+            cases hans
+            exact hg ▸ ans.valid
+          · cases hans
+        · exact emitted_valid n ⟨s.P, s.root, st'⟩ a h
+    · rw [hs, costedAt_step_val] at hstep
+      cases hr : (@Engine.step E Span Rel (Ans s.P) Cost (DerivationKernel.over K hK s.P) s.st).val with
+      | done _ => rw [hr] at hstep; cases hstep
+      | emit _ _ => rw [hr] at hstep; cases hstep
+      | progress _ st' =>
+        rw [hr] at hstep
+        cases hstep
+        exact emitted_valid n ⟨s.P, s.root, st'⟩ a h
 
 /-- The first state is for the program it was given and the normal form of
 the query. -/

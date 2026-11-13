@@ -49,12 +49,12 @@ theorem coversWithin_of_halts (hC : C.runtime.HonestExhaustion) {P : Program} {q
 /-- A machine that has emitted nothing in its first `N` steps has paid for
 `N + 1` steps at any step at which it has covered a pair. -/
 theorem le_spent_of_covered {s : C.State} {N lo : Nat} (hq : C.runtime.emitted s N = [])
-    (hlo : lo ≤ C.spent s (N + 1)) {n : Nat} {a : Span} (ha : a ∈ C.runtime.emitted s n) :
+    (hlo : lo ≤ C.spent s (N + 1)) {n : Nat} {a : C.Ans} (ha : a ∈ C.runtime.emitted s n) :
     lo ≤ C.spent s n := by
   by_cases h : n ≤ N
   · have := C.runtime.emitted_subset s h ha
     rw [hq] at this
-    simp at this
+    exact absurd this List.not_mem_nil
   · exact le_trans hlo (C.spent_mono s (by omega))
 
 end CostedRuntime
@@ -66,7 +66,7 @@ theorem Simulates.of_steps {Old New : CostedRuntime} {p : Nat → Nat → Nat}
     (h : ∀ P q, P.WellFormed q → ∀ n, ∃ m,
       New.paid P q m ≤ p (Old.paid P q n) (P.size + q.size) ∧
       (∀ a ∈ Old.runtime.emitted (Old.start P q) n,
-        ∃ b ∈ New.runtime.emitted (New.start P q) m, b.CoversLive P.theory a) ∧
+        ∃ b ∈ New.runtime.emitted (New.start P q) m, Answer.CoversLive P.theory b a) ∧
       (Old.runtime.Halts (Old.start P q) n → New.runtime.Halts (New.start P q) m)) :
     Simulates Old New p := by
   intro P q hwf n
