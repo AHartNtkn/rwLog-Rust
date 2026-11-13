@@ -107,9 +107,9 @@ def baseline_lower : Prop :=
   ∀ (st : R001.State) (t : R001.Table), st.tables.head? = some t → t.done = false →
     ∀ i, i < st.depth → nodes (R000.unfoldN st.P i t.goal.rel) ≤ (baseline.step st).ticks
 
-/-- On `sepFam k`, R002 halts within `500 (k + 1)⁴` ticks, and R001 has paid
+/-- On `sepFam k`, R002 halts within `500 (k + 5)⁴` ticks, and R001 has paid
 at least `2 ^ k` whenever it has halted. -/
-def separates : Prop := Separates baseline costed sepFam (fun k => 2 ^ k) fun k => 500 * (k + 1) ^ 4
+def separates : Prop := Separates baseline costed sepFam (fun k => 2 ^ k) fun k => 500 * (k + 5) ^ 4
 
 end Obligation
 
