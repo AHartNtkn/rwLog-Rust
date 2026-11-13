@@ -8,7 +8,8 @@ never restates it.
 Trusted/        the specification: syntax, semantics, Runtime, Rung, the Tier-0 properties,
                 the properties every rung keeps (Properties.lean), the cost monad (CostMonad.lean),
                 the charged primitives (Charged.lean), the kernel an engine is written
-                against (Kernel.lean),
+                against (Kernel.lean), what another kernel must prove to stand in for
+                it (KernelRung.lean),
                 and the cost model (Cost.lean) by which rungs from R002 on are judged:
                 cost is coverage latency, the ticks until an emitted answer covers a
                 ground pair, and never depends on a query halting
@@ -206,6 +207,15 @@ operations and can only spend what they charge; `Engine.costed` is the engine
 at `Kernel.std`, the kernel of the language, where each operation is the
 charged primitive of `Trusted/Charged.lean`. `Advances` and `Admits` are
 stated on engines.
+
+`Kernel.std` is the specification kernel: its values are the specification
+and its charges are postulated. A kernel rung (`Trusted/KernelRung.lean`) is
+another `Kernel Span Cost` that returns the same values (`Kernel.Refines`)
+and whose charges are theorems about a machine; `Engine.costedAt` is an
+engine at such a kernel. The first one is `rustKernel`
+(`verified/lean/RwLogVerified/Kernel.lean`): the charge of each operation on
+terms is the tick bound proved of the Rust function on the store of
+`verified/rust/src/store.rs`. See `verified/README.md`.
 
 Each machine is therefore written twice, in the same words. `Gen.lean`
 (`Rungs/Tabled/`, `Rungs/Mirror/`, `Rungs/R002/` to `R004/`) is the engine,

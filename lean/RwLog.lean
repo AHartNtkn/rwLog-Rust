@@ -5,6 +5,8 @@ import RwLog.SpanLayer.Triples
 import RwLog.SpanLayer.Bridge
 import RwLog.SpanLayer.Coverage
 import RwLog.Kernel.Solve
+import RwLog.Kernel.SolveFacts
+import RwLog.Kernel.Subterms
 import RwLog.Kernel.Span
 import RwLog.SpanLayer.Derives
 import RwLog.SpanLayer.Algebra
@@ -70,6 +72,7 @@ import RwLog.Kernel.Canon
 import RwLog.Trusted.Charged
 import RwLog.Trusted.Kernel
 import RwLog.Trusted.Cost
+import RwLog.Trusted.KernelRung
 import RwLog.Trusted.CostMonad
 import RwLog.Trusted.Properties
 import RwLog.Kernel.Chain
