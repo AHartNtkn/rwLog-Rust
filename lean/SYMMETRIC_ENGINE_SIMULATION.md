@@ -341,7 +341,7 @@ Open, in order of risk:
 
 1. **G2.** A proof, or a family with nested goals whose splits read different goals at every level.
 2. **Lemma U**, and with it `TerminatesWhere`.
-3. **The fairness bound in ticks** on a table that grows exponentially with no boundary (strings). Either `Fair` stays in steps, or a rule is found that has both tick bounds.
+3. **The fairness bound in ticks** on a table that grows exponentially with no boundary (strings). Either `Fair` stays in steps, or a rule is found that has both tick bounds. *Decided by Anthony on 2026-11-13: fairness is stated in requests. A step of `Fair` is a request to the root, and a request may cost any number of ticks. The split balance is adopted as it stands; the tick form on strings is no longer required of it.*
 4. **The cost of the split balance on the middle family** is about the sixth power; the share rule had the fourth. Whether a finer unit of work or weights (roadmap L32) lowers it is not tried.
 5. **Bookkeeping.** The prototype does not charge for finding the lowest groups or for a round that reaches a goal and does nothing. An engine pays for both; the charge has to be bounded by the work done.
 
