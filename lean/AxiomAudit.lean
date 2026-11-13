@@ -150,6 +150,33 @@ new axiom.
 /-- info: 'RwLog.CostedRuntime.coversWithin_of_halts' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.CostedRuntime.coversWithin_of_halts
 
+/-- info: 'RwLog.CostedRuntime.coversUsing_time' does not depend on any axioms -/
+#guard_msgs in #print axioms RwLog.CostedRuntime.coversUsing_time
+
+/-- info: 'RwLog.denoteAt_ofPairs' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.denoteAt_ofPairs
+
+/-- info: 'RwLog.Ctx.denAt_fill' depends on axioms: [propext] -/
+#guard_msgs in #print axioms RwLog.Ctx.denAt_fill
+
+/-- info: 'RwLog.Ctx.denAt_union' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Ctx.denAt_union
+
+/-- info: 'RwLog.Context.demands_alone' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Context.demands_alone
+
+/-- info: 'RwLog.Context.demands_orL' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Context.demands_orL
+
+/-- info: 'RwLog.Context.Demands.related' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Context.Demands.related
+
+/-- info: 'RwLog.Context.Demands.related_ofPairs' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Context.Demands.related_ofPairs
+
+/-- info: 'RwLog.ProgClass.points_proper' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.ProgClass.points_proper
+
 /-- info: 'RwLog.CostedRuntime.le_spent_of_covered' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.CostedRuntime.le_spent_of_covered
 

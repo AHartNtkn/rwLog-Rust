@@ -155,6 +155,15 @@ rung unchanged.
   the ticks of each traversal from a bound on each member
   (`anyL_ticks_le_mul`, ...).
 
+* `Admission.lean`: what the classes and contexts of the admission rule
+  (`Trusted/Cost.lean`, reasons in `ADMISSION.md`) mean, and an inhabitant of
+  each. `Ctx.denAt_fill` (the meaning of a context applied to the meaning of
+  an expression is the meaning of the plugged expression), `Ctx.denAt_union`,
+  `denoteAt_ofPairs`, `Context.demands_alone` (the member alone demands
+  exactly its targets), `demands_orL`, `Demands.related_ofPairs` (the residue
+  is the cost of a pair its query relates), `Ctx.open_wrap`, and the proper
+  class `ProgClass.points`.
+
 * `Latency.lean`: how the improvement statements of `Trusted/Cost.lean`, which
   measure the ticks until an answer covers a ground pair, are established.
   `Simulates.of_steps` (the new machine covers each answer of the old one,
