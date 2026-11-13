@@ -47,7 +47,7 @@ def goal (k : Nat) : Slot → Goal
 theorem goal_same (k : Nat) (a b : Slot) : (goal k a).same (goal k b) = decide (a = b) := by
   have hw := chainName_ne_w
   have hw' : ∀ i, "w" ≠ chainName i := fun i h => hw i h.symm
-  cases a <;> cases b <;> simp [goal, Goal.same, boundEq, hw, hw']
+  cases a <;> cases b <;> simp [goal, GoalOf.same, boundEq, hw, hw']
   exact ⟨chainName_inj, fun h => h ▸ rfl⟩
 
 theorem norm_goal (k : Nat) (s : Slot) : (goal k s).norm = (false, goal k s) := by

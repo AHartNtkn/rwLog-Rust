@@ -46,7 +46,7 @@ theorem cert_of_unfoldFinal {P : Program} (hwf : ∀ ρ ∈ P.theory, ρ.WellFor
     Cert.Valid P [⟨root.norm.2, unfoldAnswers P k root.norm.2, 0⟩] k root := by
   have hL := simpLaws_of_wf hwf
   have hg := goodG_norm hroot
-  refine ⟨⟨_, List.mem_singleton_self _, Goal.same_refl _⟩, fun e he => ?_⟩
+  refine ⟨⟨_, List.mem_singleton_self _, GoalOf.same_refl _⟩, fun e he => ?_⟩
   cases List.mem_singleton.1 he
   refine ⟨CertOfHalt.interfaced_of_goodG hg, fun f hf' => GDerives.unfold hf', fun x hx => ?_,
     .inl hf⟩

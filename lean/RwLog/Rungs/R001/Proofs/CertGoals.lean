@@ -182,20 +182,20 @@ theorem hasCert_of_deps {g : Goal} (hg : GoodG g) {deps : List Goal}
   obtain ⟨C', D, hpre, hl⟩ := pre_goals hL deps hall
   obtain ⟨F, ρ, hfin⟩ := pre_add hL hpre (goodG_norm hg) (hdeps _) hl
   exact ⟨_, D, valid_of_pre hL hfin
-    ⟨⟨g.norm.2, F, ρ⟩, List.mem_append_right _ (List.mem_singleton_self _), Goal.same_refl _⟩⟩
+    ⟨⟨g.norm.2, F, ρ⟩, List.mem_append_right _ (List.mem_singleton_self _), GoalOf.same_refl _⟩⟩
 
 theorem hasCert_span {lb rb : Option Span} {s : Span} (hg : GoodG ⟨lb, .span s, rb⟩) :
     HasCert P ⟨lb, .span s, rb⟩ := by
   refine hasCert_of_deps hL hg (deps := []) (fun ts => ?_) (fun _ h => absurd h List.not_mem_nil)
   rw [show (⟨lb, .span s, rb⟩ : Goal).norm.2 = ⟨lb, .span s, rb⟩ by
-    simp only [Goal.norm, canon]; rw [strip_nc _ (by simp)]]
+    simp only [GoalOf.norm, canon]; rw [strip_nc _ (by simp)]]
   simp [strategies.tableStrategies]
 
 theorem hasCert_call {lb rb : Option Span} {n : Name} (hg : GoodG ⟨lb, .call n, rb⟩)
     (h : HasCert P ⟨lb, P.body n, rb⟩) : HasCert P ⟨lb, .call n, rb⟩ := by
   refine hasCert_of_deps hL hg (deps := [⟨lb, P.body n, rb⟩]) (fun ts => ?_) (fun d hd => ?_)
   · rw [show (⟨lb, .call n, rb⟩ : Goal).norm.2 = ⟨lb, .call n, rb⟩ by
-      simp only [Goal.norm, canon]; rw [strip_nc _ (by simp)]]
+      simp only [GoalOf.norm, canon]; rw [strip_nc _ (by simp)]]
     simp [strategies.tableStrategies, callGoal]
   · cases List.mem_singleton.1 hd; exact h
 
@@ -227,7 +227,7 @@ theorem hasCert_or {lb rb : Option Span} {a b : Rel} (hg : GoodG ⟨lb, .or a b,
     notOr_sorted fun x hx => (List.mem_append.1 hx).elim notOr_of_mem_orBranches
       notOr_of_mem_orBranches
   have hnorm : (⟨lb, .or a b, rb⟩ : Goal).norm =
-      Goal.stripConv ⟨lb, mkOr (sortedBranches (orBranches (canon a) ++ orBranches (canon b))), rb⟩ :=
+      GoalOf.stripConv ⟨lb, mkOr (sortedBranches (orBranches (canon a) ++ orBranches (canon b))), rb⟩ :=
     rfl
   generalize hbs : sortedBranches (orBranches (canon a) ++ orBranches (canon b)) = bs at *
   match bs, hbs with

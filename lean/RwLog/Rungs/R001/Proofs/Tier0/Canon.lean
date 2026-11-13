@@ -1,7 +1,7 @@
 /-
 # Tier 0 proofs, part 3: table keys
 
-A goal's table is keyed by `Goal.norm`: its expression is put in canonical
+A goal's table is keyed by `GoalOf.norm`: its expression is put in canonical
 form (`|` nests flattened, sorted, deduplicated, `0` dropped) and its
 converses are stripped. Derivations survive both exactly. To measure them,
 `DW w e s` is a derivation of weight `w` in which `|` steps are free: the
@@ -148,19 +148,19 @@ theorem derives_canon {e : Rel} {s : Span} : Derives P (canon e) s ↔ Derives P
 /-! ## Stripping converses -/
 
 theorem strip_conv (lb rb : Option Span) (a : Rel) :
-    Goal.stripConv ⟨lb, .conv a, rb⟩ =
-      (!(Goal.stripConv ⟨rb.map Span.swap, a, lb.map Span.swap⟩).1,
-        (Goal.stripConv ⟨rb.map Span.swap, a, lb.map Span.swap⟩).2) := by
-  rw [Goal.stripConv]
+    GoalOf.stripConv ⟨lb, .conv a, rb⟩ =
+      (!(GoalOf.stripConv ⟨rb.map Span.swap, a, lb.map Span.swap⟩).1,
+        (GoalOf.stripConv ⟨rb.map Span.swap, a, lb.map Span.swap⟩).2) := by
+  rw [GoalOf.stripConv]
 
 theorem strip_nc (g : Goal) (h : ∀ a, g.e ≠ .conv a) : g.stripConv = (false, g) := by
   obtain ⟨lb, e, rb⟩ := g
-  cases e <;> first | (exfalso; exact h _ rfl) | (rw [Goal.stripConv]; intro _ _ _ h; simp at h)
+  cases e <;> first | (exfalso; exact h _ rfl) | (rw [GoalOf.stripConv]; intro _ _ _ h; simp at h)
 
 variable {T : Theory}
 
 theorem goodG_strip : ∀ (e : Rel) (lb rb : Option Span), GoodG ⟨lb, e, rb⟩ →
-    GoodG (Goal.stripConv ⟨lb, e, rb⟩).2
+    GoodG (GoalOf.stripConv ⟨lb, e, rb⟩).2
   | .conv a, lb, rb, h => by
     rw [strip_conv]
     exact goodG_strip a _ _ ⟨goodBO_map_swap h.2, goodBO_map_swap h.1⟩
@@ -178,10 +178,10 @@ theorem gden_e (g : Goal) (e : Rel) (R : GRel) : GDen ⟨g.lb, e, g.rb⟩ R = GD
 
 /-- Reading a derivation of a stripped goal back through its converses. -/
 theorem strip_back : ∀ (e : Rel) (lb rb : Option Span) (s : Span),
-    Derives P (Goal.stripConv ⟨lb, e, rb⟩).2.e s →
-    Derives P e (oS (Goal.stripConv ⟨lb, e, rb⟩).1 s) ∧
-    GDen ⟨lb, e, rb⟩ (oS (Goal.stripConv ⟨lb, e, rb⟩).1 s).den =
-      oR (Goal.stripConv ⟨lb, e, rb⟩).1 (GDen (Goal.stripConv ⟨lb, e, rb⟩).2 s.den)
+    Derives P (GoalOf.stripConv ⟨lb, e, rb⟩).2.e s →
+    Derives P e (oS (GoalOf.stripConv ⟨lb, e, rb⟩).1 s) ∧
+    GDen ⟨lb, e, rb⟩ (oS (GoalOf.stripConv ⟨lb, e, rb⟩).1 s).den =
+      oR (GoalOf.stripConv ⟨lb, e, rb⟩).1 (GDen (GoalOf.stripConv ⟨lb, e, rb⟩).2 s.den)
   | .conv a, lb, rb, s, h => by
     rw [strip_conv] at h ⊢
     obtain ⟨h1, h2⟩ := strip_back a _ _ s h
@@ -206,9 +206,9 @@ theorem norm_back (g : Goal) {s : Span} (h : Derives P g.norm.2.e s) :
 /-- Moving a weighted derivation onto a stripped goal: the weight does not
 grow, and it drops when a converse is stripped. -/
 theorem strip_fwd : ∀ (e : Rel) (lb rb : Option Span) {w : Nat} {s : Span}, DW P w e s →
-    ∃ w' s', DW P w' (Goal.stripConv ⟨lb, e, rb⟩).2.e s' ∧ w' ≤ w ∧
+    ∃ w' s', DW P w' (GoalOf.stripConv ⟨lb, e, rb⟩).2.e s' ∧ w' ≤ w ∧
       ((∃ a, e = .conv a) → w' < w) ∧
-      GDen ⟨lb, e, rb⟩ s.den = oR (Goal.stripConv ⟨lb, e, rb⟩).1 (GDen (Goal.stripConv ⟨lb, e, rb⟩).2 s'.den)
+      GDen ⟨lb, e, rb⟩ s.den = oR (GoalOf.stripConv ⟨lb, e, rb⟩).1 (GDen (GoalOf.stripConv ⟨lb, e, rb⟩).2 s'.den)
   | .conv a, lb, rb, w, s, h => by
     rw [strip_conv]
     cases h with
@@ -244,11 +244,11 @@ theorem norm_fwd (g : Goal) {w : Nat} {s : Span} (h : DW P w g.e s) :
   cases e with
   | conv a => exact .inl (h3 ⟨canon a, by rw [canon]⟩)
   | or a b => exact absurd rfl (hn a b)
-  | zero => right; intro a b; simp [Goal.norm, canon, strip_nc]
-  | span _ => right; intro a b; simp [Goal.norm, canon, strip_nc]
-  | and _ _ => right; intro a b; simp [Goal.norm, canon, strip_nc]
-  | seq _ _ => right; intro a b; simp [Goal.norm, canon, strip_nc]
-  | call _ => right; intro a b; simp [Goal.norm, canon, strip_nc]
+  | zero => right; intro a b; simp [GoalOf.norm, canon, strip_nc]
+  | span _ => right; intro a b; simp [GoalOf.norm, canon, strip_nc]
+  | and _ _ => right; intro a b; simp [GoalOf.norm, canon, strip_nc]
+  | seq _ _ => right; intro a b; simp [GoalOf.norm, canon, strip_nc]
+  | call _ => right; intro a b; simp [GoalOf.norm, canon, strip_nc]
 
 theorem goodG_root (q : Rel) : GoodG ⟨none, q, none⟩ := ⟨trivial, trivial⟩
 

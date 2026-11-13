@@ -29,14 +29,14 @@ theorem step_flip (st : State) :
       | .done => .done := by
   unfold step
   by_cases h : st.finished = true
-  · have h' : State.finished ⟨st.P, st.tables, !st.rootFlip, st.depth⟩ = true := h
+  · have h' : StateOf.finished ⟨st.P, st.tables, !st.rootFlip, st.depth⟩ = true := h
     simp [h, h']
-  · have h' : ¬ State.finished ⟨st.P, st.tables, !st.rootFlip, st.depth⟩ = true := h
+  · have h' : ¬ StateOf.finished ⟨st.P, st.tables, !st.rootFlip, st.depth⟩ = true := h
     simp only [h, h', round_flip]
     simp [round]
 
 /-- The state with the root's orientation flipped. -/
-def _root_.RwLog.R001.State.flip (st : State) : State := ⟨st.P, st.tables, !st.rootFlip, st.depth⟩
+def _root_.RwLog.R001.StateOf.flip (st : State) : State := ⟨st.P, st.tables, !st.rootFlip, st.depth⟩
 
 theorem trace_succ (st : runtime.State) (n : Nat) :
     runtime.trace st (n + 1) =
@@ -59,17 +59,17 @@ theorem trace_flip (st : State) (n : Nat) :
       | .done => []) = (match step st with
       | .emit as s' => as :: runtime.trace s' n
       | .done => []).map _
-    rw [State.flip, step_flip]
+    rw [StateOf.flip, step_flip]
     cases step st with
     | emit as st' => simp only [List.map_cons]; rw [← ih st']; rfl
     | done => rfl
 
 theorem _root_.RwLog.R001.conv_trace : Obligation.conv_trace := by
   intro P q n
-  have h : runtime.init P (.conv q) = State.flip (runtime.init P q) := by
-    show State.ofGoal P ⟨none, .conv q, none⟩ = _
-    simp only [State.ofGoal, Goal.norm, canon]
-    rw [Goal.stripConv]
+  have h : runtime.init P (.conv q) = StateOf.flip (runtime.init P q) := by
+    show StateOf.ofGoal P ⟨none, .conv q, none⟩ = _
+    simp only [StateOf.ofGoal, GoalOf.norm, canon]
+    rw [GoalOf.stripConv]
     rfl
   rw [h]
   exact trace_flip (runtime.init P q) n
@@ -852,15 +852,15 @@ end Canon
 
 theorem _root_.RwLog.R001.or_comm_trace : Obligation.or_comm_trace := by
   intro P a b n
-  show runtime.trace (State.ofGoal P ⟨none, .or a b, none⟩) n =
-    runtime.trace (State.ofGoal P ⟨none, .or b a, none⟩) n
-  simp only [State.ofGoal, Goal.norm, canon_or_comm a b]
+  show runtime.trace (StateOf.ofGoal P ⟨none, .or a b, none⟩) n =
+    runtime.trace (StateOf.ofGoal P ⟨none, .or b a, none⟩) n
+  simp only [StateOf.ofGoal, GoalOf.norm, canon_or_comm a b]
 
 theorem _root_.RwLog.R001.or_assoc : Obligation.or_assoc := by
   intro P a b c n
-  show runtime.trace (State.ofGoal P ⟨none, .or (.or a b) c, none⟩) n =
-    runtime.trace (State.ofGoal P ⟨none, .or a (.or b c), none⟩) n
-  simp only [State.ofGoal, Goal.norm, canon_or_assoc a b c]
+  show runtime.trace (StateOf.ofGoal P ⟨none, .or (.or a b) c, none⟩) n =
+    runtime.trace (StateOf.ofGoal P ⟨none, .or a (.or b c), none⟩) n
+  simp only [StateOf.ofGoal, GoalOf.norm, canon_or_assoc a b c]
 
 end Symmetry
 

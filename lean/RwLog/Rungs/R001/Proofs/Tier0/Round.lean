@@ -90,7 +90,7 @@ theorem round_length (st : State) : st.tables.length ≤ (round st).1.tables.len
   rw [round_tables]; simp
 
 theorem round_goals (st : State) :
-    (round st).1.tables.map Table.goal = st.tables.map Table.goal ++ newGoalsOf st := by
+    (round st).1.tables.map TableOf.goal = st.tables.map TableOf.goal ++ newGoalsOf st := by
   rw [round_tables, List.map_append, List.map_map]
   congr 1
   · apply List.ext_getElem
@@ -150,7 +150,7 @@ theorem foldl_new_cover (p : Goal → Bool) (q : Goal → Goal → Bool) (hq : �
 one. -/
 theorem reqs_covered {st : State} {g : Goal} (h : g ∈ reqsOf st) :
     (∃ t ∈ st.tables, t.goal.same g = true) ∨ ∃ h ∈ newGoalsOf st, h.same g = true := by
-  rcases foldl_new_cover (fun g => st.tables.any fun t => t.goal.same g) Goal.same Goal.same_refl
+  rcases foldl_new_cover (fun g => st.tables.any fun t => t.goal.same g) GoalOf.same GoalOf.same_refl
     (reqsOf st) [] g h with h | h
   · exact .inl (List.any_eq_true.1 h)
   · exact .inr h
@@ -195,7 +195,7 @@ theorem findTable_isSome {ts : Tables} {g : Goal} :
   rw [List.find?_isSome]
 
 theorem indexOf_eq_goals (ts : Tables) (g : Goal) :
-    indexOf ts g = (ts.map Table.goal).findIdx? fun h => h.same g := by
+    indexOf ts g = (ts.map TableOf.goal).findIdx? fun h => h.same g := by
   unfold indexOf
   rw [List.findIdx?_map]
   rfl

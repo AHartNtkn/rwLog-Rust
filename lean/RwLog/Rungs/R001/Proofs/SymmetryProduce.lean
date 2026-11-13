@@ -533,7 +533,7 @@ theorem produce_mirror (hK : Obligation.SimplifyRespectsEquiv P.theory) (R : Tab
     ClassEq (produce P.dual d tsB H).1 ((produce P d tsA G).1.map Span.swap) ∧
       MSet (produce P d tsA G).2 (produce P.dual d tsB H).2 ∧
       SRel (strategies P d tsA G) (strategies P.dual d tsB H) := by
-  rw [Goal.same_iff] at hm
+  rw [GoalOf.same_iff] at hm
   obtain ⟨he, hl, hr⟩ := hm
   simp only [KD] at he hl hr
   have hl' := boundEq_symm hl

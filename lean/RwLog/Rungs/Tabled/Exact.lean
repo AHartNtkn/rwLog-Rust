@@ -41,7 +41,7 @@ definitionally leaves its decidability instance behind. -/
   cases a.covers? b <;> simp
 
 @[simp] theorem same_val (g h : Goal) : (same g h).val = g.same h := by
-  simp only [same, Goal.same, bind_val, ite_val, pure_val, sameBound_val, Charged.eqRel]
+  simp only [same, GoalOf.same, bind_val, ite_val, pure_val, sameBound_val, Charged.eqRel]
   by_cases h1 : g.e = h.e <;> simp [h1]
 
 /-- Comparing two keys without boundaries costs their sizes. -/
@@ -266,7 +266,7 @@ theorem step_val (U : Oracle) (hU : U.Exact) (st : State) : (step U st).val = R0
 machine is R001: the same states, the same initial state, the same step. -/
 theorem machine_runtime (U : Oracle) (hU : U.Exact) : (machine U).runtime = R001.runtime := by
   have hstep : (fun s => (step U s).val) = R001.step := funext (step_val U hU)
-  show (⟨State, fun P q => State.ofGoal P ⟨none, q, none⟩, fun s => (step U s).val⟩ : Runtime) = _
+  show (⟨State, fun P q => StateOf.ofGoal P ⟨none, q, none⟩, fun s => (step U s).val⟩ : Runtime) = _
   rw [hstep]; rfl
 
 /-- The tabled machine pays the size of the query to build its first state:

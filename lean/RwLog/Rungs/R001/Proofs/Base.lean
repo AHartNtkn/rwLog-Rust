@@ -51,21 +51,21 @@ theorem boundEq_equiv : ∀ {a b : Option Span}, boundEq a b = true → Option.R
     exact .some ⟨h.1, h.2⟩
   | none, some _, h | some _, none, h => by cases h
 
-theorem Goal.same_refl (g : Goal) : g.same g = true := by
-  simp [Goal.same, boundEq_refl]
+theorem GoalOf.same_refl (g : Goal) : g.same g = true := by
+  simp [GoalOf.same, boundEq_refl]
 
-theorem Goal.same_symm {g h : Goal} (hs : g.same h = true) : h.same g = true := by
-  simp only [Goal.same, Bool.and_eq_true, decide_eq_true_eq] at hs ⊢
+theorem GoalOf.same_symm {g h : Goal} (hs : g.same h = true) : h.same g = true := by
+  simp only [GoalOf.same, Bool.and_eq_true, decide_eq_true_eq] at hs ⊢
   exact ⟨⟨hs.1.1.symm, boundEq_symm hs.1.2⟩, boundEq_symm hs.2⟩
 
-theorem Goal.same_trans {g h k : Goal} (h₁ : g.same h = true) (h₂ : h.same k = true) :
+theorem GoalOf.same_trans {g h k : Goal} (h₁ : g.same h = true) (h₂ : h.same k = true) :
     g.same k = true := by
-  simp only [Goal.same, Bool.and_eq_true, decide_eq_true_eq] at h₁ h₂ ⊢
+  simp only [GoalOf.same, Bool.and_eq_true, decide_eq_true_eq] at h₁ h₂ ⊢
   exact ⟨⟨h₁.1.1.trans h₂.1.1, boundEq_trans h₁.1.2 h₂.1.2⟩, boundEq_trans h₁.2 h₂.2⟩
 
-theorem Goal.same_iff {g h : Goal} :
+theorem GoalOf.same_iff {g h : Goal} :
     g.same h = true ↔ g.e = h.e ∧ boundEq g.lb h.lb = true ∧ boundEq g.rb h.rb = true := by
-  simp only [Goal.same, Bool.and_eq_true, decide_eq_true_eq, and_assoc]
+  simp only [GoalOf.same, Bool.and_eq_true, decide_eq_true_eq, and_assoc]
 
 /-! ## Orientation and rounds -/
 

@@ -31,13 +31,13 @@ open Cost R001
 
 theorem norm_root (k : Nat) : (⟨none, sepRel k, none⟩ : Goal).norm = (false, gC k) := by
   have h := norm_gC k
-  simp only [Goal.norm, canon_cRel, canon_sepRel] at h ⊢
+  simp only [GoalOf.norm, canon_cRel, canon_sepRel] at h ⊢
   exact h
 
 theorem init_eq (k : Nat) (U : Oracle) :
     (Tabled.machine U).start (sepFam k).1 (sepFam k).2 = ⟨P0, tabs k [] [], false, 0⟩ := by
-  show State.ofGoal P0 ⟨none, sepRel k, none⟩ = _
-  simp [State.ofGoal, norm_root]
+  show StateOf.ofGoal P0 ⟨none, sepRel k, none⟩ = _
+  simp [StateOf.ofGoal, norm_root]
 
 /-! ## What R003 pays -/
 

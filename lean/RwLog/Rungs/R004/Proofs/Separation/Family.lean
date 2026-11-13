@@ -345,7 +345,7 @@ theorem model_nil (k : Nat) : (sepFam k).1.theory.Model ∅ := by
 abbrev g0 (k : Nat) : Goal := ⟨none, sepRel k, none⟩
 
 theorem norm_g0 (k : Nat) : (g0 k).norm = (false, g0 k) := by
-  rw [Goal.norm, canon_sepRel, sepRel_eq, Goal.stripConv]
+  rw [GoalOf.norm, canon_sepRel, sepRel_eq, GoalOf.stripConv]
   · rfl
   · intro lb a rb h
     cases h
@@ -370,8 +370,8 @@ abbrev st0 (k : Nat) : R001.State := ⟨P0, [⟨g0 k, [], false⟩], false, 0⟩
 
 theorem init_eq (k : Nat) (U : Oracle) :
     (Tabled.machine U).start (sepFam k).1 (sepFam k).2 = st0 k := by
-  show R001.State.ofGoal P0 (g0 k) = _
-  rw [R001.State.ofGoal, norm_g0]
+  show R001.StateOf.ofGoal P0 (g0 k) = _
+  rw [R001.StateOf.ofGoal, norm_g0]
 
 end Sep
 

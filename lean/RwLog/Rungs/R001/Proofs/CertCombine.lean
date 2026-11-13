@@ -99,10 +99,10 @@ theorem maxima_transfer {C₁ C : List CertEntry} (h₁ : ∀ e ∈ C₁, GoodE 
   obtain ⟨e₁, he₁, hs₁, hc₁⟩ := certCover_spec hl₁
   obtain ⟨e, he, hs, hc⟩ := certCover_spec hl
   rw [hc₁, hc]
-  have hss : e.goal.same e₁.goal = true := Goal.same_trans hs (Goal.same_symm hs₁)
+  have hss : e.goal.same e₁.goal = true := GoalOf.same_trans hs (GoalOf.same_symm hs₁)
   intro x hx
   exact maxima_equiv (orient_cover (good_mutual hL (h e he) (h₁ e₁ he₁) hss))
-    (orient_cover (good_mutual hL (h₁ e₁ he₁) (h e he) (Goal.same_symm hss))) hx
+    (orient_cover (good_mutual hL (h₁ e₁ he₁) (h e he) (GoalOf.same_symm hss))) hx
 
 /-- A strategy listed in a part of a list of good entries is listed in the
 whole list. -/
@@ -316,7 +316,7 @@ theorem push_cert {G L : Goal} (hG : GoodG G) (push : Span → Goal)
     obtain ⟨x₁, hx₁, hxe⟩ := maxima_transfer hL hpL.1 hpre.1 hCL.1 hLl x hx'
     obtain ⟨e, he, hs⟩ := hlf x₁ hx₁
     exact ⟨e, List.mem_append_right _ he,
-      Goal.same_trans hs (Symmetry.norm_same (hpush x₁ x hxe.symm)).2⟩
+      GoalOf.same_trans hs (Symmetry.norm_same (hpush x₁ x hxe.symm)).2⟩
   obtain ⟨F, ρ, hfin⟩ := pre_push hL hpre hG push hstrat hpush (hxc _) hLl hpl
   exact ⟨_, _, fun root hr => valid_of_pre hL hfin
     ⟨⟨G, F, ρ⟩, List.mem_append_right _ (List.mem_singleton_self _), hr⟩⟩
@@ -333,42 +333,42 @@ theorem cover_answers (hwf : ∀ ρ ∈ P.theory, ρ.WellFormed) {q : Rel} {C : 
   have hL := simpLaws_of_wf hwf
   have hroot := goodG_root q
   obtain ⟨n, hn⟩ := (goalTerminates_iff P _).1 (halts_of_cert hwf hroot hC)
-  obtain ⟨k, h2⟩ : ∃ k, stateAfter (State.ofGoal P ⟨none, q, none⟩) n =
-      iter (State.ofGoal P ⟨none, q, none⟩) k := by
-    rcases stateAfter_cases (State.ofGoal P ⟨none, q, none⟩) n with ⟨k, -, -, h⟩ | ⟨-, h⟩
+  obtain ⟨k, h2⟩ : ∃ k, stateAfter (StateOf.ofGoal P ⟨none, q, none⟩) n =
+      iter (StateOf.ofGoal P ⟨none, q, none⟩) k := by
+    rcases stateAfter_cases (StateOf.ofGoal P ⟨none, q, none⟩) n with ⟨k, -, -, h⟩ | ⟨-, h⟩
     · exact ⟨k, h⟩
     · exact ⟨n, h⟩
   rw [h2] at hn
-  have hne0 : (State.ofGoal P ⟨none, q, none⟩).tables ≠ [] := by simp [State.ofGoal]
+  have hne0 : (StateOf.ofGoal P ⟨none, q, none⟩).tables ≠ [] := by simp [StateOf.ofGoal]
   have hne := iter_ne_nil hne0 k
-  have h0lt : 0 < (iter (State.ofGoal P ⟨none, q, none⟩) k).tables.length :=
+  have h0lt : 0 < (iter (StateOf.ofGoal P ⟨none, q, none⟩) k).tables.length :=
     List.length_pos_iff.2 hne
-  have hd0 : (iter (State.ofGoal P ⟨none, q, none⟩) k).tables[0].done = true := by
-    simpa [State.finished, List.head?_eq_getElem?, List.getElem?_eq_getElem h0lt] using hn
+  have hd0 : (iter (StateOf.ofGoal P ⟨none, q, none⟩) k).tables[0].done = true := by
+    simpa [StateOf.finished, List.head?_eq_getElem?, List.getElem?_eq_getElem h0lt] using hn
   obtain ⟨e, he, hs, hcc⟩ := certCover_spec hC.1
-  have hm : indexOf (iter (State.ofGoal P ⟨none, q, none⟩) k).tables e.goal = some 0 :=
-    indexOf_iter _ (Nat.zero_le k) (show indexOf (State.ofGoal P ⟨none, q, none⟩).tables e.goal = some 0 by
-      simp [State.ofGoal, indexOf, Goal.same_symm hs])
-  have hIk := xinv_iter (st := State.ofGoal P ⟨none, q, none⟩) hL (xinv_ofGoal hroot) k
+  have hm : indexOf (iter (StateOf.ofGoal P ⟨none, q, none⟩) k).tables e.goal = some 0 :=
+    indexOf_iter _ (Nat.zero_le k) (show indexOf (StateOf.ofGoal P ⟨none, q, none⟩).tables e.goal = some 0 by
+      simp [StateOf.ofGoal, indexOf, GoalOf.same_symm hs])
+  have hIk := xinv_iter (st := StateOf.ofGoal P ⟨none, q, none⟩) hL (xinv_ofGoal hroot) k
   intro x hx
   rw [hcc] at hx
   obtain ⟨y, hy, hxy⟩ := maxima_equiv
     (orient_cover (matched_cov_done hL hC hIk he hm h0lt hd0))
     (orient_cover (matched_cov hL hC hIk he hm h0lt)) hx
   refine ⟨y, ⟨n, ?_⟩, hxy⟩
-  show y ∈ (runtime.run (State.ofGoal P ⟨none, q, none⟩) n).1
+  show y ∈ (runtime.run (StateOf.ofGoal P ⟨none, q, none⟩) n).1
   rw [(run_root n _ hne0).1, h2]
-  have hra : rootAns (iter (State.ofGoal P ⟨none, q, none⟩) k) =
-      (iter (State.ofGoal P ⟨none, q, none⟩) k).tables[0].answers := by
+  have hra : rootAns (iter (StateOf.ofGoal P ⟨none, q, none⟩) k) =
+      (iter (StateOf.ofGoal P ⟨none, q, none⟩) k).tables[0].answers := by
     simp [rootAns, List.head?_eq_getElem?, List.getElem?_eq_getElem h0lt]
   rw [hra]
-  simpa [rootAns, State.ofGoal] using maxima_sub hy
+  simpa [rootAns, StateOf.ofGoal] using maxima_sub hy
 
 /-! ## The four push strategies -/
 
 theorem norm_canon (lb rb : Option Span) (e : Rel) :
     (⟨lb, canon e, rb⟩ : Goal).norm = (⟨lb, e, rb⟩ : Goal).norm := by
-  simp [Goal.norm, Symmetry.canon_idem]
+  simp [GoalOf.norm, Symmetry.canon_idem]
 
 theorem certCover_norm (C : List CertEntry) {g h : Goal} (e : g.norm = h.norm) :
     certCover C g = certCover C h := by
@@ -377,20 +377,20 @@ theorem certCover_norm (C : List CertEntry) {g h : Goal} (e : g.norm = h.norm) :
 /-- A certificate only depends on the root's table key. -/
 theorem valid_root {C : List CertEntry} {D : Nat} {r r' : Goal} (h : Cert.Valid P C D r)
     (hs : r.norm.2.same r'.norm.2 = true) : Cert.Valid P C D r' :=
-  ⟨let ⟨e, he, h1⟩ := h.1; ⟨e, he, Goal.same_trans h1 hs⟩, h.2⟩
+  ⟨let ⟨e, he, h1⟩ := h.1; ⟨e, he, GoalOf.same_trans h1 hs⟩, h.2⟩
 
 theorem valid_root_eq {C : List CertEntry} {D : Nat} {r r' : Goal} (h : Cert.Valid P C D r)
     (hs : r.norm = r'.norm) : Cert.Valid P C D r' :=
-  valid_root h (by rw [hs]; exact Goal.same_refl _)
+  valid_root h (by rw [hs]; exact GoalOf.same_refl _)
 
 theorem norm_seq_root (lb rb : Option Span) (a b : Rel) :
     (⟨lb, .seq a b, rb⟩ : Goal).norm.2 = ⟨lb, .seq (canon a) (canon b), rb⟩ := by
-  simp only [Goal.norm, canon]
+  simp only [GoalOf.norm, canon]
   rw [strip_nc _ (by simp)]
 
 theorem norm_and_root (a b : Rel) :
     (⟨none, .and a b, none⟩ : Goal).norm.2 = ⟨none, .and (canon a) (canon b), none⟩ := by
-  simp only [Goal.norm, canon]
+  simp only [GoalOf.norm, canon]
   rw [strip_nc _ (by simp)]
 
 section Laws
@@ -423,7 +423,7 @@ theorem seqL_cert {lb rb : Option Span} {a b : Rel} (hg : GoodG ⟨lb, .seq a b,
       rw [certCover_norm CL (norm_canon lb none a)] at hx'
       obtain ⟨C, D, hC⟩ := hx x hx'
       exact ⟨C, D, valid_root_eq hC (norm_canon _ _ _).symm⟩)
-  exact ⟨C, D, h _ (by rw [norm_seq_root]; exact Goal.same_refl _)⟩
+  exact ⟨C, D, h _ (by rw [norm_seq_root]; exact GoalOf.same_refl _)⟩
 
 /-- The mirror image: `lb ; (a ; b) ; rb` has a certificate when `b ; rb` has
 one and `lb ; a` has one under the interface of each maximal answer of that
@@ -451,7 +451,7 @@ theorem seqR_cert {lb rb : Option Span} {a b : Rel} (hg : GoodG ⟨lb, .seq a b,
       rw [certCover_norm CL (norm_canon none rb b)] at hy'
       obtain ⟨C, D, hC⟩ := hx y hy'
       exact ⟨C, D, valid_root_eq hC (norm_canon _ _ _).symm⟩)
-  exact ⟨C, D, h _ (by rw [norm_seq_root]; exact Goal.same_refl _)⟩
+  exact ⟨C, D, h _ (by rw [norm_seq_root]; exact GoalOf.same_refl _)⟩
 
 /-- `a & b` has a certificate when `a` has one and `b` has one restricted to
 each maximal answer of `a`'s cover. -/
@@ -476,7 +476,7 @@ theorem andL_cert {a b : Rel} {CL : List CertEntry} {DL : Nat}
       rw [certCover_norm CL (norm_canon none none a)] at hx'
       obtain ⟨C, D, hC⟩ := hx x hx'
       exact ⟨C, D, valid_root_eq hC (norm_canon _ _ _).symm⟩)
-  exact ⟨C, D, h _ (by rw [norm_and_root]; exact Goal.same_refl _)⟩
+  exact ⟨C, D, h _ (by rw [norm_and_root]; exact GoalOf.same_refl _)⟩
 
 /-- The mirror image: `b & a` has a certificate when `a` has one and `b` has
 one restricted to each maximal answer of `a`'s cover. -/
@@ -501,7 +501,7 @@ theorem andR_cert {a b : Rel} {CL : List CertEntry} {DL : Nat}
       rw [certCover_norm CL (norm_canon none none a)] at hx'
       obtain ⟨C, D, hC⟩ := hx x hx'
       exact ⟨C, D, valid_root_eq hC (norm_canon _ _ _).symm⟩)
-  exact ⟨C, D, h _ (by rw [norm_and_root]; exact Goal.same_refl _)⟩
+  exact ⟨C, D, h _ (by rw [norm_and_root]; exact GoalOf.same_refl _)⟩
 
 end Laws
 

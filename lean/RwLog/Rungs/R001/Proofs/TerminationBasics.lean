@@ -2,7 +2,7 @@
 # Rung R001: termination basics
 
 The general machinery lives here: when a run is finished, table keys
-(`Goal.same`) form an equivalence, the completion fixpoint contains every
+(`GoalOf.same`) form an equivalence, the completion fixpoint contains every
 closed set, and tables only grow from round to round.
 -/
 import RwLog.Rungs.R001.Proofs.Tier0
@@ -61,11 +61,11 @@ theorem halts_iff (st : State) :
   rw [← stateAfter_eq]; exact step_done_iff _
 
 theorem terminates_iff (P : Program) (q : Rel) :
-    runtime.Terminates P q ↔ ∃ k, (stateAfter (State.ofGoal P ⟨none, q, none⟩) k).finished = true :=
+    runtime.Terminates P q ↔ ∃ k, (stateAfter (StateOf.ofGoal P ⟨none, q, none⟩) k).finished = true :=
   halts_iff _
 
 theorem goalTerminates_iff (P : Program) (g : Goal) :
-    GoalTerminates P g ↔ ∃ k, (stateAfter (State.ofGoal P g) k).finished = true :=
+    GoalTerminates P g ↔ ∃ k, (stateAfter (StateOf.ofGoal P g) k).finished = true :=
   halts_iff _
 
 
@@ -155,7 +155,7 @@ theorem newGoals_cover (ts : Tables) : ∀ (reqs acc : List Goal), ∀ g ∈ acc
         then acc else acc ++ [g]) acc).any (fun h => h.same g) = true
   | [], acc, g, hg => by
     simp only [List.append_nil] at hg
-    exact .inr (List.any_eq_true.2 ⟨g, hg, Goal.same_refl g⟩)
+    exact .inr (List.any_eq_true.2 ⟨g, hg, GoalOf.same_refl g⟩)
   | r :: reqs, acc, g, hg => by
     simp only [List.foldl_cons]
     by_cases hc : (ts.any (fun t => t.goal.same r) || acc.any (fun h => h.same r)) = true
@@ -169,10 +169,10 @@ theorem newGoals_cover (ts : Tables) : ∀ (reqs acc : List Goal), ∀ g ∈ acc
             exact newGoals_cover ts reqs acc h (List.mem_append_left _ hh) |>.elim
               (fun e => .inl (by
                 obtain ⟨t, ht, e⟩ := List.any_eq_true.1 e
-                exact List.any_eq_true.2 ⟨t, ht, Goal.same_trans e hs⟩))
+                exact List.any_eq_true.2 ⟨t, ht, GoalOf.same_trans e hs⟩))
               (fun e => .inr (by
                 obtain ⟨t, ht, e⟩ := List.any_eq_true.1 e
-                exact List.any_eq_true.2 ⟨t, ht, Goal.same_trans e hs⟩))
+                exact List.any_eq_true.2 ⟨t, ht, GoalOf.same_trans e hs⟩))
         · exact newGoals_cover ts reqs acc g (List.mem_append_right _ hg)
     · simp only [Bool.eq_false_of_ne_true hc, Bool.false_eq_true, ite_false]
       rcases List.mem_append.1 hg with hg | hg

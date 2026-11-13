@@ -52,13 +52,13 @@ theorem goalSize_slot {k : Nat} {g : Goal} (h : Slot k g) : goalSize g ≤ keyBo
 
 theorem norm_gC (j : Nat) : (gC j).norm = (false, gC j) := by
   cases j with
-  | zero => simp [Goal.norm, cRel, canon_tw, Goal.stripConv]
+  | zero => simp [GoalOf.norm, cRel, canon_tw, GoalOf.stripConv]
   | succ j =>
-    simp only [Goal.norm, canon_cRel]
-    simp [cRel, Goal.stripConv]
+    simp only [GoalOf.norm, canon_cRel]
+    simp [cRel, GoalOf.stripConv]
 
 theorem norm_gS (s : Span) : (gS s).norm = (false, gS s) := by
-  simp [Goal.norm, canon, Goal.stripConv]
+  simp [GoalOf.norm, canon, GoalOf.stripConv]
 
 theorem norm_sub {k : Nat} {g : Goal} (h : Sub k g) : g.norm = (false, g) := by
   rcases h with ⟨j, _, rfl⟩ | rfl | rfl
@@ -81,9 +81,9 @@ theorem cRel_ne_span (k : Nat) {s : Span} (hs : Good s) : cRel k ≠ .span s := 
 theorem same_root_sub {k : Nat} {g : Goal} (h : Sub k g) : (gC k).same g = false := by
   rcases h with ⟨j, hj, rfl⟩ | rfl | rfl
   · have : cRel k ≠ cRel j := fun e => by have := cRel_inj e; omega
-    simp [Goal.same, this]
-  · simp [Goal.same, cRel_ne_span k good_xz]
-  · simp [Goal.same, cRel_ne_span k good_zz]
+    simp [GoalOf.same, this]
+  · simp [GoalOf.same, cRel_ne_span k good_xz]
+  · simp [GoalOf.same, cRel_ne_span k good_zz]
 
 /-! ## The tables -/
 

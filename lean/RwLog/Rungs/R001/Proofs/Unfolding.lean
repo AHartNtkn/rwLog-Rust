@@ -8,7 +8,7 @@ goal's expression is final (`unfoldFinal`). Three facts about that test:
   more replaces calls by bodies; a product without calls is left as it is, and
   a product that fused to nothing still fuses to nothing, because the spans at
   the ends of a product only get composed with more (`E`).
-* `unfoldFinal_same`: goals that share a table (`Goal.same`) are final at the
+* `unfoldFinal_same`: goals that share a table (`GoalOf.same`) are final at the
   same depths.
 * `roundFinal_key`: a query and its table key are final at the same depths.
 -/
@@ -394,9 +394,9 @@ theorem final_mono {q : Rel} {k : Nat} (h : roundFinal P q k = true) :
 theorem mk_rel {g h : Goal} (hs : g.same h = true) : Mk false P P g.rel h.rel := by
   obtain ⟨glb, ge, grb⟩ := g
   obtain ⟨hlb, he, hrb⟩ := h
-  simp only [Goal.same, Bool.and_eq_true, decide_eq_true_eq] at hs
+  simp only [GoalOf.same, Bool.and_eq_true, decide_eq_true_eq] at hs
   obtain ⟨⟨rfl, hl⟩, hr⟩ := hs
-  have core : Mk false P P (Goal.rel ⟨none, ge, grb⟩) (Goal.rel ⟨none, ge, hrb⟩) := by
+  have core : Mk false P P (GoalOf.rel ⟨none, ge, grb⟩) (GoalOf.rel ⟨none, ge, hrb⟩) := by
     cases grb with
     | none => cases hrb with
       | none => exact Mk.refl _
@@ -425,7 +425,7 @@ theorem unfoldFinal_mono {g : Goal} {d : Nat} (h : unfoldFinal P d g = true) :
 /-! ## The table key of a query -/
 
 theorem strip_root : ∀ (e : Rel) (k : Nat),
-    ∃ e₀, (Goal.stripConv ⟨none, e, none⟩).2 = ⟨none, e₀, none⟩ ∧
+    ∃ e₀, (GoalOf.stripConv ⟨none, e, none⟩).2 = ⟨none, e₀, none⟩ ∧
       roundFinal P e₀ k = roundFinal P e k
   | .conv a, k => by
     rw [Tier0.strip_conv]
@@ -440,9 +440,9 @@ theorem strip_root : ∀ (e : Rel) (k : Nat),
 
 /-- A query and its table key are final at the same depths. -/
 theorem unfoldFinal_key (q : Rel) (k : Nat) :
-    unfoldFinal P k (Goal.norm ⟨none, q, none⟩).2 = roundFinal P q k := by
+    unfoldFinal P k (GoalOf.norm ⟨none, q, none⟩).2 = roundFinal P q k := by
   obtain ⟨e₀, h1, h2⟩ := strip_root P (canon q) k
-  have hn : (Goal.norm ⟨none, q, none⟩).2 = ⟨none, e₀, none⟩ := h1
+  have hn : (GoalOf.norm ⟨none, q, none⟩).2 = ⟨none, e₀, none⟩ := h1
   rw [hn]
   show roundFinal P e₀ k = _
   rw [h2]

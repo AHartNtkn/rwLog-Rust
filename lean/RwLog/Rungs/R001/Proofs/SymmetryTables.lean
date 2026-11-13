@@ -22,7 +22,7 @@ def KD (G : Goal) : Goal := ⟨G.rb.map Span.swap, canon G.e.dual, G.lb.map Span
 
 theorem IsKey.dual_norm {G : Goal} (h : IsKey G) : G.dual.norm = (false, KD G) := by
   obtain ⟨hc, hn⟩ := h.canonical
-  simp only [Goal.norm, Goal.dual, KD]
+  simp only [GoalOf.norm, GoalOf.dual, KD]
   exact stripConv_other _ _ _ (canon_dual_not_conv hc hn)
 
 theorem IsKey.kd {G : Goal} (h : IsKey G) : IsKey (KD G) := by
@@ -37,7 +37,7 @@ theorem IsKey.KD_KD {G : Goal} (h : IsKey G) : KD (KD G) = G := by
   rw [← canon_dual e.dual, RelOf.dual_dual, hc]
 
 theorem KD_same {G G' : Goal} (h : G.same G' = true) : (KD G).same (KD G') = true := by
-  rw [Goal.same_iff] at h ⊢
+  rw [GoalOf.same_iff] at h ⊢
   simp only [KD, boundEq_swap]
   exact ⟨by rw [h.1], h.2.2, h.2.1⟩
 
@@ -52,15 +52,15 @@ def Mirror (g h : Goal) : Prop := h.norm.1 = g.norm.1 ∧ h.norm.2.same (KD g.no
 
 theorem mirror_dual (g : Goal) : Mirror g g.dual := by
   rw [Mirror, norm_dual, (isKey_norm g).dual_norm]
-  exact ⟨Bool.xor_false _, Goal.same_refl _⟩
+  exact ⟨Bool.xor_false _, GoalOf.same_refl _⟩
 
 theorem Mirror.of_same {g h h' : Goal} (hm : Mirror g h) (e : h.same h' = true) : Mirror g h' := by
   have := norm_same e
-  exact ⟨this.1 ▸ hm.1, Goal.same_trans (Goal.same_symm this.2) hm.2⟩
+  exact ⟨this.1 ▸ hm.1, GoalOf.same_trans (GoalOf.same_symm this.2) hm.2⟩
 
 theorem norm_canon_congr (lb rb : Option Span) {e e' : Rel} (h : canon e = canon e') :
-    Goal.norm ⟨lb, e, rb⟩ = Goal.norm ⟨lb, e', rb⟩ := by
-  simp only [Goal.norm, h]
+    GoalOf.norm ⟨lb, e, rb⟩ = GoalOf.norm ⟨lb, e', rb⟩ := by
+  simp only [GoalOf.norm, h]
 
 /-- The general way to build a mirror: equivalent swapped boundaries, and the
 mirrored expression up to canonical form. -/
@@ -70,7 +70,7 @@ theorem mirror_mk {g h : Goal} (he : canon h.e = canon g.e.dual)
   obtain ⟨lb, e, rb⟩ := h
   simp only at he hl hr
   rw [Mirror, norm_canon_congr lb rb he]
-  exact (mirror_dual g).of_same (Goal.same_iff.2 ⟨rfl, hl, hr⟩)
+  exact (mirror_dual g).of_same (GoalOf.same_iff.2 ⟨rfl, hl, hr⟩)
 
 /-! ## Corresponding tables -/
 
@@ -101,10 +101,10 @@ theorem eq_of_same {ts : Tables} (nd : ts.Pairwise fun t t' => t.goal.same t'.go
     · rw [e₁, e₂]
     · subst e₁
       have := nd.1 t' h₂
-      rw [Goal.same_trans h (Goal.same_symm h')] at this; cases this
+      rw [GoalOf.same_trans h (GoalOf.same_symm h')] at this; cases this
     · subst e₂
       have := nd.1 t h₁
-      rw [Goal.same_trans h' (Goal.same_symm h)] at this; cases this
+      rw [GoalOf.same_trans h' (GoalOf.same_symm h)] at this; cases this
     · exact ih nd.2 h₁ h₂
 
 theorem findTable_some {ts : Tables} {K : Goal} {t : Table} (h : findTable ts K = some t) :
@@ -144,7 +144,7 @@ theorem findTable_mirror {tsA tsB : Tables} (R : TabsRel tsA tsB) {K K' : Goal} 
     obtain ⟨htA, hs⟩ := findTable_some hA
     obtain ⟨tB, htB, hr⟩ := R.fwd tA htA
     refine .inl ⟨tA, tB, rfl, findTable_of_mem R.ndB htB ?_, hr⟩
-    exact Goal.same_trans hr.1 (Goal.same_trans (KD_same hs) (Goal.same_symm hK'))
+    exact GoalOf.same_trans hr.1 (GoalOf.same_trans (KD_same hs) (GoalOf.same_symm hK'))
   | none =>
     refine .inr ⟨rfl, ?_⟩
     cases hB : findTable tsB K' with
@@ -155,7 +155,7 @@ theorem findTable_mirror {tsA tsB : Tables} (R : TabsRel tsA tsB) {K K' : Goal} 
       obtain ⟨tA, htA, hr⟩ := R.bwd tB htB
       have : tA.goal.same K = true :=
         same_of_KD_same (R.keyA tA htA) hK
-          (Goal.same_trans (Goal.same_symm hr.1) (Goal.same_trans hs hK'))
+          (GoalOf.same_trans (GoalOf.same_symm hr.1) (GoalOf.same_trans hs hK'))
       rw [findTable_none hA tA htA] at this; cases this
 
 theorem answersOf_mirror {tsA tsB : Tables} (R : TabsRel tsA tsB) {g h : Goal} (hm : Mirror g h) :

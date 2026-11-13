@@ -29,7 +29,7 @@ def UOK (k : Nat) (g : Goal) (u : Bool × List Span) : Prop :=
 def raceBound (k : Nat) : Nat := 7 * sharedBound k
 
 theorem gS_ne_gC {s : Span} (hs : Good s) (j : Nat) : gS s ≠ gC j :=
-  fun h => cRel_ne_span j hs (congrArg Goal.e h).symm
+  fun h => cRel_ne_span j hs (congrArg GoalOf.e h).symm
 
 theorem unfolder_slot (k d : Nat) {g : Goal} (h : Slot k g) :
     (unfolder P0 d g).ticks ≤ raceBound k ∧ UOK k g (unfolder P0 d g).val := by

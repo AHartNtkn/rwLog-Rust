@@ -1127,9 +1127,9 @@ theorem Mk.goal {g h : Goal} (he : h.e = canon g.e.dual) (hl : boundEq (g.rb.map
   obtain ⟨hlb, he', hrb⟩ := h
   simp only at he hl hr
   subst he
-  have hd := Mk.dual (P := P) (Goal.rel ⟨glb, ge, grb⟩)
+  have hd := Mk.dual (P := P) (GoalOf.rel ⟨glb, ge, grb⟩)
   have hc : Mk false P.dual P.dual ge.dual (canon ge.dual) := (mk_canon ge.dual).symm
-  suffices Mk false P.dual P.dual (Goal.rel ⟨glb, ge, grb⟩).dual (Goal.rel ⟨hlb, canon ge.dual, hrb⟩) by
+  suffices Mk false P.dual P.dual (GoalOf.rel ⟨glb, ge, grb⟩).dual (GoalOf.rel ⟨hlb, canon ge.dual, hrb⟩) by
     simpa using hd.trans this
   cases glb with
   | none =>
@@ -1140,12 +1140,12 @@ theorem Mk.goal {g h : Goal} (he : h.e = canon g.e.dual) (hl : boundEq (g.rb.map
       | none =>
         cases hlb with
         | some _ => simp [boundEq] at hl
-        | none => simpa [Goal.rel, RelOf.dual] using hc
+        | none => simpa [GoalOf.rel, RelOf.dual] using hc
       | some r =>
         cases hlb with
         | none => simp [boundEq] at hl
         | some r' =>
-          simp only [Goal.rel, RelOf.dual, Option.map_some] at hl ⊢
+          simp only [GoalOf.rel, RelOf.dual, Option.map_some] at hl ⊢
           exact Mk.seq (Mk.bound hl) hc
   | some l =>
     cases hrb with
@@ -1157,13 +1157,13 @@ theorem Mk.goal {g h : Goal} (he : h.e = canon g.e.dual) (hl : boundEq (g.rb.map
         cases hlb with
         | some _ => simp [boundEq] at hl
         | none =>
-          simp only [Goal.rel, RelOf.dual]
+          simp only [GoalOf.rel, RelOf.dual]
           exact Mk.seq hc (Mk.bound hr)
       | some r =>
         cases hlb with
         | none => simp [boundEq] at hl
         | some r' =>
-          simp only [Goal.rel, RelOf.dual, Option.map_some] at hl ⊢
+          simp only [GoalOf.rel, RelOf.dual, Option.map_some] at hl ⊢
           simpa [sqD] using (Mk.assoc _ _ _).trans (Mk.seq (Mk.bound hl) (Mk.seq hc (Mk.bound hr)))
 
 /-! ## The unfolding strategy of mirrored goals -/

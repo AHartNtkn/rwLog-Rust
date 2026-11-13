@@ -127,13 +127,13 @@ abbrev gW : Goal := ⟨none, .call "w", none⟩
 abbrev gZ : Goal := ⟨none, .span zz, none⟩
 
 theorem norm_gC (j : Nat) : (gC j).norm = (false, gC j) := by
-  simp [Goal.norm, canon, Goal.stripConv]
+  simp [GoalOf.norm, canon, GoalOf.stripConv]
 
 theorem norm_gW : gW.norm = (false, gW) := by
-  simp [Goal.norm, canon, Goal.stripConv]
+  simp [GoalOf.norm, canon, GoalOf.stripConv]
 
 theorem norm_gZ : gZ.norm = (false, gZ) := by
-  simp [Goal.norm, canon, Goal.stripConv]
+  simp [GoalOf.norm, canon, GoalOf.stripConv]
 
 theorem canon_root (k : Nat) :
     canon (.or (.call (chainName k)) (.call "w")) = .or (.call (chainName k)) (.call "w") := by
@@ -145,12 +145,12 @@ theorem canon_root (k : Nat) :
     h2, mkOr]
 
 theorem norm_gR (k : Nat) : (gR k).norm = (false, gR k) := by
-  simp [Goal.norm, canon_root, Goal.stripConv]
+  simp [GoalOf.norm, canon_root, GoalOf.stripConv]
 
 /-- The body of `w` has the key of `w`. -/
 theorem norm_wBody : (⟨none, .or (.call "w") (.call "w"), none⟩ : Goal).norm = (false, gW) := by
-  simp [Goal.norm, canon, orBranches, sortedBranches, relCmp, List.eraseDups_cons, mkOr,
-    Goal.stripConv]
+  simp [GoalOf.norm, canon, orBranches, sortedBranches, relCmp, List.eraseDups_cons, mkOr,
+    GoalOf.stripConv]
 
 end Sep
 

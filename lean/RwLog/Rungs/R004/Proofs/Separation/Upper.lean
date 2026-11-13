@@ -111,12 +111,12 @@ abbrev gA : Goal := ⟨none, .span aa, none⟩
 abbrev gD (k : Nat) : Goal := ⟨none, dead k, none⟩
 
 theorem norm_gA : gA.norm = (false, gA) := by
-  rw [Goal.norm, canon, Goal.stripConv]
+  rw [GoalOf.norm, canon, GoalOf.stripConv]
   intro lb a rb h
   cases h
 
 theorem norm_gD (k : Nat) : (gD k).norm = (false, gD k) := by
-  rw [Goal.norm, canon_dead, Goal.stripConv]
+  rw [GoalOf.norm, canon_dead, GoalOf.stripConv]
   intro lb a rb h
   cases h
 
@@ -124,9 +124,9 @@ theorem goalSize_g0 (k : Nat) : goalSize (g0 k) = 12 * k + 19 := by simp [goalSi
 theorem goalSize_gA : goalSize gA = 3 := by simp [goalSize, RelOf.size, size_aa]
 theorem goalSize_gD (k : Nat) : goalSize (gD k) = 12 * k + 15 := by simp [goalSize, size_dead]
 
-theorem same_g0_gA (k : Nat) : (g0 k).same gA = false := by simp [Goal.same, sepRel_eq]
-theorem same_g0_gD (k : Nat) : (g0 k).same (gD k) = false := by simp [Goal.same, sepRel_eq]
-theorem same_gA_gD (k : Nat) : gA.same (gD k) = false := by simp [Goal.same]
+theorem same_g0_gA (k : Nat) : (g0 k).same gA = false := by simp [GoalOf.same, sepRel_eq]
+theorem same_g0_gD (k : Nat) : (g0 k).same (gD k) = false := by simp [GoalOf.same, sepRel_eq]
+theorem same_gA_gD (k : Nat) : gA.same (gD k) = false := by simp [GoalOf.same]
 
 theorem tsame_g0_gA (k : Nat) :
     Tabled.same (g0 k) gA = ⟨false, goalSize (g0 k) + goalSize gA⟩ := by

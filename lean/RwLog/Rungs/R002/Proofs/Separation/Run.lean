@@ -33,15 +33,15 @@ open Cost R001
 
 theorem init_eq (k : Nat) (U : Oracle) :
     (Tabled.machine U).start (sepFam k).1 (sepFam k).2 = st k 0 := by
-  show State.ofGoal (prog k) (gR k) = st k 0
-  simp [State.ofGoal, norm_gR, st, tabs, slots, tab, goal, ans, hasAns, isDone]
+  show StateOf.ofGoal (prog k) (gR k) = st k 0
+  simp [StateOf.ofGoal, norm_gR, st, tabs, slots, tab, goal, ans, hasAns, isDone]
 
 theorem head_tabs (k d : Nat) : (st k d).tables.head? = some (tab k d .root) := by
   obtain ⟨l, hl⟩ := slots_head k d
   simp [st, tabs, hl]
 
 theorem finished_iff (k d : Nat) : (st k d).finished = true ↔ k + 4 ≤ d := by
-  simp [State.finished, head_tabs, tab]
+  simp [StateOf.finished, head_tabs, tab]
 
 /-- A round of R002 while the root is open. -/
 theorem step_open (k d : Nat) (h : d < k + 4) :

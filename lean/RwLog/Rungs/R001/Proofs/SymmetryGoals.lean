@@ -1,7 +1,7 @@
 /-
 # Rung R001, Symmetry: table keys of mirrored goals
 
-* `Goal.same` is an equivalence relation, preserved by mirroring and by
+* `GoalOf.same` is an equivalence relation, preserved by mirroring and by
   normalization.
 * The canonical form is idempotent and commutes with mirroring up to
   canonicalization: `canon e.dual = canon (canon e).dual`.
@@ -19,9 +19,9 @@ namespace Symmetry
 
 /-! ## Boundaries and goals as table keys -/
 
-theorem _root_.RwLog.R001.Goal.same_dual {g h : Goal} (e : g.same h = true) : g.dual.same h.dual = true := by
-  rw [Goal.same_iff] at e ⊢
-  simp only [Goal.dual, boundEq_swap]
+theorem _root_.RwLog.R001.GoalOf.same_dual {g h : Goal} (e : g.same h = true) : g.dual.same h.dual = true := by
+  rw [GoalOf.same_iff] at e ⊢
+  simp only [GoalOf.dual, boundEq_swap]
   exact ⟨by rw [e.1], e.2.2, e.2.1⟩
 
 theorem _root_.RwLog.RelOf.dual_dual : ∀ e : Rel, e.dual.dual = e
@@ -33,9 +33,9 @@ theorem _root_.RwLog.RelOf.dual_dual : ∀ e : Rel, e.dual.dual = e
   | .conv a => by simp [RelOf.dual, RelOf.dual_dual a]
   | .call _ => rfl
 
-theorem _root_.RwLog.R001.Goal.dual_dual (g : Goal) : g.dual.dual = g := by
+theorem _root_.RwLog.R001.GoalOf.dual_dual (g : Goal) : g.dual.dual = g := by
   obtain ⟨lb, e, rb⟩ := g
-  simp [Goal.dual, Option.map_map, Function.comp_def, RelOf.dual_dual]
+  simp [GoalOf.dual, Option.map_map, Function.comp_def, RelOf.dual_dual]
 
 /-! ## Mirroring and the canonical form -/
 
@@ -172,28 +172,28 @@ decreasing_by all_goals first | exact this | (simp_wf; try omega)
 /-! ## Keys of mirrored goals -/
 
 theorem stripConv_conv (lb rb : Option Span) (a : Rel) :
-    Goal.stripConv ⟨lb, .conv a, rb⟩ =
-      (!(Goal.stripConv ⟨rb.map Span.swap, a, lb.map Span.swap⟩).1,
-        (Goal.stripConv ⟨rb.map Span.swap, a, lb.map Span.swap⟩).2) := by
-  rw [Goal.stripConv]
+    GoalOf.stripConv ⟨lb, .conv a, rb⟩ =
+      (!(GoalOf.stripConv ⟨rb.map Span.swap, a, lb.map Span.swap⟩).1,
+        (GoalOf.stripConv ⟨rb.map Span.swap, a, lb.map Span.swap⟩).2) := by
+  rw [GoalOf.stripConv]
 
 theorem stripConv_other (lb rb : Option Span) (e : Rel) (h : ∀ a, e ≠ .conv a) :
-    Goal.stripConv ⟨lb, e, rb⟩ = (false, ⟨lb, e, rb⟩) := by
+    GoalOf.stripConv ⟨lb, e, rb⟩ = (false, ⟨lb, e, rb⟩) := by
   cases e with
   | conv a => exact absurd rfl (h a)
-  | _ => rw [Goal.stripConv]; simp
+  | _ => rw [GoalOf.stripConv]; simp
 
 theorem stripConv_dual : ∀ (C : Rel) (lb rb : Option Span),
-    Goal.stripConv ⟨rb.map Span.swap, canon C.dual, lb.map Span.swap⟩ =
-      let r := Goal.stripConv ⟨lb, C, rb⟩
-      let r' := Goal.stripConv ⟨r.2.rb.map Span.swap, canon r.2.e.dual, r.2.lb.map Span.swap⟩
+    GoalOf.stripConv ⟨rb.map Span.swap, canon C.dual, lb.map Span.swap⟩ =
+      let r := GoalOf.stripConv ⟨lb, C, rb⟩
+      let r' := GoalOf.stripConv ⟨r.2.rb.map Span.swap, canon r.2.e.dual, r.2.lb.map Span.swap⟩
       (r.1 ^^ r'.1, r'.2)
   | .conv a, lb, rb => by
     have ih := stripConv_dual a (rb.map Span.swap) (lb.map Span.swap)
     simp only [Option.map_map, Function.comp_def, Span.swap_swap, Option.map_id'] at ih
     simp only [RelOf.dual, canon, stripConv_conv, Option.map_map, Function.comp_def, Span.swap_swap,
       Option.map_id', ih]
-    cases (Goal.stripConv ⟨rb.map Span.swap, a, lb.map Span.swap⟩).1 <;> simp
+    cases (GoalOf.stripConv ⟨rb.map Span.swap, a, lb.map Span.swap⟩).1 <;> simp
   | .zero, lb, rb | .span _, lb, rb | .or _ _, lb, rb | .and _ _, lb, rb | .seq _ _, lb, rb
   | .call _, lb, rb => by
     rw [stripConv_other lb rb _ (fun a h => by cases h)]
@@ -201,13 +201,13 @@ theorem stripConv_dual : ∀ (C : Rel) (lb rb : Option Span),
 
 theorem norm_dual (g : Goal) :
     g.dual.norm = (g.norm.1 ^^ g.norm.2.dual.norm.1, g.norm.2.dual.norm.2) := by
-  simp only [Goal.norm, Goal.dual]
+  simp only [GoalOf.norm, GoalOf.dual]
   rw [canon_dual, stripConv_dual]
 
 theorem stripConv_same : ∀ (C : Rel) {lb lb' rb rb' : Option Span},
     boundEq lb lb' = true → boundEq rb rb' = true →
-    (Goal.stripConv ⟨lb, C, rb⟩).1 = (Goal.stripConv ⟨lb', C, rb'⟩).1 ∧
-      (Goal.stripConv ⟨lb, C, rb⟩).2.same (Goal.stripConv ⟨lb', C, rb'⟩).2 = true
+    (GoalOf.stripConv ⟨lb, C, rb⟩).1 = (GoalOf.stripConv ⟨lb', C, rb'⟩).1 ∧
+      (GoalOf.stripConv ⟨lb, C, rb⟩).2.same (GoalOf.stripConv ⟨lb', C, rb'⟩).2 = true
   | .conv a, lb, lb', rb, rb', hl, hr => by
     rw [stripConv_conv, stripConv_conv]
     have := stripConv_same a (lb := rb.map Span.swap) (lb' := rb'.map Span.swap)
@@ -218,11 +218,11 @@ theorem stripConv_same : ∀ (C : Rel) {lb lb' rb rb' : Option Span},
   | .or _ _, lb, lb', rb, rb', hl, hr | .and _ _, lb, lb', rb, rb', hl, hr
   | .seq _ _, lb, lb', rb, rb', hl, hr | .call _, lb, lb', rb, rb', hl, hr => by
     rw [stripConv_other _ _ _ (fun a h => by cases h), stripConv_other _ _ _ (fun a h => by cases h)]
-    exact ⟨rfl, Goal.same_iff.2 ⟨rfl, hl, hr⟩⟩
+    exact ⟨rfl, GoalOf.same_iff.2 ⟨rfl, hl, hr⟩⟩
 
 theorem norm_same {g h : Goal} (e : g.same h = true) :
     g.norm.1 = h.norm.1 ∧ g.norm.2.same h.norm.2 = true := by
-  rw [Goal.same_iff] at e
+  rw [GoalOf.same_iff] at e
   obtain ⟨lb, eg, rb⟩ := g
   obtain ⟨lb', eh, rb'⟩ := h
   simp only at e
@@ -236,8 +236,8 @@ theorem norm_same {g h : Goal} (e : g.same h = true) :
 def IsKey (G : Goal) : Prop := G.norm = (false, G)
 
 theorem stripConv_canonical : ∀ (C : Rel) (lb rb : Option Span), canon C = C →
-    canon (Goal.stripConv ⟨lb, C, rb⟩).2.e = (Goal.stripConv ⟨lb, C, rb⟩).2.e ∧
-      ∀ a, (Goal.stripConv ⟨lb, C, rb⟩).2.e ≠ .conv a
+    canon (GoalOf.stripConv ⟨lb, C, rb⟩).2.e = (GoalOf.stripConv ⟨lb, C, rb⟩).2.e ∧
+      ∀ a, (GoalOf.stripConv ⟨lb, C, rb⟩).2.e ≠ .conv a
   | .conv a, lb, rb, h => by
     rw [stripConv_conv]
     simp only [canon, RelOf.conv.injEq] at h
@@ -250,11 +250,11 @@ theorem stripConv_canonical : ∀ (C : Rel) (lb rb : Option Span), canon C = C �
 theorem isKey_of {G : Goal} (hc : canon G.e = G.e) (hn : ∀ a, G.e ≠ .conv a) : IsKey G := by
   obtain ⟨lb, e, rb⟩ := G
   simp only at hc hn
-  simp only [IsKey, Goal.norm, hc, stripConv_other _ _ _ hn]
+  simp only [IsKey, GoalOf.norm, hc, stripConv_other _ _ _ hn]
 
 theorem IsKey.canonical {G : Goal} (h : IsKey G) : canon G.e = G.e ∧ ∀ a, G.e ≠ .conv a := by
   have := stripConv_canonical (canon G.e) G.lb G.rb (canon_idem _)
-  unfold IsKey Goal.norm at h
+  unfold IsKey GoalOf.norm at h
   rw [h] at this
   exact this
 

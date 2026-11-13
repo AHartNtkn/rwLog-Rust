@@ -23,15 +23,15 @@ namespace R001
 open Tier0
 
 /-- A run follows its rounds, and the runtime's initial state is a goal's. -/
-theorem init_eq (P : Program) (q : Rel) : runtime.init P q = State.ofGoal P ⟨none, q, none⟩ := rfl
+theorem init_eq (P : Program) (q : Rel) : runtime.init P q = StateOf.ofGoal P ⟨none, q, none⟩ := rfl
 
 namespace Tier0
 
 theorem root_goal (P : Program) (q : Rel) (k : Nat) :
-    ∃ h : 0 < (iter (State.ofGoal P ⟨none, q, none⟩) k).tables.length,
-      (iter (State.ofGoal P ⟨none, q, none⟩) k).tables[0].goal = (Goal.norm ⟨none, q, none⟩).2 := by
-  obtain ⟨h, hg, -⟩ := iter_ext_le (State.ofGoal P ⟨none, q, none⟩) (Nat.zero_le k) 0
-    (by simp [iter, State.ofGoal])
+    ∃ h : 0 < (iter (StateOf.ofGoal P ⟨none, q, none⟩) k).tables.length,
+      (iter (StateOf.ofGoal P ⟨none, q, none⟩) k).tables[0].goal = (GoalOf.norm ⟨none, q, none⟩).2 := by
+  obtain ⟨h, hg, -⟩ := iter_ext_le (StateOf.ofGoal P ⟨none, q, none⟩) (Nat.zero_le k) 0
+    (by simp [iter, StateOf.ofGoal])
   exact ⟨h, hg⟩
 
 theorem rootAns_iter (st : State) (k : Nat) (h : 0 < (iter st k).tables.length) :
@@ -42,20 +42,20 @@ theorem rootAns_iter (st : State) (k : Nat) (h : 0 < (iter st k).tables.length) 
 
 theorem finished_iter (st : State) (k : Nat) (h : 0 < (iter st k).tables.length)
     (hf : (iter st k).finished = true) : (iter st k).tables[0].done = true := by
-  unfold State.finished at hf
+  unfold StateOf.finished at hf
   rwa [List.head?_eq_getElem?, List.getElem?_eq_getElem h] at hf
 
 /-- What a run has emitted after `n` steps is the root table's answers after
 some `k ≤ n` rounds, oriented; if the run halted, that table is complete. -/
 theorem emitted_root (P : Program) (q : Rel) (n : Nat) :
-    ∃ k, ∃ h : 0 < (iter (State.ofGoal P ⟨none, q, none⟩) k).tables.length,
+    ∃ k, ∃ h : 0 < (iter (StateOf.ofGoal P ⟨none, q, none⟩) k).tables.length,
       runtime.emitted (runtime.init P q) n =
-        orient (Goal.norm ⟨none, q, none⟩).1 (iter (State.ofGoal P ⟨none, q, none⟩) k).tables[0].answers ∧
-      stateAfter (runtime.init P q) n = iter (State.ofGoal P ⟨none, q, none⟩) k ∧
-      (runtime.Halts (runtime.init P q) n → (iter (State.ofGoal P ⟨none, q, none⟩) k).tables[0].done = true) ∧
-      ((iter (State.ofGoal P ⟨none, q, none⟩) k).tables[0].done = true ∨ k = n) := by
-  set st := State.ofGoal P ⟨none, q, none⟩
-  have hne : st.tables ≠ [] := by simp [st, State.ofGoal]
+        orient (GoalOf.norm ⟨none, q, none⟩).1 (iter (StateOf.ofGoal P ⟨none, q, none⟩) k).tables[0].answers ∧
+      stateAfter (runtime.init P q) n = iter (StateOf.ofGoal P ⟨none, q, none⟩) k ∧
+      (runtime.Halts (runtime.init P q) n → (iter (StateOf.ofGoal P ⟨none, q, none⟩) k).tables[0].done = true) ∧
+      ((iter (StateOf.ofGoal P ⟨none, q, none⟩) k).tables[0].done = true ∨ k = n) := by
+  set st := StateOf.ofGoal P ⟨none, q, none⟩
+  have hne : st.tables ≠ [] := by simp [st, StateOf.ofGoal]
   obtain ⟨e1, -, e3⟩ := run_root n st hne
   have hk : ∃ k, stateAfter st n = iter st k ∧
       ((runtime.run st n).2 = true → (iter st k).finished = true) ∧
@@ -68,7 +68,7 @@ theorem emitted_root (P : Program) (q : Rel) (n : Nat) :
   refine ⟨k, h0, ?_, hk, fun hh => finished_iter st k h0 (hf hh), ?_⟩
   · unfold Runtime.emitted
     rw [init_eq, e1, hk, rootAns_iter st k h0]
-    simp [st, State.ofGoal, rootAns]
+    simp [st, StateOf.ofGoal, rootAns]
   · rcases hkn with h | h
     · exact .inl (finished_iter st k h0 h)
     · exact .inr h
@@ -76,8 +76,8 @@ theorem emitted_root (P : Program) (q : Rel) (n : Nat) :
 section
 
 theorem tinv_root {P : Program} {q : Rel} (hwf : ∀ ρ ∈ P.theory, ρ.WellFormed) (k : Nat) :
-    TInv P (iter (State.ofGoal P ⟨none, q, none⟩) k).tables :=
-  tinv_iter (st := State.ofGoal P ⟨none, q, none⟩) hwf (tinv_ofGoal (goodG_root q)) k
+    TInv P (iter (StateOf.ofGoal P ⟨none, q, none⟩) k).tables :=
+  tinv_iter (st := StateOf.ofGoal P ⟨none, q, none⟩) hwf (tinv_ofGoal (goodG_root q)) k
 
 /-- Every emitted answer refines one derivation of the query. -/
 theorem emitted_ref {P : Program} {q : Rel} (hwf : ∀ ρ ∈ P.theory, ρ.WellFormed) {n : Nat} {a : Span}
@@ -91,16 +91,16 @@ theorem emitted_ref {P : Program} {q : Rel} (hwf : ∀ ρ ∈ P.theory, ρ.WellF
   rw [hg] at hs hr
   obtain ⟨hd, heq⟩ := norm_back ⟨none, q, none⟩ hs
   refine ⟨_, hd, ?_⟩
-  have := ref_oS (Goal.norm ⟨none, q, none⟩).1 hr
+  have := ref_oS (GoalOf.norm ⟨none, q, none⟩).1 hr
   rwa [← heq, gden_root] at this
 
 /-- A complete root covers every derivation of the query. -/
 theorem root_done_dc {P : Program} {q : Rel} (hwf : ∀ ρ ∈ P.theory, ρ.WellFormed) {k : Nat}
-    (h0 : 0 < (iter (State.ofGoal P ⟨none, q, none⟩) k).tables.length)
-    (hd : (iter (State.ofGoal P ⟨none, q, none⟩) k).tables[0].done = true) {s : Span}
+    (h0 : 0 < (iter (StateOf.ofGoal P ⟨none, q, none⟩) k).tables.length)
+    (hd : (iter (StateOf.ofGoal P ⟨none, q, none⟩) k).tables[0].done = true) {s : Span}
     (hs : Derives P q s) :
-    DC P.theory (orient (Goal.norm ⟨none, q, none⟩).1
-      (iter (State.ofGoal P ⟨none, q, none⟩) k).tables[0].answers) s.den := by
+    DC P.theory (orient (GoalOf.norm ⟨none, q, none⟩).1
+      (iter (StateOf.ofGoal P ⟨none, q, none⟩) k).tables[0].answers) s.den := by
   obtain ⟨w, hw⟩ := dw_of_derives hs
   obtain ⟨w', s', h1, -, h4⟩ := norm_meas (P := P) ⟨none, q, none⟩ hw
   rw [gden_root] at h4
@@ -115,7 +115,7 @@ good: what the run has emitted after `k₀` steps covers it. -/
 theorem emitted_dc {P : Program} {q : Rel} (hwf : ∀ ρ ∈ P.theory, ρ.WellFormed) {s : Span}
     (hs : Derives P q s) :
     ∃ n, DC P.theory (runtime.emitted (runtime.init P q) n) s.den := by
-  set st := State.ofGoal P ⟨none, q, none⟩
+  set st := StateOf.ofGoal P ⟨none, q, none⟩
   have hI := tinv_root (q := q) hwf
   obtain ⟨w, hw⟩ := dw_of_derives hs
   obtain ⟨w', s', h1, -, h4⟩ := norm_meas (P := P) ⟨none, q, none⟩ hw
@@ -180,7 +180,7 @@ theorem no_subsumed : Obligation.no_subsumed := by
   rw [he, orient_eq]
   refine List.Pairwise.map _ (fun a b hab hc => ?_)
     ((tinv_root (q := q) hP.2.2 k).pw _ (List.getElem_mem h0))
-  cases hf : (Goal.norm ⟨none, q, none⟩).1
+  cases hf : (GoalOf.norm ⟨none, q, none⟩).1
   · rw [hf] at hc
     simp only [oS, Bool.false_eq_true, ite_false] at hc
     exact absurd (covers?_complete hc) (by simp [hab])
@@ -197,7 +197,7 @@ theorem prompt_pruning : Obligation.prompt_pruning := by
   intro P q hP n t ht
   obtain ⟨k, -, -, hsa, -, -⟩ := emitted_root P q n
   rw [hsa] at ht
-  have hI := uinv_iter (st := State.ofGoal P ⟨none, q, none⟩) hP.2.2
+  have hI := uinv_iter (st := StateOf.ofGoal P ⟨none, q, none⟩) hP.2.2
     (uinv_ofGoal ⟨fun _ h => (by simp at h), fun _ h => (by simp at h)⟩) k
   refine ⟨hI.unref t ht, fun b hb => ?_⟩
   simp only [List.mem_append, Option.mem_toList] at hb
