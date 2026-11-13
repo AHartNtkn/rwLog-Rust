@@ -36,7 +36,8 @@ namespace RwLog
 /-- At the kernel of spans as they are written `Engine.costedAt` is
 `Engine.costed`. -/
 theorem Engine.costedAt_std (E : Engine) :
-    E.costedAt (fun _ => Domain.written) (fun _ => Kernel.std) (fun _ => Kernel.std_refines) =
+    E.costedAt (R := fun _ => Span) (fun _ => Domain.written) (fun _ => Kernel.std)
+        (fun _ => Kernel.std_refines) =
       E.costed := rfl
 
 end RwLog
