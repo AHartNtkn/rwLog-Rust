@@ -29,7 +29,7 @@ The run of an engine on a converse can be the mirror image of its run only up
 to the order of the answers of a step, which is how `DualTrace` is stated
 (`TraceEquiv`).
 -/
-import RwLog.Rungs.Framework.Derivation
+import RwLog.Rungs.Framework.Writing
 import RwLog.Rungs.Framework.Runtime
 import RwLog.SpanLayer.Sorts
 
@@ -124,15 +124,8 @@ theorem Runtime.not_convTrace_of_init (R : Runtime) (hinit : R.init P (.conv q) 
 
 namespace Engine
 
-variable (E : Engine) {R : Type} [Answer R] [DecidableEq R] (dom : Sorts → Domain R)
-  (K : Sorts → Kernel R Cost) (hK : ∀ S, (K S).Refines (dom S))
-
-/-- An engine starts two queries with the same normal form in the same
-state. -/
-theorem init_of_norm (P : Program) {q q' : Rel} (h : q.norm = q'.norm) :
-    (E.costedAt dom K hK).runtime.init P q = (E.costedAt dom K hK).runtime.init P q' := by
-  show ((E.costedAt dom K hK).init P q).val = ((E.costedAt dom K hK).init P q').val
-  simp only [costedAt, Cost.bind_val, Charged.load, Charged.op_val, h]
+variable (E : Engine) {R : Sorts → Type} [∀ S, Answer (R S)] [∀ S, DecidableEq (R S)]
+  (dom : ∀ S, Domain (R S)) (K : ∀ S, Kernel (R S) Cost) (hK : ∀ S, (K S).Refines (dom S))
 
 /-- **No engine has `ConvTrace` as it is stated** together with
 `DerivationGeneral` and `PointComplete`, at any domain and any kernel. -/

@@ -58,4 +58,11 @@ import RwLog.Rungs.Framework.Derivation
 import RwLog.Trusted.Runtime
 import RwLog.Rungs.Framework.Answer
 import RwLog.Rungs.Framework.Fairness
+import RwLog.Rungs.Framework.Writing
 import RwLog.Rungs.Framework.ConvTrace
+import RwLog.Rungs.Framework.Race
+import RwLog.Rungs.Framework.RaceWinner
+import RwLog.Rungs.Tabled.Machine
+import RwLog.Rungs.Tabled.Unfold
+import RwLog.Rungs.Mirror.Machine
+import RwLog.Rungs.R005.Engine

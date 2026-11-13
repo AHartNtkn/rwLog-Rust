@@ -6,18 +6,16 @@ its machine.
 **Master is between epochs.** Epoch 1 of the ladder (rungs R000 to R005, on
 the size-charged cost model) is frozen at the git tag `epoch-1`; `EPOCH1.md`
 says what its theorems are about. The directories `Rungs/R000` to `Rungs/R004`,
-their tests and R005's proofs exist only at the tag. Master keeps the
-specification, the kernel, the shared libraries, and the text of the machines
-R005 is made of, so that R005 can be ported once as the yardstick for the next
-engine (roadmap M3 part B and M4). No rung is admitted on master until then.
-The trusted statements are being restated; a kept file that stops compiling
-against them is parked, not repaired. `PARKED.md` lists the files that are out
-of the build since the kernel, the cost monad and the runtime were restated:
-everything below that is written against the old kernel or defines a machine
-with the old step (`Rungs/Tabled/`, `Rungs/R005`, `Mirror`, `Directed`,
-`Hedge`, `Framework/Race*`, and `Engine`, `Correct` and `Properties` of
-`Rungs/Naive/`). What this file says about them describes them as they are at
-the tag. No machine is in the build until R005 is ported.
+their tests and every proof about R005 exist only at the tag. Master has the
+specification, the kernel, the shared libraries, and R005's machine written
+once against the derivation kernel (`Rungs/Tabled/`, `Rungs/Mirror/`,
+`Rungs/R005/Engine.lean`), built and run on the conformance cases
+(`Tests/R005Runs.lean`). Its kept properties are not re-established yet
+(roadmap M3 part B and M4), so no rung is admitted on master. `PARKED.md`
+lists the files still out of the build: the proofs of epoch 1 about the tabled
+machine, the mirrored machine and the naive machine, written against the old
+kernel and the old step. What this file says about them describes them as
+they are at the tag.
 
 ```
 Trusted/        the specification: syntax with sort declarations, semantics (what a sort
@@ -41,31 +39,25 @@ Kernel/         the executable kernel of spans as written (match, solve, span) a
 SpanLayer/      span-level semantics, derivations, coverage vocabulary
 Lib/            facts about lists and greatest fixpoints that mention no rwlog type
 Rungs/Framework generic theorems about any Runtime / Rung
-Rungs/Tabled/   the tabled round machine, open in its unfolding oracle: written against the
-                kernel (Gen.lean) and read in the cost monad (Machine.lean)
-Rungs/Mirror/   a machine run on a query and on its mirror image side by side, for any machine:
-                written against the kernel (Gen.lean) and read in the cost monad (Machine.lean)
-Rungs/Directed/ goal-directed tables: the tabled machine with no unfolding race and no
-                completion, pushing boundaries as answers arrive. Sound, not complete; not a rung
-Rungs/Hedge/    two machines run side by side, balanced by ticks, for any two machines; not a rung
-Rungs/Naive/    the naive machine (R000 of epoch 1, namespace `R000`): normalisation, unfolding to
-                a depth, and their correctness. The tabled machine's unfolding race and its
-                completeness proof rest on it
-Rungs/Tabled/Base  the tabled machine itself (R001 of epoch 1, the proper baseline, namespace
-                `R001`): Engine, Spec, and the proofs the shared libraries use (Tier 0,
-                tables, `|` order and converse)
-Rungs/R005/     the top rung of epoch 1, parked: its machine (Engine.lean), the unfolders it races
-                (Unfolder/R002 to R004, namespaces `R002` to `R004`), its family, and its
-                statements with no proofs (Spec.lean)
+Rungs/Tabled/   the tabled round machine for any way of unfolding a call (Machine.lean), and
+                the ways R005 races: unfolding to a depth, a walk between boundaries, and
+                the walk with shared sub-chains (Unfold.lean). Written once, against the
+                derivation kernel. `Exact`, `Repeats`, `Direction` and `Base/` are parked
+Rungs/Mirror/   a machine run on a query and on its converse side by side, for any engine
+                (Machine.lean). `Direction`, `Bounds`, `Keeps`, `Trace` are parked
+Rungs/Naive/    normalisation, unfolding to a depth, and their correctness (namespace `R000`).
+                `Engine`, `Correct`, `Properties` (the naive machine of epoch 1) are parked
+Rungs/R005/     the engines: `R001.engine` (tables, unfolding to a depth), `R004.engine` (tables,
+                the race of all three ways), `R005.engine` (`R004.engine` mirrored)
 AxiomAudit.lean every headline and shared theorem, checked to use only the three standard axioms
-Tests/          executable runs: the charges of the kernel (ChargeRuns, built); the naive and
-                the tabled machine on the conformance cases, R005 beside R004, and the
-                measurements (parked)
+Tests/          executable runs: the charges of the kernel (ChargeRuns), the three engines on
+                the conformance cases and on each other (R005Runs); the runs of the naive
+                and the tabled machine of epoch 1 (parked)
 ```
 
 `SYMMETRIC_ENGINE.md` is the design note for the engine of milestone M6: what it
 is, what was measured, and what the trusted files and the kernel must provide
-for it. `Tests/MiddleRuns.lean` holds its measurements on R004 and R005.
+for it. Its measurements on R004 and R005 are in `Tests/MiddleRuns.lean` at the tag `epoch-1`.
 
 The constraint system is sorts with a built-in disequality (roadmap L48, L51).
 The trusted files have no rules, theories or models: `Trusted/Semantics.lean`
@@ -178,22 +170,24 @@ rung unchanged.
   `CostedRuntime.le_spent_of_covered` (a machine that has emitted nothing in
   `N` steps has paid for `N + 1` before it covers anything).
 
-`Rungs/Tabled/` (parked) is the base for costed rungs that keep R001's tables and change
-something else. `Base/` is R001 itself as a plain `Runtime` (`R001.runtime`)
-with its statements and proofs. `Machine.lean` is R001's machine written in the cost monad
-with the unfolding race left to an `Oracle`; `Tabled.round_split` isolates
-what a round spends asking the oracle. `Exact.lean` proves
-`Tabled.machine_runtime`: with any oracle whose value is R001's unfolding race
-(`Oracle.Exact`), the machine's runtime is `R001.runtime`, so all of R001's
-theorems apply. A rung that changes only the oracle (as R002 did) proves its
-oracle exact and bounds its ticks; nothing about tables is reproved.
-`Repeats.lean` covers an oracle that returns the same answers with some
-repeats of earlier spans left out (`Oracle.SkipsRepeats`, in particular
-`Oracle.ExactModRepeats`: R001's answers or their `eraseDups`). The tables
-drop repeats themselves, so the machine is still `R001.runtime`
-(`Tabled.machine_runtime_modRepeats`), the rest of a round costs no more
-(`Tabled.rest_skips`), and a per-call bound on the oracle becomes a bound on
-the whole run (`Tabled.spent_le_of_skips`). R003 used it.
+`Rungs/Tabled/Machine.lean` is the tabled machine as an engine for every
+derivation kernel, with the way a call is unfolded left to an `Unfolder`
+(`Tabled.engine u`). A goal is an interval of a chain or a set of members of a
+meet, between two boundaries; a round produces every goal's answers from its
+splits and from the unfolder, then marks as complete the largest set of goals
+that gained nothing and depend only on each other. `Rungs/Tabled/Unfold.lean`
+has the unfolders: `eagerRace` (unfold every call to a depth, then evaluate),
+`walkRace` (the same answers, walking a chain from a boundary and pruning as
+it goes, from either end) and `sharedRace` (the walk with equal sub-chains
+evaluated once); `raced` races them with `K.race`. Each machine exists once
+and nothing is proved of a second copy (roadmap L04).
+
+`Rungs/Framework/Writing.lean` proves what holds of every engine because an
+engine is handed the normal form of the query: `Engine.orComm`, `orAssoc`,
+`seqAssoc`, `andComm`, `andAssoc`. `Rungs/Framework/ConvTrace.lean` proves
+that `Runtime.ConvTrace` as stated holds of no engine
+(`Engine.not_convTrace`), so neither does `Runtime.Keeps` (`Engine.not_keeps`;
+roadmap L57).
 
 `Rungs/Framework/Race.lean` defines `Cost.race` and proves what it returns and spends
 (`Cost.race_val`, `Cost.race_ticks`, and from below `Cost.le_race_ticks`), for
@@ -204,7 +198,7 @@ previous rung's first round is `le_race_ticks` on its two halves.
 
 `Rungs/Framework/RaceWinner.lean` says which computation a race returns and
 what it costs as functions of the two costs alone (`Cost.firstWins`,
-`Cost.raceCost`, `Cost.race_eq`), with `raceCost_le` (at most 7 times the
+`Cost.raceCost`, `Cost.race_val_eq`, `Cost.race_ticks_eq`), with `raceCost_le` (at most 7 times the
 cheaper) and `winner_le_raceCost`. Use it when the proof must follow which
 side won.
 
@@ -220,55 +214,16 @@ and a bound on what the new machine has paid by the old one's step. The file
 also has the facts about `dual` (`RelOf.dual_dual`, `size_dual`,
 `ProgramOf.WellFormed.dual`).
 
-`Rungs/Mirror/` is the mirrored machine of any machine `C`: `C` on the query
-and `C` on the mirror image, raced step by step (`Gen.lean` says what a step
-does). It asks of `C`: `Runtime.DualTrace`, a `ConvBisim`, and equal first
-states for swapped and regrouped `|`. It gives:
-`Mirror.trace_go` / `trace_start` (it emits what `C` emits, step for step, up
-to order and equivalence), `Mirror.spent_le` / `paid_le_min` (the first `n`
-steps cost at most `2 n` rounds of at most 14 times the cheaper run),
-`Mirror.spent_ge` / `paid_ge_min` (and at least the cheaper run),
-`Mirror.dualBisim` and `convBisim` (its runs on the mirror image and on the
-converse cost exactly what its run on the query costs, step for step),
-`Mirror.directionFree`, `Mirror.simulates` (it simulates `C` within
-`Mirror.bound`), `Mirror.keeps` (it has every property of `Runtime.Keeps`
-that `C` has), `Mirror.step_from` (each step emits what one step of one of
-the two runs emits, at no less than its cost) and `Mirror.covered_first`.
-`Rungs/Tabled/Direction.lean` supplies what it asks for the tabled machine
-with any oracle (`Tabled.convBisim`, `start_or_comm`, `start_or_assoc`,
-`init_ticks`, `step_pos`). R005 is the mirrored machine of R004; a later rung
-that mirrors another machine, or runs something beside a mirrored machine,
-reuses all of it.
+`Rungs/Mirror/Machine.lean` is the mirrored machine of any engine `E`
+(`Engine.mirrored`): `E` on the root and `E` on its converse (`K.convNode`),
+stepped by level so that neither run is ever more than one doubling ahead in
+ticks, with the converse run's answers swapped (`K.swapA`). R005 is
+`R004.engine.mirrored`. The theorems of epoch 1 about it (`Mirror.trace_go`,
+`paid_le_min`, `paid_ge_min`, `directionFree`, `keeps`) are in the parked
+files and are not restated yet.
 
-`Rungs/Directed/` is the goal-directed tabled machine (`Gen.lean` says what
-it does): a sequence restricted at one end (a boundary, or a factor that is a
-span) is evaluated from that end, each answer's interface pushed into the
-other factor as it arrives, with no join against the free factor, no
-unfolding race and no completion. It is written against the kernel and read
-in the cost monad (`Directed.engine_costed`). It is sound and
-derivation-general (`Directed.emitted_ref`, `sound`, `derivationGeneral`),
-it is not complete and never reports exhaustion, so it is a component and
-not a rung. `Tests/DirectedRuns.lean` measures it beside R004: constant cost
-on a family where R004's free factor costs `4 ^ k`, and hundreds of times
-R004's cost on a family where driving from the restricted end is the wrong
-order. The second is why it cannot stand alone.
-
-`Rungs/Hedge/` is `Hedge.machine A B` for any two machines: each step races
-the next step of `A` against the next step of `B`, the machine that took the
-last steps handicapped by the length of its streak, emits `A`'s answers not
-covered by what `B` gave and `B`'s answers that are plain (conjoined with
-themselves they do not grow) and new, and halts only when `A` does. It asks that a step's
-ticks bound the sizes of what it emits (`Hedge.tabled_step_sizes`,
-`directed_step_sizes` supply this for the tabled and the goal-directed
-machines). It gives: `Hedge.follows_first` and `follows_second` (whatever
-`A`, or `B`, has emitted is covered within an explicit polynomial of what
-that machine paid, and exhaustion follows `A`), the baseline properties that
-do not mention traces from `A`'s alone plus soundness and derivation
-generality of `B` (`Hedge.sound`, `derivationGeneral`, `noSubsumed`,
-`honest`, `complete`, `terminatesWhere`, `emptySide`), and the trace laws
-from costed bisimulations of `A` and of `B` (`Hedge.step_sim`,
-`convTrace_of`, `dualTrace_of`). `Framework/Reach.lean` is the runs of any
-runtime as a relation between states, which these proofs induct on.
+The goal-directed machine and the hedge of two machines (`Rungs/Directed/`,
+`Rungs/Hedge/`) are not on master; they are at the tag `epoch-1`.
 
 An engine cannot declare its own cost and cannot make up an answer.
 `Trusted/Kernel.lean` has two classes. `Kernel S M` is an abstract type of
@@ -310,18 +265,11 @@ terms is the tick bound proved of the Rust function on the store of
 nodes and the interning of answers are charged as postulated at every kernel
 rung so far (roadmap L45).
 
-In epoch 1 each machine was written twice, in the same words (these files are parked). `Gen.lean`
-(`Rungs/Tabled/`, `Rungs/Mirror/`, `Rungs/R005/Unfolder/R002/` to `R004/`) is the engine,
-against the kernel.
-`Machine.lean`, `Unfold.lean`, `Shared.lean` and `Pruned.lean` are the same
-text in `Cost` with the charged primitives written out, and all proofs are
-carried out on them. `Reading.lean` next to each proves the two equal,
-definition by definition (`Tabled.engine_costed`, `Mirror.mirrored_costed`;
-`R00N.engine_std` for the unfolders is at the tag), by
-unfolding both and rewriting with the equalities already proved; the tactic
-`same_text` (`Rungs/Framework/TraverseStd.lean`) closes what is left. This
-doubling ends with epoch 1 (roadmap L04): from the port on, each machine
-exists once and proofs are carried out on the engine text.
+In epoch 1 each machine was written twice, in the same words: once against
+the kernel (`Gen.lean`) and once in `Cost`, with a `Reading.lean` proving the
+two equal. That ended with the port (roadmap L04): each machine exists once,
+as an engine, and proofs are carried out on that text at
+`DerivationKernel.over`.
 
 A rung whose machine is equal to an earlier one as a `Runtime` (as R002 was
 to R001) uses `SameRun.of_eq`, or simply rewrites.
@@ -332,17 +280,14 @@ to R001) uses `SameRun.of_eq`, or simply rewrites.
 |---|---|
 | `Rungs/R000/` Chain, Normalize, NormalizeCorrect, Unfold, Engine, Correct, Properties | `Rungs/Naive/`, same file names |
 | `Rungs/R000/` Products, Termination | removed |
-| `Rungs/R001/Engine.lean`, `Spec.lean` | `Rungs/Tabled/Base/`; the Spec keeps only the statements whose proofs are kept |
-| `Rungs/R001/Proofs/` Kernel, Base, Derivations, Tier0 and `Tier0/`, Symmetry, SymmetryLists, SymmetryGoals | `Rungs/Tabled/Base/Proofs/`, same file names |
+| `Rungs/R001/Engine.lean`, `Spec.lean` | `Rungs/Tabled/Base/` (parked); the Spec keeps only the statements whose proofs are kept |
+| `Rungs/R001/Proofs/` Kernel, Base, Derivations, Tier0 and `Tier0/`, Symmetry, SymmetryLists, SymmetryGoals | `Rungs/Tabled/Base/Proofs/` (parked), same file names |
 | the rest of `Rungs/R001/Proofs/` (termination certificates, exact tables, the mirror trace, `R001.keeps`) | removed |
-| `Rungs/R002/` Unfold, Gen | `Rungs/R005/Unfolder/R002/` |
-| `Rungs/R003/` Shared, Gen, Engine | `Rungs/R005/Unfolder/R003/` |
-| `Rungs/R004/` Pruned, Gen, Engine | `Rungs/R005/Unfolder/R004/` |
-| every `Spec.lean`, `Reading.lean` and `Proofs/` of R002 to R004 | removed |
-| `Rungs/R005/Proofs/` | removed; `Rungs/R005/Spec.lean` keeps the statements M4 re-establishes, unproved |
-| `R004.wrap`, `bit`, `gen` (in `R004/Spec.lean`) | `R005.wrap`, `bit`, `gen` in `Rungs/R005/Family.lean` |
-| `Tests/R000Runs.lean`, `R001Runs.lean` | `Tests/NaiveRuns.lean`, `TabledRuns.lean` |
-| `Tests/R002Runs.lean` to `R004Runs.lean` | removed; `costOf` and the `path` and `halve` programs moved to `Tests/R005Runs.lean` |
+| `Rungs/R002/` to `Rungs/R004/` (unfolders, their `Gen`, `Spec`, `Reading`, `Proofs/`) | removed; the three ways of unfolding are rewritten in `Rungs/Tabled/Unfold.lean` |
+| `Rungs/R005/` Spec, Family, `Proofs/` | removed; `Rungs/R005/Engine.lean` is the engine |
+| `Rungs/Directed/`, `Rungs/Hedge/`, `Tests/DirectedRuns.lean`, `MiddleRuns.lean` | removed |
+| `Tests/R000Runs.lean`, `R001Runs.lean` | `Tests/NaiveRuns.lean`, `TabledRuns.lean` (parked) |
+| `Tests/R002Runs.lean` to `R005Runs.lean` | removed; `Tests/R005Runs.lean` is new |
 | `R001.Obligation.finite_answers` and its proof | removed: it holds of every runtime (`Runtime.finite_answers`), so it obliged nothing (roadmap L05) |
 
 Declarations keep their epoch 1 namespaces (`R000` to `R005`), so a name on

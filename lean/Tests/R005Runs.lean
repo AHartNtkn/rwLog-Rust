@@ -41,14 +41,14 @@ def showSpan (s : Span) : String :=
 final report if it reported that it is done. -/
 def runE (E : Engine) (P : Program) (q : Rel) (fuel : Nat) : List String × Option (List String) :=
   let r := E.costed.runtime.run (E.costed.start P q) fuel
-  (r.1.map showSpan, r.2.map (·.map showSpan))
+  (r.1.map fun a => showSpan a.2, r.2.map (·.map fun a => showSpan a.2))
 
 /-- What each step showed. -/
 def traceE (E : Engine) (P : Program) (q : Rel) (fuel : Nat) : List (List String) :=
   (E.costed.runtime.trace (E.costed.start P q) fuel).map fun
-    | .answers as => as.map showSpan
+    | .answers as => as.map fun a => showSpan a.2
     | .level n => [s!"level {n}"]
-    | .final as => "final" :: as.map showSpan
+    | .final as => "final" :: as.map fun a => showSpan a.2
 
 /-- The ticks paid by the end of the first `n` steps. -/
 def paidE (E : Engine) (P : Program) (q : Rel) (n : Nat) : Nat := E.costed.paid P q n

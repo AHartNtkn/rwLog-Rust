@@ -246,3 +246,16 @@ new axiom.
 
 /-- info: 'RwLog.Engine.not_keeps' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Engine.not_keeps
+
+/-! ## What every engine has, because it is handed the normal form -/
+
+/-- info: 'RwLog.Engine.orComm' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Engine.orComm
+/-- info: 'RwLog.Engine.orAssoc' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Engine.orAssoc
+/-- info: 'RwLog.Engine.seqAssoc' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Engine.seqAssoc
+/-- info: 'RwLog.Engine.andComm' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Engine.andComm
+/-- info: 'RwLog.Engine.andAssoc' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Engine.andAssoc
