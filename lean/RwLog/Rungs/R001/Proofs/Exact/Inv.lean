@@ -16,7 +16,7 @@ namespace R001
 
 namespace Exact
 
-open Lifting (LCov bden)
+
 open Tier0
 
 variable {P : Program}
@@ -24,7 +24,7 @@ variable {P : Program}
 /-- The exact invariant of the tables of a reachable state. -/
 structure XInv (P : Program) (ts : Tables) : Prop where
   good : ∀ t ∈ ts, GoodG t.goal
-  sub : ∀ t ∈ ts, ∀ a ∈ t.answers, ∃ s, Derives P t.goal.e s ∧ Sub P.theory (GDen t.goal s.den) a
+  sub : ∀ t ∈ ts, ∀ a ∈ t.answers, ∃ s, Derives P t.goal.e s ∧ Under P.theory (GDen t.goal s.den) a
   comp : ∀ t ∈ ts, t.done = true → ∀ s, Derives P t.goal.e s →
     XC P.theory t.answers (GDen t.goal s.den)
 
@@ -32,8 +32,8 @@ section
 variable (hL : SimpLaws P.theory)
 include hL
 
-theorem sub_oS {X : GRel} {a : Span} (f : Bool) (h : Sub P.theory X a) :
-    Sub P.theory (oR f X) (oS f a) := by
+theorem sub_oS {X : GRel} {a : Span} (f : Bool) (h : Under P.theory X a) :
+    Under P.theory (oR f X) (oS f a) := by
   cases f
   · exact h
   · exact sub_swap hL h
@@ -46,7 +46,7 @@ theorem xc_orient {A : List Span} {X : GRel} (f : Bool) (h : XC P.theory A X) :
 
 /-- Reading answers through the table of an equivalent key. -/
 theorem ansSub_of {ts : Tables} (hgood : ∀ t ∈ ts, GoodG t.goal)
-    (hsub : ∀ t ∈ ts, ∀ a ∈ t.answers, ∃ s, Derives P t.goal.e s ∧ Sub P.theory (GDen t.goal s.den) a) :
+    (hsub : ∀ t ∈ ts, ∀ a ∈ t.answers, ∃ s, Derives P t.goal.e s ∧ Under P.theory (GDen t.goal s.den) a) :
     AnsSub P ts := by
   intro d hd a ha
   obtain ⟨t, hf, a₀, ha₀, rfl⟩ := answersOf_mem ha

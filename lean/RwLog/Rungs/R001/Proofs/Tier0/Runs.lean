@@ -26,7 +26,7 @@ theorem iter_P (st : State) : ∀ k, (iter st k).P = st.P
 
 theorem iter_flip (st : State) : ∀ k, (iter st k).rootFlip = st.rootFlip
   | 0 => rfl
-  | k + 1 => (round_flip _).trans (iter_flip st k)
+  | k + 1 => (round_rootFlip _).trans (iter_flip st k)
 
 theorem iter_add (st : State) (k : Nat) : ∀ m, iter (iter st k) m = iter st (k + m)
   | 0 => rfl
@@ -36,23 +36,23 @@ theorem iter_succ' (st : State) : ∀ k, iter (round st).1 k = iter st (k + 1)
   | 0 => rfl
   | k + 1 => by simp only [iter, iter_succ' st k]
 
-theorem tinv_iter (hSE : Obligation.simplify_exact) {st : State}
+theorem tinv_iter {st : State}
     (hwf : ∀ ρ ∈ st.P.theory, ρ.WellFormed) (hI : TInv st.P st.tables) :
     ∀ k, TInv st.P (iter st k).tables
   | 0 => hI
   | k + 1 => by
-    have h := tinv_round hSE (st := iter st k) (by rw [iter_P]; exact hwf)
-      (by rw [iter_P]; exact tinv_iter hSE hwf hI k)
+    have h := tinv_round (st := iter st k) (by rw [iter_P]; exact hwf)
+      (by rw [iter_P]; exact tinv_iter hwf hI k)
     rw [iter_P] at h
     exact h
 
-theorem uinv_iter (hSS : Obligation.simplify_stable) {st : State}
+theorem uinv_iter {st : State}
     (hwf : ∀ ρ ∈ st.P.theory, ρ.WellFormed) (hU : UInv st.P st.tables) :
     ∀ k, UInv st.P (iter st k).tables
   | 0 => hU
   | k + 1 => by
-    have h := uinv_round hSS (st := iter st k) (by rw [iter_P]; exact hwf)
-      (by rw [iter_P]; exact uinv_iter hSS hwf hU k)
+    have h := uinv_round (st := iter st k) (by rw [iter_P]; exact hwf)
+      (by rw [iter_P]; exact uinv_iter hwf hU k)
     rw [iter_P] at h
     exact h
 
@@ -199,7 +199,7 @@ theorem run_root : ∀ (n : Nat) (st : State), st.tables ≠ [] →
       obtain ⟨i1, ⟨r, i2⟩, i3⟩ := run_root n (round st).1 (round_ne_nil hne)
       have hr0 : rootAns st = t₀.answers := by simp [rootAns, h]
       refine ⟨?_, ⟨fresh t₀.answers (outOf st t₀).1 ++ r, ?_⟩, i3⟩
-      · rw [i1, e1, round_flip, i2, e2, hr0]
+      · rw [i1, e1, round_rootFlip, i2, e2, hr0]
         simp [orient_eq, List.append_assoc]
       · rw [i2, e2, hr0, List.append_assoc]
 

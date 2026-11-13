@@ -39,23 +39,14 @@ def compl (st : State) : List Nat := completing st.P st.depth st.tables (st.tabl
 def after (st : State) (i : Nat) (t : Table) : Table :=
   if (compl st).contains i then { upd st t with done := true } else upd st t
 
-theorem zip_map_self {α β γ : Type} (f : α → β) (h : α × β → γ) :
-    ∀ l : List α, (l.zip (l.map f)).map h = l.map fun a => h (a, f a)
-  | [] => rfl
-  | a :: l => by simp only [List.map_cons, List.zip_cons_cons, zip_map_self f h l]
-
 theorem round_tables (st : State) :
     (round st).1.tables = (st.tables.mapIdx (after st)) ++ (newGoalsOf st).map fun g => ⟨g, [], false⟩ := by
-  simp only [round, zip_map_self]
+  simp only [round, map_zip_map_self]
   congr 1
   rw [List.mapIdx_eq_iff]
   intro i
   simp only [List.getElem?_mapIdx, List.getElem?_map]
   cases st.tables[i]? <;> rfl
-
-theorem round_P (st : State) : (round st).1.P = st.P := rfl
-theorem round_flip (st : State) : (round st).1.rootFlip = st.rootFlip := rfl
-theorem round_depth (st : State) : (round st).1.depth = st.depth + 1 := rfl
 
 theorem after_goal (st : State) (i : Nat) (t : Table) : (after st i t).goal = t.goal := by
   unfold after; split <;> rfl
@@ -159,7 +150,7 @@ theorem foldl_new_cover (p : Goal → Bool) (q : Goal → Goal → Bool) (hq : �
 one. -/
 theorem reqs_covered {st : State} {g : Goal} (h : g ∈ reqsOf st) :
     (∃ t ∈ st.tables, t.goal.same g = true) ∨ ∃ h ∈ newGoalsOf st, h.same g = true := by
-  rcases foldl_new_cover (fun g => st.tables.any fun t => t.goal.same g) Goal.same same_refl
+  rcases foldl_new_cover (fun g => st.tables.any fun t => t.goal.same g) Goal.same Goal.same_refl
     (reqsOf st) [] g h with h | h
   · exact .inl (List.any_eq_true.1 h)
   · exact .inr h
@@ -240,31 +231,6 @@ theorem reqs_found {st : State} {g : Goal} (h : g ∈ reqsOf st) :
     exact List.mem_append_right _ (List.mem_map_of_mem hh)
 
 /-! ## Completion -/
-
-/-- `gfpFrom` returns a subset closed under `ok`, given enough passes. -/
-theorem gfpFrom_closed (ok : List Nat → Nat → Bool) :
-    ∀ (n : Nat) (S : List Nat), S.length ≤ n →
-      ∀ i ∈ gfpFrom ok n S, i ∈ S ∧ ok (gfpFrom ok n S) i = true
-  | 0, S, hS, i, hi => by
-    rw [List.length_eq_zero_iff.1 (Nat.le_zero.1 hS)] at hi; simp [gfpFrom] at hi
-  | n + 1, S, hS, i, hi => by
-    unfold gfpFrom at hi ⊢
-    simp only at hi ⊢
-    split
-    · rename_i heq
-      simp only [heq, ↓reduceIte] at hi
-      refine ⟨hi, ?_⟩
-      have := List.length_filter_eq_length_iff.1 heq i hi
-      exact this
-    · rename_i hne
-      simp only [hne, ↓reduceIte] at hi
-      have hlt : (S.filter (ok S)).length < S.length :=
-        lt_of_le_of_ne (List.length_filter_le _ _) hne
-      obtain ⟨h1, h2⟩ := gfpFrom_closed ok n _ (by omega) i hi
-      exact ⟨(List.mem_filter.1 h1).1, h2⟩
-
-/-- The default table `getD` uses. -/
-def dflt : Table := ⟨⟨none, .zero, none⟩, [], false⟩
 
 /-- A table that completes in a round was incomplete, gained nothing, and has
 a strategy each of whose goals has a table that gained nothing and is

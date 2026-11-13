@@ -8,7 +8,7 @@ the term (`Fn`). This is what makes `&` with boundaries distribute
 (`meet_bound`), equivalent boundaries denote the same relation
 (`same_gden`), and interfaces absorb into the span they come from.
 -/
-import RwLog.Rungs.R001.Proofs.Tier0.Rel
+import RwLog.Rungs.R001.Proofs.Derivations
 
 namespace RwLog
 
@@ -16,7 +16,7 @@ namespace R001
 
 namespace Tier0
 
-open Lifting (bden)
+
 
 variable {T : Theory}
 
@@ -195,7 +195,7 @@ theorem meet_ifaces (x : Span) (B : GRel) :
 theorem fn_at {B C A : GRel} (hB : Fn B) (hC : Fn C) {M : Interp} {u v : GTerm} :
     (u, v) ∈ (B.comp (A.comp C)).at M ↔
       (u, u) ∈ B.at M ∧ (u, v) ∈ A.at M ∧ (v, v) ∈ C.at M := by
-  rw [Lifting.at_comp, Lifting.at_comp]
+  rw [at_comp, at_comp]
   constructor
   · rintro ⟨m, hb, m', ha, hc⟩
     obtain ⟨Sb, hb, hbM⟩ := hb
@@ -210,7 +210,7 @@ theorem fn_at {B C A : GRel} (hB : Fn B) (hC : Fn C) {M : Interp} {u v : GTerm} 
 theorem andPush_at {B C A A' xd : GRel} (hB : Fn B) (hC : Fn C) {M : Interp}
     (hx : xd.at M ⊆ (B.comp (A.comp C)).at M) :
     (xd.meet A').at M ⊆ ((B.comp (A.comp C)).meet (B.comp (A'.comp C))).at M := by
-  rw [Lifting.at_meet, Lifting.at_meet]
+  rw [at_meet, at_meet]
   rintro ⟨u, v⟩ ⟨hxd, ha'⟩
   have h := hx hxd
   obtain ⟨hb, -, hc⟩ := (fn_at hB hC).1 h
@@ -224,10 +224,10 @@ theorem andPush_backed {B C A A' : GRel} {xd : GRel} (hB : Fn B) (hC : Fn C)
   ⟨fun M hM => andPush_at hB hC (hx.1 M hM), andPush_at hB hC hx.2⟩
 
 theorem andPush_dom {B C A A' : GRel} {xd : GRel} (hB : Fn B) (hC : Fn C)
-    (hx : Lifting.LCov T xd (B.comp (A.comp C))) :
-    Lifting.LCov T (xd.meet A') ((B.comp (A.comp C)).meet (B.comp (A'.comp C))) := by
+    (hx : LCov T xd (B.comp (A.comp C))) :
+    LCov T (xd.meet A') ((B.comp (A.comp C)).meet (B.comp (A'.comp C))) := by
   intro M hM
-  rw [Lifting.at_meet, Lifting.at_meet]
+  rw [at_meet, at_meet]
   rintro ⟨u, v⟩ ⟨h, h'⟩
   exact ⟨hx M hM h, ((fn_at hB hC).1 h').2.1⟩
 
@@ -286,13 +286,6 @@ theorem same_gden {h g : Goal} (hs : h.same g = true) (hh : GoodG h) (hg : GoodG
   simp only [Goal.same, Bool.and_eq_true, decide_eq_true_eq] at hs
   simp only [GDen, boundEq_den hh.1 hg.1 hs.1.2, boundEq_den hh.2 hg.2 hs.2]
 
-theorem boundEq_refl : ∀ o : Option Span, boundEq o o = true
-  | none => rfl
-  | some a => by simp [boundEq, covers?_complete (Span.Covers.refl a)]
-
-theorem same_refl (g : Goal) : g.same g = true := by
-  simp [Goal.same, boundEq_refl]
-
 theorem gden_root (e : Rel) (R : GRel) : GDen ⟨none, e, none⟩ R = R := by
   simp [GDen, bden, GRel.comp_id, GRel.id_comp]
 
@@ -325,10 +318,6 @@ theorem oS_not (f : Bool) (s : Span) : oS (!f) s = (oS f s).swap := by
 
 theorem oR_not (f : Bool) (R : GRel) : oR (!f) R = (oR f R).inv := by
   cases f <;> simp [oR, RwLog.GRel.inv_inv]
-
-theorem orient_not (f : Bool) (xs : List Span) : orient (!f) xs = (orient f xs).map Span.swap := by
-  rw [orient_eq, orient_eq, List.map_map]
-  congr 1; funext s; exact oS_not f s
 
 theorem ref_oS {a : Span} {X : GRel} (f : Bool) (h : Ref T a X) : Ref T (oS f a) (oR f X) := by
   cases f

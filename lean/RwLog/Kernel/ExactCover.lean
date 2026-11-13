@@ -1,97 +1,22 @@
 /-
-# Exact coverage, part 1: simplified spans under syntactic coverage
+# Simplified spans under syntactic coverage
 
-The termination theorems compare answers by `Span.Covers`, the coverage the
+Termination arguments compare answers by `Span.Covers`, the coverage a
 machine decides when it drops a candidate, not up to the theory. A candidate
 is simplified, and simplification changes a span's ground triples, so the
-comparison goes through what simplification keeps (`SimpLaws`): it preserves
-coverage, it can be applied before or after composing or conjoining with the
-same result up to equivalence, and it commutes with converse.
+comparison goes through what simplification keeps (`SimpLaws`).
 
-* `Dom X Y`: every triple of `Y` is matched by a triple of `X` with the same
-  pair and a smaller store. It is `LCov` for the empty theory, every set of
-  atoms being a model of it, so the relation algebra of `Lifting` applies.
-* `Sub T X a`: the answer `a` lies under the simplification of a span that
-  `X` dominates. Every answer the machine computes for a goal lies under one
+* `Under T X a`: the answer `a` lies under the simplification of a span that
+  `X` dominates. Every answer a machine computes for a goal lies under one
   derivation of the goal in this sense.
 * `XC T A X`: some member of `A` covers the simplification of every span that
   `X` dominates. A complete table has this for every derivation of its goal.
 
-`Sub` and `XC` meet in `XC.cover`: a member of `A` covers `a`.
+`Under` and `XC` meet in `XC.cover`: a member of `A` covers `a`.
 -/
-import RwLog.Rungs.R001.Proofs.Tier0
+import RwLog.Kernel.Live
 
 namespace RwLog
-
-namespace R001
-
-namespace Exact
-
-open Lifting (LCov)
-
-/-- What the termination proofs need from simplification. -/
-structure SimpLaws (T : Theory) : Prop where
-  mono : ∀ f x : Span, f.Covers x → T.simplify x = none ∨
-    ∃ f' x', T.simplify f = some f' ∧ T.simplify x = some x' ∧ f'.Covers x'
-  compR : ∀ s t : Span, Option.Rel Span.Equiv (((T.simplify t).bind s.compose).bind T.simplify)
-    ((s.compose t).bind T.simplify)
-  compL : ∀ s t : Span, Option.Rel Span.Equiv (((T.simplify s).bind (·.compose t)).bind T.simplify)
-    ((s.compose t).bind T.simplify)
-  meetR : ∀ s t : Span, Option.Rel Span.Equiv (((T.simplify t).bind s.meet).bind T.simplify)
-    ((s.meet t).bind T.simplify)
-  meetL : ∀ s t : Span, Option.Rel Span.Equiv (((T.simplify s).bind (·.meet t)).bind T.simplify)
-    ((s.meet t).bind T.simplify)
-  swap : ∀ s : Span, T.simplify s.swap = (T.simplify s).map Span.swap
-
-/-! ## Domination -/
-
-/-- `X` dominates `Y`: each triple of `Y` is matched by one of `X` with the
-same pair and a smaller store. -/
-abbrev Dom (X Y : GRel) : Prop := LCov ([] : Theory) X Y
-
-theorem model_nil (M : Interp) : Theory.Model [] M := fun _ h => absurd h List.not_mem_nil
-
-theorem dom_iff {X Y : GRel} : Dom X Y ↔ ∀ a b S, (a, b, S) ∈ Y → ∃ S', (a, b, S') ∈ X ∧ S' ⊆ S := by
-  constructor
-  · intro h a b S hS
-    obtain ⟨S', hS', hM⟩ := h (↑S) (model_nil _) (show (a, b) ∈ Y.at ↑S from ⟨S, hS, le_rfl⟩)
-    exact ⟨S', hS', fun t ht => hM ht⟩
-  · intro h
-    exact LCov.of_sub h
-
-theorem covers_iff_dom {a s : Span} : a.Covers s ↔ Dom a.den s.den := by
-  rw [dom_iff]
-  constructor
-  · intro h x y S hx
-    obtain ⟨u, hu, h1, h2, h3⟩ := h _ hx
-    obtain ⟨u1, u2, u3⟩ := u
-    simp only at h1 h2 h3
-    subst h1 h2
-    exact ⟨u3, hu, h3⟩
-  · rintro h ⟨x, y, S⟩ hx
-    obtain ⟨S', hS', hsub⟩ := h x y S hx
-    exact ⟨(x, y, S'), hS', rfl, rfl, hsub⟩
-
-theorem dom_of_covers {a s : Span} (h : a.Covers s) : Dom a.den s.den := covers_iff_dom.1 h
-
-theorem covers_of_dom {a s : Span} (h : Dom a.den s.den) : a.Covers s := covers_iff_dom.2 h
-
-theorem dom_of_subset {X Y : GRel} (h : Y ⊆ X) : Dom X Y := fun M _ => GRel.at_mono h M
-
-theorem dom_of_eq {X Y : GRel} (h : X = Y) : Dom X Y := LCov.of_eq h
-
-theorem Dom.nonempty {X Y : GRel} (h : Dom X Y) (hY : Y.Nonempty) : X.Nonempty := by
-  obtain ⟨⟨a, b, S⟩, hS⟩ := hY
-  obtain ⟨S', hS', -⟩ := dom_iff.1 h a b S hS
-  exact ⟨_, hS'⟩
-
-theorem covers_swap {a s : Span} (h : a.Covers s) : a.swap.Covers s.swap := by
-  apply covers_of_dom
-  rw [swap_den, swap_den]
-  exact (dom_of_covers h).inv
-
-theorem Span.Equiv.swap' {a s : Span} (h : a.Equiv s) : a.swap.Equiv s.swap :=
-  ⟨covers_swap h.1, covers_swap h.2⟩
 
 /-- Composition is monotone in coverage. -/
 theorem compose_mono {a b x y z : Span} (ha : a.Covers x) (hb : b.Covers y)
@@ -282,7 +207,7 @@ end Laws
 /-! ## Answers under derivations, and coverage of derivations -/
 
 /-- `a` lies under the simplification of a span that `X` dominates. -/
-def Sub (T : Theory) (X : GRel) (a : Span) : Prop :=
+def Under (T : Theory) (X : GRel) (a : Span) : Prop :=
   ∃ w, Dom X w.den ∧ ∃ w', T.simplify w = some w' ∧ w'.Covers a
 
 /-- Some member of `A` covers the simplification of every span `X`
@@ -292,17 +217,17 @@ def XC (T : Theory) (A : List Span) (X : GRel) : Prop :=
 
 variable {T : Theory}
 
-theorem Sub.dom {X Y : GRel} {a : Span} (hd : Dom Y X) (h : Sub T X a) : Sub T Y a := by
+theorem Under.dom {X Y : GRel} {a : Span} (hd : Dom Y X) (h : Under T X a) : Under T Y a := by
   obtain ⟨w, hw, w', hs, hc⟩ := h
   exact ⟨w, hd.trans hw, w', hs, hc⟩
 
-theorem Sub.of_eq {X Y : GRel} {a : Span} (h : Sub T X a) (e : X = Y) : Sub T Y a := e ▸ h
+theorem Under.of_eq {X Y : GRel} {a : Span} (h : Under T X a) (e : X = Y) : Under T Y a := e ▸ h
 
-theorem Sub.covers {X : GRel} {a b : Span} (h : Sub T X a) (hab : a.Covers b) : Sub T X b := by
+theorem Under.covers {X : GRel} {a b : Span} (h : Under T X a) (hab : a.Covers b) : Under T X b := by
   obtain ⟨w, hw, w', hs, hc⟩ := h
   exact ⟨w, hw, w', hs, hc.trans hab⟩
 
-theorem Sub.nonempty {X : GRel} {a : Span} (h : Sub T X a) : X.Nonempty := by
+theorem Under.nonempty {X : GRel} {a : Span} (h : Under T X a) : X.Nonempty := by
   obtain ⟨w, hw, -⟩ := h
   exact hw.nonempty w.den_nonempty
 
@@ -330,7 +255,7 @@ theorem XC.of_empty {A : List Span} {X : GRel} (h : X = ∅) : XC T A X := by
 
 /-- An answer under a derivation is covered by whatever covers the
 derivation. -/
-theorem XC.cover {A : List Span} {X : GRel} {a : Span} (h : XC T A X) (ha : Sub T X a) :
+theorem XC.cover {A : List Span} {X : GRel} {a : Span} (h : XC T A X) (ha : Under T X a) :
     ∃ f ∈ A, f.Covers a := by
   obtain ⟨w, hw, w', hs, hc⟩ := ha
   obtain ⟨f, hf, hfc⟩ := h w hw w' hs
@@ -352,18 +277,18 @@ theorem xc_of_rep {A : List Span} {X : GRel} {u : Span} (hu : Dom u.den X)
 omit hL in
 /-- An answer under a span that `X` dominates lies under `X`. -/
 theorem sub_of_rep {X : GRel} {u u' a : Span} (hu : Dom X u.den) (hs : T.simplify u = some u')
-    (hc : u'.Covers a) : Sub T X a := ⟨u, hu, u', hs, hc⟩
+    (hc : u'.Covers a) : Under T X a := ⟨u, hu, u', hs, hc⟩
 
 omit hL in
-theorem live_sub {z c : Span} (h : c ∈ live T z) : Sub T z.den c := by
+theorem live_sub {z c : Span} (h : c ∈ live T z) : Under T z.den c := by
   have hs : T.simplify z = some c := by simpa [live] using h
   exact ⟨z, LCov.refl _, c, hs, Span.Covers.refl c⟩
 
 theorem live_xc {z : Span} {X : GRel} (h : Dom z.den X) : XC T (live T z) X :=
   xc_of_rep hL h fun u' hu' => ⟨u', by simp [live, hu'], Span.Covers.refl _⟩
 
-theorem composeLive_sub {x y c : Span} {X Y : GRel} (hx : Sub T X x) (hy : Sub T Y y)
-    (hc : c ∈ composeLive T x y) : Sub T (X.comp Y) c := by
+theorem composeLive_sub {x y c : Span} {X Y : GRel} (hx : Under T X x) (hy : Under T Y y)
+    (hc : c ∈ composeLive T x y) : Under T (X.comp Y) c := by
   obtain ⟨w₁, hw₁, v₁, hv₁, hcx⟩ := hx
   obtain ⟨w₂, hw₂, v₂, hv₂, hcy⟩ := hy
   unfold composeLive at hc
@@ -378,8 +303,8 @@ theorem composeLive_sub {x y c : Span} {X Y : GRel} (hx : Sub T X x) (hy : Sub T
     exact hw₁.comp hw₂
   · simp at hc
 
-theorem meetLive_sub {x y c : Span} {X Y : GRel} (hx : Sub T X x) (hy : Sub T Y y)
-    (hc : c ∈ meetLive T x y) : Sub T (X.meet Y) c := by
+theorem meetLive_sub {x y c : Span} {X Y : GRel} (hx : Under T X x) (hy : Under T Y y)
+    (hc : c ∈ meetLive T x y) : Under T (X.meet Y) c := by
   obtain ⟨w₁, hw₁, v₁, hv₁, hcx⟩ := hx
   obtain ⟨w₂, hw₂, v₂, hv₂, hcy⟩ := hy
   unfold meetLive at hc
@@ -394,7 +319,7 @@ theorem meetLive_sub {x y c : Span} {X Y : GRel} (hx : Sub T X x) (hy : Sub T Y 
     exact hw₁.meet hw₂
   · simp at hc
 
-theorem sub_swap {X : GRel} {a : Span} (h : Sub T X a) : Sub T X.inv a.swap := by
+theorem sub_swap {X : GRel} {a : Span} (h : Under T X a) : Under T X.inv a.swap := by
   obtain ⟨w, hw, w', hs, hc⟩ := h
   refine ⟨w.swap, ?_, w'.swap, ?_, covers_swap hc⟩
   · rw [swap_den]; exact hw.inv
@@ -442,10 +367,10 @@ theorem join_meet_xc {xs ys : List Span} {u₁ u₂ u : Span} (hx : XC T xs u₁
 
 /-- A candidate `x ; y` where `y` lies under `Bx`, the right side as it runs
 under `x`'s interface, and `x ; Bx` is dominated by `x ; u`. -/
-theorem push_comp_subL {x y c u : Span} {X Bx Q : GRel} (hx : Sub T X x) (hy : Sub T Bx y)
+theorem push_comp_subL {x y c u : Span} {X Bx Q : GRel} (hx : Under T X x) (hy : Under T Bx y)
     (hB : Dom ((x.den).comp u.den) ((x.den).comp Bx))
     (hQ : ∀ w : Span, Dom X w.den → Dom Q ((w.den).comp u.den)) (hc : c ∈ composeLive T x y) :
-    Sub T Q c := by
+    Under T Q c := by
   obtain ⟨w₁, hw₁, v₁, hv₁, hcx⟩ := hx
   obtain ⟨w₂, hw₂, v₂, hv₂, hcy⟩ := hy
   unfold composeLive at hc
@@ -468,10 +393,10 @@ theorem push_comp_subL {x y c u : Span} {X Bx Q : GRel} (hx : Sub T X x) (hy : S
 
 /-- The mirror image: a candidate `x ; y` where `x` runs under `y`'s
 interface. -/
-theorem push_comp_subR {x y c u : Span} {Y Bx Q : GRel} (hx : Sub T Bx x) (hy : Sub T Y y)
+theorem push_comp_subR {x y c u : Span} {Y Bx Q : GRel} (hx : Under T Bx x) (hy : Under T Y y)
     (hB : Dom ((u.den).comp y.den) (Bx.comp y.den))
     (hQ : ∀ w : Span, Dom Y w.den → Dom Q ((u.den).comp w.den)) (hc : c ∈ composeLive T x y) :
-    Sub T Q c := by
+    Under T Q c := by
   obtain ⟨w₂, hw₂, v₂, hv₂, hcx⟩ := hx
   obtain ⟨w₁, hw₁, v₁, hv₁, hcy⟩ := hy
   unfold composeLive at hc
@@ -492,10 +417,10 @@ theorem push_comp_subR {x y c u : Span} {Y Bx Q : GRel} (hx : Sub T Bx x) (hy : 
     rw [compose_some hz₅]; exact hQ w₁ hw₁
   · simp at hc
 
-theorem push_meet_subL {x y c u : Span} {X Bx Q : GRel} (hx : Sub T X x) (hy : Sub T Bx y)
+theorem push_meet_subL {x y c u : Span} {X Bx Q : GRel} (hx : Under T X x) (hy : Under T Bx y)
     (hB : Dom ((x.den).meet u.den) ((x.den).meet Bx))
     (hQ : ∀ w : Span, Dom X w.den → Dom Q ((w.den).meet u.den)) (hc : c ∈ meetLive T x y) :
-    Sub T Q c := by
+    Under T Q c := by
   obtain ⟨w₁, hw₁, v₁, hv₁, hcx⟩ := hx
   obtain ⟨w₂, hw₂, v₂, hv₂, hcy⟩ := hy
   unfold meetLive at hc
@@ -516,10 +441,10 @@ theorem push_meet_subL {x y c u : Span} {X Bx Q : GRel} (hx : Sub T X x) (hy : S
     rw [meet_some hz₅]; exact hQ w₁ hw₁
   · simp at hc
 
-theorem push_meet_subR {x y c u : Span} {Y Bx Q : GRel} (hx : Sub T Bx x) (hy : Sub T Y y)
+theorem push_meet_subR {x y c u : Span} {Y Bx Q : GRel} (hx : Under T Bx x) (hy : Under T Y y)
     (hB : Dom ((u.den).meet y.den) (Bx.meet y.den))
     (hQ : ∀ w : Span, Dom Y w.den → Dom Q ((u.den).meet w.den)) (hc : c ∈ meetLive T x y) :
-    Sub T Q c := by
+    Under T Q c := by
   obtain ⟨w₂, hw₂, v₂, hv₂, hcx⟩ := hx
   obtain ⟨w₁, hw₁, v₁, hv₁, hcy⟩ := hy
   unfold meetLive at hc
@@ -541,9 +466,5 @@ theorem push_meet_subR {x y c u : Span} {Y Bx Q : GRel} (hx : Sub T Bx x) (hy : 
   · simp at hc
 
 end
-
-end Exact
-
-end R001
 
 end RwLog

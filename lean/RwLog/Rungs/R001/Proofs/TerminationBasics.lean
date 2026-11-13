@@ -5,7 +5,6 @@ The general machinery lives here: when a run is finished, table keys
 (`Goal.same`) form an equivalence, the completion fixpoint contains every
 closed set, and tables only grow from round to round.
 -/
-import RwLog.Rungs.R001.Proofs.Kernel
 import RwLog.Rungs.R001.Proofs.Tier0
 
 namespace RwLog
@@ -22,78 +21,44 @@ theorem step_of_not_finished {st : State} (h : st.finished = false) :
     step st = .emit (round st).2 (round st).1 := by
   unfold step; simp [h]
 
-theorem stateAfter_finished {st : State} (h : st.finished = true) : ∀ k, stateAfter st k = st
-  | 0 => rfl
-  | k + 1 => by
-    have : step st = .done := (step_done_iff st).2 h
-    simp only [stateAfter, this]
+/-- The specification's `stateAfter` is the generic one for this runtime. -/
+theorem stateAfter_eq : ∀ (k : Nat) (st : State), stateAfter st k = runtime.stateAfter st k
+  | 0, _ => rfl
+  | k + 1, st => by
+    cases h : step st with
+    | done =>
+      have h' : runtime.step st = .done := h
+      simp only [stateAfter, Runtime.stateAfter, h, h']
+    | emit as st' =>
+      have h' : runtime.step st = .emit as st' := h
+      simp only [stateAfter, Runtime.stateAfter, h, h']
+      exact stateAfter_eq k st'
+
+theorem stateAfter_finished {st : State} (h : st.finished = true) (k : Nat) :
+    stateAfter st k = st := by
+  rw [stateAfter_eq]; exact runtime.stateAfter_done ((step_done_iff st).2 h) k
 
 theorem stateAfter_succ_of_not_finished {st : State} (h : st.finished = false) (k : Nat) :
     stateAfter st (k + 1) = stateAfter (round st).1 k := by
-  simp only [stateAfter, step_of_not_finished h]
+  rw [stateAfter_eq, stateAfter_eq]
+  exact runtime.stateAfter_succ_emit (step_of_not_finished h) k
 
-theorem stateAfter_add (st : State) : ∀ m k, stateAfter st (m + k) = stateAfter (stateAfter st m) k
-  | 0, k => by simp [stateAfter]
-  | m + 1, k => by
-    cases hf : st.finished with
-    | true =>
-      rw [stateAfter_finished hf, stateAfter_finished hf, stateAfter_finished hf]
-    | false =>
-      rw [show m + 1 + k = (m + k) + 1 by omega, stateAfter_succ_of_not_finished hf,
-        stateAfter_succ_of_not_finished hf, stateAfter_add _ m k]
+theorem stateAfter_add (st : State) (m k : Nat) :
+    stateAfter st (m + k) = stateAfter (stateAfter st m) k := by
+  rw [stateAfter_eq, stateAfter_eq, stateAfter_eq]; exact runtime.stateAfter_add st m k
 
 /-- A run of `n + 1` steps reports that it is done exactly when one of the
 first `n + 1` states is finished. -/
-theorem run_succ_done_iff : ∀ (n : Nat) (st : State),
-    (runtime.run st (n + 1)).2 = true ↔ ∃ k ≤ n, (stateAfter st k).finished = true
-  | 0, st => by
-    show (Runtime.run runtime st 1).2 = true ↔ _
-    simp only [Runtime.run]
-    cases hf : st.finished with
-    | true =>
-      have : runtime.step st = .done := (step_done_iff st).2 hf
-      simp only [this]
-      exact ⟨fun _ => ⟨0, le_rfl, hf⟩, fun _ => trivial⟩
-    | false =>
-      have : runtime.step st = .emit (round st).2 (round st).1 := step_of_not_finished hf
-      simp only [this]
-      constructor
-      · intro h; cases h
-      · rintro ⟨k, hk, h⟩
-        rw [Nat.le_zero.1 hk] at h; simp [stateAfter, hf] at h
-  | n + 1, st => by
-    show (Runtime.run runtime st (n + 2)).2 = true ↔ _
-    simp only [Runtime.run]
-    cases hf : st.finished with
-    | true =>
-      have : runtime.step st = .done := (step_done_iff st).2 hf
-      simp only [this]
-      exact ⟨fun _ => ⟨0, Nat.zero_le _, hf⟩, fun _ => trivial⟩
-    | false =>
-      have : runtime.step st = .emit (round st).2 (round st).1 := step_of_not_finished hf
-      simp only [this]
-      have ih := run_succ_done_iff n (round st).1
-      change (runtime.run (round st).1 (n + 1)).2 = true ↔ _
-      rw [ih]
-      constructor
-      · rintro ⟨k, hk, h⟩
-        exact ⟨k + 1, by omega, by rw [stateAfter_succ_of_not_finished hf]; exact h⟩
-      · rintro ⟨k, hk, h⟩
-        cases k with
-        | zero => simp [stateAfter, hf] at h
-        | succ k =>
-          rw [stateAfter_succ_of_not_finished hf] at h
-          exact ⟨k, by omega, h⟩
+theorem run_succ_done_iff (n : Nat) (st : State) :
+    (runtime.run st (n + 1)).2 = true ↔ ∃ k ≤ n, (stateAfter st k).finished = true := by
+  refine (runtime.halts_succ_iff n st).trans ?_
+  refine exists_congr fun k => and_congr_right fun _ => ?_
+  rw [← stateAfter_eq]; exact step_done_iff _
 
 theorem halts_iff (st : State) :
     (∃ n, (runtime.run st n).2 = true) ↔ ∃ k, (stateAfter st k).finished = true := by
-  constructor
-  · rintro ⟨n, h⟩
-    cases n with
-    | zero => simp [Runtime.run] at h
-    | succ n => obtain ⟨k, -, hk⟩ := (run_succ_done_iff n st).1 h; exact ⟨k, hk⟩
-  · rintro ⟨k, hk⟩
-    exact ⟨k + 1, (run_succ_done_iff k st).2 ⟨k, le_rfl, hk⟩⟩
+  refine (runtime.halts_iff_stateAfter st).trans (exists_congr fun k => ?_)
+  rw [← stateAfter_eq]; exact step_done_iff _
 
 theorem terminates_iff (P : Program) (q : Rel) :
     runtime.Terminates P q ↔ ∃ k, (stateAfter (State.ofGoal P ⟨none, q, none⟩) k).finished = true :=
@@ -103,90 +68,6 @@ theorem goalTerminates_iff (P : Program) (g : Goal) :
     GoalTerminates P g ↔ ∃ k, (stateAfter (State.ofGoal P g) k).finished = true :=
   halts_iff _
 
-/-! ## Table keys form an equivalence -/
-
-theorem covers?_refl (a : Span) : a.covers? a = true := (covers_iff a a).2 (Span.Covers.refl a)
-
-theorem covers?_trans {a b c : Span} (h₁ : a.covers? b = true) (h₂ : b.covers? c = true) :
-    a.covers? c = true :=
-  (covers_iff a c).2 (((covers_iff a b).1 h₁).trans ((covers_iff b c).1 h₂))
-
-theorem boundEq_refl : ∀ a : Option Span, boundEq a a = true
-  | none => rfl
-  | some a => by simp [boundEq, covers?_refl]
-
-theorem boundEq_symm : ∀ {a b : Option Span}, boundEq a b = true → boundEq b a = true
-  | none, none, _ => rfl
-  | some a, some b, h => by
-    simp only [boundEq, Bool.and_eq_true] at h ⊢; exact ⟨h.2, h.1⟩
-  | none, some _, h => by simp [boundEq] at h
-  | some _, none, h => by simp [boundEq] at h
-
-theorem boundEq_trans : ∀ {a b c : Option Span}, boundEq a b = true → boundEq b c = true →
-    boundEq a c = true
-  | none, none, none, _, _ => rfl
-  | some a, some b, some c, h₁, h₂ => by
-    simp only [boundEq, Bool.and_eq_true] at h₁ h₂ ⊢
-    exact ⟨covers?_trans h₁.1 h₂.1, covers?_trans h₂.2 h₁.2⟩
-  | none, some _, _, h, _ => by simp [boundEq] at h
-  | some _, none, _, h, _ => by simp [boundEq] at h
-  | none, none, some _, _, h => by simp [boundEq] at h
-  | some _, some _, none, _, h => by simp [boundEq] at h
-
-theorem Goal.same_refl (g : Goal) : g.same g = true := by
-  simp [Goal.same, boundEq_refl]
-
-theorem Goal.same_symm {g h : Goal} (hs : g.same h = true) : h.same g = true := by
-  simp only [Goal.same, Bool.and_eq_true, decide_eq_true_eq] at hs ⊢
-  exact ⟨⟨hs.1.1.symm, boundEq_symm hs.1.2⟩, boundEq_symm hs.2⟩
-
-theorem Goal.same_trans {g h k : Goal} (h₁ : g.same h = true) (h₂ : h.same k = true) :
-    g.same k = true := by
-  simp only [Goal.same, Bool.and_eq_true, decide_eq_true_eq] at h₁ h₂ ⊢
-  exact ⟨⟨h₁.1.1.trans h₂.1.1, boundEq_trans h₁.1.2 h₂.1.2⟩, boundEq_trans h₁.2 h₂.2⟩
-
-/-! ## The completion fixpoint -/
-
-/-- `ok` only grows with its set argument. -/
-def OkMono (ok : List Nat → Nat → Bool) : Prop :=
-  ∀ S S' : List Nat, (∀ j ∈ S, j ∈ S') → ∀ i, ok S i = true → ok S' i = true
-
-/-- Every set inside `S` that is closed under `ok` survives the shrinking. -/
-theorem subset_gfpFrom {ok : List Nat → Nat → Bool} (hm : OkMono ok) (X : List Nat)
-    (hX : ∀ i ∈ X, ok X i = true) : ∀ n S, (∀ i ∈ X, i ∈ S) → ∀ i ∈ X, i ∈ gfpFrom ok n S
-  | 0, S, hS => hS
-  | n + 1, S, hS => by
-    have hS' : ∀ i ∈ X, i ∈ S.filter (ok S) := fun i hi =>
-      List.mem_filter.2 ⟨hS i hi, hm X S hS i (hX i hi)⟩
-    simp only [gfpFrom]
-    split
-    · exact hS
-    · exact subset_gfpFrom hm X hX n _ hS'
-
-theorem gfpFrom_sub (ok : List Nat → Nat → Bool) : ∀ n S, ∀ i ∈ gfpFrom ok n S, i ∈ S
-  | 0, _ => fun _ h => h
-  | n + 1, S => by
-    simp only [gfpFrom]
-    split
-    · exact fun _ h => h
-    · exact fun i hi => (List.mem_filter.1 (gfpFrom_sub ok n _ i hi)).1
-
-/-- With enough passes the result is closed under `ok`. -/
-theorem gfpFrom_closed (ok : List Nat → Nat → Bool) : ∀ n S, S.length ≤ n →
-    ∀ i ∈ gfpFrom ok n S, ok (gfpFrom ok n S) i = true
-  | 0, S, h => by
-    rw [List.length_eq_zero_iff.1 (Nat.le_zero.1 h)]; simp [gfpFrom]
-  | n + 1, S, h => by
-    simp only [gfpFrom]
-    split
-    · rename_i hl
-      intro i hi
-      have := List.filter_eq_self.1 (List.Sublist.eq_of_length (List.filter_sublist) hl)
-      simpa using this i hi
-    · rename_i hl
-      have : (S.filter (ok S)).length < S.length :=
-        lt_of_le_of_ne (List.filter_sublist.length_le) hl
-      exact gfpFrom_closed ok n _ (by omega)
 
 end R001
 
@@ -197,17 +78,6 @@ namespace RwLog
 namespace R001
 
 /-! ## Tables only grow -/
-
-theorem round_P (st : State) : (round st).1.P = st.P := rfl
-theorem round_depth (st : State) : (round st).1.depth = st.depth + 1 := rfl
-theorem round_rootFlip (st : State) : (round st).1.rootFlip = st.rootFlip := rfl
-
-theorem zip_map_self {α β : Type} (f : α → β) : ∀ l : List α, l.zip (l.map f) = l.map fun x => (x, f x)
-  | [] => rfl
-  | x :: l => by simp [zip_map_self f l]
-
-theorem fresh_nil (old : List Span) : fresh old [] = [] := by
-  simp [fresh, maxima]
 
 /-- One round keeps every table at its position, with the same goal, extends
 its answers, and leaves a complete table as it is. -/
@@ -386,12 +256,12 @@ theorem completing_spec (P : Program) (d : Nat) (ts ts' : Tables) (i : Nat)
       okAt P d ts ts' (completing P d ts ts') i = true := by
   have hsub := gfpFrom_sub (okAt P d ts ts') _ _ i hi
   simp only [List.mem_filter, List.mem_range, Bool.and_eq_true, Bool.not_eq_true'] at hsub
-  exact ⟨hsub.1, hsub.2.1, hsub.2.2, gfpFrom_closed _ _ _ le_rfl i hi⟩
+  exact ⟨hsub.1, hsub.2.1, hsub.2.2, (gfpFrom_closed _ _ _ le_rfl i hi).2⟩
 
 /-! ## Certificate covers are complete
 
 A valid certificate's covers cover every derivation of their goals, for every
-theory (up to the theory, as `Tier0.DC`). The proof is the completion
+theory (up to the theory, as `DC`). The proof is the completion
 soundness argument of Tier 0 run on the certificate's tables, where every
 table is complete: by induction on the weight of the derivation, the strategy
 the certificate names reads goals listed in the certificate, whose covers
@@ -426,8 +296,8 @@ theorem doneOf_certTables {C : List CertEntry} {d : Goal}
   unfold doneOf; rw [hf]
 
 section
-variable {P : Program} (hSE : Obligation.simplify_exact) (hwf : ∀ ρ ∈ P.theory, ρ.WellFormed)
-include hSE hwf
+variable {P : Program} (hwf : ∀ ρ ∈ P.theory, ρ.WellFormed)
+include hwf
 
 open Tier0 in
 /-- Every cover of a valid certificate covers, up to the theory, every
@@ -456,7 +326,7 @@ theorem cert_covers_complete {C : List CertEntry} {D : Nat} {root : Goal}
       IH _ (by simp only at hle; omega) e'' he'' w'' s'' h'' le_rfl
   clear IH hm hclos
   rcases hstrat with hf | ⟨st, hst, hdeps⟩
-  · exact dc_unfold hSE hwf hf hw.derives
+  · exact dc_unfold hwf hf hw.derives
   have hfound : ∀ d ∈ st, ∃ e' ∈ C, e'.goal.same d.1.norm.2 = true :=
     fun d hd => let ⟨e', he', hs, _⟩ := hdeps d hd; ⟨e', he', hs⟩
   clear hdeps
@@ -464,7 +334,7 @@ theorem cert_covers_complete {C : List CertEntry} {D : Nat} {root : Goal}
   obtain ⟨lb, e, rb⟩ := G
   cases e with
   | zero => cases hw
-  | span s₀ => cases hw with | span => exact dc_span hSE hwf lb rb _
+  | span s₀ => cases hw with | span => exact dc_span hwf lb rb _
   | or a b =>
     simp only [certStrategies, List.mem_singleton] at hst
     subst hst
@@ -495,18 +365,18 @@ theorem cert_covers_complete {C : List CertEntry} {D : Nat} {root : Goal}
       have hR : GoodG ⟨none, b, rb⟩ := ⟨trivial, hgG.2⟩
       simp only [certStrategies, List.mem_cons, List.not_mem_nil, or_false] at hst
       rcases hst with rfl | rfl | rfl
-      · exact dc_seq_join hSE hwf
+      · exact dc_seq_join hwf
           (hD _ (hfound (seqLeft ⟨lb, .seq a b, rb⟩ a, false) (by simp)) hL _ _ hw₁ (meas_lt _ _ (by omega) rfl))
           (hD _ (hfound (seqRight ⟨lb, .seq a b, rb⟩ b, false) (by simp)) hR _ _ hw₂ (meas_lt _ _ (by omega) rfl))
       · have hLf := hfound _ (List.mem_cons_self ..)
-        refine dc_seq_pushL hSE hwf (doneOf_certTables hLf)
+        refine dc_seq_pushL hwf (doneOf_certTables hLf)
           (hD _ hLf hL _ _ hw₁ (meas_lt _ _ (by omega) rfl)) fun x hx => ?_
         rw [answersOf_certTables] at hx
         exact hD _ (hfound (seqPushL ⟨lb, .seq a b, rb⟩ b x, false)
             (List.mem_cons_of_mem _ (List.mem_map.2 ⟨x, hx, rfl⟩)))
           (Tier0.goodG_pushL hgG b x) _ _ hw₂ (meas_lt _ _ (by omega) rfl)
       · have hRf := hfound _ (List.mem_cons_self ..)
-        refine dc_seq_pushR hSE hwf (doneOf_certTables hRf)
+        refine dc_seq_pushR hwf (doneOf_certTables hRf)
           (hD _ hRf hR _ _ hw₂ (meas_lt _ _ (by omega) rfl)) fun y hy => ?_
         rw [answersOf_certTables] at hy
         exact hD _ (hfound (seqPushR ⟨lb, .seq a b, rb⟩ a y, false)
@@ -518,17 +388,17 @@ theorem cert_covers_complete {C : List CertEntry} {D : Nat} {root : Goal}
       rw [meet_some hc]
       simp only [certStrategies, List.mem_cons, List.not_mem_nil, or_false] at hst
       rcases hst with rfl | rfl | rfl
-      · exact dc_and_join hSE hwf hgG
+      · exact dc_and_join hwf hgG
           (hD ⟨lb, a, rb⟩ (hfound (andLeft ⟨lb, .and a b, rb⟩ a, false) (by simp)) hgG _ _ hw₁ (meas_lt _ _ (by omega) rfl))
           (hD ⟨lb, b, rb⟩ (hfound (andRight ⟨lb, .and a b, rb⟩ b, false) (by simp)) hgG _ _ hw₂ (meas_lt _ _ (by omega) rfl))
       · have hLf := hfound _ (List.mem_cons_self ..)
-        refine dc_and_pushL hSE hwf hgG (doneOf_certTables hLf)
+        refine dc_and_pushL hwf hgG (doneOf_certTables hLf)
           (hD ⟨lb, a, rb⟩ hLf hgG _ _ hw₁ (meas_lt _ _ (by omega) rfl)) fun x hx => ?_
         rw [answersOf_certTables] at hx
         exact hD _ (hfound (andPush b x, false) (List.mem_cons_of_mem _ (List.mem_map.2 ⟨x, hx, rfl⟩)))
           (goodG_andPush b x) _ _ hw₂ (meas_lt _ _ (by omega) rfl)
       · have hRf := hfound _ (List.mem_cons_self ..)
-        refine dc_and_pushR hSE hwf hgG (doneOf_certTables hRf)
+        refine dc_and_pushR hwf hgG (doneOf_certTables hRf)
           (hD ⟨lb, b, rb⟩ hRf hgG _ _ hw₂ (meas_lt _ _ (by omega) rfl)) fun y hy => ?_
         rw [answersOf_certTables] at hy
         exact hD _ (hfound (andPush a y, false) (List.mem_cons_of_mem _ (List.mem_map.2 ⟨y, hy, rfl⟩)))
@@ -538,9 +408,9 @@ theorem cert_covers_complete {C : List CertEntry} {D : Nat} {root : Goal}
 derivation of its goal. -/
 theorem cert_covers_derives {C : List CertEntry} {D : Nat} {root : Goal}
     (hC : Cert.Valid P C D root) {e : CertEntry} (he : e ∈ C) {s : Span}
-    (hs : Derives P e.goal.e s) : Tier0.DC P.theory e.cover (Tier0.GDen e.goal s.den) := by
+    (hs : Derives P e.goal.e s) : DC P.theory e.cover (Tier0.GDen e.goal s.den) := by
   obtain ⟨w, hw⟩ := Tier0.dw_of_derives hs
-  exact cert_covers_complete hSE hwf hC _ e he w s hw le_rfl
+  exact cert_covers_complete hwf hC _ e he w s hw le_rfl
 
 end
 

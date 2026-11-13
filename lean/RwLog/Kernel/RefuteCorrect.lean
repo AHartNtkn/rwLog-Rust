@@ -1,4 +1,24 @@
-import RwLog.Rungs.R001.Spec
+/-
+# The constraint checker is correct
+
+Rung-independent facts about `Kernel/Refute.lean`, for every well-formed
+theory:
+
+* `Theory.refutes?_sound`: no model contains a ground instance of a refuted
+  store.
+* `Theory.simplify_exact`: a dropped span is dead, and a kept span relates the
+  same pairs as the original in every model.
+* `Theory.simplify_stable`: a simplified span has no refutation and no forced
+  equation left.
+* `Theory.present_exact`: showing an answer keeps its meaning.
+
+The working lemmas are in the `Checker` namespace.
+-/
+import RwLog.Kernel.Refute
+import RwLog.Kernel.Covers
+import RwLog.Lib.List
+import RwLog.SpanLayer.Coverage
+import RwLog.Theory.Firing
 
 namespace RwLog
 
@@ -175,21 +195,6 @@ theorem solve_vars : ∀ (E : Eqns V) (θ : V → Term V), solve E = some θ →
 end SolveVars
 
 /-! ## Counting a store's variables -/
-
-theorem nodup_eraseDups {α : Type} [DecidableEq α] : ∀ l : List α, l.eraseDups.Nodup
-  | [] => by simp
-  | a :: as => by
-    rw [List.eraseDups_cons]
-    have : (as.filter fun b => !b == a).length < as.length + 1 :=
-      Nat.lt_add_one_of_le (List.length_filter_le _ as)
-    refine List.nodup_cons.2 ⟨?_, nodup_eraseDups _⟩
-    simp
-termination_by l => l.length
-
-theorem length_eraseDups {α : Type} [DecidableEq α] (l : List α) :
-    l.eraseDups.length = l.toFinset.card := by
-  rw [← List.toFinset_card_of_nodup (nodup_eraseDups l)]
-  congr 1; ext; simp
 
 /-- The variables of a store. -/
 def storeVars (c : Store) : Finset Nat := (c.flatMap Term.vars).toFinset
@@ -709,18 +714,26 @@ theorem simplifyWithin_stable {T : Theory} (hwf : ∀ ρ ∈ T, ρ.WellFormed) :
 
 end Checker
 
-theorem R001.refutes_sound : R001.Obligation.refutes_sound := by
-  intro T c hwf h σ M hM hc
-  exact Checker.refutes_ground hwf hM σ c h hc
+theorem Theory.refutes?_sound {T : Theory} (hwf : ∀ ρ ∈ T, ρ.WellFormed) {c : Store}
+    (h : T.refutes? c = true) (σ : Nat → GTerm) {M : Interp} (hM : T.Model M) :
+    ¬ ∀ x ∈ c, x.bind σ ∈ M :=
+  fun hc => Checker.refutes_ground hwf hM σ c h hc
 
-theorem R001.simplify_exact : R001.Obligation.simplify_exact :=
-  fun _ s hwf => Checker.simplifyWithin_exact hwf _ s
+/-- Simplification is exact: a dropped span is dead, and a kept span relates
+the same pairs as the original in every model of the theory. -/
+theorem Theory.simplify_exact {T : Theory} (hwf : ∀ ρ ∈ T, ρ.WellFormed) (s : Span) :
+    (T.simplify s = none → s.Dead T) ∧ (∀ s', T.simplify s = some s' → s'.Refines T s) :=
+  Checker.simplifyWithin_exact hwf _ s
 
-theorem R001.present_exact : R001.Obligation.present_exact :=
-  fun _ s hwf _ hM => Checker.denAt_store fun σ => Checker.normalize_holds hwf hM σ s.c
+/-- Showing an answer keeps its meaning. -/
+theorem Theory.present_exact {T : Theory} (hwf : ∀ ρ ∈ T, ρ.WellFormed) (s : Span) :
+    (T.present s).Refines T s :=
+  fun _ hM => Checker.denAt_store fun σ => Checker.normalize_holds hwf hM σ s.c
 
-theorem R001.simplify_stable : R001.Obligation.simplify_stable := by
-  intro T s s' hwf h
-  exact Checker.simplifyWithin_stable hwf _ s s' le_rfl h
+/-- Simplification runs to the end: a simplified span has no refutation and
+no forced equation left. -/
+theorem Theory.simplify_stable {T : Theory} (hwf : ∀ ρ ∈ T, ρ.WellFormed) {s s' : Span}
+    (h : T.simplify s = some s') : T.refutes? s'.c = false ∧ T.bind? s'.c = none :=
+  Checker.simplifyWithin_stable hwf _ s s' le_rfl h
 
 end RwLog

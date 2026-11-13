@@ -1,5 +1,5 @@
 /-
-# Rung R001: simplification keeps coverage (`simplify_mono`)
+# Simplification keeps coverage (`SimpLaws`)
 
 Simplification refutes a span or instantiates it by the equations its theory
 forces; both are read off firings on the closure of the store. The closure
@@ -22,16 +22,13 @@ simplified composite is covered by the composite of the simplified operand,
 because each operand covers its part of the simplified composite, whose store
 is stable (`under_stable`).
 -/
-import RwLog.Rungs.R001.Proofs.Kernel
-import RwLog.Rungs.R001.Proofs.Checker
+import RwLog.Kernel.RefuteCorrect
 
 namespace RwLog
 
-namespace R001
-
 namespace Mono
 
-open Term Checker
+open Term Checker Matching
 
 /-! ## Lifting a match along an instance -/
 
@@ -57,11 +54,11 @@ theorem match_lift {ρ : TRule} {d e : Store} {r : PSubst × List Pat}
     (hr : r ∈ matchAll ρ.heads d []) (τ : Nat → Pat) (hde : ∀ x ∈ d, x.bind τ ∈ e) :
     ∃ r' ∈ matchAll ρ.heads e [], ∀ t : Pat, (∀ v ∈ t.vars, ∃ h ∈ ρ.heads, v ∈ h.vars) →
       t.bind r'.1.apply = (t.bind r.1.apply).bind τ := by
-  obtain ⟨-, -, hrd, hrh⟩ := Matching.matchAll_sound _ _ _ _ hr
+  obtain ⟨-, -, hrd, hrh⟩ := matchAll_sound _ _ _ _ hr
   let σ : Nat → Pat := fun v => (r.1.apply v).bind τ
   have hheads : ∀ p ∈ ρ.heads, p.bind σ ∈ e := fun p hp => by
     have hm : p.bind r.1.apply ∈ r.2 := by
-      rw [← hrh r.1 (Matching.Ext.refl _)]; exact List.mem_map_of_mem hp
+      rw [← hrh r.1 (Ext.refl _)]; exact List.mem_map_of_mem hp
     have := hde _ (hrd _ hm)
     rwa [bind_bind] at this
   obtain ⟨r', hr', ha⟩ := matchAll_agree σ ρ.heads e [] (fun _ _ h => by simp at h) hheads
@@ -69,7 +66,7 @@ theorem match_lift {ρ : TRule} {d e : Store} {r : PSubst × List Pat}
   rw [bind_bind]
   refine bind_congr fun v hv => ?_
   obtain ⟨h, hh, hvh⟩ := ht v hv
-  obtain ⟨x, hx⟩ := (Matching.matchAll_sound _ _ _ _ hr').2.1 h hh v hvh
+  obtain ⟨x, hx⟩ := (matchAll_sound _ _ _ _ hr').2.1 h hh v hvh
   have : r'.1.apply v = x := by simp [PSubst.apply, hx]
   rw [this]
   exact (ha v x hx).symm
@@ -348,10 +345,10 @@ theorem covers_scov {f x : Span} (h : f.Covers x) : ∃ τ, SCov f x τ := by
       rw [h₂] at h
       simp only [Bool.not_eq_true', List.isEmpty_eq_false_iff] at h
       obtain ⟨r, hr⟩ := List.exists_mem_of_ne_nil _ h
-      obtain ⟨-, k₁⟩ := matchInto_sound _ _ _ _ h₁
-      obtain ⟨e₂, k₂⟩ := matchInto_sound _ _ _ _ h₂
-      obtain ⟨e₃, k₃⟩ := matchAll_sound _ _ _ _ hr
-      exact ⟨r.1.apply, k₁ r.1 (e₂.trans e₃), k₂ r.1 e₃, k₃ r.1 (Ext.refl _)⟩
+      obtain ⟨-, -, k₁⟩ := matchInto_sound _ _ _ _ h₁
+      obtain ⟨e₂, -, k₂⟩ := matchInto_sound _ _ _ _ h₂
+      obtain ⟨e₃, -, -, -⟩ := matchAll_sound _ _ _ _ hr
+      exact ⟨r.1.apply, k₁ r.1 (e₂.trans e₃), k₂ r.1 e₃, matchAll_sound_mem hr r.1 (Ext.refl _)⟩
 
 theorem covers_eraseDups (s : Span) : Span.Covers ⟨s.l, s.r, s.c.eraseDups⟩ s :=
   SCov.covers (τ := Term.var) ⟨by simp, by simp, by simp [List.mem_eraseDups]⟩
@@ -637,11 +634,70 @@ theorem meet_left (s t : Span) :
 
 end Mono
 
-theorem simplify_mono : Obligation.simplify_mono := fun _ hwf =>
-  ⟨fun _ _ h => Mono.simplify_keeps hwf h, fun s t =>
-    ⟨Mono.compose_right hwf s t, Mono.compose_left hwf s t, Mono.meet_right hwf s t,
-      Mono.meet_left hwf s t⟩⟩
 
-end R001
+/-! ## The laws -/
+
+theorem Span.inst_swap (s : Span) (θ : Nat → Pat) : s.swap.inst θ = (s.inst θ).swap := rfl
+
+theorem Theory.simplifyWithin_swap (T : Theory) : ∀ (n : Nat) (s : Span),
+    T.simplifyWithin n s.swap = (T.simplifyWithin n s).map Span.swap
+  | 0, s => by
+    unfold Theory.simplifyWithin
+    by_cases hr : T.refutes? s.c = true <;> simp [Span.swap, hr]
+  | n + 1, s => by
+    unfold Theory.simplifyWithin
+    have hc : s.swap.c = s.c := rfl
+    by_cases hr : T.refutes? s.c = true
+    · simp [hc, hr]
+    · simp only [hc, hr, Bool.false_eq_true, ite_false]
+      cases hb : T.bind? s.c with
+      | none => simp [Span.swap]
+      | some θ => simp only [Span.inst_swap]; exact Theory.simplifyWithin_swap T n (s.inst θ)
+
+/-- Simplification commutes with converse (syntactically). -/
+theorem simplify_swap (T : Theory) (s : Span) : T.simplify s.swap = (T.simplify s).map Span.swap :=
+  Theory.simplifyWithin_swap T _ s
+
+/-- What proofs about answers kept up to syntactic coverage need from
+simplification: it preserves coverage, it can be applied before or after
+composing or conjoining with the same result up to equivalence, and it
+commutes with converse. Every well-formed theory has these (`simpLaws_of_wf`);
+proofs take `SimpLaws T` rather than well-formedness so that they do not
+depend on how the checker works. -/
+structure SimpLaws (T : Theory) : Prop where
+  mono : ∀ f x : Span, f.Covers x → T.simplify x = none ∨
+    ∃ f' x', T.simplify f = some f' ∧ T.simplify x = some x' ∧ f'.Covers x'
+  compR : ∀ s t : Span, Option.Rel Span.Equiv (((T.simplify t).bind s.compose).bind T.simplify)
+    ((s.compose t).bind T.simplify)
+  compL : ∀ s t : Span, Option.Rel Span.Equiv (((T.simplify s).bind (·.compose t)).bind T.simplify)
+    ((s.compose t).bind T.simplify)
+  meetR : ∀ s t : Span, Option.Rel Span.Equiv (((T.simplify t).bind s.meet).bind T.simplify)
+    ((s.meet t).bind T.simplify)
+  meetL : ∀ s t : Span, Option.Rel Span.Equiv (((T.simplify s).bind (·.meet t)).bind T.simplify)
+    ((s.meet t).bind T.simplify)
+  swap : ∀ s : Span, T.simplify s.swap = (T.simplify s).map Span.swap
+
+theorem simpLaws_of_wf {T : Theory} (hwf : ∀ ρ ∈ T, ρ.WellFormed) : SimpLaws T where
+  mono _ _ h := Mono.simplify_keeps hwf h
+  compR := Mono.compose_right hwf
+  compL := Mono.compose_left hwf
+  meetR := Mono.meet_right hwf
+  meetL := Mono.meet_left hwf
+  swap := simplify_swap T
+
+/-- Simplification respects equivalent spans: equivalent spans are both
+dropped or simplify to equivalent spans. -/
+theorem SimpLaws.respects {T : Theory} (hL : SimpLaws T) {z z' : Span} (h : z.Equiv z') :
+    Option.Rel Span.Equiv (T.simplify z) (T.simplify z') := by
+  rcases hL.mono z z' h.1 with h₁ | ⟨f, x, hf, hx, hfx⟩
+  · rcases hL.mono z' z h.2 with h₂ | ⟨_, _, h₃, _, _⟩
+    · rw [h₁, h₂]; exact .none
+    · rw [h₁] at h₃; cases h₃
+  · rcases hL.mono z' z h.2 with h₂ | ⟨a, b, ha, hb, hab⟩
+    · rw [hf] at h₂; cases h₂
+    · rw [hf, hx]
+      rw [hx] at ha; rw [hf] at hb
+      cases ha; cases hb
+      exact .some ⟨hfx, hab⟩
 
 end RwLog

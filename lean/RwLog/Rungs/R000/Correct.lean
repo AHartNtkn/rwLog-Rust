@@ -9,12 +9,13 @@
   answers cover the query exactly, in every interpretation.
 
 Each is proved first for ground triples (`sound_tri`, `complete_tri`,
-`honest_exhaustion_tri`) and carried to the specification by the bridge.
+`exhaust_tri`) and carried to the specification by the bridge.
 * `terminates`: the machine reports it is done on every finitely normalising
   query (some number of unfoldings leaves a finite union of spans).
 -/
 import RwLog.Rungs.R000.Engine
 import RwLog.SpanLayer.Bridge
+import RwLog.Rungs.Framework.Tier0
 import Mathlib.Data.Nat.Find
 
 namespace RwLog
@@ -187,48 +188,38 @@ theorem halted_final {n : Nat} (h : runtime.Halts (runtime.init P q) n) :
   rw [heq]; change a ∈ (runtime.run (State.start P q 0) _).1; rw [hfin]
   simp [ha]
 
-/-- When the machine halts, the emitted answers cover the query exactly, as
-triples. -/
-theorem honest_exhaustion_tri {n : Nat} (h : runtime.Halts (runtime.init P q) n) :
-    P.sem q = ⋃ a ∈ runtime.emitted (runtime.init P q) n, a.den := by
-  apply le_antisymm
-  · obtain ⟨k, hk, hall⟩ := halted_final h
-    intro x hx
-    rw [sem_eq_derivable] at hx
-    obtain ⟨s, hs, hxs⟩ := mem_derivable.1 hx
-    obtain ⟨d, hd⟩ := hs.derivesN
-    obtain ⟨a, ha, hsub⟩ := roundSpans_cover (n := max d k - k) (k := k)
-      (by rw [Nat.sub_add_cancel (le_max_right d k)]; exact hd.mono (le_max_left d k))
-      ⟨x, hxs⟩ (Or.inr hk)
-    exact Set.mem_biUnion (hall a ha) (hsub hxs)
-  · exact Set.iUnion₂_subset fun a ha => sound_tri ha
+/-- When the machine halts, every derivable span is covered, as triples, by
+one emitted answer. -/
+theorem exhaust_tri {n : Nat} (h : runtime.Halts (runtime.init P q) n) {s : Span}
+    (hs : Derives P q s) : ∃ a ∈ runtime.emitted (runtime.init P q) n, s.den ⊆ a.den := by
+  obtain ⟨k, hk, hall⟩ := halted_final h
+  obtain ⟨d, hd⟩ := hs.derivesN
+  obtain ⟨a, ha, hsub⟩ := roundSpans_cover (n := max d k - k) (k := k)
+    (by rw [Nat.sub_add_cancel (le_max_right d k)]; exact hd.mono (le_max_left d k))
+    s.den_nonempty (Or.inr hk)
+  exact ⟨a, hall a ha, hsub⟩
 
 /-! ## The Tier 0 properties against the specification
 
-Each follows from its triple form through the bridge: in every
-interpretation, a span or expression relates the pairs of its triples whose
-store lies inside it. They hold in every interpretation, not only in models. -/
+They follow from the triple forms through the certificate of
+`Rungs/Framework/Tier0.lean`. Rung zero never reads the theory, so its
+answers are sound and cover as ground triples, which is more than the
+certificate asks. -/
 
-theorem sound : runtime.Sound := by
-  intro P q _ n a ha M _
-  rw [Span.denAt_eq, Program.semAt_eq]
-  exact GRel.at_mono (sound_tri ha) M
+theorem cert : runtime.Tier0Cert where
+  sound _ _ _ _ _ ha := lcov_of_subset (sound_tri ha)
+  cover _ _ _ _ hs :=
+    let ⟨n, a, ha, hsub⟩ := complete_tri hs
+    ⟨n, .inr ⟨a, ha, lcov_of_subset hsub⟩⟩
+  exhaust _ _ _ _ h _ hs :=
+    let ⟨a, ha, hsub⟩ := exhaust_tri h hs
+    .inr ⟨a, ha, lcov_of_subset hsub⟩
 
-theorem complete : runtime.Complete := by
-  intro P q _ s hs
-  obtain ⟨n, a, ha, hsub⟩ := complete_tri hs
-  refine Or.inr ⟨n, a, ha, fun M _ => ?_⟩
-  rw [Span.denAt_eq, Span.denAt_eq]
-  exact GRel.at_mono hsub M
+theorem sound : runtime.Sound := cert.toSound
 
-theorem honest_exhaustion : runtime.HonestExhaustion := by
-  intro P q _ n h M _
-  rw [Program.semAt_eq, honest_exhaustion_tri h]
-  ext p
-  simp only [GRel.at, Set.mem_iUnion, Span.denAt_eq, Set.mem_ofPred_eq]
-  constructor
-  · rintro ⟨S, ⟨a, ha, hS⟩, hM⟩; exact ⟨a, ha, S, hS, hM⟩
-  · rintro ⟨a, ha, S, hS, hM⟩; exact ⟨S, ⟨a, ha, hS⟩, hM⟩
+theorem complete : runtime.Complete := cert.toComplete
+
+theorem honest_exhaustion : runtime.HonestExhaustion := cert.toHonest
 
 /-- The machine reports it is done exactly when some round is final. -/
 theorem terminates_iff : runtime.Terminates P q ↔ ∃ k, roundFinal P q k = true := by

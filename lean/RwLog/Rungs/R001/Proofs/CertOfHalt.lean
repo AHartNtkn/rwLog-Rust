@@ -95,7 +95,7 @@ variable {P : Program} (hL : SimpLaws P.theory)
 include hL
 
 theorem cover_exists {g : Goal} (hg : GoodG g) : ∀ l : List Span,
-    (∀ a ∈ l, ∃ s, Derives P g.e s ∧ Sub P.theory (GDen g s.den) a) →
+    (∀ a ∈ l, ∃ s, Derives P g.e s ∧ Under P.theory (GDen g s.den) a) →
     ∃ F : List Span, (∀ f ∈ F, GDerives P g f) ∧ ∀ a ∈ l, ∃ f ∈ F, f.Covers a
   | [], _ => ⟨[], fun _ h => absurd h List.not_mem_nil, fun _ h => absurd h List.not_mem_nil⟩
   | a :: l, h => by

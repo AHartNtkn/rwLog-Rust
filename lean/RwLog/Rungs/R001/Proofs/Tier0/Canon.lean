@@ -101,10 +101,6 @@ theorem dw_mkOr {w : Nat} {s : Span} : ∀ es : List Rel, DW P w (mkOr es) s ↔
       · exact .inl h
       · exact .inr ⟨x, hx, h⟩
 
-theorem mem_sortedBranches {b : Rel} {es : List Rel} :
-    b ∈ sortedBranches es ↔ b ∈ es ∧ b ≠ .zero := by
-  simp [sortedBranches, List.mem_filter]
-
 /-- The canonical form derives exactly what the expression derives, with the
 same weights. -/
 theorem dw_canon : ∀ (e : Rel) {w : Nat} {s : Span}, DW P w (canon e) s ↔ DW P w e s

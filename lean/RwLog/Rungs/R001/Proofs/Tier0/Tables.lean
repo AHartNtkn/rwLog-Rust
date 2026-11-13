@@ -17,7 +17,7 @@ namespace R001
 
 namespace Tier0
 
-open Lifting (LCov LEq Live PId bden W)
+open Lifting (W)
 
 theorem goodG_of_interfaced {g : Goal} (h : g.Interfaced) : GoodG g := by
   obtain ⟨lb, e, rb⟩ := g
@@ -52,12 +52,12 @@ theorem boundEq_leq {T : Theory} {a b : Option Span} (h : boundEq a b = true) :
       subst e1 e2
       exact hp _ _ _ hy
 
-theorem tinv_tablesAt (hSE : Obligation.simplify_exact) {P : Program} {g : Goal}
+theorem tinv_tablesAt {P : Program} {g : Goal}
     (hwf : ∀ ρ ∈ P.theory, ρ.WellFormed) (hg : GoodG g) (n : Nat) :
     TInv P (Obligation.tablesAt P g n) := by
   unfold Obligation.tablesAt
   rcases stateAfter_cases (State.ofGoal P g) n with ⟨k, -, -, h⟩ | ⟨-, h⟩ <;> rw [h] <;>
-    exact tinv_iter hSE (st := State.ofGoal P g) hwf (tinv_ofGoal hg) _
+    exact tinv_iter (st := State.ofGoal P g) hwf (tinv_ofGoal hg) _
 
 theorem iter_eq_iterate (st : State) : ∀ k, iter st k = (fun st => (round st).1)^[k] st
   | 0 => rfl
@@ -76,20 +76,18 @@ end Tier0
 open Tier0 Lifting
 
 section
-variable (hSE : Obligation.simplify_exact)
-include hSE
 
 /-- Every answer of a table that is not dead is, up to the theory, an answer
 the machine derives for the table's goal. -/
 theorem table_sound : Obligation.table_sound := by
   intro P g hwf hg n t ht a ha
-  have hI := tinv_tablesAt hSE hwf (goodG_of_interfaced hg) n
+  have hI := tinv_tablesAt hwf (goodG_of_interfaced hg) n
   obtain ⟨s, hs, hr⟩ := hI.ref t ht a ha
   by_cases hd : a.Dead P.theory
   · exact .inl hd
   right
   have hl : Live P.theory (W t.goal.lb s.den t.goal.rb) := hr.1.1.live (not_dead_iff.1 hd)
-  obtain ⟨c, hc, y, hy, h₁, h₂⟩ := toGDerives hSE hwf hs t.goal.lb t.goal.rb hl
+  obtain ⟨c, hc, y, hy, h₁, h₂⟩ := toGDerives hwf hs t.goal.lb t.goal.rb hl
   have hgt := hI.good t ht
   have h₂' := h₂ (pid_of_goodBO hgt.1) (pid_of_goodBO hgt.2)
   exact ⟨y, lift_leaf hc hy, coversLive_iff.2 (hr.2.trans h₂'), coversLive_iff.2 (h₁.trans hr.1.1)⟩
@@ -98,12 +96,12 @@ theorem table_sound : Obligation.table_sound := by
 that is not dead. -/
 theorem completion_sound : Obligation.completion_sound := by
   intro P g hwf hg n t ht hd s hs
-  have hI := tinv_tablesAt hSE hwf (goodG_of_interfaced hg) n
+  have hI := tinv_tablesAt hwf (goodG_of_interfaced hg) n
   by_cases hdd : s.Dead P.theory
   · exact .inl hdd
   have hgt := hI.good t ht
   obtain ⟨s₀, hs₀, he⟩ :=
-    toDerives hSE hwf hs (pid_of_goodBO hgt.1) (pid_of_goodBO hgt.2) (not_dead_iff.1 hdd)
+    toDerives hwf hs (pid_of_goodBO hgt.1) (pid_of_goodBO hgt.2) (not_dead_iff.1 hdd)
   rcases hI.comp t ht hd s₀ hs₀ with hdead | ⟨a, ha, hcov⟩
   · exact .inl (deadR_den.1 (hdead.of_dom he.2))
   · exact .inr ⟨a, ha, coversLive_iff.2 (hcov.trans he.2)⟩
@@ -119,11 +117,11 @@ theorem table_fair : Obligation.table_fair := by
   obtain ⟨k, hk⟩ := tablesAt_iter P g n
   rw [hk] at ht
   obtain ⟨i, hi, rfl⟩ := List.mem_iff_getElem.1 ht
-  have hgt := (tinv_iter hSE (st := st) hwf (tinv_ofGoal hgG) k).good _ ht
+  have hgt := (tinv_iter (st := st) hwf (tinv_ofGoal hgG) k).good _ ht
   obtain ⟨s₀, hs₀, he⟩ :=
-    toDerives hSE hwf hs (pid_of_goodBO hgt.1) (pid_of_goodBO hgt.2) (not_dead_iff.1 hdd)
+    toDerives hwf hs (pid_of_goodBO hgt.1) (pid_of_goodBO hgt.2) (not_dead_iff.1 hdd)
   obtain ⟨w, hw⟩ := dw_of_derives hs₀
-  obtain ⟨k₀, hk₀⟩ := fair hSE (st := st) hwf (tinv_ofGoal hgG) _ k i hi w s₀ hw le_rfl
+  obtain ⟨k₀, hk₀⟩ := fair (st := st) hwf (tinv_ofGoal hgG) _ k i hi w s₀ hw le_rfl
   have hkk : k ≤ max k₀ k := le_max_right _ _
   obtain ⟨hi', hdc⟩ := hk₀ (max k₀ k) (le_max_left _ _)
   obtain ⟨_, hext⟩ := iter_ext_le st hkk i hi
@@ -143,7 +141,7 @@ theorem gderives_same : Obligation.gderives_same := by
   right
   have hgG := goodG_of_interfaced hg
   obtain ⟨s₀, hs₀, he⟩ :=
-    toDerives hSE hwf hy (pid_of_goodBO hgG.1) (pid_of_goodBO hgG.2) (not_dead_iff.1 hd)
+    toDerives hwf hy (pid_of_goodBO hgG.1) (pid_of_goodBO hgG.2) (not_dead_iff.1 hd)
   simp only [Goal.same, Bool.and_eq_true, decide_eq_true_eq] at hs
   obtain ⟨⟨he', hl⟩, hr⟩ := hs
   obtain ⟨bl, pl⟩ := boundEq_leq (T := P.theory) hl
@@ -152,7 +150,7 @@ theorem gderives_same : Obligation.gderives_same := by
     bl.comp ((LEq.refl _).comp br)
   have hlive : Live P.theory (W h.lb s₀.den h.rb) := hb.2.live (he.2.live (not_dead_iff.1 hd))
   rw [he'] at hs₀
-  obtain ⟨c, hc, y', hy', h₁, h₂⟩ := toGDerives hSE hwf hs₀ h.lb h.rb hlive
+  obtain ⟨c, hc, y', hy', h₁, h₂⟩ := toGDerives hwf hs₀ h.lb h.rb hlive
   have h₂' := h₂ (pl (pid_of_goodBO hgG.1)) (pr (pid_of_goodBO hgG.2))
   exact ⟨y', lift_leaf hc hy', coversLive_iff.2 ((h₁.trans hb.2).trans he.2),
     coversLive_iff.2 ((he.1.trans hb.1).trans h₂')⟩

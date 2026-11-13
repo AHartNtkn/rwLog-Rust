@@ -58,22 +58,13 @@ an exact check on the whole state, not a counter. When every table stops
 changing, `S` contains all of them, so the machine never stalls.
 -/
 import RwLog.Kernel.Refute
+import RwLog.Kernel.Iface
+import RwLog.Kernel.Live
+import RwLog.Kernel.Maxima
+import RwLog.Lib.Gfp
 import RwLog.Rungs.R000.Engine
 
 namespace RwLog
-
-namespace Span
-
-/-- The constraints of `s` that only mention variables of `p`. -/
-def storeOn (s : Span) (p : Pat) : Store := s.c.filter fun a => a.vars.all (· ∈ p.vars)
-
-/-- The right interface `r {c|r} -> r`: `s ; s.rightIface = s`. -/
-def rightIface (s : Span) : Span := ⟨s.r, s.r, s.storeOn s.r⟩
-
-/-- The left interface `l {c|l} -> l`: `s.leftIface ; s = s`. -/
-def leftIface (s : Span) : Span := ⟨s.l, s.l, s.storeOn s.l⟩
-
-end Span
 
 namespace R001
 
@@ -238,20 +229,6 @@ def doneOf (ts : Tables) (g : Goal) : Bool :=
 
 /-! ## Kernel steps with pruning -/
 
-/-- Simplify a span by its theory: instantiate it by every equation the
-theory forces, and drop it if the theory refutes it. -/
-def live (T : Theory) (s : Span) : List Span := (T.simplify s).toList
-
-def composeLive (T : Theory) (x y : Span) : List Span :=
-  match x.compose y with
-  | some z => live T z
-  | none => []
-
-def meetLive (T : Theory) (x y : Span) : List Span :=
-  match x.meet y with
-  | some z => live T z
-  | none => []
-
 /-- `lb ; s ; rb`. -/
 def spanAnswer (T : Theory) (lb : Option Span) (s : Span) (rb : Option Span) : List Span :=
   let left : Option Span := match lb with
@@ -263,18 +240,6 @@ def spanAnswer (T : Theory) (lb : Option Span) (s : Span) (rb : Option Span) : L
   match both with
   | some z => live T z
   | none => []
-
-/-- The answers of a list that no other member strictly covers, one per
-class of equivalent answers. -/
-def maxima (xs : List Span) : List Span :=
-  let top := xs.filter fun x => !xs.any fun y => y.covers? x && !x.covers? y
-  top.foldl (fun acc x => if acc.any fun y => y.covers? x then acc else acc ++ [x]) []
-
-/-- The candidates that enter a table holding `old`: not covered by an old
-answer, not strictly covered by another candidate, one per equivalence
-class. -/
-def fresh (old cands : List Span) : List Span :=
-  maxima (cands.filter fun c => !old.any fun t => t.covers? c)
 
 /-! ## Goals: sub-goals, candidates and strategies -/
 
@@ -386,14 +351,6 @@ where
       ++ (if doneOf ts R then [R :: (maxima (answersOf ts R)).map (andPush a)] else [])
 
 /-! ## One round -/
-
-/-- Shrink `S` to the largest subset closed under `ok`. Each pass that changes
-`S` removes a member, so `S.length` passes reach the fixpoint. -/
-def gfpFrom (ok : List Nat → Nat → Bool) : Nat → List Nat → List Nat
-  | 0, S => S
-  | n + 1, S =>
-    let S' := S.filter (ok S)
-    if S'.length = S.length then S else gfpFrom ok n S'
 
 /-- The tables that complete at the end of a round. `ts` is the state at the
 start of the round and `ts'` the state after this round's answers were

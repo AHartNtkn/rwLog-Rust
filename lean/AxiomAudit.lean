@@ -179,9 +179,6 @@ new axiom.
 /-- info: 'RwLog.R001.or_assoc' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.R001.or_assoc
 
-/-- info: 'RwLog.R001.Symmetry.dual_trace_of_mono' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLog.R001.Symmetry.dual_trace_of_mono
-
 /-- info: 'RwLog.R001.terminates_iff_cert' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.R001.terminates_iff_cert
 
@@ -208,3 +205,65 @@ new axiom.
 
 /-- info: 'RwLog.R001.dual_trace' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.R001.dual_trace
+
+/-! ## Shared kernel and rung framework -/
+
+/-- info: 'RwLog.Span.covers?_iff' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Span.covers?_iff
+
+/-- info: 'RwLog.Theory.refutes?_sound' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Theory.refutes?_sound
+
+/-- info: 'RwLog.Theory.simplify_exact' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Theory.simplify_exact
+
+/-- info: 'RwLog.Theory.present_exact' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Theory.present_exact
+
+/-- info: 'RwLog.Theory.simplify_stable' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Theory.simplify_stable
+
+/-- info: 'RwLog.Program.sem_dual' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Program.sem_dual
+
+/-- info: 'RwLog.Runtime.finite_answers' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Runtime.finite_answers
+
+/-- info: 'RwLog.Runtime.Tier0Cert.tier0' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Runtime.Tier0Cert.tier0
+
+/-- info: 'RwLog.Runtime.derivationGeneral_of_ref' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Runtime.derivationGeneral_of_ref
+
+/-- info: 'RwLog.Runtime.theory_mono_answers' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Runtime.theory_mono_answers
+
+/-- info: 'RwLog.Runtime.trace_of_sim' depends on axioms: [propext] -/
+#guard_msgs in #print axioms RwLog.Runtime.trace_of_sim
+
+/-- info: 'RwLog.Runtime.SameRun.tier0' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Runtime.SameRun.tier0
+
+/-- info: 'RwLog.Runtime.SameRun.terminatesOn' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Runtime.SameRun.terminatesOn
+
+/-- info: 'RwLog.Runtime.HonestExhaustion.transfer' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Runtime.HonestExhaustion.transfer
+
+/-- info: 'RwLog.Rung.sound' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Rung.sound
+
+/-- info: 'RwLog.Rung.pointComplete' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Rung.pointComplete
+
+/-- info: 'RwLog.Rung.honest' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Rung.honest
+
+/-- info: 'RwLog.R000.cert' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R000.cert
+
+/-- info: 'RwLog.R001.cert' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R001.cert
+
+/-- info: 'RwLog.simpLaws_of_wf' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.simpLaws_of_wf

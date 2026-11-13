@@ -40,14 +40,6 @@ def newOf (ts : Tables) (reqs : List Goal) : List Goal :=
   reqs.foldl
     (fun acc g => if ts.any (fun t => t.goal.same g) || acc.any (fun h => h.same g) then acc else acc ++ [g]) []
 
-theorem zip_map_self {α β γ : Type} (l : List α) (f : α → β) (g : α × β → γ) :
-    (l.zip (l.map f)).map g = l.map fun x => g (x, f x) := by
-  induction l with
-  | nil => rfl
-  | cons x l ih => simp [ih]
-
-def dflt : Table := ⟨⟨none, .zero, none⟩, [], false⟩
-
 theorem round_eq (st : State) :
     round st =
       (⟨st.P,
@@ -63,7 +55,7 @@ theorem round_eq (st : State) :
       if t.done then (([] : List Span), ([] : List Goal)) else produce st.P st.depth st.tables t.goal)).map
         fun p => { p.1 with answers := p.1.answers ++ fresh p.1.answers p.2.1 }) =
       st.tables.map (upd st.P st.depth st.tables) := by
-    rw [zip_map_self]
+    rw [map_zip_map_self]
     congr 1; funext t
     simp only [upd, candsOf]
     split <;> rfl
@@ -706,20 +698,18 @@ theorem round_rel {P : Program} (hK : Obligation.SimplifyRespectsEquiv P.theory)
 
 /-! ## The trace -/
 
-theorem trace_rel {P : Program} (hK : Obligation.SimplifyRespectsEquiv P.theory) :
-    ∀ (n : Nat) (stA stB : State), StRel P stA stB →
-      TraceEquiv (runtime.trace stB n) ((runtime.trace stA n).map (·.map Span.swap))
-  | 0, _, _, _ => List.Forall₂.nil
-  | n + 1, stA, stB, h => by
-    simp only [Runtime.trace]
-    have hs : ∀ st : State, runtime.step st = step st := fun _ => rfl
-    rw [hs, hs]
-    unfold step
-    rw [h.finished]
-    cases stA.finished
-    · have r := round_rel hK h
-      exact List.Forall₂.cons r.2 (trace_rel hK n _ _ r.1)
-    · exact List.Forall₂.nil
+theorem trace_rel {P : Program} (hK : Obligation.SimplifyRespectsEquiv P.theory)
+    (n : Nat) (stA stB : State) (h : StRel P stA stB) :
+    TraceEquiv (runtime.trace stB n) ((runtime.trace stA n).map (·.map Span.swap)) := by
+  rw [TraceEquiv, List.forall₂_map_right_iff]
+  refine Runtime.trace_of_sim (R := runtime) (R' := runtime) (Sim := fun b a => StRel P a b)
+    (E := fun bs as => StepEquiv bs (as.map Span.swap)) (fun sB sA h => ?_) n stB stA h
+  show Step.Rel _ _ (step sB) (step sA)
+  unfold step
+  rw [h.finished]
+  cases sA.finished
+  · exact ⟨(round_rel hK h).2, (round_rel hK h).1⟩
+  · exact trivial
 
 theorem init_rel (P : Program) (q : Rel) :
     StRel P (runtime.init P q) (runtime.init P.dual q.dual) := by
@@ -743,26 +733,14 @@ theorem dual_trace_of_respects (P : Program) (q : Rel) (n : Nat)
       ((runtime.trace (runtime.init P q) n).map (·.map Span.swap)) :=
   trace_rel hK n _ _ (init_rel P q)
 
-/-- Simplification respects equivalent spans whenever it keeps coverage. -/
-theorem respects_of_mono (hm : Obligation.simplify_mono) {T : Theory}
-    (hwf : ∀ ρ ∈ T, ρ.WellFormed) : Obligation.SimplifyRespectsEquiv T := by
-  intro z z' h
-  rcases (hm T hwf).1 z z' h.1 with h₁ | ⟨f, x, hf, hx, hfx⟩
-  · rcases (hm T hwf).1 z' z h.2 with h₂ | ⟨_, _, h₃, _, _⟩
-    · rw [h₁, h₂]; exact .none
-    · rw [h₁] at h₃; cases h₃
-  · rcases (hm T hwf).1 z' z h.2 with h₂ | ⟨a, b, ha, hb, hab⟩
-    · rw [hf] at h₂; cases h₂
-    · rw [hf, hx]
-      rw [hx] at ha; rw [hf] at hb
-      cases ha; cases hb
-      exact .some ⟨hfx, hab⟩
-
-/-- **P1.4 strong, for the mirrored program**, from `simplify_mono`. -/
-theorem dual_trace_of_mono (hm : Obligation.simplify_mono) : Obligation.dual_trace :=
-  fun P q n hwf => dual_trace_of_respects P q n (respects_of_mono hm hwf)
-
 end Symmetry
+
+/-- **P1.4 strong, for the mirrored program.** Simplification keeps coverage
+(`simpLaws_of_wf`), so it respects equivalent spans, which is all the mirrored
+run needs. -/
+theorem dual_trace : Obligation.dual_trace :=
+  fun P q n hwf => Symmetry.dual_trace_of_respects P q n fun _ _ h => (simpLaws_of_wf hwf).respects h
+
 
 end R001
 

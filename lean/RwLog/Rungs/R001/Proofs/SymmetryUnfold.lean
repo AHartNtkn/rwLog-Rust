@@ -41,7 +41,7 @@ def fm : Bool → GRel → GRel
 theorem fm_fm (m₁ m₂ : Bool) (R : GRel) : fm m₂ (fm m₁ R) = fm (m₁ ^^ m₂) R := by
   cases m₁ <;> cases m₂ <;> simp [GRel.inv_inv]
 
-theorem GEq.fm {R S : GRel} (m : Bool) (h : GEq R S) : GEq (fm m R) (fm m S) := by
+theorem _root_.RwLog.GEq.fm {R S : GRel} (m : Bool) (h : GEq R S) : GEq (fm m R) (fm m S) := by
   cases m
   · exact h
   · exact h.inv

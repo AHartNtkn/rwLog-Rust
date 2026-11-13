@@ -32,7 +32,7 @@ variable {P : Program}
 def InDom (o : Option Span) (u : GTerm) : Prop := ∃ S, (u, u, S) ∈ bden o
 
 /-- An answer under a relation relates only pairs of the relation. -/
-theorem sub_pairs {T : Theory} {X : GRel} {x : Span} (h : Sub T X x) {u u' : GTerm} {S : GStore}
+theorem sub_pairs {T : Theory} {X : GRel} {x : Span} (h : Under T X x) {u u' : GTerm} {S : GStore}
     (hx : (u, u', S) ∈ x.den) : ∃ S', (u, u', S') ∈ X := by
   obtain ⟨w, hdom, w', hsimp, hcov⟩ := h
   obtain ⟨S₁, hS₁, -⟩ := dom_iff.1 (covers_iff_dom.1 hcov) u u' S hx
@@ -44,11 +44,11 @@ theorem sub_pairs {T : Theory} {X : GRel} {x : Span} (h : Sub T X x) {u u' : GTe
 /-- A cover answer lets a term through its right interface. -/
 theorem inDom_right (x : Span) : ∃ u, InDom (bound x.rightIface) u :=
   ⟨x.r.bind fun _ => .sym "", _, by
-    rw [bden_bound rfl]; exact ⟨fun _ => .sym "", rfl⟩⟩
+    rw [Lifting.bden_bound rfl]; exact ⟨fun _ => .sym "", rfl⟩⟩
 
 theorem inDom_left (y : Span) : ∃ u, InDom (bound y.leftIface) u :=
   ⟨y.l.bind fun _ => .sym "", _, by
-    rw [bden_bound rfl]; exact ⟨fun _ => .sym "", rfl⟩⟩
+    rw [Lifting.bden_bound rfl]; exact ⟨fun _ => .sym "", rfl⟩⟩
 
 section Laws
 
@@ -59,7 +59,7 @@ include hL
 derivation of the root. -/
 theorem cover_sub {C : List CertEntry} {D : Nat} {L : Goal} (hg : GoodG L)
     (hC : Cert.Valid P C D L) {x : Span} (hx : x ∈ certCover C L) :
-    ∃ s, Derives P L.e s ∧ Sub P.theory (GDen L s.den) x := by
+    ∃ s, Derives P L.e s ∧ Under P.theory (GDen L s.den) x := by
   obtain ⟨e, he, hs, hcc⟩ := certCover_spec hC.1
   rw [hcc, orient_eq] at hx
   obtain ⟨f, hf, rfl⟩ := List.mem_map.1 hx
@@ -81,7 +81,7 @@ theorem span_push_right {lb : Option Span} {s₀ : Span} (hlb : GoodBO lb) {C : 
   obtain ⟨s, hder, hsub⟩ := cover_sub hL (L := ⟨lb, .span s₀, none⟩) ⟨hlb, trivial⟩ hC hx
   cases hder
   obtain ⟨S, hS⟩ := hu
-  rw [bden_bound rfl] at hS
+  rw [Lifting.bden_bound rfl] at hS
   obtain ⟨σ, hσ⟩ := hS
   simp only [Span.rightIface, Prod.mk.injEq] at hσ
   obtain ⟨S', hS'⟩ := sub_pairs hsub (show (x.l.bind σ, x.r.bind σ, x.c.at σ) ∈ x.den from ⟨σ, rfl⟩)
@@ -103,7 +103,7 @@ theorem span_push_left {rb : Option Span} {s₀ : Span} (hrb : GoodBO rb) {C : L
   obtain ⟨s, hder, hsub⟩ := cover_sub hL (L := ⟨none, .span s₀, rb⟩) ⟨trivial, hrb⟩ hC hy
   cases hder
   obtain ⟨S, hS⟩ := hu
-  rw [bden_bound rfl] at hS
+  rw [Lifting.bden_bound rfl] at hS
   obtain ⟨σ, hσ⟩ := hS
   simp only [Span.leftIface, Prod.mk.injEq] at hσ
   obtain ⟨S', hS'⟩ := sub_pairs hsub (show (y.l.bind σ, y.r.bind σ, y.c.at σ) ∈ y.den from ⟨σ, rfl⟩)

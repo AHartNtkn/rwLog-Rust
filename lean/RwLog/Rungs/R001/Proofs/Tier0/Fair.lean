@@ -42,8 +42,6 @@ theorem dep_found (st : State) (k i : Nat) (hi : i < (iter st k).tables.length)
   exact ⟨j, hj⟩
 
 section
-variable (hSE : Obligation.simplify_exact)
-include hSE
 
 /-- Every derivation of a table's goal is eventually covered by the table,
 for good. -/
@@ -56,7 +54,7 @@ theorem fair {st : State} (hwf : ∀ ρ ∈ st.P.theory, ρ.WellFormed) (hI : TI
   induction m using Nat.strong_induction_on with
   | _ m IH =>
   intro k i hi w s hw hm
-  have hIk := tinv_iter hSE hwf hI
+  have hIk := tinv_iter hwf hI
   have hP := iter_P st
   -- once covered, covered for good
   suffices hev : ∃ k₁, ∃ hi₁ : i < (iter st k₁).tables.length, k ≤ k₁ ∧
@@ -114,7 +112,7 @@ theorem fair {st : State} (hwf : ∀ ρ ∈ st.P.theory, ρ.WellFormed) (hI : TI
   obtain ⟨lb, e, rb⟩ := G
   cases e with
   | zero => cases hw
-  | span s₀ => cases hw with | span => exact ⟨k, le_rfl, hi, .inr (dc_span hSE hwf lb rb _)⟩
+  | span s₀ => cases hw with | span => exact ⟨k, le_rfl, hi, .inr (dc_span hwf lb rb _)⟩
   | or a b =>
     obtain ⟨l, hl, hwl⟩ := (dw_orBranches _).1 hw
     obtain ⟨k₀, hk₀⟩ := hD ⟨lb, l, rb⟩
@@ -148,7 +146,7 @@ theorem fair {st : State} (hwf : ∀ ρ ∈ st.P.theory, ρ.WellFormed) (hI : TI
         _ _ hw₂ (meas_lt _ _ (by omega) rfl)
       have hK : k ≤ max (max k₁ k₂) k := le_max_right _ _
       obtain ⟨hiK, -⟩ := iter_ext_le st hK i hi
-      exact ⟨_, hK, hiK, .inr (dc_seq_join hSE hwf
+      exact ⟨_, hK, hiK, .inr (dc_seq_join hwf
         (hk₁ _ (le_trans (le_max_left _ _) (le_max_left _ _)))
         (hk₂ _ (le_trans (le_max_right _ _) (le_max_left _ _))))⟩
   | and a b =>
@@ -161,7 +159,7 @@ theorem fair {st : State} (hwf : ∀ ρ ∈ st.P.theory, ρ.WellFormed) (hI : TI
         _ _ hw₂ (meas_lt _ _ (by omega) rfl)
       have hK : k ≤ max (max k₁ k₂) k := le_max_right _ _
       obtain ⟨hiK, -⟩ := iter_ext_le st hK i hi
-      exact ⟨_, hK, hiK, .inr (dc_and_join hSE hwf hgG
+      exact ⟨_, hK, hiK, .inr (dc_and_join hwf hgG
         (hk₁ _ (le_trans (le_max_left _ _) (le_max_left _ _)))
         (hk₂ _ (le_trans (le_max_right _ _) (le_max_left _ _))))⟩
 
