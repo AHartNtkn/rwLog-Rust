@@ -315,15 +315,20 @@ theorem always_unifies {E : Eqns Nat} (h : always E = true) (σ : Nat → GTerm)
     rw [this]
   · cases h
 
+/-- What `tighten` keeps, with more than one member for each variable of the
+pattern and no exclusion that always holds, is the invariant. -/
+theorem Kept.inv {s : CStore} (hP : Kept S s) (hmany : ∀ v ∈ s.t.vars, count S (s.conj v) = .many)
+    (hopen : ∀ E ∈ s.x, always E = false) : Inv S s := by
+  refine ⟨hP.fin.fo, hP.fin.tv, hP.fin.xfo, ?_, fun v _ hv => hP.full.cs v hv, hmany, hopen⟩
+  intro E hE v hv
+  obtain ⟨p, hp, hv⟩ := List.mem_flatMap.1 hv
+  exact hP.full.xs E hE p hp v hv
+
 /-- A store that fails the invariant, with what `tighten` keeps, denotes
 nothing. -/
 theorem den_empty_of_not_inv {s : CStore} (hP : Kept S s) (hI : ¬ Inv S s) :
     s.store.Den S = ∅ := by
-  refine Set.eq_empty_of_forall_notMem fun g ⟨σ, hσ, _⟩ => hI ?_
-  refine ⟨hP.fin.fo, hP.fin.tv, hP.fin.xfo, ?_, fun v _ hv => hP.full.cs v hv, ?_, ?_⟩
-  · intro E hE v hv
-    obtain ⟨p, hp, hv⟩ := List.mem_flatMap.1 hv
-    exact hP.full.xs E hE p hp v hv
+  refine Set.eq_empty_of_forall_notMem fun g ⟨σ, hσ, _⟩ => hI (hP.inv ?_ ?_)
   · intro v hv
     cases hc : count S (s.conj v) with
     | none => exact absurd ⟨_, hσ.1 v⟩ (count_none.1 hc)
