@@ -583,6 +583,16 @@ def workLevel (adv : Nat → StateOf S N A → M (StateOf S N A × Nat)) (whole 
       pure (st', acc.2 || did)
     else pure acc) (st, false) (groupsAt st i).zipIdx
 
+/-- Before the round of the table at `i`, read as `t`: its groups are made if
+it has none, and the round is stamped. -/
+def prepare (i : Nat) (t : Table S N A) (st : StateOf S N A) : M (StateOf S N A) := do
+  let st ← match t.groups with
+    | some _ => pure st
+    | none => do
+      let (st', gs) ← expand (K := K) t.goal st
+      pure (st'.modify i fun t => { t with groups := some gs })
+  pure (st.modify i fun t => { t with stamp := st.round, delta := 0 })
+
 /-- The round of the table at `i`. The first argument is the number of
 tables that can still have a round nested in this one. Returns how much the
 level of the goal rose. -/
@@ -597,12 +607,7 @@ def advance : Nat → Nat → StateOf S N A → M (StateOf S N A × Nat)
       else if t.born = st.round then pure (st, 0)
       else do
         K.tick 1
-        let st ← match t.groups with
-          | some _ => pure st
-          | none => do
-            let (st', gs) ← expand (K := K) t.goal st
-            pure (st'.modify i fun t => { t with groups := some gs })
-        let st := st.modify i fun t => { t with stamp := st.round, delta := 0 }
+        let st ← prepare (K := K) i t st
         let gs := groupsAt st i
         let low := levelOf gs
         let whole := decide (gs.length ≤ 1)
