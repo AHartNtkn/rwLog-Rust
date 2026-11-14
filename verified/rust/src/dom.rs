@@ -17,9 +17,10 @@
 //! arguments, and returns the normal store of that problem.
 
 pub use crate::sorts::Rep;
-use crate::sorts::{normal, places, rev_onto, uncons};
-use crate::store::{Node, Store, Tbl, TermId};
-use crate::term::{rebuild, Leaf};
+use crate::sorts::{is_var, normal, places, rev_onto, uncons};
+use crate::span::Span;
+use crate::store::{Frame, Node, Store, Tbl, TermId};
+use crate::term::{node_of, rebuild, Leaf};
 
 /// The sorted patterns that say the pattern `v` is in each sort of the
 /// list `c0`, in front of the list `out0`.
@@ -272,5 +273,172 @@ pub fn covers(s: &mut Store, decls: TermId, names: TermId, a: Rep, b: Rep) -> bo
     match meet(s, decls, names, a, b) {
         Some(m) => same_rep(s, m, b),
         None => false,
+    }
+}
+
+/// Is the term `p` first-order: is no variable applied anywhere in it?
+/// Table `B` flags the nodes already visited; the stack is empty at entry.
+fn first_order(s: &mut Store, p: TermId) -> bool {
+    let mut ok = true;
+    s.clear(Tbl::B);
+    s.push(Frame::Visit(p, p));
+    while let Some(fr) = s.pop() {
+        let q = node_of(fr);
+        match s.get_flag(Tbl::B, q) {
+            Some(_) => (),
+            None => {
+                s.set_flag(Tbl::B, q, true);
+                if let Node::App(a, b) = s.read(q) {
+                    if is_var(s, a) {
+                        ok = false;
+                        s.drop_stack();
+                    } else {
+                        s.push(Frame::Visit(b, b));
+                        s.push(Frame::Visit(a, a));
+                    }
+                }
+            }
+        }
+    }
+    ok
+}
+
+/// Can the term `p` be a constraint: is it first-order and not a variable?
+fn is_atom(s: &mut Store, p: TermId) -> bool {
+    if is_var(s, p) {
+        false
+    } else {
+        first_order(s, p)
+    }
+}
+
+/// Is `n` a member of the list `l0`?
+fn among(s: &mut Store, n: TermId, l0: TermId) -> bool {
+    let mut found = false;
+    let mut l = l0;
+    let mut go = true;
+    while go {
+        match uncons(s, l) {
+            Some((m, rest)) => {
+                if s.same(m, n) {
+                    found = true;
+                    go = false;
+                } else {
+                    l = rest;
+                }
+            }
+            None => go = false,
+        }
+    }
+    found
+}
+
+/// What a constraint says.
+enum Con {
+    /// Its argument is in the sort its head names.
+    Sort(TermId),
+    /// The two terms differ.
+    Differ(TermId, TermId),
+    /// Nothing that can hold.
+    Never,
+}
+
+/// What the constraint `c` says, where `ne` is the word of the symbol of
+/// disequality: a symbol applied to one term puts the term in the sort of
+/// that name; the symbol of disequality applied to two terms says they
+/// differ; any other term never holds.
+fn con(s: &mut Store, ne: u32, c: TermId) -> Con {
+    match s.read(c) {
+        Node::App(h, q) => match s.read(h) {
+            Node::Sym(_) => Con::Sort(h),
+            Node::Nil => Con::Sort(h),
+            Node::App(f, p) => match s.read(f) {
+                Node::Sym(w) => {
+                    if s.word_eq(w, ne) {
+                        Con::Differ(p, q)
+                    } else {
+                        Con::Never
+                    }
+                }
+                _ => Con::Never,
+            },
+            _ => Con::Never,
+        },
+        _ => Con::Never,
+    }
+}
+
+/// The sorted patterns and the exclusions of the list of constraints `c0`;
+/// nothing when one of them is not first-order, is a variable, names a sort
+/// that is not in the list `names`, or never holds. Table `B` is used; the
+/// stack is empty at entry.
+fn parts(s: &mut Store, names: TermId, ne: u32, c0: TermId) -> Option<(TermId, TermId)> {
+    let nil = s.alloc(Node::Nil);
+    let mut atoms = nil;
+    let mut excl = nil;
+    let mut c = c0;
+    let mut ok = true;
+    let mut go = true;
+    while go {
+        match uncons(s, c) {
+            Some((k, rest)) => {
+                if is_atom(s, k) {
+                    match con(s, ne, k) {
+                        Con::Sort(h) => {
+                            if among(s, h, names) {
+                                atoms = s.alloc(Node::App(k, atoms));
+                                c = rest;
+                            } else {
+                                ok = false;
+                                go = false;
+                            }
+                        }
+                        Con::Differ(p, q) => {
+                            let e = s.alloc(Node::App(p, q));
+                            let l = s.alloc(Node::App(e, nil));
+                            excl = s.alloc(Node::App(l, excl));
+                            c = rest;
+                        }
+                        Con::Never => {
+                            ok = false;
+                            go = false;
+                        }
+                    }
+                } else {
+                    ok = false;
+                    go = false;
+                }
+            }
+            None => go = false,
+        }
+    }
+    if ok {
+        Some((atoms, excl))
+    } else {
+        None
+    }
+}
+
+/// The representative of the span `x` as written, where `ne` is the word
+/// of the symbol of disequality: the normal store of the pair of its two
+/// sides under its constraints. Nothing when a side or a constraint is not
+/// first-order, a constraint is a variable, or the span relates nothing.
+/// Tables `A` and `B` are used; the stack is empty at entry.
+pub fn rep(s: &mut Store, decls: TermId, names: TermId, ne: u32, x: Span) -> Option<Rep> {
+    if first_order(s, x.l) {
+        if first_order(s, x.r) {
+            match parts(s, names, ne, x.c) {
+                Some((a, e)) => {
+                    let t = pair(s, x.l, x.r);
+                    let nil = s.alloc(Node::Nil);
+                    normal(s, decls, names, t, nil, a, e)
+                }
+                None => None,
+            }
+        } else {
+            None
+        }
+    } else {
+        None
     }
 }
