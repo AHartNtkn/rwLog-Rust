@@ -28,14 +28,14 @@ def store.Store.tick (self : store.Store) : Result store.Store := do
   ok { self with ticks := i }
 
 /-- [rwlog_core::store::{rwlog_core::store::Store}::drop_stack]:
-    Source: 'src/store.rs', lines 370:4-373:5
+    Source: 'src/store.rs', lines 378:4-381:5
     Visibility: public -/
 def store.Store.drop_stack (self : store.Store) : Result store.Store := do
   let self1 ← store.Store.tick self
   ok { self1 with sp := 0#usize }
 
 /-- [rwlog_core::store::{rwlog_core::store::Store}::pop]:
-    Source: 'src/store.rs', lines 359:4-367:5
+    Source: 'src/store.rs', lines 367:4-375:5
     Visibility: public -/
 def store.Store.pop
   (self : store.Store) : Result ((Option store.Frame) × store.Store) := do
@@ -50,7 +50,7 @@ def store.Store.pop
     ok (some f, { self1 with sp := i })
 
 /-- [rwlog_core::store::{rwlog_core::store::Store}::push]:
-    Source: 'src/store.rs', lines 347:4-355:5
+    Source: 'src/store.rs', lines 355:4-363:5
     Visibility: public -/
 def store.Store.push
   (self : store.Store) (f : store.Frame) : Result store.Store := do
@@ -69,7 +69,7 @@ def store.Store.push
   ok { self1 with stack := v, sp := i1 }
 
 /-- [rwlog_core::store::{rwlog_core::store::Store}::set_cell]:
-    Source: 'src/store.rs', lines 298:4-309:5 -/
+    Source: 'src/store.rs', lines 306:4-317:5 -/
 def store.Store.set_cell
   (self : store.Store) (t : store.Tbl) (k : store.TermId) (v : Std.Usize) :
   Result store.Store
@@ -97,7 +97,7 @@ def store.Store.set_cell
     ok { self with slots := v2 }
 
 /-- [rwlog_core::store::{rwlog_core::store::Store}::set]:
-    Source: 'src/store.rs', lines 323:4-326:5
+    Source: 'src/store.rs', lines 331:4-334:5
     Visibility: public -/
 def store.Store.set
   (self : store.Store) (t : store.Tbl) (k : store.TermId) (v : store.TermId) :
@@ -107,7 +107,7 @@ def store.Store.set
   store.Store.set_cell self1 t k v
 
 /-- [rwlog_core::store::{rwlog_core::store::Store}::cell]:
-    Source: 'src/store.rs', lines 290:4-296:5 -/
+    Source: 'src/store.rs', lines 298:4-304:5 -/
 def store.Store.cell
   (self : store.Store) (t : store.Tbl) (k : store.TermId) :
   Result (Bool × Std.Usize)
@@ -120,7 +120,7 @@ def store.Store.cell
   | store.Tbl.B => ok (sl.eb = self.eb, sl.vb)
 
 /-- [rwlog_core::store::{rwlog_core::store::Store}::get]:
-    Source: 'src/store.rs', lines 312:4-320:5
+    Source: 'src/store.rs', lines 320:4-328:5
     Visibility: public -/
 def store.Store.get
   (self : store.Store) (t : store.Tbl) (k : store.TermId) :
@@ -253,7 +253,7 @@ def cover.mmatch
   cover.mmatch_loop s1 true
 
 /-- [rwlog_core::store::{rwlog_core::store::Store}::clear]:
-    Source: 'src/store.rs', lines 280:4-286:5
+    Source: 'src/store.rs', lines 288:4-294:5
     Visibility: public -/
 def store.Store.clear
   (self : store.Store) (t : store.Tbl) : Result store.Store := do
@@ -302,7 +302,7 @@ def term.node_of (fr : store.Frame) : Result store.TermId := do
   | store.Frame.Build q _ => ok q
 
 /-- [rwlog_core::store::{rwlog_core::store::Store}::set_flag]:
-    Source: 'src/store.rs', lines 340:4-344:5
+    Source: 'src/store.rs', lines 348:4-352:5
     Visibility: public -/
 def store.Store.set_flag
   (self : store.Store) (t : store.Tbl) (k : store.TermId) (b : Bool) :
@@ -315,7 +315,7 @@ def store.Store.set_flag
   store.Store.set_cell self1 t k v
 
 /-- [rwlog_core::store::{rwlog_core::store::Store}::get_flag]:
-    Source: 'src/store.rs', lines 329:4-337:5
+    Source: 'src/store.rs', lines 337:4-345:5
     Visibility: public -/
 def store.Store.get_flag
   (self : store.Store) (t : store.Tbl) (k : store.TermId) :
@@ -455,7 +455,7 @@ def cover.all_marked
   ok (b, s3)
 
 /-- [rwlog_core::store::{rwlog_core::store::Store}::is_var]:
-    Source: 'src/store.rs', lines 206:4-215:5 -/
+    Source: 'src/store.rs', lines 214:4-223:5 -/
 def store.Store.is_var
   (self : store.Store) (a : store.TermId) : Result Bool := do
   let n ←
@@ -470,7 +470,7 @@ def store.Store.is_var
   | store.Node.Nil => ok false
 
 /-- [rwlog_core::store::{rwlog_core::store::Store}::kid]:
-    Source: 'src/store.rs', lines 175:4-185:5 -/
+    Source: 'src/store.rs', lines 183:4-193:5 -/
 def store.Store.kid
   (self : store.Store) (p : Std.Usize) (d : Std.Usize) :
   Result (Std.Usize × store.Store)
@@ -494,7 +494,7 @@ def store.Store.kid
     ok (n, { self with trie := v1 })
 
 /-- [rwlog_core::store::{rwlog_core::store::Store}::digits]: loop body 0:
-    Source: 'src/store.rs', lines 192:8-195:9 -/
+    Source: 'src/store.rs', lines 200:8-203:9 -/
 @[rust_loop_body]
 def store.Store.digits_loop.body
   (self : store.Store) (q : Std.Usize) (y : Std.Usize) :
@@ -510,7 +510,7 @@ def store.Store.digits_loop.body
   else ok (done (q, self))
 
 /-- [rwlog_core::store::{rwlog_core::store::Store}::digits]: loop 0:
-    Source: 'src/store.rs', lines 192:8-195:9 -/
+    Source: 'src/store.rs', lines 200:8-203:9 -/
 @[rust_loop]
 def store.Store.digits_loop
   (self : store.Store) (q : Std.Usize) (y : Std.Usize) :
@@ -521,7 +521,7 @@ def store.Store.digits_loop
     (self, q, y)
 
 /-- [rwlog_core::store::{rwlog_core::store::Store}::digits]:
-    Source: 'src/store.rs', lines 189:4-197:5 -/
+    Source: 'src/store.rs', lines 197:4-205:5 -/
 @[reducible]
 def store.Store.digits
   (self : store.Store) (p : Std.Usize) (x : Std.Usize) :
@@ -530,7 +530,7 @@ def store.Store.digits
   store.Store.digits_loop self p x
 
 /-- [rwlog_core::store::{rwlog_core::store::Store}::word]:
-    Source: 'src/store.rs', lines 201:4-204:5 -/
+    Source: 'src/store.rs', lines 209:4-212:5 -/
 def store.Store.word
   (self : store.Store) (p : Std.Usize) (x : Std.Usize) :
   Result (Std.Usize × store.Store)
@@ -539,7 +539,7 @@ def store.Store.word
   store.Store.kid self1 q 16#usize
 
 /-- [rwlog_core::store::{rwlog_core::store::Store}::path]:
-    Source: 'src/store.rs', lines 220:4-253:5 -/
+    Source: 'src/store.rs', lines 228:4-261:5 -/
 def store.Store.path
   (self : store.Store) (n : store.Node) :
   Result ((store.Node × Std.Usize) × store.Store)
@@ -585,7 +585,7 @@ def store.Store.path
     ok ((store.Node.Nil, i), self1)
 
 /-- [rwlog_core::store::{rwlog_core::store::Store}::intern]:
-    Source: 'src/store.rs', lines 257:4-269:5 -/
+    Source: 'src/store.rs', lines 265:4-277:5 -/
 def store.Store.intern
   (self : store.Store) (n : store.Node) :
   Result (store.TermId × store.Store)
@@ -612,7 +612,7 @@ def store.Store.intern
     ok (len, { self1 with nodes := v, slots := v1, trie := v2 })
 
 /-- [rwlog_core::store::{rwlog_core::store::Store}::alloc]:
-    Source: 'src/store.rs', lines 274:4-277:5
+    Source: 'src/store.rs', lines 282:4-285:5
     Visibility: public -/
 def store.Store.alloc
   (self : store.Store) (n : store.Node) :
@@ -1888,6 +1888,16 @@ def store.Store.word_eq
   := do
   let self1 ← store.Store.tick self
   ok (a = b, self1)
+
+/-- [rwlog_core::store::{rwlog_core::store::Store}::word_lt]:
+    Source: 'src/store.rs', lines 176:4-179:5
+    Visibility: public -/
+def store.Store.word_lt
+  (self : store.Store) (a : Std.U32) (b : Std.U32) :
+  Result (Bool × store.Store)
+  := do
+  let self1 ← store.Store.tick self
+  ok (a < b, self1)
 
 /-- [rwlog_core::term::{impl core::clone::Clone for rwlog_core::term::Leaf}::clone]:
     Source: 'src/term.rs', lines 6:9-6:14

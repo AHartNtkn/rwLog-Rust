@@ -6,6 +6,9 @@ members of a union and of a meet are sorted when an expression is brought to
 its normal form (`Kernel/NormalForm.lean`). It is used for nothing else. Here
 it is shown to be a linear order (`Std.TransCmp`, `Std.LawfulEqCmp`), so a
 sorted list is determined by its members.
+
+The order on patterns is `patCmpBy sc`, over an order `sc` on symbols, and it
+is linear whenever `sc` is. `patCmp` is the instance at the order of strings.
 -/
 import RwLog.Kernel.Canon
 
@@ -55,38 +58,45 @@ theorem lin_of {α : Type} (f : α → α → Ordering) [Std.TransCmp f] [Std.La
   ⟨Std.OrientedCmp.eq_swap, Std.LawfulEqCmp.eq_of_compare, Std.LawfulEqCmp.eq_of_compare,
     Std.LawfulEqCmp.eq_of_compare, Std.TransCmp.isLE_trans⟩
 
-theorem patCmp_swap : ∀ a b : Pat, patCmp a b = (patCmp b a).swap
-  | .var a, .var b => by simp only [patCmp]; exact Std.OrientedCmp.eq_swap
+section Pat
+
+variable (sc : Sym → Sym → Ordering) [Std.TransCmp sc] [Std.LawfulEqCmp sc]
+
+omit [Std.LawfulEqCmp sc] in
+theorem patCmpBy_swap : ∀ a b : Pat, patCmpBy sc a b = (patCmpBy sc b a).swap
+  | .var a, .var b => by simp only [patCmpBy]; exact Std.OrientedCmp.eq_swap
   | .var _, .sym _ => rfl
   | .var _, .app _ _ => rfl
   | .sym _, .var _ => rfl
-  | .sym f, .sym g => by simp only [patCmp]; exact Std.OrientedCmp.eq_swap
+  | .sym f, .sym g => by simp only [patCmpBy]; exact Std.OrientedCmp.eq_swap
   | .sym _, .app _ _ => rfl
   | .app _ _, .var _ => rfl
   | .app _ _, .sym _ => rfl
   | .app a b, .app c d => by
-    simp only [patCmp, Ordering.swap_then, ← patCmp_swap]
+    simp only [patCmpBy, Ordering.swap_then, ← patCmpBy_swap]
 
-theorem patCmp_eq : ∀ {a b : Pat}, patCmp a b = .eq → a = b
+omit [Std.TransCmp sc] in
+theorem patCmpBy_eq : ∀ {a b : Pat}, patCmpBy sc a b = .eq → a = b
   | .var a, .var b, h => by
-    simp only [patCmp] at h; rw [Std.LawfulEqCmp.eq_of_compare h]
+    simp only [patCmpBy] at h; rw [Std.LawfulEqCmp.eq_of_compare h]
   | .sym f, .sym g, h => by
-    simp only [patCmp] at h; rw [Std.LawfulEqCmp.eq_of_compare h]
+    simp only [patCmpBy] at h; rw [Std.LawfulEqCmp.eq_of_compare h]
   | .app a b, .app c d, h => by
-    simp only [patCmp, Ordering.then_eq_eq] at h
-    rw [patCmp_eq h.1, patCmp_eq h.2]
+    simp only [patCmpBy, Ordering.then_eq_eq] at h
+    rw [patCmpBy_eq h.1, patCmpBy_eq h.2]
   | .var _, .sym _, h | .var _, .app _ _, h | .sym _, .var _, h | .sym _, .app _ _, h
-  | .app _ _, .var _, h | .app _ _, .sym _, h => by simp [patCmp] at h
+  | .app _ _, .var _, h | .app _ _, .sym _, h => by simp [patCmpBy] at h
 
-theorem patCmp_trans : ∀ {a b c : Pat}, (patCmp a b).isLE → (patCmp b c).isLE → (patCmp a c).isLE
+theorem patCmpBy_trans : ∀ {a b c : Pat},
+    (patCmpBy sc a b).isLE → (patCmpBy sc b c).isLE → (patCmpBy sc a c).isLE
   | .var a, .var b, .var c, h₁, h₂ => by
-    simp only [patCmp] at h₁ h₂ ⊢; exact Std.TransCmp.isLE_trans h₁ h₂
+    simp only [patCmpBy] at h₁ h₂ ⊢; exact Std.TransCmp.isLE_trans h₁ h₂
   | .sym a, .sym b, .sym c, h₁, h₂ => by
-    simp only [patCmp] at h₁ h₂ ⊢; exact Std.TransCmp.isLE_trans h₁ h₂
+    simp only [patCmpBy] at h₁ h₂ ⊢; exact Std.TransCmp.isLE_trans h₁ h₂
   | .app a₁ a₂, .app b₁ b₂, .app c₁ c₂, h₁, h₂ => by
-    simp only [patCmp] at h₁ h₂ ⊢
-    exact (⟨patCmp_swap _ _, patCmp_eq, patCmp_eq, patCmp_eq, patCmp_trans⟩ :
-      Lin patCmp a₁ b₁ c₁).then patCmp_trans h₁ h₂
+    simp only [patCmpBy] at h₁ h₂ ⊢
+    exact (⟨patCmpBy_swap sc _ _, patCmpBy_eq sc, patCmpBy_eq sc, patCmpBy_eq sc, patCmpBy_trans⟩ :
+      Lin (patCmpBy sc) a₁ b₁ c₁).then patCmpBy_trans h₁ h₂
   | .var _, .var _, .sym _, h₁, h₂ => by rfl
   | .var _, .var _, .app _ _, h₁, h₂ => by rfl
   | .var _, .sym _, .var _, h₁, h₂ => by cases h₂
@@ -112,15 +122,21 @@ theorem patCmp_trans : ∀ {a b c : Pat}, (patCmp a b).isLE → (patCmp b c).isL
   | .app _ _, .app _ _, .var _, h₁, h₂ => by cases h₂
   | .app _ _, .app _ _, .sym _, h₁, h₂ => by cases h₂
 
-instance : Std.TransCmp patCmp where
-  eq_swap := patCmp_swap _ _
-  isLE_trans := patCmp_trans
+instance patCmpBy_transCmp : Std.TransCmp (patCmpBy sc) where
+  eq_swap := patCmpBy_swap sc _ _
+  isLE_trans := patCmpBy_trans sc
 
-instance : Std.LawfulEqCmp patCmp where
+instance patCmpBy_lawful : Std.LawfulEqCmp (patCmpBy sc) where
   compare_self {a} := by
-    have h := patCmp_swap a a
-    cases hc : patCmp a a <;> rw [hc] at h <;> simp_all
-  eq_of_compare := patCmp_eq
+    have h := patCmpBy_swap sc a a
+    cases hc : patCmpBy sc a a <;> rw [hc] at h <;> simp_all
+  eq_of_compare := patCmpBy_eq sc
+
+end Pat
+
+instance : Std.TransCmp patCmp := patCmpBy_transCmp compare
+
+instance : Std.LawfulEqCmp patCmp := patCmpBy_lawful compare
 
 section List
 
