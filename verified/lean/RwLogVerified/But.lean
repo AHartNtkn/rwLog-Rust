@@ -860,4 +860,340 @@ theorem butKeysX_le (S : Sorts) {U : List Name} (c : Sorts.Conj) (n : Name) (G :
     simp only [Nat.add_mul] at h3
     refine ⟨by omega, by omega⟩
 
+/-! ## A member outside at the roots no declaration names -/
+
+theorem outCost_mono (S : Sorts) (u : Nat) {r r' : Nat} (h : r ≤ r') :
+    outCost S u r ≤ outCost S u r' := by
+  unfold outCost
+  have h1 := Nat.mul_le_mul_right (nodeGCost S u) h
+  have h2 : r * entGCost S u + 1 ≤ r' * entGCost S u + 1 := by
+    have := Nat.mul_le_mul_right (entGCost S u) h; omega
+  have h3 : (r + 1) * (r * entGCost S u + 1) ≤ (r' + 1) * (r' * entGCost S u + 1) :=
+    Nat.mul_le_mul (Nat.succ_le_succ h) h2
+  omega
+
+/-- The ticks `fresh_out` may spend, where a key reaches at most `r` keys. -/
+def freshCost (S : Sorts) (u r : Nat) : Nat :=
+  u * (3 * S.length + 4) + 3 * S.length + 5 + restKidsCost S u + outCost S u r
+
+/-- `fresh_out` answers whether the conjunction has a member outside the
+sort at the roots no declaration names (`Sorts.FreshOut`). -/
+theorem fresh_out_spec {S : Sorts} {sp : Pat} {U : List Name} (hC : Ctx nm S sp U)
+    (c : Sorts.Conj) (n : Name) (hc : Sub U c) {r : Nat}
+    (hr : ∀ m, (Sorts.reachGSet S (Sorts.restKids S c, some m)).card ≤ r) (s : store.Store)
+    (decls names ci ni : store.TermId) (hI : Inv s) (hde : Repr nm s.nodes.val decls.val sp)
+    (hU : Repr nm s.nodes.val names.val (namesPat (nm none) U))
+    (hci : Repr nm s.nodes.val ci.val (cpat (nm none) U c))
+    (hni : Repr nm s.nodes.val ni.val (.sym n))
+    (hroom : Room s (freshCost S U.length r)) :
+    sorts.fresh_out s decls names ci ni ⦃ b s' =>
+      Inv s' ∧ Extends s s' ∧ s'.ticks.val ≤ s.ticks.val + freshCost S U.length r ∧
+        (b = true ↔ Sorts.FreshOut S c n) ⦄ := by
+  unfold sorts.fresh_out
+  have hroom' := hroom
+  unfold Room at hroom'
+  simp only [freshCost] at hroom'
+  have hW := hI.toWf
+  step with rest_ok_spec hC.inj S hC.sorts c hc s decls ci hW hde hci (by unfold Room; omega)
+    as ⟨b, s1, hR1, hb⟩
+  have ht1 := hR1.ticks
+  cases b with
+  | false =>
+    simp only [Bool.false_eq_true, ↓reduceIte, WP.spec_ok]
+    refine ⟨hR1.ranB.inv hI, hR1.ext, by simp only [freshCost]; omega, ?_⟩
+    simp only [Bool.false_eq_true, false_iff]
+    intro h
+    exact absurd (hb.2 h.1) (by simp)
+  | true =>
+    have hok : Sorts.RestOK S c := hb.1 rfl
+    simp only [↓reduceIte]
+    step with lookup_spec hC.inj S hC.sorts s1 decls ni hR1.wf (hR1.ext.repr hde)
+      (hR1.ext.repr hni) (by unfold Room; omega) as ⟨own, s2, hR2, hlk⟩
+    have ht2 := hR2.ticks
+    have ho : OwnAt nm s1.nodes.val S n own := hlk
+    step with own_rest_spec s2 own hR2.wf (ho.mono hR2.ext) (by unfold Room; omega)
+      as ⟨o, s3, hR3, ho3⟩
+    have ht3 := hR3.ticks
+    have R3 := (hR1.trans hR2).trans hR3
+    cases hrest : (S.lookup n).bind (·.rest) with
+    | none =>
+      rw [hrest] at ho3
+      subst ho3
+      simp only [WP.spec_ok]
+      refine ⟨R3.ranB.inv hI, R3.ext, by simp only [freshCost]; omega, ?_⟩
+      simp only [true_iff]
+      exact ⟨hok, Or.inl (by rw [hrest]; rfl)⟩
+    | some rv =>
+      rw [hrest] at ho3
+      obtain ⟨e, kk, rfl, rkk⟩ := ho3
+      have hrk : Sorts.restKid S n = rv.2 := by simp [Sorts.restKid, hrest]
+      have hnz : ∀ m, rv.2 = some m → m ≠ nm none := fun m hm =>
+        hC.nz m (Sorts.restKid_mem_names (by rw [hrk, hm]))
+      simp only
+      step with is_nil_kid hC.inj s3 kk hR3.wf rkk hnz (by unfold Room; omega)
+        as ⟨b1, s4, hb1, hK4⟩
+      have ht4 := hK4.ticks
+      have R4 := R3.trans hK4.ran
+      cases b1 with
+      | true =>
+        have hnone : rv.2 = none := hb1.1 rfl
+        simp only [↓reduceIte, WP.spec_ok]
+        refine ⟨R4.ranB.inv hI, R4.ext, by simp only [freshCost]; omega, ?_⟩
+        simp only [Bool.false_eq_true, false_iff]
+        rintro ⟨-, h | ⟨m, -, hm, -⟩⟩
+        · rw [hrest] at h; cases h
+        · rw [hrk, hnone] at hm; cases hm
+      | false =>
+        obtain ⟨m, hm⟩ : ∃ m, rv.2 = some m := by
+          cases h : rv.2 with
+          | none => exact absurd (hb1.2 h) (by simp)
+          | some m => exact ⟨m, rfl⟩
+        rw [hm] at rkk
+        simp only [kidPat] at rkk
+        have hmn : m ∈ Sorts.names S := Sorts.restKid_mem_names (by rw [hrk, hm])
+        have hsub : Sub U (Sorts.restKids S c) := fun x hx =>
+          hC.names x (Sorts.restKids_subset_names hx)
+        have hrm := outCost_mono S U.length (hr m)
+        simp only [Bool.false_eq_true, ↓reduceIte]
+        step with rest_kids_spec hC.inj S hC.sorts hC.nz c hc s4 decls names ci hK4.wf
+          (R4.ext.repr hde) (R4.ext.repr hU) (R4.ext.repr hci) (by unfold Room; omega)
+          as ⟨dk, s5, hR5, rdk⟩
+        have ht5 := hR5.ticks
+        have I5 : Inv s5 := ⟨hR5.wf, by rw [hR5.stk, R4.stk]; exact hI.empty⟩
+        have hx5 := R4.ext.trans hR5.ext
+        refine WP.spec_mono (out_spec hC (Sorts.restKids S c) m hsub (hC.nz m hmn) s5 decls names
+          dk kk I5 (hx5.repr hde) (hx5.repr hU) rdk (hR5.ext.repr (hK4.ran.ext.repr rkk))
+          (by unfold Room; omega)) ?_
+        rintro ⟨b, s'⟩ ⟨hI', hx', ht', hb'⟩
+        refine ⟨hI', hx5.trans hx', by simp only [freshCost]; omega, ?_⟩
+        rw [hb']
+        constructor
+        · intro h; exact ⟨hok, Or.inr ⟨m, hmn, by rw [hrk, hm], h⟩⟩
+        · rintro ⟨-, h | ⟨m', -, hm', h⟩⟩
+          · rw [hrest] at h; cases h
+          · rw [hrk, hm] at hm'; cases hm'; exact h
+
+/-! ## The one member of each argument conjunction -/
+
+theorem countCost_mono (S : Sorts) (u : Nat) {r r' : Nat} (h : r ≤ r') :
+    countCost S u r ≤ countCost S u r' := by
+  unfold countCost flagCost
+  have h1 := Nat.mul_le_mul_right (nodeCost S u) h
+  have h2 : r * (u * altW S + 5) + 1 ≤ r' * (u * altW S + 5) + 1 := by
+    have := Nat.mul_le_mul_right (u * altW S + 5) h; omega
+  have h3 : (r + 1) * (r * (u * altW S + 5) + 1) ≤ (r' + 1) * (r' * (u * altW S + 5) + 1) :=
+    Nat.mul_le_mul (Nat.succ_le_succ h) h2
+  have h4 : (r + 1) * (4 * (r * (u * altW S + 5) + 1)) ≤
+      (r' + 1) * (4 * (r' * (u * altW S + 5) + 1)) :=
+    Nat.mul_le_mul (Nat.succ_le_succ h) (by omega)
+  omega
+
+/-- The one member of a conjunction, when it has one and no more. -/
+noncomputable def oneOf (S : Sorts) (c : Sorts.Conj) : Option GTerm :=
+  match Sorts.count S c with
+  | .one t => some t
+  | _ => none
+
+/-- What `soles` lists for a conjunction: its one member in a list, or the
+end of a list. -/
+def solePat (z : Sym) : Option GTerm → Pat
+  | some t => .app (GTerm.toPat t) (.sym z)
+  | none => .sym z
+
+theorem soles_done (s : store.Store) (decls names nil out kids : store.TermId) (okb : Bool) :
+    sorts.soles_loop s decls names nil out kids okb false ⦃ r => r = (s, out, okb) ⦄ := by
+  unfold sorts.soles_loop
+  rw [loop]
+  simp only [sorts.soles_loop.body, Bool.false_eq_true, ↓reduceIte, bind_ok]
+  step*
+
+theorem soles_loop_spec {S : Sorts} {sp : Pat} {U : List Name} (hC : Ctx nm S sp U) {r : Nat}
+    (decls names nil : store.TermId) :
+    ∀ (cs : List Sorts.Conj) (acc : List Pat) (s : store.Store) (out kids : store.TermId)
+      (okb : Bool),
+    (∀ c ∈ cs, Sub U c) → (∀ c ∈ cs, (Sorts.reachSet S c).card ≤ r) → Inv s →
+    Repr nm s.nodes.val decls.val sp → Repr nm s.nodes.val names.val (namesPat (nm none) U) →
+    Repr nm s.nodes.val nil.val (.sym (nm none)) →
+    Repr nm s.nodes.val out.val (encList (nm none) acc) →
+    Repr nm s.nodes.val kids.val (encList (nm none) (cs.map (cpat (nm none) U))) →
+    Room s (cs.length * (countCost S U.length r + 3) + 1) →
+    sorts.soles_loop s decls names nil out kids okb true ⦃ res =>
+      Inv res.1 ∧ Extends s res.1 ∧
+        res.1.ticks.val ≤ s.ticks.val + (cs.length * (countCost S U.length r + 3) + 1) ∧
+        ((∀ c ∈ cs, Sorts.count S c ≠ .none) → res.2.2 = okb ∧
+          Repr nm res.1.nodes.val res.2.1.val
+            (encList (nm none) ((cs.map fun c => solePat (nm none) (oneOf S c)).reverse ++ acc))) ∧
+        (∀ c ∈ cs, Sorts.count S c = .none → res.2.2 = false) ⦄ := by
+  intro cs
+  induction cs with
+  | nil =>
+    intro acc s out kids okb _ _ hI hde hU hnil ho hk hroom
+    have hroom' := hroom
+    unfold Room at hroom'
+    unfold sorts.soles_loop
+    rw [loop]
+    simp only [sorts.soles_loop.body, ↓reduceIte]
+    step with uncons_repr s kids hI.toWf hk (by unfold Room; omega) as ⟨r0, hK, hu⟩
+    obtain ⟨o, s1⟩ := r0
+    simp only at hu
+    simp only at hK
+    subst hu
+    simp only [uncurry, bind_ok]
+    have hdn := soles_done s1 decls names nil out kids okb
+    unfold sorts.soles_loop at hdn
+    refine WP.spec_mono hdn ?_
+    rintro res rfl
+    have := hK.ticks
+    exact ⟨hK.ran.ranB.inv hI, hK.ran.ext, by simp only; omega,
+      fun _ => ⟨rfl, by simpa using hK.ran.ext.repr ho⟩, by simp⟩
+  | cons x cs ih =>
+    intro acc s out kids okb hsub hr hI hde hU hnil ho hk hroom
+    have hroom' := hroom
+    unfold Room at hroom'
+    simp only [List.length_cons, Nat.add_mul, Nat.one_mul] at hroom'
+    have hmono := countCost_mono S U.length (hr x List.mem_cons_self)
+    unfold sorts.soles_loop
+    rw [loop]
+    simp only [sorts.soles_loop.body, ↓reduceIte]
+    step with uncons_repr s kids hI.toWf hk (by unfold Room; omega) as ⟨r0, hK, hu⟩
+    obtain ⟨o, s1⟩ := r0
+    simp only at hu
+    simp only at hK
+    obtain ⟨k, t, rfl, rk, rt⟩ := hu
+    have ht1 := hK.ticks
+    have hx1 := hK.ran.ext
+    have hI1 : Inv s1 := hK.ran.ranB.inv hI
+    step with count_spec hC x (hsub x List.mem_cons_self) s1 decls names k hI1 (hx1.repr hde)
+      (hx1.repr hU) (hx1.repr rk) (by unfold Room; omega) as ⟨r1, hI2, hx2, ht2, hcnt⟩
+    obtain ⟨cnt, s2⟩ := r1
+    simp only at hI2 hx2 ht2 hcnt
+    have hx12 := hx1.trans hx2
+    have next : ∀ (s3 : store.Store) (out1 : store.TermId), Inv s3 → Extends s s3 →
+        s3.ticks.val ≤ s.ticks.val + (countCost S U.length r + 3) →
+        Sorts.count S x ≠ .none →
+        Repr nm s3.nodes.val out1.val
+          (encList (nm none) (solePat (nm none) (oneOf S x) :: acc)) →
+        loop (fun x => match x with
+          | (s1, out1, kids1, ok2, go1) => sorts.soles_loop.body decls names nil s1 out1 kids1 ok2 go1)
+          (s3, out1, t, okb, true) ⦃ res =>
+          Inv res.1 ∧ Extends s res.1 ∧
+            res.1.ticks.val ≤ s.ticks.val + ((x :: cs).length * (countCost S U.length r + 3) + 1) ∧
+            ((∀ c ∈ x :: cs, Sorts.count S c ≠ .none) → res.2.2 = okb ∧
+              Repr nm res.1.nodes.val res.2.1.val (encList (nm none)
+                (((x :: cs).map fun c => solePat (nm none) (oneOf S c)).reverse ++ acc))) ∧
+            (∀ c ∈ x :: cs, Sorts.count S c = .none → res.2.2 = false) ⦄ := by
+      intro s3 out1 hI3 hx3 ht3 hne ro
+      have IH := ih (solePat (nm none) (oneOf S x) :: acc) s3 out1 t okb
+        (fun c hc => hsub c (List.mem_cons_of_mem _ hc))
+        (fun c hc => hr c (List.mem_cons_of_mem _ hc)) hI3 (hx3.repr hde) (hx3.repr hU)
+        (hx3.repr hnil) ro (hx3.repr rt) (by unfold Room; omega)
+      unfold sorts.soles_loop at IH
+      refine WP.spec_mono IH ?_
+      rintro res ⟨hI', hx', ht', h1, h2⟩
+      refine ⟨hI', hx3.trans hx', by
+        simp only [List.length_cons, Nat.add_mul, Nat.one_mul]; omega, ?_, ?_⟩
+      · intro hall
+        obtain ⟨e1, e2⟩ := h1 fun c hc => hall c (List.mem_cons_of_mem _ hc)
+        refine ⟨e1, ?_⟩
+        simpa only [List.map_cons, List.reverse_cons, List.append_assoc, List.singleton_append]
+          using e2
+      · intro c hc hcn
+        rcases List.mem_cons.1 hc with rfl | hc
+        · exact absurd hcn hne
+        · exact h2 c hc hcn
+    cases cnt with
+    | None =>
+      simp only at hcnt
+      simp only [uncurry, bind_ok]
+      have hdn := soles_done s2 decls names nil out kids false
+      unfold sorts.soles_loop at hdn
+      refine WP.spec_mono hdn ?_
+      rintro res rfl
+      refine ⟨hI2, hx12, by simp only [List.length_cons, Nat.add_mul, Nat.one_mul]; omega,
+        fun hall => absurd hcnt (hall x List.mem_cons_self), by intros; rfl⟩
+    | One m =>
+      simp only at hcnt
+      obtain ⟨tm, hc1, rm⟩ := hcnt
+      have hso : oneOf S x = some tm := by simp [oneOf, hc1]
+      step with alloc_w s2 (.App m nil) hI2.toWf ⟨rm.lt, (hx12.repr hnil).lt⟩
+        (by unfold Room; omega) as ⟨r3, hW3, ht3, htb3, hx3, hid3, hst3⟩
+      obtain ⟨e, s3⟩ := r3
+      simp only at hW3 ht3 htb3 hx3 hid3 hst3
+      have re : Repr nm s3.nodes.val e.val (solePat (nm none) (some tm)) :=
+        .app hid3 (hx3.repr rm) (hx3.repr (hx12.repr hnil))
+      step with alloc_w s3 (.App e out) hW3 ⟨re.lt, (hx3.repr (hx12.repr ho)).lt⟩
+        (by unfold Room; omega) as ⟨r4, hW4, ht4, htb4, hx4, hid4, hst4⟩
+      obtain ⟨out1, s4⟩ := r4
+      simp only at hW4 ht4 htb4 hx4 hid4 hst4
+      simp only [uncurry, bind_ok]
+      refine next s4 out1 ⟨hW4, by rw [hst4, hst3]; exact hI2.empty⟩
+        ((hx12.trans hx3).trans hx4) (by omega) (by rw [hc1]; simp) ?_
+      rw [hso]
+      exact .app hid4 (hx4.repr re) (hx4.repr (hx3.repr (hx12.repr ho)))
+    | Many =>
+      simp only at hcnt
+      have hso : oneOf S x = none := by simp [oneOf, hcnt]
+      step with alloc_w s2 (.App nil out) hI2.toWf ⟨(hx12.repr hnil).lt, (hx12.repr ho).lt⟩
+        (by unfold Room; omega) as ⟨r3, hW3, ht3, htb3, hx3, hid3, hst3⟩
+      obtain ⟨out1, s3⟩ := r3
+      simp only at hW3 ht3 htb3 hx3 hid3 hst3
+      simp only [uncurry, bind_ok]
+      refine next s3 out1 ⟨hW3, by rw [hst3]; exact hI2.empty⟩ (hx12.trans hx3) (by omega)
+        (by rw [hcnt]; simp) ?_
+      rw [hso]
+      exact .app hid3 (hx3.repr (hx12.repr hnil)) (hx3.repr (hx12.repr ho))
+
+/-- The ticks `soles` may spend on `k` conjunctions that each reach at most
+`r`. -/
+def solesCost (S : Sorts) (u r k : Nat) : Nat := k * (countCost S u r + 5) + 4
+
+/-- `soles` lists the one member of each conjunction that has one and no
+more, and gives nothing when a conjunction has no member. -/
+theorem soles_spec {S : Sorts} {sp : Pat} {U : List Name} (hC : Ctx nm S sp U) {r : Nat}
+    (cs : List Sorts.Conj) (hsub : ∀ c ∈ cs, Sub U c)
+    (hr : ∀ c ∈ cs, (Sorts.reachSet S c).card ≤ r) (s : store.Store)
+    (decls names kids : store.TermId) (hI : Inv s) (hde : Repr nm s.nodes.val decls.val sp)
+    (hU : Repr nm s.nodes.val names.val (namesPat (nm none) U))
+    (hk : Repr nm s.nodes.val kids.val (encList (nm none) (cs.map (cpat (nm none) U))))
+    (hroom : Room s (solesCost S U.length r cs.length)) :
+    sorts.soles s decls names kids ⦃ o s' =>
+      Inv s' ∧ Extends s s' ∧ s'.ticks.val ≤ s.ticks.val + solesCost S U.length r cs.length ∧
+        ((∀ c ∈ cs, Sorts.count S c ≠ .none) → ∃ so, o = some so ∧
+          Repr nm s'.nodes.val so.val
+            (encList (nm none) (cs.map fun c => solePat (nm none) (oneOf S c)))) ∧
+        ((∃ c ∈ cs, Sorts.count S c = .none) → o = none) ⦄ := by
+  unfold sorts.soles
+  have hroom' := hroom
+  unfold Room at hroom'
+  simp only [solesCost, Nat.mul_add] at hroom'
+  step with alloc_w s .Nil hI.toWf trivial (by unfold Room; omega)
+    as ⟨nil, s1, hW1, ht1, htb1, hx1, hid1, hst1⟩
+  have rnil : Repr nm s1.nodes.val nil.val (.sym (nm none)) := .nil hid1
+  have hI1 : Inv s1 := ⟨hW1, by rw [hst1]; exact hI.empty⟩
+  step with soles_loop_spec hC decls names nil cs [] s1 nil kids true hsub hr hI1 (hx1.repr hde)
+    (hx1.repr hU) rnil rnil (hx1.repr hk) (by unfold Room; simp only [Nat.mul_add]; omega)
+    as ⟨s2, out, okb, hI2, hx2, ht2, h1, h2⟩
+  simp only [Nat.mul_add] at ht2
+  by_cases hall : ∀ c ∈ cs, Sorts.count S c ≠ .none
+  · obtain ⟨rfl, ro⟩ := h1 hall
+    simp only [List.append_nil] at ro
+    simp only [↓reduceIte]
+    step with rev_spec _ s2 out hI2.toWf ro
+      (by rw [List.length_reverse, List.length_map]; unfold Room; omega) as ⟨ti, s3, hR3, rti⟩
+    rw [List.length_reverse, List.length_map] at hR3
+    have ht3 := hR3.ticks
+    rw [List.reverse_reverse] at rti
+    exact ⟨hR3.ranB.inv hI2, (hx1.trans hx2).trans hR3.ext,
+      by simp only [solesCost, Nat.mul_add]; omega, fun _ => ⟨ti, rfl, rti⟩,
+      fun c hc hcn => absurd hcn (hall c hc)⟩
+  · have hex : ∃ c ∈ cs, Sorts.count S c = .none := by
+      by_contra h0
+      exact hall fun c hc hcn => h0 ⟨c, hc, hcn⟩
+    obtain ⟨c, hc, hcn⟩ := hex
+    have := h2 c hc hcn
+    subst this
+    simp only [Bool.false_eq_true, ↓reduceIte, WP.spec_ok]
+    exact ⟨hI2, hx1.trans hx2, by simp only [solesCost, Nat.mul_add]; omega,
+      fun h => absurd hcn (h c hc), by intros; rfl⟩
+
 end RwLogVerified
