@@ -72,3 +72,5 @@ import RwLog.Sorts.Settle
 import RwLog.Sorts.Tighten
 import RwLog.Sorts.Loop
 import RwLog.Sorts.Tightened
+import RwLog.Sorts.Orient
+import RwLog.Sorts.NormEx

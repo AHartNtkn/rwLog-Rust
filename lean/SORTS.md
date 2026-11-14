@@ -202,12 +202,12 @@ polynomial in the size of the program alone.
 ## 8. The normal store as a function
 
 `Prob.normal` says a normal store exists, and `Raw.Normal.eq` that it is the
-only one. Neither computes it: the proof of existence takes a store with the
-most symbols and exclusions with the fewest free variables. The operations in
-Rust need a function to be proved against, so the normal store is being
-written as one in Lean, each step with the theorem that says what it decides.
-Because the normal store is unique, a function whose result is normal and
-denotes the problem returns the normal store whatever route it takes.
+only one. The proof of existence takes a store with the most symbols, which
+is not a computation. The operations in Rust need a function to be proved
+against, so the normal store is being written as one in Lean, each step with
+the theorem that says what it decides. Because the normal store is unique, a
+function whose result is normal and denotes the problem returns the normal
+store whatever route it takes.
 
 The route, with what is written and proved so far:
 
@@ -237,13 +237,32 @@ The route, with what is written and proved so far:
    form under the sorts, drop those another implies, list them in order, and
    take the first part of the pattern (`Raw.Normal.proj`).
 
-Steps 1 and 3 to 5 are proved, and the decision of step 6. `tighten`
+Steps 1 and 3 to 5 are proved, and the parts of steps 6 and 7. `tighten`
 (`Loop.lean`) is steps 3 to 5 on a store as data (`CStore`): what it returns
 denotes what it was given, satisfies the decidable invariant of step 4
 (`Inv`, `Tighten.lean`), and has no variable whose values have one root; it
-returns nothing only for a store that denotes nothing. Still to write: that
-its result is tight, steps 2, 6 and 7 as functions, and the theorem that the
-result is normal and denotes the problem.
+returns nothing only for a store that denotes nothing. Its result is tight
+(`tight_of_sole`, `Tightened.lean`), and `Inv.inclBut_iff` says `inclBut`
+finds the sorts of step 6 on it. `firsts` (`Renum.lean`) numbers the
+variables.
+
+An exclusion is brought to normal form by `normEx` (`NormEx.lean`). It solves
+the equations and turns each alias so that it binds the later variable
+(`Orient.lean`), pushes the sorts of the bound variables onto their values,
+and reads off the sorts this puts on each free variable. What the exclusion
+removes is every choice of values for the free variables in those sorts. So
+it removes nothing when a sort rejects a value outright or a free variable
+has no value, and a free variable with one value is bound to it. `covers`
+decides that one normal exclusion removes everything another does,
+`antichain` drops the covered ones, `sortBinds` orders the rest, and
+`assembled_normal` (`Assemble.lean`) says the store put together from these
+is normal with the same solutions. The earlier proof that a normal exclusion
+exists, by a least number of free variables, is deleted; `normal_of_tight`
+now follows from the function.
+
+Still to write: steps 2 to 7 joined into one function from a problem to its
+normal store, with the theorem that the result is normal and denotes the
+problem.
 
 `count`, `inclBut` and `sole` go through every set of declared sorts. They are
 the specification, and the runs in `Tests/SortsRuns.lean` keep to a few sorts
