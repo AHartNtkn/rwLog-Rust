@@ -99,13 +99,14 @@ inductive sorts.Count where
 | Many : sorts.Count
 
 /-- [rwlog_core::term::Leaf]
-    Source: 'src/term.rs', lines 7:0-14:1
+    Source: 'src/term.rs', lines 7:0-17:1
     Visibility: public -/
 @[discriminant isize]
 inductive term.Leaf where
 | Left : term.Leaf
 | Right : term.Leaf
 | Sub : store.TermId → store.TermId → term.Leaf
+| Map : term.Leaf
 
 /-- [rwlog_core::span::Kind]
     Source: 'src/span.rs', lines 27:0-31:1 -/

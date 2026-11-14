@@ -235,3 +235,18 @@ new axiom.
 
 /-- info: 'RwLogVerified.tighten_sound' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLogVerified.tighten_sound
+
+/-- info: 'RwLogVerified.firsts_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.firsts_spec
+
+/-- info: 'RwLogVerified.conj_at_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.conj_at_spec
+
+/-- info: 'RwLogVerified.uppers_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.uppers_spec
+
+/-- info: 'RwLogVerified.renumber_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.renumber_spec
+
+/-- info: 'RwLogVerified.ofTight_abs' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.ofTight_abs

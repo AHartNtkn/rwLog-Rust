@@ -48,6 +48,9 @@
   pattern, the exclusions and the entries; that they end, and that what they
   come to is reached by replacements of the specification.
 * `RwLogVerified.Tight`: tightening a store, within the charge of its rounds.
+* `RwLogVerified.Number`: the variables of a pattern in the order they
+  first occur; the sorts that hold of all values of a variable; a store with
+  its variables numbered in that order.
 * `RwLogVerified.Kernel`: the kernel rung whose charges are those bounds.
 * `RwLogVerified.KernelRuns`: its charges on a worked composition.
 
@@ -86,5 +89,6 @@ import RwLogVerified.Open
 import RwLogVerified.Tighten
 import RwLogVerified.TightRun
 import RwLogVerified.Tight
+import RwLogVerified.Number
 import RwLogVerified.Kernel
 import RwLogVerified.KernelRuns

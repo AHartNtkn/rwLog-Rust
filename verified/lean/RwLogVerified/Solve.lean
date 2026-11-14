@@ -451,7 +451,7 @@ theorem solve_body_spec (hnm : Function.Injective nm) (s0 : store.Store) (D L B 
         have hSc := card_subs_enc_le (nm := nm) E' o
         have hpc := pending_card_le (nm := nm) s4.nodes.val (tbl s4 .A)
           ((encEqs nm E').subs ∪ o.subs)
-        have hleaf : LeafOK nm s4.nodes.val (term.Leaf.Sub x w) (single xv tu) :=
+        have hleaf : LeafOK nm s4.nodes.val (tbl s4 .B) (term.Leaf.Sub x w) (single xv tu) :=
           ⟨xv, tu, by rw [hn4]; exact hx, by rw [hn4]; exact hw, rfl⟩
         step with rebuild_spec hnm s4 (term.Leaf.Sub x w) rest (t := encEqs nm E')
           (σ := single xv tu) ((encEqs nm E').subs ∪ o.subs) c3 (by rw [hn4]; exact hrest) hleaf
