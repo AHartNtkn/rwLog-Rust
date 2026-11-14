@@ -23,6 +23,7 @@ everything its cursors have passed:
 import RwLog.Rungs.Symmetric.Rounds
 import RwLog.Rungs.Symmetric.Cursor
 import RwLog.Kernel.NormalFormDepth
+import RwLog.Kernel.NormalFormSpans
 
 namespace RwLog
 
@@ -173,12 +174,18 @@ def copyMembers (P : Program) (n : Rel) : Bool → List Rel
   | true => (Charged.bodyOf P n).toList
   | false => n.unionParts
 
-/-- Every answer of the node `n` ends (`last`) or begins inside one of the
-interfaces `ps`, each of which is a boundary. -/
+/-- The spans of the program are first-order. -/
+abbrev ProgFO (P : Program) : Prop :=
+  ∀ s ∈ P.defs.flatMap fun d => d.2.spans, s.firstOrder = true
+
+/-- Each of the interfaces `ps` is a boundary, and if `n` is a node of the
+normal form with first-order spans, every answer of `n` ends (`last`) or
+begins inside one of them. An expression that is not a node reads as the
+empty union, which says nothing of what it derives. -/
 def EdgeOk (D : Domain R) (P : Program) (n : Rel) (last : Bool) (ps : List R) : Prop :=
   (∀ p ∈ ps, D.isBound p = true) ∧
-    ∀ k, ∀ G ∈ GDn P k n, ∀ x z, (x, z) ∈ G.at P.sorts.interp →
-      ∃ p ∈ ps, (if last then (z, z) else (x, x)) ∈ bdenAt P.sorts.interp (some p)
+    (Normal n → n.FO → ∀ k, ∀ G ∈ GDn P k n, ∀ x z, (x, z) ∈ G.at P.sorts.interp →
+      ∃ p ∈ ps, (if last then (z, z) else (x, x)) ∈ bdenAt P.sorts.interp (some p))
 
 /-- What the cursors of the strategy `s` of the table at `i`, of the goal
 `g`, mean. -/

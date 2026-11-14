@@ -72,8 +72,16 @@ Rungs/Symmetric/ the symmetric engine of `SYMMETRIC_ENGINE.md` (Machine.lean): a
                 `stable_request`). The interface check (a chain goal is
                 complete with no answer when the other side fails under every interface
                 one side can show, read from the program) is a strategy of its own; the
-                invariant and the mirror criterion cover it. Completeness, `Keeps` and
-                the cost bound are not proved. A goal and its converse do not share a
+                invariant and the mirror criterion cover it. Towards completeness:
+                the cursor of a join visits every pair once (Cursor.lean,
+                `Cursor.all_spec`); what the cursors of every strategy mean (Progress.lean,
+                `Prog`: the table covers what its rule makes of everything a cursor has
+                passed) holds of the strategies made for a goal and is kept by a whole
+                request, with the goals of the tables distinct and good (Kept.lean,
+                `Good`, `good_request`); and the interfaces read from the program are
+                right about it (Edge.lean, `readOk`). Not proved yet: that every open
+                group is worked again and again, and from it completeness; `Keeps`; the
+                cost bound. A goal and its converse do not share a
                 table (not owed by any property; billboard SIM12)
 Rungs/Naive/    normalisation, unfolding to a depth, and their correctness (namespace `R000`)
 Rungs/R005/     the engines: `R001.engine` (tables, unfolding to a depth), `R004.engine` (tables,

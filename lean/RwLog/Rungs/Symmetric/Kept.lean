@@ -327,10 +327,6 @@ theorem base_work (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK)
 
 /-! ## The strategies of a goal start right -/
 
-/-- The spans of the program are first-order. -/
-abbrev ProgFO (P : Program) : Prop :=
-  ∀ s ∈ P.defs.flatMap fun d => d.2.spans, s.firstOrder = true
-
 theorem prog_splitGroup {st : StateOf R Rel (Ans D P)} (hB : Base st) (w : Nat) (k : Kind)
     (L Rg g : GoalOf R Rel) (hL' : GoodG D L) (hR' : GoodG D Rg) (hs : SplitAt g k L Rg) :
     Frame w st (splitGroup (K := DerivationKernel.over D K hK P) k L Rg st).val.1 ∧
