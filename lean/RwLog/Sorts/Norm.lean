@@ -343,6 +343,43 @@ theorem Prob.norm_unique (hS : S.WellFormed) {P : Prob} {r : Raw} (hP : P.FO)
     obtain ⟨hr', hden'⟩ := Prob.norm_some hS hP h
     rw [Raw.Normal.eq hS hr' hr (hden'.trans hden.symm)]
 
+/-- A problem that denotes nothing has no normal store. -/
+theorem Prob.norm_of_empty (hS : S.WellFormed) {P : Prob} (hP : P.FO) (h : P.Den S = ∅) :
+    P.norm S hS = none := by
+  cases hn : P.norm S hS with
+  | none => rfl
+  | some r =>
+    obtain ⟨hr, hden⟩ := Prob.norm_some hS hP hn
+    obtain ⟨σ, hσ⟩ := hr.sol_nonempty hS
+    have hm : r.t.bind σ ∈ r.store.Den S := ⟨σ, hσ, rfl⟩
+    rw [hden, h] at hm
+    exact absurd hm (Set.notMem_empty _)
+
+/-- The normal store of a problem, read off any tight store that denotes
+pairs whose first parts are what the problem denotes: the pattern of its
+normal store is a pair, and the first part of it, with its variables and
+exclusions, is the normal store of the problem. -/
+theorem Prob.norm_of_tight (hS : S.WellFormed) {P : Prob} (hP : P.FO) {s : CStore}
+    (hpairs : ∀ g ∈ s.store.Den S, ∃ x y, g = tpair x y)
+    (hfst : P.Den S = {x | ∃ y, tpair x y ∈ s.store.Den S}) (hI : Inv S s)
+    (hsole : ∀ v ∈ s.t.vars, sole S (s.conj v) (gone s.x v) = none) :
+    ∃ a b, (ofTight S s).t = tpair a b ∧
+      P.norm S hS = some ((ofTight S s).cut a (width a)) := by
+  obtain ⟨hN, hD⟩ := ofTight_normal hS hI hsole
+  obtain ⟨a, b, hab⟩ := shape_pair hN (hN.sol_nonempty hS) (by rw [hD]; exact hpairs)
+  refine ⟨a, b, hab, ?_⟩
+  obtain ⟨hN', hden''⟩ := hN.proj hS hab
+  refine Prob.norm_unique hS hP hN' ?_
+  ext g
+  rw [hden'', hfst, ← hD]
+  constructor
+  · rintro ⟨σ, hσ, rfl⟩
+    exact ⟨b.bind σ, σ, hσ, by show _ = (ofTight S s).t.bind σ; rw [hab, tpair_bind]⟩
+  · rintro ⟨y, σ, hσ, e⟩
+    have e' : tpair g y = tpair (a.bind σ) (b.bind σ) := by
+      rw [e]; show (ofTight S s).t.bind σ = _; rw [hab, tpair_bind]
+    exact ⟨σ, hσ, (tpair_inj e').1⟩
+
 /-- A first-order problem with a solution has a normal store that denotes the
 same terms. -/
 theorem Prob.normal (hS : S.WellFormed) {P : Prob} (hP : P.FO)

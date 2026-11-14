@@ -750,7 +750,7 @@ def conjsCost (nm : Option Nat → RwLog.Sym) (S : Sorts) (u r q l : Nat) (X : L
   | v :: R => 3 * l + goneCost nm v X + uppersCost S u r q (Sorts.sumSize (Sorts.gone X v)) + 4 +
       conjsCost nm S u r q l X R
 
-theorem renumber_loop0_spec (hnm : Function.Injective nm) {S : Sorts} {sp : Pat} {U : List Name}
+theorem renumber_loop_spec (hnm : Function.Injective nm) {S : Sorts} {sp : Pat} {U : List Name}
     (hC : Ctx nm S sp U) (hS : S.WellFormed) (hUS : ∀ n ∈ U, n ∈ Sorts.names S) {r q : Nat}
     (hr : ∀ d, (Sorts.reachSet S d).card ≤ r)
     (hq : ∀ d m, (Sorts.reachGSet S (d, some m)).card ≤ q)
@@ -764,7 +764,7 @@ theorem renumber_loop0_spec (hnm : Function.Injective nm) {S : Sorts} {sp : Pat}
     Repr nm s.nodes.val l.val (encList (nm none) (R.map Term.var)) →
     Repr nm s.nodes.val cs.val (encList (nm none) acc) →
     Room s (conjsCost nm S U.length r q L.length X R) →
-    sorts.renumber_loop0 l s decls names x es cs ⦃ s' res =>
+    sorts.renumber_loop l s decls names x es cs ⦃ s' res =>
       Inv s' ∧ Extends s s' ∧
         s'.ticks.val ≤ s.ticks.val + conjsCost nm S U.length r q L.length X R ∧
         Repr nm s'.nodes.val res.val
@@ -777,9 +777,9 @@ theorem renumber_loop0_spec (hnm : Function.Injective nm) {S : Sorts} {sp : Pat}
     have hroom' := hroom
     unfold Room at hroom'
     simp only [conjsCost] at hroom'
-    unfold sorts.renumber_loop0
+    unfold sorts.renumber_loop
     rw [loop]
-    simp only [sorts.renumber_loop0.body]
+    simp only [sorts.renumber_loop.body]
     step with uncons_repr s l hI.toWf (p := Term.sym (nm none)) hl (by unfold Room; omega)
       as ⟨r0, hK0, hu⟩
     obtain ⟨o, s1⟩ := r0
@@ -801,9 +801,9 @@ theorem renumber_loop0_spec (hnm : Function.Injective nm) {S : Sorts} {sp : Pat}
     have hroom' := hroom
     unfold Room at hroom'
     simp only [conjsCost] at hroom'
-    unfold sorts.renumber_loop0
+    unfold sorts.renumber_loop
     rw [loop]
-    simp only [sorts.renumber_loop0.body]
+    simp only [sorts.renumber_loop.body]
     step with uncons_repr s l hI.toWf
       (p := Term.app (Term.var v) (encList (nm none) (R.map Term.var))) hl
       (by unfold Room; omega) as ⟨r0, hK0, hu⟩
@@ -850,7 +850,7 @@ theorem renumber_loop0_spec (hnm : Function.Injective nm) {S : Sorts} {sp : Pat}
     have IH := ih s5 rest cs1 (cpat (nm none) U (upConj S L X v) :: acc) hI5 (hx05.repr hde)
       (hx05.repr hU) (hx05.repr hx) (hx05.repr hes) (hx05.repr rrest) rcs
       (by unfold Room; omega)
-    unfold sorts.renumber_loop0 at IH
+    unfold sorts.renumber_loop at IH
     refine WP.spec_mono IH ?_
     rintro ⟨s', res⟩ ⟨hI', hx', ht', hr'⟩
     refine ⟨hI', hx05.trans hx', by simp only [conjsCost]; omega, ?_⟩
@@ -871,13 +871,14 @@ structure NumPost (nodes : List store.Node) (B B' : Nat → Option Nat) (R : Lis
   set : ∀ i v, R[i]? = some v → ∃ q u, VarAt nodes q v ∧ B' q = some u ∧ VarAt nodes u (n + i)
   keep : ∀ q, (∀ v ∈ R, ¬ VarAt nodes q v) → B' q = B q
 
-theorem renumber_loop1_spec :
+theorem number_loop_spec :
     ∀ (R : List Nat) (s : store.Store) (l place : store.TermId) (n : Nat),
     Inv s → R.Nodup → Repr nm s.nodes.val l.val (encList (nm none) (R.map Term.var)) →
     VarAt s.nodes.val place.val n → Room s (numCost n R.length) →
-    sorts.renumber_loop1 l s place ⦃ s' =>
+    sorts.number_loop l s place ⦃ place' s' =>
       Inv s' ∧ Extends s s' ∧ s'.ticks.val ≤ s.ticks.val + numCost n R.length ∧
-        tbl s' .A = tbl s .A ∧ NumPost s'.nodes.val (tbl s .B) (tbl s' .B) R n ⦄ := by
+        tbl s' .A = tbl s .A ∧ NumPost s'.nodes.val (tbl s .B) (tbl s' .B) R n ∧
+        VarAt s'.nodes.val place'.val (n + R.length) ⦄ := by
   intro R
   induction R with
   | nil =>
@@ -885,9 +886,9 @@ theorem renumber_loop1_spec :
     have hroom' := hroom
     unfold Room at hroom'
     simp only [List.length_nil, numCost] at hroom'
-    unfold sorts.renumber_loop1
+    unfold sorts.number_loop
     rw [loop]
-    simp only [sorts.renumber_loop1.body]
+    simp only [sorts.number_loop.body]
     step with uncons_repr s l hI.toWf (p := Term.sym (nm none)) hl (by unfold Room; omega)
       as ⟨r0, hK0, hu⟩
     obtain ⟨o, s1⟩ := r0
@@ -898,9 +899,11 @@ theorem renumber_loop1_spec :
     have ht1 := K1.ticks
     have hfin : Inv s1 ∧ Extends s s1 ∧
         s1.ticks.val ≤ s.ticks.val + numCost n ([] : List Nat).length ∧
-        tbl s1 .A = tbl s .A ∧ NumPost s1.nodes.val (tbl s .B) (tbl s1 .B) [] n :=
+        tbl s1 .A = tbl s .A ∧ NumPost s1.nodes.val (tbl s .B) (tbl s1 .B) [] n ∧
+        VarAt s1.nodes.val place.val (n + ([] : List Nat).length) :=
       ⟨K1.inv, Extends.of_eq K1.nodes (by omega), by simp only [List.length_nil, numCost]; omega,
-        by rw [hK0.tbl], ⟨fun i v h => by simp at h, fun q _ => by rw [hK0.tbl]⟩⟩
+        by rw [hK0.tbl], ⟨fun i v h => by simp at h, fun q _ => by rw [hK0.tbl]⟩,
+        by rw [K1.nodes]; simpa using hp⟩
     step*
   | cons v R ih =>
     intro s l place n hI hnd hl hp hroom
@@ -908,9 +911,9 @@ theorem renumber_loop1_spec :
     unfold Room at hroom'
     simp only [List.length_cons, numCost] at hroom'
     rw [List.nodup_cons] at hnd
-    unfold sorts.renumber_loop1
+    unfold sorts.number_loop
     rw [loop]
-    simp only [sorts.renumber_loop1.body]
+    simp only [sorts.number_loop.body]
     step with uncons_repr s l hI.toWf
       (p := Term.app (Term.var v) (encList (nm none) (R.map Term.var))) hl
       (by unfold Room; omega) as ⟨r0, hK0, hu⟩
@@ -936,13 +939,16 @@ theorem renumber_loop1_spec :
     simp only [uncurry, bind_ok]
     have hx03 := hx2.trans hx3
     have IH := ih s3 rest place1 (n + 1) hI3 hnd.2 (hx03.repr rrest) hp3 (by unfold Room; omega)
-    unfold sorts.renumber_loop1 at IH
+    unfold sorts.number_loop at IH
     refine WP.spec_mono IH ?_
-    rintro s' ⟨hI', hx', ht', hA', hN⟩
+    rintro ⟨place', s'⟩ ⟨hI', hx', ht', hA', hN, hp'⟩
     have hB3 : tbl s3 .B = Function.update (tbl s .B) vi.val (some place.val) := by
       rw [htb3, g4]
     have hvs' : VarAt s'.nodes.val vi.val v := hx'.varAt (hx3.varAt (by rw [g1]; exact hvv))
-    refine ⟨hI', hx03.trans hx', by simp only [List.length_cons, numCost]; omega, ?_, ?_, ?_⟩
+    refine ⟨hI', hx03.trans hx', by simp only [List.length_cons, numCost]; omega, ?_,
+      ⟨?_, ?_⟩, by
+        rw [List.length_cons, show n + (R.length + 1) = n + 1 + R.length by omega]
+        exact hp'⟩
     · rw [hA', htb3, g5 .A (by simp), hK0.tbl]
     · intro i w hi
       cases i with
@@ -962,11 +968,57 @@ theorem renumber_loop1_spec :
       rintro rfl
       exact hq' v List.mem_cons_self hvs'
 
-/-! ## `sorts::renumber` -/
-
 /-- Each variable of the list becomes the variable of its place; any other
 stays. -/
 def numSub (F : List Nat) (v : Nat) : Pat := if v ∈ F then .var (F.idxOf v) else .var v
+
+/-- `number` sets table `B` to the substitution that numbers the variables
+of a list by their places, and returns the variable after the last place. -/
+theorem number_spec (F : List Nat) (hFnd : F.Nodup) (s : store.Store) (vs : store.TermId)
+    (hI : Inv s) (hvs : Repr nm s.nodes.val vs.val (encList (nm none) (F.map Term.var)))
+    (hroom : Room s (numCost 0 F.length + 2)) :
+    sorts.number s vs ⦃ next s' =>
+      Inv s' ∧ Extends s s' ∧ s'.ticks.val ≤ s.ticks.val + numCost 0 F.length + 2 ∧
+        tbl s' .A = tbl s .A ∧ VarAt s'.nodes.val next.val F.length ∧
+        LeafOK nm s'.nodes.val (tbl s' .B) term.Leaf.Map (numSub F) ⦄ := by
+  unfold sorts.number
+  have hroom' := hroom
+  unfold Room at hroom'
+  step with clear_spec s .B hI (by unfold Room; omega) as ⟨s5, c1, c2, c3, c4, c5⟩
+  have hx05 : Extends s s5 := Extends.of_eq c1 (by omega)
+  step with alloc_spec s5 .V0 c3 trivial (by unfold Room; omega)
+    as ⟨place, s6, hI6, ht6, htb6, hx6, hr6⟩
+  simp only [norm] at hr6
+  have hx06 := hx05.trans hx6
+  refine WP.spec_mono (number_loop_spec (nm := nm) F s6 vs place 0 hI6 hFnd (hx06.repr hvs)
+    (.zero hr6) (by unfold Room; omega)) ?_
+  rintro ⟨next, s7⟩ ⟨hI7, hx7, ht7, hA7, hN, hp7⟩
+  have hB6 : ∀ k, tbl s6 .B k = none := by
+    intro k
+    rw [htb6]
+    exact c4 k
+  refine ⟨hI7, hx06.trans hx7, by omega, by rw [hA7, htb6, c5 .A (by simp)],
+    by simpa using hp7, fun k u hk => ?_, fun v hv => ?_⟩
+  · by_cases hin : ∃ v ∈ F, VarAt s7.nodes.val k v
+    · obtain ⟨v, hvF, hva⟩ := hin
+      obtain ⟨i, hi, e⟩ := List.getElem_of_mem hvF
+      obtain ⟨q', u', h1, h2, h3⟩ := hN.set i v (by rw [List.getElem?_eq_getElem hi, e])
+      rw [hva.inj hI7.nodesOK h1, h2] at hk
+      cases hk
+      refine ⟨v, hva, ?_⟩
+      have hidx : F.idxOf v = i := by rw [← e]; exact hFnd.idxOf_getElem i hi
+      simp only [numSub, hvF, ↓reduceIte, hidx]
+      simpa using Repr.var (nm := nm) h3
+    · rw [hN.keep k fun v hv hva => hin ⟨v, hv, hva⟩, hB6] at hk
+      cases hk
+  · by_cases hvF : v ∈ F
+    · obtain ⟨i, hi, e⟩ := List.getElem_of_mem hvF
+      obtain ⟨q', u', h1, h2, -⟩ := hN.set i v (by rw [List.getElem?_eq_getElem hi, e])
+      rw [hv q' h1] at h2
+      cases h2
+    · simp [numSub, hvF]
+
+/-! ## `sorts::renumber` -/
 
 theorem bind_numSub {F : List Nat} {t : Pat} (h : ∀ v ∈ t.vars, v ∈ F) :
     t.bind (numSub F) = t.rename fun v => F.idxOf v :=
@@ -1032,7 +1084,7 @@ theorem renumber_spec (hnm : Function.Injective nm) {S : Sorts} {sp : Pat} {U : 
   step with alloc_spec s1 .Nil hI1 trivial (by unfold Room; omega)
     as ⟨cs, s2, hI2, ht2, htb2, hx2, hr2⟩
   have hx02 := hx1.trans hx2
-  step with renumber_loop0_spec hnm hC hS hUS hr hq decls names x es X L hsub F s2 vs cs []
+  step with renumber_loop_spec hnm hC hS hUS hr hq decls names x es X L hsub F s2 vs cs []
     hI2 (hx02.repr hde) (hx02.repr hU) (hx02.repr hx) (hx02.repr hes) (hx2.repr rvs) (.nil hr2)
     (by unfold Room; omega) as ⟨s3, cs1, hI3, hx3, ht3, rcs⟩
   rw [List.append_nil] at rcs
@@ -1045,43 +1097,14 @@ theorem renumber_spec (hnm : Function.Injective nm) {S : Sorts} {sp : Pat} {U : 
   have ht4 := hR.ticks
   have hI4 : Inv s4 := ⟨hR.wf, by rw [hR.stk]; exact hI3.empty⟩
   have hx04 := hx03.trans hR.ext
-  step with clear_spec s4 .B hI4 (by unfold Room; omega) as ⟨s5, c1, c2, c3, c4, c5⟩
-  have hx05 : Extends s s5 := hx04.trans (Extends.of_eq c1 (by omega))
-  step with alloc_spec s5 .V0 c3 trivial (by unfold Room; omega)
-    as ⟨place, s6, hI6, ht6, htb6, hx6, hr6⟩
-  simp only [norm] at hr6
-  have hx06 := hx05.trans hx6
-  step with renumber_loop1_spec (nm := nm) F s6 vs place 0 hI6 hFnd
-    ((((hx2.trans hx3).trans hR.ext).trans ((Extends.of_eq c1 (by omega)).trans hx6)).repr rvs)
-    (.zero hr6) (by unfold Room; omega) as ⟨s7, hI7, hx7, ht7, hA7, hN⟩
-  have hx07 := hx06.trans hx7
+  step with number_spec (nm := nm) F hFnd s4 vs hI4 (((hx2.trans hx3).trans hR.ext).repr rvs)
+    (by unfold Room; omega) as ⟨nx, s7, hI7, hx7, ht7, hA7, hnx7, hleaf7⟩
+  have hx07 := hx04.trans hx7
   step with clear_spec s7 .A hI7 (by unfold Room; omega) as ⟨s8, d1, d2, d3, d4, d5⟩
   have hx08 : Extends s s8 := hx07.trans (Extends.of_eq d1 (by omega))
-  have hB6 : ∀ k, tbl s6 .B k = none := by
-    intro k
-    rw [htb6]
-    exact c4 k
   have hleaf : LeafOK nm s8.nodes.val (tbl s8 .B) term.Leaf.Map (numSub F) := by
     rw [d1, d5 .B (by simp)]
-    refine ⟨fun k u hk => ?_, fun v hv => ?_⟩
-    · by_cases hin : ∃ v ∈ F, VarAt s7.nodes.val k v
-      · obtain ⟨v, hvF, hva⟩ := hin
-        obtain ⟨i, hi, e⟩ := List.getElem_of_mem hvF
-        obtain ⟨q', u', h1, h2, h3⟩ := hN.set i v (by rw [List.getElem?_eq_getElem hi, e])
-        rw [hva.inj hI7.nodesOK h1, h2] at hk
-        cases hk
-        refine ⟨v, hva, ?_⟩
-        have hidx : F.idxOf v = i := by rw [← e]; exact hFnd.idxOf_getElem i hi
-        simp only [numSub, hvF, ↓reduceIte, hidx]
-        simpa using Repr.var (nm := nm) h3
-      · rw [hN.keep k fun v hv hva => hin ⟨v, hv, hva⟩, hB6] at hk
-        cases hk
-    · by_cases hvF : v ∈ F
-      · obtain ⟨i, hi, e⟩ := List.getElem_of_mem hvF
-        obtain ⟨q', u', h1, h2, -⟩ := hN.set i v (by rw [List.getElem?_eq_getElem hi, e])
-        rw [hv q' h1] at h2
-        cases h2
-      · simp [numSub, hvF]
+    exact hleaf7
   have hpc := pending_card_le (nm := nm) s8.nodes.val (tbl s8 .A) (T.subs ∪ (encX nm X).subs)
   step with rebuild_spec hnm s8 .Map t (t := T) (σ := numSub F) (T.subs ∪ (encX nm X).subs) d3
     (hx08.repr ht) hleaf (by intro k v hk; rw [d4] at hk; cases hk)
@@ -1094,8 +1117,7 @@ theorem renumber_spec (hnm : Function.Injective nm) {S : Sorts} {sp : Pat} {U : 
   have hc10 := h10.cost
   refine ⟨h10.inv, (hx08.trans h9.ext).trans h10.ext, by simp only [renumberCost, hFe]; omega,
     h10.ext.repr h9.repr, h10.repr, ?_⟩
-  exact h10.ext.repr (h9.ext.repr ((Extends.of_eq d1 (by omega)).repr (hx7.repr
-    (hx6.repr ((Extends.of_eq c1 (by omega)).repr rcs2)))))
+  exact h10.ext.repr (h9.ext.repr ((Extends.of_eq d1 (by omega)).repr (hx7.repr rcs2)))
 
 /-- What `renumber` returns are the pattern, the sorts and the exclusions
 that `Sorts.ofTight` assembles the normal store from. -/
