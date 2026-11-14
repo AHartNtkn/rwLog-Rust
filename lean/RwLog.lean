@@ -148,3 +148,5 @@ import RwLog.Sorts.Blowup
 import RwLog.Sorts.Fold
 import RwLog.Sorts.Unfold
 import RwLog.Sorts.Free
+import RwLog.Sorts.Fits
+import RwLog.Sorts.FoldRaw

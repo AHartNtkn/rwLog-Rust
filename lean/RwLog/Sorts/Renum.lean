@@ -29,14 +29,15 @@ theorem firstOcc_iff {L : List Nat} : FirstOcc L ↔
     obtain ⟨_, e'⟩ := List.getElem?_eq_some_iff.1 e
     exact ⟨j, hj, e'⟩
 
-theorem firsts_snoc (L : List Nat) (x : Nat) :
+theorem firsts_snoc {α : Type} [DecidableEq α] (L : List α) (x : α) :
     firsts (L ++ [x]) = if x ∈ firsts L then firsts L else firsts L ++ [x] :=
   firsts_concat L x
 
 /-- `firsts` lists the members once each, and a member's place is the number
 of different members before its first occurrence. -/
-theorem firsts_spec (L : List Nat) : (firsts L).Nodup ∧ (∀ v, v ∈ firsts L ↔ v ∈ L) ∧
-    ∀ (i m v : Nat), L[i]? = some v → m < (firsts L).idxOf v →
+theorem firsts_spec {α : Type} [DecidableEq α] (L : List α) :
+    (firsts L).Nodup ∧ (∀ v, v ∈ firsts L ↔ v ∈ L) ∧
+    ∀ (i m : Nat) (v : α), L[i]? = some v → m < (firsts L).idxOf v →
       ∃ j, j < i ∧ ∃ u, L[j]? = some u ∧ (firsts L).idxOf u = m := by
   induction L using List.reverseRecOn with
   | nil => exact ⟨List.nodup_nil, by simp [firsts], by simp⟩
@@ -50,7 +51,7 @@ theorem firsts_spec (L : List Nat) : (firsts L).Nodup ∧ (∀ v, v ∈ firsts L
       have hu : F[m] ∈ L := (hmem _).1 (List.getElem_mem hm)
       obtain ⟨j, hj, e⟩ := List.getElem_of_mem hu
       exact ⟨j, hj, F[m], by rw [List.getElem?_eq_getElem hj, e], hnd.idxOf_getElem m hm⟩
-    have left : ∀ (j u : Nat), L[j]? = some u → (L ++ [x])[j]? = some u := by
+    have left : ∀ (j : Nat) (u : α), L[j]? = some u → (L ++ [x])[j]? = some u := by
       intro j u h
       obtain ⟨hj, -⟩ := List.getElem?_eq_some_iff.1 h
       rw [List.getElem?_append_left hj]; exact h
@@ -104,6 +105,18 @@ theorem firsts_spec (L : List Nat) : (firsts L).Nodup ∧ (∀ v, v ∈ firsts L
           exact ⟨j, hj, u, left j u hu, by rw [hin u huF]; exact e⟩
         · rw [List.getElem?_eq_none (by simp; omega)] at hv; cases hv
 
+/-- The members of a list, each replaced by its place among the members in
+the order they first occur, are numbered in the order they first occur. -/
+theorem firstOcc_map_firsts {α : Type} [DecidableEq α] (L : List α) :
+    FirstOcc (L.map fun v => (firsts L).idxOf v) := by
+  obtain ⟨-, -, hF⟩ := firsts_spec L
+  rw [firstOcc_iff]
+  intro i m v' hv' hm
+  rw [List.getElem?_map, Option.map_eq_some_iff] at hv'
+  obtain ⟨v, hv, rfl⟩ := hv'
+  obtain ⟨j, hj, u, hu, e⟩ := hF i m v hv hm
+  exact ⟨j, hj, by rw [List.getElem?_map, hu]; simp [e]⟩
+
 /-- Numbering the members of a list in the order they first occur, with its
 inverse. -/
 theorem renum_spec (L : List Nat) : FirstOcc (L.map fun v => (firsts L).idxOf v) ∧
@@ -111,15 +124,9 @@ theorem renum_spec (L : List Nat) : FirstOcc (L.map fun v => (firsts L).idxOf v)
       (firsts L).getD ((firsts L).idxOf v) 0 = v) ∧
     ∀ w, w < (firsts L).length →
       (firsts L).getD w 0 ∈ L ∧ (firsts L).idxOf ((firsts L).getD w 0) = w := by
-  obtain ⟨hnd, hmem, hF⟩ := firsts_spec L
-  generalize firsts L = F at hnd hmem hF ⊢
-  refine ⟨?_, ?_, ?_⟩
-  · rw [firstOcc_iff]
-    intro i m v' hv' hm
-    rw [List.getElem?_map, Option.map_eq_some_iff] at hv'
-    obtain ⟨v, hv, rfl⟩ := hv'
-    obtain ⟨j, hj, u, hu, e⟩ := hF i m v hv hm
-    exact ⟨j, hj, by rw [List.getElem?_map, hu]; simp [e]⟩
+  obtain ⟨hnd, hmem, -⟩ := firsts_spec L
+  refine ⟨firstOcc_map_firsts L, ?_, ?_⟩
+  all_goals generalize firsts L = F at hnd hmem ⊢
   · intro v hv
     have hvF : v ∈ F := (hmem v).2 hv
     have hlt : F.idxOf v < F.length := List.idxOf_lt_length_iff.2 hvF

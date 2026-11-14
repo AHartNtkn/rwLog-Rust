@@ -264,7 +264,7 @@ The normal store above writes every variable of one root out. The canonical
 store the machine is to keep instead leaves such a variable folded when
 nothing but its sorts is said of it (decided 2026-11-14, research direction
 D8). What is proved of it so far, in `Sorts/Fold.lean` and
-`Sorts/Unfold.lean`:
+`Sorts/Unfold.lean`, `Sorts/Fits.lean` and `Sorts/FoldRaw.lean`:
 
 | Statement | Theorem |
 |---|---|
@@ -275,9 +275,19 @@ D8). What is proved of it so far, in `Sorts/Fold.lean` and
 | So the folded pattern of the normal store can be read off a store in which only the variables that exclusions mention have been written out: the store assembled from it is determined by its pattern and what it denotes, denotes the same, and has the folded pattern of the normal store of the problem | `tighten_fold`, `foldPat_ofTight_norm` (`Unfold.lean`) |
 | In a store determined by its pattern and what it denotes whose variables each have infinitely many values, the variables of a free subterm take their values freely among their sorts, and no exclusion mentions one | `Free.vary`, `Free.not_excl` (`Free.lean`) |
 
-Still owed for the folded store: the function that folds (deciding `Free`
-without unfolding), the Rust for it, and the domain's operations on folded
-stores.
+| Whether every member of some sorts is an instance of a linear first-order pattern with its variables in given sorts is decided by going down the pattern: at each application the sorts must have that one root, and the arguments are checked against the sorts the root gives them (`fitsIn`) | `fitsIn_iff` (`Fits.lean`) |
+| So whether a subterm is free is decided on such a store, without unfolding anything (`freeB`) | `freeB_iff` (`Fits.lean`) |
+| The *folded store* of a store (`foldRaw`): the pattern with each outermost free subterm replaced by a variable, the sorts of the subterm on that variable, and the exclusions renamed. It is determined by its pattern and what it denotes, denotes what the store does, and its pattern is the folded pattern | `foldRaw_spec` (`FoldRaw.lean`) |
+| `FoldOf S n r`: `r` is the folded canonical store of the normal store `n`. A normal store has exactly one, and it determines the normal store | `FoldOf.eq`, `FoldOf.inj` |
+| Writing out only the variables that exclusions mention, assembling, and folding gives the folded canonical store of the problem | `foldRaw_ofTight` |
+
+The folded canonical store is therefore a function of what the problem
+denotes, as the normal store is, and it is computed without writing out any
+variable that no exclusion mentions. Nothing here bounds its size or the
+cost of computing it; the charges are stated with the Rust.
+
+Still owed for the folded store: the Rust for it and its proof, and the
+domain's operations on folded stores.
 
 
 ## 8. The normal store as a function
