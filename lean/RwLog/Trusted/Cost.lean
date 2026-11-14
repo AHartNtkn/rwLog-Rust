@@ -767,31 +767,30 @@ def leastRel : Rel → List Rel → Rel
   | m, [] => m
   | m, x :: xs => leastRel (if relCmp x m = .lt then x else m) xs
 
+/-- The candidate to run, of a first candidate and the others, each a node
+with whether it relates the pairs the other way round: the least node. If it
+is a candidate both ways round, the run is of the union of it with its
+converse and nothing is swapped. -/
+def pick (Pn : Program) (first : Rel × Bool) (rest : List (Rel × Bool)) : Oriented :=
+  let m := leastRel first.1 (rest.map Prod.fst)
+  let ways := ((first :: rest).filter fun x => x.1 = m).map Prod.snd
+  if ways.all (· = false) then ⟨false, Pn, m⟩
+  else if ways.all (· = true) then ⟨true, Pn, m⟩
+  else ⟨false, Pn, (RelOf.or m m.normConv).norm⟩
+
 /-- The input a machine is run on, of the four the input is one of.
 
 The mirrored program is compared with the program, body by body in normal
 form, and the lesser is run; if they are the same the program is its own
 mirror image. The candidates for the root are then the query and its
-converse, each with whether it relates the pairs the other way round; in a
-program that is its own mirror image the mirrored query and its converse are
-candidates too. The least candidate is run. If it is a candidate both ways
-round, the run is of the union of it with its converse and nothing is
-swapped. -/
+converse; in a program that is its own mirror image the mirrored query and
+its converse are candidates too. -/
 def orient (P : Program) (q : Rel) : Oriented :=
-  let c := listCmp relCmp (P.defs.map fun d => d.2.norm) (P.dual.defs.map fun d => d.2.norm)
-  let first : Rel × Bool := if c = .gt then (q.dual.norm, true) else (q.norm, false)
-  let rest : List (Rel × Bool) :=
-    match c with
-    | .lt => [((RelOf.conv q).norm, true)]
-    | .gt => [((RelOf.conv q.dual).norm, false)]
-    | .eq => [((RelOf.conv q).norm, true), (q.dual.norm, true), ((RelOf.conv q.dual).norm, false)]
-  let cands := first :: rest
-  let Pn := if c = .gt then P.dual.normed else P.normed
-  let m := leastRel first.1 (rest.map Prod.fst)
-  let ways := (cands.filter fun x => x.1 = m).map Prod.snd
-  if ways.all (· = false) then ⟨false, Pn, m⟩
-  else if ways.all (· = true) then ⟨true, Pn, m⟩
-  else ⟨false, Pn, (RelOf.or m m.normConv).norm⟩
+  match listCmp relCmp (P.defs.map fun d => d.2.norm) (P.dual.defs.map fun d => d.2.norm) with
+  | .lt => pick P.normed (q.norm, false) [((RelOf.conv q).norm, true)]
+  | .gt => pick P.dual.normed (q.dual.norm, true) [((RelOf.conv q.dual).norm, false)]
+  | .eq => pick P.normed (q.norm, false)
+      [((RelOf.conv q).norm, true), (q.dual.norm, true), ((RelOf.conv q.dual).norm, false)]
 
 /-- Choosing the input to run: the program and the query are brought to
 their normal form four times and compared, at the charge of `Charged.load`

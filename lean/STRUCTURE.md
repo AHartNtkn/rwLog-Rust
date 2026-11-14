@@ -179,6 +179,16 @@ rung unchanged.
   found by any schedule is covered by every fair run that opens its goal.
   Nothing is assumed of the order of work or of tables growing. A machine
   proves `Fair` of its runs and receives completeness.
+* `Oriented.lean`: a machine run on one orientation of its input
+  (`CostedRuntime.oriented`, `Trusted/Cost.lean`). The choice made from the
+  converse of a query, and from the mirror image of an input, is the choice
+  made from the input the other way round, or the same choice of a node that
+  is its own converse (`orient_conv`, `orient_dual`). So a machine that
+  shows, on a root that is its own converse, sets of answers that are their
+  own converse (`CostedRuntime.SelfConverse`) has `ConvTrace` and `DualTrace`
+  when run on one orientation (`oriented_convTrace`, `oriented_dualTrace`),
+  and any machine pays the same on an input and on its mirror image
+  (`oriented_paid_dual`).
 * `Fairness.lean`: what the fairness bound of `Trusted/Properties.lean` means
   (`Alternative.semAt_subset`, `Fair.flat_ticks`,
   `Runtime.FinalMaximal.maximal`), and `firstWording_false`: a bound

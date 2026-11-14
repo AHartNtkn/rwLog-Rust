@@ -600,3 +600,12 @@ new axiom.
 
 /-- info: 'RwLog.Saturation.Fair.covers_valid' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Saturation.Fair.covers_valid
+
+/-- info: 'RwLog.CostedRuntime.oriented_convTrace' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.CostedRuntime.oriented_convTrace
+
+/-- info: 'RwLog.CostedRuntime.oriented_dualTrace' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.CostedRuntime.oriented_dualTrace
+
+/-- info: 'RwLog.CostedRuntime.oriented_paid_dual' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.CostedRuntime.oriented_paid_dual
