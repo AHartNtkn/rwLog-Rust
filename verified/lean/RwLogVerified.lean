@@ -68,6 +68,9 @@
   composition, conjunction, the right bound, the converse, whether a
   representative relates each term to itself only, and whether one covers
   another.
+* `RwLogVerified.SpanRep`: the representative of a span as written:
+  whether a term is first-order, what each constraint says, and the normal
+  store of the two sides under the sorts and the disequalities.
 * `RwLogVerified.Kernel`: the kernel rung whose charges are those bounds.
 * `RwLogVerified.KernelRuns`: its charges on a worked composition.
 
@@ -111,5 +114,6 @@ import RwLogVerified.Solved
 import RwLogVerified.Assemble
 import RwLogVerified.Normal
 import RwLogVerified.Dom
+import RwLogVerified.SpanRep
 import RwLogVerified.Kernel
 import RwLogVerified.KernelRuns

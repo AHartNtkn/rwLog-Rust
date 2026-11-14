@@ -140,12 +140,20 @@ inductive sorts.Count where
 | Many : sorts.Count
 
 /-- [rwlog_core::dom::Half]
-    Source: 'src/dom.rs', lines 133:0-139:1 -/
+    Source: 'src/dom.rs', lines 134:0-140:1 -/
 structure dom.Half where
   l : store.TermId
   r : store.TermId
   vs : store.TermId
   c : store.TermId
   x : store.TermId
+
+/-- [rwlog_core::dom::Con]
+    Source: 'src/dom.rs', lines 337:0-344:1 -/
+@[discriminant isize]
+inductive dom.Con where
+| «Sort» : store.TermId → dom.Con
+| Differ : store.TermId → store.TermId → dom.Con
+| Never : dom.Con
 
 end rwlog_core

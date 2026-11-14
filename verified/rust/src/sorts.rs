@@ -210,7 +210,7 @@ pub fn member(s: &mut Store, decls: TermId, name: TermId, t: TermId) -> bool {
 }
 
 /// Is the node a variable?
-fn is_var(s: &mut Store, p: TermId) -> bool {
+pub fn is_var(s: &mut Store, p: TermId) -> bool {
     matches!(s.read(p), Node::V0 | Node::VL(_) | Node::VR(_))
 }
 

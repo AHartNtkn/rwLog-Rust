@@ -358,3 +358,24 @@ new axiom.
 
 /-- info: 'RwLogVerified.dom_covers_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLogVerified.dom_covers_spec
+
+/-- info: 'RwLogVerified.first_order_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.first_order_spec
+
+/-- info: 'RwLogVerified.is_atom_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.is_atom_spec
+
+/-- info: 'RwLogVerified.among_loop_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.among_loop_spec
+
+/-- info: 'RwLogVerified.con_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.con_spec
+
+/-- info: 'RwLogVerified.parts_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.parts_spec
+
+/-- info: 'RwLogVerified.repOf_bad' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.repOf_bad
+
+/-- info: 'RwLogVerified.rep_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.rep_spec

@@ -1634,3 +1634,821 @@ fn excls_onto_several_exclusions_give_one_equation_list_each() {
 fn excls_onto_an_exclusion_over_no_variables_has_no_equations() {
     assert_eq!(excls(&[], &[vec![]]), vec![Vec::<T>::new()]);
 }
+
+// ---------------------------------------------------------------------
+// `rep`
+// ---------------------------------------------------------------------
+
+/// The word of the symbol of disequality: no declaration and no term of
+/// the tests uses it.
+const NE: u32 = 200;
+
+/// The constraint that says the pattern `p` is in the sort named `n`.
+fn in_sort(n: Name, p: P) -> T {
+    ap(common::sy(n), p.tree())
+}
+
+/// The constraint that says the patterns `p` and `q` are different terms.
+fn differ(p: P, q: P) -> T {
+    ap(ap(common::sy(NE), p.tree()), q.tree())
+}
+
+/// `dom::rep` on the span of the sides `l` and `r` under the constraints
+/// `c`, in a new store. A run that is `backwards` has the constraints in
+/// the opposite order.
+fn span_rep(defs: &[(Name, Def)], l: &T, r: &T, c: &[T], run: Run) -> (Option<Rep>, Fx) {
+    let mut f = fixture(defs.to_vec());
+    let mut c = c.to_vec();
+    if run.backwards {
+        c.reverse();
+    }
+    let x = common::put_span(&mut f.s, &common::TSpan { l: l.clone(), r: r.clone(), c });
+    if run.soiled {
+        dirty(&mut f);
+    }
+    let got = dom::rep(&mut f.s, f.decls, f.names, NE, x);
+    f.empty_stack();
+    (got, f)
+}
+
+/// `dom::rep` on the span of `l` and `r` under the constraints `c` gives
+/// the representative of the relation of `l` and `r` under the sorts `a`
+/// and the exclusions `x`, and there is one. Returned is that of the
+/// reference.
+fn span_same(defs: Vec<(Name, Def)>, l: P, r: P, c: &[T], a: Vec<(Name, P)>, x: Excls) -> Raw {
+    let p = rel(l.clone(), r.clone(), a, x);
+    let want = normal(&Sorts::new(defs.clone()), &p).unwrap_or_else(|| panic!("the reference has nothing for {p:?}"));
+    for run in RUNS {
+        let (got, mut f) = span_rep(&defs, &l.tree(), &r.tree(), c, run);
+        let got = got.unwrap_or_else(|| panic!("nothing for {l:?} and {r:?} under {c:?}"));
+        assert_eq!(get_rep(&mut f, got), shape(&want), "{l:?} and {r:?} under {c:?}");
+        let w = put_rep(&mut f, &want, false);
+        assert!(dom::same_rep(&mut f.s, got, w), "not the store of the reference: {l:?} and {r:?} under {c:?}");
+    }
+    want
+}
+
+/// Neither `dom::rep` on the span of `l` and `r` under the constraints `c`
+/// nor the reference for the relation of `l` and `r` under the sorts `a`
+/// and the exclusions `x` has a representative.
+fn span_empty(defs: Vec<(Name, Def)>, l: P, r: P, c: &[T], a: Vec<(Name, P)>, x: Excls) {
+    let p = rel(l.clone(), r.clone(), a, x);
+    assert!(normal(&Sorts::new(defs.clone()), &p).is_none(), "the reference has a representative of {p:?}");
+    span_none(defs, &l.tree(), &r.tree(), c);
+}
+
+/// `dom::rep` has no representative of the span of the terms `l` and `r`
+/// under the constraints `c`.
+fn span_none(defs: Vec<(Name, Def)>, l: &T, r: &T, c: &[T]) {
+    for run in RUNS {
+        let (got, f) = span_rep(&defs, l, r, c, run);
+        assert_eq!(read(got, f), None, "{l:?} and {r:?} under {c:?}");
+    }
+}
+
+/// The representatives `dom::rep` gives of two spans in one store.
+fn two_span_reps(f: &mut Fx, a: &common::TSpan, b: &common::TSpan) -> (Rep, Rep) {
+    let xa = common::put_span(&mut f.s, a);
+    let xb = common::put_span(&mut f.s, b);
+    let ra = dom::rep(&mut f.s, f.decls, f.names, NE, xa).expect("the first span relates something");
+    let rb = dom::rep(&mut f.s, f.decls, f.names, NE, xb).expect("the second span relates something");
+    f.empty_stack();
+    (ra, rb)
+}
+
+fn tspan(l: P, r: P, c: Vec<T>) -> common::TSpan {
+    common::TSpan { l: l.tree(), r: r.tree(), c }
+}
+
+/// The exclusion that never holds: not all of no equations.
+fn never() -> Excls {
+    vec![vec![]]
+}
+
+// No constraints.
+
+#[test]
+fn rep_span_without_constraints_is_its_two_sides() {
+    let got = span_same(wf(), su(pv(0)), pv(0), &[], vec![], vec![]);
+    assert_eq!(sides(&got), (su(pv(0)), pv(0)));
+    assert_eq!(got.c, vec![Conj::new()]);
+    assert!(got.x.is_empty());
+}
+
+#[test]
+fn rep_identity_span_has_one_variable_on_both_sides() {
+    let got = span_same(wf(), pv(0), pv(0), &[], vec![], vec![]);
+    assert_eq!(sides(&got), (pv(0), pv(0)));
+    assert_eq!(got.c.len(), 1);
+}
+
+#[test]
+fn rep_ground_sides_have_no_variables() {
+    let got = span_same(wf(), z(), su(z()), &[], vec![], vec![]);
+    assert_eq!(sides(&got), (z(), su(z())));
+    assert!(got.c.is_empty());
+    assert!(got.x.is_empty());
+}
+
+#[test]
+fn rep_repeated_variable_stays_shared() {
+    let got = span_same(wf(), f2(pv(0), pv(0)), pv(0), &[], vec![], vec![]);
+    assert_eq!(sides(&got), (f2(pv(0), pv(0)), pv(0)));
+    assert_eq!(got.c.len(), 1);
+}
+
+#[test]
+fn rep_numbers_variables_by_first_occurrence_left_side_first() {
+    let got = span_same(wf(), f2(pv(7), pv(3)), f2(pv(5), pv(7)), &[], vec![], vec![]);
+    assert_eq!(sides(&got), (f2(pv(0), pv(1)), f2(pv(2), pv(0))));
+    assert_eq!(got.c.len(), 3);
+}
+
+#[test]
+fn rep_variable_only_on_the_right_side_is_numbered_from_zero() {
+    let got = span_same(wf(), z(), k1(pv(4)), &[], vec![], vec![]);
+    assert_eq!(sides(&got), (z(), k1(pv(0))));
+    assert_eq!(got.c.len(), 1);
+}
+
+#[test]
+fn rep_span_without_constraints_under_no_declarations() {
+    let got = span_same(vec![], f2(pv(1), z()), pv(1), &[], vec![], vec![]);
+    assert_eq!(sides(&got), (f2(pv(0), z()), pv(0)));
+    assert_eq!(got.c, vec![Conj::new()]);
+}
+
+// Sorts.
+
+#[test]
+fn rep_sort_on_a_variable_of_the_left_side() {
+    let got = span_same(wf(), pv(0), pv(1), &[in_sort(BOX, pv(0))], vec![(BOX, pv(0))], vec![]);
+    assert_eq!(sides(&got), (k1(pv(0)), pv(1)));
+    assert!(got.c[0].contains(&NAT));
+    assert!(got.c[1].is_empty());
+}
+
+#[test]
+fn rep_sort_on_a_variable_of_the_right_side() {
+    let got = span_same(wf(), pv(0), pv(1), &[in_sort(NAT, pv(1))], vec![(NAT, pv(1))], vec![]);
+    assert_eq!(sides(&got), (pv(0), pv(1)));
+    assert!(got.c[0].is_empty());
+    assert!(got.c[1].contains(&NAT));
+}
+
+#[test]
+fn rep_sort_on_a_variable_of_both_sides() {
+    let got = span_same(wf(), su(pv(0)), pv(0), &[in_sort(NAT, pv(0))], vec![(NAT, pv(0))], vec![]);
+    assert_eq!(sides(&got), (su(pv(0)), pv(0)));
+    assert!(got.c[0].contains(&NAT));
+}
+
+#[test]
+fn rep_sort_follows_its_variable_to_its_new_number() {
+    let got = span_same(wf(), pv(6), pv(2), &[in_sort(NAT, pv(2))], vec![(NAT, pv(2))], vec![]);
+    assert_eq!(sides(&got), (pv(0), pv(1)));
+    assert!(got.c[0].is_empty());
+    assert!(got.c[1].contains(&NAT));
+}
+
+#[test]
+fn rep_sorts_on_two_variables_each_reach_their_variable() {
+    let c = [in_sort(NAT, pv(0)), in_sort(PAIR, pv(1))];
+    let got = span_same(wf(), pv(0), pv(1), &c, vec![(NAT, pv(0)), (PAIR, pv(1))], vec![]);
+    assert_eq!(sides(&got), (pv(0), pr(pv(1), pv(2))));
+    assert!(got.c.iter().all(|c| c.contains(&NAT)));
+}
+
+#[test]
+fn rep_inhabited_sort_on_a_variable_in_neither_side_changes_nothing() {
+    let got = span_same(wf(), pv(0), pv(1), &[in_sort(NAT, pv(5))], vec![(NAT, pv(5))], vec![]);
+    assert_eq!(got, rep(&wf(), &plain(pv(0), pv(1))));
+}
+
+#[test]
+fn rep_empty_sort_on_a_variable_in_neither_side_is_none() {
+    span_empty(wf(), pv(0), pv(1), &[in_sort(VOID, pv(5))], vec![(VOID, pv(5))], vec![]);
+}
+
+#[test]
+fn rep_empty_sort_on_a_variable_of_a_side_is_none() {
+    span_empty(wf(), pv(0), z(), &[in_sort(VOID, pv(0))], vec![(VOID, pv(0))], vec![]);
+}
+
+#[test]
+fn rep_sort_on_a_compound_pattern_is_pushed_down_to_its_variable() {
+    let got = span_same(wf(), pv(0), pv(0), &[in_sort(NAT, su(pv(0)))], vec![(NAT, su(pv(0)))], vec![]);
+    assert_eq!(sides(&got), (pv(0), pv(0)));
+    assert!(got.c[0].contains(&NAT));
+}
+
+#[test]
+fn rep_sort_on_a_compound_pattern_reaches_each_of_its_variables() {
+    let c = [in_sort(PAIR, pr(pv(0), su(pv(1))))];
+    let got = span_same(wf(), pv(0), pv(1), &c, vec![(PAIR, pr(pv(0), su(pv(1))))], vec![]);
+    assert_eq!(sides(&got), (pv(0), pv(1)));
+    assert!(got.c[0].contains(&NAT) && got.c[1].contains(&NAT));
+}
+
+#[test]
+fn rep_sort_rejecting_the_root_of_its_compound_pattern_is_none() {
+    span_empty(wf(), pv(0), pv(0), &[in_sort(NAT, k1(pv(0)))], vec![(NAT, k1(pv(0)))], vec![]);
+}
+
+#[test]
+fn rep_sort_rejecting_its_compound_pattern_below_the_root_is_none() {
+    span_empty(wf(), pv(0), pv(0), &[in_sort(NAT, su(k1(pv(0))))], vec![(NAT, su(k1(pv(0))))], vec![]);
+}
+
+#[test]
+fn rep_sort_on_a_ground_term_in_the_sort_changes_nothing() {
+    let got = span_same(wf(), pv(0), su(pv(0)), &[in_sort(NAT, su(z()))], vec![(NAT, su(z()))], vec![]);
+    assert_eq!(got, rep(&wf(), &plain(pv(0), su(pv(0)))));
+}
+
+#[test]
+fn rep_sort_on_a_ground_term_outside_the_sort_is_none() {
+    span_empty(wf(), pv(0), su(pv(0)), &[in_sort(NAT, a())], vec![(NAT, a())], vec![]);
+}
+
+#[test]
+fn rep_sort_on_a_ground_term_outside_the_sort_is_none_for_ground_sides() {
+    span_empty(wf(), z(), z(), &[in_sort(NAT, su(a()))], vec![(NAT, su(a()))], vec![]);
+}
+
+#[test]
+fn rep_sort_with_one_member_grounds_its_variable() {
+    let got = span_same(wf(), pv(0), f2(pv(0), pv(1)), &[in_sort(UNIT, pv(0))], vec![(UNIT, pv(0))], vec![]);
+    assert_eq!(sides(&got), (z(), f2(z(), pv(0))));
+    assert_eq!(got.c, vec![Conj::new()]);
+}
+
+#[test]
+fn rep_sort_with_one_root_opens_its_variable() {
+    let got = span_same(wf(), pv(0), pv(0), &[in_sort(SUC, pv(0))], vec![(SUC, pv(0))], vec![]);
+    assert_eq!(sides(&got), (su(pv(0)), su(pv(0))));
+    assert!(got.c[0].contains(&NAT));
+}
+
+#[test]
+fn rep_two_sorts_on_one_variable_are_conjoined() {
+    let c = [in_sort(NAT, pv(0)), in_sort(ANY, pv(0))];
+    let got = span_same(wf(), pv(0), pv(0), &c, vec![(NAT, pv(0)), (ANY, pv(0))], vec![]);
+    assert_eq!(sides(&got), (pv(0), pv(0)));
+    assert!(got.c[0].contains(&NAT) && got.c[0].contains(&ANY));
+}
+
+#[test]
+fn rep_two_sorts_meeting_in_one_member_ground_the_variable() {
+    let c = [in_sort(PAIR, pv(0)), in_sort(TWO, pv(0))];
+    let got = span_same(wf(), pv(0), pv(1), &c, vec![(PAIR, pv(0)), (TWO, pv(0))], vec![]);
+    assert_eq!(sides(&got), (pr(z(), z()), pv(0)));
+    assert_eq!(got.c, vec![Conj::new()]);
+}
+
+#[test]
+fn rep_two_sorts_with_nothing_in_common_on_one_variable_is_none() {
+    let c = [in_sort(NAT, pv(0)), in_sort(BOX, pv(0))];
+    span_empty(wf(), pv(0), pv(0), &c, vec![(NAT, pv(0)), (BOX, pv(0))], vec![]);
+}
+
+#[test]
+fn rep_two_sorts_with_the_same_root_and_nothing_in_common_is_none() {
+    let c = [in_sort(BOX, pv(0)), in_sort(C2, pv(0))];
+    span_empty(wf(), pv(0), pv(0), &c, vec![(BOX, pv(0)), (C2, pv(0))], vec![]);
+}
+
+#[test]
+fn rep_sorts_through_different_patterns_meet_on_the_shared_variable() {
+    let c = [in_sort(UNIT, pv(0)), in_sort(SUC, pv(0))];
+    span_empty(wf(), pv(0), z(), &c, vec![(UNIT, pv(0)), (SUC, pv(0))], vec![]);
+}
+
+#[test]
+fn rep_undeclared_sort_name_on_a_variable_is_none() {
+    span_none(wf(), &v(0), &v(0), &[in_sort(555, pv(0))]);
+}
+
+#[test]
+fn rep_undeclared_sort_name_on_a_ground_term_is_none() {
+    span_none(wf(), &v(0), &v(0), &[in_sort(555, z())]);
+}
+
+#[test]
+fn rep_undeclared_sort_name_on_a_variable_in_neither_side_is_none() {
+    span_none(wf(), &v(0), &v(0), &[in_sort(555, pv(3))]);
+}
+
+#[test]
+fn rep_term_symbol_used_as_a_sort_name_is_none() {
+    span_none(wf(), &v(0), &v(0), &[su(pv(0)).tree()]);
+}
+
+#[test]
+fn rep_sort_under_no_declarations_is_none() {
+    span_none(vec![], &v(0), &v(0), &[in_sort(NAT, pv(0))]);
+}
+
+#[test]
+fn rep_undeclared_sort_name_among_declared_ones_is_none() {
+    span_none(wf(), &v(0), &v(1), &[in_sort(NAT, pv(0)), in_sort(555, pv(1)), in_sort(NAT, pv(1))]);
+}
+
+// Disequalities.
+
+#[test]
+fn rep_disequality_of_a_variable_and_a_ground_term_excludes_the_term() {
+    let got = span_same(wf(), pv(0), pv(0), &[differ(pv(0), z())], vec![], vec![vec![(pv(0), z())]]);
+    assert_eq!(sides(&got), (pv(0), pv(0)));
+    assert_eq!(got.x, vec![vec![(0, z())]]);
+}
+
+#[test]
+fn rep_disequality_of_a_ground_term_and_a_variable_excludes_the_term() {
+    let got = span_same(wf(), pv(0), pv(0), &[differ(su(z()), pv(0))], vec![], vec![vec![(su(z()), pv(0))]]);
+    assert_eq!(got.x, vec![vec![(0, su(z()))]]);
+}
+
+#[test]
+fn rep_disequality_of_two_variables_of_the_sides_is_kept() {
+    let got = span_same(wf(), pv(0), pv(1), &[differ(pv(0), pv(1))], vec![], vec![vec![(pv(0), pv(1))]]);
+    assert_eq!(sides(&got), (pv(0), pv(1)));
+    assert_eq!(got.x, vec![vec![(1, pv(0))]]);
+}
+
+#[test]
+fn rep_disequality_is_rewritten_when_its_variable_is_renumbered() {
+    let got = span_same(wf(), pv(4), pv(2), &[differ(pv(2), z())], vec![], vec![vec![(pv(2), z())]]);
+    assert_eq!(sides(&got), (pv(0), pv(1)));
+    assert_eq!(got.x, vec![vec![(1, z())]]);
+}
+
+#[test]
+fn rep_disequality_of_compound_patterns_excludes_the_values_together() {
+    let c = [differ(f2(pv(0), pv(1)), f2(z(), a()))];
+    let got = span_same(wf(), pv(0), pv(1), &c, vec![], vec![vec![(f2(pv(0), pv(1)), f2(z(), a()))]]);
+    assert_eq!(got.x, vec![vec![(0, z()), (1, a())]]);
+}
+
+#[test]
+fn rep_disequality_under_the_same_symbol_is_that_of_the_arguments() {
+    let got = span_same(wf(), pv(0), pv(0), &[differ(su(pv(0)), su(z()))], vec![], vec![vec![(su(pv(0)), su(z()))]]);
+    assert_eq!(got.x, vec![vec![(0, z())]]);
+}
+
+#[test]
+fn rep_disequality_of_a_variable_and_itself_is_none() {
+    span_empty(wf(), pv(0), pv(0), &[differ(pv(0), pv(0))], vec![], vec![vec![(pv(0), pv(0))]]);
+}
+
+#[test]
+fn rep_disequality_of_a_ground_term_and_itself_is_none() {
+    span_empty(wf(), pv(0), pv(0), &[differ(su(z()), su(z()))], vec![], vec![vec![(su(z()), su(z()))]]);
+}
+
+#[test]
+fn rep_disequality_of_a_compound_pattern_and_itself_is_none() {
+    let p = f2(pv(0), su(pv(1)));
+    span_empty(wf(), pv(0), pv(1), &[differ(p.clone(), p.clone())], vec![], vec![vec![(p.clone(), p)]]);
+}
+
+#[test]
+fn rep_disequality_of_a_variable_in_neither_side_and_itself_is_none() {
+    span_empty(wf(), pv(0), pv(0), &[differ(pv(5), pv(5))], vec![], vec![vec![(pv(5), pv(5))]]);
+}
+
+#[test]
+fn rep_disequality_of_different_ground_terms_is_dropped() {
+    let got = span_same(wf(), pv(0), pv(1), &[differ(z(), su(z()))], vec![], vec![vec![(z(), su(z()))]]);
+    assert_eq!(got, rep(&wf(), &plain(pv(0), pv(1))));
+}
+
+#[test]
+fn rep_disequality_of_patterns_with_different_roots_is_dropped() {
+    let got = span_same(wf(), pv(0), pv(1), &[differ(su(pv(0)), k1(pv(1)))], vec![], vec![vec![(su(pv(0)), k1(pv(1)))]]);
+    assert_eq!(got, rep(&wf(), &plain(pv(0), pv(1))));
+}
+
+#[test]
+fn rep_disequality_of_a_variable_and_a_pattern_it_occurs_in_is_dropped() {
+    let got = span_same(wf(), pv(0), pv(0), &[differ(pv(0), su(pv(0)))], vec![], vec![vec![(pv(0), su(pv(0)))]]);
+    assert_eq!(got, rep(&wf(), &plain(pv(0), pv(0))));
+}
+
+#[test]
+fn rep_disequality_of_a_variable_in_neither_side_and_a_ground_term_is_dropped() {
+    let got = span_same(wf(), pv(0), pv(1), &[differ(pv(5), z())], vec![], vec![vec![(pv(5), z())]]);
+    assert_eq!(got, rep(&wf(), &plain(pv(0), pv(1))));
+}
+
+#[test]
+fn rep_disequality_of_a_variable_of_a_side_and_one_in_neither_is_dropped() {
+    let got = span_same(wf(), pv(0), pv(1), &[differ(pv(0), pv(5))], vec![], vec![vec![(pv(0), pv(5))]]);
+    assert_eq!(got, rep(&wf(), &plain(pv(0), pv(1))));
+}
+
+#[test]
+fn rep_two_disequalities_of_one_variable_are_both_kept() {
+    let c = [differ(pv(0), z()), differ(pv(0), su(z()))];
+    let got = span_same(wf(), pv(0), pv(0), &c, vec![], vec![vec![(pv(0), z())], vec![(pv(0), su(z()))]]);
+    assert_eq!(got.x.len(), 2);
+    assert!(got.x.contains(&vec![(0, z())]) && got.x.contains(&vec![(0, su(z()))]));
+}
+
+#[test]
+fn rep_disequality_implied_by_another_is_pruned() {
+    let c = [differ(f2(pv(0), pv(1)), f2(z(), z())), differ(pv(0), z())];
+    let x = vec![vec![(f2(pv(0), pv(1)), f2(z(), z()))], vec![(pv(0), z())]];
+    let got = span_same(wf(), pv(0), pv(1), &c, vec![], x);
+    assert_eq!(got.x, vec![vec![(0, z())]]);
+}
+
+#[test]
+fn rep_disequality_on_ground_sides_that_holds_changes_nothing() {
+    let got = span_same(wf(), z(), a(), &[differ(z(), a())], vec![], vec![vec![(z(), a())]]);
+    assert_eq!(sides(&got), (z(), a()));
+    assert!(got.x.is_empty());
+}
+
+// Disequalities with sorts.
+
+#[test]
+fn rep_disequality_from_a_value_outside_the_sort_is_dropped() {
+    let c = [in_sort(NAT, pv(0)), differ(pv(0), a())];
+    let got = span_same(wf(), pv(0), pv(0), &c, vec![(NAT, pv(0))], vec![vec![(pv(0), a())]]);
+    assert_eq!(got, rep(&wf(), &rel(pv(0), pv(0), vec![(NAT, pv(0))], vec![])));
+    assert!(got.x.is_empty());
+}
+
+#[test]
+fn rep_disequality_from_a_value_in_the_sort_is_kept() {
+    let c = [in_sort(NAT, pv(0)), differ(pv(0), su(z()))];
+    let got = span_same(wf(), pv(0), pv(0), &c, vec![(NAT, pv(0))], vec![vec![(pv(0), su(z()))]]);
+    assert_eq!(sides(&got), (pv(0), pv(0)));
+    assert!(got.c[0].contains(&NAT));
+    assert_eq!(got.x, vec![vec![(0, su(z()))]]);
+}
+
+#[test]
+fn rep_disequality_from_the_only_member_of_the_sort_is_none() {
+    let c = [in_sort(UNIT, pv(0)), differ(pv(0), z())];
+    span_empty(wf(), pv(0), pv(0), &c, vec![(UNIT, pv(0))], vec![vec![(pv(0), z())]]);
+}
+
+#[test]
+fn rep_disequality_from_zero_opens_a_nat() {
+    let c = [differ(pv(0), z()), in_sort(NAT, pv(0))];
+    let got = span_same(wf(), pv(0), pv(0), &c, vec![(NAT, pv(0))], vec![vec![(pv(0), z())]]);
+    assert_eq!(sides(&got), (su(pv(0)), su(pv(0))));
+    assert!(got.c[0].contains(&NAT));
+    assert!(got.x.is_empty());
+}
+
+#[test]
+fn rep_disequality_made_vacuous_by_a_sort_grounding_its_variable_is_dropped() {
+    let c = [in_sort(UNIT, pv(0)), differ(pv(0), su(z()))];
+    let got = span_same(wf(), pv(0), pv(1), &c, vec![(UNIT, pv(0))], vec![vec![(pv(0), su(z()))]]);
+    assert_eq!(sides(&got), (z(), pv(0)));
+    assert!(got.x.is_empty());
+}
+
+#[test]
+fn rep_disequality_of_two_variables_grounded_to_the_same_term_is_none() {
+    let c = [in_sort(UNIT, pv(0)), in_sort(UNIT, pv(1)), differ(pv(0), pv(1))];
+    span_empty(wf(), pv(0), pv(1), &c, vec![(UNIT, pv(0)), (UNIT, pv(1))], vec![vec![(pv(0), pv(1))]]);
+}
+
+#[test]
+fn rep_disequality_of_two_variables_of_sorts_with_nothing_in_common_is_dropped() {
+    let c = [in_sort(NAT, pv(0)), in_sort(BOX, pv(1)), differ(pv(0), pv(1))];
+    let got = span_same(wf(), pv(0), pv(1), &c, vec![(NAT, pv(0)), (BOX, pv(1))], vec![vec![(pv(0), pv(1))]]);
+    assert!(got.x.is_empty());
+}
+
+#[test]
+fn rep_disequality_emptying_the_sort_of_a_variable_in_neither_side_is_none() {
+    let c = [in_sort(UNIT, pv(5)), differ(pv(5), z())];
+    span_empty(wf(), pv(0), pv(0), &c, vec![(UNIT, pv(5))], vec![vec![(pv(5), z())]]);
+}
+
+// The order of the constraints and their repetition.
+
+#[test]
+fn rep_does_not_depend_on_the_order_of_the_constraints() {
+    let c = [in_sort(NAT, pv(0)), differ(pv(0), su(z())), in_sort(BOX, pv(1))];
+    let a = vec![(NAT, pv(0)), (BOX, pv(1))];
+    let x = vec![vec![(pv(0), su(z()))]];
+    let first = span_same(wf(), pv(0), pv(1), &c, a.clone(), x.clone());
+    for order in [[0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0]] {
+        let c: Vec<T> = order.iter().map(|i| c[*i].clone()).collect();
+        assert_eq!(span_same(wf(), pv(0), pv(1), &c, a.clone(), x.clone()), first, "in the order {order:?}");
+    }
+}
+
+#[test]
+fn rep_repeated_sort_constraint_counts_once() {
+    let c = [in_sort(NAT, pv(0)), in_sort(NAT, pv(0))];
+    let got = span_same(wf(), pv(0), pv(0), &c, vec![(NAT, pv(0))], vec![]);
+    assert_eq!(got, rep(&wf(), &rel(pv(0), pv(0), vec![(NAT, pv(0))], vec![])));
+}
+
+#[test]
+fn rep_repeated_disequality_counts_once() {
+    let c = [differ(pv(0), z()), differ(pv(0), z()), differ(pv(0), z())];
+    let got = span_same(wf(), pv(0), pv(0), &c, vec![], vec![vec![(pv(0), z())]]);
+    assert_eq!(got.x, vec![vec![(0, z())]]);
+}
+
+#[test]
+fn rep_disequality_written_in_both_directions_counts_once() {
+    let c = [differ(pv(0), pv(1)), differ(pv(1), pv(0))];
+    let got = span_same(wf(), pv(0), pv(1), &c, vec![], vec![vec![(pv(0), pv(1))]]);
+    assert_eq!(got.x, vec![vec![(1, pv(0))]]);
+}
+
+// Constraints that never hold.
+
+#[test]
+fn rep_constraint_that_is_a_bare_term_symbol_is_none() {
+    span_empty(wf(), pv(0), pv(0), &[common::sy(Z)], vec![], never());
+}
+
+#[test]
+fn rep_constraint_that_is_a_bare_sort_name_is_none() {
+    span_empty(wf(), pv(0), pv(0), &[common::sy(NAT)], vec![], never());
+}
+
+#[test]
+fn rep_constraint_that_is_the_bare_disequality_symbol_is_none() {
+    span_empty(wf(), pv(0), pv(0), &[common::sy(NE)], vec![], never());
+}
+
+#[test]
+fn rep_constraint_of_another_symbol_applied_to_two_arguments_is_none() {
+    span_empty(wf(), pv(0), pv(1), &[f2(pv(0), pv(1)).tree()], vec![], never());
+}
+
+#[test]
+fn rep_constraint_of_another_symbol_applied_to_two_different_ground_terms_is_none() {
+    span_empty(wf(), pv(0), pv(1), &[f2(z(), a()).tree()], vec![], never());
+}
+
+#[test]
+fn rep_sort_name_applied_to_two_arguments_is_none() {
+    span_empty(wf(), pv(0), pv(1), &[pf(NAT, vec![pv(0), pv(1)]).tree()], vec![], never());
+}
+
+#[test]
+fn rep_constraint_of_a_symbol_applied_to_three_arguments_is_none() {
+    span_empty(wf(), pv(0), pv(1), &[pf(F, vec![pv(0), pv(1), z()]).tree()], vec![], never());
+}
+
+#[test]
+fn rep_disequality_symbol_applied_to_one_argument_is_an_undeclared_sort() {
+    span_none(wf(), &v(0), &v(0), &[pf(NE, vec![pv(0)]).tree()]);
+}
+
+#[test]
+fn rep_disequality_symbol_applied_to_three_arguments_is_none() {
+    span_empty(wf(), pv(0), pv(1), &[pf(NE, vec![pv(0), pv(1), z()]).tree()], vec![], never());
+}
+
+#[test]
+fn rep_disequality_symbol_applied_to_three_arguments_of_which_the_first_two_differ_is_none() {
+    span_empty(wf(), pv(0), pv(0), &[pf(NE, vec![z(), a(), z()]).tree()], vec![], never());
+}
+
+#[test]
+fn rep_constraint_that_never_holds_is_none_for_ground_sides() {
+    span_empty(wf(), z(), a(), &[common::sy(A)], vec![], never());
+}
+
+#[test]
+fn rep_constraint_that_never_holds_among_ones_that_hold_is_none() {
+    let c = [in_sort(NAT, pv(0)), common::sy(Z), differ(pv(0), z())];
+    let mut x = never();
+    x.push(vec![(pv(0), z())]);
+    span_empty(wf(), pv(0), pv(0), &c, vec![(NAT, pv(0))], x);
+}
+
+// Terms that are not first-order.
+
+#[test]
+fn rep_variable_applied_in_the_left_side_is_none() {
+    span_none(wf(), &ap(v(0), common::sy(Z)), &v(1), &[]);
+}
+
+#[test]
+fn rep_variable_applied_in_the_right_side_is_none() {
+    span_none(wf(), &v(1), &ap(v(0), common::sy(Z)), &[]);
+}
+
+#[test]
+fn rep_variable_applied_to_a_variable_is_none() {
+    span_none(wf(), &ap(v(0), v(1)), &v(0), &[]);
+}
+
+#[test]
+fn rep_variable_applied_to_two_arguments_is_none() {
+    span_none(wf(), &ap(ap(v(0), common::sy(Z)), common::sy(Z)), &common::sy(Z), &[]);
+}
+
+#[test]
+fn rep_variable_applied_deep_inside_an_argument_is_none() {
+    let inner = ap(v(1), common::sy(Z));
+    let l = ap(common::sy(SU), ap(ap(common::sy(F), common::sy(Z)), ap(common::sy(K), inner)));
+    span_none(wf(), &l, &v(0), &[]);
+}
+
+#[test]
+fn rep_variable_applied_in_the_first_argument_of_a_symbol_is_none() {
+    let l = ap(ap(common::sy(F), ap(v(0), common::sy(Z))), v(1));
+    span_none(wf(), &v(1), &l, &[]);
+}
+
+#[test]
+fn rep_variable_applied_in_the_argument_of_a_sort_constraint_is_none() {
+    span_none(wf(), &v(0), &v(0), &[ap(common::sy(NAT), ap(v(0), common::sy(Z)))]);
+}
+
+#[test]
+fn rep_variable_applied_in_an_argument_of_a_disequality_is_none() {
+    // The two terms differ, but the constraint is not one of the syntax.
+    let c = ap(ap(common::sy(NE), ap(v(0), common::sy(Z))), common::sy(Z));
+    span_none(wf(), &v(0), &v(0), &[c]);
+}
+
+#[test]
+fn rep_variable_applied_in_the_second_argument_of_a_disequality_is_none() {
+    let c = ap(ap(common::sy(NE), common::sy(Z)), ap(common::sy(SU), ap(v(0), v(0))));
+    span_none(wf(), &v(0), &v(0), &[c]);
+}
+
+#[test]
+fn rep_constraint_that_is_a_variable_of_a_side_is_none() {
+    span_none(wf(), &v(0), &v(0), &[v(0)]);
+}
+
+#[test]
+fn rep_constraint_that_is_a_variable_in_neither_side_is_none() {
+    span_none(wf(), &common::sy(Z), &common::sy(Z), &[v(3)]);
+}
+
+#[test]
+fn rep_constraint_of_a_variable_applied_to_one_argument_is_none() {
+    span_none(wf(), &v(0), &v(0), &[ap(v(1), v(0))]);
+}
+
+#[test]
+fn rep_constraint_of_a_variable_applied_to_two_arguments_is_none() {
+    span_none(wf(), &v(0), &v(0), &[ap(ap(v(1), v(0)), common::sy(Z))]);
+}
+
+#[test]
+fn rep_side_that_is_not_first_order_with_constraints_that_hold_is_none() {
+    let c = [in_sort(NAT, pv(1)), differ(pv(1), z())];
+    span_none(wf(), &ap(v(0), v(1)), &v(1), &c);
+}
+
+#[test]
+fn rep_constraint_that_is_not_first_order_among_ones_that_hold_is_none() {
+    let c = [in_sort(NAT, pv(0)), ap(common::sy(NAT), ap(v(1), common::sy(Z))), differ(pv(0), z())];
+    span_none(wf(), &v(0), &v(0), &c);
+}
+
+#[test]
+fn rep_constraint_that_is_a_variable_among_ones_that_hold_is_none() {
+    span_none(wf(), &v(0), &v(0), &[in_sort(NAT, pv(0)), v(0), in_sort(ANY, pv(0))]);
+}
+
+#[test]
+fn rep_symbol_applied_to_many_arguments_in_a_side_is_first_order() {
+    let l = pf(F, vec![pv(0), z(), su(pv(1)), pv(0)]);
+    let got = span_same(wf(), l.clone(), pv(1), &[], vec![], vec![]);
+    assert_eq!(sides(&got), (l, pv(1)));
+}
+
+// The representative is one of the domain, in a store left as it was.
+
+#[test]
+fn rep_results_compose_as_the_representatives_of_their_relations() {
+    let mut f = fixture(wf());
+    let sa = tspan(pv(0), su(pv(0)), vec![in_sort(NAT, pv(0))]);
+    let sb = tspan(pv(0), pv(0), vec![differ(pv(0), su(z()))]);
+    let (ra, rb) = two_span_reps(&mut f, &sa, &sb);
+    let got = dom::compose(&mut f.s, f.decls, f.names, ra, rb);
+    f.empty_stack();
+    let a = rep(&wf(), &rel(pv(0), su(pv(0)), vec![(NAT, pv(0))], vec![]));
+    let b = rep(&wf(), &rel(pv(0), pv(0), vec![], vec![vec![(pv(0), su(z()))]]));
+    let want = ref_compose(&Sorts::new(wf()), &a, &b).expect("the reference composes them");
+    assert_eq!(sides(&want), (su(pv(0)), su(su(pv(0)))));
+    assert_eq!(read(got, f), Some(shape(&want)));
+}
+
+#[test]
+fn rep_results_that_never_meet_at_the_interface_compose_to_none() {
+    let mut f = fixture(wf());
+    let sa = tspan(pv(0), pv(0), vec![in_sort(NAT, pv(0))]);
+    let sb = tspan(pv(0), pv(0), vec![in_sort(BOX, pv(0))]);
+    let (ra, rb) = two_span_reps(&mut f, &sa, &sb);
+    let got = dom::compose(&mut f.s, f.decls, f.names, ra, rb);
+    f.empty_stack();
+    assert_eq!(read(got, f), None);
+}
+
+#[test]
+fn rep_results_meet_as_the_representatives_of_their_relations() {
+    let mut f = fixture(wf());
+    let sa = tspan(pv(0), pv(1), vec![differ(pv(0), pv(1))]);
+    let sb = tspan(z(), pv(0), vec![in_sort(NAT, pv(0))]);
+    let (ra, rb) = two_span_reps(&mut f, &sa, &sb);
+    let got = dom::meet(&mut f.s, f.decls, f.names, ra, rb);
+    f.empty_stack();
+    let a = rep(&wf(), &rel(pv(0), pv(1), vec![], vec![vec![(pv(0), pv(1))]]));
+    let b = rep(&wf(), &rel(z(), pv(0), vec![(NAT, pv(0))], vec![]));
+    let want = ref_meet(&Sorts::new(wf()), &a, &b).expect("the reference meets them");
+    assert_eq!(sides(&want), (z(), su(pv(0))));
+    assert_eq!(read(got, f), Some(shape(&want)));
+}
+
+#[test]
+fn rep_result_has_the_right_interface_of_its_relation() {
+    let mut f = fixture(wf());
+    let x = common::put_span(&mut f.s, &tspan(pv(0), k1(pv(1)), vec![in_sort(NAT, pv(0)), differ(pv(1), z())]));
+    let r = dom::rep(&mut f.s, f.decls, f.names, NE, x).expect("the span relates something");
+    let got = dom::right(&mut f.s, f.decls, f.names, r);
+    f.empty_stack();
+    let a = rep(&wf(), &rel(pv(0), k1(pv(1)), vec![(NAT, pv(0))], vec![vec![(pv(1), z())]]));
+    let want = ref_right(&Sorts::new(wf()), &a).expect("the reference has a right interface");
+    assert_eq!(sides(&want), (k1(pv(0)), k1(pv(0))));
+    assert_eq!(want.x, vec![vec![(0, z())]]);
+    assert_eq!(read(got, f), Some(shape(&want)));
+}
+
+#[test]
+fn rep_of_a_span_whose_sides_are_the_same_is_bound() {
+    let mut f = fixture(wf());
+    let x = common::put_span(&mut f.s, &tspan(su(pv(0)), su(pv(0)), vec![in_sort(NAT, pv(0))]));
+    let r = dom::rep(&mut f.s, f.decls, f.names, NE, x).expect("the span relates something");
+    assert!(dom::is_bound(&mut f.s, r));
+}
+
+#[test]
+fn rep_of_the_same_span_twice_in_one_store_is_the_same_representative() {
+    let mut f = fixture(wf());
+    let x = common::put_span(&mut f.s, &tspan(pv(0), pv(1), vec![in_sort(NAT, pv(0)), differ(pv(1), z()), differ(pv(1), a())]));
+    let first = dom::rep(&mut f.s, f.decls, f.names, NE, x).expect("the span relates something");
+    let second = dom::rep(&mut f.s, f.decls, f.names, NE, x).expect("the span relates something");
+    f.empty_stack();
+    assert!(dom::same_rep(&mut f.s, first, second));
+}
+
+#[test]
+fn rep_of_spans_that_differ_in_variable_names_is_the_same_representative() {
+    let mut f = fixture(wf());
+    let sa = tspan(f2(pv(0), pv(1)), pv(1), vec![in_sort(NAT, pv(1)), differ(pv(0), z())]);
+    let sb = tspan(f2(pv(9), pv(4)), pv(4), vec![differ(pv(9), z()), in_sort(NAT, pv(4))]);
+    let (ra, rb) = two_span_reps(&mut f, &sa, &sb);
+    assert!(dom::same_rep(&mut f.s, ra, rb));
+}
+
+#[test]
+fn rep_leaves_the_span_and_the_declarations_in_the_store_as_they_were() {
+    let mut f = fixture(wf());
+    let ts = tspan(f2(pv(3), pv(0)), su(pv(3)), vec![in_sort(NAT, pv(3)), differ(pv(0), su(z())), in_sort(UNIT, pv(7))]);
+    let x = common::put_span(&mut f.s, &ts);
+    let other = f2(pv(2), k1(a()));
+    let o = put_pat(&mut f.s, &other);
+    let order = f.order.clone();
+    let got = dom::rep(&mut f.s, f.decls, f.names, NE, x);
+    f.empty_stack();
+    assert!(got.is_some());
+    assert_eq!(common::get_span(&mut f.s, x), ts);
+    assert_eq!(get(&mut f.s, o), other.tree());
+    assert_eq!(get_names(&mut f.s, f.names), order);
+}
+
+#[test]
+fn rep_leaves_the_span_in_the_store_as_it_was_when_there_is_none() {
+    let mut f = fixture(wf());
+    let ts = common::TSpan { l: ap(v(0), v(1)), r: su(pv(1)).tree(), c: vec![in_sort(VOID, pv(1)), v(2), common::sy(Z)] };
+    let x = common::put_span(&mut f.s, &ts);
+    let order = f.order.clone();
+    let got = dom::rep(&mut f.s, f.decls, f.names, NE, x);
+    f.empty_stack();
+    assert!(got.is_none());
+    assert_eq!(common::get_span(&mut f.s, x), ts);
+    assert_eq!(get_names(&mut f.s, f.names), order);
+}
+
+#[test]
+fn rep_of_a_span_whose_two_sides_are_one_term_of_the_store() {
+    let mut f = fixture(wf());
+    let t = put_pat(&mut f.s, &f2(pv(1), su(pv(1))));
+    let c = common::put_list(&mut f.s, &[in_sort(NAT, pv(1))]);
+    let got = dom::rep(&mut f.s, f.decls, f.names, NE, rwlog_core::span::Span { l: t, r: t, c });
+    f.empty_stack();
+    let side = f2(pv(0), su(pv(0)));
+    let want = rep(&wf(), &rel(side.clone(), side, vec![(NAT, pv(0))], vec![]));
+    assert_eq!(read(got, f), Some(shape(&want)));
+}
