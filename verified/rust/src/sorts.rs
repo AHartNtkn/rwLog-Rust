@@ -2109,3 +2109,217 @@ pub fn renumber(
     let x1 = rebuild(s, Leaf::Map, x);
     (t1, x1, cs)
 }
+
+// # The solved form of an exclusion
+//
+// A solved exclusion over the variables of a numbered store is the list of
+// the values it gives them, in their order; a variable it leaves free is
+// its own value.
+
+/// The variables of a numbered store with the list `cs0` of conjunctions,
+/// one for each variable: as many variables, from the first.
+pub fn places(s: &mut Store, cs0: TermId) -> TermId {
+    let mut out = s.alloc(Node::Nil);
+    let mut v = s.alloc(Node::V0);
+    let mut cs = cs0;
+    while let Some((_, rest)) = uncons(s, cs) {
+        out = s.alloc(Node::App(v, out));
+        v = var_succ(s, v);
+        cs = rest;
+    }
+    rev(s, out)
+}
+
+/// The values `vals0` of the variables `vs0` with each variable that is the
+/// value of a variable replaced by the first variable it is the value of.
+/// Tables `A` and `B` are used; the stack is empty at entry.
+pub fn orient(s: &mut Store, vs0: TermId, vals0: TermId) -> TermId {
+    s.clear(Tbl::B);
+    let mut vs = vs0;
+    let mut l = vals0;
+    let mut go = true;
+    while go {
+        match uncons(s, vs) {
+            Some((v, vrest)) => match uncons(s, l) {
+                Some((p, lrest)) => {
+                    if is_var(s, p) {
+                        match s.get(Tbl::B, p) {
+                            Some(_) => (),
+                            None => s.set(Tbl::B, p, v),
+                        }
+                    }
+                    vs = vrest;
+                    l = lrest;
+                }
+                None => panic!(),
+            },
+            None => go = false,
+        }
+    }
+    s.clear(Tbl::A);
+    rebuild(s, Leaf::Map, vals0)
+}
+
+/// The atoms each sort of the conjunction `c0` puts on the variables of the
+/// pattern `p`, in front of the list `out0`; nothing when one of the sorts
+/// rejects the pattern whatever its variables are. Table `B` is used; the
+/// stack is empty at entry.
+fn push_conj(s: &mut Store, decls: TermId, c0: TermId, p: TermId, out0: TermId) -> Option<TermId> {
+    let mut out = out0;
+    let mut c = c0;
+    let mut ok = true;
+    let mut go = true;
+    while go {
+        match uncons(s, c) {
+            Some((n, rest)) => match push_sort(s, decls, n, p) {
+                Some(atoms) => {
+                    out = rev_onto(s, atoms, out);
+                    c = rest;
+                }
+                None => {
+                    ok = false;
+                    go = false;
+                }
+            },
+            None => go = false,
+        }
+    }
+    if ok {
+        Some(out)
+    } else {
+        None
+    }
+}
+
+/// The atoms the conjunctions `cs0` of the variables put on the variables
+/// of their values `vals0`: each sort of each variable pushed onto its
+/// value. Nothing when a sort rejects a value whatever the variables are.
+/// Table `B` is used; the stack is empty at entry.
+pub fn push_all(s: &mut Store, decls: TermId, cs0: TermId, vals0: TermId) -> Option<TermId> {
+    let mut out = s.alloc(Node::Nil);
+    let mut cs = cs0;
+    let mut l = vals0;
+    let mut ok = true;
+    let mut go = true;
+    while go {
+        match uncons(s, cs) {
+            Some((c, crest)) => match uncons(s, l) {
+                Some((p, lrest)) => match push_conj(s, decls, c, p, out) {
+                    Some(o) => {
+                        out = o;
+                        cs = crest;
+                        l = lrest;
+                    }
+                    None => {
+                        ok = false;
+                        go = false;
+                    }
+                },
+                None => panic!(),
+            },
+            None => go = false,
+        }
+    }
+    if ok {
+        Some(out)
+    } else {
+        None
+    }
+}
+
+/// The conjunction of the sorts the atoms `atoms0` put on the variable `y`.
+/// Table `A` is used.
+pub fn ups(s: &mut Store, names: TermId, atoms0: TermId, y: TermId) -> TermId {
+    let mut list = s.alloc(Node::Nil);
+    let mut l = atoms0;
+    while let Some((a, rest)) = uncons(s, l) {
+        match uncons(s, a) {
+            Some((v, n)) => {
+                if s.same(v, y) {
+                    list = s.alloc(Node::App(n, list));
+                }
+            }
+            None => panic!(),
+        }
+        l = rest;
+    }
+    conj_of(s, names, list)
+}
+
+/// The values `vals0` of the variables `vs0` with each free variable that
+/// the atoms `atoms` leave one value replaced by that value; nothing when
+/// the atoms leave a variable no value. Tables `A` and `B` are used; the
+/// stack is empty at entry.
+pub fn close(
+    s: &mut Store,
+    decls: TermId,
+    names: TermId,
+    vs0: TermId,
+    vals0: TermId,
+    atoms: TermId,
+) -> Option<TermId> {
+    let mut vals = vals0;
+    let mut vs = vs0;
+    let mut l = vals0;
+    let mut ok = true;
+    let mut go = true;
+    while go {
+        match uncons(s, vs) {
+            Some((y, vrest)) => match uncons(s, l) {
+                Some((p, lrest)) => {
+                    let c = ups(s, names, atoms, y);
+                    match count(s, decls, names, c) {
+                        Count::None => {
+                            ok = false;
+                            go = false;
+                        }
+                        Count::One(g) => {
+                            if s.same(p, y) {
+                                s.clear(Tbl::A);
+                                vals = rebuild(s, Leaf::Sub(y, g), vals);
+                            }
+                            vs = vrest;
+                            l = lrest;
+                        }
+                        Count::Many => {
+                            vs = vrest;
+                            l = lrest;
+                        }
+                    }
+                }
+                None => panic!(),
+            },
+            None => go = false,
+        }
+    }
+    if ok {
+        Some(vals)
+    } else {
+        None
+    }
+}
+
+/// The solved form of the exclusion `e`, a list of equations, in the store
+/// whose variables `vs` have the conjunctions `cs`: the values the
+/// variables take in what it excludes, with the variables left free taking
+/// more than one value; nothing when it excludes nothing. Tables `A` and
+/// `B` are used; the stack is empty at entry.
+pub fn norm_ex(
+    s: &mut Store,
+    decls: TermId,
+    names: TermId,
+    vs: TermId,
+    cs: TermId,
+    e: TermId,
+) -> Option<TermId> {
+    let (ok, solved) = solve_into(s, e, vs);
+    if ok {
+        let vals = orient(s, vs, solved);
+        match push_all(s, decls, cs, vals) {
+            Some(atoms) => close(s, decls, names, vs, vals, atoms),
+            None => None,
+        }
+    } else {
+        None
+    }
+}

@@ -248,5 +248,23 @@ new axiom.
 /-- info: 'RwLogVerified.renumber_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLogVerified.renumber_spec
 
+/-- info: 'RwLogVerified.places_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.places_spec
+
+/-- info: 'RwLogVerified.orient_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.orient_spec
+
+/-- info: 'RwLogVerified.push_all_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.push_all_spec
+
+/-- info: 'RwLogVerified.ups_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.ups_spec
+
+/-- info: 'RwLogVerified.close_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.close_spec
+
+/-- info: 'RwLogVerified.norm_ex_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.norm_ex_spec
+
 /-- info: 'RwLogVerified.ofTight_abs' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLogVerified.ofTight_abs
