@@ -14,7 +14,7 @@ otherwise.
 exclusions as constraints. In the interpretation of the sorts the span
 relates the pairs the representative relates (`Raw.toSpan_den`).
 -/
-import RwLog.Sorts.Reduce
+import RwLog.Sorts.Norm
 import RwLog.Trusted.Domain
 
 namespace RwLog

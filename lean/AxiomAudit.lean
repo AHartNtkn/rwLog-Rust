@@ -331,5 +331,23 @@ new axiom.
 /-- info: 'RwLog.Sorts.assembled_normal' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Sorts.assembled_normal
 
+/-- info: 'RwLog.Sorts.ofTight_normal' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.ofTight_normal
+
+/-- info: 'RwLog.Sorts.Prob.start_some' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.Prob.start_some
+
+/-- info: 'RwLog.Sorts.Prob.start_none' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.Prob.start_none
+
+/-- info: 'RwLog.Sorts.Prob.norm_some' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.Prob.norm_some
+
+/-- info: 'RwLog.Sorts.Prob.norm_none' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.Prob.norm_none
+
+/-- info: 'RwLog.Sorts.Prob.norm_unique' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.Prob.norm_unique
+
 /-- info: 'RwLog.ProgramOf.check_iff' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.ProgramOf.check_iff
