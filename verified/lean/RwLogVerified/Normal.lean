@@ -13,6 +13,7 @@ import RwLogVerified.Assemble
 import RwLogVerified.Number
 import RwLogVerified.Prune
 import RwLogVerified.Rounds
+import RwLogVerified.Fold
 import RwLog.Sorts.Norm
 
 open Aeneas Aeneas.Std Result
@@ -784,24 +785,13 @@ def numX (st : TSt) : List (Eqns Nat) :=
 noncomputable def numYs (S : Sorts) (st : TSt) : List Sorts.Binds :=
   Sorts.normExs S (numRaw S st) (numX st)
 
-/-- Their value lists. -/
-noncomputable def numLs (S : Sorts) (st : TSt) : List (List Pat) :=
-  (numYs S st).map (vals (numRaw S st).c.length)
+/-- The tight store numbered and assembled. -/
+noncomputable def numStore (S : Sorts) (st : TSt) : Sorts.Raw :=
+  Sorts.assembled S (numRaw S st).t (numRaw S st).c (numX st)
 
-/-- The subterms of the lists of a list, counted list by list. -/
-def listsCard (nm : Option Nat → RwLog.Sym) (Ls : List (List Pat)) : Nat :=
-  (Ls.map fun B => (encList (nm none) B).subs.card).sum
-
-theorem le_listsCard : ∀ {Ls : List (List Pat)} {B : List Pat}, B ∈ Ls →
-    (encList (nm none) B).subs.card ≤ listsCard nm Ls
-  | [], _, h => by cases h
-  | A :: Ls, B, h => by
-    simp only [listsCard, List.map_cons, List.sum_cons]
-    rcases List.mem_cons.1 h with rfl | h
-    · omega
-    · have := le_listsCard h
-      simp only [listsCard] at this
-      omega
+/-- Its exclusions, as `assemble` lists them. -/
+noncomputable def numAnti (S : Sorts) (st : TSt) : List Sorts.Binds :=
+  Sorts.antichain (Sorts.covers (numRaw S st).c.length) (numYs S st)
 
 /-! ### Without the hidden variables -/
 
@@ -908,9 +898,9 @@ def normRes (S : Sorts) (k : Nat) (st : TSt) : Option (Option TSt) :=
 /-- The ticks `normal` may take after tightening, from the tight store. -/
 noncomputable def tailCost (nm : Option Nat → RwLog.Sym) (S : Sorts) (U : List Name) (rc q : Nat)
     (st : TSt) : Nat :=
-  renumberCost nm S U.length rc q st.T st.X st.L + placesCost (numRaw S st).c.length +
-    normExsCost nm S U rc (numRaw S st) (numX st) +
-    antiCost (numRaw S st).c.length (listsCard nm (numLs S st)) (numLs S st).length
+  renumberCost nm S U.length rc q st.T st.X st.L +
+    assembleCost nm S U rc (numRaw S st).t (numRaw S st).c (numX st) +
+    foldCost nm S U rc q (numStore S st) (numAnti S st)
 
 /-- The ticks `normal` may take after `start`, from the starting store, with
 at most `k` rounds that come to `o`. -/
@@ -979,20 +969,20 @@ theorem normCharge_eq {S : Sorts} {U : List Name} {rc q : Nat} {P : Sorts.Prob} 
 
 /-! ### The tight store, numbered -/
 
-/-- A tight store that denotes what a problem denotes gives the normal store
-of the problem: its pattern numbered, the sorts of its variables, and its
-exclusions normalised. -/
+/-- A tight store that denotes what a problem denotes, numbered and
+assembled, is a store determined by its pattern and what it denotes, and the
+store assembled from its fold, with the renamed exclusions in any order, is
+the folded canonical store of the normal store of the problem. -/
 theorem tail_spec {S : Sorts} (hS : S.WellFormed) {P : Sorts.Prob} (hP : P.FO) {st : TSt}
     (hok : st.OK) (hden : st.abs.store.Den S = P.Den S) (hI : Sorts.Inv S st.abs)
-    (hsole : ∀ v ∈ st.abs.t.vars,
-      Sorts.sole S (st.abs.conj v) (Sorts.gone st.abs.x v) = none) :
-    (∀ θ ∈ numYs S st, Sorts.Pre (numRaw S st).c.length θ) ∧
-      (∀ E ∈ numX st, E.FO) ∧ (∀ E ∈ numX st, ∀ v ∈ E.vars, v < (numRaw S st).c.length) ∧
-      (Sorts.antichain (Sorts.covers (numRaw S st).c.length) (numYs S st)).Nodup ∧
-      P.norm S hS = some ⟨(numRaw S st).t, (numRaw S st).c,
-        (Sorts.antichain (Sorts.covers (numRaw S st).c.length) (numYs S st)).toFinset⟩ := by
-  obtain ⟨hN, hD⟩ := Sorts.ofTight_normal hS hI hsole
-  rw [ofTight_abs hok] at hN hD
+    (hX : Sorts.XTight S st.abs) :
+    (∀ E ∈ numX st, E.FO) ∧ (∀ E ∈ numX st, ∀ v ∈ E.vars, v < (numRaw S st).c.length) ∧
+      (numAnti S st).Nodup ∧ (numStore S st).Roomy S ∧
+      ∀ X' : List (Eqns Nat), (∀ E, E ∈ X' ↔ E ∈ Sorts.foldXs S (numStore S st)) →
+        ∃ n, P.norm S hS = some n ∧
+          Sorts.FoldOf S n (Sorts.assembled S (Sorts.foldStore S (numStore S st)).t
+            ((Sorts.foldNames S (numStore S st)).map (Sorts.foldConj S (numStore S st))) X') := by
+  have e : Sorts.ofTight S st.abs = numStore S st := ofTight_abs hok
   have hfo : ∀ E ∈ numX st, E.FO := by
     intro E hE p hp
     obtain ⟨E0, hE0, rfl⟩ := List.mem_map.1 hE
@@ -1009,26 +999,27 @@ theorem tail_spec {S : Sorts} (hS : S.WellFormed) {P : Sorts.Prob} (hP : P.FO) {
     have : (numRaw S st).c.length = (RwLog.firsts st.T.vars).length := List.length_map _
     rw [this]
     exact List.idxOf_lt_length_of_mem ((Sorts.firsts_spec st.T.vars).2.1 w |>.2 hwT)
-  refine ⟨fun θ hθ => ?_, hfo, hv, ?_, ?_⟩
-  · obtain ⟨E, hE, hEθ⟩ := List.mem_filterMap.1 hθ
-    exact (Sorts.normEx_some (hfo E hE) (hv E hE) hEθ).1
-  · have := Sorts.ofTight_nodup hS hI hsole
+  refine ⟨hfo, hv, ?_, ?_, fun X' hX' => ?_⟩
+  · have := (Sorts.ofTight_shaped hS hI).2.2.2
     rw [ofTightXs_abs hok] at this
     exact this
-  · exact Sorts.Prob.norm_unique hS hP hN (hD.trans hden)
+  · rw [← e]
+    exact Sorts.roomy_ofTight hS hI
+  · have := Sorts.assembled_ofTight hS hI hX hP hden (X' := X') (by rw [e]; exact hX')
+    rw [e] at this
+    exact this
 
 /-- What `normal` returns: nothing when the problem has no normal store, and
-otherwise the pattern, the sorts of the variables and the exclusions, each
-as the list of its values, of the normal store of the problem. -/
+otherwise the folded canonical store of the normal store of the problem: its
+pattern, the sorts of its variables and its exclusions, each as the list of
+its values. -/
 def NormalPost (nm : Option Nat → RwLog.Sym) (S : Sorts) (hS : S.WellFormed) (U : List Name)
     (P : Sorts.Prob) (nodes : List store.Node)
     (res : Option sorts.Rep) : Prop :=
   match res with
   | none => P.norm S hS = none
-  | some o => ∃ r : Sorts.Raw, P.norm S hS = some r ∧ Repr nm nodes o.t.val r.t ∧
-      Repr nm nodes o.c.val (encList (nm none) (r.c.map (cpat (nm none) U))) ∧
-      ∃ Y : List Sorts.Binds, Y.Nodup ∧ Y.toFinset = r.x ∧
-        Repr nm nodes o.x.val (encLL nm (Y.map (vals r.c.length)))
+  | some o => ∃ (n r : Sorts.Raw) (Y : List Sorts.Binds), P.norm S hS = some n ∧
+      Sorts.FoldOf S n r ∧ RepAt nm U nodes o r Y
 
 /-- `normal` computes the normal store of a problem (`Sorts.Prob.norm`),
 within the charge of `start` and the charge of what follows it on the
@@ -1136,10 +1127,10 @@ theorem normal_spec (hnm : Function.Injective nm) {S : Sorts} {sp : Pat}
         | some st' =>
           simp only at hres hmatch hBk
           obtain ⟨t11, x3, es3, next1, rfl, hH', hsub'⟩ := hres
-          obtain ⟨hden', hInv, hsole, hGood⟩ := hmatch
+          obtain ⟨hden', hInv, hXT, hGood⟩ := hmatch
           simp only [tailCost] at hBk
-          obtain ⟨hPre, hfoX, hvX, hndZ, hnorm⟩ := tail_spec hS hP hGood.ok
-            (by rw [hden', hden1, hden0]) hInv hsole
+          obtain ⟨hfoX, hvX, hndZ, hRoomy, hfold⟩ := tail_spec hS hP hGood.ok
+            (by rw [hden', hden1, hden0]) hInv hXT
           obtain ⟨-, hFmem', -⟩ := Sorts.firsts_spec st'.T.vars
           step with renumber_spec hnm hC hS hUS hr hq s5 decls names t11 x3 es3 st'.T st'.X st'.L
             hI5 (hx05.repr hde) (hx05.repr hU) hH'.t hH'.x hH'.es hsub' (by unfold Room; omega)
@@ -1158,47 +1149,23 @@ theorem normal_spec (hnm : Function.Injective nm) {S : Sorts} {sp : Pat}
           have rC' : Repr nm s6.nodes.val cs.val
               (encList (nm none) ((numRaw S st').c.map (cpat (nm none) U))) := by
             simpa [numRaw, List.map_map, Function.comp_def] using rC
-          have hklen : ((numRaw S st').c.map (cpat (nm none) U)).length =
-              (numRaw S st').c.length := List.length_map _
-          step with places_spec ((numRaw S st').c.map (cpat (nm none) U)) s6 cs hI6 rC'
-            (by rw [hklen]; unfold Room; omega) as ⟨vs, s7, hI7, hx7, ht7, rvs⟩
-          rw [hklen] at ht7 rvs
+          have hcN : ∀ c ∈ (numRaw S st').c, ∀ n ∈ c, n ∈ Sorts.names S := by
+            intro c hc n hn
+            obtain ⟨w, -, rfl⟩ := List.mem_map.1 hc
+            simp only [upConj, Finset.mem_filter] at hn
+            exact hn.1
+          step with assemble_spec hnm hC hr (numRaw S st').t (numRaw S st').c hcN (numX st')
+            hfoX hvX hndZ s6 decls names t21 cs x4 hI6 (hx06.repr hde) (hx06.repr hU) rT' rC' rX'
+            (by unfold Room; omega) as ⟨r, s7, hI7, hx7, ht7, hrep⟩
           have hx07 := hx06.trans hx7
-          have hcN : ∀ v, ∀ n ∈ (numRaw S st').conj v, n ∈ Sorts.names S := by
-            intro v n hn
-            have e : (numRaw S st').conj v =
-                ((RwLog.firsts st'.T.vars)[v]?.map (upConj S st'.L st'.X)).getD ∅ := by
-              simp [Sorts.Raw.conj, numRaw, List.getD_eq_getElem?_getD]
-            rw [e] at hn
-            cases hw : (RwLog.firsts st'.T.vars)[v]? with
-            | none => rw [hw] at hn; simp at hn
-            | some w =>
-              rw [hw] at hn
-              simp only [Option.map_some, Option.getD_some, upConj, Finset.mem_filter] at hn
-              exact hn.1
-          step with norm_exs_spec hnm hC hr (numRaw S st') hcN (numX st') hfoX hvX s7 decls names
-            vs cs x4 hI7 (hx07.repr hde) (hx07.repr hU) rvs (hx7.repr rC') (hx7.repr rX')
-            (by unfold Room; omega) as ⟨ys, s8, hI8, hx8, ht8, rys⟩
-          have rys' : Repr nm s8.nodes.val ys.val (encLL nm (numLs S st')) := rys
-          have hL : ∀ B' ∈ numLs S st', B'.length = (numRaw S st').c.length ∧
-              (encList (nm none) B').subs.card ≤ listsCard nm (numLs S st') := by
-            intro B' hB'
-            refine ⟨?_, le_listsCard hB'⟩
-            obtain ⟨θ', -, rfl⟩ := List.mem_map.1 hB'
-            exact vals_length _ _
-          step with antichain_spec hnm (numRaw S st').c.length (listsCard nm (numLs S st'))
-            (numLs S st') s8 vs ys hI8 (hx8.repr rvs) rys' hL (by unfold Room; omega)
-            as ⟨zs, s9, hI9, hx9, ht9, rzs⟩
-          refine ⟨hI9, ((hx06.trans hx7).trans hx8).trans hx9, by omega, ?_⟩
+          step with fold_spec hnm hC hS hUS hr hq (numStore S st') hRoomy (numAnti S st') s7
+            decls names r hI7 (hx07.repr hde) (hx07.repr hU) hrep (by unfold Room; omega)
+            as ⟨r1, s8, hI8, hx8, ht8, hrep8⟩
+          refine ⟨hI8, hx07.trans hx8, by omega, ?_⟩
           simp only [NormalPost]
-          have hY : ∀ θ' ∈ numYs S st', ∀ b' ∈ θ', b'.1 < (numRaw S st').c.length :=
-            fun θ' hθ' => (hPre θ' hθ').dom
-          have eZ : Sorts.antichain coversV (numLs S st') =
-              (Sorts.antichain (Sorts.covers (numRaw S st').c.length)
-                (numYs S st')).map (vals (numRaw S st').c.length) := antichain_vals hY
-          rw [eZ] at rzs
-          exact ⟨_, hnorm, ((hx7.trans hx8).trans hx9).repr rT',
-            ((hx7.trans hx8).trans hx9).repr rC', _, hndZ, rfl, rzs⟩
+          obtain ⟨n, hn, hF⟩ := hfold (foldXl S (numStore S st') (numAnti S st'))
+            fun E => mem_foldXl rfl
+          exact ⟨n, _, _, hn, hF, hrep8⟩
       · have hfl : settleOk S st0.L = false := by simpa using hflag
         simp only [hfl, Bool.false_eq_true, ↓reduceIte] at hfront
         have hBk := hBθ 0 none hsolve (by simp only [normRes, hfl, Bool.false_eq_true, ↓reduceIte])
