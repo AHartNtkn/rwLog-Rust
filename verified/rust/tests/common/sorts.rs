@@ -1017,3 +1017,73 @@ pub fn put_pats(s: &mut Store, ps: &[P]) -> TermId {
     let ts: Vec<T> = ps.iter().map(P::tree).collect();
     put_list(s, &ts)
 }
+
+// A store with declarations, for the functions that work on entries: an
+// entry is a variable with the conjunction of its sorts.
+
+pub type Excls = Vec<Vec<(P, P)>>;
+pub type Entries = Vec<(usize, Vec<Name>)>;
+
+pub struct Fx {
+    pub s: Store,
+    pub ss: Sorts,
+    pub decls: TermId,
+    pub order: Vec<Name>,
+    pub names: TermId,
+}
+
+/// A store with the declarations `defs` and their names in it.
+pub fn fixture(defs: Vec<(Name, Def)>) -> Fx {
+    let ss = Sorts::new(defs);
+    let mut s = Store::new();
+    let decls = put_sorts(&mut s, &ss);
+    let order = ss.all_names();
+    let names = put_names(&mut s, &order);
+    Fx { s, ss, decls, order, names }
+}
+
+impl Fx {
+    pub fn conj(&mut self, c: &[Name]) -> TermId {
+        let set: Conj = c.iter().copied().collect();
+        let list = canon(&self.order, &set);
+        put_names(&mut self.s, &list)
+    }
+
+    pub fn entries(&mut self, es: &[(usize, Vec<Name>)]) -> TermId {
+        let mut out = self.s.alloc(Node::Nil);
+        for (v, c) in es.iter().rev() {
+            let vi = super::put_var(&mut self.s, *v as u128);
+            let ci = self.conj(c);
+            let e = self.s.alloc(Node::App(vi, ci));
+            out = self.s.alloc(Node::App(e, out));
+        }
+        out
+    }
+
+    pub fn read_entries(&mut self, mut p: TermId) -> Entries {
+        let mut out = Vec::new();
+        loop {
+            match self.s.read(p) {
+                Node::Nil => return out,
+                Node::App(e, rest) => {
+                    match self.s.read(e) {
+                        Node::App(v, c) => {
+                            let n = match super::get(&mut self.s, v) {
+                                T::V(n) => n as usize,
+                                _ => panic!("an entry of something that is not a variable"),
+                            };
+                            out.push((n, get_names(&mut self.s, c)));
+                        }
+                        _ => panic!("an entry that is not a pair"),
+                    }
+                    p = rest;
+                }
+                _ => panic!("a term where a list was expected"),
+            }
+        }
+    }
+
+    pub fn empty_stack(&mut self) {
+        assert!(self.s.pop().is_none(), "the stack is not empty");
+    }
+}
