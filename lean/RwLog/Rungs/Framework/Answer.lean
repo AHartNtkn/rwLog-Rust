@@ -42,6 +42,19 @@ theorem Equiv.swap {a : A} {b : B} (h : Equiv M a b) : Equiv M (swap a) (swap b)
 theorem Equiv.den_eq {a : A} {b : B} (h : Equiv M a b) : den M a = den M b :=
   Set.Subset.antisymm h.2 h.1
 
+/-- The answers of `A` say how they are read: what one relates does not
+depend on the interpretation it is asked in. -/
+def SelfRead (A : Type) [Answer A] : Prop := ∀ (M M' : Interp) (a : A), den M a = den M' a
+
+/-- A representative carried with its sorts says how it is read. -/
+theorem selfRead_sigma {R : Sorts → Type} [∀ S, Answer (R S)] : SelfRead ((S : Sorts) × R S) :=
+  fun _ _ _ => rfl
+
+/-- What a representative carried with its sorts relates: what the
+representative relates in the interpretation of those sorts. -/
+@[simp] theorem den_sigma {R : Sorts → Type} [∀ S, Answer (R S)] (M : Interp) (S : Sorts) (r : R S) :
+    den M (⟨S, r⟩ : (S : Sorts) × R S) = den S.interp r := rfl
+
 end Answer
 
 /-! ## Spans -/

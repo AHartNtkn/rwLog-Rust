@@ -147,7 +147,15 @@ rung unchanged.
   (`Rung.runtime`, `Trusted/Properties.lean`); `Rung.sound`,
   `Rung.pointComplete`, `Rung.honest` and `Rung.honestProgress` carry the
   machine's theorems through the preprocessor, and `Rung.Keeps.of_id` is
-  `Rung.Keeps` for a machine with the identity preprocessor.
+  `Rung.Keeps` for a machine with the identity preprocessor. A preprocessor
+  may add sort declarations (`Preprocessor.adds`, `Sorts.Extends`), so the
+  machine is run on sorts that may declare more than the program's. Its
+  theorems are about its answers read in those sorts, and the four theorems
+  ask that the answers say how they are read (`Answer.SelfRead`,
+  `Framework/Answer.lean`), which the answers of every engine do
+  (`Answer.selfRead_sigma`): each is a representative carried with its
+  sorts. `Span.denAt_sorted` and `Span.firstOrder_sorted`
+  (`SpanLayer/Sorts.lean`) say what holding an end of a span to a sort does.
 * `Fairness.lean`: what the fairness bound of `Trusted/Properties.lean` means
   (`Alternative.semAt_subset`, `Fair.flat_ticks`,
   `Runtime.FinalMaximal.maximal`), and `firstWording_false`: a bound
