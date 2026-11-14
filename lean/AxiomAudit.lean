@@ -636,3 +636,12 @@ new axiom.
 
 /-- info: 'RwLog.Symmetric.oriented_dualTrace' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Symmetric.oriented_dualTrace
+
+/-- info: 'RwLog.Symmetric.Cursor.all_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Symmetric.Cursor.all_spec
+
+/-- info: 'RwLog.Symmetric.good_request' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Symmetric.good_request
+
+/-- info: 'RwLog.Symmetric.readOk' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Symmetric.readOk
