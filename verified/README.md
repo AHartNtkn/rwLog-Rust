@@ -148,8 +148,11 @@ span has no constraints, is the tick bound of the table above
 `Engine.costedAt`, on the derivation kernel
 `DerivationKernel.over Domain.written (rustKernel z)`.
 `RwLogVerified/KernelRuns.lean` checks the charges of both kernels on a
-worked composition; it runs no engine, because none is written against the
-derivation kernel yet (`lean/PARKED.md`).
+worked composition; it runs no engine. R005 is written against the
+derivation kernel (`lean/RwLog/Rungs/R005/`) and its kept properties hold at
+every kernel that refines a lawful domain, but spans as written are not a
+lawful domain, so a run at `rustKernel` waits for the kernel of sorts
+(roadmap L55).
 
 What is not derived, and why:
 

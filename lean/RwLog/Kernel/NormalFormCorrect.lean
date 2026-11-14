@@ -266,28 +266,23 @@ theorem andAll_perm {L₁ L₂ : List (Set GRel)} (h : L₁.Perm L₂) : andAll 
     rw [← image2_meet_assoc, ← image2_meet_assoc, image2_meet_comm Y X]
   | trans _ _ ih₁ ih₂ => exact ih₁.trans ih₂
 
-theorem gd_mkSeq : ∀ {L : List Rel}, L ≠ [] → GD P (mkSeq L) = seqAll (L.map (GD P))
-  | [], h => absurd rfl h
-  | [e], _ => (image2_comp_id _).symm
-  | e :: e' :: es, _ => by
-    rw [show mkSeq (e :: e' :: es) = .seq e (mkSeq (e' :: es)) from rfl, gd_seq,
-      gd_mkSeq (L := e' :: es) (by simp)]
-    rfl
+/-! ### What follows from the equations alone
 
-theorem gd_mkAnd : ∀ {L : List Rel}, L ≠ [] → GD P (mkAnd L) = andAll (L.map (GD P))
-  | [], h => absurd rfl h
-  | [e], _ => (image2_meet_top _).symm
-  | e :: e' :: es, _ => by
-    rw [show mkAnd (e :: e' :: es) = .and e (mkAnd (e' :: es)) from rfl, gd_and,
-      gd_mkAnd (L := e' :: es) (by simp)]
-    rfl
+The equations above, for every constructor but a call, are all that the facts
+about the normal form use. They are stated for any assignment `G` of ground
+relations to expressions that satisfies them (`GLaws`), so that they hold of
+the derivations of a bounded depth too (`Kernel/NormalFormDepth.lean`). -/
 
-theorem gd_mkOr : ∀ L : List Rel, GD P (mkOr L) = ⋃ e ∈ L, GD P e
-  | [] => by simp [mkOr, gd_zero]
-  | [e] => by simp [mkOr]
-  | e :: e' :: es => by
-    rw [show mkOr (e :: e' :: es) = .or e (mkOr (e' :: es)) from rfl, gd_or, gd_mkOr (e' :: es)]
-    simp only [List.mem_cons, Set.iUnion_iUnion_eq_or_left]
+/-- The equations of `GD` for every constructor but a call. -/
+structure GLaws (G : Rel → Set GRel) : Prop where
+  zero : G .zero = ∅
+  span : ∀ s : Span, G (.span s) = {s.den}
+  or : ∀ a b : Rel, G (.or a b) = G a ∪ G b
+  seq : ∀ a b : Rel, G (.seq a b) = Set.image2 GRel.comp (G a) (G b)
+  and : ∀ a b : Rel, G (.and a b) = Set.image2 GRel.meet (G a) (G b)
+  conv : ∀ a : Rel, G (.conv a) = GRel.inv '' G a
+
+theorem gd_laws : GLaws (GD P) := ⟨gd_zero P, gd_span P, gd_or P, gd_seq P, gd_and P, gd_conv P⟩
 
 theorem seqParts_ne_nil : ∀ e : Rel, seqParts e ≠ []
   | .seq a b => by simp [seqParts, seqParts_ne_nil a]
@@ -297,123 +292,189 @@ theorem andParts_ne_nil : ∀ e : Rel, andParts e ≠ []
   | .and a b => by simp [andParts, andParts_ne_nil a]
   | .zero | .span _ | .or _ _ | .seq _ _ | .conv _ | .call _ => by simp [andParts]
 
+theorem sortedParts_perm (L : List Rel) : (sortedParts L).Perm L := List.mergeSort_perm _ _
+
+section
+
+variable {G : Rel → Set GRel} (hG : GLaws G)
+include hG
+
+theorem GLaws.gd_mkSeq : ∀ {L : List Rel}, L ≠ [] → G (mkSeq L) = seqAll (L.map (G))
+  | [], h => absurd rfl h
+  | [e], _ => (image2_comp_id _).symm
+  | e :: e' :: es, _ => by
+    rw [show mkSeq (e :: e' :: es) = .seq e (mkSeq (e' :: es)) from rfl, hG.seq,
+      GLaws.gd_mkSeq (L := e' :: es) (by simp)]
+    rfl
+
+theorem GLaws.gd_mkAnd : ∀ {L : List Rel}, L ≠ [] → G (mkAnd L) = andAll (L.map (G))
+  | [], h => absurd rfl h
+  | [e], _ => (image2_meet_top _).symm
+  | e :: e' :: es, _ => by
+    rw [show mkAnd (e :: e' :: es) = .and e (mkAnd (e' :: es)) from rfl, hG.and,
+      GLaws.gd_mkAnd (L := e' :: es) (by simp)]
+    rfl
+
+theorem GLaws.gd_mkOr : ∀ L : List Rel, G (mkOr L) = ⋃ e ∈ L, G e
+  | [] => by simp [mkOr, hG.zero]
+  | [e] => by simp [mkOr]
+  | e :: e' :: es => by
+    rw [show mkOr (e :: e' :: es) = .or e (mkOr (e' :: es)) from rfl, hG.or, GLaws.gd_mkOr (e' :: es)]
+    simp only [List.mem_cons, Set.iUnion_iUnion_eq_or_left]
+
 /-- An expression derives what the chain of its members derives. -/
-theorem gd_seqParts : ∀ e : Rel, seqAll ((seqParts e).map (GD P)) = GD P e
+theorem GLaws.gd_seqParts : ∀ e : Rel, seqAll ((seqParts e).map (G)) = G e
   | .seq a b => by
-    rw [seqParts, List.map_append, seqAll_append, gd_seqParts a, gd_seqParts b, gd_seq]
+    rw [seqParts, List.map_append, seqAll_append, GLaws.gd_seqParts a, GLaws.gd_seqParts b, hG.seq]
   | .zero | .span _ | .or _ _ | .and _ _ | .conv _ | .call _ => image2_comp_id _
 
 /-- An expression derives what the meet of its members derives. -/
-theorem gd_andParts : ∀ e : Rel, andAll ((andParts e).map (GD P)) = GD P e
+theorem GLaws.gd_andParts : ∀ e : Rel, andAll ((andParts e).map (G)) = G e
   | .and a b => by
-    rw [andParts, List.map_append, andAll_append, gd_andParts a, gd_andParts b, gd_and]
+    rw [andParts, List.map_append, andAll_append, GLaws.gd_andParts a, GLaws.gd_andParts b, hG.and]
   | .zero | .span _ | .or _ _ | .seq _ _ | .conv _ | .call _ => image2_meet_top _
 
 /-- An expression derives what its branches derive. -/
-theorem gd_orBranches : ∀ e : Rel, (⋃ x ∈ orBranches e, GD P x) = GD P e
+theorem GLaws.gd_orBranches : ∀ e : Rel, (⋃ x ∈ orBranches e, G x) = G e
   | .or a b => by
-    rw [orBranches, gd_or, ← gd_orBranches a, ← gd_orBranches b]
+    rw [orBranches, hG.or, ← GLaws.gd_orBranches a, ← GLaws.gd_orBranches b]
     ext G; simp only [List.mem_append, Set.mem_iUnion, Set.mem_union, exists_prop]
     constructor
-    · rintro ⟨x, hx | hx, hG⟩
-      · exact .inl ⟨x, hx, hG⟩
-      · exact .inr ⟨x, hx, hG⟩
-    · rintro (⟨x, hx, hG⟩ | ⟨x, hx, hG⟩)
-      · exact ⟨x, .inl hx, hG⟩
-      · exact ⟨x, .inr hx, hG⟩
+    · rintro ⟨x, hx | hx, hX⟩
+      · exact .inl ⟨x, hx, hX⟩
+      · exact .inr ⟨x, hx, hX⟩
+    · rintro (⟨x, hx, hX⟩ | ⟨x, hx, hX⟩)
+      · exact ⟨x, .inl hx, hX⟩
+      · exact ⟨x, .inr hx, hX⟩
   | .zero | .span _ | .and _ _ | .seq _ _ | .conv _ | .call _ => by simp [orBranches]
 
 /-- Sorting the branches and dropping `0` and repeats changes nothing. -/
-theorem gd_sortedBranches (L : List Rel) :
-    (⋃ x ∈ sortedBranches L, GD P x) = ⋃ x ∈ L, GD P x := by
+theorem GLaws.gd_sortedBranches (L : List Rel) :
+    (⋃ x ∈ sortedBranches L, G x) = ⋃ x ∈ L, G x := by
   ext G
   simp only [Set.mem_iUnion, exists_prop, mem_sortedBranches]
   constructor
-  · rintro ⟨x, ⟨hx, _⟩, hG⟩; exact ⟨x, hx, hG⟩
-  · rintro ⟨x, hx, hG⟩
-    refine ⟨x, ⟨hx, ?_⟩, hG⟩
+  · rintro ⟨x, ⟨hx, _⟩, hX⟩; exact ⟨x, hx, hX⟩
+  · rintro ⟨x, hx, hX⟩
+    refine ⟨x, ⟨hx, ?_⟩, hX⟩
     rintro rfl
-    rw [gd_zero] at hG; exact hG
-
-theorem sortedParts_perm (L : List Rel) : (sortedParts L).Perm L := List.mergeSort_perm _ _
+    rw [hG.zero] at hX; exact hX
 
 /-! ### The node operations of the kernel -/
 
 /-- Joining two chains: the chain of the members of both derives the
 compositions. -/
-theorem gd_mkSeq_append (a b : Rel) :
-    GD P (mkSeq (seqParts a ++ seqParts b)) = Set.image2 GRel.comp (GD P a) (GD P b) := by
-  rw [gd_mkSeq P (by simp [seqParts_ne_nil]), List.map_append, seqAll_append, gd_seqParts,
-    gd_seqParts]
+theorem GLaws.gd_mkSeq_append (a b : Rel) :
+    G (mkSeq (seqParts a ++ seqParts b)) = Set.image2 GRel.comp (G a) (G b) := by
+  rw [hG.gd_mkSeq (by simp [seqParts_ne_nil]), List.map_append, seqAll_append, hG.gd_seqParts,
+    hG.gd_seqParts]
 
 /-- Meeting two meets: the sorted meet of the members of both derives the
 meets. -/
-theorem gd_mkAnd_sorted_append (a b : Rel) :
-    GD P (mkAnd (sortedParts (andParts a ++ andParts b))) =
-      Set.image2 GRel.meet (GD P a) (GD P b) := by
+theorem GLaws.gd_mkAnd_sorted_append (a b : Rel) :
+    G (mkAnd (sortedParts (andParts a ++ andParts b))) =
+      Set.image2 GRel.meet (G a) (G b) := by
   have hne : sortedParts (andParts a ++ andParts b) ≠ [] := by
     intro h
     have := (sortedParts_perm (andParts a ++ andParts b)).length_eq
     rw [h, List.length_append] at this
     exact andParts_ne_nil a (List.length_eq_zero_iff.1 (by simp at this; omega))
-  rw [gd_mkAnd P hne, andAll_perm ((sortedParts_perm _).map _), List.map_append, andAll_append,
-    gd_andParts, gd_andParts]
+  rw [hG.gd_mkAnd hne, andAll_perm ((sortedParts_perm _).map _), List.map_append, andAll_append,
+    hG.gd_andParts, hG.gd_andParts]
 
 /-- A union derives what its members derive. -/
-theorem gd_unionParts (e : Rel) : (⋃ x ∈ e.unionParts, GD P x) = GD P e := by
+theorem GLaws.gd_unionParts (e : Rel) : (⋃ x ∈ e.unionParts, G x) = G e := by
   cases e with
-  | zero => simp [RelOf.unionParts, gd_zero]
-  | _ => exact gd_orBranches P _
+  | zero => simp [RelOf.unionParts, hG.zero]
+  | _ => exact hG.gd_orBranches _
 
 /-! ## The normal form -/
 
 /-- **The normal form derives what the expression derives**, and the normal
 form of the converse derives the converses. -/
-theorem gd_normB : ∀ (b : Bool) (e : Rel),
-    GD P (normB b e) = if b then GRel.inv '' GD P e else GD P e
-  | b, .zero => by cases b <;> simp [normB, gd_zero]
+theorem GLaws.gd_normB : ∀ (b : Bool) (e : Rel),
+    G (normB b e) = if b then GRel.inv '' G e else G e
+  | b, .zero => by cases b <;> simp [normB, hG.zero]
   | false, .span s => by simp [normB]
-  | true, .span s => by simp [normB, gd_span, swap_den]
+  | true, .span s => by simp [normB, hG.span, swap_den]
   | b, .or x y => by
-    rw [normB, gd_mkOr, gd_sortedBranches]
-    have : (⋃ z ∈ orBranches (normB b x) ++ orBranches (normB b y), GD P z) =
-        (⋃ z ∈ orBranches (normB b x), GD P z) ∪ ⋃ z ∈ orBranches (normB b y), GD P z := by
+    rw [normB, hG.gd_mkOr, hG.gd_sortedBranches]
+    have : (⋃ z ∈ orBranches (normB b x) ++ orBranches (normB b y), G z) =
+        (⋃ z ∈ orBranches (normB b x), G z) ∪ ⋃ z ∈ orBranches (normB b y), G z := by
       ext G; simp only [List.mem_append, Set.mem_iUnion, Set.mem_union, exists_prop]
       constructor
-      · rintro ⟨z, hz | hz, hG⟩
-        · exact .inl ⟨z, hz, hG⟩
-        · exact .inr ⟨z, hz, hG⟩
-      · rintro (⟨z, hz, hG⟩ | ⟨z, hz, hG⟩)
-        · exact ⟨z, .inl hz, hG⟩
-        · exact ⟨z, .inr hz, hG⟩
-    rw [this, gd_orBranches, gd_orBranches, gd_normB b x, gd_normB b y, gd_or]
+      · rintro ⟨z, hz | hz, hX⟩
+        · exact .inl ⟨z, hz, hX⟩
+        · exact .inr ⟨z, hz, hX⟩
+      · rintro (⟨z, hz, hX⟩ | ⟨z, hz, hX⟩)
+        · exact ⟨z, .inl hz, hX⟩
+        · exact ⟨z, .inr hz, hX⟩
+    rw [this, hG.gd_orBranches, hG.gd_orBranches, GLaws.gd_normB b x, GLaws.gd_normB b y, hG.or]
     cases b
     · rfl
     · simp only [ite_true, Set.image_union]
   | b, .and x y => by
-    rw [normB, gd_mkAnd_sorted_append, gd_normB b x, gd_normB b y, gd_and]
+    rw [normB, hG.gd_mkAnd_sorted_append, GLaws.gd_normB b x, GLaws.gd_normB b y, hG.and]
     cases b
     · rfl
     · simp only [ite_true, inv_image_meet]
   | false, .seq x y => by
-    rw [normB, gd_mkSeq_append, gd_normB false x, gd_normB false y, gd_seq]; rfl
+    rw [normB, hG.gd_mkSeq_append, GLaws.gd_normB false x, GLaws.gd_normB false y, hG.seq]; rfl
   | true, .seq x y => by
-    rw [normB, gd_mkSeq_append, gd_normB true x, gd_normB true y, gd_seq]
+    rw [normB, hG.gd_mkSeq_append, GLaws.gd_normB true x, GLaws.gd_normB true y, hG.seq]
     simp only [ite_true, inv_image_comp]
   | false, .conv x => by
-    rw [normB, show (!false) = true from rfl, gd_normB true x, gd_conv]
+    rw [normB, show (!false) = true from rfl, GLaws.gd_normB true x, hG.conv]
     simp only [ite_true, Bool.false_eq_true, ite_false]
   | true, .conv x => by
-    rw [normB, show (!true) = false from rfl, gd_normB false x, gd_conv]
+    rw [normB, show (!true) = false from rfl, GLaws.gd_normB false x, hG.conv]
     simp only [Bool.false_eq_true, ite_false, ite_true, inv_image_inv_image]
   | false, .call n => by simp [normB]
-  | true, .call n => by simp [normB, gd_conv]
+  | true, .call n => by simp [normB, hG.conv]
 
-theorem gd_norm (e : Rel) : GD P e.norm = GD P e := by
-  simpa [RelOf.norm] using gd_normB P false e
+theorem GLaws.gd_norm (e : Rel) : G e.norm = G e := by
+  simpa [RelOf.norm] using hG.gd_normB false e
 
-theorem gd_normConv (e : Rel) : GD P e.normConv = GRel.inv '' GD P e := by
-  simpa [RelOf.normConv] using gd_normB P true e
+theorem GLaws.gd_normConv (e : Rel) : G e.normConv = GRel.inv '' G e := by
+  simpa [RelOf.normConv] using hG.gd_normB true e
+
+end
+
+/-! ### The same for `GD` -/
+
+theorem gd_mkSeq {L : List Rel} (h : L ≠ []) : GD P (mkSeq L) = seqAll (L.map (GD P)) :=
+  (gd_laws P).gd_mkSeq h
+
+theorem gd_mkAnd {L : List Rel} (h : L ≠ []) : GD P (mkAnd L) = andAll (L.map (GD P)) :=
+  (gd_laws P).gd_mkAnd h
+
+theorem gd_mkOr (L : List Rel) : GD P (mkOr L) = ⋃ e ∈ L, GD P e := (gd_laws P).gd_mkOr L
+
+theorem gd_seqParts (e : Rel) : seqAll ((seqParts e).map (GD P)) = GD P e := (gd_laws P).gd_seqParts e
+
+theorem gd_andParts (e : Rel) : andAll ((andParts e).map (GD P)) = GD P e := (gd_laws P).gd_andParts e
+
+theorem gd_orBranches (e : Rel) : (⋃ x ∈ orBranches e, GD P x) = GD P e :=
+  (gd_laws P).gd_orBranches e
+
+theorem gd_mkSeq_append (a b : Rel) :
+    GD P (mkSeq (seqParts a ++ seqParts b)) = Set.image2 GRel.comp (GD P a) (GD P b) :=
+  (gd_laws P).gd_mkSeq_append a b
+
+theorem gd_mkAnd_sorted_append (a b : Rel) :
+    GD P (mkAnd (sortedParts (andParts a ++ andParts b))) =
+      Set.image2 GRel.meet (GD P a) (GD P b) :=
+  (gd_laws P).gd_mkAnd_sorted_append a b
+
+theorem gd_unionParts (e : Rel) : (⋃ x ∈ e.unionParts, GD P x) = GD P e :=
+  (gd_laws P).gd_unionParts e
+
+theorem gd_normB (b : Bool) (e : Rel) :
+    GD P (normB b e) = if b then GRel.inv '' GD P e else GD P e := (gd_laws P).gd_normB b e
+
+theorem gd_norm (e : Rel) : GD P e.norm = GD P e := (gd_laws P).gd_norm e
+
+theorem gd_normConv (e : Rel) : GD P e.normConv = GRel.inv '' GD P e := (gd_laws P).gd_normConv e
 
 variable {P}
 

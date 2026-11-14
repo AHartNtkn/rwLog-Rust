@@ -1,45 +1,44 @@
 /-
-# Rung R005: R004 on the query and on its mirror image, side by side
+# R005, the yardstick
 
-What R004 pays for a query depends on the end the query is written from
-(`Family.lean`): its shared evaluation is keyed on what stands to the left of
-a sub-expression, and nothing in it mirrors that.
+R005 is the top rung of epoch 1 (`lean/EPOCH1.md`), written once against the
+derivation kernel. The next engine is measured against it.
 
-R005 removes the dependence without touching R004's evaluation. It is
-`Engine.mirrored` (`Rungs/Mirror/Gen.lean`) of R004: it runs R004 on the query
-and R004 on the mirror image of the query in the mirrored program, and its
-`k`-th step is the `k`-th step of whichever of the two runs gets there first,
-with the answers of the run on the mirror image swapped back. R004's run on
-the mirror image is the mirror image of its run, step for step, so the
-answers are R004's whichever run wins.
+It is three things put together.
 
-Started on the mirror image, R005 races the same two runs, and no step of it
-prefers one of them except for being ahead. So it pays exactly the same on a
-query and on its mirror image, step for step, and exponentially less than
-R004 on the family where R004 is slow from one end.
+* The tabled round machine (`Rungs/Tabled/Machine.lean`): a table for every
+  goal, the join and the two push strategies for every split of a chain or a
+  meet, completion by the largest set of tables that can no longer grow.
+* The unfolding race every table asks once a round
+  (`Rungs/Tabled/Unfold.lean`): the walk from the left, the shared evaluation
+  and the walk from the right, side by side.
+* The mirror (`Rungs/Mirror/Machine.lean`): that machine on the root node and
+  on its converse, side by side, so what a query costs does not depend on the
+  end it was written from.
+
+`R001.engine` is the tabled machine with the unfolding race answered by
+building the whole unfolding. It is the base R005 is compared with: where it
+halts, R005 halts.
+
+Each is an `Engine`, so each is a machine with its cost at every kernel of
+every constraint domain (`Engine.costedAt`), and at every one of them it is
+sound and no less general than a derivation
+(`Rungs/Framework/Derivation.lean`).
 -/
+import RwLog.Rungs.Tabled.Unfold
 import RwLog.Rungs.Mirror.Machine
-import RwLog.Rungs.R005.Unfolder.R004.Gen
-import RwLog.Rungs.R005.Unfolder.R004.Engine
 
 namespace RwLog
 
-namespace R005
+/-- The tabled machine with the unfolding race answered by building the whole
+unfolding: the proper baseline. -/
+def R001.engine : Engine := Tabled.engine Tabled.Unfold.eagerRace
 
-/-- R005 as an engine: R004's engine, mirrored. -/
-def engine : Engine := R004.engine.mirrored
+/-- The tabled machine with the three evaluations of the unfolding raced. -/
+def R004.engine : Engine := Tabled.engine Tabled.Unfold.raced
 
-/-- R005 with its cost. -/
-def costed : CostedRuntime := RwLog.Mirror.machine R004.costed
-
-def runtime : Runtime := costed.runtime
-
-/-- Rung R005: no preprocessing, an empty artifact store, and R004 run on the
-query and on its mirror image side by side. -/
-def rung : Rung where
-  pre := Preprocessor.id
-  rt := runtime
-
-end R005
+/-- R005: the tabled machine with the raced unfolding, on the root node and
+on its converse, side by side. -/
+def R005.engine : Engine := R004.engine.mirrored
 
 end RwLog

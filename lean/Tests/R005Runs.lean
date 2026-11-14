@@ -1,129 +1,273 @@
-import Tests.TabledRuns
-import RwLog.Rungs.R005.Spec
-import RwLog.Rungs.R005.Family
+import RwLog.Rungs.R005.Engine
+import RwLog.Rungs.R005.Bounds
 
 /-!
-# Running rung R005
+# Running the yardstick
 
-These checks run R005 and fail the build if what they compute changes.
-
-* R005 emits, step for step, R004's answers up to order and equivalence, and
-  halts at the same step, on the conformance cases.
-* R005 pays exactly the same for a query and for its mirror image in the
-  mirrored program, and two ticks more for its converse.
-* Costs on the family `chain k`, from both ends, beside R004's.
-
-Running a race here runs both computations to the end.
-The ticks are the cost of the machine; the time these checks take is not.
+These checks run R005, the tabled machine with the raced unfolding
+(`R004.engine`) and the tabled machine with the whole unfolding
+(`R001.engine`) at the kernel of spans as they are written, and fail the build
+if what they emit changes. They are the conformance cases of the review of
+the Rust interpreter that need no constraint (cases 1, 5, 6 and 7); the cases
+about constraints (2 and 4) are tests of the domain of sorts. Case 3 (answers
+merged by a hash) has no program: every comparison an engine makes is an
+operation of the kernel.
 -/
 
 namespace RwLog.Tests
 
-/-- The number of steps taken within the fuel, whether the machine halted,
-and the ticks paid: for the first state and for the steps. -/
-def costOf (C : CostedRuntime) (P : Program) (q : Rel) (fuel : Nat) : Nat × Bool × Nat :=
-  let rec go (s : C.State) : Nat → Nat → Nat → Nat × Bool × Nat
-    | 0, i, acc => (i, false, acc)
-    | f + 1, i, acc =>
-      let r := C.step s
-      match r.val with
-      | .done => (i, true, acc + r.ticks)
-      | .emit _ s' => go s' f (i + 1) (acc + r.ticks)
-  go (C.start P q) fuel 0 (C.init P q).ticks
+open Term
 
-/-- `rel path { @z | path ; path }`: transitive closure written with two
-recursive calls. -/
-def path : Rel := .or (.at_ (c "z")) (.seq (.call "path") (.call "path"))
-def pathP : Program := prog [("path", path)]
+def v (n : Nat) : Pat := .var n
+def c (f : String) : Pat := .sym f
+def ap (f : String) (args : List Pat) : Pat := Term.mk f args
+def num : Nat → Pat
+  | 0 => c "z"
+  | n + 1 => ap "s" [num n]
 
-/-- `rel halve { z -> z | (s $x) -> $x ; halve ; halve }`: two recursive calls
-behind a pattern. -/
-def halve : Rel :=
-  .or (.at_ (c "z")) (.seq (.rw (ap "s" [v 0]) (v 0)) (.seq (.call "halve") (.call "halve")))
-def halveP : Program := prog [("halve", halve)]
+partial def showTerm : Term Nat → String
+  | .var n => s!"${n}"
+  | t => match t.spine with
+    | some (f, []) => f
+    | some (f, args) => "(" ++ " ".intercalate (f :: args.map showTerm) ++ ")"
+    | none => match t with
+      | .app a b => s!"(@ {showTerm a} {showTerm b})"
+      | _ => "?"
 
-def traceR005 (P : Program) (q : Rel) (fuel : Nat) : List (List Span) :=
-  R005.runtime.trace (R005.runtime.init P q) fuel
+def showSpan (s : Span) : String :=
+  let store := if s.c.isEmpty then "" else " { " ++ ", ".intercalate (s.c.map showTerm) ++ " }"
+  showTerm s.l ++ store ++ " -> " ++ showTerm s.r
 
-/-- Every answer of one step is equivalent to an answer of the other, and
-there are as many. -/
-def stepSame (xs ys : List Span) : Bool :=
-  xs.length == ys.length &&
-    xs.all (fun a => ys.any fun b => a.covers? b && b.covers? a) &&
-    ys.all (fun b => xs.any fun a => a.covers? b && b.covers? a)
+/-- Run an engine for at most `fuel` steps: the answers it emitted, and its
+final report if it reported that it is done. -/
+def runE (E : Engine) (P : Program) (q : Rel) (fuel : Nat) : List String × Option (List String) :=
+  let r := E.costed.runtime.run (E.costed.start P q) fuel
+  (r.1.map fun a => showSpan a.2, r.2.map (·.map fun a => showSpan a.2))
 
-def traceSame (t t' : List (List Span)) : Bool :=
-  t.length == t'.length && (t.zip t').all fun p => stepSame p.1 p.2
+/-- What each step showed. -/
+def traceE (E : Engine) (P : Program) (q : Rel) (fuel : Nat) : List (List String) :=
+  (E.costed.runtime.trace (E.costed.start P q) fuel).map fun
+    | .answers as => as.map fun a => showSpan a.2
+    | .level n => [s!"level {n}"]
+    | .final as => "final" :: as.map fun a => showSpan a.2
 
-/-- R005 against R004: the same answers at every step, and the same report
-of exhaustion. -/
-def sameRun5 (P : Program) (q : Rel) (fuel : Nat) : Bool :=
-  traceSame (traceR005 P q fuel) (R004.runtime.trace (R004.runtime.init P q) fuel) &&
-    (R005.runtime.run (R005.runtime.init P q) fuel).2 ==
-      (R004.runtime.run (R004.runtime.init P q) fuel).2
+/-- The ticks paid by the end of the first `n` steps. -/
+def paidE (E : Engine) (P : Program) (q : Rel) (n : Nat) : Nat := E.costed.paid P q n
 
-/-! ## The same run as R004 -/
+def empty : Program := ⟨[], []⟩
+def prog (defs : List (Name × Rel)) : Program := ⟨defs, []⟩
 
-#guard sameRun5 addP (.seq (.at_ (ap "cons" [num 2, num 1])) (.call "add")) 30
-#guard sameRun5 addP (.seq (.call "add") (.at_ (num 2))) 30
-#guard sameRun5 addP (.seq (.at_ (num 2)) (.conv (.call "add"))) 30
-#guard sameRun5 (prog [("lr", lr)]) (.call "lr") 8
-#guard sameRun5 (prog [("lr", lr)]) (.seq (.call "lr") (.at_ (num 2))) 30
-#guard sameRun5 natP (.and (.rw (num 1) (num 1)) (.call "nat")) 30
-#guard sameRun5 natP (.and (.call "nat") (.rw (c "b") (c "a"))) 30
-#guard sameRun5 loopNat (.seq (.call "loop") (.call "nat")) 8
-#guard sameRun5 (prog [("upr", upr)]) (.seq (.at_ (c "z")) (.seq (.call "upr") (.at_ (c "foo")))) 8
-#guard sameRun5 splitP (.seq (.call "x") (.call "y")) 20
-#guard sameRun5 ⟨[], eqNeq⟩ (.seq eqSpan neqSpan) 10
-#guard sameRun5 ⟨[("nat", nat)], pinT⟩ (.seq (.call "nat") (.rw (v 0) (v 0) [ap "pin" [v 0]])) 12
-#guard sameRun5 ⟨[], noC⟩ (.seq (.rw (v 0) (v 0) [ap "no_c" [v 0]]) (.at_ (ap "a" [c "k", v 0]))) 10
-#guard sameRun5 pathP (.call "path") 40
-#guard sameRun5 halveP (.seq (.at_ (num 3)) (.call "halve")) 12
+def add : Rel :=
+  .or (.rw (ap "cons" [c "z", v 0]) (v 0))
+    (.seq (.rw (ap "cons" [ap "s" [v 0], v 1]) (ap "cons" [v 0, v 1]))
+      (.seq (.call "add") (.rw (v 0) (ap "s" [v 0]))))
+def addP : Program := prog [("add", add)]
 
-/-! ## The same cost from both ends -/
+/-- `rel lr { z -> z | lr ; $x -> (s $x) }` -/
+def lr : Rel := .or (.at_ (c "z")) (.seq (.call "lr") (.rw (v 0) (ap "s" [v 0])))
+/-- `rel up { z -> z | up ; $x -> (s $x) }` -/
+def up : Rel := .or (.at_ (c "z")) (.seq (.call "up") (.rw (v 0) (ap "s" [v 0])))
+def callFirst : Rel :=
+  .or (.seq (.call "call_first") (.rw (c "a") (c "b")))
+    (.or (.at_ (c "a")) (.seq (.at_ (c "z")) (.call "up")))
+def callLast : Rel :=
+  .or (.at_ (c "a")) (.or (.seq (.at_ (c "z")) (.call "up"))
+    (.seq (.call "call_last") (.rw (c "a") (c "b"))))
+def nat : Rel :=
+  .or (.at_ (c "z")) (.seq (.rw (ap "s" [v 0]) (v 0)) (.seq (.call "nat") (.rw (v 0) (ap "s" [v 0]))))
+def natP : Program := prog [("nat", nat)]
 
-/-- The whole run costs the same on the mirror image, step count and report
-of exhaustion included, and two ticks more on the converse. -/
-def sameCost5 (P : Program) (q : Rel) (fuel : Nat) : Bool :=
-  let r := costOf R005.costed P q fuel
-  costOf R005.costed P.dual q.dual fuel == r &&
-    costOf R005.costed P (.conv q) fuel == (r.1, r.2.1, r.2.2 + 2)
+/-- Every listed answer was emitted. -/
+def contains (r : List String × Option (List String)) (xs : List String) : Bool := xs.all (· ∈ r.1)
 
-#guard sameCost5 (prog [("lr", lr)]) (.seq (.call "lr") (.at_ (num 2))) 30
-#guard sameCost5 loopNat (.seq (.call "loop") (.call "nat")) 8
-#guard sameCost5 splitP (.seq (.call "x") (.call "y")) 20
-#guard sameCost5 ⟨[], eqNeq⟩ (.seq eqSpan neqSpan) 10
-#guard sameCost5 ⟨[], noC⟩ (.seq (.rw (v 0) (v 0) [ap "no_c" [v 0]]) (.at_ (ap "a" [c "k", v 0]))) 10
-#guard sameCost5 pathP (.call "path") 40
+/-- The run halted having emitted exactly the listed answers, in any order. -/
+def exact (r : List String × Option (List String)) (xs : List String) : Bool :=
+  r.2.isSome && xs.all (· ∈ r.1) && r.1.all (· ∈ xs)
 
--- What that costs on ordinary queries: R005 beside R004. Both runs are paid
--- for until one finishes a step, and level runs are raced in both orders.
-#guard [costOf R005.costed pathP (.call "path") 40, costOf R004.costed pathP (.call "path") 40] ==
-  [(7, true, 146494), (7, true, 19009)]
-#guard [costOf R005.costed splitP (.seq (.call "x") (.call "y")) 20,
-    costOf R004.costed splitP (.seq (.call "x") (.call "y")) 20] ==
-  [(2, true, 7724), (2, true, 1091)]
+def engines : List Engine := [R001.engine, R004.engine, R005.engine]
 
-/-! ## The family on which R004 depends on direction -/
+def zs : List String :=
+  ["z -> z", "z -> (s z)", "z -> (s (s z))", "z -> (s (s (s z)))", "z -> (s (s (s (s z))))",
+   "z -> (s (s (s (s (s z)))))"]
 
-#guard (List.range 5).all fun k => decide ((R005.sepFam k).1.WellFormed (R005.sepFam k).2)
-#guard (List.range 5).all fun k => (R005.sepFam k).1.size + (R005.sepFam k).2.size == 12 * k + 15
+/-! ## Fixed-mode and recursion-free queries halt with the exact answer set -/
 
--- The first round on `chain k`: R004 from the left, R004 on the mirror image,
--- and R005 from either end. R004 doubles from the left; R005 follows the run
--- on the mirror image.
-#guard (List.range 5).map (fun k =>
-    ((costOf R004.costed (R005.sepFam k).1 (R005.sepFam k).2 1).2.2,
-     (costOf R004.costed (R005.sepFam k).1.dual (R005.sepFam k).2.dual 1).2.2,
-     (costOf R005.costed (R005.sepFam k).1 (R005.sepFam k).2 1).2.2,
-     (costOf R005.costed (R005.sepFam k).1.dual (R005.sepFam k).2.dual 1).2.2)) ==
-  [(673, 676, 5402, 5402), (2216, 1891, 13974, 13974), (4595, 3884, 28196, 28196),
-    (16238, 6740, 54384, 54384), (53611, 12774, 107408, 107408)]
+#guard engines.all fun E =>
+  exact (runE E empty (.and (.rw (v 0) (ap "s" [v 0])) (.rw (ap "s" [v 0]) (v 0))) 20) []
+#guard engines.all fun E =>
+  exact (runE E addP (.seq (.at_ (ap "cons" [num 2, num 1])) (.call "add")) 40)
+    ["(cons (s (s z)) (s z)) -> (s (s (s z)))"]
+#guard engines.all fun E =>
+  exact (runE E addP (.seq (.call "add") (.at_ (num 2))) 40)
+    ["(cons z (s (s z))) -> (s (s z))", "(cons (s z) (s z)) -> (s (s z))",
+      "(cons (s (s z)) z) -> (s (s z))"]
+#guard engines.all fun E =>
+  exact (runE E addP (.seq (.at_ (num 2)) (.conv (.call "add"))) 40)
+    ["(s (s z)) -> (cons z (s (s z)))", "(s (s z)) -> (cons (s z) (s z))",
+      "(s (s z)) -> (cons (s (s z)) z)"]
 
--- The answers are the same from both ends, swapped.
-#guard (traceR005 (R005.sepFam 2).1 (R005.sepFam 2).2 3).map (·.map showSpan) ==
-  [["$1 -> c"], []]
-#guard (traceR005 (R005.sepFam 2).1.dual (R005.sepFam 2).2.dual 3).map (·.map showSpan) ==
-  [["c -> $1"], []]
+/-! ## Conformance case 1: left recursion keeps its answers, and halts in a fixed mode -/
+
+#guard engines.all fun E => contains (runE E (prog [("lr", lr)]) (.call "lr") 26) zs
+#guard engines.all fun E =>
+  contains (runE E (prog [("lr", lr)]) (.seq (.at_ (c "z")) (.call "lr")) 26) zs
+#guard engines.all fun E =>
+  exact (runE E (prog [("lr", lr)]) (.seq (.call "lr") (.at_ (num 2))) 40) ["z -> (s (s z))"]
+-- `lr` and `lr ; [$q -> $q]` have the same answers.
+#guard engines.all fun E =>
+  contains (runE E (prog [("lr", lr)]) (.seq (.call "lr") (.rw (v 0) (v 0))) 30) zs
+
+/-! ## Conformance case 5: a finite conjunct restricts the other -/
+
+#guard engines.all fun E => exact (runE E natP (.and (.rw (c "b") (c "a")) (.call "nat")) 40) []
+#guard engines.all fun E => exact (runE E natP (.and (.call "nat") (.rw (c "b") (c "a"))) 40) []
+#guard engines.all fun E =>
+  exact (runE E natP (.and (.rw (num 1) (num 1)) (.call "nat")) 40) ["(s z) -> (s z)"]
+#guard engines.all fun E => exact (runE E natP (.and (.rw (num 1) (num 0)) (.call "nat")) 40) []
+
+/-! ## Conformance case 6: recursion beside an infinite branch still fires -/
+
+def callP : Program := prog [("up", up), ("call_first", callFirst), ("call_last", callLast)]
+
+#guard engines.all fun E =>
+  contains (runE E callP (.call "call_first") 24) ["a -> a", "a -> b", "z -> (s (s (s z)))"]
+#guard engines.all fun E =>
+  contains (runE E callP (.call "call_last") 24) ["a -> a", "a -> b", "z -> (s (s (s z)))"]
+
+/-! ## Conformance case 7: the order of `|` does not decide when an answer arrives
+
+The members of a union are a set in the normal form, so two queries that
+differ in the order or the grouping of `|` are the same node, and the run is
+the same run. -/
+
+#guard engines.all fun E =>
+  traceE E (prog [("up", up)])
+      (.or (.rw (c "a") (c "b")) (.or (.at_ (c "a")) (.seq (.at_ (c "z")) (.call "up")))) 12 ==
+    traceE E (prog [("up", up)])
+      (.or (.or (.seq (.at_ (c "z")) (.call "up")) (.at_ (c "a"))) (.rw (c "a") (c "b"))) 12
+
+/-! ## An empty side makes `;` and `&` fail finitely, in either position -/
+
+def loopNat : Program := prog [("nat", nat), ("loop", .call "loop")]
+
+#guard engines.all fun E => exact (runE E loopNat (.seq (.call "nat") (.call "loop")) 30) []
+#guard engines.all fun E => exact (runE E loopNat (.seq (.call "loop") (.call "nat")) 30) []
+#guard engines.all fun E => exact (runE E loopNat (.and (.call "nat") (.call "loop")) 30) []
+#guard engines.all fun E => exact (runE E loopNat (.and (.call "loop") (.call "nat")) 30) []
+
+/-! ## Queries the Rust interpreter diverges on -/
+
+/-- `rel upr { $x -> $x | [$x -> (s $x) ; upr] }` -/
+def upr : Rel := .or (.rw (v 0) (v 0)) (.seq (.rw (v 0) (ap "s" [v 0])) (.call "upr"))
+
+#guard engines.all fun E =>
+  exact (runE E (prog [("upr", upr)]) (.seq (.call "upr") (.at_ (c "foo"))) 40) ["foo -> foo"]
+#guard engines.all fun E =>
+  exact (runE E (prog [("upr", upr)]) (.seq (.at_ (c "z")) (.seq (.call "upr") (.at_ (c "foo")))) 40)
+    []
+#guard engines.all fun E =>
+  exact (runE E (prog [("lr", lr)]) (.seq (.at_ (num 1)) (.seq (.call "lr") (.at_ (c "z")))) 40) []
+
+/-! ## The three evaluations of the unfolding agree
+
+Whether the unfolding of a goal to a depth is final, and its answers when it
+is, as the whole unfolding, each walk and the shared evaluation say. -/
+
+open Tabled Tabled.Unfold in
+/-- The answer of an unfolding race at the kernel of spans as written. -/
+def askRace (U : Tabled.Unfolder) (P : Program) (q : Rel) (lb rb : Option Span) (d : Nat) :
+    Bool × List String :=
+  let r := (@U Span Rel (Ans Domain.written P) Cost (DerivationKernel.std P) d ⟨lb, q.norm, rb⟩).val
+  (r.1, r.2.map fun a => showSpan a.span)
+
+open Tabled.Unfold in
+def races : List Tabled.Unfolder := [eagerRace, walkRace false, walkRace true, sharedRace, raced]
+
+/-- All the races say the same of the goal at every depth below `n`. -/
+def agree (P : Program) (q : Rel) (lb rb : Option Span) (n : Nat) : Bool :=
+  (List.range n).all fun d =>
+    let ref := askRace Tabled.Unfold.eagerRace P q lb rb d
+    races.all fun U =>
+      let r := askRace U P q lb rb d
+      r.1 == ref.1 && r.2.all (· ∈ ref.2) && ref.2.all (· ∈ r.2)
+
+def atom (t : Pat) : Option Span := some ⟨t, t, []⟩
+
+#guard agree addP (.call "add") none none 9
+#guard agree addP (.call "add") (atom (ap "cons" [num 2, num 1])) none 12
+#guard agree addP (.call "add") none (atom (num 2)) 12
+#guard agree addP (.conv (.call "add")) (atom (num 2)) none 12
+#guard agree natP (.and (.rw (num 1) (num 1)) (.call "nat")) none none 9
+#guard agree natP (.seq (.call "nat") (.and (.call "nat") (.rw (v 0) (v 0)))) (atom (num 1)) none 9
+#guard agree natP (.seq (.and (.call "nat") (.rw (v 0) (v 0))) (.call "nat")) none (atom (num 1)) 9
+#guard agree callP (.call "call_first") none none 8
+#guard agree (prog [("upr", upr)]) (.seq (.call "upr") (.at_ (c "foo"))) (atom (c "z")) none 10
+-- A meet of three: two members with no pair in common beside one that is
+-- never read whole. Every evaluation says the same of it, wherever the open
+-- member stands among the members.
+#guard agree natP
+  (.and (.rw (c "a") (c "a")) (.and (.rw (c "b") (c "b")) (.call "nat"))) none none 6
+#guard agree natP
+  (.and (.or (.rw (c "a") (c "a")) (.rw (c "a") (c "c")))
+    (.and (.or (.rw (c "b") (c "b")) (.rw (c "b") (c "c"))) (.call "nat"))) none none 6
+#guard agree natP
+  (.and (.rw (c "a") (c "a"))
+    (.and (.rw (c "b") (c "b")) (.or (.call "nat") (.rw (c "q") (c "q"))))) none none 6
+#guard agree natP
+  (.and (.or (.rw (c "a") (c "a")) (.rw (c "a") (c "c")))
+    (.and (.or (.rw (c "b") (c "b")) (.rw (c "b") (c "c")))
+      (.or (.call "nat") (.rw (c "q") (c "q"))))) none none 6
+#guard agree natP
+  (.seq (.rw (v 0) (v 0))
+    (.and (.rw (c "a") (c "a")) (.and (.rw (c "b") (c "b")) (.call "nat")))) (atom (c "a")) none 6
+-- The unfolding of a goal that is final at some depth is final from there on.
+#guard (askRace Tabled.Unfold.eagerRace addP (.call "add") (atom (ap "cons" [num 2, num 1])) none 11)
+  == (true, ["(cons (s (s z)) (s z)) -> (s (s (s z)))"])
+
+/-! ## The stated lower bounds, on small inputs
+
+`R005.MidLower` and `R005.FreeLower` (`Rungs/R005/Bounds.lean`) are stated
+and not proved. These checks run them: at the first step by which R005 has
+emitted the answer, each run of R004 has cost at least `2 ^ k`, and so has
+R005. -/
+
+/-- The first step, within `fuel`, by which R005 has emitted the answer shown
+as `ans`. -/
+def firstStep (P : Program) (q : Rel) (ans : String) (fuel : Nat) : Option Nat :=
+  (List.range (fuel + 1)).find? fun n => ans ∈ (runE R005.engine P q n).1
+
+/-- At the first step by which R005 has emitted `ans`: the step, what the run
+of R004 on the node has cost, what the run on its converse has cost, and what
+R005 has paid. -/
+def lowerRow (P : Program) (q : Rel) (ans : String) (fuel : Nat) :
+    Option (Nat × Nat × Nat × Nat) :=
+  (firstStep P q ans fuel).map fun n =>
+    (n, Mirror.cost (R004.engine.stepW P) (R004.engine.startW P q.norm) n,
+      Mirror.cost (R004.engine.stepW P) (R004.engine.startW P q.norm.normConv) n,
+      paidE R005.engine P q n)
+
+/-- The row is there, and every cost in it is at least `lo`. -/
+def atLeast (lo : Nat) (row : Option (Nat × Nat × Nat × Nat)) : Bool :=
+  row.any fun r => lo ≤ r.2.1 && lo ≤ r.2.2.1 && lo ≤ r.2.2.2
+
+#guard (List.range 5).all fun k => atLeast (2 ^ k) (lowerRow empty (R005.mid k) "$0 -> z" 12)
+#guard (List.range 5).all fun k =>
+  atLeast (2 ^ k) (lowerRow (R005.freeProg k) R005.freeRel "a -> a" 8)
+
+-- The answer of the free family arrives in the fourth round, and the costs
+-- more than double with each step of `k`.
+#guard (List.range 5).all fun k =>
+  (lowerRow (R005.freeProg k) R005.freeRel "a -> a" 8).any fun r => r.1 == 4
+#guard (List.range 4).all fun k =>
+  match lowerRow (R005.freeProg k) R005.freeRel "a -> a" 8,
+    lowerRow (R005.freeProg (k + 1)) R005.freeRel "a -> a" 8 with
+  | some a, some b => 2 * a.2.1 < b.2.1 && 2 * a.2.2.1 < b.2.2.1
+  | _, _ => false
+
+-- With the answer written in the query it arrives in the third round, before
+-- the table of the free factor asks the race, and neither run has cost
+-- `2 ^ k` by then.
+#guard (lowerRow (R005.freeProg 12) R005.freeRelWritten "a -> a" 8).any fun r =>
+  r.1 == 3 && r.2.1 < 700 && r.2.2.1 < 700
 
 end RwLog.Tests

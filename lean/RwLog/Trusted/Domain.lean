@@ -38,9 +38,10 @@ representatives and a domain for the sorts of each program
   relates no pair. There is no separate simplification: every operation
   returns a representative.
 * `rightBound a`: the right interface of `a` as a boundary, a representative
-  that relates a term only to itself and relates to itself every right end
-  of a pair of `a`. Nothing stands for the identity, the boundary that does
-  not restrict. `leftBound a` is the right interface of the converse.
+  that relates a term only to itself and relates to itself exactly the right
+  ends of the pairs of `a`. Nothing stands for the identity, the boundary
+  that does not restrict, and is the interface only when every term is a
+  right end. `leftBound a` is the right interface of the converse.
 * `isBound b`: `b` relates a term only to itself, so it may be a boundary.
 * `covers a b`: `a` relates every pair `b` relates.
 
@@ -57,6 +58,11 @@ of a program's sorts. Every law is unconditional.
   exactly when their canonical forms are equal.
 * Each operation returns the representative of what it names (`rep_some`,
   `compose_some`, `meet_some`, `covers_iff`).
+* An interface is exact (`rightBound_mem`, `rightBound_end`,
+  `rightBound_none`): it relates to itself the right ends of the pairs and
+  nothing else. So a goal restricted to the interface of an answer is
+  restricted to nothing the answer does not reach, and what an engine does
+  with it does not depend on the end a query was written from.
 
 Together these give every algebraic law as an equation between
 representatives, with no relation "up to" anything: the converse is an
@@ -128,6 +134,11 @@ structure Lawful (D : Domain R) (M : Interp) : Prop where
   /-- The right interface relates to itself every right end of a pair. -/
   rightBound_mem : ∀ a b : R, D.rightBound a = some b →
     ∀ x y, (x, y) ∈ Answer.den M a → (y, y) ∈ Answer.den M b
+  /-- The right interface relates only right ends of a pair: it is exact. -/
+  rightBound_end : ∀ a b : R, D.rightBound a = some b →
+    ∀ p ∈ Answer.den M b, ∃ x, (x, p.1) ∈ Answer.den M a
+  /-- With no right interface, every term is a right end of a pair. -/
+  rightBound_none : ∀ a : R, D.rightBound a = none → ∀ z, ∃ x, (x, z) ∈ Answer.den M a
   /-- Coverage is decided. -/
   covers_iff : ∀ a b : R, D.covers a b = true ↔ Answer.den M b ⊆ Answer.den M a
 

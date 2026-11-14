@@ -9,6 +9,8 @@ budget `x` is tried first.
 * `race_val`: its result is the result of `x` or of `y`.
 * `race_ticks`: it spends at most 7 times what the cheaper of the two needs.
 * `le_race_ticks`: it spends at least what the cheaper of the two needs.
+* `race_peak_le`, `race_held`: it never has more cells live than the hungrier
+  of the two alone, and leaves live what the side it returns leaves live.
 
 Let `m` be the smaller of the two costs. A budget `b < m` fails twice and
 costs `2 b`; the first budget `b ≥ m` costs at most `b + m`. The budgets
@@ -25,12 +27,12 @@ namespace Cost
 
 variable {α : Type}
 
-/-- One budget of the race, spelled out. -/
-theorem raceFrom_eq (x y : Cost α) (b : Nat) :
-    raceFrom x y b =
-      if x.ticks ≤ b then ⟨x.val, x.ticks⟩
-      else if y.ticks ≤ b then ⟨y.val, b + y.ticks⟩
-      else ⟨(raceFrom x y (2 * b + 1)).val, b + (b + (raceFrom x y (2 * b + 1)).ticks)⟩ := by
+/-- One budget of the race, spelled out: what it returns. -/
+theorem raceFrom_val_eq (x y : Cost α) (b : Nat) :
+    (raceFrom x y b).val =
+      if x.ticks ≤ b then x.val
+      else if y.ticks ≤ b then y.val
+      else (raceFrom x y (2 * b + 1)).val := by
   rw [raceFrom]
   by_cases hx : x.ticks ≤ b
   · simp [withinP, within, hx, bind, pure]
@@ -38,10 +40,51 @@ theorem raceFrom_eq (x y : Cost α) (b : Nat) :
     · simp [withinP, within, hx, hy, bind, pure]
     · simp [withinP, within, hx, hy, bind]
 
+/-- One budget of the race, spelled out: what it spends. -/
+theorem raceFrom_ticks_eq (x y : Cost α) (b : Nat) :
+    (raceFrom x y b).ticks =
+      if x.ticks ≤ b then x.ticks
+      else if y.ticks ≤ b then b + y.ticks
+      else b + (b + (raceFrom x y (2 * b + 1)).ticks) := by
+  rw [raceFrom]
+  by_cases hx : x.ticks ≤ b
+  · simp [withinP, within, hx, bind, pure]
+  · by_cases hy : y.ticks ≤ b
+    · simp [withinP, within, hx, hy, bind, pure]
+    · simp [withinP, within, hx, hy, bind]
+
+/-- One budget of the race, spelled out: the cells it leaves live. A side
+that was given up on leaves none. -/
+theorem raceFrom_held_eq (x y : Cost α) (b : Nat) :
+    (raceFrom x y b).held =
+      if x.ticks ≤ b then x.held
+      else if y.ticks ≤ b then y.held
+      else (raceFrom x y (2 * b + 1)).held := by
+  rw [raceFrom]
+  by_cases hx : x.ticks ≤ b
+  · simp [withinP, within, hx, bind, pure]
+  · by_cases hy : y.ticks ≤ b
+    · simp [withinP, within, hx, hy, bind, pure]
+    · simp [withinP, within, hx, hy, bind]
+
+/-- One budget of the race, spelled out: the most cells live at one moment. A
+side that was given up on had at most its own peak live and left nothing. -/
+theorem raceFrom_peak_eq (x y : Cost α) (b : Nat) :
+    (raceFrom x y b).peak =
+      if x.ticks ≤ b then x.peak
+      else if y.ticks ≤ b then max (min b x.peak) y.peak
+      else max (min b x.peak) (max (min b y.peak) (raceFrom x y (2 * b + 1)).peak) := by
+  rw [raceFrom]
+  by_cases hx : x.ticks ≤ b
+  · simp [withinP, within, hx, bind, pure, x.held_le]
+  · by_cases hy : y.ticks ≤ b
+    · simp [withinP, within, hx, hy, bind, pure, y.held_le]
+    · simp [withinP, within, hx, hy, bind]
+
 theorem raceFrom_val (x y : Cost α) : ∀ (n b : Nat), x.ticks - b ≤ n →
     (raceFrom x y b).val = x.val ∨ (raceFrom x y b).val = y.val
   | n, b, hn => by
-    rw [raceFrom_eq]
+    rw [raceFrom_val_eq]
     by_cases hx : x.ticks ≤ b
     · simp [hx]
     · by_cases hy : y.ticks ≤ b
@@ -57,7 +100,7 @@ theorem raceFrom_ticks (x y : Cost α) : ∀ (n b : Nat), x.ticks - b ≤ n →
     b + 1 ≤ 2 * min x.ticks y.ticks →
     (raceFrom x y b).ticks + 2 * b + 3 ≤ 7 * min x.ticks y.ticks
   | n, b, hn, hb => by
-    rw [raceFrom_eq]
+    rw [raceFrom_ticks_eq]
     by_cases hx : x.ticks ≤ b
     · simp only [hx, ite_true]; omega
     · by_cases hy : y.ticks ≤ b
@@ -80,7 +123,7 @@ theorem race_ticks (x y : Cost α) : (race x y).ticks ≤ 7 * min x.ticks y.tick
     unfold race
     omega
   · unfold race
-    rw [raceFrom_eq]
+    rw [raceFrom_ticks_eq]
     by_cases hx : x.ticks ≤ 0
     · simp only [hx, ite_true]; omega
     · have hy : y.ticks ≤ 0 := by omega
@@ -90,7 +133,7 @@ theorem race_ticks (x y : Cost α) : (race x y).ticks ≤ 7 * min x.ticks y.tick
 theorem le_raceFrom_ticks {α : Type} (x y : Cost α) : ∀ (n b : Nat), x.ticks - b ≤ n →
     min x.ticks y.ticks ≤ (raceFrom x y b).ticks
   | n, b, hn => by
-    rw [raceFrom_eq]
+    rw [raceFrom_ticks_eq]
     by_cases hx : x.ticks ≤ b
     · simp only [hx, ite_true]; omega
     · by_cases hy : y.ticks ≤ b
@@ -105,6 +148,51 @@ theorem le_raceFrom_ticks {α : Type} (x y : Cost α) : ∀ (n b : Nat), x.ticks
 theorem le_race_ticks {α : Type} (x y : Cost α) : min x.ticks y.ticks ≤ (race x y).ticks :=
   le_raceFrom_ticks x y x.ticks 0 (by omega)
 
+/-! ## What it holds -/
+
+theorem raceFrom_peak_le (x y : Cost α) : ∀ (n b : Nat), x.ticks - b ≤ n →
+    (raceFrom x y b).peak ≤ max x.peak y.peak
+  | n, b, hn => by
+    rw [raceFrom_peak_eq]
+    by_cases hx : x.ticks ≤ b
+    · simp only [hx, ite_true]; exact le_max_left _ _
+    · by_cases hy : y.ticks ≤ b
+      · simp only [hx, hy, ite_true, ite_false]
+        exact max_le_max (min_le_right _ _) le_rfl
+      · simp only [hx, hy, ite_false]
+        match n, hn with
+        | 0, hn => omega
+        | n + 1, hn =>
+          have := raceFrom_peak_le x y n (2 * b + 1) (by omega)
+          have h₁ : min b x.peak ≤ max x.peak y.peak := (min_le_right _ _).trans (le_max_left _ _)
+          have h₂ : min b y.peak ≤ max x.peak y.peak := (min_le_right _ _).trans (le_max_right _ _)
+          exact max_le h₁ (max_le h₂ this)
+
+/-- A race never has more cells live than the hungrier of the two alone:
+each attempt that is given up on is rolled back. -/
+theorem race_peak_le (x y : Cost α) : (race x y).peak ≤ max x.peak y.peak :=
+  raceFrom_peak_le x y x.ticks 0 (by omega)
+
+theorem raceFrom_held (x y : Cost α) : ∀ (n b : Nat), x.ticks - b ≤ n →
+    ((raceFrom x y b).val = x.val ∧ (raceFrom x y b).held = x.held) ∨
+      ((raceFrom x y b).val = y.val ∧ (raceFrom x y b).held = y.held)
+  | n, b, hn => by
+    rw [raceFrom_val_eq, raceFrom_held_eq]
+    by_cases hx : x.ticks ≤ b
+    · simp [hx]
+    · by_cases hy : y.ticks ≤ b
+      · simp [hx, hy]
+      · simp only [hx, hy, ite_false]
+        match n, hn with
+        | 0, hn => omega
+        | n + 1, hn => exact raceFrom_held x y n (2 * b + 1) (by omega)
+
+/-- A race leaves live what the side it returns leaves live. -/
+theorem race_held (x y : Cost α) :
+    ((race x y).val = x.val ∧ (race x y).held = x.held) ∨
+      ((race x y).val = y.val ∧ (race x y).held = y.held) :=
+  raceFrom_held x y x.ticks 0 (by omega)
+
 /-! ## Which of the two finished -/
 
 theorem raceFrom_cases {α : Type} (x y : Cost α) : ∀ (n b : Nat), x.ticks - b ≤ n →
@@ -112,7 +200,7 @@ theorem raceFrom_cases {α : Type} (x y : Cost α) : ∀ (n b : Nat), x.ticks - 
     ((raceFrom x y b).val = x.val ∧ x.ticks ≤ 2 * y.ticks) ∨
       ((raceFrom x y b).val = y.val ∧ y.ticks < x.ticks)
   | n, b, hn, hb => by
-    rw [raceFrom_eq]
+    rw [raceFrom_val_eq]
     by_cases hx : x.ticks ≤ b
     · exact .inl ⟨by simp only [hx, ite_true], by omega⟩
     · by_cases hy : y.ticks ≤ b
@@ -138,7 +226,8 @@ theorem raceFrom_sim {α β : Type} (x y : Cost α) (x' y' : Cost β) (hx : x'.t
       (((raceFrom x y b).val = x.val ∧ (raceFrom x' y' b).val = x'.val) ∨
         ((raceFrom x y b).val = y.val ∧ (raceFrom x' y' b).val = y'.val))
   | n, b, hn => by
-    rw [raceFrom_eq x y, raceFrom_eq x' y', hx, hy]
+    rw [raceFrom_val_eq x y, raceFrom_val_eq x' y', raceFrom_ticks_eq x y, raceFrom_ticks_eq x' y',
+      hx, hy]
     by_cases h1 : x.ticks ≤ b
     · simp only [h1, ite_true]
       exact ⟨trivial, .inl ⟨trivial, trivial⟩⟩

@@ -601,6 +601,8 @@ theorem dom_lawful (hS : S.WellFormed) : (dom S).Lawful S.interp where
     have hb : b.1.rel S = _ := Rep.mk?_some (dom_rightBound a ▸ h)
     show (y, y) ∈ b.1.rel S
     rw [hb]; exact ⟨rfl, x, hxy⟩
+  rightBound_end := dom_rightBound_end
+  rightBound_none := dom_rightBound_none
   covers_iff a b := by
     show decide (a.meet b = some b) = true ↔ b.1.rel S ⊆ a.1.rel S
     rw [decide_eq_true_eq, Rep.meet_eq]
