@@ -85,8 +85,8 @@ Rungs/Symmetric/ the symmetric engine of `SYMMETRIC_ENGINE.md` (Machine.lean): a
                 request (Turns.lean, `Req`, `req_request`): the groups of a table change
                 in its own round only, where each strategy moves on, a group all of whose
                 checks are dead is removed, and one group works with the tables it reads
-                settled (`Turn`); the groups a goal begins with have a span, a call, a
-                union or a join in every group but the last (`shaped_expand`); a table
+                settled (`Turn`); of the groups a goal begins with one has a span, a call, a
+                union or a join, and one that has none is all checks (`shaped_expand`); a table
                 marked complete has a strategy with nothing left to do that reads complete
                 tables only; and an edge is read in the end, from a depth that the node
                 and the program give (ReadLive.lean, `readEdge_some`). Not proved yet: the

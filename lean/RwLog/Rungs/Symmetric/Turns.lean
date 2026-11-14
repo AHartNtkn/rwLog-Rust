@@ -31,8 +31,8 @@ request is `Req` (`req_request`): the same, across the change of the number
 of the request and the marking of the tables that complete together.
 
 `Shaped` is the shape of the groups a goal begins with (`shaped_expand`):
-every group but the last has a span, a call, a union or a join, so the only
-group a round can remove is the last.
+one group has a span, a call, a union or a join, and a group that has none
+is all interface checks. A round keeps the shape (`Turn.shaped`).
 -/
 import RwLog.Rungs.Symmetric.Kept
 import RwLog.Rungs.Symmetric.ReadLive
@@ -489,11 +489,16 @@ def Strat.lead : Strat N A → Bool
   | .join _ _ _ _ => true
   | _ => false
 
+/-- An interface check. -/
+def Strat.isCheck : Strat N A → Bool
+  | .check _ _ _ _ => true
+  | _ => false
+
 /-- The shape of the groups of a table: one of them has a span, a call, a
-union or a join, and only the last can be without one. -/
+union or a join, and one that has none is all interface checks. -/
 def Shaped (gs : List (Group N A)) : Prop :=
   (∃ gr ∈ gs, ∃ s ∈ gr.strats, s.lead = true) ∧
-    ∀ gr ∈ gs.dropLast, ∃ s ∈ gr.strats, s.lead = true
+    ∀ gr ∈ gs, (∃ s ∈ gr.strats, s.lead = true) ∨ ∀ s ∈ gr.strats, s.isCheck = true
 
 /-- The groups of a table before its round (`go`, nothing if this is its
 first) and after it (`go'`). -/
@@ -546,20 +551,85 @@ theorem shaped_all {gs : List (Group N A)} (hne : gs ≠ [])
   cases gs with
   | nil => exact absurd rfl hne
   | cons gr gs =>
-    exact ⟨⟨gr, List.mem_cons_self, h gr List.mem_cons_self⟩,
-      fun gr' hk => h gr' (List.mem_of_mem_dropLast hk)⟩
+    exact ⟨⟨gr, List.mem_cons_self, h gr List.mem_cons_self⟩, fun gr' hk => .inl (h gr' hk)⟩
 
 theorem shaped_of {gs : List (Group N A)} {c : Prop}
     (h : (∀ gr ∈ gs, ∃ s ∈ gr.strats, s.lead = true) ∧ (c → gs ≠ [])) (hc : c) : Shaped gs :=
   shaped_all (h.2 hc) h.1
 
 theorem shaped_snoc {gs : List (Group N A)} (hne : gs ≠ [])
-    (h : ∀ gr ∈ gs, ∃ s ∈ gr.strats, s.lead = true) (last : Group N A) :
-    Shaped (gs ++ [last]) := by
-  obtain ⟨⟨gr, hgr, hl⟩, -⟩ := shaped_all hne h
-  refine ⟨⟨gr, List.mem_append_left _ hgr, hl⟩, fun gr' hk => ?_⟩
-  rw [List.dropLast_concat] at hk
-  exact h gr' hk
+    (h : ∀ gr ∈ gs, ∃ s ∈ gr.strats, s.lead = true) (last : Group N A)
+    (hl : ∀ s ∈ last.strats, s.isCheck = true) : Shaped (gs ++ [last]) := by
+  obtain ⟨⟨gr, hgr, hlead⟩, -⟩ := shaped_all hne h
+  refine ⟨⟨gr, List.mem_append_left _ hgr, hlead⟩, fun gr' hk => ?_⟩
+  rcases List.mem_append.1 hk with hk | hk
+  · exact .inl (h gr' hk)
+  · obtain rfl := List.mem_singleton.1 hk
+    exact .inr hl
+
+theorem SAdv.lead {len : Nat → Nat} {s s' : Strat N A} (h : SAdv len s s') :
+    s'.lead = s.lead := by
+  cases h <;> rfl
+
+theorem SAdv.isCheck {len : Nat → Nat} {s s' : Strat N A} (h : SAdv len s s') :
+    s'.isCheck = s.isCheck := by
+  cases h <;> rfl
+
+theorem lead_not_dead (st : StateOf S N A) {s : Strat N A} (h : s.lead = true) :
+    s.dead st = false := by
+  cases s <;> first | rfl | cases h
+
+/-- **A round keeps the shape of the groups**, and leaves the table with
+groups. -/
+theorem Turn.shaped {st st' : StateOf S N A} {go go' : Option (List (Group N A))}
+    (h : Turn need st st' go go') (hs : ∀ gs, go = some gs → Shaped gs) :
+    ∃ gs', go' = some gs' ∧ Shaped gs' := by
+  obtain ⟨gs0, gs1, p, h1, h2, h3, h4, -⟩ := h
+  have h0 : Shaped gs0 := by
+    cases hg : go with
+    | none => exact h2 hg
+    | some gs => rw [← h1 gs hg]; exact hs gs hg
+  have hl : ∀ gr0 gr1 : Group N A, GrAdv st.len gr0 gr1 → (∃ s ∈ gr0.strats, s.lead = true) →
+      ∃ s ∈ gr1.strats, s.lead = true := by
+    rintro gr0 gr1 ha ⟨s, hs0, hlead⟩
+    obtain ⟨m, hm, rfl⟩ := List.getElem_of_mem hs0
+    obtain ⟨s1, hs1, hadv⟩ := Pointwise.get ha (List.getElem?_eq_getElem hm)
+    exact ⟨s1, List.mem_of_getElem? hs1, by rw [hadv.lead]; exact hlead⟩
+  have hc : ∀ gr0 gr1 : Group N A, GrAdv st.len gr0 gr1 → (∀ s ∈ gr0.strats, s.isCheck = true) →
+      ∀ s ∈ gr1.strats, s.isCheck = true := by
+    intro gr0 gr1 ha hall s1 hs1
+    obtain ⟨m, hm, rfl⟩ := List.getElem_of_mem hs1
+    obtain ⟨s0, hs0, hadv⟩ := Pointwise.get' ha (List.getElem?_eq_getElem hm)
+    rw [hadv.isCheck]
+    exact hall s0 (List.mem_of_getElem? hs0)
+  have hsh : Shaped (gs1.filter p) := by
+    obtain ⟨⟨gr0, hgr0, hlead⟩, hall⟩ := h0
+    constructor
+    · obtain ⟨m, hm, rfl⟩ := List.getElem_of_mem hgr0
+      obtain ⟨gr1, hgr1, hr⟩ := Pointwise.get h4 (List.getElem?_eq_getElem hm)
+      obtain ⟨s1, hs1, hl1⟩ := hl _ _ hr.1 hlead
+      refine ⟨gr1, List.mem_filter.2 ⟨List.mem_of_getElem? hgr1, ?_⟩, s1, hs1, hl1⟩
+      cases hp : p gr1 with
+      | true => rfl
+      | false =>
+        have := hr.2.2 hp s1 hs1
+        rw [lead_not_dead st' hl1] at this
+        cases this
+    · intro gr1 hgr1
+      obtain ⟨m, hm, rfl⟩ := List.getElem_of_mem (List.mem_filter.1 hgr1).1
+      obtain ⟨gr0, hgr0, hr⟩ := Pointwise.get' h4 (List.getElem?_eq_getElem hm)
+      rcases hall gr0 (List.mem_of_getElem? hgr0) with h | h
+      · exact .inl (hl _ _ hr.1 h)
+      · exact .inr (hc _ _ hr.1 h)
+  cases hg' : go' with
+  | none =>
+    rw [hg'] at h3
+    obtain ⟨⟨gr, hgr, -⟩, -⟩ := hsh
+    rw [← h3] at hgr
+    simp at hgr
+  | some gs' =>
+    rw [hg'] at h3
+    exact ⟨gs', rfl, by rw [show gs' = gs1.filter p from h3]; exact hsh⟩
 
 theorem mem_levelsOf {gs : List (Group N A)} {lv : Nat} (h : lv ∈ levelsOf gs) :
     ∃ gr ∈ gs, gr.level = lv := by
@@ -1100,46 +1170,71 @@ theorem lead_splitGroup (k : Kind) (L Rg : GoalOf R Rel) (st : StateOf R Rel (An
   simp only [splitGroup, Cost.bind_val, Cost.pure_val]
   exact ⟨_, List.mem_cons_self, rfl⟩
 
-/-- A chain goal has a group for each of its splits, and it has a split. -/
+theorem check_checkOf (st : StateOf R Rel (Ans D P)) (left : Bool) (side other : Rel) :
+    ∀ s ∈ (checkOf (K := DerivationKernel.over D K hK P) st left side other).val.2,
+      s.isCheck = true := by
+  at_cost K hK
+  simp only [checkOf, Cost.bind_val, Cost.pure_val]
+  intro s hs
+  split at hs
+  · cases hs
+  · obtain rfl := List.mem_singleton.1 hs
+    rfl
+
+/-- A chain goal has a group for each of its splits, it has a split, and its
+interface checks are checks. -/
 theorem lead_chainGroups (g : GoalOf R Rel) (st : StateOf R Rel (Ans D P))
     (hn : Normal g.node) {xs : List Rel} (hvc : g.node.view = .chain xs) :
     (∀ gr ∈ (chainGroups (K := DerivationKernel.over D K hK P) g xs.length st).val.2.1,
       ∃ s ∈ gr.strats, s.lead = true) ∧
-    (chainGroups (K := DerivationKernel.over D K hK P) g xs.length st).val.2.1 ≠ [] := by
+    (chainGroups (K := DerivationKernel.over D K hK P) g xs.length st).val.2.1 ≠ [] ∧
+    ∀ s ∈ (chainGroups (K := DerivationKernel.over D K hK P) g xs.length st).val.2.2,
+      s.isCheck = true := by
   have h2 := (hn.view_chain hvc).1
   have hsp := hn.chain_split hvc (i := 1) (by omega) (by omega)
   have hlead := fun k L Rg st => lead_splitGroup (K := K) (hK := hK) (P := P) k L Rg st
+  have hchk := fun st left side other =>
+    check_checkOf (K := K) (hK := hK) (P := P) st left side other
   have key : (∀ gr ∈ (chainGroups (K := DerivationKernel.over D K hK P) g xs.length st).val.2.1,
       ∃ s ∈ gr.strats, s.lead = true) ∧
       (1 ∈ (List.range xs.length).drop 1 →
-        (chainGroups (K := DerivationKernel.over D K hK P) g xs.length st).val.2.1 ≠ []) := by
+        (chainGroups (K := DerivationKernel.over D K hK P) g xs.length st).val.2.1 ≠ []) ∧
+      ∀ s ∈ (chainGroups (K := DerivationKernel.over D K hK P) g xs.length st).val.2.2,
+        s.isCheck = true := by
     at_cost K hK
     refine foldL_done (fun done (acc : StateOf R Rel (Ans D P) × List (Group Rel (Ans D P)) ×
         List (Strat Rel (Ans D P))) =>
-      (∀ gr ∈ acc.2.1, ∃ s ∈ gr.strats, s.lead = true) ∧ (1 ∈ done → acc.2.1 ≠ []))
-      _ _ (fun done b i _ hb => ?_) (st, [], []) ⟨(fun gr hgr => by cases hgr), fun h => by cases h⟩
+      (∀ gr ∈ acc.2.1, ∃ s ∈ gr.strats, s.lead = true) ∧ (1 ∈ done → acc.2.1 ≠ []) ∧
+        ∀ s ∈ acc.2.2, s.isCheck = true)
+      _ _ (fun done b i _ hb => ?_) (st, [], [])
+      ⟨(fun gr hgr => by cases hgr), (fun h => by cases h), fun s hs => by cases hs⟩
     simp only [Cost.bind_val]
     split
     · next l r hl hr =>
       simp only [Cost.bind_val, Cost.pure_val]
-      refine ⟨fun gr hgr => ?_, fun _ => by simp⟩
-      rcases List.mem_append.1 hgr with hgr | hgr
-      · exact hb.1 gr hgr
-      · obtain rfl := List.mem_singleton.1 hgr
-        exact hlead _ _ _ _
+      refine ⟨fun gr hgr => ?_, (fun _ => by simp), fun s hs => ?_⟩
+      · rcases List.mem_append.1 hgr with hgr | hgr
+        · exact hb.1 gr hgr
+        · obtain rfl := List.mem_singleton.1 hgr
+          exact hlead _ _ _ _
+      · rcases List.mem_append.1 hs with hs | hs
+        · rcases List.mem_append.1 hs with hs | hs
+          · exact hb.2.2 s hs
+          · exact hchk _ _ _ _ s hs
+        · exact hchk _ _ _ _ s hs
     · next hno =>
-      refine ⟨hb.1, fun h1 => ?_⟩
+      refine ⟨hb.1, fun h1 => ?_, hb.2.2⟩
       rcases List.mem_append.1 h1 with h1 | h1
-      · exact hb.2 h1
+      · exact hb.2.1 h1
       · obtain rfl := List.mem_singleton.1 h1
         obtain ⟨-, l, r, hl, hr, -⟩ := hsp
         exact absurd hr (hno l r hl)
-  refine ⟨key.1, key.2 ?_⟩
+  refine ⟨key.1, key.2.1 ?_, key.2.2⟩
   rw [List.mem_drop_iff_getElem]
   exact ⟨0, by simp; omega, by simp⟩
 
 /-- **The groups a goal begins with are shaped**: one of them has a span, a
-call, a union or a join, and only the last can be without one. -/
+call, a union or a join, and one that has none is all interface checks. -/
 theorem shaped_expand (g : GoalOf R Rel) (st : StateOf R Rel (Ans D P)) (hn : Normal g.node) :
     Shaped (expand (K := DerivationKernel.over D K hK P) g st).val.2 := by
   have hch := fun xs hvc => lead_chainGroups (K := K) (hK := hK) (P := P) g st hn (xs := xs) hvc
@@ -1161,10 +1256,10 @@ theorem shaped_expand (g : GoalOf R Rel) (st : StateOf R Rel (Ans D P)) (hn : No
     exact one _ rfl
   · next xs hv =>
     simp only [Cost.bind_val, Cost.pure_val]
-    obtain ⟨h1, h2⟩ := hch xs (forget_chain hv)
+    obtain ⟨h1, h2, h3⟩ := hch xs (forget_chain hv)
     split
     · exact shaped_all h2 h1
-    · exact shaped_snoc h2 h1 _
+    · exact shaped_snoc h2 h1 _ h3
   · next xs hv =>
     have hvm := forget_meet hv
     have h2 := (hn.view_meet hvm).1
