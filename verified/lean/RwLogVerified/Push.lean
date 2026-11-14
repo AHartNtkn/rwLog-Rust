@@ -291,6 +291,12 @@ inductive Comes (S : Sorts) (n0 : Name) (p0 : Pat) : Name × Pat → Prop
       {a : Pat} : Comes S n0 p0 x → unspine x.2 [] = (.sym f, args) →
       Sorts.step S x.1 f args.length = some ks → (some m, a) ∈ ks.zip args → Comes S n0 p0 (m, a)
 
+/-- A step fails on the way: `push_sort` comes to a pair whose sort has no
+step on the symbol of its pattern. -/
+def Fails (S : Sorts) (n0 : Name) (p0 : Pat) : Prop :=
+  ∃ x f args, Comes S n0 p0 x ∧ unspine x.2 [] = (.sym f, args) ∧
+    Sorts.step S x.1 f args.length = none
+
 /-- Every instance in the sort asked about has the pair's pattern in the
 pair's sort, and `push_sort` comes to the pair. -/
 def Reach (S : Sorts) (n0 : Name) (p0 : Pat) (x : Name × Pat) : Prop :=
@@ -327,7 +333,8 @@ def PushInv (nm : Option Nat → Sym) (S : Sorts) (U : Finset (Name × Pat)) (n0
       if ok then
         (PFl nm s.nodes.val (tbl s .B) (n0, p0) ∨ POn nm s.nodes.val (stk s) (n0, p0)) ∧
         s.ticks.val + 1 + 3 * (stk s).length + owedP nm S s.nodes.val (tbl s .B) U ≤ B
-      else stk s = [] ∧ (∀ σ : Nat → GTerm, Sorts.mem S n0 (p0.bind σ) = false) ∧
+      else stk s = [] ∧
+        ((∀ σ : Nat → GTerm, Sorts.mem S n0 (p0.bind σ) = false) ∧ Fails S n0 p0) ∧
         s.ticks.val + 1 ≤ B
 
 /-- What the loop returns: the atoms an instance is in the sort exactly when
@@ -340,8 +347,9 @@ def PushPost (nm : Option Nat → Sym) (S : Sorts) (U : Finset (Name × Pat)) (n
         ∃ A : Sorts.Atoms, Repr nm s'.nodes.val atoms.val (encList (nm none) (A.map atomPat)) ∧
           A.Nodup ∧ (∀ a ∈ A, (a.2, Term.var a.1) ∈ U) ∧
           (∀ a, a ∈ A ↔ Comes S n0 p0 (a.2, .var a.1)) ∧
-          ∀ σ : Nat → GTerm, Sorts.mem S n0 (p0.bind σ) = true ↔ Sorts.Atoms.Holds S A σ
-      else ∀ σ : Nat → GTerm, Sorts.mem S n0 (p0.bind σ) = false
+          (∀ σ : Nat → GTerm, Sorts.mem S n0 (p0.bind σ) = true ↔ Sorts.Atoms.Holds S A σ) ∧
+          ¬ Fails S n0 p0
+      else (∀ σ : Nat → GTerm, Sorts.mem S n0 (p0.bind σ) = false) ∧ Fails S n0 p0
 
 def PushBodyPost (nm : Option Nat → Sym) (S : Sorts) (U : Finset (Name × Pat)) (n0 : Name)
     (p0 : Pat) (s0 : store.Store) (B : Nat) (t0 : Nat) :
@@ -410,7 +418,7 @@ theorem push_sort_body_spec (hnm : Function.Injective nm) (S : Sorts) {sp : Pat}
             subst hs'
             exact hall' _ _ hz
       refine ⟨A, by rw [e1]; exact hAr, hAn, fun a ha => (hAU a ha).1, fun a => ⟨fun ha =>
-        (hAU a ha).2.1.2, fun hc => ?_⟩, fun σ => ⟨?_, ?_⟩⟩
+        (hAU a ha).2.1.2, fun hc => ?_⟩, fun σ => ⟨?_, ?_⟩, ?_⟩
       · rcases hdone _ (hall _ hc) with ⟨v, e, hv⟩ | ⟨f, args, ks, hu, -, -⟩
         · simp only [Term.var.injEq] at e
           subst e
@@ -421,6 +429,14 @@ theorem push_sort_body_spec (hnm : Function.Injective nm) (S : Sorts) {sp : Pat}
       · intro hσ
         exact closed_holds (S := S) (fun x => PFl nm s.nodes.val (tbl s .B) x) A hdone σ hσ
           p0.size (n0, p0) (Nat.le_refl _) hrootF
+      · rintro ⟨x, f, args, hx, hu, hs⟩
+        rcases hdone _ (hall _ hx) with ⟨v, e, -⟩ | ⟨f', args', ks', hu', hs', -⟩
+        · rw [e] at hu; simp [unspine] at hu
+        · rw [hu] at hu'
+          simp only [Prod.mk.injEq, Term.sym.injEq] at hu'
+          obtain ⟨rfl, rfl⟩ := hu'
+          rw [hs] at hs'
+          cases hs'
   | cons f rest =>
     rw [hstk] at eo est
     simp only [List.head?_cons, List.tail_cons] at eo est
@@ -681,7 +697,7 @@ theorem push_sort_body_spec (hnm : Function.Injective nm) (S : Sorts) {sp : Pat}
                 obtain ⟨y, hy, -, hmy⟩ := hF k hk
                 exact ⟨y, x8.repr hy, fun h => Bool.noConfusion h, hmy⟩
             · simp only [Bool.false_eq_true, ↓reduceIte]
-              refine ⟨st8, fun σ => ?_, by omega⟩
+              refine ⟨st8, ⟨fun σ => ?_, (m, q), f, args, hmx.2, hun, hsm⟩, by omega⟩
               cases hm0 : Sorts.mem S n0 (p0.bind σ) with
               | false => rfl
               | true => have := hmx.1 σ hm0; rw [hmem σ] at this; cases this
@@ -816,8 +832,9 @@ exactly when it satisfies the atoms of the list, each listed once and each a
 variable of the pattern with a sort of `Ns`; and when nothing is returned no
 instance is in the sort. `Ns` is a set of names that has the sort asked
 about and every sort a step from one of its members names; no name is the
-end of a list. Table `A` is left as it was. -/
-theorem push_sort_spec (hnm : Function.Injective nm) (S : Sorts) {sp : Pat}
+end of a list. Table `A` is left as it was. It returns nothing exactly when a step fails on
+the way. -/
+theorem push_sort_exact (hnm : Function.Injective nm) (S : Sorts) {sp : Pat}
     (hS : SortsAt (nm none) S sp) (Ns : Finset Name) {n0 : Name} (p0 : Pat)
     (hfo : p0.firstOrder = true) (hn0 : n0 ∈ Ns)
     (hNs : ∀ m ∈ Ns, ∀ f k ks, Sorts.step S m f k = some ks →
@@ -829,12 +846,13 @@ theorem push_sort_spec (hnm : Function.Injective nm) (S : Sorts) {sp : Pat}
       Inv s' ∧ Extends s s' ∧ tbl s' .A = tbl s .A ∧
         s'.ticks.val ≤ s.ticks.val + pushCost S Ns p0 ∧
         match o with
-        | none => ∀ σ : Nat → GTerm, Sorts.mem S n0 (p0.bind σ) = false
+        | none => (∀ σ : Nat → GTerm, Sorts.mem S n0 (p0.bind σ) = false) ∧ Fails S n0 p0
         | some l => ∃ A : Sorts.Atoms,
             Repr nm s'.nodes.val l.val (encList (nm none) (A.map atomPat)) ∧ A.Nodup ∧
             (∀ a ∈ A, a.2 ∈ Ns ∧ Term.var a.1 ∈ p0.subs) ∧
             (∀ a, a ∈ A ↔ Comes S n0 p0 (a.2, .var a.1)) ∧
-            ∀ σ : Nat → GTerm, Sorts.mem S n0 (p0.bind σ) = true ↔ Sorts.Atoms.Holds S A σ ⦄ := by
+            (∀ σ : Nat → GTerm, Sorts.mem S n0 (p0.bind σ) = true ↔ Sorts.Atoms.Holds S A σ) ∧
+            ¬ Fails S n0 p0 ⦄ := by
   unfold sorts.push_sort
   have hroom' := hroom
   unfold Room at hroom'
@@ -877,14 +895,49 @@ theorem push_sort_spec (hnm : Function.Injective nm) (S : Sorts) {sp : Pat}
   cases ok1 with
   | true =>
     simp only [↓reduceIte] at hres ⊢
-    obtain ⟨A, hAr, hAn, hAU, hlist, hsem⟩ := hres
+    obtain ⟨A, hAr, hAn, hAU, hlist, hsem, hnf⟩ := hres
     simp only [WP.spec_ok]
-    refine ⟨⟨hW4, hst4⟩, x4, hA4, ht4, A, hAr, hAn, fun a ha => ?_, hlist, hsem⟩
+    refine ⟨⟨hW4, hst4⟩, x4, hA4, ht4, A, hAr, hAn, fun a ha => ?_, hlist, hsem, hnf⟩
     have := Finset.mem_product.1 (hAU a ha)
     exact ⟨this.1, this.2⟩
   | false =>
     simp only [Bool.false_eq_true, ↓reduceIte] at hres ⊢
     simp only [WP.spec_ok]
     exact ⟨⟨hW4, hst4⟩, x4, hA4, ht4, hres⟩
+
+/-- `push_sort` returns the sorts the variables of a first-order pattern must
+be in for an instance of it to be in a sort: an instance is in the sort
+exactly when it satisfies the atoms of the list, each listed once and each a
+variable of the pattern with a sort of `Ns`; and when nothing is returned no
+instance is in the sort. `Ns` is a set of names that has the sort asked
+about and every sort a step from one of its members names; no name is the
+end of a list. Table `A` is left as it was. -/
+theorem push_sort_spec (hnm : Function.Injective nm) (S : Sorts) {sp : Pat}
+    (hS : SortsAt (nm none) S sp) (Ns : Finset Name) {n0 : Name} (p0 : Pat)
+    (hfo : p0.firstOrder = true) (hn0 : n0 ∈ Ns)
+    (hNs : ∀ m ∈ Ns, ∀ f k ks, Sorts.step S m f k = some ks →
+      ∀ m', some m' ∈ ks → m' ∈ Ns ∧ m' ≠ nm none)
+    (s : store.Store) (decls nme t : store.TermId) (hI : Inv s)
+    (hd : Repr nm s.nodes.val decls.val sp) (hn : Repr nm s.nodes.val nme.val (.sym n0))
+    (ht : Repr nm s.nodes.val t.val p0) (hroom : Room s (pushCost S Ns p0)) :
+    sorts.push_sort s decls nme t ⦃ o s' =>
+      Inv s' ∧ Extends s s' ∧ tbl s' .A = tbl s .A ∧
+        s'.ticks.val ≤ s.ticks.val + pushCost S Ns p0 ∧
+        match o with
+        | none => ∀ σ : Nat → GTerm, Sorts.mem S n0 (p0.bind σ) = false
+        | some l => ∃ A : Sorts.Atoms,
+            Repr nm s'.nodes.val l.val (encList (nm none) (A.map atomPat)) ∧ A.Nodup ∧
+            (∀ a ∈ A, a.2 ∈ Ns ∧ Term.var a.1 ∈ p0.subs) ∧
+            (∀ a, a ∈ A ↔ Comes S n0 p0 (a.2, .var a.1)) ∧
+            ∀ σ : Nat → GTerm, Sorts.mem S n0 (p0.bind σ) = true ↔ Sorts.Atoms.Holds S A σ ⦄ := by
+  refine WP.spec_mono (push_sort_exact hnm S hS Ns p0 hfo hn0 hNs s decls nme t hI hd hn ht
+    hroom) ?_
+  rintro ⟨o, s'⟩ ⟨hI', hx, hA, hc, h⟩
+  refine ⟨hI', hx, hA, hc, ?_⟩
+  cases o with
+  | none => exact h.1
+  | some l =>
+    obtain ⟨A, h1, h2, h3, h4, h5, -⟩ := h
+    exact ⟨A, h1, h2, h3, h4, h5⟩
 
 end RwLogVerified
