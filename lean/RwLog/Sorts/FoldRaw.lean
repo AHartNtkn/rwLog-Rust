@@ -473,6 +473,29 @@ theorem foldStore_linked (hS : S.WellFormed) (hR : r.Roomy S) :
       · rw [Term.bind_congr (hσF p hp hf)]
         exact (hG p hp hf).2
 
+/-- The renamed exclusions are first-order and over the numbers of the
+names. -/
+theorem foldXs_fin (hS : S.WellFormed) (hR : r.Roomy S) :
+    (∀ E ∈ foldXs S r, E.FO) ∧
+      ∀ E ∈ foldXs S r, ∀ v ∈ E.vars, v < (foldNames S r).length := by
+  have hr := hR.shaped
+  have hN := names_of_roomy hS hR
+  refine ⟨fun E' hE' q hq => ?_, fun E' hE' w hw => ?_⟩
+  · obtain ⟨θ, hθ, rfl⟩ := List.mem_map.1 hE'
+    rw [Raw.mem_xs] at hθ
+    obtain ⟨q', hq', rfl⟩ := List.mem_map.1 hq
+    obtain ⟨b, hb, rfl⟩ := List.mem_map.1 hq'
+    exact ⟨rfl, rename_fo ((hr.ex θ hθ).fo b hb) _⟩
+  · obtain ⟨θ, hθ, rfl⟩ := List.mem_map.1 hE'
+    rw [Raw.mem_xs] at hθ
+    obtain ⟨q, hq, hw⟩ := List.mem_flatMap.1 hw
+    obtain ⟨q', hq', rfl⟩ := List.mem_map.1 hq
+    have hw' : w ∈ (q'.1.vars ++ q'.2.vars).map
+        fun x => (foldNames S r).idxOf (Term.var x) := by
+      simpa [Term.vars_rename] using hw
+    obtain ⟨x, hx, rfl⟩ := List.mem_map.1 hw'
+    exact hN.lt _ (hN.kept θ hθ x (List.mem_flatMap.2 ⟨q', hq', hx⟩))
+
 /-- The store assembled from the folded pattern, the sorts of its names and
 any list of the renamed exclusions is determined by its pattern and what it
 denotes, it denotes what the store does, its pattern is the folded pattern,
