@@ -67,6 +67,7 @@ import RwLog.Sorts.WF
 import RwLog.Sorts.Count
 import RwLog.Sorts.Reach
 import RwLog.Sorts.ReachCount
+import RwLog.Sorts.ReachOut
 import RwLog.Sorts.InclBut
 import RwLog.Sorts.Roots
 import RwLog.Sorts.Gone

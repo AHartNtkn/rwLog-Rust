@@ -741,3 +741,402 @@ pub fn count(s: &mut Store, decls: TermId, names: TermId, c: TermId) -> Count {
         _ => Count::None,
     }
 }
+
+// Inclusion.
+//
+// A *pair* is `App(conjunction, sort or any term)`. The pair of a
+// conjunction with a sort is *out* when the conjunction has a member that
+// is not in the sort, and the pair of a conjunction with any term (`Nil`,
+// which no term is outside of, read here as the sort with no member) is out
+// when the conjunction has a member. So whether the arguments of a root
+// have members is asked with pairs too, and there is one kind of question.
+//
+// The alternatives of a pair are `App(nows, steps)`. A member of `nows` is
+// a list of pairs: the pair is out when all of them are. A member of
+// `steps` is `App(guards, edges)`, two lists of pairs: the pair is out when
+// all the guards are and one of the edges is.
+
+/// The pair of each member of the list with any term, the first last.
+fn bare(s: &mut Store, args0: TermId) -> TermId {
+    let nil = s.alloc(Node::Nil);
+    let mut out = nil;
+    let mut args = args0;
+    while let Some((a, t)) = uncons(s, args) {
+        let p = s.alloc(Node::App(a, nil));
+        out = s.alloc(Node::App(p, out));
+        args = t;
+    }
+    out
+}
+
+/// The pair of each member of `args0` with the member of `kids0` at its
+/// place, unless that is any term; the first last. The lists have the same
+/// length.
+fn pair_up(s: &mut Store, args0: TermId, kids0: TermId) -> TermId {
+    let mut out = s.alloc(Node::Nil);
+    let mut args = args0;
+    let mut kids = kids0;
+    while let Some((a, ta)) = uncons(s, args) {
+        match uncons(s, kids) {
+            Some((k, tk)) => {
+                if !is_nil(s, k) {
+                    let p = s.alloc(Node::App(a, k));
+                    out = s.alloc(Node::App(p, out));
+                }
+                kids = tk;
+            }
+            None => panic!(),
+        }
+        args = ta;
+    }
+    out
+}
+
+/// The conjunction of the sorts the rests of the sorts of the list `c0`
+/// require of arguments. Table `A` is used.
+fn rest_kids(s: &mut Store, decls: TermId, names: TermId, c0: TermId) -> TermId {
+    let mut list = s.alloc(Node::Nil);
+    let mut c = c0;
+    while let Some((n, t)) = uncons(s, c) {
+        if let Some((_, rest)) = lookup(s, decls, n) {
+            if let Some((_, r)) = uncons(s, rest) {
+                if !is_nil(s, r) {
+                    list = s.alloc(Node::App(r, list));
+                }
+            }
+        }
+        c = t;
+    }
+    conj_of(s, names, list)
+}
+
+/// For each member of the list `keys0`, a symbol with a list as long as its
+/// number of arguments: when the conjunction `d` has a step there, an
+/// alternative of the pair of `d` with `m`. Its guards are the pairs of the
+/// conjunctions of the arguments with any term. When `m` has no step there
+/// it is put in front of `nows0`, and otherwise in front of `steps0` with
+/// the pairs of the conjunctions of the arguments with what `m` requires of
+/// them. The pairs table `B` does not flag are put in front of `todo0`.
+#[allow(clippy::too_many_arguments)]
+fn expand_keys(
+    s: &mut Store,
+    decls: TermId,
+    names: TermId,
+    d: TermId,
+    m: TermId,
+    keys0: TermId,
+    nows0: TermId,
+    steps0: TermId,
+    todo0: TermId,
+) -> (TermId, TermId, TermId) {
+    let mut nows = nows0;
+    let mut steps = steps0;
+    let mut todo = todo0;
+    let mut keys = keys0;
+    while let Some((key, t)) = uncons(s, keys) {
+        match uncons(s, key) {
+            Some((f, ks)) => {
+                if let Some(args) = step_conj(s, decls, names, d, f, ks) {
+                    let guards = bare(s, args);
+                    todo = enqueue(s, todo, guards);
+                    match step(s, decls, m, f, ks) {
+                        None => nows = s.alloc(Node::App(guards, nows)),
+                        Some(kids) => {
+                            let edges = pair_up(s, args, kids);
+                            todo = enqueue(s, todo, edges);
+                            let alt = s.alloc(Node::App(guards, edges));
+                            steps = s.alloc(Node::App(alt, steps));
+                        }
+                    }
+                }
+            }
+            None => panic!(),
+        }
+        keys = t;
+    }
+    (nows, steps, todo)
+}
+
+/// The rest of a declaration: the roots it excludes with the sort it
+/// requires of arguments, or any term; nothing when there is no declaration
+/// or it has no rest.
+fn own_rest(s: &mut Store, own: Option<(TermId, TermId)>) -> Option<(TermId, TermId)> {
+    match own {
+        Some((_, rest)) => uncons(s, rest),
+        None => None,
+    }
+}
+
+/// What the roots no declaration names give the pair of the conjunction `d`
+/// with a sort whose declaration is `own`: lists of guards, of guards with
+/// edges, and the pairs table `B` does not flag in front of `todo0`.
+///
+/// Such roots are in `d` only when every sort of `d` has a rest. Then the
+/// pair is out when the sort has no rest, and when its rest requires a sort
+/// of arguments, it is out when the pair of the sorts the rests of `d`
+/// require with that sort is.
+fn rest_alts(
+    s: &mut Store,
+    decls: TermId,
+    names: TermId,
+    d: TermId,
+    own: Option<(TermId, TermId)>,
+    todo0: TermId,
+) -> (TermId, TermId, TermId) {
+    let nil = s.alloc(Node::Nil);
+    if rest_ok(s, decls, d) {
+        match own_rest(s, own) {
+            None => {
+                let nows = s.alloc(Node::App(nil, nil));
+                (nows, nil, todo0)
+            }
+            Some((_, r)) => {
+                if is_nil(s, r) {
+                    (nil, nil, todo0)
+                } else {
+                    let dk = rest_kids(s, decls, names, d);
+                    let q = s.alloc(Node::App(dk, r));
+                    let edges = s.alloc(Node::App(q, nil));
+                    let todo = enqueue(s, todo0, edges);
+                    let alt = s.alloc(Node::App(nil, edges));
+                    let steps = s.alloc(Node::App(alt, nil));
+                    (nil, steps, todo)
+                }
+            }
+        }
+    } else {
+        (nil, nil, todo0)
+    }
+}
+
+/// `expand_keys` on the cases of each sort of the list `ns0`, for the pair
+/// of the conjunction `d` with `m`.
+#[allow(clippy::too_many_arguments)]
+fn conj_keys(
+    s: &mut Store,
+    decls: TermId,
+    names: TermId,
+    d: TermId,
+    m: TermId,
+    ns0: TermId,
+    nows0: TermId,
+    steps0: TermId,
+    todo0: TermId,
+) -> (TermId, TermId, TermId) {
+    let mut nows = nows0;
+    let mut steps = steps0;
+    let mut todo = todo0;
+    let mut ns = ns0;
+    while let Some((n, t)) = uncons(s, ns) {
+        if let Some((cases, _)) = lookup(s, decls, n) {
+            let (a, b, c) = expand_keys(s, decls, names, d, m, cases, nows, steps, todo);
+            nows = a;
+            steps = b;
+            todo = c;
+        }
+        ns = t;
+    }
+    (nows, steps, todo)
+}
+
+/// `expand_keys` on the cases of the declaration `own` of `m` and on the
+/// roots its rest excludes, for the pair of the conjunction `d` with `m`.
+#[allow(clippy::too_many_arguments)]
+fn own_keys(
+    s: &mut Store,
+    decls: TermId,
+    names: TermId,
+    d: TermId,
+    m: TermId,
+    own: Option<(TermId, TermId)>,
+    nows0: TermId,
+    steps0: TermId,
+    todo0: TermId,
+) -> (TermId, TermId, TermId) {
+    match own {
+        Some((cases, rest)) => {
+            let (a, b, c) = expand_keys(s, decls, names, d, m, cases, nows0, steps0, todo0);
+            match uncons(s, rest) {
+                Some((excluded, _)) => expand_keys(s, decls, names, d, m, excluded, a, b, c),
+                None => (a, b, c),
+            }
+        }
+        None => (nows0, steps0, todo0),
+    }
+}
+
+/// The alternatives of the pair of the conjunction `d` with `m`, and the
+/// pairs they name that table `B` does not flag in front of `todo0`: what
+/// the roots no declaration names give, then the roots that the sorts of
+/// `d` have a case for, that `m` has a case for, and that the rest of `m`
+/// excludes.
+fn expand_pair(
+    s: &mut Store,
+    decls: TermId,
+    names: TermId,
+    d: TermId,
+    m: TermId,
+    todo0: TermId,
+) -> (TermId, TermId) {
+    let own = lookup(s, decls, m);
+    let (n0, s0, t0) = rest_alts(s, decls, names, d, own, todo0);
+    let (n1, s1, t1) = conj_keys(s, decls, names, d, m, d, n0, s0, t0);
+    let (n2, s2, t2) = own_keys(s, decls, names, d, m, own, n1, s1, t1);
+    (s.alloc(Node::App(n2, s2)), t2)
+}
+
+/// The pairs the pair `p0` reaches, each with its alternatives. Tables `A`
+/// and `B` are used: table `B` flags the pairs reached.
+fn out_graph(s: &mut Store, decls: TermId, names: TermId, p0: TermId) -> TermId {
+    let nil = s.alloc(Node::Nil);
+    s.clear(Tbl::B);
+    s.set_flag(Tbl::B, p0, false);
+    let mut todo = s.alloc(Node::App(p0, nil));
+    let mut graph = nil;
+    while let Some((p, t)) = uncons(s, todo) {
+        match uncons(s, p) {
+            Some((d, m)) => {
+                let (alts, td) = expand_pair(s, decls, names, d, m, t);
+                let entry = s.alloc(Node::App(p, alts));
+                graph = s.alloc(Node::App(entry, graph));
+                todo = td;
+            }
+            None => panic!(),
+        }
+    }
+    graph
+}
+
+/// Does table `A` flag every member of the list?
+fn all_out(s: &mut Store, pairs0: TermId) -> bool {
+    let mut pairs = pairs0;
+    let mut ok = true;
+    let mut go = true;
+    while go {
+        match uncons(s, pairs) {
+            Some((p, t)) => match s.get_flag(Tbl::A, p) {
+                Some(_) => pairs = t,
+                None => {
+                    ok = false;
+                    go = false;
+                }
+            },
+            None => go = false,
+        }
+    }
+    ok
+}
+
+/// Does table `A` flag some member of the list?
+fn any_out(s: &mut Store, pairs0: TermId) -> bool {
+    let mut pairs = pairs0;
+    let mut found = false;
+    let mut go = true;
+    while go {
+        match uncons(s, pairs) {
+            Some((p, t)) => match s.get_flag(Tbl::A, p) {
+                Some(_) => {
+                    found = true;
+                    go = false;
+                }
+                None => pairs = t,
+            },
+            None => go = false,
+        }
+    }
+    found
+}
+
+/// Is some list of the list all flagged by table `A`?
+fn any_now(s: &mut Store, nows0: TermId) -> bool {
+    let mut nows = nows0;
+    let mut found = false;
+    let mut go = true;
+    while go {
+        match uncons(s, nows) {
+            Some((g, t)) => {
+                if all_out(s, g) {
+                    found = true;
+                    go = false;
+                } else {
+                    nows = t;
+                }
+            }
+            None => go = false,
+        }
+    }
+    found
+}
+
+/// Has some member of the list its guards all flagged by table `A`, and one
+/// of its edges?
+fn any_step(s: &mut Store, steps0: TermId) -> bool {
+    let mut steps = steps0;
+    let mut found = false;
+    let mut go = true;
+    while go {
+        match uncons(s, steps) {
+            Some((alt, t)) => match uncons(s, alt) {
+                Some((guards, edges)) => {
+                    if all_out(s, guards) && any_out(s, edges) {
+                        found = true;
+                        go = false;
+                    } else {
+                        steps = t;
+                    }
+                }
+                None => panic!(),
+            },
+            None => go = false,
+        }
+    }
+    found
+}
+
+/// One round over the pairs with their alternatives: a pair table `A` does
+/// not flag, with an alternative that makes it out given the pairs flagged,
+/// is flagged. Was any?
+fn pass_out(s: &mut Store, graph0: TermId) -> bool {
+    let mut graph = graph0;
+    let mut changed = false;
+    while let Some((e, t)) = uncons(s, graph) {
+        match uncons(s, e) {
+            Some((p, alts)) => match s.get_flag(Tbl::A, p) {
+                Some(_) => {}
+                None => match uncons(s, alts) {
+                    Some((nows, steps)) => {
+                        if any_now(s, nows) || any_step(s, steps) {
+                            s.set_flag(Tbl::A, p, true);
+                            changed = true;
+                        }
+                    }
+                    None => panic!(),
+                },
+            },
+            None => panic!(),
+        }
+        graph = t;
+    }
+    changed
+}
+
+/// Has the conjunction `c` a member that is not in the sort `n`? The pairs
+/// the pair of `c` with `n` reaches are gone through once for their
+/// alternatives, and then in rounds until a round finds no new pair that is
+/// out. `n` is the name of a sort. Tables `A` and `B` are used.
+pub fn out(s: &mut Store, decls: TermId, names: TermId, c: TermId, n: TermId) -> bool {
+    let p0 = s.alloc(Node::App(c, n));
+    let graph = out_graph(s, decls, names, p0);
+    s.clear(Tbl::A);
+    let mut go = true;
+    while go {
+        go = pass_out(s, graph);
+    }
+    matches!(s.get_flag(Tbl::A, p0), Some(true))
+}
+
+/// Is every member of the conjunction `c` in the sort `n`? `n` is the name
+/// of a sort. Tables `A` and `B` are used.
+pub fn included(s: &mut Store, decls: TermId, names: TermId, c: TermId, n: TermId) -> bool {
+    !out(s, decls, names, c, n)
+}
