@@ -200,7 +200,7 @@ rung unchanged.
   on answers, maximal and fresh answers, the rule of a split) and what each
   returns at the kernel of a program. A machine takes the names with
   `export Goals (…)`, constructors included, so its own files read as
-  before. The tabled machine does.
+  before. The tabled machine and the symmetric engine do.
 * `Saturation.lean`: the completeness every engine on the normal form
   shares (roadmap L30). A run is what it ever holds for each goal
   (`Saturation.Tables`) and the goals it opens. `Saturation.Served` lists the

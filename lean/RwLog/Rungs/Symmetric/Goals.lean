@@ -103,11 +103,6 @@ def SelfG (g : GoalOf R Rel) : Prop := g.node.normConv = g.node ∧ g.lb = g.rb
 /-- The answer is an answer of the goal. -/
 def GoalIs (g : GoalOf R Rel) (a : Ans D P) : Prop := a.goal = ⟨g.lb, g.node, g.rb⟩
 
-/-- The node the rules `join` and `meetA` give their answer. -/
-def comb : Kind → Rel → Rel → Rel
-  | .seq, x, y => mkSeq (seqParts x ++ seqParts y)
-  | .and, x, y => mkAnd (sortedParts (andParts x ++ andParts y))
-
 /-- The goals of the two sides of a split of the goal `g`. -/
 def SplitOk (g ga gb : GoalOf R Rel) : Kind → Prop
   | .seq => ga.lb = g.lb ∧ gb.rb = g.rb ∧ comb .seq ga.node gb.node = g.node
@@ -203,34 +198,13 @@ theorem Inv.modify {st : StateOf R Rel (Ans D P)} (hI : Inv st) (i : Nat)
 
 /-! ## What the machine computes -/
 
-/-- A fold keeps what each of its steps keeps. -/
-theorem foldL_inv {α β : Type} (I : β → Prop) (f : β → α → Cost β) :
-    ∀ (xs : List α), (∀ b x, x ∈ xs → I b → I (f b x).val) → ∀ b, I b → I (foldL f b xs).val
-  | [], _, _, hb => hb
-  | x :: xs, hf, b, hb => by
-    simp only [foldL, Cost.bind_val]
-    exact foldL_inv I f xs (fun b y hy => hf b y (List.mem_cons_of_mem _ hy)) _
-      (hf b x List.mem_cons_self hb)
-
 section kernel
 
 variable (K : Kernel R Cost) (hK : K.Refines D)
 
-theorem sameBound_val (a b : Option R) :
-    (sameBound (K := DerivationKernel.over D K hK P) a b).val = decide (a = b) := by
-  at_cost K hK
-  cases a <;> cases b <;> simp [sameBound, hK.eq]
-
 theorem same_iff (g h : GoalOf R Rel) :
     (same (K := DerivationKernel.over D K hK P) g h).val = true ↔ g = h := by
-  have hl := sameBound_val (P := P) K hK g.lb h.lb
-  have hr := sameBound_val (P := P) K hK g.rb h.rb
-  at_cost K hK
-  obtain ⟨gl, gn, gr⟩ := g
-  obtain ⟨hl', hn, hr'⟩ := h
-  simp only [same, Cost.bind_val, over_eqNode, Charged.eqNode, Charged.op] at *
-  by_cases e₁ : gn = hn <;> by_cases e₂ : gl = hl' <;> by_cases e₃ : gr = hr' <;>
-    simp_all
+  rw [same_val]; exact decide_eq_true_iff
 
 theorem selfConverse_spec (g : GoalOf R Rel)
     (h : (selfConverse (K := DerivationKernel.over D K hK P) g).val = true) : SelfG g := by
@@ -241,7 +215,7 @@ theorem selfConverse_spec (g : GoalOf R Rel)
   by_cases e : g.node.normConv = g.node <;> simp_all [SelfG]
 
 theorem indexFrom_some (g : GoalOf R Rel) (ts : List (Table R Rel (Ans D P))) (k i : Nat) :
-    (indexFrom (K := DerivationKernel.over D K hK P) g k ts).val = some i →
+    (indexFrom (K := DerivationKernel.over D K hK P) (·.goal) g k ts).val = some i →
       k ≤ i ∧ ∃ t, ts[i - k]? = some t ∧ t.goal = g := by
   have hs := fun t : Table R Rel (Ans D P) => same_iff (P := P) K hK t.goal g
   at_cost K hK
@@ -437,12 +411,12 @@ theorem inv_copyFrom {st : StateOf R Rel (Ans D P)} (hI : Inv st) (i : Nat) (g :
     (fun b a ha hb => ?_) st ⟨hI, hg⟩).1
   dsimp only
   split
-  · erw [Cost.bind_val]
+  · rw [Cost.bind_val]
     refine ⟨inv_addOption hb.1 i _ (fun c hc g' hg' => ?_), (reach_addOption _ _ _).ext _ _ hb.2⟩
     obtain rfl : g' = g := Option.some.inj (hg'.symm.trans hb.2)
     obtain ⟨-, -, e⟩ := Ans.unfold_val.1 hc
     unfold GoalIs; rw [e, (has a ha).1, (has a ha).2]
-  · erw [Cost.bind_val]
+  · rw [Cost.bind_val]
     refine ⟨inv_addOption hb.1 i _ (fun c hc g' hg' => ?_), (reach_addOption _ _ _).ext _ _ hb.2⟩
     obtain rfl : g' = g := Option.some.inj (hg'.symm.trans hb.2)
     obtain ⟨-, -, e⟩ := Ans.inj_val.1 hc
@@ -458,7 +432,7 @@ theorem inv_joinPairs {st : StateOf R Rel (Ans D P)} (hI : Inv st) (i : Nat) (k 
     (fun b p _ hb => ?_) st ⟨hI, hg⟩).1
   split
   · next x y ex ey =>
-    erw [Cost.bind_val]
+    rw [Cost.bind_val]
     refine ⟨inv_addOption hb.1 i _ (fun c hc g' hg' => ?_), (reach_addOption _ _ _).ext _ _ hb.2⟩
     obtain rfl : g' = g := Option.some.inj (hg'.symm.trans hb.2)
     exact both_goal hc (hx x (List.mem_of_getElem? ex)) (hy y (List.mem_of_getElem? ey)) hk
@@ -749,20 +723,6 @@ theorem inv_expand {st : StateOf R Rel (Ans D P)} (hI : Inv st) (g : GoalOf R Re
 
 /-! ## The work of one strategy -/
 
-omit [Answer R] [DecidableEq R] in
-theorem map_modify_eq {α β : Type} (g : α → β) (f : α → α) (h : ∀ x, g (f x) = g x)
-    (l : List α) (k : Nat) : (l.modify k f).map g = l.map g := by
-  apply List.ext_getElem?
-  intro n
-  simp only [List.getElem?_map, List.getElem?_modify]
-  cases l[n]? with
-  | none => rfl
-  | some x =>
-    show some (g (if k = n then f x else x)) = some (g x)
-    split
-    · rw [h]
-    · rfl
-
 omit [DecidableEq R] in
 theorem Inv.answers {st : StateOf R Rel (Ans D P)} (hI : Inv st) {j : Nat} {h : GoalOf R Rel}
     (hj : goalAt st j = some h) : ∀ a ∈ st.answers j, GoalIs h a := by
@@ -914,12 +874,12 @@ theorem inv_work_aux {st : StateOf R Rel (Ans D P)} (hI : Inv st) (whole : Bool)
             exact ⟨(hall e' he').1, hE12 _ _ (hall e' he').2⟩
         cases todo with
         | none =>
-          erw [Cost.bind_val]
+          rw [Cost.bind_val]
           simp only [Cost.bind_val, Cost.pure_val]
           have := main _ fun x hx => hI.answers h1 x (hmax _ _ hx)
           exact ⟨this.1, fun _ => this.2⟩
         | some l =>
-          erw [Cost.bind_val]
+          rw [Cost.bind_val]
           simp only [Cost.bind_val, Cost.pure_val]
           have := main l (htodo l rfl)
           exact ⟨this.1, fun _ => this.2⟩
@@ -980,20 +940,6 @@ theorem inv_work {st : StateOf R Rel (Ans D P)} (hI : Inv st) (whole : Bool) (i 
     (inv_work_aux hI whole i g s hg hs).2 (reach_work _ _ _ _ _).ext⟩
 
 /-! ## A round -/
-
-omit [Answer R] [DecidableEq R] in
-theorem mem_modify {α : Type} {l : List α} {k : Nat} {f : α → α} {x : α}
-    (h : x ∈ l.modify k f) : x ∈ l ∨ ∃ y ∈ l, x = f y := by
-  obtain ⟨n, hn⟩ := List.getElem?_of_mem h
-  rw [List.getElem?_modify] at hn
-  cases hl : l[n]? with
-  | none => rw [hl] at hn; cases hn
-  | some y =>
-    rw [hl] at hn
-    have e : (if k = n then f y else y) = x := Option.some.inj hn
-    split at e
-    · exact .inr ⟨y, List.mem_of_getElem? hl, e.symm⟩
-    · exact .inl (e ▸ List.mem_of_getElem? hl)
 
 omit [DecidableEq R] in
 /-- Changing one table keeps the invariant, if its goal, its mark, its
