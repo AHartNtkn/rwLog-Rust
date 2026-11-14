@@ -369,3 +369,9 @@ new axiom.
 
 /-- info: 'RwLog.ProgramOf.check_iff' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.ProgramOf.check_iff
+
+/-- info: 'RwLog.Sorts.Blowup.tower_wf' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.Blowup.tower_wf
+
+/-- info: 'RwLog.Sorts.Blowup.norm_blowup' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.Blowup.norm_blowup

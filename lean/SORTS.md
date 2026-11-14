@@ -215,6 +215,32 @@ with the number of reachable conjunctions as a parameter computed from the
 program (the read-time check of L56 already computes that set), not as a
 polynomial in the size of the program alone.
 
+The normal store itself can be exponential in the declarations
+(`Sorts/Blowup.lean`). Declare the numerals as sort 0 and, for each `j < k`,
+sort `j + 1` as the pairs of two members of sort `j`. These `k + 1` sorts are
+well formed (`Blowup.tower_wf`). A member of sort `k` is a full tree of pairs
+of depth `k`, so the values of `$x : k` have one root all the way down, and
+its normal store is that tree with a variable of sort 0 at each of the `2 ^ k`
+leaves. Every normal store that denotes it has `2 ^ k` variables at least
+(`Blowup.blowup`), the normal store is unique, and `Prob.norm` returns it
+(`Blowup.norm_blowup`). The variables are distinct, so sharing subterms in
+the store does not help.
+
+So "the normal store is computed in polynomial time" is false when the time
+is measured against the declarations and the problem, whatever the program.
+What can be asked is a charge that is a polynomial in the problem, the number
+of reachable conjunctions, and the size of the normal store returned. Every
+step of `tighten` adds a symbol to the pattern and the pattern only grows, so
+the number of steps is at most the size of its result; a variable outside the
+pattern has to be removed before it is expanded for the result to be the
+store returned. Whether Anthony accepts this in place of the roadmap's
+wording is asked under rule 3.
+
+One bound is looser than that today: `inclButAll` counts the excepted terms
+by their size as trees (`Sorts.sumSize`), and a term of the store can have
+exponentially more symbols as a tree than nodes. Whether the Rust takes that
+long on such a term, or only the bound is loose, is not established.
+
 
 ## 8. The normal store as a function
 
