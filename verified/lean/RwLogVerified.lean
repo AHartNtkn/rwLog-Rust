@@ -20,6 +20,9 @@
 * `RwLogVerified.Iface`: the interfaces of a span as boundaries.
 * `RwLogVerified.Sorts`: the declarations of sorts as lists of the store, one
   step of a sort on a term, and membership of a ground term.
+* `RwLogVerified.Conj`: conjunctions of sorts as lists of the store, one
+  identifier for one set, and one step of a conjunction.
+* `RwLogVerified.Names`: the list of every name of the declarations.
 * `RwLogVerified.Kernel`: the kernel rung whose charges are those bounds.
 * `RwLogVerified.KernelRuns`: its charges on a worked composition.
 
@@ -43,5 +46,7 @@ import RwLogVerified.MatchSpec
 import RwLogVerified.Cover
 import RwLogVerified.Iface
 import RwLogVerified.Sorts
+import RwLogVerified.Conj
+import RwLogVerified.Names
 import RwLogVerified.Kernel
 import RwLogVerified.KernelRuns
