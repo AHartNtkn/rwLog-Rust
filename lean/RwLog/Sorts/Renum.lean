@@ -27,15 +27,25 @@ theorem firstOcc_iff {L : List Nat} : FirstOcc L ↔
     obtain ⟨_, e'⟩ := List.getElem?_eq_some_iff.1 e
     exact ⟨j, hj, e'⟩
 
-/-- The members of a list can be listed once each so that a member's place is
-the number of different members before its first occurrence. -/
-theorem exists_firsts (L : List Nat) : ∃ F : List Nat, F.Nodup ∧ (∀ v, v ∈ F ↔ v ∈ L) ∧
-    ∀ (i m v : Nat), L[i]? = some v → m < F.idxOf v →
-      ∃ j, j < i ∧ ∃ u, L[j]? = some u ∧ F.idxOf u = m := by
+/-- The members of a list, once each, in the order they first occur. -/
+def firsts (L : List Nat) : List Nat := L.foldl (fun F x => if x ∈ F then F else F ++ [x]) []
+
+theorem firsts_snoc (L : List Nat) (x : Nat) :
+    firsts (L ++ [x]) = if x ∈ firsts L then firsts L else firsts L ++ [x] := by
+  simp only [firsts, List.foldl_append, List.foldl_cons, List.foldl_nil]
+  exact if_congr Iff.rfl rfl rfl
+
+/-- `firsts` lists the members once each, and a member's place is the number
+of different members before its first occurrence. -/
+theorem firsts_spec (L : List Nat) : (firsts L).Nodup ∧ (∀ v, v ∈ firsts L ↔ v ∈ L) ∧
+    ∀ (i m v : Nat), L[i]? = some v → m < (firsts L).idxOf v →
+      ∃ j, j < i ∧ ∃ u, L[j]? = some u ∧ (firsts L).idxOf u = m := by
   induction L using List.reverseRecOn with
-  | nil => exact ⟨[], List.nodup_nil, by simp, by simp⟩
+  | nil => exact ⟨List.nodup_nil, by simp [firsts], by simp⟩
   | append_singleton L x ih =>
-    obtain ⟨F, hnd, hmem, hF⟩ := ih
+    rw [firsts_snoc]
+    generalize firsts L = F at ih ⊢
+    obtain ⟨hnd, hmem, hF⟩ := ih
     -- a place below the length of `F` is the place of a member of `L`
     have hit : ∀ m, m < F.length → ∃ j, j < L.length ∧ ∃ u, L[j]? = some u ∧ F.idxOf u = m := by
       intro m hm
@@ -47,7 +57,8 @@ theorem exists_firsts (L : List Nat) : ∃ F : List Nat, F.Nodup ∧ (∀ v, v �
       obtain ⟨hj, -⟩ := List.getElem?_eq_some_iff.1 h
       rw [List.getElem?_append_left hj]; exact h
     by_cases hx : x ∈ F
-    · have hmem' : ∀ v, v ∈ F ↔ v ∈ L ++ [x] := by
+    · simp only [hx, ↓reduceIte]
+      have hmem' : ∀ v, v ∈ F ↔ v ∈ L ++ [x] := by
         intro v
         rw [hmem, List.mem_append, List.mem_singleton]
         constructor
@@ -55,7 +66,7 @@ theorem exists_firsts (L : List Nat) : ∃ F : List Nat, F.Nodup ∧ (∀ v, v �
         · rintro (h | rfl)
           · exact h
           · exact (hmem _).1 hx
-      refine ⟨F, hnd, hmem', ?_⟩
+      refine ⟨hnd, hmem', ?_⟩
       intro i m v hv hm
       rcases Nat.lt_trichotomy i L.length with hi | hi | hi
       · rw [List.getElem?_append_left hi] at hv
@@ -66,8 +77,9 @@ theorem exists_firsts (L : List Nat) : ∃ F : List Nat, F.Nodup ∧ (∀ v, v �
         obtain ⟨j, hj, u, hu, e⟩ := hit m hml
         exact ⟨j, hj, u, left j u hu, e⟩
       · rw [List.getElem?_eq_none (by simp; omega)] at hv; cases hv
-    · have hin : ∀ u ∈ F, (F ++ [x]).idxOf u = F.idxOf u := fun u hu => List.idxOf_append_of_mem hu
-      refine ⟨F ++ [x], ?_, ?_, ?_⟩
+    · simp only [hx, ↓reduceIte]
+      have hin : ∀ u ∈ F, (F ++ [x]).idxOf u = F.idxOf u := fun u hu => List.idxOf_append_of_mem hu
+      refine ⟨?_, ?_, ?_⟩
       · rw [List.nodup_append]
         refine ⟨hnd, List.nodup_singleton x, ?_⟩
         intro a ha b hb
@@ -94,12 +106,23 @@ theorem exists_firsts (L : List Nat) : ∃ F : List Nat, F.Nodup ∧ (∀ v, v �
           exact ⟨j, hj, u, left j u hu, by rw [hin u huF]; exact e⟩
         · rw [List.getElem?_eq_none (by simp; omega)] at hv; cases hv
 
-/-- A renaming of the members of a list to the order of their first
-occurrence, with its inverse. -/
-theorem exists_renum (L : List Nat) : ∃ (ρ ρ' : Nat → Nat) (k : Nat), FirstOcc (L.map ρ) ∧
-    (∀ v ∈ L, ρ v < k ∧ ρ' (ρ v) = v) ∧ ∀ w, w < k → ρ' w ∈ L ∧ ρ (ρ' w) = w := by
-  obtain ⟨F, hnd, hmem, hF⟩ := exists_firsts L
-  refine ⟨fun v => F.idxOf v, fun w => F.getD w 0, F.length, ?_, ?_, ?_⟩
+/-- The members of a list can be listed once each so that a member's place is
+the number of different members before its first occurrence. -/
+theorem exists_firsts (L : List Nat) : ∃ F : List Nat, F.Nodup ∧ (∀ v, v ∈ F ↔ v ∈ L) ∧
+    ∀ (i m v : Nat), L[i]? = some v → m < F.idxOf v →
+      ∃ j, j < i ∧ ∃ u, L[j]? = some u ∧ F.idxOf u = m :=
+  ⟨firsts L, firsts_spec L⟩
+
+/-- Numbering the members of a list in the order they first occur, with its
+inverse. -/
+theorem renum_spec (L : List Nat) : FirstOcc (L.map fun v => (firsts L).idxOf v) ∧
+    (∀ v ∈ L, (firsts L).idxOf v < (firsts L).length ∧
+      (firsts L).getD ((firsts L).idxOf v) 0 = v) ∧
+    ∀ w, w < (firsts L).length →
+      (firsts L).getD w 0 ∈ L ∧ (firsts L).idxOf ((firsts L).getD w 0) = w := by
+  obtain ⟨hnd, hmem, hF⟩ := firsts_spec L
+  generalize firsts L = F at hnd hmem hF ⊢
+  refine ⟨?_, ?_, ?_⟩
   · rw [firstOcc_iff]
     intro i m v' hv' hm
     rw [List.getElem?_map, Option.map_eq_some_iff] at hv'
@@ -116,6 +139,12 @@ theorem exists_renum (L : List Nat) : ∃ (ρ ρ' : Nat → Nat) (k : Nat), Firs
     show F.getD w 0 ∈ L ∧ F.idxOf (F.getD w 0) = w
     rw [e]
     exact ⟨(hmem _).1 (List.getElem_mem hw), hnd.idxOf_getElem w hw⟩
+
+/-- A renaming of the members of a list to the order of their first
+occurrence, with its inverse. -/
+theorem exists_renum (L : List Nat) : ∃ (ρ ρ' : Nat → Nat) (k : Nat), FirstOcc (L.map ρ) ∧
+    (∀ v ∈ L, ρ v < k ∧ ρ' (ρ v) = v) ∧ ∀ w, w < k → ρ' w ∈ L ∧ ρ (ρ' w) = w :=
+  ⟨fun v => (firsts L).idxOf v, fun w => (firsts L).getD w 0, (firsts L).length, renum_spec L⟩
 
 /-- A store with its variables renamed by `ρ`; `ρ'` undoes `ρ` on the
 variables of the pattern. -/
