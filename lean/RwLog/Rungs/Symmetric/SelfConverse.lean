@@ -21,13 +21,15 @@ import RwLog.Rungs.Symmetric.Invariant
 import RwLog.Rungs.Framework.Oriented
 import RwLog.Rungs.Framework.Derivation
 import RwLog.Kernel.DomainLaws
-import RwLog.Lib.Maxima
+import RwLog.Rungs.Framework.GoalsVal
 
 namespace RwLog
 
 namespace Symmetric
 
 open Traverse
+
+export Goals (sameBound_val same_val indexFrom_val covB coversA_val maxima_val comb both_some)
 
 variable {R : Type} [Answer R] [DecidableEq R] {D : Domain R} {P : Program}
 
@@ -146,26 +148,6 @@ theorem cores_modify_app {S N A : Type} (st : StateOf S N A) (i : Nat) (blk : Li
 section
 
 variable (K : Kernel R Cost) (hK : K.Refines D)
-
-/-- Does the first answer cover the second, by the test of the domain? -/
-def covB (D : Domain R) (P : Program) (y x : Ans D P) : Bool := D.covers y.span x.span
-
-theorem coversA_val (y x : Ans D P) :
-    (coversA (K := DerivationKernel.over D K hK P) y x).val = covB D P y x := by
-  at_cost K hK
-  exact hK.covers _ _
-
-theorem maxima_val (xs : List (Ans D P)) :
-    (maxima (K := DerivationKernel.over D K hK P) xs).val = xs.maximaBy (covB D P) := by
-  have hc := coversA_val (P := P) K hK
-  at_cost K hK
-  simp only [maxima, Cost.bind_val, filterL_std, Cost.filterL_val, anyL_std, Cost.anyL_val,
-    foldL_std, Cost.foldL_val, Cost.pure_val, hc, List.maximaBy, List.thin, List.tops]
-  congr 2
-  · funext x
-    congr 2
-    funext y
-    cases h : covB D P y x <;> simp [hc]
 
 theorem addOne_val (i : Nat) (st : StateOf R Rel (Ans D P)) (a : Ans D P) :
     (addOne (K := DerivationKernel.over D K hK P) i st a).val =

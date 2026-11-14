@@ -30,6 +30,7 @@ For a node `e`:
 * the body a call node reads in the program, mirrored when `t`, is the
   mapped body (`bodyOf_nmap`).
 -/
+import RwLog.Lib.List
 import RwLog.Kernel.NormalFormStable
 import RwLog.Trusted.Charged
 import RwLog.SpanLayer.Dual
@@ -565,14 +566,6 @@ theorem Normal.view_meet_nmap {e : Rel} {xs : List Rel} (h : Normal e)
   obtain ⟨x, hx, rfl⟩ := List.mem_map.1 ((sortedParts_perm _).mem_iff.1 hy)
   exact (hmem x hx).1.notAnd_nmap (hmem x hx).2 b t
 
-theorem two_le_length_of_mem {α : Type} {L : List α} {a c : α} (ha : a ∈ L) (hc : c ∈ L)
-    (h : a ≠ c) : 2 ≤ L.length := by
-  match L, ha, hc with
-  | [x], ha, hc =>
-    simp only [List.mem_singleton] at ha hc
-    exact absurd (ha.trans hc.symm) h
-  | _ :: _ :: _, _, _ => simp
-
 /-- A mapped union is the union of the mapped members. -/
 theorem Normal.view_union_nmap {e : Rel} {xs : List Rel} (h : Normal e)
     (hv : e.view = .union xs) (b t : Bool) :
@@ -607,15 +600,6 @@ theorem Normal.view_union_nmap {e : Rel} {xs : List Rel} (h : Normal e)
     · exact fun e => hxy ((hmem x (by simp)).1.nmap_inj (hmem y (by simp)).1 e)
 
 /-! ## Stretches, meets without a member, and bodies -/
-
-theorem ite_of_pos {α : Type} {c : Prop} [Decidable c] {x y : α} (h : c) :
-    (if c then x else y) = x := by simp [h]
-
-theorem drop_take_reverse {α : Type} (l : List α) {i j : Nat} (hij : i < j) (hj : j ≤ l.length) :
-    (l.reverse.take j).drop i = ((l.take (l.length - i)).drop (l.length - j)).reverse := by
-  rw [List.take_reverse, List.drop_reverse, List.drop_take, List.length_drop]
-  congr 2
-  omega
 
 /-- The stretch of a mapped chain is the mapped stretch, counted from the
 other end when the converse is taken. -/

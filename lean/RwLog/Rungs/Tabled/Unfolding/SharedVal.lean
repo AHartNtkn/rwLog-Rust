@@ -65,7 +65,7 @@ theorem sameKey_val (k k' : Key R Rel) :
     (sameKey (A := Ans D P) (K := DerivationKernel.over D K hK P) k k').val = sameKeyV k k' := by
   have sb := sameBound_val (P := P) K hK
   at_cost K hK
-  simp only [sameKey, sameKeyV, Cost.bind_val, ite_val, over_eqNode, Charged.eqNode, Charged.op,
+  simp only [sameKey, sameKeyV, Cost.bind_val, Cost.ite_val, over_eqNode, Charged.eqNode, Charged.op,
     sb, Cost.pure_val]
 
 /-- The summary recorded for a key. -/

@@ -9,23 +9,18 @@ specification it has every property of `Runtime.Keeps`, with the tabled
 machine of any other such race as base (`mirror_keeps`), and its final report
 is the maximal emitted answers (`mirror_finalMaximal`).
 
-* Soundness, generality and the laws of `|` hold of every engine.
-* Completeness, honesty and the certificates carry over along the same run.
-* It halts where the base halts: the tabled machine with its race does
-  (`halts_iff`), and it is done when that machine is.
-* A side that halts with no answer, the converse and the mirrored program:
-  from the tabled machine (`emptySide`, `convTrace`, `dualTrace`), one run at
-  a time.
-* No answer is covered by an earlier one: across steps because that holds of
-  the tabled machine, within a step because the answers the tabled machine
-  shows in one step do not cover each other in either order
-  (`trace_step_pairwise`), so their order does not matter.
+The properties carry over along the trace (`Runtime.SameTrace.keeps`,
+`Rungs/Framework/SameTrace.lean`). The laws of `|` hold of every engine, and
+no answer is covered by an earlier one because the answers the tabled machine
+shows in one step do not cover each other in either order
+(`stepAntichain`), so their order does not matter.
 
 `tabled_keeps` is the same list for the tabled machine itself.
 -/
 import RwLog.Rungs.Tabled.Mirrored
 import RwLog.Rungs.Tabled.EmptySide
-import RwLog.Rungs.Framework.Transfer
+import RwLog.Rungs.Framework.SameTrace
+import RwLog.Rungs.Framework.EngineKeeps
 import RwLog.Rungs.Framework.Writing
 
 namespace RwLog
@@ -47,56 +42,6 @@ theorem perm_emits : ∀ {t t' : List (Shown A)},
   | _, _, .cons h hs => by
     simp only [List.flatMap_cons]
     exact h.emits_perm.append (perm_emits hs)
-
-/-- A relation that holds from each emitted answer to each later one, and in
-both orders between the answers of one step, holds from each emitted answer
-to each later one in a trace that shows the same steps in another order. -/
-theorem pairwise_of_perm_steps {S : A → A → Prop} : ∀ {t t' : List (Shown A)},
-    List.Forall₂ (Shown.Rel fun xs ys => xs.Perm ys) t t' →
-    (t'.flatMap Shown.emits).Pairwise S →
-    (∀ x ∈ t', x.emits.Pairwise fun a b => S a b ∧ S b a) →
-    (t.flatMap Shown.emits).Pairwise S
-  | _, _, .nil, _, _ => List.Pairwise.nil
-  | _, _, @List.Forall₂.cons _ _ _ x y t t' h hs, hp, hstep => by
-    simp only [List.flatMap_cons] at hp ⊢
-    obtain ⟨-, h₂, h₃⟩ := List.pairwise_append.1 hp
-    refine List.pairwise_append.2 ⟨?_,
-      pairwise_of_perm_steps hs h₂ fun z hz => hstep z (List.mem_cons_of_mem _ hz),
-      fun a ha b hb => ?_⟩
-    · have := hstep y List.mem_cons_self
-      exact ((List.Perm.pairwise_iff (fun hab => ⟨hab.2, hab.1⟩) h.emits_perm).2 this).imp
-        fun h => h.1
-    · exact h₃ a (h.emits_perm.mem_iff.1 ha) b ((perm_emits hs).mem_iff.1 hb)
-
-theorem forall₂_getElem? {α β : Type} {E : α → β → Prop} : ∀ {l : List α} {l' : List β},
-    List.Forall₂ E l l' → ∀ {k : Nat} {x : α}, l[k]? = some x → ∃ y, l'[k]? = some y ∧ E x y
-  | _, _, .nil, _, _, h => by simp at h
-  | _, _, .cons hab t, 0, _, h => by
-    simp only [List.getElem?_cons_zero, Option.some.injEq] at h
-    subst h
-    exact ⟨_, rfl, hab⟩
-  | _, _, .cons _ t, k + 1, _, h => by
-    simp only [List.getElem?_cons_succ] at h ⊢
-    exact forall₂_getElem? t h
-
-theorem forall₂_getLast? {α β : Type} {E : α → β → Prop} {l : List α} {l' : List β}
-    (h : List.Forall₂ E l l') {x : α} (hx : l.getLast? = some x) :
-    ∃ y, l'.getLast? = some y ∧ E x y := by
-  rw [List.getLast?_eq_getElem?] at hx ⊢
-  rw [← h.length_eq]
-  exact forall₂_getElem? h hx
-
-variable [Answer A] {M : Interp}
-
-theorem traceEquiv_of_perm {t t' : List (Shown A)}
-    (h : List.Forall₂ (Shown.Rel fun xs ys => xs.Perm ys) t t') : TraceEquiv M t t' :=
-  List.Forall₂.imp (fun x y hxy => by
-    cases x <;> cases y <;> first | exact StepEquiv.of_perm hxy | exact hxy) h
-
-theorem TraceEquiv.map_swap {B : Type} [Answer B] {t : List (Shown A)} {t' : List (Shown B)}
-    (h : TraceEquiv M t t') : TraceEquiv M (t.map Shown.swap) (t'.map Shown.swap) :=
-  List.forall₂_map_left_iff.2 (List.forall₂_map_right_iff.2
-    (List.Forall₂.imp (fun _ _ h => h.swap) h))
 
 end perm
 
@@ -159,103 +104,49 @@ variable (hD : ∀ S : Sorts, S.WellFormed → (dom S).Lawful S.interp)
 include hD hG hE in
 /-- The tabled machine keeps every property, with the tabled machine of any
 other exact race as base. -/
-theorem tabled_keeps (hG₀ : Good @U₀) (hE₀ : Exact @U₀) :
-    (Rt @U dom K hK).Keeps (Rt @U₀ dom K hK) where
-  sound := Engine.sound _ dom K hK hD
-  pointComplete := pointComplete hD hG
+theorem tabled_obligations (hG₀ : Good @U₀) (hE₀ : Exact @U₀) :
+    (engine @U).Obligations dom K hK (Rt @U₀ dom K hK) where
+  complete := complete hD hG
   honest := honestExhaustion hD hG
   honestProgress := honestProgress hD hG
-  derivationGeneral := Engine.derivationGeneral _ dom K hK hD
   terminates := fun _ _ wf ⟨n, hn⟩ => ⟨n, (halts_iff hD hG₀ hG hE₀ hE wf n).1 hn⟩
-  orComm := Engine.orComm _ dom K hK
-  orAssoc := Engine.orAssoc _ dom K hK
   emptySide := emptySide hD hG hE
   convTrace := convTrace hD hG hE
   dualTrace := dualTrace hD hG hE
   noSubsumed := noSubsumed hD hG
-  complete := complete hD hG
+
+include hD hG hE in
+/-- The tabled machine keeps every property, with the tabled machine of any
+other exact race as base. -/
+theorem tabled_keeps (hG₀ : Good @U₀) (hE₀ : Exact @U₀) :
+    (Rt @U dom K hK).Keeps (Rt @U₀ dom K hK) :=
+  (tabled_obligations hD hG hE hG₀ hE₀).keeps hD
+
+include hD hG in
+/-- The answers the tabled machine shows in one step do not cover each
+other. -/
+theorem stepAntichain : (Rt @U dom K hK).StepAntichain := fun P q wf n => by
+  rw [init_eq]
+  exact trace_step_pairwise (inv_of_wf (K := K) (hK := hK) hD hG wf) (hD _ wf.2.2.1) n 0
+
+include hD hG hE in
+/-- The mirrored tabled machine shows at every step what the tabled machine
+shows. -/
+theorem mirror_sameTrace : Runtime.SameTrace (Mt @U dom K hK) (Rt @U dom K hK) :=
+  ⟨fun _ _ wf n => TraceEquiv.of_perm (mirror_trace hD hG hE wf n)⟩
 
 include hD hG hE in
 /-- **The mirrored tabled machine runs like the tabled machine.** -/
-theorem mirror_sameRun : Runtime.SameRun (Mt @U dom K hK) (Rt @U dom K hK) where
-  emitted P q wf n := by
-    rw [(Mt @U dom K hK).emitted_eq_flatMap_trace, (Rt @U dom K hK).emitted_eq_flatMap_trace]
-    exact StepEquiv.of_perm (perm_emits (mirror_trace hD hG hE wf n))
-  halts P q wf n := mirror_halts hD hG hE wf n
+theorem mirror_sameRun : Runtime.SameRun (Mt @U dom K hK) (Rt @U dom K hK) :=
+  (mirror_sameTrace (K := K) (hK := hK) hD hG hE).sameRun
 
 include hD hG hE in
 /-- **The mirrored tabled machine keeps every property**, with the tabled
 machine of any exact race as base. -/
 theorem mirror_keeps (hG₀ : Good @U₀) (hE₀ : Exact @U₀) :
-    (Mt @U dom K hK).Keeps (Rt @U₀ dom K hK) := by
-  have hS := mirror_sameRun (K := K) (hK := hK) hD hG hE
-  have t0 : (Rt @U dom K hK).Tier0 :=
-    ⟨Engine.sound _ dom K hK hD, complete hD hG, honestExhaustion hD hG⟩
-  have hconv : ∀ {P : Program} {q : Rel}, P.WellFormed q → P.WellFormed (.conv q) :=
-    fun wf => wf.of_sub (fun _ h => h) (fun _ h => h)
-  refine
-    { sound := Engine.sound _ dom K hK hD
-      pointComplete := (hS.complete t0.complete).pointwise
-      honest := hS.honest t0
-      honestProgress := fun P q wf k n hc p hp h₁ h₂ => ?_
-      derivationGeneral := Engine.derivationGeneral _ dom K hK hD
-      terminates := fun P q wf ⟨n, hn⟩ =>
-        ⟨n, (mirror_halts hD hG hE wf n).2 ((halts_iff hD hG₀ hG hE₀ hE wf n).1 hn)⟩
-      orComm := Engine.orComm _ dom K hK
-      orAssoc := Engine.orAssoc _ dom K hK
-      emptySide := fun P a b wf ht he => ?_
-      convTrace := fun P q n wf => ?_
-      dualTrace := fun P q n wf => ?_
-      noSubsumed := fun P q wf n => ?_
-      complete := hS.complete t0.complete }
-  · -- a certificate of the mirrored machine is one of the tabled machine
-    obtain ⟨y, hy, hxy⟩ := forall₂_getElem? (mirror_trace hD hG hE wf (k + 1)) hc
-    have hy' : (Rt @U dom K hK).Certifies ((Rt @U dom K hK).init P q) k n := by
-      cases y with
-      | level m => obtain rfl : n = m := hxy; exact hy
-      | answers _ => exact hxy.elim
-      | final _ => exact hxy.elim
-    obtain ⟨a, ha, hpa⟩ := honestProgress hD hG P q wf k n hy' p hp h₁ h₂
-    obtain ⟨a', ha', e⟩ := hS.symm.answer wf ha
-    exact ⟨a', ha', e.2 hpa⟩
-  · -- the empty side
-    have wfa : P.WellFormed a := wf.of_sub (fun _ h => List.mem_append_left _ h)
-      (fun _ h => List.mem_append_left _ h)
-    have wfba : P.WellFormed (.seq b a) := wf.of_sub
-      (fun _ h => (List.mem_append.1 h).elim (List.mem_append_right _) (List.mem_append_left _))
-      (fun _ h => (List.mem_append.1 h).elim (List.mem_append_right _) (List.mem_append_left _))
-    have wfand : P.WellFormed (.and a b) := wf.of_sub (fun _ h => h) (fun _ h => h)
-    have wfand' : P.WellFormed (.and b a) := wfba.of_sub (fun _ h => h) (fun _ h => h)
-    have up : ∀ {q : Rel}, P.WellFormed q → (Rt @U dom K hK).Terminates P q →
-        (Mt @U dom K hK).Terminates P q :=
-      fun wf' ⟨n, hn⟩ => ⟨n, (mirror_halts hD hG hE wf' n).2 hn⟩
-    have ht' : (Rt @U dom K hK).Terminates P a := by
-      obtain ⟨n, hn⟩ := ht
-      exact ⟨n, (mirror_halts hD hG hE wfa n).1 hn⟩
-    have he' : (Rt @U dom K hK).Answers P a = ∅ := by
-      refine Set.eq_empty_of_forall_notMem fun x ⟨n, hx⟩ => ?_
-      obtain ⟨x', hx', -⟩ := hS.symm.answer wfa hx
-      have : x' ∈ (Mt @U dom K hK).Answers P a := ⟨n, hx'⟩
-      rw [he] at this
-      exact this
-    obtain ⟨h₁, h₂, h₃, h₄⟩ := emptySide (K := K) (hK := hK) hD hG hE P a b wf ht' he'
-    exact ⟨up wf h₁, up wfba h₂, up wfand h₃, up wfand' h₄⟩
-  · -- the converse
-    exact (traceEquiv_of_perm (mirror_trace hD hG hE (hconv wf) n)).trans
-      ((convTrace hD hG hE P q n wf).trans
-        (traceEquiv_of_perm (mirror_trace hD hG hE wf n)).symm.map_swap)
-  · -- the mirrored program
-    exact (traceEquiv_of_perm (M := P.sorts.interp) (mirror_trace hD hG hE wf.dual n)).trans
-      ((dualTrace hD hG hE P q n wf).trans
-        (traceEquiv_of_perm (mirror_trace hD hG hE wf n)).symm.map_swap)
-  · -- no answer is covered by an earlier one
-    rw [(Mt @U dom K hK).emitted_eq_flatMap_trace]
-    refine pairwise_of_perm_steps (mirror_trace hD hG hE wf n) ?_ ?_
-    · have := noSubsumed (K := K) (hK := hK) hD hG P q wf n
-      rw [(Rt @U dom K hK).emitted_eq_flatMap_trace] at this
-      exact this
-    · rw [init_eq]
-      exact trace_step_pairwise (inv_of_wf (K := K) (hK := hK) hD hG wf) (hD _ wf.2.2.1) n 0
+    (Mt @U dom K hK).Keeps (Rt @U₀ dom K hK) :=
+  (mirror_sameTrace (K := K) (hK := hK) hD hG hE).keeps (tabled_keeps hD hG hE hG₀ hE₀)
+    (stepAntichain hD hG) (Engine.orComm _ dom K hK) (Engine.orAssoc _ dom K hK)
 
 include hD hG in
 /-- **The tabled machine emits no progress certificate.** -/
@@ -268,13 +159,9 @@ theorem neverCertifies {P : Program} {q : Rel} (wf : P.WellFormed q) (k n : Nat)
 include hD hG hE in
 /-- **The mirrored tabled machine emits no progress certificate.** -/
 theorem mirror_neverCertifies {P : Program} {q : Rel} (wf : P.WellFormed q) (k n : Nat) :
-    ¬ (Mt @U dom K hK).Certifies ((Mt @U dom K hK).init P q) k n := fun hc => by
-  obtain ⟨y, hy, hxy⟩ := forall₂_getElem? (mirror_trace hD hG hE wf (k + 1)) hc
-  refine neverCertifies (K := K) (hK := hK) hD hG wf k n ?_
-  cases y with
-  | level m => obtain rfl : n = m := hxy; exact hy
-  | answers _ => exact hxy.elim
-  | final _ => exact hxy.elim
+    ¬ (Mt @U dom K hK).Certifies ((Mt @U dom K hK).init P q) k n := fun hc =>
+  neverCertifies (K := K) (hK := hK) hD hG wf k n
+    (((mirror_sameTrace (K := K) (hK := hK) hD hG hE).certifies wf k n).1 hc)
 
 include hD hG hE in
 /-- **The final report of the mirrored tabled machine is the maximal emitted

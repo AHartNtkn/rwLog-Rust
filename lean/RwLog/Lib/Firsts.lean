@@ -134,3 +134,101 @@ theorem firsts_eq_eraseDups (xs : List α) : firsts xs = xs.eraseDups := by
   simp [firsts, addAll_eq_append_eraseDups]
 
 end RwLog
+
+namespace RwLog
+
+/-! ## First occurrences under an injective map, and their places -/
+
+theorem firsts_map {α β : Type} [DecidableEq α] [DecidableEq β] (f : α → β) :
+    ∀ L : List α, (∀ a ∈ L, ∀ b ∈ L, f a = f b → a = b) → firsts (L.map f) = (firsts L).map f := by
+  intro L
+  induction L using List.reverseRecOn with
+  | nil => intro _; rfl
+  | append_singleton L x ih =>
+    intro hf
+    have ih' := ih fun a ha b hb => hf a (by simp [ha]) b (by simp [hb])
+    rw [List.map_append, List.map_singleton, firsts_concat, firsts_concat, ih']
+    unfold addNew
+    by_cases hx : x ∈ firsts L
+    · rw [ite_eq_left hx, ite_eq_left (List.mem_map_of_mem hx)]
+    · have hx' : f x ∉ (firsts L).map f := by
+        intro hc
+        obtain ⟨a, ha, e⟩ := List.mem_map.1 hc
+        have := hf a (by simp [mem_firsts.1 ha]) x (by simp) e
+        subst this
+        exact hx ha
+      rw [ite_eq_right hx, ite_eq_right hx', List.map_append, List.map_singleton]
+
+/-- `firsts` lists the members once each, and a member's place is the number
+of different members before its first occurrence. -/
+theorem firsts_spec {α : Type} [DecidableEq α] (L : List α) :
+    (firsts L).Nodup ∧ (∀ v, v ∈ firsts L ↔ v ∈ L) ∧
+    ∀ (i m : Nat) (v : α), L[i]? = some v → m < (firsts L).idxOf v →
+      ∃ j, j < i ∧ ∃ u, L[j]? = some u ∧ (firsts L).idxOf u = m := by
+  induction L using List.reverseRecOn with
+  | nil => exact ⟨List.nodup_nil, by simp [firsts], by simp⟩
+  | append_singleton L x ih =>
+    rw [firsts_concat, addNew]
+    generalize firsts L = F at ih ⊢
+    obtain ⟨hnd, hmem, hF⟩ := ih
+    -- a place below the length of `F` is the place of a member of `L`
+    have hit : ∀ m, m < F.length → ∃ j, j < L.length ∧ ∃ u, L[j]? = some u ∧ F.idxOf u = m := by
+      intro m hm
+      have hu : F[m] ∈ L := (hmem _).1 (List.getElem_mem hm)
+      obtain ⟨j, hj, e⟩ := List.getElem_of_mem hu
+      exact ⟨j, hj, F[m], by rw [List.getElem?_eq_getElem hj, e], hnd.idxOf_getElem m hm⟩
+    have left : ∀ (j : Nat) (u : α), L[j]? = some u → (L ++ [x])[j]? = some u := by
+      intro j u h
+      obtain ⟨hj, -⟩ := List.getElem?_eq_some_iff.1 h
+      rw [List.getElem?_append_left hj]; exact h
+    by_cases hx : x ∈ F
+    · simp only [hx, ↓reduceIte]
+      have hmem' : ∀ v, v ∈ F ↔ v ∈ L ++ [x] := by
+        intro v
+        rw [hmem, List.mem_append, List.mem_singleton]
+        constructor
+        · exact Or.inl
+        · rintro (h | rfl)
+          · exact h
+          · exact (hmem _).1 hx
+      refine ⟨hnd, hmem', ?_⟩
+      intro i m v hv hm
+      rcases Nat.lt_trichotomy i L.length with hi | hi | hi
+      · rw [List.getElem?_append_left hi] at hv
+        obtain ⟨j, hj, u, hu, e⟩ := hF i m v hv hm
+        exact ⟨j, hj, u, left j u hu, e⟩
+      · subst hi
+        have hml : m < F.length := lt_of_lt_of_le hm List.idxOf_le_length
+        obtain ⟨j, hj, u, hu, e⟩ := hit m hml
+        exact ⟨j, hj, u, left j u hu, e⟩
+      · rw [List.getElem?_eq_none (by simp; omega)] at hv; cases hv
+    · simp only [hx, ↓reduceIte]
+      have hin : ∀ u ∈ F, (F ++ [x]).idxOf u = F.idxOf u := fun u hu => List.idxOf_append_of_mem hu
+      refine ⟨?_, ?_, ?_⟩
+      · rw [List.nodup_append]
+        refine ⟨hnd, List.nodup_singleton x, ?_⟩
+        intro a ha b hb
+        rw [List.mem_singleton] at hb; subst hb
+        rintro rfl; exact hx ha
+      · intro v
+        simp only [List.mem_append, List.mem_singleton, hmem]
+      · intro i m v hv hm
+        rcases Nat.lt_trichotomy i L.length with hi | hi | hi
+        · rw [List.getElem?_append_left hi] at hv
+          have hvF : v ∈ F := (hmem v).2 (List.mem_of_getElem? hv)
+          rw [hin v hvF] at hm
+          obtain ⟨j, hj, u, hu, e⟩ := hF i m v hv hm
+          have huF : u ∈ F := (hmem u).2 (List.mem_of_getElem? hu)
+          exact ⟨j, hj, u, left j u hu, by rw [hin u huF]; exact e⟩
+        · subst hi
+          have hvx : v = x := by simpa using hv.symm
+          subst hvx
+          have hml : m < F.length := by
+            rw [List.idxOf_append_of_notMem hx] at hm
+            simpa using hm
+          obtain ⟨j, hj, u, hu, e⟩ := hit m hml
+          have huF : u ∈ F := (hmem u).2 (List.mem_of_getElem? hu)
+          exact ⟨j, hj, u, left j u hu, by rw [hin u huF]; exact e⟩
+        · rw [List.getElem?_eq_none (by simp; omega)] at hv; cases hv
+
+end RwLog

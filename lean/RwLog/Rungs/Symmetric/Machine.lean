@@ -113,7 +113,7 @@ A goal and its converse do not share a table: no exact property needs it,
 and whether it would save anything is not measured (design note, section 1).
 -/
 import RwLog.Trusted.Cost
-import RwLog.Rungs.Framework.Traverse
+import RwLog.Rungs.Framework.Goals
 import RwLog.Lib.Gfp
 
 namespace RwLog
@@ -122,19 +122,8 @@ namespace Symmetric
 
 open Traverse
 
-/-- The goal `lb ; node ; rb`. -/
-structure GoalOf (S N : Type) where
-  lb : Option S
-  node : N
-  rb : Option S
-  deriving DecidableEq
-
-/-- Which rule combines the two sides of a split: `join` for a chain, `meetA`
-for a meet. -/
-inductive Kind where
-  | seq
-  | and
-  deriving DecidableEq, Repr
+export Goals (GoalOf GoalOf.mk GoalOf.lb GoalOf.node GoalOf.rb Kind Kind.seq Kind.and andSplits
+  sameBound same indexFrom coversA maxima both)
 
 /-- The cursor of a join. Every pair of the first `na` answers of the one side
 and the first `nb` of the other is combined. A *line* is the pairs of the
@@ -254,10 +243,6 @@ structure StateOf (S N A : Type) where
   shown : Nat
   edges : List (N × Bool × Option (List S))
   depth : Nat
-
-/-- The members a meet of `k` members is split at: the first of two; every
-member otherwise. -/
-def andSplits (k : Nat) : List Nat := if k ≤ 2 then [0] else List.range k
 
 /-- Change the table at a position. -/
 def StateOf.modify {S N A : Type} (st : StateOf S N A) (i : Nat)
@@ -394,20 +379,6 @@ variable {S N A : Type} {M : Type → Type} [K : DerivationKernel S N A M]
 
 /-! ## Tables -/
 
-/-- Are two boundaries the same representative? -/
-def sameBound : Option S → Option S → M Bool
-  | none, none => pure true
-  | some a, some b => K.eq a b
-  | _, _ => pure false
-
-/-- Are two goals the same goal? -/
-def same (g h : GoalOf S N) : M Bool := do
-  let b ← K.eqNode g.node h.node
-  if b then do
-    let l ← sameBound (K := K) g.lb h.lb
-    if l then sameBound (K := K) g.rb h.rb else pure false
-  else pure false
-
 /-- Is a goal its own converse? The converse of `lb ; n ; rb` is the converse
 of `n` between the exchanged boundaries. -/
 def selfConverse (g : GoalOf S N) : M Bool := do
@@ -415,41 +386,16 @@ def selfConverse (g : GoalOf S N) : M Bool := do
   let b ← K.eqNode c g.node
   if b then sameBound (K := K) g.lb g.rb else pure false
 
-/-- The position of the table of a goal, counting from `i`. -/
-def indexFrom (g : GoalOf S N) : Nat → List (Table S N A) → M (Option Nat)
-  | _, [] => pure none
-  | i, t :: ts => do
-    let b ← same (K := K) t.goal g
-    if b then pure (some i) else indexFrom g (i + 1) ts
-
 /-- The table of a goal: its position, the goal being opened if it has no
 table yet. -/
 def openGoal (st : StateOf S N A) (g : GoalOf S N) : M (StateOf S N A × Nat) := do
-  let i ← indexFrom (K := K) g 0 st.tables
+  let i ← indexFrom (K := K) (·.goal) g 0 st.tables
   match i with
   | some i => pure (st, i)
   | none => do
     let self ← selfConverse (K := K) g
     pure ({ st with tables := st.tables ++ [⟨g, self, [], false, none, st.round, 0, 0⟩] },
       st.tables.length)
-
-/-- Does the first answer cover the second? -/
-def coversA (y x : A) : M Bool := K.covers (K.span y) (K.span x)
-
-/-- The answers no other answer of the list strictly covers, one of each
-class of answers that cover each other. -/
-def maxima (xs : List A) : M (List A) := do
-  let top ← filterL (fun x => do
-    let b ← anyL (fun y => do
-      let c ← coversA (K := K) y x
-      if c then do
-        let c' ← coversA (K := K) x y
-        pure !c'
-      else pure false) xs
-    pure !b) xs
-  foldL (fun acc x => do
-    let b ← anyL (fun y => coversA (K := K) y x) acc
-    pure (if b then acc else acc ++ [x])) [] top
 
 /-- Put an answer in the table at `i`, unless an answer there covers it. -/
 def addOne (i : Nat) (st : StateOf S N A) (a : A) : M (StateOf S N A × Bool) := do
@@ -475,11 +421,6 @@ def addOption (i : Nat) (st : StateOf S N A) : Option A → M (StateOf S N A)
   | some a => addAnswer (K := K) i st a
 
 /-! ## The strategies of a goal -/
-
-/-- Combine an answer of the left side with an answer of the right one. -/
-def both : Kind → A → A → M (Option A)
-  | .seq, x, y => K.join x y
-  | .and, x, y => K.meetA x y
 
 /-- Combine an answer that was pushed with an answer of the goal opened for
 it. In a chain the answer of the left side comes first; in a meet the answer

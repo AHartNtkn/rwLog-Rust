@@ -67,7 +67,7 @@ theorem assemble_spec (hnm : Function.Injective nm) {S : Sorts} {sp : Pat} {U : 
     (hC : Ctx nm S sp U) {rc : Nat} (hr : ∀ d, (Sorts.reachSet S d).card ≤ rc) (tp : Pat)
     (cL : List Sorts.Conj) (hcN : ∀ c ∈ cL, ∀ n ∈ c, n ∈ Sorts.names S) (X : List (Eqns Nat))
     (hfo : ∀ E ∈ X, E.FO) (hv : ∀ E ∈ X, ∀ v ∈ E.vars, v < cL.length)
-    (hnd : (Sorts.antichain (Sorts.covers cL.length) (Sorts.normExs S ⟨tp, cL, ∅⟩ X)).Nodup)
+    (hnd : (RwLog.antichain (Sorts.covers cL.length) (Sorts.normExs S ⟨tp, cL, ∅⟩ X)).Nodup)
     (s : store.Store) (decls names t cs x : store.TermId) (hI : Inv s)
     (hd : Repr nm s.nodes.val decls.val sp)
     (hU : Repr nm s.nodes.val names.val (namesPat (nm none) U))
@@ -78,7 +78,7 @@ theorem assemble_spec (hnm : Function.Injective nm) {S : Sorts} {sp : Pat} {U : 
     sorts.assemble s decls names t cs x ⦃ rep s' =>
       Inv s' ∧ Extends s s' ∧ s'.ticks.val ≤ s.ticks.val + assembleCost nm S U rc tp cL X ∧
         RepAt nm U s'.nodes.val rep (Sorts.assembled S tp cL X)
-          (Sorts.antichain (Sorts.covers cL.length) (Sorts.normExs S ⟨tp, cL, ∅⟩ X)) ⦄ := by
+          (RwLog.antichain (Sorts.covers cL.length) (Sorts.normExs S ⟨tp, cL, ∅⟩ X)) ⦄ := by
   unfold sorts.assemble
   have hroom' := hroom
   unfold Room assembleCost at hroom'
@@ -168,7 +168,7 @@ noncomputable def foldedRaw (S : Sorts) (R : Sorts.Raw) (Y : List Sorts.Binds) :
 /-- The exclusions of the folded store, as `fold` lists them. -/
 noncomputable def foldedYs (S : Sorts) (R : Sorts.Raw) (Y : List Sorts.Binds) :
     List Sorts.Binds :=
-  Sorts.antichain (Sorts.covers ((Sorts.foldNames S R).map (Sorts.foldConj S R)).length)
+  RwLog.antichain (Sorts.covers ((Sorts.foldNames S R).map (Sorts.foldConj S R)).length)
     (Sorts.normExs S ⟨(Sorts.foldStore S R).t,
       (Sorts.foldNames S R).map (Sorts.foldConj S R), ∅⟩ (foldXl S R Y))
 
@@ -188,7 +188,7 @@ theorem mem_foldXl (hy : Y.toFinset = R.x) {E : Eqns Nat} :
 
 theorem mem_exVars (hy : Y.toFinset = R.x) {y : Nat} :
     y ∈ RwLog.firsts (encX nm (exEqns Y)).vars ↔ ∃ θ ∈ R.x, y ∈ (Sorts.eqnsOf θ).vars := by
-  rw [(Sorts.firsts_spec _).2.1 y]
+  rw [(RwLog.firsts_spec _).2.1 y]
   unfold encX exEqns
   rw [mem_vars_encList]
   simp only [List.mem_map, List.mem_reverse, ← hy, List.mem_toFinset]
@@ -461,7 +461,7 @@ theorem fold_spec (hnm : Function.Injective nm) {S : Sorts} {sp : Pat} {U : List
       (Sorts.foldVc S R R.t).vars.map (fnum (fpairs R.c.length Fl)) := Term.vars_rename _ _
   have hfirsts : RwLog.firsts ((Sorts.foldVc S R R.t).rename (fnum (fpairs R.c.length Fl))).vars =
       (Sorts.foldNames S R).map (fnum (fpairs R.c.length Fl)) := by
-    rw [hvars1, Sorts.firsts_map _ _ hNm.inj]
+    rw [hvars1, RwLog.firsts_map _ _ hNm.inj]
     rfl
   have hsize : ((Sorts.foldVc S R R.t).rename (fnum (fpairs R.c.length Fl))).size =
       (Sorts.foldStore S R).t.size := by
@@ -496,11 +496,11 @@ theorem fold_spec (hnm : Function.Injective nm) {S : Sorts} {sp : Pat} {U : List
     rw [List.map_map, List.map_map]
     refine List.map_congr_left fun p hp => ?_
     simp only [Function.comp_apply]
-    rw [hNm.conj hC hUS hG p (((Sorts.firsts_spec _).2.1 p).1 hp)]
+    rw [hNm.conj hC hUS hG p (((RwLog.firsts_spec _).2.1 p).1 hp)]
   rw [hcs] at rcs
   have hKnd : ((Sorts.foldNames S R).map (fnum (fpairs R.c.length Fl))).Nodup :=
-    List.Nodup.map_on (fun a ha b hb e => hNm.inj a (((Sorts.firsts_spec _).2.1 a).1 ha) b
-      (((Sorts.firsts_spec _).2.1 b).1 hb) e) hN.nodup
+    List.Nodup.map_on (fun a ha b hb e => hNm.inj a (((RwLog.firsts_spec _).2.1 a).1 ha) b
+      (((RwLog.firsts_spec _).2.1 b).1 hb) e) hN.nodup
   step with number_spec ((Sorts.foldNames S R).map (fnum (fpairs R.c.length Fl))) hKnd s12 ks
     hI12 (hx12.repr rks) (by rw [List.length_map]; unfold Room; omega)
     as ⟨nx, s13, hI13, hx13, ht13, hA13, hnx13, hleaf13⟩
@@ -539,12 +539,12 @@ theorem fold_spec (hnm : Function.Injective nm) {S : Sorts} {sp : Pat} {U : List
   -- what was built is what the folded store is assembled from
   have hKmem : ∀ p ∈ (Sorts.foldVc S R R.t).vars, fnum (fpairs R.c.length Fl) p ∈
       (Sorts.foldNames S R).map (fnum (fpairs R.c.length Fl)) :=
-    fun p hp => List.mem_map.2 ⟨p, ((Sorts.firsts_spec _).2.1 p).2 hp, rfl⟩
+    fun p hp => List.mem_map.2 ⟨p, ((RwLog.firsts_spec _).2.1 p).2 hp, rfl⟩
   have hidx : ∀ p ∈ (Sorts.foldVc S R R.t).vars,
       ((Sorts.foldNames S R).map (fnum (fpairs R.c.length Fl))).idxOf
         (fnum (fpairs R.c.length Fl) p) = (Sorts.foldNames S R).idxOf p :=
     fun p hp => Sorts.idxOf_map_inj _ p _ fun a ha e =>
-      hNm.inj a (((Sorts.firsts_spec _).2.1 a).1 ha) p hp e
+      hNm.inj a (((RwLog.firsts_spec _).2.1 a).1 ha) p hp e
   have hT2 : ((Sorts.foldVc S R R.t).rename (fnum (fpairs R.c.length Fl))).bind
       (numSub ((Sorts.foldNames S R).map (fnum (fpairs R.c.length Fl)))) =
       (Sorts.foldStore S R).t := by
@@ -598,7 +598,7 @@ theorem fold_spec (hnm : Function.Injective nm) {S : Sorts} {sp : Pat} {U : List
       m ∈ Sorts.names S := by
     intro c hc m hm
     obtain ⟨p, hp, rfl⟩ := List.mem_map.1 hc
-    have hp' := ((Sorts.firsts_spec _).2.1 p).1 hp
+    have hp' := ((RwLog.firsts_spec _).2.1 p).1 hp
     rcases hNm p hp' with ⟨x, rfl, hx, -⟩ | ⟨hF, -, -⟩
     · exact ((hsh.up x hx m).1 hm).1
     · rw [Sorts.foldConj_notVar (hG.found p hF).2.1] at hm

@@ -135,11 +135,17 @@ every charge derived from the Rust. No domain of spans as written is left
 | The structural order is linear; sorted lists are determined by their members | `Kernel/Order.lean` | `relCmp_trans`, `relCmp_eq`, `sortedBranches_eq`, `pairwise_sortedBranches` |
 | Valid answers of a goal and the rules that make them | `Kernel/Derivation.lean` | `Goal`, `Valid`, `Valid.leaf`, `join`, `meet`, `inj`, `unfold`, `unfoldConv`, `swap`, `Valid.sound`, `Valid.general` |
 | Sizes charged by the cost model | `Kernel/Size.lean` (and `Term.size_pos` in `Kernel/Solve.lean`) | `Span.size_pos`, `Span.size_swap`, `Rel.size_pos` |
-| Sums over lists | `Lib/List.lean` | `sum_flatMap_map`, `sum_filterMap_map`, `le_sum_map_of_mem`, `sum_map_le` |
+| Sums over lists | `Lib/List.lean` | `sum_flatMap_map`, `sum_filterMap_map`, `le_sum_map_of_mem`, `sum_map_le`, `sum_map_le_mul`, `sum_range_getD` |
+| Lists related member by member, one member changed, conditionals | `Lib/List.lean` | `forall₂_mem_left`, `forall₂_mem_right`, `forall₂_getElem?`, `forall₂_getLast?`, `map_modify_eq`, `mem_modify`, `two_le_length_of_mem`, `drop_take_reverse`, `ite_of_pos`, `ite_of_neg` |
+| Goals, the same goal, maximal answers, the rule of a split, for any machine that tables | `Rungs/Framework/Goals.lean`, `GoalsVal.lean` | `GoalOf`, `Kind`, `same`, `indexFrom`, `coversA`, `maxima`, `fresh`, `both`; their values: `same_val`, `indexFrom_val`, `coversA_val`, `maxima_val`, `fresh_val`, `both_some` |
+| A fold in `Cost` keeps an invariant | `Rungs/Framework/Cost.lean`, `TraverseStd.lean` | `Cost.foldL_inv`, `Traverse.foldL_inv` |
+| Well-formed queries built from a well-formed one | `Rungs/Framework/SameTrace.lean`, `Direction.lean` | `ProgramOf.WellFormed.of_sub`, `.conv`, `.seq_left`, `.seq_swap`, `.and_of_seq`, `.dual` |
 | Converse of a program | `SpanLayer/Dual.lean` | `Program.sem_dual` |
 | Greatest fixpoints by iteration | `Lib/Gfp.lean` | `gfpFrom`, `gfpFrom_closed`, `subset_gfpFrom` |
 | Insertion sort by a strict order | `Lib/Insert.lean` | `insertBy`, `sortBy`, `sortBy_eq` (a duplicate-free list sorts to the ordered list with the same members) |
-| First occurrences of a list | `Lib/Firsts.lean` | `addNew`, `addAll`, `firsts`, `firsts_eq_eraseDups`, `addAll_firsts`, `addAll_flatMap_firsts`, `addAll_flatMap_congr` |
+| First occurrences of a list | `Lib/Firsts.lean` | `addNew`, `addAll`, `firsts`, `firsts_eq_eraseDups`, `addAll_firsts`, `addAll_flatMap_firsts`, `addAll_flatMap_congr`, `firsts_map`, `firsts_spec` |
+| An antichain that covers a list | `Lib/Antichain.lean` | `antichain`, `antichain_spec` |
+| Lookup by sorted key; the values of a list of options | `Lib/List.lean` | `lookup_sorted`, `gather`, `gather_eq_some`, `gather_range`, `gather_isSome` |
 
 ## The rung framework
 
@@ -180,6 +186,23 @@ rung unchanged.
   (`Answer.selfRead_sigma`): each is a representative carried with its
   sorts. `Span.denAt_sorted` and `Span.firstOrder_sorted`
   (`SpanLayer/Sorts.lean`) say what holding an end of a span to a sort does.
+* `SameTrace.lean`: the whole of `Runtime.Keeps` along a trace.
+  `SameTrace R' R` says the two machines show the same thing at every step,
+  up to the order of the answers of a step and up to equivalent answers. It
+  gives `SameRun`, and the two certify and halt together. `SameTrace.keeps`:
+  `R'` keeps every property `R` keeps, with the same base, given the laws of
+  `|` of `R'` (free for an engine) and that the answers `R` shows in one step
+  do not cover each other (`StepAntichain`). Each property has its own
+  transfer (`SameTrace.honestProgress`, `emptySide`, `convTrace`,
+  `dualTrace`, `noSubsumed`). `HonestProgress.of_never` is honest progress of
+  a machine that emits no certificate. The mirrored tabled machine gets
+  `mirror_keeps` this way (`Rungs/Tabled/MirrorKeeps.lean`).
+* `Goals.lean`, `GoalsVal.lean`: the text every machine that tables shares
+  (the goal, the same goal, the position of a goal's table, the cover test
+  on answers, maximal and fresh answers, the rule of a split) and what each
+  returns at the kernel of a program. A machine takes the names with
+  `export Goals (…)`, constructors included, so its own files read as
+  before. The tabled machine and the symmetric engine do.
 * `Saturation.lean`: the completeness every engine on the normal form
   shares (roadmap L30). A run is what it ever holds for each goal
   (`Saturation.Tables`) and the goals it opens. `Saturation.Served` lists the
@@ -194,6 +217,8 @@ rung unchanged.
   found by any schedule is covered by every fair run that opens its goal.
   Nothing is assumed of the order of work or of tables growing. A machine
   proves `Fair` of its runs and receives completeness.
+  `Served.checkL` and `checkR` serve a chain that has no answer by the
+  interface check.
 * `Oriented.lean`: a machine run on one orientation of its input
   (`CostedRuntime.oriented`, `Trusted/Cost.lean`). The choice made from the
   converse of a query, and from the mirror image of an input, is the choice
@@ -474,6 +499,42 @@ to R001) uses `SameRun.of_eq`, or simply rewrites.
 
 Declarations keep their epoch 1 namespaces (`R000` to `R005`), so a name on
 master is the same name at the tag.
+
+## Proving a new engine
+
+An engine is written once against the derivation kernel
+(`Trusted/Kernel.lean`), in any monad, and proved at
+`DerivationKernel.over D K hK P` in `Cost`. The parts of `Runtime.Keeps`
+come from these places.
+
+1. Free for every engine: `Engine.sound`, `Engine.derivationGeneral`
+   (`Framework/Derivation.lean`), `Engine.orComm`, `Engine.orAssoc`
+   (`Framework/Writing.lean`). `Engine.Obligations` (`Framework/EngineKeeps.lean`)
+   names the eight parts that are the engine's own, and `Obligations.keeps`
+   fills in the free ones and returns `Runtime.Keeps`.
+2. Reading the text as values: open the goal with `at_cost K hK`
+   (`Framework/KernelAt.lean`), rewrite the traversals with the `_std`
+   lemmas and `Cost.*_val` (`Framework/TraverseStd.lean`,
+   `Framework/Cost.lean`), the rules with `Ans.leaf_val`, `join_val`,
+   `meetA_val`, `inj_val`, `unfold_val` (`Framework/Rules.lean`), and the
+   goal operations with `Framework/GoalsVal.lean`. `rw [Cost.bind_val]`
+   works on a bind of the kernel's monad after `at_cost`; `erw` is not
+   needed.
+3. Completeness: describe the run as `Saturation.Tables` and the goals it
+   opens, prove `Saturation.Fair`, and take `Fair.complete`
+   (`Framework/Saturation.lean`). Honest exhaustion follows from
+   `Tier0Cert` (`Framework/Tier0.lean`).
+4. The converse and the mirrored program: run the machine on one
+   orientation and prove `CostedRuntime.SelfConverse`
+   (`Framework/Oriented.lean`).
+5. A machine that shows what a proved machine shows, step for step up to
+   order and equivalence: prove `Runtime.SameTrace` by a simulation
+   (`Runtime.trace_of_sim`, `TraceEquiv.of_perm`) and take
+   `SameTrace.keeps`. A machine that only emits the same answers:
+   `SameRun` (`Framework/Transfer.lean`).
+6. Cost: `Framework/CostCalculus.lean` and `CostSpec.lean` for the ticks of
+   the traversals, `Framework/Race.lean` for races, `Framework/Admission.lean`
+   and `Latency.lean` for the statement a rung is admitted by.
 
 ## Rules that hold in every epoch
 

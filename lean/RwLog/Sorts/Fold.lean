@@ -505,26 +505,6 @@ theorem foldV_bind (h : Unfolding S s s' τ)
     rw [ite_eq_right hnf]
     exact foldArg_leaf hfree hxs
 
-theorem firsts_map {α β : Type} [DecidableEq α] [DecidableEq β] (f : α → β) :
-    ∀ L : List α, (∀ a ∈ L, ∀ b ∈ L, f a = f b → a = b) → firsts (L.map f) = (firsts L).map f := by
-  intro L
-  induction L using List.reverseRecOn with
-  | nil => intro _; rfl
-  | append_singleton L x ih =>
-    intro hf
-    have ih' := ih fun a ha b hb => hf a (by simp [ha]) b (by simp [hb])
-    rw [List.map_append, List.map_singleton, firsts_concat, firsts_concat, ih']
-    unfold addNew
-    by_cases hx : x ∈ firsts L
-    · rw [ite_eq_left hx, ite_eq_left (List.mem_map_of_mem hx)]
-    · have hx' : f x ∉ (firsts L).map f := by
-        intro hc
-        obtain ⟨a, ha, e⟩ := List.mem_map.1 hc
-        have := hf a (by simp [mem_firsts.1 ha]) x (by simp) e
-        subst this
-        exact hx ha
-      rw [ite_eq_right hx, ite_eq_right hx', List.map_append, List.map_singleton]
-
 theorem idxOf_map_inj {α β : Type} [DecidableEq α] [DecidableEq β] (f : α → β) (p : α) :
     ∀ F : List α, (∀ a ∈ F, f a = f p → a = p) → (F.map f).idxOf (f p) = F.idxOf p
   | [], _ => rfl

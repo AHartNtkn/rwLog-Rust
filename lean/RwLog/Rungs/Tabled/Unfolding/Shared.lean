@@ -20,6 +20,7 @@ as good as one that is computed (`memo_node`, `memo_spec`).
 `evalS_ok`: the summary of a node is its unfolding and the memo stays right.
 `sharedRace_ok`: the race answered with shared work meets `UOk`.
 -/
+import RwLog.Lib.List
 import RwLog.Rungs.Tabled.Unfolding.SharedVal
 
 namespace RwLog
@@ -412,28 +413,6 @@ end chain
 
 /-! ## A meet -/
 
-theorem f2_left {α β : Type} {Rr : α → β → Prop} {xs : List α} {ss : List β}
-    (h : List.Forall₂ Rr xs ss) : ∀ x ∈ xs, ∃ s ∈ ss, Rr x s := by
-  induction h with
-  | nil => intro x hx; cases hx
-  | cons hr _ ih =>
-    intro x hx
-    rcases List.mem_cons.1 hx with rfl | hx
-    · exact ⟨_, List.mem_cons_self, hr⟩
-    · obtain ⟨s, hs, r⟩ := ih x hx
-      exact ⟨s, List.mem_cons_of_mem _ hs, r⟩
-
-theorem f2_right {α β : Type} {Rr : α → β → Prop} {xs : List α} {ss : List β}
-    (h : List.Forall₂ Rr xs ss) : ∀ s ∈ ss, ∃ x ∈ xs, Rr x s := by
-  induction h with
-  | nil => intro s hs; cases hs
-  | cons hr _ ih =>
-    intro s hs
-    rcases List.mem_cons.1 hs with rfl | hs
-    · exact ⟨_, List.mem_cons_self, hr⟩
-    · obtain ⟨x, hx, r⟩ := ih s hs
-      exact ⟨x, List.mem_cons_of_mem _ hx, r⟩
-
 omit [DecidableEq R] in
 /-- The summaries of the members of a meet, one for each. -/
 theorem members_ok (wv : Rel → Mm D P → Sm D P × Mm D P) (Q : Rel → Sm D P → Prop) :
@@ -463,7 +442,7 @@ theorem opaque_of {near far : Option R} {xs : List Rel} (C O : Rel → Set GRel)
   unfold opaqueS
   rw [Bool.and_eq_true, List.all_eq_true, List.any_eq_true]
   refine ⟨fun s hs => ?_, ?_⟩
-  · obtain ⟨x, hx, hs'⟩ := f2_right h s hs
+  · obtain ⟨x, hx, hs'⟩ := forall₂_mem_right h hs
     obtain ⟨g, hg, hsb⟩ := hsub x hx
     have ne := hne.mono (wrap_mono hsb)
     by_cases hc : g ∈ C x
@@ -473,7 +452,7 @@ theorem opaque_of {near far : Option R} {xs : List Rel} (C O : Rel → Set GRel)
       simp [isEmpty_of_mem ho]
   · rcases andAll_cases P.sorts.interp C O _ G hG with hc | ⟨x, hx, g, hg, hn, hs'⟩
     · exact absurd hc hnC
-    · obtain ⟨s, hs, hsm⟩ := f2_left h x hx
+    · obtain ⟨s, hs, hsm⟩ := forall₂_mem_left h hx
       obtain ⟨o, ho, -⟩ := hsm.opn g hg hn (hne.mono (wrap_mono hs'))
       exact ⟨s, hs, by simp [isEmpty_of_mem ho]⟩
 

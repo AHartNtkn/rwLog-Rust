@@ -158,11 +158,6 @@ theorem pid_diag {s : Span} (h : s.l = s.r) : PId s.den := by
   simp only [Prod.mk.injEq] at he
   rw [he.1, he.2.1, h]
 
-theorem meet_comm (R S : GRel) : R.meet S = S.meet R := by
-  ext ⟨a, b, X⟩
-  constructor <;> rintro ⟨X₁, X₂, h₁, h₂, hX⟩ <;>
-    exact ⟨X₂, X₁, h₂, h₁, hX.trans (Finset.union_comm _ _)⟩
-
 /-- `L ; A ; R`. -/
 def wrap (L A R : GRel) : GRel := L.comp (A.comp R)
 

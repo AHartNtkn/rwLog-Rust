@@ -28,6 +28,15 @@ new axiom.
 /-- info: 'RwLog.Runtime.derivationGeneral_of_refines' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Runtime.derivationGeneral_of_refines
 
+/-- info: 'RwLog.Engine.Obligations.keeps' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Engine.Obligations.keeps
+
+/-- info: 'RwLog.Runtime.SameTrace.keeps' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Runtime.SameTrace.keeps
+
+/-- info: 'RwLog.Goals.maxima_val' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Goals.maxima_val
+
 /-- info: 'RwLog.Runtime.trace_of_sim' depends on axioms: [propext] -/
 #guard_msgs in #print axioms RwLog.Runtime.trace_of_sim
 
@@ -442,8 +451,8 @@ new axiom.
 /-- info: 'RwLog.Sorts.close_none_of_reject' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Sorts.close_none_of_reject
 
-/-- info: 'RwLog.Sorts.antichain_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLog.Sorts.antichain_spec
+/-- info: 'RwLog.antichain_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.antichain_spec
 
 /-- info: 'RwLog.Sorts.covers_iff' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Sorts.covers_iff

@@ -9,6 +9,10 @@ and two goals are the same goal when their nodes are the same node and their
 boundaries the same representatives, so recursive calls with the same
 boundaries share one table.
 
+The goal, the test for the same goal, the cover test on answers, the maximal
+answers of a list and the rule of a split are the ones every machine that
+tables shares (`Rungs/Framework/Goals.lean`).
+
 The machine is written once, for arbitrary types of representatives, nodes
 and answers and an arbitrary monad, against the derivation kernel
 (`Trusted/Kernel.lean`). It can make an answer only by a rule of that kernel,
@@ -69,7 +73,7 @@ When the root table is complete the machine is done, and its final report is
 the maximal answers of the root table.
 -/
 import RwLog.Trusted.Cost
-import RwLog.Rungs.Framework.Traverse
+import RwLog.Rungs.Framework.Goals
 import RwLog.Lib.Gfp
 
 namespace RwLog
@@ -78,12 +82,8 @@ namespace Tabled
 
 open Traverse
 
-/-- The goal `lb ; node ; rb`. -/
-structure GoalOf (S N : Type) where
-  lb : Option S
-  node : N
-  rb : Option S
-  deriving DecidableEq
+export Goals (GoalOf GoalOf.mk GoalOf.lb GoalOf.node GoalOf.rb Kind Kind.seq Kind.and andSplits
+  sameBound same indexFrom coversA maxima fresh both)
 
 /-- A table: a goal, the answers found so far, and whether it is complete. -/
 structure TableOf (S N A : Type) where
@@ -105,20 +105,9 @@ abbrev GOracle (S N A : Type) (M : Type → Type) := Nat → GoalOf S N → M (B
 abbrev Unfolder :=
   {S N A : Type} → {M : Type → Type} → [DerivationKernel S N A M] → GOracle S N A M
 
-/-- Which rule combines the two sides of a split: `join` for a chain, `meetA`
-for a meet. -/
-inductive Kind where
-  | seq
-  | and
-  deriving DecidableEq, Repr
-
 /-- The split points of a chain of `k` members: between the two members of a
 chain of two; after the first and before the last member otherwise. -/
 def seqSplits (k : Nat) : List Nat := if k ≤ 2 then [1] else [1, k - 1]
-
-/-- The members a meet of `k` members is split at: the first of two; every
-member otherwise. -/
-def andSplits (k : Nat) : List Nat := if k ≤ 2 then [0] else List.range k
 
 section
 
@@ -126,32 +115,12 @@ variable {S N A : Type} {M : Type → Type} [K : DerivationKernel S N A M]
 
 /-! ## Tables -/
 
-/-- Are two boundaries the same representative? -/
-def sameBound : Option S → Option S → M Bool
-  | none, none => pure true
-  | some a, some b => K.eq a b
-  | _, _ => pure false
-
-/-- Are two goals the same goal? -/
-def same (g h : GoalOf S N) : M Bool := do
-  let b ← K.eqNode g.node h.node
-  if b then do
-    let l ← sameBound (K := K) g.lb h.lb
-    if l then sameBound (K := K) g.rb h.rb else pure false
-  else pure false
-
 def findTable (ts : List (TableOf S N A)) (g : GoalOf S N) : M (Option (TableOf S N A)) :=
   findL (fun t => same (K := K) t.goal g) ts
 
-/-- The position of the table of a goal, counting from `i`. -/
-def indexFrom (g : GoalOf S N) : Nat → List (TableOf S N A) → M (Option Nat)
-  | _, [] => pure none
-  | i, t :: ts => do
-    let b ← same (K := K) t.goal g
-    if b then pure (some i) else indexFrom g (i + 1) ts
-
+/-- The position of the table of a goal. -/
 def indexOf (ts : List (TableOf S N A)) (g : GoalOf S N) : M (Option Nat) :=
-  indexFrom (K := K) g 0 ts
+  indexFrom (K := K) (·.goal) g 0 ts
 
 /-- The answers a goal has so far. -/
 def answersOf (ts : List (TableOf S N A)) (g : GoalOf S N) : M (List A) := do
@@ -166,34 +135,6 @@ def doneOf (ts : List (TableOf S N A)) (g : GoalOf S N) : M Bool := do
   pure (match t with
     | some t => t.done
     | none => false)
-
-/-! ## Answers of one table -/
-
-/-- Does the first answer cover the second? -/
-def coversA (y x : A) : M Bool := K.covers (K.span y) (K.span x)
-
-/-- The answers no other answer of the list strictly covers, one of each
-class of answers that cover each other. -/
-def maxima (xs : List A) : M (List A) := do
-  let top ← filterL (fun x => do
-    let b ← anyL (fun y => do
-      let c ← coversA (K := K) y x
-      if c then do
-        let c' ← coversA (K := K) x y
-        pure !c'
-      else pure false) xs
-    pure !b) xs
-  foldL (fun acc x => do
-    let b ← anyL (fun y => coversA (K := K) y x) acc
-    pure (if b then acc else acc ++ [x])) [] top
-
-/-- The candidates that no answer of the table covers, without the ones
-another of them strictly covers. -/
-def fresh (old cands : List A) : M (List A) := do
-  let cs ← filterL (fun c => do
-    let b ← anyL (fun t => coversA (K := K) t c) old
-    pure !b) cands
-  maxima (K := K) cs
 
 /-! ## Splits -/
 
@@ -213,11 +154,6 @@ def splitsOf (g : GoalOf S N) :
         | some l, some r => some (Kind.and, ⟨g.lb, l, g.rb⟩, ⟨g.lb, r, g.rb⟩)
         | _, _ => none)) (andSplits xs.length)
   | _ => pure []
-
-/-- Combine an answer of the left sub-goal with an answer of the right one. -/
-def both : Kind → A → A → M (Option A)
-  | .seq, x, y => K.join x y
-  | .and, x, y => K.meetA x y
 
 /-- The goal the push-left strategy runs for an answer `x` of the left
 sub-goal: the right side, with the interface of `x` as a boundary. -/

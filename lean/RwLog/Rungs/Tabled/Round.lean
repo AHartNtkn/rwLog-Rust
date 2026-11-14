@@ -7,6 +7,7 @@ The tables after a round, read off the text of `Tabled.round`
 answers that enter it (`grow`), the goals that get a table (`newGoals`) and
 the tables that complete (`closing`).
 -/
+import RwLog.Lib.List
 import RwLog.Rungs.Tabled.Strategies
 
 namespace RwLog
@@ -16,16 +17,6 @@ namespace Tabled
 open Traverse
 
 variable {R : Type} [Answer R] [DecidableEq R] {D : Domain R} {P : Program}
-
-omit [Answer R] [DecidableEq R] in
-theorem zip_map_self {α β : Type} (f : α → β) :
-    ∀ l : List α, l.zip (l.map f) = l.map fun a => (a, f a)
-  | [] => rfl
-  | a :: l => by simp [zip_map_self f l]
-
-theorem ite_val {α : Type} (c : Prop) [Decidable c] (a b : Cost α) :
-    (if c then a else b).val = if c then a.val else b.val := by
-  split <;> rfl
 
 /-- Add a goal unless it has a table or is already there. -/
 def addG (acc : List (GoalOf R Rel)) (p : GoalOf R Rel × Option Nat) : List (GoalOf R Rel) :=
@@ -104,7 +95,7 @@ theorem round_val (st : StateOf R Rel (Ans D P)) :
   unfold nextTables rootGain closing gainedOf newGoals reqsOf grow gainOf outOf askOf idx
   at_cost K hK
   simp only [round, Cost.bind_val, mapL_std, Cost.mapL_val, Cost.pure_val, foldL_std,
-    Cost.foldL_val, ea, ei, ite_val, zip_map_self, List.map_map, Function.comp_def]
+    Cost.foldL_val, ea, ei, Cost.ite_val, zip_map_self, List.map_map, Function.comp_def]
   congr!
   funext motive a b h₁ h₂
   cases a <;> cases b <;> rfl

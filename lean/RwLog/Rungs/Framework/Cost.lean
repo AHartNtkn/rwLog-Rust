@@ -93,6 +93,15 @@ instance : LawfulMonad Cost := LawfulMonad.mk'
   | [], _ => rfl
   | x :: xs, b => by simp only [foldL, bind_val, List.foldl_cons, foldL_val f xs]
 
+/-- A fold keeps what each of its steps keeps. -/
+theorem foldL_inv (I : β → Prop) (f : β → α → Cost β) :
+    ∀ (xs : List α), (∀ b x, x ∈ xs → I b → I (f b x).val) → ∀ b, I b → I (foldL f b xs).val
+  | [], _, _, hb => hb
+  | x :: xs, hf, b, hb => by
+    simp only [foldL, bind_val]
+    exact foldL_inv I f xs (fun b y hy => hf b y (List.mem_cons_of_mem _ hy)) _
+      (hf b x List.mem_cons_self hb)
+
 @[simp] theorem findL_val (f : α → Cost Bool) :
     ∀ xs : List α, (findL f xs).val = xs.find? fun x => (f x).val
   | [] => rfl

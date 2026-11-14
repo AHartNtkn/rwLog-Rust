@@ -8,6 +8,7 @@ an engine written against the kernel as a machine in `Cost`.
 -/
 import RwLog.Rungs.Framework.Traverse
 import RwLog.Trusted.Cost
+import RwLog.Rungs.Framework.Cost
 
 open Lean Elab Tactic Meta in
 /-- Unfold every `match` of the goal to the case analysis it stands for. Two
@@ -63,6 +64,13 @@ theorem foldL_std (f : β → α → Cost β) :
 theorem findL_std (f : α → Cost Bool) : ∀ xs : List α, Traverse.findL f xs = Cost.findL f xs
   | [] => rfl
   | x :: xs => by simp only [Traverse.findL, Cost.findL, findL_std f xs]
+
+/-- A fold keeps what each of its steps keeps. -/
+theorem foldL_inv (I : β → Prop) (f : β → α → Cost β) (xs : List α)
+    (h : ∀ b x, x ∈ xs → I b → I (f b x).val) (b : β) (hb : I b) :
+    I (Traverse.foldL f b xs).val := by
+  rw [foldL_std]
+  exact Cost.foldL_inv I f xs h b hb
 
 end Traverse
 
