@@ -249,13 +249,35 @@ the run on the starting store of the problem spends. What is proved about
 its size is that every round of `tighten` that goes on adds a distinct
 subterm to the pattern, so a run makes at most as many rounds as the pattern
 it returns has distinct subterms (`Rounds.lean`), and that no variable
-outside the pattern is expanded. A normal form that keeps a variable of one
-root folded is research direction D8.
+outside the pattern is expanded. A canonical store that keeps a variable of one
+root folded is being specified (section 6, the folded pattern).
 
 One bound is looser than that today: `inclButAll` counts the excepted terms
 by their size as trees (`Sorts.sumSize`), and a term of the store can have
 exponentially more symbols as a tree than nodes. Whether the Rust takes that
 long on such a term, or only the bound is loose, is not established.
+
+
+### The folded pattern (2026-11-14, in progress)
+
+The normal store above writes every variable of one root out. The canonical
+store the machine is to keep instead leaves such a variable folded when
+nothing but its sorts is said of it (decided 2026-11-14, research direction
+D8). What is proved of it so far, in `Sorts/Fold.lean` and
+`Sorts/Unfold.lean`:
+
+| Statement | Theorem |
+|---|---|
+| A store whose variables are numbered by first occurrence, with sorts closed upward and exclusions normal and irredundant (`Raw.Shaped`: a normal store without the two roots), is determined by its pattern and what it denotes | `Raw.Shaped.eq_of_t` (`UniqueExcl.lean`) |
+| A subterm is *free* when it is not a variable, has a variable and none twice, its variables occur nowhere else in the pattern, and its values are exactly the members of some sorts whatever the other variables are (`Free`). The *folded pattern* of a store replaces each outermost free subterm by a variable, numbered by first occurrence (`foldPat`) | definitions (`Fold.lean`) |
+| A store and the store unfolded (variables replaced by terms that are free in the result) have the same folded pattern | `foldPat_bind` |
+| Replacing a variable of one root that no exclusion mentions is such an unfolding | `Linked.free`, `foldPat_stepAt` (`Unfold.lean`) |
+| So the folded pattern of the normal store can be read off a store in which only the variables that exclusions mention have been written out: the store assembled from it is determined by its pattern and what it denotes, denotes the same, and has the folded pattern of the normal store of the problem | `tighten_fold`, `foldPat_ofTight_norm` (`Unfold.lean`) |
+| In a store determined by its pattern and what it denotes whose variables each have infinitely many values, the variables of a free subterm take their values freely among their sorts, and no exclusion mentions one | `Free.vary`, `Free.not_excl` (`Free.lean`) |
+
+Still owed for the folded store: the function that folds (deciding `Free`
+without unfolding), the Rust for it, and the domain's operations on folded
+stores.
 
 
 ## 8. The normal store as a function

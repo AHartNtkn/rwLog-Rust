@@ -27,58 +27,73 @@ def setStore (s : Store) (v : Nat) (g : GTerm) : Store :=
   ⟨s.t.bind (Term.single v (GTerm.toPat g)), fun w => if w = v then ∅ else s.c w,
     s.x.map (Eqns.subst v (GTerm.toPat g))⟩
 
+/-- A solution of the store with `v` replaced by a member of its sorts, read
+through the replacement, solves the store. -/
+theorem setStore_down {s : Store} {v : Nat} {g : GTerm} (h₁ : MemC S (s.c v) g)
+    {σ' : Nat → GTerm} (hσ' : σ' ∈ (setStore s v g).Sol S) :
+    (fun w => (Term.single v (GTerm.toPat g) w).bind σ') ∈ s.Sol S := by
+  have hb : ∀ q : Pat,
+      q.bind (fun w => (Term.single v (GTerm.toPat g) w).bind σ') =
+        (q.bind (Term.single v (GTerm.toPat g))).bind σ' :=
+    fun q => (Term.bind_bind _ _ q).symm
+  refine ⟨?_, ?_⟩
+  · intro w
+    by_cases e : w = v
+    · subst e
+      show MemC S (s.c w) ((Term.single w (GTerm.toPat g) w).bind σ')
+      simpa [Term.single, toPat_bind] using h₁
+    · show MemC S (s.c w) ((Term.single v (GTerm.toPat g) w).bind σ')
+      have := hσ'.1 w
+      simpa [setStore, Term.single, e] using this
+  · intro E hE hu
+    refine hσ'.2 _ (List.mem_map.2 ⟨E, hE, rfl⟩) ?_
+    intro p hp
+    obtain ⟨q, hq, rfl⟩ := List.mem_map.1 hp
+    show (q.1.bind _).bind σ' = (q.2.bind _).bind σ'
+    rw [← hb, ← hb]; exact hu q hq
+
+/-- A solution of a store solves the store with `v` replaced by the one
+member of its sorts, and reads through the replacement as itself. -/
+theorem setStore_up {s : Store} {v : Nat} {g : GTerm}
+    (h₂ : ∀ u, MemC S (s.c v) u → u = g) {σ : Nat → GTerm} (hσ : σ ∈ s.Sol S) :
+    σ ∈ (setStore s v g).Sol S ∧ (fun w => (Term.single v (GTerm.toPat g) w).bind σ) = σ := by
+  have hb : ∀ q : Pat,
+      q.bind (fun w => (Term.single v (GTerm.toPat g) w).bind σ) =
+        (q.bind (Term.single v (GTerm.toPat g))).bind σ :=
+    fun q => (Term.bind_bind _ _ q).symm
+  have hσv : σ v = g := h₂ _ (hσ.1 v)
+  have e : (fun w => (Term.single v (GTerm.toPat g) w).bind σ) = σ := by
+    funext w
+    by_cases e : w = v
+    · subst e; simp [Term.single, toPat_bind, hσv]
+    · simp [Term.single, e]
+  refine ⟨⟨?_, ?_⟩, e⟩
+  · intro w
+    show MemC S (if w = v then ∅ else s.c w) (σ w)
+    by_cases e : w = v
+    · simp only [e, ↓reduceIte]; intro m hm; simp at hm
+    · simp only [e, ↓reduceIte]; exact hσ.1 w
+  · intro E' hE' hu
+    obtain ⟨E, hE, rfl⟩ := List.mem_map.1 hE'
+    refine hσ.2 E hE ?_
+    intro q hq
+    have := hu _ (List.mem_map.2 ⟨q, hq, rfl⟩)
+    change (q.1.bind _).bind σ = (q.2.bind _).bind σ at this
+    rwa [← hb, ← hb, e] at this
+
 /-- A variable whose sorts have one member is replaced by it. -/
 theorem setStore_den {s : Store} {v : Nat} {g : GTerm} (h₁ : MemC S (s.c v) g)
     (h₂ : ∀ u, MemC S (s.c v) u → u = g) : (setStore s v g).Den S = s.Den S := by
-  have hb : ∀ (τ : Nat → GTerm) (q : Pat),
-      q.bind (fun w => (Term.single v (GTerm.toPat g) w).bind τ) =
-        (q.bind (Term.single v (GTerm.toPat g))).bind τ :=
-    fun τ q => (Term.bind_bind _ _ q).symm
-  have hv : ∀ τ : Nat → GTerm, (Term.single v (GTerm.toPat g) v).bind τ = g := by
-    intro τ; simp [Term.single, toPat_bind]
-  have hw : ∀ (τ : Nat → GTerm) w, w ≠ v → (Term.single v (GTerm.toPat g) w).bind τ = τ w := by
-    intro τ w hw; simp [Term.single, hw]
   ext t
   constructor
   · rintro ⟨σ', hσ', rfl⟩
-    refine ⟨fun w => (Term.single v (GTerm.toPat g) w).bind σ', ⟨?_, ?_⟩, (hb σ' s.t).symm⟩
-    · intro w
-      by_cases e : w = v
-      · subst e
-        show MemC S (s.c w) ((Term.single w (GTerm.toPat g) w).bind σ')
-        rw [hv]; exact h₁
-      · show MemC S (s.c w) ((Term.single v (GTerm.toPat g) w).bind σ')
-        rw [hw σ' w e]
-        have := hσ'.1 w
-        simpa [setStore, e] using this
-    · intro E hE hu
-      refine hσ'.2 _ (List.mem_map.2 ⟨E, hE, rfl⟩) ?_
-      intro p hp
-      obtain ⟨q, hq, rfl⟩ := List.mem_map.1 hp
-      show (q.1.bind _).bind σ' = (q.2.bind _).bind σ'
-      rw [← hb, ← hb]; exact hu q hq
+    exact ⟨_, setStore_down h₁ hσ', Term.bind_bind _ _ s.t⟩
   · rintro ⟨σ, hσ, rfl⟩
-    have hσv : σ v = g := h₂ _ (hσ.1 v)
-    have e : (fun w => (Term.single v (GTerm.toPat g) w).bind σ) = σ := by
-      funext w
-      by_cases e : w = v
-      · subst e; rw [hv, hσv]
-      · exact hw σ w e
-    refine ⟨σ, ⟨?_, ?_⟩, ?_⟩
-    · intro w
-      show MemC S (if w = v then ∅ else s.c w) (σ w)
-      by_cases e : w = v
-      · simp only [e, ↓reduceIte]; intro m hm; simp at hm
-      · simp only [e, ↓reduceIte]; exact hσ.1 w
-    · intro E' hE' hu
-      obtain ⟨E, hE, rfl⟩ := List.mem_map.1 hE'
-      refine hσ.2 E hE ?_
-      intro q hq
-      have := hu _ (List.mem_map.2 ⟨q, hq, rfl⟩)
-      change (q.1.bind _).bind σ = (q.2.bind _).bind σ at this
-      rwa [← hb, ← hb, e] at this
-    · show s.t.bind σ = (s.t.bind _).bind σ
-      rw [← hb, e]
+    obtain ⟨h, e⟩ := setStore_up h₂ hσ
+    refine ⟨σ, h, ?_⟩
+    show s.t.bind σ = (s.t.bind _).bind σ
+    rw [Term.bind_bind]
+    exact (congrArg (fun τ => s.t.bind τ) e).symm
 
 theorem toPat_vars (g : GTerm) : (GTerm.toPat g).vars = [] := by
   induction g with

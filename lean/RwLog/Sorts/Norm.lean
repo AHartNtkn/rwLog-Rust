@@ -49,12 +49,15 @@ def ofTightXs (S : Sorts) (s : CStore) : List Binds :=
         (names S).filter fun n => inclBut S (s.conj v) n (gone s.x v), ∅⟩
       (s.x.map (Eqns.ren fun v => (firsts s.t.vars).idxOf v)))
 
-/-- The normal store of a tight store is normal, denotes the same, and its
-exclusions are listed once each. -/
-theorem ofTight_facts (hS : S.WellFormed) {s : CStore} (hI : Inv S s)
-    (hsole : ∀ v ∈ s.t.vars, sole S (s.conj v) (gone s.x v) = none) :
-    (ofTight S s).Normal S ∧ (ofTight S s).store.Den S = s.store.Den S ∧
-      (ofTightXs S s).Nodup := by
+/-- The store assembled from a store that satisfies `Inv` is determined by
+its pattern and what it denotes, has the solutions of the store renamed,
+denotes the same, and its exclusions are listed once each. -/
+theorem ofTight_shaped (hS : S.WellFormed) {s : CStore} (hI : Inv S s) :
+    (ofTight S s).Shaped S ∧
+      (ofTight S s).store.Sol S =
+        (s.store.ren (fun v => (firsts s.t.vars).idxOf v)
+          fun w => (firsts s.t.vars).getD w 0).Sol S ∧
+      (ofTight S s).store.Den S = s.store.Den S ∧ (ofTightXs S s).Nodup := by
   obtain ⟨hocc, h₁, h₂⟩ := renum_spec s.t.vars
   let ρ : Nat → Nat := fun v => (firsts s.t.vars).idxOf v
   let ρ' : Nat → Nat := fun w => (firsts s.t.vars).getD w 0
@@ -62,8 +65,6 @@ theorem ofTight_facts (hS : S.WellFormed) {s : CStore} (hI : Inv S s)
   have hfull := hI.full
   have hfin₃ : (s.store.ren ρ ρ').Fin (firsts s.t.vars).length :=
     ren_fin hI.fin hfull fun v hv => (h₁ v hv).1
-  have ht₃ : (s.store.ren ρ ρ').Tight S :=
-    ren_tight hfull hinv (tight_of_sole hS hI hsole)
   have hden₃ : (s.store.ren ρ ρ').Den S = s.store.Den S := ren_den hfull hinv
   have hocc₃ : FirstOcc (s.store.ren ρ ρ').t.vars := by
     show FirstOcc (s.t.rename ρ).vars
@@ -101,14 +102,26 @@ theorem ofTight_facts (hS : S.WellFormed) {s : CStore} (hI : Inv S s)
       · rintro ⟨-, hn, h⟩
         exact ⟨hn, fun σ hσ => h _ (ren_fwd hfull hinv hσ).1⟩
     · simp [List.getD_eq_getElem?_getD, hw]
-  obtain ⟨hN, hsol⟩ := assembled_normal hS hfin₃ ht₃ hocc₃ hv₃
+  obtain ⟨hN, hsol⟩ := assembled_shaped hS hfin₃ hocc₃ hv₃
     ⟨_, (ren_fwd hfull hinv hσ).1⟩ (by simp) hcL
   have hnd := assembled_nodup hS hfin₃ ⟨_, (ren_fwd hfull hinv hσ).1⟩ (by simp) hcL
-  refine ⟨hN, ?_, hnd⟩
+  refine ⟨hN, hsol, ?_, hnd⟩
   rw [← hden₃]
   show {g | ∃ σ ∈ (ofTight S s).store.Sol S, g = _} = {g | ∃ σ ∈ Store.Sol S _, g = _}
   rw [show (ofTight S s).store.Sol S = _ from hsol]
   rfl
+
+/-- The normal store of a tight store is normal, denotes the same, and its
+exclusions are listed once each. -/
+theorem ofTight_facts (hS : S.WellFormed) {s : CStore} (hI : Inv S s)
+    (hsole : ∀ v ∈ s.t.vars, sole S (s.conj v) (gone s.x v) = none) :
+    (ofTight S s).Normal S ∧ (ofTight S s).store.Den S = s.store.Den S ∧
+      (ofTightXs S s).Nodup := by
+  obtain ⟨hsh, hsol, hden, hnd⟩ := ofTight_shaped hS hI
+  refine ⟨⟨hsh, fun v hv => ?_⟩, hden, hnd⟩
+  rw [hsol]
+  exact ren_tight hI.full (fun v hv => ((renum_spec s.t.vars).2.1 v hv).2)
+    (tight_of_sole hS hI hsole) v ((hsh.len v).2 hv)
 
 /-- The normal store of a tight store is normal and denotes the same. -/
 theorem ofTight_normal (hS : S.WellFormed) {s : CStore} (hI : Inv S s)

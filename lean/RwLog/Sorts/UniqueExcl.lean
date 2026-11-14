@@ -286,14 +286,14 @@ theorem eq_of_ex_eq (hS : S.WellFormed) (hθ : NormalBinds S r θ) (hθ' : Norma
 
 end NormalBinds
 
-namespace Raw.Normal
+namespace Raw.Shaped
 
 variable {S : Sorts}
 
-/-- The exclusions of one normal store are among those of another with the
+/-- The exclusions of one store determined by pattern and denotation are among those of another with the
 same sorts and the same solutions. -/
 theorem x_subset (hS : S.WellFormed) {t t' : Pat} {c : List Conj} {x x' : Finset Binds}
-    (hr : Raw.Normal S ⟨t, c, x⟩) (hr' : Raw.Normal S ⟨t', c, x'⟩)
+    (hr : Raw.Shaped S ⟨t, c, x⟩) (hr' : Raw.Shaped S ⟨t', c, x'⟩)
     (hsol : (Raw.store ⟨t, c, x⟩).Sol S = (Raw.store ⟨t', c, x'⟩).Sol S) :
     ∀ θ' ∈ x', θ' ∈ x := by
   have tr : ∀ {θ : Binds}, NormalBinds S ⟨t', c, x'⟩ θ → NormalBinds S ⟨t, c, x⟩ θ :=
@@ -330,12 +330,12 @@ theorem x_subset (hS : S.WellFormed) {t t' : Pat} {c : List Conj} {x x' : Finset
   have : θ = θ' := hn.eq_of_ex_eq hS (tr hn') (Set.Subset.antisymm h₂ h₁)
   rw [← this]; exact hθ
 
-/-- Two normal stores with the same denotation are equal. -/
-theorem eq (hS : S.WellFormed) {r r' : Raw} (hr : r.Normal S) (hr' : r'.Normal S)
-    (hden : r.store.Den S = r'.store.Den S) : r = r' := by
-  have ht := t_eq hS hr hr' hden
-  have hc := c_eq hS hr hr' hden
-  have hsol := sol_eq hS hr hr' hden
+/-- Two stores determined by pattern and denotation, with the same pattern
+and the same denotation, are equal. -/
+theorem eq_of_t (hS : S.WellFormed) {r r' : Raw} (hr : r.Shaped S) (hr' : r'.Shaped S)
+    (ht : r.t = r'.t) (hden : r.store.Den S = r'.store.Den S) : r = r' := by
+  have hc := hr.c_eq_of_t hr' ht hden
+  have hsol := hr.sol_eq_of_t hr' ht hden
   obtain ⟨t, c, x⟩ := r
   obtain ⟨t', c', x'⟩ := r'
   simp only at ht hc
@@ -343,6 +343,17 @@ theorem eq (hS : S.WellFormed) {r r' : Raw} (hr : r.Normal S) (hr' : r'.Normal S
   have hx : x = x' := Finset.ext fun θ =>
     ⟨x_subset hS hr' hr hsol.symm θ, x_subset hS hr hr' hsol θ⟩
   rw [hx]
+
+end Raw.Shaped
+
+namespace Raw.Normal
+
+variable {S : Sorts}
+
+/-- Two normal stores with the same denotation are equal. -/
+theorem eq (hS : S.WellFormed) {r r' : Raw} (hr : r.Normal S) (hr' : r'.Normal S)
+    (hden : r.store.Den S = r'.store.Den S) : r = r' :=
+  hr.toShaped.eq_of_t hS hr'.toShaped (t_eq hS hr hr' hden) hden
 
 end Raw.Normal
 

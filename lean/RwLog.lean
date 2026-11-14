@@ -144,3 +144,6 @@ import RwLog.Sorts.CloseVals
 import RwLog.Sorts.Norm
 import RwLog.Sorts.Prune
 import RwLog.Sorts.Blowup
+import RwLog.Sorts.Fold
+import RwLog.Sorts.Unfold
+import RwLog.Sorts.Free

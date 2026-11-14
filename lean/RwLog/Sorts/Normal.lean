@@ -131,17 +131,25 @@ structure NormalBinds (S : Sorts) (r : Raw) (θ : Binds) : Prop extends Pre r.c.
   live : (r.Ex S θ).Nonempty
   loose : ∀ y, y < r.c.length → (∀ b ∈ θ, b.1 ≠ y) → ∃ σ ∈ r.Ex S θ, ∃ σ' ∈ r.Ex S θ, σ y ≠ σ' y
 
-/-- The raw store is the canonical one for what it denotes. -/
-structure Raw.Normal (S : Sorts) (r : Raw) : Prop where
+/-- The raw store is determined by its pattern and what it denotes: its
+variables are numbered in the order they first occur, each carries every
+declared sort that holds of all its values, and its exclusions are in normal
+form with none covered by another. -/
+structure Raw.Shaped (S : Sorts) (r : Raw) : Prop where
   fo : r.t.firstOrder = true
   occ : FirstOcc r.t.vars
   len : ∀ v, v ∈ r.t.vars ↔ v < r.c.length
-  two : ∀ v, v < r.c.length →
-    ∃ σ ∈ r.store.Sol S, ∃ σ' ∈ r.store.Sol S, (σ v).key ≠ (σ' v).key
   up : ∀ v, v < r.c.length → ∀ n, n ∈ r.conj v ↔
     n ∈ names S ∧ ∀ σ ∈ r.store.Sol S, mem S n (σ v) = true
   ex : ∀ θ ∈ r.x, NormalBinds S r θ
   anti : ∀ θ ∈ r.x, ∀ θ' ∈ r.x, r.Ex S θ ⊆ r.Ex S θ' → θ = θ'
+
+/-- The raw store is the unfolded canonical one for what it denotes: it is
+determined by its pattern and what it denotes, and every variable takes
+values with two different roots. -/
+structure Raw.Normal (S : Sorts) (r : Raw) : Prop extends Raw.Shaped S r where
+  two : ∀ v, v < r.c.length →
+    ∃ σ ∈ r.store.Sol S, ∃ σ' ∈ r.store.Sol S, (σ v).key ≠ (σ' v).key
 
 /-! ## Solved exclusions as substitutions -/
 

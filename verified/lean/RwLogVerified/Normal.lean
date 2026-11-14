@@ -398,7 +398,7 @@ theorem mem_vars_pack3 {v : Nat} {T : Pat} {A : List (Name × Pat)} {X : List (E
 order they first occur in the pattern, the sorted patterns and the
 exclusions. -/
 def leftVars (nm : Option Nat → RwLog.Sym) (P : Sorts.Prob) (θ : Nat → Pat) : List Nat :=
-  Sorts.firsts ((pack3 nm P.t P.a P.x).bind θ).vars
+  RwLog.firsts ((pack3 nm P.t P.a P.x).bind θ).vars
 
 theorem mem_occ {P : Sorts.Prob} {θ : Nat → Pat} {v : Nat} :
     v ∈ P.occ θ ↔ v ∈ (P.t.bind θ).vars ∨ (∃ a ∈ P.a, v ∈ (a.2.bind θ).vars) ∨
@@ -576,7 +576,7 @@ theorem start_spec (hnm : Function.Injective nm) {S : Sorts} {sp : Pat}
     have hθfo := solve_fo P.e hP.e θ hθ
     obtain ⟨hFnd, -, -⟩ := Sorts.firsts_spec ((pack3 nm P.t P.a P.x).bind θ).vars
     have hnum := pack_num (nm := nm) P θ
-    have hFdef : leftVars nm P θ = Sorts.firsts ((pack3 nm P.t P.a P.x).bind θ).vars := rfl
+    have hFdef : leftVars nm P θ = RwLog.firsts ((pack3 nm P.t P.a P.x).bind θ).vars := rfl
     have hlt : ∀ v ∈ P.occ θ, (leftVars nm P θ).idxOf v < (leftVars nm P θ).length :=
       fun v hv => List.idxOf_lt_length_of_mem (mem_leftVars.2 hv)
     rw [← hFdef] at hFnd
@@ -778,12 +778,12 @@ theorem startSt_spec {S : Sorts} {sp : Pat} {U : List Name} (hC : Ctx nm S sp U)
 /-- The pattern and the sorts of a tight store with its variables numbered,
 without exclusions. -/
 noncomputable def numRaw (S : Sorts) (st : TSt) : Sorts.Raw :=
-  ⟨st.T.rename fun v => (Sorts.firsts st.T.vars).idxOf v,
-    (Sorts.firsts st.T.vars).map (upConj S st.L st.X), ∅⟩
+  ⟨st.T.rename fun v => (RwLog.firsts st.T.vars).idxOf v,
+    (RwLog.firsts st.T.vars).map (upConj S st.L st.X), ∅⟩
 
 /-- The exclusions of a tight store with its variables numbered. -/
 def numX (st : TSt) : List (Eqns Nat) :=
-  st.X.map (Eqns.ren fun v => (Sorts.firsts st.T.vars).idxOf v)
+  st.X.map (Eqns.ren fun v => (RwLog.firsts st.T.vars).idxOf v)
 
 /-- The normal forms of these exclusions. -/
 noncomputable def numYs (S : Sorts) (st : TSt) : List Sorts.Binds :=
@@ -813,8 +813,8 @@ theorem le_listsCard : ∀ {Ls : List (List Pat)} {B : List Pat}, B ∈ Ls →
 /-- A state without its hidden variables: the solved forms of the exclusions
 over the variables of the pattern, and the entries of these variables. -/
 def pruneSt (st : TSt) : TSt :=
-  ⟨st.T, Sorts.pruneX (Sorts.firsts st.T.vars) st.X,
-    st.L.filter (fun e => decide (e.1 ∈ Sorts.firsts st.T.vars)), st.N⟩
+  ⟨st.T, Sorts.pruneX (RwLog.firsts st.T.vars) st.X,
+    st.L.filter (fun e => decide (e.1 ∈ RwLog.firsts st.T.vars)), st.N⟩
 
 theorem conjOf_filter (K : List Nat) (L : List (Nat × Sorts.Conj)) (u : Nat) :
     conjOf (L.filter fun e => decide (e.1 ∈ K)) u = if u ∈ K then conjOf L u else ∅ := by
@@ -841,7 +841,7 @@ theorem pruneSt_abs {st : TSt} (h : st.OK) (htv : ∀ v ∈ st.T.vars, v < st.N)
   refine cstore_ext rfl (Sorts.pruneX_congr hmem st.X) ?_ fun u => ?_
   · rw [Sorts.CStore.prune_length, TSt.abs_length, TSt.abs_length]; rfl
   · rw [(pruneSt_ok h).conj, Sorts.CStore.prune_conj (by rw [TSt.abs_length]; exact htv), h.conj]
-    show conjOf (st.L.filter fun e => decide (e.1 ∈ Sorts.firsts st.T.vars)) u = _
+    show conjOf (st.L.filter fun e => decide (e.1 ∈ RwLog.firsts st.T.vars)) u = _
     rw [conjOf_filter]
     simp only [hmem]
     rfl
@@ -924,7 +924,7 @@ noncomputable def normCost (nm : Option Nat → RwLog.Sym) (S : Sorts) (U : List
   settleCost nm S U.length st.L st.T st.X +
     if settleOk S st.L then
       firstsCost (settleSt S st).T +
-        pruneCost nm (Sorts.firsts (settleSt S st).T.vars) (settleSt S st).X
+        pruneCost nm (RwLog.firsts (settleSt S st).T.vars) (settleSt S st).X
           (settleSt S st).L.length +
         runCost nm S U.length rc k (pruneSt (settleSt S st)) +
         (match o with
@@ -1011,7 +1011,7 @@ theorem tail_spec {S : Sorts} (hS : S.WellFormed) {P : Sorts.Prob} (hP : P.FO) {
     simp only [Term.vars_rename, ← List.map_append] at hvp
     obtain ⟨w, hw', rfl⟩ := List.mem_map.1 hvp
     have hwT : w ∈ st.T.vars := hI.xv E0 hE0 w (List.mem_flatMap.2 ⟨p0, hp0, hw'⟩)
-    have : (numRaw S st).c.length = (Sorts.firsts st.T.vars).length := List.length_map _
+    have : (numRaw S st).c.length = (RwLog.firsts st.T.vars).length := List.length_map _
     rw [this]
     exact List.idxOf_lt_length_of_mem ((Sorts.firsts_spec st.T.vars).2.1 w |>.2 hwT)
   refine ⟨fun θ hθ => ?_, hfo, hv, ?_, ?_⟩
@@ -1117,7 +1117,7 @@ theorem normal_spec (hnm : Function.Injective nm) {S : Sorts} {sp : Pat}
         have hx02 := hx1.trans hx2
         step with firsts_spec hnm s2 t1 (tp := (settleSt S st0).T) hI2 h1 (by unfold Room; omega)
           as ⟨ks, s3, hI3, hx3, ht3, rks⟩
-        step with prune_spec hnm (U := U) (Sorts.firsts (settleSt S st0).T.vars)
+        step with prune_spec hnm (U := U) (RwLog.firsts (settleSt S st0).T.vars)
           (settleSt S st0).X (settleSt S st0).L s3 ks x1 es1 hI3 rks (hx3.repr h2) (hx3.repr h3)
           (by unfold Room; omega) as ⟨x2, es2, s4, hI4, hx4, ht4, rx2, res2⟩
         have hx04 := (hx02.trans hx3).trans hx4
@@ -1172,10 +1172,10 @@ theorem normal_spec (hnm : Function.Injective nm) {S : Sorts} {sp : Pat}
           have hcN : ∀ v, ∀ n ∈ (numRaw S st').conj v, n ∈ Sorts.names S := by
             intro v n hn
             have e : (numRaw S st').conj v =
-                ((Sorts.firsts st'.T.vars)[v]?.map (upConj S st'.L st'.X)).getD ∅ := by
+                ((RwLog.firsts st'.T.vars)[v]?.map (upConj S st'.L st'.X)).getD ∅ := by
               simp [Sorts.Raw.conj, numRaw, List.getD_eq_getElem?_getD]
             rw [e] at hn
-            cases hw : (Sorts.firsts st'.T.vars)[v]? with
+            cases hw : (RwLog.firsts st'.T.vars)[v]? with
             | none => rw [hw] at hn; simp at hn
             | some w =>
               rw [hw] at hn

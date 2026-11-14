@@ -503,6 +503,30 @@ new axiom.
 /-- info: 'RwLog.Sorts.Rep.of_eq_none' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Sorts.Rep.of_eq_none
 
+/-- info: 'RwLog.Sorts.Raw.Shaped.eq_of_t' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.Raw.Shaped.eq_of_t
+
+/-- info: 'RwLog.Sorts.foldPat_bind' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.foldPat_bind
+
+/-- info: 'RwLog.Sorts.Linked.free' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.Linked.free
+
+/-- info: 'RwLog.Sorts.foldPat_stepAt' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.foldPat_stepAt
+
+/-- info: 'RwLog.Sorts.tighten_fold' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.tighten_fold
+
+/-- info: 'RwLog.Sorts.foldPat_ofTight_norm' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.foldPat_ofTight_norm
+
+/-- info: 'RwLog.Sorts.Free.vary' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.Free.vary
+
+/-- info: 'RwLog.Sorts.Free.not_excl' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.Free.not_excl
+
 /-- info: 'RwLog.Sorts.Rep.of_val' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Sorts.Rep.of_val
 

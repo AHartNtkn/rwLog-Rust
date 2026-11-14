@@ -216,8 +216,11 @@ theorem stepAt_spec {s : CStore} (hI : Inv S s) {v : Nat} {key : Sym × Nat} (hv
     · obtain ⟨hlo, hhi⟩ := mem_expVar_vars.1 hnew
       refine h7 u (List.mem_map.2 ⟨u - s.c.length, List.mem_range.2 (by omega), by omega⟩) hu g
 
-theorem step?_some {s s' : CStore} (hI : Inv S s) (h : step? S s = some s') :
-    s'.store.Den S = s.store.Den S ∧ s.t.syms.length < s'.t.syms.length ∧ Kept S s' := by
+/-- A replacement is at a variable of the pattern whose values have one
+root. -/
+theorem step?_eq {s s' : CStore} (h : step? S s = some s') :
+    ∃ v key, v ∈ s.t.vars ∧ sole S (s.conj v) (gone s.x v) = some key ∧
+      s' = stepAt S s v key := by
   simp only [step?, Option.map_eq_some_iff] at h
   obtain ⟨⟨v, key⟩, hfind, rfl⟩ := h
   obtain ⟨v', hv', hsome⟩ := List.exists_of_findSome?_eq_some hfind
@@ -230,7 +233,12 @@ theorem step?_some {s s' : CStore} (hI : Inv S s) (h : step? S s = some s') :
       obtain ⟨rfl, rfl⟩ := hsome
       exact ⟨hsl, rfl⟩
   obtain ⟨hsole, rfl⟩ := hsole
-  exact stepAt_spec hI hv' hsole
+  exact ⟨_, key, hv', hsole, rfl⟩
+
+theorem step?_some {s s' : CStore} (hI : Inv S s) (h : step? S s = some s') :
+    s'.store.Den S = s.store.Den S ∧ s.t.syms.length < s'.t.syms.length ∧ Kept S s' := by
+  obtain ⟨v, key, hv, hsole, rfl⟩ := step?_eq h
+  exact stepAt_spec hI hv hsole
 
 /-- A term the set holds, when it holds one. -/
 noncomputable def witness (D : Set GTerm) : GTerm :=

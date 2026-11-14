@@ -7,6 +7,7 @@ renamed to that numbering (`firsts`, `renum_spec`, `Store.ren`) without
 changing what it denotes (`ren_den`).
 -/
 import RwLog.Sorts.Tight
+import RwLog.Lib.Firsts
 import RwLog.Sorts.Normal
 import RwLog.Kernel.SolveFacts
 import RwLog.Kernel.Span
@@ -28,13 +29,9 @@ theorem firstOcc_iff {L : List Nat} : FirstOcc L ↔
     obtain ⟨_, e'⟩ := List.getElem?_eq_some_iff.1 e
     exact ⟨j, hj, e'⟩
 
-/-- The members of a list, once each, in the order they first occur. -/
-def firsts (L : List Nat) : List Nat := L.foldl (fun F x => if x ∈ F then F else F ++ [x]) []
-
 theorem firsts_snoc (L : List Nat) (x : Nat) :
-    firsts (L ++ [x]) = if x ∈ firsts L then firsts L else firsts L ++ [x] := by
-  simp only [firsts, List.foldl_append, List.foldl_cons, List.foldl_nil]
-  exact if_congr Iff.rfl rfl rfl
+    firsts (L ++ [x]) = if x ∈ firsts L then firsts L else firsts L ++ [x] :=
+  firsts_concat L x
 
 /-- `firsts` lists the members once each, and a member's place is the number
 of different members before its first occurrence. -/

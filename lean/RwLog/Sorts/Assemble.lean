@@ -176,11 +176,11 @@ theorem pos_of_sol
     σ ∈ (Raw.mk s.t cL x).store.Pos S :=
   fun v n hn => ((hcL v n).1 hn).2.2 σ hσ
 
-/-- A tight store with its variables numbered by first occurrence, given the
+/-- A store with its variables numbered by first occurrence, given the
 sorts that hold of all values of each variable and normal exclusions that
-remove the same, none covered by another, is a normal store with
-the same solutions. -/
-theorem normal_assemble (hfin : s.Fin k) (ht : s.Tight S) (hocc : FirstOcc s.t.vars)
+remove the same, none covered by another, is a store determined by its
+pattern and what it denotes, with the same solutions. -/
+theorem shaped_assemble (hfin : s.Fin k) (hocc : FirstOcc s.t.vars)
     (hvars : ∀ v, v ∈ s.t.vars ↔ v < k) (hne : (s.Sol S).Nonempty) (hlen : cL.length = k)
     (hcL : ∀ v n, n ∈ cL.getD v ∅ ↔ v < k ∧ n ∈ names S ∧ ∀ σ ∈ s.Sol S, mem S n (σ v) = true)
     {Y : List Binds} {Z : Finset Binds} (hY : ∀ θ ∈ Y, NormalBinds S ⟨s.t, cL, ∅⟩ θ)
@@ -190,7 +190,7 @@ theorem normal_assemble (hfin : s.Fin k) (ht : s.Tight S) (hocc : FirstOcc s.t.v
     (hcov : ∀ θ ∈ Y, ∃ θ' ∈ Z, Raw.Ex S ⟨s.t, cL, ∅⟩ θ ⊆ Raw.Ex S ⟨s.t, cL, ∅⟩ θ')
     (hanti : ∀ θ ∈ Z, ∀ θ' ∈ Z,
       Raw.Ex S ⟨s.t, cL, ∅⟩ θ ⊆ Raw.Ex S ⟨s.t, cL, ∅⟩ θ' → θ = θ') :
-    (Raw.mk s.t cL Z).Normal S ∧ (Raw.mk s.t cL Z).store.Sol S = s.Sol S := by
+    (Raw.mk s.t cL Z).Shaped S ∧ (Raw.mk s.t cL Z).store.Sol S = s.Sol S := by
   obtain ⟨σ₀, hσ₀⟩ := hne
   have pos₂ : ∀ x, ∀ σ ∈ (Raw.mk s.t cL x).store.Pos S, σ ∈ s.Pos S := by
     intro x σ hσ v n hn
@@ -212,10 +212,7 @@ theorem normal_assemble (hfin : s.Fin k) (ht : s.Tight S) (hocc : FirstOcc s.t.v
       obtain ⟨θ, hθ, rfl⟩ := Raw.mem_store_x.1 hE
       obtain ⟨E', hE', hu'⟩ := (hYiff σ (pos_of_sol hcL ∅ hσ)).2 ⟨θ, hsub θ hθ, hu⟩
       exact hσ.2 E' hE' hu'
-  refine ⟨⟨hfin.fo, hocc, fun v => by rw [hvars, hlen], ?_, ?_, ?_, ?_⟩, hsol⟩
-  · intro v hv
-    rw [hsol]
-    exact ht v ((hvars v).2 (hlen ▸ hv))
+  refine ⟨⟨hfin.fo, hocc, fun v => by rw [hvars, hlen], ?_, ?_, ?_⟩, hsol⟩
   · intro v hv n
     rw [hsol]
     show n ∈ cL.getD v ∅ ↔ _
@@ -227,19 +224,39 @@ theorem normal_assemble (hfin : s.Fin k) (ht : s.Tight S) (hocc : FirstOcc s.t.v
   · intro θ hθ θ' hθ' hle
     exact hanti θ hθ θ' hθ' hle
 
+/-- A tight store with its variables numbered by first occurrence, given the
+sorts that hold of all values of each variable and normal exclusions that
+remove the same, none covered by another, is a normal store with
+the same solutions. -/
+theorem normal_assemble (hfin : s.Fin k) (ht : s.Tight S) (hocc : FirstOcc s.t.vars)
+    (hvars : ∀ v, v ∈ s.t.vars ↔ v < k) (hne : (s.Sol S).Nonempty) (hlen : cL.length = k)
+    (hcL : ∀ v n, n ∈ cL.getD v ∅ ↔ v < k ∧ n ∈ names S ∧ ∀ σ ∈ s.Sol S, mem S n (σ v) = true)
+    {Y : List Binds} {Z : Finset Binds} (hY : ∀ θ ∈ Y, NormalBinds S ⟨s.t, cL, ∅⟩ θ)
+    (hYiff : ∀ σ ∈ (Raw.mk s.t cL ∅).store.Pos S,
+      (∃ E ∈ s.x, Eqns.Unifies σ E) ↔ ∃ θ ∈ Y, Eqns.Unifies σ (eqnsOf θ))
+    (hsub : ∀ θ ∈ Z, θ ∈ Y)
+    (hcov : ∀ θ ∈ Y, ∃ θ' ∈ Z, Raw.Ex S ⟨s.t, cL, ∅⟩ θ ⊆ Raw.Ex S ⟨s.t, cL, ∅⟩ θ')
+    (hanti : ∀ θ ∈ Z, ∀ θ' ∈ Z,
+      Raw.Ex S ⟨s.t, cL, ∅⟩ θ ⊆ Raw.Ex S ⟨s.t, cL, ∅⟩ θ' → θ = θ') :
+    (Raw.mk s.t cL Z).Normal S ∧ (Raw.mk s.t cL Z).store.Sol S = s.Sol S := by
+  obtain ⟨hsh, hsol⟩ := shaped_assemble hfin hocc hvars hne hlen hcL hY hYiff hsub hcov hanti
+  refine ⟨⟨hsh, fun v hv => ?_⟩, hsol⟩
+  rw [hsol]
+  exact ht v ((hvars v).2 (hlen ▸ hv))
+
 /-- The raw store with the given pattern and sorts and the normal forms of
 the exclusions, without the ones another covers. -/
 def assembled (S : Sorts) (t : Pat) (cL : List Conj) (X : List (Eqns Nat)) : Raw :=
   ⟨t, cL, (antichain (covers cL.length) (normExs S ⟨t, cL, ∅⟩ X)).toFinset⟩
 
-/-- A tight store with its variables numbered by first occurrence, with the
-sorts that hold of all values of each variable, assembles to a normal store
-with the same solutions. -/
-theorem assembled_normal (hS : S.WellFormed) (hfin : s.Fin k) (ht : s.Tight S)
+/-- A store with its variables numbered by first occurrence, with the sorts
+that hold of all values of each variable, assembles to a store determined by
+its pattern and what it denotes, with the same solutions. -/
+theorem assembled_shaped (hS : S.WellFormed) (hfin : s.Fin k)
     (hocc : FirstOcc s.t.vars) (hvars : ∀ v, v ∈ s.t.vars ↔ v < k) (hne : (s.Sol S).Nonempty)
     (hlen : cL.length = k)
     (hcL : ∀ v n, n ∈ cL.getD v ∅ ↔ v < k ∧ n ∈ names S ∧ ∀ σ ∈ s.Sol S, mem S n (σ v) = true) :
-    (assembled S s.t cL s.x).Normal S ∧ (assembled S s.t cL s.x).store.Sol S = s.Sol S := by
+    (assembled S s.t cL s.x).Shaped S ∧ (assembled S s.t cL s.x).store.Sol S = s.Sol S := by
   obtain ⟨σ₀, hσ₀⟩ := hne
   obtain ⟨hY, hYiff⟩ := normExs_spec (S := S) ⟨s.t, cL, ∅⟩ s.x hfin.xfo
     (fun E hE p hp v hv => by rw [hlen]; exact hfin.xv E hE p hp v hv)
@@ -250,12 +267,25 @@ theorem assembled_normal (hS : S.WellFormed) (hfin : s.Fin k) (ht : s.Tight S)
     (normExs S ⟨s.t, cL, ∅⟩ s.x) (fun θ hθ θ' hθ' => covers_iff hS (hY θ hθ) (hY θ' hθ'))
   have hZ : ∀ θ, θ ∈ (antichain (covers cL.length) (normExs S ⟨s.t, cL, ∅⟩ s.x)).toFinset ↔
       θ ∈ antichain (covers cL.length) (normExs S ⟨s.t, cL, ∅⟩ s.x) := fun θ => List.mem_toFinset
-  exact normal_assemble hfin ht hocc hvars ⟨σ₀, hσ₀⟩ hlen hcL hY hYiff
+  exact shaped_assemble hfin hocc hvars ⟨σ₀, hσ₀⟩ hlen hcL hY hYiff
     (fun θ hθ => hsub θ ((hZ θ).1 hθ))
     (fun θ hθ => by
       obtain ⟨θ', hθ', hle⟩ := hcov θ hθ
       exact ⟨θ', (hZ θ').2 hθ', hle⟩)
     (fun θ hθ θ' hθ' hle => hanti θ ((hZ θ).1 hθ) θ' ((hZ θ').1 hθ') hle)
+
+/-- A tight store with its variables numbered by first occurrence, with the
+sorts that hold of all values of each variable, assembles to a normal store
+with the same solutions. -/
+theorem assembled_normal (hS : S.WellFormed) (hfin : s.Fin k) (ht : s.Tight S)
+    (hocc : FirstOcc s.t.vars) (hvars : ∀ v, v ∈ s.t.vars ↔ v < k) (hne : (s.Sol S).Nonempty)
+    (hlen : cL.length = k)
+    (hcL : ∀ v n, n ∈ cL.getD v ∅ ↔ v < k ∧ n ∈ names S ∧ ∀ σ ∈ s.Sol S, mem S n (σ v) = true) :
+    (assembled S s.t cL s.x).Normal S ∧ (assembled S s.t cL s.x).store.Sol S = s.Sol S := by
+  obtain ⟨hsh, hsol⟩ := assembled_shaped hS hfin hocc hvars hne hlen hcL
+  refine ⟨⟨hsh, fun v hv => ?_⟩, hsol⟩
+  rw [hsol]
+  exact ht v ((hvars v).2 (show v < k from hlen ▸ hv))
 
 /-- The exclusions an assembled store keeps are listed once each. -/
 theorem assembled_nodup (hS : S.WellFormed) (hfin : s.Fin k) (hne : (s.Sol S).Nonempty)
