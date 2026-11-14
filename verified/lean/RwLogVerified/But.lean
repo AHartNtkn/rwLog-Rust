@@ -1196,4 +1196,294 @@ theorem soles_spec {S : Sorts} {sp : Pat} {U : List Name} (hC : Ctx nm S sp U) {
     exact ⟨hI2, hx1.trans hx2, by simp only [solesCost, Nat.mul_add]; omega,
       fun h => absurd hcn (h c hc), by intros; rfl⟩
 
+/-! ## Which arguments are not the one member of their conjunction -/
+
+/-- `is_sole` answers whether the term is the one member held. -/
+theorem is_sole_spec (hnm : Function.Injective nm) (s : store.Store) (e a : store.TermId)
+    {o : Option GTerm} {t : GTerm} (hW : Wf s)
+    (he : Repr nm s.nodes.val e.val (solePat (nm none) o))
+    (ha : Repr nm s.nodes.val a.val (GTerm.toPat t)) (hroom : Room s 2) :
+    sorts.is_sole s e a ⦃ b s' => b = decide (o = some t) ∧ Ran s s' 2 ⦄ := by
+  unfold sorts.is_sole
+  have hroom' := hroom
+  unfold Room at hroom'
+  step with uncons_repr s e hW he (by unfold Room; omega) as ⟨o1, s1, hK, hu⟩
+  cases o with
+  | none =>
+    simp only [solePat] at hu
+    subst hu
+    simp only [WP.spec_ok]
+    exact ⟨by simp, hK.ran.mono (by omega)⟩
+  | some t' =>
+    simp only [solePat] at hu
+    obtain ⟨m, tl, rfl, rm, -⟩ := hu
+    simp only
+    refine WP.spec_mono (same_w s1 m a hK.wf (by have := hK.ticks; unfold Room; omega)) ?_
+    rintro ⟨b, s'⟩ ⟨hb, hK2⟩
+    refine ⟨?_, hK.ran.trans hK2.ran⟩
+    rw [hb]
+    have : m.val = a.val ↔ t' = t :=
+      ⟨fun h => toPat_inj (Repr.unique (h ▸ rm) ha), fun h => Repr.inj hnm hW.nodesOK (h ▸ rm) ha⟩
+    simp [this]
+
+/-- How many arguments are not the one member held for them. -/
+def missCount : List (Option GTerm) → List GTerm → Nat
+  | o :: sl, a :: ar => (if o = some a then 0 else 1) + missCount sl ar
+  | _, _ => 0
+
+theorem misses_loop_spec (hnm : Function.Injective nm) :
+    ∀ (sl : List (Option GTerm)) (args : List GTerm) (k : Nat) (s : store.Store)
+      (so ai : store.TermId) (any two : Bool),
+    sl.length ≤ args.length → any = decide (0 < k) → two = decide (1 < k) → Wf s →
+    Repr nm s.nodes.val so.val (encList (nm none) (sl.map (solePat (nm none)))) →
+    Repr nm s.nodes.val ai.val (encList (nm none) (args.map GTerm.toPat)) →
+    Room s (4 * sl.length + 1) →
+    sorts.misses_loop so s any two ai ⦃ r =>
+      Ran s r.1 (4 * sl.length + 1) ∧ r.2.1 = decide (0 < k + missCount sl args) ∧
+        r.2.2 = decide (1 < k + missCount sl args) ⦄ := by
+  intro sl
+  induction sl with
+  | nil =>
+    intro args k s so ai any two _ hany htwo hW hso _ hroom
+    have hroom' := hroom
+    unfold Room at hroom'
+    unfold sorts.misses_loop
+    rw [loop]
+    simp only [sorts.misses_loop.body]
+    step with uncons_repr s so hW hso (by unfold Room; omega) as ⟨r0, hK, hu⟩
+    obtain ⟨o, s1⟩ := r0
+    simp only at hu
+    simp only at hK
+    subst hu
+    have hfin : Ran s s1 (4 * ([] : List (Option GTerm)).length + 1) ∧
+        any = decide (0 < k + missCount [] args) ∧ two = decide (1 < k + missCount [] args) :=
+      ⟨hK.ran, by simpa [missCount] using hany, by simpa [missCount] using htwo⟩
+    step*
+  | cons o sl ih =>
+    intro args k s so ai any two hlen hany htwo hW hso hai hroom
+    obtain ⟨a, ar, rfl⟩ : ∃ a ar, args = a :: ar := by
+      cases args with
+      | nil => simp at hlen
+      | cons a ar => exact ⟨a, ar, rfl⟩
+    have hroom' := hroom
+    unfold Room at hroom'
+    simp only [List.length_cons, Nat.mul_add] at hroom'
+    unfold sorts.misses_loop
+    rw [loop]
+    simp only [sorts.misses_loop.body]
+    step with uncons_repr s so hW hso (by unfold Room; omega) as ⟨r0, hK, hu⟩
+    obtain ⟨o1, s1⟩ := r0
+    simp only at hu
+    simp only at hK
+    obtain ⟨e, st, rfl, re, rst⟩ := hu
+    have ht1 := hK.ticks
+    step with uncons_repr s1 ai hK.wf (hK.ran.ext.repr hai) (by unfold Room; omega)
+      as ⟨r1, hK1, hu1⟩
+    obtain ⟨o2, s2⟩ := r1
+    simp only at hu1
+    simp only at hK1
+    obtain ⟨ae, ati, rfl, rae, rat⟩ := hu1
+    have ht2 := hK1.ticks
+    have R2 := hK.ran.trans hK1.ran
+    step with is_sole_spec hnm s2 e ae R2.wf (R2.ext.repr re) (hK1.ran.ext.repr rae)
+      (by unfold Room; omega) as ⟨r2, hb, hR3⟩
+    obtain ⟨b, s3⟩ := r2
+    simp only at hb hR3
+    have ht3 := hR3.ticks
+    have R3 := R2.trans hR3
+    simp only [uncurry, bind_ok]
+    have IH := ih ar (k + (if o = some a then 0 else 1)) s3 st ati
+    unfold sorts.misses_loop at IH
+    refine WP.spec_mono (IH _ _ (by simpa using hlen) ?_ ?_ hR3.wf (R3.ext.repr rst)
+      (hR3.ext.repr (hK1.ran.ext.repr rat)) (by unfold Room; omega)) ?_
+    · subst hany hb
+      by_cases h : o = some a <;> rcases k with _ | _ | k <;> simp [h]
+    · subst hany htwo hb
+      by_cases h : o = some a <;> rcases k with _ | _ | k <;> simp [h]
+    · rintro r ⟨hR, h1, h2⟩
+      refine ⟨(R3.trans hR).mono (by simp only [List.length_cons, Nat.mul_add]; omega), ?_, ?_⟩
+      · rw [h1, missCount, Nat.add_assoc]
+      · rw [h2, missCount, Nat.add_assoc]
+
+/-- `misses` answers whether some argument is not the one member held for
+it, and whether two are not. -/
+theorem misses_spec (hnm : Function.Injective nm) (sl : List (Option GTerm)) (args : List GTerm)
+    (s : store.Store) (so ai : store.TermId) (hlen : sl.length ≤ args.length) (hW : Wf s)
+    (hso : Repr nm s.nodes.val so.val (encList (nm none) (sl.map (solePat (nm none)))))
+    (hai : Repr nm s.nodes.val ai.val (encList (nm none) (args.map GTerm.toPat)))
+    (hroom : Room s (4 * sl.length + 1)) :
+    sorts.misses s so ai ⦃ r s' =>
+      Ran s s' (4 * sl.length + 1) ∧ r.1 = decide (0 < missCount sl args) ∧
+        r.2 = decide (1 < missCount sl args) ⦄ := by
+  unfold sorts.misses
+  step with misses_loop_spec hnm sl args 0 s so ai false false hlen (by simp) (by simp) hW hso hai
+    hroom as ⟨s1, any, two, hR, h1, h2⟩
+  simp only [Nat.zero_add] at h1 h2
+  exact ⟨hR, h1, h2⟩
+
+/-! ## Is the one member with a root among the terms -/
+
+/-- Has the list a term with the root whose arguments are each the one
+member held for them. -/
+def onlyInL (sl : List (Option GTerm)) (f : Sym) (k : Nat) (G : List GTerm) : Bool :=
+  G.any fun t =>
+    decide ((termKey t).1 = f ∧ (termKey t).2 = k ∧ missCount sl (gspine t []).2 = 0)
+
+/-- The ticks `only_in` may spend, where `L` members are held. -/
+def onlyCost (L : Nat) : List GTerm → Nat
+  | [] => 1
+  | t :: G => 4 * (termKey t).2 + 4 * L + 7 + onlyCost L G
+
+theorem only_in_done (s : store.Store) (so f ks g : store.TermId) (found : Bool) :
+    sorts.only_in_loop s so f ks g found false ⦃ r => r = (found, s) ⦄ := by
+  unfold sorts.only_in_loop
+  rw [loop]
+  simp only [sorts.only_in_loop.body, Bool.false_eq_true, ↓reduceIte, bind_ok]
+  step*
+
+theorem only_in_loop_spec (hnm : Function.Injective nm) (sl : List (Option GTerm)) (f : Sym)
+    (ksp : List Pat) (hsl : sl.length = ksp.length) (so fi ks : store.TermId) :
+    ∀ (G : List GTerm) (s : store.Store) (g : store.TermId), Wf s →
+    Repr nm s.nodes.val so.val (encList (nm none) (sl.map (solePat (nm none)))) →
+    Repr nm s.nodes.val fi.val (.sym f) → Repr nm s.nodes.val ks.val (encList (nm none) ksp) →
+    Repr nm s.nodes.val g.val (encList (nm none) (G.map GTerm.toPat)) →
+    Room s (onlyCost sl.length G) →
+    sorts.only_in_loop s so fi ks g false true ⦃ r =>
+      Ran s r.2 (onlyCost sl.length G) ∧ r.1 = onlyInL sl f ksp.length G ⦄ := by
+  intro G
+  induction G with
+  | nil =>
+    intro s g hW hso hf hks hg hroom
+    have hroom' := hroom
+    unfold Room at hroom'
+    simp only [onlyCost] at hroom'
+    unfold sorts.only_in_loop
+    rw [loop]
+    simp only [sorts.only_in_loop.body, ↓reduceIte]
+    step with uncons_repr s g hW hg (by unfold Room; omega) as ⟨r0, hK, hu⟩
+    obtain ⟨o, s1⟩ := r0
+    simp only at hu
+    simp only at hK
+    subst hu
+    simp only [uncurry, bind_ok]
+    have hdn := only_in_done s1 so fi ks g false
+    unfold sorts.only_in_loop at hdn
+    refine WP.spec_mono hdn ?_
+    rintro r rfl
+    exact ⟨hK.ran, by simp [onlyInL]⟩
+  | cons t G ih =>
+    intro s g hW hso hf hks hg hroom
+    have hroom' := hroom
+    unfold Room at hroom'
+    simp only [onlyCost] at hroom'
+    unfold sorts.only_in_loop
+    rw [loop]
+    simp only [sorts.only_in_loop.body, ↓reduceIte]
+    step with uncons_repr s g hW hg (by unfold Room; omega) as ⟨r0, hK, hu⟩
+    obtain ⟨o, s1⟩ := r0
+    simp only at hu
+    simp only at hK
+    obtain ⟨ti, more, rfl, rti, rmore⟩ := hu
+    have ht1 := hK.ticks
+    have hx1 := hK.ran.ext
+    have hna : nargs (GTerm.toPat t) = (termKey t).2 := by simpa [termKey] using nargs_toPat t []
+    have hun := unspine_toPat t []
+    simp only [List.map_nil] at hun
+    have next : ∀ s3 : store.Store, Ran s s3 (4 * (termKey t).2 + 4 * sl.length + 7) →
+        ¬ ((termKey t).1 = f ∧ (termKey t).2 = ksp.length ∧ missCount sl (gspine t []).2 = 0) →
+        loop (fun x => match x with
+          | (s1, g1, found1, go1) => sorts.only_in_loop.body so fi ks s1 g1 found1 go1)
+          (s3, more, false, true) ⦃ r =>
+            Ran s r.2 (onlyCost sl.length (t :: G)) ∧
+              r.1 = onlyInL sl f ksp.length (t :: G) ⦄ := by
+      intro s3 R3 hneg
+      have := R3.ticks
+      have IH := ih s3 more R3.wf (R3.ext.repr hso) (R3.ext.repr hf) (R3.ext.repr hks)
+        (R3.ext.repr rmore) (by unfold Room; omega)
+      unfold sorts.only_in_loop at IH
+      refine WP.spec_mono IH ?_
+      rintro r ⟨hR, hr⟩
+      refine ⟨(R3.trans hR).mono (by simp only [onlyCost]; omega), ?_⟩
+      rw [hr]
+      simp only [onlyInL, List.any_cons, hneg, decide_false, Bool.false_or]
+    step with spine_spec s1 ti hK.wf (hx1.repr rti) (by unfold Room; omega)
+      as ⟨r1, hR2, rh, ra⟩
+    obtain ⟨⟨h, args⟩, s2⟩ := r1
+    simp only at hR2 rh ra
+    rw [hun] at rh ra
+    simp only at rh ra
+    have rh' : Repr nm s2.nodes.val h.val (.sym (termKey t).1) := rh
+    have ht2 := hR2.ticks
+    have R2 := hK.ran.trans hR2
+    step with same_w s2 h fi hR2.wf (by unfold Room; omega) as ⟨r2, hb, hK3⟩
+    obtain ⟨b, s3⟩ := r2
+    simp only at hb hK3
+    have ht3 := hK3.ticks
+    have R3 := R2.trans hK3.ran
+    have hbe : h.val = fi.val ↔ (termKey t).1 = f :=
+      ⟨fun e => Term.sym.inj (Repr.unique (e ▸ rh') (R2.ext.repr hf)),
+        fun e => Repr.inj hnm hR2.wf.nodesOK (e ▸ rh') (R2.ext.repr hf)⟩
+    cases b with
+    | false =>
+      simp only [Bool.false_eq_true, ↓reduceIte, uncurry, bind_ok]
+      refine next s3 (R3.mono (by omega)) fun hk => ?_
+      have := hbe.2 hk.1
+      simp [this] at hb
+    | true =>
+      have hlm : ((gspine t []).2.map GTerm.toPat).length = (termKey t).2 := by simp [termKey]
+      simp only [uncurry, ↓reduceIte]
+      step with same_len_spec ((gspine t []).2.map GTerm.toPat) ksp s3 args ks hK3.wf
+        (hK3.ran.ext.repr ra) (R3.ext.repr hks) (by rw [hlm]; unfold Room; omega)
+        as ⟨r4, hb1, hR4⟩
+      obtain ⟨b1, s4⟩ := r4
+      simp only at hb1 hR4
+      rw [hlm] at hb1 hR4
+      have ht4 := hR4.ticks
+      have R4 := R3.trans hR4
+      cases b1 with
+      | false =>
+        simp only [Bool.false_eq_true, ↓reduceIte, uncurry, bind_ok]
+        refine next s4 (R4.mono (by omega)) fun hk => ?_
+        simp [hk.2.1] at hb1
+      | true =>
+        have hk2 : (termKey t).2 = ksp.length := by simpa using hb1.symm
+        simp only [uncurry, ↓reduceIte]
+        step with misses_spec hnm sl (gspine t []).2 s4 so args
+          (by rw [hsl, ← hk2]; exact Nat.le_refl _) hR4.wf (R4.ext.repr hso)
+          (hR4.ext.repr (hK3.ran.ext.repr ra)) (by unfold Room; omega) as ⟨r5, hR5, h1, h2⟩
+        obtain ⟨⟨any, two⟩, s5⟩ := r5
+        simp only at hR5 h1 h2
+        have ht5 := hR5.ticks
+        have R5 := R4.trans hR5
+        cases any with
+        | true =>
+          simp only [↓reduceIte, uncurry, bind_ok]
+          refine next s5 (R5.mono (by omega)) fun hk => ?_
+          simp [hk.2.2] at h1
+        | false =>
+          have hm0 : missCount sl (gspine t []).2 = 0 := by simpa using h1.symm
+          simp only [Bool.false_eq_true, ↓reduceIte, uncurry, bind_ok]
+          have hdn := only_in_done s5 so fi ks g true
+          unfold sorts.only_in_loop at hdn
+          refine WP.spec_mono hdn ?_
+          rintro r rfl
+          have hpos : 1 ≤ onlyCost sl.length G := by cases G <;> simp only [onlyCost] <;> omega
+          refine ⟨R5.mono (by simp only [onlyCost]; omega), ?_⟩
+          have hf' : (termKey t).1 = f := hbe.1 (by simpa using hb.symm)
+          simp [onlyInL, hf', hk2, hm0]
+
+/-- `only_in` answers whether a term of the list has the root and each
+argument the one member held for it. -/
+theorem only_in_spec (hnm : Function.Injective nm) (sl : List (Option GTerm)) (f : Sym)
+    (ksp : List Pat) (hsl : sl.length = ksp.length) (G : List GTerm) (s : store.Store)
+    (so fi ks g : store.TermId) (hW : Wf s)
+    (hso : Repr nm s.nodes.val so.val (encList (nm none) (sl.map (solePat (nm none)))))
+    (hf : Repr nm s.nodes.val fi.val (.sym f))
+    (hks : Repr nm s.nodes.val ks.val (encList (nm none) ksp))
+    (hg : Repr nm s.nodes.val g.val (encList (nm none) (G.map GTerm.toPat)))
+    (hroom : Room s (onlyCost sl.length G)) :
+    sorts.only_in s so fi ks g ⦃ r s' =>
+      Ran s s' (onlyCost sl.length G) ∧ r = onlyInL sl f ksp.length G ⦄ :=
+  only_in_loop_spec hnm sl f ksp hsl so fi ks G s g hW hso hf hks hg hroom
+
 end RwLogVerified
