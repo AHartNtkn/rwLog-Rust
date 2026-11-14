@@ -532,6 +532,30 @@ theorem Turn.finish {a b c : StateOf S N A} (hS : Stable b c)
       hst.imp fun _ _ hs => hs.mono (fun _ => Nat.le_refl _) (Nat.le_refl _) hd,
       fun s hs => (hf s hs).mono hS hset⟩
 
+theorem shaped_all {gs : List (Group N A)} (hne : gs ≠ [])
+    (h : ∀ gr ∈ gs, ∃ s ∈ gr.strats, s.lead = true) : Shaped gs := by
+  cases gs with
+  | nil => exact absurd rfl hne
+  | cons gr gs =>
+    exact ⟨⟨gr, List.mem_cons_self, h gr List.mem_cons_self⟩,
+      fun k gr' hk => .inl (h gr' (List.mem_of_getElem? hk))⟩
+
+theorem shaped_of {gs : List (Group N A)} {c : Prop}
+    (h : (∀ gr ∈ gs, ∃ s ∈ gr.strats, s.lead = true) ∧ (c → gs ≠ [])) (hc : c) : Shaped gs :=
+  shaped_all (h.2 hc) h.1
+
+theorem shaped_snoc {gs : List (Group N A)} (hne : gs ≠ [])
+    (h : ∀ gr ∈ gs, ∃ s ∈ gr.strats, s.lead = true) (last : Group N A) :
+    Shaped (gs ++ [last]) := by
+  obtain ⟨⟨gr, hgr, hl⟩, -⟩ := shaped_all hne h
+  refine ⟨⟨gr, List.mem_append_left _ hgr, hl⟩, fun k gr' hk => ?_⟩
+  by_cases hlt : k < gs.length
+  · rw [List.getElem?_append_left hlt] at hk
+    exact .inl (h gr' (List.mem_of_getElem? hk))
+  · have := (List.getElem?_eq_some_iff.1 hk).1
+    simp only [List.length_append, List.length_singleton] at this ⊢
+    exact .inr (by omega)
+
 theorem mem_levelsOf {gs : List (Group N A)} {lv : Nat} (h : lv ∈ levelsOf gs) :
     ∃ gr ∈ gs, gr.level = lv := by
   unfold levelsOf at h
@@ -905,6 +929,109 @@ theorem step_work (whole : Bool) (i : Nat) (g : GoalOf R Rel) (st : StateOf R Re
     | off => exact .check (.inr rfl) (fun h => by cases h)
     | opened subs => exact .check (.inr rfl) (fun h => by cases h)
 
+/-! ## The shape of the groups a goal begins with -/
+
+theorem lead_splitGroup (k : Kind) (L Rg : GoalOf R Rel) (st : StateOf R Rel (Ans D P)) :
+    ∃ s ∈ (splitGroup (K := DerivationKernel.over D K hK P) k L Rg st).val.2.strats,
+      s.lead = true := by
+  at_cost K hK
+  simp only [splitGroup, Cost.bind_val, Cost.pure_val]
+  exact ⟨_, List.mem_cons_self, rfl⟩
+
+/-- A chain goal has a group for each of its splits, and it has a split. -/
+theorem lead_chainGroups (g : GoalOf R Rel) (st : StateOf R Rel (Ans D P))
+    (hn : Normal g.node) {xs : List Rel} (hvc : g.node.view = .chain xs) :
+    (∀ gr ∈ (chainGroups (K := DerivationKernel.over D K hK P) g xs.length st).val.2.1,
+      ∃ s ∈ gr.strats, s.lead = true) ∧
+    (chainGroups (K := DerivationKernel.over D K hK P) g xs.length st).val.2.1 ≠ [] := by
+  have h2 := (hn.view_chain hvc).1
+  have hsp := hn.chain_split hvc (i := 1) (by omega) (by omega)
+  have hlead := fun k L Rg st => lead_splitGroup (K := K) (hK := hK) (P := P) k L Rg st
+  have key : (∀ gr ∈ (chainGroups (K := DerivationKernel.over D K hK P) g xs.length st).val.2.1,
+      ∃ s ∈ gr.strats, s.lead = true) ∧
+      (1 ∈ (List.range xs.length).drop 1 →
+        (chainGroups (K := DerivationKernel.over D K hK P) g xs.length st).val.2.1 ≠ []) := by
+    at_cost K hK
+    refine foldL_done (fun done (acc : StateOf R Rel (Ans D P) × List (Group Rel (Ans D P)) ×
+        List (Strat Rel (Ans D P))) =>
+      (∀ gr ∈ acc.2.1, ∃ s ∈ gr.strats, s.lead = true) ∧ (1 ∈ done → acc.2.1 ≠ []))
+      _ _ (fun done b i _ hb => ?_) (st, [], []) ⟨(fun gr hgr => by cases hgr), fun h => by cases h⟩
+    simp only [Cost.bind_val]
+    split
+    · next l r hl hr =>
+      simp only [Cost.bind_val, Cost.pure_val]
+      refine ⟨fun gr hgr => ?_, fun _ => by simp⟩
+      rcases List.mem_append.1 hgr with hgr | hgr
+      · exact hb.1 gr hgr
+      · obtain rfl := List.mem_singleton.1 hgr
+        exact hlead _ _ _ _
+    · next hno =>
+      refine ⟨hb.1, fun h1 => ?_⟩
+      rcases List.mem_append.1 h1 with h1 | h1
+      · exact hb.2 h1
+      · obtain rfl := List.mem_singleton.1 h1
+        obtain ⟨-, l, r, hl, hr, -⟩ := hsp
+        exact absurd hr (hno l r hl)
+  refine ⟨key.1, key.2 ?_⟩
+  rw [List.mem_drop_iff_getElem]
+  exact ⟨0, by simp; omega, by simp⟩
+
+/-- **The groups a goal begins with are shaped**: one of them has a span, a
+call, a union or a join, and only the last can be without one. -/
+theorem shaped_expand (g : GoalOf R Rel) (st : StateOf R Rel (Ans D P)) (hn : Normal g.node) :
+    Shaped (expand (K := DerivationKernel.over D K hK P) g st).val.2 := by
+  have hch := fun xs hvc => lead_chainGroups (K := K) (hK := hK) (P := P) g st hn (xs := xs) hvc
+  have hlead := fun k L Rg st => lead_splitGroup (K := K) (hK := hK) (P := P) k L Rg st
+  at_cost K hK
+  simp only [expand, Cost.bind_val]
+  have one : ∀ s : Strat Rel (Ans D P), s.lead = true → Shaped [(⟨0, [s]⟩ : Group Rel (Ans D P))] :=
+    fun s hs => shaped_all (by simp) fun gr hgr => by
+      obtain rfl := List.mem_singleton.1 hgr
+      exact ⟨s, List.mem_singleton.2 rfl, hs⟩
+  split
+  · exact one _ rfl
+  · simp only [Cost.bind_val]
+    split
+    · exact one _ rfl
+    · simp only [Cost.bind_val, Cost.pure_val]
+      exact one _ rfl
+  · simp only [Cost.bind_val, Cost.pure_val]
+    exact one _ rfl
+  · next xs hv =>
+    simp only [Cost.bind_val, Cost.pure_val]
+    obtain ⟨h1, h2⟩ := hch xs (forget_chain hv)
+    split
+    · exact shaped_all h2 h1
+    · exact shaped_snoc h2 h1 _
+  · next xs hv =>
+    have hvm := forget_meet hv
+    have h2 := (hn.view_meet hvm).1
+    have hsp := hn.meet_split hvm (i := 0) (by omega)
+    refine shaped_of (c := 0 ∈ andSplits xs.length) ?_ ?_
+    · refine foldL_done (fun done (acc : StateOf R Rel (Ans D P) × List (Group Rel (Ans D P))) =>
+        (∀ gr ∈ acc.2, ∃ s ∈ gr.strats, s.lead = true) ∧ (0 ∈ done → acc.2 ≠ []))
+        _ _ (fun done b i _ hb => ?_) (st, []) ⟨(fun gr hgr => by cases hgr), fun h => by cases h⟩
+      simp only [Cost.bind_val]
+      split
+      · next l r hl hr =>
+        simp only [Cost.bind_val, Cost.pure_val]
+        refine ⟨fun gr hgr => ?_, fun _ => by simp⟩
+        rcases List.mem_append.1 hgr with hgr | hgr
+        · exact hb.1 gr hgr
+        · obtain rfl := List.mem_singleton.1 hgr
+          exact hlead _ _ _ _
+      · next hno =>
+        refine ⟨hb.1, fun h1 => ?_⟩
+        rcases List.mem_append.1 h1 with h1 | h1
+        · exact hb.2 h1
+        · obtain rfl := List.mem_singleton.1 h1
+          obtain ⟨-, l, r, hl, hr, -⟩ := hsp
+          exact absurd hr (hno l r hl)
+    · unfold andSplits
+      split
+      · exact List.mem_singleton.2 rfl
+      · exact List.mem_range.2 (by omega)
+
 /-! ## The strategies of a group work -/
 
 omit [DecidableEq R] in
@@ -1053,7 +1180,7 @@ structure FeedInv (st : StateOf R Rel (Ans D P)) (i : Nat) (g : GoalOf R Rel)
 to do while no more tables wait for one than `fuel`. -/
 theorem turn_feedAll (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R Rel (Ans D P) × Nat))
     (fuel : Nat) (hadvG : ∀ h st, Good st → Good (adv h st).val.1)
-    (hadv : ∀ h st, (waiting st).length ≤ fuel →
+    (hadv : ∀ h st, Good st → (waiting st).length ≤ fuel →
       Turns st (adv h st).val.1 ∧ Settled (adv h st).val.1 h)
     {st : StateOf R Rel (Ans D P)} (hG : Good st) (i : Nat) (g : GoalOf R Rel)
     (hg : goalAt st i = some g) (hb : Busy st i) (hw : (waiting st).length ≤ fuel) (d : Nat)
@@ -1066,7 +1193,7 @@ theorem turn_feedAll (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R 
     FeedInv st i g done acc.1) _ _ (fun done b h _ hI => ?_) (st, d)
     ⟨hG, hg, hb, TurnsBut.refl _ _, fun _ h => by cases h⟩
   simp only [Cost.bind_val, Cost.pure_val]
-  obtain ⟨ht, hs⟩ := hadv h b.1 ((waiting_le hI.turns.keep).trans hw)
+  obtain ⟨ht, hs⟩ := hadv h b.1 hI.good ((waiting_le hI.turns.keep).trans hw)
   refine ⟨hadvG _ _ hI.good, ht.keep.stable.ext _ _ hI.goal, ht.keep.busy hI.busy,
     hI.turns.trans ht, fun h' hh' => ?_⟩
   rcases List.mem_append.1 hh' with hm | hm
@@ -1080,7 +1207,7 @@ changed. -/
 theorem turn_workGroup (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK)
     (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R Rel (Ans D P) × Nat))
     (fuel : Nat) (hadvG : ∀ h st, Good st → Good (adv h st).val.1)
-    (hadv : ∀ h st, (waiting st).length ≤ fuel →
+    (hadv : ∀ h st, Good st → (waiting st).length ≤ fuel →
       Turns st (adv h st).val.1 ∧ Settled (adv h st).val.1 h)
     {st : StateOf R Rel (Ans D P)} (hG : Good st) (whole : Bool) (i : Nat) (g : GoalOf R Rel)
     (k : Nat) (hg : goalAt st i = some g) (hb : Busy st i) (hw : (waiting st).length ≤ fuel) :
@@ -1164,7 +1291,7 @@ def Worked (st0 : StateOf R Rel (Ans D P)) (gs0 : List (Group Rel (Ans D P))) (i
 theorem level_workGroup (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK)
     (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R Rel (Ans D P) × Nat))
     (fuel : Nat) (hadvG : ∀ h st, Good st → Good (adv h st).val.1)
-    (hadv : ∀ h st, (waiting st).length ≤ fuel →
+    (hadv : ∀ h st, Good st → (waiting st).length ≤ fuel →
       Turns st (adv h st).val.1 ∧ Settled (adv h st).val.1 h)
     {st0 X : StateOf R Rel (Ans D P)} {gs0 : List (Group Rel (Ans D P))} (whole : Bool) (i : Nat)
     (g : GoalOf R Rel) (hI : LevelInv st0 gs0 i g X) (hw : (waiting st0).length ≤ fuel)
@@ -1221,7 +1348,7 @@ one has worked. -/
 theorem level_workLevel (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK)
     (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R Rel (Ans D P) × Nat))
     (fuel : Nat) (hadvG : ∀ h st, Good st → Good (adv h st).val.1)
-    (hadv : ∀ h st, (waiting st).length ≤ fuel →
+    (hadv : ∀ h st, Good st → (waiting st).length ≤ fuel →
       Turns st (adv h st).val.1 ∧ Settled (adv h st).val.1 h)
     {st0 X : StateOf R Rel (Ans D P)} {gs0 : List (Group Rel (Ans D P))} (whole : Bool) (i : Nat)
     (g : GoalOf R Rel) (hI : LevelInv st0 gs0 i g X) (hw : (waiting st0).length ≤ fuel)
@@ -1265,6 +1392,270 @@ theorem level_workLevel (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK)
   refine ⟨key.1, key.2.1, ?_⟩
   rintro ⟨k, gr, hk, hlv⟩
   exact key.2.2 (gr, k) (List.mem_zipIdx_iff_getElem?.2 hk) hlv
+
+/-! ## A round -/
+
+omit [DecidableEq R] in
+theorem groupsAt_mapGroups (st : StateOf R Rel (Ans D P)) (i : Nat)
+    (F : List (Group Rel (Ans D P)) → List (Group Rel (Ans D P))) (hF : F [] = []) :
+    groupsAt (st.modify i fun t => { t with groups := t.groups.map F }) i = F (groupsAt st i) := by
+  unfold groupsAt StateOf.modify
+  cases ht : st.tables[i]? with
+  | none => simp [ht, hF]
+  | some t => cases hg : t.groups <;> simp [ht, hg, hF]
+
+/-- **Before a round**: the table is stamped, and its groups are those it
+had, or shaped if it had none. -/
+theorem turn_prepare (hR : ReadOk D P K hK) (hP : ProgFO P) {st : StateOf R Rel (Ans D P)}
+    (hG : Good st) (i : Nat) (t : Table R Rel (Ans D P)) (ht : st.tables[i]? = some t)
+    (hd : t.done = false) :
+    Good (prepare (K := DerivationKernel.over D K hK P) i t st).val ∧
+    goalAt (prepare (K := DerivationKernel.over D K hK P) i t st).val i = some t.goal ∧
+    Busy (prepare (K := DerivationKernel.over D K hK P) i t st).val i ∧
+    TurnsBut (some i) st (prepare (K := DerivationKernel.over D K hK P) i t st).val ∧
+    (∀ gs, t.groups = some gs →
+      groupsAt (prepare (K := DerivationKernel.over D K hK P) i t st).val i = gs) ∧
+    (t.groups = none →
+      Shaped (groupsAt (prepare (K := DerivationKernel.over D K hK P) i t st).val i)) := by
+  have hg : goalAt st i = some t.goal := by unfold goalAt; rw [ht]; rfl
+  obtain ⟨hk, hb⟩ := keep_prepare (K := K) (hK := hK) (P := P) i t st ht hd
+  refine ⟨good_prepare hR hP hG i t ht hd, hk.stable.ext _ _ hg, hb, ?_⟩
+  have hopen : ∀ t', st.tables[i]? = some t' → t'.done = false := fun t' h => by
+    rw [ht] at h; cases h; exact hd
+  have hexp := inner_expand (K := K) (hK := hK) (P := P) (w := i) t.goal st
+  have hT := (hexp.turns ⟨t, ht, hd⟩).weaken (some i)
+  have hfr := hexp.frame
+  have hsh := shaped_expand (K := K) (hK := hK) (P := P) t.goal st (hG.inv.core i t ht).1
+  clear hR hk hb
+  at_cost K hK
+  unfold prepare
+  cases hgs : t.groups with
+  | some gs =>
+    simp only [Cost.pure_val, Cost.bind_val]
+    refine ⟨turnsBut_modify st i _ (fun _ => ⟨rfl, rfl, rfl, rfl, .inr rfl⟩) hopen,
+      fun gs' e => ?_, fun e => by cases e⟩
+    cases e
+    unfold groupsAt StateOf.modify
+    simp [ht, hgs]
+  | none =>
+    simp only [Cost.bind_val, Cost.pure_val]
+    obtain ⟨t1, ht1, -, d1, -⟩ := hfr.2.1 i t ht
+    generalize (expand (K := DerivationKernel.over D _ hK P) t.goal st).val = e at *
+    have h2 : (e.1.modify i fun t' => { t' with groups := some e.2 }).tables[i]? =
+        some { t1 with groups := some e.2 } := by
+      unfold StateOf.modify
+      simp [ht1]
+    refine ⟨hT.trans ((turnsBut_modify e.1 i (fun t' => { t' with groups := some e.2 }) (fun _ => ⟨rfl, rfl, rfl, rfl, .inl rfl⟩)
+        (fun t' h => by rw [ht1] at h; cases h; exact d1.trans hd)).trans
+      (turnsBut_modify (e.1.modify i fun t' => { t' with groups := some e.2 }) i
+        (fun t => { t with stamp := (e.1.modify i fun t' => { t' with groups := some e.2 }).round,
+                           delta := 0 }) (fun _ => ⟨rfl, rfl, rfl, rfl, .inr rfl⟩)
+        (fun t' h => by rw [h2] at h; cases h; exact d1.trans hd))),
+      (fun gs' e' => by cases e'), fun _ => ?_⟩
+    have : groupsAt ((e.1.modify i fun t' => { t' with groups := some e.2 }).modify i
+        fun t => { t with stamp := (e.1.modify i fun t' => { t' with groups := some e.2 }).round,
+                          delta := 0 }) i = e.2 := by
+      unfold groupsAt StateOf.modify
+      simp [ht1]
+    rw [this]
+    exact hsh
+
+omit [DecidableEq R] in
+/-- **The end of a round**: the groups with nothing left are removed, and
+the table may be marked complete. The record of the whole round. -/
+theorem turns_finish {st stp X Y : StateOf R Rel (Ans D P)} {i : Nat} {g : GoalOf R Rel}
+    {t : Table R Rel (Ans D P)} {gs0 : List (Group Rel (Ans D P))}
+    (ht : st.tables[i]? = some t) (hs : t.stamp ≠ st.round) (hd : t.done = false)
+    (T1 : TurnsBut (some i) st stp) (hp1 : ∀ gs, t.groups = some gs → gs0 = gs)
+    (hp2 : t.groups = none → Shaped gs0) (LI : LevelInv stp gs0 i g X)
+    (hW : gs0 ≠ [] → Worked stp gs0 i X)
+    (hY : Y = X.modify i (fun t =>
+      { t with groups := t.groups.map (fun gs => gs.filter (fun gr => !gr.strats.all (Strat.dead X))) }))
+    (fin : Bool) (d : Nat)
+    (hfin : fin = true → ∃ gr ∈ groupsAt Y i, ∃ s ∈ gr.strats, s.quiet Y Y.isDone = true) :
+    Turns st (Y.modify i (fun t => { t with done := t.done || fin, delta := d })) ∧
+    Settled (Y.modify i (fun t => { t with done := t.done || fin, delta := d })) i := by
+  have hgY : groupsAt Y i =
+      (groupsAt X i).filter (fun gr => !gr.strats.all (Strat.dead X)) := by
+    rw [hY]
+    exact groupsAt_mapGroups X i _ rfl
+  have T3 : TurnsBut (some i) X Y := by
+    rw [hY]
+    exact turnsBut_modify X i _ (fun _ => ⟨rfl, rfl, rfl, rfl, .inl rfl⟩) LI.busy.open
+  clear hY
+  have T : TurnsBut (some i) st Y := T1.trans (LI.turns.trans T3)
+  obtain ⟨u, hu, hsu, hdu⟩ := T3.keep.busy LI.busy
+  have hSYZ : Stable Y (Y.modify i fun t => { t with done := t.done || fin, delta := d }) :=
+    stable_modify Y i _ fun _ _ => ⟨rfl, rfl, rfl, fun h => by simp [h]⟩
+  have hsetYZ : ∀ j, Settled Y j →
+      Settled (Y.modify i fun t => { t with done := t.done || fin, delta := d }) j := by
+    intro j hj t' ht'
+    rcases getElem?_modify_cases Y i _ ht' with ⟨-, h'⟩ | ⟨rfl, v, hv, rfl⟩
+    · exact hj t' h'
+    · rcases hj v hv with h | h | h
+      · exact .inl (by simp [h])
+      · exact .inr (.inl h)
+      · exact .inr (.inr h)
+  have hrY : Y.round = st.round := T.keep.1
+  refine ⟨⟨keep_mark T.keep ht hs hd _ (fun t'' => ⟨rfl, rfl, rfl, rfl, fun h => by simp [h]⟩),
+    T.depth, fun h k t' hk => ?_, fun k ta tz ha hz hyp => ?_, fun k tz hz hdz => ?_,
+    fun k ta tz _ ha hz hs' hs'' => ?_⟩, fun t' ht' => ?_⟩
+  · rcases getElem?_modify_cases Y i _ hk with ⟨-, h'⟩ | ⟨rfl, v, hv, rfl⟩
+    · exact T.stamp h k t' h'
+    · exact T.stamp h k v hv
+  · rcases getElem?_modify_cases Y i _ hz with ⟨hne, h'⟩ | ⟨rfl, v, hv, rfl⟩
+    · exact T.groups k ta tz ha h' (hyp.imp id fun hh => ⟨fun e => hne (Option.some.inj e), hh.2⟩)
+    · rw [ht] at ha
+      cases ha
+      rw [hu] at hv
+      cases hv
+      rcases hyp with h | ⟨-, h | h⟩
+      · rw [hd] at h; cases h
+      · exact absurd h hs
+      · exact absurd (hsu.trans hrY) h
+  · rcases getElem?_modify_cases Y i _ hz with ⟨hne, h'⟩ | ⟨rfl, v, hv, rfl⟩
+    · rcases T.done k tz h' hdz with h | hq
+      · exact .inl h
+      · exact .inr (hq.mono hSYZ rfl)
+    · rw [hu] at hv
+      cases hv
+      simp only [hdu, Bool.false_or] at hdz
+      obtain ⟨gr, hgr, s, hs1, hq⟩ := hfin hdz
+      refine .inr ?_
+      simp only [groupsAt, hu] at hgr
+      cases hgu : u.groups with
+      | none => rw [hgu] at hgr; simp at hgr
+      | some gs =>
+        rw [hgu] at hgr
+        exact ⟨gs, rfl, gr, hgr, s, hs1,
+          quiet_mono (fun _ => hSYZ.isDone) (fun _ => hSYZ.isDone) hq⟩
+  · rcases getElem?_modify_cases Y i _ hz with ⟨hne, h'⟩ | ⟨rfl, v, hv, rfl⟩
+    · exact (T.turn k ta tz (fun e => hne (Option.some.inj e)) ha h' hs' hs'').finish hSYZ hsetYZ
+        (Nat.le_refl _)
+    · rw [ht] at ha
+      cases ha
+      rw [hu] at hv
+      cases hv
+      have hSXZ : Stable X (Y.modify k fun t => { t with done := t.done || fin, delta := d }) :=
+        T3.keep.stable.trans hSYZ
+      refine Turn.start T1.keep.stable T1.depth ⟨gs0, groupsAt X k,
+        (fun gr => !gr.strats.all (Strat.dead X)), fun gs h => (hp1 gs h).symm, hp2, ?_, ?_, ?_⟩
+      · rw [← hgY]
+        simp only [groupsAt, hu]
+      · refine LI.groups.imp fun gr0 gr1 hadv => ⟨hadv, fun hp => ?_, fun hp s1 hs1 => ?_⟩
+        · simp only [Bool.not_eq_true', List.all_eq_false] at hp
+          obtain ⟨s1, hs1, hdead⟩ := hp
+          obtain ⟨m, hm, rfl⟩ := List.getElem_of_mem hs1
+          obtain ⟨s0, hs0, hsa⟩ := Pointwise.get' hadv (List.getElem?_eq_getElem hm)
+          refine ⟨s0, List.mem_of_getElem? hs0, ?_⟩
+          cases hx : s0.dead stp with
+          | false => rfl
+          | true => exact absurd (dead_adv hsa LI.turns.keep.stable.answers hx) hdead
+        · simp only [Bool.not_eq_false', List.all_eq_true] at hp
+          exact hSXZ.dead (hp s1 hs1)
+      · by_cases he : gs0 = []
+        · exact .inl he
+        · obtain ⟨k, gr0, gr1, e0, e1, hst, hf⟩ := hW he
+          exact .inr ⟨k, gr0, gr1, e0, e1,
+            hst.imp fun _ _ h => h.mono (fun _ => Nat.le_refl _) (Nat.le_refl _) T3.depth,
+            fun s hs1 => (hf s hs1).mono hSXZ fun j hj => hsetYZ j (T3.keep.settled hj)⟩
+  · rcases getElem?_modify_cases Y i _ ht' with ⟨hne, -⟩ | ⟨-, v, hv, rfl⟩
+    · exact absurd rfl hne
+    · rw [hu] at hv
+      cases hv
+      exact .inr (.inl hsu)
+
+/-- **The record of a round**: over the round of a table, with every round
+nested in it, the record holds, and the table needs no round any more. -/
+theorem turns_advance (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK) (hP : ProgFO P) :
+    ∀ (fuel i : Nat) (st : StateOf R Rel (Ans D P)), Good st → (waiting st).length ≤ fuel →
+      Turns st (advance (K := DerivationKernel.over D K hK P) fuel i st).val.1 ∧
+      Settled (advance (K := DerivationKernel.over D K hK P) fuel i st).val.1 i
+  | 0, i, st, _, hw => by
+    clear hR
+    at_cost K hK
+    show Turns st st ∧ Settled st i
+    refine ⟨TurnsBut.refl _ _, settled_of_not_waiting ?_⟩
+    have : waiting st = [] := List.length_eq_zero_iff.1 (Nat.le_zero.1 hw)
+    rw [this]
+    exact List.not_mem_nil
+  | fuel + 1, i, st, hG, hw => by
+    have ih := fun h st hG hw => turns_advance hL hR hP fuel h st hG hw
+    have ihG := fun h st => good_advance (K := K) (hK := hK) hL hR hP fuel h st
+    have hprep := fun t ht hd => turn_prepare (K := K) (hK := hK) hR hP hG i t ht hd
+    have hlev := fun whole g lv (st0 : StateOf R Rel (Ans D P)) gs0 X hI hw =>
+      level_workLevel (K := K) (hK := hK) hL hR _ fuel ihG ih (st0 := st0) (X := X) (gs0 := gs0)
+        whole i g hI hw lv
+    clear hR
+    at_cost K hK
+    simp only [advance]
+    split
+    · next hnone =>
+      exact ⟨TurnsBut.refl _ _, fun t (ht : st.tables[i]? = some t) => by
+        rw [hnone] at ht; cases ht⟩
+    · next t ht =>
+      split
+      · next hd =>
+        exact ⟨TurnsBut.refl _ _, fun t' (ht' : st.tables[i]? = some t') => by
+          rw [ht] at ht'; cases ht'; exact .inl hd⟩
+      · next hd =>
+        split
+        · next hs =>
+          exact ⟨TurnsBut.refl _ _, fun t' (ht' : st.tables[i]? = some t') => by
+            rw [ht] at ht'; cases ht'; exact .inr (.inl hs)⟩
+        · next hs =>
+          split
+          · next hb =>
+            exact ⟨TurnsBut.refl _ _, fun t' (ht' : st.tables[i]? = some t') => by
+              rw [ht] at ht'; cases ht'; exact .inr (.inr hb)⟩
+          · next hb =>
+            simp only [Cost.bind_val, Cost.pure_val]
+            have hd' : t.done = false := by simpa using hd
+            obtain ⟨hGp, hgp, hbp, T1, hp1, hp2⟩ := hprep t ht hd'
+            have hi : i ∈ waiting st := mem_waiting.2 ⟨t, ht, hd', hs, hb⟩
+            have hwp : (waiting (prepare (K := DerivationKernel.over D _ hK P) i t st).val).length
+                ≤ fuel := by
+              have := waiting_lt (waiting_sub T1.keep) hi fun h => by
+                obtain ⟨u, hu, -, hsu, -⟩ := mem_waiting.1 h
+                obtain ⟨v, hv, hsv, -⟩ := hbp
+                rw [hu] at hv
+                cases hv
+                exact hsu hsv
+              omega
+            generalize (prepare (K := DerivationKernel.over D _ hK P) i t st).val = stp at *
+            have hmid := foldL_done (fun done (acc : StateOf R Rel (Ans D P) × Bool) =>
+                LevelInv stp (groupsAt stp i) i t.goal acc.1 ∧ (done = [] → acc = (stp, false)) ∧
+                  (done ≠ [] → Worked stp (groupsAt stp i) i acc.1))
+              (fun (acc : StateOf R Rel (Ans D P) × Bool) lv =>
+                if acc.2 then pure acc
+                else workLevel (K := DerivationKernel.over D _ hK P)
+                  (advance (K := DerivationKernel.over D _ hK P) fuel)
+                  (decide ((groupsAt stp i).length ≤ 1)) i t.goal lv acc.1)
+              (levelsOf (groupsAt stp i))
+              (fun done b lv hlv hI => by
+                split
+                · next hb2 =>
+                  refine ⟨hI.1, fun h => absurd h (by simp), fun _ => hI.2.2 fun hdn => ?_⟩
+                  rw [hI.2.1 hdn] at hb2
+                  cases hb2
+                · obtain ⟨a, b', c⟩ := hlev (decide ((groupsAt stp i).length ≤ 1)) t.goal lv stp
+                    (groupsAt stp i) b.1 hI.1 hwp
+                  refine ⟨a, fun h => absurd h (by simp), fun _ => ?_⟩
+                  by_cases hdn : done = []
+                  · have hb1 : b.1 = stp := by rw [hI.2.1 hdn]
+                    apply c
+                    obtain ⟨gr, hgr, hl⟩ := mem_levelsOf hlv
+                    obtain ⟨k, hk⟩ := List.getElem?_of_mem hgr
+                    exact ⟨k, gr, by rw [hb1]; exact hk, hl⟩
+                  · exact b' (hI.2.2 hdn))
+              (stp, false)
+              ⟨⟨hGp, hgp, hbp, TurnsBut.refl _ _, Pointwise.refl (fun gr =>
+                  Pointwise.refl (SAdv.refl _) gr.strats) _⟩, fun _ => rfl, fun h => absurd rfl h⟩
+            exact turns_finish ht hs hd' T1 hp1 hp2 hmid.1
+              (fun hne => hmid.2.2 (levelsOf_ne_nil hne)) rfl _ _ (fun hfin => by
+                obtain ⟨gr, hgr, h⟩ := List.any_eq_true.1 hfin
+                obtain ⟨s, hs1, hq⟩ := List.any_eq_true.1 h
+                exact ⟨gr, hgr, s, hs1, hq⟩)
 
 end kernel
 
