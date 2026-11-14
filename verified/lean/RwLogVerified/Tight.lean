@@ -235,7 +235,7 @@ theorem tighten_spec (hnm : Function.Injective nm) {S : Sorts} {sp : Pat} {U : L
         match o with
         | none => res = none
         | some st' => ∃ t' x' es' next', res = some (t', x', es', next') ∧
-            Holds nm U s'.nodes.val st' t' x' es' next' ⦄ := by
+            Holds nm U s'.nodes.val st' t' x' es' next' ∧ ∀ p ∈ st'.L, Sub U p.2 ⦄ := by
   unfold sorts.tighten
   have hroom' := hroom
   unfold Room at hroom'
@@ -263,9 +263,10 @@ theorem tighten_spec (hnm : Function.Injective nm) {S : Sorts} {sp : Pat} {U : L
       simp only [Bool.false_eq_true, ↓reduceIte, WP.spec_ok]
       exact ⟨hI2, hx1.trans hx2, by simp only [tightenCost]; omega, rfl⟩
     | some st' =>
-      obtain ⟨rfl, hH', -⟩ := hres
+      obtain ⟨rfl, hH', hsub'⟩ := hres
       simp only [↓reduceIte, WP.spec_ok]
-      exact ⟨hI2, hx1.trans hx2, by simp only [tightenCost]; omega, t', x', es', next', rfl, hH'⟩
+      exact ⟨hI2, hx1.trans hx2, by simp only [tightenCost]; omega, t', x', es', next', rfl, hH',
+        hsub'⟩
 
 /-- Among well-formed sorts, `sorts::tighten` ends. What it returns denotes
 what it was given, satisfies the invariant of `Sorts.tighten`, and has no

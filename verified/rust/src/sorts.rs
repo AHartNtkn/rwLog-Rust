@@ -2069,6 +2069,21 @@ pub fn uppers(s: &mut Store, decls: TermId, names: TermId, c: TermId, g: TermId)
     out
 }
 
+/// Table `B` cleared and then set, for each variable of the list `vs0`, to
+/// the variable of its place in the list, from the first variable on;
+/// returned is the variable of the place after the last.
+pub fn number(s: &mut Store, vs0: TermId) -> TermId {
+    s.clear(Tbl::B);
+    let mut place = s.alloc(Node::V0);
+    let mut l = vs0;
+    while let Some((v, rest)) = uncons(s, l) {
+        s.set(Tbl::B, v, place);
+        place = var_succ(s, place);
+        l = rest;
+    }
+    place
+}
+
 /// The store of the pattern `t`, the exclusions `x` and the entries `es`
 /// with its variables numbered in the order they first occur in the pattern:
 /// the pattern and the exclusions with each variable replaced by the
@@ -2096,14 +2111,7 @@ pub fn renumber(
         l = rest;
     }
     let cs = rev(s, cs);
-    s.clear(Tbl::B);
-    let mut place = s.alloc(Node::V0);
-    let mut l = vs;
-    while let Some((v, rest)) = uncons(s, l) {
-        s.set(Tbl::B, v, place);
-        place = var_succ(s, place);
-        l = rest;
-    }
+    number(s, vs);
     s.clear(Tbl::A);
     let t1 = rebuild(s, Leaf::Map, t);
     let x1 = rebuild(s, Leaf::Map, x);
@@ -2510,4 +2518,165 @@ pub fn cut_exs(s: &mut Store, vs: TermId, ks: TermId, l0: TermId) -> TermId {
         l = rest;
     }
     rev(s, out)
+}
+
+// # The normal store of a problem
+//
+// A problem is a pattern, a list of equations, a list of sorted patterns
+// (each the application of the name of a declared sort to a pattern) and a
+// list of exclusions. A sort of a problem is one of the names.
+
+/// The atoms the sorted patterns of the list `a0` put on their variables:
+/// each sort pushed onto its pattern. Nothing when a sort rejects its
+/// pattern whatever the variables are. Table `B` is used; the stack is
+/// empty at entry.
+fn push_pairs(s: &mut Store, decls: TermId, a0: TermId) -> Option<TermId> {
+    let mut out = s.alloc(Node::Nil);
+    let mut l = a0;
+    let mut ok = true;
+    let mut go = true;
+    while go {
+        match uncons(s, l) {
+            Some((e, rest)) => match uncons(s, e) {
+                Some((n, p)) => match push_sort(s, decls, n, p) {
+                    Some(atoms) => {
+                        out = rev_onto(s, atoms, out);
+                        l = rest;
+                    }
+                    None => {
+                        ok = false;
+                        go = false;
+                    }
+                },
+                None => panic!(),
+            },
+            None => go = false,
+        }
+    }
+    if ok {
+        Some(out)
+    } else {
+        None
+    }
+}
+
+/// An entry for each variable of the list `vs0`, in order: the variable
+/// with the conjunction of the sorts the atoms `atoms` put on it. Table `A`
+/// is used.
+fn entries_of(s: &mut Store, names: TermId, atoms: TermId, vs0: TermId) -> TermId {
+    let mut out = s.alloc(Node::Nil);
+    let mut l = vs0;
+    while let Some((v, rest)) = uncons(s, l) {
+        let c = ups(s, names, atoms, v);
+        let e = s.alloc(Node::App(v, c));
+        out = s.alloc(Node::App(e, out));
+        l = rest;
+    }
+    rev(s, out)
+}
+
+/// The members of the list `l0` as one term: the pair of the last with the
+/// pair of the one before with the rest, down to `nil`; a pair is `nil`
+/// applied to its two parts.
+fn tuple(s: &mut Store, nil: TermId, l0: TermId) -> TermId {
+    let mut out = nil;
+    let mut l = l0;
+    while let Some((v, rest)) = uncons(s, l) {
+        let head = s.alloc(Node::App(nil, v));
+        out = s.alloc(Node::App(head, out));
+        l = rest;
+    }
+    out
+}
+
+/// The store a problem starts from: the pattern `t`, the sorted patterns
+/// `a` and the exclusions `x` with the solution of the equations `e`
+/// applied and the variables left numbered in the order they first occur in
+/// these; the sorts brought down to the variables; and the pattern paired
+/// with the tuple of all the variables, so that each occurs in it. Returned
+/// are the pair, the exclusions, an entry for each variable in order, and
+/// the next unused variable; nothing when the equations have no solution or
+/// a sort rejects its pattern, in which case the problem denotes nothing.
+/// Tables `A` and `B` are used; the stack is empty at entry.
+pub fn start(
+    s: &mut Store,
+    decls: TermId,
+    names: TermId,
+    t: TermId,
+    e: TermId,
+    a: TermId,
+    x: TermId,
+) -> Option<(TermId, TermId, TermId, TermId)> {
+    let ax = s.alloc(Node::App(a, x));
+    let pack = s.alloc(Node::App(t, ax));
+    let (ok, solved) = solve_into(s, e, pack);
+    if ok {
+        let vs = firsts(s, solved);
+        let next = number(s, vs);
+        s.clear(Tbl::A);
+        let vars = rebuild(s, Leaf::Map, vs);
+        let packed = rebuild(s, Leaf::Map, solved);
+        match uncons(s, packed) {
+            Some((t1, ax1)) => match uncons(s, ax1) {
+                Some((a1, x1)) => match push_pairs(s, decls, a1) {
+                    Some(atoms) => {
+                        let es = entries_of(s, names, atoms, vars);
+                        let nil = s.alloc(Node::Nil);
+                        let all = tuple(s, nil, vars);
+                        let head = s.alloc(Node::App(nil, t1));
+                        let t0 = s.alloc(Node::App(head, all));
+                        Some((t0, x1, es, next))
+                    }
+                    None => None,
+                },
+                None => panic!(),
+            },
+            None => panic!(),
+        }
+    } else {
+        None
+    }
+}
+
+/// The normal store of the problem of the pattern `t`, the equations `e`,
+/// the sorted patterns `a` and the exclusions `x`: the pattern with its
+/// variables numbered in the order they first occur, the list of the
+/// conjunctions of every sort that holds of all values of each, and the
+/// exclusions over them, solved, none an instance of another; nothing when
+/// the problem denotes nothing. Tables `A` and `B` are used; the stack is
+/// empty at entry.
+pub fn normal(
+    s: &mut Store,
+    decls: TermId,
+    names: TermId,
+    t: TermId,
+    e: TermId,
+    a: TermId,
+    x: TermId,
+) -> Option<(TermId, TermId, TermId)> {
+    match start(s, decls, names, t, e, a, x) {
+        Some((t0, x0, es0, next0)) => match tighten(s, decls, names, t0, x0, es0, next0) {
+            Some((t1, x1, es1, _)) => {
+                let (t2, x2, cs) = renumber(s, decls, names, t1, x1, es1);
+                let vs = places(s, cs);
+                let ys = norm_exs(s, decls, names, vs, cs, x2);
+                let zs = antichain(s, vs, ys);
+                match uncons(s, t2) {
+                    Some((head, _)) => match uncons(s, head) {
+                        Some((_, left)) => {
+                            let ws = firsts(s, left);
+                            let ks = take_len(s, vs, ws);
+                            let cs1 = take_len(s, cs, ks);
+                            let xs1 = cut_exs(s, vs, ks, zs);
+                            Some((left, cs1, xs1))
+                        }
+                        None => panic!(),
+                    },
+                    None => panic!(),
+                }
+            }
+            None => None,
+        },
+        None => None,
+    }
 }

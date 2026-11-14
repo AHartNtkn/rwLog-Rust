@@ -59,6 +59,10 @@
   solved exclusion is an instance of another; the solved forms of a list;
   the ones that are instances of no other; the ones over the first
   variables.
+* `RwLogVerified.Normal`: the normal store of a problem: the store a problem
+  starts from (equations solved, variables numbered, sorts pushed down to
+  the variables, the pattern paired with the tuple of the variables), and
+  the whole function.
 * `RwLogVerified.Kernel`: the kernel rung whose charges are those bounds.
 * `RwLogVerified.KernelRuns`: its charges on a worked composition.
 
@@ -100,5 +104,6 @@ import RwLogVerified.Tight
 import RwLogVerified.Number
 import RwLogVerified.Solved
 import RwLogVerified.Assemble
+import RwLogVerified.Normal
 import RwLogVerified.Kernel
 import RwLogVerified.KernelRuns
