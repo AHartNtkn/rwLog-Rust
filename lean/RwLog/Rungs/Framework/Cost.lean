@@ -170,16 +170,6 @@ theorem length_le_foldL_ticks {α β : Type} (f : β → α → Cost β) (h : �
 
 end Cost
 
-/-! ## The search charges vanish where there is nothing to search -/
-
-@[simp] theorem matchAllWork_nil (ts : List Pat) (θ : PSubst) : matchAllWork [] ts θ = 0 := rfl
-
-/-- A covering span without a store is charged the two sizes. -/
-@[simp] theorem Charged.coversWork_nil {a : Span} (h : a.c = []) (s : Span) :
-    Charged.coversWork a s = 0 := by
-  unfold Charged.coversWork
-  cases (matchInto a.l s.l []).bind (matchInto a.r s.r) <;> simp [h]
-
 /-! ## Costed runtimes -/
 
 namespace CostedRuntime

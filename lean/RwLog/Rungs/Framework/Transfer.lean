@@ -150,114 +150,118 @@ end Runtime
 
 namespace Rung
 
-variable (G : Rung)
+variable (G : Rung) (κ : KernelRung)
 
 /-- The program and query the runtime is run on. -/
-def prog (A : ArtifactStore) (P : Program) (q : Rel) : Program := (G.pre.run A P q).val.1
-def query (A : ArtifactStore) (P : Program) (q : Rel) : Rel := (G.pre.run A P q).val.2.1
+def prog (A : ArtifactStore) (P : Program) (q : Rel) : Program := (G.pre.run κ A P q).val.1
+def query (A : ArtifactStore) (P : Program) (q : Rel) : Rel := (G.pre.run κ A P q).val.2.1
 
 theorem pairs_pre {A : ArtifactStore} {P : Program} {q : Rel} (hP : P.WellFormed q) :
-    (G.prog A P q).pairs (G.query A P q) = P.pairs q :=
-  G.pre.equiv A P q hP
+    (G.prog κ A P q).pairs (G.query κ A P q) = P.pairs q :=
+  G.pre.equiv κ A P q hP
 
 theorem sorts_pre {A : ArtifactStore} {P : Program} {q : Rel} :
-    (G.prog A P q).sorts = P.sorts :=
-  G.pre.sorts_eq A P q
+    (G.prog κ A P q).sorts = P.sorts :=
+  G.pre.sorts_eq κ A P q
 
 /-- The rung runs its machine: from the same state the two runs are the
 same. -/
 theorem run_runtime (A : ArtifactStore) :
-    ∀ (n : Nat) (s : G.rt.State), (G.runtime A).run s n = G.rt.run s n
+    ∀ (n : Nat) (s : G.rt.State), (G.runtime κ A).run s n = G.rt.run s n
   | 0, _ => rfl
   | n + 1, s => by
     cases h : G.rt.step s with
     | emit as s' =>
-      have h' : (G.runtime A).step s = .emit as s' := h
+      have h' : (G.runtime κ A).step s = .emit as s' := h
       rw [Runtime.run_succ_emit _ h, Runtime.run_succ_emit _ h', run_runtime A n s']
       rfl
     | progress k s' =>
-      have h' : (G.runtime A).step s = .progress k s' := h
+      have h' : (G.runtime κ A).step s = .progress k s' := h
       rw [Runtime.run_succ_progress _ h, Runtime.run_succ_progress _ h', run_runtime A n s']
     | done fin =>
-      have h' : (G.runtime A).step s = .done fin := h
+      have h' : (G.runtime κ A).step s = .done fin := h
       rw [Runtime.run_succ_done _ h, Runtime.run_succ_done _ h']
       rfl
 
 theorem trace_runtime (A : ArtifactStore) :
-    ∀ (n : Nat) (s : G.rt.State), (G.runtime A).trace s n = G.rt.trace s n
+    ∀ (n : Nat) (s : G.rt.State), (G.runtime κ A).trace s n = G.rt.trace s n
   | 0, _ => rfl
   | n + 1, s => by
     cases h : G.rt.step s with
     | emit as s' =>
-      have h' : (G.runtime A).step s = .emit as s' := h
+      have h' : (G.runtime κ A).step s = .emit as s' := h
       rw [Runtime.trace_succ_emit _ h, Runtime.trace_succ_emit _ h', trace_runtime A n s']
       rfl
     | progress k s' =>
-      have h' : (G.runtime A).step s = .progress k s' := h
+      have h' : (G.runtime κ A).step s = .progress k s' := h
       rw [Runtime.trace_succ_progress _ h, Runtime.trace_succ_progress _ h',
         trace_runtime A n s']
       rfl
     | done fin =>
-      have h' : (G.runtime A).step s = .done fin := h
+      have h' : (G.runtime κ A).step s = .done fin := h
       rw [Runtime.trace_succ_done _ h, Runtime.trace_succ_done _ h']
       rfl
 
 theorem emitted_runtime (A : ArtifactStore) (P : Program) (q : Rel) (n : Nat) :
-    (G.runtime A).emitted ((G.runtime A).init P q) n =
-      G.rt.emitted (G.rt.init (G.prog A P q) (G.query A P q)) n :=
-  congrArg Prod.fst (G.run_runtime A n _)
+    (G.runtime κ A).emitted ((G.runtime κ A).init P q) n =
+      G.rt.emitted (G.rt.init (G.prog κ A P q) (G.query κ A P q)) n :=
+  congrArg Prod.fst (G.run_runtime κ A n _)
 
 theorem halts_runtime (A : ArtifactStore) (P : Program) (q : Rel) (n : Nat) :
-    (G.runtime A).Halts ((G.runtime A).init P q) n ↔
-      G.rt.Halts (G.rt.init (G.prog A P q) (G.query A P q)) n :=
+    (G.runtime κ A).Halts ((G.runtime κ A).init P q) n ↔
+      G.rt.Halts (G.rt.init (G.prog κ A P q) (G.query κ A P q)) n :=
   iff_of_eq (congrArg (fun r : List G.rt.Ans × Option (List G.rt.Ans) => r.2.isSome = true)
-    (G.run_runtime A n (G.rt.init (G.prog A P q) (G.query A P q))))
+    (G.run_runtime κ A n (G.rt.init (G.prog κ A P q) (G.query κ A P q))))
 
 theorem certifies_runtime (A : ArtifactStore) (P : Program) (q : Rel) (k n : Nat) :
-    (G.runtime A).Certifies ((G.runtime A).init P q) k n ↔
-      G.rt.Certifies (G.rt.init (G.prog A P q) (G.query A P q)) k n :=
-  iff_of_eq (congrArg (fun t => t[k]? = some (Shown.level n)) (G.trace_runtime A (k + 1) _))
+    (G.runtime κ A).Certifies ((G.runtime κ A).init P q) k n ↔
+      G.rt.Certifies (G.rt.init (G.prog κ A P q) (G.query κ A P q)) k n :=
+  iff_of_eq (congrArg (fun t => t[k]? = some (Shown.level n)) (G.trace_runtime κ A (k + 1) _))
 
 /-- Every answer of the rung relates only pairs the original query relates. -/
-theorem sound (hs : G.rt.Sound) (A : ArtifactStore) : (G.runtime A).Sound := by
+theorem sound (hs : G.rt.Sound) (A : ArtifactStore) : (G.runtime κ A).Sound := by
   intro P q hP n a ha
-  rw [G.emitted_runtime] at ha
-  rw [← G.pairs_pre hP, ← G.sorts_pre (A := A) (q := q)]
-  exact hs _ _ (G.pre.wf A P q hP) n a ha
+  rw [G.emitted_runtime κ] at ha
+  rw [← G.pairs_pre κ hP, ← G.sorts_pre κ (A := A) (q := q)]
+  exact hs _ _ (G.pre.wf κ A P q hP) n a ha
 
 /-- Every pair the original query relates is related by some answer of the
 rung. -/
 theorem pointComplete (hc : G.rt.PointComplete) (A : ArtifactStore) :
-    (G.runtime A).PointComplete := by
+    (G.runtime κ A).PointComplete := by
   intro P q hP p hp
-  rw [← G.pairs_pre hP] at hp
-  obtain ⟨n, a, ha, hpa⟩ := hc _ _ (G.pre.wf A P q hP) p hp
+  rw [← G.pairs_pre κ hP] at hp
+  obtain ⟨n, a, ha, hpa⟩ := hc _ _ (G.pre.wf κ A P q hP) p hp
   rw [G.pre.sorts_eq] at hpa
-  exact ⟨n, a, by rw [G.emitted_runtime]; exact ha, hpa⟩
+  exact ⟨n, a, by rw [G.emitted_runtime κ]; exact ha, hpa⟩
 
 /-- When the rung reports that it is done, its answers cover the original
 query exactly. -/
 theorem honest (hh : G.rt.HonestExhaustion) (A : ArtifactStore) :
-    (G.runtime A).HonestExhaustion := by
+    (G.runtime κ A).HonestExhaustion := by
   intro P q hP n hn
-  rw [← G.pairs_pre hP, G.emitted_runtime, ← G.sorts_pre (A := A) (q := q)]
-  exact hh _ _ (G.pre.wf A P q hP) n ((G.halts_runtime A P q n).1 hn)
+  rw [← G.pairs_pre κ hP, G.emitted_runtime, ← G.sorts_pre κ (A := A) (q := q)]
+  exact hh _ _ (G.pre.wf κ A P q hP) n ((G.halts_runtime κ A P q n).1 hn)
 
 /-- A progress certificate of the rung is true of the original query. -/
 theorem honestProgress (hh : G.rt.HonestProgress) (A : ArtifactStore) :
-    (G.runtime A).HonestProgress := by
+    (G.runtime κ A).HonestProgress := by
   intro P q hP k n hc p hp
-  rw [← G.pairs_pre hP] at hp
-  rw [G.emitted_runtime, ← G.sorts_pre (A := A) (q := q)]
-  exact hh _ _ (G.pre.wf A P q hP) k n ((G.certifies_runtime A P q k n).1 hc) p hp
+  rw [← G.pairs_pre κ hP] at hp
+  rw [G.emitted_runtime κ, ← G.sorts_pre κ (A := A) (q := q)]
+  exact hh _ _ (G.pre.wf κ A P q hP) k n ((G.certifies_runtime κ A P q k n).1 hc) p hp
 
 /-- The rung with the identity preprocessor is its machine. -/
-theorem runtime_id (R : Runtime) (A : ArtifactStore) : (Rung.mk .id R).runtime A = R := rfl
+theorem runtime_id (R : Runtime) (A : ArtifactStore) : (Rung.mk .id R).runtime κ A = R := by
+  have h : ∀ P q, (Preprocessor.id.run κ A P q).val = (P, q, A) := fun P q =>
+    congrArg Cost.val ((κ.refines P.sorts).pure_eq _)
+  unfold Rung.runtime
+  simp only [h]
 
 /-- A machine that keeps every property is a rung that keeps them, with the
 identity preprocessor. -/
-theorem Keeps.of_id {R Base : Runtime} (h : R.Keeps Base) : (Rung.mk .id R).Keeps Base :=
-  fun A => (runtime_id R A).symm ▸ h.toKeepsPointwise
+theorem Keeps.of_id {R Base : Runtime} (h : R.Keeps Base) : (Rung.mk .id R).Keeps κ Base :=
+  fun A => (runtime_id κ R A).symm ▸ h.toKeepsPointwise
 
 end Rung
 

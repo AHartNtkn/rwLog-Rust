@@ -249,17 +249,19 @@ end Runtime
 /-! ## Whole rungs -/
 
 /-- The rung as one runtime on the original input, for an artifact store: its
-first state is the machine's first state on the preprocessed input. -/
-def Rung.runtime (G : Rung) (A : ArtifactStore) : Runtime where
+first state is the machine's first state on the preprocessed input, the
+preprocessor being run at the kernel rung `κ`. -/
+def Rung.runtime (G : Rung) (κ : KernelRung) (A : ArtifactStore) : Runtime where
   Ans := G.rt.Ans
   State := G.rt.State
-  init P q := G.rt.init (G.pre.run A P q).val.1 (G.pre.run A P q).val.2.1
+  init P q := G.rt.init (G.pre.run κ A P q).val.1 (G.pre.run κ A P q).val.2.1
   step := G.rt.step
 
-/-- What a whole rung keeps: whatever the artifact store, the rung as one
-machine on the original input has every property of `KeepsPointwise`. -/
-def Rung.Keeps (G : Rung) (Base : Runtime) : Prop :=
-  ∀ A, (G.runtime A).KeepsPointwise Base
+/-- What a whole rung keeps at a kernel rung: whatever the artifact store,
+the rung as one machine on the original input has every property of
+`KeepsPointwise`. -/
+def Rung.Keeps (G : Rung) (κ : KernelRung) (Base : Runtime) : Prop :=
+  ∀ A, (G.runtime κ A).KeepsPointwise Base
 
 /-! ## Fairness
 

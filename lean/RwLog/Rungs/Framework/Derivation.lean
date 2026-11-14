@@ -12,11 +12,10 @@ proof about the engine:
 * `Engine.derivationGeneral`: `Runtime.DerivationGeneral`.
 
 Both are about the query as it is written, not about its normal form. The
-domain of spans as written (`Domain.written`) looks at no store and has no
-canonical form, so it is not lawful and these theorems say nothing of
-`Engine.costed`.
+domain of a kernel rung is lawful (`KernelRung.lawful`), so both hold of
+`Engine.costed E κ` for every engine and every rung.
 -/
-import RwLog.Trusted.KernelRung
+import RwLog.Trusted.Cost
 import RwLog.Trusted.Properties
 
 namespace RwLog

@@ -135,28 +135,23 @@ price of an application that changes.
 Ticks spent by the Rust (`rust/tests`, which also assert each bound) against
 the charge of the theorem.
 
-| Run | Spent | Bound | `Kernel.std` |
-|---|---|---|---|
-| `rebuild` of a term of 41 distinct subterms and 2^40 leaves | 568 | 579 | |
-| `occurs` on the same shape | 326 | 332 | |
-| `mmatch` of that pattern against that term | 486 | 498 | |
-| `compose` of `(b (a $x) $y) -> (b $x $y)` with itself | 548 | 5474 | 38 |
-| `compose` of the identity on 1 variable with itself | 104 | 896 | 6 |
-| on 2 variables | 292 | 2734 | 18 |
-| on 4 variables | 863 | 9386 | 42 |
-| on 8 variables | 2785 | 34594 | 90 |
-| on 16 variables | 9749 | 132626 | 186 |
-| on 32 variables | 36157 | 519154 | 378 |
+| Run | Spent | Bound |
+|---|---|---|
+| `rebuild` of a term of 41 distinct subterms and 2^40 leaves | 568 | 579 |
+| `occurs` on the same shape | 326 | 332 |
+| `mmatch` of that pattern against that term | 486 | 498 |
+| `compose` of `(b (a $x) $y) -> (b $x $y)` with itself | 548 | 5474 |
+| `compose` of the identity on 1 variable with itself | 104 | 896 |
+| on 2 variables | 292 | 2734 |
+| on 4 variables | 863 | 9386 |
+| on 8 variables | 2785 | 34594 |
+| on 16 variables | 9749 | 132626 |
+| on 32 variables | 36157 | 519154 |
 
 The walks are within a few ticks of their bounds. A composition is within
 a factor of ten to fifteen, all of it in the unifier. Before the stack the
 first composition spent 257 ticks against a bound of 83460; a push and a
 pop are now paid for, and the bound is fifteen times smaller.
-`RwLogVerified/KernelRuns.lean` pins the bounds of the compositions.
-
-`Kernel.std` charges the sizes of the spans as trees. It is linear where
-the machine is quadratic, so it is not a bound on the machine, and it is
-exponentially larger on terms with sharing.
 
 `Repr nm nodes i t` (`RwLogVerified/Repr.lean`) says that identifier `i`
 stands for the specification term `t`. Symbols are words in Rust and strings
@@ -165,21 +160,17 @@ the end of a list reads back as.
 
 ## The kernel rung
 
-`rustKernel` (`RwLogVerified/Kernel.lean`) is a `Kernel Span Cost`
-(`lean/RwLog/Trusted/Kernel.lean`). It returns what the domain of spans as
-they are written returns (`rustKernel_refines`, against `Kernel.Refines
-Domain.written`), as the specification kernel `Kernel.std` does, and its charge for `compose`, `meet`,
-`composable`, `eq`, `rightBound`, `leftBound`, and `covers` when the covering
-span has no constraints, is the tick bound of the table above
-(`compose_realised` and its siblings). An engine runs at it with
-`Engine.costedAt`, on the derivation kernel
-`DerivationKernel.over Domain.written (rustKernel z)`.
-`RwLogVerified/KernelRuns.lean` checks the charges of both kernels on a
-worked composition; it runs no engine. R005 is written against the
-derivation kernel (`lean/RwLog/Rungs/R005/`) and its kept properties hold at
-every kernel that refines a lawful domain, but spans as written are not a
-lawful domain, so a run waits for the engine cost restated at the kernel of
-the sorts (roadmap L55).
+A kernel rung (`RwLog.KernelRung`, `lean/RwLog/Trusted/Kernel.lean`) gives
+the sorts of each program a lawful constraint domain and a kernel of it, and
+an engine's cost is what it spends at one (`Engine.costed`). The trusted
+files fix no kernel and postulate no charge of an operation on
+representatives. `sortsRung` (`RwLogVerified/SortsRung.lean`) is the rung
+engines are judged at: the kernel of the sorts below, at a fixed naming of
+the symbols, the names of the sorts in order, and the least bounds on what is
+reachable in the sorts. Each of its operations is realised by the Rust
+function of its name (`rung_compose_realised` and its siblings), and R005
+keeps every property at it (`r005_keeps`). The kernel of spans as written,
+which was not lawful, is deleted with its realisation theorems.
 
 `sortsKernel nm S U rc q` (`RwLogVerified/SortsKernel.lean`) is a
 `Kernel (Sorts.Rep S) Cost`, the kernel of the sorts `S`. It returns what
@@ -210,13 +201,10 @@ parser accepts, since it rejects the empty identifier.
 
 What is not derived, and why:
 
-* At `rustKernel`, `rep`, and `covers` when the covering span has
-  constraints, keep the charges of `Kernel.std`. The domain of spans as
-  written looks at no constraint; `sortsKernel` derives both. Of
-  the operations on sorts the store has membership, conjunctions, one step of
-  a conjunction, pushing a sort down a pattern, whether a conjunction has a
-  member and how many it has, inclusion, and inclusion but for finitely many
-  ground terms so far, and not yet the normal store.
+* A charge of `sortsRung` is not computable (it is a supremum over the ways
+  an argument may be held), so no test evaluates one. The recorded runs of
+  the engines (`lean/Tests/`) are at the domain of sorts with nothing
+  charged and count the engine's own ticks.
 * The operations on nodes of the normal form and the rules that make answers
   (`DerivationKernel`) are charged as `lean/RwLog/Trusted/Charged.lean`
   postulates. They are not yet written on the store (roadmap L45).
@@ -226,8 +214,7 @@ What is not derived, and why:
 
 Space. `Cost` has a space component. The store only grows and an allocation
 is a tick, so an operation that may add nodes is charged its tick bound as
-cells held; `span_eq` and `covers_plain` add no node and hold nothing.
-`Realises` says so: an operation adds at most as many nodes as it holds
+cells held. `Realises` (`RwLogVerified/Realises.lean`) says so: an operation adds at most as many nodes as it holds
 cells. The stack is empty when an operation returns, and while it runs its
 depth is under the ticks spent, which is the peak of the charge.
 

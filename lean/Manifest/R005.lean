@@ -18,7 +18,10 @@ What is claimed of R005, in one file the build checks (roadmap L06).
 * **Space.** What R005 pays and the most cells it has live at one moment
   (`CostedRuntime.space`, the space component of `Cost`), measured on the
   conformance programs and the two families. These are measurements at the
-  kernel of spans as they are written; no bound on space is proved.
+  domain of sorts with nothing charged (`Sorts.uncharged`): what the engine
+  itself spends and holds. The charges of the kernel engines are judged at
+  are derived on a machine (`verified/`) and are not computed here. No bound
+  on space is proved.
 -/
 
 namespace RwLog.Manifest.R005
@@ -63,6 +66,11 @@ example {P : Program} {q : Rel} (wf : P.WellFormed q) (k n : Nat) :
 
 end
 
+/-- At a kernel rung no hypothesis is left: its domain is lawful. -/
+example (κ : KernelRung) :
+    (R005.engine.costed κ).runtime.Keeps (R001.engine.costed κ).runtime :=
+  R005.keeps_rung κ
+
 /-- At the domain of sorts no hypothesis is left. -/
 example {K : ∀ S, Kernel (Sorts.Rep S) Cost} {hK : ∀ S, (K S).Refines (Sorts.dom S)} :
     (R005.engine.costedAt Sorts.dom K hK).runtime.Keeps
@@ -82,21 +90,21 @@ example (E : Engine) {R : Sorts → Type} [∀ S, Answer (R S)] [∀ S, Decidabl
 
 /-- Stated, not proved: on the chain restricted in the middle each run of
 R004 has cost `2 ^ k` by any step at which R005 relates `z` to `z`. -/
-example : R005.MidLower ↔
-    ∀ k, Mirror.LowerOn R004.engine ⟨[], []⟩ (R005.mid k) (.sym "z", .sym "z") (2 ^ k) :=
+example (κ : KernelRung) : R005.MidLower κ ↔
+    ∀ k, Mirror.LowerOn κ R004.engine ⟨[], []⟩ (R005.mid k) (.sym "z", .sym "z") (2 ^ k) :=
   Iff.rfl
 
 /-- Stated, not proved: on the free factor beside an answer each run of R004
 has cost `2 ^ k` by any step at which R005 relates `a` to `a`. -/
-example : R005.FreeLower ↔
-    ∀ k, Mirror.LowerOn R004.engine (R005.freeProg k) R005.freeRel (.sym "a", .sym "a") (2 ^ k) :=
+example (κ : KernelRung) : R005.FreeLower κ ↔
+    ∀ k, Mirror.LowerOn κ R004.engine (R005.freeProg k) R005.freeRel (.sym "a", .sym "a") (2 ^ k) :=
   Iff.rfl
 
 /-- What either gives: the bound on what R005 has paid. -/
-example (h : R005.FreeLower) (k : Nat) {n : Nat}
-    (hx : R005.engine.costed.Covered (R005.freeProg k) R005.freeRel (Sorts.interp [])
+example (κ : KernelRung) (h : R005.FreeLower κ) (k : Nat) {n : Nat}
+    (hx : (R005.engine.costed κ).Covered (R005.freeProg k) R005.freeRel (Sorts.interp [])
       (.sym "a", .sym "a") n) :
-    2 ^ k ≤ R005.engine.costed.paid (R005.freeProg k) R005.freeRel n :=
+    2 ^ k ≤ (R005.engine.costed κ).paid (R005.freeProg k) R005.freeRel n :=
   h.paid k hx
 
 /-! ## Trusted files -/
@@ -114,7 +122,6 @@ info: [RwLog.Trusted.Charged,
  RwLog.Trusted.Domain,
  RwLog.Trusted.Engine,
  RwLog.Trusted.Kernel,
- RwLog.Trusted.KernelRung,
  RwLog.Trusted.Properties,
  RwLog.Trusted.Runtime,
  RwLog.Trusted.Semantics,
@@ -126,6 +133,8 @@ info: [RwLog.Trusted.Charged,
 
 /-- info: 'RwLog.R005.keeps' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.R005.keeps
+/-- info: 'RwLog.R005.keeps_rung' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R005.keeps_rung
 /-- info: 'RwLog.R005.keeps_sorts' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.R005.keeps_sorts
 /-- info: 'RwLog.R005.trace' depends on axioms: [propext, Classical.choice, Quot.sound] -/
@@ -144,22 +153,22 @@ open RwLog.Tests
 /-- The ticks paid and the most cells live at one moment, in the first `n`
 steps. -/
 def use (E : Engine) (P : Program) (q : Rel) (n : Nat) : Nat × Nat :=
-  (E.costed.paid P q n, E.costed.space P q n)
+  (E.atSorts.paid P q n, E.atSorts.space P q n)
 
 -- `add ; @2`, to its end, and twelve steps of the left-recursive `lr`.
-#guard use R005.engine addP (.seq (.call "add") (.at_ (num 2))) 40 == (3477773, 85440)
-#guard use R005.engine (prog [("lr", lr)]) (.call "lr") 12 == (121814, 2072)
+#guard use R005.engine addP (.seq (.call "add") (.at_ (num 2))) 40 == (952091, 5617)
+#guard use R005.engine (prog [("lr", lr)]) (.call "lr") 12 == (125676, 559)
 
 -- The chain restricted in the middle, `k` from 0 to 3, to its end: R005, and
 -- R004 on the query alone.
 #guard (List.range 4).map (fun k => use R005.engine empty (R005.mid k) 12) ==
-  [(445, 22), (52933, 1012), (393232, 9170), (803420, 15712)]
+  [(189, 9), (30350, 841), (117916, 3025), (219141, 6561)]
 #guard (List.range 4).map (fun k => use R004.engine empty (R005.mid k) 12) ==
-  [(68, 16), (8781, 841), (49695, 3592), (139922, 10265)]
+  [(38, 9), (4194, 841), (17865, 3025), (44979, 6561)]
 
 -- The free factor beside an answer, `k` from 0 to 3, to the step at which
 -- `a -> a` arrives.
 #guard (List.range 4).map (fun k => use R005.engine (R005.freeProg k) R005.freeRel 4) ==
-  [(10931, 729), (27343, 1521), (60258, 2601), (220960, 3969)]
+  [(9887, 729), (11291, 1521), (17811, 2601), (29401, 3969)]
 
 end RwLog.Manifest.R005

@@ -1,11 +1,13 @@
-import RwLog.Rungs.R005.Engine
+import RwLog.Rungs.R005.Sorts
 
 /-!
 # What R005 pays on the inputs of `SYMMETRIC_ENGINE_SIMULATION.md`
 
 The note asks whether the engine of `SYMMETRIC_ENGINE.md` stays within a
 polynomial of R005. These checks record R005's side of each comparison, on
-R005 as it is written against the derivation kernel; the engine's side is
+R005 as it is written against the derivation kernel, at the domain of sorts
+with nothing charged (`Engine.atSorts`): the ticks are the engine's own and
+those of the operations on nodes. The engine's side is
 `scripts/symmetric_engine_tables.py`.
 
 The figures in the note are those of R005 at the tag `epoch-1`, a machine
@@ -57,16 +59,16 @@ def clashP : Program := ⟨[("gen", gen),
 def clash : Rel := .seq (.call "p") (.call "q")
 def clashId : Rel := .seq (.call "pi") (.call "qi")
 
-#guard costOf R005.engine.costed clashP clash 10 == (5, true, 27524)
-#guard costOf R005.engine.costed clashP clashId 10 == (7, true, 99852)
+#guard costOf R005.engine.atSorts clashP clash 10 == (5, true, 21000)
+#guard costOf R005.engine.atSorts clashP clashId 10 == (7, true, 65362)
 
 def downP : Program :=
   ⟨[("q", .or (.seq (.span ⟨.app (.sym "s") (.var 0), .var 0, []⟩) (.call "q")) (.at_ (.sym "z")))], []⟩
 def down (k : Nat) : Rel := .seq (.at_ (num k)) (.call "q")
 
-#guard [1, 2, 3, 4, 6].map (fun k => costOf R005.engine.costed downP (down k) 60) ==
-  [(10, true, 133629), (13, true, 302711), (16, true, 494203), (19, true, 1103626),
-    (25, true, 2842180)]
+#guard [1, 2, 3, 4, 6].map (fun k => costOf R005.engine.atSorts downP (down k) 60) ==
+  [(10, true, 101405), (13, true, 169371), (16, true, 242289), (19, true, 529223),
+    (25, true, 1169866)]
 
 def st (x : Pat) : Pat := .app (.sym "st") x
 def pr (x y : Pat) : Pat := .app (.app (.sym "pair") x) y
@@ -87,7 +89,7 @@ def ladP (n : Nat) : Program :=
   ⟨("G", ladG) :: (List.range (n + 1)).map (fun i => (ladName i, ladDef n i)), []⟩
 def ladder (n : Nat) : Rel := .seq (.at_ (st (.sym "nil"))) (.call (ladName n))
 
-#guard (List.range 4).map (fun n => costOf R005.engine.costed (ladP n) (ladder n) 40) ==
-  [(5, true, 17227), (12, true, 2740899), (14, true, 7856844), (16, true, 16085032)]
+#guard (List.range 4).map (fun n => costOf R005.engine.atSorts (ladP n) (ladder n) 40) ==
+  [(5, true, 6591), (12, true, 445124), (14, true, 1192103), (16, true, 2587166)]
 
 end RwLog.Tests.Simulation

@@ -8,7 +8,7 @@ compositions it makes (`composableCost`). That depends on the intermediate
 spans, which the sizes of the spans in the list do not bound.
 -/
 import RwLogVerified.Compose
-import RwLog.Trusted.Charged
+import RwLog.Kernel.Chain
 
 open Aeneas Aeneas.Std Result
 

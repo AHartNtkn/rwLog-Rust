@@ -1,7 +1,7 @@
 /-
 # Chains of spans
 
-`Span.chain` (in `Trusted/Cost.lean`) composes a list of spans from the left.
+`Span.chain` composes a list of spans from the left.
 Its ground meaning is the composition of the members' relations, so whether a
 chain composes depends only on that relation: it is unchanged when two
 adjacent members are fused, and a pair with no match kills the whole chain.
@@ -10,6 +10,12 @@ import RwLog.Trusted.Cost
 import RwLog.SpanLayer.Algebra
 
 namespace RwLog
+
+/-- A chain of spans composed from the left; `none` when some composition has
+no match. The empty chain composes. -/
+def Span.chain : List Span → Option Span
+  | [] => some ⟨.var 0, .var 0, []⟩
+  | s :: rest => rest.foldl (fun acc t => acc.bind (·.compose t)) (some s)
 
 namespace GRel
 

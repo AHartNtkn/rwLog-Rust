@@ -1,39 +1,22 @@
 /-
 # The charged primitives
 
-Every operation on spans that an engine can perform, as a charged computation
-(`Trusted/CostMonad.lean`). Each primitive computes exactly the kernel
-operation it names (its `val` is that operation by definition) and charges a
-fixed function of the sizes of its arguments, and of its result when it
-builds one:
+The operations on the nodes of the normal form, as charged computations
+(`Trusted/CostMonad.lean`), and the sizes they are charged by. Each
+primitive computes exactly the operation it names (its `val` is that
+operation by definition) and charges a fixed function of its arguments.
 
-* composing or conjoining two spans: the sizes of both spans and of the result;
-* testing whether a chain of spans composes, without building the result: the
-  sizes of the spans;
-* testing whether two spans are the same as written: the sizes of both;
-* taking an interface of a span as a boundary: the size of the span;
-* reading a span of the program as a representative: the size of the span;
-* a coverage test: the sizes of both spans, and the search that places the
-  covering span's store in the other's (`matchAllWork`): every attempt to
-  match one constraint onto another, at every point of the search, by the
-  sizes of the two. With an empty store there is no search.
+No operation on representatives is charged here. What an operation of a
+constraint domain costs is what its kernel charges
+(`KernelRung`, `Trusted/Kernel.lean`), and the charges of the kernel of the
+domain of sorts are derived on a machine (`verified/`).
 
-These are the operations of the kernel of spans as they are written
-(`Kernel.std`, `Trusted/Kernel.lean`), which does not look at a constraint.
-The operations of the domain of sorts on stores have no charge here: they
-are charged where they are derived on a machine (roadmap L39).
+Space: while it runs, an operation has at most one cell live for each tick it
+spends (`Charged.op`).
 
-Swapping the two sides of a span is free.
-
-Space: an operation that builds a span holds the size of what it built, and a
-test holds nothing. While it runs, an operation has at most one cell live for
-each tick it spends (`Charged.op`).
-
-These charges are postulated. A kernel rung (`Trusted/KernelRung.lean`)
-replaces them by charges derived on a machine.
-
-A term is charged by its size wherever it is used, never by one, so sharing
-or interning cannot hide work.
+The charges of the operations on nodes are postulated: no machine holds
+nodes yet (roadmap L45). A term of the input is charged by its size, never by
+one.
 -/
 import RwLog.Trusted.CostMonad
 import RwLog.Kernel.Match
@@ -73,30 +56,7 @@ def Sorts.size (S : Sorts) : Nat := (S.map fun d => 1 + d.2.size).sum
 
 def ProgramOf.size (P : Program) : Nat := (P.defs.map fun d => 1 + d.2.size).sum + P.sorts.size
 
-/-! ## Charged primitives -/
-
-/-- A chain of spans composed from the left; `none` when some composition has
-no match. The empty chain composes. -/
-def Span.chain : List Span → Option Span
-  | [] => some ⟨.var 0, .var 0, []⟩
-  | s :: rest => rest.foldl (fun acc t => acc.bind (·.compose t)) (some s)
-
-/-- The work of `matchAll`: every attempt to match a pattern onto a member of
-the store, at every point of the search, charged by the sizes of the two. -/
-def matchAllWork : List Pat → List Pat → PSubst → Nat
-  | [], _, _ => 0
-  | p :: ps, ts, θ =>
-    (ts.map fun t => p.size + t.size +
-      match matchInto p t θ with
-      | some θ' => matchAllWork ps ts θ'
-      | none => 0).sum
-
 namespace Charged
-
-/-- The size of an optional result. -/
-def outSize : Option Span → Nat
-  | none => 0
-  | some s => s.size
 
 /-- An operation that returns `v` in `t` ticks and leaves `h` cells live. Its
 peak is the larger of the two: an allocation is a tick. -/
@@ -105,39 +65,6 @@ def op {α : Type} (v : α) (t h : Nat) : Cost α := ⟨v, t, max t h, h, le_max
 @[simp] theorem op_val {α : Type} (v : α) (t h : Nat) : (op v t h).val = v := rfl
 @[simp] theorem op_ticks {α : Type} (v : α) (t h : Nat) : (op v t h).ticks = t := rfl
 @[simp] theorem op_held {α : Type} (v : α) (t h : Nat) : (op v t h).held = h := rfl
-
-def compose (x y : Span) : Cost (Option Span) :=
-  op (x.compose y) (x.size + y.size + outSize (x.compose y)) (outSize (x.compose y))
-
-def meet (x y : Span) : Cost (Option Span) :=
-  op (x.meet y) (x.size + y.size + outSize (x.meet y)) (outSize (x.meet y))
-
-/-- A span of the program, read as it is written. -/
-def rep (s : Span) : Cost (Option Span) := op (some s) s.size s.size
-
-/-- Does the chain compose? Only the test is charged: no result is built. -/
-def composable (xs : List Span) : Cost Bool :=
-  op (Span.chain xs).isSome (xs.map Span.size).sum 0
-
-/-- The search of a coverage test: once the two sides match, the store of `a`
-is placed in the store of `s`. -/
-def coversWork (a s : Span) : Nat :=
-  match (matchInto a.l s.l []).bind (matchInto a.r s.r) with
-  | none => 0
-  | some θ => matchAllWork a.c s.c θ
-
-def covers (a s : Span) : Cost Bool := op (a.covers? s) (a.size + s.size + coversWork a s) 0
-
-/-- Are the two spans the same span, as written? -/
-def eq (x y : Span) : Cost Bool := op (decide (x = y)) (x.size + y.size) 0
-
-/-- The right interface of a span, as a boundary. -/
-def rightBound (s : Span) : Cost (Option Span) :=
-  op (bound s.rightIface) s.size (outSize (bound s.rightIface))
-
-/-- The left interface of a span, as a boundary. -/
-def leftBound (s : Span) : Cost (Option Span) :=
-  op (bound s.leftIface) s.size (outSize (bound s.leftIface))
 
 /-! ## Nodes of the normal form
 

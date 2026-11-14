@@ -27,12 +27,15 @@ identity either: an absent boundary is the identity, and a chain has at
 least two members. There is no simplification: every operation of a domain
 returns a representative, with its store in canonical form.
 
-`Domain.written` is the domain of spans as they are written: a span is its
-own representative and no constraint is looked at. `Kernel.std` is its kernel
-at the charges of `Trusted/Charged.lean`. It is what the kernels derived on a
-machine refine today (`Trusted/KernelRung.lean`). It is lawful only where no
-store matters; the kernel of the domain of sorts replaces it as the kernel
-engines are judged at when that domain is derived (roadmap L39).
+A kernel is given for the sorts of each program, with the type of its
+representatives and their domain: a `KernelRung`. Its domain is lawful at
+well-formed sorts, and what it charges is its own. No kernel is fixed here:
+the charges of the kernel engines are judged at are theorems about a machine
+(`verified/`): each is the number of ticks within which a program on the
+machine returns the operation's result. Refinement says nothing about the
+ticks, so an engine may behave differently at two kernels where it reads the
+ticks (`race`, `metered`): what it returns at a kernel is proved from
+`Refines`, and what it costs from that kernel's charges.
 
 ## Nodes
 
@@ -106,32 +109,6 @@ class Kernel (S : Type) (M : outParam (Type → Type)) extends Monad M where
   /-- The left interface, as a boundary. -/
   leftBound : S → M (Option S)
 
-/-- The domain of spans as they are written: a span is its own
-representative, and no constraint is looked at. -/
-def Domain.written : Domain Span where
-  rep s := some s
-  compose := Span.compose
-  meet := Span.meet
-  rightBound s := bound s.rightIface
-  isBound s := decide (s.l = s.r)
-  covers := Span.covers?
-
-/-- The kernel of spans as they are written: every operation at its trusted
-charge. -/
-instance Kernel.std : Kernel Span Cost where
-  tick := Cost.tick
-  race := Cost.race
-  metered := Cost.metered
-  swap := Span.swap
-  rep := Charged.rep
-  compose := Charged.compose
-  meet := Charged.meet
-  composable := Charged.composable
-  covers := Charged.covers
-  eq := Charged.eq
-  rightBound := Charged.rightBound
-  leftBound := Charged.leftBound
-
 /-- The kernel returns what the domain returns: it has the monad of charged
 computations with its `tick`, `race` and `metered`, its converse is the
 converse of the representatives, and the value of every operation is the
@@ -139,7 +116,7 @@ value of the same operation of the domain. Nothing is said about what it
 charges. -/
 structure Kernel.Refines {S : Type} [Answer S] [DecidableEq S] (D : Domain S)
     (K : Kernel S Cost) : Prop where
-  monad : K.toMonad = Kernel.std.toMonad
+  monad : K.toMonad = Cost.instMonad
   tick : K.tick = Cost.tick
   race : ∀ (α : Type) (a b : Cost α), K.race a b = Cost.race a b
   metered : ∀ (α : Type) (a : Cost α), K.metered a = Cost.metered a
@@ -153,26 +130,28 @@ structure Kernel.Refines {S : Type} [Answer S] [DecidableEq S] (D : Domain S)
   rightBound : ∀ s, (K.rightBound s).val = D.rightBound s
   leftBound : ∀ s, (K.leftBound s).val = D.leftBound s
 
-theorem Domain.written_composable (xs : List Span) :
-    Domain.written.composable xs = (Span.chain xs).isSome := by
-  cases xs <;> rfl
+/-- At a kernel that returns what a domain returns, `pure` is the `pure` of
+charged computations. -/
+theorem Kernel.Refines.pure_eq {S : Type} [Answer S] [DecidableEq S] {D : Domain S}
+    {K : Kernel S Cost} (h : K.Refines D) {α : Type} (x : α) :
+    @pure Cost K.toMonad.toApplicative.toPure α x = (pure x : Cost α) := by
+  rw [h.monad]
 
-/-- The kernel of spans as they are written returns what their domain
-returns. -/
-theorem Kernel.std_refines : Kernel.Refines Domain.written Kernel.std where
-  monad := rfl
-  tick := rfl
-  race _ _ _ := rfl
-  metered _ _ := rfl
-  swap := rfl
-  rep _ := rfl
-  compose _ _ := rfl
-  meet _ _ := rfl
-  composable xs := (Domain.written_composable xs).symm
-  covers _ _ := rfl
-  eq _ _ := rfl
-  rightBound _ := rfl
-  leftBound _ := rfl
+/-- A kernel rung: for the sorts of each program, a type of representatives,
+a constraint domain on it that is lawful when the sorts are well formed, and
+a kernel that returns what the domain returns. Which values are canonical
+depends on the sorts declared, so one type for every program could not
+satisfy the laws of a domain. -/
+structure KernelRung where
+  Rep : Sorts → Type
+  [answer : ∀ S, Answer (Rep S)]
+  [decEq : ∀ S, DecidableEq (Rep S)]
+  dom : ∀ S, Domain (Rep S)
+  kernel : ∀ S, Kernel (Rep S) Cost
+  refines : ∀ S, (kernel S).Refines (dom S)
+  lawful : ∀ S : Sorts, S.WellFormed → (dom S).Lawful S.interp
+
+attribute [instance] KernelRung.answer KernelRung.decEq
 
 /-- A view with the span of a span node left out. -/
 def NodeView.forget {S N : Type} : NodeView S N → NodeView Unit N
@@ -378,10 +357,5 @@ kernel `K` that returns what the domain `D` returns. -/
     inj := Ans.inj D P
     unfold := Ans.unfold D P
     swapA := Ans.swapA D P }
-
-/-- The derivation kernel of the program `P` on spans as they are written. -/
-@[reducible] def DerivationKernel.std (P : Program) :
-    DerivationKernel Span Rel (Ans Domain.written P) Cost :=
-  DerivationKernel.over Domain.written Kernel.std Kernel.std_refines P
 
 end RwLog

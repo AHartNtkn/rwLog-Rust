@@ -100,12 +100,15 @@
   domain as a function of the representatives alone, the most it spends
   over the ways they may be held; a representative as one node; and whether
   a chain of them composes.
-* `RwLogVerified.Kernel`: the kernel rung of spans as written, whose
-  charges are those bounds.
+* `RwLogVerified.ComposeRuns`: the tick bound of composition computed on the
+  spans the Rust tests measure.
+* `RwLogVerified.Realises`: what it is for a Rust function to compute a
+  charged operation of a kernel.
 * `RwLogVerified.SortsKernel`: the kernel rung of the sorts domain: it
   returns what `Sorts.dom` returns, and each operation runs in Rust within
   its charge.
-* `RwLogVerified.KernelRuns`: its charges on a worked composition.
+* `RwLogVerified.SortsRung`: that kernel for the sorts of every program,
+  with no parameter left: the kernel rung engines are judged at.
 
 Every theorem says the Rust function does not panic, returns the
 specification's result, and advances the store's tick counter by at most a
@@ -162,6 +165,7 @@ import RwLogVerified.Normal
 import RwLogVerified.Dom
 import RwLogVerified.SpanRep
 import RwLogVerified.DomChain
-import RwLogVerified.Kernel
+import RwLogVerified.ComposeRuns
+import RwLogVerified.Realises
 import RwLogVerified.SortsKernel
-import RwLogVerified.KernelRuns
+import RwLogVerified.SortsRung

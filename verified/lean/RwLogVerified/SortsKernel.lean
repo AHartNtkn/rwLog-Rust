@@ -28,7 +28,7 @@ in which order, so its charge is the most it spends over the finitely many
 ways (`most`, `RwLogVerified/DomChain.lean`): a function of the
 representatives alone.
 
-`Realises` (`RwLogVerified/Kernel.lean`) is what each theorem says: from any
+`Realises` (`RwLogVerified/Realises.lean`) is what each theorem says: from any
 store that keeps the invariant, holds the declarations, the names of the
 sorts and the arguments, and has room on its tick counter, the Rust function
 does not panic, returns the operation's value, only adds nodes, and advances
@@ -43,7 +43,7 @@ symbol (`Sorts.NoPair`).
 Space. The store only grows and an allocation is a tick, so every operation
 is charged its tick bound as the cells it holds.
 -/
-import RwLogVerified.Kernel
+import RwLogVerified.Realises
 import RwLogVerified.DomChain
 
 open Aeneas Aeneas.Std Result

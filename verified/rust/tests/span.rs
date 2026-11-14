@@ -225,7 +225,7 @@ fn compose_of_a_chain_of_doubling_spans_is_polynomial() {
 fn compose_of_the_decrement_with_itself_stays_within_its_proved_bound() {
     // (b (a x) y) -> (b x y), composed with itself. The Lean theorem
     // `compose_spec` bounds the ticks by `composeCost`, which is 5474 on
-    // these two spans (`RwLogVerified/KernelRuns.lean`).
+    // these two spans (`RwLogVerified/ComposeRuns.lean`).
     let b = |l: T, r: T| ap(ap(sy(1), l), r);
     let dec = span(b(ap(sy(0), v(0)), v(1)), b(v(0), v(1)));
     let mut s = Store::new();
@@ -250,7 +250,7 @@ fn compose_of_wide_identities_stays_within_its_proved_bound() {
     // Composing the span with itself solves n equations between variables.
     // Each one removes a variable and rebuilds what is left, so the ticks
     // grow with the square of n. The bounds are `composeCost` on these
-    // spans (`RwLogVerified/KernelRuns.lean`).
+    // spans (`RwLogVerified/ComposeRuns.lean`).
     let derived =
         [(1u128, 896u64), (2, 2734), (4, 9386), (8, 34594), (16, 132626), (32, 519154)];
     for (n, bound) in derived {

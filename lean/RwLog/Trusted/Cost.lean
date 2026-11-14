@@ -7,11 +7,13 @@ the trusted statement and not of a submission.
 ## Charged computations
 
 `Cost α` is a value together with the ticks spent computing it and the space
-it used (`Trusted/CostMonad.lean`). The operations on spans, nodes and answers
-and what each is charged are in `Trusted/Charged.lean` and
-`Trusted/Kernel.lean`. An engine is written against an abstract kernel and can
-do nothing to a span, and make no answer, except through those operations, so
-what it spends is fixed by its text (`Engine`, below).
+it used (`Trusted/CostMonad.lean`). The operations on nodes and answers and
+what each is charged are in `Trusted/Charged.lean` and `Trusted/Kernel.lean`;
+what an operation on representatives is charged is given by a kernel rung
+(`KernelRung`, `Trusted/Kernel.lean`). An engine is written against an
+abstract kernel and can do nothing to a representative, and make no answer,
+except through those operations, so what it spends at a kernel rung is fixed
+by its text (`Engine`, below).
 
 A computation can be run under a budget (`Cost.within`): if it needs no more
 than the budget it is run and charged as usual, and otherwise the whole budget
@@ -149,8 +151,8 @@ of successive rungs do not multiply.
 
 ## Admission
 
-A rung is admitted by a proof of `Admits kind` over the record of the rung
-below it, and by nothing else: it advances on its predecessor by a win of
+A rung is admitted by a proof of `Admits κ kind` over the record of the rung
+below it, at a kernel rung `κ` (`Trusted/Kernel.lean`), and by nothing else: it advances on its predecessor by a win of
 that kind (`Advances`), its cost does not depend on direction, within a
 polynomial whose numerals its specification writes out, and it keeps every
 win on the record within a constant factor that its specification writes
@@ -159,7 +161,7 @@ and neither does a gain on a sequence of inputs that is not a class, a gain
 that holds only when the input is the whole program, an improvement that
 holds from one end only, or a gain that gives back a win of an earlier rung.
 
-`Ladder base G record` is the ladder itself: the base has the empty record,
+`Ladder κ base G record` is the ladder itself: the base has the empty record,
 and each admission is over the whole record of the rung below and puts its
 own win on it. So every rung of a ladder has every win below it at once,
 each within a constant factor of the bound it was admitted with.
@@ -728,18 +730,18 @@ def Engine.costedAt (E : Engine) {R : Sorts → Type} [∀ S, Answer (R S)] [∀
       (DerivationKernel.over (dom s.P.sorts) (K s.P.sorts) (hK s.P.sorts) s.P) s.st >>=
       E.report dom s.P s.root
 
-/-- The engine at the kernel of spans as they are written: a machine with
-its cost. -/
-def Engine.costed (E : Engine) : CostedRuntime :=
-  E.costedAt (R := fun _ => Span) (fun _ => Domain.written) (fun _ => Kernel.std)
-    (fun _ => Kernel.std_refines)
+/-- The engine at a kernel rung: a machine with the cost that rung
+charges. -/
+def Engine.costed (E : Engine) (κ : KernelRung) : CostedRuntime :=
+  E.costedAt κ.dom κ.kernel κ.refines
 
 /-! ## Whole rungs
 
 A rung is a preprocessor followed by a machine. Its run-time cost is the cost
 of its machine on the preprocessed input, compared on the original input, and
 the cost of preprocessing is recorded beside it: any preprocessing is allowed,
-and a reader sees what it costs. -/
+and a reader sees what it costs. What a machine costs is what it spends at a
+kernel rung, and two rungs are compared at the same one. -/
 
 /-- A preprocessor followed by an engine. -/
 structure CostedRung where
@@ -748,34 +750,35 @@ structure CostedRung where
 
 namespace CostedRung
 
-variable (G : CostedRung)
+variable (G : CostedRung) (κ : KernelRung)
 
-/-- The rung's machine with its cost. -/
-def rt : CostedRuntime := G.eng.costed
+/-- The rung's machine with its cost at a kernel rung. -/
+def rt : CostedRuntime := G.eng.costed κ
 
 /-- The rung with the ticks forgotten. -/
-def rung : Rung := ⟨G.pre, G.rt.runtime⟩
+def rung : Rung := ⟨G.pre, (G.rt κ).runtime⟩
 
 /-- The rung as one machine on the original input: its first state is the
 machine's first state on the preprocessed input, at the machine's charge. The
 ticks of preprocessing are not counted here (`Admits.preCost` records
 them). -/
 def machine (A : ArtifactStore) : CostedRuntime where
-  Ans := G.rt.Ans
-  State := G.rt.State
-  init P q := G.rt.init (G.pre.run A P q).val.1 (G.pre.run A P q).val.2.1
-  step := G.rt.step
+  Ans := (G.rt κ).Ans
+  State := (G.rt κ).State
+  init P q := (G.rt κ).init (G.pre.run κ A P q).val.1 (G.pre.run κ A P q).val.2.1
+  step := (G.rt κ).step
 
 end CostedRung
 
-/-- The rung `New` advances on `Old` by a win of the given kind: whatever the
-artifact store, it improves on `Old` at run time on the class `C` with the
-numerals `b`, and preprocessing an input of size `n` costs at most `pre n`
-ticks. `pre` is any explicit function: it is recorded, not capped. -/
-structure Advances (kind : Kind) (Old New : CostedRung) (b : Bounds) (pre : Nat → Nat)
+/-- The rung `New` advances on `Old` at the kernel rung `κ` by a win of the
+given kind: whatever the artifact store, it improves on `Old` at run time on
+the class `C` with the numerals `b`, and preprocessing an input of size `n`
+costs at most `pre n` ticks. `pre` is any explicit function: it is recorded,
+not capped. -/
+structure Advances (κ : KernelRung) (kind : Kind) (Old New : CostedRung) (b : Bounds) (pre : Nat → Nat)
     (C : ProgClass) : Prop where
-  improves : ∀ A, Improves kind (Old.machine A) (New.machine A) b C
-  preCost : ∀ A P q, P.WellFormed q → (New.pre.run A P q).ticks ≤ pre (P.size + q.size)
+  improves : ∀ A, Improves kind (Old.machine κ A) (New.machine κ A) b C
+  preCost : ∀ A P q, P.WellFormed q → (New.pre.run κ A P q).ticks ≤ pre (P.size + q.size)
 
 /-! ## The record of wins
 
@@ -803,26 +806,26 @@ def Win.KeptBy (w : Win) (M : CostedRuntime) (c : Nat) : Prop :=
   MeetsOn w.kind.resource.meter M w.cls (fun k => c * w.b.hi k)
     (fun k res n => c * w.b.ctx w.kind.gap (w.b.hi k) res n)
 
-/-- The rung `New` is admitted above `Old` by a win of the given kind, over
-the wins on `record`: it advances on `Old`; whatever the artifact store, its
+/-- The rung `New` is admitted above `Old` at the kernel rung `κ` by a win of
+the given kind, over the wins on `record`: it advances on `Old`; whatever the artifact store, its
 cost does not depend on direction, within the polynomial `d`; and it keeps
 every win on the record within the factor `keep`. -/
-structure Admits (kind : Kind) (Old New : CostedRung) (b : Bounds) (d : DirBound)
-    (pre : Nat → Nat) (C : ProgClass) (record : List Win) (keep : Nat) : Prop
-    extends Advances kind Old New b pre C where
-  direction : ∀ A, DirectionFree (New.machine A) d.fn
-  keeps : ∀ A, ∀ w ∈ record, w.KeptBy (New.machine A) keep
+structure Admits (κ : KernelRung) (kind : Kind) (Old New : CostedRung) (b : Bounds)
+    (d : DirBound) (pre : Nat → Nat) (C : ProgClass) (record : List Win) (keep : Nat) : Prop
+    extends Advances κ kind Old New b pre C where
+  direction : ∀ A, DirectionFree (New.machine κ A) d.fn
+  keeps : ∀ A, ∀ w ∈ record, w.KeptBy (New.machine κ A) keep
 
-/-- The ladder above the rung `base`, with its record of wins. The record of
+/-- The ladder above the rung `base` at the kernel rung `κ`, with its record of wins. The record of
 the base is empty. A rung is put on top only by an admission over the whole
 record of the rung below it, and its own win then goes on the record. So the
 record of a rung is exactly the wins of the admissions below it, and none of
 them can be left out of a later admission. -/
-inductive Ladder (base : CostedRung) : CostedRung → List Win → Prop where
-  | base : Ladder base base []
+inductive Ladder (κ : KernelRung) (base : CostedRung) : CostedRung → List Win → Prop where
+  | base : Ladder κ base base []
   | admit {kind : Kind} {Old New : CostedRung} {b : Bounds} {d : DirBound} {pre : Nat → Nat}
       {C : ProgClass} {record : List Win} {keep : Nat} :
-      Ladder base Old record → Admits kind Old New b d pre C record keep →
-      Ladder base New (⟨kind, C, b⟩ :: record)
+      Ladder κ base Old record → Admits κ kind Old New b d pre C record keep →
+      Ladder κ base New (⟨kind, C, b⟩ :: record)
 
 end RwLog
