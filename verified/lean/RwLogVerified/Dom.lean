@@ -732,13 +732,14 @@ structure RepAt (nm : Option Nat → RwLog.Sym) (U : List Name) (nodes : List st
     (a : sorts.Rep) (r : Sorts.Raw) (Y : List Sorts.Binds) : Prop where
   t : Repr nm nodes a.t.val r.t
   c : Repr nm nodes a.c.val (encList (nm none) (r.c.map (cpat (nm none) U)))
+  nd : Y.Nodup
   y : Y.toFinset = r.x
   x : Repr nm nodes a.x.val (encLL nm (Y.map (vals r.c.length)))
 
 theorem RepAt.extends {U : List Name} {s s' : store.Store} {a : sorts.Rep} {r : Sorts.Raw}
     {Y : List Sorts.Binds} (h : RepAt nm U s.nodes.val a r Y) (hx : Extends s s') :
     RepAt nm U s'.nodes.val a r Y :=
-  ⟨hx.repr h.t, hx.repr h.c, h.y, hx.repr h.x⟩
+  ⟨hx.repr h.t, hx.repr h.c, h.nd, h.y, hx.repr h.x⟩
 
 /-- What an operation that computes a representative returns: nothing when
 the specification has none, and otherwise the one of the specification. -/
@@ -762,9 +763,9 @@ theorem repPost_of {S : Sorts} (hS : S.WellFormed) {U : List Name} {nodes : List
     exact (Sorts.Rep.of_eq_none hS P₀ hP₀ ht).2 (hn ▸ h)
   | some o =>
     simp only [NormalPost] at h
-    obtain ⟨r, hr, rt, rc, Y, hY, rx⟩ := h
+    obtain ⟨r, hr, rt, rc, Y, hnd, hY, rx⟩ := h
     obtain ⟨ρ', hρ', rfl⟩ := Sorts.Rep.of_val hS P₀ hP₀ ht (hn ▸ hr)
-    exact ⟨ρ', Y, hρ', rt, rc, hY, rx⟩
+    exact ⟨ρ', Y, hρ', rt, rc, hnd, hY, rx⟩
 
 /-- `pair` gives the pair of two patterns. -/
 theorem pair_spec (hz : nm none = "") (s : store.Store) (u w : store.TermId) {up wp : Pat}
@@ -1355,5 +1356,453 @@ theorem is_bound_spec (hnm : Function.Injective nm) {S : Sorts} {U : List Name}
   refine propext ⟨fun h => ?_, fun h => ?_⟩
   · have := rl; rw [h] at this; exact this.unique rr
   · have := rl; rw [h] at this; exact Repr.inj hnm hI.nodesOK this rr
+
+/-! ## The covering test -/
+
+/-- A solved exclusion is determined by the values it gives the variables. -/
+theorem vals_inj {k : Nat} {θ θ' : Sorts.Binds} (hθ : Sorts.Pre k θ) (hθ' : Sorts.Pre k θ')
+    (h : vals k θ = vals k θ') : θ = θ' := by
+  have happ : ∀ i, i < k → PSubst.apply θ i = PSubst.apply θ' i := by
+    intro i _
+    have := congrArg (fun L : List Pat => L.getD i (.var i)) h
+    simpa only [getD_vals hθ.dom, getD_vals hθ'.dom] using this
+  have sub : ∀ {α β : Sorts.Binds}, Sorts.Pre k α → Sorts.Pre k β →
+      (∀ i, i < k → PSubst.apply α i = PSubst.apply β i) → ∀ b ∈ α, b ∈ β := by
+    intro α β hα hβ hab b hb
+    have e := hab b.1 (hα.dom b hb)
+    rw [Sorts.apply_of_mem hα.sorted hb] at e
+    rcases Sorts.apply_cases β b.1 with hv | hm
+    · exfalso
+      rw [hv] at e
+      exact (hα.ran b hb b.1 (by rw [e]; simp [Term.vars])).2 b hb rfl
+    · rw [← e] at hm; exact hm
+  have nodup : ∀ {α : Sorts.Binds}, Sorts.Pre k α → α.Nodup := fun hα =>
+    hα.sorted.imp fun h e => by rw [e] at h; exact lt_irrefl _ h
+  exact List.Perm.eq_of_pairwise (le := fun a b : Nat × Pat => a.1 < b.1)
+    (fun a b _ _ h1 h2 => absurd h1 (Nat.lt_asymm h2)) hθ.sorted hθ'.sorted
+    ((List.perm_ext_iff_of_nodup (nodup hθ) (nodup hθ')).2 fun b =>
+      ⟨sub hθ hθ' happ b, sub hθ' hθ (fun i hi => (happ i hi).symm) b⟩)
+
+theorem map_cpat_inj {z : Sym} {U : List Name} : ∀ {l l' : List Sorts.Conj},
+    (∀ c ∈ l, Sub U c) → (∀ c ∈ l', Sub U c) → l.map (cpat z U) = l'.map (cpat z U) → l = l'
+  | [], [], _, _, _ => rfl
+  | [], _ :: _, _, _, h => by simp at h
+  | _ :: _, [], _, _, h => by simp at h
+  | c :: l, d :: l', hl, hl', h => by
+    simp only [List.map_cons, List.cons.injEq] at h
+    rw [cpat_inj (hl c (by simp)) (hl' d (by simp)) h.1,
+      map_cpat_inj (fun c hc => hl c (by simp [hc])) (fun c hc => hl' c (by simp [hc])) h.2]
+
+theorem rep_eq_iff {S : Sorts} {ρa ρb : Sorts.Rep S} :
+    ρa = ρb ↔ ρa.1.t = ρb.1.t ∧ ρa.1.c = ρb.1.c ∧ ρa.1.x = ρb.1.x := by
+  constructor
+  · rintro rfl; exact ⟨rfl, rfl, rfl⟩
+  · rintro ⟨h1, h2, h3⟩
+    obtain ⟨⟨t, c, x⟩, pa⟩ := ρa
+    obtain ⟨⟨t', c', x'⟩, pb⟩ := ρb
+    simp only at h1 h2 h3
+    subst h1 h2 h3
+    rfl
+
+theorem rep_sub {S : Sorts} {sp : Pat} {U : List Name} (hC : Ctx nm S sp U) (ρ : Sorts.Rep S) :
+    ∀ c ∈ ρ.1.c, Sub U c := by
+  intro c hc n hn
+  obtain ⟨i, hi, rfl⟩ := List.mem_iff_getElem.1 hc
+  refine hC.names n ((ρ.normal.up i hi n).1 ?_).1
+  simpa [Sorts.Raw.conj, List.getD_eq_getElem?_getD, List.getElem?_eq_getElem hi] using hn
+
+/-- The first loop of `subset` flags the members of a list. -/
+theorem subset_loop0_spec :
+    ∀ (Bs : List Pat) (s : store.Store) (b : store.TermId),
+    Inv s → Repr nm s.nodes.val b.val (encList (nm none) Bs) → Room s (2 * Bs.length + 1) →
+    dom.subset_loop0 b s ⦃ s' =>
+      Inv s' ∧ s'.nodes.val = s.nodes.val ∧ s'.ticks.val ≤ s.ticks.val + 2 * Bs.length + 1 ∧
+        s.ticks.val ≤ s'.ticks.val ∧ tbl s' .A = tbl s .A ∧
+        (∀ k, tbl s .B k ≠ none → tbl s' .B k ≠ none) ∧
+        (∀ p ∈ Bs, ∃ k, Repr nm s.nodes.val k p ∧ tbl s' .B k ≠ none) ∧
+        ∀ k, tbl s' .B k ≠ none → tbl s .B k ≠ none ∨ ∃ p ∈ Bs, Repr nm s.nodes.val k p ⦄ := by
+  intro Bs
+  induction Bs with
+  | nil =>
+    intro s b hI hb hroom
+    have hroom' := hroom
+    unfold Room at hroom'
+    unfold dom.subset_loop0
+    rw [loop]
+    simp only [dom.subset_loop0.body]
+    step with uncons_repr s b hI.toWf (p := Term.sym (nm none)) hb (by unfold Room; omega)
+      as ⟨r0, hK0, hu⟩
+    obtain ⟨o, s1⟩ := r0
+    simp only at hu
+    simp only at hK0
+    subst hu
+    have K1 := hK0.kept hI
+    have ht1 := K1.ticks
+    have hfin : Inv s1 ∧ s1.nodes.val = s.nodes.val ∧
+        s1.ticks.val ≤ s.ticks.val + 2 * ([] : List Pat).length + 1 ∧
+        s.ticks.val ≤ s1.ticks.val ∧ tbl s1 .A = tbl s .A ∧
+        (∀ k, tbl s .B k ≠ none → tbl s1 .B k ≠ none) ∧
+        (∀ p ∈ ([] : List Pat), ∃ k, Repr nm s.nodes.val k p ∧ tbl s1 .B k ≠ none) ∧
+        ∀ k, tbl s1 .B k ≠ none →
+          tbl s .B k ≠ none ∨ ∃ p ∈ ([] : List Pat), Repr nm s.nodes.val k p :=
+      ⟨K1.inv, K1.nodes, by simp only [List.length_nil]; omega, by omega, by rw [K1.tbl],
+        fun k h => by rw [K1.tbl]; exact h, by simp,
+        fun k h => .inl (by rw [K1.tbl] at h; exact h)⟩
+    step*
+  | cons p Bs ih =>
+    intro s b hI hb hroom
+    have hroom' := hroom
+    unfold Room at hroom'
+    simp only [List.length_cons] at hroom'
+    unfold dom.subset_loop0
+    rw [loop]
+    simp only [dom.subset_loop0.body]
+    step with uncons_repr s b hI.toWf (p := Term.app p (encList (nm none) Bs)) hb
+      (by unfold Room; omega) as ⟨r0, hK0, hu⟩
+    obtain ⟨o, s1⟩ := r0
+    simp only at hu
+    simp only at hK0
+    obtain ⟨hi, rest, rfl, rp, rrest⟩ := hu
+    have K1 := hK0.kept hI
+    have ht1 := K1.ticks
+    step with set_flag_spec s1 .B hi true K1.inv (by rw [K1.nodes]; exact rp.lt)
+      (by unfold Room; omega) as ⟨s2, f1, f2, f3, f4, f5⟩
+    have hn2 : s2.nodes.val = s.nodes.val := by rw [f1, K1.nodes]
+    simp only [uncurry]
+    have IH := ih s2 rest f3 (by rw [hn2]; exact rrest) (by unfold Room; omega)
+    unfold dom.subset_loop0 at IH
+    refine WP.spec_mono IH ?_
+    rintro s' ⟨hI', hn', ht', hm', hA', hmono', hall', hback'⟩
+    have hB2 : ∀ k, tbl s2 .B k = if k = hi.val then some 1 else tbl s .B k := by
+      intro k
+      rw [f4, K1.tbl, Function.update_apply]
+      rfl
+    refine ⟨hI', by rw [hn', hn2], by simp only [List.length_cons]; omega, by omega,
+      by rw [hA', f5 .A (by simp), K1.tbl], ?_, ?_, ?_⟩
+    · intro k hk
+      apply hmono'
+      rw [hB2]
+      split
+      · simp
+      · exact hk
+    · intro q hq
+      rcases List.mem_cons.1 hq with rfl | hq
+      · exact ⟨hi.val, rp, hmono' _ (by rw [hB2]; simp)⟩
+      · obtain ⟨k, hk, hf⟩ := hall' q hq
+        exact ⟨k, by rw [hn2] at hk; exact hk, hf⟩
+    · intro k hk
+      rcases hback' k hk with h | ⟨q, hq, hr⟩
+      · rw [hB2] at h
+        by_cases e : k = hi.val
+        · exact .inr ⟨p, by simp, e ▸ rp⟩
+        · simp only [e, ↓reduceIte] at h; exact .inl h
+      · exact .inr ⟨q, by simp [hq], by rw [hn2] at hr; exact hr⟩
+
+/-- The second loop of `subset` says whether every member of a list is
+flagged. -/
+theorem subset_loop1_spec (hnm : Function.Injective nm) :
+    ∀ (As : List Pat) (s : store.Store) (a : store.TermId),
+    Inv s → Repr nm s.nodes.val a.val (encList (nm none) As) → Room s (2 * As.length + 1) →
+    dom.subset_loop1 s true a true ⦃ res s' =>
+      Inv s' ∧ s'.nodes.val = s.nodes.val ∧ tbl s' = tbl s ∧
+        s'.ticks.val ≤ s.ticks.val + 2 * As.length + 1 ∧ s.ticks.val ≤ s'.ticks.val ∧
+        (res = true ↔ ∀ p ∈ As, ∃ k, Repr nm s.nodes.val k p ∧ tbl s .B k ≠ none) ⦄ := by
+  intro As
+  induction As with
+  | nil =>
+    intro s a hI ha hroom
+    have hroom' := hroom
+    unfold Room at hroom'
+    unfold dom.subset_loop1
+    rw [loop]
+    simp only [dom.subset_loop1.body, ↓reduceIte]
+    step with uncons_repr s a hI.toWf (p := Term.sym (nm none)) ha (by unfold Room; omega)
+      as ⟨r0, hK0, hu⟩
+    obtain ⟨o, s1⟩ := r0
+    simp only at hu
+    simp only at hK0
+    subst hu
+    have K1 := hK0.kept hI
+    have ht1 := K1.ticks
+    simp only [uncurry, bind_ok]
+    rw [loop]
+    simp only [Bool.false_eq_true, ↓reduceIte, bind_ok, WP.spec_ok]
+    exact ⟨K1.inv, K1.nodes, K1.tbl, by simp only [List.length_nil]; omega, by omega, by simp⟩
+  | cons p As ih =>
+    intro s a hI ha hroom
+    have hroom' := hroom
+    unfold Room at hroom'
+    simp only [List.length_cons] at hroom'
+    unfold dom.subset_loop1
+    rw [loop]
+    simp only [dom.subset_loop1.body, ↓reduceIte]
+    step with uncons_repr s a hI.toWf (p := Term.app p (encList (nm none) As)) ha
+      (by unfold Room; omega) as ⟨r0, hK0, hu⟩
+    obtain ⟨o, s1⟩ := r0
+    simp only at hu
+    simp only at hK0
+    obtain ⟨hi, rest, rfl, rp, rrest⟩ := hu
+    have K1 := hK0.kept hI
+    have ht1 := K1.ticks
+    step with get_flag_spec s1 .B hi K1.inv (by rw [K1.nodes]; exact rp.lt)
+      (by unfold Room; omega) as ⟨r1, hres, K2⟩
+    obtain ⟨o1, s2⟩ := r1
+    simp only at hres K2
+    have ht2 := K2.ticks
+    have hn2 : s2.nodes.val = s.nodes.val := by rw [K2.nodes, K1.nodes]
+    have htb2 : tbl s2 = tbl s := by rw [K2.tbl, K1.tbl]
+    cases hfl : tbl s .B hi.val with
+    | none =>
+      have : o1 = none := by rw [hres, K1.tbl, hfl]; rfl
+      subst this
+      simp only [uncurry, bind_ok]
+      rw [loop]
+      simp only [Bool.false_eq_true, ↓reduceIte, bind_ok, WP.spec_ok]
+      refine ⟨K2.inv, hn2, htb2, by simp only [List.length_cons]; omega, by omega, ?_⟩
+      constructor
+      · intro h; cases h
+      · intro h
+        exfalso
+        obtain ⟨k, hk, hf⟩ := h p (by simp)
+        rw [Repr.inj hnm hI.nodesOK hk rp] at hf
+        exact hf hfl
+    | some v =>
+      have : o1 = some (decide (v ≠ 0)) := by rw [hres, K1.tbl, hfl]; rfl
+      subst this
+      simp only [uncurry, bind_ok]
+      have IH := ih s2 rest K2.inv (by rw [hn2]; exact rrest) (by unfold Room; omega)
+      unfold dom.subset_loop1 at IH
+      refine WP.spec_mono IH ?_
+      rintro ⟨res, s'⟩ ⟨hI', hn', htb', ht', hm', hiff⟩
+      simp only [hn2, htb2] at hiff
+      refine ⟨hI', by rw [hn', hn2], by rw [htb', htb2], by simp only [List.length_cons]; omega,
+        by omega, ?_⟩
+      rw [hiff]
+      constructor
+      · intro h q hq
+        rcases List.mem_cons.1 hq with rfl | hq
+        · exact ⟨hi.val, rp, by rw [hfl]; simp⟩
+        · exact h q hq
+      · intro h q hq
+        exact h q (List.mem_cons_of_mem _ hq)
+
+/-- `subset` decides whether every member of a list is a member of
+another. -/
+theorem subset_spec (hnm : Function.Injective nm) (As Bs : List Pat) (s : store.Store)
+    (a b : store.TermId) (hI : Inv s) (ha : Repr nm s.nodes.val a.val (encList (nm none) As))
+    (hb : Repr nm s.nodes.val b.val (encList (nm none) Bs))
+    (hroom : Room s (2 * As.length + 2 * Bs.length + 3)) :
+    dom.subset s a b ⦃ res s' =>
+      Inv s' ∧ s'.nodes.val = s.nodes.val ∧ tbl s' .A = tbl s .A ∧
+        s'.ticks.val ≤ s.ticks.val + 2 * As.length + 2 * Bs.length + 3 ∧
+        s.ticks.val ≤ s'.ticks.val ∧ res = decide (∀ p ∈ As, p ∈ Bs) ⦄ := by
+  unfold dom.subset
+  have hroom' := hroom
+  unfold Room at hroom'
+  step with clear_spec s .B hI (by unfold Room; omega) as ⟨s1, c1, c2, c3, c4, c5⟩
+  step with subset_loop0_spec (nm := nm) Bs s1 b c3 (by rw [c1]; exact hb)
+    (by unfold Room; omega) as ⟨s2, hI2, hn2, ht2, hm2, hA2, hmono2, hall2, hback2⟩
+  refine WP.spec_mono (subset_loop1_spec hnm As s2 a hI2 (by rw [hn2, c1]; exact ha)
+    (by unfold Room; omega)) ?_
+  rintro ⟨res, s'⟩ ⟨hI', hn', htb', ht', hm', hiff⟩
+  simp only [hn2] at hiff
+  refine ⟨hI', by rw [hn', hn2, c1], by rw [htb', hA2, c5 .A (by simp)], by omega, by omega, ?_⟩
+  have key : res = true ↔ ∀ p ∈ As, p ∈ Bs := by
+    rw [hiff]
+    constructor
+    · intro h p hp
+      obtain ⟨k, hk, hf⟩ := h p hp
+      rcases hback2 k hf with h0 | ⟨q, hq, hr⟩
+      · exact absurd (c4 k) h0
+      · rw [hk.unique hr]; exact hq
+    · intro h p hp
+      exact hall2 p (h p hp)
+  by_cases hall : ∀ p ∈ As, p ∈ Bs
+  · rw [decide_eq_true hall]; exact key.2 hall
+  · rw [decide_eq_false hall]
+    cases res with
+    | false => rfl
+    | true => exact absurd (key.1 rfl) hall
+
+theorem map_sub_iff {α β : Type} {f : α → β} (hf : Function.Injective f) (l l' : List α) :
+    (∀ p ∈ l.map f, p ∈ l'.map f) ↔ ∀ p ∈ l, p ∈ l' := by
+  constructor
+  · intro h p hp
+    obtain ⟨q, hq, e⟩ := List.mem_map.1 (h _ (List.mem_map_of_mem hp))
+    exact hf e ▸ hq
+  · intro h p hp
+    obtain ⟨q, hq, rfl⟩ := List.mem_map.1 hp
+    exact List.mem_map_of_mem (h q hq)
+
+/-- `same_rep` decides whether two representatives are the same. -/
+theorem same_rep_spec (hnm : Function.Injective nm) {S : Sorts} {sp : Pat} {U : List Name}
+    (hC : Ctx nm S sp U) (ρa ρb : Sorts.Rep S) (Ya Yb : List Sorts.Binds) (s : store.Store)
+    (a b : sorts.Rep) (hI : Inv s) (ha : RepAt nm U s.nodes.val a ρa.1 Ya)
+    (hb : RepAt nm U s.nodes.val b ρb.1 Yb)
+    (hroom : Room s (4 * Ya.length + 4 * Yb.length + 8)) :
+    dom.same_rep s a b ⦃ res s' =>
+      Inv s' ∧ s'.nodes.val = s.nodes.val ∧
+        s'.ticks.val ≤ s.ticks.val + 4 * Ya.length + 4 * Yb.length + 8 ∧
+        s.ticks.val ≤ s'.ticks.val ∧ res = decide (ρa = ρb) ⦄ := by
+  have hT : a.t.val = b.t.val ↔ ρa.1.t = ρb.1.t := by
+    constructor
+    · intro h; have := ha.t; rw [h] at this; exact this.unique hb.t
+    · intro h; have := ha.t; rw [h] at this; exact Repr.inj hnm hI.nodesOK this hb.t
+  have hCc : a.c.val = b.c.val ↔ ρa.1.c = ρb.1.c := by
+    constructor
+    · intro h
+      have := ha.c
+      rw [h] at this
+      exact map_cpat_inj (rep_sub hC ρa) (rep_sub hC ρb) (encList_inj _ (this.unique hb.c))
+    · intro h; have := ha.c; rw [h] at this; exact Repr.inj hnm hI.nodesOK this hb.c
+  have hpa : ∀ θ ∈ Ya, Sorts.Pre ρa.1.c.length θ := fun θ hθ =>
+    (ρa.normal.ex θ (by rw [← ha.y]; exact List.mem_toFinset.2 hθ)).toPre
+  have hpb : ∀ θ ∈ Yb, Sorts.Pre ρb.1.c.length θ := fun θ hθ =>
+    (ρb.normal.ex θ (by rw [← hb.y]; exact List.mem_toFinset.2 hθ)).toPre
+  have hX : ρa.1.c = ρb.1.c →
+      (((∀ p ∈ Ya.map (vals ρa.1.c.length), p ∈ Yb.map (vals ρb.1.c.length)) ∧
+        ∀ p ∈ Yb.map (vals ρb.1.c.length), p ∈ Ya.map (vals ρa.1.c.length)) ↔
+        ρa.1.x = ρb.1.x) := by
+    intro hc
+    have hk : ρa.1.c.length = ρb.1.c.length := congrArg List.length hc
+    constructor
+    · rintro ⟨h1, h2⟩
+      rw [← ha.y, ← hb.y]
+      ext θ
+      simp only [List.mem_toFinset]
+      constructor
+      · intro hθ
+        obtain ⟨θ', hθ', e⟩ := List.mem_map.1 (h1 _ (List.mem_map_of_mem hθ))
+        rw [← hk] at e
+        have := vals_inj (by rw [hk]; exact hpb θ' hθ') (hpa θ hθ) e
+        rw [← this]; exact hθ'
+      · intro hθ
+        obtain ⟨θ', hθ', e⟩ := List.mem_map.1 (h2 _ (List.mem_map_of_mem hθ))
+        rw [hk] at e
+        have := vals_inj (by rw [← hk]; exact hpa θ' hθ') (hpb θ hθ) e
+        rw [← this]; exact hθ'
+    · intro hx
+      have hmem : ∀ θ, θ ∈ Ya ↔ θ ∈ Yb := fun θ => by
+        rw [← List.mem_toFinset, ha.y, hx, ← hb.y, List.mem_toFinset]
+      constructor
+      · intro p hp
+        obtain ⟨θ, hθ, rfl⟩ := List.mem_map.1 hp
+        rw [hk]; exact List.mem_map_of_mem ((hmem θ).1 hθ)
+      · intro p hp
+        obtain ⟨θ, hθ, rfl⟩ := List.mem_map.1 hp
+        rw [← hk]; exact List.mem_map_of_mem ((hmem θ).2 hθ)
+  have hE : Function.Injective (encList (V := Nat) (nm none)) := fun _ _ h => encList_inj _ h
+  unfold dom.same_rep
+  have hroom' := hroom
+  unfold Room at hroom'
+  step with same_spec s a.t b.t hI (by unfold Room; omega) as ⟨b1, s1, hb1, hK1⟩
+  have ht1 := hK1.ticks
+  by_cases e1 : a.t.val = b.t.val
+  · have : b1 = true := by simp [hb1, e1]
+    subst this
+    simp only [↓reduceIte]
+    step with same_spec s1 a.c b.c hK1.inv (by unfold Room; omega) as ⟨b2, s2, hb2, hK2⟩
+    have ht2 := hK2.ticks
+    have hn2 : s2.nodes.val = s.nodes.val := by rw [hK2.nodes, hK1.nodes]
+    by_cases e2 : a.c.val = b.c.val
+    · have : b2 = true := by simp [hb2, e2]
+      subst this
+      simp only [↓reduceIte]
+      step with subset_spec hnm ((Ya.map (vals ρa.1.c.length)).map (encList (nm none)))
+        ((Yb.map (vals ρb.1.c.length)).map (encList (nm none))) s2
+        a.x b.x hK2.inv (by rw [hn2]; exact ha.x) (by rw [hn2]; exact hb.x)
+        (by simp only [List.length_map]; unfold Room; omega)
+        as ⟨b3, s3, hI3, hn3, hA3, ht3, hm3, hb3⟩
+      simp only [List.length_map] at ht3
+      replace hb3 : b3 = true ↔
+          ∀ p ∈ Ya.map (vals ρa.1.c.length), p ∈ Yb.map (vals ρb.1.c.length) := by
+        rw [hb3, decide_eq_true_iff, map_sub_iff hE]
+      by_cases e3 : ∀ p ∈ Ya.map (vals ρa.1.c.length), p ∈ Yb.map (vals ρb.1.c.length)
+      · have : b3 = true := hb3.2 e3
+        subst this
+        simp only [↓reduceIte]
+        refine WP.spec_mono (subset_spec hnm
+          ((Yb.map (vals ρb.1.c.length)).map (encList (nm none)))
+          ((Ya.map (vals ρa.1.c.length)).map (encList (nm none))) s3 b.x a.x hI3 (by rw [hn3, hn2]; exact hb.x)
+          (by rw [hn3, hn2]; exact ha.x)
+          (by simp only [List.length_map]; unfold Room; omega)) ?_
+        rintro ⟨res, s'⟩ ⟨hI', hn', hA', ht', hm', hres⟩
+        simp only [List.length_map] at ht'
+        replace hres : res = true ↔
+            ∀ p ∈ Yb.map (vals ρb.1.c.length), p ∈ Ya.map (vals ρa.1.c.length) := by
+          rw [hres, decide_eq_true_iff, map_sub_iff hE]
+        refine ⟨hI', by rw [hn', hn3, hn2], by omega, by omega, ?_⟩
+        refine Bool.eq_iff_iff.2 ?_
+        rw [hres, decide_eq_true_iff]
+        exact ⟨fun h => rep_eq_iff.2 ⟨hT.1 e1, hCc.1 e2, (hX (hCc.1 e2)).1 ⟨e3, h⟩⟩,
+          fun h => ((hX (hCc.1 e2)).2 (rep_eq_iff.1 h).2.2).2⟩
+      · have : b3 = false := Bool.eq_false_iff.2 fun h => e3 (hb3.1 h)
+        subst this
+        simp only [Bool.false_eq_true, ↓reduceIte, WP.spec_ok]
+        refine ⟨hI3, by rw [hn3, hn2], by omega, by omega, ?_⟩
+        exact (decide_eq_false fun h => e3 ((hX (hCc.1 e2)).2 (rep_eq_iff.1 h).2.2).1).symm
+    · have : b2 = false := by simp [hb2, e2]
+      subst this
+      simp only [Bool.false_eq_true, ↓reduceIte, WP.spec_ok]
+      refine ⟨hK2.inv, hn2, by omega, by omega, ?_⟩
+      exact (decide_eq_false fun h => e2 (hCc.2 (rep_eq_iff.1 h).2.1)).symm
+  · have : b1 = false := by simp [hb1, e1]
+    subst this
+    simp only [Bool.false_eq_true, ↓reduceIte, WP.spec_ok]
+    refine ⟨hK1.inv, hK1.nodes, by omega, by omega, ?_⟩
+    exact (decide_eq_false fun h => e1 (hT.2 (rep_eq_iff.1 h).1)).symm
+
+/-- The number of exclusions of the conjunction of two representatives. -/
+noncomputable def meetXs {S : Sorts} (ρa ρb : Sorts.Rep S) : Nat :=
+  ((ρa.meet ρb).map fun ρ => ρ.1.x.card).getD 0
+
+/-- `covers` decides whether the conjunction of two representatives is the
+second (`covers` of `Sorts.dom`): whether the first relates every pair the
+second relates. -/
+theorem dom_covers_spec (hnm : Function.Injective nm) (hz : nm none = "") {S : Sorts} {sp : Pat}
+    {U : List Name} (hC : Ctx nm S sp U) (hUS : ∀ n ∈ U, n ∈ Sorts.names S) {rc q : Nat}
+    (hr : ∀ d, (Sorts.reachSet S d).card ≤ rc)
+    (hq : ∀ d m, (Sorts.reachGSet S (d, some m)).card ≤ q) (ρa ρb : Sorts.Rep S)
+    (Ya Yb : List Sorts.Binds) (B : Nat)
+    (hB : NormBound nm S U rc q (meetProb U ρa ρb Ya Yb) B)
+    (s : store.Store) (decls names : store.TermId) (a b : sorts.Rep)
+    (hI : Inv s) (hde : Repr nm s.nodes.val decls.val sp)
+    (hU : Repr nm s.nodes.val names.val (namesPat (nm none) U))
+    (ha : RepAt nm U s.nodes.val a ρa.1 Ya) (hb : RepAt nm U s.nodes.val b ρb.1 Yb)
+    (hroom : Room s (halvesCost nm U.length ρa.1 Ya ρb.1 Yb + 2 +
+      startCost nm S U.length (meetProb U ρa ρb Ya Yb) + B +
+      (4 * meetXs ρa ρb + 4 * Yb.length + 8))) :
+    dom.covers s decls names a b ⦃ res s' =>
+      Inv s' ∧ Extends s s' ∧
+        s'.ticks.val ≤ s.ticks.val + halvesCost nm U.length ρa.1 Ya ρb.1 Yb + 2 +
+          startCost nm S U.length (meetProb U ρa ρb Ya Yb) + B +
+          (4 * meetXs ρa ρb + 4 * Yb.length + 8) ∧
+        res = decide (ρa.meet ρb = some ρb) ⦄ := by
+  unfold dom.covers
+  have hroom' := hroom
+  unfold Room at hroom'
+  step with dom_meet_spec hnm hz hC hUS hr hq ρa ρb Ya Yb B hB s decls names a b hI hde hU ha hb
+    (by unfold Room; omega) as ⟨o, s1, hI1, hx1, ht1, hpost⟩
+  cases o with
+  | none =>
+    simp only [RepPost] at hpost
+    simp only [WP.spec_ok]
+    refine ⟨hI1, hx1, by omega, ?_⟩
+    rw [hpost]
+    simp
+  | some m =>
+    simp only [RepPost] at hpost
+    obtain ⟨ρ', Y', hρ', hm⟩ := hpost
+    have hlen : Y'.length = meetXs ρa ρb := by
+      unfold meetXs
+      rw [hρ', Option.map_some, Option.getD_some, ← hm.y, List.toFinset_card_of_nodup hm.nd]
+    simp only
+    refine WP.spec_mono (same_rep_spec hnm hC ρ' ρb Y' Yb s1 m b hI1 hm (hb.extends hx1)
+      (by rw [hlen]; unfold Room; omega)) ?_
+    rintro ⟨res, s'⟩ ⟨hI', hn', ht', hm', hres⟩
+    rw [hlen] at ht'
+    refine ⟨hI', hx1.trans (Extends.of_eq hn' hm'), by omega, ?_⟩
+    rw [hres, hρ']
+    simp
 
 end RwLogVerified

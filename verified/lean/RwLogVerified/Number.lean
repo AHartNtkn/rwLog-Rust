@@ -1130,4 +1130,17 @@ theorem ofTight_abs {S : Sorts} {st : TSt} (hok : st.OK) :
   simp only [hok.conj]
   rfl
 
+/-- The list of the exclusions of the normal store of a tight store, on what
+`renumber` returns. -/
+theorem ofTightXs_abs {S : Sorts} {st : TSt} (hok : st.OK) :
+    Sorts.ofTightXs S st.abs =
+      Sorts.antichain
+        (Sorts.covers ((Sorts.firsts st.T.vars).map (upConj S st.L st.X)).length)
+        (Sorts.normExs S ⟨st.T.rename fun v => (Sorts.firsts st.T.vars).idxOf v,
+          (Sorts.firsts st.T.vars).map (upConj S st.L st.X), ∅⟩
+          (st.X.map (Eqns.ren fun v => (Sorts.firsts st.T.vars).idxOf v))) := by
+  unfold Sorts.ofTightXs upConj
+  simp only [hok.conj]
+  rfl
+
 end RwLogVerified

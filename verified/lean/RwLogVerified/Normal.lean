@@ -937,6 +937,7 @@ theorem tail_spec {S : Sorts} (hS : S.WellFormed) {P : Sorts.Prob} (hP : P.FO) {
       numJ S st ≤ (numRaw S st).c.length ∧
       (∀ θ ∈ numYs S st, Sorts.Pre (numRaw S st).c.length θ) ∧
       (∀ E ∈ numX st, E.FO) ∧ (∀ E ∈ numX st, ∀ v ∈ E.vars, v < (numRaw S st).c.length) ∧
+      (Sorts.antichain (Sorts.covers (numRaw S st).c.length) (numYs S st)).Nodup ∧
       P.norm S hS = some ⟨numLeft S st, (numRaw S st).c.take (numJ S st),
         ((Sorts.antichain (Sorts.covers (numRaw S st).c.length) (numYs S st)).filter
           fun θ => decide (Sorts.Low (numJ S st) θ)).toFinset⟩ := by
@@ -979,9 +980,12 @@ theorem tail_spec {S : Sorts} (hS : S.WellFormed) {P : Sorts.Prob} (hP : P.FO) {
     have : (numRaw S st).c.length = (Sorts.firsts st.T.vars).length := List.length_map _
     rw [this]
     exact List.idxOf_lt_length_of_mem ((Sorts.firsts_spec st.T.vars).2.1 w |>.2 hwT)
-  refine ⟨b, hab', hjk, fun θ hθ => ?_, hfo, hv, ?_⟩
+  refine ⟨b, hab', hjk, fun θ hθ => ?_, hfo, hv, ?_, ?_⟩
   · obtain ⟨E, hE, hEθ⟩ := List.mem_filterMap.1 hθ
     exact (Sorts.normEx_some (hfo E hE) (hv E hE) hEθ).1
+  · have := Sorts.ofTight_nodup hS hI hsole
+    rw [ofTightXs_abs hok] at this
+    exact this
   · rw [hnorm, hw]
     simp only [Sorts.Raw.cut, Sorts.assembled, List.toFinset_filter]
     rfl
@@ -996,7 +1000,7 @@ def NormalPost (nm : Option Nat → RwLog.Sym) (S : Sorts) (hS : S.WellFormed) (
   | none => P.norm S hS = none
   | some o => ∃ r : Sorts.Raw, P.norm S hS = some r ∧ Repr nm nodes o.t.val r.t ∧
       Repr nm nodes o.c.val (encList (nm none) (r.c.map (cpat (nm none) U))) ∧
-      ∃ Y : List Sorts.Binds, Y.toFinset = r.x ∧
+      ∃ Y : List Sorts.Binds, Y.Nodup ∧ Y.toFinset = r.x ∧
         Repr nm nodes o.x.val (encLL nm (Y.map (vals r.c.length)))
 
 /-- `normal` computes the normal store of a problem (`Sorts.Prob.norm`),
@@ -1079,7 +1083,7 @@ theorem normal_spec (hnm : Function.Injective nm) (hz : nm none = "") {S : Sorts
         obtain ⟨t11, x1, es1, next1, rfl, hH', hsub'⟩ := hres
         obtain ⟨hden', hInv, hsole, hGood⟩ := hmatch
         simp only [tailCost] at hBk
-        obtain ⟨b, hab, hjk, hPre, hfoX, hvX, hnorm⟩ := tail_spec hS hP hGood.ok
+        obtain ⟨b, hab, hjk, hPre, hfoX, hvX, hndZ, hnorm⟩ := tail_spec hS hP hGood.ok
           (by rw [hden']; exact hpairs) (by rw [hden']; exact hfst) hInv hsole
         obtain ⟨-, hFmem', -⟩ := Sorts.firsts_spec st'.T.vars
         step with renumber_spec hnm hC hS hUS hr hq s2 decls names t11 x1 es1 st'.T st'.X st'.L
@@ -1196,7 +1200,7 @@ theorem normal_spec (hnm : Function.Injective nm) (hz : nm none = "") {S : Sorts
           rw [e1]
           exact List.map_congr_left fun θ' _ => take_vals hjk θ'
         rw [e] at rxs1
-        refine ⟨_, hnorm, ?_, ?_, _, rfl, ?_⟩
+        refine ⟨_, hnorm, ?_, ?_, _, hndZ.filter _, rfl, ?_⟩
         · exact ((((hx78.trans hx9).trans hx10).trans hx11).trans hx12).repr rleft
         · rw [← List.map_take] at rcs1
           exact hx12.repr rcs1

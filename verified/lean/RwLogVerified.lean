@@ -63,6 +63,11 @@
   starts from (equations solved, variables numbered, sorts pushed down to
   the variables, the pattern paired with the tuple of the variables), and
   the whole function.
+* `RwLogVerified.Dom`: the operations of the sorts domain on normal stores:
+  the representative of a pair of patterns over the solutions of one,
+  composition, conjunction, the right bound, the converse, whether a
+  representative relates each term to itself only, and whether one covers
+  another.
 * `RwLogVerified.Kernel`: the kernel rung whose charges are those bounds.
 * `RwLogVerified.KernelRuns`: its charges on a worked composition.
 
@@ -105,5 +110,6 @@ import RwLogVerified.Number
 import RwLogVerified.Solved
 import RwLogVerified.Assemble
 import RwLogVerified.Normal
+import RwLogVerified.Dom
 import RwLogVerified.Kernel
 import RwLogVerified.KernelRuns
