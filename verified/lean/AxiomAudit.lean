@@ -202,3 +202,15 @@ new axiom.
 
 /-- info: 'RwLogVerified.gone_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLogVerified.gone_spec
+
+/-- info: 'RwLogVerified.var_succ_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.var_succ_spec
+
+/-- info: 'RwLogVerified.settle_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.settle_spec
+
+/-- info: 'RwLogVerified.settle_link' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.settle_link
+
+/-- info: 'RwLogVerified.open_var_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.open_var_spec

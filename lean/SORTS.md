@@ -197,6 +197,7 @@ charged steps as it reads terms. Proved against section 6
 | `sorts::included_but` | `Sorts.Hold` (`ButStep.lean`) | `inclButAll`: a polynomial in the written size of the declarations, the size of the excepted terms, and the numbers of conjunctions and of keys that can be reached |
 | `sorts::sole_root` | `Sorts.sole` (`Roots.lean`) | `soleAll`: a polynomial in the written size of the declarations, the size of the excluded terms, and the number of conjunctions that can be reached |
 | `sorts::unit_on`, `sorts::gone` | `Sorts.unitOn`, `Sorts.gone` (`Gone.lean`) | `unitCost`: the charge of solving the equations of an exclusion and 27 for each of their distinct subterms; `goneCost`: that for each exclusion |
+| `sorts::var_succ`, `sorts::settle`, `sorts::open_var` | the next variable; `CStore.settle` and `CStore.exp` (`Loop.lean`) on the pattern and the exclusions, with the entries of the variables | `succCost`: logarithmic in the variable; `settleCost`: counting each entry, and for each entry replaced 14 for each distinct subterm of the pattern and of the exclusions; `openCost`: the next variable for each new variable, and 14 for each distinct subterm of the pattern and of the exclusions |
 
 Membership is therefore linear in the term for fixed declarations, and a term
 with a repeated subterm pays for it once for each sort.
