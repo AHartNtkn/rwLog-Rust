@@ -3,7 +3,9 @@
 
 The rules of `DerivationKernel.over` (`Trusted/Kernel.lean`), one by one:
 when a rule returns an answer, and which. An answer is determined by its goal
-and its representative (`Ans.ext'`), so each is an equivalence.
+and its representative (`Ans.ext'`), so each is an equivalence. The last
+section names each operation of the derivation kernel (`over_view` and the
+rest), for rewriting.
 -/
 import RwLog.Rungs.Framework.KernelAt
 
@@ -207,5 +209,54 @@ theorem unfold_ok {a : Ans D P} {n : Rel} (h : Charged.bodyOf P n = some a.goal.
     · cases h
 
 end Ans
+
+/-! ## The derivation kernel, operation by operation -/
+
+section over
+
+variable {R : Type} [Answer R] [DecidableEq R] {D : Domain R} (P : Program)
+  (K : Kernel R Cost) (hK : K.Refines D)
+
+theorem over_toKernel : (DerivationKernel.over D K hK P).toKernel = K := rfl
+
+theorem over_view (n : Rel) :
+    (DerivationKernel.over D K hK P).view n = Charged.viewNode n := rfl
+
+theorem over_interval (n : Rel) (i j : Nat) :
+    (DerivationKernel.over D K hK P).interval n i j = Charged.interval n i j := rfl
+
+theorem over_without (n : Rel) (i : Nat) :
+    (DerivationKernel.over D K hK P).without n i = Charged.without n i := rfl
+
+theorem over_body (n : Rel) :
+    (DerivationKernel.over D K hK P).body n = Charged.body P n := rfl
+
+theorem over_eqNode (m n : Rel) :
+    (DerivationKernel.over D K hK P).eqNode m n = Charged.eqNode m n := rfl
+
+theorem over_convNode (n : Rel) :
+    (DerivationKernel.over D K hK P).convNode n = Charged.convNode n := rfl
+
+theorem over_swapA (a : Ans D P) :
+    (DerivationKernel.over D K hK P).swapA a = Ans.swapA D P a := rfl
+
+theorem over_span (a : Ans D P) : (DerivationKernel.over D K hK P).span a = a.span := rfl
+
+theorem over_leaf (lb : Option R) (n : Rel) (rb : Option R) :
+    (DerivationKernel.over D K hK P).leaf lb n rb = Ans.leaf D P K hK lb n rb := rfl
+
+theorem over_join (a b : Ans D P) :
+    (DerivationKernel.over D K hK P).join a b = Ans.join D P K hK a b := rfl
+
+theorem over_meetA (a b : Ans D P) :
+    (DerivationKernel.over D K hK P).meetA a b = Ans.meetA D P K hK a b := rfl
+
+theorem over_inj (a : Ans D P) (u : Rel) (i : Nat) :
+    (DerivationKernel.over D K hK P).inj a u i = Ans.inj D P a u i := rfl
+
+theorem over_unfold (a : Ans D P) (c : Rel) :
+    (DerivationKernel.over D K hK P).unfold a c = Ans.unfold D P a c := rfl
+
+end over
 
 end RwLog

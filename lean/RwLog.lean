@@ -153,3 +153,6 @@ import RwLog.Sorts.FoldRaw
 import RwLog.Sorts.FoldRep
 import RwLog.Sorts.Held
 import RwLog.Rungs.Symmetric.Machine
+import RwLog.Rungs.Symmetric.Invariant
+import RwLog.Rungs.Symmetric.SelfConverse
+import RwLog.Rungs.Symmetric.Goals

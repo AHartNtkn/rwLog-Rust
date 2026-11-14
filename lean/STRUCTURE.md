@@ -58,8 +58,18 @@ Rungs/Symmetric/ the symmetric engine of `SYMMETRIC_ENGINE.md` (Machine.lean): a
                 goal that is its own converse holds the converse of everything it holds;
                 with the choice of one orientation where the input is loaded
                 (`CostedRuntime.oriented`, `Trusted/Cost.lean`) that is what makes the run
-                on the mirror image the run swapped. Nothing is proved of it yet, and it
-                lacks the interface check and the shared table of a goal and its converse
+                on the mirror image the run swapped. Proved so far: an answer enters a
+                table by `addAnswer` and in no other way (Invariant.lean, `Reach`), and on
+                a root that is its own converse every step shows answers that are their
+                own converses rearranged (SelfConverse.lean, `selfConverse_of`), given
+                that every answer of the root table is an answer of the root goal; the
+                invariant that every answer of a table is an answer of the goal of the
+                table and every strategy fits its goal (Goals.lean, `Inv`, `inv_request`),
+                which gives that condition, so the engine run on one orientation has
+                `ConvTrace` and `DualTrace` (`Symmetric.oriented_convTrace`,
+                `Symmetric.oriented_dualTrace`). Completeness, `Keeps` and the cost bound
+                are not proved. It lacks the interface check and the shared table of a
+                goal and its converse
 Rungs/Naive/    normalisation, unfolding to a depth, and their correctness (namespace `R000`)
 Rungs/R005/     the engines: `R001.engine` (tables, unfolding to a depth), `R004.engine` (tables,
                 the race of all three ways), `R005.engine` (`R004.engine` mirrored);
