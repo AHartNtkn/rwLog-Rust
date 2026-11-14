@@ -2575,11 +2575,25 @@ fn entries_of(s: &mut Store, names: TermId, atoms: TermId, vs0: TermId) -> TermI
     rev(s, out)
 }
 
+/// The members of the list `l0` as one term: the pair of the last with the
+/// pair of the one before with the rest, down to `nil`; a pair is `nil`
+/// applied to its two parts.
+fn tuple(s: &mut Store, nil: TermId, l0: TermId) -> TermId {
+    let mut out = nil;
+    let mut l = l0;
+    while let Some((v, rest)) = uncons(s, l) {
+        let head = s.alloc(Node::App(nil, v));
+        out = s.alloc(Node::App(head, out));
+        l = rest;
+    }
+    out
+}
+
 /// The store a problem starts from: the pattern `t`, the sorted patterns
 /// `a` and the exclusions `x` with the solution of the equations `e`
 /// applied and the variables left numbered in the order they first occur in
 /// these; the sorts brought down to the variables; and the pattern paired
-/// with the list of all the variables, so that each occurs in it. Returned
+/// with the tuple of all the variables, so that each occurs in it. Returned
 /// are the pair, the exclusions, an entry for each variable in order, and
 /// the next unused variable; nothing when the equations have no solution or
 /// a sort rejects its pattern, in which case the problem denotes nothing.
@@ -2608,8 +2622,9 @@ pub fn start(
                     Some(atoms) => {
                         let es = entries_of(s, names, atoms, vars);
                         let nil = s.alloc(Node::Nil);
+                        let all = tuple(s, nil, vars);
                         let head = s.alloc(Node::App(nil, t1));
-                        let t0 = s.alloc(Node::App(head, vars));
+                        let t0 = s.alloc(Node::App(head, all));
                         Some((t0, x1, es, next))
                     }
                     None => None,

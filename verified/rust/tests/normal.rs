@@ -7,7 +7,7 @@
 //! `start` solves the equations, numbers the variables left in the order
 //! they first occur in the pattern, the sorted patterns and the exclusions,
 //! brings the sorts down to the variables, and pairs the pattern with the
-//! list of all variables. `normal` tightens that store, numbers it again,
+//! tuple of all variables. `normal` tightens that store, numbers it again,
 //! solves its exclusions, drops the ones another covers, and keeps what is
 //! over the variables of the pattern. Every sort of a problem is declared.
 
@@ -115,6 +115,32 @@ fn get_lists(f: &mut Fx, mut p: TermId) -> Vec<Vec<T>> {
     }
 }
 
+/// The members of a tuple, first to last: the tuple is the pair of the
+/// last with the tuple of the others, and a pair is `Nil` applied to its
+/// two parts.
+fn untuple(f: &mut Fx, mut p: TermId) -> Vec<T> {
+    let mut out = Vec::new();
+    loop {
+        match f.s.read(p) {
+            Node::Nil => {
+                out.reverse();
+                return out;
+            }
+            Node::App(h, rest) => {
+                match f.s.read(h) {
+                    Node::App(nil, m) => {
+                        assert!(matches!(f.s.read(nil), Node::Nil), "the pair has another head");
+                        out.push(get(&mut f.s, m));
+                    }
+                    _ => panic!("a tuple that is not a pair"),
+                }
+                p = rest;
+            }
+            _ => panic!("a term where a tuple was expected"),
+        }
+    }
+}
+
 /// Tables with entries and flags left by earlier work.
 fn dirty(f: &mut Fx) {
     let n = f.s.alloc(Node::Nil);
@@ -127,7 +153,7 @@ fn dirty(f: &mut Fx) {
     f.s.set(Tbl::B, f.names, m);
 }
 
-/// What `start` returns, read back: the pattern, the list of variables it
+/// What `start` returns, read back: the pattern, the variables of the tuple it
 /// is paired with, the exclusions, the entries and the next variable.
 type Started = (T, Vec<T>, Vec<Vec<T>>, Entries, T);
 
@@ -152,7 +178,7 @@ fn run_start(p: &Prob, soiled: bool) -> Option<Started> {
             _ => panic!("the pattern is not a pair"),
         };
         let t1 = get(&mut f.s, t1);
-        let vars = get_list(&mut f.s, vars);
+        let vars = untuple(&mut f, vars);
         let x0 = get_lists(&mut f, x0);
         let es = f.read_entries(es0);
         let next = get(&mut f.s, next0);

@@ -5738,8 +5738,47 @@ def sorts.entries_of
   let (s2, out1) ← sorts.entries_of_loop vs0 s1 names atoms out
   sorts.rev s2 out1
 
+/-- [rwlog_core::sorts::tuple]: loop body 0:
+    Source: 'src/sorts.rs', lines 2584:4-2588:5 -/
+@[rust_loop_body]
+def sorts.tuple_loop.body
+  (nil : store.TermId) (l : store.TermId) (s : store.Store)
+  (out : store.TermId) :
+  Result (ControlFlow (store.TermId × store.Store × store.TermId)
+    (store.TermId × store.Store))
+  := do
+  let (o, s1) ← sorts.uncons s l
+  match o with
+  | none => ok (done (out, s1))
+  | some p =>
+    let (v, rest) := p
+    let (head, s2) ← store.Store.alloc s1 (store.Node.App nil v)
+    let (out1, s3) ← store.Store.alloc s2 (store.Node.App head out)
+    ok (cont (rest, s3, out1))
+
+/-- [rwlog_core::sorts::tuple]: loop 0:
+    Source: 'src/sorts.rs', lines 2584:4-2588:5 -/
+@[rust_loop]
+def sorts.tuple_loop
+  (l : store.TermId) (s : store.Store) (nil : store.TermId)
+  (out : store.TermId) :
+  Result (store.TermId × store.Store)
+  := do
+  loop
+    (fun (l1, s1, out1) => sorts.tuple_loop.body nil l1 s1 out1)
+    (l, s, out)
+
+/-- [rwlog_core::sorts::tuple]:
+    Source: 'src/sorts.rs', lines 2581:0-2590:1 -/
+@[reducible]
+def sorts.tuple
+  (s : store.Store) (nil : store.TermId) (l0 : store.TermId) :
+  Result (store.TermId × store.Store)
+  := do
+  sorts.tuple_loop l0 s nil nil
+
 /-- [rwlog_core::sorts::start]:
-    Source: 'src/sorts.rs', lines 2587:0-2624:1
+    Source: 'src/sorts.rs', lines 2601:0-2639:1
     Visibility: public -/
 def sorts.start
   (s : store.Store) (decls : store.TermId) (names : store.TermId)
@@ -5773,13 +5812,14 @@ def sorts.start
         | some atoms =>
           let (es, s12) ← sorts.entries_of s11 names atoms vars
           let (nil, s13) ← store.Store.alloc s12 store.Node.Nil
-          let (head, s14) ← store.Store.alloc s13 (store.Node.App nil t1)
-          let (t0, s15) ← store.Store.alloc s14 (store.Node.App head vars)
-          ok (some (t0, x1, es, next), s15)
+          let (all, s14) ← sorts.tuple s13 nil vars
+          let (head, s15) ← store.Store.alloc s14 (store.Node.App nil t1)
+          let (t0, s16) ← store.Store.alloc s15 (store.Node.App head all)
+          ok (some (t0, x1, es, next), s16)
   else ok (none, s3)
 
 /-- [rwlog_core::sorts::normal]:
-    Source: 'src/sorts.rs', lines 2633:0-2666:1
+    Source: 'src/sorts.rs', lines 2648:0-2681:1
     Visibility: public -/
 def sorts.normal
   (s : store.Store) (decls : store.TermId) (names : store.TermId)
