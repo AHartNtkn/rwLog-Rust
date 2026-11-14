@@ -25,7 +25,8 @@ def showRep (r : Raw) : String :=
   let sorts := r.c.zipIdx.filterMap fun (c, i) =>
     if (c.sort (· ≤ ·)).isEmpty then none
     else some (s!"${i} : " ++ " & ".intercalate (c.sort (· ≤ ·)))
-  let excl := r.x.map fun b => " or ".intercalate (b.map fun (v, t) => s!"${v} != {showTerm t}")
+  let excl := (r.x.image fun b =>
+    " or ".intercalate (b.map fun (v, t) => s!"${v} != {showTerm t}")).sort (· ≤ ·)
   let store := sorts ++ excl
   let sides := match r.t with
     | .app (.app (.sym "") l) r => showTerm l ++ " -> " ++ showTerm r
