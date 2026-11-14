@@ -1,7 +1,7 @@
 # Admission: wins in time and space, on a class, in context
 
 This note settles the design of the admission rule in `RwLog/Trusted/Cost.lean`
-(ledger rows L33 and L02 of the roadmap) and records why each choice was made.
+(ledger rows L33, L02 and L66 of the roadmap) and records why each choice was made.
 The Lean text is the statement; this is the reasoning.
 
 ## 1. What had to be decided
@@ -134,21 +134,73 @@ is bought with space; what such a rung uses is reported, not capped.
 
 **Why a constant factor for a polynomial win.** With a polynomial simulation,
 one rung could gain `k ^ g` on a class and lose `k ^ g` elsewhere, and the
-next could do the reverse, for ever. With a constant factor a gain whose
-ratio is unbounded can never be given back by later polynomial rungs: after
-`m` of them the loss is at most a constant. The bound has no term in the size
-of the input, since on inputs the old machine answers quickly such a term is
-an unbounded loss. The factor is required in both resources, because
-otherwise a polynomial rung in time and one in space could undo each other's
-gains in turn. So polynomial wins in time and in space are admitted on the
-same terms.
+next could do the reverse, for ever. With a constant factor a polynomial rung
+is nowhere worse than its predecessor by more than a constant. The bound has
+no term in the size of the input, since on inputs the old machine answers
+quickly such a term is an unbounded loss. The factor is required in both
+resources, because otherwise a polynomial rung in time and one in space could
+trade a gain in one for a loss in the other. So polynomial wins in time and in
+space are admitted on the same terms.
 
-**What is not protected.** A rung with an exponential gain may lose a
-polynomial, so it may give back the gain of an earlier polynomial rung. That
-is the priority Anthony set: exponential wins are taken first while there are
-any.
+**What the simulation does not protect.** A rung with an exponential gain
+simulates its predecessor only within a polynomial, so by the simulation
+alone it could lose a polynomial anywhere, and give back the gain of every
+earlier polynomial rung. The simulation compares a rung with the one below
+it and with nothing else. Section 6 closes this.
 
-## 6. Priority
+## 6. The record of wins
+
+A win, once admitted, is kept by every later rung of whatever kind (L66).
+The simulation cannot say that, so the rule has a second part.
+
+**The record.** A win on record (`Win`) is what an admission was for: its
+kind, its class, and its numerals. Of the numerals a later rung is held to
+two, the upper bound `hi` on a member and the bound in context `ctx` of the
+win's kind, in the resource of the win.
+
+**Keeping a win.** A machine keeps a win within a factor `c`
+(`Win.KeptBy w M c`) when it meets those two bounds times `c`: on a member of
+rank `k` it covers every target having used at most `c * hi k`, and in every
+open context, for every demanded pair, at most `c * ctx (hi k) res n` at its
+own residue `res`. This is the upper half of the separation the win was
+admitted by, for another machine (`MeetsOn`, which `SeparatesOn` now extends);
+the lower bound on the old machine is history and is not asked again.
+
+**The rule.** `Admits` takes the record of the rung below and a factor
+`keep`, and has the clause that the new rung keeps every win on that record
+within `keep`. `Ladder base G record` is the only way a record is made: the
+base has the empty record, and an admission over the whole record of the rung
+below puts its own win on top. So no admission can be checked against a
+record that leaves a win out.
+
+**Why the recorded bound and not the rung below.** If each rung had only to
+stay within a constant of what the rung below uses on the class, the factor
+after `m` rungs would be the product of `m` constants. Each rung is compared
+with the bound written down when the win was admitted, so its factor is its
+own and nothing compounds.
+
+**Why every kind.** A polynomial rung simulates its predecessor within a
+constant, which gives the bound on a member, but not the bound in context:
+that one is stated at the machine's own residue, and a simulation says
+nothing about residues. So the clause is asked of every admission, and is
+the same clause for all of them.
+
+**What it gives.** `Ladder.keeps` (`Rungs/Framework/Latency.lean`): every rung
+of a ladder keeps every win on its record, each within a constant factor of
+the bound it was admitted with. The top of the ladder has every win at once.
+
+**What it costs.** One proof per win on the record for each new rung. Until
+M6 there is no admission, so nothing is re-proved.
+
+**That it can be met.** `Rungs/Framework/RecordWitness.lean` has a ladder of
+two toy rungs above a base that never answers: the first admitted over the
+empty record for a polynomial win, the second admitted for an exponential
+gain over the record that holds the first one's win (`Witness.slow_admits`,
+`Witness.quick_admits`, `Witness.ladder`). The engines are not machines for
+the language, and correctness is no part of `Admits`; the file shows only
+that the clauses can hold together.
+
+## 7. Priority
 
 "Exponential first" is a rule for choosing the next rung (roadmap, section 2),
 not a clause of `Admits`: no theorem about two machines can say that no

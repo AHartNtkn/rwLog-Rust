@@ -134,6 +134,20 @@ new axiom.
 /-- info: 'RwLog.DirectionFree.of_bisim' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.DirectionFree.of_bisim
 
+/-! ## The record of wins -/
+
+/-- info: 'RwLog.Ladder.keeps' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Ladder.keeps
+
+/-- info: 'RwLog.Witness.slow_admits' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Witness.slow_admits
+
+/-- info: 'RwLog.Witness.quick_admits' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Witness.quick_admits
+
+/-- info: 'RwLog.Witness.ladder' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Witness.ladder
+
 /-! ## Goal-directed tables and the hedge -/
 
 /-- info: 'RwLog.gd_normB' depends on axioms: [propext, Classical.choice, Quot.sound] -/

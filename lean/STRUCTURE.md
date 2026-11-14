@@ -187,7 +187,17 @@ rung unchanged.
   by the time it halts, so a separating family that halts needs only its
   target pairs to be in the denotation), and
   `CostedRuntime.le_spent_of_covered` (a machine that has emitted nothing in
-  `N` steps has paid for `N + 1` before it covers anything).
+  `N` steps has paid for `N + 1` before it covers anything). For the record
+  of wins (`ADMISSION.md` section 6): `Improves.keptBy` (a machine keeps the
+  win it improves by), `Admits.keptBy`, and `Ladder.keeps` (every rung of a
+  ladder keeps every win on its record).
+
+* `RecordWitness.lean`: `Admits` and `Ladder` have inhabitants. Two toy
+  engines, admitted one above the other over a base that never answers, the
+  second for an exponential gain over the record that holds the polynomial
+  win of the first (`Witness.ladder`). They are not machines for the
+  language. On the way: when the normal form of an expression is one span
+  (`normB_or_span`, `normB_dual`, `normB_fill`).
 
 `Rungs/Tabled/` (parked) is the base for costed rungs that keep R001's tables and change
 something else. `Base/` is R001 itself as a plain `Runtime` (`R001.runtime`)
@@ -301,7 +311,7 @@ program, because which values are canonical depends on the sorts declared: an an
 the representative is a valid answer of the goal (`Ans D P`), and the answers
 reported are those of the root goal with no boundary. `Engine.costed` is the
 engine at `DerivationKernel.std P`, the kernel of spans as written, where
-each operation is the charged primitive of `Trusted/Charged.lean`. `Advances` and `Admits` are stated on engines.
+each operation is the charged primitive of `Trusted/Charged.lean`. `Advances` and `Admits` are stated on engines, and `Admits` is over the record of the wins admitted below (`Win`, `Ladder`).
 
 The cost monad (`Trusted/CostMonad.lean`) counts ticks and space: `peak` is
 the most cells live at once and `held` the cells still live at the end. Cells

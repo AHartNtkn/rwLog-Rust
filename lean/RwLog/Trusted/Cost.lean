@@ -84,7 +84,8 @@ at any step at which it has covered the pair, and `New` covers it having used
 at most `ctx (hi k) res n`, where `n` is the size of the context alone and
 `res` is the residue: what `New` itself uses to cover the pair when the hole
 holds the targets written out (`RelOf.ofPairs`). The residue is what the rest
-of the context costs. Neither machine has to halt.
+of the context costs. Neither machine has to halt. The two upper bounds on
+`New` mention no other machine; they are `MeetsOn`.
 
 ## Three kinds of win
 
@@ -99,9 +100,10 @@ A kind is a resource (time or space) and the size of the gain (`Gap`).
 * A polynomial gain. The old machine has used at least
   `(k + 1) ^ gain * hi k` with `gain` positive, so the ratio grows without
   bound. The new machine simulates the old one within a constant factor,
-  `simCoeff * (c + 1)`, with no term in the size of the input: a gain of
-  unbounded ratio can then never be given back by later polynomial rungs. The
-  bound in context is linear in `hi k` and in the residue.
+  `simCoeff * (c + 1)`, with no term in the size of the input, so that a
+  polynomial rung is nowhere worse than its predecessor by more than a
+  constant factor. The bound in context is linear in `hi k` and in the
+  residue.
 
 The simulation is required in time for every kind. It is required in space
 too, within the same bound, for every kind except an exponential gain in
@@ -132,15 +134,35 @@ with every answer swapped back, so both are machines for the original query.
 the first has paid, and likewise for exhaustion. So no pair arrives more than
 polynomially later because the query was written from the other end.
 
+## The record of wins
+
+The simulation does not keep a win by itself: a rung admitted for an
+exponential gain simulates its predecessor only within a polynomial, so it
+could lose again what an earlier rung won by a polynomial factor. So wins are
+kept on a record. A win on record (`Win`) is the kind of an admission, its
+class and its numerals. A machine keeps it within a factor `c`
+(`Win.KeptBy`) when, in the resource of the win, it covers every target of a
+member of rank `k` having used at most `c * hi k`, and in every open context
+at most `c` times the bound in context the win was admitted with. The bound
+is the recorded one, not what the rung below happens to use, so the factors
+of successive rungs do not multiply.
+
 ## Admission
 
-A rung is admitted by a proof of `Admits kind`, and by nothing else: it
-advances on its predecessor by a win of that kind (`Advances`), and its cost
-does not depend on direction, within a polynomial whose numerals its
-specification writes out. A simulation or a separation with other functions
-does not admit it, and neither does a gain on a sequence of inputs that is
-not a class, a gain that holds only when the input is the whole program, or
-an improvement that holds from one end only.
+A rung is admitted by a proof of `Admits kind` over the record of the rung
+below it, and by nothing else: it advances on its predecessor by a win of
+that kind (`Advances`), its cost does not depend on direction, within a
+polynomial whose numerals its specification writes out, and it keeps every
+win on the record within a constant factor that its specification writes
+out. A simulation or a separation with other functions does not admit it,
+and neither does a gain on a sequence of inputs that is not a class, a gain
+that holds only when the input is the whole program, an improvement that
+holds from one end only, or a gain that gives back a win of an earlier rung.
+
+`Ladder base G record` is the ladder itself: the base has the empty record,
+and each admission is over the whole record of the rung below and puts its
+own win on it. So every rung of a ladder has every win below it at once,
+each within a constant factor of the bound it was admitted with.
 
 `SeparatesExhaustion` is the comparison for the report of exhaustion instead
 of answers, on a sequence of inputs. It is the special case for the rare
@@ -491,33 +513,49 @@ end Context
 
 /-! ## Separation on a class, in context -/
 
-/-- `New` is separated from `Old` on the class `C` in the resource `μ`.
+/-- `New` meets an upper bound on the class `C` in the resource `μ`, on a
+member and in context.
 
 On a member `(P, r)` of rank `k`, `New` covers every target having used at
 most `hi k`.
 
 In every context `K` whose hole is open and whose plugged input is well
-formed, for every pair `y` that needs the targets: `Old` has
-used at least `lo k` at any step at which it has covered `y`; and if `New`
-covers `y` having used `res` when the hole holds the targets written out,
-then it covers `y` having used at most `ctx (hi k) res K.size` when the hole
-holds `r`.
+formed, for every pair `y` that needs the targets: if `New` covers `y` having
+used `res` when the hole holds the targets written out, then it covers `y`
+having used at most `inCtx k res K.size` when the hole holds `r`.
 
-The member alone is the context that is only a hole, so the lower bound on
-`Old` holds there for every target. Neither machine has to halt. -/
-structure SeparatesOn (μ : Meter) (Old New : CostedRuntime) (C : ProgClass)
-    (lo hi : Nat → Nat) (ctx : Nat → Nat → Nat → Nat) : Prop where
+The machine does not have to halt, and no other machine is mentioned. -/
+structure MeetsOn (μ : Meter) (New : CostedRuntime) (C : ProgClass)
+    (hi : Nat → Nat) (inCtx : Nat → Nat → Nat → Nat) : Prop where
   alone : ∀ P r, C.mem P r → ∀ x ∈ C.tgt P r,
     New.CoversUsing μ P r P.sorts.interp x (hi (C.rank P r))
   inContext : ∀ P r, C.mem P r → ∀ K : Context, K.Open →
     (K.program P).WellFormed (K.query r) →
     ∀ y, K.Demands P r P.sorts.interp {x | x ∈ C.tgt P r} y →
-      (∀ n, Old.Covered (K.program P) (K.query r) P.sorts.interp y n →
-        lo (C.rank P r) ≤ μ Old (K.program P) (K.query r) n) ∧
-      (∀ res, New.CoversUsing μ (K.program P) (K.query (.ofPairs (C.tgt P r)))
+      ∀ res, New.CoversUsing μ (K.program P) (K.query (.ofPairs (C.tgt P r)))
           P.sorts.interp y res →
         New.CoversUsing μ (K.program P) (K.query r) P.sorts.interp y
-          (ctx (hi (C.rank P r)) res K.size))
+          (inCtx (C.rank P r) res K.size)
+
+/-- `New` is separated from `Old` on the class `C` in the resource `μ`.
+
+`New` meets the upper bound `hi` on a member of rank `k`, and
+`ctx (hi k) res K.size` in a context `K` with residue `res` (`MeetsOn`).
+
+In every context `K` whose hole is open and whose plugged input is well
+formed, for every pair `y` that needs the targets, `Old` has used at least
+`lo k` at any step at which it has covered `y`.
+
+The member alone is the context that is only a hole, so the lower bound on
+`Old` holds there for every target. Neither machine has to halt. -/
+structure SeparatesOn (μ : Meter) (Old New : CostedRuntime) (C : ProgClass)
+    (lo hi : Nat → Nat) (ctx : Nat → Nat → Nat → Nat) : Prop
+    extends MeetsOn μ New C hi (fun k => ctx (hi k)) where
+  below : ∀ P r, C.mem P r → ∀ K : Context, K.Open →
+    (K.program P).WellFormed (K.query r) →
+    ∀ y, K.Demands P r P.sorts.interp {x | x ∈ C.tgt P r} y →
+      ∀ n, Old.Covered (K.program P) (K.query r) P.sorts.interp y n →
+        lo (C.rank P r) ≤ μ Old (K.program P) (K.query r) n
 
 /-! ## Three kinds of win -/
 
@@ -739,12 +777,52 @@ structure Advances (kind : Kind) (Old New : CostedRung) (b : Bounds) (pre : Nat 
   improves : ∀ A, Improves kind (Old.machine A) (New.machine A) b C
   preCost : ∀ A P q, P.WellFormed q → (New.pre.run A P q).ticks ≤ pre (P.size + q.size)
 
-/-- The rung `New` is admitted above `Old` by a win of the given kind: it
-advances on `Old`, and whatever the artifact store, its cost does not depend
-on direction, within the polynomial `d`. -/
+/-! ## The record of wins
+
+Simulation alone does not keep a win. A rung admitted for an exponential gain
+simulates its predecessor only within a polynomial, so on a class where an
+earlier rung won a polynomial factor it could lose that factor again. So
+every win is put on record when it is admitted, and every later admission, of
+whatever kind, is held to every win on the record. -/
+
+/-- A win on record: the kind of the win, the class it was shown on, and the
+numerals it was admitted with. What a later rung is held to are the upper
+bound `b.hi` on a member and the bound in context `b.ctx kind.gap`, in the
+resource of the kind. -/
+structure Win where
+  kind : Kind
+  cls : ProgClass
+  b : Bounds
+
+/-- The machine `M` keeps the win `w` within the factor `c`: in the resource
+of the win, on a member of rank `k` of its class `M` covers every target
+having used at most `c * w.b.hi k`, and in every open context, for every pair
+that needs the targets, at most `c` times the bound in context the win was
+admitted with, at `M`'s own residue. -/
+def Win.KeptBy (w : Win) (M : CostedRuntime) (c : Nat) : Prop :=
+  MeetsOn w.kind.resource.meter M w.cls (fun k => c * w.b.hi k)
+    (fun k res n => c * w.b.ctx w.kind.gap (w.b.hi k) res n)
+
+/-- The rung `New` is admitted above `Old` by a win of the given kind, over
+the wins on `record`: it advances on `Old`; whatever the artifact store, its
+cost does not depend on direction, within the polynomial `d`; and it keeps
+every win on the record within the factor `keep`. -/
 structure Admits (kind : Kind) (Old New : CostedRung) (b : Bounds) (d : DirBound)
-    (pre : Nat → Nat) (C : ProgClass) : Prop
+    (pre : Nat → Nat) (C : ProgClass) (record : List Win) (keep : Nat) : Prop
     extends Advances kind Old New b pre C where
   direction : ∀ A, DirectionFree (New.machine A) d.fn
+  keeps : ∀ A, ∀ w ∈ record, w.KeptBy (New.machine A) keep
+
+/-- The ladder above the rung `base`, with its record of wins. The record of
+the base is empty. A rung is put on top only by an admission over the whole
+record of the rung below it, and its own win then goes on the record. So the
+record of a rung is exactly the wins of the admissions below it, and none of
+them can be left out of a later admission. -/
+inductive Ladder (base : CostedRung) : CostedRung → List Win → Prop where
+  | base : Ladder base base []
+  | admit {kind : Kind} {Old New : CostedRung} {b : Bounds} {d : DirBound} {pre : Nat → Nat}
+      {C : ProgClass} {record : List Win} {keep : Nat} :
+      Ladder base Old record → Admits kind Old New b d pre C record keep →
+      Ladder base New (⟨kind, C, b⟩ :: record)
 
 end RwLog
