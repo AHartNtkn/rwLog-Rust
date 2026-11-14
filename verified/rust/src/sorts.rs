@@ -20,7 +20,7 @@
 use crate::cover::ground;
 use crate::span::solve_into;
 use crate::store::{Frame, Node, Store, Tbl, TermId};
-use crate::term::{rebuild, unstack, Leaf};
+use crate::term::{node_of, rebuild, unstack, Leaf};
 
 /// The first member of a list and the rest, or nothing when the node is not
 /// an application. One tick.
@@ -1997,4 +1997,115 @@ pub fn tighten(
     } else {
         None
     }
+}
+
+// # Numbering the variables of a store
+
+/// The variables of the term `t`, once each, in the order they first occur
+/// from the left. Table `B` flags the nodes visited, so a subterm that
+/// occurs many times is visited once. The stack is empty at entry.
+pub fn firsts(s: &mut Store, t: TermId) -> TermId {
+    s.clear(Tbl::B);
+    let mut out = s.alloc(Node::Nil);
+    s.push(Frame::Visit(t, t));
+    while let Some(fr) = s.pop() {
+        let q = node_of(fr);
+        match s.get_flag(Tbl::B, q) {
+            Some(_) => (),
+            None => {
+                s.set_flag(Tbl::B, q, true);
+                match s.read(q) {
+                    Node::App(a, b) => {
+                        s.push(Frame::Visit(b, b));
+                        s.push(Frame::Visit(a, a));
+                    }
+                    Node::Sym(_) => (),
+                    Node::Nil => (),
+                    _ => out = s.alloc(Node::App(q, out)),
+                }
+            }
+        }
+    }
+    rev(s, out)
+}
+
+/// The conjunction of the first entry of the variable `v` in the list `es0`
+/// of entries; the conjunction of no sort when it has none.
+pub fn conj_at(s: &mut Store, es0: TermId, v: TermId) -> TermId {
+    let mut c = s.alloc(Node::Nil);
+    let mut es = es0;
+    let mut go = true;
+    while go {
+        match uncons(s, es) {
+            Some((e, rest)) => match uncons(s, e) {
+                Some((u, cu)) => {
+                    if s.same(u, v) {
+                        c = cu;
+                        go = false;
+                    } else {
+                        es = rest;
+                    }
+                }
+                None => panic!(),
+            },
+            None => go = false,
+        }
+    }
+    c
+}
+
+/// The conjunction of every sort of `names` that every member of the
+/// conjunction `c`, but for the ground terms of the list `g`, is in. Tables
+/// `A` and `B` are used.
+pub fn uppers(s: &mut Store, decls: TermId, names: TermId, c: TermId, g: TermId) -> TermId {
+    let mut out = s.alloc(Node::Nil);
+    let mut ns = names;
+    while let Some((n, rest)) = uncons(s, ns) {
+        if included_but(s, decls, names, c, n, g) {
+            out = s.alloc(Node::App(n, out));
+        }
+        ns = rest;
+    }
+    out
+}
+
+/// The store of the pattern `t`, the exclusions `x` and the entries `es`
+/// with its variables numbered in the order they first occur in the pattern:
+/// the pattern and the exclusions with each variable replaced by the
+/// variable of its place, and the list, in that order, of the conjunction of
+/// every sort that holds of all values of the variable, which are the
+/// members of its conjunction without the terms the exclusions exclude it
+/// from. Every variable of the exclusions occurs in the pattern. Tables `A`
+/// and `B` are used; the stack is empty at entry.
+pub fn renumber(
+    s: &mut Store,
+    decls: TermId,
+    names: TermId,
+    t: TermId,
+    x: TermId,
+    es: TermId,
+) -> (TermId, TermId, TermId) {
+    let vs = firsts(s, t);
+    let mut cs = s.alloc(Node::Nil);
+    let mut l = vs;
+    while let Some((v, rest)) = uncons(s, l) {
+        let c = conj_at(s, es, v);
+        let g = gone(s, x, v);
+        let u = uppers(s, decls, names, c, g);
+        cs = s.alloc(Node::App(u, cs));
+        l = rest;
+    }
+    let cs = rev(s, cs);
+    s.clear(Tbl::B);
+    let mut place = s.alloc(Node::V0);
+    let mut l = vs;
+    while let Some((v, rest)) = uncons(s, l) {
+        s.set(Tbl::B, v, place);
+        place = var_succ(s, place);
+        l = rest;
+    }
+    s.clear(Tbl::A);
+    let t1 = rebuild(s, Leaf::Map, t);
+    let x1 = rebuild(s, Leaf::Map, x);
+    (t1, x1, cs)
 }

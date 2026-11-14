@@ -73,7 +73,7 @@ def renameCost (z : Sym) (sp : Span) : Nat := 16 + 14 * (spanSubs z sp).card
 
 theorem rename_spec (hnm : Function.Injective nm) (s : store.Store) (f : term.Leaf)
     (x : span.Span) {sp : Span} {σ : Nat → Pat} (hI : Inv s) (hx : SpanAt nm s.nodes.val x sp)
-    (hf : LeafOK nm s.nodes.val f σ) (hroom : Room s (renameCost (nm none) sp)) :
+    (hf : LeafOK nm s.nodes.val (tbl s .B) f σ) (hroom : Room s (renameCost (nm none) sp)) :
     span.rename s f x ⦃ a s' =>
       Inv s' ∧ Extends s s' ∧ SpanAt nm s'.nodes.val a (subSpan sp σ) ∧
         s'.ticks.val ≤ s.ticks.val + renameCost (nm none) sp ⦄ := by
@@ -85,17 +85,18 @@ theorem rename_spec (hnm : Function.Injective nm) (s : store.Store) (f : term.Le
   have hx1 : Extends s s1 := Extends.of_eq c1 (by omega)
   have hpc := pending_card_le (nm := nm) s1.nodes.val (tbl s1 .A) (spanSubs (nm none) sp)
   step with rebuild_spec hnm s1 f x.l (t := sp.l) (σ := σ) (spanSubs (nm none) sp) c3
-    (hx1.repr hx.l) (hf.extends hx1) (by intro k v hk; rw [c4] at hk; cases hk)
+    (hx1.repr hx.l) (by rw [c5 .B (by simp)]; exact hf.extends hx1) (by intro k v hk; rw [c4] at hk; cases hk)
     (fun w hw => by simp [spanSubs, hw]) (by unfold Room; omega) as ⟨l, s2, h2⟩
   have hc2 := h2.cost
   have hx2 := hx1.trans h2.ext
   step with rebuild_spec hnm s2 f x.r (t := sp.r) (σ := σ) (spanSubs (nm none) sp) h2.inv
-    (hx2.repr hx.r) (hf.extends hx2) h2.memo
+    (hx2.repr hx.r) (by rw [h2.tblB, c5 .B (by simp)]; exact hf.extends hx2) h2.memo
     (fun w hw => by simp [spanSubs, hw]) (by unfold Room; omega) as ⟨r, s3, h3⟩
   have hc3 := h3.cost
   have hx3 := hx2.trans h3.ext
   step with rebuild_spec hnm s3 f x.c (t := encList (nm none) sp.c) (σ := σ)
-    (spanSubs (nm none) sp) h3.inv (hx3.repr hx.c) (hf.extends hx3) h3.memo
+    (spanSubs (nm none) sp) h3.inv (hx3.repr hx.c)
+    (by rw [h3.tblB, h2.tblB, c5 .B (by simp)]; exact hf.extends hx3) h3.memo
     (fun w hw => by simp [spanSubs, hw]) (by unfold Room; omega) as ⟨c, s4, h4⟩
   have hc4 := h4.cost
   refine ⟨h4.inv, hx3.trans h4.ext, ⟨?_, ?_, ?_⟩, by omega⟩

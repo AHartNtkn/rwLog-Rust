@@ -199,7 +199,7 @@ theorem unit_on_spec (hnm : Function.Injective nm) (s : store.Store) (v e : stor
       have hgr : (θ x).vars = [] := by simpa using hb.symm
       obtain ⟨g0, hg0, eg0⟩ := ground?_of_vars hgr
       simp only [↓reduceIte]
-      have hleaf : LeafOK nm s4.nodes.val (term.Leaf.Sub v g) (Term.single x (θ x)) :=
+      have hleaf : LeafOK nm s4.nodes.val (tbl s4 .B) (term.Leaf.Sub v g) (Term.single x (θ x)) :=
         ⟨x, θ x, hx4.varAt hv, by rw [hn4']; exact rg, rfl⟩
       have hpc := pending_card_le (nm := nm) s4.nodes.val (tbl s4 .A) (encEqs nm E).subs
       step with rebuild_spec hnm s4 (term.Leaf.Sub v g) e (t := encEqs nm E)
