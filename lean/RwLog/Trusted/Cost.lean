@@ -735,6 +735,91 @@ charges. -/
 def Engine.costed (E : Engine) (κ : KernelRung) : CostedRuntime :=
   E.costedAt κ.dom κ.kernel κ.refines
 
+/-! ## One orientation of the input
+
+An input has a mirror image: the mirrored query in the mirrored program
+(`ProgramOf.dual`), which relates the same pairs the other way round. So does
+a query alone: its converse. A machine may be run on one chosen member of
+this family of four inputs, with what it shows swapped when the member
+relates the pairs the other way round. The choice depends on the normal
+forms only, and it is the same choice whichever of the four it is made from,
+so the run on an input and the run on its mirror image are one run of the
+machine, shown twice.
+
+The four inputs are not always four. When the least of them stands for the
+input and for its mirror image at once, there is no choice to make: the
+relation is its own converse, and the machine is run on the union of that
+query with its converse, a node that is its own converse. -/
+
+/-- The program with every body in its normal form. -/
+def ProgramOf.normed (P : Program) : Program :=
+  { P with defs := P.defs.map fun d => (d.1, d.2.norm) }
+
+/-- An input chosen to run: the program, the root node, and whether what the
+run shows is the converse of what was asked. -/
+structure Oriented where
+  swap : Bool
+  P : Program
+  root : Rel
+
+/-- The least of a node and a list of nodes, by the order on expressions. -/
+def leastRel : Rel → List Rel → Rel
+  | m, [] => m
+  | m, x :: xs => leastRel (if relCmp x m = .lt then x else m) xs
+
+/-- The candidate to run, of a first candidate and the others, each a node
+with whether it relates the pairs the other way round: the least node. If it
+is a candidate both ways round, the run is of the union of it with its
+converse and nothing is swapped. -/
+def pick (Pn : Program) (first : Rel × Bool) (rest : List (Rel × Bool)) : Oriented :=
+  let m := leastRel first.1 (rest.map Prod.fst)
+  let ways := ((first :: rest).filter fun x => x.1 = m).map Prod.snd
+  if ways.all (· = false) then ⟨false, Pn, m⟩
+  else if ways.all (· = true) then ⟨true, Pn, m⟩
+  else ⟨false, Pn, (RelOf.or m m.normConv).norm⟩
+
+/-- The input a machine is run on, of the four the input is one of.
+
+The mirrored program is compared with the program, body by body in normal
+form, and the lesser is run; if they are the same the program is its own
+mirror image. The candidates for the root are then the query and its
+converse; in a program that is its own mirror image the mirrored query and
+its converse are candidates too. -/
+def orient (P : Program) (q : Rel) : Oriented :=
+  match listCmp relCmp (P.defs.map fun d => d.2.norm) (P.dual.defs.map fun d => d.2.norm) with
+  | .lt => pick P.normed (q.norm, false) [((RelOf.conv q).norm, true)]
+  | .gt => pick P.dual.normed (q.dual.norm, true) [((RelOf.conv q.dual).norm, false)]
+  | .eq => pick P.normed (q.norm, false)
+      [((RelOf.conv q).norm, true), (q.dual.norm, true), ((RelOf.conv q.dual).norm, false)]
+
+/-- Choosing the input to run: the program and the query are brought to
+their normal form four times and compared, at the charge of `Charged.load`
+for each. The charge is the same for an input and for its mirror image. -/
+def Charged.orient (P : Program) (q : Rel) : Cost Oriented :=
+  Charged.op (RwLog.orient P q) (4 * (P.size + q.size + 1) ^ 2) (8 * (P.size + q.size + 1))
+
+/-- What a step shows, the other way round if the run is of the mirror
+image. -/
+def StepOf.shownAs {A S : Type} [Answer A] (swap : Bool) : StepOf A S → StepOf A (Bool × S)
+  | .emit as s => .emit (if swap then as.map Answer.swap else as) (swap, s)
+  | .progress n s => .progress n (swap, s)
+  | .done final => .done (if swap then final.map Answer.swap else final)
+
+/-- A machine run on one orientation of its input (`orient`): its first
+state is the machine's first state on the chosen input, and what a step
+shows is swapped when the chosen input relates the pairs the other way
+round. -/
+def CostedRuntime.oriented (C : CostedRuntime) : CostedRuntime where
+  Ans := C.Ans
+  State := Bool × C.State
+  init P q := do
+    let o ← Charged.orient P q
+    let s ← C.init o.P o.root
+    pure (o.swap, s)
+  step s := do
+    let r ← C.step s.2
+    pure (r.shownAs s.1)
+
 /-! ## Whole rungs
 
 A rung is a preprocessor followed by a machine. Its run-time cost is the cost
@@ -743,17 +828,20 @@ the cost of preprocessing is recorded beside it: any preprocessing is allowed,
 and a reader sees what it costs. What a machine costs is what it spends at a
 kernel rung, and two rungs are compared at the same one. -/
 
-/-- A preprocessor followed by an engine. -/
+/-- A preprocessor followed by an engine, run on the input as it is given or
+on one orientation of it (`CostedRuntime.oriented`). -/
 structure CostedRung where
   pre : Preprocessor
   eng : Engine
+  oriented : Bool := false
 
 namespace CostedRung
 
 variable (G : CostedRung) (κ : KernelRung)
 
 /-- The rung's machine with its cost at a kernel rung. -/
-def rt : CostedRuntime := G.eng.costed κ
+def rt : CostedRuntime :=
+  if G.oriented then (G.eng.costed κ).oriented else G.eng.costed κ
 
 /-- The rung with the ticks forgotten. -/
 def rung : Rung := ⟨G.pre, (G.rt κ).runtime⟩

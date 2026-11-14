@@ -54,9 +54,12 @@ Rungs/Mirror/   a machine run on a query and on its converse side by side, for a
 Rungs/Symmetric/ the symmetric engine of `SYMMETRIC_ENGINE.md` (Machine.lean): a table for
                 every goal, every split of a chain and of a meet as a group of strategies
                 (join, push from either side), groups balanced by their levels, one
-                request a step. Run in `Tests/SymmetricRuns.lean`. Nothing is proved of
-                it yet, and it lacks the interface check, the choice of one orientation
-                and the shared table of a goal and its converse
+                request a step. Run in `Tests/SymmetricRuns.lean`. The table of a
+                goal that is its own converse holds the converse of everything it holds;
+                with the choice of one orientation where the input is loaded
+                (`CostedRuntime.oriented`, `Trusted/Cost.lean`) that is what makes the run
+                on the mirror image the run swapped. Nothing is proved of it yet, and it
+                lacks the interface check and the shared table of a goal and its converse
 Rungs/Naive/    normalisation, unfolding to a depth, and their correctness (namespace `R000`)
 Rungs/R005/     the engines: `R001.engine` (tables, unfolding to a depth), `R004.engine` (tables,
                 the race of all three ways), `R005.engine` (`R004.engine` mirrored);
@@ -176,6 +179,16 @@ rung unchanged.
   found by any schedule is covered by every fair run that opens its goal.
   Nothing is assumed of the order of work or of tables growing. A machine
   proves `Fair` of its runs and receives completeness.
+* `Oriented.lean`: a machine run on one orientation of its input
+  (`CostedRuntime.oriented`, `Trusted/Cost.lean`). The choice made from the
+  converse of a query, and from the mirror image of an input, is the choice
+  made from the input the other way round, or the same choice of a node that
+  is its own converse (`orient_conv`, `orient_dual`). So a machine that
+  shows, on a root that is its own converse, sets of answers that are their
+  own converse (`CostedRuntime.SelfConverse`) has `ConvTrace` and `DualTrace`
+  when run on one orientation (`oriented_convTrace`, `oriented_dualTrace`),
+  and any machine pays the same on an input and on its mirror image
+  (`oriented_paid_dual`).
 * `Fairness.lean`: what the fairness bound of `Trusted/Properties.lean` means
   (`Alternative.semAt_subset`, `Fair.flat_ticks`,
   `Runtime.FinalMaximal.maximal`), and `firstWording_false`: a bound

@@ -16,6 +16,24 @@ M6 builds one new machine, with these five properties.
 
 Points 1 to 3 give the exact properties (mirror image step for step at equal ticks, `SeqAssoc`, `AndComm`, `AndAssoc`). Points 4 and 5 give the cost. The two are separate, and section 3 explains why that separation is the main finding.
 
+**Revision, 2026-11-14: points 2 and 3 as built.** Point 2 as written leaves two things open, and point 3 does not close them.
+
+*The engine cannot make the choice.* An engine is handed the root node and reads bodies through the kernel. It cannot build the mirrored program, so it cannot compare the input with its mirror image. The first form of the machine, run on `add ; @2` and on its mirror image, shows different traces even at a kernel that charges nothing, because it visits members in their stored order. So the choice is made where the input is loaded (`orient` and `CostedRuntime.oriented`, `Trusted/Cost.lean`), and a rung says whether it is run that way (`CostedRung.oriented`).
+
+*An input can be its own mirror image.* Then there is nothing to choose between, the run is one run, and the criterion asks that this run shows, at every step, a set of answers that is its own converse. Take `u = a -> b | b -> a` and `w = b -> c | c -> b`, and the query `u ; w ; w ; u`. Program and query are their own mirror images. The splits `u | w ; w ; u` and `u ; w ; w | u` are mirror images of each other, and they are balanced by the ticks they spend. A kernel may charge an operation and its mirror image differently (nothing in `Kernel.Refines` says otherwise, and the 2026-11-13 revision of section 6 withdrew the request that it should not), so the two splits get different levels and an answer can arrive requests before its converse. Sharing a table between a goal and its converse does not help: the converse of `u ; w ; w` is `w° ; w° ; u°`, a different node from `w ; w ; u`, and only the program being its own mirror image makes them the same relation.
+
+What is built:
+
+1. *Four inputs, not two.* An input stands with its mirror image (the mirrored query in the mirrored program), with its converse (the converse query in the same program), and with the converse of its mirror image. The loader compares the program with the mirrored program body by body in normal form and runs the lesser; the candidates for the root are the query and its converse, and in a program that is its own mirror image the mirrored query and its converse too. The least candidate is run, and what the run shows is swapped when that candidate relates the pairs the other way round. The choice reads normal forms only, and it is the same from each of the four. This gives the criterion on the mirrored input and on the converse query at once, with equal ticks on the mirrored input, for any kernel.
+2. *When the least candidate stands both ways round*, the relation is its own converse, and the run is of the union of that node with its converse. That node is its own converse.
+3. *The table of a goal that is its own converse holds the converse of everything it holds.* Whenever an answer goes in, its converse goes in with it (`addAnswer`, `Rungs/Symmetric/Machine.lean`). So a run whose root is its own converse shows, at every step, a set of answers that is its own converse, whatever the kernel charges and whatever order the machine visits things in.
+
+Point 3 of the decision (a goal and its converse share one table) is then no part of any exact property. It remains a saving and is not built yet.
+
+Two ways not taken. Asking every kernel to charge an operation and its mirror image the same would make the machine symmetric with no choice of orientation, but only if the machine never reads a stored order: every request would have to read what the tables held when it started, which costs requests in every recursion, and every later rung would owe the same proof. Balancing by the number of operations instead of their ticks is symmetric at any kernel and gives up the cost bound, since one operation can cost any amount.
+
+F1 below stands as corrected here: the orientation makes the mirror image the same run, except where the input is its own mirror image, and there the exact property comes from item 3.
+
 Not chosen: full direction-free nets, the old engine's two-ended alternation as an evaluation order, and any hedge. Section 4 compares them.
 
 ## 2. What the exit criteria force

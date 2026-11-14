@@ -74,9 +74,15 @@ complete or in the set, and marks them complete.
 When the root table is complete the machine is done, and its final report is
 the maximal answers of the root table.
 
+The table of a goal that is its own converse holds the converse of every
+answer it holds: the converse goes in with the answer. So a run whose root is
+its own converse shows, at every step, a set of answers that is its own
+converse, which is what the choice of one orientation of the input
+(`CostedRuntime.oriented`, `Trusted/Cost.lean`) leaves to the machine.
+
 The interface check of the design note (a strategy that completes a chain
 goal with no answer by reading the edges of its sides from the program) is
-not in this file.
+not in this file, and a goal and its converse do not yet share a table.
 -/
 import RwLog.Trusted.Cost
 import RwLog.Rungs.Framework.Traverse
@@ -165,11 +171,14 @@ structure Group (N A : Type) where
   level : Nat
   strats : List (Strat N A)
 
-/-- A table. `groups` is nothing until the goal has its first round. `born`
-is the request the goal was opened in, `stamp` the last request it had a
-round in, and `delta` how much its level rose in that round. -/
+/-- A table. `self` says the goal is its own converse: its node is the
+converse of itself and its two boundaries are the same. `groups` is nothing
+until the goal has its first round. `born` is the request the goal was
+opened in, `stamp` the last request it had a round in, and `delta` how much
+its level rose in that round. -/
 structure Table (S N A : Type) where
   goal : GoalOf S N
+  self : Bool
   answers : List A
   done : Bool
   groups : Option (List (Group N A))
@@ -198,6 +207,12 @@ def StateOf.answers {S N A : Type} (st : StateOf S N A) (i : Nat) : List A :=
   match st.tables[i]? with
   | some t => t.answers
   | none => []
+
+/-- Is the goal of the table at a position its own converse? -/
+def StateOf.isSelf {S N A : Type} (st : StateOf S N A) (i : Nat) : Bool :=
+  match st.tables[i]? with
+  | some t => t.self
+  | none => false
 
 /-- Is the table at a position complete? -/
 def StateOf.isDone {S N A : Type} (st : StateOf S N A) (i : Nat) : Bool :=
@@ -284,6 +299,13 @@ def same (g h : GoalOf S N) : M Bool := do
     if l then sameBound (K := K) g.rb h.rb else pure false
   else pure false
 
+/-- Is a goal its own converse? The converse of `lb ; n ; rb` is the converse
+of `n` between the exchanged boundaries. -/
+def selfConverse (g : GoalOf S N) : M Bool := do
+  let c ← K.convNode g.node
+  let b ← K.eqNode c g.node
+  if b then sameBound (K := K) g.lb g.rb else pure false
+
 /-- The position of the table of a goal, counting from `i`. -/
 def indexFrom (g : GoalOf S N) : Nat → List (Table S N A) → M (Option Nat)
   | _, [] => pure none
@@ -297,8 +319,9 @@ def openGoal (st : StateOf S N A) (g : GoalOf S N) : M (StateOf S N A × Nat) :=
   let i ← indexFrom (K := K) g 0 st.tables
   match i with
   | some i => pure (st, i)
-  | none =>
-    pure ({ st with tables := st.tables ++ [⟨g, [], false, none, st.round, 0, 0⟩] },
+  | none => do
+    let self ← selfConverse (K := K) g
+    pure ({ st with tables := st.tables ++ [⟨g, self, [], false, none, st.round, 0, 0⟩] },
       st.tables.length)
 
 /-- Does the first answer cover the second? -/
@@ -320,9 +343,22 @@ def maxima (xs : List A) : M (List A) := do
     pure (if b then acc else acc ++ [x])) [] top
 
 /-- Put an answer in the table at `i`, unless an answer there covers it. -/
-def addAnswer (i : Nat) (st : StateOf S N A) (a : A) : M (StateOf S N A) := do
+def addOne (i : Nat) (st : StateOf S N A) (a : A) : M (StateOf S N A × Bool) := do
   let b ← anyL (fun y => coversA (K := K) y a) (st.answers i)
-  pure (if b then st else st.modify i fun t => { t with answers := t.answers ++ [a] })
+  pure (if b then (st, false)
+    else (st.modify i fun t => { t with answers := t.answers ++ [a] }, true))
+
+/-- Put an answer in the table at `i`, unless an answer there covers it. In
+the table of a goal that is its own converse the converse of the answer is
+an answer too, and goes in with it: such a table holds the converse of
+everything it holds, at every moment. -/
+def addAnswer (i : Nat) (st : StateOf S N A) (a : A) : M (StateOf S N A) := do
+  let (st, added) ← addOne (K := K) i st a
+  if added && st.isSelf i then do
+    let a' ← K.swapA a
+    let (st, _) ← addOne (K := K) i st a'
+    pure st
+  else pure st
 
 /-- Put what a rule returned, if anything, in the table at `i`. -/
 def addOption (i : Nat) (st : StateOf S N A) : Option A → M (StateOf S N A)
@@ -605,13 +641,18 @@ def step (st : StateOf S N A) : M (StepOf A (StateOf S N A)) :=
       let r ← request (K := K) st
       pure (.emit r.2 r.1)
 
+/-- The first state: the table of the root goal alone. -/
+def init (root : N) : M (StateOf S N A) := do
+  let self ← selfConverse (K := K) ⟨none, root, none⟩
+  pure ⟨[⟨⟨none, root, none⟩, self, [], false, none, 0, 0, 0⟩], 0, 0⟩
+
 end
 
 /-- The symmetric engine. Its first state is the table of the root goal
 alone. -/
 def engine : Engine where
   State := StateOf
-  init root := pure ⟨[⟨⟨none, root, none⟩, [], false, none, 0, 0, 0⟩], 0, 0⟩
+  init root := init root
   step st := step st
 
 end Symmetric

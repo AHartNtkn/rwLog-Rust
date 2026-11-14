@@ -910,7 +910,7 @@ theorem slow_improves :
 /-- The slow reader is admitted above the silent engine, over the empty
 record. -/
 theorem slow_admits :
-    Admits sized ⟨.time, .polynomial⟩ ⟨Preprocessor.id, silent⟩ ⟨Preprocessor.id, slow⟩ slowBounds ⟨2, 1⟩
+    Admits sized ⟨.time, .polynomial⟩ ⟨Preprocessor.id, silent, false⟩ ⟨Preprocessor.id, slow, false⟩ slowBounds ⟨2, 1⟩
       (fun _ => 0) slowClass [] 0 :=
   Admits.of_id slow_improves (rd_direction _) fun _ h => absurd h List.not_mem_nil
 
@@ -977,7 +977,7 @@ theorem quick_improves :
 /-- The quick reader is admitted above the slow one by an exponential gain,
 over the record that holds the slow reader's polynomial win. -/
 theorem quick_admits :
-    Admits sized ⟨.time, .exponential⟩ ⟨Preprocessor.id, slow⟩ ⟨Preprocessor.id, quick⟩ quickBounds
+    Admits sized ⟨.time, .exponential⟩ ⟨Preprocessor.id, slow, false⟩ ⟨Preprocessor.id, quick, false⟩ quickBounds
       ⟨2, 1⟩ (fun _ => 0) quickClass [slowWin] 1 :=
   Admits.of_id quick_improves (rd_direction _) fun w hw => by
     obtain rfl := List.mem_singleton.1 hw
@@ -986,7 +986,7 @@ theorem quick_admits :
 /-- A ladder of two rungs above the silent engine, with both wins on its
 record. -/
 theorem ladder :
-    Ladder sized ⟨Preprocessor.id, silent⟩ ⟨Preprocessor.id, quick⟩ [quickWin, slowWin] :=
+    Ladder sized ⟨Preprocessor.id, silent, false⟩ ⟨Preprocessor.id, quick, false⟩ [quickWin, slowWin] :=
   .admit (.admit .base slow_admits) quick_admits
 
 end Witness
