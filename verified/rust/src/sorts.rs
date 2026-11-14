@@ -1140,3 +1140,437 @@ pub fn out(s: &mut Store, decls: TermId, names: TermId, c: TermId, n: TermId) ->
 pub fn included(s: &mut Store, decls: TermId, names: TermId, c: TermId, n: TermId) -> bool {
     !out(s, decls, names, c, n)
 }
+
+// Inclusion but for some terms.
+//
+// Whether every member of a conjunction, but for the ground terms of a
+// list, is in a sort is asked root by root. Where the sort has no term with
+// a root, the conjunction may have only one, and it must be in the list.
+// Where the sort sorts the arguments, a member of the conjunction is outside
+// the sort at one argument, so the same is asked of each argument that the
+// sort sorts, with the arguments there of the terms of the list whose other
+// arguments are each the one member of their conjunction. What is still to
+// ask is a list of `App(conjunction, App(sort, terms))` with terms left.
+//
+// A *root* is `App(symbol, list with one member for each argument)`.
+
+/// The list with its members in the other order.
+fn rev(s: &mut Store, l0: TermId) -> TermId {
+    let mut out = s.alloc(Node::Nil);
+    let mut l = l0;
+    while let Some((h, t)) = uncons(s, l) {
+        out = s.alloc(Node::App(h, out));
+        l = t;
+    }
+    out
+}
+
+/// The roots `keys` with the root of `head` and `args` in front, unless
+/// they have it.
+fn add_key(s: &mut Store, keys: TermId, head: TermId, args: TermId) -> TermId {
+    match find(s, keys, head, args) {
+        Some(_) => keys,
+        None => {
+            let k = s.alloc(Node::App(head, args));
+            s.alloc(Node::App(k, keys))
+        }
+    }
+}
+
+/// The roots `keys0` with each root of the list `entries0` they have not.
+fn add_keys(s: &mut Store, keys0: TermId, entries0: TermId) -> TermId {
+    let mut keys = keys0;
+    let mut entries = entries0;
+    while let Some((e, t)) = uncons(s, entries) {
+        match uncons(s, e) {
+            Some((f, ks)) => keys = add_key(s, keys, f, ks),
+            None => panic!(),
+        }
+        entries = t;
+    }
+    keys
+}
+
+/// The roots `keys0` with the roots of the cases of each sort of the list
+/// `c0`.
+fn add_conj_keys(s: &mut Store, decls: TermId, keys0: TermId, c0: TermId) -> TermId {
+    let mut keys = keys0;
+    let mut c = c0;
+    while let Some((n, t)) = uncons(s, c) {
+        if let Some((cases, _)) = lookup(s, decls, n) {
+            keys = add_keys(s, keys, cases);
+        }
+        c = t;
+    }
+    keys
+}
+
+/// The roots `keys0` with the root of each term of the list `g0`.
+fn add_term_keys(s: &mut Store, keys0: TermId, g0: TermId) -> TermId {
+    let mut keys = keys0;
+    let mut g = g0;
+    while let Some((t, more)) = uncons(s, g) {
+        let (h, args) = spine(s, t);
+        keys = add_key(s, keys, h, args);
+        g = more;
+    }
+    keys
+}
+
+/// The roots to ask about, each once: those of the cases of the sorts of
+/// `c`, of the cases of `n`, those the rest of `n` excludes, and those of
+/// the terms of `g`.
+fn but_keys(s: &mut Store, decls: TermId, c: TermId, n: TermId, g: TermId) -> TermId {
+    let nil = s.alloc(Node::Nil);
+    let mut keys = add_conj_keys(s, decls, nil, c);
+    if let Some((cases, rest)) = lookup(s, decls, n) {
+        keys = add_keys(s, keys, cases);
+        if let Some((excluded, _)) = uncons(s, rest) {
+            keys = add_keys(s, keys, excluded);
+        }
+    }
+    add_term_keys(s, keys, g)
+}
+
+/// Has the conjunction `c` a member outside the sort `n` at the roots no
+/// declaration names? There are infinitely many of them. Tables `A` and `B`
+/// are used.
+fn fresh_out(s: &mut Store, decls: TermId, names: TermId, c: TermId, n: TermId) -> bool {
+    if rest_ok(s, decls, c) {
+        let own = lookup(s, decls, n);
+        match own_rest(s, own) {
+            None => true,
+            Some((_, r)) => {
+                if is_nil(s, r) {
+                    false
+                } else {
+                    let dk = rest_kids(s, decls, names, c);
+                    out(s, decls, names, dk, r)
+                }
+            }
+        }
+    } else {
+        false
+    }
+}
+
+/// For each conjunction of the list `kids0`, in order: `App(member, Nil)`
+/// when it has one member, and `Nil` when it has more. Nothing when one of
+/// them has no member. Tables `A` and `B` are used.
+fn soles(s: &mut Store, decls: TermId, names: TermId, kids0: TermId) -> Option<TermId> {
+    let nil = s.alloc(Node::Nil);
+    let mut out = nil;
+    let mut kids = kids0;
+    let mut ok = true;
+    let mut go = true;
+    while go {
+        match uncons(s, kids) {
+            Some((k, t)) => match count(s, decls, names, k) {
+                Count::None => {
+                    ok = false;
+                    go = false;
+                }
+                Count::One(m) => {
+                    let e = s.alloc(Node::App(m, nil));
+                    out = s.alloc(Node::App(e, out));
+                    kids = t;
+                }
+                Count::Many => {
+                    out = s.alloc(Node::App(nil, out));
+                    kids = t;
+                }
+            },
+            None => go = false,
+        }
+    }
+    if ok {
+        Some(rev(s, out))
+    } else {
+        None
+    }
+}
+
+/// Is the term `a` the one member that `e` holds?
+fn is_sole(s: &mut Store, e: TermId, a: TermId) -> bool {
+    match uncons(s, e) {
+        Some((m, _)) => s.same(m, a),
+        None => false,
+    }
+}
+
+/// Is some argument of the list `args0` not the one member of its
+/// conjunction, and are two? `soles0` is what `soles` gives, and as long.
+fn misses(s: &mut Store, soles0: TermId, args0: TermId) -> (bool, bool) {
+    let mut any = false;
+    let mut two = false;
+    let mut so = soles0;
+    let mut args = args0;
+    while let Some((e, st)) = uncons(s, so) {
+        match uncons(s, args) {
+            Some((a, at)) => {
+                let miss = !is_sole(s, e, a);
+                two |= any & miss;
+                any |= miss;
+                so = st;
+                args = at;
+            }
+            None => panic!(),
+        }
+    }
+    (any, two)
+}
+
+/// Has the list `g0` a term with the symbol `f` and as many arguments as
+/// `ks` has members, each the one member of its conjunction?
+fn only_in(s: &mut Store, so: TermId, f: TermId, ks: TermId, g0: TermId) -> bool {
+    let mut g = g0;
+    let mut found = false;
+    let mut go = true;
+    while go {
+        match uncons(s, g) {
+            Some((t, more)) => {
+                let (h, args) = spine(s, t);
+                if s.same(h, f) && same_len(s, args, ks) {
+                    let (any, _) = misses(s, so, args);
+                    if any {
+                        g = more;
+                    } else {
+                        found = true;
+                        go = false;
+                    }
+                } else {
+                    g = more;
+                }
+            }
+            None => go = false,
+        }
+    }
+    found
+}
+
+/// The lists `accs0`, one for each argument, each with its argument of
+/// `args0` in front when every other argument is the one member of its
+/// conjunction. `any` says that some argument is not, and no two are not.
+fn contrib(s: &mut Store, soles0: TermId, args0: TermId, accs0: TermId, any: bool) -> TermId {
+    let mut out = s.alloc(Node::Nil);
+    let mut so = soles0;
+    let mut args = args0;
+    let mut accs = accs0;
+    while let Some((e, st)) = uncons(s, so) {
+        match uncons(s, args) {
+            Some((a, at)) => match uncons(s, accs) {
+                Some((acc, ct)) => {
+                    let put = if any { !is_sole(s, e, a) } else { true };
+                    let acc1 = if put { s.alloc(Node::App(a, acc)) } else { acc };
+                    out = s.alloc(Node::App(acc1, out));
+                    so = st;
+                    args = at;
+                    accs = ct;
+                }
+                None => panic!(),
+            },
+            None => panic!(),
+        }
+    }
+    rev(s, out)
+}
+
+/// For each argument of the root of `f` and `ks`, in order: that argument
+/// of the terms of the list `g0` with the root whose other arguments are
+/// each the one member of their conjunction.
+fn projs(s: &mut Store, so: TermId, f: TermId, ks: TermId, g0: TermId) -> TermId {
+    let nil = s.alloc(Node::Nil);
+    let mut accs = fill(s, ks, nil);
+    let mut g = g0;
+    while let Some((t, more)) = uncons(s, g) {
+        let (h, args) = spine(s, t);
+        if s.same(h, f) && same_len(s, args, ks) {
+            let (any, two) = misses(s, so, args);
+            if !two {
+                accs = contrib(s, so, args, accs, any);
+            }
+        }
+        g = more;
+    }
+    accs
+}
+
+/// What a root where the sort sorts the arguments leaves to ask: for each
+/// argument the sort `kn0` gives a sort, whether its conjunction of `kids0`
+/// but for the terms of `accs0` is in that sort. With no term it is asked
+/// now, and nothing is given when it is not; otherwise it is put in front
+/// of `todo0`. The three lists are as long. Tables `A` and `B` are used.
+fn push_asks(
+    s: &mut Store,
+    decls: TermId,
+    names: TermId,
+    kids0: TermId,
+    kn0: TermId,
+    accs0: TermId,
+    todo0: TermId,
+) -> Option<TermId> {
+    let mut todo = todo0;
+    let mut kids = kids0;
+    let mut kn = kn0;
+    let mut accs = accs0;
+    let mut ok = true;
+    let mut go = true;
+    while go {
+        match uncons(s, kids) {
+            Some((k, kt)) => match uncons(s, kn) {
+                Some((m, mt)) => match uncons(s, accs) {
+                    Some((acc, ct)) => {
+                        kids = kt;
+                        kn = mt;
+                        accs = ct;
+                        if !is_nil(s, m) {
+                            if is_nil(s, acc) {
+                                if !included(s, decls, names, k, m) {
+                                    ok = false;
+                                    go = false;
+                                }
+                            } else {
+                                let r = s.alloc(Node::App(m, acc));
+                                let ask = s.alloc(Node::App(k, r));
+                                todo = s.alloc(Node::App(ask, todo));
+                            }
+                        }
+                    }
+                    None => panic!(),
+                },
+                None => panic!(),
+            },
+            None => go = false,
+        }
+    }
+    if ok {
+        Some(todo)
+    } else {
+        None
+    }
+}
+
+/// What the root of `f` and `ks` leaves to ask of the conjunction `c`, the
+/// sort `n` and the terms `g`, in front of `todo`; nothing when the
+/// conjunction has a member with that root that is outside the sort and not
+/// in `g`. Tables `A` and `B` are used.
+#[allow(clippy::too_many_arguments)]
+fn but_key(
+    s: &mut Store,
+    decls: TermId,
+    names: TermId,
+    c: TermId,
+    n: TermId,
+    g: TermId,
+    f: TermId,
+    ks: TermId,
+    todo: TermId,
+) -> Option<TermId> {
+    match step_conj(s, decls, names, c, f, ks) {
+        None => Some(todo),
+        Some(kids) => match soles(s, decls, names, kids) {
+            None => Some(todo),
+            Some(so) => match step(s, decls, n, f, ks) {
+                None => {
+                    if only_in(s, so, f, ks, g) {
+                        Some(todo)
+                    } else {
+                        None
+                    }
+                }
+                Some(kn) => {
+                    let accs = projs(s, so, f, ks, g);
+                    push_asks(s, decls, names, kids, kn, accs, todo)
+                }
+            },
+        },
+    }
+}
+
+/// What is left to ask of the conjunction `c`, the sort `n` and the terms
+/// `g`, of which there is one at least, in front of `todo0`; nothing when
+/// the conjunction has a member outside the sort that is not in `g`. Tables
+/// `A` and `B` are used.
+fn but_one(
+    s: &mut Store,
+    decls: TermId,
+    names: TermId,
+    c: TermId,
+    n: TermId,
+    g: TermId,
+    todo0: TermId,
+) -> Option<TermId> {
+    if fresh_out(s, decls, names, c, n) {
+        None
+    } else {
+        let mut keys = but_keys(s, decls, c, n, g);
+        let mut todo = todo0;
+        let mut ok = true;
+        let mut go = true;
+        while go {
+            match uncons(s, keys) {
+                Some((key, t)) => match uncons(s, key) {
+                    Some((f, ks)) => match but_key(s, decls, names, c, n, g, f, ks, todo) {
+                        Some(td) => {
+                            todo = td;
+                            keys = t;
+                        }
+                        None => {
+                            ok = false;
+                            go = false;
+                        }
+                    },
+                    None => panic!(),
+                },
+                None => go = false,
+            }
+        }
+        if ok {
+            Some(todo)
+        } else {
+            None
+        }
+    }
+}
+
+/// Is every member of the conjunction `c`, but for the ground terms of the
+/// list `g`, in the sort `n`? `n` is the name of a sort. Tables `A` and `B`
+/// are used.
+pub fn included_but(
+    s: &mut Store,
+    decls: TermId,
+    names: TermId,
+    c: TermId,
+    n: TermId,
+    g: TermId,
+) -> bool {
+    if is_nil(s, g) {
+        included(s, decls, names, c, n)
+    } else {
+        let nil = s.alloc(Node::Nil);
+        let r = s.alloc(Node::App(n, g));
+        let ask = s.alloc(Node::App(c, r));
+        let mut todo = s.alloc(Node::App(ask, nil));
+        let mut ok = true;
+        let mut go = true;
+        while go {
+            match uncons(s, todo) {
+                Some((a, t)) => match uncons(s, a) {
+                    Some((c1, r1)) => match uncons(s, r1) {
+                        Some((n1, g1)) => match but_one(s, decls, names, c1, n1, g1, t) {
+                            Some(td) => todo = td,
+                            None => {
+                                ok = false;
+                                go = false;
+                            }
+                        },
+                        None => panic!(),
+                    },
+                    None => panic!(),
+                },
+                None => go = false,
+            }
+        }
+        ok
+    }
+}
