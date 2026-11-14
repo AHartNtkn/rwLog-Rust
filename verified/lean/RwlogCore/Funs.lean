@@ -7120,27 +7120,29 @@ def dom.rep
     else ok (none, s2)
   else ok (none, s1)
 
+/-- [rwlog_core::dom::mark]:
+    Source: 'src/dom.rs', lines 460:0-467:1 -/
+def dom.mark
+  (s : store.Store) (flip : Bool) : Result (store.TermId × store.Store) := do
+  let (nil, s1) ← store.Store.alloc s store.Node.Nil
+  if flip
+  then store.Store.alloc s1 (store.Node.App nil nil)
+  else ok (nil, s1)
+
 /-- [rwlog_core::dom::pack]:
-    Source: 'src/dom.rs', lines 462:0-468:1
+    Source: 'src/dom.rs', lines 472:0-477:1
     Visibility: public -/
 def dom.pack
   (s : store.Store) (a : dom.Oriented) :
   Result (store.TermId × store.Store)
   := do
-  let (nil, s1) ← store.Store.alloc s store.Node.Nil
-  let (s2, m) ←
-    if a.flip
-    then
-      do
-      let (m1, s3) ← store.Store.alloc s1 (store.Node.App nil nil)
-      ok (s3, m1)
-    else ok (s1, nil)
-  let (h, s3) ← store.Store.alloc s2 (store.Node.App m a.rep.t)
-  let (g, s4) ← store.Store.alloc s3 (store.Node.App h a.rep.c)
-  store.Store.alloc s4 (store.Node.App g a.rep.x)
+  let (m, s1) ← dom.mark s a.flip
+  let (h, s2) ← store.Store.alloc s1 (store.Node.App m a.rep.t)
+  let (g, s3) ← store.Store.alloc s2 (store.Node.App h a.rep.c)
+  store.Store.alloc s3 (store.Node.App g a.rep.x)
 
 /-- [rwlog_core::dom::unpack]:
-    Source: 'src/dom.rs', lines 470:0-485:1 -/
+    Source: 'src/dom.rs', lines 479:0-494:1 -/
 def dom.unpack
   (s : store.Store) (p : store.TermId) :
   Result (dom.Oriented × store.Store)
@@ -7179,7 +7181,7 @@ def dom.unpack
   | store.Node.Nil => fail panic
 
 /-- [rwlog_core::dom::composable]: loop body 0:
-    Source: 'src/dom.rs', lines 496:12-513:13
+    Source: 'src/dom.rs', lines 505:12-522:13
     Visibility: public -/
 @[rust_loop_body]
 def dom.composable_loop.body
@@ -7206,7 +7208,7 @@ def dom.composable_loop.body
   else ok (done (ok1, s))
 
 /-- [rwlog_core::dom::composable]: loop 0:
-    Source: 'src/dom.rs', lines 496:12-513:13
+    Source: 'src/dom.rs', lines 505:12-522:13
     Visibility: public -/
 @[rust_loop]
 def dom.composable_loop
@@ -7220,7 +7222,7 @@ def dom.composable_loop
     (s, acc, rest, ok1, go)
 
 /-- [rwlog_core::dom::composable]:
-    Source: 'src/dom.rs', lines 489:0-518:1
+    Source: 'src/dom.rs', lines 498:0-527:1
     Visibility: public -/
 def dom.composable
   (s : store.Store) (decls : store.TermId) (names : store.TermId)

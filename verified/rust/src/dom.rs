@@ -456,12 +456,21 @@ pub fn rep(s: &mut Store, decls: TermId, names: TermId, ne: u32, x: Span) -> Opt
     }
 }
 
+/// The mark as a node: `Nil`, or with the mark `Nil` applied to `Nil`.
+fn mark(s: &mut Store, flip: bool) -> TermId {
+    let nil = s.alloc(Node::Nil);
+    if flip {
+        s.alloc(Node::App(nil, nil))
+    } else {
+        nil
+    }
+}
+
 /// A representative as one node: its mark, `Nil` or with the mark `Nil`
 /// applied to `Nil`, applied to its pattern, its conjunctions and its
 /// exclusions.
 pub fn pack(s: &mut Store, a: Oriented) -> TermId {
-    let nil = s.alloc(Node::Nil);
-    let m = if a.flip { s.alloc(Node::App(nil, nil)) } else { nil };
+    let m = mark(s, a.flip);
     let h = s.alloc(Node::App(m, a.rep.t));
     let g = s.alloc(Node::App(h, a.rep.c));
     s.alloc(Node::App(g, a.rep.x))

@@ -29,7 +29,8 @@ constraints is a term that ends in `z`.
 
 Not derived here, and charged as `Kernel.std` charges them: `rep`, which
 returns the span it is given, and `covers` when the covering span has
-constraints (the kernel of the sorts replaces both, roadmap L39 and L48).
+constraints (the kernel of the sorts derives both,
+`RwLogVerified/SortsKernel.lean`).
 `swap` exchanges two fields and touches no store. `tick`, `race` and `metered` are those of the cost monad.
 
 Space. The store only grows and an allocation is a tick, so an operation

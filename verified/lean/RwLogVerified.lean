@@ -87,15 +87,24 @@
   assembled and folded, which gives the folded canonical store of the
   normal store of the problem. Its charge is a function of the problem
   (`normCharge`), with nothing assumed.
-* `RwLogVerified.Dom`: the operations of the sorts domain on folded
-  canonical stores: the representative of a pair of patterns over the
-  solutions of one, composition, conjunction, the right bound, the
-  converse, whether a representative relates each term to itself only, and
-  whether one covers another.
+* `RwLogVerified.Dom`: the operations of the sorts domain on
+  representatives held as a folded canonical store and a mark, the store of
+  the converse with the mark: the representative of a pair of patterns over
+  the solutions of a store, composition, conjunction, the right and the left
+  bound, the converse of a store, whether a representative relates each term
+  to itself only, whether two are the same, and whether one covers another.
 * `RwLogVerified.SpanRep`: the representative of a span as written:
   whether a term is first-order, what each constraint says, and the folded
   canonical store of the two sides under the sorts and the disequalities.
-* `RwLogVerified.Kernel`: the kernel rung whose charges are those bounds.
+* `RwLogVerified.DomChain`: the charge of each operation of the sorts
+  domain as a function of the representatives alone, the most it spends
+  over the ways they may be held; a representative as one node; and whether
+  a chain of them composes.
+* `RwLogVerified.Kernel`: the kernel rung of spans as written, whose
+  charges are those bounds.
+* `RwLogVerified.SortsKernel`: the kernel rung of the sorts domain: it
+  returns what `Sorts.dom` returns, and each operation runs in Rust within
+  its charge.
 * `RwLogVerified.KernelRuns`: its charges on a worked composition.
 
 Every theorem says the Rust function does not panic, returns the
@@ -152,5 +161,7 @@ import RwLogVerified.Fold
 import RwLogVerified.Normal
 import RwLogVerified.Dom
 import RwLogVerified.SpanRep
+import RwLogVerified.DomChain
 import RwLogVerified.Kernel
+import RwLogVerified.SortsKernel
 import RwLogVerified.KernelRuns
