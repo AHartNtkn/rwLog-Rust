@@ -51,6 +51,12 @@ Rungs/Tabled/   the tabled round machine for any way of unfolding a call (Machin
 Rungs/Mirror/   a machine run on a query and on its converse side by side, for any engine
                 (Machine.lean); what a step of it shows (Trace.lean) and what it costs
                 from below (Bounds.lean)
+Rungs/Symmetric/ the symmetric engine of `SYMMETRIC_ENGINE.md` (Machine.lean): a table for
+                every goal, every split of a chain and of a meet as a group of strategies
+                (join, push from either side), groups balanced by their levels, one
+                request a step. Run in `Tests/SymmetricRuns.lean`. Nothing is proved of
+                it yet, and it lacks the interface check, the choice of one orientation
+                and the shared table of a goal and its converse
 Rungs/Naive/    normalisation, unfolding to a depth, and their correctness (namespace `R000`)
 Rungs/R005/     the engines: `R001.engine` (tables, unfolding to a depth), `R004.engine` (tables,
                 the race of all three ways), `R005.engine` (`R004.engine` mirrored);
