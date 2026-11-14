@@ -636,7 +636,7 @@ theorem kept_entries_spec {U : List Name} (M : Nat → Option Pat) (L : List (Na
 /-- The ticks `closed_ones` may take in its loop. -/
 def closedLoopCost : List (Pat × Pat) → Nat
   | [] => 1
-  | q :: LC => 13 * q.2.subs.card + 10 + closedLoopCost LC
+  | q :: LC => 13 * q.2.subs.card + 9 + closedLoopCost LC
 
 theorem closed_ones_loop_spec (hnm : Function.Injective nm) :
     ∀ (LC : List (Pat × Pat)) (s : store.Store) (out l cs : store.TermId) (O : List Pat),

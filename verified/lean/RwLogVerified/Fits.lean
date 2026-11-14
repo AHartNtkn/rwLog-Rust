@@ -15,7 +15,7 @@ import RwLog.Sorts.Fits
 import RwLogVerified.Among
 import RwLogVerified.Clo
 import RwLogVerified.Sole
-import RwLogVerified.Compose
+import RwLogVerified.Lists
 
 open Aeneas Aeneas.Std Result
 

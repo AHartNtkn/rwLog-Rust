@@ -1,7 +1,7 @@
-//! Composition and conjunction of spans, by two-sided matching.
+//! Solving equations between terms, and a span as the machine is handed it.
 
 use crate::store::{Node, Store, Tbl, TermId};
-use crate::term::{append, occurs, rebuild, Leaf};
+use crate::term::{occurs, rebuild, Leaf};
 
 /// A span: its two terms and the list of its constraints.
 #[derive(Clone, Copy)]
@@ -115,100 +115,4 @@ pub fn solve_into(s: &mut Store, eqs0: TermId, out0: TermId) -> (bool, TermId) {
         }
     }
     (ok, out)
-}
-
-fn rename(s: &mut Store, f: Leaf, x: Span) -> Span {
-    s.clear(Tbl::A);
-    let l = rebuild(s, f, x.l);
-    let r = rebuild(s, f, x.r);
-    let c = rebuild(s, f, x.c);
-    Span { l, r, c }
-}
-
-/// A span as one node.
-pub fn pack_span(s: &mut Store, x: Span) -> TermId {
-    pack(s, x.l, x.r, x.c)
-}
-
-fn pack(s: &mut Store, l: TermId, r: TermId, c: TermId) -> TermId {
-    let rc = s.alloc(Node::App(r, c));
-    s.alloc(Node::App(l, rc))
-}
-
-fn unpack(s: &mut Store, o: TermId) -> Span {
-    match s.read(o) {
-        Node::App(l, rc) => match s.read(rc) {
-            Node::App(r, c) => Span { l, r, c },
-            _ => panic!(),
-        },
-        _ => panic!(),
-    }
-}
-
-fn finish(s: &mut Store, eqs: TermId, out: TermId) -> Option<Span> {
-    let (ok, o) = solve_into(s, eqs, out);
-    if ok {
-        Some(unpack(s, o))
-    } else {
-        None
-    }
-}
-
-/// Sequential composition: match the right of `x` against the left of `y`.
-pub fn compose(s: &mut Store, x: Span, y: Span) -> Option<Span> {
-    let a = rename(s, Leaf::Left, x);
-    let b = rename(s, Leaf::Right, y);
-    let c = append(s, a.c, b.c);
-    let out = pack(s, a.l, b.r, c);
-    let nil = s.alloc(Node::Nil);
-    let e = s.alloc(Node::App(a.r, b.l));
-    let eqs = s.alloc(Node::App(e, nil));
-    finish(s, eqs, out)
-}
-
-/// Conjunction: match both sides.
-pub fn meet(s: &mut Store, x: Span, y: Span) -> Option<Span> {
-    let a = rename(s, Leaf::Left, x);
-    let b = rename(s, Leaf::Right, y);
-    let c = append(s, a.c, b.c);
-    let out = pack(s, a.l, a.r, c);
-    let nil = s.alloc(Node::Nil);
-    let e2 = s.alloc(Node::App(a.r, b.r));
-    let r2 = s.alloc(Node::App(e2, nil));
-    let e1 = s.alloc(Node::App(a.l, b.l));
-    let eqs = s.alloc(Node::App(e1, r2));
-    finish(s, eqs, out)
-}
-
-/// Does the chain compose? `xs` is a list of spans, each packed by
-/// `pack_span`.
-pub fn composable(s: &mut Store, xs: TermId) -> bool {
-    match s.read(xs) {
-        Node::App(h, t) => {
-            let mut acc = unpack(s, h);
-            let mut rest = t;
-            let mut ok = true;
-            let mut go = true;
-            while go {
-                match s.read(rest) {
-                    Node::App(h2, t2) => {
-                        let y = unpack(s, h2);
-                        match compose(s, acc, y) {
-                            Some(z) => {
-                                acc = z;
-                                rest = t2;
-                            }
-                            None => {
-                                ok = false;
-                                go = false;
-                            }
-                        }
-                    }
-                    _ => go = false,
-                }
-            }
-            ok
-        }
-        _ => true,
-    }
 }

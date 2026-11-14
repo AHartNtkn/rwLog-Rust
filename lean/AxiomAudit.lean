@@ -50,19 +50,7 @@ new axiom.
 #guard_msgs in #print axioms RwLog.Rung.honest
 
 
-/-! ## Chains, costs and equal runtimes -/
-
-/-- info: 'RwLog.Span.denO_chain' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLog.Span.denO_chain
-
-/-- info: 'RwLog.Span.chain_isSome_iff' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLog.Span.chain_isSome_iff
-
-/-- info: 'RwLog.Span.chain_isSome_fuse' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLog.Span.chain_isSome_fuse
-
-/-- info: 'RwLog.Span.chain_eq_none_of_compose' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLog.Span.chain_eq_none_of_compose
+/-! ## Costs and equal runtimes -/
 
 /-- info: 'RwLog.Runtime.SameRun.of_eq' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Runtime.SameRun.of_eq

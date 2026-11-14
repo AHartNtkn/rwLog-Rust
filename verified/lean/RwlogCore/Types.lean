@@ -73,22 +73,6 @@ structure store.Store where
   eb : Std.U64
   ticks : Std.U64
 
-/-- [rwlog_core::store::Tbl]
-    Source: 'src/store.rs', lines 68:0-71:1
-    Visibility: public -/
-@[discriminant isize]
-inductive store.Tbl where
-| A : store.Tbl
-| B : store.Tbl
-
-/-- [rwlog_core::span::Span]
-    Source: 'src/span.rs', lines 8:0-12:1
-    Visibility: public -/
-structure span.Span where
-  l : store.TermId
-  r : store.TermId
-  c : store.TermId
-
 /-- [rwlog_core::sorts::Rep]
     Source: 'src/sorts.rs', lines 3175:0-3179:1
     Visibility: public -/
@@ -98,7 +82,7 @@ structure sorts.Rep where
   x : store.TermId
 
 /-- [rwlog_core::term::Leaf]
-    Source: 'src/term.rs', lines 7:0-17:1
+    Source: 'src/term.rs', lines 8:0-18:1
     Visibility: public -/
 @[discriminant isize]
 inductive term.Leaf where
@@ -106,6 +90,14 @@ inductive term.Leaf where
 | Right : term.Leaf
 | Sub : store.TermId → store.TermId → term.Leaf
 | Map : term.Leaf
+
+/-- [rwlog_core::store::Tbl]
+    Source: 'src/store.rs', lines 68:0-71:1
+    Visibility: public -/
+@[discriminant isize]
+inductive store.Tbl where
+| A : store.Tbl
+| B : store.Tbl
 
 /-- [rwlog_core::span::Kind]
     Source: 'src/span.rs', lines 27:0-31:1 -/
@@ -131,7 +123,7 @@ inductive span.Act where
 | Elim : store.TermId → store.TermId → span.Act
 
 /-- [rwlog_core::sorts::Count]
-    Source: 'src/sorts.rs', lines 673:0-680:1
+    Source: 'src/sorts.rs', lines 672:0-679:1
     Visibility: public -/
 @[discriminant isize]
 inductive sorts.Count where
@@ -162,5 +154,13 @@ inductive dom.Con where
 | «Sort» : store.TermId → dom.Con
 | Differ : store.TermId → store.TermId → dom.Con
 | Never : dom.Con
+
+/-- [rwlog_core::span::Span]
+    Source: 'src/span.rs', lines 8:0-12:1
+    Visibility: public -/
+structure span.Span where
+  l : store.TermId
+  r : store.TermId
+  c : store.TermId
 
 end rwlog_core

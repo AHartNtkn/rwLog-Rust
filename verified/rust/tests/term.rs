@@ -1,9 +1,10 @@
-//! Rebuilding, the occurs check and list append, against trees.
+//! Rebuilding, the occurs check, list append and whether a term has a
+//! variable, against trees.
 
 mod common;
 use common::*;
 use rwlog_core::store::{Node, Store, Tbl};
-use rwlog_core::term::{append, occurs, rebuild, Leaf};
+use rwlog_core::term::{append, ground, occurs, rebuild, Leaf};
 
 #[test]
 fn rebuild_left_doubles_every_variable() {
@@ -128,4 +129,53 @@ fn append_to_the_empty_list_is_the_other_list() {
     assert!(s.same(r, b));
     let r2 = append(&mut s, b, a);
     assert!(s.same(r2, b));
+}
+
+#[test]
+fn ground_agrees_with_the_specification_on_all_small_terms() {
+    for t in terms(2) {
+        let mut s = Store::new();
+        let p = put(&mut s, &t);
+        let open = common::occurs(&t, 0) || common::occurs(&t, 1);
+        assert_eq!(ground(&mut s, p), !open, "ground {t:?}");
+    }
+}
+
+#[test]
+fn ground_does_not_read_an_answer_left_by_an_earlier_call() {
+    // The same store, asked first of a term with a variable and then of
+    // terms that share nodes with it.
+    let mut s = Store::new();
+    let open = put(&mut s, &ap(sy(0), v(0)));
+    let closed = put(&mut s, &ap(sy(0), sy(1)));
+    let head = put(&mut s, &sy(0));
+    assert!(!ground(&mut s, open));
+    assert!(ground(&mut s, closed));
+    assert!(ground(&mut s, head));
+    assert!(!ground(&mut s, open));
+}
+
+#[test]
+fn ground_leaves_table_a_as_it_was() {
+    let mut s = Store::new();
+    let p = put(&mut s, &ap(sy(0), v(0)));
+    let q = put(&mut s, &sy(1));
+    s.set(Tbl::A, p, q);
+    ground(&mut s, p);
+    assert_eq!(s.get(Tbl::A, p).map(|w| s.same(w, q)), Some(true));
+    assert!(s.get(Tbl::A, q).is_none());
+}
+
+#[test]
+fn ground_visits_a_shared_node_once() {
+    // A full tree of 2^40 leaves is 41 nodes in the store.
+    let mut s = Store::new();
+    let mut p = s.alloc(Node::Sym(0));
+    for _ in 0..40 {
+        p = s.alloc(Node::App(p, p));
+    }
+    let (r, t) = spent(&mut s, |s| ground(s, p));
+    assert!(r);
+    assert!(t <= 6 + 13 * 41, "spent {t} ticks on 41 nodes");
+    println!("ground of 41 shared nodes: {t} ticks of {}", 6 + 13 * 41);
 }
