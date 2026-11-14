@@ -1,4 +1,4 @@
-import RwLog.Rungs.R005.Engine
+import RwLog.Rungs.R005.Sorts
 import RwLog.Rungs.R005.Bounds
 
 /-!
@@ -6,12 +6,16 @@ import RwLog.Rungs.R005.Bounds
 
 These checks run R005, the tabled machine with the raced unfolding
 (`R004.engine`) and the tabled machine with the whole unfolding
-(`R001.engine`) at the kernel of spans as they are written, and fail the build
-if what they emit changes. They are the conformance cases of the review of
-the Rust interpreter that need no constraint (cases 1, 5, 6 and 7); the cases
-about constraints (2 and 4) are tests of the domain of sorts. Case 3 (answers
-merged by a hash) has no program: every comparison an engine makes is an
-operation of the kernel.
+(`R001.engine`) at the domain of sorts with nothing charged
+(`Engine.atSorts`), and fail the build if what they emit changes. They are
+the conformance cases of the review of the Rust interpreter that need no
+constraint (cases 1, 5, 6 and 7); the cases about constraints (2 and 4) are
+`Tests/SortsConformance.lean`. Case 3 (answers merged by a hash) has no
+program: every comparison an engine makes is an operation of the kernel.
+
+A tick counted here is a tick of the engine and of the operations on nodes.
+The operations of the domain are not charged at this kernel: their charges
+are derived on a machine (`verified/`) and are not computed in a test.
 -/
 
 namespace RwLog.Tests
@@ -34,25 +38,35 @@ partial def showTerm : Term Nat → String
       | .app a b => s!"(@ {showTerm a} {showTerm b})"
       | _ => "?"
 
-def showSpan (s : Span) : String :=
-  let store := if s.c.isEmpty then "" else " { " ++ ", ".intercalate (s.c.map showTerm) ++ " }"
-  showTerm s.l ++ store ++ " -> " ++ showTerm s.r
+/-- A representative, shown as a span: its two sides, the sorts of its
+variables, and what it excludes. -/
+def showRep (r : Sorts.Raw) : String :=
+  let sorts := r.c.zipIdx.filterMap fun (c, i) =>
+    if (c.sort (· ≤ ·)).isEmpty then none
+    else some (s!"${i} : " ++ " & ".intercalate (c.sort (· ≤ ·)))
+  let excl := (r.x.image fun b =>
+    " or ".intercalate (b.map fun (v, t) => s!"${v} != {showTerm t}")).sort (· ≤ ·)
+  let store := sorts ++ excl
+  let sides := match r.t with
+    | .app (.app (.sym "") l) r => showTerm l ++ " -> " ++ showTerm r
+    | t => showTerm t
+  sides ++ (if store.isEmpty then "" else " { " ++ ", ".intercalate store ++ " }")
 
-/-- Run an engine for at most `fuel` steps: the answers it emitted, and its
-final report if it reported that it is done. -/
+/-- Run an engine at the domain of sorts for at most `fuel` steps: the answers
+it emitted, and its final report if it reported that it is done. -/
 def runE (E : Engine) (P : Program) (q : Rel) (fuel : Nat) : List String × Option (List String) :=
-  let r := E.costed.runtime.run (E.costed.start P q) fuel
-  (r.1.map fun a => showSpan a.2, r.2.map (·.map fun a => showSpan a.2))
+  let r := E.atSorts.runtime.run (E.atSorts.start P q) fuel
+  (r.1.map fun a => showRep a.2.1, r.2.map (·.map fun a => showRep a.2.1))
 
 /-- What each step showed. -/
 def traceE (E : Engine) (P : Program) (q : Rel) (fuel : Nat) : List (List String) :=
-  (E.costed.runtime.trace (E.costed.start P q) fuel).map fun
-    | .answers as => as.map fun a => showSpan a.2
+  (E.atSorts.runtime.trace (E.atSorts.start P q) fuel).map fun
+    | .answers as => as.map fun a => showRep a.2.1
     | .level n => [s!"level {n}"]
-    | .final as => "final" :: as.map fun a => showSpan a.2
+    | .final as => "final" :: as.map fun a => showRep a.2.1
 
-/-- The ticks paid by the end of the first `n` steps. -/
-def paidE (E : Engine) (P : Program) (q : Rel) (n : Nat) : Nat := E.costed.paid P q n
+/-- The ticks the engine has spent by the end of the first `n` steps. -/
+def paidE (E : Engine) (P : Program) (q : Rel) (n : Nat) : Nat := E.atSorts.paid P q n
 
 def empty : Program := ⟨[], []⟩
 def prog (defs : List (Name × Rel)) : Program := ⟨defs, []⟩
@@ -174,11 +188,15 @@ Whether the unfolding of a goal to a depth is final, and its answers when it
 is, as the whole unfolding, each walk and the shared evaluation say. -/
 
 open Tabled Tabled.Unfold in
-/-- The answer of an unfolding race at the kernel of spans as written. -/
+/-- The answer of an unfolding race at the domain of sorts, between the
+boundaries the two spans are read as. -/
 def askRace (U : Tabled.Unfolder) (P : Program) (q : Rel) (lb rb : Option Span) (d : Nat) :
     Bool × List String :=
-  let r := (@U Span Rel (Ans Domain.written P) Cost (DerivationKernel.std P) d ⟨lb, q.norm, rb⟩).val
-  (r.1, r.2.map fun a => showSpan a.span)
+  let D := Sorts.dom P.sorts
+  let r := (@U (Sorts.Rep P.sorts) Rel (Ans D P) Cost
+    (DerivationKernel.over D (Kernel.uncharged D) (Kernel.uncharged_refines D) P) d
+    ⟨lb.bind D.rep, q.norm, rb.bind D.rep⟩).val
+  (r.1, r.2.map fun a => showRep a.span.1)
 
 open Tabled.Unfold in
 def races : List Tabled.Unfolder := [eagerRace, walkRace false, walkRace true, sharedRace, raced]
@@ -227,9 +245,10 @@ def atom (t : Pat) : Option Span := some ⟨t, t, []⟩
 /-! ## The stated lower bounds, on small inputs
 
 `R005.MidLower` and `R005.FreeLower` (`Rungs/R005/Bounds.lean`) are stated
-and not proved. These checks run them: at the first step by which R005 has
-emitted the answer, each run of R004 has cost at least `2 ^ k`, and so has
-R005. -/
+and not proved. These checks run them at the domain of sorts with nothing
+charged, where they are bounds on what the engine itself spends: at the first
+step by which R005 has emitted the answer, each run of R004 has cost at least
+`2 ^ k`, and so has R005. -/
 
 /-- The first step, within `fuel`, by which R005 has emitted the answer shown
 as `ans`. -/
@@ -242,8 +261,10 @@ R005 has paid. -/
 def lowerRow (P : Program) (q : Rel) (ans : String) (fuel : Nat) :
     Option (Nat × Nat × Nat × Nat) :=
   (firstStep P q ans fuel).map fun n =>
-    (n, Mirror.cost (R004.engine.stepW P) (R004.engine.startW P q.norm) n,
-      Mirror.cost (R004.engine.stepW P) (R004.engine.startW P q.norm.normConv) n,
+    (n, Mirror.cost (R004.engine.stepK Sorts.uncharged P)
+        (R004.engine.startK Sorts.uncharged P q.norm) n,
+      Mirror.cost (R004.engine.stepK Sorts.uncharged P)
+        (R004.engine.startK Sorts.uncharged P q.norm.normConv) n,
       paidE R005.engine P q n)
 
 /-- The row is there, and every cost in it is at least `lo`. -/
@@ -254,14 +275,14 @@ def atLeast (lo : Nat) (row : Option (Nat × Nat × Nat × Nat)) : Bool :=
 #guard (List.range 5).all fun k =>
   atLeast (2 ^ k) (lowerRow (R005.freeProg k) R005.freeRel "a -> a" 8)
 
--- The answer of the free family arrives in the fourth round, and the costs
--- more than double with each step of `k`.
+-- The answer of the free family arrives in the fourth round, and what each
+-- run has cost by then grows with every step of `k`.
 #guard (List.range 5).all fun k =>
   (lowerRow (R005.freeProg k) R005.freeRel "a -> a" 8).any fun r => r.1 == 4
 #guard (List.range 4).all fun k =>
   match lowerRow (R005.freeProg k) R005.freeRel "a -> a" 8,
     lowerRow (R005.freeProg (k + 1)) R005.freeRel "a -> a" 8 with
-  | some a, some b => 2 * a.2.1 < b.2.1 && 2 * a.2.2.1 < b.2.2.1
+  | some a, some b => a.2.1 < b.2.1 && a.2.2.1 < b.2.2.1
   | _, _ => false
 
 -- With the answer written in the query it arrives in the third round, before

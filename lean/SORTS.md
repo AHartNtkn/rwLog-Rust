@@ -180,9 +180,13 @@ formed exactly when no conjunction is in both (`wellFormed_iff`). With it
 `ProgramOf.check_iff` says it is exact. `Tests/SortsRuns.lean` runs it on the
 sorts of section 5 and on the declarations section 4 rejects.
 
-Still owed: `Engine.costed` at `Sorts.dom` (L55). The operations of the
+An engine's cost is taken at a kernel rung (`KernelRung`,
+`Trusted/Kernel.lean`), and the rung engines are judged at is the domain of
+sorts with the charges derived in Rust: `sortsRung`
+(`verified/lean/RwLogVerified/SortsRung.lean`, L55). The operations of the
 store are in Rust with derived charges, as a kernel on `Sorts.dom` (L39);
-section 7 says how.
+section 7 says how. The domain of spans as written and its postulated charges
+are deleted.
 
 ## 7. The Rust (`verified/rust/src/sorts.rs`) and what its charges depend on
 

@@ -85,18 +85,25 @@ theorem Simulates.mono {Old New : CostedRuntime} {p p' : Nat → Nat → Nat}
   obtain ⟨m, hm, hs⟩ := h2 hn
   exact ⟨m, hm, le_trans hs (hp _ _)⟩
 
-/-- A rung without preprocessing is its engine at the kernel of the
-language. -/
-theorem CostedRung.machine_id (E : Engine) (A : ArtifactStore) :
-    (CostedRung.mk Preprocessor.id E).machine A = E.costed := rfl
+/-- A rung without preprocessing is its engine at the kernel rung. -/
+theorem CostedRung.machine_id (κ : KernelRung) (E : Engine) (A : ArtifactStore) :
+    (CostedRung.mk Preprocessor.id E).machine κ A = E.costed κ := by
+  have h : ∀ P q, (Preprocessor.id.run κ A P q).val = (P, q, A) := fun P q =>
+    congrArg Cost.val ((κ.refines P.sorts).pure_eq _)
+  unfold CostedRung.machine
+  simp only [h]
+  rfl
 
 /-- Two rungs without preprocessing: the improvement of the machines, and
 preprocessing costs nothing. -/
-theorem Advances.of_id {kind : Kind} {Old New : Engine} {b : Bounds} {C : ProgClass}
-    (h : Improves kind Old.costed New.costed b C) :
-    Advances kind ⟨Preprocessor.id, Old⟩ ⟨Preprocessor.id, New⟩ b (fun _ => 0) C where
-  improves _ := h
-  preCost _ _ _ _ := Nat.le_refl 0
+theorem Advances.of_id {κ : KernelRung} {kind : Kind} {Old New : Engine} {b : Bounds}
+    {C : ProgClass} (h : Improves kind (Old.costed κ) (New.costed κ) b C) :
+    Advances κ kind ⟨Preprocessor.id, Old⟩ ⟨Preprocessor.id, New⟩ b (fun _ => 0) C where
+  improves A := by rw [CostedRung.machine_id, CostedRung.machine_id]; exact h
+  preCost A P q _ := by
+    show (Preprocessor.id.run κ A P q).ticks ≤ 0
+    rw [show Preprocessor.id.run κ A P q = pure (P, q, A) from (κ.refines P.sorts).pure_eq _]
+    exact Nat.le_refl 0
 
 /-- A bound that is met is met by anything larger. -/
 theorem MeetsOn.mono {μ : Meter} {M : CostedRuntime} {C : ProgClass} {hi hi' : Nat → Nat}
@@ -121,10 +128,10 @@ theorem Improves.keptBy {kind : Kind} {Old New : CostedRuntime} {b : Bounds} {C 
 
 /-- An admitted rung keeps its own win and every win on the record it was
 admitted over. -/
-theorem Admits.keptBy {kind : Kind} {Old New : CostedRung} {b : Bounds} {d : DirBound}
-    {pre : Nat → Nat} {C : ProgClass} {record : List Win} {keep : Nat}
-    (h : Admits kind Old New b d pre C record keep) (A : ArtifactStore) :
-    ∀ w ∈ (⟨kind, C, b⟩ : Win) :: record, w.KeptBy (New.machine A) (keep + 1) := by
+theorem Admits.keptBy {κ : KernelRung} {kind : Kind} {Old New : CostedRung} {b : Bounds}
+    {d : DirBound} {pre : Nat → Nat} {C : ProgClass} {record : List Win} {keep : Nat}
+    (h : Admits κ kind Old New b d pre C record keep) (A : ArtifactStore) :
+    ∀ w ∈ (⟨kind, C, b⟩ : Win) :: record, w.KeptBy (New.machine κ A) (keep + 1) := by
   intro w hw
   rcases List.mem_cons.1 hw with rfl | hw
   · exact (h.improves A).keptBy.mono (Nat.le_add_left _ _)
@@ -133,8 +140,8 @@ theorem Admits.keptBy {kind : Kind} {Old New : CostedRung} {b : Bounds} {d : Dir
 /-- Every rung of a ladder keeps every win on its record, each within a
 constant factor of the bound the win was admitted with: no win is given back
 by a later rung, of whatever kind. -/
-theorem Ladder.keeps {base G : CostedRung} {record : List Win} (h : Ladder base G record) :
-    ∃ c, ∀ A, ∀ w ∈ record, w.KeptBy (G.machine A) c := by
+theorem Ladder.keeps {κ : KernelRung} {base G : CostedRung} {record : List Win}
+    (h : Ladder κ base G record) : ∃ c, ∀ A, ∀ w ∈ record, w.KeptBy (G.machine κ A) c := by
   cases h with
   | base => exact ⟨0, fun _ _ hw => absurd hw List.not_mem_nil⟩
   | admit _ ha => exact ⟨_, fun A => ha.keptBy A⟩
@@ -142,13 +149,13 @@ theorem Ladder.keeps {base G : CostedRung} {record : List Win} (h : Ladder base 
 /-- Two rungs without preprocessing: admission is the improvement of the
 machines, the direction bound of the new one, and that it keeps the wins on
 the record. -/
-theorem Admits.of_id {kind : Kind} {Old New : Engine} {b : Bounds} {d : DirBound}
-    {C : ProgClass} {record : List Win} {keep : Nat}
-    (h : Improves kind Old.costed New.costed b C)
-    (hd : DirectionFree New.costed d.fn) (hk : ∀ w ∈ record, w.KeptBy New.costed keep) :
-    Admits kind ⟨Preprocessor.id, Old⟩ ⟨Preprocessor.id, New⟩ b d (fun _ => 0) C record keep where
+theorem Admits.of_id {κ : KernelRung} {kind : Kind} {Old New : Engine} {b : Bounds}
+    {d : DirBound} {C : ProgClass} {record : List Win} {keep : Nat}
+    (h : Improves kind (Old.costed κ) (New.costed κ) b C)
+    (hd : DirectionFree (New.costed κ) d.fn) (hk : ∀ w ∈ record, w.KeptBy (New.costed κ) keep) :
+    Admits κ kind ⟨Preprocessor.id, Old⟩ ⟨Preprocessor.id, New⟩ b d (fun _ => 0) C record keep where
   toAdvances := Advances.of_id h
-  direction _ := hd
-  keeps _ := hk
+  direction A := by rw [CostedRung.machine_id]; exact hd
+  keeps A := by rw [CostedRung.machine_id]; exact hk
 
 end RwLog

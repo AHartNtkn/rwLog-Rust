@@ -211,8 +211,8 @@ new axiom.
 /-- info: 'RwLog.Sorts.wellFormed_nil' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Sorts.wellFormed_nil
 
-/-- info: 'RwLog.Kernel.std_refines' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLog.Kernel.std_refines
+/-- info: 'RwLog.R005.keeps_rung' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R005.keeps_rung
 
 /-- info: 'RwLog.Domain.Lawful.denO_inj' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Domain.Lawful.denO_inj
@@ -359,7 +359,7 @@ new axiom.
 #guard_msgs in #print axioms RwLog.R005.record_sorts
 /-- info: 'RwLog.R005.keeps_atSorts' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.R005.keeps_atSorts
-/-- info: 'RwLog.Kernel.uncharged_refines' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+/-- info: 'RwLog.Kernel.uncharged_refines' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Kernel.uncharged_refines
 
 /-! ## The constraint domain of sorts -/

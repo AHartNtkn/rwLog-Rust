@@ -34,42 +34,38 @@ rung that is admitted over R005 (roadmap M6).
   the bound is false of the family as it was written, and the answer is put
   behind a call here.
 
-Both are stated at the kernel of spans as they are written, which is the
-kernel `Engine.costed` runs at. `Tests/R005Runs.lean` checks each of them on
-small `k`.
+Both are stated at a kernel rung, since a bound on ticks is a bound on what
+a kernel charges. `Tests/R005Runs.lean` checks each of them on small `k` at
+the domain of sorts with nothing charged (`Sorts.uncharged`), where a tick is
+the engine's own.
 -/
 import RwLog.Rungs.R005.Engine
 import RwLog.Rungs.Mirror.Bounds
 
 namespace RwLog
 
-/-- The steps of an engine at the kernel of spans as they are written, on a
-program. -/
-abbrev Engine.stepW (E : Engine) (P : Program) :=
-  E.stepAt (R := fun _ => Span) (fun _ => Domain.written) (fun _ => Kernel.std)
-    (fun _ => Kernel.std_refines) P
+/-- The steps of an engine at a kernel rung, on a program. -/
+abbrev Engine.stepK (E : Engine) (κ : KernelRung) (P : Program) :=
+  E.stepAt κ.dom κ.kernel κ.refines P
 
-/-- The state an engine starts in on a node, at the kernel of spans as they
-are written. -/
-abbrev Engine.startW (E : Engine) (P : Program) (root : Rel) :=
-  E.startAt (R := fun _ => Span) (fun _ => Domain.written) (fun _ => Kernel.std)
-    (fun _ => Kernel.std_refines) P root
+/-- The state an engine starts in on a node, at a kernel rung. -/
+abbrev Engine.startK (E : Engine) (κ : KernelRung) (P : Program) (root : Rel) :=
+  E.startAt κ.dom κ.kernel κ.refines P root
 
 /-- At any step at which the mirrored machine has covered `x`, each of the
 two runs of `E` has cost at least `lo`. -/
-def Mirror.LowerOn (E : Engine) (P : Program) (q : Rel) (x : GTerm × GTerm) (lo : Nat) : Prop :=
-  ∀ n, E.mirrored.costed.Covered P q P.sorts.interp x n →
-    lo ≤ Mirror.cost (E.stepW P) (E.startW P q.norm) n ∧
-    lo ≤ Mirror.cost (E.stepW P) (E.startW P q.norm.normConv) n
+def Mirror.LowerOn (κ : KernelRung) (E : Engine) (P : Program) (q : Rel) (x : GTerm × GTerm)
+    (lo : Nat) : Prop :=
+  ∀ n, (E.mirrored.costed κ).Covered P q P.sorts.interp x n →
+    lo ≤ Mirror.cost (E.stepK κ P) (E.startK κ P q.norm) n ∧
+    lo ≤ Mirror.cost (E.stepK κ P) (E.startK κ P q.norm.normConv) n
 
 /-- A bound on the two runs is a bound on the mirrored machine. -/
-theorem Mirror.LowerOn.paid {E : Engine} {P : Program} {q : Rel} {x : GTerm × GTerm} {lo : Nat}
-    (h : Mirror.LowerOn E P q x lo) {n : Nat}
-    (hx : E.mirrored.costed.Covered P q P.sorts.interp x n) :
-    lo ≤ E.mirrored.costed.paid P q n :=
-  Nat.le_trans (Nat.le_min.2 (h n hx))
-    (Mirror.paid_ge_min E (fun _ => Domain.written) (fun _ => Kernel.std)
-      (fun _ => Kernel.std_refines) P q n)
+theorem Mirror.LowerOn.paid {κ : KernelRung} {E : Engine} {P : Program} {q : Rel}
+    {x : GTerm × GTerm} {lo : Nat} (h : Mirror.LowerOn κ E P q x lo) {n : Nat}
+    (hx : (E.mirrored.costed κ).Covered P q P.sorts.interp x n) :
+    lo ≤ (E.mirrored.costed κ).paid P q n :=
+  Nat.le_trans (Nat.le_min.2 (h n hx)) (Mirror.paid_ge_min E κ.dom κ.kernel κ.refines P q n)
 
 namespace R005
 
@@ -125,25 +121,26 @@ def freeRelWritten : Rel :=
 
 /-- On the chain restricted in the middle, R005 has paid at least `2 ^ k` by
 any step at which it relates `z` to `z`. -/
-def MidLower : Prop :=
-  ∀ k, Mirror.LowerOn R004.engine ⟨[], []⟩ (mid k) (.sym "z", .sym "z") (2 ^ k)
+def MidLower (κ : KernelRung) : Prop :=
+  ∀ k, Mirror.LowerOn κ R004.engine ⟨[], []⟩ (mid k) (.sym "z", .sym "z") (2 ^ k)
 
 /-- On the free factor beside an answer, R005 has paid at least `2 ^ k` by
 any step at which it relates `a` to `a`. -/
-def FreeLower : Prop :=
-  ∀ k, Mirror.LowerOn R004.engine (freeProg k) freeRel (.sym "a", .sym "a") (2 ^ k)
+def FreeLower (κ : KernelRung) : Prop :=
+  ∀ k, Mirror.LowerOn κ R004.engine (freeProg k) freeRel (.sym "a", .sym "a") (2 ^ k)
 
 /-- What `MidLower` says of R005. -/
-theorem MidLower.paid (h : MidLower) (k : Nat) {n : Nat}
-    (hx : R005.engine.costed.Covered ⟨[], []⟩ (mid k) (Sorts.interp []) (.sym "z", .sym "z") n) :
-    2 ^ k ≤ R005.engine.costed.paid ⟨[], []⟩ (mid k) n :=
+theorem MidLower.paid {κ : KernelRung} (h : MidLower κ) (k : Nat) {n : Nat}
+    (hx : (R005.engine.costed κ).Covered ⟨[], []⟩ (mid k) (Sorts.interp [])
+      (.sym "z", .sym "z") n) :
+    2 ^ k ≤ (R005.engine.costed κ).paid ⟨[], []⟩ (mid k) n :=
   (h k).paid hx
 
 /-- What `FreeLower` says of R005. -/
-theorem FreeLower.paid (h : FreeLower) (k : Nat) {n : Nat}
-    (hx : R005.engine.costed.Covered (freeProg k) freeRel (Sorts.interp [])
+theorem FreeLower.paid {κ : KernelRung} (h : FreeLower κ) (k : Nat) {n : Nat}
+    (hx : (R005.engine.costed κ).Covered (freeProg k) freeRel (Sorts.interp [])
       (.sym "a", .sym "a") n) :
-    2 ^ k ≤ R005.engine.costed.paid (freeProg k) freeRel n :=
+    2 ^ k ≤ (R005.engine.costed κ).paid (freeProg k) freeRel n :=
   (h k).paid hx
 
 end R005

@@ -6,7 +6,7 @@ computations, with its `tick`, `race` and `metered`. To read an engine at
 such a kernel, it is enough to read it at a kernel where these are the ones
 of `Cost` by definition: `Kernel.Refines.elim`.
 -/
-import RwLog.Trusted.KernelRung
+import RwLog.Trusted.Cost
 
 namespace RwLog
 
@@ -41,7 +41,7 @@ theorem Kernel.Refines.elim {D : Domain R}
   cases K with
   | mk tick race metered swap rep compose meet composable covers eq rb lb =>
     rename_i m
-    have h₁ : m = Kernel.std.toMonad := hK.monad
+    have h₁ : m = Cost.instMonad := hK.monad
     have h₂ := hK.tick
     have h₃ : @race = @Cost.race := by funext α a b; exact hK.race α a b
     have h₄ : @metered = @Cost.metered := by funext α a; exact hK.metered α a

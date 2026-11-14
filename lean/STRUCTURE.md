@@ -26,9 +26,8 @@ Trusted/        the specification: syntax with sort declarations, semantics (wha
                 (Engine.lean),
                 the properties every machine and every whole rung keeps and the fairness
                 bound (Properties.lean), the cost monad (CostMonad.lean),
-                the charged primitives (Charged.lean), the kernel an engine is written
-                against (Kernel.lean), what another kernel must prove to stand in for
-                it (KernelRung.lean),
+                the charged primitives on nodes (Charged.lean), the kernel an engine is
+                written against and what a kernel rung is (Kernel.lean),
                 and the cost model (Cost.lean) by which rungs from R002 on are judged:
                 cost is coverage latency, the ticks until an emitted answer covers a
                 ground pair, and never depends on a query halting
@@ -61,7 +60,7 @@ Sorts/          the constraint domain of sorts and the proof that it is lawful
 Manifest/       R005's manifest: headline statements, bounds, trusted files, axioms and a
                 space report, all checked by the build
 AxiomAudit.lean every headline and shared theorem, checked to use only the three standard axioms
-Tests/          executable runs: the charges of the kernel (ChargeRuns), the three engines on
+Tests/          executable runs at the domain of sorts with nothing charged: the three engines on
                 the conformance cases and on each other (R005Runs), the cases about
                 constraints at the domain of sorts (SortsConformance), R005 on the inputs
                 of the simulation note (SimulationRuns), the sorts (SortsRuns)
@@ -87,9 +86,12 @@ says what a sort and a constraint mean, and `Trusted/Domain.lean` says what
 any constraint system gives an engine (`Domain`) and what it satisfies
 (`Domain.Lawful`). The instance for sorts is `Sorts.dom` (`Sorts/Dom.lean`),
 with `Sorts.dom_lawful : S.WellFormed → (dom S).Lawful S.interp`; `SORTS.md`
-section 6 lists its files. `Engine.costed` still runs at the domain of spans
-as written (`Domain.written`), which looks at no constraint and is not
-lawful, until it is restated at `Sorts.dom` (roadmap L55).
+section 6 lists its files. An engine's cost is taken at a kernel rung
+(`KernelRung`, `Trusted/Kernel.lean`): a lawful domain and a kernel of it for
+the sorts of each program. The rung engines are judged at is `sortsRung`
+(`verified/lean/RwLogVerified/SortsRung.lean`), the domain of sorts with
+every charge derived from the Rust. No domain of spans as written is left
+(roadmap L55).
 
 ## What is shared, and where to look first
 
@@ -362,25 +364,30 @@ returns what the domain returns (`Kernel.Refines`). The type of
 representatives, the domain and the kernel are given for the sorts of each
 program, because which values are canonical depends on the sorts declared: an answer is a goal and a representative with the proof that
 the representative is a valid answer of the goal (`Ans D P`), and the answers
-reported are those of the root goal with no boundary. `Engine.costed` is the
-engine at `DerivationKernel.std P`, the kernel of spans as written, where
-each operation is the charged primitive of `Trusted/Charged.lean`. `Advances` and `Admits` are stated on engines, and `Admits` is over the record of the wins admitted below (`Win`, `Ladder`).
+reported are those of the root goal with no boundary. `Engine.costed E κ` is
+the engine at a kernel rung `κ`. `Advances` and `Admits` are stated on engines
+at a kernel rung, and `Admits` is over the record of the wins admitted below
+(`Win`, `Ladder`).
 
 The cost monad (`Trusted/CostMonad.lean`) counts ticks and space: `peak` is
 the most cells live at once and `held` the cells still live at the end. Cells
 are released only when a computation is abandoned (`Cost.within`, and so
 `Cost.race`). `CostedRuntime.space P q n` is the peak of the first `n` steps.
 
-`Kernel.std` is the kernel of spans as written: its values are those of
-`Domain.written` and its charges are postulated. A kernel rung
-(`Trusted/KernelRung.lean`) is another kernel that returns what a domain
-returns (`Kernel.Refines`, in `Trusted/Kernel.lean`) and whose charges are
-theorems about a machine;
-`Engine.costedAt` is an engine at the derivation kernel over such a kernel
-(`DerivationKernel.over`). The first one is `rustKernel`
-(`verified/lean/RwLogVerified/Kernel.lean`): the charge of each operation on
-terms is the tick bound proved of the Rust function on the store of
-`verified/rust/src/store.rs`. See `verified/README.md`. The operations on
+A kernel rung (`KernelRung`, `Trusted/Kernel.lean`) gives, for the sorts of
+each program, a type of representatives, a constraint domain on it that is
+lawful when the sorts are well formed, and a kernel that returns what the
+domain returns (`Kernel.Refines`). No charge of an operation on
+representatives is postulated: the trusted files fix no kernel.
+`Engine.costedAt` is an engine at the derivation kernel over a kernel
+(`DerivationKernel.over`). Three rungs exist. `sortsRung`
+(`verified/lean/RwLogVerified/SortsRung.lean`) is the one engines are judged
+at: the charge of each operation of the domain of sorts is the tick bound
+proved of the Rust function on the store of `verified/rust/src/store.rs`
+(see `verified/README.md`); its charges are not computable. `Sorts.uncharged`
+(`Rungs/R005/Sorts.lean`) charges nothing for the domain and is what the
+tests run. `Witness.sized` (`Rungs/Framework/RecordWitness.lean`) is a toy
+for the proof that the admission rule has inhabitants. The operations on
 nodes and the interning of answers are charged as postulated at every kernel
 rung so far (roadmap L45).
 

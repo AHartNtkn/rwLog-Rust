@@ -107,30 +107,6 @@ new axiom.
 /-- info: 'RwLogVerified.left_bound_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLogVerified.left_bound_spec
 
-/-- info: 'RwLogVerified.rustKernel_refines' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLogVerified.rustKernel_refines
-
-/-- info: 'RwLogVerified.compose_realised' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLogVerified.compose_realised
-
-/-- info: 'RwLogVerified.meet_realised' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLogVerified.meet_realised
-
-/-- info: 'RwLogVerified.composable_realised' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLogVerified.composable_realised
-
-/-- info: 'RwLogVerified.eq_realised' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLogVerified.eq_realised
-
-/-- info: 'RwLogVerified.covers_realised' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLogVerified.covers_realised
-
-/-- info: 'RwLogVerified.rightBound_realised' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLogVerified.rightBound_realised
-
-/-- info: 'RwLogVerified.leftBound_realised' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLogVerified.leftBound_realised
-
 /-- info: 'RwLogVerified.spine_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLogVerified.spine_spec
 
@@ -439,3 +415,30 @@ new axiom.
 
 /-- info: 'RwLogVerified.sorts_leftBound_realised' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLogVerified.sorts_leftBound_realised
+
+/-- info: 'RwLogVerified.rung_rep_realised' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.rung_rep_realised
+
+/-- info: 'RwLogVerified.rung_compose_realised' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.rung_compose_realised
+
+/-- info: 'RwLogVerified.rung_meet_realised' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.rung_meet_realised
+
+/-- info: 'RwLogVerified.rung_composable_realised' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.rung_composable_realised
+
+/-- info: 'RwLogVerified.rung_covers_realised' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.rung_covers_realised
+
+/-- info: 'RwLogVerified.rung_eq_realised' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.rung_eq_realised
+
+/-- info: 'RwLogVerified.rung_rightBound_realised' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.rung_rightBound_realised
+
+/-- info: 'RwLogVerified.rung_leftBound_realised' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.rung_leftBound_realised
+
+/-- info: 'RwLogVerified.r005_keeps' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.r005_keeps
