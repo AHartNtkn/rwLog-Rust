@@ -208,8 +208,10 @@ impl<C: ConstraintOps> JoinStrategy<C> for ComposeStrategy {
         if C::ALWAYS_EMPTY {
             // Eager: compose only functor-compatible pairs immediately
             let right_limit = join.seen_r_len();
-            for right_idx in 0..right_limit {
-                if !tags_compatible(build_tag, self.right_match_tags[right_idx]) {
+            for (right_idx, &match_tag) in
+                self.right_match_tags[..right_limit].iter().enumerate()
+            {
+                if !tags_compatible(build_tag, match_tag) {
                     continue;
                 }
                 let left_nf = join.seen_l_at(left_idx);
@@ -234,8 +236,8 @@ impl<C: ConstraintOps> JoinStrategy<C> for ComposeStrategy {
         if C::ALWAYS_EMPTY {
             // Eager: compose only functor-compatible pairs immediately
             let left_limit = join.seen_l_len();
-            for left_idx in 0..left_limit {
-                if !tags_compatible(self.left_build_tags[left_idx], match_tag) {
+            for (left_idx, &build_tag) in self.left_build_tags[..left_limit].iter().enumerate() {
+                if !tags_compatible(build_tag, match_tag) {
                     continue;
                 }
                 let left_nf = join.seen_l_at(left_idx);

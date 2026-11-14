@@ -1,7 +1,10 @@
 name: Lean formalization
 
+# A branch is checked through its pull request. A push is checked only on
+# master, so a push to a pull request's branch does not run everything twice.
 on:
   push:
+    branches: [ master ]
     paths:
       - "lean/**"
       - ".github/workflows/lean.yml"
@@ -9,6 +12,12 @@ on:
     paths:
       - "lean/**"
       - ".github/workflows/lean.yml"
+
+# A newer push to a pull request replaces the run of the older one. Runs on
+# master are never cancelled, so every commit there has a result.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build:

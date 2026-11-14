@@ -237,7 +237,7 @@ are committed.
 
 After changing `rust/src`, run `./extract.sh` and commit what it writes to
 `lean/RwlogCore`. CI (the `extraction` job of
-`.github/workflows/verified.yml`) fetches Charon and Aeneas, runs
+`.github/workflows/extraction.yml`) fetches Charon and Aeneas, runs
 `./extract.sh --check`, and fails if the committed files differ from what the
 Rust translates to. So on any commit where CI passes, the theorems are about
 the Rust in `rust/src`.
