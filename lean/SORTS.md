@@ -199,13 +199,13 @@ charged steps as it reads terms. Proved against section 6
 | `sorts::step` | `Sorts.step` | `sortsCost S + 2 m + 2`, `m` the arguments; `sortsCost S` is linear in the written size of the declarations |
 | `sorts::member` | `Sorts.mem` | 5, and `sortsCost S + 11 m + 6` for each pair of a declared sort and a distinct subterm with `m` arguments |
 | `sorts::push_sort` | `Sorts.push`, by what it is specified by: an instance of the pattern is in the sort exactly when it satisfies the atoms | 8, and `sortsCost S + 11 m + 8` for each pair of a declared sort and a distinct subterm with `m` arguments |
-| `sorts::included_but` | `Sorts.Hold` (`ButStep.lean`) | `inclButAll`: a polynomial in the written size of the declarations, the size of the excepted terms, and the numbers of conjunctions and of keys that can be reached |
+| `sorts::included_but` | `Sorts.Hold` (`ButStep.lean`) | `inclButCharge`: what its run spends, a question (conjunction, sort, excepted terms) answered once however often it comes up; at most a polynomial in the number of questions that differ, the charge of one step and the questions a step leaves (`inclButCharge_le`) |
 | `sorts::sole_root` | `Sorts.sole` (`Roots.lean`) | `soleAll`: a polynomial in the written size of the declarations, the size of the excluded terms, and the number of conjunctions that can be reached |
 | `sorts::unit_on`, `sorts::gone` | `Sorts.unitOn`, `Sorts.gone` (`Gone.lean`) | `unitCost`: the charge of solving the equations of an exclusion and 27 for each of their distinct subterms; `goneCost`: that for each exclusion |
 | `sorts::var_succ`, `sorts::settle`, `sorts::open_var` | the next variable; `CStore.settle` and `CStore.exp` (`Loop.lean`) on the pattern and the exclusions, with the entries of the variables | `succCost`: logarithmic in the variable; `settleCost`: counting each entry, and for each entry replaced 14 for each distinct subterm of the pattern and of the exclusions; `openCost`: the next variable for each new variable, and 14 for each distinct subterm of the pattern and of the exclusions |
 | `sorts::always_on`, `sorts::any_always`, `sorts::first_sole` | `always` of one exclusion and of some exclusion of a list; the first variable whose values have one root (`sole` with `gone`) | `alwaysCost`: solving the equations; `anyAlwaysCost`: that for each exclusion; `firstSoleCost`: `goneCost` and `soleAll` for each entry |
 | `sorts::tighten` | rounds of `stepAt` (`Loop.lean`), on a store with no variable of one value and none hidden; what it returns is reached by `Tightens`, so among well-formed sorts it denotes what it was given, satisfies `Inv` and has no variable whose values have one root, and nothing is returned only when the store denotes nothing | `runCost`: for each round made the two checks, the scan and the replacement; a run makes at most as many rounds as the pattern it returns has distinct subterms |
-| `sorts::firsts`, `sorts::conj_at`, `sorts::uppers`, `sorts::renumber` | `firsts` of the variables of the pattern (`Renum.lean`); the pattern and the exclusions renamed by first occurrence, and for each variable the declared sorts that hold of all its values: what `ofTight` (`Norm.lean`) gives `assembled` | `renumberCost`: 8 for each distinct subterm of the pattern; for each variable `goneCost` and `inclButAll` for each name; 14 for each distinct subterm of the pattern and of the exclusions |
+| `sorts::firsts`, `sorts::conj_at`, `sorts::uppers`, `sorts::renumber` | `firsts` of the variables of the pattern (`Renum.lean`); the pattern and the exclusions renamed by first occurrence, and for each variable the declared sorts that hold of all its values: what `ofTight` (`Norm.lean`) gives `assembled` | `renumberCost`: 8 for each distinct subterm of the pattern; for each variable `goneCost` and `inclButCharge` for each name; 14 for each distinct subterm of the pattern and of the exclusions |
 | `sorts::places`, `sorts::orient`, `sorts::push_all`, `sorts::ups`, `sorts::close`, `sorts::norm_ex` | `normEx` (`NormEx.lean`) as the list of the values its bindings give the variables: `solve`, `orient` (`Orient.lean`), and `close` read off any atoms that allow the same values as the pushed sorts (`CloseVals.lean`) | `normExCost`: solving the equations; 14 for each distinct subterm of the values; `pushCost` for each sort of each variable; for each variable `countCost` and 14 for each distinct subterm of the values, which gain at most `soleMax` subterms for each variable bound |
 | `sorts::covers`, `sorts::norm_exs`, `sorts::antichain` | `covers`, `normExs` and `antichain` (`Assemble.lean`), on exclusions as the lists of the values they give the variables | `coversCost`: 3 for each variable and 14 for each distinct subterm of the values; `normExsCost`: `normExCost` of each exclusion; `antiCost`: two tests for each pair of exclusions |
 | `sorts::solved_ex`, `sorts::prune` | `solvedEx` and `CStore.prune` (`Prune.lean`): the solved form of an exclusion, and the store with the sorts of the variables of its pattern only and the solved forms of the exclusions that mention only them. With every variable in infinitely many values it denotes the same (`prune_spec`) | `solvedExCost`: solving the exclusion and 7 for each of its variables; `pruneCost`: that for each exclusion, 2 for each variable of the pattern, 6 for each entry, and 27 for each distinct subterm of the solved forms |
@@ -257,21 +257,26 @@ it returns has distinct subterms (`Rounds.lean`), and that no variable
 outside the pattern is expanded. The canonical store the machine keeps leaves
 a variable of one root folded (the folded pattern, below).
 
-One bound is looser than that today: `inclButAll` counts the excepted terms
-by their size as trees (`Sorts.sumSize`), and a term of the store can have
-exponentially more symbols as a tree than nodes. The bound is not loose: the
-Rust takes that long (measured 2026-11-14). `included_but` keeps a list of
-questions, each a conjunction, a sort and a list of excepted terms, and asks
-one for each argument of each root without remembering what it has asked.
-Declare `t0` as the constant `z` and `t(j+1)` as the pairs of two members of
-`tj`, and `n0` as another constant and `n(j+1)` as the pairs of two members
-of `nj`. The one member of `tk` is a full tree of depth `k`, which the store
-can hold in `2k + 1` nodes. Asking whether `tk` but for that term is in `nk`
-asks about each of the two arguments at every level, the same question both
-times, and spends about twice the ticks for each level: 2004 at `k = 2`,
-60268 at `k = 6`, 4956268 at `k = 12`. So a charge in the shared size needs
-`included_but` to remember the questions it has asked, which is a change to
-the Rust and its proof (L62).
+`sorts::included_but` is charged the same way (`inclButCharge`,
+`verified/lean/RwLogVerified/ButLoop.lean`). A term of the store can have
+exponentially more symbols as a tree than nodes, and the question about a
+shared subterm comes up once for each place it occurs. The code keeps the
+questions it has answered and passes over one that comes up again (the
+store is hash-consed, so it is the same node), and the charge is what that
+run spends. It is bounded by the questions that differ
+(`inclButCharge_le`): for each of them one step, and one search of the
+questions answered for each question a step leaves. Measured on sorts
+`t0 = z`, `t(j+1)` = pairs of two `tj`, and `n0` another constant,
+`n(j+1)` = pairs of two `nj`, asking whether `tk` but for its one member,
+built shared, is in `nk` (`verified/rust/tests/incl_but.rs`): 9696, 47502
+and 280362 ticks at `k` = 6, 12 and 24. Before the questions were kept the
+ticks doubled with each level (60268 at `k` = 6, 4956268 at `k` = 12).
+
+With one excepted term the questions that differ are at most the
+conjunctions that can be reached, times the names, times the distinct
+subterms of the term. That count, and a count for several excepted terms,
+whose questions carry sets of subterms, are not proved; the theorem takes
+the list of questions as given.
 
 
 ### The folded pattern (2026-11-14)

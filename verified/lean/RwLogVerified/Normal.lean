@@ -898,7 +898,7 @@ def normRes (S : Sorts) (k : Nat) (st : TSt) : Option (Option TSt) :=
 /-- The ticks `normal` may take after tightening, from the tight store. -/
 noncomputable def tailCost (nm : Option Nat → RwLog.Sym) (S : Sorts) (U : List Name) (rc q : Nat)
     (st : TSt) : Nat :=
-  renumberCost nm S U.length rc q st.T st.X st.L +
+  renumberCost nm S U rc q st.T st.X st.L +
     assembleCost nm S U rc (numRaw S st).t (numRaw S st).c (numX st) +
     foldCost nm S U rc q (numStore S st) (numAnti S st)
 

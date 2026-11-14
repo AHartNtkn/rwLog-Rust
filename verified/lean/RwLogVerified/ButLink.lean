@@ -478,8 +478,6 @@ theorem keyAsks_small {S : Sorts} {U : List Name} (hnames : ∀ n ∈ Sorts.name
 
 /-! ## One step of asking is right -/
 
-theorem mu_append (A B : List Ask) : mu (A ++ B) = mu A + mu B := by simp [mu]
-
 theorem foldAsks_spec {S : Sorts} {U : List Name} (hnames : ∀ n ∈ Sorts.names S, n ∈ U)
     (c : Sorts.Conj) (n : Name) (G : List GTerm) : ∀ (K : List (Sym × Nat)) (T : List Ask),
     match foldAsks S c n G K T with
@@ -714,14 +712,10 @@ theorem oneCost_le (S : Sorts) (U : List Name) (r q : Nat) (c : Sorts.Conj) (n :
 
 /-! ## The whole -/
 
-/-- The ticks `included_but` may spend on terms of size `N`, where a
-conjunction reaches `r` conjunctions at most and a key `q` keys at most: a
-polynomial in the size of the sorts, `N`, `r` and `q`. -/
-def inclButAll (S : Sorts) (u r q N : Nat) : Nat := inclButCost S u q N (oneB S u r q N)
-
 /-- `included_but` answers whether every member of the conjunction, but for
 the ground terms of the list, is in the sort (`Sorts.Hold`), for well-formed
-sorts, within `inclButAll` ticks. -/
+sorts, within `inclButCharge` ticks: what its run spends, a question asked
+once however often it comes up. -/
 theorem included_but_spec {S : Sorts} {sp : Pat} {U : List Name} (hC : Ctx nm S sp U)
     (hS : S.WellFormed) {r q : Nat} (hr : ∀ d, (Sorts.reachSet S d).card ≤ r)
     (hq : ∀ d m, (Sorts.reachGSet S (d, some m)).card ≤ q)
@@ -732,13 +726,12 @@ theorem included_but_spec {S : Sorts} {sp : Pat} {U : List Name} (hC : Ctx nm S 
     (hci : Repr nm s.nodes.val ci.val (cpat (nm none) U c))
     (hni : Repr nm s.nodes.val ni.val (.sym n))
     (hg : Repr nm s.nodes.val g.val (encList (nm none) (G.map GTerm.toPat)))
-    (hroom : Room s (inclButAll S U.length r q (Sorts.sumSize G))) :
+    (hroom : Room s (inclButCharge S U r q c n G)) :
     sorts.included_but s decls names ci ni g ⦃ b s' =>
       Inv s' ∧ Extends s s' ∧
-        s'.ticks.val ≤ s.ticks.val + inclButAll S U.length r q (Sorts.sumSize G) ∧
+        s'.ticks.val ≤ s.ticks.val + inclButCharge S U r q c n G ∧
         (b = true ↔ Sorts.Hold S c n G) ⦄ :=
-  included_but_run hC hr hq (stepOK hS hC.names) c n G
-    (fun c' n' _ h => oneCost_le S U r q c' n' h) hc hn s decls names ci ni g hI hde hU hci hni hg
-    hroom
+  included_but_run hC hr hq (stepOK hS hC.names) c n G hc hn s decls names ci ni g hI hde hU hci
+    hni hg hroom
 
 end RwLogVerified
