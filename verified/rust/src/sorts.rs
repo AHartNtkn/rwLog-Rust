@@ -287,9 +287,10 @@ fn pick(s: &mut Store, names0: TermId) -> TermId {
     let mut out = s.alloc(Node::Nil);
     let mut names = names0;
     while let Some((h, t)) = uncons(s, names) {
-        if s.get_flag(Tbl::A, h).is_some() {
-            out = s.alloc(Node::App(h, out));
-        }
+        out = match s.get_flag(Tbl::A, h) {
+            Some(_) => s.alloc(Node::App(h, out)),
+            None => out,
+        };
         names = t;
     }
     out
