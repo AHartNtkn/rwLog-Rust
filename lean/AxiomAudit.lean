@@ -349,5 +349,23 @@ new axiom.
 /-- info: 'RwLog.Sorts.Prob.norm_unique' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Sorts.Prob.norm_unique
 
+/-- info: 'RwLog.Sorts.Rep.of_eq' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.Rep.of_eq
+
+/-- info: 'RwLog.Sorts.dom_rep' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.dom_rep
+
+/-- info: 'RwLog.Sorts.dom_compose' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.dom_compose
+
+/-- info: 'RwLog.Sorts.dom_meet' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.dom_meet
+
+/-- info: 'RwLog.Sorts.dom_rightBound' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.dom_rightBound
+
+/-- info: 'RwLog.Sorts.Rep.conv_eq' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.Rep.conv_eq
+
 /-- info: 'RwLog.ProgramOf.check_iff' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.ProgramOf.check_iff

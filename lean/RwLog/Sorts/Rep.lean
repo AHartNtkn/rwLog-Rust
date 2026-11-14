@@ -15,6 +15,7 @@ exclusions as constraints. In the interpretation of the sorts the span
 relates the pairs the representative relates (`Raw.toSpan_den`).
 -/
 import RwLog.Sorts.Norm
+import Mathlib.Data.Finset.Sort
 import RwLog.Trusted.Domain
 
 namespace RwLog
@@ -113,11 +114,46 @@ theorem Rep.mk?_rel {S : Sorts} (ρ : Rep S) : Rep.mk? S (ρ.1.rel S) = some ρ 
   | none => exact absurd rfl (Rep.mk?_none h ρ)
   | some ρ' => rw [Rep.ext_rel (Rep.mk?_some h)]
 
+/-- The representative of a first-order problem over a pair, computed:
+its normal store. -/
+def Rep.of {S : Sorts} (hS : S.WellFormed) (P : Prob) (hP : P.FO) (ht : ∃ l r, P.t = tpair l r) :
+    Option (Rep S) :=
+  match h : P.norm S hS with
+  | none => none
+  | some r => some ⟨r, hS, (Prob.norm_some hS hP h).1,
+      shape_pair (Prob.norm_some hS hP h).1 ((Prob.norm_some hS hP h).1.sol_nonempty hS) (by
+        obtain ⟨l, r', ht⟩ := ht
+        rw [(Prob.norm_some hS hP h).2]
+        rintro g ⟨σ, -, rfl⟩
+        exact ⟨_, _, by rw [ht, tpair_bind]⟩)⟩
+
+/-- The computed representative is the representative of the pairs the
+problem denotes. -/
+theorem Rep.of_eq {S : Sorts} (hS : S.WellFormed) (P : Prob) (hP : P.FO) (ht : ∃ l r, P.t = tpair l r) :
+    Rep.of hS P hP ht = Rep.mk? S {p | tpair p.1 p.2 ∈ P.Den S} := by
+  unfold Rep.of
+  split
+  · rename_i h
+    cases hm : Rep.mk? S {p | tpair p.1 p.2 ∈ P.Den S} with
+    | none => rfl
+    | some ρ =>
+      obtain ⟨p, hp⟩ := ρ.rel_nonempty
+      rw [Rep.mk?_some hm] at hp
+      have hp' : tpair p.1 p.2 ∈ P.Den S := hp
+      rw [Prob.norm_none hS hP h] at hp'
+      exact absurd hp' (Set.notMem_empty _)
+  · rename_i r h
+    have e : {p : GTerm × GTerm | tpair p.1 p.2 ∈ P.Den S} =
+        (Raw.rel S r) := by
+      simp only [Raw.rel, (Prob.norm_some hS hP h).2]
+    rw [e]
+    exact (Rep.mk?_rel (S := S) ⟨r, _⟩).symm
+
 /-! ## A raw store as part of a problem -/
 
 /-- The sorts of the variables of a raw store, the variables renamed. -/
-noncomputable def Raw.atoms (r : Raw) (ρ : Nat → Nat) : List (Name × Pat) :=
-  (List.range r.c.length).flatMap fun v => (r.conj v).toList.map fun n => (n, .var (ρ v))
+def Raw.atoms (r : Raw) (ρ : Nat → Nat) : List (Name × Pat) :=
+  (List.range r.c.length).flatMap fun v => (r.conj v).sort.map fun n => (n, .var (ρ v))
 
 /-- The exclusions of a raw store, the variables renamed. -/
 def Raw.excl (r : Raw) (ρ : Nat → Nat) : List (Eqns Nat) :=
@@ -150,14 +186,14 @@ theorem Raw.sol_shift {S : Sorts} (r : Raw) (ρ : Nat → Nat) (σ : Nat → GTe
         change n ∈ r.conj v at hn
         rw [Raw.Normal.conj_of_ge r (Nat.le_of_not_lt h)] at hn; simp at hn
       exact ha (n, .var (ρ v)) (List.mem_flatMap.2 ⟨v, List.mem_range.2 hv,
-        List.mem_map.2 ⟨n, Finset.mem_toList.2 hn, rfl⟩⟩)
+        List.mem_map.2 ⟨n, (Finset.mem_sort _).2 hn, rfl⟩⟩)
     · obtain ⟨θ, hθ, rfl⟩ := List.mem_map.1 hE
       exact hx _ (List.mem_map.2 ⟨θ, hθ, rfl⟩) (unifies_ren.2 hu)
   · rintro ⟨hp, hx⟩
     refine ⟨fun a ha => ?_, fun E hE hu => ?_⟩
     · obtain ⟨v, -, ha⟩ := List.mem_flatMap.1 ha
       obtain ⟨n, hn, rfl⟩ := List.mem_map.1 ha
-      exact hp v n (Finset.mem_toList.1 hn)
+      exact hp v n ((Finset.mem_sort _).1 hn)
     · obtain ⟨θ, hθ, rfl⟩ := List.mem_map.1 hE
       exact hx _ (List.mem_map.2 ⟨θ, hθ, rfl⟩) (unifies_ren.1 hu)
 
@@ -191,13 +227,13 @@ theorem tup_unifies (σ : Nat → GTerm) : ∀ θ : Binds,
 /-- The constraints of a raw store: `(s $v)` for each sort of each variable,
 and `(!= l r)` for each exclusion, `l` the tuple of its variables and `r` of
 their values. -/
-noncomputable def Raw.cons (r : Raw) : List Pat :=
+def Raw.cons (r : Raw) : List Pat :=
   ((List.range r.c.length).flatMap fun v =>
-    (r.conj v).toList.map fun n => Term.app (.sym n) (.var v)) ++
+    (r.conj v).sort.map fun n => Term.app (.sym n) (.var v)) ++
   r.x.map fun θ => .app (.app (.sym neSym) (tupL θ)) (tupR θ)
 
 /-- A raw store over a pair, as a span. -/
-noncomputable def Raw.toSpan (r : Raw) : Span := ⟨r.sides.1, r.sides.2, r.cons⟩
+def Raw.toSpan (r : Raw) : Span := ⟨r.sides.1, r.sides.2, r.cons⟩
 
 theorem Raw.cons_holds {S : Sorts} (r : Raw) (σ : Nat → GTerm) :
     (∀ c ∈ r.cons, c.bind σ ∈ S.interp) ↔ σ ∈ r.store.Sol S := by
@@ -209,7 +245,7 @@ theorem Raw.cons_holds {S : Sorts} (r : Raw) (σ : Nat → GTerm) :
         change n ∈ r.conj v at hn
         rw [Raw.Normal.conj_of_ge r (Nat.le_of_not_lt h')] at hn; simp at hn
       have := h (.app (.sym n) (.var v)) (List.mem_append_left _ (List.mem_flatMap.2
-        ⟨v, List.mem_range.2 hv, List.mem_map.2 ⟨n, Finset.mem_toList.2 hn, rfl⟩⟩))
+        ⟨v, List.mem_range.2 hv, List.mem_map.2 ⟨n, (Finset.mem_sort _).2 hn, rfl⟩⟩))
       exact mem_iff_Mem.2 this
     · obtain ⟨θ, hθ, rfl⟩ := List.mem_map.1 hE
       have := h _ (List.mem_append_right _ (List.mem_map.2 ⟨θ, hθ, rfl⟩))
@@ -218,7 +254,7 @@ theorem Raw.cons_holds {S : Sorts} (r : Raw) (σ : Nat → GTerm) :
     rcases List.mem_append.1 hc with hc | hc
     · obtain ⟨v, -, hc⟩ := List.mem_flatMap.1 hc
       obtain ⟨n, hn, rfl⟩ := List.mem_map.1 hc
-      exact mem_iff_Mem.1 (hp v n (Finset.mem_toList.1 hn))
+      exact mem_iff_Mem.1 (hp v n ((Finset.mem_sort _).1 hn))
     · obtain ⟨θ, hθ, rfl⟩ := List.mem_map.1 hc
       exact ⟨rfl, fun e => hx _ (List.mem_map.2 ⟨θ, hθ, rfl⟩) ((tup_unifies σ θ).1 e)⟩
 
