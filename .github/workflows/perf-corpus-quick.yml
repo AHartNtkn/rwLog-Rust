@@ -1,20 +1,33 @@
 name: Perf Corpus Quick Gate
 
-# This gate measures the Rust implementation. Changes confined to the Lean
-# formalization or to documentation cannot move its numbers, so they do not
-# trigger it.
+# This workflow tests and measures the Rust interpreter in src/. Changes
+# confined to the Lean formalization, to the verified crate (a separate crate
+# under verified/) or to documentation cannot change its result, so they do
+# not trigger it.
 on:
   pull_request:
     paths-ignore:
       - "lean/**"
+      - "verified/**"
       - ".github/workflows/lean.yml"
+      - ".github/workflows/verified.yml"
+      - ".github/workflows/extraction.yml"
       - "**/*.md"
   push:
     branches: [ master ]
     paths-ignore:
       - "lean/**"
+      - "verified/**"
       - ".github/workflows/lean.yml"
+      - ".github/workflows/verified.yml"
+      - ".github/workflows/extraction.yml"
       - "**/*.md"
+
+# A newer push to a pull request replaces the run of the older one. Runs on
+# master are never cancelled, so every commit there has a result.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   perf-quick:
@@ -24,6 +37,8 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
 
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
@@ -36,8 +51,16 @@ jobs:
           restore-keys: |
             perf-history-quick-${{ github.ref_name }}-
 
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings
+
       - name: Build tests
         run: cargo test --no-run
+
+      # The suite takes under a minute. The limit is there so that a test
+      # that never ends fails the run instead of holding it for six hours.
+      - name: Run tests
+        run: timeout 300 cargo test
 
       - name: Validate quick corpus cases
         run: RWLOG_CORPUS_TIER=quick cargo run --release --bin perf_corpus_sanity -- --validate
