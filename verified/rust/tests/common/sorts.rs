@@ -1,11 +1,14 @@
-//! The normal store of the sorts, on trees.
+//! The canonical store of the sorts, on trees.
 //!
-//! This is the reference the store version is tested against: the one
-//! normal store (`Raw.Normal` in `lean/RwLog/Sorts/Normal.lean`) that has the
-//! solutions of a problem (`Prob` in `lean/RwLog/Sorts/Reduce.lean`), or
-//! nothing when the problem has no solution. The sorts must be well formed.
+//! This is the reference the store version is tested against. `unfolded` is
+//! the one normal store (`Raw.Normal` in `lean/RwLog/Sorts/Normal.lean`)
+//! that has the solutions of a problem (`Prob` in
+//! `lean/RwLog/Sorts/Reduce.lean`), or nothing when the problem has no
+//! solution; `normal` is its folded store (`FoldOf` in
+//! `lean/RwLog/Sorts/FoldRaw.lean`), which is what the store version keeps.
+//! The sorts must be well formed.
 //!
-//! How it is found:
+//! How the normal store is found:
 //!
 //! 1. Solve the equations and apply the solution.
 //! 2. Push each sort down the pattern it is said of, to variables.
@@ -21,6 +24,9 @@
 //!    the variables in the order they first occur, write each exclusion with
 //!    aliases bound to the earlier variable, drop the exclusions another one
 //!    implies, and list them in order.
+//!
+//! The folded store has each outermost free subterm of that pattern as one
+//! variable with the sorts of the subterm (`fold`).
 
 use super::{ap, put, put_list, sy, v, T};
 use rwlog_core::store::{Node, Store, TermId};
@@ -736,9 +742,142 @@ fn roots_of(gone: &[P]) -> Vec<Key> {
     out
 }
 
-/// The normal store with the solutions of the problem, or nothing when it
-/// has none.
+/// The canonical store with the solutions of the problem, or nothing when
+/// it has none: the folded store (`fold`) of the store in which every
+/// variable whose values have one root is written out (`unfolded`). This is
+/// `FoldOf` of `lean/RwLog/Sorts/FoldRaw.lean`.
 pub fn normal(s: &Sorts, prob: &Prob) -> Option<Raw> {
+    unfolded(s, prob).map(|r| fold(s, &r))
+}
+
+/// The variables of `t` outside the occurrences of `u` (`outV`).
+fn out_vars(u: &P, t: &P, out: &mut Vec<usize>) {
+    if t == u {
+        return;
+    }
+    match t {
+        P::V(x) => out.push(*x),
+        P::F(_, args) => args.iter().for_each(|a| out_vars(u, a, out)),
+    }
+}
+
+/// The variables of `t`, one for each place a variable occurs.
+fn occurrences(t: &P, out: &mut Vec<usize>) {
+    match t {
+        P::V(x) => out.push(*x),
+        P::F(_, args) => args.iter().for_each(|a| occurrences(a, out)),
+    }
+}
+
+/// The declared sorts that hold of every instance of `u` with its variables
+/// in their sorts (`clo`).
+fn clo(s: &Sorts, r: &Raw, u: &P) -> Conj {
+    s.names()
+        .into_iter()
+        .filter(|n| push(s, *n, u).is_some_and(|atoms| atoms.iter().all(|(x, m)| r.c[*x].contains(m))))
+        .collect()
+}
+
+/// Is every member of the sorts `k` an instance of `p` with its variables
+/// in their sorts (`fitsIn`)?
+fn fits(s: &Sorts, r: &Raw, k: &Conj, p: &P) -> bool {
+    match p {
+        P::V(y) => r.c[*y].iter().all(|m| s.included(k, *m)),
+        P::F(f, args) => match s.sole(k, &[]) {
+            Some((key, kids)) => {
+                key == (*f, args.len()) && kids.iter().zip(args).all(|(kid, a)| fits(s, r, kid, a))
+            }
+            None => false,
+        },
+    }
+}
+
+/// Is the subterm `u` of the pattern free (`freeB`)? It is not a variable,
+/// has a variable and none twice, its variables occur nowhere outside its
+/// occurrences and in no exclusion, and the members of its sorts are its
+/// instances.
+fn free(s: &Sorts, r: &Raw, u: &P) -> bool {
+    if matches!(u, P::V(_)) {
+        return false;
+    }
+    let mut vs = Vec::new();
+    u.vars(&mut vs);
+    let mut occs = Vec::new();
+    occurrences(u, &mut occs);
+    let mut outside = Vec::new();
+    out_vars(u, &r.t, &mut outside);
+    let mut in_x = Vec::new();
+    for b in &r.x {
+        for (y, p) in b {
+            in_x.push(*y);
+            p.vars(&mut in_x);
+        }
+    }
+    !vs.is_empty()
+        && occs.len() == vs.len()
+        && vs.iter().all(|y| !outside.contains(y) && !in_x.contains(y))
+        && fits(s, r, &clo(s, r, u), u)
+}
+
+/// The pattern with each outermost free subterm and each variable replaced
+/// by its number in `names`, the list of them in the order they first occur.
+fn fold_pat(s: &Sorts, r: &Raw, t: &P, names: &mut Vec<P>) -> P {
+    if matches!(t, P::V(_)) || free(s, r, t) {
+        let i = names.iter().position(|q| q == t).unwrap_or_else(|| {
+            names.push(t.clone());
+            names.len() - 1
+        });
+        return pv(i);
+    }
+    match t {
+        P::V(_) => unreachable!(),
+        P::F(f, args) => pf(*f, args.iter().map(|a| fold_pat(s, r, a, names)).collect()),
+    }
+}
+
+/// The folded store of a store (`foldRaw`): each outermost free subterm of
+/// the pattern is one variable with the sorts of the subterm, the variables
+/// are numbered in the order they first occur, and the exclusions are over
+/// the new numbers.
+pub fn fold(s: &Sorts, r: &Raw) -> Raw {
+    let mut names = Vec::new();
+    let t = fold_pat(s, r, &r.t, &mut names);
+    let c = names
+        .iter()
+        .map(|p| match p {
+            P::V(x) => r.c[*x].clone(),
+            u => clo(s, r, u),
+        })
+        .collect();
+    let at = |y: usize| names.iter().position(|q| *q == pv(y)).expect("an exclusion on a folded variable");
+    let number: BTreeMap<usize, P> = r
+        .x
+        .iter()
+        .flat_map(|b| b.iter())
+        .flat_map(|(y, p)| {
+            let mut vs = vec![*y];
+            p.vars(&mut vs);
+            vs
+        })
+        .map(|y| (y, pv(at(y))))
+        .collect();
+    let mut x: Vec<Binds> = r
+        .x
+        .iter()
+        .map(|b| {
+            let mut b: Binds = b.iter().map(|(y, p)| (at(*y), p.subst(&number))).collect();
+            b.sort_by_key(|(y, _)| *y);
+            b
+        })
+        .collect();
+    x.sort_by(binds_cmp);
+    Raw { t, c, x }
+}
+
+/// The normal store with the solutions of the problem (`Prob.norm`), in
+/// which every variable whose values have one root is written out, or
+/// nothing when the problem has none.
+pub fn unfolded(s: &Sorts, prob: &Prob) -> Option<Raw> {
     let theta = mgu(&prob.e)?;
     let mut t = prob.t.subst(&theta);
     let mut x: Vec<Vec<(P, P)>> = prob

@@ -411,7 +411,7 @@ fn excls(vs: &[usize], xs: &[Vec<P>]) -> Vec<Vec<T>> {
         x = f.s.alloc(Node::App(h, x));
     }
     let nil = f.s.alloc(Node::Nil);
-    let p = dom::excls_onto(&mut f.s, vl, x, nil);
+    let p = rwlog_core::sorts::excls_onto(&mut f.s, vl, x, nil);
     f.empty_stack();
     get_lists(&mut f, p)
 }
@@ -747,7 +747,7 @@ fn compose_sorts_meeting_in_one_member_ground_the_variable() {
 }
 
 #[test]
-fn compose_sorts_meeting_in_one_root_open_the_variable() {
+fn compose_sorts_meeting_in_one_root_stay_on_the_variable() {
     // `sa` is `s` of anything or `a`: with `nat` only `s` of a `nat` is left.
     const SA: Name = 121;
     let mut defs = wf();
@@ -755,15 +755,15 @@ fn compose_sorts_meeting_in_one_root_open_the_variable() {
     let p = rel(pv(0), pv(0), vec![(NAT, pv(0))], vec![]);
     let q = rel(pv(0), z(), vec![(SA, pv(0))], vec![]);
     let got = compose_same(defs, &p, &q);
-    assert_eq!(sides(&got), (su(pv(0)), z()));
-    assert!(got.c[0].contains(&NAT));
+    assert_eq!(sides(&got), (pv(0), z()));
+    assert!(got.c[0].contains(&NAT) && got.c[0].contains(&SA) && got.c[0].contains(&SUC));
 }
 
 #[test]
-fn compose_single_root_sort_opens_the_left_variable() {
+fn compose_single_root_sort_stays_on_the_left_variable() {
     let got = compose_same(wf(), &plain(pv(0), pv(0)), &rel(pv(0), z(), vec![(C2, pv(0))], vec![]));
-    assert_eq!(sides(&got), (k1(k1(pv(0))), z()));
-    assert!(got.c[0].contains(&NAT));
+    assert_eq!(sides(&got), (pv(0), z()));
+    assert!(got.c[0].contains(&C2));
 }
 
 #[test]
@@ -880,12 +880,12 @@ fn compose_exclusion_implied_by_one_of_the_other_argument_is_pruned() {
 }
 
 #[test]
-fn compose_exclusion_of_zero_from_a_nat_opens_the_variable() {
+fn compose_exclusion_of_zero_from_a_nat_narrows_the_variable_to_the_successors() {
     let p = rel(pv(0), pv(0), vec![(NAT, pv(0))], vec![]);
     let q = rel(pv(0), pv(0), vec![], vec![vec![(pv(0), z())]]);
     let got = compose_same(wf(), &p, &q);
-    assert_eq!(sides(&got), (su(pv(0)), su(pv(0))));
-    assert!(got.c[0].contains(&NAT));
+    assert_eq!(sides(&got), (pv(0), pv(0)));
+    assert!(got.c[0].contains(&SUC));
     assert!(got.x.is_empty());
 }
 
@@ -1051,22 +1051,22 @@ fn meet_sorts_meeting_in_one_member_ground_the_variable() {
 }
 
 #[test]
-fn meet_sorts_meeting_in_one_root_open_the_variable() {
+fn meet_sorts_meeting_in_one_root_stay_on_the_variable() {
     const SA: Name = 121;
     let mut defs = wf();
     defs.push((SA, Def { cases: vec![(SU, vec![None]), (A, vec![])], rest: None }));
     let p = rel(pv(0), pv(0), vec![(NAT, pv(0))], vec![]);
     let q = rel(pv(0), pv(1), vec![(SA, pv(1))], vec![]);
     let got = meet_same(defs, &p, &q);
-    assert_eq!(sides(&got), (su(pv(0)), su(pv(0))));
-    assert!(got.c[0].contains(&NAT));
+    assert_eq!(sides(&got), (pv(0), pv(0)));
+    assert!(got.c[0].contains(&NAT) && got.c[0].contains(&SA) && got.c[0].contains(&SUC));
 }
 
 #[test]
-fn meet_single_root_sort_opens_the_variable_of_the_other() {
+fn meet_single_root_sort_reaches_the_variable_of_the_other() {
     let got = meet_same(wf(), &plain(pv(0), pv(0)), &rel(pv(0), pv(1), vec![(BOX, pv(1))], vec![]));
-    assert_eq!(sides(&got), (k1(pv(0)), k1(pv(0))));
-    assert!(got.c[0].contains(&NAT));
+    assert_eq!(sides(&got), (pv(0), pv(0)));
+    assert!(got.c[0].contains(&BOX));
 }
 
 #[test]
@@ -1132,12 +1132,12 @@ fn meet_disequality_becomes_exclusion_of_a_value() {
 }
 
 #[test]
-fn meet_exclusion_of_zero_from_a_nat_opens_the_variable() {
+fn meet_exclusion_of_zero_from_a_nat_narrows_the_variable_to_the_successors() {
     let p = rel(pv(0), pv(1), vec![(NAT, pv(0))], vec![]);
     let q = rel(pv(0), pv(1), vec![], vec![vec![(pv(0), z())]]);
     let got = meet_same(wf(), &p, &q);
-    assert_eq!(sides(&got), (su(pv(0)), pv(1)));
-    assert!(got.c[0].contains(&NAT));
+    assert_eq!(sides(&got), (pv(0), pv(1)));
+    assert!(got.c[0].contains(&SUC));
     assert!(got.x.is_empty());
 }
 
@@ -1783,8 +1783,8 @@ fn rep_span_without_constraints_under_no_declarations() {
 #[test]
 fn rep_sort_on_a_variable_of_the_left_side() {
     let got = span_same(wf(), pv(0), pv(1), &[in_sort(BOX, pv(0))], vec![(BOX, pv(0))], vec![]);
-    assert_eq!(sides(&got), (k1(pv(0)), pv(1)));
-    assert!(got.c[0].contains(&NAT));
+    assert_eq!(sides(&got), (pv(0), pv(1)));
+    assert!(got.c[0].contains(&BOX));
     assert!(got.c[1].is_empty());
 }
 
@@ -1815,8 +1815,8 @@ fn rep_sort_follows_its_variable_to_its_new_number() {
 fn rep_sorts_on_two_variables_each_reach_their_variable() {
     let c = [in_sort(NAT, pv(0)), in_sort(PAIR, pv(1))];
     let got = span_same(wf(), pv(0), pv(1), &c, vec![(NAT, pv(0)), (PAIR, pv(1))], vec![]);
-    assert_eq!(sides(&got), (pv(0), pr(pv(1), pv(2))));
-    assert!(got.c.iter().all(|c| c.contains(&NAT)));
+    assert_eq!(sides(&got), (pv(0), pv(1)));
+    assert!(got.c[0].contains(&NAT) && got.c[1].contains(&PAIR));
 }
 
 #[test]
@@ -1884,10 +1884,10 @@ fn rep_sort_with_one_member_grounds_its_variable() {
 }
 
 #[test]
-fn rep_sort_with_one_root_opens_its_variable() {
+fn rep_sort_with_one_root_stays_on_its_variable() {
     let got = span_same(wf(), pv(0), pv(0), &[in_sort(SUC, pv(0))], vec![(SUC, pv(0))], vec![]);
-    assert_eq!(sides(&got), (su(pv(0)), su(pv(0))));
-    assert!(got.c[0].contains(&NAT));
+    assert_eq!(sides(&got), (pv(0), pv(0)));
+    assert!(got.c[0].contains(&SUC) && got.c[0].contains(&NAT));
 }
 
 #[test]
@@ -2096,11 +2096,11 @@ fn rep_disequality_from_the_only_member_of_the_sort_is_none() {
 }
 
 #[test]
-fn rep_disequality_from_zero_opens_a_nat() {
+fn rep_disequality_from_zero_narrows_a_nat_to_the_successors() {
     let c = [differ(pv(0), z()), in_sort(NAT, pv(0))];
     let got = span_same(wf(), pv(0), pv(0), &c, vec![(NAT, pv(0))], vec![vec![(pv(0), z())]]);
-    assert_eq!(sides(&got), (su(pv(0)), su(pv(0))));
-    assert!(got.c[0].contains(&NAT));
+    assert_eq!(sides(&got), (pv(0), pv(0)));
+    assert!(got.c[0].contains(&SUC));
     assert!(got.x.is_empty());
 }
 
@@ -2341,7 +2341,8 @@ fn rep_results_compose_as_the_representatives_of_their_relations() {
     let a = rep(&wf(), &rel(pv(0), su(pv(0)), vec![(NAT, pv(0))], vec![]));
     let b = rep(&wf(), &rel(pv(0), pv(0), vec![], vec![vec![(pv(0), su(z()))]]));
     let want = ref_compose(&Sorts::new(wf()), &a, &b).expect("the reference composes them");
-    assert_eq!(sides(&want), (su(pv(0)), su(su(pv(0)))));
+    assert_eq!(sides(&want), (pv(0), su(pv(0))));
+    assert!(want.c[0].contains(&SUC));
     assert_eq!(read(got, f), Some(shape(&want)));
 }
 
@@ -2367,7 +2368,8 @@ fn rep_results_meet_as_the_representatives_of_their_relations() {
     let a = rep(&wf(), &rel(pv(0), pv(1), vec![], vec![vec![(pv(0), pv(1))]]));
     let b = rep(&wf(), &rel(z(), pv(0), vec![(NAT, pv(0))], vec![]));
     let want = ref_meet(&Sorts::new(wf()), &a, &b).expect("the reference meets them");
-    assert_eq!(sides(&want), (z(), su(pv(0))));
+    assert_eq!(sides(&want), (z(), pv(0)));
+    assert!(want.c[0].contains(&SUC));
     assert_eq!(read(got, f), Some(shape(&want)));
 }
 

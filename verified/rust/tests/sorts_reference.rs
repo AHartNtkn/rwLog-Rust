@@ -171,7 +171,7 @@ fn sort_with_one_root_extends_the_pattern() {
     let mut p = prob(pv(0));
     p.a.push((POS, pv(0)));
     p.a.push((NAT, pv(0)));
-    let r = normal(&sorts(), &p).unwrap();
+    let r = unfolded(&sorts(), &p).unwrap();
     assert_eq!(r.t, s(pv(0)));
     assert_eq!(r.c, vec![conj(&[NAT, ANY, NOK])]);
 }
@@ -182,7 +182,7 @@ fn excluded_value_leaves_one_root() {
     let mut p = prob(pv(0));
     p.a.push((NAT, pv(0)));
     p.x.push(vec![(pv(0), z())]);
-    let r = normal(&sorts(), &p).unwrap();
+    let r = unfolded(&sorts(), &p).unwrap();
     assert_eq!(r.t, s(pv(0)));
     assert_eq!(r.c, vec![conj(&[NAT, ANY, NOK])]);
     assert!(r.x.is_empty());
@@ -589,6 +589,25 @@ fn normal_store_has_the_instances_of_the_problem() {
 
 /// The conditions of `Raw.Normal`, the ones on solutions by enumeration.
 fn check_normal(ss: &Sorts, r: &Raw, what: &str) {
+    check_shaped(ss, r, what);
+    let n = r.c.len();
+    let u = universe(if n <= 1 { 5 } else { 3 });
+    let sols = solutions(ss, &r.prob(), &u, &u);
+    for y in 0..n {
+        let roots: BTreeSet<(u32, usize)> = sols.iter().map(|sigma| root(&sigma[&y])).collect();
+        assert!(roots.len() >= 2, "{}: ${} has the roots {:?} in {:?}", what, y, roots, r);
+    }
+}
+
+fn root(t: &P) -> (u32, usize) {
+    match t {
+        P::F(f, args) => (*f, args.len()),
+        P::V(_) => unreachable!(),
+    }
+}
+
+/// The conditions of `Raw.Shaped`, the ones on solutions by enumeration.
+fn check_shaped(ss: &Sorts, r: &Raw, what: &str) {
     let n = r.c.len();
     let mut vars = Vec::new();
     r.t.vars(&mut vars);
@@ -597,14 +616,6 @@ fn check_normal(ss: &Sorts, r: &Raw, what: &str) {
     let u = universe(if n <= 1 { 5 } else { 3 });
     let sols = solutions(ss, &r.prob(), &u, &u);
     for y in 0..n {
-        let roots: BTreeSet<(u32, usize)> = sols
-            .iter()
-            .map(|sigma| match &sigma[&y] {
-                P::F(f, args) => (*f, args.len()),
-                P::V(_) => unreachable!(),
-            })
-            .collect();
-        assert!(roots.len() >= 2, "{}: ${} has the roots {:?} in {:?}", what, y, roots, r);
         for name in ss.names() {
             let all = sols.iter().all(|sigma| ss.member(name, &sigma[&y]));
             assert_eq!(
@@ -645,7 +656,7 @@ fn normal_store_is_normal() {
     let (mut excl, mut two, mut extended, mut sorted) = (0, 0, 0, 0);
     for round in 0..2000 {
         let p = random_prob(&mut rng);
-        if let Some(r) = normal(&ss, &p) {
+        if let Some(r) = unfolded(&ss, &p) {
             check_normal(&ss, &r, &format!("round {} {:?}", round, p));
             excl += usize::from(!r.x.is_empty());
             two += usize::from(r.x.iter().any(|b| b.len() > 1));
@@ -661,6 +672,31 @@ fn normal_store_is_normal() {
         extended,
         sorted
     );
+}
+
+/// The folded store is determined by its pattern and what it denotes, and
+/// it is the store written out exactly when no subterm folds.
+#[test]
+fn folded_store_is_shaped() {
+    let ss = sorts();
+    let mut rng = Rng(2);
+    // How many stores fold a subterm, and how many of those keep an
+    // exclusion.
+    let (mut folded, mut excl) = (0, 0);
+    for round in 0..2000 {
+        let p = random_prob(&mut rng);
+        if let Some(r) = normal(&ss, &p) {
+            check_shaped(&ss, &r, &format!("round {} {:?}", round, p));
+            let n = unfolded(&ss, &p).expect("a folded store has a store written out");
+            assert_eq!(instances(&ss, &r.prob(), 3), instances(&ss, &n.prob(), 3), "round {}: {:?}", round, p);
+            assert_eq!(unfolded(&ss, &r.prob()), Some(n.clone()), "round {}: {:?} written out", round, r);
+            if r != n {
+                folded += 1;
+                excl += usize::from(!r.x.is_empty());
+            }
+        }
+    }
+    assert!(folded > 100 && excl >= 1, "{} folded, {} of them with exclusions", folded, excl);
 }
 
 #[test]

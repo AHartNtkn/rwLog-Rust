@@ -1,5 +1,6 @@
-//! The store a problem starts from (`sorts::start`) and its normal store
-//! (`sorts::normal`), against `Prob.norm` of the specification
+//! The store a problem starts from (`sorts::start`) and its canonical store
+//! (`sorts::normal`), against the folded store (`FoldOf` of
+//! `lean/RwLog/Sorts/FoldRaw.lean`) of `Prob.norm` of the specification
 //! (`lean/RwLog/Sorts/Norm.lean`) as written on trees
 //! (`common::sorts::normal`).
 //!
@@ -10,8 +11,10 @@
 //! also for the hidden ones, which occur in the sorted patterns or the
 //! exclusions and not in the pattern. `normal` replaces each variable whose
 //! sorts have one member, drops the hidden variables with the exclusions
-//! whose solved forms mention them, tightens what is left, numbers it again,
-//! solves its exclusions and drops the ones another covers. A hidden
+//! whose solved forms mention them, writes out each variable an exclusion
+//! mentions whose values have one root, numbers what is left again, solves
+//! its exclusions and drops the ones another covers, and folds each
+//! outermost free subterm of the pattern into one variable. A hidden
 //! variable is never replaced by a root applied to new variables. Every sort
 //! of a problem is declared.
 
@@ -394,18 +397,8 @@ fn normal_single_member_sort_replaces_variable_by_value() {
 }
 
 #[test]
-fn normal_single_root_sort_opens_variable() {
-    normal_pattern(&Prob { t: pv(0), e: vec![], a: vec![(SUC, pv(0))], x: vec![] }, &su(pv(0)));
-}
-
-#[test]
-fn normal_box_sort_opens_variable() {
-    normal_pattern(&Prob { t: pv(0), e: vec![], a: vec![(BOX, pv(0))], x: vec![] }, &k1(pv(0)));
-}
-
-#[test]
-fn normal_nested_single_root_sorts_open_repeatedly() {
-    normal_pattern(&Prob { t: pv(0), e: vec![], a: vec![(C3, pv(0))], x: vec![] }, &k1(k1(k1(pv(0)))));
+fn normal_single_root_sort_keeps_its_variable() {
+    normal_pattern(&Prob { t: pv(0), e: vec![], a: vec![(SUC, pv(0))], x: vec![] }, &pv(0));
 }
 
 #[test]
@@ -424,8 +417,8 @@ fn normal_empty_sort_under_compound_is_none() {
 }
 
 #[test]
-fn normal_intersection_with_single_root_opens_variable() {
-    normal_pattern(&Prob { t: pv(0), e: vec![], a: vec![(NAT, pv(0)), (SUC, pv(0))], x: vec![] }, &su(pv(0)));
+fn normal_intersection_with_single_root_keeps_its_variable() {
+    normal_pattern(&Prob { t: pv(0), e: vec![], a: vec![(NAT, pv(0)), (SUC, pv(0))], x: vec![] }, &pv(0));
 }
 
 #[test]
@@ -456,7 +449,7 @@ fn normal_ground_non_member_is_none() {
 
 #[test]
 fn normal_alias_merges_sorts_of_both_variables() {
-    normal_pattern(&Prob { t: f2(pv(0), pv(1)), e: vec![(pv(0), pv(1))], a: vec![(NAT, pv(0)), (SUC, pv(1))], x: vec![] }, &f2(su(pv(0)), su(pv(0))));
+    normal_pattern(&Prob { t: f2(pv(0), pv(1)), e: vec![(pv(0), pv(1))], a: vec![(NAT, pv(0)), (SUC, pv(1))], x: vec![] }, &f2(pv(0), pv(0)));
 }
 
 #[test]
@@ -510,16 +503,6 @@ fn normal_keeps_exclusion_of_one_value_of_unsorted_variable() {
 #[test]
 fn normal_keeps_disequality_of_two_pattern_variables() {
     normal_same(wf(), &Prob { t: f2(pv(0), pv(1)), e: vec![], a: vec![], x: vec![vec![(pv(1), pv(0))]] });
-}
-
-#[test]
-fn normal_exclusion_of_zero_from_nat_opens_to_successor() {
-    normal_pattern(&Prob { t: pv(0), e: vec![], a: vec![(NAT, pv(0))], x: vec![vec![(pv(0), z())]] }, &su(pv(0)));
-}
-
-#[test]
-fn normal_two_exclusions_open_nat_twice() {
-    normal_pattern(&Prob { t: pv(0), e: vec![], a: vec![(NAT, pv(0))], x: vec![vec![(pv(0), z())], vec![(pv(0), su(z()))]] }, &su(su(pv(0))));
 }
 
 #[test]
@@ -592,8 +575,9 @@ fn normal_hidden_single_value_variable_turns_mixed_exclusion_into_pattern_exclus
 }
 
 #[test]
-fn normal_hidden_single_value_exclusion_opens_sorted_pattern_variable() {
-    normal_pattern(&Prob { t: pv(0), e: vec![], a: vec![(UNIT, pv(1)), (NAT, pv(0))], x: vec![vec![(pv(0), pv(1))]] }, &su(pv(0)));
+fn normal_hidden_single_value_exclusion_narrows_sorted_pattern_variable() {
+    let p = Prob { t: pv(0), e: vec![], a: vec![(UNIT, pv(1)), (NAT, pv(0))], x: vec![vec![(pv(0), pv(1))]] };
+    normal_is(&p, pv(0), &[&[NAT, SUC, ANY]], &[]);
 }
 
 #[test]
@@ -603,7 +587,7 @@ fn normal_disequality_of_two_single_member_variables_is_none() {
 
 #[test]
 fn normal_disequality_of_variables_of_disjoint_sorts_is_dropped() {
-    normal_pattern(&Prob { t: f2(pv(0), pv(1)), e: vec![], a: vec![(UNIT, pv(0)), (SUC, pv(1))], x: vec![vec![(pv(0), pv(1))]] }, &f2(z(), su(pv(0))));
+    normal_pattern(&Prob { t: f2(pv(0), pv(1)), e: vec![], a: vec![(UNIT, pv(0)), (SUC, pv(1))], x: vec![vec![(pv(0), pv(1))]] }, &f2(z(), pv(0)));
 }
 
 #[test]
@@ -730,10 +714,10 @@ fn normal_puts_the_one_compound_member_of_a_hidden_variable_in_an_exclusion() {
 }
 
 #[test]
-fn normal_exclusion_with_the_one_member_of_a_hidden_variable_opens_a_sorted_pattern_variable() {
+fn normal_exclusion_with_the_one_member_of_a_hidden_variable_narrows_a_sorted_pattern_variable() {
     // `x != h` with `h` the one `unit` leaves a `nat` its successors only.
     let p = Prob { t: pv(0), e: vec![], a: vec![(NAT, pv(0)), (UNIT, pv(1))], x: vec![vec![(pv(1), pv(0))]] };
-    normal_is(&p, su(pv(0)), &[&[NAT, ANY]], &[]);
+    normal_is(&p, pv(0), &[&[NAT, SUC, ANY]], &[]);
 }
 
 #[test]
@@ -801,10 +785,10 @@ fn normal_exclusion_with_a_hidden_variable_at_the_same_place_on_both_sides_is_th
 }
 
 #[test]
-fn normal_exclusion_with_a_hidden_variable_equal_to_itself_opens_a_sorted_pattern_variable() {
+fn normal_exclusion_with_a_hidden_variable_equal_to_itself_narrows_a_sorted_pattern_variable() {
     // `[(h, h), (x, z)]` is `x != z`, which leaves a `nat` its successors.
     let p = Prob { t: pv(0), e: vec![], a: vec![(NAT, pv(0))], x: vec![vec![(pv(1), pv(1)), (pv(0), z())]] };
-    normal_is(&p, su(pv(0)), &[&[NAT, ANY]], &[]);
+    normal_is(&p, pv(0), &[&[NAT, SUC, ANY]], &[]);
 }
 
 #[test]
@@ -889,9 +873,9 @@ fn normal_drops_an_exclusion_over_a_hidden_variable_whose_values_have_one_root()
 }
 
 #[test]
-fn normal_opens_the_pattern_variable_and_not_a_hidden_one_of_the_same_sort() {
+fn normal_drops_a_hidden_variable_and_leaves_the_pattern_variable_of_the_same_sort_folded() {
     let p = Prob { t: pv(0), e: vec![], a: vec![(C3, pv(0)), (C3, pv(1))], x: vec![vec![(pv(0), pv(1))]] };
-    normal_is(&p, k1(k1(k1(pv(0)))), &[&[NAT, ANY]], &[]);
+    normal_is(&p, pv(0), &[&[C3, ANY]], &[]);
 }
 
 #[test]
@@ -954,4 +938,568 @@ fn normal_does_not_expand_a_hidden_variable_with_one_root() {
     assert_eq!(shallow, Some(shape(&want)), "depth {k}");
     assert_eq!(deep, Some(shape(&want)), "depth {}", 2 * k);
     assert!(t2 <= 16 * t1, "{t1} ticks at depth {k} and {t2} at depth {}", 2 * k);
+}
+
+// # The folded store
+//
+// The canonical store leaves a subterm folded, as one variable with the
+// sorts of the subterm, when nothing but its sorts is said of it
+// (`lean/RwLog/Sorts/FoldRaw.lean`). Only a variable that an exclusion
+// mentions is written out.
+
+const NIL: u32 = 8;
+const CONS: u32 = 9;
+const KK: Name = 120;
+const NOK: Name = 121;
+const M2: Name = 122;
+const LIST: Name = 123;
+const NE: Name = 124;
+const SA: Name = 125;
+const B2: Name = 126;
+
+fn g2(p: P, q: P) -> P {
+    pf(G, vec![p, q])
+}
+
+fn with(extra: Vec<(Name, Def)>) -> Vec<(Name, Def)> {
+    let mut d = wf();
+    d.extend(extra);
+    d
+}
+
+fn without(gone: &[Name], extra: Vec<(Name, Def)>) -> Vec<(Name, Def)> {
+    let mut d: Vec<(Name, Def)> = wf().into_iter().filter(|(n, _)| !gone.contains(n)).collect();
+    d.extend(extra);
+    d
+}
+
+fn prob(t: P, a: Vec<(Name, P)>, x: Vec<Vec<(P, P)>>) -> Prob {
+    Prob { t, e: vec![], a, x }
+}
+
+/// Both the reference and `normal` give the store of the pattern `t`, the
+/// sorts `c` of its variables and the exclusions `x`; and that store, as a
+/// problem, gives itself.
+fn folded_is(defs: Vec<(Name, Def)>, p: &Prob, t: P, c: &[&[Name]], x: Vec<Binds>) {
+    let want = Raw { t, c: c.iter().map(|l| l.iter().copied().collect()).collect(), x };
+    let sorts = Sorts::new(defs.clone());
+    assert_eq!(common::sorts::normal(&sorts, p).as_ref().map(shape), Some(shape(&want)), "the reference on {p:?}");
+    assert_eq!(
+        common::sorts::normal(&sorts, &want.prob()).as_ref().map(shape),
+        Some(shape(&want)),
+        "the reference on its own store for {p:?}"
+    );
+    assert_eq!(run_normal(defs.clone(), p, false), Some(shape(&want)), "{p:?}");
+    assert_eq!(run_normal(defs, &want.prob(), false), Some(shape(&want)), "the store of {p:?} as a problem");
+}
+
+const N: &[Name] = &[NAT, ANY];
+const S: &[Name] = &[NAT, SUC, ANY];
+
+#[test]
+fn fold_single_root_sort_without_exclusion_stays_a_variable() {
+    folded_is(wf(), &prob(pv(0), vec![(BOX, pv(0))], vec![]), pv(0), &[&[BOX, ANY]], vec![]);
+}
+
+#[test]
+fn fold_nested_single_root_sort_stays_a_variable() {
+    folded_is(wf(), &prob(pv(0), vec![(C3, pv(0))], vec![]), pv(0), &[&[C3, ANY]], vec![]);
+}
+
+#[test]
+fn fold_nat_without_zero_is_a_variable_of_the_successors() {
+    folded_is(wf(), &prob(pv(0), vec![(NAT, pv(0))], vec![vec![(pv(0), z())]]), pv(0), &[S], vec![]);
+}
+
+#[test]
+fn fold_exclusion_leaving_two_roots_keeps_variable_and_exclusion() {
+    folded_is(wf(), &prob(pv(0), vec![(NAT, pv(0))], vec![vec![(pv(0), su(z()))]]), pv(0), &[N], vec![vec![(0, su(z()))]]);
+}
+
+#[test]
+fn fold_exclusion_inside_box_writes_the_box_out() {
+    folded_is(wf(), &prob(pv(0), vec![(BOX, pv(0))], vec![vec![(pv(0), k1(z()))]]), k1(pv(0)), &[S], vec![]);
+}
+
+#[test]
+fn fold_exclusion_two_levels_down_writes_both_levels_out() {
+    folded_is(wf(), &prob(pv(0), vec![(C2, pv(0))], vec![vec![(pv(0), k1(k1(z())))]]), k1(k1(pv(0))), &[S], vec![]);
+}
+
+#[test]
+fn fold_exclusion_on_both_parts_of_a_pair_writes_the_pair_out_and_stays() {
+    folded_is(
+        wf(),
+        &prob(pv(0), vec![(PAIR, pv(0))], vec![vec![(pv(0), pr(z(), z()))]]),
+        pr(pv(0), pv(1)),
+        &[N, N],
+        vec![vec![(0, z()), (1, z())]],
+    );
+}
+
+#[test]
+fn fold_only_the_variable_an_exclusion_mentions_is_written_out() {
+    folded_is(
+        wf(),
+        &prob(f2(pv(0), pv(1)), vec![(BOX, pv(0)), (BOX, pv(1))], vec![vec![(pv(0), k1(z()))]]),
+        f2(k1(pv(0)), pv(1)),
+        &[S, &[BOX, ANY]],
+        vec![],
+    );
+}
+
+#[test]
+fn fold_exclusion_that_cannot_hold_leaves_the_variable_folded() {
+    folded_is(wf(), &prob(pv(0), vec![(BOX, pv(0))], vec![vec![(pv(0), a())]]), pv(0), &[&[BOX, ANY]], vec![]);
+}
+
+#[test]
+fn fold_exclusion_settles_one_argument_and_narrows_the_other() {
+    folded_is(wf(), &prob(pv(0), vec![(MIX, pv(0))], vec![vec![(pv(0), g2(z(), z()))]]), g2(z(), pv(0)), &[S], vec![]);
+}
+
+#[test]
+fn fold_bare_variable_is_not_a_subterm_to_fold() {
+    folded_is(wf(), &prob(pv(0), vec![(NAT, pv(0))], vec![]), pv(0), &[N], vec![]);
+}
+
+#[test]
+fn fold_ground_pattern_is_not_folded() {
+    folded_is(wf(), &prob(pr(z(), z()), vec![], vec![]), pr(z(), z()), &[], vec![]);
+}
+
+#[test]
+fn fold_sort_with_one_member_is_written_as_the_member() {
+    folded_is(wf(), &prob(pv(0), vec![(TWO, pv(0))], vec![]), pr(z(), z()), &[], vec![]);
+}
+
+#[test]
+fn fold_subterm_with_a_variable_twice_is_not_folded() {
+    folded_is(wf(), &prob(pr(pv(0), pv(0)), vec![(NAT, pv(0))], vec![]), pr(pv(0), pv(0)), &[N], vec![]);
+}
+
+#[test]
+fn fold_subterm_whose_variable_occurs_outside_it_is_not_folded() {
+    folded_is(wf(), &prob(f2(k1(pv(0)), pv(0)), vec![(NAT, pv(0))], vec![]), f2(k1(pv(0)), pv(0)), &[N], vec![]);
+}
+
+#[test]
+fn fold_subterm_whose_variable_an_exclusion_mentions_is_not_folded() {
+    folded_is(
+        wf(),
+        &prob(k1(pv(0)), vec![(NAT, pv(0))], vec![vec![(pv(0), su(z()))]]),
+        k1(pv(0)),
+        &[N],
+        vec![vec![(0, su(z()))]],
+    );
+}
+
+#[test]
+fn fold_subterm_narrower_than_every_declared_sort_is_not_folded() {
+    folded_is(wf(), &prob(k1(pv(0)), vec![(SUC, pv(0))], vec![]), k1(pv(0)), &[S], vec![]);
+}
+
+#[test]
+fn fold_subterm_that_is_exactly_a_sort_becomes_a_variable_of_it() {
+    folded_is(wf(), &prob(k1(pv(0)), vec![(NAT, pv(0))], vec![]), pv(0), &[&[BOX, ANY]], vec![]);
+}
+
+#[test]
+fn fold_subterm_of_unsorted_variables_is_not_folded() {
+    folded_is(wf(), &prob(f2(pv(0), pv(1)), vec![], vec![]), f2(pv(0), pv(1)), &[&[], &[]], vec![]);
+}
+
+#[test]
+fn fold_successor_is_not_folded_when_no_sort_is_the_successors() {
+    folded_is(without(&[SUC], vec![]), &prob(su(pv(0)), vec![(NAT, pv(0))], vec![]), su(pv(0)), &[N], vec![]);
+}
+
+#[test]
+fn fold_successor_is_folded_when_a_sort_is_the_successors() {
+    folded_is(wf(), &prob(su(pv(0)), vec![(NAT, pv(0))], vec![]), pv(0), &[S], vec![]);
+}
+
+#[test]
+fn fold_sort_with_the_symbol_at_two_arities_does_not_fold() {
+    let kk = Def { cases: vec![(K, vec![Some(NAT)]), (K, vec![Some(NAT), Some(NAT)])], rest: None };
+    folded_is(without(&[BOX, C2, C3], vec![(KK, kk)]), &prob(k1(pv(0)), vec![(NAT, pv(0))], vec![]), k1(pv(0)), &[N], vec![]);
+}
+
+#[test]
+fn fold_wider_sort_is_carried_with_the_exact_one() {
+    let kk = Def { cases: vec![(K, vec![Some(NAT)]), (K, vec![Some(NAT), Some(NAT)])], rest: None };
+    folded_is(with(vec![(KK, kk)]), &prob(k1(pv(0)), vec![(NAT, pv(0))], vec![]), pv(0), &[&[BOX, ANY, KK]], vec![]);
+}
+
+#[test]
+fn fold_three_nested_boxes_fold_to_one_variable() {
+    folded_is(wf(), &prob(k1(k1(k1(pv(0)))), vec![(NAT, pv(0))], vec![]), pv(0), &[&[C3, ANY]], vec![]);
+}
+
+#[test]
+fn fold_inner_subterm_folds_when_the_outer_one_does_not() {
+    folded_is(wf(), &prob(su(su(pv(0))), vec![(NAT, pv(0))], vec![]), su(pv(0)), &[S], vec![]);
+}
+
+#[test]
+fn fold_subterm_of_an_unsorted_variable_under_a_sorted_symbol_is_not_folded() {
+    folded_is(wf(), &prob(k1(pv(0)), vec![], vec![]), k1(pv(0)), &[&[]], vec![]);
+}
+
+#[test]
+fn fold_sort_that_rejects_the_root_is_not_among_the_sorts_of_the_subterm() {
+    let nok = Def { cases: vec![], rest: Some((vec![(K, 1)], None)) };
+    folded_is(with(vec![(NOK, nok)]), &prob(k1(pv(0)), vec![(NAT, pv(0))], vec![]), pv(0), &[&[BOX, ANY]], vec![]);
+}
+
+#[test]
+fn fold_subterm_with_a_constant_the_sort_requires_is_folded() {
+    folded_is(wf(), &prob(g2(z(), pv(0)), vec![(NAT, pv(0))], vec![]), pv(0), &[&[MIX, ANY]], vec![]);
+}
+
+#[test]
+fn fold_subterm_with_a_constant_the_sort_does_not_require_is_not_folded() {
+    folded_is(wf(), &prob(pr(z(), pv(0)), vec![(NAT, pv(0))], vec![]), pr(z(), pv(0)), &[N], vec![]);
+}
+
+#[test]
+fn fold_unsorted_variable_fits_an_argument_of_any_term() {
+    folded_is(
+        with(vec![(M2, one(G, vec![None, Some(NAT)]))]),
+        &prob(g2(pv(0), pv(1)), vec![(NAT, pv(1))], vec![]),
+        pv(0),
+        &[&[ANY, M2]],
+        vec![],
+    );
+}
+
+#[test]
+fn fold_sorted_variable_does_not_fit_an_argument_of_any_term() {
+    folded_is(
+        with(vec![(M2, one(G, vec![None, Some(NAT)]))]),
+        &prob(g2(pv(0), pv(1)), vec![(NAT, pv(0)), (NAT, pv(1))], vec![]),
+        g2(pv(0), pv(1)),
+        &[N, N],
+        vec![],
+    );
+}
+
+#[test]
+fn fold_constant_folds_through_the_sort_that_requires_it() {
+    folded_is(
+        with(vec![(M2, one(G, vec![None, Some(NAT)]))]),
+        &prob(g2(z(), pv(0)), vec![(NAT, pv(0))], vec![]),
+        pv(0),
+        &[&[MIX, ANY, M2]],
+        vec![],
+    );
+}
+
+fn list() -> Def {
+    Def { cases: vec![(NIL, vec![]), (CONS, vec![Some(NAT), Some(LIST)])], rest: None }
+}
+
+#[test]
+fn fold_cons_is_not_folded_when_no_sort_is_the_nonempty_lists() {
+    folded_is(
+        with(vec![(LIST, list())]),
+        &prob(pf(CONS, vec![pv(0), pv(1)]), vec![(NAT, pv(0)), (LIST, pv(1))], vec![]),
+        pf(CONS, vec![pv(0), pv(1)]),
+        &[N, &[ANY, LIST]],
+        vec![],
+    );
+}
+
+#[test]
+fn fold_cons_is_folded_when_a_sort_is_the_nonempty_lists() {
+    folded_is(
+        with(vec![(LIST, list()), (NE, one(CONS, vec![Some(NAT), Some(LIST)]))]),
+        &prob(pf(CONS, vec![pv(0), pv(1)]), vec![(NAT, pv(0)), (LIST, pv(1))], vec![]),
+        pv(0),
+        &[&[ANY, LIST, NE]],
+        vec![],
+    );
+}
+
+fn sa() -> Vec<(Name, Def)> {
+    with(vec![(SA, Def { cases: vec![(SU, vec![Some(NAT)]), (A, vec![])], rest: None })])
+}
+
+#[test]
+fn fold_two_sorts_meeting_in_one_root_stay_a_variable() {
+    folded_is(sa(), &prob(pv(0), vec![(NAT, pv(0)), (SA, pv(0))], vec![]), pv(0), &[&[NAT, SUC, ANY, SA]], vec![]);
+}
+
+#[test]
+fn fold_variable_of_the_successors_carries_every_sort_above_them() {
+    folded_is(sa(), &prob(pv(0), vec![(SUC, pv(0))], vec![]), pv(0), &[&[NAT, SUC, ANY, SA]], vec![]);
+}
+
+#[test]
+fn fold_written_out_successor_folds_to_the_same_store_as_the_sorted_variable() {
+    folded_is(sa(), &prob(su(pv(0)), vec![(NAT, pv(0))], vec![]), pv(0), &[&[NAT, SUC, ANY, SA]], vec![]);
+}
+
+#[test]
+fn fold_argument_sorts_of_several_sorts_are_met_at_the_leaf() {
+    folded_is(
+        with(vec![(B2, one(K, vec![Some(SUC)]))]),
+        &prob(k1(pv(0)), vec![(SUC, pv(0))], vec![]),
+        pv(0),
+        &[&[BOX, ANY, B2]],
+        vec![],
+    );
+}
+
+#[test]
+fn fold_only_the_outermost_free_subterm_is_folded() {
+    folded_is(wf(), &prob(k1(k1(k1(k1(pv(0))))), vec![(NAT, pv(0))], vec![]), k1(pv(0)), &[&[C3, ANY]], vec![]);
+}
+
+#[test]
+fn fold_two_free_subterms_become_two_variables_in_order() {
+    folded_is(
+        wf(),
+        &prob(f2(k1(pv(0)), pr(pv(1), pv(2))), vec![(NAT, pv(0)), (NAT, pv(1)), (NAT, pv(2))], vec![]),
+        f2(pv(0), pv(1)),
+        &[&[BOX, ANY], &[PAIR, ANY]],
+        vec![],
+    );
+}
+
+#[test]
+fn fold_variables_after_a_folded_subterm_are_numbered_down() {
+    folded_is(
+        wf(),
+        &prob(f2(pr(pv(0), pv(1)), pv(2)), vec![(NAT, pv(0)), (NAT, pv(1)), (NAT, pv(2))], vec![]),
+        f2(pv(0), pv(1)),
+        &[&[PAIR, ANY], N],
+        vec![],
+    );
+}
+
+#[test]
+fn fold_repeated_variable_keeps_one_number_around_a_folded_subterm() {
+    folded_is(
+        wf(),
+        &prob(f2(f2(pv(0), pr(pv(1), pv(2))), pv(0)), vec![(NAT, pv(0)), (NAT, pv(1)), (NAT, pv(2))], vec![]),
+        f2(f2(pv(0), pv(1)), pv(0)),
+        &[N, &[PAIR, ANY]],
+        vec![],
+    );
+}
+
+#[test]
+fn fold_the_same_free_subterm_twice_is_one_variable_twice() {
+    folded_is(wf(), &prob(f2(k1(pv(0)), k1(pv(0))), vec![(NAT, pv(0))], vec![]), f2(pv(0), pv(0)), &[&[BOX, ANY]], vec![]);
+}
+
+#[test]
+fn fold_exclusion_follows_its_variable_to_the_new_number() {
+    folded_is(
+        wf(),
+        &prob(
+            f2(pr(pv(0), pv(1)), pv(2)),
+            vec![(NAT, pv(0)), (NAT, pv(1)), (NAT, pv(2))],
+            vec![vec![(pv(2), su(z()))]],
+        ),
+        f2(pv(0), pv(1)),
+        &[&[PAIR, ANY], N],
+        vec![vec![(1, su(z()))]],
+    );
+}
+
+#[test]
+fn fold_variable_on_the_right_of_an_exclusion_keeps_its_subterm_written_out() {
+    folded_is(
+        wf(),
+        &prob(f2(pv(0), k1(pv(1))), vec![(NAT, pv(1))], vec![vec![(pv(0), k1(pv(1)))]]),
+        f2(pv(0), k1(pv(1))),
+        &[&[], N],
+        vec![vec![(0, k1(pv(1)))]],
+    );
+}
+
+#[test]
+fn fold_exclusion_between_a_box_and_its_content_writes_the_box_out() {
+    folded_is(
+        wf(),
+        &prob(f2(pv(0), pv(1)), vec![(BOX, pv(0)), (NAT, pv(1))], vec![vec![(pv(0), k1(pv(1)))]]),
+        f2(k1(pv(0)), pv(1)),
+        &[N, N],
+        vec![vec![(1, pv(0))]],
+    );
+}
+
+#[test]
+fn fold_pair_of_two_different_nats_is_not_folded() {
+    folded_is(
+        wf(),
+        &prob(pr(pv(0), pv(1)), vec![(NAT, pv(0)), (NAT, pv(1))], vec![vec![(pv(0), pv(1))]]),
+        pr(pv(0), pv(1)),
+        &[N, N],
+        vec![vec![(1, pv(0))]],
+    );
+}
+
+#[test]
+fn fold_pair_of_two_nats_is_a_variable_of_the_pairs() {
+    folded_is(wf(), &prob(pr(pv(0), pv(1)), vec![(NAT, pv(0)), (NAT, pv(1))], vec![]), pv(0), &[&[PAIR, ANY]], vec![]);
+}
+
+#[test]
+fn fold_nat_without_zero_and_one_is_the_successor_of_a_successor_variable() {
+    folded_is(
+        wf(),
+        &prob(pv(0), vec![(NAT, pv(0))], vec![vec![(pv(0), z())], vec![(pv(0), su(z()))]]),
+        su(pv(0)),
+        &[S],
+        vec![],
+    );
+}
+
+/// The problems have the same canonical store, in the reference and in
+/// `normal`.
+fn same_store(defs: Vec<(Name, Def)>, ps: &[Prob]) {
+    let sorts = Sorts::new(defs.clone());
+    let want = common::sorts::normal(&sorts, &ps[0]).as_ref().map(shape);
+    assert!(want.is_some(), "the reference has no store for {:?}", ps[0]);
+    for p in ps {
+        assert_eq!(common::sorts::normal(&sorts, p).as_ref().map(shape), want, "the reference on {p:?}");
+        assert_eq!(run_normal(defs.clone(), p, false), want, "{p:?}");
+    }
+}
+
+#[test]
+fn fold_sorted_variable_and_its_written_out_forms_have_one_store() {
+    same_store(
+        wf(),
+        &[
+            prob(pv(0), vec![(C3, pv(0))], vec![]),
+            prob(k1(pv(0)), vec![(C2, pv(0))], vec![]),
+            prob(k1(k1(k1(pv(0)))), vec![(NAT, pv(0))], vec![]),
+        ],
+    );
+}
+
+#[test]
+fn fold_exclusion_against_a_box_variable_and_against_the_box_written_out_have_one_store() {
+    same_store(
+        wf(),
+        &[
+            prob(f2(pv(0), pv(1)), vec![(BOX, pv(1))], vec![vec![(pv(0), pv(1))]]),
+            prob(f2(pv(0), k1(pv(1))), vec![(NAT, pv(1))], vec![vec![(pv(0), k1(pv(1)))]]),
+        ],
+    );
+}
+
+#[test]
+fn fold_three_ways_to_say_at_least_two_have_one_store() {
+    same_store(
+        wf(),
+        &[
+            prob(su(pv(0)), vec![(SUC, pv(0))], vec![]),
+            prob(su(su(pv(0))), vec![(NAT, pv(0))], vec![]),
+            prob(pv(0), vec![(NAT, pv(0))], vec![vec![(pv(0), z())], vec![(pv(0), su(z()))]]),
+        ],
+    );
+}
+
+#[test]
+fn fold_empty_sort_under_a_symbol_is_none() {
+    normal_none(wf(), &prob(k1(pv(0)), vec![(VOID, pv(0))], vec![]));
+}
+
+#[test]
+fn fold_sorts_with_nothing_in_common_are_none() {
+    normal_none(wf(), &prob(pv(0), vec![(UNIT, pv(0)), (SUC, pv(0))], vec![]));
+}
+
+#[test]
+fn fold_exclusion_of_the_only_member_is_none() {
+    normal_none(wf(), &prob(pv(0), vec![(UNIT, pv(0))], vec![vec![(pv(0), z())]]));
+}
+
+#[test]
+fn fold_dirty_tables_do_not_change_the_folded_store() {
+    normal_dirty(&prob(f2(k1(pv(0)), pr(pv(1), pv(2))), vec![(NAT, pv(0)), (NAT, pv(1)), (NAT, pv(2))], vec![]));
+}
+
+#[test]
+fn normal_does_not_write_out_a_pattern_variable_with_one_root() {
+    // Writing the variable out down to `t0` takes `2^k - 1` replacements.
+    // Leaving it folded takes none: twice the depth is then at most a fixed
+    // power of two times the work, far below the `2^k` of writing it out.
+    let k = 8;
+    let p = |k: u32| Prob { t: pv(0), e: vec![], a: vec![(T0 + k, pv(0))], x: vec![] };
+    let want = |k: u32| Raw { t: pv(0), c: vec![Conj::from([T0 + k])], x: vec![] };
+    let reference = common::sorts::normal(&Sorts::new(tower(k)), &p(k));
+    assert_eq!(reference.as_ref(), Some(&want(k)), "the reference at depth {k}");
+    let (shallow, t1) = normal_ticks(k, &p(k));
+    let (deep, t2) = normal_ticks(2 * k, &p(2 * k));
+    assert_eq!(shallow, Some(shape(&want(k))), "depth {k}");
+    assert_eq!(deep, Some(shape(&want(2 * k))), "depth {}", 2 * k);
+    assert!(t2 <= 16 * t1, "{t1} ticks at depth {k} and {t2} at depth {}", 2 * k);
+}
+
+/// A generator of numbers below a bound, the same on every run.
+struct Rng(u64);
+
+impl Rng {
+    fn below(&mut self, n: usize) -> usize {
+        self.0 = self.0.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        ((self.0 >> 33) as usize) % n
+    }
+}
+
+fn random_pat(rng: &mut Rng, depth: usize) -> P {
+    match if depth == 0 { rng.below(4) } else { rng.below(10) } {
+        0..=2 => pv(rng.below(4)),
+        3 => z(),
+        4 => su(random_pat(rng, depth - 1)),
+        5 | 6 => k1(random_pat(rng, depth - 1)),
+        7 => pr(random_pat(rng, depth - 1), random_pat(rng, depth - 1)),
+        8 => g2(random_pat(rng, depth - 1), random_pat(rng, depth - 1)),
+        _ => f2(random_pat(rng, depth - 1), random_pat(rng, depth - 1)),
+    }
+}
+
+fn random_ground(rng: &mut Rng, depth: usize) -> P {
+    match if depth == 0 { 0 } else { rng.below(4) } {
+        0 => z(),
+        1 => su(random_ground(rng, depth - 1)),
+        2 => k1(random_ground(rng, depth - 1)),
+        _ => pr(random_ground(rng, depth - 1), random_ground(rng, depth - 1)),
+    }
+}
+
+#[test]
+fn fold_random_problems_agree_with_the_reference() {
+    let names = [NAT, SUC, BOX, PAIR, MIX, C2, C3, ANY, UNIT];
+    let sorts = Sorts::new(wf());
+    let mut rng = Rng(7);
+    // How many problems have a store, how many of those fold a subterm, and
+    // how many of those keep an exclusion.
+    let (mut alive, mut folded, mut excl) = (0, 0, 0);
+    for round in 0..600 {
+        let t = random_pat(&mut rng, 3);
+        let a = (0..rng.below(4)).map(|_| (names[rng.below(names.len())], pv(rng.below(4)))).collect();
+        let x = (0..rng.below(3))
+            .map(|_| {
+                let r = if rng.below(3) == 0 { random_pat(&mut rng, 1) } else { random_ground(&mut rng, 2) };
+                vec![(pv(rng.below(4)), r)]
+            })
+            .collect();
+        let p = Prob { t, e: vec![], a, x };
+        let want = common::sorts::normal(&sorts, &p);
+        assert_eq!(run_normal(wf(), &p, false), want.as_ref().map(shape), "round {round}: {p:?}");
+        if let Some(r) = want {
+            alive += 1;
+            if common::sorts::unfolded(&sorts, &p) != Some(r.clone()) {
+                folded += 1;
+                excl += usize::from(!r.x.is_empty());
+            }
+        }
+    }
+    assert!(alive > 300 && folded > 100 && excl > 10, "{alive} with a store, {folded} folded, {excl} of them with exclusions");
 }
