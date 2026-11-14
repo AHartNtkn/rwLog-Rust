@@ -1,16 +1,21 @@
 /-
 # The sorts as the constraint domain, on the store
 
-A representative on the store is a normal store as `sorts::normal` returns
-it. Each operation of the domain states a problem with the solutions of its
-arguments and takes its normal store: `dom::one` the problem of
-`Sorts.Rep.one`, and `dom::compose` and `dom::meet` that of `Sorts.Rep.two`
-with the variables of the two arguments sent to the even and to the odd
-numbers. A problem with the same solutions has the same normal store
-(`Sorts.Rep.den_one`, `Sorts.Rep.den_two`, `Sorts.Prob.norm_congr`).
+A representative on the store is the folded canonical store of a
+representative of the specification (`Sorts.FoldOf`), as `sorts::normal`
+returns it. Each operation of the domain states a problem with the solutions
+of its arguments and takes its folded canonical store: `dom::one` a pair of
+patterns over the solutions of one store, and `dom::compose` and `dom::meet`
+a pattern and equations over the solutions of two, the variables of the
+first sent to the even and those of the second to the odd numbers. The
+problem relates the pairs the operation of the specification is to relate
+(`oneProb_rel`, `compose_rel`, `meet_rel`), and the representative of a
+relation is unique (`Sorts.Rep.mk?`). The pair symbol is reserved: no sort
+has a case for it (`Sorts.NoPair`).
 -/
 import RwLogVerified.Normal
 import RwLog.Sorts.Dom
+import RwLog.Sorts.FoldRep
 
 open Aeneas Aeneas.Std Result
 
@@ -66,11 +71,11 @@ theorem mem_atomsOnto {U : List Name} {a : Name × Pat} :
         | succ i =>
           exact .inr ⟨i, by simpa using h, by simpa using h', by simpa using e, hU, by simpa using hn⟩
 
-/-- The sorts and the exclusions of a normal store, written as a problem
+/-- The sorts and the exclusions of a store, written as a problem
 has them and with the variables renamed, hold of a substitution exactly
 when it is, on the variables as renamed, a solution of the store. -/
 theorem parts_sol {S : Sorts} {U : List Name} (hU : ∀ n ∈ Sorts.names S, n ∈ U) {r : Sorts.Raw}
-    (hr : r.Normal S) {Y : List Sorts.Binds} (hY : Y.toFinset = r.x) (f : Nat → Nat)
+    (hr : r.Shaped S) {Y : List Sorts.Binds} (hY : Y.toFinset = r.x) (f : Nat → Nat)
     (σ : Nat → GTerm) :
     ((∀ a ∈ atomsOnto U r.c ((varsTo r.c.length).map (Term.rename f)) [],
         Sorts.mem S a.1 (a.2.bind σ) = true) ∧
@@ -169,7 +174,7 @@ theorem atomsOnto_fo {U : List Name} {cs : List Sorts.Conj} {vs : List Pat}
   · simp at ha
   · rw [e]; exact hvs _ (List.getElem_mem h')
 
-theorem atomsOnto_names {S : Sorts} {r : Sorts.Raw} (hr : r.Normal S) {U : List Name}
+theorem atomsOnto_names {S : Sorts} {r : Sorts.Raw} (hr : r.Shaped S) {U : List Name}
     {vs : List Pat} : ∀ a ∈ atomsOnto U r.c vs [], a.1 ∈ Sorts.names S := by
   intro a ha
   rcases mem_atomsOnto.1 ha with ha | ⟨i, h, h', -, -, hn⟩
@@ -215,7 +220,7 @@ theorem partVs_fo (g : Nat → Nat) (k : Nat) : ∀ v ∈ partVs g k, v.firstOrd
   obtain ⟨i, -, rfl⟩ := hv
   rfl
 
-theorem partXs_fo {S : Sorts} {r : Sorts.Raw} (hr : r.Normal S) {Y : List Sorts.Binds}
+theorem partXs_fo {S : Sorts} {r : Sorts.Raw} (hr : r.Shaped S) {Y : List Sorts.Binds}
     (hY : Y.toFinset = r.x) (g : Nat → Nat) :
     ∀ L ∈ partXs g r.c.length Y, ∀ p ∈ L, p.firstOrder = true := by
   intro L hL p hp
@@ -242,25 +247,61 @@ noncomputable def oneProb (U : List Name) (r : Sorts.Raw) (Y : List Sorts.Binds)
   ⟨Sorts.tpair u w, [], atomsOnto U r.c (partVs id r.c.length) [],
     exclsOnto (partVs id r.c.length) (partXs id r.c.length Y) []⟩
 
-theorem oneProb_fo {S : Sorts} {U : List Name} {r : Sorts.Raw} (hr : r.Normal S)
+theorem oneProb_fo {S : Sorts} {U : List Name} {r : Sorts.Raw} (hr : r.Shaped S)
     {Y : List Sorts.Binds} (hY : Y.toFinset = r.x) {u w : Pat} (hu : u.firstOrder = true)
     (hw : w.firstOrder = true) : (oneProb U r Y u w).FO :=
   ⟨by show (Sorts.tpair u w).firstOrder = true; rw [Sorts.tpair_fo, hu, hw]; rfl,
     fun p hp => by simp [oneProb] at hp, atomsOnto_fo (partVs_fo _ _),
     exclsOnto_fo (partVs_fo _ _) (partXs_fo hr hY _)⟩
 
-/-- The problem `dom::one` states has the normal store of the problem of
-the specification. -/
-theorem oneProb_norm {S : Sorts} {U : List Name} (hU : ∀ n ∈ Sorts.names S, n ∈ U)
-    (ρ : Sorts.Rep S) {Y : List Sorts.Binds} (hY : Y.toFinset = ρ.1.x) {u w : Pat}
-    (hu : u.firstOrder = true) (hw : w.firstOrder = true) :
-    (oneProb U ρ.1 Y u w).norm S ρ.wf = (ρ.1.prob (Sorts.tpair u w)).norm S ρ.wf := by
-  refine Sorts.Prob.norm_congr ρ.wf (oneProb_fo ρ.normal hY hu hw) (ρ.prob_fo hu hw) ?_
-  refine ρ.den_one (P := oneProb U ρ.1 Y u w) fun σ => ?_
-  have := parts_sol hU ρ.normal hY id σ
+theorem oneProb_sol {S : Sorts} {U : List Name} (hU : ∀ n ∈ Sorts.names S, n ∈ U) {r : Sorts.Raw}
+    (hr : r.Shaped S) {Y : List Sorts.Binds} (hY : Y.toFinset = r.x) (u w : Pat)
+    (σ : Nat → GTerm) : σ ∈ (oneProb U r Y u w).Sol S ↔ σ ∈ r.store.Sol S := by
+  have := parts_sol hU hr hY id σ
   rw [Function.comp_id] at this
   rw [← this]
   exact ⟨fun h => h.2, fun h => ⟨fun p hp => by simp [oneProb] at hp, h⟩⟩
+
+/-- The pairs the problem `dom::one` states relates. -/
+theorem oneProb_rel {S : Sorts} {U : List Name} (hU : ∀ n ∈ Sorts.names S, n ∈ U) {r : Sorts.Raw}
+    (hr : r.Shaped S) {Y : List Sorts.Binds} (hY : Y.toFinset = r.x) (u w : Pat) :
+    {p : GTerm × GTerm | Sorts.tpair p.1 p.2 ∈ (oneProb U r Y u w).Den S} =
+      {p | ∃ σ ∈ r.store.Sol S, p.1 = u.bind σ ∧ p.2 = w.bind σ} := by
+  ext p
+  constructor
+  · rintro ⟨σ, hσ, e⟩
+    exact ⟨σ, (oneProb_sol hU hr hY u w σ).1 hσ, Sorts.tpair_inj e⟩
+  · rintro ⟨σ, hσ, e₁, e₂⟩
+    exact ⟨σ, (oneProb_sol hU hr hY u w σ).2 hσ, by
+      show _ = (Sorts.tpair u w).bind σ
+      rw [Sorts.tpair_bind, e₁, e₂]⟩
+
+/-- The pairs of the two sides of a store, swapped. -/
+theorem swap_rel {S : Sorts} {r : Sorts.Raw} {lp rp : Pat} (ht : r.t = Sorts.tpair lp rp) :
+    {p : GTerm × GTerm | ∃ σ ∈ r.store.Sol S, p.1 = rp.bind σ ∧ p.2 = lp.bind σ} =
+      (r.rel S).inv := by
+  rw [Sorts.Raw.rel_eq ht]
+  ext p
+  constructor
+  · rintro ⟨σ, hσ, e₁, e₂⟩; exact ⟨σ, hσ, e₂, e₁⟩
+  · rintro ⟨σ, hσ, e₁, e₂⟩; exact ⟨σ, hσ, e₂, e₁⟩
+
+/-- The pairs of the right side of a store with itself. -/
+theorem right_rel {S : Sorts} {r : Sorts.Raw} {lp rp : Pat} (ht : r.t = Sorts.tpair lp rp) :
+    {p : GTerm × GTerm | ∃ σ ∈ r.store.Sol S, p.1 = rp.bind σ ∧ p.2 = rp.bind σ} =
+      {p | p.2 = p.1 ∧ ∃ x, (x, p.1) ∈ r.rel S} := by
+  rw [Sorts.Raw.rel_eq ht]
+  ext p
+  constructor
+  · rintro ⟨σ, hσ, e₁, e₂⟩; exact ⟨e₂.trans e₁.symm, _, σ, hσ, rfl, e₁⟩
+  · rintro ⟨e, x, σ, hσ, -, e₂⟩; exact ⟨σ, hσ, e₂, e.trans e₂⟩
+
+/-- The two sides of a store over a pair are first order. -/
+theorem sides_fo {S : Sorts} {r : Sorts.Raw} (hr : r.Shaped S) {lp rp : Pat}
+    (ht : r.t = Sorts.tpair lp rp) : lp.firstOrder = true ∧ rp.firstOrder = true := by
+  have := hr.fo
+  rw [ht, Sorts.tpair_fo, Bool.and_eq_true] at this
+  exact this
 
 /-- The renaming of the variables of the first of two representatives. -/
 def lren : Nat → Nat := fun v => 2 * v
@@ -278,8 +319,8 @@ noncomputable def twoProb (U : List Name) (a : Sorts.Raw) (Ya : List Sorts.Binds
     exclsOnto (partVs lren a.c.length) (partXs lren a.c.length Ya)
       (exclsOnto (partVs rren b.c.length) (partXs rren b.c.length Yb) [])⟩
 
-theorem twoProb_fo {S : Sorts} {U : List Name} {a b : Sorts.Raw} (ha : a.Normal S)
-    (hb : b.Normal S) {Ya Yb : List Sorts.Binds} (hYa : Ya.toFinset = a.x)
+theorem twoProb_fo {S : Sorts} {U : List Name} {a b : Sorts.Raw} (ha : a.Shaped S)
+    (hb : b.Shaped S) {Ya Yb : List Sorts.Binds} (hYa : Ya.toFinset = a.x)
     (hYb : Yb.toFinset = b.x) {t : Pat} {e : Eqns Nat} (ht : t.firstOrder = true) (he : e.FO) :
     (twoProb U a Ya b Yb t e).FO := by
   refine ⟨ht, he, ?_, ?_⟩
@@ -294,37 +335,25 @@ theorem twoProb_fo {S : Sorts} {U : List Name} {a b : Sorts.Raw} (ha : a.Normal 
     · exact exclsOnto_fo (partVs_fo _ _) (partXs_fo ha hYa _) E hE
     · exact exclsOnto_fo (partVs_fo _ _) (partXs_fo hb hYb _) E hE
 
-theorem twoProb_names {S : Sorts} {U : List Name} {a b : Sorts.Raw} (ha : a.Normal S)
-    (hb : b.Normal S) {Ya Yb : List Sorts.Binds} {t : Pat} {e : Eqns Nat} :
+theorem twoProb_names {S : Sorts} {U : List Name} {a b : Sorts.Raw} (ha : a.Shaped S)
+    (hb : b.Shaped S) {Ya Yb : List Sorts.Binds} {t : Pat} {e : Eqns Nat} :
     ∀ x ∈ (twoProb U a Ya b Yb t e).a, x.1 ∈ Sorts.names S := by
   intro x hx
   rcases mem_atomsOnto_out.1 hx with hx | hx
   · exact atomsOnto_names ha x hx
   · exact atomsOnto_names hb x hx
 
-theorem ren_fo {e : Eqns Nat} (he : e.FO) (g : Nat → Nat) : (Eqns.ren g e).FO := by
-  intro p hp
-  obtain ⟨q, hq, rfl⟩ := List.mem_map.1 hp
-  exact ⟨Sorts.rename_fo (he q hq).1 _, Sorts.rename_fo (he q hq).2 _⟩
-
-/-- The problem `dom::compose` and `dom::meet` state has the normal store
-of the problem of the specification. -/
-theorem twoProb_norm {S : Sorts} {U : List Name} (hU : ∀ n ∈ Sorts.names S, n ∈ U)
-    (a b : Sorts.Rep S) {Ya Yb : List Sorts.Binds} (hYa : Ya.toFinset = a.1.x)
-    (hYb : Yb.toFinset = b.1.x) {t₀ : Pat} {e₀ : Eqns Nat} (hP₀ : (a.1.prob₂ b.1 t₀ e₀).FO) :
-    (twoProb U a.1 Ya b.1 Yb (t₀.rename (a.apart lren rren))
-        (Eqns.ren (a.apart lren rren) e₀)).norm S a.wf =
-      (a.1.prob₂ b.1 t₀ e₀).norm S a.wf := by
-  have hfo : (twoProb U a.1 Ya b.1 Yb (t₀.rename (a.apart lren rren))
-      (Eqns.ren (a.apart lren rren) e₀)).FO :=
-    twoProb_fo a.normal b.normal hYa hYb (Sorts.rename_fo hP₀.t (a.apart lren rren))
-      (ren_fo hP₀.e (a.apart lren rren))
-  refine Sorts.Prob.norm_congr a.wf hfo hP₀ ?_
-  refine a.den_two b (ρ₁ := lren) (ρ₂ := rren) (fun v w h => by simp only [lren] at h; omega)
-    (fun v w h => by simp only [rren] at h; omega) (fun v w h => by simp only [lren, rren] at h; omega)
-    rfl fun σ => ?_
-  have h₁ := parts_sol hU a.normal hYa lren σ
-  have h₂ := parts_sol hU b.normal hYb rren σ
+/-- The solutions of the problem `dom::compose` and `dom::meet` state: the
+substitutions that satisfy the equations and are, on the even numbers, a
+solution of the first store and, on the odd numbers, one of the second. -/
+theorem twoProb_sol {S : Sorts} {U : List Name} (hU : ∀ n ∈ Sorts.names S, n ∈ U)
+    {a b : Sorts.Raw} (ha : a.Shaped S) (hb : b.Shaped S) {Ya Yb : List Sorts.Binds}
+    (hYa : Ya.toFinset = a.x) (hYb : Yb.toFinset = b.x) (t : Pat) (e : Eqns Nat)
+    (σ : Nat → GTerm) :
+    σ ∈ (twoProb U a Ya b Yb t e).Sol S ↔
+      Eqns.Unifies σ e ∧ σ ∘ lren ∈ a.store.Sol S ∧ σ ∘ rren ∈ b.store.Sol S := by
+  have h₁ := parts_sol hU ha hYa lren σ
+  have h₂ := parts_sol hU hb hYb rren σ
   rw [← h₁, ← h₂]
   show (_ ∧ (∀ x ∈ atomsOnto _ _ _ _, _) ∧ ∀ E ∈ exclsOnto _ _ _, _) ↔ _
   rw [exclsOnto_out]
@@ -335,6 +364,90 @@ theorem twoProb_norm {S : Sorts} {U : List Name} (hU : ∀ n ∈ Sorts.names S, 
       fun x hx' => ha x (.inr hx'), fun E hE => hx E (.inr hE)⟩
   · rintro ⟨he, ⟨ha₁, hx₁⟩, ha₂, hx₂⟩
     exact ⟨he, fun x hx' => hx'.elim (ha₁ x) (ha₂ x), fun E hE => hE.elim (hx₁ E) (hx₂ E)⟩
+
+/-- The substitution that is one substitution on the even numbers and
+another on the odd numbers. -/
+def mix (σ₁ σ₂ : Nat → GTerm) : Nat → GTerm :=
+  fun w => if w % 2 = 0 then σ₁ (w / 2) else σ₂ (w / 2)
+
+theorem mix_l (σ₁ σ₂ : Nat → GTerm) : mix σ₁ σ₂ ∘ lren = σ₁ := by
+  funext v
+  have h1 : 2 * v % 2 = 0 := by omega
+  have h2 : 2 * v / 2 = v := by omega
+  show (if 2 * v % 2 = 0 then σ₁ (2 * v / 2) else σ₂ (2 * v / 2)) = σ₁ v
+  rw [h1, h2]
+  rfl
+
+theorem mix_r (σ₁ σ₂ : Nat → GTerm) : mix σ₁ σ₂ ∘ rren = σ₂ := by
+  funext v
+  have h1 : (2 * v + 1) % 2 = 1 := by omega
+  have h2 : (2 * v + 1) / 2 = v := by omega
+  show (if (2 * v + 1) % 2 = 0 then σ₁ ((2 * v + 1) / 2) else σ₂ ((2 * v + 1) / 2)) = σ₂ v
+  rw [h1, h2]
+  rfl
+
+/-- The problem `dom::compose` states relates the pairs of the composition
+of the two stores. -/
+theorem compose_rel {S : Sorts} {U : List Name} (hU : ∀ n ∈ Sorts.names S, n ∈ U)
+    {a b : Sorts.Raw} (ha : a.Shaped S) (hb : b.Shaped S) {Ya Yb : List Sorts.Binds}
+    (hYa : Ya.toFinset = a.x) (hYb : Yb.toFinset = b.x) {la ra lb rb : Pat}
+    (hta : a.t = Sorts.tpair la ra) (htb : b.t = Sorts.tpair lb rb) :
+    {p : GTerm × GTerm | Sorts.tpair p.1 p.2 ∈ (twoProb U a Ya b Yb
+        (Sorts.tpair (la.rename lren) (rb.rename rren))
+        [(ra.rename lren, lb.rename rren)]).Den S} = (a.rel S).comp (b.rel S) := by
+  rw [Sorts.Raw.rel_eq hta, Sorts.Raw.rel_eq htb]
+  ext p
+  constructor
+  · rintro ⟨σ, hσ, e⟩
+    obtain ⟨hu, h₁, h₂⟩ := (twoProb_sol hU ha hb hYa hYb _ _ σ).1 hσ
+    obtain ⟨e₁, e₂⟩ := Sorts.tpair_inj e
+    have hm := hu _ List.mem_cons_self
+    simp only [RwLog.rename_bind] at hm e₁ e₂
+    exact ⟨ra.bind (σ ∘ lren), ⟨σ ∘ lren, h₁, e₁, rfl⟩, σ ∘ rren, h₂, hm, e₂⟩
+  · rintro ⟨m, ⟨σ₁, hσ₁, e₁, e₂⟩, σ₂, hσ₂, e₃, e₄⟩
+    refine ⟨mix σ₁ σ₂, (twoProb_sol hU ha hb hYa hYb _ _ _).2
+      ⟨?_, by rw [mix_l]; exact hσ₁, by rw [mix_r]; exact hσ₂⟩, ?_⟩
+    · intro q hq
+      rw [List.mem_singleton] at hq; subst hq
+      show (ra.rename lren).bind _ = (lb.rename rren).bind _
+      rw [RwLog.rename_bind, RwLog.rename_bind, mix_l, mix_r]
+      exact e₂.symm.trans e₃
+    · show _ = Sorts.tpair ((la.rename lren).bind _) ((rb.rename rren).bind _)
+      rw [RwLog.rename_bind, RwLog.rename_bind, mix_l, mix_r, ← e₁, ← e₄]
+
+/-- The problem `dom::meet` states relates the pairs both stores relate. -/
+theorem meet_rel {S : Sorts} {U : List Name} (hU : ∀ n ∈ Sorts.names S, n ∈ U)
+    {a b : Sorts.Raw} (ha : a.Shaped S) (hb : b.Shaped S) {Ya Yb : List Sorts.Binds}
+    (hYa : Ya.toFinset = a.x) (hYb : Yb.toFinset = b.x) {la ra lb rb : Pat}
+    (hta : a.t = Sorts.tpair la ra) (htb : b.t = Sorts.tpair lb rb) :
+    {p : GTerm × GTerm | Sorts.tpair p.1 p.2 ∈ (twoProb U a Ya b Yb
+        (Sorts.tpair (la.rename lren) (ra.rename lren))
+        [(la.rename lren, lb.rename rren), (ra.rename lren, rb.rename rren)]).Den S} =
+      a.rel S ∩ b.rel S := by
+  rw [Sorts.Raw.rel_eq hta, Sorts.Raw.rel_eq htb]
+  ext p
+  constructor
+  · rintro ⟨σ, hσ, e⟩
+    obtain ⟨hu, h₁, h₂⟩ := (twoProb_sol hU ha hb hYa hYb _ _ σ).1 hσ
+    obtain ⟨e₁, e₂⟩ := Sorts.tpair_inj e
+    have hm₁ := hu _ List.mem_cons_self
+    have hm₂ := hu _ (List.mem_cons_of_mem _ List.mem_cons_self)
+    simp only [RwLog.rename_bind] at hm₁ hm₂ e₁ e₂
+    exact ⟨⟨σ ∘ lren, h₁, e₁, e₂⟩, σ ∘ rren, h₂, e₁.trans hm₁, e₂.trans hm₂⟩
+  · rintro ⟨⟨σ₁, hσ₁, e₁, e₂⟩, σ₂, hσ₂, e₃, e₄⟩
+    refine ⟨mix σ₁ σ₂, (twoProb_sol hU ha hb hYa hYb _ _ _).2
+      ⟨?_, by rw [mix_l]; exact hσ₁, by rw [mix_r]; exact hσ₂⟩, ?_⟩
+    · intro q hq
+      simp only [List.mem_cons, List.not_mem_nil, or_false] at hq
+      rcases hq with rfl | rfl
+      · show (la.rename lren).bind _ = (lb.rename rren).bind _
+        rw [RwLog.rename_bind, RwLog.rename_bind, mix_l, mix_r]
+        exact e₁.symm.trans e₃
+      · show (ra.rename lren).bind _ = (rb.rename rren).bind _
+        rw [RwLog.rename_bind, RwLog.rename_bind, mix_l, mix_r]
+        exact e₂.symm.trans e₄
+    · show _ = Sorts.tpair ((la.rename lren).bind _) ((ra.rename lren).bind _)
+      rw [RwLog.rename_bind, RwLog.rename_bind, mix_l, ← e₁, ← e₂]
 
 /-! ## The sorts and the exclusions written on the store -/
 
@@ -528,7 +641,7 @@ theorem eqns_of_loop_spec :
     Repr nm s.nodes.val l.val (encList (nm none) Ps) →
     Repr nm s.nodes.val out.val (encEqs nm O) → Vs.length ≤ Ps.length →
     Room s (4 * Vs.length + 1) →
-    dom.eqns_of_loop s out vs l true ⦃ s' out' =>
+    sorts.eqns_of_loop s out vs l true ⦃ s' out' =>
       Inv s' ∧ Extends s s' ∧ s'.ticks.val ≤ s.ticks.val + 4 * Vs.length + 1 ∧
         Repr nm s'.nodes.val out'.val (encEqs nm ((Vs.zip Ps).reverse ++ O)) ⦄ := by
   intro Vs
@@ -537,9 +650,9 @@ theorem eqns_of_loop_spec :
     intro s out vs l Ps O hI hvs hl hout hlen hroom
     have hroom' := hroom
     unfold Room at hroom'
-    unfold dom.eqns_of_loop
+    unfold sorts.eqns_of_loop
     rw [loop]
-    simp only [dom.eqns_of_loop.body, ↓reduceIte]
+    simp only [sorts.eqns_of_loop.body, ↓reduceIte]
     step with uncons_repr s vs hI.toWf (p := Term.sym (nm none)) hvs (by unfold Room; omega)
       as ⟨r0, hK0, hu⟩
     obtain ⟨o, s1⟩ := r0
@@ -562,9 +675,9 @@ theorem eqns_of_loop_spec :
       have hroom' := hroom
       unfold Room at hroom'
       simp only [List.length_cons] at hroom' hlen
-      unfold dom.eqns_of_loop
+      unfold sorts.eqns_of_loop
       rw [loop]
-      simp only [dom.eqns_of_loop.body, ↓reduceIte]
+      simp only [sorts.eqns_of_loop.body, ↓reduceIte]
       step with uncons_repr s vs hI.toWf (p := Term.app vp (encList (nm none) Vs)) hvs
         (by unfold Room; omega) as ⟨r0, hK0, hu⟩
       obtain ⟨o, s1⟩ := r0
@@ -603,7 +716,7 @@ theorem eqns_of_loop_spec :
       simp only [uncurry, bind_ok]
       have IH := ih s4 out1 vrest lrest Ps ((vp, p) :: O) hI4 (hx04.repr rvrest)
         (hx04.repr rlrest) hout1 (by omega) (by unfold Room; omega)
-      unfold dom.eqns_of_loop at IH
+      unfold sorts.eqns_of_loop at IH
       refine WP.spec_mono IH ?_
       rintro ⟨s', out'⟩ ⟨hI', hx', ht', hr'⟩
       refine ⟨hI', hx04.trans hx', by simp only [List.length_cons]; omega, ?_⟩
@@ -614,10 +727,10 @@ theorem eqns_of_spec (Vs Ps : List Pat) (s : store.Store) (vs l : store.TermId) 
     (hvs : Repr nm s.nodes.val vs.val (encList (nm none) Vs))
     (hl : Repr nm s.nodes.val l.val (encList (nm none) Ps)) (hlen : Vs.length ≤ Ps.length)
     (hroom : Room s (6 * Vs.length + 3)) :
-    dom.eqns_of s vs l ⦃ r s' =>
+    sorts.eqns_of s vs l ⦃ r s' =>
       Inv s' ∧ Extends s s' ∧ s'.ticks.val ≤ s.ticks.val + 6 * Vs.length + 3 ∧
         Repr nm s'.nodes.val r.val (encEqs nm (valEqns Vs Ps)) ⦄ := by
-  unfold dom.eqns_of
+  unfold sorts.eqns_of
   have hroom' := hroom
   unfold Room at hroom'
   step with alloc_spec s .Nil hI trivial (by unfold Room; omega)
@@ -644,7 +757,7 @@ theorem excls_onto_loop_spec (Vs : List Pat) (vs : store.TermId) :
     Repr nm s.nodes.val xs.val (encLL nm Xs) →
     Repr nm s.nodes.val out.val (encX nm O) → (∀ L ∈ Xs, Vs.length ≤ L.length) →
     Room s (Xs.length * (6 * Vs.length + 5) + 1) →
-    dom.excls_onto_loop xs s vs out ⦃ out' s' =>
+    sorts.excls_onto_loop xs s vs out ⦃ out' s' =>
       Inv s' ∧ Extends s s' ∧ s'.ticks.val ≤ s.ticks.val + Xs.length * (6 * Vs.length + 5) + 1 ∧
         Repr nm s'.nodes.val out'.val (encX nm (exclsOnto Vs Xs O)) ⦄ := by
   intro Xs
@@ -653,9 +766,9 @@ theorem excls_onto_loop_spec (Vs : List Pat) (vs : store.TermId) :
     intro s xs out O hI hvs hxs hout hlen hroom
     have hroom' := hroom
     unfold Room at hroom'
-    unfold dom.excls_onto_loop
+    unfold sorts.excls_onto_loop
     rw [loop]
-    simp only [dom.excls_onto_loop.body]
+    simp only [sorts.excls_onto_loop.body]
     step with uncons_repr s xs hI.toWf (p := Term.sym (nm none)) hxs (by unfold Room; omega)
       as ⟨r0, hK0, hu⟩
     obtain ⟨o, s1⟩ := r0
@@ -675,9 +788,9 @@ theorem excls_onto_loop_spec (Vs : List Pat) (vs : store.TermId) :
     have hroom' := hroom
     unfold Room at hroom'
     simp only [List.length_cons, Nat.add_mul] at hroom'
-    unfold dom.excls_onto_loop
+    unfold sorts.excls_onto_loop
     rw [loop]
-    simp only [dom.excls_onto_loop.body]
+    simp only [sorts.excls_onto_loop.body]
     step with uncons_repr s xs hI.toWf
       (p := Term.app (encList (nm none) L) (encLL nm Xs)) hxs
       (by unfold Room; omega) as ⟨r0, hK0, hu⟩
@@ -703,7 +816,7 @@ theorem excls_onto_loop_spec (Vs : List Pat) (vs : store.TermId) :
     simp only [uncurry, bind_ok]
     have IH := ih s4 rest out1 (valEqns Vs L :: O) hI4 (hx04.repr hvs) (hx04.repr rrest) hout1
       (fun L' hL' => hlen L' (by simp [hL'])) (by unfold Room; omega)
-    unfold dom.excls_onto_loop at IH
+    unfold sorts.excls_onto_loop at IH
     refine WP.spec_mono IH ?_
     rintro ⟨out', s'⟩ ⟨hI', hx', ht', hr'⟩
     refine ⟨hI', hx04.trans hx', by simp only [List.length_cons, Nat.add_mul]; omega, ?_⟩
@@ -717,55 +830,41 @@ theorem excls_onto_spec (Vs : List Pat) (Xs : List (List Pat)) (O : List (Eqns N
     (hxs : Repr nm s.nodes.val xs.val (encLL nm Xs))
     (hout : Repr nm s.nodes.val out.val (encX nm O)) (hlen : ∀ L ∈ Xs, Vs.length ≤ L.length)
     (hroom : Room s (Xs.length * (6 * Vs.length + 5) + 1)) :
-    dom.excls_onto s vs xs out ⦃ out' s' =>
+    sorts.excls_onto s vs xs out ⦃ out' s' =>
       Inv s' ∧ Extends s s' ∧ s'.ticks.val ≤ s.ticks.val + Xs.length * (6 * Vs.length + 5) + 1 ∧
         Repr nm s'.nodes.val out'.val (encX nm (exclsOnto Vs Xs O)) ⦄ := by
-  unfold dom.excls_onto
+  unfold sorts.excls_onto
   exact excls_onto_loop_spec Vs vs Xs s xs out O hI hvs hxs hout hlen hroom
 
 /-! ## Representatives on the store -/
 
-/-- A representative on the store: the pattern, the list of the conjunctions
-of the variables and the list of the exclusions, each the list of its
-values, of a normal store. -/
-structure RepAt (nm : Option Nat → RwLog.Sym) (U : List Name) (nodes : List store.Node)
-    (a : sorts.Rep) (r : Sorts.Raw) (Y : List Sorts.Binds) : Prop where
-  t : Repr nm nodes a.t.val r.t
-  c : Repr nm nodes a.c.val (encList (nm none) (r.c.map (cpat (nm none) U)))
-  nd : Y.Nodup
-  y : Y.toFinset = r.x
-  x : Repr nm nodes a.x.val (encLL nm (Y.map (vals r.c.length)))
-
-theorem RepAt.extends {U : List Name} {s s' : store.Store} {a : sorts.Rep} {r : Sorts.Raw}
-    {Y : List Sorts.Binds} (h : RepAt nm U s.nodes.val a r Y) (hx : Extends s s') :
-    RepAt nm U s'.nodes.val a r Y :=
-  ⟨hx.repr h.t, hx.repr h.c, h.nd, h.y, hx.repr h.x⟩
-
 /-- What an operation that computes a representative returns: nothing when
-the specification has none, and otherwise the one of the specification. -/
+the specification has none, and otherwise the folded canonical store of the
+one of the specification. -/
 def RepPost {S : Sorts} (nm : Option Nat → RwLog.Sym) (U : List Name) (nodes : List store.Node)
     (want : Option (Sorts.Rep S)) (res : Option sorts.Rep) : Prop :=
   match res with
   | none => want = none
-  | some o => ∃ (ρ' : Sorts.Rep S) (Y' : List Sorts.Binds),
-      want = some ρ' ∧ RepAt nm U nodes o ρ'.1 Y'
+  | some o => ∃ (ρ' : Sorts.Rep S) (r' : Sorts.Raw) (Y' : List Sorts.Binds),
+      want = some ρ' ∧ Sorts.FoldOf S ρ'.1 r' ∧ RepAt nm U nodes o r' Y'
 
-/-- The normal store of a problem over a pair is the representative
-`Rep.of` computes. -/
+/-- What `normal` returns on a problem over a pair is the folded canonical
+store of the representative of the pairs the problem relates. -/
 theorem repPost_of {S : Sorts} (hS : S.WellFormed) {U : List Name} {nodes : List store.Node}
-    {P P₀ : Sorts.Prob} (hP₀ : P₀.FO) (ht : ∃ l r, P₀.t = Sorts.tpair l r)
-    (hn : P.norm S hS = P₀.norm S hS) {res : Option sorts.Rep}
+    {P : Sorts.Prob} (hP : P.FO) (ht : ∃ l r, P.t = Sorts.tpair l r) {X : PRel}
+    (hX : {p : GTerm × GTerm | Sorts.tpair p.1 p.2 ∈ P.Den S} = X) {res : Option sorts.Rep}
     (h : NormalPost nm S hS U P nodes res) :
-    RepPost nm U nodes (Sorts.Rep.of hS P₀ hP₀ ht) res := by
+    RepPost nm U nodes (Sorts.Rep.mk? S X) res := by
+  rw [← hX, ← Sorts.Rep.of_eq hS P hP ht]
   cases res with
   | none =>
     simp only [NormalPost] at h
-    exact (Sorts.Rep.of_eq_none hS P₀ hP₀ ht).2 (hn ▸ h)
+    exact (Sorts.Rep.of_eq_none hS P hP ht).2 h
   | some o =>
     simp only [NormalPost] at h
-    obtain ⟨r, hr, rt, rc, Y, hnd, hY, rx⟩ := h
-    obtain ⟨ρ', hρ', rfl⟩ := Sorts.Rep.of_val hS P₀ hP₀ ht (hn ▸ hr)
-    exact ⟨ρ', Y, hρ', rt, rc, hnd, hY, rx⟩
+    obtain ⟨n, r, Y, hn, hF, hrep⟩ := h
+    obtain ⟨ρ', hρ', rfl⟩ := Sorts.Rep.of_val hS P hP ht hn
+    exact ⟨ρ', r, Y, hρ', hF, hrep⟩
 
 /-- `pair` gives the pair of two patterns. -/
 theorem pair_spec (hz : nm none = "") (s : store.Store) (u w : store.TermId) {up wp : Pat}
@@ -826,41 +925,44 @@ def repOneCost (u k y : Nat) : Nat :=
   placesCost k + 1 + (k * (3 * u + 3) + 1) + (y * (6 * k + 5) + 1) + 3
 
 /-- `one` computes the representative of a pair of patterns over the
-solutions of a representative (`Sorts.Rep.one`). -/
+solutions of a store. -/
 theorem one_spec (hnm : Function.Injective nm) (hz : nm none = "") {S : Sorts} {sp : Pat}
-    {U : List Name} (hC : Ctx nm S sp U) (hUS : ∀ n ∈ U, n ∈ Sorts.names S) {rc q : Nat}
+    {U : List Name} (hC : Ctx nm S sp U) (hS : S.WellFormed)
+    (hUS : ∀ n ∈ U, n ∈ Sorts.names S) {rc q : Nat}
     (hr : ∀ d, (Sorts.reachSet S d).card ≤ rc)
-    (hq : ∀ d m, (Sorts.reachGSet S (d, some m)).card ≤ q) (ρ : Sorts.Rep S)
+    (hq : ∀ d m, (Sorts.reachGSet S (d, some m)).card ≤ q) {r : Sorts.Raw}
+    (hsh : r.Shaped S)
     (Y : List Sorts.Binds) {up wp : Pat} (hup : up.firstOrder = true)
     (hwp : wp.firstOrder = true)
     (s : store.Store) (decls names : store.TermId) (a : sorts.Rep) (u w : store.TermId)
     (hI : Inv s) (hde : Repr nm s.nodes.val decls.val sp)
     (hU : Repr nm s.nodes.val names.val (namesPat (nm none) U))
-    (ha : RepAt nm U s.nodes.val a ρ.1 Y) (hu : Repr nm s.nodes.val u.val up)
+    (ha : RepAt nm U s.nodes.val a r Y) (hu : Repr nm s.nodes.val u.val up)
     (hw : Repr nm s.nodes.val w.val wp)
-    (hroom : Room s (repOneCost U.length ρ.1.c.length Y.length +
-      startCost nm S U.length (oneProb U ρ.1 Y up wp) + normCharge nm S U rc q (oneProb U ρ.1 Y up wp))) :
+    (hroom : Room s (repOneCost U.length r.c.length Y.length +
+      startCost nm S U.length (oneProb U r Y up wp) + normCharge nm S U rc q (oneProb U r Y up wp))) :
     dom.one s decls names a u w ⦃ res s' =>
       Inv s' ∧ Extends s s' ∧
-        s'.ticks.val ≤ s.ticks.val + repOneCost U.length ρ.1.c.length Y.length +
-          startCost nm S U.length (oneProb U ρ.1 Y up wp) + normCharge nm S U rc q (oneProb U ρ.1 Y up wp) ∧
-        RepPost nm U s'.nodes.val (ρ.one up wp hup hwp) res ⦄ := by
+        s'.ticks.val ≤ s.ticks.val + repOneCost U.length r.c.length Y.length +
+          startCost nm S U.length (oneProb U r Y up wp) + normCharge nm S U rc q (oneProb U r Y up wp) ∧
+        RepPost nm U s'.nodes.val (Sorts.Rep.mk? S
+          {p | ∃ σ ∈ r.store.Sol S, p.1 = up.bind σ ∧ p.2 = wp.bind σ}) res ⦄ := by
   unfold dom.one
   have hroom' := hroom
   unfold Room at hroom'
   simp only [repOneCost] at hroom'
-  step with places_spec (ρ.1.c.map (cpat (nm none) U)) s a.c hI ha.c
+  step with places_spec (r.c.map (cpat (nm none) U)) s a.c hI ha.c
     (by simp only [List.length_map]; unfold Room; omega) as ⟨vs, s1, hI1, hx1, ht1, rvs⟩
   simp only [List.length_map] at ht1 rvs
   step with alloc_spec s1 .Nil hI1 trivial (by unfold Room; omega)
     as ⟨nil, s2, hI2, ht2, htb2, hx2, hr2⟩
   simp only [norm] at hr2
   have hx02 := hx1.trans hx2
-  step with atoms_onto_spec U ρ.1.c (varsTo ρ.1.c.length) [] s2 a.c vs nil hI2
+  step with atoms_onto_spec U r.c (varsTo r.c.length) [] s2 a.c vs nil hI2
     (hx02.repr ha.c) (hx2.repr rvs) (.nil hr2) (by simp) (by unfold Room; omega)
     as ⟨atoms, s3, hI3, hx3, ht3, ratoms⟩
   have hx03 := hx02.trans hx3
-  step with excls_onto_spec (varsTo ρ.1.c.length) (Y.map (vals ρ.1.c.length)) [] s3 vs a.x nil
+  step with excls_onto_spec (varsTo r.c.length) (Y.map (vals r.c.length)) [] s3 vs a.x nil
     hI3 ((hx2.trans hx3).repr rvs) (hx03.repr ha.x) (hx3.repr (.nil hr2))
     (by intro L hL; obtain ⟨θ, -, rfl⟩ := List.mem_map.1 hL; simp)
     (by simp only [List.length_map, varsTo_length]; unfold Room; omega)
@@ -870,22 +972,21 @@ theorem one_spec (hnm : Function.Injective nm) (hz : nm none = "") {S : Sorts} {
   step with pair_spec hz s4 u w hI4 (hx04.repr hu) (hx04.repr hw) (by unfold Room; omega)
     as ⟨t, s5, hI5, hx5, ht5, rt⟩
   have hx05 := hx04.trans hx5
-  have hP := oneProb_fo (U := U) ρ.normal ha.y hup hwp
+  have hP := oneProb_fo (U := U) hsh ha.y hup hwp
   have ra' : Repr nm s5.nodes.val atoms.val
-      (encList (nm none) ((oneProb U ρ.1 Y up wp).a.map ppair)) := by
+      (encList (nm none) ((oneProb U r Y up wp).a.map ppair)) := by
     simp only [oneProb, partVs_id]
     exact (hx4.trans hx5).repr ratoms
-  have rx' : Repr nm s5.nodes.val excl.val (encX nm (oneProb U ρ.1 Y up wp).x) := by
+  have rx' : Repr nm s5.nodes.val excl.val (encX nm (oneProb U r Y up wp).x) := by
     simp only [oneProb, partVs_id, partXs_id]
     exact hx5.repr rexcl
-  refine WP.spec_mono (normal_spec hnm hC ρ.wf hUS hr hq (oneProb U ρ.1 Y up wp) hP
-    (atomsOnto_names ρ.normal) s5 decls names t nil atoms excl hI5 (hx05.repr hde)
+  refine WP.spec_mono (normal_spec hnm hC hS hUS hr hq (oneProb U r Y up wp) hP
+    (atomsOnto_names hsh) s5 decls names t nil atoms excl hI5 (hx05.repr hde)
     (hx05.repr hU) rt ((hx3.trans (hx4.trans hx5)).repr (.nil hr2)) ra' rx'
     (by unfold Room; omega)) ?_
   rintro ⟨res, s'⟩ ⟨hI', hx', ht', hpost⟩
   refine ⟨hI', hx05.trans hx', by simp only [repOneCost]; omega, ?_⟩
-  exact repPost_of ρ.wf (ρ.prob_fo hup hwp) ⟨up, wp, rfl⟩ (oneProb_norm hC.names ρ ha.y hup hwp)
-    hpost
+  exact repPost_of hS hP ⟨up, wp, rfl⟩ (oneProb_rel hC.names hsh ha.y up wp) hpost
 
 /-! ## Two representatives -/
 
@@ -996,7 +1097,7 @@ theorem two_spec (hnm : Function.Injective nm) {S : Sorts} {sp : Pat}
     (hUS : ∀ n ∈ U, n ∈ Sorts.names S) {rc q : Nat}
     (hr : ∀ d, (Sorts.reachSet S d).card ≤ rc)
     (hq : ∀ d m, (Sorts.reachGSet S (d, some m)).card ≤ q) {ra rb : Sorts.Raw}
-    (hra : ra.Normal S) (hrb : rb.Normal S) {Ya Yb : List Sorts.Binds}
+    (hra : ra.Shaped S) (hrb : rb.Shaped S) {Ya Yb : List Sorts.Binds}
     (hYa : Ya.toFinset = ra.x) (hYb : Yb.toFinset = rb.x) {tp : Pat} {ep : Eqns Nat}
     (htp : tp.firstOrder = true) (hep : ep.FO)
     (s : store.Store) (decls names : store.TermId) (a b : dom.Half) (t e : store.TermId)
@@ -1048,27 +1149,18 @@ theorem two_spec (hnm : Function.Injective nm) {S : Sorts} {sp : Pat}
   rintro ⟨res, s'⟩ ⟨hI', hx', ht', hpost⟩
   exact ⟨hI', hx05.trans hx', by simp only [twoCost]; omega, hpost⟩
 
-theorem apart_left {S : Sorts} (a : Sorts.Rep S) {p : Pat}
-    (hp : ∀ v ∈ p.vars, v < a.1.c.length) : p.rename (a.apart lren rren) = p.rename lren :=
-  Term.bind_congr fun v hv => by simp [Sorts.Rep.apart, hp v hv]
-
-theorem apart_right {S : Sorts} (a : Sorts.Rep S) (p : Pat) :
-    (p.rename (· + a.1.c.length)).rename (a.apart lren rren) = p.rename rren := by
-  simp only [Term.rename, Term.bind_bind]
-  refine Term.bind_congr fun v _ => ?_
-  simp [Sorts.Rep.apart, Term.bind]
-
 /-- The problem `dom::compose` states. -/
-noncomputable def composeProb {S : Sorts} (U : List Name) (a b : Sorts.Rep S)
+noncomputable def composeProb (U : List Name) (ra rb : Sorts.Raw)
     (Ya Yb : List Sorts.Binds) : Sorts.Prob :=
-  twoProb U a.1 Ya b.1 Yb (Sorts.tpair (a.l.rename lren) (b.r.rename rren))
-    [(a.r.rename lren, b.l.rename rren)]
+  twoProb U ra Ya rb Yb (Sorts.tpair (ra.sides.1.rename lren) (rb.sides.2.rename rren))
+    [(ra.sides.2.rename lren, rb.sides.1.rename rren)]
 
 /-- The problem `dom::meet` states. -/
-noncomputable def meetProb {S : Sorts} (U : List Name) (a b : Sorts.Rep S)
+noncomputable def meetProb (U : List Name) (ra rb : Sorts.Raw)
     (Ya Yb : List Sorts.Binds) : Sorts.Prob :=
-  twoProb U a.1 Ya b.1 Yb (Sorts.tpair (a.l.rename lren) (a.r.rename lren))
-    [(a.l.rename lren, b.l.rename rren), (a.r.rename lren, b.r.rename rren)]
+  twoProb U ra Ya rb Yb (Sorts.tpair (ra.sides.1.rename lren) (ra.sides.2.rename lren))
+    [(ra.sides.1.rename lren, rb.sides.1.rename rren),
+      (ra.sides.2.rename lren, rb.sides.2.rename rren)]
 
 /-- The ticks `compose` and `meet` may take before the normal store of
 their problem. -/
@@ -1078,31 +1170,39 @@ def halvesCost (nm : Option Nat → RwLog.Sym) (u : Nat) (ra : Sorts.Raw) (Ya : 
     twoCost u ra.c.length Ya.length rb.c.length Yb.length
 
 /-- `compose` computes the composition of two representatives
-(`Sorts.Rep.compose`). -/
+(`Sorts.Rep.compose`), from their folded canonical stores. -/
 theorem dom_compose_spec (hnm : Function.Injective nm) (hz : nm none = "") {S : Sorts} {sp : Pat}
-    {U : List Name} (hC : Ctx nm S sp U) (hUS : ∀ n ∈ U, n ∈ Sorts.names S) {rc q : Nat}
+    {U : List Name} (hC : Ctx nm S sp U) (hN : Sorts.NoPair S)
+    (hUS : ∀ n ∈ U, n ∈ Sorts.names S) {rc q : Nat}
     (hr : ∀ d, (Sorts.reachSet S d).card ≤ rc)
     (hq : ∀ d m, (Sorts.reachGSet S (d, some m)).card ≤ q) (ρa ρb : Sorts.Rep S)
+    {ra rb : Sorts.Raw} (hfa : Sorts.FoldOf S ρa.1 ra) (hfb : Sorts.FoldOf S ρb.1 rb)
     (Ya Yb : List Sorts.Binds)
     (s : store.Store) (decls names : store.TermId) (a b : sorts.Rep)
     (hI : Inv s) (hde : Repr nm s.nodes.val decls.val sp)
     (hU : Repr nm s.nodes.val names.val (namesPat (nm none) U))
-    (ha : RepAt nm U s.nodes.val a ρa.1 Ya) (hb : RepAt nm U s.nodes.val b ρb.1 Yb)
-    (hroom : Room s (halvesCost nm U.length ρa.1 Ya ρb.1 Yb +
-      startCost nm S U.length (composeProb U ρa ρb Ya Yb) + normCharge nm S U rc q (composeProb U ρa ρb Ya Yb))) :
+    (ha : RepAt nm U s.nodes.val a ra Ya) (hb : RepAt nm U s.nodes.val b rb Yb)
+    (hroom : Room s (halvesCost nm U.length ra Ya rb Yb +
+      startCost nm S U.length (composeProb U ra rb Ya Yb) +
+      normCharge nm S U rc q (composeProb U ra rb Ya Yb))) :
     dom.compose s decls names a b ⦃ res s' =>
       Inv s' ∧ Extends s s' ∧
-        s'.ticks.val ≤ s.ticks.val + halvesCost nm U.length ρa.1 Ya ρb.1 Yb +
-          startCost nm S U.length (composeProb U ρa ρb Ya Yb) + normCharge nm S U rc q (composeProb U ρa ρb Ya Yb) ∧
+        s'.ticks.val ≤ s.ticks.val + halvesCost nm U.length ra Ya rb Yb +
+          startCost nm S U.length (composeProb U ra rb Ya Yb) +
+          normCharge nm S U rc q (composeProb U ra rb Ya Yb) ∧
         RepPost nm U s'.nodes.val (ρa.compose ρb) res ⦄ := by
   unfold dom.compose
   unfold composeProb at hroom ⊢
   have hroom' := hroom
   unfold Room at hroom'
   simp only [halvesCost] at hroom'
-  step with half_spec hnm s .Left lren lren_ok a hI ha ρa.t_eq (by unfold Room; omega)
+  obtain ⟨hta, -⟩ := ρa.fold_sides hN hfa
+  obtain ⟨htb, -⟩ := ρb.fold_sides hN hfb
+  obtain ⟨hla, hra⟩ := sides_fo hfa.1 hta
+  obtain ⟨hlb, hrb⟩ := sides_fo hfb.1 htb
+  step with half_spec hnm s .Left lren lren_ok a hI ha hta (by unfold Room; omega)
     as ⟨ha', s1, hI1, hx1, ht1, hha⟩
-  step with half_spec hnm s1 .Right rren rren_ok b hI1 (hb.extends hx1) ρb.t_eq
+  step with half_spec hnm s1 .Right rren rren_ok b hI1 (hb.extends hx1) htb
     (by unfold Room; omega) as ⟨hb', s2, hI2, hx2, ht2, hhb⟩
   have hx02 := hx1.trans hx2
   have hha2 := hha.extends hx2
@@ -1119,65 +1219,61 @@ theorem dom_compose_spec (hnm : Function.Injective nm) (hz : nm none = "") {S : 
   simp only [norm] at hr5
   have hx35 := hx34.trans hx5
   have re : Repr nm s5.nodes.val e.val
-      (encEqs nm [(ρa.r.rename lren, ρb.l.rename rren)]) :=
+      (encEqs nm [(ra.sides.2.rename lren, rb.sides.1.rename rren)]) :=
     .app hr5 (hx5.repr (.app hr4 (hx34.repr hha2.r) (hx34.repr hhb.l)))
       ((hx4.trans hx5).repr (.nil hr3))
   step with pair_spec hz s5 ha'.l hb'.r hI5 (hx35.repr hha2.l) (hx35.repr hhb.r)
     (by unfold Room; omega) as ⟨t, s6, hI6, hx6, ht6, rt⟩
   have hx06 := (hx02.trans hx35).trans hx6
-  have hfo : (Sorts.tpair (ρa.l.rename lren) (ρb.r.rename rren)).firstOrder = true := by
-    rw [Sorts.tpair_fo, Sorts.rename_fo ρa.l_fo, Sorts.rename_fo ρb.r_fo]; rfl
-  have hefo : Eqns.FO [(ρa.r.rename lren, ρb.l.rename rren)] := fun p hp => by
+  have hfo : (Sorts.tpair (ra.sides.1.rename lren) (rb.sides.2.rename rren)).firstOrder = true := by
+    rw [Sorts.tpair_fo, Sorts.rename_fo hla, Sorts.rename_fo hrb]; rfl
+  have hefo : Eqns.FO [(ra.sides.2.rename lren, rb.sides.1.rename rren)] := fun p hp => by
     rw [List.mem_singleton] at hp; subst hp
-    exact ⟨Sorts.rename_fo ρa.r_fo _, Sorts.rename_fo ρb.l_fo _⟩
-  refine WP.spec_mono (two_spec hnm hC ρa.wf hUS hr hq ρa.normal ρb.normal ha.y hb.y hfo hefo
+    exact ⟨Sorts.rename_fo hra _, Sorts.rename_fo hlb _⟩
+  refine WP.spec_mono (two_spec hnm hC ρa.wf hUS hr hq hfa.1 hfb.1 ha.y hb.y hfo hefo
     s6 decls names ha' hb' t e hI6 (hx06.repr hde) (hx06.repr hU)
     (hha2.extends (hx35.trans hx6)) (hhb.extends (hx35.trans hx6)) rt (hx6.repr re)
     (by unfold Room; omega)) ?_
   rintro ⟨res, s'⟩ ⟨hI', hx', ht', hpost⟩
   refine ⟨hI', hx06.trans hx', by simp only [halvesCost]; omega, ?_⟩
-  have hP₀ := ρa.prob₂_fo ρb ρa.l_fo (Sorts.rename_fo ρb.r_fo (· + ρa.1.c.length))
-    (ρa.comp_fo ρb)
-  refine repPost_of ρa.wf hP₀ ⟨_, _, rfl⟩ ?_ hpost
-  have e1 : Sorts.tpair (ρa.l.rename lren) (ρb.r.rename rren) =
-      (Sorts.tpair ρa.l (ρb.r.rename (· + ρa.1.c.length))).rename (ρa.apart lren rren) := by
-    show _ = Sorts.tpair (ρa.l.rename (ρa.apart lren rren))
-      ((ρb.r.rename (· + ρa.1.c.length)).rename (ρa.apart lren rren))
-    rw [apart_left ρa ρa.l_vars, apart_right]
-  have e2 : [(ρa.r.rename lren, ρb.l.rename rren)] =
-      Eqns.ren (ρa.apart lren rren) [(ρa.r, ρb.l.rename (· + ρa.1.c.length))] := by
-    show _ = [(ρa.r.rename (ρa.apart lren rren),
-      (ρb.l.rename (· + ρa.1.c.length)).rename (ρa.apart lren rren))]
-    rw [apart_left ρa ρa.r_vars, apart_right]
-  rw [e1, e2]
-  exact twoProb_norm hC.names ρa ρb ha.y hb.y hP₀
+  rw [Sorts.Rep.compose_eq, ← hfa.rel, ← hfb.rel]
+  exact repPost_of ρa.wf (twoProb_fo hfa.1 hfb.1 ha.y hb.y hfo hefo) ⟨_, _, rfl⟩
+    (compose_rel hC.names hfa.1 hfb.1 ha.y hb.y hta htb) hpost
 
 /-- `meet` computes the conjunction of two representatives
-(`Sorts.Rep.meet`). -/
+(`Sorts.Rep.meet`), from their folded canonical stores. -/
 theorem dom_meet_spec (hnm : Function.Injective nm) (hz : nm none = "") {S : Sorts} {sp : Pat}
-    {U : List Name} (hC : Ctx nm S sp U) (hUS : ∀ n ∈ U, n ∈ Sorts.names S) {rc q : Nat}
+    {U : List Name} (hC : Ctx nm S sp U) (hN : Sorts.NoPair S)
+    (hUS : ∀ n ∈ U, n ∈ Sorts.names S) {rc q : Nat}
     (hr : ∀ d, (Sorts.reachSet S d).card ≤ rc)
     (hq : ∀ d m, (Sorts.reachGSet S (d, some m)).card ≤ q) (ρa ρb : Sorts.Rep S)
+    {ra rb : Sorts.Raw} (hfa : Sorts.FoldOf S ρa.1 ra) (hfb : Sorts.FoldOf S ρb.1 rb)
     (Ya Yb : List Sorts.Binds)
     (s : store.Store) (decls names : store.TermId) (a b : sorts.Rep)
     (hI : Inv s) (hde : Repr nm s.nodes.val decls.val sp)
     (hU : Repr nm s.nodes.val names.val (namesPat (nm none) U))
-    (ha : RepAt nm U s.nodes.val a ρa.1 Ya) (hb : RepAt nm U s.nodes.val b ρb.1 Yb)
-    (hroom : Room s (halvesCost nm U.length ρa.1 Ya ρb.1 Yb + 2 +
-      startCost nm S U.length (meetProb U ρa ρb Ya Yb) + normCharge nm S U rc q (meetProb U ρa ρb Ya Yb))) :
+    (ha : RepAt nm U s.nodes.val a ra Ya) (hb : RepAt nm U s.nodes.val b rb Yb)
+    (hroom : Room s (halvesCost nm U.length ra Ya rb Yb + 2 +
+      startCost nm S U.length (meetProb U ra rb Ya Yb) +
+      normCharge nm S U rc q (meetProb U ra rb Ya Yb))) :
     dom.meet s decls names a b ⦃ res s' =>
       Inv s' ∧ Extends s s' ∧
-        s'.ticks.val ≤ s.ticks.val + halvesCost nm U.length ρa.1 Ya ρb.1 Yb + 2 +
-          startCost nm S U.length (meetProb U ρa ρb Ya Yb) + normCharge nm S U rc q (meetProb U ρa ρb Ya Yb) ∧
+        s'.ticks.val ≤ s.ticks.val + halvesCost nm U.length ra Ya rb Yb + 2 +
+          startCost nm S U.length (meetProb U ra rb Ya Yb) +
+          normCharge nm S U rc q (meetProb U ra rb Ya Yb) ∧
         RepPost nm U s'.nodes.val (ρa.meet ρb) res ⦄ := by
   unfold dom.meet
   unfold meetProb at hroom ⊢
   have hroom' := hroom
   unfold Room at hroom'
   simp only [halvesCost] at hroom'
-  step with half_spec hnm s .Left lren lren_ok a hI ha ρa.t_eq (by unfold Room; omega)
+  obtain ⟨hta, -⟩ := ρa.fold_sides hN hfa
+  obtain ⟨htb, -⟩ := ρb.fold_sides hN hfb
+  obtain ⟨hla, hra⟩ := sides_fo hfa.1 hta
+  obtain ⟨hlb, hrb⟩ := sides_fo hfb.1 htb
+  step with half_spec hnm s .Left lren lren_ok a hI ha hta (by unfold Room; omega)
     as ⟨ha', s1, hI1, hx1, ht1, hha⟩
-  step with half_spec hnm s1 .Right rren rren_ok b hI1 (hb.extends hx1) ρb.t_eq
+  step with half_spec hnm s1 .Right rren rren_ok b hI1 (hb.extends hx1) htb
     (by unfold Room; omega) as ⟨hb', s2, hI2, hx2, ht2, hhb⟩
   have hx02 := hx1.trans hx2
   have hha2 := hha.extends hx2
@@ -1194,7 +1290,7 @@ theorem dom_meet_spec (hnm : Function.Injective nm) (hz : nm none = "") {S : Sor
   simp only [norm] at hr5
   have hx35 := hx34.trans hx5
   have rr2 : Repr nm s5.nodes.val r2.val
-      (encEqs nm [(ρa.r.rename lren, ρb.r.rename rren)]) :=
+      (encEqs nm [(ra.sides.2.rename lren, rb.sides.2.rename rren)]) :=
     .app hr5 (hx5.repr (.app hr4 (hx34.repr hha2.r) (hx34.repr hhb.r)))
       ((hx4.trans hx5).repr (.nil hr3))
   step with alloc_spec s5 (.App ha'.l hb'.l) hI5 ⟨(hx35.repr hha2.l).lt, (hx35.repr hhb.l).lt⟩
@@ -1207,128 +1303,135 @@ theorem dom_meet_spec (hnm : Function.Injective nm) (hz : nm none = "") {S : Sor
   simp only [norm] at hr7
   have hx37 := hx36.trans hx7
   have re : Repr nm s7.nodes.val e.val
-      (encEqs nm [(ρa.l.rename lren, ρb.l.rename rren), (ρa.r.rename lren, ρb.r.rename rren)]) :=
+      (encEqs nm [(ra.sides.1.rename lren, rb.sides.1.rename rren),
+        (ra.sides.2.rename lren, rb.sides.2.rename rren)]) :=
     .app hr7 (hx7.repr (.app hr6 (hx36.repr hha2.l) (hx36.repr hhb.l)))
       ((hx6.trans hx7).repr rr2)
   step with pair_spec hz s7 ha'.l ha'.r hI7 (hx37.repr hha2.l) (hx37.repr hha2.r)
     (by unfold Room; omega) as ⟨t, s8, hI8, hx8, ht8, rt⟩
   have hx08 := (hx02.trans hx37).trans hx8
-  have hfo : (Sorts.tpair (ρa.l.rename lren) (ρa.r.rename lren)).firstOrder = true := by
-    rw [Sorts.tpair_fo, Sorts.rename_fo ρa.l_fo, Sorts.rename_fo ρa.r_fo]; rfl
-  have hefo : Eqns.FO [(ρa.l.rename lren, ρb.l.rename rren),
-      (ρa.r.rename lren, ρb.r.rename rren)] := fun p hp => by
+  have hfo : (Sorts.tpair (ra.sides.1.rename lren) (ra.sides.2.rename lren)).firstOrder = true := by
+    rw [Sorts.tpair_fo, Sorts.rename_fo hla, Sorts.rename_fo hra]; rfl
+  have hefo : Eqns.FO [(ra.sides.1.rename lren, rb.sides.1.rename rren),
+      (ra.sides.2.rename lren, rb.sides.2.rename rren)] := fun p hp => by
     simp only [List.mem_cons, List.not_mem_nil, or_false] at hp
     rcases hp with rfl | rfl
-    · exact ⟨Sorts.rename_fo ρa.l_fo _, Sorts.rename_fo ρb.l_fo _⟩
-    · exact ⟨Sorts.rename_fo ρa.r_fo _, Sorts.rename_fo ρb.r_fo _⟩
-  refine WP.spec_mono (two_spec hnm hC ρa.wf hUS hr hq ρa.normal ρb.normal ha.y hb.y hfo hefo
+    · exact ⟨Sorts.rename_fo hla _, Sorts.rename_fo hlb _⟩
+    · exact ⟨Sorts.rename_fo hra _, Sorts.rename_fo hrb _⟩
+  refine WP.spec_mono (two_spec hnm hC ρa.wf hUS hr hq hfa.1 hfb.1 ha.y hb.y hfo hefo
     s8 decls names ha' hb' t e hI8 (hx08.repr hde) (hx08.repr hU)
     (hha2.extends (hx37.trans hx8)) (hhb.extends (hx37.trans hx8)) rt (hx8.repr re)
     (by unfold Room; omega)) ?_
   rintro ⟨res, s'⟩ ⟨hI', hx', ht', hpost⟩
   refine ⟨hI', hx08.trans hx', by simp only [halvesCost]; omega, ?_⟩
-  have hP₀ := ρa.prob₂_fo ρb ρa.l_fo ρa.r_fo (ρa.meet_fo ρb)
-  refine repPost_of ρa.wf hP₀ ⟨_, _, rfl⟩ ?_ hpost
-  have e1 : Sorts.tpair (ρa.l.rename lren) (ρa.r.rename lren) =
-      (Sorts.tpair ρa.l ρa.r).rename (ρa.apart lren rren) := by
-    show _ = Sorts.tpair (ρa.l.rename (ρa.apart lren rren)) (ρa.r.rename (ρa.apart lren rren))
-    rw [apart_left ρa ρa.l_vars, apart_left ρa ρa.r_vars]
-  have e2 : [(ρa.l.rename lren, ρb.l.rename rren), (ρa.r.rename lren, ρb.r.rename rren)] =
-      Eqns.ren (ρa.apart lren rren) [(ρa.l, ρb.l.rename (· + ρa.1.c.length)),
-        (ρa.r, ρb.r.rename (· + ρa.1.c.length))] := by
-    show _ = [(ρa.l.rename (ρa.apart lren rren),
-        (ρb.l.rename (· + ρa.1.c.length)).rename (ρa.apart lren rren)),
-      (ρa.r.rename (ρa.apart lren rren),
-        (ρb.r.rename (· + ρa.1.c.length)).rename (ρa.apart lren rren))]
-    rw [apart_left ρa ρa.l_vars, apart_left ρa ρa.r_vars, apart_right, apart_right]
-  rw [e1, e2]
-  exact twoProb_norm hC.names ρa ρb ha.y hb.y hP₀
+  rw [Sorts.Rep.meet_eq, ← hfa.rel, ← hfb.rel]
+  exact repPost_of ρa.wf (twoProb_fo hfa.1 hfb.1 ha.y hb.y hfo hefo) ⟨_, _, rfl⟩
+    (meet_rel hC.names hfa.1 hfb.1 ha.y hb.y hta htb) hpost
 
 /-! ## The right interface, the converse and the interface test -/
 
 /-- `right` computes the right interface of a representative
-(`Sorts.Rep.right`). -/
+(`Sorts.Rep.right`), from its folded canonical store. -/
 theorem right_spec (hnm : Function.Injective nm) (hz : nm none = "") {S : Sorts} {sp : Pat}
-    {U : List Name} (hC : Ctx nm S sp U) (hUS : ∀ n ∈ U, n ∈ Sorts.names S) {rc q : Nat}
+    {U : List Name} (hC : Ctx nm S sp U) (hN : Sorts.NoPair S)
+    (hUS : ∀ n ∈ U, n ∈ Sorts.names S) {rc q : Nat}
     (hr : ∀ d, (Sorts.reachSet S d).card ≤ rc)
     (hq : ∀ d m, (Sorts.reachGSet S (d, some m)).card ≤ q) (ρ : Sorts.Rep S)
-    (Y : List Sorts.Binds)
+    {fr : Sorts.Raw} (hf : Sorts.FoldOf S ρ.1 fr) (Y : List Sorts.Binds)
     (s : store.Store) (decls names : store.TermId) (a : sorts.Rep)
     (hI : Inv s) (hde : Repr nm s.nodes.val decls.val sp)
     (hU : Repr nm s.nodes.val names.val (namesPat (nm none) U))
-    (ha : RepAt nm U s.nodes.val a ρ.1 Y)
-    (hroom : Room s (2 + repOneCost U.length ρ.1.c.length Y.length +
-      startCost nm S U.length (oneProb U ρ.1 Y ρ.r ρ.r) + normCharge nm S U rc q (oneProb U ρ.1 Y ρ.r ρ.r))) :
+    (ha : RepAt nm U s.nodes.val a fr Y)
+    (hroom : Room s (2 + repOneCost U.length fr.c.length Y.length +
+      startCost nm S U.length (oneProb U fr Y fr.sides.2 fr.sides.2) +
+      normCharge nm S U rc q (oneProb U fr Y fr.sides.2 fr.sides.2))) :
     dom.right s decls names a ⦃ res s' =>
       Inv s' ∧ Extends s s' ∧
-        s'.ticks.val ≤ s.ticks.val + 2 + repOneCost U.length ρ.1.c.length Y.length +
-          startCost nm S U.length (oneProb U ρ.1 Y ρ.r ρ.r) + normCharge nm S U rc q (oneProb U ρ.1 Y ρ.r ρ.r) ∧
+        s'.ticks.val ≤ s.ticks.val + 2 + repOneCost U.length fr.c.length Y.length +
+          startCost nm S U.length (oneProb U fr Y fr.sides.2 fr.sides.2) +
+          normCharge nm S U rc q (oneProb U fr Y fr.sides.2 fr.sides.2) ∧
         RepPost nm U s'.nodes.val ρ.right res ⦄ := by
   unfold dom.right
   have hroom' := hroom
   unfold Room at hroom'
-  have rt : Repr nm s.nodes.val a.t.val (Sorts.tpair ρ.l ρ.r) := by rw [← ρ.t_eq]; exact ha.t
+  obtain ⟨hta, -⟩ := ρ.fold_sides hN hf
+  obtain ⟨-, hrfo⟩ := sides_fo hf.1 hta
+  have rt : Repr nm s.nodes.val a.t.val (Sorts.tpair fr.sides.1 fr.sides.2) := by
+    rw [← hta]; exact ha.t
   step with sides_spec s a.t hI rt (by unfold Room; omega) as ⟨l, r, s1, hK, rl, rr⟩
   have ht1 := hK.ticks
   have hx1 : Extends s s1 := Extends.of_eq hK.nodes (by omega)
-  refine WP.spec_mono (one_spec hnm hz hC hUS hr hq ρ Y ρ.r_fo ρ.r_fo s1 decls names a r r
+  refine WP.spec_mono (one_spec hnm hz hC ρ.wf hUS hr hq hf.1 Y hrfo hrfo s1 decls names a r r
     hK.inv (hx1.repr hde) (hx1.repr hU) (ha.extends hx1) (hx1.repr rr) (hx1.repr rr)
     (by unfold Room; omega)) ?_
   rintro ⟨res, s'⟩ ⟨hI', hx', ht', hpost⟩
-  exact ⟨hI', hx1.trans hx', by omega, hpost⟩
+  refine ⟨hI', hx1.trans hx', by omega, ?_⟩
+  rw [Sorts.Rep.right_eq, ← hf.rel, ← right_rel hta]
+  exact hpost
 
-/-- `conv` computes the converse of a representative (`Sorts.Rep.conv`). -/
+/-- `conv` computes the converse of a representative (`Sorts.Rep.conv`),
+from its folded canonical store. -/
 theorem conv_spec (hnm : Function.Injective nm) (hz : nm none = "") {S : Sorts} {sp : Pat}
-    {U : List Name} (hC : Ctx nm S sp U) (hUS : ∀ n ∈ U, n ∈ Sorts.names S) {rc q : Nat}
+    {U : List Name} (hC : Ctx nm S sp U) (hN : Sorts.NoPair S)
+    (hUS : ∀ n ∈ U, n ∈ Sorts.names S) {rc q : Nat}
     (hr : ∀ d, (Sorts.reachSet S d).card ≤ rc)
     (hq : ∀ d m, (Sorts.reachGSet S (d, some m)).card ≤ q) (ρ : Sorts.Rep S)
-    (Y : List Sorts.Binds)
+    {fr : Sorts.Raw} (hf : Sorts.FoldOf S ρ.1 fr) (Y : List Sorts.Binds)
     (s : store.Store) (decls names : store.TermId) (a : sorts.Rep)
     (hI : Inv s) (hde : Repr nm s.nodes.val decls.val sp)
     (hU : Repr nm s.nodes.val names.val (namesPat (nm none) U))
-    (ha : RepAt nm U s.nodes.val a ρ.1 Y)
-    (hroom : Room s (2 + repOneCost U.length ρ.1.c.length Y.length +
-      startCost nm S U.length (oneProb U ρ.1 Y ρ.r ρ.l) + normCharge nm S U rc q (oneProb U ρ.1 Y ρ.r ρ.l))) :
+    (ha : RepAt nm U s.nodes.val a fr Y)
+    (hroom : Room s (2 + repOneCost U.length fr.c.length Y.length +
+      startCost nm S U.length (oneProb U fr Y fr.sides.2 fr.sides.1) +
+      normCharge nm S U rc q (oneProb U fr Y fr.sides.2 fr.sides.1))) :
     dom.conv s decls names a ⦃ res s' =>
       Inv s' ∧ Extends s s' ∧
-        s'.ticks.val ≤ s.ticks.val + 2 + repOneCost U.length ρ.1.c.length Y.length +
-          startCost nm S U.length (oneProb U ρ.1 Y ρ.r ρ.l) + normCharge nm S U rc q (oneProb U ρ.1 Y ρ.r ρ.l) ∧
-        ∃ Y', RepAt nm U s'.nodes.val res ρ.conv.1 Y' ⦄ := by
+        s'.ticks.val ≤ s.ticks.val + 2 + repOneCost U.length fr.c.length Y.length +
+          startCost nm S U.length (oneProb U fr Y fr.sides.2 fr.sides.1) +
+          normCharge nm S U rc q (oneProb U fr Y fr.sides.2 fr.sides.1) ∧
+        ∃ r' Y', Sorts.FoldOf S ρ.conv.1 r' ∧ RepAt nm U s'.nodes.val res r' Y' ⦄ := by
   unfold dom.conv
   have hroom' := hroom
   unfold Room at hroom'
-  have rt : Repr nm s.nodes.val a.t.val (Sorts.tpair ρ.l ρ.r) := by rw [← ρ.t_eq]; exact ha.t
+  obtain ⟨hta, -⟩ := ρ.fold_sides hN hf
+  obtain ⟨hlfo, hrfo⟩ := sides_fo hf.1 hta
+  have rt : Repr nm s.nodes.val a.t.val (Sorts.tpair fr.sides.1 fr.sides.2) := by
+    rw [← hta]; exact ha.t
   step with sides_spec s a.t hI rt (by unfold Room; omega) as ⟨l, r, s1, hK, rl, rr⟩
   have ht1 := hK.ticks
   have hx1 : Extends s s1 := Extends.of_eq hK.nodes (by omega)
-  step with one_spec hnm hz hC hUS hr hq ρ Y ρ.r_fo ρ.l_fo s1 decls names a r l
+  step with one_spec hnm hz hC ρ.wf hUS hr hq hf.1 Y hrfo hlfo s1 decls names a r l
     hK.inv (hx1.repr hde) (hx1.repr hU) (ha.extends hx1) (hx1.repr rr) (hx1.repr rl)
     (by unfold Room; omega) as ⟨o, s2, hI2, hx2, ht2, hpost⟩
+  rw [swap_rel hta, hf.rel] at hpost
   cases o with
   | none =>
     simp only [RepPost] at hpost
     simp only [WP.spec_ok]
-    refine ⟨hI2, hx1.trans hx2, by omega, Y, ?_⟩
-    rw [Sorts.Rep.conv, hpost]
-    exact ha.extends (hx1.trans hx2)
+    refine ⟨hI2, hx1.trans hx2, by omega, fr, Y, ?_, ha.extends (hx1.trans hx2)⟩
+    rw [Sorts.Rep.conv_eq, hpost]
+    exact hf
   | some b =>
     simp only [RepPost] at hpost
-    obtain ⟨ρ', Y', hρ', hb⟩ := hpost
+    obtain ⟨ρ', r', Y', hρ', hf', hb⟩ := hpost
     simp only [WP.spec_ok]
-    refine ⟨hI2, hx1.trans hx2, by omega, Y', ?_⟩
-    rw [Sorts.Rep.conv, hρ']
-    exact hb
+    refine ⟨hI2, hx1.trans hx2, by omega, r', Y', ?_, hb⟩
+    rw [Sorts.Rep.conv_eq, hρ']
+    exact hf'
 
 /-- `is_bound` decides whether the two sides of a representative are the
-same pattern, in three ticks. -/
+same pattern, on its folded canonical store, in three ticks. -/
 theorem is_bound_spec (hnm : Function.Injective nm) {S : Sorts} {U : List Name}
-    (ρ : Sorts.Rep S) (Y : List Sorts.Binds) (s : store.Store) (a : sorts.Rep) (hI : Inv s)
-    (ha : RepAt nm U s.nodes.val a ρ.1 Y) (hroom : Room s 3) :
+    (hN : Sorts.NoPair S) (ρ : Sorts.Rep S) {fr : Sorts.Raw} (hf : Sorts.FoldOf S ρ.1 fr)
+    (Y : List Sorts.Binds) (s : store.Store) (a : sorts.Rep) (hI : Inv s)
+    (ha : RepAt nm U s.nodes.val a fr Y) (hroom : Room s 3) :
     dom.is_bound s a ⦃ res s' => Kept s s' 3 ∧ res = decide (ρ.l = ρ.r) ⦄ := by
   unfold dom.is_bound
   have hroom' := hroom
   unfold Room at hroom'
-  have rt : Repr nm s.nodes.val a.t.val (Sorts.tpair ρ.l ρ.r) := by rw [← ρ.t_eq]; exact ha.t
+  obtain ⟨hta, hiff⟩ := ρ.fold_sides hN hf
+  have rt : Repr nm s.nodes.val a.t.val (Sorts.tpair fr.sides.1 fr.sides.2) := by
+    rw [← hta]; exact ha.t
   step with sides_spec s a.t hI rt (by unfold Room; omega) as ⟨l, r, s1, hK, rl, rr⟩
   have ht1 := hK.ticks
   refine WP.spec_mono (same_spec s1 l r hK.inv (by unfold Room; omega)) ?_
@@ -1337,9 +1440,9 @@ theorem is_bound_spec (hnm : Function.Injective nm) {S : Sorts} {U : List Name}
     hK'.inv⟩, ?_⟩
   rw [hres]
   congr 1
-  refine propext ⟨fun h => ?_, fun h => ?_⟩
+  refine propext ⟨fun h => hiff.1 ?_, fun h => ?_⟩
   · have := rl; rw [h] at this; exact this.unique rr
-  · have := rl; rw [h] at this; exact Repr.inj hnm hI.nodesOK this rr
+  · have := rl; rw [hiff.2 h] at this; exact Repr.inj hnm hI.nodesOK this rr
 
 /-! ## The covering test -/
 
@@ -1377,22 +1480,22 @@ theorem map_cpat_inj {z : Sym} {U : List Name} : ∀ {l l' : List Sorts.Conj},
     rw [cpat_inj (hl c (by simp)) (hl' d (by simp)) h.1,
       map_cpat_inj (fun c hc => hl c (by simp [hc])) (fun c hc => hl' c (by simp [hc])) h.2]
 
-theorem rep_eq_iff {S : Sorts} {ρa ρb : Sorts.Rep S} :
-    ρa = ρb ↔ ρa.1.t = ρb.1.t ∧ ρa.1.c = ρb.1.c ∧ ρa.1.x = ρb.1.x := by
+theorem raw_eq_iff {ra rb : Sorts.Raw} :
+    ra = rb ↔ ra.t = rb.t ∧ ra.c = rb.c ∧ ra.x = rb.x := by
   constructor
   · rintro rfl; exact ⟨rfl, rfl, rfl⟩
   · rintro ⟨h1, h2, h3⟩
-    obtain ⟨⟨t, c, x⟩, pa⟩ := ρa
-    obtain ⟨⟨t', c', x'⟩, pb⟩ := ρb
+    obtain ⟨t, c, x⟩ := ra
+    obtain ⟨t', c', x'⟩ := rb
     simp only at h1 h2 h3
     subst h1 h2 h3
     rfl
 
-theorem rep_sub {S : Sorts} {sp : Pat} {U : List Name} (hC : Ctx nm S sp U) (ρ : Sorts.Rep S) :
-    ∀ c ∈ ρ.1.c, Sub U c := by
+theorem raw_sub {S : Sorts} {sp : Pat} {U : List Name} (hC : Ctx nm S sp U) {r : Sorts.Raw}
+    (hr : r.Shaped S) : ∀ c ∈ r.c, Sub U c := by
   intro c hc n hn
   obtain ⟨i, hi, rfl⟩ := List.mem_iff_getElem.1 hc
-  refine hC.names n ((ρ.normal.up i hi n).1 ?_).1
+  refine hC.names n ((hr.up i hi n).1 ?_).1
   simpa [Sorts.Raw.conj, List.getD_eq_getElem?_getD, List.getElem?_eq_getElem hi] using hn
 
 /-- The first loop of `subset` flags the members of a list. -/
@@ -1620,35 +1723,39 @@ theorem map_sub_iff {α β : Type} {f : α → β} (hf : Function.Injective f) (
 
 /-- `same_rep` decides whether two representatives are the same. -/
 theorem same_rep_spec (hnm : Function.Injective nm) {S : Sorts} {sp : Pat} {U : List Name}
-    (hC : Ctx nm S sp U) (ρa ρb : Sorts.Rep S) (Ya Yb : List Sorts.Binds) (s : store.Store)
-    (a b : sorts.Rep) (hI : Inv s) (ha : RepAt nm U s.nodes.val a ρa.1 Ya)
-    (hb : RepAt nm U s.nodes.val b ρb.1 Yb)
+    (hC : Ctx nm S sp U) (ρa ρb : Sorts.Rep S) {ra rb : Sorts.Raw}
+    (hfa : Sorts.FoldOf S ρa.1 ra) (hfb : Sorts.FoldOf S ρb.1 rb) (Ya Yb : List Sorts.Binds)
+    (s : store.Store) (a b : sorts.Rep) (hI : Inv s) (ha : RepAt nm U s.nodes.val a ra Ya)
+    (hb : RepAt nm U s.nodes.val b rb Yb)
     (hroom : Room s (4 * Ya.length + 4 * Yb.length + 8)) :
     dom.same_rep s a b ⦃ res s' =>
       Inv s' ∧ s'.nodes.val = s.nodes.val ∧
         s'.ticks.val ≤ s.ticks.val + 4 * Ya.length + 4 * Yb.length + 8 ∧
         s.ticks.val ≤ s'.ticks.val ∧ res = decide (ρa = ρb) ⦄ := by
-  have hT : a.t.val = b.t.val ↔ ρa.1.t = ρb.1.t := by
+  have hρ : ρa = ρb ↔ ra = rb :=
+    ⟨fun h => by subst h; exact Sorts.FoldOf.eq ρa.wf hfa hfb,
+      fun h => by subst h; exact Sorts.Rep.eq_of_fold hfa hfb⟩
+  have hT : a.t.val = b.t.val ↔ ra.t = rb.t := by
     constructor
     · intro h; have := ha.t; rw [h] at this; exact this.unique hb.t
     · intro h; have := ha.t; rw [h] at this; exact Repr.inj hnm hI.nodesOK this hb.t
-  have hCc : a.c.val = b.c.val ↔ ρa.1.c = ρb.1.c := by
+  have hCc : a.c.val = b.c.val ↔ ra.c = rb.c := by
     constructor
     · intro h
       have := ha.c
       rw [h] at this
-      exact map_cpat_inj (rep_sub hC ρa) (rep_sub hC ρb) (encList_inj _ (this.unique hb.c))
+      exact map_cpat_inj (raw_sub hC hfa.1) (raw_sub hC hfb.1) (encList_inj _ (this.unique hb.c))
     · intro h; have := ha.c; rw [h] at this; exact Repr.inj hnm hI.nodesOK this hb.c
-  have hpa : ∀ θ ∈ Ya, Sorts.Pre ρa.1.c.length θ := fun θ hθ =>
-    (ρa.normal.ex θ (by rw [← ha.y]; exact List.mem_toFinset.2 hθ)).toPre
-  have hpb : ∀ θ ∈ Yb, Sorts.Pre ρb.1.c.length θ := fun θ hθ =>
-    (ρb.normal.ex θ (by rw [← hb.y]; exact List.mem_toFinset.2 hθ)).toPre
-  have hX : ρa.1.c = ρb.1.c →
-      (((∀ p ∈ Ya.map (vals ρa.1.c.length), p ∈ Yb.map (vals ρb.1.c.length)) ∧
-        ∀ p ∈ Yb.map (vals ρb.1.c.length), p ∈ Ya.map (vals ρa.1.c.length)) ↔
-        ρa.1.x = ρb.1.x) := by
+  have hpa : ∀ θ ∈ Ya, Sorts.Pre ra.c.length θ := fun θ hθ =>
+    (hfa.1.ex θ (by rw [← ha.y]; exact List.mem_toFinset.2 hθ)).toPre
+  have hpb : ∀ θ ∈ Yb, Sorts.Pre rb.c.length θ := fun θ hθ =>
+    (hfb.1.ex θ (by rw [← hb.y]; exact List.mem_toFinset.2 hθ)).toPre
+  have hX : ra.c = rb.c →
+      (((∀ p ∈ Ya.map (vals ra.c.length), p ∈ Yb.map (vals rb.c.length)) ∧
+        ∀ p ∈ Yb.map (vals rb.c.length), p ∈ Ya.map (vals ra.c.length)) ↔
+        ra.x = rb.x) := by
     intro hc
-    have hk : ρa.1.c.length = ρb.1.c.length := congrArg List.length hc
+    have hk : ra.c.length = rb.c.length := congrArg List.length hc
     constructor
     · rintro ⟨h1, h2⟩
       rw [← ha.y, ← hb.y]
@@ -1692,80 +1799,98 @@ theorem same_rep_spec (hnm : Function.Injective nm) {S : Sorts} {sp : Pat} {U : 
     · have : b2 = true := by simp [hb2, e2]
       subst this
       simp only [↓reduceIte]
-      step with subset_spec hnm ((Ya.map (vals ρa.1.c.length)).map (encList (nm none)))
-        ((Yb.map (vals ρb.1.c.length)).map (encList (nm none))) s2
+      step with subset_spec hnm ((Ya.map (vals ra.c.length)).map (encList (nm none)))
+        ((Yb.map (vals rb.c.length)).map (encList (nm none))) s2
         a.x b.x hK2.inv (by rw [hn2]; exact ha.x) (by rw [hn2]; exact hb.x)
         (by simp only [List.length_map]; unfold Room; omega)
         as ⟨b3, s3, hI3, hn3, hA3, ht3, hm3, hb3⟩
       simp only [List.length_map] at ht3
       replace hb3 : b3 = true ↔
-          ∀ p ∈ Ya.map (vals ρa.1.c.length), p ∈ Yb.map (vals ρb.1.c.length) := by
+          ∀ p ∈ Ya.map (vals ra.c.length), p ∈ Yb.map (vals rb.c.length) := by
         rw [hb3, decide_eq_true_iff, map_sub_iff hE]
-      by_cases e3 : ∀ p ∈ Ya.map (vals ρa.1.c.length), p ∈ Yb.map (vals ρb.1.c.length)
+      by_cases e3 : ∀ p ∈ Ya.map (vals ra.c.length), p ∈ Yb.map (vals rb.c.length)
       · have : b3 = true := hb3.2 e3
         subst this
         simp only [↓reduceIte]
         refine WP.spec_mono (subset_spec hnm
-          ((Yb.map (vals ρb.1.c.length)).map (encList (nm none)))
-          ((Ya.map (vals ρa.1.c.length)).map (encList (nm none))) s3 b.x a.x hI3 (by rw [hn3, hn2]; exact hb.x)
+          ((Yb.map (vals rb.c.length)).map (encList (nm none)))
+          ((Ya.map (vals ra.c.length)).map (encList (nm none))) s3 b.x a.x hI3 (by rw [hn3, hn2]; exact hb.x)
           (by rw [hn3, hn2]; exact ha.x)
           (by simp only [List.length_map]; unfold Room; omega)) ?_
         rintro ⟨res, s'⟩ ⟨hI', hn', hA', ht', hm', hres⟩
         simp only [List.length_map] at ht'
         replace hres : res = true ↔
-            ∀ p ∈ Yb.map (vals ρb.1.c.length), p ∈ Ya.map (vals ρa.1.c.length) := by
+            ∀ p ∈ Yb.map (vals rb.c.length), p ∈ Ya.map (vals ra.c.length) := by
           rw [hres, decide_eq_true_iff, map_sub_iff hE]
         refine ⟨hI', by rw [hn', hn3, hn2], by omega, by omega, ?_⟩
         refine Bool.eq_iff_iff.2 ?_
         rw [hres, decide_eq_true_iff]
-        exact ⟨fun h => rep_eq_iff.2 ⟨hT.1 e1, hCc.1 e2, (hX (hCc.1 e2)).1 ⟨e3, h⟩⟩,
-          fun h => ((hX (hCc.1 e2)).2 (rep_eq_iff.1 h).2.2).2⟩
+        exact ⟨fun h => hρ.2 (raw_eq_iff.2 ⟨hT.1 e1, hCc.1 e2, (hX (hCc.1 e2)).1 ⟨e3, h⟩⟩),
+          fun h => ((hX (hCc.1 e2)).2 (raw_eq_iff.1 (hρ.1 h)).2.2).2⟩
       · have : b3 = false := Bool.eq_false_iff.2 fun h => e3 (hb3.1 h)
         subst this
         simp only [Bool.false_eq_true, ↓reduceIte, WP.spec_ok]
         refine ⟨hI3, by rw [hn3, hn2], by omega, by omega, ?_⟩
-        exact (decide_eq_false fun h => e3 ((hX (hCc.1 e2)).2 (rep_eq_iff.1 h).2.2).1).symm
+        exact (decide_eq_false fun h => e3 ((hX (hCc.1 e2)).2 (raw_eq_iff.1 (hρ.1 h)).2.2).1).symm
     · have : b2 = false := by simp [hb2, e2]
       subst this
       simp only [Bool.false_eq_true, ↓reduceIte, WP.spec_ok]
       refine ⟨hK2.inv, hn2, by omega, by omega, ?_⟩
-      exact (decide_eq_false fun h => e2 (hCc.2 (rep_eq_iff.1 h).2.1)).symm
+      exact (decide_eq_false fun h => e2 (hCc.2 (raw_eq_iff.1 (hρ.1 h)).2.1)).symm
   · have : b1 = false := by simp [hb1, e1]
     subst this
     simp only [Bool.false_eq_true, ↓reduceIte, WP.spec_ok]
     refine ⟨hK1.inv, hK1.nodes, by omega, by omega, ?_⟩
-    exact (decide_eq_false fun h => e1 (hT.2 (rep_eq_iff.1 h).1)).symm
+    exact (decide_eq_false fun h => e1 (hT.2 (raw_eq_iff.1 (hρ.1 h)).1)).symm
 
-/-- The number of exclusions of the conjunction of two representatives. -/
+open Classical in
+/-- The number of exclusions of the folded canonical store of a
+representative. -/
+noncomputable def foldCard {S : Sorts} (ρ : Sorts.Rep S) : Nat :=
+  if h : ∃ r, Sorts.FoldOf S ρ.1 r then (Classical.choose h).x.card else 0
+
+theorem foldCard_eq {S : Sorts} {ρ : Sorts.Rep S} {r : Sorts.Raw} (h : Sorts.FoldOf S ρ.1 r) :
+    foldCard ρ = r.x.card := by
+  have hex : ∃ r, Sorts.FoldOf S ρ.1 r := ⟨r, h⟩
+  unfold foldCard
+  rw [dite_eq_left_of_eq_true (eq_true hex),
+    Sorts.FoldOf.eq ρ.wf (Classical.choose_spec (of_eq_true (eq_true hex))) h]
+
+/-- The number of exclusions of the conjunction of two representatives, in
+its folded canonical store. -/
 noncomputable def meetXs {S : Sorts} (ρa ρb : Sorts.Rep S) : Nat :=
-  ((ρa.meet ρb).map fun ρ => ρ.1.x.card).getD 0
+  ((ρa.meet ρb).map foldCard).getD 0
 
 /-- `covers` decides whether the conjunction of two representatives is the
 second (`covers` of `Sorts.dom`): whether the first relates every pair the
 second relates. -/
 theorem dom_covers_spec (hnm : Function.Injective nm) (hz : nm none = "") {S : Sorts} {sp : Pat}
-    {U : List Name} (hC : Ctx nm S sp U) (hUS : ∀ n ∈ U, n ∈ Sorts.names S) {rc q : Nat}
+    {U : List Name} (hC : Ctx nm S sp U) (hN : Sorts.NoPair S)
+    (hUS : ∀ n ∈ U, n ∈ Sorts.names S) {rc q : Nat}
     (hr : ∀ d, (Sorts.reachSet S d).card ≤ rc)
     (hq : ∀ d m, (Sorts.reachGSet S (d, some m)).card ≤ q) (ρa ρb : Sorts.Rep S)
+    {ra rb : Sorts.Raw} (hfa : Sorts.FoldOf S ρa.1 ra) (hfb : Sorts.FoldOf S ρb.1 rb)
     (Ya Yb : List Sorts.Binds)
     (s : store.Store) (decls names : store.TermId) (a b : sorts.Rep)
     (hI : Inv s) (hde : Repr nm s.nodes.val decls.val sp)
     (hU : Repr nm s.nodes.val names.val (namesPat (nm none) U))
-    (ha : RepAt nm U s.nodes.val a ρa.1 Ya) (hb : RepAt nm U s.nodes.val b ρb.1 Yb)
-    (hroom : Room s (halvesCost nm U.length ρa.1 Ya ρb.1 Yb + 2 +
-      startCost nm S U.length (meetProb U ρa ρb Ya Yb) + normCharge nm S U rc q (meetProb U ρa ρb Ya Yb) +
+    (ha : RepAt nm U s.nodes.val a ra Ya) (hb : RepAt nm U s.nodes.val b rb Yb)
+    (hroom : Room s (halvesCost nm U.length ra Ya rb Yb + 2 +
+      startCost nm S U.length (meetProb U ra rb Ya Yb) +
+      normCharge nm S U rc q (meetProb U ra rb Ya Yb) +
       (4 * meetXs ρa ρb + 4 * Yb.length + 8))) :
     dom.covers s decls names a b ⦃ res s' =>
       Inv s' ∧ Extends s s' ∧
-        s'.ticks.val ≤ s.ticks.val + halvesCost nm U.length ρa.1 Ya ρb.1 Yb + 2 +
-          startCost nm S U.length (meetProb U ρa ρb Ya Yb) + normCharge nm S U rc q (meetProb U ρa ρb Ya Yb) +
+        s'.ticks.val ≤ s.ticks.val + halvesCost nm U.length ra Ya rb Yb + 2 +
+          startCost nm S U.length (meetProb U ra rb Ya Yb) +
+          normCharge nm S U rc q (meetProb U ra rb Ya Yb) +
           (4 * meetXs ρa ρb + 4 * Yb.length + 8) ∧
         res = decide (ρa.meet ρb = some ρb) ⦄ := by
   unfold dom.covers
   have hroom' := hroom
   unfold Room at hroom'
-  step with dom_meet_spec hnm hz hC hUS hr hq ρa ρb Ya Yb s decls names a b hI hde hU ha hb
-    (by unfold Room; omega) as ⟨o, s1, hI1, hx1, ht1, hpost⟩
+  step with dom_meet_spec hnm hz hC hN hUS hr hq ρa ρb hfa hfb Ya Yb s decls names a b hI hde hU
+    ha hb (by unfold Room; omega) as ⟨o, s1, hI1, hx1, ht1, hpost⟩
   cases o with
   | none =>
     simp only [RepPost] at hpost
@@ -1775,13 +1900,14 @@ theorem dom_covers_spec (hnm : Function.Injective nm) (hz : nm none = "") {S : S
     simp
   | some m =>
     simp only [RepPost] at hpost
-    obtain ⟨ρ', Y', hρ', hm⟩ := hpost
+    obtain ⟨ρ', r', Y', hρ', hf', hm⟩ := hpost
     have hlen : Y'.length = meetXs ρa ρb := by
       unfold meetXs
-      rw [hρ', Option.map_some, Option.getD_some, ← hm.y, List.toFinset_card_of_nodup hm.nd]
+      rw [hρ', Option.map_some, Option.getD_some, foldCard_eq hf', ← hm.y,
+        List.toFinset_card_of_nodup hm.nd]
     simp only
-    refine WP.spec_mono (same_rep_spec hnm hC ρ' ρb Y' Yb s1 m b hI1 hm (hb.extends hx1)
-      (by rw [hlen]; unfold Room; omega)) ?_
+    refine WP.spec_mono (same_rep_spec hnm hC ρ' ρb hf' hfb Y' Yb s1 m b hI1 hm
+      (hb.extends hx1) (by rw [hlen]; unfold Room; omega)) ?_
     rintro ⟨res, s'⟩ ⟨hI', hn', ht', hm', hres⟩
     rw [hlen] at ht'
     refine ⟨hI', hx1.trans (Extends.of_eq hn' hm'), by omega, ?_⟩

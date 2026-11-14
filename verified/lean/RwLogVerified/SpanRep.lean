@@ -3,8 +3,9 @@
 
 `dom::rep` reads a span off the store and returns its representative
 (`Sorts.repOf`): nothing when a side or a constraint is not first-order or
-a constraint is a variable, and otherwise the normal store of the pair of
-the two sides under the sorts and the disequalities the constraints say.
+a constraint is a variable, and otherwise the folded canonical store of the
+pair of the two sides under the sorts and the disequalities the constraints
+say.
 
 `first_order` walks a term with the stack of the store. Table `B` flags the
 nodes already visited, so a node is examined once however often it occurs.
@@ -665,7 +666,7 @@ theorem parts_loop_spec (hnm : Function.Injective nm) (hz : nm none = "") (U : L
       rcases c1 with h | ⟨p, q⟩ | _
       · obtain ⟨n, p, rfl, rh⟩ := hpost
         rw [hn2] at rh
-        simp only [dom.among]
+        simp only [sorts.among]
         unfold namesPat at hU
         step with among_loop_spec hnm (U.map fun n => (.sym n : Pat)) s3 h names
           (tn := .sym n) hI3 (by rw [hn3]; exact rh) (by rw [hn3]; exact hU)
@@ -931,10 +932,10 @@ theorem rep_spec (hnm : Function.Injective nm) (hz : nm none = "") {S : Sorts} {
           (by unfold Room; omega)) ?_
         rintro ⟨res, s'⟩ ⟨hI', hx', ht', hpost'⟩
         refine ⟨hI', hx05.trans hx', by simp only [spanCost]; omega, ?_⟩
-        rw [repOf_fo hS hfo]
-        exact repPost_of hS (Sorts.spanProb_fo hfo) ⟨sp.l, sp.r, rfl⟩
-          (Sorts.Prob.norm_congr hS (spanProbR_fo hfo) (Sorts.spanProb_fo hfo) (spanProbR_den sp))
-          hpost'
+        rw [Sorts.repOf_eq, hfo]
+        simp only [↓reduceIte]
+        exact repPost_of hS (spanProbR_fo hfo) ⟨sp.l, sp.r, rfl⟩
+          (by rw [spanProbR_den sp]; exact Sorts.spanProb_den hfo) hpost'
     · rename_i hb'
       simp only [WP.spec_ok]
       refine ⟨h2.inv, hx2, by simp only [spanCost]; omega, repOf_not_fo fun h => ?_⟩

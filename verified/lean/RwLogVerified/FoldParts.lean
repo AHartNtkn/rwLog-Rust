@@ -3,10 +3,9 @@
 
 The loops `sorts::fold` is made of besides the search for the free subterms:
 `seed` puts the variable of each free subterm found in table `A`, `conjs_at`
-lists the conjunctions the entries give the variables of a list, `moved_all`
-reads the equations of the exclusions back from their lists of values, and
-`assemble` puts a pattern, the conjunctions of its variables and a list of
-exclusions together as a store.
+lists the conjunctions the entries give the variables of a list, and
+`moved_all` reads the equations of the exclusions back from their lists of
+values.
 -/
 import RwLogVerified.FreeSubs
 import RwLogVerified.Assemble

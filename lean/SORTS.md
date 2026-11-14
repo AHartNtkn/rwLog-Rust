@@ -249,8 +249,8 @@ the run on the starting store of the problem spends. What is proved about
 its size is that every round of `tighten` that goes on adds a distinct
 subterm to the pattern, so a run makes at most as many rounds as the pattern
 it returns has distinct subterms (`Rounds.lean`), and that no variable
-outside the pattern is expanded. A canonical store that keeps a variable of one
-root folded is being specified (section 6, the folded pattern).
+outside the pattern is expanded. The canonical store the machine keeps leaves
+a variable of one root folded (the folded pattern, below).
 
 One bound is looser than that today: `inclButAll` counts the excepted terms
 by their size as trees (`Sorts.sumSize`), and a term of the store can have
@@ -258,7 +258,7 @@ exponentially more symbols as a tree than nodes. Whether the Rust takes that
 long on such a term, or only the bound is loose, is not established.
 
 
-### The folded pattern (2026-11-14, in progress)
+### The folded pattern (2026-11-14)
 
 The normal store above writes every variable of one root out. The canonical
 store the machine is to keep instead leaves such a variable folded when
@@ -280,14 +280,32 @@ D8). What is proved of it so far, in `Sorts/Fold.lean` and
 | The *folded store* of a store (`foldRaw`): the pattern with each outermost free subterm replaced by a variable, the sorts of the subterm on that variable, and the exclusions renamed. It is determined by its pattern and what it denotes, denotes what the store does, and its pattern is the folded pattern | `foldRaw_spec` (`FoldRaw.lean`) |
 | `FoldOf S n r`: `r` is the folded canonical store of the normal store `n`. A normal store has exactly one, and it determines the normal store | `FoldOf.eq`, `FoldOf.inj` |
 | Writing out only the variables that exclusions mention, assembling, and folding gives the folded canonical store of the problem | `foldRaw_ofTight` |
+| The same of the store assembled from the folded parts with the renamed exclusions listed in any order, which is how the Rust lists them | `assembled_fold`, `assembled_ofTight` |
 
 The folded canonical store is therefore a function of what the problem
 denotes, as the normal store is, and it is computed without writing out any
 variable that no exclusion mentions. Nothing here bounds its size or the
 cost of computing it; the charges are stated with the Rust.
 
-Still owed for the folded store: the Rust for it and its proof, and the
-domain's operations on folded stores.
+The Rust computes it (`sorts::fold`, proved in
+`verified/lean/RwLogVerified/Fold.lean`), and `sorts::normal` returns it.
+
+The domain keeps representatives as their folded canonical stores
+(`Sorts/FoldRep.lean`). The representatives of the specification stay the
+normal stores, and the two determine each other. The pair symbol is reserved
+for the domain:
+
+| Statement | Theorem |
+|---|---|
+| `NoPair S`: no sort has a case for the pair symbol with two arguments. Then a pair is not a free subterm of a store that has a solution | `not_free_tpair` |
+| So the folded canonical store of a normal store over a pair is over a pair, and its two sides are the same pattern exactly when those of the normal store are | `FoldOf.pair`, `Rep.fold_sides` |
+| It relates the pairs the normal store relates, and representatives with the same folded canonical store are the same | `FoldOf.rel`, `Rep.eq_of_fold` |
+
+The operations of the domain on folded stores are proved with the Rust
+(`verified/lean/RwLogVerified/Dom.lean`): each states a problem over the
+folded stores of its arguments that relates the pairs the operation of the
+specification is to relate, and returns the folded canonical store of its
+normal store.
 
 
 ## 8. The normal store as a function
