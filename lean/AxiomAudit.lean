@@ -242,6 +242,112 @@ new axiom.
 /-- info: 'RwLog.Valid.sound' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Valid.sound
 
+/-! ## What no engine has -/
+
+/-- info: 'RwLog.Engine.not_convTraceInOrder' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Engine.not_convTraceInOrder
+
+/-! ## What every engine has, because it is handed the normal form -/
+
+/-- info: 'RwLog.Engine.orComm' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Engine.orComm
+/-- info: 'RwLog.Engine.orAssoc' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Engine.orAssoc
+/-- info: 'RwLog.Engine.seqAssoc' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Engine.seqAssoc
+/-- info: 'RwLog.Engine.andComm' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Engine.andComm
+/-- info: 'RwLog.Engine.andAssoc' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Engine.andAssoc
+
+/-! ## The tabled machine with an unfolding race that meets its specification -/
+
+/-- info: 'RwLog.Tabled.good_eagerRace' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Tabled.good_eagerRace
+/-- info: 'RwLog.Tabled.good_walkRace' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Tabled.good_walkRace
+/-- info: 'RwLog.Tabled.good_sharedRace' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Tabled.good_sharedRace
+/-- info: 'RwLog.Tabled.good_raced' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Tabled.good_raced
+/-- info: 'RwLog.Tabled.complete' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Tabled.complete
+/-- info: 'RwLog.Tabled.pointComplete' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Tabled.pointComplete
+/-- info: 'RwLog.Tabled.honestExhaustion' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Tabled.honestExhaustion
+/-- info: 'RwLog.Tabled.honestProgress' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Tabled.honestProgress
+/-- info: 'RwLog.Tabled.noSubsumed' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Tabled.noSubsumed
+/-- info: 'RwLog.Tabled.finalMaximal' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Tabled.finalMaximal
+/-- info: 'RwLog.Tabled.exact_eagerRace' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Tabled.exact_eagerRace
+/-- info: 'RwLog.Tabled.exact_raced' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Tabled.exact_raced
+/-- info: 'RwLog.Tabled.sameRun' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Tabled.sameRun
+/-- info: 'RwLog.Tabled.halts_iff' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Tabled.halts_iff
+/-- info: 'RwLog.Tabled.convTrace' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Tabled.convTrace
+/-- info: 'RwLog.Tabled.dualTrace' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Tabled.dualTrace
+/-- info: 'RwLog.R001.tableKeeps' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R001.tableKeeps
+/-- info: 'RwLog.R004.tableKeeps' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R004.tableKeeps
+
+/-! ## R005, the yardstick -/
+
+/-- info: 'RwLog.Tabled.Unfold.final_mono' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Tabled.Unfold.final_mono
+/-- info: 'RwLog.Tabled.host_done' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Tabled.host_done
+/-- info: 'RwLog.Tabled.emptySide' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Tabled.emptySide
+/-- info: 'RwLog.Tabled.mirror_trace' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Tabled.mirror_trace
+/-- info: 'RwLog.Tabled.mirror_halts' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Tabled.mirror_halts
+/-- info: 'RwLog.Tabled.tabled_keeps' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Tabled.tabled_keeps
+/-- info: 'RwLog.Tabled.mirror_keeps' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Tabled.mirror_keeps
+/-- info: 'RwLog.Tabled.mirror_finalMaximal' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Tabled.mirror_finalMaximal
+/-- info: 'RwLog.Tabled.mirror_neverCertifies' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Tabled.mirror_neverCertifies
+/-- info: 'RwLog.Mirror.go_val' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Mirror.go_val
+/-- info: 'RwLog.Mirror.cost_ge' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Mirror.cost_ge
+/-- info: 'RwLog.Mirror.paid_ge_min' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Mirror.paid_ge_min
+/-- info: 'RwLog.Mirror.LowerOn.paid' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Mirror.LowerOn.paid
+/-- info: 'RwLog.R001.keeps' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R001.keeps
+/-- info: 'RwLog.R004.keeps' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R004.keeps
+/-- info: 'RwLog.R005.keeps' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R005.keeps
+/-- info: 'RwLog.R005.trace' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R005.trace
+/-- info: 'RwLog.R005.record' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R005.record
+/-- info: 'RwLog.R005.neverCertifies' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R005.neverCertifies
+/-- info: 'RwLog.R005.keeps_sorts' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R005.keeps_sorts
+/-- info: 'RwLog.R005.record_sorts' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R005.record_sorts
+/-- info: 'RwLog.R005.keeps_atSorts' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R005.keeps_atSorts
+/-- info: 'RwLog.Kernel.uncharged_refines' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Kernel.uncharged_refines
+
 /-! ## The constraint domain of sorts -/
 
 /-- info: 'RwLog.Sorts.Raw.Normal.eq' depends on axioms: [propext, Classical.choice, Quot.sound] -/

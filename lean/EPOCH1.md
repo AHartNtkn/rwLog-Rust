@@ -173,8 +173,10 @@ for R004).
 ### Shared libraries at the tag
 
 `Rungs/Framework`, `Rungs/Tabled`, `Rungs/Mirror`, `Rungs/Directed` and
-`Rungs/Hedge` are not rungs. They stay on master after the tag;
-`STRUCTURE.md` describes them.
+`Rungs/Hedge` are not rungs. `Rungs/Framework` stays on master; the tabled
+and the mirrored machine are rewritten there against the derivation kernel,
+and `Rungs/Directed` and `Rungs/Hedge` exist only at the tag. `STRUCTURE.md`
+describes master.
 
 ## What master keeps after the tag
 
