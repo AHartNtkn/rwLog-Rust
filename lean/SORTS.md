@@ -259,8 +259,19 @@ a variable of one root folded (the folded pattern, below).
 
 One bound is looser than that today: `inclButAll` counts the excepted terms
 by their size as trees (`Sorts.sumSize`), and a term of the store can have
-exponentially more symbols as a tree than nodes. Whether the Rust takes that
-long on such a term, or only the bound is loose, is not established.
+exponentially more symbols as a tree than nodes. The bound is not loose: the
+Rust takes that long (measured 2026-11-14). `included_but` keeps a list of
+questions, each a conjunction, a sort and a list of excepted terms, and asks
+one for each argument of each root without remembering what it has asked.
+Declare `t0` as the constant `z` and `t(j+1)` as the pairs of two members of
+`tj`, and `n0` as another constant and `n(j+1)` as the pairs of two members
+of `nj`. The one member of `tk` is a full tree of depth `k`, which the store
+can hold in `2k + 1` nodes. Asking whether `tk` but for that term is in `nk`
+asks about each of the two arguments at every level, the same question both
+times, and spends about twice the ticks for each level: 2004 at `k = 2`,
+60268 at `k = 6`, 4956268 at `k = 12`. So a charge in the shared size needs
+`included_but` to remember the questions it has asked, which is a change to
+the Rust and its proof (L62).
 
 
 ### The folded pattern (2026-11-14)
