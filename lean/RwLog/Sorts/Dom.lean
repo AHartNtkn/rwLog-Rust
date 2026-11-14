@@ -392,6 +392,23 @@ theorem rightBound_isSome (a : Rep S) : ((dom S).rightBound a).isSome = true := 
   show (Rep.mk? S _).isSome = true
   rw [← h, Rep.mk?_rel]; rfl
 
+/-- The right interface relates only right ends of a pair: it is exact. -/
+theorem dom_rightBound_end (a b : Rep S) (h : (dom S).rightBound a = some b) :
+    ∀ p ∈ Answer.den S.interp b, ∃ x, (x, p.1) ∈ Answer.den S.interp a := by
+  intro p hp
+  have hb : b.1.rel S = _ := Rep.mk?_some h
+  have hp' : p ∈ b.1.rel S := hp
+  rw [hb] at hp'
+  exact hp'.2
+
+/-- A representative always has a right interface, so with none every term
+is a right end of a pair. -/
+theorem dom_rightBound_none (a : Rep S) (h : (dom S).rightBound a = none) :
+    ∀ z, ∃ x, (x, z) ∈ Answer.den S.interp a := by
+  have := rightBound_isSome a
+  rw [h] at this
+  cases this
+
 /-- L51. For well-formed sorts the domain satisfies the laws of a constraint
 domain in the interpretation of the sorts. -/
 theorem dom_lawful (hS : S.WellFormed) : (dom S).Lawful S.interp where
