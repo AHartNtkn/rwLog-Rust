@@ -1,4 +1,5 @@
 import RwLog.Sorts.Loop
+import RwLog.Sorts.Assemble
 
 /-!
 # The read-time check on sorts
@@ -8,8 +9,9 @@ decision on the sorts of the examples (`lean/SORTS.md` section 5) and on the
 declarations the condition rejects (section 4), and then how many members
 conjunctions of sorts have (`Sorts.count`) and whether a conjunction is
 inside a sort but for some terms (`Sorts.inclBut`), and the one root of the
-values of a variable (`Sorts.sole`), and stores brought to tight ones
-(`Sorts.tighten`).
+values of a variable (`Sorts.sole`), stores brought to tight ones
+(`Sorts.tighten`), and exclusions brought to normal form (`Sorts.normEx`,
+`Sorts.assembled`).
 -/
 
 namespace RwLog.Tests.SortsRuns
@@ -260,5 +262,39 @@ def sp (t : Pat) : Pat := Term.mk "s" [t]
 -- an exclusion between two variables replaces neither
 #guard tight nats ⟨Term.mk "p" [.var 0, .var 1], [{"nat"}, {"nat"}], [[(.var 0, .var 1)]]⟩ =
   some (Term.mk "p" [.var 0, .var 1], [{"nat"}, {"nat"}])
+
+/-- Two numbers. -/
+def two (c₀ c₁ : Conj) : Raw := ⟨Term.mk "p" [.var 0, .var 1], [c₀, c₁], []⟩
+
+-- an alias binds the later variable, whichever way it is written
+#guard normEx nats (two {"nat"} {"nat"}) [(.var 1, .var 0)] = some [(1, .var 0)]
+#guard normEx nats (two {"nat"} {"nat"}) [(.var 0, .var 1)] = some [(1, .var 0)]
+
+-- a variable bound to a pattern
+#guard normEx nats (two {"nat"} {"nat"}) [(.var 0, sp (.var 1))] = some [(0, sp (.var 1))]
+
+-- the sorts of the bound variable leave the free one a single value
+#guard normEx nats (two {"nat"} {"zero"}) [(.var 0, .var 1)] = some [(0, zp), (1, zp)]
+
+-- the sorts of the two variables share nothing: the exclusion removes nothing
+#guard normEx nats (two {"pos"} {"zero"}) [(.var 0, .var 1)] = none
+
+-- a sort rejects the value outright
+#guard normEx nats (two {"zero"} {"nat"}) [(.var 0, sp (.var 1))] = none
+
+-- equations with no solution
+#guard normEx nats (two {"nat"} {"nat"}) [(.var 0, sp (.var 0))] = none
+
+-- two equations
+#guard normEx nats (two {"nat"} {"nat"}) [(.var 0, sp (.var 1)), (.var 1, zp)] =
+  some [(0, sp zp), (1, zp)]
+
+-- an exclusion covered by another is dropped, and a repeated one is kept once
+#guard (assembled nats (Term.mk "p" [.var 0, .var 1]) [{"nat"}, {"nat"}]
+    [[(.var 0, sp (.var 1)), (.var 1, zp)], [(.var 1, zp)], [(zp, .var 1)]]).x = [[(1, zp)]]
+
+-- exclusions that do not cover each other are both kept, in order
+#guard (assembled nats (Term.mk "p" [.var 0, .var 1]) [{"nat"}, {"nat"}]
+    [[(.var 1, zp)], [(.var 0, zp)]]).x = [[(0, zp)], [(1, zp)]]
 
 end RwLog.Tests.SortsRuns

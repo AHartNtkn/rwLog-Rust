@@ -273,7 +273,7 @@ theorem normal_exists {S : Sorts} (hS : S.WellFormed) {s : Store} {N : Nat} (hfi
   have hne₃ : (s₃.Sol S).Nonempty := by
     have : (s₃.Den S).Nonempty := by rw [hden₃, hden₂]; exact hne₁
     obtain ⟨g, σ, hσ, -⟩ := this; exact ⟨σ, hσ⟩
-  obtain ⟨r, hr, hrt, hrsol⟩ := normal_of_tight hfin₃ ht₃ hocc₃ hv₃ hne₃
+  obtain ⟨r, hr, hrt, hrsol⟩ := normal_of_tight hS hfin₃ ht₃ hocc₃ hv₃ hne₃
   have hden : r.store.Den S = s₁.Den S := by
     rw [← hden₂, ← hden₃]
     show {g | ∃ σ ∈ r.store.Sol S, g = r.t.bind σ} = {g | ∃ σ ∈ s₃.Sol S, g = s₃.t.bind σ}

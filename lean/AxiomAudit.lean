@@ -301,5 +301,35 @@ new axiom.
 /-- info: 'RwLog.Sorts.tighten_none' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Sorts.tighten_none
 
+/-- info: 'RwLog.Sorts.Inv.exists_sol' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.Inv.exists_sol
+
+/-- info: 'RwLog.Sorts.tight_of_sole' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.tight_of_sole
+
+/-- info: 'RwLog.Sorts.Inv.inclBut_iff' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.Inv.inclBut_iff
+
+/-- info: 'RwLog.Sorts.pre_solved' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.pre_solved
+
+/-- info: 'RwLog.Sorts.unifies_solved' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.unifies_solved
+
+/-- info: 'RwLog.Sorts.normEx_some' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.normEx_some
+
+/-- info: 'RwLog.Sorts.normEx_none' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.normEx_none
+
+/-- info: 'RwLog.Sorts.antichain_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.antichain_spec
+
+/-- info: 'RwLog.Sorts.covers_iff' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.covers_iff
+
+/-- info: 'RwLog.Sorts.assembled_normal' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.assembled_normal
+
 /-- info: 'RwLog.ProgramOf.check_iff' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.ProgramOf.check_iff
