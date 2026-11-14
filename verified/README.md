@@ -74,7 +74,8 @@ nodes, and advances the tick counter by at most a stated amount.
 | `sorts::names` | `namesList`: every name of `Sorts.names`, each once | `namesCost S + 2`: 3, and for each declaration 12, 3 for each case and 5 for each argument of a case | `names_spec` |
 | `sorts::conj_of`, `sorts::conj_meet` | the conjunction of the sorts of a list, and of two conjunctions: the list of its names in a fixed order (`conjList`), so one set of sorts is one identifier (`ConjAt.inj`) | `2 n + 3 u + 4` and `2 n + 2 n' + 3 u + 5`, `n`, `n'` the lengths of the lists and `u` the number of names | `conj_of_spec`, `conj_meet_spec` |
 | `sorts::step_conj` | `Sorts.Accepts` and `Sorts.kidC`: one step of a conjunction of sorts | `stepConjCost`: `c (stepCost S m + 2) + m (5 c + 3 u + 9) + 5`, `c` the sorts of the conjunction, `m` the arguments, `u` the names | `step_conj_conj_spec` |
-| `sorts::live` | `Sorts.live`: whether a conjunction of sorts has a member | `liveCost`: `r nodeCost + (r + 1) (r (u altW + 5) + 1) + 6`, `r` the conjunctions the conjunction reaches (`Sorts.reachSet`), `u` the names, `nodeCost` and `altW` sums over the cases of the declarations | `live_spec` |
+| `sorts::live` | `Sorts.live`: whether a conjunction of sorts has a member | `liveCost`: `flagCost + 1`, where `flagCost` is `r nodeCost + (r + 1) (r (u altW + 5) + 1) + 5`, `r` the conjunctions the conjunction reaches (`Sorts.reachSet`), `u` the names, `nodeCost` and `altW` sums over the cases of the declarations | `live_spec` |
+| `sorts::count` | `Sorts.count`: whether a conjunction of sorts has no member, one (with the member) or more | `countCost`: `flagCost + (r + 1) 4 (r (u altW + 5) + 1) + 3` | `count_spec` |
 
 Every theorem also says that the function spent a tick for each node it
 added (`Extends`, `Extends.nodes_le`).
@@ -164,8 +165,8 @@ What is not derived, and why:
   charges of `Kernel.std`. The domain of spans as written looks at no
   constraint; the kernel of the sorts replaces it (roadmap L39 and L48). Of
   the operations on sorts the store has membership, conjunctions, one step of
-  a conjunction and whether a conjunction has a member so far, and not yet
-  the normal store.
+  a conjunction, whether a conjunction has a member and how many it has so
+  far, and not yet the normal store.
 * The operations on nodes of the normal form and the rules that make answers
   (`DerivationKernel`) are charged as `lean/RwLog/Trusted/Charged.lean`
   postulates. They are not yet written on the store (roadmap L45).

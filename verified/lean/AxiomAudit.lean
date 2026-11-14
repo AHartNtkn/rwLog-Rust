@@ -178,3 +178,6 @@ new axiom.
 
 /-- info: 'RwLogVerified.live_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLogVerified.live_spec
+
+/-- info: 'RwLogVerified.count_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.count_spec

@@ -130,6 +130,7 @@ Proved (2026-11-13), for well-formed sorts and with no other hypothesis:
 | A representative mentions no variable outside its two sides and only declared sorts (L08) | `Rep.no_hidden` (`Gaps.lean`) |
 | A representative written as a span relates the same pairs | `Raw.toSpan_den` (`Rep.lean`) |
 | Whether a conjunction has a member is decided on the conjunctions it reaches: a marking of them that is sound and that no round extends marks exactly those with a member | `live_iff_of_stable`, `Reach`, `reachSet` (`Reach.lean`) |
+| The one member of a conjunction is found on the conjunctions it reaches: a table of members that only holds one members and that no round extends holds the member of exactly those with just one | `count_one_iff_of_stable`, `count_ne_one_of_stable`, `OneStep` (`ReachCount.lean`) |
 
 How it is built. A *normal* store (`Raw.Normal`, `Normal.lean`) is defined by
 conditions on its solutions: variables numbered by first occurrence, every
