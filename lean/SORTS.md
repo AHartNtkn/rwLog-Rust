@@ -195,6 +195,7 @@ charged steps as it reads terms. Proved against section 6
 | `sorts::member` | `Sorts.mem` | 5, and `sortsCost S + 11 m + 6` for each pair of a declared sort and a distinct subterm with `m` arguments |
 | `sorts::push_sort` | `Sorts.push`, by what it is specified by: an instance of the pattern is in the sort exactly when it satisfies the atoms | 8, and `sortsCost S + 11 m + 8` for each pair of a declared sort and a distinct subterm with `m` arguments |
 | `sorts::included_but` | `Sorts.Hold` (`ButStep.lean`) | `inclButAll`: a polynomial in the written size of the declarations, the size of the excepted terms, and the numbers of conjunctions and of keys that can be reached |
+| `sorts::sole_root` | `Sorts.sole` (`Roots.lean`) | `soleAll`: a polynomial in the written size of the declarations, the size of the excluded terms, and the number of conjunctions that can be reached |
 
 Membership is therefore linear in the term for fixed declarations, and a term
 with a repeated subterm pays for it once for each sort.

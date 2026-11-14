@@ -35,6 +35,8 @@
   to the specification with the bound of the charge.
 * `RwLogVerified.Push`: the sorts the variables of a pattern must be in for
   an instance of it to be in a sort.
+* `RwLogVerified.Sole`: the one root of the members of a conjunction of sorts
+  that are not among finitely many ground terms.
 * `RwLogVerified.Kernel`: the kernel rung whose charges are those bounds.
 * `RwLogVerified.KernelRuns`: its charges on a worked composition.
 
@@ -67,5 +69,6 @@ import RwLogVerified.But
 import RwLogVerified.ButLoop
 import RwLogVerified.ButLink
 import RwLogVerified.Push
+import RwLogVerified.Sole
 import RwLogVerified.Kernel
 import RwLogVerified.KernelRuns
