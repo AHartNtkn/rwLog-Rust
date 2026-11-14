@@ -836,7 +836,7 @@ theorem inv_work_aux {st : StateOf R Rel (Ans D P)} (hI : Inv st) (whole : Bool)
       · next p hp =>
         simp only [Cost.bind_val, Cost.pure_val]
         refine ⟨inv_copyFrom hI i g isCall p.2 _ hg (fun a ha =>
-          hsub p (List.mem_of_find?_eq_some hp) a
+          hsub p (mem_of_leastBy hp) a
             (List.mem_of_mem_drop (List.mem_of_mem_take ha))), fun hE => ?_⟩
         refine StratOk.mono hE ?_
         intro q hq
@@ -946,7 +946,7 @@ theorem inv_work_aux {st : StateOf R Rel (Ans D P)} (hI : Inv st) (whole : Bool)
           · exact ⟨hI, fun _ => ⟨gs, h1, hk, hno, htodo, hsubs⟩⟩
           · next p hp =>
             simp only [Cost.bind_val, Cost.pure_val]
-            have hp' := hsub p.1 (List.fst_mem_of_mem_zipIdx (List.mem_of_find?_eq_some hp))
+            have hp' := hsub p.1 (List.fst_mem_of_mem_zipIdx (mem_of_leastBy hp))
             refine ⟨inv_pushTake hI i k left p.1.1 _ hg hp'.1 (fun y hy =>
               hI.answers hp'.2 y (List.mem_of_mem_drop (List.mem_of_mem_take hy))) hk,
               fun hE => StratOk.mono hE ⟨gs, h1, hk, hno, htodo, fun e he => ?_⟩⟩

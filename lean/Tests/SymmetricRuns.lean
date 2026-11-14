@@ -154,6 +154,49 @@ def clash (ids : Bool) : Program × Rel :=
   (.seq (.seq (.call "gen") (.rw (v 0) (ap "t" [v 0]))) (.seq (.rw (ap "t" [v 0]) (v 0)) (.call "gen"))) 30)
   ["$0 -> z"]
 
+/-! ## Units that starve nothing
+
+Where a goal has several groups a strategy does one unit of work at a time,
+and the tables it reads may grow faster than it reads them. Whatever it has
+to do must still be reached. -/
+
+/-- The pairs a join combines in its first `n` units, when its two sides hold
+`la t` and `lb t` answers before unit `t`. -/
+def joinUnits (la lb : Nat → Nat) (n : Nat) : List (Nat × Nat) :=
+  ((List.range n).foldl (fun (acc : List (Nat × Nat) × Symmetric.Cursor) t =>
+    match Symmetric.Cursor.next (la t) (lb t) (acc.2.room (la t) (lb t)) acc.2 with
+    | (some p, c) => (acc.1 ++ [p], c)
+    | (none, c) => (acc.1, c)) ([], Symmetric.Cursor.start)).1
+
+-- Tables that do not grow: every pair, once.
+#guard (joinUnits (fun _ => 3) (fun _ => 4) 12).length == 12
+#guard (joinUnits (fun _ => 3) (fun _ => 4) 12).eraseDups.length == 12
+#guard (joinUnits (fun _ => 3) (fun _ => 4) 20).length == 12
+#guard joinUnits (fun _ => 0) (fun _ => 4) 5 == []
+#guard joinUnits (fun _ => 1) (fun _ => 1) 5 == [(0, 0)]
+-- One side gains an answer with every unit, and the other gains its second
+-- answer late: that answer is still combined, on either side.
+#guard (joinUnits (fun t => t + 1) (fun t => if t < 3 then 1 else 2) 40).contains (0, 1)
+#guard (joinUnits (fun t => if t < 3 then 1 else 2) (fun t => t + 1) 40).contains (1, 0)
+#guard (joinUnits (fun t => 2 * t + 1) (fun t => if t < 5 then 2 else 3) 200).contains (0, 2)
+-- Both sides gain an answer with every unit: every pair of the first five
+-- of each is combined, and no pair twice.
+#guard ((List.range 5).all fun i => (List.range 5).all fun j =>
+  (joinUnits (fun t => t + 1) (fun t => t + 1) 60).contains (i, j))
+#guard (joinUnits (fun t => t + 1) (fun t => t + 1) 60).eraseDups.length == 60
+#guard (joinUnits (fun t => t + 1) (fun t => if t < 3 then 1 else 2) 40).eraseDups.length == 40
+-- A pair is combined only when both its answers are held.
+#guard (joinUnits (fun t => t + 1) (fun t => t / 2 + 1) 50).zipIdx.all fun p =>
+  p.1.1 < p.2 + 1 && p.1.2 < p.2 / 2 + 1
+
+-- Of several tables with answers not yet read, the one read least is read
+-- next, so none waits for ever behind one that keeps growing.
+#guard RwLog.Symmetric.leastBy (fun x : Nat × Nat => x.1) (fun x => x.2 == 1) [(5, 1), (3, 1), (9, 1), (1, 0)] ==
+  some (3, 1)
+#guard RwLog.Symmetric.leastBy (fun x : Nat × Nat => x.1) (fun x => x.2 == 1) [(5, 0), (3, 0)] == none
+#guard RwLog.Symmetric.leastBy (fun x : Nat × Nat => x.1) (fun _ => true) [(2, 7), (2, 8), (4, 9)] == some (2, 7)
+#guard RwLog.Symmetric.leastBy (fun x : Nat × Nat => x.1) (fun _ => true) ([] : List (Nat × Nat)) == none
+
 /-! ## The mirror image
 
 The engine run on one orientation of its input (`CostedRuntime.oriented`,

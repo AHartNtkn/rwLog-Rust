@@ -41,7 +41,11 @@ group with a *level*.
   conjoins.
 
 A strategy keeps cursors into the tables it reads, so it combines nothing
-twice.
+twice. Where it does one unit at a time, it takes its units in an order that
+reaches everything, however fast the tables it reads grow: a join finishes
+the pairs of one answer before it begins another and begins on the side it
+has counted fewer answers of, and a strategy that reads several tables reads
+next the one it has read least.
 
 ## A request
 
@@ -132,29 +136,47 @@ inductive Kind where
   | and
   deriving DecidableEq, Repr
 
-/-- The cursor of a join: every pair of the first `na` answers of the one
-side and the first `nb` of the other is combined, and `inner` of the pairs
-of the next answer. -/
+/-- The cursor of a join. Every pair of the first `na` answers of the one side
+and the first `nb` of the other is combined. A *line* is the pairs of the
+next answer of one side with the answers of the other side counted so far.
+`inner` pairs of the line in progress are combined, and `col` says the line
+is of the second side. With `inner = 0` no line is in progress. -/
 structure Cursor where
   na : Nat
   nb : Nat
   inner : Nat
+  col : Bool
   deriving DecidableEq, Repr
 
+/-- The cursor of a join that has combined nothing. -/
+def Cursor.start : Cursor := ⟨0, 0, 0, false⟩
+
 /-- The next pair of positions to combine in tables of `la` and `lb`
-answers, if one is left, and the cursor after it: an answer all of whose
-pairs are combined is counted in. The first argument counts the answers not
-yet counted in, and is never used up. -/
+answers, if one is left, and the cursor after it. A line in progress is
+finished before another is begun, whatever the tables have gained since: its
+pairs are of answers counted when it began. When no line is in progress and
+both sides have an answer not yet counted, the line of the side with fewer
+counted is begun, so neither side waits for the other to run out. A line all
+of whose pairs are combined is counted in. The first argument counts the
+answers not yet counted in, and is never used up. -/
 def Cursor.next (la lb : Nat) : Nat → Cursor → Option (Nat × Nat) × Cursor
   | 0, c => (none, c)
   | f + 1, c =>
-    if c.na < la then
-      if c.inner < c.nb then (some (c.na, c.inner), { c with inner := c.inner + 1 })
-      else Cursor.next la lb f ⟨c.na + 1, c.nb, 0⟩
-    else if c.nb < lb then
-      if c.inner < c.na then (some (c.inner, c.nb), { c with inner := c.inner + 1 })
-      else Cursor.next la lb f ⟨c.na, c.nb + 1, 0⟩
-    else (none, c)
+    let col :=
+      if c.inner = 0 then
+        (if c.na < la ∧ c.nb < lb then decide (c.nb < c.na) else decide (¬ c.na < la))
+      else c.col
+    if col then
+      if c.nb < lb then
+        if c.inner < c.na then (some (c.inner, c.nb), { c with inner := c.inner + 1, col := true })
+        else Cursor.next la lb f ⟨c.na, c.nb + 1, 0, false⟩
+      else (none, c)
+    else
+      if c.na < la then
+        if c.inner < c.nb then
+          (some (c.na, c.inner), { c with inner := c.inner + 1, col := false })
+        else Cursor.next la lb f ⟨c.na + 1, c.nb, 0, false⟩
+      else (none, c)
 
 /-- What `Cursor.next` is given to count down. -/
 def Cursor.room (la lb : Nat) (c : Cursor) : Nat := (la - c.na) + (lb - c.nb) + 1
@@ -259,6 +281,39 @@ def StateOf.isDone {S N A : Type} (st : StateOf S N A) (i : Nat) : Bool :=
   match st.tables[i]? with
   | some t => t.done
   | none => false
+
+/-- Of the entries that pass `ok`, the first with the least key. -/
+def leastBy {α : Type} (key : α → Nat) (ok : α → Bool) (l : List α) : Option α :=
+  (l.filter ok).foldl (fun best x =>
+    match best with
+    | none => some x
+    | some b => if key x < key b then some x else some b) none
+
+theorem mem_of_leastBy {α : Type} {key : α → Nat} {ok : α → Bool} {l : List α} {x : α}
+    (h : leastBy key ok l = some x) : x ∈ l := by
+  have main : ∀ (ys : List α) (best : Option α),
+      ys.foldl (fun best x =>
+        match best with
+        | none => some x
+        | some b => if key x < key b then some x else some b) best = some x →
+      x ∈ ys ∨ best = some x := by
+    intro ys
+    induction ys with
+    | nil => intro best h; exact .inr h
+    | cons y ys ih =>
+      intro best h
+      rcases ih _ h with h' | h'
+      · exact .inl (List.mem_cons_of_mem _ h')
+      · cases best with
+        | none => cases h'; exact .inl List.mem_cons_self
+        | some b =>
+          simp only at h'
+          split at h'
+          · cases h'; exact .inl List.mem_cons_self
+          · exact .inr h'
+  rcases main _ _ h with h' | h'
+  · exact List.mem_of_mem_filter h'
+  · cases h'
 
 /-- The level of a list of groups: the lowest. -/
 def levelOf {N A : Type} (gs : List (Group N A)) : Nat :=
@@ -454,7 +509,7 @@ def splitGroup (k : Kind) (L R : GoalOf S N) (st : StateOf S N A) :
     M (StateOf S N A × Group N A) := do
   let (st, a) ← openGoal (K := K) st L
   let (st, b) ← openGoal (K := K) st R
-  pure (st, ⟨0, [.join k a b ⟨0, 0, 0⟩, .push k true a R.node none [],
+  pure (st, ⟨0, [.join k a b Cursor.start, .push k true a R.node none [],
     .push k false b L.node none []]⟩)
 
 /-! ## Reading an edge from the program -/
@@ -721,7 +776,8 @@ def work (whole : Bool) (i : Nat) (g : GoalOf S N) (st : StateOf S N A) :
       pure (st', .copy isCall (subs.map fun p => (p.1, max p.2 (st.answers p.1).length)),
         (Strat.copy isCall subs : Strat N A).pending st)
     else
-      match subs.zipIdx.find? fun p => decide (p.1.2 < (st.answers p.1.1).length) with
+      match leastBy (fun p => p.1.2) (fun p => decide (p.1.2 < (st.answers p.1.1).length))
+          subs.zipIdx with
       | none => pure (st, .copy isCall subs, false)
       | some p => do
         let st' ← copyFrom (K := K) i g isCall p.2 st (((st.answers p.1.1).drop p.1.2).take 1)
@@ -761,7 +817,8 @@ def work (whole : Bool) (i : Nat) (g : GoalOf S N) (st : StateOf S N A) :
         let (st1, new) ← pushOpen (K := K) g other k left st [x]
         pure (st1, .push k left side other (some rest) (subs ++ new), true)
       | some [] =>
-        match subs.zipIdx.find? fun p => decide (p.1.2.2 < (st.answers p.1.2.1).length) with
+        match leastBy (fun p => p.1.2.2)
+            (fun p => decide (p.1.2.2 < (st.answers p.1.2.1).length)) subs.zipIdx with
         | none => pure (st, .push k left side other (some []) subs, false)
         | some p => do
           let st' ← pushTake (K := K) i k left p.1.1 st
