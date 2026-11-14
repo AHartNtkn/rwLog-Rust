@@ -1,4 +1,5 @@
-//! Copying a term with its variables replaced, and the occurs check.
+//! Copying a term with its variables replaced, the occurs check, lists, and
+//! whether a term has a variable.
 
 use crate::store::{Frame, Node, Store, Tbl, TermId};
 
@@ -139,4 +140,51 @@ pub fn append(s: &mut Store, a: TermId, b: TermId) -> TermId {
         l = t;
     }
     unstack(s, b)
+}
+
+/// Is the flag set?
+fn is_set(o: Option<bool>) -> bool {
+    o.unwrap_or(false)
+}
+
+/// Has the term `p` no variable? Table `B` holds the answer for each node
+/// already visited.
+///
+/// An application waits on the stack, as a `Build` frame under its two
+/// parts, until both parts have their answer.
+fn var_free(s: &mut Store, p: TermId) -> bool {
+    s.push(Frame::Visit(p, p));
+    while let Some(fr) = s.pop() {
+        match fr {
+            Frame::Visit(q, _) => match s.get_flag(Tbl::B, q) {
+                Some(_) => (),
+                None => match s.read(q) {
+                    Node::App(a, b) => {
+                        s.push(Frame::Build(q, q));
+                        s.push(Frame::Visit(b, b));
+                        s.push(Frame::Visit(a, a));
+                    }
+                    Node::Sym(_) => s.set_flag(Tbl::B, q, true),
+                    Node::Nil => s.set_flag(Tbl::B, q, true),
+                    _ => s.set_flag(Tbl::B, q, false),
+                },
+            },
+            Frame::Build(q, _) => match s.read(q) {
+                Node::App(a, b) => {
+                    let fa = is_set(s.get_flag(Tbl::B, a));
+                    let fb = is_set(s.get_flag(Tbl::B, b));
+                    s.set_flag(Tbl::B, q, fa && fb);
+                }
+                _ => panic!(),
+            },
+        }
+    }
+    is_set(s.get_flag(Tbl::B, p))
+}
+
+/// Has the term `p` no variable? Table `B` is cleared first, so no node has
+/// an answer.
+pub fn ground(s: &mut Store, p: TermId) -> bool {
+    s.clear(Tbl::B);
+    var_free(s, p)
 }

@@ -17,10 +17,9 @@
 //! arguments is the length of a list, so two of them are compared by walking
 //! the two lists together.
 
-use crate::cover::ground;
 use crate::span::solve_into;
 use crate::store::{Frame, Node, Store, Tbl, TermId};
-use crate::term::{append, node_of, occurs, rebuild, unstack, Leaf};
+use crate::term::{append, ground, node_of, occurs, rebuild, unstack, Leaf};
 
 /// The first member of a list and the rest, or nothing when the node is not
 /// an application. One tick.
@@ -1734,6 +1733,7 @@ pub fn unit_on(s: &mut Store, v: TermId, e: TermId) -> Option<TermId> {
         match uncons(s, o) {
             Some((g, solved)) => {
                 if ground(s, g) {
+                    s.clear(Tbl::A);
                     let only = rebuild(s, Leaf::Sub(v, g), e);
                     if s.same(only, solved) {
                         Some(g)

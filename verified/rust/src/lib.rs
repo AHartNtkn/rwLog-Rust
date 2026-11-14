@@ -7,7 +7,6 @@
 //! spend ticks only by calling it. They keep no collection of their own:
 //! lists are lists of the store.
 
-pub mod cover;
 pub mod dom;
 pub mod sorts;
 pub mod span;

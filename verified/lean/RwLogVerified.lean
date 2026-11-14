@@ -13,11 +13,9 @@
   occurs check, each once per distinct subterm.
 * `RwLogVerified.SolveCost`, `Solve`: the unifier `solve_into` returns what
   `RwLog.Eqns.solveOn` returns, within the number of variables times the distinct subterms and equations.
-* `RwLogVerified.SpanSpec`, `Compose`: `compose` and `meet` of spans.
-* `RwLogVerified.Chain`: the test that a chain of spans composes.
-* `RwLogVerified.MatchSpec`, `Cover`: one-way matching, coverage when the
-  covering span has no constraints, and equality of spans.
-* `RwLogVerified.Iface`: the interfaces of a span as boundaries.
+* `RwLogVerified.EncList`, `Lists`: a list of terms as a term, a span in the
+  store, and `unstack` and `append` of lists.
+* `RwLogVerified.VarFree`: whether a term has a variable.
 * `RwLogVerified.Sorts`: the declarations of sorts as lists of the store, one
   step of a sort on a term, and membership of a ground term.
 * `RwLogVerified.Conj`: conjunctions of sorts as lists of the store, one
@@ -100,8 +98,6 @@
   domain as a function of the representatives alone, the most it spends
   over the ways they may be held; a representative as one node; and whether
   a chain of them composes.
-* `RwLogVerified.ComposeRuns`: the tick bound of composition computed on the
-  spans the Rust tests measure.
 * `RwLogVerified.Realises`: what it is for a Rust function to compute a
   charged operation of a kernel.
 * `RwLogVerified.SortsKernel`: the kernel rung of the sorts domain: it
@@ -123,12 +119,9 @@ import RwLogVerified.Rebuild
 import RwLogVerified.Occurs
 import RwLogVerified.SolveCost
 import RwLogVerified.Solve
-import RwLogVerified.SpanSpec
-import RwLogVerified.Compose
-import RwLogVerified.Chain
-import RwLogVerified.MatchSpec
-import RwLogVerified.Cover
-import RwLogVerified.Iface
+import RwLogVerified.EncList
+import RwLogVerified.Lists
+import RwLogVerified.VarFree
 import RwLogVerified.Sorts
 import RwLogVerified.Conj
 import RwLogVerified.Names
@@ -165,7 +158,6 @@ import RwLogVerified.Normal
 import RwLogVerified.Dom
 import RwLogVerified.SpanRep
 import RwLogVerified.DomChain
-import RwLogVerified.ComposeRuns
 import RwLogVerified.Realises
 import RwLogVerified.SortsKernel
 import RwLogVerified.SortsRung

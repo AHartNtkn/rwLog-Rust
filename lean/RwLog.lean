@@ -33,7 +33,6 @@ import RwLog.Trusted.Kernel
 import RwLog.Trusted.Cost
 import RwLog.Trusted.CostMonad
 import RwLog.Trusted.Properties
-import RwLog.Kernel.Chain
 import RwLog.Kernel.Size
 import RwLog.Rungs.Framework.Cost
 import RwLog.Rungs.Framework.Latency

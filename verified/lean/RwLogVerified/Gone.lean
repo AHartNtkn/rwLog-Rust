@@ -11,7 +11,7 @@ equations as replacing the variable by that term does: one comparison of
 identifiers, since a term is stored once.
 -/
 import RwLogVerified.Sole
-import RwLogVerified.Iface
+import RwLogVerified.VarFree
 import RwLog.Sorts.Gone
 
 open Aeneas Aeneas.Std Result
@@ -23,9 +23,6 @@ open rwlog_core RwLog
 variable {nm : Option Nat → RwLog.Sym}
 
 /-! ## Ground terms -/
-
-theorem allIn_empty (t : Pat) : AllIn ∅ t ↔ t.vars = [] := by
-  simp [AllIn, List.eq_nil_iff_forall_not_mem]
 
 theorem ground?_of_vars : ∀ {p : Pat}, p.vars = [] →
     ∃ g, Sorts.ground? p = some g ∧ p = GTerm.toPat g
@@ -48,32 +45,28 @@ theorem ground?_none_of_vars : ∀ {p : Pat}, p.vars ≠ [] → Sorts.ground? p 
     · simp [Sorts.ground?, ground?_none_of_vars ha]
 
 /-- `ground` answers whether the term has no variable, and leaves table `A`
-empty. It spends seven ticks and thirteen for each distinct subterm. -/
+as it was. It spends six ticks and thirteen for each distinct subterm. -/
 theorem ground_spec (hnm : Function.Injective nm) (s : store.Store) (p : store.TermId) {tp : Pat}
-    (hI : Inv s) (hp : Repr nm s.nodes.val p.val tp) (hroom : Room s (7 + 13 * tp.subs.card)) :
-    cover.ground s p ⦃ b s' =>
+    (hI : Inv s) (hp : Repr nm s.nodes.val p.val tp) (hroom : Room s (6 + 13 * tp.subs.card)) :
+    term.ground s p ⦃ b s' =>
       Inv s' ∧ s'.nodes.val = s.nodes.val ∧ s.ticks.val ≤ s'.ticks.val ∧
-        s'.ticks.val ≤ s.ticks.val + (7 + 13 * tp.subs.card) ∧ (∀ k, tbl s' .A k = none) ∧
+        s'.ticks.val ≤ s.ticks.val + (6 + 13 * tp.subs.card) ∧ tbl s' .A = tbl s .A ∧
         b = decide (tp.vars = []) ⦄ := by
-  unfold cover.ground
+  unfold term.ground
   have hroom' := hroom
   unfold Room at hroom'
-  step with clear_spec s .A hI (by unfold Room; omega) as ⟨s1, hn1, ht1, hI1, hA1, ho1⟩
-  step with clear_spec s1 .B hI1 (by unfold Room; omega) as ⟨s2, hn2, ht2, hI2, hB2, ho2⟩
-  have hA2 : ∀ k, tbl s2 .A k = none := fun k => by rw [ho2 .A (by simp)]; exact hA1 k
-  have hM : Marked nm s2.nodes.val (tbl s2 .A) ∅ :=
-    ⟨fun k hk => absurd (hA2 k) hk, fun t ht => by simp at ht⟩
-  have hB : AllOK nm s2.nodes.val (tbl s2 .B) ∅ := fun k w hk => by
+  step with clear_spec s .B hI (by unfold Room; omega) as ⟨s2, hn2, ht2, hI2, hB2, ho2⟩
+  have hB : FreeOK nm s2.nodes.val (tbl s2 .B) := fun k w hk => by
     rw [hB2 k] at hk; cases hk
   have hP := pending_card_le (nm := nm) s2.nodes.val (tbl s2 .B) tp.subs
-  step with all_marked_spec hnm s2 p tp.subs hI2 (by rw [hn2, hn1]; exact hp) hM hB
+  step with var_free_spec hnm s2 p tp.subs hI2 (by rw [hn2]; exact hp) hB
     (Finset.Subset.refl _) (by unfold Room; omega) as ⟨b, s3, h3⟩
   have hc := h3.cost
   have hm := h3.mono
-  refine ⟨h3.inv, by rw [h3.nodes, hn2, hn1], by omega, by omega, fun k => by
-    rw [h3.tblA]; exact hA2 k, ?_⟩
+  refine ⟨h3.inv, by rw [h3.nodes, hn2], by omega, by omega, by
+    rw [h3.tblA]; exact ho2 .A (by simp), ?_⟩
   rw [h3.res]
-  exact decide_eq_decide.2 (allIn_empty tp)
+  rfl
 
 /-! ## Two substitutions that do the same to a term -/
 
@@ -199,21 +192,23 @@ theorem unit_on_spec (hnm : Function.Injective nm) (s : store.Store) (v e : stor
       have hgr : (θ x).vars = [] := by simpa using hb.symm
       obtain ⟨g0, hg0, eg0⟩ := ground?_of_vars hgr
       simp only [↓reduceIte]
-      have hleaf : LeafOK nm s4.nodes.val (tbl s4 .B) (term.Leaf.Sub v g) (Term.single x (θ x)) :=
-        ⟨x, θ x, hx4.varAt hv, by rw [hn4']; exact rg, rfl⟩
-      have hpc := pending_card_le (nm := nm) s4.nodes.val (tbl s4 .A) (encEqs nm E).subs
-      step with rebuild_spec hnm s4 (term.Leaf.Sub v g) e (t := encEqs nm E)
-        (σ := Term.single x (θ x)) (encEqs nm E).subs hI4 (hx4.repr he) hleaf
-        (by intro k w hk; rw [hA4 k] at hk; cases hk) (Finset.Subset.refl _)
+      step with clear_spec s4 .A hI4 (by unfold Room; omega) as ⟨s4c, hnc, htc, hIc, hAc, hoc⟩
+      have hxc : Extends s s4c := hx4.trans (Extends.of_eq hnc (by omega))
+      have hleaf : LeafOK nm s4c.nodes.val (tbl s4c .B) (term.Leaf.Sub v g) (Term.single x (θ x)) :=
+        ⟨x, θ x, hxc.varAt hv, by rw [hnc, hn4']; exact rg, rfl⟩
+      have hpc := pending_card_le (nm := nm) s4c.nodes.val (tbl s4c .A) (encEqs nm E).subs
+      step with rebuild_spec hnm s4c (term.Leaf.Sub v g) e (t := encEqs nm E)
+        (σ := Term.single x (θ x)) (encEqs nm E).subs hIc (hxc.repr he) hleaf
+        (by intro k w hk; rw [hAc k] at hk; cases hk) (Finset.Subset.refl _)
         (by unfold Room; omega) as ⟨only1, s5, hR5⟩
       have hc5 := hR5.cost
       have hm5 := hR5.mono
       step with same_w s5 only1 solved hR5.inv.toWf (by unfold Room; omega) as ⟨b1, s6, hb1, hK6⟩
       have K6 := hK6.kept hR5.inv
       have ht6 := K6.ticks
-      have hx6 : Extends s s6 := (hx4.trans hR5.ext).trans (Extends.of_eq K6.nodes (by omega))
+      have hx6 : Extends s s6 := (hxc.trans hR5.ext).trans (Extends.of_eq K6.nodes (by omega))
       have rsol5 : Repr nm s5.nodes.val solved.val ((encEqs nm E).bind θ) :=
-        hR5.ext.repr (by rw [hn4']; exact rsol)
+        hR5.ext.repr (by rw [hnc, hn4']; exact rsol)
       have hsame : only1.val = solved.val ↔
           (encEqs nm E).bind (Term.single x (θ x)) = (encEqs nm E).bind θ := by
         constructor
@@ -241,7 +236,7 @@ theorem unit_on_spec (hnm : Function.Injective nm) (s : store.Store) (v e : stor
         rw [hU]
         refine ⟨K6.inv, hx6, by simp only [unitCost]; omega, g, rfl, ?_⟩
         rw [← eg0, K6.nodes]
-        exact hR5.ext.repr (by rw [hn4']; exact rg)
+        exact hR5.ext.repr (by rw [hnc, hn4']; exact rg)
 
 /-! ## The terms a list of exclusions excludes a variable from -/
 

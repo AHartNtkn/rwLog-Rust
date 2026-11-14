@@ -5,7 +5,7 @@ The declarations of a program are lists of the store (`rust/src/sorts.rs`).
 This file proves the functions that read them against the specification:
 one step of a sort on a root (`Sorts.step`) and membership (`Sorts.mem`).
 -/
-import RwLogVerified.Compose
+import RwLogVerified.Lists
 import RwLog.Sorts.Decl
 import RwLog.Trusted.Cost
 

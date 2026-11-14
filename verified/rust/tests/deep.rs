@@ -1,10 +1,9 @@
 //! No function recurses on a term: each works on terms far deeper than the
 //! call stack could follow.
 
-use rwlog_core::cover::{covers_plain, left_bound, mmatch, right_bound};
-use rwlog_core::span::{act, compose, Act, Span};
+use rwlog_core::span::{act, Act};
 use rwlog_core::store::{Node, Store, Tbl, TermId};
-use rwlog_core::term::{append, occurs, rebuild, Leaf};
+use rwlog_core::term::{append, ground, occurs, rebuild, Leaf};
 
 const DEPTH: usize = 400_000;
 
@@ -100,65 +99,8 @@ fn append_of_a_long_list() {
     assert!(s.same(r, want));
 }
 
-#[test]
-fn mmatch_of_a_deep_pattern() {
-    let mut s = Store::new();
-    let x = s.root();
-    let c = s.alloc(Node::Sym(1));
-    let d = s.alloc(Node::Sym(2));
-    for spine in [right_spine, left_spine] {
-        let p = spine(&mut s, x);
-        let t = spine(&mut s, c);
-        s.clear(Tbl::A);
-        assert!(mmatch(&mut s, p, t));
-        // The pattern with a symbol at the bottom does not match the same
-        // spine over another symbol.
-        let q = spine(&mut s, d);
-        s.clear(Tbl::A);
-        assert!(!mmatch(&mut s, q, t));
-    }
-}
 
-#[test]
-fn covers_plain_of_deep_spans() {
-    let mut s = Store::new();
-    let x = s.root();
-    let c = s.alloc(Node::Sym(1));
-    let p = right_spine(&mut s, x);
-    let t = right_spine(&mut s, c);
-    let nil = s.alloc(Node::Nil);
-    let a = Span { l: p, r: p, c: nil };
-    let b = Span { l: t, r: t, c: nil };
-    assert!(covers_plain(&mut s, a, b));
-    assert!(!covers_plain(&mut s, b, a));
-}
 
-#[test]
-fn bounds_of_a_span_with_a_deep_side_and_many_deep_constraints() {
-    let mut s = Store::new();
-    let x = s.root();
-    let y = var1(&mut s);
-    let l = right_spine(&mut s, x);
-    let r = left_spine(&mut s, y);
-    // Constraints: many on `x`, each a deep term, and one on `y` at the end.
-    let on_x = left_spine(&mut s, x);
-    let nil = s.alloc(Node::Nil);
-    let last = s.alloc(Node::App(y, nil));
-    let mut c = last;
-    for _ in 0..DEPTH {
-        c = s.alloc(Node::App(on_x, c));
-    }
-    let sp = Span { l, r, c };
-    let lb = left_bound(&mut s, sp).expect("the left side is not a variable");
-    let rb = right_bound(&mut s, sp).expect("the right side is not a variable");
-    // The left bound keeps the constraints on `x`, the right bound the one on `y`.
-    let mut want = nil;
-    for _ in 0..DEPTH {
-        want = s.alloc(Node::App(on_x, want));
-    }
-    assert!(s.same(lb.l, l) && s.same(lb.r, l) && s.same(lb.c, want));
-    assert!(s.same(rb.l, r) && s.same(rb.r, r) && s.same(rb.c, last));
-}
 
 #[test]
 fn act_checks_the_occurrence_of_a_variable_in_a_deep_term() {
@@ -171,16 +113,15 @@ fn act_checks_the_occurrence_of_a_variable_in_a_deep_term() {
 }
 
 #[test]
-fn compose_through_a_deep_interface() {
+fn ground_of_deep_terms() {
     let mut s = Store::new();
     let x = s.root();
     let c = s.alloc(Node::Sym(1));
-    let px = right_spine(&mut s, x);
-    let pc = right_spine(&mut s, c);
-    let nil = s.alloc(Node::Nil);
-    // `x -> f^n x` then `f^n c -> c`: the interface binds `x` to `c`.
-    let a = Span { l: x, r: px, c: nil };
-    let b = Span { l: pc, r: c, c: nil };
-    let z = compose(&mut s, a, b).expect("the spans compose");
-    assert!(s.same(z.l, c) && s.same(z.r, c) && s.same(z.c, nil));
+    for spine in [right_spine, left_spine] {
+        let closed = spine(&mut s, c);
+        assert!(ground(&mut s, closed));
+        // A variable at the bottom is found.
+        let open = spine(&mut s, x);
+        assert!(!ground(&mut s, open));
+    }
 }

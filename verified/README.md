@@ -9,10 +9,9 @@ replaces the interpreter in `src/` is built (roadmap M9, ledger L13 and L24).
 rust/               the Rust crate `rwlog_core`
   src/store.rs      the base machine: a hash-consed store of term nodes, two tables
                     indexed by identifier, a stack of frames, and a tick counter
-  src/term.rs       applying a binding, the occurs check, renaming, lists
-  src/span.rs       the unifier, and `compose`, `meet` and the chain test on spans
-  src/cover.rs      one-way matching, coverage without constraints, equality of spans,
-                    the interfaces of a span
+  src/term.rs       applying a binding, the occurs check, renaming, lists, and
+                    whether a term has a variable
+  src/span.rs       the unifier, and a span as the machine is handed it
   src/sorts.rs      the declarations of sorts as lists of the store, membership,
                     conjunctions of sorts, one step of a conjunction, whether a
                     conjunction has a member, and inclusion in a sort, also but
@@ -63,18 +62,12 @@ nodes, and advances the tick counter by at most a stated amount.
 | `term::occurs` | membership in `Term.vars` | `4 + 8 n`, `n` the distinct subterms | `occurs_spec` |
 | `term::append` | `++` on lists | `4 n + 2`, `n` the length of the first list | `append_spec` |
 | `span::solve_into` | `Eqns.solveOn` | `solveCost`, see below | `solve_into_spec` |
-| `span::compose`, `span::meet` | `Span.compose`, `Span.meet` | `composeCost`, `meetCost`: two renamings (`16 + 14 n` each, `n` the distinct subterms of the span), one append, one solve, and 7 or 9 | `compose_spec`, `meet_spec` |
-| `span::composable` | `(Span.chain xs).isSome` | `composableCost`: the compositions it performs, and 3 | `composable_spec` |
-| `cover::mmatch` | `matchInto` | `6 + 12 n`, `n` the distinct subterms of the pattern not yet matched | `mmatch_spec` |
-| `cover::covers_plain` | `Span.covers?`, covering span without constraints | `13 + 12 D`, `D` the distinct subterms of the covering span | `covers_plain_spec` |
-| `cover::span_eq` | equality of spans | 3 | `span_eq_spec` |
-| `cover::right_bound`, `left_bound` | `bound s.rightIface`, `bound s.leftIface` | `ifaceCost`: `11 + 8 D + 11 k + 13 C`, `D` the distinct subterms of the side, `k` the constraints, `C` their distinct subterms | `right_bound_spec`, `left_bound_spec` |
 | `sorts::spine` | the head of a term and the list of its arguments | `2 m + 2`, `m` the arguments | `spine_spec` |
 | `sorts::step` | `Sorts.step`, on the declarations as lists of the store (`SortsAt`) | `stepCost`: `sortsCost S + 2 m + 2`, `m` the arguments; `sortsCost S` is 2, and for each declaration at most 6, 5 for each case and each excluded symbol, and twice their numbers of arguments | `step_spec` |
 | `sorts::member` | `Sorts.mem` on a ground term | `memberCost`: 5, and `sortsCost S + 11 m + 6` for each pair of a sort the program names and a distinct subterm with `m` arguments | `member_spec` |
 | `sorts::push_sort` | what `Sorts.push` is specified by (`Sorts.push_some`, `Sorts.push_none`): the sorts the variables of a first-order pattern must be in, each atom once, such that an instance of the pattern is in the sort exactly when it satisfies them; nothing only when no instance is in the sort | `pushCost`: 8, and `sortsCost S + 11 m + 8` for each pair of a sort the program names and a distinct subterm with `m` arguments | `push_sort_spec` |
 | `sorts::sole_root` | `Sorts.sole`: the one root of the members of a conjunction that are not among the ground terms of a list, with the conjunction of each of its arguments; nothing when every sort has a rest, when no member is left, or when two are left with different roots | `soleAll`: a polynomial in the written size of the declarations, the size of the terms and the number of conjunctions a conjunction reaches | `sole_root_spec` |
-| `cover::ground`, `sorts::unit_on`, `sorts::gone` | whether a term has no variable; `Sorts.unitOn`: the ground term an exclusion excludes a variable from when that is all it says, found by solving its equations and comparing what the solution does to them with what replacing the variable does; `Sorts.gone`: those terms for a list of exclusions, in its order | `7 + 13 n` for `n` distinct subterms; `unitCost`: `solveCost` of the equations and 27 for each distinct subterm of them, and 15; `goneCost`: `unitCost` and 4 for each exclusion, and 4 | `ground_spec`, `unit_on_spec`, `gone_spec` |
+| `term::ground`, `sorts::unit_on`, `sorts::gone` | whether a term has no variable; `Sorts.unitOn`: the ground term an exclusion excludes a variable from when that is all it says, found by solving its equations and comparing what the solution does to them with what replacing the variable does; `Sorts.gone`: those terms for a list of exclusions, in its order | `6 + 13 n` for `n` distinct subterms; `unitCost`: `solveCost` of the equations and 27 for each distinct subterm of them, and 15; `goneCost`: `unitCost` and 4 for each exclusion, and 4 | `ground_spec`, `unit_on_spec`, `gone_spec` |
 | `sorts::var_succ`, `sorts::settle`, `sorts::open_var` | the variable after a variable; `Sorts.CStore.settle`: the pattern and the exclusions with each listed variable whose sorts have one member replaced by that member (`settleT`, `settle_link`), and the entries that are left; `Sorts.CStore.exp`: the pattern and the exclusions with a variable replaced by a symbol applied to new variables, one for each conjunction of a list, with the entries of these variables and the variable after them | `succCost n`: `4 log2 (n + 1) + 4`; `settleCost`: for each entry `countCost` and 3, and for each entry replaced 10 more and 14 for each distinct subterm of the pattern and of the exclusions as they are then, and 2 for each entry and 4; `openCost`: `succCost` and 6 for each new variable, 14 for each distinct subterm of the pattern and of the exclusions, and 15 | `var_succ_spec`, `settle_spec`, `open_var_spec` |
 | `sorts::always_on`, `sorts::any_always`, `sorts::first_sole` | `Sorts.always`: whether an exclusion holds of every assignment, of one and of some member of a list; the first entry whose variable has values with one root (`Sorts.sole` of its conjunction without the terms of `Sorts.gone`), with that root, the conjunctions of its arguments and the other entries in their order | `alwaysCost`: the charge of solving the equations and 1; `anyAlwaysCost`: that and 1 for each exclusion, and 1; `firstSoleCost`: for each entry `goneCost`, `soleAll` at the size of the excluded terms and 5, and 2 | `always_on_spec`, `any_always_spec`, `first_sole_spec` |
 | `sorts::tighten` | Rounds (`tightRun`) on a store with no entry of one member and no hidden variable (`TSt.Good`): stop with nothing if an exclusion always holds, stop with the store if no variable has values with one root, and otherwise replace the first such variable by its root applied to new variables and replace the new variables of one value. Among well-formed sorts the rounds end, and the store returned denotes what was given, satisfies the invariant of `Sorts.tighten` and has no variable whose values have one root; nothing is returned only when what was given denotes nothing (`tighten_sound`, through `Sorts.Tightens`, the replacements of the specification made in any order) | `runCost`: for each round made, `anyAlwaysCost`, `firstSoleCost`, and for a replacement `openCost`, `settleCost` of the new entries, and 2 for each new variable and 1. Each round that goes on adds a distinct subterm to the pattern (`round_subs_lt`), so a run makes at most as many rounds as the pattern it returns has distinct subterms (`runStates_bound`), and allowing more rounds than it makes changes neither its result nor its charge (`tightRun_add`) | `tighten_spec`, `tighten_sound` |
@@ -119,16 +112,14 @@ term.
 The bound is `V (D + L)` up to a constant, and it cannot be of a lower
 order for this algorithm: an elimination rebuilds every distinct subterm
 that is left and every cell of the list, and there are problems where every
-equation eliminates a variable while the rest is still there. Composing the
-identity on `n` variables with itself is one: the table below shows the
-ticks spent growing with the square of `n`, as the bound does.
+equation eliminates a variable while the rest is still there. Equating the
+members of two lists of `n` different variables is one.
 
-The constant is not the best possible. On that family the bound is about
-fourteen times what is spent. Three things account for most of it: every
-elimination is charged for the whole problem as it started and not for
-what is left; every variable is charged an elimination, and here half of
-them are eliminated; and each rebuild is charged every subterm at the full
-price of an application that changes.
+The constant is not the best possible. Three things account for most of
+it: every elimination is charged for the whole problem as it started and not
+for what is left; every variable is charged an elimination, though in that
+family only half of them are eliminated; and each rebuild is charged every
+subterm at the full price of an application that changes.
 
 ### Measured against derived
 
@@ -139,19 +130,9 @@ the charge of the theorem.
 |---|---|---|
 | `rebuild` of a term of 41 distinct subterms and 2^40 leaves | 568 | 579 |
 | `occurs` on the same shape | 326 | 332 |
-| `mmatch` of that pattern against that term | 486 | 498 |
-| `compose` of `(b (a $x) $y) -> (b $x $y)` with itself | 548 | 5474 |
-| `compose` of the identity on 1 variable with itself | 104 | 896 |
-| on 2 variables | 292 | 2734 |
-| on 4 variables | 863 | 9386 |
-| on 8 variables | 2785 | 34594 |
-| on 16 variables | 9749 | 132626 |
-| on 32 variables | 36157 | 519154 |
+| `ground` of a term of 41 distinct subterms and no variable | 528 | 539 |
 
-The walks are within a few ticks of their bounds. A composition is within
-a factor of ten to fifteen, all of it in the unifier. Before the stack the
-first composition spent 257 ticks against a bound of 83460; a push and a
-pop are now paid for, and the bound is fifteen times smaller.
+The walks are within a few ticks of their bounds.
 
 `Repr nm nodes i t` (`RwLogVerified/Repr.lean`) says that identifier `i`
 stands for the specification term `t`. Symbols are words in Rust and strings
