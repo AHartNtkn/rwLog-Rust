@@ -274,5 +274,8 @@ new axiom.
 /-- info: 'RwLog.Sorts.count_many_infinite' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Sorts.count_many_infinite
 
+/-- info: 'RwLog.Sorts.inclBut_iff' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.inclBut_iff
+
 /-- info: 'RwLog.ProgramOf.check_iff' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.ProgramOf.check_iff
