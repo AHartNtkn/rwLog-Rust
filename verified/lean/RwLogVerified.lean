@@ -57,12 +57,14 @@
   value bound to it.
 * `RwLogVerified.Assemble`: the exclusions of a normal store: whether one
   solved exclusion is an instance of another; the solved forms of a list;
-  the ones that are instances of no other; the ones over the first
-  variables.
+  the ones that are instances of no other.
+* `RwLogVerified.Prune`: a store without its hidden variables: the solved
+  form of an exclusion, the exclusions whose solved forms are over the
+  variables of the pattern, and the entries of these variables.
 * `RwLogVerified.Normal`: the normal store of a problem: the store a problem
   starts from (equations solved, variables numbered, sorts pushed down to
-  the variables, the pattern paired with the tuple of the variables), and
-  the whole function.
+  the variables), and the whole function: the variables with one value
+  replaced, the hidden ones dropped, the rest tightened and numbered.
 * `RwLogVerified.Dom`: the operations of the sorts domain on normal stores:
   the representative of a pair of patterns over the solutions of one,
   composition, conjunction, the right bound, the converse, whether a
@@ -112,6 +114,7 @@ import RwLogVerified.Tight
 import RwLogVerified.Number
 import RwLogVerified.Solved
 import RwLogVerified.Assemble
+import RwLogVerified.Prune
 import RwLogVerified.Normal
 import RwLogVerified.Dom
 import RwLogVerified.SpanRep

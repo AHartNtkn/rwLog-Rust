@@ -820,18 +820,6 @@ theorem sides_spec (s : store.Store) (t : store.TermId) {lp rp : Pat} (hI : Inv 
 
 /-! ## One representative -/
 
-/-- A bound on the charge of tightening the starting store of a problem in
-as many rounds as it takes and of what follows it on the tight store: what
-`normal` spends after `start`. -/
-def NormBound (nm : Option Nat → RwLog.Sym) (S : Sorts) (U : List Name) (rc q : Nat)
-    (P : Sorts.Prob) (B : Nat) : Prop :=
-  ∀ θ A k o, solve P.e = some θ →
-    tightenRes S k (startSt P θ (leftVars nm P θ) A) = some o →
-    tightenCost nm S U.length rc k (startSt P θ (leftVars nm P θ) A) +
-      (match o with
-        | none => 0
-        | some st' => tailCost nm S U rc q st') ≤ B
-
 /-- The ticks `one` may take before the normal store of its problem: for
 `u` names, a representative of `k` variables and `y` exclusions. -/
 def repOneCost (u k y : Nat) : Nat :=
@@ -891,7 +879,7 @@ theorem one_spec (hnm : Function.Injective nm) (hz : nm none = "") {S : Sorts} {
   have rx' : Repr nm s5.nodes.val excl.val (encX nm (oneProb U ρ.1 Y up wp).x) := by
     simp only [oneProb, partVs_id, partXs_id]
     exact hx5.repr rexcl
-  refine WP.spec_mono (normal_spec hnm hz hC ρ.wf hUS hr hq (oneProb U ρ.1 Y up wp) hP
+  refine WP.spec_mono (normal_spec hnm hC ρ.wf hUS hr hq (oneProb U ρ.1 Y up wp) hP
     (atomsOnto_names ρ.normal) B hB s5 decls names t nil atoms excl hI5 (hx05.repr hde)
     (hx05.repr hU) rt ((hx3.trans (hx4.trans hx5)).repr (.nil hr2)) ra' rx'
     (by unfold Room; omega)) ?_
@@ -1004,7 +992,7 @@ def twoCost (u ka ya kb yb : Nat) : Nat :=
 
 /-- `two` computes the normal store of a pattern and equations over the
 solutions of two representatives whose variables are kept apart. -/
-theorem two_spec (hnm : Function.Injective nm) (hz : nm none = "") {S : Sorts} {sp : Pat}
+theorem two_spec (hnm : Function.Injective nm) {S : Sorts} {sp : Pat}
     {U : List Name} (hC : Ctx nm S sp U) (hS : S.WellFormed)
     (hUS : ∀ n ∈ U, n ∈ Sorts.names S) {rc q : Nat}
     (hr : ∀ d, (Sorts.reachSet S d).card ≤ rc)
@@ -1055,7 +1043,7 @@ theorem two_spec (hnm : Function.Injective nm) (hz : nm none = "") {S : Sorts} {
     as ⟨excl, s5, hI5, hx5, ht5, rexcl⟩
   simp only [partXs, partVs, List.length_map, varsTo_length] at ht5
   have hx05 := hx04.trans hx5
-  refine WP.spec_mono (normal_spec hnm hz hC hS hUS hr hq (twoProb U ra Ya rb Yb tp ep)
+  refine WP.spec_mono (normal_spec hnm hC hS hUS hr hq (twoProb U ra Ya rb Yb tp ep)
     (twoProb_fo hra hrb hYa hYb htp hep) (twoProb_names hra hrb) B hB s5 decls names t e atoms
     excl hI5 (hx05.repr hde) (hx05.repr hU) (hx05.repr ht) (hx05.repr he)
     ((hx4.trans hx5).repr ratoms) rexcl (by unfold Room; omega)) ?_
@@ -1145,7 +1133,7 @@ theorem dom_compose_spec (hnm : Function.Injective nm) (hz : nm none = "") {S : 
   have hefo : Eqns.FO [(ρa.r.rename lren, ρb.l.rename rren)] := fun p hp => by
     rw [List.mem_singleton] at hp; subst hp
     exact ⟨Sorts.rename_fo ρa.r_fo _, Sorts.rename_fo ρb.l_fo _⟩
-  refine WP.spec_mono (two_spec hnm hz hC ρa.wf hUS hr hq ρa.normal ρb.normal ha.y hb.y hfo hefo
+  refine WP.spec_mono (two_spec hnm hC ρa.wf hUS hr hq ρa.normal ρb.normal ha.y hb.y hfo hefo
     B hB s6 decls names ha' hb' t e hI6 (hx06.repr hde) (hx06.repr hU)
     (hha2.extends (hx35.trans hx6)) (hhb.extends (hx35.trans hx6)) rt (hx6.repr re)
     (by unfold Room; omega)) ?_
@@ -1237,7 +1225,7 @@ theorem dom_meet_spec (hnm : Function.Injective nm) (hz : nm none = "") {S : Sor
     rcases hp with rfl | rfl
     · exact ⟨Sorts.rename_fo ρa.l_fo _, Sorts.rename_fo ρb.l_fo _⟩
     · exact ⟨Sorts.rename_fo ρa.r_fo _, Sorts.rename_fo ρb.r_fo _⟩
-  refine WP.spec_mono (two_spec hnm hz hC ρa.wf hUS hr hq ρa.normal ρb.normal ha.y hb.y hfo hefo
+  refine WP.spec_mono (two_spec hnm hC ρa.wf hUS hr hq ρa.normal ρb.normal ha.y hb.y hfo hefo
     B hB s8 decls names ha' hb' t e hI8 (hx08.repr hde) (hx08.repr hU)
     (hha2.extends (hx37.trans hx8)) (hhb.extends (hx37.trans hx8)) rt (hx8.repr re)
     (by unfold Room; omega)) ?_

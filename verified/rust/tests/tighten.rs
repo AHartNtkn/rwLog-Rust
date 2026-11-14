@@ -1,18 +1,21 @@
-//! Bringing a store to a tight one (`sorts::tighten`), with the checks it
-//! makes on the way: a list reversed onto another (`sorts::rev_onto`),
-//! whether an exclusion always holds (`sorts::always_on`,
-//! `sorts::any_always`), and whether an entry has no member (the flag of
-//! `sorts::settle`), against `always`, `stepAt` and `Tightens` of the
-//! specification (`lean/RwLog/Sorts/Tighten.lean`, `Loop.lean`) as written on
-//! trees here.
+//! Bringing a store to a tight one (`sorts::settle` and then
+//! `sorts::tighten`), with the checks made on the way: a list reversed onto
+//! another (`sorts::rev_onto`), whether an exclusion always holds
+//! (`sorts::always_on`, `sorts::any_always`), and whether an entry has no
+//! member (the flag of `sorts::settle`), against `always`, `stepAt` and
+//! `Tightens` of the specification (`lean/RwLog/Sorts/Tighten.lean`,
+//! `Loop.lean`) as written on trees here.
 //!
 //! A store is a pattern, a list of exclusions, a list of entries (a variable
 //! with the conjunction of its sorts) and the next unused variable.
-//! `tighten` first replaces each variable whose sorts have one member. Then,
-//! as long as no exclusion always holds, it takes the first entry whose
-//! values have one root, replaces its variable by that root applied to new
-//! variables, and puts the entries of the new variables that are left, in
-//! reverse, before the others.
+//! `settle` replaces each variable whose sorts have one member, and says
+//! whether every entry has a member. `tighten` is the loop alone, and it is
+//! run on what `settle` returned only when every entry has a member: as long
+//! as no exclusion always holds, it takes the first entry whose values have
+//! one root, replaces its variable by that root applied to new variables,
+//! settles the entries of the new variables, and puts the ones that are
+//! left, in reverse, before the others. Every test here is of the two
+//! together (`settled_tight`).
 
 mod common;
 
@@ -197,13 +200,31 @@ fn tighten_ref(ss: &Sorts, t: &P, x: &Excls, es: &Entries, next: usize) -> Optio
     }
 }
 
-/// `tighten` in the store, with the nodes it returned.
+/// `settle` and then `tighten`: the store of the nodes given brought to a
+/// tight one, or nothing when an entry has no member or an exclusion always
+/// holds. `tighten` runs only when `settle` says every entry has a member.
+fn settled_tight(
+    fxt: &mut Fx,
+    t0: TermId,
+    x0: TermId,
+    es0: TermId,
+    next0: TermId,
+) -> Option<(TermId, TermId, TermId, TermId)> {
+    let (ok, t, x, es) = settle(&mut fxt.s, fxt.decls, fxt.names, t0, x0, es0);
+    if ok {
+        tighten(&mut fxt.s, fxt.decls, fxt.names, t, x, es, next0)
+    } else {
+        None
+    }
+}
+
+/// `settle` and then `tighten` in the store, with the nodes returned.
 fn run(fxt: &mut Fx, t: &P, x: &Excls, es: &Entries, next: usize) -> Option<(TermId, TermId, TermId, TermId)> {
     let ti = put_pat(&mut fxt.s, t);
     let xi = put_excls(&mut fxt.s, x);
     let ei = fxt.entries(es);
     let ni = put_var(&mut fxt.s, next as u128);
-    let got = tighten(&mut fxt.s, fxt.decls, fxt.names, ti, xi, ei, ni);
+    let got = settled_tight(fxt, ti, xi, ei, ni);
     fxt.empty_stack();
     got
 }
@@ -668,8 +689,7 @@ fn a_store_that_needs_no_replacement_is_returned_as_the_same_nodes() {
     let xi = put_excls(&mut fxt.s, &[vec![(pv(0), su(pv(1)))]]);
     let ei = fxt.entries(&[(0, vec![NAT]), (1, vec![NAT])]);
     let ni = put_var(&mut fxt.s, 2);
-    let (t1, x1, e1, n1) =
-        tighten(&mut fxt.s, fxt.decls, fxt.names, ti, xi, ei, ni).expect("a store");
+    let (t1, x1, e1, n1) = settled_tight(&mut fxt, ti, xi, ei, ni).expect("a store");
     assert!(fxt.s.same(t1, ti) && fxt.s.same(x1, xi) && fxt.s.same(e1, ei) && fxt.s.same(n1, ni));
 }
 
@@ -1056,8 +1076,7 @@ fn tightening_what_was_returned_changes_nothing() {
     for (t, x, es, next) in results() {
         let mut fxt = fixture(wf());
         let (t1, x1, e1, n1) = run(&mut fxt, &t, &x, &es, next).expect("a store");
-        let (t2, x2, e2, n2) =
-            tighten(&mut fxt.s, fxt.decls, fxt.names, t1, x1, e1, n1).expect("a store");
+        let (t2, x2, e2, n2) = settled_tight(&mut fxt, t1, x1, e1, n1).expect("a store");
         assert!(fxt.s.same(t1, t2) && fxt.s.same(x1, x2) && fxt.s.same(e1, e2) && fxt.s.same(n1, n2));
     }
 }

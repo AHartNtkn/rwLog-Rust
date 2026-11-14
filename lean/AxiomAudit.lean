@@ -355,6 +355,9 @@ new axiom.
 /-- info: 'RwLog.Sorts.Prob.norm_none' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Sorts.Prob.norm_none
 
+/-- info: 'RwLog.Sorts.prune_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.prune_spec
+
 /-- info: 'RwLog.Sorts.Prob.norm_unique' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Sorts.Prob.norm_unique
 

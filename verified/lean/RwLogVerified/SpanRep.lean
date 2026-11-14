@@ -1000,7 +1000,7 @@ theorem rep_spec (hnm : Function.Injective nm) (hz : nm none = "") {S : Sorts} {
           intro a ha
           obtain ⟨c, hc, hac⟩ := List.mem_flatMap.1 (List.mem_reverse.1 ha)
           exact hUS _ ((hok c hc).2.1 a hac)
-        refine WP.spec_mono (normal_spec hnm hz hC hS hUS hr hq (spanProbR sp) (spanProbR_fo hfo)
+        refine WP.spec_mono (normal_spec hnm hC hS hUS hr hq (spanProbR sp) (spanProbR_fo hfo)
           hPa B hB s5 decls names t nil a e hI5 (hx05.repr hde) (hx05.repr hU) (hx5.repr rt)
           (.nil hr5) ((hx4.trans hx5).repr ra) ((hx4.trans hx5).repr re)
           (by unfold Room; omega)) ?_

@@ -1,11 +1,13 @@
 /-
 # `sorts::tighten` against the specification
 
-The loop of `sorts::tighten` makes the rounds of `tightRun`
-(`tighten_loop_spec`), each within `roundCost`. With `tightRun_total` and
+`sorts::tighten` makes the rounds of `tightRun` (`tighten_loop_spec`,
+`tighten_spec`), each within `roundCost`. With `tightRun_total` and
 `Sorts.Tightens`, what `sorts::tighten` returns denotes what it was given,
 satisfies the invariant and has no variable whose values have one root, and
 it returns nothing only for a store that denotes nothing (`tighten_sound`).
+It is given a store in which no entry has one member and every variable
+occurs in the pattern (`TSt.Good`).
 -/
 import RwLogVerified.TightRun
 
@@ -204,127 +206,52 @@ theorem tighten_loop_spec (hnm : Function.Injective nm) {S : Sorts} {sp : Pat}
 
 /-! ## `sorts::tighten` -/
 
-theorem tighten_loop_false (s : store.Store) (decls names t x es next : store.TermId) :
-    sorts.tighten_loop s decls names false t x es next false = ok (s, false, t, x, es, next) := by
-  unfold sorts.tighten_loop
-  rw [loop]
-  simp [sorts.tighten_loop.body]
-
-/-- What `sorts::tighten` comes to with at most `k` rounds: nothing when more
-are needed, and otherwise the state reached, or nothing when the store
-denotes nothing. -/
-def tightenRes (S : Sorts) (k : Nat) (st : TSt) : Option (Option TSt) :=
-  if settleOk S st.L then tightRun S k (settleSt S st) else some none
-
-/-- The ticks `sorts::tighten` may take with at most `k` rounds. -/
-noncomputable def tightenCost (nm : Option Nat → RwLog.Sym) (S : Sorts) (u r k : Nat)
-    (st : TSt) : Nat :=
-  settleCost nm S u st.L st.T st.X + runCost nm S u r k (settleSt S st)
-
-/-- `tighten` replaces the variables with one value and then makes the rounds
-of `tightRun`, within the charge of these rounds. -/
+/-- `tighten` makes the rounds of `tightRun`, within the charge of these
+rounds. -/
 theorem tighten_spec (hnm : Function.Injective nm) {S : Sorts} {sp : Pat} {U : List Name}
     (hC : Ctx nm S sp U) {r : Nat} (hr : ∀ d, (Sorts.reachSet S d).card ≤ r)
     (s : store.Store) (decls names t x es next : store.TermId) (st : TSt) (k : Nat)
     (o : Option TSt) (hI : Inv s) (hde : Repr nm s.nodes.val decls.val sp)
     (hU : Repr nm s.nodes.val names.val (namesPat (nm none) U))
     (hH : Holds nm U s.nodes.val st t x es next) (hsub : ∀ p ∈ st.L, Sub U p.2)
-    (hrun : tightenRes S k st = some o) (hroom : Room s (tightenCost nm S U.length r k st)) :
+    (hrun : tightRun S k st = some o) (hroom : Room s (runCost nm S U.length r k st)) :
     sorts.tighten s decls names t x es next ⦃ res s' =>
-      Inv s' ∧ Extends s s' ∧ s'.ticks.val ≤ s.ticks.val + tightenCost nm S U.length r k st ∧
+      Inv s' ∧ Extends s s' ∧ s'.ticks.val ≤ s.ticks.val + runCost nm S U.length r k st ∧
         match o with
         | none => res = none
         | some st' => ∃ t' x' es' next', res = some (t', x', es', next') ∧
             Holds nm U s'.nodes.val st' t' x' es' next' ∧ ∀ p ∈ st'.L, Sub U p.2 ⦄ := by
   unfold sorts.tighten
-  have hroom' := hroom
-  unfold Room at hroom'
-  simp only [tightenCost] at hroom'
-  step with settle_spec hnm hC st.L st.T st.X s decls names t x es hI hde hU hsub hH.es hH.t hH.x
-    (by unfold Room; omega) as ⟨ok0, t1, x1, es1, s1, hI1, hx1, ht1, h0, h1, h2, h3⟩
-  cases ok0 with
-  | false =>
-    simp only [tightenRes, ← h0, Bool.false_eq_true, ↓reduceIte, Option.some.injEq] at hrun
-    subst hrun
-    rw [tighten_loop_false]
-    simp only [bind_ok, uncurry, Bool.false_eq_true, ↓reduceIte, WP.spec_ok, WP.uncurry']
-    exact ⟨hI1, hx1, by simp only [tightenCost]; omega, trivial⟩
-  | true =>
-    simp only [tightenRes, ← h0, ↓reduceIte] at hrun
-    have hH1 : Holds nm U s1.nodes.val (settleSt S st) t1 x1 es1 next :=
-      ⟨h1, h2, h3, hx1.varAt hH.next⟩
-    step with tighten_loop_spec hnm hC hr decls names k (settleSt S st) s1 t1 x1 es1 next o hI1
-      (hx1.repr hde) (hx1.repr hU) hH1 (fun p hp => hsub p (mem_settleKept.1 hp).1) hrun
-      (by unfold Room; omega) as ⟨s2, ok1, t', x', es', next', hI2, hx2, ht2, hres⟩
-    cases o with
-    | none =>
-      simp only at hres
-      subst hres
-      simp only [Bool.false_eq_true, ↓reduceIte, WP.spec_ok]
-      exact ⟨hI2, hx1.trans hx2, by simp only [tightenCost]; omega, rfl⟩
-    | some st' =>
-      obtain ⟨rfl, hH', hsub'⟩ := hres
-      simp only [↓reduceIte, WP.spec_ok]
-      exact ⟨hI2, hx1.trans hx2, by simp only [tightenCost]; omega, t', x', es', next', rfl, hH',
-        hsub'⟩
+  step with tighten_loop_spec hnm hC hr decls names k st s t x es next o hI hde hU hH hsub hrun
+    hroom as ⟨s2, ok1, t', x', es', next', hI2, hx2, ht2, hres⟩
+  cases o with
+  | none =>
+    simp only at hres
+    subst hres
+    simp only [Bool.false_eq_true, ↓reduceIte, WP.spec_ok]
+    exact ⟨hI2, hx2, ht2, rfl⟩
+  | some st' =>
+    obtain ⟨rfl, hH', hsub'⟩ := hres
+    simp only [↓reduceIte, WP.spec_ok]
+    exact ⟨hI2, hx2, ht2, t', x', es', next', rfl, hH', hsub'⟩
 
-/-- Among well-formed sorts, `sorts::tighten` ends. What it returns denotes
-what it was given, satisfies the invariant of `Sorts.tighten`, and has no
-variable whose values have one root; it returns nothing only when what it
-was given denotes nothing. -/
-theorem tighten_sound {S : Sorts} (hS : S.WellFormed) (st : TSt) (hok : st.OK)
-    (hfin : st.abs.store.Fin st.N) (hfull : st.abs.store.Full) :
-    ∃ k o, tightenRes S k st = some o ∧
+/-- Among well-formed sorts, the rounds of `sorts::tighten` end. What they
+come to denotes what they started from, satisfies the invariant of
+`Sorts.tighten`, and has no variable whose values have one root; they come to
+nothing only when what they started from denotes nothing. -/
+theorem tighten_sound {S : Sorts} (hS : S.WellFormed) (st : TSt) (hG : st.Good S) :
+    ∃ k o, tightRun S k st = some o ∧
       match o with
       | none => st.abs.store.Den S = ∅
       | some st' => st'.abs.store.Den S = st.abs.store.Den S ∧ Sorts.Inv S st'.abs ∧
           (∀ v ∈ st'.abs.t.vars,
             Sorts.sole S (st'.abs.conj v) (Sorts.gone st'.abs.x v) = none) ∧ st'.Good S := by
-  obtain ⟨hden, hlen, hfin', hfull', -, hsubv, hnot⟩ :=
-    Sorts.settle_spec S (st.L.map Prod.fst) st.abs
-  have habs := settleSt_abs (S := S) hok
-  have hok1 := settleSt_ok (S := S) hok
-  have hkept : Sorts.Kept S (settleSt S st).abs := by
-    rw [habs]
-    refine ⟨by rw [hlen]; exact hfin' (by rw [TSt.abs_length]; exact hfin), hfull' hfull, ?_⟩
-    intro v hv g
-    by_cases hw : v ∈ st.L.map Prod.fst
-    · exact hnot v hw hv g
-    · rw [(hsubv v hv).2, hok.conj, conjOf_not fun e he e' => hw (List.mem_map.2 ⟨e, he, e'⟩),
-        count_empty]
-      intro e; cases e
-  by_cases hflag : settleOk S st.L = true
-  · have hG : (settleSt S st).Good S := by
-      refine ⟨hok1, hkept, fun e he => ?_⟩
-      obtain ⟨he1, he2⟩ := mem_settleKept.1 he
-      have hnn := (List.all_eq_true.1 hflag) e he1
-      cases hc : Sorts.count S e.2 with
-      | none => rw [hc] at hnn; simp [noneB] at hnn
-      | one g => rw [hc] at he2; simp [isOne] at he2
-      | many => rfl
-    obtain ⟨k, o, hrun, hT, hgood⟩ := tightRun_total hS _ _ rfl hG
-    refine ⟨k, o, by simp [tightenRes, hflag, hrun], ?_⟩
-    cases o with
-    | none =>
-      have := hT.none hkept rfl
-      rw [habs, hden] at this
-      exact this
-    | some st' =>
-      obtain ⟨h1, h2, h3⟩ := hT.some st'.abs rfl
-      exact ⟨by rw [h1, habs, hden], h2, h3, hgood st' rfl⟩
-  · refine ⟨0, none, by simp [tightenRes, hflag], ?_⟩
-    have hex : ∃ e ∈ st.L, Sorts.count S e.2 = .none := by
-      by_contra hne
-      refine hflag (List.all_eq_true.2 fun e he => ?_)
-      cases hc : Sorts.count S e.2 with
-      | none => exact absurd ⟨e, he, hc⟩ hne
-      | one g => rfl
-      | many => rfl
-    obtain ⟨e, he, hc⟩ := hex
-    have hni : ¬ Sorts.Inv S (settleSt S st).abs :=
-      not_inv_of_none hok1 (mem_settleKept.2 ⟨he, by rw [hc]; rfl⟩) hc
-    have := Sorts.den_empty_of_not_inv hkept hni
-    rw [habs, hden] at this
-    exact this
+  obtain ⟨k, o, hrun, hT, hgood⟩ := tightRun_total hS _ _ rfl hG
+  refine ⟨k, o, hrun, ?_⟩
+  cases o with
+  | none => exact hT.none hG.kept rfl
+  | some st' =>
+    obtain ⟨h1, h2, h3⟩ := hT.some st'.abs rfl
+    exact ⟨h1, h2, h3, hgood st' rfl⟩
 
 end RwLogVerified

@@ -1946,16 +1946,17 @@ fn first_sole(
 }
 
 /// The store of the pattern `t0`, the exclusions `x0` and the entries `es0`,
-/// whose variables are below `next0`, brought to one in which no entry has
-/// one member and no variable of an entry has values with one root; nothing
-/// when an entry has no member or an exclusion always holds, in which case
-/// the store denotes nothing. First each variable whose conjunction has one
-/// member is replaced by it. Then, as long as there is one, the variable of
-/// the first entry whose values have one root is replaced by that root
-/// applied to new variables, and the entries of the new variables that are
-/// left are put, in reverse, before the others. Returned are the pattern,
-/// the exclusions, the entries and the next unused variable. Tables `A` and
-/// `B` are used; the stack is empty at entry.
+/// whose variables are below `next0`, brought to one in which no variable
+/// of an entry has values with one root; nothing when an exclusion always
+/// holds or a new entry has no member, in which case the store denotes
+/// nothing. No entry has one member at entry (`settle`). As long as there
+/// is one, the variable of the first entry whose values have one root is
+/// replaced by that root applied to new variables, each new variable whose
+/// conjunction has one member is replaced by that member, and the entries
+/// of the new variables that are left are put, in reverse, before the
+/// others. Returned are the pattern, the exclusions, the entries and the
+/// next unused variable. Tables `A` and `B` are used; the stack is empty at
+/// entry.
 pub fn tighten(
     s: &mut Store,
     decls: TermId,
@@ -1965,13 +1966,12 @@ pub fn tighten(
     es0: TermId,
     next0: TermId,
 ) -> Option<(TermId, TermId, TermId, TermId)> {
-    let (ok0, t1, x1, es1) = settle(s, decls, names, t0, x0, es0);
-    let mut ok = ok0;
-    let mut t = t1;
-    let mut x = x1;
-    let mut es = es1;
+    let mut ok = true;
+    let mut t = t0;
+    let mut x = x0;
+    let mut es = es0;
     let mut next = next0;
-    let mut go = ok0;
+    let mut go = true;
     while go {
         if any_always(s, x) {
             ok = false;
@@ -1997,6 +1997,137 @@ pub fn tighten(
     } else {
         None
     }
+}
+
+// # Hidden variables
+//
+// A variable of the exclusions or of the entries that does not occur in the
+// pattern is hidden. When every conjunction has more than one member, and
+// so infinitely many, an exclusion whose solved form has a hidden variable
+// is avoided by a choice of that variable whatever the others are, so it is
+// dropped with the variable; an exclusion without a solution excludes
+// nothing; and any other exclusion is kept as its solved form, which has no
+// hidden variable.
+
+/// The equations `v = p` for each variable `v` of the list `vs0` and the
+/// member `p` at its place in the list `vals0` that is not `v`, in order.
+fn moved(s: &mut Store, vs0: TermId, vals0: TermId) -> TermId {
+    let mut out = s.alloc(Node::Nil);
+    let mut vs = vs0;
+    let mut l = vals0;
+    let mut go = true;
+    while go {
+        match uncons(s, vs) {
+            Some((v, vrest)) => match uncons(s, l) {
+                Some((p, lrest)) => {
+                    if !s.same(v, p) {
+                        let eq = s.alloc(Node::App(v, p));
+                        out = s.alloc(Node::App(eq, out));
+                    }
+                    vs = vrest;
+                    l = lrest;
+                }
+                None => panic!(),
+            },
+            None => go = false,
+        }
+    }
+    rev(s, out)
+}
+
+/// The solved form of the exclusion `e`, a list of equations: for each
+/// variable of `e` that the most general solution of the equations moves,
+/// in the order the variables first occur, the equation of the variable
+/// with its value; nothing when the equations have no solution. Tables `A`
+/// and `B` are used; the stack is empty at entry.
+pub fn solved_ex(s: &mut Store, e: TermId) -> Option<TermId> {
+    let vs = firsts(s, e);
+    let (ok, vals) = solve_into(s, e, vs);
+    if ok {
+        Some(moved(s, vs, vals))
+    } else {
+        None
+    }
+}
+
+/// The solved forms of the exclusions of the list `xs0` that have one, in
+/// order.
+fn solved_exs(s: &mut Store, xs0: TermId) -> TermId {
+    let mut out = s.alloc(Node::Nil);
+    let mut xs = xs0;
+    while let Some((e, rest)) = uncons(s, xs) {
+        if let Some(e1) = solved_ex(s, e) {
+            out = s.alloc(Node::App(e1, out));
+        }
+        xs = rest;
+    }
+    rev(s, out)
+}
+
+/// The entries of the list `es0` whose variable has an entry in table `B`,
+/// in order.
+fn kept_entries(s: &mut Store, es0: TermId) -> TermId {
+    let mut out = s.alloc(Node::Nil);
+    let mut es = es0;
+    while let Some((e, rest)) = uncons(s, es) {
+        match uncons(s, e) {
+            Some((v, _)) => {
+                out = match s.get(Tbl::B, v) {
+                    Some(_) => s.alloc(Node::App(e, out)),
+                    None => out,
+                };
+            }
+            None => panic!(),
+        }
+        es = rest;
+    }
+    rev(s, out)
+}
+
+/// The members of the list `l0` whose member at the same place in the list
+/// `cs0` has no variable, in order. Tables `A` and `B` are used.
+fn closed_ones(s: &mut Store, l0: TermId, cs0: TermId) -> TermId {
+    let mut out = s.alloc(Node::Nil);
+    let mut l = l0;
+    let mut cs = cs0;
+    let mut go = true;
+    while go {
+        match uncons(s, l) {
+            Some((e, rest)) => match uncons(s, cs) {
+                Some((c, crest)) => {
+                    if ground(s, c) {
+                        out = s.alloc(Node::App(e, out));
+                    }
+                    l = rest;
+                    cs = crest;
+                }
+                None => panic!(),
+            },
+            None => go = false,
+        }
+    }
+    rev(s, out)
+}
+
+/// The exclusions `xs0` and the entries `es0` without what they say of the
+/// variables that are not in the list `ks`: the solved forms, in order, of
+/// the exclusions that have one in which every variable is in `ks`, and the
+/// entries, in order, of the variables in `ks`. Tables `A` and `B` are
+/// used; the stack is empty at entry.
+pub fn prune(s: &mut Store, ks: TermId, xs0: TermId, es0: TermId) -> (TermId, TermId) {
+    let sol = solved_exs(s, xs0);
+    let nil = s.alloc(Node::Nil);
+    s.clear(Tbl::B);
+    let mut l = ks;
+    while let Some((v, rest)) = uncons(s, l) {
+        s.set(Tbl::B, v, nil);
+        l = rest;
+    }
+    let es = kept_entries(s, es0);
+    s.clear(Tbl::A);
+    let closed = rebuild(s, Leaf::Map, sol);
+    let xs = closed_ones(s, sol, closed);
+    (xs, es)
 }
 
 // # Numbering the variables of a store
@@ -2435,91 +2566,6 @@ pub fn antichain(s: &mut Store, vs: TermId, l0: TermId) -> TermId {
     acc
 }
 
-/// As many of the first members of the list `l0` as the list `by0` has
-/// members.
-pub fn take_len(s: &mut Store, l0: TermId, by0: TermId) -> TermId {
-    let mut out = s.alloc(Node::Nil);
-    let mut l = l0;
-    let mut by = by0;
-    let mut go = true;
-    while go {
-        match uncons(s, by) {
-            Some((_, brest)) => match uncons(s, l) {
-                Some((p, lrest)) => {
-                    out = s.alloc(Node::App(p, out));
-                    l = lrest;
-                    by = brest;
-                }
-                None => panic!(),
-            },
-            None => go = false,
-        }
-    }
-    rev(s, out)
-}
-
-/// The list `l0` without as many of its first members as the list `by0` has
-/// members.
-fn drop_len(s: &mut Store, l0: TermId, by0: TermId) -> TermId {
-    let mut l = l0;
-    let mut by = by0;
-    let mut go = true;
-    while go {
-        match uncons(s, by) {
-            Some((_, brest)) => match uncons(s, l) {
-                Some((_, lrest)) => {
-                    l = lrest;
-                    by = brest;
-                }
-                None => panic!(),
-            },
-            None => go = false,
-        }
-    }
-    l
-}
-
-/// Does the solved exclusion `vals`, over the variables `vs`, say nothing
-/// of the variables after the first ones `ks`: is each later variable its
-/// own value, and is every variable in the value of a first one a first
-/// one? Tables `A` and `B` are used; the stack is empty at entry.
-pub fn low(s: &mut Store, vs: TermId, ks: TermId, vals: TermId) -> bool {
-    let later = drop_len(s, vals, ks);
-    let own = drop_len(s, vs, ks);
-    if s.same(later, own) {
-        let first = take_len(s, vals, ks);
-        let nil = s.alloc(Node::Nil);
-        s.clear(Tbl::B);
-        let mut l = ks;
-        while let Some((v, rest)) = uncons(s, l) {
-            s.set(Tbl::B, v, nil);
-            l = rest;
-        }
-        s.clear(Tbl::A);
-        let closed = rebuild(s, Leaf::Map, first);
-        ground(s, closed)
-    } else {
-        false
-    }
-}
-
-/// The members of the list `l0` of solved exclusions over the variables
-/// `vs` that say nothing of the variables after the first ones `ks`, each
-/// as the list of the values of these, in order. Tables `A` and `B` are
-/// used; the stack is empty at entry.
-pub fn cut_exs(s: &mut Store, vs: TermId, ks: TermId, l0: TermId) -> TermId {
-    let mut out = s.alloc(Node::Nil);
-    let mut l = l0;
-    while let Some((vals, rest)) = uncons(s, l) {
-        if low(s, vs, ks, vals) {
-            let first = take_len(s, vals, ks);
-            out = s.alloc(Node::App(first, out));
-        }
-        l = rest;
-    }
-    rev(s, out)
-}
-
 // # The normal store of a problem
 //
 // A problem is a pattern, a list of equations, a list of sorted patterns
@@ -2575,29 +2621,15 @@ fn entries_of(s: &mut Store, names: TermId, atoms: TermId, vs0: TermId) -> TermI
     rev(s, out)
 }
 
-/// The members of the list `l0` as one term: the pair of the last with the
-/// pair of the one before with the rest, down to `nil`; a pair is `nil`
-/// applied to its two parts.
-fn tuple(s: &mut Store, nil: TermId, l0: TermId) -> TermId {
-    let mut out = nil;
-    let mut l = l0;
-    while let Some((v, rest)) = uncons(s, l) {
-        let head = s.alloc(Node::App(nil, v));
-        out = s.alloc(Node::App(head, out));
-        l = rest;
-    }
-    out
-}
-
 /// The store a problem starts from: the pattern `t`, the sorted patterns
 /// `a` and the exclusions `x` with the solution of the equations `e`
 /// applied and the variables left numbered in the order they first occur in
-/// these; the sorts brought down to the variables; and the pattern paired
-/// with the tuple of all the variables, so that each occurs in it. Returned
-/// are the pair, the exclusions, an entry for each variable in order, and
-/// the next unused variable; nothing when the equations have no solution or
-/// a sort rejects its pattern, in which case the problem denotes nothing.
-/// Tables `A` and `B` are used; the stack is empty at entry.
+/// these; and the sorts brought down to the variables. Returned are the
+/// pattern, the exclusions, an entry for each variable in order, and the
+/// next unused variable; nothing when the equations have no solution or a
+/// sort rejects its pattern, in which case the problem denotes nothing. A
+/// variable of the entries or of the exclusions need not occur in the
+/// pattern. Tables `A` and `B` are used; the stack is empty at entry.
 pub fn start(
     s: &mut Store,
     decls: TermId,
@@ -2621,11 +2653,7 @@ pub fn start(
                 Some((a1, x1)) => match push_pairs(s, decls, a1) {
                     Some(atoms) => {
                         let es = entries_of(s, names, atoms, vars);
-                        let nil = s.alloc(Node::Nil);
-                        let all = tuple(s, nil, vars);
-                        let head = s.alloc(Node::App(nil, t1));
-                        let t0 = s.alloc(Node::App(head, all));
-                        Some((t0, x1, es, next))
+                        Some((t1, x1, es, next))
                     }
                     None => None,
                 },
@@ -2654,8 +2682,13 @@ pub struct Rep {
 /// variables numbered in the order they first occur, the list of the
 /// conjunctions of every sort that holds of all values of each, and the
 /// exclusions over them, solved, none an instance of another; nothing when
-/// the problem denotes nothing. Tables `A` and `B` are used; the stack is
-/// empty at entry.
+/// the problem denotes nothing. The variables with one value are replaced
+/// by it, the variables that are then not in the pattern are dropped
+/// (`prune`), and the variables of the pattern whose values have one root
+/// are replaced (`tighten`). The sorts are well formed: a variable with more
+/// than one value then has infinitely many, which is why the variables that
+/// are not in the pattern can be dropped. Tables `A` and `B` are used; the
+/// stack is empty at entry.
 pub fn normal(
     s: &mut Store,
     decls: TermId,
@@ -2666,28 +2699,25 @@ pub fn normal(
     x: TermId,
 ) -> Option<Rep> {
     match start(s, decls, names, t, e, a, x) {
-        Some((t0, x0, es0, next0)) => match tighten(s, decls, names, t0, x0, es0, next0) {
-            Some((t1, x1, es1, _)) => {
-                let (t2, x2, cs) = renumber(s, decls, names, t1, x1, es1);
-                let vs = places(s, cs);
-                let ys = norm_exs(s, decls, names, vs, cs, x2);
-                let zs = antichain(s, vs, ys);
-                match uncons(s, t2) {
-                    Some((head, _)) => match uncons(s, head) {
-                        Some((_, left)) => {
-                            let ws = firsts(s, left);
-                            let ks = take_len(s, vs, ws);
-                            let cs1 = take_len(s, cs, ks);
-                            let xs1 = cut_exs(s, vs, ks, zs);
-                            Some(Rep { t: left, c: cs1, x: xs1 })
-                        }
-                        None => panic!(),
-                    },
-                    None => panic!(),
+        Some((t0, x0, es0, next0)) => {
+            let (ok, t1, x1, es1) = settle(s, decls, names, t0, x0, es0);
+            if ok {
+                let ks = firsts(s, t1);
+                let (x2, es2) = prune(s, ks, x1, es1);
+                match tighten(s, decls, names, t1, x2, es2, next0) {
+                    Some((t3, x3, es3, _)) => {
+                        let (t4, x4, cs) = renumber(s, decls, names, t3, x3, es3);
+                        let vs = places(s, cs);
+                        let ys = norm_exs(s, decls, names, vs, cs, x4);
+                        let zs = antichain(s, vs, ys);
+                        Some(Rep { t: t4, c: cs, x: zs })
+                    }
+                    None => None,
                 }
+            } else {
+                None
             }
-            None => None,
-        },
+        }
         None => None,
     }
 }

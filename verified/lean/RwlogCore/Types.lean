@@ -90,7 +90,7 @@ structure span.Span where
   c : store.TermId
 
 /-- [rwlog_core::sorts::Rep]
-    Source: 'src/sorts.rs', lines 2646:0-2650:1
+    Source: 'src/sorts.rs', lines 2674:0-2678:1
     Visibility: public -/
 structure sorts.Rep where
   t : store.TermId

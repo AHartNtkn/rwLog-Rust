@@ -1,11 +1,8 @@
 //! The exclusions of a normal store put together: whether one solved
 //! exclusion removes only what another does (`sorts::covers`), the solved
-//! forms of a list of exclusions (`sorts::norm_exs`), the exclusions no
-//! other covers (`sorts::antichain`), whether an exclusion says nothing of
-//! the variables after the first ones (`sorts::low`), and the exclusions
-//! over the first variables (`sorts::cut_exs`, `sorts::take_len`); against
-//! `covers`, `normExs`, `antichain` (`lean/RwLog/Sorts/Assemble.lean`) and
-//! `Low`, `Raw.cut` (`lean/RwLog/Sorts/Hidden.lean`).
+//! forms of a list of exclusions (`sorts::norm_exs`), and the exclusions no
+//! other covers (`sorts::antichain`); against `covers`, `normExs` and
+//! `antichain` (`lean/RwLog/Sorts/Assemble.lean`).
 //!
 //! A solved exclusion is the list of the values it gives the variables,
 //! which are numbered from 0; a free variable is its own value.
@@ -14,7 +11,7 @@ mod common;
 
 use common::sorts::*;
 use common::{get_list, put_var, T};
-use rwlog_core::sorts::{antichain, covers, cut_exs, low, norm_ex, norm_exs, take_len};
+use rwlog_core::sorts::{antichain, covers, norm_ex, norm_exs};
 use rwlog_core::store::{Node, Store, Tbl, TermId};
 
 // Symbols.
@@ -415,127 +412,4 @@ fn antichain_with_the_exclusion_that_binds_nothing_is_that_one() {
 #[test]
 fn antichain_without_variables() {
     antichain_is(0, &[vec![], vec![]], &[vec![]]);
-}
-
-// The first members of a list.
-
-#[test]
-fn take_len_takes_as_many_members_as_the_other_list_has() {
-    for (n, k) in [(0, 0), (3, 0), (3, 2), (3, 3), (1, 1)] {
-        let mut s = Store::new();
-        let l: Vec<P> = (0..n).map(|i| su(pv(i))).collect();
-        let li = put_pats(&mut s, &l);
-        let by = vars(&mut s, k);
-        let w = put_pats(&mut s, &l[..k]);
-        let r = take_len(&mut s, li, by);
-        assert!(s.pop().is_none());
-        assert!(s.same(r, w), "{n} {k}");
-    }
-}
-
-// An exclusion over the first variables.
-
-fn low_is(k: usize, vals: &[P], want: bool) {
-    let mut s = Store::new();
-    let vs = vars(&mut s, vals.len());
-    let ks = vars(&mut s, k);
-    let vi = put_pats(&mut s, vals);
-    dirty(&mut s);
-    let r = low(&mut s, vs, ks, vi);
-    assert!(s.pop().is_none(), "the stack is not empty");
-    assert_eq!(r, want, "{vals:?} at {k}");
-}
-
-#[test]
-fn low_of_the_exclusion_that_binds_nothing() {
-    for k in 0..=3 {
-        low_is(k, &id3(), true);
-    }
-}
-
-#[test]
-fn low_needs_the_bound_variable_among_the_first() {
-    low_is(0, &lc(), false);
-    low_is(1, &lc(), true);
-    low_is(2, &lc(), true);
-    low_is(3, &lc(), true);
-}
-
-#[test]
-fn low_fails_when_a_later_variable_is_bound_to_a_ground_term() {
-    low_is(2, &[pv(0), pv(1), z()], false);
-    low_is(3, &[pv(0), pv(1), z()], true);
-}
-
-#[test]
-fn low_fails_when_a_value_has_a_later_variable() {
-    low_is(2, &[su(pv(2)), pv(1), pv(2)], false);
-    low_is(3, &[su(pv(2)), pv(1), pv(2)], true);
-}
-
-#[test]
-fn low_fails_when_a_later_variable_is_bound_to_an_earlier_one() {
-    low_is(2, &[pv(0), pv(1), pv(0)], false);
-}
-
-#[test]
-fn low_of_an_alias() {
-    low_is(2, &al(), true);
-    low_is(1, &al(), false);
-}
-
-#[test]
-fn low_of_a_value_with_a_repeated_variable() {
-    low_is(2, &lr(), true);
-    low_is(1, &lr(), false);
-}
-
-#[test]
-fn low_finds_a_later_variable_under_a_repeated_subterm() {
-    let u = su(pv(1));
-    low_is(2, &[pr(u.clone(), pr(u, pv(2))), pv(1), pv(2)], false);
-    low_is(2, &[pr(pv(2), pv(2)), pv(1), pv(2)], false);
-}
-
-#[test]
-fn low_without_variables() {
-    low_is(0, &[], true);
-}
-
-fn cut_exs_is(n: usize, k: usize, l: &[Vec<P>], want: &[Vec<P>]) {
-    let mut s = Store::new();
-    let vs = vars(&mut s, n);
-    let ks = vars(&mut s, k);
-    let li = put_lists(&mut s, l);
-    dirty(&mut s);
-    let r = cut_exs(&mut s, vs, ks, li);
-    assert!(s.pop().is_none(), "the stack is not empty");
-    assert_eq!(get_lists(&mut s, r), trees(want), "{l:?} at {k}");
-}
-
-#[test]
-fn cut_exs_keeps_the_low_exclusions_cut_to_the_first_variables_in_order() {
-    let l = vec![lc(), vec![pv(0), pv(1), z()], al(), vec![su(pv(2)), pv(1), pv(2)]];
-    cut_exs_is(3, 2, &l, &[vec![z(), pv(1)], vec![pv(0), pv(0)]]);
-}
-
-#[test]
-fn cut_exs_of_no_exclusion_is_empty() {
-    cut_exs_is(3, 2, &[], &[]);
-}
-
-#[test]
-fn cut_exs_is_empty_when_no_exclusion_is_low() {
-    cut_exs_is(3, 1, &[al(), lr()], &[]);
-}
-
-#[test]
-fn cut_exs_at_all_the_variables_changes_nothing() {
-    cut_exs_is(3, 3, &[la(), lq(), lr()], &[la(), lq(), lr()]);
-}
-
-#[test]
-fn cut_exs_at_no_variable() {
-    cut_exs_is(3, 0, &[lc()], &[]);
-    cut_exs_is(3, 0, &[id3()], &[vec![]]);
 }

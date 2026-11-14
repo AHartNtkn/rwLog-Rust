@@ -1371,45 +1371,6 @@ def span.solve_into
   let (s1, out, ok1) ← span.solve_into_loop s eqs0 out0 true true
   ok ((ok1, out), s1)
 
-/-- [rwlog_core::sorts::tuple]: loop body 0:
-    Source: 'src/sorts.rs', lines 2584:4-2588:5 -/
-@[rust_loop_body]
-def sorts.tuple_loop.body
-  (nil : store.TermId) (l : store.TermId) (s : store.Store)
-  (out : store.TermId) :
-  Result (ControlFlow (store.TermId × store.Store × store.TermId)
-    (store.TermId × store.Store))
-  := do
-  let (o, s1) ← sorts.uncons s l
-  match o with
-  | none => ok (done (out, s1))
-  | some p =>
-    let (v, rest) := p
-    let (head, s2) ← store.Store.alloc s1 (store.Node.App nil v)
-    let (out1, s3) ← store.Store.alloc s2 (store.Node.App head out)
-    ok (cont (rest, s3, out1))
-
-/-- [rwlog_core::sorts::tuple]: loop 0:
-    Source: 'src/sorts.rs', lines 2584:4-2588:5 -/
-@[rust_loop]
-def sorts.tuple_loop
-  (l : store.TermId) (s : store.Store) (nil : store.TermId)
-  (out : store.TermId) :
-  Result (store.TermId × store.Store)
-  := do
-  loop
-    (fun (l1, s1, out1) => sorts.tuple_loop.body nil l1 s1 out1)
-    (l, s, out)
-
-/-- [rwlog_core::sorts::tuple]:
-    Source: 'src/sorts.rs', lines 2581:0-2590:1 -/
-@[reducible]
-def sorts.tuple
-  (s : store.Store) (nil : store.TermId) (l0 : store.TermId) :
-  Result (store.TermId × store.Store)
-  := do
-  sorts.tuple_loop l0 s nil nil
-
 /-- [rwlog_core::sorts::pick]: loop body 0:
     Source: 'src/sorts.rs', lines 345:4-351:5 -/
 @[rust_loop_body]
@@ -1493,7 +1454,7 @@ def sorts.conj_of
   sorts.pick s2 names
 
 /-- [rwlog_core::sorts::ups]: loop body 0:
-    Source: 'src/sorts.rs', lines 2243:4-2253:5
+    Source: 'src/sorts.rs', lines 2374:4-2384:5
     Visibility: public -/
 @[rust_loop_body]
 def sorts.ups_loop.body
@@ -1520,7 +1481,7 @@ def sorts.ups_loop.body
       else ok (cont (rest, s3, list))
 
 /-- [rwlog_core::sorts::ups]: loop 0:
-    Source: 'src/sorts.rs', lines 2243:4-2253:5
+    Source: 'src/sorts.rs', lines 2374:4-2384:5
     Visibility: public -/
 @[rust_loop]
 def sorts.ups_loop
@@ -1533,7 +1494,7 @@ def sorts.ups_loop
     (l, s, list)
 
 /-- [rwlog_core::sorts::ups]:
-    Source: 'src/sorts.rs', lines 2240:0-2255:1
+    Source: 'src/sorts.rs', lines 2371:0-2386:1
     Visibility: public -/
 def sorts.ups
   (s : store.Store) (names : store.TermId) (atoms0 : store.TermId)
@@ -1554,7 +1515,7 @@ def sorts.rev
   sorts.rev_onto s1 l0 out
 
 /-- [rwlog_core::sorts::entries_of]: loop body 0:
-    Source: 'src/sorts.rs', lines 2569:4-2574:5 -/
+    Source: 'src/sorts.rs', lines 2615:4-2620:5 -/
 @[rust_loop_body]
 def sorts.entries_of_loop.body
   (names : store.TermId) (atoms : store.TermId) (l : store.TermId)
@@ -1573,7 +1534,7 @@ def sorts.entries_of_loop.body
     ok (cont (rest, s4, out1))
 
 /-- [rwlog_core::sorts::entries_of]: loop 0:
-    Source: 'src/sorts.rs', lines 2569:4-2574:5 -/
+    Source: 'src/sorts.rs', lines 2615:4-2620:5 -/
 @[rust_loop]
 def sorts.entries_of_loop
   (l : store.TermId) (s : store.Store) (names : store.TermId)
@@ -1585,7 +1546,7 @@ def sorts.entries_of_loop
     (l, s, out)
 
 /-- [rwlog_core::sorts::entries_of]:
-    Source: 'src/sorts.rs', lines 2566:0-2576:1 -/
+    Source: 'src/sorts.rs', lines 2612:0-2622:1 -/
 def sorts.entries_of
   (s : store.Store) (names : store.TermId) (atoms : store.TermId)
   (vs0 : store.TermId) :
@@ -2006,7 +1967,7 @@ def sorts.push_sort
   else ok (none, s4)
 
 /-- [rwlog_core::sorts::push_pairs]: loop body 0:
-    Source: 'src/sorts.rs', lines 2538:4-2555:5 -/
+    Source: 'src/sorts.rs', lines 2584:4-2601:5 -/
 @[rust_loop_body]
 def sorts.push_pairs_loop.body
   (decls : store.TermId) (s : store.Store) (out : store.TermId)
@@ -2035,7 +1996,7 @@ def sorts.push_pairs_loop.body
   else ok (done (s, out, ok1))
 
 /-- [rwlog_core::sorts::push_pairs]: loop 0:
-    Source: 'src/sorts.rs', lines 2538:4-2555:5 -/
+    Source: 'src/sorts.rs', lines 2584:4-2601:5 -/
 @[rust_loop]
 def sorts.push_pairs_loop
   (s : store.Store) (decls : store.TermId) (out : store.TermId)
@@ -2048,7 +2009,7 @@ def sorts.push_pairs_loop
     (s, out, l, ok1, go)
 
 /-- [rwlog_core::sorts::push_pairs]:
-    Source: 'src/sorts.rs', lines 2533:0-2561:1 -/
+    Source: 'src/sorts.rs', lines 2579:0-2607:1 -/
 def sorts.push_pairs
   (s : store.Store) (decls : store.TermId) (a0 : store.TermId) :
   Result ((Option store.TermId) × store.Store)
@@ -2139,7 +2100,7 @@ def sorts.var_succ
   sorts.var_succ_loop1 s2 low1
 
 /-- [rwlog_core::sorts::number]: loop body 0:
-    Source: 'src/sorts.rs', lines 2079:4-2083:5
+    Source: 'src/sorts.rs', lines 2210:4-2214:5
     Visibility: public -/
 @[rust_loop_body]
 def sorts.number_loop.body
@@ -2157,7 +2118,7 @@ def sorts.number_loop.body
     ok (cont (rest, s3, place1))
 
 /-- [rwlog_core::sorts::number]: loop 0:
-    Source: 'src/sorts.rs', lines 2079:4-2083:5
+    Source: 'src/sorts.rs', lines 2210:4-2214:5
     Visibility: public -/
 @[rust_loop]
 def sorts.number_loop
@@ -2169,7 +2130,7 @@ def sorts.number_loop
     (l, s, place)
 
 /-- [rwlog_core::sorts::number]:
-    Source: 'src/sorts.rs', lines 2075:0-2085:1
+    Source: 'src/sorts.rs', lines 2206:0-2216:1
     Visibility: public -/
 def sorts.number
   (s : store.Store) (vs0 : store.TermId) :
@@ -2180,7 +2141,7 @@ def sorts.number
   sorts.number_loop vs0 s2 place
 
 /-- [rwlog_core::sorts::firsts]: loop body 0:
-    Source: 'src/sorts.rs', lines 2011:4-2028:5
+    Source: 'src/sorts.rs', lines 2142:4-2159:5
     Visibility: public -/
 @[rust_loop_body]
 def sorts.firsts_loop.body
@@ -2217,7 +2178,7 @@ def sorts.firsts_loop.body
     | some _ => ok (cont (s2, out))
 
 /-- [rwlog_core::sorts::firsts]: loop 0:
-    Source: 'src/sorts.rs', lines 2011:4-2028:5
+    Source: 'src/sorts.rs', lines 2142:4-2159:5
     Visibility: public -/
 @[rust_loop]
 def sorts.firsts_loop
@@ -2229,7 +2190,7 @@ def sorts.firsts_loop
     (s, out)
 
 /-- [rwlog_core::sorts::firsts]:
-    Source: 'src/sorts.rs', lines 2007:0-2030:1
+    Source: 'src/sorts.rs', lines 2138:0-2161:1
     Visibility: public -/
 def sorts.firsts
   (s : store.Store) (t : store.TermId) :
@@ -2242,7 +2203,7 @@ def sorts.firsts
   sorts.rev s4 out1
 
 /-- [rwlog_core::sorts::start]:
-    Source: 'src/sorts.rs', lines 2601:0-2639:1
+    Source: 'src/sorts.rs', lines 2633:0-2667:1
     Visibility: public -/
 def sorts.start
   (s : store.Store) (decls : store.TermId) (names : store.TermId)
@@ -2275,206 +2236,11 @@ def sorts.start
         | none => ok (none, s11)
         | some atoms =>
           let (es, s12) ← sorts.entries_of s11 names atoms vars
-          let (nil, s13) ← store.Store.alloc s12 store.Node.Nil
-          let (all, s14) ← sorts.tuple s13 nil vars
-          let (head, s15) ← store.Store.alloc s14 (store.Node.App nil t1)
-          let (t0, s16) ← store.Store.alloc s15 (store.Node.App head all)
-          ok (some (t0, x1, es, next), s16)
+          ok (some (t1, x1, es, next), s12)
   else ok (none, s3)
 
-/-- [rwlog_core::sorts::drop_len]: loop body 0:
-    Source: 'src/sorts.rs', lines 2467:4-2478:5 -/
-@[rust_loop_body]
-def sorts.drop_len_loop.body
-  (s : store.Store) (l : store.TermId) («by» : store.TermId) (go : Bool) :
-  Result (ControlFlow (store.Store × store.TermId × store.TermId × Bool)
-    (store.TermId × store.Store))
-  := do
-  if go
-  then
-    let (o, s1) ← sorts.uncons s «by»
-    match o with
-    | none => ok (cont (s1, l, «by», false))
-    | some p =>
-      let (_, brest) := p
-      let (o1, s2) ← sorts.uncons s1 l
-      match o1 with
-      | none => fail panic
-      | some p1 => let (_, lrest) := p1
-                   ok (cont (s2, lrest, brest, go))
-  else ok (done (l, s))
-
-/-- [rwlog_core::sorts::drop_len]: loop 0:
-    Source: 'src/sorts.rs', lines 2467:4-2478:5 -/
-@[rust_loop]
-def sorts.drop_len_loop
-  (s : store.Store) (l : store.TermId) («by» : store.TermId) (go : Bool) :
-  Result (store.TermId × store.Store)
-  := do
-  loop
-    (fun (s1, l1, by1, go1) => sorts.drop_len_loop.body s1 l1 by1 go1)
-    (s, l, «by», go)
-
-/-- [rwlog_core::sorts::drop_len]:
-    Source: 'src/sorts.rs', lines 2463:0-2480:1 -/
-@[reducible]
-def sorts.drop_len
-  (s : store.Store) (l0 : store.TermId) (by0 : store.TermId) :
-  Result (store.TermId × store.Store)
-  := do
-  sorts.drop_len_loop s l0 by0 true
-
-/-- [rwlog_core::sorts::take_len]: loop body 0:
-    Source: 'src/sorts.rs', lines 2445:4-2457:5
-    Visibility: public -/
-@[rust_loop_body]
-def sorts.take_len_loop.body
-  (s : store.Store) (out : store.TermId) (l : store.TermId)
-  («by» : store.TermId) (go : Bool) :
-  Result (ControlFlow (store.Store × store.TermId × store.TermId ×
-    store.TermId × Bool) (store.Store × store.TermId))
-  := do
-  if go
-  then
-    let (o, s1) ← sorts.uncons s «by»
-    match o with
-    | none => ok (cont (s1, out, l, «by», false))
-    | some p =>
-      let (_, brest) := p
-      let (o1, s2) ← sorts.uncons s1 l
-      match o1 with
-      | none => fail panic
-      | some p1 =>
-        let (p2, lrest) := p1
-        let (out1, s3) ← store.Store.alloc s2 (store.Node.App p2 out)
-        ok (cont (s3, out1, lrest, brest, go))
-  else ok (done (s, out))
-
-/-- [rwlog_core::sorts::take_len]: loop 0:
-    Source: 'src/sorts.rs', lines 2445:4-2457:5
-    Visibility: public -/
-@[rust_loop]
-def sorts.take_len_loop
-  (s : store.Store) (out : store.TermId) (l : store.TermId)
-  («by» : store.TermId) (go : Bool) :
-  Result (store.Store × store.TermId)
-  := do
-  loop
-    (fun (s1, out1, l1, by1, go1) => sorts.take_len_loop.body s1 out1 l1 by1
-      go1)
-    (s, out, l, «by», go)
-
-/-- [rwlog_core::sorts::take_len]:
-    Source: 'src/sorts.rs', lines 2440:0-2459:1
-    Visibility: public -/
-def sorts.take_len
-  (s : store.Store) (l0 : store.TermId) (by0 : store.TermId) :
-  Result (store.TermId × store.Store)
-  := do
-  let (out, s1) ← store.Store.alloc s store.Node.Nil
-  let (s2, out1) ← sorts.take_len_loop s1 out l0 by0 true
-  sorts.rev s2 out1
-
-/-- [rwlog_core::sorts::low]: loop body 0:
-    Source: 'src/sorts.rs', lines 2494:8-2497:9
-    Visibility: public -/
-@[rust_loop_body]
-def sorts.low_loop.body
-  (nil : store.TermId) (l : store.TermId) (s : store.Store) :
-  Result (ControlFlow (store.TermId × store.Store) store.Store)
-  := do
-  let (o, s1) ← sorts.uncons s l
-  match o with
-  | none => ok (done s1)
-  | some p =>
-    let (v, rest) := p
-    let s2 ← store.Store.set s1 store.Tbl.B v nil
-    ok (cont (rest, s2))
-
-/-- [rwlog_core::sorts::low]: loop 0:
-    Source: 'src/sorts.rs', lines 2494:8-2497:9
-    Visibility: public -/
-@[rust_loop]
-def sorts.low_loop
-  (l : store.TermId) (s : store.Store) (nil : store.TermId) :
-  Result store.Store
-  := do
-  loop
-    (fun (l1, s1) => sorts.low_loop.body nil l1 s1)
-    (l, s)
-
-/-- [rwlog_core::sorts::low]:
-    Source: 'src/sorts.rs', lines 2486:0-2504:1
-    Visibility: public -/
-def sorts.low
-  (s : store.Store) (vs : store.TermId) (ks : store.TermId)
-  (vals : store.TermId) :
-  Result (Bool × store.Store)
-  := do
-  let (later, s1) ← sorts.drop_len s vals ks
-  let (own, s2) ← sorts.drop_len s1 vs ks
-  let (b, s3) ← store.Store.same s2 later own
-  if b
-  then
-    let (first, s4) ← sorts.take_len s3 vals ks
-    let (nil, s5) ← store.Store.alloc s4 store.Node.Nil
-    let s6 ← store.Store.clear s5 store.Tbl.B
-    let s7 ← sorts.low_loop ks s6 nil
-    let s8 ← store.Store.clear s7 store.Tbl.A
-    let (closed, s9) ← term.rebuild s8 term.Leaf.Map first
-    cover.ground s9 closed
-  else ok (false, s3)
-
-/-- [rwlog_core::sorts::cut_exs]: loop body 0:
-    Source: 'src/sorts.rs', lines 2513:4-2519:5
-    Visibility: public -/
-@[rust_loop_body]
-def sorts.cut_exs_loop.body
-  (vs : store.TermId) (ks : store.TermId) (l : store.TermId) (s : store.Store)
-  (out : store.TermId) :
-  Result (ControlFlow (store.TermId × store.Store × store.TermId)
-    (store.Store × store.TermId))
-  := do
-  let (o, s1) ← sorts.uncons s l
-  match o with
-  | none => ok (done (s1, out))
-  | some p =>
-    let (vals, rest) := p
-    let (b, s2) ← sorts.low s1 vs ks vals
-    if b
-    then
-      let (first, s3) ← sorts.take_len s2 vals ks
-      let (out1, s4) ← store.Store.alloc s3 (store.Node.App first out)
-      ok (cont (rest, s4, out1))
-    else ok (cont (rest, s2, out))
-
-/-- [rwlog_core::sorts::cut_exs]: loop 0:
-    Source: 'src/sorts.rs', lines 2513:4-2519:5
-    Visibility: public -/
-@[rust_loop]
-def sorts.cut_exs_loop
-  (l : store.TermId) (s : store.Store) (vs : store.TermId) (ks : store.TermId)
-  (out : store.TermId) :
-  Result (store.Store × store.TermId)
-  := do
-  loop
-    (fun (l1, s1, out1) => sorts.cut_exs_loop.body vs ks l1 s1 out1)
-    (l, s, out)
-
-/-- [rwlog_core::sorts::cut_exs]:
-    Source: 'src/sorts.rs', lines 2510:0-2521:1
-    Visibility: public -/
-def sorts.cut_exs
-  (s : store.Store) (vs : store.TermId) (ks : store.TermId) (l0 : store.TermId)
-  :
-  Result (store.TermId × store.Store)
-  := do
-  let (out, s1) ← store.Store.alloc s store.Node.Nil
-  let (s2, out1) ← sorts.cut_exs_loop l0 s1 vs ks out
-  sorts.rev s2 out1
-
 /-- [rwlog_core::sorts::covers]: loop body 0:
-    Source: 'src/sorts.rs', lines 2346:4-2358:5
+    Source: 'src/sorts.rs', lines 2477:4-2489:5
     Visibility: public -/
 @[rust_loop_body]
 def sorts.covers_loop.body
@@ -2499,7 +2265,7 @@ def sorts.covers_loop.body
   else ok (done s)
 
 /-- [rwlog_core::sorts::covers]: loop 0:
-    Source: 'src/sorts.rs', lines 2346:4-2358:5
+    Source: 'src/sorts.rs', lines 2477:4-2489:5
     Visibility: public -/
 @[rust_loop]
 def sorts.covers_loop
@@ -2511,7 +2277,7 @@ def sorts.covers_loop
     (s, vs, l, go)
 
 /-- [rwlog_core::sorts::covers]:
-    Source: 'src/sorts.rs', lines 2341:0-2362:1
+    Source: 'src/sorts.rs', lines 2472:0-2493:1
     Visibility: public -/
 def sorts.covers
   (s : store.Store) (vs0 : store.TermId) (a : store.TermId) (b : store.TermId)
@@ -2525,7 +2291,7 @@ def sorts.covers
   store.Store.same s4 r a
 
 /-- [rwlog_core::sorts::drop_covered]: loop body 0:
-    Source: 'src/sorts.rs', lines 2413:4-2418:5 -/
+    Source: 'src/sorts.rs', lines 2544:4-2549:5 -/
 @[rust_loop_body]
 def sorts.drop_covered_loop.body
   (vs : store.TermId) (a : store.TermId) (l : store.TermId) (s : store.Store)
@@ -2546,7 +2312,7 @@ def sorts.drop_covered_loop.body
       ok (cont (rest, s3, out1))
 
 /-- [rwlog_core::sorts::drop_covered]: loop 0:
-    Source: 'src/sorts.rs', lines 2413:4-2418:5 -/
+    Source: 'src/sorts.rs', lines 2544:4-2549:5 -/
 @[rust_loop]
 def sorts.drop_covered_loop
   (l : store.TermId) (s : store.Store) (vs : store.TermId) (a : store.TermId)
@@ -2558,7 +2324,7 @@ def sorts.drop_covered_loop
     (l, s, out)
 
 /-- [rwlog_core::sorts::drop_covered]:
-    Source: 'src/sorts.rs', lines 2410:0-2420:1 -/
+    Source: 'src/sorts.rs', lines 2541:0-2551:1 -/
 def sorts.drop_covered
   (s : store.Store) (vs : store.TermId) (a : store.TermId) (l0 : store.TermId)
   :
@@ -2569,7 +2335,7 @@ def sorts.drop_covered
   sorts.rev s2 out1
 
 /-- [rwlog_core::sorts::any_covers]: loop body 0:
-    Source: 'src/sorts.rs', lines 2392:4-2404:5 -/
+    Source: 'src/sorts.rs', lines 2523:4-2535:5 -/
 @[rust_loop_body]
 def sorts.any_covers_loop.body
   (vs : store.TermId) (a : store.TermId) (s : store.Store) (found : Bool)
@@ -2591,7 +2357,7 @@ def sorts.any_covers_loop.body
   else ok (done (found, s))
 
 /-- [rwlog_core::sorts::any_covers]: loop 0:
-    Source: 'src/sorts.rs', lines 2392:4-2404:5 -/
+    Source: 'src/sorts.rs', lines 2523:4-2535:5 -/
 @[rust_loop]
 def sorts.any_covers_loop
   (s : store.Store) (vs : store.TermId) (a : store.TermId) (found : Bool)
@@ -2604,7 +2370,7 @@ def sorts.any_covers_loop
     (s, found, l, go)
 
 /-- [rwlog_core::sorts::any_covers]:
-    Source: 'src/sorts.rs', lines 2388:0-2406:1 -/
+    Source: 'src/sorts.rs', lines 2519:0-2537:1 -/
 @[reducible]
 def sorts.any_covers
   (s : store.Store) (vs : store.TermId) (a : store.TermId) (l0 : store.TermId)
@@ -2614,7 +2380,7 @@ def sorts.any_covers
   sorts.any_covers_loop s vs a false l0 true
 
 /-- [rwlog_core::sorts::antichain]: loop body 0:
-    Source: 'src/sorts.rs', lines 2428:4-2434:5
+    Source: 'src/sorts.rs', lines 2559:4-2565:5
     Visibility: public -/
 @[rust_loop_body]
 def sorts.antichain_loop.body
@@ -2637,7 +2403,7 @@ def sorts.antichain_loop.body
       ok (cont (rest, s4, acc1))
 
 /-- [rwlog_core::sorts::antichain]: loop 0:
-    Source: 'src/sorts.rs', lines 2428:4-2434:5
+    Source: 'src/sorts.rs', lines 2559:4-2565:5
     Visibility: public -/
 @[rust_loop]
 def sorts.antichain_loop
@@ -2650,7 +2416,7 @@ def sorts.antichain_loop
     (l, s, acc)
 
 /-- [rwlog_core::sorts::antichain]:
-    Source: 'src/sorts.rs', lines 2425:0-2436:1
+    Source: 'src/sorts.rs', lines 2556:0-2567:1
     Visibility: public -/
 def sorts.antichain
   (s : store.Store) (vs : store.TermId) (l0 : store.TermId) :
@@ -3442,7 +3208,7 @@ def sorts.count
     else ok (sorts.Count.None, s2)
 
 /-- [rwlog_core::sorts::close]: loop body 0:
-    Source: 'src/sorts.rs', lines 2274:4-2302:5
+    Source: 'src/sorts.rs', lines 2405:4-2433:5
     Visibility: public -/
 @[rust_loop_body]
 def sorts.close_loop.body
@@ -3480,7 +3246,7 @@ def sorts.close_loop.body
   else ok (done (s, vals, ok1))
 
 /-- [rwlog_core::sorts::close]: loop 0:
-    Source: 'src/sorts.rs', lines 2274:4-2302:5
+    Source: 'src/sorts.rs', lines 2405:4-2433:5
     Visibility: public -/
 @[rust_loop]
 def sorts.close_loop
@@ -3495,7 +3261,7 @@ def sorts.close_loop
     (s, vals, vs, l, ok1, go)
 
 /-- [rwlog_core::sorts::close]:
-    Source: 'src/sorts.rs', lines 2261:0-2308:1
+    Source: 'src/sorts.rs', lines 2392:0-2439:1
     Visibility: public -/
 def sorts.close
   (s : store.Store) (decls : store.TermId) (names : store.TermId)
@@ -3509,7 +3275,7 @@ def sorts.close
   else ok (none, s1)
 
 /-- [rwlog_core::sorts::push_conj]: loop body 0:
-    Source: 'src/sorts.rs', lines 2180:4-2194:5 -/
+    Source: 'src/sorts.rs', lines 2311:4-2325:5 -/
 @[rust_loop_body]
 def sorts.push_conj_loop.body
   (decls : store.TermId) (p : store.TermId) (s : store.Store)
@@ -3533,7 +3299,7 @@ def sorts.push_conj_loop.body
   else ok (done (s, out, ok1))
 
 /-- [rwlog_core::sorts::push_conj]: loop 0:
-    Source: 'src/sorts.rs', lines 2180:4-2194:5 -/
+    Source: 'src/sorts.rs', lines 2311:4-2325:5 -/
 @[rust_loop]
 def sorts.push_conj_loop
   (s : store.Store) (decls : store.TermId) (p : store.TermId)
@@ -3546,7 +3312,7 @@ def sorts.push_conj_loop
     (s, out, c, ok1, go)
 
 /-- [rwlog_core::sorts::push_conj]:
-    Source: 'src/sorts.rs', lines 2175:0-2200:1 -/
+    Source: 'src/sorts.rs', lines 2306:0-2331:1 -/
 def sorts.push_conj
   (s : store.Store) (decls : store.TermId) (c0 : store.TermId)
   (p : store.TermId) (out0 : store.TermId) :
@@ -3558,7 +3324,7 @@ def sorts.push_conj
   else ok (none, s1)
 
 /-- [rwlog_core::sorts::push_all]: loop body 0:
-    Source: 'src/sorts.rs', lines 2212:4-2230:5
+    Source: 'src/sorts.rs', lines 2343:4-2361:5
     Visibility: public -/
 @[rust_loop_body]
 def sorts.push_all_loop.body
@@ -3586,7 +3352,7 @@ def sorts.push_all_loop.body
   else ok (done (s, out, ok1))
 
 /-- [rwlog_core::sorts::push_all]: loop 0:
-    Source: 'src/sorts.rs', lines 2212:4-2230:5
+    Source: 'src/sorts.rs', lines 2343:4-2361:5
     Visibility: public -/
 @[rust_loop]
 def sorts.push_all_loop
@@ -3600,7 +3366,7 @@ def sorts.push_all_loop
     (s, out, cs, l, ok1, go)
 
 /-- [rwlog_core::sorts::push_all]:
-    Source: 'src/sorts.rs', lines 2206:0-2236:1
+    Source: 'src/sorts.rs', lines 2337:0-2367:1
     Visibility: public -/
 def sorts.push_all
   (s : store.Store) (decls : store.TermId) (cs0 : store.TermId)
@@ -3614,7 +3380,7 @@ def sorts.push_all
   else ok (none, s2)
 
 /-- [rwlog_core::sorts::orient]: loop body 0:
-    Source: 'src/sorts.rs', lines 2149:4-2166:5
+    Source: 'src/sorts.rs', lines 2280:4-2297:5
     Visibility: public -/
 @[rust_loop_body]
 def sorts.orient_loop.body
@@ -3647,7 +3413,7 @@ def sorts.orient_loop.body
   else ok (done s)
 
 /-- [rwlog_core::sorts::orient]: loop 0:
-    Source: 'src/sorts.rs', lines 2149:4-2166:5
+    Source: 'src/sorts.rs', lines 2280:4-2297:5
     Visibility: public -/
 @[rust_loop]
 def sorts.orient_loop
@@ -3659,7 +3425,7 @@ def sorts.orient_loop
     (s, vs, l, go)
 
 /-- [rwlog_core::sorts::orient]:
-    Source: 'src/sorts.rs', lines 2144:0-2169:1
+    Source: 'src/sorts.rs', lines 2275:0-2300:1
     Visibility: public -/
 def sorts.orient
   (s : store.Store) (vs0 : store.TermId) (vals0 : store.TermId) :
@@ -3671,7 +3437,7 @@ def sorts.orient
   term.rebuild s3 term.Leaf.Map vals0
 
 /-- [rwlog_core::sorts::norm_ex]:
-    Source: 'src/sorts.rs', lines 2315:0-2333:1
+    Source: 'src/sorts.rs', lines 2446:0-2464:1
     Visibility: public -/
 def sorts.norm_ex
   (s : store.Store) (decls : store.TermId) (names : store.TermId)
@@ -3689,7 +3455,7 @@ def sorts.norm_ex
   else ok (none, s1)
 
 /-- [rwlog_core::sorts::norm_exs]: loop body 0:
-    Source: 'src/sorts.rs', lines 2377:4-2382:5
+    Source: 'src/sorts.rs', lines 2508:4-2513:5
     Visibility: public -/
 @[rust_loop_body]
 def sorts.norm_exs_loop.body
@@ -3712,7 +3478,7 @@ def sorts.norm_exs_loop.body
       ok (cont (rest, s3, out1))
 
 /-- [rwlog_core::sorts::norm_exs]: loop 0:
-    Source: 'src/sorts.rs', lines 2377:4-2382:5
+    Source: 'src/sorts.rs', lines 2508:4-2513:5
     Visibility: public -/
 @[rust_loop]
 def sorts.norm_exs_loop
@@ -3727,7 +3493,7 @@ def sorts.norm_exs_loop
     (x, s, out)
 
 /-- [rwlog_core::sorts::norm_exs]:
-    Source: 'src/sorts.rs', lines 2367:0-2384:1
+    Source: 'src/sorts.rs', lines 2498:0-2515:1
     Visibility: public -/
 def sorts.norm_exs
   (s : store.Store) (decls : store.TermId) (names : store.TermId)
@@ -3739,7 +3505,7 @@ def sorts.norm_exs
   sorts.rev s2 out1
 
 /-- [rwlog_core::sorts::places]: loop body 0:
-    Source: 'src/sorts.rs', lines 2133:4-2137:5
+    Source: 'src/sorts.rs', lines 2264:4-2268:5
     Visibility: public -/
 @[rust_loop_body]
 def sorts.places_loop.body
@@ -3758,7 +3524,7 @@ def sorts.places_loop.body
     ok (cont (rest, s3, out1, v1))
 
 /-- [rwlog_core::sorts::places]: loop 0:
-    Source: 'src/sorts.rs', lines 2133:4-2137:5
+    Source: 'src/sorts.rs', lines 2264:4-2268:5
     Visibility: public -/
 @[rust_loop]
 def sorts.places_loop
@@ -3771,7 +3537,7 @@ def sorts.places_loop
     (cs, s, out, v)
 
 /-- [rwlog_core::sorts::places]:
-    Source: 'src/sorts.rs', lines 2129:0-2139:1
+    Source: 'src/sorts.rs', lines 2260:0-2270:1
     Visibility: public -/
 def sorts.places
   (s : store.Store) (cs0 : store.TermId) :
@@ -5158,7 +4924,7 @@ def sorts.included_but
     sorts.included_but_loop s5 decls names todo true true
 
 /-- [rwlog_core::sorts::uppers]: loop body 0:
-    Source: 'src/sorts.rs', lines 2063:4-2068:5
+    Source: 'src/sorts.rs', lines 2194:4-2199:5
     Visibility: public -/
 @[rust_loop_body]
 def sorts.uppers_loop.body
@@ -5181,7 +4947,7 @@ def sorts.uppers_loop.body
     else ok (cont (rest, s2, out))
 
 /-- [rwlog_core::sorts::uppers]: loop 0:
-    Source: 'src/sorts.rs', lines 2063:4-2068:5
+    Source: 'src/sorts.rs', lines 2194:4-2199:5
     Visibility: public -/
 @[rust_loop]
 def sorts.uppers_loop
@@ -5195,7 +4961,7 @@ def sorts.uppers_loop
     (ns, s, out)
 
 /-- [rwlog_core::sorts::uppers]:
-    Source: 'src/sorts.rs', lines 2060:0-2070:1
+    Source: 'src/sorts.rs', lines 2191:0-2201:1
     Visibility: public -/
 def sorts.uppers
   (s : store.Store) (decls : store.TermId) (names : store.TermId)
@@ -5206,7 +4972,7 @@ def sorts.uppers
   sorts.uppers_loop names s1 decls names c g out
 
 /-- [rwlog_core::sorts::conj_at]: loop body 0:
-    Source: 'src/sorts.rs', lines 2038:4-2053:5
+    Source: 'src/sorts.rs', lines 2169:4-2184:5
     Visibility: public -/
 @[rust_loop_body]
 def sorts.conj_at_loop.body
@@ -5234,7 +5000,7 @@ def sorts.conj_at_loop.body
   else ok (done (c, s))
 
 /-- [rwlog_core::sorts::conj_at]: loop 0:
-    Source: 'src/sorts.rs', lines 2038:4-2053:5
+    Source: 'src/sorts.rs', lines 2169:4-2184:5
     Visibility: public -/
 @[rust_loop]
 def sorts.conj_at_loop
@@ -5247,7 +5013,7 @@ def sorts.conj_at_loop
     (s, c, es, go)
 
 /-- [rwlog_core::sorts::conj_at]:
-    Source: 'src/sorts.rs', lines 2034:0-2055:1
+    Source: 'src/sorts.rs', lines 2165:0-2186:1
     Visibility: public -/
 def sorts.conj_at
   (s : store.Store) (es0 : store.TermId) (v : store.TermId) :
@@ -5330,7 +5096,7 @@ def sorts.gone
   sorts.rev s2 out1
 
 /-- [rwlog_core::sorts::renumber]: loop body 0:
-    Source: 'src/sorts.rs', lines 2106:4-2112:5
+    Source: 'src/sorts.rs', lines 2237:4-2243:5
     Visibility: public -/
 @[rust_loop_body]
 def sorts.renumber_loop.body
@@ -5352,7 +5118,7 @@ def sorts.renumber_loop.body
     ok (cont (rest, s5, cs1))
 
 /-- [rwlog_core::sorts::renumber]: loop 0:
-    Source: 'src/sorts.rs', lines 2106:4-2112:5
+    Source: 'src/sorts.rs', lines 2237:4-2243:5
     Visibility: public -/
 @[rust_loop]
 def sorts.renumber_loop
@@ -5366,7 +5132,7 @@ def sorts.renumber_loop
     (l, s, cs)
 
 /-- [rwlog_core::sorts::renumber]:
-    Source: 'src/sorts.rs', lines 2095:0-2119:1
+    Source: 'src/sorts.rs', lines 2226:0-2250:1
     Visibility: public -/
 def sorts.renumber
   (s : store.Store) (decls : store.TermId) (names : store.TermId)
@@ -5382,6 +5148,257 @@ def sorts.renumber
   let (t1, s7) ← term.rebuild s6 term.Leaf.Map t
   let (x1, s8) ← term.rebuild s7 term.Leaf.Map x
   ok ((t1, x1, cs2), s8)
+
+/-- [rwlog_core::sorts::closed_ones]: loop body 0:
+    Source: 'src/sorts.rs', lines 2094:4-2108:5 -/
+@[rust_loop_body]
+def sorts.closed_ones_loop.body
+  (s : store.Store) (out : store.TermId) (l : store.TermId) (cs : store.TermId)
+  (go : Bool) :
+  Result (ControlFlow (store.Store × store.TermId × store.TermId ×
+    store.TermId × Bool) (store.Store × store.TermId))
+  := do
+  if go
+  then
+    let (o, s1) ← sorts.uncons s l
+    match o with
+    | none => ok (cont (s1, out, l, cs, false))
+    | some p =>
+      let (e, rest) := p
+      let (o1, s2) ← sorts.uncons s1 cs
+      match o1 with
+      | none => fail panic
+      | some p1 =>
+        let (c, crest) := p1
+        let (b, s3) ← cover.ground s2 c
+        if b
+        then
+          let (out1, s4) ← store.Store.alloc s3 (store.Node.App e out)
+          ok (cont (s4, out1, rest, crest, go))
+        else ok (cont (s3, out, rest, crest, go))
+  else ok (done (s, out))
+
+/-- [rwlog_core::sorts::closed_ones]: loop 0:
+    Source: 'src/sorts.rs', lines 2094:4-2108:5 -/
+@[rust_loop]
+def sorts.closed_ones_loop
+  (s : store.Store) (out : store.TermId) (l : store.TermId) (cs : store.TermId)
+  (go : Bool) :
+  Result (store.Store × store.TermId)
+  := do
+  loop
+    (fun (s1, out1, l1, cs1, go1) => sorts.closed_ones_loop.body s1 out1 l1 cs1
+      go1)
+    (s, out, l, cs, go)
+
+/-- [rwlog_core::sorts::closed_ones]:
+    Source: 'src/sorts.rs', lines 2089:0-2110:1 -/
+def sorts.closed_ones
+  (s : store.Store) (l0 : store.TermId) (cs0 : store.TermId) :
+  Result (store.TermId × store.Store)
+  := do
+  let (out, s1) ← store.Store.alloc s store.Node.Nil
+  let (s2, out1) ← sorts.closed_ones_loop s1 out l0 cs0 true
+  sorts.rev s2 out1
+
+/-- [rwlog_core::sorts::kept_entries]: loop body 0:
+    Source: 'src/sorts.rs', lines 2072:4-2083:5 -/
+@[rust_loop_body]
+def sorts.kept_entries_loop.body
+  (es : store.TermId) (s : store.Store) (out : store.TermId) :
+  Result (ControlFlow (store.TermId × store.Store × store.TermId)
+    (store.Store × store.TermId))
+  := do
+  let (o, s1) ← sorts.uncons s es
+  match o with
+  | none => ok (done (s1, out))
+  | some p =>
+    let (e, rest) := p
+    let (o1, s2) ← sorts.uncons s1 e
+    match o1 with
+    | none => fail panic
+    | some p1 =>
+      let (v, _) := p1
+      let (o2, s3) ← store.Store.get s2 store.Tbl.B v
+      match o2 with
+      | none => ok (cont (rest, s3, out))
+      | some _ =>
+        let (out1, s4) ← store.Store.alloc s3 (store.Node.App e out)
+        ok (cont (rest, s4, out1))
+
+/-- [rwlog_core::sorts::kept_entries]: loop 0:
+    Source: 'src/sorts.rs', lines 2072:4-2083:5 -/
+@[rust_loop]
+def sorts.kept_entries_loop
+  (es : store.TermId) (s : store.Store) (out : store.TermId) :
+  Result (store.Store × store.TermId)
+  := do
+  loop
+    (fun (es1, s1, out1) => sorts.kept_entries_loop.body es1 s1 out1)
+    (es, s, out)
+
+/-- [rwlog_core::sorts::kept_entries]:
+    Source: 'src/sorts.rs', lines 2069:0-2085:1 -/
+def sorts.kept_entries
+  (s : store.Store) (es0 : store.TermId) :
+  Result (store.TermId × store.Store)
+  := do
+  let (out, s1) ← store.Store.alloc s store.Node.Nil
+  let (s2, out1) ← sorts.kept_entries_loop es0 s1 out
+  sorts.rev s2 out1
+
+/-- [rwlog_core::sorts::moved]: loop body 0:
+    Source: 'src/sorts.rs', lines 2019:4-2034:5 -/
+@[rust_loop_body]
+def sorts.moved_loop.body
+  (s : store.Store) (out : store.TermId) (vs : store.TermId) (l : store.TermId)
+  (go : Bool) :
+  Result (ControlFlow (store.Store × store.TermId × store.TermId ×
+    store.TermId × Bool) (store.Store × store.TermId))
+  := do
+  if go
+  then
+    let (o, s1) ← sorts.uncons s vs
+    match o with
+    | none => ok (cont (s1, out, vs, l, false))
+    | some p =>
+      let (v, vrest) := p
+      let (o1, s2) ← sorts.uncons s1 l
+      match o1 with
+      | none => fail panic
+      | some p1 =>
+        let (p2, lrest) := p1
+        let (b, s3) ← store.Store.same s2 v p2
+        if b
+        then ok (cont (s3, out, vrest, lrest, go))
+        else
+          let (eq, s4) ← store.Store.alloc s3 (store.Node.App v p2)
+          let (out1, s5) ← store.Store.alloc s4 (store.Node.App eq out)
+          ok (cont (s5, out1, vrest, lrest, go))
+  else ok (done (s, out))
+
+/-- [rwlog_core::sorts::moved]: loop 0:
+    Source: 'src/sorts.rs', lines 2019:4-2034:5 -/
+@[rust_loop]
+def sorts.moved_loop
+  (s : store.Store) (out : store.TermId) (vs : store.TermId) (l : store.TermId)
+  (go : Bool) :
+  Result (store.Store × store.TermId)
+  := do
+  loop
+    (fun (s1, out1, vs1, l1, go1) => sorts.moved_loop.body s1 out1 vs1 l1 go1)
+    (s, out, vs, l, go)
+
+/-- [rwlog_core::sorts::moved]:
+    Source: 'src/sorts.rs', lines 2014:0-2036:1 -/
+def sorts.moved
+  (s : store.Store) (vs0 : store.TermId) (vals0 : store.TermId) :
+  Result (store.TermId × store.Store)
+  := do
+  let (out, s1) ← store.Store.alloc s store.Node.Nil
+  let (s2, out1) ← sorts.moved_loop s1 out vs0 vals0 true
+  sorts.rev s2 out1
+
+/-- [rwlog_core::sorts::solved_ex]:
+    Source: 'src/sorts.rs', lines 2043:0-2051:1
+    Visibility: public -/
+def sorts.solved_ex
+  (s : store.Store) (e : store.TermId) :
+  Result ((Option store.TermId) × store.Store)
+  := do
+  let (vs, s1) ← sorts.firsts s e
+  let ((ok1, vals), s2) ← span.solve_into s1 e vs
+  if ok1
+  then let (ti, s3) ← sorts.moved s2 vs vals
+       ok (some ti, s3)
+  else ok (none, s2)
+
+/-- [rwlog_core::sorts::solved_exs]: loop body 0:
+    Source: 'src/sorts.rs', lines 2058:4-2063:5 -/
+@[rust_loop_body]
+def sorts.solved_exs_loop.body
+  (xs : store.TermId) (s : store.Store) (out : store.TermId) :
+  Result (ControlFlow (store.TermId × store.Store × store.TermId)
+    (store.Store × store.TermId))
+  := do
+  let (o, s1) ← sorts.uncons s xs
+  match o with
+  | none => ok (done (s1, out))
+  | some p =>
+    let (e, rest) := p
+    let (o1, s2) ← sorts.solved_ex s1 e
+    match o1 with
+    | none => ok (cont (rest, s2, out))
+    | some e1 =>
+      let (out1, s3) ← store.Store.alloc s2 (store.Node.App e1 out)
+      ok (cont (rest, s3, out1))
+
+/-- [rwlog_core::sorts::solved_exs]: loop 0:
+    Source: 'src/sorts.rs', lines 2058:4-2063:5 -/
+@[rust_loop]
+def sorts.solved_exs_loop
+  (xs : store.TermId) (s : store.Store) (out : store.TermId) :
+  Result (store.Store × store.TermId)
+  := do
+  loop
+    (fun (xs1, s1, out1) => sorts.solved_exs_loop.body xs1 s1 out1)
+    (xs, s, out)
+
+/-- [rwlog_core::sorts::solved_exs]:
+    Source: 'src/sorts.rs', lines 2055:0-2065:1 -/
+def sorts.solved_exs
+  (s : store.Store) (xs0 : store.TermId) :
+  Result (store.TermId × store.Store)
+  := do
+  let (out, s1) ← store.Store.alloc s store.Node.Nil
+  let (s2, out1) ← sorts.solved_exs_loop xs0 s1 out
+  sorts.rev s2 out1
+
+/-- [rwlog_core::sorts::prune]: loop body 0:
+    Source: 'src/sorts.rs', lines 2122:4-2125:5
+    Visibility: public -/
+@[rust_loop_body]
+def sorts.prune_loop.body
+  (nil : store.TermId) (l : store.TermId) (s : store.Store) :
+  Result (ControlFlow (store.TermId × store.Store) store.Store)
+  := do
+  let (o, s1) ← sorts.uncons s l
+  match o with
+  | none => ok (done s1)
+  | some p =>
+    let (v, rest) := p
+    let s2 ← store.Store.set s1 store.Tbl.B v nil
+    ok (cont (rest, s2))
+
+/-- [rwlog_core::sorts::prune]: loop 0:
+    Source: 'src/sorts.rs', lines 2122:4-2125:5
+    Visibility: public -/
+@[rust_loop]
+def sorts.prune_loop
+  (l : store.TermId) (s : store.Store) (nil : store.TermId) :
+  Result store.Store
+  := do
+  loop
+    (fun (l1, s1) => sorts.prune_loop.body nil l1 s1)
+    (l, s)
+
+/-- [rwlog_core::sorts::prune]:
+    Source: 'src/sorts.rs', lines 2117:0-2131:1
+    Visibility: public -/
+def sorts.prune
+  (s : store.Store) (ks : store.TermId) (xs0 : store.TermId)
+  (es0 : store.TermId) :
+  Result ((store.TermId × store.TermId) × store.Store)
+  := do
+  let (sol, s1) ← sorts.solved_exs s xs0
+  let (nil, s2) ← store.Store.alloc s1 store.Node.Nil
+  let s3 ← store.Store.clear s2 store.Tbl.B
+  let s4 ← sorts.prune_loop ks s3 nil
+  let (es, s5) ← sorts.kept_entries s4 es0
+  let s6 ← store.Store.clear s5 store.Tbl.A
+  let (closed, s7) ← term.rebuild s6 term.Leaf.Map sol
+  let (xs, s8) ← sorts.closed_ones s7 sol closed
+  ok ((xs, es), s8)
 
 /-- [rwlog_core::sorts::left_at]:
     Source: 'src/sorts.rs', lines 1644:0-1666:1 -/
@@ -5757,7 +5774,7 @@ def sorts.tighten_loop
     (s, ok1, t, x, es, next, go)
 
 /-- [rwlog_core::sorts::tighten]:
-    Source: 'src/sorts.rs', lines 1959:0-2000:1
+    Source: 'src/sorts.rs', lines 1960:0-2000:1
     Visibility: public -/
 def sorts.tighten
   (s : store.Store) (decls : store.TermId) (names : store.TermId)
@@ -5766,15 +5783,14 @@ def sorts.tighten
   Result ((Option (store.TermId × store.TermId × store.TermId ×
     store.TermId)) × store.Store)
   := do
-  let ((ok0, t1, x1, es1), s1) ← sorts.settle s decls names t0 x0 es0
-  let (s2, ok1, t, x, es, next) ←
-    sorts.tighten_loop s1 decls names ok0 t1 x1 es1 next0 ok0
+  let (s1, ok1, t, x, es, next) ←
+    sorts.tighten_loop s decls names true t0 x0 es0 next0 true
   if ok1
-  then ok (some (t, x, es, next), s2)
-  else ok (none, s2)
+  then ok (some (t, x, es, next), s1)
+  else ok (none, s1)
 
 /-- [rwlog_core::sorts::normal]:
-    Source: 'src/sorts.rs', lines 2659:0-2693:1
+    Source: 'src/sorts.rs', lines 2692:0-2723:1
     Visibility: public -/
 def sorts.normal
   (s : store.Store) (decls : store.TermId) (names : store.TermId)
@@ -5786,30 +5802,22 @@ def sorts.normal
   | none => ok (none, s1)
   | some t1 =>
     let (t0, x0, es0, next0) := t1
-    let (o1, s2) ← sorts.tighten s1 decls names t0 x0 es0 next0
-    match o1 with
-    | none => ok (none, s2)
-    | some t2 =>
-      let (t11, x1, es1, _) := t2
-      let ((t21, x2, cs), s3) ← sorts.renumber s2 decls names t11 x1 es1
-      let (vs, s4) ← sorts.places s3 cs
-      let (ys, s5) ← sorts.norm_exs s4 decls names vs cs x2
-      let (zs, s6) ← sorts.antichain s5 vs ys
-      let (o2, s7) ← sorts.uncons s6 t21
-      match o2 with
-      | none => fail panic
-      | some p =>
-        let (head, _) := p
-        let (o3, s8) ← sorts.uncons s7 head
-        match o3 with
-        | none => fail panic
-        | some p1 =>
-          let (_, left) := p1
-          let (ws, s9) ← sorts.firsts s8 left
-          let (ks, s10) ← sorts.take_len s9 vs ws
-          let (cs1, s11) ← sorts.take_len s10 cs ks
-          let (xs1, s12) ← sorts.cut_exs s11 vs ks zs
-          ok (some { t := left, c := cs1, x := xs1 }, s12)
+    let ((ok1, t11, x1, es1), s2) ← sorts.settle s1 decls names t0 x0 es0
+    if ok1
+    then
+      let (ks, s3) ← sorts.firsts s2 t11
+      let ((x2, es2), s4) ← sorts.prune s3 ks x1 es1
+      let (o1, s5) ← sorts.tighten s4 decls names t11 x2 es2 next0
+      match o1 with
+      | none => ok (none, s5)
+      | some t2 =>
+        let (t3, x3, es3, _) := t2
+        let ((t4, x4, cs), s6) ← sorts.renumber s5 decls names t3 x3 es3
+        let (vs, s7) ← sorts.places s6 cs
+        let (ys, s8) ← sorts.norm_exs s7 decls names vs cs x4
+        let (zs, s9) ← sorts.antichain s8 vs ys
+        ok (some { t := t4, c := cs, x := zs }, s9)
+    else ok (none, s2)
 
 /-- [rwlog_core::dom::one]:
     Source: 'src/dom.rs', lines 122:0-129:1
@@ -6536,21 +6544,21 @@ def sorts.Count.Insts.CoreMarkerCopy : core.marker.Copy sorts.Count := {
 }
 
 /-- [rwlog_core::sorts::{impl core::clone::Clone for rwlog_core::sorts::Rep}::clone]:
-    Source: 'src/sorts.rs', lines 2645:9-2645:14
+    Source: 'src/sorts.rs', lines 2673:9-2673:14
     Visibility: public -/
 def sorts.Rep.Insts.CoreCloneClone.clone
   (self : sorts.Rep) : Result sorts.Rep := do
   ok self
 
 /-- Trait implementation: [rwlog_core::sorts::{impl core::clone::Clone for rwlog_core::sorts::Rep}]
-    Source: 'src/sorts.rs', lines 2645:9-2645:14 -/
+    Source: 'src/sorts.rs', lines 2673:9-2673:14 -/
 @[reducible]
 def sorts.Rep.Insts.CoreCloneClone : core.clone.Clone sorts.Rep := {
   clone := sorts.Rep.Insts.CoreCloneClone.clone
 }
 
 /-- Trait implementation: [rwlog_core::sorts::{impl core::marker::Copy for rwlog_core::sorts::Rep}]
-    Source: 'src/sorts.rs', lines 2645:16-2645:20 -/
+    Source: 'src/sorts.rs', lines 2673:16-2673:20 -/
 @[reducible]
 def sorts.Rep.Insts.CoreMarkerCopy : core.marker.Copy sorts.Rep := {
   cloneInst := sorts.Rep.Insts.CoreCloneClone

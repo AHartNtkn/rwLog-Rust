@@ -6,16 +6,20 @@
 //! A problem is a pattern, equations, sorts of patterns and exclusions.
 //! `start` solves the equations, numbers the variables left in the order
 //! they first occur in the pattern, the sorted patterns and the exclusions,
-//! brings the sorts down to the variables, and pairs the pattern with the
-//! tuple of all variables. `normal` tightens that store, numbers it again,
-//! solves its exclusions, drops the ones another covers, and keeps what is
-//! over the variables of the pattern. Every sort of a problem is declared.
+//! and brings the sorts down to the variables: one entry for each variable,
+//! also for the hidden ones, which occur in the sorted patterns or the
+//! exclusions and not in the pattern. `normal` replaces each variable whose
+//! sorts have one member, drops the hidden variables with the exclusions
+//! whose solved forms mention them, tightens what is left, numbers it again,
+//! solves its exclusions and drops the ones another covers. A hidden
+//! variable is never replaced by a root applied to new variables. Every sort
+//! of a problem is declared.
 
 mod common;
 
 use common::decls::*;
 use common::sorts::*;
-use common::{ap, get, get_list, v, T};
+use common::{ap, get, get_list, spent, v, T};
 use rwlog_core::sorts::{normal, start};
 use rwlog_core::store::{Node, Tbl, TermId};
 
@@ -49,32 +53,6 @@ fn get_lists(f: &mut Fx, mut p: TermId) -> Vec<Vec<T>> {
     }
 }
 
-/// The members of a tuple, first to last: the tuple is the pair of the
-/// last with the tuple of the others, and a pair is `Nil` applied to its
-/// two parts.
-fn untuple(f: &mut Fx, mut p: TermId) -> Vec<T> {
-    let mut out = Vec::new();
-    loop {
-        match f.s.read(p) {
-            Node::Nil => {
-                out.reverse();
-                return out;
-            }
-            Node::App(h, rest) => {
-                match f.s.read(h) {
-                    Node::App(nil, m) => {
-                        assert!(matches!(f.s.read(nil), Node::Nil), "the pair has another head");
-                        out.push(get(&mut f.s, m));
-                    }
-                    _ => panic!("a tuple that is not a pair"),
-                }
-                p = rest;
-            }
-            _ => panic!("a term where a tuple was expected"),
-        }
-    }
-}
-
 /// Tables with entries and flags left by earlier work.
 fn dirty(f: &mut Fx) {
     let n = f.s.alloc(Node::Nil);
@@ -87,9 +65,9 @@ fn dirty(f: &mut Fx) {
     f.s.set(Tbl::B, f.names, m);
 }
 
-/// What `start` returns, read back: the pattern, the variables of the tuple it
-/// is paired with, the exclusions, the entries and the next variable.
-type Started = (T, Vec<T>, Vec<Vec<T>>, Entries, T);
+/// What `start` returns, read back: the pattern, the exclusions, the entries
+/// and the next variable.
+type Started = (T, Vec<Vec<T>>, Entries, T);
 
 fn run_start(p: &Prob, soiled: bool) -> Option<Started> {
     let mut f = fixture(wf());
@@ -100,32 +78,21 @@ fn run_start(p: &Prob, soiled: bool) -> Option<Started> {
     let got = start(&mut f.s, f.decls, f.names, t, e, a, x);
     f.empty_stack();
     got.map(|(t0, x0, es0, next0)| {
-        let (h, vars) = match f.s.read(t0) {
-            Node::App(h, vars) => (h, vars),
-            _ => panic!("the pattern is not a pair"),
-        };
-        let t1 = match f.s.read(h) {
-            Node::App(nil, t1) => {
-                assert!(matches!(f.s.read(nil), Node::Nil), "the pair has another head");
-                t1
-            }
-            _ => panic!("the pattern is not a pair"),
-        };
-        let t1 = get(&mut f.s, t1);
-        let vars = untuple(&mut f, vars);
+        let t1 = get(&mut f.s, t0);
         let x0 = get_lists(&mut f, x0);
         let es = f.read_entries(es0);
         let next = get(&mut f.s, next0);
-        (t1, vars, x0, es, next)
+        (t1, x0, es, next)
     })
 }
 
+/// `start` gives the pattern `t` itself, the exclusions `x`, an entry with
+/// the conjunction `ents[i]` for each variable `i` below `n` in order, and
+/// `n` as the next variable.
 fn start_is(p: &Prob, t: &P, n: usize, x: &[Vec<(P, P)>], ents: &[Vec<Name>]) {
     let order = fixture(wf()).order;
-    let (gt, gvars, gx, ges, gnext) = run_start(p, false).expect("a store");
+    let (gt, gx, ges, gnext) = run_start(p, false).expect("a store");
     assert_eq!(gt, t.tree(), "the pattern of {p:?}");
-    let places: Vec<T> = (0..n).map(|i| v(i as u128)).collect();
-    assert_eq!(gvars, places, "the variables of {p:?}");
     let wx: Vec<Vec<T>> =
         x.iter().map(|e| e.iter().map(|(l, r)| ap(l.tree(), r.tree())).collect()).collect();
     assert_eq!(gx, wx, "the exclusions of {p:?}");
@@ -706,4 +673,285 @@ fn normal_of_a_normal_store_is_that_store() {
         let got = run_normal(wf(), &fst.prob(), false).expect("a store");
         assert_eq!(got, shape(&fst));
     }
+}
+
+// Hidden variables: the ones of the sorted patterns and the exclusions that
+// do not occur in the pattern.
+
+/// `normal` gives the store written by hand: the pattern `t`, the sorts `c`
+/// of its variables in order, and the exclusions `x`, each the variables it
+/// moves with their values. It is the store of the reference.
+fn normal_is(p: &Prob, t: P, c: &[&[Name]], x: &[&[(usize, P)]]) {
+    let want = Raw {
+        t,
+        c: c.iter().map(|l| l.iter().copied().collect()).collect(),
+        x: x.iter().map(|b| b.to_vec()).collect(),
+    };
+    let reference = common::sorts::normal(&Sorts::new(wf()), p);
+    assert_eq!(reference.as_ref(), Some(&want), "the reference on {p:?}");
+    assert_eq!(run_normal(wf(), p, false), Some(shape(&want)), "{p:?}");
+}
+
+/// `normal` gives the problem `p` the store it gives `q`, and that is the
+/// store of the reference for both.
+fn normal_as(p: &Prob, q: &Prob) {
+    normal_same(wf(), p);
+    normal_same(wf(), q);
+    assert_eq!(run_normal(wf(), p, false), run_normal(wf(), q, false), "{p:?} and {q:?}");
+}
+
+#[test]
+fn normal_drops_a_hidden_variable_with_an_infinite_sort() {
+    normal_is(&Prob { t: f2(pv(0), pv(1)), e: vec![], a: vec![(NAT, pv(2))], x: vec![] }, f2(pv(0), pv(1)), &[&[], &[]], &[]);
+}
+
+#[test]
+fn normal_drops_a_hidden_variable_and_keeps_the_sorts_of_the_pattern_variables() {
+    normal_is(
+        &Prob { t: f2(pv(0), pv(1)), e: vec![], a: vec![(NAT, pv(1)), (NAT, pv(2)), (ANY, pv(3))], x: vec![] },
+        f2(pv(0), pv(1)),
+        &[&[], &[NAT, ANY]],
+        &[],
+    );
+}
+
+#[test]
+fn normal_puts_the_one_member_of_a_hidden_variable_in_an_exclusion_before_judging_it() {
+    // `x != (s h)` with `h` the one `unit` is `x != (s z)`.
+    let p = Prob { t: pv(0), e: vec![], a: vec![(UNIT, pv(1))], x: vec![vec![(pv(0), su(pv(1)))]] };
+    normal_is(&p, pv(0), &[&[]], &[&[(0, su(z()))]]);
+    normal_as(&p, &Prob { t: pv(0), e: vec![], a: vec![], x: vec![vec![(pv(0), su(z()))]] });
+}
+
+#[test]
+fn normal_puts_the_one_compound_member_of_a_hidden_variable_in_an_exclusion() {
+    let p = Prob { t: pv(0), e: vec![], a: vec![(TWO, pv(1))], x: vec![vec![(pv(0), k1(pv(1)))]] };
+    normal_is(&p, pv(0), &[&[]], &[&[(0, k1(pr(z(), z())))]]);
+}
+
+#[test]
+fn normal_exclusion_with_the_one_member_of_a_hidden_variable_opens_a_sorted_pattern_variable() {
+    // `x != h` with `h` the one `unit` leaves a `nat` its successors only.
+    let p = Prob { t: pv(0), e: vec![], a: vec![(NAT, pv(0)), (UNIT, pv(1))], x: vec![vec![(pv(1), pv(0))]] };
+    normal_is(&p, su(pv(0)), &[&[NAT, ANY]], &[]);
+}
+
+#[test]
+fn normal_exclusion_of_the_one_member_of_a_hidden_variable_from_itself_is_none() {
+    normal_none(wf(), &Prob { t: pv(0), e: vec![], a: vec![(TWO, pv(1))], x: vec![vec![(pv(1), pr(z(), z()))]] });
+}
+
+#[test]
+fn normal_hidden_variable_without_a_value_is_none_though_its_exclusion_would_be_dropped() {
+    normal_none(wf(), &Prob { t: pv(0), e: vec![], a: vec![(VOID, pv(1))], x: vec![vec![(pv(0), pv(1))]] });
+    normal_none(wf(), &Prob { t: pv(0), e: vec![], a: vec![(NAT, pv(1)), (PAIR, pv(1))], x: vec![vec![(pv(1), z())]] });
+}
+
+#[test]
+fn normal_hidden_variable_without_a_value_under_a_sorted_pattern_is_none() {
+    normal_none(wf(), &Prob { t: pv(0), e: vec![], a: vec![(PAIR, pr(pv(1), pv(2))), (BOX, pv(2))], x: vec![] });
+}
+
+#[test]
+fn normal_drops_an_exclusion_of_a_sorted_hidden_variable_from_a_ground_term() {
+    normal_is(&Prob { t: pv(0), e: vec![], a: vec![(NAT, pv(1))], x: vec![vec![(pv(1), su(z()))]] }, pv(0), &[&[]], &[]);
+}
+
+#[test]
+fn normal_drops_an_exclusion_of_a_hidden_variable_from_a_term_over_the_pattern_variable() {
+    normal_is(&Prob { t: pv(0), e: vec![], a: vec![], x: vec![vec![(pv(1), pr(pv(0), z()))]] }, pv(0), &[&[]], &[]);
+}
+
+#[test]
+fn normal_drops_an_exclusion_of_the_pattern_variable_from_a_term_over_a_hidden_variable() {
+    normal_is(&Prob { t: pv(0), e: vec![], a: vec![(NAT, pv(1))], x: vec![vec![(pv(0), k1(pv(1)))]] }, pv(0), &[&[]], &[]);
+}
+
+#[test]
+fn normal_drops_an_exclusion_of_a_sorted_pattern_variable_from_a_term_over_a_hidden_variable() {
+    // `x != (s h)` leaves a `nat` `x` every value: `z` is not excluded.
+    normal_is(
+        &Prob { t: pv(0), e: vec![], a: vec![(NAT, pv(0)), (NAT, pv(1))], x: vec![vec![(pv(0), su(pv(1)))]] },
+        pv(0),
+        &[&[NAT, ANY]],
+        &[],
+    );
+}
+
+#[test]
+fn normal_exclusion_with_a_hidden_variable_equal_to_itself_is_the_rest_of_it() {
+    // `[(h, h), (x, (s z))]` is `x != (s z)`.
+    let p = Prob { t: pv(0), e: vec![], a: vec![], x: vec![vec![(pv(1), pv(1)), (pv(0), su(z()))]] };
+    normal_is(&p, pv(0), &[&[]], &[&[(0, su(z()))]]);
+}
+
+#[test]
+fn normal_exclusion_with_a_hidden_variable_equal_to_itself_gives_the_store_of_the_rest_of_it() {
+    // `[(h, h), (x, a)]` is `x != a`, written before or after, sorted or not.
+    let bare = Prob { t: pv(0), e: vec![], a: vec![], x: vec![vec![(pv(0), a())]] };
+    normal_as(&Prob { x: vec![vec![(pv(1), pv(1)), (pv(0), a())]], ..bare.clone() }, &bare);
+    normal_as(&Prob { x: vec![vec![(pv(0), a()), (pv(1), pv(1))]], ..bare.clone() }, &bare);
+    normal_as(&Prob { a: vec![(NAT, pv(1))], x: vec![vec![(pv(1), pv(1)), (pv(0), a())]], ..bare.clone() }, &bare);
+}
+
+#[test]
+fn normal_exclusion_with_a_hidden_variable_at_the_same_place_on_both_sides_is_the_rest_of_it() {
+    let p = Prob { t: pv(0), e: vec![], a: vec![(NAT, pv(1))], x: vec![vec![(pr(pv(1), pv(0)), pr(pv(1), z()))]] };
+    normal_is(&p, pv(0), &[&[]], &[&[(0, z())]]);
+}
+
+#[test]
+fn normal_exclusion_with_a_hidden_variable_equal_to_itself_opens_a_sorted_pattern_variable() {
+    // `[(h, h), (x, z)]` is `x != z`, which leaves a `nat` its successors.
+    let p = Prob { t: pv(0), e: vec![], a: vec![(NAT, pv(0))], x: vec![vec![(pv(1), pv(1)), (pv(0), z())]] };
+    normal_is(&p, su(pv(0)), &[&[NAT, ANY]], &[]);
+}
+
+#[test]
+fn normal_exclusion_of_a_hidden_variable_from_itself_is_none() {
+    normal_none(wf(), &Prob { t: pv(0), e: vec![], a: vec![], x: vec![vec![(pv(1), pv(1))]] });
+    normal_none(wf(), &Prob { t: pv(0), e: vec![], a: vec![(NAT, pv(1))], x: vec![vec![(su(pv(1)), su(pv(1)))]] });
+}
+
+#[test]
+fn normal_exclusion_that_always_holds_once_the_pattern_variable_has_its_one_value_is_none_with_a_hidden_variable_in_it() {
+    normal_none(wf(), &Prob { t: pv(0), e: vec![], a: vec![(UNIT, pv(0))], x: vec![vec![(pv(0), z()), (pv(1), pv(1))]] });
+}
+
+#[test]
+fn normal_drops_an_exclusion_between_two_hidden_variables() {
+    normal_is(&Prob { t: pv(0), e: vec![], a: vec![(NAT, pv(1)), (NAT, pv(2))], x: vec![vec![(pv(1), pv(2))]] }, pv(0), &[&[]], &[]);
+    normal_is(&Prob { t: pv(0), e: vec![], a: vec![], x: vec![vec![(pv(2), pv(1))]] }, pv(0), &[&[]], &[]);
+}
+
+#[test]
+fn normal_drops_an_exclusion_between_the_pattern_variable_and_a_hidden_one_in_both_orders() {
+    normal_is(&Prob { t: pv(0), e: vec![], a: vec![(NAT, pv(0)), (NAT, pv(1))], x: vec![vec![(pv(0), pv(1))]] }, pv(0), &[&[NAT, ANY]], &[]);
+    normal_is(&Prob { t: pv(0), e: vec![], a: vec![(NAT, pv(0)), (NAT, pv(1))], x: vec![vec![(pv(1), pv(0))]] }, pv(0), &[&[NAT, ANY]], &[]);
+}
+
+#[test]
+fn normal_drops_an_exclusion_that_makes_two_pattern_variables_equal_through_a_hidden_one() {
+    // Not `x != y`: the hidden variable can differ from both.
+    normal_is(
+        &Prob { t: f2(pv(0), pv(1)), e: vec![], a: vec![], x: vec![vec![(pv(0), pv(2)), (pv(1), pv(2))]] },
+        f2(pv(0), pv(1)),
+        &[&[], &[]],
+        &[],
+    );
+}
+
+#[test]
+fn normal_drops_an_exclusion_that_chains_through_a_hidden_variable_to_a_ground_term() {
+    // Not `x != a`: the hidden variable can be another term than `a`.
+    normal_is(&Prob { t: pv(0), e: vec![], a: vec![], x: vec![vec![(pv(0), pv(1)), (pv(1), a())]] }, pv(0), &[&[]], &[]);
+}
+
+#[test]
+fn normal_keeps_the_exclusion_over_the_pattern_among_dropped_ones() {
+    let p = Prob {
+        t: f2(pv(0), pv(1)),
+        e: vec![],
+        a: vec![(NAT, pv(2))],
+        x: vec![vec![(pv(0), pv(2))], vec![(pv(1), su(pv(0)))], vec![(pv(2), z())], vec![(pv(3), pv(2))]],
+    };
+    normal_is(&p, f2(pv(0), pv(1)), &[&[], &[]], &[&[(1, su(pv(0)))]]);
+}
+
+#[test]
+fn normal_hidden_variable_whose_values_have_one_root_changes_nothing() {
+    let bare = Prob { t: f2(pv(0), pv(1)), e: vec![], a: vec![(NAT, pv(1))], x: vec![] };
+    for n in [SUC, BOX, PAIR, MIX, C2, C3] {
+        let p = Prob { a: vec![(NAT, pv(1)), (n, pv(2))], ..bare.clone() };
+        normal_as(&p, &bare);
+    }
+}
+
+#[test]
+fn normal_hidden_variable_left_one_root_by_an_exclusion_changes_nothing() {
+    // `h` is a `nat` and not `z`: every value of it is a successor.
+    let bare = Prob { t: pv(0), e: vec![], a: vec![(NAT, pv(0))], x: vec![] };
+    let p = Prob { t: pv(0), e: vec![], a: vec![(NAT, pv(0)), (NAT, pv(1))], x: vec![vec![(pv(1), z())]] };
+    normal_as(&p, &bare);
+    normal_is(&p, pv(0), &[&[NAT, ANY]], &[]);
+}
+
+#[test]
+fn normal_drops_an_exclusion_over_a_hidden_variable_whose_values_have_one_root() {
+    // `x != h` with `h` a pair of `nat`, and `h` not the pair of two `z`.
+    let p = Prob {
+        t: pv(0),
+        e: vec![],
+        a: vec![(PAIR, pv(1))],
+        x: vec![vec![(pv(0), pv(1))], vec![(pv(1), pr(z(), z()))]],
+    };
+    normal_is(&p, pv(0), &[&[]], &[]);
+}
+
+#[test]
+fn normal_opens_the_pattern_variable_and_not_a_hidden_one_of_the_same_sort() {
+    let p = Prob { t: pv(0), e: vec![], a: vec![(C3, pv(0)), (C3, pv(1))], x: vec![vec![(pv(0), pv(1))]] };
+    normal_is(&p, k1(k1(k1(pv(0)))), &[&[NAT, ANY]], &[]);
+}
+
+#[test]
+fn normal_hidden_variables_leave_the_stack_empty_and_work_on_dirty_tables() {
+    normal_dirty(&Prob {
+        t: f2(pv(0), pv(1)),
+        e: vec![],
+        a: vec![(NAT, pv(0)), (UNIT, pv(2)), (C2, pv(3)), (NAT, pv(4))],
+        x: vec![vec![(pv(0), su(pv(2)))], vec![(pv(1), pv(3))], vec![(pv(4), pv(4)), (pv(1), a())], vec![(pv(4), z())]],
+    });
+}
+
+// The cost of a hidden variable.
+
+const T0: Name = 200;
+
+/// `t0` is `z` or `s` of a `t0`, and `t(i)` is `f` of two `t(i-1)`, up to
+/// `t(k)`: each has one root from `t1` on, and infinitely many members.
+fn tower(k: u32) -> Vec<(Name, Def)> {
+    let mut defs = vec![(T0, Def { cases: vec![(Z, vec![]), (SU, vec![Some(T0)])], rest: None })];
+    for i in 1..=k {
+        defs.push((T0 + i, one(F, vec![Some(T0 + i - 1), Some(T0 + i - 1)])));
+    }
+    defs
+}
+
+/// The problem of the pattern `x` with a hidden variable in `t(k)`.
+fn hidden_in_tower(k: u32) -> Prob {
+    Prob { t: pv(0), e: vec![], a: vec![(T0 + k, pv(1))], x: vec![] }
+}
+
+/// The normal store of the problem under the towers up to `k`, and the
+/// ticks `normal` spent on it.
+fn normal_ticks(k: u32, p: &Prob) -> (Option<Shape>, u64) {
+    let mut f = fixture(tower(k));
+    let (t, e, a, x) = put_prob(&mut f, p);
+    let (decls, names) = (f.decls, f.names);
+    let (got, ticks) = spent(&mut f.s, |s| normal(s, decls, names, t, e, a, x));
+    f.empty_stack();
+    let got = got.map(|r| {
+        let t1 = get(&mut f.s, r.t);
+        let cs = get_conjs(&mut f.s, r.c).into_iter().map(sorted).collect();
+        let xs = get_lists(&mut f, r.x).iter().map(|l| format!("{l:?}")).collect();
+        (t1, cs, sorted(xs))
+    });
+    (got, ticks)
+}
+
+#[test]
+fn normal_does_not_expand_a_hidden_variable_with_one_root() {
+    // Replacing the hidden variable by its root down to `t0` takes `2^k - 1`
+    // replacements. Dropping it takes none: twice the depth is then at most
+    // a fixed power of two times the work, far below the `2^k` of expanding.
+    let k = 8;
+    let want = Raw { t: pv(0), c: vec![Conj::new()], x: vec![] };
+    let reference = common::sorts::normal(&Sorts::new(tower(k)), &hidden_in_tower(k));
+    assert_eq!(reference.as_ref(), Some(&want), "the reference at depth {k}");
+    let (shallow, t1) = normal_ticks(k, &hidden_in_tower(k));
+    let (deep, t2) = normal_ticks(2 * k, &hidden_in_tower(2 * k));
+    assert_eq!(shallow, Some(shape(&want)), "depth {k}");
+    assert_eq!(deep, Some(shape(&want)), "depth {}", 2 * k);
+    assert!(t2 <= 16 * t1, "{t1} ticks at depth {k} and {t2} at depth {}", 2 * k);
 }
