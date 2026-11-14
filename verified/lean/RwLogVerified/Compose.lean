@@ -308,7 +308,7 @@ theorem finish_spec (hnm : Function.Injective nm) (s : store.Store) (eqs out : s
   cases ok with
   | true =>
     simp only [SolveRes, ↓reduceIte] at hres
-    obtain ⟨t', hrep, hsome⟩ := hres
+    obtain ⟨t', hrep, hsome, -⟩ := hres
     rw [hR] at hsome
     cases R with
     | none => cases hsome

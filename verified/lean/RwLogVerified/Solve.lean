@@ -284,11 +284,11 @@ theorem enc_of_app {nodes : List store.Node} {E : Eqns Nat} {i : Nat} {e rest : 
 
 /-! ## The loop -/
 
-/-- What the loop reports: the output with the solution applied, or that
-there is no solution. -/
-def SolveRes (nm : Option Nat → Sym) (nodes : List store.Node) (R : Option Pat) (ok : Bool)
-    (out : store.TermId) : Prop :=
-  if ok then ∃ o, Repr nm nodes out.val o ∧ R = some o else R = none
+/-- What the loop reports: the output with the solution applied, which has
+at most `D` distinct subterms, or that there is no solution. -/
+def SolveRes (nm : Option Nat → Sym) (nodes : List store.Node) (D : Nat) (R : Option Pat)
+    (ok : Bool) (out : store.TermId) : Prop :=
+  if ok then ∃ o, Repr nm nodes out.val o ∧ R = some o ∧ o.subs.card ≤ D else R = none
 
 /-- The invariant of the loop. `s0` is the store at the start, `B` the tick
 count the loop must stay under, and `R` the answer of the specification. -/
@@ -298,7 +298,7 @@ def SolveInv (nm : Option Nat → Sym) (s0 : store.Store) (D L B : Nat) (R : Opt
     if go then ok = true ∧ ∃ E o, Repr nm s.nodes.val eqs.val (encEqs nm E) ∧
         Repr nm s.nodes.val out.val o ∧ solveOn E o = R ∧ Good D L E o ∧
         s.ticks.val + pot D (L + D) E ≤ B
-    else s.ticks.val ≤ B ∧ SolveRes nm s.nodes.val R ok out
+    else s.ticks.val ≤ B ∧ SolveRes nm s.nodes.val D R ok out
 
 theorem SolveInv.ticks_le {s0 : store.Store} {D L B : Nat} {R : Option Pat}
     {x : store.Store × store.TermId × store.TermId × Bool × Bool} (h : SolveInv nm s0 D L B R x) :
@@ -311,15 +311,15 @@ theorem SolveInv.ticks_le {s0 : store.Store} {D L B : Nat} {R : Option Pat}
     simp only
     omega
 
-def SolvePost (nm : Option Nat → Sym) (s0 : store.Store) (B : Nat) (R : Option Pat) :
+def SolvePost (nm : Option Nat → Sym) (s0 : store.Store) (D B : Nat) (R : Option Pat) :
     store.Store × store.TermId × Bool → Prop
-  | (s, out, ok) => Inv s ∧ Extends s0 s ∧ s.ticks.val ≤ B ∧ SolveRes nm s.nodes.val R ok out
+  | (s, out, ok) => Inv s ∧ Extends s0 s ∧ s.ticks.val ≤ B ∧ SolveRes nm s.nodes.val D R ok out
 
 def BodyPost (nm : Option Nat → Sym) (s0 : store.Store) (D L B : Nat) (R : Option Pat)
     (t0 : Nat) :
     ControlFlow (store.Store × store.TermId × store.TermId × Bool × Bool)
       (store.Store × store.TermId × Bool) → Prop
-  | .done y => SolvePost nm s0 B R y
+  | .done y => SolvePost nm s0 D B R y
   | .cont x => SolveInv nm s0 D L B R x ∧ t0 < x.1.ticks.val
 
 theorem solve_body_spec (hnm : Function.Injective nm) (s0 : store.Store) (D L B : Nat)
@@ -351,7 +351,9 @@ theorem solve_body_spec (hnm : Function.Injective nm) (s0 : store.Store) (D L B 
       simp only [Bool.false_eq_true, ↓reduceIte]
       refine ⟨by omega, ?_⟩
       simp only [SolveRes, ↓reduceIte]
-      exact ⟨o, by rw [hn1]; exact ho, by rw [← hR, solveOn_nil]⟩
+      refine ⟨o, by rw [hn1]; exact ho, by rw [← hR, solveOn_nil], ?_⟩
+      unfold dcount at hDc
+      exact (Finset.card_le_card Finset.subset_union_right).trans hDc
     cases nd with
     | V0 => step*
     | VL a => step*
@@ -478,14 +480,14 @@ theorem solve_into_spec (hnm : Function.Injective nm) (s : store.Store) (eqs out
     (ho : Repr nm s.nodes.val out.val o) (hroom : Room s (solveCost E o)) :
     span.solve_into s eqs out ⦃ r s' =>
       Inv s' ∧ Extends s s' ∧ s'.ticks.val ≤ s.ticks.val + solveCost E o ∧
-        SolveRes nm s'.nodes.val (solveOn E o) r.1 r.2 ⦄ := by
+        SolveRes nm s'.nodes.val (dcount E o) (solveOn E o) r.1 r.2 ⦄ := by
   unfold span.solve_into span.solve_into_loop
   have hB : 40 * (s.ticks.val + solveCost E o) + 100 ≤ Usize.max := hroom
   have hloop := loop.spec_decr_nat
     (fun x : store.Store × store.TermId × store.TermId × Bool × Bool =>
       s.ticks.val + solveCost E o + 1 - x.1.ticks.val)
     (SolveInv nm s (dcount E o) E.length (s.ticks.val + solveCost E o) (solveOn E o))
-    (SolvePost nm s (s.ticks.val + solveCost E o) (solveOn E o))
+    (SolvePost nm s (dcount E o) (s.ticks.val + solveCost E o) (solveOn E o))
     (fun x : store.Store × store.TermId × store.TermId × Bool × Bool =>
       span.solve_into_loop.body x.1 x.2.1 x.2.2.1 x.2.2.2.1 x.2.2.2.2)
     (s, eqs, out, true, true)
@@ -504,7 +506,7 @@ theorem solve_into_spec (hnm : Function.Injective nm) (s : store.Store) (eqs out
       exact ⟨E, o, he, ho, rfl, Good.init E o, Nat.le_refl _⟩⟩
   step with hloop as ⟨s', out', ok', hy⟩
   have hy' : Inv s' ∧ Extends s s' ∧ s'.ticks.val ≤ s.ticks.val + solveCost E o ∧
-      SolveRes nm s'.nodes.val (solveOn E o) ok' out' := hy
+      SolveRes nm s'.nodes.val (dcount E o) (solveOn E o) ok' out' := hy
   obtain ⟨h1, h2, h3, h4⟩ := hy'
   step*
 

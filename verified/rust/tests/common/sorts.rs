@@ -612,6 +612,45 @@ pub fn mgu(eqs: &[(P, P)]) -> Option<BTreeMap<usize, P>> {
     Some(s)
 }
 
+/// `unitOn` of the specification: the ground term the equations `e` hold
+/// exactly at, as the value of the variable `v`. That is when their most
+/// general solution binds `v` to a ground term and binds nothing else.
+pub fn unit_on(v: usize, e: &[(P, P)]) -> Option<P> {
+    let theta = mgu(e)?;
+    if theta.len() != 1 {
+        return None;
+    }
+    theta.get(&v).filter(|g| g.is_ground()).cloned()
+}
+
+/// `gone` of the specification: the terms the exclusions `x` exclude the
+/// variable `v` from, in the order of the exclusions.
+pub fn gone(x: &[Vec<(P, P)>], v: usize) -> Vec<P> {
+    x.iter().filter_map(|e| unit_on(v, e)).collect()
+}
+
+/// A list of exclusions, each a list of equations, in the store.
+pub fn put_excls(s: &mut Store, x: &[Vec<(P, P)>]) -> TermId {
+    let mut out = s.alloc(Node::Nil);
+    for e in x.iter().rev() {
+        let h = put_eqns(s, e);
+        out = s.alloc(Node::App(h, out));
+    }
+    out
+}
+
+/// A list of equations in the store, each the application of its two sides.
+pub fn put_eqns(s: &mut Store, e: &[(P, P)]) -> TermId {
+    let mut out = s.alloc(Node::Nil);
+    for (a, b) in e.iter().rev() {
+        let x = put_pat(s, a);
+        let y = put_pat(s, b);
+        let h = s.alloc(Node::App(x, y));
+        out = s.alloc(Node::App(h, out));
+    }
+    out
+}
+
 /// `push` of the specification as a set: the sorts the variables of `p`
 /// must be in for `p` to be in the sort `n`, or nothing when a sort rejects
 /// a symbol of `p`.

@@ -17,8 +17,10 @@
 //! arguments is the length of a list, so two of them are compared by walking
 //! the two lists together.
 
+use crate::cover::ground;
+use crate::span::solve_into;
 use crate::store::{Frame, Node, Store, Tbl, TermId};
-use crate::term::unstack;
+use crate::term::{rebuild, unstack, Leaf};
 
 /// The first member of a list and the rest, or nothing when the node is not
 /// an application. One tick.
@@ -1706,4 +1708,53 @@ pub fn sole_root(
             found
         }
     }
+}
+
+// # The terms a variable is excluded from
+//
+// An *exclusion* is a list of equations, each `App(left, right)`, and says
+// that the equations do not all hold.
+
+/// The ground term the exclusion `e` excludes the variable `v` from, when
+/// that is all it says: its equations hold exactly when `v` is that term.
+/// That is when their solution gives `v` a ground term `g`, and replaces
+/// every variable in the equations as replacing `v` by `g` does. Tables `A`
+/// and `B` are used; the stack is empty at entry.
+pub fn unit_on(s: &mut Store, v: TermId, e: TermId) -> Option<TermId> {
+    let out = s.alloc(Node::App(v, e));
+    let (ok, o) = solve_into(s, e, out);
+    if ok {
+        match uncons(s, o) {
+            Some((g, solved)) => {
+                if ground(s, g) {
+                    let only = rebuild(s, Leaf::Sub(v, g), e);
+                    if s.same(only, solved) {
+                        Some(g)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            }
+            None => panic!(),
+        }
+    } else {
+        None
+    }
+}
+
+/// The terms the exclusions of the list `xs0` exclude the variable `v`
+/// from, in the order of the list. Tables `A` and `B` are used; the stack is
+/// empty at entry.
+pub fn gone(s: &mut Store, xs0: TermId, v: TermId) -> TermId {
+    let mut out = s.alloc(Node::Nil);
+    let mut xs = xs0;
+    while let Some((e, t)) = uncons(s, xs) {
+        if let Some(g) = unit_on(s, v, e) {
+            out = s.alloc(Node::App(g, out));
+        }
+        xs = t;
+    }
+    rev(s, out)
 }

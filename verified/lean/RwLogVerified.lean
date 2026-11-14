@@ -37,6 +37,8 @@
   an instance of it to be in a sort.
 * `RwLogVerified.Sole`: the one root of the members of a conjunction of sorts
   that are not among finitely many ground terms.
+* `RwLogVerified.Gone`: the ground terms the exclusions of a store exclude a
+  variable from.
 * `RwLogVerified.Kernel`: the kernel rung whose charges are those bounds.
 * `RwLogVerified.KernelRuns`: its charges on a worked composition.
 
@@ -70,5 +72,6 @@ import RwLogVerified.ButLoop
 import RwLogVerified.ButLink
 import RwLogVerified.Push
 import RwLogVerified.Sole
+import RwLogVerified.Gone
 import RwLogVerified.Kernel
 import RwLogVerified.KernelRuns
