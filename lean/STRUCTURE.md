@@ -71,8 +71,8 @@ Rungs/Symmetric/ the symmetric engine of `SYMMETRIC_ENGINE.md` (Machine.lean): a
                 complete with no answer when the other side fails under every interface
                 one side can show, read from the program) is a strategy of its own; the
                 invariant and the mirror criterion cover it. Completeness, `Keeps` and
-                the cost bound are not proved. A goal and its converse do not yet share a
-                table
+                the cost bound are not proved. A goal and its converse do not share a
+                table (not owed by any property; billboard SIM12)
 Rungs/Naive/    normalisation, unfolding to a depth, and their correctness (namespace `R000`)
 Rungs/R005/     the engines: `R001.engine` (tables, unfolding to a depth), `R004.engine` (tables,
                 the race of all three ways), `R005.engine` (`R004.engine` mirrored);

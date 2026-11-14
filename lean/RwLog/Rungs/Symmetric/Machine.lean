@@ -105,7 +105,8 @@ that is not offered (its side has no call, or one of the interfaces
 restricts nothing) is not made. A check one of whose goals has an answer can
 do nothing more, and a group of such checks is removed from its table.
 
-A goal and its converse do not yet share a table.
+A goal and its converse do not share a table: no exact property needs it,
+and whether it would save anything is not measured (design note, section 1).
 -/
 import RwLog.Trusted.Cost
 import RwLog.Rungs.Framework.Traverse

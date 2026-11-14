@@ -28,7 +28,7 @@ What is built:
 2. *When the least candidate stands both ways round*, the relation is its own converse, and the run is of the union of that node with its converse. That node is its own converse.
 3. *The table of a goal that is its own converse holds the converse of everything it holds.* Whenever an answer goes in, its converse goes in with it (`addAnswer`, `Rungs/Symmetric/Machine.lean`). So a run whose root is its own converse shows, at every step, a set of answers that is its own converse, whatever the kernel charges and whatever order the machine visits things in.
 
-Point 3 of the decision (a goal and its converse share one table) is then no part of any exact property. It remains a saving and is not built yet.
+Point 3 of the decision (a goal and its converse share one table) is then no part of any exact property. It remains a saving and is not built. Whether it is one is not known: the kernel gives equality of nodes and no order, so every opening of a goal would also look for the converse goal, which doubles the comparisons of every lookup, against at most a factor of two on runs that open both a goal and its converse. It is on the billboard as SIM12 and is not owed by any criterion of M6.
 
 Two ways not taken. Asking every kernel to charge an operation and its mirror image the same would make the machine symmetric with no choice of orientation, but only if the machine never reads a stored order: every request would have to read what the tables held when it started, which costs requests in every recursion, and every later rung would owe the same proof. Balancing by the number of operations instead of their ticks is symmetric at any kernel and gives up the cost bound, since one operation can cost any amount.
 
