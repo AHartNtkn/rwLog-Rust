@@ -282,6 +282,18 @@ new axiom.
 #guard_msgs in #print axioms RwLog.Tabled.noSubsumed
 /-- info: 'RwLog.Tabled.finalMaximal' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Tabled.finalMaximal
+/-- info: 'RwLog.Tabled.exact_eagerRace' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Tabled.exact_eagerRace
+/-- info: 'RwLog.Tabled.exact_raced' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Tabled.exact_raced
+/-- info: 'RwLog.Tabled.sameRun' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Tabled.sameRun
+/-- info: 'RwLog.Tabled.halts_iff' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Tabled.halts_iff
+/-- info: 'RwLog.Tabled.convTrace' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Tabled.convTrace
+/-- info: 'RwLog.Tabled.dualTrace' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Tabled.dualTrace
 /-- info: 'RwLog.R001.tableKeeps' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.R001.tableKeeps
 /-- info: 'RwLog.R004.tableKeeps' depends on axioms: [propext, Classical.choice, Quot.sound] -/

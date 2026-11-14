@@ -212,6 +212,25 @@ has `Tabled.good_eagerRace`, `good_walkRace`, `good_sharedRace`, `UOk.race`
 `R004.tableKeeps`, which do not use that an interface is exact. What R005 is
 held to beyond that list does (roadmap L58).
 
+The tabled machine runs the same from either end and with any exact race.
+`Kernel/NormalFormMap.lean` has the map on nodes (`nmap b t`: the converse
+when `b`, read in the mirrored program when `t`), and
+`Rungs/Tabled/Unfolding/ModelMap.lean` that the model of an unfolding says of
+the image of a node what it says of the node (`final_nmap`,
+`closedPart_nmap`). On the machine: `Rungs/Tabled/Reading.lean` reads a round
+table by table (`ansOf_next`, `idx_next_cases`, `prodG`); `MapGoal.lean` has
+the map on goals and representatives, what links two programs and their races
+(`Link`, `Twin`) and what two sets of tables have of each other (`Fwd`,
+`Tied`); `MapSplit.lean` and `MapNode.lean` carry each candidate of a goal to
+a candidate of its image (`cand_fwd`, `strat_fwd`); `MapRound.lean` that a
+round keeps two runs in correspondence (`tied_next`); `MapRun.lean` that the
+root tables gain corresponding answers and complete together (`rootGain_map`,
+`rootDone_map`, `rootMax_map`), and that exact races link (`Link.of_ex`).
+`Symmetry.lean` has the theorems for races that say what the unfolding is
+(`Tabled.Exact`, which the races of R001 and R004 are): `sameRun` and
+`halts_iff` (two tabled machines that differ in the race show the same thing
+step for step and halt together), `convTrace` and `dualTrace`.
+
 `Kernel/ExactIface.lean` has the set of terms a boundary lets through and
 what it is for an interface, which is exact by the laws of a domain (`bset`,
 `bset_rightBound`, `bset_leftBound`).

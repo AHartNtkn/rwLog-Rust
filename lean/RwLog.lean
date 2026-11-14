@@ -101,4 +101,11 @@ import RwLog.Rungs.Tabled.Unfolding.WalkExact
 import RwLog.Rungs.Tabled.Unfolding.SharedExact
 import RwLog.Rungs.Tabled.Unfolding.RacesExact
 import RwLog.Rungs.Tabled.Unfolding.ModelMap
+import RwLog.Rungs.Tabled.Reading
+import RwLog.Rungs.Tabled.MapGoal
+import RwLog.Rungs.Tabled.MapSplit
+import RwLog.Rungs.Tabled.MapNode
+import RwLog.Rungs.Tabled.MapRound
+import RwLog.Rungs.Tabled.MapRun
+import RwLog.Rungs.Tabled.Symmetry
 import RwLog.Rungs.R005.Tables
