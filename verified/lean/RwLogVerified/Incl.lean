@@ -2816,4 +2816,638 @@ theorem any_step_spec (hnm : Function.Injective nm) {U : List Name} {m : Key →
         (r.1 = true ↔ ∃ a ∈ l, (∀ q ∈ a.1, m q ≠ none) ∧ ∃ q ∈ a.2, m q ≠ none) ⦄ :=
   any_step_loop_spec hnm l s steps hW hF hs hk hroom
 
+/-! ## One round -/
+
+/-- The ticks one key of a round may spend. -/
+def entW (e : KEntry) : Nat := nowsW e.2.1 + stepsW e.2.2 + 5
+
+/-- The ticks one round may spend. -/
+def passW : List KEntry → Nat
+  | [] => 1
+  | e :: E => entW e + passW E
+
+/-- Every key of an entry is over the names. -/
+def EntOK (z : Sym) (U : List Name) (e : KEntry) : Prop :=
+  KeyOK z U e.1 ∧ (∀ g ∈ e.2.1, ∀ q ∈ g, KeyOK z U q) ∧
+    ∀ a ∈ e.2.2, (∀ q ∈ a.1, KeyOK z U q) ∧ ∀ q ∈ a.2, KeyOK z U q
+
+/-- Every key flagged is flagged with yes and has `P`. -/
+def GoodO (P : Key → Prop) (m : Key → Option Bool) : Prop :=
+  ∀ q, m q ≠ none → m q = some true ∧ P q
+
+/-- Flags are only added. -/
+def LeO (m m' : Key → Option Bool) : Prop := ∀ q, m q = none ∨ m' q = m q
+
+theorem LeO.refl (m : Key → Option Bool) : LeO m m := fun _ => Or.inr rfl
+
+theorem LeO.trans {a b c : Key → Option Bool} (h₁ : LeO a b) (h₂ : LeO b c) : LeO a c := by
+  intro q
+  rcases h₁ q with h | h
+  · exact Or.inl h
+  · rcases h₂ q with h' | h'
+    · exact Or.inl (by rw [← h]; exact h')
+    · exact Or.inr (by rw [h', h])
+
+theorem LeO.set {m : Key → Option Bool} {d : Key} (h : m d = none) :
+    LeO m (Function.update m d (some true)) := by
+  intro q
+  by_cases hq : q = d
+  · subst hq; exact Or.inl h
+  · exact Or.inr (Function.update_of_ne hq _ _)
+
+/-- No key without a flag has an alternative with all it asks flagged. -/
+def StableO (m : Key → Option Bool) (E : List KEntry) : Prop :=
+  ∀ e ∈ E, m e.1 = none → ¬ Sat (fun q => m q ≠ none) e.2.1 e.2.2
+
+theorem pass_out_loop_spec (hnm : Function.Injective nm) {U : List Name} (P : Key → Prop) :
+    ∀ (E : List KEntry) (s : store.Store) (graph : store.TermId) (ch : Bool)
+      (m : Key → Option Bool), Wf s → FlagsO nm s U m → GoodO P m →
+    (∀ e ∈ E, EntOK (nm none) U e) →
+    (∀ e ∈ E, ∀ M : Key → Prop, (∀ q, M q → P q) → Sat M e.2.1 e.2.2 → P e.1) →
+    Repr nm s.nodes.val graph.val (graphKPat (nm none) U E) → Room s (passW E) →
+    sorts.pass_out_loop graph s ch ⦃ r => ∃ m',
+      RanB s r.2 (passW E) ∧ FlagsO nm r.2 U m' ∧ GoodO P m' ∧
+        LeO m m' ∧ (ch = true → r.1 = true) ∧ (r.1 = false → m' = m ∧ StableO m E) ∧
+        (r.1 = true → ch = true ∨ ∃ e ∈ E, m e.1 = none ∧ m' e.1 ≠ none) ⦄ := by
+  intro E
+  induction E with
+  | nil =>
+    intro s graph ch m hW hF hGd hE hP hg hroom
+    have hroom' := hroom
+    unfold Room at hroom'
+    simp only [passW] at hroom'
+    unfold sorts.pass_out_loop
+    rw [loop]
+    simp only [sorts.pass_out_loop.body]
+    step with uncons_repr s graph hW hg (by unfold Room; omega) as ⟨r0, hK, hu⟩
+    obtain ⟨o, s1⟩ := r0
+    simp only [graphKPat] at hu
+    simp only at hK
+    subst hu
+    have hfin : ∃ m', RanB s s1 (passW []) ∧ FlagsO nm s1 U m' ∧
+        GoodO P m' ∧ LeO m m' ∧ (ch = true → ch = true) ∧
+        (ch = false → m' = m ∧ StableO m []) ∧
+        (ch = true → ch = true ∨ ∃ e ∈ ([] : List KEntry), m e.1 = none ∧ m' e.1 ≠ none) :=
+      ⟨m, hK.ran.ranB, hF.mono hK.ran.ext (by rw [hK.tbl]), hGd, LeO.refl m, id,
+        fun _ => ⟨rfl, fun e he => by cases he⟩, fun h => Or.inl h⟩
+    step*
+  | cons e E ih =>
+    intro s graph ch m hW hF hGd hE hP hg hroom
+    have hroom' := hroom
+    unfold Room at hroom'
+    simp only [passW, entW] at hroom'
+    obtain ⟨hk1, hkN, hkS⟩ := hE e List.mem_cons_self
+    have hEt : ∀ e' ∈ E, EntOK (nm none) U e' := fun e' he' => hE e' (List.mem_cons_of_mem _ he')
+    unfold sorts.pass_out_loop
+    rw [loop]
+    simp only [sorts.pass_out_loop.body]
+    step with uncons_repr s graph hW hg (by unfold Room; omega) as ⟨r0, hK, hu⟩
+    obtain ⟨o, s1⟩ := r0
+    simp only [graphKPat] at hu
+    simp only at hK
+    obtain ⟨en, t, rfl, ren, rt⟩ := hu
+    have ht1 := hK.ticks
+    step with uncons_repr s1 en hK.wf (by rw [hK.nodes]; exact ren) (by unfold Room; omega)
+      as ⟨r1, hK2, hu2⟩
+    obtain ⟨o1, s2⟩ := r1
+    simp only [entryKPat] at hu2
+    simp only at hK2
+    obtain ⟨d, alts, rfl, rd, ralts⟩ := hu2
+    rw [hK.nodes] at rd ralts
+    have ht2 := hK2.ticks
+    have R2 : Ran s s2 2 := hK.ran.trans hK2.ran
+    step with get_flag_w s2 .A d hK2.wf (R2.ext.repr rd).lt (by unfold Room; omega)
+      as ⟨r2, hfl, hK3⟩
+    obtain ⟨o2, s3⟩ := r2
+    simp only at hfl hK3
+    have ht3 := hK3.ticks
+    have R3 : Ran s s3 3 := R2.trans hK3.ran
+    have hmd : o2 = m e.1 := by
+      rw [hfl]
+      have := hF.get hnm (keyPat_patInj (nm none) U) hW hk1 rd
+      simp only [flagT] at this
+      rw [R2.tbl]; exact this
+    have hF3 : FlagsO nm s3 U m := hF.mono R3.ext (by rw [R3.tbl])
+    -- the rest of the round
+    have rest : ∀ (s' : store.Store) (ch' : Bool) (m₁ : Key → Option Bool) (k : Nat),
+        RanB s s' k → k ≤ entW e → FlagsO nm s' U m₁ → GoodO P m₁ → LeO m m₁ →
+        (ch = true → ch' = true) →
+        (ch' = false → m₁ = m ∧
+          (m e.1 = none → ¬ Sat (fun q => m q ≠ none) e.2.1 e.2.2)) →
+        (ch' = true → ch = true ∨ (m e.1 = none ∧ m₁ e.1 ≠ none)) →
+        loop (fun x => match x with
+          | (graph1, s1, changed1) => sorts.pass_out_loop.body graph1 s1 changed1)
+          (t, s', ch') ⦃ r =>
+          ∃ m', RanB s r.2 (passW (e :: E)) ∧
+            FlagsO nm r.2 U m' ∧ GoodO P m' ∧ LeO m m' ∧ (ch = true → r.1 = true) ∧
+            (r.1 = false → m' = m ∧ StableO m (e :: E)) ∧
+            (r.1 = true → ch = true ∨ ∃ e' ∈ e :: E, m e'.1 = none ∧ m' e'.1 ≠ none) ⦄ := by
+      intro s' ch' m₁ k R0 hk hF' hG' hLe hch hst hflip
+      have htk' := R0.ticks
+      simp only [entW] at hk
+      have IH := ih s' t ch' m₁ R0.wf hF' hG' hEt
+        (fun e' he' => hP e' (List.mem_cons_of_mem _ he')) (R0.ext.repr rt)
+        (by unfold Room; omega)
+      unfold sorts.pass_out_loop at IH
+      refine WP.spec_mono IH ?_
+      rintro r ⟨m', hR, hFm, hGm, hLm, hc, hs, hf⟩
+      refine ⟨m', (R0.trans hR).mono (by simp only [passW, entW]; omega), hFm, hGm,
+        hLe.trans hLm, fun h => hc (hch h), ?_, ?_⟩
+      · intro hr
+        obtain ⟨e₁, hstG⟩ := hs hr
+        have hch' : ch' = false := by
+          cases hc' : ch' with
+          | false => rfl
+          | true => rw [hc hc'] at hr; cases hr
+        obtain ⟨e₂, hste⟩ := hst hch'
+        subst e₂
+        refine ⟨e₁, ?_⟩
+        intro e' he'
+        rcases List.mem_cons.1 he' with rfl | he'
+        · exact hste
+        · exact hstG e' he'
+      · intro hr
+        rcases hf hr with hc' | ⟨e', he', h₁, h₂⟩
+        · rcases hflip hc' with h | ⟨h₁, h₂⟩
+          · exact Or.inl h
+          · refine Or.inr ⟨e, List.mem_cons_self, h₁, ?_⟩
+            rcases hLm e.1 with h | h
+            · exact absurd h h₂
+            · rw [h]; exact h₂
+        · refine Or.inr ⟨e', List.mem_cons_of_mem _ he', ?_, h₂⟩
+          rcases hLe e'.1 with h | h
+          · exact h
+          · rw [← h]; exact h₁
+    cases o2 with
+    | some b =>
+      simp only [uncurry, bind_ok]
+      exact rest s3 ch m 3 R3.ranB (by simp only [entW]; omega) hF3 hGd (LeO.refl m) id
+        (fun _ => ⟨rfl, fun h => by rw [← hmd] at h; cases h⟩) (fun h => Or.inl h)
+    | none =>
+      have hmn : m e.1 = none := hmd.symm
+      step with uncons_repr s3 alts hK3.wf (R3.ext.repr ralts) (by unfold Room; omega)
+        as ⟨r4, hK4, hu4⟩
+      obtain ⟨o4, s4⟩ := r4
+      simp only at hK4 hu4
+      obtain ⟨ni, si, rfl, rn, rs⟩ := hu4
+      have ht4 := hK4.ticks
+      have R4 : Ran s s4 4 := R3.trans hK4.ran
+      step with any_now_spec hnm e.2.1 s4 ni hK4.wf (hF.mono R4.ext (by rw [R4.tbl])) hkN
+        (hK4.ran.ext.repr rn) (by unfold Room; omega) as ⟨r5, hR5, hb⟩
+      obtain ⟨b, s5⟩ := r5
+      simp only at hR5 hb
+      have ht5 := hR5.ticks
+      have R5 := R4.trans hR5
+      have hF5 : FlagsO nm s5 U m := hF.mono R5.ext (by rw [R5.tbl])
+      have hGs : Sat (fun q => m q ≠ none) e.2.1 e.2.2 →
+          GoodO P (Function.update m e.1 (some true)) := by
+        intro hsat q hq
+        by_cases hqe : q = e.1
+        · subst hqe
+          exact ⟨by simp, hP e List.mem_cons_self _ (fun q h => (hGd q h).2) hsat⟩
+        · rw [Function.update_of_ne hqe] at hq ⊢
+          exact hGd q hq
+      cases b with
+      | true =>
+        simp only [uncurry, ↓reduceIte]
+        step with set_flag_w s5 .A d true hR5.wf (R5.ext.repr rd).lt (by unfold Room; omega)
+          as ⟨s6, hn6, ht6, hW6, htb6, htbo6, hst6⟩
+        have R6 : RanB s s6 (4 + nowsW e.2.1 + 1) :=
+          ⟨hW6, R5.ext.trans (Extends.of_eq hn6 (by omega)), by rw [hst6, R5.stk], by
+            have := R5.ticks; omega⟩
+        have hF6 := hF5.set hnm (keyPat_patInj (nm none) U) hR5.wf (b := true) hk1
+          (R5.ext.repr rd) hn6 (by simpa using htb6)
+        exact rest s6 true _ _ R6 (by simp only [entW]; omega) hF6 (hGs (Or.inl (hb.1 rfl)))
+          (LeO.set hmn) (fun _ => rfl) (fun h => by cases h) (fun _ => Or.inr ⟨hmn, by simp⟩)
+      | false =>
+        simp only [uncurry, Bool.false_eq_true, ↓reduceIte]
+        step with any_step_spec hnm e.2.2 s5 si hR5.wf hF5 hkS
+          (hR5.ext.repr (hK4.ran.ext.repr rs)) (by unfold Room; omega) as ⟨r6, hR6, hb1⟩
+        obtain ⟨b1, s6⟩ := r6
+        simp only at hR6 hb1
+        have ht6 := hR6.ticks
+        have R6 := R5.trans hR6
+        have hF6 : FlagsO nm s6 U m := hF.mono R6.ext (by rw [R6.tbl])
+        cases b1 with
+        | true =>
+          simp only [uncurry, ↓reduceIte]
+          step with set_flag_w s6 .A d true hR6.wf (R6.ext.repr rd).lt (by unfold Room; omega)
+            as ⟨s7, hn7, ht7, hW7, htb7, htbo7, hst7⟩
+          have R7 : RanB s s7 (4 + nowsW e.2.1 + stepsW e.2.2 + 1) :=
+            ⟨hW7, R6.ext.trans (Extends.of_eq hn7 (by omega)), by rw [hst7, R6.stk], by
+              have := R6.ticks; omega⟩
+          have hF7 := hF6.set hnm (keyPat_patInj (nm none) U) hR6.wf (b := true) hk1
+            (R6.ext.repr rd) hn7 (by simpa using htb7)
+          exact rest s7 true _ _ R7 (by simp only [entW]; omega) hF7
+            (hGs (Or.inr (hb1.1 rfl))) (LeO.set hmn) (fun _ => rfl) (fun h => by cases h)
+            (fun _ => Or.inr ⟨hmn, by simp⟩)
+        | false =>
+          simp only [uncurry, Bool.false_eq_true, ↓reduceIte, bind_ok]
+          exact rest s6 ch m _ R6.ranB (by simp only [entW]; omega) hF6 hGd (LeO.refl m) id
+            (fun _ => ⟨rfl, fun _ hsat => by
+              rcases hsat with h | h
+              · exact Bool.noConfusion (hb.2 h)
+              · exact Bool.noConfusion (hb1.2 h)⟩) (fun h => Or.inl h)
+
+/-- `pass_out` flags each key without a flag that has an alternative with
+all it asks flagged, and answers whether it flagged any. -/
+theorem pass_out_spec (hnm : Function.Injective nm) {U : List Name} (P : Key → Prop)
+    (E : List KEntry) (s : store.Store) (graph : store.TermId) (m : Key → Option Bool)
+    (hW : Wf s) (hF : FlagsO nm s U m) (hGd : GoodO P m)
+    (hE : ∀ e ∈ E, EntOK (nm none) U e)
+    (hP : ∀ e ∈ E, ∀ M : Key → Prop, (∀ q, M q → P q) → Sat M e.2.1 e.2.2 → P e.1)
+    (hg : Repr nm s.nodes.val graph.val (graphKPat (nm none) U E)) (hroom : Room s (passW E)) :
+    sorts.pass_out s graph ⦃ r => ∃ m',
+      RanB s r.2 (passW E) ∧ FlagsO nm r.2 U m' ∧ GoodO P m' ∧ LeO m m' ∧
+        (r.1 = false → m' = m ∧ StableO m E) ∧
+        (r.1 = true → ∃ e ∈ E, m e.1 = none ∧ m' e.1 ≠ none) ⦄ := by
+  refine WP.spec_mono (pass_out_loop_spec hnm P E s graph false m hW hF hGd hE hP hg hroom) ?_
+  rintro r ⟨m', hR, hFm, hGm, hLm, -, hs, hf⟩
+  exact ⟨m', hR, hFm, hGm, hLm, hs, fun h => (hf h).resolve_left (by simp)⟩
+
+/-! ## Rounds until nothing changes -/
+
+/-- The keys of a list without a flag. -/
+def unmarked (m : Key → Option Bool) : List Key → Nat
+  | [] => 0
+  | x :: Dn => (if m x = none then 1 else 0) + unmarked m Dn
+
+theorem unmarked_le_length (m : Key → Option Bool) : ∀ Dn : List Key, unmarked m Dn ≤ Dn.length
+  | [] => by simp [unmarked]
+  | x :: Dn => by
+    have ih := unmarked_le_length m Dn
+    simp only [unmarked, List.length_cons]
+    split <;> omega
+
+theorem unmarked_cons_none {m : Key → Option Bool} {x : Key} (h : m x = none) (Dn : List Key) :
+    unmarked m (x :: Dn) = 1 + unmarked m Dn := by simp [unmarked, h]
+
+theorem unmarked_cons_some {m : Key → Option Bool} {x : Key} (h : m x ≠ none) (Dn : List Key) :
+    unmarked m (x :: Dn) = unmarked m Dn := by simp [unmarked, h]
+
+theorem unmarked_cons_le (m : Key → Option Bool) (x : Key) (Dn : List Key) :
+    unmarked m Dn ≤ unmarked m (x :: Dn) := by
+  simp only [unmarked]; omega
+
+theorem unmarked_le {m m' : Key → Option Bool} (hLe : LeO m m') :
+    ∀ Dn : List Key, unmarked m' Dn ≤ unmarked m Dn
+  | [] => by simp [unmarked]
+  | x :: Dn => by
+    have ih := unmarked_le hLe Dn
+    by_cases h1 : m' x = none
+    · have h0 : m x = none := by
+        rcases hLe x with h | h
+        · exact h
+        · rw [← h]; exact h1
+      rw [unmarked_cons_none h1, unmarked_cons_none h0]; omega
+    · have := unmarked_cons_le m x Dn
+      rw [unmarked_cons_some h1]; omega
+
+theorem unmarked_lt {m m' : Key → Option Bool} (hLe : LeO m m') {p : Key} (h₁ : m p = none)
+    (h₂ : m' p ≠ none) : ∀ Dn : List Key, p ∈ Dn → unmarked m' Dn < unmarked m Dn
+  | x :: Dn, hp => by
+    by_cases hx : p = x
+    · subst hx
+      have := unmarked_le hLe Dn
+      rw [unmarked_cons_none h₁, unmarked_cons_some h₂]; omega
+    · have ih := unmarked_lt hLe h₁ h₂ Dn ((List.mem_cons.1 hp).resolve_left hx)
+      by_cases h1 : m' x = none
+      · have h0 : m x = none := by
+          rcases hLe x with h | h
+          · exact h
+          · rw [← h]; exact h1
+        rw [unmarked_cons_none h1, unmarked_cons_none h0]; omega
+      · have := unmarked_cons_le m x Dn
+        rw [unmarked_cons_some h1]; omega
+
+theorem out_loop_done (s : store.Store) (graph : store.TermId) :
+    sorts.out_loop s graph false ⦃ r => r = s ⦄ := by
+  unfold sorts.out_loop
+  rw [loop]
+  simp only [sorts.out_loop.body, Bool.false_eq_true, ↓reduceIte, bind_ok]
+  step*
+
+theorem out_loop_spec (hnm : Function.Injective nm) {U : List Name} (P : Key → Prop)
+    (E : List KEntry) (Dn : List Key) (graph : store.TermId)
+    (hE : ∀ e ∈ E, EntOK (nm none) U e)
+    (hP : ∀ e ∈ E, ∀ M : Key → Prop, (∀ q, M q → P q) → Sat M e.2.1 e.2.2 → P e.1)
+    (hDn : ∀ e ∈ E, e.1 ∈ Dn) :
+    ∀ (n : Nat) (s : store.Store) (m : Key → Option Bool), unmarked m Dn < n → Wf s →
+    FlagsO nm s U m → GoodO P m →
+    Repr nm s.nodes.val graph.val (graphKPat (nm none) U E) → Room s (n * passW E) →
+    sorts.out_loop s graph true ⦃ s' => ∃ m',
+      RanB s s' (n * passW E) ∧ FlagsO nm s' U m' ∧ GoodO P m' ∧ StableO m' E ⦄ := by
+  intro n
+  induction n with
+  | zero => intro s m h; cases h
+  | succ n ih =>
+    intro s m hlt hW hF hGd hg hroom
+    have hroom' := hroom
+    unfold Room at hroom'
+    rw [Nat.add_mul, Nat.one_mul] at hroom'
+    unfold sorts.out_loop
+    rw [loop]
+    simp only [sorts.out_loop.body, ↓reduceIte]
+    step with pass_out_spec hnm P E s graph m hW hF hGd hE hP hg (by unfold Room; omega)
+      as ⟨r1, m₁, hR, hF₁, hG₁, hLe, hs, hf⟩
+    obtain ⟨go1, s1⟩ := r1
+    simp only at hR hF₁ hs hf
+    have ht1 := hR.ticks
+    cases go1 with
+    | false =>
+      obtain ⟨rfl, hst⟩ := hs rfl
+      have hdn := out_loop_done s1 graph
+      unfold sorts.out_loop at hdn
+      simp only [uncurry, bind_ok]
+      refine WP.spec_mono hdn ?_
+      rintro r rfl
+      exact ⟨m₁, hR.mono (by rw [Nat.add_mul, Nat.one_mul]; omega), hF₁, hG₁, hst⟩
+    | true =>
+      obtain ⟨e, he, h₁, h₂⟩ := hf rfl
+      have hlt' : unmarked m₁ Dn < n := by
+        have := unmarked_lt hLe h₁ h₂ Dn (hDn e he); omega
+      have IH := ih s1 m₁ hlt' hR.wf hF₁ hG₁ (hR.ext.repr hg) (by unfold Room; omega)
+      unfold sorts.out_loop at IH
+      simp only [uncurry, bind_ok]
+      refine WP.spec_mono IH ?_
+      rintro r ⟨m', hR', hF', hG', hst⟩
+      exact ⟨m', (hR.trans hR').mono (by rw [Nat.add_mul, Nat.one_mul]; omega), hF', hG', hst⟩
+
+/-! ## What the rounds may spend -/
+
+/-- The keys of lists of guards, counted with what going through them
+spends. -/
+def nowsS (l : List (List Key)) : Nat := (l.map fun g => 2 * g.length + 2).sum
+
+/-- The keys of guards with edges, counted with what going through them
+spends. -/
+def stepsS (l : List Step) : Nat := (l.map fun a => 2 * a.1.length + 2 * a.2.length + 4).sum
+
+theorem nowsW_eq : ∀ l : List (List Key), nowsW l = nowsS l + 1
+  | [] => rfl
+  | g :: l => by
+    have := nowsW_eq l
+    simp only [nowsS] at this
+    simp only [nowsW, nowsS, List.map_cons, List.sum_cons]
+    omega
+
+theorem stepsW_eq : ∀ l : List Step, stepsW l = stepsS l + 1
+  | [] => rfl
+  | a :: l => by
+    have := stepsW_eq l
+    simp only [stepsS] at this
+    simp only [stepsW, stepsS, List.map_cons, List.sum_cons]
+    omega
+
+theorem nowsS_append (l l' : List (List Key)) : nowsS (l ++ l') = nowsS l + nowsS l' := by
+  simp [nowsS]
+
+theorem stepsS_append (l l' : List Step) : stepsS (l ++ l') = stepsS l + stepsS l' := by
+  simp [stepsS]
+
+theorem nowsS_reverse (l : List (List Key)) : nowsS l.reverse = nowsS l := by
+  simp [nowsS]
+
+theorem stepsS_reverse (l : List Step) : stepsS l.reverse = stepsS l := by
+  simp [stepsS]
+
+theorem length_bareKeys (a : List Sorts.Conj) : (bareKeys a).length = a.length := by
+  simp [bareKeys]
+
+theorem length_altOf (S : Sorts) (d : Sorts.Conj) (f : Sym) (k : Nat) :
+    (altOf S d f k).length = k := by
+  simp [altOf]
+
+theorem nowsS_keyNows_cons_le (S : Sorts) (d : Sorts.Conj) (μ : Name) (k : Sym × Nat)
+    (K : List (Sym × Nat)) :
+    nowsS (keyNows S d μ (k :: K)) ≤ 2 * k.2 + 2 + nowsS (keyNows S d μ K) := by
+  by_cases hc : Sorts.Accepts S d k.1 k.2 ∧ Sorts.step S μ k.1 k.2 = none
+  · rw [show keyNows S d μ (k :: K) = bareKeys (altOf S d k.1 k.2) :: keyNows S d μ K by
+      simp [keyNows, hc]]
+    simp only [nowsS, List.map_cons, List.sum_cons, length_bareKeys, length_altOf]
+    omega
+  · rw [show keyNows S d μ (k :: K) = keyNows S d μ K by simp [keyNows, hc]]
+    omega
+
+theorem stepsS_keySteps_cons_le (S : Sorts) (d : Sorts.Conj) (μ : Name) (k : Sym × Nat)
+    (K : List (Sym × Nat)) :
+    stepsS (keySteps S d μ (k :: K)) ≤ 4 * k.2 + 4 + stepsS (keySteps S d μ K) := by
+  by_cases hacc : Sorts.Accepts S d k.1 k.2
+  · cases hst : Sorts.step S μ k.1 k.2 with
+    | none =>
+      rw [show keySteps S d μ (k :: K) = keySteps S d μ K by simp [keySteps, hst]]
+      omega
+    | some kids =>
+      rw [show keySteps S d μ (k :: K) =
+        (bareKeys (altOf S d k.1 k.2), pairKeys (altOf S d k.1 k.2) kids) :: keySteps S d μ K by
+        simp [keySteps, hacc, hst]]
+      have := length_pairKeys_le (altOf S d k.1 k.2) kids
+      simp only [stepsS, List.map_cons, List.sum_cons, length_bareKeys, length_altOf] at this ⊢
+      omega
+  · rw [show keySteps S d μ (k :: K) = keySteps S d μ K by simp [keySteps, hacc]]
+    omega
+
+/-- The alternatives the roots of a list give are no more than the ticks
+going through the roots may spend. -/
+theorem key_sums_le (S : Sorts) (u : Nat) (d : Sorts.Conj) (μ : Name) :
+    ∀ K : List (Sym × Nat),
+      nowsS (keyNows S d μ K) + stepsS (keySteps S d μ K) + 1 ≤ keysWork S u K
+  | [] => by simp [keyNows, keySteps, keysWork, nowsS, stepsS]
+  | k :: K => by
+    have ih := key_sums_le S u d μ K
+    have h1 := nowsS_keyNows_cons_le S d μ k K
+    have h2 := stepsS_keySteps_cons_le S d μ k K
+    simp only [keysWork]
+    omega
+
+theorem keysWork_flatMap_le (S : Sorts) (u : Nat) : ∀ xs : List Name,
+    keysWork S u (xs.flatMap (defKeys S)) ≤ conjWork S u xs
+  | [] => by simp [keysWork, conjWork]
+  | n :: xs => by
+    have ih := keysWork_flatMap_le S u xs
+    have := keysWork_append S u (defKeys S n) (xs.flatMap (defKeys S))
+    simp only [List.flatMap_cons, conjWork]
+    omega
+
+theorem nowsS_restNows_le (S : Sorts) (d : Sorts.Conj) (μ : Name) :
+    nowsS (restNows S d μ) ≤ 2 := by
+  unfold restNows
+  split <;> simp [nowsS]
+
+theorem stepsS_restSteps_le (S : Sorts) (d : Sorts.Conj) (μ : Name) :
+    stepsS (restSteps S d μ) ≤ 6 := by
+  unfold restSteps
+  split
+  · split <;> simp [stepsS]
+  · simp [stepsS]
+
+/-- The ticks one key of a round may spend, with `u` names. -/
+def entGCost (S : Sorts) (u : Nat) : Nat := keyW S u + 13
+
+theorem entW_entryOf_le (S : Sorts) (U : List Name) (z : Name) (p : Key) :
+    entW (entryOf S U z p) ≤ entGCost S U.length := by
+  have h1 := key_sums_le S U.length p.1 (p.2.getD z) (ownKeys S (p.2.getD z))
+  have h2 := key_sums_le S U.length p.1 (p.2.getD z) ((conjList U (· ∈ p.1)).flatMap (defKeys S))
+  have h3 := keysWork_flatMap_le S U.length (conjList U (· ∈ p.1))
+  have h4 := nowsS_restNows_le S p.1 (p.2.getD z)
+  have h5 := stepsS_restSteps_le S p.1 (p.2.getD z)
+  have h6 := keyCost_le S U p.1 (p.2.getD z)
+  unfold keyCost ownWork at h6
+  simp only [entW, entGCost, entryOf, pairNows, pairSteps, nowsW_eq, stepsW_eq, nowsS_append,
+    stepsS_append, nowsS_reverse, stepsS_reverse]
+  omega
+
+theorem passW_le {B : Nat} : ∀ E : List KEntry, (∀ e ∈ E, entW e ≤ B) →
+    passW E ≤ E.length * B + 1
+  | [], _ => by simp [passW]
+  | e :: E, h => by
+    have ih := passW_le E fun e' he' => h e' (List.mem_cons_of_mem _ he')
+    have := h e List.mem_cons_self
+    simp only [passW, List.length_cons, Nat.add_mul, Nat.one_mul]
+    omega
+
+/-! ## Has a conjunction a member outside a sort -/
+
+/-- The alternatives of a key have all they ask among `M` exactly when a
+round over `M` adds the key. -/
+theorem sat_entry_iff {S : Sorts} {sp : Pat} {U : List Name} (hC : Ctx nm S sp U) {p : Key}
+    (hp : KeyOK (nm none) U p) (M : Key → Prop) :
+    Sat M (entryOf S U (nm none) p).2.1 (entryOf S U (nm none) p).2.2 ↔ Sorts.GrowsG S M p := by
+  obtain ⟨d, k⟩ := p
+  cases k with
+  | none => exact sat_bare_iff hp.1 hC.lookup_z M
+  | some μ => exact sat_pair_iff hp.1 μ M
+
+/-- The ticks deciding whether a conjunction has a member outside a sort may
+spend, when the key of the two reaches `r` keys, with `u` names. -/
+def outCost (S : Sorts) (u r : Nat) : Nat :=
+  r * nodeGCost S u + (r + 1) * (r * entGCost S u + 1) + 8
+
+/-- `out` answers whether the conjunction has a member that is not in the
+sort (`Sorts.Out`). It spends a number of ticks that is polynomial in the
+size of the sorts and in the number of keys the key of the two reaches. -/
+theorem out_spec {S : Sorts} {sp : Pat} {U : List Name} (hC : Ctx nm S sp U)
+    (c : Sorts.Conj) (n : Name) (hc : Sub U c) (hn : n ≠ nm none) (s : store.Store)
+    (decls names ci ni : store.TermId) (hI : Inv s) (hde : Repr nm s.nodes.val decls.val sp)
+    (hU : Repr nm s.nodes.val names.val (namesPat (nm none) U))
+    (hci : Repr nm s.nodes.val ci.val (cpat (nm none) U c))
+    (hni : Repr nm s.nodes.val ni.val (.sym n))
+    (hroom : Room s (outCost S U.length (Sorts.reachGSet S (c, some n)).card)) :
+    sorts.out s decls names ci ni ⦃ r s' =>
+      Inv s' ∧ Extends s s' ∧
+        s'.ticks.val ≤ s.ticks.val + outCost S U.length (Sorts.reachGSet S (c, some n)).card ∧
+        (r = true ↔ Sorts.Out S c n) ⦄ := by
+  unfold sorts.out
+  have hroom' := hroom
+  unfold Room at hroom'
+  simp only [outCost] at hroom'
+  have hW := hI.toWf
+  have hp : KeyOK (nm none) U (c, some n) := ⟨hc, fun m h => by cases h; exact hn⟩
+  step with alloc_w s (.App ci ni) hW ⟨hci.lt, hni.lt⟩ (by unfold Room; omega)
+    as ⟨p0, s1, hW1, ht1, htb1, hx1, hid1, hst1⟩
+  have rp : Repr nm s1.nodes.val p0.val (keyPat (nm none) U (c, some n)) :=
+    .app hid1 (hx1.repr hci) (hx1.repr hni)
+  have I1 : Inv s1 := ⟨hW1, by rw [hst1]; exact hI.empty⟩
+  step with out_graph_spec hC (c, some n) hp s1 decls names p0 I1 (hx1.repr hde) (hx1.repr hU)
+    rp (by unfold Room; omega) as ⟨graph, s2, m, Dn, hR2, hF2, rg, hInv⟩
+  have ht2 := hR2.ticks
+  have hkey : ∀ p ∈ Dn, KeyOK (nm none) U p := fun p hpd =>
+    (hF2.has p ((hInv.dom p).2 (Or.inr hpd))).1
+  have hE : ∀ e ∈ Dn.map (entryOf S U (nm none)), EntOK (nm none) U e := by
+    intro e he
+    obtain ⟨p, hpd, rfl⟩ := List.mem_map.1 he
+    obtain ⟨hN, hS⟩ := hInv.done p hpd
+    exact ⟨hkey p hpd, fun g hg q hq => (hF2.has q (hN g hg q hq)).1, fun a ha =>
+      ⟨fun q hq => (hF2.has q ((hS a ha).1 q hq)).1, fun q hq => (hF2.has q ((hS a ha).2 q hq)).1⟩⟩
+  have hP : ∀ e ∈ Dn.map (entryOf S U (nm none)), ∀ M : Key → Prop,
+      (∀ q, M q → Sorts.TrueG S q) → Sat M e.2.1 e.2.2 → Sorts.TrueG S e.1 := by
+    intro e he M hM hsat
+    obtain ⟨p, hpd, rfl⟩ := List.mem_map.1 he
+    exact Sorts.trueG_of_growsG hM ((sat_entry_iff hC (hkey p hpd) M).1 hsat)
+  have hDn : ∀ e ∈ Dn.map (entryOf S U (nm none)), e.1 ∈ Dn := by
+    intro e he
+    obtain ⟨p, hpd, rfl⟩ := List.mem_map.1 he
+    exact hpd
+  have hDl : Dn.length ≤ (Sorts.reachGSet S (c, some n)).card := hInv.len_le
+  have hpc : passW (Dn.map (entryOf S U (nm none))) ≤
+      (Sorts.reachGSet S (c, some n)).card * entGCost S U.length + 1 := by
+    have h₁ := passW_le (B := entGCost S U.length) (Dn.map (entryOf S U (nm none))) fun e he => by
+      obtain ⟨p, -, rfl⟩ := List.mem_map.1 he
+      exact entW_entryOf_le S U (nm none) p
+    have h₂ := Nat.mul_le_mul_right (entGCost S U.length) hDl
+    rw [List.length_map] at h₁
+    omega
+  have hfl : unmarked (fun _ => none) Dn + 1 ≤ (Sorts.reachGSet S (c, some n)).card + 1 := by
+    have := unmarked_le_length (fun _ => none) Dn; omega
+  have hloop : (unmarked (fun _ => none) Dn + 1) * passW (Dn.map (entryOf S U (nm none))) ≤
+      ((Sorts.reachGSet S (c, some n)).card + 1) *
+        ((Sorts.reachGSet S (c, some n)).card * entGCost S U.length + 1) :=
+    Nat.mul_le_mul hfl hpc
+  step with clear_w s2 .A hR2.wf (by unfold Room; omega) as ⟨s3, hn3, ht3, hW3, hcl, hoth, hst3⟩
+  have hx3 : Extends s2 s3 := Extends.of_eq hn3 (by omega)
+  have hF3 : FlagsO nm s3 U fun _ => none := Flags.clear hcl
+  step with out_loop_spec hC.inj (Sorts.TrueG S) (Dn.map (entryOf S U (nm none))) Dn graph hE hP
+    hDn (unmarked (fun _ => none) Dn + 1) s3 (fun _ => none) (Nat.lt_succ_self _) hW3 hF3
+    (fun q h => absurd rfl h) (hx3.repr rg) (by unfold Room; omega)
+    as ⟨s4, m', hR4, hF4, hG4, hst⟩
+  have ht4 := hR4.ticks
+  have rp4 : Repr nm s4.nodes.val p0.val (keyPat (nm none) U (c, some n)) :=
+    hR4.ext.repr (hx3.repr (hR2.ext.repr rp))
+  step with get_flag_w s4 .A p0 hR4.wf rp4.lt (by unfold Room; omega) as ⟨o, s5, hfl5, hK5⟩
+  have ht5 := hK5.ticks
+  have hfin : Inv s5 ∧ Extends s s5 ∧
+      s5.ticks.val ≤ s.ticks.val + outCost S U.length (Sorts.reachGSet S (c, some n)).card :=
+    ⟨⟨hK5.wf, by rw [hK5.stk, hR4.stk, hst3, hR2.stk, hst1]; exact hI.empty⟩,
+      ((hx1.trans hR2.ext).trans hx3).trans (hR4.ext.trans hK5.ran.ext), by
+      simp only [outCost]; omega⟩
+  have ho : o = m' (c, some n) := by
+    rw [hfl5]
+    have := hF4.get hC.inj (keyPat_patInj (nm none) U) hR4.wf hp rp4
+    simpa only [flagT] using this
+  have hiff : m' (c, some n) ≠ none ↔ Sorts.Out S c n :=
+    Sorts.trueG_iff_of_stable (S := S) (p₀ := (c, some n)) (M := fun q => m' q ≠ none)
+      (fun q h => (hG4 q h).2)
+      (fun q hq hg => by
+        by_contra h0
+        have hqD := hInv.reached (fun p hpd => (hkey p hpd).1) hq
+        exact hst (entryOf S U (nm none) q) (List.mem_map_of_mem hqD) h0
+          ((sat_entry_iff hC (hkey q hqD) _).2 hg))
+      (c, some n) .refl
+  cases o with
+  | none =>
+    simp only [WP.spec_ok]
+    exact ⟨hfin.1, hfin.2.1, hfin.2.2, fun h => (by cases h), fun h => absurd ho.symm (hiff.2 h)⟩
+  | some b =>
+    cases b with
+    | true =>
+      simp only [↓reduceIte, WP.spec_ok]
+      exact ⟨hfin.1, hfin.2.1, hfin.2.2, fun _ => hiff.1 (by rw [← ho]; simp), fun _ => rfl⟩
+    | false =>
+      have := (hG4 (c, some n) (by rw [← ho]; simp)).1
+      rw [← ho] at this
+      cases this
+
+/-- The ticks deciding whether a conjunction lies inside a sort may spend. -/
+def inclCost (S : Sorts) (u r : Nat) : Nat := outCost S u r
+
+/-- `included` answers whether every member of the conjunction is in the
+sort (`Sorts.Incl`), within the ticks of `out`. -/
+theorem included_spec {S : Sorts} {sp : Pat} {U : List Name} (hC : Ctx nm S sp U)
+    (c : Sorts.Conj) (n : Name) (hc : Sub U c) (hn : n ≠ nm none) (s : store.Store)
+    (decls names ci ni : store.TermId) (hI : Inv s) (hde : Repr nm s.nodes.val decls.val sp)
+    (hU : Repr nm s.nodes.val names.val (namesPat (nm none) U))
+    (hci : Repr nm s.nodes.val ci.val (cpat (nm none) U c))
+    (hni : Repr nm s.nodes.val ni.val (.sym n))
+    (hroom : Room s (inclCost S U.length (Sorts.reachGSet S (c, some n)).card)) :
+    sorts.included s decls names ci ni ⦃ r s' =>
+      Inv s' ∧ Extends s s' ∧
+        s'.ticks.val ≤ s.ticks.val + inclCost S U.length (Sorts.reachGSet S (c, some n)).card ∧
+        (r = true ↔ Sorts.Incl S c n) ⦄ := by
+  unfold sorts.included
+  step with out_spec hC c n hc hn s decls names ci ni hI hde hU hci hni hroom
+    as ⟨b, s1, hI1, hx1, ht1, hb⟩
+  refine ⟨hI1, hx1, ht1, ?_⟩
+  rw [Sorts.incl_iff_not_out, ← hb]
+  simp
+
 end RwLogVerified
