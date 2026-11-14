@@ -915,7 +915,7 @@ theorem count_spec {S : Sorts} {sp : Pat} {U : List Name} (hC : Ctx nm S sp U)
   have ho : o = m' c₀ := by
     rw [hfl4]
     have := hF3.get hC.inj R3.wf hc rci
-    simpa only [flagB] using this
+    simpa only [flagB, flagT] using this
   have hiff := hInv.live_iff hsub hLe hS3 hst .refl
   rw [← ho] at hiff
   have hnone : o ≠ some true → Inv s4 ∧ Extends s s4 ∧

@@ -44,33 +44,42 @@ theorem cpat_inj {z : Sym} {U : List Name} {c d : Sorts.Conj} (hc : Sub U c) (hd
   have := namesPat_inj z h
   rw [← toFinset_conjList hc, ← toFinset_conjList hd, this]
 
-/-- The flag of a node in table `B`. -/
-def flagB (s : store.Store) (i : Nat) : Option Bool := (tbl s .B i).map fun v => decide (v ≠ 0)
+/-- The flag of a node in a table. -/
+def flagT (s : store.Store) (tb : store.Tbl) (i : Nat) : Option Bool :=
+  (tbl s tb i).map fun v => decide (v ≠ 0)
 
-/-- Table `B` flags the conjunctions as `m` says. -/
-structure FlagsB (nm : Option Nat → RwLog.Sym) (s : store.Store) (U : List Name)
-    (m : Sorts.Conj → Option Bool) : Prop where
-  has : ∀ c, m c ≠ none → Sub U c ∧ ∃ i, Repr nm s.nodes.val i (cpat (nm none) U c) ∧
-    flagB s i = m c
-  back : ∀ i, flagB s i ≠ none → ∃ c, Sub U c ∧ Repr nm s.nodes.val i (cpat (nm none) U c) ∧
-    m c = flagB s i
+/-- The patterns tell the keys with `ok` apart. -/
+def PatInj {κ : Type} (pat : κ → Pat) (ok : κ → Prop) : Prop :=
+  ∀ a b, ok a → ok b → pat a = pat b → a = b
 
-theorem FlagsB.get (hnm : Function.Injective nm) {s : store.Store} {U : List Name}
-    {m : Sorts.Conj → Option Bool} (h : FlagsB nm s U m) (hW : Wf s) {k : Nat} {c : Sorts.Conj}
-    (hc : Sub U c) (hk : Repr nm s.nodes.val k (cpat (nm none) U c)) : flagB s k = m c := by
+/-- A table flags the keys as `m` says: a key is the node of its pattern. -/
+structure Flags (nm : Option Nat → RwLog.Sym) (s : store.Store) (tb : store.Tbl) {κ : Type}
+    (pat : κ → Pat) (ok : κ → Prop) (m : κ → Option Bool) : Prop where
+  has : ∀ c, m c ≠ none → ok c ∧ ∃ i, Repr nm s.nodes.val i (pat c) ∧ flagT s tb i = m c
+  back : ∀ i, flagT s tb i ≠ none → ∃ c, ok c ∧ Repr nm s.nodes.val i (pat c) ∧
+    m c = flagT s tb i
+
+section flags
+
+variable {κ : Type} {pat : κ → Pat} {ok : κ → Prop} {tb : store.Tbl}
+
+theorem Flags.get (hnm : Function.Injective nm) (hinj : PatInj pat ok) {s : store.Store}
+    {m : κ → Option Bool} (h : Flags nm s tb pat ok m) (hW : Wf s) {k : Nat} {c : κ}
+    (hc : ok c) (hk : Repr nm s.nodes.val k (pat c)) : flagT s tb k = m c := by
   by_cases hm : m c = none
   · rw [hm]
     by_contra hne
     obtain ⟨d, hd, rd, e⟩ := h.back k hne
-    have := cpat_inj hc hd (hk.unique rd)
+    have := hinj _ _ hc hd (hk.unique rd)
     subst this
     exact hne (e ▸ hm)
   · obtain ⟨-, i, ri, e⟩ := h.has c hm
     rw [← Repr.inj hnm hW.nodesOK ri hk]; exact e
 
-theorem FlagsB.mono {s s' : store.Store} {U : List Name} {m : Sorts.Conj → Option Bool}
-    (h : FlagsB nm s U m) (hx : Extends s s') (ht : tbl s' .B = tbl s .B) : FlagsB nm s' U m := by
-  have hf : ∀ i, flagB s' i = flagB s i := fun i => by simp only [flagB, ht]
+theorem Flags.mono {s s' : store.Store} {m : κ → Option Bool}
+    (h : Flags nm s tb pat ok m) (hx : Extends s s') (ht : tbl s' tb = tbl s tb) :
+    Flags nm s' tb pat ok m := by
+  have hf : ∀ i, flagT s' tb i = flagT s tb i := fun i => by simp only [flagT, ht]
   constructor
   · intro c hc
     obtain ⟨hs, i, ri, e⟩ := h.has c hc
@@ -80,16 +89,16 @@ theorem FlagsB.mono {s s' : store.Store} {U : List Name} {m : Sorts.Conj → Opt
     obtain ⟨c, hs, ri, e⟩ := h.back i hi
     exact ⟨c, hs, hx.repr ri, by rw [hf]; exact e⟩
 
-theorem FlagsB.set (hnm : Function.Injective nm) {s s' : store.Store} {U : List Name}
-    {m : Sorts.Conj → Option Bool} (h : FlagsB nm s U m) (hW : Wf s) {k : Nat} {c : Sorts.Conj}
-    {b : Bool} (hc : Sub U c) (hk : Repr nm s.nodes.val k (cpat (nm none) U c))
+theorem Flags.set [DecidableEq κ] (hnm : Function.Injective nm) (hinj : PatInj pat ok)
+    {s s' : store.Store} {m : κ → Option Bool} (h : Flags nm s tb pat ok m) (hW : Wf s)
+    {k : Nat} {c : κ} {b : Bool} (hc : ok c) (hk : Repr nm s.nodes.val k (pat c))
     (hn : s'.nodes.val = s.nodes.val)
-    (ht : tbl s' .B = Function.update (tbl s .B) k (some (if b then 1 else 0))) :
-    FlagsB nm s' U (Function.update m c (some b)) := by
-  have hfk : flagB s' k = some b := by
-    simp only [flagB, ht, Function.update_self, Option.map_some]; cases b <;> simp
-  have hf : ∀ i, i ≠ k → flagB s' i = flagB s i := fun i hi => by
-    simp only [flagB, ht, Function.update_of_ne hi]
+    (ht : tbl s' tb = Function.update (tbl s tb) k (some (if b then 1 else 0))) :
+    Flags nm s' tb pat ok (Function.update m c (some b)) := by
+  have hfk : flagT s' tb k = some b := by
+    simp only [flagT, ht, Function.update_self, Option.map_some]; cases b <;> simp
+  have hf : ∀ i, i ≠ k → flagT s' tb i = flagT s tb i := fun i hi => by
+    simp only [flagT, ht, Function.update_of_ne hi]
   constructor
   · intro d hd
     by_cases hdc : d = c
@@ -99,7 +108,7 @@ theorem FlagsB.set (hnm : Function.Injective nm) {s s' : store.Store} {U : List 
       obtain ⟨hs, i, ri, e⟩ := h.has d hd
       have hik : i ≠ k := by
         rintro rfl
-        exact hdc (cpat_inj hs hc (ri.unique hk))
+        exact hdc (hinj _ _ hs hc (ri.unique hk))
       exact ⟨hs, i, by rw [hn]; exact ri, by rw [hf i hik]; exact e⟩
   · intro i hi
     by_cases hik : i = k
@@ -111,6 +120,41 @@ theorem FlagsB.set (hnm : Function.Injective nm) {s s' : store.Store} {U : List 
         rintro rfl
         exact hik (Repr.inj hnm hW.nodesOK ri hk)
       exact ⟨d, hs, by rw [hn]; exact ri, by rw [Function.update_of_ne hdc]; exact e⟩
+
+/-- A table just cleared flags nothing. -/
+theorem Flags.clear {s : store.Store} (hcl : ∀ k, tbl s tb k = none) :
+    Flags nm s tb pat ok (fun _ => none) :=
+  ⟨fun _ h => absurd rfl h, fun i h => absurd (by simp [flagT, hcl]) h⟩
+
+end flags
+
+/-- The flag of a node in table `B`. -/
+abbrev flagB (s : store.Store) (i : Nat) : Option Bool := flagT s .B i
+
+theorem cpat_patInj (z : Sym) (U : List Name) : PatInj (cpat z U) (Sub U) :=
+  fun _ _ hc hd h => cpat_inj hc hd h
+
+/-- Table `B` flags the conjunctions as `m` says. -/
+abbrev FlagsB (nm : Option Nat → RwLog.Sym) (s : store.Store) (U : List Name)
+    (m : Sorts.Conj → Option Bool) : Prop :=
+  Flags nm s .B (cpat (nm none) U) (Sub U) m
+
+theorem FlagsB.get (hnm : Function.Injective nm) {s : store.Store} {U : List Name}
+    {m : Sorts.Conj → Option Bool} (h : FlagsB nm s U m) (hW : Wf s) {k : Nat} {c : Sorts.Conj}
+    (hc : Sub U c) (hk : Repr nm s.nodes.val k (cpat (nm none) U c)) : flagB s k = m c :=
+  Flags.get hnm (cpat_patInj _ U) h hW hc hk
+
+theorem FlagsB.mono {s s' : store.Store} {U : List Name} {m : Sorts.Conj → Option Bool}
+    (h : FlagsB nm s U m) (hx : Extends s s') (ht : tbl s' .B = tbl s .B) : FlagsB nm s' U m :=
+  Flags.mono h hx ht
+
+theorem FlagsB.set (hnm : Function.Injective nm) {s s' : store.Store} {U : List Name}
+    {m : Sorts.Conj → Option Bool} (h : FlagsB nm s U m) (hW : Wf s) {k : Nat} {c : Sorts.Conj}
+    {b : Bool} (hc : Sub U c) (hk : Repr nm s.nodes.val k (cpat (nm none) U c))
+    (hn : s'.nodes.val = s.nodes.val)
+    (ht : tbl s' .B = Function.update (tbl s .B) k (some (if b then 1 else 0))) :
+    FlagsB nm s' U (Function.update m c (some b)) :=
+  Flags.set hnm (cpat_patInj _ U) h hW hc hk hn ht
 
 /-- A list of conjunctions as the store has it. -/
 noncomputable def altPat (z : Sym) (U : List Name) (a : List Sorts.Conj) : Pat :=
@@ -196,7 +240,7 @@ theorem all_live_spec (hnm : Function.Injective nm) {U : List Name}
     have hmx : o1 = m x := by
       rw [hfl]
       have := hF.get hnm hW (hs x List.mem_cons_self) rk
-      simp only [flagB] at this
+      simp only [flagB, flagT] at this
       rw [hK.tbl]; exact this
     have R2 : Ran s s2 2 := (hK.ran.trans hK2.ran)
     have stop : m x ≠ some true →
@@ -480,7 +524,7 @@ theorem pass_loop_spec (hnm : Function.Injective nm) (S : Sorts) {U : List Name}
     have hmd : o2 = m e.1 := by
       rw [hfl]
       have := hF.get hnm hW hsub rd
-      simp only [flagB] at this
+      simp only [flagB, flagT] at this
       rw [hK2.tbl, hK.tbl]; exact this
     have hF3 : FlagsB nm s3 U m := hF.mono hx3 (by rw [htb3])
     -- the rest of the round, from a store with the same nodes
@@ -813,19 +857,19 @@ theorem rest_ok_spec (hnm : Function.Injective nm) (S : Sorts) {sp : Pat}
 
 /-! ## Conjunctions still to go through -/
 
-/-- From `m` and `T` to `m'` and `T'`: conjunctions not flagged, all with
+/-- From `m` and `T` to `m'` and `T'`: keys not flagged, all with
 `P`, were flagged with no and put in front. -/
-def Enq (P : Sorts.Conj → Prop) (m m' : Sorts.Conj → Option Bool) (T T' : List Sorts.Conj) :
+def Enq {κ : Type} [DecidableEq κ] (P : κ → Prop) (m m' : κ → Option Bool) (T T' : List κ) :
     Prop :=
-  ∃ new : List Sorts.Conj, T' = new ++ T ∧ new.Nodup ∧ (∀ c ∈ new, m c = none ∧ P c) ∧
+  ∃ new : List κ, T' = new ++ T ∧ new.Nodup ∧ (∀ c ∈ new, m c = none ∧ P c) ∧
     ∀ c, m' c = if c ∈ new then some false else m c
 
-theorem Enq.refl (P : Sorts.Conj → Prop) (m : Sorts.Conj → Option Bool) (T : List Sorts.Conj) :
+theorem Enq.refl {κ : Type} [DecidableEq κ] (P : κ → Prop) (m : κ → Option Bool) (T : List κ) :
     Enq P m m T T :=
   ⟨[], rfl, List.nodup_nil, fun _ h => (by cases h), fun _ => (by simp)⟩
 
-theorem Enq.trans {P : Sorts.Conj → Prop} {a b c : Sorts.Conj → Option Bool}
-    {T₁ T₂ T₃ : List Sorts.Conj} (h₁ : Enq P a b T₁ T₂) (h₂ : Enq P b c T₂ T₃) :
+theorem Enq.trans {κ : Type} [DecidableEq κ] {P : κ → Prop} {a b c : κ → Option Bool}
+    {T₁ T₂ T₃ : List κ} (h₁ : Enq P a b T₁ T₂) (h₂ : Enq P b c T₂ T₃) :
     Enq P a c T₁ T₃ := by
   obtain ⟨n₁, rfl, nd₁, hn₁, hb⟩ := h₁
   obtain ⟨n₂, rfl, nd₂, hn₂, hc⟩ := h₂
@@ -848,13 +892,13 @@ theorem Enq.trans {P : Sorts.Conj → Prop} {a b c : Sorts.Conj → Option Bool}
     · simp [h2]
     · by_cases h1 : x ∈ n₁ <;> simp [h1, h2]
 
-theorem Enq.mono {P Q : Sorts.Conj → Prop} {m m' : Sorts.Conj → Option Bool}
-    {T T' : List Sorts.Conj} (h : Enq P m m' T T') (hPQ : ∀ c, P c → Q c) : Enq Q m m' T T' := by
+theorem Enq.mono {κ : Type} [DecidableEq κ] {P Q : κ → Prop} {m m' : κ → Option Bool}
+    {T T' : List κ} (h : Enq P m m' T T') (hPQ : ∀ c, P c → Q c) : Enq Q m m' T T' := by
   obtain ⟨n, e, nd, hn, hm⟩ := h
   exact ⟨n, e, nd, fun c hc => ⟨(hn c hc).1, hPQ c (hn c hc).2⟩, hm⟩
 
-theorem Enq.keeps {P : Sorts.Conj → Prop} {m m' : Sorts.Conj → Option Bool}
-    {T T' : List Sorts.Conj} (h : Enq P m m' T T') {c : Sorts.Conj} (hc : m c ≠ none) :
+theorem Enq.keeps {κ : Type} [DecidableEq κ] {P : κ → Prop} {m m' : κ → Option Bool}
+    {T T' : List κ} (h : Enq P m m' T T') {c : κ} (hc : m c ≠ none) :
     m' c = m c := by
   obtain ⟨n, -, -, hn, hm⟩ := h
   rw [hm]
@@ -862,12 +906,12 @@ theorem Enq.keeps {P : Sorts.Conj → Prop} {m m' : Sorts.Conj → Option Bool}
   · rename_i hin; exact absurd (hn c hin).1 hc
   · rfl
 
-theorem Enq.flagged {P : Sorts.Conj → Prop} {m m' : Sorts.Conj → Option Bool}
-    {T T' : List Sorts.Conj} (h : Enq P m m' T T') {c : Sorts.Conj} (hc : m c ≠ none) :
+theorem Enq.flagged {κ : Type} [DecidableEq κ] {P : κ → Prop} {m m' : κ → Option Bool}
+    {T T' : List κ} (h : Enq P m m' T T') {c : κ} (hc : m c ≠ none) :
     m' c ≠ none := by rw [h.keeps hc]; exact hc
 
-theorem Enq.one {P : Sorts.Conj → Prop} {m : Sorts.Conj → Option Bool} (T : List Sorts.Conj)
-    {x : Sorts.Conj} (hx : m x = none) (hP : P x) :
+theorem Enq.one {κ : Type} [DecidableEq κ] {P : κ → Prop} {m : κ → Option Bool} (T : List κ)
+    {x : κ} (hx : m x = none) (hP : P x) :
     Enq P m (Function.update m x (some false)) T (x :: T) := by
   refine ⟨[x], rfl, List.nodup_singleton x, fun c hc => ?_, fun c => ?_⟩
   · rw [List.mem_singleton.1 hc]; exact ⟨hx, hP⟩
@@ -875,15 +919,15 @@ theorem Enq.one {P : Sorts.Conj → Prop} {m : Sorts.Conj → Option Bool} (T : 
     · subst h; simp
     · simp [h]
 
-theorem enqueue_loop_spec (hnm : Function.Injective nm) {U : List Name}
-    {P : Sorts.Conj → Prop} :
-    ∀ (a : List Sorts.Conj) (s : store.Store) (kids todo : store.TermId) (T : List Sorts.Conj)
-      (m : Sorts.Conj → Option Bool), Wf s → FlagsB nm s U m → (∀ c ∈ a, Sub U c ∧ P c) →
-    Repr nm s.nodes.val kids.val (altPat (nm none) U a) →
-    Repr nm s.nodes.val todo.val (altPat (nm none) U T) → Room s (4 * a.length + 1) →
+theorem enqueue_loop_spec (hnm : Function.Injective nm) {κ : Type} [DecidableEq κ] {pat : κ → Pat}
+    {ok : κ → Prop} (hinj : PatInj pat ok) {P : κ → Prop} :
+    ∀ (a : List κ) (s : store.Store) (kids todo : store.TermId) (T : List κ)
+      (m : κ → Option Bool), Wf s → Flags nm s .B pat ok m → (∀ c ∈ a, ok c ∧ P c) →
+    Repr nm s.nodes.val kids.val (encList (nm none) (a.map pat)) →
+    Repr nm s.nodes.val todo.val (encList (nm none) (T.map pat)) → Room s (4 * a.length + 1) →
     sorts.enqueue_loop kids s todo ⦃ r => ∃ m' T',
-      RanB s r.2 (4 * a.length + 1) ∧ FlagsB nm r.2 U m' ∧
-        Repr nm r.2.nodes.val r.1.val (altPat (nm none) U T') ∧ Enq P m m' T T' ∧
+      RanB s r.2 (4 * a.length + 1) ∧ Flags nm r.2 .B pat ok m' ∧
+        Repr nm r.2.nodes.val r.1.val (encList (nm none) (T'.map pat)) ∧ Enq P m m' T T' ∧
         ∀ c ∈ a, m' c ≠ none ⦄ := by
   intro a
   induction a with
@@ -896,12 +940,11 @@ theorem enqueue_loop_spec (hnm : Function.Injective nm) {U : List Name}
     simp only [sorts.enqueue_loop.body]
     step with uncons_repr s kids hW hk (by unfold Room; omega) as ⟨r0, hK, hu⟩
     obtain ⟨o, s1⟩ := r0
-    simp only [altPat] at hu
     simp only at hK
     subst hu
-    have hfin : ∃ m' T', RanB s s1 (4 * ([] : List Sorts.Conj).length + 1) ∧ FlagsB nm s1 U m' ∧
-        Repr nm s1.nodes.val todo.val (altPat (nm none) U T') ∧ Enq P m m' T T' ∧
-        ∀ c ∈ ([] : List Sorts.Conj), m' c ≠ none :=
+    have hfin : ∃ m' T', RanB s s1 (4 * ([] : List κ).length + 1) ∧ Flags nm s1 .B pat ok m' ∧
+        Repr nm s1.nodes.val todo.val (encList (nm none) (T'.map pat)) ∧ Enq P m m' T T' ∧
+        ∀ c ∈ ([] : List κ), m' c ≠ none :=
       ⟨m, T, hK.ran.ranB, hF.mono hK.ran.ext (by rw [hK.tbl]), by rw [hK.nodes]; exact htd,
         Enq.refl P m T, fun _ h => by cases h⟩
     step*
@@ -910,13 +953,12 @@ theorem enqueue_loop_spec (hnm : Function.Injective nm) {U : List Name}
     have hroom' := hroom
     unfold Room at hroom'
     simp only [List.length_cons] at hroom'
-    have hsa : ∀ c ∈ a, Sub U c ∧ P c := fun c hc => hs c (List.mem_cons_of_mem _ hc)
+    have hsa : ∀ c ∈ a, ok c ∧ P c := fun c hc => hs c (List.mem_cons_of_mem _ hc)
     unfold sorts.enqueue_loop
     rw [loop]
     simp only [sorts.enqueue_loop.body]
     step with uncons_repr s kids hW hk (by unfold Room; omega) as ⟨r0, hK, hu⟩
     obtain ⟨o, s1⟩ := r0
-    simp only [altPat] at hu
     simp only at hK
     obtain ⟨k, t, rfl, rk, rt⟩ := hu
     have ht1 := hK.ticks
@@ -930,18 +972,18 @@ theorem enqueue_loop_spec (hnm : Function.Injective nm) {U : List Name}
     have R2 : Ran s s2 2 := hK.ran.trans hK2.ran
     have hmx : o1 = m x := by
       rw [hfl]
-      have := hF.get hnm hW (hs x List.mem_cons_self).1 rk
-      simp only [flagB] at this
+      have := hF.get hnm hinj hW (hs x List.mem_cons_self).1 rk
+      simp only [flagT] at this
       rw [hK.tbl]; exact this
-    have hF2 : FlagsB nm s2 U m := hF.mono R2.ext (by rw [htb2])
+    have hF2 : Flags nm s2 .B pat ok m := hF.mono R2.ext (by rw [htb2])
     -- the rest of the list
-    have rest : ∀ (s' : store.Store) (todo' : store.TermId) (m₁ : Sorts.Conj → Option Bool)
-        (T₁ : List Sorts.Conj), RanB s s' 4 → FlagsB nm s' U m₁ →
-        Repr nm s'.nodes.val todo'.val (altPat (nm none) U T₁) → Enq P m m₁ T T₁ → m₁ x ≠ none →
+    have rest : ∀ (s' : store.Store) (todo' : store.TermId) (m₁ : κ → Option Bool)
+        (T₁ : List κ), RanB s s' 4 → Flags nm s' .B pat ok m₁ →
+        Repr nm s'.nodes.val todo'.val (encList (nm none) (T₁.map pat)) → Enq P m m₁ T T₁ → m₁ x ≠ none →
         loop (fun x => match x with
           | (kids1, s1, todo1) => sorts.enqueue_loop.body kids1 s1 todo1) (t, s', todo') ⦃ r =>
-          ∃ m' T', RanB s r.2 (4 * (x :: a).length + 1) ∧ FlagsB nm r.2 U m' ∧
-            Repr nm r.2.nodes.val r.1.val (altPat (nm none) U T') ∧ Enq P m m' T T' ∧
+          ∃ m' T', RanB s r.2 (4 * (x :: a).length + 1) ∧ Flags nm r.2 .B pat ok m' ∧
+            Repr nm r.2.nodes.val r.1.val (encList (nm none) (T'.map pat)) ∧ Enq P m m' T T' ∧
             ∀ c ∈ x :: a, m' c ≠ none ⦄ := by
       intro s' todo' m₁ T₁ R0 hF' htd' hE hx
       have := R0.ticks
@@ -972,14 +1014,27 @@ theorem enqueue_loop_spec (hnm : Function.Injective nm) {U : List Name}
       have hx3 : Extends s s3 := Extends.of_eq hn3' (by omega)
       have R4 : RanB s s4 4 :=
         ⟨hW4, hx3.trans hx4, by rw [hst4, hst3, R2.stk], by omega⟩
-      have hF3 := hF2.set hnm hK2.wf (b := false) (hs x List.mem_cons_self).1
+      have hF3 := hF2.set hnm hinj hK2.wf (b := false) (hs x List.mem_cons_self).1
         (by rw [hn2]; exact rk) hn3 (by simpa using htb3)
-      have htd1 : Repr nm s4.nodes.val todo1.val (altPat (nm none) U (x :: T)) := by
-        simp only [altPat, List.map_cons, encList]
+      have htd1 : Repr nm s4.nodes.val todo1.val (encList (nm none) ((x :: T).map pat)) := by
+        simp only [List.map_cons, encList]
         exact .app hid (R4.ext.repr rk) (R4.ext.repr htd)
       simp only [uncurry, bind_ok]
       exact rest s4 todo1 _ (x :: T) R4 (hF3.mono hx4 (by rw [htb4])) htd1
         (Enq.one T hmx.symm (hs x List.mem_cons_self).2) (by simp)
+
+theorem enqueue_spec_gen (hnm : Function.Injective nm) {κ : Type} [DecidableEq κ] {pat : κ → Pat}
+    {ok : κ → Prop} (hinj : PatInj pat ok) {P : κ → Prop}
+    (a : List κ) (s : store.Store) (kids todo : store.TermId) (T : List κ)
+    (m : κ → Option Bool) (hW : Wf s) (hF : Flags nm s .B pat ok m)
+    (hs : ∀ c ∈ a, ok c ∧ P c) (hk : Repr nm s.nodes.val kids.val (encList (nm none) (a.map pat)))
+    (htd : Repr nm s.nodes.val todo.val (encList (nm none) (T.map pat)))
+    (hroom : Room s (4 * a.length + 1)) :
+    sorts.enqueue s todo kids ⦃ r => ∃ m' T',
+      RanB s r.2 (4 * a.length + 1) ∧ Flags nm r.2 .B pat ok m' ∧
+        Repr nm r.2.nodes.val r.1.val (encList (nm none) (T'.map pat)) ∧ Enq P m m' T T' ∧
+        ∀ c ∈ a, m' c ≠ none ⦄ :=
+  enqueue_loop_spec hnm hinj a s kids todo T m hW hF hs hk htd hroom
 
 theorem enqueue_spec (hnm : Function.Injective nm) {U : List Name} {P : Sorts.Conj → Prop}
     (a : List Sorts.Conj) (s : store.Store) (kids todo : store.TermId) (T : List Sorts.Conj)
@@ -990,7 +1045,7 @@ theorem enqueue_spec (hnm : Function.Injective nm) {U : List Name} {P : Sorts.Co
       RanB s r.2 (4 * a.length + 1) ∧ FlagsB nm r.2 U m' ∧
         Repr nm r.2.nodes.val r.1.val (altPat (nm none) U T') ∧ Enq P m m' T T' ∧
         ∀ c ∈ a, m' c ≠ none ⦄ :=
-  enqueue_loop_spec hnm a s kids todo T m hW hF hs hk htd hroom
+  enqueue_spec_gen hnm (cpat_patInj _ U) a s kids todo T m hW hF hs hk htd hroom
 
 /-! ## The alternatives of a conjunction -/
 
@@ -1943,8 +1998,7 @@ theorem flag_live_spec {S : Sorts} {sp : Pat} {U : List Name} (hC : Ctx nm S sp 
   step with clear_w s .B hW (by unfold Room; omega) as ⟨s1, hn1, ht1, hW1, hcl, hoth, hst1⟩
   have hx1 : Extends s s1 := Extends.of_eq hn1 (by omega)
   have R1 : RanB s s1 1 := ⟨hW1, hx1, hst1, by omega⟩
-  have hF1 : FlagsB nm s1 U fun _ => none :=
-    ⟨fun c h => absurd rfl h, fun i h => absurd (by simp [flagB, hcl]) h⟩
+  have hF1 : FlagsB nm s1 U fun _ => none := Flags.clear hcl
   step with reach_spec hC c₀ hc s1 decls names ci (R1.inv hI) hF1 (hx1.repr hde) (hx1.repr hU)
     (hx1.repr hci) (by unfold Room; omega) as ⟨graph, s2, m, G, Dn, hR2, hF2, rg, hInv⟩
   have ht2 := hR2.ticks
@@ -2007,7 +2061,7 @@ theorem live_spec {S : Sorts} {sp : Pat} {U : List Name} (hC : Ctx nm S sp U)
   have ho : o = m' c₀ := by
     rw [hfl4]
     have := hF3.get hC.inj R3.wf hc rci
-    simpa only [flagB] using this
+    simpa only [flagB, flagT] using this
   have hiff := hInv.live_iff hsub hLe hS3 hst .refl
   rw [← ho] at hiff
   cases o with
