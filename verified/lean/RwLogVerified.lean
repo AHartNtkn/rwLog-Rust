@@ -25,6 +25,8 @@
 * `RwLogVerified.Names`: the list of every name of the declarations.
 * `RwLogVerified.Live`: whether a conjunction of sorts has a member, by
   going through the conjunctions it reaches.
+* `RwLogVerified.Count`: how many members a conjunction of sorts has, with
+  the member when there is one.
 * `RwLogVerified.Kernel`: the kernel rung whose charges are those bounds.
 * `RwLogVerified.KernelRuns`: its charges on a worked composition.
 
@@ -51,5 +53,6 @@ import RwLogVerified.Sorts
 import RwLogVerified.Conj
 import RwLogVerified.Names
 import RwLogVerified.Live
+import RwLogVerified.Count
 import RwLogVerified.Kernel
 import RwLogVerified.KernelRuns

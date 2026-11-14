@@ -442,9 +442,10 @@ fn enqueue(s: &mut Store, todo0: TermId, kids0: TermId) -> TermId {
 }
 
 /// For each case of the list `cases0`, the step of the conjunction `c` at
-/// its symbol and its number of arguments. When `c` has one, the
-/// conjunctions of the arguments are put in front of `alts0` as one
-/// alternative, and those table `B` does not flag in front of `todo0`.
+/// its symbol and its number of arguments. When `c` has one, the symbol
+/// with the conjunctions of the arguments is put in front of `alts0` as one
+/// alternative, and the conjunctions table `B` does not flag in front of
+/// `todo0`.
 fn expand_cases(
     s: &mut Store,
     decls: TermId,
@@ -461,7 +462,8 @@ fn expand_cases(
         match uncons(s, case) {
             Some((f, ks)) => {
                 if let Some(args) = step_conj(s, decls, names, c, f, ks) {
-                    alts = s.alloc(Node::App(args, alts));
+                    let alt = s.alloc(Node::App(f, args));
+                    alts = s.alloc(Node::App(alt, alts));
                     todo = enqueue(s, todo, args);
                 }
             }
@@ -473,8 +475,12 @@ fn expand_cases(
 }
 
 /// The alternatives of the conjunction `c`: for each case of each of its
-/// sorts that `c` has a step at, the conjunctions of the arguments. Those
-/// table `B` does not flag are put in front of `todo0`.
+/// sorts that `c` has a step at, the symbol of the case with the
+/// conjunctions of the arguments. Those table `B` does not flag are put in
+/// front of `todo0`.
+///
+/// Two alternatives are one node exactly when they have the same symbol and
+/// the same number of arguments.
 fn expand(s: &mut Store, decls: TermId, names: TermId, c: TermId, todo0: TermId) -> (TermId, TermId) {
     let mut alts = s.alloc(Node::Nil);
     let mut todo = todo0;
@@ -532,6 +538,14 @@ fn all_live(s: &mut Store, kids0: TermId) -> bool {
     ok
 }
 
+/// Are the conjunctions of the alternative `a` all flagged with yes?
+fn alt_live(s: &mut Store, a: TermId) -> bool {
+    match uncons(s, a) {
+        Some((_, kids)) => all_live(s, kids),
+        None => panic!(),
+    }
+}
+
 /// Is some alternative of the list all flagged with yes?
 fn any_alt(s: &mut Store, alts0: TermId) -> bool {
     let mut alts = alts0;
@@ -540,7 +554,7 @@ fn any_alt(s: &mut Store, alts0: TermId) -> bool {
     while go {
         match uncons(s, alts) {
             Some((a, t)) => {
-                if all_live(s, a) {
+                if alt_live(s, a) {
                     found = true;
                     go = false;
                 } else {
@@ -577,15 +591,153 @@ fn pass(s: &mut Store, graph0: TermId) -> bool {
     changed
 }
 
-/// Has the conjunction `c` a member? `c` and the conjunctions it reaches
-/// are gone through once for their alternatives, and then in rounds until a
-/// round finds no new one with a member. Tables `A` and `B` are used.
-pub fn live(s: &mut Store, decls: TermId, names: TermId, c: TermId) -> bool {
+/// The conjunctions `c` reaches, each with its alternatives, with table `B`
+/// flagging with yes those of them that have a member, and the others with
+/// no. `c` and the conjunctions it reaches are gone through once for their
+/// alternatives, and then in rounds until a round finds no new one with a
+/// member. Tables `A` and `B` are used.
+fn flag_live(s: &mut Store, decls: TermId, names: TermId, c: TermId) -> TermId {
     s.clear(Tbl::B);
     let graph = reach(s, decls, names, c);
     let mut go = true;
     while go {
         go = pass(s, graph);
     }
+    graph
+}
+
+/// Has the conjunction `c` a member? Tables `A` and `B` are used.
+pub fn live(s: &mut Store, decls: TermId, names: TermId, c: TermId) -> bool {
+    flag_live(s, decls, names, c);
     matches!(s.get_flag(Tbl::B, c), Some(true))
+}
+
+/// How many members a conjunction of sorts has.
+#[derive(Clone, Copy)]
+pub enum Count {
+    /// No member.
+    None,
+    /// This term and no other.
+    One(TermId),
+    /// More than one member.
+    Many,
+}
+
+/// The alternative of the list that is all flagged with yes, when all of
+/// those that are, are one node.
+fn sole_alt(s: &mut Store, alts0: TermId) -> Option<TermId> {
+    let mut alts = alts0;
+    let mut sole = None;
+    let mut go = true;
+    while go {
+        match uncons(s, alts) {
+            Some((a, t)) => {
+                if alt_live(s, a) {
+                    match sole {
+                        Some(b) => {
+                            if s.same(a, b) {
+                                alts = t;
+                            } else {
+                                sole = None;
+                                go = false;
+                            }
+                        }
+                        None => {
+                            sole = Some(a);
+                            alts = t;
+                        }
+                    }
+                } else {
+                    alts = t;
+                }
+            }
+            None => go = false,
+        }
+    }
+    sole
+}
+
+/// The term with the symbol `f` whose arguments are what table `A` has for
+/// the members of the list `kids0`, in order, or nothing when it has
+/// nothing for one of them.
+fn apply_members(s: &mut Store, f: TermId, kids0: TermId) -> Option<TermId> {
+    let mut term = f;
+    let mut kids = kids0;
+    let mut ok = true;
+    let mut go = true;
+    while go {
+        match uncons(s, kids) {
+            Some((k, t)) => match s.get(Tbl::A, k) {
+                Some(m) => {
+                    term = s.alloc(Node::App(term, m));
+                    kids = t;
+                }
+                None => {
+                    ok = false;
+                    go = false;
+                }
+            },
+            None => go = false,
+        }
+    }
+    if ok {
+        Some(term)
+    } else {
+        None
+    }
+}
+
+/// One round over the conjunctions with their alternatives. Table `B`
+/// flags with yes those with a member, and table `A` has the member of some
+/// that have just one. One that table `A` has nothing for, with just one
+/// alternative all flagged with yes whose conjunctions table `A` has all a
+/// member for, gets its member in table `A`. Did any?
+fn pass_one(s: &mut Store, graph0: TermId) -> bool {
+    let mut graph = graph0;
+    let mut changed = false;
+    while let Some((e, t)) = uncons(s, graph) {
+        match uncons(s, e) {
+            Some((d, alts)) => match s.get(Tbl::A, d) {
+                Some(_) => {}
+                None => {
+                    if let Some(a) = sole_alt(s, alts) {
+                        match uncons(s, a) {
+                            Some((f, kids)) => {
+                                if let Some(m) = apply_members(s, f, kids) {
+                                    s.set(Tbl::A, d, m);
+                                    changed = true;
+                                }
+                            }
+                            None => panic!(),
+                        }
+                    }
+                }
+            },
+            None => panic!(),
+        }
+        graph = t;
+    }
+    changed
+}
+
+/// How many members the conjunction `c` has, with the member when there is
+/// one. After table `B` flags the conjunctions `c` reaches that have a
+/// member, they are gone through in rounds until a round finds no new one
+/// with just one member. Tables `A` and `B` are used.
+pub fn count(s: &mut Store, decls: TermId, names: TermId, c: TermId) -> Count {
+    let graph = flag_live(s, decls, names, c);
+    match s.get_flag(Tbl::B, c) {
+        Some(true) => {
+            s.clear(Tbl::A);
+            let mut go = true;
+            while go {
+                go = pass_one(s, graph);
+            }
+            match s.get(Tbl::A, c) {
+                Some(m) => Count::One(m),
+                None => Count::Many,
+            }
+        }
+        _ => Count::None,
+    }
 }

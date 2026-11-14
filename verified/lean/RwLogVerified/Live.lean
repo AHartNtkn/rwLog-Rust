@@ -2,9 +2,9 @@
 # Whether a conjunction of sorts has a member, on the store
 
 `sorts::live` goes through the conjunctions a conjunction reaches
-(`Sorts.Reach`), keeps for each the argument conjunctions of every root it
-has a case for and accepts, and then marks in rounds the conjunctions that
-have a member. `live_spec` says it answers whether the conjunction is in
+(`Sorts.Reach`), keeps for each the symbol and the argument conjunctions of
+every root it has a case for and accepts, and then marks in rounds the
+conjunctions that have a member (`flag_live_spec`). `live_spec` says it answers whether the conjunction is in
 `Sorts.live`, and what it spends in terms of the number of conjunctions
 reached.
 
@@ -243,14 +243,38 @@ theorem all_live_spec' (hnm : Function.Injective nm) {U : List Name}
 
 /-! ## Is some alternative all flagged with yes -/
 
+/-- An alternative of a conjunction: a root symbol with the conjunctions of
+its arguments. -/
+abbrev Alt := Sym × List Sorts.Conj
+
+/-- An alternative as the store has it. -/
+noncomputable def kaltPat (z : Sym) (U : List Name) (a : Alt) : Pat :=
+  .app (.sym a.1) (altPat z U a.2)
+
 /-- The alternatives of a conjunction as the store has them. -/
-noncomputable def altsPat (z : Sym) (U : List Name) (alts' : List (List Sorts.Conj)) : Pat :=
-  encList z (alts'.map (altPat z U))
+noncomputable def altsPat (z : Sym) (U : List Name) (alts' : List Alt) : Pat :=
+  encList z (alts'.map (kaltPat z U))
+
+theorem alt_live_spec (hnm : Function.Injective nm) {U : List Name}
+    {m : Sorts.Conj → Option Bool} (a : Alt) (s : store.Store) (ai : store.TermId)
+    (hW : Wf s) (hF : FlagsB nm s U m) (hs : ∀ c ∈ a.2, Sub U c)
+    (hk : Repr nm s.nodes.val ai.val (kaltPat (nm none) U a)) (hroom : Room s (2 * a.2.length + 2)) :
+    sorts.alt_live s ai ⦃ r =>
+      Ran s r.2 (2 * a.2.length + 2) ∧ (r.1 = true ↔ ∀ c ∈ a.2, m c = some true) ⦄ := by
+  have hroom' := hroom
+  unfold Room at hroom'
+  unfold sorts.alt_live
+  step with uncons_repr s ai hW hk (by unfold Room; omega) as ⟨o, s1, hK, hu⟩
+  obtain ⟨f, kids, rfl, -, rk⟩ := hu
+  have ht1 := hK.ticks
+  step with all_live_spec' hnm a.2 s1 kids hK.wf (hF.mono hK.ran.ext (by rw [hK.tbl])) hs
+    (by rw [hK.nodes]; exact rk) (by unfold Room; omega) as ⟨r1, hR2, hb⟩
+  exact ⟨(hK.ran.trans hR2).mono (by omega), hb⟩
 
 /-- The ticks looking for an alternative may spend. -/
-def anyCost : List (List Sorts.Conj) → Nat
+def anyCost : List Alt → Nat
   | [] => 1
-  | a :: alts' => 2 * a.length + 2 + anyCost alts'
+  | a :: alts' => 2 * a.2.length + 3 + anyCost alts'
 
 theorem any_alt_done (s : store.Store) (alts : store.TermId) (found : Bool) :
     sorts.any_alt_loop s alts found false ⦃ r => r = (found, s) ⦄ := by
@@ -261,11 +285,11 @@ theorem any_alt_done (s : store.Store) (alts : store.TermId) (found : Bool) :
 
 theorem any_alt_spec (hnm : Function.Injective nm) {U : List Name}
     {m : Sorts.Conj → Option Bool} :
-    ∀ (alts' : List (List Sorts.Conj)) (s : store.Store) (alts : store.TermId), Wf s →
-    FlagsB nm s U m → (∀ a ∈ alts', ∀ c ∈ a, Sub U c) →
+    ∀ (alts' : List Alt) (s : store.Store) (alts : store.TermId), Wf s →
+    FlagsB nm s U m → (∀ a ∈ alts', ∀ c ∈ a.2, Sub U c) →
     Repr nm s.nodes.val alts.val (altsPat (nm none) U alts') → Room s (anyCost alts') →
     sorts.any_alt_loop s alts false true ⦃ r =>
-      Ran s r.2 (anyCost alts') ∧ (r.1 = true ↔ ∃ a ∈ alts', ∀ c ∈ a, m c = some true) ⦄ := by
+      Ran s r.2 (anyCost alts') ∧ (r.1 = true ↔ ∃ a ∈ alts', ∀ c ∈ a.2, m c = some true) ⦄ := by
   intro alts'
   induction alts' with
   | nil =>
@@ -301,13 +325,13 @@ theorem any_alt_spec (hnm : Function.Injective nm) {U : List Name}
     simp only at hK
     obtain ⟨k, t, rfl, rk, rt⟩ := hu
     have ht1 := hK.ticks
-    step with all_live_spec' hnm x s1 k hK.wf (hF.mono hK.ran.ext (by rw [hK.tbl]))
+    step with alt_live_spec hnm x s1 k hK.wf (hF.mono hK.ran.ext (by rw [hK.tbl]))
       (hs x List.mem_cons_self) (by rw [hK.nodes]; exact rk) (by unfold Room; omega)
       as ⟨r1, hR2, hb⟩
     obtain ⟨b, s2⟩ := r1
     simp only at hR2 hb
     have ht2 := hR2.ticks
-    have R2 : Ran s s2 (2 * x.length + 2) := (hK.ran.trans hR2).mono (by omega)
+    have R2 : Ran s s2 (2 * x.2.length + 3) := (hK.ran.trans hR2).mono (by omega)
     cases b with
     | true =>
       have hdn := any_alt_done s2 alts true
@@ -326,21 +350,21 @@ theorem any_alt_spec (hnm : Function.Injective nm) {U : List Name}
       rintro r ⟨hR, hr⟩
       refine ⟨(R2.trans hR).mono (by simp only [anyCost]; omega), ?_⟩
       rw [hr]
-      have hx : ¬ ∀ c ∈ x, m c = some true := fun h => by simpa using hb.2 h
+      have hx : ¬ ∀ c ∈ x.2, m c = some true := fun h => by simpa using hb.2 h
       simp only [List.mem_cons, exists_eq_or_imp, hx, false_or]
 
 theorem any_alt_spec' (hnm : Function.Injective nm) {U : List Name}
-    {m : Sorts.Conj → Option Bool} (alts' : List (List Sorts.Conj)) (s : store.Store)
-    (alts : store.TermId) (hW : Wf s) (hF : FlagsB nm s U m) (hs : ∀ a ∈ alts', ∀ c ∈ a, Sub U c)
+    {m : Sorts.Conj → Option Bool} (alts' : List Alt) (s : store.Store)
+    (alts : store.TermId) (hW : Wf s) (hF : FlagsB nm s U m) (hs : ∀ a ∈ alts', ∀ c ∈ a.2, Sub U c)
     (hk : Repr nm s.nodes.val alts.val (altsPat (nm none) U alts')) (hroom : Room s (anyCost alts')) :
     sorts.any_alt s alts ⦃ r =>
-      Ran s r.2 (anyCost alts') ∧ (r.1 = true ↔ ∃ a ∈ alts', ∀ c ∈ a, m c = some true) ⦄ :=
+      Ran s r.2 (anyCost alts') ∧ (r.1 = true ↔ ∃ a ∈ alts', ∀ c ∈ a.2, m c = some true) ⦄ :=
   any_alt_spec hnm alts' s alts hW hF hs hk hroom
 
 /-! ## One round -/
 
 /-- A conjunction with its alternatives. -/
-abbrev Entry := Sorts.Conj × List (List Sorts.Conj)
+abbrev Entry := Sorts.Conj × List Alt
 
 noncomputable def entryPat (z : Sym) (U : List Name) (e : Entry) : Pat :=
   .app (cpat z U e.1) (altsPat z U e.2)
@@ -382,12 +406,12 @@ theorem Le.set {m : Sorts.Conj → Option Bool} {d : Sorts.Conj} (h : m d = some
 /-- The alternatives kept for a conjunction are over the names, and a member
 of each argument conjunction of one gives the conjunction a member. -/
 def EntryOK (S : Sorts) (U : List Name) (e : Entry) : Prop :=
-  Sub U e.1 ∧ ∀ a ∈ e.2, (∀ c ∈ a, Sub U c) ∧
-    ((∀ c ∈ a, ∃ t, Sorts.MemC S c t) → ∃ t, Sorts.MemC S e.1 t)
+  Sub U e.1 ∧ ∀ a ∈ e.2, (∀ c ∈ a.2, Sub U c) ∧
+    ((∀ c ∈ a.2, ∃ t, Sorts.MemC S c t) → ∃ t, Sorts.MemC S e.1 t)
 
 /-- No alternative of a conjunction flagged with no is all flagged with yes. -/
 def Stable (m : Sorts.Conj → Option Bool) (G : List Entry) : Prop :=
-  ∀ e ∈ G, m e.1 = some false → ¬ ∃ a ∈ e.2, ∀ c ∈ a, m c = some true
+  ∀ e ∈ G, m e.1 = some false → ¬ ∃ a ∈ e.2, ∀ c ∈ a.2, m c = some true
 
 theorem pass_loop_spec (hnm : Function.Injective nm) (S : Sorts) {U : List Name} :
     ∀ (G : List Entry) (s : store.Store) (graph : store.TermId) (ch : Bool)
@@ -463,7 +487,7 @@ theorem pass_loop_spec (hnm : Function.Injective nm) (S : Sorts) {U : List Name}
     have rest : ∀ (s' : store.Store) (ch' : Bool) (m₁ : Sorts.Conj → Option Bool) (k : Nat),
         RanB s s' k → k ≤ anyCost e.2 + 4 → FlagsB nm s' U m₁ → Sound S m₁ → Le m m₁ →
         (ch = true → ch' = true) →
-        (ch' = false → m₁ = m ∧ (m e.1 = some false → ¬ ∃ a ∈ e.2, ∀ c ∈ a, m c = some true)) →
+        (ch' = false → m₁ = m ∧ (m e.1 = some false → ¬ ∃ a ∈ e.2, ∀ c ∈ a.2, m c = some true)) →
         (ch' = true → ch = true ∨ (m e.1 = some false ∧ m₁ e.1 = some true)) →
         loop (fun x => match x with
           | (graph1, s1, changed1) => sorts.pass_loop.body graph1 s1 changed1) (t, s', ch') ⦃ r =>
@@ -593,10 +617,10 @@ theorem falses_le (G : List Entry) (m : Sorts.Conj → Option Bool) : falses G m
   exact (List.toFinset_card_le _).trans (by simp)
 
 theorem live_loop_done (s : store.Store) (graph : store.TermId) :
-    sorts.live_loop s graph false ⦃ r => r = s ⦄ := by
-  unfold sorts.live_loop
+    sorts.flag_live_loop s graph false ⦃ r => r = s ⦄ := by
+  unfold sorts.flag_live_loop
   rw [loop]
-  simp only [sorts.live_loop.body, Bool.false_eq_true, ↓reduceIte, bind_ok]
+  simp only [sorts.flag_live_loop.body, Bool.false_eq_true, ↓reduceIte, bind_ok]
   step*
 
 theorem live_loop_spec (hnm : Function.Injective nm) (S : Sorts) {U : List Name} (G : List Entry)
@@ -604,7 +628,7 @@ theorem live_loop_spec (hnm : Function.Injective nm) (S : Sorts) {U : List Name}
     ∀ (n : Nat) (s : store.Store) (m : Sorts.Conj → Option Bool), falses G m < n → Wf s →
     FlagsB nm s U m → Sound S m → (∀ e ∈ G, m e.1 ≠ none) →
     Repr nm s.nodes.val graph.val (graphPat (nm none) U G) → Room s (n * passCost G) →
-    sorts.live_loop s graph true ⦃ s' => ∃ m',
+    sorts.flag_live_loop s graph true ⦃ s' => ∃ m',
       RanB s s' (n * passCost G) ∧ FlagsB nm s' U m' ∧ Sound S m' ∧ Le m m' ∧ Stable m' G ⦄ := by
   intro n
   induction n with
@@ -614,9 +638,9 @@ theorem live_loop_spec (hnm : Function.Injective nm) (S : Sorts) {U : List Name}
     have hroom' := hroom
     unfold Room at hroom'
     rw [Nat.add_mul, Nat.one_mul] at hroom'
-    unfold sorts.live_loop
+    unfold sorts.flag_live_loop
     rw [loop]
-    simp only [sorts.live_loop.body, ↓reduceIte]
+    simp only [sorts.flag_live_loop.body, ↓reduceIte]
     step with pass_spec hnm S G s graph m hW hF hSd hG hdom hg (by unfold Room; omega)
       as ⟨r1, m₁, hR, hF₁, hS₁, hLe, hs, hf⟩
     obtain ⟨go1, s1⟩ := r1
@@ -626,7 +650,7 @@ theorem live_loop_spec (hnm : Function.Injective nm) (S : Sorts) {U : List Name}
     | false =>
       obtain ⟨rfl, hst⟩ := hs rfl
       have hdn := live_loop_done s1 graph
-      unfold sorts.live_loop at hdn
+      unfold sorts.flag_live_loop at hdn
       simp only [uncurry, bind_ok]
       refine WP.spec_mono hdn ?_
       rintro r rfl
@@ -641,7 +665,7 @@ theorem live_loop_spec (hnm : Function.Injective nm) (S : Sorts) {U : List Name}
         · exact hdom e' he' (h ▸ h0)
         · rw [h] at h0; cases h0
       have IH := ih s1 m₁ hlt' hR.wf hF₁ hS₁ hdom' (hR.ext.repr hg) (by unfold Room; omega)
-      unfold sorts.live_loop at IH
+      unfold sorts.flag_live_loop at IH
       simp only [uncurry, bind_ok]
       refine WP.spec_mono IH ?_
       rintro r ⟨m', hR', hF', hS', hLe', hst⟩
@@ -992,15 +1016,15 @@ def altOf (S : Sorts) (d : Sorts.Conj) (f : Sym) (k : Nat) : List Sorts.Conj :=
   (List.range k).map (Sorts.kidC S d f k)
 
 /-- The alternatives the cases of a list give a conjunction. -/
-def caseAlts (S : Sorts) (d : Sorts.Conj) : List (Sym × List (Option Name)) → List (List Sorts.Conj)
+def caseAlts (S : Sorts) (d : Sorts.Conj) : List (Sym × List (Option Name)) → List Alt
   | [] => []
   | c :: cs =>
-    (if Sorts.Accepts S d c.1 c.2.length then [altOf S d c.1 c.2.length] else []) ++ caseAlts S d cs
+    (if Sorts.Accepts S d c.1 c.2.length then [(c.1, altOf S d c.1 c.2.length)] else []) ++ caseAlts S d cs
 
 /-- The ticks going through the cases of a list may spend. -/
 def casesWork (S : Sorts) (u : Nat) : List (Sym × List (Option Name)) → Nat
   | [] => 1
-  | c :: cs => stepConjCost S u u c.2.length + 4 * c.2.length + 4 + casesWork S u cs
+  | c :: cs => stepConjCost S u u c.2.length + 4 * c.2.length + 5 + casesWork S u cs
 
 theorem altOf_sub {S : Sorts} {sp : Pat} {U : List Name} (hC : Ctx nm S sp U) (d : Sorts.Conj)
     (f : Sym) (k : Nat) : ∀ c ∈ altOf S d f k, Sub U c := by
@@ -1011,7 +1035,7 @@ theorem altOf_sub {S : Sorts} {sp : Pat} {U : List Name} (hC : Ctx nm S sp U) (d
 theorem expand_cases_loop_spec {S : Sorts} {sp : Pat} {U : List Name} (hC : Ctx nm S sp U)
     (d : Sorts.Conj) (hd : Sub U d) (hnr : ¬ Sorts.RestOK S d) :
     ∀ (cs : List (Sym × List (Option Name))) (s : store.Store)
-      (cases decls names ci alts todo : store.TermId) (acc : List (List Sorts.Conj))
+      (cases decls names ci alts todo : store.TermId) (acc : List Alt)
       (T : List Sorts.Conj) (m : Sorts.Conj → Option Bool), Inv s → FlagsB nm s U m →
     (∀ c ∈ cs, (c.1, c.2.length) ∈ Sorts.caseKeys S d) →
     Repr nm s.nodes.val decls.val sp →
@@ -1025,7 +1049,7 @@ theorem expand_cases_loop_spec {S : Sorts} {sp : Pat} {U : List Name} (hC : Ctx 
       RanB s r.1 (casesWork S U.length cs) ∧ FlagsB nm r.1 U m' ∧
         Repr nm r.1.nodes.val r.2.1.val (altsPat (nm none) U ((caseAlts S d cs).reverse ++ acc)) ∧
         Repr nm r.1.nodes.val r.2.2.val (altPat (nm none) U T') ∧ Enq (Sorts.Kid S d) m m' T T' ∧
-        ∀ a ∈ caseAlts S d cs, ∀ c ∈ a, m' c ≠ none ⦄ := by
+        ∀ a ∈ caseAlts S d cs, ∀ c ∈ a.2, m' c ≠ none ⦄ := by
   intro cs
   induction cs with
   | nil =>
@@ -1045,7 +1069,7 @@ theorem expand_cases_loop_spec {S : Sorts} {sp : Pat} {U : List Name} (hC : Ctx 
         Repr nm s1.nodes.val alts.val
           (altsPat (nm none) U ((caseAlts S d []).reverse ++ acc)) ∧
         Repr nm s1.nodes.val todo.val (altPat (nm none) U T') ∧ Enq (Sorts.Kid S d) m m' T T' ∧
-        ∀ a ∈ caseAlts S d [], ∀ c ∈ a, m' c ≠ none :=
+        ∀ a ∈ caseAlts S d [], ∀ c ∈ a.2, m' c ≠ none :=
       ⟨m, T, hK.ran.ranB.mono (by simp [casesWork]), hF.mono hK.ran.ext (by rw [hK.tbl]),
         by rw [hK.nodes]; simpa [caseAlts] using hal, by rw [hK.nodes]; exact htd,
         Enq.refl _ m T, fun _ h => (by simp [caseAlts] at h)⟩
@@ -1092,14 +1116,14 @@ theorem expand_cases_loop_spec {S : Sorts} {sp : Pat} {U : List Name} (hC : Ctx 
     have hkeys' : ∀ c ∈ cs, (c.1, c.2.length) ∈ Sorts.caseKeys S d :=
       fun c hc => hkeys c (List.mem_cons_of_mem _ hc)
     -- the rest of the cases
-    have rest : ∀ (s' : store.Store) (alts' todo' : store.TermId) (acc' : List (List Sorts.Conj))
+    have rest : ∀ (s' : store.Store) (alts' todo' : store.TermId) (acc' : List Alt)
         (m₁ : Sorts.Conj → Option Bool) (T₁ : List Sorts.Conj),
-        RanB s s' (stepConjCost S U.length U.length x.2.length + 4 * x.2.length + 4) →
+        RanB s s' (stepConjCost S U.length U.length x.2.length + 4 * x.2.length + 5) →
         Inv s' → FlagsB nm s' U m₁ →
         Repr nm s'.nodes.val alts'.val (altsPat (nm none) U acc') →
         Repr nm s'.nodes.val todo'.val (altPat (nm none) U T₁) → Enq (Sorts.Kid S d) m m₁ T T₁ →
         ((caseAlts S d cs).reverse ++ acc' = (caseAlts S d (x :: cs)).reverse ++ acc) →
-        (∀ a ∈ caseAlts S d (x :: cs), a ∈ caseAlts S d cs ∨ ∀ c ∈ a, m₁ c ≠ none) →
+        (∀ a ∈ caseAlts S d (x :: cs), a ∈ caseAlts S d cs ∨ ∀ c ∈ a.2, m₁ c ≠ none) →
         loop (fun x => match x with
           | (cases1, s1, alts1, todo1) =>
             sorts.expand_cases_loop.body decls names ci cases1 s1 alts1 todo1)
@@ -1109,7 +1133,7 @@ theorem expand_cases_loop_spec {S : Sorts} {sp : Pat} {U : List Name} (hC : Ctx 
               (altsPat (nm none) U ((caseAlts S d (x :: cs)).reverse ++ acc)) ∧
             Repr nm r.1.nodes.val r.2.2.val (altPat (nm none) U T') ∧
             Enq (Sorts.Kid S d) m m' T T' ∧
-            ∀ a ∈ caseAlts S d (x :: cs), ∀ c ∈ a, m' c ≠ none ⦄ := by
+            ∀ a ∈ caseAlts S d (x :: cs), ∀ c ∈ a.2, m' c ≠ none ⦄ := by
       intro s' alts' todo' acc' m₁ T₁ R0 hI' hF' hal' htd' hE hacc hfl
       have := R0.ticks
       have IH := ih s' t decls names ci alts' todo' acc' T₁ m₁ hI' hF' hkeys' (R0.ext.repr hde)
@@ -1134,19 +1158,32 @@ theorem expand_cases_loop_spec {S : Sorts} {sp : Pat} {U : List Name} (hC : Ctx 
           simp only [altOf, List.getElem_map, List.getElem_range]
           exact rk'.unique ck'
       simp only [uncurry]
-      step with alloc_w s3 (.App r alts) hI3.toWf ⟨rkids.lt, (R3.ext.repr hal).lt⟩
-        (by unfold Room; omega) as ⟨r4, hW4, ht4, htb4, hx4, hid, hst4⟩
-      obtain ⟨alts1, s4⟩ := r4
-      simp only at hW4 ht4 htb4 hx4 hid hst4 ⊢
-      have R4 : RanB s s4 (stepConjCost S U.length U.length x.2.length + 3) :=
-        ⟨hW4, R3.ext.trans hx4, by rw [hst4, R3.stk], by have := R3.ticks; omega⟩
-      have ral1 : Repr nm s4.nodes.val alts1.val
-          (altsPat (nm none) U (altOf S d x.1 x.2.length :: acc)) := by
-        simp only [altsPat, List.map_cons, encList]
-        refine .app hid ?_ (R4.ext.repr hal)
-        have := hx4.repr rkids
+      have rkids' : Repr nm s3.nodes.val r.val
+          (altPat (nm none) U (altOf S d x.1 x.2.length)) := by
+        have := rkids
         rw [hkids] at this
         exact this
+      step with alloc_w s3 (.App f r) hI3.toWf ⟨(R3.ext.repr rf).lt, rkids.lt⟩
+        (by unfold Room; omega) as ⟨r4', hW4', ht4', htb4', hx4', hid', hst4'⟩
+      obtain ⟨alt, s4'⟩ := r4'
+      simp only at hW4' ht4' htb4' hx4' hid' hst4' ⊢
+      have R4' : RanB s s4' (stepConjCost S U.length U.length x.2.length + 3) :=
+        ⟨hW4', R3.ext.trans hx4', by rw [hst4', R3.stk], by have := R3.ticks; omega⟩
+      have ralt : Repr nm s4'.nodes.val alt.val
+          (kaltPat (nm none) U (x.1, altOf S d x.1 x.2.length)) :=
+        .app hid' (R4'.ext.repr rf) (hx4'.repr rkids')
+      step with alloc_w s4' (.App alt alts) hW4' ⟨ralt.lt, (R4'.ext.repr hal).lt⟩
+        (by unfold Room; omega) as ⟨r4, hW4, ht4, htb4, hx40, hid, hst4⟩
+      obtain ⟨alts1, s4⟩ := r4
+      simp only at hW4 ht4 htb4 hx40 hid hst4 ⊢
+      have hx4 : Extends s3 s4 := hx4'.trans hx40
+      have htb4 : tbl s4 = tbl s3 := by rw [htb4, htb4']
+      have R4 : RanB s s4 (stepConjCost S U.length U.length x.2.length + 4) :=
+        ⟨hW4, R3.ext.trans hx4, by rw [hst4, hst4', R3.stk], by have := R3.ticks; omega⟩
+      have ral1 : Repr nm s4.nodes.val alts1.val
+          (altsPat (nm none) U ((x.1, altOf S d x.1 x.2.length) :: acc)) := by
+        simp only [altsPat, List.map_cons, encList]
+        exact .app hid (hx40.repr ralt) (R4.ext.repr hal)
       have hkid : ∀ c ∈ altOf S d x.1 x.2.length, Sub U c ∧ Sorts.Kid S d c := by
         intro c hc
         refine ⟨altOf_sub hC d _ _ c hc, ?_⟩
@@ -1161,7 +1198,7 @@ theorem expand_cases_loop_spec {S : Sorts} {sp : Pat} {U : List Name} (hC : Ctx 
       simp only at hR5 hF5 rtd5
       rw [hlen2] at hR5
       have R5 := (R4.trans hR5).mono
-        (m := stepConjCost S U.length U.length x.2.length + 4 * x.2.length + 4) (by omega)
+        (m := stepConjCost S U.length U.length x.2.length + 4 * x.2.length + 5) (by omega)
       simp only [uncurry, bind_ok]
       exact rest s5 alts1 todo1 _ m₁ T₁ R5 (R5.inv hI) hF5 (hR5.ext.repr ral1) rtd5 hE5
         (by simp [caseAlts, hacc])
@@ -1182,7 +1219,7 @@ theorem expand_cases_loop_spec {S : Sorts} {sp : Pat} {U : List Name} (hC : Ctx 
 theorem expand_cases_spec {S : Sorts} {sp : Pat} {U : List Name} (hC : Ctx nm S sp U)
     (d : Sorts.Conj) (hd : Sub U d) (hnr : ¬ Sorts.RestOK S d)
     (cs : List (Sym × List (Option Name))) (s : store.Store)
-    (cases decls names ci alts todo : store.TermId) (acc : List (List Sorts.Conj))
+    (cases decls names ci alts todo : store.TermId) (acc : List Alt)
     (T : List Sorts.Conj) (m : Sorts.Conj → Option Bool) (hI : Inv s) (hF : FlagsB nm s U m)
     (hkeys : ∀ c ∈ cs, (c.1, c.2.length) ∈ Sorts.caseKeys S d)
     (hde : Repr nm s.nodes.val decls.val sp)
@@ -1197,14 +1234,14 @@ theorem expand_cases_spec {S : Sorts} {sp : Pat} {U : List Name} (hC : Ctx nm S 
       RanB s r.2 (casesWork S U.length cs) ∧ FlagsB nm r.2 U m' ∧
         Repr nm r.2.nodes.val r.1.1.val (altsPat (nm none) U ((caseAlts S d cs).reverse ++ acc)) ∧
         Repr nm r.2.nodes.val r.1.2.val (altPat (nm none) U T') ∧ Enq (Sorts.Kid S d) m m' T T' ∧
-        ∀ a ∈ caseAlts S d cs, ∀ c ∈ a, m' c ≠ none ⦄ := by
+        ∀ a ∈ caseAlts S d cs, ∀ c ∈ a.2, m' c ≠ none ⦄ := by
   unfold sorts.expand_cases
   step with expand_cases_loop_spec hC d hd hnr cs s cases decls names ci alts todo acc T m hI hF
     hkeys hde hU hci hcs hal htd hroom as ⟨s1, alts1, todo1, m', T', h1, h2, h3, h4, h5, h6⟩
   exact ⟨m', T', h1, h2, h3, h4, h5, h6⟩
 
 /-- The alternatives the sorts of a list give a conjunction. -/
-def nameAlts (S : Sorts) (d : Sorts.Conj) : List Name → List (List Sorts.Conj)
+def nameAlts (S : Sorts) (d : Sorts.Conj) : List Name → List Alt
   | [] => []
   | n :: ns =>
     (match S.lookup n with
@@ -1222,7 +1259,7 @@ theorem casesWork_le {S : Sorts} {n : Name} {dd : SortDef} (h : S.lookup n = som
 theorem expand_loop_spec {S : Sorts} {sp : Pat} {U : List Name} (hC : Ctx nm S sp U)
     (d : Sorts.Conj) (hd : Sub U d) (hnr : ¬ Sorts.RestOK S d) :
     ∀ (ns : List Name) (s : store.Store) (nsi decls names ci alts todo : store.TermId)
-      (acc : List (List Sorts.Conj)) (T : List Sorts.Conj) (m : Sorts.Conj → Option Bool),
+      (acc : List Alt) (T : List Sorts.Conj) (m : Sorts.Conj → Option Bool),
     Inv s → FlagsB nm s U m → (∀ n ∈ ns, n ∈ d) →
     Repr nm s.nodes.val decls.val sp →
     Repr nm s.nodes.val names.val (namesPat (nm none) U) →
@@ -1236,7 +1273,7 @@ theorem expand_loop_spec {S : Sorts} {sp : Pat} {U : List Name} (hC : Ctx nm S s
         FlagsB nm r.1 U m' ∧
         Repr nm r.1.nodes.val r.2.1.val (altsPat (nm none) U ((nameAlts S d ns).reverse ++ acc)) ∧
         Repr nm r.1.nodes.val r.2.2.val (altPat (nm none) U T') ∧ Enq (Sorts.Kid S d) m m' T T' ∧
-        ∀ a ∈ nameAlts S d ns, ∀ c ∈ a, m' c ≠ none ⦄ := by
+        ∀ a ∈ nameAlts S d ns, ∀ c ∈ a.2, m' c ≠ none ⦄ := by
   intro ns
   induction ns with
   | nil =>
@@ -1256,7 +1293,7 @@ theorem expand_loop_spec {S : Sorts} {sp : Pat} {U : List Name} (hC : Ctx nm S s
         FlagsB nm s1 U m' ∧
         Repr nm s1.nodes.val alts.val (altsPat (nm none) U ((nameAlts S d []).reverse ++ acc)) ∧
         Repr nm s1.nodes.val todo.val (altPat (nm none) U T') ∧ Enq (Sorts.Kid S d) m m' T T' ∧
-        ∀ a ∈ nameAlts S d [], ∀ c ∈ a, m' c ≠ none :=
+        ∀ a ∈ nameAlts S d [], ∀ c ∈ a.2, m' c ≠ none :=
       ⟨m, T, hK.ran.ranB.mono (by simp), hF.mono hK.ran.ext (by rw [hK.tbl]),
         by rw [hK.nodes]; simpa [nameAlts] using hal, by rw [hK.nodes]; exact htd,
         Enq.refl _ m T, fun _ h => (by simp [nameAlts] at h)⟩
@@ -1285,13 +1322,13 @@ theorem expand_loop_spec {S : Sorts} {sp : Pat} {U : List Name} (hC : Ctx nm S s
     have R2 : Ran s s2 (3 * S.length + 3) := (hK.ran.trans hR2).mono (by omega)
     have hF2 : FlagsB nm s2 U m := hF.mono R2.ext (by rw [R2.tbl])
     have hmem' : ∀ n ∈ ns, n ∈ d := fun n hn => hmem n (List.mem_cons_of_mem _ hn)
-    have rest : ∀ (s' : store.Store) (alts' todo' : store.TermId) (acc' : List (List Sorts.Conj))
+    have rest : ∀ (s' : store.Store) (alts' todo' : store.TermId) (acc' : List Alt)
         (m₁ : Sorts.Conj → Option Bool) (T₁ : List Sorts.Conj),
         RanB s s' (3 * S.length + 3 + sortsWork S U.length) → FlagsB nm s' U m₁ →
         Repr nm s'.nodes.val alts'.val (altsPat (nm none) U acc') →
         Repr nm s'.nodes.val todo'.val (altPat (nm none) U T₁) → Enq (Sorts.Kid S d) m m₁ T T₁ →
         ((nameAlts S d ns).reverse ++ acc' = (nameAlts S d (x :: ns)).reverse ++ acc) →
-        (∀ a ∈ nameAlts S d (x :: ns), a ∈ nameAlts S d ns ∨ ∀ c ∈ a, m₁ c ≠ none) →
+        (∀ a ∈ nameAlts S d (x :: ns), a ∈ nameAlts S d ns ∨ ∀ c ∈ a.2, m₁ c ≠ none) →
         loop (fun x => match x with
           | (ns1, s1, alts1, todo1) => sorts.expand_loop.body decls names ci ns1 s1 alts1 todo1)
           (t, s', alts', todo') ⦃ r => ∃ m' T',
@@ -1301,7 +1338,7 @@ theorem expand_loop_spec {S : Sorts} {sp : Pat} {U : List Name} (hC : Ctx nm S s
               (altsPat (nm none) U ((nameAlts S d (x :: ns)).reverse ++ acc)) ∧
             Repr nm r.1.nodes.val r.2.2.val (altPat (nm none) U T') ∧
             Enq (Sorts.Kid S d) m m' T T' ∧
-            ∀ a ∈ nameAlts S d (x :: ns), ∀ c ∈ a, m' c ≠ none ⦄ := by
+            ∀ a ∈ nameAlts S d (x :: ns), ∀ c ∈ a.2, m' c ≠ none ⦄ := by
       intro s' alts' todo' acc' m₁ T₁ R0 hF' hal' htd' hE hacc hfl
       have := R0.ticks
       have IH := ih s' t decls names ci alts' todo' acc' T₁ m₁ (R0.inv hI) hF' hmem'
@@ -1354,15 +1391,15 @@ theorem expand_loop_spec {S : Sorts} {sp : Pat} {U : List Name} (hC : Ctx nm S s
           · exact Or.inr (hall3 a ha)
           · exact Or.inl ha)
 
-theorem mem_caseAlts {S : Sorts} {d : Sorts.Conj} {a : List Sorts.Conj} :
+theorem mem_caseAlts {S : Sorts} {d : Sorts.Conj} {a : Alt} :
     ∀ {cs : List (Sym × List (Option Name))}, a ∈ caseAlts S d cs ↔
-      ∃ c ∈ cs, Sorts.Accepts S d c.1 c.2.length ∧ a = altOf S d c.1 c.2.length
+      ∃ c ∈ cs, Sorts.Accepts S d c.1 c.2.length ∧ a = (c.1, altOf S d c.1 c.2.length)
   | [] => by simp [caseAlts]
   | x :: cs => by
     simp only [caseAlts, List.mem_append, mem_caseAlts (cs := cs), List.mem_cons, exists_eq_or_imp]
     by_cases h : Sorts.Accepts S d x.1 x.2.length <;> simp [h]
 
-theorem mem_nameAlts {S : Sorts} {d : Sorts.Conj} {a : List Sorts.Conj} :
+theorem mem_nameAlts {S : Sorts} {d : Sorts.Conj} {a : Alt} :
     ∀ {ns : List Name}, a ∈ nameAlts S d ns ↔
       ∃ n ∈ ns, ∃ dd, S.lookup n = some dd ∧ a ∈ caseAlts S d dd.cases
   | [] => by simp [nameAlts]
@@ -1372,12 +1409,12 @@ theorem mem_nameAlts {S : Sorts} {d : Sorts.Conj} {a : List Sorts.Conj} :
 
 /-- The alternatives of a conjunction: for each root one of its sorts has a
 case for and all accept, the conjunctions of the arguments. -/
-noncomputable def dAlts (S : Sorts) (U : List Name) (d : Sorts.Conj) : List (List Sorts.Conj) :=
+noncomputable def dAlts (S : Sorts) (U : List Name) (d : Sorts.Conj) : List Alt :=
   (nameAlts S d (conjList U (· ∈ d))).reverse
 
 theorem mem_dAlts {S : Sorts} {U : List Name} {d : Sorts.Conj} (hd : Sub U d)
-    {a : List Sorts.Conj} : a ∈ dAlts S U d ↔
-      ∃ key ∈ Sorts.caseKeys S d, Sorts.Accepts S d key.1 key.2 ∧ a = altOf S d key.1 key.2 := by
+    {a : Alt} : a ∈ dAlts S U d ↔
+      ∃ key ∈ Sorts.caseKeys S d, Sorts.Accepts S d key.1 key.2 ∧ a = (key.1, altOf S d key.1 key.2) := by
   simp only [dAlts, List.mem_reverse, mem_nameAlts, mem_caseAlts, mem_conjList, Sorts.caseKeys,
     Finset.mem_biUnion]
   constructor
@@ -1411,7 +1448,7 @@ theorem expand_spec {S : Sorts} {sp : Pat} {U : List Name} (hC : Ctx nm S sp U)
       RanB s r.2 (expandCost S U.length) ∧ FlagsB nm r.2 U m' ∧
         Repr nm r.2.nodes.val r.1.1.val (altsPat (nm none) U (dAlts S U d)) ∧
         Repr nm r.2.nodes.val r.1.2.val (altPat (nm none) U T') ∧ Enq (Sorts.Kid S d) m m' T T' ∧
-        ∀ a ∈ dAlts S U d, ∀ c ∈ a, m' c ≠ none ⦄ := by
+        ∀ a ∈ dAlts S U d, ∀ c ∈ a.2, m' c ≠ none ⦄ := by
   unfold sorts.expand
   have hroom' := hroom
   unfold Room at hroom'
@@ -1443,9 +1480,10 @@ structure WalkInv (S : Sorts) (U : List Name) (c₀ : Sorts.Conj) (T : List Sort
   reach : ∀ c, m c ≠ none → Sorts.Reach S c₀ c
   sound : Sound S m
   done : ∀ c ∈ Dn, (Sorts.RestOK S c ∧ m c = some true) ∨
-    (¬ Sorts.RestOK S c ∧ (c, dAlts S U c) ∈ G ∧ ∀ a ∈ dAlts S U c, ∀ k ∈ a, m k ≠ none)
+    (¬ Sorts.RestOK S c ∧ (c, dAlts S U c) ∈ G ∧ ∀ a ∈ dAlts S U c, ∀ k ∈ a.2, m k ≠ none)
   graph : ∀ e ∈ G, e.1 ∈ Dn ∧ e.2 = dAlts S U e.1
   glen : G.length ≤ Dn.length
+  norest : ∀ e ∈ G, ¬ Sorts.RestOK S e.1
 
 theorem WalkInv.rest {S : Sorts} {U : List Name} {c₀ d : Sorts.Conj} {T : List Sorts.Conj}
     {G : List Entry} {Dn : List Sorts.Conj} {m : Sorts.Conj → Option Bool}
@@ -1464,7 +1502,7 @@ theorem WalkInv.rest {S : Sorts} {U : List Name} {c₀ d : Sorts.Conj} {T : List
     simp only [List.cons_append, List.nodup_cons, List.mem_append, not_or] at this
     exact this.1.2
   refine ⟨hnd, fun c => ?_, (hne c₀).2 h.root, fun c hc => h.reach c ((hne c).1 hc), ?_, ?_, ?_,
-    by simp only [List.length_cons]; have := h.glen; omega⟩
+    by simp only [List.length_cons]; have := h.glen; omega, h.norest⟩
   · rw [hne, h.dom]
     simp only [List.mem_cons]
     tauto
@@ -1485,7 +1523,7 @@ theorem WalkInv.rest {S : Sorts} {U : List Name} {c₀ d : Sorts.Conj} {T : List
 theorem WalkInv.expand {S : Sorts} {U : List Name} {c₀ d : Sorts.Conj} {T T' : List Sorts.Conj}
     {G : List Entry} {Dn : List Sorts.Conj} {m m' : Sorts.Conj → Option Bool}
     (h : WalkInv S U c₀ (d :: T) G Dn m) (hr : ¬ Sorts.RestOK S d)
-    (hE : Enq (Sorts.Kid S d) m m' T T') (hall : ∀ a ∈ dAlts S U d, ∀ c ∈ a, m' c ≠ none) :
+    (hE : Enq (Sorts.Kid S d) m m' T T') (hall : ∀ a ∈ dAlts S U d, ∀ c ∈ a.2, m' c ≠ none) :
     WalkInv S U c₀ T' ((d, dAlts S U d) :: G) (d :: Dn) m' := by
   have hkeep : ∀ c, m c ≠ none → m' c = m c := fun c hc => hE.keeps hc
   obtain ⟨new, rfl, nd, hnew, hm'⟩ := hE
@@ -1507,7 +1545,11 @@ theorem WalkInv.expand {S : Sorts} {U : List Name} {c₀ d : Sorts.Conj} {T T' :
       tauto)
     exact this h0
   refine ⟨hnd, fun c => ?_, (hne c₀).2 (Or.inr h.root), ?_, ?_, ?_, ?_,
-    by simp only [List.length_cons]; have := h.glen; omega⟩
+    by simp only [List.length_cons]; have := h.glen; omega, fun e he => ?_⟩
+  rotate_right
+  · rcases List.mem_cons.1 he with rfl | he
+    · exact hr
+    · exact h.norest e he
   · rw [hne, h.dom]
     simp only [List.mem_append, List.mem_cons]
     tauto
@@ -1574,28 +1616,34 @@ theorem WalkInv.entryOK {S : Sorts} {sp : Pat} {U : List Name} (hC : Ctx nm S sp
   exact Sorts.memC_of_grows (Or.inr ⟨key, hkey, hacc, fun i hi =>
     hm _ (List.mem_map.2 ⟨i, List.mem_range.2 hi, rfl⟩)⟩)
 
-/-- When no round changes a flag, the flag of the conjunction says whether it
-has a member. -/
-theorem WalkInv.live_iff {S : Sorts} {U : List Name} {c₀ : Sorts.Conj} {G : List Entry}
-    {Dn : List Sorts.Conj} {m m' : Sorts.Conj → Option Bool} (h : WalkInv S U c₀ [] G Dn m)
-    (hsub : ∀ c ∈ Dn, Sub U c) (hLe : Le m m') (hS : Sound S m') (hst : Stable m' G) :
-    m' c₀ = some true ↔ c₀ ∈ Sorts.live S := by
+/-- When nothing is still to do, every conjunction reached is done. -/
+theorem WalkInv.reached {S : Sorts} {U : List Name} {c₀ : Sorts.Conj} {G : List Entry}
+    {Dn : List Sorts.Conj} {m : Sorts.Conj → Option Bool} (h : WalkInv S U c₀ [] G Dn m)
+    (hsub : ∀ c ∈ Dn, Sub U c) {c : Sorts.Conj} (hc : Sorts.Reach S c₀ c) : c ∈ Dn := by
   have hin : ∀ c, m c ≠ none → c ∈ Dn := fun c hc => by
     rcases (h.dom c).1 hc with h | h
     · cases h
     · exact h
-  have hall : ∀ c, Sorts.Reach S c₀ c → c ∈ Dn := by
-    intro c hc
-    induction hc with
-    | refl => exact hin c₀ h.root
-    | @step d e _ hk ih =>
-      obtain ⟨hnr, key, hkey, hacc, i, hi, rfl⟩ := hk
-      rcases h.done d ih with ⟨h₁, -⟩ | ⟨-, -, h₃⟩
-      · exact absurd h₁ hnr
-      · exact hin _ (h₃ (altOf S d key.1 key.2)
-          ((mem_dAlts (hsub d ih)).2 ⟨key, hkey, hacc, rfl⟩) _
-          (List.mem_map.2 ⟨i, List.mem_range.2 hi, rfl⟩))
-  refine Sorts.live_iff_of_stable (L := fun c => m' c = some true) hS ?_
+  induction hc with
+  | refl => exact hin c₀ h.root
+  | @step d e _ hk ih =>
+    obtain ⟨hnr, key, hkey, hacc, i, hi, rfl⟩ := hk
+    rcases h.done d ih with ⟨h₁, -⟩ | ⟨-, -, h₃⟩
+    · exact absurd h₁ hnr
+    · exact hin _ (h₃ (key.1, altOf S d key.1 key.2)
+        ((mem_dAlts (hsub d ih)).2 ⟨key, hkey, hacc, rfl⟩) _
+        (List.mem_map.2 ⟨i, List.mem_range.2 hi, rfl⟩))
+
+/-- When no round changes a flag, the flag of the conjunction says whether it
+has a member. -/
+theorem WalkInv.live_iff {S : Sorts} {U : List Name} {c₀ : Sorts.Conj} {G : List Entry}
+    {Dn : List Sorts.Conj} {m m' : Sorts.Conj → Option Bool} (h : WalkInv S U c₀ [] G Dn m)
+    (hsub : ∀ c ∈ Dn, Sub U c) (hLe : Le m m') (hS : Sound S m') (hst : Stable m' G)
+    {c : Sorts.Conj} (hc₀ : Sorts.Reach S c₀ c) : m' c = some true ↔ c ∈ Sorts.live S := by
+  have hall : ∀ c, Sorts.Reach S c₀ c → c ∈ Dn := fun c hc => h.reached hsub hc
+  rw [Sorts.mem_live_iff]
+  refine ⟨hS c, Sorts.live_of_stable (R := Sorts.Reach S c₀) (L := fun c => m' c = some true)
+    (fun _ _ h k => h.step k) ?_ c hc₀⟩
   intro c hc hg
   have hcd := hall c hc
   rcases h.done c hcd with ⟨-, h₂⟩ | ⟨hnr, hG, -⟩
@@ -1615,7 +1663,7 @@ theorem WalkInv.live_iff {S : Sorts} {U : List Name} {c₀ : Sorts.Conj} {G : Li
             | false => rfl
             | true => exact absurd hv hne
         · exact absurd e hne
-      refine hst _ hG hfalse ⟨altOf S c key.1 key.2,
+      refine hst _ hG hfalse ⟨(key.1, altOf S c key.1 key.2),
         (mem_dAlts (hsub c hcd)).2 ⟨key, hkey, hacc, rfl⟩, fun k hk' => ?_⟩
       obtain ⟨i, hi, rfl⟩ := List.mem_map.1 hk'
       exact hk i (List.mem_range.1 hi)
@@ -1794,7 +1842,7 @@ theorem reach_spec {S : Sorts} {sp : Pat} {U : List Name} (hC : Ctx nm S sp U)
       · subst h; simp
       · simp [h]
     refine ⟨by simp, fun c => by rw [hne]; simp, (hne c₀).2 rfl, fun c h => ?_, fun c h => ?_,
-      fun c h => (by cases h), fun e h => (by cases h), Nat.le_refl _⟩
+      fun c h => (by cases h), fun e h => (by cases h), Nat.le_refl _, fun e h => (by cases h)⟩
     · rw [(hne c).1 h]; exact .refl
     · by_cases hcc : c = c₀
       · subst hcc; simp at h
@@ -1811,19 +1859,19 @@ theorem reach_spec {S : Sorts} {sp : Pat} {U : List Name} (hC : Ctx nm S sp U)
 
 /-! ## What the rounds may spend -/
 
-theorem anyCost_eq : ∀ l : List (List Sorts.Conj),
-    anyCost l = (l.map fun a => 2 * a.length + 2).sum + 1
+theorem anyCost_eq : ∀ l : List Alt,
+    anyCost l = (l.map fun a => 2 * a.2.length + 3).sum + 1
   | [] => rfl
   | a :: l => by simp only [anyCost, anyCost_eq l, List.map_cons, List.sum_cons]; omega
 
 /-- The ticks looking through the alternatives of the cases of every
 declaration may spend. -/
 def altW (S : Sorts) : Nat :=
-  (S.map fun p => (p.2.cases.map fun c => 2 * c.2.length + 2).sum).sum
+  (S.map fun p => (p.2.cases.map fun c => 2 * c.2.length + 3).sum).sum
 
 theorem sum_caseAlts_le (S : Sorts) (d : Sorts.Conj) : ∀ cs : List (Sym × List (Option Name)),
-    ((caseAlts S d cs).map fun a => 2 * a.length + 2).sum ≤
-      (cs.map fun c => 2 * c.2.length + 2).sum
+    ((caseAlts S d cs).map fun a => 2 * a.2.length + 3).sum ≤
+      (cs.map fun c => 2 * c.2.length + 3).sum
   | [] => by simp [caseAlts]
   | x :: cs => by
     have ih := sum_caseAlts_le S d cs
@@ -1835,7 +1883,7 @@ theorem sum_caseAlts_le (S : Sorts) (d : Sorts.Conj) : ∀ cs : List (Sym × Lis
       omega
 
 theorem sum_nameAlts_le (S : Sorts) (d : Sorts.Conj) : ∀ ns : List Name,
-    ((nameAlts S d ns).map fun a => 2 * a.length + 2).sum ≤ ns.length * altW S
+    ((nameAlts S d ns).map fun a => 2 * a.2.length + 3).sum ≤ ns.length * altW S
   | [] => by simp [nameAlts]
   | x :: ns => by
     have ih := sum_nameAlts_le S d ns
@@ -1843,7 +1891,7 @@ theorem sum_nameAlts_le (S : Sorts) (d : Sorts.Conj) : ∀ ns : List Name,
       Nat.one_mul]
     have : ((match S.lookup x with
         | some dd => caseAlts S d dd.cases
-        | none => []).map fun a : List Sorts.Conj => 2 * a.length + 2).sum ≤ altW S := by
+        | none => []).map fun a : Alt => 2 * a.2.length + 3).sum ≤ altW S := by
       cases hl : S.lookup x with
       | none => simp
       | some dd =>
@@ -1867,28 +1915,30 @@ theorem passCost_le {B : Nat} : ∀ G : List Entry, (∀ e ∈ G, anyCost e.2 �
     simp only [passCost, List.length_cons, Nat.add_mul, Nat.one_mul]
     omega
 
-/-- The ticks deciding whether a conjunction that reaches `r` conjunctions
-has a member may spend, with `u` names. -/
-def liveCost (S : Sorts) (u r : Nat) : Nat :=
-  r * nodeCost S u + (r + 1) * (r * (u * altW S + 5) + 1) + 6
+/-- The ticks flagging the conjunctions a conjunction reaches may spend, when
+it reaches `r` of them, with `u` names. -/
+def flagCost (S : Sorts) (u r : Nat) : Nat :=
+  r * nodeCost S u + (r + 1) * (r * (u * altW S + 5) + 1) + 5
 
-/-- `live` answers whether the conjunction has a member (`Sorts.live`). It
-spends a number of ticks that is polynomial in the size of the sorts and in
-the number of conjunctions the conjunction reaches. -/
-theorem live_spec {S : Sorts} {sp : Pat} {U : List Name} (hC : Ctx nm S sp U)
+/-- `flag_live` gives the conjunctions the conjunction reaches that have a
+sort without a rest, each with its alternatives, and leaves table `B` flagging
+with yes exactly the conjunctions reached that have a member
+(`WalkInv.live_iff`). -/
+theorem flag_live_spec {S : Sorts} {sp : Pat} {U : List Name} (hC : Ctx nm S sp U)
     (c₀ : Sorts.Conj) (hc : Sub U c₀) (s : store.Store) (decls names ci : store.TermId)
     (hI : Inv s) (hde : Repr nm s.nodes.val decls.val sp)
     (hU : Repr nm s.nodes.val names.val (namesPat (nm none) U))
     (hci : Repr nm s.nodes.val ci.val (cpat (nm none) U c₀))
-    (hroom : Room s (liveCost S U.length (Sorts.reachSet S c₀).card)) :
-    sorts.live s decls names ci ⦃ r s' =>
-      Inv s' ∧ Extends s s' ∧
-        s'.ticks.val ≤ s.ticks.val + liveCost S U.length (Sorts.reachSet S c₀).card ∧
-        (r = true ↔ c₀ ∈ Sorts.live S) ⦄ := by
-  unfold sorts.live
+    (hroom : Room s (flagCost S U.length (Sorts.reachSet S c₀).card)) :
+    sorts.flag_live s decls names ci ⦃ r => ∃ m m' G Dn,
+      RanB s r.2 (flagCost S U.length (Sorts.reachSet S c₀).card) ∧ FlagsB nm r.2 U m' ∧
+        Repr nm r.2.nodes.val r.1.val (graphPat (nm none) U G) ∧ WalkInv S U c₀ [] G Dn m ∧
+        (∀ c ∈ Dn, Sub U c) ∧ Le m m' ∧ Sound S m' ∧ Stable m' G ∧
+        passCost G ≤ (Sorts.reachSet S c₀).card * (U.length * altW S + 5) + 1 ⦄ := by
+  unfold sorts.flag_live
   have hroom' := hroom
   unfold Room at hroom'
-  simp only [liveCost] at hroom'
+  simp only [flagCost] at hroom'
   have hW := hI.toWf
   step with clear_w s .B hW (by unfold Room; omega) as ⟨s1, hn1, ht1, hW1, hcl, hoth, hst1⟩
   have hx1 : Extends s s1 := Extends.of_eq hn1 (by omega)
@@ -1920,18 +1970,45 @@ theorem live_spec {S : Sorts} {sp : Pat} {U : List Name} (hC : Ctx nm S sp U)
     hF2 hInv.sound hdom rg (by unfold Room; omega) as ⟨s3, m', hR3, hF3, hS3, hLe, hst⟩
   have ht3 := hR3.ticks
   have R3 := R2.trans hR3
+  exact ⟨m, m', G, Dn, R3.mono (by simp only [flagCost]; omega), hF3, hR3.ext.repr rg, hInv,
+    hsub, hLe, hS3, hst, hpc⟩
+
+/-- The ticks deciding whether a conjunction that reaches `r` conjunctions
+has a member may spend, with `u` names. -/
+def liveCost (S : Sorts) (u r : Nat) : Nat := flagCost S u r + 1
+
+/-- `live` answers whether the conjunction has a member (`Sorts.live`). It
+spends a number of ticks that is polynomial in the size of the sorts and in
+the number of conjunctions the conjunction reaches. -/
+theorem live_spec {S : Sorts} {sp : Pat} {U : List Name} (hC : Ctx nm S sp U)
+    (c₀ : Sorts.Conj) (hc : Sub U c₀) (s : store.Store) (decls names ci : store.TermId)
+    (hI : Inv s) (hde : Repr nm s.nodes.val decls.val sp)
+    (hU : Repr nm s.nodes.val names.val (namesPat (nm none) U))
+    (hci : Repr nm s.nodes.val ci.val (cpat (nm none) U c₀))
+    (hroom : Room s (liveCost S U.length (Sorts.reachSet S c₀).card)) :
+    sorts.live s decls names ci ⦃ r s' =>
+      Inv s' ∧ Extends s s' ∧
+        s'.ticks.val ≤ s.ticks.val + liveCost S U.length (Sorts.reachSet S c₀).card ∧
+        (r = true ↔ c₀ ∈ Sorts.live S) ⦄ := by
+  unfold sorts.live
+  have hroom' := hroom
+  unfold Room at hroom'
+  simp only [liveCost] at hroom'
+  step with flag_live_spec hC c₀ hc s decls names ci hI hde hU hci (by unfold Room; omega)
+    as ⟨graph, s3, m, m', G, Dn, R3, hF3, rg, hInv, hsub, hLe, hS3, hst, hpc⟩
+  have ht3 := R3.ticks
   have rci := R3.ext.repr hci
-  step with get_flag_w s3 .B ci hR3.wf rci.lt (by unfold Room; omega) as ⟨o, s4, hfl4, hK4⟩
+  step with get_flag_w s3 .B ci R3.wf rci.lt (by unfold Room; omega) as ⟨o, s4, hfl4, hK4⟩
   have ht4 := hK4.ticks
   have hfin : Inv s4 ∧ Extends s s4 ∧
       s4.ticks.val ≤ s.ticks.val + liveCost S U.length (Sorts.reachSet S c₀).card :=
     ⟨⟨hK4.wf, by rw [hK4.stk, R3.stk]; exact hI.empty⟩, R3.ext.trans hK4.ran.ext, by
-      have := R3.ticks; simp only [liveCost]; omega⟩
+      simp only [liveCost]; omega⟩
   have ho : o = m' c₀ := by
     rw [hfl4]
-    have := hF3.get hC.inj hR3.wf hc rci
+    have := hF3.get hC.inj R3.wf hc rci
     simpa only [flagB] using this
-  have hiff := hInv.live_iff hsub hLe hS3 hst
+  have hiff := hInv.live_iff hsub hLe hS3 hst .refl
   rw [← ho] at hiff
   cases o with
   | none => simp only [WP.spec_ok]; exact ⟨hfin.1, hfin.2.1, hfin.2.2, by simpa using hiff⟩
