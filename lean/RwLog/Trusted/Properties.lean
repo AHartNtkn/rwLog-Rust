@@ -187,9 +187,12 @@ def EmptySide : Prop :=
 /-- P1.4 strong, for the converse: running `conv q` is running `q` with every
 answer swapped, step for step. Like `DualTrace`, it is up to the order of the
 answers of one step and up to equivalent answers: a machine is not held to an
-order among the answers of a step. -/
+order among the answers of a step. It is asked of well-formed input, like
+every property of a run: a domain need not represent a span that is not
+first-order, so the representative of such a span and of the span with its
+sides exchanged need not be each other's converse (`Trusted/Domain.lean`). -/
 def ConvTrace : Prop :=
-  ∀ P q n, P.sorts.WellFormed →
+  ∀ P q n, P.WellFormed q →
     TraceEquiv P.sorts.interp (R.trace (R.init P (.conv q)) n)
       ((R.trace (R.init P q) n).map Shown.swap)
 
@@ -197,7 +200,7 @@ def ConvTrace : Prop :=
 query in the mirrored program is the mirror image of the run, step for
 step. -/
 def DualTrace : Prop :=
-  ∀ P q n, P.sorts.WellFormed →
+  ∀ P q n, P.WellFormed q →
     TraceEquiv P.sorts.interp (R.trace (R.init P.dual q.dual) n)
       ((R.trace (R.init P q) n).map Shown.swap)
 
