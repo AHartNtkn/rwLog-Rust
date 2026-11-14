@@ -194,6 +194,75 @@ theorem exists_two (a b : Rep S) {u w : Pat} {e : Eqns Nat} (hu : u.firstOrder =
     ⟨_, σ₀, (Raw.prob₂_sol _ _ _ _ σ₀).2 hσ₀, rfl⟩
   exact ⟨ρ, h.trans (a.prob₂_den b u w e)⟩
 
+/-! ## The same problems, built another way
+
+A program need not build `Raw.prob` and `Raw.prob₂` as written: any problem
+with the same solutions denotes the same, whatever the order of its sorts,
+the form of its exclusions, or the renaming that keeps the variables of two
+stores apart. -/
+
+/-- The renaming that sends the variables of the first of two
+representatives through `ρ₁` and those of the second, above them, through
+`ρ₂`. -/
+def apart (a : Rep S) (ρ₁ ρ₂ : Nat → Nat) (v : Nat) : Nat :=
+  if v < a.1.c.length then ρ₁ v else ρ₂ (v - a.1.c.length)
+
+/-- A problem over the solutions of a representative denotes what
+`Raw.prob` does. -/
+theorem den_one (ρ : Rep S) {P : Prob} (hsol : ∀ σ, σ ∈ P.Sol S ↔ σ ∈ ρ.1.store.Sol S) :
+    P.Den S = (ρ.1.prob P.t).Den S := by
+  ext g
+  constructor
+  · rintro ⟨σ, hσ, rfl⟩
+    exact ⟨σ, (ρ.1.prob_sol _ σ).2 ((hsol σ).1 hσ), rfl⟩
+  · rintro ⟨σ, hσ, rfl⟩
+    exact ⟨σ, (hsol σ).2 ((ρ.1.prob_sol _ σ).1 hσ), rfl⟩
+
+/-- A problem over the pairs of solutions of two representatives, their
+variables kept apart by any two one to one renamings with no value in
+common, denotes what `Raw.prob₂` does. -/
+theorem den_two (a b : Rep S) {ρ₁ ρ₂ : Nat → Nat} (h₁ : Injective ρ₁) (h₂ : Injective ρ₂)
+    (hdis : ∀ v w, ρ₁ v ≠ ρ₂ w) {P : Prob} {t : Pat} {e : Eqns Nat}
+    (ht : P.t = t.rename (a.apart ρ₁ ρ₂))
+    (hsol : ∀ σ, σ ∈ P.Sol S ↔ Eqns.Unifies σ (Eqns.ren (a.apart ρ₁ ρ₂) e) ∧
+      σ ∘ ρ₁ ∈ a.1.store.Sol S ∧ σ ∘ ρ₂ ∈ b.1.store.Sol S) :
+    P.Den S = (a.1.prob₂ b.1 t e).Den S := by
+  have hπ : Injective (a.apart ρ₁ ρ₂) := by
+    intro v w h
+    unfold apart at h
+    split at h <;> split at h
+    · exact h₁ h
+    · exact absurd h (hdis _ _)
+    · exact absurd h.symm (hdis _ _)
+    · have := h₂ h; omega
+  have hshift : ∀ σ : Nat → GTerm, (σ ∘ a.apart ρ₁ ρ₂) ∘ (· + a.1.c.length) = σ ∘ ρ₂ := by
+    intro σ; funext v; simp [apart]
+  ext g
+  constructor
+  · rintro ⟨σ, hσ, rfl⟩
+    obtain ⟨hu, ha, hb⟩ := (hsol σ).1 hσ
+    refine ⟨σ ∘ a.apart ρ₁ ρ₂, (a.1.prob₂_sol b.1 t e _).2 ⟨unifies_ren.1 hu, ?_, ?_⟩, ?_⟩
+    · exact Raw.Normal.sol_congr a.normal (fun v hv => by simp [apart, hv]) ha
+    · rw [hshift]; exact hb
+    · rw [ht, rename_bind]; rfl
+  · rintro ⟨σ', hσ', rfl⟩
+    obtain ⟨hu, ha, hb⟩ := (a.1.prob₂_sol b.1 t e σ').1 hσ'
+    classical
+    let σ : Nat → GTerm := fun w =>
+      if h : ∃ v, a.apart ρ₁ ρ₂ v = w then σ' h.choose else σ' 0
+    have hσ : σ ∘ a.apart ρ₁ ρ₂ = σ' := by
+      funext v
+      have h : ∃ u, a.apart ρ₁ ρ₂ u = a.apart ρ₁ ρ₂ v := ⟨v, rfl⟩
+      show (if h : ∃ u, a.apart ρ₁ ρ₂ u = a.apart ρ₁ ρ₂ v then σ' h.choose else σ' 0) = σ' v
+      rw [dite_eq_left_of_eq_true (eq_true h), hπ h.choose_spec]
+    refine ⟨σ, (hsol σ).2 ⟨unifies_ren.2 (by rw [hσ]; exact hu), ?_, ?_⟩, ?_⟩
+    · refine Raw.Normal.sol_congr a.normal (fun v hv => ?_) ha
+      have := congrFun hσ v
+      simp only [comp_apply, apart, hv, ↓reduceIte] at this
+      exact this
+    · rw [← hshift, hσ]; exact hb
+    · rw [ht, rename_bind, hσ]; rfl
+
 /-! ## The representative of each operation exists -/
 
 theorem swap_key (ρ : Rep S) :

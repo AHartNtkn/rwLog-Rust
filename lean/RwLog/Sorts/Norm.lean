@@ -480,6 +480,15 @@ theorem Prob.norm_of_empty (hS : S.WellFormed) {P : Prob} (hP : P.FO) (h : P.Den
     rw [hden, h] at hm
     exact absurd hm (Set.notMem_empty _)
 
+/-- Problems that denote the same have the same normal store. -/
+theorem Prob.norm_congr (hS : S.WellFormed) {P P' : Prob} (hP : P.FO) (hP' : P'.FO)
+    (h : P.Den S = P'.Den S) : P.norm S hS = P'.norm S hS := by
+  cases hn : P.norm S hS with
+  | none => exact (Prob.norm_of_empty hS hP' (by rw [← h]; exact Prob.norm_none hS hP hn)).symm
+  | some r =>
+    obtain ⟨hr, hden⟩ := Prob.norm_some hS hP hn
+    exact (Prob.norm_unique hS hP' hr (hden.trans h)).symm
+
 /-- The normal store of a problem, read off any tight store that denotes
 pairs whose first parts are what the problem denotes: the pattern of its
 normal store is a pair, and the first part of it, with its variables and
