@@ -231,6 +231,19 @@ of a chain and remembers what it has evaluated: a summary holds exactly the
 products of its node (`evalS_ex`, with the memo holding that of every entry),
 so the shared evaluation gives the same verdict (`sharedRace_final`).
 
+`RacesExact.lean` says what it is for an unfolding race to be exact (`UEx`:
+its verdict is the model's and its answers are the closed products), proves
+it of each evaluation and of two exact races side by side (`raced_ex` for the
+race of R004 and R005), and that two exact races give the same verdict and
+the same representatives (`UEx.agree`).
+
+`Kernel/NormalFormMap.lean` reads a node as the node of its converse, of its
+mirror image in the mirrored program, or as itself (`nmap b t`): the mapped
+node is a node of the same kind with the members mapped, and the map is its
+own inverse. `Unfolding/ModelMap.lean` proves that the unfolding of the
+mapped node has the products of the unfolding of the node, turned round when
+the converse is taken (`se_nmap`, `final_nmap`, `closedPart_nmap`).
+
 `Rungs/Framework/Writing.lean` proves what holds of every engine because an
 engine is handed the normal form of the query: `Engine.orComm`, `orAssoc`,
 `seqAssoc`, `andComm`, `andAssoc`. `Rungs/Framework/ConvTrace.lean` proves
