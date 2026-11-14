@@ -878,7 +878,7 @@ theorem rep_spec (hnm : Function.Injective nm) (hz : nm none = "") {S : Sorts} {
       Inv s' ∧ Extends s s' ∧
         s'.ticks.val ≤ s.ticks.val + spanCost U.length sp +
           startCost nm S U.length (spanProbR sp) + normCharge nm S U rc q (spanProbR sp) ∧
-        RepPost nm U s'.nodes.val (Sorts.repOf S sp) res ⦄ := by
+        OrPost nm U s'.nodes.val (Sorts.repOf S sp) res ⦄ := by
   unfold dom.rep
   have hroom' := hroom
   unfold Room at hroom'
@@ -926,16 +926,17 @@ theorem rep_spec (hnm : Function.Injective nm) (hz : nm none = "") {S : Sorts} {
           intro a ha
           obtain ⟨c, hc, hac⟩ := List.mem_flatMap.1 (List.mem_reverse.1 ha)
           exact hUS _ ((hok c hc).2.1 a hac)
-        refine WP.spec_mono (normal_spec hnm hC hS hUS hr hq (spanProbR sp) (spanProbR_fo hfo)
+        step with normal_spec hnm hC hS hUS hr hq (spanProbR sp) (spanProbR_fo hfo)
           hPa s5 decls names t nil a e hI5 (hx05.repr hde) (hx05.repr hU) (hx5.repr rt)
           (.nil hr5) ((hx4.trans hx5).repr ra) ((hx4.trans hx5).repr re)
-          (by unfold Room; omega)) ?_
-        rintro ⟨res, s'⟩ ⟨hI', hx', ht', hpost'⟩
+          (by unfold Room; omega) as ⟨res, s', hI', hx', ht', hpost'⟩
+        rw [unmarked_ok]
+        simp only [bind_ok, WP.spec_ok]
         refine ⟨hI', hx05.trans hx', by simp only [spanCost]; omega, ?_⟩
         rw [Sorts.repOf_eq, hfo]
         simp only [↓reduceIte]
-        exact repPost_of hS (spanProbR_fo hfo) ⟨sp.l, sp.r, rfl⟩
-          (by rw [spanProbR_den sp]; exact Sorts.spanProb_den hfo) hpost'
+        exact orPost_of (repPost_of hS (spanProbR_fo hfo) ⟨sp.l, sp.r, rfl⟩
+          (by rw [spanProbR_den sp]; exact Sorts.spanProb_den hfo) hpost')
     · rename_i hb'
       simp only [WP.spec_ok]
       refine ⟨h2.inv, hx2, by simp only [spanCost]; omega, repOf_not_fo fun h => ?_⟩

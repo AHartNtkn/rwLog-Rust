@@ -180,8 +180,9 @@ formed exactly when no conjunction is in both (`wellFormed_iff`). With it
 `ProgramOf.check_iff` says it is exact. `Tests/SortsRuns.lean` runs it on the
 sorts of section 5 and on the declarations section 4 rejects.
 
-Still owed: `Engine.costed` at `Sorts.dom` (L55) and the operations of the
-store in Rust with derived charges (L39); section 7 says what is done.
+Still owed: `Engine.costed` at `Sorts.dom` (L55). The operations of the
+store are in Rust with derived charges, as a kernel on `Sorts.dom` (L39);
+section 7 says how.
 
 ## 7. The Rust (`verified/rust/src/sorts.rs`) and what its charges depend on
 
@@ -301,11 +302,28 @@ for the domain:
 | So the folded canonical store of a normal store over a pair is over a pair, and its two sides are the same pattern exactly when those of the normal store are | `FoldOf.pair`, `Rep.fold_sides` |
 | It relates the pairs the normal store relates, and representatives with the same folded canonical store are the same | `FoldOf.rel`, `Rep.eq_of_fold` |
 
-The operations of the domain on folded stores are proved with the Rust
+The folded canonical store of the converse of a relation is not that of the
+relation with its sides exchanged, because the variables are numbered from
+the left side. So a machine holds a representative as a folded canonical
+store and a mark (`Sorts/Held.lean`): the store of the representative
+without the mark, and of its converse with it. The converse then changes
+the mark and nothing else.
+
+| Statement | Theorem |
+|---|---|
+| The converse of the converse of a representative is the representative | `Rep.conv_conv` |
+| `Rep.orient ρ f`: the representative whose store is held for `ρ` with the mark `f`. The store held for `ρ` is held for its converse with the other mark | `Rep.orient_conv` |
+| The two sides of the store held, read as the mark says (`Raw.ends`), relate the pairs of the representative | `Rep.fold_ends` |
+| The two sides of the store held are the same pattern exactly when those of the representative are | `Rep.orient_bound` |
+| Representatives are the same exactly when the stores held for them under one mark are; and one covers another exactly when it does so for the stores held under one mark | `Rep.orient_eq_iff`, `Rep.covers_orient` |
+
+The operations of the domain on the stores held are proved with the Rust
 (`verified/lean/RwLogVerified/Dom.lean`): each states a problem over the
-folded stores of its arguments that relates the pairs the operation of the
-specification is to relate, and returns the folded canonical store of its
-normal store.
+stores of its arguments, their sides read as their marks say, that relates
+the pairs the operation of the specification is to relate, and returns the
+folded canonical store of its normal store. They are the operations of a
+kernel on `Sorts.dom S` whose every charge is derived from the Rust
+(`sortsKernel`, `verified/lean/RwLogVerified/SortsKernel.lean`).
 
 
 ## 8. The normal store as a function

@@ -571,6 +571,24 @@ new axiom.
 /-- info: 'RwLog.Sorts.Rep.eq_of_fold' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Sorts.Rep.eq_of_fold
 
+/-- info: 'RwLog.Sorts.Rep.conv_conv' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.Rep.conv_conv
+
+/-- info: 'RwLog.Sorts.Rep.orient_conv' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.Rep.orient_conv
+
+/-- info: 'RwLog.Sorts.Rep.fold_ends' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.Rep.fold_ends
+
+/-- info: 'RwLog.Sorts.Rep.orient_bound' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.Rep.orient_bound
+
+/-- info: 'RwLog.Sorts.Rep.meet_orient' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.Rep.meet_orient
+
+/-- info: 'RwLog.Sorts.Rep.covers_orient' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.Rep.covers_orient
+
 /-- info: 'RwLog.Sorts.Rep.of_val' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Sorts.Rep.of_val
 

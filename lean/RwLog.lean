@@ -151,3 +151,4 @@ import RwLog.Sorts.Free
 import RwLog.Sorts.Fits
 import RwLog.Sorts.FoldRaw
 import RwLog.Sorts.FoldRep
+import RwLog.Sorts.Held

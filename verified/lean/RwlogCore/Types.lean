@@ -139,8 +139,15 @@ inductive sorts.Count where
 | One : store.TermId → sorts.Count
 | Many : sorts.Count
 
+/-- [rwlog_core::dom::Oriented]
+    Source: 'src/dom.rs', lines 105:0-108:1
+    Visibility: public -/
+structure dom.Oriented where
+  rep : sorts.Rep
+  flip : Bool
+
 /-- [rwlog_core::dom::Half]
-    Source: 'src/dom.rs', lines 95:0-101:1 -/
+    Source: 'src/dom.rs', lines 138:0-144:1 -/
 structure dom.Half where
   l : store.TermId
   r : store.TermId
@@ -149,7 +156,7 @@ structure dom.Half where
   x : store.TermId
 
 /-- [rwlog_core::dom::Con]
-    Source: 'src/dom.rs', lines 277:0-284:1 -/
+    Source: 'src/dom.rs', lines 349:0-356:1 -/
 @[discriminant isize]
 inductive dom.Con where
 | «Sort» : store.TermId → dom.Con
