@@ -80,4 +80,5 @@ import RwLog.Sorts.Orient
 import RwLog.Sorts.NormEx
 import RwLog.Sorts.CloseVals
 import RwLog.Sorts.Norm
+import RwLog.Sorts.Prune
 import RwLog.Sorts.Blowup

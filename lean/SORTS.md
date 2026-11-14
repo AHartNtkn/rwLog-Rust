@@ -62,7 +62,7 @@ finitely many conjunctions reachable from the declared sorts.
   is never covered by finitely many proper solution sets of equations, so the
   only way disequations can shrink the least pattern around a store is by
   removing single ground values from one variable.
-- **Why a hidden variable can always be dropped** (*to prove*): its sort is
+- **Why a hidden variable can always be dropped** (*proved*, `prune_spec` in `Prune.lean`): its sort is
   infinite, and each disequation forbids at most one value for the variable
   chosen last, so finitely many disequations never exhaust it. This is also
   why the dead test needs no search.
@@ -199,11 +199,12 @@ charged steps as it reads terms. Proved against section 6
 | `sorts::unit_on`, `sorts::gone` | `Sorts.unitOn`, `Sorts.gone` (`Gone.lean`) | `unitCost`: the charge of solving the equations of an exclusion and 27 for each of their distinct subterms; `goneCost`: that for each exclusion |
 | `sorts::var_succ`, `sorts::settle`, `sorts::open_var` | the next variable; `CStore.settle` and `CStore.exp` (`Loop.lean`) on the pattern and the exclusions, with the entries of the variables | `succCost`: logarithmic in the variable; `settleCost`: counting each entry, and for each entry replaced 14 for each distinct subterm of the pattern and of the exclusions; `openCost`: the next variable for each new variable, and 14 for each distinct subterm of the pattern and of the exclusions |
 | `sorts::always_on`, `sorts::any_always`, `sorts::first_sole` | `always` of one exclusion and of some exclusion of a list; the first variable whose values have one root (`sole` with `gone`) | `alwaysCost`: solving the equations; `anyAlwaysCost`: that for each exclusion; `firstSoleCost`: `goneCost` and `soleAll` for each entry |
-| `sorts::tighten` | rounds of `stepAt` (`Loop.lean`) after `CStore.settle`; what it returns is reached by `Tightens`, so among well-formed sorts it denotes what it was given, satisfies `Inv` and has no variable whose values have one root, and nothing is returned only when the store denotes nothing | `tightenCost`: `settleCost`, and for each round made the two checks, the scan and the replacement; the number of rounds has no closed bound yet |
+| `sorts::tighten` | rounds of `stepAt` (`Loop.lean`), on a store with no variable of one value and none hidden; what it returns is reached by `Tightens`, so among well-formed sorts it denotes what it was given, satisfies `Inv` and has no variable whose values have one root, and nothing is returned only when the store denotes nothing | `runCost`: for each round made the two checks, the scan and the replacement; the number of rounds has no closed bound yet |
 | `sorts::firsts`, `sorts::conj_at`, `sorts::uppers`, `sorts::renumber` | `firsts` of the variables of the pattern (`Renum.lean`); the pattern and the exclusions renamed by first occurrence, and for each variable the declared sorts that hold of all its values: what `ofTight` (`Norm.lean`) gives `assembled` | `renumberCost`: 8 for each distinct subterm of the pattern; for each variable `goneCost` and `inclButAll` for each name; 14 for each distinct subterm of the pattern and of the exclusions |
 | `sorts::places`, `sorts::orient`, `sorts::push_all`, `sorts::ups`, `sorts::close`, `sorts::norm_ex` | `normEx` (`NormEx.lean`) as the list of the values its bindings give the variables: `solve`, `orient` (`Orient.lean`), and `close` read off any atoms that allow the same values as the pushed sorts (`CloseVals.lean`) | `normExCost`: solving the equations; 14 for each distinct subterm of the values; `pushCost` for each sort of each variable; for each variable `countCost` and 14 for each distinct subterm of the values, which gain at most `soleMax` subterms for each variable bound |
-| `sorts::covers`, `sorts::norm_exs`, `sorts::antichain`, `sorts::low`, `sorts::cut_exs` | `covers`, `normExs` and `antichain` (`Assemble.lean`), `Low` and the exclusions of `Raw.cut` (`Hidden.lean`), on exclusions as the lists of the values they give the variables | `coversCost`: 3 for each variable and 14 for each distinct subterm of the values; `normExsCost`: `normExCost` of each exclusion; `antiCost`: two tests for each pair of exclusions; `cutCost`: for each exclusion 43 for each first variable and 27 for each distinct subterm of its values |
-| `sorts::start`, `sorts::normal` | `Prob.norm` (`Norm.lean`): `start` builds a store that `Prob.begin_spec` applies to (any one-to-one numbering of the variables left after solving, the pattern paired with their tuple, sorts on the variables that hold exactly when the sorts of the problem do), and `normal` tightens it, numbers it, normalises its exclusions and cuts it to the first part of the pair (`Prob.norm_of_tight`) | `startCost`: solving the equations, 14 for each distinct subterm of the solved problem, `pushCost` of each sorted pattern, and for each variable the search of the atoms; then `tightenCost` for the rounds made and the charges of the rows above on the tight store. The total is stated against a bound given as a hypothesis, because the rounds have no closed bound yet |
+| `sorts::covers`, `sorts::norm_exs`, `sorts::antichain` | `covers`, `normExs` and `antichain` (`Assemble.lean`), on exclusions as the lists of the values they give the variables | `coversCost`: 3 for each variable and 14 for each distinct subterm of the values; `normExsCost`: `normExCost` of each exclusion; `antiCost`: two tests for each pair of exclusions |
+| `sorts::solved_ex`, `sorts::prune` | `solvedEx` and `CStore.prune` (`Prune.lean`): the solved form of an exclusion, and the store with the sorts of the variables of its pattern only and the solved forms of the exclusions that mention only them. With every variable in infinitely many values it denotes the same (`prune_spec`) | `solvedExCost`: solving the exclusion and 7 for each of its variables; `pruneCost`: that for each exclusion, 2 for each variable of the pattern, 6 for each entry, and 27 for each distinct subterm of the solved forms |
+| `sorts::start`, `sorts::normal` | `Prob.norm` (`Norm.lean`): `start` builds a store that `Prob.begin_spec` applies to (any one-to-one numbering of the variables left after solving, sorts on the variables that hold exactly when the sorts of the problem do); its variables need not occur in its pattern. `normal` replaces the variables of one value, drops the hidden ones (`prune_spec`), tightens the rest, numbers it and normalises its exclusions, and the result is the normal store because it is normal and denotes the problem (`Prob.norm_unique`). No hidden variable is ever replaced by its values | `startCost`: solving the equations, 14 for each distinct subterm of the solved problem, `pushCost` of each sorted pattern, and for each variable the search of the atoms; then `normCost`: `settleCost`, `firstsCost`, `pruneCost`, `runCost` for the rounds made and the charges of the rows above on the tight store. The total is stated against a bound given as a hypothesis (`NormBound`), because the rounds have no closed bound yet |
 | `dom::one`, `dom::compose`, `dom::meet`, `dom::right`, `dom::conv`, `dom::is_bound`, `dom::same_rep`, `dom::covers` | `Rep.one`, `Rep.compose`, `Rep.meet`, `Rep.right`, `Rep.conv`, `bound` and `covers` of `dom S` (`Dom.lean`), on normal stores held as a pattern, the sorts of its variables and the exclusions as lists of values, with no exclusion twice (`ofTight_nodup`) | the parts of the stores written out as sorted patterns and equations (linear in the stores for fixed declarations), then the charge of `sorts::normal` on that problem; the tests are linear in the exclusions |
 | `dom::rep` | `repOf` (`Dom.lean`): the representative of a span as written, nothing when the span is not first-order or relates nothing | linear in the distinct subterms of the span and, for each constraint, in the number of declared names; then the charge of `sorts::normal` on the problem of the span |
 
@@ -264,8 +265,9 @@ problem `P`, for well-formed sorts `S`:
 | When it returns a store, the store is normal and denotes what the problem denotes | `Prob.norm_some` |
 | It returns nothing exactly when the problem denotes nothing | `Prob.norm_none` (and `Prob.norm_some`, since a normal store denotes something) |
 | Every normal store that denotes the problem is the one it returns | `Prob.norm_unique` |
-| Any store that solves the equations, renames the variables left one to one, pairs the pattern with their tuple and gives the variables sorts that hold exactly when the sorts of the problem do, denotes pairs whose first parts are what the problem denotes | `Prob.begin_spec` |
-| Any tight store that denotes such pairs gives the normal store: the first part of its numbered pattern, with its variables and the exclusions over them | `Prob.norm_of_tight` |
+| Any store that solves the equations, renames the variables left one to one and gives the variables sorts that hold exactly when the sorts of the problem do, denotes what the problem denotes; its variables need not occur in its pattern | `Prob.begin_spec` |
+| A first-order store all of whose variables have infinitely many values denotes the same without its hidden variables: with the sorts of the variables of its pattern only, and the solved forms of the exclusions that mention only them | `prune_spec` (`Prune.lean`) |
+| Any tight store that denotes pairs whose first parts are what the problem denotes gives the normal store: the first part of its numbered pattern, with its variables and the exclusions over them | `Prob.norm_of_tight` |
 
 The operations in Rust are proved against this function. Because the normal
 store is unique, any program whose result is normal and denotes the problem
@@ -317,6 +319,18 @@ The route:
    `assembled_normal`).
 7. `Raw.cut` (`Hidden.lean`) keeps the first part of the pattern, the
    variables in it and the exclusions over them (`Raw.Normal.proj`).
+
+The Rust function does not take steps 1 and 7 as written, because pairing
+the pattern with every variable makes step 3 replace the hidden variables
+too, and a hidden variable of a sort with one root is then replaced by all
+its values, which can be exponentially many. After step 2 every variable has
+infinitely many values, so the store denotes the same with the sorts of the
+variables of its pattern only and the solved forms of the exclusions that
+mention only them (`prune_spec`, `Prune.lean`): an exclusion whose solved
+form binds or mentions a hidden variable is avoided by the value of that
+variable alone. The Rust function drops the hidden variables there and goes
+on with steps 3 to 6 on the pattern itself. Its result is normal and denotes
+the problem, so it is the store of `Prob.norm` (`Prob.norm_unique`).
 
 The proofs that a normal store exists without computing it (a store with the
 most symbols, an exclusion with the fewest free variables) are deleted;

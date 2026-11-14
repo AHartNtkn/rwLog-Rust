@@ -275,23 +275,17 @@ new axiom.
 /-- info: 'RwLogVerified.antichain_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLogVerified.antichain_spec
 
-/-- info: 'RwLogVerified.take_len_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLogVerified.take_len_spec
-
-/-- info: 'RwLogVerified.low_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLogVerified.low_spec
-
-/-- info: 'RwLogVerified.cut_exs_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLogVerified.cut_exs_spec
-
 /-- info: 'RwLogVerified.coversV_vals' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in #print axioms RwLogVerified.coversV_vals
 
-/-- info: 'RwLogVerified.lowV_vals' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLogVerified.lowV_vals
-
 /-- info: 'RwLogVerified.antichain_vals' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in #print axioms RwLogVerified.antichain_vals
+
+/-- info: 'RwLogVerified.solved_ex_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.solved_ex_spec
+
+/-- info: 'RwLogVerified.prune_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.prune_spec
 
 /-- info: 'RwLogVerified.ofTight_abs' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLogVerified.ofTight_abs
@@ -301,6 +295,9 @@ new axiom.
 
 /-- info: 'RwLogVerified.startSt_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLogVerified.startSt_spec
+
+/-- info: 'RwLogVerified.front_sound' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.front_sound
 
 /-- info: 'RwLogVerified.tail_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLogVerified.tail_spec

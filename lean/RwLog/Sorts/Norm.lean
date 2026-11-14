@@ -321,27 +321,24 @@ theorem Prob.begin_back {P : Prob} {θ : Nat → Pat} (hsolve : solve P.e = some
   rw [rb, Term.bind_congr (σ := τ ∘ ρ) (τ := σ) fun v hv => hτ v (hq v hv), Term.bind_bind,
     show (fun v => (θ v).bind σ) = σ from funext ((solve_some hsolve).2 σ hσ)]
 
-/-- Any store built from a problem as follows denotes pairs whose first
-parts are what the problem denotes: solve the equations, rename the
-variables that are left one to one below `n`, pair the pattern with the
-tuple of the first `n` variables, and give the variables sorts that hold
-exactly when the sorts of the problem do. -/
+/-- Any store built from a problem as follows denotes what the problem
+denotes: solve the equations, rename the variables that are left one to one
+below `n`, and give the variables sorts that hold exactly when the sorts of
+the problem do. The variables of the sorts and of the exclusions need not
+occur in the pattern. -/
 theorem Prob.begin_spec {P : Prob} (hP : P.FO) {θ : Nat → Pat} (hsolve : solve P.e = some θ)
     {ρ : Nat → Nat} {n : Nat}
     (hinj : ∀ v ∈ P.occ θ, ∀ w ∈ P.occ θ, ρ v = ρ w → v = w)
     (hn : ∀ v ∈ P.occ θ, ρ v < n) {s : Store}
-    (ht : s.t = tpair ((P.t.bind θ).rename ρ) (tup n))
+    (ht : s.t = (P.t.bind θ).rename ρ)
     (hx : s.x = P.x.map fun E => E.map fun p =>
       ((p.1.bind θ).rename ρ, (p.2.bind θ).rename ρ))
     (hc : ∀ τ : Nat → GTerm, τ ∈ s.Pos S ↔
       ∀ a ∈ P.a, mem S a.1 (((a.2.bind θ).rename ρ).bind τ) = true)
     (hcv : ∀ v, n ≤ v → s.c v = ∅) :
-    s.Fin n ∧ s.Full ∧ (∀ g ∈ s.Den S, ∃ x y, g = tpair x y) ∧
-      P.Den S = {x | ∃ y, tpair x y ∈ s.Den S} := by
+    s.Fin n ∧ P.Den S = s.Den S := by
   obtain ⟨hθu, hθm⟩ := solve_some hsolve
   have hθfo := solve_fo P.e hP.e θ hsolve
-  have fix : ∀ σ : Nat → GTerm, Eqns.Unifies σ P.e → (fun v => (θ v).bind σ) = σ :=
-    fun σ hσ => funext (hθm σ hσ)
   have bb : ∀ (q : Pat) (τ : Nat → GTerm), (q.bind θ).bind τ = q.bind fun v => (θ v).bind τ :=
     fun q τ => Term.bind_bind _ _ _
   have uni : ∀ τ : Nat → GTerm, Eqns.Unifies (fun v => (θ v).bind τ) P.e := by
@@ -356,8 +353,6 @@ theorem Prob.begin_spec {P : Prob} (hP : P.FO) {θ : Nat → Pat} (hsolve : solv
   have ox : ∀ E ∈ P.x, ∀ p ∈ E, ∀ v ∈ (p.1.bind θ).vars ++ (p.2.bind θ).vars, v ∈ P.occ θ :=
     fun E hE p hp v hv =>
       List.mem_append_right _ (List.mem_flatMap.2 ⟨E, hE, List.mem_flatMap.2 ⟨p, hp, hv⟩⟩)
-  have hvar : ∀ v, v < n → v ∈ s.t.vars := fun v hv => by
-    rw [ht, tpair_vars]; exact List.mem_append_right _ (mem_tup_vars.2 hv)
   have hxv : ∀ E ∈ s.x, ∀ p ∈ E, ∀ v ∈ p.1.vars ++ p.2.vars, v < n := by
     intro E' hE' q hq v hv
     rw [hx] at hE'
@@ -372,24 +367,17 @@ theorem Prob.begin_spec {P : Prob} (hP : P.FO) {θ : Nat → Pat} (hsolve : solv
   have back : ∀ (τ : Nat → GTerm) (q : Pat),
       ((q.bind θ).rename ρ).bind τ = q.bind fun v => (θ v).bind (τ ∘ ρ) :=
     fun τ q => by rw [rb, bb]
-  refine ⟨⟨?_, ?_, hcv, ?_, hxv⟩, ⟨?_, ?_⟩, ?_, ?_⟩
-  · rw [ht, tpair_fo, rfo _ hP.t, tup_fo]; rfl
+  refine ⟨⟨?_, ?_, hcv, ?_, hxv⟩, ?_⟩
+  · rw [ht]; exact rfo _ hP.t
   · intro v hv
-    rw [ht, tpair_vars, List.mem_append, mem_tup_vars, Term.vars_rename] at hv
-    rcases hv with hv | hv
-    · obtain ⟨w, hw, rfl⟩ := List.mem_map.1 hv
-      exact hn w (ot w hw)
-    · exact hv
+    rw [ht, Term.vars_rename] at hv
+    obtain ⟨w, hw, rfl⟩ := List.mem_map.1 hv
+    exact hn w (ot w hw)
   · intro E' hE' q hq
     rw [hx] at hE'
     obtain ⟨E, hE, rfl⟩ := List.mem_map.1 hE'
     obtain ⟨p, hp, rfl⟩ := List.mem_map.1 hq
     exact ⟨rfo _ (hP.x E hE p hp).1, rfo _ (hP.x E hE p hp).2⟩
-  · exact fun v hv => hcv v (by by_contra hlt; exact hv (hvar v (by omega)))
-  · exact fun E hE p hp v hv => hvar v (hxv E hE p hp v hv)
-  · rintro g ⟨τ, -, rfl⟩
-    rw [ht]
-    exact ⟨_, _, tpair_bind τ _ _⟩
   · ext g
     constructor
     · rintro ⟨σ, hσ, rfl⟩
@@ -406,18 +394,15 @@ theorem Prob.begin_spec {P : Prob} (hP : P.FO) {θ : Nat → Pat} (hsolve : solv
           rw [fwd _ fun v hv => ox E hE p hp v (List.mem_append_left _ hv),
             fwd _ fun v hv => ox E hE p hp v (List.mem_append_right _ hv)] at this
           exact this
-      refine ⟨(tup n).bind τ, τ, hsol, ?_⟩
-      rw [ht, tpair_bind, fwd _ ot]
-    · rintro ⟨y, τ, hτ, e⟩
-      have e' : tpair g y = tpair (((P.t.bind θ).rename ρ).bind τ) ((tup n).bind τ) := by
-        rw [e, ht]; exact tpair_bind τ _ _
+      exact ⟨τ, hsol, by rw [ht, fwd _ ot]⟩
+    · rintro ⟨τ, hτ, rfl⟩
       refine ⟨fun v => (θ v).bind (τ ∘ ρ), ⟨uni _, fun a ha => ?_, fun E hE hu => ?_⟩, ?_⟩
       · rw [← back]; exact (hc τ).1 hτ.1 a ha
       · refine hτ.2 _ (by rw [hx]; exact List.mem_map_of_mem hE) fun q hq => ?_
         obtain ⟨p, hp, rfl⟩ := List.mem_map.1 hq
         show ((p.1.bind θ).rename ρ).bind τ = ((p.2.bind θ).rename ρ).bind τ
         rw [back, back]; exact hu p hp
-      · rw [(tpair_inj e').1, back]
+      · rw [ht, back]
 
 /-! ## The normal store -/
 
