@@ -133,6 +133,7 @@ Proved (2026-11-13), for well-formed sorts and with no other hypothesis:
 | The one member of a conjunction is found on the conjunctions it reaches: a table of members that only holds one members and that no round extends holds the member of exactly those with just one | `count_one_iff_of_stable`, `count_ne_one_of_stable`, `OneStep` (`ReachCount.lean`) |
 | Whether a conjunction has a member outside a sort is decided on the pairs the pair reaches: a marking of them that is sound and that no round extends marks exactly those with such a member | `out_iff_of_stable`, `ReachOut`, `reachOutSet` (`ReachOut.lean`) |
 | The two markings as one, over keys that are a conjunction alone or a conjunction with a sort: a marking of the keys a key reaches that is sound and that no round extends marks exactly the keys that hold | `trueG_iff_of_stable`, `ReachG`, `reachGSet`, `GrowsG` (`ReachOut.lean`) |
+| Whether every member of a conjunction but for some terms is in a sort is asked one root at a time, and what the roots ask again is asked of smaller terms | `Hold`, `hold_iff`, `AskKey`, `sum_proj_le` (`ButStep.lean`) |
 
 How it is built. A *normal* store (`Raw.Normal`, `Normal.lean`) is defined by
 conditions on its solutions: variables numbered by first occurrence, every
@@ -192,6 +193,7 @@ charged steps as it reads terms. Proved against section 6
 |---|---|---|
 | `sorts::step` | `Sorts.step` | `sortsCost S + 2 m + 2`, `m` the arguments; `sortsCost S` is linear in the written size of the declarations |
 | `sorts::member` | `Sorts.mem` | 5, and `sortsCost S + 11 m + 6` for each pair of a declared sort and a distinct subterm with `m` arguments |
+| `sorts::included_but` | `Sorts.Hold` (`ButStep.lean`) | `inclButAll`: a polynomial in the written size of the declarations, the size of the excepted terms, and the numbers of conjunctions and of keys that can be reached |
 
 Membership is therefore linear in the term for fixed declarations, and a term
 with a repeated subterm pays for it once for each sort.

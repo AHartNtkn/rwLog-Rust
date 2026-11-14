@@ -29,6 +29,10 @@
   the member when there is one.
 * `RwLogVerified.Incl`: whether every member of a conjunction of sorts is in
   a sort, by going through the keys the pair of the two reaches.
+* `RwLogVerified.But`, `RwLogVerified.ButLoop`, `RwLogVerified.ButLink`:
+  whether every member of a conjunction of sorts, but for finitely many
+  ground terms, is in a sort: the functions, the loop of asks, and the link
+  to the specification with the bound of the charge.
 * `RwLogVerified.Kernel`: the kernel rung whose charges are those bounds.
 * `RwLogVerified.KernelRuns`: its charges on a worked composition.
 
@@ -57,5 +61,8 @@ import RwLogVerified.Names
 import RwLogVerified.Live
 import RwLogVerified.Count
 import RwLogVerified.Incl
+import RwLogVerified.But
+import RwLogVerified.ButLoop
+import RwLogVerified.ButLink
 import RwLogVerified.Kernel
 import RwLogVerified.KernelRuns
