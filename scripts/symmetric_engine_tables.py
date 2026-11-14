@@ -96,6 +96,7 @@ class Goal:
         g.structural = structural                 # not opened by a push or by opening a call
         g.own = 0                                 # ticks of this goal's own work
         g.stamp, g.delta, g.level = -1, 0, {}     # for the split balance
+        g.born = M.requests                       # the request the goal was opened in
     def add(g, a, producer):
         g.by.setdefault(producer, []).append(a)
         if a not in g.seen: g.seen.add(a); g.ans.append(a)
@@ -140,6 +141,7 @@ class Goal:
         M = g.M
         if g.done: return 0
         if g.stamp == M.round: return g.delta
+        if M.defer and g.born == M.round: return 0     # opened in this request: its first round is in the next
         g.stamp, g.delta = M.round, 0
         g.expand()
         groups = {}
@@ -327,15 +329,18 @@ class Machine:
            (whole rounds) | 'alone' (the split balance: a unit where a goal has several groups, all where one).
     cover: the interface check. check_calls: only for a side that contains a call. check_apart: the checks of
            a goal are one group of their own instead of belonging to the group of their split.
-    each: every strategy is a group of its own (measured and rejected)."""
-    def __init__(M, prog, query, rule='alt', push=True, open_calls=False, e1=False, units='goal', cover=False, each=False, check_apart=False, check_calls=False):
+    each: every strategy is a group of its own (measured and rejected).
+    defer: a goal opened during a request has its first round in the next request, so the goals that
+           take part in a request are among those open when it starts."""
+    def __init__(M, prog, query, rule='alt', push=True, open_calls=False, e1=False, units='goal', cover=False, each=False, check_apart=False, check_calls=False, defer=False):
+        M.defer = defer; M.requests = 0
         M.each = each; M.check_apart = check_apart; M.check_calls = check_calls
         M.prog, M.rule, M.push, M.open_calls, M.e1, M.units, M.cover = prog, rule, push, open_calls, e1, units, cover
         M.edges = {}
         M.by_rule = {'share': 0, 'flat': 0}
         M.goals = {}; M.order = []
         M.root = M.goal(None, query, None, True)
-        M.ticks = 0; M.requests = 0; M.first = None; M.first_req = None
+        M.ticks = 0; M.first = None; M.first_req = None
     def goal(M, lb, node, rb, structural):
         k = (lb, node, rb)
         if k not in M.goals: M.goals[k] = Goal(M, lb, node, rb, structural); M.order.append(M.goals[k])
@@ -563,6 +568,7 @@ TABLES = {
 SB = ('split balance', dict(rule='level', units='alone'))
 SBC = ('split balance, check on sides with a call', dict(rule='level', units='alone', cover=True, check_apart=True, check_calls=True))
 SBF = ('split balance, check on every side', dict(rule='level', units='alone', cover=True))
+SBD = ('split balance, check, new goals wait', dict(rule='level', units='alone', cover=True, check_apart=True, check_calls=True, defer=True))
 SIM3 = ('whole rounds for bounded goals, share for the rest', dict(rule='sim3', units='all'))
 def t9():
     print('\n9. p ; q and the same with identity spans')
@@ -580,6 +586,14 @@ TABLES.update({
                    ('fair OR, three such members', lambda k: fair(k, 3), (2, 4, 6, 8, 10, 12), ('first', 'req', 'goals'), 1_000_000),
                    ('strings of k bits', strings, (2, 4, 6, 8, 10), ('first', 'req', 'goals'), 5_000_000))],
  '9': t9,
+ '13': lambda: [table('13. The split balance with goals opened in a request waiting for the next: %s' % n, f, ks, [SBC, SBD], cols=c, limit=lim)
+               for n, f, ks, c, lim in (
+                   ('counting down', countdown, (2, 4, 8, 16, 32), ('halt', 'req', 'goals'), 3_000_000),
+                   ('the ladder', ladder, (8, 16, 24, 32, 40), ('halt', 'req', 'goals'), 30_000_000),
+                   ('bit^k ; ($x -> t_k) ; unbit^k with pushes', mid, range(2, 11), ('halt', 'req', 'goals'), 30_000_000),
+                   ('fair OR, one member that never finishes', lambda k: fair(k, 1), (2, 4, 6, 8, 10, 12), ('first', 'req', 'goals'), 1_000_000),
+                   ('fair OR, three such members', lambda k: fair(k, 3), (2, 4, 6, 8, 10, 12), ('first', 'req', 'goals'), 1_000_000),
+                   ('strings of k bits', strings, (2, 4, 6, 8, 10), ('first', 'req', 'goals'), 5_000_000))],
  '10': lambda: [table('10. The interface check on every side: %s' % n, f, ks,
                       [SBF, WCHECK, ('share, interface check', dict(rule='share', cover=True))], cols=('halt', 'req', 'goals'), limit=30_000_000)
                 for n, f, ks in (('bit^k ; ($x -> t_k) ; unbit^k with pushes', mid, range(2, 8)), ('the ladder', ladder, (8, 16, 24, 32)))],

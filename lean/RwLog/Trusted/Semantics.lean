@@ -15,6 +15,11 @@ hold. The sorts of a program fix one interpretation, `Sorts.interp`:
 The sorts of a well-formed program are such that finitely many of them have
 no term in common, or one, or infinitely many (`Sorts.WellFormed`).
 
+A list of sorts *extends* another (`Sorts.Extends`) when it has the same
+declarations followed by further ones, and every sort the first declares
+keeps its members. This is all a preprocessor may add to the sorts of a
+program (`Trusted/Engine.lean`).
+
 The spans of a well-formed program are first-order (`Span.firstOrder`): no
 variable is applied to an argument, and no constraint is a variable. The
 surface syntax writes no other span. The meaning below is given for every
@@ -87,6 +92,16 @@ bound has infinitely many values. -/
 def Sorts.WellFormed (S : Sorts) : Prop :=
   ∀ ns : List Name, {t : GTerm | ∀ n ∈ ns, S.Mem n t} = ∅ ∨
     (∃ t, {t : GTerm | ∀ n ∈ ns, S.Mem n t} = {t}) ∨ {t : GTerm | ∀ n ∈ ns, S.Mem n t}.Infinite
+
+/-- `S'` extends `S`: it has the declarations of `S`, in their order, and
+then further ones, and every sort that `S` declares has in `S'` the members
+it has in `S`. So nothing that was declared is taken away or changed, and a
+name that was declared means what it meant. The second part does not follow
+from the first: a declaration of `S` may name a sort that `S` does not
+declare, which has no member, and a declaration of that name added behind it
+would give it some. -/
+def Sorts.Extends (S S' : Sorts) : Prop :=
+  S <+: S' ∧ ∀ n ∈ S.map Prod.fst, ∀ t, S'.Mem n t ↔ S.Mem n t
 
 /-! ## Relations in one interpretation -/
 

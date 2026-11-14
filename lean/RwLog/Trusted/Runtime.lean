@@ -15,6 +15,17 @@ to the same statements. `Span` is the instance the language itself provides.
 two different types, by what they denote in one interpretation. The
 properties below use them in the interpretation of the program's sorts.
 
+An answer may carry the sorts it is to be read in. The answers of an engine
+do (`Engine.costedAt`, `Trusted/Cost.lean`): each is a representative with
+the sorts of the program the engine was run on, and it denotes what the
+representative denotes in the interpretation of those sorts, in whatever
+interpretation it is asked. For a machine run on the program as written
+these are the program's sorts. For a rung with a preprocessor they are the
+sorts of the preprocessed program, which may declare more
+(`Sorts.Extends`); an answer of the rung that names an added sort is read
+with the declarations it carries, and every property below holds of it as
+it is read.
+
 ## Steps
 
 A step of a machine has one of three outputs.
@@ -57,12 +68,14 @@ class Answer (A : Type) where
   swap : A → A
   den_swap : ∀ M a, den M (swap a) = (den M a).inv
 
-/-- A family of answer types gives the answers of all of them: an answer with
-its index. -/
-instance {ι : Type} {R : ι → Type} [∀ i, Answer (R i)] : Answer ((i : ι) × R i) where
-  den M a := Answer.den M a.2
+/-- A representative together with the sorts it is a representative for is
+an answer that says how it is read: it relates what the representative
+relates in the interpretation of those sorts, in whatever interpretation it
+is asked. -/
+instance {R : Sorts → Type} [∀ S, Answer (R S)] : Answer ((S : Sorts) × R S) where
+  den _ a := Answer.den a.1.interp a.2
   swap a := ⟨a.1, Answer.swap a.2⟩
-  den_swap M a := Answer.den_swap M a.2
+  den_swap _ a := Answer.den_swap a.1.interp a.2
 
 /-- Spans are answers. -/
 instance : Answer Span where
