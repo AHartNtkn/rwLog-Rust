@@ -132,6 +132,14 @@ fn all_marked(s: &mut Store, p: TermId) -> bool {
     is_set(s.get_flag(Tbl::B, p))
 }
 
+/// Has the term `p` no variable? Tables `A` and `B` are cleared first, so
+/// no variable is flagged and none has an answer.
+pub fn ground(s: &mut Store, p: TermId) -> bool {
+    s.clear(Tbl::A);
+    s.clear(Tbl::B);
+    all_marked(s, p)
+}
+
 /// The members of the list `c` whose variables are all flagged. The first
 /// pass decides each member, the second puts the members to keep on the
 /// stack, and the third takes them off it in front of the end of the list.

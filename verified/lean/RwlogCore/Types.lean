@@ -90,13 +90,30 @@ structure span.Span where
   c : store.TermId
 
 /-- [rwlog_core::sorts::Count]
-    Source: 'src/sorts.rs', lines 671:0-678:1
+    Source: 'src/sorts.rs', lines 673:0-680:1
     Visibility: public -/
 @[discriminant isize]
 inductive sorts.Count where
 | None : sorts.Count
 | One : store.TermId → sorts.Count
 | Many : sorts.Count
+
+/-- [rwlog_core::term::Leaf]
+    Source: 'src/term.rs', lines 7:0-14:1
+    Visibility: public -/
+@[discriminant isize]
+inductive term.Leaf where
+| Left : term.Leaf
+| Right : term.Leaf
+| Sub : store.TermId → store.TermId → term.Leaf
+
+/-- [rwlog_core::span::Kind]
+    Source: 'src/span.rs', lines 27:0-31:1 -/
+@[discriminant isize]
+inductive span.Kind where
+| Var : span.Kind
+| Atom : span.Kind
+| App : store.TermId → store.TermId → span.Kind
 
 /-- [rwlog_core::span::Act]
     Source: 'src/span.rs', lines 15:0-24:1
@@ -112,22 +129,5 @@ inductive span.Act where
   store.TermId →
   span.Act
 | Elim : store.TermId → store.TermId → span.Act
-
-/-- [rwlog_core::span::Kind]
-    Source: 'src/span.rs', lines 27:0-31:1 -/
-@[discriminant isize]
-inductive span.Kind where
-| Var : span.Kind
-| Atom : span.Kind
-| App : store.TermId → store.TermId → span.Kind
-
-/-- [rwlog_core::term::Leaf]
-    Source: 'src/term.rs', lines 7:0-14:1
-    Visibility: public -/
-@[discriminant isize]
-inductive term.Leaf where
-| Left : term.Leaf
-| Right : term.Leaf
-| Sub : store.TermId → store.TermId → term.Leaf
 
 end rwlog_core
