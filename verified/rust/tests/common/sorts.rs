@@ -441,6 +441,55 @@ impl Sorts {
         !refuted.contains(&(c.clone(), n))
     }
 
+    /// `Sorts.sole` of the specification: the one root of the members of `c`
+    /// that are not in `gone`, with the sorts of its arguments. Nothing when
+    /// every sort of `c` has a rest, when no member is left, or when two are
+    /// left with different roots.
+    pub fn sole(&self, c: &Conj, gone: &[P]) -> Option<(Key, Vec<Conj>)> {
+        if c.iter().all(|n| self.def(*n).is_some_and(|d| d.rest.is_some())) {
+            return None;
+        }
+        let mut keys: Vec<Key> = Vec::new();
+        for n in c {
+            if let Some(d) = self.def(*n) {
+                for (f, a) in &d.cases {
+                    if !keys.contains(&(*f, a.len())) {
+                        keys.push((*f, a.len()));
+                    }
+                }
+            }
+        }
+        for k in roots_of(gone) {
+            if !keys.contains(&k) {
+                keys.push(k);
+            }
+        }
+        let mut left = Vec::new();
+        for k in keys {
+            let Some(kids) = self.step_conj(c, k) else { continue };
+            let sizes: Vec<Size> = kids.iter().map(|d| self.size(d)).collect();
+            if sizes.iter().any(|z| matches!(z, Size::Empty)) {
+                continue;
+            }
+            let only: Option<Vec<P>> = sizes
+                .into_iter()
+                .map(|z| match z {
+                    Size::One(p) => Some(p),
+                    _ => None,
+                })
+                .collect();
+            if only.is_some_and(|args| gone.contains(&pf(k.0, args))) {
+                continue;
+            }
+            left.push((k, kids));
+        }
+        if left.len() == 1 {
+            left.pop()
+        } else {
+            None
+        }
+    }
+
     /// Is every term in all of `c`, but the ground terms `gone`, in `n`?
     pub fn included_but(&self, c: &Conj, n: Name, gone: &[P]) -> bool {
         if self.included(c, n) {

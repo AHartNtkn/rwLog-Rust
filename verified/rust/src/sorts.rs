@@ -1628,3 +1628,82 @@ pub fn included_but(
         ok
     }
 }
+
+/// The conjunctions of the arguments at the root of `f` and `ks`, when the
+/// conjunction `c` has a member with that root that is not in the list `g`
+/// of ground terms; nothing otherwise. Tables `A` and `B` are used.
+fn left_at(
+    s: &mut Store,
+    decls: TermId,
+    names: TermId,
+    c: TermId,
+    g: TermId,
+    f: TermId,
+    ks: TermId,
+) -> Option<TermId> {
+    match step_conj(s, decls, names, c, f, ks) {
+        None => None,
+        Some(kids) => match soles(s, decls, names, kids) {
+            None => None,
+            Some(so) => {
+                if only_in(s, so, f, ks, g) {
+                    None
+                } else {
+                    Some(kids)
+                }
+            }
+        },
+    }
+}
+
+/// The one root of the members of the conjunction `c` that are not in the
+/// list `g` of ground terms, with the conjunction of each of its arguments:
+/// the symbol and the list of those conjunctions. Nothing when every sort of
+/// `c` has a rest, when no member is left, or when two are left with
+/// different roots. Tables `A` and `B` are used; the stack is empty at
+/// entry.
+pub fn sole_root(
+    s: &mut Store,
+    decls: TermId,
+    names: TermId,
+    c: TermId,
+    g: TermId,
+) -> Option<(TermId, TermId)> {
+    if rest_ok(s, decls, c) {
+        None
+    } else {
+        let nil = s.alloc(Node::Nil);
+        let k0 = add_conj_keys(s, decls, nil, c);
+        let mut keys = add_term_keys(s, k0, g);
+        let mut found = None;
+        let mut many = false;
+        let mut go = true;
+        while go {
+            match uncons(s, keys) {
+                Some((key, t)) => match uncons(s, key) {
+                    Some((f, ks)) => {
+                        match left_at(s, decls, names, c, g, f, ks) {
+                            Some(kids) => {
+                                if found.is_some() {
+                                    many = true;
+                                    go = false;
+                                } else {
+                                    found = Some((f, kids));
+                                    keys = t;
+                                }
+                            }
+                            None => keys = t,
+                        }
+                    }
+                    None => panic!(),
+                },
+                None => go = false,
+            }
+        }
+        if many {
+            None
+        } else {
+            found
+        }
+    }
+}
