@@ -270,4 +270,78 @@ theorem gather_isSome {α : Type} : ∀ {l : List (Option α)},
     | none => simp [gather]
     | some x => simp [gather, gather_isSome (l := l)]
 
+/-! ## Lists related place by place -/
+
+/-- Two lists of the same length whose members at each place are related. -/
+def Pointwise {α β : Type} (r : α → β → Prop) (l : List α) (l' : List β) : Prop :=
+  l.length = l'.length ∧ ∀ (m : Nat) (x : α) (y : β), l[m]? = some x → l'[m]? = some y → r x y
+
+theorem Pointwise.refl {α : Type} {r : α → α → Prop} (h : ∀ x, r x x) (l : List α) :
+    Pointwise r l l :=
+  ⟨rfl, fun m x y hx hy => by rw [hx] at hy; cases hy; exact h x⟩
+
+theorem Pointwise.get {α β : Type} {r : α → β → Prop} {l : List α} {l' : List β}
+    (h : Pointwise r l l') {m : Nat} {x : α} (hx : l[m]? = some x) :
+    ∃ y, l'[m]? = some y ∧ r x y := by
+  have hm : m < l'.length := by rw [← h.1]; exact (List.getElem?_eq_some_iff.1 hx).1
+  exact ⟨l'[m], List.getElem?_eq_getElem hm, h.2 m x _ hx (List.getElem?_eq_getElem hm)⟩
+
+theorem Pointwise.get' {α β : Type} {r : α → β → Prop} {l : List α} {l' : List β}
+    (h : Pointwise r l l') {m : Nat} {y : β} (hy : l'[m]? = some y) :
+    ∃ x, l[m]? = some x ∧ r x y := by
+  have hm : m < l.length := by rw [h.1]; exact (List.getElem?_eq_some_iff.1 hy).1
+  exact ⟨l[m], List.getElem?_eq_getElem hm, h.2 m _ y (List.getElem?_eq_getElem hm) hy⟩
+
+theorem Pointwise.comp {α β γ : Type} {r₁ : α → β → Prop} {r₂ : β → γ → Prop}
+    {r₃ : α → γ → Prop} (h : ∀ a b c, r₁ a b → r₂ b c → r₃ a c) {l₁ : List α} {l₂ : List β}
+    {l₃ : List γ} (h₁ : Pointwise r₁ l₁ l₂) (h₂ : Pointwise r₂ l₂ l₃) : Pointwise r₃ l₁ l₃ :=
+  ⟨h₁.1.trans h₂.1, fun m x z hx hz => by
+    obtain ⟨y, hy, hr⟩ := h₁.get hx
+    exact h _ _ _ hr (h₂.2 m y z hy hz)⟩
+
+theorem Pointwise.imp {α β : Type} {r r' : α → β → Prop} (h : ∀ a b, r a b → r' a b)
+    {l : List α} {l' : List β} (hp : Pointwise r l l') : Pointwise r' l l' :=
+  ⟨hp.1, fun m x y hx hy => h _ _ (hp.2 m x y hx hy)⟩
+
+theorem pointwise_cons {α β : Type} {r : α → β → Prop} {x : α} {y : β} {l : List α}
+    {l' : List β} : Pointwise r (x :: l) (y :: l') ↔ r x y ∧ Pointwise r l l' := by
+  constructor
+  · intro h
+    exact ⟨h.2 0 x y rfl rfl, by simpa using h.1, fun m a b ha hb =>
+      h.2 (m + 1) a b (by simpa using ha) (by simpa using hb)⟩
+  · rintro ⟨h0, h1, h2⟩
+    refine ⟨by simp [h1], fun m a b ha hb => ?_⟩
+    cases m with
+    | zero =>
+      simp only [List.getElem?_cons_zero, Option.some.injEq] at ha hb
+      subst ha; subst hb; exact h0
+    | succ m => exact h2 m a b (by simpa using ha) (by simpa using hb)
+
+/-- Changing one member to a related one. -/
+theorem Pointwise.set {α : Type} {r : α → α → Prop} {l l' : List α} (h : Pointwise r l l')
+    {j : Nat} {y : α} (hy : ∀ x, l[j]? = some x → r x y) : Pointwise r l (l'.set j y) := by
+  refine ⟨by rw [List.length_set]; exact h.1, fun m a b ha hb => ?_⟩
+  rw [List.getElem?_set] at hb
+  split at hb
+  · next e =>
+    subst e
+    split at hb
+    · cases hb; exact hy a ha
+    · cases hb
+  · exact h.2 m a b ha hb
+
+/-- Changing one member by a function to a related one. -/
+theorem pointwise_modify {α : Type} {r : α → α → Prop} (hr : ∀ x, r x x) (l : List α) (j : Nat)
+    (f : α → α) (hf : ∀ x, l[j]? = some x → r x (f x)) : Pointwise r l (l.modify j f) := by
+  refine ⟨by rw [List.length_modify], fun m a b ha hb => ?_⟩
+  rw [List.getElem?_modify, ha] at hb
+  split at hb
+  · next e =>
+    subst e
+    cases hb
+    exact hf a ha
+  · simp only [id_map', Option.some.injEq] at hb
+    subst hb
+    exact hr a
+
 end RwLog

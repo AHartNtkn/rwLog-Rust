@@ -297,8 +297,8 @@ theorem Inner.frame {j : Nat} {st st' : StateOf R Rel (Ans D P)} (h : Inner K hK
   induction h with
   | refl st => exact Frame.refl j st
   | trans _ _ a b => exact a.trans b
-  | same e er _ => exact Frame.of_frames e er
-  | opened g self e er _ => exact Frame.of_opened e er
+  | same e er _ _ => exact Frame.of_frames e er
+  | opened g self e er _ _ => exact Frame.of_opened e er
   | add st a =>
     rw [addAnswer_val]
     split
