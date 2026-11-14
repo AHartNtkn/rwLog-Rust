@@ -67,9 +67,12 @@ Rungs/Symmetric/ the symmetric engine of `SYMMETRIC_ENGINE.md` (Machine.lean): a
                 table and every strategy fits its goal (Goals.lean, `Inv`, `inv_request`),
                 which gives that condition, so the engine run on one orientation has
                 `ConvTrace` and `DualTrace` (`Symmetric.oriented_convTrace`,
-                `Symmetric.oriented_dualTrace`). Completeness, `Keeps` and the cost bound
-                are not proved. It lacks the interface check and the shared table of a
-                goal and its converse
+                `Symmetric.oriented_dualTrace`). The interface check (a chain goal is
+                complete with no answer when the other side fails under every interface
+                one side can show, read from the program) is a strategy of its own; the
+                invariant and the mirror criterion cover it. Completeness, `Keeps` and
+                the cost bound are not proved. A goal and its converse do not yet share a
+                table
 Rungs/Naive/    normalisation, unfolding to a depth, and their correctness (namespace `R000`)
 Rungs/R005/     the engines: `R001.engine` (tables, unfolding to a depth), `R004.engine` (tables,
                 the race of all three ways), `R005.engine` (`R004.engine` mirrored);

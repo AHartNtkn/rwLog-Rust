@@ -136,6 +136,35 @@ theorem reach_splitGroup (k : Kind) (L Rg : GoalOf R Rel) (st : StateOf R Rel (A
   simp only [splitGroup, Cost.bind_val]
   exact (reach_openGoal _ _).trans (reach_openGoal _ _)
 
+theorem reach_edgeOf (st : StateOf R Rel (Ans D P)) (last : Bool) (n : Rel) :
+    Reach K hK st (edgeOf (K := DerivationKernel.over D K hK P) st last n).val.1 := by
+  at_cost K hK
+  simp only [edgeOf, Cost.bind_val]
+  split
+  · exact Reach.refl _
+  · simp only [Cost.bind_val, Cost.pure_val]
+    split
+    · exact .same rfl rfl
+    · exact .same rfl rfl
+
+theorem reach_checkOf (st : StateOf R Rel (Ans D P)) (left : Bool) (side other : Rel) :
+    Reach K hK st (checkOf (K := DerivationKernel.over D K hK P) st left side other).val.1 := by
+  at_cost K hK
+  simp only [checkOf, Cost.bind_val, Cost.pure_val]
+  exact reach_edgeOf _ _ _
+
+theorem reach_chainGroups (g : GoalOf R Rel) (k : Nat) (st : StateOf R Rel (Ans D P)) :
+    Reach K hK st (chainGroups (K := DerivationKernel.over D K hK P) g k st).val.1 := by
+  at_cost K hK
+  refine reach_foldL (fun acc : StateOf R Rel (Ans D P) × List (Group Rel (Ans D P)) ×
+    List (Strat Rel (Ans D P)) => acc.1) _ (fun b x => ?_) _ (st, [], [])
+  simp only [Cost.bind_val]
+  split
+  · simp only [Cost.bind_val, Cost.pure_val]
+    exact ((reach_splitGroup .seq _ _ b.1).trans (reach_checkOf _ _ _ _)).trans
+      (reach_checkOf _ _ _ _)
+  · exact Reach.refl _
+
 theorem reach_expand (g : GoalOf R Rel) (st : StateOf R Rel (Ans D P)) :
     Reach K hK st (expand (K := DerivationKernel.over D K hK P) g st).val.1 := by
   at_cost K hK
@@ -152,13 +181,8 @@ theorem reach_expand (g : GoalOf R Rel) (st : StateOf R Rel (Ans D P)) :
       (fun b x => ?_) _ (st, [])
     simp only [Cost.bind_val]
     exact reach_openGoal _ _
-  · refine reach_foldL (fun acc : StateOf R Rel (Ans D P) × List (Group Rel (Ans D P)) => acc.1) _
-      (fun b x => ?_) _ (st, [])
-    simp only [Cost.bind_val]
-    split
-    · simp only [Cost.bind_val]
-      exact reach_splitGroup .seq _ _ b.1
-    · exact Reach.refl _
+  · simp only [Cost.bind_val, Cost.pure_val]
+    exact reach_chainGroups (K := _) (hK := hK) g _ st
   · refine reach_foldL (fun acc : StateOf R Rel (Ans D P) × List (Group Rel (Ans D P)) => acc.1) _
       (fun b x => ?_) _ (st, [])
     simp only [Cost.bind_val]
@@ -166,6 +190,15 @@ theorem reach_expand (g : GoalOf R Rel) (st : StateOf R Rel (Ans D P)) :
     · simp only [Cost.bind_val]
       exact reach_splitGroup .and _ _ b.1
     · exact Reach.refl _
+
+theorem reach_checkOpen (g : GoalOf R Rel) (left : Bool) (other : Rel)
+    (st : StateOf R Rel (Ans D P)) (ps : List R) :
+    Reach K hK st (checkOpen (K := DerivationKernel.over D K hK P) g left other st ps).val.1 := by
+  at_cost K hK
+  refine reach_foldL (fun acc : StateOf R Rel (Ans D P) × List Nat => acc.1) _
+    (fun b x => ?_) ps (st, [])
+  simp only [Cost.bind_val]
+  exact reach_openGoal _ _
 
 theorem reach_work (whole : Bool) (i : Nat) (g : GoalOf R Rel) (st : StateOf R Rel (Ans D P))
     (s : Strat Rel (Ans D P)) :
@@ -214,6 +247,17 @@ theorem reach_work (whole : Bool) (i : Nat) (g : GoalOf R Rel) (st : StateOf R R
           · exact Reach.refl _
           · simp only [Cost.bind_val, Cost.pure_val]
             exact reach_pushTake _ _ _ _ _ _
+  | check left side other c =>
+    cases c with
+    | reading =>
+      simp only [work, Cost.bind_val]
+      split
+      · exact reach_edgeOf _ _ _
+      · exact reach_edgeOf _ _ _
+      · simp only [Cost.bind_val, Cost.pure_val]
+        exact (reach_edgeOf _ _ _).trans (reach_checkOpen _ _ _ _ _)
+    | off => exact Reach.refl _
+    | opened subs => exact Reach.refl _
 
 theorem reach_setGroup (st : StateOf R Rel (Ans D P)) (i k : Nat)
     (f : Group Rel (Ans D P) → Group Rel (Ans D P)) : Reach K hK st (setGroup st i k f) :=
@@ -258,7 +302,7 @@ theorem reach_prepare (i : Nat) (t : Table R Rel (Ans D P)) (st : StateOf R Rel 
     simp only [Cost.bind_val, Cost.pure_val]
     refine Reach.trans ?_ (reach_modify _ _ _ fun _ => rfl)
     refine Reach.trans ?_ (reach_modify _ _ _ fun _ => rfl)
-    exact reach_expand _ _
+    exact reach_expand (K := _) (hK := hK) t.goal st
 
 theorem reach_advance : ∀ (fuel i : Nat) (st : StateOf R Rel (Ans D P)),
     Reach K hK st (advance (K := DerivationKernel.over D K hK P) fuel i st).val.1
@@ -278,6 +322,7 @@ theorem reach_advance : ∀ (fuel i : Nat) (st : StateOf R Rel (Ans D P)),
         · split
           · exact Reach.refl st
           · simp only [Cost.bind_val, Cost.pure_val]
+            refine Reach.trans ?_ (reach_modify _ _ _ fun _ => rfl)
             refine Reach.trans ?_ (reach_modify _ _ _ fun _ => rfl)
             refine reach_foldL_from (fun acc : StateOf R Rel (Ans D P) × Bool => acc.1) _
               (fun b lv => ?_) _ _ (reach_prepare _ _ _)

@@ -146,6 +146,10 @@ class Goal:
         g.expand()
         groups = {}
         for i, s in enumerate(g.strats): groups.setdefault(i if M.each else s.split, []).append(s)
+        if M.drop_dead:      # a group of checks none of which can do anything more is removed
+            for k in [k for k, ss in groups.items() if all(isinstance(s, Cover) and not s.live() for s in ss)]:
+                del groups[k]; g.level.pop(k, None)
+                g.strats = [s for s in g.strats if s.split != k]
         for k in groups: g.level.setdefault(k, 0)
         low = min(g.level[k] for k in groups)
         whole = M.units == 'all' or (M.units == 'alone' and len(groups) == 1)
@@ -330,10 +334,12 @@ class Machine:
     cover: the interface check. check_calls: only for a side that contains a call. check_apart: the checks of
            a goal are one group of their own instead of belonging to the group of their split.
     each: every strategy is a group of its own (measured and rejected).
+    drop_dead: a group of interface checks each of which has a goal with an answer is removed from its
+           goal, as the Lean engine does; without it the group stays with its level frozen.
     defer: a goal opened during a request has its first round in the next request, so the goals that
            take part in a request are among those open when it starts."""
-    def __init__(M, prog, query, rule='alt', push=True, open_calls=False, e1=False, units='goal', cover=False, each=False, check_apart=False, check_calls=False, defer=False):
-        M.defer = defer; M.requests = 0
+    def __init__(M, prog, query, rule='alt', push=True, open_calls=False, e1=False, units='goal', cover=False, each=False, check_apart=False, check_calls=False, defer=False, drop_dead=False):
+        M.defer = defer; M.requests = 0; M.drop_dead = drop_dead
         M.each = each; M.check_apart = check_apart; M.check_calls = check_calls
         M.prog, M.rule, M.push, M.open_calls, M.e1, M.units, M.cover = prog, rule, push, open_calls, e1, units, cover
         M.edges = {}
