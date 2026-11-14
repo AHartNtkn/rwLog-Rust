@@ -303,4 +303,277 @@ theorem mem_keyItems {S : Sorts} {c : Sorts.Conj} {G : List GTerm} {f : Sym} {k 
     · rintro ⟨rfl, h1, rfl⟩; exact ⟨rfl, h1, rfl⟩
   · simp [hi]
 
+/-! ## What a root leaves to ask holds exactly when the root's ask holds -/
+
+/-- What an argument asks holds. -/
+def itemOK (S : Sorts) (x : Sorts.Conj × Option Name × List GTerm) : Prop :=
+  ∀ m, x.2.1 = some m → Sorts.Hold S x.1 m x.2.2
+
+theorem askOf_some {x : Sorts.Conj × Option Name × List GTerm} {a : Ask} (h : askOf x = some a) :
+    a.1 = x.1 ∧ x.2.1 = some a.2.1 ∧ a.2.2 = x.2.2 ∧ a.2.2 ≠ [] := by
+  obtain ⟨d, k, l⟩ := x
+  cases k with
+  | none => simp [askOf] at h
+  | some m =>
+    cases l with
+    | nil => simp [askOf] at h
+    | cons b l =>
+      simp only [askOf, Option.some.injEq] at h
+      subst h
+      exact ⟨rfl, rfl, rfl, by simp⟩
+
+theorem push_iff (S : Sorts) (items : List (Sorts.Conj × Option Name × List GTerm)) :
+    (pushOK S items ∧ ∀ a ∈ items.filterMap askOf, HoldA S a) ↔ ∀ x ∈ items, itemOK S x := by
+  constructor
+  · rintro ⟨h1, h2⟩ ⟨d, k, l⟩ hx m hm
+    simp only at hm
+    subst hm
+    cases l with
+    | nil => exact Sorts.hold_nil.2 (h1 _ hx m rfl rfl)
+    | cons a l => exact h2 (d, m, a :: l) (List.mem_filterMap.2 ⟨_, hx, rfl⟩)
+  · intro h
+    refine ⟨fun x hx m hm hl => ?_, fun a ha => ?_⟩
+    · have := h x hx m hm
+      rw [hl] at this
+      exact Sorts.hold_nil.1 this
+    · obtain ⟨x, hx, hxa⟩ := List.mem_filterMap.1 ha
+      obtain ⟨h1, h2, h3, -⟩ := askOf_some hxa
+      have := h x hx a.2.1 h2
+      rw [← h1, ← h3] at this
+      exact this
+
+theorem askKey_iff (S : Sorts) (c : Sorts.Conj) (n : Name) (G : List GTerm) (f : Sym) (k : Nat) :
+    Sorts.AskKey S c n G (f, k) ↔
+      ∃ A, keyAsks S c n G (f, k) = some A ∧ ∀ a ∈ A, HoldA S a := by
+  classical
+  unfold Sorts.AskKey keyAsks
+  by_cases hlive : Sorts.LiveKey S (Sorts.live S) c (f, k)
+  swap
+  · rw [ite_neg' hlive]
+    simp [hlive]
+  rw [ite_pos' hlive]
+  simp only [hlive, forall_const]
+  cases hs : Sorts.step S n f k with
+  | none =>
+    simp only
+    rw [← onlyInL_eq]
+    by_cases ho : onlyInL (keySoles S c (f, k)) f k G = true
+    · simp [ho]
+    · simp [ho]
+  | some kn =>
+    simp only
+    have hR : (∃ A, (if pushOK S (keyItems S c G (f, k) kn) then
+        some ((keyItems S c G (f, k) kn).filterMap askOf).reverse else none) = some A ∧
+          ∀ a ∈ A, HoldA S a) ↔ ∀ x ∈ keyItems S c G (f, k) kn, itemOK S x := by
+      rw [← push_iff]
+      by_cases hok : pushOK S (keyItems S c G (f, k) kn)
+      · rw [ite_pos' hok]
+        simp [hok]
+      · rw [ite_neg' hok]
+        simp [hok]
+    rw [hR]
+    constructor
+    · intro h x hx m hm
+      obtain ⟨i, hi, h1, h2, h3⟩ := mem_keyItems.1 hx
+      rw [h1, h3]
+      rw [hm] at h2
+      exact (Sorts.Hold.congr fun t => List.mem_reverse).2 (h i hi m h2)
+    · intro h i hi m hm
+      have := h (Sorts.kidC S c f k i, some m, (Sorts.proj S c f k i G).reverse)
+        (mem_keyItems.2 ⟨i, hi, rfl, hm, rfl⟩) m rfl
+      exact (Sorts.Hold.congr fun t => List.mem_reverse).1 this
+
+/-! ## What a root leaves to ask is of smaller terms -/
+
+theorem mu_reverse (l : List Ask) : mu l.reverse = mu l := by
+  simp [mu, List.sum_reverse]
+
+theorem sumSize_reverse (l : List GTerm) : Sorts.sumSize l.reverse = Sorts.sumSize l := by
+  simp [Sorts.sumSize, List.sum_reverse]
+
+theorem mu_filterMap_le : ∀ items : List (Sorts.Conj × Option Name × List GTerm),
+    mu (items.filterMap askOf) ≤ (items.map fun x => Sorts.sumSize x.2.2).sum
+  | [] => by simp [mu]
+  | x :: items => by
+    have ih := mu_filterMap_le items
+    cases h : askOf x with
+    | none =>
+      simp only [List.filterMap_cons, h, List.map_cons, List.sum_cons]
+      omega
+    | some a =>
+      obtain ⟨-, -, h3, -⟩ := askOf_some h
+      simp only [List.filterMap_cons, h, mu, List.map_cons, List.sum_cons, h3] at ih ⊢
+      omega
+
+theorem map_zip_snd_snd {α β γ : Type} : ∀ (l₁ : List α) (l₂ : List β) (l₃ : List γ),
+    l₁.length = l₃.length → l₂.length = l₃.length → (l₁.zip (l₂.zip l₃)).map (·.2.2) = l₃
+  | _, _, [], _, _ => by simp
+  | [], _, _ :: _, h, _ => by simp at h
+  | _ :: _, [], _ :: _, _, h => by simp at h
+  | a :: l₁, b :: l₂, c :: l₃, h1, h2 => by
+    simp only [List.zip_cons_cons, List.map_cons, List.cons.injEq, true_and]
+    exact map_zip_snd_snd l₁ l₂ l₃ (by simpa using h1) (by simpa using h2)
+
+theorem accsL_eq (S : Sorts) (c : Sorts.Conj) (G : List GTerm) (f : Sym) (k : Nat) :
+    accsL S c G (f, k) = (List.range k).map fun i => (Sorts.proj S c f k i G).reverse := by
+  apply List.ext_getElem?
+  intro i
+  rw [accsL_getElem?]
+  by_cases hi : i < k <;> simp [hi]
+
+theorem sum_keyItems (S : Sorts) (c : Sorts.Conj) (G : List GTerm) (f : Sym) (k : Nat)
+    {kn : List (Option Name)} (hkn : kn.length = k) :
+    ((keyItems S c G (f, k) kn).map fun x => Sorts.sumSize x.2.2).sum =
+      Sorts.projW S c G (f, k) := by
+  have h1 : (keyItems S c G (f, k) kn).map (·.2.2) = accsL S c G (f, k) := by
+    unfold keyItems
+    exact map_zip_snd_snd _ _ _ (by rw [← accsL, length_accsL]; simp [altOf])
+      (by rw [← accsL, length_accsL, hkn])
+  have h2 : ((keyItems S c G (f, k) kn).map fun x => Sorts.sumSize x.2.2) =
+      ((keyItems S c G (f, k) kn).map (·.2.2)).map Sorts.sumSize := by
+    rw [List.map_map]; rfl
+  rw [h2, h1, accsL_eq, List.map_map]
+  unfold Sorts.projW
+  refine congrArg List.sum (List.map_congr_left fun i _ => ?_)
+  exact sumSize_reverse _
+
+theorem keyAsks_small {S : Sorts} {U : List Name} (hnames : ∀ n ∈ Sorts.names S, n ∈ U)
+    {c : Sorts.Conj} {n : Name} {G : List GTerm} {f : Sym} {k : Nat} {A : List Ask}
+    (h : keyAsks S c n G (f, k) = some A) :
+    mu A ≤ Sorts.projW S c G (f, k) ∧ ∀ a ∈ A, Sub U a.1 ∧ a.2.2 ≠ [] := by
+  classical
+  unfold keyAsks at h
+  by_cases hlive : Sorts.LiveKey S (Sorts.live S) c (f, k)
+  swap
+  · rw [ite_neg' hlive] at h
+    cases h
+    simp [mu]
+  rw [ite_pos' hlive] at h
+  cases hs : Sorts.step S n f k with
+  | none =>
+    simp only [hs] at h
+    by_cases ho : onlyInL (keySoles S c (f, k)) f k G = true
+    · rw [ite_pos' ho] at h
+      cases h
+      simp [mu]
+    · rw [ite_neg' ho] at h
+      cases h
+  | some kn =>
+    simp only [hs] at h
+    by_cases hok : pushOK S (keyItems S c G (f, k) kn)
+    · rw [ite_pos' hok] at h
+      cases h
+      refine ⟨?_, fun a ha => ?_⟩
+      · rw [mu_reverse, ← sum_keyItems S c G f k (Sorts.step_length hs)]
+        exact mu_filterMap_le _
+      · rw [List.mem_reverse] at ha
+        obtain ⟨x, hx, hxa⟩ := List.mem_filterMap.1 ha
+        obtain ⟨h1, -, -, h4⟩ := askOf_some hxa
+        obtain ⟨i, -, hi1, -, -⟩ := mem_keyItems.1 hx
+        refine ⟨?_, h4⟩
+        rw [h1, hi1]
+        exact fun y hy => hnames y (Sorts.kidC_subset_names hy)
+    · rw [ite_neg' hok] at h
+      cases h
+
+/-! ## One step of asking is right -/
+
+theorem mu_append (A B : List Ask) : mu (A ++ B) = mu A + mu B := by simp [mu]
+
+theorem foldAsks_spec {S : Sorts} {U : List Name} (hnames : ∀ n ∈ Sorts.names S, n ∈ U)
+    (c : Sorts.Conj) (n : Name) (G : List GTerm) : ∀ (K : List (Sym × Nat)) (T : List Ask),
+    match foldAsks S c n G K T with
+    | some T' => ∃ A, T' = A ++ T ∧ mu A ≤ (K.map (Sorts.projW S c G)).sum ∧
+        (∀ a ∈ A, Sub U a.1 ∧ a.2.2 ≠ []) ∧
+        ((∀ a ∈ A, HoldA S a) ↔ ∀ κ ∈ K, Sorts.AskKey S c n G κ)
+    | none => ∃ κ ∈ K, ¬ Sorts.AskKey S c n G κ
+  | [], T => by
+    simp only [foldAsks]
+    exact ⟨[], rfl, by simp [mu], by simp, by simp⟩
+  | (f, k) :: K, T => by
+    cases hka : keyAsks S c n G (f, k) with
+    | none =>
+      simp only [foldAsks, hka]
+      refine ⟨(f, k), List.mem_cons_self, fun h => ?_⟩
+      obtain ⟨A, hA, -⟩ := (askKey_iff S c n G f k).1 h
+      rw [hka] at hA
+      cases hA
+    | some Aκ =>
+      have ih := foldAsks_spec hnames c n G K (Aκ ++ T)
+      have hk' : Sorts.AskKey S c n G (f, k) ↔ ∀ a ∈ Aκ, HoldA S a := by
+        rw [askKey_iff, hka]
+        simp
+      obtain ⟨hmu, hinv⟩ := keyAsks_small hnames hka
+      simp only [foldAsks, hka]
+      cases hfa : foldAsks S c n G K (Aκ ++ T) with
+      | none =>
+        rw [hfa] at ih
+        obtain ⟨κ', hκ', hn⟩ := ih
+        exact ⟨κ', List.mem_cons_of_mem _ hκ', hn⟩
+      | some T' =>
+        rw [hfa] at ih
+        obtain ⟨A', rfl, hmu', hinv', hiff⟩ := ih
+        refine ⟨A' ++ Aκ, by simp, ?_, ?_, ?_⟩
+        · rw [mu_append]
+          simp only [List.map_cons, List.sum_cons]
+          omega
+        · intro a ha
+          rcases List.mem_append.1 ha with h | h
+          · exact hinv' a h
+          · exact hinv a h
+        · constructor
+          · intro h κ hκ
+            rcases List.mem_cons.1 hκ with rfl | hκ
+            · exact hk'.2 fun a ha => h a (List.mem_append_right _ ha)
+            · exact hiff.1 (fun a ha => h a (List.mem_append_left _ ha)) κ hκ
+          · intro h a ha
+            rcases List.mem_append.1 ha with ha | ha
+            · exact hiff.2 (fun κ hκ => h κ (List.mem_cons_of_mem _ hκ)) a ha
+            · exact hk'.1 (h _ List.mem_cons_self) a ha
+
+/-- One step of asking is right, for well-formed sorts whose names are
+listed. -/
+theorem stepOK {S : Sorts} {U : List Name} (hS : S.WellFormed)
+    (hnames : ∀ n ∈ Sorts.names S, n ∈ U) : StepOK S U := by
+  rintro ⟨c, n, G⟩ T hinv
+  obtain ⟨hsub, hG⟩ := hinv _ List.mem_cons_self
+  simp only at hsub hG ⊢
+  unfold oneAsks
+  have hh := Sorts.hold_iff hS hG c n
+  by_cases hfo : Sorts.FreshOut S c n
+  · rw [ite_pos' hfo]
+    exact fun h => (hh.1 h).1 hfo
+  rw [ite_neg' hfo]
+  have hf := foldAsks_spec hnames c n G (butKeysL S (conjList U (· ∈ c)) n G) T
+  have hmem : ∀ κ, κ ∈ butKeysL S (conjList U (· ∈ c)) n G ↔ κ ∈ Sorts.butKeys S c n G :=
+    fun κ => mem_butKeysL hsub n G
+  cases hfa : foldAsks S c n G (butKeysL S (conjList U (· ∈ c)) n G) T with
+  | none =>
+    rw [hfa] at hf
+    obtain ⟨κ, hκ, hn⟩ := hf
+    exact fun h => hn ((hh.1 h).2 κ ((hmem κ).1 hκ))
+  | some T' =>
+    rw [hfa] at hf
+    obtain ⟨A, rfl, hmu, hinvA, hiff⟩ := hf
+    refine ⟨?_, ?_, ?_⟩
+    · intro a ha
+      rcases List.mem_append.1 ha with h | h
+      · exact hinvA a h
+      · exact hinv a (List.mem_cons_of_mem _ h)
+    · have h1 := Sorts.sum_proj_le (S := S) c (butKeysL_nodup S (conjList U (· ∈ c)) n G) G
+      have h2 : 0 < G.length := List.length_pos_iff.2 hG
+      rw [mu_append]
+      simp only [mu, List.map_cons, List.sum_cons] at hmu ⊢
+      omega
+    · constructor
+      · intro h x hx
+        rcases List.mem_cons.1 hx with rfl | hx
+        · exact hh.2 ⟨hfo, fun κ hκ =>
+            hiff.1 (fun a ha => h a (List.mem_append_left _ ha)) κ ((hmem κ).2 hκ)⟩
+        · exact h x (List.mem_append_right _ hx)
+      · intro h x hx
+        rcases List.mem_append.1 hx with hx | hx
+        · exact hiff.2 (fun κ hκ => (hh.1 (h _ List.mem_cons_self)).2 κ ((hmem κ).1 hκ)) x hx
+        · exact h x (List.mem_cons_of_mem _ hx)
+
 end RwLogVerified
