@@ -21,9 +21,6 @@ open Answer
 
 variable {R : Type} [Answer R] [DecidableEq R] {D : Domain R} {P : Program}
 
-/-- The goal as the rules of the kernel name it. -/
-def toGoal (g : GoalOf R Rel) : Goal R := ⟨g.lb, g.node, g.rb⟩
-
 /-- A goal the machine may hold: its boundaries are boundaries, and its node
 is a node of the normal form with first-order spans. -/
 structure GoalOk (D : Domain R) (g : GoalOf R Rel) : Prop where

@@ -35,6 +35,9 @@ structure GoalOf (S N : Type) where
   rb : Option S
   deriving DecidableEq
 
+/-- The goal as the rules of the kernel name it. -/
+def toGoal {R : Type} (g : GoalOf R Rel) : Goal R := ⟨g.lb, g.node, g.rb⟩
+
 /-- Which rule combines the two sides of a split: `join` for a chain, `meetA`
 for a meet. -/
 inductive Kind where

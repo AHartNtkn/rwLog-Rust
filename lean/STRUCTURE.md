@@ -91,9 +91,18 @@ Rungs/Symmetric/ the symmetric engine of `SYMMETRIC_ENGINE.md` (Machine.lean): a
                 tables only; and an edge is read in the end, from a depth that the node
                 and the program give (ReadLive.lean, `readEdge_some`); and of a table that
                 has rounds for ever one group works for ever, with as many groups from
-                some request on (Lines.lean, `Requests.line`). Not proved yet: the
-                assembly of these into a fair run, and from it completeness; `Keeps`; the
-                cost bound. A goal and its converse do not share a
+                some request on (Lines.lean, `Requests.line`). Fairness and
+                completeness: a run of requests (`IsRun`) holds for each goal the answers
+                of its table (`held`) and does not neglect the tables that are complete at
+                some time or have rounds for ever (`opened`); a complete table is served by
+                the strategy that completed it (Served.lean, `IsRun.served_done`), a table
+                with rounds for ever by a strategy of the group that works for ever
+                (Fair.lean, `IsRun.served_live`), so the run is fair (`IsRun.fair`); the
+                states of the engine are such a run, and the machine is complete, honest
+                when it reports that it is done, and emits no progress certificate
+                (Correct.lean, `Symmetric.complete`, `honestExhaustion`,
+                `honestProgress`). Not proved yet: `NoSubsumed`, `TerminatesWhere`,
+                `EmptySide` and with them `Keeps`; the cost bound. A goal and its converse do not share a
                 table (not owed by any property; billboard SIM12)
 Rungs/Naive/    normalisation, unfolding to a depth, and their correctness (namespace `R000`)
 Rungs/R005/     the engines: `R001.engine` (tables, unfolding to a depth), `R004.engine` (tables,
@@ -234,7 +243,8 @@ rung unchanged.
   opened goal served. `Fair.covers`: a fair run covers the pairs of every
   ground relation the node of an opened goal derives, by induction on the
   depth of the derivation and then on the node. `Fair.complete` is
-  completeness at the query, and `Fair.covers_valid` says a valid answer
+  completeness at the query, `Fair.covers_pair` the same pair by pair, and
+  `Fair.covers_valid` says a valid answer
   found by any schedule is covered by every fair run that opens its goal.
   Nothing is assumed of the order of work or of tables growing. A machine
   proves `Fair` of its runs and receives completeness.
@@ -544,7 +554,9 @@ come from these places.
 3. Completeness: describe the run as `Saturation.Tables` and the goals it
    opens, prove `Saturation.Fair`, and take `Fair.complete`
    (`Framework/Saturation.lean`). Honest exhaustion follows from
-   `Tier0Cert` (`Framework/Tier0.lean`).
+   `Tier0Cert` (`Framework/Tier0.lean`), or pair by pair from
+   `Fair.covers_pair` once everything the run holds for the query is
+   emitted when the machine reports that it is done.
 4. The converse and the mirrored program: run the machine on one
    orientation and prove `CostedRuntime.SelfConverse`
    (`Framework/Oriented.lean`).

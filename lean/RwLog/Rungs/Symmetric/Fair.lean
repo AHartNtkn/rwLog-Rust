@@ -38,7 +38,7 @@ variable {σ : Nat → StateOf R Rel (Ans D P)}
 theorem IsRun.live_span (h : IsRun σ) {ra k m : Nat} {g : GoalOf R Rel}
     {L : Nat → List (Strat Rel (Ans D P))} {ran0 : Bool} (hk : goalAt (σ ra) k = some g)
     (hL : Line (readNeed P) σ k ra L) (h0 : (L ra)[m]? = some (.span ran0)) :
-    Served D P (opened σ) (held σ) (gOf g) := by
+    Served D P (opened σ) (held σ) (toGoal g) := by
   obtain ⟨r, -, hr, hst, -, -⟩ := hL.worked ra
   obtain ⟨s, hs, ran, rfl⟩ := hL.along (fun _ s => ∃ ran, s = Strat.span ran) h0 ⟨ran0, rfl⟩
     (fun r s s' _ _ _ hq hadv => by
@@ -54,7 +54,7 @@ theorem IsRun.live_copy (h : IsRun σ) {ra k m : Nat} {g : GoalOf R Rel}
     {L : Nat → List (Strat Rel (Ans D P))} {c : Bool} {subs0 : List (Nat × Nat)}
     (hk : goalAt (σ ra) k = some g) (hL : Line (readNeed P) σ k ra L)
     (h0 : (L ra)[m]? = some (.copy c subs0)) :
-    Served D P (opened σ) (held σ) (gOf g) := by
+    Served D P (opened σ) (held σ) (toGoal g) := by
   have al : ∀ r, ra ≤ r → ∃ s, (L r)[m]? = some s ∧
       ∃ subs, s = Strat.copy c subs ∧ Pointwise SubAdv subs0 subs := fun r hr =>
     hL.along (fun _ s => ∃ subs, s = Strat.copy c subs ∧ Pointwise SubAdv subs0 subs) h0
@@ -115,7 +115,7 @@ theorem IsRun.live_join (h : IsRun σ) {ra k m : Nat} {g : GoalOf R Rel}
     {L : Nat → List (Strat Rel (Ans D P))} {kd : Kind} {a b : Nat} {c0 : Cursor}
     (hk : goalAt (σ ra) k = some g) (hL : Line (readNeed P) σ k ra L)
     (h0 : (L ra)[m]? = some (.join kd a b c0)) :
-    Served D P (opened σ) (held σ) (gOf g) := by
+    Served D P (opened σ) (held σ) (toGoal g) := by
   have al : ∀ r, ra ≤ r → ∃ c, (L r)[m]? = some (.join kd a b c) := fun r hr => by
     obtain ⟨_, hs, c, rfl⟩ := hL.along (fun _ s => ∃ c, s = Strat.join kd a b c) h0 ⟨c0, rfl⟩
       (fun r s s' _ _ _ hq hadv => by
@@ -174,7 +174,7 @@ theorem IsRun.live_join (h : IsRun σ) {ra k m : Nat} {g : GoalOf R Rel}
 theorem IsRun.live_check (h : IsRun σ) {ra k : Nat} {g : GoalOf R Rel}
     {L : Nat → List (Strat Rel (Ans D P))} (hk : goalAt (σ ra) k = some g)
     (hL : Line (readNeed P) σ k ra L) (hall : ∀ s ∈ L ra, s.isCheck = true) :
-    Served D P (opened σ) (held σ) (gOf g) := by
+    Served D P (opened σ) (held σ) (toGoal g) := by
   -- one check is not dead in infinitely many requests
   obtain ⟨m, hm, hlive⟩ := infinitely_often_fin (L ra).length
     (fun r m => ra ≤ r ∧ ∃ s, (L r)[m]? = some s ∧ s.dead (σ r) = false) (fun r' => by
@@ -285,7 +285,7 @@ theorem IsRun.live_check (h : IsRun σ) {ra k : Nat} {g : GoalOf R Rel}
 /-- **A table that has rounds for ever is served.** -/
 theorem IsRun.served_live (h : IsRun σ) {r0 k : Nat} {g : GoalOf R Rel}
     (hk : goalAt (σ r0) k = some g) (hl : Live σ k) :
-    Served D P (opened σ) (held σ) (gOf g) := by
+    Served D P (opened σ) (held σ) (toGoal g) := by
   obtain ⟨ra, L, hL⟩ := h.req.line k hl
   have hka : goalAt (σ ra) k = some g := by
     obtain ⟨r, hr, t, ht, -⟩ := hl ra
@@ -324,7 +324,7 @@ theorem IsRun.fair (h : IsRun σ) : Saturation.Fair D P (opened σ) (held σ) wh
 
 /-- The run does not neglect the root. -/
 theorem IsRun.root_opened (h : IsRun σ) {g : GoalOf R Rel} (h0 : goalAt (σ 0) 0 = some g) :
-    gOf g ∈ opened σ :=
+    toGoal g ∈ opened σ :=
   h.mem_opened h0
     (h.opened_of_settled h0 fun r' => ⟨r', Nat.le_refl _, (h.req.req r').root⟩)
 

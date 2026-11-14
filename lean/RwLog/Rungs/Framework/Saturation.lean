@@ -466,6 +466,16 @@ theorem Fair.complete (hF : Fair D P O T) {q : Rel} (hq : (⟨none, q.norm, none
   have := hF.covers hL k _ _ hq rfl s.den hk (by rw [hp]; exact hne)
   rwa [hp] at this
 
+/-- A fair run that opens the query holds, for every pair the query
+relates, an answer that relates it. -/
+theorem Fair.covers_pair (hF : Fair D P O T) {q : Rel}
+    (hq : (⟨none, q.norm, none⟩ : Goal R) ∈ O) {p : GTerm × GTerm} (hp : p ∈ P.pairs q) :
+    ∃ a, Held T ⟨none, q.norm, none⟩ a ∧ p ∈ den P.sorts.interp a := by
+  obtain ⟨k, G, hG, hpG⟩ := pairs_gdn hp
+  have hpp : pairs P (⟨none, q.norm, none⟩ : Goal R) G = G.at P.sorts.interp := wrapAt_none _
+  obtain ⟨a, ha, hsub⟩ := hF.covers hL k _ _ hq rfl G hG (by rw [hpp]; exact ⟨p, hpG⟩)
+  exact ⟨a, ha, hsub (by rw [hpp]; exact hpG)⟩
+
 /-- No schedule finds what another misses: a valid answer of a goal, however
 it was found, is covered by an answer a fair run holds for the goal. -/
 theorem Fair.covers_valid (hF : Fair D P O T) {g : Goal R} (hg : g ∈ O) {a : R}

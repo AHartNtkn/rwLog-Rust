@@ -122,7 +122,8 @@ namespace Symmetric
 
 open Traverse
 
-export Goals (GoalOf GoalOf.mk GoalOf.lb GoalOf.node GoalOf.rb Kind Kind.seq Kind.and andSplits
+export Goals (GoalOf GoalOf.mk GoalOf.lb GoalOf.node GoalOf.rb toGoal Kind Kind.seq Kind.and
+  andSplits
   sameBound same indexFrom coversA maxima both)
 
 /-- The cursor of a join. Every pair of the first `na` answers of the one side

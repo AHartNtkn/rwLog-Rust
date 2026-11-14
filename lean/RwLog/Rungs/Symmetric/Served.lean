@@ -40,11 +40,8 @@ structure IsRun (σ : Nat → StateOf R Rel (Ans D P)) : Prop where
   depth : 0 < (σ 0).depth
   fresh : ∀ (k : Nat) (t : Table R Rel (Ans D P)), (σ 0).tables[k]? = some t → t.done = false
 
-/-- The goal as the rules of the kernel name it. -/
-def gOf (g : GoalOf R Rel) : Goal R := ⟨g.lb, g.node, g.rb⟩
-
 omit [Answer R] in
-theorem gOf_inj {g g' : GoalOf R Rel} (e : gOf g = gOf g') : g = g' := by
+theorem toGoal_inj {g g' : GoalOf R Rel} (e : toGoal g = toGoal g') : g = g' := by
   cases g
   cases g'
   cases e
@@ -63,12 +60,12 @@ def Opened (σ : Nat → StateOf R Rel (Ans D P)) (k : Nat) : Prop := EvDone σ 
 
 /-- The goals of the tables that are not neglected. -/
 def opened (σ : Nat → StateOf R Rel (Ans D P)) : Set (Goal R) :=
-  {g | ∃ k r h, goalAt (σ r) k = some h ∧ gOf h = g ∧ Opened σ k}
+  {g | ∃ k r h, goalAt (σ r) k = some h ∧ toGoal h = g ∧ Opened σ k}
 
 /-- What the run holds for a goal at a time: the representatives of the
 answers of its table. -/
 def held (σ : Nat → StateOf R Rel (Ans D P)) : Tables R := fun r g =>
-  {a | ∃ k h, goalAt (σ r) k = some h ∧ gOf h = g ∧ ∃ y ∈ (σ r).answers k, y.span = a}
+  {a | ∃ k h, goalAt (σ r) k = some h ∧ toGoal h = g ∧ ∃ y ∈ (σ r).answers k, y.span = a}
 
 /-- The strategy is one of the table at `k` in the state `r`. -/
 def IsStrat (σ : Nat → StateOf R Rel (Ans D P)) (k r : Nat) (s : Strat Rel (Ans D P)) : Prop :=
@@ -158,17 +155,17 @@ theorem IsRun.done_len (h : IsRun σ) {r j : Nat} (hd : (σ r).isDone j = true) 
 /-! ## What the run holds -/
 
 theorem IsRun.mem_opened (_ : IsRun σ) {r k : Nat} {g : GoalOf R Rel}
-    (hk : goalAt (σ r) k = some g) (ho : Opened σ k) : gOf g ∈ opened σ :=
+    (hk : goalAt (σ r) k = some g) (ho : Opened σ k) : toGoal g ∈ opened σ :=
   ⟨k, r, g, hk, rfl, ho⟩
 
 /-- What the run ever holds for the goal of a table: the representatives of
 the answers the table ever has. -/
 theorem IsRun.held_iff (h : IsRun σ) {r0 k : Nat} {g : GoalOf R Rel}
     (hk : goalAt (σ r0) k = some g) (a : R) :
-    Held (held σ) (gOf g) a ↔ ∃ r, ∃ y ∈ (σ r).answers k, y.span = a := by
+    Held (held σ) (toGoal g) a ↔ ∃ r, ∃ y ∈ (σ r).answers k, y.span = a := by
   constructor
   · rintro ⟨r, k', g', hg', e, y, hy, rfl⟩
-    obtain rfl := gOf_inj e
+    obtain rfl := toGoal_inj e
     obtain rfl := h.goal_inj hg' hk
     exact ⟨r, y, hy, rfl⟩
   · rintro ⟨r, y, hy, rfl⟩
@@ -178,7 +175,7 @@ theorem IsRun.held_iff (h : IsRun σ) {r0 k : Nat} {g : GoalOf R Rel}
 /-- What a table covers at some time the run covers for its goal. -/
 theorem IsRun.ev (h : IsRun σ) {r0 r k : Nat} {g : GoalOf R Rel}
     (hk : goalAt (σ r0) k = some g) {c : R} (hc : CovS (σ r) k c) :
-    Ev P (held σ) (gOf g) (den P.sorts.interp c) := by
+    Ev P (held σ) (toGoal g) (den P.sorts.interp c) := by
   obtain ⟨y, hy, hs⟩ := hc
   exact ⟨y.span, (h.held_iff hk _).2 ⟨r, y, hy, rfl⟩, hs⟩
 
@@ -227,7 +224,7 @@ theorem IsRun.opened_of_settled (h : IsRun σ) {r0 j : Nat} {g : GoalOf R Rel}
 /-- A span that has run. -/
 theorem IsRun.served_span (h : IsRun σ) {r0 r k : Nat} {g : GoalOf R Rel}
     (hk : goalAt (σ r0) k = some g) (hs : IsStrat σ k r (.span true)) :
-    Served D P (opened σ) (held σ) (gOf g) := by
+    Served D P (opened σ) (held σ) (toGoal g) := by
   have hp := h.prog hk hs
   dsimp only [Prog] at hp
   obtain ⟨⟨s, hn⟩, hc⟩ := hp
@@ -242,15 +239,15 @@ theorem IsRun.served_copy (h : IsRun σ) {r0 k : Nat} {g : GoalOf R Rel} {c : Bo
       ∀ n r1, n < (σ r1).len j → ∃ (r : Nat) (subs : List (Nat × Nat)) (pos : Nat),
         IsStrat σ k r (.copy c subs) ∧
         subs[m]? = some (j, pos) ∧ n < pos) :
-    Served D P (opened σ) (held σ) (gOf g) := by
+    Served D P (opened σ) (held σ) (toGoal g) := by
   have hp := h.prog hk hs
   dsimp only [Prog] at hp
   obtain ⟨h0, h1, h2, h3⟩ := hp
   have key : ∀ (m j pos0 : Nat) (x : Rel), subs0[m]? = some (j, pos0) →
       (copyMembers P g.node c)[m]? = some x →
-      gOf (⟨g.lb, x, g.rb⟩ : GoalOf R Rel) ∈ opened σ ∧
-      ∀ a, Held (held σ) (gOf (⟨g.lb, x, g.rb⟩ : GoalOf R Rel)) a →
-        Ev P (held σ) (gOf g) (den P.sorts.interp a) := by
+      toGoal (⟨g.lb, x, g.rb⟩ : GoalOf R Rel) ∈ opened σ ∧
+      ∀ a, Held (held σ) (toGoal (⟨g.lb, x, g.rb⟩ : GoalOf R Rel)) a →
+        Ev P (held σ) (toGoal g) (den P.sorts.interp a) := by
     intro m j pos0 x hm hx
     obtain ⟨x', hx', hgj, -⟩ := h3 m j pos0 hm
     rw [hx] at hx'
@@ -298,12 +295,12 @@ theorem IsRun.served_join (h : IsRun σ) {r0 k : Nat} {g : GoalOf R Rel} {kd : K
     (ha : Opened σ a) (hb : Opened σ b)
     (hex : ∀ p q r1, p < (σ r1).len a → q < (σ r1).len b →
       ∃ r c, IsStrat σ k r (.join kd a b c) ∧ c.Before p q) :
-    Served D P (opened σ) (held σ) (gOf g) := by
+    Served D P (opened σ) (held σ) (toGoal g) := by
   have hp := h.prog hk hs
   dsimp only [Prog] at hp
   obtain ⟨L, Rg, hsp, hga, hgb, -, -⟩ := hp
-  have key : ∀ x y, Held (held σ) (gOf L) x → Held (held σ) (gOf Rg) y →
-      EvO P (held σ) (gOf g) (opS D kd x y) := by
+  have key : ∀ x y, Held (held σ) (toGoal L) x → Held (held σ) (toGoal Rg) y →
+      EvO P (held σ) (toGoal g) (opS D kd x y) := by
     intro x y hx hy z hz
     obtain ⟨r1, x', hx', rfl⟩ := (h.held_iff hga x).1 hx
     obtain ⟨r2, y', hy', rfl⟩ := (h.held_iff hgb y).1 hy
@@ -334,17 +331,17 @@ theorem IsRun.served_push (h : IsRun σ) {r k : Nat} {g : GoalOf R Rel} {kd : Ki
     (hs : IsStrat σ k r (.push kd left side other (some []) subs))
     (hd : (σ r).isDone side = true)
     (hsub : ∀ e ∈ subs, (σ r).isDone e.2.1 = true ∧ (σ r).len e.2.1 ≤ e.2.2) :
-    Served D P (opened σ) (held σ) (gOf g) := by
+    Served D P (opened σ) (held σ) (toGoal g) := by
   have hp := h.prog hk hs
   dsimp only [Prog] at hp
   obtain ⟨L, Rg, hsp, hgs, ho, htodo, hsubs⟩ := hp
   obtain ⟨-, -, hcover⟩ := htodo [] rfl
-  have key : ∀ a, Held (held σ) (gOf (if left then L else Rg)) a → ∃ e ∈ subs,
-      Held (held σ) (gOf (if left then L else Rg)) e.1.span ∧
+  have key : ∀ a, Held (held σ) (toGoal (if left then L else Rg)) a → ∃ e ∈ subs,
+      Held (held σ) (toGoal (if left then L else Rg)) e.1.span ∧
       den P.sorts.interp a ⊆ den P.sorts.interp e.1.span ∧
-      gOf (pushG D g other kd left e.1) ∈ opened σ ∧
-      ∀ b, Held (held σ) (gOf (pushG D g other kd left e.1)) b →
-        EvO P (held σ) (gOf g) (pushedS D kd left e.1.span b) := by
+      toGoal (pushG D g other kd left e.1) ∈ opened σ ∧
+      ∀ b, Held (held σ) (toGoal (pushG D g other kd left e.1)) b →
+        EvO P (held σ) (toGoal g) (pushedS D kd left e.1.span b) := by
     intro a ha
     obtain ⟨r1, y, hy, rfl⟩ := (h.held_iff hgs a).1 ha
     obtain ⟨x', -, hmem, hden⟩ := hcover y (h.done_answers hd r1 hy)
@@ -360,13 +357,13 @@ theorem IsRun.served_push (h : IsRun σ) {r k : Nat} {g : GoalOf R Rel} {kd : Ki
     have hle := (hsub e he).2
     unfold StateOf.len at hle
     exact h.ev hk (hrd.2 n y2 (by omega) hn z hz)
-  have hside : gOf (if left then L else Rg) ∈ opened σ := h.mem_opened hgs (.inl ⟨r, hd⟩)
-  have push : ∀ a, Held (held σ) (gOf (if left then L else Rg)) a → ∃ a',
-      Held (held σ) (gOf (if left then L else Rg)) a' ∧
+  have hside : toGoal (if left then L else Rg) ∈ opened σ := h.mem_opened hgs (.inl ⟨r, hd⟩)
+  have push : ∀ a, Held (held σ) (toGoal (if left then L else Rg)) a → ∃ a',
+      Held (held σ) (toGoal (if left then L else Rg)) a' ∧
       den P.sorts.interp a ⊆ den P.sorts.interp a' ∧ ∃ e : Ans D P × Nat × Nat, e.1.span = a' ∧
-      gOf (pushG D g other kd left e.1) ∈ opened σ ∧
-      ∀ b, Held (held σ) (gOf (pushG D g other kd left e.1)) b →
-        EvO P (held σ) (gOf g) (pushedS D kd left e.1.span b) := fun a ha => by
+      toGoal (pushG D g other kd left e.1) ∈ opened σ ∧
+      ∀ b, Held (held σ) (toGoal (pushG D g other kd left e.1)) b →
+        EvO P (held σ) (toGoal g) (pushedS D kd left e.1.span b) := fun a ha => by
     obtain ⟨e, -, k1, k2, k3, k4⟩ := key a ha
     exact ⟨e.1.span, k1, k2, e, rfl, k3, k4⟩
   cases kd with
@@ -408,16 +405,16 @@ theorem IsRun.served_check (h : IsRun σ) {r k : Nat} {g : GoalOf R Rel} {left :
     (hs : IsStrat σ k r (.check left side other (.opened subs)))
     (hsub : ∀ j ∈ subs, (∀ r' h', goalAt (σ r') j = some h' → Opened σ j) ∧
       ∀ r', (σ r').answers j = []) :
-    Served D P (opened σ) (held σ) (gOf g) := by
+    Served D P (opened σ) (held σ) (toGoal g) := by
   have hp := h.prog hk hs
   dsimp only [Prog] at hp
   obtain ⟨L, Rg, hsp, hside, hother, ps, hedge, -, hps⟩ := hp
   have hn := h.normal hk
   have hfo := hsp.fo ((h.good r).base.good k g hk).2.2
   have none : ∀ p ∈ ps,
-      gOf (if left then ⟨some p, other, g.rb⟩ else ⟨g.lb, other, some p⟩ : GoalOf R Rel) ∈
+      toGoal (if left then ⟨some p, other, g.rb⟩ else ⟨g.lb, other, some p⟩ : GoalOf R Rel) ∈
         opened σ ∧ ∀ a, ¬ Held (held σ)
-          (gOf (if left then ⟨some p, other, g.rb⟩ else ⟨g.lb, other, some p⟩ : GoalOf R Rel))
+          (toGoal (if left then ⟨some p, other, g.rb⟩ else ⟨g.lb, other, some p⟩ : GoalOf R Rel))
           a := by
     intro p hp
     obtain ⟨n, hn'⟩ := List.getElem?_of_mem hp
@@ -472,7 +469,7 @@ theorem IsRun.quiet_of_done (h : IsRun σ) {k : Nat} : ∀ r, (σ r).isDone k = 
 /-- **A complete table is served.** -/
 theorem IsRun.served_done (h : IsRun σ) {r0 k : Nat} {g : GoalOf R Rel}
     (hk : goalAt (σ r0) k = some g) (hd : EvDone σ k) :
-    Served D P (opened σ) (held σ) (gOf g) := by
+    Served D P (opened σ) (held σ) (toGoal g) := by
   obtain ⟨r1, hd1⟩ := hd
   obtain ⟨r, t', ht', gs, hg, gr, hgr, s, hs, hq⟩ := h.quiet_of_done r1 hd1
   have hst : IsStrat σ k r s := ⟨t', gs, gr, ht', hg, hgr, hs⟩

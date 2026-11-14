@@ -663,3 +663,30 @@ new axiom.
 
 /-- info: 'RwLog.Symmetric.req_request' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Symmetric.req_request
+
+/-- info: 'RwLog.Symmetric.Requests.line' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Symmetric.Requests.line
+
+/-- info: 'RwLog.Symmetric.IsRun.served_done' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Symmetric.IsRun.served_done
+
+/-- info: 'RwLog.Symmetric.IsRun.served_live' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Symmetric.IsRun.served_live
+
+/-- info: 'RwLog.Symmetric.IsRun.fair' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Symmetric.IsRun.fair
+
+/-- info: 'RwLog.Symmetric.isRun' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Symmetric.isRun
+
+/-- info: 'RwLog.Symmetric.complete' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Symmetric.complete
+
+/-- info: 'RwLog.Symmetric.honestExhaustion' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Symmetric.honestExhaustion
+
+/-- info: 'RwLog.Symmetric.honestProgress' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Symmetric.honestProgress
+
+/-- info: 'RwLog.Saturation.Fair.covers_pair' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Saturation.Fair.covers_pair
