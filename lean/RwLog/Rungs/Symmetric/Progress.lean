@@ -466,6 +466,104 @@ theorem pushTake_cov (hL : D.Lawful P.sorts.interp) (i : Nat) (k : Kind) (left :
   rw [hc, ← hsp]
   exact hcov _ ho c
 
+/-! ## Opening goals -/
+
+theorem openGoal_goalAt (st : StateOf R Rel (Ans D P)) (h : GoalOf R Rel) :
+    goalAt (openGoal (K := DerivationKernel.over D K hK P) st h).val.1
+      (openGoal (K := DerivationKernel.over D K hK P) st h).val.2 = some h := by
+  have hidx := indexFrom_some (P := P) K hK h st.tables 0
+  at_cost K hK
+  simp only [openGoal, Cost.bind_val]
+  split
+  · next i hi =>
+    obtain ⟨-, t, ht, hg⟩ := hidx i hi
+    simp only [Cost.pure_val]
+    unfold goalAt
+    rw [Nat.sub_zero] at ht
+    rw [ht]; exact congrArg some hg
+  · simp [goalAt]
+
+omit [DecidableEq R] in
+/-- A fold that opens a goal for each entry of a list and keeps what it
+opened: the tables opened, one for each entry, in order. -/
+theorem foldL_open {α γ : Type}
+    (f : StateOf R Rel (Ans D P) × List γ → α → Cost (StateOf R Rel (Ans D P) × List γ))
+    (Q : StateOf R Rel (Ans D P) → α → γ → Prop)
+    (hf : ∀ acc x, Ext acc.1 (f acc x).val.1 ∧
+      ∃ e, (f acc x).val.2 = acc.2 ++ [e] ∧ Q (f acc x).val.1 x e)
+    (hQ : ∀ st st' x e, Ext st st' → Q st x e → Q st' x e) :
+    ∀ (xs : List α) (acc : StateOf R Rel (Ans D P) × List γ),
+      Ext acc.1 (foldL f acc xs).val.1 ∧ ∃ es, (foldL f acc xs).val.2 = acc.2 ++ es ∧
+        List.Forall₂ (Q (foldL f acc xs).val.1) xs es
+  | [], acc => ⟨fun _ _ h => h, [], (List.append_nil _).symm, .nil⟩
+  | x :: xs, acc => by
+    simp only [foldL, Cost.bind_val]
+    obtain ⟨hE, e, he, hq⟩ := hf acc x
+    obtain ⟨hE', es, hes, hall⟩ := foldL_open f Q hf hQ xs (f acc x).val
+    exact ⟨fun j g h => hE' j g (hE j g h), e :: es, by rw [hes, he]; simp,
+      .cons (hQ _ _ _ _ hE' hq) hall⟩
+
+theorem forall₂_right {α γ : Type} {Q : α → γ → Prop} {xs : List α} {es : List γ}
+    (h : List.Forall₂ Q xs es) : ∀ e ∈ es, ∃ x ∈ xs, Q x e := by
+  induction h with
+  | nil => intro e he; cases he
+  | cons hq _ ih =>
+    intro e he
+    rcases List.mem_cons.1 he with rfl | he
+    · exact ⟨_, List.mem_cons_self, hq⟩
+    · obtain ⟨x, hx, hq'⟩ := ih e he
+      exact ⟨x, List.mem_cons_of_mem _ hx, hq'⟩
+
+theorem forall₂_map {α γ : Type} {Q : α → γ → Prop} {xs : List α} {es : List γ}
+    (h : List.Forall₂ Q xs es) {f : γ → α} (hf : ∀ x e, Q x e → f e = x) : es.map f = xs := by
+  induction h with
+  | nil => rfl
+  | cons hq _ ih => simp only [List.map_cons, hf _ _ hq, ih]
+
+theorem forall₂_getElem? {α γ : Type} {Q : α → γ → Prop} {xs : List α} {es : List γ}
+    (h : List.Forall₂ Q xs es) : ∀ (n : Nat) (x : α), xs[n]? = some x →
+      ∃ e, es[n]? = some e ∧ Q x e := by
+  induction h with
+  | nil => intro n x hx; cases hx
+  | cons hq _ ih =>
+    intro n x hx
+    cases n with
+    | zero => cases hx; exact ⟨_, rfl, hq⟩
+    | succ n => exact ih n x hx
+
+/-- What a push opens: a goal for each answer, in order, read from its
+start. -/
+theorem pushOpen_spec (g : GoalOf R Rel) (other : Rel) (k : Kind) (left : Bool)
+    (st : StateOf R Rel (Ans D P)) (xs : List (Ans D P)) :
+    (pushOpen (K := DerivationKernel.over D K hK P) g other k left st xs).val.2.map (·.1) = xs ∧
+      ∀ e ∈ (pushOpen (K := DerivationKernel.over D K hK P) g other k left st xs).val.2,
+        e.1 ∈ xs ∧ e.2.2 = 0 ∧
+        goalAt (pushOpen (K := DerivationKernel.over D K hK P) g other k left st xs).val.1 e.2.1 =
+          some (pushG D g other k left e.1) := by
+  have hp := pushGoal_val (P := P) K hK g other k left
+  have hog := fun st h => openGoal_goalAt (K := K) (hK := hK) (P := P) st h
+  have hin := fun st h => (inner_openGoal (K := K) (hK := hK) (P := P) (w := 0) st h).reach.ext
+  have key : Ext st (pushOpen (K := DerivationKernel.over D K hK P) g other k left st xs).val.1 ∧
+      ∃ es, (pushOpen (K := DerivationKernel.over D K hK P) g other k left st xs).val.2 =
+        [] ++ es ∧ List.Forall₂ (fun x (e : Ans D P × Nat × Nat) => e.1 = x ∧ e.2.2 = 0 ∧
+          goalAt (pushOpen (K := DerivationKernel.over D K hK P) g other k left st xs).val.1
+            e.2.1 = some (pushG D g other k left x)) xs es := by
+    at_cost K hK
+    unfold pushOpen
+    exact foldL_open _ (fun st x (e : Ans D P × Nat × Nat) => e.1 = x ∧ e.2.2 = 0 ∧
+        goalAt st e.2.1 = some (pushG D g other k left x))
+      (fun acc x => by
+        simp only [Cost.bind_val, Cost.pure_val, hp]
+        exact ⟨hin _ _, _, rfl, rfl, rfl, hog _ _⟩)
+      (fun _ _ _ _ hE h => ⟨h.1, h.2.1, hE _ _ h.2.2⟩) xs (st, [])
+  obtain ⟨-, es, hes, hall⟩ := key
+  rw [List.nil_append] at hes
+  rw [hes]
+  refine ⟨?_, fun e he => ?_⟩
+  · exact forall₂_map hall fun _ _ h => h.1
+  · obtain ⟨x, hx, rfl, h2, h3⟩ := forall₂_right hall e he
+    exact ⟨hx, h2, h3⟩
+
 /-! ## The work of one strategy keeps what its cursors mean -/
 
 theorem prog_work_span (hL : D.Lawful P.sorts.interp) {st : StateOf R Rel (Ans D P)}
@@ -630,6 +728,198 @@ theorem prog_work_join (hL : D.Lawful P.sorts.interp) {st : StateOf R Rel (Ans D
         · exact .inl h
         · cases h
           exact .inr List.mem_cons_self)
+
+theorem prog_work_push (hL : D.Lawful P.sorts.interp) {st : StateOf R Rel (Ans D P)}
+    (hI : Inv st) (whole : Bool) (i : Nat) (g : GoalOf R Rel) (k : Kind) (left : Bool)
+    (side : Nat) (other : Rel) (todo : Option (List (Ans D P)))
+    (subs : List (Ans D P × Nat × Nat)) (ho : Open st i) (hno : Normal other)
+    (hs : Prog st i g (.push k left side other todo subs)) :
+    Prog (work (K := DerivationKernel.over D K hK P) whole i g st
+        (.push k left side other todo subs)).val.1 i g
+      (work (K := DerivationKernel.over D K hK P) whole i g st
+        (.push k left side other todo subs)).val.2.1 := by
+  have hs0 := hs
+  dsimp only [Prog] at hs
+  obtain ⟨L, Rg, h1, h2, h3, h4, h5⟩ := hs
+  have hpo := fun xs => pushOpen_spec (K := K) (hK := hK) (P := P) g other k left st xs
+  have hpi := fun xs =>
+    (inner_pushOpen (K := K) (hK := hK) (P := P) (w := i) g other k left st xs).frame
+  have hpI := fun xs => (inv_pushOpen (K := K) (hK := hK) hI g other k left xs hno).1
+  have hpt := fun (x : Ans D P) st' ys ho' hx hy =>
+    pushTake_cov (K := K) (hK := hK) hL i k left x st' ys ho' (other := other) h1 hx hy
+  have hmv := maxima_val (P := P) K hK (st.answers side)
+  have hmm : ∀ x ∈ (maxima (K := DerivationKernel.over D K hK P) (st.answers side)).val,
+      x ∈ st.answers side := fun x h => mem_maxima (K := K) (hK := hK) h
+  have hcovmax : ∀ x ∈ st.answers side,
+      ∃ x' ∈ (maxima (K := DerivationKernel.over D K hK P) (st.answers side)).val,
+        den P.sorts.interp x.span ⊆ den P.sorts.interp x'.span := by
+    intro x hx
+    rw [hmv]
+    obtain ⟨z, hz, hc⟩ := List.maximaBy_covers (cov := covB D P)
+      (fun a => (hL.covers_iff _ _).2 subset_rfl)
+      (fun a b c h1 h2 => (hL.covers_iff _ _).2
+        (((hL.covers_iff _ _).1 h2).trans ((hL.covers_iff _ _).1 h1))) hx
+    exact ⟨z, hz, (hL.covers_iff _ _).1 hc⟩
+  have main : ∀ xs : List (Ans D P), st.isDone side = true → (∀ x ∈ xs, x ∈ st.answers side) →
+      (∀ x ∈ st.answers side, ∃ x' ∈ st.answers side, (x' ∈ xs ∨ x' ∈ subs.map (·.1)) ∧
+        den P.sorts.interp x.span ⊆ den P.sorts.interp x'.span) →
+      Prog (foldL (fun acc (e : Ans D P × Nat × Nat) =>
+          pushTake (K := DerivationKernel.over D K hK P) i k left e.1 acc
+            (((pushOpen (K := DerivationKernel.over D K hK P) g other k left st xs).val.1.answers
+              e.2.1).drop e.2.2))
+          (pushOpen (K := DerivationKernel.over D K hK P) g other k left st xs).val.1
+          (subs ++ (pushOpen (K := DerivationKernel.over D K hK P) g other k left st
+            xs).val.2)).val i g
+        (.push k left side other (some [])
+          ((subs ++ (pushOpen (K := DerivationKernel.over D K hK P) g other k left st
+            xs).val.2).map fun e => (e.1, e.2.1, max e.2.2
+              ((pushOpen (K := DerivationKernel.over D K hK P) g other k left st
+                xs).val.1.answers e.2.1).length))) := by
+    intro xs hd hxs hcv
+    obtain ⟨hmap, hnew⟩ := hpo xs
+    have hF1 := hpi xs
+    have hI1 := hpI xs
+    generalize (pushOpen (K := DerivationKernel.over D K hK P) g other k left st xs).val = r at *
+    have hS1 := hF1.stable ho
+    have ho1 := hF1.isOpen ho
+    have hsub' : ∀ e ∈ subs ++ r.2, e.1 ∈ st.answers side ∧
+        goalAt r.1 e.2.1 = some (pushG D g other k left e.1) ∧
+        Read r.1 i e.2.1 e.2.2 (pushedS D k left e.1.span) := by
+      intro e he
+      rcases List.mem_append.1 he with he | he
+      · obtain ⟨d1, d2, d3⟩ := h5 e he
+        exact ⟨d1, hS1.ext _ _ d2, d3.mono hS1⟩
+      · obtain ⟨d1, d2, d3⟩ := hnew e he
+        exact ⟨hxs _ d1, d3, by rw [d2]; exact Read.zero _ _ _ _⟩
+    obtain ⟨hF2, hc⟩ := foldL_cov i
+      (fun acc (e : Ans D P × Nat × Nat) =>
+        pushTake (K := DerivationKernel.over D K hK P) i k left e.1 acc
+          ((r.1.answers e.2.1).drop e.2.2))
+      (fun e => e ∈ subs ++ r.2)
+      (fun st' e => ∀ y ∈ (r.1.answers e.2.1).drop e.2.2, ∀ z,
+        pushedS D k left e.1.span y.span = some z → CovS st' i z)
+      (fun st' e he ho' => hpt e.1 st' _ ho' (hI.answers h2 _ (hsub' e he).1)
+        (fun y hy => hI1.answers (hsub' e he).2.1 y (List.mem_of_mem_drop hy)))
+      (fun _ _ _ h hc y hy z hz => (hc y hy z hz).mono h) (subs ++ r.2) r.1 (fun _ h => h) ho1
+    have hS2 := hF2.stable ho1
+    have hS := hS1.trans hS2
+    obtain ⟨hd', hans⟩ := hS.isDone hd
+    dsimp only [Prog]
+    refine ⟨L, Rg, h1, hS.ext _ _ h2, h3, fun l hl => ?_, fun e' he' => ?_⟩
+    · cases hl
+      rw [hans]
+      refine ⟨hd', (fun _ h => by cases h), fun x hx => ?_⟩
+      obtain ⟨x', hx', hor, hsubset⟩ := hcv x hx
+      refine ⟨x', hx', .inr ?_, hsubset⟩
+      simp only [List.map_map, List.map_append, Function.comp_def, hmap]
+      rcases hor with h | h
+      · exact List.mem_append_right _ h
+      · exact List.mem_append_left _ h
+    · obtain ⟨e, he, rfl⟩ := List.mem_map.1 he'
+      obtain ⟨d1, d2, d3⟩ := hsub' e he
+      refine ⟨by rw [hans]; exact d1, hS2.ext _ _ d2,
+        (max_le d3.1 (Nat.le_refl _)).trans (hS2.length_le _), fun n y hn hy z hz => ?_⟩
+      by_cases hlt : n < e.2.2
+      · exact (d3.mono hS2).2 n y hlt hy z hz
+      · have hn' : n < (r.1.answers e.2.1).length := by
+          have := lt_max_iff.1 hn
+          omega
+        have hy' := hS2.getElem?_old hy hn'
+        refine hc e he y (List.mem_iff_getElem?.2 ⟨n - e.2.2, ?_⟩) z hz
+        rw [List.getElem?_drop, show e.2.2 + (n - e.2.2) = n by omega]
+        exact hy'
+  at_cost K hK
+  simp only [work]
+  split
+  · exact hs0
+  · next hnd =>
+    have hd : st.isDone side = true := by simpa using hnd
+    split
+    · cases todo with
+      | none =>
+        erw [Cost.bind_val]
+        simp only [Cost.bind_val, Cost.pure_val]
+        exact main _ hd hmm (fun x hx => (hcovmax x hx).imp fun x' h => ⟨hmm x' h.1, .inl h.1, h.2⟩)
+      | some l =>
+        erw [Cost.bind_val]
+        simp only [Cost.bind_val, Cost.pure_val]
+        obtain ⟨-, d2, d3⟩ := h4 l rfl
+        exact main l hd d2 d3
+    · split
+      · simp only [Cost.bind_val, Cost.pure_val]
+        dsimp only [Prog]
+        exact ⟨L, Rg, h1, h2, h3, fun l hl => by
+          cases hl
+          exact ⟨hd, hmm, fun x hx => (hcovmax x hx).imp fun x' h => ⟨hmm x' h.1, .inl h.1, h.2⟩⟩,
+          h5⟩
+      · next x rest =>
+        simp only [Cost.bind_val, Cost.pure_val]
+        obtain ⟨hmap, hnew⟩ := hpo [x]
+        have hF1 := hpi [x]
+        have hS1 := hF1.stable ho
+        obtain ⟨hd', hans⟩ := hS1.isDone hd
+        obtain ⟨-, d2, d3⟩ := h4 (x :: rest) rfl
+        dsimp only [Prog]
+        refine ⟨L, Rg, h1, hS1.ext _ _ h2, h3, fun l hl => ?_, fun e he => ?_⟩
+        · cases hl
+          rw [hans]
+          refine ⟨hd', fun y hy => d2 y (List.mem_cons_of_mem _ hy), fun y hy => ?_⟩
+          obtain ⟨x', hx', hor, hsubset⟩ := d3 y hy
+          refine ⟨x', hx', ?_, hsubset⟩
+          rw [List.map_append, hmap]
+          rcases hor with h | h
+          · rcases List.mem_cons.1 h with rfl | h
+            · exact .inr (List.mem_append_right _ List.mem_cons_self)
+            · exact .inl h
+          · exact .inr (List.mem_append_left _ h)
+        · rcases List.mem_append.1 he with he | he
+          · obtain ⟨e1, e2, e3⟩ := h5 e he
+            exact ⟨by rw [hans]; exact e1, hS1.ext _ _ e2, e3.mono hS1⟩
+          · obtain ⟨e1, e2, e3⟩ := hnew e he
+            refine ⟨?_, e3, by rw [e2]; exact Read.zero _ _ _ _⟩
+            rw [hans]
+            exact d2 _ (by rw [List.mem_singleton.1 e1]; exact List.mem_cons_self)
+      · split
+        · exact hs0
+        · next p hp =>
+          simp only [Cost.bind_val, Cost.pure_val]
+          have hpm := mem_of_leastBy hp
+          have hpok : p.1.2.2 < (st.answers p.1.2.1).length := by simpa using leastBy_ok hp
+          have hq0 : subs[p.2]? = some p.1 := List.mem_zipIdx_iff_getElem?.1 hpm
+          obtain ⟨e1, e2, e3⟩ := h5 p.1 (List.mem_of_getElem? hq0)
+          obtain ⟨hf, hc⟩ := hpt p.1.1 st (((st.answers p.1.2.1).drop p.1.2.2).take 1) ho
+            (hI.answers h2 _ e1)
+            (fun y hy => hI.answers e2 y (List.mem_of_mem_drop (List.mem_of_mem_take hy)))
+          have hS := hf.stable ho
+          obtain ⟨hd', hans⟩ := hS.isDone hd
+          dsimp only [Prog]
+          refine ⟨L, Rg, h1, hS.ext _ _ h2, h3, fun l hl => ?_, fun e he => ?_⟩
+          · obtain ⟨-, d2, d3⟩ := h4 l hl
+            rw [hans, map_modify_eq (fun e : Ans D P × Nat × Nat => e.1)
+              (fun e : Ans D P × Nat × Nat => (e.1, e.2.1, e.2.2 + 1)) (fun _ => rfl)]
+            exact ⟨hd', d2, d3⟩
+          · obtain ⟨n, hn⟩ := List.getElem?_of_mem he
+            rw [List.getElem?_modify] at hn
+            by_cases hpn : p.2 = n
+            · subst hpn
+              rw [hq0] at hn
+              simp only [ite_true] at hn
+              cases hn
+              refine ⟨by rw [hans]; exact e1, hS.ext _ _ e2,
+                Nat.succ_le_of_lt (lt_of_lt_of_le hpok (hS.length_le _)),
+                fun n y hn hy z hz => ?_⟩
+              by_cases hlt : n < p.1.2.2
+              · exact (e3.mono hS).2 n y hlt hy z hz
+              · have hn2 : n < p.1.2.2 + 1 := hn
+                obtain rfl : n = p.1.2.2 := by omega
+                have hy' := hS.getElem?_old hy hpok
+                refine hc y (List.mem_iff_getElem?.2 ⟨0, ?_⟩) z hz
+                rw [List.getElem?_take_of_lt (by omega), List.getElem?_drop]
+                exact hy'
+            · simp only [hpn, ite_false] at hn
+              rw [id_map'] at hn
+              obtain ⟨d1, d2, d3⟩ := h5 e (List.mem_of_getElem? hn)
+              exact ⟨by rw [hans]; exact d1, hS.ext _ _ d2, d3.mono hS⟩
 
 end kernel
 
