@@ -156,6 +156,20 @@ rung unchanged.
   (`Answer.selfRead_sigma`): each is a representative carried with its
   sorts. `Span.denAt_sorted` and `Span.firstOrder_sorted`
   (`SpanLayer/Sorts.lean`) say what holding an end of a span to a sort does.
+* `Saturation.lean`: the completeness every engine on the normal form
+  shares (roadmap L30). A run is what it ever holds for each goal
+  (`Saturation.Tables`) and the goals it opens. `Saturation.Served` lists the
+  strategies of a node (a span, a call, a union, a chain split anywhere and
+  joined or pushed from either side, a meet split at any member and
+  conjoined or pushed either way) and says one of them is carried out on
+  everything the run ever holds, up to coverage. `Saturation.Fair` is every
+  opened goal served. `Fair.covers`: a fair run covers the pairs of every
+  ground relation the node of an opened goal derives, by induction on the
+  depth of the derivation and then on the node. `Fair.complete` is
+  completeness at the query, and `Fair.covers_valid` says a valid answer
+  found by any schedule is covered by every fair run that opens its goal.
+  Nothing is assumed of the order of work or of tables growing. A machine
+  proves `Fair` of its runs and receives completeness.
 * `Fairness.lean`: what the fairness bound of `Trusted/Properties.lean` means
   (`Alternative.semAt_subset`, `Fair.flat_ticks`,
   `Runtime.FinalMaximal.maximal`), and `firstWording_false`: a bound
