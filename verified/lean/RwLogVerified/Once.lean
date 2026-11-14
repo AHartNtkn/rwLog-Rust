@@ -69,6 +69,58 @@ def RightMemo (nm : Option Nat → Sym) (nodes : List store.Node) (A : Nat → O
   ∀ q ∈ u.subs, ∀ k, Repr nm nodes k q →
     ∃ g, A k = some g ∧ Repr nm nodes g (q.bind rightSub)
 
+/-- Entries closed under the parts of applications cover every subterm of a
+term whose node has an entry. -/
+theorem entries_of_closed (hnm : Function.Injective nm) {nodes : List store.Node}
+    (hN : NodesOK nodes) {A0 A : Nat → Option Nat} (hA0 : ∀ k, A0 k = none)
+    (hC : RClosed nodes A0 A) :
+    ∀ (q : Pat) (k : Nat), Repr nm nodes k q → A k ≠ none →
+      ∀ q' ∈ q.subs, ∀ k', Repr nm nodes k' q' → A k' ≠ none := by
+  intro q
+  induction q with
+  | var v =>
+    intro k hk hA q' hq' k' hk'
+    simp only [Term.subs, Finset.mem_singleton] at hq'
+    subst hq'
+    rw [Repr.inj hnm hN hk' hk]
+    exact hA
+  | sym f =>
+    intro k hk hA q' hq' k' hk'
+    simp only [Term.subs, Finset.mem_singleton] at hq'
+    subst hq'
+    rw [Repr.inj hnm hN hk' hk]
+    exact hA
+  | app a b iha ihb =>
+    intro k hk hA q' hq' k' hk'
+    simp only [Term.subs, Finset.mem_insert, Finset.mem_union] at hq'
+    rcases hq' with rfl | hq' | hq'
+    · rw [Repr.inj hnm hN hk' hk]
+      exact hA
+    · cases hk with
+      | app hn ha hb => exact iha _ ha (hC k hA (hA0 k) _ _ hn).1 q' hq' k' hk'
+    · cases hk with
+      | app hn ha hb => exact ihb _ hb (hC k hA (hA0 k) _ _ hn).2 q' hq' k' hk'
+
+/-- After `rebuild` with `Leaf::Right` from an empty table, table `A` holds
+what `Leaf::Right` makes of every subterm. -/
+theorem RebuildG.rightMemo (hnm : Function.Injective nm) {s s' : store.Store} {t : Pat}
+    {S : Finset Pat} {r : store.TermId}
+    (h : RebuildG nm s s' (fun q => q.bind rightSub) t S r) (hI : Inv s)
+    (hA0 : ∀ k, tbl s .A k = none) : RightMemo nm s'.nodes.val (tbl s' .A) t := by
+  intro q hq k hk
+  obtain ⟨k0, hk0, hA⟩ := h.root
+  obtain ⟨k1, hk1⟩ := hk0.of_subs hq
+  have hk1A := entries_of_closed hnm hI.nodesOK hA0 h.closed t k0 hk0 hA q hq k1 hk1
+  have e : k = k1 := Repr.inj hnm h.inv.nodesOK hk (h.ext.repr hk1)
+  subst e
+  cases hg : tbl s' .A k with
+  | none => exact absurd hg hk1A
+  | some g =>
+    obtain ⟨t', h1, h2⟩ := h.memo k g hg
+    have := hk.unique h1
+    subst this
+    exact ⟨g, rfl, h2⟩
+
 /-- What the table of flags holds when no variable occurs twice: every
 variable of the term is flagged, and only subterms of the term are. -/
 def OnceFlags (nm : Option Nat → Sym) (u : Pat) (nodes : List store.Node) (B : Nat → Option Nat) :

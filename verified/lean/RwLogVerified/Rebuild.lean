@@ -505,6 +505,29 @@ structure RebuildPost (nm : Option Nat → Sym) (s s' : store.Store) (σ : Nat �
     s.ticks.val + 5 + 14 * (pending nm s.nodes.val (tbl s .A) S).card
   mono : s.ticks.val ≤ s'.ticks.val
 
+/-- Every entry the walk added to a node that is an application has entries
+for both parts. -/
+def RClosed (n0 : List store.Node) (A0 A : Nat → Option Nat) : Prop :=
+  ∀ k, A k ≠ none → A0 k = none → ∀ a b : store.TermId, n0[k]? = some (.App a b) →
+    A a.val ≠ none ∧ A b.val ≠ none
+
+theorem RClosed.set {n0 : List store.Node} {A0 A : Nat → Option Nat} {q : Nat}
+    (h : RClosed n0 A0 A)
+    (hq : ∀ a b : store.TermId, n0[q]? = some (.App a b) → A a.val ≠ none ∧ A b.val ≠ none)
+    (r : Nat) : RClosed n0 A0 (Function.update A q (some r)) := by
+  have key : ∀ c, A c ≠ none → Function.update A q (some r) c ≠ none := by
+    intro c hc
+    by_cases e : c = q
+    · subst e; simp
+    · rw [Function.update_of_ne e]; exact hc
+  intro k hk h0 a b hn
+  by_cases e : k = q
+  · subst e
+    exact ⟨key _ (hq a b hn).1, key _ (hq a b hn).2⟩
+  · rw [Function.update_of_ne e] at hk
+    obtain ⟨h1, h2⟩ := h k hk h0 a b hn
+    exact ⟨key _ h1, key _ h2⟩
+
 /-- What `rebuild` leaves when the table at the start already has entries
 that need not be what the leaf function gives: the result stands for the
 image of the term under a function that agrees with the entries, and with
@@ -520,6 +543,8 @@ structure RebuildG (nm : Option Nat → Sym) (s s' : store.Store) (im : Pat → 
   cost : s'.ticks.val + 14 * (pending nm s'.nodes.val (tbl s' .A) S).card ≤
     s.ticks.val + 5 + 14 * (pending nm s.nodes.val (tbl s .A) S).card
   mono : s.ticks.val ≤ s'.ticks.val
+  closed : RClosed s.nodes.val (tbl s .A) (tbl s' .A)
+  root : ∃ k, Repr nm s.nodes.val k t ∧ tbl s' .A k ≠ none
 
 /-- The invariant of the loop. `s0` is the store at the start and `B` the
 tick count the loop stays under. -/
@@ -530,6 +555,7 @@ structure RInv (nm : Option Nat → Sym) (s0 : store.Store) (im : Pat → Pat) (
   memo : MemoG nm s.nodes.val (tbl s .A) im
   st : RSt nm s0.nodes.val tp p (tbl s0 .A) (tbl s .A) (stk s)
   tblB : tbl s .B = tbl s0 .B
+  closed : RClosed s0.nodes.val (tbl s0 .A) (tbl s .A)
   cost : ∃ U, Unb nm s.nodes.val (tbl s .A) S (stk s) U ∧
     s.ticks.val + 1 + 2 * nV (stk s) + 6 * nB (stk s) + 14 * U.card ≤ B
 
@@ -542,6 +568,7 @@ structure RDone (nm : Option Nat → Sym) (s0 : store.Store) (im : Pat → Pat) 
   memo : MemoG nm s.nodes.val (tbl s .A) im
   st : RSt nm s0.nodes.val tp p (tbl s0 .A) (tbl s .A) []
   tblB : tbl s .B = tbl s0 .B
+  closed : RClosed s0.nodes.val (tbl s0 .A) (tbl s .A)
   cost : s.ticks.val + 14 * (pending nm s.nodes.val (tbl s .A) S).card ≤ B
 
 def RBodyPost (nm : Option Nat → Sym) (s0 : store.Store) (im : Pat → Pat) (tp : Pat)
@@ -559,7 +586,7 @@ theorem rebuild_body_spec (hnm : Function.Injective nm) (s0 : store.Store) (f : 
     (h : RInv nm s0 im tp p S B s) :
     term.rebuild_loop.body f s ⦃ r => RBodyPost nm s0 im tp p S B s.ticks.val r ⦄ := by
   unfold term.rebuild_loop.body
-  obtain ⟨hW, hE, hM, hSt, hTB, U, hU, hc⟩ := h
+  obtain ⟨hW, hE, hM, hSt, hTB, hCl, U, hU, hc⟩ := h
   step with pop_w s hW (by unfold Room; omega) as ⟨o, s1, e1, e2, e3, hW1, eo, est⟩
   cases hst : stk s with
   | nil =>
@@ -568,7 +595,7 @@ theorem rebuild_body_spec (hnm : Function.Injective nm) (s0 : store.Store) (f : 
     subst eo
     simp only [WP.spec_ok]
     refine ⟨⟨hW1, est, hE.trans (Extends.of_eq e1 (by omega)), by rw [e1, e2]; exact hM,
-      by rw [e2]; exact hSt, by rw [e2, hTB], ?_⟩, by omega⟩
+      by rw [e2]; exact hSt, by rw [e2, hTB], by rw [e2]; exact hCl, ?_⟩, by omega⟩
     have := hU.card_le
     rw [e1, e2, e3]
     simp only [nV_nil, nB_nil] at hc
@@ -602,7 +629,7 @@ theorem rebuild_body_spec (hnm : Function.Injective nm) (s0 : store.Store) (f : 
         simp only [WP.spec_ok]
         have hA : tbl s .A q.val ≠ none := by rw [← ho1]; simp
         refine ⟨⟨hK2.wf, hE.trans (Extends.of_eq hn2 (by omega)), by rw [hn2, htb2]; exact hM, ?_,
-          by rw [htb2, hTB], U, ?_, ?_⟩, by omega⟩
+          by rw [htb2, hTB], by rw [htb2]; exact hCl, U, ?_, ?_⟩, by omega⟩
         · rw [htb2, hstk2]
           exact hSt.hit hA
         · rw [hn2, htb2, hstk2]
@@ -630,12 +657,13 @@ theorem rebuild_body_spec (hnm : Function.Injective nm) (s0 : store.Store) (f : 
           exact hnd
         -- a variable: the leaf function gives its entry
         have hleaf : ∀ v, tq = Term.var v → VarAt s.nodes.val q.val v →
+            (∀ a b : store.TermId, nd ≠ .App a b) →
             (do
               let (r, s4) ← term.leaf s3 f q
               let s5 ← store.Store.set s4 store.Tbl.A q r
               ok (ControlFlow.cont s5 : ControlFlow store.Store store.Store)) ⦃ r =>
               RBodyPost nm s0 im tp p S B s.ticks.val r ⦄ := by
-          intro v hv hva
+          intro v hv hva hna
           subst hv
           step with leaf_w (nm := nm) s3 f q (σ := σ) (v := v) hK3.wf (by rw [hn3]; exact hva)
             (by rw [hn3, hmore, htb3, hTB]; exact hf.append more) (by unfold Room; omega)
@@ -647,6 +675,11 @@ theorem rebuild_body_spec (hnm : Function.Injective nm) (s0 : store.Store) (f : 
             (by unfold Room; omega) as ⟨s5, g1, g2, g3, g4, g5, g6⟩
           rw [htbl4, htb3] at g4
           refine ⟨⟨g3, hE.trans ((Extends.of_eq hn3 (by omega)).trans (hext4.trans (Extends.of_eq g1 (by omega)))), ?_, ?_, ?_,
+            by
+              rw [g4]
+              exact hCl.set (fun a b hn => by
+                rw [hnd0] at hn
+                exact absurd (Option.some.inj hn) (hna a b)) _,
             U.erase (Term.var v), ?_, ?_⟩, by omega⟩
           · rw [g1, g4, hmore4]
             exact hM.set hq more4 (by rw [← hmore4, (hg _ _ hq0 hA0).1 v rfl]; exact hr4)
@@ -658,15 +691,22 @@ theorem rebuild_body_spec (hnm : Function.Injective nm) (s0 : store.Store) (f : 
           · rw [g6, hstk4, hstk3]; omega
         -- a symbol or the end of a list: it is its own entry
         have hatom : Repr nm s.nodes.val q.val (im tq) →
+            (∀ a b : store.TermId, nd ≠ .App a b) →
             (do
               let s4 ← store.Store.set s3 store.Tbl.A q q
               ok (ControlFlow.cont s4 : ControlFlow store.Store store.Store)) ⦃ r =>
               RBodyPost nm s0 im tp p S B s.ticks.val r ⦄ := by
-          intro hr
+          intro hr hna
           step with set_w s3 .A q q hK3.wf (by rw [hn3]; exact hq.lt) (by unfold Room; omega)
             as ⟨s5, g1, g2, g3, g4, g5, g6⟩
           rw [htb3] at g4
-          refine ⟨⟨g3, hE.trans ((Extends.of_eq hn3 (by omega)).trans (Extends.of_eq g1 (by omega))), ?_, ?_, ?_, U.erase tq, ?_, ?_⟩, by omega⟩
+          refine ⟨⟨g3, hE.trans ((Extends.of_eq hn3 (by omega)).trans (Extends.of_eq g1 (by omega))), ?_, ?_, ?_,
+            by
+              rw [g4]
+              exact hCl.set (fun a b hn => by
+                rw [hnd0] at hn
+                exact absurd (Option.some.inj hn) (hna a b)) _,
+            U.erase tq, ?_, ?_⟩, by omega⟩
           · rw [g1, g4, hn3]
             have := hM.set hq [] (r := q.val) (by simpa using hr)
             simpa [fkey] using this
@@ -680,21 +720,21 @@ theorem rebuild_body_spec (hnm : Function.Injective nm) (s0 : store.Store) (f : 
         cases nd with
         | V0 =>
           obtain ⟨v, hv, hva⟩ := hq.of_var hnd trivial
-          exact hleaf v hv hva
+          exact hleaf v hv hva (fun a b h => by cases h)
         | VL a =>
           obtain ⟨v, hv, hva⟩ := hq.of_var hnd trivial
-          exact hleaf v hv hva
+          exact hleaf v hv hva (fun a b h => by cases h)
         | VR a =>
           obtain ⟨v, hv, hva⟩ := hq.of_var hnd trivial
-          exact hleaf v hv hva
+          exact hleaf v hv hva (fun a b h => by cases h)
         | Sym g =>
           have := hq.of_sym hnd
           subst this
-          exact hatom (by rw [(hg _ _ hq0 hA0).2.1 _ rfl]; exact hq)
+          exact hatom (by rw [(hg _ _ hq0 hA0).2.1 _ rfl]; exact hq) (fun a b h => by cases h)
         | Nil =>
           have := hq.of_nil hnd
           subst this
-          exact hatom (by rw [(hg _ _ hq0 hA0).2.1 _ rfl]; exact hq)
+          exact hatom (by rw [(hg _ _ hq0 hA0).2.1 _ rfl]; exact hq) (fun a b h => by cases h)
         | App a b =>
           simp only
           step with push_w s3 (.Build q q) hK3.wf (by unfold Room; omega)
@@ -708,7 +748,7 @@ theorem rebuild_body_spec (hnm : Function.Injective nm) (s0 : store.Store) (f : 
           have hstk6 : stk s6 = .Visit a a :: .Visit b b :: .Build q q :: st := by
             rw [c5, b5, a5, hstk3]
           refine ⟨⟨hW6, hE.trans (Extends.of_eq hn6 (by omega)), by rw [hn6, htb6]; exact hM, ?_,
-            by rw [htb6, hTB], U.erase tq, ?_, ?_⟩, by omega⟩
+            by rw [htb6, hTB], by rw [htb6]; exact hCl, U.erase tq, ?_, ?_⟩, by omega⟩
           · rw [htb6, hstk6]
             exact hSt.expand hN0 hnone hnd0
           · rw [hn6, htb6, hstk6]
@@ -782,6 +822,12 @@ theorem rebuild_body_spec (hnm : Function.Injective nm) (s0 : store.Store) (f : 
             exact .app hr5 (by rw [hmore5]; exact hra.append more5)
               (by rw [hmore5]; exact hrb.append more5)
           refine ⟨⟨g3, hE.trans ((Extends.of_eq hn4 (by omega)).trans (hext5.trans (Extends.of_eq g1 (by omega)))), ?_, ?_, ?_,
+            by
+              rw [g4]
+              exact hCl.set (fun a' b' hn => by
+                rw [hn0] at hn
+                cases hn
+                exact ⟨hAa, hAb⟩) _,
             U.erase (Term.app ta tb), ?_, ?_⟩, by omega⟩
           · rw [g1, g4, hmore5]
             exact hM.set hq more5 hr
@@ -838,12 +884,12 @@ theorem rebuild_g_spec (hnm : Function.Injective nm) (s : store.Store) (f : term
         intro q u hq
         simp at hq, by rw [a5]; exact Waits.single p p, by
         rw [a5]; exact Or.inr ⟨_, List.mem_singleton_self _, rfl⟩⟩,
-      by rw [a2], _, Unb.start _ _ _ _, by
+      by rw [a2], by rw [a2]; exact fun k hk h0 => absurd h0 hk, _, Unb.start _ _ _ _, by
         rw [a5, a1, a2]
         simp only [nV_visit, nV_nil, nB_visit, nB_nil]
         omega⟩, by omega⟩
   step with hloop as ⟨s2, hD, hmono⟩
-  obtain ⟨hW2, hemp, hE2, hM2, hSt2, hTB2, hc2⟩ := hD
+  obtain ⟨hW2, hemp, hE2, hM2, hSt2, hTB2, hCl2, hc2⟩ := hD
   have hAp := hSt2.done
   have hp2 : Repr nm s2.nodes.val p.val t := hE2.repr hp
   step with get_w s2 .A p hW2 hp2.lt (by unfold Room; omega) as ⟨o, s3, ho, hK3⟩
@@ -858,7 +904,8 @@ theorem rebuild_g_spec (hnm : Function.Injective nm) (s : store.Store) (f : term
     have ht3 := hK3.ticks
     refine ⟨⟨hK3.wf, by rw [hK3.stk]; exact hemp⟩, hE2.trans (Extends.of_eq hK3.nodes (by have := hK3.ticks; omega)),
       by rw [hK3.nodes]; exact hr, by rw [hK3.nodes, hK3.tbl]; exact hM2,
-      by rw [hK3.tbl, hTB2], fun k v hk => by rw [hK3.tbl]; exact hSt2.keep k v hk, ?_, ?_⟩
+      by rw [hK3.tbl, hTB2], fun k v hk => by rw [hK3.tbl]; exact hSt2.keep k v hk, ?_, ?_,
+      by rw [hK3.tbl]; exact hCl2, ⟨p.val, hp, by rw [hK3.tbl]; exact hAp⟩⟩
     · rw [hK3.nodes, hK3.tbl]; omega
     · omega
 

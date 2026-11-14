@@ -87,7 +87,7 @@ theorem any_marked_loop_spec (hnm : Function.Injective nm) :
     Room s (2 * xs.length + 1) →
     sorts.any_marked_loop s false l true ⦃ res s' =>
       Inv s' ∧ s'.nodes.val = s.nodes.val ∧ tbl s' = tbl s ∧
-        s'.ticks.val ≤ s.ticks.val + 2 * xs.length + 1 ∧
+        (s.ticks.val ≤ s'.ticks.val ∧ s'.ticks.val ≤ s.ticks.val + 2 * xs.length + 1) ∧
         (res = true ↔ ∃ x ∈ xs, ∃ k, Repr nm s.nodes.val k (.var x) ∧ tbl s .B k ≠ none) ⦄ := by
   intro xs
   induction xs with
@@ -109,7 +109,7 @@ theorem any_marked_loop_spec (hnm : Function.Injective nm) :
     simp only [uncurry, bind_ok]
     rw [loop]
     simp only [Bool.false_eq_true, ↓reduceIte, bind_ok, WP.spec_ok]
-    exact ⟨K1.inv, K1.nodes, K1.tbl, by simp only [List.length_nil]; omega, by simp⟩
+    exact ⟨K1.inv, K1.nodes, K1.tbl, by omega, by simp only [List.length_nil]; omega, by simp⟩
   | cons x xs ih =>
     intro s l hI hl hroom
     have hroom' := hroom
@@ -144,8 +144,8 @@ theorem any_marked_loop_spec (hnm : Function.Injective nm) :
       have IH := ih s2 rest K2.inv (by rw [hn2]; exact rrest) (by unfold Room; omega)
       unfold sorts.any_marked_loop at IH
       refine WP.spec_mono IH ?_
-      rintro ⟨res, s'⟩ ⟨hI', hn', htb', ht', hres'⟩
-      refine ⟨hI', by rw [hn', hn2], by rw [htb', htb2], by simp only [List.length_cons]; omega,
+      rintro ⟨res, s'⟩ ⟨hI', hn', htb', ⟨hm', ht'⟩, hres'⟩
+      refine ⟨hI', by rw [hn', hn2], by rw [htb', htb2], by omega, by simp only [List.length_cons]; omega,
         ?_⟩
       rw [hres', hn2, htb2]
       constructor
@@ -162,7 +162,7 @@ theorem any_marked_loop_spec (hnm : Function.Injective nm) :
       simp only [Option.map_some, uncurry, bind_ok]
       rw [loop]
       simp only [Bool.false_eq_true, ↓reduceIte, bind_ok, WP.spec_ok]
-      refine ⟨K2.inv, hn2, htb2, by simp only [List.length_cons]; omega, ?_⟩
+      refine ⟨K2.inv, hn2, htb2, by omega, by simp only [List.length_cons]; omega, ?_⟩
       simp only [true_iff]
       exact ⟨x, List.mem_cons_self, v.val, rv, by rw [hfl]; simp⟩
 
@@ -173,7 +173,7 @@ theorem any_marked_spec (hnm : Function.Injective nm) (xs : List Nat) (s : store
     (hroom : Room s (2 * xs.length + 1)) :
     sorts.any_marked s l ⦃ res s' =>
       Inv s' ∧ s'.nodes.val = s.nodes.val ∧ tbl s' = tbl s ∧
-        s'.ticks.val ≤ s.ticks.val + 2 * xs.length + 1 ∧
+        (s.ticks.val ≤ s'.ticks.val ∧ s'.ticks.val ≤ s.ticks.val + 2 * xs.length + 1) ∧
         (res = true ↔ ∃ x ∈ xs, ∃ k, Repr nm s.nodes.val k (.var x) ∧ tbl s .B k ≠ none) ⦄ := by
   unfold sorts.any_marked
   exact any_marked_loop_spec hnm xs s l hI hl hroom
@@ -185,7 +185,7 @@ def outW (q : Pat) : Nat := 9 * nargs q + 6
 
 /-- What the loop keeps true while it runs: `ps` are the terms still to
 visit, and `M` says which variables are flagged. -/
-structure MGo (nm : Option Nat → Sym) (M : Nat → Prop) (u t : Pat) (nodes : List store.Node)
+structure OutGo (nm : Option Nat → Sym) (M : Nat → Prop) (u t : Pat) (nodes : List store.Node)
     (A : Nat → Option Nat) (todo : Nat) (ps : List Pat) : Prop where
   todo : Repr nm nodes todo (encList (nm none) ps)
   sub : ∀ p ∈ ps, p ∈ t.subs ∧ p.firstOrder = true
@@ -196,8 +196,8 @@ structure MGo (nm : Option Nat → Sym) (M : Nat → Prop) (u t : Pat) (nodes : 
   root : t = u ∨ (∃ k', Repr nm nodes k' t ∧ A k' ≠ none) ∨ t ∈ ps
 
 /-- When nothing is left to visit, no flagged variable is outside. -/
-theorem MGo.closed {M : Nat → Prop} {u t : Pat} {nodes : List store.Node} {A : Nat → Option Nat}
-    {todo : Nat} (h : MGo nm M u t nodes A todo []) : ∀ y ∈ Sorts.outV u t, ¬ M y := by
+theorem OutGo.closed {M : Nat → Prop} {u t : Pat} {nodes : List store.Node} {A : Nat → Option Nat}
+    {todo : Nat} (h : OutGo nm M u t nodes A todo []) : ∀ y ∈ Sorts.outV u t, ¬ M y := by
   have key : ∀ (n : Nat) (q : Pat), q.size = n → (∃ k, Repr nm nodes k q ∧ A k ≠ none) →
       ∀ y ∈ Sorts.outV u q, ¬ M y := by
     intro n
@@ -228,17 +228,17 @@ theorem MGo.closed {M : Nat → Prop} {u t : Pat} {nodes : List store.Node} {A :
   · cases hps
 
 /-- The invariant of the loop. -/
-def MInv (nm : Option Nat → Sym) (M : Nat → Prop) (s0 : store.Store) (u t : Pat) (Bd : Nat)
+def OutInv (nm : Option Nat → Sym) (M : Nat → Prop) (s0 : store.Store) (u t : Pat) (Bd : Nat)
     (x : store.Store × store.TermId × Bool × Bool) : Prop :=
   Inv x.1 ∧ Extends s0 x.1 ∧ tbl x.1 .B = tbl s0 .B ∧
     if x.2.2.2 = true then
-      x.2.2.1 = false ∧ ∃ ps, MGo nm M u t x.1.nodes.val (tbl x.1 .A) x.2.1.val ps ∧
+      x.2.2.1 = false ∧ ∃ ps, OutGo nm M u t x.1.nodes.val (tbl x.1 .A) x.2.1.val ps ∧
         x.1.ticks.val + owedW nm x.1.nodes.val (tbl x.1 .A) t.subs outW + 3 * ps.length + 2 ≤ Bd
     else
       (x.2.2.1 = true ↔ ∃ y ∈ Sorts.outV u t, M y) ∧ x.1.ticks.val + 1 ≤ Bd
 
 /-- What the loop leaves. -/
-def MPost (M : Nat → Prop) (s0 : store.Store) (u t : Pat) (Bd : Nat)
+def OutPost (M : Nat → Prop) (s0 : store.Store) (u t : Pat) (Bd : Nat)
     (y : Bool × store.Store) : Prop :=
   Inv y.2 ∧ Extends s0 y.2 ∧ tbl y.2 .B = tbl s0 .B ∧
     (y.1 = true ↔ ∃ y' ∈ Sorts.outV u t, M y') ∧ y.2.ticks.val ≤ Bd
@@ -250,11 +250,11 @@ theorem marked_outside_body_spec (hnm : Function.Injective nm) (M : Nat → Prop
     (hM : ∀ k y, Term.var y ∈ t.subs → Repr nm s0.nodes.val k (.var y) →
       (tbl s0 .B k ≠ none ↔ M y))
     (s : store.Store) (todo : store.TermId) (found go : Bool)
-    (h : MInv nm M s0 u t Bd (s, todo, found, go)) :
+    (h : OutInv nm M s0 u t Bd (s, todo, found, go)) :
     sorts.marked_outside_loop.body ui s todo found go ⦃ r =>
       match r with
-      | .done y => MPost M s0 u t Bd y
-      | .cont x => MInv nm M s0 u t Bd x ∧ s.ticks.val < x.1.ticks.val ⦄ := by
+      | .done y => OutPost M s0 u t Bd y
+      | .cont x => OutInv nm M s0 u t Bd x ∧ s.ticks.val < x.1.ticks.val ⦄ := by
   unfold sorts.marked_outside_loop.body
   delta core.option.Option.is_some
   obtain ⟨hI, hE, hTB, hrest⟩ := h
@@ -602,8 +602,8 @@ theorem marked_outside_spec (hnm : Function.Injective nm) (M : Nat → Prop) (s 
   have hsum := owedW_le_sum (nm := nm) s3.nodes.val (tbl s3 .A) tp.subs outW
   have hloop := loop.spec_decr_nat
     (fun x : store.Store × store.TermId × Bool × Bool => Bd + 1 - x.1.ticks.val)
-    (fun x => MInv nm M s3 up tp Bd x)
-    (fun y : Bool × store.Store => MPost M s3 up tp Bd y)
+    (fun x => OutInv nm M s3 up tp Bd x)
+    (fun y : Bool × store.Store => OutPost M s3 up tp Bd y)
     (fun x : store.Store × store.TermId × Bool × Bool =>
       sorts.marked_outside_loop.body u x.1 x.2.1 x.2.2.1 x.2.2.2) (s3, todo, false, true)
     (by
