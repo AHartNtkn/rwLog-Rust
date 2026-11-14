@@ -24,7 +24,7 @@ record. Both of its parts compare ticks, so they are statements about a
 kernel's charges, and the only kernel with charges on master is the one of
 spans as written, which is not lawful and is replaced by the domain of sorts
 (roadmap L55). What is proved of R005 at every lawful kernel is that every
-pair is covered at some step (`Keeps.pointComplete`); the roadmap row L36
+pair is covered at some step (`Keeps.pointComplete`); the roadmap row L60
 carries the rest.
 
 Nothing here uses a charge: every statement is about what a run shows.
