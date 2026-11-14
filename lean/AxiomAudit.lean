@@ -277,5 +277,11 @@ new axiom.
 /-- info: 'RwLog.Sorts.inclBut_iff' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Sorts.inclBut_iff
 
+/-- info: 'RwLog.Sorts.sole_sound' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.sole_sound
+
+/-- info: 'RwLog.Sorts.sole_none' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.sole_none
+
 /-- info: 'RwLog.ProgramOf.check_iff' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.ProgramOf.check_iff

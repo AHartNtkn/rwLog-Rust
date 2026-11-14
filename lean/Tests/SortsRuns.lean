@@ -1,4 +1,4 @@
-import RwLog.Sorts.InclBut
+import RwLog.Sorts.Roots
 
 /-!
 # The read-time check on sorts
@@ -7,7 +7,8 @@ import RwLog.Sorts.InclBut
 decision on the sorts of the examples (`lean/SORTS.md` section 5) and on the
 declarations the condition rejects (section 4), and then how many members
 conjunctions of sorts have (`Sorts.count`) and whether a conjunction is
-inside a sort but for some terms (`Sorts.inclBut`).
+inside a sort but for some terms (`Sorts.inclBut`), and the one root of the
+values of a variable (`Sorts.sole`).
 -/
 
 namespace RwLog.Tests.SortsRuns
@@ -199,5 +200,31 @@ def rests : Sorts :=
 #guard inclBut rests {"any"} "notz" [z]
 #guard !inclBut rests {"any"} "notz" [s z]
 #guard !inclBut rests {"any"} "nat" [z]
+
+/-! ## The one root of the values of a variable -/
+
+-- the numbers have two roots
+#guard sole nats {"nat"} [] = none
+
+-- without zero, one
+#guard sole nats {"nat"} [z] = some ("s", 1)
+
+-- leaving out a term that is not the only one with its root
+#guard sole nats {"nat"} [s z] = none
+
+-- a sort with one case
+#guard sole nats {"pos"} [] = some ("s", 1)
+#guard sole nats {"pos"} [s z] = some ("s", 1)
+
+-- one member, left out: no root
+#guard sole nats {"zero"} [z] = none
+#guard sole nats {"zero"} [] = some ("z", 0)
+
+-- no member: no root
+#guard sole nats {"zero", "pos"} [] = none
+
+-- a rest has every other symbol
+#guard sole rests {"any"} [z] = none
+#guard sole rests {"nat", "notz"} [] = some ("s", 1)
 
 end RwLog.Tests.SortsRuns
