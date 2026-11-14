@@ -383,11 +383,6 @@ theorem pack3_bind (σ : Nat → Pat) (T : Pat) (A : List (Name × Pat)) (X : Li
   refine List.map_congr_left fun E _ => ?_
   simp only [Function.comp_apply, encEqs_bind]
 
-theorem mem_vars_encEqs {v : Nat} :
-    ∀ {E : Eqns Nat}, v ∈ (encEqs nm E).vars ↔ ∃ p ∈ E, v ∈ p.1.vars ∨ v ∈ p.2.vars
-  | [] => by simp [encEqs, Term.vars]
-  | p :: E => by simp [encEqs, Term.vars, mem_vars_encEqs (E := E), or_assoc]
-
 theorem mem_vars_pack3 {v : Nat} {T : Pat} {A : List (Name × Pat)} {X : List (Eqns Nat)} :
     v ∈ (pack3 nm T A X).vars ↔ v ∈ T.vars ∨ (∃ a ∈ A, v ∈ a.2.vars) ∨
       ∃ E ∈ X, ∃ p ∈ E, v ∈ p.1.vars ∨ v ∈ p.2.vars := by

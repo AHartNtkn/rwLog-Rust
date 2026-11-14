@@ -832,11 +832,6 @@ theorem antichain_spec (hnm : Function.Injective nm) (k m : Nat) (Ls : List (Lis
 
 /-! ## Terms closed by a substitution -/
 
-theorem mem_vars_encList (z : RwLog.Sym) {v : Nat} :
-    ∀ {L : List Pat}, v ∈ (encList z L).vars ↔ ∃ p ∈ L, v ∈ p.vars
-  | [] => by simp [encList, Term.vars]
-  | p :: L => by simp [encList, Term.vars, mem_vars_encList z (L := L)]
-
 theorem bind_vars_nil {σ : Nat → Pat} {t : Pat} :
     (t.bind σ).vars = [] ↔ ∀ v ∈ t.vars, (σ v).vars = [] := by
   constructor

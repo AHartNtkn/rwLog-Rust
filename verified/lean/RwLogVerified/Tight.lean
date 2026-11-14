@@ -237,15 +237,15 @@ theorem tighten_spec (hnm : Function.Injective nm) {S : Sorts} {sp : Pat} {U : L
 
 /-- Among well-formed sorts, the rounds of `sorts::tighten` end. What they
 come to denotes what they started from, satisfies the invariant of
-`Sorts.tighten`, and has no variable whose values have one root; they come to
+`Sorts.tighten`, and has no variable that an exclusion mentions whose values
+have one root; they come to
 nothing only when what they started from denotes nothing. -/
 theorem tighten_sound {S : Sorts} (hS : S.WellFormed) (st : TSt) (hG : st.Good S) :
     ∃ k o, tightRun S k st = some o ∧
       match o with
       | none => st.abs.store.Den S = ∅
       | some st' => st'.abs.store.Den S = st.abs.store.Den S ∧ Sorts.Inv S st'.abs ∧
-          (∀ v ∈ st'.abs.t.vars,
-            Sorts.sole S (st'.abs.conj v) (Sorts.gone st'.abs.x v) = none) ∧ st'.Good S := by
+          Sorts.XTight S st'.abs ∧ st'.Good S := by
   obtain ⟨k, o, hrun, hT, hgood⟩ := tightRun_total hS _ _ rfl hG
   refine ⟨k, o, hrun, ?_⟩
   cases o with

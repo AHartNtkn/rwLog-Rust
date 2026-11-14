@@ -202,13 +202,13 @@ def splitSole (S : Sorts) (X : List (Eqns Nat)) :
       Option (List (Nat × Sorts.Conj) × (Nat × Sorts.Conj) × (Sym × Nat) × List (Nat × Sorts.Conj))
   | [] => none
   | e :: L =>
-    match Sorts.sole S e.2 (Sorts.gone X e.1) with
+    match soleX S X e with
     | some κ => some ([], e, κ, L)
     | none => (splitSole S X L).map fun q => (e :: q.1, q.2)
 
 theorem splitSole_none {S : Sorts} {X : List (Eqns Nat)} :
     ∀ {L : List (Nat × Sorts.Conj)},
-      (∀ e ∈ L, Sorts.sole S e.2 (Sorts.gone X e.1) = none) → splitSole S X L = none
+      (∀ e ∈ L, soleX S X e = none) → splitSole S X L = none
   | [], _ => rfl
   | e :: L, h => by
     simp only [splitSole, h e (by simp), Option.map_eq_none_iff]
@@ -216,9 +216,9 @@ theorem splitSole_none {S : Sorts} {X : List (Eqns Nat)} :
 
 theorem splitSole_some {S : Sorts} {X : List (Eqns Nat)} {en : Nat × Sorts.Conj}
     {κ : Sym × Nat} {post : List (Nat × Sorts.Conj)}
-    (hs : Sorts.sole S en.2 (Sorts.gone X en.1) = some κ) :
+    (hs : soleX S X en = some κ) :
     ∀ {pre : List (Nat × Sorts.Conj)},
-      (∀ e ∈ pre, Sorts.sole S e.2 (Sorts.gone X e.1) = none) →
+      (∀ e ∈ pre, soleX S X e = none) →
       splitSole S X (pre ++ en :: post) = some (pre, en, κ, post)
   | [], _ => by simp only [List.nil_append, splitSole, hs]
   | e :: pre, h => by
@@ -228,14 +228,14 @@ theorem splitSole_some {S : Sorts} {X : List (Eqns Nat)} {en : Nat × Sorts.Conj
 theorem splitSole_spec {S : Sorts} {X : List (Eqns Nat)} :
     ∀ (L : List (Nat × Sorts.Conj)),
       match splitSole S X L with
-      | none => ∀ e ∈ L, Sorts.sole S e.2 (Sorts.gone X e.1) = none
+      | none => ∀ e ∈ L, soleX S X e = none
       | some (pre, en, κ, post) => L = pre ++ en :: post ∧
-          (∀ e ∈ pre, Sorts.sole S e.2 (Sorts.gone X e.1) = none) ∧
-          Sorts.sole S en.2 (Sorts.gone X en.1) = some κ
+          (∀ e ∈ pre, soleX S X e = none) ∧
+          soleX S X en = some κ
   | [] => by simp [splitSole]
   | e :: L => by
     have ih := splitSole_spec (S := S) (X := X) L
-    cases hs : Sorts.sole S e.2 (Sorts.gone X e.1) with
+    cases hs : soleX S X e with
     | some κ => simp [splitSole, hs]
     | none =>
       cases hq : splitSole S X L with
@@ -562,13 +562,14 @@ theorem round_next {S : Sorts} {st st' : TSt} {ok : Bool} (hG : st.Good S)
       rw [hq] at hsp h
       simp only [Round.next.injEq] at h
       obtain ⟨hL, -, hsole⟩ := hsp
-      refine ⟨pre, en, κ, post, hL, hsole, h.1.symm, h.2.symm, hI, ?_⟩
+      have hs := (soleX_some hsole).2
+      refine ⟨pre, en, κ, post, hL, hs, h.1.symm, h.2.symm, hI, ?_⟩
       have hen : en ∈ st.L := by rw [hL]; simp
       by_contra hv
       have := hI.cs en.1 (by rw [TSt.abs_length]; exact hG.ok.lt en hen) hv
       rw [hG.ok.conj, conjOf_mem hG.ok.nodup hen] at this
-      rw [this, sole_empty] at hsole
-      cases hsole
+      rw [this, sole_empty] at hs
+      cases hs
 
 /-- A round that replaces a variable, every new entry having a member, gives
 a state the rounds go on from. -/
@@ -619,9 +620,11 @@ theorem tightRun_total {S : Sorts} (hS : S.WellFormed) :
         by_cases hu : ∃ c, (v, c) ∈ st.L
         · obtain ⟨c, hc⟩ := hu
           rw [conjOf_mem hG.ok.nodup hc]
-          exact hsp (v, c) hc
+          intro hm
+          have := hsp (v, c) hc
+          rwa [soleX_of_mem (List.mem_flatMap.2 hm)] at this
         · rw [conjOf_not fun e he e' => hu ⟨e.2, by rw [← e']; exact he⟩]
-          exact sole_empty S _
+          exact fun _ => sole_empty S _
       | some q =>
         obtain ⟨pre, en, κ, post⟩ := q
         rw [hq] at hsp
@@ -630,7 +633,7 @@ theorem tightRun_total {S : Sorts} (hS : S.WellFormed) :
         have hcj : st.abs.conj en.1 = en.2 := by
           rw [hG.ok.conj]; exact conjOf_mem hG.ok.nodup hen
         have hsole' : Sorts.sole S (st.abs.conj en.1) (Sorts.gone st.abs.x en.1) = some κ := by
-          rw [hcj]; exact hsole
+          rw [hcj]; exact (soleX_some hsole).2
         have hv : en.1 ∈ st.abs.t.vars := by
           by_contra hv
           have := hI.cs en.1 (by rw [TSt.abs_length]; exact hG.ok.lt en hen) hv
