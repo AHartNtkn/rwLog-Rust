@@ -1,5 +1,5 @@
 import RwLog.Sorts.Loop
-import RwLog.Sorts.Norm
+import RwLog.Sorts.Dom
 
 /-!
 # The read-time check on sorts
@@ -11,8 +11,8 @@ conjunctions of sorts have (`Sorts.count`) and whether a conjunction is
 inside a sort but for some terms (`Sorts.inclBut`), and the one root of the
 values of a variable (`Sorts.sole`), stores brought to tight ones
 (`Sorts.tighten`), and exclusions brought to normal form (`Sorts.normEx`,
-`Sorts.assembled`), and problems brought to their normal stores
-(`Sorts.Prob.norm`).
+`Sorts.assembled`), problems brought to their normal stores
+(`Sorts.Prob.norm`), and the operations of the domain (`Sorts.dom`).
 -/
 
 namespace RwLog.Tests.SortsRuns
@@ -352,5 +352,55 @@ def norm (S : Sorts) (P : Prob) : Option Raw :=
 
 -- an exclusion that always holds
 #guard norm nats ⟨.var 0, [], [("nat", .var 0)], [[]]⟩ = none
+
+/-! The operations of the domain, on the sorts `nats`. -/
+
+def isNat (v : Nat) : Pat := .app (.sym "nat") (.var v)
+def differ (a b : Pat) : Pat := .app (.app (.sym neSym) a) b
+
+/-- The identity on numbers. -/
+def idSpan : Span := ⟨.var 0, .var 0, [isNat 0]⟩
+
+/-- The successor of a number. -/
+def succSpan : Span := ⟨.var 0, sp (.var 0), [isNat 0]⟩
+
+/-- The store of a representative. -/
+def raw (o : Option (Rep nats)) : Option Raw := o.map (·.1)
+
+-- a span as written
+#guard raw ((dom nats).rep idSpan) = some ⟨tpair (.var 0) (.var 0), [{"nat"}], []⟩
+#guard raw ((dom nats).rep succSpan) = some ⟨tpair (.var 0) (sp (.var 0)), [{"nat"}], []⟩
+
+-- two numbers that differ
+#guard raw ((dom nats).rep ⟨.var 0, .var 1, [isNat 0, isNat 1, differ (.var 0) (.var 1)]⟩) =
+  some ⟨tpair (.var 0) (.var 1), [{"nat"}, {"nat"}], [[(1, .var 0)]]⟩
+
+-- a span that relates nothing
+#guard raw ((dom nats).rep ⟨.var 0, .var 0, [isNat 0, .app (.sym "zero") (.var 0),
+  .app (.sym "pos") (.var 0)]⟩) = none
+
+-- the successor twice
+#guard raw (do let a ← (dom nats).rep succSpan; (dom nats).compose a a) =
+  some ⟨tpair (.var 0) (sp (sp (.var 0))), [{"nat"}], []⟩
+
+-- the successor and the identity share no pair
+#guard raw (((dom nats).rep succSpan).bind fun a =>
+  ((dom nats).rep idSpan).bind fun i => (dom nats).meet a i) = none
+
+-- the successor and itself
+#guard raw (do let a ← (dom nats).rep succSpan; (dom nats).meet a a) =
+  some ⟨tpair (.var 0) (sp (.var 0)), [{"nat"}], []⟩
+
+-- the right ends of the successor
+#guard raw (do let a ← (dom nats).rep succSpan; (dom nats).rightBound a) =
+  some ⟨tpair (sp (.var 0)) (sp (.var 0)), [{"nat"}], []⟩
+
+-- the converse of the successor
+#guard raw (((dom nats).rep succSpan).map Answer.swap) =
+  some ⟨tpair (sp (.var 0)) (.var 0), [{"nat"}], []⟩
+
+-- the identity covers its meet with the successor's right ends
+#guard (((dom nats).rep succSpan).bind fun a => ((dom nats).rightBound a).bind fun b =>
+  ((dom nats).rep idSpan).map fun i => (dom nats).covers i b) = some true
 
 end RwLog.Tests.SortsRuns

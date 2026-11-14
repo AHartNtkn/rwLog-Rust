@@ -143,9 +143,14 @@ pattern at every variable with one head symbol until none is left
 bring each exclusion to normal form (`NormEx.lean`), drop the implied ones and
 sort them (`Assemble.lean`); project the hidden variables away.
 
-The operations of `dom S` are specified by what they denote: each returns the
-one normal store that relates the named pairs, or nothing when there is no
-pair. They are not programs. The programs are the Rust of L39, which is
+The operations of `dom S` (`Dom.lean`) are programs. Each builds the problem
+of its result from the stores it is given (`Raw.prob`, `Raw.prob₂`,
+`spanProb`) and returns its normal store by `Prob.norm` (`Rep.of`). Each is
+proved to return the one representative of the pairs it is to relate, or
+nothing when there is no pair (`dom_rep`, `dom_compose`, `dom_meet`,
+`dom_rightBound`, `Rep.conv_eq`, stated with `Rep.mk?`, the representative of
+a relation chosen without computing). The laws are proved from those
+statements. `Tests/SortsRuns.lean` runs the operations. The Rust of L39 is
 correct when it returns a normal store with the right denotation; uniqueness
 then makes it equal to `dom S`.
 
@@ -265,6 +270,5 @@ most symbols, an exclusion with the fewest free variables) are deleted;
 the specification, and the runs in `Tests/SortsRuns.lean` keep to a few sorts
 for that reason. The Rust looks only at the sets it reaches.
 
-The operations of `dom S` (`Dom.lean`) are still stated by what they denote,
-with `Rep.mk?` choosing the representative. Defining them by `Prob.norm` is
-the next step, before the Rust is proved against them.
+The operations of `dom S` are defined by `Prob.norm` (section 6), so the
+domain runs in Lean.
