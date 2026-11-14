@@ -80,6 +80,29 @@ structure Line (need : N → Nat) (σ : Nat → StateOf S N A) (k r0 : Nat)
     Pointwise (SStep need (σ r).len (σ r).depth (σ (r + 1)).depth) (L r) (L (r + 1)) ∧
     (∀ s ∈ L (r + 1), SFed (σ (r + 1)) s) ∧ ∃ s ∈ L r, s.dead (σ r) = false
 
+theorem Line.length {k r0 : Nat} {L : Nat → List (Strat N A)} (hL : Line need σ k r0 L)
+    {r : Nat} (hr : r0 ≤ r) : (L r).length = (L r0).length := by
+  obtain ⟨d, rfl⟩ := Nat.exists_eq_add_of_le hr
+  induction d with
+  | zero => rfl
+  | succ d ih => exact ((hL.adv (r0 + d) (by omega)).1).symm.trans (ih (by omega))
+
+/-- What holds of the strategy at one place of the group at the start and
+is kept by a strategy moving on holds of it throughout. -/
+theorem Line.along {k r0 : Nat} {L : Nat → List (Strat N A)} (hL : Line need σ k r0 L)
+    (Q : Nat → Strat N A → Prop) {m : Nat} {s0 : Strat N A} (h0 : (L r0)[m]? = some s0)
+    (hQ : Q r0 s0)
+    (hstep : ∀ r s s', r0 ≤ r → (L r)[m]? = some s → (L (r + 1))[m]? = some s' → Q r s →
+      SAdv (σ r).len s s' → Q (r + 1) s') {r : Nat} (hr : r0 ≤ r) :
+    ∃ s, (L r)[m]? = some s ∧ Q r s := by
+  obtain ⟨d, rfl⟩ := Nat.exists_eq_add_of_le hr
+  induction d with
+  | zero => exact ⟨s0, h0, hQ⟩
+  | succ d ih =>
+    obtain ⟨s, hs, hq⟩ := ih (by omega)
+    obtain ⟨s', hs', hadv⟩ := (hL.adv (r0 + d) (by omega)).get hs
+    exact ⟨s', hs', hstep (r0 + d) s s' (by omega) hs hs' hq hadv⟩
+
 /-- What one request does to the groups `G` of a table that has groups:
 there are no more of them after, and if there are as many, each is itself
 later, and if the table had its round one of them worked. -/
