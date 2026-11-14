@@ -576,4 +576,169 @@ theorem stepOK {S : Sorts} {U : List Name} (hS : S.WellFormed)
         · exact hiff.2 (fun κ hκ => (hh.1 (h _ List.mem_cons_self)).2 κ ((hmem κ).1 hκ)) x hx
         · exact h x (List.mem_cons_of_mem _ hx)
 
+/-! ## What one step of asking spends -/
+
+theorem arity_lt_size : ∀ (g : GTerm) (acc : List GTerm),
+    (gspine g acc).2.length + 1 ≤ g.size + acc.length
+  | .var v, _ => v.elim
+  | .sym f, acc => by simp only [gspine, Term.size]; omega
+  | .app g u, acc => by
+    have h1 := arity_lt_size g (u :: acc)
+    have h2 := Sorts.size_pos u
+    simp only [gspine, Term.size, List.length_cons] at h1 ⊢
+    omega
+
+theorem termKey_lt (t : GTerm) : (termKey t).2 + 1 ≤ t.size := by
+  simpa [termKey] using arity_lt_size t []
+
+theorem sumSize_cons (t : GTerm) (G : List GTerm) :
+    Sorts.sumSize (t :: G) = t.size + Sorts.sumSize G := by simp [Sorts.sumSize]
+
+theorem kw_cons (κ : Sym × Nat) (ks : List (Sym × Nat)) : kw (κ :: ks) = 5 + 2 * κ.2 + kw ks := by
+  simp [kw]
+
+theorem kw_terms_le : ∀ G : List GTerm, kw (G.map termKey) ≤ 7 * Sorts.sumSize G
+  | [] => by simp [kw]
+  | t :: G => by
+    have h1 := kw_terms_le G
+    have h2 := termKey_lt t
+    rw [List.map_cons, kw_cons, sumSize_cons]
+    omega
+
+theorem onlyCost_le (L : Nat) : ∀ G : List GTerm, onlyCost L G ≤ (4 * L + 11) * Sorts.sumSize G + 1
+  | [] => by simp [onlyCost]
+  | t :: G => by
+    have ih := onlyCost_le L G
+    have h2 := termKey_lt t
+    have h3 : 4 * L + 7 ≤ (4 * L + 7) * t.size := Nat.le_mul_of_pos_right _ (by omega)
+    have h4 : (4 * L + 11) * t.size = (4 * L + 7) * t.size + 4 * t.size := by
+      have : 4 * L + 11 = 4 * L + 7 + 4 := by omega
+      rw [this, Nat.add_mul]
+    rw [sumSize_cons, Nat.mul_add, h4]
+    simp only [onlyCost]
+    omega
+
+theorem projsCost_le (L : Nat) : ∀ G : List GTerm,
+    projsCost L G ≤ (13 * L + 15) * Sorts.sumSize G + 1
+  | [] => by simp [projsCost]
+  | t :: G => by
+    have ih := projsCost_le L G
+    have h2 := termKey_lt t
+    have h3 : 13 * L + 11 ≤ (13 * L + 11) * t.size := Nat.le_mul_of_pos_right _ (by omega)
+    have h4 : (13 * L + 15) * t.size = (13 * L + 11) * t.size + 4 * t.size := by
+      have : 13 * L + 15 = 13 * L + 11 + 4 := by omega
+      rw [this, Nat.add_mul]
+    rw [sumSize_cons, Nat.mul_add, h4]
+    simp only [projsCost]
+    omega
+
+/-- A bound on the ticks `but_key` may spend on a root with `W` arguments at
+most and terms of size `N` at most. -/
+def keyB (S : Sorts) (u r q N W : Nat) : Nat :=
+  stepConjCost S u u W + solesCost S u r W + stepCost S W + ((4 * W + 11) * N + 1) +
+    (2 * W + 3 + ((13 * W + 15) * N + 1)) + (W * (inclCost S u q + 8) + 1)
+
+theorem butKeyCost_le (S : Sorts) (u r q : Nat) {k W N : Nat} {G : List GTerm} (hk : k ≤ W)
+    (hG : Sorts.sumSize G ≤ N) : butKeyCost S u r q k G ≤ keyB S u r q N W := by
+  have a1 : stepCost S k ≤ stepCost S W := by unfold stepCost; omega
+  have a2 : stepConjCost S u u k ≤ stepConjCost S u u W := by
+    unfold stepConjCost
+    have b1 := Nat.mul_le_mul_left u (Nat.add_le_add_right a1 2)
+    have b2 := Nat.mul_le_mul_right (5 * u + 3 * u + 9) hk
+    omega
+  have a3 : solesCost S u r k ≤ solesCost S u r W := by
+    unfold solesCost
+    have := Nat.mul_le_mul_right (countCost S u r + 5) hk
+    omega
+  have a4 : onlyCost k G ≤ (4 * W + 11) * N + 1 := by
+    have b1 := onlyCost_le k G
+    have b2 : (4 * k + 11) * Sorts.sumSize G ≤ (4 * W + 11) * N := Nat.mul_le_mul (by omega) hG
+    omega
+  have a5 : projsCost k G ≤ (13 * W + 15) * N + 1 := by
+    have b1 := projsCost_le k G
+    have b2 : (13 * k + 15) * Sorts.sumSize G ≤ (13 * W + 15) * N := Nat.mul_le_mul (by omega) hG
+    omega
+  have a6 := Nat.mul_le_mul_right (inclCost S u q + 8) hk
+  unfold butKeyCost keyB projsAllCost
+  omega
+
+theorem butLoopCost_le (S : Sorts) (u r q : Nat) {W N : Nat} {G : List GTerm}
+    (hG : Sorts.sumSize G ≤ N) : ∀ K : List (Sym × Nat), (∀ κ ∈ K, κ.2 ≤ W) →
+    butLoopCost S u r q G K ≤ K.length * (keyB S u r q N W + 2) + 1
+  | [], _ => by simp [butLoopCost]
+  | κ :: K, h => by
+    have ih := butLoopCost_le S u r q hG K fun κ' hκ' => h κ' (List.mem_cons_of_mem _ hκ')
+    have h1 := butKeyCost_le S u r q (h κ List.mem_cons_self) hG
+    simp only [butLoopCost, List.length_cons, Nat.add_mul, Nat.one_mul]
+    omega
+
+theorem le_keysCost : ∀ K : List (Sym × Nat), K.length ≤ keysCost K ∧ ∀ κ ∈ K, κ.2 ≤ keysCost K
+  | [] => by simp [keysCost]
+  | κ :: K => by
+    obtain ⟨h1, h2⟩ := le_keysCost K
+    refine ⟨by simp only [List.length_cons, keysCost]; omega, fun κ' hκ' => ?_⟩
+    rcases List.mem_cons.1 hκ' with rfl | hκ'
+    · simp only [keysCost]; omega
+    · have := h2 κ' hκ'
+      simp only [keysCost]; omega
+
+/-- A bound on the ticks one step of asking may spend, on terms of size `N`
+at most. -/
+def oneB (S : Sorts) (u r q N : Nat) : Nat :=
+  freshCost S u q + butKeysCost S u (7 * N) +
+    (butKeysW S u (7 * N) * (keyB S u r q N (butKeysW S u (7 * N)) + 2) + 1)
+
+theorem oneCost_le (S : Sorts) (U : List Name) (r q : Nat) (c : Sorts.Conj) (n : Name)
+    {G : List GTerm} {N : Nat} (hG : Sorts.sumSize G ≤ N) :
+    oneCost S U r q c n G ≤ oneB S U.length r q N := by
+  obtain ⟨hx, hw⟩ := butKeysX_le S (U := U) c n G
+  have hgw : kw (G.map termKey) ≤ 7 * N := by
+    have := kw_terms_le G
+    omega
+  have hW : butKeysW S U.length (kw (G.map termKey)) ≤ butKeysW S U.length (7 * N) := by
+    unfold butKeysW; omega
+  have hKC : butKeysCost S U.length (kw (G.map termKey)) ≤ butKeysCost S U.length (7 * N) := by
+    unfold butKeysCost
+    have := Nat.mul_le_mul hW (Nat.add_le_add_right hW 5)
+    omega
+  obtain ⟨hlen, hk⟩ := le_keysCost (butKeysL S (conjList U (· ∈ c)) n G)
+  have hloop := butLoopCost_le S U.length r q (W := butKeysW S U.length (7 * N)) hG
+    (butKeysL S (conjList U (· ∈ c)) n G) fun κ hκ => by
+      have := hk κ hκ
+      omega
+  have hmul := Nat.mul_le_mul_right
+    (keyB S U.length r q N (butKeysW S U.length (7 * N)) + 2)
+    (Nat.le_trans hlen (Nat.le_trans hw hW))
+  unfold oneCost oneB
+  omega
+
+/-! ## The whole -/
+
+/-- The ticks `included_but` may spend on terms of size `N`, where a
+conjunction reaches `r` conjunctions at most and a key `q` keys at most: a
+polynomial in the size of the sorts, `N`, `r` and `q`. -/
+def inclButAll (S : Sorts) (u r q N : Nat) : Nat := inclButCost S u q N (oneB S u r q N)
+
+/-- `included_but` answers whether every member of the conjunction, but for
+the ground terms of the list, is in the sort (`Sorts.Hold`), for well-formed
+sorts, within `inclButAll` ticks. -/
+theorem included_but_spec {S : Sorts} {sp : Pat} {U : List Name} (hC : Ctx nm S sp U)
+    (hS : S.WellFormed) {r q : Nat} (hr : ∀ d, (Sorts.reachSet S d).card ≤ r)
+    (hq : ∀ d m, (Sorts.reachGSet S (d, some m)).card ≤ q)
+    (c : Sorts.Conj) (n : Name) (G : List GTerm) (hc : Sub U c) (hn : n ≠ nm none)
+    (s : store.Store) (decls names ci ni g : store.TermId) (hI : Inv s)
+    (hde : Repr nm s.nodes.val decls.val sp)
+    (hU : Repr nm s.nodes.val names.val (namesPat (nm none) U))
+    (hci : Repr nm s.nodes.val ci.val (cpat (nm none) U c))
+    (hni : Repr nm s.nodes.val ni.val (.sym n))
+    (hg : Repr nm s.nodes.val g.val (encList (nm none) (G.map GTerm.toPat)))
+    (hroom : Room s (inclButAll S U.length r q (Sorts.sumSize G))) :
+    sorts.included_but s decls names ci ni g ⦃ b s' =>
+      Inv s' ∧ Extends s s' ∧
+        s'.ticks.val ≤ s.ticks.val + inclButAll S U.length r q (Sorts.sumSize G) ∧
+        (b = true ↔ Sorts.Hold S c n G) ⦄ :=
+  included_but_run hC hr hq (stepOK hS hC.names) c n G
+    (fun c' n' _ h => oneCost_le S U r q c' n' h) hc hn s decls names ci ni g hI hde hU hci hni hg
+    hroom
+
 end RwLogVerified

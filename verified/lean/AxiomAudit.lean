@@ -187,3 +187,6 @@ new axiom.
 
 /-- info: 'RwLogVerified.included_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLogVerified.included_spec
+
+/-- info: 'RwLogVerified.included_but_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.included_but_spec

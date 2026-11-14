@@ -193,6 +193,7 @@ charged steps as it reads terms. Proved against section 6
 |---|---|---|
 | `sorts::step` | `Sorts.step` | `sortsCost S + 2 m + 2`, `m` the arguments; `sortsCost S` is linear in the written size of the declarations |
 | `sorts::member` | `Sorts.mem` | 5, and `sortsCost S + 11 m + 6` for each pair of a declared sort and a distinct subterm with `m` arguments |
+| `sorts::included_but` | `Sorts.Hold` (`ButStep.lean`) | `inclButAll`: a polynomial in the written size of the declarations, the size of the excepted terms, and the numbers of conjunctions and of keys that can be reached |
 
 Membership is therefore linear in the term for fixed declarations, and a term
 with a repeated subterm pays for it once for each sort.
