@@ -48,14 +48,16 @@ theorem cores_modify {S N A : Type} (st : StateOf S N A) (i : Nat) (f : Table S 
 
 /-- What the work of a strategy leaves of a table, unless it puts an answer
 in: its goal, whether the goal is its own converse, its answers, whether it
-is complete, and the requests it was opened in and last had a round in. -/
+is complete, the requests it was opened in and last had a round in, and its
+groups (the strategy that worked is put back by `setGroup`, after its
+work). -/
 def Table.frame {S N A : Type} (t : Table S N A) :
-    GoalOf S N × Bool × List A × Bool × Nat × Nat :=
-  (t.goal, t.self, t.answers, t.done, t.born, t.stamp)
+    GoalOf S N × Bool × List A × Bool × Nat × Nat × Option (List (Group N A)) :=
+  (t.goal, t.self, t.answers, t.done, t.born, t.stamp, t.groups)
 
 /-- The tables of a state, each as its frame. -/
 def StateOf.frames {S N A : Type} (st : StateOf S N A) :
-    List (GoalOf S N × Bool × List A × Bool × Nat × Nat) :=
+    List (GoalOf S N × Bool × List A × Bool × Nat × Nat × Option (List (Group N A))) :=
   st.tables.map Table.frame
 
 theorem frames_modify {S N A : Type} (st : StateOf S N A) (i : Nat) (f : Table S N A → Table S N A)
@@ -88,9 +90,9 @@ inductive Reach : StateOf R Rel (Ans D P) → StateOf R Rel (Ans D P) → Prop
 
 /-- One state is reached from another by the work of the strategies of the
 table at `i` alone: by changes that leave of every table its goal, its
-answers, whether it is complete and the requests it was opened and last
-served in; by opening a table, with no answer and not complete; and by
-putting an answer into the table at `i`. The number of requests and the
+answers, whether it is complete, the requests it was opened and last served
+in, and its groups; by opening a table, with no answer, not complete and
+with no groups yet; and by putting an answer into the table at `i`. The number of requests and the
 position the root's answers are emitted to stay. -/
 inductive Inner (i : Nat) : StateOf R Rel (Ans D P) → StateOf R Rel (Ans D P) → Prop
   | refl (st) : Inner i st st
@@ -98,7 +100,7 @@ inductive Inner (i : Nat) : StateOf R Rel (Ans D P) → StateOf R Rel (Ans D P) 
   | same {st st'} : st'.frames = st.frames → st'.round = st.round → st'.shown = st.shown →
       Inner i st st'
   | opened {st st'} (g : GoalOf R Rel) (self : Bool) :
-      st'.frames = st.frames ++ [(g, self, [], false, st.round, 0)] → st'.round = st.round →
+      st'.frames = st.frames ++ [(g, self, [], false, st.round, 0, none)] → st'.round = st.round →
       st'.shown = st.shown → Inner i st st'
   | add (st) (a : Ans D P) :
       Inner i st (addAnswer (K := DerivationKernel.over D K hK P) i st a).val
@@ -317,10 +319,6 @@ theorem inner_work (whole : Bool) (i : Nat) (g : GoalOf R Rel) (st : StateOf R R
         exact (inner_edgeOf _ _ _).trans (inner_checkOpen _ _ _ _ _)
     | off => exact Inner.refl _
     | opened subs => exact Inner.refl _
-
-theorem inner_setGroup {w : Nat} (st : StateOf R Rel (Ans D P)) (i k : Nat)
-    (f : Group Rel (Ans D P) → Group Rel (Ans D P)) : Inner K hK w st (setGroup st i k f) :=
-  inner_modify st i _ fun _ => rfl
 
 /-! What the work of one table does, as a way to reach a state. -/
 
