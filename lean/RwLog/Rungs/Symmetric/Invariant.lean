@@ -5,8 +5,13 @@ Whatever the engine does, the goal of a table and whether it is its own
 converse never change, a table is opened with no answer, an answer goes
 into a table by `addAnswer` and in no other way, and the position the answers
 of the root table were emitted to moves only at the end of a request
-(`Reach`, and `reach_request` for a whole request). Every invariant of the answers of a table is proved
-from this.
+(`Reach`, and `reach_request` for a whole request). Every invariant of the
+answers of a table is proved from this.
+
+`Inner i` is the finer account of what the strategies of the table at `i` do
+by themselves, between the rounds they give to other tables: no table is
+marked complete, no table but the one at `i` gains an answer, and the number
+of requests stays.
 -/
 import RwLog.Rungs.Symmetric.Machine
 import RwLog.Rungs.Framework.KernelAt
@@ -41,6 +46,30 @@ theorem cores_modify {S N A : Type} (st : StateOf S N A) (i : Nat) (f : Table S 
     · exact hf _
     · rfl
 
+/-- What the work of a strategy leaves of a table, unless it puts an answer
+in: its goal, whether the goal is its own converse, its answers, whether it
+is complete, and the requests it was opened in and last had a round in. -/
+def Table.frame {S N A : Type} (t : Table S N A) :
+    GoalOf S N × Bool × List A × Bool × Nat × Nat :=
+  (t.goal, t.self, t.answers, t.done, t.born, t.stamp)
+
+/-- The tables of a state, each as its frame. -/
+def StateOf.frames {S N A : Type} (st : StateOf S N A) :
+    List (GoalOf S N × Bool × List A × Bool × Nat × Nat) :=
+  st.tables.map Table.frame
+
+theorem frames_modify {S N A : Type} (st : StateOf S N A) (i : Nat) (f : Table S N A → Table S N A)
+    (hf : ∀ t, (f t).frame = t.frame) : (st.modify i f).frames = st.frames := by
+  unfold StateOf.frames StateOf.modify
+  simp only
+  apply List.ext_getElem
+  · simp
+  · intro n h₁ h₂
+    simp only [List.getElem_map, List.getElem_modify]
+    split
+    · exact hf _
+    · rfl
+
 section
 
 variable (K : Kernel R Cost) (hK : K.Refines D)
@@ -57,27 +86,251 @@ inductive Reach : StateOf R Rel (Ans D P) → StateOf R Rel (Ans D P) → Prop
   | add (st) (i : Nat) (a : Ans D P) :
       Reach st (addAnswer (K := DerivationKernel.over D K hK P) i st a).val
 
+/-- One state is reached from another by the work of the strategies of the
+table at `i` alone: by changes that leave of every table its goal, its
+answers, whether it is complete and the requests it was opened and last
+served in; by opening a table, with no answer and not complete; and by
+putting an answer into the table at `i`. The number of requests and the
+position the root's answers are emitted to stay. -/
+inductive Inner (i : Nat) : StateOf R Rel (Ans D P) → StateOf R Rel (Ans D P) → Prop
+  | refl (st) : Inner i st st
+  | trans {a b c} : Inner i a b → Inner i b c → Inner i a c
+  | same {st st'} : st'.frames = st.frames → st'.round = st.round → st'.shown = st.shown →
+      Inner i st st'
+  | opened {st st'} (g : GoalOf R Rel) (self : Bool) :
+      st'.frames = st.frames ++ [(g, self, [], false, st.round, 0)] → st'.round = st.round →
+      st'.shown = st.shown → Inner i st st'
+  | add (st) (a : Ans D P) :
+      Inner i st (addAnswer (K := DerivationKernel.over D K hK P) i st a).val
+
 variable {K hK}
+
+omit [DecidableEq R] in
+theorem cores_of_frames (st : StateOf R Rel (Ans D P)) :
+    st.cores = st.frames.map fun f => (f.1, f.2.1, f.2.2.1) := by
+  simp [StateOf.cores, StateOf.frames, Table.core, Table.frame]
+
+/-- The work of the strategies of one table is a way to reach a state. -/
+theorem Inner.reach {i : Nat} {st st' : StateOf R Rel (Ans D P)} (h : Inner K hK i st st') :
+    Reach K hK st st' := by
+  induction h with
+  | refl st => exact .refl st
+  | trans _ _ a b => exact a.trans b
+  | same e _ es => exact .same (by rw [cores_of_frames, cores_of_frames, e]) es
+  | opened g self e _ es =>
+    exact .opened g self (by rw [cores_of_frames, cores_of_frames, e]; simp) es
+  | add st a => exact .add st _ a
+
+theorem inner_modify {w : Nat} (st : StateOf R Rel (Ans D P)) (i : Nat)
+    (f : Table R Rel (Ans D P) → Table R Rel (Ans D P)) (hf : ∀ t, (f t).frame = t.frame) :
+    Inner K hK w st (st.modify i f) := .same (frames_modify st i f hf) rfl rfl
 
 theorem reach_modify (st : StateOf R Rel (Ans D P)) (i : Nat)
     (f : Table R Rel (Ans D P) → Table R Rel (Ans D P)) (hf : ∀ t, (f t).core = t.core) :
     Reach K hK st (st.modify i f) := .same (cores_modify st i f hf) rfl
 
-theorem reach_openGoal (st : StateOf R Rel (Ans D P)) (g : GoalOf R Rel) :
-    Reach K hK st (openGoal (K := DerivationKernel.over D K hK P) st g).val.1 := by
+theorem inner_openGoal {w : Nat} (st : StateOf R Rel (Ans D P)) (g : GoalOf R Rel) :
+    Inner K hK w st (openGoal (K := DerivationKernel.over D K hK P) st g).val.1 := by
   at_cost K hK
   simp only [openGoal, Cost.bind_val]
   split
   · exact .refl _
-  · refine .opened g (selfConverse (K := DerivationKernel.over D _ hK P) g).val ?_ rfl
-    simp [StateOf.cores, Table.core]
+  · refine .opened g (selfConverse (K := DerivationKernel.over D _ hK P) g).val ?_ rfl rfl
+    simp [StateOf.frames, Table.frame]
 
-theorem reach_addOption (st : StateOf R Rel (Ans D P)) (i : Nat) (a : Option (Ans D P)) :
-    Reach K hK st (addOption (K := DerivationKernel.over D K hK P) i st a).val := by
+theorem inner_addOption (st : StateOf R Rel (Ans D P)) (i : Nat) (a : Option (Ans D P)) :
+    Inner K hK i st (addOption (K := DerivationKernel.over D K hK P) i st a).val := by
   at_cost K hK
   cases a with
-  | none => exact Reach.refl st
-  | some a => exact Reach.add st i a
+  | none => exact Inner.refl st
+  | some a => exact Inner.add st a
+
+/-- A fold of steps each of which reaches the next state reaches the last. -/
+theorem inner_foldL {w : Nat} {α β : Type} (π : β → StateOf R Rel (Ans D P)) (f : β → α → Cost β)
+    (hf : ∀ b x, Inner K hK w (π b) (π (f b x).val)) :
+    ∀ (xs : List α) (b : β), Inner K hK w (π b) (π (foldL f b xs).val)
+  | [], b => Inner.refl _
+  | x :: xs, b => by
+    simp only [foldL, Cost.bind_val]
+    exact (hf b x).trans (inner_foldL π f hf xs _)
+
+theorem inner_copyFrom (i : Nat) (g : GoalOf R Rel) (isCall : Bool) (m : Nat)
+    (st : StateOf R Rel (Ans D P)) (as : List (Ans D P)) :
+    Inner K hK i st (copyFrom (K := DerivationKernel.over D K hK P) i g isCall m st as).val := by
+  at_cost K hK
+  refine inner_foldL (fun st => st) _ (fun b x => ?_) as st
+  dsimp only
+  split <;> (erw [Cost.bind_val]; exact inner_addOption _ _ _)
+
+theorem inner_joinPairs (i : Nat) (k : Kind) (xs ys : List (Ans D P))
+    (st : StateOf R Rel (Ans D P)) (ps : List (Nat × Nat)) :
+    Inner K hK i st (joinPairs (K := DerivationKernel.over D K hK P) i k xs ys st ps).val := by
+  at_cost K hK
+  refine inner_foldL (fun st => st) _ (fun b p => ?_) ps st
+  split
+  · erw [Cost.bind_val]
+    exact inner_addOption _ _ _
+  · exact Inner.refl _
+
+theorem inner_pushOpen {w : Nat} (g : GoalOf R Rel) (other : Rel) (k : Kind) (left : Bool)
+    (st : StateOf R Rel (Ans D P)) (xs : List (Ans D P)) :
+    Inner K hK w st (pushOpen (K := DerivationKernel.over D K hK P) g other k left st xs).val.1 := by
+  at_cost K hK
+  refine inner_foldL (fun acc : StateOf R Rel (Ans D P) × List (Ans D P × Nat × Nat) => acc.1) _
+    (fun b x => ?_) xs (st, [])
+  simp only [Cost.bind_val]
+  exact inner_openGoal _ _
+
+theorem inner_pushTake (i : Nat) (k : Kind) (left : Bool) (x : Ans D P)
+    (st : StateOf R Rel (Ans D P)) (ys : List (Ans D P)) :
+    Inner K hK i st (pushTake (K := DerivationKernel.over D K hK P) i k left x st ys).val := by
+  at_cost K hK
+  refine inner_foldL (fun st => st) _ (fun b y => ?_) ys st
+  simp only [Cost.bind_val]
+  exact inner_addOption _ _ _
+
+theorem inner_splitGroup {w : Nat} (k : Kind) (L Rg : GoalOf R Rel) (st : StateOf R Rel (Ans D P)) :
+    Inner K hK w st (splitGroup (K := DerivationKernel.over D K hK P) k L Rg st).val.1 := by
+  at_cost K hK
+  simp only [splitGroup, Cost.bind_val]
+  exact (inner_openGoal _ _).trans (inner_openGoal _ _)
+
+theorem inner_edgeOf {w : Nat} (st : StateOf R Rel (Ans D P)) (last : Bool) (n : Rel) :
+    Inner K hK w st (edgeOf (K := DerivationKernel.over D K hK P) st last n).val.1 := by
+  at_cost K hK
+  simp only [edgeOf, Cost.bind_val]
+  split
+  · exact Inner.refl _
+  · simp only [Cost.bind_val, Cost.pure_val]
+    split
+    · exact .same rfl rfl rfl
+    · exact .same rfl rfl rfl
+
+theorem inner_checkOf {w : Nat} (st : StateOf R Rel (Ans D P)) (left : Bool) (side other : Rel) :
+    Inner K hK w st (checkOf (K := DerivationKernel.over D K hK P) st left side other).val.1 := by
+  at_cost K hK
+  simp only [checkOf, Cost.bind_val, Cost.pure_val]
+  exact inner_edgeOf _ _ _
+
+theorem inner_chainGroups {w : Nat} (g : GoalOf R Rel) (k : Nat) (st : StateOf R Rel (Ans D P)) :
+    Inner K hK w st (chainGroups (K := DerivationKernel.over D K hK P) g k st).val.1 := by
+  at_cost K hK
+  refine inner_foldL (fun acc : StateOf R Rel (Ans D P) × List (Group Rel (Ans D P)) ×
+    List (Strat Rel (Ans D P)) => acc.1) _ (fun b x => ?_) _ (st, [], [])
+  simp only [Cost.bind_val]
+  split
+  · simp only [Cost.bind_val, Cost.pure_val]
+    exact ((inner_splitGroup .seq _ _ b.1).trans (inner_checkOf _ _ _ _)).trans
+      (inner_checkOf _ _ _ _)
+  · exact Inner.refl _
+
+theorem inner_expand {w : Nat} (g : GoalOf R Rel) (st : StateOf R Rel (Ans D P)) :
+    Inner K hK w st (expand (K := DerivationKernel.over D K hK P) g st).val.1 := by
+  at_cost K hK
+  simp only [expand, Cost.bind_val]
+  split
+  · exact Inner.refl _
+  · simp only [Cost.bind_val]
+    split
+    · exact Inner.refl _
+    · simp only [Cost.bind_val]
+      exact inner_openGoal _ _
+  · simp only [Cost.bind_val]
+    refine inner_foldL (fun acc : StateOf R Rel (Ans D P) × List (Nat × Nat) => acc.1) _
+      (fun b x => ?_) _ (st, [])
+    simp only [Cost.bind_val]
+    exact inner_openGoal _ _
+  · simp only [Cost.bind_val, Cost.pure_val]
+    exact inner_chainGroups (K := _) (hK := hK) g _ st
+  · refine inner_foldL (fun acc : StateOf R Rel (Ans D P) × List (Group Rel (Ans D P)) => acc.1) _
+      (fun b x => ?_) _ (st, [])
+    simp only [Cost.bind_val]
+    split
+    · simp only [Cost.bind_val]
+      exact inner_splitGroup .and _ _ b.1
+    · exact Inner.refl _
+
+theorem inner_checkOpen {w : Nat} (g : GoalOf R Rel) (left : Bool) (other : Rel)
+    (st : StateOf R Rel (Ans D P)) (ps : List R) :
+    Inner K hK w st (checkOpen (K := DerivationKernel.over D K hK P) g left other st ps).val.1 := by
+  at_cost K hK
+  refine inner_foldL (fun acc : StateOf R Rel (Ans D P) × List Nat => acc.1) _
+    (fun b x => ?_) ps (st, [])
+  simp only [Cost.bind_val]
+  exact inner_openGoal _ _
+
+theorem inner_work (whole : Bool) (i : Nat) (g : GoalOf R Rel) (st : StateOf R Rel (Ans D P))
+    (s : Strat Rel (Ans D P)) :
+    Inner K hK i st (work (K := DerivationKernel.over D K hK P) whole i g st s).val.1 := by
+  at_cost K hK
+  cases s with
+  | span ran =>
+    cases ran
+    · simp only [work, Cost.bind_val, Cost.pure_val]
+      exact inner_addOption _ _ _
+    · exact Inner.refl _
+  | copy isCall subs =>
+    simp only [work]
+    split
+    · simp only [Cost.bind_val, Cost.pure_val]
+      exact inner_foldL (fun st => st) _ (fun b p => inner_copyFrom _ _ _ _ _ _) _ st
+    · split
+      · exact Inner.refl _
+      · simp only [Cost.bind_val, Cost.pure_val]
+        exact inner_copyFrom _ _ _ _ _ _
+  | join k a b c =>
+    simp only [work]
+    split
+    · simp only [Cost.bind_val, Cost.pure_val]
+      exact inner_joinPairs _ _ _ _ _ _
+    · split
+      · exact Inner.refl _
+      · simp only [Cost.bind_val, Cost.pure_val]
+        exact inner_joinPairs _ _ _ _ _ _
+  | push k left side other todo subs =>
+    simp only [work]
+    split
+    · exact Inner.refl _
+    · split
+      · cases todo <;>
+        · erw [Cost.bind_val]
+          simp only [Cost.bind_val, Cost.pure_val]
+          exact Inner.trans (inner_pushOpen g other k left st _)
+            (inner_foldL (fun st => st) _ (fun b e => inner_pushTake _ _ _ _ _ _) _ _)
+      · split
+        · simp only [Cost.bind_val, Cost.pure_val]
+          exact Inner.refl _
+        · simp only [Cost.bind_val, Cost.pure_val]
+          exact inner_pushOpen _ _ _ _ _ _
+        · split
+          · exact Inner.refl _
+          · simp only [Cost.bind_val, Cost.pure_val]
+            exact inner_pushTake _ _ _ _ _ _
+  | check left side other c =>
+    cases c with
+    | reading =>
+      simp only [work, Cost.bind_val]
+      split
+      · exact inner_edgeOf _ _ _
+      · exact inner_edgeOf _ _ _
+      · simp only [Cost.bind_val, Cost.pure_val]
+        exact (inner_edgeOf _ _ _).trans (inner_checkOpen _ _ _ _ _)
+    | off => exact Inner.refl _
+    | opened subs => exact Inner.refl _
+
+theorem inner_setGroup {w : Nat} (st : StateOf R Rel (Ans D P)) (i k : Nat)
+    (f : Group Rel (Ans D P) → Group Rel (Ans D P)) : Inner K hK w st (setGroup st i k f) :=
+  inner_modify st i _ fun _ => rfl
+
+/-! What the work of one table does, as a way to reach a state. -/
+
+theorem reach_openGoal (st : StateOf R Rel (Ans D P)) (g : GoalOf R Rel) :
+    Reach K hK st (openGoal (K := DerivationKernel.over D K hK P) st g).val.1 :=
+  (inner_openGoal (w := 0) st g).reach
+
+theorem reach_addOption (st : StateOf R Rel (Ans D P)) (i : Nat) (a : Option (Ans D P)) :
+    Reach K hK st (addOption (K := DerivationKernel.over D K hK P) i st a).val :=
+  (inner_addOption st i a).reach
 
 /-- A fold of steps each of which reaches the next state reaches the last. -/
 theorem reach_foldL {α β : Type} (π : β → StateOf R Rel (Ans D P)) (f : β → α → Cost β)
@@ -97,167 +350,53 @@ theorem reach_foldL_from {α β : Type} (π : β → StateOf R Rel (Ans D P)) (f
 
 theorem reach_copyFrom (i : Nat) (g : GoalOf R Rel) (isCall : Bool) (m : Nat)
     (st : StateOf R Rel (Ans D P)) (as : List (Ans D P)) :
-    Reach K hK st (copyFrom (K := DerivationKernel.over D K hK P) i g isCall m st as).val := by
-  at_cost K hK
-  refine reach_foldL (fun st => st) _ (fun b x => ?_) as st
-  dsimp only
-  split <;> (erw [Cost.bind_val]; exact reach_addOption _ _ _)
+    Reach K hK st (copyFrom (K := DerivationKernel.over D K hK P) i g isCall m st as).val :=
+  (inner_copyFrom i g isCall m st as).reach
 
 theorem reach_joinPairs (i : Nat) (k : Kind) (xs ys : List (Ans D P))
     (st : StateOf R Rel (Ans D P)) (ps : List (Nat × Nat)) :
-    Reach K hK st (joinPairs (K := DerivationKernel.over D K hK P) i k xs ys st ps).val := by
-  at_cost K hK
-  refine reach_foldL (fun st => st) _ (fun b p => ?_) ps st
-  split
-  · erw [Cost.bind_val]
-    exact reach_addOption _ _ _
-  · exact Reach.refl _
+    Reach K hK st (joinPairs (K := DerivationKernel.over D K hK P) i k xs ys st ps).val :=
+  (inner_joinPairs i k xs ys st ps).reach
 
 theorem reach_pushOpen (g : GoalOf R Rel) (other : Rel) (k : Kind) (left : Bool)
     (st : StateOf R Rel (Ans D P)) (xs : List (Ans D P)) :
-    Reach K hK st (pushOpen (K := DerivationKernel.over D K hK P) g other k left st xs).val.1 := by
-  at_cost K hK
-  refine reach_foldL (fun acc : StateOf R Rel (Ans D P) × List (Ans D P × Nat × Nat) => acc.1) _
-    (fun b x => ?_) xs (st, [])
-  simp only [Cost.bind_val]
-  exact reach_openGoal _ _
+    Reach K hK st (pushOpen (K := DerivationKernel.over D K hK P) g other k left st xs).val.1 :=
+  (inner_pushOpen (w := 0) g other k left st xs).reach
 
 theorem reach_pushTake (i : Nat) (k : Kind) (left : Bool) (x : Ans D P)
     (st : StateOf R Rel (Ans D P)) (ys : List (Ans D P)) :
-    Reach K hK st (pushTake (K := DerivationKernel.over D K hK P) i k left x st ys).val := by
-  at_cost K hK
-  refine reach_foldL (fun st => st) _ (fun b y => ?_) ys st
-  simp only [Cost.bind_val]
-  exact reach_addOption _ _ _
+    Reach K hK st (pushTake (K := DerivationKernel.over D K hK P) i k left x st ys).val :=
+  (inner_pushTake i k left x st ys).reach
 
 theorem reach_splitGroup (k : Kind) (L Rg : GoalOf R Rel) (st : StateOf R Rel (Ans D P)) :
-    Reach K hK st (splitGroup (K := DerivationKernel.over D K hK P) k L Rg st).val.1 := by
-  at_cost K hK
-  simp only [splitGroup, Cost.bind_val]
-  exact (reach_openGoal _ _).trans (reach_openGoal _ _)
+    Reach K hK st (splitGroup (K := DerivationKernel.over D K hK P) k L Rg st).val.1 :=
+  (inner_splitGroup (w := 0) k L Rg st).reach
 
 theorem reach_edgeOf (st : StateOf R Rel (Ans D P)) (last : Bool) (n : Rel) :
-    Reach K hK st (edgeOf (K := DerivationKernel.over D K hK P) st last n).val.1 := by
-  at_cost K hK
-  simp only [edgeOf, Cost.bind_val]
-  split
-  · exact Reach.refl _
-  · simp only [Cost.bind_val, Cost.pure_val]
-    split
-    · exact .same rfl rfl
-    · exact .same rfl rfl
+    Reach K hK st (edgeOf (K := DerivationKernel.over D K hK P) st last n).val.1 :=
+  (inner_edgeOf (w := 0) st last n).reach
 
 theorem reach_checkOf (st : StateOf R Rel (Ans D P)) (left : Bool) (side other : Rel) :
-    Reach K hK st (checkOf (K := DerivationKernel.over D K hK P) st left side other).val.1 := by
-  at_cost K hK
-  simp only [checkOf, Cost.bind_val, Cost.pure_val]
-  exact reach_edgeOf _ _ _
+    Reach K hK st (checkOf (K := DerivationKernel.over D K hK P) st left side other).val.1 :=
+  (inner_checkOf (w := 0) st left side other).reach
 
 theorem reach_chainGroups (g : GoalOf R Rel) (k : Nat) (st : StateOf R Rel (Ans D P)) :
-    Reach K hK st (chainGroups (K := DerivationKernel.over D K hK P) g k st).val.1 := by
-  at_cost K hK
-  refine reach_foldL (fun acc : StateOf R Rel (Ans D P) × List (Group Rel (Ans D P)) ×
-    List (Strat Rel (Ans D P)) => acc.1) _ (fun b x => ?_) _ (st, [], [])
-  simp only [Cost.bind_val]
-  split
-  · simp only [Cost.bind_val, Cost.pure_val]
-    exact ((reach_splitGroup .seq _ _ b.1).trans (reach_checkOf _ _ _ _)).trans
-      (reach_checkOf _ _ _ _)
-  · exact Reach.refl _
+    Reach K hK st (chainGroups (K := DerivationKernel.over D K hK P) g k st).val.1 :=
+  (inner_chainGroups (w := 0) g k st).reach
 
 theorem reach_expand (g : GoalOf R Rel) (st : StateOf R Rel (Ans D P)) :
-    Reach K hK st (expand (K := DerivationKernel.over D K hK P) g st).val.1 := by
-  at_cost K hK
-  simp only [expand, Cost.bind_val]
-  split
-  · exact Reach.refl _
-  · simp only [Cost.bind_val]
-    split
-    · exact Reach.refl _
-    · simp only [Cost.bind_val]
-      exact reach_openGoal _ _
-  · simp only [Cost.bind_val]
-    refine reach_foldL (fun acc : StateOf R Rel (Ans D P) × List (Nat × Nat) => acc.1) _
-      (fun b x => ?_) _ (st, [])
-    simp only [Cost.bind_val]
-    exact reach_openGoal _ _
-  · simp only [Cost.bind_val, Cost.pure_val]
-    exact reach_chainGroups (K := _) (hK := hK) g _ st
-  · refine reach_foldL (fun acc : StateOf R Rel (Ans D P) × List (Group Rel (Ans D P)) => acc.1) _
-      (fun b x => ?_) _ (st, [])
-    simp only [Cost.bind_val]
-    split
-    · simp only [Cost.bind_val]
-      exact reach_splitGroup .and _ _ b.1
-    · exact Reach.refl _
+    Reach K hK st (expand (K := DerivationKernel.over D K hK P) g st).val.1 :=
+  (inner_expand (w := 0) g st).reach
 
 theorem reach_checkOpen (g : GoalOf R Rel) (left : Bool) (other : Rel)
     (st : StateOf R Rel (Ans D P)) (ps : List R) :
-    Reach K hK st (checkOpen (K := DerivationKernel.over D K hK P) g left other st ps).val.1 := by
-  at_cost K hK
-  refine reach_foldL (fun acc : StateOf R Rel (Ans D P) × List Nat => acc.1) _
-    (fun b x => ?_) ps (st, [])
-  simp only [Cost.bind_val]
-  exact reach_openGoal _ _
+    Reach K hK st (checkOpen (K := DerivationKernel.over D K hK P) g left other st ps).val.1 :=
+  (inner_checkOpen (w := 0) g left other st ps).reach
 
 theorem reach_work (whole : Bool) (i : Nat) (g : GoalOf R Rel) (st : StateOf R Rel (Ans D P))
     (s : Strat Rel (Ans D P)) :
-    Reach K hK st (work (K := DerivationKernel.over D K hK P) whole i g st s).val.1 := by
-  at_cost K hK
-  cases s with
-  | span ran =>
-    cases ran
-    · simp only [work, Cost.bind_val, Cost.pure_val]
-      exact reach_addOption _ _ _
-    · exact Reach.refl _
-  | copy isCall subs =>
-    simp only [work]
-    split
-    · simp only [Cost.bind_val, Cost.pure_val]
-      exact reach_foldL (fun st => st) _ (fun b p => reach_copyFrom _ _ _ _ _ _) _ st
-    · split
-      · exact Reach.refl _
-      · simp only [Cost.bind_val, Cost.pure_val]
-        exact reach_copyFrom _ _ _ _ _ _
-  | join k a b c =>
-    simp only [work]
-    split
-    · simp only [Cost.bind_val, Cost.pure_val]
-      exact reach_joinPairs _ _ _ _ _ _
-    · split
-      · exact Reach.refl _
-      · simp only [Cost.bind_val, Cost.pure_val]
-        exact reach_joinPairs _ _ _ _ _ _
-  | push k left side other todo subs =>
-    simp only [work]
-    split
-    · exact Reach.refl _
-    · split
-      · cases todo <;>
-        · erw [Cost.bind_val]
-          simp only [Cost.bind_val, Cost.pure_val]
-          exact Reach.trans (reach_pushOpen g other k left st _)
-            (reach_foldL (fun st => st) _ (fun b e => reach_pushTake _ _ _ _ _ _) _ _)
-      · split
-        · simp only [Cost.bind_val, Cost.pure_val]
-          exact Reach.refl _
-        · simp only [Cost.bind_val, Cost.pure_val]
-          exact reach_pushOpen _ _ _ _ _ _
-        · split
-          · exact Reach.refl _
-          · simp only [Cost.bind_val, Cost.pure_val]
-            exact reach_pushTake _ _ _ _ _ _
-  | check left side other c =>
-    cases c with
-    | reading =>
-      simp only [work, Cost.bind_val]
-      split
-      · exact reach_edgeOf _ _ _
-      · exact reach_edgeOf _ _ _
-      · simp only [Cost.bind_val, Cost.pure_val]
-        exact (reach_edgeOf _ _ _).trans (reach_checkOpen _ _ _ _ _)
-    | off => exact Reach.refl _
-    | opened subs => exact Reach.refl _
+    Reach K hK st (work (K := DerivationKernel.over D K hK P) whole i g st s).val.1 :=
+  (inner_work whole i g st s).reach
 
 theorem reach_setGroup (st : StateOf R Rel (Ans D P)) (i k : Nat)
     (f : Group Rel (Ans D P) → Group Rel (Ans D P)) : Reach K hK st (setGroup st i k f) :=
