@@ -175,3 +175,6 @@ new axiom.
 
 /-- info: 'RwLogVerified.nodup_namesList' depends on axioms: [propext] -/
 #guard_msgs in #print axioms RwLogVerified.nodup_namesList
+
+/-- info: 'RwLogVerified.live_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.live_spec
