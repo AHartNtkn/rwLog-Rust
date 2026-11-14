@@ -302,6 +302,21 @@ new axiom.
 /-- info: 'RwLogVerified.tail_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLogVerified.tail_spec
 
+/-- info: 'RwLogVerified.round_subs_lt' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.round_subs_lt
+
+/-- info: 'RwLogVerified.runStates_bound' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.runStates_bound
+
+/-- info: 'RwLogVerified.round_dead_of_none' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.round_dead_of_none
+
+/-- info: 'RwLogVerified.tightRun_add' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.tightRun_add
+
+/-- info: 'RwLogVerified.normCharge_eq' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.normCharge_eq
+
 /-- info: 'RwLogVerified.normal_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLogVerified.normal_spec
 
