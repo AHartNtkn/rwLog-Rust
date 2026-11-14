@@ -632,6 +632,18 @@ theorem vars_ne (h : Linked S s s' τ) {v : Nat} (hv : v ∈ s.t.vars) {σ₁ σ
   rw [← e₁ v hv, ← e₂ v hv]
   exact Term.bind_congr fun w hw => by rw [e] at hw; cases hw
 
+/-- Stores related by a substitution denote the same. -/
+theorem den (h : Linked S s s' τ) : s'.Den S = s.Den S := by
+  ext g
+  constructor
+  · rintro ⟨σ', hσ', rfl⟩
+    exact ⟨_, h.down σ' hσ', by rw [h.t, Term.bind_bind]⟩
+  · rintro ⟨σ, hσ, rfl⟩
+    obtain ⟨σ', hσ', e⟩ := h.up σ hσ
+    refine ⟨σ', hσ', ?_⟩
+    rw [h.t, Term.bind_bind]
+    exact Term.bind_congr fun v hv => (e v hv).symm
+
 end Linked
 
 /-- The places of a term with one variable replaced by `u` that are outside
