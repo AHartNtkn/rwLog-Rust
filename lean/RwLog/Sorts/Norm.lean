@@ -273,6 +273,28 @@ def Prob.occ (P : Prob) (θ : Nat → Pat) : List Nat :=
   (P.t.bind θ).vars ++ (P.a.flatMap fun a => (a.2.bind θ).vars) ++
     P.x.flatMap fun E => E.flatMap fun p => (p.1.bind θ).vars ++ (p.2.bind θ).vars
 
+/-- A solution of the equations of a problem, read after the equations are
+solved and the variables that are left renamed one to one: a substitution
+that gives each part of the problem, solved and renamed, the value the
+solution gives it. -/
+theorem Prob.begin_back {P : Prob} {θ : Nat → Pat} (hsolve : solve P.e = some θ)
+    {ρ : Nat → Nat} (hinj : ∀ v ∈ P.occ θ, ∀ w ∈ P.occ θ, ρ v = ρ w → v = w)
+    {σ : Nat → GTerm} (hσ : Eqns.Unifies σ P.e) :
+    ∃ τ : Nat → GTerm, ∀ q : Pat, (∀ v ∈ (q.bind θ).vars, v ∈ P.occ θ) →
+      ((q.bind θ).rename ρ).bind τ = q.bind σ := by
+  classical
+  let τ : Nat → GTerm := fun w =>
+    if h : ∃ v, v ∈ P.occ θ ∧ ρ v = w then σ h.choose else σ w
+  have hτ : ∀ v ∈ P.occ θ, τ (ρ v) = σ v := by
+    intro v hv
+    have h : ∃ u, u ∈ P.occ θ ∧ ρ u = ρ v := ⟨v, hv, rfl⟩
+    show (if h : ∃ u, u ∈ P.occ θ ∧ ρ u = ρ v then σ h.choose else σ (ρ v)) = σ v
+    rw [dite_eq_left_of_eq_true (eq_true h), hinj _ h.choose_spec.1 v hv h.choose_spec.2]
+  refine ⟨τ, fun q hq => ?_⟩
+  have rb : ((q.bind θ).rename ρ).bind τ = (q.bind θ).bind (τ ∘ ρ) := Term.bind_bind _ _ _
+  rw [rb, Term.bind_congr (σ := τ ∘ ρ) (τ := σ) fun v hv => hτ v (hq v hv), Term.bind_bind,
+    show (fun v => (θ v).bind σ) = σ from funext ((solve_some hsolve).2 σ hσ)]
+
 /-- Any store built from a problem as follows denotes pairs whose first
 parts are what the problem denotes: solve the equations, rename the
 variables that are left one to one below `n`, pair the pattern with the
@@ -345,19 +367,7 @@ theorem Prob.begin_spec {P : Prob} (hP : P.FO) {θ : Nat → Pat} (hsolve : solv
   · ext g
     constructor
     · rintro ⟨σ, hσ, rfl⟩
-      classical
-      let τ : Nat → GTerm := fun w =>
-        if h : ∃ v, v ∈ P.occ θ ∧ ρ v = w then σ h.choose else σ w
-      have hτ : ∀ v ∈ P.occ θ, τ (ρ v) = σ v := by
-        intro v hv
-        have h : ∃ u, u ∈ P.occ θ ∧ ρ u = ρ v := ⟨v, hv, rfl⟩
-        show (if h : ∃ u, u ∈ P.occ θ ∧ ρ u = ρ v then σ h.choose else σ (ρ v)) = σ v
-        rw [dite_eq_left_of_eq_true (eq_true h), hinj _ h.choose_spec.1 v hv h.choose_spec.2]
-      have fwd : ∀ q : Pat, (∀ v ∈ (q.bind θ).vars, v ∈ P.occ θ) →
-          ((q.bind θ).rename ρ).bind τ = q.bind σ := by
-        intro q hq
-        rw [rb, Term.bind_congr (σ := τ ∘ ρ) (τ := σ) fun v hv => hτ v (hq v hv), bb,
-          fix σ hσ.1]
+      obtain ⟨τ, fwd⟩ := Prob.begin_back hsolve hinj hσ.1
       have hsol : τ ∈ s.Sol S := by
         refine ⟨(hc τ).2 fun a ha => ?_, fun E' hE' hu => ?_⟩
         · rw [fwd _ (oa a ha)]; exact hσ.2.1 a ha

@@ -358,6 +358,12 @@ new axiom.
 /-- info: 'RwLog.Sorts.Prob.norm_unique' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Sorts.Prob.norm_unique
 
+/-- info: 'RwLog.Sorts.Prob.norm_of_tight' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.Prob.norm_of_tight
+
+/-- info: 'RwLog.Sorts.Prob.begin_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.Prob.begin_spec
+
 /-- info: 'RwLog.Sorts.Rep.of_eq' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Sorts.Rep.of_eq
 

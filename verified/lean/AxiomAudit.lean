@@ -295,3 +295,15 @@ new axiom.
 
 /-- info: 'RwLogVerified.ofTight_abs' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLogVerified.ofTight_abs
+
+/-- info: 'RwLogVerified.start_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.start_spec
+
+/-- info: 'RwLogVerified.startSt_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.startSt_spec
+
+/-- info: 'RwLogVerified.tail_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.tail_spec
+
+/-- info: 'RwLogVerified.normal_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.normal_spec

@@ -5819,7 +5819,7 @@ def sorts.start
   else ok (none, s3)
 
 /-- [rwlog_core::sorts::normal]:
-    Source: 'src/sorts.rs', lines 2648:0-2681:1
+    Source: 'src/sorts.rs', lines 2648:0-2682:1
     Visibility: public -/
 def sorts.normal
   (s : store.Store) (decls : store.TermId) (names : store.TermId)
@@ -5851,10 +5851,11 @@ def sorts.normal
         | none => fail panic
         | some p1 =>
           let (_, left) := p1
-          let (ks, s9) ← sorts.firsts s8 left
-          let (cs1, s10) ← sorts.take_len s9 cs ks
-          let (xs1, s11) ← sorts.cut_exs s10 vs ks zs
-          ok (some (left, cs1, xs1), s11)
+          let (ws, s9) ← sorts.firsts s8 left
+          let (ks, s10) ← sorts.take_len s9 vs ws
+          let (cs1, s11) ← sorts.take_len s10 cs ks
+          let (xs1, s12) ← sorts.cut_exs s11 vs ks zs
+          ok (some (left, cs1, xs1), s12)
 
 /-- [rwlog_core::span::{impl core::clone::Clone for rwlog_core::span::Span}::clone]:
     Source: 'src/span.rs', lines 7:9-7:14

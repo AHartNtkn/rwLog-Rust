@@ -2664,7 +2664,8 @@ pub fn normal(
                 match uncons(s, t2) {
                     Some((head, _)) => match uncons(s, head) {
                         Some((_, left)) => {
-                            let ks = firsts(s, left);
+                            let ws = firsts(s, left);
+                            let ks = take_len(s, vs, ws);
                             let cs1 = take_len(s, cs, ks);
                             let xs1 = cut_exs(s, vs, ks, zs);
                             Some((left, cs1, xs1))
