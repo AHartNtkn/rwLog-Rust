@@ -1,4 +1,4 @@
-import RwLog.Sorts.InclBut
+import RwLog.Sorts.Loop
 
 /-!
 # The read-time check on sorts
@@ -7,7 +7,9 @@ import RwLog.Sorts.InclBut
 decision on the sorts of the examples (`lean/SORTS.md` section 5) and on the
 declarations the condition rejects (section 4), and then how many members
 conjunctions of sorts have (`Sorts.count`) and whether a conjunction is
-inside a sort but for some terms (`Sorts.inclBut`).
+inside a sort but for some terms (`Sorts.inclBut`), and the one root of the
+values of a variable (`Sorts.sole`), and stores brought to tight ones
+(`Sorts.tighten`).
 -/
 
 namespace RwLog.Tests.SortsRuns
@@ -199,5 +201,64 @@ def rests : Sorts :=
 #guard inclBut rests {"any"} "notz" [z]
 #guard !inclBut rests {"any"} "notz" [s z]
 #guard !inclBut rests {"any"} "nat" [z]
+
+/-! ## The one root of the values of a variable -/
+
+-- the numbers have two roots
+#guard sole nats {"nat"} [] = none
+
+-- without zero, one
+#guard sole nats {"nat"} [z] = some ("s", 1)
+
+-- leaving out a term that is not the only one with its root
+#guard sole nats {"nat"} [s z] = none
+
+-- a sort with one case
+#guard sole nats {"pos"} [] = some ("s", 1)
+#guard sole nats {"pos"} [s z] = some ("s", 1)
+
+-- one member, left out: no root
+#guard sole nats {"zero"} [z] = none
+#guard sole nats {"zero"} [] = some ("z", 0)
+
+-- no member: no root
+#guard sole nats {"zero", "pos"} [] = none
+
+-- a rest has every other symbol
+#guard sole rests {"any"} [z] = none
+#guard sole rests {"nat", "notz"} [] = some ("s", 1)
+
+/-! ## Tight stores -/
+
+/-- The pattern and the sorts of the tight store. -/
+def tight (S : Sorts) (s : CStore) : Option (Pat × List Conj) :=
+  if hS : S.WellFormed then (tighten S hS s).map fun r => (r.t, r.c) else none
+
+def zp : Pat := .sym "z"
+def sp (t : Pat) : Pat := Term.mk "s" [t]
+
+-- a number: nothing to replace
+#guard tight nats ⟨.var 0, [{"nat"}], []⟩ = some (.var 0, [{"nat"}])
+
+-- a number that is not zero is a successor
+#guard tight nats ⟨.var 0, [{"nat"}], [[(.var 0, zp)]]⟩ = some (sp (.var 1), [∅, {"nat"}])
+
+-- a sort with one case, twice
+#guard tight nats ⟨.var 0, [{"two"}], []⟩ = some (sp (sp (.var 2)), [∅, ∅, {"nat"}])
+
+-- neither zero nor one
+#guard tight nats ⟨.var 0, [{"nat"}], [[(.var 0, zp)], [(.var 0, sp zp)]]⟩ =
+  some (sp (sp (.var 2)), [∅, ∅, {"nat"}])
+
+-- an argument with one value is written out
+#guard tight pairs ⟨.var 0, [{"pz"}], []⟩ =
+  some (Term.mk "p" [zp, .var 2], [∅, ∅, {"nat"}])
+
+-- an exclusion that always holds: nothing is left
+#guard tight nats ⟨.var 0, [{"nat"}], [[(.var 0, .var 0)]]⟩ = none
+
+-- an exclusion between two variables replaces neither
+#guard tight nats ⟨Term.mk "p" [.var 0, .var 1], [{"nat"}, {"nat"}], [[(.var 0, .var 1)]]⟩ =
+  some (Term.mk "p" [.var 0, .var 1], [{"nat"}, {"nat"}])
 
 end RwLog.Tests.SortsRuns
