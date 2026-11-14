@@ -1486,4 +1486,444 @@ theorem only_in_spec (hnm : Function.Injective nm) (sl : List (Option GTerm)) (f
       Ran s s' (onlyCost sl.length G) ∧ r = onlyInL sl f ksp.length G ⦄ :=
   only_in_loop_spec hnm sl f ksp hsl so fi ks G s g hW hso hf hks hg hroom
 
+/-! ## The arguments of the terms that are left to ask about -/
+
+theorem alloc_ran (s : store.Store) (n : store.Node) (hW : Wf s) (hn : ArgOK s.nodes.val n)
+    (hroom : Room s 1) :
+    store.Store.alloc s n ⦃ id s' => Ran s s' 1 ∧ s'.nodes.val[id.val]? = some (norm n) ⦄ := by
+  refine WP.spec_mono (alloc_w s n hW hn hroom) ?_
+  rintro ⟨id, s'⟩ ⟨hW', ht, htb, hx, hid, hst⟩
+  exact ⟨⟨hW', hx, htb, hst, Nat.le_of_eq ht⟩, hid⟩
+
+/-- The lists, each with its argument in front unless `any` holds and the
+argument is the one member held for it. -/
+def contribL (any : Bool) :
+    List (Option GTerm) → List GTerm → List (List GTerm) → List (List GTerm)
+  | o :: sl, a :: ar, acc :: accs =>
+    (if any = true ∧ o = some a then acc else a :: acc) :: contribL any sl ar accs
+  | _, _, _ => []
+
+theorem length_contribL (any : Bool) : ∀ (sl : List (Option GTerm)) (args : List GTerm)
+    (accs : List (List GTerm)), sl.length ≤ args.length → sl.length ≤ accs.length →
+    (contribL any sl args accs).length = sl.length
+  | [], _, _, _, _ => by simp [contribL]
+  | _ :: _, [], _, h, _ => by simp at h
+  | _ :: _, _ :: _, [], _, h => by simp at h
+  | o :: sl, a :: ar, acc :: accs, h1, h2 => by
+    simp only [contribL, List.length_cons]
+    rw [length_contribL any sl ar accs (by simpa using h1) (by simpa using h2)]
+
+/-- A list of ground terms as a term. -/
+def accPat (z : Sym) (l : List GTerm) : Pat := encList z (l.map GTerm.toPat)
+
+theorem ite_pos' {α : Sort _} {c : Prop} [Decidable c] (h : c) (a b : α) :
+    (if c then a else b) = a := by simp [h]
+
+theorem ite_neg' {α : Sort _} {c : Prop} [Decidable c] (h : ¬ c) (a b : α) :
+    (if c then a else b) = b := by simp [h]
+
+theorem contrib_loop_spec (hnm : Function.Injective nm) (any : Bool) :
+    ∀ (sl : List (Option GTerm)) (args : List GTerm) (accs : List (List GTerm)) (outs : List Pat)
+      (s : store.Store) (so ai ci out : store.TermId),
+    sl.length ≤ args.length → sl.length ≤ accs.length → Wf s →
+    Repr nm s.nodes.val so.val (encList (nm none) (sl.map (solePat (nm none)))) →
+    Repr nm s.nodes.val ai.val (encList (nm none) (args.map GTerm.toPat)) →
+    Repr nm s.nodes.val ci.val (encList (nm none) (accs.map (accPat (nm none)))) →
+    Repr nm s.nodes.val out.val (encList (nm none) outs) →
+    Room s (7 * sl.length + 1) →
+    sorts.contrib_loop so s any out ai ci ⦃ r =>
+      Ran s r.1 (7 * sl.length + 1) ∧ Repr nm r.1.nodes.val r.2.val (encList (nm none)
+        (((contribL any sl args accs).map (accPat (nm none))).reverse ++ outs)) ⦄ := by
+  intro sl
+  induction sl with
+  | nil =>
+    intro args accs outs s so ai ci out _ _ hW hso _ _ ho hroom
+    have hroom' := hroom
+    unfold Room at hroom'
+    unfold sorts.contrib_loop
+    rw [loop]
+    simp only [sorts.contrib_loop.body]
+    step with uncons_repr s so hW hso (by unfold Room; omega) as ⟨r0, hK, hu⟩
+    obtain ⟨o, s1⟩ := r0
+    simp only at hu
+    simp only at hK
+    subst hu
+    have hfin : Ran s s1 (7 * ([] : List (Option GTerm)).length + 1) ∧
+        Repr nm s1.nodes.val out.val (encList (nm none)
+          (((contribL any [] args accs).map (accPat (nm none))).reverse ++ outs)) :=
+      ⟨hK.ran, by simpa [contribL] using hK.ran.ext.repr ho⟩
+    step*
+  | cons o sl ih =>
+    intro args accs outs s so ai ci out hl1 hl2 hW hso hai hci ho hroom
+    obtain ⟨a, ar, rfl⟩ : ∃ a ar, args = a :: ar := by
+      cases args with
+      | nil => simp at hl1
+      | cons a ar => exact ⟨a, ar, rfl⟩
+    obtain ⟨acc, accs', rfl⟩ : ∃ acc accs', accs = acc :: accs' := by
+      cases accs with
+      | nil => simp at hl2
+      | cons acc accs' => exact ⟨acc, accs', rfl⟩
+    have hroom' := hroom
+    unfold Room at hroom'
+    simp only [List.length_cons, Nat.mul_add] at hroom'
+    unfold sorts.contrib_loop
+    rw [loop]
+    simp only [sorts.contrib_loop.body]
+    step with uncons_repr s so hW hso (by unfold Room; omega) as ⟨r0, hK, hu⟩
+    obtain ⟨o1, s1⟩ := r0
+    simp only at hu
+    simp only at hK
+    obtain ⟨e, st, rfl, re, rst⟩ := hu
+    have ht1 := hK.ticks
+    step with uncons_repr s1 ai hK.wf (hK.ran.ext.repr hai) (by unfold Room; omega)
+      as ⟨r1, hK1, hu1⟩
+    obtain ⟨o2, s2⟩ := r1
+    simp only at hu1
+    simp only at hK1
+    obtain ⟨ae, ati, rfl, rae, rat⟩ := hu1
+    rw [hK.nodes] at rae rat
+    have ht2 := hK1.ticks
+    have R2 := hK.ran.trans hK1.ran
+    step with uncons_repr s2 ci hK1.wf (R2.ext.repr hci) (by unfold Room; omega)
+      as ⟨r2, hK2, hu2⟩
+    obtain ⟨o3, s3⟩ := r2
+    simp only at hu2
+    simp only at hK2
+    obtain ⟨acci, cti, rfl, racc, rct⟩ := hu2
+    rw [hK1.nodes, hK.nodes] at racc rct
+    have ht3 := hK2.ticks
+    have R3 := R2.trans hK2.ran
+    have rae3 : Repr nm s3.nodes.val ae.val (GTerm.toPat a) := R3.ext.repr rae
+    have racc3 : Repr nm s3.nodes.val acci.val (accPat (nm none) acc) := R3.ext.repr racc
+    have ro3 : Repr nm s3.nodes.val out.val (encList (nm none) outs) := R3.ext.repr ho
+    have tail : ∀ (s6 : store.Store) (out1 : store.TermId) (l1 : List GTerm), Ran s s6 7 →
+        Repr nm s6.nodes.val out1.val (encList (nm none) (accPat (nm none) l1 :: outs)) →
+        l1 = (if any = true ∧ o = some a then acc else a :: acc) →
+        loop (fun x => match x with
+          | (so1, s1, out1, args1, accs1) => sorts.contrib_loop.body any so1 s1 out1 args1 accs1)
+          (st, s6, out1, ati, cti) ⦃ r =>
+          Ran s r.1 (7 * (o :: sl).length + 1) ∧ Repr nm r.1.nodes.val r.2.val (encList (nm none)
+            (((contribL any (o :: sl) (a :: ar) (acc :: accs')).map (accPat (nm none))).reverse ++
+              outs)) ⦄ := by
+      intro s6 out1 l1 R6 ro1 hl
+      have := R6.ticks
+      have IH := ih ar accs' (accPat (nm none) l1 :: outs) s6 st ati cti out1
+        (by simpa using hl1) (by simpa using hl2) R6.wf (R6.ext.repr rst)
+        (R6.ext.repr rat) (R6.ext.repr rct) ro1
+        (by unfold Room; omega)
+      unfold sorts.contrib_loop at IH
+      refine WP.spec_mono IH ?_
+      rintro r ⟨hR, hr⟩
+      refine ⟨(R6.trans hR).mono (by simp only [List.length_cons, Nat.mul_add]; omega), ?_⟩
+      simpa only [contribL, ← hl, List.map_cons, List.reverse_cons, List.append_assoc,
+        List.singleton_append] using hr
+    simp only [uncurry]
+    by_cases hany : any = true
+    swap
+    · rw [ite_neg' hany]
+      simp only [bind_ok, uncurry, ↓reduceIte]
+      step with alloc_ran s3 (.App ae acci) hK2.wf ⟨rae3.lt, racc3.lt⟩ (by unfold Room; omega)
+        as ⟨r4, hR4, hid4⟩
+      obtain ⟨acc1, s4⟩ := r4
+      simp only at hR4 hid4
+      have ht4 := hR4.ticks
+      have rl : Repr nm s4.nodes.val acc1.val (accPat (nm none) (a :: acc)) :=
+        .app hid4 (hR4.ext.repr rae3) (hR4.ext.repr racc3)
+      step with alloc_ran s4 (.App acc1 out) hR4.wf ⟨rl.lt, (hR4.ext.repr ro3).lt⟩
+        (by unfold Room; omega) as ⟨r5, hR5, hid5⟩
+      obtain ⟨out1, s5⟩ := r5
+      simp only at hR5 hid5
+      simp only [uncurry, bind_ok]
+      exact tail s5 out1 (a :: acc) (((R3.trans hR4).trans hR5).mono (by omega))
+        (.app hid5 (hR5.ext.repr rl) (hR5.ext.repr (hR4.ext.repr ro3))) (by simp [hany])
+    · rw [ite_pos' hany]
+      step with is_sole_spec hnm s3 e ae hK2.wf (R3.ext.repr re) rae3 (by unfold Room; omega)
+        as ⟨r4, hb, hR4⟩
+      obtain ⟨b, s4⟩ := r4
+      simp only at hb hR4
+      have ht4 := hR4.ticks
+      cases b with
+      | true =>
+        have hoa : o = some a := by simpa using hb.symm
+        simp only [uncurry, bind_ok, not_true_eq_false, decide_false,
+          Bool.false_eq_true, ↓reduceIte]
+        step with alloc_ran s4 (.App acci out) hR4.wf
+          ⟨(hR4.ext.repr racc3).lt, (hR4.ext.repr ro3).lt⟩ (by unfold Room; omega)
+          as ⟨r5, hR5, hid5⟩
+        obtain ⟨out1, s5⟩ := r5
+        simp only at hR5 hid5
+        simp only [uncurry, bind_ok]
+        exact tail s5 out1 acc (((R3.trans hR4).trans hR5).mono (by omega))
+          (.app hid5 (hR5.ext.repr (hR4.ext.repr racc3)) (hR5.ext.repr (hR4.ext.repr ro3)))
+          (by simp [hoa, hany])
+      | false =>
+        have hoa : o ≠ some a := by simpa using hb.symm
+        simp only [uncurry, bind_ok, Bool.false_eq_true, not_false_eq_true, decide_true,
+          ↓reduceIte]
+        step with alloc_ran s4 (.App ae acci) hR4.wf
+          ⟨(hR4.ext.repr rae3).lt, (hR4.ext.repr racc3).lt⟩ (by unfold Room; omega)
+          as ⟨r5, hR5, hid5⟩
+        obtain ⟨acc1, s5⟩ := r5
+        simp only at hR5 hid5
+        have ht5 := hR5.ticks
+        have rl : Repr nm s5.nodes.val acc1.val (accPat (nm none) (a :: acc)) :=
+          .app hid5 (hR5.ext.repr (hR4.ext.repr rae3)) (hR5.ext.repr (hR4.ext.repr racc3))
+        step with alloc_ran s5 (.App acc1 out) hR5.wf
+          ⟨rl.lt, (hR5.ext.repr (hR4.ext.repr ro3)).lt⟩ (by unfold Room; omega)
+          as ⟨r6, hR6, hid6⟩
+        obtain ⟨out1, s6⟩ := r6
+        simp only at hR6 hid6
+        simp only [uncurry, bind_ok]
+        exact tail s6 out1 (a :: acc) ((((R3.trans hR4).trans hR5).trans hR6).mono (by omega))
+          (.app hid6 (hR6.ext.repr rl) (hR6.ext.repr (hR5.ext.repr (hR4.ext.repr ro3))))
+          (by simp [hoa, hany])
+
+/-- `contrib` puts each argument in front of its list, unless `any` holds
+and the argument is the one member held for it. -/
+theorem contrib_spec (hnm : Function.Injective nm) (any : Bool) (sl : List (Option GTerm))
+    (args : List GTerm) (accs : List (List GTerm)) (s : store.Store) (so ai ci : store.TermId)
+    (hl1 : sl.length ≤ args.length) (hl2 : sl.length ≤ accs.length) (hW : Wf s)
+    (hso : Repr nm s.nodes.val so.val (encList (nm none) (sl.map (solePat (nm none)))))
+    (hai : Repr nm s.nodes.val ai.val (encList (nm none) (args.map GTerm.toPat)))
+    (hci : Repr nm s.nodes.val ci.val (encList (nm none) (accs.map (accPat (nm none)))))
+    (hroom : Room s (9 * sl.length + 4)) :
+    sorts.contrib s so ai ci any ⦃ r s' =>
+      Ran s s' (9 * sl.length + 4) ∧ Repr nm s'.nodes.val r.val
+        (encList (nm none) ((contribL any sl args accs).map (accPat (nm none)))) ⦄ := by
+  unfold sorts.contrib
+  have hroom' := hroom
+  unfold Room at hroom'
+  step with alloc_ran s .Nil hW trivial (by unfold Room; omega) as ⟨out, s1, hR1, hid1⟩
+  have ht1 := hR1.ticks
+  step with contrib_loop_spec hnm any sl args accs [] s1 so ai ci out hl1 hl2 hR1.wf
+    (hR1.ext.repr hso) (hR1.ext.repr hai) (hR1.ext.repr hci) (.nil hid1) (by unfold Room; omega)
+    as ⟨s2, out1, hR2, ro⟩
+  have ht2 := hR2.ticks
+  simp only [List.append_nil] at ro
+  have hlen := length_contribL any sl args accs hl1 hl2
+  refine WP.spec_mono (rev_spec _ s2 out1 hR2.wf ro
+    (by rw [List.length_reverse, List.length_map, hlen]; unfold Room; omega)) ?_
+  rintro ⟨r, s'⟩ ⟨hR3, rr⟩
+  rw [List.length_reverse, List.length_map, hlen] at hR3
+  rw [List.reverse_reverse] at rr
+  exact ⟨((hR1.trans hR2).trans hR3).mono (by omega), rr⟩
+
+/-- The lists with the arguments of a term in front, when the term has the
+root and at most one argument is not the one member held for it. -/
+def projStep (sl : List (Option GTerm)) (f : Sym) (k : Nat) (accs : List (List GTerm))
+    (t : GTerm) : List (List GTerm) :=
+  if (termKey t).1 = f ∧ (termKey t).2 = k ∧ missCount sl (gspine t []).2 ≤ 1 then
+    contribL (decide (0 < missCount sl (gspine t []).2)) sl (gspine t []).2 accs
+  else accs
+
+/-- What `projs` gives, from lists to start with. -/
+def projsL (sl : List (Option GTerm)) (f : Sym) (k : Nat) (G : List GTerm)
+    (accs : List (List GTerm)) : List (List GTerm) :=
+  G.foldl (projStep sl f k) accs
+
+theorem length_projStep {sl : List (Option GTerm)} {f : Sym} {k : Nat} (hsl : sl.length = k)
+    {accs : List (List GTerm)} (ha : accs.length = k) (t : GTerm) :
+    (projStep sl f k accs t).length = k := by
+  unfold projStep
+  split
+  · rename_i h
+    rw [length_contribL _ _ _ _ (by have := h.2.1; simp only [termKey] at this; omega)
+      (by omega), hsl]
+  · exact ha
+
+/-- The ticks the loop of `projs` may spend, where `L` members are held. -/
+def projsCost (L : Nat) : List GTerm → Nat
+  | [] => 1
+  | t :: G => 4 * (termKey t).2 + 13 * L + 11 + projsCost L G
+
+theorem projs_loop_spec (hnm : Function.Injective nm) (sl : List (Option GTerm)) (f : Sym)
+    (ksp : List Pat) (hsl : sl.length = ksp.length) (so fi ks : store.TermId) :
+    ∀ (G : List GTerm) (accs : List (List GTerm)) (s : store.Store) (g ai : store.TermId),
+    accs.length = ksp.length → Wf s →
+    Repr nm s.nodes.val so.val (encList (nm none) (sl.map (solePat (nm none)))) →
+    Repr nm s.nodes.val fi.val (.sym f) → Repr nm s.nodes.val ks.val (encList (nm none) ksp) →
+    Repr nm s.nodes.val g.val (encList (nm none) (G.map GTerm.toPat)) →
+    Repr nm s.nodes.val ai.val (encList (nm none) (accs.map (accPat (nm none)))) →
+    Room s (projsCost sl.length G) →
+    sorts.projs_loop g s so fi ks ai ⦃ r s' =>
+      Ran s s' (projsCost sl.length G) ∧ Repr nm s'.nodes.val r.val
+        (encList (nm none) ((projsL sl f ksp.length G accs).map (accPat (nm none)))) ⦄ := by
+  intro G
+  induction G with
+  | nil =>
+    intro accs s g ai _ hW hso hf hks hg hai hroom
+    have hroom' := hroom
+    unfold Room at hroom'
+    simp only [projsCost] at hroom'
+    unfold sorts.projs_loop
+    rw [loop]
+    simp only [sorts.projs_loop.body]
+    step with uncons_repr s g hW hg (by unfold Room; omega) as ⟨r0, hK, hu⟩
+    obtain ⟨o, s1⟩ := r0
+    simp only at hu
+    simp only at hK
+    subst hu
+    have hfin : Ran s s1 (projsCost sl.length []) ∧ Repr nm s1.nodes.val ai.val
+        (encList (nm none) ((projsL sl f ksp.length [] accs).map (accPat (nm none)))) :=
+      ⟨hK.ran, by rw [hK.nodes]; exact hai⟩
+    step*
+  | cons t G ih =>
+    intro accs s g ai hal hW hso hf hks hg hai hroom
+    have hroom' := hroom
+    unfold Room at hroom'
+    simp only [projsCost] at hroom'
+    unfold sorts.projs_loop
+    rw [loop]
+    simp only [sorts.projs_loop.body]
+    step with uncons_repr s g hW hg (by unfold Room; omega) as ⟨r0, hK, hu⟩
+    obtain ⟨o, s1⟩ := r0
+    simp only at hu
+    simp only at hK
+    obtain ⟨ti, more, rfl, rti, rmore⟩ := hu
+    have ht1 := hK.ticks
+    have hx1 := hK.ran.ext
+    have hna : nargs (GTerm.toPat t) = (termKey t).2 := by simpa [termKey] using nargs_toPat t []
+    have hun := unspine_toPat t []
+    simp only [List.map_nil] at hun
+    have next : ∀ (s3 : store.Store) (a1 : store.TermId),
+        Ran s s3 (4 * (termKey t).2 + 13 * sl.length + 11) →
+        Repr nm s3.nodes.val a1.val (encList (nm none)
+          ((projStep sl f ksp.length accs t).map (accPat (nm none)))) →
+        loop (fun x => match x with
+          | (g1, s1, accs1) => sorts.projs_loop.body so fi ks g1 s1 accs1)
+          (more, s3, a1) ⦃ r s' =>
+            Ran s s' (projsCost sl.length (t :: G)) ∧ Repr nm s'.nodes.val r.val (encList (nm none)
+              ((projsL sl f ksp.length (t :: G) accs).map (accPat (nm none)))) ⦄ := by
+      intro s3 a1 R3 ra1
+      have := R3.ticks
+      have IH := ih (projStep sl f ksp.length accs t) s3 more a1
+        (length_projStep hsl hal t) R3.wf (R3.ext.repr hso) (R3.ext.repr hf) (R3.ext.repr hks)
+        (R3.ext.repr rmore) ra1 (by unfold Room; omega)
+      unfold sorts.projs_loop at IH
+      refine WP.spec_mono IH ?_
+      rintro ⟨r, s'⟩ ⟨hR, hr⟩
+      exact ⟨(R3.trans hR).mono (by simp only [projsCost]; omega), hr⟩
+    have same : ∀ (s3 : store.Store),
+        Ran s s3 (4 * (termKey t).2 + 13 * sl.length + 11) →
+        ¬ ((termKey t).1 = f ∧ (termKey t).2 = ksp.length ∧ missCount sl (gspine t []).2 ≤ 1) →
+        loop (fun x => match x with
+          | (g1, s1, accs1) => sorts.projs_loop.body so fi ks g1 s1 accs1)
+          (more, s3, ai) ⦃ r s' =>
+            Ran s s' (projsCost sl.length (t :: G)) ∧ Repr nm s'.nodes.val r.val (encList (nm none)
+              ((projsL sl f ksp.length (t :: G) accs).map (accPat (nm none)))) ⦄ := by
+      intro s3 R3 hneg
+      refine next s3 ai R3 ?_
+      rw [projStep, ite_neg' hneg]
+      exact R3.ext.repr hai
+    step with spine_spec s1 ti hK.wf (hx1.repr rti) (by unfold Room; omega)
+      as ⟨r1, hR2, rh, ra⟩
+    obtain ⟨⟨h, args⟩, s2⟩ := r1
+    simp only at hR2 rh ra
+    rw [hun] at rh ra
+    simp only at rh ra
+    have rh' : Repr nm s2.nodes.val h.val (.sym (termKey t).1) := rh
+    have ht2 := hR2.ticks
+    have R2 := hK.ran.trans hR2
+    step with same_w s2 h fi hR2.wf (by unfold Room; omega) as ⟨r2, hb, hK3⟩
+    obtain ⟨b, s3⟩ := r2
+    simp only at hb hK3
+    have ht3 := hK3.ticks
+    have R3 := R2.trans hK3.ran
+    have hbe : h.val = fi.val ↔ (termKey t).1 = f :=
+      ⟨fun e => Term.sym.inj (Repr.unique (e ▸ rh') (R2.ext.repr hf)),
+        fun e => Repr.inj hnm hR2.wf.nodesOK (e ▸ rh') (R2.ext.repr hf)⟩
+    cases b with
+    | false =>
+      simp only [Bool.false_eq_true, ↓reduceIte, uncurry, bind_ok]
+      refine same s3 (R3.mono (by omega)) fun hk => ?_
+      have := hbe.2 hk.1
+      simp [this] at hb
+    | true =>
+      have hlm : ((gspine t []).2.map GTerm.toPat).length = (termKey t).2 := by simp [termKey]
+      simp only [uncurry, ↓reduceIte]
+      step with same_len_spec ((gspine t []).2.map GTerm.toPat) ksp s3 args ks hK3.wf
+        (hK3.ran.ext.repr ra) (R3.ext.repr hks) (by rw [hlm]; unfold Room; omega)
+        as ⟨r4, hb1, hR4⟩
+      obtain ⟨b1, s4⟩ := r4
+      simp only at hb1 hR4
+      rw [hlm] at hb1 hR4
+      have ht4 := hR4.ticks
+      have R4 := R3.trans hR4
+      cases b1 with
+      | false =>
+        simp only [Bool.false_eq_true, ↓reduceIte, uncurry, bind_ok]
+        refine same s4 (R4.mono (by omega)) fun hk => ?_
+        simp [hk.2.1] at hb1
+      | true =>
+        have hk2 : (termKey t).2 = ksp.length := by simpa using hb1.symm
+        have hf' : (termKey t).1 = f := hbe.1 (by simpa using hb.symm)
+        have hal2 : sl.length ≤ (gspine t []).2.length := by
+          rw [hsl, ← hk2]; exact Nat.le_refl _
+        simp only [uncurry, ↓reduceIte]
+        step with misses_spec hnm sl (gspine t []).2 s4 so args hal2 hR4.wf (R4.ext.repr hso)
+          (hR4.ext.repr (hK3.ran.ext.repr ra)) (by unfold Room; omega) as ⟨r5, hR5, h1, h2⟩
+        obtain ⟨⟨any, two⟩, s5⟩ := r5
+        simp only at hR5 h1 h2
+        have ht5 := hR5.ticks
+        have R5 := R4.trans hR5
+        cases two with
+        | true =>
+          simp only [↓reduceIte, uncurry, bind_ok]
+          refine same s5 (R5.mono (by omega)) fun hk => ?_
+          have : ¬ (1 < missCount sl (gspine t []).2) := by omega
+          simp [this] at h2
+        | false =>
+          have hm1 : missCount sl (gspine t []).2 ≤ 1 := by
+            have : ¬ (1 < missCount sl (gspine t []).2) := by simpa using h2.symm
+            omega
+          simp only [Bool.false_eq_true, ↓reduceIte, uncurry]
+          step with contrib_spec hnm any sl (gspine t []).2 accs s5 so args ai hal2
+            (by rw [hal, hsl]) hR5.wf (R5.ext.repr hso)
+            (hR5.ext.repr (hR4.ext.repr (hK3.ran.ext.repr ra))) (R5.ext.repr hai)
+            (by unfold Room; omega) as ⟨r6, hR6, racc⟩
+          obtain ⟨accs1, s6⟩ := r6
+          simp only at hR6 racc
+          have ht6 := hR6.ticks
+          simp only [uncurry, bind_ok]
+          refine next s6 accs1 ((R5.trans hR6).mono (by omega)) ?_
+          rw [projStep, ite_pos' ⟨hf', hk2, hm1⟩, ← h1]
+          exact racc
+
+/-- The ticks `projs` may spend. -/
+def projsAllCost (L k : Nat) (G : List GTerm) : Nat := 2 * k + 3 + projsCost L G
+
+/-- `projs` gives, for each argument of the root, that argument of the terms
+with the root whose other arguments are each the one member held for them. -/
+theorem projs_spec (hnm : Function.Injective nm) (sl : List (Option GTerm)) (f : Sym)
+    (ksp : List Pat) (hsl : sl.length = ksp.length) (G : List GTerm) (s : store.Store)
+    (so fi ks g : store.TermId) (hW : Wf s)
+    (hso : Repr nm s.nodes.val so.val (encList (nm none) (sl.map (solePat (nm none)))))
+    (hf : Repr nm s.nodes.val fi.val (.sym f))
+    (hks : Repr nm s.nodes.val ks.val (encList (nm none) ksp))
+    (hg : Repr nm s.nodes.val g.val (encList (nm none) (G.map GTerm.toPat)))
+    (hroom : Room s (projsAllCost sl.length ksp.length G)) :
+    sorts.projs s so fi ks g ⦃ r s' =>
+      Ran s s' (projsAllCost sl.length ksp.length G) ∧ Repr nm s'.nodes.val r.val
+        (encList (nm none) ((projsL sl f ksp.length G (List.replicate ksp.length [])).map
+          (accPat (nm none)))) ⦄ := by
+  unfold sorts.projs
+  have hroom' := hroom
+  unfold Room at hroom'
+  simp only [projsAllCost] at hroom'
+  step with alloc_ran s .Nil hW trivial (by unfold Room; omega) as ⟨nil, s1, hR1, hid1⟩
+  have ht1 := hR1.ticks
+  have rnil : Repr nm s1.nodes.val nil.val (.sym (nm none)) := .nil hid1
+  step with fill_spec ksp s1 ks nil hR1.wf (hR1.ext.repr hks) rnil (by unfold Room; omega)
+    as ⟨accs, s2, hR2, racc⟩
+  have ht2 := hR2.ticks
+  have R2 := hR1.trans hR2
+  have racc' : Repr nm s2.nodes.val accs.val (encList (nm none)
+      ((List.replicate ksp.length ([] : List GTerm)).map (accPat (nm none)))) := by
+    simpa [accPat, encList] using racc
+  refine WP.spec_mono (projs_loop_spec hnm sl f ksp hsl so fi ks G _ s2 g accs
+    (List.length_replicate ..) hR2.wf (R2.ext.repr hso) (R2.ext.repr hf) (R2.ext.repr hks)
+    (R2.ext.repr hg) racc' (by unfold Room; omega)) ?_
+  rintro ⟨r, s'⟩ ⟨hR, hr⟩
+  exact ⟨(R2.trans hR).mono (by simp only [projsAllCost]; omega), hr⟩
+
 end RwLogVerified
