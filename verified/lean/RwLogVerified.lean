@@ -27,6 +27,8 @@
   going through the conjunctions it reaches.
 * `RwLogVerified.Count`: how many members a conjunction of sorts has, with
   the member when there is one.
+* `RwLogVerified.Incl`: whether every member of a conjunction of sorts is in
+  a sort, by going through the keys the pair of the two reaches.
 * `RwLogVerified.Kernel`: the kernel rung whose charges are those bounds.
 * `RwLogVerified.KernelRuns`: its charges on a worked composition.
 
@@ -54,5 +56,6 @@ import RwLogVerified.Conj
 import RwLogVerified.Names
 import RwLogVerified.Live
 import RwLogVerified.Count
+import RwLogVerified.Incl
 import RwLogVerified.Kernel
 import RwLogVerified.KernelRuns

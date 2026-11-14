@@ -76,6 +76,7 @@ nodes, and advances the tick counter by at most a stated amount.
 | `sorts::step_conj` | `Sorts.Accepts` and `Sorts.kidC`: one step of a conjunction of sorts | `stepConjCost`: `c (stepCost S m + 2) + m (5 c + 3 u + 9) + 5`, `c` the sorts of the conjunction, `m` the arguments, `u` the names | `step_conj_conj_spec` |
 | `sorts::live` | `Sorts.live`: whether a conjunction of sorts has a member | `liveCost`: `flagCost + 1`, where `flagCost` is `r nodeCost + (r + 1) (r (u altW + 5) + 1) + 5`, `r` the conjunctions the conjunction reaches (`Sorts.reachSet`), `u` the names, `nodeCost` and `altW` sums over the cases of the declarations | `live_spec` |
 | `sorts::count` | `Sorts.count`: whether a conjunction of sorts has no member, one (with the member) or more | `countCost`: `flagCost + (r + 1) 4 (r (u altW + 5) + 1) + 3` | `count_spec` |
+| `sorts::out`, `sorts::included` | `Sorts.Out` and `Sorts.Incl`: whether a conjunction of sorts has a member outside a sort, and whether every member of it is in the sort | `outCost`: `r nodeGCost + (r + 1) (r entGCost + 1) + 8`, `r` the keys the pair of the conjunction with the sort reaches (`Sorts.reachGSet`: pairs of a conjunction with a sort, and conjunctions alone), `nodeGCost` and `entGCost` polynomials in the names and the cases of the declarations (`keyW`) | `out_spec`, `included_spec` |
 
 Every theorem also says that the function spent a tick for each node it
 added (`Extends`, `Extends.nodes_le`).
