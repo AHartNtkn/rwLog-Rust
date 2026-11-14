@@ -4368,7 +4368,7 @@ def sorts.settle
     Visibility: public -/
 @[rust_loop_body]
 def sorts.open_var_loop.body
-  (kids : store.TermId) (s : store.Store) (term : store.TermId)
+  (kids : store.TermId) (s : store.Store) (head : store.TermId)
   (next : store.TermId) (es : store.TermId) :
   Result (ControlFlow (store.TermId × store.Store × store.TermId ×
     store.TermId × store.TermId) (store.Store × store.TermId × store.TermId
@@ -4376,28 +4376,28 @@ def sorts.open_var_loop.body
   := do
   let (o, s1) ← sorts.uncons s kids
   match o with
-  | none => ok (done (s1, term, next, es))
+  | none => ok (done (s1, head, next, es))
   | some p =>
     let (k, rest) := p
-    let (term1, s2) ← store.Store.alloc s1 (store.Node.App term next)
+    let (head1, s2) ← store.Store.alloc s1 (store.Node.App head next)
     let (e, s3) ← store.Store.alloc s2 (store.Node.App next k)
     let (es1, s4) ← store.Store.alloc s3 (store.Node.App e es)
     let (next1, s5) ← sorts.var_succ s4 next
-    ok (cont (rest, s5, term1, next1, es1))
+    ok (cont (rest, s5, head1, next1, es1))
 
 /-- [rwlog_core::sorts::open_var]: loop 0:
     Source: 'src/sorts.rs', lines 1849:4-1855:5
     Visibility: public -/
 @[rust_loop]
 def sorts.open_var_loop
-  (kids : store.TermId) (s : store.Store) (term : store.TermId)
+  (kids : store.TermId) (s : store.Store) (head : store.TermId)
   (next : store.TermId) (es : store.TermId) :
   Result (store.Store × store.TermId × store.TermId × store.TermId)
   := do
   loop
-    (fun (kids1, s1, term1, next1, es1) => sorts.open_var_loop.body kids1 s1
-      term1 next1 es1)
-    (kids, s, term, next, es)
+    (fun (kids1, s1, head1, next1, es1) => sorts.open_var_loop.body kids1 s1
+      head1 next1 es1)
+    (kids, s, head, next, es)
 
 /-- [rwlog_core::sorts::open_var]:
     Source: 'src/sorts.rs', lines 1836:0-1861:1
@@ -4410,11 +4410,11 @@ def sorts.open_var
     store.Store)
   := do
   let (es, s1) ← store.Store.alloc s store.Node.Nil
-  let (s2, term, next, es1) ← sorts.open_var_loop kids0 s1 f next0 es
+  let (s2, head, next, es1) ← sorts.open_var_loop kids0 s1 f next0 es
   let (es2, s3) ← sorts.rev s2 es1
   let s4 ← store.Store.clear s3 store.Tbl.A
-  let (t1, s5) ← term.rebuild s4 (term.Leaf.Sub v term) t
-  let (x1, s6) ← term.rebuild s5 (term.Leaf.Sub v term) x
+  let (t1, s5) ← term.rebuild s4 (term.Leaf.Sub v head) t
+  let (x1, s6) ← term.rebuild s5 (term.Leaf.Sub v head) x
   ok ((t1, x1, es2, next), s6)
 
 /-- [rwlog_core::span::{impl core::clone::Clone for rwlog_core::span::Span}::clone]:

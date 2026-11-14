@@ -39,6 +39,9 @@
   that are not among finitely many ground terms.
 * `RwLogVerified.Gone`: the ground terms the exclusions of a store exclude a
   variable from.
+* `RwLogVerified.Open`: the variable after a variable; replacing the variables
+  whose sorts have one member by that member; replacing a variable by a
+  symbol applied to new variables.
 * `RwLogVerified.Kernel`: the kernel rung whose charges are those bounds.
 * `RwLogVerified.KernelRuns`: its charges on a worked composition.
 
@@ -73,5 +76,6 @@ import RwLogVerified.ButLink
 import RwLogVerified.Push
 import RwLogVerified.Sole
 import RwLogVerified.Gone
+import RwLogVerified.Open
 import RwLogVerified.Kernel
 import RwLogVerified.KernelRuns

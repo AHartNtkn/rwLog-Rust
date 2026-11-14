@@ -1842,12 +1842,12 @@ pub fn open_var(
     t: TermId,
     x: TermId,
 ) -> (TermId, TermId, TermId, TermId) {
-    let mut term = f;
+    let mut head = f;
     let mut next = next0;
     let mut es = s.alloc(Node::Nil);
     let mut kids = kids0;
     while let Some((k, rest)) = uncons(s, kids) {
-        term = s.alloc(Node::App(term, next));
+        head = s.alloc(Node::App(head, next));
         let e = s.alloc(Node::App(next, k));
         es = s.alloc(Node::App(e, es));
         next = var_succ(s, next);
@@ -1855,7 +1855,7 @@ pub fn open_var(
     }
     let es = rev(s, es);
     s.clear(Tbl::A);
-    let t1 = rebuild(s, Leaf::Sub(v, term), t);
-    let x1 = rebuild(s, Leaf::Sub(v, term), x);
+    let t1 = rebuild(s, Leaf::Sub(v, head), t);
+    let x1 = rebuild(s, Leaf::Sub(v, head), x);
     (t1, x1, es, next)
 }
