@@ -1,4 +1,5 @@
 import RwLog.Rungs.R005.Engine
+import RwLog.Rungs.R005.Bounds
 
 /-!
 # Running the yardstick
@@ -222,5 +223,51 @@ def atom (t : Pat) : Option Span := some ⟨t, t, []⟩
 -- The unfolding of a goal that is final at some depth is final from there on.
 #guard (askRace Tabled.Unfold.eagerRace addP (.call "add") (atom (ap "cons" [num 2, num 1])) none 11)
   == (true, ["(cons (s (s z)) (s z)) -> (s (s (s z)))"])
+
+/-! ## The stated lower bounds, on small inputs
+
+`R005.MidLower` and `R005.FreeLower` (`Rungs/R005/Bounds.lean`) are stated
+and not proved. These checks run them: at the first step by which R005 has
+emitted the answer, each run of R004 has cost at least `2 ^ k`, and so has
+R005. -/
+
+/-- The first step, within `fuel`, by which R005 has emitted the answer shown
+as `ans`. -/
+def firstStep (P : Program) (q : Rel) (ans : String) (fuel : Nat) : Option Nat :=
+  (List.range (fuel + 1)).find? fun n => ans ∈ (runE R005.engine P q n).1
+
+/-- At the first step by which R005 has emitted `ans`: the step, what the run
+of R004 on the node has cost, what the run on its converse has cost, and what
+R005 has paid. -/
+def lowerRow (P : Program) (q : Rel) (ans : String) (fuel : Nat) :
+    Option (Nat × Nat × Nat × Nat) :=
+  (firstStep P q ans fuel).map fun n =>
+    (n, Mirror.cost (R004.engine.stepW P) (R004.engine.startW P q.norm) n,
+      Mirror.cost (R004.engine.stepW P) (R004.engine.startW P q.norm.normConv) n,
+      paidE R005.engine P q n)
+
+/-- The row is there, and every cost in it is at least `lo`. -/
+def atLeast (lo : Nat) (row : Option (Nat × Nat × Nat × Nat)) : Bool :=
+  row.any fun r => lo ≤ r.2.1 && lo ≤ r.2.2.1 && lo ≤ r.2.2.2
+
+#guard (List.range 5).all fun k => atLeast (2 ^ k) (lowerRow empty (R005.mid k) "$0 -> z" 12)
+#guard (List.range 5).all fun k =>
+  atLeast (2 ^ k) (lowerRow (R005.freeProg k) R005.freeRel "a -> a" 8)
+
+-- The answer of the free family arrives in the fourth round, and the costs
+-- more than double with each step of `k`.
+#guard (List.range 5).all fun k =>
+  (lowerRow (R005.freeProg k) R005.freeRel "a -> a" 8).any fun r => r.1 == 4
+#guard (List.range 4).all fun k =>
+  match lowerRow (R005.freeProg k) R005.freeRel "a -> a" 8,
+    lowerRow (R005.freeProg (k + 1)) R005.freeRel "a -> a" 8 with
+  | some a, some b => 2 * a.2.1 < b.2.1 && 2 * a.2.2.1 < b.2.2.1
+  | _, _ => false
+
+-- With the answer written in the query it arrives in the third round, before
+-- the table of the free factor asks the race, and neither run has cost
+-- `2 ^ k` by then.
+#guard (lowerRow (R005.freeProg 12) R005.freeRelWritten "a -> a" 8).any fun r =>
+  r.1 == 3 && r.2.1 < 700 && r.2.2.1 < 700
 
 end RwLog.Tests

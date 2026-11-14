@@ -1,382 +1,408 @@
 /-
-# What the mirrored machine costs
+# What the mirrored machine costs, from below
 
-Started with the leader at `x` and the other run at `y`, `g` steps behind,
-the first `n` steps of the mirrored machine cost at most `2 n + g` rounds,
-each of at most one tick more than 14 times the cheaper of what `C` pays for
-`n` steps from `x` and for `g + n` steps from `y` (`spent_le`): each round
-advances one of the two runs or both, the leader takes `n` steps, and the
-other run at most `g + n`; a round is one race, or two when the runs are
-level.
+`Mirror.cost step x n` is what the first `n` steps from `x` cost. Started
+with the leader at `x` and the other run at `y`, `g` steps behind, the first
+`n` steps of the mirrored machine cost at least the cheaper of `n` steps from
+`x` and `g + n` steps from `y` (`cost_ge`): every step either run takes is
+the winner of a race, and a race costs at least its winner
+(`Cost.winner_le_raceCost`).
 
-They cost at least the cheaper of what `C` pays for `n` steps from `x` and
-for `g + n` steps from `y` (`spent_ge`): every step either run takes is the
-winner of a race, and a race costs at least its winner.
+For an engine this is `Mirror.paid_ge_min`: what the mirrored engine has paid
+by its `n`-th step is at least the cheaper of `n` steps of the engine from
+the root node and from its converse. It is the lemma a lower bound on a
+mirrored machine starts from. It does not depend on what the runs emit.
 
-Every step of the machine costs at least a tick (`step_pos`).
-
-Neither fact depends on what the runs emit.
+The only facts about charges used are that a race costs at least its winner
+and that `bind` adds ticks.
 -/
 import RwLog.Rungs.Mirror.Trace
+import RwLog.Rungs.Framework.RaceWinner
+import RwLog.Rungs.Framework.Derivation
 
 namespace RwLog
 
 namespace Mirror
 
-open Cost
+open Traverse
 
-variable {C : CostedRuntime}
+variable {R : Type} [Answer R] [DecidableEq R] {D : Domain R} {P : Program} {σ : Type}
 
-theorem step_ticks_le (x : C.State) (n : Nat) : (C.step x).ticks ≤ C.spent x (n + 1) := by
-  unfold CostedRuntime.spent; omega
+/-- What the first `n` steps from a state cost. A finished run costs nothing
+more. -/
+def cost {A τ : Type} (step : τ → Cost (StepOf A τ)) : τ → Nat → Nat
+  | _, 0 => 0
+  | s, n + 1 =>
+    (step s).ticks + match after (step s).val with
+      | some s' => cost step s' n
+      | none => 0
 
-/-- Every step of the mirrored machine costs at least a tick. -/
-theorem go_pos : ∀ (g : Nat) (f : Bool) (x y : C.State), 1 ≤ (go C g f x y).ticks
-  | 0, f, x, y => by rw [go_zero]; show 1 ≤ 1 + raced x y + raced y x; omega
-  | g + 1, f, x, y => by
-    unfold go
-    simp only [bind_ticks, tick_ticks]
-    omega
+theorem cost_succ {A τ : Type} (step : τ → Cost (StepOf A τ)) (s : τ) (n : Nat) :
+    cost step s (n + 1) = (step s).ticks + match after (step s).val with
+      | some s' => cost step s' n
+      | none => 0 := by
+  rw [cost]
 
-theorem step_pos (s : (machine C).State) : 1 ≤ ((machine C).step s).ticks :=
-  go_pos s.gap s.fwd s.lead s.lag
+theorem cost_succ_some {A τ : Type} {step : τ → Cost (StepOf A τ)} {s s' : τ} (n : Nat)
+    (h : after (step s).val = some s') :
+    cost step s (n + 1) = (step s).ticks + cost step s' n := by
+  rw [cost, h]
 
-/-- What the machine has spent when the other run catches up by one: the
-race, and what it spends from there. -/
-theorem spent_catch {x y y' : C.State} {as : List Span} (g : Nat) (f : Bool) (n : Nat)
-    (hw : wins x y = false) (hy : (C.step y).val = .emit as y') :
-    (machine C).spent ⟨x, y, f, g + 1⟩ (n + 1) =
-      1 + raced x y + (machine C).spent ⟨x, y', f, g⟩ (n + 1) := by
-  have h : (machine C).step ⟨x, y, f, g + 1⟩ =
-      ⟨((machine C).step ⟨x, y', f, g⟩).val,
-        1 + raced x y + ((machine C).step ⟨x, y', f, g⟩).ticks⟩ := go_catch g f hw hy
-  have ht : ((machine C).step ⟨x, y, f, g + 1⟩).ticks =
-      1 + raced x y + ((machine C).step ⟨x, y', f, g⟩).ticks := by rw [h]
-  cases hv : ((machine C).step ⟨x, y', f, g⟩).val with
-  | emit bs s' =>
-    have hv' : ((machine C).step ⟨x, y, f, g + 1⟩).val = .emit bs s' := by rw [h]; exact hv
-    rw [(machine C).spent_succ_emit hv', (machine C).spent_succ_emit hv, ht]
-    omega
-  | done =>
-    have hv' : ((machine C).step ⟨x, y, f, g + 1⟩).val = .done := by rw [h]; exact hv
-    rw [(machine C).spent_succ_done hv', (machine C).spent_succ_done hv, ht]
+theorem cost_succ_none {A τ : Type} {step : τ → Cost (StepOf A τ)} {s : τ} (n : Nat)
+    (h : after (step s).val = none) : cost step s (n + 1) = (step s).ticks := by
+  rw [cost, h]; rfl
 
-/-- A race costs at least the step that wins it. -/
-theorem win_le {x y : C.State} (h : wins x y = true) : (C.step x).ticks ≤ raced x y := by
-  have hwin := winner_le_raceCost (C.step x).ticks (C.step y).ticks
-  have : firstWins (C.step x).ticks (C.step y).ticks = true := h
-  rwa [this] at hwin
+omit [DecidableEq R] in
+theorem after_shownV (f : Bool) (next : σ → StOf σ) (s : StepOf (Ans D P) σ) :
+    after (shownV f next s) = (after s).map next := by
+  cases s <;> rfl
 
-theorem lose_le {x y : C.State} (h : wins x y = false) : (C.step y).ticks ≤ raced x y := by
-  have hwin := winner_le_raceCost (C.step x).ticks (C.step y).ticks
-  have : firstWins (C.step x).ticks (C.step y).ticks = false := h
-  rwa [this] at hwin
+variable (K : Kernel R Cost) (hK : K.Refines D) (step : σ → Cost (StepOf (Ans D P) σ))
 
-/-! ## From above -/
+/-- A step of the mirrored machine. -/
+abbrev mstep (m : StOf σ) : Cost (StepOf (Ans D P) (StOf σ)) :=
+  go (K := DerivationKernel.over D K hK P) step m.gap m.fwd m.lead m.lag
 
-/-- The statement of `spent_le` for one number of steps. -/
-def SpentLe (C : CostedRuntime) (n g : Nat) (f : Bool) (x y : C.State) : Prop :=
-  (machine C).spent ⟨x, y, f, g⟩ n ≤
-    (2 * n + g) * (1 + 14 * min (C.spent x n) (C.spent y (g + n)))
+omit [DecidableEq R] in
+/-- The race of a step of `x` before a step of `y`: which step it returns. -/
+theorem race_inl_inr (x y : σ) :
+    (Cost.race (Sum.inl <$> step x) (Sum.inr <$> step y) :
+        Cost (StepOf (Ans D P) σ ⊕ StepOf (Ans D P) σ)).val =
+      if Cost.firstWins (step x).ticks (step y).ticks then .inl (step x).val
+      else .inr (step y).val := by
+  rw [Cost.race_val_eq]; rfl
 
-theorem spent_le_level {n : Nat} (ih : ∀ g f x y, SpentLe C n g f x y)
-    (f : Bool) (x y : C.State) : SpentLe C (n + 1) 0 f x y := by
-  unfold SpentLe
-  generalize hK : 1 + 14 * min (C.spent x (n + 1)) (C.spent y (0 + (n + 1))) = K
-  have hx1 : (C.step x).ticks ≤ C.spent x (n + 1) := step_ticks_le x n
-  have hy1 : (C.step y).ticks ≤ C.spent y (0 + (n + 1)) := by
-    rw [Nat.zero_add]; exact step_ticks_le y n
-  have hr : 1 + raced x y + raced y x ≤ K := by
-    have h1 : raced x y ≤ 7 * min (C.step x).ticks (C.step y).ticks := raceCost_le _ _
-    have h1' : raced y x ≤ 7 * min (C.step y).ticks (C.step x).ticks := raceCost_le _ _
-    rw [Nat.min_comm] at h1'
-    have h2 : min (C.step x).ticks (C.step y).ticks ≤
-        min (C.spent x (n + 1)) (C.spent y (0 + (n + 1))) := min_le_min hx1 hy1
-    omega
-  have h3 : (2 * (n + 1) + 0) * K = 2 * n * K + K + K := by
-    rw [show 2 * (n + 1) + 0 = (2 * n + 1) + 1 by omega, Nat.succ_mul, Nat.succ_mul]
-  have hdone : (machine C).step ⟨x, y, f, 0⟩ = ⟨.done, 1 + raced x y + raced y x⟩ →
-      (machine C).spent ⟨x, y, f, 0⟩ (n + 1) ≤ (2 * (n + 1) + 0) * K := by
-    intro hs
-    rw [(machine C).spent_succ_done (congrArg Cost.val hs), hs, h3]
-    show 1 + raced x y + raced y x ≤ _
-    omega
-  -- what follows a step that leaves the runs at `x'` and `y'`, `g'` apart
-  have hnext : ∀ (bs : List Span) (x' y' : C.State) (f' : Bool) (g' : Nat), g' ≤ 1 →
-      (machine C).step ⟨x, y, f, 0⟩ =
-        ⟨.emit bs ⟨x', y', f', g'⟩, 1 + raced x y + raced y x⟩ →
-      1 + 14 * min (C.spent x' n) (C.spent y' (g' + n)) ≤ K →
-      (machine C).spent ⟨x, y, f, 0⟩ (n + 1) ≤ (2 * (n + 1) + 0) * K := by
-    intro bs x' y' f' g' hg hs hK'
-    have e : (machine C).spent ⟨x, y, f, 0⟩ (n + 1) =
-        1 + raced x y + raced y x + (machine C).spent ⟨x', y', f', g'⟩ n := by
-      rw [(machine C).spent_succ_emit (congrArg Cost.val hs), hs]
-    have h1 := ih g' f' x' y'
-    unfold SpentLe at h1
-    have h2 := Nat.mul_le_mul_left (2 * n + g') hK'
-    have h4 : (2 * n + g') * K ≤ 2 * n * K + K := by
-      have h5 : (2 * n + g') * K ≤ (2 * n + 1) * K := Nat.mul_le_mul_right K (by omega)
-      have h6 : (2 * n + 1) * K = 2 * n * K + K := by rw [Nat.add_mul, Nat.one_mul]
-      omega
-    rw [e, h3]
-    omega
-  have alone : wins x y = true → wins y x = false →
-      (machine C).spent ⟨x, y, f, 0⟩ (n + 1) ≤ (2 * (n + 1) + 0) * K := by
-    intro w1 w2
-    cases hx : (C.step x).val with
-    | emit as x' =>
-      refine hnext _ x' y f 1 (Nat.le_refl 1) (go_alone_emit f w1 w2 hx) ?_
-      have hx2 : C.spent x' n ≤ C.spent x (n + 1) := by rw [C.spent_succ_emit hx]; omega
-      have : min (C.spent x' n) (C.spent y (1 + n)) ≤
-          min (C.spent x (n + 1)) (C.spent y (0 + (n + 1))) :=
-        min_le_min hx2 (by rw [show 1 + n = 0 + (n + 1) by omega])
-      omega
-    | done => exact hdone (go_alone_done f w1 w2 hx)
-  have over : wins x y = false → wins y x = true →
-      (machine C).spent ⟨x, y, f, 0⟩ (n + 1) ≤ (2 * (n + 1) + 0) * K := by
-    intro w1 w2
-    cases hy : (C.step y).val with
-    | emit bs y' =>
-      refine hnext _ y' x (!f) 1 (Nat.le_refl 1) (go_overtake f w1 w2 hy) ?_
-      have hy2 : C.spent y' n ≤ C.spent y (0 + (n + 1)) := by
-        rw [Nat.zero_add, C.spent_succ_emit hy]; omega
-      have : min (C.spent y' n) (C.spent x (1 + n)) ≤
-          min (C.spent x (n + 1)) (C.spent y (0 + (n + 1))) := by
-        rw [Nat.min_comm]
-        exact min_le_min (by rw [show 1 + n = n + 1 by omega]) hy2
-      omega
-    | done => exact hdone (go_overtake_done f w1 w2 hy)
-  have both : wins x y = wins y x →
-      (machine C).spent ⟨x, y, f, 0⟩ (n + 1) ≤ (2 * (n + 1) + 0) * K := by
-    intro w
-    cases hx : (C.step x).val with
-    | emit as x' =>
-      cases hy : (C.step y).val with
-      | emit bs y' =>
-        refine hnext _ x' y' f 0 (Nat.zero_le 1) (go_both_emit f w hx hy) ?_
-        have hx2 : C.spent x' n ≤ C.spent x (n + 1) := by rw [C.spent_succ_emit hx]; omega
-        have hy2 : C.spent y' (0 + n) ≤ C.spent y (0 + (n + 1)) := by
-          rw [Nat.zero_add, Nat.zero_add, C.spent_succ_emit hy]; omega
-        have : min (C.spent x' n) (C.spent y' (0 + n)) ≤
-            min (C.spent x (n + 1)) (C.spent y (0 + (n + 1))) := min_le_min hx2 hy2
-        omega
-      | done => exact hdone (go_both_done f w (.inr hy))
-    | done => exact hdone (go_both_done f w (.inl hx))
-  cases h1 : wins x y <;> cases h2 : wins y x
-  · exact both (by rw [h1, h2])
-  · exact over h1 h2
-  · exact alone h1 h2
-  · exact both (by rw [h1, h2])
+omit [DecidableEq R] in
+theorem race_inr_inl (x y : σ) :
+    (Cost.race (Sum.inr <$> step y) (Sum.inl <$> step x) :
+        Cost (StepOf (Ans D P) σ ⊕ StepOf (Ans D P) σ)).val =
+      if Cost.firstWins (step y).ticks (step x).ticks then .inr (step y).val
+      else .inl (step x).val := by
+  rw [Cost.race_val_eq]; rfl
 
-theorem spent_le_behind {n : Nat} (ih : ∀ g f x y, SpentLe C n g f x y)
-    (g : Nat) (f : Bool) (x y : C.State)
-    (hc : ∀ as y', (C.step y).val = .emit as y' → SpentLe C (n + 1) g f x y') :
-    SpentLe C (n + 1) (g + 1) f x y := by
-  unfold SpentLe
-  generalize hK : 1 + 14 * min (C.spent x (n + 1)) (C.spent y (g + 1 + (n + 1))) = K
-  have hx1 : (C.step x).ticks ≤ C.spent x (n + 1) := step_ticks_le x n
-  have hy1 : (C.step y).ticks ≤ C.spent y (g + 1 + (n + 1)) := step_ticks_le y (g + 1 + n)
-  have hr : 1 + raced x y ≤ K := by
-    have h1 : raced x y ≤ 7 * min (C.step x).ticks (C.step y).ticks := raceCost_le _ _
-    have h2 : min (C.step x).ticks (C.step y).ticks ≤
-        min (C.spent x (n + 1)) (C.spent y (g + 1 + (n + 1))) := min_le_min hx1 hy1
-    omega
-  have hone : 1 + raced x y ≤ (2 * (n + 1) + (g + 1)) * K :=
-    le_trans hr (Nat.le_mul_of_pos_left K (by omega))
-  by_cases hw : wins x y = true
-  · cases hx : (C.step x).val with
-    | emit as x' =>
-      have hs : (machine C).step ⟨x, y, f, g + 1⟩ =
-          ⟨.emit (orient f as) ⟨x', y, f, g + 2⟩, 1 + raced x y⟩ := go_lead_emit g f hw hx
-      have e : (machine C).spent ⟨x, y, f, g + 1⟩ (n + 1) =
-          1 + raced x y + (machine C).spent ⟨x', y, f, g + 2⟩ n := by
-        rw [(machine C).spent_succ_emit (congrArg Cost.val hs), hs]
-      have h1 := ih (g + 2) f x' y
-      unfold SpentLe at h1
-      have hx2 : C.spent x' n ≤ C.spent x (n + 1) := by
-        rw [C.spent_succ_emit hx]; omega
-      have hK' : 1 + 14 * min (C.spent x' n) (C.spent y (g + 2 + n)) ≤ K := by
-        have : min (C.spent x' n) (C.spent y (g + 2 + n)) ≤
-            min (C.spent x (n + 1)) (C.spent y (g + 1 + (n + 1))) :=
-          min_le_min hx2 (by rw [show g + 2 + n = g + 1 + (n + 1) by omega])
-        omega
-      have h2 := Nat.mul_le_mul_left (2 * n + (g + 2)) hK'
-      have h3 : (2 * (n + 1) + (g + 1)) * K = (2 * n + (g + 2)) * K + K := by
-        rw [show 2 * (n + 1) + (g + 1) = (2 * n + (g + 2)) + 1 by omega, Nat.succ_mul]
-      rw [e, h3]
-      omega
-    | done =>
-      have hs : (machine C).step ⟨x, y, f, g + 1⟩ = ⟨.done, 1 + raced x y⟩ :=
-        go_lead_done g f hw hx
-      rw [(machine C).spent_succ_done (congrArg Cost.val hs), hs]
-      exact hone
-  · have hw : wins x y = false := by simpa using hw
-    cases hy : (C.step y).val with
-    | done =>
-      have hs : (machine C).step ⟨x, y, f, g + 1⟩ = ⟨.done, 1 + raced x y⟩ :=
-        go_lag_done g f hw hy
-      rw [(machine C).spent_succ_done (congrArg Cost.val hs), hs]
-      exact hone
-    | emit bs y' =>
-      have h1 := hc bs y' hy
-      unfold SpentLe at h1
-      have hy2 : C.spent y' (g + (n + 1)) ≤ C.spent y (g + 1 + (n + 1)) := by
-        rw [show g + 1 + (n + 1) = (g + (n + 1)) + 1 by omega, C.spent_succ_emit hy]; omega
-      have hK' : 1 + 14 * min (C.spent x (n + 1)) (C.spent y' (g + (n + 1))) ≤ K := by
-        have : min (C.spent x (n + 1)) (C.spent y' (g + (n + 1))) ≤
-            min (C.spent x (n + 1)) (C.spent y (g + 1 + (n + 1))) := min_le_min le_rfl hy2
-        omega
-      have h2 := Nat.mul_le_mul_left (2 * (n + 1) + g) hK'
-      have h3 : (2 * (n + 1) + (g + 1)) * K = (2 * (n + 1) + g) * K + K := by
-        rw [show 2 * (n + 1) + (g + 1) = (2 * (n + 1) + g) + 1 by omega, Nat.succ_mul]
-      rw [spent_catch g f n hw hy, h3]
-      omega
+/-- From level runs the machine pays for both races. -/
+theorem go_zero_ticks (f : Bool) (x y : σ) :
+    Cost.raceCost (step x).ticks (step y).ticks + Cost.raceCost (step y).ticks (step x).ticks ≤
+      (go (K := DerivationKernel.over D K hK P) step 0 f x y).ticks := by
+  have h₁ := Cost.race_ticks_eq (Sum.inl <$> step x : Cost (StepOf (Ans D P) σ ⊕ _))
+    (Sum.inr <$> step y)
+  have h₂ := Cost.race_ticks_eq (Sum.inr <$> step y : Cost (StepOf (Ans D P) σ ⊕ _))
+    (Sum.inl <$> step x)
+  simp only [Cost.map_ticks] at h₁ h₂
+  rw [← h₁, ← h₂]
+  at_cost K hK
+  simp only [go, Cost.bind_ticks]
+  show _ ≤ _ + ((Cost.race (Sum.inl <$> step x) (Sum.inr <$> step y)).ticks +
+    ((Cost.race (Sum.inr <$> step y) (Sum.inl <$> step x)).ticks + _))
+  omega
 
-/-- The first `n` steps of the mirrored machine cost at most `2 n + g`
-rounds, each of at most one tick more than 14 times the cheaper of the two
-runs. -/
-theorem spent_le : ∀ (n g : Nat) (f : Bool) (x y : C.State), SpentLe C n g f x y := by
-  intro n
-  induction n with
-  | zero => intro g f x y; exact Nat.zero_le _
-  | succ n ih =>
-    intro g
-    induction g with
-    | zero => intro f x y; exact spent_le_level ih f x y
-    | succ g ihg =>
-      intro f x y
-      exact spent_le_behind ih g f x y fun as y' _ => ihg f x y'
+/-- From a gap the machine pays for the race, and for what it does next. -/
+theorem go_succ_ticks (g : Nat) (f : Bool) (x y : σ) :
+    (go (K := DerivationKernel.over D K hK P) step (g + 1) f x y).ticks =
+      1 + Cost.raceCost (step x).ticks (step y).ticks +
+      (match (Cost.race (Sum.inl <$> step x) (Sum.inr <$> step y)).val with
+        | .inl sx => shown (K := DerivationKernel.over D K hK P) f (fun x' => ⟨x', y, f, g + 2⟩) sx
+        | .inr sy =>
+          match after sy with
+          | some y' => go (K := DerivationKernel.over D K hK P) step g f x y'
+          | none => shown (K := DerivationKernel.over D K hK P) (!f)
+              (fun y' => ⟨y', x, !f, 0⟩) sy).ticks := by
+  have h₁ := Cost.race_ticks_eq (Sum.inl <$> step x : Cost (StepOf (Ans D P) σ ⊕ _))
+    (Sum.inr <$> step y)
+  simp only [Cost.map_ticks] at h₁
+  rw [← h₁]
+  at_cost K hK
+  simp only [go, Cost.bind_ticks]
+  rw [show ∀ (α : Type) (a b : Cost α), _ = Cost.race a b from hK.race]
+  generalize (Cost.race (Sum.inl <$> step x) (Sum.inr <$> step y)) = w
+  show 1 + (w.ticks + _) = _
+  rw [Nat.add_assoc]
+  congr 2
+  rcases w with ⟨v, t, _, _, _⟩
+  cases v with
+  | inl sx => rfl
+  | inr sy => cases after sy <;> rfl
 
-/-! ## From below -/
+/-- The statement of `cost_ge` for one number of steps. -/
+def CostGe (n g : Nat) (f : Bool) (x y : σ) : Prop :=
+  min (cost step x n) (cost step y (g + n)) ≤ cost (mstep K hK step) ⟨x, y, f, g⟩ n
 
-/-- The statement of `spent_ge` for one number of steps. -/
-def SpentGe (C : CostedRuntime) (n g : Nat) (f : Bool) (x y : C.State) : Prop :=
-  min (C.spent x n) (C.spent y (g + n)) ≤ (machine C).spent ⟨x, y, f, g⟩ n
-
-theorem spent_ge_level {n : Nat} (ih : ∀ g f x y, SpentGe C n g f x y)
-    (f : Bool) (x y : C.State) : SpentGe C (n + 1) 0 f x y := by
-  unfold SpentGe
+theorem cost_ge_level {n : Nat} (ih : ∀ g f x y, CostGe K hK step n g f x y)
+    (f : Bool) (x y : σ) : CostGe K hK step (n + 1) 0 f x y := by
+  unfold CostGe
   rw [Nat.zero_add]
-  have hdx : (C.step x).val = .done → C.spent x (n + 1) = (C.step x).ticks := fun h => by
-    rw [C.spent_succ_done h]
-  have hdy : (C.step y).val = .done → C.spent y (n + 1) = (C.step y).ticks := fun h => by
-    rw [C.spent_succ_done h]
-  have hdone : (machine C).step ⟨x, y, f, 0⟩ = ⟨.done, 1 + raced x y + raced y x⟩ →
-      (machine C).spent ⟨x, y, f, 0⟩ (n + 1) = 1 + raced x y + raced y x := fun hs => by
-    rw [(machine C).spent_succ_done (congrArg Cost.val hs), hs]
-  have hnext : ∀ (bs : List Span) (x' y' : C.State) (f' : Bool) (g' : Nat),
-      (machine C).step ⟨x, y, f, 0⟩ =
-        ⟨.emit bs ⟨x', y', f', g'⟩, 1 + raced x y + raced y x⟩ →
-      (machine C).spent ⟨x, y, f, 0⟩ (n + 1) =
-        1 + raced x y + raced y x + (machine C).spent ⟨x', y', f', g'⟩ n :=
-    fun bs x' y' f' g' hs => by
-      rw [(machine C).spent_succ_emit (congrArg Cost.val hs), hs]
-  have alone : wins x y = true → wins y x = false →
-      min (C.spent x (n + 1)) (C.spent y (n + 1)) ≤ (machine C).spent ⟨x, y, f, 0⟩ (n + 1) := by
-    intro w1 w2
-    have hw := win_le w1
-    cases hx : (C.step x).val with
-    | emit as x' =>
-      rw [hnext _ x' y f 1 (go_alone_emit f w1 w2 hx), C.spent_succ_emit hx]
-      have h1 := ih 1 f x' y
-      unfold SpentGe at h1
-      rw [show 1 + n = n + 1 by omega] at h1
-      omega
-    | done => rw [hdone (go_alone_done f w1 w2 hx), hdx hx]; omega
-  have over : wins x y = false → wins y x = true →
-      min (C.spent x (n + 1)) (C.spent y (n + 1)) ≤ (machine C).spent ⟨x, y, f, 0⟩ (n + 1) := by
-    intro w1 w2
-    have hw := win_le w2
-    cases hy : (C.step y).val with
-    | emit bs y' =>
-      rw [hnext _ y' x (!f) 1 (go_overtake f w1 w2 hy), C.spent_succ_emit hy]
-      have h1 := ih 1 (!f) y' x
-      unfold SpentGe at h1
-      rw [show 1 + n = n + 1 by omega] at h1
-      omega
-    | done => rw [hdone (go_overtake_done f w1 w2 hy), hdy hy]; omega
-  have both : wins x y = wins y x →
-      min (C.spent x (n + 1)) (C.spent y (n + 1)) ≤ (machine C).spent ⟨x, y, f, 0⟩ (n + 1) := by
-    intro w
-    have hab : (C.step x).ticks + (C.step y).ticks ≤ raced x y + raced y x := by
-      cases h1 : wins x y
-      · have := lose_le h1
-        have := lose_le (w ▸ h1 : wins y x = false)
-        omega
-      · have := win_le h1
-        have := win_le (w ▸ h1 : wins y x = true)
-        omega
-    cases hx : (C.step x).val with
-    | emit as x' =>
-      cases hy : (C.step y).val with
-      | emit bs y' =>
-        rw [hnext _ x' y' f 0 (go_both_emit f w hx hy), C.spent_succ_emit hx, C.spent_succ_emit hy]
+  have ht := go_zero_ticks K hK step f x y
+  have hv := go_zero_val K hK step f x y
+  rw [race_inl_inr, race_inr_inl] at hv
+  have w₁ := Cost.winner_le_raceCost (step x).ticks (step y).ticks
+  have w₂ := Cost.winner_le_raceCost (step y).ticks (step x).ticks
+  -- what the machine has spent, by the state it goes to
+  have hsome : ∀ m, after (go (K := DerivationKernel.over D K hK P) step 0 f x y).val = some m →
+      cost (mstep K hK step) ⟨x, y, f, 0⟩ (n + 1) =
+        (go (K := DerivationKernel.over D K hK P) step 0 f x y).ticks +
+          cost (mstep K hK step) m n := fun m hm => cost_succ_some n hm
+  have hle : (go (K := DerivationKernel.over D K hK P) step 0 f x y).ticks ≤
+      cost (mstep K hK step) ⟨x, y, f, 0⟩ (n + 1) := by
+    show _ ≤ (go (K := DerivationKernel.over D K hK P) step 0 f x y).ticks + _
+    omega
+  have hx : ∀ x', after (step x).val = some x' →
+      cost step x (n + 1) = (step x).ticks + cost step x' n := fun _ h => cost_succ_some n h
+  have hy : ∀ y', after (step y).val = some y' →
+      cost step y (n + 1) = (step y).ticks + cost step y' n := fun _ h => cost_succ_some n h
+  have hxn : after (step x).val = none → cost step x (n + 1) = (step x).ticks :=
+    cost_succ_none n
+  have hyn : after (step y).val = none → cost step y (n + 1) = (step y).ticks :=
+    cost_succ_none n
+  cases h₁ : Cost.firstWins (step x).ticks (step y).ticks <;>
+    cases h₂ : Cost.firstWins (step y).ticks (step x).ticks <;>
+    simp only [h₁, h₂, ite_true, ite_false, Bool.false_eq_true] at hv w₁ w₂
+  · -- each race is won by the second: both runs step
+    have hv' : (go (K := DerivationKernel.over D K hK P) step 0 f x y).val =
+        (match after (step y).val with
+          | some y' => shown (K := DerivationKernel.over D K hK P) f (fun x' => ⟨x', y', f, 0⟩)
+              (step x).val
+          | none =>
+            match after (step x).val with
+            | some _ => shown (K := DerivationKernel.over D K hK P) (!f)
+                (fun y' => ⟨y', x, !f, 0⟩) (step y).val
+            | none => shown (K := DerivationKernel.over D K hK P) f (fun x' => ⟨x', y, f, 0⟩)
+                (step x).val).val := hv
+    cases ey : after (step y).val with
+    | none => rw [hyn ey]; omega
+    | some y' =>
+      rw [ey] at hv'
+      simp only [shown_val] at hv'
+      cases ex : after (step x).val with
+      | none => rw [hxn ex]; omega
+      | some x' =>
+        have ha : after (go (K := DerivationKernel.over D K hK P) step 0 f x y).val =
+            some ⟨x', y', f, 0⟩ := by rw [hv', after_shownV, ex]; rfl
         have h1 := ih 0 f x' y'
-        unfold SpentGe at h1
+        unfold CostGe at h1
         rw [Nat.zero_add] at h1
+        rw [hsome _ ha, hx _ ex, hy _ ey]
         omega
-      | done => rw [hdone (go_both_done f w (.inr hy)), hdy hy]; omega
-    | done => rw [hdone (go_both_done f w (.inl hx)), hdx hx]; omega
-  cases h1 : wins x y <;> cases h2 : wins y x
-  · exact both (by rw [h1, h2])
-  · exact over h1 h2
-  · exact alone h1 h2
-  · exact both (by rw [h1, h2])
+  · -- the other run wins both
+    have hv' : (go (K := DerivationKernel.over D K hK P) step 0 f x y).val =
+        (shown (K := DerivationKernel.over D K hK P) (!f) (fun y' => ⟨y', x, !f, 1⟩)
+          (step y).val).val := hv
+    rw [shown_val] at hv'
+    cases ey : after (step y).val with
+    | none => rw [hyn ey]; omega
+    | some y' =>
+      have ha : after (go (K := DerivationKernel.over D K hK P) step 0 f x y).val =
+          some ⟨y', x, !f, 1⟩ := by rw [hv', after_shownV, ey]; rfl
+      have h1 := ih 1 (!f) y' x
+      unfold CostGe at h1
+      rw [show 1 + n = n + 1 by omega] at h1
+      rw [hsome _ ha, hy _ ey]
+      omega
+  · -- the leader wins both
+    have hv' : (go (K := DerivationKernel.over D K hK P) step 0 f x y).val =
+        (shown (K := DerivationKernel.over D K hK P) f (fun x' => ⟨x', y, f, 1⟩)
+          (step x).val).val := hv
+    rw [shown_val] at hv'
+    cases ex : after (step x).val with
+    | none => rw [hxn ex]; omega
+    | some x' =>
+      have ha : after (go (K := DerivationKernel.over D K hK P) step 0 f x y).val =
+          some ⟨x', y, f, 1⟩ := by rw [hv', after_shownV, ex]; rfl
+      have h1 := ih 1 f x' y
+      unfold CostGe at h1
+      rw [show 1 + n = n + 1 by omega] at h1
+      rw [hsome _ ha, hx _ ex]
+      omega
+  · -- each race is won by the first: both runs step
+    have hv' : (go (K := DerivationKernel.over D K hK P) step 0 f x y).val =
+        (match after (step y).val with
+          | some y' => shown (K := DerivationKernel.over D K hK P) f (fun x' => ⟨x', y', f, 0⟩)
+              (step x).val
+          | none =>
+            match after (step x).val with
+            | some _ => shown (K := DerivationKernel.over D K hK P) (!f)
+                (fun y' => ⟨y', x, !f, 0⟩) (step y).val
+            | none => shown (K := DerivationKernel.over D K hK P) f (fun x' => ⟨x', y, f, 0⟩)
+                (step x).val).val := hv
+    cases ey : after (step y).val with
+    | none => rw [hyn ey]; omega
+    | some y' =>
+      rw [ey] at hv'
+      simp only [shown_val] at hv'
+      cases ex : after (step x).val with
+      | none => rw [hxn ex]; omega
+      | some x' =>
+        have ha : after (go (K := DerivationKernel.over D K hK P) step 0 f x y).val =
+            some ⟨x', y', f, 0⟩ := by rw [hv', after_shownV, ex]; rfl
+        have h1 := ih 0 f x' y'
+        unfold CostGe at h1
+        rw [Nat.zero_add] at h1
+        rw [hsome _ ha, hx _ ex, hy _ ey]
+        omega
 
-theorem spent_ge_behind {n : Nat} (ih : ∀ g f x y, SpentGe C n g f x y)
-    (g : Nat) (f : Bool) (x y : C.State)
-    (hc : ∀ as y', (C.step y).val = .emit as y' → SpentGe C (n + 1) g f x y') :
-    SpentGe C (n + 1) (g + 1) f x y := by
-  unfold SpentGe
-  by_cases hw : wins x y = true
-  · have hwl := win_le hw
-    cases hx : (C.step x).val with
-    | emit as x' =>
-      have hs : (machine C).step ⟨x, y, f, g + 1⟩ =
-          ⟨.emit (orient f as) ⟨x', y, f, g + 2⟩, 1 + raced x y⟩ := go_lead_emit g f hw hx
-      rw [(machine C).spent_succ_emit (congrArg Cost.val hs), hs, C.spent_succ_emit hx]
+theorem cost_ge_behind {n : Nat} (ih : ∀ g f x y, CostGe K hK step n g f x y)
+    (g : Nat) (f : Bool) (x y : σ)
+    (hc : ∀ y', after (step y).val = some y' → CostGe K hK step (n + 1) g f x y') :
+    CostGe K hK step (n + 1) (g + 1) f x y := by
+  unfold CostGe
+  have ht := go_succ_ticks K hK step g f x y
+  have hv := go_succ_val K hK step g f x y
+  rw [race_inl_inr] at hv ht
+  have w₁ := Cost.winner_le_raceCost (step x).ticks (step y).ticks
+  cases h₁ : Cost.firstWins (step x).ticks (step y).ticks <;>
+    simp only [h₁, ite_true, ite_false, Bool.false_eq_true] at hv ht w₁
+  · -- the other run catches up by a step
+    cases ey : after (step y).val with
+    | none =>
+      rw [show g + 1 + (n + 1) = (g + 1 + n) + 1 by omega, cost_succ_none _ ey]
+      have : (go (K := DerivationKernel.over D K hK P) step (g + 1) f x y).ticks ≤
+          cost (mstep K hK step) ⟨x, y, f, g + 1⟩ (n + 1) := by
+        show _ ≤ (go (K := DerivationKernel.over D K hK P) step (g + 1) f x y).ticks + _
+        omega
+      omega
+    | some y' =>
+      simp only [ey] at hv ht
+      have h1 := hc y' ey
+      unfold CostGe at h1
+      have hm : cost (mstep K hK step) ⟨x, y, f, g + 1⟩ (n + 1) =
+          1 + Cost.raceCost (step x).ticks (step y).ticks +
+            cost (mstep K hK step) ⟨x, y', f, g⟩ (n + 1) := by
+        rw [cost_succ, cost_succ,
+          show mstep K hK step ⟨x, y, f, g + 1⟩ =
+            go (K := DerivationKernel.over D K hK P) step (g + 1) f x y from rfl,
+          show mstep K hK step ⟨x, y', f, g⟩ =
+            go (K := DerivationKernel.over D K hK P) step g f x y' from rfl]
+        rw [ht, hv]; omega
+      rw [hm, show g + 1 + (n + 1) = (g + (n + 1)) + 1 by omega, cost_succ_some _ ey]
+      omega
+  · -- the leader steps
+    have hv' : (go (K := DerivationKernel.over D K hK P) step (g + 1) f x y).val =
+        (shown (K := DerivationKernel.over D K hK P) f (fun x' => ⟨x', y, f, g + 2⟩)
+          (step x).val).val := hv
+    rw [shown_val] at hv'
+    have hle : (go (K := DerivationKernel.over D K hK P) step (g + 1) f x y).ticks ≤
+        cost (mstep K hK step) ⟨x, y, f, g + 1⟩ (n + 1) := by
+      show _ ≤ (go (K := DerivationKernel.over D K hK P) step (g + 1) f x y).ticks + _
+      omega
+    cases ex : after (step x).val with
+    | none => rw [cost_succ_none _ ex]; omega
+    | some x' =>
+      have ha : after (go (K := DerivationKernel.over D K hK P) step (g + 1) f x y).val =
+          some ⟨x', y, f, g + 2⟩ := by rw [hv', after_shownV, ex]; rfl
       have h1 := ih (g + 2) f x' y
-      unfold SpentGe at h1
+      unfold CostGe at h1
       rw [show g + 2 + n = g + 1 + (n + 1) by omega] at h1
-      show _ ≤ 1 + raced x y + _
-      omega
-    | done =>
-      have hs : (machine C).step ⟨x, y, f, g + 1⟩ = ⟨.done, 1 + raced x y⟩ :=
-        go_lead_done g f hw hx
-      rw [(machine C).spent_succ_done (congrArg Cost.val hs), hs, C.spent_succ_done hx]
-      show _ ≤ 1 + raced x y
-      omega
-  · have hw : wins x y = false := by simpa using hw
-    have hwl := lose_le hw
-    cases hy : (C.step y).val with
-    | done =>
-      have hs : (machine C).step ⟨x, y, f, g + 1⟩ = ⟨.done, 1 + raced x y⟩ :=
-        go_lag_done g f hw hy
-      rw [(machine C).spent_succ_done (congrArg Cost.val hs), hs,
-        show g + 1 + (n + 1) = (g + 1 + n) + 1 by omega, C.spent_succ_done hy]
-      show _ ≤ 1 + raced x y
-      omega
-    | emit bs y' =>
-      have h1 := hc bs y' hy
-      unfold SpentGe at h1
-      rw [spent_catch g f n hw hy, show g + 1 + (n + 1) = (g + (n + 1)) + 1 by omega,
-        C.spent_succ_emit hy]
+      have hm : cost (mstep K hK step) ⟨x, y, f, g + 1⟩ (n + 1) =
+          (go (K := DerivationKernel.over D K hK P) step (g + 1) f x y).ticks +
+            cost (mstep K hK step) ⟨x', y, f, g + 2⟩ n := cost_succ_some n ha
+      rw [hm, cost_succ_some _ ex]
       omega
 
-/-- The first `n` steps of the mirrored machine cost at least the cheaper of
-`n` steps of the leader and `g + n` steps of the other run. -/
-theorem spent_ge : ∀ (n g : Nat) (f : Bool) (x y : C.State), SpentGe C n g f x y := by
+/-- **The first `n` steps of the mirrored machine cost at least the cheaper
+of `n` steps of the leader and `g + n` steps of the other run.** -/
+theorem cost_ge : ∀ (n g : Nat) (f : Bool) (x y : σ), CostGe K hK step n g f x y := by
   intro n
   induction n with
   | zero => intro g f x y; exact Nat.le_trans (Nat.min_le_left _ _) (Nat.le_refl 0)
   | succ n ih =>
     intro g
     induction g with
-    | zero => intro f x y; exact spent_ge_level ih f x y
+    | zero => intro f x y; exact cost_ge_level K hK step ih f x y
     | succ g ihg =>
       intro f x y
-      exact spent_ge_behind ih g f x y fun as y' _ => ihg f x y'
+      exact cost_ge_behind K hK step ih g f x y fun y' _ => ihg f x y'
 
 end Mirror
+
+/-! ## For an engine -/
+
+section engine
+
+variable (E : Engine) {R : Sorts → Type} [∀ S, Answer (R S)] [∀ S, DecidableEq (R S)]
+  (dom : ∀ S, Domain (R S)) (K : ∀ S, Kernel (R S) Cost) (hK : ∀ S, (K S).Refines (dom S))
+
+/-- A step of the engine on a program, before its answers are reported. -/
+abbrev Engine.stepAt (P : Program) (s : E.State (R P.sorts) Rel (Ans (dom P.sorts) P)) :
+    Cost (StepOf (Ans (dom P.sorts) P) (E.State (R P.sorts) Rel (Ans (dom P.sorts) P))) :=
+  @Engine.step E (R P.sorts) Rel (Ans (dom P.sorts) P) Cost
+    (DerivationKernel.over (dom P.sorts) (K P.sorts) (hK P.sorts) P) s
+
+/-- The state the engine starts in on a node. -/
+abbrev Engine.startAt (P : Program) (root : Rel) : E.State (R P.sorts) Rel (Ans (dom P.sorts) P) :=
+  (@Engine.init E (R P.sorts) Rel (Ans (dom P.sorts) P) Cost
+    (DerivationKernel.over (dom P.sorts) (K P.sorts) (hK P.sorts) P) root).val
+
+/-- The machine of an engine spends at least what the steps of the engine
+cost: reporting the answers is paid on top. -/
+theorem Engine.cost_le_spent (P : Program) (root : Rel) :
+    ∀ (n : Nat) (st : E.State (R P.sorts) Rel (Ans (dom P.sorts) P)),
+      Mirror.cost (E.stepAt dom K hK P) st n ≤
+        (E.costedAt dom K hK).spent (⟨P, root, st⟩ : E.StateAt dom) n
+  | 0, _ => Nat.le_refl 0
+  | n + 1, st => by
+    have hv := Engine.costedAt_step_val (E := E) (dom := dom) (K := K) (hK := hK)
+      (⟨P, root, st⟩ : E.StateAt dom)
+    have ht : (E.stepAt dom K hK P st).ticks ≤
+        ((E.costedAt dom K hK).step (⟨P, root, st⟩ : E.StateAt dom)).ticks := by
+      show _ ≤ (E.stepAt dom K hK P st >>= E.report dom P root).ticks
+      rw [Cost.bind_ticks]; omega
+    rw [Mirror.cost_succ]
+    dsimp only at hv
+    cases hs : (E.stepAt dom K hK P st).val with
+    | emit as st' =>
+      have := Engine.cost_le_spent P root n st'
+      rw [hs] at hv
+      rw [(E.costedAt dom K hK).spent_succ_emit hv]
+      simp only [Mirror.after]
+      omega
+    | progress k st' =>
+      have := Engine.cost_le_spent P root n st'
+      rw [hs] at hv
+      rw [(E.costedAt dom K hK).spent_succ_progress hv]
+      simp only [Mirror.after]
+      omega
+    | done fin =>
+      rw [hs] at hv
+      rw [(E.costedAt dom K hK).spent_succ_done hv]
+      simp only [Mirror.after]
+      omega
+
+theorem Engine.mirrored_init_val {R : Type} [Answer R] [DecidableEq R] {D : Domain R}
+    (K : Kernel R Cost) (hK : K.Refines D) (P : Program) (root : Rel) :
+    (@Engine.init E.mirrored R Rel (Ans D P) Cost (DerivationKernel.over D K hK P) root).val =
+      ⟨(@Engine.init E R Rel (Ans D P) Cost (DerivationKernel.over D K hK P) root).val,
+        (@Engine.init E R Rel (Ans D P) Cost (DerivationKernel.over D K hK P) root.normConv).val,
+        true, 0⟩ := by
+  at_cost K hK
+  rfl
+
+/-- The first state of the mirrored engine: the two first states of the
+engine, on the node and on its converse. -/
+theorem Engine.mirrored_startAt (P : Program) (root : Rel) :
+    E.mirrored.startAt dom K hK P root =
+      ⟨E.startAt dom K hK P root, E.startAt dom K hK P root.normConv, true, 0⟩ :=
+  E.mirrored_init_val (K P.sorts) (hK P.sorts) P root
+
+/-- **The mirrored engine pays at least the cheaper of the two runs.** What
+it has paid on `q` by its `n`-th step is at least the cheaper of the first
+`n` steps of the engine from the node of `q` and from its converse. -/
+theorem Mirror.paid_ge_min (P : Program) (q : Rel) (n : Nat) :
+    min (Mirror.cost (E.stepAt dom K hK P) (E.startAt dom K hK P q.norm) n)
+        (Mirror.cost (E.stepAt dom K hK P) (E.startAt dom K hK P q.norm.normConv) n) ≤
+      (E.mirrored.costedAt dom K hK).paid P q n := by
+  have h := Mirror.cost_ge (K P.sorts) (hK P.sorts) (E.stepAt dom K hK P) n 0 true
+    (E.startAt dom K hK P q.norm) (E.startAt dom K hK P q.norm.normConv)
+  unfold Mirror.CostGe at h
+  rw [Nat.zero_add] at h
+  have h₂ := Engine.cost_le_spent E.mirrored dom K hK P q.norm n
+    (E.mirrored.startAt dom K hK P q.norm)
+  rw [Engine.mirrored_startAt] at h₂
+  have h₃ : (E.mirrored.costedAt dom K hK).start P q =
+      ⟨P, q.norm, E.mirrored.startAt dom K hK P q.norm⟩ := rfl
+  have h₄ : (E.mirrored.costedAt dom K hK).spent ((E.mirrored.costedAt dom K hK).start P q) n ≤
+      (E.mirrored.costedAt dom K hK).paid P q n := Nat.le_add_left _ _
+  rw [h₃, Engine.mirrored_startAt] at h₄
+  exact Nat.le_trans h (Nat.le_trans h₂ h₄)
+
+end engine
 
 end RwLog

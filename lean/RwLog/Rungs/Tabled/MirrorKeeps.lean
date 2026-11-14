@@ -257,6 +257,25 @@ theorem mirror_keeps (hG₀ : Good @U₀) (hE₀ : Exact @U₀) :
     · rw [init_eq]
       exact trace_step_pairwise (inv_of_wf (K := K) (hK := hK) hD hG wf) (hD _ wf.2.2.1) n 0
 
+include hD hG in
+/-- **The tabled machine emits no progress certificate.** -/
+theorem neverCertifies {P : Program} {q : Rel} (wf : P.WellFormed q) (k n : Nat) :
+    ¬ (Rt @U dom K hK).Certifies ((Rt @U dom K hK).init P q) k n := fun hc => by
+  have hI := inv_of_wf (K := K) (hK := hK) hD hG wf
+  rw [init_eq] at hc
+  exact absurd rfl (trace_no_level hI (k + 1) 0 _ (List.mem_of_getElem? hc) n)
+
+include hD hG hE in
+/-- **The mirrored tabled machine emits no progress certificate.** -/
+theorem mirror_neverCertifies {P : Program} {q : Rel} (wf : P.WellFormed q) (k n : Nat) :
+    ¬ (Mt @U dom K hK).Certifies ((Mt @U dom K hK).init P q) k n := fun hc => by
+  obtain ⟨y, hy, hxy⟩ := forall₂_getElem? (mirror_trace hD hG hE wf (k + 1)) hc
+  refine neverCertifies (K := K) (hK := hK) hD hG wf k n ?_
+  cases y with
+  | level m => obtain rfl : n = m := hxy; exact hy
+  | answers _ => exact hxy.elim
+  | final _ => exact hxy.elim
+
 include hD hG hE in
 /-- **The final report of the mirrored tabled machine is the maximal emitted
 answers.** -/
