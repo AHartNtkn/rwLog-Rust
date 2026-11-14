@@ -82,14 +82,7 @@ new variables, and the store denotes what it did. -/
 theorem expStore_den {S : Sorts} {s : Store} {N v : Nat} {f : Sym} {n : Nat} (hfin : s.Fin N)
     (hv : v < N) (h : sole S (s.c v) (gone s.x v) = some (f, n)) :
     (expStore S s N v f n).Den S = s.Den S := by
-  have hacc : Accepts S (s.c v) f n := by
-    unfold sole at h
-    split at h
-    · cases h
-    · have : (f, n) ∈ survivors S (s.c v) (gone s.x v) := by
-        rw [only_eq_some.1 h]; exact Finset.mem_singleton_self _
-      simp only [survivors, Finset.mem_filter] at this
-      exact this.2.1.1
+  have hacc : Accepts S (s.c v) f n := sole_accepts h
   ext g
   constructor
   · rintro ⟨σ', hσ', rfl⟩

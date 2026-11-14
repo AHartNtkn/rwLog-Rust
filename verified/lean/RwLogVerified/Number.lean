@@ -5,7 +5,7 @@
 (`conjOf`). `sorts::uppers` is the conjunction of every sort that holds of
 all members of a conjunction but some ground terms (`Sorts.Hold`).
 `sorts::firsts` lists the variables of a pattern in the order they first
-occur (`Sorts.firsts`). `sorts::renumber` renames the pattern and the
+occur (`RwLog.firsts`). `sorts::renumber` renames the pattern and the
 exclusions of a store by these places and gives each variable the sorts
 that hold of all its values: what `Sorts.ofTight` assembles the normal
 store from (`ofTight_abs`).
@@ -293,12 +293,12 @@ theorem uppers_spec {S : Sorts} {sp : Pat} {U : List Name} (hC : Ctx nm S sp U)
 /-! ## The variables of a term in the order they first occur -/
 
 theorem firsts_append (A R : List Nat) :
-    Sorts.firsts (A ++ R) =
-      R.foldl (fun F x => if x ∈ F then F else F ++ [x]) (Sorts.firsts A) := by
-  simp [Sorts.firsts, List.foldl_append]
+    RwLog.firsts (A ++ R) =
+      R.foldl (fun F x => if x ∈ F then F else F ++ [x]) (RwLog.firsts A) := by
+  exact RwLog.firsts_append A R
 
 theorem firsts_absorb {A M : List Nat} (h : ∀ v ∈ M, v ∈ A) :
-    Sorts.firsts (A ++ M) = Sorts.firsts A := by
+    RwLog.firsts (A ++ M) = RwLog.firsts A := by
   induction M using List.reverseRecOn with
   | nil => simp
   | append_singleton M x ih =>
@@ -307,11 +307,11 @@ theorem firsts_absorb {A M : List Nat} (h : ∀ v ∈ M, v ∈ A) :
 
 /-- Variables that occurred already do not change the list. -/
 theorem firsts_drop {A M : List Nat} (R : List Nat) (h : ∀ v ∈ M, v ∈ A) :
-    Sorts.firsts (A ++ (M ++ R)) = Sorts.firsts (A ++ R) := by
+    RwLog.firsts (A ++ (M ++ R)) = RwLog.firsts (A ++ R) := by
   rw [← List.append_assoc, firsts_append, firsts_absorb h, ← firsts_append]
 
-theorem firsts_fix_snoc {A : List Nat} {x : Nat} (h : Sorts.firsts A = A) (hx : x ∉ A) :
-    Sorts.firsts (A ++ [x]) = A ++ [x] := by
+theorem firsts_fix_snoc {A : List Nat} {x : Nat} (h : RwLog.firsts A = A) (hx : x ∉ A) :
+    RwLog.firsts (A ++ [x]) = A ++ [x] := by
   rw [Sorts.firsts_snoc, h, ite_neg' hx]
 
 /-- The variable `v` of the term `t` has been listed, or is in a term of the
@@ -388,9 +388,9 @@ structure FSt (nm : Option Nat → Sym) (n0 : List store.Node) (tp : Pat)
     (Bt : Nat → Option Nat) (st : List store.Frame) (acc : List Nat) (ps : List Pat) : Prop where
   frames : List.Forall₂ (fun f t => Repr nm n0 (fkey f) t ∧ t ∈ tp.subs) st ps
   accfl : ∀ v ∈ acc, ∃ k, Repr nm n0 k (.var v) ∧ Bt k ≠ none
-  fix : Sorts.firsts acc = acc
+  fix : RwLog.firsts acc = acc
   cov : ∀ k t, Bt k ≠ none → Repr nm n0 k t → ∀ v ∈ t.vars, Cov acc ps t v
-  goal : Sorts.firsts (acc ++ ps.flatMap Term.vars) = Sorts.firsts tp.vars
+  goal : RwLog.firsts (acc ++ ps.flatMap Term.vars) = RwLog.firsts tp.vars
 
 variable {n0 : List store.Node} {tp : Pat} {Bt : Nat → Option Nat}
 
@@ -411,7 +411,7 @@ theorem FSt.set {fr : store.Frame} {st : List store.Frame} {tq : Pat} {ps : List
     (hq : Repr nm n0 (fkey fr) tq) (r : Nat) {st' : List store.Frame} {acc' : List Nat}
     {ps' : List Pat}
     (hfr : List.Forall₂ (fun f t => Repr nm n0 (fkey f) t ∧ t ∈ tp.subs) st' ps')
-    (hnew : ∀ v ∈ acc', v ∈ acc ∨ tq = .var v) (hfix : Sorts.firsts acc' = acc')
+    (hnew : ∀ v ∈ acc', v ∈ acc ∨ tq = .var v) (hfix : RwLog.firsts acc' = acc')
     (hself : ∀ v ∈ tq.vars, Cov acc' ps' tq v)
     (hold : ∀ t v, Cov acc (tq :: ps) t v → Cov acc' ps' t v)
     (hgoal : acc' ++ ps'.flatMap Term.vars = acc ++ (tq :: ps).flatMap Term.vars) :
@@ -446,7 +446,7 @@ def FDone (nm : Option Nat → Sym) (s0 : store.Store) (tp : Pat) (Bd : Nat) (s 
     (out : store.TermId) : Prop :=
   Wf s ∧ stk s = [] ∧ Extends s0 s ∧
     Repr nm s.nodes.val out.val
-      (encList (nm none) ((Sorts.firsts tp.vars).reverse.map Term.var)) ∧
+      (encList (nm none) ((RwLog.firsts tp.vars).reverse.map Term.var)) ∧
     s.ticks.val ≤ Bd
 
 def FBodyPost (nm : Option Nat → Sym) (s0 : store.Store) (tp : Pat) (Bd : Nat) (t0 : Nat) :
@@ -472,7 +472,7 @@ theorem firsts_body_spec (hnm : Function.Injective nm) (s0 : store.Store) (tp : 
       cases hF.frames
       rfl
     subst hps
-    have hacc : acc = Sorts.firsts tp.vars := by
+    have hacc : acc = RwLog.firsts tp.vars := by
       have := hF.goal
       simp only [List.flatMap_nil, List.append_nil] at this
       rw [hF.fix] at this
@@ -669,7 +669,7 @@ theorem firsts_loop_spec (hnm : Function.Injective nm) (s0 : store.Store) (out :
     h
 
 /-- The ticks `firsts` may take. -/
-def firstsCost (t : Pat) : Nat := 8 * t.subs.card + 2 * (Sorts.firsts t.vars).length + 8
+def firstsCost (t : Pat) : Nat := 8 * t.subs.card + 2 * (RwLog.firsts t.vars).length + 8
 
 /-- `firsts` lists the variables of the term, once each, in the order they
 first occur. -/
@@ -678,7 +678,7 @@ theorem firsts_spec (hnm : Function.Injective nm) (s : store.Store) (t : store.T
     sorts.firsts s t ⦃ r s' =>
       Inv s' ∧ Extends s s' ∧ s'.ticks.val ≤ s.ticks.val + firstsCost tp ∧
         Repr nm s'.nodes.val r.val
-          (encList (nm none) ((Sorts.firsts tp.vars).map Term.var)) ⦄ := by
+          (encList (nm none) ((RwLog.firsts tp.vars).map Term.var)) ⦄ := by
   unfold sorts.firsts
   have hroom' := hroom
   unfold Room at hroom'
@@ -711,7 +711,7 @@ theorem firsts_spec (hnm : Function.Injective nm) (s : store.Store) (t : store.T
   step with firsts_loop_spec hnm s3 out tp (s3.ticks.val + 3 + 8 * tp.subs.card) (by omega)
     hW3.nodesOK hinv as ⟨s4, out1, hD⟩
   obtain ⟨hW4, hst4, hx4, hr4, ht4⟩ := hD
-  step with rev_spec ((Sorts.firsts tp.vars).reverse.map Term.var) s4 out1 hW4 hr4
+  step with rev_spec ((RwLog.firsts tp.vars).reverse.map Term.var) s4 out1 hW4 hr4
     (by simp only [List.length_map, List.length_reverse]; unfold Room; omega) as ⟨r, s5, hR, hr5⟩
   simp only [List.length_map, List.length_reverse] at hR
   have ht5 := hR.ticks
@@ -1046,8 +1046,8 @@ theorem encX_numSub {F : List Nat} {X : List (Eqns Nat)}
 /-- The ticks `renumber` may take. -/
 noncomputable def renumberCost (nm : Option Nat → RwLog.Sym) (S : Sorts) (u r q : Nat) (T : Pat)
     (X : List (Eqns Nat)) (L : List (Nat × Sorts.Conj)) : Nat :=
-  firstsCost T + conjsCost nm S u r q L.length X (Sorts.firsts T.vars) +
-    2 * (Sorts.firsts T.vars).length + numCost 0 (Sorts.firsts T.vars).length +
+  firstsCost T + conjsCost nm S u r q L.length X (RwLog.firsts T.vars) +
+    2 * (RwLog.firsts T.vars).length + numCost 0 (RwLog.firsts T.vars).length +
     14 * (T.subs ∪ (encX nm X).subs).card + 16
 
 /-- `renumber` gives the pattern and the exclusions with each variable of
@@ -1067,17 +1067,17 @@ theorem renumber_spec (hnm : Function.Injective nm) {S : Sorts} {sp : Pat} {U : 
     sorts.renumber s decls names t x es ⦃ res s' =>
       Inv s' ∧ Extends s s' ∧
         s'.ticks.val ≤ s.ticks.val + renumberCost nm S U.length r q T X L ∧
-        Repr nm s'.nodes.val res.1.val (T.bind (numSub (Sorts.firsts T.vars))) ∧
-        Repr nm s'.nodes.val res.2.1.val ((encX nm X).bind (numSub (Sorts.firsts T.vars))) ∧
+        Repr nm s'.nodes.val res.1.val (T.bind (numSub (RwLog.firsts T.vars))) ∧
+        Repr nm s'.nodes.val res.2.1.val ((encX nm X).bind (numSub (RwLog.firsts T.vars))) ∧
         Repr nm s'.nodes.val res.2.2.val
           (encList (nm none)
-            ((Sorts.firsts T.vars).map fun v => cpat (nm none) U (upConj S L X v))) ⦄ := by
+            ((RwLog.firsts T.vars).map fun v => cpat (nm none) U (upConj S L X v))) ⦄ := by
   unfold sorts.renumber
   have hroom' := hroom
   unfold Room at hroom'
   simp only [renumberCost] at hroom'
   obtain ⟨hFnd, -, -⟩ := Sorts.firsts_spec T.vars
-  generalize hFe : Sorts.firsts T.vars = F at hroom' hFnd ⊢
+  generalize hFe : RwLog.firsts T.vars = F at hroom' hFnd ⊢
   have hfc : firstsCost T = 8 * T.subs.card + 2 * F.length + 8 := by rw [firstsCost, hFe]
   step with firsts_spec hnm s t hI ht (by unfold Room; omega) as ⟨vs, s1, hI1, hx1, ht1, rvs⟩
   rw [hFe] at rvs
@@ -1123,9 +1123,9 @@ theorem renumber_spec (hnm : Function.Injective nm) {S : Sorts} {sp : Pat} {U : 
 that `Sorts.ofTight` assembles the normal store from. -/
 theorem ofTight_abs {S : Sorts} {st : TSt} (hok : st.OK) :
     Sorts.ofTight S st.abs =
-      Sorts.assembled S (st.T.rename fun v => (Sorts.firsts st.T.vars).idxOf v)
-        ((Sorts.firsts st.T.vars).map (upConj S st.L st.X))
-        (st.X.map (Eqns.ren fun v => (Sorts.firsts st.T.vars).idxOf v)) := by
+      Sorts.assembled S (st.T.rename fun v => (RwLog.firsts st.T.vars).idxOf v)
+        ((RwLog.firsts st.T.vars).map (upConj S st.L st.X))
+        (st.X.map (Eqns.ren fun v => (RwLog.firsts st.T.vars).idxOf v)) := by
   unfold Sorts.ofTight upConj
   simp only [hok.conj]
   rfl
@@ -1135,10 +1135,10 @@ theorem ofTight_abs {S : Sorts} {st : TSt} (hok : st.OK) :
 theorem ofTightXs_abs {S : Sorts} {st : TSt} (hok : st.OK) :
     Sorts.ofTightXs S st.abs =
       Sorts.antichain
-        (Sorts.covers ((Sorts.firsts st.T.vars).map (upConj S st.L st.X)).length)
-        (Sorts.normExs S ⟨st.T.rename fun v => (Sorts.firsts st.T.vars).idxOf v,
-          (Sorts.firsts st.T.vars).map (upConj S st.L st.X), ∅⟩
-          (st.X.map (Eqns.ren fun v => (Sorts.firsts st.T.vars).idxOf v))) := by
+        (Sorts.covers ((RwLog.firsts st.T.vars).map (upConj S st.L st.X)).length)
+        (Sorts.normExs S ⟨st.T.rename fun v => (RwLog.firsts st.T.vars).idxOf v,
+          (RwLog.firsts st.T.vars).map (upConj S st.L st.X), ∅⟩
+          (st.X.map (Eqns.ren fun v => (RwLog.firsts st.T.vars).idxOf v))) := by
   unfold Sorts.ofTightXs upConj
   simp only [hok.conj]
   rfl

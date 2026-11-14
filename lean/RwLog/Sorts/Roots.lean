@@ -72,6 +72,18 @@ theorem exists_of_survivor (hS : S.WellFormed) {c : Conj} {G : List GTerm} {key 
     obtain ⟨u, hu, hnot⟩ := exists_avoid hinf G _ (ofFn_update_injective f w j)
     exact ⟨_, by simp, memC_ofFn hl.1 (memC_update hw j hu), hnot⟩
 
+/-- The one root of the members outside `G` is a root every sort of `c`
+accepts. -/
+theorem sole_accepts {c : Conj} {G : List GTerm} {f : Sym} {n : Nat}
+    (h : sole S c G = some (f, n)) : Accepts S c f n := by
+  unfold sole at h
+  split at h
+  · cases h
+  · have : (f, n) ∈ survivors S c G := by
+      rw [only_eq_some.1 h]; exact Finset.mem_singleton_self _
+    simp only [survivors, Finset.mem_filter] at this
+    exact this.2.1.1
+
 /-- Every value has the root `sole` finds. -/
 theorem sole_sound {c : Conj} {G : List GTerm} {key : Sym × Nat} (h : sole S c G = some key)
     {t : GTerm} (ht : MemC S c t) (hG : t ∉ G) : t.key = some key := by

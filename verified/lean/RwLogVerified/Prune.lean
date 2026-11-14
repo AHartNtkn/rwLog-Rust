@@ -192,8 +192,8 @@ theorem moved_spec (hnm : Function.Injective nm) (VP : List (Nat × Pat)) (s : s
 /-- The ticks `solved_ex` may take. -/
 def solvedExCost (nm : Option Nat → RwLog.Sym) (E : Eqns Nat) : Nat :=
   firstsCost (encEqs nm E) +
-    solveCost E (encList (nm none) ((Sorts.firsts E.vars).map Term.var)) +
-    7 * (Sorts.firsts E.vars).length + 4
+    solveCost E (encList (nm none) ((RwLog.firsts E.vars).map Term.var)) +
+    7 * (RwLog.firsts E.vars).length + 4
 
 /-- `solved_ex` gives the solved form of an exclusion. -/
 theorem solved_ex_spec (hnm : Function.Injective nm) (E : Eqns Nat) (s : store.Store)
@@ -224,16 +224,16 @@ theorem solved_ex_spec (hnm : Function.Injective nm) (E : Eqns Nat) (s : store.S
     simp only [SolveRes, ↓reduceIte, Eqns.solveOn, Option.map_eq_some_iff] at hres
     obtain ⟨q', rvals, ⟨θ, hθ, rfl⟩, -⟩ := hres
     simp only [↓reduceIte]
-    have e1 : (encList (nm none) ((Sorts.firsts E.vars).map Term.var)).bind θ =
-        encList (nm none) (((Sorts.firsts E.vars).map fun y => (y, θ y)).map Prod.snd) := by
+    have e1 : (encList (nm none) ((RwLog.firsts E.vars).map Term.var)).bind θ =
+        encList (nm none) (((RwLog.firsts E.vars).map fun y => (y, θ y)).map Prod.snd) := by
       rw [encList_bind]
       simp [List.map_map, Function.comp_def]
     rw [e1] at rvals
-    have e2 : (Sorts.firsts E.vars).map Term.var =
-        ((Sorts.firsts E.vars).map fun y => (y, θ y)).map fun q : Nat × Pat => Term.var q.1 := by
+    have e2 : (RwLog.firsts E.vars).map Term.var =
+        ((RwLog.firsts E.vars).map fun y => (y, θ y)).map fun q : Nat × Pat => Term.var q.1 := by
       simp [List.map_map, Function.comp_def]
     rw [e2] at rvs
-    step with moved_spec hnm ((Sorts.firsts E.vars).map fun y => (y, θ y)) s2 vs vals hI2
+    step with moved_spec hnm ((RwLog.firsts E.vars).map fun y => (y, θ y)) s2 vs vals hI2
       (hx2.repr rvs) rvals (by simp only [List.length_map]; unfold Room; omega)
       as ⟨ti, s3, hI3, hx3, ht3, rti⟩
     simp only [List.length_map] at ht3

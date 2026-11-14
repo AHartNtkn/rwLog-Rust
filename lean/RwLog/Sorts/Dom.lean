@@ -132,7 +132,7 @@ theorem join_shift (a : Rep S) (σ₁ σ₂ : Nat → GTerm) :
 
 theorem join_sol (a : Rep S) {σ₁ : Nat → GTerm} (σ₂ : Nat → GTerm) (h : σ₁ ∈ a.1.store.Sol S) :
     a.join σ₁ σ₂ ∈ a.1.store.Sol S :=
-  Raw.Normal.sol_congr a.normal (fun v hv => by simp [join, hv]) h
+  Raw.Shaped.sol_congr a.normal.toShaped (fun v hv => by simp [join, hv]) h
 
 theorem join_bind (a : Rep S) (σ₁ σ₂ : Nat → GTerm) {q : Pat}
     (hq : ∀ v ∈ q.vars, v < a.1.c.length) : q.bind (a.join σ₁ σ₂) = q.bind σ₁ :=
@@ -242,7 +242,7 @@ theorem den_two (a b : Rep S) {ρ₁ ρ₂ : Nat → Nat} (h₁ : Injective ρ�
   · rintro ⟨σ, hσ, rfl⟩
     obtain ⟨hu, ha, hb⟩ := (hsol σ).1 hσ
     refine ⟨σ ∘ a.apart ρ₁ ρ₂, (a.1.prob₂_sol b.1 t e _).2 ⟨unifies_ren.1 hu, ?_, ?_⟩, ?_⟩
-    · exact Raw.Normal.sol_congr a.normal (fun v hv => by simp [apart, hv]) ha
+    · exact Raw.Shaped.sol_congr a.normal.toShaped (fun v hv => by simp [apart, hv]) ha
     · rw [hshift]; exact hb
     · rw [ht, rename_bind]; rfl
   · rintro ⟨σ', hσ', rfl⟩
@@ -256,7 +256,7 @@ theorem den_two (a b : Rep S) {ρ₁ ρ₂ : Nat → Nat} (h₁ : Injective ρ�
       show (if h : ∃ u, a.apart ρ₁ ρ₂ u = a.apart ρ₁ ρ₂ v then σ' h.choose else σ' 0) = σ' v
       rw [dite_eq_left_of_eq_true (eq_true h), hπ h.choose_spec]
     refine ⟨σ, (hsol σ).2 ⟨unifies_ren.2 (by rw [hσ]; exact hu), ?_, ?_⟩, ?_⟩
-    · refine Raw.Normal.sol_congr a.normal (fun v hv => ?_) ha
+    · refine Raw.Shaped.sol_congr a.normal.toShaped (fun v hv => ?_) ha
       have := congrFun hσ v
       simp only [comp_apply, apart, hv, ↓reduceIte] at this
       exact this

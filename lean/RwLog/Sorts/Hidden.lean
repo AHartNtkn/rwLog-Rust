@@ -172,7 +172,8 @@ theorem Raw.Normal.proj {S : Sorts} (hS : S.WellFormed) {r : Raw} (hr : r.Normal
     have := hr.fo; rw [ht, tpair_fo, Bool.and_eq_true] at this; exact this.1
   have exsub : ∀ θ, r.Ex S θ ⊆ r'.Ex S θ := fun θ σ hσ => ⟨posr σ hσ.1, hσ.2⟩
   show r'.Normal S ∧ ∀ g, g ∈ r'.store.Den S ↔ ∃ σ ∈ r.store.Sol S, g = a.bind σ
-  refine ⟨⟨hfo, hoccA, fun v => by rw [hlen]; exact hk v, ?_, ?_, ?_, ?_⟩, ?_⟩
+  refine ⟨⟨⟨hfo, hoccA, fun v => by rw [hlen]; exact hk v, ?_, ?_, ?_⟩, ?_⟩, ?_⟩
+  pick_goal 4
   · intro v hv
     rw [hlen] at hv
     obtain ⟨σ, hσ, σ', hσ', hne⟩ := hr.two v (by omega)

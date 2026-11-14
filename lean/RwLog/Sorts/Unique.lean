@@ -51,19 +51,19 @@ theorem Term.rename_eq_self {t : Pat} {ρ : Nat → Nat} (h : ∀ v ∈ t.vars, 
   conv_rhs => rw [← Term.bind_var_id t]
   exact Term.bind_congr fun v hv => by rw [h v hv]
 
-namespace Raw.Normal
+namespace Raw.Shaped
 
 variable {S : Sorts} {r r' : Raw}
 
 /-- Whether a substitution is a solution depends only on the values of the
 variables of the store. -/
-theorem sol_congr (hr : r.Normal S) {σ σ' : Nat → GTerm} (h : ∀ v, v < r.c.length → σ v = σ' v)
+theorem sol_congr (hr : r.Shaped S) {σ σ' : Nat → GTerm} (h : ∀ v, v < r.c.length → σ v = σ' v)
     (hσ' : σ' ∈ r.store.Sol S) : σ ∈ r.store.Sol S := by
   refine ⟨fun v => ?_, ?_⟩
   · by_cases hv : v < r.c.length
     · rw [h v hv]; exact hσ'.1 v
     · show MemC S (r.conj v) (σ v)
-      rw [conj_of_ge r (Nat.le_of_not_lt hv)]; intro n hn; simp at hn
+      rw [Raw.Normal.conj_of_ge r (Nat.le_of_not_lt hv)]; intro n hn; simp at hn
   · intro E hE hu
     obtain ⟨θ, hθ, rfl⟩ := Raw.mem_store_x.1 hE
     refine hσ'.2 _ hE ?_
@@ -75,6 +75,51 @@ theorem sol_congr (hr : r.Normal S) {σ σ' : Nat → GTerm} (h : ∀ v, v < r.c
     have := hu _ (List.mem_map.2 ⟨b, hb, rfl⟩)
     simp only [Term.bind_var] at this ⊢
     rw [← h b.1 (hn.dom b hb), ← e]; exact this
+
+/-- Two stores determined by pattern and denotation, with the same pattern
+and the same denotation, have the same solutions. -/
+theorem sol_eq_of_t (hr : r.Shaped S) (hr' : r'.Shaped S) (ht : r.t = r'.t)
+    (hden : r.store.Den S = r'.store.Den S) : r.store.Sol S = r'.store.Sol S := by
+  have key : ∀ {a b : Raw}, a.Shaped S → b.Shaped S → a.t = b.t →
+      a.store.Den S = b.store.Den S → a.store.Sol S ⊆ b.store.Sol S := by
+    intro a b _ hb hab hd σ hσ
+    have : a.t.bind σ ∈ b.store.Den S := hd ▸ ⟨σ, hσ, rfl⟩
+    obtain ⟨σ', hσ', e⟩ := this
+    refine hb.sol_congr (fun v hv => ?_) hσ'
+    have e' : b.t.bind σ = b.t.bind σ' := by
+      have e₀ : a.t.bind σ = b.t.bind σ' := e
+      rw [← hab]; rw [← hab] at e₀; exact e₀
+    exact bind_agree e' v ((hb.len v).2 hv)
+  exact Set.Subset.antisymm (key hr hr' ht hden) (key hr' hr ht.symm hden.symm)
+
+/-- Two stores determined by pattern and denotation, with the same pattern
+and the same denotation, have the same sorts. -/
+theorem c_eq_of_t (hr : r.Shaped S) (hr' : r'.Shaped S) (ht : r.t = r'.t)
+    (hden : r.store.Den S = r'.store.Den S) : r.c = r'.c := by
+  have hsol := sol_eq_of_t hr hr' ht hden
+  have hlen : r.c.length = r'.c.length := by
+    apply Nat.le_antisymm
+    · by_contra h
+      have := (hr.len r'.c.length).2 (by omega)
+      rw [ht] at this
+      exact absurd ((hr'.len _).1 this) (Nat.lt_irrefl _)
+    · by_contra h
+      have := (hr'.len r.c.length).2 (by omega)
+      rw [← ht] at this
+      exact absurd ((hr.len _).1 this) (Nat.lt_irrefl _)
+  apply List.ext_getElem hlen
+  intro v hv hv'
+  have e₁ : r.c[v] = r.conj v := by simp [Raw.conj, List.getD_eq_getElem?_getD, hv]
+  have e₂ : r'.c[v] = r'.conj v := by simp [Raw.conj, List.getD_eq_getElem?_getD, hv']
+  rw [e₁, e₂]
+  ext n
+  rw [hr.up v hv, hr'.up v hv', hsol]
+
+end Raw.Shaped
+
+namespace Raw.Normal
+
+variable {S : Sorts} {r r' : Raw}
 
 section shape
 
@@ -228,42 +273,13 @@ theorem t_eq (hS : S.WellFormed) (hr : r.Normal S) (hr' : r'.Normal S)
 
 /-- Two normal stores with the same denotation have the same solutions. -/
 theorem sol_eq (hS : S.WellFormed) (hr : r.Normal S) (hr' : r'.Normal S)
-    (hden : r.store.Den S = r'.store.Den S) : r.store.Sol S = r'.store.Sol S := by
-  have ht := t_eq hS hr hr' hden
-  have key : ∀ {a b : Raw}, a.Normal S → b.Normal S → a.t = b.t →
-      a.store.Den S = b.store.Den S → a.store.Sol S ⊆ b.store.Sol S := by
-    intro a b ha hb hab hd σ hσ
-    have : a.t.bind σ ∈ b.store.Den S := hd ▸ ⟨σ, hσ, rfl⟩
-    obtain ⟨σ', hσ', e⟩ := this
-    refine hb.sol_congr (fun v hv => ?_) hσ'
-    have e' : b.t.bind σ = b.t.bind σ' := by
-      have e₀ : a.t.bind σ = b.t.bind σ' := e
-      rw [← hab]; rw [← hab] at e₀; exact e₀
-    exact bind_agree e' v ((hb.len v).2 hv)
-  exact Set.Subset.antisymm (key hr hr' ht hden) (key hr' hr ht.symm hden.symm)
+    (hden : r.store.Den S = r'.store.Den S) : r.store.Sol S = r'.store.Sol S :=
+  hr.toShaped.sol_eq_of_t hr'.toShaped (t_eq hS hr hr' hden) hden
 
 /-- Two normal stores with the same denotation have the same sorts. -/
 theorem c_eq (hS : S.WellFormed) (hr : r.Normal S) (hr' : r'.Normal S)
-    (hden : r.store.Den S = r'.store.Den S) : r.c = r'.c := by
-  have ht := t_eq hS hr hr' hden
-  have hsol := sol_eq hS hr hr' hden
-  have hlen : r.c.length = r'.c.length := by
-    apply Nat.le_antisymm
-    · by_contra h
-      have := (hr.len r'.c.length).2 (by omega)
-      rw [ht] at this
-      exact absurd ((hr'.len _).1 this) (Nat.lt_irrefl _)
-    · by_contra h
-      have := (hr'.len r.c.length).2 (by omega)
-      rw [← ht] at this
-      exact absurd ((hr.len _).1 this) (Nat.lt_irrefl _)
-  apply List.ext_getElem hlen
-  intro v hv hv'
-  have e₁ : r.c[v] = r.conj v := by simp [Raw.conj, List.getD_eq_getElem?_getD, hv]
-  have e₂ : r'.c[v] = r'.conj v := by simp [Raw.conj, List.getD_eq_getElem?_getD, hv']
-  rw [e₁, e₂]
-  ext n
-  rw [hr.up v hv, hr'.up v hv', hsol]
+    (hden : r.store.Den S = r'.store.Den S) : r.c = r'.c :=
+  hr.toShaped.c_eq_of_t hr'.toShaped (t_eq hS hr hr' hden) hden
 
 end Raw.Normal
 

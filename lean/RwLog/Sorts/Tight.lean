@@ -74,9 +74,12 @@ section expand
 
 variable {S : Sorts} {s : Store} {N v : Nat} {f : Sym} {n : Nat}
 
-theorem expStore_fwd (hfin : s.Fin N) (hv : v < N) {σ : Nat → GTerm} (hσ : σ ∈ s.Sol S)
+/-- A solution of a store, changed on the new variables to the arguments of
+the value of `v`, solves the store with `v` replaced. -/
+theorem expStore_up (hfin : s.Fin N) (hv : v < N) {σ : Nat → GTerm} (hσ : σ ∈ s.Sol S)
     {gs : List GTerm} (hσv : σ v = Term.mk f gs) (hlen : gs.length = n) :
-    ∃ σ' ∈ (expStore S s N v f n).Sol S, (expStore S s N v f n).t.bind σ' = s.t.bind σ := by
+    ∃ σ' ∈ (expStore S s N v f n).Sol S, (∀ w, w < N → σ' w = σ w) ∧
+      (expVar N n f).bind σ' = σ v := by
   subst hlen
   let σ' : Nat → GTerm := fun w =>
     if N ≤ w ∧ w < N + gs.length then gs.getD (w - N) (.sym "") else σ w
@@ -92,12 +95,7 @@ theorem expStore_fwd (hfin : s.Fin N) (hv : v < N) {σ : Nat → GTerm} (hσ : �
     rw [ite_eq_left (by omega)]
     simp [List.getD_eq_getElem?_getD, hi]
   have hv' : σ' v = (expVar N gs.length f).bind σ' := by rw [hlow v hv, hσv, hu]
-  have hb : ∀ q : Pat, (∀ w ∈ q.vars, w < N) →
-      (q.bind (Term.single v (expVar N gs.length f))).bind σ' = q.bind σ := by
-    intro q hq
-    rw [bind_single_bind hv']
-    exact Term.bind_congr fun w hw => hlow w (hq w hw)
-  refine ⟨σ', ⟨?_, ?_⟩, hb s.t hfin.tv⟩
+  refine ⟨σ', ⟨?_, ?_⟩, hlow, by rw [hu, hσv]⟩
   · intro w
     show MemC S (if w = v then ∅ else if N ≤ w ∧ w < N + gs.length
       then kidC S (s.c v) f gs.length (w - N) else s.c w) (σ' w)
@@ -119,9 +117,20 @@ theorem expStore_fwd (hfin : s.Fin N) (hv : v < N) {σ : Nat → GTerm} (hσ : �
     refine hσ.2 E hE (unifies_congr (fun p hp w hw => hlow w (hfin.xv E hE p hp w hw)) ?_)
     exact (unifies_subst_iff hv' E).1 hu'
 
-theorem expStore_bwd (hfin : s.Fin N) (hv : v < N) (hacc : Accepts S (s.c v) f n)
+theorem expStore_fwd (hfin : s.Fin N) (hv : v < N) {σ : Nat → GTerm} (hσ : σ ∈ s.Sol S)
+    {gs : List GTerm} (hσv : σ v = Term.mk f gs) (hlen : gs.length = n) :
+    ∃ σ' ∈ (expStore S s N v f n).Sol S, (expStore S s N v f n).t.bind σ' = s.t.bind σ := by
+  obtain ⟨σ', hσ', hlow, hu⟩ := expStore_up hfin hv hσ hσv hlen
+  refine ⟨σ', hσ', ?_⟩
+  show (s.t.bind (Term.single v (expVar N n f))).bind σ' = _
+  rw [bind_single_bind (by rw [hlow v hv, hu])]
+  exact Term.bind_congr fun w hw => hlow w (hfin.tv w hw)
+
+/-- A solution of the store with `v` replaced, read through the
+replacement, solves the store. -/
+theorem expStore_down (hfin : s.Fin N) (hv : v < N) (hacc : Accepts S (s.c v) f n)
     {σ' : Nat → GTerm} (hσ' : σ' ∈ (expStore S s N v f n).Sol S) :
-    ∃ σ ∈ s.Sol S, s.t.bind σ = (expStore S s N v f n).t.bind σ' := by
+    (fun w => (Term.single v (expVar N n f) w).bind σ') ∈ s.Sol S := by
   let σ : Nat → GTerm := fun w => (Term.single v (expVar N n f) w).bind σ'
   have hb : ∀ q : Pat, q.bind σ = (q.bind (Term.single v (expVar N n f))).bind σ' :=
     fun q => (Term.bind_bind _ _ q).symm
@@ -130,7 +139,7 @@ theorem expStore_bwd (hfin : s.Fin N) (hv : v < N) (hacc : Accepts S (s.c v) f n
   have hσv : σ v = (expVar N n f).bind σ' := by simp [σ, Term.single]
   have hc : ∀ w, MemC S (if w = v then ∅ else if N ≤ w ∧ w < N + n
       then kidC S (s.c v) f n (w - N) else s.c w) (σ' w) := hσ'.1
-  refine ⟨σ, ⟨?_, ?_⟩, hb s.t⟩
+  refine ⟨?_, ?_⟩
   · intro w
     by_cases hwv : w = v
     · subst hwv
@@ -155,6 +164,11 @@ theorem expStore_bwd (hfin : s.Fin N) (hv : v < N) (hacc : Accepts S (s.c v) f n
     obtain ⟨q, hq, rfl⟩ := List.mem_map.1 hp
     show (q.1.bind _).bind σ' = (q.2.bind _).bind σ'
     rw [← hb, ← hb]; exact hu q hq
+
+theorem expStore_bwd (hfin : s.Fin N) (hv : v < N) (hacc : Accepts S (s.c v) f n)
+    {σ' : Nat → GTerm} (hσ' : σ' ∈ (expStore S s N v f n).Sol S) :
+    ∃ σ ∈ s.Sol S, s.t.bind σ = (expStore S s N v f n).t.bind σ' :=
+  ⟨_, expStore_down hfin hv hacc hσ', (Term.bind_bind _ _ s.t).symm⟩
 
 /-- Replacing a variable of the pattern keeps the store first-order, with its
 variables below the new bound. -/
