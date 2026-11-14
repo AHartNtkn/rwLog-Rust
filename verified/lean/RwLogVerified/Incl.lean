@@ -2342,4 +2342,478 @@ theorem out_graph_loop_spec {S : Sorts} {sp : Pat} {U : List Name} (hC : Ctx nm 
       exact ⟨m', Dn', (R5.trans hR).mono (by simp only [Nat.add_mul, Nat.one_mul]; omega),
         hFm, hrg, hInv''⟩
 
+/-- `out_graph` goes through the keys the key reaches, each once, and gives
+them with their alternatives. Table `B` flags the keys gone through. -/
+theorem out_graph_spec {S : Sorts} {sp : Pat} {U : List Name} (hC : Ctx nm S sp U)
+    (p₀ : Key) (hp : KeyOK (nm none) U p₀) (s : store.Store) (decls names pi : store.TermId)
+    (hI : Inv s) (hde : Repr nm s.nodes.val decls.val sp)
+    (hU : Repr nm s.nodes.val names.val (namesPat (nm none) U))
+    (hpi : Repr nm s.nodes.val pi.val (keyPat (nm none) U p₀))
+    (hroom : Room s ((Sorts.reachGSet S p₀).card * nodeGCost S U.length + 5)) :
+    sorts.out_graph s decls names pi ⦃ r => ∃ m Dn,
+      RanB s r.2 ((Sorts.reachGSet S p₀).card * nodeGCost S U.length + 5) ∧
+        FlagsK nm r.2 U m ∧
+        Repr nm r.2.nodes.val r.1.val
+          (graphKPat (nm none) U (Dn.map (entryOf S U (nm none)))) ∧
+        WalkG S U (nm none) p₀ [] Dn m ⦄ := by
+  unfold sorts.out_graph
+  have hroom' := hroom
+  unfold Room at hroom'
+  have hW := hI.toWf
+  step with alloc_w s .Nil hW trivial (by unfold Room; omega)
+    as ⟨nil, s1, hW1, ht1, htb1, hx1, hid1, hst1⟩
+  step with clear_w s1 .B hW1 (by unfold Room; omega) as ⟨s2, hn2, ht2, hW2, hcl, hoth, hst2⟩
+  have hx2 : Extends s s2 := hx1.trans (Extends.of_eq hn2 (by omega))
+  step with set_flag_w s2 .B pi false hW2 (hx2.repr hpi).lt (by unfold Room; omega)
+    as ⟨s3, hn3, ht3, hW3, htb3, htbo3, hst3⟩
+  have hx3 : Extends s s3 := hx2.trans (Extends.of_eq hn3 (by omega))
+  have hF2 : FlagsK nm s2 U fun _ => none := Flags.clear hcl
+  have hF3 := hF2.set hC.inj (keyPat_patInj (nm none) U) hW2 (b := false) hp (hx2.repr hpi) hn3
+    (by simpa using htb3)
+  have rnil : Repr nm s3.nodes.val nil.val (.sym (nm none)) := by
+    rw [hn3, hn2]; exact .nil hid1
+  step with alloc_w s3 (.App pi nil) hW3 ⟨(hx3.repr hpi).lt, rnil.lt⟩ (by unfold Room; omega)
+    as ⟨todo, s4, hW4, ht4, htb4, hx4, hid4, hst4⟩
+  have R4 : RanB s s4 4 := ⟨hW4, hx3.trans hx4, by rw [hst4, hst3, hst2, hst1], by omega⟩
+  have hInv : WalkG S U (nm none) p₀ [p₀] [] (Function.update (fun _ => none) p₀ (some false)) := by
+    have hne : ∀ q, Function.update (fun _ : Key => (none : Option Bool)) p₀ (some false) q
+        ≠ none ↔ q = p₀ := by
+      intro q
+      by_cases h : q = p₀
+      · subst h; simp
+      · simp [h]
+    refine ⟨by simp, fun q => by rw [hne]; simp, (hne p₀).2 rfl, fun q h => ?_,
+      fun q h => (by cases h)⟩
+    rw [(hne q).1 h]; exact .refl
+  have rtodo : Repr nm s4.nodes.val todo.val (keysPat (nm none) U [p₀]) := by
+    simp only [keysPat, List.map_cons, List.map_nil, encList]
+    exact .app hid4 (hx4.repr (hx3.repr hpi)) (hx4.repr rnil)
+  have rgraph : Repr nm s4.nodes.val nil.val
+      (graphKPat (nm none) U (([] : List Key).map (entryOf S U (nm none)))) := hx4.repr rnil
+  refine WP.spec_mono (out_graph_loop_spec hC p₀ decls names (Sorts.reachGSet S p₀).card s4 todo
+    nil [p₀] [] _ (by simp) (R4.inv hI) (hF3.mono hx4 (by rw [htb4])) hInv (R4.ext.repr hde)
+    (R4.ext.repr hU) rtodo rgraph (by unfold Room; omega)) ?_
+  rintro r ⟨m', Dn', hR, hFm, hrg, hInv'⟩
+  exact ⟨m', Dn', (R4.trans hR).mono (by omega), hFm, hrg, hInv'⟩
+
+/-! ## Is every key of a list flagged, is some key -/
+
+/-- Table `A` flags the keys as `m` says. -/
+abbrev FlagsO (nm : Option Nat → RwLog.Sym) (s : store.Store) (U : List Name)
+    (m : Key → Option Bool) : Prop :=
+  Flags nm s .A (keyPat (nm none) U) (KeyOK (nm none) U) m
+
+theorem all_out_done (s : store.Store) (pairs : store.TermId) (ok1 : Bool) :
+    sorts.all_out_loop s pairs ok1 false ⦃ r => r = (ok1, s) ⦄ := by
+  unfold sorts.all_out_loop
+  rw [loop]
+  simp only [sorts.all_out_loop.body, Bool.false_eq_true, ↓reduceIte, bind_ok]
+  step*
+
+theorem all_out_loop_spec (hnm : Function.Injective nm) {U : List Name}
+    {m : Key → Option Bool} :
+    ∀ (g : List Key) (s : store.Store) (pairs : store.TermId), Wf s → FlagsO nm s U m →
+    (∀ q ∈ g, KeyOK (nm none) U q) → Repr nm s.nodes.val pairs.val (keysPat (nm none) U g) →
+    Room s (2 * g.length + 1) →
+    sorts.all_out_loop s pairs true true ⦃ r =>
+      Ran s r.2 (2 * g.length + 1) ∧ (r.1 = true ↔ ∀ q ∈ g, m q ≠ none) ⦄ := by
+  intro g
+  induction g with
+  | nil =>
+    intro s pairs hW hF hs hk hroom
+    have hroom' := hroom
+    unfold Room at hroom'
+    unfold sorts.all_out_loop
+    rw [loop]
+    simp only [sorts.all_out_loop.body, ↓reduceIte]
+    step with uncons_repr s pairs hW hk (by unfold Room; omega) as ⟨r0, hK, hu⟩
+    obtain ⟨o, s1⟩ := r0
+    simp only [keysPat] at hu
+    simp only at hK
+    subst hu
+    simp only [uncurry, bind_ok]
+    have hdn := all_out_done s1 pairs true
+    unfold sorts.all_out_loop at hdn
+    refine WP.spec_mono hdn ?_
+    rintro r rfl
+    exact ⟨hK.ran.mono (by omega), by simp⟩
+  | cons x g ih =>
+    intro s pairs hW hF hs hk hroom
+    have hroom' := hroom
+    unfold Room at hroom'
+    simp only [List.length_cons] at hroom'
+    unfold sorts.all_out_loop
+    rw [loop]
+    simp only [sorts.all_out_loop.body, ↓reduceIte]
+    step with uncons_repr s pairs hW hk (by unfold Room; omega) as ⟨r0, hK, hu⟩
+    obtain ⟨o, s1⟩ := r0
+    simp only [keysPat] at hu
+    simp only at hK
+    obtain ⟨k, t, rfl, rk, rt⟩ := hu
+    have ht1 := hK.ticks
+    step with get_flag_w s1 .A k hK.wf (by rw [hK.nodes]; exact rk.lt) (by unfold Room; omega)
+      as ⟨r1, hfl, hK2⟩
+    obtain ⟨o1, s2⟩ := r1
+    simp only at hfl hK2
+    have ht2 := hK2.ticks
+    have hmx : o1 = m x := by
+      rw [hfl]
+      have := hF.get hnm (keyPat_patInj (nm none) U) hW (hs x List.mem_cons_self) rk
+      simp only [flagT] at this
+      rw [hK.tbl]; exact this
+    have R2 : Ran s s2 2 := (hK.ran.trans hK2.ran)
+    cases o1 with
+    | none =>
+      simp only [uncurry, bind_ok]
+      have hdn := all_out_done s2 pairs false
+      unfold sorts.all_out_loop at hdn
+      refine WP.spec_mono hdn ?_
+      rintro r rfl
+      exact ⟨R2.mono (by simp only [List.length_cons]; omega),
+        fun h => (by cases h), fun h => absurd hmx.symm (h x List.mem_cons_self)⟩
+    | some b =>
+      simp only [uncurry, bind_ok]
+      have hn2 : s2.nodes.val = s.nodes.val := by rw [hK2.nodes, hK.nodes]
+      have IH := ih s2 t hK2.wf (hF.mono R2.ext (by rw [R2.tbl]))
+        (fun c hc => hs c (List.mem_cons_of_mem _ hc)) (by rw [hn2]; exact rt)
+        (by unfold Room; omega)
+      unfold sorts.all_out_loop at IH
+      refine WP.spec_mono IH ?_
+      rintro r ⟨hR, hr⟩
+      refine ⟨(R2.trans hR).mono (by simp only [List.length_cons]; omega), ?_⟩
+      rw [hr]
+      constructor
+      · intro h q hq
+        rcases List.mem_cons.1 hq with rfl | hq
+        · rw [← hmx]; simp
+        · exact h q hq
+      · intro h q hq
+        exact h q (List.mem_cons_of_mem _ hq)
+
+/-- `all_out` answers whether table `A` flags every key of the list. -/
+theorem all_out_spec (hnm : Function.Injective nm) {U : List Name} {m : Key → Option Bool}
+    (g : List Key) (s : store.Store) (pairs : store.TermId) (hW : Wf s) (hF : FlagsO nm s U m)
+    (hs : ∀ q ∈ g, KeyOK (nm none) U q)
+    (hk : Repr nm s.nodes.val pairs.val (keysPat (nm none) U g))
+    (hroom : Room s (2 * g.length + 1)) :
+    sorts.all_out s pairs ⦃ r =>
+      Ran s r.2 (2 * g.length + 1) ∧ (r.1 = true ↔ ∀ q ∈ g, m q ≠ none) ⦄ :=
+  all_out_loop_spec hnm g s pairs hW hF hs hk hroom
+
+theorem any_out_done (s : store.Store) (pairs : store.TermId) (found : Bool) :
+    sorts.any_out_loop s pairs found false ⦃ r => r = (found, s) ⦄ := by
+  unfold sorts.any_out_loop
+  rw [loop]
+  simp only [sorts.any_out_loop.body, Bool.false_eq_true, ↓reduceIte, bind_ok]
+  step*
+
+theorem any_out_loop_spec (hnm : Function.Injective nm) {U : List Name}
+    {m : Key → Option Bool} :
+    ∀ (g : List Key) (s : store.Store) (pairs : store.TermId), Wf s → FlagsO nm s U m →
+    (∀ q ∈ g, KeyOK (nm none) U q) → Repr nm s.nodes.val pairs.val (keysPat (nm none) U g) →
+    Room s (2 * g.length + 1) →
+    sorts.any_out_loop s pairs false true ⦃ r =>
+      Ran s r.2 (2 * g.length + 1) ∧ (r.1 = true ↔ ∃ q ∈ g, m q ≠ none) ⦄ := by
+  intro g
+  induction g with
+  | nil =>
+    intro s pairs hW hF hs hk hroom
+    have hroom' := hroom
+    unfold Room at hroom'
+    unfold sorts.any_out_loop
+    rw [loop]
+    simp only [sorts.any_out_loop.body, ↓reduceIte]
+    step with uncons_repr s pairs hW hk (by unfold Room; omega) as ⟨r0, hK, hu⟩
+    obtain ⟨o, s1⟩ := r0
+    simp only [keysPat] at hu
+    simp only at hK
+    subst hu
+    simp only [uncurry, bind_ok]
+    have hdn := any_out_done s1 pairs false
+    unfold sorts.any_out_loop at hdn
+    refine WP.spec_mono hdn ?_
+    rintro r rfl
+    exact ⟨hK.ran.mono (by omega), by simp⟩
+  | cons x g ih =>
+    intro s pairs hW hF hs hk hroom
+    have hroom' := hroom
+    unfold Room at hroom'
+    simp only [List.length_cons] at hroom'
+    unfold sorts.any_out_loop
+    rw [loop]
+    simp only [sorts.any_out_loop.body, ↓reduceIte]
+    step with uncons_repr s pairs hW hk (by unfold Room; omega) as ⟨r0, hK, hu⟩
+    obtain ⟨o, s1⟩ := r0
+    simp only [keysPat] at hu
+    simp only at hK
+    obtain ⟨k, t, rfl, rk, rt⟩ := hu
+    have ht1 := hK.ticks
+    step with get_flag_w s1 .A k hK.wf (by rw [hK.nodes]; exact rk.lt) (by unfold Room; omega)
+      as ⟨r1, hfl, hK2⟩
+    obtain ⟨o1, s2⟩ := r1
+    simp only at hfl hK2
+    have ht2 := hK2.ticks
+    have hmx : o1 = m x := by
+      rw [hfl]
+      have := hF.get hnm (keyPat_patInj (nm none) U) hW (hs x List.mem_cons_self) rk
+      simp only [flagT] at this
+      rw [hK.tbl]; exact this
+    have R2 : Ran s s2 2 := (hK.ran.trans hK2.ran)
+    cases o1 with
+    | some b =>
+      simp only [uncurry, bind_ok]
+      have hdn := any_out_done s2 pairs true
+      unfold sorts.any_out_loop at hdn
+      refine WP.spec_mono hdn ?_
+      rintro r rfl
+      exact ⟨R2.mono (by simp only [List.length_cons]; omega),
+        fun _ => ⟨x, List.mem_cons_self, by rw [← hmx]; simp⟩, fun _ => rfl⟩
+    | none =>
+      simp only [uncurry, bind_ok]
+      have hn2 : s2.nodes.val = s.nodes.val := by rw [hK2.nodes, hK.nodes]
+      have IH := ih s2 t hK2.wf (hF.mono R2.ext (by rw [R2.tbl]))
+        (fun c hc => hs c (List.mem_cons_of_mem _ hc)) (by rw [hn2]; exact rt)
+        (by unfold Room; omega)
+      unfold sorts.any_out_loop at IH
+      refine WP.spec_mono IH ?_
+      rintro r ⟨hR, hr⟩
+      refine ⟨(R2.trans hR).mono (by simp only [List.length_cons]; omega), ?_⟩
+      rw [hr]
+      constructor
+      · rintro ⟨q, hq, h⟩
+        exact ⟨q, List.mem_cons_of_mem _ hq, h⟩
+      · rintro ⟨q, hq, h⟩
+        rcases List.mem_cons.1 hq with rfl | hq
+        · exact absurd hmx.symm h
+        · exact ⟨q, hq, h⟩
+
+/-- `any_out` answers whether table `A` flags some key of the list. -/
+theorem any_out_spec (hnm : Function.Injective nm) {U : List Name} {m : Key → Option Bool}
+    (g : List Key) (s : store.Store) (pairs : store.TermId) (hW : Wf s) (hF : FlagsO nm s U m)
+    (hs : ∀ q ∈ g, KeyOK (nm none) U q)
+    (hk : Repr nm s.nodes.val pairs.val (keysPat (nm none) U g))
+    (hroom : Room s (2 * g.length + 1)) :
+    sorts.any_out s pairs ⦃ r =>
+      Ran s r.2 (2 * g.length + 1) ∧ (r.1 = true ↔ ∃ q ∈ g, m q ≠ none) ⦄ :=
+  any_out_loop_spec hnm g s pairs hW hF hs hk hroom
+
+/-! ## Has some alternative all it asks -/
+
+/-- The ticks going through lists of guards may spend. -/
+def nowsW : List (List Key) → Nat
+  | [] => 1
+  | g :: l => 2 * g.length + 2 + nowsW l
+
+theorem any_now_done (s : store.Store) (nows : store.TermId) (found : Bool) :
+    sorts.any_now_loop s nows found false ⦃ r => r = (found, s) ⦄ := by
+  unfold sorts.any_now_loop
+  rw [loop]
+  simp only [sorts.any_now_loop.body, Bool.false_eq_true, ↓reduceIte, bind_ok]
+  step*
+
+theorem any_now_loop_spec (hnm : Function.Injective nm) {U : List Name}
+    {m : Key → Option Bool} :
+    ∀ (l : List (List Key)) (s : store.Store) (nows : store.TermId), Wf s → FlagsO nm s U m →
+    (∀ g ∈ l, ∀ q ∈ g, KeyOK (nm none) U q) →
+    Repr nm s.nodes.val nows.val (nowsPat (nm none) U l) → Room s (nowsW l) →
+    sorts.any_now_loop s nows false true ⦃ r =>
+      Ran s r.2 (nowsW l) ∧ (r.1 = true ↔ ∃ g ∈ l, ∀ q ∈ g, m q ≠ none) ⦄ := by
+  intro l
+  induction l with
+  | nil =>
+    intro s nows hW hF hs hk hroom
+    have hroom' := hroom
+    unfold Room at hroom'
+    simp only [nowsW] at hroom'
+    unfold sorts.any_now_loop
+    rw [loop]
+    simp only [sorts.any_now_loop.body, ↓reduceIte]
+    step with uncons_repr s nows hW hk (by unfold Room; omega) as ⟨r0, hK, hu⟩
+    obtain ⟨o, s1⟩ := r0
+    simp only [nowsPat] at hu
+    simp only at hK
+    subst hu
+    simp only [uncurry, bind_ok]
+    have hdn := any_now_done s1 nows false
+    unfold sorts.any_now_loop at hdn
+    refine WP.spec_mono hdn ?_
+    rintro r rfl
+    exact ⟨hK.ran.mono (by simp only [nowsW]; omega), by simp⟩
+  | cons x l ih =>
+    intro s nows hW hF hs hk hroom
+    have hroom' := hroom
+    unfold Room at hroom'
+    simp only [nowsW] at hroom'
+    unfold sorts.any_now_loop
+    rw [loop]
+    simp only [sorts.any_now_loop.body, ↓reduceIte]
+    step with uncons_repr s nows hW hk (by unfold Room; omega) as ⟨r0, hK, hu⟩
+    obtain ⟨o, s1⟩ := r0
+    simp only [nowsPat] at hu
+    simp only at hK
+    obtain ⟨k, t, rfl, rk, rt⟩ := hu
+    have ht1 := hK.ticks
+    step with all_out_spec hnm x s1 k hK.wf (hF.mono hK.ran.ext (by rw [hK.tbl]))
+      (hs x List.mem_cons_self) (by rw [hK.nodes]; exact rk) (by unfold Room; omega)
+      as ⟨r1, hR2, hb⟩
+    obtain ⟨b, s2⟩ := r1
+    simp only at hR2 hb
+    have ht2 := hR2.ticks
+    have R2 : Ran s s2 (2 * x.length + 2) := (hK.ran.trans hR2).mono (by omega)
+    cases b with
+    | true =>
+      have hdn := any_now_done s2 nows true
+      unfold sorts.any_now_loop at hdn
+      simp only [uncurry, ↓reduceIte, bind_ok]
+      refine WP.spec_mono hdn ?_
+      rintro r rfl
+      exact ⟨R2.mono (by simp only [nowsW]; omega),
+        fun _ => ⟨x, List.mem_cons_self, hb.1 rfl⟩, fun _ => rfl⟩
+    | false =>
+      have IH := ih s2 t hR2.wf (hF.mono R2.ext (by rw [R2.tbl]))
+        (fun a ha => hs a (List.mem_cons_of_mem _ ha)) (R2.ext.repr rt) (by unfold Room; omega)
+      unfold sorts.any_now_loop at IH
+      simp only [uncurry, Bool.false_eq_true, ↓reduceIte, bind_ok]
+      refine WP.spec_mono IH ?_
+      rintro r ⟨hR, hr⟩
+      refine ⟨(R2.trans hR).mono (by simp only [nowsW]; omega), ?_⟩
+      rw [hr]
+      have hx : ¬ ∀ q ∈ x, m q ≠ none := fun h => Bool.noConfusion (hb.2 h)
+      simp only [List.mem_cons, exists_eq_or_imp, hx, false_or]
+
+/-- `any_now` answers whether table `A` flags every key of some list. -/
+theorem any_now_spec (hnm : Function.Injective nm) {U : List Name} {m : Key → Option Bool}
+    (l : List (List Key)) (s : store.Store) (nows : store.TermId) (hW : Wf s)
+    (hF : FlagsO nm s U m) (hs : ∀ g ∈ l, ∀ q ∈ g, KeyOK (nm none) U q)
+    (hk : Repr nm s.nodes.val nows.val (nowsPat (nm none) U l)) (hroom : Room s (nowsW l)) :
+    sorts.any_now s nows ⦃ r =>
+      Ran s r.2 (nowsW l) ∧ (r.1 = true ↔ ∃ g ∈ l, ∀ q ∈ g, m q ≠ none) ⦄ :=
+  any_now_loop_spec hnm l s nows hW hF hs hk hroom
+
+/-- The ticks going through guards with edges may spend. -/
+def stepsW : List Step → Nat
+  | [] => 1
+  | a :: l => 2 * a.1.length + 2 * a.2.length + 4 + stepsW l
+
+theorem any_step_done (s : store.Store) (steps : store.TermId) (found : Bool) :
+    sorts.any_step_loop s steps found false ⦃ r => r = (found, s) ⦄ := by
+  unfold sorts.any_step_loop
+  rw [loop]
+  simp only [sorts.any_step_loop.body, Bool.false_eq_true, ↓reduceIte, bind_ok]
+  step*
+
+theorem any_step_loop_spec (hnm : Function.Injective nm) {U : List Name}
+    {m : Key → Option Bool} :
+    ∀ (l : List Step) (s : store.Store) (steps : store.TermId), Wf s → FlagsO nm s U m →
+    (∀ a ∈ l, (∀ q ∈ a.1, KeyOK (nm none) U q) ∧ ∀ q ∈ a.2, KeyOK (nm none) U q) →
+    Repr nm s.nodes.val steps.val (stepsPat (nm none) U l) → Room s (stepsW l) →
+    sorts.any_step_loop s steps false true ⦃ r =>
+      Ran s r.2 (stepsW l) ∧
+        (r.1 = true ↔ ∃ a ∈ l, (∀ q ∈ a.1, m q ≠ none) ∧ ∃ q ∈ a.2, m q ≠ none) ⦄ := by
+  intro l
+  induction l with
+  | nil =>
+    intro s steps hW hF hs hk hroom
+    have hroom' := hroom
+    unfold Room at hroom'
+    simp only [stepsW] at hroom'
+    unfold sorts.any_step_loop
+    rw [loop]
+    simp only [sorts.any_step_loop.body, ↓reduceIte]
+    step with uncons_repr s steps hW hk (by unfold Room; omega) as ⟨r0, hK, hu⟩
+    obtain ⟨o, s1⟩ := r0
+    simp only [stepsPat] at hu
+    simp only at hK
+    subst hu
+    simp only [uncurry, bind_ok]
+    have hdn := any_step_done s1 steps false
+    unfold sorts.any_step_loop at hdn
+    refine WP.spec_mono hdn ?_
+    rintro r rfl
+    exact ⟨hK.ran.mono (by simp only [stepsW]; omega), by simp⟩
+  | cons x l ih =>
+    intro s steps hW hF hs hk hroom
+    have hroom' := hroom
+    unfold Room at hroom'
+    simp only [stepsW] at hroom'
+    obtain ⟨hs1, hs2⟩ := hs x List.mem_cons_self
+    unfold sorts.any_step_loop
+    rw [loop]
+    simp only [sorts.any_step_loop.body, ↓reduceIte]
+    step with uncons_repr s steps hW hk (by unfold Room; omega) as ⟨r0, hK, hu⟩
+    obtain ⟨o, s1⟩ := r0
+    simp only [stepsPat] at hu
+    simp only at hK
+    obtain ⟨k, t, rfl, rk, rt⟩ := hu
+    have ht1 := hK.ticks
+    step with uncons_repr s1 k hK.wf (by rw [hK.nodes]; exact rk) (by unfold Room; omega)
+      as ⟨r1, hK2, hu2⟩
+    obtain ⟨o1, s2⟩ := r1
+    simp only [stepPat] at hu2
+    simp only at hK2
+    obtain ⟨gi, ei, rfl, rg, re⟩ := hu2
+    rw [hK.nodes] at rg re
+    have ht2 := hK2.ticks
+    have R2 : Ran s s2 2 := hK.ran.trans hK2.ran
+    have rest : ∀ (s' : store.Store) (c : Nat), Ran s s' c →
+        c ≤ 2 * x.1.length + 2 * x.2.length + 4 →
+        ¬ ((∀ q ∈ x.1, m q ≠ none) ∧ ∃ q ∈ x.2, m q ≠ none) →
+        loop (fun y => match y with
+          | (s1, steps1, found1, go1) => sorts.any_step_loop.body s1 steps1 found1 go1)
+          (s', t, false, true) ⦃ r =>
+          Ran s r.2 (stepsW (x :: l)) ∧
+            (r.1 = true ↔ ∃ a ∈ x :: l, (∀ q ∈ a.1, m q ≠ none) ∧ ∃ q ∈ a.2, m q ≠ none) ⦄ := by
+      intro s' c R0 hc hx
+      have htk := R0.ticks
+      have IH := ih s' t R0.wf (hF.mono R0.ext (by rw [R0.tbl]))
+        (fun a ha => hs a (List.mem_cons_of_mem _ ha)) (R0.ext.repr rt) (by unfold Room; omega)
+      unfold sorts.any_step_loop at IH
+      refine WP.spec_mono IH ?_
+      rintro r ⟨hR, hr⟩
+      refine ⟨(R0.trans hR).mono (by simp only [stepsW]; omega), ?_⟩
+      rw [hr]
+      simp only [List.mem_cons, exists_eq_or_imp, hx, false_or]
+    step with all_out_spec hnm x.1 s2 gi hK2.wf (hF.mono R2.ext (by rw [R2.tbl])) hs1
+      (R2.ext.repr rg) (by unfold Room; omega) as ⟨r3, hR3, hb⟩
+    obtain ⟨b, s3⟩ := r3
+    simp only at hR3 hb
+    have ht3 := hR3.ticks
+    have R3 := R2.trans hR3
+    cases b with
+    | false =>
+      simp only [uncurry, Bool.false_eq_true, ↓reduceIte, bind_ok]
+      exact rest s3 _ R3 (by omega) fun h => Bool.noConfusion (hb.2 h.1)
+    | true =>
+      simp only [uncurry, ↓reduceIte]
+      step with any_out_spec hnm x.2 s3 ei hR3.wf (hF.mono R3.ext (by rw [R3.tbl])) hs2
+        (R3.ext.repr re) (by unfold Room; omega) as ⟨r4, hR4, hb1⟩
+      obtain ⟨b1, s4⟩ := r4
+      simp only at hR4 hb1
+      have ht4 := hR4.ticks
+      have R4 := R3.trans hR4
+      cases b1 with
+      | false =>
+        simp only [uncurry, Bool.false_eq_true, ↓reduceIte, bind_ok]
+        exact rest s4 _ R4 (by omega) fun h => Bool.noConfusion (hb1.2 h.2)
+      | true =>
+        have hdn := any_step_done s4 steps true
+        unfold sorts.any_step_loop at hdn
+        simp only [uncurry, ↓reduceIte, bind_ok]
+        refine WP.spec_mono hdn ?_
+        rintro r rfl
+        exact ⟨R4.mono (by simp only [stepsW]; omega),
+          fun _ => ⟨x, List.mem_cons_self, hb.1 rfl, hb1.1 rfl⟩, fun _ => rfl⟩
+
+/-- `any_step` answers whether table `A` flags, for some member, every guard
+and one of the edges. -/
+theorem any_step_spec (hnm : Function.Injective nm) {U : List Name} {m : Key → Option Bool}
+    (l : List Step) (s : store.Store) (steps : store.TermId) (hW : Wf s)
+    (hF : FlagsO nm s U m)
+    (hs : ∀ a ∈ l, (∀ q ∈ a.1, KeyOK (nm none) U q) ∧ ∀ q ∈ a.2, KeyOK (nm none) U q)
+    (hk : Repr nm s.nodes.val steps.val (stepsPat (nm none) U l)) (hroom : Room s (stepsW l)) :
+    sorts.any_step s steps ⦃ r =>
+      Ran s r.2 (stepsW l) ∧
+        (r.1 = true ↔ ∃ a ∈ l, (∀ q ∈ a.1, m q ≠ none) ∧ ∃ q ∈ a.2, m q ≠ none) ⦄ :=
+  any_step_loop_spec hnm l s steps hW hF hs hk hroom
+
 end RwLogVerified
