@@ -4,7 +4,7 @@
 A solved exclusion is the list of the values it gives the variables of the
 store. `sorts::covers` tests whether one is an instance of another
 (`coversV`, which is `Sorts.covers` on value lists), `sorts::norm_exs` is
-`Sorts.normExs`, and `sorts::antichain` is `Sorts.antichain` with that test.
+`Sorts.normExs`, and `sorts::antichain` is `RwLog.antichain` with that test.
 -/
 import RwLogVerified.Solved
 import RwLog.Sorts.Hidden
@@ -653,11 +653,11 @@ def acStep (Acc : List (List Pat)) (A : List Pat) : List (List Pat) :=
   if Acc.any (coversV A) then Acc else A :: Acc.filter fun B => !coversV B A
 
 theorem antichain_fold : ∀ Ls : List (List Pat),
-    Ls.reverse.foldl acStep [] = Sorts.antichain coversV Ls
+    Ls.reverse.foldl acStep [] = RwLog.antichain coversV Ls
   | [] => rfl
   | A :: Ls => by
     rw [List.reverse_cons, List.foldl_append, antichain_fold Ls]
-    simp only [List.foldl_cons, List.foldl_nil, acStep, Sorts.antichain]
+    simp only [List.foldl_cons, List.foldl_nil, acStep, RwLog.antichain]
 
 theorem acStep_length (Acc : List (List Pat)) (A : List Pat) :
     (acStep Acc A).length ≤ Acc.length + 1 := by
@@ -796,7 +796,7 @@ theorem antichain_loop_spec (hnm : Function.Injective nm) (k m N : Nat) (vs : st
 def antiCost (k m n : Nat) : Nat := repCost (antiRound k m n) n + 2 * n + 3
 
 /-- `antichain` gives the exclusions that are instances of no other, one of
-each (`Sorts.antichain`). -/
+each (`RwLog.antichain`). -/
 theorem antichain_spec (hnm : Function.Injective nm) (k m : Nat) (Ls : List (List Pat))
     (s : store.Store) (vs l : store.TermId) (hI : Inv s)
     (hvs : Repr nm s.nodes.val vs.val (encList (nm none) (varsTo k)))
@@ -805,7 +805,7 @@ theorem antichain_spec (hnm : Function.Injective nm) (k m : Nat) (Ls : List (Lis
     (hroom : Room s (antiCost k m Ls.length)) :
     sorts.antichain s vs l ⦃ res s' =>
       Inv s' ∧ Extends s s' ∧ s'.ticks.val ≤ s.ticks.val + antiCost k m Ls.length ∧
-        Repr nm s'.nodes.val res.val (encLL nm (Sorts.antichain coversV Ls)) ⦄ := by
+        Repr nm s'.nodes.val res.val (encLL nm (RwLog.antichain coversV Ls)) ⦄ := by
   unfold sorts.antichain
   have hroom' := hroom
   unfold Room at hroom'
@@ -903,28 +903,28 @@ theorem coversV_vals {k : Nat} {θ θ' : Sorts.Binds} (hθ : ∀ b ∈ θ, b.1 <
     exact (h x (List.mem_range.1 hx)).symm
 
 theorem antichain_subset {α : Type} (le : α → α → Bool) :
-    ∀ (L : List α) (a : α), a ∈ Sorts.antichain le L → a ∈ L
-  | [], a, h => by simp [Sorts.antichain] at h
+    ∀ (L : List α) (a : α), a ∈ RwLog.antichain le L → a ∈ L
+  | [], a, h => by simp [RwLog.antichain] at h
   | b :: L, a, h => by
-    unfold Sorts.antichain at h
+    unfold RwLog.antichain at h
     split at h
     · exact List.mem_cons_of_mem _ (antichain_subset le L a h)
     · rcases List.mem_cons.1 h with rfl | h
       · exact List.mem_cons_self
       · exact List.mem_cons_of_mem _ (antichain_subset le L a (List.mem_filter.1 h).1)
 
-/-- `Sorts.antichain` goes through a map that keeps the test. -/
+/-- `RwLog.antichain` goes through a map that keeps the test. -/
 theorem antichain_map {α β : Type} (f : α → β) (le : α → α → Bool) (le' : β → β → Bool) :
     ∀ L : List α, (∀ a ∈ L, ∀ b ∈ L, le' (f a) (f b) = le a b) →
-      Sorts.antichain le' (L.map f) = (Sorts.antichain le L).map f
+      RwLog.antichain le' (L.map f) = (RwLog.antichain le L).map f
   | [], _ => rfl
   | a :: L, hle => by
     have ih := antichain_map f le le' L fun b hb c hc =>
       hle b (List.mem_cons_of_mem _ hb) c (List.mem_cons_of_mem _ hc)
-    have hsub : ∀ b ∈ Sorts.antichain le L, b ∈ a :: L := fun b hb =>
+    have hsub : ∀ b ∈ RwLog.antichain le L, b ∈ a :: L := fun b hb =>
       List.mem_cons_of_mem _ (antichain_subset le L b hb)
-    have hany : ((Sorts.antichain le L).map f).any (le' (f a)) =
-        (Sorts.antichain le L).any (le a) := by
+    have hany : ((RwLog.antichain le L).map f).any (le' (f a)) =
+        (RwLog.antichain le L).any (le a) := by
       rw [Bool.eq_iff_iff]
       simp only [List.any_eq_true, List.mem_map]
       constructor
@@ -932,20 +932,20 @@ theorem antichain_map {α β : Type} (f : α → β) (le : α → α → Bool) (
         exact ⟨b, hb, by rw [← hle a List.mem_cons_self b (hsub b hb)]; exact h⟩
       · rintro ⟨b, hb, h⟩
         exact ⟨f b, ⟨b, hb, rfl⟩, by rw [hle a List.mem_cons_self b (hsub b hb)]; exact h⟩
-    have hfil : ((Sorts.antichain le L).map f).filter (fun b => !le' b (f a)) =
-        ((Sorts.antichain le L).filter fun b => !le b a).map f := by
+    have hfil : ((RwLog.antichain le L).map f).filter (fun b => !le' b (f a)) =
+        ((RwLog.antichain le L).filter fun b => !le b a).map f := by
       rw [List.filter_map]
       congr 1
       refine List.filter_congr fun b hb => ?_
       simp only [Function.comp, hle b (hsub b hb) a List.mem_cons_self]
-    simp only [List.map_cons, Sorts.antichain, ih, hany, hfil]
+    simp only [List.map_cons, RwLog.antichain, ih, hany, hfil]
     split <;> rfl
 
 /-- The exclusions of an assembled store, as value lists, are what
 `antichain` gives on the value lists. -/
 theorem antichain_vals {k : Nat} {Y : List Sorts.Binds} (hY : ∀ θ ∈ Y, ∀ b ∈ θ, b.1 < k) :
-    Sorts.antichain coversV (Y.map (vals k)) =
-      (Sorts.antichain (Sorts.covers k) Y).map (vals k) :=
+    RwLog.antichain coversV (Y.map (vals k)) =
+      (RwLog.antichain (Sorts.covers k) Y).map (vals k) :=
   antichain_map (vals k) (Sorts.covers k) coversV Y fun θ hθ _ _ => coversV_vals (hY θ hθ)
 
 end RwLogVerified

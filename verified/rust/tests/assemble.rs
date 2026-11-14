@@ -2,7 +2,7 @@
 //! exclusion removes only what another does (`sorts::covers`), the solved
 //! forms of a list of exclusions (`sorts::norm_exs`), and the exclusions no
 //! other covers (`sorts::antichain`); against `covers`, `normExs` and
-//! `antichain` (`lean/RwLog/Sorts/Assemble.lean`).
+//! `antichain` (`lean/RwLog/Lib/Antichain.lean`).
 //!
 //! A solved exclusion is the list of the values it gives the variables,
 //! which are numbered from 0; a free variable is its own value.

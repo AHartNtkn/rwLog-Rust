@@ -304,8 +304,8 @@ theorem firsts_absorb {A M : List Nat} (h : ∀ v ∈ M, v ∈ A) :
   induction M using List.reverseRecOn with
   | nil => simp
   | append_singleton M x ih =>
-    rw [← List.append_assoc, Sorts.firsts_snoc, ih fun v hv => h v (by simp [hv])]
-    exact ite_pos' (((Sorts.firsts_spec A).2.1 x).2 (h x (by simp))) _ _
+    rw [← List.append_assoc, RwLog.firsts_concat, RwLog.addNew, ih fun v hv => h v (by simp [hv])]
+    exact ite_pos' (((RwLog.firsts_spec A).2.1 x).2 (h x (by simp))) _ _
 
 /-- Variables that occurred already do not change the list. -/
 theorem firsts_drop {A M : List Nat} (R : List Nat) (h : ∀ v ∈ M, v ∈ A) :
@@ -314,7 +314,7 @@ theorem firsts_drop {A M : List Nat} (R : List Nat) (h : ∀ v ∈ M, v ∈ A) :
 
 theorem firsts_fix_snoc {A : List Nat} {x : Nat} (h : RwLog.firsts A = A) (hx : x ∉ A) :
     RwLog.firsts (A ++ [x]) = A ++ [x] := by
-  rw [Sorts.firsts_snoc, h, ite_neg' hx]
+  rw [RwLog.firsts_concat, RwLog.addNew, h, ite_neg' hx]
 
 /-- The variable `v` of the term `t` has been listed, or is in a term of the
 stack that is smaller than `t` and has only terms smaller than `t` above
@@ -1079,7 +1079,7 @@ theorem renumber_spec (hnm : Function.Injective nm) {S : Sorts} {sp : Pat} {U : 
   have hroom' := hroom
   unfold Room at hroom'
   simp only [renumberCost] at hroom'
-  obtain ⟨hFnd, -, -⟩ := Sorts.firsts_spec T.vars
+  obtain ⟨hFnd, -, -⟩ := RwLog.firsts_spec T.vars
   generalize hFe : RwLog.firsts T.vars = F at hroom' hFnd ⊢
   have hfc : firstsCost T = 8 * T.subs.card + 2 * F.length + 8 := by rw [firstsCost, hFe]
   step with firsts_spec hnm s t hI ht (by unfold Room; omega) as ⟨vs, s1, hI1, hx1, ht1, rvs⟩
@@ -1137,7 +1137,7 @@ theorem ofTight_abs {S : Sorts} {st : TSt} (hok : st.OK) :
 `renumber` returns. -/
 theorem ofTightXs_abs {S : Sorts} {st : TSt} (hok : st.OK) :
     Sorts.ofTightXs S st.abs =
-      Sorts.antichain
+      RwLog.antichain
         (Sorts.covers ((RwLog.firsts st.T.vars).map (upConj S st.L st.X)).length)
         (Sorts.normExs S ⟨st.T.rename fun v => (RwLog.firsts st.T.vars).idxOf v,
           (RwLog.firsts st.T.vars).map (upConj S st.L st.X), ∅⟩

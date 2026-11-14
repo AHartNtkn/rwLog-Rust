@@ -404,7 +404,7 @@ theorem mem_occ {P : Sorts.Prob} {θ : Nat → Pat} {v : Nat} :
 theorem mem_leftVars {P : Sorts.Prob} {θ : Nat → Pat} {v : Nat} :
     v ∈ leftVars nm P θ ↔ v ∈ P.occ θ := by
   unfold leftVars
-  rw [(Sorts.firsts_spec _).2.1, pack3_bind, mem_vars_pack3, mem_occ]
+  rw [(RwLog.firsts_spec _).2.1, pack3_bind, mem_vars_pack3, mem_occ]
   simp only [List.mem_map, exists_exists_and_eq_and]
 
 /-- The sorted patterns of the starting store. -/
@@ -570,7 +570,7 @@ theorem start_spec (hnm : Function.Injective nm) {S : Sorts} {sp : Pat}
     simp only [hθ, Option.map_some, Option.getD_some, startRest] at hroom'
     simp only [↓reduceIte]
     have hθfo := solve_fo P.e hP.e θ hθ
-    obtain ⟨hFnd, -, -⟩ := Sorts.firsts_spec ((pack3 nm P.t P.a P.x).bind θ).vars
+    obtain ⟨hFnd, -, -⟩ := RwLog.firsts_spec ((pack3 nm P.t P.a P.x).bind θ).vars
     have hnum := pack_num (nm := nm) P θ
     have hFdef : leftVars nm P θ = RwLog.firsts ((pack3 nm P.t P.a P.x).bind θ).vars := rfl
     have hlt : ∀ v ∈ P.occ θ, (leftVars nm P θ).idxOf v < (leftVars nm P θ).length :=
@@ -791,7 +791,7 @@ noncomputable def numStore (S : Sorts) (st : TSt) : Sorts.Raw :=
 
 /-- Its exclusions, as `assemble` lists them. -/
 noncomputable def numAnti (S : Sorts) (st : TSt) : List Sorts.Binds :=
-  Sorts.antichain (Sorts.covers (numRaw S st).c.length) (numYs S st)
+  RwLog.antichain (Sorts.covers (numRaw S st).c.length) (numYs S st)
 
 /-! ### Without the hidden variables -/
 
@@ -822,7 +822,7 @@ theorem pruneSt_ok {st : TSt} (h : st.OK) : (pruneSt st).OK :=
 
 theorem pruneSt_abs {st : TSt} (h : st.OK) (htv : ∀ v ∈ st.T.vars, v < st.N) :
     (pruneSt st).abs = st.abs.prune := by
-  have hmem := (Sorts.firsts_spec st.T.vars).2.1
+  have hmem := (RwLog.firsts_spec st.T.vars).2.1
   refine cstore_ext rfl (Sorts.pruneX_congr hmem st.X) ?_ fun u => ?_
   · rw [Sorts.CStore.prune_length, TSt.abs_length, TSt.abs_length]; rfl
   · rw [(pruneSt_ok h).conj, Sorts.CStore.prune_conj (by rw [TSt.abs_length]; exact htv), h.conj]
@@ -998,7 +998,7 @@ theorem tail_spec {S : Sorts} (hS : S.WellFormed) {P : Sorts.Prob} (hP : P.FO) {
     have hwT : w ∈ st.T.vars := hI.xv E0 hE0 w (List.mem_flatMap.2 ⟨p0, hp0, hw'⟩)
     have : (numRaw S st).c.length = (RwLog.firsts st.T.vars).length := List.length_map _
     rw [this]
-    exact List.idxOf_lt_length_of_mem ((Sorts.firsts_spec st.T.vars).2.1 w |>.2 hwT)
+    exact List.idxOf_lt_length_of_mem ((RwLog.firsts_spec st.T.vars).2.1 w |>.2 hwT)
   refine ⟨hfo, hv, ?_, ?_, fun X' hX' => ?_⟩
   · have := (Sorts.ofTight_shaped hS hI).2.2.2
     rw [ofTightXs_abs hok] at this
@@ -1131,7 +1131,7 @@ theorem normal_spec (hnm : Function.Injective nm) {S : Sorts} {sp : Pat}
           simp only [tailCost] at hBk
           obtain ⟨hfoX, hvX, hndZ, hRoomy, hfold⟩ := tail_spec hS hP hGood.ok
             (by rw [hden', hden1, hden0]) hInv hXT
-          obtain ⟨-, hFmem', -⟩ := Sorts.firsts_spec st'.T.vars
+          obtain ⟨-, hFmem', -⟩ := RwLog.firsts_spec st'.T.vars
           step with renumber_spec hnm hC hS hUS hr hq s5 decls names t11 x3 es3 st'.T st'.X st'.L
             hI5 (hx05.repr hde) (hx05.repr hU) hH'.t hH'.x hH'.es hsub' (by unfold Room; omega)
             as ⟨t21, x4, cs, s6, hI6, hx6, ht6, rT, rX, rC⟩
