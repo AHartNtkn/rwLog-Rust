@@ -72,6 +72,7 @@ nodes, and advances the tick counter by at most a stated amount.
 | `sorts::spine` | the head of a term and the list of its arguments | `2 m + 2`, `m` the arguments | `spine_spec` |
 | `sorts::step` | `Sorts.step`, on the declarations as lists of the store (`SortsAt`) | `stepCost`: `sortsCost S + 2 m + 2`, `m` the arguments; `sortsCost S` is 2, and for each declaration at most 6, 5 for each case and each excluded symbol, and twice their numbers of arguments | `step_spec` |
 | `sorts::member` | `Sorts.mem` on a ground term | `memberCost`: 5, and `sortsCost S + 11 m + 6` for each pair of a sort the program names and a distinct subterm with `m` arguments | `member_spec` |
+| `sorts::push_sort` | what `Sorts.push` is specified by (`Sorts.push_some`, `Sorts.push_none`): the sorts the variables of a first-order pattern must be in, each atom once, such that an instance of the pattern is in the sort exactly when it satisfies them; nothing only when no instance is in the sort | `pushCost`: 8, and `sortsCost S + 11 m + 8` for each pair of a sort the program names and a distinct subterm with `m` arguments | `push_sort_spec` |
 | `sorts::names` | `namesList`: every name of `Sorts.names`, each once | `namesCost S + 2`: 3, and for each declaration 12, 3 for each case and 5 for each argument of a case | `names_spec` |
 | `sorts::conj_of`, `sorts::conj_meet` | the conjunction of the sorts of a list, and of two conjunctions: the list of its names in a fixed order (`conjList`), so one set of sorts is one identifier (`ConjAt.inj`) | `2 n + 3 u + 4` and `2 n + 2 n' + 3 u + 5`, `n`, `n'` the lengths of the lists and `u` the number of names | `conj_of_spec`, `conj_meet_spec` |
 | `sorts::step_conj` | `Sorts.Accepts` and `Sorts.kidC`: one step of a conjunction of sorts | `stepConjCost`: `c (stepCost S m + 2) + m (5 c + 3 u + 9) + 5`, `c` the sorts of the conjunction, `m` the arguments, `u` the names | `step_conj_conj_spec` |
@@ -168,9 +169,9 @@ What is not derived, and why:
   charges of `Kernel.std`. The domain of spans as written looks at no
   constraint; the kernel of the sorts replaces it (roadmap L39 and L48). Of
   the operations on sorts the store has membership, conjunctions, one step of
-  a conjunction, whether a conjunction has a member and how many it has,
-  inclusion, and inclusion but for finitely many ground terms so far, and not
-  yet the normal store.
+  a conjunction, pushing a sort down a pattern, whether a conjunction has a
+  member and how many it has, inclusion, and inclusion but for finitely many
+  ground terms so far, and not yet the normal store.
 * The operations on nodes of the normal form and the rules that make answers
   (`DerivationKernel`) are charged as `lean/RwLog/Trusted/Charged.lean`
   postulates. They are not yet written on the store (roadmap L45).
