@@ -1926,4 +1926,499 @@ theorem projs_spec (hnm : Function.Injective nm) (sl : List (Option GTerm)) (f :
   rintro ⟨r, s'⟩ ⟨hR, hr⟩
   exact ⟨(R2.trans hR).mono (by simp only [projsAllCost]; omega), hr⟩
 
+/-! ## What a root leaves to ask -/
+
+theorem is_nil_list (hnm : Function.Injective nm) (s : store.Store) (p : store.TermId)
+    {ps : List Pat} (hW : Wf s) (hp : Repr nm s.nodes.val p.val (encList (nm none) ps))
+    (hroom : Room s 1) :
+    sorts.is_nil s p ⦃ b s' => (b = true ↔ ps = []) ∧ KeptW s s' 1 ⦄ := by
+  refine WP.spec_mono (is_nil_w s p hW hp.lt hroom) ?_
+  rintro ⟨b, s'⟩ ⟨hb, hK⟩
+  refine ⟨?_, hK⟩
+  rw [hb]
+  cases ps with
+  | nil =>
+    simp only [encList] at hp
+    rcases hp.sym_node with h | ⟨f, -, e⟩
+    · simp [h.1]
+    · cases hnm e
+  | cons a l =>
+    simp only [encList] at hp
+    obtain ⟨a', b', h, -, -⟩ := Repr.app_inv hp
+    simp [h]
+
+/-- What is left to ask: whether a conjunction, but for the terms, is in a
+sort. -/
+abbrev Ask := Sorts.Conj × Name × List GTerm
+
+/-- What is left to ask as a term. -/
+noncomputable def askPat (z : Sym) (U : List Name) (a : Ask) : Pat :=
+  .app (cpat z U a.1) (.app (.sym a.2.1) (accPat z a.2.2))
+
+/-- What an argument leaves to ask, when its sort is given and terms are
+left. -/
+def askOf : Sorts.Conj × Option Name × List GTerm → Option Ask
+  | (c, some m, a :: l) => some (c, m, a :: l)
+  | _ => none
+
+/-- What is left to ask with what the arguments leave in front. -/
+def pushL (items : List (Sorts.Conj × Option Name × List GTerm)) (T : List Ask) : List Ask :=
+  (items.filterMap askOf).reverse ++ T
+
+/-- Every argument whose sort is given and that leaves no term is in its
+sort. -/
+def pushOK (S : Sorts) (items : List (Sorts.Conj × Option Name × List GTerm)) : Prop :=
+  ∀ x ∈ items, ∀ m, x.2.1 = some m → x.2.2 = [] → Sorts.Incl S x.1 m
+
+theorem pushL_cons (x : Sorts.Conj × Option Name × List GTerm)
+    (items : List (Sorts.Conj × Option Name × List GTerm)) (T : List Ask) :
+    pushL (x :: items) T = pushL items ((askOf x).toList ++ T) := by
+  unfold pushL
+  cases h : askOf x <;> simp [h]
+
+theorem push_asks_done (s : store.Store) (decls names todo kids kn accs : store.TermId)
+    (okb : Bool) :
+    sorts.push_asks_loop s decls names todo kids kn accs okb false ⦃ r => r = (s, todo, okb) ⦄ := by
+  unfold sorts.push_asks_loop
+  rw [loop]
+  simp only [sorts.push_asks_loop.body, Bool.false_eq_true, ↓reduceIte, bind_ok]
+  step*
+
+theorem push_asks_loop_spec {S : Sorts} {sp : Pat} {U : List Name} (hC : Ctx nm S sp U) {r : Nat}
+    (decls names : store.TermId) :
+    ∀ (cs : List Sorts.Conj) (ks : List (Option Name)) (accs : List (List GTerm)) (T : List Ask)
+      (s : store.Store) (todo kids kn ai : store.TermId) (okb : Bool),
+    cs.length = ks.length → cs.length = accs.length → (∀ c ∈ cs, Sub U c) →
+    (∀ m, some m ∈ ks → m ∈ Sorts.names S) →
+    (∀ c ∈ cs, ∀ m, (Sorts.reachGSet S (c, some m)).card ≤ r) → Inv s →
+    Repr nm s.nodes.val decls.val sp → Repr nm s.nodes.val names.val (namesPat (nm none) U) →
+    Repr nm s.nodes.val todo.val (encList (nm none) (T.map (askPat (nm none) U))) →
+    Repr nm s.nodes.val kids.val (encList (nm none) (cs.map (cpat (nm none) U))) →
+    Repr nm s.nodes.val kn.val (encList (nm none) (ks.map (kidPat (nm none)))) →
+    Repr nm s.nodes.val ai.val (encList (nm none) (accs.map (accPat (nm none)))) →
+    Room s (cs.length * (inclCost S U.length r + 8) + 1) →
+    sorts.push_asks_loop s decls names todo kids kn ai okb true ⦃ res =>
+      Inv res.1 ∧ Extends s res.1 ∧
+        res.1.ticks.val ≤ s.ticks.val + (cs.length * (inclCost S U.length r + 8) + 1) ∧
+        (pushOK S (cs.zip (ks.zip accs)) → res.2.2 = okb ∧
+          Repr nm res.1.nodes.val res.2.1.val
+            (encList (nm none) ((pushL (cs.zip (ks.zip accs)) T).map (askPat (nm none) U)))) ∧
+        (¬ pushOK S (cs.zip (ks.zip accs)) → res.2.2 = false) ⦄ := by
+  intro cs
+  induction cs with
+  | nil =>
+    intro ks accs T s todo kids kn ai okb _ _ _ _ _ hI hde hU htd hk _ _ hroom
+    have hroom' := hroom
+    unfold Room at hroom'
+    unfold sorts.push_asks_loop
+    rw [loop]
+    simp only [sorts.push_asks_loop.body, ↓reduceIte]
+    step with uncons_repr s kids hI.toWf hk (by unfold Room; omega) as ⟨r0, hK, hu⟩
+    obtain ⟨o, s1⟩ := r0
+    simp only at hu
+    simp only at hK
+    subst hu
+    simp only [uncurry, bind_ok]
+    have hdn := push_asks_done s1 decls names todo kids kn ai okb
+    unfold sorts.push_asks_loop at hdn
+    refine WP.spec_mono hdn ?_
+    rintro res rfl
+    have := hK.ticks
+    exact ⟨hK.ran.ranB.inv hI, hK.ran.ext, by simp only; omega,
+      fun _ => ⟨rfl, by simpa [pushL] using hK.ran.ext.repr htd⟩,
+      fun h => absurd (by simp [pushOK]) h⟩
+  | cons c cs ih =>
+    intro ks accs T s todo kids kn ai okb hl1 hl2 hsub hnames hr hI hde hU htd hk hkn hai hroom
+    obtain ⟨k, ks', rfl⟩ : ∃ k ks', ks = k :: ks' := by
+      cases ks with
+      | nil => simp at hl1
+      | cons k ks' => exact ⟨k, ks', rfl⟩
+    obtain ⟨l, accs', rfl⟩ : ∃ l accs', accs = l :: accs' := by
+      cases accs with
+      | nil => simp at hl2
+      | cons l accs' => exact ⟨l, accs', rfl⟩
+    have hroom' := hroom
+    unfold Room at hroom'
+    simp only [List.length_cons, Nat.add_mul, Nat.one_mul] at hroom'
+    have hW := hI.toWf
+    unfold sorts.push_asks_loop
+    rw [loop]
+    simp only [sorts.push_asks_loop.body, ↓reduceIte]
+    step with uncons_repr s kids hW hk (by unfold Room; omega) as ⟨r0, hK, hu⟩
+    obtain ⟨o, s1⟩ := r0
+    simp only at hu
+    simp only at hK
+    obtain ⟨ki, kt, rfl, rki, rkt⟩ := hu
+    have ht1 := hK.ticks
+    step with uncons_repr s1 kn hK.wf (hK.ran.ext.repr hkn) (by unfold Room; omega)
+      as ⟨r1, hK1, hu1⟩
+    obtain ⟨o1, s2⟩ := r1
+    simp only at hu1
+    simp only at hK1
+    obtain ⟨mi, mt, rfl, rmi, rmt⟩ := hu1
+    rw [hK.nodes] at rmi rmt
+    have ht2 := hK1.ticks
+    have R2 := hK.ran.trans hK1.ran
+    step with uncons_repr s2 ai hK1.wf (R2.ext.repr hai) (by unfold Room; omega)
+      as ⟨r2, hK2, hu2⟩
+    obtain ⟨o2, s3⟩ := r2
+    simp only at hu2
+    simp only at hK2
+    obtain ⟨acci, cti, rfl, racc, rct⟩ := hu2
+    rw [hK1.nodes, hK.nodes] at racc rct
+    have ht3 := hK2.ticks
+    have R3 := R2.trans hK2.ran
+    have hkz : ∀ m, k = some m → m ≠ nm none := fun m hm =>
+      hC.nz m (hnames m (by rw [hm]; exact List.mem_cons_self))
+    step with is_nil_kid hC.inj s3 mi hK2.wf (R3.ext.repr rmi) hkz (by unfold Room; omega)
+      as ⟨r3, hb, hK4⟩
+    obtain ⟨b, s4⟩ := r3
+    simp only at hb hK4
+    have ht4 := hK4.ticks
+    have R4 := R3.trans hK4.ran
+    have next : ∀ (s' : store.Store) (todo' : store.TermId) (T' : List Ask), Inv s' →
+        Extends s s' → s'.ticks.val ≤ s.ticks.val + (inclCost S U.length r + 8) →
+        Repr nm s'.nodes.val todo'.val (encList (nm none) (T'.map (askPat (nm none) U))) →
+        T' = (askOf (c, k, l)).toList ++ T → (∀ m, k = some m → l = [] → Sorts.Incl S c m) →
+        loop (fun x => match x with
+          | (s1, todo1, kids1, kn1, accs1, ok2, go1) =>
+            sorts.push_asks_loop.body decls names s1 todo1 kids1 kn1 accs1 ok2 go1)
+          (s', todo', kt, mt, cti, okb, true) ⦃ res =>
+          Inv res.1 ∧ Extends s res.1 ∧
+            res.1.ticks.val ≤ s.ticks.val + ((c :: cs).length * (inclCost S U.length r + 8) + 1) ∧
+            (pushOK S ((c :: cs).zip ((k :: ks').zip (l :: accs'))) → res.2.2 = okb ∧
+              Repr nm res.1.nodes.val res.2.1.val (encList (nm none)
+                ((pushL ((c :: cs).zip ((k :: ks').zip (l :: accs'))) T).map
+                  (askPat (nm none) U)))) ∧
+            (¬ pushOK S ((c :: cs).zip ((k :: ks').zip (l :: accs'))) → res.2.2 = false) ⦄ := by
+      intro s' todo' T' hI' hx' ht' rtd hT hhead
+      have IH := ih ks' accs' T' s' todo' kt mt cti okb (by simpa using hl1) (by simpa using hl2)
+        (fun d hd => hsub d (List.mem_cons_of_mem _ hd))
+        (fun m hm => hnames m (List.mem_cons_of_mem _ hm))
+        (fun d hd => hr d (List.mem_cons_of_mem _ hd)) hI' (hx'.repr hde) (hx'.repr hU) rtd
+        (hx'.repr rkt) (hx'.repr rmt) (hx'.repr rct) (by unfold Room; omega)
+      unfold sorts.push_asks_loop at IH
+      refine WP.spec_mono IH ?_
+      rintro res ⟨hI'', hx'', ht'', h1, h2⟩
+      have hiff : pushOK S ((c :: cs).zip ((k :: ks').zip (l :: accs'))) ↔
+          pushOK S (cs.zip (ks'.zip accs')) := by
+        simp only [pushOK, List.zip_cons_cons, List.forall_mem_cons]
+        exact ⟨fun h => h.2, fun h => ⟨hhead, h⟩⟩
+      refine ⟨hI'', hx'.trans hx'', by
+        simp only [List.length_cons, Nat.add_mul, Nat.one_mul]; omega, ?_, ?_⟩
+      · intro hok
+        obtain ⟨e1, e2⟩ := h1 (hiff.1 hok)
+        refine ⟨e1, ?_⟩
+        rw [List.zip_cons_cons, List.zip_cons_cons, pushL_cons, ← hT]
+        exact e2
+      · intro hno
+        exact h2 fun h => hno (hiff.2 h)
+    cases b with
+    | true =>
+      have hkn0 : k = none := hb.1 rfl
+      simp only [uncurry, ↓reduceIte, bind_ok]
+      refine next s4 todo T (R4.ranB.inv hI) R4.ext (by have := R4.ticks; omega)
+        (R4.ext.repr htd) (by simp [hkn0, askOf]) (fun m hm => by rw [hkn0] at hm; cases hm)
+    | false =>
+      obtain ⟨m, rfl⟩ : ∃ m, k = some m := by
+        cases k with
+        | none => exact absurd (hb.2 rfl) (by simp)
+        | some m => exact ⟨m, rfl⟩
+      have hmn : m ∈ Sorts.names S := hnames m List.mem_cons_self
+      simp only [uncurry, Bool.false_eq_true, ↓reduceIte]
+      step with is_nil_list hC.inj s4 acci hK4.wf (R4.ext.repr racc) (by unfold Room; omega)
+        as ⟨r4, hb1, hK5⟩
+      obtain ⟨b1, s5⟩ := r4
+      simp only at hb1 hK5
+      rw [List.map_eq_nil_iff] at hb1
+      have ht5 := hK5.ticks
+      have R5 := R4.trans hK5.ran
+      have I5 : Inv s5 := R5.ranB.inv hI
+      cases b1 with
+      | true =>
+        have hl0 : l = [] := hb1.1 rfl
+        have hmono : inclCost S U.length (Sorts.reachGSet S (c, some m)).card ≤
+            inclCost S U.length r := outCost_mono S U.length (hr c List.mem_cons_self m)
+        simp only [uncurry, ↓reduceIte]
+        step with included_spec hC c m (hsub c List.mem_cons_self) (hC.nz m hmn) s5 decls names
+          ki mi I5 (R5.ext.repr hde) (R5.ext.repr hU) (R5.ext.repr rki) (R5.ext.repr rmi)
+          (by unfold Room; omega) as ⟨r5, hI6, hx6, ht6, hb2⟩
+        obtain ⟨b2, s6⟩ := r5
+        simp only at hI6 hx6 ht6 hb2
+        cases b2 with
+        | true =>
+          simp only [uncurry, ↓reduceIte, bind_ok]
+          refine next s6 todo T hI6 (R5.ext.trans hx6) (by have := R5.ticks; omega)
+            ((R5.ext.trans hx6).repr htd) (by simp [hl0, askOf])
+            (fun m' hm' _ => by cases hm'; exact hb2.1 rfl)
+        | false =>
+          simp only [uncurry, Bool.false_eq_true, ↓reduceIte, bind_ok]
+          have hdn := push_asks_done s6 decls names todo kt mt cti false
+          unfold sorts.push_asks_loop at hdn
+          refine WP.spec_mono hdn ?_
+          rintro res rfl
+          have := R5.ticks
+          refine ⟨hI6, R5.ext.trans hx6, by
+            simp only [List.length_cons, Nat.add_mul, Nat.one_mul]; omega, ?_, fun _ => rfl⟩
+          intro hok
+          have := hok (c, some m, l) (by simp) m rfl hl0
+          exact absurd (hb2.2 this) (by simp)
+      | false =>
+        obtain ⟨a, l', rfl⟩ : ∃ a l', l = a :: l' := by
+          cases l with
+          | nil => exact absurd (hb1.2 rfl) (by simp)
+          | cons a l' => exact ⟨a, l', rfl⟩
+        simp only [uncurry, Bool.false_eq_true, ↓reduceIte]
+        have rm5 : Repr nm s5.nodes.val mi.val (.sym m) := R5.ext.repr rmi
+        have ra5 := R5.ext.repr racc
+        step with alloc_ran s5 (.App mi acci) hK5.wf ⟨rm5.lt, ra5.lt⟩ (by unfold Room; omega)
+          as ⟨r5, hR6, hid6⟩
+        obtain ⟨ri, s6⟩ := r5
+        simp only at hR6 hid6
+        have ht6 := hR6.ticks
+        have rr : Repr nm s6.nodes.val ri.val
+            (.app (.sym m) (accPat (nm none) (a :: l'))) :=
+          .app hid6 (hR6.ext.repr rm5) (hR6.ext.repr ra5)
+        have R6 := R5.trans hR6
+        step with alloc_ran s6 (.App ki ri) hR6.wf ⟨(R6.ext.repr rki).lt, rr.lt⟩
+          (by unfold Room; omega) as ⟨r6, hR7, hid7⟩
+        obtain ⟨aski, s7⟩ := r6
+        simp only at hR7 hid7
+        have ht7 := hR7.ticks
+        have rask : Repr nm s7.nodes.val aski.val (askPat (nm none) U (c, m, a :: l')) :=
+          .app hid7 (hR7.ext.repr (R6.ext.repr rki)) (hR7.ext.repr rr)
+        have R7 := R6.trans hR7
+        step with alloc_ran s7 (.App aski todo) hR7.wf ⟨rask.lt, (R7.ext.repr htd).lt⟩
+          (by unfold Room; omega) as ⟨r7, hR8, hid8⟩
+        obtain ⟨todo1, s8⟩ := r7
+        simp only at hR8 hid8
+        have ht8 := hR8.ticks
+        have R8 := R7.trans hR8
+        simp only [uncurry, bind_ok]
+        refine next s8 todo1 ((c, m, a :: l') :: T) (R8.ranB.inv hI) R8.ext
+          (by have := R8.ticks; omega)
+          (.app hid8 (hR8.ext.repr rask) (hR8.ext.repr (R7.ext.repr htd))) (by simp [askOf])
+          (fun _ _ h => by cases h)
+
+/-- `push_asks` puts what the arguments leave to ask in front, and gives
+nothing when an argument that leaves no term is not in its sort. -/
+theorem push_asks_spec {S : Sorts} {sp : Pat} {U : List Name} (hC : Ctx nm S sp U) {r : Nat}
+    (cs : List Sorts.Conj) (ks : List (Option Name)) (accs : List (List GTerm)) (T : List Ask)
+    (s : store.Store) (decls names kids kn ai todo : store.TermId)
+    (hl1 : cs.length = ks.length) (hl2 : cs.length = accs.length) (hsub : ∀ c ∈ cs, Sub U c)
+    (hnames : ∀ m, some m ∈ ks → m ∈ Sorts.names S)
+    (hr : ∀ c ∈ cs, ∀ m, (Sorts.reachGSet S (c, some m)).card ≤ r) (hI : Inv s)
+    (hde : Repr nm s.nodes.val decls.val sp)
+    (hU : Repr nm s.nodes.val names.val (namesPat (nm none) U))
+    (htd : Repr nm s.nodes.val todo.val (encList (nm none) (T.map (askPat (nm none) U))))
+    (hk : Repr nm s.nodes.val kids.val (encList (nm none) (cs.map (cpat (nm none) U))))
+    (hkn : Repr nm s.nodes.val kn.val (encList (nm none) (ks.map (kidPat (nm none)))))
+    (hai : Repr nm s.nodes.val ai.val (encList (nm none) (accs.map (accPat (nm none)))))
+    (hroom : Room s (cs.length * (inclCost S U.length r + 8) + 1)) :
+    sorts.push_asks s decls names kids kn ai todo ⦃ o s' =>
+      Inv s' ∧ Extends s s' ∧
+        s'.ticks.val ≤ s.ticks.val + (cs.length * (inclCost S U.length r + 8) + 1) ∧
+        (pushOK S (cs.zip (ks.zip accs)) → ∃ td, o = some td ∧
+          Repr nm s'.nodes.val td.val
+            (encList (nm none) ((pushL (cs.zip (ks.zip accs)) T).map (askPat (nm none) U)))) ∧
+        (¬ pushOK S (cs.zip (ks.zip accs)) → o = none) ⦄ := by
+  unfold sorts.push_asks
+  step with push_asks_loop_spec hC decls names cs ks accs T s todo kids kn ai true hl1 hl2 hsub
+    hnames hr hI hde hU htd hk hkn hai hroom as ⟨s1, td, okb, hI1, hx1, ht1, h1, h2⟩
+  by_cases hok : pushOK S (cs.zip (ks.zip accs))
+  · obtain ⟨rfl, rtd⟩ := h1 hok
+    simp only [↓reduceIte, WP.spec_ok]
+    exact ⟨hI1, hx1, ht1, fun _ => ⟨td, rfl, rtd⟩, fun h => absurd hok h⟩
+  · have := h2 hok
+    subst this
+    simp only [Bool.false_eq_true, ↓reduceIte, WP.spec_ok]
+    exact ⟨hI1, hx1, ht1, fun h => absurd h hok, fun _ => rfl⟩
+
+/-! ## What one root leaves to ask -/
+
+theorem length_projsL {sl : List (Option GTerm)} {f : Sym} {k : Nat} (hsl : sl.length = k) :
+    ∀ (G : List GTerm) (A : List (List GTerm)), A.length = k → (projsL sl f k G A).length = k
+  | [], _, h => h
+  | t :: G, _, h => length_projsL hsl G _ (length_projStep hsl h t)
+
+/-- The one member of each argument conjunction of a root, where there is
+one and no more. -/
+noncomputable def keySoles (S : Sorts) (c : Sorts.Conj) (key : Sym × Nat) : List (Option GTerm) :=
+  (altOf S c key.1 key.2).map (oneOf S)
+
+/-- For each argument of a root: its conjunction, the sort the sort gives it
+and the terms left for it. -/
+noncomputable def keyItems (S : Sorts) (c : Sorts.Conj) (G : List GTerm) (key : Sym × Nat)
+    (kn : List (Option Name)) : List (Sorts.Conj × Option Name × List GTerm) :=
+  (altOf S c key.1 key.2).zip
+    (kn.zip (projsL (keySoles S c key) key.1 key.2 G (List.replicate key.2 [])))
+
+open Classical in
+/-- What a root leaves to ask, or nothing when the conjunction has a member
+with the root that is outside the sort and not among the terms. -/
+noncomputable def keyAsks (S : Sorts) (c : Sorts.Conj) (n : Name) (G : List GTerm)
+    (key : Sym × Nat) : Option (List Ask) :=
+  if Sorts.LiveKey S (Sorts.live S) c key then
+    match Sorts.step S n key.1 key.2 with
+    | none => if onlyInL (keySoles S c key) key.1 key.2 G = true then some [] else none
+    | some kn =>
+      if pushOK S (keyItems S c G key kn) then
+        some ((keyItems S c G key kn).filterMap askOf).reverse
+      else none
+  else some []
+
+/-- The ticks `but_key` may spend on a root with `k` arguments. -/
+def butKeyCost (S : Sorts) (u r q k : Nat) (G : List GTerm) : Nat :=
+  stepConjCost S u u k + solesCost S u r k + stepCost S k + onlyCost k G + projsAllCost k k G +
+    (k * (inclCost S u q + 8) + 1)
+
+/-- `but_key` puts what a root leaves to ask in front, or gives nothing. -/
+theorem but_key_spec {S : Sorts} {sp : Pat} {U : List Name} (hC : Ctx nm S sp U) {r q : Nat}
+    (hr : ∀ d, (Sorts.reachSet S d).card ≤ r)
+    (hq : ∀ d m, (Sorts.reachGSet S (d, some m)).card ≤ q)
+    (c : Sorts.Conj) (n : Name) (G : List GTerm) (f : Sym) (ksp : List Pat) (T : List Ask)
+    (hc : Sub U c) (s : store.Store) (decls names ci ni g fi ks todo : store.TermId) (hI : Inv s)
+    (hde : Repr nm s.nodes.val decls.val sp)
+    (hU : Repr nm s.nodes.val names.val (namesPat (nm none) U))
+    (hci : Repr nm s.nodes.val ci.val (cpat (nm none) U c))
+    (hni : Repr nm s.nodes.val ni.val (.sym n))
+    (hg : Repr nm s.nodes.val g.val (encList (nm none) (G.map GTerm.toPat)))
+    (hf : Repr nm s.nodes.val fi.val (.sym f))
+    (hks : Repr nm s.nodes.val ks.val (encList (nm none) ksp))
+    (htd : Repr nm s.nodes.val todo.val (encList (nm none) (T.map (askPat (nm none) U))))
+    (hroom : Room s (butKeyCost S U.length r q ksp.length G)) :
+    sorts.but_key s decls names ci ni g fi ks todo ⦃ o s' =>
+      Inv s' ∧ Extends s s' ∧
+        s'.ticks.val ≤ s.ticks.val + butKeyCost S U.length r q ksp.length G ∧
+        match keyAsks S c n G (f, ksp.length) with
+        | some A => ∃ td, o = some td ∧
+            Repr nm s'.nodes.val td.val (encList (nm none) ((A ++ T).map (askPat (nm none) U)))
+        | none => o = none ⦄ := by
+  unfold sorts.but_key
+  have hroom' := hroom
+  unfold Room at hroom'
+  simp only [butKeyCost] at hroom'
+  have hal : (altOf S c f ksp.length).length = ksp.length := by simp [altOf]
+  have hsl : (keySoles S c (f, ksp.length)).length = ksp.length := by simp [keySoles, altOf]
+  have hsub : ∀ d ∈ altOf S c f ksp.length, Sub U d := by
+    intro d hd
+    obtain ⟨i, -, rfl⟩ := List.mem_map.1 hd
+    exact fun x hx => hC.names x (Sorts.kidC_subset_names hx)
+  step with step_conj_conj_spec hC.inj S hC.sorts (f := f) (ag := ksp) U c s decls names ci fi ks
+    hI hde hU hc hci hf hks (fun n _ ks' hs m' hm' => hC.nz m' (step_kid_names hs hm'))
+    (by unfold Room; omega) as ⟨o, s1, hI1, hx1, htb1, ht1, hres⟩
+  by_cases hacc : Sorts.Accepts S c f ksp.length
+  swap
+  · simp only [hacc, ↓reduceIte] at hres
+    subst hres
+    have hnl : ¬ Sorts.LiveKey S (Sorts.live S) c (f, ksp.length) := fun h => hacc h.1
+    have hka : keyAsks S c n G (f, ksp.length) = some [] := by
+      unfold keyAsks; rw [ite_neg' hnl]
+    simp only [WP.spec_ok]
+    rw [hka]
+    exact ⟨hI1, hx1, by simp only [butKeyCost]; omega, todo, rfl, hx1.repr htd⟩
+  simp only [hacc, ↓reduceIte] at hres
+  obtain ⟨kidsi, kids, rfl, hkl, rkids, hk⟩ := hres
+  have hkids : kids = (altOf S c f ksp.length).map (cpat (nm none) U) := by
+    apply List.ext_getElem
+    · simp [altOf, hkl]
+    · intro i h₁ h₂
+      obtain ⟨k', rk', ck'⟩ := hk i h₁
+      simp only [altOf, List.getElem_map, List.getElem_range]
+      exact rk'.unique ck'
+  subst hkids
+  simp only
+  step with soles_spec hC (altOf S c f ksp.length) hsub (fun d _ => hr d) s1 decls names kidsi
+    hI1 (hx1.repr hde) (hx1.repr hU) rkids (by rw [hal]; unfold Room; omega)
+    as ⟨o1, s2, hI2, hx2, ht2, hso1, hso2⟩
+  rw [hal] at ht2
+  have hx12 := hx1.trans hx2
+  by_cases hall : ∀ d ∈ altOf S c f ksp.length, Sorts.count S d ≠ .none
+  swap
+  · obtain ⟨d, hd, hdn⟩ : ∃ d ∈ altOf S c f ksp.length, Sorts.count S d = .none := by
+      by_contra h0
+      exact hall fun d hd hdn => h0 ⟨d, hd, hdn⟩
+    have := hso2 d hd hdn
+    subst this
+    have hnl : ¬ Sorts.LiveKey S (Sorts.live S) c (f, ksp.length) := by
+      intro h
+      obtain ⟨i, hi, rfl⟩ := List.mem_map.1 hd
+      exact Sorts.count_none.1 hdn (Sorts.mem_live_iff.1 (h.2 i (List.mem_range.1 hi)))
+    have hka : keyAsks S c n G (f, ksp.length) = some [] := by
+      unfold keyAsks; rw [ite_neg' hnl]
+    simp only [WP.spec_ok]
+    rw [hka]
+    exact ⟨hI2, hx12, by simp only [butKeyCost]; omega, todo, rfl, hx12.repr htd⟩
+  obtain ⟨so, rfl, rso⟩ := hso1 hall
+  have hlive : Sorts.LiveKey S (Sorts.live S) c (f, ksp.length) := by
+    refine ⟨hacc, fun i hi => ?_⟩
+    by_contra hn
+    exact hall _ (List.mem_map.2 ⟨i, List.mem_range.2 hi, rfl⟩)
+      (Sorts.count_none.2 fun h => hn (Sorts.mem_live_iff.2 h))
+  have rso' : Repr nm s2.nodes.val so.val
+      (encList (nm none) ((keySoles S c (f, ksp.length)).map (solePat (nm none)))) := by
+    rw [keySoles, List.map_map]; exact rso
+  simp only
+  step with step_spec hC.inj S hC.sorts s2 decls ni fi ks hI2.toWf (hx12.repr hde)
+    (hx12.repr hni) (hx12.repr hf) (hx12.repr hks) (by unfold Room; omega)
+    as ⟨o2, s3, hR3, hst⟩
+  have ht3 := hR3.ticks
+  have hI3 : Inv s3 := hR3.ranB.inv hI2
+  have hx3 := hx12.trans hR3.ext
+  cases hs : Sorts.step S n f ksp.length with
+  | none =>
+    rw [hs] at hst
+    subst hst
+    simp only
+    step with only_in_spec hC.inj (keySoles S c (f, ksp.length)) f ksp hsl G s3 so fi ks g
+      hR3.wf (hR3.ext.repr rso') (hx3.repr hf) (hx3.repr hks) (hx3.repr hg)
+      (by rw [hsl]; unfold Room; omega) as ⟨b, s4, hR4, hb⟩
+    rw [hsl] at hR4
+    have ht4 := hR4.ticks
+    have hka : keyAsks S c n G (f, ksp.length) =
+        if onlyInL (keySoles S c (f, ksp.length)) f ksp.length G = true then some [] else none := by
+      unfold keyAsks; rw [ite_pos' hlive]; simp only [hs]
+    rw [hka, ← hb]
+    cases b with
+    | true =>
+      simp only [↓reduceIte, WP.spec_ok]
+      exact ⟨hR4.ranB.inv hI3, hx3.trans hR4.ext, by simp only [butKeyCost]; omega, todo, rfl,
+        (hx3.trans hR4.ext).repr htd⟩
+    | false =>
+      simp only [Bool.false_eq_true, ↓reduceIte, WP.spec_ok]
+      exact ⟨hR4.ranB.inv hI3, hx3.trans hR4.ext, by simp only [butKeyCost]; omega, rfl⟩
+  | some kn =>
+    rw [hs] at hst
+    obtain ⟨kni, rfl, rkn⟩ := hst
+    have hknl : kn.length = ksp.length := Sorts.step_length hs
+    simp only
+    step with projs_spec hC.inj (keySoles S c (f, ksp.length)) f ksp hsl G s3 so fi ks g hR3.wf
+      (hR3.ext.repr rso') (hx3.repr hf) (hx3.repr hks) (hx3.repr hg)
+      (by rw [hsl]; unfold Room; omega) as ⟨accs, s4, hR4, racc⟩
+    rw [hsl] at hR4
+    have ht4 := hR4.ticks
+    have hx4 := hx3.trans hR4.ext
+    have hpl : (projsL (keySoles S c (f, ksp.length)) f ksp.length G
+        (List.replicate ksp.length [])).length = ksp.length :=
+      length_projsL hsl G _ (List.length_replicate ..)
+    refine WP.spec_mono (push_asks_spec hC (altOf S c f ksp.length) kn _ T s4 decls names kidsi
+      kni accs todo (by rw [hal, hknl]) (by rw [hal, hpl]) hsub
+      (fun m hm => step_kid_names hs hm) (fun d _ m => hq d m) (hR4.ranB.inv hI3)
+      (hx4.repr hde) (hx4.repr hU) (hx4.repr htd) ((hx2.trans (hR3.ext.trans hR4.ext)).repr rkids)
+      (hR4.ext.repr rkn) racc (by rw [hal]; unfold Room; omega)) ?_
+    rintro ⟨o, s'⟩ ⟨hI', hx', ht', h1, h2⟩
+    rw [hal] at ht'
+    refine ⟨hI', hx4.trans hx', by simp only [butKeyCost]; omega, ?_⟩
+    by_cases hok : pushOK S (keyItems S c G (f, ksp.length) kn)
+    · obtain ⟨td, rfl, rtd⟩ := h1 hok
+      have hka : keyAsks S c n G (f, ksp.length) =
+          some ((keyItems S c G (f, ksp.length) kn).filterMap askOf).reverse := by
+        unfold keyAsks; rw [ite_pos' hlive]; simp only [hs, hok, ↓reduceIte]
+      rw [hka]
+      exact ⟨td, rfl, rtd⟩
+    · have hka : keyAsks S c n G (f, ksp.length) = none := by
+        unfold keyAsks; rw [ite_pos' hlive]; simp only [hs, hok, ↓reduceIte]
+      rw [hka]
+      exact h2 hok
+
 end RwLogVerified
