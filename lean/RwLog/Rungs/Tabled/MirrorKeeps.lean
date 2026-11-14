@@ -20,6 +20,7 @@ shows in one step do not cover each other in either order
 import RwLog.Rungs.Tabled.Mirrored
 import RwLog.Rungs.Tabled.EmptySide
 import RwLog.Rungs.Framework.SameTrace
+import RwLog.Rungs.Framework.EngineKeeps
 import RwLog.Rungs.Framework.Writing
 
 namespace RwLog
@@ -103,21 +104,23 @@ variable (hD : ∀ S : Sorts, S.WellFormed → (dom S).Lawful S.interp)
 include hD hG hE in
 /-- The tabled machine keeps every property, with the tabled machine of any
 other exact race as base. -/
-theorem tabled_keeps (hG₀ : Good @U₀) (hE₀ : Exact @U₀) :
-    (Rt @U dom K hK).Keeps (Rt @U₀ dom K hK) where
-  sound := Engine.sound _ dom K hK hD
-  pointComplete := pointComplete hD hG
+theorem tabled_obligations (hG₀ : Good @U₀) (hE₀ : Exact @U₀) :
+    (engine @U).Obligations dom K hK (Rt @U₀ dom K hK) where
+  complete := complete hD hG
   honest := honestExhaustion hD hG
   honestProgress := honestProgress hD hG
-  derivationGeneral := Engine.derivationGeneral _ dom K hK hD
   terminates := fun _ _ wf ⟨n, hn⟩ => ⟨n, (halts_iff hD hG₀ hG hE₀ hE wf n).1 hn⟩
-  orComm := Engine.orComm _ dom K hK
-  orAssoc := Engine.orAssoc _ dom K hK
   emptySide := emptySide hD hG hE
   convTrace := convTrace hD hG hE
   dualTrace := dualTrace hD hG hE
   noSubsumed := noSubsumed hD hG
-  complete := complete hD hG
+
+include hD hG hE in
+/-- The tabled machine keeps every property, with the tabled machine of any
+other exact race as base. -/
+theorem tabled_keeps (hG₀ : Good @U₀) (hE₀ : Exact @U₀) :
+    (Rt @U dom K hK).Keeps (Rt @U₀ dom K hK) :=
+  (tabled_obligations hD hG hE hG₀ hE₀).keeps hD
 
 include hD hG in
 /-- The answers the tabled machine shows in one step do not cover each

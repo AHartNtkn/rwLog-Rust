@@ -10,6 +10,7 @@ The member is built from the root down (`one`): a conjunction has exactly one
 member when not every sort of it has a rest, one root can be filled, and each
 argument of that root has exactly one member.
 -/
+import RwLog.Lib.List
 import RwLog.Sorts.WF
 
 namespace RwLog
@@ -18,52 +19,6 @@ namespace Sorts
 open Function
 
 variable {S : Sorts}
-
-/-- The values of a list of options, when each has one. -/
-def gather {α : Type} : List (Option α) → Option (List α)
-  | [] => some []
-  | a :: l => a.bind fun x => (gather l).map (x :: ·)
-
-theorem gather_eq_some {α : Type} : ∀ {l : List (Option α)} {ys : List α},
-    gather l = some ys ↔ l = ys.map some
-  | [], ys => by cases ys <;> simp [gather]
-  | a :: l, ys => by
-    cases a with
-    | none => cases ys <;> simp [gather]
-    | some x =>
-      cases ys with
-      | nil => simp [gather]
-      | cons y ys =>
-        simp only [gather, Option.bind_some, Option.map_eq_some_iff, List.map_cons,
-          List.cons.injEq, Option.some.injEq]
-        constructor
-        · rintro ⟨zs, hz, rfl, rfl⟩
-          exact ⟨rfl, gather_eq_some.1 hz⟩
-        · rintro ⟨rfl, h⟩
-          exact ⟨ys, gather_eq_some.2 h, rfl, rfl⟩
-
-theorem gather_range {α : Type} {k : Nat} {g : Nat → Option α} {ys : List α} :
-    gather ((List.range k).map g) = some ys ↔
-      ys.length = k ∧ ∀ i (h : i < ys.length), g i = some ys[i] := by
-  rw [gather_eq_some]
-  constructor
-  · intro h
-    have hl : ys.length = k := by simpa using (congrArg List.length h).symm
-    refine ⟨hl, fun i hi => ?_⟩
-    have := congrArg (fun l => l[i]?) h
-    simpa [hl ▸ hi, List.getElem?_eq_getElem hi] using this
-  · rintro ⟨rfl, h⟩
-    refine List.ext_getElem (by simp) fun i h₁ h₂ => ?_
-    simp only [List.length_map, List.length_range] at h₁
-    simp [h i h₁]
-
-theorem gather_isSome {α : Type} : ∀ {l : List (Option α)},
-    (gather l).isSome = true ↔ ∀ o ∈ l, o.isSome = true
-  | [] => by simp [gather]
-  | a :: l => by
-    cases a with
-    | none => simp [gather]
-    | some x => simp [gather, gather_isSome (l := l)]
 
 /-- The roots of members of `c`, when not every sort of `c` has a rest. -/
 def liveKeys (S : Sorts) (c : Conj) : Finset (Sym × Nat) :=

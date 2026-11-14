@@ -9,6 +9,7 @@ none when a sort rejects every instance of a value (`close_none_of_reject`).
 The values of the variables after closing are their values before with each
 free variable that has one value replaced by it (`oneSub`).
 -/
+import RwLog.Lib.List
 import RwLog.Sorts.NormEx
 import RwLog.Kernel.Subterms
 
@@ -189,19 +190,6 @@ theorem free_of_apply (hθ : Pre k θ) {y : Nat} (h : PSubst.apply θ y = .var y
   have hc2 : c.2 = .var c.1 := by rw [← apply_of_mem hθ.sorted hc, hcy, h]
   have := hθ.later c hc c.1 hc2
   omega
-
-theorem lookup_sorted {β : Type} : ∀ {L : List (Nat × β)}, (L.Pairwise fun a b => a.1 < b.1) →
-    ∀ b ∈ L, L.lookup b.1 = some b.2
-  | [], _, b, hb => by simp at hb
-  | a :: L, h, b, hb => by
-    rw [List.pairwise_cons] at h
-    rcases List.mem_cons.1 hb with rfl | hb
-    · simp [List.lookup]
-    · have hne : (b.1 == a.1) = false := by
-        have := h.1 b hb
-        simpa using Nat.ne_of_gt this
-      simp only [List.lookup, hne]
-      exact lookup_sorted h.2 b hb
 
 theorem oneSub_one {ν : Nat → Pat} {C : Nat → Conj} {y : Nat} {g : GTerm} (hy : y < k)
     (hν : ν y = .var y) (hc : count S (C y) = .one g) : oneSub S k ν C y = Term.lift g := by

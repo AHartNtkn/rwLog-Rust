@@ -143,7 +143,9 @@ every charge derived from the Rust. No domain of spans as written is left
 | Converse of a program | `SpanLayer/Dual.lean` | `Program.sem_dual` |
 | Greatest fixpoints by iteration | `Lib/Gfp.lean` | `gfpFrom`, `gfpFrom_closed`, `subset_gfpFrom` |
 | Insertion sort by a strict order | `Lib/Insert.lean` | `insertBy`, `sortBy`, `sortBy_eq` (a duplicate-free list sorts to the ordered list with the same members) |
-| First occurrences of a list | `Lib/Firsts.lean` | `addNew`, `addAll`, `firsts`, `firsts_eq_eraseDups`, `addAll_firsts`, `addAll_flatMap_firsts`, `addAll_flatMap_congr` |
+| First occurrences of a list | `Lib/Firsts.lean` | `addNew`, `addAll`, `firsts`, `firsts_eq_eraseDups`, `addAll_firsts`, `addAll_flatMap_firsts`, `addAll_flatMap_congr`, `firsts_map`, `firsts_spec` |
+| An antichain that covers a list | `Lib/Antichain.lean` | `antichain`, `antichain_spec` |
+| Lookup by sorted key; the values of a list of options | `Lib/List.lean` | `lookup_sorted`, `gather`, `gather_eq_some`, `gather_range`, `gather_isSome` |
 
 ## The rung framework
 
@@ -507,7 +509,9 @@ come from these places.
 
 1. Free for every engine: `Engine.sound`, `Engine.derivationGeneral`
    (`Framework/Derivation.lean`), `Engine.orComm`, `Engine.orAssoc`
-   (`Framework/Writing.lean`).
+   (`Framework/Writing.lean`). `Engine.Obligations` (`Framework/EngineKeeps.lean`)
+   names the eight parts that are the engine's own, and `Obligations.keeps`
+   fills in the free ones and returns `Runtime.Keeps`.
 2. Reading the text as values: open the goal with `at_cost K hK`
    (`Framework/KernelAt.lean`), rewrite the traversals with the `_std`
    lemmas and `Cost.*_val` (`Framework/TraverseStd.lean`,
