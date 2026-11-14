@@ -1,5 +1,5 @@
 import RwLog.Sorts.Loop
-import RwLog.Sorts.Assemble
+import RwLog.Sorts.Norm
 
 /-!
 # The read-time check on sorts
@@ -11,7 +11,8 @@ conjunctions of sorts have (`Sorts.count`) and whether a conjunction is
 inside a sort but for some terms (`Sorts.inclBut`), and the one root of the
 values of a variable (`Sorts.sole`), stores brought to tight ones
 (`Sorts.tighten`), and exclusions brought to normal form (`Sorts.normEx`,
-`Sorts.assembled`).
+`Sorts.assembled`), and problems brought to their normal stores
+(`Sorts.Prob.norm`).
 -/
 
 namespace RwLog.Tests.SortsRuns
@@ -296,5 +297,60 @@ def two (c₀ c₁ : Conj) : Raw := ⟨Term.mk "p" [.var 0, .var 1], [c₀, c₁
 -- exclusions that do not cover each other are both kept, in order
 #guard (assembled nats (Term.mk "p" [.var 0, .var 1]) [{"nat"}, {"nat"}]
     [[(.var 1, zp)], [(.var 0, zp)]]).x = [[(0, zp)], [(1, zp)]]
+
+/-- The normal store of a problem. -/
+def norm (S : Sorts) (P : Prob) : Option Raw :=
+  if hS : S.WellFormed then P.norm S hS else none
+
+-- a number
+#guard norm nats ⟨.var 0, [], [("nat", .var 0)], []⟩ = some ⟨.var 0, [{"nat"}], []⟩
+
+-- a variable with no sort
+#guard norm nats ⟨.var 0, [], [], []⟩ = some ⟨.var 0, [∅], []⟩
+
+-- a number that is not zero is a successor
+#guard norm nats ⟨.var 0, [], [("nat", .var 0)], [[(.var 0, zp)]]⟩ =
+  some ⟨sp (.var 0), [{"nat"}], []⟩
+
+-- a sort with one case
+#guard norm nats ⟨.var 0, [], [("pos", .var 0)], []⟩ = some ⟨sp (.var 0), [{"nat"}], []⟩
+
+-- neither zero nor one
+#guard norm nats ⟨.var 0, [], [("nat", .var 0)], [[(.var 0, zp)], [(.var 0, sp zp)]]⟩ =
+  some ⟨sp (sp (.var 0)), [{"nat"}], []⟩
+
+-- a sort with one member is written out
+#guard norm nats ⟨.var 0, [], [("zero", .var 0)], []⟩ = some ⟨zp, [], []⟩
+
+-- two sorts that share nothing
+#guard norm nats ⟨.var 0, [], [("zero", .var 0), ("pos", .var 0)], []⟩ = none
+
+-- an equation is solved, and the sort moves to the variable left
+#guard norm nats ⟨.var 5, [(.var 5, sp (.var 3))], [("nat", .var 5)], []⟩ =
+  some ⟨sp (.var 0), [{"nat"}], []⟩
+
+-- equations with no solution
+#guard norm nats ⟨.var 0, [(.var 0, sp (.var 0))], [], []⟩ = none
+
+-- two numbers that differ: the exclusion binds the later variable
+#guard norm nats ⟨Term.mk "p" [.var 0, .var 1], [], [("nat", .var 0), ("nat", .var 1)],
+    [[(.var 0, .var 1)]]⟩ =
+  some ⟨Term.mk "p" [.var 0, .var 1], [{"nat"}, {"nat"}], [[(1, .var 0)]]⟩
+
+-- the variables are numbered as they occur in the pattern
+#guard norm nats ⟨Term.mk "p" [.var 7, .var 2], [], [("nat", .var 7), ("pos", .var 2)], []⟩ =
+  some ⟨Term.mk "p" [.var 0, sp (.var 1)], [{"nat"}, {"nat"}], []⟩
+
+-- an exclusion against a variable that is not in the pattern says nothing
+#guard norm nats ⟨.var 0, [], [("nat", .var 0), ("nat", .var 1)], [[(.var 0, .var 1)]]⟩ =
+  some ⟨.var 0, [{"nat"}], []⟩
+
+-- an exclusion that the sorts already give is dropped
+#guard norm nats ⟨Term.mk "p" [.var 0, .var 1], [], [("pos", .var 0), ("nat", .var 1)],
+    [[(.var 0, zp)]]⟩ =
+  some ⟨Term.mk "p" [sp (.var 0), .var 1], [{"nat"}, {"nat"}], []⟩
+
+-- an exclusion that always holds
+#guard norm nats ⟨.var 0, [], [("nat", .var 0)], [[]]⟩ = none
 
 end RwLog.Tests.SortsRuns

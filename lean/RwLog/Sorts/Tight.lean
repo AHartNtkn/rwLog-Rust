@@ -5,10 +5,10 @@ A store is *tight* when every variable of its pattern takes values with two
 different head symbols among its solutions. If a variable takes values with
 one head symbol only, `(f _ … _)`, the pattern can be extended there: the
 variable is replaced by `(f $y₁ … $yₙ)` with new variables, which take the
-sorts the sorts of the old one give to the arguments (`expand`). The pattern
-then has more symbols, and it never has more than a term the store denotes.
-So among the stores with a given denotation one has a pattern with the most
-symbols, and it is tight (`tight_exists`).
+sorts the sorts of the old one give to the arguments (`expStore`,
+`expStore_fwd`, `expStore_bwd`). The pattern then has more symbols, and it
+never has more than a term the store denotes, so this ends; `tighten`
+(`Loop.lean`) is the loop.
 -/
 import RwLog.Sorts.Store
 import RwLog.Sorts.FO
@@ -225,65 +225,7 @@ theorem expStore_full (hfull : s.Full) (hv : v ∈ s.t.vars) :
     · exact h₀ q.1 (fun z hz => hfull.xs E hE q hq z (List.mem_append_left _ hz)) hw
     · exact h₀ q.2 (fun z hz => hfull.xs E hE q hq z (List.mem_append_right _ hz)) hw
 
-/-- A variable whose values all have one head symbol can be replaced by that
-symbol applied to new variables. -/
-theorem expand (hfin : s.Fin N) (hfull : s.Full) (hv : v ∈ s.t.vars)
-    (hkey : ∀ σ ∈ s.Sol S, (σ v).key = some (f, n)) (hne : (s.Sol S).Nonempty) :
-    ∃ s' : Store, s'.Fin (N + n) ∧ s'.Full ∧ s'.Den S = s.Den S ∧
-      s.t.syms.length < s'.t.syms.length := by
-  have hvN := hfin.tv v hv
-  refine ⟨expStore S s N v f n, expStore_fin hfin hv, expStore_full hfull hv, ?_, ?_⟩
-  · obtain ⟨σk, hσk⟩ := hne
-    obtain ⟨gk, hgk, hlenk⟩ := key_eq_mk (hkey σk hσk)
-    have hacc : Accepts S (s.c v) f n := by
-      have hm : MemC S (s.c v) (Term.mk f gk) := hgk ▸ hσk.1 v
-      rw [← hlenk]; exact (memC_mk.1 hm).1
-    ext g
-    constructor
-    · rintro ⟨σ', hσ', rfl⟩
-      obtain ⟨σ, hσ, e⟩ := expStore_bwd hfin hvN hacc hσ'
-      exact ⟨σ, hσ, e.symm⟩
-    · rintro ⟨σ, hσ, rfl⟩
-      obtain ⟨gs, hgs, hlen⟩ := key_eq_mk (hkey σ hσ)
-      obtain ⟨σ', hσ', e⟩ := expStore_fwd hfin hvN hσ hgs hlen
-      exact ⟨σ', hσ', e.symm⟩
-  · exact Term.syms_length_bind_single_lt (Term.syms_mk_pos _ _) hv
-
 end expand
-
-/-- Among the stores with a given denotation, one is tight. -/
-theorem tight_exists {S : Sorts} {s : Store} {N : Nat} (hfin : s.Fin N) (hfull : s.Full)
-    (hne : (s.Den S).Nonempty) :
-    ∃ (s' : Store) (N' : Nat), s'.Fin N' ∧ s'.Full ∧ s'.Tight S ∧ s'.Den S = s.Den S := by
-  obtain ⟨g₀, hg₀⟩ := hne
-  classical
-  have bound : ∀ s' : Store, s'.Den S = s.Den S → s'.t.syms.length ≤ g₀.syms.length := by
-    intro s' hd
-    rw [← hd] at hg₀
-    obtain ⟨σ, -, rfl⟩ := hg₀
-    exact Term.syms_length_bind_le σ s'.t
-  have hex : ∃ d, ∃ (s' : Store) (N' : Nat), s'.Fin N' ∧ s'.Full ∧ s'.Den S = s.Den S ∧
-      s'.t.syms.length + d = g₀.syms.length :=
-    ⟨g₀.syms.length - s.t.syms.length, s, N, hfin, hfull, rfl, by have := bound s rfl; omega⟩
-  obtain ⟨s', N', hfin', hfull', hden', hd⟩ := Nat.find_spec hex
-  refine ⟨s', N', hfin', hfull', ?_, hden'⟩
-  intro v hv
-  by_contra hno
-  have hsol : (s'.Sol S).Nonempty := by
-    rw [← hden'] at hg₀
-    obtain ⟨σ, hσ, -⟩ := hg₀
-    exact ⟨σ, hσ⟩
-  obtain ⟨σk, hσk⟩ := hsol
-  obtain ⟨⟨f, n⟩, hk⟩ := key_ground (σk v)
-  have hkey : ∀ σ ∈ s'.Sol S, (σ v).key = some (f, n) := by
-    intro σ hσ
-    by_contra hne
-    exact hno ⟨σ, hσ, σk, hσk, by rw [hk]; exact hne⟩
-  obtain ⟨s'', hfin'', hfull'', hden'', hlt⟩ := expand hfin' hfull' hv hkey ⟨σk, hσk⟩
-  have hb := bound s'' (hden''.trans hden')
-  have := Nat.find_min' hex ⟨s'', N' + n, hfin'', hfull'', hden''.trans hden',
-    (by omega : s''.t.syms.length + (g₀.syms.length - s''.t.syms.length) = g₀.syms.length)⟩
-  omega
 
 end Sorts
 end RwLog

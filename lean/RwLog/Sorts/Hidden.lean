@@ -8,8 +8,9 @@ choice of that variable, and says nothing about the others: hidden variables
 and the exclusions that mention them are dropped (`Raw.Normal.proj`).
 
 To bring a store with hidden variables to normal form, its pattern is paired
-with a tuple of all its variables, so that none is hidden, the result is
-brought to normal form, and the tuple is projected away (`normal_exists`).
+with a tuple of all its variables (`tup`), so that none is hidden, the
+result is brought to normal form, and the tuple is projected away
+(`Raw.cut`); `Norm.lean` does this.
 -/
 import RwLog.Sorts.Assemble
 
@@ -67,12 +68,24 @@ def Low (k : Nat) (θ : Binds) : Prop := ∀ b ∈ θ, b.1 < k ∧ ∀ v ∈ b.2
 
 instance (k : Nat) (θ : Binds) : Decidable (Low k θ) := by unfold Low; infer_instance
 
+/-- The first `k` variables of a raw store under the pattern `a`: their
+sorts, and the exclusions over them. -/
+def Raw.cut (r : Raw) (a : Pat) (k : Nat) : Raw :=
+  ⟨a, r.c.take k, r.x.filter fun θ => decide (Low k θ)⟩
+
+/-- The number of different variables of a pattern. -/
+def width (a : Pat) : Nat := a.vars.toFinset.card
+
+theorem width_eq {a : Pat} {k : Nat} (h : ∀ v, v ∈ a.vars ↔ v < k) : width a = k := by
+  have : a.vars.toFinset = Finset.range k := by ext v; simp [h]
+  rw [width, this, Finset.card_range]
+
 /-- The first part of the pattern of a normal store, with the variables and
 exclusions it needs, is a normal store. -/
 theorem Raw.Normal.proj {S : Sorts} (hS : S.WellFormed) {r : Raw} (hr : r.Normal S) {a b : Pat}
     (ht : r.t = tpair a b) :
-    ∃ r' : Raw, r'.Normal S ∧ r'.t = a ∧
-      ∀ g, g ∈ r'.store.Den S ↔ ∃ σ ∈ r.store.Sol S, g = a.bind σ := by
+    (r.cut a (width a)).Normal S ∧
+      ∀ g, g ∈ (r.cut a (width a)).store.Den S ↔ ∃ σ ∈ r.store.Sol S, g = a.bind σ := by
   have hocc := hr.occ
   rw [ht, tpair_vars] at hocc
   obtain ⟨hoccA, k, hk⟩ := firstOcc_prefix hocc
@@ -81,13 +94,14 @@ theorem Raw.Normal.proj {S : Sorts} (hS : S.WellFormed) {r : Raw} (hr : r.Normal
     have h₁ : r.c.length ∈ a.vars := (hk _).2 (by omega)
     have := (hr.len r.c.length).1 (by rw [ht, tpair_vars]; exact List.mem_append_left _ h₁)
     omega
-  let r' : Raw := ⟨a, r.c.take k, r.x.filter fun θ => decide (Low k θ)⟩
-  have hlen : r'.c.length = k := by simp [r', hkl]
+  rw [width_eq hk]
+  let r' : Raw := r.cut a k
+  have hlen : r'.c.length = k := by simp [r', Raw.cut, hkl]
   have hconj : ∀ v, r'.conj v = if v < k then r.conj v else ∅ := by
     intro v
-    simp only [Raw.conj, r', List.getD_eq_getElem?_getD, List.getElem?_take]
+    simp only [Raw.conj, r', Raw.cut, List.getD_eq_getElem?_getD, List.getElem?_take]
     split <;> rfl
-  have hx' : ∀ θ, θ ∈ r'.x ↔ θ ∈ r.x ∧ Low k θ := by intro θ; simp [r', List.mem_filter]
+  have hx' : ∀ θ, θ ∈ r'.x ↔ θ ∈ r.x ∧ Low k θ := by intro θ; simp [r', Raw.cut, List.mem_filter]
   have posr : ∀ σ ∈ r.store.Pos S, σ ∈ r'.store.Pos S := by
     intro σ hσ v
     show MemC S (r'.conj v) (σ v)
@@ -157,8 +171,9 @@ theorem Raw.Normal.proj {S : Sorts} (hS : S.WellFormed) {r : Raw} (hr : r.Normal
   have hfo : a.firstOrder = true := by
     have := hr.fo; rw [ht, tpair_fo, Bool.and_eq_true] at this; exact this.1
   have exsub : ∀ θ, r.Ex S θ ⊆ r'.Ex S θ := fun θ σ hσ => ⟨posr σ hσ.1, hσ.2⟩
-  refine ⟨r', ⟨hfo, hoccA, fun v => by rw [hlen]; exact hk v, ?_, ?_, ?_, ?_,
-    hr.sorted.filter _⟩, rfl, ?_⟩
+  show r'.Normal S ∧ ∀ g, g ∈ r'.store.Den S ↔ ∃ σ ∈ r.store.Sol S, g = a.bind σ
+  refine ⟨⟨hfo, hoccA, fun v => by rw [hlen]; exact hk v, ?_, ?_, ?_, ?_,
+    hr.sorted.filter _⟩, ?_⟩
   · intro v hv
     rw [hlen] at hv
     obtain ⟨σ, hσ, σ', hσ', hne⟩ := hr.two v (by omega)
@@ -244,59 +259,6 @@ theorem shape_pair {S : Sorts} {r : Raw} (hr : r.Normal S) (hne : (r.store.Sol S
         subst this
         exact ⟨a', d, rfl⟩
       | app e₁ e₂ => simp [tpair, Term.bind_app] at hxy
-
-/-- A store with a first-order pattern, first-order exclusions and finitely
-many variables that denotes some term has a normal form. -/
-theorem normal_exists {S : Sorts} (hS : S.WellFormed) {s : Store} {N : Nat} (hfin : s.Fin N)
-    (hne : (s.Den S).Nonempty) : ∃ r : Raw, r.Normal S ∧ r.store.Den S = s.Den S := by
-  let s₁ : Store := ⟨tpair s.t (tup N), s.c, s.x⟩
-  have hv₁ : ∀ v, v < N → v ∈ s₁.t.vars := fun v hv => by
-    show v ∈ (tpair s.t (tup N)).vars
-    rw [tpair_vars]; exact List.mem_append_right _ (mem_tup_vars.2 hv)
-  have hfin₁ : s₁.Fin N := by
-    refine ⟨?_, ?_, hfin.cv, hfin.xfo, hfin.xv⟩
-    · show (tpair s.t (tup N)).firstOrder = true
-      rw [tpair_fo, hfin.fo, tup_fo]; rfl
-    · intro v hv
-      change v ∈ (tpair s.t (tup N)).vars at hv
-      rw [tpair_vars, List.mem_append, mem_tup_vars] at hv
-      rcases hv with h | h
-      · exact hfin.tv v h
-      · exact h
-  have hfull₁ : s₁.Full :=
-    ⟨fun v hv => hfin.cv v (by by_contra h; exact hv (hv₁ v (by omega))),
-      fun E hE p hp v hv => hv₁ v (hfin.xv E hE p hp v hv)⟩
-  obtain ⟨g₀, σ₀, hσ₀, -⟩ := hne
-  have hne₁ : (s₁.Den S).Nonempty := ⟨_, σ₀, hσ₀, rfl⟩
-  obtain ⟨s₂, N₂, hfin₂, hfull₂, ht₂, hden₂⟩ := tight_exists hfin₁ hfull₁ hne₁
-  obtain ⟨s₃, k, hfin₃, hfull₃, ht₃, hden₃, hocc₃, hv₃⟩ := renum_exists hfin₂ hfull₂ ht₂
-  have hne₃ : (s₃.Sol S).Nonempty := by
-    have : (s₃.Den S).Nonempty := by rw [hden₃, hden₂]; exact hne₁
-    obtain ⟨g, σ, hσ, -⟩ := this; exact ⟨σ, hσ⟩
-  obtain ⟨r, hr, hrt, hrsol⟩ := normal_of_tight hS hfin₃ ht₃ hocc₃ hv₃ hne₃
-  have hden : r.store.Den S = s₁.Den S := by
-    rw [← hden₂, ← hden₃]
-    show {g | ∃ σ ∈ r.store.Sol S, g = r.t.bind σ} = {g | ∃ σ ∈ s₃.Sol S, g = s₃.t.bind σ}
-    rw [hrsol, hrt]
-  obtain ⟨a, b, hab⟩ := shape_pair hr (hr.sol_nonempty hS) (by
-    rw [hden]; rintro g ⟨σ, -, rfl⟩; exact ⟨_, _, tpair_bind σ _ _⟩)
-  obtain ⟨r', hr', -, hden'⟩ := hr.proj hS hab
-  refine ⟨r', hr', ?_⟩
-  ext g
-  rw [hden']
-  constructor
-  · rintro ⟨σ, hσ, rfl⟩
-    have : tpair (a.bind σ) (b.bind σ) ∈ s₁.Den S := by
-      rw [← hden]; exact ⟨σ, hσ, by show _ = r.t.bind σ; rw [hab, tpair_bind]⟩
-    obtain ⟨τ, hτ, e⟩ := this
-    exact ⟨τ, hτ, (tpair_inj (e.trans (tpair_bind τ _ _))).1⟩
-  · rintro ⟨τ, hτ, rfl⟩
-    have : tpair (s.t.bind τ) ((tup N).bind τ) ∈ r.store.Den S := by
-      rw [hden]; exact ⟨τ, hτ, (tpair_bind τ _ _).symm⟩
-    obtain ⟨σ, hσ, e⟩ := this
-    have e' : tpair (s.t.bind τ) ((tup N).bind τ) = tpair (a.bind σ) (b.bind σ) := by
-      rw [e]; show r.t.bind σ = _; rw [hab, tpair_bind]
-    exact ⟨σ, hσ, (tpair_inj e').1⟩
 
 end Sorts
 end RwLog

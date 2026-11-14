@@ -8,8 +8,8 @@ values, each exclusion is replaced by its normal form (`normExs`) or dropped
 when nothing in the sorts satisfies its equations, the exclusions that
 another implies are dropped (`antichain`, `covers`), and the rest are put in
 order (`sortBinds`). `normal_assemble` is the statement for any sorts and
-exclusions with these properties, `assembled` puts the computed exclusions
-together, and `normal_of_tight` is the store that results.
+exclusions with these properties, and `assembled` puts the computed
+exclusions together (`assembled_normal`).
 -/
 import RwLog.Sorts.Renum
 import RwLog.Sorts.NormEx
@@ -291,23 +291,6 @@ theorem assembled_normal (hS : S.WellFormed) (hfin : s.Fin k) (ht : s.Tight S)
       obtain ⟨θ', hθ', hle⟩ := hcov θ hθ
       exact ⟨θ', (hZ θ').2 hθ', hle⟩)
     (fun θ hθ θ' hθ' hle => hanti θ ((hZ θ).1 hθ) θ' ((hZ θ').1 hθ') hle) hsorted
-
-/-- A tight store with its variables numbered by first occurrence has a normal
-form with the same pattern and the same solutions. -/
-theorem normal_of_tight (hS : S.WellFormed) (hfin : s.Fin k) (ht : s.Tight S)
-    (hocc : FirstOcc s.t.vars) (hvars : ∀ v, v ∈ s.t.vars ↔ v < k) (hne : (s.Sol S).Nonempty) :
-    ∃ r : Raw, r.Normal S ∧ r.t = s.t ∧ r.store.Sol S = s.Sol S := by
-  classical
-  let f : Nat → Conj := fun v => (names S).filter fun n => ∀ σ ∈ s.Sol S, mem S n (σ v) = true
-  have hcL : ∀ v n, n ∈ ((List.range k).map f).getD v ∅ ↔
-      v < k ∧ n ∈ names S ∧ ∀ σ ∈ s.Sol S, mem S n (σ v) = true := by
-    intro v n
-    rw [getD_map_range]
-    by_cases h : v < k
-    · simp [h, f]
-    · simp [h]
-  obtain ⟨h₁, h₂⟩ := assembled_normal hS hfin ht hocc hvars hne (by simp) hcL
-  exact ⟨_, h₁, rfl, h₂⟩
 
 end assemble
 

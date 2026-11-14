@@ -123,7 +123,7 @@ Proved (2026-11-13), for well-formed sorts and with no other hypothesis:
 | Statement | Theorem |
 |---|---|
 | Two normal stores that denote the same terms are equal | `Raw.Normal.eq` (`UniqueExcl.lean`) |
-| A first-order problem (pattern, equations, sorts of patterns, exclusions) with a solution has a normal store | `Prob.normal` (`Reduce.lean`) |
+| The normal store of a first-order problem (pattern, equations, sorts of patterns, exclusions) is computed by a function: its result is normal and denotes the problem, it returns nothing exactly when the problem denotes nothing, and it is the only such store | `Prob.norm_some`, `Prob.norm_none`, `Prob.norm_unique` (`Norm.lean`) |
 | A hidden variable is dropped, with the exclusions that mention it | `Raw.Normal.proj` (`Hidden.lean`) |
 | The domain of sorts satisfies every law of the interface (L51) | `dom_lawful` (`Dom.lean`) |
 | No representative relates nothing; an operation returns nothing exactly when its result relates no pair (L09) | `Rep.live`, `compose_eq_none_iff`, `meet_eq_none_iff`, `rep_eq_none_iff` (`Gaps.lean`) |
@@ -135,12 +135,13 @@ conditions on its solutions: variables numbered by first occurrence, every
 variable taking values with two different head symbols, each variable listed
 with every declared sort that holds of all its values, exclusions solved and
 irredundant and in a fixed order. Uniqueness is proved from those conditions.
-Existence goes: solve the equations and push the sorts down to variables
-(`Reduce.lean`); pair the pattern with all variables so none is hidden
-(`Hidden.lean`); extend the pattern at every variable with one head symbol
-until none is left (`Tight.lean`); renumber (`Renum.lean`); close the sorts
-upward, bring each exclusion to solved form (`Solved.lean`), drop the implied
-ones and sort them (`Assemble.lean`); project the hidden variables away.
+Existence is by a function, `Prob.norm` (section 8): solve the equations and
+push the sorts down to variables (`Reduce.lean`, `Prob.start`); pair the
+pattern with all variables so none is hidden (`Hidden.lean`); extend the
+pattern at every variable with one head symbol until none is left
+(`Tight.lean`, `Loop.lean`); renumber (`Renum.lean`); close the sorts upward,
+bring each exclusion to normal form (`NormEx.lean`), drop the implied ones and
+sort them (`Assemble.lean`); project the hidden variables away.
 
 The operations of `dom S` are specified by what they denote: each returns the
 one normal store that relates the named pairs, or nothing when there is no
@@ -201,69 +202,69 @@ polynomial in the size of the program alone.
 
 ## 8. The normal store as a function
 
-`Prob.normal` says a normal store exists, and `Raw.Normal.eq` that it is the
-only one. The proof of existence takes a store with the most symbols, which
-is not a computation. The operations in Rust need a function to be proved
-against, so the normal store is being written as one in Lean, each step with
-the theorem that says what it decides. Because the normal store is unique, a
-function whose result is normal and denotes the problem returns the normal
-store whatever route it takes.
+`Prob.norm S hS P` (`Norm.lean`) is the normal store of the first-order
+problem `P`, for well-formed sorts `S`:
 
-The route, with what is written and proved so far:
+| Statement | Theorem |
+|---|---|
+| When it returns a store, the store is normal and denotes what the problem denotes | `Prob.norm_some` |
+| It returns nothing exactly when the problem denotes nothing | `Prob.norm_none` (and `Prob.norm_some`, since a normal store denotes something) |
+| Every normal store that denotes the problem is the one it returns | `Prob.norm_unique` |
 
-1. Solve the equations and apply the solution (`solve`), and push each sort
-   down its pattern to variables (`push`). Both were there.
-2. Put the pattern beside the tuple of all variables, so that every variable
-   occurs in it (as `normal_exists` does).
-3. Replace every variable whose sorts have one member by that member, and
-   stop if some variable's sorts have none. `count` (`Count.lean`) says which:
-   no member, this one, or more than one.
-4. Stop if an exclusion always holds. Then every variable has infinitely many
-   values and every exclusion can be avoided, so the store has a solution
-   (`Store.rich`), and this is what makes the next step end.
-5. While the values left to some variable have one root, replace it by that
-   root applied to new variables, and do step 3 for the new ones. The values
-   left to `v` are the members of its sorts without the terms the exclusions
-   exclude it from (`gone`, `Gone.lean`); `sole` (`Roots.lean`) finds the one
-   root or shows two values with different roots; `expStore_den` says the
-   replacement keeps what the store denotes. Each replacement adds a symbol
-   to the pattern, and the pattern has no more symbols than a term it
-   denotes, so the loop ends. It is defined by recursion on that bound
-   (`room`), which is not computed.
-6. Give each variable every declared sort that holds of all its values.
-   `inclBut` (`InclBut.lean`) decides that the members of the sorts without
-   the excluded terms are in a sort.
-7. Number the variables as they first occur, bring each exclusion to solved
-   form under the sorts, drop those another implies, list them in order, and
-   take the first part of the pattern (`Raw.Normal.proj`).
+The operations in Rust are proved against this function. Because the normal
+store is unique, any program whose result is normal and denotes the problem
+returns the same store whatever route it takes. `Tests/SortsRuns.lean`
+evaluates the function on problems and compares the stores.
 
-Steps 1 and 3 to 5 are proved, and the parts of steps 6 and 7. `tighten`
-(`Loop.lean`) is steps 3 to 5 on a store as data (`CStore`): what it returns
-denotes what it was given, satisfies the decidable invariant of step 4
-(`Inv`, `Tighten.lean`), and has no variable whose values have one root; it
-returns nothing only for a store that denotes nothing. Its result is tight
-(`tight_of_sole`, `Tightened.lean`), and `Inv.inclBut_iff` says `inclBut`
-finds the sorts of step 6 on it. `firsts` (`Renum.lean`) numbers the
-variables.
+The route:
 
-An exclusion is brought to normal form by `normEx` (`NormEx.lean`). It solves
-the equations and turns each alias so that it binds the later variable
-(`Orient.lean`), pushes the sorts of the bound variables onto their values,
-and reads off the sorts this puts on each free variable. What the exclusion
-removes is every choice of values for the free variables in those sorts. So
-it removes nothing when a sort rejects a value outright or a free variable
-has no value, and a free variable with one value is bound to it. `covers`
-decides that one normal exclusion removes everything another does,
-`antichain` drops the covered ones, `sortBinds` orders the rest, and
-`assembled_normal` (`Assemble.lean`) says the store put together from these
-is normal with the same solutions. The earlier proof that a normal exclusion
-exists, by a least number of free variables, is deleted; `normal_of_tight`
-now follows from the function.
+1. `Prob.start` solves the equations and applies the solution (`solve`),
+   pushes each sort down its pattern to variables (`pushAll`), and puts the
+   pattern beside the tuple of all variables, so that every variable occurs
+   in it.
+2. `CStore.settle` replaces every variable whose sorts have one member by
+   that member. `count` (`Count.lean`) says which: no member, this one, or
+   more than one.
+3. `tighten` (`Loop.lean`) stops if a variable has no value or an exclusion
+   always holds. Otherwise every variable has infinitely many values and
+   every exclusion can be avoided, so the store has a solution (`Store.rich`,
+   `Inv.nonempty`). While the values left to some variable have one root, it
+   replaces the variable by that root applied to new variables and does
+   step 2 for the new ones. The values left to `v` are the members of its
+   sorts without the terms the exclusions exclude it from (`gone`,
+   `Gone.lean`); `sole` (`Roots.lean`) finds the one root or shows two values
+   with different roots; `expStore_den` says the replacement keeps what the
+   store denotes. Each replacement adds a symbol to the pattern, and the
+   pattern has no more symbols than a term it denotes, so the loop ends. It
+   is defined by recursion on that bound (`room`), which is not computed; the
+   function still evaluates. The result is tight (`tight_of_sole`,
+   `Tightened.lean`).
+4. `ofTight` numbers the variables as they first occur (`firsts`,
+   `Renum.lean`) and gives each every declared sort that holds of all its
+   values: `inclBut` (`InclBut.lean`) decides that the members of the sorts
+   without the excluded terms are in a sort (`Inv.inclBut_iff`).
+5. `normEx` (`NormEx.lean`) brings each exclusion to normal form. It solves
+   the equations and turns each alias so that it binds the later variable
+   (`Orient.lean`), pushes the sorts of the bound variables onto their
+   values, and reads off the sorts this puts on each free variable. What the
+   exclusion removes is every choice of values for the free variables in
+   those sorts. So it removes nothing when a sort rejects a value outright or
+   a free variable has no value, and a free variable with one value is bound
+   to it.
+6. `covers` decides that one normal exclusion removes everything another
+   does, `antichain` drops the covered ones, and `sortBinds` orders the rest
+   (`Assemble.lean`, `assembled_normal`).
+7. `Raw.cut` (`Hidden.lean`) keeps the first part of the pattern, the
+   variables in it and the exclusions over them (`Raw.Normal.proj`).
 
-Still to write: steps 2 to 7 joined into one function from a problem to its
-normal store, with the theorem that the result is normal and denotes the
-problem.
+The proofs that a normal store exists without computing it (a store with the
+most symbols, an exclusion with the fewest free variables) are deleted;
+`Prob.normal` follows from the function.
 
 `count`, `inclBut` and `sole` go through every set of declared sorts. They are
 the specification, and the runs in `Tests/SortsRuns.lean` keep to a few sorts
 for that reason. The Rust looks only at the sets it reaches.
+
+The operations of `dom S` (`Dom.lean`) are still stated by what they denote,
+with `Rep.mk?` choosing the representative. Defining them by `Prob.norm` is
+the next step, before the Rust is proved against them.

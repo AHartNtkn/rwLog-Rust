@@ -3,7 +3,8 @@
 
 The variables of a normal store are numbered in the order they first occur
 in its pattern. A store all of whose variables occur in its pattern can be
-renamed to that numbering without changing what it denotes (`renum_exists`).
+renamed to that numbering (`firsts`, `renum_spec`, `Store.ren`) without
+changing what it denotes (`ren_den`).
 -/
 import RwLog.Sorts.Tight
 import RwLog.Sorts.Normal
@@ -106,13 +107,6 @@ theorem firsts_spec (L : List Nat) : (firsts L).Nodup ∧ (∀ v, v ∈ firsts L
           exact ⟨j, hj, u, left j u hu, by rw [hin u huF]; exact e⟩
         · rw [List.getElem?_eq_none (by simp; omega)] at hv; cases hv
 
-/-- The members of a list can be listed once each so that a member's place is
-the number of different members before its first occurrence. -/
-theorem exists_firsts (L : List Nat) : ∃ F : List Nat, F.Nodup ∧ (∀ v, v ∈ F ↔ v ∈ L) ∧
-    ∀ (i m v : Nat), L[i]? = some v → m < F.idxOf v →
-      ∃ j, j < i ∧ ∃ u, L[j]? = some u ∧ F.idxOf u = m :=
-  ⟨firsts L, firsts_spec L⟩
-
 /-- Numbering the members of a list in the order they first occur, with its
 inverse. -/
 theorem renum_spec (L : List Nat) : FirstOcc (L.map fun v => (firsts L).idxOf v) ∧
@@ -139,12 +133,6 @@ theorem renum_spec (L : List Nat) : FirstOcc (L.map fun v => (firsts L).idxOf v)
     show F.getD w 0 ∈ L ∧ F.idxOf (F.getD w 0) = w
     rw [e]
     exact ⟨(hmem _).1 (List.getElem_mem hw), hnd.idxOf_getElem w hw⟩
-
-/-- A renaming of the members of a list to the order of their first
-occurrence, with its inverse. -/
-theorem exists_renum (L : List Nat) : ∃ (ρ ρ' : Nat → Nat) (k : Nat), FirstOcc (L.map ρ) ∧
-    (∀ v ∈ L, ρ v < k ∧ ρ' (ρ v) = v) ∧ ∀ w, w < k → ρ' w ∈ L ∧ ρ (ρ' w) = w :=
-  ⟨fun v => (firsts L).idxOf v, fun w => (firsts L).getD w 0, (firsts L).length, renum_spec L⟩
 
 /-- A store with its variables renamed by `ρ`; `ρ'` undoes `ρ` on the
 variables of the pattern. -/
@@ -265,30 +253,6 @@ theorem ren_fin {N k : Nat} (hfin : s.Fin N) (hfull : s.Full) (hk : ∀ v ∈ s.
     exact hvars w ((ren_full hfull).xs E' hE' q hq w hw)
 
 end ren
-
-/-- A store all of whose variables occur in its pattern has the same
-denotation as one whose variables are numbered in the order they first
-occur. -/
-theorem renum_exists {S : Sorts} {s : Store} {N : Nat} (hfin : s.Fin N) (hfull : s.Full)
-    (ht : s.Tight S) :
-    ∃ (s' : Store) (k : Nat), s'.Fin k ∧ s'.Full ∧ s'.Tight S ∧ s'.Den S = s.Den S ∧
-      FirstOcc s'.t.vars ∧ ∀ v, v ∈ s'.t.vars ↔ v < k := by
-  obtain ⟨ρ, ρ', k, hocc, h₁, h₂⟩ := exists_renum s.t.vars
-  have hinv : ∀ v ∈ s.t.vars, ρ' (ρ v) = v := fun v hv => (h₁ v hv).2
-  refine ⟨s.ren ρ ρ', k, ren_fin hfin hfull fun v hv => (h₁ v hv).1, ren_full hfull,
-    ren_tight hfull hinv ht, ren_den hfull hinv, ?_, ?_⟩
-  · show FirstOcc (s.t.rename ρ).vars
-    rw [Term.vars_rename]; exact hocc
-  · intro w
-    show w ∈ (s.t.rename ρ).vars ↔ w < k
-    rw [Term.vars_rename]
-    constructor
-    · intro hw
-      obtain ⟨v, hv, rfl⟩ := List.mem_map.1 hw
-      exact (h₁ v hv).1
-    · intro hw
-      obtain ⟨hm, e⟩ := h₂ w hw
-      rw [← e]; exact List.mem_map_of_mem hm
 
 end Sorts
 end RwLog
