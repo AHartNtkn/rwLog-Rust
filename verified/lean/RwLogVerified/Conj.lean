@@ -25,8 +25,31 @@ def namesPat (z : Sym) (xs : List Name) : Pat := encList z (xs.map fun n => (.sy
 
 /-- The members of a conjunction as the store lists them: those of `U` that
 satisfy `F`, the first last. -/
-def conjList (U : List Name) (F : Name → Prop) [DecidablePred F] : List Name :=
+noncomputable def conjList (U : List Name) (F : Name → Prop) : List Name :=
+  haveI := Classical.decPred F
   (U.filter fun n => decide (F n)).reverse
+
+theorem conjList_nil (F : Name → Prop) : conjList [] F = [] := by simp [conjList]
+
+theorem conjList_cons_pos {F : Name → Prop} {x : Name} (h : F x) (ns : List Name) :
+    conjList (x :: ns) F = conjList ns F ++ [x] := by
+  simp [conjList, h]
+
+theorem conjList_cons_neg {F : Name → Prop} {x : Name} (h : ¬ F x) (ns : List Name) :
+    conjList (x :: ns) F = conjList ns F := by
+  simp [conjList, h]
+
+theorem conjList_congr {U : List Name} {F G : Name → Prop} (h : ∀ n ∈ U, F n ↔ G n) :
+    conjList U F = conjList U G := by
+  simp only [conjList]
+  congr 1
+  apply List.filter_congr
+  intro n hn
+  simp [h n hn]
+
+theorem mem_conjList {U : List Name} {F : Name → Prop} {n : Name} :
+    n ∈ conjList U F ↔ n ∈ U ∧ F n := by
+  simp [conjList]
 
 /-- A function ran that may have written table `A`: the invariant, the nodes
 there were, table `B` and the stack, and at most `n` ticks spent. -/
@@ -103,6 +126,17 @@ theorem namesPat_mem {nodes : List store.Node} : ∀ {xs : List Name} {i : Nat},
     rcases List.mem_cons.1 hn with rfl | hn
     · exact ⟨_, ha⟩
     · exact namesPat_mem (xs := xs) hb n hn
+
+/-- Every member of a list in the store is in the store. -/
+theorem encList_mem_repr {nodes : List store.Node} : ∀ {xs : List Pat} {i : Nat},
+    Repr nm nodes i (encList (nm none) xs) → ∀ j (h : j < xs.length), ∃ k, Repr nm nodes k xs[j]
+  | [], _, _, j, h => by simp at h
+  | x :: xs, i, h, j, hj => by
+    simp only [encList] at h
+    obtain ⟨a, b, -, ha, hb⟩ := Repr.app_inv h
+    cases j with
+    | zero => exact ⟨_, ha⟩
+    | succ j => exact encList_mem_repr (xs := xs) hb j (by simpa using hj)
 
 /-- After a clearing no name is flagged. -/
 theorem Flagged.clear {s : store.Store} {U : List Name}
@@ -183,7 +217,7 @@ theorem mark_spec (hnm : Function.Injective nm) {U : List Name} (xs : List Name)
 
 theorem pick_loop_spec (hnm : Function.Injective nm) {U : List Name} :
     ∀ (ns : List Name) (s : store.Store) (names out : store.TermId) (acc : List Name)
-      (F : Name → Prop) [DecidablePred F], Wf s →
+      (F : Name → Prop), Wf s →
     Repr nm s.nodes.val names.val (namesPat (nm none) ns) → (∀ n ∈ ns, n ∈ U) →
     Flagged nm s U F → Repr nm s.nodes.val out.val (namesPat (nm none) acc) →
     Room s (3 * ns.length + 1) →
@@ -193,7 +227,7 @@ theorem pick_loop_spec (hnm : Function.Injective nm) {U : List Name} :
   intro ns
   induction ns with
   | nil =>
-    intro s names out acc F _ hW hl hU hF ho hroom
+    intro s names out acc F hW hl hU hF ho hroom
     unfold sorts.pick_loop
     rw [loop]
     simp only [sorts.pick_loop.body]
@@ -203,10 +237,10 @@ theorem pick_loop_spec (hnm : Function.Injective nm) {U : List Name} :
     subst hu
     have hfin : Ran s s1 (3 * ([] : List Name).length + 1) ∧
         Repr nm s1.nodes.val out.val (namesPat (nm none) (conjList [] F ++ acc)) :=
-      ⟨hK.ran, by rw [hK.nodes]; simpa [conjList] using ho⟩
+      ⟨hK.ran, by rw [hK.nodes]; simpa [conjList_nil] using ho⟩
     step*
   | cons x ns ih =>
-    intro s names out acc F _ hW hl hU hF ho hroom
+    intro s names out acc F hW hl hU hF ho hroom
     have hroom' := hroom
     unfold Room at hroom'
     simp only [List.length_cons] at hroom'
@@ -254,7 +288,7 @@ theorem pick_loop_spec (hnm : Function.Injective nm) {U : List Name} :
         ⟨hW3, hxe, by rw [htb3, hR2.tbl], by rw [hst3, hR2.stk], by omega⟩
       refine ⟨(hR3.trans hR).mono (by simp only [List.length_cons]; omega), ?_⟩
       have e : conjList (x :: ns) F ++ acc = conjList ns F ++ x :: acc := by
-        simp [conjList, hx]
+        simp [conjList_cons_pos hx]
       rw [e]
       exact hr
     · have hnone : (tbl s1 .A h.val) = none := by
@@ -271,14 +305,13 @@ theorem pick_loop_spec (hnm : Function.Injective nm) {U : List Name} :
       refine WP.spec_mono IH ?_
       rintro ⟨r, s'⟩ ⟨hR, hr⟩
       refine ⟨(hR2.trans hR).mono (by simp only [List.length_cons]; omega), ?_⟩
-      have e : conjList (x :: ns) F = conjList ns F := by
-        simp [conjList, hx]
+      have e : conjList (x :: ns) F = conjList ns F := conjList_cons_neg hx ns
       rw [e]
       exact hr
 
 /-- `pick` lists the names of `ns` that table `A` flags, the first last. -/
 theorem pick_spec (hnm : Function.Injective nm) {U : List Name} (ns : List Name)
-    (s : store.Store) (names : store.TermId) (F : Name → Prop) [DecidablePred F] (hW : Wf s)
+    (s : store.Store) (names : store.TermId) (F : Name → Prop) (hW : Wf s)
     (hl : Repr nm s.nodes.val names.val (namesPat (nm none) ns)) (hU : ∀ n ∈ ns, n ∈ U)
     (hF : Flagged nm s U F) (hroom : Room s (3 * ns.length + 2)) :
     sorts.pick s names ⦃ r s' =>
@@ -678,5 +711,423 @@ theorem heads_spec (hnm : Function.Injective nm) {U : List Name}
   rintro ⟨r, s'⟩ ⟨hR, hF', hr⟩
   have hR1 : RanA s s1 1 := ⟨hW1, hx1, by rw [htb1], hst1, by omega⟩
   exact ⟨(hR1.trans hR).mono (by omega), hF', by simpa using hr⟩
+
+/-! ## One step of a conjunction -/
+
+/-- The rows give the sort `m` to the argument at position `i`. -/
+def colF (rs : List (List (Option Name))) (i : Nat) (m : Name) : Prop :=
+  ∃ r ∈ rs, r[i]? = some (some m)
+
+/-- The conjunction of each argument, as terms. -/
+noncomputable def kidsPats (z : Sym) (U : List Name) (rs : List (List (Option Name))) (k : Nat) :
+    List Pat :=
+  (List.range k).map fun i => namesPat z (conjList U (colF rs i))
+
+theorem colF_tails (rs : List (List (Option Name))) (i : Nat) (m : Name) :
+    colF (rs.map List.tail).reverse i m ↔ colF rs (i + 1) m := by
+  simp only [colF, List.mem_reverse, List.mem_map]
+  constructor
+  · rintro ⟨_, ⟨r, hr, rfl⟩, h⟩
+    exact ⟨r, hr, by
+          cases r with
+          | nil => simp at h
+          | cons _ _ => simpa using h⟩
+  · rintro ⟨r, hr, h⟩
+    exact ⟨_, ⟨r, hr, rfl⟩, by
+          cases r with
+          | nil => simp at h
+          | cons _ _ => simpa using h⟩
+
+theorem kidsPats_succ (z : Sym) (U : List Name) (rs : List (List (Option Name))) (k : Nat) :
+    kidsPats z U rs (k + 1) =
+      namesPat z (conjList U (colF rs 0)) :: kidsPats z U (rs.map List.tail).reverse k := by
+  simp only [kidsPats, List.range_succ_eq_map, List.map_cons, List.map_map]
+  congr 1
+  apply List.map_congr_left
+  intro i _
+  simp only [Function.comp]
+  rw [conjList_congr fun m _ => (colF_tails rs i m).symm]
+
+theorem step_conj_loop_spec (hnm : Function.Injective nm) {U : List Name} :
+    ∀ (ag : List Pat) (rs : List (List (Option Name))) (s : store.Store)
+      (args names rows : store.TermId) (ts : List Pat), Wf s →
+    Repr nm s.nodes.val names.val (namesPat (nm none) U) →
+    Repr nm s.nodes.val args.val (encList (nm none) ag) →
+    Repr nm s.nodes.val rows.val (encList (nm none) (rs.map (rowPat (nm none)))) →
+    (∀ r ∈ rs, r.length = ag.length) → (∀ r ∈ rs, ∀ m, some m ∈ r → m ≠ nm none) →
+    List.Forall₂ (fun f t => Repr nm s.nodes.val (fkey f) t) (stk s) ts →
+    Room s (ag.length * (5 * rs.length + 3 * U.length + 7) + 1) →
+    sorts.step_conj_loop args s names rows ⦃ s' =>
+      Wf s' ∧ Extends s s' ∧ tbl s' .B = tbl s .B ∧
+        s'.ticks.val ≤ s.ticks.val + (ag.length * (5 * rs.length + 3 * U.length + 7) + 1) ∧
+        (stk s').length = (stk s).length + ag.length ∧
+        List.Forall₂ (fun f t => Repr nm s'.nodes.val (fkey f) t) (stk s')
+          ((kidsPats (nm none) U rs ag.length).reverse ++ ts) ⦄ := by
+  intro ag
+  induction ag with
+  | nil =>
+    intro rs s args names rows ts hW hU ha hrows hlen hz hstk hroom
+    unfold sorts.step_conj_loop
+    rw [loop]
+    simp only [sorts.step_conj_loop.body]
+    step with uncons_repr s args hW ha (by unfold Room at hroom ⊢; omega) as ⟨r0, hK, hu⟩
+    obtain ⟨o, s1⟩ := r0
+    simp only [encList] at hu
+    simp only at hK
+    subst hu
+    have hfin : Wf s1 ∧ Extends s s1 ∧ tbl s1 .B = tbl s .B ∧
+        s1.ticks.val ≤ s.ticks.val +
+          (([] : List Pat).length * (5 * rs.length + 3 * U.length + 7) + 1) ∧
+        (stk s1).length = (stk s).length + ([] : List Pat).length ∧
+        List.Forall₂ (fun f t => Repr nm s1.nodes.val (fkey f) t) (stk s1)
+          ((kidsPats (nm none) U rs ([] : List Pat).length).reverse ++ ts) := by
+      refine ⟨hK.wf, hK.ran.ext, by rw [hK.tbl], by have := hK.ticks; simp; omega,
+        by rw [hK.stk]; simp, ?_⟩
+      rw [hK.stk, hK.nodes]
+      simpa [kidsPats] using hstk
+    step*
+  | cons a ag ih =>
+    intro rs s args names rows ts hW hU ha hrows hlen hz hstk hroom
+    have hroom' := hroom
+    unfold Room at hroom'
+    simp only [List.length_cons, Nat.add_mul, Nat.one_mul] at hroom'
+    unfold sorts.step_conj_loop
+    rw [loop]
+    simp only [sorts.step_conj_loop.body]
+    step with uncons_repr s args hW ha (by unfold Room; omega) as ⟨r0, hK, hu⟩
+    obtain ⟨o, s1⟩ := r0
+    simp only [encList] at hu
+    simp only at hK
+    obtain ⟨h, t, rfl, -, rt⟩ := hu
+    have ht1 := hK.ticks
+    have hx1 := hK.ran.ext
+    step with clear_w s1 .A hK.wf (by unfold Room; omega) as ⟨s2, hn2, ht2, hW2, hA2, hB2, hst2⟩
+    have hx2 : Extends s s2 := hx1.trans (Extends.of_eq hn2 (by omega))
+    have hF2 : Flagged nm s2 U (fun _ => False) :=
+      Flagged.clear (fun n hn => namesPat_mem (hx2.repr hU) n hn) hA2
+    have hne : ∀ r ∈ rs, r ≠ [] := by
+      intro r hr e
+      have := hlen r hr
+      rw [e] at this
+      simp at this
+    step with heads_spec hnm rs s2 rows _ hW2 (hx2.repr hrows) hne hz hF2 (by unfold Room; omega)
+      as ⟨r3, hR3, hF3, hr3⟩
+    obtain ⟨rows1, s3⟩ := r3
+    simp only at hR3 hF3 hr3
+    have ht3 := hR3.ticks
+    have hx3 := hx2.trans hR3.ext
+    have hF3' : Flagged nm s3 U (colF rs 0) := hF3.congr (by
+      intro m _
+      simp only [false_or, colF]
+      constructor
+      · rintro ⟨r, hr, h⟩
+        exact ⟨r, hr, by
+          cases r with
+          | nil => simp at h
+          | cons _ _ => simpa using h⟩
+      · rintro ⟨r, hr, h⟩
+        exact ⟨r, hr, by
+          cases r with
+          | nil => simp at h
+          | cons _ _ => simpa using h⟩)
+    step with pick_spec hnm U s3 names _ hR3.wf (hx3.repr hU) (fun _ h => h) hF3'
+      (by unfold Room; omega) as ⟨r4, hR4, hr4⟩
+    obtain ⟨k, s4⟩ := r4
+    simp only at hR4 hr4
+    have ht4 := hR4.ticks
+    have hx4 := hx3.trans hR4.ext
+    step with push_w s4 (.Visit k k) hR4.wf (by unfold Room; omega) as ⟨s5, p1, p2, p3, hW5, p5⟩
+    have hx5 : Extends s s5 := hx4.trans (Extends.of_eq p1 (by omega))
+    have hx45 : Extends s4 s5 := Extends.of_eq p1 (by omega)
+    have hstk5 : stk s5 = .Visit k k :: stk s := by
+      rw [p5, hR4.stk, hR3.stk, hst2, hK.stk]
+    have hF5 : List.Forall₂ (fun f t => Repr nm s5.nodes.val (fkey f) t) (stk s5)
+        (namesPat (nm none) (conjList U (colF rs 0)) :: ts) := by
+      rw [hstk5]
+      exact .cons (hx45.repr hr4) (hstk.imp fun _ _ h => hx5.repr h)
+    have hlen' : ∀ r ∈ (rs.map List.tail).reverse, r.length = ag.length := by
+      intro r hr
+      simp only [List.mem_reverse, List.mem_map] at hr
+      obtain ⟨r0, hr0, rfl⟩ := hr
+      have := hlen r0 hr0
+      simp only [List.length_cons] at this
+      simp [this]
+    have hz' : ∀ r ∈ (rs.map List.tail).reverse, ∀ m, some m ∈ r → m ≠ nm none := by
+      intro r hr m hm
+      simp only [List.mem_reverse, List.mem_map] at hr
+      obtain ⟨r0, hr0, rfl⟩ := hr
+      exact hz r0 hr0 m (List.mem_of_mem_tail hm)
+    have hrl : ((rs.map List.tail).reverse).length = rs.length := by simp
+    have IH := ih (rs.map List.tail).reverse s5 t names rows1 _ hW5 (hx5.repr hU) (hx5.repr rt)
+      ((hx45.trans (Extends.refl _)).repr (hR4.ext.repr hr3)) hlen' hz' hF5
+      (by rw [hrl]; unfold Room; omega)
+    unfold sorts.step_conj_loop at IH
+    simp only [uncurry]
+    refine WP.spec_mono IH ?_
+    rintro s' ⟨hW', hx', hB', ht', hsl, hfr⟩
+    rw [hrl] at ht'
+    refine ⟨hW', hx5.trans hx', ?_, ?_, ?_, ?_⟩
+    · rw [hB', p2, hR4.tbl, hR3.tbl, hB2 .B (by intro h; cases h), hK.tbl]
+    · simp only [List.length_cons, Nat.add_mul, Nat.one_mul]; omega
+    · rw [hsl, hstk5]; simp only [List.length_cons]; omega
+    · rw [List.length_cons, kidsPats_succ, List.reverse_cons, List.append_assoc]
+      simpa using hfr
+
+theorem stepAll_length {S : Sorts} {f : Sym} {m : Nat} :
+    ∀ {cs : List Name} {rs : List (List (Option Name))}, stepAll S f m cs = some rs →
+      rs.length = cs.length
+  | [], rs, h => by simp only [stepAll, Option.some.injEq] at h; subst h; rfl
+  | n :: ns, rs, h => by
+    simp only [stepAll] at h
+    cases hs : Sorts.step S n f m with
+    | none => simp [hs] at h
+    | some ks =>
+      cases ha : stepAll S f m ns with
+      | none => simp [hs, ha] at h
+      | some rs' =>
+        simp only [hs, ha, Option.map_some, Option.some.injEq] at h
+        subst h
+        simp [stepAll_length ha]
+
+/-- The rows are the steps of the sorts. -/
+theorem mem_stepAll {S : Sorts} {f : Sym} {m : Nat} :
+    ∀ {cs : List Name} {rs : List (List (Option Name))}, stepAll S f m cs = some rs →
+      ∀ r, r ∈ rs ↔ ∃ n ∈ cs, Sorts.step S n f m = some r
+  | [], rs, h, r => by simp only [stepAll, Option.some.injEq] at h; subst h; simp
+  | n :: ns, rs, h, r => by
+    simp only [stepAll] at h
+    cases hs : Sorts.step S n f m with
+    | none => simp [hs] at h
+    | some ks =>
+      cases ha : stepAll S f m ns with
+      | none => simp [hs, ha] at h
+      | some rs' =>
+        simp only [hs, ha, Option.map_some, Option.some.injEq] at h
+        subst h
+        simp only [List.mem_cons, exists_eq_or_imp, hs, Option.some.injEq, mem_stepAll ha r]
+        constructor
+        · rintro (rfl | h)
+          · exact Or.inl rfl
+          · exact Or.inr h
+        · rintro (rfl | h)
+          · exact Or.inl rfl
+          · exact Or.inr h
+
+/-- Some sort has no step exactly when the rows are nothing. -/
+theorem stepAll_eq_none {S : Sorts} {f : Sym} {m : Nat} :
+    ∀ {cs : List Name}, stepAll S f m cs = none ↔ ∃ n ∈ cs, Sorts.step S n f m = none
+  | [] => by simp [stepAll]
+  | n :: ns => by
+    simp only [stepAll, List.mem_cons, exists_eq_or_imp]
+    cases hs : Sorts.step S n f m with
+    | none => simp
+    | some ks => simp [stepAll_eq_none (cs := ns)]
+
+theorem kidsPats_congr (z : Sym) (U : List Name) {rs rs' : List (List (Option Name))}
+    (h : ∀ r, r ∈ rs ↔ r ∈ rs') (k : Nat) : kidsPats z U rs k = kidsPats z U rs' k := by
+  simp only [kidsPats]
+  apply List.map_congr_left
+  intro i _
+  rw [conjList_congr]
+  intro m _
+  simp only [colF, h]
+
+/-- The ticks one step of a conjunction of `c` sorts may spend, on `m`
+arguments, with `u` names in all. -/
+def stepConjCost (S : Sorts) (u c m : Nat) : Nat :=
+  c * (stepCost S m + 2) + m * (5 * c + 3 * u + 9) + 5
+
+/-- `step_conj` gives, for each argument, the conjunction of the sorts the
+members of the list give it, or nothing when one of them has no step. No name
+a step gives is the end of a list. Table `B` is left as it was. -/
+theorem step_conj_spec (hnm : Function.Injective nm) (S : Sorts) {sp : Pat}
+    (hS : SortsAt (nm none) S sp) {f : Sym} {ag : List Pat} (U cs : List Name)
+    (s : store.Store) (decls names c head args : store.TermId) (hI : Inv s)
+    (hd : Repr nm s.nodes.val decls.val sp)
+    (hU : Repr nm s.nodes.val names.val (namesPat (nm none) U))
+    (hc : Repr nm s.nodes.val c.val (namesPat (nm none) cs))
+    (hh : Repr nm s.nodes.val head.val (.sym f))
+    (ha : Repr nm s.nodes.val args.val (encList (nm none) ag))
+    (hz : ∀ n ∈ cs, ∀ ks, Sorts.step S n f ag.length = some ks → ∀ m, some m ∈ ks → m ≠ nm none)
+    (hroom : Room s (stepConjCost S U.length cs.length ag.length)) :
+    sorts.step_conj s decls names c head args ⦃ o s' =>
+      Inv s' ∧ Extends s s' ∧ tbl s' .B = tbl s .B ∧
+        s'.ticks.val ≤ s.ticks.val + stepConjCost S U.length cs.length ag.length ∧
+        match stepAll S f ag.length cs with
+        | some rs => ∃ r, o = some r ∧
+            Repr nm s'.nodes.val r.val (encList (nm none) (kidsPats (nm none) U rs ag.length))
+        | none => o = none ⦄ := by
+  unfold sorts.step_conj
+  have hroom' := hroom
+  unfold Room stepConjCost at hroom'
+  have hmul : ag.length * (5 * cs.length + 3 * U.length + 9) =
+      ag.length * (5 * cs.length + 3 * U.length + 7) + 2 * ag.length := by ring
+  step with rows_spec hnm S hS cs s decls c head args hI.toWf hd hh ha hc
+    (by unfold Room; omega) as ⟨o1, s1, hR1, hr1⟩
+  have ht1 := hR1.ticks
+  cases hall : stepAll S f ag.length cs with
+  | none =>
+    rw [hall] at hr1
+    simp only at hr1
+    subst hr1
+    simp only [WP.spec_ok]
+    exact ⟨⟨hR1.wf, by rw [hR1.stk]; exact hI.empty⟩, hR1.ext, by rw [hR1.tbl],
+      by unfold stepConjCost; omega, rfl⟩
+  | some rs =>
+    rw [hall] at hr1
+    obtain ⟨rows0, rfl, hrows⟩ := hr1
+    simp only
+    have hlenrs := stepAll_length hall
+    have hmem := mem_stepAll hall
+    have hlen : ∀ r ∈ rs.reverse, r.length = ag.length := by
+      intro r hr
+      obtain ⟨n, -, hn⟩ := (hmem r).1 (List.mem_reverse.1 hr)
+      exact Sorts.step_length hn
+    have hz' : ∀ r ∈ rs.reverse, ∀ m, some m ∈ r → m ≠ nm none := by
+      intro r hr
+      obtain ⟨n, hn, hs⟩ := (hmem r).1 (List.mem_reverse.1 hr)
+      exact hz n hn r hs
+    have hstk1 : stk s1 = [] := by rw [hR1.stk]; exact hI.empty
+    step with step_conj_loop_spec hnm ag rs.reverse s1 args names rows0 [] hR1.wf
+      (hR1.ext.repr hU) (hR1.ext.repr ha) hrows hlen hz' (by rw [hstk1]; exact .nil)
+      (by rw [List.length_reverse, hlenrs]; unfold Room; omega)
+      as ⟨s2, hW2, hx2, hB2, ht2, hsl2, hfr2⟩
+    rw [List.length_reverse, hlenrs] at ht2
+    rw [hstk1] at hsl2
+    simp only [List.length_nil, Nat.zero_add, List.append_nil] at hsl2 hfr2
+    step with alloc_w s2 .Nil hW2 trivial (by unfold Room; omega)
+      as ⟨nil, s3, hW3, ht3, htb3, hx3, hid, hst3⟩
+    step with unstack_spec (nm := nm) (stk s3) _ [] s3 nil hW3 rfl
+      (by rw [hst3]; exact hfr2.imp fun _ _ h => hx3.repr h) (.nil hid)
+      (by rw [hst3, hsl2]; unfold Room; omega) as ⟨ti, s4, h1, h2, h3, h4, h5⟩
+    rw [hst3, hsl2] at h4
+    refine ⟨h1, ((hR1.ext.trans hx2).trans hx3).trans h2,
+      by rw [h5, htb3, hB2, hR1.tbl], by unfold stepConjCost; omega, ti, rfl, ?_⟩
+    rw [List.reverse_reverse, List.append_nil] at h3
+    rw [← kidsPats_congr (nm none) U (rs := rs.reverse) (rs' := rs) (fun r => List.mem_reverse)]
+    exact h3
+
+/-! ## Against the specification of a conjunction -/
+
+/-- The rows are something exactly when every sort accepts the root. -/
+theorem stepAll_isSome_iff {S : Sorts} {f : Sym} {m : Nat} {cs : List Name} :
+    (stepAll S f m cs).isSome = true ↔ Sorts.Accepts S cs.toFinset f m := by
+  have key : (stepAll S f m cs).isSome = true ↔ ¬ stepAll S f m cs = none := by
+    cases stepAll S f m cs <;> simp
+  rw [key, stepAll_eq_none]
+  simp only [Sorts.Accepts, List.mem_toFinset, not_exists, not_and]
+  constructor
+  · intro h n hn
+    cases hs : Sorts.step S n f m with
+    | none => exact absurd hs (h n hn)
+    | some _ => rfl
+  · intro h n hn hs
+    have := h n hn
+    rw [hs] at this
+    cases this
+
+/-- The sorts the rows give an argument are those the specification gives
+it. -/
+theorem colF_iff_kidC {S : Sorts} {f : Sym} {m : Nat} {cs : List Name}
+    {rs : List (List (Option Name))} (h : stepAll S f m cs = some rs) (i : Nat) (n : Name) :
+    colF rs i n ↔ n ∈ Sorts.kidC S cs.toFinset f m i := by
+  rw [Sorts.mem_kidC]
+  simp only [colF, mem_stepAll h, List.mem_toFinset]
+  constructor
+  · rintro ⟨r, ⟨n', hn', hs⟩, hr⟩
+    exact ⟨n', hn', r, hs, hr⟩
+  · rintro ⟨n', hn', r, hs, hr⟩
+    exact ⟨r, ⟨n', hn', hs⟩, hr⟩
+
+/-- The identifier `i` is the conjunction `c` of sorts, among the names
+`U`. -/
+def ConjAt (nm : Option Nat → RwLog.Sym) (nodes : List store.Node) (U : List Name) (i : Nat)
+    (c : Sorts.Conj) : Prop :=
+  Repr nm nodes i (namesPat (nm none) (conjList U (· ∈ c)))
+
+/-- One conjunction is one identifier. -/
+theorem ConjAt.inj (hnm : Function.Injective nm) {s : store.Store} (hW : Wf s) {U : List Name}
+    {i j : Nat} {c : Sorts.Conj} (hi : ConjAt nm s.nodes.val U i c)
+    (hj : ConjAt nm s.nodes.val U j c) : i = j :=
+  Repr.inj hnm hW.nodesOK hi hj
+
+theorem toFinset_conjList {U : List Name} {c : Sorts.Conj} (hc : ∀ n ∈ c, n ∈ U) :
+    (conjList U (· ∈ c)).toFinset = c := by
+  ext n
+  simp only [List.mem_toFinset, mem_conjList]
+  exact ⟨fun h => h.2, fun h => ⟨hc n h, h⟩⟩
+
+theorem length_conjList_le (U : List Name) (F : Name → Prop) : (conjList U F).length ≤ U.length := by
+  simp only [conjList, List.length_reverse]
+  exact List.length_filter_le _ _
+
+theorem stepConjCost_mono (S : Sorts) (u : Nat) {c c' : Nat} (h : c ≤ c') (m : Nat) :
+    stepConjCost S u c m ≤ stepConjCost S u c' m := by
+  unfold stepConjCost
+  have h1 := Nat.mul_le_mul_right (stepCost S m + 2) h
+  have h2 : m * (5 * c + 3 * u + 9) ≤ m * (5 * c' + 3 * u + 9) :=
+    Nat.mul_le_mul_left m (by omega)
+  omega
+
+/-- `step_conj` is one step of a conjunction of sorts (`Sorts.Accepts`,
+`Sorts.kidC`): nothing when a sort of the conjunction has no term with that
+root, and otherwise the conjunction of each argument. `U` lists every name of
+the conjunction, and no name a step gives is the end of a list. -/
+theorem step_conj_conj_spec (hnm : Function.Injective nm) (S : Sorts) {sp : Pat}
+    (hS : SortsAt (nm none) S sp) {f : Sym} {ag : List Pat} (U : List Name) (c : Sorts.Conj)
+    (s : store.Store) (decls names ci head args : store.TermId) (hI : Inv s)
+    (hd : Repr nm s.nodes.val decls.val sp)
+    (hU : Repr nm s.nodes.val names.val (namesPat (nm none) U))
+    (hcU : ∀ n ∈ c, n ∈ U) (hc : ConjAt nm s.nodes.val U ci.val c)
+    (hh : Repr nm s.nodes.val head.val (.sym f))
+    (ha : Repr nm s.nodes.val args.val (encList (nm none) ag))
+    (hz : ∀ n ∈ c, ∀ ks, Sorts.step S n f ag.length = some ks → ∀ m, some m ∈ ks → m ≠ nm none)
+    (hroom : Room s (stepConjCost S U.length U.length ag.length)) :
+    sorts.step_conj s decls names ci head args ⦃ o s' =>
+      Inv s' ∧ Extends s s' ∧ tbl s' .B = tbl s .B ∧
+        s'.ticks.val ≤ s.ticks.val + stepConjCost S U.length U.length ag.length ∧
+        if Sorts.Accepts S c f ag.length then
+          ∃ r kids, o = some r ∧ kids.length = ag.length ∧
+            Repr nm s'.nodes.val r.val (encList (nm none) kids) ∧
+            ∀ i (h : i < kids.length), ∃ k, Repr nm s'.nodes.val k kids[i] ∧
+              ConjAt nm s'.nodes.val U k (Sorts.kidC S c f ag.length i)
+        else o = none ⦄ := by
+  have hfin := toFinset_conjList hcU
+  have hle := length_conjList_le U (· ∈ c)
+  have hmono := stepConjCost_mono S U.length hle ag.length
+  have hroom' := hroom
+  unfold Room at hroom'
+  refine WP.spec_mono (step_conj_spec hnm S hS U (conjList U (· ∈ c)) s decls names ci head args
+    hI hd hU hc hh ha (fun n hn => hz n (mem_conjList.1 hn).2) (by unfold Room; omega)) ?_
+  rintro ⟨o, s'⟩ ⟨h1, h2, h3, h4, h5⟩
+  refine ⟨h1, h2, h3, by omega, ?_⟩
+  cases hall : stepAll S f ag.length (conjList U (· ∈ c)) with
+  | none =>
+    rw [hall] at h5
+    have hacc : ¬ Sorts.Accepts S c f ag.length := by
+      rw [← hfin, ← stepAll_isSome_iff, hall]
+      simp
+    simp only [hacc, ↓reduceIte]
+    exact h5
+  | some rs =>
+    rw [hall] at h5
+    obtain ⟨r, rfl, hr⟩ := h5
+    have hacc : Sorts.Accepts S c f ag.length := by
+      rw [← hfin, ← stepAll_isSome_iff, hall]
+      rfl
+    simp only [hacc, ↓reduceIte]
+    refine ⟨r, kidsPats (nm none) U rs ag.length, rfl, by simp [kidsPats], hr, ?_⟩
+    intro i hi
+    have hi' : i < ag.length := by simpa [kidsPats] using hi
+    obtain ⟨k, hk⟩ := encList_mem_repr hr i hi
+    refine ⟨k, hk, ?_⟩
+    have e : (kidsPats (nm none) U rs ag.length)[i] =
+        namesPat (nm none) (conjList U (· ∈ Sorts.kidC S c f ag.length i)) := by
+      simp only [kidsPats, List.getElem_map, List.getElem_range]
+      rw [conjList_congr]
+      intro n _
+      rw [colF_iff_kidC hall, hfin]
+    rw [e] at hk
+    exact hk
 
 end RwLogVerified
