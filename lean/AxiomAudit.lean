@@ -295,5 +295,11 @@ new axiom.
 /-- info: 'RwLog.Sorts.Inv.nonempty' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Sorts.Inv.nonempty
 
+/-- info: 'RwLog.Sorts.tighten_some' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.tighten_some
+
+/-- info: 'RwLog.Sorts.tighten_none' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.tighten_none
+
 /-- info: 'RwLog.ProgramOf.check_iff' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.ProgramOf.check_iff

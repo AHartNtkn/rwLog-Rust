@@ -70,3 +70,4 @@ import RwLog.Sorts.Roots
 import RwLog.Sorts.Gone
 import RwLog.Sorts.Settle
 import RwLog.Sorts.Tighten
+import RwLog.Sorts.Loop

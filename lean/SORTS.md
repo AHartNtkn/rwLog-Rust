@@ -228,8 +228,8 @@ The route, with what is written and proved so far:
    root or shows two values with different roots; `expStore_den` says the
    replacement keeps what the store denotes. Each replacement adds a symbol
    to the pattern, and the pattern has no more symbols than a term it
-   denotes, so the loop ends. It is defined by recursion on that bound, which
-   is not computed.
+   denotes, so the loop ends. It is defined by recursion on that bound
+   (`room`), which is not computed.
 6. Give each variable every declared sort that holds of all its values.
    `inclBut` (`InclBut.lean`) decides that the members of the sorts without
    the excluded terms are in a sort.
@@ -237,9 +237,13 @@ The route, with what is written and proved so far:
    form under the sorts, drop those another implies, list them in order, and
    take the first part of the pattern (`Raw.Normal.proj`).
 
-Steps 1, 3 (the count), 5 (the test and one replacement) and 6 (the decision)
-are proved. Still to write: the loop of step 5 with its termination, step 7,
-and the theorem that the result is normal and denotes the problem.
+Steps 1 and 3 to 5 are proved, and the decision of step 6. `tighten`
+(`Loop.lean`) is steps 3 to 5 on a store as data (`CStore`): what it returns
+denotes what it was given, satisfies the decidable invariant of step 4
+(`Inv`, `Tighten.lean`), and has no variable whose values have one root; it
+returns nothing only for a store that denotes nothing. Still to write: that
+its result is tight, steps 2, 6 and 7 as functions, and the theorem that the
+result is normal and denotes the problem.
 
 `count`, `inclBut` and `sole` go through every set of declared sorts. They are
 the specification, and the runs in `Tests/SortsRuns.lean` keep to a few sorts

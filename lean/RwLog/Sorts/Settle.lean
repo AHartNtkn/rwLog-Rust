@@ -80,5 +80,93 @@ theorem setStore_den {s : Store} {v : Nat} {g : GTerm} (h₁ : MemC S (s.c v) g)
     · show s.t.bind σ = (s.t.bind _).bind σ
       rw [← hb, e]
 
+theorem toPat_vars (g : GTerm) : (GTerm.toPat g).vars = [] := by
+  induction g with
+  | var v => exact v.elim
+  | sym f => rfl
+  | app a b iha ihb =>
+    simp only [GTerm.toPat, Term.rename, Term.bind, Term.vars] at iha ihb ⊢
+    rw [iha, ihb]; rfl
+
+theorem toPat_fo (g : GTerm) : (GTerm.toPat g).firstOrder = true := by
+  induction g with
+  | var v => exact v.elim
+  | sym f => rfl
+  | app a b iha ihb =>
+    cases a with
+    | var v => exact v.elim
+    | sym f =>
+      simp only [GTerm.toPat, Term.rename, Term.bind, Term.firstOrder] at ihb ⊢
+      simpa using ihb
+    | app a₁ a₂ =>
+      simp only [GTerm.toPat, Term.rename, Term.bind, Term.firstOrder] at iha ihb ⊢
+      simp [iha, ihb]
+
+section
+
+variable {s : Store} {N v : Nat} {g : GTerm}
+
+theorem setStore_fin (hfin : s.Fin N) : (setStore s v g).Fin N := by
+  have hsfo : ∀ w, (Term.single v (GTerm.toPat g) w).firstOrder = true := by
+    intro w; unfold Term.single; split
+    · exact toPat_fo g
+    · rfl
+  have h₀ : ∀ (u : Pat) (w : Nat), (∀ z ∈ u.vars, z < N) →
+      w ∈ (u.bind (Term.single v (GTerm.toPat g))).vars → w < N := by
+    intro u w hu hwu
+    rcases Term.vars_bind_single w hwu with ⟨hw', -⟩ | hw'
+    · exact hu w hw'
+    · rw [toPat_vars] at hw'; cases hw'
+  refine ⟨Term.fo_bind hfin.fo fun w _ => hsfo w, fun w hw => h₀ s.t w hfin.tv hw, ?_, ?_, ?_⟩
+  · intro w hw
+    show (if w = v then ∅ else s.c w) = ∅
+    split
+    · rfl
+    · exact hfin.cv w hw
+  · intro E' hE'
+    obtain ⟨E, hE, rfl⟩ := List.mem_map.1 hE'
+    exact Eqns.fo_subst (hfin.xfo E hE) (toPat_fo g)
+  · intro E' hE' p hp w hw
+    obtain ⟨E, hE, rfl⟩ := List.mem_map.1 hE'
+    obtain ⟨q, hq, rfl⟩ := List.mem_map.1 hp
+    rcases List.mem_append.1 hw with hw | hw
+    · exact h₀ q.1 w (fun z hz => hfin.xv E hE q hq z (List.mem_append_left _ hz)) hw
+    · exact h₀ q.2 w (fun z hz => hfin.xv E hE q hq z (List.mem_append_right _ hz)) hw
+
+theorem setStore_full (hfull : s.Full) : (setStore s v g).Full := by
+  have hkeep : ∀ w, w ∈ s.t.vars → w ≠ v →
+      w ∈ (s.t.bind (Term.single v (GTerm.toPat g))).vars := by
+    intro w hw hwv
+    exact Term.vars_sub_bind hw w (by simp [Term.single, hwv, Term.vars])
+  have h₀ : ∀ (u : Pat) (w : Nat), (∀ z ∈ u.vars, z ∈ s.t.vars) →
+      w ∈ (u.bind (Term.single v (GTerm.toPat g))).vars →
+      w ∈ (s.t.bind (Term.single v (GTerm.toPat g))).vars := by
+    intro u w hu hwu
+    rcases Term.vars_bind_single w hwu with ⟨hw', hwv⟩ | hw'
+    · exact hkeep w (hu w hw') hwv
+    · rw [toPat_vars] at hw'; cases hw'
+  refine ⟨?_, ?_⟩
+  · intro w hw
+    show (if w = v then ∅ else s.c w) = ∅
+    split
+    · rfl
+    · rename_i hwv
+      exact hfull.cs w fun hwt => hw (hkeep w hwt hwv)
+  · intro E' hE' p hp w hw
+    obtain ⟨E, hE, rfl⟩ := List.mem_map.1 hE'
+    obtain ⟨q, hq, rfl⟩ := List.mem_map.1 hp
+    rcases List.mem_append.1 hw with hw | hw
+    · exact h₀ q.1 w (fun z hz => hfull.xs E hE q hq z (List.mem_append_left _ hz)) hw
+    · exact h₀ q.2 w (fun z hz => hfull.xs E hE q hq z (List.mem_append_right _ hz)) hw
+
+/-- The variable replaced is no longer in the pattern. -/
+theorem setStore_not_mem : v ∉ (setStore s v g).t.vars := by
+  intro h
+  rcases Term.vars_bind_single v h with ⟨-, h'⟩ | h'
+  · exact h' rfl
+  · rw [toPat_vars] at h'; cases h'
+
+end
+
 end Sorts
 end RwLog

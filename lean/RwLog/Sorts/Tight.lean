@@ -156,25 +156,16 @@ theorem expStore_bwd (hfin : s.Fin N) (hv : v < N) (hacc : Accepts S (s.c v) f n
     show (q.1.bind _).bind σ' = (q.2.bind _).bind σ'
     rw [← hb, ← hb]; exact hu q hq
 
-/-- A variable whose values all have one head symbol can be replaced by that
-symbol applied to new variables. -/
-theorem expand (hfin : s.Fin N) (hfull : s.Full) (hv : v ∈ s.t.vars)
-    (hkey : ∀ σ ∈ s.Sol S, (σ v).key = some (f, n)) (hne : (s.Sol S).Nonempty) :
-    ∃ s' : Store, s'.Fin (N + n) ∧ s'.Full ∧ s'.Den S = s.Den S ∧
-      s.t.syms.length < s'.t.syms.length := by
+/-- Replacing a variable of the pattern keeps the store first-order, with its
+variables below the new bound. -/
+theorem expStore_fin (hfin : s.Fin N) (hv : v ∈ s.t.vars) :
+    (expStore S s N v f n).Fin (N + n) := by
   have hvN := hfin.tv v hv
   have hsfo : ∀ w, (Term.single v (expVar N n f) w).firstOrder = true := by
     intro w; unfold Term.single; split
     · exact expVar_fo N n f
     · rfl
-  have hin : ∀ w, N ≤ w ∧ w < N + n → w ∈ (s.t.bind (Term.single v (expVar N n f))).vars := by
-    intro w hw
-    exact Term.vars_sub_bind hv w (by simp only [Term.single, ite_true]; exact mem_expVar_vars.2 hw)
-  have hkeep : ∀ w, w ∈ s.t.vars → w ≠ v →
-      w ∈ (s.t.bind (Term.single v (expVar N n f))).vars := by
-    intro w hw hwv
-    exact Term.vars_sub_bind hw w (by simp [Term.single, hwv, Term.vars])
-  refine ⟨expStore S s N v f n, ⟨?_, ?_, ?_, ?_, ?_⟩, ⟨?_, ?_⟩, ?_, ?_⟩
+  refine ⟨?_, ?_, ?_, ?_, ?_⟩
   · exact Term.fo_bind hfin.fo fun w _ => hsfo w
   · intro w hw
     rcases Term.vars_bind_single w hw with ⟨hw', -⟩ | hw'
@@ -199,6 +190,18 @@ theorem expand (hfin : s.Fin N) (hfull : s.Full) (hv : v ∈ s.t.vars)
     rcases List.mem_append.1 hw with hw | hw
     · exact h₀ q.1 (fun z hz => hfin.xv E hE q hq z (List.mem_append_left _ hz)) hw
     · exact h₀ q.2 (fun z hz => hfin.xv E hE q hq z (List.mem_append_right _ hz)) hw
+
+/-- Replacing a variable of the pattern keeps every variable in the pattern. -/
+theorem expStore_full (hfull : s.Full) (hv : v ∈ s.t.vars) :
+    (expStore S s N v f n).Full := by
+  have hin : ∀ w, N ≤ w ∧ w < N + n → w ∈ (s.t.bind (Term.single v (expVar N n f))).vars := by
+    intro w hw
+    exact Term.vars_sub_bind hv w (by simp only [Term.single, ite_true]; exact mem_expVar_vars.2 hw)
+  have hkeep : ∀ w, w ∈ s.t.vars → w ≠ v →
+      w ∈ (s.t.bind (Term.single v (expVar N n f))).vars := by
+    intro w hw hwv
+    exact Term.vars_sub_bind hw w (by simp [Term.single, hwv, Term.vars])
+  refine ⟨?_, ?_⟩
   · intro w hw
     show (if w = v then ∅ else if N ≤ w ∧ w < N + n then kidC S (s.c v) f n (w - N) else s.c w) = ∅
     by_cases hwv : w = v
@@ -221,6 +224,15 @@ theorem expand (hfin : s.Fin N) (hfull : s.Full) (hv : v ∈ s.t.vars)
     rcases List.mem_append.1 hw with hw | hw
     · exact h₀ q.1 (fun z hz => hfull.xs E hE q hq z (List.mem_append_left _ hz)) hw
     · exact h₀ q.2 (fun z hz => hfull.xs E hE q hq z (List.mem_append_right _ hz)) hw
+
+/-- A variable whose values all have one head symbol can be replaced by that
+symbol applied to new variables. -/
+theorem expand (hfin : s.Fin N) (hfull : s.Full) (hv : v ∈ s.t.vars)
+    (hkey : ∀ σ ∈ s.Sol S, (σ v).key = some (f, n)) (hne : (s.Sol S).Nonempty) :
+    ∃ s' : Store, s'.Fin (N + n) ∧ s'.Full ∧ s'.Den S = s.Den S ∧
+      s.t.syms.length < s'.t.syms.length := by
+  have hvN := hfin.tv v hv
+  refine ⟨expStore S s N v f n, expStore_fin hfin hv, expStore_full hfull hv, ?_, ?_⟩
   · obtain ⟨σk, hσk⟩ := hne
     obtain ⟨gk, hgk, hlenk⟩ := key_eq_mk (hkey σk hσk)
     have hacc : Accepts S (s.c v) f n := by
