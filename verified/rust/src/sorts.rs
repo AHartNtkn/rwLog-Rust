@@ -1758,3 +1758,104 @@ pub fn gone(s: &mut Store, xs0: TermId, v: TermId) -> TermId {
     }
     rev(s, out)
 }
+
+// # The steps to a tight store
+//
+// A store is a pattern, a list of exclusions, and a list of *entries*
+// `App(variable, conjunction)`: the sorts of each variable that has some.
+
+/// The variable whose number is one more than that of the variable `v`.
+/// The stack is empty at entry.
+pub fn var_succ(s: &mut Store, v: TermId) -> TermId {
+    let mut q = v;
+    let mut low = s.alloc(Node::V0);
+    let mut go = true;
+    while go {
+        match s.read(q) {
+            Node::VR(a) => {
+                s.push(Frame::Visit(q, q));
+                q = a;
+            }
+            Node::VL(a) => {
+                low = s.alloc(Node::VR(a));
+                go = false;
+            }
+            Node::V0 => {
+                low = s.alloc(Node::VR(q));
+                go = false;
+            }
+            _ => panic!(),
+        }
+    }
+    let mut r = low;
+    while s.pop().is_some() {
+        r = s.alloc(Node::VL(r));
+    }
+    r
+}
+
+/// The pattern `t0` and the exclusions `x0` with each variable of the
+/// entries `es0` whose conjunction has one member replaced by that member,
+/// and the entries of the other variables, in their order. Tables `A` and
+/// `B` are used; the stack is empty at entry.
+pub fn settle(
+    s: &mut Store,
+    decls: TermId,
+    names: TermId,
+    t0: TermId,
+    x0: TermId,
+    es0: TermId,
+) -> (TermId, TermId, TermId) {
+    let mut t = t0;
+    let mut x = x0;
+    let mut kept = s.alloc(Node::Nil);
+    let mut es = es0;
+    while let Some((e, rest)) = uncons(s, es) {
+        match uncons(s, e) {
+            Some((v, c)) => match count(s, decls, names, c) {
+                Count::One(g) => {
+                    s.clear(Tbl::A);
+                    t = rebuild(s, Leaf::Sub(v, g), t);
+                    x = rebuild(s, Leaf::Sub(v, g), x);
+                }
+                _ => kept = s.alloc(Node::App(e, kept)),
+            },
+            None => panic!(),
+        }
+        es = rest;
+    }
+    let kept = rev(s, kept);
+    (t, x, kept)
+}
+
+/// The pattern `t` and the exclusions `x` with the variable `v` replaced by
+/// the symbol `f` applied to new variables, one for each conjunction of the
+/// list `kids0`, numbered from the variable `next0` on; the entries of the
+/// new variables, in order; and the variable after the last of them. Table
+/// `A` is used; the stack is empty at entry.
+pub fn open_var(
+    s: &mut Store,
+    v: TermId,
+    f: TermId,
+    kids0: TermId,
+    next0: TermId,
+    t: TermId,
+    x: TermId,
+) -> (TermId, TermId, TermId, TermId) {
+    let mut term = f;
+    let mut next = next0;
+    let mut es = s.alloc(Node::Nil);
+    let mut kids = kids0;
+    while let Some((k, rest)) = uncons(s, kids) {
+        term = s.alloc(Node::App(term, next));
+        let e = s.alloc(Node::App(next, k));
+        es = s.alloc(Node::App(e, es));
+        next = var_succ(s, next);
+        kids = rest;
+    }
+    let es = rev(s, es);
+    s.clear(Tbl::A);
+    let t1 = rebuild(s, Leaf::Sub(v, term), t);
+    let x1 = rebuild(s, Leaf::Sub(v, term), x);
+    (t1, x1, es, next)
+}
