@@ -198,3 +198,49 @@ with the number of reachable conjunctions as a parameter computed from the
 program (the read-time check of L56 already computes that set), not as a
 polynomial in the size of the program alone.
 
+
+## 8. The normal store as a function
+
+`Prob.normal` says a normal store exists, and `Raw.Normal.eq` that it is the
+only one. Neither computes it: the proof of existence takes a store with the
+most symbols and exclusions with the fewest free variables. The operations in
+Rust need a function to be proved against, so the normal store is being
+written as one in Lean, each step with the theorem that says what it decides.
+Because the normal store is unique, a function whose result is normal and
+denotes the problem returns the normal store whatever route it takes.
+
+The route, with what is written and proved so far:
+
+1. Solve the equations and apply the solution (`solve`), and push each sort
+   down its pattern to variables (`push`). Both were there.
+2. Put the pattern beside the tuple of all variables, so that every variable
+   occurs in it (as `normal_exists` does).
+3. Replace every variable whose sorts have one member by that member, and
+   stop if some variable's sorts have none. `count` (`Count.lean`) says which:
+   no member, this one, or more than one.
+4. Stop if an exclusion always holds. Then every variable has infinitely many
+   values and every exclusion can be avoided, so the store has a solution
+   (`Store.rich`), and this is what makes the next step end.
+5. While the values left to some variable have one root, replace it by that
+   root applied to new variables, and do step 3 for the new ones. The values
+   left to `v` are the members of its sorts without the terms the exclusions
+   exclude it from (`gone`, `Gone.lean`); `sole` (`Roots.lean`) finds the one
+   root or shows two values with different roots; `expStore_den` says the
+   replacement keeps what the store denotes. Each replacement adds a symbol
+   to the pattern, and the pattern has no more symbols than a term it
+   denotes, so the loop ends. It is defined by recursion on that bound, which
+   is not computed.
+6. Give each variable every declared sort that holds of all its values.
+   `inclBut` (`InclBut.lean`) decides that the members of the sorts without
+   the excluded terms are in a sort.
+7. Number the variables as they first occur, bring each exclusion to solved
+   form under the sorts, drop those another implies, list them in order, and
+   take the first part of the pattern (`Raw.Normal.proj`).
+
+Steps 1, 3 (the count), 5 (the test and one replacement) and 6 (the decision)
+are proved. Still to write: the loop of step 5 with its termination, step 7,
+and the theorem that the result is normal and denotes the problem.
+
+`count`, `inclBut` and `sole` go through every set of declared sorts. They are
+the specification, and the runs in `Tests/SortsRuns.lean` keep to a few sorts
+for that reason. The Rust looks only at the sets it reaches.
