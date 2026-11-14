@@ -283,5 +283,11 @@ new axiom.
 /-- info: 'RwLog.Sorts.sole_none' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Sorts.sole_none
 
+/-- info: 'RwLog.Sorts.unitOn_iff' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.unitOn_iff
+
+/-- info: 'RwLog.Sorts.expStore_den' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.expStore_den
+
 /-- info: 'RwLog.ProgramOf.check_iff' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.ProgramOf.check_iff
