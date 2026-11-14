@@ -207,6 +207,8 @@ theorem add_key_spec (hnm : Function.Injective nm) {K : List (Sym × Nat)}
 def addKeys (K : List (Sym × Nat)) (ks : List (Sym × Nat)) : List (Sym × Nat) :=
   ks.foldl addKey K
 
+theorem addKeys_nil (K : List (Sym × Nat)) : addKeys K [] = K := rfl
+
 /-- The ticks adding roots may spend. -/
 def addCost : List (Sym × Nat) → List (Sym × Nat) → Nat
   | _, [] => 1
@@ -294,5 +296,568 @@ theorem add_keys_spec (hnm : Function.Injective nm) (ks : List (Sym × Nat))
       Ran s s' (addCost K ks) ∧ ∃ es', List.Forall₂ ExAt (addKeys K ks) es' ∧
         Repr nm s'.nodes.val r.val (encList (nm none) (es'.map (entPat (nm none)))) ⦄ :=
   add_keys_loop_spec hnm ks ents K es s entries keys hks hK hW he hl hroom
+
+/-! ## The roots of the cases of a conjunction -/
+
+theorem caseKeys_exAt (z : Sym) (cs : List (Sym × List (Option Name))) :
+    List.Forall₂ ExAt (cs.map fun c => (c.1, c.2.length)) (cs.map (caseEnt z)) := by
+  induction cs with
+  | nil => exact .nil
+  | cons c cs ih => exact .cons ⟨rfl, by simp [caseEnt]⟩ ih
+
+/-- The roots with those of the cases of each sort of a list they have not. -/
+def conjKeys (S : Sorts) (K : List (Sym × Nat)) (ns : List Name) : List (Sym × Nat) :=
+  ns.foldl (fun K n => addKeys K (defKeys S n)) K
+
+/-- The ticks adding the roots of the cases of sorts may spend. -/
+def conjKeysCost (S : Sorts) : List (Sym × Nat) → List Name → Nat
+  | _, [] => 1
+  | K, n :: ns =>
+    3 * S.length + 3 + addCost K (defKeys S n) + conjKeysCost S (addKeys K (defKeys S n)) ns
+
+theorem add_conj_keys_loop_spec (hnm : Function.Injective nm) (S : Sorts) {sp : Pat}
+    (hS : SortsAt (nm none) S sp) :
+    ∀ (ns : List Name) (K : List (Sym × Nat)) (es : List (Pat × List Pat)) (s : store.Store)
+      (decls c keys : store.TermId),
+    List.Forall₂ ExAt K es → Wf s → Repr nm s.nodes.val decls.val sp →
+    Repr nm s.nodes.val c.val (namesPat (nm none) ns) →
+    Repr nm s.nodes.val keys.val (encList (nm none) (es.map (entPat (nm none)))) →
+    Room s (conjKeysCost S K ns) →
+    sorts.add_conj_keys_loop c s decls keys ⦃ r s' =>
+      Ran s s' (conjKeysCost S K ns) ∧ ∃ es', List.Forall₂ ExAt (conjKeys S K ns) es' ∧
+        Repr nm s'.nodes.val r.val (encList (nm none) (es'.map (entPat (nm none)))) ⦄ := by
+  intro ns
+  induction ns with
+  | nil =>
+    intro K es s decls c keys hK hW hd hc hl hroom
+    have hroom' := hroom
+    unfold Room at hroom'
+    simp only [conjKeysCost] at hroom'
+    unfold sorts.add_conj_keys_loop
+    rw [loop]
+    simp only [sorts.add_conj_keys_loop.body]
+    step with uncons_repr s c hW hc (by unfold Room; omega) as ⟨r0, hK0, hu⟩
+    obtain ⟨o, s1⟩ := r0
+    simp only [namesPat] at hu
+    simp only at hK0
+    subst hu
+    have hfin : Ran s s1 (conjKeysCost S K []) ∧ ∃ es', List.Forall₂ ExAt (conjKeys S K []) es' ∧
+        Repr nm s1.nodes.val keys.val (encList (nm none) (es'.map (entPat (nm none)))) :=
+      ⟨hK0.ran, es, hK, by rw [hK0.nodes]; exact hl⟩
+    step*
+  | cons x ns ih =>
+    intro K es s decls c keys hK hW hd hc hl hroom
+    have hroom' := hroom
+    unfold Room at hroom'
+    simp only [conjKeysCost] at hroom'
+    unfold sorts.add_conj_keys_loop
+    rw [loop]
+    simp only [sorts.add_conj_keys_loop.body]
+    step with uncons_repr s c hW hc (by unfold Room; omega) as ⟨r0, hK0, hu⟩
+    obtain ⟨o, s1⟩ := r0
+    simp only [namesPat] at hu
+    simp only at hK0
+    obtain ⟨n, t, rfl, rn, rt⟩ := hu
+    have ht1 := hK0.ticks
+    have hx1 := hK0.ran.ext
+    step with lookup_spec hnm S hS s1 decls n hK0.wf (hx1.repr hd) (hx1.repr rn)
+      (by unfold Room; omega) as ⟨r1, hR2, hlk⟩
+    obtain ⟨o1, s2⟩ := r1
+    simp only at hR2 hlk
+    have ht2 := hR2.ticks
+    have R2 := hK0.ran.trans hR2
+    have hpos : 1 ≤ addCost K (defKeys S x) := by
+      cases defKeys S x <;> simp only [addCost] <;> omega
+    cases hl' : S.lookup x with
+    | none =>
+      rw [hl'] at hlk
+      subst hlk
+      have e : defKeys S x = [] := by simp [defKeys, hl']
+      rw [e] at hroom' hpos
+      simp only [addKeys, List.foldl_nil] at hroom'
+      have IH := ih K es s2 decls t keys hK hR2.wf (R2.ext.repr hd) (R2.ext.repr rt)
+        (R2.ext.repr hl) (by unfold Room; omega)
+      unfold sorts.add_conj_keys_loop at IH
+      simp only [uncurry, bind_ok]
+      refine WP.spec_mono IH ?_
+      rintro ⟨r, s'⟩ ⟨hR, es', hK', hr⟩
+      refine ⟨(R2.trans hR).mono (by simp only [conjKeysCost, e, addKeys, List.foldl_nil]; omega),
+        es', ?_, hr⟩
+      simpa only [conjKeys, List.foldl_cons, e, addKeys, List.foldl_nil] using hK'
+    | some d =>
+      rw [hl'] at hlk
+      obtain ⟨cc, r, rp, rfl, rc, -, -⟩ := hlk
+      have e : defKeys S x = caseKeysL d := by simp [defKeys, hl']
+      rw [e] at hroom' hpos
+      step with add_keys_spec hnm (caseKeysL d) (d.cases.map (caseEnt (nm none))) K es s2 keys cc
+        (caseKeys_exAt (nm none) d.cases) hK hR2.wf (R2.ext.repr hl) (hR2.ext.repr rc)
+        (by unfold Room; omega) as ⟨r3, hR3, es1, hK1, rkeys⟩
+      obtain ⟨keys1, s3⟩ := r3
+      simp only at hR3 rkeys
+      have ht3 := hR3.ticks
+      have R3 := R2.trans hR3
+      have IH := ih (addKeys K (caseKeysL d)) es1 s3 decls t keys1 hK1 hR3.wf (R3.ext.repr hd)
+        (R3.ext.repr rt) rkeys (by unfold Room; omega)
+      unfold sorts.add_conj_keys_loop at IH
+      simp only [uncurry, bind_ok]
+      refine WP.spec_mono IH ?_
+      rintro ⟨r, s'⟩ ⟨hR, es', hK', hr⟩
+      refine ⟨(R3.trans hR).mono (by simp only [conjKeysCost, e]; omega), es', ?_, hr⟩
+      simpa only [conjKeys, List.foldl_cons, e] using hK'
+
+/-! ## The roots of terms -/
+
+/-- The root of a ground term. -/
+def termKey (t : GTerm) : Sym × Nat := ((gspine t []).1, (gspine t []).2.length)
+
+theorem key_eq_termKey (t : GTerm) : Term.key t = some (termKey t) := by
+  have hg : t = Term.mk (gspine t []).1 (gspine t []).2 := by simpa using gspine_mk t []
+  conv_lhs => rw [hg]
+  simp [Term.key, Term.spine_mk, termKey]
+
+/-- The ticks adding the roots of terms may spend. -/
+def termKeysCost : List (Sym × Nat) → List GTerm → Nat
+  | _, [] => 1
+  | K, t :: G => 2 * (termKey t).2 + 5 + keysCost K + termKeysCost (addKey K (termKey t)) G
+
+theorem add_term_keys_loop_spec (hnm : Function.Injective nm) :
+    ∀ (G : List GTerm) (K : List (Sym × Nat)) (es : List (Pat × List Pat)) (s : store.Store)
+      (g keys : store.TermId),
+    List.Forall₂ ExAt K es → Wf s →
+    Repr nm s.nodes.val g.val (encList (nm none) (G.map GTerm.toPat)) →
+    Repr nm s.nodes.val keys.val (encList (nm none) (es.map (entPat (nm none)))) →
+    Room s (termKeysCost K G) →
+    sorts.add_term_keys_loop g s keys ⦃ r s' =>
+      Ran s s' (termKeysCost K G) ∧ ∃ es', List.Forall₂ ExAt (addKeys K (G.map termKey)) es' ∧
+        Repr nm s'.nodes.val r.val (encList (nm none) (es'.map (entPat (nm none)))) ⦄ := by
+  intro G
+  induction G with
+  | nil =>
+    intro K es s g keys hK hW hg hl hroom
+    have hroom' := hroom
+    unfold Room at hroom'
+    simp only [termKeysCost] at hroom'
+    unfold sorts.add_term_keys_loop
+    rw [loop]
+    simp only [sorts.add_term_keys_loop.body]
+    step with uncons_repr s g hW hg (by unfold Room; omega) as ⟨r0, hK0, hu⟩
+    obtain ⟨o, s1⟩ := r0
+    simp only at hu
+    simp only at hK0
+    subst hu
+    have hfin : Ran s s1 (termKeysCost K []) ∧
+        ∃ es', List.Forall₂ ExAt (addKeys K (([] : List GTerm).map termKey)) es' ∧
+        Repr nm s1.nodes.val keys.val (encList (nm none) (es'.map (entPat (nm none)))) :=
+      ⟨hK0.ran, es, hK, by rw [hK0.nodes]; exact hl⟩
+    step*
+  | cons t G ih =>
+    intro K es s g keys hK hW hg hl hroom
+    have hroom' := hroom
+    unfold Room at hroom'
+    simp only [termKeysCost] at hroom'
+    unfold sorts.add_term_keys_loop
+    rw [loop]
+    simp only [sorts.add_term_keys_loop.body]
+    step with uncons_repr s g hW hg (by unfold Room; omega) as ⟨r0, hK0, hu⟩
+    obtain ⟨o, s1⟩ := r0
+    simp only at hu
+    simp only at hK0
+    obtain ⟨ti, more, rfl, rti, rmore⟩ := hu
+    have ht1 := hK0.ticks
+    have hx1 := hK0.ran.ext
+    have hna : nargs (GTerm.toPat t) = (termKey t).2 := by simpa [termKey] using nargs_toPat t []
+    have hun := unspine_toPat t []
+    simp only [List.map_nil] at hun
+    step with spine_spec s1 ti hK0.wf (hx1.repr rti) (by unfold Room; omega)
+      as ⟨r1, hR2, rh, ra⟩
+    obtain ⟨⟨h, args⟩, s2⟩ := r1
+    simp only at hR2 rh ra
+    rw [hun] at rh ra
+    simp only at rh ra
+    have ht2 := hR2.ticks
+    have R2 := hK0.ran.trans hR2
+    step with add_key_spec hnm hK s2 keys h args hR2.wf (R2.ext.repr hl) rh ra
+      (by unfold Room; omega) as ⟨r3, hR3, es1, hK1, rkeys⟩
+    obtain ⟨keys1, s3⟩ := r3
+    simp only at hR3 rkeys
+    rw [List.length_map] at hK1
+    have ht3 := hR3.ticks
+    have R3 := R2.trans hR3
+    have IH := ih (addKey K (termKey t)) es1 s3 more keys1 hK1 hR3.wf (R3.ext.repr rmore) rkeys
+      (by unfold Room; omega)
+    unfold sorts.add_term_keys_loop at IH
+    simp only [uncurry, bind_ok]
+    refine WP.spec_mono IH ?_
+    rintro ⟨r, s'⟩ ⟨hR, es', hK', hr⟩
+    refine ⟨(R3.trans hR).mono (by simp only [termKeysCost]; omega), es', ?_, hr⟩
+    simpa only [List.map_cons, addKeys, List.foldl_cons] using hK'
+
+/-! ## The roots to ask about -/
+
+/-- The roots the rest of a declaration excludes. -/
+def exL (d : SortDef) : List (Sym × Nat) :=
+  match d.rest with
+  | some r => r.1
+  | none => []
+
+/-- The roots to ask about, as `but_keys` lists them. -/
+def butKeysL (S : Sorts) (cl : List Name) (n : Name) (G : List GTerm) : List (Sym × Nat) :=
+  addKeys
+    (match S.lookup n with
+      | none => conjKeys S [] cl
+      | some d => addKeys (addKeys (conjKeys S [] cl) (caseKeysL d)) (exL d))
+    (G.map termKey)
+
+/-- The ticks `but_keys` may spend. -/
+def butKeysX (S : Sorts) (cl : List Name) (n : Name) (G : List GTerm) : Nat :=
+  3 * S.length + 4 + conjKeysCost S [] cl +
+    (match S.lookup n with
+      | none => termKeysCost (conjKeys S [] cl) G
+      | some d => addCost (conjKeys S [] cl) (caseKeysL d) +
+          addCost (addKeys (conjKeys S [] cl) (caseKeysL d)) (exL d) +
+          termKeysCost (addKeys (addKeys (conjKeys S [] cl) (caseKeysL d)) (exL d)) G)
+
+theorem addCost_pos (K ks : List (Sym × Nat)) : 1 ≤ addCost K ks := by
+  cases ks <;> simp only [addCost] <;> omega
+
+/-- `but_keys` lists the roots to ask about. -/
+theorem but_keys_spec (hnm : Function.Injective nm) (S : Sorts) {sp : Pat}
+    (hS : SortsAt (nm none) S sp) (cl : List Name) (n : Name) (G : List GTerm) (s : store.Store)
+    (decls c ni g : store.TermId) (hW : Wf s) (hd : Repr nm s.nodes.val decls.val sp)
+    (hc : Repr nm s.nodes.val c.val (namesPat (nm none) cl))
+    (hn : Repr nm s.nodes.val ni.val (.sym n))
+    (hg : Repr nm s.nodes.val g.val (encList (nm none) (G.map GTerm.toPat)))
+    (hroom : Room s (butKeysX S cl n G)) :
+    sorts.but_keys s decls c ni g ⦃ r s' =>
+      Ran s s' (butKeysX S cl n G) ∧ ∃ es', List.Forall₂ ExAt (butKeysL S cl n G) es' ∧
+        Repr nm s'.nodes.val r.val (encList (nm none) (es'.map (entPat (nm none)))) ⦄ := by
+  unfold sorts.but_keys
+  have hroom' := hroom
+  unfold Room at hroom'
+  have hge : 3 * S.length + 5 + conjKeysCost S [] cl ≤ butKeysX S cl n G := by
+    unfold butKeysX
+    cases S.lookup n with
+    | none =>
+      have : 1 ≤ termKeysCost (conjKeys S [] cl) G := by
+        cases G <;> simp only [termKeysCost] <;> omega
+      simp only; omega
+    | some d =>
+      have := addCost_pos (conjKeys S [] cl) (caseKeysL d)
+      simp only; omega
+  step with alloc_w s .Nil hW trivial (by unfold Room; omega)
+    as ⟨nil, s1, hW1, ht1, htb1, hx1, hid1, hst1⟩
+  have rnil : Repr nm s1.nodes.val nil.val
+      (encList (nm none) (([] : List (Pat × List Pat)).map (entPat (nm none)))) := .nil hid1
+  have R1 : Ran s s1 1 := ⟨hW1, hx1, htb1, hst1, by omega⟩
+  step with add_conj_keys_loop_spec hnm S hS cl [] [] s1 decls c nil .nil hW1 (hx1.repr hd)
+    (hx1.repr hc) rnil (by unfold Room; omega)
+    as ⟨keys, s2, hR2, es1, hK1, rk1⟩
+  have ht2 := hR2.ticks
+  have R2 := R1.trans hR2
+  step with lookup_spec hnm S hS s2 decls ni hR2.wf (R2.ext.repr hd) (R2.ext.repr hn)
+    (by unfold Room; omega)
+    as ⟨o, s3, hR3, hlk⟩
+  have ht3 := hR3.ticks
+  have R3 := R2.trans hR3
+  cases hl' : S.lookup n with
+  | none =>
+    rw [hl'] at hlk
+    subst hlk
+    have hk : butKeysX S cl n G =
+        3 * S.length + 4 + conjKeysCost S [] cl + termKeysCost (conjKeys S [] cl) G := by
+      simp only [butKeysX, hl']
+    simp only [bind_ok]
+    refine WP.spec_mono (add_term_keys_loop_spec hnm G _ es1 s3 g keys hK1 hR3.wf
+      (R3.ext.repr hg) (hR3.ext.repr rk1) (by unfold Room; omega)) ?_
+    rintro ⟨r, s'⟩ ⟨hR, es', hK', hr⟩
+    refine ⟨(R3.trans hR).mono (by omega), es', ?_, hr⟩
+    simpa only [butKeysL, hl'] using hK'
+  | some d =>
+    rw [hl'] at hlk
+    obtain ⟨cc, rest, rp, rfl, rc, rr, hrest⟩ := hlk
+    have hk : butKeysX S cl n G =
+        3 * S.length + 4 + conjKeysCost S [] cl + (addCost (conjKeys S [] cl) (caseKeysL d) +
+          addCost (addKeys (conjKeys S [] cl) (caseKeysL d)) (exL d) +
+          termKeysCost (addKeys (addKeys (conjKeys S [] cl) (caseKeysL d)) (exL d)) G) := by
+      simp only [butKeysX, hl']
+    have hp2 := addCost_pos (addKeys (conjKeys S [] cl) (caseKeysL d)) (exL d)
+    step with add_keys_spec hnm (caseKeysL d) (d.cases.map (caseEnt (nm none))) _ es1 s3 keys cc
+      (caseKeys_exAt (nm none) d.cases) hK1 hR3.wf (hR3.ext.repr rk1) (hR3.ext.repr rc)
+      (by unfold Room; omega) as ⟨r4, hR4, es2, hK2, rk2⟩
+    obtain ⟨keys2, s5⟩ := r4
+    simp only at hR4 rk2
+    have ht4 := hR4.ticks
+    have R4 := R3.trans hR4
+    step with uncons_repr s5 rest hR4.wf ((hR3.trans hR4).ext.repr rr) (by unfold Room; omega)
+      as ⟨r5, hK5, hu⟩
+    obtain ⟨o1, s6⟩ := r5
+    simp only at hK5
+    have ht5 := hK5.ticks
+    have R5 := R4.trans hK5.ran
+    cases hr : d.rest with
+    | none =>
+      rw [hr] at hrest
+      simp only [RestAt] at hrest
+      subst hrest
+      simp only at hu
+      subst hu
+      have e : exL d = [] := by simp [exL, hr]
+      rw [e] at hk hp2
+      simp only [addKeys_nil, addCost] at hk
+      simp only [uncurry, bind_ok]
+      refine WP.spec_mono (add_term_keys_loop_spec hnm G _ es2 s6 g keys2 hK2 hK5.wf
+        (R5.ext.repr hg) (hK5.ran.ext.repr rk2) (by unfold Room; omega)) ?_
+      rintro ⟨r, s'⟩ ⟨hR, es', hK', hr'⟩
+      refine ⟨(R5.trans hR).mono (by omega), es', ?_, hr'⟩
+      simpa only [butKeysL, hl', e, addKeys_nil] using hK'
+    | some rv =>
+      rw [hr] at hrest
+      obtain ⟨xs, hxs, rfl⟩ := hrest
+      simp only at hu
+      obtain ⟨exi, kk, rfl, rex, -⟩ := hu
+      have e : exL d = rv.1 := by simp [exL, hr]
+      rw [e] at hk hp2
+      step with add_keys_spec hnm rv.1 xs _ es2 s6 keys2 exi hxs hK2 hK5.wf
+        (hK5.ran.ext.repr rk2) (by rw [hK5.nodes]; exact rex) (by unfold Room; omega)
+        as ⟨r7, hR7, es3, hK3, rk3⟩
+      obtain ⟨keys3, s7⟩ := r7
+      simp only at hR7 rk3
+      have ht7 := hR7.ticks
+      have R7 := R5.trans hR7
+      simp only [uncurry, bind_ok]
+      refine WP.spec_mono (add_term_keys_loop_spec hnm G _ es3 s7 g keys3 hK3 hR7.wf
+        (R7.ext.repr hg) rk3 (by unfold Room; omega)) ?_
+      rintro ⟨r, s'⟩ ⟨hR, es', hK', hr'⟩
+      refine ⟨(R7.trans hR).mono (by omega), es', ?_, hr'⟩
+      simpa only [butKeysL, hl', e] using hK'
+
+/-! ## What the roots listed are, and what listing them costs -/
+
+theorem mem_addKeys {x : Sym × Nat} : ∀ (ks K : List (Sym × Nat)),
+    x ∈ addKeys K ks ↔ x ∈ K ∨ x ∈ ks
+  | [], K => by simp [addKeys]
+  | κ :: ks, K => by
+    have h := mem_addKeys (x := x) ks (addKey K κ)
+    simp only [addKeys, List.foldl_cons] at h ⊢
+    rw [h, mem_addKey, List.mem_cons]
+    tauto
+
+theorem addKeys_nodup : ∀ (ks K : List (Sym × Nat)), K.Nodup → (addKeys K ks).Nodup
+  | [], _, h => h
+  | κ :: ks, K, h => addKeys_nodup ks (addKey K κ) (addKey_nodup h κ)
+
+theorem mem_conjKeysL (S : Sorts) {x : Sym × Nat} : ∀ (ns : List Name) (K : List (Sym × Nat)),
+    x ∈ conjKeys S K ns ↔ x ∈ K ∨ ∃ n ∈ ns, x ∈ defKeys S n
+  | [], K => by simp [conjKeys]
+  | n :: ns, K => by
+    have h := mem_conjKeysL S (x := x) ns (addKeys K (defKeys S n))
+    simp only [conjKeys, List.foldl_cons] at h ⊢
+    rw [h, mem_addKeys]
+    simp only [List.mem_cons, exists_eq_or_imp]
+    tauto
+
+theorem conjKeys_nodup (S : Sorts) : ∀ (ns : List Name) (K : List (Sym × Nat)),
+    K.Nodup → (conjKeys S K ns).Nodup
+  | [], _, h => h
+  | n :: ns, K, h => conjKeys_nodup S ns _ (addKeys_nodup (defKeys S n) K h)
+
+theorem butKeysL_nodup (S : Sorts) (cl : List Name) (n : Name) (G : List GTerm) :
+    (butKeysL S cl n G).Nodup := by
+  unfold butKeysL
+  refine addKeys_nodup _ _ ?_
+  cases S.lookup n with
+  | none => exact conjKeys_nodup S cl [] List.nodup_nil
+  | some d => exact addKeys_nodup _ _ (addKeys_nodup _ _ (conjKeys_nodup S cl [] List.nodup_nil))
+
+theorem mem_caseKeys_def {S : Sorts} {c : Sorts.Conj} {x : Sym × Nat} :
+    x ∈ Sorts.caseKeys S c ↔ ∃ n ∈ c, x ∈ defKeys S n := by
+  obtain ⟨f, k⟩ := x
+  rw [Sorts.mem_caseKeys]
+  constructor
+  · rintro ⟨s, hs, d, hl, cs, hcs, rfl, rfl⟩
+    exact ⟨s, hs, by simp only [defKeys, hl, caseKeysL]; exact List.mem_map.2 ⟨cs, hcs, rfl⟩⟩
+  · rintro ⟨s, hs, hx⟩
+    cases hl : S.lookup s with
+    | none => simp [defKeys, hl] at hx
+    | some d =>
+      simp only [defKeys, hl, caseKeysL, List.mem_map, Prod.mk.injEq] at hx
+      obtain ⟨cs, hcs, rfl, rfl⟩ := hx
+      exact ⟨s, hs, d, hl, cs, hcs, rfl, rfl⟩
+
+theorem mem_exKeys {S : Sorts} {n : Name} {x : Sym × Nat} :
+    x ∈ Sorts.exKeys S n ↔ ∃ d, S.lookup n = some d ∧ x ∈ exL d := by
+  unfold Sorts.exKeys
+  cases hl : S.lookup n with
+  | none => simp
+  | some d =>
+    cases hr : d.rest with
+    | none => simp [exL, hr]
+    | some r => simp [exL, hr]
+
+theorem filterMap_key (G : List GTerm) : G.filterMap Term.key = G.map termKey := by
+  induction G with
+  | nil => rfl
+  | cons t G ih => simp [key_eq_termKey]
+
+/-- The roots listed are those the specification asks about. -/
+theorem mem_butKeysL {S : Sorts} {U : List Name} {c : Sorts.Conj} (hc : Sub U c) (n : Name)
+    (G : List GTerm) {x : Sym × Nat} :
+    x ∈ butKeysL S (conjList U (· ∈ c)) n G ↔ x ∈ Sorts.butKeys S c n G := by
+  have hcl : (∃ m ∈ conjList U (· ∈ c), x ∈ defKeys S m) ↔ ∃ m ∈ c, x ∈ defKeys S m := by
+    constructor
+    · rintro ⟨m, hm, hx⟩; exact ⟨m, (mem_conjList.1 hm).2, hx⟩
+    · rintro ⟨m, hm, hx⟩; exact ⟨m, mem_conjList.2 ⟨hc m hm, hm⟩, hx⟩
+  have hcK : x ∈ conjKeys S [] (conjList U (· ∈ c)) ↔ ∃ m ∈ c, x ∈ defKeys S m := by
+    rw [mem_conjKeysL, hcl]; simp
+  have hdn : x ∈ defKeys S n ↔ ∃ d, S.lookup n = some d ∧ x ∈ caseKeysL d := by
+    cases hl : S.lookup n <;> simp [defKeys, hl]
+  simp only [Sorts.butKeys, Finset.mem_union, List.mem_toFinset, mem_caseKeys_def, mem_exKeys,
+    filterMap_key, Finset.mem_singleton, exists_eq_left, hdn]
+  unfold butKeysL
+  cases hl : S.lookup n with
+  | none => simp [mem_addKeys, hcK]
+  | some d => simp [mem_addKeys, hcK]
+
+/-- The weight of roots: what searching all of them costs. -/
+def kw (ks : List (Sym × Nat)) : Nat := (ks.map fun κ => 5 + 2 * κ.2).sum
+
+theorem kw_append (a b : List (Sym × Nat)) : kw (a ++ b) = kw a + kw b := by simp [kw]
+
+theorem length_le_kw : ∀ ks : List (Sym × Nat), ks.length ≤ kw ks
+  | [] => by simp [kw]
+  | κ :: ks => by
+    have := length_le_kw ks
+    simp only [kw, List.map_cons, List.sum_cons, List.length_cons] at this ⊢
+    omega
+
+theorem keysCost_addKeys_le : ∀ (ks K : List (Sym × Nat)),
+    keysCost (addKeys K ks) ≤ keysCost K + kw ks
+  | [], K => by simp [addKeys, kw]
+  | κ :: ks, K => by
+    have h1 := keysCost_addKeys_le ks (addKey K κ)
+    have h2 := keysCost_addKey_le K κ
+    simp only [addKeys, List.foldl_cons, kw, List.map_cons, List.sum_cons] at h1 ⊢
+    omega
+
+theorem addCost_le : ∀ (ks K : List (Sym × Nat)) (B : Nat), keysCost K + kw ks ≤ B →
+    addCost K ks ≤ ks.length * (B + 4) + 1
+  | [], _, _, _ => by simp [addCost]
+  | κ :: ks, K, B, h => by
+    have h2 := keysCost_addKey_le K κ
+    simp only [kw, List.map_cons, List.sum_cons] at h
+    have h1 := addCost_le ks (addKey K κ) B (by simp only [kw]; omega)
+    simp only [addCost, List.length_cons, Nat.add_mul, Nat.one_mul]
+    omega
+
+/-- A bound on the weight of the roots of one declaration: that of all of
+them together. -/
+def sortsW (S : Sorts) : Nat := (S.map fun p => kw (defKeysL p.2)).sum
+
+theorem kw_defKeys_le (S : Sorts) (n : Name) : kw (defKeys S n) ≤ sortsW S := by
+  cases h : S.lookup n with
+  | none =>
+    have e : defKeys S n = [] := by simp [defKeys, h]
+    rw [e]; simp [kw]
+  | some dd =>
+    have e : defKeys S n = caseKeysL dd := by simp [defKeys, h]
+    have hm := Sorts.mem_of_lookup h
+    have h1 : kw (defKeysL dd) ≤ sortsW S :=
+      List.le_sum_of_mem (List.mem_map.2 ⟨(n, dd), hm, rfl⟩)
+    have h2 : kw (defKeysL dd) = kw (caseKeysL dd) + kw (exL dd) := by
+      unfold defKeysL exL; exact kw_append _ _
+    rw [e]; omega
+
+theorem conjKeys_le (S : Sorts) : ∀ (ns : List Name) (K : List (Sym × Nat)) (B : Nat),
+    keysCost K + ns.length * sortsW S ≤ B →
+    keysCost (conjKeys S K ns) ≤ keysCost K + ns.length * sortsW S ∧
+      conjKeysCost S K ns ≤ ns.length * (3 * S.length + 5) + ns.length * sortsW S * (B + 4) + 1
+  | [], _, _, _ => by simp [conjKeys, conjKeysCost]
+  | n :: ns, K, B, h => by
+    have hw := kw_defKeys_le S n
+    have hl := length_le_kw (defKeys S n)
+    have h2 := keysCost_addKeys_le (defKeys S n) K
+    simp only [List.length_cons, Nat.add_mul, Nat.one_mul] at h
+    have h3 := addCost_le (defKeys S n) K B (by omega)
+    obtain ⟨h4, h5⟩ := conjKeys_le S ns (addKeys K (defKeys S n)) B (by omega)
+    have h6 := Nat.mul_le_mul_right (B + 4) (Nat.le_trans hl hw)
+    refine ⟨?_, ?_⟩
+    · simp only [conjKeys, List.foldl_cons, List.length_cons, Nat.add_mul, Nat.one_mul] at h4 ⊢
+      omega
+    · simp only [conjKeysCost, List.length_cons, Nat.add_mul, Nat.one_mul]
+      omega
+
+theorem termKeysCost_le : ∀ (G : List GTerm) (K : List (Sym × Nat)) (B : Nat),
+    keysCost K + kw (G.map termKey) ≤ B →
+    termKeysCost K G ≤ kw (G.map termKey) + G.length * B + 1
+  | [], _, _, _ => by simp [termKeysCost, kw]
+  | t :: G, K, B, h => by
+    have h2 := keysCost_addKey_le K (termKey t)
+    simp only [kw, List.map_cons, List.sum_cons] at h
+    have h1 := termKeysCost_le G (addKey K (termKey t)) B (by simp only [kw]; omega)
+    simp only [termKeysCost, kw, List.map_cons, List.sum_cons, List.length_cons, Nat.add_mul,
+      Nat.one_mul] at h1 ⊢
+    omega
+
+/-- A bound on the weight of the roots listed. -/
+def butKeysW (S : Sorts) (u gw : Nat) : Nat := 1 + (u + 1) * sortsW S + gw
+
+/-- A bound on the ticks `but_keys` may spend, for `u` names and terms whose
+roots weigh `gw`. -/
+def butKeysCost (S : Sorts) (u gw : Nat) : Nat :=
+  u * (3 * S.length + 5) + 3 * S.length + 8 + butKeysW S u gw * (butKeysW S u gw + 5)
+
+theorem butKeysX_le (S : Sorts) {U : List Name} (c : Sorts.Conj) (n : Name) (G : List GTerm) :
+    butKeysX S (conjList U (· ∈ c)) n G ≤ butKeysCost S U.length (kw (G.map termKey)) ∧
+      keysCost (butKeysL S (conjList U (· ∈ c)) n G) ≤ butKeysW S U.length (kw (G.map termKey)) := by
+  set cl := conjList U (· ∈ c) with hcl
+  set gw := kw (G.map termKey) with hgw
+  set B := butKeysW S U.length gw with hB
+  have hlen : cl.length ≤ U.length := length_conjList_le U (· ∈ c)
+  have hm1 := Nat.mul_le_mul_right (sortsW S) hlen
+  have hm2 := Nat.mul_le_mul_right (3 * S.length + 5) hlen
+  have hBe : B = 1 + (U.length * sortsW S + sortsW S) + gw := by
+    rw [hB]; unfold butKeysW; rw [Nat.add_mul, Nat.one_mul]
+  obtain ⟨hc1, hc2⟩ := conjKeys_le S cl [] B (by simp only [keysCost]; omega)
+  simp only [keysCost] at hc1
+  have hm3 := Nat.mul_le_mul_right (B + 4) hm1
+  have hG := length_le_kw (G.map termKey)
+  rw [List.length_map] at hG
+  have hsq : B * (B + 5) = B * (B + 4) + B := by rw [Nat.mul_add, Nat.mul_add]; omega
+  unfold butKeysCost butKeysX butKeysL
+  rw [← hB, hsq]
+  cases hl : S.lookup n with
+  | none =>
+    simp only
+    have h1 := termKeysCost_le G (conjKeys S [] cl) B (by omega)
+    have h2 := keysCost_addKeys_le (G.map termKey) (conjKeys S [] cl)
+    have h3 : (cl.length * sortsW S + G.length) * (B + 4) ≤ B * (B + 4) :=
+      Nat.mul_le_mul_right _ (by omega)
+    have h4 : G.length * B ≤ G.length * (B + 4) := Nat.mul_le_mul_left _ (by omega)
+    rw [Nat.add_mul] at h3
+    refine ⟨by omega, by omega⟩
+  | some d =>
+    simp only
+    have hd : kw (caseKeysL d) + kw (exL d) ≤ sortsW S := by
+      have hm := Sorts.mem_of_lookup hl
+      have h1 : kw (defKeysL d) ≤ sortsW S :=
+        List.le_sum_of_mem (List.mem_map.2 ⟨(n, d), hm, rfl⟩)
+      have h2 : kw (defKeysL d) = kw (caseKeysL d) + kw (exL d) := by
+        unfold defKeysL exL; exact kw_append _ _
+      omega
+    have hl1 := length_le_kw (caseKeysL d)
+    have hl2 := length_le_kw (exL d)
+    have k1 := keysCost_addKeys_le (caseKeysL d) (conjKeys S [] cl)
+    have k2 := keysCost_addKeys_le (exL d) (addKeys (conjKeys S [] cl) (caseKeysL d))
+    have k3 := keysCost_addKeys_le (G.map termKey)
+      (addKeys (addKeys (conjKeys S [] cl) (caseKeysL d)) (exL d))
+    have a1 := addCost_le (caseKeysL d) (conjKeys S [] cl) B (by omega)
+    have a2 := addCost_le (exL d) (addKeys (conjKeys S [] cl) (caseKeysL d)) B (by omega)
+    have a3 := termKeysCost_le G (addKeys (addKeys (conjKeys S [] cl) (caseKeysL d)) (exL d)) B
+      (by omega)
+    have h3 : (cl.length * sortsW S + (caseKeysL d).length + (exL d).length + G.length) * (B + 4) ≤
+        B * (B + 4) := Nat.mul_le_mul_right _ (by omega)
+    have h4 : G.length * B ≤ G.length * (B + 4) := Nat.mul_le_mul_left _ (by omega)
+    simp only [Nat.add_mul] at h3
+    refine ⟨by omega, by omega⟩
 
 end RwLogVerified
