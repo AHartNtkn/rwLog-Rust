@@ -88,7 +88,8 @@ Rungs/Symmetric/ the symmetric engine of `SYMMETRIC_ENGINE.md` (Machine.lean): a
                 settled (`Turn`); the groups a goal begins with have a span, a call, a
                 union or a join in every group but the last (`shaped_expand`); a table
                 marked complete has a strategy with nothing left to do that reads complete
-                tables only. Not proved yet: that an edge is read in the end, the
+                tables only; and an edge is read in the end, from a depth that the node
+                and the program give (ReadLive.lean, `readEdge_some`). Not proved yet: the
                 assembly of these into a fair run, and from it completeness; `Keeps`; the
                 cost bound. A goal and its converse do not share a
                 table (not owed by any property; billboard SIM12)

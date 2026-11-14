@@ -652,6 +652,9 @@ new axiom.
 /-- info: 'RwLog.Symmetric.rankLt_wf' does not depend on any axioms -/
 #guard_msgs in #print axioms RwLog.Symmetric.rankLt_wf
 
+/-- info: 'RwLog.Symmetric.readEdge_some' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Symmetric.readEdge_some
+
 /-- info: 'RwLog.Symmetric.shaped_expand' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Symmetric.shaped_expand
 

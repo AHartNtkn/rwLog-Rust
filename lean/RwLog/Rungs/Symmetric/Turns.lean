@@ -11,7 +11,9 @@ works, and nothing of the levels that choose the order.
   nearer to every answer of the tables it reads that was there at the start
   (`behind` falls); a join is nearer to every pair that was there at the
   start (`Cursor.rank` falls, or the pair is combined); a check that was
-  still to be read is read, or the depth edges are read to has doubled.
+  still to be read is read, or the depth edges are read to has doubled from a
+  depth below what the node needs (`need`, which every relation here takes
+  first; for the machine it is `readNeed`, `ReadLive.lean`).
 * `Settled st j`: the table at `j` needs no round in this request any more.
   `SFed st s`: the tables the strategy `s` reads are settled.
 * `Turn st st' go go'` relates the groups of a table before its round to its
@@ -33,6 +35,7 @@ every group but the last has a span, a call, a union or a join, so the only
 group a round can remove is the last.
 -/
 import RwLog.Rungs.Symmetric.Kept
+import RwLog.Rungs.Symmetric.ReadLive
 import RwLog.Rungs.Symmetric.Cursor
 
 namespace RwLog
@@ -43,7 +46,7 @@ open Traverse Answer
 
 section pure
 
-variable {S N A : Type}
+variable {S N A : Type} {need : N → Nat}
 
 /-- How many answers the table at `j` has. -/
 def StateOf.len (st : StateOf S N A) (j : Nat) : Nat := (st.answers j).length
@@ -169,25 +172,25 @@ theorem SAdv.trans {len : Nat → Nat} {s s1 s2 : Strat N A} (h₁ : SAdv len s 
 
 /-- A strategy and itself after it has worked at least once. `d` is the
 depth edges were read to at the start, `d'` the depth at the end. -/
-inductive SStep (len : Nat → Nat) (d d' : Nat) : Strat N A → Strat N A → Prop
-  | span {ran : Bool} : SStep len d d' (.span ran) (.span true)
+inductive SStep (need : N → Nat) (len : Nat → Nat) (d d' : Nat) : Strat N A → Strat N A → Prop
+  | span {ran : Bool} : SStep need len d d' (.span ran) (.span true)
   | copy {c : Bool} {subs subs' : List (Nat × Nat)} : Pointwise SubAdv subs subs' →
       (∀ (n m j pos : Nat), subs[m]? = some (j, pos) → pos < n → n ≤ len j →
         behind n subs' < behind n subs) →
-      SStep len d d' (.copy c subs) (.copy c subs')
+      SStep need len d d' (.copy c subs) (.copy c subs')
   | join {k : Kind} {a b : Nat} {c c' : Cursor} :
       (∀ p q, c.Before p q → c'.Before p q) →
       (∀ p q n, p < len a → q < len b → p < n → q < n →
         c'.Before p q ∨ RankLt (Cursor.rank n c') (Cursor.rank n c)) →
-      SStep len d d' (.join k a b c) (.join k a b c')
+      SStep need len d d' (.join k a b c) (.join k a b c')
   | push {k k' : Kind} {l l' : Bool} {side side' : Nat} {o o' : N} {t t' : Option (List A)}
       {subs subs' : List (A × Nat × Nat)} :
-      SStep len d d' (.push k l side o t subs) (.push k' l' side' o' t' subs')
+      SStep need len d d' (.push k l side o t subs) (.push k' l' side' o' t' subs')
   | check {l : Bool} {side o : N} {c c' : Check} : (c = .reading ∨ c' = c) →
-      (c = .reading → c' ≠ .reading ∨ 2 * d ≤ d') →
-      SStep len d d' (.check l side o c) (.check l side o c')
+      (c = .reading → c' ≠ .reading ∨ (2 * d ≤ d' ∧ d < need side)) →
+      SStep need len d d' (.check l side o c) (.check l side o c')
 
-theorem SStep.adv {len : Nat → Nat} {d d' : Nat} {s s' : Strat N A} (h : SStep len d d' s s') :
+theorem SStep.adv {len : Nat → Nat} {d d' : Nat} {s s' : Strat N A} (h : SStep need len d d' s s') :
     SAdv len s s' := by
   cases h with
   | span => exact .span fun _ => rfl
@@ -199,8 +202,8 @@ theorem SStep.adv {len : Nat → Nat} {d d' : Nat} {s s' : Strat N A} (h : SStep
   | check h _ => exact .check h
 
 theorem SStep.mono {len len' : Nat → Nat} {d d' d0 d1 : Nat} (hl : ∀ j, len' j ≤ len j)
-    (hd : d0 ≤ d) (hd' : d' ≤ d1) {s s' : Strat N A} (h : SStep len d d' s s') :
-    SStep len' d0 d1 s s' := by
+    (hd : d0 ≤ d) (hd' : d' ≤ d1) {s s' : Strat N A} (h : SStep need len d d' s s') :
+    SStep need len' d0 d1 s s' := by
   cases h with
   | span => exact .span
   | copy h1 h2 =>
@@ -209,11 +212,11 @@ theorem SStep.mono {len len' : Nat → Nat} {d d' d0 d1 : Nat} (hl : ∀ j, len'
     exact .join h1 fun p q n hp hq =>
       h2 p q n (Nat.lt_of_lt_of_le hp (hl _)) (Nat.lt_of_lt_of_le hq (hl _))
   | push => exact .push
-  | check h1 h2 => exact .check h1 fun hc => (h2 hc).imp id fun h => by omega
+  | check h1 h2 => exact .check h1 fun hc => (h2 hc).imp id fun h => ⟨by omega, by omega⟩
 
 /-- A strategy that has moved on and then worked has worked. -/
 theorem SStep.after {len : Nat → Nat} {d d1 d2 : Nat} {s s1 s2 : Strat N A}
-    (h₁ : SAdv len s s1) (h₂ : SStep len d1 d2 s1 s2) (hd : d ≤ d1) : SStep len d d2 s s2 := by
+    (h₁ : SAdv len s s1) (h₂ : SStep need len d1 d2 s1 s2) (hd : d ≤ d1) : SStep need len d d2 s s2 := by
   cases h₁ with
   | span a =>
     cases h₂ with
@@ -254,7 +257,7 @@ theorem SStep.after {len : Nat → Nat} {d d1 d2 : Nat} {s s1 s2 : Strat N A}
           exact b1
       · rename_i c1 c2
         by_cases h1 : c1 = .reading
-        · exact (b2 h1).imp id fun h => by omega
+        · exact (b2 h1).imp id fun h => ⟨by omega, by omega⟩
         · rcases b1 with h | h
           · exact absurd h h1
           · rw [h]
@@ -476,8 +479,8 @@ def GrAdv (len : Nat → Nat) (gr gr' : Group N A) : Prop :=
   Pointwise (SAdv len) gr.strats gr'.strats
 
 /-- A group after it has worked: each of its strategies has. -/
-def GrStep (len : Nat → Nat) (d d' : Nat) (gr gr' : Group N A) : Prop :=
-  Pointwise (SStep len d d') gr.strats gr'.strats
+def GrStep (need : N → Nat) (len : Nat → Nat) (d d' : Nat) (gr gr' : Group N A) : Prop :=
+  Pointwise (SStep need len d d') gr.strats gr'.strats
 
 /-- A span, a call, a union or a join: the strategies that head a group. -/
 def Strat.lead : Strat N A → Bool
@@ -494,18 +497,18 @@ def Shaped (gs : List (Group N A)) : Prop :=
 
 /-- The groups of a table before its round (`go`, nothing if this is its
 first) and after it (`go'`). -/
-def Turn (st st' : StateOf S N A) (go go' : Option (List (Group N A))) : Prop :=
+def Turn (need : N → Nat) (st st' : StateOf S N A) (go go' : Option (List (Group N A))) : Prop :=
   ∃ (gs0 gs1 : List (Group N A)) (p : Group N A → Bool),
     (∀ gs, go = some gs → gs = gs0) ∧ (go = none → Shaped gs0) ∧ go'.getD [] = gs1.filter p ∧
     Pointwise (fun gr0 gr1 => GrAdv st.len gr0 gr1 ∧
       (p gr1 = true → ∃ s ∈ gr0.strats, s.dead st = false) ∧
       (p gr1 = false → ∀ s ∈ gr1.strats, s.dead st' = true)) gs0 gs1 ∧
     (gs0 = [] ∨ ∃ (k : Nat) (gr0 gr1 : Group N A), gs0[k]? = some gr0 ∧ gs1[k]? = some gr1 ∧
-      GrStep st.len st.depth st'.depth gr0 gr1 ∧ ∀ s ∈ gr1.strats, SFed st' s)
+      GrStep need st.len st.depth st'.depth gr0 gr1 ∧ ∀ s ∈ gr1.strats, SFed st' s)
 
 /-- The record of a round stays true from an earlier state. -/
 theorem Turn.start {a b c : StateOf S N A} (hS : Stable a b) (hd : a.depth ≤ b.depth)
-    {go go' : Option (List (Group N A))} (h : Turn b c go go') : Turn a c go go' := by
+    {go go' : Option (List (Group N A))} (h : Turn need b c go go') : Turn need a c go go' := by
   obtain ⟨gs0, gs1, p, h1, h2, h3, h4, h5⟩ := h
   have h4' := h4.imp (r' := fun gr0 gr1 => GrAdv a.len gr0 gr1 ∧
       (p gr1 = true → ∃ s ∈ gr0.strats, s.dead a = false) ∧
@@ -525,7 +528,7 @@ theorem Turn.start {a b c : StateOf S N A} (hS : Stable a b) (hd : a.depth ≤ b
 /-- The record of a round stays true to a later state. -/
 theorem Turn.finish {a b c : StateOf S N A} (hS : Stable b c)
     (hset : ∀ j, Settled b j → Settled c j) (hd : b.depth ≤ c.depth)
-    {go go' : Option (List (Group N A))} (h : Turn a b go go') : Turn a c go go' := by
+    {go go' : Option (List (Group N A))} (h : Turn need a b go go') : Turn need a c go go' := by
   obtain ⟨gs0, gs1, p, h1, h2, h3, h4, h5⟩ := h
   have h4' := h4.imp (r' := fun gr0 gr1 => GrAdv a.len gr0 gr1 ∧
       (p gr1 = true → ∃ s ∈ gr0.strats, s.dead a = false) ∧
@@ -589,7 +592,7 @@ theorem QuietAt.mono {st st' : StateOf S N A} (hS : Stable st st') {t t' : Table
 /-- The record of a stretch of a run. With `x` the position of a table in
 its round, the record says nothing of the groups of that table while it is
 not complete. -/
-structure TurnsBut (x : Option Nat) (st st' : StateOf S N A) : Prop where
+structure TurnsBut (need : N → Nat) (x : Option Nat) (st st' : StateOf S N A) : Prop where
   keep : Keep st st'
   depth : st.depth ≤ st'.depth
   stamp : (∀ (k : Nat) (t : Table S N A), st.tables[k]? = some t → t.stamp ≤ st.round) →
@@ -601,15 +604,15 @@ structure TurnsBut (x : Option Nat) (st st' : StateOf S N A) : Prop where
     (∃ t, st.tables[k]? = some t ∧ t.done = true) ∨ QuietAt st' t'
   turn : ∀ (k : Nat) (t t' : Table S N A), some k ≠ x → st.tables[k]? = some t →
     st'.tables[k]? = some t' → t.stamp ≠ st.round → t'.stamp = st.round →
-    Turn st st' t.groups t'.groups
+    Turn need st st' t.groups t'.groups
   young : ∀ (k : Nat) (t' : Table S N A), some k ≠ x → st'.tables[k]? = some t' →
     t'.born = st'.round → (∀ t, st.tables[k]? = some t → t.groups = none) → t'.groups = none
 
 /-- The record of a stretch of a run. -/
-abbrev Turns (st st' : StateOf S N A) : Prop := TurnsBut none st st'
+abbrev Turns (need : N → Nat) (st st' : StateOf S N A) : Prop := TurnsBut need none st st'
 
-theorem TurnsBut.trans {x : Option Nat} {a b c : StateOf S N A} (h₁ : TurnsBut x a b)
-    (h₂ : TurnsBut x b c) : TurnsBut x a c := by
+theorem TurnsBut.trans {x : Option Nat} {a b c : StateOf S N A} (h₁ : TurnsBut need x a b)
+    (h₂ : TurnsBut need x b c) : TurnsBut need x a c := by
   have hr : b.round = a.round := h₁.keep.1
   refine ⟨h₁.keep.trans h₂.keep, h₁.depth.trans h₂.depth, fun h => h₂.stamp (h₁.stamp h),
     fun k ta tc ha hc hyp => ?_, fun k tc hc hdc => ?_, fun k ta tc hx ha hc hs hs' => ?_,
@@ -650,14 +653,14 @@ theorem TurnsBut.trans {x : Option Nat} {a b c : StateOf S N A} (h₁ : TurnsBut
       have hg := h₁.young k tb hx hb (by rw [← e2, hbc, h₂.keep.1]) hyp
       exact h₂.young k tc hx hc hbc fun t h => by rw [hb] at h; cases h; exact hg
 
-theorem TurnsBut.refl (x : Option Nat) (st : StateOf S N A) : TurnsBut x st st :=
+theorem TurnsBut.refl (x : Option Nat) (st : StateOf S N A) : TurnsBut need x st st :=
   ⟨Keep.refl st, Nat.le_refl _, fun h => h, (fun k t t' h h' _ => by rw [h] at h'; cases h'; rfl),
     fun k t' h hd => .inl ⟨t', h, hd⟩, (fun k t t' _ h h' hs hs' => by
       rw [h] at h'; cases h'; exact absurd hs' hs), fun k t' _ h _ hyp => hyp t' h⟩
 
 /-- A record that says everything says what a record about a round says. -/
-theorem TurnsBut.weaken {st st' : StateOf S N A} (h : Turns st st') (x : Option Nat) :
-    TurnsBut x st st' :=
+theorem TurnsBut.weaken {st st' : StateOf S N A} (h : Turns need st st') (x : Option Nat) :
+    TurnsBut need x st st' :=
   ⟨h.keep, h.depth, h.stamp, fun k t t' ht ht' hyp => h.groups k t t' ht ht'
       (hyp.imp id fun hh => ⟨(fun e => by cases e), hh.2⟩),
     h.done, (fun k t t' _ => h.turn k t t' (fun e => by cases e)),
@@ -670,7 +673,7 @@ def Dated (st : StateOf S N A) : Prop :=
   ∀ (k : Nat) (t : Table S N A), st.tables[k]? = some t → t.stamp ≤ st.round ∧ t.born ≤ st.round
 
 /-- The record of a request. -/
-structure Req (st st' : StateOf S N A) : Prop where
+structure Req (need : N → Nat) (st st' : StateOf S N A) : Prop where
   round : st'.round = st.round + 1
   stable : Stable st st'
   depth : st.depth ≤ st'.depth
@@ -682,14 +685,14 @@ structure Req (st st' : StateOf S N A) : Prop where
   done : ∀ (k : Nat) (t' : Table S N A), st'.tables[k]? = some t' → t'.done = true →
     (∃ t, st.tables[k]? = some t ∧ t.done = true) ∨ QuietAt st' t'
   turn : ∀ (k : Nat) (t t' : Table S N A), st.tables[k]? = some t → st'.tables[k]? = some t' →
-    t'.stamp = st'.round → Turn st st' t.groups t'.groups
+    t'.stamp = st'.round → Turn need st st' t.groups t'.groups
   root : Settled st' 0
 
 /-- **The record of a request**, from the record of the round of the root:
 the tables that complete together are marked. -/
 theorem req_of_turns {st st2 : StateOf S N A} (hD : Dated st)
-    (T : Turns { st with round := st.round + 1 } st2) (h0 : Settled st2 0) (shown : Nat) :
-    Req st { st2 with
+    (T : Turns need { st with round := st.round + 1 } st2) (h0 : Settled st2 0) (shown : Nat) :
+    Req need st { st2 with
       tables := st2.tables.mapIdx fun i t =>
         if (completing st2).contains i then { t with done := true } else t,
       shown := shown } := by
@@ -875,7 +878,7 @@ theorem Inner.fresh_stamp {j : Nat} {st st' : StateOf R Rel (Ans D P)}
 
 /-- The record of the work of a strategy of an open table. -/
 theorem Inner.turns {j : Nat} {st st' : StateOf R Rel (Ans D P)} (h : Inner K hK j st st')
-    (ho : Open st j) : Turns st st' := by
+    (ho : Open st j) : Turns (readNeed P) st st' := by
   have hf := h.frame
   have hopen : ∀ t, st.tables[j]? = some t → t.done = false := fun t ht => by
     obtain ⟨u, hu, hd⟩ := ho
@@ -926,7 +929,7 @@ theorem turnsBut_modify (st : StateOf R Rel (Ans D P)) (i : Nat)
     (hf : ∀ t, (f t).goal = t.goal ∧ (f t).born = t.born ∧ (f t).answers = t.answers ∧
       (f t).done = t.done ∧ ((f t).stamp = t.stamp ∨ (f t).stamp = st.round))
     (ho : ∀ t, st.tables[i]? = some t → t.done = false) :
-    TurnsBut (some i) st (st.modify i f) := by
+    TurnsBut (readNeed P) (some i) st (st.modify i f) := by
   refine ⟨keep_modify st i f fun t _ => ⟨(hf t).1, (hf t).2.1, (hf t).2.2.1,
       fun h => by rw [(hf t).2.2.2.1]; exact h,
       fun h => ⟨by rcases (hf t).2.2.2.2 with e | e
@@ -966,15 +969,17 @@ theorem turnsBut_modify (st : StateOf R Rel (Ans D P)) (i : Nat)
 /-- A reading of an edge that was not deep enough doubles the depth. -/
 theorem edgeOf_none (st : StateOf R Rel (Ans D P)) (last : Bool) (n : Rel) :
     (edgeOf (K := DerivationKernel.over D K hK P) st last n).val.2 = none →
-      (edgeOf (K := DerivationKernel.over D K hK P) st last n).val.1.depth = 2 * st.depth := by
+      (edgeOf (K := DerivationKernel.over D K hK P) st last n).val.1.depth = 2 * st.depth ∧
+        st.depth < readNeed P n := by
+  have hlive := readEdge_some (K := K) (hK := hK) (P := P) last st.depth n
   at_cost K hK
   simp only [edgeOf, Cost.bind_val]
   split
   · intro h
     cases h
   · simp only [Cost.bind_val, Cost.pure_val]
-    cases (readEdge (K := DerivationKernel.over D _ hK P) last st.depth n).val with
-    | none => intro _; rfl
+    cases hr : (readEdge (K := DerivationKernel.over D _ hK P) last st.depth n).val with
+    | none => exact fun _ => ⟨rfl, Nat.lt_of_not_le fun h => hlive h hr⟩
     | some e => intro h; cases h
 
 /-- **The work of a strategy moves it on**: a span is tried; a call or a
@@ -984,7 +989,7 @@ doubled. -/
 theorem step_work (whole : Bool) (i : Nat) (g : GoalOf R Rel) (st : StateOf R Rel (Ans D P))
     (s : Strat Rel (Ans D P))
     (hok : ∀ k a b c, s = .join k a b c → c.Ok (st.len a) (st.len b)) :
-    SStep st.len st.depth
+    SStep (readNeed P) st.len st.depth
       (work (K := DerivationKernel.over D K hK P) whole i g st s).val.1.depth s
       (work (K := DerivationKernel.over D K hK P) whole i g st s).val.2.1 := by
   have hedge := edgeOf_none (K := K) (hK := hK) (P := P) st
@@ -1079,7 +1084,7 @@ theorem step_work (whole : Bool) (i : Nat) (g : GoalOf R Rel) (st : StateOf R Re
     | reading =>
       simp only [work, Cost.bind_val]
       split
-      · next heq => exact .check (.inl rfl) fun _ => .inr (Nat.le_of_eq (hedge left side heq).symm)
+      · next heq => exact .check (.inl rfl) fun _ => .inr ⟨Nat.le_of_eq (hedge left side heq).1.symm, (hedge left side heq).2⟩
       · exact .check (.inl rfl) fun _ => .inl (fun h => by cases h)
       · simp only [Cost.bind_val, Cost.pure_val]
         exact .check (.inl rfl) fun _ => .inl (fun h => by cases h)
@@ -1211,7 +1216,7 @@ theorem Frame.groupsAt {j : Nat} {st st' : StateOf R Rel (Ans D P)} (h : Frame j
 omit [DecidableEq R] in
 /-- A stretch of a run leaves the groups of a table in its round, if the
 table is not the one the record leaves out. -/
-theorem TurnsBut.groupsAt {st st' : StateOf R Rel (Ans D P)} (h : Turns st st') {i : Nat}
+theorem TurnsBut.groupsAt {st st' : StateOf R Rel (Ans D P)} (h : Turns (readNeed P) st st') {i : Nat}
     (hb : Busy st i) : groupsAt st' i = groupsAt st i := by
   obtain ⟨t, ht, hs, -⟩ := hb
   obtain ⟨t', ht', -⟩ := h.keep.2.1 i t ht
@@ -1225,12 +1230,12 @@ structure StratsInv (st : StateOf R Rel (Ans D P)) (i : Nat) (g : GoalOf R Rel) 
   good : Good X
   goal : goalAt X i = some g
   busy : Busy X i
-  turns : TurnsBut (some i) st X
+  turns : TurnsBut (readNeed P) (some i) st X
   length : (groupsAt X i).length = (groupsAt st i).length
   others : ∀ k', k' ≠ k → (groupsAt X i)[k']? = (groupsAt st i)[k']?
   group : ∀ gr, (groupsAt st i)[k]? = some gr → ∃ gr', (groupsAt X i)[k]? = some gr' ∧
     GrAdv st.len gr gr' ∧ ∀ m ∈ done, ∀ s0 s, gr.strats[m]? = some s0 → gr'.strats[m]? = some s →
-      SStep st.len st.depth X.depth s0 s
+      SStep (readNeed P) st.len st.depth X.depth s0 s
 
 /-- **The strategies of a group work**: each has worked once, and nothing
 else of the groups of the table has changed. -/
@@ -1330,7 +1335,7 @@ structure FeedInv (st : StateOf R Rel (Ans D P)) (i : Nat) (g : GoalOf R Rel)
   good : Good X
   goal : goalAt X i = some g
   busy : Busy X i
-  turns : Turns st X
+  turns : Turns (readNeed P) st X
   settled : ∀ h ∈ done, Settled X h
 
 /-- The tables a group reads have their rounds, given what a round is known
@@ -1338,7 +1343,7 @@ to do while no more tables wait for one than `fuel`. -/
 theorem turn_feedAll (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R Rel (Ans D P) × Nat))
     (fuel : Nat) (hadvG : ∀ h st, Good st → Good (adv h st).val.1)
     (hadv : ∀ h st, Good st → (waiting st).length ≤ fuel →
-      Turns st (adv h st).val.1 ∧ Settled (adv h st).val.1 h)
+      Turns (readNeed P) st (adv h st).val.1 ∧ Settled (adv h st).val.1 h)
     {st : StateOf R Rel (Ans D P)} (hG : Good st) (i : Nat) (g : GoalOf R Rel)
     (hg : goalAt st i = some g) (hb : Busy st i) (hw : (waiting st).length ≤ fuel) (d : Nat)
     (feeds : List Nat) :
@@ -1365,14 +1370,14 @@ theorem turn_workGroup (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK)
     (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R Rel (Ans D P) × Nat))
     (fuel : Nat) (hadvG : ∀ h st, Good st → Good (adv h st).val.1)
     (hadv : ∀ h st, Good st → (waiting st).length ≤ fuel →
-      Turns st (adv h st).val.1 ∧ Settled (adv h st).val.1 h)
+      Turns (readNeed P) st (adv h st).val.1 ∧ Settled (adv h st).val.1 h)
     {st : StateOf R Rel (Ans D P)} (hG : Good st) (whole : Bool) (i : Nat) (g : GoalOf R Rel)
     (k : Nat) (hg : goalAt st i = some g) (hb : Busy st i) (hw : (waiting st).length ≤ fuel) :
     Good (workGroup (K := DerivationKernel.over D K hK P) adv whole i g k st).val.1 ∧
     goalAt (workGroup (K := DerivationKernel.over D K hK P) adv whole i g k st).val.1 i =
       some g ∧
     Busy (workGroup (K := DerivationKernel.over D K hK P) adv whole i g k st).val.1 i ∧
-    TurnsBut (some i) st
+    TurnsBut (readNeed P) (some i) st
       (workGroup (K := DerivationKernel.over D K hK P) adv whole i g k st).val.1 ∧
     (groupsAt (workGroup (K := DerivationKernel.over D K hK P) adv whole i g k st).val.1
       i).length = (groupsAt st i).length ∧
@@ -1382,7 +1387,7 @@ theorem turn_workGroup (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK)
     ∀ gr, (groupsAt st i)[k]? = some gr → ∃ gr',
       (groupsAt (workGroup (K := DerivationKernel.over D K hK P) adv whole i g k st).val.1
         i)[k]? = some gr' ∧
-      GrStep st.len st.depth
+      GrStep (readNeed P) st.len st.depth
         (workGroup (K := DerivationKernel.over D K hK P) adv whole i g k st).val.1.depth
         gr gr' ∧
       ∀ s ∈ gr'.strats,
@@ -1435,21 +1440,21 @@ structure LevelInv (st0 : StateOf R Rel (Ans D P)) (gs0 : List (Group Rel (Ans D
   good : Good X
   goal : goalAt X i = some g
   busy : Busy X i
-  turns : TurnsBut (some i) st0 X
+  turns : TurnsBut (readNeed P) (some i) st0 X
   groups : Pointwise (GrAdv st0.len) gs0 (groupsAt X i)
 
 /-- One of the groups has worked since the round began, and the tables it
 reads need no round any more. -/
 def Worked (st0 : StateOf R Rel (Ans D P)) (gs0 : List (Group Rel (Ans D P))) (i : Nat) (X : StateOf R Rel (Ans D P)) : Prop :=
   ∃ (k : Nat) (gr0 gr1 : Group Rel (Ans D P)), gs0[k]? = some gr0 ∧
-    (groupsAt X i)[k]? = some gr1 ∧ GrStep st0.len st0.depth X.depth gr0 gr1 ∧
+    (groupsAt X i)[k]? = some gr1 ∧ GrStep (readNeed P) st0.len st0.depth X.depth gr0 gr1 ∧
     ∀ s ∈ gr1.strats, SFed X s
 
 theorem level_workGroup (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK)
     (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R Rel (Ans D P) × Nat))
     (fuel : Nat) (hadvG : ∀ h st, Good st → Good (adv h st).val.1)
     (hadv : ∀ h st, Good st → (waiting st).length ≤ fuel →
-      Turns st (adv h st).val.1 ∧ Settled (adv h st).val.1 h)
+      Turns (readNeed P) st (adv h st).val.1 ∧ Settled (adv h st).val.1 h)
     {st0 X : StateOf R Rel (Ans D P)} {gs0 : List (Group Rel (Ans D P))} (whole : Bool) (i : Nat)
     (g : GoalOf R Rel) (hI : LevelInv st0 gs0 i g X) (hw : (waiting st0).length ≤ fuel)
     (k : Nat) :
@@ -1461,15 +1466,15 @@ theorem level_workGroup (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK)
   generalize (workGroup (K := DerivationKernel.over D K hK P) adv whole i g k X).val.1 = X' at *
   have hS : Stable st0 X := hI.turns.keep.stable
   have stepK : ∀ gr0 grX, gs0[k]? = some gr0 → (groupsAt X i)[k]? = some grX →
-      ∃ gr', (groupsAt X' i)[k]? = some gr' ∧ GrStep st0.len st0.depth X'.depth gr0 gr' ∧
+      ∃ gr', (groupsAt X' i)[k]? = some gr' ∧ GrStep (readNeed P) st0.len st0.depth X'.depth gr0 gr' ∧
         ∀ s ∈ gr'.strats, SFed X' s := by
     intro gr0 grX h0 hX
     obtain ⟨gr', e, hstp, hf⟩ := hgrp grX hX
     have h1 : Pointwise (SAdv st0.len) gr0.strats grX.strats := hI.groups.2 k gr0 grX h0 hX
-    have h2 : Pointwise (SStep X.len X.depth X'.depth) grX.strats gr'.strats := hstp
-    have h3 : Pointwise (SStep st0.len st0.depth X'.depth) gr0.strats gr'.strats :=
-      Pointwise.comp (r₁ := SAdv st0.len) (r₂ := SStep X.len X.depth X'.depth)
-        (r₃ := SStep st0.len st0.depth X'.depth) (fun a b c h1 h2 =>
+    have h2 : Pointwise (SStep (readNeed P) X.len X.depth X'.depth) grX.strats gr'.strats := hstp
+    have h3 : Pointwise (SStep (readNeed P) st0.len st0.depth X'.depth) gr0.strats gr'.strats :=
+      Pointwise.comp (r₁ := SAdv st0.len) (r₂ := SStep (readNeed P) X.len X.depth X'.depth)
+        (r₃ := SStep (readNeed P) st0.len st0.depth X'.depth) (fun a b c h1 h2 =>
         SStep.after h1 (h2.mono hS.len_le (Nat.le_refl _) (Nat.le_refl _)) hI.turns.depth) h1 h2
     exact ⟨gr', e, h3, hf⟩
   refine ⟨⟨hG', hg', hb', hI.turns.trans ht, hI.groups.1.trans hlen.symm,
@@ -1506,7 +1511,7 @@ theorem level_workLevel (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK)
     (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R Rel (Ans D P) × Nat))
     (fuel : Nat) (hadvG : ∀ h st, Good st → Good (adv h st).val.1)
     (hadv : ∀ h st, Good st → (waiting st).length ≤ fuel →
-      Turns st (adv h st).val.1 ∧ Settled (adv h st).val.1 h)
+      Turns (readNeed P) st (adv h st).val.1 ∧ Settled (adv h st).val.1 h)
     {st0 X : StateOf R Rel (Ans D P)} {gs0 : List (Group Rel (Ans D P))} (whole : Bool) (i : Nat)
     (g : GoalOf R Rel) (hI : LevelInv st0 gs0 i g X) (hw : (waiting st0).length ≤ fuel)
     (lv : Nat) :
@@ -1569,7 +1574,7 @@ theorem turn_prepare (hR : ReadOk D P K hK) (hP : ProgFO P) {st : StateOf R Rel 
     Good (prepare (K := DerivationKernel.over D K hK P) i t st).val ∧
     goalAt (prepare (K := DerivationKernel.over D K hK P) i t st).val i = some t.goal ∧
     Busy (prepare (K := DerivationKernel.over D K hK P) i t st).val i ∧
-    TurnsBut (some i) st (prepare (K := DerivationKernel.over D K hK P) i t st).val ∧
+    TurnsBut (readNeed P) (some i) st (prepare (K := DerivationKernel.over D K hK P) i t st).val ∧
     (∀ gs, t.groups = some gs →
       groupsAt (prepare (K := DerivationKernel.over D K hK P) i t st).val i = gs) ∧
     (t.groups = none →
@@ -1623,24 +1628,24 @@ the table may be marked complete. The record of the whole round. -/
 theorem turns_finish {st stp X Y : StateOf R Rel (Ans D P)} {i : Nat} {g : GoalOf R Rel}
     {t : Table R Rel (Ans D P)} {gs0 : List (Group Rel (Ans D P))}
     (ht : st.tables[i]? = some t) (hs : t.stamp ≠ st.round) (hd : t.done = false)
-    (hbn : t.born ≠ st.round) (T1 : TurnsBut (some i) st stp) (hp1 : ∀ gs, t.groups = some gs → gs0 = gs)
+    (hbn : t.born ≠ st.round) (T1 : TurnsBut (readNeed P) (some i) st stp) (hp1 : ∀ gs, t.groups = some gs → gs0 = gs)
     (hp2 : t.groups = none → Shaped gs0) (LI : LevelInv stp gs0 i g X)
     (hW : gs0 ≠ [] → Worked stp gs0 i X)
     (hY : Y = X.modify i (fun t =>
       { t with groups := t.groups.map (fun gs => gs.filter (fun gr => !gr.strats.all (Strat.dead X))) }))
     (fin : Bool) (d : Nat)
     (hfin : fin = true → ∃ gr ∈ groupsAt Y i, ∃ s ∈ gr.strats, s.quiet Y Y.isDone = true) :
-    Turns st (Y.modify i (fun t => { t with done := t.done || fin, delta := d })) ∧
+    Turns (readNeed P) st (Y.modify i (fun t => { t with done := t.done || fin, delta := d })) ∧
     Settled (Y.modify i (fun t => { t with done := t.done || fin, delta := d })) i := by
   have hgY : groupsAt Y i =
       (groupsAt X i).filter (fun gr => !gr.strats.all (Strat.dead X)) := by
     rw [hY]
     exact groupsAt_mapGroups X i _ rfl
-  have T3 : TurnsBut (some i) X Y := by
+  have T3 : TurnsBut (readNeed P) (some i) X Y := by
     rw [hY]
     exact turnsBut_modify X i _ (fun _ => ⟨rfl, rfl, rfl, rfl, .inl rfl⟩) LI.busy.open
   clear hY
-  have T : TurnsBut (some i) st Y := T1.trans (LI.turns.trans T3)
+  have T : TurnsBut (readNeed P) (some i) st Y := T1.trans (LI.turns.trans T3)
   obtain ⟨u, hu, hsu, hdu⟩ := T3.keep.busy LI.busy
   have hSYZ : Stable Y (Y.modify i fun t => { t with done := t.done || fin, delta := d }) :=
     stable_modify Y i _ fun _ _ => ⟨rfl, rfl, rfl, fun h => by simp [h]⟩
@@ -1732,12 +1737,12 @@ theorem turns_finish {st stp X Y : StateOf R Rel (Ans D P)} {i : Nat} {g : GoalO
 nested in it, the record holds, and the table needs no round any more. -/
 theorem turns_advance (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK) (hP : ProgFO P) :
     ∀ (fuel i : Nat) (st : StateOf R Rel (Ans D P)), Good st → (waiting st).length ≤ fuel →
-      Turns st (advance (K := DerivationKernel.over D K hK P) fuel i st).val.1 ∧
+      Turns (readNeed P) st (advance (K := DerivationKernel.over D K hK P) fuel i st).val.1 ∧
       Settled (advance (K := DerivationKernel.over D K hK P) fuel i st).val.1 i
   | 0, i, st, _, hw => by
     clear hR
     at_cost K hK
-    show Turns st st ∧ Settled st i
+    show Turns (readNeed P) st st ∧ Settled st i
     refine ⟨TurnsBut.refl _ _, settled_of_not_waiting ?_⟩
     have : waiting st = [] := List.length_eq_zero_iff.1 (Nat.le_zero.1 hw)
     rw [this]
@@ -1824,7 +1829,7 @@ theorem turns_advance (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK) (hP 
 nested in it, and the tables that complete together are marked. -/
 theorem req_request (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK) (hP : ProgFO P)
     {st : StateOf R Rel (Ans D P)} (hG : Good st) (hD : Dated st) :
-    Req st (request (K := DerivationKernel.over D K hK P) st).val.1 := by
+    Req (readNeed P) st (request (K := DerivationKernel.over D K hK P) st).val.1 := by
   have h := fun (fuel : Nat) (st : StateOf R Rel (Ans D P)) hG hw =>
     turns_advance (K := K) (hK := hK) hL hR hP fuel 0 st hG hw
   clear hR

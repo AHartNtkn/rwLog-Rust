@@ -272,6 +272,15 @@ theorem gather_isSome {α : Type} : ∀ {l : List (Option α)},
 
 /-! ## Lists related place by place -/
 
+/-- A member of a list of numbers is no more than their sum. -/
+theorem le_sum_of_mem : ∀ {l : List Nat} {a : Nat}, a ∈ l → a ≤ l.sum
+  | x :: l, a, h => by
+    rcases List.mem_cons.1 h with rfl | h
+    · simp
+    · have := le_sum_of_mem h
+      simp only [List.sum_cons]
+      omega
+
 /-- Two lists of the same length whose members at each place are related. -/
 def Pointwise {α β : Type} (r : α → β → Prop) (l : List α) (l' : List β) : Prop :=
   l.length = l'.length ∧ ∀ (m : Nat) (x : α) (y : β), l[m]? = some x → l'[m]? = some y → r x y
