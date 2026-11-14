@@ -192,6 +192,14 @@ theorem forall₂_getElem? {α β : Type} {E : α → β → Prop} : ∀ {l : Li
     simp only [List.getElem?_cons_succ] at h ⊢
     exact forall₂_getElem? t h
 
+/-- A function that sends each member of the second list to the member of the
+first it is related to maps the second list to the first. -/
+theorem forall₂_map {α β : Type} {E : α → β → Prop} {l : List α} {l' : List β}
+    (h : List.Forall₂ E l l') {f : β → α} (hf : ∀ x y, E x y → f y = x) : l'.map f = l := by
+  induction h with
+  | nil => rfl
+  | cons hq _ ih => simp only [List.map_cons, hf _ _ hq, ih]
+
 theorem forall₂_getLast? {α β : Type} {E : α → β → Prop} {l : List α} {l' : List β}
     (h : List.Forall₂ E l l') {x : α} (hx : l.getLast? = some x) :
     ∃ y, l'.getLast? = some y ∧ E x y := by

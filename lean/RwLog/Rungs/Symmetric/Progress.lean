@@ -503,34 +503,6 @@ theorem foldL_open {α γ : Type}
     exact ⟨fun j g h => hE' j g (hE j g h), e :: es, by rw [hes, he]; simp,
       .cons (hQ _ _ _ _ hE' hq) hall⟩
 
-theorem forall₂_right {α γ : Type} {Q : α → γ → Prop} {xs : List α} {es : List γ}
-    (h : List.Forall₂ Q xs es) : ∀ e ∈ es, ∃ x ∈ xs, Q x e := by
-  induction h with
-  | nil => intro e he; cases he
-  | cons hq _ ih =>
-    intro e he
-    rcases List.mem_cons.1 he with rfl | he
-    · exact ⟨_, List.mem_cons_self, hq⟩
-    · obtain ⟨x, hx, hq'⟩ := ih e he
-      exact ⟨x, List.mem_cons_of_mem _ hx, hq'⟩
-
-theorem forall₂_map {α γ : Type} {Q : α → γ → Prop} {xs : List α} {es : List γ}
-    (h : List.Forall₂ Q xs es) {f : γ → α} (hf : ∀ x e, Q x e → f e = x) : es.map f = xs := by
-  induction h with
-  | nil => rfl
-  | cons hq _ ih => simp only [List.map_cons, hf _ _ hq, ih]
-
-theorem forall₂_getElem? {α γ : Type} {Q : α → γ → Prop} {xs : List α} {es : List γ}
-    (h : List.Forall₂ Q xs es) : ∀ (n : Nat) (x : α), xs[n]? = some x →
-      ∃ e, es[n]? = some e ∧ Q x e := by
-  induction h with
-  | nil => intro n x hx; cases hx
-  | cons hq _ ih =>
-    intro n x hx
-    cases n with
-    | zero => cases hx; exact ⟨_, rfl, hq⟩
-    | succ n => exact ih n x hx
-
 /-- What a push opens: a goal for each answer, in order, read from its
 start. -/
 theorem pushOpen_spec (g : GoalOf R Rel) (other : Rel) (k : Kind) (left : Bool)
@@ -561,7 +533,7 @@ theorem pushOpen_spec (g : GoalOf R Rel) (other : Rel) (k : Kind) (left : Bool)
   rw [hes]
   refine ⟨?_, fun e he => ?_⟩
   · exact forall₂_map hall fun _ _ h => h.1
-  · obtain ⟨x, hx, rfl, h2, h3⟩ := forall₂_right hall e he
+  · obtain ⟨x, hx, rfl, h2, h3⟩ := forall₂_mem_right hall he
     exact ⟨hx, h2, h3⟩
 
 /-! ## Edges -/
@@ -1039,7 +1011,7 @@ theorem prog_work_check (hR : ReadOk D P K hK) {st : StateOf R Rel (Ans D P)}
       refine ⟨L, Rg, h1, h2, h3, ps, hes ps heq, by rw [hes']; exact hall.length_eq.symm,
         fun n p hp => ?_⟩
       rw [hes']
-      exact forall₂_getElem? hall n p hp
+      exact forall₂_getElem? hall hp
   | off => exact hs0
   | opened subs => exact hs0
 
