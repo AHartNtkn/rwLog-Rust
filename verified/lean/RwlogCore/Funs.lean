@@ -5254,7 +5254,7 @@ def sorts.firsts
   sorts.rev s4 out1
 
 /-- [rwlog_core::sorts::fold]:
-    Source: 'src/sorts.rs', lines 3150:0-3167:1
+    Source: 'src/sorts.rs', lines 3150:0-3168:1
     Visibility: public -/
 def sorts.fold
   (s : store.Store) (decls : store.TermId) (names : store.TermId)
@@ -5262,21 +5262,22 @@ def sorts.fold
   Result (sorts.Rep × store.Store)
   := do
   let (vs, s1) ← sorts.places s r.c
-  let (es, s2) ← sorts.pair_up s1 vs r.c
-  let (ms, s3) ← sorts.moved_all s2 vs r.x
-  let (xv, s4) ← sorts.firsts s3 ms
-  let (next, s5) ← sorts.number s4 vs
-  let ((found, es1), s6) ← sorts.free_subterms s5 decls names r.t xv es next
-  let s7 ← sorts.seed s6 found
-  let s8 ← store.Store.clear s7 store.Tbl.B
-  let (t1, s9) ← term.rebuild s8 term.Leaf.Map r.t
-  let (ks, s10) ← sorts.firsts s9 t1
-  let (cs, s11) ← sorts.conjs_at s10 es1 ks
-  let (_, s12) ← sorts.number s11 ks
-  let s13 ← store.Store.clear s12 store.Tbl.A
-  let (t2, s14) ← term.rebuild s13 term.Leaf.Map t1
-  let (x2, s15) ← term.rebuild s14 term.Leaf.Map ms
-  sorts.assemble s15 decls names t2 cs x2
+  let (nil, s2) ← store.Store.alloc s1 store.Node.Nil
+  let (es, s3) ← sorts.pairs_onto s2 vs r.c nil
+  let (ms, s4) ← sorts.moved_all s3 vs r.x
+  let (xv, s5) ← sorts.firsts s4 ms
+  let (next, s6) ← sorts.number s5 vs
+  let ((found, es1), s7) ← sorts.free_subterms s6 decls names r.t xv es next
+  let s8 ← sorts.seed s7 found
+  let s9 ← store.Store.clear s8 store.Tbl.B
+  let (t1, s10) ← term.rebuild s9 term.Leaf.Map r.t
+  let (ks, s11) ← sorts.firsts s10 t1
+  let (cs, s12) ← sorts.conjs_at s11 es1 ks
+  let (_, s13) ← sorts.number s12 ks
+  let s14 ← store.Store.clear s13 store.Tbl.A
+  let (t2, s15) ← term.rebuild s14 term.Leaf.Map t1
+  let (x2, s16) ← term.rebuild s15 term.Leaf.Map ms
+  sorts.assemble s16 decls names t2 cs x2
 
 /-- [rwlog_core::sorts::entries_of]: loop body 0:
     Source: 'src/sorts.rs', lines 2636:4-2641:5 -/
@@ -6492,7 +6493,7 @@ def sorts.tighten
   else ok (none, s1)
 
 /-- [rwlog_core::sorts::normal]:
-    Source: 'src/sorts.rs', lines 3193:0-3222:1
+    Source: 'src/sorts.rs', lines 3194:0-3223:1
     Visibility: public -/
 def sorts.normal
   (s : store.Store) (decls : store.TermId) (names : store.TermId)
@@ -7294,21 +7295,21 @@ def sorts.Count.Insts.CoreMarkerCopy : core.marker.Copy sorts.Count := {
 }
 
 /-- [rwlog_core::sorts::{impl core::clone::Clone for rwlog_core::sorts::Rep}::clone]:
-    Source: 'src/sorts.rs', lines 3173:9-3173:14
+    Source: 'src/sorts.rs', lines 3174:9-3174:14
     Visibility: public -/
 def sorts.Rep.Insts.CoreCloneClone.clone
   (self : sorts.Rep) : Result sorts.Rep := do
   ok self
 
 /-- Trait implementation: [rwlog_core::sorts::{impl core::clone::Clone for rwlog_core::sorts::Rep}]
-    Source: 'src/sorts.rs', lines 3173:9-3173:14 -/
+    Source: 'src/sorts.rs', lines 3174:9-3174:14 -/
 @[reducible]
 def sorts.Rep.Insts.CoreCloneClone : core.clone.Clone sorts.Rep := {
   clone := sorts.Rep.Insts.CoreCloneClone.clone
 }
 
 /-- Trait implementation: [rwlog_core::sorts::{impl core::marker::Copy for rwlog_core::sorts::Rep}]
-    Source: 'src/sorts.rs', lines 3173:16-3173:20 -/
+    Source: 'src/sorts.rs', lines 3174:16-3174:20 -/
 @[reducible]
 def sorts.Rep.Insts.CoreMarkerCopy : core.marker.Copy sorts.Rep := {
   cloneInst := sorts.Rep.Insts.CoreCloneClone

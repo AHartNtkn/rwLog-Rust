@@ -3149,7 +3149,8 @@ fn assemble(s: &mut Store, decls: TermId, names: TermId, t: TermId, cs: TermId, 
 /// the stack is empty at entry.
 pub fn fold(s: &mut Store, decls: TermId, names: TermId, r: Rep) -> Rep {
     let vs = places(s, r.c);
-    let es = pair_up(s, vs, r.c);
+    let nil = s.alloc(Node::Nil);
+    let es = pairs_onto(s, vs, r.c, nil);
     let ms = moved_all(s, vs, r.x);
     let xv = firsts(s, ms);
     let next = number(s, vs);

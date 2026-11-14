@@ -192,19 +192,19 @@ theorem all_included_loop_spec {S : Sorts} {sp : Pat} {U : List Name} (hC : Ctx 
 
 /-! ## The pairs of the arguments -/
 
-/-- `pairs_onto` puts the pair of each conjunction with the argument at its
-place in front of a list of pairs. -/
-theorem pairs_onto_loop_spec {U : List Name} :
-    ∀ (Ks : List Sorts.Conj) (args : List Pat) (s : store.Store) (kids ai out : store.TermId)
-      (T : List (Sorts.Conj × Pat)), Inv s → Ks.length = args.length →
-    Repr nm s.nodes.val kids.val (encList (nm none) (Ks.map (cpat (nm none) U))) →
+/-- `pairs_onto` puts the pair of each member of a list with the member of
+another at its place in front of a list of pairs. -/
+theorem pairs_onto_gen_spec :
+    ∀ (Ks args : List Pat) (s : store.Store) (kids ai out : store.TermId)
+      (T : List Pat), Inv s → Ks.length = args.length →
+    Repr nm s.nodes.val kids.val (encList (nm none) Ks) →
     Repr nm s.nodes.val ai.val (encList (nm none) args) →
-    Repr nm s.nodes.val out.val (encList (nm none) (T.map (fpair (nm none) U))) →
+    Repr nm s.nodes.val out.val (encList (nm none) T) →
     Room s (4 * Ks.length + 1) →
     sorts.pairs_onto_loop kids s out ai ⦃ r s' =>
       Inv s' ∧ Extends s s' ∧ s'.ticks.val ≤ s.ticks.val + 4 * Ks.length + 1 ∧
         Repr nm s'.nodes.val r.val
-          (encList (nm none) (((Ks.zip args).reverse ++ T).map (fpair (nm none) U))) ⦄ := by
+          (encList (nm none) ((List.zipWith Term.app Ks args).reverse ++ T)) ⦄ := by
   intro Ks
   induction Ks with
   | nil =>
@@ -238,7 +238,7 @@ theorem pairs_onto_loop_spec {U : List Name} :
     rw [loop]
     simp only [sorts.pairs_onto_loop.body]
     step with uncons_repr s kids hI.toWf
-      (p := Term.app (cpat (nm none) U K) (encList (nm none) (Ks.map (cpat (nm none) U)))) hk
+      (p := Term.app K (encList (nm none) Ks)) hk
       (by unfold Room; omega) as ⟨r0, hK0, hu⟩
     obtain ⟨o, s1⟩ := r0
     simp only at hu
@@ -262,7 +262,7 @@ theorem pairs_onto_loop_spec {U : List Name} :
     obtain ⟨p2, s3⟩ := r2
     simp only [norm] at hI3 ht3 htb3 hx3 hid3
     have hx03 : Extends s s3 := hx2.trans hx3
-    have rp : Repr nm s3.nodes.val p2.val (fpair (nm none) U (K, a)) :=
+    have rp : Repr nm s3.nodes.val p2.val (.app K a) :=
       .app hid3 (hx03.repr rk) (hx03.repr ra)
     step with alloc_spec s3 (.App p2 out) hI3 ⟨rp.lt, (hx03.repr ho).lt⟩
       (by unfold Room; omega) as ⟨r3, hI4, ht4, htb4, hx4, hid4⟩
@@ -270,16 +270,38 @@ theorem pairs_onto_loop_spec {U : List Name} :
     simp only [norm] at hI4 ht4 htb4 hx4 hid4
     have hx04 : Extends s s4 := hx03.trans hx4
     have ro : Repr nm s4.nodes.val out1.val
-        (encList (nm none) (((K, a) :: T).map (fpair (nm none) U))) :=
+        (encList (nm none) (Term.app K a :: T)) :=
       .app hid4 (hx4.repr rp) (hx04.repr ho)
     simp only [uncurry, bind_ok]
-    have IH := ih args s4 kt at' out1 ((K, a) :: T) hI4 hlen (hx04.repr rkt) (hx04.repr rat) ro
+    have IH := ih args s4 kt at' out1 (Term.app K a :: T) hI4 hlen (hx04.repr rkt) (hx04.repr rat) ro
       (by unfold Room; omega)
     unfold sorts.pairs_onto_loop at IH
     refine WP.spec_mono IH ?_
     rintro ⟨res, s'⟩ ⟨hI', hx', ht', hres'⟩
     refine ⟨hI', hx04.trans hx', by simp only [List.length_cons]; omega, ?_⟩
     simpa using hres'
+
+/-- `pairs_onto` puts the pair of each conjunction with the argument at its
+place in front of a list of pairs. -/
+theorem pairs_onto_loop_spec {U : List Name} (Ks : List Sorts.Conj) (args : List Pat)
+    (s : store.Store) (kids ai out : store.TermId) (T : List (Sorts.Conj × Pat)) (hI : Inv s)
+    (hlen : Ks.length = args.length)
+    (hk : Repr nm s.nodes.val kids.val (encList (nm none) (Ks.map (cpat (nm none) U))))
+    (ha : Repr nm s.nodes.val ai.val (encList (nm none) args))
+    (ho : Repr nm s.nodes.val out.val (encList (nm none) (T.map (fpair (nm none) U))))
+    (hroom : Room s (4 * Ks.length + 1)) :
+    sorts.pairs_onto_loop kids s out ai ⦃ r s' =>
+      Inv s' ∧ Extends s s' ∧ s'.ticks.val ≤ s.ticks.val + 4 * Ks.length + 1 ∧
+        Repr nm s'.nodes.val r.val
+          (encList (nm none) (((Ks.zip args).reverse ++ T).map (fpair (nm none) U))) ⦄ := by
+  have e : (List.zipWith Term.app (Ks.map (cpat (nm none) U)) args).reverse ++
+      T.map (fpair (nm none) U) = ((Ks.zip args).reverse ++ T).map (fpair (nm none) U) := by
+    rw [List.map_append, List.map_reverse, List.zip_eq_zipWith, List.map_zipWith,
+      List.zipWith_map_left]
+    rfl
+  rw [← e]
+  simpa using pairs_onto_gen_spec (nm := nm) (Ks.map (cpat (nm none) U)) args s kids ai out
+    (T.map (fpair (nm none) U)) hI (by simpa using hlen) hk ha ho (by simpa using hroom)
 
 /-! ## The loop -/
 

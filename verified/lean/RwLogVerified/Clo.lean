@@ -145,7 +145,7 @@ noncomputable def cloStep (S : Sorts) (U : List Name) (L : List (Nat × Sorts.Co
     (u : Pat) : Nat :=
   pushCost S U.toFinset u + U.length * u.subs.card * atomCost U L + 3
 
-theorem atoms_length_le {U : List Name} {u : Pat} {A : Sorts.Atoms} (hnd : A.Nodup)
+theorem clo_atoms_length_le {U : List Name} {u : Pat} {A : Sorts.Atoms} (hnd : A.Nodup)
     (hA : ∀ a ∈ A, a.2 ∈ U.toFinset ∧ Term.var a.1 ∈ u.subs) :
     A.length ≤ U.length * u.subs.card := by
   have h1 : A.length = A.toFinset.card := (List.toFinset_card_of_nodup hnd).symm
@@ -249,7 +249,7 @@ theorem sorts_of_loop_spec (hnm : Function.Injective nm) (S : Sorts) {sp : Pat}
     | some atoms =>
       simp only at hpost
       obtain ⟨A, rA, hAn, hAU, hAC, -, hnf⟩ := hpost
-      have hAlen := atoms_length_le hAn hAU
+      have hAlen := clo_atoms_length_le hAn hAU
       have hAc : A.length * atomCost U L ≤ U.length * u.subs.card * atomCost U L :=
         Nat.mul_le_mul_right _ hAlen
       step with atoms_hold_loop_spec hnm L A s2 es atoms hI2 (hx02.repr hes) rA
