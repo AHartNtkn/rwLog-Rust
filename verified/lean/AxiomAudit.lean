@@ -154,3 +154,24 @@ new axiom.
 
 /-- info: 'RwLogVerified.member_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLogVerified.member_spec
+
+/-- info: 'RwLogVerified.conj_of_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.conj_of_spec
+
+/-- info: 'RwLogVerified.conj_meet_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.conj_meet_spec
+
+/-- info: 'RwLogVerified.step_conj_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.step_conj_spec
+
+/-- info: 'RwLogVerified.step_conj_conj_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.step_conj_conj_spec
+
+/-- info: 'RwLogVerified.names_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.names_spec
+
+/-- info: 'RwLogVerified.mem_namesList' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.mem_namesList
+
+/-- info: 'RwLogVerified.nodup_namesList' depends on axioms: [propext] -/
+#guard_msgs in #print axioms RwLogVerified.nodup_namesList

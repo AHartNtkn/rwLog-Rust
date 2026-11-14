@@ -148,7 +148,7 @@ theorem Flagged.clear {s : store.Store} {U : List Name}
 
 /-! ## Flagging the members of a list -/
 
-theorem mark_loop_spec (hnm : Function.Injective nm) {U : List Name} :
+theorem flag_list_loop_spec (hnm : Function.Injective nm) {U : List Name} :
     ∀ (xs : List Name) (s : store.Store) (list : store.TermId) (F : Name → Prop), Wf s →
     Repr nm s.nodes.val list.val (namesPat (nm none) xs) → Flagged nm s U F →
     Room s (2 * xs.length + 1) →
@@ -204,14 +204,14 @@ theorem mark_loop_spec (hnm : Function.Injective nm) {U : List Name} :
     tauto
 
 /-- `mark` flags each member of a list of names, and changes nothing else. -/
-theorem mark_spec (hnm : Function.Injective nm) {U : List Name} (xs : List Name)
+theorem flag_list_spec (hnm : Function.Injective nm) {U : List Name} (xs : List Name)
     (s : store.Store) (list : store.TermId) (F : Name → Prop) (hW : Wf s)
     (hl : Repr nm s.nodes.val list.val (namesPat (nm none) xs)) (hF : Flagged nm s U F)
     (hroom : Room s (2 * xs.length + 1)) :
     sorts.mark s list ⦃ s' =>
       s'.nodes.val = s.nodes.val ∧ RanA s s' (2 * xs.length + 1) ∧
         Flagged nm s' U (fun m => F m ∨ m ∈ xs) ⦄ :=
-  mark_loop_spec hnm xs s list F hW hl hF hroom
+  flag_list_loop_spec hnm xs s list F hW hl hF hroom
 
 /-! ## The flagged names, as a list -/
 
@@ -348,7 +348,7 @@ theorem conj_of_spec (hnm : Function.Injective nm) (U xs : List Name) (s : store
   have hx1 : Extends s s1 := Extends.of_eq hn1 (by omega)
   have hF1 : Flagged nm s1 U (fun _ => False) :=
     Flagged.clear (fun n hn => namesPat_mem (hx1.repr hU) n hn) hA1
-  step with mark_spec hnm xs s1 list _ hW1 (hx1.repr hl) hF1 (by unfold Room; omega)
+  step with flag_list_spec hnm xs s1 list _ hW1 (hx1.repr hl) hF1 (by unfold Room; omega)
     as ⟨s2, hn2, hR2, hF2⟩
   have ht2 := hR2.ticks
   have hF2' : Flagged nm s2 U (· ∈ xs) := hF2.congr (by simp)
@@ -379,10 +379,10 @@ theorem conj_meet_spec (hnm : Function.Injective nm) (U xs ys : List Name) (s : 
   have hx1 : Extends s s1 := Extends.of_eq hn1 (by omega)
   have hF1 : Flagged nm s1 U (fun _ => False) :=
     Flagged.clear (fun n hn => namesPat_mem (hx1.repr hU) n hn) hA1
-  step with mark_spec hnm xs s1 a _ hW1 (hx1.repr ha) hF1 (by unfold Room; omega)
+  step with flag_list_spec hnm xs s1 a _ hW1 (hx1.repr ha) hF1 (by unfold Room; omega)
     as ⟨s2, hn2, hR2, hF2⟩
   have ht2 := hR2.ticks
-  step with mark_spec hnm ys s2 b _ hR2.wf (hR2.ext.repr (hx1.repr hb)) hF2
+  step with flag_list_spec hnm ys s2 b _ hR2.wf (hR2.ext.repr (hx1.repr hb)) hF2
     (by unfold Room; omega) as ⟨s3, hn3, hR3, hF3⟩
   have ht3 := hR3.ticks
   have hF3' : Flagged nm s3 U (fun m => m ∈ xs ∨ m ∈ ys) := hF3.congr (by simp)
