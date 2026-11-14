@@ -609,3 +609,9 @@ new axiom.
 
 /-- info: 'RwLog.CostedRuntime.oriented_paid_dual' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.CostedRuntime.oriented_paid_dual
+
+/-- info: 'RwLog.Symmetric.reach_request' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Symmetric.reach_request
+
+/-- info: 'RwLog.Symmetric.selfConverse_of' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Symmetric.selfConverse_of

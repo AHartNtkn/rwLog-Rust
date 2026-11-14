@@ -2,9 +2,10 @@
 # How the tables of the symmetric engine change
 
 Whatever the engine does, the goal of a table and whether it is its own
-converse never change, a table is opened with no answer, and an answer goes
-into a table by `addAnswer` and in no other way (`Reach`, and `reach_request`
-for a whole request). Every invariant of the answers of a table is proved
+converse never change, a table is opened with no answer, an answer goes
+into a table by `addAnswer` and in no other way, and the position the answers
+of the root table were emitted to moves only at the end of a request
+(`Reach`, and `reach_request` for a whole request). Every invariant of the answers of a table is proved
 from this.
 -/
 import RwLog.Rungs.Symmetric.Machine
@@ -50,9 +51,9 @@ an answer into a table with `addAnswer`. -/
 inductive Reach : StateOf R Rel (Ans D P) → StateOf R Rel (Ans D P) → Prop
   | refl (st) : Reach st st
   | trans {a b c} : Reach a b → Reach b c → Reach a c
-  | same {st st'} : st'.cores = st.cores → Reach st st'
+  | same {st st'} : st'.cores = st.cores → st'.shown = st.shown → Reach st st'
   | opened {st st'} (g : GoalOf R Rel) (self : Bool) :
-      st'.cores = st.cores ++ [(g, self, [])] → Reach st st'
+      st'.cores = st.cores ++ [(g, self, [])] → st'.shown = st.shown → Reach st st'
   | add (st) (i : Nat) (a : Ans D P) :
       Reach st (addAnswer (K := DerivationKernel.over D K hK P) i st a).val
 
@@ -60,7 +61,7 @@ variable {K hK}
 
 theorem reach_modify (st : StateOf R Rel (Ans D P)) (i : Nat)
     (f : Table R Rel (Ans D P) → Table R Rel (Ans D P)) (hf : ∀ t, (f t).core = t.core) :
-    Reach K hK st (st.modify i f) := .same (cores_modify st i f hf)
+    Reach K hK st (st.modify i f) := .same (cores_modify st i f hf) rfl
 
 theorem reach_openGoal (st : StateOf R Rel (Ans D P)) (g : GoalOf R Rel) :
     Reach K hK st (openGoal (K := DerivationKernel.over D K hK P) st g).val.1 := by
@@ -68,7 +69,7 @@ theorem reach_openGoal (st : StateOf R Rel (Ans D P)) (g : GoalOf R Rel) :
   simp only [openGoal, Cost.bind_val]
   split
   · exact .refl _
-  · refine .opened g (selfConverse (K := DerivationKernel.over D _ hK P) g).val ?_
+  · refine .opened g (selfConverse (K := DerivationKernel.over D _ hK P) g).val ?_ rfl
     simp [StateOf.cores, Table.core]
 
 theorem reach_addOption (st : StateOf R Rel (Ans D P)) (i : Nat) (a : Option (Ans D P)) :
@@ -296,16 +297,18 @@ theorem cores_mapIdx (st : StateOf R Rel (Ans D P))
     simp only [List.getElem_map, List.getElem_mapIdx]
     exact hf _ _
 
-/-- A request reaches its state: nothing goes into a table but by
-`addAnswer`. -/
+/-- A request reaches a state, by nothing but `addAnswer` into the tables,
+and returns what the root table holds from the position the answers were
+emitted to, which it moves to the end. -/
 theorem reach_request (st : StateOf R Rel (Ans D P)) :
-    Reach K hK st (request (K := DerivationKernel.over D K hK P) st).val.1 := by
+    ∃ st' : StateOf R Rel (Ans D P), Reach K hK st st' ∧
+      (request (K := DerivationKernel.over D K hK P) st).val =
+        ({ st' with shown := (st'.answers 0).length }, (st'.answers 0).drop st'.shown) := by
   have h := fun st => reach_advance (K := K) (hK := hK) (P := P) st.tables.length 0 st
   at_cost K hK
   simp only [request, Cost.bind_val, Cost.pure_val]
-  refine Reach.trans (Reach.trans (Reach.same (st' := { st with round := st.round + 1 }) rfl)
-    (h { st with round := st.round + 1 })) ?_
-  refine Reach.trans (Reach.same (cores_mapIdx _ _ fun i t => ?_)) (Reach.same rfl)
+  refine ⟨_, Reach.trans (Reach.trans (Reach.same (st' := { st with round := st.round + 1 }) rfl rfl)
+    (h { st with round := st.round + 1 })) (Reach.same (cores_mapIdx _ _ fun i t => ?_) rfl), rfl⟩
   split <;> rfl
 
 end
