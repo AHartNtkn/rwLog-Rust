@@ -265,7 +265,7 @@ def sp (t : Pat) : Pat := Term.mk "s" [t]
   some (Term.mk "p" [.var 0, .var 1], [{"nat"}, {"nat"}])
 
 /-- Two numbers. -/
-def two (c₀ c₁ : Conj) : Raw := ⟨Term.mk "p" [.var 0, .var 1], [c₀, c₁], []⟩
+def two (c₀ c₁ : Conj) : Raw := ⟨Term.mk "p" [.var 0, .var 1], [c₀, c₁], ∅⟩
 
 -- an alias binds the later variable, whichever way it is written
 #guard normEx nats (two {"nat"} {"nat"}) [(.var 1, .var 0)] = some [(1, .var 0)]
@@ -292,42 +292,42 @@ def two (c₀ c₁ : Conj) : Raw := ⟨Term.mk "p" [.var 0, .var 1], [c₀, c₁
 
 -- an exclusion covered by another is dropped, and a repeated one is kept once
 #guard (assembled nats (Term.mk "p" [.var 0, .var 1]) [{"nat"}, {"nat"}]
-    [[(.var 0, sp (.var 1)), (.var 1, zp)], [(.var 1, zp)], [(zp, .var 1)]]).x = [[(1, zp)]]
+    [[(.var 0, sp (.var 1)), (.var 1, zp)], [(.var 1, zp)], [(zp, .var 1)]]).x = {[(1, zp)]}
 
 -- exclusions that do not cover each other are both kept, in order
 #guard (assembled nats (Term.mk "p" [.var 0, .var 1]) [{"nat"}, {"nat"}]
-    [[(.var 1, zp)], [(.var 0, zp)]]).x = [[(0, zp)], [(1, zp)]]
+    [[(.var 1, zp)], [(.var 0, zp)]]).x = {[(0, zp)], [(1, zp)]}
 
 /-- The normal store of a problem. -/
 def norm (S : Sorts) (P : Prob) : Option Raw :=
   if hS : S.WellFormed then P.norm S hS else none
 
 -- a number
-#guard norm nats ⟨.var 0, [], [("nat", .var 0)], []⟩ = some ⟨.var 0, [{"nat"}], []⟩
+#guard norm nats ⟨.var 0, [], [("nat", .var 0)], []⟩ = some ⟨.var 0, [{"nat"}], ∅⟩
 
 -- a variable with no sort
-#guard norm nats ⟨.var 0, [], [], []⟩ = some ⟨.var 0, [∅], []⟩
+#guard norm nats ⟨.var 0, [], [], []⟩ = some ⟨.var 0, [∅], ∅⟩
 
 -- a number that is not zero is a successor
 #guard norm nats ⟨.var 0, [], [("nat", .var 0)], [[(.var 0, zp)]]⟩ =
-  some ⟨sp (.var 0), [{"nat"}], []⟩
+  some ⟨sp (.var 0), [{"nat"}], ∅⟩
 
 -- a sort with one case
-#guard norm nats ⟨.var 0, [], [("pos", .var 0)], []⟩ = some ⟨sp (.var 0), [{"nat"}], []⟩
+#guard norm nats ⟨.var 0, [], [("pos", .var 0)], []⟩ = some ⟨sp (.var 0), [{"nat"}], ∅⟩
 
 -- neither zero nor one
 #guard norm nats ⟨.var 0, [], [("nat", .var 0)], [[(.var 0, zp)], [(.var 0, sp zp)]]⟩ =
-  some ⟨sp (sp (.var 0)), [{"nat"}], []⟩
+  some ⟨sp (sp (.var 0)), [{"nat"}], ∅⟩
 
 -- a sort with one member is written out
-#guard norm nats ⟨.var 0, [], [("zero", .var 0)], []⟩ = some ⟨zp, [], []⟩
+#guard norm nats ⟨.var 0, [], [("zero", .var 0)], []⟩ = some ⟨zp, [], ∅⟩
 
 -- two sorts that share nothing
 #guard norm nats ⟨.var 0, [], [("zero", .var 0), ("pos", .var 0)], []⟩ = none
 
 -- an equation is solved, and the sort moves to the variable left
 #guard norm nats ⟨.var 5, [(.var 5, sp (.var 3))], [("nat", .var 5)], []⟩ =
-  some ⟨sp (.var 0), [{"nat"}], []⟩
+  some ⟨sp (.var 0), [{"nat"}], ∅⟩
 
 -- equations with no solution
 #guard norm nats ⟨.var 0, [(.var 0, sp (.var 0))], [], []⟩ = none
@@ -335,20 +335,20 @@ def norm (S : Sorts) (P : Prob) : Option Raw :=
 -- two numbers that differ: the exclusion binds the later variable
 #guard norm nats ⟨Term.mk "p" [.var 0, .var 1], [], [("nat", .var 0), ("nat", .var 1)],
     [[(.var 0, .var 1)]]⟩ =
-  some ⟨Term.mk "p" [.var 0, .var 1], [{"nat"}, {"nat"}], [[(1, .var 0)]]⟩
+  some ⟨Term.mk "p" [.var 0, .var 1], [{"nat"}, {"nat"}], {[(1, .var 0)]}⟩
 
 -- the variables are numbered as they occur in the pattern
 #guard norm nats ⟨Term.mk "p" [.var 7, .var 2], [], [("nat", .var 7), ("pos", .var 2)], []⟩ =
-  some ⟨Term.mk "p" [.var 0, sp (.var 1)], [{"nat"}, {"nat"}], []⟩
+  some ⟨Term.mk "p" [.var 0, sp (.var 1)], [{"nat"}, {"nat"}], ∅⟩
 
 -- an exclusion against a variable that is not in the pattern says nothing
 #guard norm nats ⟨.var 0, [], [("nat", .var 0), ("nat", .var 1)], [[(.var 0, .var 1)]]⟩ =
-  some ⟨.var 0, [{"nat"}], []⟩
+  some ⟨.var 0, [{"nat"}], ∅⟩
 
 -- an exclusion that the sorts already give is dropped
 #guard norm nats ⟨Term.mk "p" [.var 0, .var 1], [], [("pos", .var 0), ("nat", .var 1)],
     [[(.var 0, zp)]]⟩ =
-  some ⟨Term.mk "p" [sp (.var 0), .var 1], [{"nat"}, {"nat"}], []⟩
+  some ⟨Term.mk "p" [sp (.var 0), .var 1], [{"nat"}, {"nat"}], ∅⟩
 
 -- an exclusion that always holds
 #guard norm nats ⟨.var 0, [], [("nat", .var 0)], [[]]⟩ = none
@@ -368,12 +368,12 @@ def succSpan : Span := ⟨.var 0, sp (.var 0), [isNat 0]⟩
 def raw (o : Option (Rep nats)) : Option Raw := o.map (·.1)
 
 -- a span as written
-#guard raw ((dom nats).rep idSpan) = some ⟨tpair (.var 0) (.var 0), [{"nat"}], []⟩
-#guard raw ((dom nats).rep succSpan) = some ⟨tpair (.var 0) (sp (.var 0)), [{"nat"}], []⟩
+#guard raw ((dom nats).rep idSpan) = some ⟨tpair (.var 0) (.var 0), [{"nat"}], ∅⟩
+#guard raw ((dom nats).rep succSpan) = some ⟨tpair (.var 0) (sp (.var 0)), [{"nat"}], ∅⟩
 
 -- two numbers that differ
 #guard raw ((dom nats).rep ⟨.var 0, .var 1, [isNat 0, isNat 1, differ (.var 0) (.var 1)]⟩) =
-  some ⟨tpair (.var 0) (.var 1), [{"nat"}, {"nat"}], [[(1, .var 0)]]⟩
+  some ⟨tpair (.var 0) (.var 1), [{"nat"}, {"nat"}], {[(1, .var 0)]}⟩
 
 -- a span that relates nothing
 #guard raw ((dom nats).rep ⟨.var 0, .var 0, [isNat 0, .app (.sym "zero") (.var 0),
@@ -381,7 +381,7 @@ def raw (o : Option (Rep nats)) : Option Raw := o.map (·.1)
 
 -- the successor twice
 #guard raw (do let a ← (dom nats).rep succSpan; (dom nats).compose a a) =
-  some ⟨tpair (.var 0) (sp (sp (.var 0))), [{"nat"}], []⟩
+  some ⟨tpair (.var 0) (sp (sp (.var 0))), [{"nat"}], ∅⟩
 
 -- the successor and the identity share no pair
 #guard raw (((dom nats).rep succSpan).bind fun a =>
@@ -389,15 +389,15 @@ def raw (o : Option (Rep nats)) : Option Raw := o.map (·.1)
 
 -- the successor and itself
 #guard raw (do let a ← (dom nats).rep succSpan; (dom nats).meet a a) =
-  some ⟨tpair (.var 0) (sp (.var 0)), [{"nat"}], []⟩
+  some ⟨tpair (.var 0) (sp (.var 0)), [{"nat"}], ∅⟩
 
 -- the right ends of the successor
 #guard raw (do let a ← (dom nats).rep succSpan; (dom nats).rightBound a) =
-  some ⟨tpair (sp (.var 0)) (sp (.var 0)), [{"nat"}], []⟩
+  some ⟨tpair (sp (.var 0)) (sp (.var 0)), [{"nat"}], ∅⟩
 
 -- the converse of the successor
 #guard raw (((dom nats).rep succSpan).map Answer.swap) =
-  some ⟨tpair (sp (.var 0)) (.var 0), [{"nat"}], []⟩
+  some ⟨tpair (sp (.var 0)) (.var 0), [{"nat"}], ∅⟩
 
 -- the identity covers its meet with the successor's right ends
 #guard (((dom nats).rep succSpan).bind fun a => ((dom nats).rightBound a).bind fun b =>

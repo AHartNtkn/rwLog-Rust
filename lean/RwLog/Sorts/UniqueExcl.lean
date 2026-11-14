@@ -286,32 +286,13 @@ theorem eq_of_ex_eq (hS : S.WellFormed) (hθ : NormalBinds S r θ) (hθ' : Norma
 
 end NormalBinds
 
-theorem bindsCmp_eq {a b : Binds} (h : bindsCmp a b = .eq) : a = b := by
-  have := Std.LawfulEqCmp.eq_of_compare (cmp := listCmp patCmp) h
-  refine List.map_injective_iff.2 ?_ this
-  rintro ⟨x, p⟩ ⟨y, q⟩ e
-  simp only [Term.app.injEq, Term.var.injEq] at e
-  exact Prod.ext e.1 e.2
-
-instance : Std.Irrefl (fun a b : Binds => bindsCmp a b = .lt) :=
-  ⟨fun a h => by
-    have : bindsCmp a a = .eq := Std.ReflCmp.compare_self (cmp := listCmp patCmp)
-    rw [this] at h; cases h⟩
-
-instance : Std.Antisymm (fun a b : Binds => bindsCmp a b = .lt) :=
-  ⟨fun a b h₁ h₂ => by
-    have := Std.OrientedCmp.eq_swap (cmp := listCmp patCmp)
-      (a := a.map fun p => Term.app (.var p.1) p.2) (b := b.map fun p => Term.app (.var p.1) p.2)
-    unfold bindsCmp at h₁ h₂
-    rw [h₁, h₂] at this; cases this⟩
-
 namespace Raw.Normal
 
 variable {S : Sorts}
 
 /-- The exclusions of one normal store are among those of another with the
 same sorts and the same solutions. -/
-theorem x_subset (hS : S.WellFormed) {t t' : Pat} {c : List Conj} {x x' : List Binds}
+theorem x_subset (hS : S.WellFormed) {t t' : Pat} {c : List Conj} {x x' : Finset Binds}
     (hr : Raw.Normal S ⟨t, c, x⟩) (hr' : Raw.Normal S ⟨t', c, x'⟩)
     (hsol : (Raw.store ⟨t, c, x⟩).Sol S = (Raw.store ⟨t', c, x'⟩).Sol S) :
     ∀ θ' ∈ x', θ' ∈ x := by
@@ -320,26 +301,30 @@ theorem x_subset (hS : S.WellFormed) {t t' : Pat} {c : List Conj} {x x' : List B
   have tr' : ∀ {θ : Binds}, NormalBinds S ⟨t, c, x⟩ θ → NormalBinds S ⟨t', c, x'⟩ θ :=
     fun h => ⟨h.toPre, h.ne, h.live, h.loose⟩
   -- what an exclusion of one store removes is covered by the exclusions of the other
-  have cover : ∀ {u u' : Pat} {y y' : List Binds},
+  have cover : ∀ {u u' : Pat} {y y' : Finset Binds},
       (Raw.store ⟨u, c, y⟩).Sol S = (Raw.store ⟨u', c, y'⟩).Sol S → ∀ θ' ∈ y',
       ∀ σ ∈ Raw.Ex S ⟨u, c, y⟩ θ', ∃ θ ∈ y, Eqns.Unifies σ (eqnsOf θ) := by
     intro u u' y y' hs θ' hθ' σ hσ
     have hnot : σ ∉ (Raw.store ⟨u', c, y'⟩).Sol S :=
-      fun h => h.2 _ (List.mem_map.2 ⟨θ', hθ', rfl⟩) hσ.2
+      fun h => h.2 _ (Raw.mem_store_x.2 ⟨θ', hθ', rfl⟩) hσ.2
     rw [← hs] at hnot
     by_contra hno
     apply hnot
     refine ⟨hσ.1, ?_⟩
     intro E hE hu
-    obtain ⟨θ, hθ, rfl⟩ := List.mem_map.1 hE
+    obtain ⟨θ, hθ, rfl⟩ := Raw.mem_store_x.1 hE
     exact hno ⟨θ, hθ, hu⟩
   intro θ' hθ'
   have hn' := hr'.ex θ' hθ'
-  obtain ⟨θ, hθ, h₁⟩ := (tr hn').irreducible hS x (fun θ₂ h₂ => hr.ex θ₂ h₂)
-    (cover hsol θ' hθ')
+  obtain ⟨θ, hθ, h₁⟩ := (tr hn').irreducible hS x.toList
+    (fun θ₂ h₂ => hr.ex θ₂ (Finset.mem_toList.1 h₂))
+    (fun σ hσ => by simpa using cover hsol θ' hθ' σ hσ)
+  rw [Finset.mem_toList] at hθ
   have hn := hr.ex θ hθ
-  obtain ⟨θ'', hθ'', h₂⟩ := (tr' hn).irreducible hS x' (fun θ₂ h₂ => hr'.ex θ₂ h₂)
-    (cover hsol.symm θ hθ)
+  obtain ⟨θ'', hθ'', h₂⟩ := (tr' hn).irreducible hS x'.toList
+    (fun θ₂ h₂ => hr'.ex θ₂ (Finset.mem_toList.1 h₂))
+    (fun σ hσ => by simpa using cover hsol.symm θ hθ σ hσ)
+  rw [Finset.mem_toList] at hθ''
   have e : θ' = θ'' := hr'.anti θ' hθ' θ'' hθ'' (fun σ hσ => h₂ (h₁ hσ))
   subst e
   have : θ = θ' := hn.eq_of_ex_eq hS (tr hn') (Set.Subset.antisymm h₂ h₁)
@@ -355,7 +340,7 @@ theorem eq (hS : S.WellFormed) {r r' : Raw} (hr : r.Normal S) (hr' : r'.Normal S
   obtain ⟨t', c', x'⟩ := r'
   simp only at ht hc
   subst ht hc
-  have hx : x = x' := List.Pairwise.eq_of_mem_iff hr.sorted hr'.sorted fun θ =>
+  have hx : x = x' := Finset.ext fun θ =>
     ⟨x_subset hS hr' hr hsol.symm θ, x_subset hS hr hr' hsol θ⟩
   rw [hx]
 

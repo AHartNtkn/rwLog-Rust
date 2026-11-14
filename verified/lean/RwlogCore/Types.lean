@@ -89,6 +89,32 @@ structure span.Span where
   r : store.TermId
   c : store.TermId
 
+/-- [rwlog_core::sorts::Rep]
+    Source: 'src/sorts.rs', lines 2646:0-2650:1
+    Visibility: public -/
+structure sorts.Rep where
+  t : store.TermId
+  c : store.TermId
+  x : store.TermId
+
+/-- [rwlog_core::term::Leaf]
+    Source: 'src/term.rs', lines 7:0-17:1
+    Visibility: public -/
+@[discriminant isize]
+inductive term.Leaf where
+| Left : term.Leaf
+| Right : term.Leaf
+| Sub : store.TermId → store.TermId → term.Leaf
+| Map : term.Leaf
+
+/-- [rwlog_core::span::Kind]
+    Source: 'src/span.rs', lines 27:0-31:1 -/
+@[discriminant isize]
+inductive span.Kind where
+| Var : span.Kind
+| Atom : span.Kind
+| App : store.TermId → store.TermId → span.Kind
+
 /-- [rwlog_core::span::Act]
     Source: 'src/span.rs', lines 15:0-24:1
     Visibility: public -/
@@ -104,21 +130,30 @@ inductive span.Act where
   span.Act
 | Elim : store.TermId → store.TermId → span.Act
 
-/-- [rwlog_core::span::Kind]
-    Source: 'src/span.rs', lines 27:0-31:1 -/
-@[discriminant isize]
-inductive span.Kind where
-| Var : span.Kind
-| Atom : span.Kind
-| App : store.TermId → store.TermId → span.Kind
-
-/-- [rwlog_core::term::Leaf]
-    Source: 'src/term.rs', lines 7:0-14:1
+/-- [rwlog_core::sorts::Count]
+    Source: 'src/sorts.rs', lines 673:0-680:1
     Visibility: public -/
 @[discriminant isize]
-inductive term.Leaf where
-| Left : term.Leaf
-| Right : term.Leaf
-| Sub : store.TermId → store.TermId → term.Leaf
+inductive sorts.Count where
+| None : sorts.Count
+| One : store.TermId → sorts.Count
+| Many : sorts.Count
+
+/-- [rwlog_core::dom::Half]
+    Source: 'src/dom.rs', lines 134:0-140:1 -/
+structure dom.Half where
+  l : store.TermId
+  r : store.TermId
+  vs : store.TermId
+  c : store.TermId
+  x : store.TermId
+
+/-- [rwlog_core::dom::Con]
+    Source: 'src/dom.rs', lines 337:0-344:1 -/
+@[discriminant isize]
+inductive dom.Con where
+| «Sort» : store.TermId → dom.Con
+| Differ : store.TermId → store.TermId → dom.Con
+| Never : dom.Con
 
 end rwlog_core

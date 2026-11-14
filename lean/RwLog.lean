@@ -127,7 +127,11 @@ import RwLog.Sorts.UniqueExcl
 import RwLog.Sorts.Gaps
 import RwLog.Sorts.WF
 import RwLog.Sorts.Count
+import RwLog.Sorts.Reach
+import RwLog.Sorts.ReachCount
+import RwLog.Sorts.ReachOut
 import RwLog.Sorts.InclBut
+import RwLog.Sorts.ButStep
 import RwLog.Sorts.Roots
 import RwLog.Sorts.Gone
 import RwLog.Sorts.Settle
@@ -136,4 +140,6 @@ import RwLog.Sorts.Loop
 import RwLog.Sorts.Tightened
 import RwLog.Sorts.Orient
 import RwLog.Sorts.NormEx
+import RwLog.Sorts.CloseVals
 import RwLog.Sorts.Norm
+import RwLog.Sorts.Blowup

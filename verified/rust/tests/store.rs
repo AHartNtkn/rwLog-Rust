@@ -358,3 +358,20 @@ fn the_stack_does_not_touch_the_tables() {
     let r = s.get(Tbl::A, a).expect("a value");
     assert!(s.same(r, a));
 }
+
+#[test]
+fn word_lt_is_the_strict_order_of_words() {
+    let mut s = Store::new();
+    assert!(s.word_lt(1, 2));
+    assert!(!s.word_lt(2, 1));
+    assert!(!s.word_lt(2, 2));
+    assert!(s.word_lt(0, u32::MAX));
+    assert!(!s.word_lt(u32::MAX, 0));
+}
+
+#[test]
+fn word_lt_costs_one_tick() {
+    let mut s = Store::new();
+    let (_, t) = spent(&mut s, |s| s.word_lt(3, 4));
+    assert_eq!(t, 1);
+}

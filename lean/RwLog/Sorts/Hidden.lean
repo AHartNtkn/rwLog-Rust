@@ -101,7 +101,7 @@ theorem Raw.Normal.proj {S : Sorts} (hS : S.WellFormed) {r : Raw} (hr : r.Normal
     intro v
     simp only [Raw.conj, r', Raw.cut, List.getD_eq_getElem?_getD, List.getElem?_take]
     split <;> rfl
-  have hx' : ∀ θ, θ ∈ r'.x ↔ θ ∈ r.x ∧ Low k θ := by intro θ; simp [r', Raw.cut, List.mem_filter]
+  have hx' : ∀ θ, θ ∈ r'.x ↔ θ ∈ r.x ∧ Low k θ := by intro θ; simp [r', Raw.cut]
   have posr : ∀ σ ∈ r.store.Pos S, σ ∈ r'.store.Pos S := by
     intro σ hσ v
     show MemC S (r'.conj v) (σ v)
@@ -111,8 +111,8 @@ theorem Raw.Normal.proj {S : Sorts} (hS : S.WellFormed) {r : Raw} (hr : r.Normal
   have res : ∀ σ ∈ r.store.Sol S, σ ∈ r'.store.Sol S := by
     intro σ hσ
     refine ⟨posr σ hσ.1, fun E hE => ?_⟩
-    obtain ⟨θ, hθ, rfl⟩ := List.mem_map.1 hE
-    exact hσ.2 _ (List.mem_map.2 ⟨θ, ((hx' θ).1 hθ).1, rfl⟩)
+    obtain ⟨θ, hθ, rfl⟩ := Raw.mem_store_x.1 hE
+    exact hσ.2 _ (Raw.mem_store_x.2 ⟨θ, ((hx' θ).1 hθ).1, rfl⟩)
   have ext : ∀ σ ∈ r'.store.Sol S, ∃ τ ∈ r.store.Sol S, ∀ v, v < k → τ v = σ v := by
     intro σ hσ
     let H := (List.range r.c.length).filter fun v => decide (k ≤ v)
@@ -132,10 +132,10 @@ theorem Raw.Normal.proj {S : Sorts} (hS : S.WellFormed) {r : Raw} (hr : r.Normal
       []
       (by
         intro E hE
-        obtain ⟨θ, hθ, rfl⟩ := List.mem_map.1 hE
+        obtain ⟨θ, hθ, rfl⟩ := Raw.mem_store_x.1 hE
         have hn := hr.ex θ hθ
         by_cases hlow : Low k θ
-        · exact ⟨σ, fun _ _ => rfl, hσ.2 _ (List.mem_map.2 ⟨θ, (hx' θ).2 ⟨hθ, hlow⟩, rfl⟩)⟩
+        · exact ⟨σ, fun _ _ => rfl, hσ.2 _ (Raw.mem_store_x.2 ⟨θ, (hx' θ).2 ⟨hθ, hlow⟩, rfl⟩)⟩
         · simp only [Low, not_forall] at hlow
           obtain ⟨b, hb, hnot⟩ := hlow
           by_cases hb1 : b.1 < k
@@ -172,8 +172,7 @@ theorem Raw.Normal.proj {S : Sorts} (hS : S.WellFormed) {r : Raw} (hr : r.Normal
     have := hr.fo; rw [ht, tpair_fo, Bool.and_eq_true] at this; exact this.1
   have exsub : ∀ θ, r.Ex S θ ⊆ r'.Ex S θ := fun θ σ hσ => ⟨posr σ hσ.1, hσ.2⟩
   show r'.Normal S ∧ ∀ g, g ∈ r'.store.Den S ↔ ∃ σ ∈ r.store.Sol S, g = a.bind σ
-  refine ⟨⟨hfo, hoccA, fun v => by rw [hlen]; exact hk v, ?_, ?_, ?_, ?_,
-    hr.sorted.filter _⟩, ?_⟩
+  refine ⟨⟨hfo, hoccA, fun v => by rw [hlen]; exact hk v, ?_, ?_, ?_, ?_⟩, ?_⟩
   · intro v hv
     rw [hlen] at hv
     obtain ⟨σ, hσ, σ', hσ', hne⟩ := hr.two v (by omega)

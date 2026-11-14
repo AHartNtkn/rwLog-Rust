@@ -8,6 +8,7 @@
 //! lists are lists of the store.
 
 pub mod cover;
+pub mod dom;
 pub mod sorts;
 pub mod span;
 pub mod store;

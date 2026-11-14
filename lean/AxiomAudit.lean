@@ -428,6 +428,15 @@ new axiom.
 /-- info: 'RwLog.Sorts.normEx_none' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Sorts.normEx_none
 
+/-- info: 'RwLog.Sorts.close_some_of_atoms' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.close_some_of_atoms
+
+/-- info: 'RwLog.Sorts.close_none_of_atoms' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.close_none_of_atoms
+
+/-- info: 'RwLog.Sorts.close_none_of_reject' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.close_none_of_reject
+
 /-- info: 'RwLog.Sorts.antichain_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Sorts.antichain_spec
 
@@ -455,6 +464,12 @@ new axiom.
 /-- info: 'RwLog.Sorts.Prob.norm_unique' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Sorts.Prob.norm_unique
 
+/-- info: 'RwLog.Sorts.Prob.norm_of_tight' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.Prob.norm_of_tight
+
+/-- info: 'RwLog.Sorts.Prob.begin_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.Prob.begin_spec
+
 /-- info: 'RwLog.Sorts.Rep.of_eq' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Sorts.Rep.of_eq
 
@@ -475,3 +490,24 @@ new axiom.
 
 /-- info: 'RwLog.ProgramOf.check_iff' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.ProgramOf.check_iff
+
+/-- info: 'RwLog.Sorts.Blowup.tower_wf' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.Blowup.tower_wf
+
+/-- info: 'RwLog.Sorts.Blowup.norm_blowup' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.Blowup.norm_blowup
+
+/-- info: 'RwLog.Sorts.Rep.of_eq_none' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.Rep.of_eq_none
+
+/-- info: 'RwLog.Sorts.Rep.of_val' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.Rep.of_val
+
+/-- info: 'RwLog.Sorts.assembled_nodup' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.assembled_nodup
+
+/-- info: 'RwLog.Sorts.ofTight_facts' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.ofTight_facts
+
+/-- info: 'RwLog.Sorts.ofTight_nodup' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.ofTight_nodup

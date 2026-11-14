@@ -129,12 +129,22 @@ Proved (2026-11-13), for well-formed sorts and with no other hypothesis:
 | No representative relates nothing; an operation returns nothing exactly when its result relates no pair (L09) | `Rep.live`, `compose_eq_none_iff`, `meet_eq_none_iff`, `rep_eq_none_iff` (`Gaps.lean`) |
 | A representative mentions no variable outside its two sides and only declared sorts (L08) | `Rep.no_hidden` (`Gaps.lean`) |
 | A representative written as a span relates the same pairs | `Raw.toSpan_den` (`Rep.lean`) |
+| Whether a conjunction has a member is decided on the conjunctions it reaches: a marking of them that is sound and that no round extends marks exactly those with a member | `live_iff_of_stable`, `Reach`, `reachSet` (`Reach.lean`) |
+| The one member of a conjunction is found on the conjunctions it reaches: a table of members that only holds one members and that no round extends holds the member of exactly those with just one | `count_one_iff_of_stable`, `count_ne_one_of_stable`, `OneStep` (`ReachCount.lean`) |
+| Whether a conjunction has a member outside a sort is decided on the pairs the pair reaches: a marking of them that is sound and that no round extends marks exactly those with such a member | `out_iff_of_stable`, `ReachOut`, `reachOutSet` (`ReachOut.lean`) |
+| The two markings as one, over keys that are a conjunction alone or a conjunction with a sort: a marking of the keys a key reaches that is sound and that no round extends marks exactly the keys that hold | `trueG_iff_of_stable`, `ReachG`, `reachGSet`, `GrowsG` (`ReachOut.lean`) |
+| Whether every member of a conjunction but for some terms is in a sort is asked one root at a time, and what the roots ask again is asked of smaller terms | `Hold`, `hold_iff`, `AskKey`, `sum_proj_le` (`ButStep.lean`) |
 
 How it is built. A *normal* store (`Raw.Normal`, `Normal.lean`) is defined by
 conditions on its solutions: variables numbered by first occurrence, every
 variable taking values with two different head symbols, each variable listed
 with every declared sort that holds of all its values, exclusions solved and
-irredundant and in a fixed order. Uniqueness is proved from those conditions.
+irredundant. The sorts of a variable and the exclusions of a store are sets,
+so no order on symbols or on names is part of the normal form: a machine
+that keeps them as lists is free to choose the order, as long as one set is
+always the same list. (`Raw.xs` and `Raw.toSpan` list them, in string order;
+nothing in the normal form or in the domain's operations depends on which
+order that is.) Uniqueness is proved from those conditions.
 Existence is by a function, `Prob.norm` (section 8): solve the equations and
 push the sorts down to variables (`Reduce.lean`, `Prob.start`); pair the
 pattern with all variables so none is hidden (`Hidden.lean`); extend the
@@ -183,6 +193,19 @@ charged steps as it reads terms. Proved against section 6
 |---|---|---|
 | `sorts::step` | `Sorts.step` | `sortsCost S + 2 m + 2`, `m` the arguments; `sortsCost S` is linear in the written size of the declarations |
 | `sorts::member` | `Sorts.mem` | 5, and `sortsCost S + 11 m + 6` for each pair of a declared sort and a distinct subterm with `m` arguments |
+| `sorts::push_sort` | `Sorts.push`, by what it is specified by: an instance of the pattern is in the sort exactly when it satisfies the atoms | 8, and `sortsCost S + 11 m + 8` for each pair of a declared sort and a distinct subterm with `m` arguments |
+| `sorts::included_but` | `Sorts.Hold` (`ButStep.lean`) | `inclButAll`: a polynomial in the written size of the declarations, the size of the excepted terms, and the numbers of conjunctions and of keys that can be reached |
+| `sorts::sole_root` | `Sorts.sole` (`Roots.lean`) | `soleAll`: a polynomial in the written size of the declarations, the size of the excluded terms, and the number of conjunctions that can be reached |
+| `sorts::unit_on`, `sorts::gone` | `Sorts.unitOn`, `Sorts.gone` (`Gone.lean`) | `unitCost`: the charge of solving the equations of an exclusion and 27 for each of their distinct subterms; `goneCost`: that for each exclusion |
+| `sorts::var_succ`, `sorts::settle`, `sorts::open_var` | the next variable; `CStore.settle` and `CStore.exp` (`Loop.lean`) on the pattern and the exclusions, with the entries of the variables | `succCost`: logarithmic in the variable; `settleCost`: counting each entry, and for each entry replaced 14 for each distinct subterm of the pattern and of the exclusions; `openCost`: the next variable for each new variable, and 14 for each distinct subterm of the pattern and of the exclusions |
+| `sorts::always_on`, `sorts::any_always`, `sorts::first_sole` | `always` of one exclusion and of some exclusion of a list; the first variable whose values have one root (`sole` with `gone`) | `alwaysCost`: solving the equations; `anyAlwaysCost`: that for each exclusion; `firstSoleCost`: `goneCost` and `soleAll` for each entry |
+| `sorts::tighten` | rounds of `stepAt` (`Loop.lean`) after `CStore.settle`; what it returns is reached by `Tightens`, so among well-formed sorts it denotes what it was given, satisfies `Inv` and has no variable whose values have one root, and nothing is returned only when the store denotes nothing | `tightenCost`: `settleCost`, and for each round made the two checks, the scan and the replacement; the number of rounds has no closed bound yet |
+| `sorts::firsts`, `sorts::conj_at`, `sorts::uppers`, `sorts::renumber` | `firsts` of the variables of the pattern (`Renum.lean`); the pattern and the exclusions renamed by first occurrence, and for each variable the declared sorts that hold of all its values: what `ofTight` (`Norm.lean`) gives `assembled` | `renumberCost`: 8 for each distinct subterm of the pattern; for each variable `goneCost` and `inclButAll` for each name; 14 for each distinct subterm of the pattern and of the exclusions |
+| `sorts::places`, `sorts::orient`, `sorts::push_all`, `sorts::ups`, `sorts::close`, `sorts::norm_ex` | `normEx` (`NormEx.lean`) as the list of the values its bindings give the variables: `solve`, `orient` (`Orient.lean`), and `close` read off any atoms that allow the same values as the pushed sorts (`CloseVals.lean`) | `normExCost`: solving the equations; 14 for each distinct subterm of the values; `pushCost` for each sort of each variable; for each variable `countCost` and 14 for each distinct subterm of the values, which gain at most `soleMax` subterms for each variable bound |
+| `sorts::covers`, `sorts::norm_exs`, `sorts::antichain`, `sorts::low`, `sorts::cut_exs` | `covers`, `normExs` and `antichain` (`Assemble.lean`), `Low` and the exclusions of `Raw.cut` (`Hidden.lean`), on exclusions as the lists of the values they give the variables | `coversCost`: 3 for each variable and 14 for each distinct subterm of the values; `normExsCost`: `normExCost` of each exclusion; `antiCost`: two tests for each pair of exclusions; `cutCost`: for each exclusion 43 for each first variable and 27 for each distinct subterm of its values |
+| `sorts::start`, `sorts::normal` | `Prob.norm` (`Norm.lean`): `start` builds a store that `Prob.begin_spec` applies to (any one-to-one numbering of the variables left after solving, the pattern paired with their tuple, sorts on the variables that hold exactly when the sorts of the problem do), and `normal` tightens it, numbers it, normalises its exclusions and cuts it to the first part of the pair (`Prob.norm_of_tight`) | `startCost`: solving the equations, 14 for each distinct subterm of the solved problem, `pushCost` of each sorted pattern, and for each variable the search of the atoms; then `tightenCost` for the rounds made and the charges of the rows above on the tight store. The total is stated against a bound given as a hypothesis, because the rounds have no closed bound yet |
+| `dom::one`, `dom::compose`, `dom::meet`, `dom::right`, `dom::conv`, `dom::is_bound`, `dom::same_rep`, `dom::covers` | `Rep.one`, `Rep.compose`, `Rep.meet`, `Rep.right`, `Rep.conv`, `bound` and `covers` of `dom S` (`Dom.lean`), on normal stores held as a pattern, the sorts of its variables and the exclusions as lists of values, with no exclusion twice (`ofTight_nodup`) | the parts of the stores written out as sorted patterns and equations (linear in the stores for fixed declarations), then the charge of `sorts::normal` on that problem; the tests are linear in the exclusions |
+| `dom::rep` | `repOf` (`Dom.lean`): the representative of a span as written, nothing when the span is not first-order or relates nothing | linear in the distinct subterms of the span and, for each constraint, in the number of declared names; then the charge of `sorts::normal` on the problem of the span |
 
 Membership is therefore linear in the term for fixed declarations, and a term
 with a repeated subterm pays for it once for each sort.
@@ -204,6 +227,32 @@ with the number of reachable conjunctions as a parameter computed from the
 program (the read-time check of L56 already computes that set), not as a
 polynomial in the size of the program alone.
 
+The normal store itself can be exponential in the declarations
+(`Sorts/Blowup.lean`). Declare the numerals as sort 0 and, for each `j < k`,
+sort `j + 1` as the pairs of two members of sort `j`. These `k + 1` sorts are
+well formed (`Blowup.tower_wf`). A member of sort `k` is a full tree of pairs
+of depth `k`, so the values of `$x : k` have one root all the way down, and
+its normal store is that tree with a variable of sort 0 at each of the `2 ^ k`
+leaves. Every normal store that denotes it has `2 ^ k` variables at least
+(`Blowup.blowup`), the normal store is unique, and `Prob.norm` returns it
+(`Blowup.norm_blowup`). The variables are distinct, so sharing subterms in
+the store does not help.
+
+So "the normal store is computed in polynomial time" is false when the time
+is measured against the declarations and the problem, whatever the program.
+What can be asked is a charge that is a polynomial in the problem, the number
+of reachable conjunctions, and the size of the normal store returned. Every
+step of `tighten` adds a symbol to the pattern and the pattern only grows, so
+the number of steps is at most the size of its result; a variable outside the
+pattern has to be removed before it is expanded for the result to be the
+store returned. Whether Anthony accepts this in place of the roadmap's
+wording is asked under rule 3.
+
+One bound is looser than that today: `inclButAll` counts the excepted terms
+by their size as trees (`Sorts.sumSize`), and a term of the store can have
+exponentially more symbols as a tree than nodes. Whether the Rust takes that
+long on such a term, or only the bound is loose, is not established.
+
 
 ## 8. The normal store as a function
 
@@ -215,6 +264,8 @@ problem `P`, for well-formed sorts `S`:
 | When it returns a store, the store is normal and denotes what the problem denotes | `Prob.norm_some` |
 | It returns nothing exactly when the problem denotes nothing | `Prob.norm_none` (and `Prob.norm_some`, since a normal store denotes something) |
 | Every normal store that denotes the problem is the one it returns | `Prob.norm_unique` |
+| Any store that solves the equations, renames the variables left one to one, pairs the pattern with their tuple and gives the variables sorts that hold exactly when the sorts of the problem do, denotes pairs whose first parts are what the problem denotes | `Prob.begin_spec` |
+| Any tight store that denotes such pairs gives the normal store: the first part of its numbered pattern, with its variables and the exclusions over them | `Prob.norm_of_tight` |
 
 The operations in Rust are proved against this function. Because the normal
 store is unique, any program whose result is normal and denotes the problem
@@ -243,7 +294,12 @@ The route:
    pattern has no more symbols than a term it denotes, so the loop ends. It
    is defined by recursion on that bound (`room`), which is not computed; the
    function still evaluates. The result is tight (`tight_of_sole`,
-   `Tightened.lean`).
+   `Tightened.lean`). `step?` replaces the first such variable of the
+   pattern; `stepAt` is the replacement of a given variable, and `Tightens`
+   says a store is reached by such replacements made in any order, with the
+   same conclusions (`Tightens.some`, `Tightens.none`). The Rust function
+   takes the variables in the order of its entries and is proved against
+   `Tightens`.
 4. `ofTight` numbers the variables as they first occur (`firsts`,
    `Renum.lean`) and gives each every declared sort that holds of all its
    values: `inclBut` (`InclBut.lean`) decides that the members of the sorts
@@ -257,8 +313,8 @@ The route:
    a free variable has no value, and a free variable with one value is bound
    to it.
 6. `covers` decides that one normal exclusion removes everything another
-   does, `antichain` drops the covered ones, and `sortBinds` orders the rest
-   (`Assemble.lean`, `assembled_normal`).
+   does, and `antichain` drops the covered ones (`Assemble.lean`,
+   `assembled_normal`).
 7. `Raw.cut` (`Hidden.lean`) keeps the first part of the pattern, the
    variables in it and the exclusions over them (`Raw.Normal.proj`).
 

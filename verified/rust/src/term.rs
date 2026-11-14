@@ -11,6 +11,9 @@ pub enum Leaf {
     Right,
     /// The variable `x` becomes the term `u`; any other stays.
     Sub(TermId, TermId),
+    /// A variable with an entry in table `B` becomes that entry; any other
+    /// stays.
+    Map,
 }
 
 fn leaf(s: &mut Store, f: Leaf, p: TermId) -> TermId {
@@ -24,6 +27,10 @@ fn leaf(s: &mut Store, f: Leaf, p: TermId) -> TermId {
                 p
             }
         }
+        Leaf::Map => match s.get(Tbl::B, p) {
+            Some(u) => u,
+            None => p,
+        },
     }
 }
 

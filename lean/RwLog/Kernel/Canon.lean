@@ -24,15 +24,25 @@ def bound (s : Span) : Option Span :=
   | .var _, [] => none
   | _, _ => some s
 
-/-- A structural linear order on patterns. -/
-def patCmp : Pat → Pat → Ordering
+/-- A structural linear order on patterns, over an order `sc` on symbols:
+variables first, then symbols by `sc`, then applications by their parts.
+
+The order on symbols is a parameter because a canonical form that lists
+patterns in order is computed by a machine that holds a symbol as a word, and
+the order of the words is the only order on symbols it can decide
+(`word_lt`, `verified/rust/src/store.rs`). An order fixed here by the
+spelling of the symbols would be one the machine cannot compute. -/
+def patCmpBy (sc : Sym → Sym → Ordering) : Pat → Pat → Ordering
   | .var a, .var b => compare a b
   | .var _, _ => .lt
   | _, .var _ => .gt
-  | .sym f, .sym g => compare f g
+  | .sym f, .sym g => sc f g
   | .sym _, _ => .lt
   | _, .sym _ => .gt
-  | .app a b, .app c d => (patCmp a c).then (patCmp b d)
+  | .app a b, .app c d => (patCmpBy sc a c).then (patCmpBy sc b d)
+
+/-- The order on patterns over the order of symbols as strings. -/
+def patCmp : Pat → Pat → Ordering := patCmpBy compare
 
 /-- Lexicographic extension of an order to lists. -/
 def listCmp {α : Type} (f : α → α → Ordering) : List α → List α → Ordering

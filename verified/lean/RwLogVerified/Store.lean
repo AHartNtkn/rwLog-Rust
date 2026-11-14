@@ -1162,6 +1162,25 @@ theorem word_eq_spec (s : store.Store) (a b : U32) (hI : Inv s) (hroom : Room s 
   rintro ⟨r, s'⟩ ⟨h, hK⟩
   exact ⟨h, hK.kept hI⟩
 
+/-- `word_lt` decides the strict order of two words, in one tick. -/
+theorem word_lt_w (s : store.Store) (a b : U32) (hI : Wf s) (hroom : Room s 1) :
+    store.Store.word_lt s a b ⦃ r s' => r = decide (a.val < b.val) ∧ KeptW s s' 1 ⦄ := by
+  unfold store.Store.word_lt
+  step with tick_spec s (hroom.tick_lt (Nat.le_refl _)) as ⟨s1, h1, h2, h3, h4, h5, h6, h7, h8⟩
+  refine ⟨?_, hI.kept h1 h2 h3 h4 h5 h7 h8 1 h6⟩
+  by_cases e : a.val < b.val
+  · have : a < b := by scalar_tac
+    simp [e, this]
+  · have : ¬ a < b := by scalar_tac
+    simp [e, this]
+
+@[step]
+theorem word_lt_spec (s : store.Store) (a b : U32) (hI : Inv s) (hroom : Room s 1) :
+    store.Store.word_lt s a b ⦃ r s' => r = decide (a.val < b.val) ∧ Kept s s' 1 ⦄ := by
+  refine WP.spec_mono (word_lt_w s a b hI.toWf hroom) ?_
+  rintro ⟨r, s'⟩ ⟨h, hK⟩
+  exact ⟨h, hK.kept hI⟩
+
 @[step]
 theorem get_spec (s : store.Store) (t : store.Tbl) (k : store.TermId) (hI : Inv s)
     (hk : k.val < s.nodes.val.length) (hroom : Room s 1) :

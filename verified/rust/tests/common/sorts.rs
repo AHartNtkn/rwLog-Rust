@@ -229,7 +229,28 @@ impl Sorts {
         }
     }
 
-    fn step_conj(&self, c: &Conj, key: Key) -> Option<Vec<Conj>> {
+    /// Every name declared or said of an argument, each once: the first to
+    /// occur comes last.
+    pub fn all_names(&self) -> Vec<Name> {
+        let mut out = Vec::new();
+        let mut note = |n: Name| {
+            if !out.contains(&n) {
+                out.insert(0, n);
+            }
+        };
+        for (n, d) in &self.defs {
+            note(*n);
+            for (_, kids) in &d.cases {
+                kids.iter().flatten().for_each(|k| note(*k));
+            }
+            if let Some((_, Some(k))) = &d.rest {
+                note(*k);
+            }
+        }
+        out
+    }
+
+    pub fn step_conj(&self, c: &Conj, key: Key) -> Option<Vec<Conj>> {
         let mut kids = vec![Conj::new(); key.1];
         for n in c {
             let args = self.step(*n, key)?;
@@ -420,6 +441,55 @@ impl Sorts {
         !refuted.contains(&(c.clone(), n))
     }
 
+    /// `Sorts.sole` of the specification: the one root of the members of `c`
+    /// that are not in `gone`, with the sorts of its arguments. Nothing when
+    /// every sort of `c` has a rest, when no member is left, or when two are
+    /// left with different roots.
+    pub fn sole(&self, c: &Conj, gone: &[P]) -> Option<(Key, Vec<Conj>)> {
+        if c.iter().all(|n| self.def(*n).is_some_and(|d| d.rest.is_some())) {
+            return None;
+        }
+        let mut keys: Vec<Key> = Vec::new();
+        for n in c {
+            if let Some(d) = self.def(*n) {
+                for (f, a) in &d.cases {
+                    if !keys.contains(&(*f, a.len())) {
+                        keys.push((*f, a.len()));
+                    }
+                }
+            }
+        }
+        for k in roots_of(gone) {
+            if !keys.contains(&k) {
+                keys.push(k);
+            }
+        }
+        let mut left = Vec::new();
+        for k in keys {
+            let Some(kids) = self.step_conj(c, k) else { continue };
+            let sizes: Vec<Size> = kids.iter().map(|d| self.size(d)).collect();
+            if sizes.iter().any(|z| matches!(z, Size::Empty)) {
+                continue;
+            }
+            let only: Option<Vec<P>> = sizes
+                .into_iter()
+                .map(|z| match z {
+                    Size::One(p) => Some(p),
+                    _ => None,
+                })
+                .collect();
+            if only.is_some_and(|args| gone.contains(&pf(k.0, args))) {
+                continue;
+            }
+            left.push((k, kids));
+        }
+        if left.len() == 1 {
+            left.pop()
+        } else {
+            None
+        }
+    }
+
     /// Is every term in all of `c`, but the ground terms `gone`, in `n`?
     pub fn included_but(&self, c: &Conj, n: Name, gone: &[P]) -> bool {
         if self.included(c, n) {
@@ -540,6 +610,56 @@ pub fn mgu(eqs: &[(P, P)]) -> Option<BTreeMap<usize, P>> {
         s.insert(x, t);
     }
     Some(s)
+}
+
+/// `unitOn` of the specification: the ground term the equations `e` hold
+/// exactly at, as the value of the variable `v`. That is when their most
+/// general solution binds `v` to a ground term and binds nothing else.
+pub fn unit_on(v: usize, e: &[(P, P)]) -> Option<P> {
+    let theta = mgu(e)?;
+    if theta.len() != 1 {
+        return None;
+    }
+    theta.get(&v).filter(|g| g.is_ground()).cloned()
+}
+
+/// `gone` of the specification: the terms the exclusions `x` exclude the
+/// variable `v` from, in the order of the exclusions.
+pub fn gone(x: &[Vec<(P, P)>], v: usize) -> Vec<P> {
+    x.iter().filter_map(|e| unit_on(v, e)).collect()
+}
+
+/// A list of exclusions, each a list of equations, in the store.
+pub fn put_excls(s: &mut Store, x: &[Vec<(P, P)>]) -> TermId {
+    let mut out = s.alloc(Node::Nil);
+    for e in x.iter().rev() {
+        let h = put_eqns(s, e);
+        out = s.alloc(Node::App(h, out));
+    }
+    out
+}
+
+/// A list of equations in the store, each the application of its two sides.
+pub fn put_eqns(s: &mut Store, e: &[(P, P)]) -> TermId {
+    let mut out = s.alloc(Node::Nil);
+    for (a, b) in e.iter().rev() {
+        let x = put_pat(s, a);
+        let y = put_pat(s, b);
+        let h = s.alloc(Node::App(x, y));
+        out = s.alloc(Node::App(h, out));
+    }
+    out
+}
+
+/// `push` of the specification as a set: the sorts the variables of `p`
+/// must be in for `p` to be in the sort `n`, or nothing when a sort rejects
+/// a symbol of `p`.
+pub fn push(s: &Sorts, n: Name, p: &P) -> Option<BTreeSet<(usize, Name)>> {
+    let mut conj = BTreeMap::new();
+    if !constrain(s, &mut conj, p, &Conj::from([n])) {
+        return None;
+    }
+    Some(conj.iter().flat_map(|(x, c)| c.iter().map(|m| (*x, *m))).collect())
 }
 
 /// Require `p` to be in all of `c`, by sorts on its variables. False when
@@ -823,6 +943,51 @@ pub fn put_sorts(s: &mut Store, sorts: &Sorts) -> TermId {
     put_ids(s, &decls)
 }
 
+/// A list of names in the store.
+pub fn put_names(s: &mut Store, names: &[Name]) -> TermId {
+    let ids: Vec<TermId> = names.iter().map(|n| s.alloc(Node::Sym(*n))).collect();
+    put_ids(s, &ids)
+}
+
+/// A list of names, read back.
+pub fn get_names(s: &mut Store, mut p: TermId) -> Vec<Name> {
+    let mut out = Vec::new();
+    loop {
+        match s.read(p) {
+            Node::Nil => return out,
+            Node::App(h, t) => {
+                match s.read(h) {
+                    Node::Sym(n) => out.push(n),
+                    _ => panic!("not a name"),
+                }
+                p = t;
+            }
+            _ => panic!("a term where a list was expected"),
+        }
+    }
+}
+
+/// A list of lists of names, read back.
+pub fn get_conjs(s: &mut Store, mut p: TermId) -> Vec<Vec<Name>> {
+    let mut out = Vec::new();
+    loop {
+        match s.read(p) {
+            Node::Nil => return out,
+            Node::App(h, t) => {
+                out.push(get_names(s, h));
+                p = t;
+            }
+            _ => panic!("a term where a list was expected"),
+        }
+    }
+}
+
+/// The members of a conjunction as the store lists them: in the order of
+/// `names` from its end.
+pub fn canon(names: &[Name], c: &Conj) -> Vec<Name> {
+    names.iter().rev().filter(|n| c.contains(n)).copied().collect()
+}
+
 /// A pattern in the store.
 pub fn put_pat(s: &mut Store, p: &P) -> TermId {
     put(s, &p.tree())
@@ -851,4 +1016,74 @@ pub fn get_kids(s: &mut Store, mut p: TermId) -> Vec<Option<Name>> {
 pub fn put_pats(s: &mut Store, ps: &[P]) -> TermId {
     let ts: Vec<T> = ps.iter().map(P::tree).collect();
     put_list(s, &ts)
+}
+
+// A store with declarations, for the functions that work on entries: an
+// entry is a variable with the conjunction of its sorts.
+
+pub type Excls = Vec<Vec<(P, P)>>;
+pub type Entries = Vec<(usize, Vec<Name>)>;
+
+pub struct Fx {
+    pub s: Store,
+    pub ss: Sorts,
+    pub decls: TermId,
+    pub order: Vec<Name>,
+    pub names: TermId,
+}
+
+/// A store with the declarations `defs` and their names in it.
+pub fn fixture(defs: Vec<(Name, Def)>) -> Fx {
+    let ss = Sorts::new(defs);
+    let mut s = Store::new();
+    let decls = put_sorts(&mut s, &ss);
+    let order = ss.all_names();
+    let names = put_names(&mut s, &order);
+    Fx { s, ss, decls, order, names }
+}
+
+impl Fx {
+    pub fn conj(&mut self, c: &[Name]) -> TermId {
+        let set: Conj = c.iter().copied().collect();
+        let list = canon(&self.order, &set);
+        put_names(&mut self.s, &list)
+    }
+
+    pub fn entries(&mut self, es: &[(usize, Vec<Name>)]) -> TermId {
+        let mut out = self.s.alloc(Node::Nil);
+        for (v, c) in es.iter().rev() {
+            let vi = super::put_var(&mut self.s, *v as u128);
+            let ci = self.conj(c);
+            let e = self.s.alloc(Node::App(vi, ci));
+            out = self.s.alloc(Node::App(e, out));
+        }
+        out
+    }
+
+    pub fn read_entries(&mut self, mut p: TermId) -> Entries {
+        let mut out = Vec::new();
+        loop {
+            match self.s.read(p) {
+                Node::Nil => return out,
+                Node::App(e, rest) => {
+                    match self.s.read(e) {
+                        Node::App(v, c) => {
+                            let n = match super::get(&mut self.s, v) {
+                                T::V(n) => n as usize,
+                                _ => panic!("an entry of something that is not a variable"),
+                            };
+                            out.push((n, get_names(&mut self.s, c)));
+                        }
+                        _ => panic!("an entry that is not a pair"),
+                    }
+                    p = rest;
+                }
+                _ => panic!("a term where a list was expected"),
+            }
+        }
+    }
+
+    pub fn empty_stack(&mut self) {
+        assert!(self.s.pop().is_none(), "the stack is not empty");
+    }
 }

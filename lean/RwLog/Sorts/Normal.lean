@@ -2,7 +2,7 @@
 # Normal stores
 
 A *raw* store is plain data: a pattern, the sorts of its variables as a list
-(variable `i` has the sorts at position `i`), and exclusions in solved form,
+(variable `i` has the sorts at position `i`), and a set of exclusions in solved form,
 each a list of bindings `$x := p` read as "not all of `$x = p`".
 
 `Raw.Normal S r` says the raw store is the canonical one for the set it
@@ -20,7 +20,7 @@ solutions:
 * an exclusion is solved and idempotent, an alias `$x := $y` binds the later
   variable, some substitution in the sorts satisfies its equations, and no
   variable it leaves free is forced to one value by them (it would be bound);
-* no exclusion is implied by another, and they are listed in a fixed order.
+* no exclusion is implied by another.
 
 `Sorts/Unique.lean` proves that two normal stores with the same denotation are
 equal.
@@ -29,6 +29,7 @@ import RwLog.Sorts.Store
 import RwLog.Sorts.Incl
 import RwLog.Kernel.Covers
 import RwLog.Kernel.Order
+import Mathlib.Data.Finset.Sort
 
 namespace RwLog
 namespace Sorts
@@ -41,12 +42,50 @@ abbrev Binds := PSubst
 /-- The equations of an exclusion. -/
 def eqnsOf (θ : Binds) : Eqns Nat := θ.map fun b => (Term.var b.1, b.2)
 
+/-- A linear order on exclusions. No store depends on it: it only fixes the
+order in which the exclusions of a store are gone through. -/
+def bindsCmp (a b : Binds) : Ordering :=
+  listCmp patCmp (a.map fun p => Term.app (.var p.1) p.2) (b.map fun p => Term.app (.var p.1) p.2)
+
+theorem bindsCmp_eq {a b : Binds} (h : bindsCmp a b = .eq) : a = b := by
+  have := Std.LawfulEqCmp.eq_of_compare (cmp := listCmp patCmp) h
+  refine List.map_injective_iff.2 ?_ this
+  rintro ⟨x, p⟩ ⟨y, q⟩ e
+  simp only [Term.app.injEq, Term.var.injEq] at e
+  exact Prod.ext e.1 e.2
+
+theorem bindsCmp_swap (a b : Binds) : bindsCmp a b = (bindsCmp b a).swap :=
+  Std.OrientedCmp.eq_swap (cmp := listCmp patCmp)
+
+/-- One exclusion is not after another. -/
+def bindsLE (a b : Binds) : Prop := (bindsCmp a b).isLE = true
+
+instance : DecidableRel bindsLE := fun a b => inferInstanceAs (Decidable ((bindsCmp a b).isLE = true))
+
+instance : IsTrans Binds bindsLE :=
+  ⟨fun _ _ _ h₁ h₂ => Std.TransCmp.isLE_trans (cmp := listCmp patCmp) h₁ h₂⟩
+
+instance : Std.Antisymm bindsLE :=
+  ⟨fun a b h₁ h₂ => by
+    unfold bindsLE at h₁ h₂
+    rw [bindsCmp_swap] at h₂
+    cases h : bindsCmp a b with
+    | eq => exact bindsCmp_eq h
+    | lt => rw [h] at h₂; cases h₂
+    | gt => rw [h] at h₁; cases h₁⟩
+
+instance : Std.Total bindsLE :=
+  ⟨fun a b => by
+    unfold bindsLE
+    rw [bindsCmp_swap a b]
+    cases bindsCmp b a <;> simp⟩
+
 /-- A raw store: a pattern, the sorts of variable `i` at position `i`, and
-exclusions. -/
+a set of exclusions. -/
 structure Raw where
   t : Pat
   c : List Conj
-  x : List Binds
+  x : Finset Binds
   deriving DecidableEq
 
 namespace Raw
@@ -54,8 +93,16 @@ namespace Raw
 /-- The sorts of a variable. -/
 def conj (r : Raw) (v : Nat) : Conj := r.c.getD v ∅
 
+/-- The exclusions as a list. -/
+def xs (r : Raw) : List Binds := r.x.sort bindsLE
+
+@[simp] theorem mem_xs {r : Raw} {θ : Binds} : θ ∈ r.xs ↔ θ ∈ r.x := Finset.mem_sort _
+
 /-- The raw store as a store. -/
-def store (r : Raw) : Store := ⟨r.t, r.conj, r.x.map eqnsOf⟩
+def store (r : Raw) : Store := ⟨r.t, r.conj, r.xs.map eqnsOf⟩
+
+theorem mem_store_x {r : Raw} {E : Eqns Nat} : E ∈ r.store.x ↔ ∃ θ ∈ r.x, eqnsOf θ = E := by
+  simp [store]
 
 /-- The substitutions in the sorts that satisfy the equations of an
 exclusion: what the exclusion removes. -/
@@ -68,10 +115,6 @@ end Raw
 preceded by every smaller one. -/
 def FirstOcc (L : List Nat) : Prop :=
   ∀ (i : Nat) (h : i < L.length) (m : Nat), m < L[i] → ∃ (j : Nat) (hj : j < i), L[j] = m
-
-/-- A linear order on exclusions, to list them in. -/
-def bindsCmp (a b : Binds) : Ordering :=
-  listCmp patCmp (a.map fun p => Term.app (.var p.1) p.2) (b.map fun p => Term.app (.var p.1) p.2)
 
 /-- The part of a normal exclusion that is syntax: over the variables below
 `k`, solved, idempotent, with an alias binding the later variable. -/
@@ -99,7 +142,6 @@ structure Raw.Normal (S : Sorts) (r : Raw) : Prop where
     n ∈ names S ∧ ∀ σ ∈ r.store.Sol S, mem S n (σ v) = true
   ex : ∀ θ ∈ r.x, NormalBinds S r θ
   anti : ∀ θ ∈ r.x, ∀ θ' ∈ r.x, r.Ex S θ ⊆ r.Ex S θ' → θ = θ'
-  sorted : r.x.Pairwise fun a b => bindsCmp a b = .lt
 
 /-! ## Solved exclusions as substitutions -/
 
@@ -198,7 +240,7 @@ theorem rich (hS : S.WellFormed) (hr : r.Normal S) (D : List (Pat × Pat))
     D
     (by
       intro E hE
-      obtain ⟨θ, hθ, rfl⟩ := List.mem_map.1 hE
+      obtain ⟨θ, hθ, rfl⟩ := Raw.mem_store_x.1 hE
       have hn := hr.ex θ hθ
       obtain ⟨b, hb⟩ := List.exists_mem_of_ne_nil θ hn.ne
       have hbv : b.1 ∉ b.2.vars := fun hm => (hn.ran b hb b.1 hm).2 b hb rfl

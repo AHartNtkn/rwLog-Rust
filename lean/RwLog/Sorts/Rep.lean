@@ -127,6 +127,27 @@ def Rep.of {S : Sorts} (hS : S.WellFormed) (P : Prob) (hP : P.FO) (ht : ∃ l r,
         rintro g ⟨σ, -, rfl⟩
         exact ⟨_, _, by rw [ht, tpair_bind]⟩)⟩
 
+/-- No representative is computed exactly when the problem has no normal
+store. -/
+theorem Rep.of_eq_none {S : Sorts} (hS : S.WellFormed) (P : Prob) (hP : P.FO)
+    (ht : ∃ l r, P.t = tpair l r) : Rep.of hS P hP ht = none ↔ P.norm S hS = none := by
+  unfold Rep.of
+  split
+  · rename_i h; simp [h]
+  · rename_i r h; simp [h]
+
+/-- The computed representative is the normal store of the problem. -/
+theorem Rep.of_val {S : Sorts} (hS : S.WellFormed) (P : Prob) (hP : P.FO)
+    (ht : ∃ l r, P.t = tpair l r) {r : Raw} (h : P.norm S hS = some r) :
+    ∃ ρ : Rep S, Rep.of hS P hP ht = some ρ ∧ ρ.1 = r := by
+  unfold Rep.of
+  split
+  · rename_i h'; rw [h] at h'; cases h'
+  · rename_i r' h'
+    have e : r' = r := by rw [h] at h'; exact (Option.some.inj h').symm
+    subst e
+    exact ⟨_, rfl, rfl⟩
+
 /-- The computed representative is the representative of the pairs the
 problem denotes. -/
 theorem Rep.of_eq {S : Sorts} (hS : S.WellFormed) (P : Prob) (hP : P.FO) (ht : ∃ l r, P.t = tpair l r) :
@@ -157,7 +178,7 @@ def Raw.atoms (r : Raw) (ρ : Nat → Nat) : List (Name × Pat) :=
 
 /-- The exclusions of a raw store, the variables renamed. -/
 def Raw.excl (r : Raw) (ρ : Nat → Nat) : List (Eqns Nat) :=
-  r.x.map fun θ => Eqns.ren ρ (eqnsOf θ)
+  r.xs.map fun θ => Eqns.ren ρ (eqnsOf θ)
 
 theorem Raw.atoms_fo (r : Raw) (ρ : Nat → Nat) : ∀ a ∈ r.atoms ρ, a.2.firstOrder = true := by
   intro a ha
@@ -171,7 +192,7 @@ theorem Raw.excl_fo {S : Sorts} {r : Raw} (hr : r.Normal S) (ρ : Nat → Nat) :
   obtain ⟨θ, hθ, rfl⟩ := List.mem_map.1 hE
   obtain ⟨p, hp, rfl⟩ := List.mem_map.1 hq
   obtain ⟨b, hb, rfl⟩ := List.mem_map.1 hp
-  exact ⟨rfl, rename_fo ((hr.ex θ hθ).fo b hb) ρ⟩
+  exact ⟨rfl, rename_fo ((hr.ex θ (Raw.mem_xs.1 hθ)).fo b hb) ρ⟩
 
 /-- A substitution satisfies the renamed sorts and exclusions of a raw store
 exactly when, read through the renaming, it is a solution of the store. -/
@@ -230,7 +251,7 @@ their values. -/
 def Raw.cons (r : Raw) : List Pat :=
   ((List.range r.c.length).flatMap fun v =>
     (r.conj v).sort.map fun n => Term.app (.sym n) (.var v)) ++
-  r.x.map fun θ => .app (.app (.sym neSym) (tupL θ)) (tupR θ)
+  r.xs.map fun θ => .app (.app (.sym neSym) (tupL θ)) (tupR θ)
 
 /-- A raw store over a pair, as a span. -/
 def Raw.toSpan (r : Raw) : Span := ⟨r.sides.1, r.sides.2, r.cons⟩

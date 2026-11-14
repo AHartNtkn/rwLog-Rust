@@ -14,7 +14,9 @@ path = "src/lib.rs"
 [profile.release]
 overflow-checks = true
 
-# The tests enumerate terms and walk terms four hundred thousand deep, so
-# they are built with optimisation: the whole suite must end in ten seconds.
+# The tests enumerate terms and walk terms four hundred thousand deep and
+# lists a hundred thousand long, so they are built with optimisation: the
+# whole suite must end in ten seconds, with room to spare on a slower
+# machine.
 [profile.test]
 opt-level = 2

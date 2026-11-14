@@ -35,8 +35,8 @@
 //!
 //! # Cost
 //!
-//! `read`, `alloc`, `same`, `word_eq`, `clear`, `get`, `set`, `get_flag`,
-//! `set_flag`, `push`, `pop` and `drop_stack` each spend one tick, and
+//! `read`, `alloc`, `same`, `word_eq`, `word_lt`, `clear`, `get`, `set`,
+//! `get_flag`, `set_flag`, `push`, `pop` and `drop_stack` each spend one tick, and
 //! nothing else spends any. Each does an
 //! amount of work bounded by a constant of this file: `alloc` finds the node
 //! in a trie whose depth is at most two machine words in base sixteen.
@@ -168,6 +168,14 @@ impl Store {
     pub fn word_eq(&mut self, a: u32, b: u32) -> bool {
         self.tick();
         a == b
+    }
+
+    /// Is the first word below the second? One tick. Words are in a linear
+    /// order, which a canonical form may list symbols by; the order says
+    /// nothing about the names the words stand for.
+    pub fn word_lt(&mut self, a: u32, b: u32) -> bool {
+        self.tick();
+        a < b
     }
 
     /// The trie node reached from `p` by the digit `d`. It is added if it is

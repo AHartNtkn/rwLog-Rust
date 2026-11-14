@@ -111,24 +111,33 @@ theorem pending_mono {nodes more : List store.Node} {A A' : Nat → Option Nat} 
 /-! ## What a leaf function and a table of rebuilt nodes stand for -/
 
 /-- The substitution a leaf function stands for. -/
-def LeafOK (nm : Option Nat → Sym) (nodes : List store.Node) (f : term.Leaf) (σ : Nat → Pat) :
-    Prop :=
+def LeafOK (nm : Option Nat → Sym) (nodes : List store.Node) (B : Nat → Option Nat)
+    (f : term.Leaf) (σ : Nat → Pat) : Prop :=
   match f with
   | .Left => σ = fun v => Term.var (2 * v)
   | .Right => σ = fun v => Term.var (2 * v + 1)
   | .Sub x u => ∃ xv tu, VarAt nodes x.val xv ∧ Repr nm nodes u.val tu ∧ σ = Term.single xv tu
+  | .Map => (∀ q u, B q = some u → ∃ v, VarAt nodes q v ∧ Repr nm nodes u (σ v)) ∧
+      ∀ v, (∀ q, VarAt nodes q v → B q = none) → σ v = .var v
 
-theorem LeafOK.append {nodes : List store.Node} {f : term.Leaf} {σ : Nat → Pat}
-    (h : LeafOK nm nodes f σ) (more : List store.Node) : LeafOK nm (nodes ++ more) f σ := by
+theorem LeafOK.append {nodes : List store.Node} {B : Nat → Option Nat} {f : term.Leaf}
+    {σ : Nat → Pat} (h : LeafOK nm nodes B f σ) (more : List store.Node) :
+    LeafOK nm (nodes ++ more) B f σ := by
   cases f with
   | Left => exact h
   | Right => exact h
   | Sub x u =>
     obtain ⟨xv, tu, hx, hu, e⟩ := h
     exact ⟨xv, tu, hx.append more, hu.append more, e⟩
+  | Map =>
+    obtain ⟨h₁, h₂⟩ := h
+    refine ⟨fun q u hq => ?_, fun v hv => h₂ v fun q hq => hv q (hq.append more)⟩
+    obtain ⟨v, hv, hu⟩ := h₁ q u hq
+    exact ⟨v, hv.append more, hu.append more⟩
 
-theorem LeafOK.extends {s s' : store.Store} {f : term.Leaf} {σ : Nat → Pat}
-    (h : LeafOK nm s.nodes.val f σ) (he : Extends s s') : LeafOK nm s'.nodes.val f σ := by
+theorem LeafOK.extends {s s' : store.Store} {B : Nat → Option Nat} {f : term.Leaf}
+    {σ : Nat → Pat} (h : LeafOK nm s.nodes.val B f σ) (he : Extends s s') :
+    LeafOK nm s'.nodes.val B f σ := by
   obtain ⟨m, e, -⟩ := he
   rw [e]; exact h.append m
 
@@ -144,7 +153,7 @@ theorem MemoOK.extends {s s' : store.Store} {A : Nat → Option Nat} {σ : Nat �
   exact ⟨t, he.repr h₁, he.repr h₂⟩
 
 theorem leaf_w (s : store.Store) (f : term.Leaf) (p : store.TermId) {σ : Nat → Pat} {v : Nat}
-    (hI : Wf s) (hv : VarAt s.nodes.val p.val v) (hf : LeafOK nm s.nodes.val f σ)
+    (hI : Wf s) (hv : VarAt s.nodes.val p.val v) (hf : LeafOK nm s.nodes.val (tbl s .B) f σ)
     (hroom : Room s 1) :
     term.leaf s f p ⦃ r s' =>
       Wf s' ∧ Extends s s' ∧ Repr nm s'.nodes.val r.val (σ v) ∧ tbl s' = tbl s ∧
@@ -197,6 +206,26 @@ theorem leaf_w (s : store.Store) (f : term.Leaf) (p : store.TermId) {σ : Nat �
         hK.stk⟩
       simp only [Term.single, hne, ↓reduceIte]
       exact .var (hext.varAt hv)
+  | Map =>
+    obtain ⟨h₁, h₂⟩ := hf
+    step with get_w s .B p hI hv.lt hroom as ⟨o, s1, ho, hK⟩
+    have hext : Extends s s1 := Extends.of_eq hK.nodes (by have := hK.ticks; omega)
+    cases o with
+    | none =>
+      simp only [Option.map_none] at ho
+      simp only [WP.spec_ok]
+      refine ⟨hK.wf, hext, ?_, hK.tbl, by have := hK.ticks; omega, by have := hK.ticks; omega,
+        hK.stk⟩
+      rw [h₂ v fun q hq => by rw [← hv.inj hI.nodesOK hq]; exact ho.symm]
+      exact .var (hext.varAt hv)
+    | some u =>
+      simp only [Option.map_some] at ho
+      obtain ⟨v', hv', hu⟩ := h₁ p.val u.val ho.symm
+      have := hv.unique hv'
+      subst this
+      simp only [WP.spec_ok]
+      exact ⟨hK.wf, hext, hext.repr hu, hK.tbl, by have := hK.ticks; omega,
+        by have := hK.ticks; omega, hK.stk⟩
 
 /-! ## The terms still to be paid for -/
 
@@ -475,7 +504,7 @@ def RBodyPost (nm : Option Nat → Sym) (s0 : store.Store) (σ : Nat → Pat) (t
 theorem rebuild_body_spec (hnm : Function.Injective nm) (s0 : store.Store) (f : term.Leaf)
     (σ : Nat → Pat) (tp : Pat) (p : Nat) (S : Finset Pat) (B : Nat)
     (hB : 40 * B + 100 ≤ Usize.max) (hN0 : NodesOK s0.nodes.val)
-    (hf : LeafOK nm s0.nodes.val f σ) (hS : tp.subs ⊆ S) (s : store.Store)
+    (hf : LeafOK nm s0.nodes.val (tbl s0 .B) f σ) (hS : tp.subs ⊆ S) (s : store.Store)
     (h : RInv nm s0 σ tp p S B s) :
     term.rebuild_loop.body f s ⦃ r => RBodyPost nm s0 σ tp p S B s.ticks.val r ⦄ := by
   unfold term.rebuild_loop.body
@@ -554,7 +583,7 @@ theorem rebuild_body_spec (hnm : Function.Injective nm) (s0 : store.Store) (f : 
           intro v hv hva
           subst hv
           step with leaf_w (nm := nm) s3 f q (σ := σ) (v := v) hK3.wf (by rw [hn3]; exact hva)
-            (by rw [hn3, hmore]; exact hf.append more) (by unfold Room; omega)
+            (by rw [hn3, hmore, htb3, hTB]; exact hf.append more) (by unfold Room; omega)
             as ⟨r1, s4, hW4, hext4, hr4, htbl4, ht4, hm4, hstk4⟩
           have hext4' := hext4
           obtain ⟨more4, hmore4, -⟩ := hext4'
@@ -710,7 +739,7 @@ theorem rebuild_body_spec (hnm : Function.Injective nm) (s0 : store.Store) (f : 
 for each term of `S` that had no table entry and gets one. -/
 theorem rebuild_spec (hnm : Function.Injective nm) (s : store.Store) (f : term.Leaf)
     (p : store.TermId) {t : Pat} {σ : Nat → Pat} (S : Finset Pat) (hI : Inv s)
-    (hp : Repr nm s.nodes.val p.val t) (hf : LeafOK nm s.nodes.val f σ)
+    (hp : Repr nm s.nodes.val p.val t) (hf : LeafOK nm s.nodes.val (tbl s .B) f σ)
     (hM : MemoOK nm s.nodes.val (tbl s .A) σ) (hS : t.subs ⊆ S)
     (hroom : Room s (5 + 14 * (pending nm s.nodes.val (tbl s .A) S).card)) :
     term.rebuild s f p ⦃ r s' => RebuildPost nm s s' σ t S r ⦄ := by

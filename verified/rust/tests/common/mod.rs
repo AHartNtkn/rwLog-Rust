@@ -2,6 +2,7 @@
 //! move terms between trees and the store.
 #![allow(dead_code)]
 
+pub mod decls;
 pub mod sorts;
 
 use rwlog_core::span::Span;
