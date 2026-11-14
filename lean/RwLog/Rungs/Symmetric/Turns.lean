@@ -483,8 +483,7 @@ def Strat.lead : Strat N A → Bool
 union or a join, and only the last can be without one. -/
 def Shaped (gs : List (Group N A)) : Prop :=
   (∃ gr ∈ gs, ∃ s ∈ gr.strats, s.lead = true) ∧
-    ∀ (k : Nat) (gr : Group N A), gs[k]? = some gr →
-      (∃ s ∈ gr.strats, s.lead = true) ∨ k + 1 = gs.length
+    ∀ gr ∈ gs.dropLast, ∃ s ∈ gr.strats, s.lead = true
 
 /-- The groups of a table before its round (`go`, nothing if this is its
 first) and after it (`go'`). -/
@@ -538,7 +537,7 @@ theorem shaped_all {gs : List (Group N A)} (hne : gs ≠ [])
   | nil => exact absurd rfl hne
   | cons gr gs =>
     exact ⟨⟨gr, List.mem_cons_self, h gr List.mem_cons_self⟩,
-      fun k gr' hk => .inl (h gr' (List.mem_of_getElem? hk))⟩
+      fun gr' hk => h gr' (List.mem_of_mem_dropLast hk)⟩
 
 theorem shaped_of {gs : List (Group N A)} {c : Prop}
     (h : (∀ gr ∈ gs, ∃ s ∈ gr.strats, s.lead = true) ∧ (c → gs ≠ [])) (hc : c) : Shaped gs :=
@@ -548,13 +547,9 @@ theorem shaped_snoc {gs : List (Group N A)} (hne : gs ≠ [])
     (h : ∀ gr ∈ gs, ∃ s ∈ gr.strats, s.lead = true) (last : Group N A) :
     Shaped (gs ++ [last]) := by
   obtain ⟨⟨gr, hgr, hl⟩, -⟩ := shaped_all hne h
-  refine ⟨⟨gr, List.mem_append_left _ hgr, hl⟩, fun k gr' hk => ?_⟩
-  by_cases hlt : k < gs.length
-  · rw [List.getElem?_append_left hlt] at hk
-    exact .inl (h gr' (List.mem_of_getElem? hk))
-  · have := (List.getElem?_eq_some_iff.1 hk).1
-    simp only [List.length_append, List.length_singleton] at this ⊢
-    exact .inr (by omega)
+  refine ⟨⟨gr, List.mem_append_left _ hgr, hl⟩, fun gr' hk => ?_⟩
+  rw [List.dropLast_concat] at hk
+  exact h gr' hk
 
 theorem mem_levelsOf {gs : List (Group N A)} {lv : Nat} (h : lv ∈ levelsOf gs) :
     ∃ gr ∈ gs, gr.level = lv := by
@@ -600,6 +595,8 @@ structure TurnsBut (x : Option Nat) (st st' : StateOf S N A) : Prop where
   turn : ∀ (k : Nat) (t t' : Table S N A), some k ≠ x → st.tables[k]? = some t →
     st'.tables[k]? = some t' → t.stamp ≠ st.round → t'.stamp = st.round →
     Turn st st' t.groups t'.groups
+  young : ∀ (k : Nat) (t' : Table S N A), some k ≠ x → st'.tables[k]? = some t' →
+    t'.born = st'.round → (∀ t, st.tables[k]? = some t → t.groups = none) → t'.groups = none
 
 /-- The record of a stretch of a run. -/
 abbrev Turns (st st' : StateOf S N A) : Prop := TurnsBut none st st'
@@ -608,7 +605,8 @@ theorem TurnsBut.trans {x : Option Nat} {a b c : StateOf S N A} (h₁ : TurnsBut
     (h₂ : TurnsBut x b c) : TurnsBut x a c := by
   have hr : b.round = a.round := h₁.keep.1
   refine ⟨h₁.keep.trans h₂.keep, h₁.depth.trans h₂.depth, fun h => h₂.stamp (h₁.stamp h),
-    fun k ta tc ha hc hyp => ?_, fun k tc hc hdc => ?_, fun k ta tc hx ha hc hs hs' => ?_⟩
+    fun k ta tc ha hc hyp => ?_, fun k tc hc hdc => ?_, fun k ta tc hx ha hc hs hs' => ?_,
+    fun k tc hx hc hbc hyp => ?_⟩
   · obtain ⟨tb, hb, -, -, -, e4, e5⟩ := h₁.keep.2.1 k ta ha
     obtain ⟨tc', hc', -, -, -, -, f5⟩ := h₂.keep.2.1 k tb hb
     rw [hc] at hc'
@@ -636,18 +634,159 @@ theorem TurnsBut.trans {x : Option Nat} {a b c : StateOf S N A} (h₁ : TurnsBut
       rw [← hg]
       exact (h₂.turn k tb tc hx hb hc (by rw [hr]; exact hsb) (by rw [hr]; exact hs')).start
         h₁.keep.stable h₁.depth
+  · cases hb : b.tables[k]? with
+    | none => exact h₂.young k tc hx hc hbc fun t h => by rw [hb] at h; cases h
+    | some tb =>
+      obtain ⟨tc', hc', -, e2, -⟩ := h₂.keep.2.1 k tb hb
+      rw [hc] at hc'
+      cases hc'
+      have hg := h₁.young k tb hx hb (by rw [← e2, hbc, h₂.keep.1]) hyp
+      exact h₂.young k tc hx hc hbc fun t h => by rw [hb] at h; cases h; exact hg
 
 theorem TurnsBut.refl (x : Option Nat) (st : StateOf S N A) : TurnsBut x st st :=
   ⟨Keep.refl st, Nat.le_refl _, fun h => h, (fun k t t' h h' _ => by rw [h] at h'; cases h'; rfl),
-    fun k t' h hd => .inl ⟨t', h, hd⟩, fun k t t' _ h h' hs hs' => by
-      rw [h] at h'; cases h'; exact absurd hs' hs⟩
+    fun k t' h hd => .inl ⟨t', h, hd⟩, (fun k t t' _ h h' hs hs' => by
+      rw [h] at h'; cases h'; exact absurd hs' hs), fun k t' _ h _ hyp => hyp t' h⟩
 
 /-- A record that says everything says what a record about a round says. -/
 theorem TurnsBut.weaken {st st' : StateOf S N A} (h : Turns st st') (x : Option Nat) :
     TurnsBut x st st' :=
   ⟨h.keep, h.depth, h.stamp, fun k t t' ht ht' hyp => h.groups k t t' ht ht'
       (hyp.imp id fun hh => ⟨(fun e => by cases e), hh.2⟩),
-    h.done, fun k t t' _ => h.turn k t t' (fun e => by cases e)⟩
+    h.done, (fun k t t' _ => h.turn k t t' (fun e => by cases e)),
+    fun k t' _ => h.young k t' (fun e => by cases e)⟩
+
+/-! ## The record of a request -/
+
+/-- No table is stamped or opened later than now. -/
+def Dated (st : StateOf S N A) : Prop :=
+  ∀ (k : Nat) (t : Table S N A), st.tables[k]? = some t → t.stamp ≤ st.round ∧ t.born ≤ st.round
+
+/-- The record of a request. -/
+structure Req (st st' : StateOf S N A) : Prop where
+  round : st'.round = st.round + 1
+  stable : Stable st st'
+  depth : st.depth ≤ st'.depth
+  dated : Dated st'
+  born : ∀ (k : Nat) (t' : Table S N A), st'.tables[k]? = some t' → st.tables[k]? = none →
+    t'.born = st'.round ∧ t'.groups = none
+  groups : ∀ (k : Nat) (t t' : Table S N A), st.tables[k]? = some t → st'.tables[k]? = some t' →
+    (t.done = true ∨ t'.stamp ≠ st'.round) → t'.groups = t.groups
+  done : ∀ (k : Nat) (t' : Table S N A), st'.tables[k]? = some t' → t'.done = true →
+    (∃ t, st.tables[k]? = some t ∧ t.done = true) ∨ QuietAt st' t'
+  turn : ∀ (k : Nat) (t t' : Table S N A), st.tables[k]? = some t → st'.tables[k]? = some t' →
+    t'.stamp = st'.round → Turn st st' t.groups t'.groups
+  root : Settled st' 0
+
+/-- **The record of a request**, from the record of the round of the root:
+the tables that complete together are marked. -/
+theorem req_of_turns {st st2 : StateOf S N A} (hD : Dated st)
+    (T : Turns { st with round := st.round + 1 } st2) (h0 : Settled st2 0) (shown : Nat) :
+    Req st { st2 with
+      tables := st2.tables.mapIdx fun i t =>
+        if (completing st2).contains i then { t with done := true } else t,
+      shown := shown } := by
+  generalize hst' : ({ st2 with
+      tables := st2.tables.mapIdx fun i t =>
+        if (completing st2).contains i then { t with done := true } else t,
+      shown := shown } : StateOf S N A) = st'
+  have hr' : st'.round = st2.round := by rw [← hst']
+  have hd' : st'.depth = st2.depth := by rw [← hst']
+  have hr2 : st2.round = st.round + 1 := T.keep.1
+  have hsame : ∀ (k : Nat) (t' : Table S N A), st'.tables[k]? = some t' →
+      ∃ t2, st2.tables[k]? = some t2 ∧ t'.born = t2.born ∧ t'.stamp = t2.stamp ∧
+        t'.groups = t2.groups ∧ (t2.done = true → t'.done = true) ∧
+        (t'.done = true → t2.done = true ∨ k ∈ completing st2) := by
+    intro k t' hk
+    rw [← hst'] at hk
+    simp only [List.getElem?_mapIdx] at hk
+    cases h2 : st2.tables[k]? with
+    | none => rw [h2] at hk; cases hk
+    | some t2 =>
+      rw [h2] at hk
+      simp only [Option.map_some, Option.some.injEq] at hk
+      subst hk
+      refine ⟨t2, rfl, ?_⟩
+      split
+      · next hc => exact ⟨rfl, rfl, rfl, fun _ => rfl, fun _ => .inr (by simpa using hc)⟩
+      · exact ⟨rfl, rfl, rfl, id, .inl⟩
+  have hS23 : Stable st2 st' := by
+    intro k t2 hk
+    rw [← hst']
+    refine ⟨_, by simp only [List.getElem?_mapIdx, hk]; rfl, ?_⟩
+    split
+    · exact ⟨rfl, rfl, List.prefix_refl _, fun _ => ⟨rfl, rfl⟩⟩
+    · exact ⟨rfl, rfl, List.prefix_refl _, fun h => ⟨h, rfl⟩⟩
+  have hS01 : Stable st ({ st with round := st.round + 1 } : StateOf S N A) :=
+    fun k t h => ⟨t, h, rfl, rfl, List.prefix_refl _, fun h => ⟨h, rfl⟩⟩
+  have hset : ∀ j, Settled st2 j → Settled st' j := by
+    intro j hj t' ht'
+    obtain ⟨t2, h2, e1, e2, -, e4, -⟩ := hsame j t' ht'
+    rcases hj t2 h2 with h | h | h
+    · exact .inl (e4 h)
+    · exact .inr (.inl (by rw [e2, h, hr']))
+    · exact .inr (.inr (by rw [e1, h, hr']))
+  have hst2 : ∀ (k : Nat) (t2 : Table S N A), st2.tables[k]? = some t2 → t2.stamp ≤ st2.round :=
+    T.stamp fun k t (h : st.tables[k]? = some t) => Nat.le_succ_of_le (hD k t h).1
+  refine ⟨hr'.trans hr2, hS01.trans (T.keep.stable.trans hS23), by rw [hd']; exact T.depth,
+    fun k t' hk => ?_, fun k t' hk hn => ?_, fun k t t' ht hk hyp => ?_, fun k t' hk hdn => ?_,
+    fun k t t' ht hk hs => ?_, hset 0 h0⟩
+  · obtain ⟨t2, h2, e1, e2, -⟩ := hsame k t' hk
+    refine ⟨by rw [e2, hr']; exact hst2 k t2 h2, ?_⟩
+    rw [e1, hr']
+    cases ht : st.tables[k]? with
+    | none => exact Nat.le_of_eq ((T.keep.2.2 k t2 h2 ht).trans hr2.symm)
+    | some t =>
+      obtain ⟨u, hu, -, f2, -⟩ := T.keep.2.1 k t ht
+      rw [h2] at hu
+      cases hu
+      rw [f2, hr2]
+      exact Nat.le_succ_of_le (hD k t ht).2
+  · obtain ⟨t2, h2, e1, -, e3, -⟩ := hsame k t' hk
+    have hb : t2.born = st2.round := (T.keep.2.2 k t2 h2 hn).trans hr2.symm
+    exact ⟨by rw [e1, hb, hr'], by
+      rw [e3]
+      exact T.young k t2 (fun e => by cases e) h2 hb fun t (h : st.tables[k]? = some t) => by
+        rw [hn] at h; cases h⟩
+  · obtain ⟨t2, h2, -, e2, e3, -⟩ := hsame k t' hk
+    rw [e3]
+    refine T.groups k t t2 ht h2 (hyp.imp id fun h => ⟨(fun e => by cases e), .inr fun e => h ?_⟩)
+    rw [e2, hr', hr2]
+    exact e
+  · obtain ⟨t2, h2, -, -, e3, -, e5⟩ := hsame k t' hk
+    rcases e5 hdn with h | h
+    · rcases T.done k t2 h2 h with h | h
+      · exact .inl h
+      · exact .inr (h.mono hS23 e3)
+    · refine .inr ?_
+      unfold completing at h
+      obtain ⟨-, hok⟩ := gfpFrom_closed _ _ _ (Nat.le_refl _) k h
+      rw [h2] at hok
+      obtain ⟨gr, hgr, hq⟩ := List.any_eq_true.1 hok
+      obtain ⟨s, hs, hq⟩ := List.any_eq_true.1 hq
+      cases hg : t2.groups with
+      | none => rw [hg] at hgr; simp at hgr
+      | some gs =>
+        rw [hg] at hgr
+        refine ⟨gs, e3.trans hg, gr, hgr, s, hs,
+          quiet_mono (fun _ => hS23.isDone) (fun j hj => ?_) hq⟩
+        rcases Bool.or_eq_true_iff.1 hj with hj | hj
+        · exact hS23.isDone hj
+        · have hj' := List.contains_iff_mem.1 hj
+          have hjS := (gfpFrom_closed _ _ _ (Nat.le_refl _) j hj').1
+          have hlt : j < st2.tables.length := List.mem_range.1 (List.mem_filter.1 hjS).1
+          have hj'' : j ∈ completing st2 := hj'
+          rw [← hst']
+          simp [StateOf.isDone, StateOf.answers, List.getElem?_mapIdx,
+            List.getElem?_eq_getElem hlt, hj'']
+  · obtain ⟨t2, h2, -, e2, e3, -⟩ := hsame k t' hk
+    rw [e3]
+    have hs2 : t2.stamp = st.round + 1 := by rw [← e2, hs, hr', hr2]
+    have hne : t.stamp ≠ st.round + 1 := fun e => by
+      have := (hD k t ht).1
+      omega
+    exact ((T.turn k t t2 (fun e => by cases e) ht h2 hne hs2).finish hS23 hset
+      (Nat.le_of_eq hd'.symm)).start hS01 (Nat.le_refl _)
 
 end pure
 
@@ -737,7 +876,7 @@ theorem Inner.turns {j : Nat} {st st' : StateOf R Rel (Ans D P)} (h : Inner K hK
     cases hu
     exact hd
   refine ⟨hf.keep hopen, h.depth_le, fun hs k t' hk => ?_, fun k t t' ht ht' _ => ?_,
-    fun k t' hk hd => ?_, fun k t t' _ ht ht' hs hs' => ?_⟩
+    fun k t' hk hd => ?_, fun k t t' _ ht ht' hs hs' => ?_, fun k t' _ hk _ hyp => ?_⟩
   · rw [hf.1]
     cases ht : st.tables[k]? with
     | none => rw [h.fresh_stamp k t' hk ht]; exact Nat.zero_le _
@@ -763,6 +902,14 @@ theorem Inner.turns {j : Nat} {st st' : StateOf R Rel (Ans D P)} (h : Inner K hK
     cases hu
     rw [e3] at hs'
     exact absurd hs' hs
+  · cases ht : st.tables[k]? with
+    | none => exact (hf.2.2 k t' hk ht).1
+    | some t =>
+      obtain ⟨u, hu, -, -, -, -, e5, -⟩ := hf.2.1 k t ht
+      rw [hk] at hu
+      cases hu
+      rw [e5]
+      exact hyp t ht
 
 omit [DecidableEq R] in
 /-- The record of a change to an open table that leaves its goal, its
@@ -780,7 +927,7 @@ theorem turnsBut_modify (st : StateOf R Rel (Ans D P)) (i : Nat)
                    · exact e,
         fun h => by rw [(hf t).2.2.2.1]; exact h⟩⟩,
     Nat.le_refl _, fun hs k t' hk => ?_, fun k t t' ht ht' hyp => ?_, fun k t' hk hd => ?_,
-    fun k t t' hx ht ht' hs hs' => ?_⟩
+    fun k t t' hx ht ht' hs hs' => ?_, fun k t' hx hk _ hyp => ?_⟩
   · rcases getElem?_modify_cases st i f hk with ⟨-, h⟩ | ⟨rfl, t, ht, rfl⟩
     · exact hs k t' h
     · rcases (hf t).2.2.2.2 with e | e
@@ -804,6 +951,9 @@ theorem turnsBut_modify (st : StateOf R Rel (Ans D P)) (i : Nat)
     · rw [ht] at h
       cases h
       exact absurd hs' hs
+    · exact absurd rfl hx
+  · rcases getElem?_modify_cases st i f hk with ⟨-, h⟩ | ⟨rfl, u, hu, rfl⟩
+    · exact hyp t' h
     · exact absurd rfl hx
 
 /-- A reading of an edge that was not deep enough doubles the depth. -/
@@ -1466,7 +1616,7 @@ the table may be marked complete. The record of the whole round. -/
 theorem turns_finish {st stp X Y : StateOf R Rel (Ans D P)} {i : Nat} {g : GoalOf R Rel}
     {t : Table R Rel (Ans D P)} {gs0 : List (Group Rel (Ans D P))}
     (ht : st.tables[i]? = some t) (hs : t.stamp ≠ st.round) (hd : t.done = false)
-    (T1 : TurnsBut (some i) st stp) (hp1 : ∀ gs, t.groups = some gs → gs0 = gs)
+    (hbn : t.born ≠ st.round) (T1 : TurnsBut (some i) st stp) (hp1 : ∀ gs, t.groups = some gs → gs0 = gs)
     (hp2 : t.groups = none → Shaped gs0) (LI : LevelInv stp gs0 i g X)
     (hW : gs0 ≠ [] → Worked stp gs0 i X)
     (hY : Y = X.modify i (fun t =>
@@ -1499,7 +1649,7 @@ theorem turns_finish {st stp X Y : StateOf R Rel (Ans D P)} {i : Nat} {g : GoalO
   have hrY : Y.round = st.round := T.keep.1
   refine ⟨⟨keep_mark T.keep ht hs hd _ (fun t'' => ⟨rfl, rfl, rfl, rfl, fun h => by simp [h]⟩),
     T.depth, fun h k t' hk => ?_, fun k ta tz ha hz hyp => ?_, fun k tz hz hdz => ?_,
-    fun k ta tz _ ha hz hs' hs'' => ?_⟩, fun t' ht' => ?_⟩
+    fun k ta tz _ ha hz hs' hs'' => ?_, fun k tz _ hz hbz hyp => ?_⟩, fun t' ht' => ?_⟩
   · rcases getElem?_modify_cases Y i _ hk with ⟨-, h'⟩ | ⟨rfl, v, hv, rfl⟩
     · exact T.stamp h k t' h'
     · exact T.stamp h k v hv
@@ -1559,6 +1709,12 @@ theorem turns_finish {st stp X Y : StateOf R Rel (Ans D P)} {i : Nat} {g : GoalO
           exact .inr ⟨k, gr0, gr1, e0, e1,
             hst.imp fun _ _ h => h.mono (fun _ => Nat.le_refl _) (Nat.le_refl _) T3.depth,
             fun s hs1 => (hf s hs1).mono hSXZ fun j hj => hsetYZ j (T3.keep.settled hj)⟩
+  · rcases getElem?_modify_cases Y i _ hz with ⟨hne, h'⟩ | ⟨rfl, v, hv, rfl⟩
+    · exact T.young k tz (fun e => hne (Option.some.inj e)) h' hbz hyp
+    · obtain ⟨v', hv', -, e2, -⟩ := T.keep.2.1 k t ht
+      rw [hv] at hv'
+      cases hv'
+      exact absurd (e2.symm.trans (hbz.trans hrY)) hbn
   · rcases getElem?_modify_cases Y i _ ht' with ⟨hne, -⟩ | ⟨-, v, hv, rfl⟩
     · exact absurd rfl hne
     · rw [hu] at hv
@@ -1651,11 +1807,31 @@ theorem turns_advance (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK) (hP 
               (stp, false)
               ⟨⟨hGp, hgp, hbp, TurnsBut.refl _ _, Pointwise.refl (fun gr =>
                   Pointwise.refl (SAdv.refl _) gr.strats) _⟩, fun _ => rfl, fun h => absurd rfl h⟩
-            exact turns_finish ht hs hd' T1 hp1 hp2 hmid.1
+            exact turns_finish ht hs hd' hb T1 hp1 hp2 hmid.1
               (fun hne => hmid.2.2 (levelsOf_ne_nil hne)) rfl _ _ (fun hfin => by
                 obtain ⟨gr, hgr, h⟩ := List.any_eq_true.1 hfin
                 obtain ⟨s, hs1, hq⟩ := List.any_eq_true.1 h
                 exact ⟨gr, hgr, s, hs1, hq⟩)
+
+/-- **The record of a request**: the root has its round, with every round
+nested in it, and the tables that complete together are marked. -/
+theorem req_request (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK) (hP : ProgFO P)
+    {st : StateOf R Rel (Ans D P)} (hG : Good st) (hD : Dated st) :
+    Req st (request (K := DerivationKernel.over D K hK P) st).val.1 := by
+  have h := fun (fuel : Nat) (st : StateOf R Rel (Ans D P)) hG hw =>
+    turns_advance (K := K) (hK := hK) hL hR hP fuel 0 st hG hw
+  clear hR
+  at_cost K hK
+  simp only [request, Cost.bind_val, Cost.pure_val]
+  have h0 : Good ({ st with round := st.round + 1 } : StateOf R Rel (Ans D P)) :=
+    hG.of_map (fun _ t => t) (fun j => by simp) (fun _ _ => rfl) (fun _ _ => rfl)
+      (fun _ _ => rfl) (fun _ _ h => h) rfl
+  have hw : (waiting ({ st with round := st.round + 1 } : StateOf R Rel (Ans D P))).length ≤
+      st.tables.length := by
+    unfold waiting
+    exact (List.length_filter_le _ _).trans (by simp)
+  obtain ⟨T, hs⟩ := h st.tables.length _ h0 hw
+  exact req_of_turns hD T hs _
 
 end kernel
 
