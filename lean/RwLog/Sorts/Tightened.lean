@@ -101,5 +101,22 @@ theorem tight_of_sole (hS : S.WellFormed) {s : CStore} (hI : Inv S s)
   obtain ⟨τ₂, hτ₂, e₂⟩ := hI.exists_sol hS v h₂ g₂
   exact ⟨τ₁, hτ₁, τ₂, hτ₂, by rw [e₁, e₂]; exact hne⟩
 
+/-- The sorts every value of a variable belongs to are the ones that hold
+every member of its conjunction outside the excluded ground terms. -/
+theorem Inv.inclBut_iff (hS : S.WellFormed) {s : CStore} (hI : Inv S s) (v : Nat) (n : Name) :
+    inclBut S (s.conj v) n (gone s.x v) = true ↔
+      ∀ σ ∈ s.store.Sol S, mem S n (σ v) = true := by
+  rw [Sorts.inclBut_iff hS]
+  constructor
+  · intro h σ hσ
+    by_contra hm
+    exact not_mem_gone hσ.2 v (h _ (hσ.1 v) (by simpa using hm))
+  · intro h t ht hm
+    by_contra hg
+    obtain ⟨τ, hτ, e⟩ := hI.exists_sol hS v ht hg
+    have := h τ hτ
+    rw [e, hm] at this
+    exact absurd this (by simp)
+
 end Sorts
 end RwLog
