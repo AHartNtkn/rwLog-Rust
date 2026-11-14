@@ -563,6 +563,17 @@ pub fn mgu(eqs: &[(P, P)]) -> Option<BTreeMap<usize, P>> {
     Some(s)
 }
 
+/// `push` of the specification as a set: the sorts the variables of `p`
+/// must be in for `p` to be in the sort `n`, or nothing when a sort rejects
+/// a symbol of `p`.
+pub fn push(s: &Sorts, n: Name, p: &P) -> Option<BTreeSet<(usize, Name)>> {
+    let mut conj = BTreeMap::new();
+    if !constrain(s, &mut conj, p, &Conj::from([n])) {
+        return None;
+    }
+    Some(conj.iter().flat_map(|(x, c)| c.iter().map(|m| (*x, *m))).collect())
+}
+
 /// Require `p` to be in all of `c`, by sorts on its variables. False when
 /// a symbol of `p` is one a sort rejects.
 fn constrain(s: &Sorts, conj: &mut BTreeMap<usize, Conj>, p: &P, c: &Conj) -> bool {

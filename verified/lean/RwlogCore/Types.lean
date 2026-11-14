@@ -90,7 +90,7 @@ structure span.Span where
   c : store.TermId
 
 /-- [rwlog_core::sorts::Count]
-    Source: 'src/sorts.rs', lines 617:0-624:1
+    Source: 'src/sorts.rs', lines 671:0-678:1
     Visibility: public -/
 @[discriminant isize]
 inductive sorts.Count where
