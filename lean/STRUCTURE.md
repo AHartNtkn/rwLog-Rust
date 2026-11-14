@@ -67,7 +67,9 @@ Rungs/Symmetric/ the symmetric engine of `SYMMETRIC_ENGINE.md` (Machine.lean): a
                 table and every strategy fits its goal (Goals.lean, `Inv`, `inv_request`),
                 which gives that condition, so the engine run on one orientation has
                 `ConvTrace` and `DualTrace` (`Symmetric.oriented_convTrace`,
-                `Symmetric.oriented_dualTrace`). The interface check (a chain goal is
+                `Symmetric.oriented_dualTrace`). A complete table never changes again, and
+                nothing nested in the round of a table completes it (Rounds.lean, `Keep`,
+                `stable_request`). The interface check (a chain goal is
                 complete with no answer when the other side fails under every interface
                 one side can show, read from the program) is a strategy of its own; the
                 invariant and the mirror criterion cover it. Completeness, `Keeps` and

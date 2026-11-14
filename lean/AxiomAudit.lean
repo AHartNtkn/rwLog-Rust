@@ -619,6 +619,9 @@ new axiom.
 /-- info: 'RwLog.Symmetric.inv_request' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Symmetric.inv_request
 
+/-- info: 'RwLog.Symmetric.stable_request' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Symmetric.stable_request
+
 /-- info: 'RwLog.Symmetric.oriented_convTrace' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Symmetric.oriented_convTrace
 
