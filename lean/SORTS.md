@@ -134,7 +134,12 @@ How it is built. A *normal* store (`Raw.Normal`, `Normal.lean`) is defined by
 conditions on its solutions: variables numbered by first occurrence, every
 variable taking values with two different head symbols, each variable listed
 with every declared sort that holds of all its values, exclusions solved and
-irredundant and in a fixed order. Uniqueness is proved from those conditions.
+irredundant. The sorts of a variable and the exclusions of a store are sets,
+so no order on symbols or on names is part of the normal form: a machine
+that keeps them as lists is free to choose the order, as long as one set is
+always the same list. (`Raw.xs` and `Raw.toSpan` list them, in string order;
+nothing in the normal form or in the domain's operations depends on which
+order that is.) Uniqueness is proved from those conditions.
 Existence is by a function, `Prob.norm` (section 8): solve the equations and
 push the sorts down to variables (`Reduce.lean`, `Prob.start`); pair the
 pattern with all variables so none is hidden (`Hidden.lean`); extend the
@@ -257,8 +262,8 @@ The route:
    a free variable has no value, and a free variable with one value is bound
    to it.
 6. `covers` decides that one normal exclusion removes everything another
-   does, `antichain` drops the covered ones, and `sortBinds` orders the rest
-   (`Assemble.lean`, `assembled_normal`).
+   does, and `antichain` drops the covered ones (`Assemble.lean`,
+   `assembled_normal`).
 7. `Raw.cut` (`Hidden.lean`) keeps the first part of the pattern, the
    variables in it and the exclusions over them (`Raw.Normal.proj`).
 

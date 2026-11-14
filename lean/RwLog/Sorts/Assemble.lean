@@ -6,8 +6,8 @@ the order they first occur is brought to normal form without changing its
 solutions: each variable is given every declared sort that holds of all its
 values, each exclusion is replaced by its normal form (`normExs`) or dropped
 when nothing in the sorts satisfies its equations, the exclusions that
-another implies are dropped (`antichain`, `covers`), and the rest are put in
-order (`sortBinds`). `normal_assemble` is the statement for any sorts and
+another implies are dropped (`antichain`, `covers`). `normal_assemble` is the
+statement for any sorts and
 exclusions with these properties, and `assembled` puts the computed
 exclusions together (`assembled_normal`).
 -/
@@ -91,41 +91,6 @@ theorem antichain_spec {α : Type} (le : α → α → Bool) (P : α → α → 
         · exact absurd hbc ((hf b).1 hb).2
         · exact hanti b ((hf b).1 hb).1 c ((hf c).1 hc).1 hbc
 
-/-! ## Putting exclusions in order -/
-
-theorem bindsLE_iff (a b : Binds) : (bindsCmp a b != .gt) = (bindsCmp a b).isLE := by
-  cases bindsCmp a b <;> rfl
-
-/-- The exclusions in order. -/
-def sortBinds (Y : List Binds) : List Binds := Y.mergeSort fun a b => bindsCmp a b != .gt
-
-/-- Exclusions without repeats are listed in strict order. -/
-theorem sortBinds_spec (Y : List Binds) (hnd : Y.Nodup) :
-    (∀ θ, θ ∈ sortBinds Y ↔ θ ∈ Y) ∧ (sortBinds Y).Pairwise fun a b => bindsCmp a b = .lt := by
-  refine ⟨fun θ => List.mem_mergeSort, ?_⟩
-  have hp : (Y.mergeSort fun a b => bindsCmp a b != .gt).Pairwise
-      fun a b => (bindsCmp a b != .gt) = true := by
-    refine List.pairwise_mergeSort ?_ ?_ _
-    · intro a b c h₁ h₂
-      rw [bindsLE_iff] at h₁ h₂ ⊢
-      exact Std.TransCmp.isLE_trans (cmp := listCmp patCmp) h₁ h₂
-    · intro a b
-      rw [bindsLE_iff, bindsLE_iff]
-      have := Std.OrientedCmp.eq_swap (cmp := listCmp patCmp)
-        (a := a.map fun p => Term.app (.var p.1) p.2) (b := b.map fun p => Term.app (.var p.1) p.2)
-      unfold bindsCmp
-      rw [this]
-      cases listCmp patCmp (b.map fun p => Term.app (.var p.1) p.2)
-        (a.map fun p => Term.app (.var p.1) p.2) <;> rfl
-  have hnd' : (Y.mergeSort fun a b => bindsCmp a b != .gt).Nodup :=
-    (List.mergeSort_perm _ _).nodup_iff.2 hnd
-  refine (hp.and hnd').imp ?_
-  rintro a b ⟨hle, hne⟩
-  cases h : bindsCmp a b with
-  | lt => rfl
-  | eq => exact absurd (bindsCmp_eq h) hne
-  | gt => rw [h] at hle; cases hle
-
 /-! ## The exclusions in normal form -/
 
 /-- The normal forms of the exclusions that remove something. -/
@@ -207,25 +172,24 @@ variable {S : Sorts} {s : Store} {k : Nat} {cL : List Conj}
 /-- A solution of the store is in the sorts that hold of all values. -/
 theorem pos_of_sol
     (hcL : ∀ v n, n ∈ cL.getD v ∅ ↔ v < k ∧ n ∈ names S ∧ ∀ σ ∈ s.Sol S, mem S n (σ v) = true)
-    (x : List Binds) {σ : Nat → GTerm} (hσ : σ ∈ s.Sol S) :
+    (x : Finset Binds) {σ : Nat → GTerm} (hσ : σ ∈ s.Sol S) :
     σ ∈ (Raw.mk s.t cL x).store.Pos S :=
   fun v n hn => ((hcL v n).1 hn).2.2 σ hσ
 
 /-- A tight store with its variables numbered by first occurrence, given the
 sorts that hold of all values of each variable and normal exclusions that
-remove the same, none covered by another, in order, is a normal store with
+remove the same, none covered by another, is a normal store with
 the same solutions. -/
 theorem normal_assemble (hfin : s.Fin k) (ht : s.Tight S) (hocc : FirstOcc s.t.vars)
     (hvars : ∀ v, v ∈ s.t.vars ↔ v < k) (hne : (s.Sol S).Nonempty) (hlen : cL.length = k)
     (hcL : ∀ v n, n ∈ cL.getD v ∅ ↔ v < k ∧ n ∈ names S ∧ ∀ σ ∈ s.Sol S, mem S n (σ v) = true)
-    {Y Z : List Binds} (hY : ∀ θ ∈ Y, NormalBinds S ⟨s.t, cL, []⟩ θ)
-    (hYiff : ∀ σ ∈ (Raw.mk s.t cL []).store.Pos S,
+    {Y : List Binds} {Z : Finset Binds} (hY : ∀ θ ∈ Y, NormalBinds S ⟨s.t, cL, ∅⟩ θ)
+    (hYiff : ∀ σ ∈ (Raw.mk s.t cL ∅).store.Pos S,
       (∃ E ∈ s.x, Eqns.Unifies σ E) ↔ ∃ θ ∈ Y, Eqns.Unifies σ (eqnsOf θ))
     (hsub : ∀ θ ∈ Z, θ ∈ Y)
-    (hcov : ∀ θ ∈ Y, ∃ θ' ∈ Z, Raw.Ex S ⟨s.t, cL, []⟩ θ ⊆ Raw.Ex S ⟨s.t, cL, []⟩ θ')
+    (hcov : ∀ θ ∈ Y, ∃ θ' ∈ Z, Raw.Ex S ⟨s.t, cL, ∅⟩ θ ⊆ Raw.Ex S ⟨s.t, cL, ∅⟩ θ')
     (hanti : ∀ θ ∈ Z, ∀ θ' ∈ Z,
-      Raw.Ex S ⟨s.t, cL, []⟩ θ ⊆ Raw.Ex S ⟨s.t, cL, []⟩ θ' → θ = θ')
-    (hsorted : Z.Pairwise fun a b => bindsCmp a b = .lt) :
+      Raw.Ex S ⟨s.t, cL, ∅⟩ θ ⊆ Raw.Ex S ⟨s.t, cL, ∅⟩ θ' → θ = θ') :
     (Raw.mk s.t cL Z).Normal S ∧ (Raw.mk s.t cL Z).store.Sol S = s.Sol S := by
   obtain ⟨σ₀, hσ₀⟩ := hne
   have pos₂ : ∀ x, ∀ σ ∈ (Raw.mk s.t cL x).store.Pos S, σ ∈ s.Pos S := by
@@ -242,13 +206,13 @@ theorem normal_assemble (hfin : s.Fin k) (ht : s.Tight S) (hocc : FirstOcc s.t.v
       refine ⟨pos₂ Z σ hp, fun E hE hu => ?_⟩
       obtain ⟨θ, hθ, huθ⟩ := (hYiff σ hp).1 ⟨E, hE, hu⟩
       obtain ⟨θ', hθ', hle⟩ := hcov θ hθ
-      exact hx (eqnsOf θ') (List.mem_map.2 ⟨θ', hθ', rfl⟩) (hle ⟨hp, huθ⟩).2
+      exact hx (eqnsOf θ') (Raw.mem_store_x.2 ⟨θ', hθ', rfl⟩) (hle ⟨hp, huθ⟩).2
     · intro hσ
       refine ⟨pos_of_sol hcL Z hσ, fun E hE hu => ?_⟩
-      obtain ⟨θ, hθ, rfl⟩ := List.mem_map.1 hE
-      obtain ⟨E', hE', hu'⟩ := (hYiff σ (pos_of_sol hcL [] hσ)).2 ⟨θ, hsub θ hθ, hu⟩
+      obtain ⟨θ, hθ, rfl⟩ := Raw.mem_store_x.1 hE
+      obtain ⟨E', hE', hu'⟩ := (hYiff σ (pos_of_sol hcL ∅ hσ)).2 ⟨θ, hsub θ hθ, hu⟩
       exact hσ.2 E' hE' hu'
-  refine ⟨⟨hfin.fo, hocc, fun v => by rw [hvars, hlen], ?_, ?_, ?_, ?_, hsorted⟩, hsol⟩
+  refine ⟨⟨hfin.fo, hocc, fun v => by rw [hvars, hlen], ?_, ?_, ?_, ?_⟩, hsol⟩
   · intro v hv
     rw [hsol]
     exact ht v ((hvars v).2 (hlen ▸ hv))
@@ -264,9 +228,9 @@ theorem normal_assemble (hfin : s.Fin k) (ht : s.Tight S) (hocc : FirstOcc s.t.v
     exact hanti θ hθ θ' hθ' hle
 
 /-- The raw store with the given pattern and sorts and the normal forms of
-the exclusions, without the ones another covers, in order. -/
+the exclusions, without the ones another covers. -/
 def assembled (S : Sorts) (t : Pat) (cL : List Conj) (X : List (Eqns Nat)) : Raw :=
-  ⟨t, cL, sortBinds (antichain (covers cL.length) (normExs S ⟨t, cL, []⟩ X))⟩
+  ⟨t, cL, (antichain (covers cL.length) (normExs S ⟨t, cL, ∅⟩ X)).toFinset⟩
 
 /-- A tight store with its variables numbered by first occurrence, with the
 sorts that hold of all values of each variable, assembles to a normal store
@@ -277,20 +241,21 @@ theorem assembled_normal (hS : S.WellFormed) (hfin : s.Fin k) (ht : s.Tight S)
     (hcL : ∀ v n, n ∈ cL.getD v ∅ ↔ v < k ∧ n ∈ names S ∧ ∀ σ ∈ s.Sol S, mem S n (σ v) = true) :
     (assembled S s.t cL s.x).Normal S ∧ (assembled S s.t cL s.x).store.Sol S = s.Sol S := by
   obtain ⟨σ₀, hσ₀⟩ := hne
-  obtain ⟨hY, hYiff⟩ := normExs_spec (S := S) ⟨s.t, cL, []⟩ s.x hfin.xfo
+  obtain ⟨hY, hYiff⟩ := normExs_spec (S := S) ⟨s.t, cL, ∅⟩ s.x hfin.xfo
     (fun E hE p hp v hv => by rw [hlen]; exact hfin.xv E hE p hp v hv)
-    (fun E hE => ⟨σ₀, pos_of_sol hcL [] hσ₀, hσ₀.2 E hE⟩)
+    (fun E hE => ⟨σ₀, pos_of_sol hcL ∅ hσ₀, hσ₀.2 E hE⟩)
   obtain ⟨hnd, hsub, hcov, hanti⟩ := antichain_spec (covers cL.length)
-    (fun θ θ' : Binds => Raw.Ex S ⟨s.t, cL, []⟩ θ ⊆ Raw.Ex S ⟨s.t, cL, []⟩ θ')
+    (fun θ θ' : Binds => Raw.Ex S ⟨s.t, cL, ∅⟩ θ ⊆ Raw.Ex S ⟨s.t, cL, ∅⟩ θ')
     (fun _ => Set.Subset.rfl) (fun _ _ _ h₁ h₂ => Set.Subset.trans h₁ h₂)
-    (normExs S ⟨s.t, cL, []⟩ s.x) (fun θ hθ θ' hθ' => covers_iff hS (hY θ hθ) (hY θ' hθ'))
-  obtain ⟨hZ, hsorted⟩ := sortBinds_spec _ hnd
+    (normExs S ⟨s.t, cL, ∅⟩ s.x) (fun θ hθ θ' hθ' => covers_iff hS (hY θ hθ) (hY θ' hθ'))
+  have hZ : ∀ θ, θ ∈ (antichain (covers cL.length) (normExs S ⟨s.t, cL, ∅⟩ s.x)).toFinset ↔
+      θ ∈ antichain (covers cL.length) (normExs S ⟨s.t, cL, ∅⟩ s.x) := fun θ => List.mem_toFinset
   exact normal_assemble hfin ht hocc hvars ⟨σ₀, hσ₀⟩ hlen hcL hY hYiff
     (fun θ hθ => hsub θ ((hZ θ).1 hθ))
     (fun θ hθ => by
       obtain ⟨θ', hθ', hle⟩ := hcov θ hθ
       exact ⟨θ', (hZ θ').2 hθ', hle⟩)
-    (fun θ hθ θ' hθ' hle => hanti θ ((hZ θ).1 hθ) θ' ((hZ θ').1 hθ') hle) hsorted
+    (fun θ hθ θ' hθ' hle => hanti θ ((hZ θ).1 hθ) θ' ((hZ θ').1 hθ') hle)
 
 end assemble
 

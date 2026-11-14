@@ -65,7 +65,7 @@ theorem sol_congr (hr : r.Normal S) {σ σ' : Nat → GTerm} (h : ∀ v, v < r.c
     · show MemC S (r.conj v) (σ v)
       rw [conj_of_ge r (Nat.le_of_not_lt hv)]; intro n hn; simp at hn
   · intro E hE hu
-    obtain ⟨θ, hθ, rfl⟩ := List.mem_map.1 hE
+    obtain ⟨θ, hθ, rfl⟩ := Raw.mem_store_x.1 hE
     refine hσ'.2 _ hE ?_
     intro p hp
     obtain ⟨b, hb, rfl⟩ := List.mem_map.1 hp
