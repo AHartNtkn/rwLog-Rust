@@ -346,3 +346,23 @@ Open, in order of risk:
 5. **Bookkeeping.** The prototype does not charge for finding the lowest groups or for a round that reaches a goal and does nothing. An engine pays for both; the charge has to be bounded by the work done.
 
 Nothing built has to be redone. The freeze list of the design note is unchanged: levels are numbers kept in tables, read through `metered`.
+
+## 10. A request that ends (2026-11-14): goals opened in a request wait for the next
+
+The engine is written once for every derivation kernel, so a request has to be a total function with nothing known about the kernel. A round as section 9.4 has it is a recursion through the goals a working group reads, and it gives a round at once to goals opened during the request (the sides of a goal looked at for the first time, the goals a push or a check opens). How deep that goes is bounded only by the goals that can exist, which the machine does not know.
+
+**Changed: a goal opened during a request has its first round in the next request.** The goals that take part in a request are then among those open when it starts, each has one round, and a round nested in another is of a different goal. So the nesting is no deeper than the number of goals open at the start, which the machine has. Nothing else changes.
+
+Table 13 (`python3 scripts/symmetric_engine_tables.py 13`), the split balance with the narrowed check, as in 9.5 and with this change:
+
+| family | 9.5 | new goals wait |
+|---|---|---|
+| counting down, k = 2 … 32, ticks to halt | 428, 1058, 3532, 15576, 85968 | 827, 2731, 12269, 69721, 461777 |
+| the same, requests | 8, 12, 20, 36, 68 | 11, 15, 23, 39, 71 |
+| the ladder, n = 8, 16, 24, 32, 40 | 44785, 176925, 466658, 962956, 1622539 | 29046, 158004, 331597, 632782, 1049177 |
+| middle restriction with pushes, k = 4, 6, 8, 10 | 77297, 605975, 2558268, 10597431 | 41856, 378284, 1745110, 5763077 |
+| fair OR, one endless member, k = 2 … 12, to the answer | 870 … 81850, `2k + 4` requests | 328 … 35505, `2k + 7` requests |
+| fair OR, three endless members | 1748 … 215088 | 540 … 98477, `2k + 7` requests |
+| strings of k bits, k = 2 … 10 | 1396 … 2322164 | 676 … 949561, `2k + 7` requests |
+
+Three more requests on every family, whatever `k`. Fewer ticks everywhere but on counting down, where it is about five times dearer at `k = 32` and grows as `k^2.7` against `k^2.5`. Adopted: it is what the Lean engine does.
