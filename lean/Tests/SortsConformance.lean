@@ -83,4 +83,19 @@ def P : Program :=
 #guard engines.all fun E =>
   exact (runE E P (.rw (ap "pair" [v 0, v 1]) (v 1) [is "zero" (v 0)]) 12) ["(pair z $0) -> $0"]
 
+/-! ## The link chain halts (roadmap L08)
+
+`link` relates two terms through a hidden one that differs from both, and
+chains with itself. Under the rule language each link of the chain left a
+constraint on a hidden variable, the stores grew without bound and the query
+never halted. A canonical store mentions no hidden variable, so every chain
+has the one answer `$0 -> $1` and each engine halts with it. -/
+
+def linkBase : Rel := .rw (v 0) (v 1) [ne (v 0) (v 2), ne (v 2) (v 1)]
+def link : Rel := .or linkBase (.seq (.call "link") (.call "link"))
+def linkP : Program := ⟨[("link", link)], []⟩
+
+#guard decide linkP.sorts.WellFormed
+#guard engines.all fun E => exact (runE E linkP (.call "link") 12) ["$0 -> $1"]
+
 end RwLog.Tests.SortsConformance
