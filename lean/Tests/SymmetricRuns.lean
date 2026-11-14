@@ -9,7 +9,7 @@ the domain of sorts with nothing charged, and fail the build if what it
 emits changes. They are the cases the yardstick is run on
 (`Tests/R005Runs.lean`), with the same expected answers, and the families of
 the prototype (`scripts/symmetric_engine_tables.py`), with the requests the
-prototype takes.
+engine takes on them.
 -/
 
 namespace RwLog.Tests
@@ -77,9 +77,9 @@ order and grouping of `&`. -/
 
 /-! ## The families of the prototype
 
-The requests the prototype takes with the split balance and goals opened in
-a request waiting for the next (`lean/SYMMETRIC_ENGINE_SIMULATION.md`,
-section 10). -/
+The families the prototype was measured on with the split balance and goals
+opened in a request waiting for the next
+(`lean/SYMMETRIC_ENGINE_SIMULATION.md`, section 10). -/
 
 /-- `@(s^k z) ; q` with `q = ((s $x) -> $x) ; q | (z -> z)`. -/
 def countdown (k : Nat) : Program × Rel :=
@@ -102,19 +102,100 @@ def requests (p : Program × Rel) (fuel : Nat) : Option Nat × Option Nat :=
   ((tr.findIdx? fun l => !l.isEmpty && l.head? != some "final").map (· + 1),
    tr.findIdx? fun l => l.head? == some "final")
 
--- Counting down: the answer at request `2k + 7`, the halt after `5k + 9`.
-#guard requests (countdown 2) 60 == (some 11, some 19)
-#guard requests (countdown 4) 60 == (some 15, some 29)
-#guard requests (countdown 8) 60 == (some 23, some 49)
+-- Counting down: the answer at request `2k + 10`, the halt after `7k + 12`.
+-- (Without the interface check they were `2k + 7` and `5k + 9`, which are
+-- the prototype's numbers without it; with it the prototype has `2k + 7` and
+-- `6k + 8`. The prototype reads an edge at no charge and at once. The engine
+-- pays for the reading, and learns the depth of the program in its first
+-- requests.)
+#guard requests (countdown 2) 60 == (some 14, some 26)
+#guard requests (countdown 4) 60 == (some 18, some 40)
+#guard requests (countdown 8) 80 == (some 26, some 68)
 #guard exact (runE SE (countdown 4).1 (countdown 4).2 60) ["(s (s (s (s z)))) -> z"]
 
--- Members that never finish do not delay the answer by more than the
--- prototype's `2k + 7` requests, however many they are.
-#guard ((requests (fairOr 2 1) 30).1.getD 100) ≤ 11
-#guard ((requests (fairOr 4 1) 30).1.getD 100) ≤ 15
-#guard ((requests (fairOr 2 3) 30).1.getD 100) ≤ 11
-#guard ((requests (fairOr 4 3) 30).1.getD 100) ≤ 15
+-- Members that never finish do not delay the answer beyond the `2k + 10`
+-- requests of counting down alone, however many they are.
+#guard ((requests (fairOr 2 1) 30).1.getD 100) ≤ 14
+#guard ((requests (fairOr 4 1) 30).1.getD 100) ≤ 18
+#guard ((requests (fairOr 2 3) 30).1.getD 100) ≤ 14
+#guard ((requests (fairOr 4 3) 30).1.getD 100) ≤ 18
 #guard contains (runE SE (fairOr 4 3).1 (fairOr 4 3).2 30) ["(s (s (s (s z)))) -> z"]
+
+/-! ## The interface check
+
+`p ; q` where every answer of `p` ends in a constructor no answer of `q`
+begins with, and both have infinitely many answers: no side of any split
+completes, and the engine halts by the interface check. The second case has
+an identity span at the end of `p` and at the start of `q`, which hides
+nothing. -/
+
+/-- `p ; q` with `p = gen ; ($x -> t $x)` and `q = (u $x -> $x) ; gen`. -/
+def clash (ids : Bool) : Program × Rel :=
+  let p : Rel := .seq (.call "gen") (.rw (v 0) (ap "t" [v 0]))
+  let q : Rel := .seq (.rw (ap "u" [v 0]) (v 0)) (.call "gen")
+  let idS : Rel := .rw (v 0) (v 0)
+  (prog [("gen", gen), ("p", if ids then .seq p idS else p), ("q", if ids then .seq idS q else q)],
+   .seq (.call "p") (.call "q"))
+
+#guard exact (runE SE (clash false).1 (clash false).2 40) []
+#guard exact (runE SE (clash true).1 (clash true).2 40) []
+#guard (requests (clash false) 40).2 == some 10
+#guard (requests (clash true) 40).2 == some 4
+-- The same clash below a union and beside a member that has answers.
+#guard exact (runE SE (clash false).1 (.or (clash false).2 (.at_ (c "a"))) 40) ["a -> a"]
+-- A side whose every product ends in the same constructor, read through a
+-- left recursion and a right recursion.
+#guard exact (runE SE (prog [
+    ("pa", .or (.rw (c "z") (ap "a" [c "z"])) (.seq (.call "pa") (.rw (ap "a" [v 0]) (ap "a" [ap "s" [v 0]])))),
+    ("qb", .or (.rw (ap "b" [c "z"]) (c "z")) (.seq (.rw (ap "b" [ap "s" [v 0]]) (ap "b" [v 0])) (.call "qb")))])
+  (.seq (.call "pa") (.call "qb")) 40) []
+-- The check does not complete a chain that has answers: the interfaces meet.
+#guard contains (runE SE (prog [("gen", gen)])
+  (.seq (.seq (.call "gen") (.rw (v 0) (ap "t" [v 0]))) (.seq (.rw (ap "t" [v 0]) (v 0)) (.call "gen"))) 30)
+  ["$0 -> z"]
+
+/-! ## Units that starve nothing
+
+Where a goal has several groups a strategy does one unit of work at a time,
+and the tables it reads may grow faster than it reads them. Whatever it has
+to do must still be reached. -/
+
+/-- The pairs a join combines in its first `n` units, when its two sides hold
+`la t` and `lb t` answers before unit `t`. -/
+def joinUnits (la lb : Nat → Nat) (n : Nat) : List (Nat × Nat) :=
+  ((List.range n).foldl (fun (acc : List (Nat × Nat) × Symmetric.Cursor) t =>
+    match Symmetric.Cursor.next (la t) (lb t) (acc.2.room (la t) (lb t)) acc.2 with
+    | (some p, c) => (acc.1 ++ [p], c)
+    | (none, c) => (acc.1, c)) ([], Symmetric.Cursor.start)).1
+
+-- Tables that do not grow: every pair, once.
+#guard (joinUnits (fun _ => 3) (fun _ => 4) 12).length == 12
+#guard (joinUnits (fun _ => 3) (fun _ => 4) 12).eraseDups.length == 12
+#guard (joinUnits (fun _ => 3) (fun _ => 4) 20).length == 12
+#guard joinUnits (fun _ => 0) (fun _ => 4) 5 == []
+#guard joinUnits (fun _ => 1) (fun _ => 1) 5 == [(0, 0)]
+-- One side gains an answer with every unit, and the other gains its second
+-- answer late: that answer is still combined, on either side.
+#guard (joinUnits (fun t => t + 1) (fun t => if t < 3 then 1 else 2) 40).contains (0, 1)
+#guard (joinUnits (fun t => if t < 3 then 1 else 2) (fun t => t + 1) 40).contains (1, 0)
+#guard (joinUnits (fun t => 2 * t + 1) (fun t => if t < 5 then 2 else 3) 200).contains (0, 2)
+-- Both sides gain an answer with every unit: every pair of the first five
+-- of each is combined, and no pair twice.
+#guard ((List.range 5).all fun i => (List.range 5).all fun j =>
+  (joinUnits (fun t => t + 1) (fun t => t + 1) 60).contains (i, j))
+#guard (joinUnits (fun t => t + 1) (fun t => t + 1) 60).eraseDups.length == 60
+#guard (joinUnits (fun t => t + 1) (fun t => if t < 3 then 1 else 2) 40).eraseDups.length == 40
+-- A pair is combined only when both its answers are held.
+#guard (joinUnits (fun t => t + 1) (fun t => t / 2 + 1) 50).zipIdx.all fun p =>
+  p.1.1 < p.2 + 1 && p.1.2 < p.2 / 2 + 1
+
+-- Of several tables with answers not yet read, the one read least is read
+-- next, so none waits for ever behind one that keeps growing.
+#guard RwLog.Symmetric.leastBy (fun x : Nat × Nat => x.1) (fun x => x.2 == 1) [(5, 1), (3, 1), (9, 1), (1, 0)] ==
+  some (3, 1)
+#guard RwLog.Symmetric.leastBy (fun x : Nat × Nat => x.1) (fun x => x.2 == 1) [(5, 0), (3, 0)] == none
+#guard RwLog.Symmetric.leastBy (fun x : Nat × Nat => x.1) (fun _ => true) [(2, 7), (2, 8), (4, 9)] == some (2, 7)
+#guard RwLog.Symmetric.leastBy (fun x : Nat × Nat => x.1) (fun _ => true) ([] : List (Nat × Nat)) == none
 
 /-! ## The mirror image
 
@@ -174,5 +255,9 @@ def selfMirror : Program := prog [
 #guard mirrors selfMirror (.seq (.call "u") (.call "w")) 12
 #guard mirrors selfMirror (.or (.seq (.call "u") (.call "w")) (.seq (.call "w") (.call "u"))) 12
 #guard mirrors selfMirror (.seq (.call "u") (.seq (.call "w") (.seq (.call "w") (.call "u")))) 14
+
+-- With the interface check at work.
+#guard mirrors (clash false).1 (clash false).2 40
+#guard mirrors (clash true).1 (clash true).2 40
 
 end RwLog.Tests

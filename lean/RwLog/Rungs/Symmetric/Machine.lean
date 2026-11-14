@@ -41,7 +41,11 @@ group with a *level*.
   conjoins.
 
 A strategy keeps cursors into the tables it reads, so it combines nothing
-twice.
+twice. Where it does one unit at a time, it takes its units in an order that
+reaches everything, however fast the tables it reads grow: a join finishes
+the pairs of one answer before it begins another and begins on the side it
+has counted fewer answers of, and a strategy that reads several tables reads
+next the one it has read least.
 
 ## A request
 
@@ -80,9 +84,33 @@ its own converse shows, at every step, a set of answers that is its own
 converse, which is what the choice of one orientation of the input
 (`CostedRuntime.oriented`, `Trusted/Cost.lean`) leaves to the machine.
 
-The interface check of the design note (a strategy that completes a chain
-goal with no answer by reading the edges of its sides from the program) is
-not in this file, and a goal and its converse do not yet share a table.
+## The interface check
+
+A chain goal can be complete with no answer although neither side of any
+split ever completes: `p ; q` where every answer of `p` ends in a constructor
+that no answer of `q` begins with. For each split and each side that
+contains a call, the machine reads from the program the spans the answers
+of that side can end with (for the right side: begin with): it follows the
+edge of the node inwards, composing adjacent spans, through unions and
+through each call once (`runs`). The other side is opened under the
+interface of each of those spans, as ordinary goals. If all of them complete
+with no answer, the chain goal is complete. The checks of a goal are one
+group of their own. A check makes no answer.
+
+A node is an identifier, and nothing tells the machine how deep the program
+below it is. So a reading is given a depth and says when the depth was not
+enough. The state holds the depth readings are tried at (`StateOf.depth`),
+and it doubles whenever one fails: a depth larger than needed costs nothing,
+and a reading that failed is tried again by its check, in its next unit of
+work. What was read is kept (`StateOf.edges`), so each side is read once
+whatever the number of goals on its node, and once the depth of the program
+is reached every side is read when the groups of its goal are made. A check
+that is not offered (its side has no call, or one of the interfaces
+restricts nothing) is not made. A check one of whose goals has an answer can
+do nothing more, and a group of such checks is removed from its table.
+
+A goal and its converse do not share a table: no exact property needs it,
+and whether it would save anything is not measured (design note, section 1).
 -/
 import RwLog.Trusted.Cost
 import RwLog.Rungs.Framework.Traverse
@@ -108,29 +136,47 @@ inductive Kind where
   | and
   deriving DecidableEq, Repr
 
-/-- The cursor of a join: every pair of the first `na` answers of the one
-side and the first `nb` of the other is combined, and `inner` of the pairs
-of the next answer. -/
+/-- The cursor of a join. Every pair of the first `na` answers of the one side
+and the first `nb` of the other is combined. A *line* is the pairs of the
+next answer of one side with the answers of the other side counted so far.
+`inner` pairs of the line in progress are combined, and `col` says the line
+is of the second side. With `inner = 0` no line is in progress. -/
 structure Cursor where
   na : Nat
   nb : Nat
   inner : Nat
+  col : Bool
   deriving DecidableEq, Repr
 
+/-- The cursor of a join that has combined nothing. -/
+def Cursor.start : Cursor := ⟨0, 0, 0, false⟩
+
 /-- The next pair of positions to combine in tables of `la` and `lb`
-answers, if one is left, and the cursor after it: an answer all of whose
-pairs are combined is counted in. The first argument counts the answers not
-yet counted in, and is never used up. -/
+answers, if one is left, and the cursor after it. A line in progress is
+finished before another is begun, whatever the tables have gained since: its
+pairs are of answers counted when it began. When no line is in progress and
+both sides have an answer not yet counted, the line of the side with fewer
+counted is begun, so neither side waits for the other to run out. A line all
+of whose pairs are combined is counted in. The first argument counts the
+answers not yet counted in, and is never used up. -/
 def Cursor.next (la lb : Nat) : Nat → Cursor → Option (Nat × Nat) × Cursor
   | 0, c => (none, c)
   | f + 1, c =>
-    if c.na < la then
-      if c.inner < c.nb then (some (c.na, c.inner), { c with inner := c.inner + 1 })
-      else Cursor.next la lb f ⟨c.na + 1, c.nb, 0⟩
-    else if c.nb < lb then
-      if c.inner < c.na then (some (c.inner, c.nb), { c with inner := c.inner + 1 })
-      else Cursor.next la lb f ⟨c.na, c.nb + 1, 0⟩
-    else (none, c)
+    let col :=
+      if c.inner = 0 then
+        (if c.na < la ∧ c.nb < lb then decide (c.nb < c.na) else decide (¬ c.na < la))
+      else c.col
+    if col then
+      if c.nb < lb then
+        if c.inner < c.na then (some (c.inner, c.nb), { c with inner := c.inner + 1, col := true })
+        else Cursor.next la lb f ⟨c.na, c.nb + 1, 0, false⟩
+      else (none, c)
+    else
+      if c.na < la then
+        if c.inner < c.nb then
+          (some (c.na, c.inner), { c with inner := c.inner + 1, col := false })
+        else Cursor.next la lb f ⟨c.na + 1, c.nb, 0, false⟩
+      else (none, c)
 
 /-- What `Cursor.next` is given to count down. -/
 def Cursor.room (la lb : Nat) (c : Cursor) : Nat := (la - c.na) + (lb - c.nb) + 1
@@ -149,6 +195,13 @@ def Cursor.all (la lb : Nat) : Nat → Cursor → List (Nat × Nat) × Cursor
 /-- Is a pair left to combine? -/
 def Cursor.pending (la lb : Nat) (c : Cursor) : Bool := decide (c.na < la) || decide (c.nb < lb)
 
+/-- The state of an interface check: its side is still to be read; it is not
+offered; or the tables of the goals opened for the interfaces. -/
+inductive Check where
+  | reading
+  | off
+  | opened (subs : List Nat)
+
 /-- A strategy of a table, with its cursors. The tables it reads are named
 by their positions. -/
 inductive Strat (N A : Type) where
@@ -165,6 +218,10 @@ inductive Strat (N A : Type) where
   for it and the position that table is read from. -/
   | push (k : Kind) (left : Bool) (side : Nat) (other : N) (todo : Option (List A))
       (subs : List (A × Nat × Nat))
+  /-- The interface check of one split of a chain: the node `side` (the left
+  side of the split if `left`) is read from the program, and the node `other`
+  is opened under each interface it can show. -/
+  | check (left : Bool) (side other : N) (c : Check)
 
 /-- The strategies of one split, with the level of the group. -/
 structure Group (N A : Type) where
@@ -187,11 +244,16 @@ structure Table (S N A : Type) where
   delta : Nat
 
 /-- The machine state: the tables, the root first, the number of requests
-made, and how many answers of the root table have been emitted. -/
+made, how many answers of the root table have been emitted, and the edges
+read so far: for a node and an end of it (its last end if the flag is set),
+the interfaces its answers can show there, or nothing if a check on it is
+not offered; and the depth edges are read to. -/
 structure StateOf (S N A : Type) where
   tables : List (Table S N A)
   round : Nat
   shown : Nat
+  edges : List (N × Bool × Option (List S))
+  depth : Nat
 
 /-- The members a meet of `k` members is split at: the first of two; every
 member otherwise. -/
@@ -220,6 +282,39 @@ def StateOf.isDone {S N A : Type} (st : StateOf S N A) (i : Nat) : Bool :=
   | some t => t.done
   | none => false
 
+/-- Of the entries that pass `ok`, the first with the least key. -/
+def leastBy {α : Type} (key : α → Nat) (ok : α → Bool) (l : List α) : Option α :=
+  (l.filter ok).foldl (fun best x =>
+    match best with
+    | none => some x
+    | some b => if key x < key b then some x else some b) none
+
+theorem mem_of_leastBy {α : Type} {key : α → Nat} {ok : α → Bool} {l : List α} {x : α}
+    (h : leastBy key ok l = some x) : x ∈ l := by
+  have main : ∀ (ys : List α) (best : Option α),
+      ys.foldl (fun best x =>
+        match best with
+        | none => some x
+        | some b => if key x < key b then some x else some b) best = some x →
+      x ∈ ys ∨ best = some x := by
+    intro ys
+    induction ys with
+    | nil => intro best h; exact .inr h
+    | cons y ys ih =>
+      intro best h
+      rcases ih _ h with h' | h'
+      · exact .inl (List.mem_cons_of_mem _ h')
+      · cases best with
+        | none => cases h'; exact .inl List.mem_cons_self
+        | some b =>
+          simp only at h'
+          split at h'
+          · cases h'; exact .inl List.mem_cons_self
+          · exact .inr h'
+  rcases main _ _ h with h' | h'
+  · exact List.mem_of_mem_filter h'
+  · cases h'
+
 /-- The level of a list of groups: the lowest. -/
 def levelOf {N A : Type} (gs : List (Group N A)) : Nat :=
   match gs.map (·.level) with
@@ -240,6 +335,16 @@ def Strat.feeds (st : StateOf S N A) : Strat N A → List Nat
   | .copy _ subs => subs.map Prod.fst
   | .join _ a b _ => [a, b]
   | .push _ _ side _ _ subs => if st.isDone side then subs.map (·.2.1) else [side]
+  | .check _ _ _ (.opened subs) =>
+    if subs.any fun j => !(st.answers j).isEmpty then [] else subs
+  | .check _ _ _ _ => []
+
+/-- The strategy can do nothing more, and cannot complete its goal: a check
+that is not offered, or one of whose goals has an answer. -/
+def Strat.dead (st : StateOf S N A) : Strat N A → Bool
+  | .check _ _ _ .off => true
+  | .check _ _ _ (.opened subs) => subs.any fun j => !(st.answers j).isEmpty
+  | _ => false
 
 /-- Has the strategy work it could do now? -/
 def Strat.pending (st : StateOf S N A) : Strat N A → Bool
@@ -250,6 +355,8 @@ def Strat.pending (st : StateOf S N A) : Strat N A → Bool
     st.isDone side && (match todo with
       | none => true
       | some l => !l.isEmpty || subs.any fun e => decide (e.2.2 < (st.answers e.2.1).length))
+  | .check _ _ _ .reading => true
+  | .check _ _ _ _ => false
 
 /-- The strategy has nothing left to do and every table it reads passes
 `ok`. With `ok` the test for a complete table, the answers of the goal can
@@ -260,7 +367,9 @@ def Strat.quiet (st : StateOf S N A) (ok : Nat → Bool) (s : Strat N A) : Bool 
     | .copy _ subs => subs.all fun p => ok p.1
     | .join _ a b _ => ok a && ok b
     | .push _ _ side _ todo subs =>
-      st.isDone side && todo.isSome && subs.all fun e => ok e.2.1)
+      st.isDone side && todo.isSome && subs.all fun e => ok e.2.1
+    | .check _ _ _ (.opened subs) => subs.all fun j => ok j && (st.answers j).isEmpty
+    | .check _ _ _ _ => false)
 
 /-- The tables that complete at the end of a request: the largest set of
 open tables that have had a round, each with a strategy that has nothing
@@ -400,8 +509,180 @@ def splitGroup (k : Kind) (L R : GoalOf S N) (st : StateOf S N A) :
     M (StateOf S N A × Group N A) := do
   let (st, a) ← openGoal (K := K) st L
   let (st, b) ← openGoal (K := K) st R
-  pure (st, ⟨0, [.join k a b ⟨0, 0, 0⟩, .push k true a R.node none [],
+  pure (st, ⟨0, [.join k a b Cursor.start, .push k true a R.node none [],
     .push k false b L.node none []]⟩)
+
+/-! ## Reading an edge from the program -/
+
+/-- A run of spans at one end of a node, composed (nothing when a call that
+is being read was met first), and whether the run is a whole product of the
+node. -/
+abbrev Run (S : Type) := Option S × Bool
+
+/-- Add a run to a list that may have it. -/
+def addRun (acc : List (Run S)) (r : Run S) : M (List (Run S)) := do
+  let b ← anyL (fun (q : Run S) =>
+    if q.2 = r.2 then sameBound (K := K) q.1 r.1 else pure false) acc
+  pure (if b then acc else acc ++ [r])
+
+/-- Does a node contain a call, without unfolding one? A node with none has
+finitely many answers. Nothing if the node is deeper than the first
+argument. -/
+def hasCall : Nat → N → M (Option Bool)
+  | 0, _ => pure none
+  | d + 1, n => do
+    let v ← K.view n
+    match v with
+    | .span _ => pure (some false)
+    | .call _ _ => pure (some true)
+    | .chain xs | .meet xs | .union xs =>
+      foldL (fun (acc : Option Bool) x =>
+        match acc with
+        | some false => hasCall d x
+        | r => pure r) (some false) xs
+
+/-- The runs `rs` at the edge of a chain, continued through the next member
+inwards, whose runs are `ys`: a run that is not a whole product stays, and a
+whole one is composed with each run of the member. -/
+def extendRuns (last : Bool) (rs ys : List (Run S)) : M (List (Run S)) :=
+  foldL (fun (acc : List (Run S)) (r : Run S) =>
+    match r with
+    | (some x, true) =>
+      foldL (fun (acc : List (Run S)) (q : Run S) =>
+        match q.1 with
+        | none => addRun (K := K) acc (some x, false)
+        | some y => do
+          let z ← if last then K.compose y x else K.compose x y
+          match z with
+          | none => pure acc
+          | some z => addRun (K := K) acc (some z, q.2)) acc ys
+    | _ => pure acc) (rs.filter fun r => !r.2) rs
+
+/-- The runs of spans the answers of a node end with (`last`) or begin with:
+every answer of the node is a product of one of them, with something before
+it (after it) unless the run is whole. The edge is followed inwards, through
+unions and through each call once: `seen` is the calls being read. A meet is
+not read. Nothing if the program is deeper than the first argument. -/
+def runs (last : Bool) : Nat → List N → N → M (Option (List (Run S)))
+  | 0, _, _ => pure none
+  | d + 1, seen, n => do
+    let v ← K.view n
+    match v with
+    | .span _ => do
+      let a ← K.leaf none n none
+      pure (some (match a with
+        | some a => [(some (K.span a), true)]
+        | none => []))
+    | .meet _ => pure (some [(none, false)])
+    | .union xs =>
+      foldL (fun (acc : Option (List (Run S))) x =>
+        match acc with
+        | none => pure none
+        | some rs => do
+          let r ← runs last d seen x
+          match r with
+          | none => pure none
+          | some r => do
+            let rs' ← foldL (addRun (K := K)) rs r
+            pure (some rs')) (some []) xs
+    | .call _ _ => do
+      let b ← anyL (fun m => K.eqNode m n) seen
+      if b then pure (some [(none, false)])
+      else do
+        let bd ← K.body n
+        match bd with
+        | none => pure (some [])
+        | some bd => runs last d (n :: seen) bd
+    | .chain xs =>
+      match (if last then xs.reverse else xs) with
+      | [] => pure (some [(none, false)])
+      | e :: rest => do
+        let r ← runs last d seen e
+        foldL (fun (acc : Option (List (Run S))) x =>
+          match acc with
+          | none => pure none
+          | some rs =>
+            if rs.any (·.2) then do
+              let r ← runs last d seen x
+              match r with
+              | none => pure none
+              | some ys => do
+                let rs' ← extendRuns (K := K) last rs ys
+                pure (some rs')
+            else pure acc) r rest
+
+/-- The interfaces the answers of a node can show at one end, read to the
+depth given: nothing if the depth was not enough; otherwise the interfaces,
+or nothing where a check on them is not offered, because the node contains no
+call or because one of the interfaces restricts nothing. -/
+def readEdge (last : Bool) (depth : Nat) (n : N) : M (Option (Option (List S))) := do
+  let c ← hasCall (K := K) depth n
+  match c with
+  | none => pure none
+  | some false => pure (some none)
+  | some true => do
+    let r ← runs (K := K) last depth [] n
+    match r with
+    | none => pure none
+    | some rs => do
+      let ps ← foldL (fun (acc : Option (List S)) (r : Run S) =>
+        match acc, r.1 with
+        | some ps, some x => do
+          let p ← if last then K.rightBound x else K.leftBound x
+          match p with
+          | none => pure none
+          | some p => do
+            let b ← anyL (fun q => K.eq q p) ps
+            pure (some (if b then ps else ps ++ [p]))
+        | _, _ => pure none) (some []) rs
+      pure (some ps)
+
+/-- What was read at an end of a node, if it was. -/
+def lookupEdge (n : N) (last : Bool) :
+    List (N × Bool × Option (List S)) → M (Option (Option (List S)))
+  | [] => pure none
+  | e :: es =>
+    if e.2.1 = last then do
+      let b ← K.eqNode e.1 n
+      if b then pure (some e.2.2) else lookupEdge n last es
+    else lookupEdge n last es
+
+/-- The edge of a node at one end: what was read of it, or a reading to the
+depth of the state. What is read is kept. If the depth was not enough,
+nothing is returned and the depth of the state doubles. -/
+def edgeOf (st : StateOf S N A) (last : Bool) (n : N) :
+    M (StateOf S N A × Option (Option (List S))) := do
+  let c ← lookupEdge (K := K) n last st.edges
+  match c with
+  | some e => pure (st, some e)
+  | none => do
+    let r ← readEdge (K := K) last st.depth n
+    pure (match r with
+      | some e => ({ st with edges := st.edges ++ [(n, last, e)] }, some e)
+      | none => ({ st with depth := 2 * st.depth }, none))
+
+/-- The check of one side of a split, unless it is not offered. -/
+def checkOf (st : StateOf S N A) (left : Bool) (side other : N) :
+    M (StateOf S N A × List (Strat N A)) := do
+  let (st, e) ← edgeOf (K := K) st left side
+  pure (st, match e with
+    | some none => []
+    | _ => [.check left side other .reading])
+
+/-- The groups of the splits of a chain goal of `k` members, and its
+interface checks. -/
+def chainGroups (g : GoalOf S N) (k : Nat) (st : StateOf S N A) :
+    M (StateOf S N A × List (Group N A) × List (Strat N A)) :=
+  foldL (fun (acc : StateOf S N A × List (Group N A) × List (Strat N A)) i => do
+    let l ← K.interval g.node 0 i
+    let r ← K.interval g.node i k
+    match l, r with
+    | some l, some r => do
+      let (st, gr) ← splitGroup (K := K) .seq ⟨g.lb, l, none⟩ ⟨none, r, g.rb⟩ acc.1
+      let (st, cl) ← checkOf (K := K) st true l r
+      let (st, cr) ← checkOf (K := K) st false r l
+      pure (st, acc.2.1 ++ [gr], acc.2.2 ++ cl ++ cr)
+    | _, _ => pure acc) (st, [], []) ((List.range k).drop 1)
 
 /-- The groups of a goal, by the kind of its node. The goals its strategies
 read are opened. -/
@@ -421,15 +702,9 @@ def expand (g : GoalOf S N) (st : StateOf S N A) : M (StateOf S N A × List (Gro
       let (st, j) ← openGoal (K := K) acc.1 ⟨g.lb, x, g.rb⟩
       pure (st, acc.2 ++ [(j, 0)])) (st, []) xs
     pure (st, [⟨0, [.copy false subs]⟩])
-  | .chain xs =>
-    foldL (fun (acc : StateOf S N A × List (Group N A)) i => do
-      let l ← K.interval g.node 0 i
-      let r ← K.interval g.node i xs.length
-      match l, r with
-      | some l, some r => do
-        let (st, gr) ← splitGroup (K := K) .seq ⟨g.lb, l, none⟩ ⟨none, r, g.rb⟩ acc.1
-        pure (st, acc.2 ++ [gr])
-      | _, _ => pure acc) (st, []) ((List.range xs.length).drop 1)
+  | .chain xs => do
+    let r ← chainGroups (K := K) g xs.length st
+    pure (r.1, if r.2.2.isEmpty then r.2.1 else r.2.1 ++ [⟨0, r.2.2⟩])
   | .meet xs =>
     foldL (fun (acc : StateOf S N A × List (Group N A)) i => do
       let r ← K.without g.node i
@@ -476,6 +751,14 @@ def pushTake (i : Nat) (k : Kind) (left : Bool) (x : A) (st : StateOf S N A) (ys
     let c ← pushed (K := K) k left x y
     addOption (K := K) i st c) st ys
 
+/-- Open the other side of a split under each interface of a check. -/
+def checkOpen (g : GoalOf S N) (left : Bool) (other : N) (st : StateOf S N A) (ps : List S) :
+    M (StateOf S N A × List Nat) :=
+  foldL (fun (acc : StateOf S N A × List Nat) p => do
+    let (st, j) ← openGoal (K := K) acc.1
+      (if left then ⟨some p, other, g.rb⟩ else ⟨g.lb, other, some p⟩)
+    pure (st, acc.2 ++ [j])) (st, []) ps
+
 /-- The work of one strategy of the table at `i`: everything its inputs
 allow (`whole`), or one unit. Returns the state, the strategy with its
 cursors moved, and whether anything was done. -/
@@ -493,7 +776,8 @@ def work (whole : Bool) (i : Nat) (g : GoalOf S N) (st : StateOf S N A) :
       pure (st', .copy isCall (subs.map fun p => (p.1, max p.2 (st.answers p.1).length)),
         (Strat.copy isCall subs : Strat N A).pending st)
     else
-      match subs.zipIdx.find? fun p => decide (p.1.2 < (st.answers p.1.1).length) with
+      match leastBy (fun p => p.1.2) (fun p => decide (p.1.2 < (st.answers p.1.1).length))
+          subs.zipIdx with
       | none => pure (st, .copy isCall subs, false)
       | some p => do
         let st' ← copyFrom (K := K) i g isCall p.2 st (((st.answers p.1.1).drop p.1.2).take 1)
@@ -533,13 +817,23 @@ def work (whole : Bool) (i : Nat) (g : GoalOf S N) (st : StateOf S N A) :
         let (st1, new) ← pushOpen (K := K) g other k left st [x]
         pure (st1, .push k left side other (some rest) (subs ++ new), true)
       | some [] =>
-        match subs.zipIdx.find? fun p => decide (p.1.2.2 < (st.answers p.1.2.1).length) with
+        match leastBy (fun p => p.1.2.2)
+            (fun p => decide (p.1.2.2 < (st.answers p.1.2.1).length)) subs.zipIdx with
         | none => pure (st, .push k left side other (some []) subs, false)
         | some p => do
           let st' ← pushTake (K := K) i k left p.1.1 st
             (((st.answers p.1.2.1).drop p.1.2.2).take 1)
           pure (st', .push k left side other (some [])
             (subs.modify p.2 fun e => (e.1, e.2.1, e.2.2 + 1)), true)
+  | .check left side other .reading => do
+    let (st, e) ← edgeOf (K := K) st left side
+    match e with
+    | none => pure (st, .check left side other .reading, true)
+    | some none => pure (st, .check left side other .off, true)
+    | some (some ps) => do
+      let (st, subs) ← checkOpen (K := K) g left other st ps
+      pure (st, .check left side other (.opened subs), true)
+  | .check left side other c => pure (st, .check left side other c, false)
 
 /-! ## A round -/
 
@@ -615,6 +909,9 @@ def advance : Nat → Nat → StateOf S N A → M (StateOf S N A × Nat)
           if acc.2 then pure acc
           else workLevel (K := K) (advance fuel) whole i t.goal lv acc.1) (st, false)
           (levelsOf gs)
+        let st := st.modify i fun t =>
+          { t with groups := t.groups.map fun gs =>
+              gs.filter fun gr => !gr.strats.all (Strat.dead st) }
         let gs' := groupsAt st i
         let fin := gs'.any fun gr => gr.strats.any fun s => s.quiet st st.isDone
         let d := levelOf gs' - low
@@ -649,7 +946,7 @@ def step (st : StateOf S N A) : M (StepOf A (StateOf S N A)) :=
 /-- The first state: the table of the root goal alone. -/
 def init (root : N) : M (StateOf S N A) := do
   let self ← selfConverse (K := K) ⟨none, root, none⟩
-  pure ⟨[⟨⟨none, root, none⟩, self, [], false, none, 0, 0, 0⟩], 0, 0⟩
+  pure ⟨[⟨⟨none, root, none⟩, self, [], false, none, 0, 0, 0⟩], 0, 0, [], 1⟩
 
 end
 

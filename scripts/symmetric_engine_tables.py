@@ -146,6 +146,10 @@ class Goal:
         g.expand()
         groups = {}
         for i, s in enumerate(g.strats): groups.setdefault(i if M.each else s.split, []).append(s)
+        if M.drop_dead:      # a group of checks none of which can do anything more is removed
+            for k in [k for k, ss in groups.items() if all(isinstance(s, Cover) and not s.live() for s in ss)]:
+                del groups[k]; g.level.pop(k, None)
+                g.strats = [s for s in g.strats if s.split != k]
         for k in groups: g.level.setdefault(k, 0)
         low = min(g.level[k] for k in groups)
         whole = M.units == 'all' or (M.units == 'alone' and len(groups) == 1)
@@ -241,9 +245,24 @@ class Copy(Strat):
     def complete(s): return all(h.done for h in s.subs) and not s.pending()
 
 class Pairs:
-    """Every pair of two growing lists, once."""
-    def __init__(p, xs, ys): p.xs, p.ys = xs, ys; p.na = p.nb = p.inner = 0; p.spent = 0
+    """Every pair of two growing lists, once. With `fair` (the Lean engine's order) a line in progress is
+    finished before another is begun, and the side with fewer answers counted begins the next line;
+    without it the first list goes first, a pair is skipped when the first list gains an answer while
+    a line of the second is in progress, and the second list can wait for ever."""
+    fair = False
+    def __init__(p, xs, ys): p.xs, p.ys = xs, ys; p.na = p.nb = p.inner = 0; p.spent = 0; p.col = False
     def next(p):
+        while Pairs.fair:
+            a, b = len(p.xs) > p.na, len(p.ys) > p.nb
+            col = p.col if p.inner else ((p.nb < p.na) if (a and b) else not a)
+            if col:
+                if not b: return None
+                if p.inner < p.na: p.inner += 1; p.col = True; return p.xs[p.inner - 1], p.ys[p.nb]
+                p.nb += 1; p.inner = 0
+            else:
+                if not a: return None
+                if p.inner < p.nb: p.inner += 1; p.col = False; return p.xs[p.na], p.ys[p.inner - 1]
+                p.na += 1; p.inner = 0
         while True:
             if len(p.xs) > p.na:
                 if p.inner < p.nb: p.inner += 1; return p.xs[p.na], p.ys[p.inner - 1]
@@ -289,7 +308,7 @@ class Push(Strat):
             x = s.side.ans[s.opened]; s.opened += 1
             key = (bound(x[1]), s.other, g.rb) if s.left else (g.lb, s.other, bound(x[0]))
             s.subs.append([x, s.sub(key, False), 0]); return 1
-        for e in s.subs:
+        for e in (sorted(s.subs, key=lambda e: e[2]) if Pairs.fair else s.subs):
             x, h, pos = e
             if pos < len(h.ans):
                 y = h.ans[pos]; e[2] += 1; u = (x, y) if s.left else (y, x)
@@ -330,10 +349,14 @@ class Machine:
     cover: the interface check. check_calls: only for a side that contains a call. check_apart: the checks of
            a goal are one group of their own instead of belonging to the group of their split.
     each: every strategy is a group of its own (measured and rejected).
+    fair_units: a join and a push take their units in the order of the Lean engine (see `Pairs`); a push
+           reads next the goal it has read least.
+    drop_dead: a group of interface checks each of which has a goal with an answer is removed from its
+           goal, as the Lean engine does; without it the group stays with its level frozen.
     defer: a goal opened during a request has its first round in the next request, so the goals that
            take part in a request are among those open when it starts."""
-    def __init__(M, prog, query, rule='alt', push=True, open_calls=False, e1=False, units='goal', cover=False, each=False, check_apart=False, check_calls=False, defer=False):
-        M.defer = defer; M.requests = 0
+    def __init__(M, prog, query, rule='alt', push=True, open_calls=False, e1=False, units='goal', cover=False, each=False, check_apart=False, check_calls=False, defer=False, drop_dead=False, fair_units=False):
+        M.defer = defer; M.requests = 0; M.drop_dead = drop_dead; Pairs.fair = fair_units
         M.each = each; M.check_apart = check_apart; M.check_calls = check_calls
         M.prog, M.rule, M.push, M.open_calls, M.e1, M.units, M.cover = prog, rule, push, open_calls, e1, units, cover
         M.edges = {}

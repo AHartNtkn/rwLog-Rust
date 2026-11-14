@@ -137,6 +137,7 @@ def StratOk (st : StateOf R Rel (Ans D P)) (g : GoalOf R Rel) : Strat Rel (Ans D
       (∀ l, todo = some l → ∀ x ∈ l, GoalIs gs x) ∧
       ∀ e ∈ subs.map (fun e => (e.1, e.2.1)),
         GoalIs gs e.1 ∧ goalAt st e.2 = some (pushG D g other k left e.1)
+  | .check _ _ other _ => Normal other
 
 omit [DecidableEq R] in
 theorem StratOk.mono {st st' : StateOf R Rel (Ans D P)} (h : Ext st st') {g : GoalOf R Rel}
@@ -153,6 +154,7 @@ theorem StratOk.mono {st st' : StateOf R Rel (Ans D P)} (h : Ext st st') {g : Go
   | push k left side other todo subs =>
     obtain ⟨gs, h1, h2, h3, h4, h5⟩ := hs
     exact ⟨gs, h _ _ h1, h2, h3, h4, fun e he => ⟨(h5 e he).1, h _ _ (h5 e he).2⟩⟩
+  | check _ _ _ _ => exact hs
 
 /-- The invariant: the goals are goals of the normal form, a table marked as
 its own converse is, every answer of a table has the goal of the table, and
@@ -582,6 +584,87 @@ theorem meet_split_of {e l r : Rel} {xs : List Rel} {i : Nat} (hn : Normal e)
   cases hl'; cases hr'
   exact ⟨e1, e2⟩
 
+omit [DecidableEq R] in
+/-- A change of the state that leaves its tables alone keeps the
+invariant. -/
+theorem Inv.of_tables {st st' : StateOf R Rel (Ans D P)} (hI : Inv st)
+    (h : st'.tables = st.tables) : Inv st' := by
+  have hE : Ext st st' := fun j g hg => by
+    unfold goalAt at hg ⊢
+    rw [h]; exact hg
+  exact ⟨fun i t ht => hI.core i t (h ▸ ht), fun i t ht gs hgs gr hgr s hs =>
+    (hI.strat i t (h ▸ ht) gs hgs gr hgr s hs).mono hE⟩
+
+theorem inv_edgeOf {st : StateOf R Rel (Ans D P)} (hI : Inv st) (last : Bool) (n : Rel) :
+    Inv (edgeOf (K := DerivationKernel.over D K hK P) st last n).val.1 := by
+  at_cost K hK
+  simp only [edgeOf, Cost.bind_val]
+  split
+  · exact hI
+  · simp only [Cost.bind_val, Cost.pure_val]
+    split
+    · exact hI.of_tables rfl
+    · exact hI.of_tables rfl
+
+theorem inv_checkOf {st : StateOf R Rel (Ans D P)} (hI : Inv st) (left : Bool)
+    (side other : Rel) (g : GoalOf R Rel) (hn : Normal other) :
+    Inv (checkOf (K := DerivationKernel.over D K hK P) st left side other).val.1 ∧
+      ∀ s ∈ (checkOf (K := DerivationKernel.over D K hK P) st left side other).val.2,
+        ∀ st' : StateOf R Rel (Ans D P), StratOk st' g s := by
+  have h := inv_edgeOf (K := K) (hK := hK) hI left side
+  at_cost K hK
+  simp only [checkOf, Cost.bind_val, Cost.pure_val]
+  refine ⟨h, fun s hs st' => ?_⟩
+  split at hs
+  · cases hs
+  · obtain rfl := List.mem_singleton.1 hs
+    exact hn
+
+/-- Making the groups of a chain goal keeps the invariant, and they fit the
+goal. -/
+theorem inv_chainGroups {st : StateOf R Rel (Ans D P)} (hI : Inv st) (g : GoalOf R Rel)
+    (hn : Normal g.node) {xs : List Rel} (hvc : g.node.view = .chain xs) :
+    Inv (chainGroups (K := DerivationKernel.over D K hK P) g xs.length st).val.1 ∧
+      (∀ gr ∈ (chainGroups (K := DerivationKernel.over D K hK P) g xs.length st).val.2.1,
+        ∀ s ∈ gr.strats,
+          StratOk (chainGroups (K := DerivationKernel.over D K hK P) g xs.length st).val.1 g s) ∧
+      ∀ s ∈ (chainGroups (K := DerivationKernel.over D K hK P) g xs.length st).val.2.2,
+        StratOk (chainGroups (K := DerivationKernel.over D K hK P) g xs.length st).val.1 g s := by
+  at_cost K hK
+  refine foldL_inv (fun acc : StateOf R Rel (Ans D P) × List (Group Rel (Ans D P)) ×
+      List (Strat Rel (Ans D P)) =>
+    Inv acc.1 ∧ (∀ gr ∈ acc.2.1, ∀ s ∈ gr.strats, StratOk acc.1 g s) ∧
+      ∀ s ∈ acc.2.2, StratOk acc.1 g s) _ _ (fun b i _ hb => ?_)
+    (st, [], []) ⟨hI, (fun gr hgr => by cases hgr), fun s hs => by cases hs⟩
+  simp only [Cost.bind_val]
+  split
+  · next l r hl hr =>
+    simp only [Cost.bind_val, Cost.pure_val]
+    obtain ⟨h1, h2⟩ := inv_splitGroup (K := _) (hK := hK) hb.1 .seq ⟨g.lb, l, none⟩
+      ⟨none, r, g.rb⟩ g (hn.interval hl) (hn.interval hr)
+      ⟨rfl, rfl, chain_split_of hn hvc hl hr⟩
+    have hE1 := (reach_splitGroup (K := _) (hK := hK) .seq ⟨g.lb, l, none⟩ ⟨none, r, g.rb⟩ b.1).ext
+    obtain ⟨h3, h4⟩ := inv_checkOf (K := _) (hK := hK) h1 true l r g (hn.interval hr)
+    have hE2 := (reach_checkOf (K := _) (hK := hK) (P := P) (splitGroup
+      (K := DerivationKernel.over D _ hK P) .seq ⟨g.lb, l, none⟩ ⟨none, r, g.rb⟩ b.1).val.1
+      true l r).ext
+    obtain ⟨h5, h6⟩ := inv_checkOf (K := _) (hK := hK) h3 false r l g (hn.interval hl)
+    have hE3 := (reach_checkOf (K := _) (hK := hK) (P := P) (checkOf
+      (K := DerivationKernel.over D _ hK P) (splitGroup
+        (K := DerivationKernel.over D _ hK P) .seq ⟨g.lb, l, none⟩ ⟨none, r, g.rb⟩ b.1).val.1
+      true l r).val.1 false r l).ext
+    refine ⟨h5, fun gr hgr s hs => ?_, fun s hs => ?_⟩
+    · rcases List.mem_append.1 hgr with hgr | hgr
+      · exact (hb.2.1 gr hgr s hs).mono fun j g' h => hE3 _ _ (hE2 _ _ (hE1 _ _ h))
+      · obtain rfl := List.mem_singleton.1 hgr
+        exact (h2 s hs).mono fun j g' h => hE3 _ _ (hE2 _ _ h)
+    · rcases List.mem_append.1 hs with hs | hs
+      · rcases List.mem_append.1 hs with hs | hs
+        · exact (hb.2.2 s hs).mono fun j g' h => hE3 _ _ (hE2 _ _ (hE1 _ _ h))
+        · exact h4 s hs _
+      · exact h6 s hs _
+  · exact hb
+
 /-- Making the strategies of a goal keeps the invariant, and they fit the
 goal. -/
 theorem inv_expand {st : StateOf R Rel (Ans D P)} (hI : Inv st) (g : GoalOf R Rel)
@@ -634,23 +717,15 @@ theorem inv_expand {st : StateOf R Rel (Ans D P)} (hI : Inv st) (g : GoalOf R Re
     obtain rfl := List.mem_singleton.1 hs
     exact key.2
   · next xs hv =>
-    have hvc := forget_chain hv
-    refine foldL_inv (fun acc : StateOf R Rel (Ans D P) × List (Group Rel (Ans D P)) =>
-      Inv acc.1 ∧ ∀ gr ∈ acc.2, ∀ s ∈ gr.strats, StratOk acc.1 g s) _ _ (fun b i _ hb => ?_)
-      (st, []) ⟨hI, fun gr hgr => by cases hgr⟩
-    simp only [Cost.bind_val]
-    split
-    · next l r hl hr =>
-      simp only [Cost.bind_val, Cost.pure_val]
-      obtain ⟨h1, h2⟩ := inv_splitGroup (K := _) (hK := hK) hb.1 .seq ⟨g.lb, l, none⟩
-        ⟨none, r, g.rb⟩ g (hn.interval hl) (hn.interval hr)
-        ⟨rfl, rfl, chain_split_of hn hvc hl hr⟩
-      refine ⟨h1, fun gr hgr s hs => ?_⟩
-      rcases List.mem_append.1 hgr with hgr | hgr
-      · exact (hb.2 gr hgr s hs).mono (reach_splitGroup _ _ _ _).ext
+    simp only [Cost.bind_val, Cost.pure_val]
+    obtain ⟨h1, h2, h3⟩ := inv_chainGroups (K := _) (hK := hK) hI g hn (forget_chain hv)
+    refine ⟨h1, fun gr hgr s hs => ?_⟩
+    split at hgr
+    · exact h2 gr hgr s hs
+    · rcases List.mem_append.1 hgr with hgr | hgr
+      · exact h2 gr hgr s hs
       · obtain rfl := List.mem_singleton.1 hgr
-        exact h2 s hs
-    · exact hb
+        exact h3 s hs
   · next xs hv =>
     have hvm := forget_meet hv
     obtain ⟨-, hmem, -, -⟩ := hn.view_meet hvm
@@ -705,6 +780,16 @@ theorem mem_maxima {xs : List (Ans D P)} {x : Ans D P}
   rw [maxima_val] at h
   exact List.mem_maximaBy h
 
+theorem inv_checkOpen {st : StateOf R Rel (Ans D P)} (hI : Inv st) (g : GoalOf R Rel)
+    (left : Bool) (other : Rel) (ps : List R) (hn : Normal other) :
+    Inv (checkOpen (K := DerivationKernel.over D K hK P) g left other st ps).val.1 := by
+  at_cost K hK
+  refine foldL_inv (fun acc : StateOf R Rel (Ans D P) × List Nat => Inv acc.1) _ ps
+    (fun b p _ hb => ?_) (st, []) hI
+  simp only [Cost.bind_val, Cost.pure_val]
+  refine (inv_openGoal (K := _) (hK := hK) hb _ ?_).1
+  split <;> exact hn
+
 /-- The work of a strategy that fits its goal keeps the invariant, and the
 strategy it leaves fits the goal in any state that extends the state it was
 given. -/
@@ -751,7 +836,7 @@ theorem inv_work_aux {st : StateOf R Rel (Ans D P)} (hI : Inv st) (whole : Bool)
       · next p hp =>
         simp only [Cost.bind_val, Cost.pure_val]
         refine ⟨inv_copyFrom hI i g isCall p.2 _ hg (fun a ha =>
-          hsub p (List.mem_of_find?_eq_some hp) a
+          hsub p (mem_of_leastBy hp) a
             (List.mem_of_mem_drop (List.mem_of_mem_take ha))), fun hE => ?_⟩
         refine StratOk.mono hE ?_
         intro q hq
@@ -861,13 +946,27 @@ theorem inv_work_aux {st : StateOf R Rel (Ans D P)} (hI : Inv st) (whole : Bool)
           · exact ⟨hI, fun _ => ⟨gs, h1, hk, hno, htodo, hsubs⟩⟩
           · next p hp =>
             simp only [Cost.bind_val, Cost.pure_val]
-            have hp' := hsub p.1 (List.fst_mem_of_mem_zipIdx (List.mem_of_find?_eq_some hp))
+            have hp' := hsub p.1 (List.fst_mem_of_mem_zipIdx (mem_of_leastBy hp))
             refine ⟨inv_pushTake hI i k left p.1.1 _ hg hp'.1 (fun y hy =>
               hI.answers hp'.2 y (List.mem_of_mem_drop (List.mem_of_mem_take hy))) hk,
               fun hE => StratOk.mono hE ⟨gs, h1, hk, hno, htodo, fun e he => ?_⟩⟩
             rw [map_modify_eq (fun e : Ans D P × Nat × Nat => (e.1, e.2.1))
               (fun e : Ans D P × Nat × Nat => (e.1, e.2.1, e.2.2 + 1)) (fun _ => rfl)] at he
             exact hsubs e he
+  | check left side other c =>
+    have hno : Normal other := hs
+    have hI1 := inv_edgeOf (K := _) (hK := hK) hI left side
+    have hopen := fun ps => inv_checkOpen (K := _) (hK := hK) hI1 g left other ps hno
+    cases c with
+    | reading =>
+      simp only [work, Cost.bind_val]
+      split
+      · exact ⟨hI1, fun _ => hno⟩
+      · exact ⟨hI1, fun _ => hno⟩
+      · simp only [Cost.bind_val, Cost.pure_val]
+        exact ⟨hopen _, fun _ => hno⟩
+    | off => exact ⟨hI, fun _ => hno⟩
+    | opened subs => exact ⟨hI, fun _ => hno⟩
 
 /-- The work of a strategy that fits its goal keeps the invariant, and the
 strategy it leaves fits the goal. -/
@@ -911,6 +1010,20 @@ theorem Inv.modify_same {st : StateOf R Rel (Ans D P)} (hI : Inv st) (i : Nat)
     (fun t ht gs hgs => ?_)
   · rw [(e t).2.2]; exact (hI.core i t ht).2.2
   · rw [hgr] at hgs; exact hI.strat i t ht gs hgs
+
+omit [DecidableEq R] in
+/-- Removing groups of one table keeps the invariant. -/
+theorem Inv.dropGroups {st : StateOf R Rel (Ans D P)} (hI : Inv st) (i : Nat)
+    (p : Group Rel (Ans D P) → Bool) :
+    Inv (st.modify i fun t => { t with groups := t.groups.map fun gs => gs.filter p }) := by
+  refine hI.modify i _ (fun _ => rfl) (fun _ => rfl) (fun t ht => (hI.core i t ht).2.2)
+    (fun t ht gs hgs gr hgr s hs => ?_)
+  cases hg : t.groups with
+  | none => rw [hg] at hgs; cases hgs
+  | some gs' =>
+    rw [hg] at hgs
+    cases hgs
+    exact hI.strat i t ht gs' hg gr (List.mem_of_mem_filter hgr) s hs
 
 omit [DecidableEq R] in
 /-- A change of the tables that keeps the goal, the mark, the answers and
@@ -1087,6 +1200,7 @@ theorem inv_advance : ∀ (fuel i : Nat) (st : StateOf R Rel (Ans D P)), Inv st 
           · simp only [Cost.bind_val, Cost.pure_val]
             have hg : goalAt st i = some t.goal := by unfold goalAt; rw [ht]; rfl
             refine Inv.modify_same ?_ i _ (fun _ => rfl) (fun _ => rfl)
+            refine Inv.dropGroups ?_ i _
             refine (foldL_inv (fun acc : StateOf R Rel (Ans D P) × Bool =>
               Inv acc.1 ∧ goalAt acc.1 i = some t.goal) _ _ (fun b lv _ hb => ?_) _
               ⟨inv_prepare (K := _) (hK := hK) hI i t ht,
