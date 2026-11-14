@@ -1748,4 +1748,598 @@ theorem expand_pair_spec {S : Sorts} {sp : Pat} {U : List Name} (hC : Ctx nm S s
         · cases h
       · cases h
 
+/-! ## What the alternatives of a key say -/
+
+/-- The alternatives make a key hold, given the keys in `M`: every guard of
+a list with no edges, or every guard and one edge of a list with edges. -/
+def Sat (M : Key → Prop) (nows : List (List Key)) (steps : List Step) : Prop :=
+  (∃ g ∈ nows, ∀ q ∈ g, M q) ∨ ∃ a ∈ steps, (∀ q ∈ a.1, M q) ∧ ∃ q ∈ a.2, M q
+
+theorem mem_keyNows {S : Sorts} {d : Sorts.Conj} {μ : Name} {g : List Key} :
+    ∀ {K : List (Sym × Nat)}, g ∈ keyNows S d μ K ↔
+      ∃ κ ∈ K, Sorts.Accepts S d κ.1 κ.2 ∧ Sorts.step S μ κ.1 κ.2 = none ∧
+        g = bareKeys (altOf S d κ.1 κ.2)
+  | [] => by simp [keyNows]
+  | κ :: K => by
+    simp only [keyNows, List.mem_append, mem_keyNows (K := K), List.mem_cons, exists_eq_or_imp]
+    refine or_congr ?_ Iff.rfl
+    split
+    · rename_i h
+      simp [h.1, h.2]
+    · rename_i h
+      simp only [List.not_mem_nil, false_iff, not_and]
+      exact fun h1 h2 _ => h ⟨h1, h2⟩
+
+theorem mem_keySteps {S : Sorts} {d : Sorts.Conj} {μ : Name} {a : Step} :
+    ∀ {K : List (Sym × Nat)}, a ∈ keySteps S d μ K ↔
+      ∃ κ ∈ K, Sorts.Accepts S d κ.1 κ.2 ∧ ∃ kids, Sorts.step S μ κ.1 κ.2 = some kids ∧
+        a = (bareKeys (altOf S d κ.1 κ.2), pairKeys (altOf S d κ.1 κ.2) kids)
+  | [] => by simp [keySteps]
+  | κ :: K => by
+    simp only [keySteps, List.mem_append, mem_keySteps (K := K), List.mem_cons, exists_eq_or_imp]
+    refine or_congr ?_ Iff.rfl
+    by_cases hacc : Sorts.Accepts S d κ.1 κ.2
+    · cases hs : Sorts.step S μ κ.1 κ.2 with
+      | none => simp [hacc]
+      | some kids => simp [hacc]
+    · simp [hacc]
+
+theorem bare_all {S : Sorts} {d : Sorts.Conj} {f : Sym} {a : Nat} {M : Key → Prop} :
+    (∀ q ∈ bareKeys (altOf S d f a), M q) ↔ ∀ i < a, M (Sorts.kidC S d f a i, none) := by
+  simp only [bareKeys, altOf, List.map_map, List.mem_reverse, List.mem_map, List.mem_range,
+    Function.comp_apply]
+  constructor
+  · intro h i hi
+    exact h _ ⟨i, hi, rfl⟩
+  · rintro h q ⟨i, hi, rfl⟩
+    exact h i hi
+
+theorem pair_any {S : Sorts} {d : Sorts.Conj} {f : Sym} {a : Nat} {kids : List (Option Name)}
+    {M : Key → Prop} :
+    (∃ q ∈ pairKeys (altOf S d f a) kids, M q) ↔
+      ∃ i < a, ∃ m, kids[i]? = some (some m) ∧ M (Sorts.kidC S d f a i, some m) := by
+  have hlen : (altOf S d f a).length = a := by simp [altOf]
+  constructor
+  · rintro ⟨q, hq, hM⟩
+    obtain ⟨i, hi, m, hk, rfl⟩ := mem_pairKeys.1 hq
+    refine ⟨i, by rw [← hlen]; exact hi, m, hk, ?_⟩
+    simpa [altOf] using hM
+  · rintro ⟨i, hi, m, hk, hM⟩
+    refine ⟨_, mem_pairKeys.2 ⟨i, by rw [hlen]; exact hi, m, hk, rfl⟩, ?_⟩
+    simpa [altOf] using hM
+
+theorem mem_conjKeys {S : Sorts} {U : List Name} {d : Sorts.Conj} (hd : Sub U d)
+    {κ : Sym × Nat} :
+    κ ∈ (conjList U (· ∈ d)).flatMap (defKeys S) ↔ κ ∈ Sorts.caseKeys S d := by
+  constructor
+  · intro h
+    obtain ⟨n, hn, hκ⟩ := List.mem_flatMap.1 h
+    exact defKeys_sub (mem_conjList.1 hn).2 hκ
+  · intro h
+    obtain ⟨f, a⟩ := κ
+    obtain ⟨n, hn, dd, hl, c, hc, rfl, rfl⟩ := Sorts.mem_caseKeys.1 h
+    refine List.mem_flatMap.2 ⟨n, mem_conjList.2 ⟨hd n hn, hn⟩, ?_⟩
+    simp only [defKeys, hl, caseKeysL]
+    exact List.mem_map_of_mem hc
+
+theorem mem_ownKeys {S : Sorts} {μ : Name} {κ : Sym × Nat} :
+    κ ∈ ownKeys S μ ↔ κ ∈ Sorts.caseKeys S {μ} ∪ Sorts.exKeys S μ := by
+  constructor
+  · intro h
+    have := ownKeys_sub (d := ∅) h
+    simp only [Sorts.keysOf, Finset.mem_union] at this ⊢
+    rcases this with (h | h) | h
+    · simp [Sorts.caseKeys] at h
+    · exact Or.inl h
+    · exact Or.inr h
+  · intro h
+    obtain ⟨f, a⟩ := κ
+    rcases Finset.mem_union.1 h with h | h
+    · obtain ⟨n, hn, dd, hl, c, hc, rfl, rfl⟩ := Sorts.mem_caseKeys.1 h
+      rw [Finset.mem_singleton.1 hn] at hl
+      simp only [ownKeys, hl, caseKeysL]
+      exact List.mem_append_left _ (List.mem_map_of_mem hc)
+    · unfold Sorts.exKeys at h
+      cases hl : S.lookup μ with
+      | none => simp [hl] at h
+      | some dd =>
+        cases hre : dd.rest with
+        | none => simp [hl, hre] at h
+        | some r =>
+          simp only [hl, hre, Option.bind_some, List.mem_toFinset] at h
+          simp only [ownKeys, hl, hre]
+          exact List.mem_append_right _ h
+
+theorem mem_pairNows {S : Sorts} {U : List Name} {d : Sorts.Conj} (hd : Sub U d) {μ : Name}
+    {g : List Key} :
+    g ∈ pairNows S U d μ ↔ g ∈ restNows S d μ ∨
+      ∃ κ ∈ Sorts.caseKeys S d ∪ Sorts.caseKeys S {μ} ∪ Sorts.exKeys S μ,
+        Sorts.Accepts S d κ.1 κ.2 ∧ Sorts.step S μ κ.1 κ.2 = none ∧
+          g = bareKeys (altOf S d κ.1 κ.2) := by
+  simp only [pairNows, List.mem_append, List.mem_reverse, mem_keyNows, mem_ownKeys,
+    mem_conjKeys hd, Finset.mem_union]
+  constructor
+  · rintro (⟨κ, h, r⟩ | ⟨κ, h, r⟩ | h)
+    · exact Or.inr ⟨κ, by tauto, r⟩
+    · exact Or.inr ⟨κ, by tauto, r⟩
+    · exact Or.inl h
+  · rintro (h | ⟨κ, (h | h) | h, r⟩)
+    · exact Or.inr (Or.inr h)
+    · exact Or.inr (Or.inl ⟨κ, h, r⟩)
+    · exact Or.inl ⟨κ, Or.inl h, r⟩
+    · exact Or.inl ⟨κ, Or.inr h, r⟩
+
+theorem mem_pairSteps {S : Sorts} {U : List Name} {d : Sorts.Conj} (hd : Sub U d) {μ : Name}
+    {a : Step} :
+    a ∈ pairSteps S U d μ ↔ a ∈ restSteps S d μ ∨
+      ∃ κ ∈ Sorts.caseKeys S d ∪ Sorts.caseKeys S {μ} ∪ Sorts.exKeys S μ,
+        Sorts.Accepts S d κ.1 κ.2 ∧ ∃ kids, Sorts.step S μ κ.1 κ.2 = some kids ∧
+          a = (bareKeys (altOf S d κ.1 κ.2), pairKeys (altOf S d κ.1 κ.2) kids) := by
+  simp only [pairSteps, List.mem_append, List.mem_reverse, mem_keySteps, mem_ownKeys,
+    mem_conjKeys hd, Finset.mem_union]
+  constructor
+  · rintro (⟨κ, h, r⟩ | ⟨κ, h, r⟩ | h)
+    · exact Or.inr ⟨κ, by tauto, r⟩
+    · exact Or.inr ⟨κ, by tauto, r⟩
+    · exact Or.inl h
+  · rintro (h | ⟨κ, (h | h) | h, r⟩)
+    · exact Or.inr (Or.inr h)
+    · exact Or.inr (Or.inl ⟨κ, h, r⟩)
+    · exact Or.inl ⟨κ, Or.inl h, r⟩
+    · exact Or.inl ⟨κ, Or.inr h, r⟩
+
+/-- The alternatives of a pair say what a round asks of it. -/
+theorem sat_pair_iff {S : Sorts} {U : List Name} {d : Sorts.Conj} (hd : Sub U d) (μ : Name)
+    (M : Key → Prop) :
+    Sat M (pairNows S U d μ) (pairSteps S U d μ) ↔ Sorts.GrowsG S M (d, some μ) := by
+  show _ ↔ Sorts.GrowsOut S (fun e => M (e, none)) (fun e m => M (e, some m)) d μ
+  unfold Sat Sorts.GrowsOut
+  constructor
+  · rintro (⟨g, hg, hall⟩ | ⟨a, ha, hall, q, hq, hMq⟩)
+    · rcases (mem_pairNows hd).1 hg with h | ⟨κ, hκ, hacc, hs, rfl⟩
+      · simp only [restNows] at h
+        split at h
+        · rename_i hr; exact Or.inl hr
+        · cases h
+      · exact Or.inr (Or.inr ⟨κ, hκ, hacc, bare_all.1 hall, Or.inl (by rw [hs]; rfl)⟩)
+    · rcases (mem_pairSteps hd).1 ha with h | ⟨κ, hκ, hacc, kids, hs, rfl⟩
+      · simp only [restSteps] at h
+        split at h
+        · rename_i hr
+          split at h
+          · rename_i r hrk
+            rw [List.mem_singleton.1 h] at hq
+            rw [List.mem_singleton.1 hq] at hMq
+            exact Or.inr (Or.inl ⟨hr, r, hrk, hMq⟩)
+          · cases h
+        · cases h
+      · obtain ⟨i, hi, m, hk, hM⟩ := pair_any.1 ⟨q, hq, hMq⟩
+        exact Or.inr (Or.inr ⟨κ, hκ, hacc, bare_all.1 hall,
+          Or.inr ⟨i, hi, m, Sorts.stepKid_eq.2 ⟨kids, hs, hk⟩, hM⟩⟩)
+  · rintro (hr | ⟨hr, m, hrk, hM⟩ | ⟨κ, hκ, hacc, hall, hn | ⟨i, hi, m, hsk, hM⟩⟩)
+    · exact Or.inl ⟨[], (mem_pairNows hd).2 (Or.inl (by simp [restNows, hr])),
+        fun _ h => (by cases h)⟩
+    · exact Or.inr ⟨([], [(Sorts.restKids S d, some m)]),
+        (mem_pairSteps hd).2 (Or.inl (by simp [restSteps, hr, hrk])),
+        fun _ h => (by cases h), _, List.mem_singleton.2 rfl, hM⟩
+    · have hs : Sorts.step S μ κ.1 κ.2 = none := by
+        cases h : Sorts.step S μ κ.1 κ.2 with
+        | none => rfl
+        | some _ => rw [h] at hn; cases hn
+      exact Or.inl ⟨_, (mem_pairNows hd).2 (Or.inr ⟨κ, hκ, hacc, hs, rfl⟩), bare_all.2 hall⟩
+    · obtain ⟨kids, hs, hk⟩ := Sorts.stepKid_eq.1 hsk
+      obtain ⟨q, hq, hMq⟩ := pair_any.2 ⟨i, hi, m, hk, hM⟩
+      exact Or.inr ⟨_, (mem_pairSteps hd).2 (Or.inr ⟨κ, hκ, hacc, kids, hs, rfl⟩),
+        bare_all.2 hall, q, hq, hMq⟩
+
+/-- The alternatives of a conjunction with a name no declaration is of say
+what a round asks of the conjunction alone. -/
+theorem sat_bare_iff {S : Sorts} {U : List Name} {d : Sorts.Conj} (hd : Sub U d) {z : Name}
+    (hz : S.lookup z = none) (M : Key → Prop) :
+    Sat M (pairNows S U d z) (pairSteps S U d z) ↔ Sorts.GrowsG S M (d, none) := by
+  show _ ↔ Sorts.Grows S (fun e => M (e, none)) d
+  have hstep : ∀ f a, Sorts.step S z f a = none := fun f a => by simp [Sorts.step, hz]
+  have hck : Sorts.caseKeys S {z} = ∅ := by simp [Sorts.caseKeys, hz]
+  have hex : Sorts.exKeys S z = ∅ := by simp [Sorts.exKeys, hz]
+  have hrk : Sorts.restKid S z = none := by simp [Sorts.restKid, hz]
+  unfold Sat Sorts.Grows
+  constructor
+  · rintro (⟨g, hg, hall⟩ | ⟨a, ha, hall, q, hq, hMq⟩)
+    · rcases (mem_pairNows hd).1 hg with h | ⟨κ, hκ, hacc, hs, rfl⟩
+      · simp only [restNows] at h
+        split at h
+        · rename_i hr; exact Or.inl hr.1
+        · cases h
+      · rw [hck, hex] at hκ
+        simp only [Finset.union_empty] at hκ
+        exact Or.inr ⟨κ, hκ, hacc, bare_all.1 hall⟩
+    · rcases (mem_pairSteps hd).1 ha with h | ⟨κ, hκ, hacc, kids, hs, rfl⟩
+      · simp only [restSteps, hrk] at h
+        split at h <;> cases h
+      · rw [hstep] at hs; cases hs
+  · rintro (hr | ⟨κ, hκ, hacc, hall⟩)
+    · exact Or.inl ⟨[], (mem_pairNows hd).2 (Or.inl (by simp [restNows, hr, hz])),
+        fun _ h => (by cases h)⟩
+    · exact Or.inl ⟨_, (mem_pairNows hd).2 (Or.inr ⟨κ, by
+        rw [hck, hex]; simpa using hκ, hacc, hstep _ _, rfl⟩), bare_all.2 hall⟩
+
+/-! ## The keys a key reaches, with their alternatives -/
+
+/-- A key with its alternatives. -/
+abbrev KEntry := Key × List (List Key) × List Step
+
+/-- The key of a graph with the alternatives the store gives it. -/
+noncomputable def entryOf (S : Sorts) (U : List Name) (z : Name) (p : Key) : KEntry :=
+  (p, pairNows S U p.1 (p.2.getD z), pairSteps S U p.1 (p.2.getD z))
+
+noncomputable def entryKPat (z : Sym) (U : List Name) (e : KEntry) : Pat :=
+  .app (keyPat z U e.1) (.app (nowsPat z U e.2.1) (stepsPat z U e.2.2))
+
+/-- The keys gone through with their alternatives, as the store has them. -/
+noncomputable def graphKPat (z : Sym) (U : List Name) (G : List KEntry) : Pat :=
+  encList z (G.map (entryKPat z U))
+
+theorem kidPat_getD (z : Sym) (k : Option Name) : kidPat z k = .sym (k.getD z) := by
+  cases k <;> rfl
+
+theorem Ctx.lookup_z {S : Sorts} {sp : Pat} {U : List Name} (hC : Ctx nm S sp U) :
+    S.lookup (nm none) = none := by
+  cases h : S.lookup (nm none) with
+  | none => rfl
+  | some dd =>
+    have hm := Sorts.mem_of_lookup h
+    refine absurd rfl (hC.nz (nm none) ?_)
+    simp only [Sorts.names, List.mem_toFinset, List.mem_flatMap]
+    exact ⟨_, hm, List.mem_cons_self⟩
+
+/-- A key one step away is named by an alternative. -/
+theorem kidG_mem {S : Sorts} {U : List Name} {d : Sorts.Conj} (hd : Sub U d) {z : Name}
+    {k : Option Name} {q : Key} (h : Sorts.KidG S (d, k) q) :
+    (∃ g ∈ pairNows S U d (k.getD z), q ∈ g) ∨
+      ∃ a ∈ pairSteps S U d (k.getD z), q ∈ a.1 ∨ q ∈ a.2 := by
+  have hbare : ∀ f a i, i < a → ((Sorts.kidC S d f a i, none) : Key) ∈ bareKeys (altOf S d f a) :=
+    fun f a i hi => by
+      simp only [bareKeys, altOf, List.map_map, List.mem_reverse, List.mem_map, List.mem_range,
+        Function.comp_apply]
+      exact ⟨i, hi, rfl⟩
+  rcases h with ⟨key, hkey, hacc, i, hi, rfl⟩ | ⟨n, m', hk, hm, hko⟩
+  · have hkey' : key ∈ Sorts.caseKeys S d ∪ Sorts.caseKeys S {k.getD z} ∪
+        Sorts.exKeys S (k.getD z) := by
+      cases k with
+      | none => exact Finset.mem_union_left _ (Finset.mem_union_left _ hkey)
+      | some n => exact hkey
+    cases hs : Sorts.step S (k.getD z) key.1 key.2 with
+    | none =>
+      exact Or.inl ⟨_, (mem_pairNows hd).2 (Or.inr ⟨key, hkey', hacc, hs, rfl⟩), hbare _ _ i hi⟩
+    | some kids =>
+      exact Or.inr ⟨_, (mem_pairSteps hd).2 (Or.inr ⟨key, hkey', hacc, kids, hs, rfl⟩),
+        Or.inl (hbare _ _ i hi)⟩
+  · simp only at hk hm hko
+    subst hk
+    obtain ⟨e, k'⟩ := q
+    simp only at hm hko
+    subst hm
+    simp only [Option.getD_some]
+    rcases hko with ⟨hr, hrk, rfl⟩ | ⟨key, hkey, hacc, i, hi, hsk, rfl⟩
+    · exact Or.inr ⟨([], [(Sorts.restKids S d, some m')]),
+        (mem_pairSteps hd).2 (Or.inl (by simp [restSteps, hr, hrk])),
+        Or.inr (List.mem_singleton.2 rfl)⟩
+    · obtain ⟨kids, hs, hki⟩ := Sorts.stepKid_eq.1 hsk
+      refine Or.inr ⟨_, (mem_pairSteps hd).2 (Or.inr ⟨key, hkey, hacc, kids, hs, rfl⟩),
+        Or.inr (mem_pairKeys.2 ⟨i, by simpa [altOf] using hi, m', hki, by simp [altOf]⟩)⟩
+
+/-- What holds while the keys are gone through: `T` are still to go
+through, `Dn` are done, and table `B` flags exactly these. Every key flagged
+is reached from `p₀`, and the keys the alternatives of a key done name are
+flagged. -/
+structure WalkG (S : Sorts) (U : List Name) (z : Name) (p₀ : Key) (T Dn : List Key)
+    (m : Key → Option Bool) : Prop where
+  nodup : (T ++ Dn).Nodup
+  dom : ∀ q, m q ≠ none ↔ q ∈ T ∨ q ∈ Dn
+  root : m p₀ ≠ none
+  reach : ∀ q, m q ≠ none → Sorts.ReachG S p₀ q
+  done : ∀ p ∈ Dn, (∀ g ∈ (entryOf S U z p).2.1, ∀ q ∈ g, m q ≠ none) ∧
+    ∀ a ∈ (entryOf S U z p).2.2, (∀ q ∈ a.1, m q ≠ none) ∧ ∀ q ∈ a.2, m q ≠ none
+
+theorem WalkG.expand {S : Sorts} {U : List Name} {z : Name} {p₀ p : Key} {T T' Dn : List Key}
+    {m m' : Key → Option Bool} (h : WalkG S U z p₀ (p :: T) Dn m)
+    (hE : Enq (Sorts.KidG S p) m m' T T')
+    (hN : ∀ g ∈ (entryOf S U z p).2.1, ∀ q ∈ g, m' q ≠ none)
+    (hS : ∀ a ∈ (entryOf S U z p).2.2, (∀ q ∈ a.1, m' q ≠ none) ∧ ∀ q ∈ a.2, m' q ≠ none) :
+    WalkG S U z p₀ T' (p :: Dn) m' := by
+  obtain ⟨new, rfl, nd, hnew, hm'⟩ := hE
+  have hmd : m p ≠ none := (h.dom p).2 (Or.inl List.mem_cons_self)
+  have hne : ∀ c, m' c ≠ none ↔ c ∈ new ∨ m c ≠ none := by
+    intro c
+    rw [hm']
+    by_cases hc : c ∈ new <;> simp [hc]
+  have hnd : ((new ++ T) ++ p :: Dn).Nodup := by
+    rw [List.append_assoc]
+    refine List.nodup_append.2 ⟨nd, (List.perm_middle.nodup_iff).2 (by simpa using h.nodup), ?_⟩
+    intro x hx y hy e
+    subst e
+    have h0 := (hnew x hx).1
+    have : m x ≠ none := (h.dom x).2 (by
+      simp only [List.mem_append, List.mem_cons] at hy ⊢
+      tauto)
+    exact this h0
+  refine ⟨hnd, fun c => ?_, (hne p₀).2 (Or.inr h.root), ?_, ?_⟩
+  · rw [hne, h.dom]
+    simp only [List.mem_append, List.mem_cons]
+    tauto
+  · intro c hc
+    rcases (hne c).1 hc with hc | hc
+    · exact (h.reach p hmd).step (hnew c hc).2
+    · exact h.reach c hc
+  · intro c hc
+    rcases List.mem_cons.1 hc with rfl | hc
+    · exact ⟨hN, hS⟩
+    · obtain ⟨h1, h2⟩ := h.done c hc
+      exact ⟨fun g hg q hq => (hne q).2 (Or.inr (h1 g hg q hq)),
+        fun a ha => ⟨fun q hq => (hne q).2 (Or.inr ((h2 a ha).1 q hq)),
+          fun q hq => (hne q).2 (Or.inr ((h2 a ha).2 q hq))⟩⟩
+
+theorem WalkG.lt_card {S : Sorts} {U : List Name} {z : Name} {p₀ p : Key} {T Dn : List Key}
+    {m : Key → Option Bool} (h : WalkG S U z p₀ (p :: T) Dn m) :
+    Dn.length < (Sorts.reachGSet S p₀).card := by
+  have hnd : (p :: Dn).Nodup := by
+    have := h.nodup
+    simp only [List.cons_append, List.nodup_cons, List.mem_append, not_or] at this
+    exact List.nodup_cons.2 ⟨this.1.2, (List.nodup_append.1 this.2).2.1⟩
+  have hsub : (p :: Dn).toFinset ⊆ Sorts.reachGSet S p₀ := by
+    intro c hc
+    rw [List.mem_toFinset] at hc
+    refine Sorts.mem_reachGSet.2 (h.reach c ((h.dom c).2 ?_))
+    rcases List.mem_cons.1 hc with rfl | hc
+    · exact Or.inl List.mem_cons_self
+    · exact Or.inr hc
+  have := Finset.card_le_card hsub
+  rw [List.toFinset_card_of_nodup hnd] at this
+  simpa using this
+
+theorem WalkG.len_le {S : Sorts} {U : List Name} {z : Name} {p₀ : Key} {T Dn : List Key}
+    {m : Key → Option Bool} (h : WalkG S U z p₀ T Dn m) :
+    Dn.length ≤ (Sorts.reachGSet S p₀).card := by
+  have hnd : Dn.Nodup := (List.nodup_append.1 h.nodup).2.1
+  have hsub : Dn.toFinset ⊆ Sorts.reachGSet S p₀ := by
+    intro c hc
+    rw [List.mem_toFinset] at hc
+    exact Sorts.mem_reachGSet.2 (h.reach c ((h.dom c).2 (Or.inr hc)))
+  have := Finset.card_le_card hsub
+  rwa [List.toFinset_card_of_nodup hnd] at this
+
+/-- When nothing is still to go through, the keys an alternative of a key
+done names are done. -/
+theorem WalkG.closed {S : Sorts} {U : List Name} {z : Name} {p₀ : Key} {Dn : List Key}
+    {m : Key → Option Bool} (h : WalkG S U z p₀ [] Dn m) {p : Key} (hp : p ∈ Dn) :
+    (∀ g ∈ (entryOf S U z p).2.1, ∀ q ∈ g, q ∈ Dn) ∧
+      ∀ a ∈ (entryOf S U z p).2.2, (∀ q ∈ a.1, q ∈ Dn) ∧ ∀ q ∈ a.2, q ∈ Dn := by
+  have hin : ∀ c, m c ≠ none → c ∈ Dn := fun c hc => by
+    rcases (h.dom c).1 hc with h | h
+    · cases h
+    · exact h
+  obtain ⟨h1, h2⟩ := h.done p hp
+  exact ⟨fun g hg q hq => hin q (h1 g hg q hq),
+    fun a ha => ⟨fun q hq => hin q ((h2 a ha).1 q hq), fun q hq => hin q ((h2 a ha).2 q hq)⟩⟩
+
+/-- When nothing is still to go through, every key reached is done. -/
+theorem WalkG.reached {S : Sorts} {U : List Name} {z : Name}
+    {p₀ : Key} {Dn : List Key} {m : Key → Option Bool} (h : WalkG S U z p₀ [] Dn m)
+    (hsub : ∀ c ∈ Dn, Sub U c.1) {q : Key} (hq : Sorts.ReachG S p₀ q) : q ∈ Dn := by
+  induction hq with
+  | refl =>
+    rcases (h.dom p₀).1 h.root with h | h
+    · cases h
+    · exact h
+  | @step p q _ hk ih =>
+    obtain ⟨d, k⟩ := p
+    obtain ⟨h1, h2⟩ := h.closed ih
+    rcases kidG_mem (hsub _ ih) hk with ⟨g, hg, hq⟩ | ⟨a, ha, hq | hq⟩
+    · exact h1 g hg q hq
+    · exact (h2 a ha).1 q hq
+    · exact (h2 a ha).2 q hq
+
+/-! ## What going through a key may spend -/
+
+/-- The roots of a declaration: its cases and what its rest excludes. -/
+def defKeysL (dd : SortDef) : List (Sym × Nat) :=
+  caseKeysL dd ++ (match dd.rest with | some r => r.1 | none => [])
+
+/-- A bound on the ticks going through the roots of one declaration may
+spend: those of all of them together. -/
+def sortsKW (S : Sorts) (u : Nat) : Nat := (S.map fun p => keysWork S u (defKeysL p.2)).sum + 1
+
+theorem keysWork_pos (S : Sorts) (u : Nat) : ∀ K : List (Sym × Nat), 1 ≤ keysWork S u K
+  | [] => by simp [keysWork]
+  | _ :: K => by simp only [keysWork]; omega
+
+theorem keysWork_le_append (S : Sorts) (u : Nat) (K K' : List (Sym × Nat)) :
+    keysWork S u K ≤ keysWork S u (K ++ K') := by
+  have := keysWork_append S u K K'
+  have := keysWork_pos S u K'
+  omega
+
+theorem defKeys_work_le (S : Sorts) (u : Nat) (n : Name) :
+    keysWork S u (defKeys S n) ≤ sortsKW S u := by
+  cases h : S.lookup n with
+  | none =>
+    have e : defKeys S n = [] := by simp [defKeys, h]
+    rw [e]; simp [keysWork, sortsKW]
+  | some dd =>
+    have e : defKeys S n = caseKeysL dd := by simp [defKeys, h]
+    have hm := Sorts.mem_of_lookup h
+    have h1 : keysWork S u (defKeysL dd) ≤ (S.map fun p => keysWork S u (defKeysL p.2)).sum :=
+      List.le_sum_of_mem (List.mem_map.2 ⟨(n, dd), hm, rfl⟩)
+    have h2 : keysWork S u (caseKeysL dd) ≤ keysWork S u (defKeysL dd) :=
+      keysWork_le_append S u (caseKeysL dd) _
+    rw [e]; unfold sortsKW
+    omega
+
+theorem ownKeys_work_le (S : Sorts) (u : Nat) (μ : Name) :
+    keysWork S u (ownKeys S μ) ≤ sortsKW S u := by
+  cases h : S.lookup μ with
+  | none =>
+    have e : ownKeys S μ = [] := by simp [ownKeys, h]
+    rw [e]; simp [keysWork, sortsKW]
+  | some dd =>
+    have e : ownKeys S μ = defKeysL dd := by simp [ownKeys, h, defKeysL]
+    have hm := Sorts.mem_of_lookup h
+    have h1 : keysWork S u (defKeysL dd) ≤ (S.map fun p => keysWork S u (defKeysL p.2)).sum :=
+      List.le_sum_of_mem (List.mem_map.2 ⟨(μ, dd), hm, rfl⟩)
+    rw [e]; unfold sortsKW
+    omega
+
+theorem conjWork_le (S : Sorts) (u : Nat) : ∀ xs : List Name,
+    conjWork S u xs ≤ xs.length * (3 * S.length + 3 + sortsKW S u) + 1
+  | [] => by simp [conjWork]
+  | n :: xs => by
+    have h1 := conjWork_le S u xs
+    have h2 := defKeys_work_le S u n
+    simp only [conjWork, List.length_cons, Nat.add_mul, Nat.one_mul]
+    omega
+
+/-- The ticks the alternatives of any key may spend. -/
+def keyW (S : Sorts) (u : Nat) : Nat :=
+  3 * S.length + 6 + restAltsCost S u + u * (3 * S.length + 3 + sortsKW S u) + sortsKW S u
+
+theorem keyCost_le (S : Sorts) (U : List Name) (d : Sorts.Conj) (μ : Name) :
+    keyCost S U d μ ≤ keyW S U.length := by
+  have h1 := conjWork_le S U.length (conjList U (· ∈ d))
+  have h2 := ownKeys_work_le S U.length μ
+  have h3 := Nat.mul_le_mul_right (3 * S.length + 3 + sortsKW S U.length)
+    (length_conjList_le U (· ∈ d))
+  unfold keyCost keyW ownWork
+  omega
+
+/-- The ticks going through one key may spend. -/
+def nodeGCost (S : Sorts) (u : Nat) : Nat := keyW S u + 4
+
+theorem out_graph_loop_spec {S : Sorts} {sp : Pat} {U : List Name} (hC : Ctx nm S sp U)
+    (p₀ : Key) (decls names : store.TermId) :
+    ∀ (n : Nat) (s : store.Store) (todo graph : store.TermId) (T Dn : List Key)
+      (m : Key → Option Bool),
+    (Sorts.reachGSet S p₀).card ≤ Dn.length + n → Inv s → FlagsK nm s U m →
+    WalkG S U (nm none) p₀ T Dn m → Repr nm s.nodes.val decls.val sp →
+    Repr nm s.nodes.val names.val (namesPat (nm none) U) →
+    Repr nm s.nodes.val todo.val (keysPat (nm none) U T) →
+    Repr nm s.nodes.val graph.val (graphKPat (nm none) U (Dn.map (entryOf S U (nm none)))) →
+    Room s (n * nodeGCost S U.length + 1) →
+    sorts.out_graph_loop todo s decls names graph ⦃ r => ∃ m' Dn',
+      RanB s r.2 (n * nodeGCost S U.length + 1) ∧ FlagsK nm r.2 U m' ∧
+        Repr nm r.2.nodes.val r.1.val
+          (graphKPat (nm none) U (Dn'.map (entryOf S U (nm none)))) ∧
+        WalkG S U (nm none) p₀ [] Dn' m' ⦄ := by
+  intro n
+  induction n with
+  | zero =>
+    intro s todo graph T Dn m hcard hI hF hInv hde hU htd hg hroom
+    cases T with
+    | cons d T => have := hInv.lt_card; omega
+    | nil =>
+      have hroom' := hroom
+      unfold Room at hroom'
+      unfold sorts.out_graph_loop
+      rw [loop]
+      simp only [sorts.out_graph_loop.body]
+      step with uncons_repr s todo hI.toWf htd (by unfold Room; omega) as ⟨r0, hK, hu⟩
+      obtain ⟨o, s1⟩ := r0
+      simp only [keysPat] at hu
+      simp only at hK
+      subst hu
+      have hfin : ∃ m' Dn', RanB s s1 (0 * nodeGCost S U.length + 1) ∧ FlagsK nm s1 U m' ∧
+          Repr nm s1.nodes.val graph.val
+            (graphKPat (nm none) U (Dn'.map (entryOf S U (nm none)))) ∧
+          WalkG S U (nm none) p₀ [] Dn' m' :=
+        ⟨m, Dn, hK.ran.ranB.mono (by omega), hF.mono hK.ran.ext (by rw [hK.tbl]),
+          by rw [hK.nodes]; exact hg, hInv⟩
+      step*
+  | succ n ih =>
+    intro s todo graph T Dn m hcard hI hF hInv hde hU htd hg hroom
+    have hroom' := hroom
+    unfold Room at hroom'
+    simp only [Nat.add_mul, Nat.one_mul, nodeGCost] at hroom'
+    have hW := hI.toWf
+    unfold sorts.out_graph_loop
+    rw [loop]
+    simp only [sorts.out_graph_loop.body]
+    step with uncons_repr s todo hW htd (by unfold Room; omega) as ⟨r0, hK, hu⟩
+    obtain ⟨o, s1⟩ := r0
+    simp only [keysPat] at hu
+    simp only at hK
+    cases T with
+    | nil =>
+      subst hu
+      have hfin : ∃ m' Dn', RanB s s1 ((n + 1) * nodeGCost S U.length + 1) ∧
+          FlagsK nm s1 U m' ∧ Repr nm s1.nodes.val graph.val
+            (graphKPat (nm none) U (Dn'.map (entryOf S U (nm none)))) ∧
+          WalkG S U (nm none) p₀ [] Dn' m' :=
+        ⟨m, Dn, hK.ran.ranB.mono (by omega), hF.mono hK.ran.ext (by rw [hK.tbl]),
+          by rw [hK.nodes]; exact hg, hInv⟩
+      step*
+    | cons p T =>
+      obtain ⟨d, k⟩ := p
+      obtain ⟨pi, t, rfl, rp, rt⟩ := hu
+      have ht1 := hK.ticks
+      have hmd : m (d, k) ≠ none := (hInv.dom (d, k)).2 (Or.inl List.mem_cons_self)
+      have hok : KeyOK (nm none) U (d, k) := (hF.has (d, k) hmd).1
+      have hsub : Sub U d := hok.1
+      step with uncons_repr s1 pi hK.wf (by rw [hK.nodes]; exact rp) (by unfold Room; omega)
+        as ⟨r1, hK2, hu2⟩
+      obtain ⟨o1, s2⟩ := r1
+      simp only [keyPat] at hu2
+      simp only at hK2
+      obtain ⟨di, mi, rfl, rd, rmi⟩ := hu2
+      rw [hK.nodes] at rd rmi
+      rw [kidPat_getD] at rmi
+      have ht2 := hK2.ticks
+      have R2 : Ran s s2 2 := hK.ran.trans hK2.ran
+      have hF2 : FlagsK nm s2 U m := hF.mono R2.ext (by rw [R2.tbl])
+      have hμ : (S.lookup (k.getD (nm none))).isSome = true → k = some (k.getD (nm none)) := by
+        cases k with
+        | none => intro h; simp [hC.lookup_z] at h
+        | some n => intro _; rfl
+      have hkc := keyCost_le S U d (k.getD (nm none))
+      simp only [uncurry]
+      step with expand_pair_spec hC d k (k.getD (nm none)) hsub hμ s2 decls names di mi t T m
+        (R2.ranB.inv hI) hF2 (R2.ext.repr hde) (R2.ext.repr hU) (R2.ext.repr rd)
+        (R2.ext.repr rmi) (R2.ext.repr rt) (by unfold Room; omega)
+        as ⟨r3, m₁, T₁, hR3, hF3, ral, rtd, hE, hallN, hallS⟩
+      obtain ⟨⟨alts, td⟩, s3⟩ := r3
+      simp only at hR3 hF3 ral rtd
+      have ht3 := hR3.ticks
+      have R3 := R2.ranB.trans hR3
+      have rp3 : Repr nm s3.nodes.val pi.val (keyPat (nm none) U (d, k)) := R3.ext.repr rp
+      step with alloc_w s3 (.App pi alts) hR3.wf ⟨rp3.lt, ral.lt⟩
+        (by unfold Room; omega) as ⟨r4, hW4, ht4, htb4, hx4, hid4, hst4⟩
+      obtain ⟨entry, s4⟩ := r4
+      simp only at hW4 ht4 htb4 hx4 hid4 hst4 ⊢
+      have rentry : Repr nm s4.nodes.val entry.val
+          (entryKPat (nm none) U (entryOf S U (nm none) (d, k))) :=
+        .app hid4 (hx4.repr rp3) (hx4.repr ral)
+      step with alloc_w s4 (.App entry graph) hW4 ⟨rentry.lt, (hx4.repr (R3.ext.repr hg)).lt⟩
+        (by unfold Room; omega) as ⟨r5, hW5, ht5, htb5, hx5, hid5, hst5⟩
+      obtain ⟨graph1, s5⟩ := r5
+      simp only at hW5 ht5 htb5 hx5 hid5 hst5 ⊢
+      have R5 : RanB s s5 (nodeGCost S U.length) :=
+        ⟨hW5, (R3.ext.trans hx4).trans hx5, by rw [hst5, hst4, R3.stk], by
+          simp only [nodeGCost]; omega⟩
+      have rg1 : Repr nm s5.nodes.val graph1.val
+          (graphKPat (nm none) U (((d, k) :: Dn).map (entryOf S U (nm none)))) := by
+        simp only [graphKPat, List.map_cons, encList]
+        exact .app hid5 (hx5.repr rentry) (R5.ext.repr hg)
+      have hInv' : WalkG S U (nm none) p₀ T₁ ((d, k) :: Dn) m₁ := hInv.expand hE hallN hallS
+      have := R5.ticks
+      simp only [nodeGCost] at this
+      have IH := ih s5 td graph1 T₁ ((d, k) :: Dn) m₁
+        (by simp only [List.length_cons]; omega) (R5.inv hI)
+        ((hF3.mono hx4 (by rw [htb4])).mono hx5 (by rw [htb5])) hInv' (R5.ext.repr hde)
+        (R5.ext.repr hU) (hx5.repr (hx4.repr rtd)) rg1
+        (by unfold Room; simp only [nodeGCost]; omega)
+      unfold sorts.out_graph_loop at IH
+      simp only [uncurry, bind_ok]
+      refine WP.spec_mono IH ?_
+      rintro r ⟨m', Dn', hR, hFm, hrg, hInv''⟩
+      exact ⟨m', Dn', (R5.trans hR).mono (by simp only [Nat.add_mul, Nat.one_mul]; omega),
+        hFm, hrg, hInv''⟩
+
 end RwLogVerified
