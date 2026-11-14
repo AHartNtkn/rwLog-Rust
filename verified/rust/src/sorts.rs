@@ -2638,6 +2638,17 @@ pub fn start(
     }
 }
 
+/// A normal store: its pattern, with the variables numbered in the order
+/// they first occur; the list of the conjunctions of the variables, in
+/// their order; and the list of its exclusions, each the list of the values
+/// of the variables, in their order.
+#[derive(Clone, Copy)]
+pub struct Rep {
+    pub t: TermId,
+    pub c: TermId,
+    pub x: TermId,
+}
+
 /// The normal store of the problem of the pattern `t`, the equations `e`,
 /// the sorted patterns `a` and the exclusions `x`: the pattern with its
 /// variables numbered in the order they first occur, the list of the
@@ -2653,7 +2664,7 @@ pub fn normal(
     e: TermId,
     a: TermId,
     x: TermId,
-) -> Option<(TermId, TermId, TermId)> {
+) -> Option<Rep> {
     match start(s, decls, names, t, e, a, x) {
         Some((t0, x0, es0, next0)) => match tighten(s, decls, names, t0, x0, es0, next0) {
             Some((t1, x1, es1, _)) => {
@@ -2668,7 +2679,7 @@ pub fn normal(
                             let ks = take_len(s, vs, ws);
                             let cs1 = take_len(s, cs, ks);
                             let xs1 = cut_exs(s, vs, ks, zs);
-                            Some((left, cs1, xs1))
+                            Some(Rep { t: left, c: cs1, x: xs1 })
                         }
                         None => panic!(),
                     },

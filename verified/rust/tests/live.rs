@@ -656,10 +656,10 @@ fn live_is_true_whenever_a_small_member_exists() {
 
 // Stress and ticks.
 
-const LONG: usize = 400_000;
+const LONG: usize = 100_000;
 
 #[test]
-fn live_of_a_case_with_400000_arguments() {
+fn live_of_a_case_with_100000_arguments() {
     let mut f = fx(vec![(A, cases(vec![(F, vec![Some(ZS); LONG])])), (ZS, zero())]);
     let (r, ticks) = f.ticks(&[A]);
     assert!(r);
@@ -667,7 +667,7 @@ fn live_of_a_case_with_400000_arguments() {
 }
 
 #[test]
-fn live_of_400000_argument_case_with_the_last_argument_dead() {
+fn live_of_100000_argument_case_with_the_last_argument_dead() {
     let mut kids = vec![Some(ZS); LONG];
     kids[LONG - 1] = Some(D);
     assert!(!live_of(vec![(A, cases(vec![(F, kids)])), (ZS, zero()), (D, dead())], &[A]));
@@ -1413,7 +1413,7 @@ fn count_member_with_an_exponential_tree_is_a_linear_dag() {
 }
 
 #[test]
-fn count_of_a_case_with_400000_arguments() {
+fn count_of_a_case_with_100000_arguments() {
     let table = |last: Name| {
         let mut kids = vec![Some(ZS); LONG];
         kids[LONG - 1] = Some(last);

@@ -257,6 +257,20 @@ theorem assembled_normal (hS : S.WellFormed) (hfin : s.Fin k) (ht : s.Tight S)
       exact ⟨θ', (hZ θ').2 hθ', hle⟩)
     (fun θ hθ θ' hθ' hle => hanti θ ((hZ θ).1 hθ) θ' ((hZ θ').1 hθ') hle)
 
+/-- The exclusions an assembled store keeps are listed once each. -/
+theorem assembled_nodup (hS : S.WellFormed) (hfin : s.Fin k) (hne : (s.Sol S).Nonempty)
+    (hlen : cL.length = k)
+    (hcL : ∀ v n, n ∈ cL.getD v ∅ ↔ v < k ∧ n ∈ names S ∧ ∀ σ ∈ s.Sol S, mem S n (σ v) = true) :
+    (antichain (covers cL.length) (normExs S ⟨s.t, cL, ∅⟩ s.x)).Nodup := by
+  obtain ⟨σ₀, hσ₀⟩ := hne
+  obtain ⟨hY, -⟩ := normExs_spec (S := S) ⟨s.t, cL, ∅⟩ s.x hfin.xfo
+    (fun E hE p hp v hv => by rw [hlen]; exact hfin.xv E hE p hp v hv)
+    (fun E hE => ⟨σ₀, pos_of_sol hcL ∅ hσ₀, hσ₀.2 E hE⟩)
+  exact (antichain_spec (covers cL.length)
+    (fun θ θ' : Binds => Raw.Ex S ⟨s.t, cL, ∅⟩ θ ⊆ Raw.Ex S ⟨s.t, cL, ∅⟩ θ')
+    (fun _ => Set.Subset.rfl) (fun _ _ _ h₁ h₂ => Set.Subset.trans h₁ h₂)
+    (normExs S ⟨s.t, cL, ∅⟩ s.x) (fun θ hθ θ' hθ' => covers_iff hS (hY θ hθ) (hY θ' hθ'))).1
+
 end assemble
 
 end Sorts

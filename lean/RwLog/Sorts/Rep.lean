@@ -127,6 +127,27 @@ def Rep.of {S : Sorts} (hS : S.WellFormed) (P : Prob) (hP : P.FO) (ht : ∃ l r,
         rintro g ⟨σ, -, rfl⟩
         exact ⟨_, _, by rw [ht, tpair_bind]⟩)⟩
 
+/-- No representative is computed exactly when the problem has no normal
+store. -/
+theorem Rep.of_eq_none {S : Sorts} (hS : S.WellFormed) (P : Prob) (hP : P.FO)
+    (ht : ∃ l r, P.t = tpair l r) : Rep.of hS P hP ht = none ↔ P.norm S hS = none := by
+  unfold Rep.of
+  split
+  · rename_i h; simp [h]
+  · rename_i r h; simp [h]
+
+/-- The computed representative is the normal store of the problem. -/
+theorem Rep.of_val {S : Sorts} (hS : S.WellFormed) (P : Prob) (hP : P.FO)
+    (ht : ∃ l r, P.t = tpair l r) {r : Raw} (h : P.norm S hS = some r) :
+    ∃ ρ : Rep S, Rep.of hS P hP ht = some ρ ∧ ρ.1 = r := by
+  unfold Rep.of
+  split
+  · rename_i h'; rw [h] at h'; cases h'
+  · rename_i r' h'
+    have e : r' = r := by rw [h] at h'; exact (Option.some.inj h').symm
+    subst e
+    exact ⟨_, rfl, rfl⟩
+
 /-- The computed representative is the representative of the pairs the
 problem denotes. -/
 theorem Rep.of_eq {S : Sorts} (hS : S.WellFormed) (P : Prob) (hP : P.FO) (ht : ∃ l r, P.t = tpair l r) :

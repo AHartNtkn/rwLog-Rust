@@ -39,9 +39,22 @@ def ofTight (S : Sorts) (s : CStore) : Raw :=
       (names S).filter fun n => inclBut S (s.conj v) n (gone s.x v))
     (s.x.map (Eqns.ren fun v => (firsts s.t.vars).idxOf v))
 
-theorem ofTight_normal (hS : S.WellFormed) {s : CStore} (hI : Inv S s)
+/-- The exclusions of the normal store of a tight store, as a list. -/
+def ofTightXs (S : Sorts) (s : CStore) : List Binds :=
+  antichain
+    (covers ((firsts s.t.vars).map fun v =>
+      (names S).filter fun n => inclBut S (s.conj v) n (gone s.x v)).length)
+    (normExs S ⟨s.t.rename fun v => (firsts s.t.vars).idxOf v,
+      (firsts s.t.vars).map fun v =>
+        (names S).filter fun n => inclBut S (s.conj v) n (gone s.x v), ∅⟩
+      (s.x.map (Eqns.ren fun v => (firsts s.t.vars).idxOf v)))
+
+/-- The normal store of a tight store is normal, denotes the same, and its
+exclusions are listed once each. -/
+theorem ofTight_facts (hS : S.WellFormed) {s : CStore} (hI : Inv S s)
     (hsole : ∀ v ∈ s.t.vars, sole S (s.conj v) (gone s.x v) = none) :
-    (ofTight S s).Normal S ∧ (ofTight S s).store.Den S = s.store.Den S := by
+    (ofTight S s).Normal S ∧ (ofTight S s).store.Den S = s.store.Den S ∧
+      (ofTightXs S s).Nodup := by
   obtain ⟨hocc, h₁, h₂⟩ := renum_spec s.t.vars
   let ρ : Nat → Nat := fun v => (firsts s.t.vars).idxOf v
   let ρ' : Nat → Nat := fun w => (firsts s.t.vars).getD w 0
@@ -90,11 +103,24 @@ theorem ofTight_normal (hS : S.WellFormed) {s : CStore} (hI : Inv S s)
     · simp [List.getD_eq_getElem?_getD, hw]
   obtain ⟨hN, hsol⟩ := assembled_normal hS hfin₃ ht₃ hocc₃ hv₃
     ⟨_, (ren_fwd hfull hinv hσ).1⟩ (by simp) hcL
-  refine ⟨hN, ?_⟩
+  have hnd := assembled_nodup hS hfin₃ ⟨_, (ren_fwd hfull hinv hσ).1⟩ (by simp) hcL
+  refine ⟨hN, ?_, hnd⟩
   rw [← hden₃]
   show {g | ∃ σ ∈ (ofTight S s).store.Sol S, g = _} = {g | ∃ σ ∈ Store.Sol S _, g = _}
   rw [show (ofTight S s).store.Sol S = _ from hsol]
   rfl
+
+/-- The normal store of a tight store is normal and denotes the same. -/
+theorem ofTight_normal (hS : S.WellFormed) {s : CStore} (hI : Inv S s)
+    (hsole : ∀ v ∈ s.t.vars, sole S (s.conj v) (gone s.x v) = none) :
+    (ofTight S s).Normal S ∧ (ofTight S s).store.Den S = s.store.Den S :=
+  ⟨(ofTight_facts hS hI hsole).1, (ofTight_facts hS hI hsole).2.1⟩
+
+/-- The exclusions of the normal store of a tight store are listed once
+each. -/
+theorem ofTight_nodup (hS : S.WellFormed) {s : CStore} (hI : Inv S s)
+    (hsole : ∀ v ∈ s.t.vars, sole S (s.conj v) (gone s.x v) = none) :
+    (ofTightXs S s).Nodup := (ofTight_facts hS hI hsole).2.2
 
 /-! ## From a problem to a store -/
 
@@ -479,6 +505,15 @@ theorem Prob.norm_of_empty (hS : S.WellFormed) {P : Prob} (hP : P.FO) (h : P.Den
     have hm : r.t.bind σ ∈ r.store.Den S := ⟨σ, hσ, rfl⟩
     rw [hden, h] at hm
     exact absurd hm (Set.notMem_empty _)
+
+/-- Problems that denote the same have the same normal store. -/
+theorem Prob.norm_congr (hS : S.WellFormed) {P P' : Prob} (hP : P.FO) (hP' : P'.FO)
+    (h : P.Den S = P'.Den S) : P.norm S hS = P'.norm S hS := by
+  cases hn : P.norm S hS with
+  | none => exact (Prob.norm_of_empty hS hP' (by rw [← h]; exact Prob.norm_none hS hP hn)).symm
+  | some r =>
+    obtain ⟨hr, hden⟩ := Prob.norm_some hS hP hn
+    exact (Prob.norm_unique hS hP' hr (hden.trans h)).symm
 
 /-- The normal store of a problem, read off any tight store that denotes
 pairs whose first parts are what the problem denotes: the pattern of its

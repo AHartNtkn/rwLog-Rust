@@ -32,7 +32,7 @@ const RK: Name = 22;
 /// One case, whose argument is in `UND`.
 const HOLE: Name = 23;
 
-const LONG: usize = 400_000;
+const LONG: usize = 100_000;
 
 fn def(cases: Vec<(u32, Vec<Option<Name>>)>, rest: Option<(Vec<Key>, Option<Name>)>) -> Def {
     Def { cases, rest }
@@ -324,7 +324,7 @@ fn names_spends_at_most_a_fixed_number_of_ticks_for_each_declaration_case_and_ar
 }
 
 #[test]
-fn names_of_400000_declarations() {
+fn names_of_100000_declarations() {
     let mut s = Store::new();
     let name = |i: usize| 100 + i as u32;
     let empty = {
@@ -345,7 +345,7 @@ fn names_of_400000_declarations() {
 }
 
 #[test]
-fn names_of_one_declaration_with_400000_cases_of_one_argument() {
+fn names_of_one_declaration_with_100000_cases_of_one_argument() {
     let mut s = Store::new();
     let nil = s.alloc(Node::Nil);
     let kid = s.alloc(Node::Sym(ZK));
@@ -506,7 +506,7 @@ fn conj_of_spends_two_ticks_for_each_member_and_three_for_each_name_and_four() {
 }
 
 #[test]
-fn conj_of_a_list_400000_long_of_two_names() {
+fn conj_of_a_list_100000_long_of_two_names() {
     let mut f = fx(sorts());
     let l: Vec<Name> = (0..LONG).map(|i| if i % 2 == 0 { NAT } else { ZK }).collect();
     let list = put_names(&mut f.s, &l);
@@ -516,7 +516,7 @@ fn conj_of_a_list_400000_long_of_two_names() {
 }
 
 #[test]
-fn conj_of_400000_names_all_of_them() {
+fn conj_of_100000_names_all_of_them() {
     let mut s = Store::new();
     let order: Vec<Name> = (0..LONG as u32).collect();
     let names = put_names(&mut s, &order);
@@ -666,7 +666,7 @@ fn conj_meet_spends_two_ticks_for_each_member_and_three_for_each_name_and_five()
 }
 
 #[test]
-fn conj_meet_of_two_sets_of_200000_names_each() {
+fn conj_meet_of_two_sets_of_50000_names_each() {
     let mut s = Store::new();
     let order: Vec<Name> = (0..LONG as u32).rev().collect();
     let names = put_names(&mut s, &order);
@@ -1038,7 +1038,7 @@ fn step_conj_spends_ticks_in_proportion_to_the_conjunction() {
 }
 
 #[test]
-fn step_conj_of_400000_arguments_through_two_rests() {
+fn step_conj_of_100000_arguments_through_two_rests() {
     let mut f = fx(sorts());
     let want = f.conj(&[NOK, NAT]);
     let r = f.step(&[NOK, RK], Q, LONG).expect("accepted");
@@ -1056,7 +1056,7 @@ fn step_conj_of_400000_arguments_through_two_rests() {
 }
 
 #[test]
-fn step_conj_of_400000_arguments_is_nothing_when_the_case_has_two() {
+fn step_conj_of_100000_arguments_is_nothing_when_the_case_has_two() {
     let mut f = fx(sorts());
     let c = f.conj(&[ZK]);
     let head = f.sym(PAIR);

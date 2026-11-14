@@ -89,14 +89,13 @@ structure span.Span where
   r : store.TermId
   c : store.TermId
 
-/-- [rwlog_core::sorts::Count]
-    Source: 'src/sorts.rs', lines 673:0-680:1
+/-- [rwlog_core::sorts::Rep]
+    Source: 'src/sorts.rs', lines 2646:0-2650:1
     Visibility: public -/
-@[discriminant isize]
-inductive sorts.Count where
-| None : sorts.Count
-| One : store.TermId → sorts.Count
-| Many : sorts.Count
+structure sorts.Rep where
+  t : store.TermId
+  c : store.TermId
+  x : store.TermId
 
 /-- [rwlog_core::term::Leaf]
     Source: 'src/term.rs', lines 7:0-17:1
@@ -130,5 +129,23 @@ inductive span.Act where
   store.TermId →
   span.Act
 | Elim : store.TermId → store.TermId → span.Act
+
+/-- [rwlog_core::sorts::Count]
+    Source: 'src/sorts.rs', lines 673:0-680:1
+    Visibility: public -/
+@[discriminant isize]
+inductive sorts.Count where
+| None : sorts.Count
+| One : store.TermId → sorts.Count
+| Many : sorts.Count
+
+/-- [rwlog_core::dom::Half]
+    Source: 'src/dom.rs', lines 133:0-139:1 -/
+structure dom.Half where
+  l : store.TermId
+  r : store.TermId
+  vs : store.TermId
+  c : store.TermId
+  x : store.TermId
 
 end rwlog_core
