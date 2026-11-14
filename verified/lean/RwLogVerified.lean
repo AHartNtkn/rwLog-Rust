@@ -23,6 +23,8 @@
 * `RwLogVerified.Conj`: conjunctions of sorts as lists of the store, one
   identifier for one set, and one step of a conjunction.
 * `RwLogVerified.Names`: the list of every name of the declarations.
+* `RwLogVerified.Live`: whether a conjunction of sorts has a member, by
+  going through the conjunctions it reaches.
 * `RwLogVerified.Kernel`: the kernel rung whose charges are those bounds.
 * `RwLogVerified.KernelRuns`: its charges on a worked composition.
 
@@ -48,5 +50,6 @@ import RwLogVerified.Iface
 import RwLogVerified.Sorts
 import RwLogVerified.Conj
 import RwLogVerified.Names
+import RwLogVerified.Live
 import RwLogVerified.Kernel
 import RwLogVerified.KernelRuns

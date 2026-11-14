@@ -394,3 +394,198 @@ pub fn step_conj(
         }
     }
 }
+
+/// Has every sort of the list `c0` a rest? A name with no declaration has
+/// none.
+fn rest_ok(s: &mut Store, decls: TermId, c0: TermId) -> bool {
+    let mut c = c0;
+    let mut ok = true;
+    let mut go = true;
+    while go {
+        match uncons(s, c) {
+            Some((n, t)) => match lookup(s, decls, n) {
+                Some((_, rest)) => {
+                    if is_nil(s, rest) {
+                        ok = false;
+                        go = false;
+                    } else {
+                        c = t;
+                    }
+                }
+                None => {
+                    ok = false;
+                    go = false;
+                }
+            },
+            None => go = false,
+        }
+    }
+    ok
+}
+
+/// Put in front of `todo0` each member of `kids0` that table `B` does not
+/// flag, and flag it as not known to have a member.
+fn enqueue(s: &mut Store, todo0: TermId, kids0: TermId) -> TermId {
+    let mut todo = todo0;
+    let mut kids = kids0;
+    while let Some((k, t)) = uncons(s, kids) {
+        todo = match s.get_flag(Tbl::B, k) {
+            Some(_) => todo,
+            None => {
+                s.set_flag(Tbl::B, k, false);
+                s.alloc(Node::App(k, todo))
+            }
+        };
+        kids = t;
+    }
+    todo
+}
+
+/// For each case of the list `cases0`, the step of the conjunction `c` at
+/// its symbol and its number of arguments. When `c` has one, the
+/// conjunctions of the arguments are put in front of `alts0` as one
+/// alternative, and those table `B` does not flag in front of `todo0`.
+fn expand_cases(
+    s: &mut Store,
+    decls: TermId,
+    names: TermId,
+    c: TermId,
+    cases0: TermId,
+    alts0: TermId,
+    todo0: TermId,
+) -> (TermId, TermId) {
+    let mut alts = alts0;
+    let mut todo = todo0;
+    let mut cases = cases0;
+    while let Some((case, t)) = uncons(s, cases) {
+        match uncons(s, case) {
+            Some((f, ks)) => {
+                if let Some(args) = step_conj(s, decls, names, c, f, ks) {
+                    alts = s.alloc(Node::App(args, alts));
+                    todo = enqueue(s, todo, args);
+                }
+            }
+            None => panic!(),
+        }
+        cases = t;
+    }
+    (alts, todo)
+}
+
+/// The alternatives of the conjunction `c`: for each case of each of its
+/// sorts that `c` has a step at, the conjunctions of the arguments. Those
+/// table `B` does not flag are put in front of `todo0`.
+fn expand(s: &mut Store, decls: TermId, names: TermId, c: TermId, todo0: TermId) -> (TermId, TermId) {
+    let mut alts = s.alloc(Node::Nil);
+    let mut todo = todo0;
+    let mut ns = c;
+    while let Some((n, t)) = uncons(s, ns) {
+        if let Some((cases, _)) = lookup(s, decls, n) {
+            let (a, td) = expand_cases(s, decls, names, c, cases, alts, todo);
+            alts = a;
+            todo = td;
+        }
+        ns = t;
+    }
+    (alts, todo)
+}
+
+/// The conjunctions `c` reaches, each with its alternatives. Table `B`
+/// flags each of them: with yes when every sort of it has a rest (it has a
+/// member, and its alternatives are not looked for), and with no otherwise.
+fn reach(s: &mut Store, decls: TermId, names: TermId, c: TermId) -> TermId {
+    let nil = s.alloc(Node::Nil);
+    s.set_flag(Tbl::B, c, false);
+    let mut todo = s.alloc(Node::App(c, nil));
+    let mut graph = nil;
+    while let Some((d, t)) = uncons(s, todo) {
+        if rest_ok(s, decls, d) {
+            s.set_flag(Tbl::B, d, true);
+            todo = t;
+        } else {
+            let (alts, td) = expand(s, decls, names, d, t);
+            let entry = s.alloc(Node::App(d, alts));
+            graph = s.alloc(Node::App(entry, graph));
+            todo = td;
+        }
+    }
+    graph
+}
+
+/// Does table `B` flag every member of the list with yes?
+fn all_live(s: &mut Store, kids0: TermId) -> bool {
+    let mut kids = kids0;
+    let mut ok = true;
+    let mut go = true;
+    while go {
+        match uncons(s, kids) {
+            Some((k, t)) => match s.get_flag(Tbl::B, k) {
+                Some(true) => kids = t,
+                _ => {
+                    ok = false;
+                    go = false;
+                }
+            },
+            None => go = false,
+        }
+    }
+    ok
+}
+
+/// Is some alternative of the list all flagged with yes?
+fn any_alt(s: &mut Store, alts0: TermId) -> bool {
+    let mut alts = alts0;
+    let mut found = false;
+    let mut go = true;
+    while go {
+        match uncons(s, alts) {
+            Some((a, t)) => {
+                if all_live(s, a) {
+                    found = true;
+                    go = false;
+                } else {
+                    alts = t;
+                }
+            }
+            None => go = false,
+        }
+    }
+    found
+}
+
+/// One round over the conjunctions with their alternatives: one flagged
+/// with no that has an alternative all flagged with yes is flagged with
+/// yes. Was any?
+fn pass(s: &mut Store, graph0: TermId) -> bool {
+    let mut graph = graph0;
+    let mut changed = false;
+    while let Some((e, t)) = uncons(s, graph) {
+        match uncons(s, e) {
+            Some((d, alts)) => match s.get_flag(Tbl::B, d) {
+                Some(true) => {}
+                _ => {
+                    if any_alt(s, alts) {
+                        s.set_flag(Tbl::B, d, true);
+                        changed = true;
+                    }
+                }
+            },
+            None => panic!(),
+        }
+        graph = t;
+    }
+    changed
+}
+
+/// Has the conjunction `c` a member? `c` and the conjunctions it reaches
+/// are gone through once for their alternatives, and then in rounds until a
+/// round finds no new one with a member. Tables `A` and `B` are used.
+pub fn live(s: &mut Store, decls: TermId, names: TermId, c: TermId) -> bool {
+    s.clear(Tbl::B);
+    let graph = reach(s, decls, names, c);
+    let mut go = true;
+    while go {
+        go = pass(s, graph);
+    }
+    matches!(s.get_flag(Tbl::B, c), Some(true))
+}
