@@ -455,6 +455,39 @@ theorem MemoOK.set {nodes : List store.Node} {σ : Nat → Pat} {k : Nat} {t : P
     obtain ⟨t', h1, h2⟩ := h k' v hk'
     exact ⟨t', h1.append more, h2.append more⟩
 
+/-- Every entry of the table holds the image of its key, for a function
+`im` of terms. -/
+def MemoG (nm : Option Nat → Sym) (nodes : List store.Node) (A : Nat → Option Nat)
+    (im : Pat → Pat) : Prop :=
+  ∀ k v, A k = some v → ∃ t, Repr nm nodes k t ∧ Repr nm nodes v (im t)
+
+theorem MemoG.set {nodes : List store.Node} {im : Pat → Pat} {k : Nat} {t : Pat}
+    (h : MemoG nm nodes A im) (hk : Repr nm nodes k t) (more : List store.Node) {r : Nat}
+    (hr : Repr nm (nodes ++ more) r (im t)) :
+    MemoG nm (nodes ++ more) (Function.update A k (some r)) im := by
+  intro k' v hk'
+  by_cases e : k' = k
+  · subst e
+    simp only [Function.update_self, Option.some.injEq] at hk'
+    subst hk'
+    exact ⟨t, hk.append more, hr⟩
+  · rw [Function.update_of_ne e] at hk'
+    obtain ⟨t', h1, h2⟩ := h k' v hk'
+    exact ⟨t', h1.append more, h2.append more⟩
+
+/-- What a function of terms must satisfy at a term to be what `rebuild`
+computes there: a variable goes where the leaf function sends it, a symbol
+stays, and an application is the application of the images of its parts. -/
+def ImStep (σ : Nat → Pat) (im : Pat → Pat) (t : Pat) : Prop :=
+  (∀ v, t = .var v → im t = σ v) ∧ (∀ f, t = .sym f → im t = t) ∧
+    ∀ a b, t = .app a b → im t = .app (im a) (im b)
+
+theorem ImStep.bind (σ : Nat → Pat) (t : Pat) : ImStep σ (fun t => t.bind σ) t := by
+  refine ⟨?_, ?_, ?_⟩
+  · rintro v rfl; rfl
+  · rintro f rfl; rfl
+  · rintro a b rfl; rfl
+
 /-! ## Rebuilding -/
 
 /-- What `rebuild` leaves: the result stands for `t.bind σ`, the table is
@@ -472,41 +505,59 @@ structure RebuildPost (nm : Option Nat → Sym) (s s' : store.Store) (σ : Nat �
     s.ticks.val + 5 + 14 * (pending nm s.nodes.val (tbl s .A) S).card
   mono : s.ticks.val ≤ s'.ticks.val
 
+/-- What `rebuild` leaves when the table at the start already has entries
+that need not be what the leaf function gives: the result stands for the
+image of the term under a function that agrees with the entries, and with
+the leaf function where the table at the start has no entry. -/
+structure RebuildG (nm : Option Nat → Sym) (s s' : store.Store) (im : Pat → Pat) (t : Pat)
+    (S : Finset Pat) (r : store.TermId) : Prop where
+  inv : Inv s'
+  ext : Extends s s'
+  repr : Repr nm s'.nodes.val r.val (im t)
+  memo : MemoG nm s'.nodes.val (tbl s' .A) im
+  tblB : tbl s' .B = tbl s .B
+  keep : ∀ k v, tbl s .A k = some v → tbl s' .A k = some v
+  cost : s'.ticks.val + 14 * (pending nm s'.nodes.val (tbl s' .A) S).card ≤
+    s.ticks.val + 5 + 14 * (pending nm s.nodes.val (tbl s .A) S).card
+  mono : s.ticks.val ≤ s'.ticks.val
+
 /-- The invariant of the loop. `s0` is the store at the start and `B` the
 tick count the loop stays under. -/
-structure RInv (nm : Option Nat → Sym) (s0 : store.Store) (σ : Nat → Pat) (tp : Pat)
+structure RInv (nm : Option Nat → Sym) (s0 : store.Store) (im : Pat → Pat) (tp : Pat)
     (p : Nat) (S : Finset Pat) (B : Nat) (s : store.Store) : Prop where
   wf : Wf s
   ext : Extends s0 s
-  memo : MemoOK nm s.nodes.val (tbl s .A) σ
+  memo : MemoG nm s.nodes.val (tbl s .A) im
   st : RSt nm s0.nodes.val tp p (tbl s0 .A) (tbl s .A) (stk s)
   tblB : tbl s .B = tbl s0 .B
   cost : ∃ U, Unb nm s.nodes.val (tbl s .A) S (stk s) U ∧
     s.ticks.val + 1 + 2 * nV (stk s) + 6 * nB (stk s) + 14 * U.card ≤ B
 
 /-- What the loop leaves. -/
-structure RDone (nm : Option Nat → Sym) (s0 : store.Store) (σ : Nat → Pat) (tp : Pat)
+structure RDone (nm : Option Nat → Sym) (s0 : store.Store) (im : Pat → Pat) (tp : Pat)
     (p : Nat) (S : Finset Pat) (B : Nat) (s : store.Store) : Prop where
   wf : Wf s
   empty : stk s = []
   ext : Extends s0 s
-  memo : MemoOK nm s.nodes.val (tbl s .A) σ
+  memo : MemoG nm s.nodes.val (tbl s .A) im
   st : RSt nm s0.nodes.val tp p (tbl s0 .A) (tbl s .A) []
   tblB : tbl s .B = tbl s0 .B
   cost : s.ticks.val + 14 * (pending nm s.nodes.val (tbl s .A) S).card ≤ B
 
-def RBodyPost (nm : Option Nat → Sym) (s0 : store.Store) (σ : Nat → Pat) (tp : Pat)
+def RBodyPost (nm : Option Nat → Sym) (s0 : store.Store) (im : Pat → Pat) (tp : Pat)
     (p : Nat) (S : Finset Pat) (B : Nat) (t0 : Nat) :
     ControlFlow store.Store store.Store → Prop
-  | .done s' => RDone nm s0 σ tp p S B s' ∧ t0 ≤ s'.ticks.val
-  | .cont s' => RInv nm s0 σ tp p S B s' ∧ t0 < s'.ticks.val
+  | .done s' => RDone nm s0 im tp p S B s' ∧ t0 ≤ s'.ticks.val
+  | .cont s' => RInv nm s0 im tp p S B s' ∧ t0 < s'.ticks.val
 
 theorem rebuild_body_spec (hnm : Function.Injective nm) (s0 : store.Store) (f : term.Leaf)
-    (σ : Nat → Pat) (tp : Pat) (p : Nat) (S : Finset Pat) (B : Nat)
+    (σ : Nat → Pat) (im : Pat → Pat) (tp : Pat) (p : Nat) (S : Finset Pat) (B : Nat)
     (hB : 40 * B + 100 ≤ Usize.max) (hN0 : NodesOK s0.nodes.val)
-    (hf : LeafOK nm s0.nodes.val (tbl s0 .B) f σ) (hS : tp.subs ⊆ S) (s : store.Store)
-    (h : RInv nm s0 σ tp p S B s) :
-    term.rebuild_loop.body f s ⦃ r => RBodyPost nm s0 σ tp p S B s.ticks.val r ⦄ := by
+    (hf : LeafOK nm s0.nodes.val (tbl s0 .B) f σ)
+    (hg : ∀ t k, Repr nm s0.nodes.val k t → tbl s0 .A k = none → ImStep σ im t)
+    (hS : tp.subs ⊆ S) (s : store.Store)
+    (h : RInv nm s0 im tp p S B s) :
+    term.rebuild_loop.body f s ⦃ r => RBodyPost nm s0 im tp p S B s.ticks.val r ⦄ := by
   unfold term.rebuild_loop.body
   obtain ⟨hW, hE, hM, hSt, hTB, U, hU, hc⟩ := h
   step with pop_w s hW (by unfold Room; omega) as ⟨o, s1, e1, e2, e3, hW1, eo, est⟩
@@ -560,6 +611,10 @@ theorem rebuild_body_spec (hnm : Function.Injective nm) (s0 : store.Store) (f : 
       | none =>
         simp only [Option.map_none] at ho1
         have hnone : tbl s .A q.val = none := ho1.symm
+        have hA0 : tbl s0 .A q.val = none := by
+          cases h0 : tbl s0 .A q.val with
+          | none => rfl
+          | some v0 => rw [hSt.keep _ _ h0] at hnone; cases hnone
         have htU : tq ∈ U := hU.mem_top hnm hN hSt.waits hq hnone (hS htq)
         have hU1 := card_erase_add_one htU
         simp only
@@ -579,7 +634,7 @@ theorem rebuild_body_spec (hnm : Function.Injective nm) (s0 : store.Store) (f : 
               let (r, s4) ← term.leaf s3 f q
               let s5 ← store.Store.set s4 store.Tbl.A q r
               ok (ControlFlow.cont s5 : ControlFlow store.Store store.Store)) ⦃ r =>
-              RBodyPost nm s0 σ tp p S B s.ticks.val r ⦄ := by
+              RBodyPost nm s0 im tp p S B s.ticks.val r ⦄ := by
           intro v hv hva
           subst hv
           step with leaf_w (nm := nm) s3 f q (σ := σ) (v := v) hK3.wf (by rw [hn3]; exact hva)
@@ -594,7 +649,7 @@ theorem rebuild_body_spec (hnm : Function.Injective nm) (s0 : store.Store) (f : 
           refine ⟨⟨g3, hE.trans ((Extends.of_eq hn3 (by omega)).trans (hext4.trans (Extends.of_eq g1 (by omega)))), ?_, ?_, ?_,
             U.erase (Term.var v), ?_, ?_⟩, by omega⟩
           · rw [g1, g4, hmore4]
-            exact hM.set hq more4 (by rw [← hmore4]; exact hr4)
+            exact hM.set hq more4 (by rw [← hmore4, (hg _ _ hq0 hA0).1 v rfl]; exact hr4)
           · rw [g4, g6, hstk4, hstk3]
             exact hSt.set hnone r1.val
           · rw [g5 .B (by simp), htbl4, htb3, hTB]
@@ -602,11 +657,11 @@ theorem rebuild_body_spec (hnm : Function.Injective nm) (s0 : store.Store) (f : 
             exact hU.set hq more4 r1.val
           · rw [g6, hstk4, hstk3]; omega
         -- a symbol or the end of a list: it is its own entry
-        have hatom : Repr nm s.nodes.val q.val (tq.bind σ) →
+        have hatom : Repr nm s.nodes.val q.val (im tq) →
             (do
               let s4 ← store.Store.set s3 store.Tbl.A q q
               ok (ControlFlow.cont s4 : ControlFlow store.Store store.Store)) ⦃ r =>
-              RBodyPost nm s0 σ tp p S B s.ticks.val r ⦄ := by
+              RBodyPost nm s0 im tp p S B s.ticks.val r ⦄ := by
           intro hr
           step with set_w s3 .A q q hK3.wf (by rw [hn3]; exact hq.lt) (by unfold Room; omega)
             as ⟨s5, g1, g2, g3, g4, g5, g6⟩
@@ -635,11 +690,11 @@ theorem rebuild_body_spec (hnm : Function.Injective nm) (s0 : store.Store) (f : 
         | Sym g =>
           have := hq.of_sym hnd
           subst this
-          exact hatom hq
+          exact hatom (by rw [(hg _ _ hq0 hA0).2.1 _ rfl]; exact hq)
         | Nil =>
           have := hq.of_nil hnd
           subst this
-          exact hatom hq
+          exact hatom (by rw [(hg _ _ hq0 hA0).2.1 _ rfl]; exact hq)
         | App a b =>
           simp only
           step with push_w s3 (.Build q q) hK3.wf (by unfold Room; omega)
@@ -717,8 +772,12 @@ theorem rebuild_body_spec (hnm : Function.Injective nm) (s0 : store.Store) (f : 
           step with set_w s5 .A q r hW5 (by rw [hmore5]; simp; have := hq.lt; omega)
             (by unfold Room; omega) as ⟨s6, g1, g2, g3, g4, g5, g6⟩
           rw [htbl5, htb4] at g4
-          have hr : Repr nm (s.nodes.val ++ more5) r.val ((Term.app ta tb).bind σ) := by
-            simp only [Term.bind_app]
+          have hA0 : tbl s0 .A q.val = none := by
+            cases h0 : tbl s0 .A q.val with
+            | none => rfl
+            | some v0 => rw [hSt.keep _ _ h0] at hnone; cases hnone
+          have hr : Repr nm (s.nodes.val ++ more5) r.val (im (Term.app ta tb)) := by
+            rw [(hg _ _ hq0 hA0).2.2 _ _ rfl]
             rw [← hmore5]
             exact .app hr5 (by rw [hmore5]; exact hra.append more5)
               (by rw [hmore5]; exact hrb.append more5)
@@ -735,14 +794,17 @@ theorem rebuild_body_spec (hnm : Function.Injective nm) (s0 : store.Store) (f : 
             have := Finset.card_erase_le (s := U) (a := Term.app ta tb)
             omega
 
-/-- `rebuild` computes `Term.bind`. It spends five ticks, and fourteen more
-for each term of `S` that had no table entry and gets one. -/
-theorem rebuild_spec (hnm : Function.Injective nm) (s : store.Store) (f : term.Leaf)
-    (p : store.TermId) {t : Pat} {σ : Nat → Pat} (S : Finset Pat) (hI : Inv s)
+/-- `rebuild` computes the image of the term under a function that agrees
+with the table at the start, and with the leaf function where that table has
+no entry. It spends five ticks, and fourteen more for each term of `S` that
+had no table entry and gets one. -/
+theorem rebuild_g_spec (hnm : Function.Injective nm) (s : store.Store) (f : term.Leaf)
+    (p : store.TermId) {t : Pat} {σ : Nat → Pat} {im : Pat → Pat} (S : Finset Pat) (hI : Inv s)
     (hp : Repr nm s.nodes.val p.val t) (hf : LeafOK nm s.nodes.val (tbl s .B) f σ)
-    (hM : MemoOK nm s.nodes.val (tbl s .A) σ) (hS : t.subs ⊆ S)
+    (hM : MemoG nm s.nodes.val (tbl s .A) im)
+    (hg : ∀ t k, Repr nm s.nodes.val k t → tbl s .A k = none → ImStep σ im t) (hS : t.subs ⊆ S)
     (hroom : Room s (5 + 14 * (pending nm s.nodes.val (tbl s .A) S).card)) :
-    term.rebuild s f p ⦃ r s' => RebuildPost nm s s' σ t S r ⦄ := by
+    term.rebuild s f p ⦃ r s' => RebuildG nm s s' im t S r ⦄ := by
   unfold term.rebuild term.rebuild_loop
   have hroom' := hroom
   unfold Room at hroom'
@@ -751,12 +813,12 @@ theorem rebuild_spec (hnm : Function.Injective nm) (s : store.Store) (f : term.L
   let B := s.ticks.val + 4 + 14 * (pending nm s.nodes.val (tbl s .A) S).card
   have hloop := loop.spec_decr_nat
     (fun x : store.Store => B + 1 - x.ticks.val)
-    (fun x => RInv nm s σ t p.val S B x ∧ s.ticks.val ≤ x.ticks.val)
-    (fun x => RDone nm s σ t p.val S B x ∧ s.ticks.val ≤ x.ticks.val)
+    (fun x => RInv nm s im t p.val S B x ∧ s.ticks.val ≤ x.ticks.val)
+    (fun x => RDone nm s im t p.val S B x ∧ s.ticks.val ≤ x.ticks.val)
     (fun x : store.Store => term.rebuild_loop.body f x) s1
     (by
       rintro x ⟨hinv, hx⟩
-      refine WP.spec_mono (rebuild_body_spec hnm s f σ t p.val S B (by omega) hI.nodesOK hf hS
+      refine WP.spec_mono (rebuild_body_spec hnm s f σ im t p.val S B (by omega) hI.nodesOK hf hg hS
         x hinv) ?_
       intro r hr
       cases r with
@@ -799,5 +861,18 @@ theorem rebuild_spec (hnm : Function.Injective nm) (s : store.Store) (f : term.L
       by rw [hK3.tbl, hTB2], fun k v hk => by rw [hK3.tbl]; exact hSt2.keep k v hk, ?_, ?_⟩
     · rw [hK3.nodes, hK3.tbl]; omega
     · omega
+
+/-- `rebuild` computes `Term.bind`. It spends five ticks, and fourteen more
+for each term of `S` that had no table entry and gets one. -/
+theorem rebuild_spec (hnm : Function.Injective nm) (s : store.Store) (f : term.Leaf)
+    (p : store.TermId) {t : Pat} {σ : Nat → Pat} (S : Finset Pat) (hI : Inv s)
+    (hp : Repr nm s.nodes.val p.val t) (hf : LeafOK nm s.nodes.val (tbl s .B) f σ)
+    (hM : MemoOK nm s.nodes.val (tbl s .A) σ) (hS : t.subs ⊆ S)
+    (hroom : Room s (5 + 14 * (pending nm s.nodes.val (tbl s .A) S).card)) :
+    term.rebuild s f p ⦃ r s' => RebuildPost nm s s' σ t S r ⦄ := by
+  refine WP.spec_mono (rebuild_g_spec hnm s f p (im := fun t => t.bind σ) S hI hp hf hM
+    (fun t _ _ _ => ImStep.bind σ t) hS hroom) ?_
+  rintro ⟨r, s'⟩ h
+  exact ⟨h.inv, h.ext, h.repr, h.memo, h.tblB, h.keep, h.cost, h.mono⟩
 
 end RwLogVerified

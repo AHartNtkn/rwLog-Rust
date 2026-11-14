@@ -229,12 +229,14 @@ theorem unstack_spec : ∀ (fs : List store.Frame) (ts acc : List Pat) (s : stor
     refine ⟨h1, hx.trans h2, ?_, by simp only [List.length_cons]; omega, by rw [h5, htb2, p2]⟩
     simpa using h3
 
-theorem append_spec (xs : List Pat) (s : store.Store) (a b : store.TermId) {ys : List Pat}
+/-- `append` is the first list followed by the second; the tables are as
+they were. -/
+theorem append_keep_spec (xs : List Pat) (s : store.Store) (a b : store.TermId) {ys : List Pat}
     (hI : Inv s) (ha : Repr nm s.nodes.val a.val (encList (nm none) xs))
     (hb : Repr nm s.nodes.val b.val (encList (nm none) ys)) (hroom : Room s (4 * xs.length + 2)) :
     term.append s a b ⦃ r s' =>
       Inv s' ∧ Extends s s' ∧ Repr nm s'.nodes.val r.val (encList (nm none) (xs ++ ys)) ∧
-        s'.ticks.val ≤ s.ticks.val + 4 * xs.length + 2 ⦄ := by
+        s'.ticks.val ≤ s.ticks.val + 4 * xs.length + 2 ∧ tbl s' = tbl s ⦄ := by
   unfold term.append
   have hroom' := hroom
   unfold Room at hroom'
@@ -245,8 +247,18 @@ theorem append_spec (xs : List Pat) (s : store.Store) (a b : store.TermId) {ys :
   have hx1 : Extends s s1 := Extends.of_eq hn1 (by omega)
   step with unstack_spec (nm := nm) fs xs.reverse ys s1 b hW1 hstk1
     (hF.imp fun _ _ h => hx1.repr h) (hx1.repr hb) (by unfold Room; omega)
-    as ⟨r, s2, h1, h2, h3, h4, _⟩
-  refine ⟨h1, hx1.trans h2, by simpa using h3, by omega⟩
+    as ⟨r, s2, h1, h2, h3, h4, h5⟩
+  refine ⟨h1, hx1.trans h2, by simpa using h3, by omega, by rw [h5, htb1]⟩
+
+theorem append_spec (xs : List Pat) (s : store.Store) (a b : store.TermId) {ys : List Pat}
+    (hI : Inv s) (ha : Repr nm s.nodes.val a.val (encList (nm none) xs))
+    (hb : Repr nm s.nodes.val b.val (encList (nm none) ys)) (hroom : Room s (4 * xs.length + 2)) :
+    term.append s a b ⦃ r s' =>
+      Inv s' ∧ Extends s s' ∧ Repr nm s'.nodes.val r.val (encList (nm none) (xs ++ ys)) ∧
+        s'.ticks.val ≤ s.ticks.val + 4 * xs.length + 2 ⦄ := by
+  refine WP.spec_mono (append_keep_spec xs s a b hI ha hb hroom) ?_
+  rintro ⟨r, s'⟩ ⟨h1, h2, h3, h4, -⟩
+  exact ⟨h1, h2, h3, h4⟩
 
 /-! ## Packing and unpacking -/
 
