@@ -1056,7 +1056,7 @@ theorem inv_workGroup (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R
     (hg : goalAt st i = some g) :
     Inv (workGroup (K := DerivationKernel.over D K hK P) adv whole i g k st).val.1 := by
   at_cost K hK
-  simp only [workGroup, Cost.bind_val, Cost.pure_val]
+  simp only [workGroup, workStrats, feedAll, Cost.bind_val, Cost.pure_val]
   refine inv_setGroup ?_ _ _ _ (fun g' gr _ h => h)
   refine (foldL_inv (fun acc : StateOf R Rel (Ans D P) × Nat =>
     Inv acc.1 ∧ goalAt acc.1 i = some g) _ _ (fun b h _ hb => ?_) _ ?_).1

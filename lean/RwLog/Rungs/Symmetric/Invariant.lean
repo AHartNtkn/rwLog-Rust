@@ -408,7 +408,7 @@ theorem reach_workGroup (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf
     (k : Nat) (st : StateOf R Rel (Ans D P)) :
     Reach K hK st (workGroup (K := DerivationKernel.over D K hK P) adv whole i g k st).val.1 := by
   at_cost K hK
-  simp only [workGroup, Cost.bind_val, Cost.pure_val]
+  simp only [workGroup, workStrats, feedAll, Cost.bind_val, Cost.pure_val]
   refine Reach.trans ?_ (reach_setGroup _ _ _ _)
   refine reach_foldL_from (fun acc : StateOf R Rel (Ans D P) × Nat => acc.1) _ (fun b h => ?_) _ _ ?_
   · simp only [Cost.bind_val, Cost.pure_val]

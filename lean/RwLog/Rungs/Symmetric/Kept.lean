@@ -773,7 +773,7 @@ theorem good_workGroup (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK)
     keep_work (K := K) (hK := hK) (P := P) whole i g st s hb
   clear hR
   at_cost K hK
-  simp only [workGroup, Cost.bind_val, Cost.pure_val]
+  simp only [workGroup, workStrats, feedAll, Cost.bind_val, Cost.pure_val]
   refine Good.setGroup ?_ _ _ _ (fun g' gr _ s hs => .inl hs)
   refine (foldL_inv (fun acc : StateOf R Rel (Ans D P) × Nat =>
     Good acc.1 ∧ goalAt acc.1 i = some g ∧ Busy acc.1 i) _ _ (fun b h _ hb => ?_) _ ?_).1
