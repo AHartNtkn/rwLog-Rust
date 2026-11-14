@@ -3,6 +3,7 @@
 #![allow(dead_code)]
 
 pub mod decls;
+pub mod dom;
 pub mod sorts;
 
 use rwlog_core::span::Span;

@@ -12,244 +12,19 @@
 mod common;
 
 use common::decls::*;
+use common::dom::*;
 use common::sorts::*;
-use common::{ap, get, get_list, v, T};
-use rwlog_core::dom::{self, Rep};
-use rwlog_core::store::{Node, Tbl, TermId};
-
-/// The pair of the reference.
-const PSYM: u32 = 99;
-
-fn pair(l: P, r: P) -> P {
-    pf(PSYM, vec![l, r])
-}
-
-/// The relation of the sides `l` and `r` under the sorts `a` of patterns
-/// and the exclusions `x`.
-fn rel(l: P, r: P, a: Vec<(Name, P)>, x: Excls) -> Prob {
-    Prob { t: pair(l, r), e: vec![], a, x }
-}
-
-/// The relation of the sides `l` and `r` with nothing said of the variables.
-fn plain(l: P, r: P) -> Prob {
-    rel(l, r, vec![], vec![])
-}
-
-fn sides(r: &Raw) -> (P, P) {
-    match &r.t {
-        P::F(f, args) if *f == PSYM && args.len() == 2 => (args[0].clone(), args[1].clone()),
-        _ => panic!("the pattern of a representative is not a pair"),
-    }
-}
-
-fn shift(p: &P, k: usize) -> P {
-    match p {
-        P::V(x) => pv(x + k),
-        P::F(f, args) => pf(*f, args.iter().map(|q| shift(q, k)).collect()),
-    }
-}
-
-/// `Rep.one`: the pair of `u` and `w` over the solutions of `r`.
-fn ref_one(ss: &Sorts, r: &Raw, u: &P, w: &P) -> Option<Raw> {
-    normal(ss, &Prob { t: pair(u.clone(), w.clone()), ..r.prob() })
-}
-
-/// `Rep.two`: the pair of `u` and `w` and the equations `e` over the
-/// solutions of `a` and, its variables moved above those of `a`, of `b`.
-fn ref_two(ss: &Sorts, a: &Raw, b: &Raw, u: &P, w: &P, e: Vec<(P, P)>) -> Option<Raw> {
-    let k = a.c.len();
-    let (pa, pb) = (a.prob(), b.prob());
-    let mut at = pa.a;
-    at.extend(pb.a.iter().map(|(n, p)| (*n, shift(p, k))));
-    let mut x = pa.x;
-    x.extend(pb.x.iter().map(|e| e.iter().map(|(l, r)| (shift(l, k), shift(r, k))).collect::<Vec<_>>()));
-    normal(ss, &Prob { t: pair(u.clone(), w.clone()), e, a: at, x })
-}
-
-fn ref_compose(ss: &Sorts, a: &Raw, b: &Raw) -> Option<Raw> {
-    let k = a.c.len();
-    let ((al, ar), (bl, br)) = (sides(a), sides(b));
-    ref_two(ss, a, b, &al, &shift(&br, k), vec![(ar, shift(&bl, k))])
-}
-
-fn ref_meet(ss: &Sorts, a: &Raw, b: &Raw) -> Option<Raw> {
-    let k = a.c.len();
-    let ((al, ar), (bl, br)) = (sides(a), sides(b));
-    ref_two(ss, a, b, &al, &ar, vec![(al.clone(), shift(&bl, k)), (ar.clone(), shift(&br, k))])
-}
-
-fn ref_right(ss: &Sorts, a: &Raw) -> Option<Raw> {
-    let (_, r) = sides(a);
-    ref_one(ss, a, &r, &r)
-}
-
-fn ref_conv(ss: &Sorts, a: &Raw) -> Raw {
-    let (l, r) = sides(a);
-    ref_one(ss, a, &r, &l).unwrap_or_else(|| a.clone())
-}
-
-/// The representative of a relation; it relates something.
-fn rep(defs: &[(Name, Def)], p: &Prob) -> Raw {
-    normal(&Sorts::new(defs.to_vec()), p).unwrap_or_else(|| panic!("{p:?} relates nothing"))
-}
-
-/// The value each variable of a store of `k` variables has in the solved
-/// exclusion `b`.
-fn values(k: usize, b: &Binds) -> Vec<P> {
-    (0..k).map(|i| b.iter().find(|(y, _)| *y == i).map_or(pv(i), |(_, q)| q.clone())).collect()
-}
-
-/// A representative in the store, its exclusions in the order given or in
-/// the opposite order.
-fn put_rep(f: &mut Fx, r: &Raw, backwards: bool) -> Rep {
-    let (l, rt) = sides(r);
-    let l = put_pat(&mut f.s, &l);
-    let rt = put_pat(&mut f.s, &rt);
-    let nil = f.s.alloc(Node::Nil);
-    let h = f.s.alloc(Node::App(nil, l));
-    let t = f.s.alloc(Node::App(h, rt));
-    let mut c = f.s.alloc(Node::Nil);
-    for cj in r.c.iter().rev() {
-        let names: Vec<Name> = cj.iter().copied().collect();
-        let h = f.conj(&names);
-        c = f.s.alloc(Node::App(h, c));
-    }
-    let mut xs: Vec<&Binds> = r.x.iter().collect();
-    if !backwards {
-        xs.reverse();
-    }
-    let mut x = f.s.alloc(Node::Nil);
-    for b in xs {
-        let h = put_pats(&mut f.s, &values(r.c.len(), b));
-        x = f.s.alloc(Node::App(h, x));
-    }
-    Rep { t, c, x }
-}
-
-/// A representative read back: its two sides, the conjunction of each
-/// variable as a sorted list, and the exclusions, each the list of the
-/// values of the variables, as a sorted list of their printed forms.
-type Shape = (T, T, Vec<Vec<Name>>, Vec<String>);
-
-fn sorted<X: Ord>(mut l: Vec<X>) -> Vec<X> {
-    l.sort();
-    l
-}
-
-fn shape(r: &Raw) -> Shape {
-    let (l, rt) = sides(r);
-    let x = r
-        .x
-        .iter()
-        .map(|b| {
-            let vals: Vec<T> = values(r.c.len(), b).iter().map(P::tree).collect();
-            format!("{vals:?}")
-        })
-        .collect();
-    (l.tree(), rt.tree(), r.c.iter().map(|c| c.iter().copied().collect()).collect(), sorted(x))
-}
-
-fn get_lists(f: &mut Fx, mut p: TermId) -> Vec<Vec<T>> {
-    let mut out = Vec::new();
-    loop {
-        match f.s.read(p) {
-            Node::Nil => return out,
-            Node::App(h, rest) => {
-                out.push(get_list(&mut f.s, h));
-                p = rest;
-            }
-            _ => panic!("a term where a list was expected"),
-        }
-    }
-}
-
-fn get_rep(f: &mut Fx, r: Rep) -> Shape {
-    let (h, rt) = match f.s.read(r.t) {
-        Node::App(h, rt) => (h, rt),
-        _ => panic!("the pattern is not a pair"),
-    };
-    let l = match f.s.read(h) {
-        Node::App(nil, l) => {
-            assert!(matches!(f.s.read(nil), Node::Nil), "the pair has another head");
-            l
-        }
-        _ => panic!("the pattern is not a pair"),
-    };
-    let l = get(&mut f.s, l);
-    let rt = get(&mut f.s, rt);
-    let cs = get_conjs(&mut f.s, r.c).into_iter().map(sorted).collect();
-    let xs = get_lists(f, r.x).iter().map(|l| format!("{l:?}")).collect();
-    (l, rt, cs, sorted(xs))
-}
-
-/// Tables with entries and flags left by earlier work.
-fn dirty(f: &mut Fx) {
-    let n = f.s.alloc(Node::Nil);
-    let m = f.s.alloc(Node::App(n, n));
-    f.s.set(Tbl::A, n, m);
-    f.s.set(Tbl::B, n, m);
-    f.s.set(Tbl::A, m, n);
-    f.s.set_flag(Tbl::B, m, true);
-    f.s.set(Tbl::A, f.decls, n);
-    f.s.set(Tbl::B, f.names, m);
-}
-
-/// How an operation is run: with the exclusions of its arguments in the
-/// opposite order, and with the tables left dirty by earlier work.
-#[derive(Clone, Copy)]
-struct Run {
-    backwards: bool,
-    soiled: bool,
-}
-
-const RUNS: [Run; 3] = [
-    Run { backwards: false, soiled: false },
-    Run { backwards: true, soiled: false },
-    Run { backwards: false, soiled: true },
-];
-
-/// Run an operation of one representative in the store.
-fn run1<R>(defs: &[(Name, Def)], a: &Raw, run: Run, op: impl FnOnce(&mut Fx, Rep) -> R) -> (R, Fx) {
-    let mut f = fixture(defs.to_vec());
-    let ra = put_rep(&mut f, a, run.backwards);
-    if run.soiled {
-        dirty(&mut f);
-    }
-    let got = op(&mut f, ra);
-    f.empty_stack();
-    (got, f)
-}
-
-/// Run an operation of two representatives in the store.
-fn run2<R>(
-    defs: &[(Name, Def)],
-    a: &Raw,
-    b: &Raw,
-    run: Run,
-    op: impl FnOnce(&mut Fx, Rep, Rep) -> R,
-) -> (R, Fx) {
-    let mut f = fixture(defs.to_vec());
-    let ra = put_rep(&mut f, a, run.backwards);
-    let rb = put_rep(&mut f, b, run.backwards);
-    if run.soiled {
-        dirty(&mut f);
-    }
-    let got = op(&mut f, ra, rb);
-    f.empty_stack();
-    (got, f)
-}
-
-fn read(got: Option<Rep>, mut f: Fx) -> Option<Shape> {
-    got.map(|r| get_rep(&mut f, r))
-}
+use common::{ap, get, v, T};
+use rwlog_core::dom::{self, Oriented};
+use rwlog_core::store::Node;
 
 /// `dom::one` on the representative of `p` gives the representative of
 /// the reference, and there is one.
 fn one_same(defs: Vec<(Name, Def)>, p: &Prob, u: &P, w: &P) -> Raw {
     let a = rep(&defs, p);
     let want = ref_one(&Sorts::new(defs.clone()), &a, u, w).unwrap_or_else(|| panic!("the reference has nothing for {p:?}"));
-    for run in RUNS {
-        let (got, f) = run1(&defs, &a, run, |f, ra| {
+    for run in PLAIN {
+        let (got, f) = run_rep(&defs, &a, run, |f, ra| {
             let u = put_pat(&mut f.s, u);
             let w = put_pat(&mut f.s, w);
             dom::one(&mut f.s, f.decls, f.names, ra, u, w)
@@ -263,10 +38,11 @@ fn one_same(defs: Vec<(Name, Def)>, p: &Prob, u: &P, w: &P) -> Raw {
 /// one. Returned is that of the reference.
 fn compose_same(defs: Vec<(Name, Def)>, p: &Prob, q: &Prob) -> Raw {
     let (a, b) = (rep(&defs, p), rep(&defs, q));
-    let want = ref_compose(&Sorts::new(defs.clone()), &a, &b).unwrap_or_else(|| panic!("the reference composes {p:?} and {q:?} to nothing"));
+    let ss = Sorts::new(defs.clone());
+    let want = ref_compose(&ss, &a, &b).unwrap_or_else(|| panic!("the reference composes {p:?} and {q:?} to nothing"));
     for run in RUNS {
-        let (got, f) = run2(&defs, &a, &b, run, |f, ra, rb| dom::compose(&mut f.s, f.decls, f.names, ra, rb));
-        assert_eq!(read(got, f), Some(shape(&want)), "{p:?} then {q:?}");
+        let (got, mut f) = run2(&defs, &a, &b, run, |f, ra, rb| dom::compose(&mut f.s, f.decls, f.names, ra, rb));
+        stands(&ss, &mut f, got, Some(&want), &format!("{p:?} then {q:?}"));
     }
     want
 }
@@ -274,10 +50,11 @@ fn compose_same(defs: Vec<(Name, Def)>, p: &Prob, q: &Prob) -> Raw {
 /// Neither `dom::compose` nor the reference has a representative.
 fn compose_none(defs: Vec<(Name, Def)>, p: &Prob, q: &Prob) {
     let (a, b) = (rep(&defs, p), rep(&defs, q));
-    assert!(ref_compose(&Sorts::new(defs.clone()), &a, &b).is_none(), "the reference composes {p:?} and {q:?}");
+    let ss = Sorts::new(defs.clone());
+    assert!(ref_compose(&ss, &a, &b).is_none(), "the reference composes {p:?} and {q:?}");
     for run in RUNS {
-        let (got, f) = run2(&defs, &a, &b, run, |f, ra, rb| dom::compose(&mut f.s, f.decls, f.names, ra, rb));
-        assert_eq!(read(got, f), None, "{p:?} then {q:?}");
+        let (got, mut f) = run2(&defs, &a, &b, run, |f, ra, rb| dom::compose(&mut f.s, f.decls, f.names, ra, rb));
+        stands(&ss, &mut f, got, None, &format!("{p:?} then {q:?}"));
     }
 }
 
@@ -285,10 +62,11 @@ fn compose_none(defs: Vec<(Name, Def)>, p: &Prob, q: &Prob) {
 /// one. Returned is that of the reference.
 fn meet_same(defs: Vec<(Name, Def)>, p: &Prob, q: &Prob) -> Raw {
     let (a, b) = (rep(&defs, p), rep(&defs, q));
-    let want = ref_meet(&Sorts::new(defs.clone()), &a, &b).unwrap_or_else(|| panic!("the reference meets {p:?} and {q:?} in nothing"));
+    let ss = Sorts::new(defs.clone());
+    let want = ref_meet(&ss, &a, &b).unwrap_or_else(|| panic!("the reference meets {p:?} and {q:?} in nothing"));
     for run in RUNS {
-        let (got, f) = run2(&defs, &a, &b, run, |f, ra, rb| dom::meet(&mut f.s, f.decls, f.names, ra, rb));
-        assert_eq!(read(got, f), Some(shape(&want)), "{p:?} and {q:?}");
+        let (got, mut f) = run2(&defs, &a, &b, run, |f, ra, rb| dom::meet(&mut f.s, f.decls, f.names, ra, rb));
+        stands(&ss, &mut f, got, Some(&want), &format!("{p:?} and {q:?}"));
     }
     want
 }
@@ -296,10 +74,11 @@ fn meet_same(defs: Vec<(Name, Def)>, p: &Prob, q: &Prob) -> Raw {
 /// Neither `dom::meet` nor the reference has a representative.
 fn meet_none(defs: Vec<(Name, Def)>, p: &Prob, q: &Prob) {
     let (a, b) = (rep(&defs, p), rep(&defs, q));
-    assert!(ref_meet(&Sorts::new(defs.clone()), &a, &b).is_none(), "the reference meets {p:?} and {q:?}");
+    let ss = Sorts::new(defs.clone());
+    assert!(ref_meet(&ss, &a, &b).is_none(), "the reference meets {p:?} and {q:?}");
     for run in RUNS {
-        let (got, f) = run2(&defs, &a, &b, run, |f, ra, rb| dom::meet(&mut f.s, f.decls, f.names, ra, rb));
-        assert_eq!(read(got, f), None, "{p:?} and {q:?}");
+        let (got, mut f) = run2(&defs, &a, &b, run, |f, ra, rb| dom::meet(&mut f.s, f.decls, f.names, ra, rb));
+        stands(&ss, &mut f, got, None, &format!("{p:?} and {q:?}"));
     }
 }
 
@@ -307,10 +86,24 @@ fn meet_none(defs: Vec<(Name, Def)>, p: &Prob, q: &Prob) {
 /// one. Returned is that of the reference.
 fn right_same(defs: Vec<(Name, Def)>, p: &Prob) -> Raw {
     let a = rep(&defs, p);
-    let want = ref_right(&Sorts::new(defs.clone()), &a).unwrap_or_else(|| panic!("the reference has no right interface of {p:?}"));
+    let ss = Sorts::new(defs.clone());
+    let want = ref_right(&ss, &a).unwrap_or_else(|| panic!("the reference has no right interface of {p:?}"));
     for run in RUNS {
-        let (got, f) = run1(&defs, &a, run, |f, ra| dom::right(&mut f.s, f.decls, f.names, ra));
-        assert_eq!(read(got, f), Some(shape(&want)), "{p:?}");
+        let (got, mut f) = run1(&defs, &a, run, |f, ra| dom::right(&mut f.s, f.decls, f.names, ra));
+        stands(&ss, &mut f, got, Some(&want), &format!("{p:?}"));
+    }
+    want
+}
+
+/// `dom::left` gives the right interface of the converse of the
+/// reference, and there is one. Returned is that of the reference.
+fn left_same(defs: Vec<(Name, Def)>, p: &Prob) -> Raw {
+    let a = rep(&defs, p);
+    let ss = Sorts::new(defs.clone());
+    let want = ref_right(&ss, &ref_conv(&ss, &a)).unwrap_or_else(|| panic!("the reference has no left interface of {p:?}"));
+    for run in RUNS {
+        let (got, mut f) = run1(&defs, &a, run, |f, ra| dom::left(&mut f.s, f.decls, f.names, ra));
+        stands(&ss, &mut f, got, Some(&want), &format!("{p:?}"));
     }
     want
 }
@@ -320,8 +113,8 @@ fn right_same(defs: Vec<(Name, Def)>, p: &Prob) -> Raw {
 fn conv_same(defs: Vec<(Name, Def)>, p: &Prob) -> Raw {
     let a = rep(&defs, p);
     let want = ref_conv(&Sorts::new(defs.clone()), &a);
-    for run in RUNS {
-        let (got, mut f) = run1(&defs, &a, run, |f, ra| dom::conv(&mut f.s, f.decls, f.names, ra));
+    for run in PLAIN {
+        let (got, mut f) = run_rep(&defs, &a, run, |f, ra| dom::conv(&mut f.s, f.decls, f.names, ra));
         assert_eq!(get_rep(&mut f, got), shape(&want), "{p:?}");
     }
     want
@@ -347,6 +140,48 @@ fn covers_is(defs: Vec<(Name, Def)>, p: &Prob, q: &Prob, want: bool) {
     for run in RUNS {
         let (got, _) = run2(&defs, &a, &b, run, |f, ra, rb| dom::covers(&mut f.s, f.decls, f.names, ra, rb));
         assert_eq!(got, want, "{p:?} and {q:?}");
+    }
+}
+
+/// `dom::eq` says whether the two representatives are the same, however
+/// each is held.
+fn eq_is(defs: Vec<(Name, Def)>, p: &Prob, q: &Prob, want: bool) {
+    let (a, b) = (rep(&defs, p), rep(&defs, q));
+    assert_eq!(a == b, want, "the reference on {p:?} and {q:?}");
+    for run in RUNS {
+        let (got, _) = run2(&defs, &a, &b, run, |f, ra, rb| dom::eq(&mut f.s, f.decls, f.names, ra, rb));
+        assert_eq!(got, want, "{p:?} and {q:?}");
+        let (got, _) = run2(&defs, &b, &a, run, |f, rb, ra| dom::eq(&mut f.s, f.decls, f.names, rb, ra));
+        assert_eq!(got, want, "{q:?} and {p:?}");
+    }
+}
+
+/// The marks of the members of a chain of `n`, each way of four: none,
+/// all, the even ones, the odd ones.
+fn marks(n: usize) -> Vec<Vec<bool>> {
+    vec![vec![false; n], vec![true; n], (0..n).map(|i| i % 2 == 0).collect(), (0..n).map(|i| i % 2 == 1).collect()]
+}
+
+/// `dom::composable` says whether the chain composes, as the reference
+/// composes it from the left, however each member is held.
+fn chain_is(defs: Vec<(Name, Def)>, ps: &[Prob], want: bool) {
+    let ss = Sorts::new(defs.clone());
+    let rs: Vec<Raw> = ps.iter().map(|p| rep(&defs, p)).collect();
+    let mut acc = rs.first().cloned();
+    for r in rs.iter().skip(1) {
+        acc = acc.and_then(|a| ref_compose(&ss, &a, r));
+    }
+    assert_eq!(rs.is_empty() || acc.is_some(), want, "the reference on {ps:?}");
+    for (i, flips) in marks(rs.len()).into_iter().enumerate() {
+        let mut f = fixture(defs.clone());
+        let xs: Vec<Oriented> = rs.iter().zip(&flips).map(|(r, fl)| put_or(&mut f, &ss, r, *fl, i % 2 == 1)).collect();
+        let l = put_chain(&mut f, &xs);
+        if i >= 2 {
+            dirty(&mut f);
+        }
+        let got = dom::composable(&mut f.s, f.decls, f.names, l);
+        f.empty_stack();
+        assert_eq!(got, want, "{ps:?} marked {flips:?}");
     }
 }
 
@@ -1457,6 +1292,332 @@ fn covers_weaker_exclusion_covers_stronger_but_not_the_reverse() {
 }
 
 // ---------------------------------------------------------------------
+// `swap`, `left` and `eq`
+// ---------------------------------------------------------------------
+
+/// A relation that is not its own converse, with a sort and an exclusion.
+fn lopsided() -> Prob {
+    rel(f2(pv(0), pv(1)), su(pv(1)), vec![(NAT, pv(1))], vec![vec![(pv(0), z())]])
+}
+
+#[test]
+fn swap_changes_the_mark_and_not_the_store() {
+    let mut f = fixture(wf());
+    let a = rep(&wf(), &lopsided());
+    let ra = put_rep(&mut f, &a, false);
+    for flip in [false, true] {
+        let got = dom::swap(Oriented { rep: ra, flip });
+        assert_eq!(got.flip, !flip);
+        assert!(f.s.same(got.rep.t, ra.t));
+        assert!(f.s.same(got.rep.c, ra.c));
+        assert!(f.s.same(got.rep.x, ra.x));
+    }
+}
+
+#[test]
+fn swap_stands_for_the_converse() {
+    let ss = Sorts::new(wf());
+    let a = rep(&wf(), &lopsided());
+    let want = ref_conv(&ss, &a);
+    assert_ne!(want, a);
+    for flip in [false, true] {
+        let mut f = fixture(wf());
+        let ra = put_or(&mut f, &ss, &a, flip, false);
+        stands(&ss, &mut f, Some(dom::swap(ra)), Some(&want), "the converse");
+    }
+}
+
+#[test]
+fn swap_twice_stands_for_the_representative() {
+    let ss = Sorts::new(wf());
+    let a = rep(&wf(), &lopsided());
+    for flip in [false, true] {
+        let mut f = fixture(wf());
+        let ra = put_or(&mut f, &ss, &a, flip, false);
+        stands(&ss, &mut f, Some(dom::swap(dom::swap(ra))), Some(&a), "the converse of the converse");
+    }
+}
+
+#[test]
+fn swap_then_compose_is_the_composition_of_the_converses_the_other_way() {
+    let ss = Sorts::new(wf());
+    let a = rep(&wf(), &lopsided());
+    let b = rep(&wf(), &rel(su(pv(0)), pv(0), vec![], vec![vec![(pv(0), z())]]));
+    let ab = ref_compose(&ss, &a, &b).expect("the reference composes them");
+    let want = ref_conv(&ss, &ab);
+    let mut f = fixture(wf());
+    let ra = put_or(&mut f, &ss, &a, false, false);
+    let rb = put_or(&mut f, &ss, &b, false, false);
+    let got = dom::compose(&mut f.s, f.decls, f.names, dom::swap(rb), dom::swap(ra));
+    f.empty_stack();
+    stands(&ss, &mut f, got, Some(&want), "the converses composed");
+}
+
+#[test]
+fn left_relates_the_left_side_to_itself() {
+    let got = left_same(wf(), &plain(su(pv(0)), pv(0)));
+    assert_eq!(sides(&got), (su(pv(0)), su(pv(0))));
+}
+
+#[test]
+fn left_of_ground_relation_is_ground() {
+    let got = left_same(wf(), &plain(z(), su(z())));
+    assert_eq!(sides(&got), (z(), z()));
+    assert!(got.c.is_empty());
+}
+
+#[test]
+fn left_drops_variables_only_on_the_right_side_and_renumbers() {
+    let got = left_same(wf(), &plain(pv(1), f2(pv(0), pv(1))));
+    assert_eq!(sides(&got), (pv(0), pv(0)));
+    assert_eq!(got.c.len(), 1);
+}
+
+#[test]
+fn left_keeps_the_sort_of_a_left_variable() {
+    let got = left_same(wf(), &rel(pv(0), pv(1), vec![(NAT, pv(0))], vec![]));
+    assert_eq!(sides(&got), (pv(0), pv(0)));
+    assert!(got.c[0].contains(&NAT));
+}
+
+#[test]
+fn left_drops_the_sort_of_a_right_only_variable() {
+    let got = left_same(wf(), &rel(pv(0), pv(1), vec![(NAT, pv(1))], vec![]));
+    assert_eq!(sides(&got), (pv(0), pv(0)));
+    assert!(got.c[0].is_empty());
+}
+
+#[test]
+fn left_keeps_the_exclusion_of_a_left_variable() {
+    let got = left_same(wf(), &rel(pv(0), pv(1), vec![], vec![vec![(pv(0), z())]]));
+    assert_eq!(got.x, vec![vec![(0, z())]]);
+}
+
+#[test]
+fn left_drops_the_exclusion_of_a_right_only_variable() {
+    let got = left_same(wf(), &rel(pv(0), pv(1), vec![], vec![vec![(pv(1), z())]]));
+    assert_eq!(sides(&got), (pv(0), pv(0)));
+    assert!(got.x.is_empty());
+}
+
+#[test]
+fn left_drops_a_disequality_between_a_left_and_a_right_variable() {
+    let got = left_same(wf(), &rel(pv(0), pv(1), vec![], vec![vec![(pv(0), pv(1))]]));
+    assert_eq!(sides(&got), (pv(0), pv(0)));
+    assert!(got.x.is_empty());
+}
+
+#[test]
+fn left_of_a_bound_is_itself() {
+    let p = rel(f2(pv(0), pv(1)), f2(pv(0), pv(1)), vec![(NAT, pv(0))], vec![vec![(pv(1), pv(0))]]);
+    let got = left_same(wf(), &p);
+    assert_eq!(got, rep(&wf(), &p));
+}
+
+#[test]
+fn left_is_not_the_right_interface_of_a_lopsided_relation() {
+    let l = left_same(wf(), &lopsided());
+    let r = right_same(wf(), &lopsided());
+    assert_ne!(l, r);
+}
+
+#[test]
+fn eq_of_a_relation_with_itself() {
+    eq_is(wf(), &lopsided(), &lopsided(), true);
+}
+
+#[test]
+fn eq_does_not_depend_on_variable_names() {
+    let p = rel(f2(pv(4), pv(2)), su(pv(2)), vec![(NAT, pv(2))], vec![vec![(pv(4), z())]]);
+    eq_is(wf(), &p, &lopsided(), true);
+}
+
+#[test]
+fn eq_not_of_a_lopsided_relation_with_its_converse() {
+    let ss = Sorts::new(wf());
+    let a = rep(&wf(), &lopsided());
+    eq_is(wf(), &lopsided(), &ref_conv(&ss, &a).prob(), false);
+}
+
+#[test]
+fn eq_of_a_relation_that_is_its_own_converse_with_its_converse() {
+    let p = rel(f2(pv(0), pv(1)), f2(pv(1), pv(0)), vec![(NAT, pv(0)), (NAT, pv(1))], vec![vec![(pv(0), pv(1))]]);
+    let ss = Sorts::new(wf());
+    let a = rep(&wf(), &p);
+    let c = ref_conv(&ss, &a);
+    assert_eq!(c, a);
+    eq_is(wf(), &p, &c.prob(), true);
+}
+
+#[test]
+fn eq_of_a_bound_with_itself() {
+    let p = rel(su(pv(0)), su(pv(0)), vec![(NAT, pv(0))], vec![]);
+    eq_is(wf(), &p, &p, true);
+}
+
+#[test]
+fn eq_not_for_different_left_sides() {
+    eq_is(wf(), &plain(su(pv(0)), pv(0)), &plain(pv(0), pv(0)), false);
+}
+
+#[test]
+fn eq_not_for_different_right_sides() {
+    eq_is(wf(), &plain(pv(0), su(pv(0))), &plain(pv(0), z()), false);
+}
+
+#[test]
+fn eq_not_for_sorted_against_unsorted() {
+    eq_is(wf(), &rel(pv(0), pv(1), vec![(NAT, pv(0))], vec![]), &plain(pv(0), pv(1)), false);
+}
+
+#[test]
+fn eq_not_for_the_sort_on_the_other_side() {
+    eq_is(wf(), &rel(pv(0), pv(1), vec![(NAT, pv(0))], vec![]), &rel(pv(0), pv(1), vec![(NAT, pv(1))], vec![]), false);
+}
+
+#[test]
+fn eq_not_for_exclusion_against_none() {
+    eq_is(wf(), &rel(pv(0), pv(1), vec![], vec![vec![(pv(0), z())]]), &plain(pv(0), pv(1)), false);
+}
+
+#[test]
+fn eq_not_for_the_exclusion_on_the_other_side() {
+    let p = rel(pv(0), pv(1), vec![], vec![vec![(pv(0), z())]]);
+    let q = rel(pv(0), pv(1), vec![], vec![vec![(pv(1), z())]]);
+    eq_is(wf(), &p, &q, false);
+}
+
+#[test]
+fn eq_with_several_exclusions() {
+    let p = rel(pv(0), pv(1), vec![], vec![vec![(pv(0), z())], vec![(pv(1), a())], vec![(pv(0), pv(1))]]);
+    let q = rel(pv(0), pv(1), vec![], vec![vec![(pv(0), pv(1))], vec![(pv(0), z())], vec![(pv(1), a())]]);
+    eq_is(wf(), &p, &q, true);
+}
+
+#[test]
+fn eq_not_when_one_exclusion_list_is_a_strict_part_of_the_other() {
+    let p = rel(pv(0), pv(1), vec![], vec![vec![(pv(0), z())], vec![(pv(1), a())]]);
+    let q = rel(pv(0), pv(1), vec![], vec![vec![(pv(0), z())]]);
+    eq_is(wf(), &p, &q, false);
+}
+
+#[test]
+fn eq_of_ground_relations() {
+    eq_is(wf(), &plain(z(), su(z())), &plain(z(), su(z())), true);
+    eq_is(wf(), &plain(z(), su(z())), &plain(su(z()), z()), false);
+}
+
+#[test]
+fn eq_leaves_the_stores_of_its_arguments_as_they_were() {
+    let ss = Sorts::new(wf());
+    let a = rep(&wf(), &lopsided());
+    let mut f = fixture(wf());
+    let ra = put_or(&mut f, &ss, &a, false, false);
+    let rb = put_or(&mut f, &ss, &a, true, false);
+    assert!(dom::eq(&mut f.s, f.decls, f.names, ra, rb));
+    f.empty_stack();
+    stands(&ss, &mut f, Some(ra), Some(&a), "the first");
+    stands(&ss, &mut f, Some(rb), Some(&a), "the second");
+}
+
+// ---------------------------------------------------------------------
+// `pack` and `composable`
+// ---------------------------------------------------------------------
+
+#[test]
+fn composable_empty_chain_composes() {
+    chain_is(wf(), &[], true);
+}
+
+#[test]
+fn composable_chain_of_one_composes() {
+    chain_is(wf(), &[lopsided()], true);
+}
+
+#[test]
+fn composable_two_that_agree_at_the_interface() {
+    chain_is(wf(), &[plain(pv(0), su(pv(0))), plain(su(pv(0)), pv(0))], true);
+}
+
+#[test]
+fn composable_two_that_clash_at_the_interface() {
+    chain_is(wf(), &[plain(pv(0), z()), plain(su(pv(0)), pv(0))], false);
+}
+
+#[test]
+fn composable_two_in_the_other_order_compose() {
+    chain_is(wf(), &[plain(su(pv(0)), pv(0)), plain(pv(0), z())], true);
+}
+
+#[test]
+fn composable_three_that_compose() {
+    chain_is(wf(), &[plain(pv(0), su(pv(0))), plain(pv(0), su(pv(0))), plain(su(su(pv(0))), pv(0))], true);
+}
+
+#[test]
+fn composable_three_where_the_last_does_not_follow() {
+    chain_is(wf(), &[plain(pv(0), su(pv(0))), plain(pv(0), su(pv(0))), plain(su(z()), pv(0))], false);
+}
+
+#[test]
+fn composable_three_where_the_first_two_do_not_compose() {
+    chain_is(wf(), &[plain(pv(0), z()), plain(su(pv(0)), pv(0)), plain(pv(0), pv(0))], false);
+}
+
+#[test]
+fn composable_three_where_each_two_compose_and_the_chain_does_not() {
+    let ps = [plain(z(), f2(pv(0), z())), plain(f2(pv(0), pv(1)), f2(pv(1), pv(0))), plain(f2(su(pv(0)), z()), pv(0))];
+    let ss = Sorts::new(wf());
+    let rs: Vec<Raw> = ps.iter().map(|p| rep(&wf(), p)).collect();
+    assert!(ref_compose(&ss, &rs[0], &rs[1]).is_some());
+    assert!(ref_compose(&ss, &rs[1], &rs[2]).is_some());
+    chain_is(wf(), &ps, false);
+}
+
+#[test]
+fn composable_sorts_that_never_meet_at_the_interface() {
+    chain_is(wf(), &[rel(pv(0), pv(0), vec![(NAT, pv(0))], vec![]), rel(pv(0), pv(0), vec![(BOX, pv(0))], vec![])], false);
+}
+
+#[test]
+fn composable_sort_narrowed_by_the_first_two_rejects_the_third() {
+    let nat = rel(pv(0), pv(0), vec![(NAT, pv(0))], vec![]);
+    let not_zero = rel(pv(0), pv(0), vec![], vec![vec![(pv(0), z())]]);
+    chain_is(wf(), &[nat.clone(), not_zero.clone(), plain(z(), z())], false);
+    chain_is(wf(), &[nat, not_zero, plain(su(z()), z())], true);
+}
+
+#[test]
+fn composable_exclusion_of_the_interface_value() {
+    chain_is(wf(), &[plain(pv(0), z()), rel(pv(0), pv(0), vec![], vec![vec![(pv(0), z())]])], false);
+}
+
+#[test]
+fn composable_long_chain_of_successors() {
+    let step = plain(pv(0), su(pv(0)));
+    let mut ps = vec![step; 6];
+    ps.push(plain(su(su(su(su(su(su(pv(0))))))), pv(0)));
+    chain_is(wf(), &ps, true);
+    ps.push(plain(su(pv(0)), pv(0)));
+    chain_is(wf(), &ps, true);
+}
+
+#[test]
+fn composable_leaves_the_members_in_the_store_as_they_were() {
+    let ss = Sorts::new(wf());
+    let a = rep(&wf(), &lopsided());
+    let b = rep(&wf(), &plain(su(pv(0)), pv(0)));
+    let mut f = fixture(wf());
+    let ra = put_or(&mut f, &ss, &a, true, false);
+    let rb = put_or(&mut f, &ss, &b, false, false);
+    let l = put_chain(&mut f, &[ra, rb]);
+    assert!(dom::composable(&mut f.s, f.decls, f.names, l));
+    f.empty_stack();
+    stands(&ss, &mut f, Some(ra), Some(&a), "the first");
+    stands(&ss, &mut f, Some(rb), Some(&b), "the second");
+}
+
+// ---------------------------------------------------------------------
 // `same_rep`
 // ---------------------------------------------------------------------
 
@@ -1656,7 +1817,7 @@ fn differ(p: P, q: P) -> T {
 /// `dom::rep` on the span of the sides `l` and `r` under the constraints
 /// `c`, in a new store. A run that is `backwards` has the constraints in
 /// the opposite order.
-fn span_rep(defs: &[(Name, Def)], l: &T, r: &T, c: &[T], run: Run) -> (Option<Rep>, Fx) {
+fn span_rep(defs: &[(Name, Def)], l: &T, r: &T, c: &[T], run: Run) -> (Option<Oriented>, Fx) {
     let mut f = fixture(defs.to_vec());
     let mut c = c.to_vec();
     if run.backwards {
@@ -1677,13 +1838,17 @@ fn span_rep(defs: &[(Name, Def)], l: &T, r: &T, c: &[T], run: Run) -> (Option<Re
 /// reference.
 fn span_same(defs: Vec<(Name, Def)>, l: P, r: P, c: &[T], a: Vec<(Name, P)>, x: Excls) -> Raw {
     let p = rel(l.clone(), r.clone(), a, x);
-    let want = normal(&Sorts::new(defs.clone()), &p).unwrap_or_else(|| panic!("the reference has nothing for {p:?}"));
-    for run in RUNS {
+    let ss = Sorts::new(defs.clone());
+    let want = normal(&ss, &p).unwrap_or_else(|| panic!("the reference has nothing for {p:?}"));
+    for run in PLAIN {
         let (got, mut f) = span_rep(&defs, &l.tree(), &r.tree(), c, run);
-        let got = got.unwrap_or_else(|| panic!("nothing for {l:?} and {r:?} under {c:?}"));
-        assert_eq!(get_rep(&mut f, got), shape(&want), "{l:?} and {r:?} under {c:?}");
-        let w = put_rep(&mut f, &want, false);
-        assert!(dom::same_rep(&mut f.s, got, w), "not the store of the reference: {l:?} and {r:?} under {c:?}");
+        stands(&ss, &mut f, got, Some(&want), &format!("{l:?} and {r:?} under {c:?}"));
+        let got = got.expect("it stands for the reference");
+        for flip in [false, true] {
+            let w = put_or(&mut f, &ss, &want, flip, false);
+            assert!(dom::eq(&mut f.s, f.decls, f.names, got, w), "not the reference: {l:?} and {r:?} under {c:?}");
+            f.empty_stack();
+        }
     }
     want
 }
@@ -1700,14 +1865,14 @@ fn span_empty(defs: Vec<(Name, Def)>, l: P, r: P, c: &[T], a: Vec<(Name, P)>, x:
 /// `dom::rep` has no representative of the span of the terms `l` and `r`
 /// under the constraints `c`.
 fn span_none(defs: Vec<(Name, Def)>, l: &T, r: &T, c: &[T]) {
-    for run in RUNS {
-        let (got, f) = span_rep(&defs, l, r, c, run);
-        assert_eq!(read(got, f), None, "{l:?} and {r:?} under {c:?}");
+    for run in PLAIN {
+        let (got, _) = span_rep(&defs, l, r, c, run);
+        assert!(got.is_none(), "{l:?} and {r:?} under {c:?}");
     }
 }
 
 /// The representatives `dom::rep` gives of two spans in one store.
-fn two_span_reps(f: &mut Fx, a: &common::TSpan, b: &common::TSpan) -> (Rep, Rep) {
+fn two_span_reps(f: &mut Fx, a: &common::TSpan, b: &common::TSpan) -> (Oriented, Oriented) {
     let xa = common::put_span(&mut f.s, a);
     let xb = common::put_span(&mut f.s, b);
     let ra = dom::rep(&mut f.s, f.decls, f.names, NE, xa).expect("the first span relates something");
@@ -2343,7 +2508,7 @@ fn rep_results_compose_as_the_representatives_of_their_relations() {
     let want = ref_compose(&Sorts::new(wf()), &a, &b).expect("the reference composes them");
     assert_eq!(sides(&want), (pv(0), su(pv(0))));
     assert!(want.c[0].contains(&SUC));
-    assert_eq!(read(got, f), Some(shape(&want)));
+    stands(&Sorts::new(wf()), &mut f, got, Some(&want), "");
 }
 
 #[test]
@@ -2354,7 +2519,7 @@ fn rep_results_that_never_meet_at_the_interface_compose_to_none() {
     let (ra, rb) = two_span_reps(&mut f, &sa, &sb);
     let got = dom::compose(&mut f.s, f.decls, f.names, ra, rb);
     f.empty_stack();
-    assert_eq!(read(got, f), None);
+    assert!(got.is_none());
 }
 
 #[test]
@@ -2370,7 +2535,7 @@ fn rep_results_meet_as_the_representatives_of_their_relations() {
     let want = ref_meet(&Sorts::new(wf()), &a, &b).expect("the reference meets them");
     assert_eq!(sides(&want), (z(), pv(0)));
     assert!(want.c[0].contains(&SUC));
-    assert_eq!(read(got, f), Some(shape(&want)));
+    stands(&Sorts::new(wf()), &mut f, got, Some(&want), "");
 }
 
 #[test]
@@ -2384,7 +2549,7 @@ fn rep_result_has_the_right_interface_of_its_relation() {
     let want = ref_right(&Sorts::new(wf()), &a).expect("the reference has a right interface");
     assert_eq!(sides(&want), (k1(pv(0)), k1(pv(0))));
     assert_eq!(want.x, vec![vec![(0, z())]]);
-    assert_eq!(read(got, f), Some(shape(&want)));
+    stands(&Sorts::new(wf()), &mut f, got, Some(&want), "");
 }
 
 #[test]
@@ -2402,7 +2567,7 @@ fn rep_of_the_same_span_twice_in_one_store_is_the_same_representative() {
     let first = dom::rep(&mut f.s, f.decls, f.names, NE, x).expect("the span relates something");
     let second = dom::rep(&mut f.s, f.decls, f.names, NE, x).expect("the span relates something");
     f.empty_stack();
-    assert!(dom::same_rep(&mut f.s, first, second));
+    assert!(dom::eq(&mut f.s, f.decls, f.names, first, second));
 }
 
 #[test]
@@ -2411,7 +2576,7 @@ fn rep_of_spans_that_differ_in_variable_names_is_the_same_representative() {
     let sa = tspan(f2(pv(0), pv(1)), pv(1), vec![in_sort(NAT, pv(1)), differ(pv(0), z())]);
     let sb = tspan(f2(pv(9), pv(4)), pv(4), vec![differ(pv(9), z()), in_sort(NAT, pv(4))]);
     let (ra, rb) = two_span_reps(&mut f, &sa, &sb);
-    assert!(dom::same_rep(&mut f.s, ra, rb));
+    assert!(dom::eq(&mut f.s, f.decls, f.names, ra, rb));
 }
 
 #[test]
@@ -2452,5 +2617,5 @@ fn rep_of_a_span_whose_two_sides_are_one_term_of_the_store() {
     f.empty_stack();
     let side = f2(pv(0), su(pv(0)));
     let want = rep(&wf(), &rel(side.clone(), side, vec![(NAT, pv(0))], vec![]));
-    assert_eq!(read(got, f), Some(shape(&want)));
+    stands(&Sorts::new(wf()), &mut f, got, Some(&want), "");
 }
