@@ -13,77 +13,11 @@
 
 mod common;
 
+use common::decls::*;
 use common::sorts::*;
 use common::{ap, get, get_list, v, T};
 use rwlog_core::sorts::{normal, start};
 use rwlog_core::store::{Node, Tbl, TermId};
-
-// Symbols.
-const Z: u32 = 0;
-const SU: u32 = 1;
-const PR: u32 = 2;
-const F: u32 = 3;
-const K: u32 = 6;
-const A: u32 = 7;
-
-// Names.
-const UNIT: Name = 100;
-const NAT: Name = 101;
-const VOID: Name = 102;
-const TWO: Name = 103;
-const BOX: Name = 104;
-const PAIR: Name = 105;
-const MIX: Name = 106;
-const C2: Name = 107;
-const C3: Name = 108;
-const SUC: Name = 109;
-const ANY: Name = 110;
-
-const G: u32 = 4;
-
-fn z() -> P {
-    pf(Z, vec![])
-}
-fn a() -> P {
-    pf(A, vec![])
-}
-fn su(p: P) -> P {
-    pf(SU, vec![p])
-}
-fn f2(p: P, q: P) -> P {
-    pf(F, vec![p, q])
-}
-fn k1(p: P) -> P {
-    pf(K, vec![p])
-}
-fn pr(p: P, q: P) -> P {
-    pf(PR, vec![p, q])
-}
-
-fn one(f: u32, args: Vec<Option<Name>>) -> Def {
-    Def { cases: vec![(f, args)], rest: None }
-}
-
-/// `unit` is `z`; `nat` is `z` or `s` of a `nat`; `void` is `s` of a `void`,
-/// which nothing is; `two` is the pair of two `unit`; `box` is `k` of a
-/// `nat`; `pair` is the pair of two `nat`; `mix` is `g` of a `unit` and a
-/// `nat`; `c2` is `k` of a `box` and `c3` is `k` of a `c2`; `suc` is `s` of a
-/// `nat`; `any` is `z` or anything else but `a`.
-fn wf() -> Vec<(Name, Def)> {
-    vec![
-        (UNIT, one(Z, vec![])),
-        (NAT, Def { cases: vec![(Z, vec![]), (SU, vec![Some(NAT)])], rest: None }),
-        (VOID, one(SU, vec![Some(VOID)])),
-        (TWO, one(PR, vec![Some(UNIT), Some(UNIT)])),
-        (BOX, one(K, vec![Some(NAT)])),
-        (PAIR, one(PR, vec![Some(NAT), Some(NAT)])),
-        (MIX, one(G, vec![Some(UNIT), Some(NAT)])),
-        (C2, one(K, vec![Some(BOX)])),
-        (C3, one(K, vec![Some(C2)])),
-        (SUC, one(SU, vec![Some(NAT)])),
-        (ANY, Def { cases: vec![(Z, vec![])], rest: Some((vec![(A, 0)], None)) }),
-    ]
-}
 
 /// The parts of a problem in the store: pattern, equations, sorted patterns
 /// (each the application of the name to the pattern) and exclusions.
@@ -248,10 +182,10 @@ fn run_normal(defs: Vec<(Name, Def)>, p: &Prob, soiled: bool) -> Option<Shape> {
     }
     let got = normal(&mut f.s, f.decls, f.names, t, e, a, x);
     f.empty_stack();
-    got.map(|(t1, cs, xs)| {
-        let t1 = get(&mut f.s, t1);
-        let cs = get_conjs(&mut f.s, cs).into_iter().map(sorted).collect();
-        let xs = get_lists(&mut f, xs).iter().map(|l| format!("{l:?}")).collect();
+    got.map(|r| {
+        let t1 = get(&mut f.s, r.t);
+        let cs = get_conjs(&mut f.s, r.c).into_iter().map(sorted).collect();
+        let xs = get_lists(&mut f, r.x).iter().map(|l| format!("{l:?}")).collect();
         (t1, cs, sorted(xs))
     })
 }

@@ -991,13 +991,13 @@ otherwise the pattern, the sorts of the variables and the exclusions, each
 as the list of its values, of the normal store of the problem. -/
 def NormalPost (nm : Option Nat → RwLog.Sym) (S : Sorts) (hS : S.WellFormed) (U : List Name)
     (P : Sorts.Prob) (nodes : List store.Node)
-    (res : Option (store.TermId × store.TermId × store.TermId)) : Prop :=
+    (res : Option sorts.Rep) : Prop :=
   match res with
   | none => P.norm S hS = none
-  | some (t', cs', xs') => ∃ r : Sorts.Raw, P.norm S hS = some r ∧ Repr nm nodes t'.val r.t ∧
-      Repr nm nodes cs'.val (encList (nm none) (r.c.map (cpat (nm none) U))) ∧
+  | some o => ∃ r : Sorts.Raw, P.norm S hS = some r ∧ Repr nm nodes o.t.val r.t ∧
+      Repr nm nodes o.c.val (encList (nm none) (r.c.map (cpat (nm none) U))) ∧
       ∃ Y : List Sorts.Binds, Y.toFinset = r.x ∧
-        Repr nm nodes xs'.val (encLL nm (Y.map (vals r.c.length)))
+        Repr nm nodes o.x.val (encLL nm (Y.map (vals r.c.length)))
 
 /-- `normal` computes the normal store of a problem (`Sorts.Prob.norm`),
 within the charge of `start` and a bound on the charge of tightening the
