@@ -229,7 +229,28 @@ impl Sorts {
         }
     }
 
-    fn step_conj(&self, c: &Conj, key: Key) -> Option<Vec<Conj>> {
+    /// Every name declared or said of an argument, each once: the first to
+    /// occur comes last.
+    pub fn all_names(&self) -> Vec<Name> {
+        let mut out = Vec::new();
+        let mut note = |n: Name| {
+            if !out.contains(&n) {
+                out.insert(0, n);
+            }
+        };
+        for (n, d) in &self.defs {
+            note(*n);
+            for (_, kids) in &d.cases {
+                kids.iter().flatten().for_each(|k| note(*k));
+            }
+            if let Some((_, Some(k))) = &d.rest {
+                note(*k);
+            }
+        }
+        out
+    }
+
+    pub fn step_conj(&self, c: &Conj, key: Key) -> Option<Vec<Conj>> {
         let mut kids = vec![Conj::new(); key.1];
         for n in c {
             let args = self.step(*n, key)?;
@@ -821,6 +842,51 @@ pub fn put_sorts(s: &mut Store, sorts: &Sorts) -> TermId {
         decls.push(s.alloc(Node::App(name, def)));
     }
     put_ids(s, &decls)
+}
+
+/// A list of names in the store.
+pub fn put_names(s: &mut Store, names: &[Name]) -> TermId {
+    let ids: Vec<TermId> = names.iter().map(|n| s.alloc(Node::Sym(*n))).collect();
+    put_ids(s, &ids)
+}
+
+/// A list of names, read back.
+pub fn get_names(s: &mut Store, mut p: TermId) -> Vec<Name> {
+    let mut out = Vec::new();
+    loop {
+        match s.read(p) {
+            Node::Nil => return out,
+            Node::App(h, t) => {
+                match s.read(h) {
+                    Node::Sym(n) => out.push(n),
+                    _ => panic!("not a name"),
+                }
+                p = t;
+            }
+            _ => panic!("a term where a list was expected"),
+        }
+    }
+}
+
+/// A list of lists of names, read back.
+pub fn get_conjs(s: &mut Store, mut p: TermId) -> Vec<Vec<Name>> {
+    let mut out = Vec::new();
+    loop {
+        match s.read(p) {
+            Node::Nil => return out,
+            Node::App(h, t) => {
+                out.push(get_names(s, h));
+                p = t;
+            }
+            _ => panic!("a term where a list was expected"),
+        }
+    }
+}
+
+/// The members of a conjunction as the store lists them: in the order of
+/// `names` from its end.
+pub fn canon(names: &[Name], c: &Conj) -> Vec<Name> {
+    names.iter().rev().filter(|n| c.contains(n)).copied().collect()
 }
 
 /// A pattern in the store.
