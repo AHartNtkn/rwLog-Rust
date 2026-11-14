@@ -65,6 +65,9 @@ nodes, and advances the tick counter by at most a stated amount.
 | `cover::covers_plain` | `Span.covers?`, covering span without constraints | `13 + 12 D`, `D` the distinct subterms of the covering span | `covers_plain_spec` |
 | `cover::span_eq` | equality of spans | 3 | `span_eq_spec` |
 | `cover::right_bound`, `left_bound` | `bound s.rightIface`, `bound s.leftIface` | `ifaceCost`: `11 + 8 D + 11 k + 13 C`, `D` the distinct subterms of the side, `k` the constraints, `C` their distinct subterms | `right_bound_spec`, `left_bound_spec` |
+| `sorts::spine` | the head of a term and the list of its arguments | `2 m + 2`, `m` the arguments | `spine_spec` |
+| `sorts::step` | `Sorts.step`, on the declarations as lists of the store (`SortsAt`) | `stepCost`: `sortsCost S + 2 m + 2`, `m` the arguments; `sortsCost S` is 2, and for each declaration at most 6, 5 for each case and each excluded symbol, and twice their numbers of arguments | `step_spec` |
+| `sorts::member` | `Sorts.mem` on a ground term | `memberCost`: 5, and `sortsCost S + 11 m + 6` for each pair of a sort the program names and a distinct subterm with `m` arguments | `member_spec` |
 
 Every theorem also says that the function spent a tick for each node it
 added (`Extends`, `Extends.nodes_le`).
@@ -145,8 +148,11 @@ span has no constraints, is the tick bound of the table above
 `Engine.costedAt`, on the derivation kernel
 `DerivationKernel.over Domain.written (rustKernel z)`.
 `RwLogVerified/KernelRuns.lean` checks the charges of both kernels on a
-worked composition; it runs no engine, because none is written against the
-derivation kernel yet (`lean/PARKED.md`).
+worked composition; it runs no engine. R005 is written against the
+derivation kernel (`lean/RwLog/Rungs/R005/`) and its kept properties hold at
+every kernel that refines a lawful domain, but spans as written are not a
+lawful domain, so a run at `rustKernel` waits for the kernel of sorts
+(roadmap L55).
 
 What is not derived, and why:
 

@@ -2,6 +2,8 @@
 //! move terms between trees and the store.
 #![allow(dead_code)]
 
+pub mod sorts;
+
 use rwlog_core::span::Span;
 use rwlog_core::store::{Node, Store, TermId};
 

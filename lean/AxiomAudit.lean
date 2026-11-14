@@ -298,3 +298,180 @@ new axiom.
 #guard_msgs in #print axioms RwLog.R001.tableKeeps
 /-- info: 'RwLog.R004.tableKeeps' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.R004.tableKeeps
+
+/-! ## R005, the yardstick -/
+
+/-- info: 'RwLog.Tabled.Unfold.final_mono' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Tabled.Unfold.final_mono
+/-- info: 'RwLog.Tabled.host_done' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Tabled.host_done
+/-- info: 'RwLog.Tabled.emptySide' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Tabled.emptySide
+/-- info: 'RwLog.Tabled.mirror_trace' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Tabled.mirror_trace
+/-- info: 'RwLog.Tabled.mirror_halts' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Tabled.mirror_halts
+/-- info: 'RwLog.Tabled.tabled_keeps' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Tabled.tabled_keeps
+/-- info: 'RwLog.Tabled.mirror_keeps' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Tabled.mirror_keeps
+/-- info: 'RwLog.Tabled.mirror_finalMaximal' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Tabled.mirror_finalMaximal
+/-- info: 'RwLog.Tabled.mirror_neverCertifies' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Tabled.mirror_neverCertifies
+/-- info: 'RwLog.Mirror.go_val' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Mirror.go_val
+/-- info: 'RwLog.Mirror.cost_ge' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Mirror.cost_ge
+/-- info: 'RwLog.Mirror.paid_ge_min' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Mirror.paid_ge_min
+/-- info: 'RwLog.Mirror.LowerOn.paid' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Mirror.LowerOn.paid
+/-- info: 'RwLog.R001.keeps' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R001.keeps
+/-- info: 'RwLog.R004.keeps' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R004.keeps
+/-- info: 'RwLog.R005.keeps' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R005.keeps
+/-- info: 'RwLog.R005.trace' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R005.trace
+/-- info: 'RwLog.R005.record' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R005.record
+/-- info: 'RwLog.R005.neverCertifies' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R005.neverCertifies
+/-- info: 'RwLog.R005.keeps_sorts' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R005.keeps_sorts
+/-- info: 'RwLog.R005.record_sorts' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R005.record_sorts
+/-- info: 'RwLog.R005.keeps_atSorts' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.R005.keeps_atSorts
+/-- info: 'RwLog.Kernel.uncharged_refines' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Kernel.uncharged_refines
+
+/-! ## The constraint domain of sorts -/
+
+/-- info: 'RwLog.Sorts.Raw.Normal.eq' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.Raw.Normal.eq
+
+/-- info: 'RwLog.Sorts.Prob.normal' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.Prob.normal
+
+/-- info: 'RwLog.Sorts.dom_lawful' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.dom_lawful
+
+/-- info: 'RwLog.Sorts.Rep.no_hidden' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.Rep.no_hidden
+
+/-- info: 'RwLog.Sorts.Raw.toSpan_den' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.Raw.toSpan_den
+
+/-- info: 'RwLog.Sorts.wellFormed_iff' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.wellFormed_iff
+
+/-- info: 'RwLog.Sorts.count_none' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.count_none
+
+/-- info: 'RwLog.Sorts.count_one' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.count_one
+
+/-- info: 'RwLog.Sorts.count_many' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.count_many
+
+/-- info: 'RwLog.Sorts.count_many_infinite' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.count_many_infinite
+
+/-- info: 'RwLog.Sorts.inclBut_iff' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.inclBut_iff
+
+/-- info: 'RwLog.Sorts.sole_sound' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.sole_sound
+
+/-- info: 'RwLog.Sorts.sole_none' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.sole_none
+
+/-- info: 'RwLog.Sorts.unitOn_iff' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.unitOn_iff
+
+/-- info: 'RwLog.Sorts.expStore_den' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.expStore_den
+
+/-- info: 'RwLog.Sorts.setStore_den' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.setStore_den
+
+/-- info: 'RwLog.Sorts.Inv.nonempty' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.Inv.nonempty
+
+/-- info: 'RwLog.Sorts.tighten_some' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.tighten_some
+
+/-- info: 'RwLog.Sorts.tighten_none' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.tighten_none
+
+/-- info: 'RwLog.Sorts.Inv.exists_sol' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.Inv.exists_sol
+
+/-- info: 'RwLog.Sorts.tight_of_sole' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.tight_of_sole
+
+/-- info: 'RwLog.Sorts.Inv.inclBut_iff' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.Inv.inclBut_iff
+
+/-- info: 'RwLog.Sorts.pre_solved' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.pre_solved
+
+/-- info: 'RwLog.Sorts.unifies_solved' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.unifies_solved
+
+/-- info: 'RwLog.Sorts.normEx_some' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.normEx_some
+
+/-- info: 'RwLog.Sorts.normEx_none' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.normEx_none
+
+/-- info: 'RwLog.Sorts.antichain_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.antichain_spec
+
+/-- info: 'RwLog.Sorts.covers_iff' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.covers_iff
+
+/-- info: 'RwLog.Sorts.assembled_normal' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.assembled_normal
+
+/-- info: 'RwLog.Sorts.ofTight_normal' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.ofTight_normal
+
+/-- info: 'RwLog.Sorts.Prob.start_some' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.Prob.start_some
+
+/-- info: 'RwLog.Sorts.Prob.start_none' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.Prob.start_none
+
+/-- info: 'RwLog.Sorts.Prob.norm_some' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.Prob.norm_some
+
+/-- info: 'RwLog.Sorts.Prob.norm_none' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.Prob.norm_none
+
+/-- info: 'RwLog.Sorts.Prob.norm_unique' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.Prob.norm_unique
+
+/-- info: 'RwLog.Sorts.Rep.of_eq' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.Rep.of_eq
+
+/-- info: 'RwLog.Sorts.dom_rep' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.dom_rep
+
+/-- info: 'RwLog.Sorts.dom_compose' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.dom_compose
+
+/-- info: 'RwLog.Sorts.dom_meet' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.dom_meet
+
+/-- info: 'RwLog.Sorts.dom_rightBound' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.dom_rightBound
+
+/-- info: 'RwLog.Sorts.Rep.conv_eq' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.Rep.conv_eq
+
+/-- info: 'RwLog.ProgramOf.check_iff' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.ProgramOf.check_iff

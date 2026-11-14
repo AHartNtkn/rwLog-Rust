@@ -18,6 +18,8 @@
 * `RwLogVerified.MatchSpec`, `Cover`: one-way matching, coverage when the
   covering span has no constraints, and equality of spans.
 * `RwLogVerified.Iface`: the interfaces of a span as boundaries.
+* `RwLogVerified.Sorts`: the declarations of sorts as lists of the store, one
+  step of a sort on a term, and membership of a ground term.
 * `RwLogVerified.Kernel`: the kernel rung whose charges are those bounds.
 * `RwLogVerified.KernelRuns`: its charges on a worked composition.
 
@@ -40,5 +42,6 @@ import RwLogVerified.Chain
 import RwLogVerified.MatchSpec
 import RwLogVerified.Cover
 import RwLogVerified.Iface
+import RwLogVerified.Sorts
 import RwLogVerified.Kernel
 import RwLogVerified.KernelRuns

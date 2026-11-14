@@ -12,9 +12,9 @@ subterms, except the part for solving, which is the number of variables times
 the distinct subterms and equations (`RwLogVerified.SolveCost`), so on small
 spans it is above the sizes.
 
-No engine is run here: the engines written against the kernel as it stood
-before the derivation kernel are out of the build until they are ported
-(`lean/PARKED.md`).
+No engine is run here. R005 is written against the derivation kernel
+(`lean/RwLog/Rungs/R005/`); a run of it at this kernel waits for the kernel
+of sorts (roadmap L55).
 -/
 import RwLogVerified.Kernel
 

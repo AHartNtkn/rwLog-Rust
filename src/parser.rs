@@ -527,6 +527,13 @@ impl<B: ConstraintBuilder> Parser<B> {
             // Compound term: (f args...)
             *pos += 1;
             skip_whitespace(input, pos);
+            // Terms are first-order: the head of an application is a symbol.
+            if peek_char(input, *pos) == Some('$') {
+                return Err(ParseError {
+                    message: "a variable cannot be applied to arguments".to_string(),
+                    position: *pos,
+                });
+            }
             let functor = parse_identifier(input, pos)?;
             let sym = self.symbols.intern(&functor);
 
@@ -694,9 +701,22 @@ impl<B: ConstraintBuilder> Parser<B> {
             });
         }
 
+        if peek_char(input, *pos) == Some('$') {
+            return Err(ParseError {
+                message: "a constraint cannot be a variable".to_string(),
+                position: *pos,
+            });
+        }
+
         if peek_char(input, *pos) == Some('(') {
             *pos += 1;
             skip_whitespace(input, pos);
+            if peek_char(input, *pos) == Some('$') {
+                return Err(ParseError {
+                    message: "the name of a constraint cannot be a variable".to_string(),
+                    position: *pos,
+                });
+            }
             let name = parse_identifier(input, pos)?;
             let mut args = Vec::new();
             loop {
@@ -2982,6 +3002,105 @@ theory t {
         };
         assert!(
             err.message.contains("unknown constraint"),
+            "unexpected error: {}",
+            err
+        );
+    }
+
+    fn rule_error(parser: &mut Parser<ChrConstraintBuilder>, src: &str) -> ParseError {
+        match parser.parse_rule(src) {
+            Ok(_) => panic!("accepted: {}", src),
+            Err(err) => err,
+        }
+    }
+
+    #[test]
+    fn variable_applied_to_arguments_fails() {
+        let parser = Parser::new();
+        let err = match parser.parse_term("(f ($x a))") {
+            Ok(_) => panic!("accepted a variable applied to an argument"),
+            Err(err) => err,
+        };
+        assert!(
+            err.message
+                .contains("a variable cannot be applied to arguments"),
+            "unexpected error: {}",
+            err
+        );
+        assert_eq!(err.position, 4);
+    }
+
+    #[test]
+    fn variable_alone_in_parentheses_fails() {
+        let parser = Parser::new();
+        let err = match parser.parse_term("($x)") {
+            Ok(_) => panic!("accepted a variable in the place of a symbol"),
+            Err(err) => err,
+        };
+        assert!(
+            err.message
+                .contains("a variable cannot be applied to arguments"),
+            "unexpected error: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn variable_applied_in_a_rule_fails() {
+        let mut parser = parser_with_eq_theory();
+        let err = rule_error(&mut parser, "($f a) -> b");
+        assert!(
+            err.message
+                .contains("a variable cannot be applied to arguments"),
+            "unexpected error: {}",
+            err
+        );
+        assert_eq!(err.position, 1);
+    }
+
+    #[test]
+    fn constraint_that_is_a_variable_fails() {
+        let mut parser = parser_with_eq_theory();
+        let err = rule_error(&mut parser, "$x { $x } -> $x");
+        assert!(
+            err.message.contains("a constraint cannot be a variable"),
+            "unexpected error: {}",
+            err
+        );
+        assert_eq!(err.position, 5);
+    }
+
+    #[test]
+    fn constraint_that_is_a_variable_after_another_fails() {
+        let mut parser = parser_with_eq_theory();
+        let err = rule_error(&mut parser, "$x { (eq $x $x), $y } -> $x");
+        assert!(
+            err.message.contains("a constraint cannot be a variable"),
+            "unexpected error: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn constraint_named_by_a_variable_fails() {
+        let mut parser = parser_with_eq_theory();
+        let err = rule_error(&mut parser, "$x { ($p $x) } -> $x");
+        assert!(
+            err.message
+                .contains("the name of a constraint cannot be a variable"),
+            "unexpected error: {}",
+            err
+        );
+        assert_eq!(err.position, 6);
+    }
+
+    #[test]
+    fn variable_applied_inside_a_constraint_fails() {
+        let mut parser = parser_with_eq_theory();
+        let err = rule_error(&mut parser, "$x { (eq $x ($f a)) } -> $x");
+        assert!(
+            err.message
+                .contains("a variable cannot be applied to arguments"),
             "unexpected error: {}",
             err
         );

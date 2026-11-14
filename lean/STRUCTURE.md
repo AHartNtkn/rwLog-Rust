@@ -6,18 +6,17 @@ its machine.
 **Master is between epochs.** Epoch 1 of the ladder (rungs R000 to R005, on
 the size-charged cost model) is frozen at the git tag `epoch-1`; `EPOCH1.md`
 says what its theorems are about. The directories `Rungs/R000` to `Rungs/R004`,
-their tests and every proof about R005 exist only at the tag. Master has the
-specification, the kernel, the shared libraries, and R005's machine written
-once against the derivation kernel (`Rungs/Tabled/`, `Rungs/Mirror/`,
-`Rungs/R005/Engine.lean`), built and run on the conformance cases
-(`Tests/R005Runs.lean`). The tabled machines of R001 and R004 have their
-properties at every lawful domain (`Rungs/R005/Tables.lean`); the mirrored
-machine's kept properties are not re-established yet (roadmap M3 part B and
-M4), so no rung is admitted on master. `PARKED.md`
-lists the files still out of the build: the proofs of epoch 1 about the tabled
-machine, the mirrored machine and the naive machine, written against the old
-kernel and the old step. What this file says about them describes them as
-they are at the tag.
+their tests and every proof of epoch 1 exist only at the tag. Master has the
+specification, the kernel, the shared libraries, the constraint domain of
+sorts (`Sorts/`), and R005 as the yardstick the next engine is measured
+against: its machine written once against the derivation kernel
+(`Rungs/Tabled/`, `Rungs/Mirror/`, `Rungs/R005/Engine.lean`), its kept
+properties at every kernel that refines a lawful constraint domain
+(`Rungs/R005/Keeps.lean`) and at the domain of sorts with no hypothesis left
+(`Rungs/R005/Sorts.lean`), the lower bounds a separation from it will need,
+stated (`Rungs/R005/Bounds.lean`), and its manifest (`Manifest/R005.lean`).
+Nothing is re-proved about how R005 or its predecessors were admitted: those
+theorems are at the tag. No file is out of the build.
 
 ```
 Trusted/        the specification: syntax with sort declarations, semantics (what a sort
@@ -44,31 +43,53 @@ Rungs/Framework generic theorems about any Runtime / Rung
 Rungs/Tabled/   the tabled round machine for any way of unfolding a call (Machine.lean), and
                 the ways R005 races: unfolding to a depth, a walk between boundaries, and
                 the walk with shared sub-chains (Unfold.lean). Written once, against the
-                derivation kernel. `Exact`, `Repeats`, `Direction` and `Base/` are parked
+                derivation kernel. The rest is what is proved of it: the round and its
+                invariant, completeness and honesty (Correct.lean), that it runs the same
+                on a converse, on the mirrored program and with any exact race
+                (Symmetry.lean), that a table done in one run is done in a run that asks
+                for its goal (Host.lean), the empty side (EmptySide.lean), and the same
+                for the mirrored machine (Mirrored.lean, MirrorKeeps.lean)
 Rungs/Mirror/   a machine run on a query and on its converse side by side, for any engine
-                (Machine.lean). `Direction`, `Bounds`, `Keeps`, `Trace` are parked
-Rungs/Naive/    normalisation, unfolding to a depth, and their correctness (namespace `R000`).
-                `Engine`, `Correct`, `Properties` (the naive machine of epoch 1) are parked
+                (Machine.lean); what a step of it shows (Trace.lean) and what it costs
+                from below (Bounds.lean)
+Rungs/Naive/    normalisation, unfolding to a depth, and their correctness (namespace `R000`)
 Rungs/R005/     the engines: `R001.engine` (tables, unfolding to a depth), `R004.engine` (tables,
-                the race of all three ways), `R005.engine` (`R004.engine` mirrored)
+                the race of all three ways), `R005.engine` (`R004.engine` mirrored);
+                what they keep (Tables.lean, Keeps.lean, Sorts.lean) and the stated lower
+                bounds (Bounds.lean)
+Sorts/          the constraint domain of sorts and the proof that it is lawful
+Manifest/       R005's manifest: headline statements, bounds, trusted files, axioms and a
+                space report, all checked by the build
 AxiomAudit.lean every headline and shared theorem, checked to use only the three standard axioms
 Tests/          executable runs: the charges of the kernel (ChargeRuns), the three engines on
-                the conformance cases and on each other (R005Runs); the runs of the naive
-                and the tabled machine of epoch 1 (parked)
+                the conformance cases and on each other (R005Runs), the cases about
+                constraints at the domain of sorts (SortsConformance), R005 on the inputs
+                of the simulation note (SimulationRuns), the sorts (SortsRuns)
 ```
 
 `SYMMETRIC_ENGINE.md` is the design note for the engine of milestone M6: what it
 is, what was measured, and what the trusted files and the kernel must provide
 for it. Its measurements on R004 and R005 are in `Tests/MiddleRuns.lean` at the tag `epoch-1`.
+`SYMMETRIC_ENGINE_SIMULATION.md` is the attack on that design's main risk, whether
+the engine stays within a polynomial of R005: the inputs on which the first
+design fails, the changes measured, and the lemmas still open. Its prototype is
+`scripts/symmetric_engine_tables.py`, and R005's side of each comparison is
+`Tests/SimulationRuns.lean` (on master it runs R005 as it is written now; the figures
+of the note are those of the tag). `scripts/r005_interpreter.py`
+is R005 at the tag `epoch-1` outside Lean, counting the same ticks (`check` compares it
+with every number Lean guards for those inputs); it is what decides the inputs Lean does
+not evaluate in reasonable time. `scripts/symmetric_engine_halting.py` runs random small
+programs on both and compares where each halts.
 
 The constraint system is sorts with a built-in disequality (roadmap L48, L51).
 The trusted files have no rules, theories or models: `Trusted/Semantics.lean`
 says what a sort and a constraint mean, and `Trusted/Domain.lean` says what
 any constraint system gives an engine (`Domain`) and what it satisfies
-(`Domain.Lawful`). The instance for sorts is not on master yet (roadmap M5,
-design in `SORTS.md`); until it is, `Engine.costed` runs at the domain of
-spans as written (`Domain.written`), which looks at no constraint and is not
-lawful.
+(`Domain.Lawful`). The instance for sorts is `Sorts.dom` (`Sorts/Dom.lean`),
+with `Sorts.dom_lawful : S.WellFormed → (dom S).Lawful S.interp`; `SORTS.md`
+section 6 lists its files. `Engine.costed` still runs at the domain of spans
+as written (`Domain.written`), which looks at no constraint and is not
+lawful, until it is restated at `Sorts.dom` (roadmap L55).
 
 ## What is shared, and where to look first
 
@@ -76,6 +97,7 @@ lawful.
 |---|---|---|
 | The coverage checker is exact | `Kernel/Covers.lean` | `Span.covers?_iff`, `covers?_refl/trans/swap/congr`, `Span.Equiv.*`, `matchAll_complete` |
 | Interfaces of a span | `Kernel/Iface.lean` | `Span.storeOn`, `rightIface`, `leftIface`, `comp_rightIface`, `rightIface_covers` |
+| The constraint domain of sorts | `Sorts/Dom.lean`, `Sorts/Rep.lean`, `Sorts/Gaps.lean` | `Sorts.Rep`, `Sorts.dom`, `dom_lawful`, `Rep.ext_rel`, `exists_rep`, `Prob.normal`, `Raw.Normal.eq`, `Rep.no_hidden`, `Raw.toSpan_den` |
 | The algebra of a lawful constraint domain | `Kernel/DomainLaws.lean` | `Domain.denO`, `Lawful.denO_inj`, `swap_swap`, `rep_swap`, `compose_swap`, `meet_swap`, `swap_of_isBound`, `covers_swap`, `compose_assoc`, `meet_comm`, `meet_assoc`, `meet_self`, `covers_antisymm` |
 | No sorts are well-formed sorts; first-order spans | `SpanLayer/Sorts.lean` | `Sorts.wellFormed_nil`, `Sorts.not_mem_nil`, `GTerm.univ_infinite`, `Span.firstOrder_swap` |
 | Maximal answers and freshness | `Kernel/Maxima.lean` | `maxima`, `fresh` and their lemmas |
@@ -300,9 +322,14 @@ also has the facts about `dual` (`RelOf.dual_dual`, `size_dual`,
 (`Engine.mirrored`): `E` on the root and `E` on its converse (`K.convNode`),
 stepped by level so that neither run is ever more than one doubling ahead in
 ticks, with the converse run's answers swapped (`K.swapA`). R005 is
-`R004.engine.mirrored`. The theorems of epoch 1 about it (`Mirror.trace_go`,
-`paid_le_min`, `paid_ge_min`, `directionFree`, `keeps`) are in the parked
-files and are not restated yet.
+`R004.engine.mirrored`. `Mirror.go_val` says a step of it shows the same step
+of one of the two runs, and `Mirror.paid_ge_min` that it has paid at least the
+cheaper of the two (`Rungs/Mirror/Trace.lean`, `Bounds.lean`). For the tabled
+machine with an exact race the two runs gain the same answers in the same
+round, so the mirrored machine shows what the tabled machine shows
+(`Tabled.mirror_trace`) and keeps what it keeps (`Tabled.mirror_keeps`). The
+upper bounds of epoch 1 (`paid_le_min`, `directionFree`) are at the tag and
+are not restated: they were how R005 was admitted.
 
 The goal-directed machine and the hedge of two machines (`Rungs/Directed/`,
 `Rungs/Hedge/`) are not on master; they are at the tag `epoch-1`.
@@ -360,15 +387,16 @@ to R001) uses `SameRun.of_eq`, or simply rewrites.
 
 | At the tag `epoch-1` | On master |
 |---|---|
-| `Rungs/R000/` Chain, Normalize, NormalizeCorrect, Unfold, Engine, Correct, Properties | `Rungs/Naive/`, same file names |
+| `Rungs/R000/` Chain, Normalize, NormalizeCorrect, Unfold | `Rungs/Naive/`, same file names |
+| `Rungs/R000/` Engine, Correct, Properties (the naive machine) | removed |
 | `Rungs/R000/` Products, Termination | removed |
-| `Rungs/R001/Engine.lean`, `Spec.lean` | `Rungs/Tabled/Base/` (parked); the Spec keeps only the statements whose proofs are kept |
-| `Rungs/R001/Proofs/` Kernel, Base, Derivations, Tier0 and `Tier0/`, Symmetry, SymmetryLists, SymmetryGoals | `Rungs/Tabled/Base/Proofs/` (parked), same file names |
+| `Rungs/R001/Engine.lean`, `Spec.lean` | removed; `R001.engine` is `Tabled.engine Tabled.Unfold.eagerRace` |
+| `Rungs/R001/Proofs/` Kernel, Base, Derivations, Tier0 and `Tier0/`, Symmetry, SymmetryLists, SymmetryGoals | removed; proved again on the one machine in `Rungs/Tabled/` |
 | the rest of `Rungs/R001/Proofs/` (termination certificates, exact tables, the mirror trace, `R001.keeps`) | removed |
 | `Rungs/R002/` to `Rungs/R004/` (unfolders, their `Gen`, `Spec`, `Reading`, `Proofs/`) | removed; the three ways of unfolding are rewritten in `Rungs/Tabled/Unfold.lean` |
-| `Rungs/R005/` Spec, Family, `Proofs/` | removed; `Rungs/R005/Engine.lean` is the engine |
+| `Rungs/R005/` Spec, Family, `Proofs/` | removed; `Rungs/R005/Engine.lean` is the engine, `Keeps.lean` what it keeps, `Bounds.lean` the families |
 | `Rungs/Directed/`, `Rungs/Hedge/`, `Tests/DirectedRuns.lean`, `MiddleRuns.lean` | removed |
-| `Tests/R000Runs.lean`, `R001Runs.lean` | `Tests/NaiveRuns.lean`, `TabledRuns.lean` (parked) |
+| `Tests/R000Runs.lean`, `R001Runs.lean` | removed; `R001.engine` runs in `Tests/R005Runs.lean` |
 | `Tests/R002Runs.lean` to `R005Runs.lean` | removed; `Tests/R005Runs.lean` is new |
 | `R001.Obligation.finite_answers` and its proof | removed: it holds of every runtime (`Runtime.finite_answers`), so it obliged nothing (roadmap L05) |
 

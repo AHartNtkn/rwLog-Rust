@@ -56,3 +56,33 @@ macro "at_cost " K:ident hK:ident : tactic =>
     | h _ _ _ _ _ _ _ _ $hK:ident => ?_)
 
 end RwLog
+
+namespace RwLog
+
+variable {R : Type} [Answer R] [DecidableEq R]
+
+/-- The kernel that returns what a domain returns and charges nothing: every
+operation is the operation of the domain. It is for what a run shows, never
+for what it costs. -/
+@[reducible] def Kernel.uncharged (D : Domain R) : Kernel R Cost :=
+  Kernel.ofOps (fun s => pure (D.rep s)) (fun x y => pure (D.compose x y))
+    (fun x y => pure (D.meet x y)) (fun xs => pure (D.composable xs))
+    (fun a s => pure (D.covers a s)) (fun x y => pure (decide (x = y)))
+    (fun s => pure (D.rightBound s)) (fun s => pure (D.leftBound s))
+
+theorem Kernel.uncharged_refines (D : Domain R) : (Kernel.uncharged D).Refines D where
+  monad := rfl
+  tick := rfl
+  race _ _ _ := rfl
+  metered _ _ := rfl
+  swap := rfl
+  rep _ := rfl
+  compose _ _ := rfl
+  meet _ _ := rfl
+  composable _ := rfl
+  covers _ _ := rfl
+  eq _ _ := rfl
+  rightBound _ := rfl
+  leftBound _ := rfl
+
+end RwLog
