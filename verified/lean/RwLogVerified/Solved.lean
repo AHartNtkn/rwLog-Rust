@@ -579,7 +579,7 @@ theorem push_conj_loop_spec (hnm : Function.Injective nm) (S : Sorts) {sp : Pat}
       refine WP.spec_mono IH ?_
       rintro ⟨s', out', ok'⟩ ⟨hI', hx', ht', hP⟩
       exact ⟨hI', hx03.trans hx', by simp only [List.length_cons, repCost]; omega,
-        hP.cons hA1 hlen hsem⟩
+        hP.cons hA1 hlen hsem.2⟩
 
 /-- `push_conj` pushes each sort of a conjunction onto a pattern. -/
 theorem push_conj_spec (hnm : Function.Injective nm) (S : Sorts) {sp : Pat}
