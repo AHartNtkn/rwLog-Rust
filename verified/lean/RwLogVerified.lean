@@ -51,6 +51,10 @@
 * `RwLogVerified.Number`: the variables of a pattern in the order they
   first occur; the sorts that hold of all values of a variable; a store with
   its variables numbered in that order.
+* `RwLogVerified.Solved`: the normal form of an exclusion: the variables of
+  a numbered store; aliases turned to their first variable; the sorts of
+  the variables pushed onto their values; the free variables left with one
+  value bound to it.
 * `RwLogVerified.Kernel`: the kernel rung whose charges are those bounds.
 * `RwLogVerified.KernelRuns`: its charges on a worked composition.
 
@@ -90,5 +94,6 @@ import RwLogVerified.Tighten
 import RwLogVerified.TightRun
 import RwLogVerified.Tight
 import RwLogVerified.Number
+import RwLogVerified.Solved
 import RwLogVerified.Kernel
 import RwLogVerified.KernelRuns

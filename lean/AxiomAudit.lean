@@ -322,6 +322,15 @@ new axiom.
 /-- info: 'RwLog.Sorts.normEx_none' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Sorts.normEx_none
 
+/-- info: 'RwLog.Sorts.close_some_of_atoms' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.close_some_of_atoms
+
+/-- info: 'RwLog.Sorts.close_none_of_atoms' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.close_none_of_atoms
+
+/-- info: 'RwLog.Sorts.close_none_of_reject' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.close_none_of_reject
+
 /-- info: 'RwLog.Sorts.antichain_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Sorts.antichain_spec
 
