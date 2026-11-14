@@ -207,6 +207,60 @@ pub fn member(s: &mut Store, decls: TermId, name: TermId, t: TermId) -> bool {
     ok
 }
 
+/// Is the node a variable?
+fn is_var(s: &mut Store, p: TermId) -> bool {
+    matches!(s.read(p), Node::V0 | Node::VL(_) | Node::VR(_))
+}
+
+/// The sorts the variables of the first-order pattern `p` must be in for an
+/// instance of `p` to be in the sort `name`: a list of `App(variable, sort)`
+/// that an instance of `p` is in the sort exactly when it satisfies, or
+/// nothing when the sort, or the sort of an argument on the way, has no term
+/// with a symbol of `p` and its number of arguments. A variable gets its
+/// sort whether or not the sort has a declaration or a member.
+///
+/// Table `B` is cleared, and then flags each pair of a sort and a subterm
+/// already asked about, so a subterm that occurs many times is read once for
+/// each sort, and each atom is listed once. A pair still to do waits on the
+/// stack as a `Visit` frame.
+pub fn push_sort(s: &mut Store, decls: TermId, name: TermId, p: TermId) -> Option<TermId> {
+    let mut atoms = s.alloc(Node::Nil);
+    let mut ok = true;
+    s.clear(Tbl::B);
+    s.push(Frame::Visit(name, p));
+    while let Some(fr) = s.pop() {
+        let (n, u) = match fr {
+            Frame::Visit(n, u) => (n, u),
+            Frame::Build(n, u) => (n, u),
+        };
+        let pair = s.alloc(Node::App(n, u));
+        match s.get_flag(Tbl::B, pair) {
+            Some(_) => (),
+            None => {
+                s.set_flag(Tbl::B, pair, true);
+                if is_var(s, u) {
+                    let atom = s.alloc(Node::App(u, n));
+                    atoms = s.alloc(Node::App(atom, atoms));
+                } else {
+                    let (head, args) = spine(s, u);
+                    match step(s, decls, n, head, args) {
+                        None => {
+                            ok = false;
+                            s.drop_stack();
+                        }
+                        Some(kids) => push_args(s, kids, args),
+                    }
+                }
+            }
+        }
+    }
+    if ok {
+        Some(atoms)
+    } else {
+        None
+    }
+}
+
 /// Put the name `n` in front of the list `acc` unless table `A` flags it,
 /// and flag it. Any term is not a name and is left out.
 fn note(s: &mut Store, acc: TermId, n: TermId) -> TermId {

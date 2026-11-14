@@ -33,6 +33,8 @@
   whether every member of a conjunction of sorts, but for finitely many
   ground terms, is in a sort: the functions, the loop of asks, and the link
   to the specification with the bound of the charge.
+* `RwLogVerified.Push`: the sorts the variables of a pattern must be in for
+  an instance of it to be in a sort.
 * `RwLogVerified.Kernel`: the kernel rung whose charges are those bounds.
 * `RwLogVerified.KernelRuns`: its charges on a worked composition.
 
@@ -64,5 +66,6 @@ import RwLogVerified.Incl
 import RwLogVerified.But
 import RwLogVerified.ButLoop
 import RwLogVerified.ButLink
+import RwLogVerified.Push
 import RwLogVerified.Kernel
 import RwLogVerified.KernelRuns
