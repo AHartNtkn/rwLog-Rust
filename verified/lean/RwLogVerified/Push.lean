@@ -282,10 +282,20 @@ theorem PDone.mono {S : Sorts} {nodes more : List store.Node} {B B' : Nat → Op
     · exact Or.inl (h.mono hB)
     · exact hst _ h
 
+/-- The pairs `push_sort` comes to from the pair asked about: that pair, and
+the pair of each argument that has a sort in the step of the sort of a pair
+it comes to. -/
+inductive Comes (S : Sorts) (n0 : Name) (p0 : Pat) : Name × Pat → Prop
+  | root : Comes S n0 p0 (n0, p0)
+  | kid {x : Name × Pat} {f : Sym} {args : List Pat} {ks : List (Option Name)} {m : Name}
+      {a : Pat} : Comes S n0 p0 x → unspine x.2 [] = (.sym f, args) →
+      Sorts.step S x.1 f args.length = some ks → (some m, a) ∈ ks.zip args → Comes S n0 p0 (m, a)
+
 /-- Every instance in the sort asked about has the pair's pattern in the
-pair's sort. -/
+pair's sort, and `push_sort` comes to the pair. -/
 def Reach (S : Sorts) (n0 : Name) (p0 : Pat) (x : Name × Pat) : Prop :=
-  ∀ σ : Nat → GTerm, Sorts.mem S n0 (p0.bind σ) = true → Sorts.mem S x.1 (x.2.bind σ) = true
+  (∀ σ : Nat → GTerm, Sorts.mem S n0 (p0.bind σ) = true → Sorts.mem S x.1 (x.2.bind σ) = true) ∧
+    Comes S n0 p0 x
 
 /-- The ticks a pair may cost: its step, reading its arguments and putting
 them on the stack, and taking each of them off again; or its atom. -/
@@ -329,6 +339,7 @@ def PushPost (nm : Option Nat → Sym) (S : Sorts) (U : Finset (Name × Pat)) (n
       if ok then
         ∃ A : Sorts.Atoms, Repr nm s'.nodes.val atoms.val (encList (nm none) (A.map atomPat)) ∧
           A.Nodup ∧ (∀ a ∈ A, (a.2, Term.var a.1) ∈ U) ∧
+          (∀ a, a ∈ A ↔ Comes S n0 p0 (a.2, .var a.1)) ∧
           ∀ σ : Nat → GTerm, Sorts.mem S n0 (p0.bind σ) = true ↔ Sorts.Atoms.Holds S A σ
       else ∀ σ : Nat → GTerm, Sorts.mem S n0 (p0.bind σ) = false
 
@@ -366,23 +377,50 @@ theorem push_sort_body_spec (hnm : Function.Injective nm) (S : Sorts) {sp : Pat}
     | false => simp only [Bool.false_eq_true, ↓reduceIte] at h ⊢; exact h.2.1
     | true =>
       simp only [↓reduceIte] at h ⊢
-      refine ⟨A, by rw [e1]; exact hAr, hAn, fun a ha => (hAU a ha).1, fun σ => ⟨?_, ?_⟩⟩
-      · intro hm a ha
-        exact (hAU a ha).2.1 σ hm
-      · intro hσ
-        have hcl := closed_holds (S := S) (fun x => PFl nm s.nodes.val (tbl s .B) x) A (by
-          rintro x ⟨k, hk, hb⟩
-          obtain ⟨x', hx', hdn, -⟩ := hF k hb
-          obtain rfl := ppair_inj (Repr.unique hk hx')
-          rcases hdn rfl with hv | ⟨f, args, ks, hu, hs, hall⟩
-          · exact Or.inl hv
-          · refine Or.inr ⟨f, args, ks, hu, hs, fun m a hz => ?_⟩
-            rcases hall m a hz with h' | ⟨f', hf', -⟩
-            · exact h'
-            · rw [hstk] at hf'; cases hf') σ hσ
+      have hdone : ∀ x, PFl nm s.nodes.val (tbl s .B) x →
+          (∃ v, x.2 = .var v ∧ (v, x.1) ∈ A) ∨
+            ∃ f args ks, unspine x.2 [] = (.sym f, args) ∧
+              Sorts.step S x.1 f args.length = some ks ∧
+              ∀ m a, (some m, a) ∈ ks.zip args → PFl nm s.nodes.val (tbl s .B) (m, a) := by
+        rintro x ⟨k, hk, hb⟩
+        obtain ⟨x', hx', hdn, -⟩ := hF k hb
+        obtain rfl := ppair_inj (Repr.unique hk hx')
+        rcases hdn rfl with hv | ⟨f, args, ks, hu, hs, hall⟩
+        · exact Or.inl hv
+        · refine Or.inr ⟨f, args, ks, hu, hs, fun m a hz => ?_⟩
+          rcases hall m a hz with h' | ⟨f', hf', -⟩
+          · exact h'
+          · rw [hstk] at hf'; cases hf'
+      have hrootF : PFl nm s.nodes.val (tbl s .B) (n0, p0) := by
         rcases h.1 with hr | ⟨f, hf, -⟩
-        · exact hcl p0.size (n0, p0) (Nat.le_refl _) hr
+        · exact hr
         · rw [hstk] at hf; cases hf
+      have hall : ∀ x, Comes S n0 p0 x → PFl nm s.nodes.val (tbl s .B) x := by
+        intro x hx
+        induction hx with
+        | root => exact hrootF
+        | kid _ hu hs hz ih =>
+          rcases hdone _ ih with ⟨v, e, -⟩ | ⟨f', args', ks', hu', hs', hall'⟩
+          · rw [e] at hu; simp [unspine] at hu
+          · rw [hu] at hu'
+            simp only [Prod.mk.injEq, Term.sym.injEq] at hu'
+            obtain ⟨rfl, rfl⟩ := hu'
+            rw [hs] at hs'
+            simp only [Option.some.injEq] at hs'
+            subst hs'
+            exact hall' _ _ hz
+      refine ⟨A, by rw [e1]; exact hAr, hAn, fun a ha => (hAU a ha).1, fun a => ⟨fun ha =>
+        (hAU a ha).2.1.2, fun hc => ?_⟩, fun σ => ⟨?_, ?_⟩⟩
+      · rcases hdone _ (hall _ hc) with ⟨v, e, hv⟩ | ⟨f, args, ks, hu, -, -⟩
+        · simp only [Term.var.injEq] at e
+          subst e
+          exact hv
+        · simp [unspine] at hu
+      · intro hm a ha
+        exact (hAU a ha).2.1.1 σ hm
+      · intro hσ
+        exact closed_holds (S := S) (fun x => PFl nm s.nodes.val (tbl s .B) x) A hdone σ hσ
+          p0.size (n0, p0) (Nat.le_refl _) hrootF
   | cons f rest =>
     rw [hstk] at eo est
     simp only [List.head?_cons, List.tail_cons] at eo est
@@ -646,7 +684,7 @@ theorem push_sort_body_spec (hnm : Function.Injective nm) (S : Sorts) {sp : Pat}
               refine ⟨st8, fun σ => ?_, by omega⟩
               cases hm0 : Sorts.mem S n0 (p0.bind σ) with
               | false => rfl
-              | true => have := hmx σ hm0; rw [hmem σ] at this; cases this
+              | true => have := hmx.1 σ hm0; rw [hmem σ] at this; cases this
           | some ks =>
             rw [hsm] at hst
             obtain ⟨kid, rfl, rkid⟩ := hst
@@ -693,8 +731,8 @@ theorem push_sort_body_spec (hnm : Function.Injective nm) (S : Sorts) {sp : Pat}
               rcases List.mem_append.1 hf' with hf' | hf'
               · obtain ⟨m', a, hza, h1, h2⟩ := pf1 f' hf'
                 obtain ⟨hU', hfo'⟩ := hkids m' a hza
-                refine ⟨(m', a), hU', ⟨h1, h2⟩, hfo', fun σ h0 => ?_⟩
-                obtain ⟨ks', hs', hall⟩ := (mem_unspine hun σ).1 (hmx σ h0)
+                refine ⟨(m', a), hU', ⟨h1, h2⟩, hfo', fun σ h0 => ?_, .kid hmx.2 hun hsm hza⟩
+                obtain ⟨ks', hs', hall⟩ := (mem_unspine hun σ).1 (hmx.1 σ h0)
                 rw [hsm] at hs'
                 cases hs'
                 exact hall m' a hza
@@ -795,6 +833,7 @@ theorem push_sort_spec (hnm : Function.Injective nm) (S : Sorts) {sp : Pat}
         | some l => ∃ A : Sorts.Atoms,
             Repr nm s'.nodes.val l.val (encList (nm none) (A.map atomPat)) ∧ A.Nodup ∧
             (∀ a ∈ A, a.2 ∈ Ns ∧ Term.var a.1 ∈ p0.subs) ∧
+            (∀ a, a ∈ A ↔ Comes S n0 p0 (a.2, .var a.1)) ∧
             ∀ σ : Nat → GTerm, Sorts.mem S n0 (p0.bind σ) = true ↔ Sorts.Atoms.Holds S A σ ⦄ := by
   unfold sorts.push_sort
   have hroom' := hroom
@@ -818,7 +857,7 @@ theorem push_sort_spec (hnm : Function.Injective nm) (S : Sorts) {sp : Pat}
       simp only [List.mem_singleton] at hf
       subst hf
       exact ⟨(n0, p0), Finset.mem_product.2 ⟨hn0, Term.self_mem_subs p0⟩, hroot, hfo,
-        fun _ h => h⟩
+        fun _ h => h, .root⟩
     · have : s3.nodes.val = s1.nodes.val := n3.trans n2
       rw [this]
       exact .nil hid1
@@ -838,9 +877,9 @@ theorem push_sort_spec (hnm : Function.Injective nm) (S : Sorts) {sp : Pat}
   cases ok1 with
   | true =>
     simp only [↓reduceIte] at hres ⊢
-    obtain ⟨A, hAr, hAn, hAU, hsem⟩ := hres
+    obtain ⟨A, hAr, hAn, hAU, hlist, hsem⟩ := hres
     simp only [WP.spec_ok]
-    refine ⟨⟨hW4, hst4⟩, x4, hA4, ht4, A, hAr, hAn, fun a ha => ?_, hsem⟩
+    refine ⟨⟨hW4, hst4⟩, x4, hA4, ht4, A, hAr, hAn, fun a ha => ?_, hlist, hsem⟩
     have := Finset.mem_product.1 (hAU a ha)
     exact ⟨this.1, this.2⟩
   | false =>

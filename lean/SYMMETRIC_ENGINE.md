@@ -120,7 +120,7 @@ Against M6's exit criteria. "Exact" means the property holds by construction; "n
 
 ### 5.1 The top rung on a chain restricted in the middle
 
-Family `mid k`: `bit ; … ; bit ; ($x -> t_k) ; unbit ; … ; unbit`, `k` factors each side, one answer. Ticks until the machine halts, on master. Build-checked in `lean/Tests/MiddleRuns.lean`.
+Family `mid k`: `bit ; … ; bit ; ($x -> t_k) ; unbit ; … ; unbit`, `k` factors each side, one answer. Ticks until the machine halts, on master. Checked by the build at the tag `epoch-1` (`lean/Tests/MiddleRuns.lean`).
 
 | k | R004 right-nested | left-nested | balanced | middle-out | R005 right-nested | left-nested | balanced | middle-out |
 |---|---|---|---|---|---|---|---|---|
@@ -236,7 +236,7 @@ Provided since (roadmap L47, `Kernel/NormalFormStable.lean`): the normal form is
 
 ## 8. What this replaces
 
-- Rung 6 as a rung (a hedge of R005 and goal-directed tables). Its push-without-join strategy, its balancing lemmas in `Rungs/Hedge` and its two families are reused.
+- Rung 6 as a rung (a hedge of R005 and goal-directed tables). Its push-without-join strategy, its balancing lemmas (`Rungs/Hedge` at the tag `epoch-1`) and its two families are reused.
 - Cost-fair scheduling as a separate rung (L16): it is the balance.
 - The weighted hedge of whole engines (L32): it becomes the weights of the balance.
 - Billboard H23 and H24 (a cheaper symmetric race; direction per goal): the first is moot, the second is the design.

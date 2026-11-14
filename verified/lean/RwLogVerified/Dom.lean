@@ -832,19 +832,18 @@ theorem one_spec (hnm : Function.Injective nm) (hz : nm none = "") {S : Sorts} {
     (hr : ∀ d, (Sorts.reachSet S d).card ≤ rc)
     (hq : ∀ d m, (Sorts.reachGSet S (d, some m)).card ≤ q) (ρ : Sorts.Rep S)
     (Y : List Sorts.Binds) {up wp : Pat} (hup : up.firstOrder = true)
-    (hwp : wp.firstOrder = true) (B : Nat)
-    (hB : NormBound nm S U rc q (oneProb U ρ.1 Y up wp) B)
+    (hwp : wp.firstOrder = true)
     (s : store.Store) (decls names : store.TermId) (a : sorts.Rep) (u w : store.TermId)
     (hI : Inv s) (hde : Repr nm s.nodes.val decls.val sp)
     (hU : Repr nm s.nodes.val names.val (namesPat (nm none) U))
     (ha : RepAt nm U s.nodes.val a ρ.1 Y) (hu : Repr nm s.nodes.val u.val up)
     (hw : Repr nm s.nodes.val w.val wp)
     (hroom : Room s (repOneCost U.length ρ.1.c.length Y.length +
-      startCost nm S U.length (oneProb U ρ.1 Y up wp) + B)) :
+      startCost nm S U.length (oneProb U ρ.1 Y up wp) + normCharge nm S U rc q (oneProb U ρ.1 Y up wp))) :
     dom.one s decls names a u w ⦃ res s' =>
       Inv s' ∧ Extends s s' ∧
         s'.ticks.val ≤ s.ticks.val + repOneCost U.length ρ.1.c.length Y.length +
-          startCost nm S U.length (oneProb U ρ.1 Y up wp) + B ∧
+          startCost nm S U.length (oneProb U ρ.1 Y up wp) + normCharge nm S U rc q (oneProb U ρ.1 Y up wp) ∧
         RepPost nm U s'.nodes.val (ρ.one up wp hup hwp) res ⦄ := by
   unfold dom.one
   have hroom' := hroom
@@ -880,7 +879,7 @@ theorem one_spec (hnm : Function.Injective nm) (hz : nm none = "") {S : Sorts} {
     simp only [oneProb, partVs_id, partXs_id]
     exact hx5.repr rexcl
   refine WP.spec_mono (normal_spec hnm hC ρ.wf hUS hr hq (oneProb U ρ.1 Y up wp) hP
-    (atomsOnto_names ρ.normal) B hB s5 decls names t nil atoms excl hI5 (hx05.repr hde)
+    (atomsOnto_names ρ.normal) s5 decls names t nil atoms excl hI5 (hx05.repr hde)
     (hx05.repr hU) rt ((hx3.trans (hx4.trans hx5)).repr (.nil hr2)) ra' rx'
     (by unfold Room; omega)) ?_
   rintro ⟨res, s'⟩ ⟨hI', hx', ht', hpost⟩
@@ -999,8 +998,7 @@ theorem two_spec (hnm : Function.Injective nm) {S : Sorts} {sp : Pat}
     (hq : ∀ d m, (Sorts.reachGSet S (d, some m)).card ≤ q) {ra rb : Sorts.Raw}
     (hra : ra.Normal S) (hrb : rb.Normal S) {Ya Yb : List Sorts.Binds}
     (hYa : Ya.toFinset = ra.x) (hYb : Yb.toFinset = rb.x) {tp : Pat} {ep : Eqns Nat}
-    (htp : tp.firstOrder = true) (hep : ep.FO) (B : Nat)
-    (hB : NormBound nm S U rc q (twoProb U ra Ya rb Yb tp ep) B)
+    (htp : tp.firstOrder = true) (hep : ep.FO)
     (s : store.Store) (decls names : store.TermId) (a b : dom.Half) (t e : store.TermId)
     {la ra' lb rb' : Pat} (hI : Inv s) (hde : Repr nm s.nodes.val decls.val sp)
     (hU : Repr nm s.nodes.val names.val (namesPat (nm none) U))
@@ -1008,12 +1006,12 @@ theorem two_spec (hnm : Function.Injective nm) {S : Sorts} {sp : Pat}
     (hb : HalfAt nm U s.nodes.val b rren rb Yb lb rb')
     (ht : Repr nm s.nodes.val t.val tp) (he : Repr nm s.nodes.val e.val (encEqs nm ep))
     (hroom : Room s (twoCost U.length ra.c.length Ya.length rb.c.length Yb.length +
-      startCost nm S U.length (twoProb U ra Ya rb Yb tp ep) + B)) :
+      startCost nm S U.length (twoProb U ra Ya rb Yb tp ep) + normCharge nm S U rc q (twoProb U ra Ya rb Yb tp ep))) :
     dom.two s decls names a b t e ⦃ res s' =>
       Inv s' ∧ Extends s s' ∧
         s'.ticks.val ≤ s.ticks.val +
           twoCost U.length ra.c.length Ya.length rb.c.length Yb.length +
-          startCost nm S U.length (twoProb U ra Ya rb Yb tp ep) + B ∧
+          startCost nm S U.length (twoProb U ra Ya rb Yb tp ep) + normCharge nm S U rc q (twoProb U ra Ya rb Yb tp ep) ∧
         NormalPost nm S hS U (twoProb U ra Ya rb Yb tp ep) s'.nodes.val res ⦄ := by
   unfold dom.two
   have hroom' := hroom
@@ -1044,7 +1042,7 @@ theorem two_spec (hnm : Function.Injective nm) {S : Sorts} {sp : Pat}
   simp only [partXs, partVs, List.length_map, varsTo_length] at ht5
   have hx05 := hx04.trans hx5
   refine WP.spec_mono (normal_spec hnm hC hS hUS hr hq (twoProb U ra Ya rb Yb tp ep)
-    (twoProb_fo hra hrb hYa hYb htp hep) (twoProb_names hra hrb) B hB s5 decls names t e atoms
+    (twoProb_fo hra hrb hYa hYb htp hep) (twoProb_names hra hrb) s5 decls names t e atoms
     excl hI5 (hx05.repr hde) (hx05.repr hU) (hx05.repr ht) (hx05.repr he)
     ((hx4.trans hx5).repr ratoms) rexcl (by unfold Room; omega)) ?_
   rintro ⟨res, s'⟩ ⟨hI', hx', ht', hpost⟩
@@ -1085,21 +1083,20 @@ theorem dom_compose_spec (hnm : Function.Injective nm) (hz : nm none = "") {S : 
     {U : List Name} (hC : Ctx nm S sp U) (hUS : ∀ n ∈ U, n ∈ Sorts.names S) {rc q : Nat}
     (hr : ∀ d, (Sorts.reachSet S d).card ≤ rc)
     (hq : ∀ d m, (Sorts.reachGSet S (d, some m)).card ≤ q) (ρa ρb : Sorts.Rep S)
-    (Ya Yb : List Sorts.Binds) (B : Nat)
-    (hB : NormBound nm S U rc q (composeProb U ρa ρb Ya Yb) B)
+    (Ya Yb : List Sorts.Binds)
     (s : store.Store) (decls names : store.TermId) (a b : sorts.Rep)
     (hI : Inv s) (hde : Repr nm s.nodes.val decls.val sp)
     (hU : Repr nm s.nodes.val names.val (namesPat (nm none) U))
     (ha : RepAt nm U s.nodes.val a ρa.1 Ya) (hb : RepAt nm U s.nodes.val b ρb.1 Yb)
     (hroom : Room s (halvesCost nm U.length ρa.1 Ya ρb.1 Yb +
-      startCost nm S U.length (composeProb U ρa ρb Ya Yb) + B)) :
+      startCost nm S U.length (composeProb U ρa ρb Ya Yb) + normCharge nm S U rc q (composeProb U ρa ρb Ya Yb))) :
     dom.compose s decls names a b ⦃ res s' =>
       Inv s' ∧ Extends s s' ∧
         s'.ticks.val ≤ s.ticks.val + halvesCost nm U.length ρa.1 Ya ρb.1 Yb +
-          startCost nm S U.length (composeProb U ρa ρb Ya Yb) + B ∧
+          startCost nm S U.length (composeProb U ρa ρb Ya Yb) + normCharge nm S U rc q (composeProb U ρa ρb Ya Yb) ∧
         RepPost nm U s'.nodes.val (ρa.compose ρb) res ⦄ := by
   unfold dom.compose
-  unfold composeProb at hroom hB ⊢
+  unfold composeProb at hroom ⊢
   have hroom' := hroom
   unfold Room at hroom'
   simp only [halvesCost] at hroom'
@@ -1134,7 +1131,7 @@ theorem dom_compose_spec (hnm : Function.Injective nm) (hz : nm none = "") {S : 
     rw [List.mem_singleton] at hp; subst hp
     exact ⟨Sorts.rename_fo ρa.r_fo _, Sorts.rename_fo ρb.l_fo _⟩
   refine WP.spec_mono (two_spec hnm hC ρa.wf hUS hr hq ρa.normal ρb.normal ha.y hb.y hfo hefo
-    B hB s6 decls names ha' hb' t e hI6 (hx06.repr hde) (hx06.repr hU)
+    s6 decls names ha' hb' t e hI6 (hx06.repr hde) (hx06.repr hU)
     (hha2.extends (hx35.trans hx6)) (hhb.extends (hx35.trans hx6)) rt (hx6.repr re)
     (by unfold Room; omega)) ?_
   rintro ⟨res, s'⟩ ⟨hI', hx', ht', hpost⟩
@@ -1161,21 +1158,20 @@ theorem dom_meet_spec (hnm : Function.Injective nm) (hz : nm none = "") {S : Sor
     {U : List Name} (hC : Ctx nm S sp U) (hUS : ∀ n ∈ U, n ∈ Sorts.names S) {rc q : Nat}
     (hr : ∀ d, (Sorts.reachSet S d).card ≤ rc)
     (hq : ∀ d m, (Sorts.reachGSet S (d, some m)).card ≤ q) (ρa ρb : Sorts.Rep S)
-    (Ya Yb : List Sorts.Binds) (B : Nat)
-    (hB : NormBound nm S U rc q (meetProb U ρa ρb Ya Yb) B)
+    (Ya Yb : List Sorts.Binds)
     (s : store.Store) (decls names : store.TermId) (a b : sorts.Rep)
     (hI : Inv s) (hde : Repr nm s.nodes.val decls.val sp)
     (hU : Repr nm s.nodes.val names.val (namesPat (nm none) U))
     (ha : RepAt nm U s.nodes.val a ρa.1 Ya) (hb : RepAt nm U s.nodes.val b ρb.1 Yb)
     (hroom : Room s (halvesCost nm U.length ρa.1 Ya ρb.1 Yb + 2 +
-      startCost nm S U.length (meetProb U ρa ρb Ya Yb) + B)) :
+      startCost nm S U.length (meetProb U ρa ρb Ya Yb) + normCharge nm S U rc q (meetProb U ρa ρb Ya Yb))) :
     dom.meet s decls names a b ⦃ res s' =>
       Inv s' ∧ Extends s s' ∧
         s'.ticks.val ≤ s.ticks.val + halvesCost nm U.length ρa.1 Ya ρb.1 Yb + 2 +
-          startCost nm S U.length (meetProb U ρa ρb Ya Yb) + B ∧
+          startCost nm S U.length (meetProb U ρa ρb Ya Yb) + normCharge nm S U rc q (meetProb U ρa ρb Ya Yb) ∧
         RepPost nm U s'.nodes.val (ρa.meet ρb) res ⦄ := by
   unfold dom.meet
-  unfold meetProb at hroom hB ⊢
+  unfold meetProb at hroom ⊢
   have hroom' := hroom
   unfold Room at hroom'
   simp only [halvesCost] at hroom'
@@ -1226,7 +1222,7 @@ theorem dom_meet_spec (hnm : Function.Injective nm) (hz : nm none = "") {S : Sor
     · exact ⟨Sorts.rename_fo ρa.l_fo _, Sorts.rename_fo ρb.l_fo _⟩
     · exact ⟨Sorts.rename_fo ρa.r_fo _, Sorts.rename_fo ρb.r_fo _⟩
   refine WP.spec_mono (two_spec hnm hC ρa.wf hUS hr hq ρa.normal ρb.normal ha.y hb.y hfo hefo
-    B hB s8 decls names ha' hb' t e hI8 (hx08.repr hde) (hx08.repr hU)
+    s8 decls names ha' hb' t e hI8 (hx08.repr hde) (hx08.repr hU)
     (hha2.extends (hx37.trans hx8)) (hhb.extends (hx37.trans hx8)) rt (hx8.repr re)
     (by unfold Room; omega)) ?_
   rintro ⟨res, s'⟩ ⟨hI', hx', ht', hpost⟩
@@ -1256,17 +1252,17 @@ theorem right_spec (hnm : Function.Injective nm) (hz : nm none = "") {S : Sorts}
     {U : List Name} (hC : Ctx nm S sp U) (hUS : ∀ n ∈ U, n ∈ Sorts.names S) {rc q : Nat}
     (hr : ∀ d, (Sorts.reachSet S d).card ≤ rc)
     (hq : ∀ d m, (Sorts.reachGSet S (d, some m)).card ≤ q) (ρ : Sorts.Rep S)
-    (Y : List Sorts.Binds) (B : Nat) (hB : NormBound nm S U rc q (oneProb U ρ.1 Y ρ.r ρ.r) B)
+    (Y : List Sorts.Binds)
     (s : store.Store) (decls names : store.TermId) (a : sorts.Rep)
     (hI : Inv s) (hde : Repr nm s.nodes.val decls.val sp)
     (hU : Repr nm s.nodes.val names.val (namesPat (nm none) U))
     (ha : RepAt nm U s.nodes.val a ρ.1 Y)
     (hroom : Room s (2 + repOneCost U.length ρ.1.c.length Y.length +
-      startCost nm S U.length (oneProb U ρ.1 Y ρ.r ρ.r) + B)) :
+      startCost nm S U.length (oneProb U ρ.1 Y ρ.r ρ.r) + normCharge nm S U rc q (oneProb U ρ.1 Y ρ.r ρ.r))) :
     dom.right s decls names a ⦃ res s' =>
       Inv s' ∧ Extends s s' ∧
         s'.ticks.val ≤ s.ticks.val + 2 + repOneCost U.length ρ.1.c.length Y.length +
-          startCost nm S U.length (oneProb U ρ.1 Y ρ.r ρ.r) + B ∧
+          startCost nm S U.length (oneProb U ρ.1 Y ρ.r ρ.r) + normCharge nm S U rc q (oneProb U ρ.1 Y ρ.r ρ.r) ∧
         RepPost nm U s'.nodes.val ρ.right res ⦄ := by
   unfold dom.right
   have hroom' := hroom
@@ -1275,7 +1271,7 @@ theorem right_spec (hnm : Function.Injective nm) (hz : nm none = "") {S : Sorts}
   step with sides_spec s a.t hI rt (by unfold Room; omega) as ⟨l, r, s1, hK, rl, rr⟩
   have ht1 := hK.ticks
   have hx1 : Extends s s1 := Extends.of_eq hK.nodes (by omega)
-  refine WP.spec_mono (one_spec hnm hz hC hUS hr hq ρ Y ρ.r_fo ρ.r_fo B hB s1 decls names a r r
+  refine WP.spec_mono (one_spec hnm hz hC hUS hr hq ρ Y ρ.r_fo ρ.r_fo s1 decls names a r r
     hK.inv (hx1.repr hde) (hx1.repr hU) (ha.extends hx1) (hx1.repr rr) (hx1.repr rr)
     (by unfold Room; omega)) ?_
   rintro ⟨res, s'⟩ ⟨hI', hx', ht', hpost⟩
@@ -1286,17 +1282,17 @@ theorem conv_spec (hnm : Function.Injective nm) (hz : nm none = "") {S : Sorts} 
     {U : List Name} (hC : Ctx nm S sp U) (hUS : ∀ n ∈ U, n ∈ Sorts.names S) {rc q : Nat}
     (hr : ∀ d, (Sorts.reachSet S d).card ≤ rc)
     (hq : ∀ d m, (Sorts.reachGSet S (d, some m)).card ≤ q) (ρ : Sorts.Rep S)
-    (Y : List Sorts.Binds) (B : Nat) (hB : NormBound nm S U rc q (oneProb U ρ.1 Y ρ.r ρ.l) B)
+    (Y : List Sorts.Binds)
     (s : store.Store) (decls names : store.TermId) (a : sorts.Rep)
     (hI : Inv s) (hde : Repr nm s.nodes.val decls.val sp)
     (hU : Repr nm s.nodes.val names.val (namesPat (nm none) U))
     (ha : RepAt nm U s.nodes.val a ρ.1 Y)
     (hroom : Room s (2 + repOneCost U.length ρ.1.c.length Y.length +
-      startCost nm S U.length (oneProb U ρ.1 Y ρ.r ρ.l) + B)) :
+      startCost nm S U.length (oneProb U ρ.1 Y ρ.r ρ.l) + normCharge nm S U rc q (oneProb U ρ.1 Y ρ.r ρ.l))) :
     dom.conv s decls names a ⦃ res s' =>
       Inv s' ∧ Extends s s' ∧
         s'.ticks.val ≤ s.ticks.val + 2 + repOneCost U.length ρ.1.c.length Y.length +
-          startCost nm S U.length (oneProb U ρ.1 Y ρ.r ρ.l) + B ∧
+          startCost nm S U.length (oneProb U ρ.1 Y ρ.r ρ.l) + normCharge nm S U rc q (oneProb U ρ.1 Y ρ.r ρ.l) ∧
         ∃ Y', RepAt nm U s'.nodes.val res ρ.conv.1 Y' ⦄ := by
   unfold dom.conv
   have hroom' := hroom
@@ -1305,7 +1301,7 @@ theorem conv_spec (hnm : Function.Injective nm) (hz : nm none = "") {S : Sorts} 
   step with sides_spec s a.t hI rt (by unfold Room; omega) as ⟨l, r, s1, hK, rl, rr⟩
   have ht1 := hK.ticks
   have hx1 : Extends s s1 := Extends.of_eq hK.nodes (by omega)
-  step with one_spec hnm hz hC hUS hr hq ρ Y ρ.r_fo ρ.l_fo B hB s1 decls names a r l
+  step with one_spec hnm hz hC hUS hr hq ρ Y ρ.r_fo ρ.l_fo s1 decls names a r l
     hK.inv (hx1.repr hde) (hx1.repr hU) (ha.extends hx1) (hx1.repr rr) (hx1.repr rl)
     (by unfold Room; omega) as ⟨o, s2, hI2, hx2, ht2, hpost⟩
   cases o with
@@ -1751,25 +1747,24 @@ theorem dom_covers_spec (hnm : Function.Injective nm) (hz : nm none = "") {S : S
     {U : List Name} (hC : Ctx nm S sp U) (hUS : ∀ n ∈ U, n ∈ Sorts.names S) {rc q : Nat}
     (hr : ∀ d, (Sorts.reachSet S d).card ≤ rc)
     (hq : ∀ d m, (Sorts.reachGSet S (d, some m)).card ≤ q) (ρa ρb : Sorts.Rep S)
-    (Ya Yb : List Sorts.Binds) (B : Nat)
-    (hB : NormBound nm S U rc q (meetProb U ρa ρb Ya Yb) B)
+    (Ya Yb : List Sorts.Binds)
     (s : store.Store) (decls names : store.TermId) (a b : sorts.Rep)
     (hI : Inv s) (hde : Repr nm s.nodes.val decls.val sp)
     (hU : Repr nm s.nodes.val names.val (namesPat (nm none) U))
     (ha : RepAt nm U s.nodes.val a ρa.1 Ya) (hb : RepAt nm U s.nodes.val b ρb.1 Yb)
     (hroom : Room s (halvesCost nm U.length ρa.1 Ya ρb.1 Yb + 2 +
-      startCost nm S U.length (meetProb U ρa ρb Ya Yb) + B +
+      startCost nm S U.length (meetProb U ρa ρb Ya Yb) + normCharge nm S U rc q (meetProb U ρa ρb Ya Yb) +
       (4 * meetXs ρa ρb + 4 * Yb.length + 8))) :
     dom.covers s decls names a b ⦃ res s' =>
       Inv s' ∧ Extends s s' ∧
         s'.ticks.val ≤ s.ticks.val + halvesCost nm U.length ρa.1 Ya ρb.1 Yb + 2 +
-          startCost nm S U.length (meetProb U ρa ρb Ya Yb) + B +
+          startCost nm S U.length (meetProb U ρa ρb Ya Yb) + normCharge nm S U rc q (meetProb U ρa ρb Ya Yb) +
           (4 * meetXs ρa ρb + 4 * Yb.length + 8) ∧
         res = decide (ρa.meet ρb = some ρb) ⦄ := by
   unfold dom.covers
   have hroom' := hroom
   unfold Room at hroom'
-  step with dom_meet_spec hnm hz hC hUS hr hq ρa ρb Ya Yb B hB s decls names a b hI hde hU ha hb
+  step with dom_meet_spec hnm hz hC hUS hr hq ρa ρb Ya Yb s decls names a b hI hde hU ha hb
     (by unfold Room; omega) as ⟨o, s1, hI1, hx1, ht1, hpost⟩
   cases o with
   | none =>

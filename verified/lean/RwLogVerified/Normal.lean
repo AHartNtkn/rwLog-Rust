@@ -12,7 +12,7 @@ exclusions, which gives the normal store of the problem (`Prob.norm`).
 import RwLogVerified.Assemble
 import RwLogVerified.Number
 import RwLogVerified.Prune
-import RwLogVerified.Tight
+import RwLogVerified.Rounds
 import RwLog.Sorts.Norm
 
 open Aeneas Aeneas.Std Result
@@ -45,6 +45,7 @@ def PairsRes (nm : Option Nat → RwLog.Sym) (S : Sorts) (Ns : Finset Name)
   if ok then ∃ A : Sorts.Atoms,
     Repr nm nodes out.val (encList (nm none) ((A ++ acc).map atomPat)) ∧
       (∀ a ∈ A, a.2 ∈ Ns ∧ ∃ b ∈ L, a.1 ∈ b.2.vars) ∧ A.length ≤ atomsMax Ns L ∧
+      (∀ a, a ∈ A ↔ ∃ b ∈ L, Comes S b.1 b.2 (a.2, .var a.1)) ∧
       ∀ σ : Nat → GTerm,
         (∀ a ∈ L, Sorts.mem S a.1 (a.2.bind σ) = true) ↔ Sorts.Atoms.Holds S A σ
   else ∃ a ∈ L, ∀ σ : Nat → GTerm, Sorts.mem S a.1 (a.2.bind σ) = false
@@ -85,8 +86,8 @@ theorem push_pairs_loop_spec (hnm : Function.Injective nm) (S : Sorts) {sp : Pat
     simp only [Bool.false_eq_true, ↓reduceIte, bind_ok, WP.spec_ok]
     refine ⟨K1.inv, Extends.of_eq K1.nodes (by omega), by simp only [pairsCost]; omega, ?_⟩
     simp only [PairsRes, ↓reduceIte]
-    exact ⟨[], (by rw [K1.nodes]; exact hout), fun a ha => (by cases ha), (by simp), fun σ => (by
-      simp [Sorts.Atoms.Holds])⟩
+    exact ⟨[], (by rw [K1.nodes]; exact hout), fun a ha => (by cases ha), (by simp),
+      fun a => (by simp), fun σ => (by simp [Sorts.Atoms.Holds])⟩
   | cons a L ih =>
     intro s out l acc hI hd hl hout hin hroom
     have hroom' := hroom
@@ -131,7 +132,7 @@ theorem push_pairs_loop_spec (hnm : Function.Injective nm) (S : Sorts) {sp : Pat
       exact ⟨a, List.mem_cons_self, hres⟩
     | some atoms =>
       simp only at hres
-      obtain ⟨A1, hrA, hnd, hA1, hsem⟩ := hres
+      obtain ⟨A1, hrA, hnd, hA1, hlist, hsem⟩ := hres
       have hlen := atoms_length_le hnd hA1
       simp only [uncurry]
       step with rev_onto_spec (A1.map atomPat) (acc.map atomPat) s3 atoms out hI3.toWf hrA
@@ -152,8 +153,9 @@ theorem push_pairs_loop_spec (hnm : Function.Injective nm) (S : Sorts) {sp : Pat
       cases ok' with
       | true =>
         simp only [PairsRes, ↓reduceIte] at hP ⊢
-        obtain ⟨A, hr, hA, hAl, hs⟩ := hP
-        refine ⟨A ++ A1.reverse, by rw [List.append_assoc]; exact hr, ?_, ?_, fun σ => ?_⟩
+        obtain ⟨A, hr, hA, hAl, hAc, hs⟩ := hP
+        refine ⟨A ++ A1.reverse, by rw [List.append_assoc]; exact hr, ?_, ?_, fun b => ?_,
+          fun σ => ?_⟩
         · intro b hb
           rcases List.mem_append.1 hb with hb | hb
           · obtain ⟨h1, c, hc, h2⟩ := hA b hb
@@ -162,6 +164,8 @@ theorem push_pairs_loop_spec (hnm : Function.Injective nm) (S : Sorts) {sp : Pat
             exact ⟨h1, a, List.mem_cons_self, var_mem_subs_iff.1 h2⟩
         · simp only [List.length_append, List.length_reverse, atomsMax]
           omega
+        · rw [List.mem_append, List.mem_reverse, hAc b, hlist b, List.exists_mem_cons_iff]
+          exact or_comm
         · rw [Sorts.Atoms.holds_append, holds_reverse, ← hs σ, ← hsem σ, List.forall_mem_cons]
           exact and_comm
       | false =>
@@ -422,6 +426,31 @@ def startSt (P : Sorts.Prob) (θ : Nat → Pat) (F : List Nat) (A : Sorts.Atoms)
   ⟨(P.t.bind θ).rename fun v => F.idxOf v, exclOf P θ F,
     (List.range F.length).map fun v => (v, Sorts.upsOf A v), F.length⟩
 
+/-- The atoms of the starting store: a sort on a variable for each pair of a
+sort and a variable `push_sort` comes to from a sorted pattern (`Comes`).
+Which sorts they put on which variable does not depend on their order. -/
+noncomputable def startAtoms (S : Sorts) (L : List (Name × Pat)) : Sorts.Atoms :=
+  open Classical in
+  if h : ∃ A : Sorts.Atoms, ∀ a, a ∈ A ↔ ∃ b ∈ L, Comes S b.1 b.2 (a.2, .var a.1)
+  then h.choose else []
+
+theorem mem_startAtoms {S : Sorts} {L : List (Name × Pat)} {A : Sorts.Atoms}
+    (hA : ∀ a, a ∈ A ↔ ∃ b ∈ L, Comes S b.1 b.2 (a.2, .var a.1)) (a : Nat × Name) :
+    a ∈ startAtoms S L ↔ a ∈ A := by
+  have h : ∃ A : Sorts.Atoms, ∀ a, a ∈ A ↔ ∃ b ∈ L, Comes S b.1 b.2 (a.2, .var a.1) := ⟨A, hA⟩
+  simp only [startAtoms, h, ↓reduceDIte]
+  rw [h.choose_spec a, hA a]
+
+/-- The starting store depends on which atoms there are, not on their
+order. -/
+theorem startSt_congr {P : Sorts.Prob} {θ : Nat → Pat} {F : List Nat} {A A' : Sorts.Atoms}
+    (h : ∀ a, a ∈ A ↔ a ∈ A') : startSt P θ F A = startSt P θ F A' := by
+  have e : Sorts.upsOf A = Sorts.upsOf A' := by
+    funext v
+    ext n
+    rw [Sorts.mem_upsOf, Sorts.mem_upsOf, h]
+  simp only [startSt, e]
+
 /-- The solved parts of a problem, numbered. -/
 theorem pack_num (P : Sorts.Prob) (θ : Nat → Pat) :
     ((pack3 nm P.t P.a P.x).bind θ).bind (numSub (leftVars nm P θ)) =
@@ -497,6 +526,7 @@ def StartPost (nm : Option Nat → RwLog.Sym) (S : Sorts) (U : List Name) (P : S
         (∀ a ∈ A, a.2 ∈ Sorts.names S ∧ a.1 < (leftVars nm P θ).length) ∧
         (∀ σ : Nat → GTerm, (∀ a ∈ sortedOf P θ (leftVars nm P θ),
           Sorts.mem S a.1 (a.2.bind σ) = true) ↔ Sorts.Atoms.Holds S A σ) ∧
+        (∀ a, a ∈ A ↔ ∃ b ∈ sortedOf P θ (leftVars nm P θ), Comes S b.1 b.2 (a.2, .var a.1)) ∧
         Holds nm U nodes (startSt P θ (leftVars nm P θ) A) t0 x0 es next
 
 /-- `start` gives the starting store of a problem. -/
@@ -638,7 +668,7 @@ theorem start_spec (hnm : Function.Injective nm) {S : Sorts} {sp : Pat}
       exact hres11
     | some atoms =>
       simp only [PairsRes, ↓reduceIte, List.append_nil] at hres11
-      obtain ⟨A, rA, hA, hAl, hsem⟩ := hres11
+      obtain ⟨A, rA, hA, hAl, hAc, hsem⟩ := hres11
       have hmono := entriesCost_mono U.length F.length hAl
       step with entries_of_spec hnm U A (List.range F.length) s11 names atoms vars hI11
         (hx011.repr hU) rA (((hx89.trans hx910).trans hx11).repr rvars)
@@ -650,7 +680,7 @@ theorem start_spec (hnm : Function.Injective nm) {S : Sorts} {sp : Pat}
         omega
       refine ⟨hI12, hx08.trans hx812, hcost, ?_⟩
       simp only [StartPost, hθ, ← hF]
-      refine ⟨A, fun b hb => ?_, hsem, ⟨?_, ?_, ?_, ?_⟩⟩
+      refine ⟨A, fun b hb => ?_, hsem, hAc, ⟨?_, ?_, ?_, ?_⟩⟩
       · obtain ⟨h1, c, hc, h2⟩ := hA b hb
         refine ⟨h1, ?_⟩
         obtain ⟨a', ha', rfl⟩ := List.mem_map.1 hc
@@ -902,14 +932,55 @@ noncomputable def normCost (nm : Option Nat → RwLog.Sym) (S : Sorts) (U : List
           | some st' => tailCost nm S U rc q st')
     else 0
 
-/-- A bound on what `normal` spends after `start`: on replacing the
-variables with one value, dropping the hidden ones, tightening in as many
-rounds as it takes, and what follows on the tight store. -/
-def NormBound (nm : Option Nat → RwLog.Sym) (S : Sorts) (U : List Name) (rc q : Nat)
-    (P : Sorts.Prob) (B : Nat) : Prop :=
-  ∀ θ A k o, solve P.e = some θ →
-    normRes S k (startSt P θ (leftVars nm P θ) A) = some o →
-    normCost nm S U rc q k (startSt P θ (leftVars nm P θ) A) o ≤ B
+/-- Once the rounds allowed are enough, allowing more changes neither what
+`normal` comes to nor what it spends. -/
+theorem normRes_add {S : Sorts} {U : List Name} {rc q : Nat} {k : Nat} {st : TSt} {o : Option TSt}
+    (h : normRes S k st = some o) (j : Nat) :
+    normRes S (k + j) st = some o ∧
+      normCost nm S U rc q (k + j) st o = normCost nm S U rc q k st o := by
+  unfold normRes at h ⊢
+  unfold normCost
+  by_cases hf : settleOk S st.L = true
+  · simp only [hf, ↓reduceIte] at h ⊢
+    obtain ⟨h1, h2⟩ := tightRun_add nm S U.length rc h j
+    exact ⟨h1, by rw [h2]⟩
+  · simp only [hf, Bool.false_eq_true, ↓reduceIte] at h ⊢
+    exact ⟨h, trivial⟩
+
+open Classical in
+/-- What `normal` spends after `start`: `normCost` of the starting store of
+the problem, for the rounds its run makes. It is 0 when the equations have
+no solution. -/
+noncomputable def normCharge (nm : Option Nat → RwLog.Sym) (S : Sorts) (U : List Name)
+    (rc q : Nat) (P : Sorts.Prob) : Nat :=
+  match solve P.e with
+  | none => 0
+  | some θ =>
+    if h : ∃ k, (normRes S k (startSt P θ (leftVars nm P θ)
+        (startAtoms S (sortedOf P θ (leftVars nm P θ))))).isSome = true then
+      normCost nm S U rc q (Nat.find h) (startSt P θ (leftVars nm P θ)
+          (startAtoms S (sortedOf P θ (leftVars nm P θ))))
+        ((normRes S (Nat.find h) (startSt P θ (leftVars nm P θ)
+          (startAtoms S (sortedOf P θ (leftVars nm P θ))))).get (Nat.find_spec h))
+    else 0
+
+/-- The charge is what any run with enough rounds spends. -/
+theorem normCharge_eq {S : Sorts} {U : List Name} {rc q : Nat} {P : Sorts.Prob} {θ : Nat → Pat} {k : Nat} {o : Option TSt}
+    (hs : solve P.e = some θ)
+    (hr : normRes S k (startSt P θ (leftVars nm P θ)
+      (startAtoms S (sortedOf P θ (leftVars nm P θ)))) = some o) :
+    normCost nm S U rc q k (startSt P θ (leftVars nm P θ)
+      (startAtoms S (sortedOf P θ (leftVars nm P θ)))) o = normCharge nm S U rc q P := by
+  have h : ∃ k, (normRes S k (startSt P θ (leftVars nm P θ)
+      (startAtoms S (sortedOf P θ (leftVars nm P θ))))).isSome = true := ⟨k, by rw [hr]; rfl⟩
+  simp only [normCharge, hs, h, ↓reduceDIte]
+  have hle : Nat.find h ≤ k := Nat.find_min' h (by rw [hr]; rfl)
+  obtain ⟨j, rfl⟩ := Nat.exists_eq_add_of_le hle
+  have h0 := Option.some_get (Nat.find_spec h)
+  obtain ⟨h1, h2⟩ := normRes_add (nm := nm) (U := U) (rc := rc) (q := q) h0.symm j
+  rw [h1] at hr
+  cases hr
+  exact h2
 
 /-! ### The tight store, numbered -/
 
@@ -965,26 +1036,35 @@ def NormalPost (nm : Option Nat → RwLog.Sym) (S : Sorts) (hS : S.WellFormed) (
         Repr nm nodes o.x.val (encLL nm (Y.map (vals r.c.length)))
 
 /-- `normal` computes the normal store of a problem (`Sorts.Prob.norm`),
-within the charge of `start` and a bound on the charge of what follows it:
-replacing the variables with one value, dropping the hidden ones, tightening
-in as many rounds as it takes, and numbering the tight store. -/
+within the charge of `start` and the charge of what follows it on the
+starting store of the problem (`normCharge`): replacing the variables with
+one value, dropping the hidden ones, the rounds of tightening its run makes,
+and numbering the tight store. Nothing is assumed about the charge. -/
 theorem normal_spec (hnm : Function.Injective nm) {S : Sorts} {sp : Pat}
     {U : List Name} (hC : Ctx nm S sp U) (hS : S.WellFormed)
     (hUS : ∀ n ∈ U, n ∈ Sorts.names S) {rc q : Nat}
     (hr : ∀ d, (Sorts.reachSet S d).card ≤ rc)
     (hq : ∀ d m, (Sorts.reachGSet S (d, some m)).card ≤ q) (P : Sorts.Prob) (hP : P.FO)
-    (hPa : ∀ a ∈ P.a, a.1 ∈ Sorts.names S) (B : Nat) (hB : NormBound nm S U rc q P B)
-    (s : store.Store) (decls names t e a x : store.TermId) (hI : Inv s)
+    (hPa : ∀ a ∈ P.a, a.1 ∈ Sorts.names S) (s : store.Store)
+    (decls names t e a x : store.TermId) (hI : Inv s)
     (hde : Repr nm s.nodes.val decls.val sp)
     (hU : Repr nm s.nodes.val names.val (namesPat (nm none) U))
     (ht : Repr nm s.nodes.val t.val P.t) (he : Repr nm s.nodes.val e.val (encEqs nm P.e))
     (ha : Repr nm s.nodes.val a.val (encList (nm none) (P.a.map ppair)))
     (hx : Repr nm s.nodes.val x.val (encX nm P.x))
-    (hroom : Room s (startCost nm S U.length P + B)) :
+    (hroom : Room s (startCost nm S U.length P + normCharge nm S U rc q P)) :
     sorts.normal s decls names t e a x ⦃ res s' =>
-      Inv s' ∧ Extends s s' ∧ s'.ticks.val ≤ s.ticks.val + startCost nm S U.length P + B ∧
+      Inv s' ∧ Extends s s' ∧
+        s'.ticks.val ≤ s.ticks.val + startCost nm S U.length P + normCharge nm S U rc q P ∧
         NormalPost nm S hS U P s'.nodes.val res ⦄ := by
   unfold sorts.normal
+  have hB : ∀ θ k o, solve P.e = some θ →
+      normRes S k (startSt P θ (leftVars nm P θ)
+        (startAtoms S (sortedOf P θ (leftVars nm P θ)))) = some o →
+      normCost nm S U rc q k (startSt P θ (leftVars nm P θ)
+        (startAtoms S (sortedOf P θ (leftVars nm P θ)))) o ≤ normCharge nm S U rc q P :=
+    fun _ _ _ hs hr => le_of_eq (normCharge_eq hs hr)
+  generalize normCharge nm S U rc q P = B at hB hroom ⊢
   have hroom' := hroom
   unfold Room at hroom'
   step with start_spec hnm hC P hP hPa s decls names t e a x hI hde hU ht he ha hx
@@ -1016,9 +1096,10 @@ theorem normal_spec (hnm : Function.Injective nm) {S : Sorts} {sp : Pat}
     | some val =>
       obtain ⟨t0, x0, es0, next0⟩ := val
       simp only at hpost
-      obtain ⟨A, hA, hsem, hH⟩ := hpost
+      obtain ⟨A, hA, hsem, hAc, hH⟩ := hpost
       obtain ⟨hok, hsubL, hfin, hden0⟩ := startSt_spec hC hP hsolve hA hsem
-      have hBθ := hB θ A
+      have hBθ := hB θ
+      rw [← startSt_congr (A := A) fun a => (mem_startAtoms hAc a).symm] at hBθ
       have hfront := front_sound hS hok hfin
       generalize startSt P θ (leftVars nm P θ) A = st0 at hH hok hsubL hfin hden0 hBθ hfront
       by_cases hflag : settleOk S st0.L = true

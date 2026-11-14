@@ -531,6 +531,66 @@ theorem not_inv_of_none {S : Sorts} {st : TSt} (hok : st.OK) {e : Nat × Sorts.C
     rw [this, count_empty] at hc
     cases hc
 
+/-- A state the rounds go on from in which no exclusion always holds
+satisfies the invariant. -/
+theorem TSt.Good.inv {S : Sorts} {st : TSt} (hG : st.Good S)
+    (hany : ¬ st.X.any Sorts.always = true) : Sorts.Inv S st.abs := by
+  refine hG.kept.inv (fun v _ => hG.conj_many v) fun E hE => ?_
+  by_contra h
+  exact hany (List.any_eq_true.2 ⟨E, hE, by simpa using h⟩)
+
+/-- What a round that replaces a variable did: the entry whose variable has
+values with one root, the state after the replacement, and whether every new
+entry has a member. The state before satisfies the invariant and the
+variable is in its pattern. -/
+theorem round_next {S : Sorts} {st st' : TSt} {ok : Bool} (hG : st.Good S)
+    (h : round S st = .next st' ok) :
+    ∃ pre en κ post, st.L = pre ++ en :: post ∧
+      Sorts.sole S en.2 (Sorts.gone st.X en.1) = some κ ∧
+      st' = openSt S st pre post en κ ∧ ok = settleOk S (newEntries S st en κ) ∧
+      Sorts.Inv S st.abs ∧ en.1 ∈ st.T.vars := by
+  unfold round at h
+  by_cases hany : st.X.any Sorts.always = true
+  · simp [hany] at h
+  · simp only [hany, Bool.false_eq_true, ↓reduceIte] at h
+    have hI := hG.inv hany
+    have hsp := splitSole_spec (S := S) (X := st.X) st.L
+    cases hq : splitSole S st.X st.L with
+    | none => rw [hq] at h; cases h
+    | some q =>
+      obtain ⟨pre, en, κ, post⟩ := q
+      rw [hq] at hsp h
+      simp only [Round.next.injEq] at h
+      obtain ⟨hL, -, hsole⟩ := hsp
+      refine ⟨pre, en, κ, post, hL, hsole, h.1.symm, h.2.symm, hI, ?_⟩
+      have hen : en ∈ st.L := by rw [hL]; simp
+      by_contra hv
+      have := hI.cs en.1 (by rw [TSt.abs_length]; exact hG.ok.lt en hen) hv
+      rw [hG.ok.conj, conjOf_mem hG.ok.nodup hen] at this
+      rw [this, sole_empty] at hsole
+      cases hsole
+
+/-- A round that replaces a variable, every new entry having a member, gives
+a state the rounds go on from. -/
+theorem round_good {S : Sorts} {st st' : TSt} (hG : st.Good S)
+    (h : round S st = .next st' true) : st'.Good S := by
+  obtain ⟨pre, en, κ, post, hL, hsole, rfl, hflag, hI, hv⟩ := round_next hG h
+  have hen : en ∈ st.L := by rw [hL]; simp
+  have hsole' : Sorts.sole S (st.abs.conj en.1) (Sorts.gone st.abs.x en.1) = some κ := by
+    rw [hG.ok.conj, conjOf_mem hG.ok.nodup hen]; exact hsole
+  obtain ⟨-, -, hkept⟩ := Sorts.stepAt_spec hI hv hsole'
+  rw [← openSt_abs (S := S) (κ := κ) hG.ok hL] at hkept
+  refine ⟨openSt_ok (S := S) (κ := κ) hG.ok hL, hkept, ?_⟩
+  intro e he
+  rcases List.mem_append.1 he with he | he
+  · obtain ⟨he1, he2⟩ := mem_settleKept.1 (List.mem_reverse.1 he)
+    have hnn := (List.all_eq_true.1 hflag.symm) e he1
+    cases hc : Sorts.count S e.2 with
+    | none => rw [hc] at hnn; simp [noneB] at hnn
+    | one g => rw [hc] at he2; simp [isOne] at he2
+    | many => rfl
+  · exact hG.many e (pre_post_sub hL e he)
+
 /-- Among well-formed sorts, some number of rounds is enough, and what they
 come to is reached by replacements in the sense of the specification. -/
 theorem tightRun_total {S : Sorts} (hS : S.WellFormed) :
@@ -548,11 +608,7 @@ theorem tightRun_total {S : Sorts} (hS : S.WellFormed) :
       have := hI.open_ E hE
       rw [hE'] at this
       cases this
-    · have hopen : ∀ E ∈ st.abs.x, Sorts.always E = false := by
-        intro E hE
-        by_contra h
-        exact hany (List.any_eq_true.2 ⟨E, hE, by simpa using h⟩)
-      have hI : Sorts.Inv S st.abs := hG.kept.inv (fun v _ => hG.conj_many v) hopen
+    · have hI : Sorts.Inv S st.abs := hG.inv hany
       have hsp := splitSole_spec (S := S) (X := st.X) st.L
       cases hq : splitSole S st.X st.L with
       | none =>
@@ -586,17 +642,8 @@ theorem tightRun_total {S : Sorts} (hS : S.WellFormed) :
         rw [← habs] at hkept
         by_cases hflag : settleOk S (newEntries S st en κ) = true
         · -- every new entry has a member
-          have hG' : (openSt S st pre post en κ).Good S := by
-            refine ⟨hok', hkept, ?_⟩
-            intro e he
-            rcases List.mem_append.1 he with he | he
-            · obtain ⟨he1, he2⟩ := mem_settleKept.1 (List.mem_reverse.1 he)
-              have hnn := (List.all_eq_true.1 hflag) e he1
-              cases hc : Sorts.count S e.2 with
-              | none => rw [hc] at hnn; simp [noneB] at hnn
-              | one g => rw [hc] at he2; simp [isOne] at he2
-              | many => rfl
-            · exact hG.many e (pre_post_sub hL e he)
+          have hG' : (openSt S st pre post en κ).Good S :=
+            round_good hG (by simp [round, hany, hq, hflag])
           have hlt : Sorts.room S (openSt S st pre post en κ).abs < m := by
             rw [habs, ← hm]; exact Sorts.room_lt_at hS hI hv hsole'
           obtain ⟨k, o, hrun, hT, hgood⟩ := ih _ hlt _ rfl hG'

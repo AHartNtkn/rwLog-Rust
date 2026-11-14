@@ -941,17 +941,16 @@ theorem rep_spec (hnm : Function.Injective nm) (hz : nm none = "") {S : Sorts} {
     (hUS : ∀ n ∈ U, n ∈ Sorts.names S) {rc q : Nat}
     (hr : ∀ d, (Sorts.reachSet S d).card ≤ rc)
     (hq : ∀ d m, (Sorts.reachGSet S (d, some m)).card ≤ q) (sp : Span) (ne : U32)
-    (hne : nm (some ne.val) = neSym) (B : Nat)
-    (hB : NormBound nm S U rc q (spanProbR sp) B)
+    (hne : nm (some ne.val) = neSym)
     (s : store.Store) (decls names : store.TermId) (x : span.Span)
     (hI : Inv s) (hde : Repr nm s.nodes.val decls.val dp)
     (hU : Repr nm s.nodes.val names.val (namesPat (nm none) U))
     (hx : SpanAt nm s.nodes.val x sp)
-    (hroom : Room s (spanCost U.length sp + startCost nm S U.length (spanProbR sp) + B)) :
+    (hroom : Room s (spanCost U.length sp + startCost nm S U.length (spanProbR sp) + normCharge nm S U rc q (spanProbR sp))) :
     dom.rep s decls names ne x ⦃ res s' =>
       Inv s' ∧ Extends s s' ∧
         s'.ticks.val ≤ s.ticks.val + spanCost U.length sp +
-          startCost nm S U.length (spanProbR sp) + B ∧
+          startCost nm S U.length (spanProbR sp) + normCharge nm S U rc q (spanProbR sp) ∧
         RepPost nm U s'.nodes.val (Sorts.repOf S sp) res ⦄ := by
   unfold dom.rep
   have hroom' := hroom
@@ -1001,7 +1000,7 @@ theorem rep_spec (hnm : Function.Injective nm) (hz : nm none = "") {S : Sorts} {
           obtain ⟨c, hc, hac⟩ := List.mem_flatMap.1 (List.mem_reverse.1 ha)
           exact hUS _ ((hok c hc).2.1 a hac)
         refine WP.spec_mono (normal_spec hnm hC hS hUS hr hq (spanProbR sp) (spanProbR_fo hfo)
-          hPa B hB s5 decls names t nil a e hI5 (hx05.repr hde) (hx05.repr hU) (hx5.repr rt)
+          hPa s5 decls names t nil a e hI5 (hx05.repr hde) (hx05.repr hU) (hx5.repr rt)
           (.nil hr5) ((hx4.trans hx5).repr ra) ((hx4.trans hx5).repr re)
           (by unfold Room; omega)) ?_
         rintro ⟨res, s'⟩ ⟨hI', hx', ht', hpost'⟩

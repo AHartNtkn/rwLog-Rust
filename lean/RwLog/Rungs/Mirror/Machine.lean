@@ -1,176 +1,154 @@
 /-
-# The mirrored machine in the cost monad
+# A machine run on a query and on its converse, side by side
 
-`Mirror.machine C` is `Engine.mirrored` (`Gen.lean`, which says what it does
-and why) for any costed machine `C`, in the cost monad: the same text, with
-`Cost.race` and `Cost.tick` written out. The proofs are carried out on it.
+What a machine pays for a query can depend on the end the query was written
+from. `Engine.mirrored E` removes that dependence for any engine `E`: it runs
+`E` on the root node and `E` on the converse of the root node
+(`DerivationKernel.convNode`), and its `k`-th step is the `k`-th step of
+whichever of the two gets there first.
 
-`go_alone_emit` to `go_catch` say what one round of races does, case by
-case, in terms of which of the two steps wins a race (`Cost.firstWins`) and
-what the race costs (`Cost.raceCost`).
+In the normal form the converse of a node is its mirror image: chains are
+reversed, spans swapped, and a call reads the converse of its body. So the
+run on the converse node is the run on the mirror image of the query in the
+mirrored program, and no second program is needed.
+
+## The state
+
+The two runs are kept apart. One of them is the *leader*: it has taken as
+many steps as the machine has. The other is `gap` steps behind. `fwd` says
+whether the leader is the run on the root node itself.
+
+## A step
+
+The machine pays one tick of its own and races the next steps of the two runs
+(`Kernel.race`).
+
+When one run is behind, the leader's step is raced first against the other
+run's.
+
+* If the leader's step finishes first, what it shows is shown, its answers
+  conversed (`swapA`) if the leader is the run on the converse, and the gap
+  grows by one.
+* If the other run's step finishes first, it is one step closer and nothing
+  is shown yet: the machine races again. So a step of the machine ends only
+  when one of the two runs has taken one more step than the machine had, and
+  what that step shows is shown once.
+
+When the two runs are level there is no leader to prefer, and the converse of
+the query would have the two runs the other way round. So the machine races
+them twice, once in each order (`level`).
+
+* If the same run wins both races, it takes its step alone, what it shows is
+  shown, and it is the leader, one step ahead.
+* Otherwise each run has won a race, both steps are in hand, and both runs
+  take their step: what the leader's shows is shown and the runs stay level.
+
+If a step that was taken reports that it is done, the machine is done, with
+that step's final report.
+
+For a machine whose run on the converse is the mirror image of its run, step
+for step, the `k`-th steps of the two runs show the same answers up to
+converse and order, so what the machine shows does not depend on which of
+them won, and when one of them is done so is the other.
+
+## What it costs
+
+A race costs at most 7 times the cheaper of the two steps it races, and each
+of the two runs takes at most `n` steps by the time the machine has taken
+`n`. On the converse of the query the same two runs are raced, and no step of
+the machine prefers one of them except for being ahead.
 -/
-import RwLog.Rungs.Mirror.Gen
-import RwLog.Rungs.Framework.RaceWinner
-import RwLog.Rungs.Framework.Cost
+import RwLog.Trusted.Cost
+import RwLog.Rungs.Framework.Traverse
 
 namespace RwLog
 
 namespace Mirror
 
-open Cost
+open Traverse
 
-/-- The answers of a run, as answers to the query: those of the run on the
-mirror image are swapped back. -/
-def orient (fwd : Bool) (as : List Span) : List Span := if fwd then as else as.map Span.swap
+/-- The two runs: the leader, the other run, whether the leader is the run on
+the root node itself, and how many steps the other run is behind. -/
+structure StOf (σ : Type) where
+  lead : σ
+  lag : σ
+  fwd : Bool
+  gap : Nat
 
-variable (C : CostedRuntime)
+section
 
-/-- The step from level runs, given what the two races returned. -/
-def level {σ : Type} (f : Bool) (x y : σ) : Step σ ⊕ Step σ → Step σ ⊕ Step σ → Step (StOf σ)
-  | .inl (.emit as x'), .inl _ => .emit (orient f as) ⟨x', y, f, 1⟩
-  | .inr (.emit as y'), .inr _ => .emit (orient (!f) as) ⟨y', x, !f, 1⟩
-  | .inl (.emit as x'), .inr (.emit _ y') => .emit (orient f as) ⟨x', y', f, 0⟩
-  | .inr (.emit _ y'), .inl (.emit as x') => .emit (orient f as) ⟨x', y', f, 0⟩
-  | _, _ => .done
+variable {S N A : Type} {M : Type → Type} [K : DerivationKernel S N A M]
 
-/-- One step of the machine, from a gap of `g`. -/
-def go : Nat → Bool → C.State → C.State → Cost (Step (StOf C.State))
+/-- The answers of a run, as answers of the root goal: those of the run on
+the converse are conversed. -/
+def orient (fwd : Bool) (as : List A) : M (List A) :=
+  if fwd then pure as else mapL (fun a => K.swapA a) as
+
+variable {σ : Type}
+
+/-- What a step of one run shows, as a step of the machine: `fwd` says
+whether the run is the one on the root node, and `next` is the state of the
+machine once the run has taken the step. -/
+def shown (fwd : Bool) (next : σ → StOf σ) : StepOf A σ → M (StepOf A (StOf σ))
+  | .emit as s => do
+    let bs ← orient (K := K) fwd as
+    pure (.emit bs (next s))
+  | .progress n s => pure (.progress n (next s))
+  | .done fin => do
+    let bs ← orient (K := K) fwd fin
+    pure (.done bs)
+
+/-- The state a run is in after its step, if it goes on. -/
+def after : StepOf A σ → Option σ
+  | .emit _ s => some s
+  | .progress _ s => some s
+  | .done _ => none
+
+/-- The step from level runs, given what the two races returned: the first
+raced the leader `x` before the other run `y`, the second `y` before `x`. -/
+def level (f : Bool) (x y : σ) :
+    StepOf A σ ⊕ StepOf A σ → StepOf A σ ⊕ StepOf A σ → M (StepOf A (StOf σ))
+  | .inl sx, .inl _ => shown (K := K) f (fun x' => ⟨x', y, f, 1⟩) sx
+  | .inr sy, .inr _ => shown (K := K) (!f) (fun y' => ⟨y', x, !f, 1⟩) sy
+  | .inl sx, .inr sy | .inr sy, .inl sx =>
+    match after sy with
+    | some y' => shown (K := K) f (fun x' => ⟨x', y', f, 0⟩) sx
+    | none =>
+      match after sx with
+      | some _ => shown (K := K) (!f) (fun y' => ⟨y', x, !f, 0⟩) sy
+      | none => shown (K := K) f (fun x' => ⟨x', y, f, 0⟩) sx
+
+/-- One step of the machine, from a gap of `g`: race the leader `x` against
+the other run `y` until one of them has taken one more step than the machine
+had. -/
+def go (step : σ → M (StepOf A σ)) : Nat → Bool → σ → σ → M (StepOf A (StOf σ))
   | 0, f, x, y => do
-    Cost.tick 1
-    let r ← Cost.race (Sum.inl <$> C.step x) (Sum.inr <$> C.step y)
-    let r' ← Cost.race (Sum.inr <$> C.step y) (Sum.inl <$> C.step x)
-    pure (level f x y r r')
+    K.tick 1
+    let r ← K.race (Sum.inl <$> step x) (Sum.inr <$> step y)
+    let r' ← K.race (Sum.inr <$> step y) (Sum.inl <$> step x)
+    level (K := K) f x y r r'
   | g + 1, f, x, y => do
-    Cost.tick 1
-    let r ← Cost.race (Sum.inl <$> C.step x) (Sum.inr <$> C.step y)
+    K.tick 1
+    let r ← K.race (Sum.inl <$> step x) (Sum.inr <$> step y)
     match r with
-    | .inl (.emit as x') => pure (.emit (orient f as) ⟨x', y, f, g + 2⟩)
-    | .inl .done => pure .done
-    | .inr (.emit _ y') => go g f x y'
-    | .inr .done => pure .done
+    | .inl sx => shown (K := K) f (fun x' => ⟨x', y, f, g + 2⟩) sx
+    | .inr sy =>
+      match after sy with
+      | some y' => go step g f x y'
+      | none => shown (K := K) (!f) (fun y' => ⟨y', x, !f, 0⟩) sy
 
-/-- `C` run on the query and on its mirror image, side by side. -/
-def machine : CostedRuntime where
-  State := StOf C.State
-  init P q := do
-    let x ← C.init P q
-    let y ← C.init P.dual q.dual
-    pure ⟨x, y, true, 0⟩
-  step st := go C st.gap st.fwd st.lead st.lag
-
-/-! ## One race, case by case -/
-
-variable {C}
-
-/-- The step of `x` wins the race when it is raced before the step of `y`. -/
-abbrev wins (x y : C.State) : Bool := firstWins (C.step x).ticks (C.step y).ticks
-
-/-- What the race of the step of `x` before the step of `y` costs. -/
-abbrev raced (x y : C.State) : Nat := raceCost (C.step x).ticks (C.step y).ticks
-
-theorem race_steps (x y : C.State) :
-    Cost.race (Sum.inl <$> C.step x) (Sum.inr <$> C.step y) =
-      ⟨if wins x y then .inl (C.step x).val else .inr (C.step y).val, raced x y⟩ := by
-  rw [Cost.race_eq]; rfl
-
-theorem race_steps' (x y : C.State) :
-    Cost.race (Sum.inr <$> C.step y) (Sum.inl <$> C.step x) =
-      ⟨if wins y x then .inr (C.step y).val else .inl (C.step x).val, raced y x⟩ := by
-  rw [Cost.race_eq]; rfl
-
-/-! ### Level runs -/
-
-/-- The step from level runs: the two races, and what they returned. -/
-theorem go_zero (f : Bool) (x y : C.State) :
-    go C 0 f x y =
-      ⟨level f x y (if wins x y then .inl (C.step x).val else .inr (C.step y).val)
-          (if wins y x then .inr (C.step y).val else .inl (C.step x).val),
-        1 + raced x y + raced y x⟩ := by
-  unfold go
-  refine Cost.ext ?_ ?_
-  · simp only [bind_val, race_steps, race_steps', pure_val]
-  · simp only [bind_ticks, race_steps, race_steps', pure_ticks, tick_ticks, Nat.add_zero]
-    omega
-
-/-- The leader's step wins both races: it takes its step alone. -/
-theorem go_alone_emit {x y x' : C.State} {as : List Span} (f : Bool)
-    (h1 : wins x y = true) (h2 : wins y x = false) (hx : (C.step x).val = .emit as x') :
-    go C 0 f x y = ⟨.emit (orient f as) ⟨x', y, f, 1⟩, 1 + raced x y + raced y x⟩ := by
-  rw [go_zero]; simp [h1, h2, hx, level]
-
-theorem go_alone_done {x y : C.State} (f : Bool)
-    (h1 : wins x y = true) (h2 : wins y x = false) (hx : (C.step x).val = .done) :
-    go C 0 f x y = ⟨.done, 1 + raced x y + raced y x⟩ := by
-  rw [go_zero]; simp [h1, h2, hx, level]
-
-/-- The other run's step wins both races: it takes its step alone and becomes
-the leader. -/
-theorem go_overtake {x y y' : C.State} {as : List Span} (f : Bool)
-    (h1 : wins x y = false) (h2 : wins y x = true) (hy : (C.step y).val = .emit as y') :
-    go C 0 f x y = ⟨.emit (orient (!f) as) ⟨y', x, !f, 1⟩, 1 + raced x y + raced y x⟩ := by
-  rw [go_zero]; simp [h1, h2, hy, level]
-
-theorem go_overtake_done {x y : C.State} (f : Bool)
-    (h1 : wins x y = false) (h2 : wins y x = true) (hy : (C.step y).val = .done) :
-    go C 0 f x y = ⟨.done, 1 + raced x y + raced y x⟩ := by
-  rw [go_zero]; simp [h1, h2, hy, level]
-
-/-- Neither run wins both races: both take their step, and stay level. -/
-theorem go_both_emit {x y x' y' : C.State} {as bs : List Span} (f : Bool)
-    (h : wins x y = wins y x) (hx : (C.step x).val = .emit as x')
-    (hy : (C.step y).val = .emit bs y') :
-    go C 0 f x y = ⟨.emit (orient f as) ⟨x', y', f, 0⟩, 1 + raced x y + raced y x⟩ := by
-  rw [go_zero, ← h]; cases wins x y <;> simp [hx, hy, level]
-
-theorem go_both_done {x y : C.State} (f : Bool)
-    (h : wins x y = wins y x) (hd : (C.step x).val = .done ∨ (C.step y).val = .done) :
-    go C 0 f x y = ⟨.done, 1 + raced x y + raced y x⟩ := by
-  rw [go_zero, ← h]
-  rcases hd with hd | hd
-  · cases wins x y <;> cases hy : (C.step y).val <;> simp [hd, level]
-  · cases wins x y <;> cases hx : (C.step x).val <;> simp [hd, level]
-
-/-! ### One run behind -/
-
-theorem go_lead_emit {x y x' : C.State} {as : List Span} (g : Nat) (f : Bool)
-    (hw : wins x y = true) (hx : (C.step x).val = .emit as x') :
-    go C (g + 1) f x y = ⟨.emit (orient f as) ⟨x', y, f, g + 2⟩, 1 + raced x y⟩ := by
-  unfold go
-  refine Cost.ext ?_ ?_
-  · simp only [bind_val, race_steps, hw, ite_true, hx, pure_val]
-  · simp only [bind_ticks, race_steps, hw, ite_true, hx, pure_ticks, tick_ticks,
-      Nat.add_zero]
-
-theorem go_lead_done {x y : C.State} (g : Nat) (f : Bool)
-    (hw : wins x y = true) (hx : (C.step x).val = .done) :
-    go C (g + 1) f x y = ⟨.done, 1 + raced x y⟩ := by
-  unfold go
-  refine Cost.ext ?_ ?_
-  · simp only [bind_val, race_steps, hw, ite_true, hx, pure_val]
-  · simp only [bind_ticks, race_steps, hw, ite_true, hx, pure_ticks, tick_ticks,
-      Nat.add_zero]
-
-theorem go_lag_done {x y : C.State} (g : Nat) (f : Bool)
-    (hw : wins x y = false) (hy : (C.step y).val = .done) :
-    go C (g + 1) f x y = ⟨.done, 1 + raced x y⟩ := by
-  unfold go
-  refine Cost.ext ?_ ?_
-  · simp only [bind_val, race_steps, hw, hy, pure_val, Bool.false_eq_true, ite_false]
-  · simp only [bind_ticks, race_steps, hw, hy, pure_ticks, tick_ticks,
-      Nat.add_zero, Bool.false_eq_true, ite_false]
-
-/-- The other run was behind and its step wins: it is one step closer, and
-the machine races again. -/
-theorem go_catch {x y y' : C.State} {as : List Span} (g : Nat) (f : Bool)
-    (hw : wins x y = false) (hy : (C.step y).val = .emit as y') :
-    go C (g + 1) f x y = ⟨(go C g f x y').val, 1 + raced x y + (go C g f x y').ticks⟩ := by
-  rw [go]
-  refine Cost.ext ?_ ?_
-  · simp only [bind_val, race_steps, hw, hy, Bool.false_eq_true, ite_false]
-  · simp only [bind_ticks, race_steps, hw, hy, tick_ticks, Bool.false_eq_true,
-      ite_false]
-    omega
+end
 
 end Mirror
+
+/-- `E` run on the root node and on its converse, side by side. -/
+def Engine.mirrored (E : Engine) : Engine where
+  State S N A := Mirror.StOf (E.State S N A)
+  init {_ _ _ _} K root := do
+    let x ← E.init root
+    let c ← K.convNode root
+    let y ← E.init c
+    pure ⟨x, y, true, 0⟩
+  step {_ _ _ _} K st := Mirror.go (K := K) (fun s => E.step s) st.gap st.fwd st.lead st.lag
 
 end RwLog

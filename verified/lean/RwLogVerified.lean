@@ -48,6 +48,10 @@
   pattern, the exclusions and the entries; that they end, and that what they
   come to is reached by replacements of the specification.
 * `RwLogVerified.Tight`: tightening a store, within the charge of its rounds.
+* `RwLogVerified.Rounds`: each round of tightening adds a distinct subterm
+  to the pattern, so the rounds are at most the distinct subterms of the
+  pattern returned; rounds come to nothing only in the first one; allowing
+  more rounds than a run makes changes neither its result nor its charge.
 * `RwLogVerified.Number`: the variables of a pattern in the order they
   first occur; the sorts that hold of all values of a variable; a store with
   its variables numbered in that order.
@@ -64,7 +68,8 @@
 * `RwLogVerified.Normal`: the normal store of a problem: the store a problem
   starts from (equations solved, variables numbered, sorts pushed down to
   the variables), and the whole function: the variables with one value
-  replaced, the hidden ones dropped, the rest tightened and numbered.
+  replaced, the hidden ones dropped, the rest tightened and numbered. Its
+  charge is a function of the problem (`normCharge`), with nothing assumed.
 * `RwLogVerified.Dom`: the operations of the sorts domain on normal stores:
   the representative of a pair of patterns over the solutions of one,
   composition, conjunction, the right bound, the converse, whether a
@@ -111,6 +116,7 @@ import RwLogVerified.Open
 import RwLogVerified.Tighten
 import RwLogVerified.TightRun
 import RwLogVerified.Tight
+import RwLogVerified.Rounds
 import RwLogVerified.Number
 import RwLogVerified.Solved
 import RwLogVerified.Assemble
