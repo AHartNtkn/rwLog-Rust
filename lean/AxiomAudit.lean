@@ -559,6 +559,18 @@ new axiom.
 /-- info: 'RwLog.Sorts.foldRaw_ofTight' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Sorts.foldRaw_ofTight
 
+/-- info: 'RwLog.Sorts.assembled_ofTight' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.assembled_ofTight
+
+/-- info: 'RwLog.Sorts.FoldOf.pair' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.FoldOf.pair
+
+/-- info: 'RwLog.Sorts.Rep.fold_sides' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.Rep.fold_sides
+
+/-- info: 'RwLog.Sorts.Rep.eq_of_fold' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Sorts.Rep.eq_of_fold
+
 /-- info: 'RwLog.Sorts.Rep.of_val' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Sorts.Rep.of_val
 

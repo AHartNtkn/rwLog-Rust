@@ -206,6 +206,23 @@ noncomputable def encVarEntries (nm : Option Nat → RwLog.Sym) (U : List Name)
 def encX (nm : Option Nat → RwLog.Sym) (X : List (Eqns Nat)) : Pat :=
   encList (nm none) (X.map (encEqs nm))
 
+theorem mem_vars_encList (z : RwLog.Sym) {v : Nat} :
+    ∀ {L : List Pat}, v ∈ (encList z L).vars ↔ ∃ p ∈ L, v ∈ p.vars
+  | [] => by simp [encList, Term.vars]
+  | p :: L => by simp [encList, Term.vars, mem_vars_encList z (L := L)]
+
+theorem mem_vars_encEqs {v : Nat} :
+    ∀ {E : Eqns Nat}, v ∈ (encEqs nm E).vars ↔ ∃ p ∈ E, v ∈ p.1.vars ∨ v ∈ p.2.vars
+  | [] => by simp [encEqs, Term.vars]
+  | p :: E => by simp [encEqs, Term.vars, mem_vars_encEqs (E := E), or_assoc]
+
+/-- A variable occurs in the exclusions as the store holds them exactly when
+one of them mentions it. -/
+theorem mem_vars_encX {v : Nat} {X : List (Eqns Nat)} :
+    v ∈ (encX nm X).vars ↔ v ∈ X.flatMap Eqns.vars := by
+  simp only [encX, mem_vars_encList, List.mem_map, exists_exists_and_eq_and, mem_vars_encEqs,
+    List.mem_flatMap, Eqns.vars, List.mem_append]
+
 theorem encX_subst (x : Nat) (u : Pat) (X : List (Eqns Nat)) :
     (encX nm X).bind (Term.single x u) = encX nm (X.map (Eqns.subst x u)) := by
   simp only [encX, encList_bind, List.map_map]

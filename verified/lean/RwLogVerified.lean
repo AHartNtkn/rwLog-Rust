@@ -65,19 +65,36 @@
 * `RwLogVerified.Prune`: a store without its hidden variables: the solved
   form of an exclusion, the exclusions whose solved forms are over the
   variables of the pattern, and the entries of these variables.
-* `RwLogVerified.Normal`: the normal store of a problem: the store a problem
-  starts from (equations solved, variables numbered, sorts pushed down to
-  the variables), and the whole function: the variables with one value
-  replaced, the hidden ones dropped, the rest tightened and numbered. Its
-  charge is a function of the problem (`normCharge`), with nothing assumed.
-* `RwLogVerified.Dom`: the operations of the sorts domain on normal stores:
-  the representative of a pair of patterns over the solutions of one,
-  composition, conjunction, the right bound, the converse, whether a
-  representative relates each term to itself only, and whether one covers
-  another.
+* `RwLogVerified.Among`: whether a term is a member of a list.
+* `RwLogVerified.PushComes`, `RwLogVerified.Clo`: the push-down of the store
+  agrees with the push-down of the specification; the declared sorts that
+  hold of every instance of a subterm.
+* `RwLogVerified.Fits`: whether the members of a conjunction of sorts are
+  the instances of a pattern with its variables in their sorts.
+* `RwLogVerified.Outside`, `RwLogVerified.Once`: whether a flagged variable
+  is at a place outside a subterm; whether a term has no variable twice.
+* `RwLogVerified.Free`, `RwLogVerified.FreeSubs`: whether a subterm of the
+  pattern of a store is free; the outermost free subterms of the pattern.
+* `RwLogVerified.FoldParts`, `RwLogVerified.FoldMath`: the other loops of
+  the fold, and what its steps compute.
+* `RwLogVerified.Fold`: a representative on the store; assembling a store
+  from its parts; the fold of a store determined by its pattern and what it
+  denotes is the folded store of the specification.
+* `RwLogVerified.Normal`: the canonical store of a problem: the store a
+  problem starts from (equations solved, variables numbered, sorts pushed
+  down to the variables), and the whole function: the variables with one
+  value replaced, the hidden ones dropped, the rest tightened, numbered,
+  assembled and folded, which gives the folded canonical store of the
+  normal store of the problem. Its charge is a function of the problem
+  (`normCharge`), with nothing assumed.
+* `RwLogVerified.Dom`: the operations of the sorts domain on folded
+  canonical stores: the representative of a pair of patterns over the
+  solutions of one, composition, conjunction, the right bound, the
+  converse, whether a representative relates each term to itself only, and
+  whether one covers another.
 * `RwLogVerified.SpanRep`: the representative of a span as written:
-  whether a term is first-order, what each constraint says, and the normal
-  store of the two sides under the sorts and the disequalities.
+  whether a term is first-order, what each constraint says, and the folded
+  canonical store of the two sides under the sorts and the disequalities.
 * `RwLogVerified.Kernel`: the kernel rung whose charges are those bounds.
 * `RwLogVerified.KernelRuns`: its charges on a worked composition.
 
@@ -121,6 +138,17 @@ import RwLogVerified.Number
 import RwLogVerified.Solved
 import RwLogVerified.Assemble
 import RwLogVerified.Prune
+import RwLogVerified.Among
+import RwLogVerified.PushComes
+import RwLogVerified.Clo
+import RwLogVerified.Fits
+import RwLogVerified.Outside
+import RwLogVerified.Once
+import RwLogVerified.Free
+import RwLogVerified.FreeSubs
+import RwLogVerified.FoldParts
+import RwLogVerified.FoldMath
+import RwLogVerified.Fold
 import RwLogVerified.Normal
 import RwLogVerified.Dom
 import RwLogVerified.SpanRep

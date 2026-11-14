@@ -169,8 +169,27 @@ fn settle_ref(ss: &Sorts, t: &mut P, x: &mut Excls, es: &Sets) -> (bool, Sets) {
     (ok, kept)
 }
 
-/// Steps of `Tightens` of the specification on trees, taken in the order
-/// `sorts::tighten` takes them. The sorts must be well formed.
+/// Does an exclusion mention the variable?
+fn mentions(x: &Excls, v: usize) -> bool {
+    let mut vs = Vec::new();
+    for e in x {
+        for (l, r) in e {
+            l.vars(&mut vs);
+            r.vars(&mut vs);
+        }
+    }
+    vs.contains(&v)
+}
+
+/// An exclusion for each term: the term is not `a`. None of them holds of
+/// a term of the sorts here, so they only mention the variables.
+fn not_a(ts: &[P]) -> Excls {
+    ts.iter().map(|t| vec![(t.clone(), a())]).collect()
+}
+
+/// Steps of `Tightens` of the specification on trees, on the variables that
+/// an exclusion mentions, taken in the order `sorts::tighten` takes them.
+/// The sorts must be well formed.
 fn tighten_ref(ss: &Sorts, t: &P, x: &Excls, es: &Entries, next: usize) -> Option<(P, Excls, Sets, usize)> {
     let mut t = t.clone();
     let mut x = x.clone();
@@ -183,7 +202,7 @@ fn tighten_ref(ss: &Sorts, t: &P, x: &Excls, es: &Entries, next: usize) -> Optio
         if x.iter().any(|e| always_ref(e)) {
             return None;
         }
-        let Some(i) = es.iter().position(|(v, c)| ss.sole(c, &gone(&x, *v)).is_some()) else {
+        let Some(i) = es.iter().position(|(v, c)| mentions(&x, *v) && ss.sole(c, &gone(&x, *v)).is_some()) else {
             return Some((t, x, es, next));
         };
         let (v, c) = es.remove(i);
@@ -723,11 +742,72 @@ fn an_entry_of_no_sort_is_kept_and_its_variable_not_replaced() {
     unchanged(pv(0), vec![vec![(pv(0), z())]], vec![(0, vec![])], 1);
 }
 
+// Variables that no exclusion mentions.
+
+#[test]
+fn a_variable_with_one_root_that_no_exclusion_mentions_is_not_replaced() {
+    unchanged(pv(0), vec![], vec![(0, vec![BOX])], 1);
+}
+
+#[test]
+fn a_chain_of_sorts_with_one_case_that_no_exclusion_mentions_is_not_replaced() {
+    unchanged(pv(0), vec![], vec![(0, vec![C3])], 1);
+}
+
+#[test]
+fn only_the_variable_an_exclusion_mentions_is_replaced() {
+    tight_is(
+        pr(pv(0), pv(1)),
+        not_a(&[pv(1)]),
+        vec![(0, vec![BOX]), (1, vec![BOX])],
+        2,
+        Some((pr(pv(0), k1(pv(2))), not_a(&[k1(pv(2))]), vec![(2, vec![NAT]), (0, vec![BOX])], 3)),
+    );
+}
+
+#[test]
+fn a_variable_mentioned_on_the_right_of_an_exclusion_is_replaced() {
+    tight_is(
+        pr(pv(0), pv(1)),
+        vec![vec![(pv(1), pv(0))]],
+        vec![(0, vec![BOX]), (1, vec![NAT])],
+        2,
+        Some((pr(k1(pv(2)), pv(1)), vec![vec![(pv(1), k1(pv(2)))]], vec![(2, vec![NAT]), (1, vec![NAT])], 3)),
+    );
+}
+
+#[test]
+fn a_variable_mentioned_below_a_symbol_is_replaced() {
+    tight_is(
+        pv(0),
+        vec![vec![(pr(pv(0), z()), pr(z(), z()))]],
+        vec![(0, vec![BOX])],
+        1,
+        Some((k1(pv(1)), vec![vec![(pr(k1(pv(1)), z()), pr(z(), z()))]], vec![(1, vec![NAT])], 2)),
+    );
+}
+
+#[test]
+fn a_variable_mentioned_by_the_second_exclusion_only_is_replaced() {
+    tight_is(
+        pr(pv(0), pv(1)),
+        vec![vec![(pv(1), su(z()))], vec![(pv(0), a())]],
+        vec![(0, vec![BOX]), (1, vec![NAT])],
+        2,
+        Some((
+            pr(k1(pv(2)), pv(1)),
+            vec![vec![(pv(1), su(z()))], vec![(k1(pv(2)), a())]],
+            vec![(2, vec![NAT]), (1, vec![NAT])],
+            3,
+        )),
+    );
+}
+
 // One replacement.
 
 #[test]
 fn a_variable_of_a_sort_with_one_case_becomes_that_case() {
-    tight_is(pv(0), vec![], vec![(0, vec![BOX])], 1, Some((k1(pv(1)), vec![], vec![(1, vec![NAT])], 2)));
+    tight_is(pv(0), not_a(&[pv(0)]), vec![(0, vec![BOX])], 1, Some((k1(pv(1)), not_a(&[k1(pv(1))]), vec![(1, vec![NAT])], 2)));
 }
 
 #[test]
@@ -745,10 +825,10 @@ fn a_number_that_is_not_zero_becomes_a_successor() {
 fn a_root_with_several_arguments_gets_a_variable_for_each() {
     tight_is(
         pv(0),
-        vec![],
+        not_a(&[pv(0)]),
         vec![(0, vec![PAIR])],
         1,
-        Some((pr(pv(1), pv(2)), vec![], vec![(2, vec![NAT]), (1, vec![NAT])], 3)),
+        Some((pr(pv(1), pv(2)), not_a(&[pr(pv(1), pv(2))]), vec![(2, vec![NAT]), (1, vec![NAT])], 3)),
     );
 }
 
@@ -756,10 +836,10 @@ fn a_root_with_several_arguments_gets_a_variable_for_each() {
 fn a_new_variable_with_one_value_becomes_it_and_keeps_its_number() {
     tight_is(
         pv(0),
-        vec![],
+        not_a(&[pv(0)]),
         vec![(0, vec![MIX])],
         1,
-        Some((g2(z(), pv(2)), vec![], vec![(2, vec![NAT])], 3)),
+        Some((g2(z(), pv(2)), not_a(&[g2(z(), pv(2))]), vec![(2, vec![NAT])], 3)),
     );
 }
 
@@ -767,10 +847,10 @@ fn a_new_variable_with_one_value_becomes_it_and_keeps_its_number() {
 fn two_sorts_whose_common_members_have_one_root() {
     tight_is(
         pv(0),
-        vec![],
+        not_a(&[pv(0)]),
         vec![(0, vec![NAT, SUC])],
         1,
-        Some((su(pv(1)), vec![], vec![(1, vec![NAT])], 2)),
+        Some((su(pv(1)), not_a(&[su(pv(1))]), vec![(1, vec![NAT])], 2)),
     );
 }
 
@@ -808,10 +888,10 @@ fn no_root_left_returns_the_store() {
 fn a_chain_of_sorts_with_one_case() {
     tight_is(
         pv(0),
-        vec![],
+        not_a(&[pv(0)]),
         vec![(0, vec![C3])],
         1,
-        Some((k1(k1(k1(pv(3)))), vec![], vec![(3, vec![NAT])], 4)),
+        Some((k1(k1(k1(pv(3)))), not_a(&[k1(k1(k1(pv(3))))]), vec![(3, vec![NAT])], 4)),
     );
 }
 
@@ -875,10 +955,10 @@ fn the_same_term_excluded_twice() {
 fn the_first_entry_with_one_root_is_replaced_first() {
     tight_is(
         pr(pv(0), pv(1)),
-        vec![],
+        not_a(&[pv(0), pv(1)]),
         vec![(0, vec![BOX]), (1, vec![BOX])],
         2,
-        Some((pr(k1(pv(2)), k1(pv(3))), vec![], vec![(3, vec![NAT]), (2, vec![NAT])], 4)),
+        Some((pr(k1(pv(2)), k1(pv(3))), not_a(&[k1(pv(2)), k1(pv(3))]), vec![(3, vec![NAT]), (2, vec![NAT])], 4)),
     );
 }
 
@@ -886,10 +966,10 @@ fn the_first_entry_with_one_root_is_replaced_first() {
 fn an_entry_without_one_root_is_passed_over() {
     tight_is(
         pr(pv(0), pv(1)),
-        vec![],
+        not_a(&[pv(0), pv(1)]),
         vec![(0, vec![NAT]), (1, vec![BOX])],
         2,
-        Some((pr(pv(0), k1(pv(2))), vec![], vec![(2, vec![NAT]), (0, vec![NAT])], 3)),
+        Some((pr(pv(0), k1(pv(2))), not_a(&[pv(0), k1(pv(2))]), vec![(2, vec![NAT]), (0, vec![NAT])], 3)),
     );
 }
 
@@ -897,12 +977,12 @@ fn an_entry_without_one_root_is_passed_over() {
 fn new_entries_come_reversed_before_the_others_in_their_order() {
     tight_is(
         g2(pv(0), g2(pv(1), pv(2))),
-        vec![],
+        not_a(&[pv(1)]),
         vec![(0, vec![NAT]), (1, vec![PAIR]), (2, vec![NAT])],
         3,
         Some((
             g2(pv(0), g2(pr(pv(3), pv(4)), pv(2))),
-            vec![],
+            not_a(&[pr(pv(3), pv(4))]),
             vec![(4, vec![NAT]), (3, vec![NAT]), (0, vec![NAT]), (2, vec![NAT])],
             5,
         )),
@@ -929,17 +1009,17 @@ fn an_exclusion_over_variables_without_entries_still_excludes() {
 
 #[test]
 fn new_variables_are_numbered_from_the_next_one_given() {
-    tight_is(pv(0), vec![], vec![(0, vec![BOX])], 9, Some((k1(pv(9)), vec![], vec![(9, vec![NAT])], 10)));
+    tight_is(pv(0), not_a(&[pv(0)]), vec![(0, vec![BOX])], 9, Some((k1(pv(9)), not_a(&[k1(pv(9))]), vec![(9, vec![NAT])], 10)));
 }
 
 #[test]
 fn the_numbers_go_on_from_one_replacement_to_the_next() {
     tight_is(
         pv(0),
-        vec![],
+        not_a(&[pv(0)]),
         vec![(0, vec![C3])],
         7,
-        Some((k1(k1(k1(pv(9)))), vec![], vec![(9, vec![NAT])], 10)),
+        Some((k1(k1(k1(pv(9)))), not_a(&[k1(k1(k1(pv(9))))]), vec![(9, vec![NAT])], 10)),
     );
 }
 
@@ -977,10 +1057,10 @@ fn a_shared_subterm_with_two_variables_that_are_replaced() {
     let q1 = g2(k1(pv(2)), k1(pv(3)));
     tight_is(
         pr(q.clone(), q),
-        vec![],
+        not_a(&[pv(0), pv(1)]),
         vec![(0, vec![BOX]), (1, vec![BOX])],
         2,
-        Some((pr(q1.clone(), q1), vec![], vec![(3, vec![NAT]), (2, vec![NAT])], 4)),
+        Some((pr(q1.clone(), q1), not_a(&[k1(pv(2)), k1(pv(3))]), vec![(3, vec![NAT]), (2, vec![NAT])], 4)),
     );
 }
 

@@ -473,17 +473,55 @@ theorem foldStore_linked (hS : S.WellFormed) (hR : r.Roomy S) :
       · rw [Term.bind_congr (hσF p hp hf)]
         exact (hG p hp hf).2
 
-/-- The folded store is determined by its pattern and what it denotes, it
-denotes what the store does, and its pattern is the folded pattern. -/
-theorem foldRaw_spec (hS : S.WellFormed) (hR : r.Roomy S) :
-    (foldRaw S r).Shaped S ∧ (foldRaw S r).store.Den S = r.store.Den S ∧
-      (foldRaw S r).t = foldPat S r.store := by
+/-- The renamed exclusions are first-order and over the numbers of the
+names. -/
+theorem foldXs_fin (hS : S.WellFormed) (hR : r.Roomy S) :
+    (∀ E ∈ foldXs S r, E.FO) ∧
+      ∀ E ∈ foldXs S r, ∀ v ∈ E.vars, v < (foldNames S r).length := by
+  have hr := hR.shaped
+  have hN := names_of_roomy hS hR
+  refine ⟨fun E' hE' q hq => ?_, fun E' hE' w hw => ?_⟩
+  · obtain ⟨θ, hθ, rfl⟩ := List.mem_map.1 hE'
+    rw [Raw.mem_xs] at hθ
+    obtain ⟨q', hq', rfl⟩ := List.mem_map.1 hq
+    obtain ⟨b, hb, rfl⟩ := List.mem_map.1 hq'
+    exact ⟨rfl, rename_fo ((hr.ex θ hθ).fo b hb) _⟩
+  · obtain ⟨θ, hθ, rfl⟩ := List.mem_map.1 hE'
+    rw [Raw.mem_xs] at hθ
+    obtain ⟨q, hq, hw⟩ := List.mem_flatMap.1 hw
+    obtain ⟨q', hq', rfl⟩ := List.mem_map.1 hq
+    have hw' : w ∈ (q'.1.vars ++ q'.2.vars).map
+        fun x => (foldNames S r).idxOf (Term.var x) := by
+      simpa [Term.vars_rename] using hw
+    obtain ⟨x, hx, rfl⟩ := List.mem_map.1 hw'
+    exact hN.lt _ (hN.kept θ hθ x (List.mem_flatMap.2 ⟨q', hq', hx⟩))
+
+/-- The store assembled from the folded pattern, the sorts of its names and
+any list of the renamed exclusions is determined by its pattern and what it
+denotes, it denotes what the store does, its pattern is the folded pattern,
+and the exclusions it keeps are listed once each. -/
+theorem assembled_fold (hS : S.WellFormed) (hR : r.Roomy S) {X' : List (Eqns Nat)}
+    (hX : ∀ E, E ∈ X' ↔ E ∈ foldXs S r) :
+    (assembled S (foldStore S r).t ((foldNames S r).map (foldConj S r)) X').Shaped S ∧
+      (assembled S (foldStore S r).t ((foldNames S r).map (foldConj S r)) X').store.Den S =
+        r.store.Den S ∧
+      (assembled S (foldStore S r).t ((foldNames S r).map (foldConj S r)) X').t =
+        foldPat S r.store ∧
+      (antichain (covers ((foldNames S r).map (foldConj S r)).length)
+        (normExs S ⟨(foldStore S r).t, (foldNames S r).map (foldConj S r), ∅⟩ X')).Nodup := by
   have hr := hR.shaped
   have hN := names_of_roomy hS hR
   have hL := foldStore_linked hS hR
   obtain ⟨σ₀, hσ₀⟩ := hR.sol
-  have hne : ((foldStore S r).Sol S).Nonempty := ⟨_, hL.down σ₀ hσ₀⟩
-  have htv : ∀ w ∈ (foldStore S r).t.vars, w < (foldNames S r).length := by
+  let sX : Store := ⟨(foldStore S r).t, (foldStore S r).c, X'⟩
+  have hsolX : sX.Sol S = (foldStore S r).Sol S := by
+    ext σ
+    show (σ ∈ sX.Pos S ∧ ∀ E ∈ X', ¬ Eqns.Unifies σ E) ↔
+      (σ ∈ (foldStore S r).Pos S ∧ ∀ E ∈ foldXs S r, ¬ Eqns.Unifies σ E)
+    exact ⟨fun h => ⟨h.1, fun E hE => h.2 E ((hX E).2 hE)⟩,
+      fun h => ⟨h.1, fun E hE => h.2 E ((hX E).1 hE)⟩⟩
+  have hne : (sX.Sol S).Nonempty := by rw [hsolX]; exact ⟨_, hL.down σ₀ hσ₀⟩
+  have htv : ∀ w ∈ sX.t.vars, w < (foldNames S r).length := by
     intro w hw
     have hw' : w ∈ ((foldVc S r r.t).rename fun p => (foldNames S r).idxOf p).vars := hw
     rw [hN.eq, Term.vars_rename] at hw'
@@ -493,12 +531,12 @@ theorem foldRaw_spec (hS : S.WellFormed) (hR : r.Roomy S) :
       (foldNames S r)[w] ∈ (foldV S r.store r.t).vars ∧
         (foldNames S r).idxOf (foldNames S r)[w] = w :=
     fun w hw => ⟨(hN.mem _).1 (List.getElem_mem hw), hN.nodup.idxOf_getElem w hw⟩
-  have hvars : ∀ w, w ∈ (foldStore S r).t.vars ↔ w < (foldNames S r).length := by
+  have hvars : ∀ w, w ∈ sX.t.vars ↔ w < (foldNames S r).length := by
     refine fun w => ⟨htv w, fun hw => ?_⟩
     show w ∈ ((foldVc S r r.t).rename fun p => (foldNames S r).idxOf p).vars
     rw [hN.eq, Term.vars_rename]
     exact List.mem_map.2 ⟨_, (hget w hw).1, (hget w hw).2⟩
-  have hfin : (foldStore S r).Fin (foldNames S r).length := by
+  have hfin : sX.Fin (foldNames S r).length := by
     refine ⟨?_, htv, fun w hw => ?_, ?_, ?_⟩
     · show ((foldVc S r r.t).rename fun p => (foldNames S r).idxOf p).firstOrder = true
       rw [hN.eq]
@@ -506,13 +544,13 @@ theorem foldRaw_spec (hS : S.WellFormed) (hR : r.Roomy S) :
     · show ((foldNames S r).map (foldConj S r)).getD w ∅ = ∅
       simp [List.getD_eq_getElem?_getD, hw]
     · intro E' hE' q hq
-      obtain ⟨θ, hθ, rfl⟩ := List.mem_map.1 hE'
+      obtain ⟨θ, hθ, rfl⟩ := List.mem_map.1 ((hX E').1 hE')
       rw [Raw.mem_xs] at hθ
       obtain ⟨q', hq', rfl⟩ := List.mem_map.1 hq
       obtain ⟨b, hb, rfl⟩ := List.mem_map.1 hq'
       exact ⟨rfl, rename_fo ((hr.ex θ hθ).fo b hb) _⟩
     · intro E' hE' q hq w hw
-      obtain ⟨θ, hθ, rfl⟩ := List.mem_map.1 hE'
+      obtain ⟨θ, hθ, rfl⟩ := List.mem_map.1 ((hX E').1 hE')
       rw [Raw.mem_xs] at hθ
       obtain ⟨q', hq', rfl⟩ := List.mem_map.1 hq
       have hw' : w ∈ (q'.1.vars ++ q'.2.vars).map
@@ -520,14 +558,15 @@ theorem foldRaw_spec (hS : S.WellFormed) (hR : r.Roomy S) :
         simpa [Term.vars_rename] using hw
       obtain ⟨x, hx, rfl⟩ := List.mem_map.1 hw'
       exact hN.lt _ (hN.kept θ hθ x (List.mem_flatMap.2 ⟨q', hq', hx⟩))
-  have hocc : FirstOcc (foldStore S r).t.vars := by
+  have hocc : FirstOcc sX.t.vars := by
     show FirstOcc ((foldVc S r r.t).rename fun p =>
       (firsts (foldVc S r r.t).vars).idxOf p).vars
     rw [Term.vars_rename]
     exact firstOcc_map_firsts _
   have hcL : ∀ v n, n ∈ ((foldNames S r).map (foldConj S r)).getD v ∅ ↔
       v < (foldNames S r).length ∧ n ∈ Sorts.names S ∧
-        ∀ σ ∈ (foldStore S r).Sol S, mem S n (σ v) = true := by
+        ∀ σ ∈ sX.Sol S, mem S n (σ v) = true := by
+    rw [hsolX]
     intro v n
     by_cases hv : v < (foldNames S r).length
     · obtain ⟨hp, hidx⟩ := hget v hv
@@ -553,14 +592,23 @@ theorem foldRaw_spec (hS : S.WellFormed) (hR : r.Roomy S) :
       rw [e1]
       simp [hv]
   obtain ⟨hsh, hsol'⟩ := assembled_shaped hS hfin hocc hvars hne (by simp) hcL
-  have hsol : (foldRaw S r).store.Sol S = (foldStore S r).Sol S := hsol'
-  refine ⟨hsh, ?_, ?_⟩
-  · show {g | ∃ σ ∈ (foldRaw S r).store.Sol S, g = _} = _
-    rw [hsol]
+  have hnd := assembled_nodup hS hfin hne (by simp) hcL
+  refine ⟨hsh, ?_, ?_, hnd⟩
+  · show {g | ∃ σ ∈ (assembled S sX.t ((foldNames S r).map (foldConj S r)) sX.x).store.Sol S,
+      g = _} = _
+    rw [hsol', hsolX]
     exact hL.den.symm
   · show ((foldVc S r r.t).rename fun p => (firsts (foldVc S r r.t).vars).idxOf p) = _
     rw [hN.eq]
     rfl
+
+/-- The folded store is determined by its pattern and what it denotes, it
+denotes what the store does, and its pattern is the folded pattern. -/
+theorem foldRaw_spec (hS : S.WellFormed) (hR : r.Roomy S) :
+    (foldRaw S r).Shaped S ∧ (foldRaw S r).store.Den S = r.store.Den S ∧
+      (foldRaw S r).t = foldPat S r.store := by
+  obtain ⟨h1, h2, h3, -⟩ := assembled_fold hS hR (X' := foldXs S r) fun _ => Iff.rfl
+  exact ⟨h1, h2, h3⟩
 
 end folded
 
@@ -618,6 +666,18 @@ theorem foldRaw_ofTight (hS : S.WellFormed) {s : CStore} (hI : Inv S s) (hX : XT
     ∃ n, P.norm S hS = some n ∧ FoldOf S n (foldRaw S (ofTight S s)) := by
   obtain ⟨n, hn, -, hd, hf⟩ := foldPat_ofTight_norm hS hI hX hP hden
   obtain ⟨hsh, hd', ht⟩ := foldRaw_spec hS (roomy_ofTight hS hI)
+  exact ⟨n, hn, hsh, hd'.trans hd, ht.trans hf⟩
+
+/-- The same of the store assembled from any list of the renamed exclusions
+of the fold. -/
+theorem assembled_ofTight (hS : S.WellFormed) {s : CStore} (hI : Inv S s) (hX : XTight S s)
+    {P : Prob} (hP : P.FO) (hden : s.store.Den S = P.Den S) {X' : List (Eqns Nat)}
+    (hX' : ∀ E, E ∈ X' ↔ E ∈ foldXs S (ofTight S s)) :
+    ∃ n, P.norm S hS = some n ∧
+      FoldOf S n (assembled S (foldStore S (ofTight S s)).t
+        ((foldNames S (ofTight S s)).map (foldConj S (ofTight S s))) X') := by
+  obtain ⟨n, hn, -, hd, hf⟩ := foldPat_ofTight_norm hS hI hX hP hden
+  obtain ⟨hsh, hd', ht, -⟩ := assembled_fold hS (roomy_ofTight hS hI) hX'
   exact ⟨n, hn, hsh, hd'.trans hd, ht.trans hf⟩
 
 end Sorts

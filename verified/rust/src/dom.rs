@@ -17,7 +17,7 @@
 //! arguments, and returns the normal store of that problem.
 
 pub use crate::sorts::Rep;
-use crate::sorts::{is_var, normal, places, rev_onto, uncons};
+use crate::sorts::{among, excls_onto, is_var, normal, places, uncons};
 use crate::span::Span;
 use crate::store::{Frame, Node, Store, Tbl, TermId};
 use crate::term::{node_of, rebuild, Leaf};
@@ -54,45 +54,6 @@ pub fn atoms_onto(s: &mut Store, cs0: TermId, vs0: TermId, out0: TermId) -> Term
             },
             None => go = false,
         }
-    }
-    out
-}
-
-/// The equations of each variable of the list `vs0` with its value in the
-/// list `vals0`, in order.
-fn eqns_of(s: &mut Store, vs0: TermId, vals0: TermId) -> TermId {
-    let nil = s.alloc(Node::Nil);
-    let mut out = nil;
-    let mut vs = vs0;
-    let mut l = vals0;
-    let mut go = true;
-    while go {
-        match uncons(s, vs) {
-            Some((v, vrest)) => match uncons(s, l) {
-                Some((p, lrest)) => {
-                    let e = s.alloc(Node::App(v, p));
-                    out = s.alloc(Node::App(e, out));
-                    vs = vrest;
-                    l = lrest;
-                }
-                None => panic!(),
-            },
-            None => go = false,
-        }
-    }
-    rev_onto(s, out, nil)
-}
-
-/// Each solved exclusion of the list `xs0` as the list of the equations of
-/// each variable of the list `vs` with its value, in front of the list
-/// `out0`.
-pub fn excls_onto(s: &mut Store, vs: TermId, xs0: TermId, out0: TermId) -> TermId {
-    let mut out = out0;
-    let mut xs = xs0;
-    while let Some((vals, rest)) = uncons(s, xs) {
-        let e = eqns_of(s, vs, vals);
-        out = s.alloc(Node::App(e, out));
-        xs = rest;
     }
     out
 }
@@ -310,27 +271,6 @@ fn is_atom(s: &mut Store, p: TermId) -> bool {
     } else {
         first_order(s, p)
     }
-}
-
-/// Is `n` a member of the list `l0`?
-fn among(s: &mut Store, n: TermId, l0: TermId) -> bool {
-    let mut found = false;
-    let mut l = l0;
-    let mut go = true;
-    while go {
-        match uncons(s, l) {
-            Some((m, rest)) => {
-                if s.same(m, n) {
-                    found = true;
-                    go = false;
-                } else {
-                    l = rest;
-                }
-            }
-            None => go = false,
-        }
-    }
-    found
 }
 
 /// What a constraint says.

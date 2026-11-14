@@ -367,24 +367,28 @@ theorem tighten_none (hS : S.WellFormed) : ∀ (k : Nat) (s : CStore), room S s 
 
 /-! ## Replacements in any order
 
-`tighten` replaces the first variable whose values have one root. What it
-proves of its result holds of the result of replacing such variables in any
-order (`Tightens`), which is what an implementation that goes through the
-variables in its own order does. -/
+`tighten` replaces the first variable whose values have one root. An
+implementation that goes through the variables in its own order, and stops
+once no variable that an exclusion mentions has values with one root
+(`XTight`), replaces such variables in some order (`Tightens`). -/
+
+/-- Every variable an exclusion of the store mentions takes values with two
+roots. -/
+def XTight (S : Sorts) (s : CStore) : Prop :=
+  ∀ v ∈ s.t.vars, (∃ E ∈ s.x, v ∈ E.vars) → sole S (s.conj v) (gone s.x v) = none
 
 /-- `r` is reached from `s` by replacing variables whose values have one
-root, in some order, until none is left or the invariant fails. -/
+root, in some order, until no variable that an exclusion mentions is one or
+the invariant fails. -/
 inductive Tightens (S : Sorts) : CStore → Option CStore → Prop
   | dead {s : CStore} : ¬ Inv S s → Tightens S s none
-  | done {s : CStore} : Inv S s → (∀ v ∈ s.t.vars, sole S (s.conj v) (gone s.x v) = none) →
-      Tightens S s (some s)
+  | done {s : CStore} : Inv S s → XTight S s → Tightens S s (some s)
   | step {s : CStore} {v : Nat} {key : Sym × Nat} {r : Option CStore} : Inv S s → v ∈ s.t.vars →
       sole S (s.conj v) (gone s.x v) = some key → Tightens S (stepAt S s v key) r →
       Tightens S s r
 
 theorem Tightens.some {s : CStore} {r : Option CStore} (h : Tightens S s r) :
-    ∀ s', r = some s' → s'.store.Den S = s.store.Den S ∧ Inv S s' ∧
-      ∀ v ∈ s'.t.vars, sole S (s'.conj v) (gone s'.x v) = none := by
+    ∀ s', r = some s' → s'.store.Den S = s.store.Den S ∧ Inv S s' ∧ XTight S s' := by
   induction h with
   | dead _ => intro s' e; cases e
   | done hI hs => intro s' e; cases e; exact ⟨rfl, hI, hs⟩

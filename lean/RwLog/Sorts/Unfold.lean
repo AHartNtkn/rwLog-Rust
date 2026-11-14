@@ -150,11 +150,6 @@ theorem linked_stepAt {s : CStore} (hI : Inv S s) {v : Nat} {f : Sym} {n : Nat}
 
 /-! ## Exclusions on variables with two roots -/
 
-/-- Every variable an exclusion of the store mentions takes values with two
-roots. -/
-def XTight (S : Sorts) (s : CStore) : Prop :=
-  ∀ v ∈ s.t.vars, (∃ E ∈ s.x, v ∈ E.vars) → sole S (s.conj v) (gone s.x v) = none
-
 theorem subst_of_not_mem {v : Nat} {u : Pat} {E : Eqns Nat} (h : v ∉ E.vars) :
     Eqns.subst v u E = E := by
   unfold Eqns.subst

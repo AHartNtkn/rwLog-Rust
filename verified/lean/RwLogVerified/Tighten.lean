@@ -148,23 +148,97 @@ theorem any_always_spec (hnm : Function.Injective nm) (s : store.Store) (xs : st
   rintro ⟨b, s'⟩ ⟨hI', hx', ht', hb⟩
   exact ⟨hI', hx', ht', by simpa using hb⟩
 
-/-! ## The first entry whose values have one root -/
+/-! ## The first entry an exclusion mentions whose values have one root -/
+
+/-- The one root of the values of the variable of an entry, when an exclusion
+mentions the variable; nothing when none does. -/
+def soleX (S : Sorts) (X : List (Eqns Nat)) (e : Nat × Sorts.Conj) : Option (Sym × Nat) :=
+  if e.1 ∈ X.flatMap Eqns.vars then Sorts.sole S e.2 (Sorts.gone X e.1) else none
+
+theorem soleX_of_mem {S : Sorts} {X : List (Eqns Nat)} {e : Nat × Sorts.Conj}
+    (h : e.1 ∈ X.flatMap Eqns.vars) : soleX S X e = Sorts.sole S e.2 (Sorts.gone X e.1) :=
+  ite_eq_left h
+
+theorem soleX_some {S : Sorts} {X : List (Eqns Nat)} {e : Nat × Sorts.Conj} {κ : Sym × Nat}
+    (h : soleX S X e = some κ) :
+    (∃ E ∈ X, e.1 ∈ E.vars) ∧ Sorts.sole S e.2 (Sorts.gone X e.1) = some κ := by
+  unfold soleX at h
+  split at h
+  · rename_i hm
+    exact ⟨List.mem_flatMap.1 hm, h⟩
+  · cases h
+
+/-- The ticks `sole_at` may spend. -/
+noncomputable def soleAtCost (nm : Option Nat → RwLog.Sym) (S : Sorts) (u r : Nat)
+    (X : List (Eqns Nat)) (v : Nat) : Nat :=
+  8 * (encX nm X).subs.card + 5 + goneCost nm v X +
+    soleAll S u r (Sorts.sumSize (Sorts.gone X v))
+
+/-- `sole_at` finds the one root of the values of a variable that an
+exclusion mentions, and nothing for a variable that none mentions. -/
+theorem sole_at_spec (hnm : Function.Injective nm) {S : Sorts} {sp : Pat}
+    {U : List Name} (hC : Ctx nm S sp U) {r : Nat} (hr : ∀ d, (Sorts.reachSet S d).card ≤ r)
+    (s : store.Store) (decls names x v c : store.TermId) (X : List (Eqns Nat))
+    (en : Nat × Sorts.Conj) (hsub : Sub U en.2) (hI : Inv s)
+    (hde : Repr nm s.nodes.val decls.val sp)
+    (hU : Repr nm s.nodes.val names.val (namesPat (nm none) U))
+    (hx : Repr nm s.nodes.val x.val (encX nm X)) (hv : VarAt s.nodes.val v.val en.1)
+    (hc : Repr nm s.nodes.val c.val (cpat (nm none) U en.2))
+    (hroom : Room s (soleAtCost nm S U.length r X en.1)) :
+    sorts.sole_at s decls names x v c ⦃ o s' =>
+      Inv s' ∧ Extends s s' ∧ s'.ticks.val ≤ s.ticks.val + soleAtCost nm S U.length r X en.1 ∧
+        match soleX S X en with
+        | none => o = none
+        | some κ => ∃ fi kids, o = some (fi, kids) ∧ Repr nm s'.nodes.val fi.val (.sym κ.1) ∧
+            Repr nm s'.nodes.val kids.val
+              (encList (nm none) ((altOf S en.2 κ.1 κ.2).map (cpat (nm none) U))) ⦄ := by
+  unfold sorts.sole_at
+  have hroom' := hroom
+  unfold Room at hroom'
+  simp only [soleAtCost] at hroom'
+  step with clear_spec s .B hI (by unfold Room; omega) as ⟨s1, hn1, ht1, hI1, hB1, hT1⟩
+  have hx1 : Extends s s1 := Extends.of_eq hn1 (by omega)
+  step with occurs_spec hnm s1 v x (t := encX nm X) (xv := en.1) (encX nm X).subs hI1
+    (hx1.repr hx) (hx1.varAt hv) hB1 (Finset.Subset.refl _) (by unfold Room; omega) as ⟨b, s2, hO⟩
+  have hn2 := hO.nodes
+  have ht2 := hO.cost
+  have hm2 := hO.mono
+  have hx2 : Extends s s2 := hx1.trans (Extends.of_eq hn2 hm2)
+  have hb := hO.res
+  rw [decide_eq_decide.2 (mem_vars_encX (nm := nm))] at hb
+  by_cases hmem : en.1 ∈ X.flatMap Eqns.vars
+  · rw [decide_eq_true hmem] at hb
+    subst hb
+    simp only [↓reduceIte]
+    step with gone_spec hnm s2 x v hO.inv (hx2.varAt hv) (hx2.repr hx) (by unfold Room; omega)
+      as ⟨g, s3, hI3, hx3, ht3, rg⟩
+    have hx03 := hx2.trans hx3
+    refine WP.spec_mono (sole_root_spec hC hr en.2 (Sorts.gone X en.1) hsub s3 decls names c g
+      hI3 (hx03.repr hde) (hx03.repr hU) (hx03.repr hc) rg (by unfold Room; omega)) ?_
+    rintro ⟨o, s'⟩ ⟨hI', hx', ht', hres⟩
+    refine ⟨hI', hx03.trans hx', by simp only [soleAtCost]; omega, ?_⟩
+    rw [soleX_of_mem hmem]
+    exact hres
+  · rw [decide_eq_false hmem] at hb
+    subst hb
+    simp only [Bool.false_eq_true, ↓reduceIte, WP.spec_ok]
+    refine ⟨hO.inv, hx2, by simp only [soleAtCost]; omega, ?_⟩
+    simp only [soleX, ite_eq_right hmem]
 
 /-- The ticks going through the entries may spend. -/
 noncomputable def scanCost (nm : Option Nat → RwLog.Sym) (S : Sorts) (u r : Nat)
     (X : List (Eqns Nat)) : List (Nat × Sorts.Conj) → Nat
   | [] => 1
-  | e :: L => goneCost nm e.1 X + soleAll S u r (Sorts.sumSize (Sorts.gone X e.1)) + 5 +
-      scanCost nm S u r X L
+  | e :: L => soleAtCost nm S u r X e.1 + 5 + scanCost nm S u r X L
 
 /-- What `first_sole` finds in the entries `L`, after those of `acc`. -/
 def FoundSole (nm : Option Nat → RwLog.Sym) (S : Sorts) (U : List Name) (X : List (Eqns Nat))
     (nodes : List store.Node) (acc L : List (Nat × Sorts.Conj)) :
     Option (store.TermId × store.TermId × store.TermId × store.TermId) → Prop
-  | none => ∀ e ∈ L, Sorts.sole S e.2 (Sorts.gone X e.1) = none
+  | none => ∀ e ∈ L, soleX S X e = none
   | some (v, f, kids, others) => ∃ pre en post κ, L = pre ++ en :: post ∧
-      (∀ e ∈ pre, Sorts.sole S e.2 (Sorts.gone X e.1) = none) ∧
-      Sorts.sole S en.2 (Sorts.gone X en.1) = some κ ∧ VarAt nodes v.val en.1 ∧
+      (∀ e ∈ pre, soleX S X e = none) ∧
+      soleX S X en = some κ ∧ VarAt nodes v.val en.1 ∧
       Repr nm nodes f.val (.sym κ.1) ∧
       Repr nm nodes kids.val
         (encList (nm none) ((altOf S en.2 κ.1 κ.2).map (cpat (nm none) U))) ∧
@@ -238,18 +312,14 @@ theorem first_sole_loop_spec (hnm : Function.Injective nm) {S : Sorts} {sp : Pat
       rw [K2.nodes]
       cases rv with
       | var h => exact h
-    step with gone_spec hnm s2 x vi K2.inv hvv (hx2.repr hx) (by unfold Room; omega)
-      as ⟨r3, hI3, hx3, ht3, rg⟩
-    obtain ⟨g, s3⟩ := r3
-    simp only at hI3 hx3 ht3 rg
-    have hx03 := hx2.trans hx3
-    step with sole_root_spec hC hr en.2 (Sorts.gone X en.1) (hsub en (by simp)) s3 decls names
-      ci g hI3 (hx03.repr hde) (hx03.repr hU) (hx3.repr (by rw [K2.nodes]; exact rc)) rg
+    have hx3 : Extends s2 s2 := Extends.of_eq rfl (Nat.le_refl _)
+    step with sole_at_spec hnm hC hr s2 decls names x vi ci X en (hsub en (by simp)) K2.inv
+      (hx2.repr hde) (hx2.repr hU) (hx2.repr hx) hvv (by rw [K2.nodes]; exact rc)
       (by unfold Room; omega) as ⟨r4, hI4, hx4, ht4, hres⟩
     obtain ⟨o2, s4⟩ := r4
     simp only at hI4 hx4 ht4 hres
-    have hx04 := hx03.trans hx4
-    cases hso : Sorts.sole S en.2 (Sorts.gone X en.1) with
+    have hx04 := hx2.trans hx4
+    cases hso : soleX S X en with
     | none =>
       rw [hso] at hres
       subst hres
