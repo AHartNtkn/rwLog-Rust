@@ -43,6 +43,9 @@ new axiom.
 /-- info: 'RwLog.Rung.sound' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Rung.sound
 
+/-- info: 'RwLog.Span.denAt_sorted' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Span.denAt_sorted
+
 /-- info: 'RwLog.Rung.pointComplete' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Rung.pointComplete
 
@@ -588,3 +591,12 @@ new axiom.
 
 /-- info: 'RwLog.Sorts.ofTight_nodup' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Sorts.ofTight_nodup
+
+/-- info: 'RwLog.Saturation.Fair.covers' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Saturation.Fair.covers
+
+/-- info: 'RwLog.Saturation.Fair.complete' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Saturation.Fair.complete
+
+/-- info: 'RwLog.Saturation.Fair.covers_valid' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Saturation.Fair.covers_valid

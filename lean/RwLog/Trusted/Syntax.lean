@@ -200,6 +200,13 @@ is first-order and is not a variable. -/
 def firstOrder (s : Span) : Bool :=
   s.l.firstOrder && s.r.firstOrder && s.c.all Term.isAtom
 
+/-- The span with one of its ends held to a sort: the constraint that the
+right side (or the left side, when `right` is false) belongs to the sort
+`n`, put on its store. It relates the pairs of `s` whose end on that side
+belongs to the sort. -/
+def sorted (s : Span) (right : Bool) (n : Name) : Span :=
+  ⟨s.l, s.r, .app (.sym n) (if right then s.r else s.l) :: s.c⟩
+
 end Span
 
 /-! ## Relations

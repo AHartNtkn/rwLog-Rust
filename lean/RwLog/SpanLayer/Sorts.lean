@@ -6,6 +6,10 @@ to a sort that is not declared, and every ground term belongs to all of no
 sorts, which are infinitely many terms.
 
 A span with its sides exchanged is first-order when the span is.
+
+A span with an end held to a sort (`Span.sorted`, the one thing a
+preprocessor may do to a span) relates the pairs of the span whose end on
+that side belongs to the sort, and is first-order when the span is.
 -/
 import RwLog.Trusted.Semantics
 
@@ -13,6 +17,41 @@ namespace RwLog
 
 theorem Span.firstOrder_swap (s : Span) : s.swap.firstOrder = s.firstOrder := by
   simp only [Span.firstOrder, Span.swap, Bool.and_comm]
+
+/-- A constraint that names a sort holds when the term belongs to the
+sort. -/
+@[simp] theorem Sorts.sort_mem_interp (S : Sorts) (n : Name) (t : GTerm) :
+    (Term.sym n).app t ∈ S.interp ↔ S.Mem n t := Iff.rfl
+
+/-- A span with an end held to a sort is first-order when the span is. -/
+theorem Span.firstOrder_sorted (s : Span) (right : Bool) (n : Name) :
+    (s.sorted right n).firstOrder = s.firstOrder := by
+  cases right <;> simp only [Span.firstOrder, Span.sorted, List.all_cons, Term.isAtom,
+    Term.firstOrder, Bool.true_and, Bool.false_eq_true, ite_false, ite_true] <;>
+    cases s.l.firstOrder <;> cases s.r.firstOrder <;> simp
+
+/-- A span with an end held to a sort relates the pairs of the span whose
+end on that side belongs to the sort. -/
+theorem Span.denAt_sorted (S : Sorts) (s : Span) (right : Bool) (n : Name) :
+    (s.sorted right n).denAt S.interp =
+      {p | p ∈ s.denAt S.interp ∧ S.Mem n (if right then p.2 else p.1)} := by
+  ext p
+  simp only [Span.denAt, Span.sorted, List.forall_mem_cons, Set.mem_ofPred_eq]
+  constructor
+  · rintro ⟨σ, h₁, h₂, hn, hc⟩
+    refine ⟨⟨σ, h₁, h₂, hc⟩, ?_⟩
+    cases right
+    · have : S.Mem n (s.l.bind σ) := by simpa using hn
+      simpa [h₁] using this
+    · have : S.Mem n (s.r.bind σ) := by simpa using hn
+      simpa [h₂] using this
+  · rintro ⟨⟨σ, h₁, h₂, hc⟩, hn⟩
+    refine ⟨σ, h₁, h₂, ?_, hc⟩
+    cases right
+    · have : S.Mem n (s.l.bind σ) := by simpa [h₁] using hn
+      simpa using this
+    · have : S.Mem n (s.r.bind σ) := by simpa [h₂] using hn
+      simpa using this
 
 /-- `s (s (… z))`, `n` deep, as a ground term. -/
 def gtower : Nat → GTerm

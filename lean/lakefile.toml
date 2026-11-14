@@ -23,7 +23,7 @@ allowNonModules = true
 [[lean_lib]]
 name = "Tests"
 allowNonModules = true
-globs = ["Tests.R005Runs", "Tests.SimulationRuns", "Tests.SortsRuns", "Tests.SortsConformance"]
+globs = ["Tests.R005Runs", "Tests.SimulationRuns", "Tests.SortsRuns", "Tests.SortsConformance", "Tests.SymmetricRuns"]
 
 [[lean_lib]]
 name = "Manifest"

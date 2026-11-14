@@ -51,6 +51,12 @@ Rungs/Tabled/   the tabled round machine for any way of unfolding a call (Machin
 Rungs/Mirror/   a machine run on a query and on its converse side by side, for any engine
                 (Machine.lean); what a step of it shows (Trace.lean) and what it costs
                 from below (Bounds.lean)
+Rungs/Symmetric/ the symmetric engine of `SYMMETRIC_ENGINE.md` (Machine.lean): a table for
+                every goal, every split of a chain and of a meet as a group of strategies
+                (join, push from either side), groups balanced by their levels, one
+                request a step. Run in `Tests/SymmetricRuns.lean`. Nothing is proved of
+                it yet, and it lacks the interface check, the choice of one orientation
+                and the shared table of a goal and its converse
 Rungs/Naive/    normalisation, unfolding to a depth, and their correctness (namespace `R000`)
 Rungs/R005/     the engines: `R001.engine` (tables, unfolding to a depth), `R004.engine` (tables,
                 the race of all three ways), `R005.engine` (`R004.engine` mirrored);
@@ -147,7 +153,29 @@ rung unchanged.
   (`Rung.runtime`, `Trusted/Properties.lean`); `Rung.sound`,
   `Rung.pointComplete`, `Rung.honest` and `Rung.honestProgress` carry the
   machine's theorems through the preprocessor, and `Rung.Keeps.of_id` is
-  `Rung.Keeps` for a machine with the identity preprocessor.
+  `Rung.Keeps` for a machine with the identity preprocessor. A preprocessor
+  may add sort declarations (`Preprocessor.adds`, `Sorts.Extends`), so the
+  machine is run on sorts that may declare more than the program's. Its
+  theorems are about its answers read in those sorts, and the four theorems
+  ask that the answers say how they are read (`Answer.SelfRead`,
+  `Framework/Answer.lean`), which the answers of every engine do
+  (`Answer.selfRead_sigma`): each is a representative carried with its
+  sorts. `Span.denAt_sorted` and `Span.firstOrder_sorted`
+  (`SpanLayer/Sorts.lean`) say what holding an end of a span to a sort does.
+* `Saturation.lean`: the completeness every engine on the normal form
+  shares (roadmap L30). A run is what it ever holds for each goal
+  (`Saturation.Tables`) and the goals it opens. `Saturation.Served` lists the
+  strategies of a node (a span, a call, a union, a chain split anywhere and
+  joined or pushed from either side, a meet split at any member and
+  conjoined or pushed either way) and says one of them is carried out on
+  everything the run ever holds, up to coverage. `Saturation.Fair` is every
+  opened goal served. `Fair.covers`: a fair run covers the pairs of every
+  ground relation the node of an opened goal derives, by induction on the
+  depth of the derivation and then on the node. `Fair.complete` is
+  completeness at the query, and `Fair.covers_valid` says a valid answer
+  found by any schedule is covered by every fair run that opens its goal.
+  Nothing is assumed of the order of work or of tables growing. A machine
+  proves `Fair` of its runs and receives completeness.
 * `Fairness.lean`: what the fairness bound of `Trusted/Properties.lean` means
   (`Alternative.semAt_subset`, `Fair.flat_ticks`,
   `Runtime.FinalMaximal.maximal`), and `firstWording_false`: a bound

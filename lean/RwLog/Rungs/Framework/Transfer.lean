@@ -160,9 +160,10 @@ theorem pairs_pre {A : ArtifactStore} {P : Program} {q : Rel} (hP : P.WellFormed
     (G.prog κ A P q).pairs (G.query κ A P q) = P.pairs q :=
   G.pre.equiv κ A P q hP
 
-theorem sorts_pre {A : ArtifactStore} {P : Program} {q : Rel} :
-    (G.prog κ A P q).sorts = P.sorts :=
-  G.pre.sorts_eq κ A P q
+/-- The sorts the runtime is run on extend the sorts of the program. -/
+theorem sorts_pre {A : ArtifactStore} {P : Program} {q : Rel} (hP : P.WellFormed q) :
+    P.sorts.Extends (G.prog κ A P q).sorts :=
+  G.pre.adds κ A P q hP
 
 /-- The rung runs its machine: from the same state the two runs are the
 same. -/
@@ -218,38 +219,51 @@ theorem certifies_runtime (A : ArtifactStore) (P : Program) (q : Rel) (k n : Nat
       G.rt.Certifies (G.rt.init (G.prog κ A P q) (G.query κ A P q)) k n :=
   iff_of_eq (congrArg (fun t => t[k]? = some (Shown.level n)) (G.trace_runtime κ A (k + 1) _))
 
+/-! The machine is run on the preprocessed program, whose sorts may declare
+more than the program's. Its theorems are about its answers read in the
+sorts it was run on, so they are theorems about the rung when its answers
+say how they are read (`Answer.SelfRead`), as the answers of an engine
+do. -/
+
 /-- Every answer of the rung relates only pairs the original query relates. -/
-theorem sound (hs : G.rt.Sound) (A : ArtifactStore) : (G.runtime κ A).Sound := by
+theorem sound (hA : Answer.SelfRead G.rt.Ans) (hs : G.rt.Sound) (A : ArtifactStore) :
+    (G.runtime κ A).Sound := by
   intro P q hP n a ha
   rw [G.emitted_runtime κ] at ha
-  rw [← G.pairs_pre κ hP, ← G.sorts_pre κ (A := A) (q := q)]
-  exact hs _ _ (G.pre.wf κ A P q hP) n a ha
+  rw [← G.pairs_pre κ (A := A) hP]
+  have h := hs _ _ (G.pre.wf κ A P q hP) n a ha
+  rwa [hA _ P.sorts.interp a] at h
 
 /-- Every pair the original query relates is related by some answer of the
 rung. -/
-theorem pointComplete (hc : G.rt.PointComplete) (A : ArtifactStore) :
-    (G.runtime κ A).PointComplete := by
+theorem pointComplete (hA : Answer.SelfRead G.rt.Ans) (hc : G.rt.PointComplete)
+    (A : ArtifactStore) : (G.runtime κ A).PointComplete := by
   intro P q hP p hp
   rw [← G.pairs_pre κ hP] at hp
   obtain ⟨n, a, ha, hpa⟩ := hc _ _ (G.pre.wf κ A P q hP) p hp
-  rw [G.pre.sorts_eq] at hpa
+  rw [hA _ P.sorts.interp a] at hpa
   exact ⟨n, a, by rw [G.emitted_runtime κ]; exact ha, hpa⟩
 
 /-- When the rung reports that it is done, its answers cover the original
 query exactly. -/
-theorem honest (hh : G.rt.HonestExhaustion) (A : ArtifactStore) :
-    (G.runtime κ A).HonestExhaustion := by
+theorem honest (hA : Answer.SelfRead G.rt.Ans) (hh : G.rt.HonestExhaustion)
+    (A : ArtifactStore) : (G.runtime κ A).HonestExhaustion := by
   intro P q hP n hn
-  rw [← G.pairs_pre κ hP, G.emitted_runtime, ← G.sorts_pre κ (A := A) (q := q)]
-  exact hh _ _ (G.pre.wf κ A P q hP) n ((G.halts_runtime κ A P q n).1 hn)
+  rw [← G.pairs_pre κ (A := A) hP, G.emitted_runtime]
+  exact (hh _ _ (G.pre.wf κ A P q hP) n ((G.halts_runtime κ A P q n).1 hn)).trans
+    (Set.iUnion₂_congr fun a _ => hA _ _ a)
 
 /-- A progress certificate of the rung is true of the original query. -/
-theorem honestProgress (hh : G.rt.HonestProgress) (A : ArtifactStore) :
-    (G.runtime κ A).HonestProgress := by
+theorem honestProgress (hA : Answer.SelfRead G.rt.Ans) (hh : G.rt.HonestProgress)
+    (A : ArtifactStore) : (G.runtime κ A).HonestProgress := by
   intro P q hP k n hc p hp
   rw [← G.pairs_pre κ hP] at hp
-  rw [G.emitted_runtime κ, ← G.sorts_pre κ (A := A) (q := q)]
-  exact hh _ _ (G.pre.wf κ A P q hP) k n ((G.certifies_runtime κ A P q k n).1 hc) p hp
+  intro h1 h2
+  rw [G.emitted_runtime κ]
+  obtain ⟨a, ha, hpa⟩ :=
+    hh _ _ (G.pre.wf κ A P q hP) k n ((G.certifies_runtime κ A P q k n).1 hc) p hp h1 h2
+  rw [hA _ P.sorts.interp a] at hpa
+  exact ⟨a, ha, hpa⟩
 
 /-- The rung with the identity preprocessor is its machine. -/
 theorem runtime_id (R : Runtime) (A : ArtifactStore) : (Rung.mk .id R).runtime κ A = R := by
