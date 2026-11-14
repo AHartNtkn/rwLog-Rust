@@ -98,13 +98,57 @@ theorem Advances.of_id {kind : Kind} {Old New : Engine} {b : Bounds} {C : ProgCl
   improves _ := h
   preCost _ _ _ _ := Nat.le_refl 0
 
+/-- A bound that is met is met by anything larger. -/
+theorem MeetsOn.mono {μ : Meter} {M : CostedRuntime} {C : ProgClass} {hi hi' : Nat → Nat}
+    {f f' : Nat → Nat → Nat → Nat} (h : MeetsOn μ M C hi f) (hhi : ∀ k, hi k ≤ hi' k)
+    (hf : ∀ k res n, f k res n ≤ f' k res n) : MeetsOn μ M C hi' f' where
+  alone P r hm x hx := by
+    obtain ⟨n, hn, hc⟩ := h.alone P r hm x hx
+    exact ⟨n, hn, le_trans hc (hhi _)⟩
+  inContext P r hm K hK hwf y hy res hres := by
+    obtain ⟨n, hn, hc⟩ := h.inContext P r hm K hK hwf y hy res hres
+    exact ⟨n, hn, le_trans hc (hf _ _ _)⟩
+
+/-- A win is kept within any larger factor. -/
+theorem Win.KeptBy.mono {w : Win} {M : CostedRuntime} {c c' : Nat} (h : w.KeptBy M c)
+    (hc : c ≤ c') : w.KeptBy M c' :=
+  MeetsOn.mono h (fun _ => Nat.mul_le_mul_right _ hc) fun _ _ _ => Nat.mul_le_mul_right _ hc
+
+/-- A machine that improves by a win keeps that win, within the factor 1. -/
+theorem Improves.keptBy {kind : Kind} {Old New : CostedRuntime} {b : Bounds} {C : ProgClass}
+    (h : Improves kind Old New b C) : Win.KeptBy ⟨kind, C, b⟩ New 1 :=
+  MeetsOn.mono h.separates.toMeetsOn (fun _ => (Nat.one_mul _).ge) fun _ _ _ => (Nat.one_mul _).ge
+
+/-- An admitted rung keeps its own win and every win on the record it was
+admitted over. -/
+theorem Admits.keptBy {kind : Kind} {Old New : CostedRung} {b : Bounds} {d : DirBound}
+    {pre : Nat → Nat} {C : ProgClass} {record : List Win} {keep : Nat}
+    (h : Admits kind Old New b d pre C record keep) (A : ArtifactStore) :
+    ∀ w ∈ (⟨kind, C, b⟩ : Win) :: record, w.KeptBy (New.machine A) (keep + 1) := by
+  intro w hw
+  rcases List.mem_cons.1 hw with rfl | hw
+  · exact (h.improves A).keptBy.mono (Nat.le_add_left _ _)
+  · exact (h.keeps A w hw).mono (Nat.le_succ _)
+
+/-- Every rung of a ladder keeps every win on its record, each within a
+constant factor of the bound the win was admitted with: no win is given back
+by a later rung, of whatever kind. -/
+theorem Ladder.keeps {base G : CostedRung} {record : List Win} (h : Ladder base G record) :
+    ∃ c, ∀ A, ∀ w ∈ record, w.KeptBy (G.machine A) c := by
+  cases h with
+  | base => exact ⟨0, fun _ _ hw => absurd hw List.not_mem_nil⟩
+  | admit _ ha => exact ⟨_, fun A => ha.keptBy A⟩
+
 /-- Two rungs without preprocessing: admission is the improvement of the
-machines and the direction bound of the new one. -/
+machines, the direction bound of the new one, and that it keeps the wins on
+the record. -/
 theorem Admits.of_id {kind : Kind} {Old New : Engine} {b : Bounds} {d : DirBound}
-    {C : ProgClass} (h : Improves kind Old.costed New.costed b C)
-    (hd : DirectionFree New.costed d.fn) :
-    Admits kind ⟨Preprocessor.id, Old⟩ ⟨Preprocessor.id, New⟩ b d (fun _ => 0) C where
+    {C : ProgClass} {record : List Win} {keep : Nat}
+    (h : Improves kind Old.costed New.costed b C)
+    (hd : DirectionFree New.costed d.fn) (hk : ∀ w ∈ record, w.KeptBy New.costed keep) :
+    Admits kind ⟨Preprocessor.id, Old⟩ ⟨Preprocessor.id, New⟩ b d (fun _ => 0) C record keep where
   toAdvances := Advances.of_id h
   direction _ := hd
+  keeps _ := hk
 
 end RwLog
