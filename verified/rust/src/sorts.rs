@@ -857,47 +857,76 @@ fn expand_keys(
     (nows, steps, todo)
 }
 
-/// The alternatives of the pair of the conjunction `d` with `m`, and the
-/// pairs they name that table `B` does not flag in front of `todo0`.
+/// The rest of a declaration: the roots it excludes with the sort it
+/// requires of arguments, or any term; nothing when there is no declaration
+/// or it has no rest.
+fn own_rest(s: &mut Store, own: Option<(TermId, TermId)>) -> Option<(TermId, TermId)> {
+    match own {
+        Some((_, rest)) => uncons(s, rest),
+        None => None,
+    }
+}
+
+/// What the roots no declaration names give the pair of the conjunction `d`
+/// with a sort whose declaration is `own`: lists of guards, of guards with
+/// edges, and the pairs table `B` does not flag in front of `todo0`.
 ///
-/// When every sort of `d` has a rest: the pair is out when `m` has no rest,
-/// and when the rest of `m` requires a sort of arguments, it is out when
-/// the pair of the sorts the rests of `d` require with that sort is. Then
-/// the roots that the sorts of `d` have a case for, that `m` has a case
-/// for, and that the rest of `m` excludes.
-fn expand_pair(
+/// Such roots are in `d` only when every sort of `d` has a rest. Then the
+/// pair is out when the sort has no rest, and when its rest requires a sort
+/// of arguments, it is out when the pair of the sorts the rests of `d`
+/// require with that sort is.
+fn rest_alts(
+    s: &mut Store,
+    decls: TermId,
+    names: TermId,
+    d: TermId,
+    own: Option<(TermId, TermId)>,
+    todo0: TermId,
+) -> (TermId, TermId, TermId) {
+    let nil = s.alloc(Node::Nil);
+    if rest_ok(s, decls, d) {
+        match own_rest(s, own) {
+            None => {
+                let nows = s.alloc(Node::App(nil, nil));
+                (nows, nil, todo0)
+            }
+            Some((_, r)) => {
+                if is_nil(s, r) {
+                    (nil, nil, todo0)
+                } else {
+                    let dk = rest_kids(s, decls, names, d);
+                    let q = s.alloc(Node::App(dk, r));
+                    let edges = s.alloc(Node::App(q, nil));
+                    let todo = enqueue(s, todo0, edges);
+                    let alt = s.alloc(Node::App(nil, edges));
+                    let steps = s.alloc(Node::App(alt, nil));
+                    (nil, steps, todo)
+                }
+            }
+        }
+    } else {
+        (nil, nil, todo0)
+    }
+}
+
+/// `expand_keys` on the cases of each sort of the list `ns0`, for the pair
+/// of the conjunction `d` with `m`.
+#[allow(clippy::too_many_arguments)]
+fn conj_keys(
     s: &mut Store,
     decls: TermId,
     names: TermId,
     d: TermId,
     m: TermId,
+    ns0: TermId,
+    nows0: TermId,
+    steps0: TermId,
     todo0: TermId,
-) -> (TermId, TermId) {
-    let nil = s.alloc(Node::Nil);
-    let mut nows = nil;
-    let mut steps = nil;
+) -> (TermId, TermId, TermId) {
+    let mut nows = nows0;
+    let mut steps = steps0;
     let mut todo = todo0;
-    let own = lookup(s, decls, m);
-    if rest_ok(s, decls, d) {
-        let rest = match own {
-            Some((_, rest)) => uncons(s, rest),
-            None => None,
-        };
-        match rest {
-            Some((_, r)) => {
-                if !is_nil(s, r) {
-                    let dk = rest_kids(s, decls, names, d);
-                    let q = s.alloc(Node::App(dk, r));
-                    let edges = s.alloc(Node::App(q, nil));
-                    todo = enqueue(s, todo, edges);
-                    let alt = s.alloc(Node::App(nil, edges));
-                    steps = s.alloc(Node::App(alt, steps));
-                }
-            }
-            None => nows = s.alloc(Node::App(nil, nows)),
-        }
-    }
-    let mut ns = d;
+    let mut ns = ns0;
     while let Some((n, t)) = uncons(s, ns) {
         if let Some((cases, _)) = lookup(s, decls, n) {
             let (a, b, c) = expand_keys(s, decls, names, d, m, cases, nows, steps, todo);
@@ -907,19 +936,53 @@ fn expand_pair(
         }
         ns = t;
     }
-    if let Some((cases, rest)) = own {
-        let (a, b, c) = expand_keys(s, decls, names, d, m, cases, nows, steps, todo);
-        nows = a;
-        steps = b;
-        todo = c;
-        if let Some((excluded, _)) = uncons(s, rest) {
-            let (a, b, c) = expand_keys(s, decls, names, d, m, excluded, nows, steps, todo);
-            nows = a;
-            steps = b;
-            todo = c;
+    (nows, steps, todo)
+}
+
+/// `expand_keys` on the cases of the declaration `own` of `m` and on the
+/// roots its rest excludes, for the pair of the conjunction `d` with `m`.
+#[allow(clippy::too_many_arguments)]
+fn own_keys(
+    s: &mut Store,
+    decls: TermId,
+    names: TermId,
+    d: TermId,
+    m: TermId,
+    own: Option<(TermId, TermId)>,
+    nows0: TermId,
+    steps0: TermId,
+    todo0: TermId,
+) -> (TermId, TermId, TermId) {
+    match own {
+        Some((cases, rest)) => {
+            let (a, b, c) = expand_keys(s, decls, names, d, m, cases, nows0, steps0, todo0);
+            match uncons(s, rest) {
+                Some((excluded, _)) => expand_keys(s, decls, names, d, m, excluded, a, b, c),
+                None => (a, b, c),
+            }
         }
+        None => (nows0, steps0, todo0),
     }
-    (s.alloc(Node::App(nows, steps)), todo)
+}
+
+/// The alternatives of the pair of the conjunction `d` with `m`, and the
+/// pairs they name that table `B` does not flag in front of `todo0`: what
+/// the roots no declaration names give, then the roots that the sorts of
+/// `d` have a case for, that `m` has a case for, and that the rest of `m`
+/// excludes.
+fn expand_pair(
+    s: &mut Store,
+    decls: TermId,
+    names: TermId,
+    d: TermId,
+    m: TermId,
+    todo0: TermId,
+) -> (TermId, TermId) {
+    let own = lookup(s, decls, m);
+    let (n0, s0, t0) = rest_alts(s, decls, names, d, own, todo0);
+    let (n1, s1, t1) = conj_keys(s, decls, names, d, m, d, n0, s0, t0);
+    let (n2, s2, t2) = own_keys(s, decls, names, d, m, own, n1, s1, t1);
+    (s.alloc(Node::App(n2, s2)), t2)
 }
 
 /// The pairs the pair `p0` reaches, each with its alternatives. Tables `A`
