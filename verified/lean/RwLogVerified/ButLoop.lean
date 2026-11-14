@@ -218,4 +218,243 @@ theorem but_one_spec {S : Sorts} {sp : Pat} {U : List Name} (hC : Ctx nm S sp U)
       simp only [↓reduceIte, WP.spec_ok]
       exact ⟨hI3, hx2.trans hx3, by simp only [oneCost]; omega, td, rfl, rtd⟩
 
+/-! ## Asking until nothing is left -/
+
+/-- What is left to ask holds. -/
+def HoldA (S : Sorts) (a : Ask) : Prop := Sorts.Hold S a.1 a.2.1 a.2.2
+
+/-- The size of the terms of what is left to ask. -/
+def mu (T : List Ask) : Nat := (T.map fun a => Sorts.sumSize a.2.2).sum
+
+/-- What is left to ask is of conjunctions of names listed, each with a term
+at least. -/
+def AsksInv (U : List Name) (T : List Ask) : Prop := ∀ a ∈ T, Sub U a.1 ∧ a.2.2 ≠ []
+
+/-- One step of asking is right: with nothing given the first does not hold,
+and otherwise what is left is smaller and holds exactly when what was left
+did. -/
+def StepOK (S : Sorts) (U : List Name) : Prop :=
+  ∀ (a : Ask) (T : List Ask), AsksInv U (a :: T) →
+    match oneAsks S U a.1 a.2.1 a.2.2 T with
+    | none => ¬ HoldA S a
+    | some T' => AsksInv U T' ∧ mu T' < mu (a :: T) ∧
+        ((∀ x ∈ T', HoldA S x) ↔ ∀ x ∈ a :: T, HoldA S x)
+
+theorem sumSize_pos {G : List GTerm} (h : G ≠ []) : 0 < Sorts.sumSize G := by
+  cases G with
+  | nil => exact absurd rfl h
+  | cons g G =>
+    have := Sorts.size_pos g
+    simp only [Sorts.sumSize, List.map_cons, List.sum_cons]
+    omega
+
+theorem included_but_done (s : store.Store) (decls names todo : store.TermId) (okb : Bool) :
+    sorts.included_but_loop s decls names todo okb false ⦃ r => r = (okb, s) ⦄ := by
+  unfold sorts.included_but_loop
+  rw [loop]
+  simp only [sorts.included_but_loop.body, Bool.false_eq_true, ↓reduceIte, bind_ok]
+  step*
+
+theorem included_but_loop_spec {S : Sorts} {sp : Pat} {U : List Name} (hC : Ctx nm S sp U)
+    {r q : Nat} (hr : ∀ d, (Sorts.reachSet S d).card ≤ r)
+    (hq : ∀ d m, (Sorts.reachGSet S (d, some m)).card ≤ q) (hstep : StepOK S U) {N₀ B : Nat}
+    (hB : ∀ c n G, Sorts.sumSize G ≤ N₀ → oneCost S U r q c n G ≤ B)
+    (decls names : store.TermId) :
+    ∀ (N : Nat) (T : List Ask) (s : store.Store) (todo : store.TermId), N ≤ N₀ → mu T ≤ N →
+    AsksInv U T → Inv s → Repr nm s.nodes.val decls.val sp →
+    Repr nm s.nodes.val names.val (namesPat (nm none) U) →
+    Repr nm s.nodes.val todo.val (encList (nm none) (T.map (askPat (nm none) U))) →
+    Room s (N * (B + 3) + 1) →
+    sorts.included_but_loop s decls names todo true true ⦃ b s' =>
+      Inv s' ∧ Extends s s' ∧ s'.ticks.val ≤ s.ticks.val + (N * (B + 3) + 1) ∧
+        (b = true ↔ ∀ a ∈ T, HoldA S a) ⦄ := by
+  have base : ∀ (N : Nat) (s : store.Store) (todo : store.TermId), Inv s →
+      Repr nm s.nodes.val todo.val
+        (encList (nm none) (([] : List Ask).map (askPat (nm none) U))) →
+      Room s (N * (B + 3) + 1) →
+      sorts.included_but_loop s decls names todo true true ⦃ b s' =>
+        Inv s' ∧ Extends s s' ∧ s'.ticks.val ≤ s.ticks.val + (N * (B + 3) + 1) ∧
+          (b = true ↔ ∀ a ∈ ([] : List Ask), HoldA S a) ⦄ := by
+    intro N s todo hI htd hroom
+    have hroom' := hroom
+    unfold Room at hroom'
+    unfold sorts.included_but_loop
+    rw [loop]
+    simp only [sorts.included_but_loop.body, ↓reduceIte]
+    step with uncons_repr s todo hI.toWf htd (by unfold Room; omega) as ⟨r0, hK0, hu⟩
+    obtain ⟨o, s1⟩ := r0
+    simp only at hu
+    simp only at hK0
+    subst hu
+    simp only [uncurry, bind_ok]
+    have hdn := included_but_done s1 decls names todo true
+    unfold sorts.included_but_loop at hdn
+    refine WP.spec_mono hdn ?_
+    rintro res rfl
+    have := hK0.ticks
+    exact ⟨hK0.ran.ranB.inv hI, hK0.ran.ext, by omega, by simp⟩
+  intro N
+  induction N with
+  | zero =>
+    intro T s todo _ hmu hinv hI _ _ htd hroom
+    cases T with
+    | nil => exact base 0 s todo hI htd hroom
+    | cons a T =>
+      have := sumSize_pos (hinv a List.mem_cons_self).2
+      simp only [mu, List.map_cons, List.sum_cons] at hmu
+      omega
+  | succ N ih =>
+    intro T s todo hN hmu hinv hI hde hU htd hroom
+    cases T with
+    | nil => exact base (N + 1) s todo hI htd hroom
+    | cons a T =>
+      obtain ⟨c, n, G⟩ := a
+      have hroom' := hroom
+      unfold Room at hroom'
+      simp only [Nat.add_mul, Nat.one_mul] at hroom'
+      have hG : Sorts.sumSize G ≤ N₀ := by
+        simp only [mu, List.map_cons, List.sum_cons] at hmu
+        omega
+      have hcost := hB c n G hG
+      have hsub : Sub U c := (hinv _ List.mem_cons_self).1
+      unfold sorts.included_but_loop
+      rw [loop]
+      simp only [sorts.included_but_loop.body, ↓reduceIte]
+      step with uncons_repr s todo hI.toWf htd (by unfold Room; omega) as ⟨r0, hK0, hu⟩
+      obtain ⟨o, s1⟩ := r0
+      simp only at hu
+      simp only at hK0
+      obtain ⟨ai, t, rfl, rai, rt⟩ := hu
+      have ht1 := hK0.ticks
+      step with uncons_repr s1 ai hK0.wf (hK0.ran.ext.repr rai) (by unfold Room; omega)
+        as ⟨r1, hK1, hu1⟩
+      obtain ⟨o1, s2⟩ := r1
+      simp only [askPat] at hu1
+      simp only at hK1
+      obtain ⟨c1, r1, rfl, rc1, rr1⟩ := hu1
+      rw [hK0.nodes] at rc1 rr1
+      have ht2 := hK1.ticks
+      have R2 := hK0.ran.trans hK1.ran
+      step with uncons_repr s2 r1 hK1.wf (R2.ext.repr rr1) (by unfold Room; omega)
+        as ⟨r2, hK2, hu2⟩
+      obtain ⟨o2, s3⟩ := r2
+      simp only at hu2
+      simp only at hK2
+      obtain ⟨n1, g1, rfl, rn1, rg1⟩ := hu2
+      rw [hK1.nodes, hK0.nodes] at rn1 rg1
+      have ht3 := hK2.ticks
+      have R3 := R2.trans hK2.ran
+      step with but_one_spec hC hr hq c n G T hsub s3 decls names c1 n1 g1 t (R3.ranB.inv hI)
+        (R3.ext.repr hde) (R3.ext.repr hU) (R3.ext.repr rc1) (R3.ext.repr rn1) (R3.ext.repr rg1)
+        (R3.ext.repr rt) (by unfold Room; omega) as ⟨r3, hI4, hx4, ht4, hres⟩
+      obtain ⟨o3, s4⟩ := r3
+      simp only at hI4 hx4 ht4 hres
+      have hx34 := R3.ext.trans hx4
+      have hst := hstep (c, n, G) T hinv
+      simp only at hst
+      cases hoa : oneAsks S U c n G T with
+      | none =>
+        rw [hoa] at hres hst
+        subst hres
+        simp only [uncurry, bind_ok]
+        have hdn := included_but_done s4 decls names todo false
+        unfold sorts.included_but_loop at hdn
+        refine WP.spec_mono hdn ?_
+        rintro res rfl
+        refine ⟨hI4, hx34, by simp only [Nat.add_mul, Nat.one_mul]; omega, ?_⟩
+        simp only [Bool.false_eq_true, false_iff]
+        exact fun h => hst (h _ List.mem_cons_self)
+      | some T' =>
+        rw [hoa] at hres hst
+        obtain ⟨td, rfl, rtd⟩ := hres
+        obtain ⟨hinv', hlt, hiff⟩ := hst
+        simp only [uncurry, bind_ok]
+        have IH := ih T' s4 td (by omega) (by omega) hinv' hI4 (hx34.repr hde) (hx34.repr hU) rtd
+          (by unfold Room; omega)
+        unfold sorts.included_but_loop at IH
+        refine WP.spec_mono IH ?_
+        rintro ⟨b, s'⟩ ⟨hI', hx', ht', hb⟩
+        exact ⟨hI', hx34.trans hx', by simp only [Nat.add_mul, Nat.one_mul]; omega,
+          hb.trans hiff⟩
+
+/-- The ticks `included_but` may spend on terms of size `N`, where one step
+of asking spends `B` at most. -/
+def inclButCost (S : Sorts) (u q N B : Nat) : Nat := inclCost S u q + N * (B + 3) + 6
+
+/-- `included_but` answers whether every member of the conjunction, but for
+the terms, is in the sort (`Sorts.Hold`), given that one step of asking is
+right and what it spends. -/
+theorem included_but_run {S : Sorts} {sp : Pat} {U : List Name} (hC : Ctx nm S sp U)
+    {r q : Nat} (hr : ∀ d, (Sorts.reachSet S d).card ≤ r)
+    (hq : ∀ d m, (Sorts.reachGSet S (d, some m)).card ≤ q) (hstep : StepOK S U) {B : Nat}
+    (c : Sorts.Conj) (n : Name) (G : List GTerm)
+    (hB : ∀ c n G', Sorts.sumSize G' ≤ Sorts.sumSize G → oneCost S U r q c n G' ≤ B)
+    (hc : Sub U c) (hn : n ≠ nm none) (s : store.Store) (decls names ci ni g : store.TermId)
+    (hI : Inv s) (hde : Repr nm s.nodes.val decls.val sp)
+    (hU : Repr nm s.nodes.val names.val (namesPat (nm none) U))
+    (hci : Repr nm s.nodes.val ci.val (cpat (nm none) U c))
+    (hni : Repr nm s.nodes.val ni.val (.sym n))
+    (hg : Repr nm s.nodes.val g.val (encList (nm none) (G.map GTerm.toPat)))
+    (hroom : Room s (inclButCost S U.length q (Sorts.sumSize G) B)) :
+    sorts.included_but s decls names ci ni g ⦃ b s' =>
+      Inv s' ∧ Extends s s' ∧
+        s'.ticks.val ≤ s.ticks.val + inclButCost S U.length q (Sorts.sumSize G) B ∧
+        (b = true ↔ Sorts.Hold S c n G) ⦄ := by
+  unfold sorts.included_but
+  have hroom' := hroom
+  unfold Room at hroom'
+  simp only [inclButCost] at hroom'
+  have hW := hI.toWf
+  step with is_nil_list hC.inj s g hW hg (by unfold Room; omega) as ⟨b, s1, hb, hK1⟩
+  rw [List.map_eq_nil_iff] at hb
+  have ht1 := hK1.ticks
+  have R1 := hK1.ran
+  have I1 : Inv s1 := R1.ranB.inv hI
+  cases b with
+  | true =>
+    have hG0 : G = [] := hb.1 rfl
+    subst hG0
+    have hmono : inclCost S U.length (Sorts.reachGSet S (c, some n)).card ≤ inclCost S U.length q :=
+      outCost_mono S U.length (hq c n)
+    simp only [↓reduceIte]
+    refine WP.spec_mono (included_spec hC c n hc hn s1 decls names ci ni I1 (R1.ext.repr hde)
+      (R1.ext.repr hU) (R1.ext.repr hci) (R1.ext.repr hni) (by unfold Room; omega)) ?_
+    rintro ⟨b, s'⟩ ⟨hI', hx', ht', hb'⟩
+    refine ⟨hI', R1.ext.trans hx', by simp only [inclButCost]; omega, ?_⟩
+    rw [hb', Sorts.hold_nil]
+  | false =>
+    have hG0 : G ≠ [] := fun h => absurd (hb.2 h) (by simp)
+    simp only [Bool.false_eq_true, ↓reduceIte]
+    step with alloc_ran s1 .Nil hK1.wf trivial (by unfold Room; omega) as ⟨nil, s2, hR2, hid2⟩
+    have ht2 := hR2.ticks
+    have R2 := R1.trans hR2
+    step with alloc_ran s2 (.App ni g) hR2.wf ⟨(R2.ext.repr hni).lt, (R2.ext.repr hg).lt⟩
+      (by unfold Room; omega) as ⟨ri, s3, hR3, hid3⟩
+    have ht3 := hR3.ticks
+    have R3 := R2.trans hR3
+    have rr : Repr nm s3.nodes.val ri.val (.app (.sym n) (accPat (nm none) G)) :=
+      .app hid3 (R3.ext.repr hni) (R3.ext.repr hg)
+    step with alloc_ran s3 (.App ci ri) hR3.wf ⟨(R3.ext.repr hci).lt, rr.lt⟩
+      (by unfold Room; omega) as ⟨aski, s4, hR4, hid4⟩
+    have ht4 := hR4.ticks
+    have R4 := R3.trans hR4
+    have rask : Repr nm s4.nodes.val aski.val (askPat (nm none) U (c, n, G)) :=
+      .app hid4 (R4.ext.repr hci) (hR4.ext.repr rr)
+    step with alloc_ran s4 (.App aski nil) hR4.wf
+      ⟨rask.lt, (hR4.ext.repr (hR3.ext.repr (Repr.nil hid2 : Repr nm s2.nodes.val nil.val _))).lt⟩
+      (by unfold Room; omega) as ⟨todo, s5, hR5, hid5⟩
+    have ht5 := hR5.ticks
+    have R5 := R4.trans hR5
+    have rtd : Repr nm s5.nodes.val todo.val
+        (encList (nm none) ([(c, n, G)].map (askPat (nm none) U))) :=
+      .app hid5 (hR5.ext.repr rask) (hR5.ext.repr (hR4.ext.repr (hR3.ext.repr (.nil hid2))))
+    refine WP.spec_mono (included_but_loop_spec hC hr hq hstep hB decls names (Sorts.sumSize G)
+      [(c, n, G)] s5 todo (Nat.le_refl _) (by simp [mu])
+      (fun a ha => by rw [List.mem_singleton.1 ha]; exact ⟨hc, hG0⟩) (R5.ranB.inv hI)
+      (R5.ext.repr hde) (R5.ext.repr hU) rtd (by unfold Room; omega)) ?_
+    rintro ⟨b, s'⟩ ⟨hI', hx', ht', hb'⟩
+    refine ⟨hI', R5.ext.trans hx', by simp only [inclButCost]; omega, ?_⟩
+    rw [hb']
+    simp [HoldA]
+
 end RwLogVerified
