@@ -4744,7 +4744,7 @@ def sorts.fits_loop.body
                 if b2
                 then
                   do
-                  let (same1, s10) ← sorts.same_len s8 kids args
+                  let (same1, s10) ← sorts.same_len s8 args kids
                   ok (s10, same1)
                 else ok (s8, false)
               if same

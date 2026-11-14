@@ -2980,7 +2980,7 @@ fn fits(s: &mut Store, decls: TermId, names: TermId, es: TermId, k0: TermId, u0:
                                 let (head, args) = spine(s, u);
                                 match sole_root(s, decls, names, k, nil) {
                                     Some((f, kids)) => {
-                                        let same = s.same(f, head) && same_len(s, kids, args);
+                                        let same = s.same(f, head) && same_len(s, args, kids);
                                         if same {
                                             todo = pairs_onto(s, kids, args, rest);
                                         } else {
