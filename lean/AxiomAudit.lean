@@ -615,3 +615,12 @@ new axiom.
 
 /-- info: 'RwLog.Symmetric.selfConverse_of' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Symmetric.selfConverse_of
+
+/-- info: 'RwLog.Symmetric.inv_request' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Symmetric.inv_request
+
+/-- info: 'RwLog.Symmetric.oriented_convTrace' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Symmetric.oriented_convTrace
+
+/-- info: 'RwLog.Symmetric.oriented_dualTrace' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Symmetric.oriented_dualTrace

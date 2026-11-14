@@ -7,6 +7,7 @@ operation on goals and tables.
 -/
 import RwLog.Rungs.Tabled.Machine
 import RwLog.Rungs.Framework.KernelAt
+import RwLog.Rungs.Framework.Rules
 import RwLog.Rungs.Framework.TraverseStd
 import RwLog.Rungs.Framework.Cost
 import RwLog.Kernel.NormalFormDepth
@@ -21,47 +22,8 @@ open Traverse
 variable {R : Type} [Answer R] [DecidableEq R] {D : Domain R} {P : Program}
   (K : Kernel R Cost) (hK : K.Refines D)
 
-/-! ## The derivation kernel, operation by operation -/
-
-section over
-
-variable (P)
-
-@[simp] theorem over_toKernel : (DerivationKernel.over D K hK P).toKernel = K := rfl
-
-@[simp] theorem over_view (n : Rel) :
-    (DerivationKernel.over D K hK P).view n = Charged.viewNode n := rfl
-
-@[simp] theorem over_interval (n : Rel) (i j : Nat) :
-    (DerivationKernel.over D K hK P).interval n i j = Charged.interval n i j := rfl
-
-@[simp] theorem over_without (n : Rel) (i : Nat) :
-    (DerivationKernel.over D K hK P).without n i = Charged.without n i := rfl
-
-@[simp] theorem over_body (n : Rel) :
-    (DerivationKernel.over D K hK P).body n = Charged.body P n := rfl
-
-@[simp] theorem over_eqNode (m n : Rel) :
-    (DerivationKernel.over D K hK P).eqNode m n = Charged.eqNode m n := rfl
-
-@[simp] theorem over_span (a : Ans D P) : (DerivationKernel.over D K hK P).span a = a.span := rfl
-
-@[simp] theorem over_leaf (lb : Option R) (n : Rel) (rb : Option R) :
-    (DerivationKernel.over D K hK P).leaf lb n rb = Ans.leaf D P K hK lb n rb := rfl
-
-@[simp] theorem over_join (a b : Ans D P) :
-    (DerivationKernel.over D K hK P).join a b = Ans.join D P K hK a b := rfl
-
-@[simp] theorem over_meetA (a b : Ans D P) :
-    (DerivationKernel.over D K hK P).meetA a b = Ans.meetA D P K hK a b := rfl
-
-@[simp] theorem over_inj (a : Ans D P) (u : Rel) (i : Nat) :
-    (DerivationKernel.over D K hK P).inj a u i = Ans.inj D P a u i := rfl
-
-@[simp] theorem over_unfold (a : Ans D P) (c : Rel) :
-    (DerivationKernel.over D K hK P).unfold a c = Ans.unfold D P a c := rfl
-
-end over
+attribute [simp] over_toKernel over_view over_interval over_without over_body over_eqNode
+  over_span over_leaf over_join over_meetA over_inj over_unfold
 
 theorem sameBound_val (a b : Option R) :
     (sameBound (K := DerivationKernel.over D K hK P) a b).val = decide (a = b) := by
