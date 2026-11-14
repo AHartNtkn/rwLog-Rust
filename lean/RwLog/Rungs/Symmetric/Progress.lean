@@ -564,6 +564,94 @@ theorem pushOpen_spec (g : GoalOf R Rel) (other : Rel) (k : Kind) (left : Bool)
   · obtain ⟨x, hx, rfl, h2, h3⟩ := forall₂_right hall e he
     exact ⟨hx, h2, h3⟩
 
+/-! ## Edges -/
+
+/-- Every edge the state keeps is right about the program. -/
+def EdgesOk (st : StateOf R Rel (Ans D P)) : Prop :=
+  ∀ e ∈ st.edges, ∀ ps, e.2.2 = some ps → EdgeOk D P e.1 e.2.1 ps
+
+variable (D P K hK) in
+/-- A reading of an edge that returns interfaces is right about the
+program. -/
+def ReadOk : Prop :=
+  ∀ (last : Bool) (d : Nat) (n : Rel) (ps : List R),
+    (readEdge (K := DerivationKernel.over D K hK P) last d n).val = some (some ps) →
+      EdgeOk D P n last ps
+
+theorem lookupEdge_mem (n : Rel) (last : Bool) :
+    ∀ (es : List (Rel × Bool × Option (List R))) (e : Option (List R)),
+      (lookupEdge (K := DerivationKernel.over D K hK P) n last es).val = some e →
+        (n, last, e) ∈ es := by
+  at_cost K hK
+  intro es
+  induction es with
+  | nil => intro e h; cases h
+  | cons x es ih =>
+    intro e h
+    simp only [lookupEdge] at h
+    split at h
+    · next hl =>
+      simp only [Cost.bind_val, over_eqNode, Charged.eqNode, Charged.op] at h
+      split at h
+      · next hn =>
+        cases h
+        have hn' : x.1 = n := by simpa using hn
+        obtain ⟨a, b, c⟩ := x
+        simp only at hl hn'
+        subst hl hn'
+        exact List.mem_cons_self
+      · exact List.mem_cons_of_mem _ (ih e h)
+    · exact List.mem_cons_of_mem _ (ih e h)
+
+/-- The edge of a node, as the state gives it, is right about the program,
+and the state keeps only edges that are. -/
+theorem edgeOf_spec (hR : ReadOk D P K hK) {st : StateOf R Rel (Ans D P)} (hE : EdgesOk st)
+    (last : Bool) (n : Rel) :
+    EdgesOk (edgeOf (K := DerivationKernel.over D K hK P) st last n).val.1 ∧
+      (edgeOf (K := DerivationKernel.over D K hK P) st last n).val.1.tables = st.tables ∧
+      ∀ ps, (edgeOf (K := DerivationKernel.over D K hK P) st last n).val.2 = some (some ps) →
+        EdgeOk D P n last ps := by
+  have hlk := lookupEdge_mem (K := K) (hK := hK) (P := P) n last st.edges
+  have hR' := hR last st.depth n
+  clear hR
+  at_cost K hK
+  simp only [edgeOf, Cost.bind_val]
+  split
+  · next e he =>
+    exact ⟨hE, rfl, fun ps hps => hE _ (hlk e he) ps (by cases hps; rfl)⟩
+  · simp only [Cost.bind_val, Cost.pure_val]
+    cases hr : (readEdge (K := DerivationKernel.over D _ hK P) last st.depth n).val with
+    | none => exact ⟨hE, rfl, fun ps hps => by cases hps⟩
+    | some e =>
+      refine ⟨fun x hx ps hps => ?_, rfl, fun ps hps => ?_⟩
+      · rcases List.mem_append.1 hx with hx | hx
+        · exact hE x hx ps hps
+        · obtain rfl := List.mem_singleton.1 hx
+          simp only at hps
+          subst hps
+          exact hR' ps hr
+      · cases hps
+        exact hR' ps hr
+
+/-- What a check opens: the other side under each interface, in order. -/
+theorem checkOpen_spec (g : GoalOf R Rel) (left : Bool) (other : Rel)
+    (st : StateOf R Rel (Ans D P)) (ps : List R) :
+    Ext st (checkOpen (K := DerivationKernel.over D K hK P) g left other st ps).val.1 ∧
+      ∃ es, (checkOpen (K := DerivationKernel.over D K hK P) g left other st ps).val.2 =
+        [] ++ es ∧ List.Forall₂ (fun p j =>
+          goalAt (checkOpen (K := DerivationKernel.over D K hK P) g left other st ps).val.1 j =
+            some (if left then ⟨some p, other, g.rb⟩ else ⟨g.lb, other, some p⟩)) ps es := by
+  have hog := fun st h => openGoal_goalAt (K := K) (hK := hK) (P := P) st h
+  have hin := fun st h => (inner_openGoal (K := K) (hK := hK) (P := P) (w := 0) st h).reach.ext
+  at_cost K hK
+  unfold checkOpen
+  exact foldL_open _ (fun st p j =>
+      goalAt st j = some (if left then ⟨some p, other, g.rb⟩ else ⟨g.lb, other, some p⟩))
+    (fun acc x => by
+      simp only [Cost.bind_val, Cost.pure_val]
+      exact ⟨hin _ _, _, rfl, hog _ _⟩)
+    (fun _ _ _ _ hE h => hE _ _ h) ps (st, [])
+
 /-! ## The work of one strategy keeps what its cursors mean -/
 
 theorem prog_work_span (hL : D.Lawful P.sorts.interp) {st : StateOf R Rel (Ans D P)}
@@ -920,6 +1008,56 @@ theorem prog_work_push (hL : D.Lawful P.sorts.interp) {st : StateOf R Rel (Ans D
               rw [id_map'] at hn
               obtain ⟨d1, d2, d3⟩ := h5 e (List.mem_of_getElem? hn)
               exact ⟨by rw [hans]; exact d1, hS.ext _ _ d2, d3.mono hS⟩
+
+theorem prog_work_check (hR : ReadOk D P K hK) {st : StateOf R Rel (Ans D P)}
+    (hE : EdgesOk st) (whole : Bool) (i : Nat) (g : GoalOf R Rel) (left : Bool)
+    (side other : Rel) (c : Check) (hs : Prog st i g (.check left side other c)) :
+    Prog (work (K := DerivationKernel.over D K hK P) whole i g st
+        (.check left side other c)).val.1 i g
+      (work (K := DerivationKernel.over D K hK P) whole i g st
+        (.check left side other c)).val.2.1 := by
+  have hs0 := hs
+  dsimp only [Prog] at hs
+  obtain ⟨L, Rg, h1, h2, h3, -⟩ := hs
+  have hes := (edgeOf_spec hR hE left side).2.2
+  have hco := fun st' ps => checkOpen_spec (K := K) (hK := hK) (P := P) g left other st' ps
+  clear hR
+  at_cost K hK
+  cases c with
+  | reading =>
+    simp only [work, Cost.bind_val]
+    split
+    · dsimp only [Prog]
+      exact ⟨L, Rg, h1, h2, h3, trivial⟩
+    · dsimp only [Prog]
+      exact ⟨L, Rg, h1, h2, h3, trivial⟩
+    · next ps heq =>
+      simp only [Cost.bind_val, Cost.pure_val]
+      obtain ⟨-, es, hes', hall⟩ := hco _ ps
+      rw [List.nil_append] at hes'
+      dsimp only [Prog]
+      refine ⟨L, Rg, h1, h2, h3, ps, hes ps heq, by rw [hes']; exact hall.length_eq.symm,
+        fun n p hp => ?_⟩
+      rw [hes']
+      exact forall₂_getElem? hall n p hp
+  | off => exact hs0
+  | opened subs => exact hs0
+
+/-- **The work of a strategy keeps what its cursors mean.** -/
+theorem prog_work (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK)
+    {st : StateOf R Rel (Ans D P)} (hI : Inv st) (hE : EdgesOk st) (whole : Bool) (i : Nat)
+    (g : GoalOf R Rel) (s : Strat Rel (Ans D P)) (ho : Open st i)
+    (hb : IsBound D g.lb ∧ IsBound D g.rb) (hok : StratOk st g s) (hs : Prog st i g s) :
+    Prog (work (K := DerivationKernel.over D K hK P) whole i g st s).val.1 i g
+      (work (K := DerivationKernel.over D K hK P) whole i g st s).val.2.1 := by
+  cases s with
+  | span ran => exact prog_work_span hL whole i g ran ho hb hs
+  | copy isCall subs => exact prog_work_copy hL hI whole i g isCall subs ho hs
+  | join k a b c => exact prog_work_join hL hI whole i g k a b c ho hs
+  | push k left side other todo subs =>
+    obtain ⟨-, -, -, hno, -⟩ := hok
+    exact prog_work_push hL hI whole i g k left side other todo subs ho hno hs
+  | check left side other c => exact prog_work_check hR hE whole i g left side other c hs
 
 end kernel
 
