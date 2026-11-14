@@ -215,5 +215,134 @@ theorem mem_reachOutSet {c d : Conj} {n m : Name} :
     Finset.mem_powerset, Prod.mk.injEq]
   exact ⟨fun h => h.2, fun h => ⟨h.eq_or_names, h⟩⟩
 
+/-! ## Pairs and the conjunctions whose members they ask for, together
+
+Whether a pair is out asks whether argument conjunctions have a member. A
+*key* is a conjunction with a sort, or with none: with none it asks whether
+the conjunction has a member. One marking of the keys a key reaches, sound
+and that no round extends, answers both. -/
+
+/-- A conjunction with a sort, or with none. -/
+abbrev OutKey := Conj × Option Name
+
+/-- The roots a round looks at for a key. -/
+def keysOf (S : Sorts) : OutKey → Finset (Sym × Nat)
+  | (c, none) => caseKeys S c
+  | (c, some n) => caseKeys S c ∪ caseKeys S {n} ∪ exKeys S n
+
+/-- The key `q` is reached from the key `p` in one step: an argument
+conjunction of a root of `p`, with no sort, or a pair reached from a pair. -/
+def KidG (S : Sorts) (p q : OutKey) : Prop :=
+  (∃ key ∈ keysOf S p, Accepts S p.1 key.1 key.2 ∧
+      ∃ i < key.2, q = (kidC S p.1 key.1 key.2 i, none)) ∨
+    ∃ n m, p.2 = some n ∧ q.2 = some m ∧ KidOut S p.1 n q.1 m
+
+/-- The keys a key reaches. -/
+inductive ReachG (S : Sorts) (p : OutKey) : OutKey → Prop
+  | refl : ReachG S p p
+  | step {q r : OutKey} : ReachG S p q → KidG S q r → ReachG S p r
+
+/-- What a key asks: a member, or a member outside the sort. -/
+def TrueG (S : Sorts) : OutKey → Prop
+  | (c, none) => ∃ t, MemC S c t
+  | (c, some n) => Out S c n
+
+/-- What a round asks of a key, given the keys in `M`. -/
+def GrowsG (S : Sorts) (M : OutKey → Prop) : OutKey → Prop
+  | (c, none) => Grows S (fun d => M (d, none)) c
+  | (c, some n) => GrowsOut S (fun d => M (d, none)) (fun d m => M (d, some m)) c n
+
+theorem Grows.mono {L L' : Conj → Prop} {c : Conj} (h : Grows S L c)
+    (hL : ∀ key ∈ caseKeys S c, Accepts S c key.1 key.2 → ∀ i < key.2,
+      L (kidC S c key.1 key.2 i) → L' (kidC S c key.1 key.2 i)) : Grows S L' c := by
+  rcases h with h | ⟨key, hk, hacc, hall⟩
+  · exact Or.inl h
+  · exact Or.inr ⟨key, hk, hacc, fun i hi => hL key hk hacc i hi (hall i hi)⟩
+
+theorem GrowsOut.mono {L L' : Conj → Prop} {P P' : Conj → Name → Prop} {c : Conj} {n : Name}
+    (h : GrowsOut S L P c n)
+    (hL : ∀ key ∈ caseKeys S c ∪ caseKeys S {n} ∪ exKeys S n, Accepts S c key.1 key.2 →
+      ∀ i < key.2, L (kidC S c key.1 key.2 i) → L' (kidC S c key.1 key.2 i))
+    (hP : ∀ d m, KidOut S c n d m → P d m → P' d m) : GrowsOut S L' P' c n := by
+  rcases h with h | ⟨hr, m, hm, hp⟩ | ⟨key, hk, hacc, hall, hn⟩
+  · exact Or.inl h
+  · exact Or.inr (Or.inl ⟨hr, m, hm, hP _ m (Or.inl ⟨hr, hm, rfl⟩) hp⟩)
+  · refine Or.inr (Or.inr ⟨key, hk, hacc, fun i hi => hL key hk hacc i hi (hall i hi), ?_⟩)
+    rcases hn with hn | ⟨i, hi, m, hsk, hp⟩
+    · exact Or.inl hn
+    · exact Or.inr ⟨i, hi, m, hsk, hP _ m (Or.inr ⟨key, hk, hacc, i, hi, hsk, rfl⟩) hp⟩
+
+/-- A key a round adds to keys that hold, holds. -/
+theorem trueG_of_growsG {M : OutKey → Prop} (hM : ∀ q, M q → TrueG S q) {p : OutKey}
+    (h : GrowsG S M p) : TrueG S p := by
+  obtain ⟨c, k⟩ := p
+  cases k with
+  | none =>
+    have h' : Grows S (fun d => M (d, none)) c := h
+    exact memC_of_grows (Grows.mono h' fun _ _ _ _ _ hl => hM (_, none) hl)
+  | some n =>
+    have h' : GrowsOut S (fun d => M (d, none)) (fun d m => M (d, some m)) c n := h
+    exact out_of_growsOut (GrowsOut.mono h' (fun _ _ _ _ _ hl => hM (_, none) hl)
+      fun _ _ _ hp => hM (_, some _) hp)
+
+/-- On the keys a key reaches, a marking that is sound and that no round
+extends marks exactly the keys that hold. -/
+theorem trueG_iff_of_stable {p₀ : OutKey} {M : OutKey → Prop}
+    (hsound : ∀ q, M q → TrueG S q)
+    (hstable : ∀ q, ReachG S p₀ q → GrowsG S M q → M q) :
+    ∀ q, ReachG S p₀ q → (M q ↔ TrueG S q) := by
+  have hlive : ∀ c, ReachG S p₀ (c, none) → (∃ t, MemC S c t) → M (c, none) :=
+    live_of_stable (R := fun c => ReachG S p₀ (c, none)) (L := fun c => M (c, none))
+      (fun c d hc hk => by
+        obtain ⟨-, key, hkey, hacc, i, hi, rfl⟩ := hk
+        exact hc.step (Or.inl ⟨key, hkey, hacc, i, hi, rfl⟩))
+      (fun c hc hg => hstable (c, none) hc hg)
+  have hout : ∀ c n, ReachG S p₀ (c, some n) → Out S c n → M (c, some n) :=
+    out_of_stable (R := fun c n => ReachG S p₀ (c, some n)) (P := fun c n => M (c, some n))
+      (fun c n d m hc hk => hc.step (Or.inr ⟨n, m, rfl, rfl, hk⟩))
+      (fun c n hc hg => hstable (c, some n) hc
+        (show GrowsOut S (fun d => M (d, none)) (fun d m => M (d, some m)) c n from
+          GrowsOut.mono hg
+            (fun key hkey hacc i hi hl =>
+              hlive _ (hc.step (Or.inl ⟨key, hkey, hacc, i, hi, rfl⟩)) hl)
+            fun _ _ _ hp => hp))
+  rintro ⟨c, k⟩ hq
+  refine ⟨hsound _, ?_⟩
+  cases k with
+  | none => exact hlive c hq
+  | some n => exact hout c n hq
+
+theorem KidG.names {p q : OutKey} (h : KidG S p q) :
+    q.1 ⊆ names S ∧ ∀ m, q.2 = some m → m ∈ names S := by
+  rcases h with ⟨key, -, -, i, -, rfl⟩ | ⟨n, m, -, hm, hk⟩
+  · exact ⟨kidC_subset_names, fun m h => by cases h⟩
+  · refine ⟨hk.names.1, fun m' h => ?_⟩
+    rw [hm] at h
+    cases h
+    exact hk.names.2
+
+theorem ReachG.eq_or_names {p q : OutKey} (h : ReachG S p q) :
+    q = p ∨ (q.1 ⊆ names S ∧ ∀ m, q.2 = some m → m ∈ names S) := by
+  cases h with
+  | refl => exact Or.inl rfl
+  | step _ hk => exact Or.inr hk.names
+
+open Classical in
+/-- The keys a key reaches, as a finite set. Its size is what deciding
+whether a conjunction is included in a sort is charged by. -/
+noncomputable def reachGSet (S : Sorts) (p : OutKey) : Finset OutKey :=
+  (insert p ((names S).powerset ×ˢ insert none ((names S).image some))).filter (ReachG S p)
+
+theorem mem_reachGSet {p q : OutKey} : q ∈ reachGSet S p ↔ ReachG S p q := by
+  simp only [reachGSet, Finset.mem_filter, Finset.mem_insert, Finset.mem_product,
+    Finset.mem_powerset, Finset.mem_image]
+  refine ⟨fun h => h.2, fun h => ⟨?_, h⟩⟩
+  rcases h.eq_or_names with e | ⟨h1, h2⟩
+  · exact Or.inl e
+  · refine Or.inr ⟨h1, ?_⟩
+    cases hk : q.2 with
+    | none => exact Or.inl rfl
+    | some m => exact Or.inr ⟨m, h2 m hk, rfl⟩
+
 end Sorts
 end RwLog
