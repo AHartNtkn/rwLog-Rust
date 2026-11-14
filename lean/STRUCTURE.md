@@ -89,7 +89,9 @@ Rungs/Symmetric/ the symmetric engine of `SYMMETRIC_ENGINE.md` (Machine.lean): a
                 union or a join, and one that has none is all checks (`shaped_expand`); a table
                 marked complete has a strategy with nothing left to do that reads complete
                 tables only; and an edge is read in the end, from a depth that the node
-                and the program give (ReadLive.lean, `readEdge_some`). Not proved yet: the
+                and the program give (ReadLive.lean, `readEdge_some`); and of a table that
+                has rounds for ever one group works for ever, with as many groups from
+                some request on (Lines.lean, `Requests.line`). Not proved yet: the
                 assembly of these into a fair run, and from it completeness; `Keeps`; the
                 cost bound. A goal and its converse do not share a
                 table (not owed by any property; billboard SIM12)
@@ -163,6 +165,7 @@ every charge derived from the Rust. No domain of spans as written is left
 | Insertion sort by a strict order | `Lib/Insert.lean` | `insertBy`, `sortBy`, `sortBy_eq` (a duplicate-free list sorts to the ordered list with the same members) |
 | First occurrences of a list | `Lib/Firsts.lean` | `addNew`, `addAll`, `firsts`, `firsts_eq_eraseDups`, `addAll_firsts`, `addAll_flatMap_firsts`, `addAll_flatMap_congr`, `firsts_map`, `firsts_spec` |
 | An antichain that covers a list | `Lib/Antichain.lean` | `antichain`, `antichain_spec` |
+| Sequences that cannot go on for ever | `Lib/Sequences.lean` | `eventually_const`, `no_descent`, `infinitely_often_fin` |
 | Lookup by sorted key; the values of a list of options | `Lib/List.lean` | `lookup_sorted`, `gather`, `gather_eq_some`, `gather_range`, `gather_isSome` |
 
 ## The rung framework
