@@ -415,6 +415,37 @@ theorem tuple_loop_spec (nil : store.TermId) :
     rintro ⟨out', s'⟩ ⟨hI', hx', ht', hr'⟩
     exact ⟨hI', hx03.trans hx', by simp only [List.length_cons]; omega, hr'⟩
 
+/-! ## The nil symbol
+
+The store has no name for a symbol: every theorem here holds for any one to
+one naming `nm` of the nil node and the numbered symbols. The specification
+pairs two patterns under the empty symbol (`Sorts.tpair`), and `start`
+pairs them under the nil node, so the theorems about pairs are for the
+namings that give the nil node the empty symbol. There are such namings
+(`exists_naming`); an engine that reads `tpair` off the store has to use
+one. -/
+
+/-- A one to one naming that gives the nil node the empty symbol. -/
+theorem exists_naming : ∃ nm : Option Nat → RwLog.Sym, Function.Injective nm ∧ nm none = "" := by
+  refine ⟨fun o => match o with
+    | none => ""
+    | some n => String.ofList (List.replicate (n + 1) 'a'), ?_, rfl⟩
+  intro a b h
+  have hlen : ∀ n : Nat, (String.ofList (List.replicate (n + 1) 'a')).length = n + 1 := by
+    intro n; simp
+  cases a with
+  | none =>
+    cases b with
+    | none => rfl
+    | some m => have := congrArg String.length h; rw [hlen] at this; simp at this
+  | some n =>
+    cases b with
+    | none => have := congrArg String.length h; rw [hlen] at this; simp at this
+    | some m =>
+      have := congrArg String.length h
+      rw [hlen, hlen] at this
+      rw [Nat.add_right_cancel this]
+
 /-- `tuple` gives the tuple of the first variables. -/
 theorem tuple_spec (hz : nm none = "") (n : Nat) (s : store.Store) (nil l : store.TermId)
     (hI : Inv s) (hnil : Repr nm s.nodes.val nil.val (.sym (nm none)))
