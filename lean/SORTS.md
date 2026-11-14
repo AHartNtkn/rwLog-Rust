@@ -198,6 +198,8 @@ charged steps as it reads terms. Proved against section 6
 | `sorts::sole_root` | `Sorts.sole` (`Roots.lean`) | `soleAll`: a polynomial in the written size of the declarations, the size of the excluded terms, and the number of conjunctions that can be reached |
 | `sorts::unit_on`, `sorts::gone` | `Sorts.unitOn`, `Sorts.gone` (`Gone.lean`) | `unitCost`: the charge of solving the equations of an exclusion and 27 for each of their distinct subterms; `goneCost`: that for each exclusion |
 | `sorts::var_succ`, `sorts::settle`, `sorts::open_var` | the next variable; `CStore.settle` and `CStore.exp` (`Loop.lean`) on the pattern and the exclusions, with the entries of the variables | `succCost`: logarithmic in the variable; `settleCost`: counting each entry, and for each entry replaced 14 for each distinct subterm of the pattern and of the exclusions; `openCost`: the next variable for each new variable, and 14 for each distinct subterm of the pattern and of the exclusions |
+| `sorts::always_on`, `sorts::any_always`, `sorts::first_sole` | `always` of one exclusion and of some exclusion of a list; the first variable whose values have one root (`sole` with `gone`) | `alwaysCost`: solving the equations; `anyAlwaysCost`: that for each exclusion; `firstSoleCost`: `goneCost` and `soleAll` for each entry |
+| `sorts::tighten` | rounds of `stepAt` (`Loop.lean`) after `CStore.settle`; what it returns is reached by `Tightens`, so among well-formed sorts it denotes what it was given, satisfies `Inv` and has no variable whose values have one root, and nothing is returned only when the store denotes nothing | `tightenCost`: `settleCost`, and for each round made the two checks, the scan and the replacement; the number of rounds has no closed bound yet |
 
 Membership is therefore linear in the term for fixed declarations, and a term
 with a repeated subterm pays for it once for each sort.
@@ -284,7 +286,12 @@ The route:
    pattern has no more symbols than a term it denotes, so the loop ends. It
    is defined by recursion on that bound (`room`), which is not computed; the
    function still evaluates. The result is tight (`tight_of_sole`,
-   `Tightened.lean`).
+   `Tightened.lean`). `step?` replaces the first such variable of the
+   pattern; `stepAt` is the replacement of a given variable, and `Tightens`
+   says a store is reached by such replacements made in any order, with the
+   same conclusions (`Tightens.some`, `Tightens.none`). The Rust function
+   takes the variables in the order of its entries and is proved against
+   `Tightens`.
 4. `ofTight` numbers the variables as they first occur (`firsts`,
    `Renum.lean`) and gives each every declared sort that holds of all its
    values: `inclBut` (`InclBut.lean`) decides that the members of the sorts

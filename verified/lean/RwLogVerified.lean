@@ -42,6 +42,12 @@
 * `RwLogVerified.Open`: the variable after a variable; replacing the variables
   whose sorts have one member by that member; replacing a variable by a
   symbol applied to new variables.
+* `RwLogVerified.Tighten`: whether an exclusion always holds, of one and of
+  a list; the first variable whose values have one root.
+* `RwLogVerified.TightRun`: the rounds of tightening as a function of the
+  pattern, the exclusions and the entries; that they end, and that what they
+  come to is reached by replacements of the specification.
+* `RwLogVerified.Tight`: tightening a store, within the charge of its rounds.
 * `RwLogVerified.Kernel`: the kernel rung whose charges are those bounds.
 * `RwLogVerified.KernelRuns`: its charges on a worked composition.
 
@@ -77,5 +83,8 @@ import RwLogVerified.Push
 import RwLogVerified.Sole
 import RwLogVerified.Gone
 import RwLogVerified.Open
+import RwLogVerified.Tighten
+import RwLogVerified.TightRun
+import RwLogVerified.Tight
 import RwLogVerified.Kernel
 import RwLogVerified.KernelRuns
