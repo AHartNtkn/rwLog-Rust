@@ -2757,37 +2757,45 @@ pub fn among(s: &mut Store, n: TermId, l0: TermId) -> bool {
 // (`lean/RwLog/Sorts/FoldRaw.lean`). The subterms asked about are the
 // pattern and the arguments of the symbols in it.
 
-/// Table `B` cleared, and then each variable of the term `u` flagged in it.
-/// Returned are whether no variable occurs twice in `u`, in which case all
-/// are flagged, and whether `u` has a variable. The term is walked as a
-/// tree. The stack is empty at entry.
-fn mark_vars(s: &mut Store, u: TermId) -> (bool, bool) {
-    let mut linear = true;
-    let mut any = false;
+/// Does no variable occur twice in the term `u`? Table `A` holds, for each
+/// subterm of `u`, what `rebuild` with `Leaf::Right` made of it, which is
+/// the subterm itself exactly when it has no variable. Table `B` is cleared
+/// and then flags each subterm visited that has a variable; when the answer
+/// is yes these are all of them, the variables of `u` among them. A subterm
+/// without a variable is not entered, and one with a variable is entered
+/// once: the second time a variable has occurred twice.
+fn once_each(s: &mut Store, u: TermId) -> bool {
+    let nil = s.alloc(Node::Nil);
     s.clear(Tbl::B);
-    s.push(Frame::Visit(u, u));
-    while let Some(fr) = s.pop() {
-        let q = node_of(fr);
-        match s.read(q) {
-            Node::App(a, b) => {
-                s.push(Frame::Visit(b, b));
-                s.push(Frame::Visit(a, a));
-            }
-            Node::Sym(_) => (),
-            Node::Nil => (),
-            _ => match s.get_flag(Tbl::B, q) {
-                Some(_) => {
-                    linear = false;
-                    s.drop_stack();
+    let mut todo = s.alloc(Node::App(u, nil));
+    let mut ok = true;
+    let mut go = true;
+    while go {
+        match uncons(s, todo) {
+            Some((q, rest)) => match s.get(Tbl::A, q) {
+                Some(g) => {
+                    if s.same(g, q) {
+                        todo = rest;
+                    } else if s.get_flag(Tbl::B, q).is_some() {
+                        ok = false;
+                        go = false;
+                    } else {
+                        s.set_flag(Tbl::B, q, true);
+                        match s.read(q) {
+                            Node::App(a, b) => {
+                                let l = s.alloc(Node::App(b, rest));
+                                todo = s.alloc(Node::App(a, l));
+                            }
+                            _ => todo = rest,
+                        }
+                    }
                 }
-                None => {
-                    s.set_flag(Tbl::B, q, true);
-                    any = true;
-                }
+                None => panic!(),
             },
+            None => go = false,
         }
     }
-    (linear, any)
+    ok
 }
 
 /// Does table `B` flag a member of the list `l0`?
@@ -2810,43 +2818,39 @@ fn any_marked(s: &mut Store, l0: TermId) -> bool {
     found
 }
 
-/// Put each member of the list `l0` on the stack; the first is on top.
-fn push_each(s: &mut Store, l0: TermId) {
-    let l = rev(s, l0);
-    let mut l = l;
-    while let Some((a, rest)) = uncons(s, l) {
-        s.push(Frame::Visit(a, a));
-        l = rest;
-    }
-}
-
 /// Does a variable that table `B` flags occur in the first-order term `t`
 /// outside the occurrences of the subterm `u`, as `t` itself or as an
 /// argument of a symbol? Table `A` is cleared and then flags the subterms
 /// visited, so a subterm that occurs many times is visited once. The stack
 /// is empty at entry.
 fn marked_outside(s: &mut Store, u: TermId, t: TermId) -> bool {
-    let mut found = false;
+    let nil = s.alloc(Node::Nil);
     s.clear(Tbl::A);
-    s.push(Frame::Visit(t, t));
-    while let Some(fr) = s.pop() {
-        let q = node_of(fr);
-        if !s.same(q, u) {
-            match s.get_flag(Tbl::A, q) {
-                Some(_) => (),
-                None => {
+    let mut todo = s.alloc(Node::App(t, nil));
+    let mut found = false;
+    let mut go = true;
+    while go {
+        match uncons(s, todo) {
+            Some((q, rest)) => {
+                let skip = s.same(q, u) || s.get_flag(Tbl::A, q).is_some();
+                if skip {
+                    todo = rest;
+                } else {
                     s.set_flag(Tbl::A, q, true);
                     if is_var(s, q) {
                         if s.get_flag(Tbl::B, q).is_some() {
                             found = true;
-                            s.drop_stack();
+                            go = false;
+                        } else {
+                            todo = rest;
                         }
                     } else {
                         let (_, args) = spine(s, q);
-                        push_each(s, args);
+                        todo = append(s, args, rest);
                     }
                 }
             }
+            None => go = false,
         }
     }
     found
@@ -2945,47 +2949,56 @@ fn pairs_onto(s: &mut Store, kids0: TermId, args0: TermId, out0: TermId) -> Term
 /// member. Asked going down the pattern: at a variable, whether the
 /// conjunction reached is within the sorts of the variable; at a symbol,
 /// whether the members of the conjunction reached have that one root, and
-/// then the same of each argument with the conjunction of its place. Tables
-/// `A` and `B` are used; the stack is empty at entry.
+/// then the same of each argument with the conjunction of its place. A
+/// conjunction with a subterm is asked about once. Tables `A` and `B` are
+/// used; the stack is empty at entry.
 fn fits(s: &mut Store, decls: TermId, names: TermId, es: TermId, k0: TermId, u0: TermId) -> bool {
     let nil = s.alloc(Node::Nil);
     let first = s.alloc(Node::App(k0, u0));
     let mut todo = s.alloc(Node::App(first, nil));
+    let mut seen = nil;
     let mut ok = true;
     let mut go = true;
     while go {
         match uncons(s, todo) {
-            Some((pair, rest)) => match uncons(s, pair) {
-                Some((k, u)) => {
-                    if is_var(s, u) {
-                        let c = conj_at(s, es, u);
-                        if all_included(s, decls, names, k, c) {
-                            todo = rest;
-                        } else {
-                            ok = false;
-                            go = false;
-                        }
-                    } else {
-                        let (head, args) = spine(s, u);
-                        match sole_root(s, decls, names, k, nil) {
-                            Some((f, kids)) => {
-                                let same = s.same(f, head) && same_len(s, kids, args);
-                                if same {
-                                    todo = pairs_onto(s, kids, args, rest);
+            Some((pair, rest)) => {
+                if among(s, pair, seen) {
+                    todo = rest;
+                } else {
+                    seen = s.alloc(Node::App(pair, seen));
+                    match uncons(s, pair) {
+                        Some((k, u)) => {
+                            if is_var(s, u) {
+                                let c = conj_at(s, es, u);
+                                if all_included(s, decls, names, k, c) {
+                                    todo = rest;
                                 } else {
                                     ok = false;
                                     go = false;
                                 }
-                            }
-                            None => {
-                                ok = false;
-                                go = false;
+                            } else {
+                                let (head, args) = spine(s, u);
+                                match sole_root(s, decls, names, k, nil) {
+                                    Some((f, kids)) => {
+                                        let same = s.same(f, head) && same_len(s, kids, args);
+                                        if same {
+                                            todo = pairs_onto(s, kids, args, rest);
+                                        } else {
+                                            ok = false;
+                                            go = false;
+                                        }
+                                    }
+                                    None => {
+                                        ok = false;
+                                        go = false;
+                                    }
+                                }
                             }
                         }
+                        None => panic!(),
                     }
                 }
-                None => panic!(),
-            },
+            }
             None => go = false,
         }
     }
@@ -3008,8 +3021,11 @@ fn free(
     if is_var(s, u) {
         None
     } else {
-        let (linear, any) = mark_vars(s, u);
-        if linear && any && !any_marked(s, xv) && !marked_outside(s, u, t) {
+        s.clear(Tbl::A);
+        let g = rebuild(s, Leaf::Right, u);
+        if s.same(g, u) {
+            None
+        } else if once_each(s, u) && !any_marked(s, xv) && !marked_outside(s, u, t) {
             let k = sorts_of(s, decls, names, es, u);
             if fits(s, decls, names, es, k, u) {
                 Some(k)
@@ -3022,98 +3038,81 @@ fn free(
     }
 }
 
-/// The variables and the outermost free subterms of the pattern `t`, once
-/// each, in the order they first occur from the left, and the list of
-/// their conjunctions in that order: the conjunction of a variable is the
-/// one the entries `es` give it, and that of a free subterm is its sorts.
-/// The pattern is walked as a tree, down to its variables and free
-/// subterms. Tables `A` and `B` are used; the stack is empty at entry.
-fn fold_names(
+/// The free subterms of the pattern `t` that are not inside another, each
+/// paired with a variable of its own, from the variable `next0` on, and the
+/// entries `es` with, in front, an entry that gives each of those variables
+/// the sorts of its subterm. The subterms asked about are the pattern and
+/// the arguments of the symbols of the subterms asked about that are not
+/// free, each once. Tables `A` and `B` are used; the stack is empty at
+/// entry.
+fn free_subterms(
     s: &mut Store,
     decls: TermId,
     names: TermId,
     t: TermId,
     xv: TermId,
     es: TermId,
+    next0: TermId,
 ) -> (TermId, TermId) {
     let nil = s.alloc(Node::Nil);
-    let mut keys = nil;
-    let mut cs = nil;
+    let mut seen = nil;
+    let mut found = nil;
+    let mut es1 = es;
+    let mut next = next0;
     let mut todo = s.alloc(Node::App(t, nil));
     while let Some((u, rest)) = uncons(s, todo) {
-        if among(s, u, keys) {
-            todo = rest;
-        } else if is_var(s, u) {
-            let c = conj_at(s, es, u);
-            keys = s.alloc(Node::App(u, keys));
-            cs = s.alloc(Node::App(c, cs));
+        if among(s, u, seen) {
             todo = rest;
         } else {
-            match free(s, decls, names, t, xv, es, u) {
-                Some(k) => {
-                    keys = s.alloc(Node::App(u, keys));
-                    cs = s.alloc(Node::App(k, cs));
-                    todo = rest;
-                }
-                None => {
-                    let (_, args) = spine(s, u);
-                    todo = append(s, args, rest);
+            seen = s.alloc(Node::App(u, seen));
+            if is_var(s, u) {
+                todo = rest;
+            } else {
+                match free(s, decls, names, t, xv, es, u) {
+                    Some(k) => {
+                        let p = s.alloc(Node::App(u, next));
+                        found = s.alloc(Node::App(p, found));
+                        let e = s.alloc(Node::App(next, k));
+                        es1 = s.alloc(Node::App(e, es1));
+                        next = var_succ(s, next);
+                        todo = rest;
+                    }
+                    None => {
+                        let (_, args) = spine(s, u);
+                        todo = append(s, args, rest);
+                    }
                 }
             }
         }
     }
-    let keys = rev(s, keys);
-    let cs = rev(s, cs);
-    (keys, cs)
+    (found, es1)
 }
 
-/// The symbol `head` applied to what table `A` holds for each member of
-/// the list `args0`, in order.
-fn apply_images(s: &mut Store, head: TermId, args0: TermId) -> TermId {
-    let mut r = head;
-    let mut args = args0;
-    while let Some((a, rest)) = uncons(s, args) {
-        match s.get(Tbl::A, a) {
-            Some(ra) => r = s.alloc(Node::App(r, ra)),
+/// Table `A` cleared, and then holding for the first of each pair of the
+/// list `l0` the second.
+fn seed(s: &mut Store, l0: TermId) {
+    s.clear(Tbl::A);
+    let mut l = l0;
+    while let Some((p, rest)) = uncons(s, l) {
+        match uncons(s, p) {
+            Some((u, w)) => s.set(Tbl::A, u, w),
             None => panic!(),
         }
-        args = rest;
+        l = rest;
     }
-    r
 }
 
-/// The first-order term `t` with each subterm that has an entry in table
-/// `B`, where it is `t` itself or an argument of a symbol, replaced by that
-/// entry; every variable has one. Table `A` is cleared and then holds what
-/// each subterm visited became, so a subterm that occurs many times is
-/// rebuilt once. The stack is empty at entry.
-fn refold(s: &mut Store, t: TermId) -> TermId {
-    s.clear(Tbl::A);
-    s.push(Frame::Visit(t, t));
-    while let Some(fr) = s.pop() {
-        match fr {
-            Frame::Visit(q, _) => match s.get(Tbl::A, q) {
-                Some(_) => (),
-                None => match s.get(Tbl::B, q) {
-                    Some(w) => s.set(Tbl::A, q, w),
-                    None => {
-                        let (_, args) = spine(s, q);
-                        s.push(Frame::Build(q, q));
-                        push_each(s, args);
-                    }
-                },
-            },
-            Frame::Build(q, _) => {
-                let (head, args) = spine(s, q);
-                let r = apply_images(s, head, args);
-                s.set(Tbl::A, q, r);
-            }
-        }
+/// The list of the conjunctions the entries `es` give the variables of the
+/// list `vs0`, in order.
+fn conjs_at(s: &mut Store, es: TermId, vs0: TermId) -> TermId {
+    let mut out = s.alloc(Node::Nil);
+    let mut l = vs0;
+    while let Some((v, rest)) = uncons(s, l) {
+        let c = conj_at(s, es, v);
+        out = s.alloc(Node::App(c, out));
+        l = rest;
     }
-    match s.get(Tbl::A, t) {
-        Some(r) => r,
-        None => panic!(),
-    }
+    rev(s, out)
 }
 
 /// The equations each solved exclusion of the list `xs0` has for the
@@ -3142,24 +3141,29 @@ fn assemble(s: &mut Store, decls: TermId, names: TermId, t: TermId, cs: TermId, 
     Rep { t, c: cs, x: zs }
 }
 
-/// The folded store of the store `r`: each outermost free subterm of its
-/// pattern is replaced by one variable with the sorts of the subterm, the
-/// variables are numbered in the order they first occur, and the exclusions
-/// are over the new numbers. Tables `A` and `B` are used; the stack is empty
-/// at entry.
+/// The folded store of the store `r`: each free subterm of its pattern that
+/// is not inside another is replaced by one variable with the sorts of the
+/// subterm, the variables are numbered in the order they first occur, and
+/// the exclusions are over the new numbers. A subterm that occurs many
+/// times is asked about, and replaced, once. Tables `A` and `B` are used;
+/// the stack is empty at entry.
 pub fn fold(s: &mut Store, decls: TermId, names: TermId, r: Rep) -> Rep {
-    let nil = s.alloc(Node::Nil);
     let vs = places(s, r.c);
     let es = pair_up(s, vs, r.c);
     let ms = moved_all(s, vs, r.x);
     let xv = firsts(s, ms);
-    let (keys, cs) = fold_names(s, decls, names, r.t, xv, es);
-    number(s, keys);
-    let t1 = refold(s, r.t);
-    let xe = excls_onto(s, vs, r.x, nil);
+    let next = number(s, vs);
+    let (found, es1) = free_subterms(s, decls, names, r.t, xv, es, next);
+    seed(s, found);
+    s.clear(Tbl::B);
+    let t1 = rebuild(s, Leaf::Map, r.t);
+    let ks = firsts(s, t1);
+    let cs = conjs_at(s, es1, ks);
+    number(s, ks);
     s.clear(Tbl::A);
-    let x1 = rebuild(s, Leaf::Map, xe);
-    assemble(s, decls, names, t1, cs, x1)
+    let t2 = rebuild(s, Leaf::Map, t1);
+    let x2 = rebuild(s, Leaf::Map, ms);
+    assemble(s, decls, names, t2, cs, x2)
 }
 
 /// A store: its pattern, with the variables numbered in the order they

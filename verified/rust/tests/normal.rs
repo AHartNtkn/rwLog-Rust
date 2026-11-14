@@ -1442,6 +1442,84 @@ fn normal_does_not_write_out_a_pattern_variable_with_one_root() {
     assert!(t2 <= 16 * t1, "{t1} ticks at depth {k} and {t2} at depth {}", 2 * k);
 }
 
+#[test]
+fn fold_subterm_that_is_also_the_start_of_a_longer_application_is_not_folded() {
+    // `k(y)` is an argument, and it is also `k(y, w)` without its last
+    // argument: `y` occurs outside the argument, so the argument stays.
+    folded_is(
+        wf(),
+        &prob(f2(k1(pv(0)), pf(K, vec![pv(0), pv(1)])), vec![(NAT, pv(0))], vec![]),
+        f2(k1(pv(0)), pf(K, vec![pv(0), pv(1)])),
+        &[N, &[]],
+        vec![],
+    );
+}
+
+#[test]
+fn fold_subterm_beside_a_longer_application_of_its_symbol_is_folded() {
+    folded_is(
+        wf(),
+        &prob(f2(k1(pv(0)), pf(K, vec![pv(1), pv(2)])), vec![(NAT, pv(0))], vec![]),
+        f2(pv(0), pf(K, vec![pv(1), pv(2)])),
+        &[&[BOX, ANY], &[], &[]],
+        vec![],
+    );
+}
+
+const G0: Name = 300;
+const W: Name = 299;
+
+/// `g0` is `z`, and `g(i)` is `f` of two `g(i-1)`, up to `g(k)`: each has
+/// one member, a term with `2^k` leaves that is `k + 1` nodes of the store.
+/// `w` is the pairs of the member of `g(k)` and a number.
+fn doubling(k: u32) -> Vec<(Name, Def)> {
+    let mut defs = vec![
+        (NAT, Def { cases: vec![(Z, vec![]), (SU, vec![Some(NAT)])], rest: None }),
+        (G0, one(Z, vec![])),
+    ];
+    for i in 1..=k {
+        defs.push((G0 + i, one(F, vec![Some(G0 + i - 1), Some(G0 + i - 1)])));
+    }
+    defs.push((W, one(PR, vec![Some(G0 + k), Some(NAT)])));
+    defs
+}
+
+/// The member of `g(k)`.
+fn doubled(k: u32) -> P {
+    (0..k).fold(z(), |g, _| f2(g.clone(), g))
+}
+
+#[test]
+fn fold_visits_a_shared_subterm_without_a_variable_once() {
+    // The pair of the member of `g(k)` and a number folds to a variable of
+    // sort `w`. The member has `2^k` leaves and `k + 1` nodes: twice the
+    // depth is at most a fixed power of two times the work.
+    let k = 8;
+    let p = |k: u32| Prob { t: pr(doubled(k), pv(0)), e: vec![], a: vec![(NAT, pv(0))], x: vec![] };
+    let want = Raw { t: pv(0), c: vec![Conj::from([W])], x: vec![] };
+    let run = |k: u32| {
+        let mut f = fixture(doubling(k));
+        let (t, e, a, x) = put_prob(&mut f, &p(k));
+        let (decls, names) = (f.decls, f.names);
+        let (got, ticks) = spent(&mut f.s, |s| normal(s, decls, names, t, e, a, x));
+        f.empty_stack();
+        let got = got.map(|r| {
+            let t1 = get(&mut f.s, r.t);
+            let cs = get_conjs(&mut f.s, r.c).into_iter().map(sorted).collect();
+            let xs = get_lists(&mut f, r.x).iter().map(|l| format!("{l:?}")).collect();
+            (t1, cs, sorted(xs))
+        });
+        (got, ticks)
+    };
+    let reference = common::sorts::normal(&Sorts::new(doubling(k)), &p(k));
+    assert_eq!(reference.as_ref(), Some(&want), "the reference at depth {k}");
+    let (shallow, t1): (Option<Shape>, u64) = run(k);
+    let (deep, t2) = run(2 * k);
+    assert_eq!(shallow, Some(shape(&want)), "depth {k}");
+    assert_eq!(deep, Some(shape(&want)), "depth {}", 2 * k);
+    assert!(t2 <= 16 * t1, "{t1} ticks at depth {k} and {t2} at depth {}", 2 * k);
+}
+
 /// A generator of numbers below a bound, the same on every run.
 struct Rng(u64);
 
