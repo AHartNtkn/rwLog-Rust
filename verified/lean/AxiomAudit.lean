@@ -214,3 +214,24 @@ new axiom.
 
 /-- info: 'RwLogVerified.open_var_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLogVerified.open_var_spec
+
+/-- info: 'RwLogVerified.rev_onto_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.rev_onto_spec
+
+/-- info: 'RwLogVerified.always_on_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.always_on_spec
+
+/-- info: 'RwLogVerified.any_always_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.any_always_spec
+
+/-- info: 'RwLogVerified.first_sole_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.first_sole_spec
+
+/-- info: 'RwLogVerified.tightRun_total' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.tightRun_total
+
+/-- info: 'RwLogVerified.tighten_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.tighten_spec
+
+/-- info: 'RwLogVerified.tighten_sound' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.tighten_sound

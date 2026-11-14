@@ -65,70 +65,8 @@ fn defs() -> Vec<(Name, Def)> {
     ]
 }
 
-type Excls = Vec<Vec<(P, P)>>;
-type Entries = Vec<(usize, Vec<Name>)>;
-
-struct Fx {
-    s: Store,
-    ss: Sorts,
-    decls: TermId,
-    order: Vec<Name>,
-    names: TermId,
-}
-
 fn fx() -> Fx {
-    let ss = Sorts::new(defs());
-    let mut s = Store::new();
-    let decls = put_sorts(&mut s, &ss);
-    let order = ss.all_names();
-    let names = put_names(&mut s, &order);
-    Fx { s, ss, decls, order, names }
-}
-
-impl Fx {
-    fn conj(&mut self, c: &[Name]) -> TermId {
-        let set: Conj = c.iter().copied().collect();
-        let list = canon(&self.order, &set);
-        put_names(&mut self.s, &list)
-    }
-
-    fn entries(&mut self, es: &[(usize, Vec<Name>)]) -> TermId {
-        let mut out = self.s.alloc(Node::Nil);
-        for (v, c) in es.iter().rev() {
-            let vi = put_var(&mut self.s, *v as u128);
-            let ci = self.conj(c);
-            let e = self.s.alloc(Node::App(vi, ci));
-            out = self.s.alloc(Node::App(e, out));
-        }
-        out
-    }
-
-    fn read_entries(&mut self, mut p: TermId) -> Entries {
-        let mut out = Vec::new();
-        loop {
-            match self.s.read(p) {
-                Node::Nil => return out,
-                Node::App(e, rest) => {
-                    match self.s.read(e) {
-                        Node::App(v, c) => {
-                            let n = match get(&mut self.s, v) {
-                                T::V(n) => n as usize,
-                                _ => panic!("an entry of something that is not a variable"),
-                            };
-                            out.push((n, get_names(&mut self.s, c)));
-                        }
-                        _ => panic!("an entry that is not a pair"),
-                    }
-                    p = rest;
-                }
-                _ => panic!("a term where a list was expected"),
-            }
-        }
-    }
-
-    fn empty_stack(&mut self) {
-        assert!(self.s.pop().is_none(), "the stack is not empty");
-    }
+    fixture(defs())
 }
 
 /// `CStore.settle` on trees.
@@ -162,7 +100,7 @@ fn settle_is(t: P, x: Excls, es: Entries, want: (P, Excls, Entries)) {
     let ti = put_pat(&mut f.s, &t);
     let xi = put_excls(&mut f.s, &x);
     let ei = f.entries(&es);
-    let (t1, x1, e1) = settle(&mut f.s, f.decls, f.names, ti, xi, ei);
+    let (_, t1, x1, e1) = settle(&mut f.s, f.decls, f.names, ti, xi, ei);
     f.empty_stack();
     let wt = put_pat(&mut f.s, &want.0);
     let wx = put_excls(&mut f.s, &want.1);
@@ -394,7 +332,7 @@ fn settling_nothing_gives_back_the_same_nodes() {
     let ti = put_pat(&mut f.s, &f1(pv(1)));
     let xi = put_excls(&mut f.s, &[vec![(pv(1), z())]]);
     let ei = f.entries(&[(1, vec![NAT])]);
-    let (t1, x1, _) = settle(&mut f.s, f.decls, f.names, ti, xi, ei);
+    let (_, t1, x1, _) = settle(&mut f.s, f.decls, f.names, ti, xi, ei);
     assert!(f.s.same(t1, ti));
     assert!(f.s.same(x1, xi));
 }
@@ -525,7 +463,7 @@ fn a_variable_only_in_the_exclusions_leaves_the_node_of_the_pattern() {
 fn the_new_variables_can_be_settled() {
     let mut fxt = fx();
     let (t1, x1, e1, _) = open_in(&mut fxt, 1, C, &[vec![UNIT], vec![NAT]], 2, &f1(pv(1)), &vec![]);
-    let (t2, _, e2) = settle(&mut fxt.s, fxt.decls, fxt.names, t1, x1, e1);
+    let (_, t2, _, e2) = settle(&mut fxt.s, fxt.decls, fxt.names, t1, x1, e1);
     fxt.empty_stack();
     let want = put_pat(&mut fxt.s, &f1(pf(C, vec![z(), pv(3)])));
     assert!(fxt.s.same(t2, want), "the pattern is {:?}", get(&mut fxt.s, t2));

@@ -232,6 +232,15 @@ def isOne : Sorts.Count → Bool
 def settleKept (S : Sorts) (L : List (Nat × Sorts.Conj)) : List (Nat × Sorts.Conj) :=
   L.filter fun p => !isOne (Sorts.count S p.2)
 
+/-- Whether there is no member. -/
+def noneB : Sorts.Count → Bool
+  | .none => true
+  | _ => false
+
+/-- Whether every conjunction of the entries has a member. -/
+def settleOk (S : Sorts) (L : List (Nat × Sorts.Conj)) : Bool :=
+  L.all fun p => !noneB (Sorts.count S p.2)
+
 /-- The ticks going through the entries may spend. -/
 noncomputable def settleLoopCost (nm : Option Nat → RwLog.Sym) (S : Sorts) (u : Nat) :
     List (Nat × Sorts.Conj) → Pat × List (Eqns Nat) → Nat
@@ -300,7 +309,7 @@ end settle
 theorem settle_loop_spec (hnm : Function.Injective nm) {S : Sorts} {sp : Pat} {U : List Name}
     (hC : Ctx nm S sp U) (decls names : store.TermId) :
     ∀ (L acc : List (Nat × Sorts.Conj)) (T : Pat) (X : List (Eqns Nat)) (s : store.Store)
-      (es t x kept : store.TermId),
+      (es : store.TermId) (ok : Bool) (t x kept : store.TermId),
     Inv s → Repr nm s.nodes.val decls.val sp →
     Repr nm s.nodes.val names.val (namesPat (nm none) U) →
     (∀ p ∈ L, Sub U p.2) →
@@ -308,17 +317,18 @@ theorem settle_loop_spec (hnm : Function.Injective nm) {S : Sorts} {sp : Pat} {U
     Repr nm s.nodes.val t.val T → Repr nm s.nodes.val x.val (encX nm X) →
     Repr nm s.nodes.val kept.val (encVarEntries nm U acc) →
     Room s (settleLoopCost nm S U.length L (T, X)) →
-    sorts.settle_loop es s decls names t x kept ⦃ res =>
+    sorts.settle_loop es s decls names ok t x kept ⦃ res =>
       Inv res.1 ∧ Extends s res.1 ∧
         res.1.ticks.val ≤ s.ticks.val + settleLoopCost nm S U.length L (T, X) ∧
-        Repr nm res.1.nodes.val res.2.1.val (settleT S L (T, X)).1 ∧
-        Repr nm res.1.nodes.val res.2.2.1.val (encX nm (settleT S L (T, X)).2) ∧
-        Repr nm res.1.nodes.val res.2.2.2.val
+        res.2.1 = (ok && settleOk S L) ∧
+        Repr nm res.1.nodes.val res.2.2.1.val (settleT S L (T, X)).1 ∧
+        Repr nm res.1.nodes.val res.2.2.2.1.val (encX nm (settleT S L (T, X)).2) ∧
+        Repr nm res.1.nodes.val res.2.2.2.2.val
           (encVarEntries nm U ((settleKept S L).reverse ++ acc)) ⦄ := by
   intro L
   induction L with
   | nil =>
-    intro acc T X s es t x kept hI hde hU hsub hes ht hx hkept hroom
+    intro acc T X s es ok t x kept hI hde hU hsub hes ht hx hkept hroom
     have hroom' := hroom
     unfold Room at hroom'
     simp only [settleLoopCost] at hroom'
@@ -336,9 +346,9 @@ theorem settle_loop_spec (hnm : Function.Injective nm) {S : Sorts} {sp : Pat} {U
     simp only [uncurry, bind_ok, WP.spec_ok]
     refine ⟨K1.inv, Extends.of_eq K1.nodes (by omega), by simp only [settleLoopCost]; omega, ?_⟩
     rw [K1.nodes]
-    exact ⟨ht, hx, by simpa [settleKept] using hkept⟩
+    exact ⟨by simp [settleOk], ht, hx, by simpa [settleKept] using hkept⟩
   | cons en L ih =>
-    intro acc T X s es t x kept hI hde hU hsub hes ht hx hkept hroom
+    intro acc T X s es ok t x kept hI hde hU hsub hes ht hx hkept hroom
     have hroom' := hroom
     unfold Room at hroom'
     have hge := settleLoopCost_ge (nm := nm) (S := S) (en := en) (L := L) (r := (T, X))
@@ -408,15 +418,16 @@ theorem settle_loop_spec (hnm : Function.Injective nm) {S : Sorts} {sp : Pat} {U
       have hx06 := hx05.trans hR6.ext
       simp only [uncurry, bind_ok]
       have IH := ih acc (T.bind (Term.single en.1 (GTerm.toPat g)))
-        (X.map (Eqns.subst en.1 (GTerm.toPat g))) s6 rest t1 x1 kept hR6.inv (hx06.repr hde)
+        (X.map (Eqns.subst en.1 (GTerm.toPat g))) s6 rest ok t1 x1 kept hR6.inv (hx06.repr hde)
         (hx06.repr hU) (fun p hp => hsub p (List.mem_cons_of_mem _ hp)) (hx06.repr rrest)
         (hR6.ext.repr hR5.repr) (by rw [← encX_subst]; exact hR6.repr) (hx06.repr hkept)
         (by unfold Room; omega)
       unfold sorts.settle_loop at IH
       refine WP.spec_mono IH ?_
-      rintro res ⟨hI', hx', ht', h1, h2, h3⟩
+      rintro res ⟨hI', hx', ht', h0, h1, h2, h3⟩
       refine ⟨hI', hx06.trans hx', by
-        rw [settleLoopCost_one hc]; simp only; omega, ?_, ?_, ?_⟩
+        rw [settleLoopCost_one hc]; simp only; omega, ?_, ?_, ?_, ?_⟩
+      · rw [h0]; simp [settleOk, hc, noneB]
       · rw [settleT_one hc]; exact h1
       · rw [settleT_one hc]; exact h2
       · rw [settleKept_one hc]; exact h3
@@ -432,13 +443,14 @@ theorem settle_loop_spec (hnm : Function.Injective nm) {S : Sorts} {sp : Pat} {U
       have hx04 := hx03.trans hx4
       have rk : Repr nm s4.nodes.val kept1.val (encVarEntries nm U (en :: acc)) :=
         .app hr4 (hx04.repr re) (hx04.repr hkept)
-      have IH := ih (en :: acc) T X s4 rest t x kept1 hI4 (hx04.repr hde) (hx04.repr hU)
-        (fun p hp => hsub p (List.mem_cons_of_mem _ hp)) (hx04.repr rrest) (hx04.repr ht)
-        (hx04.repr hx) rk (by unfold Room; omega)
+      have IH := fun b => ih (en :: acc) T X s4 rest b t x kept1 hI4 (hx04.repr hde)
+        (hx04.repr hU) (fun p hp => hsub p (List.mem_cons_of_mem _ hp)) (hx04.repr rrest)
+        (hx04.repr ht) (hx04.repr hx) rk (by unfold Room; omega)
       unfold sorts.settle_loop at IH
-      refine WP.spec_mono IH ?_
-      rintro res ⟨hI', hx', ht', h1, h2, h3⟩
-      refine ⟨hI', hx04.trans hx', by rw [settleLoopCost_keep hne]; omega, ?_, ?_, ?_⟩
+      refine WP.spec_mono (IH _) ?_
+      rintro res ⟨hI', hx', ht', h0, h1, h2, h3⟩
+      refine ⟨hI', hx04.trans hx', by rw [settleLoopCost_keep hne]; omega, ?_, ?_, ?_, ?_⟩
+      · rw [h0]; simp [settleOk, hres, noneB]
       · rw [settleT_keep hne]; exact h1
       · rw [settleT_keep hne]; exact h2
       · rw [settleKept_keep hne]
@@ -463,9 +475,10 @@ theorem settle_spec (hnm : Function.Injective nm) {S : Sorts} {sp : Pat} {U : Li
     (hroom : Room s (settleCost nm S U.length L T X)) :
     sorts.settle s decls names t x es ⦃ r s' =>
       Inv s' ∧ Extends s s' ∧ s'.ticks.val ≤ s.ticks.val + settleCost nm S U.length L T X ∧
-        Repr nm s'.nodes.val r.1.val (settleT S L (T, X)).1 ∧
-        Repr nm s'.nodes.val r.2.1.val (encX nm (settleT S L (T, X)).2) ∧
-        Repr nm s'.nodes.val r.2.2.val (encVarEntries nm U (settleKept S L)) ⦄ := by
+        r.1 = settleOk S L ∧
+        Repr nm s'.nodes.val r.2.1.val (settleT S L (T, X)).1 ∧
+        Repr nm s'.nodes.val r.2.2.1.val (encX nm (settleT S L (T, X)).2) ∧
+        Repr nm s'.nodes.val r.2.2.2.val (encVarEntries nm U (settleKept S L)) ⦄ := by
   unfold sorts.settle
   have hroom' := hroom
   unfold Room at hroom'
@@ -473,9 +486,9 @@ theorem settle_spec (hnm : Function.Injective nm) {S : Sorts} {sp : Pat} {U : Li
   step with alloc_spec s .Nil hI trivial (by unfold Room; omega)
     as ⟨kept, s1, hI1, ht1, htb1, hx1, hr1⟩
   have rnil : Repr nm s1.nodes.val kept.val (encVarEntries nm U []) := .nil hr1
-  step with settle_loop_spec hnm hC decls names L [] T X s1 es t x kept hI1 (hx1.repr hde)
+  step with settle_loop_spec hnm hC decls names L [] T X s1 es true t x kept hI1 (hx1.repr hde)
     (hx1.repr hU) hsub (hx1.repr hes) (hx1.repr ht) (hx1.repr hx) rnil
-    (by unfold Room; omega) as ⟨s2, t1, x1, kept1, hI2, hx2, ht2, h1, h2, h3⟩
+    (by unfold Room; omega) as ⟨s2, ok1, t1, x1, kept1, hI2, hx2, ht2, h0, h1, h2, h3⟩
   have hlen : (settleKept S L).length ≤ L.length := List.length_filter_le _ _
   simp only [List.append_nil] at h3
   step with rev_spec ((settleKept S L).reverse.map (varEntry nm U)) s2 kept1 hI2.toWf h3
@@ -484,7 +497,7 @@ theorem settle_spec (hnm : Function.Injective nm) {S : Sorts} {sp : Pat} {U : Li
   simp only [List.length_map, List.length_reverse] at hR3
   have ht3 := hR3.ticks
   refine ⟨⟨hR3.wf, by rw [hR3.stk]; exact hI2.empty⟩, (hx1.trans hx2).trans hR3.ext, by
-    simp only [settleCost]; omega, hR3.ext.repr h1, hR3.ext.repr h2, ?_⟩
+    simp only [settleCost]; omega, by simpa using h0, hR3.ext.repr h1, hR3.ext.repr h2, ?_⟩
   simpa only [encVarEntries, ← List.map_reverse, List.reverse_reverse] using hr3
 
 /-! ### Against `CStore.settle` -/

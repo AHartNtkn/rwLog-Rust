@@ -165,53 +165,72 @@ theorem settle_spec (S : Sorts) : ∀ (ws : List Nat) (s : CStore),
       · rw [(h6 u hin).2, hc]; intro g e; cases e
       · exact h7 u hu hin
 
+/-- The store with the variable `v` replaced by the root `key.1` applied to
+`key.2` new variables, and each new variable whose sorts have one member
+replaced by that member. -/
+def stepAt (S : Sorts) (s : CStore) (v : Nat) (key : Sym × Nat) : CStore :=
+  settle S (s.exp S v key.1 key.2) ((List.range key.2).map (s.c.length + ·))
+
 /-- One replacement: the first variable whose values have one root. -/
 def step? (S : Sorts) (s : CStore) : Option CStore :=
   (s.t.vars.findSome? fun v => (sole S (s.conj v) (gone s.x v)).map fun key => (v, key)).map
-    fun r => settle S (s.exp S r.1 r.2.1 r.2.2) ((List.range r.2.2).map (s.c.length + ·))
+    fun r => stepAt S s r.1 r.2
 
 theorem step?_none {s : CStore} (h : step? S s = none) :
     ∀ v ∈ s.t.vars, sole S (s.conj v) (gone s.x v) = none := by
   simp only [step?, Option.map_eq_none_iff, List.findSome?_eq_none_iff] at h
   exact h
 
-theorem step?_some {s s' : CStore} (hI : Inv S s) (h : step? S s = some s') :
-    s'.store.Den S = s.store.Den S ∧ s.t.syms.length < s'.t.syms.length ∧ Kept S s' := by
-  simp only [step?, Option.map_eq_some_iff] at h
-  obtain ⟨⟨v, f, n⟩, hfind, rfl⟩ := h
-  obtain ⟨v', hv', hsome⟩ := List.exists_of_findSome?_eq_some hfind
-  have hsole : sole S (s.conj v) (gone s.x v) = some (f, n) ∧ v' = v := by
-    cases hsl : sole S (s.conj v') (gone s.x v') with
-    | none => rw [hsl] at hsome; cases hsome
-    | some key =>
-      rw [hsl] at hsome
-      simp only [Option.map_some, Option.some.injEq, Prod.mk.injEq] at hsome
-      obtain ⟨rfl, rfl⟩ := hsome
-      exact ⟨hsl, rfl⟩
-  obtain ⟨hsole, rfl⟩ := hsole
-  have hvN := hI.tv v' hv'
+/-- A replacement at a variable whose values have one root keeps what the
+store denotes, adds a symbol to the pattern, and leaves a store `tighten`
+goes on from. -/
+theorem stepAt_spec {s : CStore} (hI : Inv S s) {v : Nat} {key : Sym × Nat} (hv' : v ∈ s.t.vars)
+    (hsole : sole S (s.conj v) (gone s.x v) = some key) :
+    (stepAt S s v key).store.Den S = s.store.Den S ∧
+      s.t.syms.length < (stepAt S s v key).t.syms.length ∧ Kept S (stepAt S s v key) := by
+  obtain ⟨f, n⟩ := key
+  have hvN := hI.tv v hv'
   obtain ⟨h1, h2, h3, h4, h5, h6, h7⟩ := settle_spec S
-    ((List.range n).map (s.c.length + ·)) (s.exp S v' f n)
+    ((List.range n).map (s.c.length + ·)) (s.exp S v f n)
   have hes := s.exp_store (S := S) hvN f n
-  have hsole' : sole S (s.store.c v') (gone s.store.x v') = some (f, n) := hsole
+  have hsole' : sole S (s.store.c v) (gone s.store.x v) = some (f, n) := hsole
   rw [exp_length] at h2 h3
   refine ⟨?_, ?_, ?_, ?_, ?_⟩
-  · rw [h1, hes]; exact expStore_den hI.fin hvN hsole'
+  · show (settle S _ _).store.Den S = _
+    rw [h1, hes]; exact expStore_den hI.fin hvN hsole'
   · exact Nat.lt_of_lt_of_le
       (Term.syms_length_bind_single_lt (Term.syms_mk_pos _ _) hv') h5
-  · rw [h2]; exact h3 (by rw [hes]; exact expStore_fin hI.fin hv')
+  · show (settle S _ _).store.Fin (settle S _ _).c.length
+    rw [h2]; exact h3 (by rw [hes]; exact expStore_fin hI.fin hv')
   · exact h4 (by rw [hes]; exact expStore_full hI.full hv')
   · intro u hu g
     obtain ⟨hu1, hu2⟩ := h6 u hu
     rcases Term.vars_bind_single u hu1 with ⟨hut, huv⟩ | hnew
-    · rw [hu2]
-      have : (s.exp S v' f n).conj u = s.conj u := by
+    · show count S ((settle S _ _).conj u) ≠ _
+      rw [hu2]
+      have : (s.exp S v f n).conj u = s.conj u := by
         have := congrArg (fun st : Store => st.c u) hes
         have hlt := hI.tv u hut
         simpa [expStore, huv, CStore.store, Nat.not_le.2 hlt] using this
       rw [this, hI.many u hut]; intro e; cases e
     · obtain ⟨hlo, hhi⟩ := mem_expVar_vars.1 hnew
       refine h7 u (List.mem_map.2 ⟨u - s.c.length, List.mem_range.2 (by omega), by omega⟩) hu g
+
+theorem step?_some {s s' : CStore} (hI : Inv S s) (h : step? S s = some s') :
+    s'.store.Den S = s.store.Den S ∧ s.t.syms.length < s'.t.syms.length ∧ Kept S s' := by
+  simp only [step?, Option.map_eq_some_iff] at h
+  obtain ⟨⟨v, key⟩, hfind, rfl⟩ := h
+  obtain ⟨v', hv', hsome⟩ := List.exists_of_findSome?_eq_some hfind
+  have hsole : sole S (s.conj v) (gone s.x v) = some key ∧ v' = v := by
+    cases hsl : sole S (s.conj v') (gone s.x v') with
+    | none => rw [hsl] at hsome; cases hsome
+    | some key' =>
+      rw [hsl] at hsome
+      simp only [Option.map_some, Option.some.injEq, Prod.mk.injEq] at hsome
+      obtain ⟨rfl, rfl⟩ := hsome
+      exact ⟨hsl, rfl⟩
+  obtain ⟨hsole, rfl⟩ := hsole
+  exact stepAt_spec hI hv' hsole
 
 /-- A term the set holds, when it holds one. -/
 noncomputable def witness (D : Set GTerm) : GTerm :=
@@ -224,9 +243,11 @@ theorem witness_mem {D : Set GTerm} (h : D.Nonempty) : witness D ∈ D := by
 noncomputable def room (S : Sorts) (s : CStore) : Nat :=
   (witness (s.store.Den S)).syms.length - s.t.syms.length
 
-theorem room_lt (hS : S.WellFormed) {s s' : CStore} (hI : Inv S s) (h : step? S s = some s') :
+/-- A store that denotes the same with more symbols in its pattern leaves
+less room. -/
+theorem room_lt_of (hS : S.WellFormed) {s s' : CStore} (hI : Inv S s)
+    (hden : s'.store.Den S = s.store.Den S) (hsyms : s.t.syms.length < s'.t.syms.length) :
     room S s' < room S s := by
-  obtain ⟨hden, hsyms, -⟩ := step?_some hI h
   unfold room
   rw [hden]
   have hm : witness (s.store.Den S) ∈ s'.store.Den S := by
@@ -235,6 +256,11 @@ theorem room_lt (hS : S.WellFormed) {s s' : CStore} (hI : Inv S s) (h : step? S 
   have : s'.t.syms.length ≤ (witness (s.store.Den S)).syms.length := by
     rw [hσ]; exact Term.syms_length_bind_le σ s'.t
   omega
+
+theorem room_lt (hS : S.WellFormed) {s s' : CStore} (hI : Inv S s) (h : step? S s = some s') :
+    room S s' < room S s := by
+  obtain ⟨hden, hsyms, -⟩ := step?_some hI h
+  exact room_lt_of hS hI hden hsyms
 
 /-- Replace variables until none has values with one root. -/
 def tighten (S : Sorts) (hS : S.WellFormed) (s : CStore) : Option CStore :=
@@ -289,15 +315,20 @@ theorem always_unifies {E : Eqns Nat} (h : always E = true) (σ : Nat → GTerm)
     rw [this]
   · cases h
 
+/-- What `tighten` keeps, with more than one member for each variable of the
+pattern and no exclusion that always holds, is the invariant. -/
+theorem Kept.inv {s : CStore} (hP : Kept S s) (hmany : ∀ v ∈ s.t.vars, count S (s.conj v) = .many)
+    (hopen : ∀ E ∈ s.x, always E = false) : Inv S s := by
+  refine ⟨hP.fin.fo, hP.fin.tv, hP.fin.xfo, ?_, fun v _ hv => hP.full.cs v hv, hmany, hopen⟩
+  intro E hE v hv
+  obtain ⟨p, hp, hv⟩ := List.mem_flatMap.1 hv
+  exact hP.full.xs E hE p hp v hv
+
 /-- A store that fails the invariant, with what `tighten` keeps, denotes
 nothing. -/
 theorem den_empty_of_not_inv {s : CStore} (hP : Kept S s) (hI : ¬ Inv S s) :
     s.store.Den S = ∅ := by
-  refine Set.eq_empty_of_forall_notMem fun g ⟨σ, hσ, _⟩ => hI ?_
-  refine ⟨hP.fin.fo, hP.fin.tv, hP.fin.xfo, ?_, fun v _ hv => hP.full.cs v hv, ?_, ?_⟩
-  · intro E hE v hv
-    obtain ⟨p, hp, hv⟩ := List.mem_flatMap.1 hv
-    exact hP.full.xs E hE p hp v hv
+  refine Set.eq_empty_of_forall_notMem fun g ⟨σ, hσ, _⟩ => hI (hP.inv ?_ ?_)
   · intro v hv
     cases hc : count S (s.conj v) with
     | none => exact absurd ⟨_, hσ.1 v⟩ (count_none.1 hc)
@@ -325,6 +356,51 @@ theorem tighten_none (hS : S.WellFormed) : ∀ (k : Nat) (s : CStore), room S s 
       · cases h
     · rename_i hI
       exact den_empty_of_not_inv hP hI
+
+/-! ## Replacements in any order
+
+`tighten` replaces the first variable whose values have one root. What it
+proves of its result holds of the result of replacing such variables in any
+order (`Tightens`), which is what an implementation that goes through the
+variables in its own order does. -/
+
+/-- `r` is reached from `s` by replacing variables whose values have one
+root, in some order, until none is left or the invariant fails. -/
+inductive Tightens (S : Sorts) : CStore → Option CStore → Prop
+  | dead {s : CStore} : ¬ Inv S s → Tightens S s none
+  | done {s : CStore} : Inv S s → (∀ v ∈ s.t.vars, sole S (s.conj v) (gone s.x v) = none) →
+      Tightens S s (some s)
+  | step {s : CStore} {v : Nat} {key : Sym × Nat} {r : Option CStore} : Inv S s → v ∈ s.t.vars →
+      sole S (s.conj v) (gone s.x v) = some key → Tightens S (stepAt S s v key) r →
+      Tightens S s r
+
+theorem Tightens.some {s : CStore} {r : Option CStore} (h : Tightens S s r) :
+    ∀ s', r = some s' → s'.store.Den S = s.store.Den S ∧ Inv S s' ∧
+      ∀ v ∈ s'.t.vars, sole S (s'.conj v) (gone s'.x v) = none := by
+  induction h with
+  | dead _ => intro s' e; cases e
+  | done hI hs => intro s' e; cases e; exact ⟨rfl, hI, hs⟩
+  | step hI hv hsole _ ih =>
+    intro s' e
+    obtain ⟨h1, h2, h3⟩ := ih s' e
+    exact ⟨h1.trans (stepAt_spec hI hv hsole).1, h2, h3⟩
+
+theorem Tightens.none {s : CStore} {r : Option CStore} (h : Tightens S s r) :
+    Kept S s → r = none → s.store.Den S = ∅ := by
+  induction h with
+  | dead hI => intro hP _; exact den_empty_of_not_inv hP hI
+  | done _ _ => intro _ e; cases e
+  | step hI hv hsole _ ih =>
+    intro _ e
+    obtain ⟨hden, -, hP⟩ := stepAt_spec hI hv hsole
+    rw [← hden]; exact ih hP e
+
+/-- The room a replacement leaves. -/
+theorem room_lt_at (hS : S.WellFormed) {s : CStore} (hI : Inv S s) {v : Nat} {key : Sym × Nat}
+    (hv : v ∈ s.t.vars) (hsole : sole S (s.conj v) (gone s.x v) = some key) :
+    room S (stepAt S s v key) < room S s := by
+  obtain ⟨hden, hsyms, -⟩ := stepAt_spec hI hv hsole
+  exact room_lt_of hS hI hden hsyms
 
 end Sorts
 end RwLog

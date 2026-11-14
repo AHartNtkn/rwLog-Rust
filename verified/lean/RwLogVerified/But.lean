@@ -21,10 +21,10 @@ variable {nm : Option Nat → RwLog.Sym}
 
 /-! ## A list the other way round -/
 
-theorem rev_loop_spec : ∀ (ps acc : List Pat) (s : store.Store) (l out : store.TermId),
+theorem rev_onto_loop_spec : ∀ (ps acc : List Pat) (s : store.Store) (l out : store.TermId),
     Wf s → Repr nm s.nodes.val l.val (encList (nm none) ps) →
     Repr nm s.nodes.val out.val (encList (nm none) acc) → Room s (2 * ps.length + 1) →
-    sorts.rev_loop l s out ⦃ r s' =>
+    sorts.rev_onto_loop l s out ⦃ r s' =>
       Ran s s' (2 * ps.length + 1) ∧
         Repr nm s'.nodes.val r.val (encList (nm none) (ps.reverse ++ acc)) ⦄ := by
   intro ps
@@ -33,9 +33,9 @@ theorem rev_loop_spec : ∀ (ps acc : List Pat) (s : store.Store) (l out : store
     intro acc s l out hW hl ho hroom
     have hroom' := hroom
     unfold Room at hroom'
-    unfold sorts.rev_loop
+    unfold sorts.rev_onto_loop
     rw [loop]
-    simp only [sorts.rev_loop.body]
+    simp only [sorts.rev_onto_loop.body]
     step with uncons_repr s l hW hl (by unfold Room; omega) as ⟨r0, hK, hu⟩
     obtain ⟨o, s1⟩ := r0
     simp only [encList] at hu
@@ -50,9 +50,9 @@ theorem rev_loop_spec : ∀ (ps acc : List Pat) (s : store.Store) (l out : store
     have hroom' := hroom
     unfold Room at hroom'
     simp only [List.length_cons] at hroom'
-    unfold sorts.rev_loop
+    unfold sorts.rev_onto_loop
     rw [loop]
-    simp only [sorts.rev_loop.body]
+    simp only [sorts.rev_onto_loop.body]
     step with uncons_repr s l hW hl (by unfold Room; omega) as ⟨r0, hK, hu⟩
     obtain ⟨o, s1⟩ := r0
     simp only [encList] at hu
@@ -69,12 +69,23 @@ theorem rev_loop_spec : ∀ (ps acc : List Pat) (s : store.Store) (l out : store
     have ro : Repr nm s2.nodes.val out1.val (encList (nm none) (p :: acc)) :=
       .app hid2 (hx02.repr ra) (hx02.repr ho)
     have IH := ih (p :: acc) s2 t out1 hW2 (hx02.repr rt) ro (by unfold Room; omega)
-    unfold sorts.rev_loop at IH
+    unfold sorts.rev_onto_loop at IH
     simp only [uncurry, bind_ok]
     refine WP.spec_mono IH ?_
     rintro ⟨r, s'⟩ ⟨hR, hr⟩
     refine ⟨(R2.trans hR).mono (by simp only [List.length_cons]; omega), ?_⟩
     simpa using hr
+
+/-- `rev_onto` gives the first list with its members in the other order,
+followed by the second. -/
+theorem rev_onto_spec (ps acc : List Pat) (s : store.Store) (l out : store.TermId) (hW : Wf s)
+    (hl : Repr nm s.nodes.val l.val (encList (nm none) ps))
+    (ho : Repr nm s.nodes.val out.val (encList (nm none) acc)) (hroom : Room s (2 * ps.length + 1)) :
+    sorts.rev_onto s l out ⦃ r s' =>
+      Ran s s' (2 * ps.length + 1) ∧
+        Repr nm s'.nodes.val r.val (encList (nm none) (ps.reverse ++ acc)) ⦄ := by
+  unfold sorts.rev_onto
+  exact rev_onto_loop_spec ps acc s l out hW hl ho hroom
 
 /-- `rev` gives the list with its members in the other order. -/
 theorem rev_spec (ps : List Pat) (s : store.Store) (l : store.TermId) (hW : Wf s)
@@ -86,7 +97,7 @@ theorem rev_spec (ps : List Pat) (s : store.Store) (l : store.TermId) (hW : Wf s
   unfold Room at hroom'
   step with alloc_w s .Nil hW trivial (by unfold Room; omega)
     as ⟨out, s1, hW1, ht1, htb1, hx1, hid, hst1⟩
-  have IH := rev_loop_spec (nm := nm) ps [] s1 l out hW1 (hx1.repr hl) (.nil hid)
+  have IH := rev_onto_loop_spec (nm := nm) ps [] s1 l out hW1 (hx1.repr hl) (.nil hid)
     (by unfold Room; omega)
   refine WP.spec_mono IH ?_
   rintro ⟨r, s'⟩ ⟨hR, hr⟩

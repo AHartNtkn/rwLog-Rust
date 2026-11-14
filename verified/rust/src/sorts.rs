@@ -1210,15 +1210,22 @@ pub fn included(s: &mut Store, decls: TermId, names: TermId, c: TermId, n: TermI
 //
 // A *root* is `App(symbol, list with one member for each argument)`.
 
-/// The list with its members in the other order.
-fn rev(s: &mut Store, l0: TermId) -> TermId {
-    let mut out = s.alloc(Node::Nil);
+/// The list `l0` with its members in the other order, followed by the list
+/// `out0`.
+pub fn rev_onto(s: &mut Store, l0: TermId, out0: TermId) -> TermId {
+    let mut out = out0;
     let mut l = l0;
     while let Some((h, t)) = uncons(s, l) {
         out = s.alloc(Node::App(h, out));
         l = t;
     }
     out
+}
+
+/// The list with its members in the other order.
+fn rev(s: &mut Store, l0: TermId) -> TermId {
+    let out = s.alloc(Node::Nil);
+    rev_onto(s, l0, out)
 }
 
 /// The roots `keys` with the root of `head` and `args` in front, unless
@@ -1796,8 +1803,9 @@ pub fn var_succ(s: &mut Store, v: TermId) -> TermId {
 
 /// The pattern `t0` and the exclusions `x0` with each variable of the
 /// entries `es0` whose conjunction has one member replaced by that member,
-/// and the entries of the other variables, in their order. Tables `A` and
-/// `B` are used; the stack is empty at entry.
+/// and the entries of the other variables, in their order; with whether
+/// every conjunction of the entries has a member. Tables `A` and `B` are
+/// used; the stack is empty at entry.
 pub fn settle(
     s: &mut Store,
     decls: TermId,
@@ -1805,7 +1813,8 @@ pub fn settle(
     t0: TermId,
     x0: TermId,
     es0: TermId,
-) -> (TermId, TermId, TermId) {
+) -> (bool, TermId, TermId, TermId) {
+    let mut ok = true;
     let mut t = t0;
     let mut x = x0;
     let mut kept = s.alloc(Node::Nil);
@@ -1818,14 +1827,18 @@ pub fn settle(
                     t = rebuild(s, Leaf::Sub(v, g), t);
                     x = rebuild(s, Leaf::Sub(v, g), x);
                 }
-                _ => kept = s.alloc(Node::App(e, kept)),
+                Count::None => {
+                    ok = false;
+                    kept = s.alloc(Node::App(e, kept));
+                }
+                Count::Many => kept = s.alloc(Node::App(e, kept)),
             },
             None => panic!(),
         }
         es = rest;
     }
     let kept = rev(s, kept);
-    (t, x, kept)
+    (ok, t, x, kept)
 }
 
 /// The pattern `t` and the exclusions `x` with the variable `v` replaced by
@@ -1858,4 +1871,130 @@ pub fn open_var(
     let t1 = rebuild(s, Leaf::Sub(v, head), t);
     let x1 = rebuild(s, Leaf::Sub(v, head), x);
     (t1, x1, es, next)
+}
+
+/// Whether the equations of the exclusion `e` always hold: they have a most
+/// general solution, and it moves none of their variables. Tables `A` and
+/// `B` are used; the stack is empty at entry.
+pub fn always_on(s: &mut Store, e: TermId) -> bool {
+    let (ok, o) = solve_into(s, e, e);
+    if ok {
+        s.same(o, e)
+    } else {
+        false
+    }
+}
+
+/// Whether some exclusion of the list `xs0` always holds.
+pub fn any_always(s: &mut Store, xs0: TermId) -> bool {
+    let mut xs = xs0;
+    let mut found = false;
+    let mut go = true;
+    while go {
+        match uncons(s, xs) {
+            Some((e, rest)) => {
+                if always_on(s, e) {
+                    found = true;
+                    go = false;
+                } else {
+                    xs = rest;
+                }
+            }
+            None => go = false,
+        }
+    }
+    found
+}
+
+/// The first entry of the list `es0` whose variable has values with one
+/// root, given the exclusions `x`: the variable, the root, the conjunctions
+/// of the arguments of the root, and the other entries in their order.
+fn first_sole(
+    s: &mut Store,
+    decls: TermId,
+    names: TermId,
+    x: TermId,
+    es0: TermId,
+) -> Option<(TermId, TermId, TermId, TermId)> {
+    let mut seen = s.alloc(Node::Nil);
+    let mut es = es0;
+    let mut found = None;
+    let mut go = true;
+    while go {
+        match uncons(s, es) {
+            Some((e, rest)) => match uncons(s, e) {
+                Some((v, c)) => {
+                    let g = gone(s, x, v);
+                    match sole_root(s, decls, names, c, g) {
+                        Some((f, kids)) => {
+                            let others = rev_onto(s, seen, rest);
+                            found = Some((v, f, kids, others));
+                            go = false;
+                        }
+                        None => {
+                            seen = s.alloc(Node::App(e, seen));
+                            es = rest;
+                        }
+                    }
+                }
+                None => panic!(),
+            },
+            None => go = false,
+        }
+    }
+    found
+}
+
+/// The store of the pattern `t0`, the exclusions `x0` and the entries `es0`,
+/// whose variables are below `next0`, brought to one in which no entry has
+/// one member and no variable of an entry has values with one root; nothing
+/// when an entry has no member or an exclusion always holds, in which case
+/// the store denotes nothing. First each variable whose conjunction has one
+/// member is replaced by it. Then, as long as there is one, the variable of
+/// the first entry whose values have one root is replaced by that root
+/// applied to new variables, and the entries of the new variables that are
+/// left are put, in reverse, before the others. Returned are the pattern,
+/// the exclusions, the entries and the next unused variable. Tables `A` and
+/// `B` are used; the stack is empty at entry.
+pub fn tighten(
+    s: &mut Store,
+    decls: TermId,
+    names: TermId,
+    t0: TermId,
+    x0: TermId,
+    es0: TermId,
+    next0: TermId,
+) -> Option<(TermId, TermId, TermId, TermId)> {
+    let (ok0, t1, x1, es1) = settle(s, decls, names, t0, x0, es0);
+    let mut ok = ok0;
+    let mut t = t1;
+    let mut x = x1;
+    let mut es = es1;
+    let mut next = next0;
+    let mut go = ok0;
+    while go {
+        if any_always(s, x) {
+            ok = false;
+            go = false;
+        } else {
+            match first_sole(s, decls, names, x, es) {
+                Some((v, f, kids, others)) => {
+                    let (t2, x2, new, next2) = open_var(s, v, f, kids, next, t, x);
+                    let (ok3, t3, x3, kept) = settle(s, decls, names, t2, x2, new);
+                    t = t3;
+                    x = x3;
+                    es = rev_onto(s, kept, others);
+                    next = next2;
+                    ok = ok3;
+                    go = ok3;
+                }
+                None => go = false,
+            }
+        }
+    }
+    if ok {
+        Some((t, x, es, next))
+    } else {
+        None
+    }
 }
