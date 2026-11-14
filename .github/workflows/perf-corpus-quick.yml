@@ -1,27 +1,36 @@
 name: Perf Corpus Quick Gate
 
-# This workflow tests and measures the Rust interpreter in src/. Changes
-# confined to the Lean formalization, to the verified crate (a separate crate
-# under verified/) or to documentation cannot change its result, so they do
-# not trigger it.
+# This workflow tests and measures the Rust interpreter in src/. It runs only
+# when a file that the interpreter, its tests or its measurements are built
+# from or read changes. A change confined to the Lean formalization, to the
+# verified crate (a separate crate under verified/) or to documentation
+# cannot change its result, and does not trigger it.
 on:
   pull_request:
-    paths-ignore:
-      - "lean/**"
-      - "verified/**"
-      - ".github/workflows/lean.yml"
-      - ".github/workflows/verified.yml"
-      - ".github/workflows/extraction.yml"
-      - "**/*.md"
+    paths:
+      - "src/**"
+      - "tests/**"
+      - "benches/**"
+      - "examples/**"
+      - "perf/**"
+      - "scripts/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/perf-corpus-quick.yml"
+      - "!**/*.md"
   push:
     branches: [ master ]
-    paths-ignore:
-      - "lean/**"
-      - "verified/**"
-      - ".github/workflows/lean.yml"
-      - ".github/workflows/verified.yml"
-      - ".github/workflows/extraction.yml"
-      - "**/*.md"
+    paths:
+      - "src/**"
+      - "tests/**"
+      - "benches/**"
+      - "examples/**"
+      - "perf/**"
+      - "scripts/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/perf-corpus-quick.yml"
+      - "!**/*.md"
 
 # A newer push to a pull request replaces the run of the older one. Runs on
 # master are never cancelled, so every commit there has a result.

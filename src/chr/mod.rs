@@ -159,9 +159,7 @@ impl RVarEnv {
     pub fn reset(&mut self) {
         self.gen = self.gen.wrapping_add(1);
         if self.gen == 0 {
-            for s in &mut self.stamp {
-                *s = 0;
-            }
+            self.stamp.fill(0);
             self.gen = 1;
         }
         self.trail.clear();
