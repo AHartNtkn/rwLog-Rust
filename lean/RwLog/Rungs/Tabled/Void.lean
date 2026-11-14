@@ -298,6 +298,56 @@ theorem chain_ladder {xs : List Rel} (hx : ∀ x ∈ xs, NotSeq x) {p : Nat} (hp
     exact List.mem_flatMap.2 ⟨_, List.mem_map.2 ⟨_, hw, rfl⟩, hs⟩
 
 include hL hP hU hroot in
+/-- If the goal of the members of a chain from the `q`-th on is void and
+completes whenever it has a table, so does the goal of every longer
+suffix. -/
+theorem chain_ladder_right {xs : List Rel} (hx : ∀ x ∈ xs, NotSeq x) {q : Nat}
+    (hq : q < xs.length)
+    (hbv : Void P (bare (mkSeq (xs.drop q)) : GoalOf R Rel))
+    (hbd : (∃ r i, idx (tablesAt K hK U root r) (bare (mkSeq (xs.drop q))) = some i) →
+      ∃ r, isDone (tablesAt K hK U root r) (bare (mkSeq (xs.drop q))) = true) :
+    ∀ d j, j + d = q →
+      GoalOk D (bare (mkSeq (xs.drop j)) : GoalOf R Rel) →
+      Void P (bare (mkSeq (xs.drop j)) : GoalOf R Rel) ∧
+        ((∃ r i, idx (tablesAt K hK U root r) (bare (mkSeq (xs.drop j))) = some i) →
+          ∃ r, isDone (tablesAt K hK U root r) (bare (mkSeq (xs.drop j))) = true) := by
+  intro d
+  induction d with
+  | zero =>
+    intro j hj _
+    obtain rfl : j = q := by omega
+    exact ⟨hbv, hbd⟩
+  | succ d ih =>
+    intro j hj hg
+    have hlen : (xs.drop j).length = xs.length - j := List.length_drop
+    have hys : ∀ x ∈ xs.drop j, NotSeq x := fun x h => hx x (List.mem_of_mem_drop h)
+    have hne : xs.drop j ≠ [] := by intro h; rw [h] at hlen; simp at hlen; omega
+    have hv : (mkSeq (xs.drop j)).view = .chain (xs.drop j) := view_mkSeq (by omega) hys
+    have hvf : (bare (mkSeq (xs.drop j)) : GoalOf R Rel).node.view.forget = .chain (xs.drop j) := by
+      show (mkSeq (xs.drop j)).view.forget = _
+      rw [hv]; rfl
+    obtain ⟨-, l, r, hl, hr, -⟩ := hg.normal.chain_split hv (i := 1) (by omega) (by omega)
+    have hr' : (mkSeq (xs.drop j)).interval 1 (xs.drop j).length =
+        some (mkSeq (xs.drop (j + 1))) := by
+      unfold RelOf.interval
+      simp only [RelOf.chainParts]
+      rw [seqParts_mkSeq hne hys, ite_of_pos ⟨by omega, Nat.le_refl _⟩, List.take_length,
+        List.drop_drop]
+    obtain rfl : r = mkSeq (xs.drop (j + 1)) := Option.some.inj (hr.symm.trans hr')
+    have hw : ((Kind.seq, bare l, bare (mkSeq (xs.drop (j + 1)))) :
+        Kind × GoalOf R Rel × GoalOf R Rel) ∈
+        (splitsOf (K := DerivationKernel.over D K hK P) (bare (mkSeq (xs.drop j)))
+          (.chain (xs.drop j))).val :=
+      (mem_splitsOf_chain K hK _ _ _).2 ⟨1, by unfold seqSplits; split <;> simp, l, _, hl, hr, rfl⟩
+    have hS := seqSplit_of_mem K hK hg hvf hw
+    obtain ⟨hvoid, hdone⟩ := ih (j + 1) (by omega) hS.rok
+    refine ⟨hS.void_right hvoid, done_of_side hL hP hU hroot (hS.void_right hvoid)
+      (w := (Kind.seq, bare l, bare (mkSeq (xs.drop (j + 1)))))
+      (fun ts s hs => ?_) (.inr rfl) hvoid hdone⟩
+    rw [produceTables_chain K hK ts _ hvf]
+    exact List.mem_flatMap.2 ⟨_, List.mem_map.2 ⟨_, hw, rfl⟩, hs⟩
+
+include hL hP hU hroot in
 /-- If the goal of the meet of some members is void and completes whenever
 it has a table, so does the goal of the meet of those and any others. -/
 theorem meet_ladder {A : List Rel} (hA : A ≠ []) (hAs : A.Pairwise RelLE)
