@@ -266,5 +266,32 @@ new axiom.
 /-- info: 'RwLogVerified.norm_ex_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLogVerified.norm_ex_spec
 
+/-- info: 'RwLogVerified.covers_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.covers_spec
+
+/-- info: 'RwLogVerified.norm_exs_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.norm_exs_spec
+
+/-- info: 'RwLogVerified.antichain_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.antichain_spec
+
+/-- info: 'RwLogVerified.take_len_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.take_len_spec
+
+/-- info: 'RwLogVerified.low_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.low_spec
+
+/-- info: 'RwLogVerified.cut_exs_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.cut_exs_spec
+
+/-- info: 'RwLogVerified.coversV_vals' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.coversV_vals
+
+/-- info: 'RwLogVerified.lowV_vals' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.lowV_vals
+
+/-- info: 'RwLogVerified.antichain_vals' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in #print axioms RwLogVerified.antichain_vals
+
 /-- info: 'RwLogVerified.ofTight_abs' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLogVerified.ofTight_abs

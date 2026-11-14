@@ -2323,3 +2323,191 @@ pub fn norm_ex(
         None
     }
 }
+
+// # The exclusions of a normal store
+
+/// Does the solved exclusion `a` exclude only what the solved exclusion `b`
+/// does: is each value of `a` the value of `b` with each variable replaced
+/// by its value in `a`? Both are lists of values of the variables `vs0`.
+/// Tables `A` and `B` are used; the stack is empty at entry.
+pub fn covers(s: &mut Store, vs0: TermId, a: TermId, b: TermId) -> bool {
+    s.clear(Tbl::B);
+    let mut vs = vs0;
+    let mut l = a;
+    let mut go = true;
+    while go {
+        match uncons(s, vs) {
+            Some((v, vrest)) => match uncons(s, l) {
+                Some((p, lrest)) => {
+                    s.set(Tbl::B, v, p);
+                    vs = vrest;
+                    l = lrest;
+                }
+                None => panic!(),
+            },
+            None => go = false,
+        }
+    }
+    s.clear(Tbl::A);
+    let r = rebuild(s, Leaf::Map, b);
+    s.same(r, a)
+}
+
+/// The solved form of each exclusion of the list `x0` that has one, in
+/// order, in the store whose variables `vs` have the conjunctions `cs`.
+/// Tables `A` and `B` are used; the stack is empty at entry.
+pub fn norm_exs(
+    s: &mut Store,
+    decls: TermId,
+    names: TermId,
+    vs: TermId,
+    cs: TermId,
+    x0: TermId,
+) -> TermId {
+    let mut out = s.alloc(Node::Nil);
+    let mut x = x0;
+    while let Some((e, rest)) = uncons(s, x) {
+        if let Some(vals) = norm_ex(s, decls, names, vs, cs, e) {
+            out = s.alloc(Node::App(vals, out));
+        }
+        x = rest;
+    }
+    rev(s, out)
+}
+
+/// Does some member of the list `l0` of solved exclusions cover the solved
+/// exclusion `a`?
+fn any_covers(s: &mut Store, vs: TermId, a: TermId, l0: TermId) -> bool {
+    let mut found = false;
+    let mut l = l0;
+    let mut go = true;
+    while go {
+        match uncons(s, l) {
+            Some((b, rest)) => {
+                if covers(s, vs, a, b) {
+                    found = true;
+                    go = false;
+                } else {
+                    l = rest;
+                }
+            }
+            None => go = false,
+        }
+    }
+    found
+}
+
+/// The members of the list `l0` of solved exclusions that the solved
+/// exclusion `a` does not cover, in order.
+fn drop_covered(s: &mut Store, vs: TermId, a: TermId, l0: TermId) -> TermId {
+    let mut out = s.alloc(Node::Nil);
+    let mut l = l0;
+    while let Some((b, rest)) = uncons(s, l) {
+        if !covers(s, vs, b, a) {
+            out = s.alloc(Node::App(b, out));
+        }
+        l = rest;
+    }
+    rev(s, out)
+}
+
+/// The members of the list `l0` of solved exclusions that no other member
+/// covers, in order; of members that cover each other, the last. Tables
+/// `A` and `B` are used; the stack is empty at entry.
+pub fn antichain(s: &mut Store, vs: TermId, l0: TermId) -> TermId {
+    let mut acc = s.alloc(Node::Nil);
+    let mut l = rev(s, l0);
+    while let Some((a, rest)) = uncons(s, l) {
+        if !any_covers(s, vs, a, acc) {
+            let kept = drop_covered(s, vs, a, acc);
+            acc = s.alloc(Node::App(a, kept));
+        }
+        l = rest;
+    }
+    acc
+}
+
+/// As many of the first members of the list `l0` as the list `by0` has
+/// members.
+pub fn take_len(s: &mut Store, l0: TermId, by0: TermId) -> TermId {
+    let mut out = s.alloc(Node::Nil);
+    let mut l = l0;
+    let mut by = by0;
+    let mut go = true;
+    while go {
+        match uncons(s, by) {
+            Some((_, brest)) => match uncons(s, l) {
+                Some((p, lrest)) => {
+                    out = s.alloc(Node::App(p, out));
+                    l = lrest;
+                    by = brest;
+                }
+                None => panic!(),
+            },
+            None => go = false,
+        }
+    }
+    rev(s, out)
+}
+
+/// The list `l0` without as many of its first members as the list `by0` has
+/// members.
+fn drop_len(s: &mut Store, l0: TermId, by0: TermId) -> TermId {
+    let mut l = l0;
+    let mut by = by0;
+    let mut go = true;
+    while go {
+        match uncons(s, by) {
+            Some((_, brest)) => match uncons(s, l) {
+                Some((_, lrest)) => {
+                    l = lrest;
+                    by = brest;
+                }
+                None => panic!(),
+            },
+            None => go = false,
+        }
+    }
+    l
+}
+
+/// Does the solved exclusion `vals`, over the variables `vs`, say nothing
+/// of the variables after the first ones `ks`: is each later variable its
+/// own value, and is every variable in the value of a first one a first
+/// one? Tables `A` and `B` are used; the stack is empty at entry.
+pub fn low(s: &mut Store, vs: TermId, ks: TermId, vals: TermId) -> bool {
+    let later = drop_len(s, vals, ks);
+    let own = drop_len(s, vs, ks);
+    if s.same(later, own) {
+        let first = take_len(s, vals, ks);
+        let nil = s.alloc(Node::Nil);
+        s.clear(Tbl::B);
+        let mut l = ks;
+        while let Some((v, rest)) = uncons(s, l) {
+            s.set(Tbl::B, v, nil);
+            l = rest;
+        }
+        s.clear(Tbl::A);
+        let closed = rebuild(s, Leaf::Map, first);
+        ground(s, closed)
+    } else {
+        false
+    }
+}
+
+/// The members of the list `l0` of solved exclusions over the variables
+/// `vs` that say nothing of the variables after the first ones `ks`, each
+/// as the list of the values of these, in order. Tables `A` and `B` are
+/// used; the stack is empty at entry.
+pub fn cut_exs(s: &mut Store, vs: TermId, ks: TermId, l0: TermId) -> TermId {
+    let mut out = s.alloc(Node::Nil);
+    let mut l = l0;
+    while let Some((vals, rest)) = uncons(s, l) {
+        if low(s, vs, ks, vals) {
+            let first = take_len(s, vals, ks);
+            out = s.alloc(Node::App(first, out));
+        }
+        l = rest;
+    }
+    rev(s, out)
+}

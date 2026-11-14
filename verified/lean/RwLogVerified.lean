@@ -55,6 +55,10 @@
   a numbered store; aliases turned to their first variable; the sorts of
   the variables pushed onto their values; the free variables left with one
   value bound to it.
+* `RwLogVerified.Assemble`: the exclusions of a normal store: whether one
+  solved exclusion is an instance of another; the solved forms of a list;
+  the ones that are instances of no other; the ones over the first
+  variables.
 * `RwLogVerified.Kernel`: the kernel rung whose charges are those bounds.
 * `RwLogVerified.KernelRuns`: its charges on a worked composition.
 
@@ -95,5 +99,6 @@ import RwLogVerified.TightRun
 import RwLogVerified.Tight
 import RwLogVerified.Number
 import RwLogVerified.Solved
+import RwLogVerified.Assemble
 import RwLogVerified.Kernel
 import RwLogVerified.KernelRuns
