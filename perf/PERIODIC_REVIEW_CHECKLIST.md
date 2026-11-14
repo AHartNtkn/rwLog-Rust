@@ -17,7 +17,7 @@ Run this review monthly, and before major optimization pushes.
 ## Runtime Cost
 
 - [ ] Quick tier runtime remains practical for CI.
-- [ ] Stress tier runtime remains suitable for nightly runs.
+- [ ] Stress tier runtime remains suitable for a run by hand (`scripts/perf/stress.sh`); no workflow runs it.
 - [ ] Case count growth is intentional and justified.
 
 ## Tooling Integrity
