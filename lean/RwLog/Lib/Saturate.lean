@@ -96,6 +96,16 @@ theorem induction {p : α → Prop}
       · exact step _ ih x h
   exact this _
 
+/-- A chain that starts empty and grows by rounds reaches the saturation. -/
+theorem chain (g : Nat → Finset α) (h0 : g 0 = ∅)
+    (hstep : ∀ n, g (n + 1) = g n ∪ (f (g n) ∩ U)) : g U.card = saturate U f := by
+  have : ∀ n, g n = (round U f)^[n] ∅ := by
+    intro n
+    induction n with
+    | zero => simpa using h0
+    | succ n ih => rw [Function.iterate_succ_apply', ← ih, hstep]; rfl
+  exact this _
+
 end saturate
 
 end RwLog

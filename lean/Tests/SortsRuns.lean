@@ -1,11 +1,13 @@
-import RwLog.Sorts.WF
+import RwLog.Sorts.InclBut
 
 /-!
 # The read-time check on sorts
 
 `Sorts.WellFormed` is decided when a program is read. These runs evaluate the
 decision on the sorts of the examples (`lean/SORTS.md` section 5) and on the
-declarations the condition rejects (section 4).
+declarations the condition rejects (section 4), and then how many members
+conjunctions of sorts have (`Sorts.count`) and whether a conjunction is
+inside a sort but for some terms (`Sorts.inclBut`).
 -/
 
 namespace RwLog.Tests.SortsRuns
@@ -55,5 +57,147 @@ def examples : Sorts :=
 #guard decide (Sorts.WellFormed
   [ ("sk", ⟨[("k", []), ("s", []), ("a", [some "sk", some "sk"])], none⟩),
     ("kn", ⟨[("k", []), ("succ", [some "kn"])], none⟩) ])
+
+/-! ## How many members a conjunction has -/
+
+/-- Sorts with a conjunction of each size. -/
+def sized : Sorts :=
+  [ nat,
+    ("zero", ⟨[("z", [])], none⟩),
+    ("pair", ⟨[("p", [some "zero", some "zero"])], none⟩),
+    ("void", ⟨[("v", [some "void"])], none⟩),
+    ("any", ⟨[], some ([], none)⟩),
+    ("notz", ⟨[], some ([("z", 0)], none)⟩) ]
+
+#guard decide sized.WellFormed
+
+-- a recursive sort has more than one member
+#guard count sized {"nat"} = .many
+
+-- no sorts required: every term
+#guard count sized ∅ = .many
+
+-- a sort with only a rest
+#guard count sized {"any"} = .many
+
+-- two sorts that share one constant
+#guard count sized {"nat", "zero"} = .one (.sym "z")
+
+-- the one member is built from the one member of each argument
+#guard count sized {"pair"} = .one (Term.mk "p" [.sym "z", .sym "z"])
+
+-- a rest that agrees with the one case
+#guard count sized {"zero", "any"} = .one (.sym "z")
+
+-- a sort whose only case needs a member of itself
+#guard count sized {"void"} = .none
+
+-- two sorts with no root in common
+#guard count sized {"nat", "pair"} = .none
+
+-- a rest that excepts the only root of the other sort
+#guard count sized {"zero", "notz"} = .none
+
+-- the rest leaves the recursive case
+#guard count sized {"nat", "notz"} = .many
+
+-- a sort that is not declared has no member
+#guard count sized {"nat", "missing"} = .none
+
+-- the examples: names are neutral, and neutral terms are normal
+#guard count examples {"name", "neut", "norm"} = .many
+#guard count examples {"prog", "sk"} = .none
+#guard count examples {"sk", "pos"} = .none
+
+/-! ## Inside a sort but for some terms -/
+
+/-! The decisions range over every set of declared names, so each run has few
+sorts. -/
+
+def z : GTerm := .sym "z"
+def s (t : GTerm) : GTerm := Term.mk "s" [t]
+def p (a b : GTerm) : GTerm := Term.mk "p" [a, b]
+
+/-- Leaving a term out moves a variable to a smaller sort. -/
+def zk : Sorts :=
+  [ ("zk", ⟨[("z", []), ("k", [some "zk"])], none⟩),
+    ("kk", ⟨[("k", [some "zk"])], none⟩) ]
+
+#guard decide zk.WellFormed
+
+-- nothing left out: inclusion
+#guard inclBut zk {"kk"} "zk" []
+#guard !inclBut zk {"zk"} "kk" []
+
+-- the one term outside is left out
+#guard inclBut zk {"zk"} "kk" [z]
+
+/-- The numbers, those above zero, and those above one. -/
+def nats : Sorts :=
+  [ nat,
+    ("pos", ⟨[("s", [some "nat"])], none⟩),
+    ("two", ⟨[("s", [some "pos"])], none⟩),
+    ("zero", ⟨[("z", [])], none⟩) ]
+
+#guard decide nats.WellFormed
+
+#guard inclBut nats {"nat"} "pos" [z]
+
+-- a term that is not the one outside
+#guard !inclBut nats {"nat"} "pos" [s z]
+
+-- more left out than needed
+#guard inclBut nats {"nat"} "pos" [s z, z]
+
+-- two terms outside, one deep
+#guard !inclBut nats {"nat"} "two" [z]
+#guard inclBut nats {"nat"} "two" [z, s z]
+#guard !inclBut nats {"nat"} "two" [s z]
+
+-- a root the sort has no case for: its one term must be left out
+#guard inclBut nats {"zero"} "pos" [z]
+#guard !inclBut nats {"nat"} "zero" [z]
+
+-- a conjunction with no member is inside every sort
+#guard inclBut nats {"zero", "pos"} "two" [z]
+
+/-- Pairs. -/
+def pairs : Sorts :=
+  [ nat,
+    ("pos", ⟨[("s", [some "nat"])], none⟩),
+    ("zero", ⟨[("z", [])], none⟩),
+    ("pz", ⟨[("p", [some "zero", some "nat"])], none⟩),
+    ("pp", ⟨[("p", [some "zero", some "pos"])], none⟩) ]
+
+#guard decide pairs.WellFormed
+
+-- the other argument has one value, so the term left out is one term
+#guard inclBut pairs {"pz"} "pp" [p z z]
+#guard !inclBut pairs {"pz"} "pp" [p z (s z)]
+
+/-- Pairs whose arguments both have many values. -/
+def wide : Sorts :=
+  [ nat,
+    ("pos", ⟨[("s", [some "nat"])], none⟩),
+    ("pn", ⟨[("p", [some "nat", some "nat"])], none⟩),
+    ("qq", ⟨[("p", [some "pos", some "pos"])], none⟩) ]
+
+#guard decide wide.WellFormed
+
+-- the other argument has many values: one term left out is not enough
+#guard !inclBut wide {"pn"} "qq" [p z z]
+
+/-- Sorts with a rest. -/
+def rests : Sorts :=
+  [ nat,
+    ("any", ⟨[], some ([], none)⟩),
+    ("notz", ⟨[], some ([("z", 0)], none)⟩) ]
+
+#guard decide rests.WellFormed
+
+-- any term but one symbol
+#guard inclBut rests {"any"} "notz" [z]
+#guard !inclBut rests {"any"} "notz" [s z]
+#guard !inclBut rests {"any"} "nat" [z]
 
 end RwLog.Tests.SortsRuns

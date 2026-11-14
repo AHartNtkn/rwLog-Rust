@@ -118,12 +118,13 @@ theorem stepKid_eq {S : Sorts} {n : Name} {f : Sym} {k i : Nat} {m : Name} :
 
 /-- One round for `Out`. -/
 def growOut (S : Sorts) (P : Finset (Conj × Name)) : Finset (Conj × Name) :=
+  let L := live S
   ((names S).powerset ×ˢ names S).filter fun p =>
     (RestOK S p.1 ∧ ((S.lookup p.2).bind (·.rest)).isSome = false) ∨
     (RestOK S p.1 ∧ ∃ m ∈ names S,
         restKid S p.2 = some m ∧ (restKids S p.1, m) ∈ P) ∨
     ∃ key ∈ caseKeys S p.1 ∪ caseKeys S {p.2} ∪ exKeys S p.2,
-      Accepts S p.1 key.1 key.2 ∧ (∀ i < key.2, kidC S p.1 key.1 key.2 i ∈ live S) ∧
+      Accepts S p.1 key.1 key.2 ∧ (∀ i < key.2, kidC S p.1 key.1 key.2 i ∈ L) ∧
         ((step S p.2 key.1 key.2).isSome = false ∨
           ∃ i < key.2, ∃ m ∈ names S,
             (step S p.2 key.1 key.2).bind (·[i]?) = some (some m) ∧
@@ -145,44 +146,98 @@ theorem mem_false_of_kid {S : Sorts} {n : Name} {f : Sym} {ts : List GTerm}
   have := hall i hi
   simp [hg, memO, hm] at this
 
+section
+
+variable {S : Sorts}
+
+/-! ## Why a sort rejects a term -/
+
+theorem mem_mk_false {n : Name} {f : Sym} {ts : List GTerm} :
+    mem S n (Term.mk f ts) = false ↔ step S n f ts.length = none ∨
+      ∃ i, ∃ _ : i < ts.length, ∃ ks m, step S n f ts.length = some ks ∧
+        ks[i]? = some (some m) ∧ mem S m ts[i] = false := by
+  constructor
+  · intro htn
+    cases hs : step S n f ts.length with
+    | none => left; rfl
+    | some ks =>
+      right
+      by_contra hno
+      have : mem S n (Term.mk f ts) = true := by
+        refine mem_mk.mpr ⟨ks, hs, fun i hi => ?_⟩
+        cases hg : ks[i]? with
+        | none => rfl
+        | some o =>
+          cases o with
+          | none => rfl
+          | some m =>
+            simp only [Option.getD_some, memO]
+            by_contra hm
+            rw [Bool.not_eq_true] at hm
+            exact hno ⟨i, hi, ks, m, rfl, hg, hm⟩
+      rw [this] at htn; cases htn
+  · rintro (hs | ⟨i, hi, ks, m, hs, hg, hm⟩)
+    · by_contra h
+      rw [Bool.not_eq_false] at h
+      obtain ⟨ks, hs', _⟩ := mem_mk.mp h
+      rw [hs] at hs'; cases hs'
+    · exact mem_false_of_kid hs hi hg hm
+
+/-! ## Symbols no declaration mentions -/
+
+theorem fresh_not_case {g : Sym} (hg : g ∉ usedSyms S) {s : Name} {d : SortDef}
+    (hd : S.lookup s = some d) : ∀ cs ∈ d.cases, cs.1 ≠ g := by
+  intro cs hcs e
+  apply hg
+  simp only [usedSyms, List.mem_toFinset, List.mem_flatMap, List.mem_append, List.mem_map]
+  exact ⟨(s, d), mem_of_lookup hd, Or.inl ⟨cs, hcs, e⟩⟩
+
+theorem step_fresh {g : Sym} (hg : g ∉ usedSyms S) {s : Name} {d : SortDef}
+    {ex : List (Sym × Nat)} {r : Option Name} (k : Nat) (hd : S.lookup s = some d)
+    (hr : d.rest = some (ex, r)) : step S s g k = some (List.replicate k r) := by
+  have gex : (g, k) ∉ ex := by
+    intro e
+    apply hg
+    simp only [usedSyms, List.mem_toFinset, List.mem_flatMap, List.mem_append, List.mem_map]
+    exact ⟨(s, d), mem_of_lookup hd, Or.inr (by simp only [hr]; exact List.mem_map.mpr ⟨(g, k), e, rfl⟩)⟩
+  simp only [step, hd, Option.bind_some, SortDef.step]
+  have : d.cases.find? (fun c => decide (c.1 = g ∧ c.2.length = k)) = none := by
+    rw [List.find?_eq_none]
+    intro cs hcs
+    simp [fresh_not_case hg hd cs hcs]
+  rw [this]
+  simp [hr, gex]
+
+theorem fresh_not_caseKey {g : Sym} (hg : g ∉ usedSyms S) (c : Conj) (k : Nat) :
+    (g, k) ∉ caseKeys S c := by
+  intro h
+  obtain ⟨s, _, d, hd, cs, hcs, h1, _⟩ := mem_caseKeys.mp h
+  exact fresh_not_case hg hd cs hcs h1
+
+theorem accepts_fresh {g : Sym} (hg : g ∉ usedSyms S) {c : Conj} (hr : RestOK S c) (k : Nat) :
+    Accepts S c g k := by
+  intro s hs
+  have := hr s hs
+  cases hd : S.lookup s with
+  | none => simp [hd] at this
+  | some d =>
+    cases hrest : d.rest with
+    | none => simp [hd, hrest] at this
+    | some er => obtain ⟨ex, r⟩ := er; simp [step_fresh hg k hd hrest]
+
+end
+
 theorem outs_sound {S : Sorts} : ∀ p ∈ outs S, Out S p.1 p.2 := by
   apply saturate.induction
   rintro P hP ⟨c, n⟩ hc
   simp only [growOut, Finset.mem_inter, Finset.mem_filter, restKid_eq, stepKid_eq] at hc
   obtain ⟨g, hg⟩ := Infinite.exists_notMem_finset (usedSyms S)
-  have gcase : ∀ s d, S.lookup s = some d → ∀ cs ∈ d.cases, cs.1 ≠ g := by
-    intro s d hd cs hcs e
-    apply hg
-    simp only [usedSyms, List.mem_toFinset, List.mem_flatMap, List.mem_append, List.mem_map]
-    exact ⟨(s, d), mem_of_lookup hd, Or.inl ⟨cs, hcs, e⟩⟩
-  have gex : ∀ s d ex r k, S.lookup s = some d → d.rest = some (ex, r) → (g, k) ∉ ex := by
-    intro s d ex r k hd hr e
-    apply hg
-    simp only [usedSyms, List.mem_toFinset, List.mem_flatMap, List.mem_append, List.mem_map]
-    exact ⟨(s, d), mem_of_lookup hd, Or.inr (by simp only [hr]; exact List.mem_map.mpr ⟨(g, k), e, rfl⟩)⟩
+  have gcase : ∀ s d, S.lookup s = some d → ∀ cs ∈ d.cases, cs.1 ≠ g :=
+    fun s d hd => fresh_not_case hg hd
   have gstep : ∀ s d ex r k, S.lookup s = some d → d.rest = some (ex, r) →
-      step S s g k = some (List.replicate k r) := by
-    intro s d ex r k hd hr
-    simp only [step, hd, Option.bind_some, SortDef.step]
-    have : d.cases.find? (fun c => decide (c.1 = g ∧ c.2.length = k)) = none := by
-      rw [List.find?_eq_none]
-      intro cs hcs
-      simp [gcase s d hd cs hcs]
-    rw [this]
-    simp [hr, gex s d ex r k hd hr]
-  have gkey : ∀ k, (g, k) ∉ caseKeys S c := by
-    intro k h
-    obtain ⟨s, _, d, hd, cs, hcs, h1, _⟩ := mem_caseKeys.mp h
-    exact gcase s d hd cs hcs h1
-  have gacc : RestOK S c → ∀ k, Accepts S c g k := by
-    intro hr k s hs
-    have := hr s hs
-    cases hd : S.lookup s with
-    | none => simp [hd] at this
-    | some d =>
-      cases hrest : d.rest with
-      | none => simp [hd, hrest] at this
-      | some er => obtain ⟨ex, r⟩ := er; simp [gstep s d ex r k hd hrest]
+      step S s g k = some (List.replicate k r) := fun s d ex r k hd hr => step_fresh hg k hd hr
+  have gkey : ∀ k, (g, k) ∉ caseKeys S c := fresh_not_caseKey hg c
+  have gacc : RestOK S c → ∀ k, Accepts S c g k := fun hr k => accepts_fresh hg hr k
   rcases hc.1.2 with ⟨hr, hn⟩ | ⟨hr, m, _, ⟨d, ex, hd, hn⟩, hp⟩ | ⟨key, _, hacc, hlive, hn⟩
   · -- a fresh constant, which `n` rejects for having no rest
     refine ⟨Term.mk g [], memC_mk.mpr ⟨gacc hr 0, by simp⟩, ?_⟩
@@ -248,24 +303,9 @@ theorem outs_complete {S : Sorts} {c : Conj} {n : Name} (hn : n ∈ names S) (h 
     have hwhy : (step S n f ts.length).isSome = false ∨
         ∃ i, ∃ _ : i < ts.length, ∃ ks m, step S n f ts.length = some ks ∧
           ks[i]? = some (some m) ∧ mem S m ts[i] = false := by
-      cases hs : step S n f ts.length with
-      | none => left; rfl
-      | some ks =>
-        right
-        by_contra hno
-        have : mem S n (Term.mk f ts) = true := by
-          refine mem_mk.mpr ⟨ks, hs, fun i hi => ?_⟩
-          cases hg : ks[i]? with
-          | none => rfl
-          | some o =>
-            cases o with
-            | none => rfl
-            | some m =>
-              simp only [Option.getD_some, memO]
-              by_contra hm
-              rw [Bool.not_eq_true] at hm
-              exact hno ⟨i, hi, ks, m, rfl, hg, hm⟩
-        rw [this] at htn; cases htn
+      rcases mem_mk_false.1 htn with h | h
+      · exact Or.inl (by simp [h])
+      · exact Or.inr h
     by_cases hkey : (f, ts.length) ∈ caseKeys S c ∪ caseKeys S {n} ∪ exKeys S n
     · right; right
       refine ⟨(f, ts.length), hkey, hacc, fun i hi => mem_live_iff.mpr ⟨_, hall i hi⟩, ?_⟩
