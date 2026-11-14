@@ -54,9 +54,12 @@ Rungs/Mirror/   a machine run on a query and on its converse side by side, for a
 Rungs/Symmetric/ the symmetric engine of `SYMMETRIC_ENGINE.md` (Machine.lean): a table for
                 every goal, every split of a chain and of a meet as a group of strategies
                 (join, push from either side), groups balanced by their levels, one
-                request a step. Run in `Tests/SymmetricRuns.lean`. Nothing is proved of
-                it yet, and it lacks the interface check, the choice of one orientation
-                and the shared table of a goal and its converse
+                request a step. Run in `Tests/SymmetricRuns.lean`. The table of a
+                goal that is its own converse holds the converse of everything it holds;
+                with the choice of one orientation where the input is loaded
+                (`CostedRuntime.oriented`, `Trusted/Cost.lean`) that is what makes the run
+                on the mirror image the run swapped. Nothing is proved of it yet, and it
+                lacks the interface check and the shared table of a goal and its converse
 Rungs/Naive/    normalisation, unfolding to a depth, and their correctness (namespace `R000`)
 Rungs/R005/     the engines: `R001.engine` (tables, unfolding to a depth), `R004.engine` (tables,
                 the race of all three ways), `R005.engine` (`R004.engine` mirrored);

@@ -116,4 +116,63 @@ def requests (p : Program × Rel) (fuel : Nat) : Option Nat × Option Nat :=
 #guard ((requests (fairOr 4 3) 30).1.getD 100) ≤ 15
 #guard contains (runE SE (fairOr 4 3).1 (fairOr 4 3).2 30) ["(s (s (s (s z)))) -> z"]
 
+/-! ## The mirror image
+
+The engine run on one orientation of its input (`CostedRuntime.oriented`,
+`Trusted/Cost.lean`). On the mirrored query in the mirrored program, and on
+the converse of the query, each step shows the converse of what the step
+shows on the query, and the mirrored input costs the same ticks. The last
+cases are their own mirror image, or their own converse: there one run has to
+show, at every step, a set of answers that is its own converse. -/
+
+def SO : CostedRuntime := SE.atSorts.oriented
+
+/-- What a step shows, as a sorted list: a step is compared up to the order
+of its answers. -/
+def shownSorted : Shown SO.Ans → List String
+  | .answers as => (as.map fun a => showRep a.2.1).mergeSort
+  | .level n => [s!"level {n}"]
+  | .final as => "final" :: (as.map fun a => showRep a.2.1).mergeSort
+
+def traceO (P : Program) (q : Rel) (n : Nat) : List (List String) :=
+  (SO.runtime.trace (SO.start P q) n).map shownSorted
+
+def traceSwapped (P : Program) (q : Rel) (n : Nat) : List (List String) :=
+  (SO.runtime.trace (SO.start P q) n).map fun x => shownSorted x.swap
+
+/-- The run on the mirror image and the run on the converse are the run
+swapped, and the mirror image costs the same. -/
+def mirrors (P : Program) (q : Rel) (n : Nat) : Bool :=
+  traceO P.dual q.dual n == traceSwapped P q n && traceO P (.conv q) n == traceSwapped P q n &&
+    SO.paid P q n == SO.paid P.dual q.dual n
+
+def mutualP : Program := prog [
+  ("r", .or (.rw (c "z") (c "z")) (.seq (.call "s") (.rw (v 0) (ap "a" [v 0])))),
+  ("s", .or (.rw (c "z") (c "z")) (.seq (.call "r") (.rw (v 0) (ap "b" [v 0]))))]
+
+/-- Two relations that are their own converse, written so that each
+definition is its own mirror image. -/
+def selfMirror : Program := prog [
+  ("u", .or (.rw (c "a") (c "b")) (.rw (c "b") (c "a"))),
+  ("w", .or (.rw (c "b") (c "c")) (.rw (c "c") (c "b")))]
+
+#guard mirrors addP (.seq (.call "add") (.at_ (num 2))) 60
+#guard mirrors (prog [("lr", lr)]) (.call "lr") 26
+#guard mirrors callP (.call "call_first") 24
+#guard mirrors natP (.and (.call "nat") (.rw (num 1) (num 1))) 40
+#guard mirrors mutualP (.seq (.call "r") (.call "s")) 14
+#guard mirrors mutualP (.and (.call "r") (.conv (.call "s"))) 14
+#guard mirrors (prog [("up", up)])
+  (.or (.rw (c "a") (c "b")) (.or (.at_ (c "a")) (.seq (.at_ (c "z")) (.call "up")))) 12
+
+-- Its own converse: both answers in one step.
+#guard mirrors empty (.or (.rw (c "a") (c "b")) (.rw (c "b") (c "a"))) 6
+#guard traceO empty (.or (.rw (c "a") (c "b")) (.rw (c "b") (c "a"))) 6 ==
+  [[], [], ["a -> b", "b -> a"], ["final", "a -> b", "b -> a"]]
+
+-- Its own mirror image, and not its own converse as a node.
+#guard mirrors selfMirror (.seq (.call "u") (.call "w")) 12
+#guard mirrors selfMirror (.or (.seq (.call "u") (.call "w")) (.seq (.call "w") (.call "u"))) 12
+#guard mirrors selfMirror (.seq (.call "u") (.seq (.call "w") (.seq (.call "w") (.call "u")))) 14
+
 end RwLog.Tests

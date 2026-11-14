@@ -87,7 +87,7 @@ theorem Simulates.mono {Old New : CostedRuntime} {p p' : Nat → Nat → Nat}
 
 /-- A rung without preprocessing is its engine at the kernel rung. -/
 theorem CostedRung.machine_id (κ : KernelRung) (E : Engine) (A : ArtifactStore) :
-    (CostedRung.mk Preprocessor.id E).machine κ A = E.costed κ := by
+    (CostedRung.mk Preprocessor.id E false).machine κ A = E.costed κ := by
   have h : ∀ P q, (Preprocessor.id.run κ A P q).val = (P, q, A) := fun P q =>
     congrArg Cost.val ((κ.refines P.sorts).pure_eq _)
   unfold CostedRung.machine
@@ -98,7 +98,7 @@ theorem CostedRung.machine_id (κ : KernelRung) (E : Engine) (A : ArtifactStore)
 preprocessing costs nothing. -/
 theorem Advances.of_id {κ : KernelRung} {kind : Kind} {Old New : Engine} {b : Bounds}
     {C : ProgClass} (h : Improves kind (Old.costed κ) (New.costed κ) b C) :
-    Advances κ kind ⟨Preprocessor.id, Old⟩ ⟨Preprocessor.id, New⟩ b (fun _ => 0) C where
+    Advances κ kind ⟨Preprocessor.id, Old, false⟩ ⟨Preprocessor.id, New, false⟩ b (fun _ => 0) C where
   improves A := by rw [CostedRung.machine_id, CostedRung.machine_id]; exact h
   preCost A P q _ := by
     show (Preprocessor.id.run κ A P q).ticks ≤ 0
@@ -153,7 +153,7 @@ theorem Admits.of_id {κ : KernelRung} {kind : Kind} {Old New : Engine} {b : Bou
     {d : DirBound} {C : ProgClass} {record : List Win} {keep : Nat}
     (h : Improves kind (Old.costed κ) (New.costed κ) b C)
     (hd : DirectionFree (New.costed κ) d.fn) (hk : ∀ w ∈ record, w.KeptBy (New.costed κ) keep) :
-    Admits κ kind ⟨Preprocessor.id, Old⟩ ⟨Preprocessor.id, New⟩ b d (fun _ => 0) C record keep where
+    Admits κ kind ⟨Preprocessor.id, Old, false⟩ ⟨Preprocessor.id, New, false⟩ b d (fun _ => 0) C record keep where
   toAdvances := Advances.of_id h
   direction A := by rw [CostedRung.machine_id]; exact hd
   keeps A := by rw [CostedRung.machine_id]; exact hk
