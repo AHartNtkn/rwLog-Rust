@@ -645,3 +645,18 @@ new axiom.
 
 /-- info: 'RwLog.Symmetric.readOk' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Symmetric.readOk
+
+/-- info: 'RwLog.Symmetric.Cursor.all_rank' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Symmetric.Cursor.all_rank
+
+/-- info: 'RwLog.Symmetric.rankLt_wf' does not depend on any axioms -/
+#guard_msgs in #print axioms RwLog.Symmetric.rankLt_wf
+
+/-- info: 'RwLog.Symmetric.shaped_expand' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Symmetric.shaped_expand
+
+/-- info: 'RwLog.Symmetric.turns_advance' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Symmetric.turns_advance
+
+/-- info: 'RwLog.Symmetric.req_request' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Symmetric.req_request

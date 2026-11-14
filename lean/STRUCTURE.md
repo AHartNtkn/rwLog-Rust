@@ -79,8 +79,17 @@ Rungs/Symmetric/ the symmetric engine of `SYMMETRIC_ENGINE.md` (Machine.lean): a
                 passed) holds of the strategies made for a goal and is kept by a whole
                 request, with the goals of the tables distinct and good (Kept.lean,
                 `Good`, `good_request`); and the interfaces read from the program are
-                right about it (Edge.lean, `readOk`). Not proved yet: that every open
-                group is worked again and again, and from it completeness; `Keeps`; the
+                right about it (Edge.lean, `readOk`). Towards fairness: the cursor of
+                a join reaches every pair that is there, by a rank that falls
+                (Cursor.lean, `Cursor.all_rank`, `rankLt_wf`); and the record of a
+                request (Turns.lean, `Req`, `req_request`): the groups of a table change
+                in its own round only, where each strategy moves on, a group all of whose
+                checks are dead is removed, and one group works with the tables it reads
+                settled (`Turn`); the groups a goal begins with have a span, a call, a
+                union or a join in every group but the last (`shaped_expand`); a table
+                marked complete has a strategy with nothing left to do that reads complete
+                tables only. Not proved yet: that an edge is read in the end, the
+                assembly of these into a fair run, and from it completeness; `Keeps`; the
                 cost bound. A goal and its converse do not share a
                 table (not owed by any property; billboard SIM12)
 Rungs/Naive/    normalisation, unfolding to a depth, and their correctness (namespace `R000`)

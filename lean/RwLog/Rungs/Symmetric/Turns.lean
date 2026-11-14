@@ -23,7 +23,14 @@ works, and nothing of the levels that choose the order.
   `Turn`; and every table that became complete has a strategy with nothing
   left to do that reads complete tables only (`QuietAt`).
 
-`Turns` is transitive (`TurnsBut.trans`).
+`Turns` is transitive (`TurnsBut.trans`), and it is proved of the round of a
+table with every round nested in it (`turns_advance`). The record of a whole
+request is `Req` (`req_request`): the same, across the change of the number
+of the request and the marking of the tables that complete together.
+
+`Shaped` is the shape of the groups a goal begins with (`shaped_expand`):
+every group but the last has a span, a call, a union or a join, so the only
+group a round can remove is the last.
 -/
 import RwLog.Rungs.Symmetric.Kept
 import RwLog.Rungs.Symmetric.Cursor
