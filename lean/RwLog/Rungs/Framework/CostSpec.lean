@@ -8,6 +8,7 @@ return one of several equivalent answers, say. The rules follow the shape of
 the computation as those of `Costs` do, and bounds on the ticks of the
 traversals in terms of a bound on each member are given alongside.
 -/
+import RwLog.Lib.List
 import RwLog.Rungs.Framework.CostCalculus
 import RwLog.Rungs.Framework.Cost
 
@@ -69,15 +70,6 @@ theorem mapL_zip {f : α × γ → Cost β} {R : α → γ → Prop} {Q : α →
 end Spends
 
 /-! ## Ticks of the traversals, from a bound on each member -/
-
-theorem sum_map_le_mul {f : α → Nat} {c : Nat} : ∀ {xs : List α}, (∀ x ∈ xs, f x ≤ c) →
-    (xs.map f).sum ≤ xs.length * c
-  | [], _ => by simp
-  | x :: xs, h => by
-    have hx := h x (by simp)
-    have ih := sum_map_le_mul (xs := xs) fun y hy => h y (by simp [hy])
-    simp only [List.map_cons, List.sum_cons, List.length_cons, Nat.succ_mul]
-    omega
 
 theorem anyL_ticks_le_mul {f : α → Cost Bool} {c : Nat} {xs : List α}
     (h : ∀ x ∈ xs, (f x).ticks ≤ c) : (anyL f xs).ticks ≤ xs.length * c :=

@@ -23,7 +23,10 @@ strategies are those of the symmetric engine (`lean/SYMMETRIC_ENGINE.md`):
 * a chain is split in two anywhere, and either the answers of the two sides
   are joined, or the answers of one side are pushed: the other side is
   opened between the interface of the answer and the boundary, and its
-  answers are joined with the answer pushed;
+  answers are joined with the answer pushed; or the split has no answer by
+  the interface check: every answer of one side ends inside one of finitely
+  many interfaces, the other side is opened under each of them, and the run
+  never holds an answer for any (`checkL`, `checkR`);
 * a meet is split into a member and the meet of the others, and either the
   answers of both are conjoined, or the answers of one are pushed into the
   other, opened between the two interfaces of the answer.
@@ -134,6 +137,24 @@ inductive Served (D : Domain R) (P : Program) (O : Set (Goal R)) (T : Tables R) 
       (hr : g.node.interval i xs.length = some r)
       (h : Pushes P O T g ⟨none, r, g.rb⟩ (fun b => ⟨g.lb, l, D.leftBound b⟩)
         fun b a => D.compose a b)
+  /-- A chain split at `i` that has no answer: every answer of the left side
+  ends inside one of the interfaces `ps`, the right side is opened under each
+  of them, and the run never holds an answer for any. -/
+  | checkL (xs : List Rel) (i : Nat) (l r : Rel) (hv : g.node.view = .chain xs) (h0 : 0 < i)
+      (hi : i < xs.length) (hl : g.node.interval 0 i = some l)
+      (hr : g.node.interval i xs.length = some r) (ps : List R)
+      (hedge : ∀ k, ∀ G ∈ GDn P k l, ∀ x m, (x, m) ∈ G.at P.sorts.interp →
+        ∃ p ∈ ps, (m, m) ∈ bdenAt P.sorts.interp (some p))
+      (h : ∀ p ∈ ps, (⟨some p, r, g.rb⟩ : Goal R) ∈ O ∧ ∀ a, ¬ Held T ⟨some p, r, g.rb⟩ a)
+  /-- A chain split at `i` that has no answer: every answer of the right side
+  begins inside one of the interfaces `ps`, the left side is opened under
+  each of them, and the run never holds an answer for any. -/
+  | checkR (xs : List Rel) (i : Nat) (l r : Rel) (hv : g.node.view = .chain xs) (h0 : 0 < i)
+      (hi : i < xs.length) (hl : g.node.interval 0 i = some l)
+      (hr : g.node.interval i xs.length = some r) (ps : List R)
+      (hedge : ∀ k, ∀ G ∈ GDn P k r, ∀ m z, (m, z) ∈ G.at P.sorts.interp →
+        ∃ p ∈ ps, (m, m) ∈ bdenAt P.sorts.interp (some p))
+      (h : ∀ p ∈ ps, (⟨g.lb, l, some p⟩ : Goal R) ∈ O ∧ ∀ a, ¬ Held T ⟨g.lb, l, some p⟩ a)
   /-- A meet split into its `i`-th member and the others, the answers of
   both conjoined. -/
   | meet (xs : List Rel) (i : Nat) (x r : Rel) (hv : g.node.view = .meet xs)
@@ -320,6 +341,48 @@ where
       obtain ⟨m', hpm', -⟩ := hsub ⟨m, hpm, hmq⟩
       obtain ⟨a, hah, hXa⟩ := ih _ (hn ▸ hsl) _ on rfl G₁ hG₁ ⟨_, hpm'⟩
       exact (compose_cov hL hXa hXb' ⟨_, hsub ⟨m, hpm, hmq⟩⟩ (ha a hah)).mono hsub
+    | checkL xs i l r hv h0 hi hl hr ps hedge h =>
+      obtain ⟨hlen, l', r', hl', hr', -, hsl, hsr⟩ := hok.normal.chain_split hv h0 hi
+      obtain rfl : l' = l := Option.some.inj (hl'.symm.trans hl)
+      obtain rfl : r' = r := Option.some.inj (hr'.symm.trans hr)
+      rw [(gdn_laws P k).chain_split hl (hlen ▸ hr)] at hG
+      obtain ⟨G₁, hG₁, G₂, hG₂, rfl⟩ := hG
+      have he : pairs P g (G₁.comp G₂) =
+          (pairs P ⟨g.lb, l', none⟩ G₁).comp (pairs P ⟨none, r', g.rb⟩ G₂) :=
+        pairs_comp g.lb g.rb l' r' g.node G₁ G₂
+      rw [he] at hne
+      obtain ⟨⟨p, q⟩, m, hpm, hmq⟩ := hne
+      obtain ⟨u, v, q₁, q₂, q₃⟩ := mem_wrapAt.1 hpm
+      obtain ⟨u', v', r₁, r₂, r₃⟩ := mem_wrapAt.1 hmq
+      have e₁ : m = v := q₃
+      have e₂ : u' = m := r₁
+      obtain ⟨b, hb, hbm⟩ := hedge k G₁ hG₁ u v q₂
+      obtain ⟨ho, hno⟩ := h b hb
+      have hmq' : (m, q) ∈ pairs P ⟨some b, r', g.rb⟩ G₂ :=
+        mem_wrapAt.2 ⟨m, v', by rw [e₁]; exact hbm, by rw [← e₂]; exact r₂, r₃⟩
+      obtain ⟨c, hc, -⟩ := ih _ (hn ▸ hsr) _ ho rfl G₂ hG₂ ⟨_, hmq'⟩
+      exact absurd hc (hno c)
+    | checkR xs i l r hv h0 hi hl hr ps hedge h =>
+      obtain ⟨hlen, l', r', hl', hr', -, hsl, hsr⟩ := hok.normal.chain_split hv h0 hi
+      obtain rfl : l' = l := Option.some.inj (hl'.symm.trans hl)
+      obtain rfl : r' = r := Option.some.inj (hr'.symm.trans hr)
+      rw [(gdn_laws P k).chain_split hl (hlen ▸ hr)] at hG
+      obtain ⟨G₁, hG₁, G₂, hG₂, rfl⟩ := hG
+      have he : pairs P g (G₁.comp G₂) =
+          (pairs P ⟨g.lb, l', none⟩ G₁).comp (pairs P ⟨none, r', g.rb⟩ G₂) :=
+        pairs_comp g.lb g.rb l' r' g.node G₁ G₂
+      rw [he] at hne
+      obtain ⟨⟨p, q⟩, m, hpm, hmq⟩ := hne
+      obtain ⟨u, v, q₁, q₂, q₃⟩ := mem_wrapAt.1 hpm
+      obtain ⟨u', v', r₁, r₂, r₃⟩ := mem_wrapAt.1 hmq
+      have e₁ : m = v := q₃
+      have e₂ : u' = m := r₁
+      obtain ⟨b, hb, hbm⟩ := hedge k G₂ hG₂ u' v' r₂
+      obtain ⟨ho, hno⟩ := h b hb
+      have hpm' : (p, m) ∈ pairs P ⟨g.lb, l', some b⟩ G₁ :=
+        mem_wrapAt.2 ⟨u, m, q₁, by rw [e₁]; exact q₂, by rw [← e₂]; exact hbm⟩
+      obtain ⟨c, hc, -⟩ := ih _ (hn ▸ hsl) _ ho rfl G₁ hG₁ ⟨_, hpm'⟩
+      exact absurd hc (hno c)
     | meet xs i x r hv hx hr ox or h =>
       obtain ⟨hparts, x', r', hx', hr', -, -, hsx, hsr⟩ :=
         hok.normal.meet_split hv (i := i) (by

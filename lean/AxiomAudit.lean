@@ -28,6 +28,12 @@ new axiom.
 /-- info: 'RwLog.Runtime.derivationGeneral_of_refines' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Runtime.derivationGeneral_of_refines
 
+/-- info: 'RwLog.Runtime.SameTrace.keeps' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Runtime.SameTrace.keeps
+
+/-- info: 'RwLog.Goals.maxima_val' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Goals.maxima_val
+
 /-- info: 'RwLog.Runtime.trace_of_sim' depends on axioms: [propext] -/
 #guard_msgs in #print axioms RwLog.Runtime.trace_of_sim
 

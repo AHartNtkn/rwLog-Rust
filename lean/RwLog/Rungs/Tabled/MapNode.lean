@@ -11,6 +11,7 @@ exchanged under the converse (`chain_split_fwd`); a split of a meet has for
 image a split of the image meet, or one with its sides exchanged
 (`meet_split_fwd`).
 -/
+import RwLog.Lib.List
 import RwLog.Rungs.Tabled.MapSplit
 
 namespace RwLog
@@ -20,9 +21,6 @@ namespace Tabled
 open Answer
 
 variable {R : Type} [Answer R] [DecidableEq R] {D : Domain R} {P P' : Program}
-
-theorem ite_of_neg {α : Type} {c : Prop} [Decidable c] {x y : α} (h : ¬ c) :
-    (if c then x else y) = y := by simp [h]
 
 theorem seqSplits_mirror {n i : Nat} (h2 : 2 ≤ n) (hi : i ∈ seqSplits n) : n - i ∈ seqSplits n := by
   unfold seqSplits at hi ⊢

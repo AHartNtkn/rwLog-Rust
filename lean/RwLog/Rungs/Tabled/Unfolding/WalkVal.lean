@@ -382,7 +382,7 @@ theorem walk_val (rev : Bool) : ∀ (d : Nat) (c : Near R) (n : Rel) (far : Opti
           Bool.false_eq_true, ite_false, ea]
       | true =>
         simp only [walk, walkV, Cost.bind_val, over_view, Charged.viewNode, Charged.op, hv, hp,
-          ite_true, ite_val, Cost.pure_val, ea, untilV_append]
+          ite_true, Cost.ite_val, Cost.pure_val, ea, untilV_append]
 
 /-! ## The race -/
 

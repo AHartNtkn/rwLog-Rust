@@ -16,21 +16,9 @@ form of `a ; b` is a chain that starts with the members of the normal form of
 import RwLog.Rungs.Tabled.Void
 import RwLog.Rungs.Tabled.Symmetry
 import RwLog.Rungs.Tabled.Unfolding.ModelMono
+import RwLog.Rungs.Framework.SameTrace
 
 namespace RwLog
-
-/-- A query that calls and writes no more than a well-formed one is well
-formed. -/
-theorem ProgramOf.WellFormed.of_sub {P : Program} {q q' : Rel} (h : P.WellFormed q)
-    (hc : ∀ n ∈ q'.calls, n ∈ q.calls) (hs : ∀ s ∈ q'.spans, s ∈ q.spans) :
-    P.WellFormed q' := by
-  refine ⟨h.1, fun n hn => h.2.1 n ?_, h.2.2.1, fun s hs' => h.2.2.2 s ?_⟩
-  · rcases List.mem_append.1 hn with hn | hn
-    · exact List.mem_append_left _ (hc n hn)
-    · exact List.mem_append_right _ hn
-  · rcases List.mem_append.1 hs' with hs' | hs'
-    · exact List.mem_append_left _ (hs s hs')
-    · exact List.mem_append_right _ hs'
 
 namespace Tabled
 
@@ -131,13 +119,10 @@ include hD hG hE in
 /-- **A side that halts with no answer makes `;` and `&` halt**, on either
 side. -/
 theorem emptySide : (Rt @U dom K hK).EmptySide := fun P a b wf ht he => by
-  have wfa : P.WellFormed a := wf.of_sub (fun n h => List.mem_append_left _ h)
-    (fun s h => List.mem_append_left _ h)
-  have wfba : P.WellFormed (.seq b a) := wf.of_sub (fun n h => (List.mem_append.1 h).elim (List.mem_append_right _) (List.mem_append_left _))
-    (fun s h => (List.mem_append.1 h).elim (List.mem_append_right _) (List.mem_append_left _))
-  have wfand : P.WellFormed (.and a b) := wf.of_sub (fun n h => h) (fun s h => h)
-  have wfand' : P.WellFormed (.and b a) := wf.of_sub (fun n h => (List.mem_append.1 h).elim (List.mem_append_right _) (List.mem_append_left _))
-    (fun s h => (List.mem_append.1 h).elim (List.mem_append_right _) (List.mem_append_left _))
+  have wfa : P.WellFormed a := wf.seq_left
+  have wfba : P.WellFormed (.seq b a) := wf.seq_swap
+  have wfand : P.WellFormed (.and a b) := wf.and_of_seq
+  have wfand' : P.WellFormed (.and b a) := wf.seq_swap.and_of_seq
   have hL := hD _ wf.2.2.1
   have hfo := progFO_of_wf wf
   have hUk := hG (dom P.sorts) P (K P.sorts) (hK P.sorts) hL hfo

@@ -608,16 +608,16 @@ theorem opaque_sx {xs : List Rel} (W : Rel → Set SP) {ss : List (Sm D P)}
   · rintro ⟨hall, s, hs, hop⟩
     refine ⟨fun T hT => ?_, ?_⟩
     · obtain ⟨x, hx, rfl⟩ := List.mem_map.1 hT
-      obtain ⟨s', hs', e⟩ := f2_left h x hx
+      obtain ⟨s', hs', e⟩ := forall₂_mem_left h hx
       exact (sems_ne e).1 (hall s' hs')
-    · obtain ⟨x, hx, e⟩ := f2_right h s hs
+    · obtain ⟨x, hx, e⟩ := forall₂_mem_right h hs
       exact ⟨W x, List.mem_map_of_mem hx, (sems_opn e).1 hop⟩
   · rintro ⟨hall, T, hT, hop⟩
     refine ⟨fun s hs => ?_, ?_⟩
-    · obtain ⟨x, hx, e⟩ := f2_right h s hs
+    · obtain ⟨x, hx, e⟩ := forall₂_mem_right h hs
       exact (sems_ne e).2 (hall _ (List.mem_map_of_mem hx))
     · obtain ⟨x, hx, rfl⟩ := List.mem_map.1 hT
-      obtain ⟨s, hs, e⟩ := f2_left h x hx
+      obtain ⟨s, hs, e⟩ := forall₂_mem_left h hx
       exact ⟨s, hs, (sems_opn e).2 hop⟩
 
 /-- A meet where nothing was pushed, from its answers and whether it is

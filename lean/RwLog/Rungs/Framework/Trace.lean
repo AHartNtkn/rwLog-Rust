@@ -11,6 +11,7 @@
   together. This is how a rung shows it runs like another one (an earlier
   rung, the same rung on a mirrored or reordered query).
 -/
+import RwLog.Lib.List
 import RwLog.Rungs.Framework.Runtime
 import RwLog.Rungs.Framework.Answer
 import RwLog.Trusted.Properties
@@ -41,15 +42,6 @@ theorem forall₂_equiv_trans : ∀ {xs : List A} {ys : List B} {zs : List C},
   | _, _, _, .nil, .nil => .nil
   | _, _, _, .cons h hs, .cons h' hs' =>
     .cons (Answer.Equiv.trans h h') (forall₂_equiv_trans hs hs')
-
-theorem forall₂_mem_left {α β : Type} {R : α → β → Prop} : ∀ {xs : List α} {ys : List β},
-    List.Forall₂ R xs ys → ∀ {x}, x ∈ xs → ∃ y ∈ ys, R x y
-  | _, _, .nil, _, hx => by cases hx
-  | _, _, .cons (b := b) h hs, x, hx => by
-    rcases List.mem_cons.1 hx with rfl | hx
-    · exact ⟨b, List.mem_cons_self .., h⟩
-    · obtain ⟨y, hy, r⟩ := forall₂_mem_left hs hx
-      exact ⟨y, List.mem_cons_of_mem _ hy, r⟩
 
 theorem StepEquiv.trans {xs : List A} {ys : List B} {zs : List C} (h₁ : (StepEquiv M) xs ys)
     (h₂ : (StepEquiv M) ys zs) : (StepEquiv M) xs zs := by

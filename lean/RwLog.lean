@@ -14,6 +14,7 @@ import RwLog.Rungs.Framework.Runtime
 import RwLog.Rungs.Framework.Trace
 import RwLog.Rungs.Framework.Tier0
 import RwLog.Rungs.Framework.Transfer
+import RwLog.Rungs.Framework.SameTrace
 import RwLog.Rungs.Naive.Chain
 import RwLog.Trusted.Engine
 import RwLog.Rungs.Naive.Normalize
@@ -65,6 +66,7 @@ import RwLog.Rungs.Framework.Writing
 import RwLog.Rungs.Framework.ConvTrace
 import RwLog.Rungs.Framework.Race
 import RwLog.Rungs.Framework.RaceWinner
+import RwLog.Rungs.Framework.Goals
 import RwLog.Rungs.Tabled.Machine
 import RwLog.Rungs.Tabled.Unfold
 import RwLog.Rungs.Mirror.Machine
@@ -76,6 +78,7 @@ import RwLog.Kernel.NormalFormSplit
 import RwLog.Lib.Maxima
 import RwLog.Rungs.Framework.KernelAt
 import RwLog.Rungs.Framework.Rules
+import RwLog.Rungs.Framework.GoalsVal
 import RwLog.Rungs.Tabled.Tables
 import RwLog.Rungs.Tabled.Semantics
 import RwLog.Rungs.Tabled.Covers

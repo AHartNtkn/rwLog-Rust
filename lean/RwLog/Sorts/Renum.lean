@@ -29,10 +29,6 @@ theorem firstOcc_iff {L : List Nat} : FirstOcc L ↔
     obtain ⟨_, e'⟩ := List.getElem?_eq_some_iff.1 e
     exact ⟨j, hj, e'⟩
 
-theorem firsts_snoc {α : Type} [DecidableEq α] (L : List α) (x : α) :
-    firsts (L ++ [x]) = if x ∈ firsts L then firsts L else firsts L ++ [x] :=
-  firsts_concat L x
-
 /-- `firsts` lists the members once each, and a member's place is the number
 of different members before its first occurrence. -/
 theorem firsts_spec {α : Type} [DecidableEq α] (L : List α) :
@@ -42,7 +38,7 @@ theorem firsts_spec {α : Type} [DecidableEq α] (L : List α) :
   induction L using List.reverseRecOn with
   | nil => exact ⟨List.nodup_nil, by simp [firsts], by simp⟩
   | append_singleton L x ih =>
-    rw [firsts_snoc]
+    rw [firsts_concat, addNew]
     generalize firsts L = F at ih ⊢
     obtain ⟨hnd, hmem, hF⟩ := ih
     -- a place below the length of `F` is the place of a member of `L`

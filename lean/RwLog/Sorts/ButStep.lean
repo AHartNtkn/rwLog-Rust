@@ -10,6 +10,7 @@ roots ask again, of the arguments, is asked of terms that are smaller
 together than the terms of `G` (`sum_proj_le`), so asking in any order comes
 to an end.
 -/
+import RwLog.Lib.List
 import RwLog.Sorts.InclBut
 
 namespace RwLog
@@ -137,33 +138,13 @@ theorem sumSize_proj_one_le (c : Conj) (f : Sym) (k i : Nat) (f' : Sym) (args : 
     | some u => simp [proj, Term.spine_mk, hc, hu, sumSize]
   · simp [proj, Term.spine_mk, hc, sumSize]
 
-theorem sum_map_le {α : Type} (f g : α → Nat) : ∀ l : List α, (∀ x ∈ l, f x ≤ g x) →
-    (l.map f).sum ≤ (l.map g).sum
-  | [], _ => by simp
-  | a :: l, h => by
-    have := sum_map_le f g l fun x hx => h x (List.mem_cons_of_mem _ hx)
-    have := h a List.mem_cons_self
-    simp only [List.map_cons, List.sum_cons]
-    omega
-
-theorem sum_range_getD : ∀ l : List Nat,
-    ((List.range l.length).map fun i => l[i]?.getD 0).sum = l.sum
-  | [] => by simp
-  | a :: l => by
-    have ih := sum_range_getD l
-    simp only [List.length_cons, List.range_succ_eq_map, List.map_cons, List.map_map,
-      List.sum_cons, List.getElem?_cons_zero, Option.getD_some]
-    have e : ((fun i => (a :: l)[i]?.getD 0) ∘ Nat.succ) = fun i => l[i]?.getD 0 := by
-      funext i; simp
-    rw [e, ih]
-
 theorem projW_one_le (c : Conj) (f' : Sym) (args : List GTerm) :
     projW S c [Term.mk f' args] (f', args.length) ≤ (args.map Term.size).sum := by
   unfold projW
   have h := sum_range_getD (args.map Term.size)
   rw [List.length_map] at h
   rw [← h]
-  exact sum_map_le _ _ _ fun i _ => sumSize_proj_one_le c f' args.length i f' args
+  exact sum_map_le fun i _ => sumSize_proj_one_le c f' args.length i f' args
 
 theorem projW_other (c : Conj) {key : Sym × Nat} {f' : Sym} {args : List GTerm}
     (h : key ≠ (f', args.length)) : projW S c [Term.mk f' args] key = 0 := by

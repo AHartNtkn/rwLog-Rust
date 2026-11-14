@@ -238,8 +238,6 @@ theorem covers?_complete {a s : Span} (h : a.Covers s) : a.covers? s = true := b
 theorem Span.covers?_iff (a s : Span) : a.covers? s = true ↔ a.Covers s :=
   ⟨covers?_sound, covers?_complete⟩
 
-theorem covers?_iff (a s : Span) : a.covers? s = true ↔ a.Covers s := Span.covers?_iff a s
-
 theorem covers?_refl (a : Span) : a.covers? a = true := covers?_complete (Span.Covers.refl a)
 
 theorem covers?_trans {a b c : Span} (h₁ : a.covers? b = true) (h₂ : b.covers? c = true) :
@@ -268,14 +266,14 @@ theorem Span.Covers.of_swap {a b : Span} (h : a.swap.Covers b.swap) : a.Covers b
 
 theorem covers?_swap (a b : Span) : a.swap.covers? b.swap = a.covers? b := by
   apply Bool.eq_iff_iff.2
-  rw [covers?_iff, covers?_iff]
+  rw [Span.covers?_iff, Span.covers?_iff]
   exact ⟨Span.Covers.of_swap, covers_swap⟩
 
 /-- Equivalence is read the same through `covers?`. -/
 theorem covers?_congr {a a' b b' : Span} (ha : a.Equiv a') (hb : b.Equiv b') :
     a.covers? b = a'.covers? b' := by
   apply Bool.eq_iff_iff.2
-  rw [covers?_iff, covers?_iff]
+  rw [Span.covers?_iff, Span.covers?_iff]
   exact ⟨fun h => ha.2.trans (h.trans hb.1), fun h => ha.1.trans (h.trans hb.2)⟩
 
 theorem equiv_of_den_eq {a b : Span} (h : a.den = b.den) : a.Equiv b :=
