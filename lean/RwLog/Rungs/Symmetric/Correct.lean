@@ -16,7 +16,10 @@ emitted, at the latest when it reports that it is done. Hence
 * the machine is complete span by span (`complete`);
 * when it reports that it is done, its answers relate every pair the query
   relates (`honestExhaustion`);
-* it emits no progress certificate (`honestProgress`).
+* it emits no progress certificate (`honestProgress`);
+* no answer it emits is covered by an earlier one (`noSubsumed`), since no
+  answer of a table covers a later one (`nocov_stateAt`);
+* its final report is the maximal emitted answers (`finalMaximal`).
 -/
 import RwLog.Rungs.Symmetric.Fair
 import RwLog.Rungs.Symmetric.SelfConverse
@@ -116,6 +119,90 @@ theorem emits (r : Nat) : (stateAt K hK P root (r + 1)).answers 0 =
       (st'.answers 0).drop st'.shown := by rw [e]
   have hl' : (stateAt K hK P root r).answers 0 ++ l = st'.answers 0 := by rw [← e1]; exact hl
   rw [e2, e1, hsh, shown_stateAt r, ← hl', List.drop_left]
+
+/-! ## No answer of a table covers a later one -/
+
+/-- In every table, no answer covers a later one. -/
+def NoCovAt (st : StateOf R Rel (Ans D P)) : Prop :=
+  ∀ j, NoCov D ((st.answers j).map Ans.span)
+
+omit [DecidableEq R] in
+theorem answers_eq_cores (st : StateOf R Rel (Ans D P)) (j : Nat) :
+    st.answers j = ((st.cores[j]?).map (·.2.2)).getD [] := by
+  unfold StateOf.answers StateOf.cores
+  rw [List.getElem?_map]
+  cases st.tables[j]? <;> rfl
+
+omit [DecidableEq R] in
+theorem nocov_app {st : StateOf R Rel (Ans D P)} (h : NoCovAt st) (i : Nat) (a : Ans D P)
+    (ha : ∀ y ∈ (st.answers i).map Ans.span, D.covers y a.span = false) :
+    NoCovAt (st.modify i (app [a])) := by
+  intro j
+  by_cases hj : j = i
+  · subst hj
+    cases ht : st.tables[j]? with
+    | none =>
+      have e : (st.modify j (app [a])).answers j = st.answers j := by
+        unfold StateOf.answers StateOf.modify
+        simp [ht]
+      rw [e]
+      exact h j
+    | some t =>
+      rw [answers_modify_app st j [a] ht, List.map_append]
+      exact (h j).snoc ha
+  · have e : (st.modify i (app [a])).answers j = st.answers j := by
+      rw [answers_eq_cores, answers_eq_cores, cores_modify_ne _ _ (Ne.symm hj)]
+    rw [e]
+    exact h j
+
+/-- Whatever the engine does, no answer of a table covers a later one. -/
+theorem nocov_reach {st st' : StateOf R Rel (Ans D P)} (h : Reach K hK st st') :
+    NoCovAt st → NoCovAt st' := by
+  induction h with
+  | refl st => exact id
+  | trans _ _ ih₁ ih₂ => exact fun h => ih₂ (ih₁ h)
+  | same e _ =>
+    intro h j
+    rw [answers_eq_cores, e, ← answers_eq_cores]
+    exact h j
+  | @opened st st' g' self e _ =>
+    intro h j
+    rw [answers_eq_cores, e]
+    by_cases hj : j < st.cores.length
+    · rw [List.getElem?_append_left hj, ← answers_eq_cores]
+      exact h j
+    · rw [List.getElem?_append_right (by omega)]
+      cases hx : j - st.cores.length with
+      | zero => exact List.Pairwise.nil
+      | succ m => exact List.Pairwise.nil
+  | add st i a =>
+    intro h
+    rw [addAnswer_val]
+    split
+    · exact h
+    · rename_i hna
+      have h1 := nocov_app h i a (any_covB_false hna)
+      split
+      · split
+        · exact h1
+        · rename_i hnb
+          exact nocov_app h1 i _ (any_covB_false hnb)
+      · exact h1
+
+theorem nocov_stateAt : ∀ r, NoCovAt (stateAt K hK P root r)
+  | 0 => by
+    obtain ⟨self, e⟩ := init_shape (K := K) (hK := hK) (P := P) (root := root)
+    rw [e]
+    intro j
+    cases j with
+    | zero => exact List.Pairwise.nil
+    | succ j => exact List.Pairwise.nil
+  | r + 1 => by
+    obtain ⟨st', hre, e⟩ := reach_request (K := K) (hK := hK) (P := P) (stateAt K hK P root r)
+    have h := nocov_reach hre (nocov_stateAt r)
+    show NoCovAt (request (K := DerivationKernel.over D K hK P) (stateAt K hK P root r)).val.1
+    rw [e]
+    exact h
 
 end kernel
 
@@ -357,6 +444,56 @@ emits is true. -/
 theorem honestProgress : (Rt dom K hK).HonestProgress := fun P q wf k n hc => by
   have hI := isRun_of_wf (K := K) (hK := hK) hD wf
   exact absurd rfl (trace_no_level hI (k + 1) 0 _ (List.mem_of_getElem? hc) n)
+
+/-- What a run has emitted is the answers of the root table after some
+number of requests. -/
+theorem emitted_eq {P : Program} {q : Rel} (wf : P.WellFormed q) (n : Nat) :
+    ∃ j, (Rt dom K hK).emitted ((Rt dom K hK).init P q) n =
+      ((sAt dom K hK P q.norm j).answers 0).map (sp dom K hK P) := by
+  have hI := isRun_of_wf (K := K) (hK := hK) hD wf
+  rcases run_cases hI n with ⟨-, hr⟩ | ⟨j, -, -, hr⟩
+  · exact ⟨n, congrArg Prod.fst hr⟩
+  · exact ⟨j, congrArg Prod.fst hr⟩
+
+/-- **No answer the symmetric engine emits is covered by an earlier one.** -/
+theorem noSubsumed : (Rt dom K hK).NoSubsumed := fun P q wf n => by
+  obtain ⟨j, hj⟩ := emitted_eq (K := K) (hK := hK) hD wf n
+  rw [hj, List.pairwise_map]
+  have := nocov_stateAt (K := K P.sorts) (hK := hK P.sorts) (P := P) (root := q.norm) j 0
+  rw [NoCov, List.pairwise_map] at this
+  refine this.imp fun {y x} h hc => ?_
+  have := (covB_iff (hD _ wf.2.2.1) y x).2 hc
+  rw [covB, h] at this
+  cases this
+
+/-- **The final report of the symmetric engine is the maximal emitted
+answers.** -/
+theorem finalMaximal : (Rt dom K hK).FinalMaximal := fun P q wf n fin hfin => by
+  have hI := isRun_of_wf (K := K) (hK := hK) hD wf
+  have hL := hD _ wf.2.2.1
+  rw [init_eq] at hfin ⊢
+  rcases run_cases hI n with ⟨-, hr⟩ | ⟨j, -, -, hr⟩
+  · rw [show (Rt dom K hK).final (stAt dom K hK P q.norm 0) n = _ from
+      congrArg Prod.snd hr] at hfin
+    cases hfin
+  · rw [show (Rt dom K hK).final (stAt dom K hK P q.norm 0) n = _ from
+      congrArg Prod.snd hr] at hfin
+    obtain rfl := Option.some.inj hfin
+    rw [show (Rt dom K hK).emitted (stAt dom K hK P q.norm 0) n = _ from
+      congrArg Prod.fst hr]
+    refine ⟨fun a ha => ?_, fun a ha => ?_, ?_⟩
+    · obtain ⟨x, hx, rfl⟩ := List.mem_map.1 ha
+      exact List.mem_map_of_mem (List.mem_maximaBy hx)
+    · obtain ⟨x, hx, rfl⟩ := List.mem_map.1 ha
+      obtain ⟨z, hz, hzx⟩ := List.maximaBy_covers (covB_refl hL) (covB_trans hL) hx
+      exact ⟨_, List.mem_map_of_mem hz, (covB_iff hL z x).1 hzx⟩
+    · rw [List.pairwise_map]
+      refine (List.maximaBy_pairwise (cov := covB (dom P.sorts) P) _).imp fun {y x} h => ?_
+      refine ⟨fun hc => ?_, fun hc => ?_⟩
+      · have := (covB_iff hL y x).2 hc
+        rw [h.1] at this; cases this
+      · have := (covB_iff hL x y).2 hc
+        rw [h.2] at this; cases this
 
 end theorems
 

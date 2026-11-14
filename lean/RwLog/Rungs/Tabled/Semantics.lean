@@ -51,19 +51,6 @@ section cover
 variable (hL : D.Lawful P.sorts.interp)
 include hL
 
-omit [DecidableEq R] in
-theorem covB_iff (y x : Ans D P) :
-    covB D P y x = true ↔ den P.sorts.interp x.span ⊆ den P.sorts.interp y.span :=
-  hL.covers_iff _ _
-
-omit [DecidableEq R] in
-theorem covB_refl (a : Ans D P) : covB D P a a = true := (covB_iff hL a a).2 subset_rfl
-
-omit [DecidableEq R] in
-theorem covB_trans (a b c : Ans D P) (h₁ : covB D P a b = true) (h₂ : covB D P b c = true) :
-    covB D P a c = true :=
-  (covB_iff hL a c).2 (((covB_iff hL b c).1 h₂).trans ((covB_iff hL a b).1 h₁))
-
 variable (K : Kernel R Cost) (hK : K.Refines D)
 
 /-- Every candidate is covered by an answer of the table or by one that
