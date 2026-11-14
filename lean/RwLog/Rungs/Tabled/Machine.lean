@@ -82,7 +82,8 @@ namespace Tabled
 
 open Traverse
 
-export Goals (GoalOf GoalOf.mk GoalOf.lb GoalOf.node GoalOf.rb Kind Kind.seq Kind.and andSplits
+export Goals (GoalOf GoalOf.mk GoalOf.lb GoalOf.node GoalOf.rb toGoal Kind Kind.seq Kind.and
+  andSplits
   sameBound same indexFrom coversA maxima fresh both)
 
 /-- A table: a goal, the answers found so far, and whether it is complete. -/

@@ -122,7 +122,8 @@ namespace Symmetric
 
 open Traverse
 
-export Goals (GoalOf GoalOf.mk GoalOf.lb GoalOf.node GoalOf.rb Kind Kind.seq Kind.and andSplits
+export Goals (GoalOf GoalOf.mk GoalOf.lb GoalOf.node GoalOf.rb toGoal Kind Kind.seq Kind.and
+  andSplits
   sameBound same indexFrom coversA maxima both)
 
 /-- The cursor of a join. Every pair of the first `na` answers of the one side
@@ -788,13 +789,13 @@ def groupsAt (st : StateOf S N A) (i : Nat) : List (Group N A) :=
 def setGroup (st : StateOf S N A) (i k : Nat) (f : Group N A → Group N A) : StateOf S N A :=
   st.modify i fun t => { t with groups := t.groups.map fun gs => gs.modify k f }
 
-/-- The group `k` of the table at `i` works: each of its strategies does its
-own work, and then every table they read has its round (`adv`). Returns how
-much the level of the group rose, and whether anything was done. -/
-def workGroup (adv : Nat → StateOf S N A → M (StateOf S N A × Nat)) (whole : Bool) (i : Nat)
-    (g : GoalOf S N) (k : Nat) (st : StateOf S N A) : M (StateOf S N A × Nat × Bool) := do
+/-- Each strategy of the group `k` of the table at `i` does its own work, in
+order. Returns what the work that did something cost, and whether anything
+was done. -/
+def workStrats (whole : Bool) (i : Nat) (g : GoalOf S N) (k : Nat) (st : StateOf S N A) :
+    M (StateOf S N A × Nat × Bool) :=
   let n := ((groupsAt st i)[k]?.map (·.strats.length)).getD 0
-  let (st, d, did) ← foldL (fun (acc : StateOf S N A × Nat × Bool) j =>
+  foldL (fun (acc : StateOf S N A × Nat × Bool) j =>
     match ((groupsAt acc.1 i)[k]?).bind (·.strats[j]?) with
     | none => pure acc
     | some s => do
@@ -802,10 +803,23 @@ def workGroup (adv : Nat → StateOf S N A → M (StateOf S N A × Nat)) (whole 
       let st' := setGroup r.1 i k fun gr => { gr with strats := gr.strats.set j r.2.1 }
       pure (st', if r.2.2 then acc.2.1 + t else acc.2.1, acc.2.2 || r.2.2))
     (st, 0, false) (List.range n)
-  let feeds := (((groupsAt st i)[k]?.map (·.strats)).getD []).flatMap (Strat.feeds st)
-  let (st, d) ← foldL (fun (acc : StateOf S N A × Nat) h => do
+
+/-- Each of the tables given has its round (`adv`). Returns `d` and how much
+their levels rose. -/
+def feedAll (adv : Nat → StateOf S N A → M (StateOf S N A × Nat)) (st : StateOf S N A) (d : Nat)
+    (feeds : List Nat) : M (StateOf S N A × Nat) :=
+  foldL (fun (acc : StateOf S N A × Nat) h => do
     let (st', dh) ← adv h acc.1
-    pure (st', acc.2 + dh)) (st, d) feeds.eraseDups
+    pure (st', acc.2 + dh)) (st, d) feeds
+
+/-- The group `k` of the table at `i` works: each of its strategies does its
+own work, and then every table they read has its round (`adv`). Returns how
+much the level of the group rose, and whether anything was done. -/
+def workGroup (adv : Nat → StateOf S N A → M (StateOf S N A × Nat)) (whole : Bool) (i : Nat)
+    (g : GoalOf S N) (k : Nat) (st : StateOf S N A) : M (StateOf S N A × Nat × Bool) := do
+  let (st, d, did) ← workStrats (K := K) whole i g k st
+  let feeds := (((groupsAt st i)[k]?.map (·.strats)).getD []).flatMap (Strat.feeds st)
+  let (st, d) ← feedAll adv st d feeds.eraseDups
   pure (setGroup st i k fun gr => { gr with level := gr.level + d }, d, did || decide (0 < d))
 
 /-- The groups of the table at `i` that stand at the level `lv` work.

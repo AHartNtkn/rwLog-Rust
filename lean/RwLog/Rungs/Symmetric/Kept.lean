@@ -454,13 +454,15 @@ theorem prog_expand (hR : ReadOk D P K hK) (hP : ProgFO P) {st : StateOf R Rel (
   at_cost K hK
   simp only [expand, Cost.bind_val]
   split
-  · refine ⟨hB, fun gr hgr s hs => ?_⟩
+  · next hv =>
+    have hspan : ∃ s, g.node = .span s := forget_span hv
+    refine ⟨hB, fun gr hgr s hs => ?_⟩
     obtain rfl := List.mem_singleton.1 hgr
     obtain rfl := List.mem_singleton.1 hs
     dsimp only [Prog]
-    intro h
-    cases h
-  · simp only [Cost.bind_val]
+    exact ⟨hspan, fun h => by cases h⟩
+  · next f fl hv =>
+    simp only [Cost.bind_val]
     split
     · next hb =>
       have hb' : Charged.bodyOf P g.node = none := hb
@@ -468,7 +470,9 @@ theorem prog_expand (hR : ReadOk D P K hK) (hP : ProgFO P) {st : StateOf R Rel (
       obtain rfl := List.mem_singleton.1 hgr
       obtain rfl := List.mem_singleton.1 hs
       dsimp only [Prog]
-      exact ⟨(fun h => by cases h), by simp [copyMembers, hb'], fun m j pos hm => by simp at hm⟩
+      obtain ⟨b, hb''⟩ := forget_call (P := P) hv
+      rw [hb'] at hb''
+      cases hb''
     · next b hb =>
       have hb' : Charged.bodyOf P g.node = some b := hb
       simp only [Cost.bind_val, Cost.pure_val]
@@ -476,7 +480,8 @@ theorem prog_expand (hR : ReadOk D P K hK) (hP : ProgFO P) {st : StateOf R Rel (
       obtain rfl := List.mem_singleton.1 hgr
       obtain rfl := List.mem_singleton.1 hs
       dsimp only [Prog]
-      refine ⟨(fun h => by cases h), by simp [copyMembers, hb'], fun m j pos hm => ?_⟩
+      refine ⟨fun _ => ⟨b, hb'⟩, (fun h => by cases h), by simp [copyMembers, hb'],
+        fun m j pos hm => ?_⟩
       cases m with
       | zero =>
         simp only [List.getElem?_cons_zero, Option.some.injEq, Prod.mk.injEq] at hm
@@ -509,7 +514,8 @@ theorem prog_expand (hR : ReadOk D P K hK) (hP : ProgFO P) {st : StateOf R Rel (
     obtain rfl := List.mem_singleton.1 hs
     dsimp only [Prog]
     rw [hes]
-    refine ⟨fun _ => ⟨xs, hvu⟩, by simp only [copyMembers, ← hparts]; exact hall.length_eq.symm,
+    refine ⟨(fun h => by cases h), fun _ => ⟨xs, hvu⟩,
+      by simp only [copyMembers, ← hparts]; exact hall.length_eq.symm,
       fun m j pos hm => ?_⟩
     obtain ⟨x, hx, h0, hgx⟩ := forall₂_getElem? hall.flip hm
     simp only at h0
@@ -773,7 +779,7 @@ theorem good_workGroup (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK)
     keep_work (K := K) (hK := hK) (P := P) whole i g st s hb
   clear hR
   at_cost K hK
-  simp only [workGroup, Cost.bind_val, Cost.pure_val]
+  simp only [workGroup, workStrats, feedAll, Cost.bind_val, Cost.pure_val]
   refine Good.setGroup ?_ _ _ _ (fun g' gr _ s hs => .inl hs)
   refine (foldL_inv (fun acc : StateOf R Rel (Ans D P) × Nat =>
     Good acc.1 ∧ goalAt acc.1 i = some g ∧ Busy acc.1 i) _ _ (fun b h _ hb => ?_) _ ?_).1

@@ -122,4 +122,32 @@ theorem Normal.union_member_lt {e x : Rel} {xs : List Rel} (hn : Normal e)
   | conv a => obtain ⟨n, rfl⟩ := normal_conv.1 hn; simp [RelOf.view] at hv
   | _ => simp [RelOf.view] at hv
 
+/-- A member `view` lists of a node is smaller than the node. -/
+theorem size_view_member_lt {e x : Rel} (hx : x ∈ e.view.members) : x.size < e.size := by
+  cases e with
+  | zero => simp [RelOf.view, NodeView.members] at hx
+  | span s => simp [RelOf.view, NodeView.members] at hx
+  | call n => simp [RelOf.view, NodeView.members] at hx
+  | conv a => cases a <;> simp [RelOf.view, NodeView.members] at hx
+  | seq a b =>
+    have hx' : x ∈ seqParts (.seq a b) := hx
+    have h1 := size_seqParts (.seq a b)
+    have h2 := size_le_sumSize hx'
+    have ha := List.length_pos_iff.2 (seqParts_ne_nil a)
+    have hb := List.length_pos_iff.2 (seqParts_ne_nil b)
+    simp only [seqParts, List.length_append] at h1 h2
+    omega
+  | and a b =>
+    refine size_andPart_lt hx ?_
+    have ha := List.length_pos_iff.2 (andParts_ne_nil a)
+    have hb := List.length_pos_iff.2 (andParts_ne_nil b)
+    simp only [andParts, List.length_append]
+    omega
+  | or a b =>
+    refine size_orBranch_lt hx ?_
+    have ha := List.length_pos_iff.2 (orBranches_ne_nil a)
+    have hb := List.length_pos_iff.2 (orBranches_ne_nil b)
+    simp only [orBranches, List.length_append]
+    omega
+
 end RwLog

@@ -297,8 +297,8 @@ theorem Inner.frame {j : Nat} {st st' : StateOf R Rel (Ans D P)} (h : Inner K hK
   induction h with
   | refl st => exact Frame.refl j st
   | trans _ _ a b => exact a.trans b
-  | same e er _ => exact Frame.of_frames e er
-  | opened g self e er _ => exact Frame.of_opened e er
+  | same e er _ _ => exact Frame.of_frames e er
+  | opened g self e er _ _ => exact Frame.of_opened e er
   | add st a =>
     rw [addAnswer_val]
     split
@@ -344,7 +344,7 @@ theorem keep_workGroup (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf 
     Keep st (workGroup (K := DerivationKernel.over D K hK P) adv whole i g k st).val.1 := by
   have hw := fun whole g st s hb => keep_work (K := K) (hK := hK) (P := P) whole i g st s hb
   at_cost K hK
-  simp only [workGroup, Cost.bind_val, Cost.pure_val]
+  simp only [workGroup, workStrats, feedAll, Cost.bind_val, Cost.pure_val]
   refine Keep.trans ?_ (keep_setGroup _ _ _ _)
   refine keep_foldL_from (fun acc : StateOf R Rel (Ans D P) × Nat => acc.1) _ i
     (fun b h _ => ?_) _ _ ?_ hb

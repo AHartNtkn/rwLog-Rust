@@ -92,16 +92,17 @@ inductive Reach : StateOf R Rel (Ans D P) → StateOf R Rel (Ans D P) → Prop
 table at `i` alone: by changes that leave of every table its goal, its
 answers, whether it is complete, the requests it was opened and last served
 in, and its groups; by opening a table, with no answer, not complete and
-with no groups yet; and by putting an answer into the table at `i`. The number of requests and the
-position the root's answers are emitted to stay. -/
+with no groups yet; and by putting an answer into the table at `i`. The
+number of requests and the position the root's answers are emitted to stay,
+and the depth edges are read to does not fall. -/
 inductive Inner (i : Nat) : StateOf R Rel (Ans D P) → StateOf R Rel (Ans D P) → Prop
   | refl (st) : Inner i st st
   | trans {a b c} : Inner i a b → Inner i b c → Inner i a c
   | same {st st'} : st'.frames = st.frames → st'.round = st.round → st'.shown = st.shown →
-      Inner i st st'
+      st.depth ≤ st'.depth → Inner i st st'
   | opened {st st'} (g : GoalOf R Rel) (self : Bool) :
       st'.frames = st.frames ++ [(g, self, [], false, st.round, 0, none)] → st'.round = st.round →
-      st'.shown = st.shown → Inner i st st'
+      st'.shown = st.shown → st.depth ≤ st'.depth → Inner i st st'
   | add (st) (a : Ans D P) :
       Inner i st (addAnswer (K := DerivationKernel.over D K hK P) i st a).val
 
@@ -118,14 +119,15 @@ theorem Inner.reach {i : Nat} {st st' : StateOf R Rel (Ans D P)} (h : Inner K hK
   induction h with
   | refl st => exact .refl st
   | trans _ _ a b => exact a.trans b
-  | same e _ es => exact .same (by rw [cores_of_frames, cores_of_frames, e]) es
-  | opened g self e _ es =>
+  | same e _ es _ => exact .same (by rw [cores_of_frames, cores_of_frames, e]) es
+  | opened g self e _ es _ =>
     exact .opened g self (by rw [cores_of_frames, cores_of_frames, e]; simp) es
   | add st a => exact .add st _ a
 
 theorem inner_modify {w : Nat} (st : StateOf R Rel (Ans D P)) (i : Nat)
     (f : Table R Rel (Ans D P) → Table R Rel (Ans D P)) (hf : ∀ t, (f t).frame = t.frame) :
-    Inner K hK w st (st.modify i f) := .same (frames_modify st i f hf) rfl rfl
+    Inner K hK w st (st.modify i f) :=
+  .same (frames_modify st i f hf) rfl rfl (Nat.le_refl _)
 
 theorem reach_modify (st : StateOf R Rel (Ans D P)) (i : Nat)
     (f : Table R Rel (Ans D P) → Table R Rel (Ans D P)) (hf : ∀ t, (f t).core = t.core) :
@@ -138,6 +140,7 @@ theorem inner_openGoal {w : Nat} (st : StateOf R Rel (Ans D P)) (g : GoalOf R Re
   split
   · exact .refl _
   · refine .opened g (selfConverse (K := DerivationKernel.over D _ hK P) g).val ?_ rfl rfl
+      (Nat.le_refl _)
     simp [StateOf.frames, Table.frame]
 
 theorem inner_addOption (st : StateOf R Rel (Ans D P)) (i : Nat) (a : Option (Ans D P)) :
@@ -205,8 +208,8 @@ theorem inner_edgeOf {w : Nat} (st : StateOf R Rel (Ans D P)) (last : Bool) (n :
   · exact Inner.refl _
   · simp only [Cost.bind_val, Cost.pure_val]
     split
-    · exact .same rfl rfl rfl
-    · exact .same rfl rfl rfl
+    · exact .same rfl rfl rfl (Nat.le_refl _)
+    · exact .same rfl rfl rfl (Nat.le_mul_of_pos_left _ (by decide))
 
 theorem inner_checkOf {w : Nat} (st : StateOf R Rel (Ans D P)) (left : Bool) (side other : Rel) :
     Inner K hK w st (checkOf (K := DerivationKernel.over D K hK P) st left side other).val.1 := by
@@ -405,7 +408,7 @@ theorem reach_workGroup (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf
     (k : Nat) (st : StateOf R Rel (Ans D P)) :
     Reach K hK st (workGroup (K := DerivationKernel.over D K hK P) adv whole i g k st).val.1 := by
   at_cost K hK
-  simp only [workGroup, Cost.bind_val, Cost.pure_val]
+  simp only [workGroup, workStrats, feedAll, Cost.bind_val, Cost.pure_val]
   refine Reach.trans ?_ (reach_setGroup _ _ _ _)
   refine reach_foldL_from (fun acc : StateOf R Rel (Ans D P) × Nat => acc.1) _ (fun b h => ?_) _ _ ?_
   · simp only [Cost.bind_val, Cost.pure_val]

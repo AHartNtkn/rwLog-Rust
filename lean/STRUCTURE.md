@@ -79,9 +79,30 @@ Rungs/Symmetric/ the symmetric engine of `SYMMETRIC_ENGINE.md` (Machine.lean): a
                 passed) holds of the strategies made for a goal and is kept by a whole
                 request, with the goals of the tables distinct and good (Kept.lean,
                 `Good`, `good_request`); and the interfaces read from the program are
-                right about it (Edge.lean, `readOk`). Not proved yet: that every open
-                group is worked again and again, and from it completeness; `Keeps`; the
-                cost bound. A goal and its converse do not share a
+                right about it (Edge.lean, `readOk`). Towards fairness: the cursor of
+                a join reaches every pair that is there, by a rank that falls
+                (Cursor.lean, `Cursor.all_rank`, `rankLt_wf`); and the record of a
+                request (Turns.lean, `Req`, `req_request`): the groups of a table change
+                in its own round only, where each strategy moves on, a group all of whose
+                checks are dead is removed, and one group works with the tables it reads
+                settled (`Turn`); of the groups a goal begins with one has a span, a call, a
+                union or a join, and one that has none is all checks (`shaped_expand`); a table
+                marked complete has a strategy with nothing left to do that reads complete
+                tables only; and an edge is read in the end, from a depth that the node
+                and the program give (ReadLive.lean, `readEdge_some`); and of a table that
+                has rounds for ever one group works for ever, with as many groups from
+                some request on (Lines.lean, `Requests.line`). Fairness and
+                completeness: a run of requests (`IsRun`) holds for each goal the answers
+                of its table (`held`) and does not neglect the tables that are complete at
+                some time or have rounds for ever (`opened`); a complete table is served by
+                the strategy that completed it (Served.lean, `IsRun.served_done`), a table
+                with rounds for ever by a strategy of the group that works for ever
+                (Fair.lean, `IsRun.served_live`), so the run is fair (`IsRun.fair`); the
+                states of the engine are such a run, and the machine is complete, honest
+                when it reports that it is done, and emits no progress certificate
+                (Correct.lean, `Symmetric.complete`, `honestExhaustion`,
+                `honestProgress`). Not proved yet: `NoSubsumed`, `TerminatesWhere`,
+                `EmptySide` and with them `Keeps`; the cost bound. A goal and its converse do not share a
                 table (not owed by any property; billboard SIM12)
 Rungs/Naive/    normalisation, unfolding to a depth, and their correctness (namespace `R000`)
 Rungs/R005/     the engines: `R001.engine` (tables, unfolding to a depth), `R004.engine` (tables,
@@ -153,6 +174,7 @@ every charge derived from the Rust. No domain of spans as written is left
 | Insertion sort by a strict order | `Lib/Insert.lean` | `insertBy`, `sortBy`, `sortBy_eq` (a duplicate-free list sorts to the ordered list with the same members) |
 | First occurrences of a list | `Lib/Firsts.lean` | `addNew`, `addAll`, `firsts`, `firsts_eq_eraseDups`, `addAll_firsts`, `addAll_flatMap_firsts`, `addAll_flatMap_congr`, `firsts_map`, `firsts_spec` |
 | An antichain that covers a list | `Lib/Antichain.lean` | `antichain`, `antichain_spec` |
+| Sequences that cannot go on for ever | `Lib/Sequences.lean` | `eventually_const`, `no_descent`, `infinitely_often_fin` |
 | Lookup by sorted key; the values of a list of options | `Lib/List.lean` | `lookup_sorted`, `gather`, `gather_eq_some`, `gather_range`, `gather_isSome` |
 
 ## The rung framework
@@ -221,7 +243,8 @@ rung unchanged.
   opened goal served. `Fair.covers`: a fair run covers the pairs of every
   ground relation the node of an opened goal derives, by induction on the
   depth of the derivation and then on the node. `Fair.complete` is
-  completeness at the query, and `Fair.covers_valid` says a valid answer
+  completeness at the query, `Fair.covers_pair` the same pair by pair, and
+  `Fair.covers_valid` says a valid answer
   found by any schedule is covered by every fair run that opens its goal.
   Nothing is assumed of the order of work or of tables growing. A machine
   proves `Fair` of its runs and receives completeness.
@@ -531,7 +554,9 @@ come from these places.
 3. Completeness: describe the run as `Saturation.Tables` and the goals it
    opens, prove `Saturation.Fair`, and take `Fair.complete`
    (`Framework/Saturation.lean`). Honest exhaustion follows from
-   `Tier0Cert` (`Framework/Tier0.lean`).
+   `Tier0Cert` (`Framework/Tier0.lean`), or pair by pair from
+   `Fair.covers_pair` once everything the run holds for the query is
+   emitted when the machine reports that it is done.
 4. The converse and the mirrored program: run the machine on one
    orientation and prove `CostedRuntime.SelfConverse`
    (`Framework/Oriented.lean`).

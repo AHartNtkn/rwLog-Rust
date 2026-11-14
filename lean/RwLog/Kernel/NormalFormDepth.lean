@@ -142,6 +142,17 @@ theorem gdn_bodyOf {e b : Rel} (h : Charged.bodyOf P e = some b) (k : Nat) :
       by rw [(gdn_laws P _).conv, gdn_call_zero, Set.image_empty]⟩
   · cases h
 
+/-- Every pair a query relates is a pair of a derivation of its normal form,
+at some depth of unfolding. -/
+theorem pairs_gdn {P : Program} {q : Rel} {p : GTerm × GTerm} (hp : p ∈ P.pairs q) :
+    ∃ k G, G ∈ GDn P k q.norm ∧ p ∈ G.at P.sorts.interp := by
+  unfold ProgramOf.pairs at hp
+  rw [ProgramOf.semAt_eq, sem_eq_sUnion_gd] at hp
+  obtain ⟨S, ⟨G, hG, hmem⟩, hM⟩ := hp
+  rw [← gd_norm] at hG
+  obtain ⟨k, hk⟩ := mem_gd_iff.1 hG
+  exact ⟨k, G, hk, S, hmem, hM⟩
+
 section
 
 variable {G : Rel → Set GRel} (hG : GLaws G)

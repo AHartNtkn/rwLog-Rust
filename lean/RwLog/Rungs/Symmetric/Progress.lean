@@ -191,9 +191,10 @@ def EdgeOk (D : Domain R) (P : Program) (n : Rel) (last : Bool) (ps : List R) : 
 `g`, mean. -/
 def Prog (st : StateOf R Rel (Ans D P)) (i : Nat) (g : GoalOf R Rel) :
     Strat Rel (Ans D P) → Prop
-  | .span ran => ran = true → ∀ s, g.node = .span s → ∀ c, spanBoth D g.lb s g.rb = some c →
-      CovS st i c
+  | .span ran => (∃ s, g.node = .span s) ∧
+      (ran = true → ∀ s, g.node = .span s → ∀ c, spanBoth D g.lb s g.rb = some c → CovS st i c)
   | .copy isCall subs =>
+    (isCall = true → ∃ b, Charged.bodyOf P g.node = some b) ∧
     (isCall = false → ∃ xs, g.node.view = .union xs) ∧
     subs.length = (copyMembers P g.node isCall).length ∧
     ∀ (m j pos : Nat), subs[m]? = some (j, pos) → ∃ x, (copyMembers P g.node isCall)[m]? = some x ∧
@@ -227,11 +228,11 @@ theorem Prog.mono {st st' : StateOf R Rel (Ans D P)} (h : Stable st st') {i : Na
   cases s with
   | span ran =>
     dsimp only [Prog] at hs ⊢
-    exact fun hr s hn c hc => (hs hr s hn c hc).mono h
+    exact ⟨hs.1, fun hr s hn c hc => (hs.2 hr s hn c hc).mono h⟩
   | copy isCall subs =>
     dsimp only [Prog] at hs ⊢
-    obtain ⟨h1, h2, h3⟩ := hs
-    refine ⟨h1, h2, fun m j pos hm => ?_⟩
+    obtain ⟨h0, h1, h2, h3⟩ := hs
+    refine ⟨h0, h1, h2, fun m j pos hm => ?_⟩
     obtain ⟨x, hx, hg, hr⟩ := h3 m j pos hm
     exact ⟨x, hx, hE _ _ hg, hr.mono h⟩
   | join k a b c =>
@@ -644,6 +645,7 @@ theorem prog_work_span (hL : D.Lawful P.sorts.interp) {st : StateOf R Rel (Ans D
   cases ran
   · simp only [work, Cost.bind_val, Cost.pure_val]
     dsimp only [Prog]
+    refine ⟨hs.1, ?_⟩
     intro _ s hn c hc
     obtain ⟨c', h1, h2, -⟩ := hleaf s c hc
     rw [hn]
@@ -661,7 +663,7 @@ theorem prog_work_copy (hL : D.Lawful P.sorts.interp) {st : StateOf R Rel (Ans D
     copyFrom_cov (K := K) (hK := hK) hL i g isCall m st' as ho happ
   have hs0 := hs
   dsimp only [Prog] at hs
-  obtain ⟨h1, h2, h3⟩ := hs
+  obtain ⟨h0, h1, h2, h3⟩ := hs
   have happ : ∀ p ∈ subs.zipIdx, ∀ a ∈ st.answers p.1.1, ∃ c,
       (if isCall then Ans.unfold D P a g.node else Ans.inj D P a g.node p.2).val = some c ∧
         c.span = a.span := by
@@ -683,7 +685,7 @@ theorem prog_work_copy (hL : D.Lawful P.sorts.interp) {st : StateOf R Rel (Ans D
       (fun _ _ _ h hc a ha => (hc a ha).mono h) subs.zipIdx st (fun _ h => h) ho
     have hS := hf.stable ho
     dsimp only [Prog]
-    refine ⟨h1, by rw [List.length_map]; exact h2, fun m j pos hm => ?_⟩
+    refine ⟨h0, h1, by rw [List.length_map]; exact h2, fun m j pos hm => ?_⟩
     rw [List.getElem?_map] at hm
     cases hq : subs[m]? with
     | none => rw [hq] at hm; cases hm
@@ -716,7 +718,7 @@ theorem prog_work_copy (hL : D.Lawful P.sorts.interp) {st : StateOf R Rel (Ans D
         (fun a ha => happ p hpm a (List.mem_of_mem_drop (List.mem_of_mem_take ha)))
       have hS := hf.stable ho
       dsimp only [Prog]
-      refine ⟨h1, by rw [List.length_modify]; exact h2, fun m j pos hm => ?_⟩
+      refine ⟨h0, h1, by rw [List.length_modify]; exact h2, fun m j pos hm => ?_⟩
       rw [List.getElem?_modify] at hm
       have hq0 : subs[p.2]? = some p.1 := List.mem_zipIdx_iff_getElem?.1 hpm
       by_cases e : p.2 = m
