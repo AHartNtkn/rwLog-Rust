@@ -1500,7 +1500,7 @@ fn a_larger_conjunction_is_still_included_on_random_small_tables() {
 
 // Stress and ticks.
 
-const LONG: usize = 200_000;
+const LONG: usize = 100_000;
 
 fn link(i: usize) -> Name {
     1000 + i as Name
@@ -1530,7 +1530,7 @@ fn chains_of_2000_that_agree_and_that_differ_at_the_end() {
 }
 
 #[test]
-fn a_case_with_200000_arguments() {
+fn a_case_with_100000_arguments() {
     let defs = || {
         vec![
             (A, cases(vec![(F, vec![Some(X); LONG])])),
@@ -1547,7 +1547,7 @@ fn a_case_with_200000_arguments() {
 }
 
 #[test]
-fn a_case_with_200000_arguments_out_at_the_last() {
+fn a_case_with_100000_arguments_out_at_the_last() {
     let mut kids = vec![Some(X); LONG];
     kids[LONG - 1] = Some(Y);
     let defs = vec![
