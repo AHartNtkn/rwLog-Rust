@@ -141,11 +141,11 @@ theorem conj_at_spec {U : List Name} (s : store.Store) (es v : store.TermId) {x 
 
 /-! ## The sorts that hold of all members but some -/
 
-/-- The ticks the loop of `uppers` may take over `n` names, when one test
-takes `K`. -/
-def uppersLoopCost (K : Nat) : Nat → Nat
-  | 0 => 1
-  | n + 1 => K + 2 + uppersLoopCost K n
+/-- The ticks the loop of `uppers` takes over a list of names, when the test
+of a name takes `K` of it. -/
+def uppersLoopCost (K : Name → Nat) : List Name → Nat
+  | [] => 1
+  | n :: ns => K n + 2 + uppersLoopCost K ns
 
 theorem uppers_loop_spec {S : Sorts} {sp : Pat} {U : List Name} (hC : Ctx nm S sp U)
     (hS : S.WellFormed) {r q : Nat} (hr : ∀ d, (Sorts.reachSet S d).card ≤ r)
@@ -158,11 +158,11 @@ theorem uppers_loop_spec {S : Sorts} {sp : Pat} {U : List Name} (hC : Ctx nm S s
     Repr nm s.nodes.val g.val (encList (nm none) (G.map GTerm.toPat)) →
     Repr nm s.nodes.val nsi.val (namesPat (nm none) ns) → (∀ n ∈ ns, n ∈ Sorts.names S) →
     Repr nm s.nodes.val out.val (namesPat (nm none) acc) →
-    Room s (uppersLoopCost (inclButAll S U.length r q (Sorts.sumSize G)) ns.length) →
+    Room s (uppersLoopCost (fun n => inclButCharge S U r q c n G) ns) →
     sorts.uppers_loop nsi s decls names ci g out ⦃ res s' =>
       Inv s' ∧ Extends s s' ∧
         s'.ticks.val ≤ s.ticks.val +
-          uppersLoopCost (inclButAll S U.length r q (Sorts.sumSize G)) ns.length ∧
+          uppersLoopCost (fun n => inclButCharge S U r q c n G) ns ∧
         Repr nm s'.nodes.val res.val
           (namesPat (nm none) (conjList ns (fun n => Sorts.Hold S c n G) ++ acc)) ⦄ := by
   intro ns
@@ -171,7 +171,7 @@ theorem uppers_loop_spec {S : Sorts} {sp : Pat} {U : List Name} (hC : Ctx nm S s
     intro s nsi out acc hI hde hU hci hg hns hsub ho hroom
     have hroom' := hroom
     unfold Room at hroom'
-    simp only [List.length_nil, uppersLoopCost] at hroom'
+    simp only [uppersLoopCost] at hroom'
     unfold sorts.uppers_loop
     rw [loop]
     simp only [sorts.uppers_loop.body]
@@ -186,10 +186,10 @@ theorem uppers_loop_spec {S : Sorts} {sp : Pat} {U : List Name} (hC : Ctx nm S s
     have hx1 : Extends s s1 := Extends.of_eq K1.nodes (by omega)
     have hfin : Inv s1 ∧ Extends s s1 ∧
         s1.ticks.val ≤ s.ticks.val +
-          uppersLoopCost (inclButAll S U.length r q (Sorts.sumSize G)) ([] : List Name).length ∧
+          uppersLoopCost (fun n => inclButCharge S U r q c n G) ([] : List Name) ∧
         Repr nm s1.nodes.val out.val
           (namesPat (nm none) (conjList [] (fun n => Sorts.Hold S c n G) ++ acc)) := by
-      refine ⟨K1.inv, hx1, by simp only [List.length_nil, uppersLoopCost]; omega, ?_⟩
+      refine ⟨K1.inv, hx1, by simp only [uppersLoopCost]; omega, ?_⟩
       rw [conjList_nil, List.nil_append]
       exact hx1.repr ho
     step*
@@ -197,7 +197,7 @@ theorem uppers_loop_spec {S : Sorts} {sp : Pat} {U : List Name} (hC : Ctx nm S s
     intro s nsi out acc hI hde hU hci hg hns hsub ho hroom
     have hroom' := hroom
     unfold Room at hroom'
-    simp only [List.length_cons, uppersLoopCost] at hroom'
+    simp only [uppersLoopCost] at hroom'
     unfold sorts.uppers_loop
     rw [loop]
     simp only [sorts.uppers_loop.body]
@@ -236,7 +236,7 @@ theorem uppers_loop_spec {S : Sorts} {sp : Pat} {U : List Name} (hC : Ctx nm S s
       unfold sorts.uppers_loop at IH
       refine WP.spec_mono IH ?_
       rintro ⟨res, s'⟩ ⟨hI', hx', ht', hr'⟩
-      refine ⟨hI', hx03.trans hx', by simp only [List.length_cons, uppersLoopCost]; omega, ?_⟩
+      refine ⟨hI', hx03.trans hx', by simp only [uppersLoopCost]; omega, ?_⟩
       rw [conjList_cons_pos hH, List.append_assoc]
       exact hr'
     | false =>
@@ -247,13 +247,15 @@ theorem uppers_loop_spec {S : Sorts} {sp : Pat} {U : List Name} (hC : Ctx nm S s
       unfold sorts.uppers_loop at IH
       refine WP.spec_mono IH ?_
       rintro ⟨res, s'⟩ ⟨hI', hx', ht', hr'⟩
-      refine ⟨hI', hx02.trans hx', by simp only [List.length_cons, uppersLoopCost]; omega, ?_⟩
+      refine ⟨hI', hx02.trans hx', by simp only [uppersLoopCost]; omega, ?_⟩
       rw [conjList_cons_neg hH]
       exact hr'
 
-/-- The ticks `uppers` may take. -/
-def uppersCost (S : Sorts) (u r q N : Nat) : Nat :=
-  uppersLoopCost (inclButAll S u r q N) u + 1
+/-- The ticks `uppers` takes: for each name what its test spends
+(`inclButCharge`) and 2, and 2. -/
+noncomputable def uppersCost (S : Sorts) (U : List Name) (r q : Nat) (c : Sorts.Conj)
+    (G : List GTerm) : Nat :=
+  uppersLoopCost (fun n => inclButCharge S U r q c n G) U + 1
 
 /-- `uppers` is the conjunction of the sorts that every member of the
 conjunction, but for the ground terms of the list, is in. -/
@@ -268,10 +270,10 @@ theorem uppers_spec {S : Sorts} {sp : Pat} {U : List Name} (hC : Ctx nm S sp U)
     (hU : Repr nm s.nodes.val names.val (namesPat (nm none) U))
     (hci : Repr nm s.nodes.val ci.val (cpat (nm none) U c))
     (hg : Repr nm s.nodes.val g.val (encList (nm none) (G.map GTerm.toPat)))
-    (hroom : Room s (uppersCost S U.length r q (Sorts.sumSize G))) :
+    (hroom : Room s (uppersCost S U r q c G)) :
     sorts.uppers s decls names ci g ⦃ res s' =>
       Inv s' ∧ Extends s s' ∧
-        s'.ticks.val ≤ s.ticks.val + uppersCost S U.length r q (Sorts.sumSize G) ∧
+        s'.ticks.val ≤ s.ticks.val + uppersCost S U r q c G ∧
         Repr nm s'.nodes.val res.val (cpat (nm none) U c') ⦄ := by
   unfold sorts.uppers
   have hroom' := hroom
@@ -742,13 +744,14 @@ def upConj (S : Sorts) (L : List (Nat × Sorts.Conj)) (X : List (Eqns Nat)) (v :
     Sorts.Conj :=
   (Sorts.names S).filter fun n => Sorts.inclBut S (conjOf L v) n (Sorts.gone X v)
 
-/-- The ticks the first loop of `renumber` may take: for each variable the
-search among `l` entries, the excluded terms, and the test of each sort. -/
-def conjsCost (nm : Option Nat → RwLog.Sym) (S : Sorts) (u r q l : Nat) (X : List (Eqns Nat)) :
-    List Nat → Nat
+/-- The ticks the first loop of `renumber` takes: for each variable the
+search among the entries, the excluded terms, and the test of each sort on
+its conjunction but for those terms. -/
+noncomputable def conjsCost (nm : Option Nat → RwLog.Sym) (S : Sorts) (U : List Name) (r q : Nat)
+    (L : List (Nat × Sorts.Conj)) (X : List (Eqns Nat)) : List Nat → Nat
   | [] => 1
-  | v :: R => 3 * l + goneCost nm v X + uppersCost S u r q (Sorts.sumSize (Sorts.gone X v)) + 4 +
-      conjsCost nm S u r q l X R
+  | v :: R => 3 * L.length + goneCost nm v X +
+      uppersCost S U r q (conjOf L v) (Sorts.gone X v) + 4 + conjsCost nm S U r q L X R
 
 theorem renumber_loop_spec (hnm : Function.Injective nm) {S : Sorts} {sp : Pat} {U : List Name}
     (hC : Ctx nm S sp U) (hS : S.WellFormed) (hUS : ∀ n ∈ U, n ∈ Sorts.names S) {r q : Nat}
@@ -763,10 +766,10 @@ theorem renumber_loop_spec (hnm : Function.Injective nm) {S : Sorts} {sp : Pat} 
     Repr nm s.nodes.val es.val (encVarEntries nm U L) →
     Repr nm s.nodes.val l.val (encList (nm none) (R.map Term.var)) →
     Repr nm s.nodes.val cs.val (encList (nm none) acc) →
-    Room s (conjsCost nm S U.length r q L.length X R) →
+    Room s (conjsCost nm S U r q L X R) →
     sorts.renumber_loop l s decls names x es cs ⦃ s' res =>
       Inv s' ∧ Extends s s' ∧
-        s'.ticks.val ≤ s.ticks.val + conjsCost nm S U.length r q L.length X R ∧
+        s'.ticks.val ≤ s.ticks.val + conjsCost nm S U r q L X R ∧
         Repr nm s'.nodes.val res.val
           (encList (nm none)
             ((R.map fun v => cpat (nm none) U (upConj S L X v)).reverse ++ acc)) ⦄ := by
@@ -790,7 +793,7 @@ theorem renumber_loop_spec (hnm : Function.Injective nm) {S : Sorts} {sp : Pat} 
     have ht1 := K1.ticks
     have hx1 : Extends s s1 := Extends.of_eq K1.nodes (by omega)
     have hfin : Inv s1 ∧ Extends s s1 ∧
-        s1.ticks.val ≤ s.ticks.val + conjsCost nm S U.length r q L.length X [] ∧
+        s1.ticks.val ≤ s.ticks.val + conjsCost nm S U r q L X [] ∧
         Repr nm s1.nodes.val cs.val
           (encList (nm none)
             ((([] : List Nat).map fun v => cpat (nm none) U (upConj S L X v)).reverse ++ acc)) :=
@@ -1043,10 +1046,10 @@ theorem encX_numSub {F : List Nat} {X : List (Eqns Nat)}
   refine List.map_congr_left fun p hp => ?_
   rw [bind_numSub (h E hE p hp).1, bind_numSub (h E hE p hp).2]
 
-/-- The ticks `renumber` may take. -/
-noncomputable def renumberCost (nm : Option Nat → RwLog.Sym) (S : Sorts) (u r q : Nat) (T : Pat)
-    (X : List (Eqns Nat)) (L : List (Nat × Sorts.Conj)) : Nat :=
-  firstsCost T + conjsCost nm S u r q L.length X (RwLog.firsts T.vars) +
+/-- The ticks `renumber` takes. -/
+noncomputable def renumberCost (nm : Option Nat → RwLog.Sym) (S : Sorts) (U : List Name) (r q : Nat)
+    (T : Pat) (X : List (Eqns Nat)) (L : List (Nat × Sorts.Conj)) : Nat :=
+  firstsCost T + conjsCost nm S U r q L X (RwLog.firsts T.vars) +
     2 * (RwLog.firsts T.vars).length + numCost 0 (RwLog.firsts T.vars).length +
     14 * (T.subs ∪ (encX nm X).subs).card + 16
 
@@ -1063,10 +1066,10 @@ theorem renumber_spec (hnm : Function.Injective nm) {S : Sorts} {sp : Pat} {U : 
     (hU : Repr nm s.nodes.val names.val (namesPat (nm none) U))
     (ht : Repr nm s.nodes.val t.val T) (hx : Repr nm s.nodes.val x.val (encX nm X))
     (hes : Repr nm s.nodes.val es.val (encVarEntries nm U L)) (hsub : ∀ p ∈ L, Sub U p.2)
-    (hroom : Room s (renumberCost nm S U.length r q T X L)) :
+    (hroom : Room s (renumberCost nm S U r q T X L)) :
     sorts.renumber s decls names t x es ⦃ res s' =>
       Inv s' ∧ Extends s s' ∧
-        s'.ticks.val ≤ s.ticks.val + renumberCost nm S U.length r q T X L ∧
+        s'.ticks.val ≤ s.ticks.val + renumberCost nm S U r q T X L ∧
         Repr nm s'.nodes.val res.1.val (T.bind (numSub (RwLog.firsts T.vars))) ∧
         Repr nm s'.nodes.val res.2.1.val ((encX nm X).bind (numSub (RwLog.firsts T.vars))) ∧
         Repr nm s'.nodes.val res.2.2.val

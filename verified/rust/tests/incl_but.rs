@@ -1313,3 +1313,112 @@ fn the_ticks_grow_with_the_depth_of_a_removed_term_and_no_faster_than_its_square
     assert!(spent_at[1] <= 4 * spent_at[0] + 1000, "{spent_at:?}");
     assert!(spent_at[2] <= 4 * spent_at[1] + 1000, "{spent_at:?}");
 }
+
+// # A question that arises once for each occurrence of a shared subterm
+
+/// The name of the sort `t_j` of the tower, and of the sort `n_j`.
+fn tower_t(j: usize) -> Name {
+    1000 + j as Name
+}
+fn tower_n(j: usize) -> Name {
+    2000 + j as Name
+}
+
+/// `t_0` is `z` and `t_{j+1}` the pairs of two `t_j`, so each `t_j` has one
+/// member; `n_0` is `o` and `n_{j+1}` the pairs of two `n_j`.
+fn tower(k: usize) -> Defs {
+    let mut defs = vec![(tower_t(0), zero()), (tower_n(0), one(O, vec![]))];
+    for j in 0..k {
+        defs.push((tower_t(j + 1), one(CO, vec![Some(tower_t(j)), Some(tower_t(j))])));
+        defs.push((tower_n(j + 1), one(CO, vec![Some(tower_n(j)), Some(tower_n(j))])));
+    }
+    defs
+}
+
+/// The full tree of pairs of depth `k` over the constant `leaf`, each level
+/// one node of the store.
+fn full(st: &mut Store, leaf: u32, k: usize) -> TermId {
+    let co = st.alloc(Node::Sym(CO));
+    let mut t = st.alloc(Node::Sym(leaf));
+    for _ in 0..k {
+        let h = st.alloc(Node::App(co, t));
+        t = st.alloc(Node::App(h, t));
+    }
+    t
+}
+
+/// The same tree as a pattern.
+fn full_pat(leaf: u32, k: usize) -> P {
+    let mut t = pf(leaf, vec![]);
+    for _ in 0..k {
+        t = pf(CO, vec![t.clone(), t]);
+    }
+    t
+}
+
+/// Whether `t_k`, but for the term, is in `n_k`, and the ticks spent.
+fn tower_ticks(k: usize, gone: TermId, f: &mut Fx) -> (bool, u64) {
+    let c = f.conj(&[tower_t(k)]);
+    let n = f.name(tower_n(k));
+    let nil = f.s.alloc(Node::Nil);
+    let g = f.s.alloc(Node::App(gone, nil));
+    let (decls, names) = (f.decls, f.names);
+    spent(&mut f.s, |s| included_but(s, decls, names, c, n, g))
+}
+
+#[test]
+fn a_tower_but_for_its_one_member_is_in_any_sort() {
+    for k in 0..4 {
+        let mut f = fx(tower(k));
+        let set: Conj = [tower_t(k)].into_iter().collect();
+        assert!(f.ss.included_but(&set, tower_n(k), &[full_pat(Z, k)]), "the reference at {k}");
+        let member = full(&mut f.s, Z, k);
+        assert!(tower_ticks(k, member, &mut f).0, "the store at {k}");
+    }
+}
+
+#[test]
+fn a_tower_but_for_another_term_is_not_in_a_sort_without_its_member() {
+    for k in 0..4 {
+        let mut f = fx(tower(k));
+        let set: Conj = [tower_t(k)].into_iter().collect();
+        assert!(!f.ss.included_but(&set, tower_n(k), &[full_pat(O, k)]), "the reference at {k}");
+        let other = full(&mut f.s, O, k);
+        assert!(!tower_ticks(k, other, &mut f).0, "the store at {k}");
+    }
+}
+
+#[test]
+fn a_question_already_asked_is_not_asked_again() {
+    // The question for a level arises once for each occurrence of the
+    // member of that level, of which there are 2^(k - j). Asked once each,
+    // the ticks of twice the depth are within a polynomial of the ticks of
+    // the depth; asked for each occurrence they would be squared.
+    let mut spent_at = Vec::new();
+    for k in [6usize, 12, 24] {
+        let mut f = fx(tower(k));
+        let member = full(&mut f.s, Z, k);
+        let (yes, t) = tower_ticks(k, member, &mut f);
+        assert!(yes);
+        println!("tower of depth {k}: {t} ticks");
+        spent_at.push(t);
+    }
+    assert!(spent_at[1] <= 8 * spent_at[0], "{spent_at:?}");
+    assert!(spent_at[2] <= 8 * spent_at[1], "{spent_at:?}");
+}
+
+#[test]
+fn a_question_asked_again_after_it_failed_still_fails() {
+    // Two occurrences of a subterm whose question fails: the first stops
+    // the run, and the answer is that of the reference.
+    let k = 3;
+    let mut f = fx(tower(k));
+    let set: Conj = [tower_t(k)].into_iter().collect();
+    // The member with one leaf replaced is not the member, so the member is
+    // left and is outside `n_k`.
+    let mut wrong = full_pat(Z, k - 1);
+    wrong = pf(CO, vec![wrong, full_pat(O, k - 1)]);
+    assert!(!f.ss.included_but(&set, tower_n(k), std::slice::from_ref(&wrong)));
+    let gone = put_pat(&mut f.s, &wrong);
+    assert!(!tower_ticks(k, gone, &mut f).0);
+}

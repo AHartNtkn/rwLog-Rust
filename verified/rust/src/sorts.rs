@@ -1598,6 +1598,10 @@ fn but_one(
 /// Is every member of the conjunction `c`, but for the ground terms of the
 /// list `g`, in the sort `n`? `n` is the name of a sort. Tables `A` and `B`
 /// are used.
+///
+/// A question is a conjunction, a sort and a list of terms, as one node. The
+/// questions answered are kept in a list, and a question that is in it is
+/// not asked again: equal questions are the same node.
 pub fn included_but(
     s: &mut Store,
     decls: TermId,
@@ -1613,23 +1617,33 @@ pub fn included_but(
         let r = s.alloc(Node::App(n, g));
         let ask = s.alloc(Node::App(c, r));
         let mut todo = s.alloc(Node::App(ask, nil));
+        let mut seen = nil;
         let mut ok = true;
         let mut go = true;
         while go {
             match uncons(s, todo) {
-                Some((a, t)) => match uncons(s, a) {
-                    Some((c1, r1)) => match uncons(s, r1) {
-                        Some((n1, g1)) => match but_one(s, decls, names, c1, n1, g1, t) {
-                            Some(td) => todo = td,
-                            None => {
-                                ok = false;
-                                go = false;
-                            }
-                        },
-                        None => panic!(),
-                    },
-                    None => panic!(),
-                },
+                Some((a, t)) => {
+                    if among(s, a, seen) {
+                        todo = t;
+                    } else {
+                        match uncons(s, a) {
+                            Some((c1, r1)) => match uncons(s, r1) {
+                                Some((n1, g1)) => match but_one(s, decls, names, c1, n1, g1, t) {
+                                    Some(td) => {
+                                        todo = td;
+                                        seen = s.alloc(Node::App(a, seen));
+                                    }
+                                    None => {
+                                        ok = false;
+                                        go = false;
+                                    }
+                                },
+                                None => panic!(),
+                            },
+                            None => panic!(),
+                        }
+                    }
+                }
                 None => go = false,
             }
         }

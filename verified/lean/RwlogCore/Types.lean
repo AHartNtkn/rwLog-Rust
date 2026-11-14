@@ -74,7 +74,7 @@ structure store.Store where
   ticks : Std.U64
 
 /-- [rwlog_core::sorts::Rep]
-    Source: 'src/sorts.rs', lines 3175:0-3179:1
+    Source: 'src/sorts.rs', lines 3189:0-3193:1
     Visibility: public -/
 structure sorts.Rep where
   t : store.TermId
