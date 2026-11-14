@@ -1522,4 +1522,230 @@ theorem conj_keys_spec {S : Sorts} {sp : Pat} {U : List Name} (hC : Ctx nm S sp 
     as ⟨s1, nows1, steps1, todo1, m', T', h1, h2, h3, h4, h5, h6, h7, h8⟩
   exact ⟨m', T', h1, h2, h3, h4, h5, h6, h7, h8⟩
 
+theorem exEnts {ex : List (Sym × Nat)} {xs : List (Pat × List Pat)}
+    (h : List.Forall₂ ExAt ex xs) :
+    ∃ es : List (Sym × List Pat), xs = es.map (fun e => ((.sym e.1 : Pat), e.2)) ∧
+      es.map (fun e => (e.1, e.2.length)) = ex := by
+  induction h with
+  | nil => exact ⟨[], rfl, rfl⟩
+  | @cons e x ex xs hex _ ih =>
+    obtain ⟨es, rfl, rfl⟩ := ih
+    obtain ⟨x1, x2⟩ := x
+    obtain ⟨h1, h2⟩ := hex
+    simp only at h1 h2
+    subst h1
+    refine ⟨(e.1, x2) :: es, rfl, ?_⟩
+    simp [h2]
+
+/-- The ticks `own_keys` may spend. -/
+def ownWork (S : Sorts) (u : Nat) (μ : Name) : Nat := keysWork S u (ownKeys S μ) + 2
+
+theorem own_keys_spec {S : Sorts} {sp : Pat} {U : List Name} (hC : Ctx nm S sp U)
+    (d : Sorts.Conj) (k : Option Name) (μ : Name) (hd : Sub U d)
+    (hμ : (S.lookup μ).isSome = true → k = some μ)
+    (s : store.Store) (decls names ci mi nows steps todo : store.TermId)
+    (own : Option (store.TermId × store.TermId)) (accN : List (List Key))
+    (accS : List Step) (T : List Key) (m : Key → Option Bool) (hI : Inv s) (hF : FlagsK nm s U m)
+    (hde : Repr nm s.nodes.val decls.val sp)
+    (hU : Repr nm s.nodes.val names.val (namesPat (nm none) U))
+    (hci : Repr nm s.nodes.val ci.val (cpat (nm none) U d))
+    (hmi : Repr nm s.nodes.val mi.val (.sym μ))
+    (ho : OwnAt nm s.nodes.val S μ own)
+    (hnw : Repr nm s.nodes.val nows.val (nowsPat (nm none) U accN))
+    (hst : Repr nm s.nodes.val steps.val (stepsPat (nm none) U accS))
+    (htd : Repr nm s.nodes.val todo.val (keysPat (nm none) U T))
+    (hroom : Room s (ownWork S U.length μ)) :
+    sorts.own_keys s decls names ci mi own nows steps todo ⦃ r s' => ∃ m' T',
+      RanB s s' (ownWork S U.length μ) ∧ FlagsK nm s' U m' ∧
+        Repr nm s'.nodes.val r.1.val (nowsPat (nm none) U
+          ((keyNows S d μ (ownKeys S μ)).reverse ++ accN)) ∧
+        Repr nm s'.nodes.val r.2.1.val (stepsPat (nm none) U
+          ((keySteps S d μ (ownKeys S μ)).reverse ++ accS)) ∧
+        Repr nm s'.nodes.val r.2.2.val (keysPat (nm none) U T') ∧
+        Enq (Sorts.KidG S (d, k)) m m' T T' ∧
+        (∀ g ∈ keyNows S d μ (ownKeys S μ), ∀ q ∈ g, m' q ≠ none) ∧
+        ∀ a ∈ keySteps S d μ (ownKeys S μ),
+          (∀ q ∈ a.1, m' q ≠ none) ∧ ∀ q ∈ a.2, m' q ≠ none ⦄ := by
+  unfold sorts.own_keys
+  have hroom' := hroom
+  unfold Room ownWork at hroom'
+  unfold OwnAt at ho
+  cases hl : S.lookup μ with
+  | none =>
+    rw [hl] at ho
+    subst ho
+    have hok : ownKeys S μ = [] := by simp [ownKeys, hl]
+    simp only [WP.spec_ok]
+    refine ⟨m, T, (RanB.refl hI.toWf).mono (by omega), hF, by simpa [hok, keyNows] using hnw,
+      by simpa [hok, keySteps] using hst, htd, Enq.refl _ m T,
+      fun g hg => (by simp [hok, keyNows] at hg), fun a ha => (by simp [hok, keySteps] at ha)⟩
+  | some dd =>
+    rw [hl] at ho
+    obtain ⟨c, r, rp, rfl, rc, rr, hr⟩ := ho
+    have hkμ : k = some μ := hμ (by rw [hl]; rfl)
+    have hsub : ∀ κ ∈ ownKeys S μ, κ ∈ Sorts.keysOf S (d, k) := fun κ hκ => by
+      rw [hkμ]; exact ownKeys_sub hκ
+    have hok : ownKeys S μ =
+        caseKeysL dd ++ (match dd.rest with | some r => r.1 | none => []) := by
+      simp [ownKeys, hl]
+    have hwork := keysWork_append S U.length (caseKeysL dd)
+      (match dd.rest with | some r => r.1 | none => [])
+    rw [← hok] at hwork
+    simp only
+    step with expand_keys_cases_spec hC d k μ hd hμ dd.cases s c decls names ci mi nows steps
+      todo accN accS T m hI hF
+      (fun κ hκ => hsub κ (by rw [hok]; exact List.mem_append_left _ hκ))
+      hde hU hci hmi rc hnw hst htd
+      (by unfold caseKeysL at hwork; unfold Room; omega)
+      as ⟨a, b, c1, s1, m₁, T₁, hR1, hF1, rn1, rs1, rt1, hE1, hN1, hS1⟩
+    have ht1 := hR1.ticks
+    step with uncons_repr s1 r hR1.wf (hR1.ext.repr rr)
+      (by unfold caseKeysL at hwork; unfold Room; omega) as ⟨o, s2, hK2, hu⟩
+    have ht2 := hK2.ticks
+    have R2 := hR1.trans hK2.ran.ranB
+    have hF2 : FlagsK nm s2 U m₁ := hF1.mono hK2.ran.ext (by rw [hK2.tbl])
+    cases hre : dd.rest with
+    | none =>
+      rw [hre] at hr
+      simp only [RestAt] at hr
+      subst hr
+      simp only at hu
+      subst hu
+      rw [hre] at hok hwork
+      simp only [List.append_nil] at hok
+      simp only [WP.spec_ok]
+      refine ⟨m₁, T₁, R2.mono (by unfold ownWork caseKeysL at *; simp only [keysWork] at hwork; omega),
+        hF2, ?_, ?_, by rw [hK2.nodes]; exact rt1, hE1, ?_, ?_⟩
+      · rw [hok, hK2.nodes]; exact rn1
+      · rw [hok, hK2.nodes]; exact rs1
+      · rw [hok]; exact hN1
+      · rw [hok]; exact hS1
+    | some er =>
+      rw [hre] at hr
+      simp only [RestAt] at hr
+      obtain ⟨xs, hfa, rfl⟩ := hr
+      simp only at hu
+      obtain ⟨exi, kk, rfl, rex, -⟩ := hu
+      obtain ⟨es, rfl, hes⟩ := exEnts hfa
+      rw [hre] at hok hwork
+      simp only at hok hwork
+      simp only
+      have hx : (es.map fun e => ((.sym e.1 : Pat), e.2)).map (entPat (nm none)) =
+          es.map fun e => entPat (nm none) (.sym e.1, e.2) := by simp [Function.comp_def]
+      step with expand_keys_spec hC d k μ hd (fun f a h => hμ (lookup_of_step h)) es s2 exi decls
+        names ci mi a b c1 _ _ T₁ m₁ (R2.inv hI) hF2
+        (fun e he => hsub _ (by
+          rw [hok]; exact List.mem_append_right _ (by rw [← hes]; exact List.mem_map_of_mem he)))
+        (R2.ext.repr hde) (R2.ext.repr hU) (R2.ext.repr hci) (R2.ext.repr hmi)
+        (by rw [← hx, hK2.nodes]; exact rex) (by rw [hK2.nodes]; exact rn1)
+        (by rw [hK2.nodes]; exact rs1) (by rw [hK2.nodes]; exact rt1)
+        (by rw [hes]; unfold caseKeysL at hwork; unfold Room; omega)
+        as ⟨r3, s3, m₂, T₂, hR3, hF3, rn3, rs3, rt3, hE3, hN3, hS3⟩
+      rw [hes] at hR3 rn3 rs3 hN3 hS3
+      refine ⟨m₂, T₂, (R2.trans hR3).mono (by unfold ownWork caseKeysL at *; omega), hF3, ?_, ?_,
+        rt3, hE1.trans hE3, ?_, ?_⟩
+      · rw [hok, keyNows_append]
+        simpa [caseKeysL] using rn3
+      · rw [hok, keySteps_append]
+        simpa [caseKeysL] using rs3
+      · intro g hg q hq
+        rw [hok, keyNows_append] at hg
+        rcases List.mem_append.1 hg with h | h
+        · exact hE3.flagged (hN1 g h q hq)
+        · exact hN3 g h q hq
+      · intro a' ha
+        rw [hok, keySteps_append] at ha
+        rcases List.mem_append.1 ha with h | h
+        · exact ⟨fun q hq => hE3.flagged ((hS1 a' h).1 q hq),
+            fun q hq => hE3.flagged ((hS1 a' h).2 q hq)⟩
+        · exact hS3 a' h
+
+/-- The lists of guards of a key that make it hold with no edge. -/
+noncomputable def pairNows (S : Sorts) (U : List Name) (d : Sorts.Conj) (μ : Name) :
+    List (List Key) :=
+  (keyNows S d μ (ownKeys S μ)).reverse ++
+    ((keyNows S d μ ((conjList U (· ∈ d)).flatMap (defKeys S))).reverse ++ restNows S d μ)
+
+/-- The guards with edges of a key. -/
+noncomputable def pairSteps (S : Sorts) (U : List Name) (d : Sorts.Conj) (μ : Name) : List Step :=
+  (keySteps S d μ (ownKeys S μ)).reverse ++
+    ((keySteps S d μ ((conjList U (· ∈ d)).flatMap (defKeys S))).reverse ++ restSteps S d μ)
+
+/-- The ticks the alternatives of a key may spend. -/
+noncomputable def keyCost (S : Sorts) (U : List Name) (d : Sorts.Conj) (μ : Name) : Nat :=
+  3 * S.length + 3 + restAltsCost S U.length + conjWork S U.length (conjList U (· ∈ d)) +
+    ownWork S U.length μ
+
+theorem expand_pair_spec {S : Sorts} {sp : Pat} {U : List Name} (hC : Ctx nm S sp U)
+    (d : Sorts.Conj) (k : Option Name) (μ : Name) (hd : Sub U d)
+    (hμ : (S.lookup μ).isSome = true → k = some μ)
+    (s : store.Store) (decls names ci mi todo : store.TermId) (T : List Key)
+    (m : Key → Option Bool) (hI : Inv s) (hF : FlagsK nm s U m)
+    (hde : Repr nm s.nodes.val decls.val sp)
+    (hU : Repr nm s.nodes.val names.val (namesPat (nm none) U))
+    (hci : Repr nm s.nodes.val ci.val (cpat (nm none) U d))
+    (hmi : Repr nm s.nodes.val mi.val (.sym μ))
+    (htd : Repr nm s.nodes.val todo.val (keysPat (nm none) U T))
+    (hroom : Room s (keyCost S U d μ)) :
+    sorts.expand_pair s decls names ci mi todo ⦃ r s' => ∃ m' T',
+      RanB s s' (keyCost S U d μ) ∧ FlagsK nm s' U m' ∧
+        Repr nm s'.nodes.val r.1.val
+          (.app (nowsPat (nm none) U (pairNows S U d μ)) (stepsPat (nm none) U (pairSteps S U d μ))) ∧
+        Repr nm s'.nodes.val r.2.val (keysPat (nm none) U T') ∧
+        Enq (Sorts.KidG S (d, k)) m m' T T' ∧
+        (∀ g ∈ pairNows S U d μ, ∀ q ∈ g, m' q ≠ none) ∧
+        ∀ a ∈ pairSteps S U d μ, (∀ q ∈ a.1, m' q ≠ none) ∧ ∀ q ∈ a.2, m' q ≠ none ⦄ := by
+  unfold sorts.expand_pair
+  have hroom' := hroom
+  unfold Room keyCost at hroom'
+  have hW := hI.toWf
+  step with lookup_spec hC.inj S hC.sorts s decls mi hW hde hmi (by unfold Room; omega)
+    as ⟨own, s1, hR1, hlk⟩
+  have ho : OwnAt nm s.nodes.val S μ own := hlk
+  have ht1 := hR1.ticks
+  have hF1 : FlagsK nm s1 U m := hF.mono hR1.ext (by rw [hR1.tbl])
+  step with rest_alts_spec hC d k μ hd hμ s1 decls names ci todo own T m (hR1.ranB.inv hI) hF1
+    (hR1.ext.repr hde) (hR1.ext.repr hU) (hR1.ext.repr hci) (ho.mono hR1.ext) (hR1.ext.repr htd)
+    (by unfold Room; omega) as ⟨n0, st0, t0, s2, m₁, T₁, hR2, hF2, rn2, rs2, rt2, hE2, hS2⟩
+  have R2 := hR1.ranB.trans hR2
+  have ht2 := R2.ticks
+  step with conj_keys_spec hC d k μ hd hμ (conjList U (· ∈ d)) s2 ci decls names ci mi n0 st0 t0
+    _ _ T₁ m₁ (R2.inv hI) hF2 (fun n hn => (mem_conjList.1 hn).2) (R2.ext.repr hde)
+    (R2.ext.repr hU) (R2.ext.repr hci) (R2.ext.repr hmi) (R2.ext.repr hci) rn2 rs2 rt2
+    (by unfold Room; omega) as ⟨n1, st1, t1, s3, m₂, T₂, hR3, hF3, rn3, rs3, rt3, hE3, hN3, hS3⟩
+  have R3 := R2.trans hR3
+  have ht3 := R3.ticks
+  step with own_keys_spec hC d k μ hd hμ s3 decls names ci mi n1 st1 t1 own _ _ T₂ m₂ (R3.inv hI)
+    hF3 (R3.ext.repr hde) (R3.ext.repr hU) (R3.ext.repr hci) (R3.ext.repr hmi) (ho.mono R3.ext)
+    rn3 rs3 rt3 (by unfold Room; omega)
+    as ⟨n2, st2, t2, s4, m₃, T₃, hR4, hF4, rn4, rs4, rt4, hE4, hN4, hS4⟩
+  have R4 := R3.trans hR4
+  have ht4 := R4.ticks
+  step with alloc_w s4 (.App n2 st2) hR4.wf ⟨rn4.lt, rs4.lt⟩ (by unfold Room; omega)
+    as ⟨alts, s5, hW5, ht5, htb5, hx5, hid5, hst5⟩
+  refine ⟨m₃, T₃, ⟨hW5, R4.ext.trans hx5, by rw [hst5, R4.stk], by unfold keyCost; omega⟩,
+    hF4.mono hx5 (by rw [htb5]), .app hid5 (hx5.repr rn4) (hx5.repr rs4), hx5.repr rt4,
+    (hE2.trans hE3).trans hE4, ?_, ?_⟩
+  · intro g hg q hq
+    simp only [pairNows, List.mem_append, List.mem_reverse] at hg
+    rcases hg with h | h | h
+    · exact hN4 g h q hq
+    · exact hE4.flagged (hN3 g h q hq)
+    · simp only [restNows] at h
+      split at h
+      · rw [List.mem_singleton.1 h] at hq; cases hq
+      · cases h
+  · intro a ha
+    simp only [pairSteps, List.mem_append, List.mem_reverse] at ha
+    rcases ha with h | h | h
+    · exact hS4 a h
+    · exact ⟨fun q hq => hE4.flagged ((hS3 a h).1 q hq), fun q hq => hE4.flagged ((hS3 a h).2 q hq)⟩
+    · refine ⟨fun q hq => ?_, fun q hq => hE4.flagged (hE3.flagged (hS2 a h q hq))⟩
+      simp only [restSteps] at h
+      split at h
+      · split at h
+        · rw [List.mem_singleton.1 h] at hq; cases hq
+        · cases h
+      · cases h
+
 end RwLogVerified
