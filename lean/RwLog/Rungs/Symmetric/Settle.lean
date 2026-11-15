@@ -42,7 +42,7 @@ and is kept by a strategy moving on holds of it from then on. -/
 theorem Line.along_from (hL : Line need σ k r0 L) (Q : Nat → Strat N A → Prop) {m r1 : Nat}
     {s1 : Strat N A} (hr1 : r0 ≤ r1) (h1 : (L r1)[m]? = some s1) (hQ : Q r1 s1)
     (hstep : ∀ r s s', r1 ≤ r → (L r)[m]? = some s → (L (r + 1))[m]? = some s' → Q r s →
-      SAdv (σ r).len s s' → Q (r + 1) s') {r : Nat} (hr : r1 ≤ r) :
+      SAdv s s' → Q (r + 1) s') {r : Nat} (hr : r1 ≤ r) :
     ∃ s, (L r)[m]? = some s ∧ Q r s := by
   obtain ⟨d, rfl⟩ := Nat.exists_eq_add_of_le hr
   induction d with

@@ -183,27 +183,26 @@ theorem PushAdv.pointwise {subs subs' : List (A × Nat × Nat)} (h : PushAdv sub
 /-! ## A strategy later -/
 
 /-- A strategy and itself later: its kind and the tables it reads are the
-same, and its cursors have only moved on. `len` is how many answers each
-table had at the start. -/
-inductive SAdv (len : Nat → Nat) : Strat N A → Strat N A → Prop
-  | span {ran ran' : Bool} : (ran = true → ran' = true) → SAdv len (.span ran) (.span ran')
+same, and its cursors have only moved on. -/
+inductive SAdv : Strat N A → Strat N A → Prop
+  | span {ran ran' : Bool} : (ran = true → ran' = true) → SAdv (.span ran) (.span ran')
   | copy {c : Bool} {subs subs' : List (Nat × Nat)} : Pointwise SubAdv subs subs' →
-      SAdv len (.copy c subs) (.copy c subs')
+      SAdv (.copy c subs) (.copy c subs')
   | join {k : Kind} {a b : Nat} {c c' : Cursor} :
       (∀ p q, c.Before p q → c'.Before p q) →
       (∀ p q, p < c.pa.length → q < c.pb.length →
         c'.Before p q ∨ c'.rank p q = c.rank p q ∨ RankLt (c'.rank p q) (c.rank p q)) →
       (c.pa.length ≤ c'.pa.length ∧ c.pb.length ≤ c'.pb.length) →
-      SAdv len (.join k a b c) (.join k a b c')
+      SAdv (.join k a b c) (.join k a b c')
   | push {k : Kind} {l : Bool} {side : Nat} {o : N} {t t' : Option (List A)}
       {subs subs' : List (A × Nat × Nat)} :
       (∀ l0, t = some l0 → ∃ l1, t' = some l1 ∧ l1.length ≤ l0.length) → PushAdv subs subs' →
       (t = some [] → subs'.length = subs.length) →
-      SAdv len (.push k l side o t subs) (.push k l side o t' subs')
+      SAdv (.push k l side o t subs) (.push k l side o t' subs')
   | check {l : Bool} {side o : N} {c c' : Check} : (c = .reading ∨ c' = c) →
-      SAdv len (.check l side o c) (.check l side o c')
+      SAdv (.check l side o c) (.check l side o c')
 
-theorem SAdv.refl (len : Nat → Nat) : ∀ s : Strat N A, SAdv len s s
+theorem SAdv.refl : ∀ s : Strat N A, SAdv s s
   | .span _ => .span id
   | .copy _ _ => .copy (Pointwise.refl (fun _ => ⟨rfl, Nat.le_refl _⟩) _)
   | .join _ _ _ _ => .join (fun _ _ h => h) (fun _ _ _ _ => .inr (.inl rfl))
@@ -211,20 +210,11 @@ theorem SAdv.refl (len : Nat → Nat) : ∀ s : Strat N A, SAdv len s s
   | .push _ _ _ _ _ _ => .push (fun l0 h => ⟨l0, h, Nat.le_refl _⟩) (PushAdv.refl _) fun _ => rfl
   | .check _ _ _ _ => .check (.inr rfl)
 
-theorem SAdv.mono {len len' : Nat → Nat} (_ : ∀ j, len' j ≤ len j) {s s' : Strat N A}
-    (h : SAdv len s s') : SAdv len' s s' := by
-  cases h with
-  | span h => exact .span h
-  | copy h => exact .copy h
-  | join h1 h2 h3 => exact .join h1 h2 h3
-  | push h1 h2 h3 => exact .push h1 h2 h3
-  | check h => exact .check h
-
 theorem SubAdv.trans {a b c : Nat × Nat} (h₁ : SubAdv a b) (h₂ : SubAdv b c) : SubAdv a c :=
   ⟨h₂.1.trans h₁.1, h₁.2.trans h₂.2⟩
 
-theorem SAdv.trans {len : Nat → Nat} {s s1 s2 : Strat N A} (h₁ : SAdv len s s1)
-    (h₂ : SAdv len s1 s2) : SAdv len s s2 := by
+theorem SAdv.trans {s s1 s2 : Strat N A} (h₁ : SAdv s s1)
+    (h₂ : SAdv s1 s2) : SAdv s s2 := by
   cases h₁ with
   | span a =>
     cases h₂ with
@@ -299,7 +289,7 @@ inductive SStep (need : N → Nat) (len : Nat → Nat) (dn : Nat → Bool) (d d'
       SStep need len dn d d' (.check l side o c) (.check l side o c')
 
 theorem SStep.adv {len : Nat → Nat} {dn : Nat → Bool} {d d' : Nat} {s s' : Strat N A}
-    (h : SStep need len dn d d' s s') : SAdv len s s' := by
+    (h : SStep need len dn d d' s s') : SAdv s s' := by
   cases h with
   | span => exact .span fun _ => rfl
   | copy h _ => exact .copy h
@@ -328,7 +318,7 @@ theorem SStep.mono {len len' : Nat → Nat} {dn dn' : Nat → Bool} {d d' d0 d1 
 
 /-- A strategy that has moved on and then worked has worked. -/
 theorem SStep.after {len : Nat → Nat} {dn : Nat → Bool} {d d1 d2 : Nat} {s s1 s2 : Strat N A}
-    (h₁ : SAdv len s s1) (h₂ : SStep need len dn d1 d2 s1 s2) (hd : d ≤ d1) :
+    (h₁ : SAdv s s1) (h₂ : SStep need len dn d1 d2 s1 s2) (hd : d ≤ d1) :
     SStep need len dn d d2 s s2 := by
   cases h₁ with
   | span a =>
@@ -420,7 +410,7 @@ theorem SStep.after {len : Nat → Nat} {dn : Nat → Bool} {d d1 d2 : Nat} {s s
 
 /-- A strategy that has worked and then moved on has worked. -/
 theorem SStep.before {len : Nat → Nat} {dn : Nat → Bool} {d d' : Nat} {s s1 s2 : Strat N A}
-    (h₁ : SStep need len dn d d' s s1) (h₂ : SAdv len s1 s2) :
+    (h₁ : SStep need len dn d d' s s1) (h₂ : SAdv s1 s2) :
     SStep need len dn d d' s s2 := by
   cases h₁ with
   | span =>
@@ -494,7 +484,7 @@ theorem SStep.before {len : Nat → Nat} {dn : Nat → Bool} {d d' : Nat} {s s1 
         · exact .inr h
 
 /-- A dead strategy stays dead. -/
-theorem dead_adv {len : Nat → Nat} {s s' : Strat N A} (h : SAdv len s s')
+theorem dead_adv {s s' : Strat N A} (h : SAdv s s')
     {st st' : StateOf S N A} (hS : ∀ j, st.answers j <+: st'.answers j)
     (hd : s.dead st = true) : s'.dead st' = true := by
   cases h with
@@ -521,7 +511,7 @@ theorem dead_adv {len : Nat → Nat} {s s' : Strat N A} (h : SAdv len s s')
 
 theorem Stable.dead {st st' : StateOf S N A} (h : Stable st st') {s : Strat N A}
     (hd : s.dead st = true) : s.dead st' = true :=
-  dead_adv (SAdv.refl (fun _ => 0) s) h.answers hd
+  dead_adv (SAdv.refl s) h.answers hd
 
 /-- A strategy with nothing left to do that reads only tables that pass, in
 a state where the tables that pass are complete with the same answers, has
@@ -837,8 +827,8 @@ theorem Fed.finish {a b c : StateOf S N A} (hS : Stable b c)
 /-! ## The groups of a table over its round -/
 
 /-- A group later: each of its strategies later. -/
-def GrAdv (len : Nat → Nat) (gr gr' : Group N A) : Prop :=
-  Pointwise (SAdv len) gr.strats gr'.strats
+def GrAdv (gr gr' : Group N A) : Prop :=
+  Pointwise (SAdv) gr.strats gr'.strats
 
 /-- A strategy and itself after its turn, with what it owed before the turn
 (`o`) and what it owes after it (`o'`): it has worked, or it owes less. -/
@@ -918,7 +908,7 @@ first) and after it (`go'`). -/
 def Turn (need : N → Nat) (st st' : StateOf S N A) (go go' : Option (List (Group N A))) : Prop :=
   ∃ (gs0 gs1 : List (Group N A)) (p : Group N A → Bool),
     (∀ gs, go = some gs → gs = gs0) ∧ (go = none → Shaped gs0) ∧ go'.getD [] = gs1.filter p ∧
-    Pointwise (fun gr0 gr1 => GrAdv st.len gr0 gr1 ∧
+    Pointwise (fun gr0 gr1 => GrAdv gr0 gr1 ∧
       (p gr1 = true → ∃ s ∈ gr0.strats, s.dead st = false) ∧
       (p gr1 = false → ∀ s ∈ gr1.strats, s.dead st' = true)) gs0 gs1 ∧
     (gs0 = [] ∨ ∃ (k : Nat) (gr0 gr1 : Group N A), gs0[k]? = some gr0 ∧ gs1[k]? = some gr1 ∧
@@ -931,10 +921,10 @@ theorem Turn.start {a b c : StateOf S N A} (hS : Stable a b) (hd : a.depth ≤ b
     (hf : ∀ j, a.fedAt j ≤ b.fedAt j)
     {go go' : Option (List (Group N A))} (h : Turn need b c go go') : Turn need a c go go' := by
   obtain ⟨gs0, gs1, p, h1, h2, h3, h4, h5, h6⟩ := h
-  have h4' := h4.imp (r' := fun gr0 gr1 => GrAdv a.len gr0 gr1 ∧
+  have h4' := h4.imp (r' := fun gr0 gr1 => GrAdv gr0 gr1 ∧
       (p gr1 = true → ∃ s ∈ gr0.strats, s.dead a = false) ∧
       (p gr1 = false → ∀ s ∈ gr1.strats, s.dead c = true)) fun gr0 gr1 hg => by
-    refine ⟨hg.1.imp fun _ _ hs => hs.mono hS.len_le, fun hp => ?_, hg.2.2⟩
+    refine ⟨hg.1, fun hp => ?_, hg.2.2⟩
     obtain ⟨s, hs, hdead⟩ := hg.2.1 hp
     refine ⟨s, hs, ?_⟩
     cases hx : s.dead a with
@@ -953,7 +943,7 @@ theorem Turn.finish {a b c : StateOf S N A} (hS : Stable b c)
     (hf : ∀ j, b.fedAt j ≤ c.fedAt j)
     {go go' : Option (List (Group N A))} (h : Turn need a b go go') : Turn need a c go go' := by
   obtain ⟨gs0, gs1, p, h1, h2, h3, h4, h5, h6⟩ := h
-  have h4' := h4.imp (r' := fun gr0 gr1 => GrAdv a.len gr0 gr1 ∧
+  have h4' := h4.imp (r' := fun gr0 gr1 => GrAdv gr0 gr1 ∧
       (p gr1 = true → ∃ s ∈ gr0.strats, s.dead a = false) ∧
       (p gr1 = false → ∀ s ∈ gr1.strats, s.dead c = true)) fun gr0 gr1 hg =>
     ⟨hg.1, hg.2.1, fun hp s hs => hS.dead (hg.2.2 hp s hs)⟩
@@ -985,11 +975,11 @@ theorem shaped_snoc {gs : List (Group N A)} (hne : gs ≠ [])
   · obtain rfl := List.mem_singleton.1 hk
     exact .inr hl
 
-theorem SAdv.lead {len : Nat → Nat} {s s' : Strat N A} (h : SAdv len s s') :
+theorem SAdv.lead {s s' : Strat N A} (h : SAdv s s') :
     s'.lead = s.lead := by
   cases h <;> rfl
 
-theorem SAdv.isCheck {len : Nat → Nat} {s s' : Strat N A} (h : SAdv len s s') :
+theorem SAdv.isCheck {s s' : Strat N A} (h : SAdv s s') :
     s'.isCheck = s.isCheck := by
   cases h <;> rfl
 
@@ -1007,13 +997,13 @@ theorem Turn.shaped {st st' : StateOf S N A} {go go' : Option (List (Group N A))
     cases hg : go with
     | none => exact h2 hg
     | some gs => rw [← h1 gs hg]; exact hs gs hg
-  have hl : ∀ gr0 gr1 : Group N A, GrAdv st.len gr0 gr1 → (∃ s ∈ gr0.strats, s.lead = true) →
+  have hl : ∀ gr0 gr1 : Group N A, GrAdv gr0 gr1 → (∃ s ∈ gr0.strats, s.lead = true) →
       ∃ s ∈ gr1.strats, s.lead = true := by
     rintro gr0 gr1 ha ⟨s, hs0, hlead⟩
     obtain ⟨m, hm, rfl⟩ := List.getElem_of_mem hs0
     obtain ⟨s1, hs1, hadv⟩ := Pointwise.get ha (List.getElem?_eq_getElem hm)
     exact ⟨s1, List.mem_of_getElem? hs1, by rw [hadv.lead]; exact hlead⟩
-  have hc : ∀ gr0 gr1 : Group N A, GrAdv st.len gr0 gr1 → (∀ s ∈ gr0.strats, s.isCheck = true) →
+  have hc : ∀ gr0 gr1 : Group N A, GrAdv gr0 gr1 → (∀ s ∈ gr0.strats, s.isCheck = true) →
       ∀ s ∈ gr1.strats, s.isCheck = true := by
     intro gr0 gr1 ha hall s1 hs1
     obtain ⟨m, hm, rfl⟩ := List.getElem_of_mem hs1
@@ -2190,7 +2180,7 @@ theorem turn_record (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK)
     (hs : ((groupsAt st i)[k]?).bind (·.strats[j]?) = some s) :
     Inner K hK i st (turn (K := DerivationKernel.over D K hK P) i g
         (turnTicks * weight st s - o) (turnTicks * weight st s - o) st s 0).val.1 ∧
-      SAdv st.len s (turn (K := DerivationKernel.over D K hK P) i g
+      SAdv s (turn (K := DerivationKernel.over D K hK P) i g
         (turnTicks * weight st s - o) (turnTicks * weight st s - o) st s 0).val.2.1 ∧
       OStep (readNeed P) st.len st.isDone st.depth (turn (K := DerivationKernel.over D K hK P) i g
         (turnTicks * weight st s - o) (turnTicks * weight st s - o) st s 0).val.1.depth o
@@ -2207,7 +2197,7 @@ theorem turn_record (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK)
   cases fl with
   | zero =>
     rw [turn_zero]
-    exact ⟨SAdv.refl _ s, .inr (by dsimp only; omega)⟩
+    exact ⟨SAdv.refl s, .inr (by dsimp only; omega)⟩
   | succ fl =>
     have hU : UnitOk K hK i g st s st s :=
       ⟨hG.inv, hG.base, hg, hb.isOpen, strat_of_groupsAt hG.inv hg hs,
@@ -2402,7 +2392,7 @@ structure StratsInv (Rc : RaceSem R Rel (Ans D P)) (st : StateOf R Rel (Ans D P)
   length : (groupsAt X i).length = (groupsAt st i).length
   others : ∀ k', k' ≠ k → (groupsAt X i)[k']? = (groupsAt st i)[k']?
   group : ∀ gr, (groupsAt st i)[k]? = some gr → ∃ gr', (groupsAt X i)[k]? = some gr' ∧
-    gr'.level = gr.level ∧ GrAdv st.len gr gr' ∧
+    gr'.level = gr.level ∧ GrAdv gr gr' ∧
     (∀ m ∈ done, ∀ s0 s, gr.strats[m]? = some s0 → gr'.strats[m]? = some s →
       OStep (readNeed P) st.len st.isDone st.depth X.depth (gr.owed.getD m 0)
         (gr'.owed.getD m 0) s0 s) ∧
@@ -2425,7 +2415,7 @@ theorem turn_workStrats (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK)
   refine foldL_split (fun done (acc : StateOf R Rel (Ans D P) × Nat × Bool) =>
     StratsInv Rc st i g k done acc.1) _ _ (fun done rest b j hsplit hI => ?_) (st, 0, false)
     ⟨hG, hg, hb, TurnsBut.refl _ _, rfl, fun _ _ => rfl, fun gr h =>
-      ⟨gr, h, rfl, Pointwise.refl (SAdv.refl _) _, fun m hm => (by cases hm), fun _ _ => rfl⟩⟩
+      ⟨gr, h, rfl, Pointwise.refl SAdv.refl _, fun m hm => (by cases hm), fun _ _ => rfl⟩⟩
   have hjd : j ∉ done := by
     have hnd : (done ++ j :: rest).Nodup := hsplit ▸ List.nodup_range
     exact fun hj => (List.nodup_append.1 hnd).2.2 j hj j List.mem_cons_self rfl
@@ -2474,7 +2464,7 @@ theorem turn_workStrats (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK)
       have hsj : grb.strats[j]? = some s := by
         rw [h1] at hs'
         exact hs'
-      have hadv' := hadv.mono hS.len_le
+      have hadv' := hadv
       refine ⟨{ grb with
           strats := grb.strats.set j T.2.1,
           owed := setOwed grb.owed j (grb.owed.getD j 0 + T.2.2 - turnTicks * weight b.1 s) },
@@ -2855,7 +2845,7 @@ theorem turn_workGroup (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK)
         i)[k]? = some gr' ∧
       gr'.level = gr.level +
         (workGroup (K := DerivationKernel.over D K hK P) adv i g k st).val.2.1 ∧
-      GrAdv st.len gr gr' ∧
+      GrAdv gr gr' ∧
       GrStep (readNeed P) st.len st.isDone st.depth
         (workGroup (K := DerivationKernel.over D K hK P) adv i g k st).val.1.depth
         gr gr' ∧
@@ -2924,7 +2914,7 @@ structure LevelInv (Rc : RaceSem R Rel (Ans D P)) (st0 : StateOf R Rel (Ans D P)
   goal : goalAt X i = some g
   busy : Busy X i
   turns : TurnsBut (readNeed P) Rc (some i) st0 X
-  groups : Pointwise (GrAdv st0.len) gs0 (groupsAt X i)
+  groups : Pointwise (GrAdv) gs0 (groupsAt X i)
   levels : ∀ (k : Nat) (gr0 gr : Group Rel (Ans D P)), gs0[k]? = some gr0 →
     (groupsAt X i)[k]? = some gr → gr0.level ≤ gr.level
   owed : ∀ (k : Nat) (gr0 gr : Group Rel (Ans D P)), gs0[k]? = some gr0 →
@@ -2974,7 +2964,7 @@ theorem level_workGroup (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK)
         Tried (readNeed P) st0 W.1 gr0 gr' := by
     intro gr0 grX h0 hX
     obtain ⟨gr', e, hlv, hadvX, hstp, hf⟩ := hgrp grX hX
-    have h1 : Pointwise (SAdv st0.len) gr0.strats grX.strats := hI.groups.2 k gr0 grX h0 hX
+    have h1 : Pointwise (SAdv) gr0.strats grX.strats := hI.groups.2 k gr0 grX h0 hX
     refine ⟨gr', e, hlv, ⟨h1.1.trans hstp.1, fun m s s' hs hs' => ?_⟩,
       fun s hs => (hf s hs).start fun j => (hI.turns.fed j).1⟩
     obtain ⟨sX, hsX, hadv⟩ := h1.get hs
@@ -2986,7 +2976,7 @@ theorem level_workGroup (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK)
     · rcases hstep with h' | h'
       · exact .inl (SStep.after hadv h' hI.turns.depth)
       · rcases htr.1.2 m s sX hs hsX with h | h
-        · exact .inl ((h.before ((hadvX.2 m sX s' hsX hs').mono hS.len_le)).mono
+        · exact .inl ((h.before (hadvX.2 m sX s' hsX hs')).mono
             (fun _ => Nat.le_refl _) (fun _ h => h) (Nat.le_refl _) ht.depth)
         · exact .inr (h'.trans h)
   refine ⟨⟨hG', hg', hb', hI.turns.trans ht, ⟨hI.groups.1.trans hlen.symm,
@@ -2998,7 +2988,7 @@ theorem level_workGroup (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK)
       obtain ⟨gr'', e', -, hadvX, -⟩ := hgrp grX hX
       rw [h'] at e'
       cases e'
-      exact Pointwise.comp (r₃ := SAdv st0.len) (fun _ _ _ a b => a.trans (b.mono hS.len_le))
+      exact Pointwise.comp (r₃ := SAdv) (fun _ _ _ a b => a.trans b)
         hadv0 hadvX
     · rw [hoth m e] at h'
       exact hI.groups.2 m gr0 gr' h0 h'
@@ -3749,7 +3739,7 @@ theorem turns_advance (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK) (hP 
                       exact ⟨k, gr0, gr', h0, e3, ((Option.some.inj this).symm.trans e2), e4⟩)
               (stp, false)
               ⟨⟨hGp, hgp, hbp, TurnsBut.refl _ _, Pointwise.refl (fun gr =>
-                  Pointwise.refl (SAdv.refl _) gr.strats) _, fun k gr0 gr h0 h1 => by
+                  Pointwise.refl SAdv.refl gr.strats) _, fun k gr0 gr h0 h1 => by
                     rw [h0] at h1; cases h1; exact Nat.le_refl _,
                   fun k gr0 gr h0 h1 => by rw [h0] at h1; cases h1; exact .inl rfl⟩,
                 fun _ => rfl, fun h => absurd rfl h,
