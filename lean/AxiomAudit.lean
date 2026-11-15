@@ -664,6 +664,12 @@ new axiom.
 /-- info: 'RwLog.Symmetric.req_request' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Symmetric.req_request
 
+/-- info: 'RwLog.Symmetric.workGroup_did' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Symmetric.workGroup_did
+
+/-- info: 'RwLog.Symmetric.Requests.lines' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Symmetric.Requests.lines
+
 /-- info: 'RwLog.Symmetric.Requests.line' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Symmetric.Requests.line
 

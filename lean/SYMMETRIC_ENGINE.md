@@ -138,6 +138,17 @@ No answer of a table covers a later one (`nocov_stateAt`), so `Symmetric.noSubsu
 
 Still owed for `Keeps`: `TerminatesWhere` (which needs O7) and `EmptySide`.
 
+**Revision, 2026-11-15: work that is done is counted, and every group works for ever.** Found on starting `EmptySide`, which needs more of the balance than completeness did: completeness needs one group of a table to work for ever, and halting needs the group that would complete the table to work.
+
+1. *The fault.* A level rose by what the kernel charged for the work. A kernel may charge nothing (`Kernel.Refines` says nothing of the ticks, and the kernel the engine is run at in `Tests/SymmetricRuns.lean` charges nothing for an answer). A group that only combines answers then worked without its level rising, stayed lowest, and the rule "only the lowest groups work, the next lowest if none of them can do anything" kept every other group of its table from working for as long as it had pairs to combine, which can be for ever. On counting down, groups did work in requests in which their level did not rise (`workCounted`, which failed).
+2. *The repair.* The engine charges itself one tick for every unit of work that did something (`workStrats`), and the tick is counted in the level. So a group did something exactly when its level rose, at every kernel (`workGroup_did`). Nothing else changes; a group that could do nothing still costs nothing.
+3. *What is proved from it.* The record of a round has the balance (`Balanced`): each group worked, or it stands as it stood while a group that stood lower rose. Hence every group of a table that has rounds for ever works for ever (`Requests.lines`): a group that never works again keeps its level, the sum over the groups of what each holds below that level grows in every round, and it is bounded. This uses the levels and no weights other than: work that did something costs something.
+4. *Measured again* on the engine at the domain of sorts: counting down answers at request `2k + 9` and halts after about `7k + 10` (25, 38, 66, 93 for `k = 2, 4, 8, 12`; before `2k + 10` and `7k + 12`); `p ; q` halts at request 11 (before 10) and its variant with identity spans at request 9 (before 4, the one case that is clearly later); fair OR answers no later than counting down alone, as before. The prototype's tables were measured in kernel ticks that are never zero, so they stand as measurements of the rule; its numbers are not the engine's, as before.
+
+What this forces to be redone: nothing proved. The guards on request counts in `Tests/SymmetricRuns.lean` are the new numbers.
+
+Planned for `EmptySide`: a table that completes in the run on `a` completes in every run that keeps giving it rounds, in the manner of `Rungs/Tabled/Host.lean`. That needs the pushes in the record of a round (the record says nothing of them yet, because completeness did not need them) and the order in which tables complete (a push begins only after its side is complete).
+
 ### What a step is
 
 A step is one request to the root and emits the answers the root table gained, usually none. Two writings of one input give the same sequence of steps, so the trace properties hold with equality and not only up to `TraceEquiv`.

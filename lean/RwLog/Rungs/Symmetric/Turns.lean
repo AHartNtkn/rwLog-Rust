@@ -3,7 +3,7 @@
 
 The record of a stretch of a run, from one state to a later one (`Turns`).
 It says what the completeness proof needs of the order in which the machine
-works, and nothing of the levels that choose the order.
+works, and of the levels that choose the order only the balance of a round.
 
 * `SAdv` relates a strategy to itself later: its kind and the tables it
   reads stay, and its cursors only move on. `SStep` is the same after the
@@ -18,8 +18,12 @@ works, and nothing of the levels that choose the order.
   `SFed st s`: the tables the strategy `s` reads are settled.
 * `Turn st st' go go'` relates the groups of a table before its round to its
   groups after: the groups are the same ones, each strategy moved on, less
-  the groups all of whose strategies are dead; and one of the groups worked,
-  and the tables it reads are settled.
+  the groups all of whose strategies are dead; one of the groups worked,
+  and the tables it reads are settled (`Tried`); and the round is balanced
+  (`Balanced`): no level fell, and each group worked, or stands as it stood
+  while a group that stood lower rose. The levels are worked lowest first
+  (`pairwise_levelsOf`), a level only if nothing was done at the lower ones,
+  and a group did something exactly when its level rose (`workGroup_did`).
 * `Turns st st'` is the record: what a round keeps (`Keep`); the groups of a
   table change in its own round only; every table that had its round has
   `Turn`; and every table that became complete has a strategy with nothing
@@ -500,6 +504,32 @@ def Shaped (gs : List (Group N A)) : Prop :=
   (∃ gr ∈ gs, ∃ s ∈ gr.strats, s.lead = true) ∧
     ∀ gr ∈ gs, (∃ s ∈ gr.strats, s.lead = true) ∨ ∀ s ∈ gr.strats, s.isCheck = true
 
+/-- A group worked in a round from `st` to `st'`: each of its strategies
+has, and the tables they read need no round any more. -/
+abbrev Tried (need : N → Nat) (st st' : StateOf S N A) (gr0 gr1 : Group N A) : Prop :=
+  GrStep need st.len st.depth st'.depth gr0 gr1 ∧ ∀ s ∈ gr1.strats, SFed st' s
+
+theorem Tried.start {a b c : StateOf S N A} (hS : Stable a b) (hd : a.depth ≤ b.depth)
+    {gr0 gr1 : Group N A} (h : Tried need b c gr0 gr1) : Tried need a c gr0 gr1 :=
+  ⟨h.1.imp fun _ _ hs => hs.mono hS.len_le hd (Nat.le_refl _), h.2⟩
+
+theorem Tried.finish {a b c : StateOf S N A} (hS : Stable b c)
+    (hset : ∀ j, Settled b j → Settled c j) (hd : b.depth ≤ c.depth)
+    {gr0 gr1 : Group N A} (h : Tried need a b gr0 gr1) : Tried need a c gr0 gr1 :=
+  ⟨h.1.imp fun _ _ hs => hs.mono (fun _ => Nat.le_refl _) (Nat.le_refl _) hd,
+    fun s hs => (h.2 s hs).mono hS hset⟩
+
+/-- The balance of a round, for the group at a place before (`gr0`) and
+after (`gr1`): its level has not fallen, and it worked, or it stands as it
+stood and a group that stood lower has risen. `gs0` and `gs1` are the groups
+before the round and after it, before any is removed. -/
+def Balanced (need : N → Nat) (st st' : StateOf S N A) (gs0 gs1 : List (Group N A))
+    (gr0 gr1 : Group N A) : Prop :=
+  gr0.level ≤ gr1.level ∧ (Tried need st st' gr0 gr1 ∨
+    (gr1.level = gr0.level ∧ ∃ (k' : Nat) (gr0' gr1' : Group N A),
+      gs0[k']? = some gr0' ∧ gs1[k']? = some gr1' ∧ gr0'.level < gr0.level ∧
+      gr0'.level < gr1'.level))
+
 /-- The groups of a table before its round (`go`, nothing if this is its
 first) and after it (`go'`). -/
 def Turn (need : N → Nat) (st st' : StateOf S N A) (go go' : Option (List (Group N A))) : Prop :=
@@ -509,12 +539,14 @@ def Turn (need : N → Nat) (st st' : StateOf S N A) (go go' : Option (List (Gro
       (p gr1 = true → ∃ s ∈ gr0.strats, s.dead st = false) ∧
       (p gr1 = false → ∀ s ∈ gr1.strats, s.dead st' = true)) gs0 gs1 ∧
     (gs0 = [] ∨ ∃ (k : Nat) (gr0 gr1 : Group N A), gs0[k]? = some gr0 ∧ gs1[k]? = some gr1 ∧
-      GrStep need st.len st.depth st'.depth gr0 gr1 ∧ ∀ s ∈ gr1.strats, SFed st' s)
+      Tried need st st' gr0 gr1) ∧
+    ∀ (k : Nat) (gr0 gr1 : Group N A), gs0[k]? = some gr0 → gs1[k]? = some gr1 →
+      Balanced need st st' gs0 gs1 gr0 gr1
 
 /-- The record of a round stays true from an earlier state. -/
 theorem Turn.start {a b c : StateOf S N A} (hS : Stable a b) (hd : a.depth ≤ b.depth)
     {go go' : Option (List (Group N A))} (h : Turn need b c go go') : Turn need a c go go' := by
-  obtain ⟨gs0, gs1, p, h1, h2, h3, h4, h5⟩ := h
+  obtain ⟨gs0, gs1, p, h1, h2, h3, h4, h5, h6⟩ := h
   have h4' := h4.imp (r' := fun gr0 gr1 => GrAdv a.len gr0 gr1 ∧
       (p gr1 = true → ∃ s ∈ gr0.strats, s.dead a = false) ∧
       (p gr1 = false → ∀ s ∈ gr1.strats, s.dead c = true)) fun gr0 gr1 hg => by
@@ -524,27 +556,28 @@ theorem Turn.start {a b c : StateOf S N A} (hS : Stable a b) (hd : a.depth ≤ b
     cases hx : s.dead a with
     | false => rfl
     | true => rw [hS.dead hx] at hdead; cases hdead
-  refine ⟨gs0, gs1, p, h1, h2, h3, h4', ?_⟩
-  · rcases h5 with h5 | ⟨k, gr0, gr1, e0, e1, hst, hf⟩
+  refine ⟨gs0, gs1, p, h1, h2, h3, h4', ?_, fun k gr0 gr1 e0 e1 => ?_⟩
+  · rcases h5 with h5 | ⟨k, gr0, gr1, e0, e1, ht⟩
     · exact .inl h5
-    · exact .inr ⟨k, gr0, gr1, e0, e1,
-        hst.imp fun _ _ hs => hs.mono hS.len_le hd (Nat.le_refl _), hf⟩
+    · exact .inr ⟨k, gr0, gr1, e0, e1, ht.start hS hd⟩
+  · obtain ⟨hle, hb⟩ := h6 k gr0 gr1 e0 e1
+    exact ⟨hle, hb.imp (fun ht => ht.start hS hd) id⟩
 
 /-- The record of a round stays true to a later state. -/
 theorem Turn.finish {a b c : StateOf S N A} (hS : Stable b c)
     (hset : ∀ j, Settled b j → Settled c j) (hd : b.depth ≤ c.depth)
     {go go' : Option (List (Group N A))} (h : Turn need a b go go') : Turn need a c go go' := by
-  obtain ⟨gs0, gs1, p, h1, h2, h3, h4, h5⟩ := h
+  obtain ⟨gs0, gs1, p, h1, h2, h3, h4, h5, h6⟩ := h
   have h4' := h4.imp (r' := fun gr0 gr1 => GrAdv a.len gr0 gr1 ∧
       (p gr1 = true → ∃ s ∈ gr0.strats, s.dead a = false) ∧
       (p gr1 = false → ∀ s ∈ gr1.strats, s.dead c = true)) fun gr0 gr1 hg =>
     ⟨hg.1, hg.2.1, fun hp s hs => hS.dead (hg.2.2 hp s hs)⟩
-  refine ⟨gs0, gs1, p, h1, h2, h3, h4', ?_⟩
-  rcases h5 with h5 | ⟨k, gr0, gr1, e0, e1, hst, hf⟩
-  · exact .inl h5
-  · exact .inr ⟨k, gr0, gr1, e0, e1,
-      hst.imp fun _ _ hs => hs.mono (fun _ => Nat.le_refl _) (Nat.le_refl _) hd,
-      fun s hs => (hf s hs).mono hS hset⟩
+  refine ⟨gs0, gs1, p, h1, h2, h3, h4', ?_, fun k gr0 gr1 e0 e1 => ?_⟩
+  · rcases h5 with h5 | ⟨k, gr0, gr1, e0, e1, ht⟩
+    · exact .inl h5
+    · exact .inr ⟨k, gr0, gr1, e0, e1, ht.finish hS hset hd⟩
+  · obtain ⟨hle, hb⟩ := h6 k gr0 gr1 e0 e1
+    exact ⟨hle, hb.imp (fun ht => ht.finish hS hset hd) id⟩
 
 theorem shaped_all {gs : List (Group N A)} (hne : gs ≠ [])
     (h : ∀ gr ∈ gs, ∃ s ∈ gr.strats, s.lead = true) : Shaped gs := by
@@ -584,7 +617,7 @@ groups. -/
 theorem Turn.shaped {st st' : StateOf S N A} {go go' : Option (List (Group N A))}
     (h : Turn need st st' go go') (hs : ∀ gs, go = some gs → Shaped gs) :
     ∃ gs', go' = some gs' ∧ Shaped gs' := by
-  obtain ⟨gs0, gs1, p, h1, h2, h3, h4, -⟩ := h
+  obtain ⟨gs0, gs1, p, h1, h2, h3, h4, -, -⟩ := h
   have h0 : Shaped gs0 := by
     cases hg : go with
     | none => exact h2 hg
@@ -636,6 +669,20 @@ theorem mem_levelsOf {gs : List (Group N A)} {lv : Nat} (h : lv ∈ levelsOf gs)
   unfold levelsOf at h
   obtain ⟨gr, hgr, rfl⟩ := List.mem_map.1 (List.mem_mergeSort.1 (List.mem_eraseDups.1 h))
   exact ⟨gr, hgr, rfl⟩
+
+theorem level_mem_levelsOf {gs : List (Group N A)} {gr : Group N A} (h : gr ∈ gs) :
+    gr.level ∈ levelsOf gs := by
+  unfold levelsOf
+  exact List.mem_eraseDups.2 (List.mem_mergeSort.2 (List.mem_map.2 ⟨gr, h, rfl⟩))
+
+/-- The levels are worked lowest first. -/
+theorem pairwise_levelsOf (gs : List (Group N A)) : (levelsOf gs).Pairwise (· < ·) := by
+  unfold levelsOf
+  refine pairwise_lt_eraseDups _ ?_
+  have := List.pairwise_mergeSort (le := fun a b : Nat => decide (a ≤ b))
+    (fun a b c h1 h2 => by simp only [decide_eq_true_eq] at *; omega)
+    (fun a b => by simp only [Bool.or_eq_true, decide_eq_true_eq]; omega) (gs.map (·.level))
+  exact this.imp fun h => by simpa using h
 
 theorem levelsOf_ne_nil {gs : List (Group N A)} (h : gs ≠ []) : levelsOf gs ≠ [] := by
   cases gs with
@@ -1329,6 +1376,7 @@ structure StratsInv (st : StateOf R Rel (Ans D P)) (i : Nat) (g : GoalOf R Rel) 
   length : (groupsAt X i).length = (groupsAt st i).length
   others : ∀ k', k' ≠ k → (groupsAt X i)[k']? = (groupsAt st i)[k']?
   group : ∀ gr, (groupsAt st i)[k]? = some gr → ∃ gr', (groupsAt X i)[k]? = some gr' ∧
+    gr'.level = gr.level ∧
     GrAdv st.len gr gr' ∧ ∀ m ∈ done, ∀ s0 s, gr.strats[m]? = some s0 → gr'.strats[m]? = some s →
       SStep (readNeed P) st.len st.depth X.depth s0 s
 
@@ -1351,12 +1399,12 @@ theorem turn_workStrats (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK)
   refine foldL_done (fun done (acc : StateOf R Rel (Ans D P) × Nat × Bool) =>
     StratsInv st i g k done acc.1) _ _ (fun done b j _ hI => ?_) (st, 0, false)
     ⟨hG, hg, hb, TurnsBut.refl _ _, rfl, fun _ _ => rfl, fun gr h =>
-      ⟨gr, h, Pointwise.refl (SAdv.refl _) _, fun m hm => by cases hm⟩⟩
+      ⟨gr, h, rfl, Pointwise.refl (SAdv.refl _) _, fun m hm => by cases hm⟩⟩
   split
   · next hnone =>
     refine ⟨hI.good, hI.goal, hI.busy, hI.turns, hI.length, hI.others, fun gr hgr => ?_⟩
-    obtain ⟨gr', h1, h2, h3⟩ := hI.group gr hgr
-    refine ⟨gr', h1, h2, fun m hm s0 s hs0 hs => ?_⟩
+    obtain ⟨gr', h1, hlv, h2, h3⟩ := hI.group gr hgr
+    refine ⟨gr', h1, hlv, h2, fun m hm s0 s hs0 hs => ?_⟩
     rcases List.mem_append.1 hm with hm | hm
     · exact h3 m hm s0 s hs0 hs
     · obtain rfl := List.mem_singleton.1 hm
@@ -1395,13 +1443,13 @@ theorem turn_workStrats (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK)
       exact hI.length
     · simp only [groupsAt_setGroup, List.getElem?_modify, Ne.symm hk', ite_false, hga, id_map']
       exact hI.others k' hk'
-    · obtain ⟨gr_a, h1, h2, h3⟩ := hI.group gr hgr
+    · obtain ⟨gr_a, h1, hlv, h2, h3⟩ := hI.group gr hgr
       have hsj : gr_a.strats[j]? = some s := by
         rw [h1] at hs
         exact hs
       refine ⟨{ gr_a with
           strats := gr_a.strats.set j
-            (work (K := DerivationKernel.over D _ hK P) whole i g b.1 s).val.2.1 }, ?_,
+            (work (K := DerivationKernel.over D _ hK P) whole i g b.1 s).val.2.1 }, ?_, hlv,
         Pointwise.set h2 (fun x hx => (h2.2 j x s hx hsj).trans hstepS'.adv),
         fun m hm s0 s'' hs0 hs'' => ?_⟩
       · simp [groupsAt_setGroup, hga, h1]
@@ -1420,6 +1468,64 @@ theorem turn_workStrats (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK)
             · exact absurd (List.mem_singleton.1 hm).symm e
           exact (h3 m hm' s0 s'' hs0 hs'').mono (fun _ => Nat.le_refl _) (Nat.le_refl _)
             (hin b.1 s).depth_le
+
+/-! ## What a group that worked has spent -/
+
+/-- Strategies that did anything have spent something. -/
+theorem workStrats_spent (whole : Bool) (i : Nat) (g : GoalOf R Rel) (k : Nat)
+    (st : StateOf R Rel (Ans D P)) :
+    (workStrats (K := DerivationKernel.over D K hK P) whole i g k st).val.2.2 = true →
+      0 < (workStrats (K := DerivationKernel.over D K hK P) whole i g k st).val.2.1 := by
+  at_cost K hK
+  simp only [workStrats]
+  refine foldL_inv (fun (acc : StateOf R Rel (Ans D P) × Nat × Bool) =>
+    acc.2.2 = true → 0 < acc.2.1) _ _ (fun b j _ hI => ?_) (st, 0, false) (fun h => by cases h)
+  split
+  · exact hI
+  · next s hs =>
+    simp only [Cost.bind_val, Cost.pure_val]
+    intro h
+    split
+    · omega
+    · next hno =>
+      simp only [hno, Bool.or_false] at h
+      exact hI h
+
+/-- The rounds of the tables a group reads only add to what it spent. -/
+theorem feedAll_le (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R Rel (Ans D P) × Nat))
+    (st : StateOf R Rel (Ans D P)) (d : Nat) (feeds : List Nat) :
+    d ≤ (feedAll (K := DerivationKernel.over D K hK P) adv st d feeds).val.2 := by
+  at_cost K hK
+  simp only [feedAll]
+  refine foldL_inv (fun (acc : StateOf R Rel (Ans D P) × Nat) => d ≤ acc.2) _ _
+    (fun b h _ hI => ?_) (st, d) (Nat.le_refl _)
+  simp only [Cost.bind_val, Cost.pure_val]
+  omega
+
+/-- **A group did something exactly when its level rose**: the engine
+charges itself for every unit of work that did anything, so this holds at a
+kernel that charges nothing. -/
+theorem workGroup_did (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R Rel (Ans D P) × Nat))
+    (whole : Bool) (i : Nat) (g : GoalOf R Rel) (k : Nat) (st : StateOf R Rel (Ans D P)) :
+    (workGroup (K := DerivationKernel.over D K hK P) adv whole i g k st).val.2.2 = true ↔
+      0 < (workGroup (K := DerivationKernel.over D K hK P) adv whole i g k st).val.2.1 := by
+  have h1 := workStrats_spent (K := K) (hK := hK) (P := P) whole i g k st
+  have h2 := fun X d feeds => feedAll_le (K := K) (hK := hK) (P := P) adv X d feeds
+  at_cost K hK
+  simp only [workGroup, Cost.bind_val, Cost.pure_val]
+  generalize (workStrats (K := DerivationKernel.over D _ hK P) whole i g k st).val = r1 at h1 ⊢
+  have h2' := h2 r1.1 r1.2.1
+    ((((groupsAt r1.1 i)[k]?.map (·.strats)).getD []).flatMap (Strat.feeds r1.1)).eraseDups
+  generalize (feedAll (K := DerivationKernel.over D _ hK P) adv r1.1 r1.2.1
+    ((((groupsAt r1.1 i)[k]?.map (·.strats)).getD []).flatMap
+      (Strat.feeds r1.1)).eraseDups).val = r2 at h2' ⊢
+  simp only [Bool.or_eq_true, decide_eq_true_eq]
+  constructor
+  · rintro (h | h)
+    · have := h1 h
+      omega
+    · exact h
+  · exact fun h => .inr h
 
 /-! ## A group works -/
 
@@ -1482,6 +1588,8 @@ theorem turn_workGroup (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK)
     ∀ gr, (groupsAt st i)[k]? = some gr → ∃ gr',
       (groupsAt (workGroup (K := DerivationKernel.over D K hK P) adv whole i g k st).val.1
         i)[k]? = some gr' ∧
+      gr'.level = gr.level +
+        (workGroup (K := DerivationKernel.over D K hK P) adv whole i g k st).val.2.1 ∧
       GrStep (readNeed P) st.len st.depth
         (workGroup (K := DerivationKernel.over D K hK P) adv whole i g k st).val.1.depth
         gr gr' ∧
@@ -1510,12 +1618,12 @@ theorem turn_workGroup (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK)
     exact h1.length
   · simp only [groupsAt_setGroup, List.getElem?_modify, Ne.symm hk', ite_false, hg2, id_map']
     exact h1.others k' hk'
-  · obtain ⟨gr1, e1, hadv1, hst⟩ := h1.group gr hgr
+  · obtain ⟨gr1, e1, hlv1, hadv1, hst⟩ := h1.group gr hgr
     have hn : ((groupsAt st i)[k]?.map (·.strats.length)).getD 0 = gr.strats.length := by
       rw [hgr]
       rfl
     refine ⟨{ gr1 with level := gr1.level + r2.2 }, by simp [groupsAt_setGroup, hg2, e1],
-      ⟨hadv1.1, fun m s0 s hs0 hs => ?_⟩, fun s hs => ?_⟩
+      by rw [← hlv1], ⟨hadv1.1, fun m s0 s hs0 hs => ?_⟩, fun s hs => ?_⟩
     · have hm : m ∈ List.range (((groupsAt st i)[k]?.map (·.strats.length)).getD 0) := by
         rw [hn]
         exact List.mem_range.2 (List.getElem?_eq_some_iff.1 hs0).1
@@ -1537,13 +1645,20 @@ structure LevelInv (st0 : StateOf R Rel (Ans D P)) (gs0 : List (Group Rel (Ans D
   busy : Busy X i
   turns : TurnsBut (readNeed P) (some i) st0 X
   groups : Pointwise (GrAdv st0.len) gs0 (groupsAt X i)
+  levels : ∀ (k : Nat) (gr0 gr : Group Rel (Ans D P)), gs0[k]? = some gr0 →
+    (groupsAt X i)[k]? = some gr → gr0.level ≤ gr.level
 
-/-- One of the groups has worked since the round began, and the tables it
-reads need no round any more. -/
-def Worked (st0 : StateOf R Rel (Ans D P)) (gs0 : List (Group Rel (Ans D P))) (i : Nat) (X : StateOf R Rel (Ans D P)) : Prop :=
-  ∃ (k : Nat) (gr0 gr1 : Group Rel (Ans D P)), gs0[k]? = some gr0 ∧
-    (groupsAt X i)[k]? = some gr1 ∧ GrStep (readNeed P) st0.len st0.depth X.depth gr0 gr1 ∧
-    ∀ s ∈ gr1.strats, SFed X s
+/-- The group at the place `k` has worked since the round began, and the
+tables it reads need no round any more. -/
+def TriedAt (st0 : StateOf R Rel (Ans D P)) (gs0 : List (Group Rel (Ans D P))) (i : Nat)
+    (X : StateOf R Rel (Ans D P)) (k : Nat) : Prop :=
+  ∃ (gr0 gr1 : Group Rel (Ans D P)), gs0[k]? = some gr0 ∧ (groupsAt X i)[k]? = some gr1 ∧
+    Tried (readNeed P) st0 X gr0 gr1
+
+/-- One of the groups has worked since the round began. -/
+def Worked (st0 : StateOf R Rel (Ans D P)) (gs0 : List (Group Rel (Ans D P))) (i : Nat)
+    (X : StateOf R Rel (Ans D P)) : Prop :=
+  ∃ k : Nat, TriedAt st0 gs0 i X k
 
 theorem level_workGroup (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK)
     (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R Rel (Ans D P) × Nat))
@@ -1554,41 +1669,63 @@ theorem level_workGroup (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK)
     (g : GoalOf R Rel) (hI : LevelInv st0 gs0 i g X) (hw : (waiting st0).length ≤ fuel)
     (k : Nat) :
     LevelInv st0 gs0 i g (workGroup (K := DerivationKernel.over D K hK P) adv whole i g k X).val.1 ∧
-    (Worked st0 gs0 i X → Worked st0 gs0 i (workGroup (K := DerivationKernel.over D K hK P) adv whole i g k X).val.1) ∧
-    ((groupsAt X i)[k]? ≠ none → Worked st0 gs0 i (workGroup (K := DerivationKernel.over D K hK P) adv whole i g k X).val.1) := by
+    (∀ k0, TriedAt st0 gs0 i X k0 →
+      TriedAt st0 gs0 i (workGroup (K := DerivationKernel.over D K hK P) adv whole i g k X).val.1
+        k0) ∧
+    ((groupsAt X i)[k]? ≠ none →
+      TriedAt st0 gs0 i (workGroup (K := DerivationKernel.over D K hK P) adv whole i g k X).val.1
+        k) ∧
+    (∀ k', k' ≠ k →
+      (groupsAt (workGroup (K := DerivationKernel.over D K hK P) adv whole i g k X).val.1 i)[k']? =
+        (groupsAt X i)[k']?) ∧
+    (∀ gr, (groupsAt X i)[k]? = some gr → ∃ gr',
+      (groupsAt (workGroup (K := DerivationKernel.over D K hK P) adv whole i g k X).val.1 i)[k]? =
+        some gr' ∧
+      gr'.level = gr.level +
+        (workGroup (K := DerivationKernel.over D K hK P) adv whole i g k X).val.2.1) := by
   obtain ⟨hG', hg', hb', ht, hlen, hoth, hgrp⟩ := turn_workGroup (K := K) (hK := hK) hL hR adv
     fuel hadvG hadv hI.good whole i g k hI.goal hI.busy ((waiting_le hI.turns.keep).trans hw)
-  generalize (workGroup (K := DerivationKernel.over D K hK P) adv whole i g k X).val.1 = X' at *
+  generalize (workGroup (K := DerivationKernel.over D K hK P) adv whole i g k X).val = W at *
   have hS : Stable st0 X := hI.turns.keep.stable
   have stepK : ∀ gr0 grX, gs0[k]? = some gr0 → (groupsAt X i)[k]? = some grX →
-      ∃ gr', (groupsAt X' i)[k]? = some gr' ∧ GrStep (readNeed P) st0.len st0.depth X'.depth gr0 gr' ∧
-        ∀ s ∈ gr'.strats, SFed X' s := by
+      ∃ gr', (groupsAt W.1 i)[k]? = some gr' ∧ gr'.level = grX.level + W.2.1 ∧
+        Tried (readNeed P) st0 W.1 gr0 gr' := by
     intro gr0 grX h0 hX
-    obtain ⟨gr', e, hstp, hf⟩ := hgrp grX hX
+    obtain ⟨gr', e, hlv, hstp, hf⟩ := hgrp grX hX
     have h1 : Pointwise (SAdv st0.len) gr0.strats grX.strats := hI.groups.2 k gr0 grX h0 hX
-    have h2 : Pointwise (SStep (readNeed P) X.len X.depth X'.depth) grX.strats gr'.strats := hstp
-    have h3 : Pointwise (SStep (readNeed P) st0.len st0.depth X'.depth) gr0.strats gr'.strats :=
-      Pointwise.comp (r₁ := SAdv st0.len) (r₂ := SStep (readNeed P) X.len X.depth X'.depth)
-        (r₃ := SStep (readNeed P) st0.len st0.depth X'.depth) (fun a b c h1 h2 =>
+    have h2 : Pointwise (SStep (readNeed P) X.len X.depth W.1.depth) grX.strats gr'.strats := hstp
+    have h3 : Pointwise (SStep (readNeed P) st0.len st0.depth W.1.depth) gr0.strats gr'.strats :=
+      Pointwise.comp (r₁ := SAdv st0.len) (r₂ := SStep (readNeed P) X.len X.depth W.1.depth)
+        (r₃ := SStep (readNeed P) st0.len st0.depth W.1.depth) (fun a b c h1 h2 =>
         SStep.after h1 (h2.mono hS.len_le (Nat.le_refl _) (Nat.le_refl _)) hI.turns.depth) h1 h2
-    exact ⟨gr', e, h3, hf⟩
-  refine ⟨⟨hG', hg', hb', hI.turns.trans ht, hI.groups.1.trans hlen.symm,
-    fun m gr0 gr' h0 h' => ?_⟩, ?_, ?_⟩
+    exact ⟨gr', e, hlv, h3, hf⟩
+  refine ⟨⟨hG', hg', hb', hI.turns.trans ht, ⟨hI.groups.1.trans hlen.symm,
+    fun m gr0 gr' h0 h' => ?_⟩, fun m gr0 gr' h0 h' => ?_⟩, ?_, ?_, hoth, fun gr hgr => ?_⟩
   · by_cases e : m = k
     · subst e
       obtain ⟨grX, hX, -⟩ := hI.groups.get h0
-      obtain ⟨gr'', e', hstp, -⟩ := stepK gr0 grX h0 hX
+      obtain ⟨gr'', e', -, hstp, -⟩ := stepK gr0 grX h0 hX
       rw [h'] at e'
       cases e'
       exact hstp.imp fun _ _ h => h.adv
     · rw [hoth m e] at h'
       exact hI.groups.2 m gr0 gr' h0 h'
-  · rintro ⟨k0, gr0, gr1, e0, e1, hst, hf⟩
+  · by_cases e : m = k
+    · subst e
+      obtain ⟨grX, hX, -⟩ := hI.groups.get h0
+      obtain ⟨gr'', e', hlv, -⟩ := stepK gr0 grX h0 hX
+      rw [h'] at e'
+      cases e'
+      have := hI.levels m gr0 grX h0 hX
+      omega
+    · rw [hoth m e] at h'
+      exact hI.levels m gr0 gr' h0 h'
+  · rintro k0 ⟨gr0, gr1, e0, e1, hst, hf⟩
     by_cases e : k0 = k
     · subst e
-      obtain ⟨gr', e', hstp, hf'⟩ := stepK gr0 gr1 e0 e1
-      exact ⟨k0, gr0, gr', e0, e', hstp, hf'⟩
-    · exact ⟨k0, gr0, gr1, e0, by rw [hoth k0 e]; exact e1,
+      obtain ⟨gr', e', -, htr⟩ := stepK gr0 gr1 e0 e1
+      exact ⟨gr0, gr', e0, e', htr⟩
+    · exact ⟨gr0, gr1, e0, by rw [hoth k0 e]; exact e1,
         hst.imp fun _ _ h => h.mono (fun _ => Nat.le_refl _) (Nat.le_refl _) ht.depth,
         fun s hs => (hf s hs).keep ht.keep⟩
   · intro hne
@@ -1596,12 +1733,16 @@ theorem level_workGroup (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK)
     | none => exact absurd hX hne
     | some grX =>
       obtain ⟨gr0, h0, -⟩ := hI.groups.get' hX
-      obtain ⟨gr', e', hstp, hf'⟩ := stepK gr0 grX h0 hX
-      exact ⟨k, gr0, gr', h0, e', hstp, hf'⟩
+      obtain ⟨gr', e', -, htr⟩ := stepK gr0 grX h0 hX
+      exact ⟨gr0, gr', h0, e', htr⟩
+  · obtain ⟨gr', e, hlv, -⟩ := hgrp gr hgr
+    exact ⟨gr', e, hlv⟩
 
 /-- **The groups of one level work**: what holds during the round still
-does, a group that had worked still has, and if a group stands at the level
-one has worked. -/
+does; a group that had worked still has; every group that stands at the
+level has worked, and no other group has changed; if anything was done, one
+of them has risen above the level; and if nothing was done, no level has
+changed. -/
 theorem level_workLevel (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK)
     (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R Rel (Ans D P) × Nat))
     (fuel : Nat) (hadvG : ∀ h st, Good st → Good (adv h st).val.1)
@@ -1611,44 +1752,131 @@ theorem level_workLevel (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK)
     (g : GoalOf R Rel) (hI : LevelInv st0 gs0 i g X) (hw : (waiting st0).length ≤ fuel)
     (lv : Nat) :
     LevelInv st0 gs0 i g (workLevel (K := DerivationKernel.over D K hK P) adv whole i g lv X).val.1 ∧
-    (Worked st0 gs0 i X → Worked st0 gs0 i (workLevel (K := DerivationKernel.over D K hK P) adv whole i g lv X).val.1) ∧
-    ((∃ (k : Nat) (gr : Group Rel (Ans D P)), (groupsAt X i)[k]? = some gr ∧ gr.level = lv) →
-      Worked st0 gs0 i (workLevel (K := DerivationKernel.over D K hK P) adv whole i g lv X).val.1) := by
+    (∀ k0, TriedAt st0 gs0 i X k0 →
+      TriedAt st0 gs0 i (workLevel (K := DerivationKernel.over D K hK P) adv whole i g lv X).val.1
+        k0) ∧
+    (∀ (k : Nat) (gr : Group Rel (Ans D P)), (groupsAt X i)[k]? = some gr → gr.level = lv →
+      TriedAt st0 gs0 i (workLevel (K := DerivationKernel.over D K hK P) adv whole i g lv X).val.1
+        k) ∧
+    (∀ (k : Nat) (gr : Group Rel (Ans D P)), (groupsAt X i)[k]? = some gr → gr.level ≠ lv →
+      (groupsAt (workLevel (K := DerivationKernel.over D K hK P) adv whole i g lv X).val.1 i)[k]? =
+        some gr) ∧
+    ((workLevel (K := DerivationKernel.over D K hK P) adv whole i g lv X).val.2 = true →
+      ∃ (k : Nat) (gr gr' : Group Rel (Ans D P)), (groupsAt X i)[k]? = some gr ∧ gr.level = lv ∧
+        (groupsAt (workLevel (K := DerivationKernel.over D K hK P) adv whole i g lv X).val.1 i)[k]? =
+          some gr' ∧ lv < gr'.level) ∧
+    ((workLevel (K := DerivationKernel.over D K hK P) adv whole i g lv X).val.2 = false →
+      ∀ k : Nat,
+        ((groupsAt (workLevel (K := DerivationKernel.over D K hK P) adv whole i g lv X).val.1
+          i)[k]?).map (·.level) = ((groupsAt X i)[k]?).map (·.level)) := by
   have hgl := fun (Y : StateOf R Rel (Ans D P)) hY k =>
     level_workGroup (K := K) (hK := hK) hL hR adv fuel hadvG hadv (st0 := st0) (gs0 := gs0)
       (X := Y) whole i g hY hw k
+  have hdid := fun (Y : StateOf R Rel (Ans D P)) k =>
+    workGroup_did (K := K) (hK := hK) (P := P) adv whole i g k Y
   have key : LevelInv st0 gs0 i g (workLevel (K := DerivationKernel.over D K hK P) adv whole i g lv X).val.1 ∧
-      (Worked st0 gs0 i X → Worked st0 gs0 i (workLevel (K := DerivationKernel.over D K hK P) adv whole i g lv X).val.1) ∧
-      ∀ p ∈ (groupsAt X i).zipIdx, p.1.level = lv → Worked st0 gs0 i (workLevel (K := DerivationKernel.over D K hK P) adv whole i g lv X).val.1 := by
+      (∀ k0, TriedAt st0 gs0 i X k0 → TriedAt st0 gs0 i (workLevel (K := DerivationKernel.over D K hK P) adv whole i g lv X).val.1 k0) ∧
+      (∀ p ∈ (groupsAt X i).zipIdx, p.1.level = lv → TriedAt st0 gs0 i (workLevel (K := DerivationKernel.over D K hK P) adv whole i g lv X).val.1 p.2) ∧
+      (∀ (k : Nat) (gr : Group Rel (Ans D P)), (groupsAt X i)[k]? = some gr → gr.level ≠ lv →
+        (groupsAt (workLevel (K := DerivationKernel.over D K hK P) adv whole i g lv X).val.1 i)[k]? = some gr) ∧
+      (∀ (k : Nat) (gr gr' : Group Rel (Ans D P)), (groupsAt X i)[k]? = some gr →
+        (groupsAt (workLevel (K := DerivationKernel.over D K hK P) adv whole i g lv X).val.1 i)[k]? = some gr' →
+        gr.level ≤ gr'.level) ∧
+      ((workLevel (K := DerivationKernel.over D K hK P) adv whole i g lv X).val.2 = true →
+        ∃ (k : Nat) (gr gr' : Group Rel (Ans D P)), (groupsAt X i)[k]? = some gr ∧ gr.level = lv ∧
+          (groupsAt (workLevel (K := DerivationKernel.over D K hK P) adv whole i g lv X).val.1 i)[k]? = some gr' ∧
+          lv < gr'.level) ∧
+      ((workLevel (K := DerivationKernel.over D K hK P) adv whole i g lv X).val.2 = false →
+        ∀ k : Nat,
+          ((groupsAt (workLevel (K := DerivationKernel.over D K hK P) adv whole i g lv X).val.1 i)[k]?).map (·.level) =
+            ((groupsAt X i)[k]?).map (·.level)) := by
     clear hR
     at_cost K hK
     refine foldL_done (fun done (acc : StateOf R Rel (Ans D P) × Bool) =>
-      LevelInv st0 gs0 i g acc.1 ∧ (Worked st0 gs0 i X → Worked st0 gs0 i acc.1) ∧
-        ∀ p ∈ done, (p : Group Rel (Ans D P) × Nat).1.level = lv → Worked st0 gs0 i acc.1)
-      _ _ (fun done b p hp hI' => ?_) (X, false) ⟨hI, id, fun _ h => by cases h⟩
+      LevelInv st0 gs0 i g acc.1 ∧ (∀ k0, TriedAt st0 gs0 i X k0 → TriedAt st0 gs0 i acc.1 k0) ∧
+        (∀ p ∈ done, (p : Group Rel (Ans D P) × Nat).1.level = lv → TriedAt st0 gs0 i acc.1 p.2) ∧
+        (∀ (k : Nat) (gr : Group Rel (Ans D P)), (groupsAt X i)[k]? = some gr → gr.level ≠ lv →
+          (groupsAt acc.1 i)[k]? = some gr) ∧
+        (∀ (k : Nat) (gr gr' : Group Rel (Ans D P)), (groupsAt X i)[k]? = some gr →
+          (groupsAt acc.1 i)[k]? = some gr' → gr.level ≤ gr'.level) ∧
+        (acc.2 = true → ∃ (k : Nat) (gr gr' : Group Rel (Ans D P)),
+          (groupsAt X i)[k]? = some gr ∧ gr.level = lv ∧ (groupsAt acc.1 i)[k]? = some gr' ∧
+          lv < gr'.level) ∧
+        (acc.2 = false → ∀ k : Nat,
+          ((groupsAt acc.1 i)[k]?).map (·.level) = ((groupsAt X i)[k]?).map (·.level)))
+      _ _ (fun done b p hp hI' => ?_) (X, false)
+      ⟨hI, fun _ h => h, (fun _ h => by cases h), fun _ _ h _ => h,
+        (fun _ _ _ h h' => by rw [h] at h'; cases h'; exact Nat.le_refl _),
+        (fun h => by cases h), fun _ _ => rfl⟩
+    obtain ⟨J1, J2, J3, J4, J5, J6, J7⟩ := hI'
+    have hpX : (groupsAt X i)[p.2]? = some p.1 := List.mem_zipIdx_iff_getElem?.1 hp
     split
     · next hlv =>
       simp only [Cost.bind_val, Cost.pure_val]
-      obtain ⟨a, b', c⟩ := hgl b.1 hI'.1 p.2
-      refine ⟨a, fun h => b' (hI'.2.1 h), fun q hq hq' => ?_⟩
-      rcases List.mem_append.1 hq with hq | hq
-      · exact b' (hI'.2.2 q hq hq')
-      · refine c fun hn => ?_
-        have h1 : (groupsAt X i)[p.2]? = some p.1 := List.mem_zipIdx_iff_getElem?.1 hp
-        have h2 := (List.getElem?_eq_some_iff.1 h1).1
+      obtain ⟨a, b', c, oth, lvl⟩ := hgl b.1 J1 p.2
+      have hd := hdid b.1 p.2
+      generalize (workGroup (K := DerivationKernel.over D _ hK P) adv whole i g p.2 b.1).val = W
+        at a b' c oth lvl hd ⊢
+      have hex : ∃ grA, (groupsAt b.1 i)[p.2]? = some grA := by
+        have h2 := (List.getElem?_eq_some_iff.1 hpX).1
         have h3 := hI.groups.1
-        have h4 := hI'.1.groups.1
-        have h5 := List.getElem?_eq_none_iff.1 hn
-        omega
+        have h4 := J1.groups.1
+        exact ⟨_, List.getElem?_eq_getElem (by omega)⟩
+      obtain ⟨grA, hA⟩ := hex
+      obtain ⟨grW, hW, hWl⟩ := lvl grA hA
+      have hAl := J5 p.2 p.1 grA hpX hA
+      refine ⟨a, fun k0 h => b' k0 (J2 k0 h), fun q hq hq' => ?_, fun k gr hk hne => ?_,
+        fun k gr gr' hk hk' => ?_, fun hflag => ?_, fun hflag k => ?_⟩
+      · rcases List.mem_append.1 hq with hq | hq
+        · exact b' _ (J3 q hq hq')
+        · obtain rfl := List.mem_singleton.1 hq
+          exact c (by rw [hA]; exact fun h => by cases h)
+      · have hkp : k ≠ p.2 := fun e => by
+          subst e
+          rw [hpX] at hk
+          cases hk
+          exact hne hlv
+        rw [oth k hkp]
+        exact J4 k gr hk hne
+      · by_cases hkp : k = p.2
+        · subst hkp
+          rw [hpX] at hk
+          cases hk
+          rw [hW] at hk'
+          cases hk'
+          omega
+        · rw [oth k hkp] at hk'
+          exact J5 k gr gr' hk hk'
+      · rcases Bool.or_eq_true_iff.1 hflag with h | h
+        · obtain ⟨k, gr, gr', e1, e2, e3, e4⟩ := J6 h
+          by_cases hkp : k = p.2
+          · subst hkp
+            rw [hA] at e3
+            cases e3
+            exact ⟨_, gr, grW, e1, e2, hW, by omega⟩
+          · exact ⟨k, gr, gr', e1, e2, by rw [oth k hkp]; exact e3, e4⟩
+        · have := hd.1 h
+          exact ⟨p.2, p.1, grW, hpX, hlv, hW, by omega⟩
+      · obtain ⟨h1, h2⟩ := Bool.or_eq_false_iff.1 hflag
+        have hz : W.2.1 = 0 := by
+          by_contra hne
+          have := hd.2 (Nat.pos_of_ne_zero hne)
+          rw [h2] at this
+          cases this
+        by_cases hkp : k = p.2
+        · subst hkp
+          rw [← J7 h1 _, hW, hA]
+          simp only [Option.map_some, hWl, hz, Nat.add_zero]
+        · rw [oth k hkp]
+          exact J7 h1 k
     · next hlv =>
-      refine ⟨hI'.1, hI'.2.1, fun q hq hq' => ?_⟩
+      refine ⟨J1, J2, fun q hq hq' => ?_, J4, J5, J6, J7⟩
       rcases List.mem_append.1 hq with hq | hq
-      · exact hI'.2.2 q hq hq'
+      · exact J3 q hq hq'
       · obtain rfl := List.mem_singleton.1 hq
         exact absurd hq' hlv
-  refine ⟨key.1, key.2.1, ?_⟩
-  rintro ⟨k, gr, hk, hlv⟩
-  exact key.2.2 (gr, k) (List.mem_zipIdx_iff_getElem?.2 hk) hlv
+  refine ⟨key.1, key.2.1, fun k gr hk hlv => ?_, key.2.2.2.1, key.2.2.2.2.2.1, key.2.2.2.2.2.2⟩
+  exact key.2.2.1 (gr, k) (List.mem_zipIdx_iff_getElem?.2 hk) hlv
 
 /-! ## A round -/
 
@@ -1726,6 +1954,11 @@ theorem turns_finish {st stp X Y : StateOf R Rel (Ans D P)} {i : Nat} {g : GoalO
     (hbn : t.born ≠ st.round) (T1 : TurnsBut (readNeed P) (some i) st stp) (hp1 : ∀ gs, t.groups = some gs → gs0 = gs)
     (hp2 : t.groups = none → Shaped gs0) (LI : LevelInv stp gs0 i g X)
     (hW : gs0 ≠ [] → Worked stp gs0 i X)
+    (hB : ∀ (m : Nat) (gr0 gr1 : Group Rel (Ans D P)), gs0[m]? = some gr0 →
+      (groupsAt X i)[m]? = some gr1 → TriedAt stp gs0 i X m ∨
+        (gr1.level = gr0.level ∧ ∃ (k' : Nat) (gr0' gr1' : Group Rel (Ans D P)),
+          gs0[k']? = some gr0' ∧ (groupsAt X i)[k']? = some gr1' ∧ gr0'.level < gr0.level ∧
+          gr0'.level < gr1'.level))
     (hY : Y = X.modify i (fun t =>
       { t with groups := t.groups.map (fun gs => gs.filter (fun gr => !gr.strats.all (Strat.dead X))) }))
     (fin : Bool) (d : Nat)
@@ -1795,8 +2028,14 @@ theorem turns_finish {st stp X Y : StateOf R Rel (Ans D P)} {i : Nat} {g : GoalO
       cases hv
       have hSXZ : Stable X (Y.modify k fun t => { t with done := t.done || fin, delta := d }) :=
         T3.keep.stable.trans hSYZ
+      have hfinish : ∀ {gr0 gr1 : Group Rel (Ans D P)}, Tried (readNeed P) stp X gr0 gr1 →
+          Tried (readNeed P) stp (Y.modify k fun t => { t with done := t.done || fin, delta := d })
+            gr0 gr1 := fun h =>
+        ⟨h.1.imp fun _ _ h => h.mono (fun _ => Nat.le_refl _) (Nat.le_refl _) T3.depth,
+          fun s hs1 => (h.2 s hs1).mono hSXZ fun j hj => hsetYZ j (T3.keep.settled hj)⟩
       refine Turn.start T1.keep.stable T1.depth ⟨gs0, groupsAt X k,
-        (fun gr => !gr.strats.all (Strat.dead X)), fun gs h => (hp1 gs h).symm, hp2, ?_, ?_, ?_⟩
+        (fun gr => !gr.strats.all (Strat.dead X)), fun gs h => (hp1 gs h).symm, hp2, ?_, ?_, ?_,
+        fun m gr0 gr1 e0 e1 => ⟨LI.levels m gr0 gr1 e0 e1, ?_⟩⟩
       · rw [← hgY]
         simp only [groupsAt, hu]
       · refine LI.groups.imp fun gr0 gr1 hadv => ⟨hadv, fun hp => ?_, fun hp s1 hs1 => ?_⟩
@@ -1812,10 +2051,15 @@ theorem turns_finish {st stp X Y : StateOf R Rel (Ans D P)} {i : Nat} {g : GoalO
           exact hSXZ.dead (hp s1 hs1)
       · by_cases he : gs0 = []
         · exact .inl he
-        · obtain ⟨k, gr0, gr1, e0, e1, hst, hf⟩ := hW he
-          exact .inr ⟨k, gr0, gr1, e0, e1,
-            hst.imp fun _ _ h => h.mono (fun _ => Nat.le_refl _) (Nat.le_refl _) T3.depth,
-            fun s hs1 => (hf s hs1).mono hSXZ fun j hj => hsetYZ j (T3.keep.settled hj)⟩
+        · obtain ⟨k, gr0, gr1, e0, e1, htr⟩ := hW he
+          exact .inr ⟨k, gr0, gr1, e0, e1, hfinish htr⟩
+      · rcases hB m gr0 gr1 e0 e1 with ⟨gr0', gr1', e0', e1', htr⟩ | h
+        · rw [e0] at e0'
+          rw [e1] at e1'
+          cases e0'
+          cases e1'
+          exact .inl (hfinish htr)
+        · exact .inr h
   · rcases getElem?_modify_cases Y i _ hz with ⟨hne, h'⟩ | ⟨rfl, v, hv, rfl⟩
     · exact T.young k tz (fun e => hne (Option.some.inj e)) h' hbz hyp
     · obtain ⟨v', hv', -, e2, -⟩ := T.keep.2.1 k t ht
@@ -1886,36 +2130,123 @@ theorem turns_advance (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK) (hP 
                 exact hsu hsv
               omega
             generalize (prepare (K := DerivationKernel.over D _ hK P) i t st).val = stp at *
-            have hmid := foldL_done (fun done (acc : StateOf R Rel (Ans D P) × Bool) =>
+            have hsorted := pairwise_levelsOf (groupsAt stp i)
+            have hmid := foldL_split (fun done (acc : StateOf R Rel (Ans D P) × Bool) =>
                 LevelInv stp (groupsAt stp i) i t.goal acc.1 ∧ (done = [] → acc = (stp, false)) ∧
-                  (done ≠ [] → Worked stp (groupsAt stp i) i acc.1))
+                  (done ≠ [] → Worked stp (groupsAt stp i) i acc.1) ∧
+                  (acc.2 = false →
+                    (∀ k : Nat, ((groupsAt acc.1 i)[k]?).map (·.level) =
+                      ((groupsAt stp i)[k]?).map (·.level)) ∧
+                    ∀ (k : Nat) (gr0 : Group Rel (Ans D P)), (groupsAt stp i)[k]? = some gr0 →
+                      gr0.level ∈ done → TriedAt stp (groupsAt stp i) i acc.1 k) ∧
+                  (acc.2 = true → ∃ lv0 : Nat,
+                    (∀ (k : Nat) (gr0 : Group Rel (Ans D P)), (groupsAt stp i)[k]? = some gr0 →
+                      gr0.level ≤ lv0 → TriedAt stp (groupsAt stp i) i acc.1 k) ∧
+                    (∀ (k : Nat) (gr0 : Group Rel (Ans D P)), (groupsAt stp i)[k]? = some gr0 →
+                      lv0 < gr0.level → ∃ gr1, (groupsAt acc.1 i)[k]? = some gr1 ∧
+                        gr1.level = gr0.level) ∧
+                    ∃ (k' : Nat) (gr0' gr1' : Group Rel (Ans D P)),
+                      (groupsAt stp i)[k']? = some gr0' ∧ (groupsAt acc.1 i)[k']? = some gr1' ∧
+                      gr0'.level = lv0 ∧ lv0 < gr1'.level))
               (fun (acc : StateOf R Rel (Ans D P) × Bool) lv =>
                 if acc.2 then pure acc
                 else workLevel (K := DerivationKernel.over D _ hK P)
                   (advance (K := DerivationKernel.over D _ hK P) fuel)
                   (decide ((groupsAt stp i).length ≤ 1)) i t.goal lv acc.1)
               (levelsOf (groupsAt stp i))
-              (fun done b lv hlv hI => by
+              (fun done rest b lv hsplit hI => by
+                obtain ⟨A1, A2, A3, A4, A5⟩ := hI
+                have hlv : lv ∈ levelsOf (groupsAt stp i) := by rw [hsplit]; simp
                 split
                 · next hb2 =>
-                  refine ⟨hI.1, fun h => absurd h (by simp), fun _ => hI.2.2 fun hdn => ?_⟩
-                  rw [hI.2.1 hdn] at hb2
+                  refine ⟨A1, fun h => absurd h (by simp), fun _ => A3 fun hdn => ?_,
+                    (fun (h : b.2 = false) => by rw [hb2] at h; cases h), A5⟩
+                  rw [A2 hdn] at hb2
                   cases hb2
-                · obtain ⟨a, b', c⟩ := hlev (decide ((groupsAt stp i).length ≤ 1)) t.goal lv stp
-                    (groupsAt stp i) b.1 hI.1 hwp
-                  refine ⟨a, fun h => absurd h (by simp), fun _ => ?_⟩
-                  by_cases hdn : done = []
-                  · have hb1 : b.1 = stp := by rw [hI.2.1 hdn]
-                    apply c
-                    obtain ⟨gr, hgr, hl⟩ := mem_levelsOf hlv
-                    obtain ⟨k, hk⟩ := List.getElem?_of_mem hgr
-                    exact ⟨k, gr, by rw [hb1]; exact hk, hl⟩
-                  · exact b' (hI.2.2 hdn))
+                · next hb2 =>
+                  have hb2' : b.2 = false := by simpa using hb2
+                  obtain ⟨hlevels, htried⟩ := A4 hb2'
+                  obtain ⟨a, b', c, dsame, wit, lvls⟩ :=
+                    hlev (decide ((groupsAt stp i).length ≤ 1)) t.goal lv stp
+                    (groupsAt stp i) b.1 A1 hwp
+                  generalize (workLevel (K := DerivationKernel.over D _ hK P)
+                    (advance (K := DerivationKernel.over D _ hK P) fuel)
+                    (decide ((groupsAt stp i).length ≤ 1)) i t.goal lv b.1).val = W
+                    at a b' c dsame wit lvls ⊢
+                  -- a group that stood at the level when the round began stands there now
+                  have hat : ∀ (k : Nat) (gr0 : Group Rel (Ans D P)),
+                      (groupsAt stp i)[k]? = some gr0 →
+                      ∃ gr, (groupsAt b.1 i)[k]? = some gr ∧ gr.level = gr0.level := by
+                    intro k gr0 h0
+                    have := hlevels k
+                    rw [h0] at this
+                    cases hb1 : (groupsAt b.1 i)[k]? with
+                    | none => rw [hb1] at this; cases this
+                    | some gr =>
+                      rw [hb1] at this
+                      exact ⟨gr, rfl, Option.some.inj this⟩
+                  refine ⟨a, fun h => absurd h (by simp), fun _ => ?_, fun hW2 =>
+                    ⟨fun k => (lvls hW2 k).trans (hlevels k), fun k gr0 h0 hmem => ?_⟩,
+                    fun hW2 => ⟨lv, fun k gr0 h0 hle => ?_, fun k gr0 h0 hlt => ?_, ?_⟩⟩
+                  · by_cases hdn : done = []
+                    · obtain ⟨gr, hgr, hl⟩ := mem_levelsOf hlv
+                      obtain ⟨k, hk⟩ := List.getElem?_of_mem hgr
+                      obtain ⟨grb, hgb, hlb⟩ := hat k gr hk
+                      exact ⟨k, c k grb hgb (hlb.trans hl)⟩
+                    · obtain ⟨k0, h⟩ := A3 hdn
+                      exact ⟨k0, b' k0 h⟩
+                  · rcases List.mem_append.1 hmem with hm | hm
+                    · exact b' k (htried k gr0 h0 hm)
+                    · obtain ⟨grb, hgb, hlb⟩ := hat k gr0 h0
+                      exact c k grb hgb (hlb.trans (List.mem_singleton.1 hm))
+                  · have hin : gr0.level ∈ levelsOf (groupsAt stp i) :=
+                      level_mem_levelsOf (List.mem_of_getElem? h0)
+                    rw [hsplit] at hin hsorted
+                    rcases List.mem_append.1 hin with hm | hm
+                    · exact b' k (htried k gr0 h0 hm)
+                    · rcases List.mem_cons.1 hm with hm | hm
+                      · obtain ⟨grb, hgb, hlb⟩ := hat k gr0 h0
+                        exact c k grb hgb (hlb.trans hm)
+                      · have := (List.pairwise_cons.1 (List.pairwise_append.1 hsorted).2.1).1 _ hm
+                        omega
+                  · obtain ⟨grb, hgb, hlb⟩ := hat k gr0 h0
+                    exact ⟨grb, dsame k grb hgb (by omega), hlb⟩
+                  · obtain ⟨k, gr, gr', e1, e2, e3, e4⟩ := wit hW2
+                    have := hlevels k
+                    rw [e1] at this
+                    cases h0 : (groupsAt stp i)[k]? with
+                    | none => rw [h0] at this; cases this
+                    | some gr0 =>
+                      rw [h0] at this
+                      exact ⟨k, gr0, gr', h0, e3, ((Option.some.inj this).symm.trans e2), e4⟩)
               (stp, false)
               ⟨⟨hGp, hgp, hbp, TurnsBut.refl _ _, Pointwise.refl (fun gr =>
-                  Pointwise.refl (SAdv.refl _) gr.strats) _⟩, fun _ => rfl, fun h => absurd rfl h⟩
-            exact turns_finish ht hs hd' hb T1 hp1 hp2 hmid.1
-              (fun hne => hmid.2.2 (levelsOf_ne_nil hne)) rfl _ _ (fun hfin => by
+                  Pointwise.refl (SAdv.refl _) gr.strats) _, fun k gr0 gr h0 h1 => by
+                    rw [h0] at h1; cases h1; exact Nat.le_refl _⟩,
+                fun _ => rfl, fun h => absurd rfl h,
+                fun _ => ⟨fun _ => rfl, fun _ _ _ h => by cases h⟩, (fun h => by cases h)⟩
+            obtain ⟨M1, -, M3, M4, M5⟩ := hmid
+            exact turns_finish ht hs hd' hb T1 hp1 hp2 M1
+              (fun hne => M3 (levelsOf_ne_nil hne))
+              (fun m gr0 gr1 e0 e1 => by
+                generalize (foldL (fun (acc : StateOf R Rel (Ans D P) × Bool) lv =>
+                  if acc.2 then pure acc
+                  else workLevel (K := DerivationKernel.over D _ hK P)
+                    (advance (K := DerivationKernel.over D _ hK P) fuel)
+                    (decide ((groupsAt stp i).length ≤ 1)) i t.goal lv acc.1) (stp, false)
+                  (levelsOf (groupsAt stp i))).val = Z at M1 M3 M4 M5 e1 ⊢
+                cases hz : Z.2 with
+                | false =>
+                  exact .inl ((M4 hz).2 m gr0 e0 (level_mem_levelsOf (List.mem_of_getElem? e0)))
+                | true =>
+                  obtain ⟨lv0, h1, h2, k', gr0', gr1', e0', e1', hl0, hl1⟩ := M5 hz
+                  by_cases hle : gr0.level ≤ lv0
+                  · exact .inl (h1 m gr0 e0 hle)
+                  · obtain ⟨gr1x, ex, hx⟩ := h2 m gr0 e0 (by omega)
+                    rw [e1] at ex
+                    cases ex
+                    exact .inr ⟨hx, k', gr0', gr1', e0', e1', by omega, by omega⟩)
+              rfl _ _ (fun hfin => by
                 obtain ⟨gr, hgr, h⟩ := List.any_eq_true.1 hfin
                 obtain ⟨s, hs1, hq⟩ := List.any_eq_true.1 h
                 exact ⟨gr, hgr, s, hs1, hq⟩)

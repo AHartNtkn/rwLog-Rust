@@ -102,23 +102,25 @@ def requests (p : Program × Rel) (fuel : Nat) : Option Nat × Option Nat :=
   ((tr.findIdx? fun l => !l.isEmpty && l.head? != some "final").map (· + 1),
    tr.findIdx? fun l => l.head? == some "final")
 
--- Counting down: the answer at request `2k + 10`, the halt after `7k + 12`.
--- (Without the interface check they were `2k + 7` and `5k + 9`, which are
--- the prototype's numbers without it; with it the prototype has `2k + 7` and
--- `6k + 8`. The prototype reads an edge at no charge and at once. The engine
--- pays for the reading, and learns the depth of the program in its first
--- requests.)
-#guard requests (countdown 2) 60 == (some 14, some 26)
-#guard requests (countdown 4) 60 == (some 18, some 40)
-#guard requests (countdown 8) 80 == (some 26, some 68)
+-- Counting down: the answer at request `2k + 9`, the halt after about
+-- `7k + 10`. (Without the interface check and without the tick the engine
+-- charges itself for a unit of work they were `2k + 7` and `5k + 9`, which
+-- are the prototype's numbers without the check; with the check the
+-- prototype has `2k + 7` and `6k + 8`. The prototype reads an edge at no
+-- charge and at once. The engine pays for the reading, and learns the depth
+-- of the program in its first requests.)
+#guard requests (countdown 2) 60 == (some 13, some 25)
+#guard requests (countdown 4) 60 == (some 17, some 38)
+#guard requests (countdown 8) 80 == (some 25, some 66)
+#guard requests (countdown 12) 120 == (some 33, some 93)
 #guard exact (runE SE (countdown 4).1 (countdown 4).2 60) ["(s (s (s (s z)))) -> z"]
 
--- Members that never finish do not delay the answer beyond the `2k + 10`
+-- Members that never finish do not delay the answer beyond the `2k + 9`
 -- requests of counting down alone, however many they are.
-#guard ((requests (fairOr 2 1) 30).1.getD 100) ≤ 14
-#guard ((requests (fairOr 4 1) 30).1.getD 100) ≤ 18
-#guard ((requests (fairOr 2 3) 30).1.getD 100) ≤ 14
-#guard ((requests (fairOr 4 3) 30).1.getD 100) ≤ 18
+#guard ((requests (fairOr 2 1) 30).1.getD 100) ≤ 13
+#guard ((requests (fairOr 4 1) 30).1.getD 100) ≤ 17
+#guard ((requests (fairOr 2 3) 30).1.getD 100) ≤ 13
+#guard ((requests (fairOr 4 3) 30).1.getD 100) ≤ 17
 #guard contains (runE SE (fairOr 4 3).1 (fairOr 4 3).2 30) ["(s (s (s (s z)))) -> z"]
 
 /-! ## The interface check
@@ -139,8 +141,8 @@ def clash (ids : Bool) : Program × Rel :=
 
 #guard exact (runE SE (clash false).1 (clash false).2 40) []
 #guard exact (runE SE (clash true).1 (clash true).2 40) []
-#guard (requests (clash false) 40).2 == some 10
-#guard (requests (clash true) 40).2 == some 4
+#guard (requests (clash false) 40).2 == some 11
+#guard (requests (clash true) 40).2 == some 9
 -- The same clash below a union and beside a member that has answers.
 #guard exact (runE SE (clash false).1 (.or (clash false).2 (.at_ (c "a"))) 40) ["a -> a"]
 -- A side whose every product ends in the same constructor, read through a
@@ -196,6 +198,61 @@ def joinUnits (la lb : Nat → Nat) (n : Nat) : List (Nat × Nat) :=
 #guard RwLog.Symmetric.leastBy (fun x : Nat × Nat => x.1) (fun x => x.2 == 1) [(5, 0), (3, 0)] == none
 #guard RwLog.Symmetric.leastBy (fun x : Nat × Nat => x.1) (fun _ => true) [(2, 7), (2, 8), (4, 9)] == some (2, 7)
 #guard RwLog.Symmetric.leastBy (fun x : Nat × Nat => x.1) (fun _ => true) ([] : List (Nat × Nat)) == none
+
+/-! ## Work that is done is counted
+
+The balance lets the groups of the lowest level work, and a level rises by
+what was spent. The kernel here charges nothing for an answer, so a group
+that only combines answers spends nothing there. If its level did not rise
+it would stay lowest for ever and keep every other group of its table from
+working. The engine charges itself one tick for a unit of work that did
+something, so the level of a group that worked has risen. -/
+
+/-- A number that changes whenever the strategy does a unit of work. -/
+def stratMark {N A : Type} : RwLog.Symmetric.Strat N A → Nat
+  | .span ran => if ran then 1 else 0
+  | .copy _ subs => (subs.map (·.2)).sum
+  | .join _ _ _ c => c.na + c.nb + c.inner
+  | .push _ _ _ _ todo subs =>
+    (match todo with
+      | none => 0
+      | some l => 1 + l.length) + 2 * subs.length + (subs.map (·.2.2)).sum
+  | .check _ _ _ .reading => 0
+  | .check _ _ _ .off => 1
+  | .check _ _ _ (.opened subs) => 2 + subs.length
+
+/-- The groups of every table, each as its level and the marks of its
+strategies. -/
+def groupMarks (s : SE.atSorts.State) : List (List (Nat × List Nat)) :=
+  s.st.tables.map fun t => (t.groups.getD []).map fun g => (g.level, g.strats.map stratMark)
+
+/-- The first state and the states after each of the first `n` requests. -/
+def statesE (P : Program) (q : Rel) (n : Nat) : List SE.atSorts.State :=
+  ((List.range n).foldl (fun (acc : List SE.atSorts.State × Option SE.atSorts.State) _ =>
+    match acc.2 with
+    | none => acc
+    | some s =>
+      match (SE.atSorts.step s).val with
+      | .emit _ s' => (acc.1 ++ [s'], some s')
+      | .progress _ s' => (acc.1 ++ [s'], some s')
+      | .done _ => (acc.1, none))
+    ([SE.atSorts.start P q], some (SE.atSorts.start P q))).1
+
+/-- In every request, a group whose strategies did work has a higher level
+after it. A group is found again by its place, in the requests in which no
+group of its table is removed. -/
+def workCounted (P : Program) (q : Rel) (n : Nat) : Bool :=
+  let ss := (statesE P q n).map groupMarks
+  (ss.zip (ss.drop 1)).all fun p =>
+    (p.1.zip p.2).all fun tt =>
+      tt.1.length != tt.2.length || (tt.1.zip tt.2).all fun gg =>
+        gg.1.2 == gg.2.2 || gg.1.1 < gg.2.1
+
+#guard workCounted (countdown 3).1 (countdown 3).2 30
+#guard workCounted (fairOr 2 3).1 (fairOr 2 3).2 20
+#guard workCounted (prog [("gen", gen)]) (.seq (.call "gen") (.seq (.call "gen") (.call "gen"))) 30
+#guard workCounted (prog [("lr", lr)]) (.call "lr") 20
+#guard workCounted (clash false).1 (clash false).2 12
 
 /-! ## The mirror image
 
