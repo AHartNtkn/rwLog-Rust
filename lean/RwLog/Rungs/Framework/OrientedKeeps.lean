@@ -51,10 +51,6 @@ theorem PRel.as_eq_empty {b : Bool} {X : PRel} : X.as b = ∅ ↔ X = ∅ := by
       exact ⟨fun hp => (Set.eq_empty_iff_forall_notMem.1 h (p.2, p.1) hp).elim, fun hp => hp.elim⟩
     · rintro rfl; rfl
 
-theorem GRel.inv_at (G : GRel) (M : Interp) : (G.inv).at M = (G.at M).inv := by
-  ext ⟨a, b⟩
-  exact Iff.rfl
-
 section as
 
 variable {A : Type} [Answer A] (M : Interp) (b : Bool)
@@ -142,9 +138,9 @@ theorem orient_pairs (P : Program) (q : Rel) :
     rw [mem_pairs_iff]
     constructor
     · rintro ⟨_, ⟨G, hG, rfl⟩, h⟩
-      exact ⟨G, hG, by rw [GRel.inv_at] at h; exact h⟩
+      exact ⟨G, hG, by rw [at_inv] at h; exact h⟩
     · rintro ⟨G, hG, h⟩
-      exact ⟨G.inv, ⟨G, hG, rfl⟩, by rw [GRel.inv_at]; exact h⟩
+      exact ⟨G.inv, ⟨G, hG, rfl⟩, by rw [at_inv]; exact h⟩
 
 /-- Two spans one of which denotes the other's ground relation, the other way
 round or as it is, relate the same pairs that way. -/
@@ -154,7 +150,7 @@ theorem Span.den_as {s s' : Span} {b : Bool} (h : s'.den = if b then s.den.inv e
   rw [Span.denAt_eq, Span.denAt_eq, h]
   cases b
   · rfl
-  · exact GRel.inv_at _ _
+  · exact at_inv _ _
 
 /-- A span the input derives is, the other way round or as it is, a span the
 input chosen derives. -/

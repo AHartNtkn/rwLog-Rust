@@ -13,10 +13,6 @@ import RwLog.Kernel.NormalFormCalls
 
 namespace RwLog
 
-theorem GRel.inv_image_inv (X : Set GRel) : GRel.inv '' (GRel.inv '' X) = X := by
-  rw [Set.image_image]
-  simp [GRel.inv_inv]
-
 /-- The candidate picked derives `X`, or its converses when the run is to be
 swapped, if every candidate does. -/
 theorem pick_gd (Pn : Program) (X : Set GRel) (f : Rel × Bool) (r : List (Rel × Bool))
@@ -82,16 +78,27 @@ theorem orient_gd (P : Program) (q : Rel) :
       rw [← normed_dual_of_eq (listCmp_eq (f := relCmp) hc), gd_normed, gd_norm, gd_dual]
     have hd' : GD P.normed (RelOf.conv q.dual).norm = GD P q := by
       rw [← normed_dual_of_eq (listCmp_eq (f := relCmp) hc), gd_normed, gd_norm, gd_conv,
-        gd_dual, GRel.inv_image_inv]
+        gd_dual, inv_image_inv_image]
     refine pick_gd _ _ _ _ fun c hc => ?_
     simp only [List.mem_cons, List.not_mem_nil, or_false] at hc
     rcases hc with rfl | rfl | rfl | rfl <;> simp [gd_normed, gd_norm, gd_conv, hd, hd']
   · refine pick_gd _ _ _ _ fun c hc => ?_
     simp only [List.mem_cons, List.not_mem_nil, or_false] at hc
     rcases hc with rfl | rfl <;>
-      simp [gd_normed, gd_norm, gd_conv, gd_dual, GRel.inv_image_inv]
+      simp [gd_normed, gd_norm, gd_conv, gd_dual, inv_image_inv_image]
 
 /-! ## The input chosen is well formed -/
+
+/-- The union of a well-formed node with its converse is well formed. -/
+theorem ProgramOf.WellFormed.selfUnion {P : Program} {m : Rel} (hm : P.WellFormed m) :
+    P.WellFormed (RelOf.or m m.normConv).norm := by
+  refine hm.of_calls_fo (fun n hn => ?_) (RelOf.FO.norm fun s hs => ?_)
+  · rcases List.mem_append.1 (calls_norm hn) with hn | hn
+    · exact hn
+    · exact calls_normConv hn
+  · rcases List.mem_append.1 hs with hs | hs
+    · exact hm.fo s hs
+    · exact hm.fo.normConv s hs
 
 theorem pick_wf (Pn : Program) {f : Rel × Bool} {r : List (Rel × Bool)}
     (h : ∀ c ∈ f :: r, Pn.WellFormed c.1) : (pick Pn f r).P.WellFormed (pick Pn f r).root := by
@@ -107,13 +114,7 @@ theorem pick_wf (Pn : Program) {f : Rel × Bool} {r : List (Rel × Bool)}
   · exact hm
   · split
     · exact hm
-    · refine hm.of_calls_fo (fun n hn => ?_) (RelOf.FO.norm fun s hs => ?_)
-      · rcases List.mem_append.1 (calls_norm hn) with hn | hn
-        · exact hn
-        · exact calls_normConv hn
-      · rcases List.mem_append.1 hs with hs | hs
-        · exact hm.fo s hs
-        · exact hm.fo.normConv s hs
+    · exact hm.selfUnion
 
 /-- **The input chosen from a well-formed input is well formed.** -/
 theorem wf_orient {P : Program} {q : Rel} (wf : P.WellFormed q) :

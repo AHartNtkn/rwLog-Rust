@@ -153,11 +153,21 @@ Rungs/Symmetric/ the symmetric engine of `SYMMETRIC_ENGINE.md` (Machine.lean): a
                 certificate (FromTabled.lean, `tabled_cert`), so the engine halts wherever
                 the mirrored tabled machine with the same exact race halts, which with the
                 raced unfolding is R005 (`Symmetric.terminatesWhere`). A side that halts
-                and relates nothing makes `;` and `&` halt (`Symmetric.voidSide`). Not
-                proved yet: that the engine halts on an input exactly when it halts on the
-                input chosen for it (`CostedRuntime.SameHalt`), which is all that
-                `CostedRuntime.oriented_keeps` still asks for `Keeps` of the engine run on
-                one orientation; the cost bound. A goal and its converse do not share a
+                and relates nothing makes `;` and `&` halt (`Symmetric.voidSide`). The
+                engine halts on an input exactly when it halts on the input chosen for it
+                (SameHalt.lean, `Symmetric.sameHalt`): a certificate of completion whose
+                leaves are final unfoldings (Transfer.lean, `FCert`, which the complete
+                tables of a run are, `IsRun.fcert`) is carried along a link of two programs
+                (Mirror.lean, `Mirror`, `FCert.map`, `Mirror.done`), for the converse, the
+                mirrored program and the program with its bodies in normal form; what an
+                edge reads is written with no kernel in it (EdgePure.lean, `reads_iff`) and
+                on the image of a node the reading is among the images of what the node
+                reads (EdgeMirror.lean, `reads_nmap`); and a root completes if each of its
+                members as a union is a member of a root that completes (`done_members`).
+                So the engine run on one orientation keeps every property of `Keeps` and
+                halts wherever the tabled machine of any exact race halts, R001 with the
+                raced unfolding (Keeps.lean, `Symmetric.oriented_keeps`,
+                `oriented_keeps_R001`). Not proved yet: the cost bound. A goal and its converse do not share a
                 table (not owed by any property; billboard SIM12)
 Rungs/Naive/    normalisation, unfolding to a depth, and their correctness (namespace `R000`)
 Rungs/R005/     the engines: `R001.engine` (tables, unfolding to a depth), `R004.engine` (tables,

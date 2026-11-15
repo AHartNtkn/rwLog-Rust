@@ -34,7 +34,9 @@ So the strategy runs out of work (`Settle.lean`), and the tables that wait
 are closed under the condition of completion: they complete (`Req.closed`).
 
 The tables of a run of the engine that are complete at a time are a
-certificate (`IsRun.cert`, from `Ranked`), so a goal whose table is complete
+certificate (`IsRun.fcert`, from `Ranked`), one whose goals with no reason
+among the others are chains with a final unfolding (`FCert`); so a goal
+whose table is complete
 in one run has a complete table in every run that does not neglect it
 (`IsRun.transfer`). The complete tables of the tabled machine are another
 (`Rungs/Symmetric/FromTabled.lean`).
@@ -562,13 +564,35 @@ theorem Cert.completes (hC : Cert U C ρ A) {g : GoalOf R Rel} (hg : C g) : Comp
       exact hnd ⟨T + 1, this⟩
   exact main (ρ g) g hg rfl
 
+/-! ## Certificates whose races are final -/
+
+/-- A certificate that the goals `C` complete, in which a goal with no
+reason among the others is a chain whose unfolding is final at some depth:
+its race completes it. The goals are goals a run may open. -/
+structure FCert (U : GOracle R Rel (Ans D P) Cost) (C : GoalOf R Rel → Prop)
+    (ρ : GoalOf R Rel → Nat) (A : GoalOf R Rel → List (Ans D P)) : Prop where
+  fin : ∃ l : List (GoalOf R Rel), ∀ g, C g → g ∈ l
+  goal : ∀ g, C g → ∀ a ∈ A g, a.goal = toGoal g
+  full : ∀ g, C g → ∀ y : Ans D P, y.goal = toGoal g → ∃ f ∈ A g, covB D P f y = true
+  ok : ∀ g, C g → GoalOk D g
+  why : ∀ g, C g → (hasRace g = true ∧ ∃ d, (U d g).val.1 = true) ∨ Why C ρ A g
+
+omit hL in
+/-- **A certificate whose races are final is a certificate**
+(`IsRun.race_done`). -/
+theorem FCert.cert (h : FCert U C ρ A) : Cert U C ρ A :=
+  ⟨h.fin, h.goal, h.full, fun g hg => (h.why g hg).imp
+    (fun ⟨hh, _, hfin⟩ _ hτ _ _ _ hk ho => ho.elim id fun hlive => hτ.race_done hk hlive hh hfin)
+    id⟩
+
 /-! ## The certificate of a run -/
 
 /-- **The complete tables of a state of a run are a certificate**, with the
-answers they hold. -/
-theorem IsRun.cert (hσ : IsRun U σ) (r : Nat) :
+answers they hold: a table with no reason among the others completed by its
+race. -/
+theorem IsRun.fcert (hσ : IsRun U σ) (r : Nat) :
     ∃ (ρ : GoalOf R Rel → Nat) (A : GoalOf R Rel → List (Ans D P)),
-      Cert U (fun g => ∃ i, goalAt (σ r) i = some g ∧ (σ r).isDone i = true) ρ A := by
+      FCert U (fun g => ∃ i, goalAt (σ r) i = some g ∧ (σ r).isDone i = true) ρ A := by
   classical
   obtain ⟨ρ0, hρ⟩ := hσ.founded r
   let ρ : GoalOf R Rel → Nat := fun g =>
@@ -587,7 +611,7 @@ theorem IsRun.cert (hσ : IsRun U σ) (r : Nat) :
         else []) = _
       simp only [h, ↓reduceDIte]
       rw [e]
-  refine ⟨ρ, A, ?_, ?_, ?_, ?_⟩
+  refine ⟨ρ, A, ?_, ?_, ?_, ?_, ?_⟩
   · refine ⟨(σ r).tables.map (·.goal), ?_⟩
     rintro g ⟨i, hi, -⟩
     obtain ⟨t, ht, e⟩ := table_of_goalAt hi
@@ -606,6 +630,10 @@ theorem IsRun.cert (hσ : IsRun U σ) (r : Nat) :
     obtain ⟨r3, x, hx, rfl⟩ := (hσ.held_iff hi a).1 ha
     exact ⟨x, by rw [(key i g hi).2]; exact hσ.done_answers hd r3 hx,
       (covB_iff hL x y).2 hsub⟩
+  · rintro g ⟨i, hi, -⟩
+    obtain ⟨t, ht, e⟩ := table_of_goalAt hi
+    have hgood := (hσ.good r).base.good i g hi
+    exact ⟨hgood.1, hgood.2.1, e ▸ ((hσ.good r).inv.core i t ht).1, hgood.2.2⟩
   · rintro g ⟨i, hi, hd⟩
     have hρi := (key i g hi).1
     obtain ⟨t, ht, -⟩ := table_of_goalAt hi
@@ -614,15 +642,12 @@ theorem IsRun.cert (hσ : IsRun U σ) (r : Nat) :
       exact hd
     rcases hρ i t ht hdt with hquiet | ⟨t1, ht1, l, -, hh, ⟨n1, hfin⟩, -⟩
     swap
-    · -- the table completed by its race: the race is final in every run
+    · -- the table completed by its race
       left
       rw [ht] at ht1
       cases ht1
       rw [hσ.goal_any (goalAt_of_table ht) hi] at hh hfin
-      intro τ hτ _ r' k hk ho
-      rcases ho with hev | hlive
-      · exact hev
-      · exact hτ.race_done hk hlive hh hfin
+      exact ⟨hh, n1, hfin⟩
     right
     obtain ⟨gs, hgs, gr, hgr, s, hs, hq, hpush⟩ := hquiet
     have hst : IsStrat σ i r s := ⟨t, gs, gr, ht, hgs, hgr, hs⟩
@@ -709,8 +734,8 @@ theorem IsRun.transfer (hσ : IsRun U σ) (hτ : IsRun U τ)
     (hN : ∀ r j, NoCov D (((τ r).answers j).map Ans.span)) {r i : Nat} {g : GoalOf R Rel}
     (hi : goalAt (σ r) i = some g) (hd : (σ r).isDone i = true) {r' k : Nat}
     (hk : goalAt (τ r') k = some g) (ho : Opened τ k) : EvDone τ k := by
-  obtain ⟨ρ, A, hC⟩ := hσ.cert hL r
-  exact hC.completes hL ⟨i, hi, hd⟩ τ hτ hN r' k hk ho
+  obtain ⟨ρ, A, hC⟩ := hσ.fcert hL r
+  exact hC.cert.completes hL ⟨i, hi, hd⟩ τ hτ hN r' k hk ho
 
 end
 
