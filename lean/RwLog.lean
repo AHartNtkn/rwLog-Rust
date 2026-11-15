@@ -102,6 +102,7 @@ import RwLog.Rungs.Framework.Unfolding.Sem
 import RwLog.Rungs.Framework.Unfolding.EagerVal
 import RwLog.Rungs.Framework.Unfolding.Eager
 import RwLog.Rungs.Framework.Unfolding.WalkVal
+import RwLog.Rungs.Framework.Unfolding.WalkTicks
 import RwLog.Rungs.Framework.Unfolding.Dir
 import RwLog.Rungs.Framework.Unfolding.WalkChain
 import RwLog.Rungs.Framework.Unfolding.Walk
