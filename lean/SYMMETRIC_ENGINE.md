@@ -227,7 +227,22 @@ Two properties do not pass by themselves, because they compare halting on two in
 3. *The interface check on the image.* The rule of a check in a certificate needs the image of the goal to read its edges. The reading is written with no kernel in it (`EdgePure.lean`, `readEdgeP`, `reads_iff`). The runs of a node and of its image are not the same lists, since a converse reverses a chain and the reading folds from one end; what holds, and is enough, is that when a node reads a list of interfaces its image reads a list among their images, at the other end when `b` (`EdgeMirror.lean`, `reads_nmap`).
 4. *The union with the converse.* The fourth candidate of `orient` is a node in union with its converse, which is the image of nothing. A goal completes when its members as a union complete (`completes_of_members`), and the members of a goal of a certificate are goals of it (`FCert.member`), so a root completes if each of its members is a member of a root that completes (`done_members`).
 
-Still owed for the admission: L36, the separations L15 and L16, the simulation of R005 and the cost bound.
+**Revision, 2026-11-15 (tenth): turns of bounded work. Proposed, measured on the prototype, not built.** From the fairness bound (roadmap L36) and Anthony's questions of the day: fairness is a promise about waiting, so it is stated in work, and it means little while one request can cost any amount of work. A step of fair OR is a bounded piece of work, which is why fair OR needs no second unit. The engine as built has two turns that are not bounded (simulation note, section 13): a goal with one group works whole rounds, and an ask of the unfolding race is one operation. The first makes an answer beside a table that feeds itself wait for the whole table; the second makes the race decide the middle-restricted family at R005's cost.
+
+Proposed request rule, replacing "where a goal has one group its strategies do everything their inputs allow" and the race's ask:
+
+1. *Every turn is bounded.* A strategy of a working group has a turn of a fixed number of ticks times its weight. What an operation costs beyond the turn is owed in the following rounds; nothing is saved up. No goal works whole rounds.
+2. *The weight of a strategy* is one more than the number of strategies upstream of the goals it reads. So a strategy that only passes answers on keeps up with all that feeds it and no lag multiplies along the nesting, and a table that feeds itself grows by a bounded amount a round, since the count is finite on a cycle.
+3. *Groups and levels stay as built.* The balance between the splits of a chain is what finds the cheap split on the ladder and the middle-restricted family.
+4. *An ask of the race is bounded.* It may cost what is left of the race's budget and no more. An ask that needs more is given up and charged, and the next is tried when twice as much is left. This needs the race to take a limit, which the specification of the race (`Rungs/Framework/RaceSpec.lean`) does not have.
+
+Measured (simulation note, section 13): best or within a factor of about 1.4 on every family, cheaper than the engine as built on the ladder, bounded delay on the three families where the engine as built or plain unit turns have none.
+
+Proposed statement of the bound, in place of `Fair.flat`'s reading in ticks (the cost alone times the goals opened, which is false for every tabled machine by `bit^k`): the fair OR half as `Fair.share` has it, and that an answer waits only for alternatives no dearer than itself. Neither is proved of the rule.
+
+What this forces to be redone if adopted: `advance`, `workStrats` and `askRace` in `Rungs/Symmetric/Machine.lean`; a table or strategy gains what it owes; the state gains the weights, kept when a goal is opened; `Turns.lean` and whatever uses that a single group works to the end of its inputs; the specification of the race gains a limit, for both machines that host it. Completeness, the honest report, the transfer of completion, `EmptySide`, `SameHalt` and `Keeps` were proved with no use of the levels and should need the new record of a round and no new idea. The request counts guarded in `Tests/SymmetricRuns.lean` will move.
+
+Still owed for the admission: L36 (the statement and the rule above), the separations L15 and L16, the simulation of R005 and the cost bound.
 
 ### What a step is
 

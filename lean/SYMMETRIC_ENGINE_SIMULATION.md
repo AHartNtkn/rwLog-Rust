@@ -425,3 +425,34 @@ On the 200 random programs of 9.6 the engine with the race halts on the same 173
 
 **What this does to O1.** The engine with the race pays at most about twice the engine without it on the goals it opens, plus one ask over budget per goal; the size of one ask against what was spent before it is a matter of the unfolding alone, and R005 pays it too. Where R005 halts by its race at the root at depth `d`, the engine's root race reaches `d` once the root's own work and rounds have reached what the asks cost, and G1, G2 and Lemma 1 are untouched by the race, since it takes no turn and raises no level.
 
+
+## 13. Turns of bounded work (2026-11-15)
+
+Asked by the fairness bound (roadmap L36): how long an answer of one alternative waits for the others, counted in work. A request of the engine as built can cost any amount of work, for two reasons, and each breaks a family.
+
+*A goal with one group works whole rounds.* `str = ($x -> nil) | str ; ($x -> (a $x)) | str ; ($x -> (b $x))` has a union and two chains of one split, so every strategy does all its inputs allow, and the table doubles every two requests. Counting down beside it (`(@(s^k z) ; q) | str`, the alternative `@(s^k z) ; q` with one choice made) gets its answer two requests late and pays for every string so far. On the Lean engine at the domain of sorts: 3187, 3941, 4529, 5533, 6552 ticks alone for `k = 2` to `6`, and 7553, 9669, 11745, 15345, 27440 beside `str`.
+
+*An ask of the unfolding race is one operation.* Its budget is checked before the ask, and the ask costs what the unfolding to that depth costs. On the middle-restricted family the race decides in about six requests and its cost grows about 2.4 times a step, as R005's does: 3136, 32667, 131073, 562489, 755758 at `k = 4, 6, 8, 9, 10`; the tables without the race halt at 41856, 378284, 1735871, 3108673, 5808919, about 1.4 times a step. Section 12 counted "one ask over budget per goal" as harmless; on this family that one ask is the whole cost.
+
+**What was tried** (`scripts/symmetric_engine_tables.py`, tables 15 and 16; ticks at the answer).
+
+1. *One unit for every strategy in every round, no levels.* Repairs `str` (1401 to 27086 for `k = 2` to `16`, against 569 to 22540 alone). Exponential on fair OR with three endless members (18717 at `k = 4`, nothing within the limit at 8): a strategy that passes answers on takes one a round from a table that several strategies fill, falls behind, and the lag multiplies at every level. Taking one answer from each goal read does not remove it.
+2. *A strategy does as many units as there are strategies upstream of it.* Then a strategy that only passes answers on keeps up with everything that feeds it, and a table that feeds itself still grows by a bounded amount a round, because the count is of a set and is finite on a cycle. Polynomial on every fairness family (fair OR with three endless members: 4259, 41563, 170122 at `k = 4, 8, 12`), in the order of the engine as built on counting down, three times dearer on the ladder. Counted in units it fails beside a member with large terms; counted in ticks (4 ticks times the weight, what an operation costs beyond that owed in later rounds, nothing saved up) the delay beside an endless member that keeps opening goals is 96, 108, 107, 87, 58 times the cost alone for `k = 4` to `64`, where the engine as built has 20, 129, 604, 1058 and then no answer.
+3. *Bounded buffers* (a table takes in answers no faster than its slowest reader) were considered and not built: the limit travels down the levels and gives the product again, and a cycle in which each answer makes two stops for ever.
+4. *The split balance of section 9.4 kept, with the turns of 2 and a bounded race.* Groups and levels as built. A strategy of a working group has a turn of 4 ticks times its weight; no goal works whole rounds. An ask of the race may cost what is left of its budget and no more; an ask that needs more is given up, charged, and tried again when twice as much is left, so the race never spends more than the goal's own work and rounds.
+
+| family | k | as built | rule 4, 4 ticks | rule 4, 16 ticks |
+|---|---|---|---|---|
+| counting down beside `str` | 4, 8, 16 | 10028, 159714, none | 4314, 10144, 32614 | 7116, 22959, 66954 |
+| fair OR, three endless members | 4, 8, 12, 16, 20 | 5484, 46599, 184986, 505811, 1117098 | 4425, 44200, 259277, 714158, 1395166 | 4471, 37777, 153778, 569657, 1485513 |
+| strings | 4, 8, 10 | 9654, 287545, 1298484 | 5708, 71069, 145057 | 8026, 110623, 266982 |
+| a line of calls beside an endless member | 4, 8, 16, 32 | 8464, 126955, 1513873, 7697508 | 9059, 25633, 65700, 152500 | 14697, 58375, 168791, 420579 |
+| counting down, to the halt | 16, 32, 64 | 117981, 849299, 6685924 | 76688, 273128, 1047985 | 117410, 811349, 3643002 |
+| the middle-restricted family, to the halt | 4, 6, 8, 10, 12, 14 | 3136, 32667, 131073, 755758, not run | 4882, 44024, 150581, 411877, 774045, 3059125 | 4564, 32610, 91465, 750176, 4591617, 3513539 |
+| the ladder, to the halt | 12, 16, 20, 24, 32 | 163928, 373338, 583552, 864552, 1816636 | 58844, 128631, 238761, 568214, 1450490 | 59751, 123896, 246297, 483808, 1447333 |
+
+`p ; q` of 3.1 halts at 76 ticks (as built 97) and its variant with identity spans at 223 (268). Rule 4 is the first rule with every family: it is cheaper than the engine as built on the ladder and on the halt of counting down, bounded where the engine as built is not, and within a factor of about 1.4 of it on fair OR at the largest sizes, where it takes more requests because an operation on a term of size `k` costs more than one turn pays for.
+
+**What is not known.** Nothing is proved. The weight is recomputed in the prototype by a search at every request, at no charge; an engine has to keep it, and the cheap way (to recount when a goal is opened) is not measured. The turn is a constant, and which constant is not settled: 4 is better where terms are small, 16 where they are large.
+
+**What the bound should say.** As worded in the roadmap's L36 row the flat half (the cost alone times the goals opened) is false for every tabled machine: `bit^k` has `2^k` answers no two of which one sound span covers, a fixed choice of bits costs about `k` alone, and a tabled machine opens polynomially many goals. Proposed in its place, with nothing of the machine in it: an answer waits only for alternatives no dearer than itself, so the delay is at most the cost alone times the number of alternatives that cost at most as much. A fair scheduler with no tables has it; on `bit^k` every one of the `2^k` alternatives is as cheap as the answer; on nested fair OR the count is polynomial in the depth. Beside `str` it is the fair OR half (the cost alone times the alternatives along the nesting, multiplied) that is small, and the requirement is the smaller of the two. Whether rule 4 has both is not proved.
