@@ -115,6 +115,46 @@ theorem answers_modify_app (st : StateOf S N A) (i : Nat) (blk : List A) {t : Ta
   unfold StateOf.answers StateOf.modify
   simp [ht, app]
 
+/-- A strategy without its cursors: what it is a strategy of. The work of a
+strategy moves its cursors and nothing else. -/
+def Strat.kind : Strat N A → Strat N A
+  | .span _ => .span false
+  | .copy c _ => .copy c []
+  | .join k a b _ => .join k a b Cursor.start
+  | .push k l side o _ _ => .push k l side o none []
+  | .check l side o _ => .check l side o .reading
+
+/-- The strategies of a group, without their cursors. -/
+def Group.kinds (gr : Group N A) : List (Strat N A) := gr.strats.map Strat.kind
+
+theorem kind_span {s : Strat N A} (h : s.kind = .span false) : ∃ ran, s = .span ran := by
+  cases s <;> simp only [Strat.kind, reduceCtorEq] at h
+  exact ⟨_, rfl⟩
+
+theorem kind_copy {s : Strat N A} {c : Bool} (h : s.kind = .copy c []) :
+    ∃ subs, s = .copy c subs := by
+  cases s <;> simp only [Strat.kind, reduceCtorEq, Strat.copy.injEq] at h
+  obtain ⟨rfl, -⟩ := h
+  exact ⟨_, rfl⟩
+
+theorem kind_join {s : Strat N A} {k : Kind} {a b : Nat} (h : s.kind = .join k a b Cursor.start) :
+    ∃ c, s = .join k a b c := by
+  cases s <;> simp only [Strat.kind, reduceCtorEq, Strat.join.injEq] at h
+  obtain ⟨rfl, rfl, rfl, -⟩ := h
+  exact ⟨_, rfl⟩
+
+theorem kind_push {s : Strat N A} {k : Kind} {l : Bool} {side : Nat} {o : N}
+    (h : s.kind = .push k l side o none []) : ∃ todo subs, s = .push k l side o todo subs := by
+  cases s <;> simp only [Strat.kind, reduceCtorEq, Strat.push.injEq] at h
+  obtain ⟨rfl, rfl, rfl, rfl, -⟩ := h
+  exact ⟨_, _, rfl⟩
+
+theorem kind_check {s : Strat N A} {l : Bool} {side o : N}
+    (h : s.kind = .check l side o .reading) : ∃ c, s = .check l side o c := by
+  cases s <;> simp only [Strat.kind, reduceCtorEq, Strat.check.injEq] at h
+  obtain ⟨rfl, rfl, rfl, -⟩ := h
+  exact ⟨_, rfl⟩
+
 end pure
 
 open Answer
@@ -161,13 +201,14 @@ def pushedS (D : Domain R) : Kind → Bool → R → R → Option R
 
 /-- The goals of the two sides of a split of the goal `g`: a chain at a
 place inside it, with the middle left open; a meet into one member and the
-others. -/
+others, at one of the members a meet is split at. -/
 def SplitAt (g : GoalOf R Rel) : Kind → GoalOf R Rel → GoalOf R Rel → Prop
   | .seq, L, Rg => ∃ (xs : List Rel) (i : Nat) (l r : Rel), g.node.view = .chain xs ∧ 0 < i ∧
       i < xs.length ∧ g.node.interval 0 i = some l ∧ g.node.interval i xs.length = some r ∧
       L = ⟨g.lb, l, none⟩ ∧ Rg = ⟨none, r, g.rb⟩
   | .and, L, Rg => ∃ (xs : List Rel) (i : Nat) (x r : Rel), g.node.view = .meet xs ∧
-      xs[i]? = some x ∧ g.node.without i = some r ∧ L = ⟨g.lb, x, g.rb⟩ ∧ Rg = ⟨g.lb, r, g.rb⟩
+      i ∈ andSplits xs.length ∧ xs[i]? = some x ∧ g.node.without i = some r ∧
+      L = ⟨g.lb, x, g.rb⟩ ∧ Rg = ⟨g.lb, r, g.rb⟩
 
 /-- The nodes a call (`true`) or a union reads. -/
 def copyMembers (P : Program) (n : Rel) : Bool → List Rel
@@ -275,6 +316,167 @@ theorem Prog.mono {st st' : StateOf R Rel (Ans D P)} (h : Stable st st') {i : Na
     | reading => trivial
     | off => exact h4
 
+/-! ## A strategy for every split -/
+
+/-- The check of the node `side` of a split of `g` can never show `g`
+empty: a check of it is not offered, or the other side has an answer under
+one of the interfaces read. -/
+def CheckGone (st : StateOf R Rel (Ans D P)) (g : GoalOf R Rel) (left : Bool)
+    (side other : Rel) : Prop :=
+  Reads D P side left none ∨ ∃ ps, Reads D P side left (some ps) ∧ ∃ p ∈ ps, ∃ j,
+    goalAt st j = some (if left then ⟨some p, other, g.rb⟩ else ⟨g.lb, other, some p⟩) ∧
+    st.answers j ≠ []
+
+theorem CheckGone.mono {st st' : StateOf R Rel (Ans D P)} (h : Stable st st')
+    {g : GoalOf R Rel} {left : Bool} {side other : Rel} (hc : CheckGone st g left side other) :
+    CheckGone st' g left side other := by
+  rcases hc with hc | ⟨ps, h1, p, hp, j, hj, hne⟩
+  · exact .inl hc
+  · refine .inr ⟨ps, h1, p, hp, j, h.ext _ _ hj, fun he => hne ?_⟩
+    have := h.answers j
+    rw [he] at this
+    exact List.prefix_nil.1 this
+
+/-- A check that is dead can never show the goal empty. -/
+theorem prog_dead_gone {st : StateOf R Rel (Ans D P)} {i : Nat} {g : GoalOf R Rel} {left : Bool}
+    {side other : Rel} {c : Check} (hp : Prog st i g (.check left side other c))
+    (hd : (Strat.check left side other c : Strat Rel (Ans D P)).dead st = true) :
+    CheckGone st g left side other := by
+  dsimp only [Prog] at hp
+  obtain ⟨L, Rg, -, -, -, hc⟩ := hp
+  cases c with
+  | reading => simp [Strat.dead] at hd
+  | off => exact .inl hc
+  | opened subs =>
+    obtain ⟨ps, h1, -, hlen, hall⟩ := hc
+    simp only [Strat.dead] at hd
+    obtain ⟨j, hj, hne⟩ := List.any_eq_true.1 hd
+    obtain ⟨n, hn, rfl⟩ := List.getElem_of_mem hj
+    have hn' : n < ps.length := by omega
+    obtain ⟨j', hj', hg⟩ := hall n ps[n] (List.getElem?_eq_getElem hn')
+    rw [List.getElem?_eq_getElem hn] at hj'
+    cases hj'
+    refine .inr ⟨ps, h1, ps[n], List.getElem_mem hn', _, hg, fun he => ?_⟩
+    rw [he] at hne
+    simp at hne
+
+/-- **The groups of a goal have a strategy for every way to answer it**: its
+span; its call or its union; and for every split, a group with the join of
+the two sides and the push of each into the other, and for a split of a
+chain the check of each side, unless that check can never show the goal
+empty. -/
+structure Full (st : StateOf R Rel (Ans D P)) (g : GoalOf R Rel)
+    (gs : List (Group Rel (Ans D P))) : Prop where
+  span : (∃ s, g.node = .span s) → ∃ gr ∈ gs, .span false ∈ gr.kinds
+  copy : ∀ c : Bool, (c = true → ∃ b, Charged.bodyOf P g.node = some b) →
+    (c = false → ∃ xs, g.node.view = .union xs) → ∃ gr ∈ gs, .copy c [] ∈ gr.kinds
+  split : ∀ k L Rg, SplitAt g k L Rg → ∃ gr ∈ gs, ∃ a b, goalAt st a = some L ∧
+    goalAt st b = some Rg ∧ .join k a b Cursor.start ∈ gr.kinds ∧
+    .push k true a Rg.node none [] ∈ gr.kinds ∧ .push k false b L.node none [] ∈ gr.kinds
+  check : ∀ L Rg, SplitAt g .seq L Rg → ∀ left : Bool,
+    CheckGone st g left (if left then L.node else Rg.node) (if left then Rg.node else L.node) ∨
+      ∃ gr ∈ gs, .check left (if left then L.node else Rg.node)
+        (if left then Rg.node else L.node) .reading ∈ gr.kinds
+
+/-- The groups stay full when each group stays, with strategies of the same
+kinds, or was all checks that can never show the goal empty. -/
+theorem Full.keep {st st' : StateOf R Rel (Ans D P)} (hS : Stable st st') {g : GoalOf R Rel}
+    {gs gs' : List (Group Rel (Ans D P))} (hF : Full st g gs)
+    (h : ∀ gr ∈ gs, (∃ gr' ∈ gs', gr'.kinds = gr.kinds) ∨
+      ∀ s ∈ gr.strats, ∃ l side o c, s = .check l side o c ∧ CheckGone st' g l side o) :
+    Full st' g gs' := by
+  have lead : ∀ gr ∈ gs, ∀ x ∈ gr.kinds, (∀ l side o, x ≠ .check l side o .reading) →
+      ∃ gr' ∈ gs', x ∈ gr'.kinds := by
+    intro gr hgr x hx hne
+    rcases h gr hgr with ⟨gr', hgr', e⟩ | hall
+    · exact ⟨gr', hgr', by rw [e]; exact hx⟩
+    · obtain ⟨s, hs, rfl⟩ := List.mem_map.1 hx
+      obtain ⟨l, side, o, c, rfl, -⟩ := hall s hs
+      exact absurd rfl (hne l side o)
+  refine ⟨fun hs => ?_, fun c h1 h2 => ?_, fun k L Rg hsp => ?_, fun L Rg hsp left => ?_⟩
+  · obtain ⟨gr, hgr, hx⟩ := hF.span hs
+    exact lead gr hgr _ hx (fun _ _ _ e => by cases e)
+  · obtain ⟨gr, hgr, hx⟩ := hF.copy c h1 h2
+    exact lead gr hgr _ hx (fun _ _ _ e => by cases e)
+  · obtain ⟨gr, hgr, a, b, ha, hb, h1, h2, h3⟩ := hF.split k L Rg hsp
+    rcases h gr hgr with ⟨gr', hgr', e⟩ | hall
+    · exact ⟨gr', hgr', a, b, hS.ext _ _ ha, hS.ext _ _ hb, by rw [e]; exact h1,
+        by rw [e]; exact h2, by rw [e]; exact h3⟩
+    · obtain ⟨s, hs, hk⟩ := List.mem_map.1 h1
+      obtain ⟨l, side, o, c, rfl, -⟩ := hall s hs
+      cases hk
+  · rcases hF.check L Rg hsp left with hg | ⟨gr, hgr, hx⟩
+    · exact .inl (hg.mono hS)
+    · rcases h gr hgr with ⟨gr', hgr', e⟩ | hall
+      · exact .inr ⟨gr', hgr', by rw [e]; exact hx⟩
+      · obtain ⟨s, hs, hk⟩ := List.mem_map.1 hx
+        obtain ⟨l, side, o, c, rfl, hg⟩ := hall s hs
+        simp only [Strat.kind, Strat.check.injEq, and_true] at hk
+        obtain ⟨rfl, rfl, rfl⟩ := hk
+        exact .inl hg
+
+omit [Answer R] [DecidableEq R] in
+/-- Only a chain and a meet have splits. -/
+theorem SplitAt.view {g L Rg : GoalOf R Rel} {k : Kind} (h : SplitAt g k L Rg) :
+    (k = .seq ∧ ∃ xs, g.node.view = .chain xs) ∨ (k = .and ∧ ∃ xs, g.node.view = .meet xs) := by
+  cases k with
+  | seq =>
+    obtain ⟨xs, i, l, r, hv, -⟩ := h
+    exact .inl ⟨rfl, xs, hv⟩
+  | and =>
+    obtain ⟨xs, i, l, r, hv, -⟩ := h
+    exact .inr ⟨rfl, xs, hv⟩
+
+/-- Only a call has a body. -/
+theorem bodyOf_view {e b : Rel} (h : Charged.bodyOf P e = some b) : ∃ n f, e.view = .call n f := by
+  cases e with
+  | call m => exact ⟨_, _, rfl⟩
+  | conv a =>
+    cases a with
+    | call m => exact ⟨_, _, rfl⟩
+    | _ => simp [Charged.bodyOf] at h
+  | _ => simp [Charged.bodyOf] at h
+
+theorem forget_call_view {e : Rel} {n : Name} {f : Bool} (h : e.view.forget = .call n f) :
+    e.view = .call n f := by
+  cases hv : e.view <;> rw [hv] at h <;> simp only [NodeView.forget] at h <;> cases h
+  rfl
+
+/-- The groups are full if they have the strategies of the kind of the
+node. -/
+theorem Full.of_view {st : StateOf R Rel (Ans D P)} {g : GoalOf R Rel}
+    {gs : List (Group Rel (Ans D P))} {V : NodeView Span Rel} (hv : g.node.view = V)
+    (hspan : ∀ s, V = .span s → ∃ gr ∈ gs, .span false ∈ gr.kinds)
+    (hcall : ∀ n f, V = .call n f → ∃ gr ∈ gs, .copy true [] ∈ gr.kinds)
+    (hunion : ∀ xs, V = .union xs → ∃ gr ∈ gs, .copy false [] ∈ gr.kinds)
+    (hsplit : ∀ k L Rg, SplitAt g k L Rg → ∃ gr ∈ gs, ∃ a b, goalAt st a = some L ∧
+      goalAt st b = some Rg ∧ .join k a b Cursor.start ∈ gr.kinds ∧
+      .push k true a Rg.node none [] ∈ gr.kinds ∧ .push k false b L.node none [] ∈ gr.kinds)
+    (hcheck : ∀ L Rg, SplitAt g .seq L Rg → ∀ left : Bool,
+      CheckGone st g left (if left then L.node else Rg.node)
+          (if left then Rg.node else L.node) ∨
+        ∃ gr ∈ gs, .check left (if left then L.node else Rg.node)
+          (if left then Rg.node else L.node) .reading ∈ gr.kinds) : Full st g gs := by
+  refine ⟨fun ⟨s, hs⟩ => hspan s (by rw [← hv, hs]; rfl), fun c h1 h2 => ?_, hsplit, hcheck⟩
+  cases c with
+  | true =>
+    obtain ⟨b, hb⟩ := h1 rfl
+    obtain ⟨n, f, e⟩ := bodyOf_view hb
+    exact hcall n f (by rw [← hv, e])
+  | false =>
+    obtain ⟨xs, e⟩ := h2 rfl
+    exact hunion xs (by rw [← hv, e])
+
+theorem Full.mono {st st' : StateOf R Rel (Ans D P)} (hS : Stable st st') {g : GoalOf R Rel}
+    {gs : List (Group Rel (Ans D P))} (hF : Full st g gs) : Full st' g gs :=
+  hF.keep hS fun gr hgr => .inl ⟨gr, hgr, rfl⟩
+
+/-- Every table that has groups has a strategy for every way to answer its
+goal. -/
+def FullAll (st : StateOf R Rel (Ans D P)) : Prop :=
+  ∀ (i : Nat) (t : Table R Rel (Ans D P)), st.tables[i]? = some t → ∀ gs, t.groups = some gs →
+    Full st t.goal gs
+
 /-! ## What the rules return -/
 
 section kernel
@@ -365,7 +567,7 @@ theorem both_ok {k : Kind} {x y : Ans D P} {z : R} {g L Rg : GoalOf R Rel}
       (.inl ⟨by rw [hx], .inl (by rw [hy])⟩) hz
     exact ⟨c, h1, h2⟩
   | and =>
-    obtain ⟨xs, i, m, r, -, -, -, rfl, rfl⟩ := hs
+    obtain ⟨xs, i, m, r, -, -, -, -, rfl, rfl⟩ := hs
     obtain ⟨c, h1, h2, -⟩ := Ans.meetA_ok K hK (a := x) (b := y)
       (.inl ⟨by rw [hx, hy], by rw [hx, hy]⟩) hz
     exact ⟨c, h1, h2⟩

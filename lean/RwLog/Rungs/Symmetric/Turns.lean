@@ -2031,7 +2031,7 @@ theorem turn_workGroup (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK)
       (Strat.feeds r1.1)).eraseDups).val = r2 at h2' ⊢
   have hks := keep_setGroup r2.1 i k (fun gr => { gr with level := gr.level + r2.2 })
   have hg2 : groupsAt r2.1 i = groupsAt r1.1 i := h2'.turns.groupsAt h1.busy
-  refine ⟨Good.setGroup h2'.good i k _ (fun _ _ _ s hs => .inl hs),
+  refine ⟨Good.setGroup h2'.good i k _ (fun _ _ _ s hs => .inl hs) (fun _ _ => rfl),
     hks.stable.ext _ _ h2'.goal, hks.busy h2'.busy, ?_, ?_, fun k' hk' => ?_, fun gr hgr => ?_⟩
   · exact h1.turns.trans ((h2'.turns.weaken (some i)).trans
       (turnsBut_modify _ i _ (fun _ => ⟨rfl, rfl, rfl, rfl, .inl rfl⟩) h2'.busy.open))

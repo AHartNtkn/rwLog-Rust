@@ -202,6 +202,20 @@ theorem map_modify_eq {α β : Type} (g : α → β) (f : α → α) (h : ∀ x,
     · rw [h]
     · rfl
 
+/-- Setting a member to one with the same image leaves the images. -/
+theorem map_set_same {α β : Type} (f : α → β) {l : List α} {j : Nat} {a a' : α}
+    (h : l[j]? = some a) (e : f a' = f a) : (l.set j a').map f = l.map f := by
+  apply List.ext_getElem?
+  intro m
+  rw [List.getElem?_map, List.getElem?_map, List.getElem?_set]
+  split
+  · next hjm =>
+    subst hjm
+    have hlt := (List.getElem?_eq_some_iff.1 h).1
+    rw [h]
+    simp [hlt, e]
+  · rfl
+
 /-- A member of a list with one member changed is a member or a changed
 member. -/
 theorem mem_modify {α : Type} {l : List α} {k : Nat} {f : α → α} {x : α}

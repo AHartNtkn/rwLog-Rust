@@ -329,7 +329,7 @@ theorem IsRun.served_join (h : IsRun σ) {r0 k : Nat} {g : GoalOf R Rel} {kd : K
     obtain ⟨xs, i, l, r, hv, h0, hi, hl, hr, rfl, rfl⟩ := hsp
     exact .join xs i l r hv h0 hi hl hr (h.mem_opened hga ha) (h.mem_opened hgb hb) key
   | and =>
-    obtain ⟨xs, i, x, r, hv, hx, hr, rfl, rfl⟩ := hsp
+    obtain ⟨xs, i, x, r, hv, -, hx, hr, rfl, rfl⟩ := hsp
     exact .meet xs i x r hv hx hr (h.mem_opened hga ha) (h.mem_opened hgb hb) key
 
 /-- A push of a complete table that has pushed every maximal answer and
@@ -392,7 +392,7 @@ theorem IsRun.served_push (h : IsRun σ) {r k : Nat} {g : GoalOf R Rel} {kd : Ki
       obtain ⟨a', k1, k2, e, rfl, k3, k4⟩ := push a ha
       exact ⟨e.1.span, k1, k2, k3, k4⟩
   | and =>
-    obtain ⟨xs, i, x, r', hv, hx, hr, rfl, rfl⟩ := hsp
+    obtain ⟨xs, i, x, r', hv, -, hx, hr, rfl, rfl⟩ := hsp
     cases left with
     | true =>
       simp only [↓reduceIte] at ho hside push
