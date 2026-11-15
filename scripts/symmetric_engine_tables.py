@@ -248,6 +248,12 @@ class Copy(Strat):
         super().__init__(g); s.subs = [s.sub(k, structural) for k in keys]; s.pos = [0] * len(s.subs); s.turn = 0
     def step(s):
         n = len(s.subs)
+        if s.g.M.per_stream:
+            t = 0
+            for i in range(n):
+                if s.pos[i] < len(s.subs[i].ans):
+                    s.g.add(s.subs[i].ans[s.pos[i]], s); s.pos[i] += 1; t += 1
+            return t
         for d in range(n):
             i = (s.turn + d) % n
             if s.pos[i] < len(s.subs[i].ans):
@@ -321,6 +327,16 @@ class Push(Strat):
             x = s.side.ans[s.opened]; s.opened += 1
             key = (bound(x[1]), s.other, g.rb) if s.left else (g.lb, s.other, bound(x[0]))
             s.subs.append([x, s.sub(key, False), 0]); return 1
+        if g.M.per_stream:
+            t = 0
+            for e in s.subs:
+                x, h, pos = e
+                if pos < len(h.ans):
+                    y = h.ans[pos]; e[2] += 1; u = (x, y) if s.left else (y, x)
+                    z = compose(*u)
+                    if z is not None: g.add(z, s)
+                    t += cost(*u)
+            return t
         for e in (sorted(s.subs, key=lambda e: e[2]) if Pairs.fair else s.subs):
             x, h, pos = e
             if pos < len(h.ans):
@@ -429,9 +445,16 @@ class Machine:
            more than the tables). 'own': the ticks of the goal's own work plus the rounds it has had
            (adopted).
     defer: a goal opened during a request has its first round in the next request, so the goals that
-           take part in a request are among those open when it starts."""
-    def __init__(M, prog, query, rule='alt', push=True, open_calls=False, e1=False, units='goal', cover=False, each=False, check_apart=False, check_calls=False, defer=False, drop_dead=False, fair_units=False, race=False):
-        M.race = race
+           take part in a request are among those open when it starts.
+    rule 'rate' (section 13 of the note): no levels and no groups. A request is a round of every open
+           goal, and a strategy does at most as many units as there are strategies upstream of it, so a
+           strategy that only passes answers on keeps up with everything that feeds it, and a table that
+           feeds itself grows by a bounded amount a round. weights=False: one unit each (a reader falls
+           behind a table that several strategies fill, and the lag multiplies per level). tickb: the
+           budget of a unit in ticks. per_stream: a copy and a push take one answer from each goal they
+           read in a unit (measured: does not remove the lag)."""
+    def __init__(M, prog, query, rule='alt', push=True, open_calls=False, e1=False, units='goal', cover=False, each=False, check_apart=False, check_calls=False, defer=False, drop_dead=False, fair_units=False, race=False, per_stream=False, weights=True, tickb=0):
+        M.race = race; M.per_stream = per_stream; M.weights = weights; M.tickb = tickb
         M.defer = defer; M.requests = 0; M.drop_dead = drop_dead; Pairs.fair = fair_units
         M.each = each; M.check_apart = check_apart; M.check_calls = check_calls
         M.prog, M.rule, M.push, M.open_calls, M.e1, M.units, M.cover = prog, rule, push, open_calls, e1, units, cover
@@ -508,6 +531,50 @@ class Machine:
             M.round = M.requests; M.round_ticks = 0
             M.root.advance(); M.closure()
             return M.round_ticks
+        if r == 'rate':
+            # A round of every open goal. Each strategy does at most `w` units, `w` being one more than
+            # the number of strategies of the goals upstream of each goal it reads (a goal counted once
+            # for each goal read that reaches it). With `tickb` the budget is `tickb * w` ticks: what an
+            # operation costs beyond the budget is owed in the next rounds, and no budget is saved up.
+            # The race of a chain goal asks once more after the round while it is within its budget.
+            for g in list(M.order):
+                if not g.done: g.expand()
+            up = {}
+            def reach(g0):
+                seen, stack, n = {g0}, [g0], 0
+                while stack:
+                    g = stack.pop()
+                    if g.strats is None: continue
+                    n += len(g.strats)
+                    for s in g.strats:
+                        for h in s.feeds():
+                            if h not in seen: seen.add(h); stack.append(h)
+                return n
+            t = 0
+            for g in list(M.order):
+                if g.done or g.strats is None: continue
+                for s in g.strats:
+                    w = 1
+                    if M.weights:
+                        for h in dict.fromkeys(s.feeds()):
+                            if h not in up: up[h] = reach(h)
+                            w += up[h]
+                    if M.tickb:
+                        s.bank = min(getattr(s, 'bank', 0), 0) + M.tickb * w
+                        while s.bank > 0:
+                            c = s.step()
+                            if not c: break
+                            s.bank -= c; s.spent += c; s.own += c; g.own += c; t += c
+                        continue
+                    for _ in range(w):
+                        c = s.step()
+                        if not c: break
+                        s.spent += c; s.own += c; g.own += c; t += c
+                g.rounds += 1
+                if g.race is not None and not g.race.fin and g.race.spent <= g.own + g.rounds:
+                    c = g.race.step(); g.race.spent += c; t += c
+            M.closure()
+            return t
         if r == 'sim3':
             # whole rounds for the goals that carry a boundary, the share rule for the rest
             t = M.flat(False, True) + M.root.give()
@@ -595,6 +662,22 @@ def mid(k):
     t = S('z')
     for _ in range(k): t = ap('0', t)
     return {}, chain(*[bit] * k, span(V, t), *[unbit] * k), None
+
+STR = union(span(V, S('nil')), chain(call('str'), span(V, ap('a', V))), chain(call('str'), span(V, ap('b', V))))
+def beside(k):
+    """(@(s^k z) ; q) | str: counting down beside every string of two letters, a table that feeds itself."""
+    prog, q, want = countdown(k)
+    return dict(prog, str=STR), union(q, call('str')), want
+def line(k):
+    """@a ; p_k with p_i = (a -> a) ; p_(i-1), p_0 = (a -> b): k calls, terms of one size."""
+    a, b = S('a'), S('b')
+    prog = {'p0': span(a, b)}
+    for i in range(1, k + 1): prog['p%d' % i] = chain(span(a, a), call('p%d' % (i - 1)))
+    return prog, chain(at(a), call('p%d' % k)), canon((a, b))
+def beside_endless(k, K=200):
+    """`line k` beside a member that never finishes, has terms of size K and keeps opening goals."""
+    prog, q, want = line(k); p2, _, _ = fair(K, 3)
+    return dict(prog, **p2), union(q, chain(at(ap('t', S('z'))), span(ap('t', V), V), call('gen'), call('q'))), want
 
 def table(title, mk, ks, variants, cols=('first', 'halt', 'goals'), limit=3_000_000):
     print('\n' + title)
@@ -728,6 +811,24 @@ TABLES.update({
                    ('fair OR, one member that never finishes', lambda k: fair(k, 1), (2, 4, 6, 8, 10, 12), ('first', 'req', 'goals'), 1_000_000),
                    ('fair OR, three such members', lambda k: fair(k, 3), (2, 4, 6, 8, 10, 12), ('first', 'req', 'goals'), 1_000_000),
                    ('strings of k bits', strings, (2, 4, 6, 8, 10), ('first', 'req', 'goals'), 5_000_000))],
+})
+# ---------------------------------------------------------------- bounded turns (section 13 of the note)
+BUILT = ('the engine as built', dict(LEAN, race='own'))
+UNIT1 = ('a unit per strategy', dict(rule='rate', fair_units=True, cover=True, check_calls=True, race='own', weights=False))
+RATE = ('units by strategies upstream', dict(rule='rate', fair_units=True, cover=True, check_calls=True, race='own'))
+RATE4 = ('the same, 4 ticks a unit', dict(RATE[1], tickb=4))
+TABLES.update({
+ '15': lambda: [table('15. Bounded turns: %s' % n, f, ks, [BUILT, UNIT1, RATE, RATE4], cols=c, limit=lim)
+               for n, f, ks, c, lim in (
+                   ('counting down alone', countdown, (2, 4, 8, 12, 16), ('first', 'req'), 3_000_000),
+                   ('counting down beside every string', beside, (2, 4, 8, 12, 16), ('first', 'req', 'goals'), 2_000_000),
+                   ('fair OR, three members that never finish', lambda k: fair(k, 3), (2, 4, 8, 12), ('first', 'req', 'goals'), 2_000_000),
+                   ('strings of k bits', strings, (2, 4, 6, 8, 10), ('first', 'req', 'goals'), 2_000_000),
+                   ('a line of k calls alone', line, (4, 8, 16, 32), ('first', 'req'), 2_000_000),
+                   ('the line beside an endless member', beside_endless, (4, 8, 16, 32), ('first', 'req', 'goals'), 8_000_000),
+                   ('counting down, to the halt', countdown, (2, 4, 8, 16), ('halt', 'req', 'goals'), 3_000_000),
+                   ('bit^k ; ($x -> t_k) ; unbit^k with pushes', mid, range(2, 9), ('halt', 'req', 'goals'), 30_000_000),
+                   ('the ladder', ladder, (4, 6, 10, 12), ('halt', 'req', 'goals'), 30_000_000))],
 })
 if __name__ == '__main__':
     print('Ticks at the first answer, ticks at halt, goals opened; "req" is requests to the root at the first')
