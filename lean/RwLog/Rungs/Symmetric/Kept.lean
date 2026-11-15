@@ -926,7 +926,7 @@ theorem RaceAll.inner {st st' : StateOf R Rel (Ans D P)} {j : Nat} (hA : RaceAll
   | @opened st st' g self e _ _ _ =>
     refine hA.of_tables fun k t' ht' hs => .inr ?_
     have hf : st'.frames[k]? =
-        (st.frames ++ [(g, self, [], false, st.round, 0, none, none, 0)])[k]? := by rw [e]
+        (st.frames ++ [(g, self, [], false, st.round, 0, none, none, 0, 0)])[k]? := by rw [e]
     have hl : st.frames.length = st.tables.length := by simp [StateOf.frames]
     by_cases hlt : k < st.tables.length
     · rw [List.getElem?_append_left (by omega)] at hf
@@ -1209,16 +1209,21 @@ theorem good_workGroup (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK)
     good_workStep (K := K) (hK := hK) hL hR (st := st) hG i g k j s f left c ow hg hb hs
   have hkw := fun (st : StateOf R Rel (Ans D P)) s f left c hb =>
     keep_turn (K := K) (hK := hK) (P := P) i g f left st s c hb
+  have hf := fun X d hX => feedGroup_keeps (K := K) (hK := hK) (P := P) adv
+    (fun X => Good X ∧ goalAt X i = some g ∧ Busy X i)
+    (fun h X hX => ⟨hadv h X hX.1, (hadvK h X).stable.ext _ _ hX.2.1, (hadvK h X).busy hX.2.2⟩)
+    (fun h c X hX => ⟨Good.modify hX.1 h (fun t => { t with fed := t.fed + c }) (fun _ => rfl)
+        (fun _ => rfl) (fun _ => rfl) (fun _ h => h) (fun _ => rfl),
+      (goalAt_modify X h i (fun t => { t with fed := t.fed + c }) fun _ => rfl).trans hX.2.1,
+      (keep_modify X h (fun t => { t with fed := t.fed + c }) fun _ _ =>
+        ⟨rfl, rfl, rfl, fun h => h, fun h => ⟨h, fun h => h⟩⟩).busy hX.2.2⟩) i k X d hX
   clear hR
   at_cost K hK
-  simp only [workGroup, workStrats, feedAll, Cost.bind_val, Cost.pure_val]
+  simp only [workGroup, workStrats, Cost.bind_val, Cost.pure_val]
   refine Good.modify ?_ i _ (fun _ => rfl) (fun _ => rfl) (fun _ => rfl) (fun _ h => h)
     (fun _ => rfl)
   refine Good.setGroup ?_ _ _ _ (fun g' gr _ s hs => .inl hs) (fun _ _ => rfl)
-  refine (foldL_inv (fun acc : StateOf R Rel (Ans D P) × Nat =>
-    Good acc.1 ∧ goalAt acc.1 i = some g ∧ Busy acc.1 i) _ _ (fun b h _ hb => ?_) _ ?_).1
-  · simp only [Cost.bind_val, Cost.pure_val]
-    exact ⟨hadv _ _ hb.1, (hadvK _ _).stable.ext _ _ hb.2.1, (hadvK _ _).busy hb.2.2⟩
+  refine (hf _ _ ?_).1
   · refine foldL_inv (fun acc : StateOf R Rel (Ans D P) × Nat × Bool =>
       Good acc.1 ∧ goalAt acc.1 i = some g ∧ Busy acc.1 i) _ _ (fun b j _ hb => ?_)
       (st, 0, false) ⟨hG, hg, hb⟩

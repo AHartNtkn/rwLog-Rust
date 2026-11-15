@@ -262,7 +262,8 @@ until the goal has its first round. `born` is the request the goal was
 opened in, `stamp` the last request it had a round in, and `delta` how much
 its level rose in that round. `race` is the unfolding race of a chain goal,
 from its first round on; `own` is the ticks of the work of the goal's own
-strategies, and `rounds` the number of rounds it has had. -/
+strategies, and `rounds` the number of rounds it has had. `fed` is the ticks
+its rounds have cost the strategies that gave them. -/
 structure Table (S N A : Type) where
   goal : GoalOf S N
   self : Bool
@@ -275,6 +276,7 @@ structure Table (S N A : Type) where
   race : Option Race
   own : Nat
   rounds : Nat
+  fed : Nat
 
 /-- The machine state: the tables, the root first, the number of requests
 made, how many answers of the root table have been emitted, and the edges
@@ -304,6 +306,12 @@ def StateOf.isSelf {S N A : Type} (st : StateOf S N A) (i : Nat) : Bool :=
   match st.tables[i]? with
   | some t => t.self
   | none => false
+
+/-- What the table at a position has been fed. -/
+def StateOf.fedAt {S N A : Type} (st : StateOf S N A) (i : Nat) : Nat :=
+  match st.tables[i]? with
+  | some t => t.fed
+  | none => 0
 
 /-- Is the table at a position complete? -/
 def StateOf.isDone {S N A : Type} (st : StateOf S N A) (i : Nat) : Bool :=
@@ -438,7 +446,7 @@ def openGoal (st : StateOf S N A) (g : GoalOf S N) : M (StateOf S N A × Nat) :=
   | some i => pure (st, i)
   | none => do
     let self ← selfConverse (K := K) g
-    pure ({ st with tables := st.tables ++ [⟨g, self, [], false, none, st.round, 0, 0, none, 0, 0⟩] },
+    pure ({ st with tables := st.tables ++ [⟨g, self, [], false, none, st.round, 0, 0, none, 0, 0, 0⟩] },
       st.tables.length)
 
 /-- Put an answer in the table at `i`, unless an answer there covers it. -/
@@ -880,23 +888,60 @@ def workStrats (i : Nat) (g : GoalOf S N) (k : Nat) (st : StateOf S N A) :
       pure (st', acc.2.1 + c, acc.2.2 || decide (0 < c)))
     (st, 0, false) (List.range n)
 
-/-- Each of the tables given has its round (`adv`). Returns `d` and how much
-their levels rose. -/
+/-- The table at `h` has its round (`adv`), and what the round cost is added
+to what the table has been fed. Returns how much its level rose, and what the
+round cost. -/
+def feed (adv : Nat → StateOf S N A → M (StateOf S N A × Nat)) (h : Nat) (st : StateOf S N A) :
+    M (StateOf S N A × Nat × Nat) := do
+  let (r, c) ← K.metered (adv h st)
+  pure (r.1.modify h fun t => { t with fed := t.fed + c }, r.2, c)
+
+/-- Each of the tables given has its round. Returns `d` and how much their
+levels rose. -/
 def feedAll (adv : Nat → StateOf S N A → M (StateOf S N A × Nat)) (st : StateOf S N A) (d : Nat)
     (feeds : List Nat) : M (StateOf S N A × Nat) :=
   foldL (fun (acc : StateOf S N A × Nat) h => do
-    let (st', dh) ← adv h acc.1
+    let (st', dh, _) ← feed (K := K) adv h acc.1
     pure (st', acc.2 + dh)) (st, d) feeds
 
+/-- The tables given are offered a round in order, until the round of one
+has cost something: a table that is complete, or has had its round in this
+request, costs nothing and passes the offer on. Returns `d` and how much
+their levels rose. -/
+def feedFirst (adv : Nat → StateOf S N A → M (StateOf S N A × Nat)) (st : StateOf S N A)
+    (d : Nat) (feeds : List Nat) : M (StateOf S N A × Nat) := do
+  let r ← foldL (fun (acc : StateOf S N A × Nat × Bool) h =>
+    if acc.2.2 then pure acc
+    else do
+      let (st', dh, c) ← feed (K := K) adv h acc.1
+      pure (st', acc.2.1 + dh, decide (0 < c))) (st, d, false) feeds
+  pure (r.1, r.2.1)
+
+/-- The tables given, the one that has been fed least first. -/
+def byFed (st : StateOf S N A) (feeds : List Nat) : List Nat :=
+  feeds.mergeSort fun a b => decide (st.fedAt a ≤ st.fedAt b)
+
+/-- The tables the group `k` of the table at `i` reads have their rounds
+(`adv`). The members of a union share the ticks: one member has its round,
+the one that has been fed least of those that still need one. Every table
+any other group reads has its round. Returns `d` and how much their levels
+rose. -/
+def feedGroup (adv : Nat → StateOf S N A → M (StateOf S N A × Nat)) (i k : Nat)
+    (st : StateOf S N A) (d : Nat) : M (StateOf S N A × Nat) :=
+  let strats : List (Strat N A) := ((groupsAt st i)[k]?.map (·.strats)).getD []
+  match strats with
+  | [Strat.copy false subs] => feedFirst (K := K) adv st d (byFed st (subs.map Prod.fst).eraseDups)
+  | _ => feedAll (K := K) adv st d (strats.flatMap (Strat.feeds st)).eraseDups
+
 /-- The group `k` of the table at `i` works: each of its strategies does its
-own work, and then every table they read has its round (`adv`). The ticks of
-the strategies' own work are added to the own work of the table. Returns how
-much the level of the group rose, and whether anything was done. -/
+own work, and then the tables they read have their rounds (`feedGroup`). The
+ticks of the strategies' own work are added to the own work of the table.
+Returns how much the level of the group rose, and whether anything was
+done. -/
 def workGroup (adv : Nat → StateOf S N A → M (StateOf S N A × Nat)) (i : Nat)
     (g : GoalOf S N) (k : Nat) (st : StateOf S N A) : M (StateOf S N A × Nat × Bool) := do
   let (st, d0, did) ← workStrats (K := K) i g k st
-  let feeds := (((groupsAt st i)[k]?.map (·.strats)).getD []).flatMap (Strat.feeds st)
-  let (st, d) ← feedAll adv st d0 feeds.eraseDups
+  let (st, d) ← feedGroup (K := K) adv i k st d0
   pure ((setGroup st i k fun gr => { gr with level := gr.level + d }).modify i fun t =>
     { t with own := t.own + d0 }, d, did || decide (0 < d))
 
@@ -1022,7 +1067,7 @@ def step (U : GOracle S N A M) (st : StateOf S N A) : M (StepOf A (StateOf S N A
 /-- The first state: the table of the root goal alone. -/
 def init (root : N) : M (StateOf S N A) := do
   let self ← selfConverse (K := K) ⟨none, root, none⟩
-  pure ⟨[⟨⟨none, root, none⟩, self, [], false, none, 0, 0, 0, none, 0, 0⟩], 0, 0, [], 1⟩
+  pure ⟨[⟨⟨none, root, none⟩, self, [], false, none, 0, 0, 0, none, 0, 0, 0⟩], 0, 0, [], 1⟩
 
 end
 
