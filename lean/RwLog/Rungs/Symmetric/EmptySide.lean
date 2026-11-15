@@ -55,12 +55,11 @@ theorem splitAt_mkSeq {xs : List Rel} (hx : ∀ x ∈ xs, NotSeq x) {p : Nat} (h
     rw [hparts, ite_of_pos ⟨hp', Nat.le_refl _⟩, List.take_length]
 
 omit [DecidableEq R] [Answer R] in
-/-- A meet with no boundary is split into each member it is split at and
-the others. -/
-theorem splitAt_mkAnd {ys : List Rel} (hy : ∀ x ∈ ys, NotAnd x) (h2 : 2 ≤ ys.length) {i : Nat}
-    (hi : i < ys.length) (hs : i ∈ andSplits ys.length) :
-    SplitAt (bare (mkAnd ys) : GoalOf R Rel) .and (bare ys[i])
-      (bare (mkAnd (ys.eraseIdx i))) := by
+/-- A meet is split into each member it is split at and the others. -/
+theorem splitAt_mkAnd {lb rb : Option R} {ys : List Rel} (hy : ∀ x ∈ ys, NotAnd x)
+    (h2 : 2 ≤ ys.length) {i : Nat} (hi : i < ys.length) (hs : i ∈ andSplits ys.length) :
+    SplitAt (⟨lb, mkAnd ys, rb⟩ : GoalOf R Rel) .and ⟨lb, ys[i], rb⟩
+      ⟨lb, mkAnd (ys.eraseIdx i), rb⟩ := by
   refine ⟨ys, i, _, _, view_mkAnd h2 hy, hs, List.getElem?_eq_getElem hi, ?_, rfl, rfl⟩
   show (mkAnd ys).without i = _
   unfold RelOf.without

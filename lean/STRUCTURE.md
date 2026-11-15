@@ -138,16 +138,23 @@ Rungs/Symmetric/ the symmetric engine of `SYMMETRIC_ENGINE.md` (Machine.lean): a
                 tables it reads gain no more answers (Settle.lean, `Line.copy_read`,
                 `Line.join_done`, `Line.push_read`, `Line.check_read`); and a goal whose
                 table is complete in one run of requests has a complete table in every run
-                that does not neglect it (Transfer.lean, `IsRun.transfer`), by induction
-                along the order in which the tables of the first run completed (a table
-                that completed by its race has a race with a final verdict in the other
-                run too); so a side
+                that does not neglect it (Transfer.lean, `IsRun.transfer`). That is a case
+                of a statement with no first run in it: goals with a certificate that they
+                complete (`Cert`: finitely many goals in an order, answers that cover each,
+                and for each a rule that completes it from goals standing no higher, or
+                that every run completes it) are completed by every run
+                (`Cert.completes`). A goal whose unfolding is final at some depth is
+                completed by every run (Final.lean, `final_completes`); so a side
                 that halts with no answer makes `;` and `&` halt (EmptySide.lean,
                 `Symmetric.emptySide`): a goal completes once a void side of one of its
                 splits does (`IsRun.done_of_side`), a chain is split where the side ends,
                 and the other members of a meet are taken away one at a time
-                (`IsRun.meet_ladder`). Not proved yet:
-                `TerminatesWhere` and with it `Keeps`; the cost bound. A goal and its converse do not share a
+                (`IsRun.meet_ladder`). The complete tables of the tabled machine are a
+                certificate (FromTabled.lean, `tabled_cert`), so the engine halts wherever
+                the mirrored tabled machine with the same exact race halts, which with the
+                raced unfolding is R005 (`Symmetric.terminatesWhere`). Not proved yet:
+                `Keeps` for the engine run on one orientation, which needs each property
+                carried through the choice of orientation; the cost bound. A goal and its converse do not share a
                 table (not owed by any property; billboard SIM12)
 Rungs/Naive/    normalisation, unfolding to a depth, and their correctness (namespace `R000`)
 Rungs/R005/     the engines: `R001.engine` (tables, unfolding to a depth), `R004.engine` (tables,

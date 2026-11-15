@@ -179,3 +179,5 @@ import RwLog.Rungs.Symmetric.Fair
 import RwLog.Rungs.Symmetric.Transfer
 import RwLog.Rungs.Symmetric.Correct
 import RwLog.Rungs.Symmetric.EmptySide
+import RwLog.Rungs.Symmetric.Final
+import RwLog.Rungs.Symmetric.FromTabled

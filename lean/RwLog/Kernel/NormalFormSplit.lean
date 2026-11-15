@@ -34,6 +34,11 @@ theorem forget_union {e : Rel} {xs : List Rel} (h : e.view.forget = .union xs) :
   cases hv : e.view <;> rw [hv] at h <;> simp only [NodeView.forget] at h <;> cases h
   rfl
 
+theorem forget_call_view {e : Rel} {n : Name} {f : Bool} (h : e.view.forget = .call n f) :
+    e.view = .call n f := by
+  cases hv : e.view <;> rw [hv] at h <;> simp only [NodeView.forget] at h <;> cases h
+  rfl
+
 /-- A node read as a call has a body. -/
 theorem forget_call {P : Program} {e : Rel} {n : Name} {f : Bool}
     (h : e.view.forget = .call n f) : ∃ b, Charged.bodyOf P e = some b := by
