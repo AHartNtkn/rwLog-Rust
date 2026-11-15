@@ -213,6 +213,15 @@ Still owed for `Keeps`: `TerminatesWhere`, by the two steps above.
 
 Still owed for `Keeps`: the engine has `ConvTrace` and `DualTrace` when run on one orientation of its input (`CostedRuntime.oriented`), and the other properties are proved of the engine run on the input as given. `Keeps` is a statement about one machine, so each of the other properties has to be carried through the choice of orientation.
 
+**Revision, 2026-11-15 (eighth): what a machine run on one orientation keeps.** Proved for any machine (`Rungs/Framework/OrientedKeeps.lean`, `CostedRuntime.oriented_keeps`). The input chosen to run is well formed and relates the pairs the input relates, the other way round when the run is swapped (`wf_orient`, `orient_pairs`); the same holds span by span for what is derived (`orient_derives`). So soundness, completeness, the honest report, the honest certificate, generality and `NoSubsumed` pass from the machine on every well-formed input to the machine run on one orientation. The two laws of `|` hold of the oriented machine with nothing asked: the choice depends on a query only through normal forms that forget the order and grouping of `|`.
+
+Two properties do not pass by themselves, because they compare halting on two inputs and the choice may send the two to different members of their four.
+
+1. *Halting where the base halts.* It passes if the machine halts on an input exactly when it halts on the input chosen for it (`CostedRuntime.SameHalt`).
+2. *The empty side.* The hypothesis of `EmptySide` is that the run on the side emits no answer. The machine run on the chosen input emitting none says nothing of what it emits on the side as given, so what is asked of the machine is the form with the meaning of the side: a side that halts and relates nothing makes `;` and `&` halt (`Runtime.VoidSide`). The engine has it (`Symmetric.voidSide`); `Symmetric.emptySide` is now its corollary.
+
+Still owed for `Keeps`: `SameHalt` for the engine. The engine's runs on an input and on its converse are not mirror images step for step, so this is not a simulation. The plan is to carry a certificate of completion (`Cert`, with leaves that are final verdicts of the race) across the converse and the mirror image, with the link between a program and its image that the tabled machine's mirror proofs already use (`Tabled.Link`).
+
 ### What a step is
 
 A step is one request to the root and emits the answers the root table gained, usually none. Two writings of one input give the same sequence of steps, so the trace properties hold with equality and not only up to `TraceEquiv`.

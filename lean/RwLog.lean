@@ -63,6 +63,9 @@ import RwLog.Trusted.Runtime
 import RwLog.Rungs.Framework.Answer
 import RwLog.Rungs.Framework.Saturation
 import RwLog.Rungs.Framework.Oriented
+import RwLog.Rungs.Framework.GroundMirror
+import RwLog.Rungs.Framework.OrientedSem
+import RwLog.Rungs.Framework.OrientedKeeps
 import RwLog.Rungs.Framework.Fairness
 import RwLog.Rungs.Framework.Writing
 import RwLog.Rungs.Framework.EngineKeeps
@@ -77,6 +80,7 @@ import RwLog.Rungs.R005.Engine
 import RwLog.Kernel.NormalFormDepth
 import RwLog.Kernel.NormalFormSize
 import RwLog.Kernel.NormalFormSpans
+import RwLog.Kernel.NormalFormCalls
 import RwLog.Kernel.NormalFormSplit
 import RwLog.Lib.Maxima
 import RwLog.Rungs.Framework.KernelAt

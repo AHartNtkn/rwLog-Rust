@@ -649,6 +649,21 @@ new axiom.
 /-- info: 'RwLog.Symmetric.stable_request' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Symmetric.stable_request
 
+/-- info: 'RwLog.orient_gd' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.orient_gd
+
+/-- info: 'RwLog.wf_orient' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.wf_orient
+
+/-- info: 'RwLog.orient_pairs' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.orient_pairs
+
+/-- info: 'RwLog.CostedRuntime.oriented_keeps' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.CostedRuntime.oriented_keeps
+
+/-- info: 'RwLog.Symmetric.voidSide' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Symmetric.voidSide
+
 /-- info: 'RwLog.Symmetric.oriented_convTrace' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Symmetric.oriented_convTrace
 
