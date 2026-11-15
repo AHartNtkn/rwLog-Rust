@@ -240,7 +240,15 @@ Measured (simulation note, section 13): best or within a factor of about 1.4 on 
 
 Proposed statement of the bound, in place of `Fair.flat`'s reading in ticks (the cost alone times the goals opened, which is false for every tabled machine by `bit^k`): the fair OR half as `Fair.share` has it, and that an answer waits only for alternatives no dearer than itself. Neither is proved of the rule.
 
-What this forces to be redone if adopted: `advance`, `workStrats` and `askRace` in `Rungs/Symmetric/Machine.lean`; a table or strategy gains what it owes; the state gains the weights, kept when a goal is opened; `Turns.lean` and whatever uses that a single group works to the end of its inputs; the specification of the race gains a limit, for both machines that host it. Completeness, the honest report, the transfer of completion, `EmptySide`, `SameHalt` and `Keeps` were proved with no use of the levels and should need the new record of a round and no new idea. The request counts guarded in `Tests/SymmetricRuns.lean` will move.
+Built, 2026-11-15 (`Rungs/Symmetric/Machine.lean`: `turn`, `weight`, `Group.owed`, `askRace`). Three things differ from what was proposed.
+
+* The specification of the race did not change. The kernel gained an operation that runs a computation within a number of ticks or gives it up (`Kernel.within`, `Trusted/Kernel.lean`), so the limit is put on what the ask costs, and both machines keep the race they host.
+* The weights are not kept in the state. They are computed from the state when a group works, like the rest of the engine's bookkeeping at no charge in ticks. On the prototype, keeping them from request to request moved no figure by more than about 15%.
+* An ask is tried again when twice what was given up is left, and at least one tick, so a race that has been allowed nothing does not give up for ever.
+
+Proved again: the record of a round (`Turns.lean`), where a strategy that had its turn has worked or owes less than it did (`OStep`); from it that every strategy of every group of a table with rounds for ever works for ever, since what it owes cannot fall for ever (`Lines.lean`, `Requests.lines`, `Line.step`); and that the race still reaches the depth of a final verdict, because what it gives up grows and stays under the cost of the ask (`Requests.race_done`). Completeness, the honest report, the transfer of completion, `EmptySide`, `SameHalt` and `Keeps` stand with no change beyond how they take a step of one strategy from a line.
+
+Requests in `Tests/SymmetricRuns.lean`: counting down from `k` answers at request `2k + 9` as before and halts at `6k + 11` (was about `7k + 10`); the clash halts at 8 and 10 (were 11 and 9); the chain that only the race decides halts at request 60 (was 33), each request now a bounded piece of work.
 
 Still owed for the admission: L36 (the statement and the rule above), the separations L15 and L16, the simulation of R005 and the cost bound.
 

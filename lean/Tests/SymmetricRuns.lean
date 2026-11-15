@@ -166,10 +166,13 @@ def deepP : Program := prog [
   ("p", .or (.rw (c "z") (ap "b" [c "z"])) (.seq (.call "p") (.rw (v 0) (ap "a" [v 0])))),
   ("q", .or (.rw (ap "a" [ap "e" [v 0]]) (v 0)) (.seq (.rw (ap "b" [v 0]) (v 0)) (.call "q")))]
 
-#guard exact (runE SE deepP (.seq (.call "p") (.call "q")) 60) []
-#guard requests (deepP, .seq (.call "p") (.call "q")) 60 == (none, some 33)
+-- An ask of the race may cost only what is left of the rounds and the work
+-- of the goal, so the race decides after more requests than it would if
+-- every ask were paid at once, each of them a bounded piece of work.
+#guard exact (runE SE deepP (.seq (.call "p") (.call "q")) 100) []
+#guard requests (deepP, .seq (.call "p") (.call "q")) 100 == (none, some 60)
 -- Below a union and beside a member that has answers.
-#guard exact (runE SE deepP (.or (.seq (.call "p") (.call "q")) (.at_ (c "a"))) 60) ["a -> a"]
+#guard exact (runE SE deepP (.or (.seq (.call "p") (.call "q")) (.at_ (c "a"))) 100) ["a -> a"]
 
 /-! ## Units that starve nothing
 
