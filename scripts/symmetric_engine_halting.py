@@ -7,6 +7,7 @@ contain a call. A program is reported when R005 halts within its budget and the 
 within its own, and counted when it is the other way round.
 
 Run: python3 scripts/symmetric_engine_halting.py [programs] [seed]
+     python3 scripts/symmetric_engine_halting.py deep [n]     the counterexample to Lemma U
 This is a measurement aid, not part of any engine."""
 import sys, random
 sys.setrecursionlimit(1_000_000)
@@ -30,6 +31,14 @@ def span_terms(mk_var, mk_sym, mk_app, s):
     if s[0] == 'r': return c(s[1], x), c(s[2], x)        # (c $x) -> (d $x)
     if s[0] == 'z': return mk_sym('z'), mk_sym('z')      # z -> z
     if s[0] == 'k': return x, mk_sym('z')                # $x -> z
+    if s[0] == 'bz':                                     # z -> (b^n z)
+        t = mk_sym('z')
+        for _ in range(s[1]): t = c('b', t)
+        return mk_sym('z'), t
+    if s[0] == 'ae':                                     # (a^n (e $x)) -> $x
+        t = c('e', x)
+        for _ in range(s[1]): t = c('a', t)
+        return t, x
     return c(s[1], x), c(s[1], x)                        # @(c $x)
 
 def to_r005(defs, q):
@@ -73,7 +82,8 @@ def engine_halts(defs, q, opts, ticks=150_000):
 
 def show(defs, q):
     def sp(s):
-        return {'u': '(%s $x) -> $x', 'w': '$x -> (%s $x)', 'r': '(%s $x) -> (%s $x)', 'z': 'z -> z', 'k': '$x -> z', 'at': '@(%s $x)'}[s[0]] % tuple(s[1:])
+        return {'u': '(%s $x) -> $x', 'w': '$x -> (%s $x)', 'r': '(%s $x) -> (%s $x)', 'z': 'z -> z', 'k': '$x -> z', 'at': '@(%s $x)',
+            'bz': 'z -> (b^%d z)', 'ae': '(a^%d (e $x)) -> $x'}[s[0]] % tuple(s[1:])
     def chain(c): return ' ; '.join(i[1] if i[0] == 'call' else '[' + sp(i[1]) + ']' for i in c)
     return '; '.join('%s = %s' % (n, ' | '.join(chain(a) for a in b)) for n, b in defs) + '   query: ' + chain(q)
 
@@ -129,7 +139,24 @@ def main(n, seed):
         for a, text in sorted(only_r[name], key=lambda x: len(x[1]))[:6]:
             print('    R005 halts in round %d at %d ticks: %s' % (a[0], a[1], text))
 
+def deep(n):
+    """The counterexample to Lemma U (simulation note, section 11): the answers of `p` end in
+    `a^i (b^n z)`, those of `q` begin with `b^j (a^n (e _))`, and each interface check reads one
+    span at the edge of its side."""
+    defs = [('p', [[('span', ('bz', n))], [('call', 'p'), ('span', ('w', 'a'))]]),
+            ('q', [[('span', ('ae', n))], [('span', ('u', 'b')), ('call', 'q')]])]
+    q = [('call', 'p'), ('call', 'q')]
+    print(show(defs, q))
+    a = r005_halts(defs, q, rounds=14, ticks=20_000_000)
+    print('R005: ' + ('halts in round %d at %d ticks' % a if a else 'no halt within 14 rounds and 20,000,000 ticks'))
+    for name, opts in RULES.items():
+        b = engine_halts(defs, q, opts, ticks=1_000_000)
+        print('%s: %s' % (name, 'halts' if b is not None else 'no halt within 1,000,000 ticks'))
+
 if __name__ == '__main__':
+    if len(sys.argv) > 1 and sys.argv[1] == 'deep':
+        deep(int(sys.argv[2]) if len(sys.argv) > 2 else 1)
+        sys.exit(0)
     n = int(sys.argv[1]) if len(sys.argv) > 1 else 300
     seed = int(sys.argv[2]) if len(sys.argv) > 2 else 1
     main(n, seed)

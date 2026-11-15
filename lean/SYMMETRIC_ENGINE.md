@@ -12,7 +12,7 @@ M6 builds one new machine, with these five properties.
 2. **It picks one orientation of the whole input.** The normal form of the input and the normal form of its mirror image are both built and the smaller, in a fixed structural order, is run; answers are swapped back if the mirror image was chosen. A query and its mirror image are then the same run.
 3. **A goal and its converse share one table.**
 4. **A chain goal is a table on an interval of a flat chain.** Every split of the interval is a strategy of that table, and so is pushing the answers of a complete side into the other side, from either end. The strategies of a table are balanced by the ticks they have spent (since the fourth revision of section 3: the splits of a table are balanced by their levels). No strategy is chosen by syntax.
-5. **Nothing runs beside the tables.** There is no unfolding race, no mirror race and no hedge of whole machines.
+5. **Nothing runs beside the tables.** There is no unfolding race, no mirror race and no hedge of whole machines. *Amended on 2026-11-15 (fourth revision of that day, section 3): the unfolding race is a strategy of every table. The interface check did not cover it.*
 
 Points 1 to 3 give the exact properties (mirror image step for step at equal ticks, `SeqAssoc`, `AndComm`, `AndAssoc`). Points 4 and 5 give the cost. The two are separate, and section 3 explains why that separation is the main finding.
 
@@ -164,7 +164,27 @@ The induction is along the order in which the tables of the first run completed 
 
 **Revision, 2026-11-15 (third): `EmptySide` is proved** (`Rungs/Symmetric/EmptySide.lean`, `Symmetric.emptySide`), in every lawful domain. A query `a` that halts with no answer relates nothing, so the goal of its normal form is void (`Rungs/Framework/Void.lean`, shared with the tabled rung) and its table is complete in every run that does not neglect it (`IsRun.transfer`). A goal that is not neglected completes once a void side of one of its splits does (`IsRun.done_of_side`): the group of that split works for ever, so it feeds the table of the side, which is therefore not neglected and completes; the push of that side then takes its answers, there are none, and a push with nothing to push reads no table. For `a ; b` and `b ; a` no ladder is needed, because the engine splits a chain at every place and one split has the goal of `a` as a side. For `a & b` the engine splits a meet into one member and the others, so the members of `b` are taken away one at a time (`IsRun.meet_ladder`).
 
-Still owed for `Keeps`: `TerminatesWhere` (which needs O7).
+**Revision, 2026-11-15 (fourth): Lemma U is false, and the engine hosts the unfolding race.** Point 5 of the decision said that nothing runs beside the tables, and the interface check was the engine's whole answer to R005's unfolding race. It does not cover the race. On
+
+```
+p = (z -> (b z)) | p ; ($x -> (a $x))
+q = ((a (e $x)) -> $x) | ((b $x) -> $x) ; q
+query: p ; q
+```
+
+R005 halts by unfolding and the engine never halts: both tables are infinite, and each check reads one span at the edge of its side where the clash is two spans deep on both sides (`SYMMETRIC_ENGINE_SIMULATION.md`, section 11; `Tests/SimulationRuns.lean`, `deep`). No deeper guard repairs it, and a reading with no guard that is exact about boundaries is the unfolding itself. So the engine of the fourth revision of 2026-11-13 does not have `TerminatesWhere` against R005, which `Keeps` requires.
+
+What changes:
+
+1. *A new strategy, the race.* Every goal has, as one more group, the unfolding race of R005 (`Rungs/Tabled/Unfold.lean`, the exact race of `Rungs/Tabled/Unfolding/RacesExact.lean`): asked at a depth, it says whether the unfolding of the goal to that depth is final and, if it is, what its answers are. The strategy holds its depth. A unit of its work asks at that depth; a final verdict puts the answers in the table and the strategy has completed the goal; otherwise the depth grows by one. The group is balanced by level with the others, so the race is held to what the cheapest split has spent.
+2. *Point 5 of the decision now reads:* nothing runs beside the tables but strategies of tables. There is no mirror race and no hedge of whole machines. The race is not a hedge in the sense section 4 rejects: it reads the flat normal form and no bracketing, and what it says of a goal depends on the goal alone. `SeqAssoc`, `AndComm`, `AndAssoc` and the mirror criterion are untouched (the orientation makes a query and its mirror image the same run whatever the strategies are).
+3. *The interface check stays as built for now.* It is no longer owed by any criterion. Whether it earns its place beside the race is to be measured (simulation note, section 11).
+
+What this forces to be redone: the machine gains a constructor of `Strat`, a state for it and a case in `expand`, `work` and the completion test; every proof by cases on strategies gains a case (`Goals`, `Invariant`, `Kept`, `Lines`, `Progress`, `ReadLive`, `Rounds`, `Served`, `Settle`, `Transfer`, `Turns`, `Correct`, `Fair`, `EmptySide`). The facts about the race are R005's and are used as they stand (`UEx`: a verdict is final exactly when the unfolding is, its answers are the answers of the goal; `exact_mono`). The engine takes the race as R005 does, so its runtime is stated for a race that meets that specification.
+
+`TerminatesWhere` is then a transfer from the tabled machine to the engine. The tabled machine under R005 has the engine's span, call and union rules, the join and both pushes at two of the engine's splits of a chain and at the engine's splits of a meet, the same race, and completion as the same greatest fixed point. The proof owed: a table that machine completes is complete at some time in every run of requests of the engine that does not neglect its goal. It is `IsRun.transfer` with the first run replaced by a run of the tabled machine; the plan is to state what `IsRun.transfer` uses of its first run (a ranking of complete tables, each with a finished strategy that reads tables standing no higher) as a certificate that both machines give.
+
+Still owed for `Keeps`: `TerminatesWhere`, by the two steps above.
 
 ### What a step is
 
@@ -296,7 +316,7 @@ The share rule alone is `3 * 2^k - 2`. With the flat round it is quadratic in `k
 
 **O6. The request rule.** *Settled by measurement on 2026-11-13 (fourth revision), not by proof.* The split balance is polynomial on the middle-restricted family with pushes, on fair OR with several members that never finish, on counting down and on the ladder. The two rules that had been left untried were tried and fail (simulation note 9.3). What stays open about the rule: G2 above; the fairness bound in ticks on a table that grows exponentially with no boundary (the strings family: `2k + 4` requests, but ticks grow six times per two steps, as for whole rounds; no rule measured has the tick form on both that family and fair OR with three endless members); its cost on the middle-restricted family (the sixth power, where the share rule had the fourth); and what the bookkeeping of levels costs, which the prototype does not charge. *Decided by Anthony on 2026-11-13: the fairness bound is stated in requests, not ticks, so the strings family is no longer an open point about the rule.*
 
-**O7. The interface check is not proved to cover the unfolding race** (Lemma U of the simulation note). Its recursion guard unfolds each call once. Since the fourth revision it is offered only for a side that contains a call; that this loses nothing is argued, not proved. On 200 random small programs the engine halts wherever R005 halts within its budget (138 of them) and on 35 more; none of those programs needs the check, so this says more about `TerminatesWhere` than about the check (`scripts/symmetric_engine_halting.py`).
+**O7. The interface check is not proved to cover the unfolding race** (Lemma U of the simulation note). *Settled on 2026-11-15: it does not (simulation note, section 11). The engine hosts the race itself; see the fourth revision of 2026-11-15 in section 3. The text below is the point as it stood.* Its recursion guard unfolds each call once. Since the fourth revision it is offered only for a side that contains a call; that this loses nothing is argued, not proved. On 200 random small programs the engine halts wherever R005 halts within its budget (138 of them) and on 35 more; none of those programs needs the check, so this says more about `TerminatesWhere` than about the check (`scripts/symmetric_engine_halting.py`).
 
 **Revision, 2026-11-13: what the restated kernel provides.** The `Kernel`, L30 and L31 rows are delivered in `Trusted/Kernel.lean`, `Trusted/CostMonad.lean`, `Kernel/NormalForm.lean` and `Kernel/Derivation.lean`. Five points differ from, or add to, what the table says.
 
