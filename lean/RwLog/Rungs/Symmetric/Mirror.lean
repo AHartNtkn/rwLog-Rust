@@ -505,6 +505,14 @@ theorem Mirror.done (hM : Mirror D P P' b t U U') {root : Rel} (hn : Normal root
   rw [e]
   exact ⟨0, hσ.goal_le (Nat.zero_le r) root_goal0, hr⟩
 
+/-- A root has a table that completes exactly when its image has one. -/
+theorem Mirror.done_iff (hM : Mirror D P P' b t U U') {root : Rel} (hn : Normal root)
+    (hfo : root.FO) :
+    EvDone (stateAt K hK P root U) 0 ↔ EvDone (stateAt K hK P' (nmap b t root) U') 0 :=
+  ⟨hM.done hn hfo, fun h => by
+    have := hM.symm.done (K := K) (hK := hK) (normal_nmap b t root) (Tabled.fo_nmap hfo b t) h
+    rwa [hn.nmap_nmap] at this⟩
+
 end Symmetric
 
 end RwLog

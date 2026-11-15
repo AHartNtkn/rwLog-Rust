@@ -89,6 +89,17 @@ theorem orient_gd (P : Program) (q : Rel) :
 
 /-! ## The input chosen is well formed -/
 
+/-- The union of a well-formed node with its converse is well formed. -/
+theorem ProgramOf.WellFormed.selfUnion {P : Program} {m : Rel} (hm : P.WellFormed m) :
+    P.WellFormed (RelOf.or m m.normConv).norm := by
+  refine hm.of_calls_fo (fun n hn => ?_) (RelOf.FO.norm fun s hs => ?_)
+  · rcases List.mem_append.1 (calls_norm hn) with hn | hn
+    · exact hn
+    · exact calls_normConv hn
+  · rcases List.mem_append.1 hs with hs | hs
+    · exact hm.fo s hs
+    · exact hm.fo.normConv s hs
+
 theorem pick_wf (Pn : Program) {f : Rel × Bool} {r : List (Rel × Bool)}
     (h : ∀ c ∈ f :: r, Pn.WellFormed c.1) : (pick Pn f r).P.WellFormed (pick Pn f r).root := by
   have hm : Pn.WellFormed (leastRel f.1 (r.map Prod.fst)) := by
@@ -103,13 +114,7 @@ theorem pick_wf (Pn : Program) {f : Rel × Bool} {r : List (Rel × Bool)}
   · exact hm
   · split
     · exact hm
-    · refine hm.of_calls_fo (fun n hn => ?_) (RelOf.FO.norm fun s hs => ?_)
-      · rcases List.mem_append.1 (calls_norm hn) with hn | hn
-        · exact hn
-        · exact calls_normConv hn
-      · rcases List.mem_append.1 hs with hs | hs
-        · exact hm.fo s hs
-        · exact hm.fo.normConv s hs
+    · exact hm.selfUnion
 
 /-- **The input chosen from a well-formed input is well formed.** -/
 theorem wf_orient {P : Program} {q : Rel} (wf : P.WellFormed q) :
