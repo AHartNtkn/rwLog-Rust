@@ -3,10 +3,13 @@
 
 `orient` (`Trusted/Cost.lean`) chooses one of the inputs an input stands
 with. The input chosen derives the ground relations the input derives, or
-their converses when what the run shows is to be swapped (`orient_gd`).
+their converses when what the run shows is to be swapped (`orient_gd`), and
+it is well formed if the input is (`wf_orient`).
 -/
 import RwLog.Rungs.Framework.Oriented
 import RwLog.Rungs.Framework.GroundMirror
+import RwLog.Rungs.Framework.SameTrace
+import RwLog.Kernel.NormalFormCalls
 
 namespace RwLog
 
@@ -87,5 +90,53 @@ theorem orient_gd (P : Program) (q : Rel) :
     simp only [List.mem_cons, List.not_mem_nil, or_false] at hc
     rcases hc with rfl | rfl <;>
       simp [gd_normed, gd_norm, gd_conv, gd_dual, GRel.inv_image_inv]
+
+/-! ## The input chosen is well formed -/
+
+theorem pick_wf (Pn : Program) {f : Rel × Bool} {r : List (Rel × Bool)}
+    (h : ∀ c ∈ f :: r, Pn.WellFormed c.1) : (pick Pn f r).P.WellFormed (pick Pn f r).root := by
+  have hm : Pn.WellFormed (leastRel f.1 (r.map Prod.fst)) := by
+    have := leastRel_mem f.1 (r.map Prod.fst)
+    have e : f.1 :: r.map Prod.fst = (f :: r).map Prod.fst := rfl
+    rw [e, List.mem_map] at this
+    obtain ⟨y, hy, hy'⟩ := this
+    rw [← hy']; exact h y hy
+  unfold pick
+  dsimp only
+  split
+  · exact hm
+  · split
+    · exact hm
+    · refine hm.of_calls_fo (fun n hn => ?_) (RelOf.FO.norm fun s hs => ?_)
+      · rcases List.mem_append.1 (calls_norm hn) with hn | hn
+        · exact hn
+        · exact calls_normConv hn
+      · rcases List.mem_append.1 hs with hs | hs
+        · exact hm.fo s hs
+        · exact hm.fo.normConv s hs
+
+/-- **The input chosen from a well-formed input is well formed.** -/
+theorem wf_orient {P : Program} {q : Rel} (wf : P.WellFormed q) :
+    (orient P q).P.WellFormed (orient P q).root := by
+  unfold orient
+  cases hc : listCmp relCmp (P.defs.map fun d => d.2.norm) (P.dual.defs.map fun d => d.2.norm)
+  · refine pick_wf _ fun c hc => ?_
+    simp only [List.mem_cons, List.not_mem_nil, or_false] at hc
+    rcases hc with rfl | rfl
+    · exact wf.normed
+    · exact wf.conv.normed
+  · have e := normed_dual_of_eq (listCmp_eq (f := relCmp) hc)
+    refine pick_wf _ fun c hc => ?_
+    simp only [List.mem_cons, List.not_mem_nil, or_false] at hc
+    rcases hc with rfl | rfl | rfl | rfl
+    · exact wf.normed
+    · exact wf.conv.normed
+    · exact e ▸ wf.dual.normed
+    · exact e ▸ wf.dual.conv.normed
+  · refine pick_wf _ fun c hc => ?_
+    simp only [List.mem_cons, List.not_mem_nil, or_false] at hc
+    rcases hc with rfl | rfl
+    · exact wf.dual.normed
+    · exact wf.dual.conv.normed
 
 end RwLog
