@@ -30,7 +30,7 @@ namespace Symmetric
 
 open Answer Saturation
 
-variable {R : Type} [Answer R] {D : Domain R} {P : Program}
+variable {R : Type} [Answer R] [DecidableEq R] {D : Domain R} {P : Program}
 
 variable {σ : Nat → StateOf R Rel (Ans D P)}
 

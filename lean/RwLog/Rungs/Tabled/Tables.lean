@@ -16,7 +16,7 @@ namespace Tabled
 open Traverse
 
 export Goals (sameBound_val same_val indexFrom_val covB coversA_val maxima_val fresh_val
-  covB_iff covB_refl covB_trans)
+  covB_iff covB_refl covB_trans maxima_max maxima_same)
 
 variable {R : Type} [Answer R] [DecidableEq R] {D : Domain R} {P : Program}
   (K : Kernel R Cost) (hK : K.Refines D)

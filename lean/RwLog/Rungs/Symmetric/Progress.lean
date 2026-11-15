@@ -115,6 +115,46 @@ theorem answers_modify_app (st : StateOf S N A) (i : Nat) (blk : List A) {t : Ta
   unfold StateOf.answers StateOf.modify
   simp [ht, app]
 
+/-- A strategy without its cursors: what it is a strategy of. The work of a
+strategy moves its cursors and nothing else. -/
+def Strat.kind : Strat N A → Strat N A
+  | .span _ => .span false
+  | .copy c _ => .copy c []
+  | .join k a b _ => .join k a b Cursor.start
+  | .push k l side o _ _ => .push k l side o none []
+  | .check l side o _ => .check l side o .reading
+
+/-- The strategies of a group, without their cursors. -/
+def Group.kinds (gr : Group N A) : List (Strat N A) := gr.strats.map Strat.kind
+
+theorem kind_span {s : Strat N A} (h : s.kind = .span false) : ∃ ran, s = .span ran := by
+  cases s <;> simp only [Strat.kind, reduceCtorEq] at h
+  exact ⟨_, rfl⟩
+
+theorem kind_copy {s : Strat N A} {c : Bool} (h : s.kind = .copy c []) :
+    ∃ subs, s = .copy c subs := by
+  cases s <;> simp only [Strat.kind, reduceCtorEq, Strat.copy.injEq] at h
+  obtain ⟨rfl, -⟩ := h
+  exact ⟨_, rfl⟩
+
+theorem kind_join {s : Strat N A} {k : Kind} {a b : Nat} (h : s.kind = .join k a b Cursor.start) :
+    ∃ c, s = .join k a b c := by
+  cases s <;> simp only [Strat.kind, reduceCtorEq, Strat.join.injEq] at h
+  obtain ⟨rfl, rfl, rfl, -⟩ := h
+  exact ⟨_, rfl⟩
+
+theorem kind_push {s : Strat N A} {k : Kind} {l : Bool} {side : Nat} {o : N}
+    (h : s.kind = .push k l side o none []) : ∃ todo subs, s = .push k l side o todo subs := by
+  cases s <;> simp only [Strat.kind, reduceCtorEq, Strat.push.injEq] at h
+  obtain ⟨rfl, rfl, rfl, rfl, -⟩ := h
+  exact ⟨_, _, rfl⟩
+
+theorem kind_check {s : Strat N A} {l : Bool} {side o : N}
+    (h : s.kind = .check l side o .reading) : ∃ c, s = .check l side o c := by
+  cases s <;> simp only [Strat.kind, reduceCtorEq, Strat.check.injEq] at h
+  obtain ⟨rfl, rfl, rfl, -⟩ := h
+  exact ⟨_, rfl⟩
+
 end pure
 
 open Answer
@@ -161,13 +201,14 @@ def pushedS (D : Domain R) : Kind → Bool → R → R → Option R
 
 /-- The goals of the two sides of a split of the goal `g`: a chain at a
 place inside it, with the middle left open; a meet into one member and the
-others. -/
+others, at one of the members a meet is split at. -/
 def SplitAt (g : GoalOf R Rel) : Kind → GoalOf R Rel → GoalOf R Rel → Prop
   | .seq, L, Rg => ∃ (xs : List Rel) (i : Nat) (l r : Rel), g.node.view = .chain xs ∧ 0 < i ∧
       i < xs.length ∧ g.node.interval 0 i = some l ∧ g.node.interval i xs.length = some r ∧
       L = ⟨g.lb, l, none⟩ ∧ Rg = ⟨none, r, g.rb⟩
   | .and, L, Rg => ∃ (xs : List Rel) (i : Nat) (x r : Rel), g.node.view = .meet xs ∧
-      xs[i]? = some x ∧ g.node.without i = some r ∧ L = ⟨g.lb, x, g.rb⟩ ∧ Rg = ⟨g.lb, r, g.rb⟩
+      i ∈ andSplits xs.length ∧ xs[i]? = some x ∧ g.node.without i = some r ∧
+      L = ⟨g.lb, x, g.rb⟩ ∧ Rg = ⟨g.lb, r, g.rb⟩
 
 /-- The nodes a call (`true`) or a union reads. -/
 def copyMembers (P : Program) (n : Rel) : Bool → List Rel
@@ -186,6 +227,13 @@ def EdgeOk (D : Domain R) (P : Program) (n : Rel) (last : Bool) (ps : List R) : 
   (∀ p ∈ ps, D.isBound p = true) ∧
     (Normal n → n.FO → ∀ k, ∀ G ∈ GDn P k n, ∀ x z, (x, z) ∈ G.at P.sorts.interp →
       ∃ p ∈ ps, (if last then (z, z) else (x, x)) ∈ bdenAt P.sorts.interp (some p))
+
+/-- Some reading of the end of `n`, at some depth and some kernel, did not
+give up and returned `e`. Every reading that does not give up returns the
+same (`Reads.unique`), so this is a fact of the program alone. -/
+def Reads (D : Domain R) (P : Program) (n : Rel) (last : Bool) (e : Option (List R)) : Prop :=
+  ∃ (K : Kernel R Cost) (hK : K.Refines D) (d : Nat),
+    (readEdge (K := DerivationKernel.over D K hK P) last d n).val = some e
 
 /-- What the cursors of the strategy `s` of the table at `i`, of the goal
 `g`, mean. -/
@@ -206,21 +254,24 @@ def Prog (st : StateOf R Rel (Ans D P)) (i : Nat) (g : GoalOf R Rel) :
   | .push k left side other todo subs => ∃ L Rg, SplitAt g k L Rg ∧
       goalAt st side = some (if left then L else Rg) ∧
       other = (if left then Rg.node else L.node) ∧
-      (∀ l, todo = some l → st.isDone side = true ∧ (∀ x ∈ l, x ∈ st.answers side) ∧
+      (∀ l, todo = some l → st.isDone side = true ∧
+        (∀ x, (x ∈ l ∨ x ∈ subs.map (·.1)) → x ∈ (st.answers side).maximaBy (covB D P)) ∧
         ∀ x ∈ st.answers side, ∃ x' ∈ st.answers side, (x' ∈ l ∨ x' ∈ subs.map (·.1)) ∧
           den P.sorts.interp x.span ⊆ den P.sorts.interp x'.span) ∧
-      ∀ e ∈ subs, e.1 ∈ st.answers side ∧
+      (∀ e ∈ subs, e.1 ∈ st.answers side ∧
         goalAt st e.2.1 = some (pushG D g other k left e.1) ∧
-        Read st i e.2.1 e.2.2 (pushedS D k left e.1.span)
+        Read st i e.2.1 e.2.2 (pushedS D k left e.1.span)) ∧
+      (todo = none → subs = [])
   | .check left side other c => ∃ L Rg, SplitAt g .seq L Rg ∧
       side = (if left then L.node else Rg.node) ∧ other = (if left then Rg.node else L.node) ∧
       match c with
-      | .opened subs => ∃ ps, EdgeOk D P side left ps ∧ subs.length = ps.length ∧
+      | .opened subs => ∃ ps, Reads D P side left (some ps) ∧ EdgeOk D P side left ps ∧
+          subs.length = ps.length ∧
           ∀ (n : Nat) (p : R), ps[n]? = some p → ∃ j, subs[n]? = some j ∧
             goalAt st j = some (if left then ⟨some p, other, g.rb⟩ else ⟨g.lb, other, some p⟩)
-      | _ => True
+      | .off => Reads D P side left none
+      | .reading => True
 
-omit [DecidableEq R] in
 /-- What the cursors of a strategy mean stays so in every later state. -/
 theorem Prog.mono {st st' : StateOf R Rel (Ans D P)} (h : Stable st st') {i : Nat}
     {g : GoalOf R Rel} {s : Strat Rel (Ans D P)} (hs : Prog st i g s) : Prog st' i g s := by
@@ -244,8 +295,8 @@ theorem Prog.mono {st st' : StateOf R Rel (Ans D P)} (h : Stable st st') {i : Na
     exact (h5 p q x y hb (h.getElem?_old hx hp.1) (h.getElem?_old hy hp.2) z hz).mono h
   | push k left side other todo subs =>
     dsimp only [Prog] at hs ⊢
-    obtain ⟨L, Rg, h1, h2, h3, h4, h5⟩ := hs
-    refine ⟨L, Rg, h1, hE _ _ h2, h3, fun l hl => ?_, fun e he => ?_⟩
+    obtain ⟨L, Rg, h1, h2, h3, h4, h5, h6⟩ := hs
+    refine ⟨L, Rg, h1, hE _ _ h2, h3, fun l hl => ?_, fun e he => ?_, h6⟩
     · obtain ⟨d1, d2, d3⟩ := h4 l hl
       obtain ⟨e1, e2⟩ := h.isDone d1
       rw [e2]
@@ -258,12 +309,173 @@ theorem Prog.mono {st st' : StateOf R Rel (Ans D P)} (h : Stable st st') {i : Na
     refine ⟨L, Rg, h1, h2, h3, ?_⟩
     cases c with
     | opened subs =>
-      obtain ⟨ps, p1, p2, p3⟩ := h4
-      refine ⟨ps, p1, p2, fun n p hp => ?_⟩
+      obtain ⟨ps, p0, p1, p2, p3⟩ := h4
+      refine ⟨ps, p0, p1, p2, fun n p hp => ?_⟩
       obtain ⟨j, hj, hg⟩ := p3 n p hp
       exact ⟨j, hj, hE _ _ hg⟩
     | reading => trivial
-    | off => trivial
+    | off => exact h4
+
+/-! ## A strategy for every split -/
+
+/-- The check of the node `side` of a split of `g` can never show `g`
+empty: a check of it is not offered, or the other side has an answer under
+one of the interfaces read. -/
+def CheckGone (st : StateOf R Rel (Ans D P)) (g : GoalOf R Rel) (left : Bool)
+    (side other : Rel) : Prop :=
+  Reads D P side left none ∨ ∃ ps, Reads D P side left (some ps) ∧ ∃ p ∈ ps, ∃ j,
+    goalAt st j = some (if left then ⟨some p, other, g.rb⟩ else ⟨g.lb, other, some p⟩) ∧
+    st.answers j ≠ []
+
+theorem CheckGone.mono {st st' : StateOf R Rel (Ans D P)} (h : Stable st st')
+    {g : GoalOf R Rel} {left : Bool} {side other : Rel} (hc : CheckGone st g left side other) :
+    CheckGone st' g left side other := by
+  rcases hc with hc | ⟨ps, h1, p, hp, j, hj, hne⟩
+  · exact .inl hc
+  · refine .inr ⟨ps, h1, p, hp, j, h.ext _ _ hj, fun he => hne ?_⟩
+    have := h.answers j
+    rw [he] at this
+    exact List.prefix_nil.1 this
+
+/-- A check that is dead can never show the goal empty. -/
+theorem prog_dead_gone {st : StateOf R Rel (Ans D P)} {i : Nat} {g : GoalOf R Rel} {left : Bool}
+    {side other : Rel} {c : Check} (hp : Prog st i g (.check left side other c))
+    (hd : (Strat.check left side other c : Strat Rel (Ans D P)).dead st = true) :
+    CheckGone st g left side other := by
+  dsimp only [Prog] at hp
+  obtain ⟨L, Rg, -, -, -, hc⟩ := hp
+  cases c with
+  | reading => simp [Strat.dead] at hd
+  | off => exact .inl hc
+  | opened subs =>
+    obtain ⟨ps, h1, -, hlen, hall⟩ := hc
+    simp only [Strat.dead] at hd
+    obtain ⟨j, hj, hne⟩ := List.any_eq_true.1 hd
+    obtain ⟨n, hn, rfl⟩ := List.getElem_of_mem hj
+    have hn' : n < ps.length := by omega
+    obtain ⟨j', hj', hg⟩ := hall n ps[n] (List.getElem?_eq_getElem hn')
+    rw [List.getElem?_eq_getElem hn] at hj'
+    cases hj'
+    refine .inr ⟨ps, h1, ps[n], List.getElem_mem hn', _, hg, fun he => ?_⟩
+    rw [he] at hne
+    simp at hne
+
+/-- **The groups of a goal have a strategy for every way to answer it**: its
+span; its call or its union; and for every split, a group with the join of
+the two sides and the push of each into the other, and for a split of a
+chain the check of each side, unless that check can never show the goal
+empty. -/
+structure Full (st : StateOf R Rel (Ans D P)) (g : GoalOf R Rel)
+    (gs : List (Group Rel (Ans D P))) : Prop where
+  span : (∃ s, g.node = .span s) → ∃ gr ∈ gs, .span false ∈ gr.kinds
+  copy : ∀ c : Bool, (c = true → ∃ b, Charged.bodyOf P g.node = some b) →
+    (c = false → ∃ xs, g.node.view = .union xs) → ∃ gr ∈ gs, .copy c [] ∈ gr.kinds
+  split : ∀ k L Rg, SplitAt g k L Rg → ∃ gr ∈ gs, ∃ a b, goalAt st a = some L ∧
+    goalAt st b = some Rg ∧ .join k a b Cursor.start ∈ gr.kinds ∧
+    .push k true a Rg.node none [] ∈ gr.kinds ∧ .push k false b L.node none [] ∈ gr.kinds
+  check : ∀ L Rg, SplitAt g .seq L Rg → ∀ left : Bool,
+    CheckGone st g left (if left then L.node else Rg.node) (if left then Rg.node else L.node) ∨
+      ∃ gr ∈ gs, .check left (if left then L.node else Rg.node)
+        (if left then Rg.node else L.node) .reading ∈ gr.kinds
+
+/-- The groups stay full when each group stays, with strategies of the same
+kinds, or was all checks that can never show the goal empty. -/
+theorem Full.keep {st st' : StateOf R Rel (Ans D P)} (hS : Stable st st') {g : GoalOf R Rel}
+    {gs gs' : List (Group Rel (Ans D P))} (hF : Full st g gs)
+    (h : ∀ gr ∈ gs, (∃ gr' ∈ gs', gr'.kinds = gr.kinds) ∨
+      ∀ s ∈ gr.strats, ∃ l side o c, s = .check l side o c ∧ CheckGone st' g l side o) :
+    Full st' g gs' := by
+  have lead : ∀ gr ∈ gs, ∀ x ∈ gr.kinds, (∀ l side o, x ≠ .check l side o .reading) →
+      ∃ gr' ∈ gs', x ∈ gr'.kinds := by
+    intro gr hgr x hx hne
+    rcases h gr hgr with ⟨gr', hgr', e⟩ | hall
+    · exact ⟨gr', hgr', by rw [e]; exact hx⟩
+    · obtain ⟨s, hs, rfl⟩ := List.mem_map.1 hx
+      obtain ⟨l, side, o, c, rfl, -⟩ := hall s hs
+      exact absurd rfl (hne l side o)
+  refine ⟨fun hs => ?_, fun c h1 h2 => ?_, fun k L Rg hsp => ?_, fun L Rg hsp left => ?_⟩
+  · obtain ⟨gr, hgr, hx⟩ := hF.span hs
+    exact lead gr hgr _ hx (fun _ _ _ e => by cases e)
+  · obtain ⟨gr, hgr, hx⟩ := hF.copy c h1 h2
+    exact lead gr hgr _ hx (fun _ _ _ e => by cases e)
+  · obtain ⟨gr, hgr, a, b, ha, hb, h1, h2, h3⟩ := hF.split k L Rg hsp
+    rcases h gr hgr with ⟨gr', hgr', e⟩ | hall
+    · exact ⟨gr', hgr', a, b, hS.ext _ _ ha, hS.ext _ _ hb, by rw [e]; exact h1,
+        by rw [e]; exact h2, by rw [e]; exact h3⟩
+    · obtain ⟨s, hs, hk⟩ := List.mem_map.1 h1
+      obtain ⟨l, side, o, c, rfl, -⟩ := hall s hs
+      cases hk
+  · rcases hF.check L Rg hsp left with hg | ⟨gr, hgr, hx⟩
+    · exact .inl (hg.mono hS)
+    · rcases h gr hgr with ⟨gr', hgr', e⟩ | hall
+      · exact .inr ⟨gr', hgr', by rw [e]; exact hx⟩
+      · obtain ⟨s, hs, hk⟩ := List.mem_map.1 hx
+        obtain ⟨l, side, o, c, rfl, hg⟩ := hall s hs
+        simp only [Strat.kind, Strat.check.injEq, and_true] at hk
+        obtain ⟨rfl, rfl, rfl⟩ := hk
+        exact .inl hg
+
+omit [Answer R] [DecidableEq R] in
+/-- Only a chain and a meet have splits. -/
+theorem SplitAt.view {g L Rg : GoalOf R Rel} {k : Kind} (h : SplitAt g k L Rg) :
+    (k = .seq ∧ ∃ xs, g.node.view = .chain xs) ∨ (k = .and ∧ ∃ xs, g.node.view = .meet xs) := by
+  cases k with
+  | seq =>
+    obtain ⟨xs, i, l, r, hv, -⟩ := h
+    exact .inl ⟨rfl, xs, hv⟩
+  | and =>
+    obtain ⟨xs, i, l, r, hv, -⟩ := h
+    exact .inr ⟨rfl, xs, hv⟩
+
+/-- Only a call has a body. -/
+theorem bodyOf_view {e b : Rel} (h : Charged.bodyOf P e = some b) : ∃ n f, e.view = .call n f := by
+  cases e with
+  | call m => exact ⟨_, _, rfl⟩
+  | conv a =>
+    cases a with
+    | call m => exact ⟨_, _, rfl⟩
+    | _ => simp [Charged.bodyOf] at h
+  | _ => simp [Charged.bodyOf] at h
+
+theorem forget_call_view {e : Rel} {n : Name} {f : Bool} (h : e.view.forget = .call n f) :
+    e.view = .call n f := by
+  cases hv : e.view <;> rw [hv] at h <;> simp only [NodeView.forget] at h <;> cases h
+  rfl
+
+/-- The groups are full if they have the strategies of the kind of the
+node. -/
+theorem Full.of_view {st : StateOf R Rel (Ans D P)} {g : GoalOf R Rel}
+    {gs : List (Group Rel (Ans D P))} {V : NodeView Span Rel} (hv : g.node.view = V)
+    (hspan : ∀ s, V = .span s → ∃ gr ∈ gs, .span false ∈ gr.kinds)
+    (hcall : ∀ n f, V = .call n f → ∃ gr ∈ gs, .copy true [] ∈ gr.kinds)
+    (hunion : ∀ xs, V = .union xs → ∃ gr ∈ gs, .copy false [] ∈ gr.kinds)
+    (hsplit : ∀ k L Rg, SplitAt g k L Rg → ∃ gr ∈ gs, ∃ a b, goalAt st a = some L ∧
+      goalAt st b = some Rg ∧ .join k a b Cursor.start ∈ gr.kinds ∧
+      .push k true a Rg.node none [] ∈ gr.kinds ∧ .push k false b L.node none [] ∈ gr.kinds)
+    (hcheck : ∀ L Rg, SplitAt g .seq L Rg → ∀ left : Bool,
+      CheckGone st g left (if left then L.node else Rg.node)
+          (if left then Rg.node else L.node) ∨
+        ∃ gr ∈ gs, .check left (if left then L.node else Rg.node)
+          (if left then Rg.node else L.node) .reading ∈ gr.kinds) : Full st g gs := by
+  refine ⟨fun ⟨s, hs⟩ => hspan s (by rw [← hv, hs]; rfl), fun c h1 h2 => ?_, hsplit, hcheck⟩
+  cases c with
+  | true =>
+    obtain ⟨b, hb⟩ := h1 rfl
+    obtain ⟨n, f, e⟩ := bodyOf_view hb
+    exact hcall n f (by rw [← hv, e])
+  | false =>
+    obtain ⟨xs, e⟩ := h2 rfl
+    exact hunion xs (by rw [← hv, e])
+
+theorem Full.mono {st st' : StateOf R Rel (Ans D P)} (hS : Stable st st') {g : GoalOf R Rel}
+    {gs : List (Group Rel (Ans D P))} (hF : Full st g gs) : Full st' g gs :=
+  hF.keep hS fun gr hgr => .inl ⟨gr, hgr, rfl⟩
+
+/-- Every table that has groups has a strategy for every way to answer its
+goal. -/
+def FullAll (st : StateOf R Rel (Ans D P)) : Prop :=
+  ∀ (i : Nat) (t : Table R Rel (Ans D P)), st.tables[i]? = some t → ∀ gs, t.groups = some gs →
+    Full st t.goal gs
 
 /-! ## What the rules return -/
 
@@ -355,7 +567,7 @@ theorem both_ok {k : Kind} {x y : Ans D P} {z : R} {g L Rg : GoalOf R Rel}
       (.inl ⟨by rw [hx], .inl (by rw [hy])⟩) hz
     exact ⟨c, h1, h2⟩
   | and =>
-    obtain ⟨xs, i, m, r, -, -, -, rfl, rfl⟩ := hs
+    obtain ⟨xs, i, m, r, -, -, -, -, rfl, rfl⟩ := hs
     obtain ⟨c, h1, h2, -⟩ := Ans.meetA_ok K hK (a := x) (b := y)
       (.inl ⟨by rw [hx, hy], by rw [hx, hy]⟩) hz
     exact ⟨c, h1, h2⟩
@@ -548,7 +760,7 @@ theorem pushOpen_spec (g : GoalOf R Rel) (other : Rel) (k : Kind) (left : Bool)
 
 /-- Every edge the state keeps is right about the program. -/
 def EdgesOk (st : StateOf R Rel (Ans D P)) : Prop :=
-  ∀ e ∈ st.edges, ∀ ps, e.2.2 = some ps → EdgeOk D P e.1 e.2.1 ps
+  ∀ e ∈ st.edges, Reads D P e.1 e.2.1 e.2.2 ∧ ∀ ps, e.2.2 = some ps → EdgeOk D P e.1 e.2.1 ps
 
 variable (D P K hK) in
 /-- A reading of an edge that returns interfaces is right about the
@@ -589,29 +801,37 @@ theorem edgeOf_spec (hR : ReadOk D P K hK) {st : StateOf R Rel (Ans D P)} (hE : 
     (last : Bool) (n : Rel) :
     EdgesOk (edgeOf (K := DerivationKernel.over D K hK P) st last n).val.1 ∧
       (edgeOf (K := DerivationKernel.over D K hK P) st last n).val.1.tables = st.tables ∧
-      ∀ ps, (edgeOf (K := DerivationKernel.over D K hK P) st last n).val.2 = some (some ps) →
-        EdgeOk D P n last ps := by
+      (∀ ps, (edgeOf (K := DerivationKernel.over D K hK P) st last n).val.2 = some (some ps) →
+        EdgeOk D P n last ps) ∧
+      ∀ e, (edgeOf (K := DerivationKernel.over D K hK P) st last n).val.2 = some e →
+        Reads D P n last e := by
   have hlk := lookupEdge_mem (K := K) (hK := hK) (P := P) n last st.edges
   have hR' := hR last st.depth n
+  have hrd : ∀ e, (readEdge (K := DerivationKernel.over D K hK P) last st.depth n).val = some e →
+      Reads D P n last e := fun e h => ⟨K, hK, st.depth, h⟩
   clear hR
   at_cost K hK
   simp only [edgeOf, Cost.bind_val]
   split
   · next e he =>
-    exact ⟨hE, rfl, fun ps hps => hE _ (hlk e he) ps (by cases hps; rfl)⟩
+    exact ⟨hE, rfl, (fun ps hps => (hE _ (hlk e he)).2 ps (by cases hps; rfl)),
+      fun e' he' => by cases he'; exact (hE _ (hlk e he)).1⟩
   · simp only [Cost.bind_val, Cost.pure_val]
     cases hr : (readEdge (K := DerivationKernel.over D _ hK P) last st.depth n).val with
-    | none => exact ⟨hE, rfl, fun ps hps => by cases hps⟩
+    | none => exact ⟨hE, rfl, (fun ps hps => by cases hps), fun e he => by cases he⟩
     | some e =>
-      refine ⟨fun x hx ps hps => ?_, rfl, fun ps hps => ?_⟩
+      refine ⟨fun x hx => ?_, rfl, fun ps hps => ?_, fun e' he' => ?_⟩
       · rcases List.mem_append.1 hx with hx | hx
-        · exact hE x hx ps hps
+        · exact hE x hx
         · obtain rfl := List.mem_singleton.1 hx
+          refine ⟨hrd e hr, fun ps hps => ?_⟩
           simp only at hps
           subst hps
           exact hR' ps hr
       · cases hps
         exact hR' ps hr
+      · cases he'
+        exact hrd e hr
 
 /-- What a check opens: the other side under each interface, in order. -/
 theorem checkOpen_spec (g : GoalOf R Rel) (left : Bool) (other : Rel)
@@ -809,7 +1029,7 @@ theorem prog_work_push (hL : D.Lawful P.sorts.interp) {st : StateOf R Rel (Ans D
         (.push k left side other todo subs)).val.2.1 := by
   have hs0 := hs
   dsimp only [Prog] at hs
-  obtain ⟨L, Rg, h1, h2, h3, h4, h5⟩ := hs
+  obtain ⟨L, Rg, h1, h2, h3, h4, h5, h6⟩ := hs
   have hpo := fun xs => pushOpen_spec (K := K) (hK := hK) (P := P) g other k left st xs
   have hpi := fun xs =>
     (inner_pushOpen (K := K) (hK := hK) (P := P) (w := i) g other k left st xs).frame
@@ -829,7 +1049,8 @@ theorem prog_work_push (hL : D.Lawful P.sorts.interp) {st : StateOf R Rel (Ans D
       (fun a b c h1 h2 => (hL.covers_iff _ _).2
         (((hL.covers_iff _ _).1 h2).trans ((hL.covers_iff _ _).1 h1))) hx
     exact ⟨z, hz, (hL.covers_iff _ _).1 hc⟩
-  have main : ∀ xs : List (Ans D P), st.isDone side = true → (∀ x ∈ xs, x ∈ st.answers side) →
+  have main : ∀ xs : List (Ans D P), st.isDone side = true →
+      (∀ x, (x ∈ xs ∨ x ∈ subs.map (·.1)) → x ∈ (st.answers side).maximaBy (covB D P)) →
       (∀ x ∈ st.answers side, ∃ x' ∈ st.answers side, (x' ∈ xs ∨ x' ∈ subs.map (·.1)) ∧
         den P.sorts.interp x.span ⊆ den P.sorts.interp x'.span) →
       Prog (foldL (fun acc (e : Ans D P × Nat × Nat) =>
@@ -859,7 +1080,7 @@ theorem prog_work_push (hL : D.Lawful P.sorts.interp) {st : StateOf R Rel (Ans D
       · obtain ⟨d1, d2, d3⟩ := h5 e he
         exact ⟨d1, hS1.ext _ _ d2, d3.mono hS1⟩
       · obtain ⟨d1, d2, d3⟩ := hnew e he
-        exact ⟨hxs _ d1, d3, by rw [d2]; exact Read.zero _ _ _ _⟩
+        exact ⟨List.mem_maximaBy (hxs _ (.inl d1)), d3, by rw [d2]; exact Read.zero _ _ _ _⟩
     obtain ⟨hF2, hc⟩ := foldL_cov i
       (fun acc (e : Ans D P × Nat × Nat) =>
         pushTake (K := DerivationKernel.over D K hK P) i k left e.1 acc
@@ -874,16 +1095,23 @@ theorem prog_work_push (hL : D.Lawful P.sorts.interp) {st : StateOf R Rel (Ans D
     have hS := hS1.trans hS2
     obtain ⟨hd', hans⟩ := hS.isDone hd
     dsimp only [Prog]
-    refine ⟨L, Rg, h1, hS.ext _ _ h2, h3, fun l hl => ?_, fun e' he' => ?_⟩
+    refine ⟨L, Rg, h1, hS.ext _ _ h2, h3, fun l hl => ?_, fun e' he' => ?_,
+      fun h => by cases h⟩
     · cases hl
       rw [hans]
-      refine ⟨hd', (fun _ h => by cases h), fun x hx => ?_⟩
-      obtain ⟨x', hx', hor, hsubset⟩ := hcv x hx
-      refine ⟨x', hx', .inr ?_, hsubset⟩
-      simp only [List.map_map, List.map_append, Function.comp_def, hmap]
-      rcases hor with h | h
-      · exact List.mem_append_right _ h
-      · exact List.mem_append_left _ h
+      refine ⟨hd', fun x hx => hxs x ?_, fun x hx => ?_⟩
+      · rcases hx with hx | hx
+        · cases hx
+        · simp only [List.map_map, List.map_append, Function.comp_def, hmap] at hx
+          rcases List.mem_append.1 hx with h | h
+          · exact .inr h
+          · exact .inl h
+      · obtain ⟨x', hx', hor, hsubset⟩ := hcv x hx
+        refine ⟨x', hx', .inr ?_, hsubset⟩
+        simp only [List.map_map, List.map_append, Function.comp_def, hmap]
+        rcases hor with h | h
+        · exact List.mem_append_right _ h
+        · exact List.mem_append_left _ h
     · obtain ⟨e, he, rfl⟩ := List.mem_map.1 he'
       obtain ⟨d1, d2, d3⟩ := hsub' e he
       refine ⟨by rw [hans]; exact d1, hS2.ext _ _ d2,
@@ -908,7 +1136,13 @@ theorem prog_work_push (hL : D.Lawful P.sorts.interp) {st : StateOf R Rel (Ans D
       | none =>
         erw [Cost.bind_val]
         simp only [Cost.bind_val, Cost.pure_val]
-        exact main _ hd hmm (fun x hx => (hcovmax x hx).imp fun x' h => ⟨hmm x' h.1, .inl h.1, h.2⟩)
+        exact main _ hd (fun x hx => by
+            rcases hx with hx | hx
+            · rw [hmv] at hx
+              exact hx
+            · rw [h6 rfl] at hx
+              cases hx)
+          (fun x hx => (hcovmax x hx).imp fun x' h => ⟨hmm x' h.1, .inl h.1, h.2⟩)
       | some l =>
         erw [Cost.bind_val]
         simp only [Cost.bind_val, Cost.pure_val]
@@ -919,8 +1153,14 @@ theorem prog_work_push (hL : D.Lawful P.sorts.interp) {st : StateOf R Rel (Ans D
         dsimp only [Prog]
         exact ⟨L, Rg, h1, h2, h3, fun l hl => by
           cases hl
-          exact ⟨hd, hmm, fun x hx => (hcovmax x hx).imp fun x' h => ⟨hmm x' h.1, .inl h.1, h.2⟩⟩,
-          h5⟩
+          exact ⟨hd, (fun x hx => by
+              rcases hx with hx | hx
+              · rw [hmv] at hx
+                exact hx
+              · rw [h6 rfl] at hx
+                cases hx),
+            fun x hx => (hcovmax x hx).imp fun x' h => ⟨hmm x' h.1, .inl h.1, h.2⟩⟩,
+          h5, fun h => by cases h⟩
       · next x rest =>
         simp only [Cost.bind_val, Cost.pure_val]
         obtain ⟨hmap, hnew⟩ := hpo [x]
@@ -929,10 +1169,18 @@ theorem prog_work_push (hL : D.Lawful P.sorts.interp) {st : StateOf R Rel (Ans D
         obtain ⟨hd', hans⟩ := hS1.isDone hd
         obtain ⟨-, d2, d3⟩ := h4 (x :: rest) rfl
         dsimp only [Prog]
-        refine ⟨L, Rg, h1, hS1.ext _ _ h2, h3, fun l hl => ?_, fun e he => ?_⟩
+        refine ⟨L, Rg, h1, hS1.ext _ _ h2, h3, fun l hl => ?_, fun e he => ?_,
+          fun h => by cases h⟩
         · cases hl
           rw [hans]
-          refine ⟨hd', fun y hy => d2 y (List.mem_cons_of_mem _ hy), fun y hy => ?_⟩
+          refine ⟨hd', fun y hy => d2 y (by
+            rcases hy with hy | hy
+            · exact .inl (List.mem_cons_of_mem _ hy)
+            · rw [List.map_append, hmap] at hy
+              rcases List.mem_append.1 hy with h | h
+              · exact .inr h
+              · exact .inl (by rw [List.mem_singleton.1 h]; exact List.mem_cons_self)),
+            fun y hy => ?_⟩
           obtain ⟨x', hx', hor, hsubset⟩ := d3 y hy
           refine ⟨x', hx', ?_, hsubset⟩
           rw [List.map_append, hmap]
@@ -947,7 +1195,8 @@ theorem prog_work_push (hL : D.Lawful P.sorts.interp) {st : StateOf R Rel (Ans D
           · obtain ⟨e1, e2, e3⟩ := hnew e he
             refine ⟨?_, e3, by rw [e2]; exact Read.zero _ _ _ _⟩
             rw [hans]
-            exact d2 _ (by rw [List.mem_singleton.1 e1]; exact List.mem_cons_self)
+            exact List.mem_maximaBy
+              (d2 _ (.inl (by rw [List.mem_singleton.1 e1]; exact List.mem_cons_self)))
       · split
         · exact hs0
         · next p hp =>
@@ -962,7 +1211,8 @@ theorem prog_work_push (hL : D.Lawful P.sorts.interp) {st : StateOf R Rel (Ans D
           have hS := hf.stable ho
           obtain ⟨hd', hans⟩ := hS.isDone hd
           dsimp only [Prog]
-          refine ⟨L, Rg, h1, hS.ext _ _ h2, h3, fun l hl => ?_, fun e he => ?_⟩
+          refine ⟨L, Rg, h1, hS.ext _ _ h2, h3, fun l hl => ?_, fun e he => ?_,
+            fun h => by cases h⟩
           · obtain ⟨-, d2, d3⟩ := h4 l hl
             rw [hans, map_modify_eq (fun e : Ans D P × Nat × Nat => e.1)
               (fun e : Ans D P × Nat × Nat => (e.1, e.2.1, e.2.2 + 1)) (fun _ => rfl)]
@@ -1000,7 +1250,8 @@ theorem prog_work_check (hR : ReadOk D P K hK) {st : StateOf R Rel (Ans D P)}
   have hs0 := hs
   dsimp only [Prog] at hs
   obtain ⟨L, Rg, h1, h2, h3, -⟩ := hs
-  have hes := (edgeOf_spec hR hE left side).2.2
+  have hes := (edgeOf_spec hR hE left side).2.2.1
+  have her := (edgeOf_spec hR hE left side).2.2.2
   have hco := fun st' ps => checkOpen_spec (K := K) (hK := hK) (P := P) g left other st' ps
   clear hR
   at_cost K hK
@@ -1010,14 +1261,15 @@ theorem prog_work_check (hR : ReadOk D P K hK) {st : StateOf R Rel (Ans D P)}
     split
     · dsimp only [Prog]
       exact ⟨L, Rg, h1, h2, h3, trivial⟩
-    · dsimp only [Prog]
-      exact ⟨L, Rg, h1, h2, h3, trivial⟩
+    · next heq =>
+      dsimp only [Prog]
+      exact ⟨L, Rg, h1, h2, h3, her _ heq⟩
     · next ps heq =>
       simp only [Cost.bind_val, Cost.pure_val]
       obtain ⟨-, es, hes', hall⟩ := hco _ ps
       rw [List.nil_append] at hes'
       dsimp only [Prog]
-      refine ⟨L, Rg, h1, h2, h3, ps, hes ps heq, by rw [hes']; exact hall.length_eq.symm,
+      refine ⟨L, Rg, h1, h2, h3, ps, her _ heq, hes ps heq, by rw [hes']; exact hall.length_eq.symm,
         fun n p hp => ?_⟩
       rw [hes']
       exact forall₂_getElem? hall hp

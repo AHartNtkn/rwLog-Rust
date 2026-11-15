@@ -168,8 +168,11 @@ import RwLog.Rungs.Symmetric.Progress
 import RwLog.Rungs.Symmetric.Kept
 import RwLog.Rungs.Symmetric.Edge
 import RwLog.Rungs.Symmetric.ReadLive
+import RwLog.Rungs.Symmetric.EdgeSame
 import RwLog.Rungs.Symmetric.Turns
 import RwLog.Rungs.Symmetric.Lines
 import RwLog.Rungs.Symmetric.Served
+import RwLog.Rungs.Symmetric.Settle
 import RwLog.Rungs.Symmetric.Fair
+import RwLog.Rungs.Symmetric.Transfer
 import RwLog.Rungs.Symmetric.Correct

@@ -179,6 +179,7 @@ inductive SAdv (len : Nat → Nat) : Strat N A → Strat N A → Prop
       (∀ p q, c.Before p q → c'.Before p q) →
       (∀ p q n, p < len a → q < len b → p < n → q < n →
         c'.Before p q ∨ c' = c ∨ RankLt (Cursor.rank n c') (Cursor.rank n c)) →
+      (c.na ≤ c'.na ∧ c.nb ≤ c'.nb) →
       SAdv len (.join k a b c) (.join k a b c')
   | push {k : Kind} {l : Bool} {side : Nat} {o : N} {t t' : Option (List A)}
       {subs subs' : List (A × Nat × Nat)} :
@@ -192,6 +193,7 @@ theorem SAdv.refl (len : Nat → Nat) : ∀ s : Strat N A, SAdv len s s
   | .span _ => .span id
   | .copy _ _ => .copy (Pointwise.refl (fun _ => ⟨rfl, Nat.le_refl _⟩) _)
   | .join _ _ _ _ => .join (fun _ _ h => h) (fun _ _ _ _ _ _ _ => .inr (.inl rfl))
+      ⟨Nat.le_refl _, Nat.le_refl _⟩
   | .push _ _ _ _ _ _ => .push (fun l0 h => ⟨l0, h, Nat.le_refl _⟩) (PushAdv.refl _) fun _ => rfl
   | .check _ _ _ _ => .check (.inr rfl)
 
@@ -200,9 +202,9 @@ theorem SAdv.mono {len len' : Nat → Nat} (hl : ∀ j, len' j ≤ len j) {s s' 
   cases h with
   | span h => exact .span h
   | copy h => exact .copy h
-  | join h1 h2 =>
-    exact .join h1 fun p q n hp hq =>
-      h2 p q n (Nat.lt_of_lt_of_le hp (hl _)) (Nat.lt_of_lt_of_le hq (hl _))
+  | join h1 h2 h3 =>
+    exact .join h1 (fun p q n hp hq =>
+      h2 p q n (Nat.lt_of_lt_of_le hp (hl _)) (Nat.lt_of_lt_of_le hq (hl _))) h3
   | push h1 h2 h3 => exact .push h1 h2 h3
   | check h => exact .check h
 
@@ -218,10 +220,11 @@ theorem SAdv.trans {len : Nat → Nat} {s s1 s2 : Strat N A} (h₁ : SAdv len s 
   | copy a =>
     cases h₂ with
     | copy b => exact .copy (Pointwise.comp (r₃ := SubAdv) (fun _ _ _ h h' => h.trans h') a b)
-  | join a1 a2 =>
+  | join a1 a2 a3 =>
     cases h₂ with
-    | join b1 b2 =>
-      refine .join (fun p q h => b1 p q (a1 p q h)) fun p q n hp hq hpn hqn => ?_
+    | join b1 b2 b3 =>
+      refine .join (fun p q h => b1 p q (a1 p q h)) (fun p q n hp hq hpn hqn => ?_)
+        ⟨a3.1.trans b3.1, a3.2.trans b3.2⟩
       rcases b2 p q n hp hq hpn hqn with h | h | h
       · exact .inl h
       · rw [h]
@@ -263,6 +266,8 @@ inductive SStep (need : N → Nat) (len : Nat → Nat) (dn : Nat → Bool) (d d'
       (∀ p q, c.Before p q → c'.Before p q) →
       (∀ p q n, p < len a → q < len b → p < n → q < n →
         c'.Before p q ∨ RankLt (Cursor.rank n c') (Cursor.rank n c)) →
+      (c.na ≤ c'.na ∧ c.nb ≤ c'.nb) →
+      (c'.pending (len a) (len b) = false ∨ ∃ p q, ¬ c.Before p q ∧ c'.Before p q) →
       SStep need len dn d d' (.join k a b c) (.join k a b c')
   | push {k : Kind} {l : Bool} {side : Nat} {o : N} {t t' : Option (List A)}
       {subs subs' : List (A × Nat × Nat)} :
@@ -282,9 +287,9 @@ theorem SStep.adv {len : Nat → Nat} {dn : Nat → Bool} {d d' : Nat} {s s' : S
   cases h with
   | span => exact .span fun _ => rfl
   | copy h _ => exact .copy h
-  | join h1 h2 =>
-    exact .join h1 fun p q n hp hq hpn hqn =>
-      (h2 p q n hp hq hpn hqn).elim .inl fun h => .inr (.inr h)
+  | join h1 h2 h3 _ =>
+    exact .join h1 (fun p q n hp hq hpn hqn =>
+      (h2 p q n hp hq hpn hqn).elim .inl fun h => .inr (.inr h)) h3
   | push h1 h2 h3 _ => exact .push h1 h2 h3
   | check h _ => exact .check h
 
@@ -296,9 +301,14 @@ theorem SStep.mono {len len' : Nat → Nat} {dn dn' : Nat → Bool} {d d' d0 d1 
   | span => exact .span
   | copy h1 h2 =>
     exact .copy h1 fun n m j pos hm hp hn => h2 n m j pos hm hp (hn.trans (hl j))
-  | join h1 h2 =>
-    exact .join h1 fun p q n hp hq =>
-      h2 p q n (Nat.lt_of_lt_of_le hp (hl _)) (Nat.lt_of_lt_of_le hq (hl _))
+  | @join _ a b _ _ h1 h2 h3 h4 =>
+    refine .join h1 (fun p q n hp hq =>
+      h2 p q n (Nat.lt_of_lt_of_le hp (hl _)) (Nat.lt_of_lt_of_le hq (hl _))) h3
+      (h4.imp (fun h => ?_) id)
+    simp only [Cursor.pending, Bool.or_eq_false_iff, decide_eq_false_iff_not] at h ⊢
+    have := hl a
+    have := hl b
+    omega
   | push h1 h2 h3 h4 =>
     refine .push h1 h2 h3 fun hs => ?_
     obtain ⟨x1, x2, x3⟩ := h4 (hdn _ hs)
@@ -325,10 +335,12 @@ theorem SStep.after {len : Nat → Nat} {dn : Nat → Bool} {d d1 d2 : Nat} {s s
       · have h3 := behind_lt n a m (j, pos) p1 hm hp1 hp (by omega)
         have h4 := behind_le n b1
         omega
-  | join a1 a2 =>
+  | join a1 a2 a3 =>
     cases h₂ with
-    | join b1 b2 =>
-      refine .join (fun p q h => b1 p q (a1 p q h)) fun p q n hp hq hpn hqn => ?_
+    | join b1 b2 b3 b4 =>
+      refine .join (fun p q h => b1 p q (a1 p q h)) (fun p q n hp hq hpn hqn => ?_)
+        ⟨a3.1.trans b3.1, a3.2.trans b3.2⟩
+        (b4.imp id fun ⟨p, q, h1, h2⟩ => ⟨p, q, fun h => h1 (a1 p q h), h2⟩)
       rcases b2 p q n hp hq hpn hqn with h | h
       · exact .inl h
       · rcases a2 p q n hp hq hpn hqn with h' | h' | h'
@@ -428,10 +440,11 @@ theorem Stable.dead {st st' : StateOf S N A} (h : Stable st st') {s : Strat N A}
 /-- A strategy with nothing left to do that reads only tables that pass, in
 a state where the tables that pass are complete with the same answers, has
 nothing left to do and reads complete tables only. -/
-theorem quiet_mono' {st st' : StateOf S N A} {ok ok' : Nat → Bool}
-    (hd : ∀ j, st.isDone j = true → st'.isDone j = true ∧ st'.answers j = st.answers j)
+theorem quiet_mono' {st st' : StateOf S N A} {ok ok' : Nat → Bool} {s : Strat N A}
+    (hd : ∀ k l side o todo subs, s = .push k l side o todo subs → st.isDone side = true →
+      st'.isDone side = true)
     (hok : ∀ j, ok j = true → ok' j = true ∧ st'.answers j = st.answers j)
-    {s : Strat N A} (h : s.quiet st ok = true) : s.quiet st' ok' = true := by
+    (h : s.quiet st ok = true) : s.quiet st' ok' = true := by
   cases s with
   | span ran => exact h
   | copy c subs =>
@@ -447,9 +460,10 @@ theorem quiet_mono' {st st' : StateOf S N A} {ok ok' : Nat → Bool}
     simp only [Strat.quiet, Strat.pending, Bool.and_eq_true, Bool.not_eq_true',
       List.all_eq_true] at h ⊢
     obtain ⟨h1, ⟨h2, h3⟩, h4⟩ := h
-    refine ⟨?_, ⟨(hd side h2).1, h3⟩, fun e he => (hok _ (h4 e he)).1⟩
+    have hd' := hd k l side o todo subs rfl h2
+    refine ⟨?_, ⟨hd', h3⟩, fun e he => (hok _ (h4 e he)).1⟩
     rw [h2] at h1
-    rw [(hd side h2).1]
+    rw [hd']
     cases todo with
     | none => simp at h1
     | some l0 =>
@@ -469,7 +483,7 @@ theorem quiet_mono {st st' : StateOf S N A} {ok : Nat → Bool}
     (hd : ∀ j, st.isDone j = true → st'.isDone j = true ∧ st'.answers j = st.answers j)
     (hok : ∀ j, ok j = true → st'.isDone j = true ∧ st'.answers j = st.answers j)
     {s : Strat N A} (h : s.quiet st ok = true) : s.quiet st' st'.isDone = true :=
-  quiet_mono' hd hok h
+  quiet_mono' (fun _ _ side _ _ _ _ h => (hd side h).1) hok h
 
 /-- A push with nothing left to do pushes the answers of a complete table. -/
 theorem quiet_push_side {st : StateOf S N A} {ok : Nat → Bool} {k : Kind} {l : Bool} {side : Nat}
@@ -914,7 +928,7 @@ theorem Founded.step {st st' : StateOf S N A} (hS : Stable st st')
       have hdt : t.done = true := by simpa [StateOf.isDone, ht] using hi
       obtain ⟨gs, hgs, gr, hgr, s, hs, hq, hp⟩ := hρ i t ht hdt
       refine ⟨gs, (hg i t t' ht ht' hdt).trans hgs, gr, hgr, s, hs, ?_, ?_⟩
-      · refine quiet_mono' (fun _ => hS.isDone) (fun j hj => ?_) hq
+      · refine quiet_mono' (fun _ _ _ _ _ _ _ h => (hS.isDone h).1) (fun j hj => ?_) hq
         simp only [Bool.and_eq_true, decide_eq_true_eq] at hj
         refine ⟨?_, (hS.isDone hj.1).2⟩
         simp only [Bool.and_eq_true, decide_eq_true_eq, (hS.isDone hj.1).1, hj.1, hi, ite_true,
@@ -929,7 +943,7 @@ theorem Founded.step {st st' : StateOf S N A} (hS : Stable st st')
     rcases hnew i t' ht' hd' with ⟨t, ht, hdt⟩ | ⟨gs, hgs, gr, hgr, s, hs, hq, hp⟩
     · simp [StateOf.isDone, ht, hdt] at hi
     · refine ⟨gs, hgs, gr, hgr, s, hs, ?_, ?_⟩
-      · refine quiet_mono' (fun _ h => ⟨h, rfl⟩) (fun j hj => ⟨?_, rfl⟩) hq
+      · refine quiet_mono' (fun _ _ _ _ _ _ _ h => h) (fun j hj => ⟨?_, rfl⟩) hq
         simp only [Bool.and_eq_true, decide_eq_true_eq, hj, hi, true_and]
         exact hle j
       · intro k l side o todo subs e
@@ -1058,6 +1072,10 @@ structure Req (need : N → Nat) (st st' : StateOf S N A) : Prop where
     t'.stamp = st'.round → Turn need st st' t.groups t'.groups
   root : Settled st' 0
   founded : Founded st → Founded st'
+  closed : ∀ X : List Nat, (∀ k ∈ X, ∃ t', st'.tables[k]? = some t' ∧ ∃ gs, t'.groups = some gs ∧
+      ∃ gr ∈ gs, ∃ s ∈ gr.strats, s.quiet st' (fun j => st'.isDone j || X.contains j) = true ∧
+        ∀ k l side o todo subs, s = .push k l side o todo subs → st.isDone side = true) →
+    ∀ k ∈ X, st'.isDone k = true
 
 /-- **The record of a request**, from the record of the round of the root:
 the tables that complete together are marked. -/
@@ -1137,7 +1155,7 @@ theorem req_of_turns {st st2 : StateOf S N A} (hD : Dated st)
           List.getElem?_eq_getElem hlt, hj'']
   refine ⟨hr'.trans hr2, hS01.trans (T.keep.stable.trans hS23), by rw [hd']; exact T.depth,
     fun k t' hk => ?_, fun k t' hk hn => ?_, fun k t t' ht hk hyp => ?_, fun k t' hk hdn => ?_,
-    fun k t t' ht hk hs => ?_, hset 0 h0, fun hF => ?_⟩
+    fun k t t' ht hk hs => ?_, hset 0 h0, fun hF => ?_, fun X hX k hk => ?_⟩
   · obtain ⟨t2, h2, e1, e2, -⟩ := hsame k t' hk
     refine ⟨by rw [e2, hr']; exact hst2 k t2 h2, ?_⟩
     rw [e1, hr']
@@ -1184,6 +1202,93 @@ theorem req_of_turns {st st2 : StateOf S N A} (hD : Dated st)
       rcases e5 hdn with h | h
       · exact .inl ⟨t2, h2, h⟩
       · exact .inr (hcomp k t2 t' h2 e3 h)
+  · have hans : ∀ j, st'.answers j = st2.answers j := by
+      intro j
+      rw [← hst']
+      simp only [StateOf.answers, List.getElem?_mapIdx]
+      cases st2.tables[j]? with
+      | none => rfl
+      | some t =>
+        simp only [Option.map_some]
+        split <;> rfl
+    have hdone : ∀ j, st'.isDone j = true → st2.isDone j = true ∨ j ∈ completing st2 := by
+      intro j hj
+      cases ht' : st'.tables[j]? with
+      | none => simp [StateOf.isDone, ht'] at hj
+      | some t' =>
+        obtain ⟨t2, h2, -, -, -, -, e5⟩ := hsame j t' ht'
+        have hd : t'.done = true := by simpa [StateOf.isDone, ht'] using hj
+        exact (e5 hd).imp (fun h => by simp [StateOf.isDone, h2, h]) id
+    have hmark : ∀ j, j ∈ completing st2 → st'.isDone j = true := by
+      intro j hj
+      have hjS : j ∈ _ := gfpFrom_sub _ _ _ j hj
+      have hlt : j < st2.tables.length := List.mem_range.1 (List.mem_filter.1 hjS).1
+      rw [← hst']
+      simp [StateOf.isDone, List.getElem?_mapIdx, List.getElem?_eq_getElem hlt, hj]
+    have hopenC : ∀ j, j ∈ completing st2 → st2.isDone j = false := by
+      intro j hj
+      have hjS : j ∈ _ := gfpFrom_sub _ _ _ j hj
+      have h2 := (List.mem_filter.1 hjS).2
+      cases ht : st2.tables[j]? with
+      | none => simp [StateOf.isDone, ht]
+      | some t =>
+        simp only [ht, Bool.and_eq_true, Bool.not_eq_true'] at h2
+        simp [StateOf.isDone, ht, h2.1]
+    have hmem : ∀ j, j ∈ (X ++ completing st2).filter (fun j => !st2.isDone j) ↔
+        (j ∈ X ∨ j ∈ completing st2) ∧ st2.isDone j = false := fun j => by simp [or_and_right]
+    generalize (X ++ completing st2).filter (fun j => !st2.isDone j) = X2 at hmem
+    have hsub : ∀ j ∈ X2, j ∈ completing st2 := by
+      unfold completing
+      refine subset_gfpFrom (fun A B hAB i hi => ?_) X2 (fun i hi => ?_) _ _ (fun i hi => ?_)
+      · cases ht : st2.tables[i]? with
+        | none => simp [ht] at hi
+        | some t =>
+          simp only [ht, List.any_eq_true] at hi ⊢
+          obtain ⟨gr, hgr, s, hs, hq⟩ := hi
+          refine ⟨gr, hgr, s, hs, quiet_mono' (fun _ _ _ _ _ _ _ h => h) (fun j hj => ⟨?_, rfl⟩) hq⟩
+          rcases Bool.or_eq_true_iff.1 hj with hj | hj
+          · simp [hj]
+          · simp [hAB j (List.contains_iff_mem.1 hj)]
+      · obtain ⟨hi1, hi2⟩ := (hmem i).1 hi
+        rcases hi1 with hi1 | hi1
+        · obtain ⟨t', ht', gs, hgs, gr, hgr, s, hs, hq, hp⟩ := hX i hi1
+          obtain ⟨t2, h2, -, -, e3, -⟩ := hsame i t' ht'
+          simp only [h2, List.any_eq_true]
+          refine ⟨gr, by rw [← e3, hgs]; exact hgr, s, hs,
+            quiet_mono' (fun k l side o todo subs e _ =>
+              ((hS01.trans T.keep.stable).isDone (hp k l side o todo subs e)).1)
+              (fun j hj => ⟨?_, (hans j).symm⟩) hq⟩
+          cases hj2 : st2.isDone j with
+          | true => rfl
+          | false =>
+            simp only [Bool.false_or]
+            refine List.contains_iff_mem.2 ((hmem j).2 ⟨?_, hj2⟩)
+            rcases Bool.or_eq_true_iff.1 hj with hj | hj
+            · exact .inr ((hdone j hj).resolve_left (by rw [hj2]; exact Bool.false_ne_true))
+            · exact .inl (List.contains_iff_mem.1 hj)
+        · have hc := (gfpFrom_closed _ _ _ (Nat.le_refl _) i hi1).2
+          cases ht : st2.tables[i]? with
+          | none => simp [ht] at hc
+          | some t =>
+            simp only [ht, List.any_eq_true] at hc ⊢
+            obtain ⟨gr, hgr, s, hs, hq⟩ := hc
+            refine ⟨gr, hgr, s, hs,
+              quiet_mono' (fun _ _ _ _ _ _ _ h => h) (fun j hj => ⟨?_, rfl⟩) hq⟩
+            rcases Bool.or_eq_true_iff.1 hj with hj | hj
+            · simp [hj]
+            · have hj' : j ∈ completing st2 := List.contains_iff_mem.1 hj
+              simp [(hmem j).2 ⟨.inr hj', hopenC j hj'⟩]
+      · obtain ⟨hi1, hi2⟩ := (hmem i).1 hi
+        rcases hi1 with hi1 | hi1
+        · obtain ⟨t', ht', gs, hgs, -⟩ := hX i hi1
+          obtain ⟨t2, h2, -, -, e3, -⟩ := hsame i t' ht'
+          have hd2 : t2.done = false := by simpa [StateOf.isDone, h2] using hi2
+          refine List.mem_filter.2 ⟨List.mem_range.2 (List.getElem?_eq_some_iff.1 h2).1, ?_⟩
+          simp [h2, hd2, ← e3, hgs]
+        · exact gfpFrom_sub _ _ _ i hi1
+    cases hk2 : st2.isDone k with
+    | true => exact (hS23.isDone hk2).1
+    | false => exact hmark k (hsub k ((hmem k).2 ⟨.inl hk, hk2⟩))
 
 end pure
 
@@ -1426,7 +1531,8 @@ theorem step_work (whole : Bool) (i : Nat) (g : GoalOf R Rel) (st : StateOf R Re
     · simp only [Cost.bind_val, Cost.pure_val]
       have hs := (Cursor.all_spec (st.answers a).length (st.answers b).length
         ((st.answers a).length * (st.answers b).length + 1) c hc).2.1
-      refine .join hs fun p q n hp hq hpn hqn => ?_
+      refine .join hs (fun p q n hp hq hpn hqn => ?_) (Cursor.all_mono _ _ _ c hc)
+        (Cursor.all_done _ _ _ c hc)
       by_cases hb : c.Before p q
       · exact .inl (hs p q hb)
       · exact Cursor.all_rank _ _ p q n hp hq hpn hqn _ c hc hb
@@ -1435,17 +1541,20 @@ theorem step_work (whole : Bool) (i : Nat) (g : GoalOf R Rel) (st : StateOf R Re
       have hr := fun p q n hp hq hpn hqn hb =>
         Cursor.next_rank (st.answers a).length (st.answers b).length p q n hp hq hpn hqn
           (c.room (st.answers a).length (st.answers b).length) c hc (Nat.le_refl _) hb
+      obtain ⟨m1, m2, m3, m4⟩ := Cursor.next_step (st.answers a).length (st.answers b).length
+        (c.room (st.answers a).length (st.answers b).length) c hc (Nat.le_refl _)
       split
       · next c' hx =>
-        rw [hx] at hn hr
-        refine .join hn fun p q n hp hq hpn hqn => ?_
+        rw [hx] at hn hr m1 m2 m3
+        refine .join hn (fun p q n hp hq hpn hqn => ?_) ⟨m1, m2⟩ (.inl (m3 rfl))
         by_cases hb : c.Before p q
         · exact .inl (hn p q hb)
         · exact hr p q n hp hq hpn hqn hb
       · next pr c' hx =>
-        rw [hx] at hn hr
+        rw [hx] at hn hr m1 m2 m4
         simp only [Cost.bind_val, Cost.pure_val]
-        refine .join hn fun p q n hp hq hpn hqn => ?_
+        refine .join hn (fun p q n hp hq hpn hqn => ?_) ⟨m1, m2⟩
+          (.inr ⟨pr.1, pr.2, (m4 pr rfl).2, (m4 pr rfl).1⟩)
         by_cases hb : c.Before p q
         · exact .inl (hn p q hb)
         · exact hr p q n hp hq hpn hqn hb
@@ -1938,7 +2047,7 @@ theorem turn_workGroup (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK)
       (Strat.feeds r1.1)).eraseDups).val = r2 at h2' ⊢
   have hks := keep_setGroup r2.1 i k (fun gr => { gr with level := gr.level + r2.2 })
   have hg2 : groupsAt r2.1 i = groupsAt r1.1 i := h2'.turns.groupsAt h1.busy
-  refine ⟨Good.setGroup h2'.good i k _ (fun _ _ _ s hs => .inl hs),
+  refine ⟨Good.setGroup h2'.good i k _ (fun _ _ _ s hs => .inl hs) (fun _ _ => rfl),
     hks.stable.ext _ _ h2'.goal, hks.busy h2'.busy, ?_, ?_, fun k' hk' => ?_, fun gr hgr => ?_⟩
   · exact h1.turns.trans ((h2'.turns.weaken (some i)).trans
       (turnsBut_modify _ i _ (fun _ => ⟨rfl, rfl, rfl, rfl, .inl rfl⟩) h2'.busy.open))
@@ -2282,7 +2391,6 @@ theorem turn_prepare (hR : ReadOk D P K hK) (hP : ProgFO P) {st : StateOf R Rel 
     rw [this]
     exact hsh
 
-omit [DecidableEq R] in
 /-- **The end of a round**: the groups with nothing left are removed, and
 the table may be marked complete. The record of the whole round. -/
 theorem turns_finish {st stp X Y : StateOf R Rel (Ans D P)} {i : Nat} {g : GoalOf R Rel}

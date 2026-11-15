@@ -110,7 +110,18 @@ Rungs/Symmetric/ the symmetric engine of `SYMMETRIC_ENGINE.md` (Machine.lean): a
                 (Correct.lean, `Symmetric.complete`, `honestExhaustion`,
                 `honestProgress`); no answer of a table covers a later one, so no
                 answer emitted is covered by an earlier one, and the final report is the
-                maximal emitted answers (`noSubsumed`, `finalMaximal`). Not proved yet:
+                maximal emitted answers (`noSubsumed`, `finalMaximal`). Towards halting:
+                what an edge reads is a fact of the program, whatever the depth and the
+                kernel (EdgeSame.lean, `Reads.unique`), and every check records it
+                (`Prog`); the groups of a goal have a strategy for every way to answer it
+                (Progress.lean, `Full`, kept by a request in `Good`); a join that has
+                combined every pair has nothing left to combine (`SStep.join`,
+                `Cursor.next_step`); a group that works for ever runs out of work once the
+                tables it reads gain no more answers (Settle.lean, `Line.copy_read`,
+                `Line.join_done`, `Line.push_read`, `Line.check_read`); and a goal whose
+                table is complete in one run of requests has a complete table in every run
+                that does not neglect it (Transfer.lean, `IsRun.transfer`), by induction
+                along the order in which the tables of the first run completed. Not proved yet:
                 `TerminatesWhere`, `EmptySide` and with them `Keeps`; the cost bound. A goal and its converse do not share a
                 table (not owed by any property; billboard SIM12)
 Rungs/Naive/    normalisation, unfolding to a depth, and their correctness (namespace `R000`)
