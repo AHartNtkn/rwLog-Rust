@@ -1,14 +1,19 @@
 /-
-# A table that has rounds for ever has a group that works for ever
+# Every group of a table that has rounds for ever works for ever
 
 A run is a sequence of states, each a request after the one before
 (`Requests`). Of a table that has a round in infinitely many requests
-(`HadRound`): the list of its groups stops shrinking, and then one of its
-groups works in infinitely many requests. `Line` is that group through
-time: its strategies, each later than itself before (`SAdv`), all of them
-worked again and again (`SStep`) with the tables they read settled, and
-never all dead; and the group has a span, a call, a union or a join, or is
-all interface checks.
+(`HadRound`): the list of its groups stops shrinking, and then every one of
+its groups works in infinitely many requests (`Requests.lines`). `Line` is a
+group through time: its strategies, each later than itself before (`SAdv`),
+all of them worked again and again (`SStep`) with the tables they read
+settled, and never all dead; and the group has a span, a call, a union or a
+join, or is all interface checks.
+
+That every group works is the balance (`Balanced`, `Turns.lean`): in a round
+a group worked, or it stands as it stood while a group below it rose. A
+group that never works again keeps its level, and what the groups hold
+below that level then grows in every round and cannot grow for ever.
 
 Nothing here is about a kernel.
 -/
@@ -105,17 +110,18 @@ theorem Line.along {k r0 : Nat} {L : Nat → List (Strat N A)} (hL : Line need �
 
 /-- What one request does to the groups `G` of a table that has groups:
 there are no more of them after, and if there are as many, each is itself
-later, and if the table had its round one of them worked. -/
+later; they are the same if the table had no round, and if it had one, none
+of them was all dead and the round was balanced. -/
 theorem Requests.step (h : Requests need σ) (k r : Nat) {t t' : Table S N A}
     {G G' : List (Group N A)} (ht : (σ r).tables[k]? = some t) (hg : t.groups = some G)
     (ht' : (σ (r + 1)).tables[k]? = some t') (hg' : t'.groups = some G') :
     G'.length ≤ G.length ∧ (G'.length = G.length →
-      Pointwise (GrAdv (σ r).len) G G' ∧ (HadRound σ r k → ∃ (m : Nat) (gr0 gr1 : Group N A),
-        G[m]? = some gr0 ∧ G'[m]? = some gr1 ∧
-        GrStep need (σ r).len (σ r).depth (σ (r + 1)).depth gr0 gr1 ∧
-        (∀ s ∈ gr1.strats, SFed (σ (r + 1)) s) ∧ ∃ s ∈ gr0.strats, s.dead (σ r) = false)) := by
+      Pointwise (GrAdv (σ r).len) G G' ∧ (¬ HadRound σ r k → G' = G) ∧
+      (HadRound σ r k → ∀ (m : Nat) (gr0 gr1 : Group N A), G[m]? = some gr0 →
+        G'[m]? = some gr1 → (∃ s ∈ gr0.strats, s.dead (σ r) = false) ∧
+          Balanced need (σ r) (σ (r + 1)) G G' gr0 gr1)) := by
   by_cases hs : t'.stamp = (σ (r + 1)).round
-  · obtain ⟨gs0, gs1, p, h1, -, h3, h4, h5⟩ := (h.req r).turn k t t' ht ht' hs
+  · obtain ⟨gs0, gs1, p, h1, -, h3, h4, -, h6⟩ := (h.req r).turn k t t' ht ht' hs
     obtain rfl : G = gs0 := h1 G hg
     have e' : G' = gs1.filter p := by rw [hg'] at h3; exact h3
     subst e'
@@ -126,26 +132,28 @@ theorem Requests.step (h : Requests need σ) (k r : Nat) {t t' : Table S N A}
       (List.filter_sublist).eq_of_length (by rw [hl, h4.1])
     have hall : ∀ gr ∈ gs1, p gr = true := List.filter_eq_self.1 hf
     rw [hf]
-    refine ⟨h4.imp fun _ _ hr => hr.1, fun _ => ?_⟩
-    rcases h5 with h5 | ⟨m, gr0, gr1, e0, e1, hst, hfed⟩
-    · obtain ⟨⟨gr, hgr, -⟩, -⟩ := h.shaped r k t G ht hg
-      rw [h5] at hgr
-      cases hgr
-    · exact ⟨m, gr0, gr1, e0, e1, hst, hfed,
-        (h4.2 m gr0 gr1 e0 e1).2.1 (hall gr1 (List.mem_of_getElem? e1))⟩
+    exact ⟨h4.imp fun _ _ hr => hr.1, fun hno => absurd ⟨t', ht', hs⟩ hno,
+      fun _ m gr0 gr1 e0 e1 => ⟨(h4.2 m gr0 gr1 e0 e1).2.1 (hall gr1 (List.mem_of_getElem? e1)),
+        h6 m gr0 gr1 e0 e1⟩⟩
   · have e := (h.req r).groups k t t' ht ht' (.inr hs)
     rw [hg, hg'] at e
     cases e
     refine ⟨Nat.le_refl _, fun _ => ⟨Pointwise.refl (fun gr =>
-      Pointwise.refl (SAdv.refl _) gr.strats) _, ?_⟩⟩
+      Pointwise.refl (SAdv.refl _) gr.strats) _, fun _ => rfl, ?_⟩⟩
     rintro ⟨u, hu, hsu⟩
     rw [ht'] at hu
     cases hu
     exact absurd hsu hs
 
-/-- **A table that has rounds for ever has a group that works for ever.** -/
-theorem Requests.line (h : Requests need σ) (k : Nat)
-    (hinf : ∀ r', ∃ r, r' ≤ r ∧ HadRound σ r k) : ∃ r0 L, Line need σ k r0 L := by
+/-- **Every group of a table that has rounds for ever works for ever.** From
+some state on the table keeps its groups, and each of them is a line: a
+group that did not work in a round stands as it stood while a lower one
+rose, and the groups below a level can rise only so often before they have
+all passed it. -/
+theorem Requests.lines (h : Requests need σ) (k : Nat)
+    (hinf : ∀ r', ∃ r, r' ≤ r ∧ HadRound σ r k) :
+    ∃ r0, 0 < (groupsAt (σ r0) k).length ∧ ∀ m, m < (groupsAt (σ r0) k).length →
+      Line need σ k r0 fun r => (((groupsAt (σ r) k)[m]?).map (·.strats)).getD [] := by
   -- the table is there from some state on
   obtain ⟨r1, -, t1, ht1, -⟩ := hinf 0
   have hex : ∀ r, r1 + 1 ≤ r → ∃ t, (σ r).tables[k]? = some t := fun r hr => by
@@ -182,11 +190,12 @@ theorem Requests.line (h : Requests need σ) (k : Nat)
       (groupsAt (σ (r + 1)) k).length ≤ (groupsAt (σ r) k).length ∧
       ((groupsAt (σ (r + 1)) k).length = (groupsAt (σ r) k).length →
         Pointwise (GrAdv (σ r).len) (groupsAt (σ r) k) (groupsAt (σ (r + 1)) k) ∧
-        (HadRound σ r k → ∃ (m : Nat) (gr0 gr1 : Group N A),
-          (groupsAt (σ r) k)[m]? = some gr0 ∧ (groupsAt (σ (r + 1)) k)[m]? = some gr1 ∧
-          GrStep need (σ r).len (σ r).depth (σ (r + 1)).depth gr0 gr1 ∧
-          (∀ s ∈ gr1.strats, SFed (σ (r + 1)) s) ∧
-          ∃ s ∈ gr0.strats, s.dead (σ r) = false)) := fun r hr => by
+        (¬ HadRound σ r k → groupsAt (σ (r + 1)) k = groupsAt (σ r) k) ∧
+        (HadRound σ r k → ∀ (m : Nat) (gr0 gr1 : Group N A),
+          (groupsAt (σ r) k)[m]? = some gr0 → (groupsAt (σ (r + 1)) k)[m]? = some gr1 →
+          (∃ s ∈ gr0.strats, s.dead (σ r) = false) ∧
+            Balanced need (σ r) (σ (r + 1)) (groupsAt (σ r) k) (groupsAt (σ (r + 1)) k)
+              gr0 gr1)) := fun r hr => by
     obtain ⟨t, ht, hg⟩ := hgr r hr
     obtain ⟨t', ht', hg'⟩ := hgr (r + 1) (by omega)
     exact h.step k r ht hg ht' hg'
@@ -198,25 +207,133 @@ theorem Requests.line (h : Requests need σ) (k : Nat)
       have h1 := hconst r hr
       have h2 := hconst (r + 1) (by omega)
       rw [h1, h2]
-  -- one of them works for ever
-  obtain ⟨m, hm, hwork⟩ := infinitely_often_fin (groupsAt (σ r0) k).length
-    (fun r m => r0 ≤ r ∧ ∃ (gr0 gr1 : Group N A),
-      (groupsAt (σ r) k)[m]? = some gr0 ∧ (groupsAt (σ (r + 1)) k)[m]? = some gr1 ∧
-      GrStep need (σ r).len (σ r).depth (σ (r + 1)).depth gr0 gr1 ∧
-      (∀ s ∈ gr1.strats, SFed (σ (r + 1)) s) ∧ ∃ s ∈ gr0.strats, s.dead (σ r) = false)
-    (fun r' => by
-      obtain ⟨r, hr, hround⟩ := hinf (max r' r0)
-      have hr0' : r0 ≤ r := by omega
-      obtain ⟨m, gr0, gr1, e0, e1, rest⟩ :=
-        ((hstep r (by omega)).2 (hlen r hr0')).2 hround
-      refine ⟨r, by omega, m, ?_, hr0', gr0, gr1, e0, e1, rest⟩
-      have := (List.getElem?_eq_some_iff.1 e0).1
-      have := hconst r hr0'
-      omega)
+  have hst : ∀ r, r0 ≤ r →
+      Pointwise (GrAdv (σ r).len) (groupsAt (σ r) k) (groupsAt (σ (r + 1)) k) ∧
+      (¬ HadRound σ r k → groupsAt (σ (r + 1)) k = groupsAt (σ r) k) ∧
+      (HadRound σ r k → ∀ (m : Nat) (gr0 gr1 : Group N A),
+        (groupsAt (σ r) k)[m]? = some gr0 → (groupsAt (σ (r + 1)) k)[m]? = some gr1 →
+        (∃ s ∈ gr0.strats, s.dead (σ r) = false) ∧
+          Balanced need (σ r) (σ (r + 1)) (groupsAt (σ r) k) (groupsAt (σ (r + 1)) k)
+            gr0 gr1) := fun r hr => (hstep r (by omega)).2 (hlen r hr)
+  -- no level falls
+  have hmono : ∀ r, r0 ≤ r → ∀ (m : Nat) (gr0 gr1 : Group N A),
+      (groupsAt (σ r) k)[m]? = some gr0 → (groupsAt (σ (r + 1)) k)[m]? = some gr1 →
+      gr0.level ≤ gr1.level := by
+    intro r hr m gr0 gr1 e0 e1
+    by_cases hround : HadRound σ r k
+    · exact ((hst r hr).2.2 hround m gr0 gr1 e0 e1).2.1
+    · rw [(hst r hr).2.1 hround, e0] at e1
+      cases e1
+      exact Nat.le_refl _
+  have hpos : 0 < (groupsAt (σ r0) k).length := by
+    obtain ⟨t, ht, hg⟩ := hgr r0 hr0
+    obtain ⟨⟨gr, hgr', -⟩, -⟩ := h.shaped r0 k t _ ht hg
+    exact List.length_pos_of_mem hgr'
+  refine ⟨r0, hpos, fun m hm => ?_⟩
   have hat : ∀ r, r0 ≤ r → ∃ gr, (groupsAt (σ r) k)[m]? = some gr := fun r hr => by
     have := hconst r hr
     exact ⟨_, List.getElem?_eq_getElem (by omega)⟩
-  refine ⟨r0, fun r => (((groupsAt (σ r) k)[m]?).map (·.strats)).getD [], ?_, ?_, ?_, ?_⟩
+  -- the group at `m` works for ever
+  have hwork : ∀ r', ∃ r, r' ≤ r ∧ r0 ≤ r ∧ HadRound σ r k ∧ ∃ (gr0 gr1 : Group N A),
+      (groupsAt (σ r) k)[m]? = some gr0 ∧ (groupsAt (σ (r + 1)) k)[m]? = some gr1 ∧
+      Tried need (σ r) (σ (r + 1)) gr0 gr1 := by
+    intro r'
+    by_contra hno
+    have hno' : ∀ r, r' ≤ r → r0 ≤ r → HadRound σ r k → ∀ (gr0 gr1 : Group N A),
+        (groupsAt (σ r) k)[m]? = some gr0 → (groupsAt (σ (r + 1)) k)[m]? = some gr1 →
+        ¬ Tried need (σ r) (σ (r + 1)) gr0 gr1 :=
+      fun r h1 h2 h3 gr0 gr1 e0 e1 ht => hno ⟨r, h1, h2, h3, gr0, gr1, e0, e1, ht⟩
+    -- its level stays
+    have hlev : ∀ r, max r' r0 ≤ r → ∀ (gr gr1 : Group N A),
+        (groupsAt (σ (max r' r0)) k)[m]? = some gr → (groupsAt (σ r) k)[m]? = some gr1 →
+        gr1.level = gr.level := by
+      intro r hr
+      obtain ⟨d, rfl⟩ := Nat.exists_eq_add_of_le hr
+      induction d with
+      | zero =>
+        intro gr gr1 e e1
+        rw [Nat.add_zero, e] at e1
+        cases e1
+        rfl
+      | succ d ih =>
+        intro gr gr1 e e1
+        obtain ⟨gr0, e0⟩ := hat (max r' r0 + d) (by omega)
+        have h0 := ih (by omega) gr gr0 e e0
+        by_cases hround : HadRound σ (max r' r0 + d) k
+        · obtain ⟨-, -, ht | ⟨heq, -⟩⟩ :=
+            (hst (max r' r0 + d) (by omega)).2.2 hround m gr0 gr1 e0 e1
+          · exact absurd ht (hno' _ (by omega) (by omega) hround gr0 gr1 e0 e1)
+          · omega
+        · have e1' : (groupsAt (σ (max r' r0 + d + 1)) k)[m]? = some gr1 := e1
+          rw [(hst (max r' r0 + d) (by omega)).2.1 hround, e0] at e1'
+          cases e1'
+          exact h0
+    obtain ⟨grm, em⟩ := hat (max r' r0) (by omega)
+    -- so what the groups have below it only grows, and grows in every round
+    have hsum_le : ∀ r, max r' r0 ≤ r →
+        ((groupsAt (σ r) k).map fun gr => min gr.level grm.level).sum ≤
+          ((groupsAt (σ (r + 1)) k).map fun gr => min gr.level grm.level).sum := by
+      intro r hr
+      refine sum_le_sum_of_getElem (by simp [hlen r (by omega)]) fun i a b ha hb => ?_
+      rw [List.getElem?_map] at ha hb
+      cases e0 : (groupsAt (σ r) k)[i]? with
+      | none => rw [e0] at ha; cases ha
+      | some gr0 =>
+        cases e1 : (groupsAt (σ (r + 1)) k)[i]? with
+        | none => rw [e1] at hb; cases hb
+        | some gr1 =>
+          rw [e0] at ha
+          rw [e1] at hb
+          cases ha
+          cases hb
+          have := hmono r (by omega) i gr0 gr1 e0 e1
+          show min gr0.level grm.level ≤ min gr1.level grm.level
+          omega
+    have hsum_lt : ∀ r, max r' r0 ≤ r → HadRound σ r k →
+        ((groupsAt (σ r) k).map fun gr => min gr.level grm.level).sum <
+          ((groupsAt (σ (r + 1)) k).map fun gr => min gr.level grm.level).sum := by
+      intro r hr hround
+      obtain ⟨gr0, e0⟩ := hat r (by omega)
+      obtain ⟨gr1, e1⟩ := hat (r + 1) (by omega)
+      have hl0 := hlev r hr grm gr0 em e0
+      obtain ⟨-, -, ht | ⟨-, k', gr0', gr1', e0', e1', hlt, hrise⟩⟩ :=
+        (hst r (by omega)).2.2 hround m gr0 gr1 e0 e1
+      · exact absurd ht (hno' r (by omega) (by omega) hround gr0 gr1 e0 e1)
+      · refine sum_lt_sum_of_getElem (by simp [hlen r (by omega)]) (fun i a b ha hb => ?_)
+          ⟨k', min gr0'.level grm.level, min gr1'.level grm.level, by simp [e0'], by simp [e1'],
+            by omega⟩
+        rw [List.getElem?_map] at ha hb
+        cases e0 : (groupsAt (σ r) k)[i]? with
+        | none => rw [e0] at ha; cases ha
+        | some gr0 =>
+          cases e1 : (groupsAt (σ (r + 1)) k)[i]? with
+          | none => rw [e1] at hb; cases hb
+          | some gr1 =>
+            rw [e0] at ha
+            rw [e1] at hb
+            cases ha
+            cases hb
+            have := hmono r (by omega) i gr0 gr1 e0 e1
+            show min gr0.level grm.level ≤ min gr1.level grm.level
+            omega
+    have hbound : ∀ r, r0 ≤ r →
+        ((groupsAt (σ r) k).map fun gr => min gr.level grm.level).sum ≤
+          (groupsAt (σ r0) k).length * grm.level := fun r hr => by
+      rw [← hconst r hr]
+      exact sum_map_le_mul fun x _ => Nat.min_le_right _ _
+    obtain ⟨r3, hr3, hflat⟩ := eventually_const
+      (fun r => (groupsAt (σ r0) k).length * grm.level -
+        ((groupsAt (σ r) k).map fun gr => min gr.level grm.level).sum) (max r' r0)
+      fun r hr => by
+        have := hsum_le r hr
+        omega
+    obtain ⟨r, hr, hround⟩ := hinf r3
+    have h1 := hflat r hr
+    have h2 := hflat (r + 1) (by omega)
+    have h3 := hsum_lt r (by omega) hround
+    have h4 := hbound (r + 1) (by omega)
+    omega
+  refine ⟨?_, ?_, ?_, ?_⟩
   · intro r hr s hs
     obtain ⟨gr, hgr'⟩ := hat r hr
     obtain ⟨t, ht, hg⟩ := hgr r (by omega)
@@ -226,20 +343,26 @@ theorem Requests.line (h : Requests need σ) (k : Nat)
     obtain ⟨gr, e⟩ := hat r hr
     obtain ⟨gr', e'⟩ := hat (r + 1) (by omega)
     simp only [e, e', Option.map_some, Option.getD_some]
-    exact ((hstep r (by omega)).2 (hlen r hr)).1.2 m gr gr' e e'
+    exact (hst r hr).1.2 m gr gr' e e'
   · obtain ⟨gr, e⟩ := hat r0 (Nat.le_refl _)
     obtain ⟨t, ht, hg⟩ := hgr r0 hr0
     simp only [e, Option.map_some, Option.getD_some]
     exact (h.shaped r0 k t _ ht hg).2 gr (List.mem_of_getElem? e)
   · intro r'
-    obtain ⟨r, hr, hr0', gr0, gr1, e0, e1, hst, hfed, hdead⟩ := hwork r'
+    obtain ⟨r, hr, hr0', hround, gr0, gr1, e0, e1, hstp, hfed⟩ := hwork r'
     refine ⟨r, hr, hr0', ?_, ?_, ?_⟩
     · simp only [e0, e1, Option.map_some, Option.getD_some]
-      exact hst
+      exact hstp
     · simp only [e1, Option.map_some, Option.getD_some]
       exact hfed
     · simp only [e0, Option.map_some, Option.getD_some]
-      exact hdead
+      exact ((hst r hr0').2.2 hround m gr0 gr1 e0 e1).1
+
+/-- **A table that has rounds for ever has a group that works for ever.** -/
+theorem Requests.line (h : Requests need σ) (k : Nat)
+    (hinf : ∀ r', ∃ r, r' ≤ r ∧ HadRound σ r k) : ∃ r0 L, Line need σ k r0 L := by
+  obtain ⟨r0, hpos, hl⟩ := h.lines k hinf
+  exact ⟨r0, _, hl 0 hpos⟩
 
 end Symmetric
 

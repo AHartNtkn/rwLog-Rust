@@ -95,6 +95,29 @@ theorem foldL_done (I : List α → β → Prop) (f : β → α → Cost β) (xs
   rw [foldL_std]
   exact main xs [] b (fun _ h => h) hb
 
+/-- A fold keeps what each of its steps keeps, where what is kept may speak
+of the members passed and a step knows which members are still to come. -/
+theorem foldL_split (I : List α → β → Prop) (f : β → α → Cost β) (xs : List α)
+    (h : ∀ done rest b x, xs = done ++ x :: rest → I done b → I (done ++ [x]) (f b x).val)
+    (b : β) (hb : I [] b) : I xs (Traverse.foldL f b xs).val := by
+  have main : ∀ (ys done : List α) (b : β), xs = done ++ ys → I done b →
+      I (done ++ ys) (Cost.foldL f b ys).val := by
+    intro ys
+    induction ys with
+    | nil =>
+      intro done b _ hb
+      rw [List.append_nil]
+      exact hb
+    | cons y ys ih =>
+      intro done b hys hb
+      have := ih (done ++ [y]) (f b y).val (by rw [hys, List.append_assoc, List.singleton_append])
+        (h done ys b y hys hb)
+      rw [List.append_assoc, List.singleton_append] at this
+      simp only [Cost.foldL, Cost.bind_val]
+      exact this
+  rw [foldL_std]
+  exact main xs [] b rfl hb
+
 end Traverse
 
 end RwLog

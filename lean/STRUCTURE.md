@@ -54,7 +54,9 @@ Rungs/Mirror/   a machine run on a query and on its converse side by side, for a
 Rungs/Symmetric/ the symmetric engine of `SYMMETRIC_ENGINE.md` (Machine.lean): a table for
                 every goal, every split of a chain and of a meet as a group of strategies
                 (join, push from either side), groups balanced by their levels, one
-                request a step. Run in `Tests/SymmetricRuns.lean`. The table of a
+                request a step. A level rises by what was spent, and the engine charges
+                itself one tick for a unit of work that did something, so a group that
+                worked has risen at every kernel (`workGroup_did`). Run in `Tests/SymmetricRuns.lean`. The table of a
                 goal that is its own converse holds the converse of everything it holds;
                 with the choice of one orientation where the input is loaded
                 (`CostedRuntime.oriented`, `Trusted/Cost.lean`) that is what makes the run
@@ -84,14 +86,15 @@ Rungs/Symmetric/ the symmetric engine of `SYMMETRIC_ENGINE.md` (Machine.lean): a
                 (Cursor.lean, `Cursor.all_rank`, `rankLt_wf`); and the record of a
                 request (Turns.lean, `Req`, `req_request`): the groups of a table change
                 in its own round only, where each strategy moves on, a group all of whose
-                checks are dead is removed, and one group works with the tables it reads
-                settled (`Turn`); of the groups a goal begins with one has a span, a call, a
+                checks are dead is removed, one group works with the tables it reads
+                settled, and the round is balanced: a group worked, or it stands as it
+                stood while a lower one rose (`Turn`, `Balanced`); of the groups a goal begins with one has a span, a call, a
                 union or a join, and one that has none is all checks (`shaped_expand`); a table
                 marked complete has a strategy with nothing left to do that reads complete
                 tables only; and an edge is read in the end, from a depth that the node
                 and the program give (ReadLive.lean, `readEdge_some`); and of a table that
-                has rounds for ever one group works for ever, with as many groups from
-                some request on (Lines.lean, `Requests.line`). Fairness and
+                has rounds for ever every group works for ever, with as many groups from
+                some request on (Lines.lean, `Requests.lines`). Fairness and
                 completeness: a run of requests (`IsRun`) holds for each goal the answers
                 of its table (`held`) and does not neglect the tables that are complete at
                 some time or have rounds for ever (`opened`); a complete table is served by
@@ -166,10 +169,11 @@ every charge derived from the Rust. No domain of spans as written is left
 | The structural order is linear; sorted lists are determined by their members | `Kernel/Order.lean` | `relCmp_trans`, `relCmp_eq`, `sortedBranches_eq`, `pairwise_sortedBranches` |
 | Valid answers of a goal and the rules that make them | `Kernel/Derivation.lean` | `Goal`, `Valid`, `Valid.leaf`, `join`, `meet`, `inj`, `unfold`, `unfoldConv`, `swap`, `Valid.sound`, `Valid.general` |
 | Sizes charged by the cost model | `Kernel/Size.lean` (and `Term.size_pos` in `Kernel/Solve.lean`) | `Span.size_pos`, `Span.size_swap`, `Rel.size_pos` |
-| Sums over lists | `Lib/List.lean` | `sum_flatMap_map`, `sum_filterMap_map`, `le_sum_map_of_mem`, `sum_map_le`, `sum_map_le_mul`, `sum_range_getD` |
+| Sums over lists | `Lib/List.lean` | `sum_flatMap_map`, `sum_filterMap_map`, `le_sum_map_of_mem`, `sum_map_le`, `sum_map_le_mul`, `sum_range_getD`, `sum_le_sum_of_getElem`, `sum_lt_sum_of_getElem` |
+| A sorted list with its duplicates erased is strictly sorted | `Lib/List.lean` | `pairwise_lt_eraseDups` |
 | Lists related member by member, one member changed, conditionals | `Lib/List.lean` | `forall₂_mem_left`, `forall₂_mem_right`, `forall₂_getElem?`, `forall₂_getLast?`, `map_modify_eq`, `mem_modify`, `two_le_length_of_mem`, `drop_take_reverse`, `ite_of_pos`, `ite_of_neg` |
 | Goals, the same goal, maximal answers, the rule of a split, for any machine that tables | `Rungs/Framework/Goals.lean`, `GoalsVal.lean` | `GoalOf`, `Kind`, `same`, `indexFrom`, `coversA`, `maxima`, `fresh`, `both`; their values: `same_val`, `indexFrom_val`, `coversA_val`, `maxima_val`, `fresh_val`, `both_some` |
-| A fold in `Cost` keeps an invariant | `Rungs/Framework/Cost.lean`, `TraverseStd.lean` | `Cost.foldL_inv`, `Traverse.foldL_inv` |
+| A fold in `Cost` keeps an invariant | `Rungs/Framework/Cost.lean`, `TraverseStd.lean` | `Cost.foldL_inv`, `Traverse.foldL_inv`, `Traverse.foldL_done` (may speak of the members passed), `Traverse.foldL_split` (and knows the members to come) |
 | Well-formed queries built from a well-formed one | `Rungs/Framework/SameTrace.lean`, `Direction.lean` | `ProgramOf.WellFormed.of_sub`, `.conv`, `.seq_left`, `.seq_swap`, `.and_of_seq`, `.dual` |
 | Converse of a program | `SpanLayer/Dual.lean` | `Program.sem_dual` |
 | Greatest fixpoints by iteration | `Lib/Gfp.lean` | `gfpFrom`, `gfpFrom_closed`, `subset_gfpFrom` |

@@ -24,6 +24,62 @@ theorem nodup_eraseDups {α : Type} [BEq α] [LawfulBEq α] (l : List α) : l.er
     simp only [List.length_cons] at h
     omega
 
+/-- A list of numbers in order, with its duplicates erased, is strictly in
+order. -/
+theorem pairwise_lt_eraseDups (l : List Nat) (hl : l.Pairwise (· ≤ ·)) :
+    l.eraseDups.Pairwise (· < ·) := by
+  induction h : l.length using Nat.strong_induction_on generalizing l with
+  | _ n ih =>
+  cases l with
+  | nil => simp
+  | cons a as =>
+    rw [List.eraseDups_cons]
+    have hp := List.pairwise_cons.1 hl
+    refine List.pairwise_cons.2 ⟨fun b hb => ?_,
+      ih _ ?_ _ (hp.2.sublist List.filter_sublist) rfl⟩
+    · have hb' := List.mem_filter.1 (List.mem_eraseDups.1 hb)
+      have h1 := hp.1 b hb'.1
+      have h2 : b ≠ a := by simpa using hb'.2
+      omega
+    · have := List.length_filter_le (fun b => !b == a) as
+      simp only [List.length_cons] at h
+      omega
+
+/-- Two lists of numbers of one length, the second no less at any place:
+its sum is no less. -/
+theorem sum_le_sum_of_getElem : ∀ {l l' : List Nat}, l.length = l'.length →
+    (∀ (i a b : Nat), l[i]? = some a → l'[i]? = some b → a ≤ b) → l.sum ≤ l'.sum
+  | [], [], _, _ => Nat.le_refl _
+  | [], _ :: _, h, _ => by cases h
+  | _ :: _, [], h, _ => by cases h
+  | a :: l, b :: l', hlen, h => by
+    have h0 := h 0 a b rfl rfl
+    have ih := sum_le_sum_of_getElem (l := l) (l' := l') (by simpa using hlen)
+      fun i x y hx hy => h (i + 1) x y hx hy
+    simp only [List.sum_cons]
+    omega
+
+/-- And if it is more at some place, its sum is more. -/
+theorem sum_lt_sum_of_getElem : ∀ {l l' : List Nat}, l.length = l'.length →
+    (∀ (i a b : Nat), l[i]? = some a → l'[i]? = some b → a ≤ b) →
+    (∃ (i a b : Nat), l[i]? = some a ∧ l'[i]? = some b ∧ a < b) → l.sum < l'.sum
+  | [], _, _, _, ⟨_, _, _, h, _⟩ => by cases h
+  | _ :: _, [], h, _, _ => by cases h
+  | a :: l, b :: l', hlen, h, ⟨i, x, y, hx, hy, hxy⟩ => by
+    have h0 := h 0 a b rfl rfl
+    have hlen' : l.length = l'.length := by simpa using hlen
+    have hle := sum_le_sum_of_getElem hlen' fun i x y hx hy => h (i + 1) x y hx hy
+    simp only [List.sum_cons]
+    cases i with
+    | zero =>
+      cases hx
+      cases hy
+      omega
+    | succ i =>
+      have := sum_lt_sum_of_getElem hlen' (fun i x y hx hy => h (i + 1) x y hx hy)
+        ⟨i, x, y, hx, hy, hxy⟩
+      omega
+
 theorem length_eraseDups {α : Type} [DecidableEq α] (l : List α) :
     l.eraseDups.length = l.toFinset.card := by
   rw [← List.toFinset_card_of_nodup (nodup_eraseDups l)]

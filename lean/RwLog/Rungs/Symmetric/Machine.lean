@@ -791,7 +791,9 @@ def setGroup (st : StateOf S N A) (i k : Nat) (f : Group N A → Group N A) : St
 
 /-- Each strategy of the group `k` of the table at `i` does its own work, in
 order. Returns what the work that did something cost, and whether anything
-was done. -/
+was done. Work that did something is charged one tick more than the kernel
+charged for it, so a group that did anything has spent something, at every
+kernel: the balance counts what was spent, and a kernel may charge nothing. -/
 def workStrats (whole : Bool) (i : Nat) (g : GoalOf S N) (k : Nat) (st : StateOf S N A) :
     M (StateOf S N A × Nat × Bool) :=
   let n := ((groupsAt st i)[k]?.map (·.strats.length)).getD 0
@@ -800,8 +802,9 @@ def workStrats (whole : Bool) (i : Nat) (g : GoalOf S N) (k : Nat) (st : StateOf
     | none => pure acc
     | some s => do
       let (r, t) ← K.metered (work (K := K) whole i g acc.1 s)
+      K.tick (if r.2.2 then 1 else 0)
       let st' := setGroup r.1 i k fun gr => { gr with strats := gr.strats.set j r.2.1 }
-      pure (st', if r.2.2 then acc.2.1 + t else acc.2.1, acc.2.2 || r.2.2))
+      pure (st', if r.2.2 then acc.2.1 + t + 1 else acc.2.1, acc.2.2 || r.2.2))
     (st, 0, false) (List.range n)
 
 /-- Each of the tables given has its round (`adv`). Returns `d` and how much
