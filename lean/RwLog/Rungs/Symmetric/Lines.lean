@@ -82,8 +82,10 @@ structure Line (need : N → Nat) (σ : Nat → StateOf S N A) (k r0 : Nat)
   adv : ∀ r, r0 ≤ r → Pointwise (SAdv (σ r).len) (L r) (L (r + 1))
   shape : (∃ s ∈ L r0, s.lead = true) ∨ ∀ s ∈ L r0, s.isCheck = true
   worked : ∀ r', ∃ r, r' ≤ r ∧ r0 ≤ r ∧
-    Pointwise (SStep need (σ r).len (σ r).isDone (σ r).depth (σ (r + 1)).depth) (L r) (L (r + 1)) ∧
     (∀ s ∈ L (r + 1), SFed (σ (r + 1)) s) ∧ ∃ s ∈ L r, s.dead (σ r) = false
+  stepped : ∀ m, m < (L r0).length → ∀ r', ∃ r, r' ≤ r ∧ r0 ≤ r ∧ ∃ s s',
+    (L r)[m]? = some s ∧ (L (r + 1))[m]? = some s' ∧
+    SStep need (σ r).len (σ r).isDone (σ r).depth (σ (r + 1)).depth s s'
 
 theorem Line.length {k r0 : Nat} {L : Nat → List (Strat N A)} (hL : Line need σ k r0 L)
     {r : Nat} (hr : r0 ≤ r) : (L r).length = (L r0).length := by
@@ -296,7 +298,7 @@ theorem Requests.lines (h : Requests need Rc σ) (k : Nat)
       obtain ⟨gr0, e0⟩ := hat r (by omega)
       obtain ⟨gr1, e1⟩ := hat (r + 1) (by omega)
       have hl0 := hlev r hr grm gr0 em e0
-      obtain ⟨-, -, ht | ⟨-, k', gr0', gr1', e0', e1', hlt, hrise⟩⟩ :=
+      obtain ⟨-, -, ht | ⟨-, -, k', gr0', gr1', e0', e1', hlt, hrise⟩⟩ :=
         (hst r (by omega)).2.2 hround m gr0 gr1 e0 e1
       · exact absurd ht (hno' r (by omega) (by omega) hround gr0 gr1 e0 e1)
       · refine sum_lt_sum_of_getElem (by simp [hlen r (by omega)]) (fun i a b ha hb => ?_)
@@ -333,7 +335,7 @@ theorem Requests.lines (h : Requests need Rc σ) (k : Nat)
     have h3 := hsum_lt r (by omega) hround
     have h4 := hbound (r + 1) (by omega)
     omega
-  refine ⟨?_, ?_, ?_, ?_⟩
+  refine ⟨?_, ?_, ?_, ?_, ?_⟩
   · intro r hr s hs
     obtain ⟨gr, hgr'⟩ := hat r hr
     obtain ⟨t, ht, hg⟩ := hgr r (by omega)
@@ -349,14 +351,73 @@ theorem Requests.lines (h : Requests need Rc σ) (k : Nat)
     simp only [e, Option.map_some, Option.getD_some]
     exact (h.shaped r0 k t _ ht hg).2 gr (List.mem_of_getElem? e)
   · intro r'
-    obtain ⟨r, hr, hr0', hround, gr0, gr1, e0, e1, hstp, hfed⟩ := hwork r'
-    refine ⟨r, hr, hr0', ?_, ?_, ?_⟩
-    · simp only [e0, e1, Option.map_some, Option.getD_some]
-      exact hstp
+    obtain ⟨r, hr, hr0', hround, gr0, gr1, e0, e1, -, hfed⟩ := hwork r'
+    refine ⟨r, hr, hr0', ?_, ?_⟩
     · simp only [e1, Option.map_some, Option.getD_some]
       exact hfed
     · simp only [e0, Option.map_some, Option.getD_some]
       exact ((hst r hr0').2.2 hround m gr0 gr1 e0 e1).1
+  · -- a strategy that never worked again would owe less and less for ever
+    intro q hq r'
+    obtain ⟨grs, es⟩ := hat r0 (Nat.le_refl _)
+    simp only [es, Option.map_some, Option.getD_some] at hq
+    have hlenq : ∀ r, r0 ≤ r → ∀ gr : Group N A, (groupsAt (σ r) k)[m]? = some gr →
+        gr.strats.length = grs.strats.length := by
+      intro r hr
+      obtain ⟨d, rfl⟩ := Nat.exists_eq_add_of_le hr
+      induction d with
+      | zero =>
+        intro gr e
+        rw [Nat.add_zero, es] at e
+        cases e
+        rfl
+      | succ d ih =>
+        intro gr e
+        obtain ⟨gr0, e0⟩ := hat (r0 + d) (by omega)
+        exact ((hst (r0 + d) (by omega)).1.2 m gr0 gr e0 e).1.symm.trans (ih (by omega) gr0 e0)
+    by_contra hno
+    have hno' : ∀ r, r' ≤ r → r0 ≤ r → ∀ (gr0 gr1 : Group N A) (s s' : Strat N A),
+        (groupsAt (σ r) k)[m]? = some gr0 → (groupsAt (σ (r + 1)) k)[m]? = some gr1 →
+        gr0.strats[q]? = some s → gr1.strats[q]? = some s' →
+        ¬ SStep need (σ r).len (σ r).isDone (σ r).depth (σ (r + 1)).depth s s' :=
+      fun r h1 h2 gr0 gr1 s s' e0 e1 hs hs' hstp => hno ⟨r, h1, h2, s, s', by
+        simp only [e0, Option.map_some, Option.getD_some]
+        exact hs, by
+        simp only [e1, Option.map_some, Option.getD_some]
+        exact hs', hstp⟩
+    have hdown : ∀ r, max r' r0 ≤ r → ∀ (gr0 gr1 : Group N A),
+        (groupsAt (σ r) k)[m]? = some gr0 → (groupsAt (σ (r + 1)) k)[m]? = some gr1 →
+        gr1.owed.getD q 0 ≤ gr0.owed.getD q 0 ∧
+          (Tried need (σ r) (σ (r + 1)) gr0 gr1 → gr1.owed.getD q 0 < gr0.owed.getD q 0) := by
+      intro r hr gr0 gr1 e0 e1
+      have hq0 : q < gr0.strats.length := by rw [hlenq r (by omega) gr0 e0]; exact hq
+      have hq1 : q < gr1.strats.length := by rw [hlenq (r + 1) (by omega) gr1 e1]; exact hq
+      have htr : Tried need (σ r) (σ (r + 1)) gr0 gr1 →
+          gr1.owed.getD q 0 < gr0.owed.getD q 0 := fun ht =>
+        (ht.1.2 q _ _ (List.getElem?_eq_getElem hq0) (List.getElem?_eq_getElem hq1)).resolve_left
+          (hno' r (by omega) (by omega) gr0 gr1 _ _ e0 e1 (List.getElem?_eq_getElem hq0)
+            (List.getElem?_eq_getElem hq1))
+      refine ⟨?_, htr⟩
+      by_cases hround : HadRound σ r k
+      · obtain ⟨-, -, ht | ⟨-, ho, -⟩⟩ := (hst r (by omega)).2.2 hround m gr0 gr1 e0 e1
+        · exact Nat.le_of_lt (htr ht)
+        · rw [ho]
+      · rw [(hst r (by omega)).2.1 hround, e0] at e1
+        cases e1
+        exact Nat.le_refl _
+    obtain ⟨r3, hr3, hflat⟩ := eventually_const
+      (fun r => (((groupsAt (σ r) k)[m]?).map fun gr => gr.owed.getD q 0).getD 0) (max r' r0)
+      fun r hr => by
+        obtain ⟨gr0, e0⟩ := hat r (by omega)
+        obtain ⟨gr1, e1⟩ := hat (r + 1) (by omega)
+        simp only [e0, e1, Option.map_some, Option.getD_some]
+        exact (hdown r hr gr0 gr1 e0 e1).1
+    obtain ⟨r, hr, -, -, gr0, gr1, e0, e1, htr⟩ := hwork r3
+    have h1 := hflat r hr
+    have h2 := hflat (r + 1) (by omega)
+    simp only [e0, e1, Option.map_some, Option.getD_some] at h1 h2
+    have := (hdown r (by omega) gr0 gr1 e0 e1).2 htr
+    omega
 
 /-- **A table that has rounds for ever has a group that works for ever.** -/
 theorem Requests.line (h : Requests need Rc σ) (k : Nat)
@@ -396,22 +457,24 @@ theorem Requests.race_done (h : Requests need Rc σ) (k : Nat)
           rw [hg r t ht, hh] at ha
           cases hgr : t.groups with
           | none =>
-            rcases ha ⟨0, 0⟩ (by simp [hgr]) with h1 | h1 | ⟨c, h1, h2⟩
+            rcases ha ⟨0, 0, 0⟩ (by simp [hgr]) with h1 | h1 | ⟨c, h1, h2⟩ | ⟨l, h1, -⟩
             · exact .inr ⟨_, h1.1, Nat.zero_le _⟩
             · rw [hnd' _ t' ht'] at h1; cases h1
             · refine .inr ⟨_, h1, ?_⟩
               rcases Nat.eq_zero_or_pos n with h0 | h0
               · subst h0; exact absurd hf h2
               · exact h0
+            · exact .inr ⟨_, h1, Nat.zero_le _⟩
           | some gs =>
             obtain ⟨rc, hrc, hle⟩ := (ih t ht).resolve_left (by rw [hgr]; exact fun e => by cases e)
-            rcases ha rc (by simp [hgr, hrc]) with h1 | h1 | ⟨c, h1, h2⟩
+            rcases ha rc (by simp [hgr, hrc]) with h1 | h1 | ⟨c, h1, h2⟩ | ⟨l, h1, -⟩
             · exact .inr ⟨_, h1.1, hle⟩
             · rw [hnd' _ t' ht'] at h1; cases h1
             · refine .inr ⟨_, h1, ?_⟩
               rcases Nat.lt_or_eq_of_le hle with hlt | he
               · exact hlt
               · rw [he] at h2; exact absurd hf h2
+            · exact .inr ⟨_, h1, hle⟩
         · rw [(h.req r).groups k t t' ht ht' (.inr hs), ((h.req r).race k t t' ht ht' (.inr hs)).1]
           exact ih t ht
   -- from some state on the table has groups
@@ -420,7 +483,7 @@ theorem Requests.race_done (h : Requests need Rc σ) (k : Nat)
   have hgr : ∀ r, r0 ≤ r → ∃ (t : Table S N A) (gs : List (Group N A)),
       (σ r).tables[k]? = some t ∧ t.groups = some gs := by
     intro r hr
-    obtain ⟨r1, -, hr1, -, -, s1, hs1, -⟩ := hL.worked 0
+    obtain ⟨r1, -, hr1, -, s1, hs1, -⟩ := hL.worked 0
     have hlen : 0 < ((((groupsAt (σ r) k)[0]?).map (·.strats)).getD []).length := by
       rw [hL.length hr, ← hL.length hr1]
       exact List.length_pos_of_mem hs1
@@ -428,15 +491,19 @@ theorem Requests.race_done (h : Requests need Rc σ) (k : Nat)
     obtain ⟨t, gs, -, ht, hgs, -⟩ := hL.mem r hr s hs
     exact ⟨t, gs, ht, hgs⟩
   -- the race is asked again, and cannot stand deeper for ever
-  have main : ∀ d m r (t : Table S N A) (rc : Race), r0 ≤ r → (σ r).tables[k]? = some t →
-      t.race = some rc → rc.depth ≤ n → n - rc.depth ≤ d → rc.spent - t.rounds ≤ m → False := by
+  have main : ∀ d e m r (t : Table S N A) (rc : Race), r0 ≤ r → (σ r).tables[k]? = some t →
+      t.race = some rc → rc.depth ≤ n → n - rc.depth ≤ d → Rc.cost g rc.depth - rc.gaveUp ≤ e →
+      rc.spent + max 1 (2 * rc.gaveUp) - t.rounds ≤ m → False := by
     intro d
     induction d using Nat.strong_induction_on with
     | _ d ihd =>
+      intro e
+      induction e using Nat.strong_induction_on with
+      | _ e ihe =>
       intro m
       induction m using Nat.strong_induction_on with
       | _ m ihm =>
-        intro r t rc hr ht hrc hle hd hm
+        intro r t rc hr ht hrc hle hd he hm
         -- the next round of the table
         classical
         let r2 := Nat.find (hinf r)
@@ -462,21 +529,25 @@ theorem Requests.race_done (h : Requests need Rc σ) (k : Nat)
         rw [ht2] at ht2'
         cases ht2'
         obtain ⟨hrd, ha⟩ := (h.req r2).asked k t2 t' ht2 ht' hs'
-        rcases ha rc (by simp [hgs2, e1, hrc]) with h1 | h1 | ⟨c, h1, h2⟩
-        · exact ihm (rc.spent - t'.rounds) (by omega) (r2 + 1) t' rc (by omega) ht' h1.1 hle hd
-            (Nat.le_refl _)
+        rcases ha rc (by simp [hgs2, e1, hrc]) with h1 | h1 | ⟨c, h1, h2⟩ | ⟨l, h1, h2, h3⟩
+        · exact ihm (rc.spent + max 1 (2 * rc.gaveUp) - t'.rounds) (by omega) (r2 + 1) t' rc
+            (by omega) ht' h1.1 hle hd he (Nat.le_refl _)
         · rw [hnd' _ t' ht'] at h1; cases h1
         · rw [hg r2 t2 ht2] at h2
           have hlt : rc.depth < n := by
             rcases Nat.lt_or_eq_of_le hle with hlt | he
             · exact hlt
             · rw [he] at h2; exact absurd hf h2
-          exact ihd (n - (rc.depth + 1)) (by omega) _ (r2 + 1) t' _ (by omega) ht' h1 hlt
+          exact ihd (n - (rc.depth + 1)) (by omega) _ _ (r2 + 1) t' _ (by omega) ht' h1 hlt
+            (Nat.le_refl _) (Nat.le_refl _) (Nat.le_refl _)
+        · rw [hg r2 t2 ht2] at h3
+          exact ihe (Rc.cost g rc.depth - l) (by omega) _ (r2 + 1) t' _ (by omega) ht' h1 hle hd
             (Nat.le_refl _) (Nat.le_refl _)
   obtain ⟨t, gs, ht, hgs⟩ := hgr r0 (Nat.le_refl _)
   rcases inv r0 t ht with hn | ⟨rc, hrc, hle⟩
   · rw [hgs] at hn; cases hn
-  · exact main _ _ r0 t rc (Nat.le_refl _) ht hrc hle (Nat.le_refl _) (Nat.le_refl _)
+  · exact main _ _ _ r0 t rc (Nat.le_refl _) ht hrc hle (Nat.le_refl _) (Nat.le_refl _)
+      (Nat.le_refl _)
 
 end Symmetric
 
