@@ -217,6 +217,14 @@ def keyLt : List (Nat × Nat × Nat) → List (Nat × Nat × Nat) → Bool
     else decide (x.1 < y.1) || (decide (x.1 = y.1) &&
       (decide (x.2.1 < y.2.1) || (decide (x.2.1 = y.2.1) && decide (x.2.2 < y.2.2))))
 
+/-- Of the entries of a list, the first that no other comes before in the
+order given. -/
+def chooseBy {α : Type} (lt : α → α → Bool) (l : List α) : Option α :=
+  l.foldl (fun best p =>
+    match best with
+    | none => some p
+    | some b => if lt p b then some p else some b) none
+
 /-- The next pair of positions to combine in two tables whose answers have
 the paths `pa` and `pb`, if one is left. The ticks of a join are shared among
 the classes as a union shares its ticks among its members: of the classes of
@@ -225,11 +233,8 @@ to a single class, where the pair of the earliest answers is taken. So a pair
 waits for the pairs of other choices by the number of members at each choice
 on the way to it, and not by how many answers the other members have. -/
 def Cursor.next (pa pb : List Path) (c : Cursor) : Option (Nat × Nat) :=
-  let key := fun (p : Nat × Nat) => c.keyOf (pa.getD p.1 []) (pb.getD p.2 [])
-  (c.left pa.length pb.length).foldl (fun best p =>
-    match best with
-    | none => some p
-    | some b => if keyLt (key p) (key b) then some p else some b) none
+  chooseBy (fun p b => keyLt (c.keyOf (pa.getD p.1 []) (pb.getD p.2 []))
+    (c.keyOf (pa.getD b.1 []) (pb.getD b.2 []))) (c.left pa.length pb.length)
 
 /-- The cursor after the pair `p` was combined at `t` ticks: every class of
 the pair has been fed that much. -/
