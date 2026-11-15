@@ -7,13 +7,19 @@ counterexample to the wording it replaced.
 
 * `Alternative.semAt_subset`: an alternative of a query relates only pairs
   the query relates, so the bound compares two runs that owe the same pair.
-* `CostedRuntime.paid_le_steps`: what `n` steps cost is at most `n` times the
-  dearest of them. With `Fair.flat` this is the bound in ticks: a pair an
-  alternative covers within `n` ticks alone is covered within `c * n` steps,
-  each costing at most what the dearest round so far cost
-  (`Fair.flat_ticks`).
 * `Runtime.FinalMaximal.maximal`: under `FinalMaximal` every reported answer
   is maximal among the emitted ones.
+
+## The size term
+
+`Fair.share` allows, beside the cost on the alternative, what loading the
+whole input is charged. It first allowed the size of the input
+(`ShareLinear`). `shareLinear_false`: no machine that pays the loading charge
+when it starts, and covers some pair of some span, has that statement, and
+every machine made of an engine pays it (`Engine.costedAt_load_le`). The
+inputs are `wide s m`, the union of `m + 1` copies of the span: the
+alternative is the span alone, so its cost does not grow with `m`, and
+loading the union costs the square of its size.
 
 ## The first wording
 
@@ -64,62 +70,6 @@ theorem Alternative.semAt_subset {P : Program} {q q' : Rel} {f : Nat} (h : Alter
   | @call n e' f _ ih =>
     refine ih.trans (le_of_eq ?_)
     exact (P.meaningAt_eq M n).symm
-
-/-! ## The flat bound in ticks -/
-
-namespace CostedRuntime
-
-variable (C : CostedRuntime)
-
-/-- The ticks of the dearest of the first `n` steps. -/
-def dearest : C.State → Nat → Nat
-  | _, 0 => 0
-  | s, n + 1 =>
-    max (C.step s).ticks (match (C.step s).val with
-      | .emit _ s' => dearest s' n
-      | .progress _ s' => dearest s' n
-      | .done _ => 0)
-
-/-- What `n` steps cost is at most `n` times the dearest of them. -/
-theorem spent_le_steps : ∀ (n : Nat) (s : C.State), C.spent s n ≤ n * C.dearest s n
-  | 0, _ => Nat.le_refl 0
-  | n + 1, s => by
-    have h1 : (C.step s).ticks ≤ C.dearest s (n + 1) := le_max_left _ _
-    cases hs : (C.step s).val with
-    | emit as s' =>
-      have h2 : C.dearest s' n ≤ C.dearest s (n + 1) := by
-        simp only [dearest, hs]; exact le_max_right _ _
-      rw [C.spent_succ_emit hs]
-      have := spent_le_steps n s'
-      have := Nat.mul_le_mul_left n h2
-      rw [Nat.succ_mul]; omega
-    | progress k s' =>
-      have h2 : C.dearest s' n ≤ C.dearest s (n + 1) := by
-        simp only [dearest, hs]; exact le_max_right _ _
-      rw [C.spent_succ_progress hs]
-      have := spent_le_steps n s'
-      have := Nat.mul_le_mul_left n h2
-      rw [Nat.succ_mul]; omega
-    | done fin =>
-      rw [C.spent_succ_done hs, Nat.succ_mul]; omega
-
-theorem paid_le_steps (P : Program) (q : Rel) (n : Nat) :
-    C.paid P q n ≤ (C.init P q).ticks + n * C.dearest (C.start P q) n :=
-  Nat.add_le_add_left (C.spent_le_steps n _) _
-
-end CostedRuntime
-
-/-- The flat bound in ticks: a pair an alternative covers within `n` ticks
-when run alone is covered by the time the machine has paid for building its
-first state and for `m ≤ c * n` steps, each at most the dearest of them. -/
-theorem Fair.flat_ticks {C : CostedRuntime} {c : Nat} (h : Fair C c) {P : Program} {q q' : Rel}
-    {f : Nat} (hwf : P.WellFormed q) (ha : Alternative P q q' f)
-    {x : GTerm × GTerm} {n : Nat} (hx : C.Covered P q' P.sorts.interp x n) :
-    ∃ m, m ≤ c * C.paid P q' n ∧
-      C.CoversWithin P q P.sorts.interp x
-        ((C.init P q).ticks + m * C.dearest (C.start P q) m) := by
-  obtain ⟨m, hm, hc⟩ := h.flat P q q' f hwf ha x n hx
-  exact ⟨m, hm, m, hc, C.paid_le_steps P q m⟩
 
 /-! ## The final report -/
 
@@ -551,5 +501,102 @@ theorem firstWording_false (State : Type) (init : Program → Rel → Cost State
     rw [prog_size]; omega
   have := Nat.mul_le_mul_left coeff (Nat.pow_le_pow_left hsize deg)
   omega
+
+/-! ## The size term -/
+
+/-- The union of `m + 1` copies of a span. -/
+def wide (s : Span) : Nat → Rel
+  | 0 => .span s
+  | m + 1 => .or (.span s) (wide s m)
+
+theorem wide_spans (s : Span) : ∀ m, ∀ t ∈ (wide s m).spans, t = s
+  | 0, t, h => List.mem_singleton.1 h
+  | m + 1, t, h => by
+    rcases List.mem_append.1 h with h | h
+    · exact List.mem_singleton.1 h
+    · exact wide_spans s m t h
+
+theorem wide_calls (s : Span) : ∀ m, (wide s m).calls = []
+  | 0 => rfl
+  | m + 1 => by show ([] : List Name) ++ (wide s m).calls = []; rw [wide_calls s m]; rfl
+
+theorem wide_members_length (s : Span) : ∀ m, (wide s m).members.length = m + 1
+  | 0 => rfl
+  | m + 1 => by
+    show ([RelOf.span s] ++ (wide s m).members).length = m + 1 + 1
+    rw [List.length_append, wide_members_length s m, List.length_singleton]; omega
+
+theorem wide_size (s : Span) : ∀ m, m + 1 ≤ (wide s m).size
+  | 0 => by show 1 ≤ 1 + s.size; omega
+  | m + 1 => by
+    have := wide_size s m
+    show m + 1 + 1 ≤ 1 + (1 + s.size) + (wide s m).size; omega
+
+theorem wide_wellFormed {P : Program} {s : Span} (h : P.WellFormed (.span s)) (m : Nat) :
+    P.WellFormed (wide s m) := by
+  obtain ⟨h₁, h₂, h₃, h₄⟩ := h
+  refine ⟨h₁, fun n hn => h₂ n ?_, h₃, fun t ht => ?_⟩
+  · rw [wide_calls] at hn; exact hn
+  · rcases List.mem_append.1 ht with ht | ht
+    · exact h₄ t (List.mem_append_left _ (by rw [wide_spans s m t ht]; exact List.mem_singleton_self s))
+    · exact h₄ t (List.mem_append_right _ ht)
+
+/-- The span alone is an alternative of the union of its copies, with a
+factor that is at most the size of the union. -/
+theorem wide_alternative (P : Program) (s : Span) :
+    ∀ m, ∃ f, Alternative P (wide s m) (.span s) f ∧ f ≤ (wide s m).size
+  | 0 => ⟨1, .same _, wide_size s 0⟩
+  | m + 1 => by
+    refine ⟨(wide s (m + 1)).members.length * 1,
+      .pick (a := .span s) (b := wide s m) (List.mem_append_left _ (List.mem_singleton_self _))
+        (.same _), ?_⟩
+    rw [Nat.mul_one, wide_members_length]
+    exact wide_size s (m + 1)
+
+/-- The fairness bound with the size of the input where `Fair.share` has the
+charge for loading it. -/
+def ShareLinear (C : CostedRuntime) (c : Nat) : Prop :=
+  ∀ P q q' f, P.WellFormed q → Alternative P q q' f →
+    ∀ x n, C.Covered P q' P.sorts.interp x n →
+      C.CoversWithin P q P.sorts.interp x (c * (f * C.paid P q' n + P.size + q.size))
+
+/-- A machine that pays the loading charge when it starts, and covers some
+pair of some span, does not have the bound with the size of the input,
+whatever the constant. -/
+theorem shareLinear_false (C : CostedRuntime)
+    (hload : ∀ P q, (Charged.load P q).ticks ≤ (C.init P q).ticks)
+    {P : Program} {s : Span} (hwf : P.WellFormed (.span s)) {x : GTerm × GTerm} {n : Nat}
+    (hc : C.Covered P (.span s) P.sorts.interp x n) (c : Nat) : ¬ ShareLinear C c := by
+  intro h
+  set N := C.paid P (.span s) n with hN
+  set m := c * (N + 1) with hm
+  obtain ⟨f, halt, hf⟩ := wide_alternative P s m
+  obtain ⟨k, -, hk⟩ := h P (wide s m) (.span s) f (wide_wellFormed hwf m) halt x n hc
+  have hsz := wide_size s m
+  set S := (wide s m).size with hS
+  set T := P.size + S with hT
+  have hpaid : T ^ 2 ≤ C.paid P (wide s m) k :=
+    (hload P (wide s m)).trans (Nat.le_add_right _ _)
+  have hbound : c * (f * N + P.size + S) ≤ c * (N + 1) * T := by
+    rw [Nat.mul_assoc]
+    refine Nat.mul_le_mul_left c ?_
+    calc f * N + P.size + S ≤ S * N + P.size + S := by
+          have := Nat.mul_le_mul_right N hf; omega
+      _ ≤ (N + 1) * T := by
+          rw [hT, Nat.add_mul, Nat.mul_add, Nat.mul_add, Nat.one_mul, Nat.mul_comm N S]
+          have := Nat.zero_le (N * P.size); omega
+  have hTT : T * T ≤ m * T := by
+    rw [← Nat.pow_two]; exact hpaid.trans (hk.trans hbound)
+  have hTpos : 0 < T := by omega
+  have := Nat.le_of_mul_le_mul_right hTT hTpos
+  omega
+
+/-- Every machine made of an engine pays the loading charge when it
+starts. -/
+theorem Engine.costedAt_load_le (E : Engine) {R : Sorts → Type} [∀ S, Answer (R S)]
+    [∀ S, DecidableEq (R S)] (dom : ∀ S, Domain (R S)) (K : ∀ S, Kernel (R S) Cost)
+    (hK : ∀ S, (K S).Refines (dom S)) (P : Program) (q : Rel) :
+    (Charged.load P q).ticks ≤ ((E.costedAt dom K hK).init P q).ticks :=
+  Nat.le_add_right _ _
 
 end RwLog
