@@ -103,19 +103,13 @@ def requests (p : Program × Rel) (fuel : Nat) : Option Nat × Option Nat :=
   ((tr.findIdx? fun l => !l.isEmpty && l.head? != some "final").map (· + 1),
    tr.findIdx? fun l => l.head? == some "final")
 
--- Counting down: the answer at request `2k + 9`, the halt after about
--- `7k + 10`. (Without the interface check and without the tick the engine
--- charges itself for a unit of work they were `2k + 7` and `5k + 9`, which
--- are the prototype's numbers without the check; with the check the
--- prototype has `2k + 7` and `6k + 8`. The prototype reads an edge at no
--- charge and at once. The engine pays for the reading, and learns the depth
--- of the program in its first requests.)
--- The figures for `k = 8` and `k = 12` are five requests under those of the
--- engine without the unfolding race, which were 66 and 93.
-#guard requests (countdown 2) 60 == (some 13, some 25)
-#guard requests (countdown 4) 60 == (some 17, some 38)
-#guard requests (countdown 8) 80 == (some 25, some 61)
-#guard requests (countdown 12) 120 == (some 33, some 88)
+-- Counting down: the answer at request `2k + 9`, the halt at `6k + 11`.
+-- (The prototype reads an edge at no charge and at once. The engine pays for
+-- the reading, and learns the depth of the program in its first requests.)
+#guard requests (countdown 2) 60 == (some 13, some 23)
+#guard requests (countdown 4) 60 == (some 17, some 35)
+#guard requests (countdown 8) 80 == (some 25, some 59)
+#guard requests (countdown 12) 120 == (some 33, some 83)
 #guard exact (runE SE (countdown 4).1 (countdown 4).2 60) ["(s (s (s (s z)))) -> z"]
 
 -- Members that never finish do not delay the answer beyond the `2k + 9`
@@ -144,8 +138,8 @@ def clash (ids : Bool) : Program × Rel :=
 
 #guard exact (runE SE (clash false).1 (clash false).2 40) []
 #guard exact (runE SE (clash true).1 (clash true).2 40) []
-#guard (requests (clash false) 40).2 == some 11
-#guard (requests (clash true) 40).2 == some 9
+#guard (requests (clash false) 40).2 == some 8
+#guard (requests (clash true) 40).2 == some 10
 -- The same clash below a union and beside a member that has answers.
 #guard exact (runE SE (clash false).1 (.or (clash false).2 (.at_ (c "a"))) 40) ["a -> a"]
 -- A side whose every product ends in the same constructor, read through a
@@ -179,9 +173,9 @@ def deepP : Program := prog [
 
 /-! ## Units that starve nothing
 
-Where a goal has several groups a strategy does one unit of work at a time,
-and the tables it reads may grow faster than it reads them. Whatever it has
-to do must still be reached. -/
+A strategy works one unit at a time, as many units as its turn allows, and
+the tables it reads may grow faster than it reads them. Whatever it has to
+do must still be reached. -/
 
 /-- The pairs a join combines in its first `n` units, when its two sides hold
 `la t` and `lb t` answers before unit `t`. -/

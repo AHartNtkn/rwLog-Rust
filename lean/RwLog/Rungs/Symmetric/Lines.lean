@@ -6,14 +6,17 @@ A run is a sequence of states, each a request after the one before
 (`HadRound`): the list of its groups stops shrinking, and then every one of
 its groups works in infinitely many requests (`Requests.lines`). `Line` is a
 group through time: its strategies, each later than itself before (`SAdv`),
-all of them worked again and again (`SStep`) with the tables they read
-settled, and never all dead; and the group has a span, a call, a union or a
-join, or is all interface checks.
+each of them working again and again (`SStep`), the tables they read settled
+again and again, and never all dead; and the group has a span, a call, a
+union or a join, or is all interface checks.
 
-That every group works is the balance (`Balanced`, `Turns.lean`): in a round
-a group worked, or it stands as it stood while a group below it rose. A
-group that never works again keeps its level, and what the groups hold
-below that level then grows in every round and cannot grow for ever.
+That every group has its turn is the balance (`Balanced`, `Turns.lean`): in
+a round a group worked, or it stands as it stood while a group below it
+rose. A group that never works again keeps its level, and what the groups
+hold below that level then grows in every round and cannot grow for ever.
+When a group works, each of its strategies has worked or owes less than it
+did (`OStep`), and it owes the same when the group does not work. What a
+strategy owes cannot fall for ever, so it works again.
 
 Nothing here is about a kernel.
 -/
@@ -444,8 +447,11 @@ theorem Requests.line (h : Requests need Rc σ) (k : Nat)
 /-- **A table that has rounds for ever and a race with a final verdict at
 some depth completes.** The race begins at depth zero in the first round of
 the table and is asked again whenever the table has had as many rounds as
-the race has spent; it stands one depth further each time it is asked, so it
-is asked at the depth of the final verdict. -/
+the race has spent and needs for its next ask. An ask it can pay for moves
+it one depth further. An ask it cannot pay for it gives up, and it is then
+allowed more than it gave up before and less than the ask costs, which
+cannot happen for ever at one depth. So it is asked at the depth of the
+final verdict. -/
 theorem Requests.race_done (h : Requests need Rc σ) (k : Nat)
     (hinf : ∀ r', ∃ r, r' ≤ r ∧ HadRound σ r k) {g : GoalOf S N} {n : Nat}
     (hg : ∀ (r : Nat) (t : Table S N A), (σ r).tables[k]? = some t → t.goal = g)
