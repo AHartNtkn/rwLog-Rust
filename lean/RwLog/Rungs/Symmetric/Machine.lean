@@ -162,53 +162,85 @@ export Goals (GoalOf GoalOf.mk GoalOf.lb GoalOf.node GoalOf.rb toGoal Kind Kind.
   andSplits
   sameBound same indexFrom coversA maxima both)
 
-/-- The cursor of a join. Every pair of the first `na` answers of the one side
-and the first `nb` of the other is combined. A *line* is the pairs of the
-next answer of one side with the answers of the other side counted so far.
-`inner` pairs of the line in progress are combined, and `col` says the line
-is of the second side. With `inner = 0` no line is in progress. -/
+/-- Where an answer came from: for each union on the way to it, the member
+chosen and the number of members, the outermost union first. -/
+abbrev Path := List (Nat × Nat)
+
+/-- The cursor of a join: the pairs of positions it has combined, and for
+each class of pairs the ticks spent on pairs of the class. A *class* is given
+by the beginning of the path of the first answer and, once that path is whole,
+the beginning of the path of the second: the pairs whose answers came from
+those choices. A class has no work but that of its pairs. -/
 structure Cursor where
-  na : Nat
-  nb : Nat
-  inner : Nat
-  col : Bool
+  done : List (Nat × Nat)
+  fed : List ((Path × Path) × Nat)
   deriving DecidableEq, Repr
 
 /-- The cursor of a join that has combined nothing. -/
-def Cursor.start : Cursor := ⟨0, 0, 0, false⟩
+def Cursor.start : Cursor := ⟨[], []⟩
 
-/-- The next pair of positions to combine in tables of `la` and `lb`
-answers, if one is left, and the cursor after it. A line in progress is
-finished before another is begun, whatever the tables have gained since: its
-pairs are of answers counted when it began. When no line is in progress and
-both sides have an answer not yet counted, the line of the side with fewer
-counted is begun, so neither side waits for the other to run out. A line all
-of whose pairs are combined is counted in. The first argument counts the
-answers not yet counted in, and is never used up. -/
-def Cursor.next (la lb : Nat) : Nat → Cursor → Option (Nat × Nat) × Cursor
-  | 0, c => (none, c)
-  | f + 1, c =>
-    let col :=
-      if c.inner = 0 then
-        (if c.na < la ∧ c.nb < lb then decide (c.nb < c.na) else decide (¬ c.na < la))
-      else c.col
-    if col then
-      if c.nb < lb then
-        if c.inner < c.na then (some (c.inner, c.nb), { c with inner := c.inner + 1, col := true })
-        else Cursor.next la lb f ⟨c.na, c.nb + 1, 0, false⟩
-      else (none, c)
-    else
-      if c.na < la then
-        if c.inner < c.nb then
-          (some (c.na, c.inner), { c with inner := c.inner + 1, col := false })
-        else Cursor.next la lb f ⟨c.na + 1, c.nb, 0, false⟩
-      else (none, c)
+/-- The pairs of positions below `la` and `lb`, a pair of earlier answers
+first: by the greater position, so that finitely many pairs come before any
+pair whatever the tables gain. -/
+def pairsBelow (la lb : Nat) : List (Nat × Nat) :=
+  ((List.range (max la lb)).flatMap fun n =>
+    ((List.range n).map fun i => (i, n)) ++ ((List.range (n + 1)).map fun j => (n, j))).filter
+    fun p => decide (p.1 < la) && decide (p.2 < lb)
 
-/-- What `Cursor.next` is given to count down. -/
-def Cursor.room (la lb : Nat) (c : Cursor) : Nat := (la - c.na) + (lb - c.nb) + 1
+/-- The pairs still to combine in tables of `la` and `lb` answers. -/
+def Cursor.left (la lb : Nat) (c : Cursor) : List (Nat × Nat) :=
+  (pairsBelow la lb).filter fun p => !c.done.contains p
+
+/-- What a class has been fed. -/
+def Cursor.fedOf (c : Cursor) (k : Path × Path) : Nat :=
+  ((c.fed.find? fun e => e.1 = k).map (·.2)).getD 0
+
+/-- The classes of a pair of answers with the paths `u` and `v`, the widest
+first, each with the choice that tells it from its siblings. -/
+def classesOf (u v : Path) : List ((Path × Path) × (Nat × Nat)) :=
+  (u.zipIdx.map fun e => ((u.take (e.2 + 1), []), e.1)) ++
+    (v.zipIdx.map fun e => ((u, v.take (e.2 + 1)), e.1))
+
+/-- The classes of a pair, each with what it has been fed and its choice. -/
+def Cursor.keyOf (c : Cursor) (u v : Path) : List (Nat × Nat × Nat) :=
+  (classesOf u v).map fun e => (c.fedOf e.1, e.2)
+
+/-- The order of the keys of two pairs: at the first class in which they
+differ, the class fed less is first, and of two fed alike the earlier
+member. -/
+def keyLt : List (Nat × Nat × Nat) → List (Nat × Nat × Nat) → Bool
+  | [], [] => false
+  | [], _ :: _ => true
+  | _ :: _, [] => false
+  | x :: xs, y :: ys =>
+    if x = y then keyLt xs ys
+    else decide (x.1 < y.1) || (decide (x.1 = y.1) &&
+      (decide (x.2.1 < y.2.1) || (decide (x.2.1 = y.2.1) && decide (x.2.2 < y.2.2))))
+
+/-- The next pair of positions to combine in two tables whose answers have
+the paths `pa` and `pb`, if one is left. The ticks of a join are shared among
+the classes as a union shares its ticks among its members: of the classes of
+one choice that have a pair left, the one fed least is served, and so on down
+to a single class, where the pair of the earliest answers is taken. So a pair
+waits for the pairs of other choices by the number of members at each choice
+on the way to it, and not by how many answers the other members have. -/
+def Cursor.next (pa pb : List Path) (c : Cursor) : Option (Nat × Nat) :=
+  let key := fun (p : Nat × Nat) => c.keyOf (pa.getD p.1 []) (pb.getD p.2 [])
+  (c.left pa.length pb.length).foldl (fun best p =>
+    match best with
+    | none => some p
+    | some b => if keyLt (key p) (key b) then some p else some b) none
+
+/-- The cursor after the pair `p` was combined at `t` ticks: every class of
+the pair has been fed that much. -/
+def Cursor.mark (pa pb : List Path) (c : Cursor) (p : Nat × Nat) (t : Nat) : Cursor :=
+  ⟨c.done ++ [p], (classesOf (pa.getD p.1 []) (pb.getD p.2 [])).foldl (fun fed e =>
+    match fed.find? fun x => x.1 = e.1 with
+    | some _ => fed.map fun x => if x.1 = e.1 then (x.1, x.2 + t) else x
+    | none => fed ++ [(e.1, t)]) c.fed⟩
 
 /-- Is a pair left to combine? -/
-def Cursor.pending (la lb : Nat) (c : Cursor) : Bool := decide (c.na < la) || decide (c.nb < lb)
+def Cursor.pending (la lb : Nat) (c : Cursor) : Bool := !(c.left la lb).isEmpty
 
 /-- The state of an interface check: its side is still to be read; it is not
 offered; or the tables of the goals opened for the interfaces. -/
@@ -277,6 +309,7 @@ structure Table (S N A : Type) where
   own : Nat
   rounds : Nat
   fed : Nat
+  paths : List Path
 
 /-- The machine state: the tables, the root first, the number of requests
 made, how many answers of the root table have been emitted, and the edges
@@ -299,6 +332,12 @@ def StateOf.modify {S N A : Type} (st : StateOf S N A) (i : Nat)
 def StateOf.answers {S N A : Type} (st : StateOf S N A) (i : Nat) : List A :=
   match st.tables[i]? with
   | some t => t.answers
+  | none => []
+
+/-- The paths of the answers of the table at a position. -/
+def StateOf.pathsAt {S N A : Type} (st : StateOf S N A) (i : Nat) : List Path :=
+  match st.tables[i]? with
+  | some t => t.paths
   | none => []
 
 /-- Is the goal of the table at a position its own converse? -/
@@ -446,31 +485,32 @@ def openGoal (st : StateOf S N A) (g : GoalOf S N) : M (StateOf S N A × Nat) :=
   | some i => pure (st, i)
   | none => do
     let self ← selfConverse (K := K) g
-    pure ({ st with tables := st.tables ++ [⟨g, self, [], false, none, st.round, 0, 0, none, 0, 0, 0⟩] },
+    pure ({ st with tables := st.tables ++ [⟨g, self, [], false, none, st.round, 0, 0, none, 0, 0, 0, []⟩] },
       st.tables.length)
 
 /-- Put an answer in the table at `i`, unless an answer there covers it. -/
-def addOne (i : Nat) (st : StateOf S N A) (a : A) : M (StateOf S N A × Bool) := do
+def addOne (i : Nat) (st : StateOf S N A) (pth : Path) (a : A) : M (StateOf S N A × Bool) := do
   let b ← anyL (fun y => coversA (K := K) y a) (st.answers i)
   pure (if b then (st, false)
-    else (st.modify i fun t => { t with answers := t.answers ++ [a] }, true))
+    else (st.modify i fun t =>
+      { t with answers := t.answers ++ [a], paths := t.paths ++ [pth] }, true))
 
 /-- Put an answer in the table at `i`, unless an answer there covers it. In
 the table of a goal that is its own converse the converse of the answer is
 an answer too, and goes in with it: such a table holds the converse of
 everything it holds, at every moment. -/
-def addAnswer (i : Nat) (st : StateOf S N A) (a : A) : M (StateOf S N A) := do
-  let (st, added) ← addOne (K := K) i st a
+def addAnswer (i : Nat) (st : StateOf S N A) (pth : Path) (a : A) : M (StateOf S N A) := do
+  let (st, added) ← addOne (K := K) i st pth a
   if added && st.isSelf i then do
     let a' ← K.swapA a
-    let (st, _) ← addOne (K := K) i st a'
+    let (st, _) ← addOne (K := K) i st pth a'
     pure st
   else pure st
 
 /-- Put what a rule returned, if anything, in the table at `i`. -/
-def addOption (i : Nat) (st : StateOf S N A) : Option A → M (StateOf S N A)
+def addOption (i : Nat) (st : StateOf S N A) (pth : Path) : Option A → M (StateOf S N A)
   | none => pure st
-  | some a => addAnswer (K := K) i st a
+  | some a => addAnswer (K := K) i st pth a
 
 /-! ## The strategies of a goal -/
 
@@ -712,20 +752,20 @@ def expand (g : GoalOf S N) (st : StateOf S N A) : M (StateOf S N A × List (Gro
 /-- A call or a union takes in the answers of the table at `j` from the
 position `pos`, each by its rule; `m` is the place of the member in the
 union. -/
-def copyFrom (i : Nat) (g : GoalOf S N) (isCall : Bool) (m : Nat) (st : StateOf S N A)
-    (as : List A) : M (StateOf S N A) :=
+def copyFrom (i : Nat) (g : GoalOf S N) (isCall : Bool) (m : Nat) (pth : Path)
+    (st : StateOf S N A) (as : List A) : M (StateOf S N A) :=
   foldL (fun st a => do
     let c ← if isCall then K.unfold a g.node else K.inj a g.node m
-    addOption (K := K) i st c) st as
+    addOption (K := K) i st pth c) st as
 
 /-- Combine the pairs at the positions given. -/
-def joinPairs (i : Nat) (k : Kind) (xs ys : List A) (st : StateOf S N A)
+def joinPairs (i : Nat) (k : Kind) (xs ys : List A) (pa pb : List Path) (st : StateOf S N A)
     (ps : List (Nat × Nat)) : M (StateOf S N A) :=
   foldL (fun st p =>
     match xs[p.1]?, ys[p.2]? with
     | some x, some y => do
       let c ← both (K := K) k x y
-      addOption (K := K) i st c
+      addOption (K := K) i st (pa.getD p.1 [] ++ pb.getD p.2 []) c
     | _, _ => pure st) st ps
 
 /-- Open the goal of each answer that is pushed. -/
@@ -738,11 +778,11 @@ def pushOpen (g : GoalOf S N) (other : N) (k : Kind) (left : Bool) (st : StateOf
 
 /-- Combine an answer that was pushed with the answers given of the goal
 opened for it. -/
-def pushTake (i : Nat) (k : Kind) (left : Bool) (x : A) (st : StateOf S N A) (ys : List A) :
-    M (StateOf S N A) :=
+def pushTake (i : Nat) (k : Kind) (left : Bool) (x : A) (pth : Path) (st : StateOf S N A)
+    (ys : List A) : M (StateOf S N A) :=
   foldL (fun st y => do
     let c ← pushed (K := K) k left x y
-    addOption (K := K) i st c) st ys
+    addOption (K := K) i st pth c) st ys
 
 /-- Open the other side of a split under each interface of a check. -/
 def checkOpen (g : GoalOf S N) (left : Bool) (other : N) (st : StateOf S N A) (ps : List S) :
@@ -760,23 +800,30 @@ def work (i : Nat) (g : GoalOf S N) (st : StateOf S N A) :
   | .span true => pure (st, .span true, false)
   | .span false => do
     let a ← K.leaf g.lb g.node g.rb
-    let st ← addOption (K := K) i st a
+    let st ← addOption (K := K) i st [] a
     pure (st, .span true, true)
   | .copy isCall subs =>
     match leastBy (fun p => p.1.2) (fun p => decide (p.1.2 < (st.answers p.1.1).length))
         subs.zipIdx with
     | none => pure (st, .copy isCall subs, false)
     | some p => do
-      let st' ← copyFrom (K := K) i g isCall p.2 st (((st.answers p.1.1).drop p.1.2).take 1)
+      let pth := (st.pathsAt p.1.1).getD p.1.2 []
+      let st' ← copyFrom (K := K) i g isCall p.2
+        (if isCall then pth else (p.2, subs.length) :: pth) st
+        (((st.answers p.1.1).drop p.1.2).take 1)
       pure (st', .copy isCall (subs.modify p.2 fun q => (q.1, q.2 + 1)), true)
   | .join k a b c =>
     let xs := st.answers a
     let ys := st.answers b
-    match Cursor.next xs.length ys.length (c.room xs.length ys.length) c with
-    | (none, c') => pure (st, .join k a b c', false)
-    | (some p, c') => do
-      let st' ← joinPairs (K := K) i k xs ys st [p]
-      pure (st', .join k a b c', true)
+    let pa := (st.pathsAt a).take xs.length
+    let pb := (st.pathsAt b).take ys.length
+    let pa := pa ++ List.replicate (xs.length - pa.length) []
+    let pb := pb ++ List.replicate (ys.length - pb.length) []
+    match c.next pa pb with
+    | none => pure (st, .join k a b c, false)
+    | some p => do
+      let (st', t) ← K.metered (joinPairs (K := K) i k xs ys pa pb st [p])
+      pure (st', .join k a b (c.mark pa pb p (t + 1)), true)
   | .push k left side other todo subs =>
     if !st.isDone side then pure (st, .push k left side other todo subs, false)
     else
@@ -792,7 +839,8 @@ def work (i : Nat) (g : GoalOf S N) (st : StateOf S N A) :
             (fun p => decide (p.1.2.2 < (st.answers p.1.2.1).length)) subs.zipIdx with
         | none => pure (st, .push k left side other (some []) subs, false)
         | some p => do
-          let st' ← pushTake (K := K) i k left p.1.1 st
+          let st' ← pushTake (K := K) i k left p.1.1
+            ((st.pathsAt p.1.2.1).getD p.1.2.2 []) st
             (((st.answers p.1.2.1).drop p.1.2.2).take 1)
           pure (st', .push k left side other (some [])
             (subs.modify p.2 fun e => (e.1, e.2.1, e.2.2 + 1)), true)
@@ -999,7 +1047,7 @@ def askRace (U : GOracle S N A M) (i : Nat) (g : GoalOf S N) (st : StateOf S N A
           pure (st.modify i fun t => { t with race := some ⟨r.depth, r.spent + c, left⟩ }, false)
         | some u =>
           if u.1 then do
-            let st ← foldL (addAnswer (K := K) i) st u.2
+            let st ← foldL (fun st a => addAnswer (K := K) i st [] a) st u.2
             pure (st.modify i fun t => { t with race := some ⟨r.depth, r.spent + c, 0⟩ }, true)
           else
             pure (st.modify i fun t => { t with race := some ⟨r.depth + 1, r.spent + c, 0⟩ }, false)
@@ -1067,7 +1115,7 @@ def step (U : GOracle S N A M) (st : StateOf S N A) : M (StepOf A (StateOf S N A
 /-- The first state: the table of the root goal alone. -/
 def init (root : N) : M (StateOf S N A) := do
   let self ← selfConverse (K := K) ⟨none, root, none⟩
-  pure ⟨[⟨⟨none, root, none⟩, self, [], false, none, 0, 0, 0, none, 0, 0, 0⟩], 0, 0, [], 1⟩
+  pure ⟨[⟨⟨none, root, none⟩, self, [], false, none, 0, 0, 0, none, 0, 0, 0, []⟩], 0, 0, [], 1⟩
 
 end
 
