@@ -64,6 +64,28 @@ theorem indexFrom_val {T : Type} (goal : T → GoalOf R Rel) (g : GoalOf R Rel) 
 /-- Does the first answer cover the second, by the test of the domain? -/
 def covB (D : Domain R) (P : Program) (y x : Ans D P) : Bool := D.covers y.span x.span
 
+section cover
+
+open Answer
+
+variable {K hK} (hL : D.Lawful P.sorts.interp)
+include hL
+
+omit [DecidableEq R] in
+theorem covB_iff (y x : Ans D P) :
+    covB D P y x = true ↔ den P.sorts.interp x.span ⊆ den P.sorts.interp y.span :=
+  hL.covers_iff _ _
+
+omit [DecidableEq R] in
+theorem covB_refl (a : Ans D P) : covB D P a a = true := (covB_iff hL a a).2 subset_rfl
+
+omit [DecidableEq R] in
+theorem covB_trans (a b c : Ans D P) (h₁ : covB D P a b = true) (h₂ : covB D P b c = true) :
+    covB D P a c = true :=
+  (covB_iff hL a c).2 (((covB_iff hL b c).1 h₂).trans ((covB_iff hL a b).1 h₁))
+
+end cover
+
 theorem coversA_val (y x : Ans D P) :
     (coversA (K := DerivationKernel.over D K hK P) y x).val = covB D P y x := by
   at_cost K hK

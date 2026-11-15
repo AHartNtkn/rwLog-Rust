@@ -688,5 +688,11 @@ new axiom.
 /-- info: 'RwLog.Symmetric.honestProgress' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Symmetric.honestProgress
 
+/-- info: 'RwLog.Symmetric.noSubsumed' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Symmetric.noSubsumed
+
+/-- info: 'RwLog.Symmetric.finalMaximal' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Symmetric.finalMaximal
+
 /-- info: 'RwLog.Saturation.Fair.covers_pair' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Saturation.Fair.covers_pair

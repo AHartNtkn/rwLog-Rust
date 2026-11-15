@@ -101,8 +101,10 @@ Rungs/Symmetric/ the symmetric engine of `SYMMETRIC_ENGINE.md` (Machine.lean): a
                 states of the engine are such a run, and the machine is complete, honest
                 when it reports that it is done, and emits no progress certificate
                 (Correct.lean, `Symmetric.complete`, `honestExhaustion`,
-                `honestProgress`). Not proved yet: `NoSubsumed`, `TerminatesWhere`,
-                `EmptySide` and with them `Keeps`; the cost bound. A goal and its converse do not share a
+                `honestProgress`); no answer of a table covers a later one, so no
+                answer emitted is covered by an earlier one, and the final report is the
+                maximal emitted answers (`noSubsumed`, `finalMaximal`). Not proved yet:
+                `TerminatesWhere`, `EmptySide` and with them `Keeps`; the cost bound. A goal and its converse do not share a
                 table (not owed by any property; billboard SIM12)
 Rungs/Naive/    normalisation, unfolding to a depth, and their correctness (namespace `R000`)
 Rungs/R005/     the engines: `R001.engine` (tables, unfolding to a depth), `R004.engine` (tables,

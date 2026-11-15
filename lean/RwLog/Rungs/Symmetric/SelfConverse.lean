@@ -29,7 +29,8 @@ namespace Symmetric
 
 open Traverse
 
-export Goals (sameBound_val same_val indexFrom_val covB coversA_val maxima_val comb both_some)
+export Goals (sameBound_val same_val indexFrom_val covB coversA_val maxima_val comb both_some
+  covB_iff covB_refl covB_trans)
 
 variable {R : Type} [Answer R] [DecidableEq R] {D : Domain R} {P : Program}
 

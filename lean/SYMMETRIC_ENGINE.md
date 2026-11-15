@@ -134,7 +134,9 @@ What this forces to be redone: nothing. O7 is unchanged: that the check covers t
 
 A table that is opened and then has only finitely many rounds without becoming complete is not in that set, and nothing is claimed of it: no strategy that serves a table reads one.
 
-Still owed for `Keeps`: `NoSubsumed`, `TerminatesWhere` (which needs O7) and `EmptySide`.
+No answer of a table covers a later one (`nocov_stateAt`), so `Symmetric.noSubsumed` and `Symmetric.finalMaximal` hold too.
+
+Still owed for `Keeps`: `TerminatesWhere` (which needs O7) and `EmptySide`.
 
 ### What a step is
 
