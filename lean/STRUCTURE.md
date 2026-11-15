@@ -365,7 +365,7 @@ rung unchanged.
   input chosen for it (`CostedRuntime.SameHalt`), and a side that halts and
   relates nothing makes `;` and `&` halt (`Runtime.VoidSide`).
 * `Fairness.lean`: what the fairness bound of `Trusted/Properties.lean` means
-  (`Alternative.semAt_subset`, `Fair.flat_ticks`,
+  (`Alternative.semAt_subset`,
   `Runtime.FinalMaximal.maximal`), and `firstWording_false`: a bound
   polynomial in the size of an answer's derivation and of the input is false
   for every sound machine that emits spans and pays a tick for each.

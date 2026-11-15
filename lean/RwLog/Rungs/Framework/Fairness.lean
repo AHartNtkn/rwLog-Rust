@@ -7,11 +7,6 @@ counterexample to the wording it replaced.
 
 * `Alternative.semAt_subset`: an alternative of a query relates only pairs
   the query relates, so the bound compares two runs that owe the same pair.
-* `CostedRuntime.paid_le_steps`: what `n` steps cost is at most `n` times the
-  dearest of them. With `Fair.flat` this is the bound in ticks: a pair an
-  alternative covers within `n` ticks alone is covered within `c * n` steps,
-  each costing at most what the dearest round so far cost
-  (`Fair.flat_ticks`).
 * `Runtime.FinalMaximal.maximal`: under `FinalMaximal` every reported answer
   is maximal among the emitted ones.
 
@@ -64,62 +59,6 @@ theorem Alternative.semAt_subset {P : Program} {q q' : Rel} {f : Nat} (h : Alter
   | @call n e' f _ ih =>
     refine ih.trans (le_of_eq ?_)
     exact (P.meaningAt_eq M n).symm
-
-/-! ## The flat bound in ticks -/
-
-namespace CostedRuntime
-
-variable (C : CostedRuntime)
-
-/-- The ticks of the dearest of the first `n` steps. -/
-def dearest : C.State → Nat → Nat
-  | _, 0 => 0
-  | s, n + 1 =>
-    max (C.step s).ticks (match (C.step s).val with
-      | .emit _ s' => dearest s' n
-      | .progress _ s' => dearest s' n
-      | .done _ => 0)
-
-/-- What `n` steps cost is at most `n` times the dearest of them. -/
-theorem spent_le_steps : ∀ (n : Nat) (s : C.State), C.spent s n ≤ n * C.dearest s n
-  | 0, _ => Nat.le_refl 0
-  | n + 1, s => by
-    have h1 : (C.step s).ticks ≤ C.dearest s (n + 1) := le_max_left _ _
-    cases hs : (C.step s).val with
-    | emit as s' =>
-      have h2 : C.dearest s' n ≤ C.dearest s (n + 1) := by
-        simp only [dearest, hs]; exact le_max_right _ _
-      rw [C.spent_succ_emit hs]
-      have := spent_le_steps n s'
-      have := Nat.mul_le_mul_left n h2
-      rw [Nat.succ_mul]; omega
-    | progress k s' =>
-      have h2 : C.dearest s' n ≤ C.dearest s (n + 1) := by
-        simp only [dearest, hs]; exact le_max_right _ _
-      rw [C.spent_succ_progress hs]
-      have := spent_le_steps n s'
-      have := Nat.mul_le_mul_left n h2
-      rw [Nat.succ_mul]; omega
-    | done fin =>
-      rw [C.spent_succ_done hs, Nat.succ_mul]; omega
-
-theorem paid_le_steps (P : Program) (q : Rel) (n : Nat) :
-    C.paid P q n ≤ (C.init P q).ticks + n * C.dearest (C.start P q) n :=
-  Nat.add_le_add_left (C.spent_le_steps n _) _
-
-end CostedRuntime
-
-/-- The flat bound in ticks: a pair an alternative covers within `n` ticks
-when run alone is covered by the time the machine has paid for building its
-first state and for `m ≤ c * n` steps, each at most the dearest of them. -/
-theorem Fair.flat_ticks {C : CostedRuntime} {c : Nat} (h : Fair C c) {P : Program} {q q' : Rel}
-    {f : Nat} (hwf : P.WellFormed q) (ha : Alternative P q q' f)
-    {x : GTerm × GTerm} {n : Nat} (hx : C.Covered P q' P.sorts.interp x n) :
-    ∃ m, m ≤ c * C.paid P q' n ∧
-      C.CoversWithin P q P.sorts.interp x
-        ((C.init P q).ticks + m * C.dearest (C.start P q) m) := by
-  obtain ⟨m, hm, hc⟩ := h.flat P q q' f hwf ha x n hx
-  exact ⟨m, hm, m, hc, C.paid_le_steps P q m⟩
 
 /-! ## The final report -/
 

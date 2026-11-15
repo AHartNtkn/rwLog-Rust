@@ -200,9 +200,6 @@ new axiom.
 /-- info: 'RwLog.Alternative.semAt_subset' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Alternative.semAt_subset
 
-/-- info: 'RwLog.Fair.flat_ticks' depends on axioms: [propext, Quot.sound] -/
-#guard_msgs in #print axioms RwLog.Fair.flat_ticks
-
 /-- info: 'RwLog.firstWording_false' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.firstWording_false
 

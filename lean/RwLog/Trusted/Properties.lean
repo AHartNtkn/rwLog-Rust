@@ -281,25 +281,29 @@ only pairs that `q` relates.
 
 ### The bound
 
-`Fair C c` has two parts, and a machine must meet both, so an answer arrives
-within the smaller of the two.
+`Fair C c` is fair OR, in ticks: a pair that `C` covers within `n` ticks when
+run on `q'` alone is covered within `c * (f * n + size)` ticks when run on
+`q`. For one union of `m` members that is `m * n`, whatever is inside the
+other members, which is what breadth-first search does not have.
 
-* `share`: a pair that `C` covers within `n` ticks when run on `q'` alone is
-  covered within `c * (f * n + size)` ticks when run on `q`. For one union of
-  `m` members that is `m * n`. Through a recursion `f` multiplies level by
-  level, so this part alone allows a delay exponential in the depth.
-* `flat`: a pair that `C` covers within `n` ticks when run on `q'` alone is
-  covered within `c * n` *steps* when run on `q`, whatever `f` is. The depth
-  of the nesting does not appear. A step of a fair machine may be a round in
-  which every goal it has opened and not finished does one unit of work, so
-  in ticks this is `n` times what a round costs, which is the number of live
-  goals opened so far. What a machine has opened is not something the
-  specification can see, and a machine could inflate any count of it; what a
-  step costs is in `CostedRuntime.paid` and cannot be declared.
+Through a recursion `f` multiplies level by level. So where every level of a
+recursion has a member that never finishes, the bound allows a delay
+exponential in the depth, and interleaving search has that delay. Nothing
+here promises better. A promise that the delay does not compound would need
+the machine to know that the member met at each level is the same one, and
+no statement of that survives rewriting a program into another with the same
+meaning. Such inputs are for a preprocessor that recognises the shape and
+rewrites it.
 
 Every member of a union counts in `f`, whether or not it is still running.
 
 ### What is false
+
+A bound in steps of the machine says nothing: a step is a unit of one
+machine and may cost any number of ticks. An earlier second part of `Fair`,
+`flat`, was such a bound and is gone; read in ticks, as what the alternative
+costs alone times the goals the machine has opened, it is false for every
+machine that tables, by the inputs below.
 
 A bound polynomial in the size of an answer's derivation and of the input is
 false for every machine that emits spans and pays a tick for each:
@@ -336,10 +340,5 @@ structure Fair (C : CostedRuntime) (c : Nat) : Prop where
   share : ∀ P q q' f, P.WellFormed q → Alternative P q q' f →
     ∀ x n, C.Covered P q' P.sorts.interp x n →
       C.CoversWithin P q P.sorts.interp x (c * (f * C.paid P q' n + P.size + q.size))
-  /-- A pair covered within `n` ticks by an alternative run alone is covered
-  within `c * n` steps, however deep the alternative is nested. -/
-  flat : ∀ P q q' f, P.WellFormed q → Alternative P q q' f →
-    ∀ x n, C.Covered P q' P.sorts.interp x n →
-      ∃ m, m ≤ c * C.paid P q' n ∧ C.Covered P q P.sorts.interp x m
 
 end RwLog
