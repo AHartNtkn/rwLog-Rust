@@ -206,12 +206,14 @@ def Prog (st : StateOf R Rel (Ans D P)) (i : Nat) (g : GoalOf R Rel) :
   | .push k left side other todo subs => ∃ L Rg, SplitAt g k L Rg ∧
       goalAt st side = some (if left then L else Rg) ∧
       other = (if left then Rg.node else L.node) ∧
-      (∀ l, todo = some l → st.isDone side = true ∧ (∀ x ∈ l, x ∈ st.answers side) ∧
+      (∀ l, todo = some l → st.isDone side = true ∧
+        (∀ x, (x ∈ l ∨ x ∈ subs.map (·.1)) → x ∈ (st.answers side).maximaBy (covB D P)) ∧
         ∀ x ∈ st.answers side, ∃ x' ∈ st.answers side, (x' ∈ l ∨ x' ∈ subs.map (·.1)) ∧
           den P.sorts.interp x.span ⊆ den P.sorts.interp x'.span) ∧
-      ∀ e ∈ subs, e.1 ∈ st.answers side ∧
+      (∀ e ∈ subs, e.1 ∈ st.answers side ∧
         goalAt st e.2.1 = some (pushG D g other k left e.1) ∧
-        Read st i e.2.1 e.2.2 (pushedS D k left e.1.span)
+        Read st i e.2.1 e.2.2 (pushedS D k left e.1.span)) ∧
+      (todo = none → subs = [])
   | .check left side other c => ∃ L Rg, SplitAt g .seq L Rg ∧
       side = (if left then L.node else Rg.node) ∧ other = (if left then Rg.node else L.node) ∧
       match c with
@@ -244,8 +246,8 @@ theorem Prog.mono {st st' : StateOf R Rel (Ans D P)} (h : Stable st st') {i : Na
     exact (h5 p q x y hb (h.getElem?_old hx hp.1) (h.getElem?_old hy hp.2) z hz).mono h
   | push k left side other todo subs =>
     dsimp only [Prog] at hs ⊢
-    obtain ⟨L, Rg, h1, h2, h3, h4, h5⟩ := hs
-    refine ⟨L, Rg, h1, hE _ _ h2, h3, fun l hl => ?_, fun e he => ?_⟩
+    obtain ⟨L, Rg, h1, h2, h3, h4, h5, h6⟩ := hs
+    refine ⟨L, Rg, h1, hE _ _ h2, h3, fun l hl => ?_, fun e he => ?_, h6⟩
     · obtain ⟨d1, d2, d3⟩ := h4 l hl
       obtain ⟨e1, e2⟩ := h.isDone d1
       rw [e2]
@@ -809,7 +811,7 @@ theorem prog_work_push (hL : D.Lawful P.sorts.interp) {st : StateOf R Rel (Ans D
         (.push k left side other todo subs)).val.2.1 := by
   have hs0 := hs
   dsimp only [Prog] at hs
-  obtain ⟨L, Rg, h1, h2, h3, h4, h5⟩ := hs
+  obtain ⟨L, Rg, h1, h2, h3, h4, h5, h6⟩ := hs
   have hpo := fun xs => pushOpen_spec (K := K) (hK := hK) (P := P) g other k left st xs
   have hpi := fun xs =>
     (inner_pushOpen (K := K) (hK := hK) (P := P) (w := i) g other k left st xs).frame
@@ -829,7 +831,8 @@ theorem prog_work_push (hL : D.Lawful P.sorts.interp) {st : StateOf R Rel (Ans D
       (fun a b c h1 h2 => (hL.covers_iff _ _).2
         (((hL.covers_iff _ _).1 h2).trans ((hL.covers_iff _ _).1 h1))) hx
     exact ⟨z, hz, (hL.covers_iff _ _).1 hc⟩
-  have main : ∀ xs : List (Ans D P), st.isDone side = true → (∀ x ∈ xs, x ∈ st.answers side) →
+  have main : ∀ xs : List (Ans D P), st.isDone side = true →
+      (∀ x, (x ∈ xs ∨ x ∈ subs.map (·.1)) → x ∈ (st.answers side).maximaBy (covB D P)) →
       (∀ x ∈ st.answers side, ∃ x' ∈ st.answers side, (x' ∈ xs ∨ x' ∈ subs.map (·.1)) ∧
         den P.sorts.interp x.span ⊆ den P.sorts.interp x'.span) →
       Prog (foldL (fun acc (e : Ans D P × Nat × Nat) =>
@@ -859,7 +862,7 @@ theorem prog_work_push (hL : D.Lawful P.sorts.interp) {st : StateOf R Rel (Ans D
       · obtain ⟨d1, d2, d3⟩ := h5 e he
         exact ⟨d1, hS1.ext _ _ d2, d3.mono hS1⟩
       · obtain ⟨d1, d2, d3⟩ := hnew e he
-        exact ⟨hxs _ d1, d3, by rw [d2]; exact Read.zero _ _ _ _⟩
+        exact ⟨List.mem_maximaBy (hxs _ (.inl d1)), d3, by rw [d2]; exact Read.zero _ _ _ _⟩
     obtain ⟨hF2, hc⟩ := foldL_cov i
       (fun acc (e : Ans D P × Nat × Nat) =>
         pushTake (K := DerivationKernel.over D K hK P) i k left e.1 acc
@@ -874,16 +877,23 @@ theorem prog_work_push (hL : D.Lawful P.sorts.interp) {st : StateOf R Rel (Ans D
     have hS := hS1.trans hS2
     obtain ⟨hd', hans⟩ := hS.isDone hd
     dsimp only [Prog]
-    refine ⟨L, Rg, h1, hS.ext _ _ h2, h3, fun l hl => ?_, fun e' he' => ?_⟩
+    refine ⟨L, Rg, h1, hS.ext _ _ h2, h3, fun l hl => ?_, fun e' he' => ?_,
+      fun h => by cases h⟩
     · cases hl
       rw [hans]
-      refine ⟨hd', (fun _ h => by cases h), fun x hx => ?_⟩
-      obtain ⟨x', hx', hor, hsubset⟩ := hcv x hx
-      refine ⟨x', hx', .inr ?_, hsubset⟩
-      simp only [List.map_map, List.map_append, Function.comp_def, hmap]
-      rcases hor with h | h
-      · exact List.mem_append_right _ h
-      · exact List.mem_append_left _ h
+      refine ⟨hd', fun x hx => hxs x ?_, fun x hx => ?_⟩
+      · rcases hx with hx | hx
+        · cases hx
+        · simp only [List.map_map, List.map_append, Function.comp_def, hmap] at hx
+          rcases List.mem_append.1 hx with h | h
+          · exact .inr h
+          · exact .inl h
+      · obtain ⟨x', hx', hor, hsubset⟩ := hcv x hx
+        refine ⟨x', hx', .inr ?_, hsubset⟩
+        simp only [List.map_map, List.map_append, Function.comp_def, hmap]
+        rcases hor with h | h
+        · exact List.mem_append_right _ h
+        · exact List.mem_append_left _ h
     · obtain ⟨e, he, rfl⟩ := List.mem_map.1 he'
       obtain ⟨d1, d2, d3⟩ := hsub' e he
       refine ⟨by rw [hans]; exact d1, hS2.ext _ _ d2,
@@ -908,7 +918,13 @@ theorem prog_work_push (hL : D.Lawful P.sorts.interp) {st : StateOf R Rel (Ans D
       | none =>
         erw [Cost.bind_val]
         simp only [Cost.bind_val, Cost.pure_val]
-        exact main _ hd hmm (fun x hx => (hcovmax x hx).imp fun x' h => ⟨hmm x' h.1, .inl h.1, h.2⟩)
+        exact main _ hd (fun x hx => by
+            rcases hx with hx | hx
+            · rw [hmv] at hx
+              exact hx
+            · rw [h6 rfl] at hx
+              cases hx)
+          (fun x hx => (hcovmax x hx).imp fun x' h => ⟨hmm x' h.1, .inl h.1, h.2⟩)
       | some l =>
         erw [Cost.bind_val]
         simp only [Cost.bind_val, Cost.pure_val]
@@ -919,8 +935,14 @@ theorem prog_work_push (hL : D.Lawful P.sorts.interp) {st : StateOf R Rel (Ans D
         dsimp only [Prog]
         exact ⟨L, Rg, h1, h2, h3, fun l hl => by
           cases hl
-          exact ⟨hd, hmm, fun x hx => (hcovmax x hx).imp fun x' h => ⟨hmm x' h.1, .inl h.1, h.2⟩⟩,
-          h5⟩
+          exact ⟨hd, (fun x hx => by
+              rcases hx with hx | hx
+              · rw [hmv] at hx
+                exact hx
+              · rw [h6 rfl] at hx
+                cases hx),
+            fun x hx => (hcovmax x hx).imp fun x' h => ⟨hmm x' h.1, .inl h.1, h.2⟩⟩,
+          h5, fun h => by cases h⟩
       · next x rest =>
         simp only [Cost.bind_val, Cost.pure_val]
         obtain ⟨hmap, hnew⟩ := hpo [x]
@@ -929,10 +951,18 @@ theorem prog_work_push (hL : D.Lawful P.sorts.interp) {st : StateOf R Rel (Ans D
         obtain ⟨hd', hans⟩ := hS1.isDone hd
         obtain ⟨-, d2, d3⟩ := h4 (x :: rest) rfl
         dsimp only [Prog]
-        refine ⟨L, Rg, h1, hS1.ext _ _ h2, h3, fun l hl => ?_, fun e he => ?_⟩
+        refine ⟨L, Rg, h1, hS1.ext _ _ h2, h3, fun l hl => ?_, fun e he => ?_,
+          fun h => by cases h⟩
         · cases hl
           rw [hans]
-          refine ⟨hd', fun y hy => d2 y (List.mem_cons_of_mem _ hy), fun y hy => ?_⟩
+          refine ⟨hd', fun y hy => d2 y (by
+            rcases hy with hy | hy
+            · exact .inl (List.mem_cons_of_mem _ hy)
+            · rw [List.map_append, hmap] at hy
+              rcases List.mem_append.1 hy with h | h
+              · exact .inr h
+              · exact .inl (by rw [List.mem_singleton.1 h]; exact List.mem_cons_self)),
+            fun y hy => ?_⟩
           obtain ⟨x', hx', hor, hsubset⟩ := d3 y hy
           refine ⟨x', hx', ?_, hsubset⟩
           rw [List.map_append, hmap]
@@ -947,7 +977,8 @@ theorem prog_work_push (hL : D.Lawful P.sorts.interp) {st : StateOf R Rel (Ans D
           · obtain ⟨e1, e2, e3⟩ := hnew e he
             refine ⟨?_, e3, by rw [e2]; exact Read.zero _ _ _ _⟩
             rw [hans]
-            exact d2 _ (by rw [List.mem_singleton.1 e1]; exact List.mem_cons_self)
+            exact List.mem_maximaBy
+              (d2 _ (.inl (by rw [List.mem_singleton.1 e1]; exact List.mem_cons_self)))
       · split
         · exact hs0
         · next p hp =>
@@ -962,7 +993,8 @@ theorem prog_work_push (hL : D.Lawful P.sorts.interp) {st : StateOf R Rel (Ans D
           have hS := hf.stable ho
           obtain ⟨hd', hans⟩ := hS.isDone hd
           dsimp only [Prog]
-          refine ⟨L, Rg, h1, hS.ext _ _ h2, h3, fun l hl => ?_, fun e he => ?_⟩
+          refine ⟨L, Rg, h1, hS.ext _ _ h2, h3, fun l hl => ?_, fun e he => ?_,
+            fun h => by cases h⟩
           · obtain ⟨-, d2, d3⟩ := h4 l hl
             rw [hans, map_modify_eq (fun e : Ans D P × Nat × Nat => e.1)
               (fun e : Ans D P × Nat × Nat => (e.1, e.2.1, e.2.2 + 1)) (fun _ => rfl)]

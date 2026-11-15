@@ -340,7 +340,7 @@ theorem IsRun.served_push (h : IsRun σ) {r k : Nat} {g : GoalOf R Rel} {kd : Ki
     Served D P (opened σ) (held σ) (toGoal g) := by
   have hp := h.prog hk hs
   dsimp only [Prog] at hp
-  obtain ⟨L, Rg, hsp, hgs, ho, htodo, hsubs⟩ := hp
+  obtain ⟨L, Rg, hsp, hgs, ho, htodo, hsubs, -⟩ := hp
   obtain ⟨-, -, hcover⟩ := htodo [] rfl
   have key : ∀ a, Held (held σ) (toGoal (if left then L else Rg)) a → ∃ e ∈ subs,
       Held (held σ) (toGoal (if left then L else Rg)) e.1.span ∧

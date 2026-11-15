@@ -349,9 +349,11 @@ theorem prog_splitGroup {st : StateOf R Rel (Ans D P)} (hB : Base st) (w : Nat) 
     exact ⟨L, Rg, hs, hg1', hg2, Cursor.ok_start _ _,
       fun p q x y hb => absurd hb (Cursor.before_start p q)⟩
   · dsimp only [Prog]
-    exact ⟨L, Rg, hs, hg1', rfl, (fun l hl => by cases hl), fun e he => by cases he⟩
+    exact ⟨L, Rg, hs, hg1', rfl, (fun l hl => by cases hl), (fun e he => by cases he),
+      fun _ => rfl⟩
   · dsimp only [Prog]
-    exact ⟨L, Rg, hs, hg2, rfl, (fun l hl => by cases hl), fun e he => by cases he⟩
+    exact ⟨L, Rg, hs, hg2, rfl, (fun l hl => by cases hl), (fun e he => by cases he),
+      fun _ => rfl⟩
 
 theorem prog_checkOf (hR : ReadOk D P K hK) {st : StateOf R Rel (Ans D P)} (hB : Base st)
     (w : Nat) (left : Bool) (side other : Rel) :

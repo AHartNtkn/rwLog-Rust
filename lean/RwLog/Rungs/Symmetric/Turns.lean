@@ -428,10 +428,11 @@ theorem Stable.dead {st st' : StateOf S N A} (h : Stable st st') {s : Strat N A}
 /-- A strategy with nothing left to do that reads only tables that pass, in
 a state where the tables that pass are complete with the same answers, has
 nothing left to do and reads complete tables only. -/
-theorem quiet_mono' {st st' : StateOf S N A} {ok ok' : Nat → Bool}
-    (hd : ∀ j, st.isDone j = true → st'.isDone j = true ∧ st'.answers j = st.answers j)
+theorem quiet_mono' {st st' : StateOf S N A} {ok ok' : Nat → Bool} {s : Strat N A}
+    (hd : ∀ k l side o todo subs, s = .push k l side o todo subs → st.isDone side = true →
+      st'.isDone side = true)
     (hok : ∀ j, ok j = true → ok' j = true ∧ st'.answers j = st.answers j)
-    {s : Strat N A} (h : s.quiet st ok = true) : s.quiet st' ok' = true := by
+    (h : s.quiet st ok = true) : s.quiet st' ok' = true := by
   cases s with
   | span ran => exact h
   | copy c subs =>
@@ -447,9 +448,10 @@ theorem quiet_mono' {st st' : StateOf S N A} {ok ok' : Nat → Bool}
     simp only [Strat.quiet, Strat.pending, Bool.and_eq_true, Bool.not_eq_true',
       List.all_eq_true] at h ⊢
     obtain ⟨h1, ⟨h2, h3⟩, h4⟩ := h
-    refine ⟨?_, ⟨(hd side h2).1, h3⟩, fun e he => (hok _ (h4 e he)).1⟩
+    have hd' := hd k l side o todo subs rfl h2
+    refine ⟨?_, ⟨hd', h3⟩, fun e he => (hok _ (h4 e he)).1⟩
     rw [h2] at h1
-    rw [(hd side h2).1]
+    rw [hd']
     cases todo with
     | none => simp at h1
     | some l0 =>
@@ -469,7 +471,7 @@ theorem quiet_mono {st st' : StateOf S N A} {ok : Nat → Bool}
     (hd : ∀ j, st.isDone j = true → st'.isDone j = true ∧ st'.answers j = st.answers j)
     (hok : ∀ j, ok j = true → st'.isDone j = true ∧ st'.answers j = st.answers j)
     {s : Strat N A} (h : s.quiet st ok = true) : s.quiet st' st'.isDone = true :=
-  quiet_mono' hd hok h
+  quiet_mono' (fun _ _ side _ _ _ _ h => (hd side h).1) hok h
 
 /-- A push with nothing left to do pushes the answers of a complete table. -/
 theorem quiet_push_side {st : StateOf S N A} {ok : Nat → Bool} {k : Kind} {l : Bool} {side : Nat}
@@ -914,7 +916,7 @@ theorem Founded.step {st st' : StateOf S N A} (hS : Stable st st')
       have hdt : t.done = true := by simpa [StateOf.isDone, ht] using hi
       obtain ⟨gs, hgs, gr, hgr, s, hs, hq, hp⟩ := hρ i t ht hdt
       refine ⟨gs, (hg i t t' ht ht' hdt).trans hgs, gr, hgr, s, hs, ?_, ?_⟩
-      · refine quiet_mono' (fun _ => hS.isDone) (fun j hj => ?_) hq
+      · refine quiet_mono' (fun _ _ _ _ _ _ _ h => (hS.isDone h).1) (fun j hj => ?_) hq
         simp only [Bool.and_eq_true, decide_eq_true_eq] at hj
         refine ⟨?_, (hS.isDone hj.1).2⟩
         simp only [Bool.and_eq_true, decide_eq_true_eq, (hS.isDone hj.1).1, hj.1, hi, ite_true,
@@ -929,7 +931,7 @@ theorem Founded.step {st st' : StateOf S N A} (hS : Stable st st')
     rcases hnew i t' ht' hd' with ⟨t, ht, hdt⟩ | ⟨gs, hgs, gr, hgr, s, hs, hq, hp⟩
     · simp [StateOf.isDone, ht, hdt] at hi
     · refine ⟨gs, hgs, gr, hgr, s, hs, ?_, ?_⟩
-      · refine quiet_mono' (fun _ h => ⟨h, rfl⟩) (fun j hj => ⟨?_, rfl⟩) hq
+      · refine quiet_mono' (fun _ _ _ _ _ _ _ h => h) (fun j hj => ⟨?_, rfl⟩) hq
         simp only [Bool.and_eq_true, decide_eq_true_eq, hj, hi, true_and]
         exact hle j
       · intro k l side o todo subs e
@@ -1058,6 +1060,10 @@ structure Req (need : N → Nat) (st st' : StateOf S N A) : Prop where
     t'.stamp = st'.round → Turn need st st' t.groups t'.groups
   root : Settled st' 0
   founded : Founded st → Founded st'
+  closed : ∀ X : List Nat, (∀ k ∈ X, ∃ t', st'.tables[k]? = some t' ∧ ∃ gs, t'.groups = some gs ∧
+      ∃ gr ∈ gs, ∃ s ∈ gr.strats, s.quiet st' (fun j => st'.isDone j || X.contains j) = true ∧
+        ∀ k l side o todo subs, s = .push k l side o todo subs → st.isDone side = true) →
+    ∀ k ∈ X, st'.isDone k = true
 
 /-- **The record of a request**, from the record of the round of the root:
 the tables that complete together are marked. -/
@@ -1137,7 +1143,7 @@ theorem req_of_turns {st st2 : StateOf S N A} (hD : Dated st)
           List.getElem?_eq_getElem hlt, hj'']
   refine ⟨hr'.trans hr2, hS01.trans (T.keep.stable.trans hS23), by rw [hd']; exact T.depth,
     fun k t' hk => ?_, fun k t' hk hn => ?_, fun k t t' ht hk hyp => ?_, fun k t' hk hdn => ?_,
-    fun k t t' ht hk hs => ?_, hset 0 h0, fun hF => ?_⟩
+    fun k t t' ht hk hs => ?_, hset 0 h0, fun hF => ?_, fun X hX k hk => ?_⟩
   · obtain ⟨t2, h2, e1, e2, -⟩ := hsame k t' hk
     refine ⟨by rw [e2, hr']; exact hst2 k t2 h2, ?_⟩
     rw [e1, hr']
@@ -1184,6 +1190,93 @@ theorem req_of_turns {st st2 : StateOf S N A} (hD : Dated st)
       rcases e5 hdn with h | h
       · exact .inl ⟨t2, h2, h⟩
       · exact .inr (hcomp k t2 t' h2 e3 h)
+  · have hans : ∀ j, st'.answers j = st2.answers j := by
+      intro j
+      rw [← hst']
+      simp only [StateOf.answers, List.getElem?_mapIdx]
+      cases st2.tables[j]? with
+      | none => rfl
+      | some t =>
+        simp only [Option.map_some]
+        split <;> rfl
+    have hdone : ∀ j, st'.isDone j = true → st2.isDone j = true ∨ j ∈ completing st2 := by
+      intro j hj
+      cases ht' : st'.tables[j]? with
+      | none => simp [StateOf.isDone, ht'] at hj
+      | some t' =>
+        obtain ⟨t2, h2, -, -, -, -, e5⟩ := hsame j t' ht'
+        have hd : t'.done = true := by simpa [StateOf.isDone, ht'] using hj
+        exact (e5 hd).imp (fun h => by simp [StateOf.isDone, h2, h]) id
+    have hmark : ∀ j, j ∈ completing st2 → st'.isDone j = true := by
+      intro j hj
+      have hjS : j ∈ _ := gfpFrom_sub _ _ _ j hj
+      have hlt : j < st2.tables.length := List.mem_range.1 (List.mem_filter.1 hjS).1
+      rw [← hst']
+      simp [StateOf.isDone, List.getElem?_mapIdx, List.getElem?_eq_getElem hlt, hj]
+    have hopenC : ∀ j, j ∈ completing st2 → st2.isDone j = false := by
+      intro j hj
+      have hjS : j ∈ _ := gfpFrom_sub _ _ _ j hj
+      have h2 := (List.mem_filter.1 hjS).2
+      cases ht : st2.tables[j]? with
+      | none => simp [StateOf.isDone, ht]
+      | some t =>
+        simp only [ht, Bool.and_eq_true, Bool.not_eq_true'] at h2
+        simp [StateOf.isDone, ht, h2.1]
+    have hmem : ∀ j, j ∈ (X ++ completing st2).filter (fun j => !st2.isDone j) ↔
+        (j ∈ X ∨ j ∈ completing st2) ∧ st2.isDone j = false := fun j => by simp [or_and_right]
+    generalize (X ++ completing st2).filter (fun j => !st2.isDone j) = X2 at hmem
+    have hsub : ∀ j ∈ X2, j ∈ completing st2 := by
+      unfold completing
+      refine subset_gfpFrom (fun A B hAB i hi => ?_) X2 (fun i hi => ?_) _ _ (fun i hi => ?_)
+      · cases ht : st2.tables[i]? with
+        | none => simp [ht] at hi
+        | some t =>
+          simp only [ht, List.any_eq_true] at hi ⊢
+          obtain ⟨gr, hgr, s, hs, hq⟩ := hi
+          refine ⟨gr, hgr, s, hs, quiet_mono' (fun _ _ _ _ _ _ _ h => h) (fun j hj => ⟨?_, rfl⟩) hq⟩
+          rcases Bool.or_eq_true_iff.1 hj with hj | hj
+          · simp [hj]
+          · simp [hAB j (List.contains_iff_mem.1 hj)]
+      · obtain ⟨hi1, hi2⟩ := (hmem i).1 hi
+        rcases hi1 with hi1 | hi1
+        · obtain ⟨t', ht', gs, hgs, gr, hgr, s, hs, hq, hp⟩ := hX i hi1
+          obtain ⟨t2, h2, -, -, e3, -⟩ := hsame i t' ht'
+          simp only [h2, List.any_eq_true]
+          refine ⟨gr, by rw [← e3, hgs]; exact hgr, s, hs,
+            quiet_mono' (fun k l side o todo subs e _ =>
+              ((hS01.trans T.keep.stable).isDone (hp k l side o todo subs e)).1)
+              (fun j hj => ⟨?_, (hans j).symm⟩) hq⟩
+          cases hj2 : st2.isDone j with
+          | true => rfl
+          | false =>
+            simp only [Bool.false_or]
+            refine List.contains_iff_mem.2 ((hmem j).2 ⟨?_, hj2⟩)
+            rcases Bool.or_eq_true_iff.1 hj with hj | hj
+            · exact .inr ((hdone j hj).resolve_left (by rw [hj2]; exact Bool.false_ne_true))
+            · exact .inl (List.contains_iff_mem.1 hj)
+        · have hc := (gfpFrom_closed _ _ _ (Nat.le_refl _) i hi1).2
+          cases ht : st2.tables[i]? with
+          | none => simp [ht] at hc
+          | some t =>
+            simp only [ht, List.any_eq_true] at hc ⊢
+            obtain ⟨gr, hgr, s, hs, hq⟩ := hc
+            refine ⟨gr, hgr, s, hs,
+              quiet_mono' (fun _ _ _ _ _ _ _ h => h) (fun j hj => ⟨?_, rfl⟩) hq⟩
+            rcases Bool.or_eq_true_iff.1 hj with hj | hj
+            · simp [hj]
+            · have hj' : j ∈ completing st2 := List.contains_iff_mem.1 hj
+              simp [(hmem j).2 ⟨.inr hj', hopenC j hj'⟩]
+      · obtain ⟨hi1, hi2⟩ := (hmem i).1 hi
+        rcases hi1 with hi1 | hi1
+        · obtain ⟨t', ht', gs, hgs, -⟩ := hX i hi1
+          obtain ⟨t2, h2, -, -, e3, -⟩ := hsame i t' ht'
+          have hd2 : t2.done = false := by simpa [StateOf.isDone, h2] using hi2
+          refine List.mem_filter.2 ⟨List.mem_range.2 (List.getElem?_eq_some_iff.1 h2).1, ?_⟩
+          simp [h2, hd2, ← e3, hgs]
+        · exact gfpFrom_sub _ _ _ i hi1
+    cases hk2 : st2.isDone k with
+    | true => exact (hS23.isDone hk2).1
+    | false => exact hmark k (hsub k ((hmem k).2 ⟨.inl hk, hk2⟩))
 
 end pure
 
