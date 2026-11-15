@@ -116,6 +116,7 @@ import RwLog.Rungs.Framework.Unfolding.WalkPrefix
 import RwLog.Rungs.Framework.Unfolding.SharedPrefix
 import RwLog.Rungs.Framework.Unfolding.SharedExact
 import RwLog.Rungs.Framework.Unfolding.RacesExact
+import RwLog.Rungs.Framework.Unfolding.RacedPrefix
 import RwLog.Rungs.Framework.Unfolding.ModelMap
 import RwLog.Rungs.Tabled.Reading
 import RwLog.Rungs.Tabled.MapGoal

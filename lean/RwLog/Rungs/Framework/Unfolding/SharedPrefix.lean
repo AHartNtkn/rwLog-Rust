@@ -719,7 +719,8 @@ theorem sharedRace_prefix_ticks (hP : ProgFO P) (d : Nat) (g : GoalOf R Rel) (hg
     {Bs : List Rel} {y : Rel} {ys : List Rel} (hys : ys ≠ []) (hBs : Bs ≠ [])
     (hv : g.node.view.forget = .chain (Bs ++ y :: ys)) (W : Rel → Bool → PRel)
     (HB : ∀ b ∈ Bs, Splits P 𝕄 (d + 1) b (W b)) (hnear : g.lb = none) :
-    2 ^ Bs.length ≤ (sharedRace (K := DerivationKernel.over D K hK P) (d + 1 + 1) g).ticks := by
+    2 ^ Bs.length ≤ (sharedRace (K := DerivationKernel.over D K hK P) (d + 2) g).ticks := by
+  show 2 ^ Bs.length ≤ (sharedRace (K := DerivationKernel.over D K hK P) (d + 1 + 1) g).ticks
   have hpos : 0 < Bs.length := List.length_pos_of_ne_nil hBs
   have h₁ := sufSV_prefix_count hL K hK hP hg.rb hg.normal hg.fo hys hBs hv W HB ⟨g.lb, false⟩
     hnear
