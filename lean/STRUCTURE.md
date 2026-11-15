@@ -91,7 +91,11 @@ Rungs/Symmetric/ the symmetric engine of `SYMMETRIC_ENGINE.md` (Machine.lean): a
                 stood while a lower one rose (`Turn`, `Balanced`); of the groups a goal begins with one has a span, a call, a
                 union or a join, and one that has none is all checks (`shaped_expand`); a table
                 marked complete has a strategy with nothing left to do that reads complete
-                tables only; and an edge is read in the end, from a depth that the node
+                tables only, and the complete tables stand in an order in which tables that
+                complete together stand together and a table whose answers are pushed
+                stands lower (`Founded`, `IsRun.founded`); a push that works takes the
+                answers of its side once the side is complete, then opens a goal for each,
+                then is nearer to every answer of those goals (`SStep.push`); and an edge is read in the end, from a depth that the node
                 and the program give (ReadLive.lean, `readEdge_some`); and of a table that
                 has rounds for ever every group works for ever, with as many groups from
                 some request on (Lines.lean, `Requests.lines`). Fairness and

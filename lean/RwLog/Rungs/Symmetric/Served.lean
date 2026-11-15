@@ -194,6 +194,12 @@ theorem IsRun.read_cov (h : IsRun σ) {r r1 i j pos n : Nat} {f : R → Option R
     ∀ z, f y.span = some z → CovS (σ r) i z :=
   hr.2 n y hn (h.at_of_lt hy (by have := hr.1; omega))
 
+/-- The complete tables of a run stand in an order at every time: none is
+complete only because of itself. -/
+theorem IsRun.founded (h : IsRun σ) : ∀ r, Founded (σ r)
+  | 0 => ⟨fun _ => 0, fun i t ht hd => by rw [h.fresh i t ht] at hd; cases hd⟩
+  | r + 1 => (h.req.req r).founded (h.founded r)
+
 /-- A table that needs no round in infinitely many requests is not
 neglected. -/
 theorem IsRun.opened_of_settled (h : IsRun σ) {r0 j : Nat} {g : GoalOf R Rel}

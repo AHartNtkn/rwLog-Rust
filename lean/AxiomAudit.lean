@@ -670,6 +670,9 @@ new axiom.
 /-- info: 'RwLog.Symmetric.Requests.lines' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Symmetric.Requests.lines
 
+/-- info: 'RwLog.Symmetric.IsRun.founded' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Symmetric.IsRun.founded
+
 /-- info: 'RwLog.Symmetric.Requests.line' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Symmetric.Requests.line
 

@@ -147,7 +147,12 @@ Still owed for `Keeps`: `TerminatesWhere` (which needs O7) and `EmptySide`.
 
 What this forces to be redone: nothing proved. The guards on request counts in `Tests/SymmetricRuns.lean` are the new numbers.
 
-Planned for `EmptySide`: a table that completes in the run on `a` completes in every run that keeps giving it rounds, in the manner of `Rungs/Tabled/Host.lean`. That needs the pushes in the record of a round (the record says nothing of them yet, because completeness did not need them) and the order in which tables complete (a push begins only after its side is complete).
+Planned for `EmptySide`: a table that completes in the run on `a` completes in every run that keeps giving it rounds, in the manner of `Rungs/Tabled/Host.lean`. That needs the pushes in the record of a round and the order in which tables complete. Both are now proved:
+
+- *Pushes in the record* (`SStep.push`, `step_work`). A push that works while its side is complete: takes the maximal answers of the side if it had not; else opens the goal of the next of them; else, with a goal open for each, is nearer to every answer those goals have. `SStep` is given which tables are complete for this. After a group works, the goals a push has opened need no round, once it has taken the answers of its side (`SFed`).
+- *The order of completion* (`Ranked`, `Founded`, `IsRun.founded`). A table is marked complete in two places: in its own round, when a strategy has nothing left to do and reads complete tables only, and at the end of a request, with the tables that complete together. From the record of a request alone a set of tables could look complete because of itself, for instance two tables each pushing the answers of the other. So the record carries this: the complete tables of a state stand in an order, each with a strategy with nothing left to do that reads only complete tables standing no higher, and a table whose answers are pushed stands strictly lower. It holds because `quiet` asks of a push that its side is already marked complete. A table that newly completes stands above all that were complete (`Founded.step`).
+
+Still to do for `EmptySide`: the transfer itself, by induction along that order, and the ladders for `;` and `&`.
 
 ### What a step is
 
