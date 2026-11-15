@@ -178,40 +178,48 @@ def stepsOf (u v : Path) : List Step :=
   (u.map fun e => (0, e)) ++ (v.map fun e => (1, e)) ++ [(2, 0, 0)]
 
 /-- The cursor of a join. `pa` and `pb` are the paths of the answers of its
-two tables, as far as it has filed them; `done` is the pairs of positions it
-has combined; `fed` is, for each pair combined, the steps down to it and the
-ticks it cost. A *class* of pairs is a beginning of the steps of a pair: the
+two tables, as far as it has filed them; `todo` is the pairs of positions of
+answers filed that it has not combined, and `done` those it has; `fed` is,
+for each run of steps down to a pair combined, the ticks the pairs of those
+steps cost. A *class* of pairs is a beginning of the steps of a pair: the
 pairs whose answers came from those choices. A class has no work but that of
 its pairs. -/
 structure Cursor where
   pa : List Path
   pb : List Path
+  todo : List (Nat × Nat)
   done : List (Nat × Nat)
   fed : List (List Step × Nat)
   deriving DecidableEq, Repr
 
 /-- The cursor of a join that has combined nothing. -/
-def Cursor.start : Cursor := ⟨[], [], [], []⟩
+def Cursor.start : Cursor := ⟨[], [], [], [], []⟩
 
-/-- The pairs of positions below `la` and `lb`. -/
-def pairsBelow (la lb : Nat) : List (Nat × Nat) :=
-  ((List.range (max la lb)).flatMap fun n =>
-    ((List.range n).map fun i => (i, n)) ++ ((List.range (n + 1)).map fun j => (n, j))).filter
-    fun p => decide (p.1 < la) && decide (p.2 < lb)
-
-/-- The pairs still to combine in tables of `la` and `lb` answers. -/
-def Cursor.left (la lb : Nat) (c : Cursor) : List (Nat × Nat) :=
-  (pairsBelow la lb).filter fun p => !c.done.contains p
+/-- The pairs of positions below `a1` and `b1` that are not both below `a0`
+and `b0`: the pairs that tables of `a0` and `b0` answers gain when they grow
+to `a1` and `b1`. -/
+def pairsNew (a0 b0 a1 b1 : Nat) : List (Nat × Nat) :=
+  ((List.range' a0 (a1 - a0)).flatMap fun i => (List.range b1).map fun j => (i, j)) ++
+    ((List.range a0).flatMap fun i => (List.range' b0 (b1 - b0)).map fun j => (i, j))
 
 /-- The cursor with the answers filed that its tables have gained: `pa` and
 `pb` are the paths of all their answers now. The path of an answer that was
-filed stays. -/
+filed stays, and the pairs with an answer newly filed are still to
+combine. -/
 def Cursor.see (pa pb : List Path) (c : Cursor) : Cursor :=
-  { c with pa := c.pa ++ pa.drop c.pa.length, pb := c.pb ++ pb.drop c.pb.length }
+  let pa' := c.pa ++ pa.drop c.pa.length
+  let pb' := c.pb ++ pb.drop c.pb.length
+  { c with pa := pa', pb := pb',
+           todo := c.todo ++ pairsNew c.pa.length c.pb.length pa'.length pb'.length }
 
 /-- The ticks spent on the pairs of a class. -/
 def Cursor.fedOf (c : Cursor) (k : List Step) : Nat :=
   ((c.fed.filter fun e => k.isPrefixOf e.1).map (·.2)).sum
+
+/-- Count `t` ticks more for the pairs of the steps `ss`. -/
+def bump (ss : List Step) (t : Nat) : List (List Step × Nat) → List (List Step × Nat)
+  | [] => [(ss, t)]
+  | e :: l => if e.1 = ss then (e.1, e.2 + t) :: l else e :: bump ss t l
 
 /-- The steps down to the pair at the positions `p`. -/
 def Cursor.stepsAt (c : Cursor) (p : Nat × Nat) : List Step :=
@@ -252,15 +260,19 @@ single class, where the pair of the earliest answers is taken. So a pair
 waits for the pairs of other choices by the number of members at each choice
 on the way to it, and not by how many answers the other members have. -/
 def Cursor.next (c : Cursor) : Option (Nat × Nat) :=
-  chooseBy (fun p b => decide (c.keyOf p < c.keyOf b)) (c.left c.pa.length c.pb.length)
+  chooseBy (fun p b => decide (c.keyOf p < c.keyOf b)) c.todo
 
 /-- The cursor after the pair `p` was combined at `t` ticks: every class of
 the pair has been fed that much. -/
 def Cursor.mark (c : Cursor) (p : Nat × Nat) (t : Nat) : Cursor :=
-  { c with done := c.done ++ [p], fed := c.fed ++ [(c.stepsAt p, t)] }
+  { c with todo := c.todo.filter fun x => x != p, done := p :: c.done,
+           fed := bump (c.stepsAt p) t c.fed }
 
-/-- Is a pair left to combine? -/
-def Cursor.pending (la lb : Nat) (c : Cursor) : Bool := !(c.left la lb).isEmpty
+/-- Is a pair left to combine in tables of `la` and `lb` answers: one of
+answers filed, or one with an answer not filed yet? -/
+def Cursor.pending (la lb : Nat) (c : Cursor) : Bool :=
+  !c.todo.isEmpty || (decide (c.pa.length < la) && decide (0 < lb)) ||
+    (decide (c.pb.length < lb) && decide (0 < la))
 
 /-- The state of an interface check: its side is still to be read; it is not
 offered; or the tables of the goals opened for the interfaces. -/

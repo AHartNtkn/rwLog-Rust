@@ -283,7 +283,7 @@ inductive SStep (need : N → Nat) (len : Nat → Nat) (dn : Nat → Bool) (d d'
         c'.Before p q ∨ RankLt (c'.rank p q) (c.rank p q)) →
       (c.pa.length ≤ c'.pa.length ∧ c.pb.length ≤ c'.pb.length) →
       (len a ≤ c'.pa.length ∧ len b ≤ c'.pb.length) →
-      (c'.pending (len a) (len b) = false ∨ ∃ p q, ¬ c.Before p q ∧ c'.Before p q) →
+      (c'.Full (len a) (len b) ∨ ∃ p q, ¬ c.Before p q ∧ c'.Before p q) →
       SStep need len dn d d' (.join k a b c) (.join k a b c')
   | push {k : Kind} {l : Bool} {side : Nat} {o : N} {t t' : Option (List A)}
       {subs subs' : List (A × Nat × Nat)} :
@@ -318,7 +318,8 @@ theorem SStep.mono {len len' : Nat → Nat} {dn dn' : Nat → Bool} {d d' d0 d1 
     exact .copy h1 fun n m j pos hm hp hn => h2 n m j pos hm hp (hn.trans (hl j))
   | @join _ a b _ _ h1 h2 h3 h5 h4 =>
     exact .join h1 h2 h3 ⟨(hl a).trans h5.1, (hl b).trans h5.2⟩
-      (h4.imp (fun h => Cursor.pending_mono (hl a) (hl b) h) id)
+      (h4.imp (fun h p q hp hq => h p q (Nat.lt_of_lt_of_le hp (hl a))
+        (Nat.lt_of_lt_of_le hq (hl b))) id)
   | push h1 h2 h3 h4 =>
     refine .push h1 h2 h3 fun hs => ?_
     obtain ⟨x1, x2, x3⟩ := h4 (hdn _ hs)
@@ -438,7 +439,7 @@ theorem SStep.before {len : Nat → Nat} {dn : Nat → Bool} {d d' : Nat} {s s1 
     | join b1 b2 b3 =>
       refine .join (fun p q h => b1 p q (a1 p q h)) (fun p q hp hq => ?_)
         ⟨a3.1.trans b3.1, a3.2.trans b3.2⟩ ⟨a5.1.trans b3.1, a5.2.trans b3.2⟩
-        (a4.imp (fun h => Cursor.pending_before b1 h) fun ⟨p, q, h1, h2⟩ =>
+        (a4.imp (fun h p q hp hq => b1 p q (h p q hp hq)) fun ⟨p, q, h1, h2⟩ =>
           ⟨p, q, h1, b1 p q h2⟩)
       rcases a2 p q hp hq with h | h
       · exact .inl (b1 p q h)
@@ -2063,13 +2064,11 @@ theorem step_work (i : Nat) (g : GoalOf R Rel) (st : StateOf R Rel (Ans D P))
       exact ⟨hc.1, hc.2.1⟩
     split
     · next hx =>
-      have hnone := Cursor.next_none hx
-      refine .join (fun _ _ h => h) (fun p q hp hq => .inl ?_) hlen
-        ⟨Nat.le_of_eq hsa.symm, Nat.le_of_eq hsb.symm⟩ (.inl ?_)
-      · exact Cursor.before_of_not_pending' hnone (Nat.lt_of_lt_of_le hp hlen.1)
-          (Nat.lt_of_lt_of_le hq hlen.2)
-      · rw [hsa, hsb] at hnone
-        exact hnone
+      have hnone := Cursor.next_none hsok hx
+      rw [hsa, hsb] at hnone
+      exact .join (fun _ _ h => h) (fun p q hp hq => .inl (hnone p q
+          (Nat.lt_of_lt_of_le hp hc.1) (Nat.lt_of_lt_of_le hq hc.2.1))) hlen
+        ⟨Nat.le_of_eq hsa.symm, Nat.le_of_eq hsb.symm⟩ (.inl hnone)
     · next pr hx =>
       simp only [Cost.bind_val, Cost.pure_val, Kernel.metered, Cost.metered_val]
       obtain ⟨-, n2, -, n4⟩ := Cursor.next_spec
@@ -2081,7 +2080,7 @@ theorem step_work (i : Nat) (g : GoalOf R Rel) (st : StateOf R Rel (Ans D P))
       · exact .inl (Cursor.before_mark.2 (.inl hb))
       · right
         rw [← Cursor.rank_see (st.pathsAt a) (st.pathsAt b) c hp hq]
-        exact Cursor.rank_fall (Nat.succ_pos _) hx (Cursor.mem_left.2
+        exact Cursor.rank_fall hsok (Nat.succ_pos _) hx (Cursor.mem_left.2
           ⟨⟨Nat.lt_of_lt_of_le hp hlen.1, Nat.lt_of_lt_of_le hq hlen.2⟩, hb⟩)
   | push k left side other todo subs =>
     simp only [work]

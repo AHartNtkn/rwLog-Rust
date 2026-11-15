@@ -262,7 +262,7 @@ theorem Line.join_done (hL : Line need σ k r0 L) {m : Nat} {kd : Kind} {a b : N
     have hqb := hb r (by omega)
     have hpa' := ha (r + 1) (by omega)
     have hqb' := hb (r + 1) (by omega)
-    have hdone : c'.pending ((σ T).len a) ((σ T).len b) = false := by
+    have hdone : c'.Full ((σ T).len a) ((σ T).len b) := by
       rcases h4 with h4 | ⟨p, q, hn, hy⟩
       · rw [hpa, hqb] at h4
         exact h4
@@ -272,8 +272,8 @@ theorem Line.join_done (hL : Line need σ k r0 L) {m : Nat} {kd : Kind} {a b : N
     refine ⟨r + 1, by omega, fun r2 hr2 => ?_⟩
     obtain ⟨c2, hs2, hbf, -⟩ := keep (r + 1) c' (by omega) hs' r2 hr2
     refine ⟨c2, hs2, ?_⟩
-    rw [ha r2 (by omega), hb r2 (by omega)]
-    exact Cursor.pending_before hbf hdone
+    rw [(hok r2 c2 (by omega) hs2).pending_false, ha r2 (by omega), hb r2 (by omega)]
+    exact fun p q hp hq => hbf p q (hdone p q hp hq)
 
 /-- A push stays a push of the same side into the same node. -/
 theorem Line.push_kept (hL : Line need σ k r0 L) {m : Nat} {kd : Kind} {left : Bool}

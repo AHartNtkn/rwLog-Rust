@@ -39,11 +39,24 @@ namespace Symmetric
 /-- The pair at the positions `p` and `q` is combined. -/
 def Cursor.Before (c : Cursor) (p q : Nat) : Prop := (p, q) ∈ c.done
 
+/-- Every pair of answers of tables of `la` and `lb` answers is combined. -/
+def Cursor.Full (la lb : Nat) (c : Cursor) : Prop := ∀ p q, p < la → q < lb → c.Before p q
+
+/-- The pairs of positions below `la` and `lb`. -/
+def pairsBelow (la lb : Nat) : List (Nat × Nat) :=
+  (List.range la).flatMap fun i => (List.range lb).map fun j => (i, j)
+
+/-- The pairs still to combine in tables of `la` and `lb` answers. -/
+def Cursor.left (la lb : Nat) (c : Cursor) : List (Nat × Nat) :=
+  (pairsBelow la lb).filter fun p => !c.done.contains p
+
 /-- What a cursor keeps in tables of `la` and `lb` answers: it has filed no
-more answers than there are, and the pairs combined are of answers that are
-there. -/
+more answers than there are, the pairs combined are of answers filed, and the
+pairs to combine are those of answers filed that are not combined. -/
 def Cursor.Ok (la lb : Nat) (c : Cursor) : Prop :=
-  c.pa.length ≤ la ∧ c.pb.length ≤ lb ∧ ∀ x ∈ c.done, x.1 < la ∧ x.2 < lb
+  c.pa.length ≤ la ∧ c.pb.length ≤ lb ∧
+    (∀ x ∈ c.done, x.1 < c.pa.length ∧ x.2 < c.pb.length) ∧
+    ∀ x, x ∈ c.todo ↔ (x.1 < c.pa.length ∧ x.2 < c.pb.length) ∧ x ∉ c.done
 
 theorem Cursor.ok_start (la lb : Nat) : Cursor.start.Ok la lb := by
   simp [Cursor.Ok, Cursor.start]
@@ -54,30 +67,80 @@ theorem Cursor.before_start (p q : Nat) : ¬ Cursor.start.Before p q := by
 /-- A cursor that fits tables fits them when they have grown. -/
 theorem Cursor.Ok.mono {la lb la' lb' : Nat} {c : Cursor} (h : c.Ok la lb) (ha : la ≤ la')
     (hb : lb ≤ lb') : c.Ok la' lb' :=
-  ⟨Nat.le_trans h.1 ha, Nat.le_trans h.2.1 hb, fun x hx => by
-    have := h.2.2 x hx
-    omega⟩
+  ⟨Nat.le_trans h.1 ha, Nat.le_trans h.2.1 hb, h.2.2⟩
 
 /-- A pair that is combined is inside the tables. -/
 theorem Cursor.Ok.before_lt {la lb : Nat} {c : Cursor} (h : c.Ok la lb) {p q : Nat}
-    (hb : c.Before p q) : p < la ∧ q < lb := h.2.2 (p, q) hb
+    (hb : c.Before p q) : p < la ∧ q < lb := by
+  have := h.2.2.1 (p, q) hb
+  have h1 := h.1
+  have h2 := h.2.1
+  exact ⟨by omega, by omega⟩
 
 theorem mem_pairsBelow {la lb : Nat} {x : Nat × Nat} :
     x ∈ pairsBelow la lb ↔ x.1 < la ∧ x.2 < lb := by
   obtain ⟨p, q⟩ := x
-  simp only [pairsBelow, List.mem_filter, List.mem_flatMap, List.mem_range, List.mem_append,
-    List.mem_map, Prod.mk.injEq, Bool.and_eq_true, decide_eq_true_eq]
+  simp only [pairsBelow, List.mem_flatMap, List.mem_range, List.mem_map, Prod.mk.injEq]
   constructor
-  · exact fun h => h.2
-  · intro h
-    refine ⟨⟨max p q, by omega, ?_⟩, h⟩
-    by_cases hpq : p < q
-    · exact .inl ⟨p, by omega, rfl, by omega⟩
-    · exact .inr ⟨q, by omega, by omega, rfl⟩
+  · rintro ⟨i, hi, j, hj, rfl, rfl⟩
+    exact ⟨hi, hj⟩
+  · exact fun h => ⟨p, h.1, q, h.2, rfl, rfl⟩
+
+theorem mem_pairsNew {a0 b0 a1 b1 : Nat} (ha : a0 ≤ a1) (hb : b0 ≤ b1) {x : Nat × Nat} :
+    x ∈ pairsNew a0 b0 a1 b1 ↔ (x.1 < a1 ∧ x.2 < b1) ∧ ¬ (x.1 < a0 ∧ x.2 < b0) := by
+  obtain ⟨p, q⟩ := x
+  simp only [pairsNew, List.mem_append, List.mem_flatMap, List.mem_range, List.mem_range',
+    List.mem_map, Prod.mk.injEq]
+  constructor
+  · rintro (⟨i, ⟨d, hd, rfl⟩, j, hj, rfl, rfl⟩ | ⟨i, hi, j, ⟨d, hd, rfl⟩, rfl, rfl⟩)
+    · exact ⟨⟨by omega, hj⟩, by omega⟩
+    · exact ⟨⟨by omega, by omega⟩, by omega⟩
+  · rintro ⟨⟨h1, h2⟩, h3⟩
+    by_cases hp : p < a0
+    · exact .inr ⟨p, hp, q, ⟨q - b0, by omega, by omega⟩, rfl, rfl⟩
+    · exact .inl ⟨p, ⟨p - a0, by omega, by omega⟩, q, h2, rfl, rfl⟩
 
 theorem Cursor.mem_left {la lb : Nat} {c : Cursor} {x : Nat × Nat} :
     x ∈ c.left la lb ↔ (x.1 < la ∧ x.2 < lb) ∧ ¬ c.Before x.1 x.2 := by
   simp [Cursor.left, mem_pairsBelow, Cursor.Before]
+
+/-- The pairs to combine are the pairs of answers filed that are left. -/
+theorem Cursor.Ok.mem_todo {la lb : Nat} {c : Cursor} (h : c.Ok la lb) {x : Nat × Nat} :
+    x ∈ c.todo ↔ x ∈ c.left c.pa.length c.pb.length := by
+  rw [h.2.2.2 x, Cursor.mem_left]
+  rfl
+
+/-- **Is a pair left?** No pair is left exactly when every pair of answers of
+the tables is combined. -/
+theorem Cursor.Ok.pending_false {la lb : Nat} {c : Cursor} (h : c.Ok la lb) :
+    c.pending la lb = false ↔ c.Full la lb := by
+  obtain ⟨h1, h2, h3, h4⟩ := h
+  simp only [Cursor.pending, Bool.or_eq_false_iff, Bool.not_eq_eq_eq_not, Bool.not_false,
+    List.isEmpty_iff, Bool.and_eq_false_iff, decide_eq_false_iff_not]
+  constructor
+  · rintro ⟨⟨ht, ha⟩, hb⟩ p q hp hq
+    have hpa : p < c.pa.length := by omega
+    have hqb : q < c.pb.length := by omega
+    by_contra hn
+    have : (p, q) ∈ c.todo := (h4 (p, q)).2 ⟨⟨hpa, hqb⟩, hn⟩
+    rw [ht] at this
+    cases this
+  · intro hf
+    refine ⟨⟨?_, ?_⟩, ?_⟩
+    · cases ht : c.todo with
+      | nil => rfl
+      | cons x l =>
+        have hx : x ∈ c.todo := by rw [ht]; exact List.mem_cons_self
+        have hm := (h4 x).1 hx
+        exact absurd (hf x.1 x.2 (by omega) (by omega)) hm.2
+    · by_contra hc
+      have hc' : c.pa.length < la ∧ 0 < lb := by omega
+      have := h3 _ (hf c.pa.length 0 hc'.1 hc'.2)
+      simp at this
+    · by_contra hc
+      have hc' : c.pb.length < lb ∧ 0 < la := by omega
+      have := h3 _ (hf 0 c.pb.length hc'.2 hc'.1)
+      simp at this
 
 /-! ## Filing the answers -/
 
@@ -112,9 +175,25 @@ theorem Cursor.Ok.see {la lb : Nat} {c : Cursor} (h : c.Ok la lb) {pa pb : List 
     (c.see pa pb).Ok la lb ∧ (c.see pa pb).pa.length = la ∧ (c.see pa pb).pb.length = lb := by
   have h1 := Cursor.see_pa_length pa pb c
   have h2 := Cursor.see_pb_length pa pb c
-  have h3 := h.1
-  have h4 := h.2.1
-  exact ⟨⟨by omega, by omega, h.2.2⟩, by omega, by omega⟩
+  obtain ⟨h3, h4, h5, h6⟩ := h
+  have e1 : (c.see pa pb).pa.length = la := by omega
+  have e2 : (c.see pa pb).pb.length = lb := by omega
+  refine ⟨⟨by omega, by omega, fun x hx => ?_, fun x => ?_⟩, e1, e2⟩
+  · have := h5 x hx
+    rw [e1, e2]
+    omega
+  · have ht : (c.see pa pb).todo = c.todo ++
+        pairsNew c.pa.length c.pb.length (c.see pa pb).pa.length (c.see pa pb).pb.length := rfl
+    rw [ht, List.mem_append, mem_pairsNew (by omega) (by omega), h6 x]
+    show _ ↔ _ ∧ x ∉ c.done
+    constructor
+    · rintro (⟨hf, hd⟩ | ⟨hf, hn⟩)
+      · exact ⟨⟨by omega, by omega⟩, hd⟩
+      · exact ⟨hf, fun hd => hn (h5 x hd)⟩
+    · rintro ⟨hf, hd⟩
+      by_cases hold : x.1 < c.pa.length ∧ x.2 < c.pb.length
+      · exact .inl ⟨hold, hd⟩
+      · exact .inr ⟨hf, hold⟩
 
 /-! ## The next pair -/
 
@@ -194,68 +273,39 @@ theorem foldl_choose_least {α β : Type} [LinearOrder β] (key : α → β) (lt
         · exact i1 y hy
 
 /-- A pair returned is of answers filed and was not combined. -/
-theorem Cursor.next_mem {c : Cursor} {x : Nat × Nat} (h : c.next = some x) :
-    x ∈ c.left c.pa.length c.pb.length := by
+theorem Cursor.next_mem {la lb : Nat} {c : Cursor} (hok : c.Ok la lb) {x : Nat × Nat}
+    (h : c.next = some x) : x ∈ c.left c.pa.length c.pb.length := by
   rcases foldl_choose_mem _ _ _ _ (show List.foldl _ none _ = some x from h) with h1 | h1
-  · exact h1
+  · exact hok.mem_todo.1 h1
   · cases h1
 
-/-- No pair is returned only when none is left. -/
-theorem Cursor.next_none {c : Cursor} (h : c.next = none) :
-    c.pending c.pa.length c.pb.length = false := by
-  simp [Cursor.pending, (foldl_choose_none _ _ _ (show List.foldl _ none _ = none from h)).1]
+/-- No pair is returned only when every pair of answers filed is combined. -/
+theorem Cursor.next_none {la lb : Nat} {c : Cursor} (hok : c.Ok la lb) (h : c.next = none) :
+    c.Full c.pa.length c.pb.length := by
+  intro p q hp hq
+  by_contra hn
+  have hm : (p, q) ∈ c.todo := hok.mem_todo.2 (Cursor.mem_left.2 ⟨⟨hp, hq⟩, hn⟩)
+  rw [(foldl_choose_none _ _ _ (show List.foldl _ none _ = none from h)).1] at hm
+  cases hm
 
 /-- The pair returned has the least key of the pairs left. -/
-theorem Cursor.next_le {c : Cursor} {x : Nat × Nat} (h : c.next = some x) :
-    ∀ y ∈ c.left c.pa.length c.pb.length, c.keyOf x ≤ c.keyOf y :=
-  (foldl_choose_least c.keyOf _ (fun _ _ => by simp) _ _ _
-    (show List.foldl _ none _ = some x from h)).1
-
-/-- When nothing is left every pair inside the tables is combined. -/
-theorem Cursor.before_of_not_pending' {la lb : Nat} {c : Cursor}
-    (hp : c.pending la lb = false) {p q : Nat} (h1 : p < la) (h2 : q < lb) : c.Before p q := by
-  by_contra hn
-  have : (p, q) ∈ c.left la lb := Cursor.mem_left.2 ⟨⟨h1, h2⟩, hn⟩
-  simp only [Cursor.pending, Bool.not_eq_false', List.isEmpty_iff] at hp
-  rw [hp] at this
-  cases this
-
-/-- Nothing is left in smaller tables when nothing is left. -/
-theorem Cursor.pending_mono {la lb la' lb' : Nat} {c : Cursor} (ha : la' ≤ la) (hb : lb' ≤ lb)
-    (h : c.pending la lb = false) : c.pending la' lb' = false := by
-  cases hp : c.pending la' lb' with
-  | false => rfl
-  | true =>
-    simp only [Cursor.pending, Bool.not_eq_eq_eq_not, Bool.not_true, List.isEmpty_eq_false_iff] at hp
-    obtain ⟨x, hx⟩ := List.exists_mem_of_ne_nil _ hp
-    have hm := Cursor.mem_left.1 hx
-    exact absurd (Cursor.before_of_not_pending' h (by omega) (by omega)) hm.2
-
-/-- Nothing is left for a cursor that has combined all another has, when
-nothing is left for that one. -/
-theorem Cursor.pending_before {la lb : Nat} {c c' : Cursor}
-    (hb : ∀ p q, c.Before p q → c'.Before p q) (h : c.pending la lb = false) :
-    c'.pending la lb = false := by
-  cases hp : c'.pending la lb with
-  | false => rfl
-  | true =>
-    simp only [Cursor.pending, Bool.not_eq_eq_eq_not, Bool.not_true, List.isEmpty_eq_false_iff] at hp
-    obtain ⟨x, hx⟩ := List.exists_mem_of_ne_nil _ hp
-    have hm := Cursor.mem_left.1 hx
-    exact absurd (hb _ _ (Cursor.before_of_not_pending' h hm.1.1 hm.1.2)) hm.2
+theorem Cursor.next_le {la lb : Nat} {c : Cursor} (hok : c.Ok la lb) {x : Nat × Nat}
+    (h : c.next = some x) : ∀ y ∈ c.left c.pa.length c.pb.length, c.keyOf x ≤ c.keyOf y :=
+  fun y hy => (foldl_choose_least c.keyOf _ (fun _ _ => by simp) _ _ _
+    (show List.foldl _ none _ = some x from h)).1 y (hok.mem_todo.2 hy)
 
 /-- The pairs combined after a pair is marked are those combined before and
 that pair. -/
 theorem Cursor.before_mark {c : Cursor} {x : Nat × Nat} {t p q : Nat} :
     (c.mark x t).Before p q ↔ c.Before p q ∨ x = (p, q) := by
-  simp only [Cursor.Before, Cursor.mark, List.mem_append, List.mem_singleton]
+  simp only [Cursor.Before, Cursor.mark, List.mem_cons]
   constructor
   · rintro (h | h)
-    · exact .inl h
     · exact .inr h.symm
+    · exact .inl h
   · rintro (h | h)
-    · exact .inl h
-    · exact .inr h.symm
+    · exact .inr h
+    · exact .inl h.symm
 
 /-- **A unit of a join**: a pair returned is of answers filed and was not
 combined; once it is marked the cursor still fits and the pair is
@@ -264,16 +314,20 @@ theorem Cursor.next_spec {la lb : Nat} {c : Cursor} {x : Nat × Nat} (t : Nat)
     (hok : c.Ok la lb) (h : c.next = some x) :
     (x.1 < c.pa.length ∧ x.2 < c.pb.length) ∧ ¬ c.Before x.1 x.2 ∧
       (c.mark x t).Ok la lb ∧ (c.mark x t).Before x.1 x.2 := by
-  have hm := Cursor.mem_left.1 (Cursor.next_mem h)
-  refine ⟨hm.1, hm.2, ⟨hok.1, hok.2.1, fun y hy => ?_⟩, Cursor.before_mark.2 (.inr rfl)⟩
-  simp only [Cursor.mark, List.mem_append, List.mem_singleton] at hy
-  rcases hy with hy | hy
-  · exact hok.2.2 y hy
-  · have h1 := hok.1
-    have h2 := hok.2.1
-    have h3 := hm.1
-    subst hy
-    omega
+  have hm := Cursor.mem_left.1 (Cursor.next_mem hok h)
+  refine ⟨hm.1, hm.2, ⟨hok.1, hok.2.1, fun y hy => ?_, fun y => ?_⟩,
+    Cursor.before_mark.2 (.inr rfl)⟩
+  · simp only [Cursor.mark, List.mem_cons] at hy
+    rcases hy with hy | hy
+    · exact hy ▸ hm.1
+    · exact hok.2.2.1 y hy
+  · simp only [Cursor.mark, List.mem_filter, List.mem_cons, bne_iff_ne, ne_eq, not_or]
+    rw [hok.2.2.2 y]
+    constructor
+    · rintro ⟨⟨hf, hd⟩, hne⟩
+      exact ⟨hf, hne, hd⟩
+    · rintro ⟨hf, hne, hd⟩
+      exact ⟨⟨hf, hd⟩, hne⟩
 
 theorem leastBy_ok {α : Type} {key : α → Nat} {ok : α → Bool} {l : List α} {x : α}
     (h : leastBy key ok l = some x) : ok x = true := by
@@ -470,12 +524,24 @@ theorem stepsOf_diff {u v u' v' : Path} (h : stepsOf u v ≠ stepsOf u' v') :
       refine ⟨e, s, s', h1, e1, e2, fun hs => h2 ?_⟩
       rw [e1, e2, hs]
 
+theorem bump_sum (k ss : List Step) (t : Nat) : ∀ l : List (List Step × Nat),
+    (((bump ss t l).filter fun e => k.isPrefixOf e.1).map (·.2)).sum =
+      ((l.filter fun e => k.isPrefixOf e.1).map (·.2)).sum + if k.isPrefixOf ss then t else 0
+  | [] => by by_cases h : k.isPrefixOf ss = true <;> simp [bump, h]
+  | e :: l => by
+    by_cases he : e.1 = ss
+    · subst he
+      by_cases h : k.isPrefixOf e.1 = true <;> simp [bump, h]
+      omega
+    · have ih := bump_sum k ss t l
+      by_cases h : k.isPrefixOf e.1 = true <;> simp [bump, he, h, ih]
+      omega
+
 /-- What a class was fed once a pair is marked: the ticks of the pair more if
 the pair is of the class. -/
 theorem Cursor.fedOf_mark (c : Cursor) (x : Nat × Nat) (t : Nat) (k : List Step) :
-    (c.mark x t).fedOf k = c.fedOf k + if k.isPrefixOf (c.stepsAt x) then t else 0 := by
-  simp only [Cursor.fedOf, Cursor.mark, List.filter_append, List.map_append, List.sum_append]
-  by_cases h : k.isPrefixOf (c.stepsAt x) = true <;> simp [h]
+    (c.mark x t).fedOf k = c.fedOf k + if k.isPrefixOf (c.stepsAt x) then t else 0 :=
+  bump_sum k (c.stepsAt x) t c.fed
 
 @[simp] theorem Cursor.stepsAt_mark (c : Cursor) (x : Nat × Nat) (t : Nat) (y : Nat × Nat) :
     (c.mark x t).stepsAt y = c.stepsAt y := rfl
@@ -580,8 +646,8 @@ theorem Cursor.left_mark (c : Cursor) (x : Nat × Nat) (t K : Nat) :
   have hsub : List.Sublist ((c.mark x t).left K K) (c.left K K) := by
     unfold Cursor.left Cursor.mark
     refine List.monotone_filter_right _ fun y hy => ?_
-    simp only [List.contains_append, Bool.not_or, Bool.and_eq_true] at hy
-    exact hy.1
+    simp only [List.contains_cons, Bool.not_or, Bool.and_eq_true] at hy
+    exact hy.2
   refine ⟨hsub.length_le, fun hx => ?_⟩
   rcases Nat.lt_or_eq_of_le hsub.length_le with h | h
   · exact h
@@ -602,11 +668,11 @@ theorem Cursor.place_mark (c : Cursor) (x : Nat × Nat) (t : Nat) (k : List Step
 
 /-- **A unit of a join that combines a pair brings the join nearer to each
 pair left.** -/
-theorem Cursor.rank_fall {c : Cursor} {x : Nat × Nat} {t : Nat} (ht : 0 < t)
-    (h : c.next = some x) {p q : Nat} (hpq : (p, q) ∈ c.left c.pa.length c.pb.length) :
+theorem Cursor.rank_fall {la lb : Nat} {c : Cursor} (hok : c.Ok la lb) {x : Nat × Nat}
+    {t : Nat} (ht : 0 < t) (h : c.next = some x) {p q : Nat} (hpq : (p, q) ∈ c.left c.pa.length c.pb.length) :
     RankLt ((c.mark x t).rank p q) (c.rank p q) := by
-  have hkey := Cursor.next_le h (p, q) hpq
-  have hxm := Cursor.mem_left.1 (Cursor.next_mem h)
+  have hkey := Cursor.next_le hok h (p, q) hpq
+  have hxm := Cursor.mem_left.1 (Cursor.next_mem hok h)
   obtain ⟨hL, hL'⟩ := c.left_mark x t (max p q + 1)
   unfold Cursor.rank
   simp only [Cursor.stepsAt_mark]

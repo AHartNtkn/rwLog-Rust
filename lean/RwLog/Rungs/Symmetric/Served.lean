@@ -515,7 +515,7 @@ theorem IsRun.served_done (h : IsRun U σ) {r0 k : Nat} {g : GoalOf R Rel}
     dsimp only [Prog] at hp
     obtain ⟨-, -, -, -, -, hok, -⟩ := hp
     refine h.served_join hkr hst (dn a hq.2.1) (dn b hq.2.2) fun p q r1 hp hq' =>
-      ⟨r, c, hst, Cursor.before_of_not_pending' hq.1 ?_ ?_⟩
+      ⟨r, c, hst, hok.pending_false.1 hq.1 p q ?_ ?_⟩
     · exact Nat.lt_of_lt_of_le hp (h.done_len hq.2.1 r1)
     · exact Nat.lt_of_lt_of_le hq' (h.done_len hq.2.2 r1)
   | push kd left side other todo subs =>
