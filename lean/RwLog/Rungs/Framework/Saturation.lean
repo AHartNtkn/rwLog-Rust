@@ -29,7 +29,9 @@ strategies are those of the symmetric engine (`lean/SYMMETRIC_ENGINE.md`):
   never holds an answer for any (`checkL`, `checkR`);
 * a meet is split into a member and the meet of the others, and either the
   answers of both are conjoined, or the answers of one are pushed into the
-  other, opened between the two interfaces of the answer.
+  other, opened between the two interfaces of the answer;
+* or the node is unfolded to its end, without any other goal: the run holds
+  an answer for every ground relation the node derives (`whole`).
 
 A strategy that pushes need not push every answer: it is enough to push, for
 each answer, one that covers it. So an engine that keeps only the answers no
@@ -171,6 +173,10 @@ inductive Served (D : Domain R) (P : Program) (O : Set (Goal R)) (T : Tables R) 
   | meetR (xs : List Rel) (i : Nat) (x r : Rel) (hv : g.node.view = .meet xs)
       (hx : xs[i]? = some x) (hr : g.node.without i = some r)
       (h : Pushes P O T g ⟨g.lb, r, g.rb⟩ (fun b => ⟨D.leftBound b, x, D.rightBound b⟩) D.meet)
+  /-- The node unfolded to its end: for every ground relation the node
+  derives, the run holds an answer that relates its pairs between the
+  boundaries. -/
+  | whole (h : ∀ k, ∀ G ∈ GDn P k g.node, (pairs P g G).Nonempty → Ev P T g (pairs P g G))
 
 /-- A fair run: every goal it opens is a goal of the normal form between
 boundaries, and is served. -/
@@ -453,6 +459,7 @@ where
       obtain ⟨a, hah, hXa⟩ := ih _ (hn ▸ hsx) _ on rfl G₁ hG₁ ⟨p, (hsub ⟨hp₁, hp₂⟩).1⟩
       have := meet_cov hL hXb' hXa ⟨p, (hsub ⟨hp₁, hp₂⟩).2, (hsub ⟨hp₁, hp₂⟩).1⟩ (ha a hah)
       exact this.mono (fun q hq => ⟨(hsub hq).2, (hsub hq).1⟩)
+    | whole h => exact h k G hG hne
 
 /-- A fair run that opens the query holds, for every span the query
 derives, an answer that relates every pair the span relates. -/

@@ -511,13 +511,13 @@ root node that is its own converse the symmetric engine shows, at every
 step, a list of answers that is a rearrangement of its converses. -/
 theorem selfConverse_of (hD : ∀ S : Sorts, S.WellFormed → (dom S).Lawful S.interp)
     (Good : (engine @U).StateAt dom → Prop) (hroot : ∀ s, Good s → RootGoals @U dom s)
-    (hinit : ∀ (P : Program) (root : Rel), P.sorts.WellFormed → Normal root →
-      Good (((engine @U).costedAt dom K hK).start P root))
+    (hinit : ∀ (P : Program) (root : Rel), P.sorts.WellFormed → ProgFO P → Normal root →
+      root.FO → Good (((engine @U).costedAt dom K hK).start P root))
     (hstep : ∀ s as s', Good s → (((engine @U).costedAt dom K hK).step s).val = .emit as s' →
       Good s') :
     ((engine @U).costedAt dom K hK).SelfConverse := by
-  intro P root hwf hN hself n
-  refine trace_selfConverse hD Good hroot hstep n _ hwf (hinit P root hwf hN) ?_
+  intro P root hwf hP hN hfo hself n
+  refine trace_selfConverse hD Good hroot hstep n _ hwf (hinit P root hwf hP hN hfo) ?_
   have h := init_cores (P := P) (K P.sorts) (hK P.sorts) (root := root.norm)
     (by rw [hN.norm_eq]; exact hself)
   exact ⟨_, [], h.1, (fun y hy => by cases hy), List.Pairwise.nil, h.2⟩

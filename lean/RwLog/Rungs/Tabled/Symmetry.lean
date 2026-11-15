@@ -202,7 +202,7 @@ theorem halts_iff {P : Program} {q : Rel} (wf : P.WellFormed q) (n : Nat) :
     (Rt @U dom K hK).Halts ((Rt @U dom K hK).init P q) n ↔
       (Rt @U' dom K hK).Halts ((Rt @U' dom K hK).init P q) n := by
   have h := halts_map (twin_same (K := K) (hK := hK) hG hG' hE hE' (hD _ wf.2.2.1)
-    (progFO_of_wf wf) false) (root_ok wf) n
+    (wf.progFO) false) (root_ok wf) n
   rw [nmap_ff (normal_norm q)] at h
   rw [init_eq, init_eq]
   exact h
@@ -213,7 +213,7 @@ theorem sameRun {P : Program} {q : Rel} (wf : P.WellFormed q) (n : Nat) :
     TraceEquiv P.sorts.interp ((Rt @U' dom K hK).trace ((Rt @U' dom K hK).init P q) n)
       ((Rt @U dom K hK).trace ((Rt @U dom K hK).init P q) n) := by
   have h := trace_map (twin_same (K := K) (hK := hK) hG hG' hE hE' (hD _ wf.2.2.1)
-    (progFO_of_wf wf) false) (root_ok wf) n
+    (wf.progFO) false) (root_ok wf) n
   rw [nmap_ff (normal_norm q)] at h
   rw [init_eq, init_eq]
   have := traceEquiv_of_shown (M := P.sorts.interp) h
@@ -233,7 +233,7 @@ include hD hG hE
 answer conversed.** -/
 theorem convTrace : (Rt @U dom K hK).ConvTrace := fun P q n wf => by
   have h := trace_map (twin_same (K := K) (hK := hK) hG hG hE hE (hD _ wf.2.2.1)
-    (progFO_of_wf wf) true) (root_ok wf) n
+    (wf.progFO) true) (root_ok wf) n
   have e : nmap true false q.norm = (RelOf.conv q).norm := normB_normB true false q
   rw [e] at h
   rw [init_eq, init_eq]
@@ -243,7 +243,7 @@ theorem convTrace : (Rt @U dom K hK).ConvTrace := fun P q n wf => by
 mirrored program, is the run with every answer conversed.** -/
 theorem dualTrace : (Rt @U dom K hK).DualTrace := fun P q n wf => by
   have h := trace_map (twin_dual (K := K) (hK := hK) hG hG hE hE (hD _ wf.2.2.1)
-    (progFO_of_wf wf) (progFO_of_wf wf.dual) true) (root_ok wf) n
+    (wf.progFO) (wf.dual.progFO) true) (root_ok wf) n
   have e : nmap true true q.norm = q.dual.norm :=
     (nmap_normB true true false q).trans (normB_dual false q).symm
   rw [e] at h

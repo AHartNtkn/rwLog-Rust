@@ -17,6 +17,15 @@ namespace RwLog
 /-- Every span of the expression is first-order. -/
 def RelOf.FO (e : Rel) : Prop := ∀ s ∈ e.spans, s.firstOrder = true
 
+/-- The spans of the bodies of the program are first-order. -/
+def ProgFO (P : Program) : Prop := ∀ s ∈ P.defs.flatMap fun d => d.2.spans, s.firstOrder = true
+
+theorem ProgramOf.WellFormed.fo {P : Program} {q : Rel} (wf : P.WellFormed q) : q.FO :=
+  fun s hs => wf.2.2.2 s (List.mem_append_left _ hs)
+
+theorem ProgramOf.WellFormed.progFO {P : Program} {q : Rel} (wf : P.WellFormed q) : ProgFO P :=
+  fun s hs => wf.2.2.2 s (List.mem_append_right _ hs)
+
 theorem spans_seqParts : ∀ (e : Rel) (s : Span), s ∈ e.spans ↔ ∃ x ∈ seqParts e, s ∈ x.spans
   | .seq a b, s => by
     simp only [RelOf.spans, seqParts, List.mem_append, spans_seqParts a, spans_seqParts b]

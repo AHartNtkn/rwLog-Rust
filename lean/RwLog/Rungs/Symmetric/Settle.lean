@@ -26,7 +26,7 @@ namespace RwLog
 
 namespace Symmetric
 
-variable {S N A : Type} {need : N → Nat} {σ : Nat → StateOf S N A}
+variable {S N A : Type} {need : N → Nat} {Rc : RaceSem S N A} {σ : Nat → StateOf S N A}
 
 /-- From the state `T` on the table at `j` gains no answer. -/
 def Still (σ : Nat → StateOf S N A) (T j : Nat) : Prop :=
@@ -441,7 +441,7 @@ theorem Line.push_read (hL : Line need σ k r0 L) {m : Nat} {kd : Kind} {left : 
 
 /-- **A check reads its side.** The depth edges are read to doubles while it
 has not, so it has from some state on, and is the same from then on. -/
-theorem Line.check_read (hR : Requests need σ) (hL : Line need σ k r0 L)
+theorem Line.check_read (hR : Requests need Rc σ) (hL : Line need σ k r0 L)
     (hd : 0 < (σ 0).depth) {m : Nat} {left : Bool} {side other : N} {c0 : Check}
     (h0 : (L r0)[m]? = some (.check left side other c0)) :
     ∃ T c1, r0 ≤ T ∧ c1 ≠ Check.reading ∧

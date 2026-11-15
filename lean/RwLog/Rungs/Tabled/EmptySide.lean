@@ -96,7 +96,7 @@ theorem emptySide : (Rt @U dom K hK).EmptySide := fun P a b wf ht he => by
   have wfand : P.WellFormed (.and a b) := wf.and_of_seq
   have wfand' : P.WellFormed (.and b a) := wf.seq_swap.and_of_seq
   have hL := hD _ wf.2.2.1
-  have hfo := progFO_of_wf wf
+  have hfo := wf.progFO
   have hUk := hG (dom P.sorts) P (K P.sorts) (hK P.sorts) hL hfo
   have hv : Void P (bare a.norm : GoalOf (R P.sorts) Rel) :=
     void_of_pairs (pairs_empty hD hG wfa ht he)

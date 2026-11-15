@@ -39,6 +39,7 @@ namespace Symmetric
 open Answer Saturation Goals
 
 variable {R : Type} [Answer R] [DecidableEq R] {D : Domain R} {P : Program}
+  {U : GOracle R Rel (Ans D P) Cost}
 
 variable {σ τ : Nat → StateOf R Rel (Ans D P)}
 
@@ -74,7 +75,7 @@ def Waits (σ τ : Nat → StateOf R Rel (Ans D P)) (ρ : Nat → Nat) (r n k : 
 
 /-- The tables that wait at a level are finitely many: one for each table
 of the first run. -/
-theorem waits_list (hτ : IsRun τ) (ρ : Nat → Nat) (r n : Nat) :
+theorem waits_list (hτ : IsRun U τ) (ρ : Nat → Nat) (r n : Nat) :
     ∃ X : List Nat, ∀ k, k ∈ X ↔ Waits σ τ ρ r n k := by
   classical
   refine ⟨(List.range (σ r).tables.length).filterMap fun i =>
@@ -104,7 +105,7 @@ theorem waits_list (hτ : IsRun τ) (ρ : Nat → Nat) (r n : Nat) :
 /-- **A table that has rounds for ever keeps a strategy of every kind in a
 group that works for ever**: from some state on its groups are full, and
 each strategy of each of them is a place of a line. -/
-theorem IsRun.live_strat (hτ : IsRun τ) {r' k : Nat} {g : GoalOf R Rel}
+theorem IsRun.live_strat (hτ : IsRun U τ) {r' k : Nat} {g : GoalOf R Rel}
     (hgk : goalAt (τ r') k = some g) (hlive : Live τ k) :
     ∃ r0, Full (τ r0) g (groupsAt (τ r0) k) ∧ ∀ gr' ∈ groupsAt (τ r0) k, ∀ x ∈ gr'.kinds,
       ∃ (L : Nat → List (Strat Rel (Ans D P))) (q : Nat) (s0 : Strat Rel (Ans D P)),
@@ -132,6 +133,15 @@ theorem IsRun.live_strat (hτ : IsRun τ) {r' k : Nat} {g : GoalOf R Rel}
     exact hq'
   exact ⟨r0, hfull, lk⟩
 
+/-- **A table that has rounds for ever and a race with a final verdict
+completes.** -/
+theorem IsRun.race_done (hτ : IsRun U τ) {r' k : Nat} {g : GoalOf R Rel}
+    (hgk : goalAt (τ r') k = some g) (hlive : Live τ k) (hh : hasRace g = true) {n : Nat}
+    (hfin : (U n g).val.1 = true) : EvDone τ k := by
+  obtain ⟨r, t, ht, hd⟩ := hτ.req.race_done (Rc := raceSem U) k hlive (g := g) (n := n)
+    (fun r t ht => hτ.goal_any (goalAt_of_table ht) hgk) hh hfin
+  exact ⟨r, by rw [isDone_of_table ht]; exact hd⟩
+
 section
 
 variable (hL : D.Lawful P.sorts.interp)
@@ -141,7 +151,7 @@ include hL
 /-- **No run finds what another misses**: an answer of the table of a goal
 in one run is covered by an answer of its table in a run that does not
 neglect the goal. -/
-theorem IsRun.covered (hσ : IsRun σ) (hτ : IsRun τ) {r r' r2 i k : Nat} {g : GoalOf R Rel}
+theorem IsRun.covered (hσ : IsRun U σ) (hτ : IsRun U τ) {r r' r2 i k : Nat} {g : GoalOf R Rel}
     (hi : goalAt (σ r) i = some g) (ho : Opened σ i) (hk : goalAt (τ r') k = some g)
     {y : Ans D P} (hy : y ∈ (τ r2).answers k) :
     ∃ r3, ∃ x ∈ (σ r3).answers i, covB D P x y = true := by
@@ -162,7 +172,7 @@ theorem IsRun.covered (hσ : IsRun σ) (hτ : IsRun τ) {r r' r2 i k : Nat} {g :
 run that does not neglect the goal and keeps no answer covered by an earlier
 one: once it covers every answer of the complete table, an answer it gained
 would be covered by one it has. -/
-theorem IsRun.settles (hσ : IsRun σ) (hτ : IsRun τ)
+theorem IsRun.settles (hσ : IsRun U σ) (hτ : IsRun U τ)
     (hN : ∀ r j, NoCov D (((τ r).answers j).map Ans.span)) {r r' i k : Nat}
     {g : GoalOf R Rel} (hi : goalAt (σ r) i = some g) (hd : (σ r).isDone i = true)
     (hk : goalAt (τ r') k = some g) (ho : Opened τ k) : ∃ T, Still τ T k := by
@@ -195,7 +205,7 @@ theorem IsRun.settles (hσ : IsRun σ) (hτ : IsRun τ)
 
 /-- A goal whose complete table is empty in one run has no answer in any
 run. -/
-theorem IsRun.empty_of_done (hσ : IsRun σ) (hτ : IsRun τ) {r r' i k : Nat} {g : GoalOf R Rel}
+theorem IsRun.empty_of_done (hσ : IsRun U σ) (hτ : IsRun U τ) {r r' i k : Nat} {g : GoalOf R Rel}
     (hi : goalAt (σ r) i = some g) (hd : (σ r).isDone i = true)
     (he : (σ r).answers i = []) (hk : goalAt (τ r') k = some g) (r2 : Nat) :
     (τ r2).answers k = [] := by
@@ -209,7 +219,7 @@ theorem IsRun.empty_of_done (hσ : IsRun σ) (hτ : IsRun τ) {r r' i k : Nat} {
     cases this
 
 /-- **Two complete tables of one goal have the same maximal answers.** -/
-theorem IsRun.maxima_done (hσ : IsRun σ) (hτ : IsRun τ) {r r' r'' i k : Nat}
+theorem IsRun.maxima_done (hσ : IsRun U σ) (hτ : IsRun U τ) {r r' r'' i k : Nat}
     {g : GoalOf R Rel} (hi : goalAt (σ r) i = some g) (hd : (σ r).isDone i = true)
     (hk : goalAt (τ r'') k = some g) (hd' : (τ r').isDone k = true) :
     ∀ x' ∈ ((τ r').answers k).maximaBy (covB D P),
@@ -225,9 +235,9 @@ theorem IsRun.maxima_done (hσ : IsRun σ) (hτ : IsRun τ) {r r' r'' i k : Nat}
 /-- **A table that waits has, from some time on, a strategy with nothing
 left to do** that reads only tables that are complete or wait with it, if
 the goals that stand lower are complete in the run. -/
-theorem IsRun.waits_quiet (hσ : IsRun σ) (hτ : IsRun τ)
+theorem IsRun.waits_quiet (hσ : IsRun U σ) (hτ : IsRun U τ)
     (hN : ∀ r j, NoCov D (((τ r).answers j).map Ans.span)) {ρ : Nat → Nat} {r n : Nat}
-    (hρ : Ranked (σ r) ρ)
+    (hρ : Ranked (raceSem U) (σ r) ρ)
     (ih : ∀ i g, goalAt (σ r) i = some g → (σ r).isDone i = true → ρ i < n →
       ∀ r' k, goalAt (τ r') k = some g → Opened τ k → EvDone τ k)
     {X : List Nat} (hX : ∀ k, k ∈ X ↔ Waits σ τ ρ r n k) {k : Nat}
@@ -261,7 +271,14 @@ theorem IsRun.waits_quiet (hσ : IsRun σ) (hτ : IsRun τ)
   have hdt : t.done = true := by
     rw [← isDone_of_table ht]
     exact hd
-  obtain ⟨gs, hgs, gr, hgr, s, hs, hq, hpush⟩ := hρ i t ht hdt
+  rcases hρ i t ht hdt with hquiet | ⟨t1, ht1, l, -, hh, ⟨n1, hfin⟩, -⟩
+  swap
+  · -- the table completed by its race: the race of the table that waits is final too
+    rw [ht] at ht1
+    cases ht1
+    rw [hσ.goal_any (goalAt_of_table ht) hi] at hh hfin
+    exact absurd (hτ.race_done hgk hlive hh hfin) hnd
+  obtain ⟨gs, hgs, gr, hgr, s, hs, hq, hpush⟩ := hquiet
   have hst : IsStrat σ i r s := ⟨t, gs, gr, ht, hgs, hgr, hs⟩
   have hp := hσ.prog hi hst
   -- the groups of the table that waits
@@ -515,7 +532,7 @@ theorem IsRun.waits_quiet (hσ : IsRun σ) (hτ : IsRun τ)
 /-- **What one run completes, every run completes.** A goal whose table is
 complete in a run of requests has a complete table in every run of requests
 that does not neglect it and keeps no answer covered by an earlier one. -/
-theorem IsRun.transfer (hσ : IsRun σ) (hτ : IsRun τ)
+theorem IsRun.transfer (hσ : IsRun U σ) (hτ : IsRun U τ)
     (hN : ∀ r j, NoCov D (((τ r).answers j).map Ans.span)) {r i : Nat} {g : GoalOf R Rel}
     (hi : goalAt (σ r) i = some g) (hd : (σ r).isDone i = true) {r' k : Nat}
     (hk : goalAt (τ r') k = some g) (ho : Opened τ k) : EvDone τ k := by

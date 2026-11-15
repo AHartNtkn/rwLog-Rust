@@ -10,7 +10,10 @@ that gives, for any machine.
   an input, is the choice made from the input, the other way round
   (`orient_conv`, `orient_dual`); or it is the same choice, and then the node
   chosen is its own converse.
-* So if a machine shows, on a root that is its own converse, at every step a
+* The program and the node chosen from a well-formed input are first-order
+  (`progFO_orient`, `fo_orient_root`).
+* So if a machine shows, on first-order input with a root that is its own
+  converse, at every step a
   set of answers that is its own converse (`CostedRuntime.SelfConverse`),
   then run on one orientation it has `ConvTrace` and `DualTrace`
   (`CostedRuntime.oriented_convTrace`, `CostedRuntime.oriented_dualTrace`).
@@ -21,6 +24,7 @@ import RwLog.Rungs.Framework.Direction
 import RwLog.Kernel.NormalFormStable
 import RwLog.Kernel.NormalFormCorrect
 import RwLog.Kernel.Order
+import RwLog.Kernel.NormalFormSpans
 
 namespace RwLog
 
@@ -331,11 +335,13 @@ theorem oriented_spent (b : Bool) : ∀ (n : Nat) (s : C.State),
       rw [C.oriented.spent_succ_progress hs', C.spent_succ_progress hs, oriented_step_ticks,
         oriented_spent b n s']
 
-/-- On a root that is its own converse the machine shows, at every step, a
+/-- On first-order input with a root that is its own converse the machine
+shows, at every step, a
 set of answers that is its own converse. This is what the choice of one
 orientation leaves to the machine. -/
 def SelfConverse : Prop :=
-  ∀ (P : Program) (root : Rel), P.sorts.WellFormed → Normal root → root.normConv = root →
+  ∀ (P : Program) (root : Rel), P.sorts.WellFormed → ProgFO P → Normal root → root.FO →
+    root.normConv = root →
     ∀ n, TraceEquiv P.sorts.interp (C.runtime.trace (C.start P root) n)
       ((C.runtime.trace (C.start P root) n).map Shown.swap)
 
@@ -353,8 +359,8 @@ theorem traceEquiv_swap_swap {A : Type} [Answer A] (M : Interp) (t : List (Shown
 /-- Two choices, one the other way round from the other, show runs that are
 each the other swapped. -/
 theorem trace_of_mirrors (hS : C.SelfConverse) {P : Program} (hP : P.sorts.WellFormed)
-    {o o' : Oriented} (h : o.Mirrors o') (ho : o.P.sorts = P.sorts) (hN : Normal o.root)
-    (n : Nat) :
+    {o o' : Oriented} (h : o.Mirrors o') (ho : o.P.sorts = P.sorts) (hfP : ProgFO o.P)
+    (hN : Normal o.root) (hfo : o.root.FO) (n : Nat) :
     TraceEquiv P.sorts.interp (C.oriented.runtime.trace (o'.swap, C.start o'.P o'.root) n)
       ((C.oriented.runtime.trace (o.swap, C.start o.P o.root) n).map Shown.swap) := by
   obtain ⟨hPe, hre, hsw⟩ := h
@@ -367,7 +373,7 @@ theorem trace_of_mirrors (hS : C.SelfConverse) {P : Program} (hP : P.sorts.WellF
     · rw [Bool.not_true, map_shownAs_true, map_shownAs_false]
       exact traceEquiv_swap_swap _ _
   · rw [hsw]
-    have hT := hS o.P o.root (ho ▸ hP) hN hself n
+    have hT := hS o.P o.root (ho ▸ hP) hfP hN hfo hself n
     rw [ho] at hT
     cases o.swap
     · rw [map_shownAs_false]
@@ -403,6 +409,62 @@ theorem normal_orient_root (P : Program) (q : Rel) : Normal (orient P q).root :=
   · simp only [List.mem_cons, List.not_mem_nil, or_false] at hx
     rcases hx with rfl | rfl | rfl | rfl <;> exact normal_norm _
 
+/-! ## The choice is first-order -/
+
+theorem ProgFO.normed {P : Program} (h : ProgFO P) : ProgFO P.normed := fun s hs => by
+  obtain ⟨d, hd, hsd⟩ := List.mem_flatMap.1 hs
+  simp only [ProgramOf.normed, List.mem_map] at hd
+  obtain ⟨d0, hd0, rfl⟩ := hd
+  exact RelOf.FO.norm (fun s' hs' => h s' (List.mem_flatMap.2 ⟨d0, hd0, hs'⟩)) s hsd
+
+theorem RelOf.FO.conv {e : Rel} (h : e.FO) : (RelOf.conv e).FO := fun s hs => h s hs
+
+theorem fo_pick_root (Pn : Program) {f : Rel × Bool} {r : List (Rel × Bool)}
+    (hF : ∀ x ∈ f :: r, x.1.FO) : (pick Pn f r).root.FO := by
+  have hm : (leastRel f.1 (r.map Prod.fst)).FO := by
+    have := leastRel_mem f.1 (r.map Prod.fst)
+    have e : f.1 :: r.map Prod.fst = (f :: r).map Prod.fst := rfl
+    rw [e, List.mem_map] at this
+    obtain ⟨y, hy, hy'⟩ := this
+    rw [← hy']; exact hF y hy
+  unfold pick
+  dsimp only
+  split
+  · exact hm
+  · split
+    · exact hm
+    · refine RelOf.FO.norm fun s hs => ?_
+      rcases List.mem_append.1 hs with hs | hs
+      · exact hm s hs
+      · exact hm.normConv s hs
+
+/-- The program chosen from a well-formed input is first-order. -/
+theorem progFO_orient {P : Program} {q : Rel} (wf : P.WellFormed q) : ProgFO (orient P q).P := by
+  unfold orient
+  split <;> rw [pick_P]
+  · exact wf.progFO.normed
+  · exact wf.dual.progFO.normed
+  · exact wf.progFO.normed
+
+/-- The root chosen from a well-formed input is first-order. -/
+theorem fo_orient_root {P : Program} {q : Rel} (wf : P.WellFormed q) : (orient P q).root.FO := by
+  unfold orient
+  split <;> refine fo_pick_root _ fun x hx => ?_
+  · simp only [List.mem_cons, List.not_mem_nil, or_false] at hx
+    rcases hx with rfl | rfl
+    · exact wf.fo.norm
+    · exact wf.fo.conv.norm
+  · simp only [List.mem_cons, List.not_mem_nil, or_false] at hx
+    rcases hx with rfl | rfl
+    · exact wf.dual.fo.norm
+    · exact wf.dual.fo.conv.norm
+  · simp only [List.mem_cons, List.not_mem_nil, or_false] at hx
+    rcases hx with rfl | rfl | rfl | rfl
+    · exact wf.fo.norm
+    · exact wf.fo.conv.norm
+    · exact wf.dual.fo.norm
+    · exact wf.dual.fo.conv.norm
+
 namespace CostedRuntime
 
 variable {C : CostedRuntime}
@@ -414,14 +476,16 @@ of a query as the run on the query with every answer swapped, step for
 step. -/
 theorem oriented_convTrace (hS : C.SelfConverse) : C.oriented.runtime.ConvTrace :=
   fun P q n hwf =>
-    trace_of_mirrors hS hwf.2.2.1 (orient_conv P q) (orient_sorts P q) (normal_orient_root P q) n
+    trace_of_mirrors hS hwf.2.2.1 (orient_conv P q) (orient_sorts P q) (progFO_orient hwf)
+      (normal_orient_root P q) (fo_orient_root hwf) n
 
 /-- **The mirror image, on one orientation.** The same machine has the run
 on the mirrored query in the mirrored program as the run on the query with
 every answer swapped, step for step. -/
 theorem oriented_dualTrace (hS : C.SelfConverse) : C.oriented.runtime.DualTrace :=
   fun P q n hwf =>
-    trace_of_mirrors hS hwf.2.2.1 (orient_dual P q) (orient_sorts P q) (normal_orient_root P q) n
+    trace_of_mirrors hS hwf.2.2.1 (orient_dual P q) (orient_sorts P q) (progFO_orient hwf)
+      (normal_orient_root P q) (fo_orient_root hwf) n
 
 /-- **The mirror image costs the same.** Run on one orientation, any machine
 pays on the mirrored query in the mirrored program exactly what it pays on
