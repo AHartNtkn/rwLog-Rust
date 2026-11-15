@@ -172,5 +172,7 @@ import RwLog.Rungs.Symmetric.EdgeSame
 import RwLog.Rungs.Symmetric.Turns
 import RwLog.Rungs.Symmetric.Lines
 import RwLog.Rungs.Symmetric.Served
+import RwLog.Rungs.Symmetric.Settle
 import RwLog.Rungs.Symmetric.Fair
+import RwLog.Rungs.Symmetric.Transfer
 import RwLog.Rungs.Symmetric.Correct

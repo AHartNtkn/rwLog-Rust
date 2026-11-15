@@ -153,21 +153,6 @@ theorem full_covers {t : TableOf R Rel (Ans D P)} (hf : Full P t) {a : Ans D P}
   obtain ⟨b, hb, hsub⟩ := hf k G hG (e ▸ hL.live a.span)
   exact ⟨b, hb, (covB_iff hL b a).2 (e ▸ hsub)⟩
 
-omit [DecidableEq R] in
-/-- Two lists of answers that cover each other have the same maximal
-answers. -/
-theorem maxima_same {xs xs' : List (Ans D P)}
-    (h : ∀ a ∈ xs', ∃ b ∈ xs, covB D P b a = true)
-    (h' : ∀ a ∈ xs, ∃ b ∈ xs', covB D P b a = true) :
-    ∀ x' ∈ xs'.maximaBy (covB D P), ∃ x ∈ xs.maximaBy (covB D P), x.span = x'.span := by
-  intro x' hx'
-  obtain ⟨y, hy, hyx⟩ := h x' (List.mem_maximaBy hx')
-  obtain ⟨z, hz, hzy⟩ := List.maximaBy_covers (covB_refl hL) (covB_trans hL) hy
-  have hzx := covB_trans hL _ _ _ hzy hyx
-  obtain ⟨w, hw, hwz⟩ := h' z (List.mem_maximaBy hz)
-  have hxw := maxima_max hx' hw (covB_trans hL _ _ _ hwz hzx)
-  exact ⟨z, hz, hL.covers_antisymm hzx (covB_trans hL _ _ _ hxw hwz)⟩
-
 end full
 
 /-! ## A strategy of a goal, from other tables -/

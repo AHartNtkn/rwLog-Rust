@@ -11,6 +11,7 @@ import RwLog.Rungs.Framework.Rules
 import RwLog.Rungs.Framework.TraverseStd
 import RwLog.Rungs.Framework.Cost
 import RwLog.Lib.Maxima
+import RwLog.Kernel.DomainLaws
 
 namespace RwLog
 
@@ -83,6 +84,27 @@ omit [DecidableEq R] in
 theorem covB_trans (a b c : Ans D P) (h₁ : covB D P a b = true) (h₂ : covB D P b c = true) :
     covB D P a c = true :=
   (covB_iff hL a c).2 (((covB_iff hL b c).1 h₂).trans ((covB_iff hL a b).1 h₁))
+
+omit hL [DecidableEq R] in
+/-- A maximal answer covers every answer that covers it. -/
+theorem maxima_max {xs : List (Ans D P)} {x y : Ans D P} (h : x ∈ xs.maximaBy (covB D P))
+    (hy : y ∈ xs) (hyx : covB D P y x = true) : covB D P x y = true :=
+  (List.mem_tops.1 (List.mem_thin h)).2 y hy hyx
+
+omit [DecidableEq R] in
+/-- Two lists of answers that cover each other have the same maximal
+answers. -/
+theorem maxima_same {xs xs' : List (Ans D P)}
+    (h : ∀ a ∈ xs', ∃ b ∈ xs, covB D P b a = true)
+    (h' : ∀ a ∈ xs, ∃ b ∈ xs', covB D P b a = true) :
+    ∀ x' ∈ xs'.maximaBy (covB D P), ∃ x ∈ xs.maximaBy (covB D P), x.span = x'.span := by
+  intro x' hx'
+  obtain ⟨y, hy, hyx⟩ := h x' (List.mem_maximaBy hx')
+  obtain ⟨z, hz, hzy⟩ := List.maximaBy_covers (covB_refl hL) (covB_trans hL) hy
+  have hzx := covB_trans hL _ _ _ hzy hyx
+  obtain ⟨w, hw, hwz⟩ := h' z (List.mem_maximaBy hz)
+  have hxw := maxima_max hx' hw (covB_trans hL _ _ _ hwz hzx)
+  exact ⟨z, hz, hL.covers_antisymm hzx (covB_trans hL _ _ _ hxw hwz)⟩
 
 end cover
 

@@ -685,6 +685,12 @@ new axiom.
 /-- info: 'RwLog.Symmetric.IsRun.fair' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Symmetric.IsRun.fair
 
+/-- info: 'RwLog.Symmetric.Reads.unique' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Symmetric.Reads.unique
+
+/-- info: 'RwLog.Symmetric.IsRun.transfer' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Symmetric.IsRun.transfer
+
 /-- info: 'RwLog.Symmetric.isRun' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Symmetric.isRun
 

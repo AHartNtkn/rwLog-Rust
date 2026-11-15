@@ -238,6 +238,153 @@ theorem Cursor.all_spec (la lb : Nat) : ∀ (f : Nat) (c : Cursor), c.Ok la lb �
               exact .inr List.mem_cons_self
           · exact .inr (List.mem_cons_of_mem _ h)
 
+/-- **A unit of a join counts on**: the counts do not fall; when no pair is
+returned the join has nothing left to do; and a pair returned was not
+combined before and is combined after. -/
+theorem Cursor.next_step (la lb : Nat) : ∀ (f : Nat) (c : Cursor), c.Ok la lb →
+    c.room la lb ≤ f →
+    c.na ≤ (Cursor.next la lb f c).2.na ∧ c.nb ≤ (Cursor.next la lb f c).2.nb ∧
+    ((Cursor.next la lb f c).1 = none → (Cursor.next la lb f c).2.pending la lb = false) ∧
+    ∀ pr, (Cursor.next la lb f c).1 = some pr →
+      (Cursor.next la lb f c).2.Before pr.1 pr.2 ∧ ¬ c.Before pr.1 pr.2
+  | 0, c, _, hr => by simp [Cursor.room] at hr
+  | f + 1, c, h, hr => by
+    obtain ⟨h1, h2, h3, h4⟩ := h
+    have e : ∃ col : Bool, (c.inner ≠ 0 → c.col = col) ∧
+        (c.inner = 0 → col = (if c.na < la ∧ c.nb < lb then decide (c.nb < c.na)
+          else decide (¬ c.na < la))) ∧
+        Cursor.next la lb (f + 1) c =
+        if col then
+          if c.nb < lb then
+            if c.inner < c.na then
+              (some (c.inner, c.nb), { c with inner := c.inner + 1, col := true })
+            else Cursor.next la lb f ⟨c.na, c.nb + 1, 0, false⟩
+          else (none, c)
+        else
+          if c.na < la then
+            if c.inner < c.nb then
+              (some (c.na, c.inner), { c with inner := c.inner + 1, col := false })
+            else Cursor.next la lb f ⟨c.na + 1, c.nb, 0, false⟩
+          else (none, c) :=
+      ⟨_, fun hi => by simp [hi], fun hi => by simp [hi], rfl⟩
+    obtain ⟨col, hcol', hrule, e⟩ := e
+    rw [e]
+    simp only [Cursor.room] at hr
+    cases col with
+    | true =>
+      simp only [ite_true]
+      split
+      · next hnb =>
+        split
+        · next hin =>
+          refine ⟨Nat.le_refl _, Nat.le_refl _, (fun h => by cases h), fun pr hpr => ?_⟩
+          cases hpr
+          refine ⟨.inr (.inl ⟨rfl, rfl, by simp only; omega⟩), ?_⟩
+          rintro (⟨-, hq⟩ | ⟨-, -, hp⟩ | ⟨-, hp, -⟩)
+          · simp only at hq; omega
+          · simp only at hp; omega
+          · simp only at hp; omega
+        · next hin =>
+          have hle : c.inner ≠ 0 → c.inner = c.na := fun hi => by
+            have := (h3 (hcol' hi)).1
+            omega
+          have hok : (⟨c.na, c.nb + 1, 0, false⟩ : Cursor).Ok la lb :=
+            ⟨h1, hnb, (fun hc => by cases hc), fun _ => ⟨Nat.zero_le _, fun h => by cases h⟩⟩
+          obtain ⟨m1, m2, m3, m4⟩ := Cursor.next_step la lb f _ hok
+            (by simp only [Cursor.room]; omega)
+          simp only at m1 m2
+          refine ⟨m1, by omega, m3, fun pr hpr => ⟨(m4 pr hpr).1, fun hb => (m4 pr hpr).2 ?_⟩⟩
+          rcases hb with hb | ⟨hc, hq, hp⟩ | ⟨hc, hp, hq⟩
+          · exact .inl ⟨hb.1, by simp only; omega⟩
+          · have hi : c.inner ≠ 0 := by omega
+            exact .inl ⟨by simp only; have := hle hi; omega, by simp only; omega⟩
+          · have hi : c.inner ≠ 0 := by omega
+            rw [hcol' hi] at hc
+            cases hc
+      · next hnb =>
+        refine ⟨Nat.le_refl _, Nat.le_refl _, fun _ => ?_, fun pr hpr => by cases hpr⟩
+        by_cases hi : c.inner = 0
+        · have := hrule hi
+          split at this
+          · next hb => exact absurd hb.2 hnb
+          · next hb =>
+            have hna : ¬ c.na < la := by simpa using this.symm
+            simp [Cursor.pending, hna, hnb]
+        · exact absurd ((h3 (hcol' hi)).2 (by omega)) hnb
+    | false =>
+      simp only [Bool.false_eq_true, ite_false]
+      split
+      · next hna =>
+        split
+        · next hin =>
+          refine ⟨Nat.le_refl _, Nat.le_refl _, (fun h => by cases h), fun pr hpr => ?_⟩
+          cases hpr
+          refine ⟨.inr (.inr ⟨rfl, rfl, by simp only; omega⟩), ?_⟩
+          rintro (⟨hp, -⟩ | ⟨-, hq, -⟩ | ⟨-, -, hq⟩)
+          · simp only at hp; omega
+          · simp only at hq; omega
+          · simp only at hq; omega
+        · next hin =>
+          have hle : c.inner ≠ 0 → c.inner = c.nb := fun hi => by
+            have := (h4 (hcol' hi)).1
+            omega
+          have hok : (⟨c.na + 1, c.nb, 0, false⟩ : Cursor).Ok la lb :=
+            ⟨hna, h2, (fun hc => by cases hc), fun _ => ⟨Nat.zero_le _, fun h => by cases h⟩⟩
+          obtain ⟨m1, m2, m3, m4⟩ := Cursor.next_step la lb f _ hok
+            (by simp only [Cursor.room]; omega)
+          simp only at m1 m2
+          refine ⟨by omega, m2, m3, fun pr hpr => ⟨(m4 pr hpr).1, fun hb => (m4 pr hpr).2 ?_⟩⟩
+          rcases hb with hb | ⟨hc, hq, hp⟩ | ⟨hc, hp, hq⟩
+          · exact .inl ⟨by simp only; omega, hb.2⟩
+          · have hi : c.inner ≠ 0 := by omega
+            rw [hcol' hi] at hc
+            cases hc
+          · have hi : c.inner ≠ 0 := by omega
+            exact .inl ⟨by simp only; omega, by simp only; have := hle hi; omega⟩
+      · next hna =>
+        exfalso
+        by_cases hi : c.inner = 0
+        · have := hrule hi
+          split at this
+          · next hb => exact hna hb.1
+          · next hb => simp [hna] at this
+        · exact hna ((h4 (hcol' hi)).2 (by omega))
+
+/-- The whole work of a join counts on. -/
+theorem Cursor.all_mono (la lb : Nat) : ∀ (f : Nat) (c : Cursor), c.Ok la lb →
+    c.na ≤ (Cursor.all la lb f c).2.na ∧ c.nb ≤ (Cursor.all la lb f c).2.nb
+  | 0, c, _ => ⟨Nat.le_refl _, Nat.le_refl _⟩
+  | f + 1, c, h => by
+    obtain ⟨n1, -⟩ := Cursor.next_spec la lb (c.room la lb) c h
+    obtain ⟨m1, m2, -⟩ := Cursor.next_step la lb (c.room la lb) c h (Nat.le_refl _)
+    unfold Cursor.all
+    cases hn : Cursor.next la lb (c.room la lb) c with
+    | mk o c' =>
+      rw [hn] at n1 m1 m2
+      cases o with
+      | none => exact ⟨m1, m2⟩
+      | some pr =>
+        obtain ⟨a1, a2⟩ := Cursor.all_mono la lb f c' n1
+        simp only at m1 m2 ⊢
+        omega
+
+/-- **The whole work of a join leaves it nothing to do, or combines a pair
+that was not combined.** -/
+theorem Cursor.all_done (la lb f : Nat) (c : Cursor) (h : c.Ok la lb) :
+    (Cursor.all la lb (f + 1) c).2.pending la lb = false ∨
+      ∃ p q, ¬ c.Before p q ∧ (Cursor.all la lb (f + 1) c).2.Before p q := by
+  obtain ⟨n1, -⟩ := Cursor.next_spec la lb (c.room la lb) c h
+  obtain ⟨-, -, m3, m4⟩ := Cursor.next_step la lb (c.room la lb) c h (Nat.le_refl _)
+  unfold Cursor.all
+  cases hn : Cursor.next la lb (c.room la lb) c with
+  | mk o c' =>
+    rw [hn] at n1 m3 m4
+    cases o with
+    | none => exact .inl (m3 rfl)
+    | some pr =>
+      obtain ⟨b1, b2⟩ := m4 pr rfl
+      exact .inr ⟨pr.1, pr.2, b2, (Cursor.all_spec la lb f c' n1).2.1 _ _ b1⟩
+
 /-- What `leastBy` returns passes its test. -/
 theorem leastBy_ok {α : Type} {key : α → Nat} {ok : α → Bool} {l : List α} {x : α}
     (h : leastBy key ok l = some x) : ok x = true := by

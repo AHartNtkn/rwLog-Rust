@@ -228,12 +228,6 @@ theorem gain_done {t : TableOf R Rel (Ans D P)} (h : t.done = true) :
 variable {K hK}
 
 omit [DecidableEq R] in
-/-- A maximal answer covers every answer that covers it. -/
-theorem maxima_max {xs : List (Ans D P)} {x y : Ans D P} (h : x ∈ xs.maximaBy (covB D P))
-    (hy : y ∈ xs) (hyx : covB D P y x = true) : covB D P x y = true :=
-  (List.mem_tops.1 (List.mem_thin h)).2 y hy hyx
-
-omit [DecidableEq R] in
 /-- An answer that covers every answer that covers it has the representative
 of a maximal answer. -/
 theorem maxima_of_max (hL : D.Lawful P.sorts.interp) {xs : List (Ans D P)} {c : Ans D P}

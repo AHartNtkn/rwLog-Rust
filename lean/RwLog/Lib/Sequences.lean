@@ -1,15 +1,18 @@
 /-
 # Sequences that cannot go on for ever
 
-Three facts about a sequence indexed by the natural numbers, each a way to
-say that something happens only finitely often:
+Facts about a sequence indexed by the natural numbers, each a way to say
+that something happens only finitely often:
 
 * a sequence of numbers that never rises is constant from some point
   (`eventually_const`);
 * a sequence that never rises in a well-founded order does not fall
   infinitely often (`no_descent`);
 * what happens infinitely often at one of finitely many places happens
-  infinitely often at one of them (`infinitely_often_fin`).
+  infinitely often at one of them (`infinitely_often_fin`);
+* what holds from some point on at each of finitely many places holds at
+  all of them from some point on (`eventually_forall_lt`,
+  `eventually_forall_mem`).
 -/
 import Mathlib.Data.List.Basic
 
@@ -96,5 +99,33 @@ theorem infinitely_often_fin (L : Nat) (Q : Nat → Nat → Prop)
   obtain ⟨b, hbL⟩ := hall L (Nat.le_refl _)
   obtain ⟨r, hr, m, hm, hq⟩ := h b
   exact hbL m hm r hr hq
+
+/-- What holds from some point on at each of the places below `n` holds at
+all of them from some point on. -/
+theorem eventually_forall_lt (n : Nat) (Q : Nat → Nat → Prop)
+    (h : ∀ m, m < n → ∃ T, ∀ r, T ≤ r → Q m r) : ∃ T, ∀ m, m < n → ∀ r, T ≤ r → Q m r := by
+  induction n with
+  | zero => exact ⟨0, fun m hm => absurd hm (Nat.not_lt_zero m)⟩
+  | succ n ih =>
+    obtain ⟨T, hT⟩ := ih fun m hm => h m (Nat.lt_succ_of_lt hm)
+    obtain ⟨T', hT'⟩ := h n (Nat.lt_succ_self n)
+    refine ⟨max T T', fun m hm r hr => ?_⟩
+    rcases Nat.lt_succ_iff_lt_or_eq.1 hm with hm | rfl
+    · exact hT m hm r (by omega)
+    · exact hT' r (by omega)
+
+/-- What holds from some point on of each member of a list holds of all of
+them from some point on. -/
+theorem eventually_forall_mem {α : Type} (l : List α) (Q : α → Nat → Prop)
+    (h : ∀ x ∈ l, ∃ T, ∀ r, T ≤ r → Q x r) : ∃ T, ∀ x ∈ l, ∀ r, T ≤ r → Q x r := by
+  induction l with
+  | nil => exact ⟨0, fun x hx => nomatch hx⟩
+  | cons a l ih =>
+    obtain ⟨T, hT⟩ := ih fun x hx => h x (List.mem_cons_of_mem _ hx)
+    obtain ⟨T', hT'⟩ := h a List.mem_cons_self
+    refine ⟨max T T', fun x hx r hr => ?_⟩
+    rcases List.mem_cons.1 hx with rfl | hx
+    · exact hT' r (by omega)
+    · exact hT x hx r (by omega)
 
 end RwLog
