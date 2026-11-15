@@ -82,7 +82,7 @@ structure Line (need : N → Nat) (σ : Nat → StateOf S N A) (k r0 : Nat)
   adv : ∀ r, r0 ≤ r → Pointwise (SAdv (σ r).len) (L r) (L (r + 1))
   shape : (∃ s ∈ L r0, s.lead = true) ∨ ∀ s ∈ L r0, s.isCheck = true
   worked : ∀ r', ∃ r, r' ≤ r ∧ r0 ≤ r ∧
-    Pointwise (SStep need (σ r).len (σ r).depth (σ (r + 1)).depth) (L r) (L (r + 1)) ∧
+    Pointwise (SStep need (σ r).len (σ r).isDone (σ r).depth (σ (r + 1)).depth) (L r) (L (r + 1)) ∧
     (∀ s ∈ L (r + 1), SFed (σ (r + 1)) s) ∧ ∃ s ∈ L r, s.dead (σ r) = false
 
 theorem Line.length {k r0 : Nat} {L : Nat → List (Strat N A)} (hL : Line need σ k r0 L)
