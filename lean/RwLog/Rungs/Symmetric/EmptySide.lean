@@ -24,6 +24,7 @@ import RwLog.Rungs.Symmetric.Transfer
 import RwLog.Rungs.Symmetric.Correct
 import RwLog.Rungs.Framework.Void
 import RwLog.Rungs.Framework.SameTrace
+import RwLog.Rungs.Framework.OrientedKeeps
 
 namespace RwLog
 
@@ -234,16 +235,16 @@ theorem pairs_empty {P : Program} {a : Rel} (wf : P.WellFormed a)
   rw [he] at this
   exact this
 
-/-- **A side that halts with no answer makes `;` and `&` halt**, on either
-side. -/
-theorem emptySide : (Rt @U dom K hK).EmptySide := fun P a b wf ht he => by
+/-- **A side that halts and relates nothing makes `;` and `&` halt**, on
+either side. -/
+theorem voidSide : (Rt @U dom K hK).VoidSide := fun P a b wf ht he => by
   have wfa : P.WellFormed a := wf.seq_left
   have wfba : P.WellFormed (.seq b a) := wf.seq_swap
   have wfand : P.WellFormed (.and a b) := wf.and_of_seq
   have wfand' : P.WellFormed (.and b a) := wf.seq_swap.and_of_seq
   have hL := hD _ wf.2.2.1
   have hv : Void P (bare a.norm : GoalOf (R P.sorts) Rel) :=
-    void_of_pairs (pairs_empty (K := K) (hK := hK) hD hG wfa ht he)
+    void_of_pairs he
   have hσ := isRun_of_wf (K := K) (hK := hK) hD hG wfa
   obtain ⟨rσ, hrσ⟩ := (terminates_iff (K := K) (hK := hK) hD hG wfa).1 ht
   -- the goal of `a` completes in every run that does not neglect it
@@ -301,6 +302,12 @@ theorem emptySide : (Rt @U dom K hK).EmptySide := fun P a b wf ht he => by
       (fun x hx => (List.mem_append.1 ((sortedParts_perm _).mem_iff.1 hx)).elim
         notAnd_of_mem_andParts notAnd_of_mem_andParts) 0 0
       (show goalAt (sAt @U dom K hK P (.and b a : Rel).norm 0) 0 = _ from root_goal0) (rootO hτ)
+
+/-- **A side that halts with no answer makes `;` and `&` halt**, on either
+side. -/
+theorem emptySide : (Rt @U dom K hK).EmptySide := fun P a b wf ht he =>
+  voidSide (K := K) (hK := hK) hD hG P a b wf ht
+    (pairs_empty (K := K) (hK := hK) hD hG wf.seq_left ht he)
 
 end theorems
 

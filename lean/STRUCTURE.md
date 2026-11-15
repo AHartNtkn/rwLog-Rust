@@ -152,9 +152,12 @@ Rungs/Symmetric/ the symmetric engine of `SYMMETRIC_ENGINE.md` (Machine.lean): a
                 (`IsRun.meet_ladder`). The complete tables of the tabled machine are a
                 certificate (FromTabled.lean, `tabled_cert`), so the engine halts wherever
                 the mirrored tabled machine with the same exact race halts, which with the
-                raced unfolding is R005 (`Symmetric.terminatesWhere`). Not proved yet:
-                `Keeps` for the engine run on one orientation, which needs each property
-                carried through the choice of orientation; the cost bound. A goal and its converse do not share a
+                raced unfolding is R005 (`Symmetric.terminatesWhere`). A side that halts
+                and relates nothing makes `;` and `&` halt (`Symmetric.voidSide`). Not
+                proved yet: that the engine halts on an input exactly when it halts on the
+                input chosen for it (`CostedRuntime.SameHalt`), which is all that
+                `CostedRuntime.oriented_keeps` still asks for `Keeps` of the engine run on
+                one orientation; the cost bound. A goal and its converse do not share a
                 table (not owed by any property; billboard SIM12)
 Rungs/Naive/    normalisation, unfolding to a depth, and their correctness (namespace `R000`)
 Rungs/R005/     the engines: `R001.engine` (tables, unfolding to a depth), `R004.engine` (tables,
@@ -322,6 +325,23 @@ rung unchanged.
   when run on one orientation (`oriented_convTrace`, `oriented_dualTrace`),
   and any machine pays the same on an input and on its mirror image
   (`oriented_paid_dual`).
+* `GroundMirror.lean`, `OrientedSem.lean`, `OrientedKeeps.lean`: what a
+  machine run on one orientation keeps. In the mirrored program the mirror
+  image of an expression derives the converses (`gd_dual`), and the program
+  in normal form derives what the program derives (`gd_normed`); so the
+  input chosen derives what the input derives, or the converses when the run
+  is swapped (`orient_gd`), relates the same pairs that way round
+  (`orient_pairs`), and is well formed (`wf_orient`, with
+  `Kernel/NormalFormCalls.lean`: the normal form calls no new name). Two
+  writings of an input that differ by a law of `|` choose the same input
+  (`orient_of_normB`). `CostedRuntime.oriented_keeps`: a machine that on
+  every well-formed input is sound, complete, honest, no less general than a
+  derivation, emits nothing an earlier answer covers and halts where the
+  base halts, run on one orientation keeps every property of `Keeps`, given
+  the two mirror properties of the oriented machine and two facts the list
+  does not name: the machine halts on an input exactly when it halts on the
+  input chosen for it (`CostedRuntime.SameHalt`), and a side that halts and
+  relates nothing makes `;` and `&` halt (`Runtime.VoidSide`).
 * `Fairness.lean`: what the fairness bound of `Trusted/Properties.lean` means
   (`Alternative.semAt_subset`, `Fair.flat_ticks`,
   `Runtime.FinalMaximal.maximal`), and `firstWording_false`: a bound
