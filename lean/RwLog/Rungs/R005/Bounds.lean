@@ -29,15 +29,12 @@ rung that is admitted over R005 (roadmap M6).
   In epoch 1 the family was `@a | (g ; @q) | w`, with the answer written in
   the query. On the machine as it is written now that answer arrives in the
   third round, a round before the table of `g` asks the race, and what the
-  machine has paid by then does not grow with `k` beyond reading the input
-  (`Tests/R005Runs.lean`: at `k = 12` each run has cost under 700 ticks). So
-  the bound is false of the family as it was written, and the answer is put
-  behind a call here.
+  machine has paid by then does not grow with `k` beyond reading the input.
+  That was seen on runs and is not proved; the answer is put behind a call
+  here, where the argument for the bound does not depend on it.
 
 Both are stated at a kernel rung, since a bound on ticks is a bound on what
-a kernel charges. `Tests/R005Runs.lean` checks each of them on small `k` at
-the domain of sorts with nothing charged (`Sorts.uncharged`), where a tick is
-the engine's own.
+a kernel charges.
 -/
 import RwLog.Rungs.R005.Engine
 import RwLog.Rungs.Mirror.Bounds
