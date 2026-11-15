@@ -136,16 +136,6 @@ variable (hL : D.Lawful P.sorts.interp)
 include hL
 
 omit [DecidableEq R] in
-/-- An answer of a goal relates the pairs of a derivation of its node between
-its boundaries. -/
-theorem ans_gdn {g : GoalOf R Rel} {a : Ans D P} (ha : a.goal = toGoal g) :
-    ∃ k G, G ∈ GDn P k g.node ∧ den P.sorts.interp a.span = pairsOf P g G := by
-  obtain ⟨s, hs, e⟩ := a.valid.2 hL
-  rw [ha] at hs e
-  obtain ⟨k, hk⟩ := mem_gd_iff.1 (show s.den ∈ GD P g.node from hs.derivesG)
-  exact ⟨k, s.den, hk, e⟩
-
-omit [DecidableEq R] in
 /-- A full table covers every answer of its goal. -/
 theorem full_covers {t : TableOf R Rel (Ans D P)} (hf : Full P t) {a : Ans D P}
     (ha : a.goal = toGoal t.goal) : ∃ b ∈ t.answers, covB D P b a = true := by

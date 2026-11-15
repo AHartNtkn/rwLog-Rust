@@ -12,6 +12,7 @@ import RwLog.Kernel.NormalFormSpans
 import RwLog.Kernel.NormalFormSize
 import RwLog.Kernel.DomainLaws
 import RwLog.Kernel.Wrap
+import RwLog.Rungs.Framework.Void
 
 namespace RwLog
 
@@ -28,11 +29,6 @@ structure GoalOk (D : Domain R) (g : GoalOf R Rel) : Prop where
   rb : IsBound D g.rb
   normal : Normal g.node
   fo : g.node.FO
-
-/-- The pairs of `lb ; G ; rb`, for a ground relation `G` the node of the
-goal derives. -/
-def pairsOf (P : Program) (g : GoalOf R Rel) (G : GRel) : PRel :=
-  wrapAt P.sorts.interp g.lb (G.at P.sorts.interp) g.rb
 
 /-- One of the answers relates every pair of `X`. -/
 def Cov (as : List (Ans D P)) (X : PRel) : Prop :=

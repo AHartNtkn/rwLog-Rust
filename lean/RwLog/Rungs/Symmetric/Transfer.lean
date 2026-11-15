@@ -101,6 +101,37 @@ theorem waits_list (hτ : IsRun τ) (ρ : Nat → Nat) (r n : Nat) :
       exact congrArg some (hτ.goal_inj e4 h4)
     · next h' => exact absurd h h'
 
+/-- **A table that has rounds for ever keeps a strategy of every kind in a
+group that works for ever**: from some state on its groups are full, and
+each strategy of each of them is a place of a line. -/
+theorem IsRun.live_strat (hτ : IsRun τ) {r' k : Nat} {g : GoalOf R Rel}
+    (hgk : goalAt (τ r') k = some g) (hlive : Live τ k) :
+    ∃ r0, Full (τ r0) g (groupsAt (τ r0) k) ∧ ∀ gr' ∈ groupsAt (τ r0) k, ∀ x ∈ gr'.kinds,
+      ∃ (L : Nat → List (Strat Rel (Ans D P))) (q : Nat) (s0 : Strat Rel (Ans D P)),
+        Line (readNeed P) τ k r0 L ∧ (L r0)[q]? = some s0 ∧ s0.kind = x := by
+  obtain ⟨r0, hpos, hl⟩ := hτ.req.lines k hlive
+  have hfull : Full (τ r0) g (groupsAt (τ r0) k) := by
+    cases ht0 : (τ r0).tables[k]? with
+    | none => simp [groupsAt, ht0] at hpos
+    | some t0 =>
+      cases hg0 : t0.groups with
+      | none => simp [groupsAt, ht0, hg0] at hpos
+      | some gs0 =>
+        have := (hτ.good r0).full k t0 ht0 gs0 hg0
+        rw [← hτ.goal_any hgk (goalAt_of_table ht0)] at this
+        simpa only [groupsAt, ht0, hg0, Option.getD_some] using this
+  have lk : ∀ gr' ∈ groupsAt (τ r0) k, ∀ x ∈ gr'.kinds,
+      ∃ (L : Nat → List (Strat Rel (Ans D P))) (q : Nat) (s0 : Strat Rel (Ans D P)),
+        Line (readNeed P) τ k r0 L ∧ (L r0)[q]? = some s0 ∧ s0.kind = x := by
+    intro gr' hgr' x hx
+    obtain ⟨m, hm⟩ := List.getElem?_of_mem hgr'
+    obtain ⟨s0, hs0, e⟩ := List.mem_map.1 hx
+    obtain ⟨q, hq'⟩ := List.getElem?_of_mem hs0
+    refine ⟨_, q, s0, hl m (List.getElem?_eq_some_iff.1 hm).1, ?_, e⟩
+    simp only [hm, Option.map_some, Option.getD_some]
+    exact hq'
+  exact ⟨r0, hfull, lk⟩
+
 section
 
 variable (hL : D.Lawful P.sorts.interp)
@@ -208,7 +239,6 @@ theorem IsRun.waits_quiet (hσ : IsRun σ) (hτ : IsRun τ)
   obtain ⟨i, g, r', hi, hd, hn, hgk, hop, hnd⟩ := hk
   subst hn
   have hlive : Live τ k := hop.resolve_left hnd
-  obtain ⟨r0, hpos, hl⟩ := hτ.req.lines k hlive
   -- a table read whose goal stands no higher gains no answer, and is complete or waits
   have rd : ∀ j j' gj r2, goalAt (σ r) j = some gj → (σ r).isDone j = true → ρ j ≤ ρ i →
       goalAt (τ r2) j' = some gj → Opened τ j' →
@@ -235,26 +265,7 @@ theorem IsRun.waits_quiet (hσ : IsRun σ) (hτ : IsRun τ)
   have hst : IsStrat σ i r s := ⟨t, gs, gr, ht, hgs, hgr, hs⟩
   have hp := hσ.prog hi hst
   -- the groups of the table that waits
-  have hfull : Full (τ r0) g (groupsAt (τ r0) k) := by
-    cases ht0 : (τ r0).tables[k]? with
-    | none => simp [groupsAt, ht0] at hpos
-    | some t0 =>
-      cases hg0 : t0.groups with
-      | none => simp [groupsAt, ht0, hg0] at hpos
-      | some gs0 =>
-        have := (hτ.good r0).full k t0 ht0 gs0 hg0
-        rw [← hτ.goal_any hgk (goalAt_of_table ht0)] at this
-        simpa only [groupsAt, ht0, hg0, Option.getD_some] using this
-  have lk : ∀ gr' ∈ groupsAt (τ r0) k, ∀ x ∈ gr'.kinds,
-      ∃ (L : Nat → List (Strat Rel (Ans D P))) (q : Nat) (s0 : Strat Rel (Ans D P)),
-        Line (readNeed P) τ k r0 L ∧ (L r0)[q]? = some s0 ∧ s0.kind = x := by
-    intro gr' hgr' x hx
-    obtain ⟨m, hm⟩ := List.getElem?_of_mem hgr'
-    obtain ⟨s0, hs0, e⟩ := List.mem_map.1 hx
-    obtain ⟨q, hq'⟩ := List.getElem?_of_mem hs0
-    refine ⟨_, q, s0, hl m (List.getElem?_eq_some_iff.1 hm).1, ?_, e⟩
-    simp only [hm, Option.map_some, Option.getD_some]
-    exact hq'
+  obtain ⟨r0, hfull, lk⟩ := hτ.live_strat hgk hlive
   cases s with
   | span ran =>
     dsimp only [Prog] at hp
