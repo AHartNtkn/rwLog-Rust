@@ -266,9 +266,9 @@ theorem inner_checkOpen {w : Nat} (g : GoalOf R Rel) (left : Bool) (other : Rel)
   simp only [Cost.bind_val]
   exact inner_openGoal _ _
 
-theorem inner_work (whole : Bool) (i : Nat) (g : GoalOf R Rel) (st : StateOf R Rel (Ans D P))
+theorem inner_work (i : Nat) (g : GoalOf R Rel) (st : StateOf R Rel (Ans D P))
     (s : Strat Rel (Ans D P)) :
-    Inner K hK i st (work (K := DerivationKernel.over D K hK P) whole i g st s).val.1 := by
+    Inner K hK i st (work (K := DerivationKernel.over D K hK P) i g st s).val.1 := by
   at_cost K hK
   cases s with
   | span ran =>
@@ -279,40 +279,28 @@ theorem inner_work (whole : Bool) (i : Nat) (g : GoalOf R Rel) (st : StateOf R R
   | copy isCall subs =>
     simp only [work]
     split
+    · exact Inner.refl _
     · simp only [Cost.bind_val, Cost.pure_val]
-      exact inner_foldL (fun st => st) _ (fun b p => inner_copyFrom _ _ _ _ _ _) _ st
-    · split
-      · exact Inner.refl _
-      · simp only [Cost.bind_val, Cost.pure_val]
-        exact inner_copyFrom _ _ _ _ _ _
+      exact inner_copyFrom _ _ _ _ _ _
   | join k a b c =>
     simp only [work]
     split
+    · exact Inner.refl _
     · simp only [Cost.bind_val, Cost.pure_val]
       exact inner_joinPairs _ _ _ _ _ _
-    · split
-      · exact Inner.refl _
-      · simp only [Cost.bind_val, Cost.pure_val]
-        exact inner_joinPairs _ _ _ _ _ _
   | push k left side other todo subs =>
     simp only [work]
     split
     · exact Inner.refl _
     · split
-      · cases todo <;>
-        · erw [Cost.bind_val]
-          simp only [Cost.bind_val, Cost.pure_val]
-          exact Inner.trans (inner_pushOpen g other k left st _)
-            (inner_foldL (fun st => st) _ (fun b e => inner_pushTake _ _ _ _ _ _) _ _)
+      · simp only [Cost.bind_val, Cost.pure_val]
+        exact Inner.refl _
+      · simp only [Cost.bind_val, Cost.pure_val]
+        exact inner_pushOpen _ _ _ _ _ _
       · split
+        · exact Inner.refl _
         · simp only [Cost.bind_val, Cost.pure_val]
-          exact Inner.refl _
-        · simp only [Cost.bind_val, Cost.pure_val]
-          exact inner_pushOpen _ _ _ _ _ _
-        · split
-          · exact Inner.refl _
-          · simp only [Cost.bind_val, Cost.pure_val]
-            exact inner_pushTake _ _ _ _ _ _
+          exact inner_pushTake _ _ _ _ _ _
   | check left side other c =>
     cases c with
     | reading =>
@@ -396,19 +384,102 @@ theorem reach_checkOpen (g : GoalOf R Rel) (left : Bool) (other : Rel)
     Reach K hK st (checkOpen (K := DerivationKernel.over D K hK P) g left other st ps).val.1 :=
   (inner_checkOpen (w := 0) g left other st ps).reach
 
-theorem reach_work (whole : Bool) (i : Nat) (g : GoalOf R Rel) (st : StateOf R Rel (Ans D P))
+theorem reach_work (i : Nat) (g : GoalOf R Rel) (st : StateOf R Rel (Ans D P))
     (s : Strat Rel (Ans D P)) :
-    Reach K hK st (work (K := DerivationKernel.over D K hK P) whole i g st s).val.1 :=
-  (inner_work whole i g st s).reach
+    Reach K hK st (work (K := DerivationKernel.over D K hK P) i g st s).val.1 :=
+  (inner_work i g st s).reach
+
+/-- The strategy `workStrats` picks, with what it owes, is the strategy at
+its place in its group. -/
+theorem pick_strat {N A : Type} {go : Option (Group N A)} {j : Nat} {s : Strat N A} {o : Nat}
+    (h : (go.bind fun gr => gr.strats[j]?.map fun s => (s, gr.owed.getD j 0)) = some (s, o)) :
+    go.bind (·.strats[j]?) = some s ∧ ∃ gr, go = some gr ∧ o = gr.owed.getD j 0 := by
+  cases go with
+  | none => cases h
+  | some gr =>
+    simp only [Option.bind_some] at h ⊢
+    cases hs : gr.strats[j]? with
+    | none => rw [hs] at h; cases h
+    | some s' =>
+      rw [hs] at h
+      cases h
+      exact ⟨rfl, gr, rfl, rfl⟩
+
+/-! ## A turn
+
+A turn is unit after unit of the work of one strategy, so what every unit
+keeps a turn keeps (`turn_ind`), and a turn with ticks left begins with a
+unit (`turn_succ`). -/
+
+theorem turn_zero (i : Nat) (g : GoalOf R Rel) (f : Nat) (st : StateOf R Rel (Ans D P))
+    (s : Strat Rel (Ans D P)) (c : Nat) :
+    (turn (K := DerivationKernel.over D K hK P) i g f 0 st s c).val = (st, s, c) := by
+  at_cost K hK
+  cases f <;> simp [turn]
+
+/-- A turn with ticks left: one unit, and if it did anything the rest of
+the turn. -/
+theorem turn_succ (i : Nat) (g : GoalOf R Rel) (f left : Nat) (st : StateOf R Rel (Ans D P))
+    (s : Strat Rel (Ans D P)) (c : Nat) (hl : left ≠ 0) :
+    (turn (K := DerivationKernel.over D K hK P) i g (f + 1) left st s c).val =
+      if (work (K := DerivationKernel.over D K hK P) i g st s).val.2.2 then
+        (turn (K := DerivationKernel.over D K hK P) i g f
+          (left - ((work (K := DerivationKernel.over D K hK P) i g st s).ticks + 1))
+          (work (K := DerivationKernel.over D K hK P) i g st s).val.1
+          (work (K := DerivationKernel.over D K hK P) i g st s).val.2.1
+          (c + (work (K := DerivationKernel.over D K hK P) i g st s).ticks + 1)).val
+      else ((work (K := DerivationKernel.over D K hK P) i g st s).val.1,
+        (work (K := DerivationKernel.over D K hK P) i g st s).val.2.1, c) := by
+  at_cost K hK
+  simp only [turn, hl, ↓reduceIte, Cost.bind_val]
+  split
+  · next h => simp only [Kernel.metered, Cost.metered_val] at h ⊢; simp [h]
+  · next h => simp only [Kernel.metered, Cost.metered_val] at h ⊢; simp [h]
+
+/-- What every unit of the work of a strategy keeps, a turn keeps. -/
+theorem turn_ind (i : Nat) (g : GoalOf R Rel)
+    (Q : StateOf R Rel (Ans D P) → Strat Rel (Ans D P) → Prop)
+    (hw : ∀ st s, Q st s → Q (work (K := DerivationKernel.over D K hK P) i g st s).val.1
+      (work (K := DerivationKernel.over D K hK P) i g st s).val.2.1) :
+    ∀ (f left : Nat) (st : StateOf R Rel (Ans D P)) (s : Strat Rel (Ans D P)) (c : Nat), Q st s →
+      Q (turn (K := DerivationKernel.over D K hK P) i g f left st s c).val.1
+        (turn (K := DerivationKernel.over D K hK P) i g f left st s c).val.2.1
+  | 0, left, st, s, c, h => by
+    have e : (turn (K := DerivationKernel.over D K hK P) i g 0 left st s c).val = (st, s, c) := by
+      at_cost K hK
+      rfl
+    rw [e]
+    exact h
+  | f + 1, left, st, s, c, h => by
+    by_cases hl : left = 0
+    · subst hl
+      rw [turn_zero]
+      exact h
+    · rw [turn_succ i g f left st s c hl]
+      split
+      · exact turn_ind i g Q hw f _ _ _ _ (hw st s h)
+      · exact hw st s h
+
+theorem inner_turn (i : Nat) (g : GoalOf R Rel) (f left : Nat) (st : StateOf R Rel (Ans D P))
+    (s : Strat Rel (Ans D P)) (c : Nat) :
+    Inner K hK i st (turn (K := DerivationKernel.over D K hK P) i g f left st s c).val.1 :=
+  turn_ind i g (fun st' _ => Inner K hK i st st')
+    (fun st' s' h => h.trans (inner_work i g st' s')) f left st s c (Inner.refl st)
+
+theorem reach_turn (i : Nat) (g : GoalOf R Rel) (f left : Nat) (st : StateOf R Rel (Ans D P))
+    (s : Strat Rel (Ans D P)) (c : Nat) :
+    Reach K hK st (turn (K := DerivationKernel.over D K hK P) i g f left st s c).val.1 :=
+  (inner_turn i g f left st s c).reach
 
 theorem reach_setGroup (st : StateOf R Rel (Ans D P)) (i k : Nat)
     (f : Group Rel (Ans D P) → Group Rel (Ans D P)) : Reach K hK st (setGroup st i k f) :=
   reach_modify st i _ fun _ => rfl
 
 theorem reach_workGroup (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R Rel (Ans D P) × Nat))
-    (hadv : ∀ h st, Reach K hK st (adv h st).val.1) (whole : Bool) (i : Nat) (g : GoalOf R Rel)
+    (hadv : ∀ h st, Reach K hK st (adv h st).val.1) (i : Nat) (g : GoalOf R Rel)
     (k : Nat) (st : StateOf R Rel (Ans D P)) :
-    Reach K hK st (workGroup (K := DerivationKernel.over D K hK P) adv whole i g k st).val.1 := by
+    Reach K hK st (workGroup (K := DerivationKernel.over D K hK P) adv i g k st).val.1 := by
+  have ht := fun f left st s c => reach_turn (K := K) (hK := hK) (P := P) i g f left st s c
   at_cost K hK
   simp only [workGroup, workStrats, feedAll, Cost.bind_val, Cost.pure_val]
   refine Reach.trans ?_ (reach_modify _ _ _ fun _ => rfl)
@@ -421,18 +492,18 @@ theorem reach_workGroup (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf
     split
     · exact Reach.refl _
     · simp only [Cost.bind_val, Cost.pure_val]
-      exact (reach_work _ _ _ _ _).trans (reach_setGroup _ _ _ _)
+      exact (ht _ _ _ _ _).trans (reach_setGroup _ _ _ _)
 
 theorem reach_workLevel (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R Rel (Ans D P) × Nat))
-    (hadv : ∀ h st, Reach K hK st (adv h st).val.1) (whole : Bool) (i : Nat) (g : GoalOf R Rel)
+    (hadv : ∀ h st, Reach K hK st (adv h st).val.1) (i : Nat) (g : GoalOf R Rel)
     (lv : Nat) (st : StateOf R Rel (Ans D P)) :
-    Reach K hK st (workLevel (K := DerivationKernel.over D K hK P) adv whole i g lv st).val.1 := by
+    Reach K hK st (workLevel (K := DerivationKernel.over D K hK P) adv i g lv st).val.1 := by
   at_cost K hK
   refine reach_foldL (fun acc : StateOf R Rel (Ans D P) × Bool => acc.1) _ (fun b p => ?_) _
     (st, false)
   split
   · simp only [Cost.bind_val, Cost.pure_val]
-    exact reach_workGroup adv hadv _ _ _ _ _
+    exact reach_workGroup adv hadv _ _ _ _
   · exact Reach.refl _
 
 theorem reach_prepare (i : Nat) (t : Table R Rel (Ans D P)) (st : StateOf R Rel (Ans D P)) :
@@ -453,9 +524,9 @@ theorem inner_addAll (i : Nat) (st : StateOf R Rel (Ans D P)) (xs : List (Ans D 
     Inner K hK i st (foldL (addAnswer (K := DerivationKernel.over D K hK P) i) st xs).val :=
   inner_foldL (fun s : StateOf R Rel (Ans D P) => s) _ (fun b a => Inner.add b a) _ _
 
-/-- What the race of the table at `i` does: nothing, or it puts answers into
-the table and records what it has spent, or it records that and a depth one
-greater. -/
+/-- What the race of the table at `i` does: nothing; or it gives up an ask
+and records what the ask was allowed; or it puts answers into the table and
+records what it has spent; or it records that and a depth one greater. -/
 theorem askRace_val (U : GOracle R Rel (Ans D P) Cost) (i : Nat) (g : GoalOf R Rel)
     (st : StateOf R Rel (Ans D P)) :
     (askRace (K := DerivationKernel.over D K hK P) U i g st).val =
@@ -465,14 +536,19 @@ theorem askRace_val (U : GOracle R Rel (Ans D P) Cost) (i : Nat) (g : GoalOf R R
         match t.race with
         | none => (st, false)
         | some r =>
-          if t.own + t.rounds < r.spent then (st, false)
-          else if (U r.depth g).val.1 then
-            ((foldL (addAnswer (K := DerivationKernel.over D K hK P) i) st
-                (U r.depth g).val.2).val.modify i fun t =>
-              { t with race := some ⟨r.depth, r.spent + (U r.depth g).ticks⟩ }, true)
+          if t.own + t.rounds - r.spent < max 1 (2 * r.gaveUp) then (st, false)
+          else if (U r.depth g).ticks ≤ t.own + t.rounds - r.spent then
+            if (U r.depth g).val.1 then
+              ((foldL (addAnswer (K := DerivationKernel.over D K hK P) i) st
+                  (U r.depth g).val.2).val.modify i fun t =>
+                { t with race := some ⟨r.depth, r.spent + (U r.depth g).ticks, 0⟩ }, true)
+            else
+              (st.modify i fun t =>
+                { t with race := some ⟨r.depth + 1, r.spent + (U r.depth g).ticks, 0⟩ }, false)
           else
-            (st.modify i fun t =>
-              { t with race := some ⟨r.depth + 1, r.spent + (U r.depth g).ticks⟩ }, false) := by
+            (st.modify i fun u =>
+              { u with race := some ⟨r.depth, r.spent + (t.own + t.rounds - r.spent),
+                t.own + t.rounds - r.spent⟩ }, false) := by
   at_cost K hK
   unfold askRace
   cases st.tables[i]? with
@@ -483,21 +559,18 @@ theorem askRace_val (U : GOracle R Rel (Ans D P) Cost) (i : Nat) (g : GoalOf R R
     | none => rfl
     | some r =>
       dsimp only
-      by_cases hb : t.own + t.rounds < r.spent
+      by_cases hb : t.own + t.rounds - r.spent < max 1 (2 * r.gaveUp)
       · simp only [hb, ↓reduceIte]
         rfl
       · simp only [hb, ↓reduceIte]
-        cases hv : (U r.depth g).val.1 with
-        | false =>
-          simp only [Bool.false_eq_true, ↓reduceIte, Cost.bind_val]
-          split
-          · next h => exact absurd (hv.symm.trans h) (by simp)
-          · rfl
-        | true =>
-          simp only [↓reduceIte, Cost.bind_val]
-          split
-          · rfl
-          · next h => exact (h hv).elim
+        by_cases hc : (U r.depth g).ticks ≤ t.own + t.rounds - r.spent
+        · simp only [hc, ↓reduceIte, Cost.bind_val, Kernel.metered, Kernel.within,
+            Cost.metered_val, Cost.within]
+          cases hv : (U r.depth g).val.1 with
+          | false => simp
+          | true => simp
+        · simp only [hc, ↓reduceIte, Cost.bind_val, Kernel.metered, Kernel.within,
+            Cost.metered_val, Cost.within, Cost.pure_val]
 
 /-- The race of a table reaches a state. -/
 theorem reach_askRace (U : GOracle R Rel (Ans D P) Cost) (i : Nat) (g : GoalOf R Rel)
@@ -511,7 +584,9 @@ theorem reach_askRace (U : GOracle R Rel (Ans D P) Cost) (i : Nat) (g : GoalOf R
     · split
       · exact Reach.refl st
       · split
-        · exact (inner_addAll i st _).reach.trans (reach_modify _ _ _ fun _ => rfl)
+        · split
+          · exact (inner_addAll i st _).reach.trans (reach_modify _ _ _ fun _ => rfl)
+          · exact reach_modify _ _ _ fun _ => rfl
         · exact reach_modify _ _ _ fun _ => rfl
 
 theorem reach_advance (U : GOracle R Rel (Ans D P) Cost) :
@@ -540,7 +615,7 @@ theorem reach_advance (U : GOracle R Rel (Ans D P) Cost) :
               (fun b lv => ?_) _ _ (reach_prepare _ _ _)
             split
             · exact Reach.refl _
-            · exact reach_workLevel _ ih _ _ _ _ _
+            · exact reach_workLevel _ ih _ _ _ _
 
 omit [DecidableEq R] in
 theorem cores_mapIdx (st : StateOf R Rel (Ans D P))

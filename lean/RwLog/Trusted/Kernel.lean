@@ -7,8 +7,8 @@ what an answer is. It is written for arbitrary types `S` of representatives,
 given is a `DerivationKernel S N A M`. It cannot look inside a
 representative, a node or an answer, build one, or compare two, except by
 calling an operation of the kernel, and it cannot touch the ticks at all,
-except by spending more (`tick`) and by reading what a computation spent
-(`metered`).
+except by spending more (`tick`), by reading what a computation spent
+(`metered`) and by giving a computation a budget (`within`).
 
 ## Representatives
 
@@ -34,7 +34,7 @@ the charges of the kernel engines are judged at are theorems about a machine
 (`verified/`): each is the number of ticks within which a program on the
 machine returns the operation's result. Refinement says nothing about the
 ticks, so an engine may behave differently at two kernels where it reads the
-ticks (`race`, `metered`): what it returns at a kernel is proved from
+ticks (`race`, `metered`, `within`): what it returns at a kernel is proved from
 `Refines`, and what it costs from that kernel's charges.
 
 ## Nodes
@@ -92,6 +92,8 @@ class Kernel (S : Type) (M : outParam (Type → Type)) extends Monad M where
   race : {α : Type} → M α → M α → M α
   /-- Run a computation and return what it spent (`Cost.metered`). -/
   metered : {α : Type} → M α → M (α × Nat)
+  /-- Run a computation under a budget of ticks (`Cost.within`). -/
+  within : {α : Type} → Nat → M α → M (Option α)
   /-- The converse. -/
   swap : S → S
   /-- The representative of a span of the program. -/
@@ -110,7 +112,7 @@ class Kernel (S : Type) (M : outParam (Type → Type)) extends Monad M where
   leftBound : S → M (Option S)
 
 /-- The kernel returns what the domain returns: it has the monad of charged
-computations with its `tick`, `race` and `metered`, its converse is the
+computations with its `tick`, `race`, `metered` and `within`, its converse is the
 converse of the representatives, and the value of every operation is the
 value of the same operation of the domain. Nothing is said about what it
 charges. -/
@@ -120,6 +122,7 @@ structure Kernel.Refines {S : Type} [Answer S] [DecidableEq S] (D : Domain S)
   tick : K.tick = Cost.tick
   race : ∀ (α : Type) (a b : Cost α), K.race a b = Cost.race a b
   metered : ∀ (α : Type) (a : Cost α), K.metered a = Cost.metered a
+  within : ∀ (α : Type) (b : Nat) (a : Cost α), K.within b a = Cost.within b a
   swap : K.swap = Answer.swap
   rep : ∀ s, (K.rep s).val = D.rep s
   compose : ∀ x y, (K.compose x y).val = D.compose x y

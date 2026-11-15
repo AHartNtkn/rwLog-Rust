@@ -50,12 +50,13 @@ open Traverse Answer
 
 /-- What the race of a goal means to the record of a run: what a final
 verdict gives of answers of the table of the goal (`cov`), at which depths
-the verdict for a goal is final (`final`), and which goals have a race
-(`has`). -/
+the verdict for a goal is final (`final`), which goals have a race (`has`), and
+what the ask for a goal at a depth costs (`cost`). -/
 structure RaceSem (S N A : Type) where
   cov : GoalOf S N → List A → Prop
   final : GoalOf S N → Nat → Prop
   has : GoalOf S N → Bool
+  cost : GoalOf S N → Nat → Nat
 
 section pure
 
@@ -662,10 +663,31 @@ theorem sfed_of_feeds {st st' : StateOf S N A} (hS : Stable st st') {s : Strat N
 def GrAdv (len : Nat → Nat) (gr gr' : Group N A) : Prop :=
   Pointwise (SAdv len) gr.strats gr'.strats
 
-/-- A group after it has worked: each of its strategies has. -/
+/-- A strategy and itself after its turn, with what it owed before the turn
+(`o`) and what it owes after it (`o'`): it has worked, or it stands as it
+stood and owes less. -/
+def OStep (need : N → Nat) (len : Nat → Nat) (dn : Nat → Bool) (d d' o o' : Nat)
+    (s s' : Strat N A) : Prop :=
+  SStep need len dn d d' s s' ∨ (s' = s ∧ o' < o)
+
+theorem OStep.mono {len len' : Nat → Nat} {dn dn' : Nat → Bool} {d d' d0 d1 o o' : Nat}
+    (hl : ∀ j, len' j ≤ len j) (hdn : ∀ j, dn' j = true → dn j = true)
+    (hd : d0 ≤ d) (hd' : d' ≤ d1) {s s' : Strat N A} (h : OStep need len dn d d' o o' s s') :
+    OStep need len' dn' d0 d1 o o' s s' :=
+  h.imp (fun h => h.mono hl hdn hd hd') id
+
+/-- A group after it has worked: each of its strategies has had its turn. -/
 def GrStep (need : N → Nat) (len : Nat → Nat) (dn : Nat → Bool) (d d' : Nat)
     (gr gr' : Group N A) : Prop :=
-  Pointwise (SStep need len dn d d') gr.strats gr'.strats
+  gr.strats.length = gr'.strats.length ∧
+    ∀ (m : Nat) (s s' : Strat N A), gr.strats[m]? = some s → gr'.strats[m]? = some s' →
+      OStep need len dn d d' (gr.owed.getD m 0) (gr'.owed.getD m 0) s s'
+
+theorem GrStep.mono {len len' : Nat → Nat} {dn dn' : Nat → Bool} {d d' d0 d1 : Nat}
+    (hl : ∀ j, len' j ≤ len j) (hdn : ∀ j, dn' j = true → dn j = true)
+    (hd : d0 ≤ d) (hd' : d' ≤ d1) {gr gr' : Group N A} (h : GrStep need len dn d d' gr gr') :
+    GrStep need len' dn' d0 d1 gr gr' :=
+  ⟨h.1, fun m s s' hs hs' => (h.2 m s s' hs hs').mono hl hdn hd hd'⟩
 
 /-- A span, a call, a union or a join: the strategies that head a group. -/
 def Strat.lead : Strat N A → Bool
@@ -692,22 +714,23 @@ abbrev Tried (need : N → Nat) (st st' : StateOf S N A) (gr0 gr1 : Group N A) :
 
 theorem Tried.start {a b c : StateOf S N A} (hS : Stable a b) (hd : a.depth ≤ b.depth)
     {gr0 gr1 : Group N A} (h : Tried need b c gr0 gr1) : Tried need a c gr0 gr1 :=
-  ⟨h.1.imp fun _ _ hs => hs.mono hS.len_le (fun _ h => (hS.isDone h).1) hd (Nat.le_refl _), h.2⟩
+  ⟨h.1.mono hS.len_le (fun _ h => (hS.isDone h).1) hd (Nat.le_refl _), h.2⟩
 
 theorem Tried.finish {a b c : StateOf S N A} (hS : Stable b c)
     (hset : ∀ j, Settled b j → Settled c j) (hd : b.depth ≤ c.depth)
     {gr0 gr1 : Group N A} (h : Tried need a b gr0 gr1) : Tried need a c gr0 gr1 :=
-  ⟨h.1.imp fun _ _ hs => hs.mono (fun _ => Nat.le_refl _) (fun _ h => h) (Nat.le_refl _) hd,
+  ⟨h.1.mono (fun _ => Nat.le_refl _) (fun _ h => h) (Nat.le_refl _) hd,
     fun s hs => (h.2 s hs).mono hS hset⟩
 
 /-- The balance of a round, for the group at a place before (`gr0`) and
 after (`gr1`): its level has not fallen, and it worked, or it stands as it
-stood and a group that stood lower has risen. `gs0` and `gs1` are the groups
+stood, its strategies owing what they owed, and a group that stood lower has
+risen. `gs0` and `gs1` are the groups
 before the round and after it, before any is removed. -/
 def Balanced (need : N → Nat) (st st' : StateOf S N A) (gs0 gs1 : List (Group N A))
     (gr0 gr1 : Group N A) : Prop :=
   gr0.level ≤ gr1.level ∧ (Tried need st st' gr0 gr1 ∨
-    (gr1.level = gr0.level ∧ ∃ (k' : Nat) (gr0' gr1' : Group N A),
+    (gr1.level = gr0.level ∧ gr1.owed = gr0.owed ∧ ∃ (k' : Nat) (gr0' gr1' : Group N A),
       gs0[k']? = some gr0' ∧ gs1[k']? = some gr1' ∧ gr0'.level < gr0.level ∧
       gr0'.level < gr1'.level))
 
@@ -900,21 +923,27 @@ theorem Raced.mono {st st' : StateOf S N A} (hS : Stable st st') {k : Nat}
 
 /-- What its round does to the race of a table, `t` before the round and
 `t'` after: the table has had one more round; and if it had a race, or
-begins with one in its first round, the race was not asked, having spent more
-than the table has had rounds, or the table is complete, or the race stands
-one depth further and its verdict at the depth it stood at is not final. -/
+begins with one in its first round, then the race was not asked, the table
+having had fewer rounds than the race has spent and needs for its next ask;
+or the table is complete; or the race stands one depth further, having given
+up nothing there, and its verdict at the depth it stood at is not final; or
+the race gave up an ask that costs more than it was allowed, and was allowed
+at least one tick and twice what it gave up before. -/
 def Asked (Rc : RaceSem S N A) (t t' : Table S N A) : Prop :=
   t'.rounds = t.rounds + 1 ∧
-  ∀ r, (if t.groups.isNone then (if Rc.has t.goal then some ⟨0, 0⟩ else none) else t.race) =
+  ∀ r, (if t.groups.isNone then (if Rc.has t.goal then some ⟨0, 0, 0⟩ else none) else t.race) =
       some r →
-    (t'.race = some r ∧ t.rounds < r.spent) ∨ t'.done = true ∨
-    ∃ c, t'.race = some ⟨r.depth + 1, r.spent + c⟩ ∧ ¬ Rc.final t.goal r.depth
+    (t'.race = some r ∧ t.rounds < r.spent + max 1 (2 * r.gaveUp)) ∨ t'.done = true ∨
+    (∃ c, t'.race = some ⟨r.depth + 1, r.spent + c, 0⟩ ∧ ¬ Rc.final t.goal r.depth) ∨
+    ∃ left, t'.race = some ⟨r.depth, r.spent + left, left⟩ ∧ max 1 (2 * r.gaveUp) ≤ left ∧
+      left < Rc.cost t.goal r.depth
 
 theorem Asked.finish {t t' t'' : Table S N A} (h : Asked Rc t t')
     (hr : t''.race = t'.race ∧ t''.rounds = t'.rounds) (hd : t'.done = true → t''.done = true) :
     Asked Rc t t'' :=
   ⟨hr.2.trans h.1, fun r e => (h.2 r e).imp (fun p => ⟨hr.1.trans p.1, p.2⟩)
-    (Or.imp hd fun ⟨c, p, q⟩ => ⟨c, hr.1.trans p, q⟩)⟩
+    (Or.imp hd (Or.imp (fun ⟨c, p, q⟩ => ⟨c, hr.1.trans p, q⟩)
+      fun ⟨l, p, q⟩ => ⟨l, hr.1.trans p, q⟩))⟩
 
 theorem Asked.start {t t' t'' : Table S N A} (h : Asked Rc t' t'') (hg : t'.goal = t.goal)
     (hgr : t'.groups = t.groups) (hr : t'.race = t.race ∧ t'.rounds = t.rounds) :

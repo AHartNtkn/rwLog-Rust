@@ -89,7 +89,8 @@ charges are not derived on any machine. -/
     (fun x y => pure (decide (x = y))) (fun s => pure ((Sorts.dom S).rightBound s))
     (fun s => pure ((Sorts.dom S).leftBound s))
   refines _ :=
-    { monad := rfl, tick := rfl, race := fun _ _ _ => rfl, metered := fun _ _ => rfl, swap := rfl,
+    { monad := rfl, tick := rfl, race := fun _ _ _ => rfl, metered := fun _ _ => rfl,
+      within := fun _ _ _ => rfl, swap := rfl,
       rep := fun _ => rfl, compose := fun _ _ => rfl, meet := fun _ _ => rfl,
       composable := fun _ => rfl, covers := fun _ _ => rfl, eq := fun _ _ => rfl,
       rightBound := fun _ => rfl, leftBound := fun _ => rfl }

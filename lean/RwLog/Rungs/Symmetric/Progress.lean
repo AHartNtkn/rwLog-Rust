@@ -847,10 +847,10 @@ theorem checkOpen_spec (g : GoalOf R Rel) (left : Bool) (other : Rel)
 /-! ## The work of one strategy keeps what its cursors mean -/
 
 theorem prog_work_span (hL : D.Lawful P.sorts.interp) {st : StateOf R Rel (Ans D P)}
-    (whole : Bool) (i : Nat) (g : GoalOf R Rel) (ran : Bool) (ho : Open st i)
+    (i : Nat) (g : GoalOf R Rel) (ran : Bool) (ho : Open st i)
     (hb : IsBound D g.lb ∧ IsBound D g.rb) (hs : Prog st i g (.span ran)) :
-    Prog (work (K := DerivationKernel.over D K hK P) whole i g st (.span ran)).val.1 i g
-      (work (K := DerivationKernel.over D K hK P) whole i g st (.span ran)).val.2.1 := by
+    Prog (work (K := DerivationKernel.over D K hK P) i g st (.span ran)).val.1 i g
+      (work (K := DerivationKernel.over D K hK P) i g st (.span ran)).val.2.1 := by
   have hcov := fun c => cov_addOption (K := K) (hK := hK) hL st i ho c
   have hleaf := fun s z hz => Ans.leaf_ok (P := P) K hK (s := s) (z := z) hb.1 hb.2 hz
   at_cost K hK
@@ -867,10 +867,10 @@ theorem prog_work_span (hL : D.Lawful P.sorts.interp) {st : StateOf R Rel (Ans D
   · exact hs
 
 theorem prog_work_copy (hL : D.Lawful P.sorts.interp) {st : StateOf R Rel (Ans D P)}
-    (hI : Inv st) (whole : Bool) (i : Nat) (g : GoalOf R Rel) (isCall : Bool)
+    (hI : Inv st) (i : Nat) (g : GoalOf R Rel) (isCall : Bool)
     (subs : List (Nat × Nat)) (ho : Open st i) (hs : Prog st i g (.copy isCall subs)) :
-    Prog (work (K := DerivationKernel.over D K hK P) whole i g st (.copy isCall subs)).val.1 i g
-      (work (K := DerivationKernel.over D K hK P) whole i g st (.copy isCall subs)).val.2.1 := by
+    Prog (work (K := DerivationKernel.over D K hK P) i g st (.copy isCall subs)).val.1 i g
+      (work (K := DerivationKernel.over D K hK P) i g st (.copy isCall subs)).val.2.1 := by
   have hcf := fun m st' as ho happ =>
     copyFrom_cov (K := K) (hK := hK) hL i g isCall m st' as ho happ
   have hs0 := hs
@@ -885,80 +885,44 @@ theorem prog_work_copy (hL : D.Lawful P.sorts.interp) {st : StateOf R Rel (Ans D
   at_cost K hK
   simp only [work]
   split
-  · simp only [Cost.bind_val, Cost.pure_val]
-    obtain ⟨hf, hc⟩ := foldL_cov i
-      (fun acc (p : (Nat × Nat) × Nat) =>
-        copyFrom (K := DerivationKernel.over D _ hK P) i g isCall p.2 acc
-          ((st.answers p.1.1).drop p.1.2))
-      (fun p => p ∈ subs.zipIdx)
-      (fun st' p => ∀ a ∈ (st.answers p.1.1).drop p.1.2, CovS st' i a.span)
-      (fun st' p hp ho' => hcf p.2 st' _ ho'
-        (fun a ha => happ p hp a (List.mem_of_mem_drop ha)))
-      (fun _ _ _ h hc a ha => (hc a ha).mono h) subs.zipIdx st (fun _ h => h) ho
+  · exact hs0
+  · next p hp =>
+    simp only [Cost.bind_val, Cost.pure_val]
+    have hpm := mem_of_leastBy hp
+    have hpok : p.1.2 < (st.answers p.1.1).length := by simpa using leastBy_ok hp
+    obtain ⟨hf, hc⟩ := hcf p.2 st (((st.answers p.1.1).drop p.1.2).take 1) ho
+      (fun a ha => happ p hpm a (List.mem_of_mem_drop (List.mem_of_mem_take ha)))
     have hS := hf.stable ho
     dsimp only [Prog]
-    refine ⟨h0, h1, by rw [List.length_map]; exact h2, fun m j pos hm => ?_⟩
-    rw [List.getElem?_map] at hm
-    cases hq : subs[m]? with
-    | none => rw [hq] at hm; cases hm
-    | some q =>
-      rw [hq] at hm
-      obtain ⟨j0, pos0⟩ := q
-      simp only [Option.map_some, Option.some.injEq, Prod.mk.injEq] at hm
+    refine ⟨h0, h1, by rw [List.length_modify]; exact h2, fun m j pos hm => ?_⟩
+    rw [List.getElem?_modify] at hm
+    have hq0 : subs[p.2]? = some p.1 := List.mem_zipIdx_iff_getElem?.1 hpm
+    by_cases e : p.2 = m
+    · subst e
+      rw [hq0] at hm
+      simp only [ite_true] at hm
       obtain ⟨rfl, rfl⟩ := hm
-      obtain ⟨x, hx, hgx, hr⟩ := h3 m j0 pos0 hq
-      refine ⟨x, hx, hS.ext _ _ hgx, (max_le hr.1 (Nat.le_refl _)).trans (hS.length_le j0),
-        fun n y hn hy z hz => ?_⟩
+      obtain ⟨x, hx, hgx, hr⟩ := h3 p.2 p.1.1 p.1.2 hq0
+      refine ⟨x, hx, hS.ext _ _ hgx,
+        Nat.succ_le_of_lt (lt_of_lt_of_le hpok (hS.length_le _)), fun n y hn hy z hz => ?_⟩
       cases hz
-      by_cases hlt : n < pos0
+      by_cases hlt : n < p.1.2
       · exact (hr.mono hS).2 n y hlt hy _ rfl
-      · have hn' : n < (st.answers j0).length := by
-          have := lt_max_iff.1 hn
-          omega
-        have hy' := hS.getElem?_old hy hn'
-        refine hc ((j0, pos0), m) (List.mem_zipIdx_iff_getElem?.2 hq) y ?_
-        refine List.mem_iff_getElem?.2 ⟨n - pos0, ?_⟩
-        rw [List.getElem?_drop, show pos0 + (n - pos0) = n by omega]
+      · obtain rfl : n = p.1.2 := by omega
+        have hy' := hS.getElem?_old hy hpok
+        refine hc y (List.mem_iff_getElem?.2 ⟨0, ?_⟩)
+        rw [List.getElem?_take_of_lt (by omega), List.getElem?_drop]
         exact hy'
-  · split
-    · exact hs0
-    · next p hp =>
-      simp only [Cost.bind_val, Cost.pure_val]
-      have hpm := mem_of_leastBy hp
-      have hpok : p.1.2 < (st.answers p.1.1).length := by simpa using leastBy_ok hp
-      obtain ⟨hf, hc⟩ := hcf p.2 st (((st.answers p.1.1).drop p.1.2).take 1) ho
-        (fun a ha => happ p hpm a (List.mem_of_mem_drop (List.mem_of_mem_take ha)))
-      have hS := hf.stable ho
-      dsimp only [Prog]
-      refine ⟨h0, h1, by rw [List.length_modify]; exact h2, fun m j pos hm => ?_⟩
-      rw [List.getElem?_modify] at hm
-      have hq0 : subs[p.2]? = some p.1 := List.mem_zipIdx_iff_getElem?.1 hpm
-      by_cases e : p.2 = m
-      · subst e
-        rw [hq0] at hm
-        simp only [ite_true] at hm
-        obtain ⟨rfl, rfl⟩ := hm
-        obtain ⟨x, hx, hgx, hr⟩ := h3 p.2 p.1.1 p.1.2 hq0
-        refine ⟨x, hx, hS.ext _ _ hgx,
-          Nat.succ_le_of_lt (lt_of_lt_of_le hpok (hS.length_le _)), fun n y hn hy z hz => ?_⟩
-        cases hz
-        by_cases hlt : n < p.1.2
-        · exact (hr.mono hS).2 n y hlt hy _ rfl
-        · obtain rfl : n = p.1.2 := by omega
-          have hy' := hS.getElem?_old hy hpok
-          refine hc y (List.mem_iff_getElem?.2 ⟨0, ?_⟩)
-          rw [List.getElem?_take_of_lt (by omega), List.getElem?_drop]
-          exact hy'
-      · simp only [e, ite_false] at hm
-        rw [id_map'] at hm
-        obtain ⟨x, hx, hgx, hr⟩ := h3 m j pos hm
-        exact ⟨x, hx, hS.ext _ _ hgx, hr.mono hS⟩
+    · simp only [e, ite_false] at hm
+      rw [id_map'] at hm
+      obtain ⟨x, hx, hgx, hr⟩ := h3 m j pos hm
+      exact ⟨x, hx, hS.ext _ _ hgx, hr.mono hS⟩
 
 theorem prog_work_join (hL : D.Lawful P.sorts.interp) {st : StateOf R Rel (Ans D P)}
-    (hI : Inv st) (whole : Bool) (i : Nat) (g : GoalOf R Rel) (k : Kind) (a b : Nat)
+    (hI : Inv st) (i : Nat) (g : GoalOf R Rel) (k : Kind) (a b : Nat)
     (c : Cursor) (ho : Open st i) (hs : Prog st i g (.join k a b c)) :
-    Prog (work (K := DerivationKernel.over D K hK P) whole i g st (.join k a b c)).val.1 i g
-      (work (K := DerivationKernel.over D K hK P) whole i g st (.join k a b c)).val.2.1 := by
+    Prog (work (K := DerivationKernel.over D K hK P) i g st (.join k a b c)).val.1 i g
+      (work (K := DerivationKernel.over D K hK P) i g st (.join k a b c)).val.2.1 := by
   have hs0 := hs
   dsimp only [Prog] at hs
   obtain ⟨L, Rg, h1, h2, h3, h4, h5⟩ := hs
@@ -984,40 +948,33 @@ theorem prog_work_join (hL : D.Lawful P.sorts.interp) {st : StateOf R Rel (Ans D
     · exact hc (p, q) hb' x y hx' hy' z hz
   at_cost K hK
   simp only [work]
+  obtain ⟨n1, -, -, n4⟩ := Cursor.next_spec (st.answers a).length (st.answers b).length
+    (c.room (st.answers a).length (st.answers b).length) c h4
   split
-  · simp only [Cost.bind_val, Cost.pure_val]
-    obtain ⟨a1, -, -, a4⟩ := Cursor.all_spec (st.answers a).length (st.answers b).length
-      ((st.answers a).length * (st.answers b).length + 1) c h4
-    obtain ⟨hf, hc⟩ := hjp (Cursor.all (st.answers a).length (st.answers b).length
-      ((st.answers a).length * (st.answers b).length + 1) c).1
-    exact fin _ _ _ hf hc a1 a4
-  · obtain ⟨n1, -, -, n4⟩ := Cursor.next_spec (st.answers a).length (st.answers b).length
-      (c.room (st.answers a).length (st.answers b).length) c h4
-    split
-    · next c' hn =>
-      rw [hn] at n1 n4
-      exact fin [] c' st (Frame.refl i st) (fun _ h => by cases h) n1 (fun p q hb => by
-        rcases n4 p q hb with h | h
-        · exact .inl h
-        · cases h)
-    · next pr c' hn =>
-      rw [hn] at n1 n4
-      simp only [Cost.bind_val, Cost.pure_val]
-      obtain ⟨hf, hc⟩ := hjp [pr]
-      exact fin [pr] c' _ hf hc n1 (fun p q hb => by
-        rcases n4 p q hb with h | h
-        · exact .inl h
-        · cases h
-          exact .inr List.mem_cons_self)
+  · next c' hn =>
+    rw [hn] at n1 n4
+    exact fin [] c' st (Frame.refl i st) (fun _ h => by cases h) n1 (fun p q hb => by
+      rcases n4 p q hb with h | h
+      · exact .inl h
+      · cases h)
+  · next pr c' hn =>
+    rw [hn] at n1 n4
+    simp only [Cost.bind_val, Cost.pure_val]
+    obtain ⟨hf, hc⟩ := hjp [pr]
+    exact fin [pr] c' _ hf hc n1 (fun p q hb => by
+      rcases n4 p q hb with h | h
+      · exact .inl h
+      · cases h
+        exact .inr List.mem_cons_self)
 
 theorem prog_work_push (hL : D.Lawful P.sorts.interp) {st : StateOf R Rel (Ans D P)}
-    (hI : Inv st) (whole : Bool) (i : Nat) (g : GoalOf R Rel) (k : Kind) (left : Bool)
+    (hI : Inv st) (i : Nat) (g : GoalOf R Rel) (k : Kind) (left : Bool)
     (side : Nat) (other : Rel) (todo : Option (List (Ans D P)))
     (subs : List (Ans D P × Nat × Nat)) (ho : Open st i) (hno : Normal other)
     (hs : Prog st i g (.push k left side other todo subs)) :
-    Prog (work (K := DerivationKernel.over D K hK P) whole i g st
+    Prog (work (K := DerivationKernel.over D K hK P) i g st
         (.push k left side other todo subs)).val.1 i g
-      (work (K := DerivationKernel.over D K hK P) whole i g st
+      (work (K := DerivationKernel.over D K hK P) i g st
         (.push k left side other todo subs)).val.2.1 := by
   have hs0 := hs
   dsimp only [Prog] at hs
@@ -1041,82 +998,6 @@ theorem prog_work_push (hL : D.Lawful P.sorts.interp) {st : StateOf R Rel (Ans D
       (fun a b c h1 h2 => (hL.covers_iff _ _).2
         (((hL.covers_iff _ _).1 h2).trans ((hL.covers_iff _ _).1 h1))) hx
     exact ⟨z, hz, (hL.covers_iff _ _).1 hc⟩
-  have main : ∀ xs : List (Ans D P), st.isDone side = true →
-      (∀ x, (x ∈ xs ∨ x ∈ subs.map (·.1)) → x ∈ (st.answers side).maximaBy (covB D P)) →
-      (∀ x ∈ st.answers side, ∃ x' ∈ st.answers side, (x' ∈ xs ∨ x' ∈ subs.map (·.1)) ∧
-        den P.sorts.interp x.span ⊆ den P.sorts.interp x'.span) →
-      Prog (foldL (fun acc (e : Ans D P × Nat × Nat) =>
-          pushTake (K := DerivationKernel.over D K hK P) i k left e.1 acc
-            (((pushOpen (K := DerivationKernel.over D K hK P) g other k left st xs).val.1.answers
-              e.2.1).drop e.2.2))
-          (pushOpen (K := DerivationKernel.over D K hK P) g other k left st xs).val.1
-          (subs ++ (pushOpen (K := DerivationKernel.over D K hK P) g other k left st
-            xs).val.2)).val i g
-        (.push k left side other (some [])
-          ((subs ++ (pushOpen (K := DerivationKernel.over D K hK P) g other k left st
-            xs).val.2).map fun e => (e.1, e.2.1, max e.2.2
-              ((pushOpen (K := DerivationKernel.over D K hK P) g other k left st
-                xs).val.1.answers e.2.1).length))) := by
-    intro xs hd hxs hcv
-    obtain ⟨hmap, hnew⟩ := hpo xs
-    have hF1 := hpi xs
-    have hI1 := hpI xs
-    generalize (pushOpen (K := DerivationKernel.over D K hK P) g other k left st xs).val = r at *
-    have hS1 := hF1.stable ho
-    have ho1 := hF1.isOpen ho
-    have hsub' : ∀ e ∈ subs ++ r.2, e.1 ∈ st.answers side ∧
-        goalAt r.1 e.2.1 = some (pushG D g other k left e.1) ∧
-        Read r.1 i e.2.1 e.2.2 (pushedS D k left e.1.span) := by
-      intro e he
-      rcases List.mem_append.1 he with he | he
-      · obtain ⟨d1, d2, d3⟩ := h5 e he
-        exact ⟨d1, hS1.ext _ _ d2, d3.mono hS1⟩
-      · obtain ⟨d1, d2, d3⟩ := hnew e he
-        exact ⟨List.mem_maximaBy (hxs _ (.inl d1)), d3, by rw [d2]; exact Read.zero _ _ _ _⟩
-    obtain ⟨hF2, hc⟩ := foldL_cov i
-      (fun acc (e : Ans D P × Nat × Nat) =>
-        pushTake (K := DerivationKernel.over D K hK P) i k left e.1 acc
-          ((r.1.answers e.2.1).drop e.2.2))
-      (fun e => e ∈ subs ++ r.2)
-      (fun st' e => ∀ y ∈ (r.1.answers e.2.1).drop e.2.2, ∀ z,
-        pushedS D k left e.1.span y.span = some z → CovS st' i z)
-      (fun st' e he ho' => hpt e.1 st' _ ho' (hI.answers h2 _ (hsub' e he).1)
-        (fun y hy => hI1.answers (hsub' e he).2.1 y (List.mem_of_mem_drop hy)))
-      (fun _ _ _ h hc y hy z hz => (hc y hy z hz).mono h) (subs ++ r.2) r.1 (fun _ h => h) ho1
-    have hS2 := hF2.stable ho1
-    have hS := hS1.trans hS2
-    obtain ⟨hd', hans⟩ := hS.isDone hd
-    dsimp only [Prog]
-    refine ⟨L, Rg, h1, hS.ext _ _ h2, h3, fun l hl => ?_, fun e' he' => ?_,
-      fun h => by cases h⟩
-    · cases hl
-      rw [hans]
-      refine ⟨hd', fun x hx => hxs x ?_, fun x hx => ?_⟩
-      · rcases hx with hx | hx
-        · cases hx
-        · simp only [List.map_map, List.map_append, Function.comp_def, hmap] at hx
-          rcases List.mem_append.1 hx with h | h
-          · exact .inr h
-          · exact .inl h
-      · obtain ⟨x', hx', hor, hsubset⟩ := hcv x hx
-        refine ⟨x', hx', .inr ?_, hsubset⟩
-        simp only [List.map_map, List.map_append, Function.comp_def, hmap]
-        rcases hor with h | h
-        · exact List.mem_append_right _ h
-        · exact List.mem_append_left _ h
-    · obtain ⟨e, he, rfl⟩ := List.mem_map.1 he'
-      obtain ⟨d1, d2, d3⟩ := hsub' e he
-      refine ⟨by rw [hans]; exact d1, hS2.ext _ _ d2,
-        (max_le d3.1 (Nat.le_refl _)).trans (hS2.length_le _), fun n y hn hy z hz => ?_⟩
-      by_cases hlt : n < e.2.2
-      · exact (d3.mono hS2).2 n y hlt hy z hz
-      · have hn' : n < (r.1.answers e.2.1).length := by
-          have := lt_max_iff.1 hn
-          omega
-        have hy' := hS2.getElem?_old hy hn'
-        refine hc e he y (List.mem_iff_getElem?.2 ⟨n - e.2.2, ?_⟩) z hz
-        rw [List.getElem?_drop, show e.2.2 + (n - e.2.2) = n by omega]
-        exact hy'
   at_cost K hK
   simp only [work]
   split
@@ -1124,120 +1005,103 @@ theorem prog_work_push (hL : D.Lawful P.sorts.interp) {st : StateOf R Rel (Ans D
   · next hnd =>
     have hd : st.isDone side = true := by simpa using hnd
     split
-    · cases todo with
-      | none =>
-        erw [Cost.bind_val]
-        simp only [Cost.bind_val, Cost.pure_val]
-        exact main _ hd (fun x hx => by
+    · simp only [Cost.bind_val, Cost.pure_val]
+      dsimp only [Prog]
+      exact ⟨L, Rg, h1, h2, h3, fun l hl => by
+        cases hl
+        exact ⟨hd, (fun x hx => by
             rcases hx with hx | hx
             · rw [hmv] at hx
               exact hx
             · rw [h6 rfl] at hx
-              cases hx)
-          (fun x hx => (hcovmax x hx).imp fun x' h => ⟨hmm x' h.1, .inl h.1, h.2⟩)
-      | some l =>
-        erw [Cost.bind_val]
-        simp only [Cost.bind_val, Cost.pure_val]
-        obtain ⟨-, d2, d3⟩ := h4 l rfl
-        exact main l hd d2 d3
-    · split
-      · simp only [Cost.bind_val, Cost.pure_val]
-        dsimp only [Prog]
-        exact ⟨L, Rg, h1, h2, h3, fun l hl => by
-          cases hl
-          exact ⟨hd, (fun x hx => by
-              rcases hx with hx | hx
-              · rw [hmv] at hx
-                exact hx
-              · rw [h6 rfl] at hx
-                cases hx),
-            fun x hx => (hcovmax x hx).imp fun x' h => ⟨hmm x' h.1, .inl h.1, h.2⟩⟩,
-          h5, fun h => by cases h⟩
-      · next x rest =>
-        simp only [Cost.bind_val, Cost.pure_val]
-        obtain ⟨hmap, hnew⟩ := hpo [x]
-        have hF1 := hpi [x]
-        have hS1 := hF1.stable ho
-        obtain ⟨hd', hans⟩ := hS1.isDone hd
-        obtain ⟨-, d2, d3⟩ := h4 (x :: rest) rfl
-        dsimp only [Prog]
-        refine ⟨L, Rg, h1, hS1.ext _ _ h2, h3, fun l hl => ?_, fun e he => ?_,
-          fun h => by cases h⟩
-        · cases hl
+              cases hx),
+          fun x hx => (hcovmax x hx).imp fun x' h => ⟨hmm x' h.1, .inl h.1, h.2⟩⟩,
+        h5, fun h => by cases h⟩
+    · next x rest =>
+      simp only [Cost.bind_val, Cost.pure_val]
+      obtain ⟨hmap, hnew⟩ := hpo [x]
+      have hF1 := hpi [x]
+      have hS1 := hF1.stable ho
+      obtain ⟨hd', hans⟩ := hS1.isDone hd
+      obtain ⟨-, d2, d3⟩ := h4 (x :: rest) rfl
+      dsimp only [Prog]
+      refine ⟨L, Rg, h1, hS1.ext _ _ h2, h3, fun l hl => ?_, fun e he => ?_,
+        fun h => by cases h⟩
+      · cases hl
+        rw [hans]
+        refine ⟨hd', fun y hy => d2 y (by
+          rcases hy with hy | hy
+          · exact .inl (List.mem_cons_of_mem _ hy)
+          · rw [List.map_append, hmap] at hy
+            rcases List.mem_append.1 hy with h | h
+            · exact .inr h
+            · exact .inl (by rw [List.mem_singleton.1 h]; exact List.mem_cons_self)),
+          fun y hy => ?_⟩
+        obtain ⟨x', hx', hor, hsubset⟩ := d3 y hy
+        refine ⟨x', hx', ?_, hsubset⟩
+        rw [List.map_append, hmap]
+        rcases hor with h | h
+        · rcases List.mem_cons.1 h with rfl | h
+          · exact .inr (List.mem_append_right _ List.mem_cons_self)
+          · exact .inl h
+        · exact .inr (List.mem_append_left _ h)
+      · rcases List.mem_append.1 he with he | he
+        · obtain ⟨e1, e2, e3⟩ := h5 e he
+          exact ⟨by rw [hans]; exact e1, hS1.ext _ _ e2, e3.mono hS1⟩
+        · obtain ⟨e1, e2, e3⟩ := hnew e he
+          refine ⟨?_, e3, by rw [e2]; exact Read.zero _ _ _ _⟩
           rw [hans]
-          refine ⟨hd', fun y hy => d2 y (by
-            rcases hy with hy | hy
-            · exact .inl (List.mem_cons_of_mem _ hy)
-            · rw [List.map_append, hmap] at hy
-              rcases List.mem_append.1 hy with h | h
-              · exact .inr h
-              · exact .inl (by rw [List.mem_singleton.1 h]; exact List.mem_cons_self)),
-            fun y hy => ?_⟩
-          obtain ⟨x', hx', hor, hsubset⟩ := d3 y hy
-          refine ⟨x', hx', ?_, hsubset⟩
-          rw [List.map_append, hmap]
-          rcases hor with h | h
-          · rcases List.mem_cons.1 h with rfl | h
-            · exact .inr (List.mem_append_right _ List.mem_cons_self)
-            · exact .inl h
-          · exact .inr (List.mem_append_left _ h)
-        · rcases List.mem_append.1 he with he | he
-          · obtain ⟨e1, e2, e3⟩ := h5 e he
-            exact ⟨by rw [hans]; exact e1, hS1.ext _ _ e2, e3.mono hS1⟩
-          · obtain ⟨e1, e2, e3⟩ := hnew e he
-            refine ⟨?_, e3, by rw [e2]; exact Read.zero _ _ _ _⟩
-            rw [hans]
-            exact List.mem_maximaBy
-              (d2 _ (.inl (by rw [List.mem_singleton.1 e1]; exact List.mem_cons_self)))
-      · split
-        · exact hs0
-        · next p hp =>
-          simp only [Cost.bind_val, Cost.pure_val]
-          have hpm := mem_of_leastBy hp
-          have hpok : p.1.2.2 < (st.answers p.1.2.1).length := by simpa using leastBy_ok hp
-          have hq0 : subs[p.2]? = some p.1 := List.mem_zipIdx_iff_getElem?.1 hpm
-          obtain ⟨e1, e2, e3⟩ := h5 p.1 (List.mem_of_getElem? hq0)
-          obtain ⟨hf, hc⟩ := hpt p.1.1 st (((st.answers p.1.2.1).drop p.1.2.2).take 1) ho
-            (hI.answers h2 _ e1)
-            (fun y hy => hI.answers e2 y (List.mem_of_mem_drop (List.mem_of_mem_take hy)))
-          have hS := hf.stable ho
-          obtain ⟨hd', hans⟩ := hS.isDone hd
-          dsimp only [Prog]
-          refine ⟨L, Rg, h1, hS.ext _ _ h2, h3, fun l hl => ?_, fun e he => ?_,
-            fun h => by cases h⟩
-          · obtain ⟨-, d2, d3⟩ := h4 l hl
-            rw [hans, map_modify_eq (fun e : Ans D P × Nat × Nat => e.1)
-              (fun e : Ans D P × Nat × Nat => (e.1, e.2.1, e.2.2 + 1)) (fun _ => rfl)]
-            exact ⟨hd', d2, d3⟩
-          · obtain ⟨n, hn⟩ := List.getElem?_of_mem he
-            rw [List.getElem?_modify] at hn
-            by_cases hpn : p.2 = n
-            · subst hpn
-              rw [hq0] at hn
-              simp only [ite_true] at hn
-              cases hn
-              refine ⟨by rw [hans]; exact e1, hS.ext _ _ e2,
-                Nat.succ_le_of_lt (lt_of_lt_of_le hpok (hS.length_le _)),
-                fun n y hn hy z hz => ?_⟩
-              by_cases hlt : n < p.1.2.2
-              · exact (e3.mono hS).2 n y hlt hy z hz
-              · have hn2 : n < p.1.2.2 + 1 := hn
-                obtain rfl : n = p.1.2.2 := by omega
-                have hy' := hS.getElem?_old hy hpok
-                refine hc y (List.mem_iff_getElem?.2 ⟨0, ?_⟩) z hz
-                rw [List.getElem?_take_of_lt (by omega), List.getElem?_drop]
-                exact hy'
-            · simp only [hpn, ite_false] at hn
-              rw [id_map'] at hn
-              obtain ⟨d1, d2, d3⟩ := h5 e (List.mem_of_getElem? hn)
-              exact ⟨by rw [hans]; exact d1, hS.ext _ _ d2, d3.mono hS⟩
+          exact List.mem_maximaBy
+            (d2 _ (.inl (by rw [List.mem_singleton.1 e1]; exact List.mem_cons_self)))
+    · split
+      · exact hs0
+      · next p hp =>
+        simp only [Cost.bind_val, Cost.pure_val]
+        have hpm := mem_of_leastBy hp
+        have hpok : p.1.2.2 < (st.answers p.1.2.1).length := by simpa using leastBy_ok hp
+        have hq0 : subs[p.2]? = some p.1 := List.mem_zipIdx_iff_getElem?.1 hpm
+        obtain ⟨e1, e2, e3⟩ := h5 p.1 (List.mem_of_getElem? hq0)
+        obtain ⟨hf, hc⟩ := hpt p.1.1 st (((st.answers p.1.2.1).drop p.1.2.2).take 1) ho
+          (hI.answers h2 _ e1)
+          (fun y hy => hI.answers e2 y (List.mem_of_mem_drop (List.mem_of_mem_take hy)))
+        have hS := hf.stable ho
+        obtain ⟨hd', hans⟩ := hS.isDone hd
+        dsimp only [Prog]
+        refine ⟨L, Rg, h1, hS.ext _ _ h2, h3, fun l hl => ?_, fun e he => ?_,
+          fun h => by cases h⟩
+        · obtain ⟨-, d2, d3⟩ := h4 l hl
+          rw [hans, map_modify_eq (fun e : Ans D P × Nat × Nat => e.1)
+            (fun e : Ans D P × Nat × Nat => (e.1, e.2.1, e.2.2 + 1)) (fun _ => rfl)]
+          exact ⟨hd', d2, d3⟩
+        · obtain ⟨n, hn⟩ := List.getElem?_of_mem he
+          rw [List.getElem?_modify] at hn
+          by_cases hpn : p.2 = n
+          · subst hpn
+            rw [hq0] at hn
+            simp only [ite_true] at hn
+            cases hn
+            refine ⟨by rw [hans]; exact e1, hS.ext _ _ e2,
+              Nat.succ_le_of_lt (lt_of_lt_of_le hpok (hS.length_le _)),
+              fun n y hn hy z hz => ?_⟩
+            by_cases hlt : n < p.1.2.2
+            · exact (e3.mono hS).2 n y hlt hy z hz
+            · have hn2 : n < p.1.2.2 + 1 := hn
+              obtain rfl : n = p.1.2.2 := by omega
+              have hy' := hS.getElem?_old hy hpok
+              refine hc y (List.mem_iff_getElem?.2 ⟨0, ?_⟩) z hz
+              rw [List.getElem?_take_of_lt (by omega), List.getElem?_drop]
+              exact hy'
+          · simp only [hpn, ite_false] at hn
+            rw [id_map'] at hn
+            obtain ⟨d1, d2, d3⟩ := h5 e (List.mem_of_getElem? hn)
+            exact ⟨by rw [hans]; exact d1, hS.ext _ _ d2, d3.mono hS⟩
 
 theorem prog_work_check (hR : ReadOk D P K hK) {st : StateOf R Rel (Ans D P)}
-    (hE : EdgesOk st) (whole : Bool) (i : Nat) (g : GoalOf R Rel) (left : Bool)
+    (hE : EdgesOk st) (i : Nat) (g : GoalOf R Rel) (left : Bool)
     (side other : Rel) (c : Check) (hs : Prog st i g (.check left side other c)) :
-    Prog (work (K := DerivationKernel.over D K hK P) whole i g st
+    Prog (work (K := DerivationKernel.over D K hK P) i g st
         (.check left side other c)).val.1 i g
-      (work (K := DerivationKernel.over D K hK P) whole i g st
+      (work (K := DerivationKernel.over D K hK P) i g st
         (.check left side other c)).val.2.1 := by
   have hs0 := hs
   dsimp only [Prog] at hs
@@ -1270,19 +1134,19 @@ theorem prog_work_check (hR : ReadOk D P K hK) {st : StateOf R Rel (Ans D P)}
 
 /-- **The work of a strategy keeps what its cursors mean.** -/
 theorem prog_work (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK)
-    {st : StateOf R Rel (Ans D P)} (hI : Inv st) (hE : EdgesOk st) (whole : Bool) (i : Nat)
+    {st : StateOf R Rel (Ans D P)} (hI : Inv st) (hE : EdgesOk st) (i : Nat)
     (g : GoalOf R Rel) (s : Strat Rel (Ans D P)) (ho : Open st i)
     (hb : IsBound D g.lb ∧ IsBound D g.rb) (hok : StratOk st g s) (hs : Prog st i g s) :
-    Prog (work (K := DerivationKernel.over D K hK P) whole i g st s).val.1 i g
-      (work (K := DerivationKernel.over D K hK P) whole i g st s).val.2.1 := by
+    Prog (work (K := DerivationKernel.over D K hK P) i g st s).val.1 i g
+      (work (K := DerivationKernel.over D K hK P) i g st s).val.2.1 := by
   cases s with
-  | span ran => exact prog_work_span hL whole i g ran ho hb hs
-  | copy isCall subs => exact prog_work_copy hL hI whole i g isCall subs ho hs
-  | join k a b c => exact prog_work_join hL hI whole i g k a b c ho hs
+  | span ran => exact prog_work_span hL i g ran ho hb hs
+  | copy isCall subs => exact prog_work_copy hL hI i g isCall subs ho hs
+  | join k a b c => exact prog_work_join hL hI i g k a b c ho hs
   | push k left side other todo subs =>
     obtain ⟨-, -, -, hno, -⟩ := hok
-    exact prog_work_push hL hI whole i g k left side other todo subs ho hno hs
-  | check left side other c => exact prog_work_check hR hE whole i g left side other c hs
+    exact prog_work_push hL hI i g k left side other todo subs ho hno hs
+  | check left side other c => exact prog_work_check hR hE i g left side other c hs
 
 end kernel
 
