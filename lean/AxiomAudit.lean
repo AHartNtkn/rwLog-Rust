@@ -736,6 +736,9 @@ new axiom.
 /-- info: 'RwLog.Symmetric.turn_ticks' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Symmetric.turn_ticks
 
+/-- info: 'RwLog.Unfold.raced_prefix_ticks' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Unfold.raced_prefix_ticks
+
 /-- info: 'RwLog.Symmetric.Requests.lines' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Symmetric.Requests.lines
 
