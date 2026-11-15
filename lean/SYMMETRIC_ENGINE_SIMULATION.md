@@ -137,7 +137,7 @@ The revised engine: the design note's engine with the interface check and whole 
 
 **Lemma 2 (no repeated work).** On the goals that R005 on `w` opens, the engine's ticks over those rounds are at most R005's. *Argued* from Fact B.
 
-**Lemma U (the interface check finishes what the unfolding race finishes).** *Open.* If R005's unfolding of a goal is final at depth `r`, the engine completes that goal within a polynomial of R005's payment. The check sees a clash between runs of spans at the two edges of a split, through unions and one unfolding of each call. Believed because a final unfolding means every branch dies at a clash of adjacent spans, and every such adjacency is a split of some opened goal. Not proved: the recursion guard unfolds a call once, and beyond that the check relies on boundaries pushed through tables. Both inputs of 3.1 pass.
+**Lemma U (the interface check finishes what the unfolding race finishes).** *False: section 11.* If R005's unfolding of a goal is final at depth `r`, the engine completes that goal within a polynomial of R005's payment. The check sees a clash between runs of spans at the two edges of a split, through unions and one unfolding of each call. Believed because a final unfolding means every branch dies at a clash of adjacent spans, and every such adjacency is a split of some opened goal. Not proved: the recursion guard unfolds a call once, and beyond that the check relies on boundaries pushed through tables. Both inputs of 3.1 pass.
 
 **Lemma G (the other splits are not too many).** *Open, and this is the content of O1.* The goals the engine opens that R005 on `w` does not (other splits, their pushes, the interface checks) cost within a polynomial of what R005 pays on `w`. The hazard is concrete: a split that `w` does not have can leave a sub-chain with no boundary, and its table can have exponentially many answers within `r` rounds. A complete table stops its other strategies, which is why it holds on the families measured.
 
@@ -312,7 +312,7 @@ The engine: the design note's engine with the split balance and the narrowed che
 - **G1 (the written line is charged additively).** Fix `w`. The level of the group of the written split of a goal is at most its own work plus the levels of the goals it reads, and the level of each of those is at most the level of its own written group. So the level of the root's written group is at most the work R005 on `w` does on its goals, counted once for each reader. *Argued from the definition.* This is the step that failed for the share rule (a factor per level) and for whole rounds (no bound at all).
 - **G2 (what a group really spends is polynomial in its level).** *Open, and it is now the content of O1.* A group's level counts the lowest group of each goal it reads. What those goals really spend is the sum over their groups. Each group of a goal is within one unit of the lowest when it last worked, so a goal with `m` groups spends about `m` times its level on its own work; but the goals below it are different for different groups, and in the worst case the factor is `m` per level of nesting. Two things keep it small on the families measured: a push that opens many goals divides its level among them (the ladder), and intervals are shared between splits (the middle family). No family was found on which the factor compounds. None was looked for by search.
 
-**Lemma U (the check finishes what the unfolding race finishes).** *Open.* New evidence, `scripts/symmetric_engine_halting.py`: 200 random programs (one to three definitions, each a union of chains of up to three spans and calls over two unary constructors, and a query that is a chain of two or three). R005 halts within 8 rounds and 1,000,000 ticks on 138 of them. The engine halts on all 138, and on 35 more, within 150,000 ticks. 14 gave no verdict in the time and memory allowed. So no counterexample to Lemma U or to `TerminatesWhere` was found. The test is weaker than it looks: the engine with no check at all also halts on all 138, so none of these programs needs the check, and `p ; q` of 3.1 remains the only input known that does.
+**Lemma U (the check finishes what the unfolding race finishes).** *False: section 11.* New evidence, `scripts/symmetric_engine_halting.py`: 200 random programs (one to three definitions, each a union of chains of up to three spans and calls over two unary constructors, and a query that is a chain of two or three). R005 halts within 8 rounds and 1,000,000 ticks on 138 of them. The engine halts on all 138, and on 35 more, within 150,000 ticks. 14 gave no verdict in the time and memory allowed. So no counterexample to Lemma U or to `TerminatesWhere` was found. The test is weaker than it looks: the engine with no check at all also halts on all 138, so none of these programs needs the check, and `p ; q` of 3.1 remains the only input known that does.
 
 The recursion guard (each call is unfolded once when an edge is read) is unchanged, and so is the doubt about it.
 
@@ -340,7 +340,7 @@ Adopted in the design note as the revision of 2026-11-13 (fourth):
 Open, in order of risk:
 
 1. **G2.** A proof, or a family with nested goals whose splits read different goals at every level.
-2. **Lemma U**, and with it `TerminatesWhere`.
+2. **Lemma U**, and with it `TerminatesWhere`. *False: section 11. The engine hosts the race.*
 3. **The fairness bound in ticks** on a table that grows exponentially with no boundary (strings). Either `Fair` stays in steps, or a rule is found that has both tick bounds. *Decided by Anthony on 2026-11-13: fairness is stated in requests. A step of `Fair` is a request to the root, and a request may cost any number of ticks. The split balance is adopted as it stands; the tick form on strings is no longer required of it.*
 4. **The cost of the split balance on the middle family** is about the sixth power; the share rule had the fourth. Whether a finer unit of work or weights (roadmap L32) lowers it is not tried.
 5. **Bookkeeping.** The prototype does not charge for finding the lowest groups or for a round that reaches a goal and does nothing. An engine pays for both; the charge has to be bounded by the work done.
@@ -366,3 +366,31 @@ Table 13 (`python3 scripts/symmetric_engine_tables.py 13`), the split balance wi
 | strings of k bits, k = 2 … 10 | 1396 … 2322164 | 676 … 949561, `2k + 7` requests |
 
 Three more requests on every family, whatever `k`. Fewer ticks everywhere but on counting down, where it is about five times dearer at `k = 32` and grows as `k^2.7` against `k^2.5`. Adopted: it is what the Lean engine does.
+
+## 11. Lemma U is false (2026-11-15): a clash two spans deep on both sides
+
+```
+p = (z -> (b z)) | p ; ($x -> (a $x))
+q = ((a (e $x)) -> $x) | ((b $x) -> $x) ; q
+query: p ; q
+```
+
+The answers of `p` end in `a^n (b z)`, those of `q` begin with `b^k (a (e _))`. No answer of `p` meets an answer of `q`, so `p ; q` relates nothing. Both tables are infinite.
+
+| | halts | ticks |
+|---|---|---|
+| R005 (Lean, `Tests/SimulationRuns.lean`, `deep`) | step 9 | 109962 |
+| R005 (`scripts/r005_interpreter.py`, by `python3 scripts/symmetric_engine_halting.py deep`) | round 3 | 51414 |
+| the Lean engine | not in 120 requests | |
+| the prototype, same command: split balance with the check on sides with a call; split balance with no check; whole rounds with the check on every side | never (1,000,000 ticks spent each) | |
+
+**Why R005 halts.** Its unfolding of the root to a depth that shows two spans at each end of every branch has no product: `a (a _)` and `a (b z)` and `b z` on the left never meet `b (b _)` and `b (a (e _))` and `a (e _)` on the right.
+
+**Why the engine never halts.** Neither side completes, so no push starts and the join composes pairs for ever. The check of the left side reads the last span of an answer of `p` through one unfolding of `p`: `b z` or `a _`. It opens `q` under each. `q` under `b z` is empty, but `q` under `a _` has the answer `(a (e $x)) -> $x`, so the check is dead. The check of the right side reads `a (e _)` or `b _`; `p` under `b _` has the answer `z -> (b z)`, so it is dead too. Each check stops one span short on its own side: the left one does not know that the `a` is followed by `a` or `b`, the right one does not know that the `b` is followed by `b` or `a`.
+
+**What it shows.** The recursion guard is the cause, as O7 feared, and no deeper guard repairs it: against a guard that unfolds a call `n` times, take `z -> (b^n z)` for the first member of `p` and `(a^n (e $x)) -> $x` for the first member of `q`: the clash is `n + 1` spans deep on both sides. A reading with no guard, deepened without bound and made exact about the boundaries of the goal and about the branches that die inside a side, is R005's unfolding itself. So `TerminatesWhere` against R005 fails for the engine of the fourth revision, and G1, G2 and Lemma 1 are about a machine that does not halt where R005 does.
+
+**The repair, adopted in the design note (revision of 2026-11-15, fourth).** The engine hosts the unfolding race that R005 hosts, as one more strategy of every goal: asked at a depth, it says whether the goal's unfolding to that depth is final and, if it is, gives its answers. It is one group of the goal, balanced with the splits by level like any other. This is not the hedge of whole machines that the design note rejects: the unfolding reads the flat normal form and no bracketing, so `SeqAssoc`, `AndComm` and `AndAssoc` hold as before, and it is a strategy of a table, not a second machine. With it the tabled machine under R005 is the engine with fewer splits and whole rounds: the same span, call and union rules, the join and both pushes at two of the engine's splits, the same race, and completion as the same greatest fixed point. What is left of Lemma U is then Lemma 1 in the form halting needs: a table R005 completes, the engine completes. That is a transfer between the two machines of the kind `IsRun.transfer` is between two runs of the engine, and it is not yet proved.
+
+**Whether the interface check still earns its place** is open and is to be measured once the race is in the prototype. It is not needed for `TerminatesWhere`. It halts `p ; q` of 3.1 at 128 ticks where the race pays thousands, and it halts on inputs where R005 does not (the other side under an interface can be shown empty by tabling, which no unfolding to a fixed depth sees). Against it: one more strategy in every chain goal, and a guard chosen by nothing.
+

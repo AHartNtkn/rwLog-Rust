@@ -21,6 +21,14 @@ halts, after a number of steps linear in the parameter.
   step, by unfolding. `clashId` is the same with an identity span at the
   end of `p` and at the start of `q`, so that the last span of one and the
   first span of the other say nothing.
+* `deep`: `p ; q` with `p = (z -> (b z)) | p ; ($x -> (a $x))` and
+  `q = ((a (e $x)) -> $x) | ((b $x) -> $x) ; q`. The answers of `p` end in
+  `a^n (b z)` and those of `q` begin with `b^k (a (e _))`, so `p ; q` relates
+  nothing, and both tables are infinite. No answer of `p` meets an answer of
+  `q`, but the last span of an answer of `p` alone does meet a first span of
+  an answer of `q`, on either side: the clash is two spans deep. R005 halts,
+  by unfolding. This is the input on which the symmetric engine with the
+  interface check and no unfolding race never halts (the note, section 10).
 * `down k`: `@(s^k z) ; q` with `q = ((s $x) -> $x) ; q | (z -> z)`. R005 halts
   after `3 * k + 7` steps at a polynomial cost.
 * `ladder n`: `@(st nil) ; r_n` with `r_i = G ; (F ; r_(i-1))`. R005 halts after
@@ -61,6 +69,16 @@ def clashId : Rel := .seq (.call "pi") (.call "qi")
 
 #guard costOf R005.engine.atSorts clashP clash 10 == (5, true, 21000)
 #guard costOf R005.engine.atSorts clashP clashId 10 == (7, true, 65362)
+
+def deepP : Program := ⟨[
+  ("p", .or (.span ⟨.sym "z", .app (.sym "b") (.sym "z"), []⟩)
+    (.seq (.call "p") (.span ⟨.var 0, .app (.sym "a") (.var 0), []⟩))),
+  ("q", .or (.span ⟨.app (.sym "a") (.app (.sym "e") (.var 0)), .var 0, []⟩)
+    (.seq (.span ⟨.app (.sym "b") (.var 0), .var 0, []⟩) (.call "q")))], []⟩
+
+def deep : Rel := .seq (.call "p") (.call "q")
+
+#guard costOf R005.engine.atSorts deepP deep 14 == (9, true, 109962)
 
 def downP : Program :=
   ⟨[("q", .or (.seq (.span ⟨.app (.sym "s") (.var 0), .var 0, []⟩) (.call "q")) (.at_ (.sym "z")))], []⟩
