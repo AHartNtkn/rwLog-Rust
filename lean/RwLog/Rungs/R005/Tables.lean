@@ -4,7 +4,7 @@
 `R001.engine` is the tabled machine with the unfolding race answered by
 building the whole unfolding, and `R004.engine` the tabled machine with the
 three evaluations raced. Each race meets the specification of the unfolding
-race (`Tabled.good_eagerRace`, `Tabled.good_raced`), so at every kernel that
+race (`good_eagerRace`, `good_raced`), so at every kernel that
 refines a domain that is lawful at well-formed sorts each machine
 
 * is sound and no less general than a derivation (true of every engine);
@@ -22,7 +22,8 @@ mirrored program, the empty side, and all of it for the mirrored machine)
 does, and is in `Rungs/R005/Keeps.lean`.
 -/
 import RwLog.Rungs.R005.Engine
-import RwLog.Rungs.Tabled.Unfolding.Races
+import RwLog.Rungs.Framework.Unfolding.Races
+import RwLog.Rungs.Tabled.Correct
 import RwLog.Rungs.Framework.Writing
 
 namespace RwLog
@@ -49,7 +50,7 @@ structure Runtime.TableKeeps (R : Runtime) : Prop where
 
 include hD in
 /-- The tabled machine with an unfolding race that meets its specification. -/
-theorem Tabled.tableKeeps {U : Tabled.Unfolder} (hU : Tabled.Good @U) :
+theorem Tabled.tableKeeps {U : Unfolder} (hU : Good @U) :
     ((Tabled.engine @U).costedAt dom K hK).runtime.TableKeeps where
   sound := Engine.sound _ dom K hK hD
   derivationGeneral := Engine.derivationGeneral _ dom K hK hD
@@ -67,10 +68,10 @@ theorem Tabled.tableKeeps {U : Tabled.Unfolder} (hU : Tabled.Good @U) :
 
 include hD in
 theorem R001.tableKeeps : (R001.engine.costedAt dom K hK).runtime.TableKeeps :=
-  Tabled.tableKeeps hD Tabled.good_eagerRace
+  Tabled.tableKeeps hD good_eagerRace
 
 include hD in
 theorem R004.tableKeeps : (R004.engine.costedAt dom K hK).runtime.TableKeeps :=
-  Tabled.tableKeeps hD Tabled.good_raced
+  Tabled.tableKeeps hD good_raced
 
 end RwLog

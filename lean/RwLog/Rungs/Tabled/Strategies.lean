@@ -207,28 +207,10 @@ theorem cand_goal (hT : TablesOk D ts) {g : GoalOf R Rel} (hg : GoalOk D g) {c :
 
 /-! ## The goals of a strategy -/
 
-/-- The spans of the bodies of the program are first-order. -/
-def ProgFO (P : Program) : Prop := ∀ s ∈ P.defs.flatMap fun d => d.2.spans, s.firstOrder = true
-
-omit [Answer R] [DecidableEq R] in
-theorem bodyOf_normal {e b : Rel} (hb : Charged.bodyOf P e = some b) : Normal b := by
-  unfold Charged.bodyOf at hb
-  split at hb
-  · cases hb; exact normal_norm _
-  · cases hb; exact normal_normConv _
-  · cases hb
-
 section
 
 variable {M : Interp} (hL : D.Lawful M)
 include hL
-
-omit [DecidableEq R] in
-theorem isBound_right (a : R) : IsBound D (D.rightBound a) :=
-  fun r h => hL.rightBound_isBound a r h
-
-omit [DecidableEq R] in
-theorem isBound_left (a : R) : IsBound D (D.leftBound a) := isBound_right hL _
 
 omit [DecidableEq R] in
 theorem pushLG_ok {g r : GoalOf R Rel} (hg : GoalOk D g) (hr : GoalOk D r) (k : Kind)

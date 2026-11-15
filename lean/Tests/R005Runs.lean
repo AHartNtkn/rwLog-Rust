@@ -187,10 +187,10 @@ def upr : Rel := .or (.rw (v 0) (v 0)) (.seq (.rw (v 0) (ap "s" [v 0])) (.call "
 Whether the unfolding of a goal to a depth is final, and its answers when it
 is, as the whole unfolding, each walk and the shared evaluation say. -/
 
-open Tabled Tabled.Unfold in
+open Tabled Unfold in
 /-- The answer of an unfolding race at the domain of sorts, between the
 boundaries the two spans are read as. -/
-def askRace (U : Tabled.Unfolder) (P : Program) (q : Rel) (lb rb : Option Span) (d : Nat) :
+def askRace (U : Unfolder) (P : Program) (q : Rel) (lb rb : Option Span) (d : Nat) :
     Bool × List String :=
   let D := Sorts.dom P.sorts
   let r := (@U (Sorts.Rep P.sorts) Rel (Ans D P) Cost
@@ -198,13 +198,13 @@ def askRace (U : Tabled.Unfolder) (P : Program) (q : Rel) (lb rb : Option Span) 
     ⟨lb.bind D.rep, q.norm, rb.bind D.rep⟩).val
   (r.1, r.2.map fun a => showRep a.span.1)
 
-open Tabled.Unfold in
-def races : List Tabled.Unfolder := [eagerRace, walkRace false, walkRace true, sharedRace, raced]
+open Unfold in
+def races : List Unfolder := [eagerRace, walkRace false, walkRace true, sharedRace, raced]
 
 /-- All the races say the same of the goal at every depth below `n`. -/
 def agree (P : Program) (q : Rel) (lb rb : Option Span) (n : Nat) : Bool :=
   (List.range n).all fun d =>
-    let ref := askRace Tabled.Unfold.eagerRace P q lb rb d
+    let ref := askRace Unfold.eagerRace P q lb rb d
     races.all fun U =>
       let r := askRace U P q lb rb d
       r.1 == ref.1 && r.2.all (· ∈ ref.2) && ref.2.all (· ∈ r.2)
@@ -239,7 +239,7 @@ def atom (t : Pat) : Option Span := some ⟨t, t, []⟩
   (.seq (.rw (v 0) (v 0))
     (.and (.rw (c "a") (c "a")) (.and (.rw (c "b") (c "b")) (.call "nat")))) (atom (c "a")) none 6
 -- The unfolding of a goal that is final at some depth is final from there on.
-#guard (askRace Tabled.Unfold.eagerRace addP (.call "add") (atom (ap "cons" [num 2, num 1])) none 11)
+#guard (askRace Unfold.eagerRace addP (.call "add") (atom (ap "cons" [num 2, num 1])) none 11)
   == (true, ["(cons (s (s z)) (s z)) -> (s (s (s z)))"])
 
 /-! ## The stated lower bounds, on small inputs

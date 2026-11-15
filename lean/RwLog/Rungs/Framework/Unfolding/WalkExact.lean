@@ -16,12 +16,12 @@ Exact interfaces are what makes the restriction a walk pushes into the next
 member of a chain lose nothing and keep nothing dead: the interface of an
 answer lets through exactly its far ends (`bset_farBound`).
 -/
-import RwLog.Rungs.Tabled.Unfolding.Walk
-import RwLog.Rungs.Tabled.Unfolding.EagerExact
+import RwLog.Rungs.Framework.Unfolding.Walk
+import RwLog.Rungs.Framework.Unfolding.EagerExact
 
 namespace RwLog
 
-namespace Tabled
+open Goals
 
 namespace Unfold
 
@@ -1328,7 +1328,5 @@ theorem walkRace_final (hP : ProgFO P) (rev : Bool) (d : Nat) (g : GoalOf R Rel)
 end laws
 
 end Unfold
-
-end Tabled
 
 end RwLog

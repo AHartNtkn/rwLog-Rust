@@ -16,12 +16,12 @@ next member, the shared evaluation follows each product of the first member
 by the summary of all the rest; the two are the same products because
 sequencing sets of products is associative (`wsuf_cons`).
 -/
-import RwLog.Rungs.Tabled.Unfolding.Shared
-import RwLog.Rungs.Tabled.Unfolding.WalkExact
+import RwLog.Rungs.Framework.Unfolding.Shared
+import RwLog.Rungs.Framework.Unfolding.WalkExact
 
 namespace RwLog
 
-namespace Tabled
+open Goals
 
 namespace Unfold
 
@@ -890,7 +890,5 @@ theorem sharedRace_final (hP : ProgFO P) (d : Nat) (g : GoalOf R Rel) (hg : Goal
 end laws
 
 end Unfold
-
-end Tabled
 
 end RwLog

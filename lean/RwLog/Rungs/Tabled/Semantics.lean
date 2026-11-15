@@ -22,24 +22,6 @@ open Answer
 
 variable {R : Type} [Answer R] [DecidableEq R] {D : Domain R} {P : Program}
 
-/-- A goal the machine may hold: its boundaries are boundaries, and its node
-is a node of the normal form with first-order spans. -/
-structure GoalOk (D : Domain R) (g : GoalOf R Rel) : Prop where
-  lb : IsBound D g.lb
-  rb : IsBound D g.rb
-  normal : Normal g.node
-  fo : g.node.FO
-
-/-- One of the answers relates every pair of `X`. -/
-def Cov (as : List (Ans D P)) (X : PRel) : Prop :=
-  ∃ a ∈ as, X ⊆ den P.sorts.interp a.span
-
-omit [DecidableEq R] in
-theorem Cov.mono {as as' : List (Ans D P)} {X X' : PRel} (h : Cov as X) (hs : ∀ a ∈ as, a ∈ as')
-    (hX : X' ⊆ X) : Cov as' X' := by
-  obtain ⟨a, ha, h⟩ := h
-  exact ⟨a, hs a ha, hX.trans h⟩
-
 /-! ## Coverage, decided -/
 
 section cover
@@ -82,43 +64,6 @@ theorem fresh_pairwise (old cands : List (Ans D P)) :
     ((fresh (K := DerivationKernel.over D K hK P) old cands).val).Pairwise
       fun y x => covB D P y x = false ∧ covB D P x y = false := by
   rw [fresh_val]; exact List.maximaBy_pairwise _
-
-/-! ## The rules -/
-
-theorem join_cov {a b : Ans D P} {X₁ X₂ : PRel}
-    (hok : JoinOk D a.span a.goal.rb b.goal.lb b.span)
-    (h₁ : X₁ ⊆ den P.sorts.interp a.span) (h₂ : X₂ ⊆ den P.sorts.interp b.span)
-    (hne : (X₁.comp X₂).Nonempty) :
-    ∃ c, (Ans.join D P K hK a b).val = some c ∧ X₁.comp X₂ ⊆ den P.sorts.interp c.span ∧
-      c.goal = ⟨a.goal.lb, mkSeq (seqParts a.goal.node ++ seqParts b.goal.node), b.goal.rb⟩ := by
-  have hsub : X₁.comp X₂ ⊆ (den P.sorts.interp a.span).comp (den P.sorts.interp b.span) :=
-    fun p ⟨m, ha, hb⟩ => ⟨m, h₁ ha, h₂ hb⟩
-  cases hc : D.compose a.span b.span with
-  | none =>
-    obtain ⟨p, hp⟩ := hne
-    have := hL.compose_none _ _ hc
-    exact absurd (hsub hp) (Set.eq_empty_iff_forall_notMem.1 this p)
-  | some z =>
-    obtain ⟨c, hv, hs, hg⟩ := Ans.join_ok K hK hok hc
-    exact ⟨c, hv, by rw [hs, hL.compose_some _ _ _ hc]; exact hsub, hg⟩
-
-theorem meet_cov {a b : Ans D P} {X₁ X₂ : PRel}
-    (hok : MeetOk D a.span a.goal.lb a.goal.rb b.goal.lb b.goal.rb)
-    (h₁ : X₁ ⊆ den P.sorts.interp a.span) (h₂ : X₂ ⊆ den P.sorts.interp b.span)
-    (hne : (X₁ ∩ X₂).Nonempty) :
-    ∃ c, (Ans.meetA D P K hK a b).val = some c ∧ X₁ ∩ X₂ ⊆ den P.sorts.interp c.span ∧
-      c.goal = ⟨a.goal.lb, mkAnd (sortedParts (andParts a.goal.node ++ andParts b.goal.node)),
-        a.goal.rb⟩ := by
-  have hsub : X₁ ∩ X₂ ⊆ den P.sorts.interp a.span ∩ den P.sorts.interp b.span :=
-    Set.inter_subset_inter h₁ h₂
-  cases hc : D.meet a.span b.span with
-  | none =>
-    obtain ⟨p, hp⟩ := hne
-    have := hL.meet_none _ _ hc
-    exact absurd (hsub hp) (Set.eq_empty_iff_forall_notMem.1 this p)
-  | some z =>
-    obtain ⟨c, hv, hs, hg⟩ := Ans.meetA_ok K hK hok hc
-    exact ⟨c, hv, by rw [hs, hL.meet_some _ _ _ hc]; exact hsub, hg⟩
 
 end cover
 

@@ -17,12 +17,13 @@ representatives (`UEx.agree`): representatives that relate the same pairs
 are equal. So which side of a race finishes first changes nothing the tabled
 machine can see but the order of the answers.
 -/
-import RwLog.Rungs.Tabled.Unfolding.SharedExact
-import RwLog.Rungs.Tabled.Unfolding.Races
+import RwLog.Rungs.Framework.Unfolding.SharedExact
+import RwLog.Rungs.Framework.Unfolding.ModelMono
+import RwLog.Rungs.Framework.Unfolding.Races
 
 namespace RwLog
 
-namespace Tabled
+open Goals
 
 open Answer Unfold
 
@@ -236,6 +237,23 @@ theorem raced_ex (hP : ProgFO P) : UEx D P (raced (K := DerivationKernel.over D 
 
 end Unfold
 
-end Tabled
+/-- The verdict of an exact race stays final at greater depths. -/
+theorem UEx.mono {R : Type} [Answer R] {D : Domain R} {P : Program}
+    {U : GOracle R Rel (Ans D P) Cost} (hE : UEx D P U) :
+    ∀ n n' g, n ≤ n' → GoalOk D g → (U n g).val.1 = true → (U n' g).val.1 = true :=
+  fun n n' g h hg hv => (hE.final n' g hg).2 (Unfold.final_mono h ((hE.final n g hg).1 hv))
+
+/-- The unfolding race says what the unfolding is, at the derivation kernel
+of every lawful domain. -/
+def Exact (U : Unfolder) : Prop :=
+  ∀ {R : Type} [Answer R] [DecidableEq R] (D : Domain R) (P : Program) (K : Kernel R Cost)
+    (hK : K.Refines D), D.Lawful P.sorts.interp → ProgFO P →
+      UEx D P (@U R Rel (Ans D P) Cost (DerivationKernel.over D K hK P))
+
+theorem exact_eagerRace : Exact Unfold.eagerRace :=
+  fun _ _ K hK hL hP => Unfold.eagerRace_ex hL K hK hP
+
+theorem exact_raced : Exact Unfold.raced :=
+  fun _ _ K hK hL hP => Unfold.raced_ex hL K hK hP
 
 end RwLog

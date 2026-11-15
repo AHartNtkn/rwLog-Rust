@@ -12,11 +12,11 @@ what the far stretch of an open product says of a pair (`admD`).
 The lemmas are the two directions of facts about `wrapAt`, the rule `join`
 and the rule `meetA`.
 -/
-import RwLog.Rungs.Tabled.Unfolding.WalkVal
+import RwLog.Rungs.Framework.Unfolding.WalkVal
 
 namespace RwLog
 
-namespace Tabled
+open Goals
 
 namespace Unfold
 
@@ -294,7 +294,5 @@ theorem chainSet_seqAll (rev : Bool) (S : Rel → Set GRel) {xs : List Rel} (h :
     rw [chainSet_bwd S xs.reverse (by simpa using h), List.reverse_reverse]
 
 end Unfold
-
-end Tabled
 
 end RwLog

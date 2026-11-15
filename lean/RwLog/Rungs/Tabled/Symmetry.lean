@@ -9,7 +9,7 @@ the converse, up to the order of the answers of a step (`trace_map`), and
 they halt together (`halts_map`).
 
 An unfolding race is `Exact` when at every lawful domain it says what the
-unfolding is (`UEx`, `Rungs/Tabled/Unfolding/RacesExact.lean`). The races of
+unfolding is (`UEx`, `Rungs/Framework/Unfolding/RacesExact.lean`). The races of
 R001 and of R004 are. For exact races that meet their specification:
 
 * `sameRun`, `halts_iff`: two tabled machines that differ in the race show
@@ -22,7 +22,7 @@ R001 and of R004 are. For exact races that meet their specification:
 -/
 import RwLog.Rungs.Tabled.MapRun
 import RwLog.Rungs.Tabled.Correct
-import RwLog.Rungs.Tabled.Unfolding.Races
+import RwLog.Rungs.Framework.Unfolding.Races
 import RwLog.Rungs.Framework.Direction
 import RwLog.Rungs.Framework.Trace
 
@@ -31,19 +31,6 @@ namespace RwLog
 namespace Tabled
 
 open Answer Unfold
-
-/-- The unfolding race says what the unfolding is, at the derivation kernel
-of every lawful domain. -/
-def Exact (U : Unfolder) : Prop :=
-  ∀ {R : Type} [Answer R] [DecidableEq R] (D : Domain R) (P : Program) (K : Kernel R Cost)
-    (hK : K.Refines D), D.Lawful P.sorts.interp → ProgFO P →
-      UEx D P (@U R Rel (Ans D P) Cost (DerivationKernel.over D K hK P))
-
-theorem exact_eagerRace : Exact Unfold.eagerRace :=
-  fun _ _ K hK hL hP => eagerRace_ex hL K hK hP
-
-theorem exact_raced : Exact Unfold.raced :=
-  fun _ _ K hK hL hP => raced_ex hL K hK hP
 
 /-- The second list is the first, every answer conversed when `b`, up to
 order. -/

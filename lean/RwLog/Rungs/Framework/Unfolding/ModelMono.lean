@@ -7,11 +7,11 @@ lies between its ends. Every product of the unfolding of a node to depth
 unfolding that is final at a depth is final at every greater depth
 (`final_mono`): an open product can only come from an open one.
 -/
-import RwLog.Rungs.Tabled.Unfolding.Model
+import RwLog.Rungs.Framework.Unfolding.Model
 
 namespace RwLog
 
-namespace Tabled
+open Goals
 
 namespace Unfold
 
@@ -367,7 +367,5 @@ theorem final_mono {d d' : Nat} (h : d ≤ d') {A B : Set GTerm} {e : Rel}
     | opn A₂ B₂ => exact ih ⟨A₂, B₂, hr⟩
 
 end Unfold
-
-end Tabled
 
 end RwLog

@@ -14,8 +14,8 @@ unfolding of the node.
 -/
 import RwLog.Rungs.Tabled.MapRound
 import RwLog.Rungs.Tabled.Run
-import RwLog.Rungs.Tabled.Unfolding.ModelMap
-import RwLog.Rungs.Tabled.Unfolding.RacesExact
+import RwLog.Rungs.Framework.Unfolding.ModelMap
+import RwLog.Rungs.Framework.Unfolding.RacesExact
 
 namespace RwLog
 

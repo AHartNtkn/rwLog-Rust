@@ -1,7 +1,7 @@
 /-
 # What the unfolding of a goal to a depth stands for
 
-The unfolding race reads a node to a depth (`Rungs/Tabled/Unfold.lean`). A
+The unfolding race reads a node to a depth (`Rungs/Framework/Unfold.lean`). A
 derivation of the node is *read whole* at depth `d` (`GR P d`) when every
 node on it is read: reading a node costs one level, for its members and for
 the body of a call alike. A derivation that is read whole is a closed product
@@ -14,11 +14,19 @@ what an open product says of a pair: its first stretch relates the left term
 to something (`admL`), its last stretch relates something to the right term
 (`admR`).
 -/
-import RwLog.Rungs.Tabled.Invariant
+import RwLog.Rungs.Framework.RaceSpec
+import RwLog.Rungs.Framework.KernelAt
+import RwLog.Rungs.Framework.Rules
+import RwLog.Rungs.Framework.TraverseStd
+import RwLog.Rungs.Framework.GoalsVal
+import RwLog.Kernel.NormalFormSplit
+import RwLog.Kernel.NormalFormSize
+import RwLog.Lib.List
+import RwLog.Rungs.Framework.Unfold
 
 namespace RwLog
 
-namespace Tabled
+open Goals
 
 namespace Unfold
 
@@ -129,7 +137,5 @@ theorem admR_bound {M : Interp} {lb rb : Option R} {X : PRel} {x z : GTerm}
   exact ⟨v, h₃⟩
 
 end Unfold
-
-end Tabled
 
 end RwLog

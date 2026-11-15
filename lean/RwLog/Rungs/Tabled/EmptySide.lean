@@ -7,7 +7,7 @@ specification (`Tabled.emptySide`).
 A query `a` that halts with no answer relates nothing (`pairs_empty`), so the
 goal of its normal form is void (`void_of_pairs`), and that goal completes in
 every run in which it has a table (`side_done`, by `host_done`: the verdict
-of an exact race stays final at greater depths, `exact_mono`). The normal
+of an exact race stays final at greater depths, `UEx.mono`). The normal
 form of `a ; b` is a chain that starts with the members of the normal form of
 `a`, that of `b ; a` a chain that ends with them, and that of `a & b` and of
 `b & a` a meet that has them among its members; the ladders of
@@ -15,7 +15,7 @@ form of `a ; b` is a chain that starts with the members of the normal form of
 -/
 import RwLog.Rungs.Tabled.Void
 import RwLog.Rungs.Tabled.Symmetry
-import RwLog.Rungs.Tabled.Unfolding.ModelMono
+import RwLog.Rungs.Framework.Unfolding.RacesExact
 import RwLog.Rungs.Framework.SameTrace
 
 namespace RwLog
@@ -23,18 +23,6 @@ namespace RwLog
 namespace Tabled
 
 open Answer Unfold
-
-section mono
-
-variable {R : Type} [Answer R] [DecidableEq R] {D : Domain R} {P : Program}
-
-omit [DecidableEq R] in
-/-- The verdict of an exact race stays final at greater depths. -/
-theorem exact_mono {U : GOracle R Rel (Ans D P) Cost} (hE : UEx D P U) :
-    ∀ n n' g, n ≤ n' → GoalOk D g → (U n g).val.1 = true → (U n' g).val.1 = true :=
-  fun n n' g h hg hv => (hE.final n' g hg).2 (final_mono h ((hE.final n g hg).1 hv))
-
-end mono
 
 variable (U : Unfolder) {R : Sorts → Type} [∀ S, Answer (R S)] [∀ S, DecidableEq (R S)]
   (dom : ∀ S, Domain (R S)) (K : ∀ S, Kernel (R S) Cost) (hK : ∀ S, (K S).Refines (dom S))
@@ -97,7 +85,7 @@ theorem side_done {P : Program} {a e : Rel} (wf : P.WellFormed a)
   obtain ⟨r, hr⟩ := (terminates_iff hD hG wf).1 ht
   have hL := hD _ wf.2.2.1
   exact host_done hL hfo (hG (dom P.sorts) P (K P.sorts) (hK P.sorts) hL hfo)
-    (exact_mono (hE (dom P.sorts) P (K P.sorts) (hK P.sorts) hL hfo)) (root_ok wf) hroot r _ hr
+    (hE (dom P.sorts) P (K P.sorts) (hK P.sorts) hL hfo).mono (root_ok wf) hroot r _ hr
 
 include hD hG hE in
 /-- **A side that halts with no answer makes `;` and `&` halt**, on either

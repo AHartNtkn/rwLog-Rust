@@ -276,14 +276,14 @@ new axiom.
 
 /-! ## The tabled machine with an unfolding race that meets its specification -/
 
-/-- info: 'RwLog.Tabled.good_eagerRace' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLog.Tabled.good_eagerRace
-/-- info: 'RwLog.Tabled.good_walkRace' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLog.Tabled.good_walkRace
-/-- info: 'RwLog.Tabled.good_sharedRace' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLog.Tabled.good_sharedRace
-/-- info: 'RwLog.Tabled.good_raced' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLog.Tabled.good_raced
+/-- info: 'RwLog.good_eagerRace' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.good_eagerRace
+/-- info: 'RwLog.good_walkRace' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.good_walkRace
+/-- info: 'RwLog.good_sharedRace' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.good_sharedRace
+/-- info: 'RwLog.good_raced' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.good_raced
 /-- info: 'RwLog.Tabled.complete' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Tabled.complete
 /-- info: 'RwLog.Tabled.pointComplete' depends on axioms: [propext, Classical.choice, Quot.sound] -/
@@ -296,10 +296,10 @@ new axiom.
 #guard_msgs in #print axioms RwLog.Tabled.noSubsumed
 /-- info: 'RwLog.Tabled.finalMaximal' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Tabled.finalMaximal
-/-- info: 'RwLog.Tabled.exact_eagerRace' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLog.Tabled.exact_eagerRace
-/-- info: 'RwLog.Tabled.exact_raced' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLog.Tabled.exact_raced
+/-- info: 'RwLog.exact_eagerRace' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.exact_eagerRace
+/-- info: 'RwLog.exact_raced' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.exact_raced
 /-- info: 'RwLog.Tabled.sameRun' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Tabled.sameRun
 /-- info: 'RwLog.Tabled.halts_iff' depends on axioms: [propext, Classical.choice, Quot.sound] -/
@@ -315,8 +315,8 @@ new axiom.
 
 /-! ## R005, the yardstick -/
 
-/-- info: 'RwLog.Tabled.Unfold.final_mono' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLog.Tabled.Unfold.final_mono
+/-- info: 'RwLog.Unfold.final_mono' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Unfold.final_mono
 /-- info: 'RwLog.Tabled.host_done' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Tabled.host_done
 /-- info: 'RwLog.Tabled.emptySide' depends on axioms: [propext, Classical.choice, Quot.sound] -/

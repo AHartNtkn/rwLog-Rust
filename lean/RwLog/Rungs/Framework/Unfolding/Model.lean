@@ -2,7 +2,7 @@
 # What an unfolding relates, product by product
 
 The unfolding of a goal to a depth is a list of products
-(`Rungs/Tabled/Unfold.lean`). This file says what the list stands for, with
+(`Rungs/Framework/Unfold.lean`). This file says what the list stands for, with
 no representative in it: a closed product is the relation it relates, and an
 open product is the set of left ends of its first stretch and the set of
 right ends of its last one (`SP`). `SE P M d A e B` is the set of products of
@@ -26,11 +26,11 @@ Nothing here mentions a domain. `Unfolding/EagerExact.lean` and the files
 after it show that each evaluation of the unfolding builds this set.
 -/
 import RwLog.Kernel.ExactIface
-import RwLog.Rungs.Tabled.Unfolding.Dir
+import RwLog.Rungs.Framework.Unfolding.Dir
 
 namespace RwLog
 
-namespace Tabled
+open Goals
 
 namespace Unfold
 
@@ -792,7 +792,5 @@ theorem pushSet_univ (rev : Bool) {S : Set SP} (hS : ∀ p ∈ S, p.Live) :
       rwa [ho] at this
 
 end Unfold
-
-end Tabled
 
 end RwLog

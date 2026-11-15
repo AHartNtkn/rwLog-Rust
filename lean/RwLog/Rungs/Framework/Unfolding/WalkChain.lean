@@ -19,11 +19,11 @@ This file proves it of the items of a chain from the items of its members
 (`chain_wok`), each walked under what the items before it push, in either
 direction.
 -/
-import RwLog.Rungs.Tabled.Unfolding.Dir
+import RwLog.Rungs.Framework.Unfolding.Dir
 
 namespace RwLog
 
-namespace Tabled
+open Goals
 
 namespace Unfold
 
@@ -429,7 +429,5 @@ theorem chain_wok {ys : List Rel} (h2 : 2 ≤ ys.length) (HW : Members rev wv C 
 end chain
 
 end Unfold
-
-end Tabled
 
 end RwLog

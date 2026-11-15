@@ -21,6 +21,7 @@ everything its cursors have passed:
 `Prog` holds in every later state of the run (`Prog.mono`).
 -/
 import RwLog.Rungs.Symmetric.Rounds
+import RwLog.Rungs.Framework.RaceSpec
 import RwLog.Rungs.Symmetric.Cursor
 import RwLog.Kernel.NormalFormDepth
 import RwLog.Kernel.NormalFormSpans
@@ -214,10 +215,6 @@ def SplitAt (g : GoalOf R Rel) : Kind → GoalOf R Rel → GoalOf R Rel → Prop
 def copyMembers (P : Program) (n : Rel) : Bool → List Rel
   | true => (Charged.bodyOf P n).toList
   | false => n.unionParts
-
-/-- The spans of the program are first-order. -/
-abbrev ProgFO (P : Program) : Prop :=
-  ∀ s ∈ P.defs.flatMap fun d => d.2.spans, s.firstOrder = true
 
 /-- Each of the interfaces `ps` is a boundary, and if `n` is a node of the
 normal form with first-order spans, every answer of `n` ends (`last`) or
