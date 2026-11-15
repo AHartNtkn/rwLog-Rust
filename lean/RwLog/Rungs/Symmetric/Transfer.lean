@@ -355,12 +355,19 @@ theorem Cert.waits_quiet (hC : Cert U C ρ A) (hτ : IsRun U τ)
       obtain ⟨x, hx1, hgx, -⟩ := qsub m' p'.1 p'.2 hm'
       obtain ⟨hcx, hrx⟩ := hsubs x (List.mem_of_getElem? hx1)
       refine rd _ _ r0 hcx hrx hgx (hτ.opened_of_settled hgx fun r' => ?_)
-      obtain ⟨r2, hr2', hr2, hfed, -⟩ := hLn.worked r'
-      obtain ⟨subs2, hs2, hadv⟩ := hLn.copy_kept (Nat.le_refl _) h0 (show r0 ≤ r2 + 1 by omega)
-      obtain ⟨p2, hp2, hadv2⟩ := hadv.get hm'
-      have := hfed _ (List.mem_of_getElem? hs2) p2 (List.mem_of_getElem? hp2)
-      rw [hadv2.1] at this
-      exact ⟨r2, hr2', this⟩
+      cases c with
+      | true =>
+        obtain ⟨r2, hr2', hr2, hfed, -⟩ := hLn.worked r'
+        obtain ⟨subs2, hs2, hadv⟩ := hLn.copy_kept (Nat.le_refl _) h0 (show r0 ≤ r2 + 1 by omega)
+        obtain ⟨p2, hp2, hadv2⟩ := hadv.get hm'
+        have := hfed _ (List.mem_of_getElem? hs2) p2 (List.mem_of_getElem? hp2)
+        rw [hadv2.1] at this
+        exact ⟨r2, hr2', this⟩
+      | false =>
+        refine hτ.req.union_settled hLn (m := q) (M := subs0.map Prod.fst) (fun r hr => ?_)
+          (List.mem_map.2 ⟨p', hp', rfl⟩) r'
+        obtain ⟨subs2, hs2, hadv⟩ := hLn.copy_kept (Nat.le_refl _) h0 hr
+        exact ⟨subs2, hs2, map_fst_of_subAdv hadv⟩
     obtain ⟨T, hT⟩ := eventually_forall_mem subs0 _ each
     obtain ⟨T', hT', hall⟩ := hLn.copy_read h0 (Nat.le_max_right T r0)
       (fun p hp' => (hT p hp' (max T r0) (Nat.le_max_left T r0)).1)

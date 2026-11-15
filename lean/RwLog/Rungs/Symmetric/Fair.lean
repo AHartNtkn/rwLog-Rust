@@ -17,7 +17,9 @@ is all interface checks:
   or it would be dead; and none of the goals it opened ever has an answer.
 
 The tables such a strategy reads need no round in infinitely many requests,
-so they are not neglected either.
+so they are not neglected either. Of the members of a union one has a round
+when the group works, the one fed least, and every member still needs no
+round in infinitely many requests (`Requests.union_settled`).
 
 With `IsRun.served_done`, a run of requests is fair (`IsRun.fair`), and it
 opens the root (`IsRun.root_opened`).
@@ -80,9 +82,16 @@ theorem IsRun.live_copy (h : IsRun U σ) {ra k m : Nat} {g : GoalOf R Rel}
     rw [hp1]
     exact congrArg some (Prod.ext hp2.1 rfl)
   refine ⟨h.opened_of_settled hgj fun r' => ?_, fun n r1 hn => ?_⟩
-  · obtain ⟨r, hr', hr, hfed, -⟩ := hL.worked r'
-    obtain ⟨subs, pos, hs, hm'⟩ := ent (r + 1) (by omega)
-    exact ⟨r, hr', hfed _ (List.mem_of_getElem? hs) (j, pos) (List.mem_of_getElem? hm')⟩
+  · cases c with
+    | true =>
+      obtain ⟨r, hr', hr, hfed, -⟩ := hL.worked r'
+      obtain ⟨subs, pos, hs, hm'⟩ := ent (r + 1) (by omega)
+      exact ⟨r, hr', hfed _ (List.mem_of_getElem? hs) (j, pos) (List.mem_of_getElem? hm')⟩
+    | false =>
+      refine h.req.union_settled hL (m := m) (M := subs0.map Prod.fst) (fun r hr => ?_)
+        (List.mem_map.2 ⟨(j, pos0), List.mem_of_getElem? hm, rfl⟩) r'
+      obtain ⟨_, hs, subs, rfl, hp⟩ := al r hr
+      exact ⟨subs, hs, map_fst_of_subAdv hp⟩
   · by_contra hcon
     simp only [not_exists, not_and, Nat.not_lt] at hcon
     let f : Nat → Nat := fun r =>
