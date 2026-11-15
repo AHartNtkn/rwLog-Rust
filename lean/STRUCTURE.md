@@ -70,7 +70,7 @@ Rungs/Symmetric/ the symmetric engine of `SYMMETRIC_ENGINE.md` (Machine.lean): a
                 that costs more is given up and charged, and the next waits until twice
                 as much is left; a final verdict completes the table. A level rises by what was spent, and the engine charges
                 itself one tick for a unit of work that did something, so a group that
-                worked has risen at every kernel (`workGroup_did`). Run in `Tests/SymmetricRuns.lean`. The table of a
+                worked has risen at every kernel (`workGroup_did`). The table of a
                 goal that is its own converse holds the converse of everything it holds;
                 with the choice of one orientation where the input is loaded
                 (`CostedRuntime.oriented`, `Trusted/Cost.lean`) that is what makes the run
