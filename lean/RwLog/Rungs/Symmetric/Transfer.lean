@@ -1,32 +1,43 @@
 /-
-# What one run completes, every run completes
+# What is certified to complete, every run completes
 
 Two runs of requests of one program need not open the same goals, nor in the
-same order. But a goal whose table is complete in one run has a complete
-table in every run that does not neglect it (`IsRun.transfer`), provided no
-answer of a table of that run covers a later one.
+same order, and another machine has no requests at all. What every run of
+the engine completes is stated with no run in it.
 
-The tables of the first run that are complete at a time stand in an order
-(`Ranked`): each has a strategy with nothing left to do that reads only
-complete tables that stand no higher. By induction along the order, take the
-tables of the second run whose goals stand at one level and that never
-complete (`Waits`). Each has a round in infinitely many requests, so its
-groups work for ever (`Requests.lines`), and it has a strategy of the same
-kind as the one that completed the goal in the first run (`Full`). That
-strategy reads tables of the same goals:
+A certificate (`Cert`) is a finite set of goals `C`, an order `ρ` on them and
+answers `A g` of each that cover every answer of the goal, with a reason for
+each goal: every run completes it (`Completes`), or a rule completes it from
+goals of the certificate that stand no higher (`Why`): a span; the body of a
+call or the members of a union; the two sides of a split; one side of a
+split, standing lower, and the goals pushed for its maximal answers; or a
+check of an edge whose interfaces all have no answer.
+
+A goal of a certificate has a complete table in every run that does not
+neglect it, provided no answer of a table of that run covers a later one
+(`Cert.completes`). By induction along the order, take the tables of the run
+whose goals stand at one level and that never complete (`Waits`). Each has a
+round in infinitely many requests, so its groups work for ever
+(`Requests.lines`), and it has a strategy of the kind of its reason (`Full`).
+That strategy reads tables of the goals the reason names:
 
 * what an edge reads is a fact of the program (`Reads.unique`), so a check
-  opens the same goals in both runs;
-* two complete tables of one goal have the same maximal answers
-  (`IsRun.maxima_done`), so a push opens the same goals in both runs.
+  opens the goals of the reason;
+* a complete table of a goal has the maximal answers the certificate has for
+  it (`Cert.maxima`), so a push opens the goals of the reason.
 
 The tables it reads have goals that stand no higher, so each is complete at
 some time or is one of those that wait; and each gains no answer from some
-time on (`IsRun.settles`): every answer a fair run finds is covered by the
-answers of a complete table of the goal (`IsRun.covered`), which the run
-then has covered itself. So the strategy runs out of work (`Settle.lean`),
-and the tables that wait are closed under the condition of completion: they
-complete (`Req.closed`).
+time on (`Cert.settles`): every answer a run finds is covered by the answers
+of the certificate (`Cert.covered`), which the run then has covered itself.
+So the strategy runs out of work (`Settle.lean`), and the tables that wait
+are closed under the condition of completion: they complete (`Req.closed`).
+
+The tables of a run of the engine that are complete at a time are a
+certificate (`IsRun.cert`, from `Ranked`), so a goal whose table is complete
+in one run has a complete table in every run that does not neglect it
+(`IsRun.transfer`). The complete tables of the tabled machine are another
+(`Rungs/Symmetric/FromTabled.lean`).
 -/
 import RwLog.Rungs.Symmetric.Settle
 import RwLog.Rungs.Symmetric.Fair

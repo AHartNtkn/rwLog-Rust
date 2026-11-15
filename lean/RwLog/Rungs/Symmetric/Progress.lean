@@ -434,11 +434,6 @@ theorem bodyOf_view {e b : Rel} (h : Charged.bodyOf P e = some b) : ∃ n f, e.v
     | _ => simp [Charged.bodyOf] at h
   | _ => simp [Charged.bodyOf] at h
 
-theorem forget_call_view {e : Rel} {n : Name} {f : Bool} (h : e.view.forget = .call n f) :
-    e.view = .call n f := by
-  cases hv : e.view <;> rw [hv] at h <;> simp only [NodeView.forget] at h <;> cases h
-  rfl
-
 /-- The groups are full if they have the strategies of the kind of the
 node. -/
 theorem Full.of_view {st : StateOf R Rel (Ans D P)} {g : GoalOf R Rel}

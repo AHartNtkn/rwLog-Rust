@@ -631,6 +631,18 @@ new axiom.
 /-- info: 'RwLog.Symmetric.Requests.race_done' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Symmetric.Requests.race_done
 
+/-- info: 'RwLog.Symmetric.Cert.completes' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Symmetric.Cert.completes
+
+/-- info: 'RwLog.Symmetric.final_completes' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Symmetric.final_completes
+
+/-- info: 'RwLog.Symmetric.tabled_cert' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Symmetric.tabled_cert
+
+/-- info: 'RwLog.Symmetric.terminatesWhere' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Symmetric.terminatesWhere
+
 /-- info: 'RwLog.Symmetric.askRace_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Symmetric.askRace_spec
 

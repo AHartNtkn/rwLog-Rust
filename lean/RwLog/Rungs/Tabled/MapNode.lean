@@ -30,11 +30,6 @@ theorem seqSplits_mirror {n i : Nat} (h2 : 2 ≤ n) (hi : i ∈ seqSplits n) : n
   · rw [ite_of_neg h] at hi ⊢
     simp only [List.mem_cons, List.not_mem_nil, or_false] at hi ⊢; omega
 
-theorem forget_call_view {e : Rel} {n : Name} {f : Bool} (h : e.view.forget = .call n f) :
-    e.view = .call n f := by
-  cases hv : e.view <;> rw [hv] at h <;> simp only [NodeView.forget] at h <;> cases h
-  rfl
-
 theorem without_eq {e : Rel} {xs : List Rel} (hp : andParts e = xs) {i : Nat} (hi : i < xs.length)
     (h2 : 2 ≤ xs.length) : e.without i = some (mkAnd (xs.eraseIdx i)) := by
   unfold RelOf.without
