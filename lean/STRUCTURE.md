@@ -63,7 +63,7 @@ Rungs/Symmetric/ the symmetric engine of `SYMMETRIC_ENGINE.md` (Machine.lean): a
                 bounded work (`turn`: `turnTicks` ticks times its `weight`, one more than
                 the number of strategies upstream of the tables it reads), does one
                 unit at a time, and owes in later turns what its last unit cost beyond
-                the turn (`Group.owed`); and beside the groups of a chain goal an unfolding race
+                the turn (`Group.owed`), so a turn costs at most what it was given and one unit more (Bounded.lean, `turn_ticks`); and beside the groups of a chain goal an unfolding race
                 (`askRace`; `engine` takes the `Unfolder`), asked at the end of a round of
                 the goal at its next depth with what is left of the rounds and work of
                 the goal as its limit (`Kernel.within`, `Trusted/Kernel.lean`): an ask
@@ -504,6 +504,21 @@ its verdict is the model's and its answers are the closed products), proves
 it of each evaluation and of two exact races side by side (`raced_ex` for the
 race of R004 and R005), and that two exact races give the same verdict and
 the same representatives (`UEx.agree`).
+
+What the races cost from below, for the separations over R005 (roadmap M6,
+`Rungs/R005/Bounds.lean`). `WalkTicks.lean`: a walk costs at least what its
+continuation costs on the items it hands on (`walk_ticks`).
+`WalkPrefix.lean`: a walk goes through the rest of a chain once for each
+product of the members before it, so the race answered by a walk costs
+`2 ^ k` on a chain that starts, in its direction, with `k` members that
+double (`Doubles`, `walkRace_prefix_ticks`). `SharedPrefix.lean`: the memo of
+the shared evaluation grows only at its head (`Gr`, `evalSV_gr`), every
+summary it records for the rest of a chain costs a tick (`sufS_pot`), and
+after `k` members that split there are `2 ^ k` contexts, no two the same
+(`Splits`, `sufSV_split`), so the shared race costs `2 ^ k` too
+(`sharedRace_prefix_ticks`). `RacedPrefix.lean`: the race of R004 costs at
+least its cheapest side, so `2 ^ k` on a chain that splits from the left and
+doubles from the right (`raced_prefix_ticks`).
 
 `Kernel/NormalFormMap.lean` reads a node as the node of its converse, of its
 mirror image in the mirrored program, or as itself (`nmap b t`): the mapped
