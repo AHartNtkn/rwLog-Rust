@@ -13,10 +13,12 @@ one interpretation, that the image of a node derives the relations the node
 derives, conversed when the converse is taken, and that an edge of the image
 of a node is read when the edge of the node is, with no other interface.
 
-`FCert` is a certificate whose goals with no reason among the others have a
-final unfolding. It is a certificate (`FCert.cert`, by `final_completes`),
-and its image under the map of goals (`gmap b t`) is one of the other
-program (`FCert.map`): every reason is read on the image.
+The image of a certificate whose races are final (`FCert`) under the map of
+goals (`gmap b t`) is one of the other program (`FCert.map`): every reason
+is read on the image.
+
+* A chain is mapped to a chain, and the unfolding of the image is final when
+  the unfolding is (`Tabled.Link`).
 
 * A span, the body of a call and the members of a union are mapped
   (`Tabled.Link`, `Normal.view_union_nmap`).
@@ -248,25 +250,9 @@ theorem Mirror.amap_some (hM : Mirror D P P' b t U U') {g' : GoalOf R Rel} (hn :
     rwa [gmap_gmap hn] at this
   exact ⟨⟨toGoal g', smap b a.span, hv⟩, by unfold amap; simp only [hv, ↓reduceDIte], rfl, rfl⟩
 
-/-! ## Certificates with final unfoldings -/
-
-/-- A certificate that the goals `C` complete, in which a goal with no
-reason among the others has an unfolding that is final at some depth. -/
-structure FCert (U : GOracle R Rel (Ans D P) Cost) (C : GoalOf R Rel → Prop)
-    (ρ : GoalOf R Rel → Nat) (A : GoalOf R Rel → List (Ans D P)) : Prop where
-  fin : ∃ l : List (GoalOf R Rel), ∀ g, C g → g ∈ l
-  goal : ∀ g, C g → ∀ a ∈ A g, a.goal = toGoal g
-  full : ∀ g, C g → ∀ y : Ans D P, y.goal = toGoal g → ∃ f ∈ A g, covB D P f y = true
-  ok : ∀ g, C g → GoalOk D g
-  why : ∀ g, C g → (∃ d, (U d g).val.1 = true) ∨ Why C ρ A g
+/-! ## The image of a certificate -/
 
 variable {C : GoalOf R Rel → Prop} {ρ : GoalOf R Rel → Nat} {A : GoalOf R Rel → List (Ans D P)}
-
-/-- **A certificate with final unfoldings is a certificate.** -/
-theorem FCert.cert (hL : D.Lawful P.sorts.interp) (hP : ProgFO P) (hU : UOk D P U)
-    (hE : UEx D P U) (h : FCert U C ρ A) : Cert U C ρ A :=
-  ⟨h.fin, h.goal, h.full, fun g hg => (h.why g hg).imp
-    (fun ⟨d, hd⟩ => final_completes hL hP hU hE d g (h.ok g hg) hd) id⟩
 
 /-- The goals whose images are the goals `C`. -/
 def cmap (b t : Bool) (C : GoalOf R Rel → Prop) : GoalOf R Rel → Prop :=
@@ -337,11 +323,22 @@ theorem FCert.map (hM : Mirror D P P' b t U U') (h : FCert U C ρ A) :
     have hok := h.ok _ hc
     have hgg : gmap b t (gmap b t g') = g' := gmap_gmap hn
     have hnn : nmap b t (gmap b t g').node = g'.node := hn.nmap_nmap b t
-    rcases h.why _ hc with ⟨d, hd⟩ | hw
+    rcases h.why _ hc with ⟨hh, d, hd⟩ | hw
     · left
       have := hM.twin.link.verdict d _ hok
       rw [hgg] at this
-      exact ⟨d, this.trans hd⟩
+      refine ⟨?_, d, this.trans hd⟩
+      unfold hasRace at hh ⊢
+      cases hv : (gmap b t g').node.view with
+      | chain xs =>
+        have := hok.normal.view_chain_nmap hv b t
+        rw [hnn] at this
+        rw [this]
+        rfl
+      | span _ => rw [hv] at hh; cases hh
+      | call _ _ => rw [hv] at hh; cases hh
+      | meet _ => rw [hv] at hh; cases hh
+      | union _ => rw [hv] at hh; cases hh
     right
     cases hw with
     | span hs =>
