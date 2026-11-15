@@ -166,22 +166,34 @@ export Goals (GoalOf GoalOf.mk GoalOf.lb GoalOf.node GoalOf.rb toGoal Kind Kind.
 chosen and the number of members, the outermost union first. -/
 abbrev Path := List (Nat × Nat)
 
-/-- The cursor of a join: the pairs of positions it has combined, and for
-each class of pairs the ticks spent on pairs of the class. A *class* is given
-by the beginning of the path of the first answer and, once that path is whole,
-the beginning of the path of the second: the pairs whose answers came from
-those choices. A class has no work but that of its pairs. -/
+/-- One step on the way down to a pair of answers of a join: a choice on the
+path of the first answer (`0`), one on the path of the second (`1`), each with
+the member chosen and the number of members, or the end of both paths
+(`2`). -/
+abbrev Step := Nat × Nat × Nat
+
+/-- The steps down to a pair of answers with the paths `u` and `v`: the
+choices of the first answer, those of the second, and the end. -/
+def stepsOf (u v : Path) : List Step :=
+  (u.map fun e => (0, e)) ++ (v.map fun e => (1, e)) ++ [(2, 0, 0)]
+
+/-- The cursor of a join. `pa` and `pb` are the paths of the answers of its
+two tables, as far as it has filed them; `done` is the pairs of positions it
+has combined; `fed` is, for each pair combined, the steps down to it and the
+ticks it cost. A *class* of pairs is a beginning of the steps of a pair: the
+pairs whose answers came from those choices. A class has no work but that of
+its pairs. -/
 structure Cursor where
+  pa : List Path
+  pb : List Path
   done : List (Nat × Nat)
-  fed : List ((Path × Path) × Nat)
+  fed : List (List Step × Nat)
   deriving DecidableEq, Repr
 
 /-- The cursor of a join that has combined nothing. -/
-def Cursor.start : Cursor := ⟨[], []⟩
+def Cursor.start : Cursor := ⟨[], [], [], []⟩
 
-/-- The pairs of positions below `la` and `lb`, a pair of earlier answers
-first: by the greater position, so that finitely many pairs come before any
-pair whatever the tables gain. -/
+/-- The pairs of positions below `la` and `lb`. -/
 def pairsBelow (la lb : Nat) : List (Nat × Nat) :=
   ((List.range (max la lb)).flatMap fun n =>
     ((List.range n).map fun i => (i, n)) ++ ((List.range (n + 1)).map fun j => (n, j))).filter
@@ -191,31 +203,38 @@ def pairsBelow (la lb : Nat) : List (Nat × Nat) :=
 def Cursor.left (la lb : Nat) (c : Cursor) : List (Nat × Nat) :=
   (pairsBelow la lb).filter fun p => !c.done.contains p
 
-/-- What a class has been fed. -/
-def Cursor.fedOf (c : Cursor) (k : Path × Path) : Nat :=
-  ((c.fed.find? fun e => e.1 = k).map (·.2)).getD 0
+/-- The cursor with the answers filed that its tables have gained: `pa` and
+`pb` are the paths of all their answers now. The path of an answer that was
+filed stays. -/
+def Cursor.see (pa pb : List Path) (c : Cursor) : Cursor :=
+  { c with pa := c.pa ++ pa.drop c.pa.length, pb := c.pb ++ pb.drop c.pb.length }
 
-/-- The classes of a pair of answers with the paths `u` and `v`, the widest
-first, each with the choice that tells it from its siblings. -/
-def classesOf (u v : Path) : List ((Path × Path) × (Nat × Nat)) :=
-  (u.zipIdx.map fun e => ((u.take (e.2 + 1), []), e.1)) ++
-    (v.zipIdx.map fun e => ((u, v.take (e.2 + 1)), e.1))
+/-- The ticks spent on the pairs of a class. -/
+def Cursor.fedOf (c : Cursor) (k : List Step) : Nat :=
+  ((c.fed.filter fun e => k.isPrefixOf e.1).map (·.2)).sum
 
-/-- The classes of a pair, each with what it has been fed and its choice. -/
-def Cursor.keyOf (c : Cursor) (u v : Path) : List (Nat × Nat × Nat) :=
-  (classesOf u v).map fun e => (c.fedOf e.1, e.2)
+/-- The steps down to the pair at the positions `p`. -/
+def Cursor.stepsAt (c : Cursor) (p : Nat × Nat) : List Step :=
+  stepsOf (c.pa.getD p.1 []) (c.pb.getD p.2 [])
 
-/-- The order of the keys of two pairs: at the first class in which they
-differ, the class fed less is first, and of two fed alike the earlier
-member. -/
-def keyLt : List (Nat × Nat × Nat) → List (Nat × Nat × Nat) → Bool
-  | [], [] => false
-  | [], _ :: _ => true
-  | _ :: _, [] => false
-  | x :: xs, y :: ys =>
-    if x = y then keyLt xs ys
-    else decide (x.1 < y.1) || (decide (x.1 = y.1) &&
-      (decide (x.2.1 < y.2.1) || (decide (x.2.1 = y.2.1) && decide (x.2.2 < y.2.2))))
+/-- The place of a class among its siblings: what it was fed and one tick
+more, once for each member of its choice and once more, and then its member.
+Among the members of one choice this is the order by what each was fed, the
+earlier member first of two fed alike; and whatever choices the siblings come
+from, only finitely many places come before any place. -/
+def Cursor.place (c : Cursor) (k : List Step) (s : Step) : Nat :=
+  (c.fedOf k + 1) * (s.2.2 + 1) + s.2.1
+
+/-- The entry of the key of a pair for its class at the depth `i`: the place
+of the class, and its step. -/
+def Cursor.group (c : Cursor) (ss : List Step) (i : Nat) : List Nat :=
+  let s := ss.getD i (2, 0, 0)
+  [c.place (ss.take (i + 1)) s, s.1, s.2.1, s.2.2]
+
+/-- The key of a pair: the entry of each of its classes, the widest first,
+and last the pair by the later of its two positions. -/
+def Cursor.keyOf (c : Cursor) (p : Nat × Nat) : List (List Nat) :=
+  ((List.range (c.stepsAt p).length).map (c.group (c.stepsAt p))) ++ [[max p.1 p.2, p.1, p.2]]
 
 /-- Of the entries of a list, the first that no other comes before in the
 order given. -/
@@ -225,24 +244,20 @@ def chooseBy {α : Type} (lt : α → α → Bool) (l : List α) : Option α :=
     | none => some p
     | some b => if lt p b then some p else some b) none
 
-/-- The next pair of positions to combine in two tables whose answers have
-the paths `pa` and `pb`, if one is left. The ticks of a join are shared among
-the classes as a union shares its ticks among its members: of the classes of
-one choice that have a pair left, the one fed least is served, and so on down
-to a single class, where the pair of the earliest answers is taken. So a pair
+/-- The next pair of positions to combine among the answers filed, if one is
+left: the pair of the least key. The ticks of a join are shared among the
+classes as a union shares its ticks among its members: of the classes of one
+choice that have a pair left, the one fed least is served, and so on down to a
+single class, where the pair of the earliest answers is taken. So a pair
 waits for the pairs of other choices by the number of members at each choice
 on the way to it, and not by how many answers the other members have. -/
-def Cursor.next (pa pb : List Path) (c : Cursor) : Option (Nat × Nat) :=
-  chooseBy (fun p b => keyLt (c.keyOf (pa.getD p.1 []) (pb.getD p.2 []))
-    (c.keyOf (pa.getD b.1 []) (pb.getD b.2 []))) (c.left pa.length pb.length)
+def Cursor.next (c : Cursor) : Option (Nat × Nat) :=
+  chooseBy (fun p b => decide (c.keyOf p < c.keyOf b)) (c.left c.pa.length c.pb.length)
 
 /-- The cursor after the pair `p` was combined at `t` ticks: every class of
 the pair has been fed that much. -/
-def Cursor.mark (pa pb : List Path) (c : Cursor) (p : Nat × Nat) (t : Nat) : Cursor :=
-  ⟨c.done ++ [p], (classesOf (pa.getD p.1 []) (pb.getD p.2 [])).foldl (fun fed e =>
-    match fed.find? fun x => x.1 = e.1 with
-    | some _ => fed.map fun x => if x.1 = e.1 then (x.1, x.2 + t) else x
-    | none => fed ++ [(e.1, t)]) c.fed⟩
+def Cursor.mark (c : Cursor) (p : Nat × Nat) (t : Nat) : Cursor :=
+  { c with done := c.done ++ [p], fed := c.fed ++ [(c.stepsAt p, t)] }
 
 /-- Is a pair left to combine? -/
 def Cursor.pending (la lb : Nat) (c : Cursor) : Bool := !(c.left la lb).isEmpty
@@ -826,14 +841,13 @@ def work (i : Nat) (g : GoalOf S N) (st : StateOf S N A) :
   | .join k a b c =>
     let xs := st.answers a
     let ys := st.answers b
-    let pa := st.pathsAt a
-    let pb := st.pathsAt b
-    match c.next pa pb with
+    let c := c.see (st.pathsAt a) (st.pathsAt b)
+    match c.next with
     | none => pure (st, .join k a b c, false)
     | some p => do
       let (st', t) ← K.metered (joinPairs (K := K) i k xs ys st [p])
-      pure (stamp i (st.answers i).length (pa.getD p.1 [] ++ pb.getD p.2 []) st',
-        .join k a b (c.mark pa pb p (t + 1)), true)
+      pure (stamp i (st.answers i).length (c.pa.getD p.1 [] ++ c.pb.getD p.2 []) st',
+        .join k a b (c.mark p (t + 1)), true)
   | .push k left side other todo subs =>
     if !st.isDone side then pure (st, .push k left side other todo subs, false)
     else
