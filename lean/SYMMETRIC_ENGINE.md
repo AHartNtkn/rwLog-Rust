@@ -96,11 +96,11 @@ What this forces to be redone: nothing built. Section 5.4 measured a model of th
 
 1. The strategies of one split of a chain goal (its join and its two pushes) are a *group*. The interface checks of a chain goal are one more group. A goal that is not a chain has one group.
 2. Every group has a *level*, a number kept in the goal's table. The level of a goal is the lowest level among its groups.
-3. A request to the root is a round. In its round a goal lets only its lowest groups work; if none of them can do anything, the next lowest, and so on. A group works by doing its own work and giving a round to every goal it reads. A goal has at most one round per request, whoever asks.
+3. A request to the root is a round. In its round a goal lets only its lowest groups work; if none of them can do anything, the next lowest, and so on. A group works by doing its own work and giving a round to every goal it reads. *(Since the eleventh revision of 2026-11-15 a union gives a round to one member, the one its rounds have cost the least.)* A goal has at most one round per request, whoever asks.
 4. The level of a group rises by the ticks of its own work and by how much the levels of the goals it reads rose in the round. A goal met again below itself adds nothing.
 5. Where a goal has one group, the group does everything its inputs allow. Where it has several, each strategy of a working group does one unit.
 
-A split is charged for the *lowest* group of each goal it reads, not for everything spent there. So the hedging done below a split is not charged to it, the allowance of its competitors does not grow by a factor per level of nesting, and a search that only one split starts is held to the level of the cheapest split. A request is not divided among the goals a group reads, so nothing is starved by a sibling that never finishes.
+A split is charged for the *lowest* group of each goal it reads, not for everything spent there. So the hedging done below a split is not charged to it, the allowance of its competitors does not grow by a factor per level of nesting, and a search that only one split starts is held to the level of the cheapest split. A request is not divided among the goals a group reads, so nothing is starved by a sibling that never finishes. *(Since the eleventh revision of 2026-11-15 a union divides the ticks evenly among its members. Nothing else is divided.)*
 
 *Measured* on the prototype (table 8 of the simulation note): polynomial on the ladder (to `n = 64`), on counting down, on the middle-restricted family with pushes (about the sixth power to `k = 14`, where the share rule had the fourth and R005 triples per step), and on fair OR with one and with three members that never finish, where the answer arrives in `2k + 4` requests. It is the first rule that has both the middle-restricted family and fair OR with three such members. Nothing is proved.
 
@@ -126,7 +126,7 @@ What this forces to be redone: nothing. O7 is unchanged: that the check covers t
 
 **Revision, 2026-11-14 (third): the engine is fair and complete.** Proved in `Rungs/Symmetric` (`Turns.lean`, `ReadLive.lean`, `Lines.lean`, `Served.lean`, `Fair.lean`, `Correct.lean`), for every lawful domain and with no use of the levels, so it does not depend on the balance or on the weights:
 
-1. *The record of a request* (`Req`, `req_request`). The groups of a table change in its own round only. In its round every strategy moves on, one group works with the tables it reads settled, and only a group of dead checks is removed. A table marked complete has a strategy with nothing left to do that reads complete tables only.
+1. *The record of a request* (`Req`, `req_request`). The groups of a table change in its own round only. In its round every strategy moves on, one group works with the tables it reads settled (since the eleventh revision of 2026-11-15, for a union: fed, `Fed`), and only a group of dead checks is removed. A table marked complete has a strategy with nothing left to do that reads complete tables only.
 2. *A table that has a round in infinitely many requests has a group that works in infinitely many* (`Requests.line`): the number of its groups stops falling, and then one place works again and again.
 3. *Such a group reaches everything* (`IsRun.served_live`). A span has run. A call or a union reads every answer: what it has not read below a position falls whenever the group works. A join combines every pair: the rank of its cursor falls. Of a group of checks one is never dead; the depth doubles while it has not read its side, and from the depth `readNeed` a reading does not give up (`readEdge_some`), so it reads it, is offered, and none of its goals ever has an answer. The tables these strategies read need no round in infinitely many requests, so each is complete at some time or has rounds for ever.
 4. *A complete table is served by the strategy that completed it* (`IsRun.served_done`).
@@ -251,6 +251,30 @@ Proved again: the record of a round (`Turns.lean`), where a strategy that had it
 Requests in `Tests/SymmetricRuns.lean`: counting down from `k` answers at request `2k + 9` as before and halts at `6k + 11` (was about `7k + 10`); the clash halts at 8 and 10 (were 11 and 9); the chain that only the race decides halts at request 60 (was 33), each request now a bounded piece of work.
 
 Still owed for the admission: L36 (the statement and the rule above), the separations L15 and L16, the simulation of R005 and the cost bound.
+
+**Revision, 2026-11-15 (eleventh): the members of a union share the ticks.** Fairness is one law, fair OR, stated in ticks (`Fair.share`, `Trusted/Properties.lean`): an answer costs at most a constant times what it costs when its alternative is the whole query, times the number of members of each union at which it was chosen. The engine as it stood gave every member of a union a round in every request. A member with many alternatives inside then took ticks in proportion to their number, and an answer beside it was delayed by that number, which the law does not allow: the member counts once. Measured on the prototype (`fairness/measurements.md` of the project files): counting down beside a call with 16 endless alternatives cost 3 to 16 times what the law allows, growing with the number.
+
+The rule, built in `Rungs/Symmetric/Machine.lean`:
+
+1. A table keeps `fed`, the ticks its rounds have cost the strategies that gave them (`feed`).
+2. A group that is a union (`feedGroup`, the group is one `copy false`) offers a round to its members in the order of `fed`, least first (`byFed`), and stops at the first whose round cost anything (`feedFirst`). A member whose round costs nothing is settled or has had its round in this request, and the next is offered one.
+3. Every other group gives a round to every table it reads, as before (`feedAll`). A call has one table to read. A join or a push needs all its tables, and none of them is an alternative to another.
+
+So the members of a union have the same ticks up to one round, and a member is not charged for what is inside a sibling. A recursion multiplies the members level by level, which the law allows and no rule at the union can avoid.
+
+*Fairness and completeness are kept* (the proofs of the third revision of 2026-11-14 stand, changed in one place). The record of a round says of a union that worked: every member is settled, or some member was fed and has been fed no more than this one (`Fed`, `Turns.lean`). A member that is never settled is then fed in infinitely many requests: while it is not, the sum over the members of the least of `fed` and one more than what this member has been fed rises at every working request, and it is bounded (`fedSum`, `Requests.union_settled`, `Lines.lean`).
+
+*Measured on the Lean engine*, in the ticks of the requests up to the answer of counting down from `k`, on one program (`Tests/SymmetricRuns.lean`, "Fair OR in ticks"):
+
+| `k` | alone | beside 1 endless | beside 4 | beside 16 |
+|---|---|---|---|---|
+| 4 | 1674 | 4953 | 5514 | 6805 |
+| 8 | 2877 | 7614 | 8221 | 9810 |
+| 16 | 5842 | | | 18500 |
+
+The factor of the law is 2 here, one union of two members. The cost is about 3 times the cost alone and falls towards twice as `k` grows, whatever the number of alternatives inside the sibling. Two unions deep with 16 alternatives beside each (factor 4): 24679 at `k = 4` and 36519 at `k = 8`, which is 15 and 13 times the cost alone. Counting down alone stays linear, with the answer at request `2k + 10` and the halt at `7k + 11` (they were `2k + 9` and `6k + 11`). These are measurements. The law is not yet proved for the engine (L36).
+
+Where every level of a recursion has members that never finish (`fairOr`), the law allows a delay exponential in the depth and the engine takes one: with 3 such members the answer of counting down from 8 costs 9 times the cost alone, and with 8 it is not shown in 110 requests. That case is left to preprocessing (roadmap, 2026-11-15) and is not in the law.
 
 ### What a step is
 

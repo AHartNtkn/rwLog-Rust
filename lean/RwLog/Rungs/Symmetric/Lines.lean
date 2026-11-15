@@ -6,8 +6,8 @@ A run is a sequence of states, each a request after the one before
 (`HadRound`): the list of its groups stops shrinking, and then every one of
 its groups works in infinitely many requests (`Requests.lines`). `Line` is a
 group through time: its strategies, each later than itself before (`SAdv`),
-each of them working again and again (`SStep`), the tables they read settled
-again and again, and never all dead; and the group has a span, a call, a
+each of them working again and again (`SStep`), the tables they read fed
+again and again (`Fed`), and never all dead; and the group has a span, a call, a
 union or a join, or is all interface checks.
 
 That every group has its turn is the balance (`Balanced`, `Turns.lean`): in
@@ -85,7 +85,7 @@ structure Line (need : N → Nat) (σ : Nat → StateOf S N A) (k r0 : Nat)
   adv : ∀ r, r0 ≤ r → Pointwise (SAdv (σ r).len) (L r) (L (r + 1))
   shape : (∃ s ∈ L r0, s.lead = true) ∨ ∀ s ∈ L r0, s.isCheck = true
   worked : ∀ r', ∃ r, r' ≤ r ∧ r0 ≤ r ∧
-    (∀ s ∈ L (r + 1), SFed (σ (r + 1)) s) ∧ ∃ s ∈ L r, s.dead (σ r) = false
+    (∀ s ∈ L (r + 1), Fed (σ r) (σ (r + 1)) s) ∧ ∃ s ∈ L r, s.dead (σ r) = false
   stepped : ∀ m, m < (L r0).length → ∀ r', ∃ r, r' ≤ r ∧ r0 ≤ r ∧ ∃ s s',
     (L r)[m]? = some s ∧ (L (r + 1))[m]? = some s' ∧
     SStep need (σ r).len (σ r).isDone (σ r).depth (σ (r + 1)).depth s s'
@@ -570,6 +570,113 @@ theorem Requests.race_done (h : Requests need Rc σ) (k : Nat)
   · rw [hgs] at hn; cases hn
   · exact main _ _ _ r0 t rc (Nat.le_refl _) ht hrc hle (Nat.le_refl _) (Nat.le_refl _)
       (Nat.le_refl _)
+
+/-! ## The members of a union
+
+A union gives a round to one member at a time, the one that has been fed
+least of those that still need one. A member that needs a round is passed
+over only for one that has been fed no more than it has, and that member is
+then fed more. So the members that have been fed no more than it cannot be
+fed for ever while it waits: it has its round again and again. -/
+
+/-- What the tables given have been fed, each counted up to `B + 1`. -/
+def fedSum (st : StateOf S N A) (B : Nat) (M : List Nat) : Nat :=
+  (M.map fun q => min (st.fedAt q) (B + 1)).sum
+
+theorem fedSum_le (st : StateOf S N A) (B : Nat) : ∀ M : List Nat,
+    fedSum st B M ≤ M.length * (B + 1)
+  | [] => by simp [fedSum]
+  | q :: M => by
+    have := fedSum_le st B M
+    simp only [fedSum, List.map_cons, List.sum_cons, List.length_cons, Nat.succ_mul] at this ⊢
+    omega
+
+theorem fedSum_mono {st st' : StateOf S N A} (h : ∀ q, st.fedAt q ≤ st'.fedAt q) (B : Nat) :
+    ∀ M : List Nat, fedSum st B M ≤ fedSum st' B M
+  | [] => Nat.le_refl _
+  | q :: M => by
+    have := fedSum_mono h B M
+    have := h q
+    simp only [fedSum, List.map_cons, List.sum_cons] at *
+    omega
+
+theorem fedSum_lt {st st' : StateOf S N A} (h : ∀ q, st.fedAt q ≤ st'.fedAt q) {B : Nat} :
+    ∀ {M : List Nat} {q : Nat}, q ∈ M → st.fedAt q < st'.fedAt q → st.fedAt q ≤ B →
+      fedSum st B M < fedSum st' B M
+  | x :: M, q, hq, h1, h2 => by
+    have hm := fedSum_mono h B M
+    have hx := h x
+    rcases List.mem_cons.1 hq with rfl | hq
+    · simp only [fedSum, List.map_cons, List.sum_cons] at *
+      omega
+    · have := fedSum_lt h hq h1 h2
+      simp only [fedSum, List.map_cons, List.sum_cons] at *
+      omega
+
+theorem map_fst_of_subAdv {a b : List (Nat × Nat)} (h : Pointwise SubAdv a b) :
+    b.map Prod.fst = a.map Prod.fst := by
+  apply List.ext_getElem?
+  intro n
+  simp only [List.getElem?_map]
+  cases ha : a[n]? with
+  | none =>
+    have : b[n]? = none := by
+      rw [List.getElem?_eq_none_iff] at ha ⊢
+      rw [← h.1]
+      exact ha
+    rw [this]
+  | some x =>
+    obtain ⟨y, hy, e⟩ := h.get ha
+    rw [hy]
+    simp [e.1]
+
+/-- **A member of a union whose group works for ever needs no round again
+and again.** -/
+theorem Requests.union_settled (h : Requests need Rc σ) {k ra m : Nat}
+    {L : Nat → List (Strat N A)} (hL : Line need σ k ra L) {M : List Nat}
+    (al : ∀ r, ra ≤ r → ∃ subs, (L r)[m]? = some (.copy false subs) ∧ subs.map Prod.fst = M)
+    {j : Nat} (hj : j ∈ M) (r' : Nat) : ∃ r, r' ≤ r ∧ Settled (σ (r + 1)) j := by
+  by_contra hcon
+  simp only [not_exists, not_and] at hcon
+  have fedmono : ∀ r q, (σ r).fedAt q ≤ (σ (r + 1)).fedAt q := fun r q => ((h.req r).fed q).1
+  have const : ∀ r, max r' ra ≤ r → (σ (r + 1)).fedAt j = (σ r).fedAt j := fun r hr => by
+    have hf := (h.req r).fed j
+    by_contra hne
+    exact hcon r (by omega) (hf.2 (by omega))
+  have hB : ∀ d, (σ (max r' ra + d)).fedAt j = (σ (max r' ra)).fedAt j := by
+    intro d
+    induction d with
+    | zero => rfl
+    | succ d ih => rw [← Nat.add_assoc, const _ (by omega), ih]
+  generalize hBd : (σ (max r' ra)).fedAt j = B at hB
+  refine no_descent (· < ·) Nat.lt_wfRel.wf (fun _ _ _ h1 h2 => Nat.lt_trans h1 h2)
+    (fun r => M.length * (B + 1) - fedSum (σ r) B M) (max r' ra) (fun r hr => ?_) (fun r0 => ?_)
+  · have h1 := fedSum_mono (fedmono r) B M
+    have h2 := fedSum_le (σ (r + 1)) B M
+    show _ - _ = _ - _ ∨ _ - _ < _ - _
+    omega
+  · obtain ⟨r, hr0, hr, hfed, -⟩ := hL.worked (max r0 (max r' ra))
+    obtain ⟨subs, hs, hmap⟩ := al (r + 1) (by omega)
+    have hF := hfed _ (List.mem_of_getElem? hs)
+    obtain ⟨p, hp, hpj⟩ : ∃ p ∈ subs, p.1 = j := by
+      rw [← hmap] at hj
+      obtain ⟨p, hp, e⟩ := List.mem_map.1 hj
+      exact ⟨p, hp, e⟩
+    rcases hF p hp with hs' | ⟨q, hq, e1, e2⟩
+    · exact absurd (hpj ▸ hs') (hcon r (by omega))
+    · refine ⟨r, by omega, ?_⟩
+      have hqM : q.1 ∈ M := by
+        rw [← hmap]
+        exact List.mem_map.2 ⟨q, hq, rfl⟩
+      have hBr : (σ (r + 1)).fedAt j = B := by
+        obtain ⟨d, hd⟩ := Nat.exists_eq_add_of_le (show max r' ra ≤ r + 1 by omega)
+        rw [hd]
+        exact hB d
+      rw [hpj, hBr] at e2
+      have h1 := fedSum_lt (fedmono r) hqM e1 e2
+      have h2 := fedSum_le (σ (r + 1)) B M
+      show _ - _ < _ - _
+      omega
 
 end Symmetric
 

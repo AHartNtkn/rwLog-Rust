@@ -50,15 +50,16 @@ theorem cores_modify {S N A : Type} (st : StateOf S N A) (i : Nat) (f : Table S 
 in: its goal, whether the goal is its own converse, its answers, whether it
 is complete, the requests it was opened in and last had a round in, and its
 groups (the strategy that worked is put back by `setGroup`, after its
-work), its race and the number of its rounds. -/
+work), its race, the number of its rounds and what it has been fed. -/
 def Table.frame {S N A : Type} (t : Table S N A) :
-    GoalOf S N × Bool × List A × Bool × Nat × Nat × Option (List (Group N A)) × Option Race × Nat :=
-  (t.goal, t.self, t.answers, t.done, t.born, t.stamp, t.groups, t.race, t.rounds)
+    GoalOf S N × Bool × List A × Bool × Nat × Nat × Option (List (Group N A)) × Option Race × Nat ×
+      Nat :=
+  (t.goal, t.self, t.answers, t.done, t.born, t.stamp, t.groups, t.race, t.rounds, t.fed)
 
 /-- The tables of a state, each as its frame. -/
 def StateOf.frames {S N A : Type} (st : StateOf S N A) :
     List (GoalOf S N × Bool × List A × Bool × Nat × Nat × Option (List (Group N A)) ×
-      Option Race × Nat) :=
+      Option Race × Nat × Nat) :=
   st.tables.map Table.frame
 
 theorem frames_modify {S N A : Type} (st : StateOf S N A) (i : Nat) (f : Table S N A → Table S N A)
@@ -102,7 +103,7 @@ inductive Inner (i : Nat) : StateOf R Rel (Ans D P) → StateOf R Rel (Ans D P) 
   | same {st st'} : st'.frames = st.frames → st'.round = st.round → st'.shown = st.shown →
       st.depth ≤ st'.depth → Inner i st st'
   | opened {st st'} (g : GoalOf R Rel) (self : Bool) :
-      st'.frames = st.frames ++ [(g, self, [], false, st.round, 0, none, none, 0)] →
+      st'.frames = st.frames ++ [(g, self, [], false, st.round, 0, none, none, 0, 0)] →
       st'.round = st.round →
       st'.shown = st.shown → st.depth ≤ st'.depth → Inner i st st'
   | add (st) (a : Ans D P) :
@@ -491,24 +492,52 @@ theorem reach_setGroup (st : StateOf R Rel (Ans D P)) (i k : Nat)
     (f : Group Rel (Ans D P) → Group Rel (Ans D P)) : Reach K hK st (setGroup st i k f) :=
   reach_modify st i _ fun _ => rfl
 
+/-- The rounds of the tables a group reads keep what a round keeps and a
+change to what a table has been fed keeps. -/
+theorem feedGroup_keeps (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R Rel (Ans D P) × Nat))
+    (I : StateOf R Rel (Ans D P) → Prop) (hadv : ∀ h st, I st → I (adv h st).val.1)
+    (hfed : ∀ h c st, I st → I (st.modify h fun t => { t with fed := t.fed + c }))
+    (i k : Nat) (st : StateOf R Rel (Ans D P)) (d : Nat) (h0 : I st) :
+    I (feedGroup (K := DerivationKernel.over D K hK P) adv i k st d).val.1 := by
+  at_cost K hK
+  have step : ∀ h X, I X → I (feed (K := DerivationKernel.over D _ hK P) adv h X).val.1 := by
+    intro h X hX
+    simp only [feed, Cost.bind_val, Cost.pure_val, Kernel.metered, Cost.metered_val]
+    exact hfed _ _ _ (hadv _ _ hX)
+  simp only [feedGroup]
+  split
+  · simp only [feedFirst, Cost.bind_val, Cost.pure_val]
+    refine foldL_inv (fun acc : StateOf R Rel (Ans D P) × Nat × Bool => I acc.1) _ _
+      (fun b h _ hb => ?_) _ h0
+    split
+    · exact hb
+    · simp only [Cost.bind_val, Cost.pure_val]
+      exact step _ _ hb
+  · simp only [feedAll]
+    refine foldL_inv (fun acc : StateOf R Rel (Ans D P) × Nat => I acc.1) _ _
+      (fun b h _ hb => ?_) _ h0
+    simp only [Cost.bind_val, Cost.pure_val]
+    exact step _ _ hb
+
 theorem reach_workGroup (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R Rel (Ans D P) × Nat))
     (hadv : ∀ h st, Reach K hK st (adv h st).val.1) (i : Nat) (g : GoalOf R Rel)
     (k : Nat) (st : StateOf R Rel (Ans D P)) :
     Reach K hK st (workGroup (K := DerivationKernel.over D K hK P) adv i g k st).val.1 := by
   have ht := fun f left st s c => reach_turn (K := K) (hK := hK) (P := P) i g f left st s c
+  have hf := fun X d hX => feedGroup_keeps (K := K) (hK := hK) (P := P) adv (Reach K hK st)
+    (fun h X hX => hX.trans (hadv h X))
+    (fun h c X hX => hX.trans (reach_modify X h _ fun _ => rfl)) i k X d hX
   at_cost K hK
-  simp only [workGroup, workStrats, feedAll, Cost.bind_val, Cost.pure_val]
+  simp only [workGroup, workStrats, Cost.bind_val, Cost.pure_val]
   refine Reach.trans ?_ (reach_modify _ _ _ fun _ => rfl)
   refine Reach.trans ?_ (reach_setGroup _ _ _ _)
-  refine reach_foldL_from (fun acc : StateOf R Rel (Ans D P) × Nat => acc.1) _ (fun b h => ?_) _ _ ?_
+  refine hf _ _ ?_
+  refine reach_foldL (fun acc : StateOf R Rel (Ans D P) × Nat × Bool => acc.1) _ (fun b j => ?_) _
+    (st, 0, false)
+  split
+  · exact Reach.refl _
   · simp only [Cost.bind_val, Cost.pure_val]
-    exact hadv _ _
-  · refine reach_foldL (fun acc : StateOf R Rel (Ans D P) × Nat × Bool => acc.1) _ (fun b j => ?_) _
-      (st, 0, false)
-    split
-    · exact Reach.refl _
-    · simp only [Cost.bind_val, Cost.pure_val]
-      exact (ht _ _ _ _ _).trans (reach_setGroup _ _ _ _)
+    exact (ht _ _ _ _ _).trans (reach_setGroup _ _ _ _)
 
 theorem reach_workLevel (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R Rel (Ans D P) × Nat))
     (hadv : ∀ h st, Reach K hK st (adv h st).val.1) (i : Nat) (g : GoalOf R Rel)

@@ -114,7 +114,10 @@ Rungs/Symmetric/ the symmetric engine of `SYMMETRIC_ENGINE.md` (Machine.lean): a
                 the groups of a table change
                 in its own round only, where each strategy moves on, a group all of whose
                 checks are dead is removed, one group works with the tables it reads
-                settled, and the round is balanced: a group worked, each of its
+                settled, or, where it is a union, with every member settled or some
+                member fed that has been fed no more than this one (`Fed`; a union gives
+                a round to the member its rounds have cost the least, `feedGroup`, so
+                that its members share the ticks), and the round is balanced: a group worked, each of its
                 strategies having worked or owing less than it did (`GrStep`, `OStep`), or
                 it stands as it stood, owing what it owed, while a lower one rose
                 (`Turn`, `Balanced`); of the groups a goal begins with one has a span, a call, a
@@ -128,7 +131,9 @@ Rungs/Symmetric/ the symmetric engine of `SYMMETRIC_ENGINE.md` (Machine.lean): a
                 and the program give (ReadLive.lean, `readEdge_some`); and of a table that
                 has rounds for ever every strategy of every group works for ever, since
                 what it owes cannot fall for ever, with as many groups from
-                some request on (Lines.lean, `Requests.lines`, `Line.step`). Fairness and
+                some request on (Lines.lean, `Requests.lines`, `Line.step`), and every member of a union
+                that works for ever is settled again and again
+                (`Requests.union_settled`). Fairness and
                 completeness: a run of requests (`IsRun`) holds for each goal the answers
                 of its table (`held`) and does not neglect the tables that are complete at
                 some time or have rounds for ever (`opened`); a complete table is served by

@@ -90,10 +90,10 @@ theorem Frame.of_frames {j : Nat} {st st' : StateOf S N A} (h : st'.frames = st.
 
 /-- A state with one more table, opened in this request. -/
 theorem Frame.of_opened {j : Nat} {st st' : StateOf S N A} {g : GoalOf S N} {self : Bool}
-    (h : st'.frames = st.frames ++ [(g, self, [], false, st.round, 0, none, none, 0)])
+    (h : st'.frames = st.frames ++ [(g, self, [], false, st.round, 0, none, none, 0, 0)])
     (hr : st'.round = st.round) : Frame j st st' := by
   have e : ∀ k, (st'.tables[k]?).map Table.frame =
-      (st.frames ++ [(g, self, [], false, st.round, 0, none, none, 0)])[k]? := fun k => by
+      (st.frames ++ [(g, self, [], false, st.round, 0, none, none, 0, 0)])[k]? := fun k => by
     rw [← List.getElem?_map]
     show st'.frames[k]? = _
     rw [h]
@@ -116,7 +116,7 @@ theorem Frame.of_opened {j : Nat} {st st' : StateOf S N A} {g : GoalOf S N} {sel
     have := e k
     rw [hk, List.getElem?_append_right hge] at this
     cases hx : ([(g, self, ([] : List A), false, st.round, 0,
-        (none : Option (List (Group N A))), (none : Option Race), 0)])[k - st.frames.length]? with
+        (none : Option (List (Group N A))), (none : Option Race), 0, 0)])[k - st.frames.length]? with
     | none => rw [hx] at this; cases this
     | some x =>
       rw [hx] at this
@@ -385,15 +385,16 @@ theorem keep_workGroup (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf 
     Keep st (workGroup (K := DerivationKernel.over D K hK P) adv i g k st).val.1 := by
   have hw := fun g f left st s c hb =>
     keep_turn (K := K) (hK := hK) (P := P) i g f left st s c hb
+  have hf := fun X d hX => feedGroup_keeps (K := K) (hK := hK) (P := P) adv (Keep st)
+    (fun h X hX => hX.trans (hadv h X))
+    (fun h c X hX => hX.trans (keep_modify X h _ fun _ _ =>
+      ⟨rfl, rfl, rfl, fun h => h, fun h => ⟨h, fun h => h⟩⟩)) i k X d hX
   at_cost K hK
-  simp only [workGroup, workStrats, feedAll, Cost.bind_val, Cost.pure_val]
+  simp only [workGroup, workStrats, Cost.bind_val, Cost.pure_val]
   refine Keep.trans ?_ (keep_modify _ _ _ fun _ _ =>
     ⟨rfl, rfl, rfl, fun h => h, fun h => ⟨h, fun h => h⟩⟩)
   refine Keep.trans ?_ (keep_setGroup _ _ _ _)
-  refine keep_foldL_from (fun acc : StateOf R Rel (Ans D P) × Nat => acc.1) _ i
-    (fun b h _ => ?_) _ _ ?_ hb
-  · simp only [Cost.bind_val, Cost.pure_val]
-    exact hadv _ _
+  refine hf _ _ ?_
   · refine keep_foldL (fun acc : StateOf R Rel (Ans D P) × Nat × Bool => acc.1) _ i
       (fun b j hb => ?_) _ (st, 0, false) hb
     split

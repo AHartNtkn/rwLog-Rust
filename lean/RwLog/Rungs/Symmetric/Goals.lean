@@ -263,13 +263,13 @@ theorem inv_openGoal {st : StateOf R Rel (Ans D P)} (hI : Inv st) (g : GoalOf R 
     rw [ht]; exact congrArg some hg
   · show Inv ({ st with tables := st.tables ++
         [⟨g, (selfConverse (K := DerivationKernel.over D _ hK P) g).val, [], false, none,
-          st.round, 0, 0, none, 0, 0⟩] } : StateOf R Rel (Ans D P)) ∧
+          st.round, 0, 0, none, 0, 0, 0⟩] } : StateOf R Rel (Ans D P)) ∧
       goalAt ({ st with tables := st.tables ++
         [⟨g, (selfConverse (K := DerivationKernel.over D _ hK P) g).val, [], false, none,
-          st.round, 0, 0, none, 0, 0⟩] } : StateOf R Rel (Ans D P)) st.tables.length = some g
+          st.round, 0, 0, none, 0, 0, 0⟩] } : StateOf R Rel (Ans D P)) st.tables.length = some g
     have hE : Ext st { st with tables := st.tables ++
         [⟨g, (selfConverse (K := DerivationKernel.over D _ hK P) g).val, [], false, none,
-          st.round, 0, 0, none, 0, 0⟩] } := by
+          st.round, 0, 0, none, 0, 0, 0⟩] } := by
       intro j g' h
       have hlt := lt_of_goalAt h
       unfold goalAt at h ⊢
@@ -277,10 +277,10 @@ theorem inv_openGoal {st : StateOf R Rel (Ans D P)} (hI : Inv st) (g : GoalOf R 
       rw [List.getElem?_append_left hlt]; exact h
     have key : ∀ (j : Nat) (t' : Table R Rel (Ans D P)), (st.tables ++
         [(⟨g, (selfConverse (K := DerivationKernel.over D _ hK P) g).val, [], false, none,
-          st.round, 0, 0, none, 0, 0⟩ : Table R Rel (Ans D P))])[j]? = some t' →
+          st.round, 0, 0, none, 0, 0, 0⟩ : Table R Rel (Ans D P))])[j]? = some t' →
         st.tables[j]? = some t' ∨
           t' = ⟨g, (selfConverse (K := DerivationKernel.over D _ hK P) g).val, [], false, none,
-            st.round, 0, 0, none, 0, 0⟩ := by
+            st.round, 0, 0, none, 0, 0, 0⟩ := by
       intro j t' h
       rcases Nat.lt_or_ge j st.tables.length with hlt | hge
       · rw [List.getElem?_append_left hlt] at h; exact .inl h
@@ -997,14 +997,17 @@ theorem inv_workGroup (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R
   have hturn := fun (st : StateOf R Rel (Ans D P)) hI f left s c hg hs =>
     inv_turn (K := K) (hK := hK) (st := st) hI i g f left s c hg hs
   have hrt := fun f left st s c => reach_turn (K := K) (hK := hK) (P := P) i g f left st s c
+  have hf := fun X d hX => feedGroup_keeps (K := K) (hK := hK) (P := P) adv
+    (fun X => Inv X ∧ goalAt X i = some g)
+    (fun h X hX => ⟨hadv h X hX.1, (hadvR h X).ext _ _ hX.2⟩)
+    (fun h c X hX => ⟨hX.1.modify_same h _ (fun _ => rfl) (fun _ => rfl),
+      (goalAt_modify X h i (fun t => { t with fed := t.fed + c }) fun _ => rfl).trans hX.2⟩)
+    i k X d hX
   at_cost K hK
-  simp only [workGroup, workStrats, feedAll, Cost.bind_val, Cost.pure_val]
+  simp only [workGroup, workStrats, Cost.bind_val, Cost.pure_val]
   refine Inv.modify_same ?_ i _ (fun _ => rfl) (fun _ => rfl)
   refine inv_setGroup ?_ _ _ _ (fun g' gr _ h => h)
-  refine (foldL_inv (fun acc : StateOf R Rel (Ans D P) × Nat =>
-    Inv acc.1 ∧ goalAt acc.1 i = some g) _ _ (fun b h _ hb => ?_) _ ?_).1
-  · simp only [Cost.bind_val, Cost.pure_val]
-    exact ⟨hadv _ _ hb.1, (hadvR _ _).ext _ _ hb.2⟩
+  refine (hf _ _ ?_).1
   · refine foldL_inv (fun acc : StateOf R Rel (Ans D P) × Nat × Bool =>
       Inv acc.1 ∧ goalAt acc.1 i = some g) _ _ (fun b j _ hb => ?_) (st, 0, false) ⟨hI, hg⟩
     split
