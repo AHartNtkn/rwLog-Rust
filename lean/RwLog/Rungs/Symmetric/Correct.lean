@@ -19,7 +19,14 @@ emitted, at the latest when it reports that it is done. Hence
 * it emits no progress certificate (`honestProgress`);
 * no answer it emits is covered by an earlier one (`noSubsumed`), since no
   answer of a table covers a later one (`nocov_stateAt`);
-* its final report is the maximal emitted answers (`finalMaximal`).
+* its final report is the maximal emitted answers (`finalMaximal`);
+* on first-order input with a root that is its own converse it shows answers
+  that are their own converses rearranged (`engine_selfConverse`), so run on
+  one orientation it has `ConvTrace` and `DualTrace` (`oriented_convTrace`,
+  `oriented_dualTrace`).
+
+The engine is the engine of any unfolding race that meets its specification
+(`RwLog.Good`).
 -/
 import RwLog.Rungs.Symmetric.Fair
 import RwLog.Rungs.Symmetric.SelfConverse

@@ -59,7 +59,10 @@ Rungs/Mirror/   a machine run on a query and on its converse side by side, for a
 Rungs/Symmetric/ the symmetric engine of `SYMMETRIC_ENGINE.md` (Machine.lean): a table for
                 every goal, every split of a chain and of a meet as a group of strategies
                 (join, push from either side), groups balanced by their levels, one
-                request a step. A level rises by what was spent, and the engine charges
+                request a step; and beside the groups of a chain goal an unfolding race
+                (`askRace`; `engine` takes the `Unfolder`), asked at the end of a round of
+                the goal at its next depth when it has spent no more than the goal has had
+                rounds and work of its own, whose final verdict completes the table. A level rises by what was spent, and the engine charges
                 itself one tick for a unit of work that did something, so a group that
                 worked has risen at every kernel (`workGroup_did`). Run in `Tests/SymmetricRuns.lean`. The table of a
                 goal that is its own converse holds the converse of everything it holds;
@@ -71,8 +74,11 @@ Rungs/Symmetric/ the symmetric engine of `SYMMETRIC_ENGINE.md` (Machine.lean): a
                 own converses rearranged (SelfConverse.lean, `selfConverse_of`), given
                 that every answer of the root table is an answer of the root goal; the
                 invariant that every answer of a table is an answer of the goal of the
-                table and every strategy fits its goal (Goals.lean, `Inv`, `inv_request`),
-                which gives that condition, so the engine run on one orientation has
+                table and every strategy fits its goal (Goals.lean, `Inv`; kept by a
+                request as part of `Good`, Kept.lean, since an answer of a race is an
+                answer of its goal by the specification of the race, on first-order
+                input), which gives that condition (Correct.lean, `engine_selfConverse`),
+                so the engine run on one orientation has
                 `ConvTrace` and `DualTrace` (`Symmetric.oriented_convTrace`,
                 `Symmetric.oriented_dualTrace`). A complete table never changes again, and
                 nothing nested in the round of a table completes it (Rounds.lean, `Keep`,
@@ -89,7 +95,14 @@ Rungs/Symmetric/ the symmetric engine of `SYMMETRIC_ENGINE.md` (Machine.lean): a
                 right about it (Edge.lean, `readOk`). Towards fairness: the cursor of
                 a join reaches every pair that is there, by a rank that falls
                 (Cursor.lean, `Cursor.all_rank`, `rankLt_wf`); and the record of a
-                request (Turns.lean, `Req`, `req_request`): the groups of a table change
+                request (Turns.lean, `Req`, `req_request`), which takes what a race means
+                as a parameter (`RaceSem`, for the engine `raceSem`): a table completes by
+                a strategy with nothing left to do or by a final verdict of its race
+                (`Raced`, `askRace_spec`), and a round of a table leaves its race blocked
+                with fewer rounds than it has spent, or one depth further, or the table
+                complete (`Asked`), so a table that has rounds for ever and a race with a
+                final verdict at some depth completes (Lines.lean, `Requests.race_done`);
+                the groups of a table change
                 in its own round only, where each strategy moves on, a group all of whose
                 checks are dead is removed, one group works with the tables it reads
                 settled, and the round is balanced: a group worked, or it stands as it
@@ -126,7 +139,9 @@ Rungs/Symmetric/ the symmetric engine of `SYMMETRIC_ENGINE.md` (Machine.lean): a
                 `Line.join_done`, `Line.push_read`, `Line.check_read`); and a goal whose
                 table is complete in one run of requests has a complete table in every run
                 that does not neglect it (Transfer.lean, `IsRun.transfer`), by induction
-                along the order in which the tables of the first run completed; so a side
+                along the order in which the tables of the first run completed (a table
+                that completed by its race has a race with a final verdict in the other
+                run too); so a side
                 that halts with no answer makes `;` and `&` halt (EmptySide.lean,
                 `Symmetric.emptySide`): a goal completes once a void side of one of its
                 splits does (`IsRun.done_of_side`), a chain is split where the side ends,
@@ -292,9 +307,11 @@ rung unchanged.
   (`CostedRuntime.oriented`, `Trusted/Cost.lean`). The choice made from the
   converse of a query, and from the mirror image of an input, is the choice
   made from the input the other way round, or the same choice of a node that
-  is its own converse (`orient_conv`, `orient_dual`). So a machine that
-  shows, on a root that is its own converse, sets of answers that are their
-  own converse (`CostedRuntime.SelfConverse`) has `ConvTrace` and `DualTrace`
+  is its own converse (`orient_conv`, `orient_dual`), and the program and
+  the node chosen from a well-formed input are first-order (`progFO_orient`,
+  `fo_orient_root`). So a machine that shows, on first-order input with a
+  root that is its own converse, sets of answers that are their own converse
+  (`CostedRuntime.SelfConverse`) has `ConvTrace` and `DualTrace`
   when run on one orientation (`oriented_convTrace`, `oriented_dualTrace`),
   and any machine pays the same on an input and on its mirror image
   (`oriented_paid_dual`).
