@@ -405,11 +405,30 @@ theorem pick_strat {N A : Type} {go : Option (Group N A)} {j : Nat} {s : Strat N
       cases h
       exact ⟨rfl, gr, rfl, rfl⟩
 
+theorem getD_setOwed_self (l : List Nat) (j v : Nat) : (setOwed l j v).getD j 0 = v := by
+  have h : j < l.length + (j + 1 - l.length) := by omega
+  simp [setOwed, List.getD_eq_getElem?_getD, h]
+
+theorem getD_setOwed_ne (l : List Nat) {j m : Nat} (v : Nat) (h : m ≠ j) :
+    (setOwed l j v).getD m 0 = l.getD m 0 := by
+  simp only [setOwed, List.getD_eq_getElem?_getD, List.getElem?_set, Ne.symm h, ite_false]
+  by_cases hm : m < l.length
+  · rw [List.getElem?_append_left hm]
+  · rw [List.getElem?_append_right (by omega), List.getElem?_eq_none (Nat.le_of_not_lt hm),
+      List.getElem?_replicate]
+    split <;> rfl
+
 /-! ## A turn
 
 A turn is unit after unit of the work of one strategy, so what every unit
 keeps a turn keeps (`turn_ind`), and a turn with ticks left begins with a
 unit (`turn_succ`). -/
+
+theorem turn_fuel_zero (i : Nat) (g : GoalOf R Rel) (left : Nat) (st : StateOf R Rel (Ans D P))
+    (s : Strat Rel (Ans D P)) (c : Nat) :
+    (turn (K := DerivationKernel.over D K hK P) i g 0 left st s c).val = (st, s, c) := by
+  at_cost K hK
+  rfl
 
 theorem turn_zero (i : Nat) (g : GoalOf R Rel) (f : Nat) (st : StateOf R Rel (Ans D P))
     (s : Strat Rel (Ans D P)) (c : Nat) :
@@ -445,10 +464,7 @@ theorem turn_ind (i : Nat) (g : GoalOf R Rel)
       Q (turn (K := DerivationKernel.over D K hK P) i g f left st s c).val.1
         (turn (K := DerivationKernel.over D K hK P) i g f left st s c).val.2.1
   | 0, left, st, s, c, h => by
-    have e : (turn (K := DerivationKernel.over D K hK P) i g 0 left st s c).val = (st, s, c) := by
-      at_cost K hK
-      rfl
-    rw [e]
+    rw [turn_fuel_zero]
     exact h
   | f + 1, left, st, s, c, h => by
     by_cases hl : left = 0

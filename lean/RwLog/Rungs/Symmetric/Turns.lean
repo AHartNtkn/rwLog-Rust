@@ -664,11 +664,10 @@ def GrAdv (len : Nat → Nat) (gr gr' : Group N A) : Prop :=
   Pointwise (SAdv len) gr.strats gr'.strats
 
 /-- A strategy and itself after its turn, with what it owed before the turn
-(`o`) and what it owes after it (`o'`): it has worked, or it stands as it
-stood and owes less. -/
+(`o`) and what it owes after it (`o'`): it has worked, or it owes less. -/
 def OStep (need : N → Nat) (len : Nat → Nat) (dn : Nat → Bool) (d d' o o' : Nat)
     (s s' : Strat N A) : Prop :=
-  SStep need len dn d d' s s' ∨ (s' = s ∧ o' < o)
+  SStep need len dn d d' s s' ∨ o' < o
 
 theorem OStep.mono {len len' : Nat → Nat} {dn dn' : Nat → Bool} {d d' d0 d1 o o' : Nat}
     (hl : ∀ j, len' j ≤ len j) (hdn : ∀ j, dn' j = true → dn j = true)
@@ -1717,12 +1716,12 @@ theorem edgeOf_none (st : StateOf R Rel (Ans D P)) (last : Bool) (n : Rel) :
 union is nearer to every answer that was there; a join is nearer to every
 pair that was there; a check still to be read is read, or the depth has
 doubled. -/
-theorem step_work (whole : Bool) (i : Nat) (g : GoalOf R Rel) (st : StateOf R Rel (Ans D P))
+theorem step_work (i : Nat) (g : GoalOf R Rel) (st : StateOf R Rel (Ans D P))
     (s : Strat Rel (Ans D P))
     (hok : ∀ k a b c, s = .join k a b c → c.Ok (st.len a) (st.len b)) :
     SStep (readNeed P) st.len st.isDone st.depth
-      (work (K := DerivationKernel.over D K hK P) whole i g st s).val.1.depth s
-      (work (K := DerivationKernel.over D K hK P) whole i g st s).val.2.1 := by
+      (work (K := DerivationKernel.over D K hK P) i g st s).val.1.depth s
+      (work (K := DerivationKernel.over D K hK P) i g st s).val.2.1 := by
   have hedge := edgeOf_none (K := K) (hK := hK) (P := P) st
   at_cost K hK
   cases s with
@@ -1734,68 +1733,48 @@ theorem step_work (whole : Bool) (i : Nat) (g : GoalOf R Rel) (st : StateOf R Re
   | copy c subs =>
     simp only [work]
     split
-    · simp only [Cost.bind_val, Cost.pure_val]
-      have hpw : Pointwise SubAdv subs
-          (subs.map fun p => (p.1, max p.2 (st.answers p.1).length)) := by
-        refine ⟨by simp, fun m x y hx hy => ?_⟩
-        rw [List.getElem?_map, hx] at hy
-        cases hy
-        exact ⟨rfl, Nat.le_max_left _ _⟩
-      refine .copy hpw fun n m j pos hm hp hn => ?_
-      exact behind_lt n hpw m (j, pos) _ hm (by rw [List.getElem?_map, hm]; rfl) hp
-        (hn.trans (Nat.le_max_right _ _))
-    · split
-      · next hnone =>
-        refine .copy (Pointwise.refl (fun _ => ⟨rfl, Nat.le_refl _⟩) _)
-          fun n m j pos hm hp hn => ?_
-        have h := leastBy_none hnone ((j, pos), m) (List.mem_zipIdx_iff_getElem?.2 hm)
-        have h' : ¬ pos < (st.answers j).length := by simpa using h
-        exact absurd (Nat.lt_of_lt_of_le hp hn) h'
-      · next p hp =>
-        simp only [Cost.bind_val, Cost.pure_val]
-        have hq0 : subs[p.2]? = some p.1 := List.mem_zipIdx_iff_getElem?.1 (mem_of_leastBy hp)
-        refine .copy (pointwise_modify (fun _ => ⟨rfl, Nat.le_refl _⟩) _ _ _
-          fun x _ => ⟨rfl, Nat.le_succ _⟩) fun n m j pos hm hpos hn => ?_
-        have hle : p.1.2 ≤ pos := leastBy_le hp ((j, pos), m)
-          (List.mem_zipIdx_iff_getElem?.2 hm) (by
-            simp only [decide_eq_true_eq]
-            exact Nat.lt_of_lt_of_le hpos hn)
-        exact sum_map_modify_lt (fun q : Nat × Nat => n - q.2) _ subs p.2 p.1 hq0
-          (by simp only; omega)
+    · next hnone =>
+      refine .copy (Pointwise.refl (fun _ => ⟨rfl, Nat.le_refl _⟩) _)
+        fun n m j pos hm hp hn => ?_
+      have h := leastBy_none hnone ((j, pos), m) (List.mem_zipIdx_iff_getElem?.2 hm)
+      have h' : ¬ pos < (st.answers j).length := by simpa using h
+      exact absurd (Nat.lt_of_lt_of_le hp hn) h'
+    · next p hp =>
+      simp only [Cost.bind_val, Cost.pure_val]
+      have hq0 : subs[p.2]? = some p.1 := List.mem_zipIdx_iff_getElem?.1 (mem_of_leastBy hp)
+      refine .copy (pointwise_modify (fun _ => ⟨rfl, Nat.le_refl _⟩) _ _ _
+        fun x _ => ⟨rfl, Nat.le_succ _⟩) fun n m j pos hm hpos hn => ?_
+      have hle : p.1.2 ≤ pos := leastBy_le hp ((j, pos), m)
+        (List.mem_zipIdx_iff_getElem?.2 hm) (by
+          simp only [decide_eq_true_eq]
+          exact Nat.lt_of_lt_of_le hpos hn)
+      exact sum_map_modify_lt (fun q : Nat × Nat => n - q.2) _ subs p.2 p.1 hq0
+        (by simp only; omega)
   | join k a b c =>
     have hc := hok k a b c rfl
     simp only [work]
+    have hn := (Cursor.next_spec (st.answers a).length (st.answers b).length
+      (c.room (st.answers a).length (st.answers b).length) c hc).2.1
+    have hr := fun p q n hp hq hpn hqn hb =>
+      Cursor.next_rank (st.answers a).length (st.answers b).length p q n hp hq hpn hqn
+        (c.room (st.answers a).length (st.answers b).length) c hc (Nat.le_refl _) hb
+    obtain ⟨m1, m2, m3, m4⟩ := Cursor.next_step (st.answers a).length (st.answers b).length
+      (c.room (st.answers a).length (st.answers b).length) c hc (Nat.le_refl _)
     split
-    · simp only [Cost.bind_val, Cost.pure_val]
-      have hs := (Cursor.all_spec (st.answers a).length (st.answers b).length
-        ((st.answers a).length * (st.answers b).length + 1) c hc).2.1
-      refine .join hs (fun p q n hp hq hpn hqn => ?_) (Cursor.all_mono _ _ _ c hc)
-        (Cursor.all_done _ _ _ c hc)
+    · next c' hx =>
+      rw [hx] at hn hr m1 m2 m3
+      refine .join hn (fun p q n hp hq hpn hqn => ?_) ⟨m1, m2⟩ (.inl (m3 rfl))
       by_cases hb : c.Before p q
-      · exact .inl (hs p q hb)
-      · exact Cursor.all_rank _ _ p q n hp hq hpn hqn _ c hc hb
-    · have hn := (Cursor.next_spec (st.answers a).length (st.answers b).length
-        (c.room (st.answers a).length (st.answers b).length) c hc).2.1
-      have hr := fun p q n hp hq hpn hqn hb =>
-        Cursor.next_rank (st.answers a).length (st.answers b).length p q n hp hq hpn hqn
-          (c.room (st.answers a).length (st.answers b).length) c hc (Nat.le_refl _) hb
-      obtain ⟨m1, m2, m3, m4⟩ := Cursor.next_step (st.answers a).length (st.answers b).length
-        (c.room (st.answers a).length (st.answers b).length) c hc (Nat.le_refl _)
-      split
-      · next c' hx =>
-        rw [hx] at hn hr m1 m2 m3
-        refine .join hn (fun p q n hp hq hpn hqn => ?_) ⟨m1, m2⟩ (.inl (m3 rfl))
-        by_cases hb : c.Before p q
-        · exact .inl (hn p q hb)
-        · exact hr p q n hp hq hpn hqn hb
-      · next pr c' hx =>
-        rw [hx] at hn hr m1 m2 m4
-        simp only [Cost.bind_val, Cost.pure_val]
-        refine .join hn (fun p q n hp hq hpn hqn => ?_) ⟨m1, m2⟩
-          (.inr ⟨pr.1, pr.2, (m4 pr rfl).2, (m4 pr rfl).1⟩)
-        by_cases hb : c.Before p q
-        · exact .inl (hn p q hb)
-        · exact hr p q n hp hq hpn hqn hb
+      · exact .inl (hn p q hb)
+      · exact hr p q n hp hq hpn hqn hb
+    · next pr c' hx =>
+      rw [hx] at hn hr m1 m2 m4
+      simp only [Cost.bind_val, Cost.pure_val]
+      refine .join hn (fun p q n hp hq hpn hqn => ?_) ⟨m1, m2⟩
+        (.inr ⟨pr.1, pr.2, (m4 pr rfl).2, (m4 pr rfl).1⟩)
+      by_cases hb : c.Before p q
+      · exact .inl (hn p q hb)
+      · exact hr p q n hp hq hpn hqn hb
   | push k left side other todo subs =>
     simp only [work]
     split
@@ -1805,72 +1784,39 @@ theorem step_work (whole : Bool) (i : Nat) (g : GoalOf R Rel) (st : StateOf R Re
       rw [show st.isDone side = true from hdn] at hnd
       cases hnd
     · split
-      · -- everything at once
-        have hmap : ∀ (new : List (Ans D P × Nat × Nat)) (st1 : StateOf R Rel (Ans D P)),
-            PushAdv subs ((subs ++ new).map fun e =>
-              (e.1, e.2.1, max e.2.2 (st1.answers e.2.1).length)) :=
-          fun new st1 => (PushAdv.append subs new).trans
-            (PushAdv.map _ fun e => ⟨rfl, rfl, Nat.le_max_left _ _⟩)
-        cases todo with
-        | none =>
-          erw [Cost.bind_val]
-          simp only [Cost.bind_val, Cost.pure_val]
-          exact .push (fun l0 h => by cases h) (hmap _ _) (fun h => by cases h)
-            fun _ => ⟨(fun _ h => by cases h), (fun _ _ h => by cases h), (fun h => by cases h)⟩
-        | some l0 =>
-          erw [Cost.bind_val]
-          simp only [Cost.bind_val, Cost.pure_val]
-          refine .push (fun l1 h => ⟨[], rfl, Nat.zero_le _⟩) (hmap _ _) (fun h => ?_)
-            fun _ => ⟨(fun h => by cases h), fun _ _ _ => ⟨[], rfl, Nat.zero_le _⟩,
-              fun h n m e he hp hn => ?_⟩
-          · cases h
-            simp [pushOpen, foldL]
-          · cases h
-            have hpw : Pointwise SubAdv (subs.map (·.2))
-                ((subs.map fun e : Ans D P × Nat × Nat =>
-                  (e.1, e.2.1, max e.2.2 (st.answers e.2.1).length)).map (·.2)) :=
-              (PushAdv.map (fun e : Ans D P × Nat × Nat =>
-                (e.1, e.2.1, max e.2.2 (st.answers e.2.1).length))
-                fun e => ⟨rfl, rfl, Nat.le_max_left _ _⟩).pointwise (by simp)
-            have := behind_lt n hpw m e.2 (e.2.1, max e.2.2 (st.answers e.2.1).length)
-              (by rw [List.getElem?_map, he]; rfl)
-              (by rw [List.getElem?_map, List.getElem?_map, he]; rfl) hp
-              (hn.trans (Nat.le_max_right _ _))
-            simpa [pushOpen, foldL] using this
+      · simp only [Cost.bind_val, Cost.pure_val]
+        exact .push (fun l0 h => by cases h) (PushAdv.refl _) (fun h => by cases h)
+          fun _ => ⟨(fun _ h => by cases h), (fun _ _ h => by cases h), (fun h => by cases h)⟩
+      · next x rest =>
+        simp only [Cost.bind_val, Cost.pure_val]
+        exact .push (fun l0 h => by cases h; exact ⟨rest, rfl, by simp⟩) (PushAdv.append _ _)
+          (fun h => by cases h)
+          fun _ => ⟨(fun h => by cases h),
+            (fun x' rest' h => by cases h; exact ⟨rest, rfl, Nat.le_refl _⟩),
+            (fun h => by cases h)⟩
       · split
-        · simp only [Cost.bind_val, Cost.pure_val]
-          exact .push (fun l0 h => by cases h) (PushAdv.refl _) (fun h => by cases h)
-            fun _ => ⟨(fun _ h => by cases h), (fun _ _ h => by cases h), (fun h => by cases h)⟩
-        · next x rest =>
+        · next hnone =>
+          refine .push (fun l0 h => ⟨l0, h, Nat.le_refl _⟩) (PushAdv.refl _) (fun _ => rfl)
+            fun _ => ⟨(fun h => by cases h), (fun _ _ h => by cases h), fun _ n m e he hp hn => ?_⟩
+          have h := leastBy_none hnone (e, m) (List.mem_zipIdx_iff_getElem?.2 he)
+          have h' : ¬ e.2.2 < (st.answers e.2.1).length := by simpa using h
+          exact absurd (Nat.lt_of_lt_of_le hp hn) h'
+        · next p hp =>
           simp only [Cost.bind_val, Cost.pure_val]
-          exact .push (fun l0 h => by cases h; exact ⟨rest, rfl, by simp⟩) (PushAdv.append _ _)
-            (fun h => by cases h)
-            fun _ => ⟨(fun h => by cases h),
-              (fun x' rest' h => by cases h; exact ⟨rest, rfl, Nat.le_refl _⟩),
-              (fun h => by cases h)⟩
-        · split
-          · next hnone =>
-            refine .push (fun l0 h => ⟨l0, h, Nat.le_refl _⟩) (PushAdv.refl _) (fun _ => rfl)
-              fun _ => ⟨(fun h => by cases h), (fun _ _ h => by cases h), fun _ n m e he hp hn => ?_⟩
-            have h := leastBy_none hnone (e, m) (List.mem_zipIdx_iff_getElem?.2 he)
-            have h' : ¬ e.2.2 < (st.answers e.2.1).length := by simpa using h
-            exact absurd (Nat.lt_of_lt_of_le hp hn) h'
-          · next p hp =>
-            simp only [Cost.bind_val, Cost.pure_val]
-            have hq0 : subs[p.2]? = some p.1 :=
-              List.mem_zipIdx_iff_getElem?.1 (mem_of_leastBy hp)
-            refine .push (fun l0 h => ⟨l0, h, Nat.le_refl _⟩)
-              (PushAdv.modify _ _ _ fun e => ⟨rfl, rfl, Nat.le_succ _⟩)
-              (fun _ => List.length_modify _ _ _)
-              fun _ => ⟨(fun h => by cases h), (fun _ _ h => by cases h),
-                fun _ n m e he hpos hn => ?_⟩
-            have hle : p.1.2.2 ≤ e.2.2 := leastBy_le hp (e, m)
-              (List.mem_zipIdx_iff_getElem?.2 he) (by
-                simp only [decide_eq_true_eq]
-                exact Nat.lt_of_lt_of_le hpos hn)
-            have := sum_map_modify_lt (fun q : Ans D P × Nat × Nat => n - q.2.2)
-              (fun e => (e.1, e.2.1, e.2.2 + 1)) subs p.2 p.1 hq0 (by simp only; omega)
-            simpa [behind, List.map_map, Function.comp_def] using this
+          have hq0 : subs[p.2]? = some p.1 :=
+            List.mem_zipIdx_iff_getElem?.1 (mem_of_leastBy hp)
+          refine .push (fun l0 h => ⟨l0, h, Nat.le_refl _⟩)
+            (PushAdv.modify _ _ _ fun e => ⟨rfl, rfl, Nat.le_succ _⟩)
+            (fun _ => List.length_modify _ _ _)
+            fun _ => ⟨(fun h => by cases h), (fun _ _ h => by cases h),
+              fun _ n m e he hpos hn => ?_⟩
+          have hle : p.1.2.2 ≤ e.2.2 := leastBy_le hp (e, m)
+            (List.mem_zipIdx_iff_getElem?.2 he) (by
+              simp only [decide_eq_true_eq]
+              exact Nat.lt_of_lt_of_le hpos hn)
+          have := sum_map_modify_lt (fun q : Ans D P × Nat × Nat => n - q.2.2)
+            (fun e => (e.1, e.2.1, e.2.2 + 1)) subs p.2 p.1 hq0 (by simp only; omega)
+          simpa [behind, List.map_map, Function.comp_def] using this
   | check left side other c =>
     cases c with
     | reading =>
@@ -1882,6 +1828,85 @@ theorem step_work (whole : Bool) (i : Nat) (g : GoalOf R Rel) (st : StateOf R Re
         exact .check (.inl rfl) fun _ => .inl (fun h => by cases h)
     | off => exact .check (.inr rfl) (fun h => by cases h)
     | opened subs => exact .check (.inr rfl) (fun h => by cases h)
+
+/-- **A turn with ticks to spend moves its strategy on**: it begins with a
+unit of work, and the units after it move the strategy further. -/
+theorem step_turn (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK) {i : Nat}
+    {g : GoalOf R Rel} (hg : GoodG D g) {st0 : StateOf R Rel (Ans D P)}
+    {s0 : Strat Rel (Ans D P)} (f : Nat) :
+    ∀ (left : Nat) (st : StateOf R Rel (Ans D P)) (s : Strat Rel (Ans D P)) (c : Nat),
+      UnitOk K hK i g st0 s0 st s → left ≠ 0 →
+      SStep (readNeed P) st.len st.isDone st.depth
+        (turn (K := DerivationKernel.over D K hK P) i g (f + 1) left st s c).val.1.depth s
+        (turn (K := DerivationKernel.over D K hK P) i g (f + 1) left st s c).val.2.1 := by
+  induction f with
+  | zero =>
+    intro left st s c h hl
+    have hw := step_work (K := K) (hK := hK) (P := P) i g st s (fun k a b c' e => by
+      subst e
+      have hp := h.prog
+      dsimp only [Prog] at hp
+      obtain ⟨L, Rg, -, -, -, hok, -⟩ := hp
+      exact hok)
+    rw [turn_succ i g 0 left st s c hl]
+    split
+    · rw [turn_fuel_zero]
+      exact hw
+    · exact hw
+  | succ f ih =>
+    intro left st s c h hl
+    have hw := step_work (K := K) (hK := hK) (P := P) i g st s (fun k a b c' e => by
+      subst e
+      have hp := h.prog
+      dsimp only [Prog] at hp
+      obtain ⟨L, Rg, -, -, -, hok, -⟩ := hp
+      exact hok)
+    have h1 := h.work hL hR hg
+    have hin := inner_work (K := K) (hK := hK) (P := P) i g st s
+    have hS := hin.frame.stable h.isOpen
+    rw [turn_succ i g (f + 1) left st s c hl]
+    split
+    · generalize left - ((work (K := DerivationKernel.over D K hK P) i g st s).ticks + 1) = left'
+      generalize c + (work (K := DerivationKernel.over D K hK P) i g st s).ticks + 1 = c'
+      by_cases hl' : left' = 0
+      · rw [hl', turn_zero]
+        exact hw
+      · exact SStep.after hw.adv ((ih left' _ _ c' h1 hl').mono hS.len_le
+          (fun _ hd => (hS.isDone hd).1) (Nat.le_refl _) (Nat.le_refl _)) hin.depth_le
+    · exact hw
+
+/-- **The turn of a strategy**: it works on the table at `i` alone, the
+strategy is itself later, and it has worked or owes less. -/
+theorem turn_record (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK)
+    {st : StateOf R Rel (Ans D P)} (hG : Good st) (i : Nat) (g : GoalOf R Rel) (k j o : Nat)
+    (s : Strat Rel (Ans D P)) (hg : goalAt st i = some g) (hb : Busy st i)
+    (hs : ((groupsAt st i)[k]?).bind (·.strats[j]?) = some s) :
+    Inner K hK i st (turn (K := DerivationKernel.over D K hK P) i g
+        (turnTicks * weight st s - o) (turnTicks * weight st s - o) st s 0).val.1 ∧
+      SAdv st.len s (turn (K := DerivationKernel.over D K hK P) i g
+        (turnTicks * weight st s - o) (turnTicks * weight st s - o) st s 0).val.2.1 ∧
+      OStep (readNeed P) st.len st.isDone st.depth (turn (K := DerivationKernel.over D K hK P) i g
+        (turnTicks * weight st s - o) (turnTicks * weight st s - o) st s 0).val.1.depth o
+        (o + (turn (K := DerivationKernel.over D K hK P) i g
+          (turnTicks * weight st s - o) (turnTicks * weight st s - o) st s 0).val.2.2 -
+            turnTicks * weight st s) s
+        (turn (K := DerivationKernel.over D K hK P) i g
+          (turnTicks * weight st s - o) (turnTicks * weight st s - o) st s 0).val.2.1 := by
+  refine ⟨inner_turn i g _ _ st s 0, ?_⟩
+  have hpos : 0 < turnTicks * weight st s := by
+    simp only [turnTicks, weight]
+    omega
+  generalize hfl : turnTicks * weight st s - o = fl
+  cases fl with
+  | zero =>
+    rw [turn_zero]
+    exact ⟨SAdv.refl _ s, .inr (by dsimp only; omega)⟩
+  | succ fl =>
+    have hU : UnitOk K hK i g st s st s :=
+      ⟨hG.inv, hG.base, hg, hb.isOpen, strat_of_groupsAt hG.inv hg hs,
+        prog_of_groupsAt hG.prog hg hs, rfl, Inner.refl st⟩
+    have h := step_turn hL hR (hG.base.good i g hg) fl (fl + 1) st s 0 hU (by omega)
+    exact ⟨h.adv, .inl h⟩
 
 /-! ## The shape of the groups a goal begins with -/
 
@@ -1963,7 +1988,7 @@ theorem shaped_expand (g : GoalOf R Rel) (st : StateOf R Rel (Ans D P)) (hn : No
   have hlead := fun k L Rg st => lead_splitGroup (K := K) (hK := hK) (P := P) k L Rg st
   at_cost K hK
   simp only [expand, Cost.bind_val]
-  have one : ∀ s : Strat Rel (Ans D P), s.lead = true → Shaped [(⟨0, [s]⟩ : Group Rel (Ans D P))] :=
+  have one : ∀ s : Strat Rel (Ans D P), s.lead = true → Shaped [(⟨0, [s], []⟩ : Group Rel (Ans D P))] :=
     fun s hs => shaped_all (by simp) fun gr hgr => by
       obtain rfl := List.mem_singleton.1 hgr
       exact ⟨s, List.mem_singleton.2 rfl, hs⟩
@@ -2062,82 +2087,84 @@ structure StratsInv (Rc : RaceSem R Rel (Ans D P)) (st : StateOf R Rel (Ans D P)
   length : (groupsAt X i).length = (groupsAt st i).length
   others : ∀ k', k' ≠ k → (groupsAt X i)[k']? = (groupsAt st i)[k']?
   group : ∀ gr, (groupsAt st i)[k]? = some gr → ∃ gr', (groupsAt X i)[k]? = some gr' ∧
-    gr'.level = gr.level ∧
-    GrAdv st.len gr gr' ∧ ∀ m ∈ done, ∀ s0 s, gr.strats[m]? = some s0 → gr'.strats[m]? = some s →
-      SStep (readNeed P) st.len st.isDone st.depth X.depth s0 s
+    gr'.level = gr.level ∧ GrAdv st.len gr gr' ∧
+    (∀ m ∈ done, ∀ s0 s, gr.strats[m]? = some s0 → gr'.strats[m]? = some s →
+      OStep (readNeed P) st.len st.isDone st.depth X.depth (gr.owed.getD m 0)
+        (gr'.owed.getD m 0) s0 s) ∧
+    ∀ m, m ∉ done → gr'.owed.getD m 0 = gr.owed.getD m 0
 
-/-- **The strategies of a group work**: each has worked once, and nothing
+/-- **The strategies of a group work**: each has had its turn, and nothing
 else of the groups of the table has changed. -/
 theorem turn_workStrats (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK)
-    {st : StateOf R Rel (Ans D P)} (hG : Good st) (whole : Bool) (i : Nat) (g : GoalOf R Rel)
+    {st : StateOf R Rel (Ans D P)} (hG : Good st) (i : Nat) (g : GoalOf R Rel)
     (k : Nat) (hg : goalAt st i = some g) (hb : Busy st i) :
     StratsInv Rc st i g k (List.range (((groupsAt st i)[k]?.map (·.strats.length)).getD 0))
-      (workStrats (K := DerivationKernel.over D K hK P) whole i g k st).val.1 := by
-  have hstep := fun (st : StateOf R Rel (Ans D P)) hG j s hg hb hs =>
-    good_workStep (K := K) (hK := hK) hL hR (st := st) hG whole i g k j s hg hb hs
-  have hin := fun (st : StateOf R Rel (Ans D P)) s =>
-    inner_work (K := K) (hK := hK) (P := P) whole i g st s
-  have hsw := fun (st : StateOf R Rel (Ans D P)) s hok =>
-    step_work (K := K) (hK := hK) (P := P) whole i g st s hok
+      (workStrats (K := DerivationKernel.over D K hK P) i g k st).val.1 := by
+  have hstep := fun (st : StateOf R Rel (Ans D P)) hG j s f left c ow hg hb hs =>
+    good_workStep (K := K) (hK := hK) hL hR (st := st) hG i g k j s f left c ow hg hb hs
+  have hrec := fun (st : StateOf R Rel (Ans D P)) hG j o s hg hb hs =>
+    turn_record (K := K) (hK := hK) hL hR (st := st) hG i g k j o s hg hb hs
   clear hR
   at_cost K hK
   simp only [workStrats]
-  refine foldL_done (fun done (acc : StateOf R Rel (Ans D P) × Nat × Bool) =>
-    StratsInv Rc st i g k done acc.1) _ _ (fun done b j _ hI => ?_) (st, 0, false)
+  refine foldL_split (fun done (acc : StateOf R Rel (Ans D P) × Nat × Bool) =>
+    StratsInv Rc st i g k done acc.1) _ _ (fun done rest b j hsplit hI => ?_) (st, 0, false)
     ⟨hG, hg, hb, TurnsBut.refl _ _, rfl, fun _ _ => rfl, fun gr h =>
-      ⟨gr, h, rfl, Pointwise.refl (SAdv.refl _) _, fun m hm => by cases hm⟩⟩
+      ⟨gr, h, rfl, Pointwise.refl (SAdv.refl _) _, fun m hm => (by cases hm), fun _ _ => rfl⟩⟩
+  have hjd : j ∉ done := by
+    have hnd : (done ++ j :: rest).Nodup := hsplit ▸ List.nodup_range
+    exact fun hj => (List.nodup_append.1 hnd).2.2 j hj j List.mem_cons_self rfl
   split
   · next hnone =>
     refine ⟨hI.good, hI.goal, hI.busy, hI.turns, hI.length, hI.others, fun gr hgr => ?_⟩
-    obtain ⟨gr', h1, hlv, h2, h3⟩ := hI.group gr hgr
-    refine ⟨gr', h1, hlv, h2, fun m hm s0 s hs0 hs => ?_⟩
+    obtain ⟨gr', h1, hlv, h2, h3, h4⟩ := hI.group gr hgr
+    refine ⟨gr', h1, hlv, h2, fun m hm s0 s hs0 hs => ?_, fun m hm => h4 m fun h => hm
+      (List.mem_append_left _ h)⟩
     rcases List.mem_append.1 hm with hm | hm
     · exact h3 m hm s0 s hs0 hs
     · obtain rfl := List.mem_singleton.1 hm
       rw [h1] at hnone
-      simp only [Option.bind_some] at hnone
-      rw [hnone] at hs
-      cases hs
-  · next s hs =>
+      simp only [Option.bind_some, hs, Option.map_some] at hnone
+      cases hnone
+  · next s o hs =>
+    obtain ⟨hs', grb, hgrb, rfl⟩ := pick_strat hs
     simp only [Cost.bind_val, Cost.pure_val]
-    change StratsInv Rc st i g k (done ++ [j])
-      (setGroup (work (K := DerivationKernel.over D _ hK P) whole i g b.1 s).val.1 i k
-        (fun gr => { gr with
-          strats := gr.strats.set j
-            (work (K := DerivationKernel.over D _ hK P) whole i g b.1 s).val.2.1 }))
-    have hkw : Keep b.1 (work (K := DerivationKernel.over D _ hK P) whole i g b.1 s).val.1 :=
-      (hin b.1 s).frame.keep hI.busy.open
-    have hks := keep_setGroup (work (K := DerivationKernel.over D _ hK P) whole i g b.1 s).val.1
-      i k (fun gr => { gr with
-        strats := gr.strats.set j
-          (work (K := DerivationKernel.over D _ hK P) whole i g b.1 s).val.2.1 })
+    obtain ⟨hin, hadv, hos⟩ := hrec b.1 hI.good j (grb.owed.getD j 0) s hI.goal hI.busy hs'
+    have hgd := hstep b.1 hI.good j s (turnTicks * weight b.1 s - grb.owed.getD j 0)
+      (turnTicks * weight b.1 s - grb.owed.getD j 0) 0
+      (fun l => setOwed l j (grb.owed.getD j 0 + (turn (K := DerivationKernel.over D _ hK P) i g
+        (turnTicks * weight b.1 s - grb.owed.getD j 0)
+        (turnTicks * weight b.1 s - grb.owed.getD j 0) b.1 s 0).val.2.2 -
+          turnTicks * weight b.1 s)) hI.goal hI.busy hs'
+    generalize (turn (K := DerivationKernel.over D _ hK P) i g
+      (turnTicks * weight b.1 s - grb.owed.getD j 0)
+      (turnTicks * weight b.1 s - grb.owed.getD j 0) b.1 s 0).val = T at hin hadv hos hgd ⊢
+    have hkw : Keep b.1 T.1 := hin.frame.keep hI.busy.open
+    have hks := keep_setGroup T.1 i k (fun gr => { gr with
+      strats := gr.strats.set j T.2.1,
+      owed := setOwed gr.owed j (grb.owed.getD j 0 + T.2.2 - turnTicks * weight b.1 s) })
     obtain ⟨tb, htb, -, -⟩ := hI.busy
-    have hga := (hin b.1 s).frame.groupsAt htb
-    have hp := prog_of_groupsAt hI.good.prog hI.goal hs
-    have hstepS := hsw b.1 s (fun k' a' b' c' e => by
-      subst e
-      dsimp only [Prog] at hp
-      obtain ⟨L, Rg, -, -, -, hok, -⟩ := hp
-      exact hok)
+    have hga := hin.frame.groupsAt htb
     have hS : Stable st b.1 := hI.turns.keep.stable
-    have hstepS' := hstepS.mono hS.len_le (fun _ h => (hS.isDone h).1) (Nat.le_refl _) (Nat.le_refl _)
-    refine ⟨hstep b.1 hI.good j s hI.goal hI.busy hs, (hkw.trans hks).stable.ext _ _ hI.goal,
+    refine ⟨hgd, (hkw.trans hks).stable.ext _ _ hI.goal,
       (hkw.trans hks).busy hI.busy, ?_, ?_, fun k' hk' => ?_, fun gr hgr => ?_⟩
-    · exact hI.turns.trans ((((hin b.1 s).turns hI.busy.isOpen).weaken (some i)).trans
+    · exact hI.turns.trans (((hin.turns hI.busy.isOpen).weaken (some i)).trans
         (turnsBut_modify _ i _ (fun _ => ⟨rfl, rfl, rfl, rfl, .inl rfl⟩) (fun _ _ _ => ⟨rfl, rfl⟩) (hkw.busy hI.busy).open))
     · rw [groupsAt_setGroup, List.length_modify, hga]
       exact hI.length
     · simp only [groupsAt_setGroup, List.getElem?_modify, Ne.symm hk', ite_false, hga, id_map']
       exact hI.others k' hk'
-    · obtain ⟨gr_a, h1, hlv, h2, h3⟩ := hI.group gr hgr
-      have hsj : gr_a.strats[j]? = some s := by
-        rw [h1] at hs
-        exact hs
-      refine ⟨{ gr_a with
-          strats := gr_a.strats.set j
-            (work (K := DerivationKernel.over D _ hK P) whole i g b.1 s).val.2.1 }, ?_, hlv,
-        Pointwise.set h2 (fun x hx => (h2.2 j x s hx hsj).trans hstepS'.adv),
-        fun m hm s0 s'' hs0 hs'' => ?_⟩
+    · obtain ⟨gr_a, h1, hlv, h2, h3, h4⟩ := hI.group gr hgr
+      obtain rfl : grb = gr_a := Option.some.inj (hgrb.symm.trans h1)
+      have hsj : grb.strats[j]? = some s := by
+        rw [h1] at hs'
+        exact hs'
+      have hadv' := hadv.mono hS.len_le
+      refine ⟨{ grb with
+          strats := grb.strats.set j T.2.1,
+          owed := setOwed grb.owed j (grb.owed.getD j 0 + T.2.2 - turnTicks * weight b.1 s) },
+        ?_, hlv, Pointwise.set h2 (fun x hx => (h2.2 j x s hx hsj).trans hadv'),
+        fun m hm s0 s'' hs0 hs'' => ?_, fun m hm => ?_⟩
       · simp [groupsAt_setGroup, hga, h1]
       · simp only [List.getElem?_set] at hs''
         by_cases e : j = m
@@ -2145,37 +2172,46 @@ theorem turn_workStrats (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK)
           simp only [ite_true] at hs''
           split at hs''
           · cases hs''
-            exact SStep.after (h2.2 j s0 s hs0 hsj) hstepS' hI.turns.depth
+            rw [getD_setOwed_self, ← h4 j hjd]
+            rcases hos with hos | hos
+            · exact .inl (SStep.after (h2.2 j s0 s hs0 hsj)
+                (hos.mono hS.len_le (fun _ h => (hS.isDone h).1) (Nat.le_refl _) (Nat.le_refl _))
+                hI.turns.depth)
+            · exact .inr hos
           · cases hs''
         · simp only [e, ite_false] at hs''
           have hm' : m ∈ done := by
             rcases List.mem_append.1 hm with hm | hm
             · exact hm
             · exact absurd (List.mem_singleton.1 hm).symm e
-          exact (h3 m hm' s0 s'' hs0 hs'').mono (fun _ => Nat.le_refl _) (fun _ h => h) (Nat.le_refl _)
-            (hin b.1 s).depth_le
+          rw [getD_setOwed_ne _ _ (Ne.symm e)]
+          exact (h3 m hm' s0 s'' hs0 hs'').mono (fun _ => Nat.le_refl _) (fun _ h => h)
+            (Nat.le_refl _) hin.depth_le
+      · have e : m ≠ j := fun e => hm (List.mem_append_right _ (List.mem_singleton.2 e))
+        rw [getD_setOwed_ne _ _ e]
+        exact h4 m fun h => hm (List.mem_append_left _ h)
 
 /-! ## What a group that worked has spent -/
 
 /-- Strategies that did anything have spent something. -/
-theorem workStrats_spent (whole : Bool) (i : Nat) (g : GoalOf R Rel) (k : Nat)
+theorem workStrats_spent (i : Nat) (g : GoalOf R Rel) (k : Nat)
     (st : StateOf R Rel (Ans D P)) :
-    (workStrats (K := DerivationKernel.over D K hK P) whole i g k st).val.2.2 = true →
-      0 < (workStrats (K := DerivationKernel.over D K hK P) whole i g k st).val.2.1 := by
+    (workStrats (K := DerivationKernel.over D K hK P) i g k st).val.2.2 = true →
+      0 < (workStrats (K := DerivationKernel.over D K hK P) i g k st).val.2.1 := by
   at_cost K hK
   simp only [workStrats]
   refine foldL_inv (fun (acc : StateOf R Rel (Ans D P) × Nat × Bool) =>
     acc.2.2 = true → 0 < acc.2.1) _ _ (fun b j _ hI => ?_) (st, 0, false) (fun h => by cases h)
   split
   · exact hI
-  · next s hs =>
+  · next s o hs =>
     simp only [Cost.bind_val, Cost.pure_val]
     intro h
-    split
+    simp only [Bool.or_eq_true, decide_eq_true_eq] at h
+    rcases h with h | h
+    · have := hI h
+      omega
     · omega
-    · next hno =>
-      simp only [hno, Bool.or_false] at h
-      exact hI h
 
 /-- The rounds of the tables a group reads only add to what it spent. -/
 theorem feedAll_le (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R Rel (Ans D P) × Nat))
@@ -2192,14 +2228,14 @@ theorem feedAll_le (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R Re
 charges itself for every unit of work that did anything, so this holds at a
 kernel that charges nothing. -/
 theorem workGroup_did (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R Rel (Ans D P) × Nat))
-    (whole : Bool) (i : Nat) (g : GoalOf R Rel) (k : Nat) (st : StateOf R Rel (Ans D P)) :
-    (workGroup (K := DerivationKernel.over D K hK P) adv whole i g k st).val.2.2 = true ↔
-      0 < (workGroup (K := DerivationKernel.over D K hK P) adv whole i g k st).val.2.1 := by
-  have h1 := workStrats_spent (K := K) (hK := hK) (P := P) whole i g k st
+    (i : Nat) (g : GoalOf R Rel) (k : Nat) (st : StateOf R Rel (Ans D P)) :
+    (workGroup (K := DerivationKernel.over D K hK P) adv i g k st).val.2.2 = true ↔
+      0 < (workGroup (K := DerivationKernel.over D K hK P) adv i g k st).val.2.1 := by
+  have h1 := workStrats_spent (K := K) (hK := hK) (P := P) i g k st
   have h2 := fun X d feeds => feedAll_le (K := K) (hK := hK) (P := P) adv X d feeds
   at_cost K hK
   simp only [workGroup, Cost.bind_val, Cost.pure_val]
-  generalize (workStrats (K := DerivationKernel.over D _ hK P) whole i g k st).val = r1 at h1 ⊢
+  generalize (workStrats (K := DerivationKernel.over D _ hK P) i g k st).val = r1 at h1 ⊢
   have h2' := h2 r1.1 r1.2.1
     ((((groupsAt r1.1 i)[k]?.map (·.strats)).getD []).flatMap (Strat.feeds r1.1)).eraseDups
   generalize (feedAll (K := DerivationKernel.over D _ hK P) adv r1.1 r1.2.1
@@ -2258,37 +2294,37 @@ theorem turn_workGroup (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK)
     (fuel : Nat) (hadvG : ∀ h st, Good st → Good (adv h st).val.1)
     (hadv : ∀ h st, Good st → (waiting st).length ≤ fuel →
       Turns (readNeed P) Rc st (adv h st).val.1 ∧ Settled (adv h st).val.1 h)
-    {st : StateOf R Rel (Ans D P)} (hG : Good st) (whole : Bool) (i : Nat) (g : GoalOf R Rel)
+    {st : StateOf R Rel (Ans D P)} (hG : Good st) (i : Nat) (g : GoalOf R Rel)
     (k : Nat) (hg : goalAt st i = some g) (hb : Busy st i) (hw : (waiting st).length ≤ fuel) :
-    Good (workGroup (K := DerivationKernel.over D K hK P) adv whole i g k st).val.1 ∧
-    goalAt (workGroup (K := DerivationKernel.over D K hK P) adv whole i g k st).val.1 i =
+    Good (workGroup (K := DerivationKernel.over D K hK P) adv i g k st).val.1 ∧
+    goalAt (workGroup (K := DerivationKernel.over D K hK P) adv i g k st).val.1 i =
       some g ∧
-    Busy (workGroup (K := DerivationKernel.over D K hK P) adv whole i g k st).val.1 i ∧
+    Busy (workGroup (K := DerivationKernel.over D K hK P) adv i g k st).val.1 i ∧
     TurnsBut (readNeed P) Rc (some i) st
-      (workGroup (K := DerivationKernel.over D K hK P) adv whole i g k st).val.1 ∧
-    (groupsAt (workGroup (K := DerivationKernel.over D K hK P) adv whole i g k st).val.1
+      (workGroup (K := DerivationKernel.over D K hK P) adv i g k st).val.1 ∧
+    (groupsAt (workGroup (K := DerivationKernel.over D K hK P) adv i g k st).val.1
       i).length = (groupsAt st i).length ∧
     (∀ k', k' ≠ k →
-      (groupsAt (workGroup (K := DerivationKernel.over D K hK P) adv whole i g k st).val.1
+      (groupsAt (workGroup (K := DerivationKernel.over D K hK P) adv i g k st).val.1
         i)[k']? = (groupsAt st i)[k']?) ∧
     ∀ gr, (groupsAt st i)[k]? = some gr → ∃ gr',
-      (groupsAt (workGroup (K := DerivationKernel.over D K hK P) adv whole i g k st).val.1
+      (groupsAt (workGroup (K := DerivationKernel.over D K hK P) adv i g k st).val.1
         i)[k]? = some gr' ∧
       gr'.level = gr.level +
-        (workGroup (K := DerivationKernel.over D K hK P) adv whole i g k st).val.2.1 ∧
+        (workGroup (K := DerivationKernel.over D K hK P) adv i g k st).val.2.1 ∧
       GrStep (readNeed P) st.len st.isDone st.depth
-        (workGroup (K := DerivationKernel.over D K hK P) adv whole i g k st).val.1.depth
+        (workGroup (K := DerivationKernel.over D K hK P) adv i g k st).val.1.depth
         gr gr' ∧
       ∀ s ∈ gr'.strats,
-        SFed (workGroup (K := DerivationKernel.over D K hK P) adv whole i g k st).val.1 s := by
-  have h1 := turn_workStrats (K := K) (hK := hK) (Rc := Rc) hL hR hG whole i g k hg hb
+        SFed (workGroup (K := DerivationKernel.over D K hK P) adv i g k st).val.1 s := by
+  have h1 := turn_workStrats (K := K) (hK := hK) (Rc := Rc) hL hR hG i g k hg hb
   have h2 := fun X hGX hgX hbX hwX d feeds =>
     turn_feedAll (K := K) (hK := hK) (P := P) adv fuel hadvG hadv (st := X) hGX i g hgX hbX
       hwX d feeds
   clear hR
   at_cost K hK
   simp only [workGroup, Cost.bind_val, Cost.pure_val]
-  generalize (workStrats (K := DerivationKernel.over D _ hK P) whole i g k st).val = r1 at h1 ⊢
+  generalize (workStrats (K := DerivationKernel.over D _ hK P) i g k st).val = r1 at h1 ⊢
   have h2' := h2 r1.1 h1.good h1.goal h1.busy ((waiting_le h1.turns.keep).trans hw) r1.2.1
     ((((groupsAt r1.1 i)[k]?.map (·.strats)).getD []).flatMap (Strat.feeds r1.1)).eraseDups
   generalize (feedAll (K := DerivationKernel.over D _ hK P) adv r1.1 r1.2.1
@@ -2375,27 +2411,27 @@ theorem level_workGroup (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK)
     (fuel : Nat) (hadvG : ∀ h st, Good st → Good (adv h st).val.1)
     (hadv : ∀ h st, Good st → (waiting st).length ≤ fuel →
       Turns (readNeed P) Rc st (adv h st).val.1 ∧ Settled (adv h st).val.1 h)
-    {st0 X : StateOf R Rel (Ans D P)} {gs0 : List (Group Rel (Ans D P))} (whole : Bool) (i : Nat)
+    {st0 X : StateOf R Rel (Ans D P)} {gs0 : List (Group Rel (Ans D P))} (i : Nat)
     (g : GoalOf R Rel) (hI : LevelInv Rc st0 gs0 i g X) (hw : (waiting st0).length ≤ fuel)
     (k : Nat) :
-    LevelInv Rc st0 gs0 i g (workGroup (K := DerivationKernel.over D K hK P) adv whole i g k X).val.1 ∧
+    LevelInv Rc st0 gs0 i g (workGroup (K := DerivationKernel.over D K hK P) adv i g k X).val.1 ∧
     (∀ k0, TriedAt st0 gs0 i X k0 →
-      TriedAt st0 gs0 i (workGroup (K := DerivationKernel.over D K hK P) adv whole i g k X).val.1
+      TriedAt st0 gs0 i (workGroup (K := DerivationKernel.over D K hK P) adv i g k X).val.1
         k0) ∧
     ((groupsAt X i)[k]? ≠ none →
-      TriedAt st0 gs0 i (workGroup (K := DerivationKernel.over D K hK P) adv whole i g k X).val.1
+      TriedAt st0 gs0 i (workGroup (K := DerivationKernel.over D K hK P) adv i g k X).val.1
         k) ∧
     (∀ k', k' ≠ k →
-      (groupsAt (workGroup (K := DerivationKernel.over D K hK P) adv whole i g k X).val.1 i)[k']? =
+      (groupsAt (workGroup (K := DerivationKernel.over D K hK P) adv i g k X).val.1 i)[k']? =
         (groupsAt X i)[k']?) ∧
     (∀ gr, (groupsAt X i)[k]? = some gr → ∃ gr',
-      (groupsAt (workGroup (K := DerivationKernel.over D K hK P) adv whole i g k X).val.1 i)[k]? =
+      (groupsAt (workGroup (K := DerivationKernel.over D K hK P) adv i g k X).val.1 i)[k]? =
         some gr' ∧
       gr'.level = gr.level +
-        (workGroup (K := DerivationKernel.over D K hK P) adv whole i g k X).val.2.1) := by
+        (workGroup (K := DerivationKernel.over D K hK P) adv i g k X).val.2.1) := by
   obtain ⟨hG', hg', hb', ht, hlen, hoth, hgrp⟩ := turn_workGroup (K := K) (hK := hK) hL hR adv
-    fuel hadvG hadv hI.good whole i g k hI.goal hI.busy ((waiting_le hI.turns.keep).trans hw)
-  generalize (workGroup (K := DerivationKernel.over D K hK P) adv whole i g k X).val = W at *
+    fuel hadvG hadv hI.good i g k hI.goal hI.busy ((waiting_le hI.turns.keep).trans hw)
+  generalize (workGroup (K := DerivationKernel.over D K hK P) adv i g k X).val = W at *
   have hS : Stable st0 X := hI.turns.keep.stable
   have stepK : ∀ gr0 grX, gs0[k]? = some gr0 → (groupsAt X i)[k]? = some grX →
       ∃ gr', (groupsAt W.1 i)[k]? = some gr' ∧ gr'.level = grX.level + W.2.1 ∧
@@ -2458,47 +2494,47 @@ theorem level_workLevel (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK)
     (fuel : Nat) (hadvG : ∀ h st, Good st → Good (adv h st).val.1)
     (hadv : ∀ h st, Good st → (waiting st).length ≤ fuel →
       Turns (readNeed P) Rc st (adv h st).val.1 ∧ Settled (adv h st).val.1 h)
-    {st0 X : StateOf R Rel (Ans D P)} {gs0 : List (Group Rel (Ans D P))} (whole : Bool) (i : Nat)
+    {st0 X : StateOf R Rel (Ans D P)} {gs0 : List (Group Rel (Ans D P))} (i : Nat)
     (g : GoalOf R Rel) (hI : LevelInv Rc st0 gs0 i g X) (hw : (waiting st0).length ≤ fuel)
     (lv : Nat) :
-    LevelInv Rc st0 gs0 i g (workLevel (K := DerivationKernel.over D K hK P) adv whole i g lv X).val.1 ∧
+    LevelInv Rc st0 gs0 i g (workLevel (K := DerivationKernel.over D K hK P) adv i g lv X).val.1 ∧
     (∀ k0, TriedAt st0 gs0 i X k0 →
-      TriedAt st0 gs0 i (workLevel (K := DerivationKernel.over D K hK P) adv whole i g lv X).val.1
+      TriedAt st0 gs0 i (workLevel (K := DerivationKernel.over D K hK P) adv i g lv X).val.1
         k0) ∧
     (∀ (k : Nat) (gr : Group Rel (Ans D P)), (groupsAt X i)[k]? = some gr → gr.level = lv →
-      TriedAt st0 gs0 i (workLevel (K := DerivationKernel.over D K hK P) adv whole i g lv X).val.1
+      TriedAt st0 gs0 i (workLevel (K := DerivationKernel.over D K hK P) adv i g lv X).val.1
         k) ∧
     (∀ (k : Nat) (gr : Group Rel (Ans D P)), (groupsAt X i)[k]? = some gr → gr.level ≠ lv →
-      (groupsAt (workLevel (K := DerivationKernel.over D K hK P) adv whole i g lv X).val.1 i)[k]? =
+      (groupsAt (workLevel (K := DerivationKernel.over D K hK P) adv i g lv X).val.1 i)[k]? =
         some gr) ∧
-    ((workLevel (K := DerivationKernel.over D K hK P) adv whole i g lv X).val.2 = true →
+    ((workLevel (K := DerivationKernel.over D K hK P) adv i g lv X).val.2 = true →
       ∃ (k : Nat) (gr gr' : Group Rel (Ans D P)), (groupsAt X i)[k]? = some gr ∧ gr.level = lv ∧
-        (groupsAt (workLevel (K := DerivationKernel.over D K hK P) adv whole i g lv X).val.1 i)[k]? =
+        (groupsAt (workLevel (K := DerivationKernel.over D K hK P) adv i g lv X).val.1 i)[k]? =
           some gr' ∧ lv < gr'.level) ∧
-    ((workLevel (K := DerivationKernel.over D K hK P) adv whole i g lv X).val.2 = false →
+    ((workLevel (K := DerivationKernel.over D K hK P) adv i g lv X).val.2 = false →
       ∀ k : Nat,
-        ((groupsAt (workLevel (K := DerivationKernel.over D K hK P) adv whole i g lv X).val.1
+        ((groupsAt (workLevel (K := DerivationKernel.over D K hK P) adv i g lv X).val.1
           i)[k]?).map (·.level) = ((groupsAt X i)[k]?).map (·.level)) := by
   have hgl := fun (Y : StateOf R Rel (Ans D P)) hY k =>
     level_workGroup (K := K) (hK := hK) hL hR adv fuel hadvG hadv (st0 := st0) (gs0 := gs0)
-      (X := Y) whole i g hY hw k
+      (X := Y) i g hY hw k
   have hdid := fun (Y : StateOf R Rel (Ans D P)) k =>
-    workGroup_did (K := K) (hK := hK) (P := P) adv whole i g k Y
-  have key : LevelInv Rc st0 gs0 i g (workLevel (K := DerivationKernel.over D K hK P) adv whole i g lv X).val.1 ∧
-      (∀ k0, TriedAt st0 gs0 i X k0 → TriedAt st0 gs0 i (workLevel (K := DerivationKernel.over D K hK P) adv whole i g lv X).val.1 k0) ∧
-      (∀ p ∈ (groupsAt X i).zipIdx, p.1.level = lv → TriedAt st0 gs0 i (workLevel (K := DerivationKernel.over D K hK P) adv whole i g lv X).val.1 p.2) ∧
+    workGroup_did (K := K) (hK := hK) (P := P) adv i g k Y
+  have key : LevelInv Rc st0 gs0 i g (workLevel (K := DerivationKernel.over D K hK P) adv i g lv X).val.1 ∧
+      (∀ k0, TriedAt st0 gs0 i X k0 → TriedAt st0 gs0 i (workLevel (K := DerivationKernel.over D K hK P) adv i g lv X).val.1 k0) ∧
+      (∀ p ∈ (groupsAt X i).zipIdx, p.1.level = lv → TriedAt st0 gs0 i (workLevel (K := DerivationKernel.over D K hK P) adv i g lv X).val.1 p.2) ∧
       (∀ (k : Nat) (gr : Group Rel (Ans D P)), (groupsAt X i)[k]? = some gr → gr.level ≠ lv →
-        (groupsAt (workLevel (K := DerivationKernel.over D K hK P) adv whole i g lv X).val.1 i)[k]? = some gr) ∧
+        (groupsAt (workLevel (K := DerivationKernel.over D K hK P) adv i g lv X).val.1 i)[k]? = some gr) ∧
       (∀ (k : Nat) (gr gr' : Group Rel (Ans D P)), (groupsAt X i)[k]? = some gr →
-        (groupsAt (workLevel (K := DerivationKernel.over D K hK P) adv whole i g lv X).val.1 i)[k]? = some gr' →
+        (groupsAt (workLevel (K := DerivationKernel.over D K hK P) adv i g lv X).val.1 i)[k]? = some gr' →
         gr.level ≤ gr'.level) ∧
-      ((workLevel (K := DerivationKernel.over D K hK P) adv whole i g lv X).val.2 = true →
+      ((workLevel (K := DerivationKernel.over D K hK P) adv i g lv X).val.2 = true →
         ∃ (k : Nat) (gr gr' : Group Rel (Ans D P)), (groupsAt X i)[k]? = some gr ∧ gr.level = lv ∧
-          (groupsAt (workLevel (K := DerivationKernel.over D K hK P) adv whole i g lv X).val.1 i)[k]? = some gr' ∧
+          (groupsAt (workLevel (K := DerivationKernel.over D K hK P) adv i g lv X).val.1 i)[k]? = some gr' ∧
           lv < gr'.level) ∧
-      ((workLevel (K := DerivationKernel.over D K hK P) adv whole i g lv X).val.2 = false →
+      ((workLevel (K := DerivationKernel.over D K hK P) adv i g lv X).val.2 = false →
         ∀ k : Nat,
-          ((groupsAt (workLevel (K := DerivationKernel.over D K hK P) adv whole i g lv X).val.1 i)[k]?).map (·.level) =
+          ((groupsAt (workLevel (K := DerivationKernel.over D K hK P) adv i g lv X).val.1 i)[k]?).map (·.level) =
             ((groupsAt X i)[k]?).map (·.level)) := by
     clear hR
     at_cost K hK
@@ -2525,7 +2561,7 @@ theorem level_workLevel (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK)
       simp only [Cost.bind_val, Cost.pure_val]
       obtain ⟨a, b', c, oth, lvl⟩ := hgl b.1 J1 p.2
       have hd := hdid b.1 p.2
-      generalize (workGroup (K := DerivationKernel.over D _ hK P) adv whole i g p.2 b.1).val = W
+      generalize (workGroup (K := DerivationKernel.over D _ hK P) adv i g p.2 b.1).val = W
         at a b' c oth lvl hd ⊢
       have hex : ∃ grA, (groupsAt b.1 i)[p.2]? = some grA := by
         have h2 := (List.getElem?_eq_some_iff.1 hpX).1
@@ -3001,9 +3037,9 @@ theorem turns_advance (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK) (hP 
     have hspec := fun (X : StateOf R Rel (Ans D P)) hGX g hg ho =>
       askRace_spec (K := K) (hK := hK) hL U hU (st := X) hGX i g hg ho
     have hrv := raceOf_val (K := K) (hK := hK) (P := P)
-    have hlev := fun whole g lv (st0 : StateOf R Rel (Ans D P)) gs0 X hI hw =>
+    have hlev := fun g lv (st0 : StateOf R Rel (Ans D P)) gs0 X hI hw =>
       level_workLevel (K := K) (hK := hK) hL hR _ fuel ihG ih (st0 := st0) (X := X) (gs0 := gs0)
-        whole i g hI hw lv
+        i g hI hw lv
     clear hR
     at_cost K hK
     simp only [advance]
