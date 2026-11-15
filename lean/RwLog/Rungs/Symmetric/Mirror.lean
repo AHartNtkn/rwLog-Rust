@@ -9,9 +9,8 @@ mirrored program for the mirror image of every node (`nmap b t`,
 
 `Mirror` is what links the two programs and their unfolding races: what links
 two runs of the tabled machine (`Tabled.Twin`), that the two programs have
-one interpretation, that the image of a node derives the relations the node
-derives, conversed when the converse is taken, and that an edge of the image
-of a node is read when the edge of the node is, with no other interface.
+one interpretation, and that the image of a node derives the relations the
+node derives, conversed when the converse is taken.
 
 The image of a certificate whose races are final (`FCert`) under the map of
 goals (`gmap b t`) is one of the other program (`FCert.map`): every reason
@@ -27,12 +26,18 @@ is read on the image.
   split of the mapped meet, with the sides exchanged or not (`splitAt_gmap`).
 * The goal pushed for an answer is mapped to the goal pushed for the mapped
   answer, into the other side when the sides are exchanged (`pushG_gmap`).
+* An edge that is read on a side of a split of a chain is read on its image,
+  with no other interface (`reads_nmap`, `Rungs/Symmetric/EdgeMirror.lean`).
 * The answers are mapped by their representatives (`amap`); an answer is one
   by what it relates (`Valid`), which the map keeps (`Mirror.valid`).
+
+So a root whose table completes in the run of the engine on one program has
+an image whose table completes in the run on the other (`Mirror.done`).
 -/
 import RwLog.Rungs.Symmetric.FromTabled
 import RwLog.Rungs.Tabled.MapSplit
 import RwLog.Rungs.Framework.GroundMirror
+import RwLog.Rungs.Symmetric.EdgeMirror
 
 namespace RwLog
 
@@ -51,11 +56,8 @@ structure Mirror (D : Domain R) (P P' : Program) (b t : Bool)
   twin : Tabled.Twin D P P' b t U U'
   interp : P'.sorts.interp = P.sorts.interp
   gd : ∀ e, Normal e → GD P' (nmap b t e) = if b then GRel.inv '' GD P e else GD P e
-  reads : ∀ (n : Rel) (last : Bool) (ps : List R), Normal n → Reads D P n last (some ps) →
-    ∃ ps', Reads D P' (nmap b t n) (last ^^ b) (some ps') ∧ ∀ p ∈ ps', p ∈ ps
-  reads' : ∀ (n : Rel) (last : Bool) (ps : List R), Normal n → Reads D P' n last (some ps) →
-    ∃ ps', Reads D P (nmap b t n) (last ^^ b) (some ps') ∧ ∀ p ∈ ps', p ∈ ps
 
+omit [DecidableEq R] in
 theorem Mirror.symm (hM : Mirror D P P' b t U U') : Mirror D P' P b t U' U where
   twin := hM.twin.symm
   interp := hM.interp.symm
@@ -67,9 +69,8 @@ theorem Mirror.symm (hM : Mirror D P P' b t U U') : Mirror D P' P b t U' U where
       exact h.symm
     · simp only [↓reduceIte] at h ⊢
       rw [h, inv_image_inv_image]
-  reads := hM.reads'
-  reads' := hM.reads
 
+omit [DecidableEq R] in
 /-- **The image of an answer is an answer of the image of the goal.** -/
 theorem Mirror.valid (hM : Mirror D P P' b t U U') {g : GoalOf R Rel} (hg : Normal g.node)
     {s : R} (h : Valid D P (toGoal g) s) : Valid D P' (toGoal (gmap b t g)) (smap b s) := by
@@ -240,6 +241,7 @@ theorem amap_spec {g' : GoalOf R Rel} {a : Ans D P} {a' : Ans D P'}
     exact ⟨rfl, rfl⟩
   · cases h
 
+omit [DecidableEq R] in
 /-- An answer of the image of a goal has an image that is an answer of the
 goal. -/
 theorem Mirror.amap_some (hM : Mirror D P P' b t U U') {g' : GoalOf R Rel} (hn : Normal g'.node)
@@ -445,12 +447,14 @@ theorem FCert.map (hM : Mirror D P P' b t U U') (h : FCert U C ρ A) :
       obtain ⟨sw, hsw, hsp'⟩ := splitAt_gmap hok b t hsp
       obtain rfl := hsw rfl
       rw [hgg] at hsp'
-      have hside : Normal (if left = true then L.node else Rg.node) := by
+      have hside : Normal (if left = true then L.node else Rg.node) ∧
+          (if left = true then L.node else Rg.node).FO := by
         obtain ⟨xs, i, l, r, -, -, -, hl, hr, rfl, rfl⟩ := hsp
         cases left
-        · exact hok.normal.interval hr
-        · exact hok.normal.interval hl
-      obtain ⟨ps', hreads', hsub⟩ := hM.reads _ left ps hside hreads
+        · exact ⟨hok.normal.interval hr, hok.fo.interval hr⟩
+        · exact ⟨hok.normal.interval hl, hok.fo.interval hl⟩
+      obtain ⟨ps', hreads', hsub⟩ := reads_nmap hL hM.twin.link.body hM.twin.fo hside.1 hside.2
+        hreads
       have eside : (if (left ^^ sw) = true
           then (if sw = true then gmap sw t Rg else gmap sw t L).node
           else (if sw = true then gmap sw t L else gmap sw t Rg).node) =
@@ -477,6 +481,29 @@ theorem FCert.map (hM : Mirror D P P' b t U U') (h : FCert U C ρ A) :
       show (A (gmap sw t (gmap sw t _))).filterMap _ = []
       rw [bp.2, hA]
       rfl
+
+/-! ## The root of a run -/
+
+variable {K : Kernel R Cost} {hK : K.Refines D}
+
+/-- **A root whose table completes has an image whose table completes**, in
+the run of the engine on the other program. -/
+theorem Mirror.done (hM : Mirror D P P' b t U U') {root : Rel} (hn : Normal root)
+    (hfo : root.FO) (h : EvDone (stateAt K hK P root U) 0) :
+    EvDone (stateAt K hK P' (nmap b t root) U') 0 := by
+  obtain ⟨r, hr⟩ := h
+  have hσ := isRun (K := K) (hK := hK) hM.twin.law hM.twin.fo hM.twin.uok hn hfo
+  have hτ := isRun (K := K) (hK := hK) hM.twin.law' hM.twin.fo' hM.twin.uok'
+    (normal_nmap b t root) (Tabled.fo_nmap hfo b t)
+  obtain ⟨ρ, A, hC⟩ := hσ.fcert hM.twin.law r
+  have hC' := (hC.map hM).cert
+  have e : gmap b t (⟨none, nmap b t root, none⟩ : GoalOf R Rel) = ⟨none, root, none⟩ := by
+    cases b <;> simp [gmap, hn.nmap_nmap]
+  refine hC'.completes hM.twin.law' ⟨normal_nmap b t root, ?_⟩ _ hτ
+    (fun r j => nocov_stateAt r j) 0 0 root_goal0
+    (hτ.opened_of_settled root_goal0 fun r' => ⟨r', Nat.le_refl _, (hτ.req.req r').root⟩)
+  rw [e]
+  exact ⟨0, hσ.goal_le (Nat.zero_le r) root_goal0, hr⟩
 
 end Symmetric
 
