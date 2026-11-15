@@ -18,6 +18,12 @@ open Traverse Answer
 
 variable {R : Type} [Answer R] [DecidableEq R] {D : Domain R} {P : Program}
 
+/-- One member of a node, in `hasCall`: the first member that has a call, or
+is too deep, decides. -/
+def callStep (f : Rel → Option Bool) : Option Bool → Rel → Option Bool
+  | some false, x => f x
+  | r, _ => r
+
 /-- What `hasCall` returns. -/
 def hasCallP : Nat → Rel → Option Bool
   | 0, _ => none
@@ -25,11 +31,7 @@ def hasCallP : Nat → Rel → Option Bool
     match n.view with
     | .span _ => some false
     | .call _ _ => some true
-    | .chain xs | .meet xs | .union xs =>
-      xs.foldl (fun (acc : Option Bool) x =>
-        match acc with
-        | some false => hasCallP d x
-        | r => r) (some false)
+    | .chain xs | .meet xs | .union xs => xs.foldl (callStep (hasCallP d)) (some false)
 
 /-- The runs of a span: its representative, whole, if it has one. -/
 def leafRuns (D : Domain R) : Rel → List (Run R)
@@ -39,6 +41,27 @@ def leafRuns (D : Domain R) : Rel → List (Run R)
     | none => []
   | _ => []
 
+/-- One member of a union, in `runs`: its runs are added. -/
+def unionStep (f : Rel → Option (List (Run R))) :
+    Option (List (Run R)) → Rel → Option (List (Run R))
+  | none, _ => none
+  | some rs, x =>
+    match f x with
+    | none => none
+    | some r => some (r.foldl addRunP rs)
+
+/-- One member of a chain, in `runs`: the runs are continued through it if
+one of them is whole. -/
+def chainStep (D : Domain R) (last : Bool) (f : Rel → Option (List (Run R))) :
+    Option (List (Run R)) → Rel → Option (List (Run R))
+  | none, _ => none
+  | some rs, x =>
+    if rs.any (·.2) then
+      match f x with
+      | none => none
+      | some ys => some (extendRunsP D last rs ys)
+    else some rs
+
 /-- What `runs` returns. -/
 def runsP (D : Domain R) (P : Program) (last : Bool) : Nat → List Rel → Rel → Option (List (Run R))
   | 0, _, _ => none
@@ -46,14 +69,7 @@ def runsP (D : Domain R) (P : Program) (last : Bool) : Nat → List Rel → Rel 
     match n.view with
     | .span _ => some (leafRuns D n)
     | .meet _ => some [(none, false)]
-    | .union xs =>
-      xs.foldl (fun (acc : Option (List (Run R))) x =>
-        match acc with
-        | none => none
-        | some rs =>
-          match runsP D P last d seen x with
-          | none => none
-          | some r => some (r.foldl addRunP rs)) (some [])
+    | .union xs => xs.foldl (unionStep (runsP D P last d seen)) (some [])
     | .call _ _ =>
       if seen.any (fun m => decide (m = n)) then some [(none, false)]
       else
@@ -63,26 +79,19 @@ def runsP (D : Domain R) (P : Program) (last : Bool) : Nat → List Rel → Rel 
     | .chain xs =>
       match (if last then xs.reverse else xs) with
       | [] => some [(none, false)]
-      | e :: rest =>
-        rest.foldl (fun (acc : Option (List (Run R))) x =>
-          match acc with
-          | none => none
-          | some rs =>
-            if rs.any (·.2) then
-              match runsP D P last d seen x with
-              | none => none
-              | some ys => some (extendRunsP D last rs ys)
-            else acc) (runsP D P last d seen e)
+      | e :: rest => rest.foldl (chainStep D last (runsP D P last d seen)) (runsP D P last d seen e)
+
+/-- One run, in the interfaces of the runs at one end. -/
+def boundStep (D : Domain R) (last : Bool) : Option (List R) → Run R → Option (List R)
+  | some ps, (some x, _) =>
+    match (if last then D.rightBound x else D.leftBound x) with
+    | none => none
+    | some p => some (if ps.any (fun q => decide (q = p)) then ps else ps ++ [p])
+  | _, _ => none
 
 /-- The interfaces of the runs `rs` at one end, if each has one. -/
 def boundsP (D : Domain R) (last : Bool) (rs : List (Run R)) : Option (List R) :=
-  rs.foldl (fun (acc : Option (List R)) (r : Run R) =>
-    match acc, r.1 with
-    | some ps, some x =>
-      match (if last then D.rightBound x else D.leftBound x) with
-      | none => none
-      | some p => some (if ps.any (fun q => decide (q = p)) then ps else ps ++ [p])
-    | _, _ => none) (some [])
+  rs.foldl (boundStep D last) (some [])
 
 /-- What `readEdge` returns. -/
 def readEdgeP (D : Domain R) (P : Program) (last : Bool) (d : Nat) (n : Rel) :
@@ -111,11 +120,7 @@ theorem hasCall_val : ∀ (d : Nat) (n : Rel),
         (foldL (fun (acc : Option Bool) x =>
           match acc with
           | some false => hasCall (K := DerivationKernel.over D _ hK P) d x
-          | r => pure r) acc xs).val =
-        xs.foldl (fun (acc : Option Bool) x =>
-          match acc with
-          | some false => hasCallP d x
-          | r => r) acc := by
+          | r => pure r) acc xs).val = xs.foldl (callStep (hasCallP d)) acc := by
       intro xs acc
       rw [foldL_std, Cost.foldL_val]
       congr 1
@@ -180,7 +185,7 @@ theorem runs_val (last : Bool) : ∀ (d : Nat) (seen : List Rel) (n : Rel),
       cases acc with
       | none => rfl
       | some rs =>
-        simp only [Cost.bind_val, ih]
+        simp only [Cost.bind_val, ih, unionStep]
         cases runsP D P last d seen x with
         | none => rfl
         | some r =>
@@ -208,9 +213,9 @@ theorem runs_val (last : Bool) : ∀ (d : Nat) (seen : List Rel) (n : Rel),
         | none => rfl
         | some rs =>
           cases hany : rs.any (·.2) with
-          | false => simp only [hany, Bool.false_eq_true, ↓reduceIte]; rfl
+          | false => simp only [chainStep, hany, Bool.false_eq_true, ↓reduceIte]; rfl
           | true =>
-            simp only [hany, ↓reduceIte, Cost.bind_val, ih]
+            simp only [chainStep, hany, ↓reduceIte, Cost.bind_val, ih]
             cases runsP D P last d seen x with
             | none => rfl
             | some ys => simp only [Cost.bind_val, Cost.pure_val, hext]
@@ -234,12 +239,14 @@ theorem readEdge_val (last : Bool) (d : Nat) (n : Rel) :
         simp only [Cost.bind_val, Cost.pure_val, foldL_std, Cost.foldL_val, boundsP]
         congr 2
         funext acc r
+        obtain ⟨o, w⟩ := r
         cases acc with
         | none => rfl
         | some ps =>
-          cases hr1 : r.1 with
+          cases o with
           | none => rfl
           | some x =>
+            simp only [boundStep]
             cases last
             · simp only [Bool.false_eq_true, ↓reduceIte, Cost.bind_val, hK.leftBound]
               cases D.leftBound x with
