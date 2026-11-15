@@ -61,6 +61,36 @@ theorem Frame.stable {j : Nat} {st st' : StateOf S N A} (h : Frame j st st') (ho
   rw [hd] at hud
   cases hud
 
+/-- Giving paths to answers changes nothing a frame speaks of. -/
+theorem Frame.stamp {j : Nat} {st st' : StateOf S N A} (h : Frame j st st') (i n : Nat)
+    (pth : Path) : Frame j st (stamp i n pth st') :=
+  h.trans (Frame.modify j st' i _ fun _ => ⟨rfl, rfl, rfl, rfl, rfl, rfl⟩)
+
+@[simp] theorem answers_stamp (st : StateOf S N A) (i n : Nat) (pth : Path) (j : Nat) :
+    (stamp i n pth st).answers j = st.answers j := by
+  unfold stamp StateOf.answers StateOf.modify
+  simp only [List.getElem?_modify]
+  by_cases e : i = j
+  · subst e; cases st.tables[i]? <;> simp
+  · simp only [e, if_false]; cases st.tables[j]? <;> rfl
+
+@[simp] theorem isDone_stamp (st : StateOf S N A) (i n : Nat) (pth : Path) (j : Nat) :
+    (stamp i n pth st).isDone j = st.isDone j := by
+  unfold stamp StateOf.isDone StateOf.modify
+  simp only [List.getElem?_modify]
+  by_cases e : i = j
+  · subst e; cases st.tables[i]? <;> simp
+  · simp only [e, if_false]; cases st.tables[j]? <;> rfl
+
+@[simp] theorem goalAt_stamp (st : StateOf S N A) (i n : Nat) (pth : Path) (j : Nat) :
+    goalAt (stamp i n pth st) j = goalAt st j :=
+  goalAt_modify st i j _ fun _ => rfl
+
+theorem pathsAt_length (st : StateOf S N A) (i : Nat) :
+    (st.pathsAt i).length = (st.answers i).length := by
+  unfold StateOf.pathsAt StateOf.answers
+  cases st.tables[i]? <;> simp
+
 theorem Stable.answers {st st' : StateOf S N A} (h : Stable st st') (i : Nat) :
     st.answers i <+: st'.answers i := by
   unfold StateOf.answers
@@ -846,6 +876,12 @@ theorem checkOpen_spec (g : GoalOf R Rel) (left : Bool) (other : Rel)
 
 /-! ## The work of one strategy keeps what its cursors mean -/
 
+/-- Giving paths to answers changes nothing `Prog` speaks of. -/
+theorem prog_stamp (st : StateOf R Rel (Ans D P)) (j n : Nat) (pth : Path) (i : Nat)
+    (g : GoalOf R Rel) (s : Strat Rel (Ans D P)) :
+    Prog (stamp j n pth st) i g s = Prog st i g s := by
+  cases s <;> simp only [Prog, CovS, Read, answers_stamp, isDone_stamp, goalAt_stamp]
+
 theorem prog_work_span (hL : D.Lawful P.sorts.interp) {st : StateOf R Rel (Ans D P)}
     (i : Nat) (g : GoalOf R Rel) (ran : Bool) (ho : Open st i)
     (hb : IsBound D g.lb ∧ IsBound D g.rb) (hs : Prog st i g (.span ran)) :
@@ -888,6 +924,7 @@ theorem prog_work_copy (hL : D.Lawful P.sorts.interp) {st : StateOf R Rel (Ans D
   · exact hs0
   · next p hp =>
     simp only [Cost.bind_val, Cost.pure_val]
+    rw [prog_stamp]
     have hpm := mem_of_leastBy hp
     have hpok : p.1.2 < (st.answers p.1.1).length := by simpa using leastBy_ok hp
     obtain ⟨hf, hc⟩ := hcf p.2 st (((st.answers p.1.1).drop p.1.2).take 1) ho
@@ -948,24 +985,22 @@ theorem prog_work_join (hL : D.Lawful P.sorts.interp) {st : StateOf R Rel (Ans D
     · exact hc (p, q) hb' x y hx' hy' z hz
   at_cost K hK
   simp only [work]
-  obtain ⟨n1, -, -, n4⟩ := Cursor.next_spec (st.answers a).length (st.answers b).length
-    (c.room (st.answers a).length (st.answers b).length) c h4
+  have ela : (st.pathsAt a).length = (st.answers a).length := pathsAt_length st a
+  have elb : (st.pathsAt b).length = (st.answers b).length := pathsAt_length st b
   split
-  · next c' hn =>
-    rw [hn] at n1 n4
-    exact fin [] c' st (Frame.refl i st) (fun _ h => by cases h) n1 (fun p q hb => by
-      rcases n4 p q hb with h | h
-      · exact .inl h
-      · cases h)
-  · next pr c' hn =>
-    rw [hn] at n1 n4
-    simp only [Cost.bind_val, Cost.pure_val]
+  · exact hs0
+  · next pr hn =>
+    simp only [Cost.bind_val, Cost.pure_val, Kernel.metered, Cost.metered_val]
+    rw [prog_stamp]
+    obtain ⟨-, -, n3, -⟩ := Cursor.next_spec
+      ((joinPairs (K := DerivationKernel.over D _ hK P) i k (st.answers a) (st.answers b) st
+        [pr]).ticks + 1) (by rw [ela, elb]; exact h4) hn
+    rw [ela, elb] at n3
     obtain ⟨hf, hc⟩ := hjp [pr]
-    exact fin [pr] c' _ hf hc n1 (fun p q hb => by
-      rcases n4 p q hb with h | h
+    exact fin [pr] _ _ hf hc n3 (fun p q hb => by
+      rcases Cursor.before_mark.1 hb with h | h
       · exact .inl h
-      · cases h
-        exact .inr List.mem_cons_self)
+      · exact .inr (h ▸ List.mem_cons_self))
 
 theorem prog_work_push (hL : D.Lawful P.sorts.interp) {st : StateOf R Rel (Ans D P)}
     (hI : Inv st) (i : Nat) (g : GoalOf R Rel) (k : Kind) (left : Bool)
@@ -1057,6 +1092,7 @@ theorem prog_work_push (hL : D.Lawful P.sorts.interp) {st : StateOf R Rel (Ans D
       · exact hs0
       · next p hp =>
         simp only [Cost.bind_val, Cost.pure_val]
+        rw [prog_stamp]
         have hpm := mem_of_leastBy hp
         have hpok : p.1.2.2 < (st.answers p.1.2.1).length := by simpa using leastBy_ok hp
         have hq0 : subs[p.2]? = some p.1 := List.mem_zipIdx_iff_getElem?.1 hpm
