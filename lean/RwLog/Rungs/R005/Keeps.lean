@@ -31,7 +31,7 @@ Nothing here uses a charge: every statement is about what a run shows.
 -/
 import RwLog.Rungs.R005.Tables
 import RwLog.Rungs.Tabled.MirrorKeeps
-import RwLog.Rungs.Tabled.Unfolding.RacesExact
+import RwLog.Rungs.Framework.Unfolding.RacesExact
 
 namespace RwLog
 
@@ -44,20 +44,20 @@ include hD
 /-- R001 keeps every property, with itself as base. -/
 theorem R001.keeps :
     (R001.engine.costedAt dom K hK).runtime.Keeps (R001.engine.costedAt dom K hK).runtime :=
-  Tabled.tabled_keeps hD Tabled.good_eagerRace Tabled.exact_eagerRace
-    Tabled.good_eagerRace Tabled.exact_eagerRace
+  Tabled.tabled_keeps hD good_eagerRace exact_eagerRace
+    good_eagerRace exact_eagerRace
 
 /-- R004 keeps every property, and halts where R001 halts. -/
 theorem R004.keeps :
     (R004.engine.costedAt dom K hK).runtime.Keeps (R001.engine.costedAt dom K hK).runtime :=
-  Tabled.tabled_keeps hD Tabled.good_raced Tabled.exact_raced
-    Tabled.good_eagerRace Tabled.exact_eagerRace
+  Tabled.tabled_keeps hD good_raced exact_raced
+    good_eagerRace exact_eagerRace
 
 /-- **R005 keeps every property, and halts where R001 halts.** -/
 theorem R005.keeps :
     (R005.engine.costedAt dom K hK).runtime.Keeps (R001.engine.costedAt dom K hK).runtime :=
-  Tabled.mirror_keeps hD Tabled.good_raced Tabled.exact_raced
-    Tabled.good_eagerRace Tabled.exact_eagerRace
+  Tabled.mirror_keeps hD good_raced exact_raced
+    good_eagerRace exact_eagerRace
 
 /-- **R005 shows what R004 shows**, step for step, up to the order of the
 answers of a step. -/
@@ -67,7 +67,7 @@ theorem R005.trace {P : Program} {q : Rel} (wf : P.WellFormed q) (n : Nat) :
         ((R005.engine.costedAt dom K hK).runtime.init P q) n)
       ((R004.engine.costedAt dom K hK).runtime.trace
         ((R004.engine.costedAt dom K hK).runtime.init P q) n) :=
-  Tabled.mirror_trace hD Tabled.good_raced Tabled.exact_raced wf n
+  Tabled.mirror_trace hD good_raced exact_raced wf n
 
 /-- The properties stated beside `Keeps` that a machine has. -/
 structure Runtime.Record (R : Runtime) : Prop where
@@ -81,12 +81,12 @@ theorem R005.record : (R005.engine.costedAt dom K hK).runtime.Record where
   seqAssoc := Engine.seqAssoc _ dom K hK
   andComm := Engine.andComm _ dom K hK
   andAssoc := Engine.andAssoc _ dom K hK
-  finalMaximal := Tabled.mirror_finalMaximal hD Tabled.good_raced Tabled.exact_raced
+  finalMaximal := Tabled.mirror_finalMaximal hD good_raced exact_raced
 
 /-- **R005 emits no progress certificate.** -/
 theorem R005.neverCertifies {P : Program} {q : Rel} (wf : P.WellFormed q) (k n : Nat) :
     ¬ (R005.engine.costedAt dom K hK).runtime.Certifies
       ((R005.engine.costedAt dom K hK).runtime.init P q) k n :=
-  Tabled.mirror_neverCertifies hD Tabled.good_raced Tabled.exact_raced wf k n
+  Tabled.mirror_neverCertifies hD good_raced exact_raced wf k n
 
 end RwLog

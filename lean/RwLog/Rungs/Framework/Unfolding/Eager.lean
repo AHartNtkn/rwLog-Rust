@@ -15,11 +15,11 @@ read whole.
 open, the closed ones cover every derivation of the goal, which is what the
 tabled machine asks of the unfolding race (`eagerRace_ok`).
 -/
-import RwLog.Rungs.Tabled.Unfolding.EagerVal
+import RwLog.Rungs.Framework.Unfolding.EagerVal
 
 namespace RwLog
 
-namespace Tabled
+open Goals
 
 namespace Unfold
 
@@ -657,7 +657,5 @@ theorem eagerRace_ok (hP : ProgFO P) :
         exact absurd (any_isOpn.2 ⟨l, r, hlr⟩) hop
 
 end Unfold
-
-end Tabled
 
 end RwLog

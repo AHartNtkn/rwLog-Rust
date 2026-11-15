@@ -38,10 +38,15 @@ Kernel/         the executable kernel of spans as written (match, solve, span) a
                 (DomainLaws.lean)
 SpanLayer/      span-level semantics, derivations, coverage vocabulary
 Lib/            facts about lists and greatest fixpoints that mention no rwlog type
-Rungs/Framework generic theorems about any Runtime / Rung
-Rungs/Tabled/   the tabled round machine for any way of unfolding a call (Machine.lean), and
-                the ways R005 races: unfolding to a depth, a walk between boundaries, and
-                the walk with shared sub-chains (Unfold.lean). Written once, against the
+Rungs/Framework generic theorems about any Runtime / Rung; and the unfolding race, which
+                more than one machine hosts: what a race is and its specification
+                (RaceSpec.lean), the ways R005 races, written once against the
+                derivation kernel: unfolding to a depth, a walk between boundaries, and
+                the walk with shared sub-chains (Unfold.lean), and the proofs that each
+                meets the specification and says exactly what the unfolding is
+                (Unfolding/)
+Rungs/Tabled/   the tabled round machine for any unfolding race (Machine.lean), written
+                once, against the
                 derivation kernel. The rest is what is proved of it: the round and its
                 invariant, completeness and honesty (Correct.lean), that it runs the same
                 on a converse, on the mirrored program and with any exact race
@@ -355,7 +360,7 @@ derivation kernel, with the way a call is unfolded left to an `Unfolder`
 (`Tabled.engine u`). A goal is an interval of a chain or a set of members of a
 meet, between two boundaries; a round produces every goal's answers from its
 splits and from the unfolder, then marks as complete the largest set of goals
-that gained nothing and depend only on each other. `Rungs/Tabled/Unfold.lean`
+that gained nothing and depend only on each other. `Rungs/Framework/Unfold.lean`
 has the unfolders: `eagerRace` (unfold every call to a depth, then evaluate),
 `walkRace` (the same answers, walking a chain from a boundary and pruning as
 it goes, from either end) and `sharedRace` (the walk with equal sub-chains
@@ -363,11 +368,11 @@ evaluated once); `raced` races them with `K.race`. Each machine exists once
 and nothing is proved of a second copy (roadmap L04).
 
 The theorems about the tabled machine are proved on that text, for any
-unfolding race that meets a specification (`Tabled.UOk` in
-`Rungs/Tabled/Invariant.lean`: its answers are answers of the goal, and when
+unfolding race that meets a specification (`UOk` in
+`Rungs/Framework/RaceSpec.lean`: its answers are answers of the goal, and when
 it says the unfolding is final they cover every derivation of the goal).
 `Rungs/Tabled/Correct.lean` has them for a race that meets it at every lawful
-domain (`Tabled.Good`): `complete`, `pointComplete`, `honestExhaustion`,
+domain (`Good`): `complete`, `pointComplete`, `honestExhaustion`,
 `honestProgress`, `noSubsumed`, `finalMaximal`. The files before it are the
 steps: what the rules of the derivation kernel return (`Framework/Rules.lean`),
 the tables read as values (`Tables`, `Round`), what the candidates of a goal
@@ -377,14 +382,14 @@ round (`Invariant`), and that every derivation is covered in the end
 (`Kernel/NormalFormDepth.lean`) and the reading of a node by its kind
 (`Kernel/NormalFormSplit.lean`, `NormalFormSpans.lean`, `NormalFormSize.lean`).
 
-`Rungs/Tabled/Unfolding/` proves that each race meets the specification.
+`Rungs/Framework/Unfolding/` proves that each race meets the specification.
 `Sem.lean` says what an unfolding to a depth stands for (`GR P d`: the
 derivations on which every node is read). For each evaluation one file reads
 its text as a value (`EagerVal`, `WalkVal`, `SharedVal`) and one proves the
 specification of what it builds (`Eager`: `POk`, `eagerRace_ok`; `Dir`,
 `WalkChain`, `Walk`: `WOk`, `walkRace_ok` in both directions; `Shared`:
 `SmOk` with the memo's invariant `MemoOk`, `sharedRace_ok`). `Races.lean`
-has `Tabled.good_eagerRace`, `good_walkRace`, `good_sharedRace`, `UOk.race`
+has `good_eagerRace`, `good_walkRace`, `good_sharedRace`, `UOk.race`
 (two races side by side), and `good_raced` for the race of R004 and R005.
 `Rungs/R005/Tables.lean` puts these together: `R001.tableKeeps` and
 `R004.tableKeeps`, which do not use that an interface is exact. What R005 is
@@ -393,7 +398,7 @@ held to beyond that list does (roadmap L58).
 The tabled machine runs the same from either end and with any exact race.
 `Kernel/NormalFormMap.lean` has the map on nodes (`nmap b t`: the converse
 when `b`, read in the mirrored program when `t`), and
-`Rungs/Tabled/Unfolding/ModelMap.lean` that the model of an unfolding says of
+`Rungs/Framework/Unfolding/ModelMap.lean` that the model of an unfolding says of
 the image of a node what it says of the node (`final_nmap`,
 `closedPart_nmap`). On the machine: `Rungs/Tabled/Reading.lean` reads a round
 table by table (`ansOf_next`, `idx_next_cases`, `prodG`); `MapGoal.lean` has
@@ -405,14 +410,14 @@ round keeps two runs in correspondence (`tied_next`); `MapRun.lean` that the
 root tables gain corresponding answers and complete together (`rootGain_map`,
 `rootDone_map`, `rootMax_map`), and that exact races link (`Link.of_ex`).
 `Symmetry.lean` has the theorems for races that say what the unfolding is
-(`Tabled.Exact`, which the races of R001 and R004 are): `sameRun` and
+(`Exact`, which the races of R001 and R004 are): `sameRun` and
 `halts_iff` (two tabled machines that differ in the race show the same thing
 step for step and halt together), `convTrace` and `dualTrace`.
 
 `Kernel/ExactIface.lean` has the set of terms a boundary lets through and
 what it is for an interface, which is exact by the laws of a domain (`bset`,
 `bset_rightBound`, `bset_leftBound`).
-`Rungs/Tabled/Unfolding/Model.lean` says what an unfolding to a depth relates,
+`Rungs/Framework/Unfolding/Model.lean` says what an unfolding to a depth relates,
 product by product, with no machine in it (`SE`, `Final`), and has the algebra
 of sequencing sets of products in either direction (`seqSets`, `chainS`,
 `chainD`, `pushSet`, `seqI_iff_push_ext`). `EagerExact.lean` proves that the
@@ -551,10 +556,10 @@ to R001) uses `SameRun.of_eq`, or simply rewrites.
 | `Rungs/R000/` Chain, Normalize, NormalizeCorrect, Unfold | `Rungs/Naive/`, same file names |
 | `Rungs/R000/` Engine, Correct, Properties (the naive machine) | removed |
 | `Rungs/R000/` Products, Termination | removed |
-| `Rungs/R001/Engine.lean`, `Spec.lean` | removed; `R001.engine` is `Tabled.engine Tabled.Unfold.eagerRace` |
+| `Rungs/R001/Engine.lean`, `Spec.lean` | removed; `R001.engine` is `Tabled.engine Unfold.eagerRace` |
 | `Rungs/R001/Proofs/` Kernel, Base, Derivations, Tier0 and `Tier0/`, Symmetry, SymmetryLists, SymmetryGoals | removed; proved again on the one machine in `Rungs/Tabled/` |
 | the rest of `Rungs/R001/Proofs/` (termination certificates, exact tables, the mirror trace, `R001.keeps`) | removed |
-| `Rungs/R002/` to `Rungs/R004/` (unfolders, their `Gen`, `Spec`, `Reading`, `Proofs/`) | removed; the three ways of unfolding are rewritten in `Rungs/Tabled/Unfold.lean` |
+| `Rungs/R002/` to `Rungs/R004/` (unfolders, their `Gen`, `Spec`, `Reading`, `Proofs/`) | removed; the three ways of unfolding are rewritten in `Rungs/Framework/Unfold.lean` |
 | `Rungs/R005/` Spec, Family, `Proofs/` | removed; `Rungs/R005/Engine.lean` is the engine, `Keeps.lean` what it keeps, `Bounds.lean` the families |
 | `Rungs/Directed/`, `Rungs/Hedge/`, `Tests/DirectedRuns.lean`, `MiddleRuns.lean` | removed |
 | `Tests/R000Runs.lean`, `R001Runs.lean` | removed; `R001.engine` runs in `Tests/R005Runs.lean` |

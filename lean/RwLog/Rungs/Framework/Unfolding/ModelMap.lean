@@ -12,13 +12,13 @@ So an unfolding is final exactly when the unfolding of the mapped node is
 (`final_nmap`), and their closed products relate the same pairs, turned
 round (`closedPart_nmap`).
 -/
-import RwLog.Rungs.Tabled.Unfolding.Model
+import RwLog.Rungs.Framework.Unfolding.Model
 import RwLog.Kernel.NormalFormMap
 import RwLog.SpanLayer.Modulo
 
 namespace RwLog
 
-namespace Tabled
+open Goals
 
 namespace Unfold
 
@@ -399,7 +399,5 @@ theorem closedPart_nmap (b t : Bool) (d : Nat) {e : Rel} (he : Normal e) (A B : 
     · intro h; exact ⟨X.inv, h, rfl⟩
 
 end Unfold
-
-end Tabled
 
 end RwLog

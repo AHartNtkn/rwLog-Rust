@@ -53,7 +53,7 @@ A goal reads its node (`view`) and computes by the kind of the node.
 Beside these every incomplete table asks the *unfolding race* once a round:
 an oracle that says, for a goal and a depth, whether the goal's unfolding to
 that depth is final and, if it is, what its answers are
-(`Rungs/Tabled/Unfold.lean`). The depth is the number of rounds run.
+(`Rungs/Framework/Unfold.lean`). The depth is the number of rounds run.
 
 A candidate enters a table unless it is covered by an answer already there or
 strictly covered by another candidate of the same round; among equal
@@ -73,7 +73,7 @@ When the root table is complete the machine is done, and its final report is
 the maximal answers of the root table.
 -/
 import RwLog.Trusted.Cost
-import RwLog.Rungs.Framework.Goals
+import RwLog.Rungs.Framework.RaceSpec
 import RwLog.Lib.Gfp
 
 namespace RwLog
@@ -97,14 +97,6 @@ run, which is the depth the unfolding race is asked at. -/
 structure StateOf (S N A : Type) where
   tables : List (TableOf S N A)
   depth : Nat
-
-/-- The unfolding race: is the goal's unfolding to this depth final, and its
-answers if it is (none otherwise). -/
-abbrev GOracle (S N A : Type) (M : Type → Type) := Nat → GoalOf S N → M (Bool × List A)
-
-/-- An unfolding race for every derivation kernel. -/
-abbrev Unfolder :=
-  {S N A : Type} → {M : Type → Type} → [DerivationKernel S N A M] → GOracle S N A M
 
 /-- The split points of a chain of `k` members: between the two members of a
 chain of two; after the first and before the last member otherwise. -/

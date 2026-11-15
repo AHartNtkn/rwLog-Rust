@@ -21,11 +21,11 @@ as good as one that is computed (`memo_node`, `memo_spec`).
 `sharedRace_ok`: the race answered with shared work meets `UOk`.
 -/
 import RwLog.Lib.List
-import RwLog.Rungs.Tabled.Unfolding.SharedVal
+import RwLog.Rungs.Framework.Unfolding.SharedVal
 
 namespace RwLog
 
-namespace Tabled
+open Goals
 
 namespace Unfold
 
@@ -637,7 +637,5 @@ theorem sharedRace_ok (hP : ProgFO P) :
       simp [hop] at hfin
 
 end Unfold
-
-end Tabled
 
 end RwLog

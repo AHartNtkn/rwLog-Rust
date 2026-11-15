@@ -6,12 +6,12 @@ kernel of a domain: each is the list its text builds (`glueV`, `seqProdV`,
 `liftV`, `seqAllV`, `meetAllV`), and `eager` by the kind of node it reads
 (`eager_span`, `eager_call`, `eager_union`, `eager_chain`, `eager_meet`).
 -/
-import RwLog.Rungs.Tabled.Unfolding.Sem
-import RwLog.Rungs.Tabled.Unfold
+import RwLog.Rungs.Framework.Unfolding.Sem
+import RwLog.Rungs.Framework.Unfold
 
 namespace RwLog
 
-namespace Tabled
+open Goals
 
 namespace Unfold
 
@@ -175,7 +175,5 @@ theorem eager_meet {xs : List Rel} (h : n.view.forget = .meet xs) :
 end eager
 
 end Unfold
-
-end Tabled
 
 end RwLog

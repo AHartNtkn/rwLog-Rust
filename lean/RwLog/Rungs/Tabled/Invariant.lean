@@ -28,15 +28,6 @@ open Answer
 
 variable {R : Type} [Answer R] [DecidableEq R] {D : Domain R} {P : Program}
 
-/-- The specification of an unfolding race at one kernel. -/
-structure UOk (D : Domain R) (P : Program) (U : GOracle R Rel (Ans D P) Cost) : Prop where
-  /-- Its answers are answers of the goal. -/
-  goal : ∀ n g, GoalOk D g → ∀ a ∈ (U n g).val.2, a.goal = toGoal g
-  /-- When it says the unfolding is final, its answers cover every derivation
-  of the goal. -/
-  final : ∀ n g, GoalOk D g → (U n g).val.1 = true → ∀ k G, G ∈ GDn P k g.node →
-    (pairsOf P g G).Nonempty → Cov (U n g).val.2 (pairsOf P g G)
-
 /-- The answers of the table cover every derivation of its goal. -/
 def Full (P : Program) (t : TableOf R Rel (Ans D P)) : Prop :=
   ∀ k G, G ∈ GDn P k t.goal.node → (pairsOf P t.goal G).Nonempty →

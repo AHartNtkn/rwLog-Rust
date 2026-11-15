@@ -13,12 +13,12 @@ representative exactly when it relates a pair. So the whole unfolding says a
 goal's unfolding is final exactly when the set has no open product
 (`eagerRace_final`).
 -/
-import RwLog.Rungs.Tabled.Unfolding.Model
-import RwLog.Rungs.Tabled.Unfolding.Eager
+import RwLog.Rungs.Framework.Unfolding.Model
+import RwLog.Rungs.Framework.Unfolding.Eager
 
 namespace RwLog
 
-namespace Tabled
+open Goals
 
 namespace Unfold
 
@@ -732,7 +732,5 @@ theorem eagerRace_final (hP : ProgFO P) (d : Nat) (g : GoalOf R Rel) (hg : GoalO
   split <;> simp [*]
 
 end Unfold
-
-end Tabled
 
 end RwLog

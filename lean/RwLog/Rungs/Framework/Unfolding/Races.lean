@@ -2,7 +2,7 @@
 # The unfolding races meet their specification
 
 Each way of answering the unfolding race meets `UOk` at the derivation kernel
-of every lawful domain (`Tabled.Good`): building the whole unfolding
+of every lawful domain (`Good`): building the whole unfolding
 (`good_eagerRace`), a walk in either direction (`good_walkRace`), the shared
 evaluation (`good_sharedRace`), and two of them side by side (`UOk.race`), so
 the left-to-right walk raced with the shared evaluation (`good_walkShared`)
@@ -12,13 +12,12 @@ of R004 and R005.
 A race returns what one of its two sides returns (`Cost.race_val`), which is
 all that is used of it here.
 -/
-import RwLog.Rungs.Tabled.Unfolding.Shared
-import RwLog.Rungs.Tabled.Correct
+import RwLog.Rungs.Framework.Unfolding.Shared
 import RwLog.Rungs.Framework.Race
 
 namespace RwLog
 
-namespace Tabled
+open Goals
 
 open Answer
 
@@ -80,7 +79,5 @@ theorem good_raced : Good Unfold.raced := by
   show UOk D P (Unfold.raced (K := DerivationKernel.over D K hK P))
   rw [e]
   exact h
-
-end Tabled
 
 end RwLog

@@ -10,7 +10,7 @@ It is three things put together.
   goal, the join and the two push strategies for every split of a chain or a
   meet, completion by the largest set of tables that can no longer grow.
 * The unfolding race every table asks once a round
-  (`Rungs/Tabled/Unfold.lean`): the walk from the left, the shared evaluation
+  (`Rungs/Framework/Unfold.lean`): the walk from the left, the shared evaluation
   and the walk from the right, side by side.
 * The mirror (`Rungs/Mirror/Machine.lean`): that machine on the root node and
   on its converse, side by side, so what a query costs does not depend on the
@@ -25,17 +25,18 @@ every constraint domain (`Engine.costedAt`), and at every one of them it is
 sound and no less general than a derivation
 (`Rungs/Framework/Derivation.lean`).
 -/
-import RwLog.Rungs.Tabled.Unfold
+import RwLog.Rungs.Framework.Unfold
+import RwLog.Rungs.Tabled.Machine
 import RwLog.Rungs.Mirror.Machine
 
 namespace RwLog
 
 /-- The tabled machine with the unfolding race answered by building the whole
 unfolding: the proper baseline. -/
-def R001.engine : Engine := Tabled.engine Tabled.Unfold.eagerRace
+def R001.engine : Engine := Tabled.engine Unfold.eagerRace
 
 /-- The tabled machine with the three evaluations of the unfolding raced. -/
-def R004.engine : Engine := Tabled.engine Tabled.Unfold.raced
+def R004.engine : Engine := Tabled.engine Unfold.raced
 
 /-- R005: the tabled machine with the raced unfolding, on the root node and
 on its converse, side by side. -/

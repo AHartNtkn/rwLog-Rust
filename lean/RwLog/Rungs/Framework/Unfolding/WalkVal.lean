@@ -11,11 +11,11 @@ for a meet). The list does not depend on the continuation.
 when the list has an open item, and otherwise returns the answers of the
 list, the first with each representative.
 -/
-import RwLog.Rungs.Tabled.Unfolding.Eager
+import RwLog.Rungs.Framework.Unfolding.Eager
 
 namespace RwLog
 
-namespace Tabled
+open Goals
 
 namespace Unfold
 
@@ -425,7 +425,5 @@ theorem walkRace_val (rev : Bool) (d : Nat) (g : GoalOf R Rel) :
     (if rev then g.lb else g.rb)) itOpn <;> rfl
 
 end Unfold
-
-end Tabled
 
 end RwLog

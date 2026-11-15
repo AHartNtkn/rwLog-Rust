@@ -80,6 +80,15 @@ instance (D : Domain R) (b : Option R) : Decidable (IsBound D b) :=
 omit [Answer R] in
 theorem isBound_none (D : Domain R) : IsBound D none := fun _ h => by cases h
 
+/-- The right interface of a representative is a boundary. -/
+theorem isBound_right {D : Domain R} {M : Interp} (hL : D.Lawful M) (a : R) :
+    IsBound D (D.rightBound a) :=
+  fun r h => hL.rightBound_isBound a r h
+
+/-- The left interface of a representative is a boundary. -/
+theorem isBound_left {D : Domain R} {M : Interp} (hL : D.Lawful M) (a : R) :
+    IsBound D (D.leftBound a) := isBound_right hL _
+
 /-- The goal's boundaries are boundaries. -/
 def Goal.Wf (D : Domain R) (g : Goal R) : Prop := IsBound D g.lb ∧ IsBound D g.rb
 

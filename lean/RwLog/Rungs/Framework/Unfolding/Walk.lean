@@ -13,11 +13,11 @@ one.
 final when it met no open item, meets the specification the tabled machine
 asks of an unfolding race (`UOk`).
 -/
-import RwLog.Rungs.Tabled.Unfolding.WalkChain
+import RwLog.Rungs.Framework.Unfolding.WalkChain
 
 namespace RwLog
 
-namespace Tabled
+open Goals
 
 namespace Unfold
 
@@ -589,7 +589,5 @@ theorem walkRace_ok (hP : ProgFO P) (rev : Bool) :
         exact absurd (any_itOpn.2 ⟨t, ht⟩) hop
 
 end Unfold
-
-end Tabled
 
 end RwLog

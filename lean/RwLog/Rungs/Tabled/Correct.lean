@@ -1,7 +1,7 @@
 /-
 # The tabled machine is correct with any unfolding race that meets its specification
 
-`Tabled.Good U`: the unfolding race `U` meets its specification (`UOk`) at
+`Good U`: the unfolding race `U` meets its specification (`UOk`) at
 the derivation kernel of every lawful domain.
 
 For such a race, and a domain that is lawful at well-formed sorts, the tabled
@@ -25,13 +25,6 @@ namespace RwLog
 namespace Tabled
 
 open Answer
-
-/-- The unfolding race meets its specification at the derivation kernel of
-every lawful domain. -/
-def Good (U : Unfolder) : Prop :=
-  ∀ {R : Type} [Answer R] [DecidableEq R] (D : Domain R) (P : Program) (K : Kernel R Cost)
-    (hK : K.Refines D), D.Lawful P.sorts.interp → ProgFO P →
-      UOk D P (@U R Rel (Ans D P) Cost (DerivationKernel.over D K hK P))
 
 theorem filterMap_root {R : Type} [Answer R] [DecidableEq R] {D : Domain R} {P : Program}
     {root : Rel} : ∀ {l : List (Ans D P)}, (∀ a ∈ l, a.goal = ⟨none, root, none⟩) →

@@ -54,7 +54,7 @@ theorem fo_nmap {e : Rel} (h : e.FO) (b t : Bool) : (nmap b t e).FO := by
   · rw [tf_true, spans_flip] at hs; exact hs
 
 omit [Answer R] [DecidableEq R] in
-theorem GoalOk.gmap {g : GoalOf R Rel} (h : GoalOk D g) (b t : Bool) : GoalOk D (gmap b t g) := by
+theorem _root_.RwLog.GoalOk.gmap {g : GoalOf R Rel} (h : GoalOk D g) (b t : Bool) : GoalOk D (gmap b t g) := by
   cases b
   · exact ⟨h.lb, h.rb, normal_nmap _ _ _, fo_nmap h.fo _ _⟩
   · exact ⟨h.rb, h.lb, normal_nmap _ _ _, fo_nmap h.fo _ _⟩

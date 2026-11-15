@@ -10,11 +10,11 @@ a chain, `membersSV` for the members of a meet and `memoV` for the lookup.
 final when the summary of the goal has no open product, and then returns its
 answers.
 -/
-import RwLog.Rungs.Tabled.Unfolding.Walk
+import RwLog.Rungs.Framework.Unfolding.Walk
 
 namespace RwLog
 
-namespace Tabled
+open Goals
 
 namespace Unfold
 
@@ -275,7 +275,5 @@ theorem sharedRace_val (d : Nat) (g : GoalOf R Rel) :
   simp only [sharedRace, Cost.bind_val, Cost.pure_val, ev]
 
 end Unfold
-
-end Tabled
 
 end RwLog

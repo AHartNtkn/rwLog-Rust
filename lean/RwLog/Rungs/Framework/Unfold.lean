@@ -54,11 +54,11 @@ other. The tabled machine is run with them raced (`Kernel.race`):
 `walkShared` is the left-to-right walk beside `shared`, and `raced` is that
 beside the right-to-left walk.
 -/
-import RwLog.Rungs.Tabled.Machine
+import RwLog.Rungs.Framework.RaceSpec
 
 namespace RwLog
 
-namespace Tabled
+open Goals
 
 namespace Unfold
 
@@ -513,7 +513,5 @@ def raced : GOracle S N A M := fun d g =>
 end
 
 end Unfold
-
-end Tabled
 
 end RwLog
