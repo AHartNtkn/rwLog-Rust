@@ -330,6 +330,418 @@ theorem evalS_chain_ticks {n : Rel} {xs : List Rel} (hv : n.view.forget = .chain
     Cost.pure_val, Option.map, over_view, Charged.viewNode, Charged.op, hv]
   omega
 
+/-! ## Members that split -/
+
+/-- Two closed products of a member that take the terms a context lets
+through to different sets, and different contexts to different sets. -/
+structure Splits (P : Program) (M : Interp) (d : Nat) (x : Rel) (Y : Bool → PRel) : Prop where
+  mem : ∀ f, SP.closed (Y f) ∈ SED P M false d Set.univ x Set.univ
+  live : ∀ f (X : Set GTerm), X.Nonempty → (postS X (Y f)).Nonempty
+  inj : ∀ f g (X X' : Set GTerm), X.Nonempty → X'.Nonempty →
+    postS X (Y f) = postS X' (Y g) → f = g ∧ X = X'
+
+/-- The contexts after the members `Bs`, from one context: one for each
+choice of a product at each member. -/
+def reachL (W : Rel → Bool → PRel) : List Rel → Set GTerm → List (Set GTerm)
+  | [], X => [X]
+  | b :: Bs, X => reachL W Bs (postS X (W b false)) ++ reachL W Bs (postS X (W b true))
+
+section reach
+
+variable {M : Interp} {d : Nat} {W : Rel → Bool → PRel}
+
+theorem reachL_length : ∀ (Bs : List Rel) (X : Set GTerm),
+    (reachL W Bs X).length = 2 ^ Bs.length
+  | [], _ => rfl
+  | b :: Bs, X => by
+    simp only [reachL, List.length_append, reachL_length Bs, List.length_cons, Nat.pow_succ]
+    omega
+
+theorem reachL_cons {b : Rel} {Bs : List Rel} {X Z : Set GTerm} :
+    Z ∈ reachL W (b :: Bs) X ↔ ∃ f, Z ∈ reachL W Bs (postS X (W b f)) := by
+  simp only [reachL, List.mem_append]
+  constructor
+  · rintro (h | h)
+    · exact ⟨false, h⟩
+    · exact ⟨true, h⟩
+  · rintro ⟨f, h⟩
+    cases f
+    · exact .inl h
+    · exact .inr h
+
+/-- Different contexts are followed by different contexts. -/
+theorem reachL_inj : ∀ (Bs : List Rel), (∀ b ∈ Bs, Splits P M d b (W b)) →
+    ∀ (X X' Z : Set GTerm), X.Nonempty → X'.Nonempty → Z ∈ reachL W Bs X →
+      Z ∈ reachL W Bs X' → X = X'
+  | [], _, X, X', Z, _, _, h, h' => by
+    simp only [reachL, List.mem_singleton] at h h'
+    rw [← h, h']
+  | b :: Bs, H, X, X', Z, hX, hX', h, h' => by
+    obtain ⟨f, hf⟩ := reachL_cons.1 h
+    obtain ⟨g, hg⟩ := reachL_cons.1 h'
+    have hb := H b List.mem_cons_self
+    have := reachL_inj Bs (fun z hz => H z (List.mem_cons_of_mem _ hz)) _ _ Z (hb.live f X hX)
+      (hb.live g X' hX') hf hg
+    exact (hb.inj f g X X' hX hX' this).2
+
+theorem reachL_nodup : ∀ (Bs : List Rel), (∀ b ∈ Bs, Splits P M d b (W b)) →
+    ∀ X : Set GTerm, X.Nonempty → (reachL W Bs X).Nodup
+  | [], _, X, _ => by simp [reachL]
+  | b :: Bs, H, X, hX => by
+    have hb := H b List.mem_cons_self
+    have H' : ∀ z ∈ Bs, Splits P M d z (W z) := fun z hz => H z (List.mem_cons_of_mem _ hz)
+    simp only [reachL]
+    refine List.nodup_append.2 ⟨reachL_nodup Bs H' _ (hb.live false X hX),
+      reachL_nodup Bs H' _ (hb.live true X hX), ?_⟩
+    rintro Z h Z' h' rfl
+    have := reachL_inj Bs H' _ _ Z (hb.live false X hX) (hb.live true X hX) h h'
+    exact Bool.noConfusion (hb.inj false true X X hX hX this).1
+
+end reach
+
+/-! ## The summaries of the rest that the memo ends with -/
+
+section count
+
+variable (hL : D.Lawful P.sorts.interp)
+
+local notation "𝕄" => P.sorts.interp
+
+/-- The memo has a summary for the members from the `L`-th on after a context
+that lets `Z` through. -/
+def HasL (L d : Nat) (m : Mm D P) (Z : Set GTerm) : Prop :=
+  ∃ e ∈ m, e.1.idx = L ∧ e.1.d = d ∧ bset 𝕄 e.1.near.bound = Z
+
+omit [DecidableEq R] in
+theorem HasL.mono {L d : Nat} {m : Mm D P} {Z : Set GTerm} (l : Mm D P) (h : HasL L d m Z) :
+    HasL L d (l ++ m) Z := by
+  obtain ⟨e, he, h⟩ := h
+  exact ⟨e, List.mem_append_right _ he, h⟩
+
+omit [DecidableEq R] in
+/-- Summaries after different contexts are different summaries. -/
+theorem pot_ge {L d : Nat} {m : Mm D P} {l : List (Set GTerm)} (hn : l.Nodup)
+    (h : ∀ Z ∈ l, HasL L d m Z) : l.length ≤ pot L d m := by
+  have sub : l ⊆ (m.filter fun e => decide (e.1.idx = L ∧ e.1.d = d)).map
+      fun e => bset 𝕄 e.1.near.bound := by
+    intro Z hZ
+    obtain ⟨e, he, h₁, h₂, rfl⟩ := h Z hZ
+    exact List.mem_map.2 ⟨e, List.mem_filter.2 ⟨he, by simp [h₁, h₂]⟩, rfl⟩
+  have := (List.subperm_of_subset hn sub).length_le
+  rwa [List.length_map, ← List.countP_eq_length_filter] at this
+
+/-- Wherever the memo has a summary for the members of the chain from one of
+the first on, it has one for the rest after every context that follows. -/
+def InvL (W : Rel → Bool → PRel) (BsAll : List Rel) (d : Nat) (m : Mm D P) : Prop :=
+  ∀ e ∈ m, e.1.d = d → 0 < e.1.idx → e.1.idx ≤ BsAll.length →
+    ∀ Z ∈ reachL W (BsAll.drop e.1.idx) (bset 𝕄 e.1.near.bound), HasL BsAll.length d m Z
+
+omit [DecidableEq R] in
+theorem InvL.ext {W : Rel → Bool → PRel} {BsAll : List Rel} {d : Nat} {m : Mm D P}
+    (h : InvL W BsAll d m) (l : Mm D P)
+    (hl : ∀ e ∈ l, e.1.d = d → 0 < e.1.idx → e.1.idx ≤ BsAll.length →
+      ∀ Z ∈ reachL W (BsAll.drop e.1.idx) (bset 𝕄 e.1.near.bound),
+        HasL BsAll.length d (l ++ m) Z) :
+    InvL W BsAll d (l ++ m) := by
+  intro e he h₁ h₂ h₃ Z hZ
+  rcases List.mem_append.1 he with he | he
+  · exact hl e he h₁ h₂ h₃ Z hZ
+  · exact (h e he h₁ h₂ h₃ Z hZ).mono l
+
+omit [DecidableEq R] in
+/-- A fold that threads the memo: what each step keeps is kept, and what a
+step leaves in the memo stays. -/
+theorem foldl_track {ι : Type} (F : Sm D P × Mm D P → ι → Sm D P × Mm D P) (J : Mm D P → Prop)
+    (Post : ι → Mm D P → Prop) (hmono : ∀ a m l, Post a m → Post a (l ++ m)) :
+    ∀ (L : List ι) (init : Sm D P × Mm D P),
+      (∀ a ∈ L, ∀ acc, J acc.2 →
+        J (F acc a).2 ∧ (∃ l, (F acc a).2 = l ++ acc.2) ∧ Post a (F acc a).2) →
+      J init.2 →
+      J (L.foldl F init).2 ∧ (∃ l, (L.foldl F init).2 = l ++ init.2) ∧
+        ∀ a ∈ L, Post a (L.foldl F init).2
+  | [], init, _, hJ => ⟨hJ, ⟨[], rfl⟩, fun _ h => by cases h⟩
+  | a :: L, init, hs, hJ => by
+    obtain ⟨hJ₁, ⟨l₁, e₁⟩, hP₁⟩ := hs a List.mem_cons_self init hJ
+    obtain ⟨hJ₂, ⟨l₂, e₂⟩, hP₂⟩ := foldl_track F J Post hmono L (F init a)
+      (fun b hb => hs b (List.mem_cons_of_mem _ hb)) hJ₁
+    refine ⟨hJ₂, ⟨l₂ ++ l₁, ?_⟩, fun b hb => ?_⟩
+    · simp only [List.foldl_cons]
+      rw [e₂, e₁, List.append_assoc]
+    · simp only [List.foldl_cons]
+      rcases List.mem_cons.1 hb with rfl | hb
+      · rw [e₂]
+        exact hmono _ _ _ hP₁
+      · exact hP₂ b hb
+
+variable (K : Kernel R Cost) (hK : K.Refines D)
+
+/-- The first member's summary followed by the summary of the rest: the same
+for the memo. -/
+theorem sufBodyV_track (sv : Near R → Mm D P → Sm D P × Mm D P) (s : Sm D P × Mm D P)
+    (J : Mm D P → Prop) (Post : Ans D P → Mm D P → Prop)
+    (hmono : ∀ a m l, Post a m → Post a (l ++ m))
+    (h₁ : ∀ a ∈ s.1.closed, ∀ m, J m → J (sv ⟨D.rightBound a.span, true⟩ m).2 ∧
+      (∃ l, (sv ⟨D.rightBound a.span, true⟩ m).2 = l ++ m) ∧
+      Post a (sv ⟨D.rightBound a.span, true⟩ m).2)
+    (h₂ : ∀ o ∈ s.1.opens, ∀ m, J m → J (sv ⟨o, o.isSome⟩ m).2 ∧
+      ∃ l, (sv ⟨o, o.isSome⟩ m).2 = l ++ m)
+    (hJ : J s.2) :
+    J (sufBodyV K hK sv s).2 ∧ (∃ l, (sufBodyV K hK sv s).2 = l ++ s.2) ∧
+      ∀ a ∈ s.1.closed, Post a (sufBodyV K hK sv s).2 := by
+  unfold sufBodyV
+  generalize hr₁ : List.foldl _ ((⟨[], []⟩ : Sm D P), s.2) s.1.closed = r₁
+  have T₁ : J r₁.2 ∧ (∃ l, r₁.2 = l ++ s.2) ∧ ∀ a ∈ s.1.closed, Post a r₁.2 := by
+    rw [← hr₁]
+    exact foldl_track _ J Post hmono _ _ (fun a ha acc hacc => h₁ a ha acc.2 hacc) hJ
+  obtain ⟨J₁, ⟨l₁, e₁⟩, P₁⟩ := T₁
+  generalize hr₂ : List.foldl _ r₁ s.1.opens = r₂
+  have T₂ : J r₂.2 ∧ (∃ l, r₂.2 = l ++ r₁.2) ∧ ∀ o ∈ s.1.opens, True := by
+    rw [← hr₂]
+    exact foldl_track _ J (fun _ _ => True) (fun _ _ _ h => h) _ _
+      (fun o ho acc hacc => ⟨(h₂ o ho acc.2 hacc).1, (h₂ o ho acc.2 hacc).2, trivial⟩) J₁
+  obtain ⟨J₂, ⟨l₂, e₂⟩, -⟩ := T₂
+  refine ⟨J₂, ⟨l₂ ++ l₁, by rw [e₂, e₁, List.append_assoc]⟩, fun a ha => ?_⟩
+  rw [e₂]
+  exact hmono _ _ _ (P₁ a ha)
+
+include hL in
+omit [DecidableEq R] in
+/-- A closed product of a member is among the answers of its summary; the
+answer leaves the context the product takes the context to. -/
+theorem closed_after {c : Near R} {x : Rel} {d : Nat} {s : Sm D P} {Y : PRel}
+    (hs : SemS 𝕄 s = WT P 𝕄 false d c x none) (hc : c.pushed = true ∨ c.bound = none)
+    (hY : SP.closed Y ∈ SED P 𝕄 false d Set.univ x Set.univ)
+    (hne : (postS (bset 𝕄 c.bound) Y).Nonempty) :
+    ∃ a ∈ s.closed, bset 𝕄 (D.rightBound a.span) = postS (bset 𝕄 c.bound) Y := by
+  have hW : SP.closed (restrD false (bset 𝕄 c.bound) Y) ∈ WS P 𝕄 false d c x none := by
+    rcases hc with hp | hb
+    · unfold WS
+      rw [ite_eq_left_of_eq_true _ _ (eq_true hp)]
+      obtain ⟨z, m, hm, hmz⟩ := hne
+      exact ⟨_, hY, .closed ⟨(m, z), hmz, hm, trivial⟩⟩
+    · rw [ws_none hL hb (isBound_none D), hb]
+      have : restrD false (bset 𝕄 (none : Option R)) Y = Y := by
+        ext ⟨u, v⟩
+        exact ⟨fun h => h.1, fun h => ⟨h, trivial, trivial⟩⟩
+      rw [this]
+      exact hY
+  have hm : SI.closed (restrD false (bset 𝕄 c.bound) Y) ∈ SemS 𝕄 s := by
+    rw [hs]
+    exact ⟨_, hW, rfl⟩
+  obtain ⟨a, ha, e⟩ := sems_closed_iff.1 hm
+  refine ⟨a, ha, ?_⟩
+  rw [bset_rightBound hL, e]
+  exact farEnds_restrD false _ _
+
+theorem lookupV_some {m : Mm D P} {k : Key R Rel} {s : Sm D P} (h : lookupV m k = some s) :
+    ∃ p ∈ m, p.1 = k := by
+  unfold lookupV at h
+  obtain ⟨p, hp, -⟩ := Option.map_eq_some_iff.1 h
+  exact ⟨p, List.mem_of_find?_eq_some hp, sameKeyV_eq (by simpa using List.find?_some hp)⟩
+
+include hL in
+/-- The members of a chain from the `i`-th on, the first of which split: the
+memo ends with a summary of the rest after every context that follows the
+context they are evaluated after. -/
+theorem sufSV_split (hP : ProgFO P) {n : Rel} {d : Nat} {far : Option R} (hfar : IsBound D far)
+    (hn : Normal n) (hfo : n.FO) {BsAll : List Rel} {y : Rel} {ys : List Rel} (hys : ys ≠ [])
+    (hBs : BsAll ≠ []) (hv : n.view.forget = .chain (BsAll ++ y :: ys)) (W : Rel → Bool → PRel)
+    (HB : ∀ b ∈ BsAll, Splits P 𝕄 d b (W b)) :
+    ∀ (Bs : List Rel) (i : Nat) (c : Near R) (m : Mm D P), BsAll.drop i = Bs →
+      i + Bs.length = BsAll.length → IsBound D c.bound → (c.pushed = true ∨ c.bound = none) →
+      MemoOk m ∧ MemoEx m ∧ InvL (P := P) W BsAll d m →
+      (MemoOk (sufSV K hK (evalSV K hK d) n d far i (Bs ++ y :: ys) c m).2 ∧
+          MemoEx (sufSV K hK (evalSV K hK d) n d far i (Bs ++ y :: ys) c m).2 ∧
+          InvL (P := P) W BsAll d (sufSV K hK (evalSV K hK d) n d far i (Bs ++ y :: ys) c m).2) ∧
+        (∃ l, (sufSV K hK (evalSV K hK d) n d far i (Bs ++ y :: ys) c m).2 = l ++ m) ∧
+        ∀ Z ∈ reachL W Bs (bset 𝕄 c.bound),
+          HasL (P := P) BsAll.length d
+            (sufSV K hK (evalSV K hK d) n d far i (Bs ++ y :: ys) c m).2 Z := by
+  have hvc := forget_chain hv
+  obtain ⟨-, hmem, -⟩ := hn.view_chain hvc
+  have HW : MembersS (P := P) (evalSV K hK d) d (BsAll ++ y :: ys) :=
+    fun x hx c' fr m₂ hm₂ hc' hfr => evalS_ok hL K hK hP d c' x fr m₂ hm₂ hc' hfr (hmem x hx).1
+      (hfo.view_members (by rw [hvc]; exact hx))
+  have HX : MembersEx (P := P) (evalSV K hK d) d (BsAll ++ y :: ys) :=
+    fun x hx c' fr m₂ hm₂ hmx₂ hc' hfr => evalS_ex hL K hK hP d c' x fr m₂ hm₂ hmx₂ hc' hfr
+      (hmem x hx).1 (hfo.view_members (by rw [hvc]; exact hx))
+  have hns : ∀ x ∈ BsAll ++ y :: ys, NotSeq x := fun x hx => (hmem x hx).2
+  have hpos : 0 < BsAll.length := List.length_pos_of_ne_nil hBs
+  -- what the lemmas about the summary say of the members from the `i`-th on
+  have whole : ∀ (xs : List Rel) (i : Nat) (c : Near R) (m : Mm D P), xs ≠ [] →
+      (BsAll ++ y :: ys).drop i = xs → IsBound D c.bound → MemoOk m → MemoEx m →
+      MemoOk (sufSV K hK (evalSV K hK d) n d far i xs c m).2 ∧
+        MemoEx (sufSV K hK (evalSV K hK d) n d far i xs c m).2 := by
+    intro xs i c m hne hdrop hc hm hmx
+    have sub : ∀ x ∈ xs, x ∈ BsAll ++ y :: ys := fun x hx =>
+      List.mem_of_mem_drop (hdrop ▸ hx)
+    exact ⟨(suf_ok hL K hK (evalSV K hK d) hfar hn hfo hv xs i c m hne hdrop
+        (fun x hx => HW x (sub x hx)) (fun x hx => hns x (sub x hx)) hm hc).2,
+      (suf_ex hL K hK (evalSV K hK d) hfar hn hfo hv xs i c m hne hdrop
+        (fun x hx => HW x (sub x hx)) (fun x hx => HX x (sub x hx))
+        (fun x hx => hns x (sub x hx)) hm hmx hc).2⟩
+  intro Bs
+  induction Bs with
+  | nil =>
+    intro i c m hd hlen hc _ ⟨hm, hmx, hinv⟩
+    obtain ⟨y', ys', rfl⟩ := List.exists_cons_of_ne_nil hys
+    have hi : i = BsAll.length := by simpa using hlen
+    have hi0 : i ≠ 0 := by omega
+    have hdrop : (BsAll ++ y :: y' :: ys').drop i = y :: y' :: ys' := by
+      rw [List.drop_append_of_le_length (by omega), hd]
+      rfl
+    simp only [List.nil_append]
+    obtain ⟨ok, ex⟩ := whole _ i c m (by simp) hdrop hc hm hmx
+    obtain ⟨l, el, nl⟩ := sufSV_gr K hK (evalSV K hK d) n d far (evalSV_gr K hK d)
+      (y :: y' :: ys') i c m
+    have has : ∃ e ∈ (sufSV K hK (evalSV K hK d) n d far i (y :: y' :: ys') c m).2,
+        e.1 = ⟨n, i, d, c, far⟩ := by
+      simp only [sufSV, hi0, ite_false]
+      exact memoV_has _ _ _
+    refine ⟨⟨ok, ex, ?_⟩, ⟨l, el⟩, ?_⟩
+    · rw [el]
+      refine hinv.ext l fun e he hde h0 hle Z hZ => ?_
+      have hidx : e.1.idx = BsAll.length := by
+        rcases nl e he with (h | h) | h
+        · omega
+        · omega
+        · omega
+      rw [hidx, List.drop_length] at hZ
+      simp only [reachL, List.mem_singleton] at hZ
+      exact ⟨e, List.mem_append_left _ he, hidx, hde, hZ.symm⟩
+    · intro Z hZ
+      simp only [reachL, List.mem_singleton] at hZ
+      obtain ⟨e, he, hk⟩ := has
+      exact ⟨e, he, by rw [hk]; exact hi, by rw [hk], by rw [hk]; exact hZ.symm⟩
+  | cons b Bs' ih =>
+    intro i c m hd hlen hc hpc ⟨hm, hmx, hinv⟩
+    have hlen' : i + 1 + Bs'.length = BsAll.length := by
+      simp only [List.length_cons] at hlen
+      omega
+    have hd' : BsAll.drop (i + 1) = Bs' := by
+      rw [← List.tail_drop, hd]
+      rfl
+    have hbm : b ∈ BsAll := List.mem_of_mem_drop (hd ▸ List.mem_cons_self)
+    have hb := HB b hbm
+    have hbx : b ∈ BsAll ++ y :: ys := List.mem_append_left _ hbm
+    have hdrop : (BsAll ++ y :: ys).drop i = b :: (Bs' ++ y :: ys) := by
+      rw [List.drop_append_of_le_length (by omega), hd]
+      rfl
+    obtain ⟨ok, ex⟩ := whole _ i c m (by simp) hdrop hc hm hmx
+    obtain ⟨z, zs, hz⟩ : ∃ z zs, Bs' ++ y :: ys = z :: zs := by
+      cases Bs' <;> exact ⟨_, _, rfl⟩
+    simp only [List.cons_append, hz] at ih ok ex ⊢
+    -- the first member, then the rest after each of its products
+    obtain ⟨ok_s, mok_s⟩ := evalS_ok hL K hK hP d c b none m hm hc (isBound_none D)
+      (hmem b hbx).1 (hfo.view_members (by rw [hvc]; exact hbx))
+    obtain ⟨ex_s, mex_s⟩ := evalS_ex hL K hK hP d c b none m hm hmx hc (isBound_none D)
+      (hmem b hbx).1 (hfo.view_members (by rw [hvc]; exact hbx))
+    obtain ⟨l₀, e₀, n₀⟩ := evalSV_gr (P := P) K hK d c b none m
+    have inv_s : InvL (P := P) W BsAll d (evalSV K hK d c b none m).2 := by
+      rw [e₀]
+      refine hinv.ext l₀ fun e he hde h0 _ => ?_
+      rcases n₀ e he with h | h <;> omega
+    obtain ⟨JB, ⟨lB, eB⟩, PB⟩ := sufBodyV_track K hK
+      (sufSV K hK (evalSV K hK d) n d far (i + 1) (z :: zs)) (evalSV K hK d c b none m)
+      (fun m => MemoOk m ∧ MemoEx m ∧ InvL (P := P) W BsAll d m)
+      (fun a m => ∀ Z ∈ reachL W Bs' (bset 𝕄 (D.rightBound a.span)),
+        HasL (P := P) BsAll.length d m Z)
+      (fun a m l h Z hZ => (h Z hZ).mono l)
+      (fun a _ m₂ hm₂ => ih (i + 1) ⟨D.rightBound a.span, true⟩ m₂ hd' hlen'
+        (isBound_right hL _) (.inl rfl) hm₂)
+      (fun o ho m₂ hm₂ => by
+        have := ih (i + 1) ⟨o, o.isSome⟩ m₂ hd' hlen' (ok_s.bound o ho)
+          (by cases o
+              · exact .inr rfl
+              · exact .inl rfl) hm₂
+        exact ⟨this.1, this.2.1⟩)
+      ⟨mok_s, mex_s, inv_s⟩
+    have reach : ∀ Z ∈ reachL W (b :: Bs') (bset 𝕄 c.bound),
+        HasL (P := P) BsAll.length d
+          (sufBodyV K hK (sufSV K hK (evalSV K hK d) n d far (i + 1) (z :: zs))
+            (evalSV K hK d c b none m)).2 Z := by
+      intro Z hZ
+      obtain ⟨f, hf⟩ := reachL_cons.1 hZ
+      obtain ⟨a, ha, ea⟩ := closed_after hL ex_s hpc (hb.mem f)
+        (hb.live f _ (bset_nonempty hL hc))
+      exact PB a ha Z (by rw [ea]; exact hf)
+    by_cases hi0 : i = 0
+    · simp only [sufSV, hi0, ite_true]
+      rw [hi0] at JB eB reach
+      exact ⟨JB, ⟨lB ++ l₀, by rw [eB, e₀, List.append_assoc]⟩, reach⟩
+    · simp only [sufSV, hi0, ite_false] at ok ex ⊢
+      unfold memoV at ok ex ⊢
+      cases hlk : lookupV m ⟨n, i, d, c, far⟩ with
+      | some s' =>
+        refine ⟨⟨hm, hmx, hinv⟩, ⟨[], rfl⟩, ?_⟩
+        obtain ⟨p, hp, hpk⟩ := lookupV_some hlk
+        have := hinv p hp
+        rw [hpk] at this
+        have := this rfl (by show 0 < i; omega) (by show i ≤ BsAll.length; omega)
+        rw [show BsAll.drop i = b :: Bs' from hd] at this
+        exact this
+      | none =>
+        simp only [hlk] at ok ex
+        have inv' : InvL (P := P) W BsAll d
+            ((⟨n, i, d, c, far⟩,
+              (sufBodyV K hK (sufSV K hK (evalSV K hK d) n d far (i + 1) (z :: zs))
+                (evalSV K hK d c b none m)).1) ::
+              (sufBodyV K hK (sufSV K hK (evalSV K hK d) n d far (i + 1) (z :: zs))
+                (evalSV K hK d c b none m)).2) := by
+          refine JB.2.2.ext [_] fun e he _ _ _ Z hZ => ?_
+          obtain rfl := List.mem_singleton.1 he
+          rw [show BsAll.drop i = b :: Bs' from hd] at hZ
+          exact (reach Z hZ).mono [_]
+        exact ⟨⟨ok, ex, inv'⟩, ⟨_ :: (lB ++ l₀), by rw [eB, e₀, List.cons_append, List.append_assoc]⟩,
+          fun Z hZ => (reach Z hZ).mono [_]⟩
+
+include hL in
+/-- The members of a chain the first `k` of which split: the memo ends with
+`2 ^ k` summaries of the rest. -/
+theorem sufSV_prefix_count (hP : ProgFO P) {n : Rel} {d : Nat} {far : Option R}
+    (hfar : IsBound D far) (hn : Normal n) (hfo : n.FO) {Bs : List Rel} {y : Rel} {ys : List Rel}
+    (hys : ys ≠ []) (hBs : Bs ≠ []) (hv : n.view.forget = .chain (Bs ++ y :: ys))
+    (W : Rel → Bool → PRel) (HB : ∀ b ∈ Bs, Splits P 𝕄 d b (W b)) (c : Near R)
+    (hc : c.bound = none) :
+    2 ^ Bs.length ≤
+      pot Bs.length d (sufSV K hK (evalSV (P := P) K hK d) n d far 0 (Bs ++ y :: ys) c []).2 := by
+  have hcb : IsBound D c.bound := by rw [hc]; exact isBound_none D
+  obtain ⟨-, -, hreach⟩ := sufSV_split hL K hK hP hfar hn hfo hys hBs hv W HB Bs 0 c []
+    (List.drop_zero ..) (Nat.zero_add _) hcb (.inr hc)
+    ⟨fun p hp => (by cases hp), fun p hp => (by cases hp), fun p hp => (by cases hp)⟩
+  have := pot_ge (P := P) (reachL_nodup Bs HB _ (bset_nonempty hL hcb)) hreach
+  rwa [reachL_length] at this
+
+include hL in
+/-- The race answered with shared work costs `2 ^ k` on a goal whose chain
+starts with `k` members that split. -/
+theorem sharedRace_prefix_ticks (hP : ProgFO P) (d : Nat) (g : GoalOf R Rel) (hg : GoalOk D g)
+    {Bs : List Rel} {y : Rel} {ys : List Rel} (hys : ys ≠ []) (hBs : Bs ≠ [])
+    (hv : g.node.view.forget = .chain (Bs ++ y :: ys)) (W : Rel → Bool → PRel)
+    (HB : ∀ b ∈ Bs, Splits P 𝕄 (d + 1) b (W b)) (hnear : g.lb = none) :
+    2 ^ Bs.length ≤ (sharedRace (K := DerivationKernel.over D K hK P) (d + 1 + 1) g).ticks := by
+  have hpos : 0 < Bs.length := List.length_pos_of_ne_nil hBs
+  have h₁ := sufSV_prefix_count hL K hK hP hg.rb hg.normal hg.fo hys hBs hv W HB ⟨g.lb, false⟩
+    hnear
+  have h₂ := sufS_pot (P := P) (L := Bs.length) (d := d + 1) K hK
+    (evalS (K := DerivationKernel.over D K hK P) (d + 1))
+    (fun c x fr m => by
+      rw [evalS_val]
+      refine (evalSV_gr K hK (d + 1) c x fr m).pot_eq fun k hk hcount => ?_
+      rcases hk with h | h <;> omega)
+    (fun c x fr m => evalS_pos K hK d c x fr m) g.node g.rb (Bs ++ y :: ys) 0 ⟨g.lb, false⟩ []
+  rw [sufS_val K hK _ _ (evalS_val K hK (d + 1))] at h₂
+  have h₃ := evalS_chain_ticks (P := P) K hK hv (d + 1) ⟨g.lb, false⟩ g.rb
+  have h₄ : (evalS (K := DerivationKernel.over D K hK P) (d + 1 + 1) ⟨g.lb, false⟩ g.node g.rb
+      []).ticks ≤ (sharedRace (K := DerivationKernel.over D K hK P) (d + 1 + 1) g).ticks := by
+    at_cost K hK
+    simp only [sharedRace, Cost.bind_ticks]
+    omega
+  have h₀ : pot Bs.length (d + 1) ([] : Mm D P) = 0 := rfl
+  omega
+
+end count
+
 end Unfold
 
 end RwLog
