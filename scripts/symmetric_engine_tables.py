@@ -165,10 +165,18 @@ class Goal:
                 if g.level[k] != lv: continue
                 d = 0; subs = []
                 for s in ss:
-                    t = s.step()
-                    while t:
-                        s.spent += t; s.own += t; g.own += t; d += t; M.round_ticks += t
-                        t = s.step() if whole else 0
+                    if M.turn:
+                        # a bounded turn: `turn` ticks for the strategy and for each strategy upstream of it
+                        s.bank = min(getattr(s, 'bank', 0), 0) + M.turn * M.weight(s)
+                        while s.bank > 0:
+                            t = s.step()
+                            if not t: break
+                            s.bank -= t; s.spent += t; s.own += t; g.own += t; d += t; M.round_ticks += t
+                    else:
+                        t = s.step()
+                        while t:
+                            s.spent += t; s.own += t; g.own += t; d += t; M.round_ticks += t
+                            t = s.step() if whole else 0
                     for h in s.feeds():
                         if h not in subs: subs.append(h)
                 for h in subs: d += h.advance()
@@ -181,7 +189,16 @@ class Goal:
             # the race asks once more while it has spent no more than its budget. It takes no group's
             # turn and raises no level. The budget grows with every round, so the race of a goal that
             # has rounds for ever is asked at every depth.
-            t = g.race.step(); g.race.spent += t; M.round_ticks += t
+            if M.race_cap:
+                # a bounded ask: it may cost what is left of the budget and no more. An ask that needs
+                # more is given up and the next is tried when twice as much is left.
+                left = g.own + g.rounds - g.race.spent
+                if left >= 2 * getattr(g.race, 'gave_up', 0):
+                    t = g.race.step(limit=left)
+                    if t is None: g.race.gave_up = left; t = left
+                    g.race.spent += t; M.round_ticks += t
+            else:
+                t = g.race.step(); g.race.spent += t; M.round_ticks += t
         g.check()
         g.delta = min(g.level[k] for k in groups) - low
         return g.delta
@@ -379,7 +396,7 @@ class Race(Strat):
     The cost is that of the compositions, counted as everywhere, and one tick for each node read;
     the products of a node between the same boundaries at the same depth are built once in an ask."""
     def __init__(s, g): super().__init__(g); s.depth = 0; s.fin = False
-    def step(s):
+    def step(s, limit=None):
         if s.fin: return 0
         g = s.g; prog = g.M.prog; memo = {}; t = [0]
         def comp(x, y):
@@ -414,6 +431,7 @@ class Race(Strat):
                     out = ps if out is None else {r for r in (seq(p, q) for p in out for q in ps) if r is not None}
             memo[k] = out; return out
         ps = se(s.depth, g.lb, g.node, g.rb)
+        if limit is not None and t[0] > limit: return None
         if any(p[0] == 'o' for p in ps): s.depth += 1
         else:
             s.fin = True
@@ -453,8 +471,8 @@ class Machine:
            behind a table that several strategies fill, and the lag multiplies per level). tickb: the
            budget of a unit in ticks. per_stream: a copy and a push take one answer from each goal they
            read in a unit (measured: does not remove the lag)."""
-    def __init__(M, prog, query, rule='alt', push=True, open_calls=False, e1=False, units='goal', cover=False, each=False, check_apart=False, check_calls=False, defer=False, drop_dead=False, fair_units=False, race=False, per_stream=False, weights=True, tickb=0):
-        M.race = race; M.per_stream = per_stream; M.weights = weights; M.tickb = tickb
+    def __init__(M, prog, query, rule='alt', push=True, open_calls=False, e1=False, units='goal', cover=False, each=False, check_apart=False, check_calls=False, defer=False, drop_dead=False, fair_units=False, race=False, per_stream=False, weights=True, tickb=0, turn=0, race_cap=False):
+        M.race = race; M.per_stream = per_stream; M.weights = weights; M.tickb = tickb; M.turn = turn; M.race_cap = race_cap; M.up = {}
         M.defer = defer; M.requests = 0; M.drop_dead = drop_dead; Pairs.fair = fair_units
         M.each = each; M.check_apart = check_apart; M.check_calls = check_calls
         M.prog, M.rule, M.push, M.open_calls, M.e1, M.units, M.cover = prog, rule, push, open_calls, e1, units, cover
@@ -463,6 +481,23 @@ class Machine:
         M.goals = {}; M.order = []
         M.root = M.goal(None, query, None, True)
         M.ticks = 0; M.first = None; M.first_req = None
+    def weight(M, s):
+        """One more than the number of strategies of the goals upstream of each goal `s` reads, as they
+        stand when first asked in this request."""
+        w = 1
+        for h in dict.fromkeys(s.feeds()):
+            if h not in M.up:
+                seen, stack, n = {h}, [h], 0
+                while stack:
+                    x = stack.pop()
+                    if x.strats is None: continue
+                    n += len(x.strats)
+                    for u in x.strats:
+                        for y in u.feeds():
+                            if y not in seen: seen.add(y); stack.append(y)
+                M.up[h] = n
+            w += M.up[h]
+        return w
     def goal(M, lb, node, rb, structural):
         k = (lb, node, rb)
         if k not in M.goals: M.goals[k] = Goal(M, lb, node, rb, structural); M.order.append(M.goals[k])
@@ -528,7 +563,7 @@ class Machine:
         M.requests += 1
         r = M.rule
         if r == 'level':
-            M.round = M.requests; M.round_ticks = 0
+            M.round = M.requests; M.round_ticks = 0; M.up = {}
             M.root.advance(); M.closure()
             return M.round_ticks
         if r == 'rate':
@@ -817,6 +852,21 @@ BUILT = ('the engine as built', dict(LEAN, race='own'))
 UNIT1 = ('a unit per strategy', dict(rule='rate', fair_units=True, cover=True, check_calls=True, race='own', weights=False))
 RATE = ('units by strategies upstream', dict(rule='rate', fair_units=True, cover=True, check_calls=True, race='own'))
 RATE4 = ('the same, 4 ticks a unit', dict(RATE[1], tickb=4))
+BAL4 = ('split balance, turns of 4 ticks by weight', dict(LEAN, race='own', turn=4, race_cap=True))
+BAL16 = ('the same, 16 ticks', dict(LEAN, race='own', turn=16, race_cap=True))
+BUILTC = ('as built, bounded race', dict(LEAN, race='own', race_cap=True))
+def t16():
+    for n, f, ks, c, lim in (
+            ('counting down beside every string', beside, (4, 8, 16), ('first', 'req', 'goals'), 2_000_000),
+            ('fair OR, three members that never finish', lambda k: fair(k, 3), (4, 8, 12), ('first', 'req', 'goals'), 2_000_000),
+            ('strings of k bits', strings, (4, 8, 10), ('first', 'req', 'goals'), 2_000_000),
+            ('the line beside an endless member', beside_endless, (4, 8, 16, 32), ('first', 'req', 'goals'), 8_000_000),
+            ('counting down, to the halt', countdown, (4, 8, 16), ('halt', 'req', 'goals'), 3_000_000),
+            ('bit^k ; ($x -> t_k) ; unbit^k with pushes', mid, (4, 6, 8, 10), ('halt', 'req', 'goals'), 30_000_000),
+            ('the ladder', ladder, (4, 6, 10, 12), ('halt', 'req', 'goals'), 30_000_000)):
+        table('16. The split balance with bounded turns: %s' % n, f, ks, [BUILTC, BAL4, BAL16, RATE4], cols=c, limit=lim)
+        sys.stdout.flush()
+TABLES['16'] = t16
 TABLES.update({
  '15': lambda: [table('15. Bounded turns: %s' % n, f, ks, [BUILT, UNIT1, RATE, RATE4], cols=c, limit=lim)
                for n, f, ks, c, lim in (
