@@ -97,6 +97,8 @@ class Goal:
         g.own = 0                                 # ticks of this goal's own work
         g.stamp, g.delta, g.level = -1, 0, {}     # for the split balance
         g.born = M.requests                       # the request the goal was opened in
+        g.rounds = 0                              # the rounds the goal has had
+        g.race = None                             # the unfolding race of a chain goal, when it follows the splits
     def add(g, a, producer):
         g.by.setdefault(producer, []).append(a)
         if a not in g.seen: g.seen.add(a); g.ans.append(a)
@@ -121,6 +123,9 @@ class Goal:
                         pats = M.edge(a if left else b, left)
                         if pats: g.strats.append(Cover(g, a, b, left, pats))
                 for s in g.strats[first:]: s.split = 'check' if (M.check_apart and isinstance(s, Cover)) else k
+            if M.race == 'group':
+                r = Race(g); r.split = 'race'; g.strats.append(r)
+            elif M.race in ('follow', 'own'): g.race = Race(g)
             if M.open_calls:
                 for i, e in enumerate(es):
                     if e[0] == 'call':
@@ -129,6 +134,7 @@ class Goal:
                         g.strats.append(Copy(g, [(g.lb, chain(*es[:i], m, *es[i + 1:]), g.rb) for m in ms], False))
     def check(g):
         if not g.done and g.strats is not None and any(s.complete() for s in g.strats): g.done = True
+        if not g.done and g.race is not None and g.race.fin: g.done = True
     def advance(g):
         """The split balance: one round of this goal. The strategies of one split of a chain (its
         join, its two pushes, its interface checks) are one group. Only the groups that stand lowest
@@ -169,6 +175,13 @@ class Goal:
                 g.level[k] += d
                 moved = moved or d > 0
             if moved: break      # a group that can do nothing passes its turn to the next lowest
+        g.rounds += 1
+        if g.race is not None and not g.race.fin and g.race.spent <= (
+                max(g.level[k] for k in groups) if M.race == 'follow' else g.own + g.rounds):
+            # the race asks once more while it has spent no more than its budget. It takes no group's
+            # turn and raises no level. The budget grows with every round, so the race of a goal that
+            # has rounds for ever is asked at every depth.
+            t = g.race.step(); g.race.spent += t; M.round_ticks += t
         g.check()
         g.delta = min(g.level[k] for k in groups) - low
         return g.delta
@@ -340,6 +353,60 @@ class Cover(Strat):
     def pending(s): return s.subs is None or not s.live()
     def complete(s): return s.subs is not None and all(h.done and not h.ans for h in s.subs)
 
+class Race(Strat):
+    """The unfolding race of R005, hosted by a chain goal (design note, fourth and fifth revisions
+    of 2026-11-15). A unit asks at the next depth: the products of the unfolding of the node to that
+    depth between the boundaries of the goal. A closed product is a span; an open one is a branch
+    that met a node at depth 0, and keeps only what its two ends let through. Spans that meet are
+    composed, and a product whose stretches do not meet is dropped. If no product is open the
+    unfolding is final: the closed products are the answers of the goal and the goal is complete.
+    The cost is that of the compositions, counted as everywhere, and one tick for each node read;
+    the products of a node between the same boundaries at the same depth are built once in an ask."""
+    def __init__(s, g): super().__init__(g); s.depth = 0; s.fin = False
+    def step(s):
+        if s.fin: return 0
+        g = s.g; prog = g.M.prog; memo = {}; t = [0]
+        def comp(x, y):
+            t[0] += cost(x, y); return compose(x, y)
+        def seq(p, q):
+            if p[0] == 'c' and q[0] == 'c':
+                z = comp(p[1], q[1]); return None if z is None else ('c', z)
+            if p[0] == 'c':
+                if q[1] is None: return ('o', bound(p[1][0]), q[2])
+                z = comp(p[1], (q[1], q[1])); return None if z is None else ('o', bound(z[0]), q[2])
+            if q[0] == 'c':
+                if p[2] is None: return ('o', p[1], bound(q[1][1]))
+                z = comp((p[2], p[2]), q[1]); return None if z is None else ('o', p[1], bound(z[1]))
+            if p[2] is not None and q[1] is not None and comp((p[2], p[2]), (q[1], q[1])) is None: return None
+            return ('o', p[1], q[2])
+        def se(d, A, n, B):
+            k = (d, A, n, B)
+            if k in memo: return memo[k]
+            t[0] += 1
+            if d == 0: out = {('o', A, B)}
+            elif n[0] == 'span':
+                x = n[1]
+                if A is not None and x is not None: x = comp((A, A), x)
+                if B is not None and x is not None: x = comp(x, (B, B))
+                out = set() if x is None else {('c', x)}
+            elif n[0] == 'call': out = se(d - 1, A, prog[n[1]], B)
+            elif n[0] == 'union': out = set().union(*[se(d - 1, A, m, B) for m in n[1]])
+            else:
+                es = n[1]; out = None
+                for i, e in enumerate(es):
+                    ps = se(d - 1, A if i == 0 else None, e, B if i + 1 == len(es) else None)
+                    out = ps if out is None else {r for r in (seq(p, q) for p in out for q in ps) if r is not None}
+            memo[k] = out; return out
+        ps = se(s.depth, g.lb, g.node, g.rb)
+        if any(p[0] == 'o' for p in ps): s.depth += 1
+        else:
+            s.fin = True
+            for p in sorted(ps, key=repr): g.add(p[1], s)
+        return t[0]
+    def feeds(s): return []
+    def pending(s): return not s.fin
+    def complete(s): return s.fin
+
 class Machine:
     """rule: 'share' | 'flat' (every opened goal) | 'sflat' (goals not opened by a push or an opened call)
              | 'alt' (share and flat in turn, as the design note has it) | 'alt-s' (share and sflat in turn)
@@ -353,9 +420,18 @@ class Machine:
            reads next the goal it has read least.
     drop_dead: a group of interface checks each of which has a goal with an answer is removed from its
            goal, as the Lean engine does; without it the group stays with its level frozen.
+    race: every chain goal has the unfolding race of R005 (see `Race`). 'group': as one more group,
+           balanced by level with the splits (measured and rejected: it takes turns from the splits at
+           every level of nesting, and fair OR is lost). 'follow' and 'own': beside the groups, taking no
+           turn and raising no level; after the round of the goal it asks once more if it has spent no
+           more than a budget. 'follow': the level of the highest group (measured and rejected: a level
+           counts the work below a goal once for every goal above it, so the races together spend far
+           more than the tables). 'own': the ticks of the goal's own work plus the rounds it has had
+           (adopted).
     defer: a goal opened during a request has its first round in the next request, so the goals that
            take part in a request are among those open when it starts."""
-    def __init__(M, prog, query, rule='alt', push=True, open_calls=False, e1=False, units='goal', cover=False, each=False, check_apart=False, check_calls=False, defer=False, drop_dead=False, fair_units=False):
+    def __init__(M, prog, query, rule='alt', push=True, open_calls=False, e1=False, units='goal', cover=False, each=False, check_apart=False, check_calls=False, defer=False, drop_dead=False, fair_units=False, race=False):
+        M.race = race
         M.defer = defer; M.requests = 0; M.drop_dead = drop_dead; Pairs.fair = fair_units
         M.each = each; M.check_apart = check_apart; M.check_calls = check_calls
         M.prog, M.rule, M.push, M.open_calls, M.e1, M.units, M.cover = prog, rule, push, open_calls, e1, units, cover
@@ -401,10 +477,12 @@ class Machine:
     def closure(M):
         """R001's exact check: the largest set of open goals each of which has a strategy with nothing
         left to do whose sub-goals are complete or in the set."""
+        for g in M.order: g.check()
         S = {g for g in M.order if not g.done and g.strats is not None}
         def quiet(s, S):
             if s.pending(): return False
             if isinstance(s, SpanS): return s.ran
+            if isinstance(s, Race): return s.fin
             if isinstance(s, Cover): return s.subs is not None and all(h.done or h in S for h in s.subs)
             if isinstance(s, Copy): return all(h.done or h in S for h in s.subs)
             if isinstance(s, Join): return all(h.done or h in S for h in (s.a, s.b))
@@ -627,6 +705,29 @@ TABLES.update({
                                     ('fair OR, three members that never finish', lambda k: fair(k, 3), (2, 4, 6, 8), ('first', 'req', 'goals')))],
  '12': lambda: table('12. The ladder past n = 12 under the rules of sections 3 and 4', ladder, (12, 16, 20, 24, 28),
                      [SH, FL, WHOLE], cols=('halt', 'goals'), limit=30_000_000),
+})
+# ---------------------------------------------------------------- the race (section 11 of the note)
+LEAN = dict(rule='level', units='alone', cover=True, check_apart=True, check_calls=True, defer=True, drop_dead=True, fair_units=True)
+ENG = ('the engine as built', LEAN)
+ENGR = ('the race as a group', dict(LEAN, race='group'))
+RACE = ('held to the level', dict(LEAN, race='follow'))
+OWN = ('held to own work', dict(LEAN, race='own'))
+OWNN = ('held to own work, no check', dict(LEAN, race='own', cover=False))
+def t14():
+    print('\n14. p ; q and the same with identity spans')
+    for name, opts in (ENG, ENGR, RACE, OWN, OWNN):
+        for ids in (False, True):
+            prog, q, _ = clash(ids); M = Machine(prog, q, **opts); r = M.run(limit=300_000)
+            print('    %-30s halt: %-6s requests: %-4d goals: %d' % (name, r[2], M.requests, r[3]))
+TABLES.update({
+ '14': lambda: [t14()] + [table('14. The unfolding race of every chain goal: %s' % n, f, ks, [ENG, ENGR, RACE, OWN, OWNN], cols=c, limit=lim)
+               for n, f, ks, c, lim in (
+                   ('counting down', countdown, (2, 4, 8, 16, 32), ('halt', 'req', 'goals'), 3_000_000),
+                   ('the ladder', ladder, (8, 16, 24, 32, 40), ('halt', 'req', 'goals'), 30_000_000),
+                   ('bit^k ; ($x -> t_k) ; unbit^k with pushes', mid, range(2, 11), ('halt', 'req', 'goals'), 30_000_000),
+                   ('fair OR, one member that never finishes', lambda k: fair(k, 1), (2, 4, 6, 8, 10, 12), ('first', 'req', 'goals'), 1_000_000),
+                   ('fair OR, three such members', lambda k: fair(k, 3), (2, 4, 6, 8, 10, 12), ('first', 'req', 'goals'), 1_000_000),
+                   ('strings of k bits', strings, (2, 4, 6, 8, 10), ('first', 'req', 'goals'), 5_000_000))],
 })
 if __name__ == '__main__':
     print('Ticks at the first answer, ticks at halt, goals opened; "req" is requests to the root at the first')

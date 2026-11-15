@@ -91,6 +91,8 @@ RULES = {
     'split balance, check on sides with a call': dict(rule='level', units='alone', cover=True, check_apart=True, check_calls=True),
     'split balance, no check': dict(rule='level', units='alone'),
     'whole rounds, check on every side': dict(rule='flat', units='all', cover=True),
+    'split balance, check on sides with a call, the race held to own work': dict(rule='level', units='alone', cover=True, check_apart=True, check_calls=True, race='own'),
+    'split balance, no check, the race held to own work': dict(rule='level', units='alone', race='own'),
 }
 def verdicts(defs, q):
     """What R005 and each rule of the engine do on one program, computed in a process of its own
@@ -151,7 +153,7 @@ def deep(n):
     print('R005: ' + ('halts in round %d at %d ticks' % a if a else 'no halt within 14 rounds and 20,000,000 ticks'))
     for name, opts in RULES.items():
         b = engine_halts(defs, q, opts, ticks=1_000_000)
-        print('%s: %s' % (name, 'halts' if b is not None else 'no halt within 1,000,000 ticks'))
+        print('%s: %s' % (name, 'halts at %d ticks' % b if b is not None else 'no halt within 1,000,000 ticks'))
 
 if __name__ == '__main__':
     if len(sys.argv) > 1 and sys.argv[1] == 'deep':
