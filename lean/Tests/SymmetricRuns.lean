@@ -4,7 +4,8 @@ import RwLog.Rungs.Symmetric.Machine
 /-!
 # Running the symmetric engine
 
-These checks run the symmetric engine (`Rungs/Symmetric/Machine.lean`) at
+These checks run the symmetric engine (`Rungs/Symmetric/Machine.lean`) with
+the raced unfolding (`Unfold.raced`), at
 the domain of sorts with nothing charged, and fail the build if what it
 emits changes. They are the cases the yardstick is run on
 (`Tests/R005Runs.lean`), with the same expected answers, and the families of
@@ -14,7 +15,7 @@ engine takes on them.
 
 namespace RwLog.Tests
 
-def SE : Engine := Symmetric.engine
+def SE : Engine := Symmetric.engine Unfold.raced
 
 /-! ## The cases of the yardstick -/
 
@@ -109,10 +110,12 @@ def requests (p : Program × Rel) (fuel : Nat) : Option Nat × Option Nat :=
 -- prototype has `2k + 7` and `6k + 8`. The prototype reads an edge at no
 -- charge and at once. The engine pays for the reading, and learns the depth
 -- of the program in its first requests.)
+-- The figures for `k = 8` and `k = 12` are five requests under those of the
+-- engine without the unfolding race, which were 66 and 93.
 #guard requests (countdown 2) 60 == (some 13, some 25)
 #guard requests (countdown 4) 60 == (some 17, some 38)
-#guard requests (countdown 8) 80 == (some 25, some 66)
-#guard requests (countdown 12) 120 == (some 33, some 93)
+#guard requests (countdown 8) 80 == (some 25, some 61)
+#guard requests (countdown 12) 120 == (some 33, some 88)
 #guard exact (runE SE (countdown 4).1 (countdown 4).2 60) ["(s (s (s (s z)))) -> z"]
 
 -- Members that never finish do not delay the answer beyond the `2k + 9`
@@ -155,6 +158,24 @@ def clash (ids : Bool) : Program × Rel :=
 #guard contains (runE SE (prog [("gen", gen)])
   (.seq (.seq (.call "gen") (.rw (v 0) (ap "t" [v 0]))) (.seq (.rw (ap "t" [v 0]) (v 0)) (.call "gen"))) 30)
   ["$0 -> z"]
+
+/-! ## The unfolding race
+
+`p ; q` with `p = (z -> (b z)) | p ; ($x -> (a $x))` and
+`q = ((a (e $x)) -> $x) | ((b $x) -> $x) ; q`: the answers of `p` end in
+`a^n (b z)` and those of `q` begin with `b^k (a (e _))`, so the chain relates
+nothing, and both tables are infinite. The last span of an answer of `p`
+alone meets a first span of an answer of `q`, so the interface check does not
+complete the chain. Its race does. -/
+
+def deepP : Program := prog [
+  ("p", .or (.rw (c "z") (ap "b" [c "z"])) (.seq (.call "p") (.rw (v 0) (ap "a" [v 0])))),
+  ("q", .or (.rw (ap "a" [ap "e" [v 0]]) (v 0)) (.seq (.rw (ap "b" [v 0]) (v 0)) (.call "q")))]
+
+#guard exact (runE SE deepP (.seq (.call "p") (.call "q")) 60) []
+#guard requests (deepP, .seq (.call "p") (.call "q")) 60 == (none, some 33)
+-- Below a union and beside a member that has answers.
+#guard exact (runE SE deepP (.or (.seq (.call "p") (.call "q")) (.at_ (c "a"))) 60) ["a -> a"]
 
 /-! ## Units that starve nothing
 

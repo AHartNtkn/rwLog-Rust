@@ -66,7 +66,7 @@ theorem frame_eq {t t' : Table S N A} (e : t'.frame = t.frame) :
     t'.goal = t.goal ∧ t'.done = t.done ∧ t'.stamp = t.stamp ∧ t'.born = t.born ∧
       t'.groups = t.groups ∧ t'.answers = t.answers := by
   simp only [Table.frame, Prod.mk.injEq] at e
-  exact ⟨e.1, e.2.2.2.1, e.2.2.2.2.2.1, e.2.2.2.2.1, e.2.2.2.2.2.2, e.2.2.1⟩
+  exact ⟨e.1, e.2.2.2.1, e.2.2.2.2.2.1, e.2.2.2.2.1, e.2.2.2.2.2.2.1, e.2.2.1⟩
 
 /-- States with the same frames. -/
 theorem Frame.of_frames {j : Nat} {st st' : StateOf S N A} (h : st'.frames = st.frames)
@@ -90,10 +90,10 @@ theorem Frame.of_frames {j : Nat} {st st' : StateOf S N A} (h : st'.frames = st.
 
 /-- A state with one more table, opened in this request. -/
 theorem Frame.of_opened {j : Nat} {st st' : StateOf S N A} {g : GoalOf S N} {self : Bool}
-    (h : st'.frames = st.frames ++ [(g, self, [], false, st.round, 0, none)])
+    (h : st'.frames = st.frames ++ [(g, self, [], false, st.round, 0, none, none, 0)])
     (hr : st'.round = st.round) : Frame j st st' := by
   have e : ∀ k, (st'.tables[k]?).map Table.frame =
-      (st.frames ++ [(g, self, [], false, st.round, 0, none)])[k]? := fun k => by
+      (st.frames ++ [(g, self, [], false, st.round, 0, none, none, 0)])[k]? := fun k => by
     rw [← List.getElem?_map]
     show st'.frames[k]? = _
     rw [h]
@@ -116,13 +116,13 @@ theorem Frame.of_opened {j : Nat} {st st' : StateOf S N A} {g : GoalOf S N} {sel
     have := e k
     rw [hk, List.getElem?_append_right hge] at this
     cases hx : ([(g, self, ([] : List A), false, st.round, 0,
-        (none : Option (List (Group N A))))])[k - st.frames.length]? with
+        (none : Option (List (Group N A))), (none : Option Race), 0)])[k - st.frames.length]? with
     | none => rw [hx] at this; cases this
     | some x =>
       rw [hx] at this
       obtain rfl := List.mem_singleton.1 (List.mem_of_getElem? hx)
       simp only [Option.map_some, Option.some.injEq, Table.frame, Prod.mk.injEq] at this
-      exact ⟨this.2.2.2.2.2.2, this.2.2.2.2.1, this.2.2.2.1⟩
+      exact ⟨this.2.2.2.2.2.2.1, this.2.2.2.2.1, this.2.2.2.1⟩
 
 /-- Answers put at the end of the table at `j`. -/
 theorem Frame.of_app (j : Nat) (st : StateOf S N A) (blk : List A) :
@@ -134,6 +134,23 @@ theorem Frame.of_app (j : Nat) (st : StateOf S N A) (blk : List A) :
     · subst e
       exact ⟨app blk t, by simp, rfl, rfl, rfl, rfl, rfl, fun h => absurd rfl h,
         List.prefix_append _ _⟩
+    · exact ⟨t, by simp [e], rfl, rfl, rfl, rfl, rfl, fun _ => rfl, List.prefix_refl _⟩
+  · unfold StateOf.modify at hk
+    simp only [List.getElem?_modify, hn] at hk
+    cases hk
+
+/-- A change to the table at `i` that leaves what the frame speaks of. -/
+theorem Frame.modify (j : Nat) (st : StateOf S N A) (i : Nat) (f : Table S N A → Table S N A)
+    (hf : ∀ t, (f t).goal = t.goal ∧ (f t).done = t.done ∧ (f t).stamp = t.stamp ∧
+      (f t).born = t.born ∧ (f t).groups = t.groups ∧ (f t).answers = t.answers) :
+    Frame j st (st.modify i f) := by
+  refine ⟨rfl, fun k t hk => ?_, fun k t' hk hn => ?_⟩
+  · unfold StateOf.modify
+    simp only [List.getElem?_modify, hk]
+    by_cases e : i = k
+    · subst e
+      obtain ⟨h1, h2, h3, h4, h5, h6⟩ := hf t
+      exact ⟨f t, by simp, h1, h2, h3, h4, h5, fun _ => h6, by rw [h6]⟩
     · exact ⟨t, by simp [e], rfl, rfl, rfl, rfl, rfl, fun _ => rfl, List.prefix_refl _⟩
   · unfold StateOf.modify at hk
     simp only [List.getElem?_modify, hn] at hk
@@ -309,6 +326,23 @@ theorem Inner.frame {j : Nat} {st st' : StateOf R Rel (Ans D P)} (h : Inner K hK
         · exact (Frame.of_app j st _).trans (Frame.of_app j _ _)
       · exact Frame.of_app j st _
 
+/-- The race of the table at `i` changes the answers of that table alone,
+and no mark. -/
+theorem frame_askRace (U : GOracle R Rel (Ans D P) Cost) (i : Nat) (g : GoalOf R Rel)
+    (st : StateOf R Rel (Ans D P)) :
+    Frame i st (askRace (K := DerivationKernel.over D K hK P) U i g st).val.1 := by
+  rw [askRace_val]
+  split
+  · exact Frame.refl i st
+  · split
+    · exact Frame.refl i st
+    · split
+      · exact Frame.refl i st
+      · split
+        · exact (inner_addAll i st _).frame.trans
+            (Frame.modify i _ i _ fun _ => ⟨rfl, rfl, rfl, rfl, rfl, rfl⟩)
+        · exact Frame.modify i _ i _ fun _ => ⟨rfl, rfl, rfl, rfl, rfl, rfl⟩
+
 omit [DecidableEq R] in
 /-- A fold of steps each of which keeps what a round keeps, while the table
 at `i` is in its round. -/
@@ -345,6 +379,8 @@ theorem keep_workGroup (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf 
   have hw := fun whole g st s hb => keep_work (K := K) (hK := hK) (P := P) whole i g st s hb
   at_cost K hK
   simp only [workGroup, workStrats, feedAll, Cost.bind_val, Cost.pure_val]
+  refine Keep.trans ?_ (keep_modify _ _ _ fun _ _ =>
+    ⟨rfl, rfl, rfl, fun h => h, fun h => ⟨h, fun h => h⟩⟩)
   refine Keep.trans ?_ (keep_setGroup _ _ _ _)
   refine keep_foldL_from (fun acc : StateOf R Rel (Ans D P) × Nat => acc.1) _ i
     (fun b h _ => ?_) _ _ ?_ hb
@@ -399,22 +435,26 @@ theorem keep_prepare (i : Nat) (t : Table R Rel (Ans D P)) (st : StateOf R Rel (
     simp only [Cost.bind_val, Cost.pure_val]
     obtain ⟨t1, ht1, -, d1, -⟩ := hfr.2.1 i t ht
     generalize some (expand (K := DerivationKernel.over D _ hK P) t.goal st).val.2 = gs
+    generalize (raceOf (K := DerivationKernel.over D _ hK P) t.goal).val = r
     refine fin _ (hexp.trans (keep_modify _ _ _ fun _ _ =>
       ⟨rfl, rfl, rfl, fun h => h, fun h => ⟨h, fun h => h⟩⟩))
-      ⟨{ t1 with groups := gs }, ?_, d1.trans hd⟩
+      ⟨{ t1 with groups := gs, race := r }, ?_, d1.trans hd⟩
     unfold StateOf.modify
     simp [ht1]
 
 /-- **A round keeps** every table with its goal and its answers, every
 complete table as it is, and every open table that has had its round in this
 request open. -/
-theorem keep_advance : ∀ (fuel i : Nat) (st : StateOf R Rel (Ans D P)),
-    Keep st (advance (K := DerivationKernel.over D K hK P) fuel i st).val.1
+theorem keep_advance (U : GOracle R Rel (Ans D P) Cost) :
+    ∀ (fuel i : Nat) (st : StateOf R Rel (Ans D P)),
+    Keep st (advance (K := DerivationKernel.over D K hK P) U fuel i st).val.1
   | 0, _, st => by
     at_cost K hK
     exact Keep.refl st
   | fuel + 1, i, st => by
-    have ih := fun h st => keep_advance fuel h st
+    have ih := fun h st => keep_advance U fuel h st
+    have hrace := fun g (st : StateOf R Rel (Ans D P)) =>
+      frame_askRace (K := K) (hK := hK) (P := P) U i g st
     have hprep := fun t ht hd => keep_prepare (K := K) (hK := hK) (P := P) i t st ht hd
     have hlev := fun whole g lv st hb =>
       keep_workLevel (K := K) (hK := hK) (P := P) _ ih whole i g lv st hb
@@ -437,7 +477,7 @@ theorem keep_advance : ∀ (fuel i : Nat) (st : StateOf R Rel (Ans D P)),
               (fun (acc : StateOf R Rel (Ans D P) × Bool) lv =>
                 if acc.2 then pure acc
                 else workLevel (K := DerivationKernel.over D _ hK P)
-                  (advance (K := DerivationKernel.over D _ hK P) fuel)
+                  (advance (K := DerivationKernel.over D _ hK P) U fuel)
                   (decide ((groupsAt (prepare (K := DerivationKernel.over D _ hK P) i t st).val
                     i).length ≤ 1)) i t.goal lv acc.1) i
               (fun b lv hb => by
@@ -446,18 +486,22 @@ theorem keep_advance : ∀ (fuel i : Nat) (st : StateOf R Rel (Ans D P)),
                 · exact hlev _ _ _ _ hb)
               (levelsOf (groupsAt (prepare (K := DerivationKernel.over D _ hK P) i t st).val i))
               (_, false) (Keep.refl _) hb
-            have hall := hk.trans hmid
             have hd' : t.done = false := by simpa using hd
-            refine keep_mark (keep_mark hall ht hs hd' _ ?_) ht hs hd' _ ?_
-            · exact fun _ => ⟨rfl, rfl, rfl, rfl, fun h => h⟩
-            · exact fun t'' => ⟨rfl, rfl, rfl, rfl, fun h => by simp [h]⟩
+            refine keep_mark ?_ ht hs hd' _ fun t'' => ⟨rfl, rfl, rfl, rfl, fun h => by simp [h]⟩
+            refine Keep.trans ?_ ((hrace t.goal _).keep ?_)
+            · exact hk.trans (hmid.trans (keep_modify _ i _ fun _ _ =>
+                ⟨rfl, rfl, rfl, fun h => h, fun h => ⟨h, fun h => h⟩⟩))
+            · refine Busy.open ?_
+              refine Keep.busy ?_ (hmid.busy hb)
+              exact keep_modify _ i _ fun _ _ =>
+                ⟨rfl, rfl, rfl, fun h => h, fun h => ⟨h, fun h => h⟩⟩
 
 /-- **A complete table never changes again**: over a request every table
 stays, its answers stay with more at the end, and a complete table stays
 complete and gains none. -/
-theorem stable_request (st : StateOf R Rel (Ans D P)) :
-    Stable st (request (K := DerivationKernel.over D K hK P) st).val.1 := by
-  have h := fun st => keep_advance (K := K) (hK := hK) (P := P) st.tables.length 0 st
+theorem stable_request (U : GOracle R Rel (Ans D P) Cost) (st : StateOf R Rel (Ans D P)) :
+    Stable st (request (K := DerivationKernel.over D K hK P) U st).val.1 := by
+  have h := fun st => keep_advance (K := K) (hK := hK) (P := P) U st.tables.length 0 st
   at_cost K hK
   simp only [request, Cost.bind_val, Cost.pure_val]
   have h1 := (h { st with round := st.round + 1 }).stable

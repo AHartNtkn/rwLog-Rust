@@ -109,11 +109,27 @@ that is not offered (its side has no call, or one of the interfaces
 restricts nothing) is not made. A check one of whose goals has an answer can
 do nothing more, and a group of such checks is removed from its table.
 
+## The unfolding race
+
+The check reads one span through a call, and a clash can lie deeper on both
+sides (`SYMMETRIC_ENGINE_SIMULATION.md`, section 11). So every chain goal
+has an *unfolding race* (`Rungs/Framework/RaceSpec.lean`): asked for a goal
+and a depth, it says whether the unfolding of the goal to that depth is
+final and, if it is, gives its answers. The race stands beside the groups of
+its goal: it takes no turn and is no part of any level. At the end of a round
+of the goal it asks once at its next depth, if what its asks have cost is at
+most the ticks of the goal's own strategies plus the number of rounds the
+goal has had. A final verdict puts the answers in the table and completes
+the goal. A goal that is not complete has rounds as long as it is asked for,
+so its race is asked at every depth. Only a chain has a race: the verdict of
+the unfolding of a call, a union or a meet is made of the verdicts of its
+body or members.
+
 A goal and its converse do not share a table: no exact property needs it,
 and whether it would save anything is not measured (design note, section 1).
 -/
 import RwLog.Trusted.Cost
-import RwLog.Rungs.Framework.Goals
+import RwLog.Rungs.Framework.RaceSpec
 import RwLog.Lib.Gfp
 
 namespace RwLog
@@ -218,11 +234,20 @@ structure Group (N A : Type) where
   level : Nat
   strats : List (Strat N A)
 
+/-- The unfolding race of a chain goal: the depth it asks at next and the
+ticks its asks have cost. -/
+structure Race where
+  depth : Nat
+  spent : Nat
+  deriving DecidableEq
+
 /-- A table. `self` says the goal is its own converse: its node is the
 converse of itself and its two boundaries are the same. `groups` is nothing
 until the goal has its first round. `born` is the request the goal was
 opened in, `stamp` the last request it had a round in, and `delta` how much
-its level rose in that round. -/
+its level rose in that round. `race` is the unfolding race of a chain goal,
+from its first round on; `own` is the ticks of the work of the goal's own
+strategies, and `rounds` the number of rounds it has had. -/
 structure Table (S N A : Type) where
   goal : GoalOf S N
   self : Bool
@@ -232,6 +257,9 @@ structure Table (S N A : Type) where
   born : Nat
   stamp : Nat
   delta : Nat
+  race : Option Race
+  own : Nat
+  rounds : Nat
 
 /-- The machine state: the tables, the root first, the number of requests
 made, how many answers of the root table have been emitted, and the edges
@@ -395,7 +423,7 @@ def openGoal (st : StateOf S N A) (g : GoalOf S N) : M (StateOf S N A × Nat) :=
   | some i => pure (st, i)
   | none => do
     let self ← selfConverse (K := K) g
-    pure ({ st with tables := st.tables ++ [⟨g, self, [], false, none, st.round, 0, 0⟩] },
+    pure ({ st with tables := st.tables ++ [⟨g, self, [], false, none, st.round, 0, 0, none, 0, 0⟩] },
       st.tables.length)
 
 /-- Put an answer in the table at `i`, unless an answer there covers it. -/
@@ -816,14 +844,16 @@ def feedAll (adv : Nat → StateOf S N A → M (StateOf S N A × Nat)) (st : Sta
     pure (st', acc.2 + dh)) (st, d) feeds
 
 /-- The group `k` of the table at `i` works: each of its strategies does its
-own work, and then every table they read has its round (`adv`). Returns how
+own work, and then every table they read has its round (`adv`). The ticks of
+the strategies' own work are added to the own work of the table. Returns how
 much the level of the group rose, and whether anything was done. -/
 def workGroup (adv : Nat → StateOf S N A → M (StateOf S N A × Nat)) (whole : Bool) (i : Nat)
     (g : GoalOf S N) (k : Nat) (st : StateOf S N A) : M (StateOf S N A × Nat × Bool) := do
-  let (st, d, did) ← workStrats (K := K) whole i g k st
+  let (st, d0, did) ← workStrats (K := K) whole i g k st
   let feeds := (((groupsAt st i)[k]?.map (·.strats)).getD []).flatMap (Strat.feeds st)
-  let (st, d) ← feedAll adv st d feeds.eraseDups
-  pure (setGroup st i k fun gr => { gr with level := gr.level + d }, d, did || decide (0 < d))
+  let (st, d) ← feedAll adv st d0 feeds.eraseDups
+  pure ((setGroup st i k fun gr => { gr with level := gr.level + d }).modify i fun t =>
+    { t with own := t.own + d0 }, d, did || decide (0 < d))
 
 /-- The groups of the table at `i` that stand at the level `lv` work.
 Returns whether any of them did anything. -/
@@ -835,20 +865,55 @@ def workLevel (adv : Nat → StateOf S N A → M (StateOf S N A × Nat)) (whole 
       pure (st', acc.2 || did)
     else pure acc) (st, false) (groupsAt st i).zipIdx
 
-/-- Before the round of the table at `i`, read as `t`: its groups are made if
-it has none, and the round is stamped. -/
+/-- The race a goal starts with: one for a chain, at depth 0. The verdict of
+the unfolding of any other node is made of the verdicts of its body or
+members, and the strategies of its goal make it. -/
+def raceOf (g : GoalOf S N) : M (Option Race) := do
+  let v ← K.view g.node
+  pure (match v with
+    | .chain _ => some ⟨0, 0⟩
+    | _ => none)
+
+/-- Before the round of the table at `i`, read as `t`: its groups and its
+race are made if it has no groups, and the round is stamped. -/
 def prepare (i : Nat) (t : Table S N A) (st : StateOf S N A) : M (StateOf S N A) := do
   let st ← match t.groups with
     | some _ => pure st
     | none => do
       let (st', gs) ← expand (K := K) t.goal st
-      pure (st'.modify i fun t => { t with groups := some gs })
+      let r ← raceOf (K := K) t.goal
+      pure (st'.modify i fun t => { t with groups := some gs, race := r })
   pure (st.modify i fun t => { t with stamp := st.round, delta := 0 })
 
+/-- The race of the table at `i` asks once at its next depth, if it has spent
+no more than the own work of the table plus its rounds. A final verdict puts
+the answers in the table; otherwise the depth grows by one. Returns whether
+the verdict was final. The race takes no group's turn and is no part of any
+level. -/
+def askRace (U : GOracle S N A M) (i : Nat) (g : GoalOf S N) (st : StateOf S N A) :
+    M (StateOf S N A × Bool) :=
+  match st.tables[i]? with
+  | none => pure (st, false)
+  | some t =>
+    match t.race with
+    | none => pure (st, false)
+    | some r =>
+      if t.own + t.rounds < r.spent then pure (st, false)
+      else do
+        let (u, c) ← K.metered (U r.depth g)
+        if u.1 then do
+          let st ← foldL (addAnswer (K := K) i) st u.2
+          pure (st.modify i fun t => { t with race := some ⟨r.depth, r.spent + c⟩ }, true)
+        else
+          pure (st.modify i fun t => { t with race := some ⟨r.depth + 1, r.spent + c⟩ }, false)
+
 /-- The round of the table at `i`. The first argument is the number of
-tables that can still have a round nested in this one. Returns how much the
-level of the goal rose. -/
-def advance : Nat → Nat → StateOf S N A → M (StateOf S N A × Nat)
+tables that can still have a round nested in this one. After its groups have
+worked, the race of the table asks once if it is within its budget, and the
+table is complete if a strategy has nothing left to do and reads only
+complete tables, or if its race found the unfolding final. Returns how much
+the level of the goal rose. -/
+def advance (U : GOracle S N A M) : Nat → Nat → StateOf S N A → M (StateOf S N A × Nat)
   | 0, _, st => pure (st, 0)
   | fuel + 1, i, st =>
     match st.tables[i]? with
@@ -865,23 +930,25 @@ def advance : Nat → Nat → StateOf S N A → M (StateOf S N A × Nat)
         let whole := decide (gs.length ≤ 1)
         let (st, _) ← foldL (fun (acc : StateOf S N A × Bool) lv =>
           if acc.2 then pure acc
-          else workLevel (K := K) (advance fuel) whole i t.goal lv acc.1) (st, false)
+          else workLevel (K := K) (advance U fuel) whole i t.goal lv acc.1) (st, false)
           (levelsOf gs)
         let st := st.modify i fun t =>
           { t with groups := t.groups.map fun gs =>
               gs.filter fun gr => !gr.strats.all (Strat.dead st) }
+        let (st, raced) ← askRace (K := K) U i t.goal st
         let gs' := groupsAt st i
-        let fin := gs'.any fun gr => gr.strats.any fun s => s.quiet st st.isDone
+        let fin := (gs'.any fun gr => gr.strats.any fun s => s.quiet st st.isDone) || raced
         let d := levelOf gs' - low
-        pure (st.modify i fun t => { t with done := t.done || fin, delta := d }, d)
+        pure (st.modify i fun t =>
+          { t with done := t.done || fin, delta := d, rounds := t.rounds + 1 }, d)
 
 /-- One request: a round of the root, and then the tables that complete
 together are marked. Returns the answers the root table gained. A request
 costs at least one tick. -/
-def request (st : StateOf S N A) : M (StateOf S N A × List A) := do
+def request (U : GOracle S N A M) (st : StateOf S N A) : M (StateOf S N A × List A) := do
   K.tick 1
   let st : StateOf S N A := { st with round := st.round + 1 }
-  let (st, _) ← advance (K := K) st.tables.length 0 st
+  let (st, _) ← advance (K := K) U st.tables.length 0 st
   let C := completing st
   let st : StateOf S N A :=
     { st with tables := st.tables.mapIdx fun i t => if C.contains i then { t with done := true } else t }
@@ -890,7 +957,7 @@ def request (st : StateOf S N A) : M (StateOf S N A × List A) := do
 
 /-- A step: a request, or the final report when the root table is
 complete. -/
-def step (st : StateOf S N A) : M (StepOf A (StateOf S N A)) :=
+def step (U : GOracle S N A M) (st : StateOf S N A) : M (StepOf A (StateOf S N A)) :=
   match st.tables.head? with
   | none => pure (.done [])
   | some t =>
@@ -898,22 +965,22 @@ def step (st : StateOf S N A) : M (StepOf A (StateOf S N A)) :=
       let fin ← maxima (K := K) t.answers
       pure (.done fin)
     else do
-      let r ← request (K := K) st
+      let r ← request (K := K) U st
       pure (.emit r.2 r.1)
 
 /-- The first state: the table of the root goal alone. -/
 def init (root : N) : M (StateOf S N A) := do
   let self ← selfConverse (K := K) ⟨none, root, none⟩
-  pure ⟨[⟨⟨none, root, none⟩, self, [], false, none, 0, 0, 0⟩], 0, 0, [], 1⟩
+  pure ⟨[⟨⟨none, root, none⟩, self, [], false, none, 0, 0, 0, none, 0, 0⟩], 0, 0, [], 1⟩
 
 end
 
-/-- The symmetric engine. Its first state is the table of the root goal
-alone. -/
-def engine : Engine where
+/-- The symmetric engine with a given unfolding race. Its first state is the
+table of the root goal alone. -/
+def engine (u : Unfolder) : Engine where
   State := StateOf
   init root := init root
-  step st := step st
+  step st := step u st
 
 end Symmetric
 

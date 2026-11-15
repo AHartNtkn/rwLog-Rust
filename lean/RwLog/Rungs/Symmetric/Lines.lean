@@ -24,11 +24,11 @@ namespace RwLog
 
 namespace Symmetric
 
-variable {S N A : Type} {need : N → Nat}
+variable {S N A : Type} {need : N → Nat} {Rc : RaceSem S N A}
 
 /-- A run by requests from a state where no table has groups yet. -/
-structure Requests (need : N → Nat) (σ : Nat → StateOf S N A) : Prop where
-  req : ∀ r, Req need (σ r) (σ (r + 1))
+structure Requests (need : N → Nat) (Rc : RaceSem S N A) (σ : Nat → StateOf S N A) : Prop where
+  req : ∀ r, Req need Rc (σ r) (σ (r + 1))
   start : ∀ (k : Nat) (t : Table S N A), (σ 0).tables[k]? = some t → t.groups = none
 
 /-- The table at `k` had its round in the request after the state `r`. -/
@@ -37,27 +37,27 @@ def HadRound (σ : Nat → StateOf S N A) (r k : Nat) : Prop :=
 
 variable {σ : Nat → StateOf S N A}
 
-theorem Requests.stable (h : Requests need σ) {r r' : Nat} (hr : r ≤ r') :
+theorem Requests.stable (h : Requests need Rc σ) {r r' : Nat} (hr : r ≤ r') :
     Stable (σ r) (σ r') := by
   obtain ⟨d, rfl⟩ := Nat.exists_eq_add_of_le hr
   induction d with
   | zero => exact Stable.refl _
   | succ d ih => exact (ih (by omega)).trans (h.req (r + d)).stable
 
-theorem Requests.depth_le (h : Requests need σ) {r r' : Nat} (hr : r ≤ r') :
+theorem Requests.depth_le (h : Requests need Rc σ) {r r' : Nat} (hr : r ≤ r') :
     (σ r).depth ≤ (σ r').depth := by
   obtain ⟨d, rfl⟩ := Nat.exists_eq_add_of_le hr
   induction d with
   | zero => exact Nat.le_refl _
   | succ d ih => exact Nat.le_trans (ih (by omega)) (h.req (r + d)).depth
 
-theorem Requests.round (h : Requests need σ) (r : Nat) : (σ r).round = (σ 0).round + r := by
+theorem Requests.round (h : Requests need Rc σ) (r : Nat) : (σ r).round = (σ 0).round + r := by
   induction r with
   | zero => rfl
   | succ r ih => rw [(h.req r).round, ih]; omega
 
 /-- The groups of every table are shaped, throughout. -/
-theorem Requests.shaped (h : Requests need σ) : ∀ (r k : Nat) (t : Table S N A)
+theorem Requests.shaped (h : Requests need Rc σ) : ∀ (r k : Nat) (t : Table S N A)
     (gs : List (Group N A)), (σ r).tables[k]? = some t → t.groups = some gs → Shaped gs
   | 0, k, t, gs, ht, hg => by rw [h.start k t ht] at hg; cases hg
   | r + 1, k, t', gs, ht', hg => by
@@ -112,7 +112,7 @@ theorem Line.along {k r0 : Nat} {L : Nat → List (Strat N A)} (hL : Line need �
 there are no more of them after, and if there are as many, each is itself
 later; they are the same if the table had no round, and if it had one, none
 of them was all dead and the round was balanced. -/
-theorem Requests.step (h : Requests need σ) (k r : Nat) {t t' : Table S N A}
+theorem Requests.step (h : Requests need Rc σ) (k r : Nat) {t t' : Table S N A}
     {G G' : List (Group N A)} (ht : (σ r).tables[k]? = some t) (hg : t.groups = some G)
     (ht' : (σ (r + 1)).tables[k]? = some t') (hg' : t'.groups = some G') :
     G'.length ≤ G.length ∧ (G'.length = G.length →
@@ -150,7 +150,7 @@ some state on the table keeps its groups, and each of them is a line: a
 group that did not work in a round stands as it stood while a lower one
 rose, and the groups below a level can rise only so often before they have
 all passed it. -/
-theorem Requests.lines (h : Requests need σ) (k : Nat)
+theorem Requests.lines (h : Requests need Rc σ) (k : Nat)
     (hinf : ∀ r', ∃ r, r' ≤ r ∧ HadRound σ r k) :
     ∃ r0, 0 < (groupsAt (σ r0) k).length ∧ ∀ m, m < (groupsAt (σ r0) k).length →
       Line need σ k r0 fun r => (((groupsAt (σ r) k)[m]?).map (·.strats)).getD [] := by
@@ -359,10 +359,124 @@ theorem Requests.lines (h : Requests need σ) (k : Nat)
       exact ((hst r hr0').2.2 hround m gr0 gr1 e0 e1).1
 
 /-- **A table that has rounds for ever has a group that works for ever.** -/
-theorem Requests.line (h : Requests need σ) (k : Nat)
+theorem Requests.line (h : Requests need Rc σ) (k : Nat)
     (hinf : ∀ r', ∃ r, r' ≤ r ∧ HadRound σ r k) : ∃ r0 L, Line need σ k r0 L := by
   obtain ⟨r0, hpos, hl⟩ := h.lines k hinf
   exact ⟨r0, _, hl 0 hpos⟩
+
+/-- **A table that has rounds for ever and a race with a final verdict at
+some depth completes.** The race begins at depth zero in the first round of
+the table and is asked again whenever the table has had as many rounds as
+the race has spent; it stands one depth further each time it is asked, so it
+is asked at the depth of the final verdict. -/
+theorem Requests.race_done (h : Requests need Rc σ) (k : Nat)
+    (hinf : ∀ r', ∃ r, r' ≤ r ∧ HadRound σ r k) {g : GoalOf S N} {n : Nat}
+    (hg : ∀ (r : Nat) (t : Table S N A), (σ r).tables[k]? = some t → t.goal = g)
+    (hh : Rc.has g = true) (hf : Rc.final g n) :
+    ∃ (r : Nat) (t : Table S N A), (σ r).tables[k]? = some t ∧ t.done = true := by
+  by_contra hnd
+  have hnd' : ∀ (r : Nat) (t : Table S N A), (σ r).tables[k]? = some t → t.done = false :=
+    fun r t ht => by
+      cases hd : t.done with
+      | false => rfl
+      | true => exact absurd ⟨r, t, ht, hd⟩ hnd
+  -- a table with groups has a race that stands no deeper than the final verdict
+  have inv : ∀ (r : Nat) (t : Table S N A), (σ r).tables[k]? = some t →
+      t.groups = none ∨ ∃ rc, t.race = some rc ∧ rc.depth ≤ n := by
+    intro r
+    induction r with
+    | zero => exact fun t ht => .inl (h.start k t ht)
+    | succ r ih =>
+      intro t' ht'
+      cases ht : (σ r).tables[k]? with
+      | none => exact .inl ((h.req r).born k t' ht' ht).2
+      | some t =>
+        by_cases hs : t'.stamp = (σ (r + 1)).round
+        · obtain ⟨-, ha⟩ := (h.req r).asked k t t' ht ht' hs
+          rw [hg r t ht, hh] at ha
+          cases hgr : t.groups with
+          | none =>
+            rcases ha ⟨0, 0⟩ (by simp [hgr]) with h1 | h1 | ⟨c, h1, h2⟩
+            · exact .inr ⟨_, h1.1, Nat.zero_le _⟩
+            · rw [hnd' _ t' ht'] at h1; cases h1
+            · refine .inr ⟨_, h1, ?_⟩
+              rcases Nat.eq_zero_or_pos n with h0 | h0
+              · subst h0; exact absurd hf h2
+              · exact h0
+          | some gs =>
+            obtain ⟨rc, hrc, hle⟩ := (ih t ht).resolve_left (by rw [hgr]; exact fun e => by cases e)
+            rcases ha rc (by simp [hgr, hrc]) with h1 | h1 | ⟨c, h1, h2⟩
+            · exact .inr ⟨_, h1.1, hle⟩
+            · rw [hnd' _ t' ht'] at h1; cases h1
+            · refine .inr ⟨_, h1, ?_⟩
+              rcases Nat.lt_or_eq_of_le hle with hlt | he
+              · exact hlt
+              · rw [he] at h2; exact absurd hf h2
+        · rw [(h.req r).groups k t t' ht ht' (.inr hs), ((h.req r).race k t t' ht ht' (.inr hs)).1]
+          exact ih t ht
+  -- from some state on the table has groups
+  obtain ⟨r0, hpos, hl⟩ := h.lines k hinf
+  have hL := hl 0 hpos
+  have hgr : ∀ r, r0 ≤ r → ∃ (t : Table S N A) (gs : List (Group N A)),
+      (σ r).tables[k]? = some t ∧ t.groups = some gs := by
+    intro r hr
+    obtain ⟨r1, -, hr1, -, -, s1, hs1, -⟩ := hL.worked 0
+    have hlen : 0 < ((((groupsAt (σ r) k)[0]?).map (·.strats)).getD []).length := by
+      rw [hL.length hr, ← hL.length hr1]
+      exact List.length_pos_of_mem hs1
+    obtain ⟨s, hs⟩ := List.exists_mem_of_length_pos hlen
+    obtain ⟨t, gs, -, ht, hgs, -⟩ := hL.mem r hr s hs
+    exact ⟨t, gs, ht, hgs⟩
+  -- the race is asked again, and cannot stand deeper for ever
+  have main : ∀ d m r (t : Table S N A) (rc : Race), r0 ≤ r → (σ r).tables[k]? = some t →
+      t.race = some rc → rc.depth ≤ n → n - rc.depth ≤ d → rc.spent - t.rounds ≤ m → False := by
+    intro d
+    induction d using Nat.strong_induction_on with
+    | _ d ihd =>
+      intro m
+      induction m using Nat.strong_induction_on with
+      | _ m ihm =>
+        intro r t rc hr ht hrc hle hd hm
+        -- the next round of the table
+        classical
+        let r2 := Nat.find (hinf r)
+        obtain ⟨hr2, t', ht', hs'⟩ := Nat.find_spec (hinf r)
+        have keep : ∀ j, r ≤ j → j ≤ r2 → ∃ tj, (σ j).tables[k]? = some tj ∧
+            tj.race = t.race ∧ tj.rounds = t.rounds := by
+          intro j hj
+          obtain ⟨e, rfl⟩ := Nat.exists_eq_add_of_le hj
+          induction e with
+          | zero => exact fun _ => ⟨t, ht, rfl, rfl⟩
+          | succ e ihe =>
+            intro hj2
+            obtain ⟨tj, htj, e1, e2⟩ := ihe (by omega) (by omega)
+            obtain ⟨tj', htj', -⟩ := (h.req (r + e)).stable k tj htj
+            have hno : ¬ (r ≤ r + e ∧ HadRound σ (r + e) k) :=
+              Nat.find_min (hinf r) (show r + e < r2 by omega)
+            have hs : tj'.stamp ≠ (σ (r + e + 1)).round := fun hs =>
+              hno ⟨Nat.le_add_right _ _, tj', htj', hs⟩
+            obtain ⟨f1, f2⟩ := (h.req (r + e)).race k tj tj' htj htj' (.inr hs)
+            exact ⟨tj', htj', f1.trans e1, f2.trans e2⟩
+        obtain ⟨t2, ht2, e1, e2⟩ := keep r2 hr2 (Nat.le_refl _)
+        obtain ⟨t2', gs2, ht2', hgs2⟩ := hgr r2 (by omega)
+        rw [ht2] at ht2'
+        cases ht2'
+        obtain ⟨hrd, ha⟩ := (h.req r2).asked k t2 t' ht2 ht' hs'
+        rcases ha rc (by simp [hgs2, e1, hrc]) with h1 | h1 | ⟨c, h1, h2⟩
+        · exact ihm (rc.spent - t'.rounds) (by omega) (r2 + 1) t' rc (by omega) ht' h1.1 hle hd
+            (Nat.le_refl _)
+        · rw [hnd' _ t' ht'] at h1; cases h1
+        · rw [hg r2 t2 ht2] at h2
+          have hlt : rc.depth < n := by
+            rcases Nat.lt_or_eq_of_le hle with hlt | he
+            · exact hlt
+            · rw [he] at h2; exact absurd hf h2
+          exact ihd (n - (rc.depth + 1)) (by omega) _ (r2 + 1) t' _ (by omega) ht' h1 hlt
+            (Nat.le_refl _) (Nat.le_refl _)
+  obtain ⟨t, gs, ht, hgs⟩ := hgr r0 (Nat.le_refl _)
+  rcases inv r0 t ht with hn | ⟨rc, hrc, hle⟩
+  · rw [hgs] at hn; cases hn
+  · exact main _ _ r0 t rc (Nat.le_refl _) ht hrc hle (Nat.le_refl _) (Nat.le_refl _)
 
 end Symmetric
 

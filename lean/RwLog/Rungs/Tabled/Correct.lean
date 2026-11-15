@@ -223,14 +223,11 @@ theorem root_ok {P : Program} {q : Rel} (wf : P.WellFormed q) :
   ⟨isBound_none _, isBound_none _, normal_norm q,
     RelOf.FO.norm fun s hs => wf.2.2.2 s (List.mem_append_left _ hs)⟩
 
-theorem progFO_of_wf {P : Program} {q : Rel} (wf : P.WellFormed q) : ProgFO P :=
-  fun s hs => wf.2.2.2 s (List.mem_append_right _ hs)
-
 include hD hU in
 theorem inv_of_wf {P : Program} {q : Rel} (wf : P.WellFormed q) (r : Nat) :
     Inv (dom P.sorts) P (T @U dom K hK P q.norm r) :=
-  inv_at (hD _ wf.2.2.1) (progFO_of_wf wf)
-    (hU (dom P.sorts) P (K P.sorts) (hK P.sorts) (hD _ wf.2.2.1) (progFO_of_wf wf)) (root_ok wf) r
+  inv_at (hD _ wf.2.2.1) (wf.progFO)
+    (hU (dom P.sorts) P (K P.sorts) (hK P.sorts) (hD _ wf.2.2.1) (wf.progFO)) (root_ok wf) r
 
 include hD hU in
 /-- A derivation of the query is covered by one emitted answer. -/
@@ -240,11 +237,11 @@ theorem emitted_cov {P : Program} {q : Rel} (wf : P.WellFormed q) {k : Nat} {G :
       G.at P.sorts.interp ⊆ den P.sorts.interp b := by
   have hI := inv_of_wf (K := K) (hK := hK) hD hU wf
   have hL := hD _ wf.2.2.1
-  have hUk := hU (dom P.sorts) P (K P.sorts) (hK P.sorts) hL (progFO_of_wf wf)
+  have hUk := hU (dom P.sorts) P (K P.sorts) (hK P.sorts) hL (wf.progFO)
   have e : ∀ r, pairsOf P ((T @U dom K hK P q.norm r)[0]'(root_pos r)).goal G =
       G.at P.sorts.interp := fun r => by rw [root_goal]; exact wrapAt_none _
   obtain ⟨r', -, hi', a, ha, hsub⟩ := eventually (K := K P.sorts) (hK := hK P.sorts)
-    (U := UAt @U dom K hK P) (root := q.norm) hL (progFO_of_wf wf) hUk (root_ok wf) k _ 0 0
+    (U := UAt @U dom K hK P) (root := q.norm) hL (wf.progFO) hUk (root_ok wf) k _ 0 0
     (root_pos 0) rfl G (by rw [root_goal]; exact hG) (by rw [e]; exact hne)
   rw [e] at hsub
   rw [init_eq]

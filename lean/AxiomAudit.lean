@@ -625,8 +625,14 @@ new axiom.
 /-- info: 'RwLog.Symmetric.selfConverse_of' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Symmetric.selfConverse_of
 
-/-- info: 'RwLog.Symmetric.inv_request' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLog.Symmetric.inv_request
+/-- info: 'RwLog.Symmetric.engine_selfConverse' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Symmetric.engine_selfConverse
+
+/-- info: 'RwLog.Symmetric.Requests.race_done' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Symmetric.Requests.race_done
+
+/-- info: 'RwLog.Symmetric.askRace_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Symmetric.askRace_spec
 
 /-- info: 'RwLog.Symmetric.stable_request' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Symmetric.stable_request

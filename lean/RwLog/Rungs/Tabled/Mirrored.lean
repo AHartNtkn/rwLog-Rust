@@ -262,7 +262,7 @@ theorem mirror_trace {P : Program} {q : Rel} (wf : P.WellFormed q) (n : Nat) :
       ((Rt @U dom K hK).trace ((Rt @U dom K hK).init P q) n) :=
   Runtime.trace_of_sim (R := Mt @U dom K hK) (R' := Rt @U dom K hK)
     (E := fun xs ys => xs.Perm ys) (Sim := MSim @U dom K hK P q.norm)
-    (msim_step hG hE (hD _ wf.2.2.1) (progFO_of_wf wf) (root_ok wf)) n _ _
+    (msim_step hG hE (hD _ wf.2.2.1) (wf.progFO) (root_ok wf)) n _ _
     msim_init
 
 /-- **The mirrored tabled machine is done when the tabled machine is.** -/
@@ -271,7 +271,7 @@ theorem mirror_halts {P : Program} {q : Rel} (wf : P.WellFormed q) (n : Nat) :
       (Rt @U dom K hK).Halts ((Rt @U dom K hK).init P q) n :=
   Runtime.halts_iff_of_sim (R := Mt @U dom K hK) (R' := Rt @U dom K hK)
     (E := fun xs ys => xs.Perm ys) (Sim := MSim @U dom K hK P q.norm)
-    (msim_step hG hE (hD _ wf.2.2.1) (progFO_of_wf wf) (root_ok wf)) n
+    (msim_step hG hE (hD _ wf.2.2.1) (wf.progFO) (root_ok wf)) n
     msim_init
 
 end theorems

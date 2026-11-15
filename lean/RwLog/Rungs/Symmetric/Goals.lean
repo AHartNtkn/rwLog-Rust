@@ -5,13 +5,11 @@ The invariant of the symmetric engine that says what its tables and its
 strategies are for (`Inv`): the node of every goal is a node of the normal
 form, a table marked as its own converse is, every answer of a table has the
 goal of the table, and every strategy of a table reads tables whose answers
-its rule turns into answers of the goal. A request keeps it
-(`inv_request`).
-
-With it the condition of `selfConverse_of` holds, so the engine has
-`CostedRuntime.SelfConverse` (`engine_selfConverse`), and run on one
-orientation it has `ConvTrace` and `DualTrace` (`oriented_convTrace`,
-`oriented_dualTrace`): the mirror criterion of the symmetric engine.
+its rule turns into answers of the goal. The work of the strategies keeps
+it; the race of a table keeps it when its answers are answers of the goal
+(`inv_askRace`), which the specification of a race says of the goals a run
+may open, so a round keeps it together with what says that the goals are
+such goals (`good_advance`, `Kept.lean`).
 -/
 import RwLog.Rungs.Symmetric.SelfConverse
 import RwLog.Rungs.Framework.Rules
@@ -265,13 +263,13 @@ theorem inv_openGoal {st : StateOf R Rel (Ans D P)} (hI : Inv st) (g : GoalOf R 
     rw [ht]; exact congrArg some hg
   · show Inv ({ st with tables := st.tables ++
         [⟨g, (selfConverse (K := DerivationKernel.over D _ hK P) g).val, [], false, none,
-          st.round, 0, 0⟩] } : StateOf R Rel (Ans D P)) ∧
+          st.round, 0, 0, none, 0, 0⟩] } : StateOf R Rel (Ans D P)) ∧
       goalAt ({ st with tables := st.tables ++
         [⟨g, (selfConverse (K := DerivationKernel.over D _ hK P) g).val, [], false, none,
-          st.round, 0, 0⟩] } : StateOf R Rel (Ans D P)) st.tables.length = some g
+          st.round, 0, 0, none, 0, 0⟩] } : StateOf R Rel (Ans D P)) st.tables.length = some g
     have hE : Ext st { st with tables := st.tables ++
         [⟨g, (selfConverse (K := DerivationKernel.over D _ hK P) g).val, [], false, none,
-          st.round, 0, 0⟩] } := by
+          st.round, 0, 0, none, 0, 0⟩] } := by
       intro j g' h
       have hlt := lt_of_goalAt h
       unfold goalAt at h ⊢
@@ -279,10 +277,10 @@ theorem inv_openGoal {st : StateOf R Rel (Ans D P)} (hI : Inv st) (g : GoalOf R 
       rw [List.getElem?_append_left hlt]; exact h
     have key : ∀ (j : Nat) (t' : Table R Rel (Ans D P)), (st.tables ++
         [(⟨g, (selfConverse (K := DerivationKernel.over D _ hK P) g).val, [], false, none,
-          st.round, 0, 0⟩ : Table R Rel (Ans D P))])[j]? = some t' →
+          st.round, 0, 0, none, 0, 0⟩ : Table R Rel (Ans D P))])[j]? = some t' →
         st.tables[j]? = some t' ∨
           t' = ⟨g, (selfConverse (K := DerivationKernel.over D _ hK P) g).val, [], false, none,
-            st.round, 0, 0⟩ := by
+            st.round, 0, 0, none, 0, 0⟩ := by
       intro j t' h
       rcases Nat.lt_or_ge j st.tables.length with hlt | hge
       · rw [List.getElem?_append_left hlt] at h; exact .inl h
@@ -1057,6 +1055,7 @@ theorem inv_workGroup (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R
     Inv (workGroup (K := DerivationKernel.over D K hK P) adv whole i g k st).val.1 := by
   at_cost K hK
   simp only [workGroup, workStrats, feedAll, Cost.bind_val, Cost.pure_val]
+  refine Inv.modify_same ?_ i _ (fun _ => rfl) (fun _ => rfl)
   refine inv_setGroup ?_ _ _ _ (fun g' gr _ h => h)
   refine (foldL_inv (fun acc : StateOf R Rel (Ans D P) × Nat =>
     Inv acc.1 ∧ goalAt acc.1 i = some g) _ _ (fun b h _ hb => ?_) _ ?_).1
@@ -1108,65 +1107,42 @@ theorem inv_prepare {st : StateOf R Rel (Ans D P)} (hI : Inv st) (i : Nat)
       (fun t' ht' gs hgs => hI.strat i t' ht' gs hgs)
   | none =>
     simp only [Cost.bind_val, Cost.pure_val]
-    have h3 : Inv ((expand (K := DerivationKernel.over D _ hK P) t.goal st).val.1.modify i
-        fun t' => { t' with groups := some (expand (K := DerivationKernel.over D _ hK P) t.goal
-          st).val.2 }) := by
-      refine h1.modify i _ (fun _ => rfl) (fun _ => rfl) (fun t' ht' => (h1.core i t' ht').2.2)
-        (fun t' ht' gs hgs gr hgr s hs => ?_)
-      cases hgs
-      have : t'.goal = t.goal := by
-        have := hE _ _ hg
-        unfold goalAt at this
-        rw [ht'] at this
-        exact Option.some.inj this
-      rw [this]
-      exact h2 gr hgr s hs
-    exact h3.modify i _ (fun _ => rfl) (fun _ => rfl) (fun t' ht' => (h3.core i t' ht').2.2)
-      (fun t' ht' gs hgs => h3.strat i t' ht' gs hgs)
+    refine Inv.modify_same ?_ i _ (fun _ => rfl) (fun _ => rfl)
+    refine h1.modify i _ (fun _ => rfl) (fun _ => rfl) (fun t' ht' => (h1.core i t' ht').2.2)
+      (fun t' ht' gs hgs gr hgr s hs => ?_)
+    cases hgs
+    have : t'.goal = t.goal := by
+      have := hE _ _ hg
+      unfold goalAt at this
+      rw [ht'] at this
+      exact Option.some.inj this
+    rw [this]
+    exact h2 gr hgr s hs
 
-theorem inv_advance : ∀ (fuel i : Nat) (st : StateOf R Rel (Ans D P)), Inv st →
-    Inv (advance (K := DerivationKernel.over D K hK P) fuel i st).val.1
-  | 0, _, st, hI => by
-    at_cost K hK
-    exact hI
-  | fuel + 1, i, st, hI => by
-    have ih := fun h st => inv_advance fuel h st
-    have ihR := fun h st => reach_advance (K := K) (hK := hK) (P := P) fuel h st
-    at_cost K hK
-    simp only [advance]
-    split
-    · exact hI
-    · next t ht =>
-      split
-      · exact hI
-      · split
-        · exact hI
-        · split
-          · exact hI
-          · simp only [Cost.bind_val, Cost.pure_val]
-            have hg : goalAt st i = some t.goal := by unfold goalAt; rw [ht]; rfl
-            refine Inv.modify_same ?_ i _ (fun _ => rfl) (fun _ => rfl)
-            refine Inv.dropGroups ?_ i _
-            refine (foldL_inv (fun acc : StateOf R Rel (Ans D P) × Bool =>
-              Inv acc.1 ∧ goalAt acc.1 i = some t.goal) _ _ (fun b lv _ hb => ?_) _
-              ⟨inv_prepare (K := _) (hK := hK) hI i t ht,
-                (reach_prepare (K := _) (hK := hK) i t st).ext _ _ hg⟩).1
-            split
-            · exact hb
-            · exact ⟨inv_workLevel _ ih ihR hb.1 _ _ _ _ hb.2,
-                (reach_workLevel _ ihR _ _ _ _ _).ext _ _ hb.2⟩
-
-/-- **A request keeps the invariant.** -/
-theorem inv_request {st : StateOf R Rel (Ans D P)} (hI : Inv st) :
-    Inv (request (K := DerivationKernel.over D K hK P) st).val.1 := by
-  have h := fun st hI => inv_advance (K := K) (hK := hK) (P := P) st.tables.length 0 st hI
+/-- The race of a table keeps the invariant, if its answers are answers of
+the goal. -/
+theorem inv_askRace (U : GOracle R Rel (Ans D P) Cost) {st : StateOf R Rel (Ans D P)}
+    (hI : Inv st) (i : Nat) (g : GoalOf R Rel) (hg : goalAt st i = some g)
+    (hU : ∀ n, ∀ a ∈ (U n g).val.2, GoalIs g a) :
+    Inv (askRace (K := DerivationKernel.over D K hK P) U i g st).val.1 := by
   at_cost K hK
-  simp only [request, Cost.bind_val, Cost.pure_val]
-  have h0 : Inv ({ st with round := st.round + 1 } : StateOf R Rel (Ans D P)) :=
-    hI.of_map (fun _ t => t) (fun j => by simp) (fun _ _ => rfl) (fun _ _ => rfl)
-  refine (h _ h0).of_map _ (fun j => List.getElem?_mapIdx) (fun j t => ?_) (fun j t => ?_)
-  · split <;> rfl
-  · split <;> rfl
+  unfold askRace
+  split
+  · exact hI
+  · split
+    · exact hI
+    · split
+      · exact hI
+      · simp only [Cost.bind_val]
+        split
+        · simp only [Cost.bind_val]
+          refine Inv.modify_same ?_ i _ (fun _ => rfl) (fun _ => rfl)
+          exact (foldL_inv (fun b : StateOf R Rel (Ans D P) => Inv b ∧ goalAt b i = some g) _ _
+            (fun b x hx hb => ⟨inv_addAnswer hb.1 i x fun g' hg' => by
+                obtain rfl : g' = g := Option.some.inj (hg'.symm.trans hb.2)
+                exact hU _ x hx,
+              (Reach.add (K := _) (hK := hK) b i x).ext _ _ hb.2⟩) st ⟨hI, hg⟩).1
+        · exact hI.modify_same i _ (fun _ => rfl) (fun _ => rfl)
 
 /-- The first state has the invariant, and its first table is the table of
 the root goal. -/
@@ -1183,57 +1159,6 @@ theorem inv_init {root : Rel} (hn : Normal root) :
     cases hgs
 
 end kernel
-
-/-! ## The run on a root that is its own converse -/
-
-section run
-
-variable {R : Sorts → Type} [∀ S, Answer (R S)] [∀ S, DecidableEq (R S)]
-  {dom : ∀ S, Domain (R S)} {K : ∀ S, Kernel (R S) Cost} {hK : ∀ S, (K S).Refines (dom S)}
-
-/-- **On a root node that is its own converse the symmetric engine shows, at
-every step, answers that are their own converses rearranged.** So run on one
-orientation (`CostedRuntime.oriented`) it shows on the converse of a query,
-and on the mirror image of an input, the run on the query with every answer
-swapped (`CostedRuntime.oriented_convTrace`,
-`CostedRuntime.oriented_dualTrace`). -/
-theorem engine_selfConverse (hD : ∀ S : Sorts, S.WellFormed → (dom S).Lawful S.interp) :
-    (engine.costedAt dom K hK).SelfConverse := by
-  refine selfConverse_of hD
-    (fun s => Inv (stOf dom s) ∧ goalAt (stOf dom s) 0 = some ⟨none, s.root, none⟩)
-    (fun s hs => hs.1.answers hs.2) (fun P root _ _ => ?_) (fun s as s' hs he => ?_)
-  · exact inv_init (K := K P.sorts) (hK := hK P.sorts) (P := P) (normal_norm root)
-  · obtain ⟨hI, hg⟩ := hs
-    have hlt := lt_of_goalAt hg
-    have hhead : (stOf dom s).tables.head? = some (stOf dom s).tables[0] := by
-      rw [List.head?_eq_getElem?]; exact List.getElem?_eq_getElem hlt
-    rw [costed_step_val dom K hK s hhead] at he
-    split at he
-    · cases he
-    · cases he
-      obtain ⟨st', hre, hreq⟩ := reach_request (K := K s.P.sorts) (hK := hK s.P.sorts)
-        (stOf dom s)
-      refine ⟨inv_request hI, ?_⟩
-      show goalAt (request (K := DerivationKernel.over (dom s.P.sorts) (K s.P.sorts)
-        (hK s.P.sorts) s.P) (stOf dom s)).val.1 0 = _
-      rw [hreq]
-      exact hre.ext _ _ hg
-
-/-- **The converse, for the symmetric engine on one orientation.** The run
-on the converse of a query is the run on the query with every answer
-swapped, step for step. -/
-theorem oriented_convTrace (hD : ∀ S : Sorts, S.WellFormed → (dom S).Lawful S.interp) :
-    (engine.costedAt dom K hK).oriented.runtime.ConvTrace :=
-  CostedRuntime.oriented_convTrace (engine_selfConverse hD)
-
-/-- **The mirror image, for the symmetric engine on one orientation.** The
-run on the mirrored query in the mirrored program is the run on the query
-with every answer swapped, step for step. -/
-theorem oriented_dualTrace (hD : ∀ S : Sorts, S.WellFormed → (dom S).Lawful S.interp) :
-    (engine.costedAt dom K hK).oriented.runtime.DualTrace :=
-  CostedRuntime.oriented_dualTrace (engine_selfConverse hD)
-
-end run
 
 end Symmetric
 

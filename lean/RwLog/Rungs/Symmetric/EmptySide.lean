@@ -34,6 +34,7 @@ open Answer Saturation Goals
 section run
 
 variable {R : Type} [Answer R] [DecidableEq R] {D : Domain R} {P : Program}
+  {U : GOracle R Rel (Ans D P) Cost}
 
 variable {τ : Nat → StateOf R Rel (Ans D P)}
 
@@ -71,7 +72,7 @@ variable (hL : D.Lawful P.sorts.interp)
 include hL
 
 /-- The table of a void goal never has an answer. -/
-theorem IsRun.void_empty (hτ : IsRun τ) {r k : Nat} {g : GoalOf R Rel}
+theorem IsRun.void_empty (hτ : IsRun U τ) {r k : Nat} {g : GoalOf R Rel}
     (hk : goalAt (τ r) k = some g) (hv : Void P g) (r2 : Nat) : (τ r2).answers k = [] := by
   cases hx : (τ r2).answers k with
   | nil => rfl
@@ -87,7 +88,7 @@ theorem IsRun.void_empty (hτ : IsRun τ) {r k : Nat} {g : GoalOf R Rel}
 /-- **A goal completes once a void side of one of its splits does.** The
 goal is not neglected; the side is void, and complete in the run whenever it
 is not neglected. -/
-theorem IsRun.done_of_side (hτ : IsRun τ) {r k : Nat} {g Lg Rg sg : GoalOf R Rel} {kd : Kind}
+theorem IsRun.done_of_side (hτ : IsRun U τ) {r k : Nat} {g Lg Rg sg : GoalOf R Rel} {kd : Kind}
     (hk : goalAt (τ r) k = some g) (ho : Opened τ k) (hsp : SplitAt g kd Lg Rg) (left : Bool)
     (hsg : sg = if left then Lg else Rg) (hv : Void P sg)
     (hside : ∀ r' j, goalAt (τ r') j = some sg → Opened τ j → EvDone τ j) : EvDone τ k := by
@@ -138,7 +139,7 @@ theorem IsRun.done_of_side (hτ : IsRun τ) {r k : Nat} {g Lg Rg sg : GoalOf R R
 /-- **Down a meet and back.** If the goal of the meet of some members is void
 and complete in the run whenever it is not neglected, so is the goal of the
 meet of those and any others: the others are taken away one at a time. -/
-theorem IsRun.meet_ladder (hτ : IsRun τ) {A : List Rel} (hA : A ≠ [])
+theorem IsRun.meet_ladder (hτ : IsRun U τ) {A : List Rel} (hA : A ≠ [])
     (hAs : A.Pairwise RelLE) (hbv : Void P (bare (mkAnd A) : GoalOf R Rel))
     (hbd : ∀ r j, goalAt (τ r) j = some (bare (mkAnd A)) → Opened τ j → EvDone τ j) :
     ∀ (n : Nat) (ys C : List Rel), C.length = n → ys.Pairwise RelLE → ys.Perm (A ++ C) →
@@ -198,15 +199,15 @@ end run
 
 section theorems
 
-variable {R : Sorts → Type} [∀ S, Answer (R S)] [∀ S, DecidableEq (R S)]
+variable {U : Unfolder} {R : Sorts → Type} [∀ S, Answer (R S)] [∀ S, DecidableEq (R S)]
   {dom : ∀ S, Domain (R S)} {K : ∀ S, Kernel (R S) Cost} {hK : ∀ S, (K S).Refines (dom S)}
-variable (hD : ∀ S : Sorts, S.WellFormed → (dom S).Lawful S.interp)
-include hD
+variable (hD : ∀ S : Sorts, S.WellFormed → (dom S).Lawful S.interp) (hG : RwLog.Good @U)
+include hD hG
 
 /-- The machine halts exactly when the root table completes. -/
 theorem terminates_iff {P : Program} {q : Rel} (wf : P.WellFormed q) :
-    (Rt dom K hK).Terminates P q ↔ EvDone (sAt dom K hK P q.norm) 0 := by
-  have hI := isRun_of_wf (K := K) (hK := hK) hD wf
+    (Rt @U dom K hK).Terminates P q ↔ EvDone (sAt @U dom K hK P q.norm) 0 := by
+  have hI := isRun_of_wf (K := K) (hK := hK) hD hG wf
   constructor
   · rintro ⟨n, hn⟩
     rw [init_eq] at hn
@@ -224,34 +225,34 @@ theorem terminates_iff {P : Program} {q : Rel} (wf : P.WellFormed q) :
 
 /-- A query that halts with no answer relates nothing. -/
 theorem pairs_empty {P : Program} {a : Rel} (wf : P.WellFormed a)
-    (ht : (Rt dom K hK).Terminates P a) (he : (Rt dom K hK).Answers P a = ∅) :
+    (ht : (Rt @U dom K hK).Terminates P a) (he : (Rt @U dom K hK).Answers P a = ∅) :
     P.pairs a = ∅ := by
   obtain ⟨n, hn⟩ := ht
-  rw [honestExhaustion (K := K) (hK := hK) hD P a wf n hn]
+  rw [honestExhaustion (K := K) (hK := hK) hD hG P a wf n hn]
   refine Set.eq_empty_of_forall_notMem fun p hp => ?_
   obtain ⟨x, hx, -⟩ := Set.mem_iUnion₂.1 hp
-  have : x ∈ (Rt dom K hK).Answers P a := ⟨n, hx⟩
+  have : x ∈ (Rt @U dom K hK).Answers P a := ⟨n, hx⟩
   rw [he] at this
   exact this
 
 /-- **A side that halts with no answer makes `;` and `&` halt**, on either
 side. -/
-theorem emptySide : (Rt dom K hK).EmptySide := fun P a b wf ht he => by
+theorem emptySide : (Rt @U dom K hK).EmptySide := fun P a b wf ht he => by
   have wfa : P.WellFormed a := wf.seq_left
   have wfba : P.WellFormed (.seq b a) := wf.seq_swap
   have wfand : P.WellFormed (.and a b) := wf.and_of_seq
   have wfand' : P.WellFormed (.and b a) := wf.seq_swap.and_of_seq
   have hL := hD _ wf.2.2.1
   have hv : Void P (bare a.norm : GoalOf (R P.sorts) Rel) :=
-    void_of_pairs (pairs_empty (K := K) (hK := hK) hD wfa ht he)
-  have hσ := isRun_of_wf (K := K) (hK := hK) hD wfa
-  obtain ⟨rσ, hrσ⟩ := (terminates_iff (K := K) (hK := hK) hD wfa).1 ht
+    void_of_pairs (pairs_empty (K := K) (hK := hK) hD hG wfa ht he)
+  have hσ := isRun_of_wf (K := K) (hK := hK) hD hG wfa
+  obtain ⟨rσ, hrσ⟩ := (terminates_iff (K := K) (hK := hK) hD hG wfa).1 ht
   -- the goal of `a` completes in every run that does not neglect it
-  have side : ∀ {e : Rel}, IsRun (sAt dom K hK P e) → ∀ r j,
-      goalAt (sAt dom K hK P e r) j = some (bare a.norm) → Opened (sAt dom K hK P e) j →
-      EvDone (sAt dom K hK P e) j := fun hτ r j hj ho =>
+  have side : ∀ {e : Rel}, IsRun (UAt @U dom K hK P) (sAt @U dom K hK P e) → ∀ r j,
+      goalAt (sAt @U dom K hK P e r) j = some (bare a.norm) → Opened (sAt @U dom K hK P e) j →
+      EvDone (sAt @U dom K hK P e) j := fun hτ r j hj ho =>
     hσ.transfer hL hτ (fun r j => nocov_stateAt r j) (root_at hσ rσ) hrσ hj ho
-  have rootO : ∀ {e : Rel} (hτ : IsRun (sAt dom K hK P e)), Opened (sAt dom K hK P e) 0 :=
+  have rootO : ∀ {e : Rel} (hτ : IsRun (UAt @U dom K hK P) (sAt @U dom K hK P e)), Opened (sAt @U dom K hK P e) 0 :=
     fun hτ => hτ.opened_of_settled root_goal0 fun r' =>
       ⟨r', Nat.le_refl _, (hτ.req.req r').root⟩
   have hna : ∀ x ∈ seqParts a.norm ++ seqParts b.norm, NotSeq x := fun x hx =>
@@ -263,44 +264,44 @@ theorem emptySide : (Rt dom K hK).EmptySide := fun P a b wf ht he => by
   have eA : mkAnd (andParts a.norm) = a.norm := (normal_norm a).mkAnd_andParts
   refine ⟨?_, ?_, ?_, ?_⟩
   · -- `a ; b`: the chain is split where the members of `a` end
-    have hτ := isRun_of_wf (K := K) (hK := hK) hD wf
+    have hτ := isRun_of_wf (K := K) (hK := hK) hD hG wf
     have e₁ : mkSeq ((seqParts a.norm ++ seqParts b.norm).take (seqParts a.norm).length) =
         a.norm := by rw [List.take_left' rfl, (normal_norm a).mkSeq_seqParts]
-    refine (terminates_iff (K := K) (hK := hK) hD wf).2 ?_
+    refine (terminates_iff (K := K) (hK := hK) hD hG wf).2 ?_
     exact hτ.done_of_side hL
-      (show goalAt (sAt dom K hK P (.seq a b : Rel).norm 0) 0 =
+      (show goalAt (sAt @U dom K hK P (.seq a b : Rel).norm 0) 0 =
         some (bare (mkSeq (seqParts a.norm ++ seqParts b.norm))) from root_goal0)
       (rootO hτ) (splitAt_mkSeq hna hpa (by simp; omega)) true (by rw [e₁]; rfl) hv (side hτ)
   · -- `b ; a`: the chain is split where the members of `a` begin
-    have hτ := isRun_of_wf (K := K) (hK := hK) hD wfba
+    have hτ := isRun_of_wf (K := K) (hK := hK) hD hG wfba
     have e₁ : mkSeq ((seqParts b.norm ++ seqParts a.norm).drop (seqParts b.norm).length) =
         a.norm := by rw [List.drop_left' rfl, (normal_norm a).mkSeq_seqParts]
-    refine (terminates_iff (K := K) (hK := hK) hD wfba).2 ?_
+    refine (terminates_iff (K := K) (hK := hK) hD hG wfba).2 ?_
     exact hτ.done_of_side hL
-      (show goalAt (sAt dom K hK P (.seq b a : Rel).norm 0) 0 =
+      (show goalAt (sAt @U dom K hK P (.seq b a : Rel).norm 0) 0 =
         some (bare (mkSeq (seqParts b.norm ++ seqParts a.norm))) from root_goal0)
       (rootO hτ) (splitAt_mkSeq hna' hpb (by simp; omega)) false (by rw [e₁]; rfl) hv
       (side hτ)
   · -- `a & b`: the meet has the members of `a`
-    have hτ := isRun_of_wf (K := K) (hK := hK) hD wfand
-    refine (terminates_iff (K := K) (hK := hK) hD wfand).2 ?_
+    have hτ := isRun_of_wf (K := K) (hK := hK) hD hG wfand
+    refine (terminates_iff (K := K) (hK := hK) hD hG wfand).2 ?_
     exact hτ.meet_ladder hL (andParts_ne_nil a.norm) (normal_norm a).sorted_andParts
       (by rw [eA]; exact hv) (by rw [eA]; exact side hτ) (andParts b.norm).length
       (sortedParts (andParts a.norm ++ andParts b.norm)) (andParts b.norm) rfl
       (pairwise_sortedParts _) (sortedParts_perm _)
       (fun x hx => (List.mem_append.1 ((sortedParts_perm _).mem_iff.1 hx)).elim
         notAnd_of_mem_andParts notAnd_of_mem_andParts) 0 0
-      (show goalAt (sAt dom K hK P (.and a b : Rel).norm 0) 0 = _ from root_goal0) (rootO hτ)
+      (show goalAt (sAt @U dom K hK P (.and a b : Rel).norm 0) 0 = _ from root_goal0) (rootO hτ)
   · -- `b & a`
-    have hτ := isRun_of_wf (K := K) (hK := hK) hD wfand'
-    refine (terminates_iff (K := K) (hK := hK) hD wfand').2 ?_
+    have hτ := isRun_of_wf (K := K) (hK := hK) hD hG wfand'
+    refine (terminates_iff (K := K) (hK := hK) hD hG wfand').2 ?_
     exact hτ.meet_ladder hL (andParts_ne_nil a.norm) (normal_norm a).sorted_andParts
       (by rw [eA]; exact hv) (by rw [eA]; exact side hτ) (andParts b.norm).length
       (sortedParts (andParts b.norm ++ andParts a.norm)) (andParts b.norm) rfl
       (pairwise_sortedParts _) ((sortedParts_perm _).trans List.perm_append_comm)
       (fun x hx => (List.mem_append.1 ((sortedParts_perm _).mem_iff.1 hx)).elim
         notAnd_of_mem_andParts notAnd_of_mem_andParts) 0 0
-      (show goalAt (sAt dom K hK P (.and b a : Rel).norm 0) 0 = _ from root_goal0) (rootO hτ)
+      (show goalAt (sAt @U dom K hK P (.and b a : Rel).norm 0) 0 = _ from root_goal0) (rootO hτ)
 
 end theorems
 

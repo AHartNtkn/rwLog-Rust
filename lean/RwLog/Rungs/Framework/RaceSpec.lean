@@ -105,9 +105,6 @@ theorem bodyOf_normal {e b : Rel} (hb : Charged.bodyOf P e = some b) : Normal b 
   · cases hb; exact normal_normConv _
   · cases hb
 
-/-- The spans of the bodies of the program are first-order. -/
-def ProgFO (P : Program) : Prop := ∀ s ∈ P.defs.flatMap fun d => d.2.spans, s.firstOrder = true
-
 /-- The specification of an unfolding race at one kernel. -/
 structure UOk (D : Domain R) (P : Program) (U : GOracle R Rel (Ans D P) Cost) : Prop where
   /-- Its answers are answers of the goal. -/
