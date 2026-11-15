@@ -2375,7 +2375,6 @@ theorem turn_prepare (hR : ReadOk D P K hK) (hP : ProgFO P) {st : StateOf R Rel 
     rw [this]
     exact hsh
 
-omit [DecidableEq R] in
 /-- **The end of a round**: the groups with nothing left are removed, and
 the table may be marked complete. The record of the whole round. -/
 theorem turns_finish {st stp X Y : StateOf R Rel (Ans D P)} {i : Nat} {g : GoalOf R Rel}

@@ -40,7 +40,6 @@ omit [DecidableEq R] in
 theorem SameG.trans {a b c : StateOf R Rel (Ans D P)} (h₁ : SameG a b) (h₂ : SameG b c) :
     SameG a c := ⟨fun j => (h₂.1 j).trans (h₁.1 j), h₂.2.trans h₁.2⟩
 
-omit [DecidableEq R] in
 theorem Base.same {st st' : StateOf R Rel (Ans D P)} (hB : Base st) (h : SameG st st') :
     Base st' := by
   refine ⟨fun j g hg => hB.good j g ?_, fun i j g hi hj => hB.nodup i j g ?_ ?_, fun e he => ?_⟩
@@ -321,7 +320,7 @@ theorem base_work (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK)
       · exact h7 _ _
       · next ps heq =>
         simp only [Cost.bind_val, Cost.pure_val]
-        exact h8 _ (h7 _ _) other ho left ps ((h6 left side).2.2 ps heq).1
+        exact h8 _ (h7 _ _) other ho left ps ((h6 left side).2.2.1 ps heq).1
     | off => exact hB
     | opened subs => exact hB
 
@@ -599,7 +598,6 @@ theorem stable_modify (st : StateOf R Rel (Ans D P)) (i : Nat)
     exact ⟨f t, by simp, h1, h2, by rw [h3], fun hd => ⟨h4 hd, h3⟩⟩
   · exact ⟨t, by simp [e], rfl, rfl, List.prefix_refl _, fun h => ⟨h, rfl⟩⟩
 
-omit [DecidableEq R] in
 theorem ProgAll.modify {st : StateOf R Rel (Ans D P)} (hA : ProgAll st) (i : Nat)
     (f : Table R Rel (Ans D P) → Table R Rel (Ans D P)) (hgoal : ∀ t, (f t).goal = t.goal)
     (hS : Stable st (st.modify i f))
@@ -611,7 +609,6 @@ theorem ProgAll.modify {st : StateOf R Rel (Ans D P)} (hA : ProgAll st) (i : Nat
   · rw [hgoal]
     exact (hg t ht gs hgs gr hgr s hs).mono hS
 
-omit [DecidableEq R] in
 /-- The work of the strategies of an open table leaves every cursor its
 meaning. -/
 theorem ProgAll.frame {st st' : StateOf R Rel (Ans D P)} (hA : ProgAll st) {j : Nat}
@@ -627,7 +624,6 @@ theorem ProgAll.frame {st st' : StateOf R Rel (Ans D P)} (hA : ProgAll st) {j : 
     rw [e5] at hgs
     exact (hA k t hst gs hgs gr hgr s hs).mono (h.stable ho)
 
-omit [DecidableEq R] in
 theorem prog_of_groupsAt {st : StateOf R Rel (Ans D P)} (hA : ProgAll st) {i k j : Nat}
     {g : GoalOf R Rel} {s : Strat Rel (Ans D P)} (hg : goalAt st i = some g)
     (h : ((groupsAt st i)[k]?).bind (·.strats[j]?) = some s) : Prog st i g s := by
@@ -650,7 +646,6 @@ theorem prog_of_groupsAt {st : StateOf R Rel (Ans D P)} (hA : ProgAll st) {i k j
         rw [hgr] at h
         exact hA i t ht gs hgs gr (List.mem_of_getElem? hgr) s (List.mem_of_getElem? h)
 
-omit [DecidableEq R] in
 /-- Changing one table keeps what a run keeps, if its goal, its mark, its
 answers and its strategies stay, and it stays complete if it was. -/
 theorem Good.modify {st : StateOf R Rel (Ans D P)} (hG : Good st) (i : Nat)
@@ -668,7 +663,6 @@ theorem Good.modify {st : StateOf R Rel (Ans D P)} (hG : Good st) (i : Nat)
   rw [hgr] at hgs
   exact hG.prog i t ht gs hgs
 
-omit [DecidableEq R] in
 /-- Removing groups of one table keeps what a run keeps. -/
 theorem Good.dropGroups {st : StateOf R Rel (Ans D P)} (hG : Good st) (i : Nat)
     (p : Group Rel (Ans D P) → Bool) :
@@ -684,7 +678,6 @@ theorem Good.dropGroups {st : StateOf R Rel (Ans D P)} (hG : Good st) (i : Nat)
     cases hgs
     exact hG.prog i t ht gs' hg gr (List.mem_of_mem_filter hgr) s hs
 
-omit [DecidableEq R] in
 /-- Changing a group of a table keeps what a run keeps, if each strategy of
 the group stays or fits with cursors that mean what they should. -/
 theorem Good.setGroup {st : StateOf R Rel (Ans D P)} (hG : Good st) (i k : Nat)
@@ -709,7 +702,6 @@ theorem Good.setGroup {st : StateOf R Rel (Ans D P)} (hG : Good st) (i k : Nat)
       · exact hG.prog i t ht gs' hgs' gr' hgr' s h
       · exact h.2
 
-omit [DecidableEq R] in
 /-- A change of the tables that keeps of each its goal, its mark, its
 answers and its strategies, and leaves a complete table complete, keeps what
 a run keeps. -/

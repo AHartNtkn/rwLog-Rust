@@ -187,6 +187,13 @@ def EdgeOk (D : Domain R) (P : Program) (n : Rel) (last : Bool) (ps : List R) : 
     (Normal n → n.FO → ∀ k, ∀ G ∈ GDn P k n, ∀ x z, (x, z) ∈ G.at P.sorts.interp →
       ∃ p ∈ ps, (if last then (z, z) else (x, x)) ∈ bdenAt P.sorts.interp (some p))
 
+/-- Some reading of the end of `n`, at some depth and some kernel, did not
+give up and returned `e`. Every reading that does not give up returns the
+same (`Reads.unique`), so this is a fact of the program alone. -/
+def Reads (D : Domain R) (P : Program) (n : Rel) (last : Bool) (e : Option (List R)) : Prop :=
+  ∃ (K : Kernel R Cost) (hK : K.Refines D) (d : Nat),
+    (readEdge (K := DerivationKernel.over D K hK P) last d n).val = some e
+
 /-- What the cursors of the strategy `s` of the table at `i`, of the goal
 `g`, mean. -/
 def Prog (st : StateOf R Rel (Ans D P)) (i : Nat) (g : GoalOf R Rel) :
@@ -217,12 +224,13 @@ def Prog (st : StateOf R Rel (Ans D P)) (i : Nat) (g : GoalOf R Rel) :
   | .check left side other c => ∃ L Rg, SplitAt g .seq L Rg ∧
       side = (if left then L.node else Rg.node) ∧ other = (if left then Rg.node else L.node) ∧
       match c with
-      | .opened subs => ∃ ps, EdgeOk D P side left ps ∧ subs.length = ps.length ∧
+      | .opened subs => ∃ ps, Reads D P side left (some ps) ∧ EdgeOk D P side left ps ∧
+          subs.length = ps.length ∧
           ∀ (n : Nat) (p : R), ps[n]? = some p → ∃ j, subs[n]? = some j ∧
             goalAt st j = some (if left then ⟨some p, other, g.rb⟩ else ⟨g.lb, other, some p⟩)
-      | _ => True
+      | .off => Reads D P side left none
+      | .reading => True
 
-omit [DecidableEq R] in
 /-- What the cursors of a strategy mean stays so in every later state. -/
 theorem Prog.mono {st st' : StateOf R Rel (Ans D P)} (h : Stable st st') {i : Nat}
     {g : GoalOf R Rel} {s : Strat Rel (Ans D P)} (hs : Prog st i g s) : Prog st' i g s := by
@@ -260,12 +268,12 @@ theorem Prog.mono {st st' : StateOf R Rel (Ans D P)} (h : Stable st st') {i : Na
     refine ⟨L, Rg, h1, h2, h3, ?_⟩
     cases c with
     | opened subs =>
-      obtain ⟨ps, p1, p2, p3⟩ := h4
-      refine ⟨ps, p1, p2, fun n p hp => ?_⟩
+      obtain ⟨ps, p0, p1, p2, p3⟩ := h4
+      refine ⟨ps, p0, p1, p2, fun n p hp => ?_⟩
       obtain ⟨j, hj, hg⟩ := p3 n p hp
       exact ⟨j, hj, hE _ _ hg⟩
     | reading => trivial
-    | off => trivial
+    | off => exact h4
 
 /-! ## What the rules return -/
 
@@ -550,7 +558,7 @@ theorem pushOpen_spec (g : GoalOf R Rel) (other : Rel) (k : Kind) (left : Bool)
 
 /-- Every edge the state keeps is right about the program. -/
 def EdgesOk (st : StateOf R Rel (Ans D P)) : Prop :=
-  ∀ e ∈ st.edges, ∀ ps, e.2.2 = some ps → EdgeOk D P e.1 e.2.1 ps
+  ∀ e ∈ st.edges, Reads D P e.1 e.2.1 e.2.2 ∧ ∀ ps, e.2.2 = some ps → EdgeOk D P e.1 e.2.1 ps
 
 variable (D P K hK) in
 /-- A reading of an edge that returns interfaces is right about the
@@ -591,29 +599,37 @@ theorem edgeOf_spec (hR : ReadOk D P K hK) {st : StateOf R Rel (Ans D P)} (hE : 
     (last : Bool) (n : Rel) :
     EdgesOk (edgeOf (K := DerivationKernel.over D K hK P) st last n).val.1 ∧
       (edgeOf (K := DerivationKernel.over D K hK P) st last n).val.1.tables = st.tables ∧
-      ∀ ps, (edgeOf (K := DerivationKernel.over D K hK P) st last n).val.2 = some (some ps) →
-        EdgeOk D P n last ps := by
+      (∀ ps, (edgeOf (K := DerivationKernel.over D K hK P) st last n).val.2 = some (some ps) →
+        EdgeOk D P n last ps) ∧
+      ∀ e, (edgeOf (K := DerivationKernel.over D K hK P) st last n).val.2 = some e →
+        Reads D P n last e := by
   have hlk := lookupEdge_mem (K := K) (hK := hK) (P := P) n last st.edges
   have hR' := hR last st.depth n
+  have hrd : ∀ e, (readEdge (K := DerivationKernel.over D K hK P) last st.depth n).val = some e →
+      Reads D P n last e := fun e h => ⟨K, hK, st.depth, h⟩
   clear hR
   at_cost K hK
   simp only [edgeOf, Cost.bind_val]
   split
   · next e he =>
-    exact ⟨hE, rfl, fun ps hps => hE _ (hlk e he) ps (by cases hps; rfl)⟩
+    exact ⟨hE, rfl, (fun ps hps => (hE _ (hlk e he)).2 ps (by cases hps; rfl)),
+      fun e' he' => by cases he'; exact (hE _ (hlk e he)).1⟩
   · simp only [Cost.bind_val, Cost.pure_val]
     cases hr : (readEdge (K := DerivationKernel.over D _ hK P) last st.depth n).val with
-    | none => exact ⟨hE, rfl, fun ps hps => by cases hps⟩
+    | none => exact ⟨hE, rfl, (fun ps hps => by cases hps), fun e he => by cases he⟩
     | some e =>
-      refine ⟨fun x hx ps hps => ?_, rfl, fun ps hps => ?_⟩
+      refine ⟨fun x hx => ?_, rfl, fun ps hps => ?_, fun e' he' => ?_⟩
       · rcases List.mem_append.1 hx with hx | hx
-        · exact hE x hx ps hps
+        · exact hE x hx
         · obtain rfl := List.mem_singleton.1 hx
+          refine ⟨hrd e hr, fun ps hps => ?_⟩
           simp only at hps
           subst hps
           exact hR' ps hr
       · cases hps
         exact hR' ps hr
+      · cases he'
+        exact hrd e hr
 
 /-- What a check opens: the other side under each interface, in order. -/
 theorem checkOpen_spec (g : GoalOf R Rel) (left : Bool) (other : Rel)
@@ -1032,7 +1048,8 @@ theorem prog_work_check (hR : ReadOk D P K hK) {st : StateOf R Rel (Ans D P)}
   have hs0 := hs
   dsimp only [Prog] at hs
   obtain ⟨L, Rg, h1, h2, h3, -⟩ := hs
-  have hes := (edgeOf_spec hR hE left side).2.2
+  have hes := (edgeOf_spec hR hE left side).2.2.1
+  have her := (edgeOf_spec hR hE left side).2.2.2
   have hco := fun st' ps => checkOpen_spec (K := K) (hK := hK) (P := P) g left other st' ps
   clear hR
   at_cost K hK
@@ -1042,14 +1059,15 @@ theorem prog_work_check (hR : ReadOk D P K hK) {st : StateOf R Rel (Ans D P)}
     split
     · dsimp only [Prog]
       exact ⟨L, Rg, h1, h2, h3, trivial⟩
-    · dsimp only [Prog]
-      exact ⟨L, Rg, h1, h2, h3, trivial⟩
+    · next heq =>
+      dsimp only [Prog]
+      exact ⟨L, Rg, h1, h2, h3, her _ heq⟩
     · next ps heq =>
       simp only [Cost.bind_val, Cost.pure_val]
       obtain ⟨-, es, hes', hall⟩ := hco _ ps
       rw [List.nil_append] at hes'
       dsimp only [Prog]
-      refine ⟨L, Rg, h1, h2, h3, ps, hes ps heq, by rw [hes']; exact hall.length_eq.symm,
+      refine ⟨L, Rg, h1, h2, h3, ps, her _ heq, hes ps heq, by rw [hes']; exact hall.length_eq.symm,
         fun n p hp => ?_⟩
       rw [hes']
       exact forall₂_getElem? hall hp

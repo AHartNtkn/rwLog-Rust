@@ -29,7 +29,7 @@ namespace Symmetric
 
 open Answer Saturation
 
-variable {R : Type} [Answer R] {D : Domain R} {P : Program}
+variable {R : Type} [Answer R] [DecidableEq R] {D : Domain R} {P : Program}
 
 /-- A run of requests: each state is a request after the one before; the
 first has no groups, no complete table and a depth to read edges to; and
@@ -40,7 +40,7 @@ structure IsRun (σ : Nat → StateOf R Rel (Ans D P)) : Prop where
   depth : 0 < (σ 0).depth
   fresh : ∀ (k : Nat) (t : Table R Rel (Ans D P)), (σ 0).tables[k]? = some t → t.done = false
 
-omit [Answer R] in
+omit [DecidableEq R] [Answer R] in
 theorem toGoal_inj {g g' : GoalOf R Rel} (e : toGoal g = toGoal g') : g = g' := by
   cases g
   cases g'
@@ -72,6 +72,7 @@ def IsStrat (σ : Nat → StateOf R Rel (Ans D P)) (k r : Nat) (s : Strat Rel (A
   ∃ (t : Table R Rel (Ans D P)) (gs : List (Group Rel (Ans D P))) (gr : Group Rel (Ans D P)),
     (σ r).tables[k]? = some t ∧ t.groups = some gs ∧ gr ∈ gs ∧ s ∈ gr.strats
 
+omit [DecidableEq R] in
 theorem table_of_goalAt {st : StateOf R Rel (Ans D P)} {j : Nat} {g : GoalOf R Rel}
     (h : goalAt st j = some g) : ∃ t, st.tables[j]? = some t ∧ t.goal = g := by
   unfold goalAt at h
@@ -79,12 +80,14 @@ theorem table_of_goalAt {st : StateOf R Rel (Ans D P)} {j : Nat} {g : GoalOf R R
   | none => rw [ht] at h; cases h
   | some t => rw [ht] at h; exact ⟨t, rfl, Option.some.inj h⟩
 
+omit [DecidableEq R] in
 theorem goalAt_of_table {st : StateOf R Rel (Ans D P)} {j : Nat} {t : Table R Rel (Ans D P)}
     (h : st.tables[j]? = some t) : goalAt st j = some t.goal := by
   unfold goalAt
   rw [h]
   rfl
 
+omit [DecidableEq R] in
 theorem isDone_of_table {st : StateOf R Rel (Ans D P)} {j : Nat} {t : Table R Rel (Ans D P)}
     (h : st.tables[j]? = some t) : st.isDone j = t.done := by
   unfold StateOf.isDone
@@ -414,7 +417,7 @@ theorem IsRun.served_check (h : IsRun σ) {r k : Nat} {g : GoalOf R Rel} {left :
     Served D P (opened σ) (held σ) (toGoal g) := by
   have hp := h.prog hk hs
   dsimp only [Prog] at hp
-  obtain ⟨L, Rg, hsp, hside, hother, ps, hedge, -, hps⟩ := hp
+  obtain ⟨L, Rg, hsp, hside, hother, ps, -, hedge, -, hps⟩ := hp
   have hn := h.normal hk
   have hfo := hsp.fo ((h.good r).base.good k g hk).2.2
   have none : ∀ p ∈ ps,
