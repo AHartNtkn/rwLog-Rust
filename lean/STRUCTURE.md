@@ -121,8 +121,13 @@ Rungs/Symmetric/ the symmetric engine of `SYMMETRIC_ENGINE.md` (Machine.lean): a
                 `Line.join_done`, `Line.push_read`, `Line.check_read`); and a goal whose
                 table is complete in one run of requests has a complete table in every run
                 that does not neglect it (Transfer.lean, `IsRun.transfer`), by induction
-                along the order in which the tables of the first run completed. Not proved yet:
-                `TerminatesWhere`, `EmptySide` and with them `Keeps`; the cost bound. A goal and its converse do not share a
+                along the order in which the tables of the first run completed; so a side
+                that halts with no answer makes `;` and `&` halt (EmptySide.lean,
+                `Symmetric.emptySide`): a goal completes once a void side of one of its
+                splits does (`IsRun.done_of_side`), a chain is split where the side ends,
+                and the other members of a meet are taken away one at a time
+                (`IsRun.meet_ladder`). Not proved yet:
+                `TerminatesWhere` and with it `Keeps`; the cost bound. A goal and its converse do not share a
                 table (not owed by any property; billboard SIM12)
 Rungs/Naive/    normalisation, unfolding to a depth, and their correctness (namespace `R000`)
 Rungs/R005/     the engines: `R001.engine` (tables, unfolding to a depth), `R004.engine` (tables,
@@ -248,6 +253,13 @@ rung unchanged.
   `dualTrace`, `noSubsumed`). `HonestProgress.of_never` is honest progress of
   a machine that emits no certificate. The mirrored tabled machine gets
   `mirror_keeps` this way (`Rungs/Tabled/MirrorKeeps.lean`).
+* `Void.lean`: goals that relate nothing. The pairs a goal and a derivation
+  of its node stand for (`pairsOf`); a goal no derivation of whose node
+  relates a pair between its boundaries (`Void`) has no answer
+  (`void_no_ans`); the goal of a query that relates nothing is void
+  (`void_of_pairs`), and so is a chain or a meet with no boundary one part
+  of which is void (`void_mkSeq_left`, `void_mkSeq_right`, `void_mkAnd`).
+  Used by the tabled rung and the symmetric engine for `EmptySide`.
 * `Goals.lean`, `GoalsVal.lean`: the text every machine that tables shares
   (the goal, the same goal, the position of a goal's table, the cover test
   on answers, maximal and fresh answers, the rule of a split) and what each

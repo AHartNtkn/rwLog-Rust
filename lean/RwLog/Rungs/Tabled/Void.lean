@@ -2,10 +2,10 @@
 # A side that relates nothing completes the goal it was split from
 
 A goal is *void* when no derivation of its node relates a pair between its
-boundaries (`Void`). A complete table with no answer has a void goal
-(`void_of_done`), a void goal never has an answer (`void_no_ans`), and a
-chain or a meet one side of a split of which is void is void
-(`SeqSplit.void_left` and the three beside it).
+boundaries, and a void goal never has an answer (`Void`, `void_no_ans`,
+`Rungs/Framework/Void.lean`). A complete table with no answer has a void
+goal (`void_of_done`), and a chain or a meet one side of a split of which is
+void is void (`SeqSplit.void_left` and the three beside it).
 
 A void goal one of whose strategies has only complete goals completes in the
 round (`done_of_strat`). When a side of a split is complete with no answer,
@@ -30,17 +30,6 @@ namespace Tabled
 open Answer
 
 variable {R : Type} [Answer R] [DecidableEq R] {D : Domain R} {P : Program}
-
-/-- No derivation of the node of the goal relates a pair between its
-boundaries. -/
-def Void (P : Program) (g : GoalOf R Rel) : Prop :=
-  ∀ k G, G ∈ GDn P k g.node → pairsOf P g G = ∅
-
-theorem comp_empty_left (Y : PRel) : PRel.comp ∅ Y = ∅ :=
-  Set.eq_empty_of_forall_notMem fun ⟨_, _⟩ ⟨_, h, _⟩ => h
-
-theorem comp_empty_right (X : PRel) : PRel.comp X ∅ = ∅ :=
-  Set.eq_empty_of_forall_notMem fun ⟨_, _⟩ ⟨_, _, h⟩ => h
 
 section split
 
@@ -94,15 +83,6 @@ section tables
 
 variable (hL : D.Lawful P.sorts.interp) {ts : List (TableOf R Rel (Ans D P))} {g : GoalOf R Rel}
 include hL
-
-omit [DecidableEq R] in
-/-- A void goal has no answer. -/
-theorem void_no_ans (hv : Void P g) (a : Ans D P) : a.goal ≠ toGoal g := by
-  intro ha
-  obtain ⟨k, G, hG, e⟩ := ans_gdn hL ha
-  have := hL.live a.span
-  rw [e, hv k G hG] at this
-  exact Set.not_nonempty_empty this
 
 /-- A void goal has no answer in any table. -/
 theorem void_ansOf (hT : TablesOk D ts) (hv : Void P g) : ansOf ts g = [] :=
@@ -230,13 +210,6 @@ theorem view_mkAnd : ∀ {ys : List Rel}, 2 ≤ ys.length → (∀ x ∈ ys, Not
   | y :: y' :: t, _, hn => by
     show NodeView.meet (andParts (mkAnd (y :: y' :: t))) = _
     rw [andParts_mkAnd (by simp) hn]
-
-theorem mkAnd_eraseIdx_one : ∀ {ys : List Rel} {l : Rel}, ys.length = 2 → ys[0]? = some l →
-    mkAnd (ys.eraseIdx 1) = l
-  | [y, y'], l, _, h => by
-    simp only [List.getElem?_cons_zero, Option.some.injEq] at h
-    subst h
-    rfl
 
 section ladder
 

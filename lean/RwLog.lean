@@ -82,6 +82,7 @@ import RwLog.Lib.Maxima
 import RwLog.Rungs.Framework.KernelAt
 import RwLog.Rungs.Framework.Rules
 import RwLog.Rungs.Framework.GoalsVal
+import RwLog.Rungs.Framework.Void
 import RwLog.Rungs.Tabled.Tables
 import RwLog.Rungs.Tabled.Semantics
 import RwLog.Rungs.Tabled.Covers
@@ -176,3 +177,4 @@ import RwLog.Rungs.Symmetric.Settle
 import RwLog.Rungs.Symmetric.Fair
 import RwLog.Rungs.Symmetric.Transfer
 import RwLog.Rungs.Symmetric.Correct
+import RwLog.Rungs.Symmetric.EmptySide

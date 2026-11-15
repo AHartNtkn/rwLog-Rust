@@ -162,7 +162,9 @@ Planned for `EmptySide`: a table that completes in the run on `a` completes in e
 
 The induction is along the order in which the tables of the first run completed (`Ranked`). At one level, the tables of the second run that never complete are finitely many; each has rounds for ever, so by 2 and `Requests.lines` it has, in a group that works for ever, a strategy of the kind that completed its goal in the first run; by 1 and 5 that strategy reads tables of the same goals, which stand no higher, so each is complete at some time or waits at the same level, and a table whose answers are pushed stands lower and is complete; by 4 and 5 the strategy has nothing left to do from some time on. The tables that wait are then closed under the condition of completion, and the request marks them complete (`Req.closed`).
 
-Still to do for `EmptySide`: the ladders for `;` and `&` (the run on `a ; b` or `a & b` does not neglect the table of `a` once that is shown, and completes with no answer when it is empty).
+**Revision, 2026-11-15 (third): `EmptySide` is proved** (`Rungs/Symmetric/EmptySide.lean`, `Symmetric.emptySide`), in every lawful domain. A query `a` that halts with no answer relates nothing, so the goal of its normal form is void (`Rungs/Framework/Void.lean`, shared with the tabled rung) and its table is complete in every run that does not neglect it (`IsRun.transfer`). A goal that is not neglected completes once a void side of one of its splits does (`IsRun.done_of_side`): the group of that split works for ever, so it feeds the table of the side, which is therefore not neglected and completes; the push of that side then takes its answers, there are none, and a push with nothing to push reads no table. For `a ; b` and `b ; a` no ladder is needed, because the engine splits a chain at every place and one split has the goal of `a` as a side. For `a & b` the engine splits a meet into one member and the others, so the members of `b` are taken away one at a time (`IsRun.meet_ladder`).
+
+Still owed for `Keeps`: `TerminatesWhere` (which needs O7).
 
 ### What a step is
 

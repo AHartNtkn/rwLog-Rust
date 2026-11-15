@@ -34,22 +34,6 @@ theorem exact_mono {U : GOracle R Rel (Ans D P) Cost} (hE : UEx D P U) :
     ∀ n n' g, n ≤ n' → GoalOk D g → (U n g).val.1 = true → (U n' g).val.1 = true :=
   fun n n' g h hg hv => (hE.final n' g hg).2 (final_mono h ((hE.final n g hg).1 hv))
 
-omit [DecidableEq R] in
-/-- The goal of the normal form of a query that relates nothing is void. -/
-theorem void_of_pairs {q : Rel} (h : P.pairs q = ∅) : Void P (bare q.norm : GoalOf R Rel) := by
-  intro k G hG
-  unfold pairsOf
-  rw [show wrapAt P.sorts.interp (none : Option R) (G.at P.sorts.interp) none = _ from
-    wrapAt_none _]
-  refine Set.eq_empty_of_forall_notMem fun p hp => ?_
-  have hmem : p ∈ P.pairs q := by
-    unfold ProgramOf.pairs
-    rw [ProgramOf.semAt_eq, sem_eq_sUnion_gd]
-    obtain ⟨S, hS, hM⟩ := hp
-    exact ⟨S, ⟨G, by rw [← gd_norm]; exact gdn_sub_gd k _ hG, hS⟩, hM⟩
-  rw [h] at hmem
-  exact hmem
-
 end mono
 
 variable (U : Unfolder) {R : Sorts → Type} [∀ S, Answer (R S)] [∀ S, DecidableEq (R S)]
