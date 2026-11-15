@@ -112,6 +112,7 @@ import RwLog.Rungs.Framework.Unfolding.Races
 import RwLog.Rungs.Framework.Unfolding.Model
 import RwLog.Rungs.Framework.Unfolding.EagerExact
 import RwLog.Rungs.Framework.Unfolding.WalkExact
+import RwLog.Rungs.Framework.Unfolding.WalkPrefix
 import RwLog.Rungs.Framework.Unfolding.SharedExact
 import RwLog.Rungs.Framework.Unfolding.RacesExact
 import RwLog.Rungs.Framework.Unfolding.ModelMap
