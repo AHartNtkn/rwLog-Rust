@@ -43,8 +43,8 @@ def SE : Engine := Symmetric.engine Unfold.raced
 #guard exact (runE SE natP (.and (.rw (num 1) (num 0)) (.call "nat")) 40) []
 
 -- Recursion beside an infinite branch still fires.
-#guard contains (runE SE callP (.call "call_first") 24) ["a -> a", "a -> b", "z -> (s (s (s z)))"]
-#guard contains (runE SE callP (.call "call_last") 24) ["a -> a", "a -> b", "z -> (s (s (s z)))"]
+#guard contains (runE SE callP (.call "call_first") 60) ["a -> a", "a -> b", "z -> (s (s (s z)))"]
+#guard contains (runE SE callP (.call "call_last") 60) ["a -> a", "a -> b", "z -> (s (s (s z)))"]
 
 -- An empty side makes `;` and `&` fail finitely, in either position.
 #guard exact (runE SE loopNat (.seq (.call "nat") (.call "loop")) 30) []
@@ -103,21 +103,20 @@ def requests (p : Program × Rel) (fuel : Nat) : Option Nat × Option Nat :=
   ((tr.findIdx? fun l => !l.isEmpty && l.head? != some "final").map (· + 1),
    tr.findIdx? fun l => l.head? == some "final")
 
--- Counting down: the answer at request `2k + 9`, the halt at `6k + 11`.
+-- Counting down: the answer at request `2k + 10`, the halt at `7k + 11`.
 -- (The prototype reads an edge at no charge and at once. The engine pays for
--- the reading, and learns the depth of the program in its first requests.)
-#guard requests (countdown 2) 60 == (some 13, some 23)
-#guard requests (countdown 4) 60 == (some 17, some 35)
-#guard requests (countdown 8) 80 == (some 25, some 59)
-#guard requests (countdown 12) 120 == (some 33, some 83)
+-- the reading, and learns the depth of the program in its first requests. A
+-- union gives a round to one member at a time, the one its rounds have cost
+-- the least.)
+#guard requests (countdown 2) 60 == (some 14, some 25)
+#guard requests (countdown 4) 60 == (some 18, some 39)
+#guard requests (countdown 8) 80 == (some 26, some 67)
+#guard requests (countdown 12) 120 == (some 34, some 95)
 #guard exact (runE SE (countdown 4).1 (countdown 4).2 60) ["(s (s (s (s z)))) -> z"]
 
--- Members that never finish do not delay the answer beyond the `2k + 9`
--- requests of counting down alone, however many they are.
-#guard ((requests (fairOr 2 1) 30).1.getD 100) ≤ 13
-#guard ((requests (fairOr 4 1) 30).1.getD 100) ≤ 17
-#guard ((requests (fairOr 2 3) 30).1.getD 100) ≤ 13
-#guard ((requests (fairOr 4 3) 30).1.getD 100) ≤ 17
+-- Beside members that never finish the answer is still shown. What it costs
+-- is measured in ticks, not in requests, since a request beside such members
+-- does less: see "Fair OR in ticks" at the end of this file.
 #guard contains (runE SE (fairOr 4 3).1 (fairOr 4 3).2 30) ["(s (s (s (s z)))) -> z"]
 
 /-! ## The interface check
@@ -139,7 +138,7 @@ def clash (ids : Bool) : Program × Rel :=
 #guard exact (runE SE (clash false).1 (clash false).2 40) []
 #guard exact (runE SE (clash true).1 (clash true).2 40) []
 #guard (requests (clash false) 40).2 == some 8
-#guard (requests (clash true) 40).2 == some 10
+#guard (requests (clash true) 40).2 == some 11
 -- The same clash below a union and beside a member that has answers.
 #guard exact (runE SE (clash false).1 (.or (clash false).2 (.at_ (c "a"))) 40) ["a -> a"]
 -- A side whose every product ends in the same constructor, read through a
@@ -170,7 +169,7 @@ def deepP : Program := prog [
 -- of the goal, so the race decides after more requests than it would if
 -- every ask were paid at once, each of them a bounded piece of work.
 #guard exact (runE SE deepP (.seq (.call "p") (.call "q")) 100) []
-#guard requests (deepP, .seq (.call "p") (.call "q")) 100 == (none, some 60)
+#guard requests (deepP, .seq (.call "p") (.call "q")) 100 == (none, some 63)
 -- Below a union and beside a member that has answers.
 #guard exact (runE SE deepP (.or (.seq (.call "p") (.call "q")) (.at_ (c "a"))) 100) ["a -> a"]
 
@@ -324,7 +323,7 @@ def selfMirror : Program := prog [
 -- Its own converse: both answers in one step.
 #guard mirrors empty (.or (.rw (c "a") (c "b")) (.rw (c "b") (c "a"))) 6
 #guard traceO empty (.or (.rw (c "a") (c "b")) (.rw (c "b") (c "a"))) 6 ==
-  [[], [], ["a -> b", "b -> a"], ["final", "a -> b", "b -> a"]]
+  [[], [], ["a -> b", "b -> a"], [], ["final", "a -> b", "b -> a"]]
 
 -- Its own mirror image, and not its own converse as a node.
 #guard mirrors selfMirror (.seq (.call "u") (.call "w")) 12
@@ -334,5 +333,61 @@ def selfMirror : Program := prog [
 -- With the interface check at work.
 #guard mirrors (clash false).1 (clash false).2 40
 #guard mirrors (clash true).1 (clash true).2 40
+
+/-! ## Fair OR in ticks
+
+Fairness is a bound on ticks (`Fair.share`): an answer costs at most a
+constant times what it costs when its alternative is the whole query, times
+the number of members of each union it was chosen at. A union gives a round to
+the member its rounds have cost the least, so the members of a union have the
+same ticks, however many alternatives one of them has inside.
+
+The ticks counted here are those of the requests, after the first state is
+built, and the alternative is run alone on the same program. The constant 3
+is what these runs show. It is not a proved bound. -/
+
+def numS : Nat → String
+  | 0 => "z"
+  | n + 1 => s!"(s {numS n})"
+
+/-- The ticks of the requests up to the one that shows `s^k z -> z`. -/
+def downTicks (p : Program × Rel) (k fuel : Nat) : Option Nat :=
+  ((traceO p.1 p.2 fuel).findIdx? fun l => l.contains s!"{numS k} -> z").map fun i =>
+    SO.paid p.1 p.2 (i + 1) - SO.paid p.1 p.2 0
+
+/-- `m` members that never finish. -/
+def endless (tag : String) (m : Nat) : List Rel :=
+  (List.range m).map fun j => RelOf.seq (.call "gen") (.rw (v 0) (ap s!"w{tag}{j}" [v 0]))
+
+/-- Counting down beside a call whose body has `m` members that never
+finish: a union of two members. -/
+def beside (k m : Nat) : Program × Rel :=
+  (prog [("q", .or (.seq (.rw (ap "s" [v 0]) (v 0)) (.call "q")) (.at_ (c "z"))), ("gen", gen),
+     ("bb", (endless "" m).foldr .or (.at_ (c "u")))],
+   .or (countdown k).2 (.call "bb"))
+
+/-- Counting down alone, on the program of `p`. -/
+def aloneIn (p : Program × Rel) (k : Nat) : Program × Rel := (p.1, (countdown k).2)
+
+/-- The answer of counting down costs at most `c` times `f` times what it
+costs alone. -/
+def within (c f : Nat) (p : Program × Rel) (k fuel : Nat) : Bool :=
+  match downTicks (aloneIn p k) k fuel, downTicks p k fuel with
+  | some a, some b => b ≤ c * (f * a)
+  | _, _ => false
+
+-- Counting down alone is linear in ticks.
+#guard (downTicks (countdown 4) 4 20).any (· ≤ 400 * 4 + 400)
+#guard (downTicks (countdown 8) 8 30).any (· ≤ 400 * 8 + 400)
+#guard (downTicks (countdown 16) 16 50).any (· ≤ 400 * 16 + 400)
+
+-- One union of two members: the factor is 2, whether the other member has
+-- 1, 4 or 16 alternatives inside.
+#guard within 3 2 (beside 4 1) 4 60
+#guard within 3 2 (beside 8 1) 8 90
+#guard within 3 2 (beside 4 4) 4 60
+#guard within 3 2 (beside 8 4) 8 90
+#guard within 3 2 (beside 4 16) 4 60
+#guard within 3 2 (beside 8 16) 8 90
 
 end RwLog.Tests
