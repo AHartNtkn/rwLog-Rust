@@ -236,9 +236,9 @@ theorem SplitAt.fo {g L Rg : GoalOf R Rel} {k : Kind} (h : SplitAt g k L Rg) (hg
 
 /-- The work of a strategy keeps the base. -/
 theorem base_work (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK)
-    {st : StateOf R Rel (Ans D P)} (hB : Base st) (whole : Bool) (i : Nat) (g : GoalOf R Rel)
+    {st : StateOf R Rel (Ans D P)} (hB : Base st) (i : Nat) (g : GoalOf R Rel)
     (s : Strat Rel (Ans D P)) (hg : GoodG D g) (hs : Prog st i g s) :
-    Base (work (K := DerivationKernel.over D K hK P) whole i g st s).val.1 := by
+    Base (work (K := DerivationKernel.over D K hK P) i g st s).val.1 := by
   have h1 := fun st o => sameG_addOption (K := K) (hK := hK) (P := P) st i o
   have h2 := fun (isCall : Bool) (m : Nat) st as =>
     sameG_copyFrom (K := K) (hK := hK) (P := P) i g isCall m st as
@@ -262,22 +262,15 @@ theorem base_work (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK)
   | copy isCall subs =>
     simp only [work]
     split
+    · exact hB
     · simp only [Cost.bind_val, Cost.pure_val]
-      exact hB.same (foldL_inv (fun b => SameG st b) _ _
-        (fun b p _ hb => hb.trans (h2 isCall p.2 _ _)) st (SameG.refl st))
-    · split
-      · exact hB
-      · simp only [Cost.bind_val, Cost.pure_val]
-        exact hB.same (h2 isCall _ _ _)
+      exact hB.same (h2 isCall _ _ _)
   | join k a b c =>
     simp only [work]
     split
+    · exact hB
     · simp only [Cost.bind_val, Cost.pure_val]
       exact hB.same (h3 _ _ _ _ _)
-    · split
-      · exact hB
-      · simp only [Cost.bind_val, Cost.pure_val]
-        exact hB.same (h3 _ _ _ _ _)
   | push k left side other todo subs =>
     dsimp only [Prog] at hs
     obtain ⟨L, Rg, s1, -, s3, -, -⟩ := hs
@@ -290,20 +283,14 @@ theorem base_work (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK)
     split
     · exact hB
     · split
-      · cases todo <;>
-        · erw [Cost.bind_val]
-          simp only [Cost.bind_val, Cost.pure_val]
-          exact foldL_inv (fun b => Base b) _ _ (fun b e _ hb => hb.same (h4 _ _ _ _ _)) _
-            (h5 other ho k left _)
+      · simp only [Cost.bind_val, Cost.pure_val]
+        exact hB
+      · simp only [Cost.bind_val, Cost.pure_val]
+        exact h5 other ho k left _
       · split
+        · exact hB
         · simp only [Cost.bind_val, Cost.pure_val]
-          exact hB
-        · simp only [Cost.bind_val, Cost.pure_val]
-          exact h5 other ho k left _
-        · split
-          · exact hB
-          · simp only [Cost.bind_val, Cost.pure_val]
-            exact hB.same (h4 _ _ _ _ _)
+          exact hB.same (h4 _ _ _ _ _)
   | check left side other c =>
     dsimp only [Prog] at hs
     obtain ⟨L, Rg, s1, -, s3, -⟩ := hs
@@ -574,9 +561,9 @@ theorem prog_expand (hR : ReadOk D P K hK) (hP : ProgFO P) {st : StateOf R Rel (
       g.node.view = V → (∀ xs, V ≠ .chain xs ∧ V ≠ .meet xs) →
       (∀ s0, V = .span s0 → s.kind = .span false) →
       (∀ n f, V = .call n f → s.kind = .copy true []) →
-      (∀ xs, V = .union xs → s.kind = .copy false []) → Full st' g [⟨0, [s]⟩] := by
+      (∀ xs, V = .union xs → s.kind = .copy false []) → Full st' g [⟨0, [s], []⟩] := by
     intro st' s V hv hns h1 h2 h3
-    have hmem : ∀ x, s.kind = x → ∃ gr ∈ [(⟨0, [s]⟩ : Group Rel (Ans D P))], x ∈ gr.kinds :=
+    have hmem : ∀ x, s.kind = x → ∃ gr ∈ [(⟨0, [s], []⟩ : Group Rel (Ans D P))], x ∈ gr.kinds :=
       fun x e => ⟨_, List.mem_singleton.2 rfl, by simp [Group.kinds, e]⟩
     exact Full.of_view hv (fun s0 e => hmem _ (h1 s0 e)) (fun n f e => hmem _ (h2 n f e))
       (fun xs e => hmem _ (h3 xs e))
@@ -667,13 +654,13 @@ theorem prog_expand (hR : ReadOk D P K hK) (hP : ProgFO P) {st : StateOf R Rel (
     obtain ⟨h1, h2, h3, h4⟩ := hcg xs hvc
     generalize (chainGroups (K := DerivationKernel.over D _ hK P) g xs.length st).val = r
       at h1 h2 h3 h4 ⊢
-    have hin' : ∀ gr ∈ r.2.1, gr ∈ (if r.2.2.isEmpty then r.2.1 else r.2.1 ++ [⟨0, r.2.2⟩]) :=
+    have hin' : ∀ gr ∈ r.2.1, gr ∈ (if r.2.2.isEmpty then r.2.1 else r.2.1 ++ [⟨0, r.2.2, []⟩]) :=
       fun gr h => by
         split
         · exact h
         · exact List.mem_append_left _ h
-    have hck : ∀ s ∈ r.2.2, (⟨0, r.2.2⟩ : Group Rel (Ans D P)) ∈
-        (if r.2.2.isEmpty then r.2.1 else r.2.1 ++ [⟨0, r.2.2⟩]) := fun s hs => by
+    have hck : ∀ s ∈ r.2.2, (⟨0, r.2.2, []⟩ : Group Rel (Ans D P)) ∈
+        (if r.2.2.isEmpty then r.2.1 else r.2.1 ++ [⟨0, r.2.2, []⟩]) := fun s hs => by
       split
       · next he => rw [List.isEmpty_iff.1 he] at hs; cases hs
       · exact List.mem_append_right _ (List.mem_singleton.2 rfl)
@@ -755,7 +742,7 @@ def hasRace (g : GoalOf R Rel) : Bool :=
 /-- The race a goal starts with. -/
 theorem raceOf_val (g : GoalOf R Rel) :
     (raceOf (K := DerivationKernel.over D K hK P) g).val =
-      if hasRace g then some ⟨0, 0⟩ else none := by
+      if hasRace g then some ⟨0, 0, 0⟩ else none := by
   at_cost K hK
   simp only [raceOf, Cost.bind_val, Cost.pure_val, hasRace]
   have e2 : (DerivationKernel.view R (Ans D P) (self := DerivationKernel.over D _ hK P) g.node).val =
@@ -1120,32 +1107,26 @@ theorem Good.of_map {st st' : StateOf R Rel (Ans D P)} (hG : Good st)
       exact ⟨t, rfl, (e j t).1.symm, by rw [← hr]; exact hs⟩
 
 /-- The work of a strategy moves its cursors and nothing else. -/
-theorem work_kind (whole : Bool) (i : Nat) (g : GoalOf R Rel) (st : StateOf R Rel (Ans D P))
+theorem work_kind (i : Nat) (g : GoalOf R Rel) (st : StateOf R Rel (Ans D P))
     (s : Strat Rel (Ans D P)) :
-    (work (K := DerivationKernel.over D K hK P) whole i g st s).val.2.1.kind = s.kind := by
+    (work (K := DerivationKernel.over D K hK P) i g st s).val.2.1.kind = s.kind := by
   at_cost K hK
   cases s with
   | span ran => cases ran <;> rfl
   | copy c subs =>
     simp only [work]
-    split
-    · rfl
-    · split <;> rfl
+    split <;> rfl
   | join k a b c =>
     simp only [work]
-    split
-    · rfl
-    · split <;> rfl
+    split <;> rfl
   | push k l side o todo subs =>
     simp only [work]
     split
     · rfl
     · split
-      · cases todo <;> rfl
-      · split
-        · rfl
-        · rfl
-        · split <;> rfl
+      · rfl
+      · rfl
+      · split <;> rfl
   | check l side o c =>
     cases c with
     | reading =>
@@ -1154,53 +1135,80 @@ theorem work_kind (whole : Bool) (i : Nat) (g : GoalOf R Rel) (st : StateOf R Re
     | off => rfl
     | opened subs => rfl
 
-/-- One strategy works and is put back. -/
+/-- What a unit of the work of the strategy `s0` of the open table at `i`
+keeps, from the state `st0`. -/
+structure UnitOk (K : Kernel R Cost) (hK : K.Refines D) (i : Nat) (g : GoalOf R Rel)
+    (st0 : StateOf R Rel (Ans D P)) (s0 : Strat Rel (Ans D P)) (st : StateOf R Rel (Ans D P))
+    (s : Strat Rel (Ans D P)) : Prop where
+  inv : Inv st
+  base : Base st
+  goal : goalAt st i = some g
+  isOpen : Open st i
+  ok : StratOk st g s
+  prog : Prog st i g s
+  kind : s.kind = s0.kind
+  inner : Inner K hK i st0 st
+
+theorem UnitOk.work (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK) {i : Nat}
+    {g : GoalOf R Rel} {st0 st : StateOf R Rel (Ans D P)} {s0 s : Strat Rel (Ans D P)}
+    (hg : GoodG D g) (h : UnitOk K hK i g st0 s0 st s) :
+    UnitOk K hK i g st0 s0 (work (K := DerivationKernel.over D K hK P) i g st s).val.1
+      (work (K := DerivationKernel.over D K hK P) i g st s).val.2.1 where
+  inv := (inv_work h.inv i g s h.goal h.ok).1
+  base := base_work hL hR h.base i g s hg h.prog
+  goal := (reach_work (K := K) (hK := hK) i g st s).ext _ _ h.goal
+  isOpen := (inner_work (K := K) (hK := hK) i g st s).frame.isOpen h.isOpen
+  ok := (inv_work h.inv i g s h.goal h.ok).2
+  prog := prog_work hL hR h.inv h.base.edges i g s h.isOpen ⟨hg.1, hg.2.1⟩ h.ok h.prog
+  kind := (work_kind (K := K) (hK := hK) (P := P) i g st s).trans h.kind
+  inner := h.inner.trans (inner_work (K := K) (hK := hK) i g st s)
+
+/-- One strategy has its turn and is put back. -/
 theorem good_workStep (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK)
-    {st : StateOf R Rel (Ans D P)} (hG : Good st) (whole : Bool) (i : Nat) (g : GoalOf R Rel)
-    (k j : Nat) (s : Strat Rel (Ans D P)) (hg : goalAt st i = some g) (hb : Busy st i)
+    {st : StateOf R Rel (Ans D P)} (hG : Good st) (i : Nat) (g : GoalOf R Rel)
+    (k j : Nat) (s : Strat Rel (Ans D P)) (f left c : Nat) (ow : List Nat → List Nat)
+    (hg : goalAt st i = some g) (hb : Busy st i)
     (hs : ((groupsAt st i)[k]?).bind (·.strats[j]?) = some s) :
-    Good (setGroup (work (K := DerivationKernel.over D K hK P) whole i g st s).val.1 i k
+    Good (setGroup (turn (K := DerivationKernel.over D K hK P) i g f left st s c).val.1 i k
       fun gr => { gr with
         strats := gr.strats.set j
-          (work (K := DerivationKernel.over D K hK P) whole i g st s).val.2.1 }) := by
+          (turn (K := DerivationKernel.over D K hK P) i g f left st s c).val.2.1,
+        owed := ow gr.owed }) := by
   have hok := strat_of_groupsAt hG.inv hg hs
   have hp := prog_of_groupsAt hG.prog hg hs
   have hgood := hG.base.good i g hg
-  obtain ⟨h1, h2⟩ := inv_work (K := K) (hK := hK) hG.inv whole i g s hg hok
-  have hB1 := base_work hL hR hG.base whole i g s hgood hp
-  have hP1 := prog_work hL hR hG.inv hG.base.edges whole i g s hb.isOpen
-    ⟨hgood.1, hgood.2.1⟩ hok hp
-  have hfr := (inner_work (K := K) (hK := hK) whole i g st s).frame
+  have hU := turn_ind (K := K) (hK := hK) (P := P) i g (UnitOk K hK i g st s)
+    (fun _ _ h => h.work hL hR hgood) f left st s c
+    ⟨hG.inv, hG.base, hg, hb.isOpen, hok, hp, rfl, Inner.refl st⟩
+  have hfr := hU.inner.frame
   have hA1 := hG.prog.frame hfr hb.isOpen
   have hF1 := hG.full.frame hfr hb.isOpen
-  have hg' := (reach_work (K := K) (hK := hK) whole i g st s).ext _ _ hg
-  have hkind := work_kind (K := K) (hK := hK) (P := P) whole i g st s
-  refine Good.setGroup ⟨h1, hB1, hA1, hF1,
-    hG.race.inner (inner_work (K := K) (hK := hK) whole i g st s)⟩ i k _ (fun g' gr hg'' s' hs' => ?_) fun gr hgk => ?_
-  · obtain rfl : g' = g := Option.some.inj (hg''.symm.trans hg')
+  refine Good.setGroup ⟨hU.inv, hU.base, hA1, hF1, hG.race.inner hU.inner⟩ i k _
+    (fun g' gr hg'' s' hs' => ?_) fun gr hgk => ?_
+  · obtain rfl : g' = g := Option.some.inj (hg''.symm.trans hU.goal)
     rcases List.mem_or_eq_of_mem_set hs' with h' | rfl
     · exact .inl h'
-    · exact .inr ⟨h2, hP1⟩
-  · have hga : groupsAt (work (K := DerivationKernel.over D K hK P) whole i g st s).val.1 i =
+    · exact .inr ⟨hU.ok, hU.prog⟩
+  · have hga : groupsAt (turn (K := DerivationKernel.over D K hK P) i g f left st s c).val.1 i =
         groupsAt st i := by
       obtain ⟨t, ht, -⟩ := hb
       obtain ⟨t', ht', -, -, -, -, e5, -⟩ := hfr.2.1 i t ht
       simp only [groupsAt, ht, ht', e5]
     rw [hga] at hgk
     rw [hgk] at hs
-    exact map_set_same Strat.kind hs hkind
+    exact map_set_same Strat.kind hs hU.kind
 
 theorem good_workGroup (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK)
     (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R Rel (Ans D P) × Nat))
     (hadv : ∀ h st, Good st → Good (adv h st).val.1)
     (hadvK : ∀ h st, Keep st (adv h st).val.1) {st : StateOf R Rel (Ans D P)}
-    (hG : Good st) (whole : Bool) (i : Nat) (g : GoalOf R Rel) (k : Nat)
+    (hG : Good st) (i : Nat) (g : GoalOf R Rel) (k : Nat)
     (hg : goalAt st i = some g) (hb : Busy st i) :
-    Good (workGroup (K := DerivationKernel.over D K hK P) adv whole i g k st).val.1 := by
-  have hstep := fun (st : StateOf R Rel (Ans D P)) hG j s hg hb hs =>
-    good_workStep (K := K) (hK := hK) hL hR (st := st) hG whole i g k j s hg hb hs
-  have hkw := fun (st : StateOf R Rel (Ans D P)) s hb =>
-    keep_work (K := K) (hK := hK) (P := P) whole i g st s hb
+    Good (workGroup (K := DerivationKernel.over D K hK P) adv i g k st).val.1 := by
+  have hstep := fun (st : StateOf R Rel (Ans D P)) hG j s f left c ow hg hb hs =>
+    good_workStep (K := K) (hK := hK) hL hR (st := st) hG i g k j s f left c ow hg hb hs
+  have hkw := fun (st : StateOf R Rel (Ans D P)) s f left c hb =>
+    keep_turn (K := K) (hK := hK) (P := P) i g f left st s c hb
   clear hR
   at_cost K hK
   simp only [workGroup, workStrats, feedAll, Cost.bind_val, Cost.pure_val]
@@ -1216,23 +1224,26 @@ theorem good_workGroup (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK)
       (st, 0, false) ⟨hG, hg, hb⟩
     split
     · exact hb
-    · next s hs =>
+    · next s o hs =>
       simp only [Cost.bind_val, Cost.pure_val]
-      refine ⟨hstep b.1 hb.1 j s hb.2.1 hb.2.2 hs, ?_, ?_⟩
-      · exact ((hkw b.1 s hb.2.2).trans (keep_setGroup _ i k _)).stable.ext _ _ hb.2.1
-      · exact ((hkw b.1 s hb.2.2).trans (keep_setGroup _ i k _)).busy hb.2.2
+      refine ⟨hstep b.1 hb.1 j s _ _ 0
+        (fun l => setOwed l j (o + (turn (K := DerivationKernel.over D _ hK P) i g
+          (turnTicks * weight b.1 s - o) (turnTicks * weight b.1 s - o) b.1 s 0).val.2.2 -
+            turnTicks * weight b.1 s)) hb.2.1 hb.2.2 (pick_strat hs).1, ?_, ?_⟩
+      · exact ((hkw b.1 s _ _ 0 hb.2.2).trans (keep_setGroup _ i k _)).stable.ext _ _ hb.2.1
+      · exact ((hkw b.1 s _ _ 0 hb.2.2).trans (keep_setGroup _ i k _)).busy hb.2.2
 
 theorem good_workLevel (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK)
     (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R Rel (Ans D P) × Nat))
     (hadv : ∀ h st, Good st → Good (adv h st).val.1)
     (hadvK : ∀ h st, Keep st (adv h st).val.1) {st : StateOf R Rel (Ans D P)}
-    (hG : Good st) (whole : Bool) (i : Nat) (g : GoalOf R Rel) (lv : Nat)
+    (hG : Good st) (i : Nat) (g : GoalOf R Rel) (lv : Nat)
     (hg : goalAt st i = some g) (hb : Busy st i) :
-    Good (workLevel (K := DerivationKernel.over D K hK P) adv whole i g lv st).val.1 := by
+    Good (workLevel (K := DerivationKernel.over D K hK P) adv i g lv st).val.1 := by
   have hwg := fun (st : StateOf R Rel (Ans D P)) hG k hg hb =>
-    good_workGroup (K := K) (hK := hK) hL hR adv hadv hadvK (st := st) hG whole i g k hg hb
+    good_workGroup (K := K) (hK := hK) hL hR adv hadv hadvK (st := st) hG i g k hg hb
   have hkg := fun k (st : StateOf R Rel (Ans D P)) hb =>
-    keep_workGroup (K := K) (hK := hK) (P := P) adv hadvK whole i g k st hb
+    keep_workGroup (K := K) (hK := hK) (P := P) adv hadvK i g k st hb
   clear hR
   at_cost K hK
   refine (foldL_inv (fun acc : StateOf R Rel (Ans D P) × Bool =>
@@ -1343,20 +1354,23 @@ theorem sameG_askRace (U : GOracle R Rel (Ans D P) Cost) (i : Nat) (g : GoalOf R
     SameG st (askRace (K := DerivationKernel.over D K hK P) U i g st).val.1 := by
   have hadd := fun (b : StateOf R Rel (Ans D P)) a =>
     sameG_addOption (K := K) (hK := hK) (P := P) b i (some a)
-  at_cost K hK
-  unfold askRace
+  have hall : ∀ xs : List (Ans D P),
+      SameG st (foldL (addAnswer (K := DerivationKernel.over D K hK P) i) st xs).val := by
+    intro xs
+    at_cost K hK
+    exact foldL_inv (fun b => SameG st b) _ _ (fun b x _ hb => hb.trans (hadd b x)) st
+      (SameG.refl st)
+  rw [askRace_val]
   split
   · exact SameG.refl st
   · split
     · exact SameG.refl st
     · split
       · exact SameG.refl st
-      · simp only [Cost.bind_val]
-        split
-        · simp only [Cost.bind_val, Cost.pure_val]
-          refine SameG.trans ?_ (sameG_modify _ i _ fun _ => rfl)
-          exact foldL_inv (fun b => SameG st b) _ _ (fun b x _ hb => hb.trans (hadd b x)) st
-            (SameG.refl st)
+      · split
+        · split
+          · exact (hall _).trans (sameG_modify _ i _ fun _ => rfl)
+          · exact sameG_modify _ i _ fun _ => rfl
         · exact sameG_modify _ i _ fun _ => rfl
 
 /-- **The race of an open table keeps** what a run keeps: its answers are
@@ -1391,13 +1405,16 @@ theorem good_askRace (U : GOracle R Rel (Ans D P) Cost) (hU : UOk D P U)
       split
       · exact hG.race
       · split
-        · have hin := inner_addAll (K := K) (hK := hK) (P := P) i st (U r.depth g).val.2
-          refine (hG.race.inner hin).modify i _ (fun _ => rfl) fun t' ht' _ => .inr ?_
-          obtain ⟨u, hu, e1, -⟩ := hin.frame.2.1 i t ht
-          rw [ht'] at hu
-          cases hu
-          rw [e1]
-          exact hrt
+        · split
+          · have hin := inner_addAll (K := K) (hK := hK) (P := P) i st (U r.depth g).val.2
+            refine (hG.race.inner hin).modify i _ (fun _ => rfl) fun t' ht' _ => .inr ?_
+            obtain ⟨u, hu, e1, -⟩ := hin.frame.2.1 i t ht
+            rw [ht'] at hu
+            cases hu
+            rw [e1]
+            exact hrt
+          · exact hG.race.modify i _ (fun _ => rfl) fun t' ht' _ => .inr (by
+              rw [ht] at ht'; cases ht'; exact hrt)
         · exact hG.race.modify i _ (fun _ => rfl) fun t' ht' _ => .inr (by
             rw [ht] at ht'; cases ht'; exact hrt)
 
@@ -1418,10 +1435,10 @@ theorem good_advance (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK) (hP :
       good_askRace (K := K) (hK := hK) U hU (st := st) hG i g hg ho
     have hprep := fun t ht hd => good_prepare (K := K) (hK := hK) hR hP hG i t ht hd
     have hprepK := fun t ht hd => keep_prepare (K := K) (hK := hK) (P := P) i t st ht hd
-    have hlev := fun whole g lv (st : StateOf R Rel (Ans D P)) hG hg hb =>
-      good_workLevel (K := K) (hK := hK) hL hR _ ih ihK (st := st) hG whole i g lv hg hb
-    have hlevK := fun whole g lv st hb =>
-      keep_workLevel (K := K) (hK := hK) (P := P) _ ihK whole i g lv st hb
+    have hlev := fun g lv (st : StateOf R Rel (Ans D P)) hG hg hb =>
+      good_workLevel (K := K) (hK := hK) hL hR _ ih ihK (st := st) hG i g lv hg hb
+    have hlevK := fun g lv st hb =>
+      keep_workLevel (K := K) (hK := hK) (P := P) _ ihK i g lv st hb
     clear hR
     at_cost K hK
     simp only [advance]
@@ -1461,9 +1478,9 @@ theorem good_advance (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK) (hP :
               (fun b lv _ hb => ?_) _ ⟨hprep t ht hd', hk.stable.ext _ _ hg, hb⟩)
             split
             · exact hb
-            · exact ⟨hlev _ _ _ b.1 hb.1 hb.2.1 hb.2.2,
-                (hlevK _ _ lv b.1 hb.2.2).stable.ext _ _ hb.2.1,
-                (hlevK _ _ lv b.1 hb.2.2).busy hb.2.2⟩
+            · exact ⟨hlev _ _ b.1 hb.1 hb.2.1 hb.2.2,
+                (hlevK _ lv b.1 hb.2.2).stable.ext _ _ hb.2.1,
+                (hlevK _ lv b.1 hb.2.2).busy hb.2.2⟩
 
 /-- **A request keeps** the invariant of the goals, the base, and the
 meaning of every cursor. -/

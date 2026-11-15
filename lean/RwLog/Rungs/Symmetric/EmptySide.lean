@@ -105,7 +105,7 @@ theorem IsRun.done_of_side (hτ : IsRun U τ) {r k : Nat} {g Lg Rg sg : GoalOf R
   obtain ⟨Ln, q, s0, hLn, h0, e⟩ := lk gr' hgr' _ hx
   obtain ⟨todo0, subs0, rfl⟩ := kind_push e
   have hoS : Opened τ side' := hτ.opened_of_settled hgside' fun r' => by
-    obtain ⟨r2, hr2', hr2, -, hfed, -⟩ := hLn.worked r'
+    obtain ⟨r2, hr2', hr2, hfed, -⟩ := hLn.worked r'
     obtain ⟨todo2, subs2, hs2⟩ := hLn.push_kept h0 (show r0 ≤ r2 + 1 by omega)
     exact ⟨r2, hr2', (hfed _ (List.mem_of_getElem? hs2)).1⟩
   obtain ⟨Td, hTd⟩ := hside r0 side' hgside' hoS

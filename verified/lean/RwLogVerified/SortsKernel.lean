@@ -59,6 +59,7 @@ the Rust functions. -/
   tick := Cost.tick
   race := Cost.race
   metered := Cost.metered
+  within := Cost.within
   swap := Sorts.Rep.conv
   rep sp := Charged.op (Sorts.repOf S sp) (repTicks nm S U rc q sp) (repTicks nm S U rc q sp)
   compose x y :=
@@ -79,6 +80,7 @@ theorem sortsKernel_refines (nm : Option Nat → RwLog.Sym) (S : Sorts) (U : Lis
   tick := rfl
   race _ _ _ := rfl
   metered _ _ := rfl
+  within _ _ _ := rfl
   swap := rfl
   rep _ := rfl
   compose _ _ := rfl

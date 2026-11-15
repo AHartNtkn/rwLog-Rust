@@ -339,8 +339,10 @@ theorem frame_askRace (U : GOracle R Rel (Ans D P) Cost) (i : Nat) (g : GoalOf R
     · split
       · exact Frame.refl i st
       · split
-        · exact (inner_addAll i st _).frame.trans
-            (Frame.modify i _ i _ fun _ => ⟨rfl, rfl, rfl, rfl, rfl, rfl⟩)
+        · split
+          · exact (inner_addAll i st _).frame.trans
+              (Frame.modify i _ i _ fun _ => ⟨rfl, rfl, rfl, rfl, rfl, rfl⟩)
+          · exact Frame.modify i _ i _ fun _ => ⟨rfl, rfl, rfl, rfl, rfl, rfl⟩
         · exact Frame.modify i _ i _ fun _ => ⟨rfl, rfl, rfl, rfl, rfl, rfl⟩
 
 omit [DecidableEq R] in
@@ -362,10 +364,15 @@ theorem keep_foldL_from {α β : Type} (π : β → StateOf R Rel (Ans D P)) (f 
     Keep s₀ (π (foldL f b xs).val) :=
   h₀.trans (keep_foldL π f i hf xs b (h₀.busy hb))
 
-theorem keep_work (whole : Bool) (i : Nat) (g : GoalOf R Rel) (st : StateOf R Rel (Ans D P))
+theorem keep_work (i : Nat) (g : GoalOf R Rel) (st : StateOf R Rel (Ans D P))
     (s : Strat Rel (Ans D P)) (hb : Busy st i) :
-    Keep st (work (K := DerivationKernel.over D K hK P) whole i g st s).val.1 :=
-  (inner_work (K := K) (hK := hK) whole i g st s).frame.keep hb.open
+    Keep st (work (K := DerivationKernel.over D K hK P) i g st s).val.1 :=
+  (inner_work (K := K) (hK := hK) i g st s).frame.keep hb.open
+
+theorem keep_turn (i : Nat) (g : GoalOf R Rel) (f left : Nat) (st : StateOf R Rel (Ans D P))
+    (s : Strat Rel (Ans D P)) (c : Nat) (hb : Busy st i) :
+    Keep st (turn (K := DerivationKernel.over D K hK P) i g f left st s c).val.1 :=
+  (inner_turn (K := K) (hK := hK) i g f left st s c).frame.keep hb.open
 
 omit [DecidableEq R] in
 theorem keep_setGroup (st : StateOf R Rel (Ans D P)) (i k : Nat)
@@ -373,10 +380,11 @@ theorem keep_setGroup (st : StateOf R Rel (Ans D P)) (i k : Nat)
   keep_modify st i _ fun _ _ => ⟨rfl, rfl, rfl, fun h => h, fun h => ⟨h, fun h => h⟩⟩
 
 theorem keep_workGroup (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R Rel (Ans D P) × Nat))
-    (hadv : ∀ h st, Keep st (adv h st).val.1) (whole : Bool) (i : Nat) (g : GoalOf R Rel)
+    (hadv : ∀ h st, Keep st (adv h st).val.1) (i : Nat) (g : GoalOf R Rel)
     (k : Nat) (st : StateOf R Rel (Ans D P)) (hb : Busy st i) :
-    Keep st (workGroup (K := DerivationKernel.over D K hK P) adv whole i g k st).val.1 := by
-  have hw := fun whole g st s hb => keep_work (K := K) (hK := hK) (P := P) whole i g st s hb
+    Keep st (workGroup (K := DerivationKernel.over D K hK P) adv i g k st).val.1 := by
+  have hw := fun g f left st s c hb =>
+    keep_turn (K := K) (hK := hK) (P := P) i g f left st s c hb
   at_cost K hK
   simp only [workGroup, workStrats, feedAll, Cost.bind_val, Cost.pure_val]
   refine Keep.trans ?_ (keep_modify _ _ _ fun _ _ =>
@@ -391,20 +399,20 @@ theorem keep_workGroup (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf 
     split
     · exact Keep.refl _
     · simp only [Cost.bind_val, Cost.pure_val]
-      exact (hw _ _ _ _ hb).trans (keep_setGroup _ _ _ _)
+      exact (hw _ _ _ _ _ _ hb).trans (keep_setGroup _ _ _ _)
 
 theorem keep_workLevel (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R Rel (Ans D P) × Nat))
-    (hadv : ∀ h st, Keep st (adv h st).val.1) (whole : Bool) (i : Nat) (g : GoalOf R Rel)
+    (hadv : ∀ h st, Keep st (adv h st).val.1) (i : Nat) (g : GoalOf R Rel)
     (lv : Nat) (st : StateOf R Rel (Ans D P)) (hb : Busy st i) :
-    Keep st (workLevel (K := DerivationKernel.over D K hK P) adv whole i g lv st).val.1 := by
-  have hw := fun whole g k st hb =>
-    keep_workGroup (K := K) (hK := hK) (P := P) adv hadv whole i g k st hb
+    Keep st (workLevel (K := DerivationKernel.over D K hK P) adv i g lv st).val.1 := by
+  have hw := fun g k st hb =>
+    keep_workGroup (K := K) (hK := hK) (P := P) adv hadv i g k st hb
   at_cost K hK
   refine keep_foldL (fun acc : StateOf R Rel (Ans D P) × Bool => acc.1) _ i (fun b p hb => ?_) _
     (st, false) hb
   split
   · simp only [Cost.bind_val, Cost.pure_val]
-    exact hw _ _ _ _ hb
+    exact hw _ _ _ hb
   · exact Keep.refl _
 
 theorem keep_prepare (i : Nat) (t : Table R Rel (Ans D P)) (st : StateOf R Rel (Ans D P))
@@ -456,8 +464,8 @@ theorem keep_advance (U : GOracle R Rel (Ans D P) Cost) :
     have hrace := fun g (st : StateOf R Rel (Ans D P)) =>
       frame_askRace (K := K) (hK := hK) (P := P) U i g st
     have hprep := fun t ht hd => keep_prepare (K := K) (hK := hK) (P := P) i t st ht hd
-    have hlev := fun whole g lv st hb =>
-      keep_workLevel (K := K) (hK := hK) (P := P) _ ih whole i g lv st hb
+    have hlev := fun g lv st hb =>
+      keep_workLevel (K := K) (hK := hK) (P := P) _ ih i g lv st hb
     at_cost K hK
     simp only [advance]
     split
@@ -477,13 +485,11 @@ theorem keep_advance (U : GOracle R Rel (Ans D P) Cost) :
               (fun (acc : StateOf R Rel (Ans D P) × Bool) lv =>
                 if acc.2 then pure acc
                 else workLevel (K := DerivationKernel.over D _ hK P)
-                  (advance (K := DerivationKernel.over D _ hK P) U fuel)
-                  (decide ((groupsAt (prepare (K := DerivationKernel.over D _ hK P) i t st).val
-                    i).length ≤ 1)) i t.goal lv acc.1) i
+                  (advance (K := DerivationKernel.over D _ hK P) U fuel) i t.goal lv acc.1) i
               (fun b lv hb => by
                 split
                 · exact Keep.refl _
-                · exact hlev _ _ _ _ hb)
+                · exact hlev _ _ _ hb)
               (levelsOf (groupsAt (prepare (K := DerivationKernel.over D _ hK P) i t st).val i))
               (_, false) (Keep.refl _) hb
             have hd' : t.done = false := by simpa using hd

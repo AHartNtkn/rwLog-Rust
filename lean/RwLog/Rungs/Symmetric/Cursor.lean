@@ -8,13 +8,11 @@ tables of given lengths.
 
 `Cursor.next` returns a pair inside the tables, and after it the pairs
 combined are those combined before and that pair (`next_spec`).
-`Cursor.all` returns pairs inside the tables, and after it the pairs
-combined are those combined before and those returned (`all_spec`).
 
 Every pair is reached: `Cursor.rank` measures how far a cursor is from the
 pairs of positions below a bound, in an order that is well founded
 (`rankLt_wf`). A unit of a join combines a pair inside the tables or makes
-the measure fall (`next_rank`), and so does its whole work (`all_rank`).
+the measure fall (`next_rank`).
 
 `leastBy` returns an entry that passes its test (`leastBy_ok`), with the
 least key of those that pass (`leastBy_le`), and returns nothing only when
@@ -203,41 +201,6 @@ theorem Cursor.next_spec (la lb : Nat) : ∀ (f : Nat) (c : Cursor), c.Ok la lb 
             · exact .inr hb
       · exact ⟨⟨h1, h2, h3, h4⟩, fun _ _ h => h, (fun _ h => by cases h), fun _ _ h => .inl h⟩
 
-/-- What `Cursor.all` returns: the cursor still fits; the pairs returned are
-inside the tables; and the pairs combined after it are those combined before
-it and the pairs returned. -/
-theorem Cursor.all_spec (la lb : Nat) : ∀ (f : Nat) (c : Cursor), c.Ok la lb →
-    (Cursor.all la lb f c).2.Ok la lb ∧
-    (∀ p q, c.Before p q → (Cursor.all la lb f c).2.Before p q) ∧
-    (∀ pr ∈ (Cursor.all la lb f c).1, pr.1 < la ∧ pr.2 < lb) ∧
-    ∀ p q, (Cursor.all la lb f c).2.Before p q →
-      c.Before p q ∨ (p, q) ∈ (Cursor.all la lb f c).1
-  | 0, c, h => ⟨h, fun _ _ h => h, (fun _ h => by cases h), fun _ _ h => .inl h⟩
-  | f + 1, c, h => by
-    obtain ⟨n1, n2, n3, n4⟩ := Cursor.next_spec la lb (c.room la lb) c h
-    unfold Cursor.all
-    cases hn : Cursor.next la lb (c.room la lb) c with
-    | mk o c' =>
-      rw [hn] at n1 n2 n3 n4
-      cases o with
-      | none =>
-        exact ⟨n1, n2, (fun _ h => by cases h), fun p q hb => by
-          rcases n4 p q hb with h | h
-          · exact .inl h
-          · cases h⟩
-      | some pr =>
-        obtain ⟨a1, a2, a3, a4⟩ := Cursor.all_spec la lb f c' n1
-        refine ⟨a1, fun p q hb => a2 p q (n2 p q hb), fun x hx => ?_, fun p q hb => ?_⟩
-        · rcases List.mem_cons.1 hx with rfl | hx
-          · exact n3 _ rfl
-          · exact a3 x hx
-        · rcases a4 p q hb with h | h
-          · rcases n4 p q h with h | h
-            · exact .inl h
-            · cases h
-              exact .inr List.mem_cons_self
-          · exact .inr (List.mem_cons_of_mem _ h)
-
 /-- **A unit of a join counts on**: the counts do not fall; when no pair is
 returned the join has nothing left to do; and a pair returned was not
 combined before and is combined after. -/
@@ -349,41 +312,6 @@ theorem Cursor.next_step (la lb : Nat) : ∀ (f : Nat) (c : Cursor), c.Ok la lb 
           · next hb => exact hna hb.1
           · next hb => simp [hna] at this
         · exact hna ((h4 (hcol' hi)).2 (by omega))
-
-/-- The whole work of a join counts on. -/
-theorem Cursor.all_mono (la lb : Nat) : ∀ (f : Nat) (c : Cursor), c.Ok la lb →
-    c.na ≤ (Cursor.all la lb f c).2.na ∧ c.nb ≤ (Cursor.all la lb f c).2.nb
-  | 0, c, _ => ⟨Nat.le_refl _, Nat.le_refl _⟩
-  | f + 1, c, h => by
-    obtain ⟨n1, -⟩ := Cursor.next_spec la lb (c.room la lb) c h
-    obtain ⟨m1, m2, -⟩ := Cursor.next_step la lb (c.room la lb) c h (Nat.le_refl _)
-    unfold Cursor.all
-    cases hn : Cursor.next la lb (c.room la lb) c with
-    | mk o c' =>
-      rw [hn] at n1 m1 m2
-      cases o with
-      | none => exact ⟨m1, m2⟩
-      | some pr =>
-        obtain ⟨a1, a2⟩ := Cursor.all_mono la lb f c' n1
-        simp only at m1 m2 ⊢
-        omega
-
-/-- **The whole work of a join leaves it nothing to do, or combines a pair
-that was not combined.** -/
-theorem Cursor.all_done (la lb f : Nat) (c : Cursor) (h : c.Ok la lb) :
-    (Cursor.all la lb (f + 1) c).2.pending la lb = false ∨
-      ∃ p q, ¬ c.Before p q ∧ (Cursor.all la lb (f + 1) c).2.Before p q := by
-  obtain ⟨n1, -⟩ := Cursor.next_spec la lb (c.room la lb) c h
-  obtain ⟨-, -, m3, m4⟩ := Cursor.next_step la lb (c.room la lb) c h (Nat.le_refl _)
-  unfold Cursor.all
-  cases hn : Cursor.next la lb (c.room la lb) c with
-  | mk o c' =>
-    rw [hn] at n1 m3 m4
-    cases o with
-    | none => exact .inl (m3 rfl)
-    | some pr =>
-      obtain ⟨b1, b2⟩ := m4 pr rfl
-      exact .inr ⟨pr.1, pr.2, b2, (Cursor.all_spec la lb f c' n1).2.1 _ _ b1⟩
 
 /-- What `leastBy` returns passes its test. -/
 theorem leastBy_ok {α : Type} {key : α → Nat} {ok : α → Bool} {l : List α} {x : α}
@@ -581,63 +509,6 @@ theorem rankLt_wf : WellFounded RankLt := by
   · simp only at h h'
     subst h
     exact Prod.Lex.right _ h'
-
-/-- **The whole work of a join brings it no further from a pair not yet
-combined**: the pair is combined after it, or the cursor has not moved, or
-the measure has fallen. -/
-theorem Cursor.all_rank_le (la lb p q K : Nat) (hp : p < la) (hq : q < lb) (hpK : p < K)
-    (hqK : q < K) :
-    ∀ (f : Nat) (c : Cursor), c.Ok la lb →
-      (Cursor.all la lb f c).2.Before p q ∨ (Cursor.all la lb f c).2 = c ∨
-        RankLt (Cursor.rank K (Cursor.all la lb f c).2) (Cursor.rank K c)
-  | 0, c, _ => .inr (.inl rfl)
-  | f + 1, c, h => by
-    obtain ⟨n1, n2, -, -⟩ := Cursor.next_spec la lb (c.room la lb) c h
-    by_cases hb : c.Before p q
-    · exact .inl ((Cursor.all_spec la lb (f + 1) c h).2.1 p q hb)
-    have hn := Cursor.next_rank la lb p q K hp hq hpK hqK (c.room la lb) c h (Nat.le_refl _) hb
-    unfold Cursor.all
-    cases hx : Cursor.next la lb (c.room la lb) c with
-    | mk o c' =>
-      rw [hx] at n1 n2 hn
-      cases o with
-      | none =>
-        rcases hn with hn | hn
-        · exact .inl hn
-        · exact .inr (.inr hn)
-      | some pr =>
-        simp only
-        rcases hn with hn | hn
-        · exact .inl ((Cursor.all_spec la lb f c' n1).2.1 p q hn)
-        · rcases Cursor.all_rank_le la lb p q K hp hq hpK hqK f c' n1 with h' | h' | h'
-          · exact .inl h'
-          · rw [h']
-            exact .inr (.inr hn)
-          · exact .inr (.inr (h'.trans hn))
-
-/-- **The whole work of a join brings it nearer to every pair not yet
-combined.** -/
-theorem Cursor.all_rank (la lb p q K : Nat) (hp : p < la) (hq : q < lb) (hpK : p < K)
-    (hqK : q < K) (f : Nat) (c : Cursor) (h : c.Ok la lb) (hb : ¬ c.Before p q) :
-    (Cursor.all la lb (f + 1) c).2.Before p q ∨
-      RankLt (Cursor.rank K (Cursor.all la lb (f + 1) c).2) (Cursor.rank K c) := by
-  obtain ⟨n1, n2, -, -⟩ := Cursor.next_spec la lb (c.room la lb) c h
-  have hn := Cursor.next_rank la lb p q K hp hq hpK hqK (c.room la lb) c h (Nat.le_refl _) hb
-  unfold Cursor.all
-  cases hx : Cursor.next la lb (c.room la lb) c with
-  | mk o c' =>
-    rw [hx] at n1 n2 hn
-    cases o with
-    | none => exact hn
-    | some pr =>
-      simp only
-      rcases hn with hn | hn
-      · exact .inl ((Cursor.all_spec la lb f c' n1).2.1 p q hn)
-      · rcases Cursor.all_rank_le la lb p q K hp hq hpK hqK f c' n1 with h' | h' | h'
-        · exact .inl h'
-        · rw [h']
-          exact .inr hn
-        · exact .inr (h'.trans hn)
 
 /-! ## The entry furthest behind is served first -/
 

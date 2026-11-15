@@ -751,13 +751,13 @@ theorem inv_checkOpen {st : StateOf R Rel (Ans D P)} (hI : Inv st) (g : GoalOf R
 /-- The work of a strategy that fits its goal keeps the invariant, and the
 strategy it leaves fits the goal in any state that extends the state it was
 given. -/
-theorem inv_work_aux {st : StateOf R Rel (Ans D P)} (hI : Inv st) (whole : Bool) (i : Nat)
+theorem inv_work_aux {st : StateOf R Rel (Ans D P)} (hI : Inv st) (i : Nat)
     (g : GoalOf R Rel) (s : Strat Rel (Ans D P)) (hg : goalAt st i = some g)
     (hs : StratOk st g s) :
-    Inv (work (K := DerivationKernel.over D K hK P) whole i g st s).val.1 ∧
-      (Ext st (work (K := DerivationKernel.over D K hK P) whole i g st s).val.1 →
-        StratOk (work (K := DerivationKernel.over D K hK P) whole i g st s).val.1 g
-          (work (K := DerivationKernel.over D K hK P) whole i g st s).val.2.1) := by
+    Inv (work (K := DerivationKernel.over D K hK P) i g st s).val.1 ∧
+      (Ext st (work (K := DerivationKernel.over D K hK P) i g st s).val.1 →
+        StratOk (work (K := DerivationKernel.over D K hK P) i g st s).val.1 g
+          (work (K := DerivationKernel.over D K hK P) i g st s).val.2.1) := by
   have hmax := fun (xs : List (Ans D P)) x => mem_maxima (K := K) (hK := hK) (xs := xs) (x := x)
   at_cost K hK
   cases s with
@@ -780,39 +780,25 @@ theorem inv_work_aux {st : StateOf R Rel (Ans D P)} (hI : Inv st) (whole : Bool)
       rw [this]; exact ⟨hl, hr⟩
     simp only [work]
     split
-    · simp only [Cost.bind_val, Cost.pure_val]
-      refine ⟨(foldL_inv (fun b : StateOf R Rel (Ans D P) => Inv b ∧ goalAt b i = some g) _ _
-        (fun b p hp hb => ⟨inv_copyFrom hb.1 i g isCall p.2 _ hb.2
-          (fun a ha => hsub p hp a (List.mem_of_mem_drop ha)),
-          (reach_copyFrom _ _ _ _ _ _).ext _ _ hb.2⟩) st ⟨hI, hg⟩).1, fun hE => ?_⟩
+    · exact ⟨hI, fun _ => hs⟩
+    · next p hp =>
+      simp only [Cost.bind_val, Cost.pure_val]
+      refine ⟨inv_copyFrom hI i g isCall p.2 _ hg (fun a ha =>
+        hsub p (mem_of_leastBy hp) a
+          (List.mem_of_mem_drop (List.mem_of_mem_take ha))), fun hE => ?_⟩
       refine StratOk.mono hE ?_
-      intro p hp
-      rw [List.map_map] at hp
-      exact hs p hp
-    · split
-      · exact ⟨hI, fun _ => hs⟩
-      · next p hp =>
-        simp only [Cost.bind_val, Cost.pure_val]
-        refine ⟨inv_copyFrom hI i g isCall p.2 _ hg (fun a ha =>
-          hsub p (mem_of_leastBy hp) a
-            (List.mem_of_mem_drop (List.mem_of_mem_take ha))), fun hE => ?_⟩
-        refine StratOk.mono hE ?_
-        intro q hq
-        rw [map_modify_eq Prod.fst (fun q : Nat × Nat => (q.1, q.2 + 1)) (fun _ => rfl)] at hq
-        exact hs q hq
+      intro q hq
+      rw [map_modify_eq Prod.fst (fun q : Nat × Nat => (q.1, q.2 + 1)) (fun _ => rfl)] at hq
+      exact hs q hq
   | join k a b c =>
     obtain ⟨ga, gb, ha, hb, hk⟩ := hs
     have hs' : ∀ c', StratOk st g (.join k a b c') := fun _ => ⟨ga, gb, ha, hb, hk⟩
     simp only [work]
     split
+    · exact ⟨hI, fun _ => hs' _⟩
     · simp only [Cost.bind_val, Cost.pure_val]
       exact ⟨inv_joinPairs hI i k _ _ _ hg (hI.answers ha) (hI.answers hb) hk,
         fun hE => (hs' _).mono hE⟩
-    · split
-      · exact ⟨hI, fun _ => hs' _⟩
-      · simp only [Cost.bind_val, Cost.pure_val]
-        exact ⟨inv_joinPairs hI i k _ _ _ hg (hI.answers ha) (hI.answers hb) hk,
-          fun hE => (hs' _).mono hE⟩
   | push k left side other todo subs =>
     obtain ⟨gs, h1, hk, hno, htodo, hsubs⟩ := hs
     have hsub : ∀ e ∈ subs, GoalIs gs e.1 ∧
@@ -822,95 +808,35 @@ theorem inv_work_aux {st : StateOf R Rel (Ans D P)} (hI : Inv st) (whole : Bool)
     split
     · exact ⟨hI, fun _ => ⟨gs, h1, hk, hno, htodo, hsubs⟩⟩
     · split
-      · have main : ∀ xs : List (Ans D P), (∀ x ∈ xs, GoalIs gs x) →
-            Inv (foldL (fun acc (e : Ans D P × Nat × Nat) =>
-              pushTake (K := DerivationKernel.over D _ hK P) i k left e.1 acc
-                (((pushOpen (K := DerivationKernel.over D _ hK P) g other k left st xs).val.1.answers
-                  e.2.1).drop e.2.2))
-              (pushOpen (K := DerivationKernel.over D _ hK P) g other k left st xs).val.1
-              (subs ++ (pushOpen (K := DerivationKernel.over D _ hK P) g other k left st
-                xs).val.2)).val ∧
-            StratOk (foldL (fun acc (e : Ans D P × Nat × Nat) =>
-              pushTake (K := DerivationKernel.over D _ hK P) i k left e.1 acc
-                (((pushOpen (K := DerivationKernel.over D _ hK P) g other k left st xs).val.1.answers
-                  e.2.1).drop e.2.2))
-              (pushOpen (K := DerivationKernel.over D _ hK P) g other k left st xs).val.1
-              (subs ++ (pushOpen (K := DerivationKernel.over D _ hK P) g other k left st
-                xs).val.2)).val g
-              (.push k left side other (some [])
-                ((subs ++ (pushOpen (K := DerivationKernel.over D _ hK P) g other k left st
-                  xs).val.2).map fun e => (e.1, e.2.1,
-                    max e.2.2 ((pushOpen (K := DerivationKernel.over D _ hK P) g other k left st
-                      xs).val.1.answers e.2.1).length))) := by
-          intro xs hxs
-          obtain ⟨hI1, hnew⟩ := inv_pushOpen (K := _) (hK := hK) hI g other k left xs hno
-          have hE01 := (reach_pushOpen (K := _) (hK := hK) g other k left st xs).ext
-          have hall : ∀ e ∈ subs ++ (pushOpen (K := DerivationKernel.over D _ hK P) g other k
-              left st xs).val.2, GoalIs gs e.1 ∧
-              goalAt (pushOpen (K := DerivationKernel.over D _ hK P) g other k left st xs).val.1
-                e.2.1 = some (pushG D g other k left e.1) := by
-            intro e he
-            rcases List.mem_append.1 he with he | he
-            · exact ⟨(hsub e he).1, hE01 _ _ (hsub e he).2⟩
-            · exact ⟨hxs _ (hnew e he).1, (hnew e he).2⟩
-          have hE12 := (reach_foldL (K := _) (hK := hK) (fun st => st)
-            (fun acc (e : Ans D P × Nat × Nat) =>
-              pushTake (K := DerivationKernel.over D _ hK P) i k left e.1 acc
-                (((pushOpen (K := DerivationKernel.over D _ hK P) g other k left st xs).val.1.answers
-                  e.2.1).drop e.2.2))
-            (fun b e => reach_pushTake _ _ _ _ _ _)
-            (subs ++ (pushOpen (K := DerivationKernel.over D _ hK P) g other k left st xs).val.2)
-            (pushOpen (K := DerivationKernel.over D _ hK P) g other k left st xs).val.1).ext
-          refine ⟨(foldL_inv (fun b : StateOf R Rel (Ans D P) => Inv b ∧ goalAt b i = some g) _ _
-            (fun b e he hb => ⟨inv_pushTake hb.1 i k left e.1 _ hb.2 (hall e he).1
-              (fun y hy => hI1.answers (hall e he).2 y (List.mem_of_mem_drop hy)) hk,
-              (reach_pushTake _ _ _ _ _ _).ext _ _ hb.2⟩) _ ⟨hI1, hE01 _ _ hg⟩).1, ?_⟩
-          refine ⟨gs, hE12 _ _ (hE01 _ _ h1), hk, hno, fun l hl x hx => ?_, fun e he => ?_⟩
-          · cases hl; cases hx
-          · rw [List.map_map] at he
-            obtain ⟨e', he', rfl⟩ := List.mem_map.1 he
-            exact ⟨(hall e' he').1, hE12 _ _ (hall e' he').2⟩
-        cases todo with
-        | none =>
-          rw [Cost.bind_val]
-          simp only [Cost.bind_val, Cost.pure_val]
-          have := main _ fun x hx => hI.answers h1 x (hmax _ _ hx)
-          exact ⟨this.1, fun _ => this.2⟩
-        | some l =>
-          rw [Cost.bind_val]
-          simp only [Cost.bind_val, Cost.pure_val]
-          have := main l (htodo l rfl)
-          exact ⟨this.1, fun _ => this.2⟩
+      · simp only [Cost.bind_val, Cost.pure_val]
+        refine ⟨hI, fun _ => ⟨gs, h1, hk, hno, fun l hl x hx => ?_, hsubs⟩⟩
+        cases hl
+        exact hI.answers h1 x (hmax _ _ hx)
+      · next x rest =>
+        simp only [Cost.bind_val, Cost.pure_val]
+        obtain ⟨hI1, hnew⟩ := inv_pushOpen (K := _) (hK := hK) hI g other k left [x] hno
+        have hE01 := (reach_pushOpen (K := _) (hK := hK) g other k left st [x]).ext
+        refine ⟨hI1, fun _ => ⟨gs, hE01 _ _ h1, hk, hno, fun l hl y hy => ?_, fun e he => ?_⟩⟩
+        · cases hl
+          exact htodo _ rfl y (List.mem_cons_of_mem _ hy)
+        · rw [List.map_append] at he
+          rcases List.mem_append.1 he with he | he
+          · exact ⟨(hsubs e he).1, hE01 _ _ (hsubs e he).2⟩
+          · obtain ⟨e', he', rfl⟩ := List.mem_map.1 he
+            obtain ⟨hm, hgo⟩ := hnew e' he'
+            obtain rfl := List.mem_singleton.1 hm
+            exact ⟨htodo _ rfl _ List.mem_cons_self, hgo⟩
       · split
-        · simp only [Cost.bind_val, Cost.pure_val]
-          refine ⟨hI, fun _ => ⟨gs, h1, hk, hno, fun l hl x hx => ?_, hsubs⟩⟩
-          cases hl
-          exact hI.answers h1 x (hmax _ _ hx)
-        · next x rest =>
+        · exact ⟨hI, fun _ => ⟨gs, h1, hk, hno, htodo, hsubs⟩⟩
+        · next p hp =>
           simp only [Cost.bind_val, Cost.pure_val]
-          obtain ⟨hI1, hnew⟩ := inv_pushOpen (K := _) (hK := hK) hI g other k left [x] hno
-          have hE01 := (reach_pushOpen (K := _) (hK := hK) g other k left st [x]).ext
-          refine ⟨hI1, fun _ => ⟨gs, hE01 _ _ h1, hk, hno, fun l hl y hy => ?_, fun e he => ?_⟩⟩
-          · cases hl
-            exact htodo _ rfl y (List.mem_cons_of_mem _ hy)
-          · rw [List.map_append] at he
-            rcases List.mem_append.1 he with he | he
-            · exact ⟨(hsubs e he).1, hE01 _ _ (hsubs e he).2⟩
-            · obtain ⟨e', he', rfl⟩ := List.mem_map.1 he
-              obtain ⟨hm, hgo⟩ := hnew e' he'
-              obtain rfl := List.mem_singleton.1 hm
-              exact ⟨htodo _ rfl _ List.mem_cons_self, hgo⟩
-        · split
-          · exact ⟨hI, fun _ => ⟨gs, h1, hk, hno, htodo, hsubs⟩⟩
-          · next p hp =>
-            simp only [Cost.bind_val, Cost.pure_val]
-            have hp' := hsub p.1 (List.fst_mem_of_mem_zipIdx (mem_of_leastBy hp))
-            refine ⟨inv_pushTake hI i k left p.1.1 _ hg hp'.1 (fun y hy =>
-              hI.answers hp'.2 y (List.mem_of_mem_drop (List.mem_of_mem_take hy))) hk,
-              fun hE => StratOk.mono hE ⟨gs, h1, hk, hno, htodo, fun e he => ?_⟩⟩
-            rw [map_modify_eq (fun e : Ans D P × Nat × Nat => (e.1, e.2.1))
-              (fun e : Ans D P × Nat × Nat => (e.1, e.2.1, e.2.2 + 1)) (fun _ => rfl)] at he
-            exact hsubs e he
+          have hp' := hsub p.1 (List.fst_mem_of_mem_zipIdx (mem_of_leastBy hp))
+          refine ⟨inv_pushTake hI i k left p.1.1 _ hg hp'.1 (fun y hy =>
+            hI.answers hp'.2 y (List.mem_of_mem_drop (List.mem_of_mem_take hy))) hk,
+            fun hE => StratOk.mono hE ⟨gs, h1, hk, hno, htodo, fun e he => ?_⟩⟩
+          rw [map_modify_eq (fun e : Ans D P × Nat × Nat => (e.1, e.2.1))
+            (fun e : Ans D P × Nat × Nat => (e.1, e.2.1, e.2.2 + 1)) (fun _ => rfl)] at he
+          exact hsubs e he
   | check left side other c =>
     have hno : Normal other := hs
     have hI1 := inv_edgeOf (K := _) (hK := hK) hI left side
@@ -928,14 +854,29 @@ theorem inv_work_aux {st : StateOf R Rel (Ans D P)} (hI : Inv st) (whole : Bool)
 
 /-- The work of a strategy that fits its goal keeps the invariant, and the
 strategy it leaves fits the goal. -/
-theorem inv_work {st : StateOf R Rel (Ans D P)} (hI : Inv st) (whole : Bool) (i : Nat)
+theorem inv_work {st : StateOf R Rel (Ans D P)} (hI : Inv st) (i : Nat)
     (g : GoalOf R Rel) (s : Strat Rel (Ans D P)) (hg : goalAt st i = some g)
     (hs : StratOk st g s) :
-    Inv (work (K := DerivationKernel.over D K hK P) whole i g st s).val.1 ∧
-      StratOk (work (K := DerivationKernel.over D K hK P) whole i g st s).val.1 g
-        (work (K := DerivationKernel.over D K hK P) whole i g st s).val.2.1 :=
-  ⟨(inv_work_aux hI whole i g s hg hs).1,
-    (inv_work_aux hI whole i g s hg hs).2 (reach_work _ _ _ _ _).ext⟩
+    Inv (work (K := DerivationKernel.over D K hK P) i g st s).val.1 ∧
+      StratOk (work (K := DerivationKernel.over D K hK P) i g st s).val.1 g
+        (work (K := DerivationKernel.over D K hK P) i g st s).val.2.1 :=
+  ⟨(inv_work_aux hI i g s hg hs).1,
+    (inv_work_aux hI i g s hg hs).2 (reach_work _ _ _ _).ext⟩
+
+/-- A turn of a strategy that fits its goal keeps the invariant, and the
+strategy it leaves fits the goal. -/
+theorem inv_turn {st : StateOf R Rel (Ans D P)} (hI : Inv st) (i : Nat)
+    (g : GoalOf R Rel) (f left : Nat) (s : Strat Rel (Ans D P)) (c : Nat)
+    (hg : goalAt st i = some g) (hs : StratOk st g s) :
+    Inv (turn (K := DerivationKernel.over D K hK P) i g f left st s c).val.1 ∧
+      StratOk (turn (K := DerivationKernel.over D K hK P) i g f left st s c).val.1 g
+        (turn (K := DerivationKernel.over D K hK P) i g f left st s c).val.2.1 := by
+  have h := turn_ind (K := K) (hK := hK) (P := P) i g
+    (fun st' s' => Inv st' ∧ goalAt st' i = some g ∧ StratOk st' g s')
+    (fun st' s' h => ⟨(inv_work h.1 i g s' h.2.1 h.2.2).1,
+      (reach_work (K := K) (hK := hK) i g st' s').ext _ _ h.2.1,
+      (inv_work h.1 i g s' h.2.1 h.2.2).2⟩) f left st s c ⟨hI, hg, hs⟩
+  exact ⟨h.1, h.2.2⟩
 
 /-! ## A round -/
 
@@ -1050,9 +991,12 @@ theorem strat_of_groupsAt {st : StateOf R Rel (Ans D P)} (hI : Inv st) {i k j : 
 theorem inv_workGroup (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R Rel (Ans D P) × Nat))
     (hadv : ∀ h st, Inv st → Inv (adv h st).val.1)
     (hadvR : ∀ h st, Reach K hK st (adv h st).val.1) {st : StateOf R Rel (Ans D P)}
-    (hI : Inv st) (whole : Bool) (i : Nat) (g : GoalOf R Rel) (k : Nat)
+    (hI : Inv st) (i : Nat) (g : GoalOf R Rel) (k : Nat)
     (hg : goalAt st i = some g) :
-    Inv (workGroup (K := DerivationKernel.over D K hK P) adv whole i g k st).val.1 := by
+    Inv (workGroup (K := DerivationKernel.over D K hK P) adv i g k st).val.1 := by
+  have hturn := fun (st : StateOf R Rel (Ans D P)) hI f left s c hg hs =>
+    inv_turn (K := K) (hK := hK) (st := st) hI i g f left s c hg hs
+  have hrt := fun f left st s c => reach_turn (K := K) (hK := hK) (P := P) i g f left st s c
   at_cost K hK
   simp only [workGroup, workStrats, feedAll, Cost.bind_val, Cost.pure_val]
   refine Inv.modify_same ?_ i _ (fun _ => rfl) (fun _ => rfl)
@@ -1065,11 +1009,12 @@ theorem inv_workGroup (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R
       Inv acc.1 ∧ goalAt acc.1 i = some g) _ _ (fun b j _ hb => ?_) (st, 0, false) ⟨hI, hg⟩
     split
     · exact hb
-    · next s hs =>
+    · next s o hs =>
       simp only [Cost.bind_val, Cost.pure_val]
-      obtain ⟨h1, h2⟩ := inv_work (K := _) (hK := hK) hb.1 whole i g s hb.2
-        (strat_of_groupsAt hb.1 hb.2 hs)
-      have hg' := (reach_work (K := _) (hK := hK) whole i g b.1 s).ext _ _ hb.2
+      generalize turnTicks * weight b.1 s - o = fl
+      obtain ⟨h1, h2⟩ := hturn b.1 hb.1 fl fl s 0 hb.2
+        (strat_of_groupsAt hb.1 hb.2 (pick_strat hs).1)
+      have hg' := (hrt fl fl b.1 s 0).ext _ _ hb.2
       refine ⟨inv_setGroup h1 _ _ _ (fun g' gr hg'' h s' hs' => ?_), ?_⟩
       · obtain rfl : g' = g := Option.some.inj (hg''.symm.trans hg')
         rcases List.mem_or_eq_of_mem_set hs' with h' | rfl
@@ -1081,16 +1026,16 @@ theorem inv_workGroup (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R
 theorem inv_workLevel (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R Rel (Ans D P) × Nat))
     (hadv : ∀ h st, Inv st → Inv (adv h st).val.1)
     (hadvR : ∀ h st, Reach K hK st (adv h st).val.1) {st : StateOf R Rel (Ans D P)}
-    (hI : Inv st) (whole : Bool) (i : Nat) (g : GoalOf R Rel) (lv : Nat)
+    (hI : Inv st) (i : Nat) (g : GoalOf R Rel) (lv : Nat)
     (hg : goalAt st i = some g) :
-    Inv (workLevel (K := DerivationKernel.over D K hK P) adv whole i g lv st).val.1 := by
+    Inv (workLevel (K := DerivationKernel.over D K hK P) adv i g lv st).val.1 := by
   at_cost K hK
   refine (foldL_inv (fun acc : StateOf R Rel (Ans D P) × Bool =>
     Inv acc.1 ∧ goalAt acc.1 i = some g) _ _ (fun b p _ hb => ?_) (st, false) ⟨hI, hg⟩).1
   split
   · simp only [Cost.bind_val, Cost.pure_val]
-    exact ⟨inv_workGroup adv hadv hadvR hb.1 _ _ _ _ hb.2,
-      (reach_workGroup adv hadvR _ _ _ _ _).ext _ _ hb.2⟩
+    exact ⟨inv_workGroup adv hadv hadvR hb.1 _ _ _ hb.2,
+      (reach_workGroup adv hadvR _ _ _ _).ext _ _ hb.2⟩
   · exact hb
 
 theorem inv_prepare {st : StateOf R Rel (Ans D P)} (hI : Inv st) (i : Nat)
@@ -1125,23 +1070,24 @@ theorem inv_askRace (U : GOracle R Rel (Ans D P) Cost) {st : StateOf R Rel (Ans 
     (hI : Inv st) (i : Nat) (g : GoalOf R Rel) (hg : goalAt st i = some g)
     (hU : ∀ n, ∀ a ∈ (U n g).val.2, GoalIs g a) :
     Inv (askRace (K := DerivationKernel.over D K hK P) U i g st).val.1 := by
-  at_cost K hK
-  unfold askRace
+  have hadd : ∀ n, Inv (foldL (addAnswer (K := DerivationKernel.over D K hK P) i) st
+      (U n g).val.2).val := fun n =>
+    (foldL_inv (fun b : StateOf R Rel (Ans D P) => Inv b ∧ goalAt b i = some g) _ _
+      (fun b x hx hb => ⟨inv_addAnswer hb.1 i x fun g' hg' => by
+          obtain rfl : g' = g := Option.some.inj (hg'.symm.trans hb.2)
+          exact hU _ x hx,
+        (Reach.add (K := _) (hK := hK) b i x).ext _ _ hb.2⟩) st ⟨hI, hg⟩).1
+  rw [askRace_val]
   split
   · exact hI
   · split
     · exact hI
     · split
       · exact hI
-      · simp only [Cost.bind_val]
-        split
-        · simp only [Cost.bind_val]
-          refine Inv.modify_same ?_ i _ (fun _ => rfl) (fun _ => rfl)
-          exact (foldL_inv (fun b : StateOf R Rel (Ans D P) => Inv b ∧ goalAt b i = some g) _ _
-            (fun b x hx hb => ⟨inv_addAnswer hb.1 i x fun g' hg' => by
-                obtain rfl : g' = g := Option.some.inj (hg'.symm.trans hb.2)
-                exact hU _ x hx,
-              (Reach.add (K := _) (hK := hK) b i x).ext _ _ hb.2⟩) st ⟨hI, hg⟩).1
+      · split
+        · split
+          · exact Inv.modify_same (hadd _) i _ (fun _ => rfl) (fun _ => rfl)
+          · exact hI.modify_same i _ (fun _ => rfl) (fun _ => rfl)
         · exact hI.modify_same i _ (fun _ => rfl) (fun _ => rfl)
 
 /-- The first state has the invariant, and its first table is the table of

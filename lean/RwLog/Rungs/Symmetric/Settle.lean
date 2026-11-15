@@ -56,13 +56,13 @@ theorem Line.along_from (hL : Line need σ k r0 L) (Q : Nat → Strat N A → Pr
 theorem Line.span_ran (hL : Line need σ k r0 L) {m : Nat} {ran0 : Bool}
     (h0 : (L r0)[m]? = some (.span ran0)) :
     ∃ T, r0 ≤ T ∧ ∀ r, T ≤ r → (L r)[m]? = some (.span true) := by
-  obtain ⟨r, -, hr, hst, -, -⟩ := hL.worked r0
+  obtain ⟨r, -, hr, hst⟩ := hL.step m r0
   obtain ⟨s, hs, ran, rfl⟩ := hL.along (fun _ s => ∃ ran, s = Strat.span ran) h0 ⟨ran0, rfl⟩
     (fun r s s' _ _ _ hq hadv => by
       obtain ⟨ran, rfl⟩ := hq
       cases hadv
       exact ⟨_, rfl⟩) hr
-  obtain ⟨s', hs', hstep⟩ := hst.get hs
+  obtain ⟨s', hs', hstep⟩ := hst _ hs
   cases hstep
   refine ⟨r + 1, by omega, fun r' hr' => ?_⟩
   obtain ⟨s2, hs2, e⟩ := hL.along_from (fun _ s => s = Strat.span true) (by omega) hs' rfl
@@ -137,10 +137,10 @@ theorem Line.copy_read (hL : Line need σ k r0 L) {m : Nat} {c : Bool}
           have := behind_le ((σ T).len p0.1) hp'
           simp only [f, hs, hs']
           omega
-      · obtain ⟨r, hr', hr, hstp, -, -⟩ := hL.worked (max r' T)
+      · obtain ⟨r, hr', hr, hstp⟩ := hL.step m (max r' T)
         obtain ⟨subs, hs, hadv⟩ := keep r0 subs0 (Nat.le_refl _) h0 r hr
         obtain ⟨p, hp, hadv'⟩ := hadv.get hp0
-        obtain ⟨s', hs', hstep⟩ := hstp.get hs
+        obtain ⟨s', hs', hstep⟩ := hstp _ hs
         cases hstep with
         | copy hp' hlt =>
           refine ⟨r, by omega, ?_⟩
@@ -219,9 +219,9 @@ theorem Line.join_done (hL : Line need σ k r0 L) {m : Nat} {kd : Kind} {a b : N
           · exact absurd hb' (hno (r + 1) _ (by omega) hs')
           · exact .inl (by rw [he])
           · exact .inr hlt
-      · obtain ⟨r, hr', hr, hst, -, -⟩ := hL.worked (max r' T)
+      · obtain ⟨r, hr', hr, hst⟩ := hL.step m (max r' T)
         obtain ⟨c, hs, -⟩ := keep r0 c0 (Nat.le_refl _) h0 r hr
-        obtain ⟨s', hs', hstep⟩ := hst.get hs
+        obtain ⟨s', hs', hstep⟩ := hst _ hs
         cases hstep with
         | join h1 h2 _ _ =>
           have hpa := ha r (by omega)
@@ -239,9 +239,9 @@ theorem Line.join_done (hL : Line need σ k r0 L) {m : Nat} {kd : Kind} {a b : N
         (fun q r => ∀ c, (L r)[m]? = some (.join kd a b c) → c.Before p q)
         (fun q hq => each p hp q hq)
       exact ⟨T', fun r hr q hq => hT' q hq r hr⟩)
-  obtain ⟨r, hr', hr, hst, -, -⟩ := hL.worked (max T1 T)
+  obtain ⟨r, hr', hr, hst⟩ := hL.step m (max T1 T)
   obtain ⟨c, hs, -⟩ := keep r0 c0 (Nat.le_refl _) h0 r hr
-  obtain ⟨s', hs', hstep⟩ := hst.get hs
+  obtain ⟨s', hs', hstep⟩ := hst _ hs
   cases hstep with
   | join h1 h2 h3 h4 =>
     rename_i c'
@@ -311,9 +311,9 @@ theorem Line.push_empty (hL : Line need σ k r0 L) {m : Nat} {kd : Kind} {left :
       exact ⟨ra, subs, hra, hs⟩
     | succ n ih =>
       intro ra l subs hra hs hl
-      obtain ⟨r, hr', hr, hst, -, -⟩ := hL.worked ra
+      obtain ⟨r, hr', hr, hst⟩ := hL.step m ra
       obtain ⟨l', subs', hs', hl'⟩ := someOn ra l subs (by omega) hs r hr'
-      obtain ⟨s2, hs2, hstep⟩ := hst.get hs'
+      obtain ⟨s2, hs2, hstep⟩ := hst _ hs'
       cases hstep with
       | push h1 h2 h3 h4 =>
         cases l' with
@@ -323,9 +323,9 @@ theorem Line.push_empty (hL : Line need σ k r0 L) {m : Nat} {kd : Kind} {left :
           subst e1
           simp only [List.length_cons] at hl'
           exact ih (r + 1) l1 _ (by omega) hs2 (by omega)
-  obtain ⟨r, hr', hr, hst, -, -⟩ := hL.worked T
+  obtain ⟨r, hr', hr, hst⟩ := hL.step m T
   obtain ⟨todo, subs, hs⟩ := al r hr
-  obtain ⟨s2, hs2, hstep⟩ := hst.get hs
+  obtain ⟨s2, hs2, hstep⟩ := hst _ hs
   cases hstep with
   | push h1 h2 h3 h4 =>
     rename_i t' subs'
@@ -414,13 +414,13 @@ theorem Line.push_read (hL : Line need σ k r0 L) {m : Nat} {kd : Kind} {left : 
           have := behind_le ((σ T).len e0.2.1) (a2.pointwise (a3 rfl))
           simp only [f, hs, hs']
           omega
-      · obtain ⟨r, hr', hr, hstp, -, -⟩ := hL.worked (max r' T)
+      · obtain ⟨r, hr', hr, hstp⟩ := hL.step m (max r' T)
         obtain ⟨subs, hs, hadv, hlen⟩ := keep T1 subs1 hT1 h1 r (by omega)
         have hlt : m' < subs.length := by omega
         have he : subs[m']? = some subs[m'] := List.getElem?_eq_getElem hlt
         generalize subs[m'] = e at he
         obtain ⟨-, y2, -⟩ := hadv.2 m' e0 e he0 he
-        obtain ⟨s', hs', hstep⟩ := hstp.get hs
+        obtain ⟨s', hs', hstep⟩ := hstp _ hs
         cases hstep with
         | push a1 a2 a3 a4 =>
           refine ⟨r, by omega, ?_⟩
@@ -465,8 +465,8 @@ theorem Line.check_read (hR : Requests need Rc σ) (hL : Line need σ k r0 L)
       (fun r => need side - (σ r).depth) r0 (fun r _ => ?_) (fun r' => ?_)
     · have := (hR.req r).depth
       omega
-    · obtain ⟨r, hr', hr, hst, -, -⟩ := hL.worked r'
-      obtain ⟨s', hs', hstep⟩ := hst.get (rd r hr)
+    · obtain ⟨r, hr', hr, hst⟩ := hL.step m r'
+      obtain ⟨s', hs', hstep⟩ := hst _ (rd r hr)
       rw [rd (r + 1) (by omega)] at hs'
       cases hs'
       cases hstep with

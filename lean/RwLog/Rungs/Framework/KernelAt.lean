@@ -2,7 +2,7 @@
 # A kernel that returns what a domain returns, in the monad of `Cost`
 
 `Kernel.Refines D K` says that the monad of `K` is the monad of charged
-computations, with its `tick`, `race` and `metered`. To read an engine at
+computations, with its `tick`, `race`, `metered` and `within`. To read an engine at
 such a kernel, it is enough to read it at a kernel where these are the ones
 of `Cost` by definition: `Kernel.Refines.elim`.
 -/
@@ -20,6 +20,7 @@ representatives. -/
   tick := Cost.tick
   race := Cost.race
   metered := Cost.metered
+  within := Cost.within
   swap := Answer.swap
   rep := rep
   compose := compose
@@ -39,15 +40,16 @@ theorem Kernel.Refines.elim {D : Domain R}
       motive _ hK) : ∀ (K : Kernel R Cost) (hK : K.Refines D), motive K hK := by
   intro K hK
   cases K with
-  | mk tick race metered swap rep compose meet composable covers eq rb lb =>
+  | mk tick race metered within swap rep compose meet composable covers eq rb lb =>
     rename_i m
     have h₁ : m = Cost.instMonad := hK.monad
     have h₂ := hK.tick
     have h₃ : @race = @Cost.race := by funext α a b; exact hK.race α a b
     have h₄ : @metered = @Cost.metered := by funext α a; exact hK.metered α a
     have h₅ := hK.swap
+    have h₆ : @within = @Cost.within := by funext α b a; exact hK.within α b a
     simp only at h₁ h₂ h₅
-    subst h₁ h₂ h₃ h₄ h₅
+    subst h₁ h₂ h₃ h₄ h₅ h₆
     exact h rep compose meet composable covers eq rb lb hK
 
 /-- Read the goal at a kernel in the monad of `Cost`. -/
@@ -75,6 +77,7 @@ theorem Kernel.uncharged_refines (D : Domain R) : (Kernel.uncharged D).Refines D
   tick := rfl
   race _ _ _ := rfl
   metered _ _ := rfl
+  within _ _ _ := rfl
   swap := rfl
   rep _ := rfl
   compose _ _ := rfl

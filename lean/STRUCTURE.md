@@ -59,10 +59,16 @@ Rungs/Mirror/   a machine run on a query and on its converse side by side, for a
 Rungs/Symmetric/ the symmetric engine of `SYMMETRIC_ENGINE.md` (Machine.lean): a table for
                 every goal, every split of a chain and of a meet as a group of strategies
                 (join, push from either side), groups balanced by their levels, one
-                request a step; and beside the groups of a chain goal an unfolding race
+                request a step; every strategy of a group that works has a turn of
+                bounded work (`turn`: `turnTicks` ticks times its `weight`, one more than
+                the number of strategies upstream of the tables it reads), does one
+                unit at a time, and owes in later turns what its last unit cost beyond
+                the turn (`Group.owed`); and beside the groups of a chain goal an unfolding race
                 (`askRace`; `engine` takes the `Unfolder`), asked at the end of a round of
-                the goal at its next depth when it has spent no more than the goal has had
-                rounds and work of its own, whose final verdict completes the table. A level rises by what was spent, and the engine charges
+                the goal at its next depth with what is left of the rounds and work of
+                the goal as its limit (`Kernel.within`, `Trusted/Kernel.lean`): an ask
+                that costs more is given up and charged, and the next waits until twice
+                as much is left; a final verdict completes the table. A level rises by what was spent, and the engine charges
                 itself one tick for a unit of work that did something, so a group that
                 worked has risen at every kernel (`workGroup_did`). Run in `Tests/SymmetricRuns.lean`. The table of a
                 goal that is its own converse holds the converse of everything it holds;
@@ -87,26 +93,31 @@ Rungs/Symmetric/ the symmetric engine of `SYMMETRIC_ENGINE.md` (Machine.lean): a
                 one side can show, read from the program) is a strategy of its own; the
                 invariant and the mirror criterion cover it. Towards completeness:
                 the cursor of a join visits every pair once (Cursor.lean,
-                `Cursor.all_spec`); what the cursors of every strategy mean (Progress.lean,
+                `Cursor.next_spec`); what the cursors of every strategy mean (Progress.lean,
                 `Prog`: the table covers what its rule makes of everything a cursor has
                 passed) holds of the strategies made for a goal and is kept by a whole
                 request, with the goals of the tables distinct and good (Kept.lean,
                 `Good`, `good_request`); and the interfaces read from the program are
                 right about it (Edge.lean, `readOk`). Towards fairness: the cursor of
                 a join reaches every pair that is there, by a rank that falls
-                (Cursor.lean, `Cursor.all_rank`, `rankLt_wf`); and the record of a
+                (Cursor.lean, `Cursor.next_rank`, `rankLt_wf`); and the record of a
                 request (Turns.lean, `Req`, `req_request`), which takes what a race means
                 as a parameter (`RaceSem`, for the engine `raceSem`): a table completes by
                 a strategy with nothing left to do or by a final verdict of its race
                 (`Raced`, `askRace_spec`), and a round of a table leaves its race blocked
-                with fewer rounds than it has spent, or one depth further, or the table
-                complete (`Asked`), so a table that has rounds for ever and a race with a
-                final verdict at some depth completes (Lines.lean, `Requests.race_done`);
+                with fewer rounds than it has spent and needs for its next ask, or one
+                depth further, or having given up an ask that costs more than it was
+                allowed, when it was allowed more than twice what it gave up before, or
+                the table complete (`Asked`), so a table that has rounds for ever and a
+                race with a final verdict at some depth completes (Lines.lean,
+                `Requests.race_done`);
                 the groups of a table change
                 in its own round only, where each strategy moves on, a group all of whose
                 checks are dead is removed, one group works with the tables it reads
-                settled, and the round is balanced: a group worked, or it stands as it
-                stood while a lower one rose (`Turn`, `Balanced`); of the groups a goal begins with one has a span, a call, a
+                settled, and the round is balanced: a group worked, each of its
+                strategies having worked or owing less than it did (`GrStep`, `OStep`), or
+                it stands as it stood, owing what it owed, while a lower one rose
+                (`Turn`, `Balanced`); of the groups a goal begins with one has a span, a call, a
                 union or a join, and one that has none is all checks (`shaped_expand`); a table
                 marked complete has a strategy with nothing left to do that reads complete
                 tables only, and the complete tables stand in an order in which tables that
@@ -115,8 +126,9 @@ Rungs/Symmetric/ the symmetric engine of `SYMMETRIC_ENGINE.md` (Machine.lean): a
                 answers of its side once the side is complete, then opens a goal for each,
                 then is nearer to every answer of those goals (`SStep.push`); and an edge is read in the end, from a depth that the node
                 and the program give (ReadLive.lean, `readEdge_some`); and of a table that
-                has rounds for ever every group works for ever, with as many groups from
-                some request on (Lines.lean, `Requests.lines`). Fairness and
+                has rounds for ever every strategy of every group works for ever, since
+                what it owes cannot fall for ever, with as many groups from
+                some request on (Lines.lean, `Requests.lines`, `Line.step`). Fairness and
                 completeness: a run of requests (`IsRun`) holds for each goal the answers
                 of its table (`held`) and does not neglect the tables that are complete at
                 some time or have rounds for ever (`opened`); a complete table is served by

@@ -41,7 +41,7 @@ group with a *level*.
   conjoins.
 
 A strategy keeps cursors into the tables it reads, so it combines nothing
-twice. Where it does one unit at a time, it takes its units in an order that
+twice. It takes its units in an order that
 reaches everything, however fast the tables it reads grow: a join finishes
 the pairs of one answer before it begins another and begins on the side it
 has counted fewer answers of, and a strategy that reads several tables reads
@@ -51,14 +51,30 @@ next the one it has read least.
 
 One step of the machine is one request to the root goal. A request gives a
 *round* to the root. In its round a goal lets its lowest groups work. If
-none of them can do anything, the next lowest work, and so on. A group works
-by each of its strategies doing its own work and then by giving a round to
-every goal its strategies read. Where a goal has one group its strategies do
-everything their inputs allow. Where it has several, each strategy of a
-working group does one unit, so that the balance can react. The level of a
-group rises by the ticks of its own work and by how much the levels of the
-goals it gave a round to rose; the level of a goal is the lowest level of
-its groups.
+none of them does anything, the next lowest work, and so on. A group works
+by each of its strategies having a *turn* and then by giving a round to
+every goal its strategies read. The level of a group rises by the ticks of
+its own work and by how much the levels of the goals it gave a round to
+rose; the level of a goal is the lowest level of its groups.
+
+A turn is a bounded amount of work, counted in ticks. It is worth
+`turnTicks` ticks for each unit of the *weight* of the strategy: one for the
+strategy itself, and for each table it reads the number of strategies that
+work for that table, its own and those of every table read from it through
+any number of strategies. So a strategy is given as much as what feeds it is
+given together, and a table that several strategies fill is read as fast as
+it is filled. In its turn a strategy does unit after unit until it has spent
+what the turn is worth or can do nothing more. A unit is not divided: the
+last one is done whole, and what it cost beyond the turn the strategy
+*owes*. A strategy that owes has that much less in its next turn, and if it
+owes a whole turn or more it does nothing and owes a turn less. So over any
+number of rounds a strategy spends what its turns were worth and at most one
+unit more, whatever its units cost.
+
+The weights are counted from the state as it stands, and counting them is
+not charged, like the rest of the bookkeeping of a request (the levels, the
+tables that complete together). An implementation has to keep them as tables
+are opened.
 
 A goal has one round in a request, whoever asks, and a goal met again below
 itself adds nothing. A goal opened during a request has its first round in
@@ -117,13 +133,17 @@ has an *unfolding race* (`Rungs/Framework/RaceSpec.lean`): asked for a goal
 and a depth, it says whether the unfolding of the goal to that depth is
 final and, if it is, gives its answers. The race stands beside the groups of
 its goal: it takes no turn and is no part of any level. At the end of a round
-of the goal it asks once at its next depth, if what its asks have cost is at
-most the ticks of the goal's own strategies plus the number of rounds the
-goal has had. A final verdict puts the answers in the table and completes
-the goal. A goal that is not complete has rounds as long as it is asked for,
-so its race is asked at every depth. Only a chain has a race: the verdict of
-the unfolding of a call, a union or a meet is made of the verdicts of its
-body or members.
+of the goal it asks once at its next depth. Its budget is the ticks of the
+goal's own strategies plus the number of rounds the goal has had, and an ask
+may cost what is left of the budget and no more (`Kernel.within`). An ask
+that needs more is given up, what it was allowed is charged to the race, and
+the next ask is made when twice as much is left (with nothing left no ask is
+made); so the asks given up at one
+depth cost together less than twice the ask that succeeds. A final verdict
+puts the answers in the table and completes the goal. A goal that is not
+complete has rounds as long as it is asked for, so its race is asked at
+every depth. Only a chain has a race: the verdict of the unfolding of a
+call, a union or a meet is made of the verdicts of its body or members.
 
 A goal and its converse do not share a table: no exact property needs it,
 and whether it would save anything is not measured (design note, section 1).
@@ -187,17 +207,6 @@ def Cursor.next (la lb : Nat) : Nat → Cursor → Option (Nat × Nat) × Cursor
 /-- What `Cursor.next` is given to count down. -/
 def Cursor.room (la lb : Nat) (c : Cursor) : Nat := (la - c.na) + (lb - c.nb) + 1
 
-/-- Every pair still to combine, in order, and the cursor after them. The
-first argument counts the pairs and is never used up. -/
-def Cursor.all (la lb : Nat) : Nat → Cursor → List (Nat × Nat) × Cursor
-  | 0, c => ([], c)
-  | f + 1, c =>
-    match Cursor.next la lb (c.room la lb) c with
-    | (none, c') => ([], c')
-    | (some p, c') =>
-      let r := Cursor.all la lb f c'
-      (p :: r.1, r.2)
-
 /-- Is a pair left to combine? -/
 def Cursor.pending (la lb : Nat) (c : Cursor) : Bool := decide (c.na < la) || decide (c.nb < lb)
 
@@ -229,16 +238,22 @@ inductive Strat (N A : Type) where
   is opened under each interface it can show. -/
   | check (left : Bool) (side other : N) (c : Check)
 
-/-- The strategies of one split, with the level of the group. -/
+/-- The strategies of one split, with the level of the group, and what each
+strategy owes: the ticks its last turn cost beyond what the turn was worth,
+less what its turns since were worth (nothing for a strategy `owed` has no
+entry for). -/
 structure Group (N A : Type) where
   level : Nat
   strats : List (Strat N A)
+  owed : List Nat
 
-/-- The unfolding race of a chain goal: the depth it asks at next and the
-ticks its asks have cost. -/
+/-- The unfolding race of a chain goal: the depth it asks at next, the ticks
+its asks have cost, and the budget of the last ask it gave up at this depth
+(nothing given up: 0). -/
 structure Race where
   depth : Nat
   spent : Nat
+  gaveUp : Nat
   deriving DecidableEq
 
 /-- A table. `self` says the goal is its own converse: its node is the
@@ -480,7 +495,7 @@ def splitGroup (k : Kind) (L R : GoalOf S N) (st : StateOf S N A) :
   let (st, a) ← openGoal (K := K) st L
   let (st, b) ← openGoal (K := K) st R
   pure (st, ⟨0, [.join k a b Cursor.start, .push k true a R.node none [],
-    .push k false b L.node none []]⟩)
+    .push k false b L.node none []], []⟩)
 
 /-! ## Reading an edge from the program -/
 
@@ -659,22 +674,22 @@ read are opened. -/
 def expand (g : GoalOf S N) (st : StateOf S N A) : M (StateOf S N A × List (Group N A)) := do
   let v ← K.view g.node
   match v with
-  | .span _ => pure (st, [⟨0, [.span false]⟩])
+  | .span _ => pure (st, [⟨0, [.span false], []⟩])
   | .call _ _ => do
     let b ← K.body g.node
     match b with
-    | none => pure (st, [⟨0, [.copy true []]⟩])
+    | none => pure (st, [⟨0, [.copy true []], []⟩])
     | some b => do
       let (st, j) ← openGoal (K := K) st ⟨g.lb, b, g.rb⟩
-      pure (st, [⟨0, [.copy true [(j, 0)]]⟩])
+      pure (st, [⟨0, [.copy true [(j, 0)]], []⟩])
   | .union xs => do
     let (st, subs) ← foldL (fun (acc : StateOf S N A × List (Nat × Nat)) x => do
       let (st, j) ← openGoal (K := K) acc.1 ⟨g.lb, x, g.rb⟩
       pure (st, acc.2 ++ [(j, 0)])) (st, []) xs
-    pure (st, [⟨0, [.copy false subs]⟩])
+    pure (st, [⟨0, [.copy false subs], []⟩])
   | .chain xs => do
     let r ← chainGroups (K := K) g xs.length st
-    pure (r.1, if r.2.2.isEmpty then r.2.1 else r.2.1 ++ [⟨0, r.2.2⟩])
+    pure (r.1, if r.2.2.isEmpty then r.2.1 else r.2.1 ++ [⟨0, r.2.2, []⟩])
   | .meet xs =>
     foldL (fun (acc : StateOf S N A × List (Group N A)) i => do
       let r ← K.without g.node i
@@ -729,10 +744,10 @@ def checkOpen (g : GoalOf S N) (left : Bool) (other : N) (st : StateOf S N A) (p
       (if left then ⟨some p, other, g.rb⟩ else ⟨g.lb, other, some p⟩)
     pure (st, acc.2 ++ [j])) (st, []) ps
 
-/-- The work of one strategy of the table at `i`: everything its inputs
-allow (`whole`), or one unit. Returns the state, the strategy with its
-cursors moved, and whether anything was done. -/
-def work (whole : Bool) (i : Nat) (g : GoalOf S N) (st : StateOf S N A) :
+/-- One unit of the work of a strategy of the table at `i`. Returns the
+state, the strategy with its cursors moved, and whether anything was
+done. -/
+def work (i : Nat) (g : GoalOf S N) (st : StateOf S N A) :
     Strat N A → M (StateOf S N A × Strat N A × Bool)
   | .span true => pure (st, .span true, false)
   | .span false => do
@@ -740,44 +755,22 @@ def work (whole : Bool) (i : Nat) (g : GoalOf S N) (st : StateOf S N A) :
     let st ← addOption (K := K) i st a
     pure (st, .span true, true)
   | .copy isCall subs =>
-    if whole then do
-      let st' ← foldL (fun acc (p : (Nat × Nat) × Nat) =>
-        copyFrom (K := K) i g isCall p.2 acc ((st.answers p.1.1).drop p.1.2)) st subs.zipIdx
-      pure (st', .copy isCall (subs.map fun p => (p.1, max p.2 (st.answers p.1).length)),
-        (Strat.copy isCall subs : Strat N A).pending st)
-    else
-      match leastBy (fun p => p.1.2) (fun p => decide (p.1.2 < (st.answers p.1.1).length))
-          subs.zipIdx with
-      | none => pure (st, .copy isCall subs, false)
-      | some p => do
-        let st' ← copyFrom (K := K) i g isCall p.2 st (((st.answers p.1.1).drop p.1.2).take 1)
-        pure (st', .copy isCall (subs.modify p.2 fun q => (q.1, q.2 + 1)), true)
+    match leastBy (fun p => p.1.2) (fun p => decide (p.1.2 < (st.answers p.1.1).length))
+        subs.zipIdx with
+    | none => pure (st, .copy isCall subs, false)
+    | some p => do
+      let st' ← copyFrom (K := K) i g isCall p.2 st (((st.answers p.1.1).drop p.1.2).take 1)
+      pure (st', .copy isCall (subs.modify p.2 fun q => (q.1, q.2 + 1)), true)
   | .join k a b c =>
     let xs := st.answers a
     let ys := st.answers b
-    if whole then do
-      let r := Cursor.all xs.length ys.length (xs.length * ys.length + 1) c
-      let st' ← joinPairs (K := K) i k xs ys st r.1
-      pure (st', .join k a b r.2, !r.1.isEmpty)
-    else
-      match Cursor.next xs.length ys.length (c.room xs.length ys.length) c with
-      | (none, c') => pure (st, .join k a b c', false)
-      | (some p, c') => do
-        let st' ← joinPairs (K := K) i k xs ys st [p]
-        pure (st', .join k a b c', true)
+    match Cursor.next xs.length ys.length (c.room xs.length ys.length) c with
+    | (none, c') => pure (st, .join k a b c', false)
+    | (some p, c') => do
+      let st' ← joinPairs (K := K) i k xs ys st [p]
+      pure (st', .join k a b c', true)
   | .push k left side other todo subs =>
     if !st.isDone side then pure (st, .push k left side other todo subs, false)
-    else if whole then do
-      let xs ← match todo with
-        | none => maxima (K := K) (st.answers side)
-        | some l => pure l
-      let (st1, new) ← pushOpen (K := K) g other k left st xs
-      let subs' := subs ++ new
-      let st2 ← foldL (fun acc (e : A × Nat × Nat) =>
-        pushTake (K := K) i k left e.1 acc ((st1.answers e.2.1).drop e.2.2)) st1 subs'
-      pure (st2, .push k left side other (some [])
-          (subs'.map fun e => (e.1, e.2.1, max e.2.2 (st1.answers e.2.1).length)),
-        (Strat.push k left side other todo subs : Strat N A).pending st)
     else
       match todo with
       | none => do
@@ -817,22 +810,74 @@ def groupsAt (st : StateOf S N A) (i : Nat) : List (Group N A) :=
 def setGroup (st : StateOf S N A) (i k : Nat) (f : Group N A → Group N A) : StateOf S N A :=
   st.modify i fun t => { t with groups := t.groups.map fun gs => gs.modify k f }
 
-/-- Each strategy of the group `k` of the table at `i` does its own work, in
-order. Returns what the work that did something cost, and whether anything
-was done. Work that did something is charged one tick more than the kernel
-charged for it, so a group that did anything has spent something, at every
-kernel: the balance counts what was spent, and a kernel may charge nothing. -/
-def workStrats (whole : Bool) (i : Nat) (g : GoalOf S N) (k : Nat) (st : StateOf S N A) :
+/-- The strategies of the table at `i`. -/
+def stratsAt (st : StateOf S N A) (i : Nat) : List (Strat N A) :=
+  (groupsAt st i).flatMap (·.strats)
+
+/-- The tables given, with every table that is read from one of them through
+any number of strategies. The first argument counts the tables still to
+find, and is never used up. -/
+def upstream (st : StateOf S N A) : Nat → List Nat → List Nat
+  | 0, seen => seen
+  | f + 1, seen =>
+    let next := (seen ++ seen.flatMap fun j => (stratsAt st j).flatMap (Strat.feeds st)).eraseDups
+    if next.length = seen.length then seen else upstream st f next
+
+/-- How many strategies work for the table at `h`: its own, and those of
+every table read from it through any number of strategies. -/
+def above (st : StateOf S N A) (h : Nat) : Nat :=
+  ((upstream st st.tables.length [h]).map fun j => (stratsAt st j).length).sum
+
+/-- The weight of a strategy: one for itself, and for each table it reads
+the number of strategies that work for that table. -/
+def weight (st : StateOf S N A) (s : Strat N A) : Nat :=
+  1 + ((s.feeds st).eraseDups.map (above st)).sum
+
+/-- What a turn is worth, in ticks, for each unit of weight. -/
+def turnTicks : Nat := 4
+
+/-- Put what the strategy at `j` owes. -/
+def setOwed (l : List Nat) (j v : Nat) : List Nat :=
+  (l ++ List.replicate (j + 1 - l.length) 0).set j v
+
+/-- A strategy of the table at `i` works while it has ticks left: unit after
+unit, until `left` ticks are spent or it can do nothing. `c` is what it has
+spent so far. A unit that did something is charged one tick more than the
+kernel charged for it, so a strategy that did anything has spent something,
+at every kernel: a kernel may charge nothing. The last unit is done whole,
+whatever it costs. Returns the state, the strategy with its cursors moved,
+and what was spent. The first argument counts the ticks down, and is never
+used up. -/
+def turn (i : Nat) (g : GoalOf S N) :
+    Nat → Nat → StateOf S N A → Strat N A → Nat → M (StateOf S N A × Strat N A × Nat)
+  | 0, _, st, s, c => pure (st, s, c)
+  | f + 1, left, st, s, c =>
+    if left = 0 then pure (st, s, c)
+    else do
+      let (r, t) ← K.metered (work (K := K) i g st s)
+      if r.2.2 then do
+        K.tick 1
+        turn i g f (left - (t + 1)) r.1 r.2.1 (c + t + 1)
+      else pure (r.1, r.2.1, c)
+
+/-- Each strategy of the group `k` of the table at `i` has its turn, in
+order. A turn is worth `turnTicks` ticks for each unit of the weight of the
+strategy. A strategy that owes that much or more does nothing and owes that
+much less. Otherwise it works until it has spent what the turn is worth less
+what it owed, and owes what it spent beyond that. Returns what the turns
+cost, and whether anything was done. -/
+def workStrats (i : Nat) (g : GoalOf S N) (k : Nat) (st : StateOf S N A) :
     M (StateOf S N A × Nat × Bool) :=
   let n := ((groupsAt st i)[k]?.map (·.strats.length)).getD 0
   foldL (fun (acc : StateOf S N A × Nat × Bool) j =>
-    match ((groupsAt acc.1 i)[k]?).bind (·.strats[j]?) with
+    match ((groupsAt acc.1 i)[k]?).bind fun gr => gr.strats[j]?.map fun s => (s, gr.owed.getD j 0) with
     | none => pure acc
-    | some s => do
-      let (r, t) ← K.metered (work (K := K) whole i g acc.1 s)
-      K.tick (if r.2.2 then 1 else 0)
-      let st' := setGroup r.1 i k fun gr => { gr with strats := gr.strats.set j r.2.1 }
-      pure (st', if r.2.2 then acc.2.1 + t + 1 else acc.2.1, acc.2.2 || r.2.2))
+    | some (s, o) => do
+      let a := turnTicks * weight acc.1 s
+      let (st', s', c) ← turn (K := K) i g (a - o) (a - o) acc.1 s 0
+      let st' := setGroup st' i k fun gr =>
+        { gr with strats := gr.strats.set j s', owed := setOwed gr.owed j (o + c - a) }
+      pure (st', acc.2.1 + c, acc.2.2 || decide (0 < c)))
     (st, 0, false) (List.range n)
 
 /-- Each of the tables given has its round (`adv`). Returns `d` and how much
@@ -847,9 +892,9 @@ def feedAll (adv : Nat → StateOf S N A → M (StateOf S N A × Nat)) (st : Sta
 own work, and then every table they read has its round (`adv`). The ticks of
 the strategies' own work are added to the own work of the table. Returns how
 much the level of the group rose, and whether anything was done. -/
-def workGroup (adv : Nat → StateOf S N A → M (StateOf S N A × Nat)) (whole : Bool) (i : Nat)
+def workGroup (adv : Nat → StateOf S N A → M (StateOf S N A × Nat)) (i : Nat)
     (g : GoalOf S N) (k : Nat) (st : StateOf S N A) : M (StateOf S N A × Nat × Bool) := do
-  let (st, d0, did) ← workStrats (K := K) whole i g k st
+  let (st, d0, did) ← workStrats (K := K) i g k st
   let feeds := (((groupsAt st i)[k]?.map (·.strats)).getD []).flatMap (Strat.feeds st)
   let (st, d) ← feedAll adv st d0 feeds.eraseDups
   pure ((setGroup st i k fun gr => { gr with level := gr.level + d }).modify i fun t =>
@@ -857,11 +902,11 @@ def workGroup (adv : Nat → StateOf S N A → M (StateOf S N A × Nat)) (whole 
 
 /-- The groups of the table at `i` that stand at the level `lv` work.
 Returns whether any of them did anything. -/
-def workLevel (adv : Nat → StateOf S N A → M (StateOf S N A × Nat)) (whole : Bool) (i : Nat)
+def workLevel (adv : Nat → StateOf S N A → M (StateOf S N A × Nat)) (i : Nat)
     (g : GoalOf S N) (lv : Nat) (st : StateOf S N A) : M (StateOf S N A × Bool) :=
   foldL (fun (acc : StateOf S N A × Bool) (p : Group N A × Nat) =>
     if p.1.level = lv then do
-      let (st', _, did) ← workGroup (K := K) adv whole i g p.2 acc.1
+      let (st', _, did) ← workGroup (K := K) adv i g p.2 acc.1
       pure (st', acc.2 || did)
     else pure acc) (st, false) (groupsAt st i).zipIdx
 
@@ -871,7 +916,7 @@ members, and the strategies of its goal make it. -/
 def raceOf (g : GoalOf S N) : M (Option Race) := do
   let v ← K.view g.node
   pure (match v with
-    | .chain _ => some ⟨0, 0⟩
+    | .chain _ => some ⟨0, 0, 0⟩
     | _ => none)
 
 /-- Before the round of the table at `i`, read as `t`: its groups and its
@@ -885,11 +930,13 @@ def prepare (i : Nat) (t : Table S N A) (st : StateOf S N A) : M (StateOf S N A)
       pure (st'.modify i fun t => { t with groups := some gs, race := r })
   pure (st.modify i fun t => { t with stamp := st.round, delta := 0 })
 
-/-- The race of the table at `i` asks once at its next depth, if it has spent
-no more than the own work of the table plus its rounds. A final verdict puts
-the answers in the table; otherwise the depth grows by one. Returns whether
-the verdict was final. The race takes no group's turn and is no part of any
-level. -/
+/-- The race of the table at `i` asks once at its next depth. The ask may
+cost what is left of the race's budget, which is the own work of the table
+plus its rounds, less what the race has spent, and no more: an ask that
+needs more is given up and charged, and the next is made when twice as much
+is left; with nothing left no ask is made. A final verdict puts the answers in the table; a verdict that is
+not final moves the race to the next depth. Returns whether the verdict was
+final. The race takes no group's turn and is no part of any level. -/
 def askRace (U : GOracle S N A M) (i : Nat) (g : GoalOf S N) (st : StateOf S N A) :
     M (StateOf S N A × Bool) :=
   match st.tables[i]? with
@@ -898,14 +945,19 @@ def askRace (U : GOracle S N A M) (i : Nat) (g : GoalOf S N) (st : StateOf S N A
     match t.race with
     | none => pure (st, false)
     | some r =>
-      if t.own + t.rounds < r.spent then pure (st, false)
+      let left := t.own + t.rounds - r.spent
+      if left < max 1 (2 * r.gaveUp) then pure (st, false)
       else do
-        let (u, c) ← K.metered (U r.depth g)
-        if u.1 then do
-          let st ← foldL (addAnswer (K := K) i) st u.2
-          pure (st.modify i fun t => { t with race := some ⟨r.depth, r.spent + c⟩ }, true)
-        else
-          pure (st.modify i fun t => { t with race := some ⟨r.depth + 1, r.spent + c⟩ }, false)
+        let (u, c) ← K.metered (K.within left (U r.depth g))
+        match u with
+        | none =>
+          pure (st.modify i fun t => { t with race := some ⟨r.depth, r.spent + c, left⟩ }, false)
+        | some u =>
+          if u.1 then do
+            let st ← foldL (addAnswer (K := K) i) st u.2
+            pure (st.modify i fun t => { t with race := some ⟨r.depth, r.spent + c, 0⟩ }, true)
+          else
+            pure (st.modify i fun t => { t with race := some ⟨r.depth + 1, r.spent + c, 0⟩ }, false)
 
 /-- The round of the table at `i`. The first argument is the number of
 tables that can still have a round nested in this one. After its groups have
@@ -927,10 +979,9 @@ def advance (U : GOracle S N A M) : Nat → Nat → StateOf S N A → M (StateOf
         let st ← prepare (K := K) i t st
         let gs := groupsAt st i
         let low := levelOf gs
-        let whole := decide (gs.length ≤ 1)
         let (st, _) ← foldL (fun (acc : StateOf S N A × Bool) lv =>
           if acc.2 then pure acc
-          else workLevel (K := K) (advance U fuel) whole i t.goal lv acc.1) (st, false)
+          else workLevel (K := K) (advance U fuel) i t.goal lv acc.1) (st, false)
           (levelsOf gs)
         let st := st.modify i fun t =>
           { t with groups := t.groups.map fun gs =>
