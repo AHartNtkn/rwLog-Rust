@@ -54,7 +54,7 @@ variable {K hK P root U}
 /-- The first state: the table of the root goal alone, with no groups and
 not complete, and the depth 1. -/
 theorem init_shape : ∃ self, stateAt K hK P root U 0 =
-    ⟨[⟨⟨none, root, none⟩, self, [], false, none, 0, 0, 0, none, 0, 0, 0⟩], 0, 0, [], 1⟩ := by
+    ⟨[⟨⟨none, root, none⟩, self, [], false, none, 0, 0, 0, none, 0, 0, 0, []⟩], 0, 0, [], 1⟩ := by
   unfold stateAt
   at_cost K hK
   simp only [init, Cost.bind_val, Cost.pure_val]

@@ -748,6 +748,7 @@ theorem inv_checkOpen {st : StateOf R Rel (Ans D P)} (hI : Inv st) (g : GoalOf R
   refine (inv_openGoal (K := _) (hK := hK) hb _ ?_).1
   split <;> exact hn
 
+omit [DecidableEq R] in
 /-- Changing one table keeps the invariant, if its goal, its mark, its
 answers and its strategies stay. -/
 theorem Inv.modify_same {st : StateOf R Rel (Ans D P)} (hI : Inv st) (i : Nat)

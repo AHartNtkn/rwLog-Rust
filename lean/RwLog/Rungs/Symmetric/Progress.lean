@@ -72,7 +72,7 @@ theorem Frame.stamp {j : Nat} {st st' : StateOf S N A} (h : Frame j st st') (i n
   simp only [List.getElem?_modify]
   by_cases e : i = j
   · subst e; cases st.tables[i]? <;> simp
-  · simp only [e, if_false]; cases st.tables[j]? <;> rfl
+  · simp only [e, ite_false]; cases st.tables[j]? <;> rfl
 
 @[simp] theorem isDone_stamp (st : StateOf S N A) (i n : Nat) (pth : Path) (j : Nat) :
     (stamp i n pth st).isDone j = st.isDone j := by
@@ -80,7 +80,7 @@ theorem Frame.stamp {j : Nat} {st st' : StateOf S N A} (h : Frame j st st') (i n
   simp only [List.getElem?_modify]
   by_cases e : i = j
   · subst e; cases st.tables[i]? <;> simp
-  · simp only [e, if_false]; cases st.tables[j]? <;> rfl
+  · simp only [e, ite_false]; cases st.tables[j]? <;> rfl
 
 @[simp] theorem goalAt_stamp (st : StateOf S N A) (i n : Nat) (pth : Path) (j : Nat) :
     goalAt (stamp i n pth st) j = goalAt st j :=
@@ -960,7 +960,6 @@ theorem prog_work_join (hL : D.Lawful P.sorts.interp) {st : StateOf R Rel (Ans D
     (c : Cursor) (ho : Open st i) (hs : Prog st i g (.join k a b c)) :
     Prog (work (K := DerivationKernel.over D K hK P) i g st (.join k a b c)).val.1 i g
       (work (K := DerivationKernel.over D K hK P) i g st (.join k a b c)).val.2.1 := by
-  have hs0 := hs
   dsimp only [Prog] at hs
   obtain ⟨L, Rg, h1, h2, h3, h4, h5⟩ := hs
   have hjp := fun ps => joinPairs_cov (K := K) (hK := hK) hL i k (st.answers a) (st.answers b)
@@ -985,17 +984,16 @@ theorem prog_work_join (hL : D.Lawful P.sorts.interp) {st : StateOf R Rel (Ans D
     · exact hc (p, q) hb' x y hx' hy' z hz
   at_cost K hK
   simp only [work]
-  have ela : (st.pathsAt a).length = (st.answers a).length := pathsAt_length st a
-  have elb : (st.pathsAt b).length = (st.answers b).length := pathsAt_length st b
+  have hsee := h4.see (pathsAt_length st a) (pathsAt_length st b)
   split
-  · exact hs0
+  · exact fin [] _ _ (Frame.refl i st) (fun _ hp => by cases hp) hsee.1
+      fun p q hb => .inl hb
   · next pr hn =>
     simp only [Cost.bind_val, Cost.pure_val, Kernel.metered, Cost.metered_val]
     rw [prog_stamp]
     obtain ⟨-, -, n3, -⟩ := Cursor.next_spec
       ((joinPairs (K := DerivationKernel.over D _ hK P) i k (st.answers a) (st.answers b) st
-        [pr]).ticks + 1) (by rw [ela, elb]; exact h4) hn
-    rw [ela, elb] at n3
+        [pr]).ticks + 1) hsee.1 hn
     obtain ⟨hf, hc⟩ := hjp [pr]
     exact fin [pr] _ _ hf hc n3 (fun p q hb => by
       rcases Cursor.before_mark.1 hb with h | h

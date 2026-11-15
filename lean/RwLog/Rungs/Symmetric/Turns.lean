@@ -191,9 +191,9 @@ inductive SAdv (len : Nat → Nat) : Strat N A → Strat N A → Prop
       SAdv len (.copy c subs) (.copy c subs')
   | join {k : Kind} {a b : Nat} {c c' : Cursor} :
       (∀ p q, c.Before p q → c'.Before p q) →
-      (∀ p q n, p < len a → q < len b → p < n → q < n →
-        c'.Before p q ∨ c' = c ∨ RankLt (Cursor.rank n c') (Cursor.rank n c)) →
-      (c.na ≤ c'.na ∧ c.nb ≤ c'.nb) →
+      (∀ p q, p < c.pa.length → q < c.pb.length →
+        c'.Before p q ∨ c'.rank p q = c.rank p q ∨ RankLt (c'.rank p q) (c.rank p q)) →
+      (c.pa.length ≤ c'.pa.length ∧ c.pb.length ≤ c'.pb.length) →
       SAdv len (.join k a b c) (.join k a b c')
   | push {k : Kind} {l : Bool} {side : Nat} {o : N} {t t' : Option (List A)}
       {subs subs' : List (A × Nat × Nat)} :
@@ -206,19 +206,17 @@ inductive SAdv (len : Nat → Nat) : Strat N A → Strat N A → Prop
 theorem SAdv.refl (len : Nat → Nat) : ∀ s : Strat N A, SAdv len s s
   | .span _ => .span id
   | .copy _ _ => .copy (Pointwise.refl (fun _ => ⟨rfl, Nat.le_refl _⟩) _)
-  | .join _ _ _ _ => .join (fun _ _ h => h) (fun _ _ _ _ _ _ _ => .inr (.inl rfl))
+  | .join _ _ _ _ => .join (fun _ _ h => h) (fun _ _ _ _ => .inr (.inl rfl))
       ⟨Nat.le_refl _, Nat.le_refl _⟩
   | .push _ _ _ _ _ _ => .push (fun l0 h => ⟨l0, h, Nat.le_refl _⟩) (PushAdv.refl _) fun _ => rfl
   | .check _ _ _ _ => .check (.inr rfl)
 
-theorem SAdv.mono {len len' : Nat → Nat} (hl : ∀ j, len' j ≤ len j) {s s' : Strat N A}
+theorem SAdv.mono {len len' : Nat → Nat} (_ : ∀ j, len' j ≤ len j) {s s' : Strat N A}
     (h : SAdv len s s') : SAdv len' s s' := by
   cases h with
   | span h => exact .span h
   | copy h => exact .copy h
-  | join h1 h2 h3 =>
-    exact .join h1 (fun p q n hp hq =>
-      h2 p q n (Nat.lt_of_lt_of_le hp (hl _)) (Nat.lt_of_lt_of_le hq (hl _))) h3
+  | join h1 h2 h3 => exact .join h1 h2 h3
   | push h1 h2 h3 => exact .push h1 h2 h3
   | check h => exact .check h
 
@@ -237,13 +235,16 @@ theorem SAdv.trans {len : Nat → Nat} {s s1 s2 : Strat N A} (h₁ : SAdv len s 
   | join a1 a2 a3 =>
     cases h₂ with
     | join b1 b2 b3 =>
-      refine .join (fun p q h => b1 p q (a1 p q h)) (fun p q n hp hq hpn hqn => ?_)
+      refine .join (fun p q h => b1 p q (a1 p q h)) (fun p q hp hq => ?_)
         ⟨a3.1.trans b3.1, a3.2.trans b3.2⟩
-      rcases b2 p q n hp hq hpn hqn with h | h | h
+      rcases b2 p q (Nat.lt_of_lt_of_le hp a3.1) (Nat.lt_of_lt_of_le hq a3.2) with h | h | h
       · exact .inl h
-      · rw [h]
-        exact a2 p q n hp hq hpn hqn
-      · rcases a2 p q n hp hq hpn hqn with h' | h' | h'
+      · rcases a2 p q hp hq with h' | h' | h'
+        · exact .inl (b1 p q h')
+        · exact .inr (.inl (h.trans h'))
+        · rw [h]
+          exact .inr (.inr h')
+      · rcases a2 p q hp hq with h' | h' | h'
         · exact .inl (b1 p q h')
         · rw [h'] at h
           exact .inr (.inr h)
@@ -278,9 +279,10 @@ inductive SStep (need : N → Nat) (len : Nat → Nat) (dn : Nat → Bool) (d d'
       SStep need len dn d d' (.copy c subs) (.copy c subs')
   | join {k : Kind} {a b : Nat} {c c' : Cursor} :
       (∀ p q, c.Before p q → c'.Before p q) →
-      (∀ p q n, p < len a → q < len b → p < n → q < n →
-        c'.Before p q ∨ RankLt (Cursor.rank n c') (Cursor.rank n c)) →
-      (c.na ≤ c'.na ∧ c.nb ≤ c'.nb) →
+      (∀ p q, p < c.pa.length → q < c.pb.length →
+        c'.Before p q ∨ RankLt (c'.rank p q) (c.rank p q)) →
+      (c.pa.length ≤ c'.pa.length ∧ c.pb.length ≤ c'.pb.length) →
+      (len a ≤ c'.pa.length ∧ len b ≤ c'.pb.length) →
       (c'.pending (len a) (len b) = false ∨ ∃ p q, ¬ c.Before p q ∧ c'.Before p q) →
       SStep need len dn d d' (.join k a b c) (.join k a b c')
   | push {k : Kind} {l : Bool} {side : Nat} {o : N} {t t' : Option (List A)}
@@ -301,9 +303,8 @@ theorem SStep.adv {len : Nat → Nat} {dn : Nat → Bool} {d d' : Nat} {s s' : S
   cases h with
   | span => exact .span fun _ => rfl
   | copy h _ => exact .copy h
-  | join h1 h2 h3 _ =>
-    exact .join h1 (fun p q n hp hq hpn hqn =>
-      (h2 p q n hp hq hpn hqn).elim .inl fun h => .inr (.inr h)) h3
+  | join h1 h2 h3 _ _ =>
+    exact .join h1 (fun p q hp hq => (h2 p q hp hq).elim .inl fun h => .inr (.inr h)) h3
   | push h1 h2 h3 _ => exact .push h1 h2 h3
   | check h _ => exact .check h
 
@@ -315,14 +316,9 @@ theorem SStep.mono {len len' : Nat → Nat} {dn dn' : Nat → Bool} {d d' d0 d1 
   | span => exact .span
   | copy h1 h2 =>
     exact .copy h1 fun n m j pos hm hp hn => h2 n m j pos hm hp (hn.trans (hl j))
-  | @join _ a b _ _ h1 h2 h3 h4 =>
-    refine .join h1 (fun p q n hp hq =>
-      h2 p q n (Nat.lt_of_lt_of_le hp (hl _)) (Nat.lt_of_lt_of_le hq (hl _))) h3
-      (h4.imp (fun h => ?_) id)
-    simp only [Cursor.pending, Bool.or_eq_false_iff, decide_eq_false_iff_not] at h ⊢
-    have := hl a
-    have := hl b
-    omega
+  | @join _ a b _ _ h1 h2 h3 h5 h4 =>
+    exact .join h1 h2 h3 ⟨(hl a).trans h5.1, (hl b).trans h5.2⟩
+      (h4.imp (fun h => Cursor.pending_mono (hl a) (hl b) h) id)
   | push h1 h2 h3 h4 =>
     refine .push h1 h2 h3 fun hs => ?_
     obtain ⟨x1, x2, x3⟩ := h4 (hdn _ hs)
@@ -351,13 +347,13 @@ theorem SStep.after {len : Nat → Nat} {dn : Nat → Bool} {d d1 d2 : Nat} {s s
         omega
   | join a1 a2 a3 =>
     cases h₂ with
-    | join b1 b2 b3 b4 =>
-      refine .join (fun p q h => b1 p q (a1 p q h)) (fun p q n hp hq hpn hqn => ?_)
-        ⟨a3.1.trans b3.1, a3.2.trans b3.2⟩
+    | join b1 b2 b3 b5 b4 =>
+      refine .join (fun p q h => b1 p q (a1 p q h)) (fun p q hp hq => ?_)
+        ⟨a3.1.trans b3.1, a3.2.trans b3.2⟩ b5
         (b4.imp id fun ⟨p, q, h1, h2⟩ => ⟨p, q, fun h => h1 (a1 p q h), h2⟩)
-      rcases b2 p q n hp hq hpn hqn with h | h
+      rcases b2 p q (Nat.lt_of_lt_of_le hp a3.1) (Nat.lt_of_lt_of_le hq a3.2) with h | h
       · exact .inl h
-      · rcases a2 p q n hp hq hpn hqn with h' | h' | h'
+      · rcases a2 p q hp hq with h' | h' | h'
         · exact .inl (b1 p q h')
         · rw [h'] at h
           exact .inr h
@@ -437,21 +433,20 @@ theorem SStep.before {len : Nat → Nat} {dn : Nat → Bool} {d d' : Nat} {s s1 
       have h3 := a2 n m j pos hm hp hn
       have h4 := behind_le n b
       omega
-  | join a1 a2 a3 a4 =>
+  | join a1 a2 a3 a5 a4 =>
     cases h₂ with
     | join b1 b2 b3 =>
-      refine .join (fun p q h => b1 p q (a1 p q h)) (fun p q n hp hq hpn hqn => ?_)
-        ⟨a3.1.trans b3.1, a3.2.trans b3.2⟩ (a4.imp (fun h => ?_) fun ⟨p, q, h1, h2⟩ =>
+      refine .join (fun p q h => b1 p q (a1 p q h)) (fun p q hp hq => ?_)
+        ⟨a3.1.trans b3.1, a3.2.trans b3.2⟩ ⟨a5.1.trans b3.1, a5.2.trans b3.2⟩
+        (a4.imp (fun h => Cursor.pending_before b1 h) fun ⟨p, q, h1, h2⟩ =>
           ⟨p, q, h1, b1 p q h2⟩)
-      · rcases a2 p q n hp hq hpn hqn with h | h
-        · exact .inl (b1 p q h)
-        · rcases b2 p q n hp hq hpn hqn with h' | h' | h'
-          · exact .inl h'
-          · rw [h']
-            exact .inr h
-          · exact .inr (h'.trans h)
-      · simp only [Cursor.pending, Bool.or_eq_false_iff, decide_eq_false_iff_not] at h ⊢
-        omega
+      rcases a2 p q hp hq with h | h
+      · exact .inl (b1 p q h)
+      · rcases b2 p q (Nat.lt_of_lt_of_le hp a3.1) (Nat.lt_of_lt_of_le hq a3.2) with h' | h' | h'
+        · exact .inl h'
+        · rw [h']
+          exact .inr h
+        · exact .inr (h'.trans h)
   | push a1 a2 a3 a4 =>
     cases h₂ with
     | push b1 b2 b3 =>
@@ -2061,28 +2056,33 @@ theorem step_work (i : Nat) (g : GoalOf R Rel) (st : StateOf R Rel (Ans D P))
   | join k a b c =>
     have hc := hok k a b c rfl
     simp only [work]
-    have hn := (Cursor.next_spec (st.answers a).length (st.answers b).length
-      (c.room (st.answers a).length (st.answers b).length) c hc).2.1
-    have hr := fun p q n hp hq hpn hqn hb =>
-      Cursor.next_rank (st.answers a).length (st.answers b).length p q n hp hq hpn hqn
-        (c.room (st.answers a).length (st.answers b).length) c hc (Nat.le_refl _) hb
-    obtain ⟨m1, m2, m3, m4⟩ := Cursor.next_step (st.answers a).length (st.answers b).length
-      (c.room (st.answers a).length (st.answers b).length) c hc (Nat.le_refl _)
+    obtain ⟨hsok, hsa, hsb⟩ := hc.see (pathsAt_length st a) (pathsAt_length st b)
+    have hlen : c.pa.length ≤ (c.see (st.pathsAt a) (st.pathsAt b)).pa.length ∧
+        c.pb.length ≤ (c.see (st.pathsAt a) (st.pathsAt b)).pb.length := by
+      rw [hsa, hsb]
+      exact ⟨hc.1, hc.2.1⟩
     split
-    · next c' hx =>
-      rw [hx] at hn hr m1 m2 m3
-      refine .join hn (fun p q n hp hq hpn hqn => ?_) ⟨m1, m2⟩ (.inl (m3 rfl))
+    · next hx =>
+      have hnone := Cursor.next_none hx
+      refine .join (fun _ _ h => h) (fun p q hp hq => .inl ?_) hlen
+        ⟨Nat.le_of_eq hsa.symm, Nat.le_of_eq hsb.symm⟩ (.inl ?_)
+      · exact Cursor.before_of_not_pending' hnone (Nat.lt_of_lt_of_le hp hlen.1)
+          (Nat.lt_of_lt_of_le hq hlen.2)
+      · rw [hsa, hsb] at hnone
+        exact hnone
+    · next pr hx =>
+      simp only [Cost.bind_val, Cost.pure_val, Kernel.metered, Cost.metered_val]
+      obtain ⟨-, n2, -, n4⟩ := Cursor.next_spec
+        ((joinPairs (K := DerivationKernel.over D _ hK P) i k (st.answers a) (st.answers b) st
+          [pr]).ticks + 1) hsok hx
+      refine .join (fun p q h => Cursor.before_mark.2 (.inl h)) (fun p q hp hq => ?_) hlen
+        ⟨Nat.le_of_eq hsa.symm, Nat.le_of_eq hsb.symm⟩ (.inr ⟨pr.1, pr.2, n2, n4⟩)
       by_cases hb : c.Before p q
-      · exact .inl (hn p q hb)
-      · exact hr p q n hp hq hpn hqn hb
-    · next pr c' hx =>
-      rw [hx] at hn hr m1 m2 m4
-      simp only [Cost.bind_val, Cost.pure_val]
-      refine .join hn (fun p q n hp hq hpn hqn => ?_) ⟨m1, m2⟩
-        (.inr ⟨pr.1, pr.2, (m4 pr rfl).2, (m4 pr rfl).1⟩)
-      by_cases hb : c.Before p q
-      · exact .inl (hn p q hb)
-      · exact hr p q n hp hq hpn hqn hb
+      · exact .inl (Cursor.before_mark.2 (.inl hb))
+      · right
+        rw [← Cursor.rank_see (st.pathsAt a) (st.pathsAt b) c hp hq]
+        exact Cursor.rank_fall (Nat.succ_pos _) hx (Cursor.mem_left.2
+          ⟨⟨Nat.lt_of_lt_of_le hp hlen.1, Nat.lt_of_lt_of_le hq hlen.2⟩, hb⟩)
   | push k left side other todo subs =>
     simp only [work]
     split

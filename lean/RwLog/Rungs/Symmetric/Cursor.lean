@@ -220,6 +220,30 @@ theorem Cursor.before_of_not_pending' {la lb : Nat} {c : Cursor}
   rw [hp] at this
   cases this
 
+/-- Nothing is left in smaller tables when nothing is left. -/
+theorem Cursor.pending_mono {la lb la' lb' : Nat} {c : Cursor} (ha : la' ≤ la) (hb : lb' ≤ lb)
+    (h : c.pending la lb = false) : c.pending la' lb' = false := by
+  cases hp : c.pending la' lb' with
+  | false => rfl
+  | true =>
+    simp only [Cursor.pending, Bool.not_eq_eq_eq_not, Bool.not_true, List.isEmpty_eq_false_iff] at hp
+    obtain ⟨x, hx⟩ := List.exists_mem_of_ne_nil _ hp
+    have hm := Cursor.mem_left.1 hx
+    exact absurd (Cursor.before_of_not_pending' h (by omega) (by omega)) hm.2
+
+/-- Nothing is left for a cursor that has combined all another has, when
+nothing is left for that one. -/
+theorem Cursor.pending_before {la lb : Nat} {c c' : Cursor}
+    (hb : ∀ p q, c.Before p q → c'.Before p q) (h : c.pending la lb = false) :
+    c'.pending la lb = false := by
+  cases hp : c'.pending la lb with
+  | false => rfl
+  | true =>
+    simp only [Cursor.pending, Bool.not_eq_eq_eq_not, Bool.not_true, List.isEmpty_eq_false_iff] at hp
+    obtain ⟨x, hx⟩ := List.exists_mem_of_ne_nil _ hp
+    have hm := Cursor.mem_left.1 hx
+    exact absurd (hb _ _ (Cursor.before_of_not_pending' h hm.1.1 hm.1.2)) hm.2
+
 /-- The pairs combined after a pair is marked are those combined before and
 that pair. -/
 theorem Cursor.before_mark {c : Cursor} {x : Nat × Nat} {t p q : Nat} :
