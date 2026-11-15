@@ -63,7 +63,7 @@ Rungs/Symmetric/ the symmetric engine of `SYMMETRIC_ENGINE.md` (Machine.lean): a
                 bounded work (`turn`: `turnTicks` ticks times its `weight`, one more than
                 the number of strategies upstream of the tables it reads), does one
                 unit at a time, and owes in later turns what its last unit cost beyond
-                the turn (`Group.owed`); and beside the groups of a chain goal an unfolding race
+                the turn (`Group.owed`), so a turn costs at most what it was given and one unit more (Bounded.lean, `turn_ticks`); and beside the groups of a chain goal an unfolding race
                 (`askRace`; `engine` takes the `Unfolder`), asked at the end of a round of
                 the goal at its next depth with what is left of the rounds and work of
                 the goal as its limit (`Kernel.within`, `Trusted/Kernel.lean`): an ask
