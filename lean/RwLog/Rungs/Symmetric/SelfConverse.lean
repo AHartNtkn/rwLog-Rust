@@ -352,12 +352,12 @@ theorem maxima_swapClosed {M : Interp} (hL : D.Lawful M) {L : List (Ans D P)}
 
 variable (K hK)
 
-theorem step_val (st : StateOf R Rel (Ans D P)) {t : Table R Rel (Ans D P)}
-    (h : st.tables.head? = some t) :
-    (step (K := DerivationKernel.over D K hK P) st).val =
+theorem step_val (U : GOracle R Rel (Ans D P) Cost) (st : StateOf R Rel (Ans D P))
+    {t : Table R Rel (Ans D P)} (h : st.tables.head? = some t) :
+    (step (K := DerivationKernel.over D K hK P) U st).val =
       if t.done then .done (t.answers.maximaBy (covB D P))
-      else .emit (request (K := DerivationKernel.over D K hK P) st).val.2
-        (request (K := DerivationKernel.over D K hK P) st).val.1 := by
+      else .emit (request (K := DerivationKernel.over D K hK P) U st).val.2
+        (request (K := DerivationKernel.over D K hK P) U st).val.1 := by
   have hm := maxima_val (P := P) K hK
   at_cost K hK
   unfold step
@@ -390,60 +390,65 @@ end
 
 section run
 
-variable {R : Sorts → Type} [∀ S, Answer (R S)] [∀ S, DecidableEq (R S)]
+variable (U : Unfolder) {R : Sorts → Type} [∀ S, Answer (R S)] [∀ S, DecidableEq (R S)]
   (dom : ∀ S, Domain (R S)) (K : ∀ S, Kernel (R S) Cost) (hK : ∀ S, (K S).Refines (dom S))
 
+/-- The unfolding race at the kernel of a program. -/
+abbrev UAt (P : Program) : GOracle (R P.sorts) Rel (Ans (dom P.sorts) P) Cost :=
+  @U (R P.sorts) Rel (Ans (dom P.sorts) P) Cost
+    (DerivationKernel.over (dom P.sorts) (K P.sorts) (hK P.sorts) P)
+
 /-- The state of the engine in a state of the machine. -/
-abbrev stOf (s : engine.StateAt dom) : StateOf (R s.P.sorts) Rel (Ans (dom s.P.sorts) s.P) := s.st
+abbrev stOf (s : (engine @U).StateAt dom) : StateOf (R s.P.sorts) Rel (Ans (dom s.P.sorts) s.P) := s.st
 
 /-- The root table is the table of a goal that is its own converse, it holds
 the converse of each of its answers, none of them covers a later one, and
 all of them have been emitted. -/
-def RootSelf (s : engine.StateAt dom) : Prop :=
-  ∃ g L, (stOf dom s).cores[0]? = some (g, true, L) ∧ SwapClosed (L.map Ans.span) ∧
-    NoCov (dom s.P.sorts) (L.map Ans.span) ∧ (stOf dom s).shown = L.length
+def RootSelf (s : (engine @U).StateAt dom) : Prop :=
+  ∃ g L, (stOf @U dom s).cores[0]? = some (g, true, L) ∧ SwapClosed (L.map Ans.span) ∧
+    NoCov (dom s.P.sorts) (L.map Ans.span) ∧ (stOf @U dom s).shown = L.length
 
 /-- Every answer of the root table is an answer of the root goal. -/
-def RootGoals (s : engine.StateAt dom) : Prop :=
-  ∀ a ∈ (stOf dom s).answers 0, a.goal = ⟨none, s.root, none⟩
+def RootGoals (s : (engine @U).StateAt dom) : Prop :=
+  ∀ a ∈ (stOf @U dom s).answers 0, a.goal = ⟨none, s.root, none⟩
 
-theorem costed_step_val (s : engine.StateAt dom)
+theorem costed_step_val (s : (engine @U).StateAt dom)
     {t : Table (R s.P.sorts) Rel (Ans (dom s.P.sorts) s.P)}
-    (h : (stOf dom s).tables.head? = some t) :
-    ((engine.costedAt dom K hK).step s).val =
+    (h : (stOf @U dom s).tables.head? = some t) :
+    (((engine @U).costedAt dom K hK).step s).val =
       if t.done then
         .done (((t.answers.maximaBy (covB (dom s.P.sorts) s.P)).filterMap
           (Ans.rootSpan s.root)).map (Sigma.mk s.P.sorts))
       else
         .emit (((request (K := DerivationKernel.over (dom s.P.sorts) (K s.P.sorts) (hK s.P.sorts)
-            s.P) (stOf dom s)).val.2.filterMap (Ans.rootSpan s.root)).map (Sigma.mk s.P.sorts))
+            s.P) (UAt @U dom K hK s.P) (stOf @U dom s)).val.2.filterMap (Ans.rootSpan s.root)).map (Sigma.mk s.P.sorts))
           ⟨s.P, s.root, (request (K := DerivationKernel.over (dom s.P.sorts) (K s.P.sorts)
-            (hK s.P.sorts) s.P) (stOf dom s)).val.1⟩ := by
+            (hK s.P.sorts) s.P) (UAt @U dom K hK s.P) (stOf @U dom s)).val.1⟩ := by
   rw [Engine.costedAt_step_val]
-  have := step_val (K s.P.sorts) (hK s.P.sorts) (P := s.P) (stOf dom s) h
+  have := step_val (K s.P.sorts) (hK s.P.sorts) (P := s.P) (UAt @U dom K hK s.P) (stOf @U dom s) h
   cases hd : t.done <;> rw [hd] at this <;> erw [this] <;> rfl
 
-variable {dom K hK}
+variable {U dom K hK}
 
 /-- From a state whose root table is the table of a goal that is its own
 converse, every step shows a list of answers that is a rearrangement of its
 converses. `Good` is any property of the states of a run under which every
 answer of the root table is an answer of the root goal. -/
 theorem trace_selfConverse (hD : ∀ S : Sorts, S.WellFormed → (dom S).Lawful S.interp)
-    (Good : engine.StateAt dom → Prop) (hroot : ∀ s, Good s → RootGoals dom s)
-    (hstep : ∀ s as s', Good s → ((engine.costedAt dom K hK).step s).val = .emit as s' →
+    (Good : (engine @U).StateAt dom → Prop) (hroot : ∀ s, Good s → RootGoals @U dom s)
+    (hstep : ∀ s as s', Good s → (((engine @U).costedAt dom K hK).step s).val = .emit as s' →
       Good s') :
-    ∀ (n : Nat) (s : engine.StateAt dom), s.P.sorts.WellFormed → Good s → RootSelf dom s →
-      TraceEquiv s.P.sorts.interp ((engine.costedAt dom K hK).runtime.trace s n)
-        (((engine.costedAt dom K hK).runtime.trace s n).map Shown.swap)
+    ∀ (n : Nat) (s : (engine @U).StateAt dom), s.P.sorts.WellFormed → Good s → RootSelf @U dom s →
+      TraceEquiv s.P.sorts.interp (((engine @U).costedAt dom K hK).runtime.trace s n)
+        ((((engine @U).costedAt dom K hK).runtime.trace s n).map Shown.swap)
   | 0, _, _, _, _ => List.Forall₂.nil
   | n + 1, s, hwf, hg, hr => by
     have hL := hD _ hwf
     obtain ⟨g, L, h0, hc, hn, hsh⟩ := hr
     obtain ⟨t, ht, -, -, hA⟩ := cores_get _ h0
-    have hhead : (stOf dom s).tables.head? = some t := by rw [List.head?_eq_getElem?]; exact ht
-    have hs := costed_step_val dom K hK s hhead
-    have eA : (stOf dom s).answers 0 = L := by unfold StateOf.answers; rw [ht]; exact hA
+    have hhead : (stOf @U dom s).tables.head? = some t := by rw [List.head?_eq_getElem?]; exact ht
+    have hs := costed_step_val @U dom K hK s hhead
+    have eA : (stOf @U dom s).answers 0 = L := by unfold StateOf.answers; rw [ht]; exact hA
     cases hd : t.done with
     | true =>
       rw [hd] at hs
@@ -454,10 +459,10 @@ theorem trace_selfConverse (hD : ∀ S : Sorts, S.WellFormed → (dom S).Lawful 
           a.goal = ⟨none, s.root, none⟩ := fun a ha =>
         hroot s hg a (by rw [eA]; exact List.mem_maximaBy ha)
       rw [filterMap_rootSpan hgoal] at hs
-      have e : (engine.costedAt dom K hK).runtime.trace s (n + 1) =
+      have e : ((engine @U).costedAt dom K hK).runtime.trace s (n + 1) =
           [.final (((t.answers.maximaBy (covB (dom s.P.sorts) s.P)).map Ans.span).map
             (Sigma.mk s.P.sorts))] := by
-        have hs' : (engine.costedAt dom K hK).runtime.step s = _ := hs
+        have hs' : ((engine @U).costedAt dom K hK).runtime.step s = _ := hs
         simp only [Runtime.trace, hs']
         rfl
       rw [e]
@@ -466,7 +471,7 @@ theorem trace_selfConverse (hD : ∀ S : Sorts, S.WellFormed → (dom S).Lawful 
       rw [hd] at hs
       simp only [Bool.false_eq_true, ite_false] at hs
       obtain ⟨st', hre, hreq⟩ := reach_request (K := K s.P.sorts) (hK := hK s.P.sorts)
-        (stOf dom s)
+        (UAt @U dom K hK s.P) (stOf @U dom s)
       rw [hreq] at hs
       obtain ⟨ext, h1, c1, n1⟩ := root_reach hL hre g L h0 hc hn
       have hsh' := reach_shown hre
@@ -480,17 +485,17 @@ theorem trace_selfConverse (hD : ∀ S : Sorts, S.WellFormed → (dom S).Lawful 
           show a ∈ st'.answers 0
           rw [eA']; exact List.mem_append_right _ ha)
       simp only [enew, filterMap_rootSpan hgoal] at hs hg'
-      have hr' : RootSelf dom ⟨s.P, s.root, { st' with shown := (st'.answers 0).length }⟩ :=
+      have hr' : RootSelf @U dom ⟨s.P, s.root, { st' with shown := (st'.answers 0).length }⟩ :=
         ⟨g, L ++ ext, h1, by rw [List.map_append]; exact hc.append c1, n1, by
           show (st'.answers 0).length = _
           rw [eA']⟩
       have ih := trace_selfConverse hD Good hroot hstep n
         ⟨s.P, s.root, { st' with shown := (st'.answers 0).length }⟩ hwf hg' hr'
-      have e : (engine.costedAt dom K hK).runtime.trace s (n + 1) =
+      have e : ((engine @U).costedAt dom K hK).runtime.trace s (n + 1) =
           .answers ((ext.map Ans.span).map (Sigma.mk s.P.sorts)) ::
-            (engine.costedAt dom K hK).runtime.trace
+            ((engine @U).costedAt dom K hK).runtime.trace
               ⟨s.P, s.root, { st' with shown := (st'.answers 0).length }⟩ n := by
-        have hs' : (engine.costedAt dom K hK).runtime.step s = _ := hs
+        have hs' : ((engine @U).costedAt dom K hK).runtime.step s = _ := hs
         simp only [Runtime.trace, hs']
         rfl
       rw [e]
@@ -505,12 +510,12 @@ root table is an answer of the root goal throughout a run (`Good`), then on a
 root node that is its own converse the symmetric engine shows, at every
 step, a list of answers that is a rearrangement of its converses. -/
 theorem selfConverse_of (hD : ∀ S : Sorts, S.WellFormed → (dom S).Lawful S.interp)
-    (Good : engine.StateAt dom → Prop) (hroot : ∀ s, Good s → RootGoals dom s)
+    (Good : (engine @U).StateAt dom → Prop) (hroot : ∀ s, Good s → RootGoals @U dom s)
     (hinit : ∀ (P : Program) (root : Rel), P.sorts.WellFormed → Normal root →
-      Good ((engine.costedAt dom K hK).start P root))
-    (hstep : ∀ s as s', Good s → ((engine.costedAt dom K hK).step s).val = .emit as s' →
+      Good (((engine @U).costedAt dom K hK).start P root))
+    (hstep : ∀ s as s', Good s → (((engine @U).costedAt dom K hK).step s).val = .emit as s' →
       Good s') :
-    (engine.costedAt dom K hK).SelfConverse := by
+    ((engine @U).costedAt dom K hK).SelfConverse := by
   intro P root hwf hN hself n
   refine trace_selfConverse hD Good hroot hstep n _ hwf (hinit P root hwf hN) ?_
   have h := init_cores (P := P) (K P.sorts) (hK P.sorts) (root := root.norm)

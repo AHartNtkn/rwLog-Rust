@@ -1088,6 +1088,7 @@ theorem good_workGroup (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK)
   clear hR
   at_cost K hK
   simp only [workGroup, workStrats, feedAll, Cost.bind_val, Cost.pure_val]
+  refine Good.modify ?_ i _ (fun _ => rfl) (fun _ => rfl) (fun _ => rfl) (fun _ h => h)
   refine Good.setGroup ?_ _ _ _ (fun g' gr _ s hs => .inl hs) (fun _ _ => rfl)
   refine (foldL_inv (fun acc : StateOf R Rel (Ans D P) × Nat =>
     Good acc.1 ∧ goalAt acc.1 i = some g ∧ Busy acc.1 i) _ _ (fun b h _ hb => ?_) _ ?_).1
@@ -1159,7 +1160,8 @@ theorem good_prepare (hR : ReadOk D P K hK) (hP : ProgFO P) {st : StateOf R Rel 
   | none =>
     simp only [Cost.bind_val, Cost.pure_val]
     have hA2 : ProgAll ((expand (K := DerivationKernel.over D _ hK P) t.goal st).val.1.modify i
-        fun t' => { t' with groups := some (expand (K := DerivationKernel.over D _ hK P) t.goal
+        fun t' => { t' with race := (raceOf (K := DerivationKernel.over D _ hK P) t.goal).val,
+                            groups := some (expand (K := DerivationKernel.over D _ hK P) t.goal
           st).val.2 }) := by
       refine hA1.modify i _ (fun _ => rfl)
         (stable_modify _ i _ fun _ _ => ⟨rfl, rfl, rfl, fun h => h⟩)
@@ -1173,7 +1175,8 @@ theorem good_prepare (hR : ReadOk D P K hK) (hP : ProgFO P) {st : StateOf R Rel 
       rw [this]
       exact p1 gr hgr s hs
     have hF2 : FullAll ((expand (K := DerivationKernel.over D _ hK P) t.goal st).val.1.modify i
-        fun t' => { t' with groups := some (expand (K := DerivationKernel.over D _ hK P) t.goal
+        fun t' => { t' with race := (raceOf (K := DerivationKernel.over D _ hK P) t.goal).val,
+                            groups := some (expand (K := DerivationKernel.over D _ hK P) t.goal
           st).val.2 }) := by
       refine hF1.modify i _ (fun _ => rfl)
         (stable_modify _ i _ fun _ _ => ⟨rfl, rfl, rfl, fun h => h⟩)
@@ -1187,7 +1190,8 @@ theorem good_prepare (hR : ReadOk D P K hK) (hP : ProgFO P) {st : StateOf R Rel 
       rw [this]
       exact q1
     have hB2 : Base ((expand (K := DerivationKernel.over D _ hK P) t.goal st).val.1.modify i
-        fun t' => { t' with groups := some (expand (K := DerivationKernel.over D _ hK P) t.goal
+        fun t' => { t' with race := (raceOf (K := DerivationKernel.over D _ hK P) t.goal).val,
+                            groups := some (expand (K := DerivationKernel.over D _ hK P) t.goal
           st).val.2 }) := b1.same (sameG_modify _ i _ fun _ => rfl)
     exact ⟨hB2.same (sameG_modify _ i _ fun _ => rfl),
       hA2.modify i _ (fun _ => rfl)
@@ -1197,18 +1201,62 @@ theorem good_prepare (hR : ReadOk D P K hK) (hP : ProgFO P) {st : StateOf R Rel 
         (stable_modify _ i _ fun _ _ => ⟨rfl, rfl, rfl, fun h => h⟩)
         fun t' ht' gs hgs => hF2 i t' ht' gs hgs⟩
 
+theorem sameG_askRace (U : GOracle R Rel (Ans D P) Cost) (i : Nat) (g : GoalOf R Rel)
+    (st : StateOf R Rel (Ans D P)) :
+    SameG st (askRace (K := DerivationKernel.over D K hK P) U i g st).val.1 := by
+  have hadd := fun (b : StateOf R Rel (Ans D P)) a =>
+    sameG_addOption (K := K) (hK := hK) (P := P) b i (some a)
+  at_cost K hK
+  unfold askRace
+  split
+  · exact SameG.refl st
+  · split
+    · exact SameG.refl st
+    · split
+      · exact SameG.refl st
+      · simp only [Cost.bind_val]
+        split
+        · simp only [Cost.bind_val, Cost.pure_val]
+          refine SameG.trans ?_ (sameG_modify _ i _ fun _ => rfl)
+          exact foldL_inv (fun b => SameG st b) _ _ (fun b x _ hb => hb.trans (hadd b x)) st
+            (SameG.refl st)
+        · exact sameG_modify _ i _ fun _ => rfl
+
+/-- **The race of an open table keeps** what a run keeps: its answers are
+answers of the goal, by its specification on a goal a run may open. -/
+theorem good_askRace (U : GOracle R Rel (Ans D P) Cost) (hU : UOk D P U)
+    {st : StateOf R Rel (Ans D P)} (hG : Good st) (i : Nat) (g : GoalOf R Rel)
+    (hg : goalAt st i = some g) (ho : Open st i) :
+    Good (askRace (K := DerivationKernel.over D K hK P) U i g st).val.1 := by
+  have hfr := frame_askRace (K := K) (hK := hK) (P := P) U i g st
+  have hgood := hG.base.good i g hg
+  have hn : Normal g.node := by
+    obtain ⟨t, ht, -⟩ := ho
+    have e : t.goal = g := by
+      unfold goalAt at hg
+      rw [ht] at hg
+      exact Option.some.inj hg
+    rw [← e]
+    exact (hG.inv.core i t ht).1
+  have hok : GoalOk D g := ⟨hgood.1, hgood.2.1, hn, hgood.2.2⟩
+  exact ⟨inv_askRace U hG.inv i g hg fun n a ha => hU.goal n g hok a ha,
+    hG.base.same (sameG_askRace U i g st), hG.prog.frame hfr ho, hG.full.frame hfr ho⟩
+
 /-- **A round keeps** the invariant of the goals, the base, and the meaning
 of every cursor. -/
-theorem good_advance (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK) (hP : ProgFO P) :
+theorem good_advance (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK) (hP : ProgFO P)
+    (U : GOracle R Rel (Ans D P) Cost) (hU : UOk D P U) :
     ∀ (fuel i : Nat) (st : StateOf R Rel (Ans D P)), Good st →
-      Good (advance (K := DerivationKernel.over D K hK P) fuel i st).val.1
+      Good (advance (K := DerivationKernel.over D K hK P) U fuel i st).val.1
   | 0, _, st, hG => by
     clear hR
     at_cost K hK
     exact hG
   | fuel + 1, i, st, hG => by
-    have ih := fun h st => good_advance hL hR hP fuel h st
-    have ihK := fun h st => keep_advance (K := K) (hK := hK) (P := P) fuel h st
+    have ih := fun h st => good_advance hL hR hP U hU fuel h st
+    have ihK := fun h st => keep_advance (K := K) (hK := hK) (P := P) U fuel h st
+    have hrace := fun g (st : StateOf R Rel (Ans D P)) hG hg ho =>
+      good_askRace (K := K) (hK := hK) U hU (st := st) hG i g hg ho
     have hprep := fun t ht hd => good_prepare (K := K) (hK := hK) hR hP hG i t ht hd
     have hprepK := fun t ht hd => keep_prepare (K := K) (hK := hK) (P := P) i t st ht hd
     have hlev := fun whole g lv (st : StateOf R Rel (Ans D P)) hG hg hb =>
@@ -1234,11 +1282,24 @@ theorem good_advance (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK) (hP :
             obtain ⟨hk, hb⟩ := hprepK t ht hd'
             refine Good.modify ?_ i _ (fun _ => rfl) (fun _ => rfl) (fun _ => rfl)
               (fun _ h => by simp [h])
-            refine Good.dropGroups ?_ i _ (fun gr hp s hs =>
-              List.all_eq_true.1 (by simpa using hp) s hs)
-            refine (foldL_inv (fun acc : StateOf R Rel (Ans D P) × Bool =>
+            have key : ∀ X : StateOf R Rel (Ans D P),
+                Good X ∧ goalAt X i = some t.goal ∧ Busy X i →
+                Good (askRace (K := DerivationKernel.over D _ hK P) U i t.goal
+                  (X.modify i fun t =>
+                    { t with
+                      groups := t.groups.map fun gs =>
+                        gs.filter fun gr => !gr.strats.all (Strat.dead X) })).val.1 := by
+              rintro X ⟨hGX, hgX, hbX⟩
+              refine hrace _ _ (Good.dropGroups hGX i _ (fun gr hp s hs =>
+                List.all_eq_true.1 (by simpa using hp) s hs)) ?_ ?_
+              · refine Eq.trans ?_ hgX
+                exact goalAt_modify _ i i _ fun _ => rfl
+              · refine Busy.isOpen (Keep.busy ?_ hbX)
+                exact keep_modify _ i _ fun _ _ =>
+                  ⟨rfl, rfl, rfl, fun h => h, fun h => ⟨h, fun h => h⟩⟩
+            refine key _ (foldL_inv (fun acc : StateOf R Rel (Ans D P) × Bool =>
               Good acc.1 ∧ goalAt acc.1 i = some t.goal ∧ Busy acc.1 i) _ _
-              (fun b lv _ hb => ?_) _ ⟨hprep t ht hd', hk.stable.ext _ _ hg, hb⟩).1
+              (fun b lv _ hb => ?_) _ ⟨hprep t ht hd', hk.stable.ext _ _ hg, hb⟩)
             split
             · exact hb
             · exact ⟨hlev _ _ _ b.1 hb.1 hb.2.1 hb.2.2,
@@ -1248,10 +1309,11 @@ theorem good_advance (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK) (hP :
 /-- **A request keeps** the invariant of the goals, the base, and the
 meaning of every cursor. -/
 theorem good_request (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK) (hP : ProgFO P)
+    (U : GOracle R Rel (Ans D P) Cost) (hU : UOk D P U)
     {st : StateOf R Rel (Ans D P)} (hG : Good st) :
-    Good (request (K := DerivationKernel.over D K hK P) st).val.1 := by
+    Good (request (K := DerivationKernel.over D K hK P) U st).val.1 := by
   have h := fun (st : StateOf R Rel (Ans D P)) hG =>
-    good_advance (K := K) (hK := hK) hL hR hP st.tables.length 0 st hG
+    good_advance (K := K) (hK := hK) hL hR hP U hU st.tables.length 0 st hG
   clear hR
   at_cost K hK
   simp only [request, Cost.bind_val, Cost.pure_val]

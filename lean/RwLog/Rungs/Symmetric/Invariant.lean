@@ -50,14 +50,15 @@ theorem cores_modify {S N A : Type} (st : StateOf S N A) (i : Nat) (f : Table S 
 in: its goal, whether the goal is its own converse, its answers, whether it
 is complete, the requests it was opened in and last had a round in, and its
 groups (the strategy that worked is put back by `setGroup`, after its
-work). -/
+work), its race and the number of its rounds. -/
 def Table.frame {S N A : Type} (t : Table S N A) :
-    GoalOf S N × Bool × List A × Bool × Nat × Nat × Option (List (Group N A)) :=
-  (t.goal, t.self, t.answers, t.done, t.born, t.stamp, t.groups)
+    GoalOf S N × Bool × List A × Bool × Nat × Nat × Option (List (Group N A)) × Option Race × Nat :=
+  (t.goal, t.self, t.answers, t.done, t.born, t.stamp, t.groups, t.race, t.rounds)
 
 /-- The tables of a state, each as its frame. -/
 def StateOf.frames {S N A : Type} (st : StateOf S N A) :
-    List (GoalOf S N × Bool × List A × Bool × Nat × Nat × Option (List (Group N A))) :=
+    List (GoalOf S N × Bool × List A × Bool × Nat × Nat × Option (List (Group N A)) ×
+      Option Race × Nat) :=
   st.tables.map Table.frame
 
 theorem frames_modify {S N A : Type} (st : StateOf S N A) (i : Nat) (f : Table S N A → Table S N A)
@@ -101,7 +102,8 @@ inductive Inner (i : Nat) : StateOf R Rel (Ans D P) → StateOf R Rel (Ans D P) 
   | same {st st'} : st'.frames = st.frames → st'.round = st.round → st'.shown = st.shown →
       st.depth ≤ st'.depth → Inner i st st'
   | opened {st st'} (g : GoalOf R Rel) (self : Bool) :
-      st'.frames = st.frames ++ [(g, self, [], false, st.round, 0, none)] → st'.round = st.round →
+      st'.frames = st.frames ++ [(g, self, [], false, st.round, 0, none, none, 0)] →
+      st'.round = st.round →
       st'.shown = st.shown → st.depth ≤ st'.depth → Inner i st st'
   | add (st) (a : Ans D P) :
       Inner i st (addAnswer (K := DerivationKernel.over D K hK P) i st a).val
@@ -409,6 +411,7 @@ theorem reach_workGroup (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf
     Reach K hK st (workGroup (K := DerivationKernel.over D K hK P) adv whole i g k st).val.1 := by
   at_cost K hK
   simp only [workGroup, workStrats, feedAll, Cost.bind_val, Cost.pure_val]
+  refine Reach.trans ?_ (reach_modify _ _ _ fun _ => rfl)
   refine Reach.trans ?_ (reach_setGroup _ _ _ _)
   refine reach_foldL_from (fun acc : StateOf R Rel (Ans D P) × Nat => acc.1) _ (fun b h => ?_) _ _ ?_
   · simp only [Cost.bind_val, Cost.pure_val]
@@ -444,13 +447,81 @@ theorem reach_prepare (i : Nat) (t : Table R Rel (Ans D P)) (st : StateOf R Rel 
     refine Reach.trans ?_ (reach_modify _ _ _ fun _ => rfl)
     exact reach_expand (K := _) (hK := hK) t.goal st
 
-theorem reach_advance : ∀ (fuel i : Nat) (st : StateOf R Rel (Ans D P)),
-    Reach K hK st (advance (K := DerivationKernel.over D K hK P) fuel i st).val.1
+/-- The answers a race gives are put into the table at `i` as the strategies
+of the table put theirs. -/
+theorem inner_addAll (i : Nat) (st : StateOf R Rel (Ans D P)) (xs : List (Ans D P)) :
+    Inner K hK i st (foldL (addAnswer (K := DerivationKernel.over D K hK P) i) st xs).val :=
+  inner_foldL (fun s : StateOf R Rel (Ans D P) => s) _ (fun b a => Inner.add b a) _ _
+
+/-- What the race of the table at `i` does: nothing, or it puts answers into
+the table and records what it has spent, or it records that and a depth one
+greater. -/
+theorem askRace_val (U : GOracle R Rel (Ans D P) Cost) (i : Nat) (g : GoalOf R Rel)
+    (st : StateOf R Rel (Ans D P)) :
+    (askRace (K := DerivationKernel.over D K hK P) U i g st).val =
+      match st.tables[i]? with
+      | none => (st, false)
+      | some t =>
+        match t.race with
+        | none => (st, false)
+        | some r =>
+          if t.own + t.rounds < r.spent then (st, false)
+          else if (U r.depth g).val.1 then
+            ((foldL (addAnswer (K := DerivationKernel.over D K hK P) i) st
+                (U r.depth g).val.2).val.modify i fun t =>
+              { t with race := some ⟨r.depth, r.spent + (U r.depth g).ticks⟩ }, true)
+          else
+            (st.modify i fun t =>
+              { t with race := some ⟨r.depth + 1, r.spent + (U r.depth g).ticks⟩ }, false) := by
+  at_cost K hK
+  unfold askRace
+  cases st.tables[i]? with
+  | none => rfl
+  | some t =>
+    dsimp only
+    cases t.race with
+    | none => rfl
+    | some r =>
+      dsimp only
+      by_cases hb : t.own + t.rounds < r.spent
+      · simp only [hb, ↓reduceIte]
+        rfl
+      · simp only [hb, ↓reduceIte]
+        cases hv : (U r.depth g).val.1 with
+        | false =>
+          simp only [Bool.false_eq_true, ↓reduceIte, Cost.bind_val]
+          split
+          · next h => exact absurd (hv.symm.trans h) (by simp)
+          · rfl
+        | true =>
+          simp only [↓reduceIte, Cost.bind_val]
+          split
+          · rfl
+          · next h => exact (h hv).elim
+
+/-- The race of a table reaches a state. -/
+theorem reach_askRace (U : GOracle R Rel (Ans D P) Cost) (i : Nat) (g : GoalOf R Rel)
+    (st : StateOf R Rel (Ans D P)) :
+    Reach K hK st (askRace (K := DerivationKernel.over D K hK P) U i g st).val.1 := by
+  rw [askRace_val]
+  split
+  · exact Reach.refl st
+  · split
+    · exact Reach.refl st
+    · split
+      · exact Reach.refl st
+      · split
+        · exact (inner_addAll i st _).reach.trans (reach_modify _ _ _ fun _ => rfl)
+        · exact reach_modify _ _ _ fun _ => rfl
+
+theorem reach_advance (U : GOracle R Rel (Ans D P) Cost) :
+    ∀ (fuel i : Nat) (st : StateOf R Rel (Ans D P)),
+    Reach K hK st (advance (K := DerivationKernel.over D K hK P) U fuel i st).val.1
   | 0, _, st => by
     at_cost K hK
     exact Reach.refl st
   | fuel + 1, i, st => by
-    have ih := fun h st => reach_advance fuel h st
+    have ih := fun h st => reach_advance U fuel h st
     at_cost K hK
     simp only [advance]
     split
@@ -463,6 +534,7 @@ theorem reach_advance : ∀ (fuel i : Nat) (st : StateOf R Rel (Ans D P)),
           · exact Reach.refl st
           · simp only [Cost.bind_val, Cost.pure_val]
             refine Reach.trans ?_ (reach_modify _ _ _ fun _ => rfl)
+            refine Reach.trans ?_ (reach_askRace U _ _ _)
             refine Reach.trans ?_ (reach_modify _ _ _ fun _ => rfl)
             refine reach_foldL_from (fun acc : StateOf R Rel (Ans D P) × Bool => acc.1) _
               (fun b lv => ?_) _ _ (reach_prepare _ _ _)
@@ -485,11 +557,11 @@ theorem cores_mapIdx (st : StateOf R Rel (Ans D P))
 /-- A request reaches a state, by nothing but `addAnswer` into the tables,
 and returns what the root table holds from the position the answers were
 emitted to, which it moves to the end. -/
-theorem reach_request (st : StateOf R Rel (Ans D P)) :
+theorem reach_request (U : GOracle R Rel (Ans D P) Cost) (st : StateOf R Rel (Ans D P)) :
     ∃ st' : StateOf R Rel (Ans D P), Reach K hK st st' ∧
-      (request (K := DerivationKernel.over D K hK P) st).val =
+      (request (K := DerivationKernel.over D K hK P) U st).val =
         ({ st' with shown := (st'.answers 0).length }, (st'.answers 0).drop st'.shown) := by
-  have h := fun st => reach_advance (K := K) (hK := hK) (P := P) st.tables.length 0 st
+  have h := fun st => reach_advance (K := K) (hK := hK) (P := P) U st.tables.length 0 st
   at_cost K hK
   simp only [request, Cost.bind_val, Cost.pure_val]
   refine ⟨_, Reach.trans (Reach.trans (Reach.same (st' := { st with round := st.round + 1 }) rfl rfl)
