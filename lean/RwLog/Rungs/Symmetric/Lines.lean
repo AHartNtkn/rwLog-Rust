@@ -94,6 +94,22 @@ theorem Line.length {k r0 : Nat} {L : Nat → List (Strat N A)} (hL : Line need 
   | zero => rfl
   | succ d ih => exact ((hL.adv (r0 + d) (by omega)).1).symm.trans (ih (by omega))
 
+/-- The strategy at each place of the group works again and again. -/
+theorem Line.step {k r0 : Nat} {L : Nat → List (Strat N A)} (hL : Line need σ k r0 L)
+    (m r' : Nat) : ∃ r, r' ≤ r ∧ r0 ≤ r ∧ ∀ s, (L r)[m]? = some s → ∃ s',
+      (L (r + 1))[m]? = some s' ∧
+      SStep need (σ r).len (σ r).isDone (σ r).depth (σ (r + 1)).depth s s' := by
+  by_cases hm : m < (L r0).length
+  · obtain ⟨r, hr', hr, s, s', hs, hs', hstp⟩ := hL.stepped m hm r'
+    refine ⟨r, hr', hr, fun s1 hs1 => ?_⟩
+    rw [hs] at hs1
+    cases hs1
+    exact ⟨s', hs', hstp⟩
+  · refine ⟨max r' r0, Nat.le_max_left _ _, Nat.le_max_right _ _, fun s hs => ?_⟩
+    have := (List.getElem?_eq_some_iff.1 hs).1
+    rw [hL.length (Nat.le_max_right _ _)] at this
+    exact absurd this hm
+
 /-- What holds of the strategy at one place of the group at the start and
 is kept by a strategy moving on holds of it throughout. -/
 theorem Line.along {k r0 : Nat} {L : Nat → List (Strat N A)} (hL : Line need σ k r0 L)

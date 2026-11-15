@@ -40,13 +40,13 @@ theorem IsRun.live_span (h : IsRun U σ) {ra k m : Nat} {g : GoalOf R Rel}
     {L : Nat → List (Strat Rel (Ans D P))} {ran0 : Bool} (hk : goalAt (σ ra) k = some g)
     (hL : Line (readNeed P) σ k ra L) (h0 : (L ra)[m]? = some (.span ran0)) :
     Served D P (opened σ) (held σ) (toGoal g) := by
-  obtain ⟨r, -, hr, hst, -, -⟩ := hL.worked ra
+  obtain ⟨r, -, hr, hst⟩ := hL.step m ra
   obtain ⟨s, hs, ran, rfl⟩ := hL.along (fun _ s => ∃ ran, s = Strat.span ran) h0 ⟨ran0, rfl⟩
     (fun r s s' _ _ _ hq hadv => by
       obtain ⟨ran, rfl⟩ := hq
       cases hadv
       exact ⟨_, rfl⟩) hr
-  obtain ⟨s', hs', hstep⟩ := hst.get hs
+  obtain ⟨s', hs', hstep⟩ := hst _ hs
   cases hstep
   exact h.served_span hk (hL.mem (r + 1) (by omega) _ (List.mem_of_getElem? hs'))
 
@@ -80,7 +80,7 @@ theorem IsRun.live_copy (h : IsRun U σ) {ra k m : Nat} {g : GoalOf R Rel}
     rw [hp1]
     exact congrArg some (Prod.ext hp2.1 rfl)
   refine ⟨h.opened_of_settled hgj fun r' => ?_, fun n r1 hn => ?_⟩
-  · obtain ⟨r, hr', hr, -, hfed, -⟩ := hL.worked r'
+  · obtain ⟨r, hr', hr, hfed, -⟩ := hL.worked r'
     obtain ⟨subs, pos, hs, hm'⟩ := ent (r + 1) (by omega)
     exact ⟨r, hr', hfed _ (List.mem_of_getElem? hs) (j, pos) (List.mem_of_getElem? hm')⟩
   · by_contra hcon
@@ -98,9 +98,9 @@ theorem IsRun.live_copy (h : IsRun U σ) {ra k m : Nat} {g : GoalOf R Rel}
         have := behind_le (n + 1) hp'
         simp only [f, hs, hs']
         omega
-    · obtain ⟨r, hr', hr, hst, -, -⟩ := hL.worked (max r' (max ra r1))
+    · obtain ⟨r, hr', hr, hst⟩ := hL.step m (max r' (max ra r1))
       obtain ⟨subs, pos, hs, hm'⟩ := ent r hr
-      obtain ⟨s', hs', hstep⟩ := hst.get hs
+      obtain ⟨s', hs', hstep⟩ := hst _ hs
       cases hstep with
       | copy hp' hlt =>
         refine ⟨r, by omega, ?_⟩
@@ -130,7 +130,7 @@ theorem IsRun.live_join (h : IsRun U σ) {ra k m : Nat} {g : GoalOf R Rel}
   dsimp only [Prog] at hp
   obtain ⟨La, Rb, -, hga, hgb, -, -⟩ := hp
   have fed : ∀ r', ∃ r, r' ≤ r ∧ Settled (σ (r + 1)) a ∧ Settled (σ (r + 1)) b := fun r' => by
-    obtain ⟨r, hr', hr, -, hfed, -⟩ := hL.worked r'
+    obtain ⟨r, hr', hr, hfed, -⟩ := hL.worked r'
     obtain ⟨c, hs⟩ := al (r + 1) (by omega)
     exact ⟨r, hr', hfed _ (List.mem_of_getElem? hs)⟩
   refine h.served_join hk hs0
@@ -158,9 +158,9 @@ theorem IsRun.live_join (h : IsRun U σ) {ra k m : Nat} {g : GoalOf R Rel}
       · exact absurd hb (hno (r + 1) _ (by omega) hs')
       · exact .inl (by rw [he])
       · exact .inr hlt
-  · obtain ⟨r, hr', hr, hst, -, -⟩ := hL.worked (max r' (max ra r1))
+  · obtain ⟨r, hr', hr, hst⟩ := hL.step m (max r' (max ra r1))
     obtain ⟨c, hs⟩ := al r hr
-    obtain ⟨s', hs', hstep⟩ := hst.get hs
+    obtain ⟨s', hs', hstep⟩ := hst _ hs
     cases hstep with
     | join h1 h2 =>
       have hpa := (h.stable (show r1 ≤ r by omega)).len_le a
@@ -179,7 +179,7 @@ theorem IsRun.live_check (h : IsRun U σ) {ra k : Nat} {g : GoalOf R Rel}
   -- one check is not dead in infinitely many requests
   obtain ⟨m, hm, hlive⟩ := infinitely_often_fin (L ra).length
     (fun r m => ra ≤ r ∧ ∃ s, (L r)[m]? = some s ∧ s.dead (σ r) = false) (fun r' => by
-      obtain ⟨r, hr', hr, -, -, s, hs, hdead⟩ := hL.worked r'
+      obtain ⟨r, hr', hr, -, s, hs, hdead⟩ := hL.worked r'
       obtain ⟨m, hm⟩ := List.getElem?_of_mem hs
       exact ⟨r, hr', m, by rw [← hL.length hr]; exact (List.getElem?_eq_some_iff.1 hm).1, hr,
         s, hm, hdead⟩)
@@ -232,8 +232,8 @@ theorem IsRun.live_check (h : IsRun U σ) {ra k : Nat} {g : GoalOf R Rel}
       (fun r => readNeed P side - (σ r).depth) ra (fun r _ => ?_) (fun r' => ?_)
     · have := (h.req.req r).depth
       omega
-    · obtain ⟨r, hr', hr, hst, -, -⟩ := hL.worked r'
-      obtain ⟨s', hs', hstep⟩ := hst.get (rd r hr)
+    · obtain ⟨r, hr', hr, hst⟩ := hL.step m r'
+      obtain ⟨s', hs', hstep⟩ := hst _ (rd r hr)
       rw [rd (r + 1) (by omega)] at hs'
       cases hs'
       cases hstep with
@@ -279,7 +279,7 @@ theorem IsRun.live_check (h : IsRun U σ) {ra k : Nat} {g : GoalOf R Rel}
     refine h.served_check (h.goal_le hr1 hk)
       (hL.mem r1 hr1 _ (List.mem_of_getElem? hs1)) fun j hj =>
       ⟨fun r' h' hgj => h.opened_of_settled hgj fun r' => ?_, empty j hj⟩
-    obtain ⟨r, hr', hr, -, hfed, -⟩ := hL.worked (max r' r1)
+    obtain ⟨r, hr', hr, hfed, -⟩ := hL.worked (max r' r1)
     have hs := const (r + 1) (by omega)
     exact ⟨r, by omega, hfed _ (List.mem_of_getElem? hs) (fun j' hj' => empty j' hj' _) j hj⟩
 
@@ -294,7 +294,7 @@ theorem IsRun.served_live (h : IsRun U σ) {r0 k : Nat} {g : GoalOf R Rel}
       obtain ⟨gr, hgr⟩ : ∃ s, s ∈ L ra := by
         rcases hL.shape with ⟨s, hs, -⟩ | hall
         · exact ⟨s, hs⟩
-        · obtain ⟨r, -, hr, -, -, s, hs, -⟩ := hL.worked ra
+        · obtain ⟨r, -, hr, -, s, hs, -⟩ := hL.worked ra
           have := hL.length hr
           cases hx : L ra with
           | nil => rw [hx] at this; rw [List.length_eq_zero_iff.1 this] at hs; cases hs

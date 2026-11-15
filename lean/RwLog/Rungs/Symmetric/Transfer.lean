@@ -355,7 +355,7 @@ theorem Cert.waits_quiet (hC : Cert U C ρ A) (hτ : IsRun U τ)
       obtain ⟨x, hx1, hgx, -⟩ := qsub m' p'.1 p'.2 hm'
       obtain ⟨hcx, hrx⟩ := hsubs x (List.mem_of_getElem? hx1)
       refine rd _ _ r0 hcx hrx hgx (hτ.opened_of_settled hgx fun r' => ?_)
-      obtain ⟨r2, hr2', hr2, -, hfed, -⟩ := hLn.worked r'
+      obtain ⟨r2, hr2', hr2, hfed, -⟩ := hLn.worked r'
       obtain ⟨subs2, hs2, hadv⟩ := hLn.copy_kept (Nat.le_refl _) h0 (show r0 ≤ r2 + 1 by omega)
       obtain ⟨p2, hp2, hadv2⟩ := hadv.get hm'
       have := hfed _ (List.mem_of_getElem? hs2) p2 (List.mem_of_getElem? hp2)
@@ -384,7 +384,7 @@ theorem Cert.waits_quiet (hC : Cert U C ρ A) (hτ : IsRun U τ)
     obtain ⟨c0, rfl⟩ := kind_join e
     have fed : ∀ r', ∃ r2, r' ≤ r2 ∧ Settled (τ (r2 + 1)) a' ∧ Settled (τ (r2 + 1)) b' :=
       fun r' => by
-        obtain ⟨r2, hr2', hr2, -, hfed, -⟩ := hLn.worked r'
+        obtain ⟨r2, hr2', hr2, hfed, -⟩ := hLn.worked r'
         obtain ⟨c2, hs2, -⟩ := hLn.join_kept (Nat.le_refl _) h0 (show r0 ≤ r2 + 1 by omega)
         exact ⟨r2, hr2', hfed _ (List.mem_of_getElem? hs2)⟩
     obtain ⟨Ta, hTa⟩ := rd a' Lg r0 hl.1 hl.2 hga'
@@ -417,7 +417,7 @@ theorem Cert.waits_quiet (hC : Cert U C ρ A) (hτ : IsRun U τ)
     obtain ⟨L, q, s0, hLn, h0, e⟩ := lk gr' hgr' _ hx
     obtain ⟨todo0, subs0, rfl⟩ := kind_push e
     have hoS : Opened τ side' := hτ.opened_of_settled hgside' fun r' => by
-      obtain ⟨r2, hr2', hr2, -, hfed, -⟩ := hLn.worked r'
+      obtain ⟨r2, hr2', hr2, hfed, -⟩ := hLn.worked r'
       obtain ⟨todo2, subs2, hs2⟩ := hLn.push_kept h0 (show r0 ≤ r2 + 1 by omega)
       exact ⟨r2, hr2', (hfed _ (List.mem_of_getElem? hs2)).1⟩
     obtain ⟨Td, hTd⟩ := ih _ hside.1 hside.2 r0 side' hgside' hoS
@@ -439,7 +439,7 @@ theorem Cert.waits_quiet (hC : Cert U C ρ A) (hτ : IsRun U τ)
       obtain ⟨-, hge', -⟩ := hsubs1 e' he'
       obtain ⟨m', hm'⟩ := List.getElem?_of_mem he'
       refine rd _ _ T1 hcx hrx hge' (hτ.opened_of_settled hge' fun r' => ?_)
-      obtain ⟨r2, hr2', hr2, -, hfed, -⟩ := hLn.worked (max r' T1)
+      obtain ⟨r2, hr2', hr2, hfed, -⟩ := hLn.worked (max r' T1)
       obtain ⟨subs2, hs2, hadv, -⟩ := hLn.push_fixed (show r0 ≤ T1 by omega) h1
         (show T1 ≤ r2 + 1 by omega)
       have hlt : m' < subs2.length :=
@@ -524,7 +524,7 @@ theorem Cert.waits_quiet (hC : Cert U C ρ A) (hτ : IsRun U τ)
             ((τ r1).isDone j' || X.contains j') = true := fun j' hj' => by
           obtain ⟨nn, p, hp', hg'⟩ := sub j' hj'
           refine (iface nn p hp' j' T hg').2 (hτ.opened_of_settled hg' fun r' => ?_)
-          obtain ⟨r2, hr2', hr2, -, hfed, -⟩ := hLn.worked (max r' T)
+          obtain ⟨r2, hr2', hr2, hfed, -⟩ := hLn.worked (max r' T)
           have hs2 := hconst (r2 + 1) (by omega)
           exact ⟨r2, by omega, hfed _ (List.mem_of_getElem? hs2)
             (fun j2 hj2 => hempty j2 hj2 _) j' hj'⟩
