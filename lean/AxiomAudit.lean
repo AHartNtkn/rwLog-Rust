@@ -202,6 +202,8 @@ new axiom.
 
 /-- info: 'RwLog.firstWording_false' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.firstWording_false
+/-- info: 'RwLog.shareLinear_false' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.shareLinear_false
 
 /-! ## The constraint domain -/
 

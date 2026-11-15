@@ -282,9 +282,17 @@ only pairs that `q` relates.
 ### The bound
 
 `Fair C c` is fair OR, in ticks: a pair that `C` covers within `n` ticks when
-run on `q'` alone is covered within `c * (f * n + size)` ticks when run on
+run on `q'` alone is covered within `c * (f * n + load)` ticks when run on
 `q`. For one union of `m` members that is `m * n`, whatever is inside the
 other members, which is what breadth-first search does not have.
+
+`load` is what bringing the whole input to its normal form is charged
+(`Charged.load`). A machine reads all of `q` before its first step, the
+members not chosen included, and the run on `q'` alone never pays for those.
+The charge is a function of the size of the input and no machine sets it. An
+earlier statement allowed the size of the input itself, which is less than
+loading costs: it is false for every machine that loads its input
+(`shareLinear_false`, `Rungs/Framework/Fairness.lean`).
 
 Through a recursion `f` multiplies level by level. So where every level of a
 recursion has a member that never finishes, the bound allows a delay
@@ -335,10 +343,11 @@ inductive Alternative (P : Program) : Rel → Rel → Nat → Prop
 /-- The fairness bound with constant `c`. -/
 structure Fair (C : CostedRuntime) (c : Nat) : Prop where
   /-- A pair covered within `n` ticks by an alternative run alone is covered
-  within `c * (f * n + size)` ticks, `f` being the alternatives that compete
-  with it along the nesting, multiplied. -/
+  within `c * (f * n + load)` ticks, `f` being the alternatives that compete
+  with it along the nesting, multiplied, and `load` the charge for loading
+  the whole input. -/
   share : ∀ P q q' f, P.WellFormed q → Alternative P q q' f →
     ∀ x n, C.Covered P q' P.sorts.interp x n →
-      C.CoversWithin P q P.sorts.interp x (c * (f * C.paid P q' n + P.size + q.size))
+      C.CoversWithin P q P.sorts.interp x (c * (f * C.paid P q' n + (Charged.load P q).ticks))
 
 end RwLog

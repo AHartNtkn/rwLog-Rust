@@ -368,7 +368,9 @@ rung unchanged.
   (`Alternative.semAt_subset`,
   `Runtime.FinalMaximal.maximal`), and `firstWording_false`: a bound
   polynomial in the size of an answer's derivation and of the input is false
-  for every sound machine that emits spans and pays a tick for each.
+  for every sound machine that emits spans and pays a tick for each. `shareLinear_false`:
+  the fairness bound with the size of the input in place of the loading
+  charge is false for every machine that loads its input.
 
 * `Derivation.lean`: every engine is sound and derivation-general, at every
   kernel of a constraint domain that is lawful at well-formed sorts
