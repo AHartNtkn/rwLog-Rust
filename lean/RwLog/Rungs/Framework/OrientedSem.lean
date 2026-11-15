@@ -13,10 +13,6 @@ import RwLog.Kernel.NormalFormCalls
 
 namespace RwLog
 
-theorem GRel.inv_image_inv (X : Set GRel) : GRel.inv '' (GRel.inv '' X) = X := by
-  rw [Set.image_image]
-  simp [GRel.inv_inv]
-
 /-- The candidate picked derives `X`, or its converses when the run is to be
 swapped, if every candidate does. -/
 theorem pick_gd (Pn : Program) (X : Set GRel) (f : Rel × Bool) (r : List (Rel × Bool))
@@ -82,14 +78,14 @@ theorem orient_gd (P : Program) (q : Rel) :
       rw [← normed_dual_of_eq (listCmp_eq (f := relCmp) hc), gd_normed, gd_norm, gd_dual]
     have hd' : GD P.normed (RelOf.conv q.dual).norm = GD P q := by
       rw [← normed_dual_of_eq (listCmp_eq (f := relCmp) hc), gd_normed, gd_norm, gd_conv,
-        gd_dual, GRel.inv_image_inv]
+        gd_dual, inv_image_inv_image]
     refine pick_gd _ _ _ _ fun c hc => ?_
     simp only [List.mem_cons, List.not_mem_nil, or_false] at hc
     rcases hc with rfl | rfl | rfl | rfl <;> simp [gd_normed, gd_norm, gd_conv, hd, hd']
   · refine pick_gd _ _ _ _ fun c hc => ?_
     simp only [List.mem_cons, List.not_mem_nil, or_false] at hc
     rcases hc with rfl | rfl <;>
-      simp [gd_normed, gd_norm, gd_conv, gd_dual, GRel.inv_image_inv]
+      simp [gd_normed, gd_norm, gd_conv, gd_dual, inv_image_inv_image]
 
 /-! ## The input chosen is well formed -/
 
