@@ -267,6 +267,10 @@ theorem inner_checkOpen {w : Nat} (g : GoalOf R Rel) (left : Bool) (other : Rel)
   simp only [Cost.bind_val]
   exact inner_openGoal _ _
 
+theorem inner_stamp {w : Nat} (i n : Nat) (pth : Path) (st : StateOf R Rel (Ans D P)) :
+    Inner K hK w st (stamp i n pth st) :=
+  inner_modify st i _ fun _ => rfl
+
 theorem inner_work (i : Nat) (g : GoalOf R Rel) (st : StateOf R Rel (Ans D P))
     (s : Strat Rel (Ans D P)) :
     Inner K hK i st (work (K := DerivationKernel.over D K hK P) i g st s).val.1 := by
@@ -282,13 +286,13 @@ theorem inner_work (i : Nat) (g : GoalOf R Rel) (st : StateOf R Rel (Ans D P))
     split
     · exact Inner.refl _
     · simp only [Cost.bind_val, Cost.pure_val]
-      exact inner_copyFrom _ _ _ _ _ _
+      exact (inner_copyFrom _ _ _ _ _ _).trans (inner_stamp _ _ _ _)
   | join k a b c =>
     simp only [work]
     split
     · exact Inner.refl _
-    · simp only [Cost.bind_val, Cost.pure_val]
-      exact inner_joinPairs _ _ _ _ _ _
+    · simp only [Cost.bind_val, Cost.pure_val, Kernel.metered, Cost.metered_val]
+      exact (inner_joinPairs _ _ _ _ _ _).trans (inner_stamp _ _ _ _)
   | push k left side other todo subs =>
     simp only [work]
     split
@@ -301,7 +305,7 @@ theorem inner_work (i : Nat) (g : GoalOf R Rel) (st : StateOf R Rel (Ans D P))
       · split
         · exact Inner.refl _
         · simp only [Cost.bind_val, Cost.pure_val]
-          exact inner_pushTake _ _ _ _ _ _
+          exact (inner_pushTake _ _ _ _ _ _).trans (inner_stamp _ _ _ _)
   | check left side other c =>
     cases c with
     | reading =>

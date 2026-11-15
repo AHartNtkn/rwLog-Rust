@@ -339,11 +339,19 @@ def StateOf.answers {S N A : Type} (st : StateOf S N A) (i : Nat) : List A :=
   | some t => t.answers
   | none => []
 
-/-- The paths of the answers of the table at a position. -/
+/-- The paths of the answers of the table at a position, one for each
+answer: the empty path for an answer that was given none. -/
 def StateOf.pathsAt {S N A : Type} (st : StateOf S N A) (i : Nat) : List Path :=
   match st.tables[i]? with
-  | some t => t.paths
+  | some t => (List.range t.answers.length).map fun n => t.paths.getD n []
   | none => []
+
+/-- Give the path `pth` to the answers the table at `i` has gained since it
+had `n`. An answer that was given no path has the empty one. -/
+def stamp {S N A : Type} (i n : Nat) (pth : Path) (st : StateOf S N A) : StateOf S N A :=
+  st.modify i fun t =>
+    let ps := t.paths ++ List.replicate (n - t.paths.length) []
+    { t with paths := ps ++ List.replicate (t.answers.length - ps.length) pth }
 
 /-- Is the goal of the table at a position its own converse? -/
 def StateOf.isSelf {S N A : Type} (st : StateOf S N A) (i : Nat) : Bool :=
@@ -494,28 +502,27 @@ def openGoal (st : StateOf S N A) (g : GoalOf S N) : M (StateOf S N A × Nat) :=
       st.tables.length)
 
 /-- Put an answer in the table at `i`, unless an answer there covers it. -/
-def addOne (i : Nat) (st : StateOf S N A) (pth : Path) (a : A) : M (StateOf S N A × Bool) := do
+def addOne (i : Nat) (st : StateOf S N A) (a : A) : M (StateOf S N A × Bool) := do
   let b ← anyL (fun y => coversA (K := K) y a) (st.answers i)
   pure (if b then (st, false)
-    else (st.modify i fun t =>
-      { t with answers := t.answers ++ [a], paths := t.paths ++ [pth] }, true))
+    else (st.modify i fun t => { t with answers := t.answers ++ [a] }, true))
 
 /-- Put an answer in the table at `i`, unless an answer there covers it. In
 the table of a goal that is its own converse the converse of the answer is
 an answer too, and goes in with it: such a table holds the converse of
 everything it holds, at every moment. -/
-def addAnswer (i : Nat) (st : StateOf S N A) (pth : Path) (a : A) : M (StateOf S N A) := do
-  let (st, added) ← addOne (K := K) i st pth a
+def addAnswer (i : Nat) (st : StateOf S N A) (a : A) : M (StateOf S N A) := do
+  let (st, added) ← addOne (K := K) i st a
   if added && st.isSelf i then do
     let a' ← K.swapA a
-    let (st, _) ← addOne (K := K) i st pth a'
+    let (st, _) ← addOne (K := K) i st a'
     pure st
   else pure st
 
 /-- Put what a rule returned, if anything, in the table at `i`. -/
-def addOption (i : Nat) (st : StateOf S N A) (pth : Path) : Option A → M (StateOf S N A)
+def addOption (i : Nat) (st : StateOf S N A) : Option A → M (StateOf S N A)
   | none => pure st
-  | some a => addAnswer (K := K) i st pth a
+  | some a => addAnswer (K := K) i st a
 
 /-! ## The strategies of a goal -/
 
@@ -757,20 +764,20 @@ def expand (g : GoalOf S N) (st : StateOf S N A) : M (StateOf S N A × List (Gro
 /-- A call or a union takes in the answers of the table at `j` from the
 position `pos`, each by its rule; `m` is the place of the member in the
 union. -/
-def copyFrom (i : Nat) (g : GoalOf S N) (isCall : Bool) (m : Nat) (pth : Path)
-    (st : StateOf S N A) (as : List A) : M (StateOf S N A) :=
+def copyFrom (i : Nat) (g : GoalOf S N) (isCall : Bool) (m : Nat) (st : StateOf S N A)
+    (as : List A) : M (StateOf S N A) :=
   foldL (fun st a => do
     let c ← if isCall then K.unfold a g.node else K.inj a g.node m
-    addOption (K := K) i st pth c) st as
+    addOption (K := K) i st c) st as
 
 /-- Combine the pairs at the positions given. -/
-def joinPairs (i : Nat) (k : Kind) (xs ys : List A) (pa pb : List Path) (st : StateOf S N A)
+def joinPairs (i : Nat) (k : Kind) (xs ys : List A) (st : StateOf S N A)
     (ps : List (Nat × Nat)) : M (StateOf S N A) :=
   foldL (fun st p =>
     match xs[p.1]?, ys[p.2]? with
     | some x, some y => do
       let c ← both (K := K) k x y
-      addOption (K := K) i st (pa.getD p.1 [] ++ pb.getD p.2 []) c
+      addOption (K := K) i st c
     | _, _ => pure st) st ps
 
 /-- Open the goal of each answer that is pushed. -/
@@ -783,11 +790,11 @@ def pushOpen (g : GoalOf S N) (other : N) (k : Kind) (left : Bool) (st : StateOf
 
 /-- Combine an answer that was pushed with the answers given of the goal
 opened for it. -/
-def pushTake (i : Nat) (k : Kind) (left : Bool) (x : A) (pth : Path) (st : StateOf S N A)
-    (ys : List A) : M (StateOf S N A) :=
+def pushTake (i : Nat) (k : Kind) (left : Bool) (x : A) (st : StateOf S N A) (ys : List A) :
+    M (StateOf S N A) :=
   foldL (fun st y => do
     let c ← pushed (K := K) k left x y
-    addOption (K := K) i st pth c) st ys
+    addOption (K := K) i st c) st ys
 
 /-- Open the other side of a split under each interface of a check. -/
 def checkOpen (g : GoalOf S N) (left : Bool) (other : N) (st : StateOf S N A) (ps : List S) :
@@ -805,7 +812,7 @@ def work (i : Nat) (g : GoalOf S N) (st : StateOf S N A) :
   | .span true => pure (st, .span true, false)
   | .span false => do
     let a ← K.leaf g.lb g.node g.rb
-    let st ← addOption (K := K) i st [] a
+    let st ← addOption (K := K) i st a
     pure (st, .span true, true)
   | .copy isCall subs =>
     match leastBy (fun p => p.1.2) (fun p => decide (p.1.2 < (st.answers p.1.1).length))
@@ -813,22 +820,20 @@ def work (i : Nat) (g : GoalOf S N) (st : StateOf S N A) :
     | none => pure (st, .copy isCall subs, false)
     | some p => do
       let pth := (st.pathsAt p.1.1).getD p.1.2 []
-      let st' ← copyFrom (K := K) i g isCall p.2
-        (if isCall then pth else (p.2, subs.length) :: pth) st
-        (((st.answers p.1.1).drop p.1.2).take 1)
-      pure (st', .copy isCall (subs.modify p.2 fun q => (q.1, q.2 + 1)), true)
+      let st' ← copyFrom (K := K) i g isCall p.2 st (((st.answers p.1.1).drop p.1.2).take 1)
+      pure (stamp i (st.answers i).length (if isCall then pth else (p.2, subs.length) :: pth) st',
+        .copy isCall (subs.modify p.2 fun q => (q.1, q.2 + 1)), true)
   | .join k a b c =>
     let xs := st.answers a
     let ys := st.answers b
-    let pa := (st.pathsAt a).take xs.length
-    let pb := (st.pathsAt b).take ys.length
-    let pa := pa ++ List.replicate (xs.length - pa.length) []
-    let pb := pb ++ List.replicate (ys.length - pb.length) []
+    let pa := st.pathsAt a
+    let pb := st.pathsAt b
     match c.next pa pb with
     | none => pure (st, .join k a b c, false)
     | some p => do
-      let (st', t) ← K.metered (joinPairs (K := K) i k xs ys pa pb st [p])
-      pure (st', .join k a b (c.mark pa pb p (t + 1)), true)
+      let (st', t) ← K.metered (joinPairs (K := K) i k xs ys st [p])
+      pure (stamp i (st.answers i).length (pa.getD p.1 [] ++ pb.getD p.2 []) st',
+        .join k a b (c.mark pa pb p (t + 1)), true)
   | .push k left side other todo subs =>
     if !st.isDone side then pure (st, .push k left side other todo subs, false)
     else
@@ -844,10 +849,9 @@ def work (i : Nat) (g : GoalOf S N) (st : StateOf S N A) :
             (fun p => decide (p.1.2.2 < (st.answers p.1.2.1).length)) subs.zipIdx with
         | none => pure (st, .push k left side other (some []) subs, false)
         | some p => do
-          let st' ← pushTake (K := K) i k left p.1.1
-            ((st.pathsAt p.1.2.1).getD p.1.2.2 []) st
+          let st' ← pushTake (K := K) i k left p.1.1 st
             (((st.answers p.1.2.1).drop p.1.2.2).take 1)
-          pure (st', .push k left side other (some [])
+          pure (stamp i (st.answers i).length ((st.pathsAt p.1.2.1).getD p.1.2.2 []) st', .push k left side other (some [])
             (subs.modify p.2 fun e => (e.1, e.2.1, e.2.2 + 1)), true)
   | .check left side other .reading => do
     let (st, e) ← edgeOf (K := K) st left side
@@ -1052,7 +1056,7 @@ def askRace (U : GOracle S N A M) (i : Nat) (g : GoalOf S N) (st : StateOf S N A
           pure (st.modify i fun t => { t with race := some ⟨r.depth, r.spent + c, left⟩ }, false)
         | some u =>
           if u.1 then do
-            let st ← foldL (fun st a => addAnswer (K := K) i st [] a) st u.2
+            let st ← foldL (addAnswer (K := K) i) st u.2
             pure (st.modify i fun t => { t with race := some ⟨r.depth, r.spent + c, 0⟩ }, true)
           else
             pure (st.modify i fun t => { t with race := some ⟨r.depth + 1, r.spent + c, 0⟩ }, false)

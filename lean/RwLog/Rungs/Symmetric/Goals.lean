@@ -263,13 +263,13 @@ theorem inv_openGoal {st : StateOf R Rel (Ans D P)} (hI : Inv st) (g : GoalOf R 
     rw [ht]; exact congrArg some hg
   · show Inv ({ st with tables := st.tables ++
         [⟨g, (selfConverse (K := DerivationKernel.over D _ hK P) g).val, [], false, none,
-          st.round, 0, 0, none, 0, 0, 0⟩] } : StateOf R Rel (Ans D P)) ∧
+          st.round, 0, 0, none, 0, 0, 0, []⟩] } : StateOf R Rel (Ans D P)) ∧
       goalAt ({ st with tables := st.tables ++
         [⟨g, (selfConverse (K := DerivationKernel.over D _ hK P) g).val, [], false, none,
-          st.round, 0, 0, none, 0, 0, 0⟩] } : StateOf R Rel (Ans D P)) st.tables.length = some g
+          st.round, 0, 0, none, 0, 0, 0, []⟩] } : StateOf R Rel (Ans D P)) st.tables.length = some g
     have hE : Ext st { st with tables := st.tables ++
         [⟨g, (selfConverse (K := DerivationKernel.over D _ hK P) g).val, [], false, none,
-          st.round, 0, 0, none, 0, 0, 0⟩] } := by
+          st.round, 0, 0, none, 0, 0, 0, []⟩] } := by
       intro j g' h
       have hlt := lt_of_goalAt h
       unfold goalAt at h ⊢
@@ -277,10 +277,10 @@ theorem inv_openGoal {st : StateOf R Rel (Ans D P)} (hI : Inv st) (g : GoalOf R 
       rw [List.getElem?_append_left hlt]; exact h
     have key : ∀ (j : Nat) (t' : Table R Rel (Ans D P)), (st.tables ++
         [(⟨g, (selfConverse (K := DerivationKernel.over D _ hK P) g).val, [], false, none,
-          st.round, 0, 0, none, 0, 0, 0⟩ : Table R Rel (Ans D P))])[j]? = some t' →
+          st.round, 0, 0, none, 0, 0, 0, []⟩ : Table R Rel (Ans D P))])[j]? = some t' →
         st.tables[j]? = some t' ∨
           t' = ⟨g, (selfConverse (K := DerivationKernel.over D _ hK P) g).val, [], false, none,
-            st.round, 0, 0, none, 0, 0, 0⟩ := by
+            st.round, 0, 0, none, 0, 0, 0, []⟩ := by
       intro j t' h
       rcases Nat.lt_or_ge j st.tables.length with hlt | hge
       · rw [List.getElem?_append_left hlt] at h; exact .inl h
@@ -748,6 +748,21 @@ theorem inv_checkOpen {st : StateOf R Rel (Ans D P)} (hI : Inv st) (g : GoalOf R
   refine (inv_openGoal (K := _) (hK := hK) hb _ ?_).1
   split <;> exact hn
 
+/-- Changing one table keeps the invariant, if its goal, its mark, its
+answers and its strategies stay. -/
+theorem Inv.modify_same {st : StateOf R Rel (Ans D P)} (hI : Inv st) (i : Nat)
+    (f : Table R Rel (Ans D P) → Table R Rel (Ans D P)) (hcore : ∀ t, (f t).core = t.core)
+    (hgr : ∀ t, (f t).groups = t.groups) : Inv (st.modify i f) := by
+  have e : ∀ t, (f t).goal = t.goal ∧ (f t).self = t.self ∧ (f t).answers = t.answers :=
+    fun t => by
+      have := hcore t
+      simp only [Table.core, Prod.mk.injEq] at this
+      exact this
+  refine hI.modify i f (fun t => (e t).1) (fun t => (e t).2.1) (fun t ht => ?_)
+    (fun t ht gs hgs => ?_)
+  · rw [(e t).2.2]; exact (hI.core i t ht).2.2
+  · rw [hgr] at hgs; exact hI.strat i t ht gs hgs
+
 /-- The work of a strategy that fits its goal keeps the invariant, and the
 strategy it leaves fits the goal in any state that extends the state it was
 given. -/
@@ -783,9 +798,10 @@ theorem inv_work_aux {st : StateOf R Rel (Ans D P)} (hI : Inv st) (i : Nat)
     · exact ⟨hI, fun _ => hs⟩
     · next p hp =>
       simp only [Cost.bind_val, Cost.pure_val]
-      refine ⟨inv_copyFrom hI i g isCall p.2 _ hg (fun a ha =>
+      refine ⟨(inv_copyFrom hI i g isCall p.2 _ hg (fun a ha =>
         hsub p (mem_of_leastBy hp) a
-          (List.mem_of_mem_drop (List.mem_of_mem_take ha))), fun hE => ?_⟩
+          (List.mem_of_mem_drop (List.mem_of_mem_take ha)))).modify_same i _ (fun _ => rfl)
+            (fun _ => rfl), fun hE => ?_⟩
       refine StratOk.mono hE ?_
       intro q hq
       rw [map_modify_eq Prod.fst (fun q : Nat × Nat => (q.1, q.2 + 1)) (fun _ => rfl)] at hq
@@ -796,9 +812,9 @@ theorem inv_work_aux {st : StateOf R Rel (Ans D P)} (hI : Inv st) (i : Nat)
     simp only [work]
     split
     · exact ⟨hI, fun _ => hs' _⟩
-    · simp only [Cost.bind_val, Cost.pure_val]
-      exact ⟨inv_joinPairs hI i k _ _ _ hg (hI.answers ha) (hI.answers hb) hk,
-        fun hE => (hs' _).mono hE⟩
+    · simp only [Cost.bind_val, Cost.pure_val, Kernel.metered, Cost.metered_val]
+      exact ⟨(inv_joinPairs hI i k _ _ _ hg (hI.answers ha) (hI.answers hb) hk).modify_same i _
+        (fun _ => rfl) (fun _ => rfl), fun hE => (hs' _).mono hE⟩
   | push k left side other todo subs =>
     obtain ⟨gs, h1, hk, hno, htodo, hsubs⟩ := hs
     have hsub : ∀ e ∈ subs, GoalIs gs e.1 ∧
@@ -831,8 +847,9 @@ theorem inv_work_aux {st : StateOf R Rel (Ans D P)} (hI : Inv st) (i : Nat)
         · next p hp =>
           simp only [Cost.bind_val, Cost.pure_val]
           have hp' := hsub p.1 (List.fst_mem_of_mem_zipIdx (mem_of_leastBy hp))
-          refine ⟨inv_pushTake hI i k left p.1.1 _ hg hp'.1 (fun y hy =>
-            hI.answers hp'.2 y (List.mem_of_mem_drop (List.mem_of_mem_take hy))) hk,
+          refine ⟨(inv_pushTake hI i k left p.1.1 _ hg hp'.1 (fun y hy =>
+            hI.answers hp'.2 y (List.mem_of_mem_drop (List.mem_of_mem_take hy))) hk).modify_same i _
+              (fun _ => rfl) (fun _ => rfl),
             fun hE => StratOk.mono hE ⟨gs, h1, hk, hno, htodo, fun e he => ?_⟩⟩
           rw [map_modify_eq (fun e : Ans D P × Nat × Nat => (e.1, e.2.1))
             (fun e : Ans D P × Nat × Nat => (e.1, e.2.1, e.2.2 + 1)) (fun _ => rfl)] at he
@@ -881,21 +898,6 @@ theorem inv_turn {st : StateOf R Rel (Ans D P)} (hI : Inv st) (i : Nat)
 /-! ## A round -/
 
 omit [DecidableEq R] in
-/-- Changing one table keeps the invariant, if its goal, its mark, its
-answers and its strategies stay. -/
-theorem Inv.modify_same {st : StateOf R Rel (Ans D P)} (hI : Inv st) (i : Nat)
-    (f : Table R Rel (Ans D P) → Table R Rel (Ans D P)) (hcore : ∀ t, (f t).core = t.core)
-    (hgr : ∀ t, (f t).groups = t.groups) : Inv (st.modify i f) := by
-  have e : ∀ t, (f t).goal = t.goal ∧ (f t).self = t.self ∧ (f t).answers = t.answers :=
-    fun t => by
-      have := hcore t
-      simp only [Table.core, Prod.mk.injEq] at this
-      exact this
-  refine hI.modify i f (fun t => (e t).1) (fun t => (e t).2.1) (fun t ht => ?_)
-    (fun t ht gs hgs => ?_)
-  · rw [(e t).2.2]; exact (hI.core i t ht).2.2
-  · rw [hgr] at hgs; exact hI.strat i t ht gs hgs
-
 omit [DecidableEq R] in
 /-- Removing groups of one table keeps the invariant. -/
 theorem Inv.dropGroups {st : StateOf R Rel (Ans D P)} (hI : Inv st) (i : Nat)
