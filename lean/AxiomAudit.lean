@@ -661,6 +661,39 @@ new axiom.
 /-- info: 'RwLog.CostedRuntime.oriented_keeps' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.CostedRuntime.oriented_keeps
 
+/-- info: 'RwLog.Symmetric.reads_iff' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Symmetric.reads_iff
+
+/-- info: 'RwLog.Symmetric.reads_nmap' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Symmetric.reads_nmap
+
+/-- info: 'RwLog.Symmetric.FCert.cert' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Symmetric.FCert.cert
+
+/-- info: 'RwLog.Symmetric.IsRun.fcert' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Symmetric.IsRun.fcert
+
+/-- info: 'RwLog.Symmetric.FCert.map' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Symmetric.FCert.map
+
+/-- info: 'RwLog.Symmetric.Mirror.done' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Symmetric.Mirror.done
+
+/-- info: 'RwLog.Symmetric.completes_of_members' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Symmetric.completes_of_members
+
+/-- info: 'RwLog.Symmetric.done_members' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Symmetric.done_members
+
+/-- info: 'RwLog.Symmetric.sameHalt' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Symmetric.sameHalt
+
+/-- info: 'RwLog.Symmetric.oriented_keeps' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Symmetric.oriented_keeps
+
+/-- info: 'RwLog.Symmetric.oriented_keeps_R001' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Symmetric.oriented_keeps_R001
+
 /-- info: 'RwLog.Symmetric.voidSide' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Symmetric.voidSide
 
