@@ -493,6 +493,63 @@ theorem reach_setGroup (st : StateOf R Rel (Ans D P)) (i k : Nat)
     (f : Group Rel (Ans D P) → Group Rel (Ans D P)) : Reach K hK st (setGroup st i k f) :=
   reach_modify st i _ fun _ => rfl
 
+/-- The rounds a push shares among the tables it opened keep what a round
+keeps. -/
+theorem feedToks_keeps (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R Rel (Ans D P) × Nat))
+    (I : StateOf R Rel (Ans D P) → Prop)
+    (step : ∀ h X, I X → I (feed (K := DerivationKernel.over D K hK P) adv h X).val.1)
+    (subs : List (Ans D P × Option (Nat × Nat))) (f : Nat) (st : StateOf R Rel (Ans D P))
+    (d : Nat) (fc : Cursor) (h : I st) :
+    I (feedToks (K := DerivationKernel.over D K hK P) adv subs f st d fc).val.1 := by
+  at_cost K hK
+  induction f generalizing st d fc with
+  | zero =>
+    simp only [feedToks, Cost.pure_val]
+    exact h
+  | succ f ih =>
+    simp only [feedToks]
+    split
+    · simp only [Cost.pure_val]
+      exact h
+    · split
+      · exact ih _ _ _ h
+      · simp only [Cost.bind_val]
+        split
+        · simp only [Cost.pure_val]
+          exact step _ _ h
+        · exact ih _ _ _ (step _ _ h)
+
+theorem feedPush_keeps (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R Rel (Ans D P) × Nat))
+    (I : StateOf R Rel (Ans D P) → Prop)
+    (step : ∀ h X, I X → I (feed (K := DerivationKernel.over D K hK P) adv h X).val.1)
+    (st : StateOf R Rel (Ans D P)) (d : Nat) (s : Strat Rel (Ans D P)) (h : I st) :
+    I (feedPush (K := DerivationKernel.over D K hK P) adv st d s).val.1 := by
+  have hT := fun subs f fc =>
+    feedToks_keeps (K := K) (hK := hK) (P := P) adv I step subs f st d fc h
+  at_cost K hK
+  cases s with
+  | push k left side other subs dead reads c fc =>
+    simp only [feedPush, Cost.bind_val, Cost.pure_val]
+    exact hT _ _ _
+  | _ =>
+    simp only [feedPush, Cost.pure_val]
+    exact h
+
+theorem feedPushes_keeps (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R Rel (Ans D P) × Nat))
+    (I : StateOf R Rel (Ans D P) → Prop)
+    (step : ∀ h X, I X → I (feed (K := DerivationKernel.over D K hK P) adv h X).val.1)
+    (ss : List (Strat Rel (Ans D P))) (st : StateOf R Rel (Ans D P)) (d : Nat) (h : I st) :
+    I (feedPushes (K := DerivationKernel.over D K hK P) adv st d ss).val.1 := by
+  have hT := fun X d s hX => feedPush_keeps (K := K) (hK := hK) (P := P) adv I step X d s hX
+  at_cost K hK
+  induction ss generalizing st d with
+  | nil =>
+    simp only [feedPushes, Cost.pure_val]
+    exact h
+  | cons s rest ih =>
+    simp only [feedPushes, Cost.bind_val, Cost.pure_val]
+    exact ih _ _ (hT st d s h)
+
 /-- The rounds of the tables a group reads keep what a round keeps and a
 change to what a table has been fed keeps. -/
 theorem feedGroup_keeps (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R Rel (Ans D P) × Nat))
@@ -500,6 +557,8 @@ theorem feedGroup_keeps (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf
     (hfed : ∀ h c st, I st → I (st.modify h fun t => { t with fed := t.fed + c }))
     (i k : Nat) (st : StateOf R Rel (Ans D P)) (d : Nat) (h0 : I st) :
     I (feedGroup (K := DerivationKernel.over D K hK P) adv i k st d).val.1 := by
+  have hT := fun step ss X d hX =>
+    feedPushes_keeps (K := K) (hK := hK) (P := P) adv I step ss X d hX
   at_cost K hK
   have step : ∀ h X, I X → I (feed (K := DerivationKernel.over D _ hK P) adv h X).val.1 := by
     intro h X hX
@@ -514,7 +573,9 @@ theorem feedGroup_keeps (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf
     · exact hb
     · simp only [Cost.bind_val, Cost.pure_val]
       exact step _ _ hb
-  · simp only [feedAll]
+  · simp only [Cost.bind_val]
+    refine hT step _ _ _ ?_
+    simp only [feedAll]
     refine foldL_inv (fun acc : StateOf R Rel (Ans D P) × Nat => I acc.1) _ _
       (fun b h _ hb => ?_) _ h0
     simp only [Cost.bind_val, Cost.pure_val]

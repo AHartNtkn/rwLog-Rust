@@ -1180,9 +1180,9 @@ def feedToks (adv : Nat → StateOf S N A → M (StateOf S N A × Nat))
       match (subs[x.1]?).bind (·.2) with
       | none => feedToks adv subs f st d (fc.mark x 0)
       | some t => do
-        let (st', dh, c) ← feed (K := K) adv t.1 st
-        if 0 < c then pure (st', d + dh, fc.mark x c)
-        else feedToks adv subs f st' (d + dh) (fc.mark x c)
+        let r ← feed (K := K) adv t.1 st
+        if 0 < r.2.2 then pure (r.1, d + r.2.1, fc.mark x r.2.2)
+        else feedToks adv subs f r.1 (d + r.2.1) (fc.mark x r.2.2)
 
 /-- The tables a push opened have their share of rounds (`feedToks`), after
 its feed cursor is brought up to date. Any other strategy is left as it is.
