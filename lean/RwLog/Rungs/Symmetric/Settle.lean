@@ -9,9 +9,10 @@ a strategy of it reads gain no more answers (`Still`):
   (`Line.copy_read`);
 * a join has combined every pair, and has nothing left to combine
   (`Line.join_done`);
-* a push whose side is complete has taken its maximal answers and opened a
-  goal for each (`Line.push_empty`), and then reads every answer of every
-  one of them (`Line.push_read`);
+* a push sees every answer of its side once the side gains no more
+  (`Line.push_seen`), then opens the goal of each that is not superseded
+  (`Line.push_opened`), and then files every answer of each of those goals
+  and takes every unit (`Line.push_done`);
 * a check has read its side, and is the same from then on
   (`Line.check_read`).
 
@@ -21,6 +22,7 @@ strategy has work, and never rises.
 Nothing here is about a kernel.
 -/
 import RwLog.Rungs.Symmetric.Lines
+import RwLog.Rungs.Symmetric.PushCursor
 
 namespace RwLog
 
@@ -275,181 +277,339 @@ theorem Line.join_done (hL : Line need σ k r0 L) {m : Nat} {kd : Kind} {a b : N
     rw [(hok r2 c2 (by omega) hs2).pending_false, ha r2 (by omega), hb r2 (by omega)]
     exact fun p q hp hq => hbf p q (hdone p q hp hq)
 
-/-- A push stays a push of the same side into the same node. -/
-theorem Line.push_kept (hL : Line need σ k r0 L) {m : Nat} {kd : Kind} {left : Bool}
-    {side : Nat} {other : N} {todo0 : Option (List A)} {subs0 : List (A × Nat × Nat)}
-    (h0 : (L r0)[m]? = some (.push kd left side other todo0 subs0)) {r : Nat} (hr : r0 ≤ r) :
-    ∃ todo subs, (L r)[m]? = some (.push kd left side other todo subs) := by
-  obtain ⟨_, hs, todo, subs, rfl⟩ := hL.along
-    (fun _ s => ∃ todo subs, s = Strat.push kd left side other todo subs) h0
-    ⟨todo0, subs0, rfl⟩ (fun r s s' _ _ _ hq hadv => by
-      obtain ⟨todo, subs, rfl⟩ := hq
-      cases hadv
-      exact ⟨_, _, rfl⟩) hr
-  exact ⟨todo, subs, hs⟩
+/-- An entry of a list is an entry of a list it starts. -/
+theorem getElem?_of_prefix {α : Type} {l l' : List α} (h : l <+: l') {q : Nat} {a : α}
+    (hq : l[q]? = some a) : l'[q]? = some a := by
+  obtain ⟨t, rfl⟩ := h
+  rw [List.getElem?_append_left (lt_of_getElem? hq)]
+  exact hq
 
-/-- **A push takes the answers of its side.** Once its side is complete,
-it has taken the maximal answers of it and opened a goal for each. -/
-theorem Line.push_empty (hL : Line need σ k r0 L) {m : Nat} {kd : Kind} {left : Bool}
-    {side : Nat} {other : N} {todo0 : Option (List A)} {subs0 : List (A × Nat × Nat)}
-    (h0 : (L r0)[m]? = some (.push kd left side other todo0 subs0)) {T : Nat} (hT : r0 ≤ T)
-    (hd : ∀ r, T ≤ r → (σ r).isDone side = true) :
-    ∃ T' subs1, T ≤ T' ∧ (L T')[m]? = some (.push kd left side other (some []) subs1) := by
-  have al := fun r (hr : r0 ≤ r) => hL.push_kept h0 hr
-  have someOn : ∀ ra l subs, r0 ≤ ra → (L ra)[m]? = some (.push kd left side other (some l) subs) →
-      ∀ r, ra ≤ r → ∃ l' subs', (L r)[m]? = some (.push kd left side other (some l') subs') ∧
-        l'.length ≤ l.length := by
-    intro ra l subs hra hsa r hr
-    obtain ⟨_, hs, l', subs', rfl, hl'⟩ := hL.along_from
-      (fun _ s => ∃ l' subs', s = Strat.push kd left side other (some l') subs' ∧
-        l'.length ≤ l.length) hra hsa ⟨l, subs, rfl, Nat.le_refl _⟩
-      (fun r s s' _ _ _ hq hadv => by
-        obtain ⟨l', subs', rfl, hl'⟩ := hq
-        cases hadv with
-        | push a1 _ _ =>
-          obtain ⟨l1, e1, hl1⟩ := a1 l' rfl
-          subst e1
-          exact ⟨l1, _, rfl, hl1.trans hl'⟩) hr
-    exact ⟨l', subs', hs, hl'⟩
-  have main : ∀ n ra l subs, T ≤ ra →
-      (L ra)[m]? = some (.push kd left side other (some l) subs) → l.length ≤ n →
-      ∃ T' subs1, T ≤ T' ∧ (L T')[m]? = some (.push kd left side other (some []) subs1) := by
-    intro n
-    induction n with
-    | zero =>
-      intro ra l subs hra hs hl
-      have : l = [] := List.length_eq_zero_iff.1 (Nat.le_zero.1 hl)
-      subst this
-      exact ⟨ra, subs, hra, hs⟩
-    | succ n ih =>
-      intro ra l subs hra hs hl
-      obtain ⟨r, hr', hr, hst⟩ := hL.step m ra
-      obtain ⟨l', subs', hs', hl'⟩ := someOn ra l subs (by omega) hs r hr'
-      obtain ⟨s2, hs2, hstep⟩ := hst _ hs'
-      cases hstep with
-      | push h1 h2 h3 h4 =>
-        cases l' with
-        | nil => exact ⟨r, subs', by omega, hs'⟩
-        | cons x rest =>
-          obtain ⟨l1, e1, hl1⟩ := (h4 (hd r (by omega))).2.1 x rest rfl
-          subst e1
-          simp only [List.length_cons] at hl'
-          exact ih (r + 1) l1 _ (by omega) hs2 (by omega)
-  obtain ⟨r, hr', hr, hst⟩ := hL.step m T
-  obtain ⟨todo, subs, hs⟩ := al r hr
-  obtain ⟨s2, hs2, hstep⟩ := hst _ hs
-  cases hstep with
-  | push h1 h2 h3 h4 =>
-    rename_i t' subs'
-    cases todo with
-    | none =>
-      have hne := (h4 (hd r hr')).1 rfl
-      cases t' with
-      | none => exact absurd rfl hne
-      | some l1 => exact main l1.length (r + 1) l1 subs' (by omega) hs2 (Nat.le_refl _)
-    | some l0 =>
-      obtain ⟨l1, e1, -⟩ := h1 l0 rfl
-      subst e1
-      exact main l1.length (r + 1) l1 subs' (by omega) hs2 (Nat.le_refl _)
+/-- What the pushes of a side at one place of a group keep in a run: the
+answers seen are answers of the side, the units and the cursor fit them, and
+the answers filed of a table are answers of it. -/
+def PushSound (σ : Nat → StateOf S N A) (L : Nat → List (Strat N A)) (m side r0 : Nat) : Prop :=
+  ∀ (r : Nat) (kd : Kind) (left : Bool) (other : N) (subs : List (A × Option (Nat × Nat)))
+    (dead : List Nat) (reads : List (Nat × Option Nat)) (c : Cursor), r0 ≤ r →
+    (L r)[m]? = some (.push kd left side other subs dead reads c) →
+    subs.length ≤ (σ r).len side ∧ PushFits subs dead reads c ∧
+      ∀ (n : Nat) (x : A) (t : Nat × Nat), subs[n]? = some (x, some t) → t.2 ≤ (σ r).len t.1
 
-/-- A push with nothing left to push stays so: it opens no more goals, and
-reads those it opened no less far. -/
-theorem Line.push_fixed (hL : Line need σ k r0 L) {m : Nat} {kd : Kind} {left : Bool}
-    {side : Nat} {other : N} {ra : Nat} {subsa : List (A × Nat × Nat)} (hra : r0 ≤ ra)
-    (hsa : (L ra)[m]? = some (.push kd left side other (some []) subsa)) {r : Nat}
-    (hr : ra ≤ r) :
-    ∃ subs, (L r)[m]? = some (.push kd left side other (some []) subs) ∧
-      PushAdv subsa subs ∧ subs.length = subsa.length := by
-  obtain ⟨_, hs, subs, rfl, hp, hlen⟩ := hL.along_from
-    (fun _ s => ∃ subs, s = Strat.push kd left side other (some []) subs ∧
-      PushAdv subsa subs ∧ subs.length = subsa.length) hra hsa
-    ⟨subsa, rfl, PushAdv.refl _, rfl⟩
+section Push
+
+variable {m : Nat} {kd : Kind} {left : Bool} {side : Nat} {other : N}
+
+/-- A push stays a push of the same side into the same node, moved on. -/
+theorem Line.push_kept (hL : Line need σ k r0 L) {ra : Nat}
+    {sa : List (A × Option (Nat × Nat))} {da : List Nat} {rda : List (Nat × Option Nat)}
+    {ca : Cursor} (hra : r0 ≤ ra)
+    (hsa : (L ra)[m]? = some (.push kd left side other sa da rda ca)) {r : Nat} (hr : ra ≤ r) :
+    ∃ subs dead reads c, (L r)[m]? = some (.push kd left side other subs dead reads c) ∧
+      PAdv sa da rda ca subs dead reads c := by
+  obtain ⟨_, hs, subs, dead, reads, c, rfl, hp⟩ := hL.along_from
+    (fun _ s => ∃ subs dead reads c, s = Strat.push kd left side other subs dead reads c ∧
+      PAdv sa da rda ca subs dead reads c) hra hsa ⟨sa, da, rda, ca, rfl, PAdv.refl _ _ _ _⟩
     (fun r s s' _ _ _ hq hadv => by
-      obtain ⟨subs, rfl, hp, hlen⟩ := hq
+      obtain ⟨subs, dead, reads, c, rfl, hp⟩ := hq
       cases hadv with
-      | push a1 a2 a3 =>
-        obtain ⟨l1, e1, hl1⟩ := a1 [] rfl
-        have : l1 = [] := List.length_eq_zero_iff.1 (Nat.le_zero.1 hl1)
-        subst this
-        subst e1
-        exact ⟨_, rfl, hp.trans a2, (a3 rfl).trans hlen⟩) hr
-  exact ⟨subs, hs, hp, hlen⟩
+      | push a => exact ⟨_, _, _, _, rfl, hp.trans a⟩) hr
+  exact ⟨subs, dead, reads, c, hs, hp⟩
 
-/-- **A push reads all there is.** With nothing left to push, once the
-tables of the goals it opened gain no more answers, it has read every
-answer of each from some state on. -/
-theorem Line.push_read (hL : Line need σ k r0 L) {m : Nat} {kd : Kind} {left : Bool}
-    {side : Nat} {other : N} {subs1 : List (A × Nat × Nat)} {T1 : Nat} (hT1 : r0 ≤ T1)
-    (h1 : (L T1)[m]? = some (.push kd left side other (some []) subs1))
-    (hd : ∀ r, T1 ≤ r → (σ r).isDone side = true) {T : Nat} (hT : T1 ≤ T)
-    (hstill : ∀ e ∈ subs1, Still σ T e.2.1) :
-    ∃ T', T ≤ T' ∧ ∀ r, T' ≤ r → ∃ subs,
-      (L r)[m]? = some (.push kd left side other (some []) subs) ∧ PushAdv subs1 subs ∧
-      subs.length = subs1.length ∧ ∀ e ∈ subs, (σ r).len e.2.1 ≤ e.2.2 := by
-  have keep := fun ra subsa (hra : r0 ≤ ra)
-    (hsa : (L ra)[m]? = some (.push kd left side other (some []) subsa)) r (hr : ra ≤ r) =>
-    hL.push_fixed hra hsa hr
-  have each : ∀ m', m' < subs1.length → ∃ T', ∀ r, T' ≤ r → ∀ subs e,
-      (L r)[m]? = some (.push kd left side other (some []) subs) → subs[m']? = some e →
-      (σ r).len e.2.1 ≤ e.2.2 := by
-    intro m' hm'
-    have he0 : subs1[m']? = some subs1[m'] := List.getElem?_eq_getElem hm'
-    generalize subs1[m'] = e0 at he0
-    have hst := hstill e0 (List.mem_of_getElem? he0)
-    by_cases hex : ∃ ra subsa ea, T ≤ ra ∧
-        (L ra)[m]? = some (.push kd left side other (some []) subsa) ∧
-        subsa[m']? = some ea ∧ (σ T).len e0.2.1 ≤ ea.2.2
-    · obtain ⟨ra, subsa, ea, hra, hsa, hma, hna⟩ := hex
-      refine ⟨ra, fun r hr subs e hs he => ?_⟩
-      obtain ⟨subs', hs', hadv, -⟩ := keep ra subsa (by omega) hsa r hr
+/-- **A push takes each unit of an answer that is never superseded.** -/
+theorem Line.push_unit (hL : Line need σ k r0 L) {Ta : Nat} (hTa : r0 ≤ Ta)
+    {sa : List (A × Option (Nat × Nat))} {da : List Nat} {rda : List (Nat × Option Nat)}
+    {ca : Cursor} (ha : (L Ta)[m]? = some (.push kd left side other sa da rda ca)) {p q : Nat}
+    (hin : (p, q) ∈ ca.todo ∨ ca.Before p q)
+    (hlive : ∀ r subs dead reads c, Ta ≤ r →
+      (L r)[m]? = some (.push kd left side other subs dead reads c) → p ∉ dead) :
+    ∃ T', ∀ r, T' ≤ r → ∀ subs dead reads c,
+      (L r)[m]? = some (.push kd left side other subs dead reads c) → c.Before p q := by
+  have keep := fun rb sb db rdb cb (hrb : r0 ≤ rb)
+    (hsb : (L rb)[m]? = some (.push kd left side other sb db rdb cb)) r (hr : rb ≤ r) =>
+    hL.push_kept hrb hsb hr
+  have inv : ∀ r subs dead reads c, Ta ≤ r →
+      (L r)[m]? = some (.push kd left side other subs dead reads c) →
+      (p, q) ∈ c.todo ∨ c.Before p q := by
+    intro r subs dead reads c hr hs
+    obtain ⟨subs', dead', reads', c', hs', hA⟩ := keep Ta _ _ _ _ hTa ha r hr
+    rw [hs] at hs'
+    cases hs'
+    rcases hin with h | h
+    · rcases hA.rank p q h with h' | h' | ⟨h', -⟩
+      · exact .inr h'
+      · exact absurd h' (hlive r _ _ _ _ hr hs)
+      · exact .inl h'
+    · exact .inr (hA.before p q h)
+  by_cases hex : ∃ rb sb db rdb cb, Ta ≤ rb ∧
+      (L rb)[m]? = some (.push kd left side other sb db rdb cb) ∧ cb.Before p q
+  · obtain ⟨rb, sb, db, rdb, cb, hrb, hsb, hbb⟩ := hex
+    refine ⟨rb, fun r hr subs dead reads c hs => ?_⟩
+    obtain ⟨subs', dead', reads', c', hs', hA⟩ := keep rb _ _ _ _ (by omega) hsb r hr
+    rw [hs] at hs'
+    cases hs'
+    exact hA.before p q hbb
+  · exfalso
+    have hno : ∀ r subs dead reads c, Ta ≤ r →
+        (L r)[m]? = some (.push kd left side other subs dead reads c) →
+        (p, q) ∈ c.todo ∧ ¬ c.Before p q := fun r subs dead reads c hr hs =>
+      have hn : ¬ c.Before p q := fun hb => hex ⟨r, subs, dead, reads, c, hr, hs, hb⟩
+      ⟨(inv r subs dead reads c hr hs).resolve_right hn, hn⟩
+    let f : Nat → List Nat := fun r =>
+      match (L r)[m]? with
+      | some (.push _ _ _ _ _ _ _ c) => c.rank p q
+      | _ => []
+    refine no_descent RankLt rankLt_wf (fun _ _ _ h1 h2 => RankLt.trans h1 h2) f
+      Ta (fun r hr => ?_) (fun r' => ?_)
+    · obtain ⟨subs, dead, reads, c, hs, -⟩ := keep Ta _ _ _ _ hTa ha r hr
+      obtain ⟨s', hs', hadv⟩ := (hL.adv r (by omega)).get hs
+      cases hadv with
+      | push hA =>
+        simp only [f, hs, hs']
+        rcases hA.rank p q (hno r _ _ _ _ hr hs).1 with h | h | ⟨-, h | h⟩
+        · exact absurd h (hno (r + 1) _ _ _ _ (by omega) hs').2
+        · exact absurd h (hlive (r + 1) _ _ _ _ (by omega) hs')
+        · exact .inl h
+        · exact .inr h
+    · obtain ⟨r, hr', hr, hst⟩ := hL.step m (max r' Ta)
+      obtain ⟨subs, dead, reads, c, hs, -⟩ := keep Ta _ _ _ _ hTa ha r (by omega)
+      obtain ⟨s', hs', hstep⟩ := hst _ hs
+      cases hstep with
+      | push hA hP =>
+        refine ⟨r, by omega, ?_⟩
+        simp only [f, hs, hs']
+        rcases hP.rank p q (hno r _ _ _ _ (by omega) hs).1 with h | h | ⟨-, h⟩
+        · exact absurd h (hno (r + 1) _ _ _ _ (by omega) hs').2
+        · exact absurd h (hlive (r + 1) _ _ _ _ (by omega) hs')
+        · exact h
+
+/-- **A push sees every answer of its side**, once the side gains no more. -/
+theorem Line.push_seen (hL : Line need σ k r0 L) (hS : PushSound σ L m side r0)
+    {subs0 : List (A × Option (Nat × Nat))} {dead0 : List Nat}
+    {reads0 : List (Nat × Option Nat)} {c0 : Cursor}
+    (h0 : (L r0)[m]? = some (.push kd left side other subs0 dead0 reads0 c0)) {T : Nat}
+    (hside : Still σ T side) :
+    ∃ T1 subs1 dead1 reads1 c1, T ≤ T1 ∧ r0 ≤ T1 ∧
+      (L T1)[m]? = some (.push kd left side other subs1 dead1 reads1 c1) ∧
+      subs1.length = (σ T).len side := by
+  obtain ⟨r, hr', hr, hst⟩ := hL.step m T
+  obtain ⟨subs, dead, reads, c, hs, -⟩ := hL.push_kept (Nat.le_refl _) h0 hr
+  obtain ⟨s', hs', hstep⟩ := hst _ hs
+  cases hstep with
+  | push hA hP =>
+    refine ⟨r + 1, _, _, _, _, by omega, by omega, hs', ?_⟩
+    have h1 := hP.seen
+    have h2 := (hS (r + 1) _ _ _ _ _ _ _ (by omega) hs').1
+    rw [hside r hr'] at h1
+    rw [hside (r + 1) (by omega)] at h2
+    omega
+
+/-- A push that has seen every answer of a side that gains no more sees the
+same answers from then on, with the same ones superseded. -/
+theorem Line.push_fixed (hL : Line need σ k r0 L) (hS : PushSound σ L m side r0) {T T1 : Nat}
+    (hside : Still σ T side) (hT : T ≤ T1) (hT1 : r0 ≤ T1)
+    {subs1 : List (A × Option (Nat × Nat))} {dead1 : List Nat}
+    {reads1 : List (Nat × Option Nat)} {c1 : Cursor}
+    (h1 : (L T1)[m]? = some (.push kd left side other subs1 dead1 reads1 c1))
+    (hl1 : subs1.length = (σ T).len side) {r : Nat} (hr : T1 ≤ r) :
+    ∃ subs dead reads c, (L r)[m]? = some (.push kd left side other subs dead reads c) ∧
+      PAdv subs1 dead1 reads1 c1 subs dead reads c ∧ subs.length = subs1.length ∧
+      ∀ s, s ∈ dead ↔ s ∈ dead1 := by
+  obtain ⟨subs, dead, reads, c, hs, hA⟩ := hL.push_kept hT1 h1 hr
+  have h2 := (hS r _ _ _ _ _ _ _ (by omega) hs).1
+  rw [hside r (by omega)] at h2
+  have h3 := hA.adv.1
+  have hl : subs.length = subs1.length := by omega
+  exact ⟨subs, dead, reads, c, hs, hA, hl, fun s => ⟨hA.same hl s, hA.kills s⟩⟩
+
+/-- **A push opens the goal of every answer that is not superseded**, once
+it has seen every answer of a side that gains no more. -/
+theorem Line.push_opened (hL : Line need σ k r0 L) (hS : PushSound σ L m side r0) {T T1 : Nat}
+    (hside : Still σ T side) (hT : T ≤ T1) (hT1 : r0 ≤ T1)
+    {subs1 : List (A × Option (Nat × Nat))} {dead1 : List Nat}
+    {reads1 : List (Nat × Option Nat)} {c1 : Cursor}
+    (h1 : (L T1)[m]? = some (.push kd left side other subs1 dead1 reads1 c1))
+    (hl1 : subs1.length = (σ T).len side) :
+    ∃ T2 subs2 dead2 reads2 c2, T1 ≤ T2 ∧
+      (L T2)[m]? = some (.push kd left side other subs2 dead2 reads2 c2) ∧
+      subs2.length = subs1.length ∧ ∀ n, n < subs2.length → n ∉ dead2 → IsOpen subs2 n := by
+  have fx := fun r (hr : T1 ≤ r) => hL.push_fixed hS hside hT hT1 h1 hl1 hr
+  have each : ∀ n, n < subs1.length → ∃ T', ∀ r, T' ≤ r → T1 ≤ r → ∀ subs dead reads c,
+      (L r)[m]? = some (.push kd left side other subs dead reads c) → n ∉ dead1 →
+      IsOpen subs n := by
+    intro n hn
+    by_cases hd : n ∈ dead1
+    · exact ⟨0, fun _ _ _ _ _ _ _ _ h => absurd hd h⟩
+    · obtain ⟨-, hF1, -⟩ := hS T1 _ _ _ _ _ _ _ hT1 h1
+      obtain ⟨q, hq⟩ := hF1.2.opens n hn
+      obtain ⟨T', hT'⟩ := hL.push_unit hT1 h1 (p := n) (q := q)
+        (by
+          by_cases hb : (n, q) ∈ c1.done
+          · exact .inr hb
+          · exact .inl ((hF1.2.todo (n, q)).2 ⟨⟨none, hq⟩, hb, hd⟩))
+        (fun r subs dead reads c hr hs hdd => by
+          obtain ⟨subs', dead', reads', c', hs', -, -, hdead⟩ := fx r hr
+          rw [hs] at hs'
+          cases hs'
+          exact hd ((hdead n).1 hdd))
+      refine ⟨T', fun r hr hr1 subs dead reads c hs _ => ?_⟩
+      obtain ⟨subs', dead', reads', c', hs', hA, -, -⟩ := fx r hr1
       rw [hs] at hs'
       cases hs'
-      obtain ⟨-, x2, x3⟩ := hadv.2 m' ea e hma he
-      obtain ⟨subs2, hs2, hadv2, -⟩ := keep T1 subs1 hT1 h1 ra (by omega)
-      rw [hsa] at hs2
-      cases hs2
-      obtain ⟨-, y2, -⟩ := hadv2.2 m' e0 ea he0 hma
-      have h3 := hst r (by omega)
-      rw [x2, y2, h3]
+      have hq' := getElem?_of_prefix hA.pre hq
+      exact ((hS r _ _ _ _ _ _ _ (by omega) hs).2.1.2.isOpen q n hq').1 (hT' r hr _ _ _ _ hs)
+  obtain ⟨T2, hT2⟩ := eventually_forall_lt subs1.length _ each
+  obtain ⟨subs2, dead2, reads2, c2, hs2, hA, hl, hdead⟩ := fx (max T2 T1) (Nat.le_max_right _ _)
+  exact ⟨max T2 T1, subs2, dead2, reads2, c2, Nat.le_max_right _ _, hs2, hl, fun n hn hd =>
+    hT2 n (by omega) (max T2 T1) (Nat.le_max_left _ _) (Nat.le_max_right _ _) _ _ _ _ hs2
+      (fun h => hd ((hdead n).2 h))⟩
+
+/-- **A push runs out of work.** Once it has seen every answer of a side
+that gains no more and opened the goal of each that is not superseded, and
+the tables of those goals gain no more answers, it has filed every answer of
+each of them and has no unit left to take, from some state on. -/
+theorem Line.push_done (hL : Line need σ k r0 L) (hS : PushSound σ L m side r0) {T T2 : Nat}
+    (hside : Still σ T side) (hT : T ≤ T2) (hT2 : r0 ≤ T2)
+    {subs2 : List (A × Option (Nat × Nat))} {dead2 : List Nat}
+    {reads2 : List (Nat × Option Nat)} {c2 : Cursor}
+    (h2 : (L T2)[m]? = some (.push kd left side other subs2 dead2 reads2 c2))
+    (hl2 : subs2.length = (σ T).len side)
+    (hopen : ∀ n, n < subs2.length → n ∉ dead2 → IsOpen subs2 n) {T3 : Nat}
+    (hstill : ∀ (n : Nat) (x : A) (t : Nat × Nat), subs2[n]? = some (x, some t) → n ∉ dead2 →
+      Still σ T3 t.1) :
+    ∃ T', T2 ≤ T' ∧ ∀ r, T' ≤ r → ∃ subs dead reads c,
+      (L r)[m]? = some (.push kd left side other subs dead reads c) ∧
+      PAdv subs2 dead2 reads2 c2 subs dead reads c ∧ subs.length = subs2.length ∧
+      (∀ s, s ∈ dead ↔ s ∈ dead2) ∧ c.todo = [] ∧
+      ∀ (n : Nat) (x : A) (t : Nat × Nat), subs[n]? = some (x, some t) → n ∉ dead →
+        (σ r).len t.1 ≤ t.2 := by
+  have fx := fun r (hr : T2 ≤ r) => hL.push_fixed hS hside hT hT2 h2 hl2 hr
+  -- the table of an answer that is not superseded gains no more answers
+  have ent : ∀ r subs dead reads c, T2 ≤ r →
+      (L r)[m]? = some (.push kd left side other subs dead reads c) →
+      ∀ (n : Nat) (x : A) (t : Nat × Nat), subs[n]? = some (x, some t) → n ∉ dead2 →
+        Still σ T3 t.1 := by
+    intro r subs dead reads c hr hs n x t he hd
+    obtain ⟨subs', dead', reads', c', hs', hA, hl, -⟩ := fx r hr
+    rw [hs] at hs'
+    cases hs'
+    obtain ⟨x2, t2, he2⟩ := hopen n (by rw [← hl]; exact lt_of_getElem? he) hd
+    obtain ⟨t', he', e1, -⟩ := hA.adv.get he2
+    rw [he] at he'
+    cases he'
+    rw [e1]
+    exact hstill n _ t2 he2 hd
+  -- once the push has worked after the tables are still, it has filed every answer
+  obtain ⟨ra, hra', hra, hst⟩ := hL.step m (max T3 T2)
+  obtain ⟨sa, da, rda, ca, hsa, hAa, hla, hda⟩ := fx ra (by omega)
+  obtain ⟨s', hs', hstep⟩ := hst _ hsa
+  obtain ⟨sb, db, rdb, cb, hsb, hAb, hlb, hdb⟩ := fx (ra + 1) (by omega)
+  rw [hsb] at hs'
+  cases hs'
+  cases hstep with
+  | push hA hP =>
+    have full : ∀ r subs dead reads c, ra + 1 ≤ r →
+        (L r)[m]? = some (.push kd left side other subs dead reads c) →
+        ∀ (n : Nat) (x : A) (t : Nat × Nat), subs[n]? = some (x, some t) → n ∉ dead2 →
+          (σ r).len t.1 ≤ t.2 := by
+      intro r subs dead reads c hr hs n x t he hd
+      have hstl := ent r _ _ _ _ (by omega) hs n x t he hd
+      obtain ⟨subs', dead', reads', c', hs'', -, hl, -⟩ := fx r (by omega)
+      rw [hs] at hs''
+      cases hs''
+      obtain ⟨subs', dead', reads', c', hs'', hAr⟩ :=
+        hL.push_kept (show r0 ≤ ra + 1 by omega) hsb hr
+      rw [hs] at hs''
+      cases hs''
+      obtain ⟨x2, t2, he2⟩ := hopen n (by rw [← hl]; exact lt_of_getElem? he) hd
+      obtain ⟨ta, hea, -, -⟩ := hAa.adv.get he2
+      obtain ⟨tb, heb, hfull⟩ := hP.filed n x2 ta hea (fun h => hd ((hdb n).1 h))
+      obtain ⟨tb', heb', eb1, -⟩ := hA.adv.get hea
+      rw [heb] at heb'
+      cases heb'
+      obtain ⟨tr, her, er1, ler⟩ := hAr.adv.get heb
+      rw [he] at her
+      cases her
+      have s1 := hstl r (by omega)
+      have s2 := hstl ra (by omega)
+      rw [er1, eb1] at s1 s2
+      rw [er1, eb1, s1, ← s2]
       omega
-    · exfalso
-      let f : Nat → Nat := fun r =>
-        match (L r)[m]? with
-        | some (.push _ _ _ _ _ subs) => behind ((σ T).len e0.2.1) (subs.map (·.2))
-        | _ => 0
-      refine no_descent (· < ·) Nat.lt_wfRel.wf (fun _ _ _ h1 h2 => Nat.lt_trans h1 h2) f
-        T (fun r hr => ?_) (fun r' => ?_)
-      · obtain ⟨subs, hs, -, -⟩ := keep T1 subs1 hT1 h1 r (by omega)
-        obtain ⟨s', hs', hadv⟩ := (hL.adv r (by omega)).get hs
-        cases hadv with
-        | push a1 a2 a3 =>
-          have := behind_le ((σ T).len e0.2.1) (a2.pointwise (a3 rfl))
-          simp only [f, hs, hs']
-          omega
-      · obtain ⟨r, hr', hr, hstp⟩ := hL.step m (max r' T)
-        obtain ⟨subs, hs, hadv, hlen⟩ := keep T1 subs1 hT1 h1 r (by omega)
-        have hlt : m' < subs.length := by omega
-        have he : subs[m']? = some subs[m'] := List.getElem?_eq_getElem hlt
-        generalize subs[m'] = e at he
-        obtain ⟨-, y2, -⟩ := hadv.2 m' e0 e he0 he
-        obtain ⟨s', hs', hstep⟩ := hstp _ hs
-        cases hstep with
-        | push a1 a2 a3 a4 =>
-          refine ⟨r, by omega, ?_⟩
-          simp only [f, hs, hs']
-          refine (a4 (hd r (by omega))).2.2 rfl _ m' e he ?_ ?_
-          · by_contra hc
-            exact hex ⟨r, subs, e, by omega, hs, he, by omega⟩
-          · rw [y2, hst r (by omega)]
-  obtain ⟨T', hT'⟩ := eventually_forall_lt subs1.length _ each
-  refine ⟨max T' T, Nat.le_max_right _ _, fun r hr => ?_⟩
-  obtain ⟨subs, hs, hp, hlen⟩ := keep T1 subs1 hT1 h1 r (by omega)
-  refine ⟨subs, hs, hp, hlen, fun e he => ?_⟩
-  obtain ⟨m', hm'⟩ := List.getElem?_of_mem he
-  have hlt : m' < subs1.length := by
-    rw [← hlen]
-    exact (List.getElem?_eq_some_iff.1 hm').1
-  exact hT' m' hlt r (by omega) subs e hs hm'
+    obtain ⟨-, hFb, -⟩ := hS (ra + 1) _ _ _ _ _ _ _ (by omega) hsb
+    have units : ∀ q, q < rdb.length → ∃ T', ∀ r, T' ≤ r → ∀ subs dead reads c,
+        (L r)[m]? = some (.push kd left side other subs dead reads c) →
+        ∀ (s : Nat) (ro : Option Nat), rdb[q]? = some (s, ro) → s ∉ dead2 → c.Before s q := by
+      intro q hq
+      have he : rdb[q]? = some rdb[q] := List.getElem?_eq_getElem hq
+      generalize rdb[q] = e at he
+      obtain ⟨s0, ro0⟩ := e
+      by_cases hd : s0 ∈ dead2
+      · refine ⟨0, fun r _ subs dead reads c _ s ro h hn => ?_⟩
+        rw [he] at h
+        cases h
+        exact absurd hd hn
+      · obtain ⟨T', hT'⟩ := hL.push_unit (show r0 ≤ ra + 1 by omega) hsb (p := s0) (q := q)
+          (by
+            by_cases hb : (s0, q) ∈ cb.done
+            · exact .inr hb
+            · exact .inl ((hFb.2.todo (s0, q)).2 ⟨⟨ro0, he⟩, hb, fun h => hd ((hdb s0).1 h)⟩))
+          (fun r subs dead reads c hr hs hdd => by
+            obtain ⟨subs', dead', reads', c', hs', -, -, hdead⟩ := fx r (by omega)
+            rw [hs] at hs'
+            cases hs'
+            exact hd ((hdead s0).1 hdd))
+        refine ⟨T', fun r hr subs dead reads c hs s ro h _ => ?_⟩
+        rw [he] at h
+        cases h
+        exact hT' r hr _ _ _ _ hs
+    obtain ⟨T5, hT5⟩ := eventually_forall_lt rdb.length _ units
+    refine ⟨max T5 (ra + 1), by omega, fun r hr => ?_⟩
+    obtain ⟨subs, dead, reads, c, hs, hA2, hl, hdead⟩ := fx r (by omega)
+    obtain ⟨subs', dead', reads', c', hs', hAr⟩ :=
+      hL.push_kept (show r0 ≤ ra + 1 by omega) hsb (show ra + 1 ≤ r by omega)
+    rw [hs] at hs'
+    cases hs'
+    obtain ⟨-, hFr, hcr⟩ := hS r _ _ _ _ _ _ _ (by omega) hs
+    refine ⟨subs, dead, reads, c, hs, hA2, hl, hdead, ?_, fun n x t he hd =>
+      full r _ _ _ _ (by omega) hs n x t he (fun h => hd ((hdead n).2 h))⟩
+    refine List.eq_nil_iff_forall_not_mem.2 fun x hx => ?_
+    obtain ⟨s, q⟩ := x
+    obtain ⟨⟨ro, hro⟩, hnd, hdd⟩ := (hFr.2.todo (s, q)).1 hx
+    have hsd : s ∉ dead2 := fun h => hdd ((hdead s).2 h)
+    have hq : ∃ q0 : Nat, rdb[q0]? = some (s, ro) := by
+      cases ro with
+      | none =>
+        have := hFr.2.seen q s hro
+        exact hFb.2.opens s (by omega)
+      | some r' =>
+        have h1 := hFr.2.filed q s r' hro
+        have hc : cntOf subs s ≤ cntOf sb s := by
+          cases hes : subs[s]? with
+          | none => simp [cntOf, hes]
+          | some e =>
+            rcases e with ⟨x, _ | t⟩
+            · simp [cntOf, hes]
+            · obtain ⟨x2, t2, he2⟩ := hopen s (by rw [← hl]; exact lt_of_getElem? hes) hsd
+              obtain ⟨tb, heb, -, -⟩ := hAb.adv.get he2
+              obtain ⟨tr, her, er1, -⟩ := hAr.adv.get heb
+              rw [hes] at her
+              cases her
+              have a1 := hcr s _ t hes
+              have a2 := full (ra + 1) _ _ _ _ (Nat.le_refl _) hsb s _ tb heb hsd
+              have stl := ent (ra + 1) _ _ _ _ (by omega) hsb s _ tb heb hsd
+              rw [er1, stl r (by omega)] at a1
+              rw [stl (ra + 1) (by omega)] at a2
+              simp only [cntOf, hes, heb]
+              omega
+        exact hFb.2.all s r' (Nat.lt_of_lt_of_le h1 hc)
+    obtain ⟨q0, hq0⟩ := hq
+    have hq0' := getElem?_of_prefix hAr.pre hq0
+    have e : q = q0 := by
+      cases ro with
+      | none => exact hFr.2.once q q0 s hro hq0'
+      | some r' => exact hFr.2.onceR q q0 s r' hro hq0'
+    subst e
+    exact hnd (hT5 q (lt_of_getElem? hq0) r (by omega) _ _ _ _ hs s ro hq0 hsd)
+
+end Push
 
 /-- **A check reads its side.** The depth edges are read to doubles while it
 has not, so it has from some state on, and is the same from then on. -/
