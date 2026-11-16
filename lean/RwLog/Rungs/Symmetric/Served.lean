@@ -334,49 +334,82 @@ theorem IsRun.served_join (h : IsRun U σ) {r0 k : Nat} {g : GoalOf R Rel} {kd :
     obtain ⟨xs, i, x, r, hv, -, hx, hr, rfl, rfl⟩ := hsp
     exact .meet xs i x r hv hx hr (h.mem_opened hga ha) (h.mem_opened hgb hb) key
 
-/-- A push of a complete table that has pushed every maximal answer and
-read the complete table of each to its end. -/
-theorem IsRun.served_push (h : IsRun U σ) {r k : Nat} {g : GoalOf R Rel} {kd : Kind} {left : Bool}
-    {side : Nat} {other : Rel} {subs : List (Ans D P × Nat × Nat)}
+/-- A push of a complete table that has seen every answer of it, opened the
+goal of each that no later one covers, and read the complete table of each
+to its end. -/
+theorem IsRun.served_push (hL : D.Lawful P.sorts.interp) (h : IsRun U σ) {r k : Nat}
+    {g : GoalOf R Rel} {kd : Kind} {left : Bool}
+    {side : Nat} {other : Rel} {subs : List (Ans D P × Option (Nat × Nat))} {dead : List Nat}
+    {reads : List (Nat × Option Nat)} {c : Cursor}
     (hk : goalAt (σ r) k = some g)
-    (hs : IsStrat σ k r (.push kd left side other (some []) subs))
-    (hd : (σ r).isDone side = true)
-    (hsub : ∀ e ∈ subs, (σ r).isDone e.2.1 = true ∧ (σ r).len e.2.1 ≤ e.2.2) :
+    (hs : IsStrat σ k r (.push kd left side other subs dead reads c))
+    (hd : (σ r).isDone side = true) (hseen : (σ r).len side ≤ subs.length)
+    (htodo : c.todo = [])
+    (hsub : ∀ (n : Nat) (x : Ans D P) (o : Option (Nat × Nat)), subs[n]? = some (x, o) →
+      n ∉ dead → ∃ t, o = some t ∧ (σ r).isDone t.1 = true ∧ (σ r).len t.1 ≤ t.2) :
     Served D P (opened σ) (held σ) (toGoal g) := by
   have hp := h.prog hk hs
   dsimp only [Prog] at hp
-  obtain ⟨L, Rg, hsp, hgs, ho, htodo, hsubs, -⟩ := hp
-  obtain ⟨-, -, hcover⟩ := htodo [] rfl
-  have key : ∀ a, Held (held σ) (toGoal (if left then L else Rg)) a → ∃ e ∈ subs,
-      Held (held σ) (toGoal (if left then L else Rg)) e.1.span ∧
-      den P.sorts.interp a ⊆ den P.sorts.interp e.1.span ∧
-      toGoal (pushG D g other kd left e.1) ∈ opened σ ∧
-      ∀ b, Held (held σ) (toGoal (pushG D g other kd left e.1)) b →
-        EvO P (held σ) (toGoal g) (pushedS D kd left e.1.span b) := by
+  obtain ⟨L, Rg, hsp, hgs, ho, h4, hD, hsubs, hfit, hcov⟩ := hp
+  have hall : subs.map (·.1) = (σ r).answers side := by
+    rw [h4]
+    exact List.take_of_length_le hseen
+  have hlen : subs.length = ((σ r).answers side).length := by
+    rw [← hall, List.length_map]
+  -- every answer of the side is covered by one that is not superseded
+  have live : ∀ (d n : Nat) (x : Ans D P), subs.length - n ≤ d →
+      ((σ r).answers side)[n]? = some x → ∃ (n' : Nat) (x' : Ans D P), n' ∉ dead ∧
+        ((σ r).answers side)[n']? = some x' ∧ covB D P x' x = true := by
+    intro d
+    induction d with
+    | zero =>
+      intro n x hd' hx
+      have := lt_of_getElem? hx
+      omega
+    | succ d ih =>
+      intro n x hd' hx
+      by_cases hn : n ∈ dead
+      · obtain ⟨j, x1, y, hj, hjn, hx1, hy, hc⟩ := hD.1 n hn
+        rw [hx] at hx1
+        cases hx1
+        obtain ⟨n', x', h1, h2, h3⟩ := ih j y (by omega) hy
+        exact ⟨n', x', h1, h2, covB_trans hL _ _ _ h3 hc⟩
+      · exact ⟨n, x, hn, hx, covB_refl hL x⟩
+  have key : ∀ a, Held (held σ) (toGoal (if left then L else Rg)) a → ∃ x' : Ans D P,
+      Held (held σ) (toGoal (if left then L else Rg)) x'.span ∧
+      den P.sorts.interp a ⊆ den P.sorts.interp x'.span ∧
+      toGoal (pushG D g other kd left x') ∈ opened σ ∧
+      ∀ b, Held (held σ) (toGoal (pushG D g other kd left x')) b →
+        EvO P (held σ) (toGoal g) (pushedS D kd left x'.span b) := by
     intro a ha
     obtain ⟨r1, y, hy, rfl⟩ := (h.held_iff hgs a).1 ha
-    obtain ⟨x', -, hmem, hden⟩ := hcover y (h.done_answers hd r1 hy)
-    rcases hmem with hmem | hmem
-    · cases hmem
-    obtain ⟨e, he, rfl⟩ := List.mem_map.1 hmem
-    obtain ⟨he1, hge, hrd⟩ := hsubs e he
-    refine ⟨e, he, (h.held_iff hgs _).2 ⟨r, e.1, he1, rfl⟩, hden,
-      h.mem_opened hge (.inl ⟨r, (hsub e he).1⟩), fun b hb z hz => ?_⟩
+    obtain ⟨n, hn⟩ := List.getElem?_of_mem (h.done_answers hd r1 hy)
+    obtain ⟨n', x', hlive, hx', hcx⟩ := live _ n y (Nat.le_refl _) hn
+    have he : ∃ o, subs[n']? = some (x', o) := by
+      rw [← hall, List.getElem?_map] at hx'
+      obtain ⟨e, he, rfl⟩ := Option.map_eq_some_iff.1 hx'
+      exact ⟨e.2, he⟩
+    obtain ⟨o, he⟩ := he
+    obtain ⟨t, rfl, hdt, hlt⟩ := hsub n' x' o he hlive
+    obtain ⟨hge, -⟩ := hsubs _ (List.mem_of_getElem? he) t rfl
+    refine ⟨x', (h.held_iff hgs _).2 ⟨r, x', List.mem_of_getElem? hx', rfl⟩,
+      (covB_iff hL x' y).1 hcx, h.mem_opened hge (.inl ⟨r, hdt⟩), fun b hb z hz => ?_⟩
     obtain ⟨r2, y2, hy2, rfl⟩ := (h.held_iff hge b).1 hb
-    obtain ⟨n, hn⟩ := List.getElem?_of_mem (h.done_answers (hsub e he).1 r2 hy2)
-    have hlt := (List.getElem?_eq_some_iff.1 hn).1
-    have hle := (hsub e he).2
-    unfold StateOf.len at hle
-    exact h.ev hk (hrd.2 n y2 (by omega) hn z hz)
+    obtain ⟨n2, hn2⟩ := List.getElem?_of_mem (h.done_answers hdt r2 hy2)
+    have hlt2 := lt_of_getElem? hn2
+    unfold StateOf.len at hlt
+    obtain ⟨q, hq⟩ := hfit.2.all n' n2 (by simp only [cntOf, he]; omega)
+    exact h.ev hk (hcov n' q x' t n2 y2 ((hfit.done_of_todo htodo).2 q n' _ hq hlive) he hq
+      hn2 z hz)
   have hside : toGoal (if left then L else Rg) ∈ opened σ := h.mem_opened hgs (.inl ⟨r, hd⟩)
   have push : ∀ a, Held (held σ) (toGoal (if left then L else Rg)) a → ∃ a',
       Held (held σ) (toGoal (if left then L else Rg)) a' ∧
-      den P.sorts.interp a ⊆ den P.sorts.interp a' ∧ ∃ e : Ans D P × Nat × Nat, e.1.span = a' ∧
-      toGoal (pushG D g other kd left e.1) ∈ opened σ ∧
-      ∀ b, Held (held σ) (toGoal (pushG D g other kd left e.1)) b →
-        EvO P (held σ) (toGoal g) (pushedS D kd left e.1.span b) := fun a ha => by
-    obtain ⟨e, -, k1, k2, k3, k4⟩ := key a ha
-    exact ⟨e.1.span, k1, k2, e, rfl, k3, k4⟩
+      den P.sorts.interp a ⊆ den P.sorts.interp a' ∧ ∃ e : Ans D P, e.span = a' ∧
+      toGoal (pushG D g other kd left e) ∈ opened σ ∧
+      ∀ b, Held (held σ) (toGoal (pushG D g other kd left e)) b →
+        EvO P (held σ) (toGoal g) (pushedS D kd left e.span b) := fun a ha => by
+    obtain ⟨e, k1, k2, k3, k4⟩ := key a ha
+    exact ⟨e.span, k1, k2, e, rfl, k3, k4⟩
   cases kd with
   | seq =>
     obtain ⟨xs, i, l, r', hv, h0, hi, hl, hr, rfl, rfl⟩ := hsp
@@ -386,13 +419,13 @@ theorem IsRun.served_push (h : IsRun U σ) {r k : Nat} {g : GoalOf R Rel} {kd : 
       subst ho
       refine .pushL xs i _ _ hv h0 hi hl hr ⟨hside, fun a ha => ?_⟩
       obtain ⟨a', k1, k2, e, rfl, k3, k4⟩ := push a ha
-      exact ⟨e.1.span, k1, k2, k3, k4⟩
+      exact ⟨e.span, k1, k2, k3, k4⟩
     | false =>
       simp only [Bool.false_eq_true, ↓reduceIte] at ho hside push
       subst ho
       refine .pushR xs i _ _ hv h0 hi hl hr ⟨hside, fun a ha => ?_⟩
       obtain ⟨a', k1, k2, e, rfl, k3, k4⟩ := push a ha
-      exact ⟨e.1.span, k1, k2, k3, k4⟩
+      exact ⟨e.span, k1, k2, k3, k4⟩
   | and =>
     obtain ⟨xs, i, x, r', hv, -, hx, hr, rfl, rfl⟩ := hsp
     cases left with
@@ -401,13 +434,13 @@ theorem IsRun.served_push (h : IsRun U σ) {r k : Nat} {g : GoalOf R Rel} {kd : 
       subst ho
       refine .meetL xs i _ _ hv hx hr ⟨hside, fun a ha => ?_⟩
       obtain ⟨a', k1, k2, e, rfl, k3, k4⟩ := push a ha
-      exact ⟨e.1.span, k1, k2, k3, k4⟩
+      exact ⟨e.span, k1, k2, k3, k4⟩
     | false =>
       simp only [Bool.false_eq_true, ↓reduceIte] at ho hside push
       subst ho
       refine .meetR xs i _ _ hv hx hr ⟨hside, fun a ha => ?_⟩
       obtain ⟨a', k1, k2, e, rfl, k3, k4⟩ := push a ha
-      exact ⟨e.1.span, k1, k2, k3, k4⟩
+      exact ⟨e.span, k1, k2, k3, k4⟩
 
 /-- An interface check whose goals are not neglected and never have an
 answer. -/
@@ -473,7 +506,7 @@ theorem IsRun.quiet_of_done (h : IsRun U σ) {k : Nat} : ∀ r, (σ r).isDone k 
       · exact ⟨r + 1, t', ht, hq⟩
 
 /-- **A complete table is served.** -/
-theorem IsRun.served_done (h : IsRun U σ) {r0 k : Nat} {g : GoalOf R Rel}
+theorem IsRun.served_done (hL : D.Lawful P.sorts.interp) (h : IsRun U σ) {r0 k : Nat} {g : GoalOf R Rel}
     (hk : goalAt (σ r0) k = some g) (hd : EvDone σ k) :
     Served D P (opened σ) (held σ) (toGoal g) := by
   obtain ⟨r1, hd1⟩ := hd
@@ -518,21 +551,25 @@ theorem IsRun.served_done (h : IsRun U σ) {r0 k : Nat} {g : GoalOf R Rel}
       ⟨r, c, hst, hok.pending_false.1 hq.1 p q ?_ ?_⟩
     · exact Nat.lt_of_lt_of_le hp (h.done_len hq.2.1 r1)
     · exact Nat.lt_of_lt_of_le hq' (h.done_len hq.2.2 r1)
-  | push kd left side other todo subs =>
+  | push kd left side other subs dead reads c =>
     simp only [Strat.quiet, Strat.pending, Bool.and_eq_true, Bool.not_eq_true',
-      List.all_eq_true] at hq
-    obtain ⟨hpend, ⟨hside, hsome⟩, hall⟩ := hq
-    rw [hside, Bool.true_and] at hpend
-    cases todo with
-    | none => cases hsome
-    | some l =>
-      simp only [Bool.or_eq_false_iff, Bool.not_eq_false', List.isEmpty_iff, List.any_eq_false,
-        decide_eq_true_eq] at hpend
-      obtain ⟨rfl, hread⟩ := hpend
-      exact h.served_push hkr hst hside fun e he => ⟨hall e he, by
-        have := hread e he
-        unfold StateOf.len
-        omega⟩
+      Bool.or_eq_false_iff, decide_eq_false_iff_not, Bool.not_eq_false', List.isEmpty_iff,
+      List.any_eq_false, List.all_eq_true] at hq
+    obtain ⟨⟨⟨hseen, htodo⟩, hread⟩, hside, hall⟩ := hq
+    refine h.served_push hL hkr hst hside (by unfold StateOf.len; omega) htodo
+      fun n x o he hn => ?_
+    have hm : ((x, o), n) ∈ subs.zipIdx := List.mem_zipIdx_iff_getElem?.2 he
+    have a := hall _ hm
+    have b := hread _ hm
+    have hc : dead.contains n = false := by simpa using hn
+    simp only [hc, Bool.false_or, true_and] at a b
+    cases o with
+    | none => cases a
+    | some t =>
+      refine ⟨t, rfl, a, ?_⟩
+      simp only [decide_eq_true_eq] at b
+      unfold StateOf.len
+      omega
   | check left side other c =>
     cases c with
     | reading => simp [Strat.quiet, Strat.pending] at hq
