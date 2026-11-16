@@ -12,7 +12,7 @@ assembles the list.
 
 Where each obligation usually comes from:
 
-* `complete`: `Saturation.Fair.complete` (`Rungs/Framework/Saturation.lean`);
+* `complete`: `Saturation.Saturated.complete` (`Rungs/Framework/Saturation.lean`);
 * `honest`: `Runtime.Tier0Cert.tier0` (`Rungs/Framework/Tier0.lean`);
 * `honestProgress`: `Runtime.HonestProgress.of_never` for an engine that
   emits no certificate (`Rungs/Framework/SameTrace.lean`);

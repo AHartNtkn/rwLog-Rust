@@ -1,5 +1,5 @@
 /-
-# Completeness of any fair schedule
+# Completeness of any run that serves every goal it opens
 
 Every engine that works on the nodes of the normal form keeps, for goals
 `lb ; node ; rb`, the representatives it has found for them, and finds more
@@ -37,19 +37,19 @@ A strategy that pushes need not push every answer: it is enough to push, for
 each answer, one that covers it. So an engine that keeps only the answers no
 other covers is served.
 
-`Fair D P O T` says every goal the run opens is a goal of the normal form
-between boundaries and is served. Then (`Fair.covers`) for every goal the run
+`Saturated D P O T` says every goal the run opens is a goal of the normal form
+between boundaries and is served. Then (`Saturated.covers`) for every goal the run
 opens and every ground relation its node derives, the pairs of the relation
 between the boundaries of the goal are covered by one answer the run holds
 for the goal at some time. The proof is by induction on the depth of the
 derivation and then on the node, so it does not matter that the run split
 its chains and meets otherwise than the derivation did.
 
-Two consequences. A fair run that opens the query holds, for every span the
-query derives, an answer that covers it (`Fair.complete`). And two fair
+Two consequences. A saturated run that opens the query holds, for every span the
+query derives, an answer that covers it (`Saturated.complete`). And two saturated
 runs, whatever their schedules, strategies and splits, have the same answers
 up to coverage on every goal both open, when the answers of the first are
-valid (`Fair.covers_valid`): no schedule finds what another misses.
+valid (`Saturated.covers_valid`): no schedule finds what another misses.
 
 Nothing here is about a machine.
 -/
@@ -178,9 +178,9 @@ inductive Served (D : Domain R) (P : Program) (O : Set (Goal R)) (T : Tables R) 
   boundaries. -/
   | whole (h : ∀ k, ∀ G ∈ GDn P k g.node, (pairs P g G).Nonempty → Ev P T g (pairs P g G))
 
-/-- A fair run: every goal it opens is a goal of the normal form between
+/-- A saturated run: every goal it opens is a goal of the normal form between
 boundaries, and is served. -/
-structure Fair (D : Domain R) (P : Program) (O : Set (Goal R)) (T : Tables R) : Prop where
+structure Saturated (D : Domain R) (P : Program) (O : Set (Goal R)) (T : Tables R) : Prop where
   ok : ∀ g ∈ O, GoalOk D g
   served : ∀ g ∈ O, Served D P O T g
 
@@ -234,9 +234,9 @@ theorem pairs_comp (lb rb : Option R) (l r e : Rel) (G₁ G₂ : GRel) :
       (pairs P ⟨lb, l, none⟩ G₁).comp (pairs P ⟨none, r, rb⟩ G₂) :=
   wrap_comp lb rb G₁ G₂
 
-/-- A fair run covers, for every goal it opens, the pairs of every ground
+/-- A saturated run covers, for every goal it opens, the pairs of every ground
 relation the node of the goal derives. -/
-theorem Fair.covers (hF : Fair D P O T) (k : Nat) :
+theorem Saturated.covers (hF : Saturated D P O T) (k : Nat) :
     ∀ (n : Nat) (g : Goal R), g ∈ O → g.node.size = n → ∀ G ∈ GDn P k g.node,
       (pairs P g G).Nonempty → Ev P T g (pairs P g G) := by
   induction k with
@@ -253,7 +253,7 @@ theorem Fair.covers (hF : Fair D P O T) (k : Nat) :
         exact ihk _ _ ho rfl G hG hne) n ih g hg hn G hG hne
 where
   /-- One node, given the nodes below it and the bodies of calls. -/
-  step (hL : D.Lawful P.sorts.interp) (hF : Fair D P O T) (k : Nat)
+  step (hL : D.Lawful P.sorts.interp) (hF : Saturated D P O T) (k : Nat)
       (hcall : ∀ (g : Goal R) (b : Rel) (G : GRel), Charged.bodyOf P g.node = some b →
         G ∈ GDn P k g.node → (⟨g.lb, b, g.rb⟩ : Goal R) ∈ O →
         (pairs P ⟨g.lb, b, g.rb⟩ G).Nonempty → Ev P T ⟨g.lb, b, g.rb⟩ (pairs P ⟨g.lb, b, g.rb⟩ G))
@@ -461,9 +461,9 @@ where
       exact this.mono (fun q hq => ⟨(hsub hq).2, (hsub hq).1⟩)
     | whole h => exact h k G hG hne
 
-/-- A fair run that opens the query holds, for every span the query
+/-- A saturated run that opens the query holds, for every span the query
 derives, an answer that relates every pair the span relates. -/
-theorem Fair.complete (hF : Fair D P O T) {q : Rel} (hq : (⟨none, q.norm, none⟩ : Goal R) ∈ O)
+theorem Saturated.complete (hF : Saturated D P O T) {q : Rel} (hq : (⟨none, q.norm, none⟩ : Goal R) ∈ O)
     {s : Span} (hs : Derives P q s) (hne : (s.denAt P.sorts.interp).Nonempty) :
     ∃ a, Held T ⟨none, q.norm, none⟩ a ∧ s.denAt P.sorts.interp ⊆ den P.sorts.interp a := by
   obtain ⟨s', hs', he⟩ := derives_norm_iff.2 ⟨s, hs, rfl⟩
@@ -473,9 +473,9 @@ theorem Fair.complete (hF : Fair D P O T) {q : Rel} (hq : (⟨none, q.norm, none
   have := hF.covers hL k _ _ hq rfl s.den hk (by rw [hp]; exact hne)
   rwa [hp] at this
 
-/-- A fair run that opens the query holds, for every pair the query
+/-- A saturated run that opens the query holds, for every pair the query
 relates, an answer that relates it. -/
-theorem Fair.covers_pair (hF : Fair D P O T) {q : Rel}
+theorem Saturated.covers_pair (hF : Saturated D P O T) {q : Rel}
     (hq : (⟨none, q.norm, none⟩ : Goal R) ∈ O) {p : GTerm × GTerm} (hp : p ∈ P.pairs q) :
     ∃ a, Held T ⟨none, q.norm, none⟩ a ∧ p ∈ den P.sorts.interp a := by
   obtain ⟨k, G, hG, hpG⟩ := pairs_gdn hp
@@ -484,8 +484,8 @@ theorem Fair.covers_pair (hF : Fair D P O T) {q : Rel}
   exact ⟨a, ha, hsub (by rw [hpp]; exact hpG)⟩
 
 /-- No schedule finds what another misses: a valid answer of a goal, however
-it was found, is covered by an answer a fair run holds for the goal. -/
-theorem Fair.covers_valid (hF : Fair D P O T) {g : Goal R} (hg : g ∈ O) {a : R}
+it was found, is covered by an answer a saturated run holds for the goal. -/
+theorem Saturated.covers_valid (hF : Saturated D P O T) {g : Goal R} (hg : g ∈ O) {a : R}
     (ha : Valid D P g a) : Ev P T g (den P.sorts.interp a) := by
   obtain ⟨s, hs, he⟩ := ha.2 hL
   obtain ⟨k, hk⟩ := mem_gd_iff.1 (derives_iff_derivesG.1 ⟨s, hs, rfl⟩).1

@@ -19,14 +19,6 @@ that is lawful at well-formed sorts:
   is a field of `Keeps` and holds because there is nothing to be honest
   about.
 
-The fairness bound (`Fair` in `Trusted/Properties.lean`) is not in this
-record. Both of its parts compare ticks, so they are statements about the
-charges of a kernel rung, and the rung engines are judged at is the kernel of
-sorts derived in Rust (`verified/lean/RwLogVerified/SortsRung.lean`). What is
-proved of R005 at every lawful kernel is that every
-pair is covered at some step (`Keeps.pointComplete`); the roadmap row L60
-carries the rest.
-
 Nothing here uses a charge: every statement is about what a run shows.
 -/
 import RwLog.Rungs.R005.Tables
