@@ -47,12 +47,14 @@ most what it has paid and `8 * n + 12` ticks, `n` the size of the input. -/
 theorem rung_direction (hG : RwLog.Good @U) (κ : KernelRung) (A : ArtifactStore) :
     DirectionFree ((rung @U).machine κ A) fun c n => c + (8 * n + 12) :=
   CostedRuntime.oriented_directionFree
+    (C := (engine @U).costedAt κ.dom κ.kernel κ.refines κ.cells)
     (engine_selfConverse (U := @U) (dom := κ.dom) (K := κ.kernel) (hK := κ.refines) κ.lawful hG)
 
 /-- The same within the bound an admission asks (`Admits.direction`). -/
 theorem rung_directionFree (hG : RwLog.Good @U) (κ : KernelRung) (A : ArtifactStore) :
     DirectionFree ((rung @U).machine κ A) (DirBound.fn ⟨12, 1⟩) :=
   CostedRuntime.oriented_directionFree_bound
+    (C := (engine @U).costedAt κ.dom κ.kernel κ.refines κ.cells)
     (engine_selfConverse (U := @U) (dom := κ.dom) (K := κ.kernel) (hK := κ.refines) κ.lawful hG)
 
 /-- Rung 1: the symmetric engine with the raced unfolding. -/

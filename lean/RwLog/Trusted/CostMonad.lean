@@ -6,10 +6,16 @@ and the space, counted in cells of the store.
 
 Space has two numbers. `peak` is the most cells that were live at one moment
 of the computation, above what was live when it started. `held` is the cells
-the computation leaves live when it returns: what it built and handed on.
+the computation allocated and did not abandon: what it built and handed on.
 Running `m` and then `f` peaks at the larger of the peak of `m` and what `m`
 holds plus the peak of `f`, and holds what both hold. An allocation is a
 tick, so no operation of the kernel has a peak above its ticks.
+
+These numbers are about one step of a machine. Within a step nothing is
+given back but what is abandoned (`within`). What is live between two steps
+is what the state of the machine holds, and that is counted from the state
+(`CostedRuntime.live`, `Trusted/Cost.lean`): a cell a step allocated and the
+next state does not hold is not counted after the step.
 
 There is no depth component. The only depth a run has is that of the call
 stack, and the verified kernel keeps its stacks in the store (roadmap L43),

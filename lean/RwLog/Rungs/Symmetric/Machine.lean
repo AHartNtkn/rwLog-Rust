@@ -181,6 +181,7 @@ and whether it would save anything is not measured (design note, section 1).
 -/
 import RwLog.Trusted.Cost
 import RwLog.Rungs.Framework.RaceSpec
+import RwLog.Rungs.Framework.Holding
 import RwLog.Lib.Gfp
 
 namespace RwLog
@@ -1381,12 +1382,82 @@ def init (root : N) : M (StateOf S N A) := do
 
 end
 
+/-! ## What a state holds
+
+Everything in a state is listed (`Rungs/Framework/Holding.lean`): each structure
+through its fields, each alternative behind its number. -/
+
+section Holding
+
+variable {S N A : Type}
+
+attribute [local instance] Pack.node Pack.answer
+
+instance : Pack S N A Kind :=
+  Pack.ofInj (fun k => match k with | .seq => false | .and => true)
+    (fun a b e => by cases a <;> cases b <;> simp_all)
+
+instance : Pack S N A (GoalOf S N) :=
+  Pack.ofInj (fun g => (g.lb, g.node, g.rb)) (fun a b e => by cases a; cases b; simp_all)
+
+instance : Pack S N A Cursor :=
+  Pack.ofInj (fun c => (c.pa, c.pb, c.todo, c.done, c.fed))
+    (fun a b e => by cases a; cases b; simp_all)
+
+instance : Pack S N A Check :=
+  Pack.ofInj (β := Unit ⊕ Unit ⊕ List Nat)
+    (fun c => match c with
+      | .reading => .inl ()
+      | .off => .inr (.inl ())
+      | .opened subs => .inr (.inr subs))
+    (fun a b e => by cases a <;> cases b <;> simp_all)
+
+instance : Pack S N A (Strat N A) :=
+  Pack.ofInj
+    (β := Bool ⊕ (Bool × List (Nat × Nat)) ⊕ (Kind × Nat × Nat × Cursor) ⊕
+      (Kind × Bool × Nat × N × List (A × Option (Nat × Nat)) × Option (List Nat) ×
+        List (Nat × Option Nat) × Cursor × Cursor) ⊕ (Bool × N × N × Check))
+    (fun s => match s with
+      | .span ran => .inl ran
+      | .copy isCall subs => .inr (.inl (isCall, subs))
+      | .join k a b c => .inr (.inr (.inl (k, a, b, c)))
+      | .push k left side other subs dead reads c fc =>
+        .inr (.inr (.inr (.inl (k, left, side, other, subs, dead, reads, c, fc))))
+      | .check left side other c => .inr (.inr (.inr (.inr (left, side, other, c)))))
+    (fun a b e => by cases a <;> cases b <;> simp_all)
+
+instance : Pack S N A (Group N A) :=
+  Pack.ofInj (fun g => (g.level, g.strats, g.owed)) (fun a b e => by cases a; cases b; simp_all)
+
+instance : Pack S N A Race :=
+  Pack.ofInj (fun r => (r.depth, r.spent, r.gaveUp)) (fun a b e => by cases a; cases b; simp_all)
+
+instance : Pack S N A (Table S N A) :=
+  Pack.ofInj
+    (fun t => (t.goal, t.self, t.answers, t.done, t.groups, t.born, t.stamp, t.delta, t.race,
+      t.own, t.rounds, t.fed, t.paths))
+    (fun a b e => by cases a; cases b; simp_all)
+
+instance : Pack S N A (StateOf S N A) :=
+  Pack.ofInj (fun st => (st.tables, st.round, st.shown, st.edges, st.depth))
+    (fun a b e => by cases a; cases b; simp_all)
+
+/-- What a state holds: every table with its goal, its answers and its
+strategies, the edges read, and the counters. -/
+def heldOf (st : StateOf S N A) : Holding S N A := Pack.pack st
+
+theorem heldOf_inj : Function.Injective (heldOf : StateOf S N A → Holding S N A) := Pack.inj
+
+end Holding
+
 /-- The symmetric engine with a given unfolding race. Its first state is the
 table of the root goal alone. -/
 def engine (u : Unfolder) : Engine where
   State := StateOf
   init root := init root
   step st := step u st
+  held := heldOf
+  held_inj _ _ _ := heldOf_inj
 
 end Symmetric
 

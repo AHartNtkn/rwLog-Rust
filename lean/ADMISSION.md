@@ -17,6 +17,38 @@ each kind of win, which resources it covers, what it does not protect)
 describes the rule before this date. `SimulatesBy` remains as the meaning of
 "comparable" in `DirectionFree`.
 
+**Revision, 2026-11-16 (second): space counts what is live, and a win in
+space keeps the time.** Two changes, both asked for by Anthony.
+
+*How space is counted.* Until now a cell, once allocated, was counted for the
+rest of the run, so no rung could show a gain in space by letting go of
+anything. Space is now the most cells live at one moment
+(`CostedRuntime.space`): between two steps the cells of the state the machine
+holds (`CostedRuntime.live`), and during a step those and what the step has
+allocated so far. What a step allocated and its next state does not hold is
+not counted after the step.
+
+*Why an engine cannot understate its state.* An engine does not say how many
+cells its state takes. It lists what the state holds, as the things that are
+counted: representatives, nodes, answers and numbers (`Engine.held`). And it
+proves that two states with the same listing are the same state
+(`Engine.held_inj`). So nothing is in a state that is not in the listing. The
+cells of the listing are counted by the trusted text (`Engine.liveAt`): a
+representative by the size its kernel rung gives it (`KernelRung.cells`, which
+no engine can read), a node by its members, an answer by its representative
+and its goal, a number by one cell and one for each time it can be halved, so
+that nothing can be packed into a number for free. Two things held are counted
+apart though a machine might share a part of both; the count is of the
+listing, and it is the same rule for every rung.
+
+*The space rung.* A rung admitted by a win in space (`Kind.resource = .space`)
+is held to one clause more (`Admits.time`): on every input it covers every
+pair, and halts where the rung below halts, having paid at most
+`Bounds.timeCoeff * (c + n + 1)` ticks, for what the rung below has paid `c`
+and an input of size `n`. So a gain in space is not bought with time. A win
+in time is not held to the space of the rung below: the usual gain in time is
+a table.
+
 ## 1. What had to be decided
 
 Until now a rung was admitted by one hand-picked sequence of inputs on which

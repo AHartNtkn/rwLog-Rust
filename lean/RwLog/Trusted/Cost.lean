@@ -47,6 +47,14 @@ number, and there is one such number for each resource (`Meter`). Time is the
 ticks paid (`Meter.time`) and space is the most cells live at any moment so
 far (`Meter.space`). A comparison is written once, for any resource.
 
+Between two steps the cells that are live are those of the state the machine
+holds (`CostedRuntime.live`); during a step they are those of the state it
+started from and what the step has allocated. So a machine that lets go of
+something uses less from the next step on. An engine does not get to say how
+many cells its state takes: it lists what the state holds and proves that
+the state is determined by the listing (`Engine.held`, `Engine.held_inj`),
+and the cells of the listing are counted here (`Engine.liveAt`).
+
 ## Comparing two machines
 
 `SimulatesBy μ Old New p`: every pair is covered by `New` having used at most
@@ -147,7 +155,9 @@ within a constant factor that its specification writes out. It loses no
 halting: it halts on every input on which its predecessor halts. And the cost
 of a relation forward and backward is comparable: its cost does not depend
 on direction, within a polynomial whose numerals its specification writes
-out. A separation with other functions does not admit it, and neither does a
+out. And a rung admitted by a win in space gives up no time for it: on every
+input it covers every pair, and halts where its predecessor halts, within a
+written factor of what its predecessor has paid. A separation with other functions does not admit it, and neither does a
 gain on a sequence of inputs that is not a class, a gain that holds only
 when the input is the whole program, an improvement that holds from one end
 only, or a gain that gives back a win of an earlier rung.
@@ -183,6 +193,8 @@ structure CostedRuntime where
   State : Type
   init : Program → Rel → Cost State
   step : State → Cost (StepOf Ans State)
+  /-- The cells of a state: what the machine holds between two steps. -/
+  live : State → Nat
 
 attribute [instance] CostedRuntime.answer
 
@@ -214,13 +226,15 @@ def spent : C.State → Nat → Nat
 first state, and the steps. -/
 def paid (P : Program) (q : Rel) (n : Nat) : Nat := (C.init P q).ticks + C.spent (C.start P q) n
 
-/-- The most cells live at one moment of the first `n` steps, above what was
-live when they started. It is the peak of the steps run one after the other
-(`Cost.bind_peak`). -/
+/-- The most cells live at one moment of the first `n` steps from the state
+`s`. Between two steps the cells of the state are live (`live`). While a step
+runs, the cells of the state it started from are live and so is what the step
+has allocated (its `peak`). What a step allocated and its next state does not
+hold is live no longer when the step is over. -/
 def peakFrom : C.State → Nat → Nat
-  | _, 0 => 0
+  | s, 0 => C.live s
   | s, n + 1 =>
-    max (C.step s).peak ((C.step s).held + match (C.step s).val with
+    max (C.live s + (C.step s).peak) (match (C.step s).val with
       | .emit _ s' => peakFrom s' n
       | .progress _ s' => peakFrom s' n
       | .done _ => 0)
@@ -228,16 +242,16 @@ def peakFrom : C.State → Nat → Nat
 /-- The space used on `q` by the end of the first `n` steps: the most cells
 live at one moment, counting the building of the first state. -/
 def space (P : Program) (q : Rel) (n : Nat) : Nat :=
-  max (C.init P q).peak ((C.init P q).held + C.peakFrom (C.start P q) n)
+  max (C.init P q).peak (C.peakFrom (C.start P q) n)
 
 theorem peakFrom_mono (s : C.State) (n : Nat) : C.peakFrom s n ≤ C.peakFrom s (n + 1) := by
   induction n generalizing s with
-  | zero => exact Nat.zero_le _
+  | zero => exact (Nat.le_add_right _ _).trans (le_max_left _ _)
   | succ n ih =>
     simp only [peakFrom]
     cases (C.step s).val with
-    | emit _ s' => exact max_le_max le_rfl (Nat.add_le_add_left (ih s') _)
-    | progress _ s' => exact max_le_max le_rfl (Nat.add_le_add_left (ih s') _)
+    | emit _ s' => exact max_le_max le_rfl (ih s')
+    | progress _ s' => exact max_le_max le_rfl (ih s')
     | done _ => exact le_rfl
 
 /-- The space used never shrinks as the run goes on. -/
@@ -246,7 +260,7 @@ theorem space_mono (P : Program) (q : Rel) {n m : Nat} (h : n ≤ m) :
   induction h with
   | refl => exact le_rfl
   | step _ ih =>
-    exact ih.trans (max_le_max le_rfl (Nat.add_le_add_left (C.peakFrom_mono _ _) _))
+    exact ih.trans (max_le_max le_rfl (C.peakFrom_mono _ _))
 
 end CostedRuntime
 
@@ -282,7 +296,8 @@ abbrev Meter := (C : CostedRuntime) → Program → Rel → Nat → Nat
 /-- Time: the ticks paid. -/
 def Meter.time : Meter := fun C => C.paid
 
-/-- Space: the most cells live at any moment so far. -/
+/-- Space: the most cells live at any moment so far. A cell a machine has
+let go of is not counted from the end of the step in which it let go. -/
 def Meter.space : Meter := fun C => C.space
 
 namespace CostedRuntime
@@ -344,6 +359,7 @@ def mirror : CostedRuntime where
   init P q := C.init P.dual q.dual
   step s := ⟨(C.step s).val.swap, (C.step s).ticks, (C.step s).peak, (C.step s).held,
     (C.step s).held_le⟩
+  live := C.live
 
 /-- `C` run on the converse of the query, with every answer swapped back: a
 machine for the original query. -/
@@ -353,6 +369,7 @@ def conv : CostedRuntime where
   init P q := C.init P (.conv q)
   step s := ⟨(C.step s).val.swap, (C.step s).ticks, (C.step s).peak, (C.step s).held,
     (C.step s).held_le⟩
+  live := C.live
 
 end CostedRuntime
 
@@ -597,6 +614,9 @@ structure Bounds where
   /-- The bound in context. -/
   ctxCoeff : Nat
   ctxDeg : Nat
+  /-- For a win in space: the factor within which the time of the rung below
+  is kept. The other kinds do not use it. -/
+  timeCoeff : Nat := 1
 
 namespace Bounds
 
@@ -643,14 +663,30 @@ is written once for every derivation kernel (`Trusted/Kernel.lean`), and its
 cost is what that text spends at a kernel. It is handed the root node of the
 normal form of the query, and what it emits are answers of the kernel. -/
 
+/-- What a state holds, as the things that are counted: representatives,
+nodes, answers and numbers. -/
+structure Holding (S N A : Type) where
+  reps : List S
+  nodes : List N
+  answers : List A
+  words : List Nat
+
 /-- A machine written against an arbitrary derivation kernel: its states over
 types of spans, nodes and answers, how it builds its first state from the
-root node, and its step. -/
+root node, and its step.
+
+An engine does not get to say how much space its state takes. It says what
+its state holds (`held`), and the state is determined by that (`held_inj`):
+two states that hold the same are the same state. So there is nothing in a
+state that is not counted, and an engine uses less space only by holding
+less. -/
 structure Engine where
   State : Type → Type → Type → Type
   init : {S N A : Type} → {M : Type → Type} → [DerivationKernel S N A M] → N → M (State S N A)
   step : {S N A : Type} → {M : Type → Type} → [DerivationKernel S N A M] →
     State S N A → M (StepOf A (State S N A))
+  held : {S N A : Type} → State S N A → Holding S N A
+  held_inj : ∀ (S N A : Type), Function.Injective (@held S N A)
 
 /-- The state of an engine at a kernel of a constraint domain `dom`, whose
 type of representatives `R S` depends on the sorts: the program, the root
@@ -683,6 +719,38 @@ def Engine.report (E : Engine) {R : Sorts → Type} [∀ S, Answer (R S)] [∀ S
     Cost.tick final.length
     pure (.done ((final.filterMap (Ans.rootSpan root)).map (Sigma.mk P.sorts)))
 
+/-- The cells of a number a state holds: one, and one for each time it can
+be halved. -/
+def wordCells (w : Nat) : Nat := 1 + Nat.log2 w
+
+/-- The cells of a node a state holds: its identifier, and one for each of
+its members. -/
+def Charged.nodeCells (n : Rel) : Nat := 1 + Charged.members n.view
+
+/-- The cells of a boundary, for representatives of `cells` cells: nothing
+for an absent one. -/
+def boundCells {R : Type} (cells : R → Nat) : Option R → Nat
+  | none => 0
+  | some r => cells r
+
+/-- The cells of an answer a state holds, for representatives of `cells`
+cells: its representative, and its goal. -/
+def Ans.cells {R : Type} [Answer R] {D : Domain R} {P : Program} (cells : R → Nat)
+    (a : Ans D P) : Nat :=
+  cells a.span + boundCells cells a.goal.lb + Charged.nodeCells a.goal.node +
+    boundCells cells a.goal.rb
+
+/-- The cells of a state of an engine, for representatives of `cells` cells:
+the program and the root node, and everything the engine's own state holds
+(`Engine.held`). Two things held are counted apart, though a machine might
+hold a part of both once. -/
+def Engine.liveAt (E : Engine) {R : Sorts → Type} [∀ S, Answer (R S)]
+    (dom : ∀ S, Domain (R S)) (cells : ∀ S, R S → Nat) (s : E.StateAt dom) : Nat :=
+  s.P.size + s.root.size + ((E.held s.st).reps.map (cells s.P.sorts)).sum +
+    ((E.held s.st).nodes.map Charged.nodeCells).sum +
+    ((E.held s.st).answers.map (Ans.cells (cells s.P.sorts))).sum +
+    ((E.held s.st).words.map wordCells).sum
+
 /-- The engine at a constraint domain and a kernel that returns what the
 domain returns: a machine with the cost that kernel charges. The type of
 representatives, the domain and its kernel are given for the sorts of each
@@ -693,9 +761,14 @@ the machine is a representative with the sorts it is a representative for
 
 Building the first state brings the program and the query to their normal
 form (`Charged.load`) and runs the engine's `init` on the root node. A step
-is the engine's step, reported by `Engine.report`. -/
+is the engine's step, reported by `Engine.report`.
+
+The cells of a state are counted with representatives of `cells` cells
+(`Engine.liveAt`). Where no size of a representative is given, each counts
+one cell. -/
 def Engine.costedAt (E : Engine) {R : Sorts → Type} [∀ S, Answer (R S)] [∀ S, DecidableEq (R S)]
-    (dom : ∀ S, Domain (R S)) (K : ∀ S, Kernel (R S) Cost) (hK : ∀ S, (K S).Refines (dom S)) :
+    (dom : ∀ S, Domain (R S)) (K : ∀ S, Kernel (R S) Cost) (hK : ∀ S, (K S).Refines (dom S))
+    (cells : ∀ S, R S → Nat := fun _ _ => 1) :
     CostedRuntime where
   Ans := (S : Sorts) × R S
   State := E.StateAt dom
@@ -708,11 +781,12 @@ def Engine.costedAt (E : Engine) {R : Sorts → Type} [∀ S, Answer (R S)] [∀
     @Engine.step E (R s.P.sorts) Rel (Ans (dom s.P.sorts) s.P) Cost
       (DerivationKernel.over (dom s.P.sorts) (K s.P.sorts) (hK s.P.sorts) s.P) s.st >>=
       E.report dom s.P s.root
+  live := E.liveAt dom cells
 
 /-- The engine at a kernel rung: a machine with the cost that rung
-charges. -/
+charges, and representatives of the size that rung gives them. -/
 def Engine.costed (E : Engine) (κ : KernelRung) : CostedRuntime :=
-  E.costedAt κ.dom κ.kernel κ.refines
+  E.costedAt κ.dom κ.kernel κ.refines κ.cells
 
 /-! ## One orientation of the input
 
@@ -798,6 +872,7 @@ def CostedRuntime.oriented (C : CostedRuntime) : CostedRuntime where
   step s := do
     let r ← C.step s.2
     pure (r.shownAs s.1)
+  live s := 1 + C.live s.2
 
 /-! ## Whole rungs
 
@@ -836,6 +911,7 @@ def machine (A : ArtifactStore) : CostedRuntime where
   init P q := (G.rt κ).init (Preprocessor.runAll κ G.pre A P q).val.1
     (Preprocessor.runAll κ G.pre A P q).val.2.1
   step := (G.rt κ).step
+  live := (G.rt κ).live
 
 end CostedRung
 
@@ -877,7 +953,12 @@ def Win.KeptBy (w : Win) (M : CostedRuntime) (c : Nat) : Prop :=
 the given kind, over the wins on `record`: it advances on `Old`; whatever the
 artifact store, it halts on every input on which `Old` halts, its cost does
 not depend on direction, within the polynomial `d`, and it keeps every win on
-the record within the factor `keep`. -/
+the record within the factor `keep`.
+
+A rung admitted by a win in space gives up no time for it: on every input it
+covers every pair, and halts where `Old` halts, having paid at most
+`b.timeCoeff` times what `Old` has paid and the size of the input
+(`time`). -/
 structure Admits (κ : KernelRung) (kind : Kind) (Old New : CostedRung) (b : Bounds)
     (d : DirBound) (pre : Nat → Nat) (C : ProgClass) (record : List Win) (keep : Nat) : Prop
     extends Advances κ kind Old New b pre C where
@@ -885,5 +966,7 @@ structure Admits (κ : KernelRung) (kind : Kind) (Old New : CostedRung) (b : Bou
     (New.machine κ A).runtime.Terminates P q
   direction : ∀ A, DirectionFree (New.machine κ A) d.fn
   keeps : ∀ A, ∀ w ∈ record, w.KeptBy (New.machine κ A) keep
+  time : kind.resource = .space → ∀ A,
+    Simulates (Old.machine κ A) (New.machine κ A) fun c n => b.timeCoeff * (c + n + 1)
 
 end RwLog

@@ -141,10 +141,12 @@ theorem Kernel.Refines.pure_eq {S : Type} [Answer S] [DecidableEq S] {D : Domain
   rw [h.monad]
 
 /-- A kernel rung: for the sorts of each program, a type of representatives,
-a constraint domain on it that is lawful when the sorts are well formed, and
-a kernel that returns what the domain returns. Which values are canonical
-depends on the sorts declared, so one type for every program could not
-satisfy the laws of a domain. -/
+a constraint domain on it that is lawful when the sorts are well formed, a
+kernel that returns what the domain returns, and the number of cells a
+representative takes while a machine holds it (`cells`). Which values are
+canonical depends on the sorts declared, so one type for every program could
+not satisfy the laws of a domain. No engine can read `cells`: it is no
+operation of the kernel. -/
 structure KernelRung where
   Rep : Sorts → Type
   [answer : ∀ S, Answer (Rep S)]
@@ -152,6 +154,7 @@ structure KernelRung where
   dom : ∀ S, Domain (Rep S)
   kernel : ∀ S, Kernel (Rep S) Cost
   refines : ∀ S, (kernel S).Refines (dom S)
+  cells : ∀ S, Rep S → Nat
   lawful : ∀ S : Sorts, S.WellFormed → (dom S).Lawful S.interp
 
 attribute [instance] KernelRung.answer KernelRung.decEq
