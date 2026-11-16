@@ -12,11 +12,6 @@ that gives, for any machine.
   chosen is its own converse.
 * The program and the node chosen from a well-formed input are first-order
   (`progFO_orient`, `fo_orient_root`).
-* So if a machine shows, on first-order input with a root that is its own
-  converse, at every step a
-  set of answers that is its own converse (`CostedRuntime.SelfConverse`),
-  then run on one orientation it has `ConvTrace` and `DualTrace`
-  (`CostedRuntime.oriented_convTrace`, `CostedRuntime.oriented_dualTrace`).
 * On an input and on its mirror image it pays the same ticks, step for step
   (`CostedRuntime.oriented_paid_dual`), with nothing asked of the machine.
 -/
@@ -335,52 +330,6 @@ theorem oriented_spent (b : Bool) : ∀ (n : Nat) (s : C.State),
       rw [C.oriented.spent_succ_progress hs', C.spent_succ_progress hs, oriented_step_ticks,
         oriented_spent b n s']
 
-/-- On first-order input with a root that is its own converse the machine
-shows, at every step, a
-set of answers that is its own converse. This is what the choice of one
-orientation leaves to the machine. -/
-def SelfConverse : Prop :=
-  ∀ (P : Program) (root : Rel), P.sorts.WellFormed → ProgFO P → Normal root → root.FO →
-    root.normConv = root →
-    ∀ n, TraceEquiv P.sorts.interp (C.runtime.trace (C.start P root) n)
-      ((C.runtime.trace (C.start P root) n).map Shown.swap)
-
-variable {C}
-
-theorem traceEquiv_swap_swap {A : Type} [Answer A] (M : Interp) (t : List (Shown A)) :
-    TraceEquiv M t ((t.map Shown.swap).map Shown.swap) := by
-  rw [List.map_map]
-  refine List.forall₂_map_right_iff.2 (List.forall₂_same.2 fun x _ => ?_)
-  cases x with
-  | answers xs => exact (StepEquiv.swap_swap M xs).symm
-  | level n => exact rfl
-  | final xs => exact (StepEquiv.swap_swap M xs).symm
-
-/-- Two choices, one the other way round from the other, show runs that are
-each the other swapped. -/
-theorem trace_of_mirrors (hS : C.SelfConverse) {P : Program} (hP : P.sorts.WellFormed)
-    {o o' : Oriented} (h : o.Mirrors o') (ho : o.P.sorts = P.sorts) (hfP : ProgFO o.P)
-    (hN : Normal o.root) (hfo : o.root.FO) (n : Nat) :
-    TraceEquiv P.sorts.interp (C.oriented.runtime.trace (o'.swap, C.start o'.P o'.root) n)
-      ((C.oriented.runtime.trace (o.swap, C.start o.P o.root) n).map Shown.swap) := by
-  obtain ⟨hPe, hre, hsw⟩ := h
-  rw [oriented_trace, oriented_trace, hPe, hre]
-  rcases hsw with hsw | ⟨hsw, hself⟩
-  · rw [hsw]
-    cases o.swap
-    · rw [Bool.not_false, map_shownAs_true, map_shownAs_false]
-      exact TraceEquiv.refl _
-    · rw [Bool.not_true, map_shownAs_true, map_shownAs_false]
-      exact traceEquiv_swap_swap _ _
-  · rw [hsw]
-    have hT := hS o.P o.root (ho ▸ hP) hfP hN hfo hself n
-    rw [ho] at hT
-    cases o.swap
-    · rw [map_shownAs_false]
-      exact hT
-    · rw [map_shownAs_true]
-      exact hT.symm.trans (traceEquiv_swap_swap _ _)
-
 end CostedRuntime
 
 theorem normal_pick_root (Pn : Program) {f : Rel × Bool} {r : List (Rel × Bool)}
@@ -468,24 +417,6 @@ theorem fo_orient_root {P : Program} {q : Rel} (wf : P.WellFormed q) : (orient P
 namespace CostedRuntime
 
 variable {C : CostedRuntime}
-
-/-- **The converse of a query, on one orientation.** A machine that shows
-sets of answers that are their own converse on a root that is its own
-converse has, run on one orientation of its input, the run on the converse
-of a query as the run on the query with every answer swapped, step for
-step. -/
-theorem oriented_convTrace (hS : C.SelfConverse) : C.oriented.runtime.ConvTrace :=
-  fun P q n hwf =>
-    trace_of_mirrors hS hwf.2.2.1 (orient_conv P q) (orient_sorts P q) (progFO_orient hwf)
-      (normal_orient_root P q) (fo_orient_root hwf) n
-
-/-- **The mirror image, on one orientation.** The same machine has the run
-on the mirrored query in the mirrored program as the run on the query with
-every answer swapped, step for step. -/
-theorem oriented_dualTrace (hS : C.SelfConverse) : C.oriented.runtime.DualTrace :=
-  fun P q n hwf =>
-    trace_of_mirrors hS hwf.2.2.1 (orient_dual P q) (orient_sorts P q) (progFO_orient hwf)
-      (normal_orient_root P q) (fo_orient_root hwf) n
 
 /-- **The mirror image costs the same.** Run on one orientation, any machine
 pays on the mirrored query in the mirrored program exactly what it pays on

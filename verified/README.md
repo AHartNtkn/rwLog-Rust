@@ -149,8 +149,8 @@ representatives. `sortsRung` (`RwLogVerified/SortsRung.lean`) is the rung
 engines are judged at: the kernel of the sorts below, at a fixed naming of
 the symbols, the names of the sorts in order, and the least bounds on what is
 reachable in the sorts. Each of its operations is realised by the Rust
-function of its name (`rung_compose_realised` and its siblings), and R005
-keeps every property at it (`r005_keeps`). The kernel of spans as written,
+function of its name (`rung_compose_realised` and its siblings), and rung 1
+has the laws at it (`rung1_lawful`). The kernel of spans as written,
 which was not lawful, is deleted with its realisation theorems.
 
 `sortsKernel nm S U rc q` (`RwLogVerified/SortsKernel.lean`) is a

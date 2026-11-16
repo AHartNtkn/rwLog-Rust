@@ -7,7 +7,7 @@ of every lawful domain (`Good`): building the whole unfolding
 evaluation (`good_sharedRace`), and two of them side by side (`UOk.race`), so
 the left-to-right walk raced with the shared evaluation (`good_walkShared`)
 and those raced with the right-to-left walk (`good_raced`), which is the race
-of R004 and R005.
+rung 1 uses.
 
 A race returns what one of its two sides returns (`Cost.race_val`), which is
 all that is used of it here.
@@ -67,7 +67,7 @@ theorem good_walkShared : Good Unfold.walkShared := by
   rw [e]
   exact h
 
-/-- The race of R004 and R005 meets the specification. -/
+/-- The race of all three ways meets the specification. -/
 theorem good_raced : Good Unfold.raced := by
   intro R _ _ D P K hK hL hP
   have h := (good_walkShared D P K hK hL hP).race (Unfold.walkRace_ok hL K hK hP true)

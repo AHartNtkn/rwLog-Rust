@@ -1,9 +1,8 @@
 /-
 # The unfolding race
 
-Every incomplete table of the tabled machine (`Rungs/Tabled/Machine.lean`)
-asks once a round whether its goal's *unfolding* to the depth of the round is
-final, and for the goal's answers if it is. This file has the three ways the
+A machine that tables may ask, of a table that is not complete, whether its
+goal's *unfolding* to the depth of the round is final, and for the goal's answers if it is. This file has the three ways the
 question is answered and the races between them. All are written against the
 derivation kernel, so their answers are answers of the goal made by its
 rules.

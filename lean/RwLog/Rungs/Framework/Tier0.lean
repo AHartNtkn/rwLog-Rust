@@ -100,13 +100,6 @@ theorem sound_of_refines
   rw [hr']
   exact hs.denAt_subset _
 
-/-- Answers that each refine the span of a derivation are
-derivation-general. -/
-theorem derivationGeneral_of_refines
-    (h : ∀ P q, P.WellFormed q → ∀ n, ∀ a ∈ R.emitted (R.init P q) n,
-      ∃ s, Derives P q s ∧ Answer.Refines P.sorts.interp a s) : R.DerivationGeneral :=
-  fun P q hP a ⟨n, ha⟩ => h P q hP n a ha
-
 /-- Completeness gives completeness pair by pair. -/
 theorem Complete.pointwise (h : R.Complete) : R.PointComplete := by
   intro P q hP p hp

@@ -23,7 +23,8 @@ spends over the ways its arguments can be held (`most`,
 `RwLogVerified/DomChain.lean`).
 -/
 import RwLogVerified.SortsKernel
-import RwLog.Rungs.R005.Sorts
+import RwLog.Rungs.Symmetric.Rung
+import RwLog.Sorts.Dom
 
 open Aeneas Aeneas.Std Result
 
@@ -147,10 +148,7 @@ theorem rung_composable_realised (hC : Ctx naming S sp (sortNames S)) (hN : Sort
 
 end Realised
 
-/-- **R005 at the kernel engines are judged at keeps every property, and
-halts where R001 halts.** -/
-theorem r005_keeps :
-    (R005.engine.costed sortsRung).runtime.Keeps (R001.engine.costed sortsRung).runtime :=
-  R005.keeps_rung sortsRung
+/-- **Rung 1 has the laws at the kernel rung engines are judged at.** -/
+theorem rung1_lawful : Symmetric.rung1.Lawful sortsRung := Symmetric.rung1_lawful sortsRung
 
 end RwLogVerified

@@ -3,20 +3,12 @@
 The development is layered so that a new rung proves only what is new about
 its machine.
 
-**Master is between epochs.** Epoch 1 of the ladder (rungs R000 to R005, on
-the size-charged cost model) is frozen at the git tag `epoch-1`; `EPOCH1.md`
-says what its theorems are about. The directories `Rungs/R000` to `Rungs/R004`,
-their tests and every proof of epoch 1 exist only at the tag. Master has the
-specification, the kernel, the shared libraries, the constraint domain of
-sorts (`Sorts/`), and R005 as the yardstick the next engine is measured
-against: its machine written once against the derivation kernel
-(`Rungs/Tabled/`, `Rungs/Mirror/`, `Rungs/R005/Engine.lean`), its kept
-properties at every kernel that refines a lawful constraint domain
-(`Rungs/R005/Keeps.lean`) and at the domain of sorts with no hypothesis left
-(`Rungs/R005/Sorts.lean`), the lower bounds a separation from it will need,
-stated (`Rungs/R005/Bounds.lean`), and its manifest (`Manifest/R005.lean`).
-Nothing is re-proved about how R005 or its predecessors were admitted: those
-theorems are at the tag. No file is out of the build.
+The engine on master is rung 1, the symmetric engine (`Rungs/Symmetric/`). It
+has the three laws and is the base of the ladder (`Symmetric.rung1_lawful`,
+`rung1_ladder`, `Manifest/Rung1.lean`). Master also has the specification,
+the kernel, the shared libraries and the constraint domain of sorts
+(`Sorts/`). The machines before it are in the history
+(see "Where the earlier machines went"). No file is out of the build.
 
 ```
 Trusted/        the specification: syntax with sort declarations, semantics (what a sort
@@ -29,7 +21,7 @@ Trusted/        the specification: syntax with sort declarations, semantics (wha
                 the cost monad (CostMonad.lean),
                 the charged primitives on nodes (Charged.lean), the kernel an engine is
                 written against and what a kernel rung is (Kernel.lean),
-                and the cost model (Cost.lean) by which rungs from R002 on are judged:
+                and the cost model (Cost.lean) by which rungs are judged:
                 cost is coverage latency, the ticks until an emitted answer covers a
                 ground pair, and never depends on a query halting
 Kernel/         the executable kernel of spans as written (match, solve, span) and its proofs;
@@ -39,24 +31,11 @@ Kernel/         the executable kernel of spans as written (match, solve, span) a
                 (DomainLaws.lean)
 SpanLayer/      span-level semantics, derivations, coverage vocabulary
 Lib/            facts about lists and greatest fixpoints that mention no rwlog type
-Rungs/Framework generic theorems about any Runtime / Rung; and the unfolding race, which
-                more than one machine hosts: what a race is and its specification
-                (RaceSpec.lean), the ways R005 races, written once against the
-                derivation kernel: unfolding to a depth, a walk between boundaries, and
-                the walk with shared sub-chains (Unfold.lean), and the proofs that each
-                meets the specification and says exactly what the unfolding is
-                (Unfolding/)
-Rungs/Tabled/   the tabled round machine for any unfolding race (Machine.lean), written
-                once, against the
-                derivation kernel. The rest is what is proved of it: the round and its
-                invariant, completeness and honesty (Correct.lean), that it runs the same
-                on a converse, on the mirrored program and with any exact race
-                (Symmetry.lean), that a table done in one run is done in a run that asks
-                for its goal (Host.lean), the empty side (EmptySide.lean), and the same
-                for the mirrored machine (Mirrored.lean, MirrorKeeps.lean)
-Rungs/Mirror/   a machine run on a query and on its converse side by side, for any engine
-                (Machine.lean); what a step of it shows (Trace.lean) and what it costs
-                from below (Bounds.lean)
+Rungs/Framework generic theorems about any Runtime / Rung; and the unfolding race: what a
+                race is and its specification (RaceSpec.lean), the ways of unfolding,
+                written once against the derivation kernel: unfolding to a depth, a walk
+                between boundaries, and the walk with shared sub-chains (Unfold.lean), and
+                the proofs that each meets the specification (Unfolding/)
 Rungs/Symmetric/ the symmetric engine of `SYMMETRIC_ENGINE.md` (Machine.lean): a table for
                 every goal, every split of a chain and of a meet as a group of strategies
                 (join, push from either side), groups balanced by their levels, one
@@ -64,7 +43,7 @@ Rungs/Symmetric/ the symmetric engine of `SYMMETRIC_ENGINE.md` (Machine.lean): a
                 bounded work (`turn`: `turnTicks` ticks times its `weight`, one more than
                 the number of strategies upstream of the tables it reads), does one
                 unit at a time, and owes in later turns what its last unit cost beyond
-                the turn (`Group.owed`), so a turn costs at most what it was given and one unit more (Bounded.lean, `turn_ticks`); and beside the groups of a chain goal an unfolding race
+                the turn (`Group.owed`); and beside the groups of a chain goal an unfolding race
                 (`askRace`; `engine` takes the `Unfolder`), asked at the end of a round of
                 the goal at its next depth with what is left of the rounds and work of
                 the goal as its limit (`Kernel.within`, `Trusted/Kernel.lean`): an ask
@@ -72,22 +51,14 @@ Rungs/Symmetric/ the symmetric engine of `SYMMETRIC_ENGINE.md` (Machine.lean): a
                 as much is left; a final verdict completes the table. A level rises by what was spent, and the engine charges
                 itself one tick for a unit of work that did something, so a group that
                 worked has risen at every kernel (`workGroup_did`). The table of a
-                goal that is its own converse holds the converse of everything it holds;
-                with the choice of one orientation where the input is loaded
-                (`CostedRuntime.oriented`, `Trusted/Cost.lean`) that is what makes the run
-                on the mirror image the run swapped. Proved so far: an answer enters a
-                table by `addAnswer` and in no other way (Invariant.lean, `Reach`), and on
-                a root that is its own converse every step shows answers that are their
-                own converses rearranged (SelfConverse.lean, `selfConverse_of`), given
-                that every answer of the root table is an answer of the root goal; the
+                goal that is its own converse holds the converse of everything it holds
+                (SelfConverse.lean, `root_reach`). Proved so far: an answer enters a
+                table by `addAnswer` and in no other way (Invariant.lean, `Reach`); the
                 invariant that every answer of a table is an answer of the goal of the
                 table and every strategy fits its goal (Goals.lean, `Inv`; kept by a
                 request as part of `Good`, Kept.lean, since an answer of a race is an
                 answer of its goal by the specification of the race, on first-order
-                input), which gives that condition (Correct.lean, `engine_selfConverse`),
-                so the engine run on one orientation has
-                `ConvTrace` and `DualTrace` (`Symmetric.oriented_convTrace`,
-                `Symmetric.oriented_dualTrace`). A complete table never changes again, and
+                input). A complete table never changes again, and
                 nothing nested in the round of a table completes it (Rounds.lean, `Keep`,
                 `stable_request`). The interface check (a chain goal is
                 complete with no answer when the other side fails under every interface
@@ -137,7 +108,7 @@ Rungs/Symmetric/ the symmetric engine of `SYMMETRIC_ENGINE.md` (Machine.lean): a
                 each unit of that cursor is taken, with its table settled, or is of an
                 answer superseded, or is nearer to its turn (`FedP`, `turn_feedToks`), so
                 the table opened for an answer never superseded is settled again and again
-                (Settle.lean, `Line.push_fed`); and an edge is read in the end, from a depth that the node
+                (Turns.lean); and an edge is read in the end, from a depth that the node
                 and the program give (ReadLive.lean, `readEdge_some`); and of a table that
                 has rounds for ever every strategy of every group works for ever, since
                 what it owes cannot fall for ever, with as many groups from
@@ -154,74 +125,23 @@ Rungs/Symmetric/ the symmetric engine of `SYMMETRIC_ENGINE.md` (Machine.lean): a
                 when it reports that it is done, and emits no progress certificate
                 (Correct.lean, `Symmetric.complete`, `honestExhaustion`,
                 `honestProgress`); no answer of a table covers a later one, and the final report is the
-                maximal emitted answers (`finalMaximal`). Towards halting:
-                what an edge reads is a fact of the program, whatever the depth and the
-                kernel (EdgeSame.lean, `Reads.unique`), and every check records it
-                (`Prog`); the groups of a goal have a strategy for every way to answer it
-                (Progress.lean, `Full`, kept by a request in `Good`); a join that has
-                combined every pair has nothing left to combine (`SStep.join`,
-                `Cursor.Ok.pending_false`); a group that works for ever runs out of work once the
-                tables it reads gain no more answers (Settle.lean, `Line.copy_read`,
-                `Line.join_done`, `Line.push_done`, `Line.check_read`); and a goal whose
-                table is complete in one run of requests has a complete table in every run
-                that does not neglect it (Transfer.lean, `IsRun.transfer`). That is a case
-                of a statement with no first run in it: goals with a certificate that they
-                complete (`Cert`: finitely many goals in an order, answers that cover each,
-                and for each a rule that completes it from goals standing no higher, or
-                that every run completes it) are completed by every run
-                (`Cert.completes`). A goal whose unfolding is final at some depth is
-                completed by every run (Final.lean, `final_completes`); so a side
-                that halts with no answer makes `;` and `&` halt (EmptySide.lean,
-                `Symmetric.emptySide`): a goal completes once a void side of one of its
-                splits does (`IsRun.done_of_side`), a chain is split where the side ends,
-                and the other members of a meet are taken away one at a time
-                (`IsRun.meet_ladder`). The complete tables of the tabled machine are a
-                certificate (FromTabled.lean, `tabled_cert`), so the engine halts wherever
-                the mirrored tabled machine with the same exact race halts, which with the
-                raced unfolding is R005 (`Symmetric.terminatesWhere`). A side that halts
-                and relates nothing makes `;` and `&` halt (`Symmetric.voidSide`). The
-                engine halts on an input exactly when it halts on the input chosen for it
-                (SameHalt.lean, `Symmetric.sameHalt`): a certificate of completion whose
-                leaves are final unfoldings (Transfer.lean, `FCert`, which the complete
-                tables of a run are, `IsRun.fcert`) is carried along a link of two programs
-                (Mirror.lean, `Mirror`, `FCert.map`, `Mirror.done`), for the converse, the
-                mirrored program and the program with its bodies in normal form; what an
-                edge reads is written with no kernel in it (EdgePure.lean, `reads_iff`) and
-                on the image of a node the reading is among the images of what the node
-                reads (EdgeMirror.lean, `reads_nmap`); and a root completes if each of its
-                members as a union is a member of a root that completes (`done_members`).
-                So the engine run on one orientation keeps every property of `Keeps` and
-                halts wherever the tabled machine of any exact race halts, R001 with the
-                raced unfolding (Keeps.lean, `Symmetric.oriented_keeps`,
-                `oriented_keeps_R001`). Not proved yet: the cost bound. A goal and its converse do not share a
-                table (not owed by any property; billboard SIM12)
-Rungs/Naive/    normalisation, unfolding to a depth, and their correctness (namespace `R000`)
-Rungs/R005/     the engines: `R001.engine` (tables, unfolding to a depth), `R004.engine` (tables,
-                the race of all three ways), `R005.engine` (`R004.engine` mirrored);
-                what they keep (Tables.lean, Keeps.lean, Sorts.lean) and the stated lower
-                bounds (Bounds.lean)
+                maximal emitted answers (`finalMaximal`). So the engine has the three laws
+                (`Symmetric.pointComplete`, `Symmetric.laws`), and with no rewrite before it
+                it is a rung that has them at every kernel rung and the base of a ladder
+                (Rung.lean, `Symmetric.rung_lawful`, `rung_ladder`; `rung1` is the one with
+                the raced unfolding). Not proved yet: any bound on its cost.
 Sorts/          the constraint domain of sorts and the proof that it is lawful
-Manifest/       R005's manifest: headline statements, bounds, trusted files and axioms,
-                all checked by the build
+Manifest/       rung 1's manifest (Rung1.lean): headline statements, trusted files and
+                axioms, all checked by the build
 AxiomAudit.lean every declaration of the library, checked to use only the three standard axioms;
                 every file under RwLog/ is in the build; the shared layers import no machine
                 (the commands are in RwLog/Lib/Audit.lean; nothing is listed by hand)
-```
-
-`SYMMETRIC_ENGINE.md` is the design note for the engine of milestone M6: what it
-is, what was measured, and what the trusted files and the kernel must provide
-for it. Its measurements on R004 and R005 are in `Tests/MiddleRuns.lean` at the tag `epoch-1`.
-`SYMMETRIC_ENGINE_SIMULATION.md` is the attack on that design's main risk, whether
-the engine stays within a polynomial of R005: the inputs on which the first
-design fails, the changes measured, and the lemmas still open. Its prototype is
-`scripts/symmetric_engine_tables.py`, and R005's side of each comparison was
-`Tests/SimulationRuns.lean` at the tag `epoch-1`. The build runs nothing on concrete
-inputs now: what a machine does is proved, and the figures of the notes are
-measurements taken once. `scripts/r005_interpreter.py`
-is R005 at the tag `epoch-1` outside Lean, counting the same ticks (`check` compares it
-with every number Lean guards for those inputs); it is what decides the inputs Lean does
-not evaluate in reasonable time. `scripts/symmetric_engine_halting.py` runs random small
-programs on both and compares where each halts.
+`SYMMETRIC_ENGINE.md` is the design note for the engine of rung 1.
+`SYMMETRIC_ENGINE_SIMULATION.md` records measurements of that design against
+R005, taken once with `scripts/symmetric_engine_tables.py` and
+`scripts/r005_interpreter.py` (R005 at the tag `epoch-1` outside Lean); staying
+within a polynomial of an earlier machine is not asked of a rung. The build
+runs nothing on concrete inputs: what a machine does is proved.
 
 The constraint system is sorts with a built-in disequality (roadmap L48, L51).
 The trusted files have no rules, theories or models: `Trusted/Semantics.lean`
@@ -245,9 +165,7 @@ every charge derived from the Rust. No domain of spans as written is left
 | The constraint domain of sorts | `Sorts/Dom.lean`, `Sorts/Rep.lean`, `Sorts/Gaps.lean` | `Sorts.Rep`, `Sorts.dom`, `dom_lawful`, `Rep.ext_rel`, `exists_rep`, `Prob.normal`, `Raw.Normal.eq`, `Rep.no_hidden`, `Raw.toSpan_den` |
 | The algebra of a lawful constraint domain | `Kernel/DomainLaws.lean` | `Domain.denO`, `Lawful.denO_inj`, `swap_swap`, `rep_swap`, `compose_swap`, `meet_swap`, `swap_of_isBound`, `covers_swap`, `compose_assoc`, `meet_comm`, `meet_assoc`, `meet_self`, `covers_antisymm` |
 | No sorts are well-formed sorts; first-order spans | `SpanLayer/Sorts.lean` | `Sorts.wellFormed_nil`, `Sorts.not_mem_nil`, `GTerm.univ_infinite`, `Span.firstOrder_swap` |
-| Maximal answers and freshness | `Kernel/Maxima.lean` | `maxima`, `fresh` and their lemmas |
 | Coverage in the interpretations of a class | `SpanLayer/Modulo.lean` | `LCov`, `LEq`, `Live`, `DeadR`, `Backed`, `Ref`, `DC`, `GCov`, `GEq`, `Dom` |
-| Unfolding equations | `Rungs/Naive/Unfold.lean` | `unfoldN_succ`, `unfoldN_succ'`, `unfoldN_call`, `unfoldN_add`, `unfoldN_or/and/seq/conv`, `unfoldN_dual` |
 | The normal form of an expression and its nodes | `Kernel/NormalForm.lean` | `normB`, `RelOf.norm`, `RelOf.normConv`, `NodeView`, `RelOf.view`, `interval`, `without`, `mkSeq`, `mkAnd` |
 | The normal form means what the expression means | `Kernel/NormalFormCorrect.lean` | `gd_normB`, `derives_norm_iff`, `sem_norm`, `sem_normConv`; equal normal forms: `normB_seq_assoc`, `normB_and_comm`, `normB_and_assoc`, `normB_or_comm`, `normB_or_assoc`, `normB_or_self`; derivations as ground relations: `DerivesG`, `GD` |
 | The normal form is stable: which expressions are nodes, and every node the kernel reads or makes is one | `Kernel/NormalFormStable.lean` | `Normal`, `normal_normB`, `Normal.norm_eq`, `normal_iff_norm_eq`, `normB_normB`, `Normal.normConv_normConv`, `Normal.view_members`, `view_chain`, `view_meet`, `view_union`, `Normal.interval`, `without`, `join`, `meet`; a node is its members rebuilt: `Normal.mkSeq_seqParts`, `mkAnd_andParts`, `mkOr_unionParts`; sorted lists: `sortedParts_of_sorted`, `sortedBranches_of_strict`, `eq_of_perm_of_sorted`, `eq_of_mem_iff_of_strict` |
@@ -259,10 +177,9 @@ every charge derived from the Rust. No domain of spans as written is left
 | Lists related member by member, one member changed, conditionals | `Lib/List.lean` | `forall₂_mem_left`, `forall₂_mem_right`, `forall₂_getElem?`, `forall₂_getLast?`, `map_modify_eq`, `mem_modify`, `two_le_length_of_mem`, `drop_take_reverse`, `ite_of_pos`, `ite_of_neg` |
 | Goals, the same goal, maximal answers, the rule of a split, for any machine that tables | `Rungs/Framework/Goals.lean`, `GoalsVal.lean` | `GoalOf`, `Kind`, `same`, `indexFrom`, `coversA`, `maxima`, `fresh`, `both`; their values: `same_val`, `indexFrom_val`, `coversA_val`, `maxima_val`, `fresh_val`, `both_some` |
 | A fold in `Cost` keeps an invariant | `Rungs/Framework/Cost.lean`, `TraverseStd.lean` | `Cost.foldL_inv`, `Traverse.foldL_inv`, `Traverse.foldL_done` (may speak of the members passed), `Traverse.foldL_split` (and knows the members to come) |
-| Well-formed queries built from a well-formed one | `Rungs/Framework/SameTrace.lean`, `Direction.lean` | `ProgramOf.WellFormed.of_sub`, `.conv`, `.seq_left`, `.seq_swap`, `.and_of_seq`, `.dual` |
+| Well-formed queries built from a well-formed one | `Rungs/Framework/Direction.lean` | `ProgramOf.WellFormed.of_sub`, `.conv`, `.seq_left`, `.seq_swap`, `.and_of_seq`, `.dual` |
 | Converse of a program | `SpanLayer/Dual.lean` | `Program.sem_dual` |
 | Greatest fixpoints by iteration | `Lib/Gfp.lean` | `gfpFrom`, `gfpFrom_closed`, `subset_gfpFrom` |
-| Insertion sort by a strict order | `Lib/Insert.lean` | `insertBy`, `sortBy`, `sortBy_eq` (a duplicate-free list sorts to the ordered list with the same members) |
 | First occurrences of a list | `Lib/Firsts.lean` | `addNew`, `addAll`, `firsts`, `firsts_eq_eraseDups`, `addAll_firsts`, `addAll_flatMap_firsts`, `addAll_flatMap_congr`, `firsts_map`, `firsts_spec` |
 | An antichain that covers a list | `Lib/Antichain.lean` | `antichain`, `antichain_spec` |
 | Sequences that cannot go on for ever | `Lib/Sequences.lean` | `eventually_const`, `no_descent`, `infinitely_often_fin` |
@@ -289,57 +206,38 @@ rung unchanged.
   derivation is eventually dead or covered by an emitted answer, and that at
   halt every derivation is, and receives `HonestExhaustion` from
   `Tier0Cert.tier0` (`HonestExhaustion.of_cover`). `sound_of_refines`,
-  `derivationGeneral_of_refines` and `Complete.pointwise` are generic too.
-* `RunProperties.lean`: properties of a run that are no law and that proofs
-  use (`DerivationGeneral`, `TerminatesWhere`, `EmptySide`, the equal-trace
-  properties of two writings, of the converse and of the mirror image,
-  `FinalMaximal`), with `KeepsPointwise`, `Keeps` and `Rung.Keeps`, which
-  collect them with the laws as the machines here were proved to have them.
-  `KeepsPointwise.laws` gives the laws from that list.
-* `Transfer.lean`: moving theorems between rungs. `SameRun R' R` says two
-  runtimes emit equivalent answers and halt together; it carries `Tier0`,
-  `DerivationGeneral` and `TerminatesOn` from `R` to `R'`
-  (`SameRun.tier0`, `SameRun.terminatesOn`), and `SameRun.of_sim` builds it
-  from a simulation. A rung is one runtime on the original input
-  (`Rung.runtime`, `Trusted/Properties.lean`); `Rung.sound`,
-  `Rung.pointComplete`, `Rung.honest` and `Rung.honestProgress` carry the
-  machine's theorems through the preprocessors, and `Rung.Keeps.of_nil` is
-  `Rung.Keeps` for a machine with no preprocessor. A rung has a list of
-  preprocessors, run one after another, each at the kernel of the sorts of
-  the program it is handed (`Preprocessor.runAll`, `Trusted/Engine.lean`), so
-  the laws of the list follow from the laws of its members
-  (`Preprocessor.runAll_wf`, `runAll_equiv`, `runAll_adds`) and a rung that
-  adds a rewrite proves the laws of that rewrite only. `Rung.convTrace` and
-  `Rung.dualTrace` carry through a list that commutes with the converse and
-  the mirror image (`Rung.Mirrors`); `Rung.keepsPointwise` puts the list of
-  `KeepsPointwise` together from the machine's and shows the five properties
-  that are still asked of the rung as a whole (`DerivationGeneral`,
-  `TerminatesWhere`, `OrComm`, `OrAssoc`, `EmptySide`; roadmap L69). A preprocessor
+ and `Complete.pointwise` are generic too.
+* `RunProperties.lean`: what proofs use beside the laws and no rung is asked:
+  `StepEquiv` / `ShownEquiv` / `TraceEquiv`, and `FinalMaximal` (the final
+  report is the maximal emitted answers: the filter that leaves out an answer
+  another answer covers).
+* `Transfer.lean`: moving theorems between runtimes and through rewrites.
+  `SameRun R' R` says two runtimes emit equivalent answers and halt together;
+  it carries `Tier0` and `TerminatesOn` from `R` to `R'` (`SameRun.tier0`,
+  `SameRun.terminatesOn`), and `SameRun.of_sim` builds it from a simulation.
+  A rung is one runtime on the original input (`Rung.runtime`,
+  `Trusted/Properties.lean`); `Rung.sound`, `Rung.pointComplete` and
+  `Rung.honest` carry the machine's laws through the preprocessors, and
+  `Rung.laws` is the three together. A rung has a list of preprocessors, run
+  one after another, each at the kernel of the sorts of the program it is
+  handed (`Preprocessor.runAll`, `Trusted/Engine.lean`), so the laws of the
+  list follow from the laws of its members (`Preprocessor.runAll_wf`,
+  `runAll_equiv`, `runAll_adds`) and a rung that adds a rewrite proves the
+  laws of that rewrite only. A preprocessor
   may add sort declarations (`Preprocessor.adds`, `Sorts.Extends`), so the
   machine is run on sorts that may declare more than the program's. Its
-  theorems are about its answers read in those sorts, and the four theorems
+  theorems are about its answers read in those sorts, and the three theorems
   ask that the answers say how they are read (`Answer.SelfRead`,
   `Framework/Answer.lean`), which the answers of every engine do
   (`Answer.selfRead_sigma`): each is a representative carried with its
   sorts. `Span.denAt_sorted` and `Span.firstOrder_sorted`
   (`SpanLayer/Sorts.lean`) say what holding an end of a span to a sort does.
-* `SameTrace.lean`: the whole of `Runtime.Keeps` along a trace.
-  `SameTrace R' R` says the two machines show the same thing at every step,
-  up to the order of the answers of a step and up to equivalent answers. It
-  gives `SameRun`, and the two certify and halt together. `SameTrace.keeps`:
-  `R'` keeps every property `R` keeps, with the same base, given the laws of
-  `|` of `R'` (free for an engine). Each property has its own
-  transfer (`SameTrace.honestProgress`, `emptySide`, `convTrace`,
-  `dualTrace`). `HonestProgress.of_never` is honest progress of
-  a machine that emits no certificate. The mirrored tabled machine gets
-  `mirror_keeps` this way (`Rungs/Tabled/MirrorKeeps.lean`).
 * `Void.lean`: goals that relate nothing. The pairs a goal and a derivation
   of its node stand for (`pairsOf`); a goal no derivation of whose node
   relates a pair between its boundaries (`Void`) has no answer
   (`void_no_ans`); the goal of a query that relates nothing is void
   (`void_of_pairs`), and so is a chain or a meet with no boundary one part
   of which is void (`void_mkSeq_left`, `void_mkSeq_right`, `void_mkAnd`).
-  Used by the tabled rung and the symmetric engine for `EmptySide`.
 * `Goals.lean`, `GoalsVal.lean`: the text every machine that tables shares
   (the goal, the same goal, the position of a goal's table, the cover test
   on answers, maximal and fresh answers, the rule of a split) and what each
@@ -369,38 +267,12 @@ rung unchanged.
   made from the input the other way round, or the same choice of a node that
   is its own converse (`orient_conv`, `orient_dual`), and the program and
   the node chosen from a well-formed input are first-order (`progFO_orient`,
-  `fo_orient_root`). So a machine that shows, on first-order input with a
-  root that is its own converse, sets of answers that are their own converse
-  (`CostedRuntime.SelfConverse`) has `ConvTrace` and `DualTrace`
-  when run on one orientation (`oriented_convTrace`, `oriented_dualTrace`),
-  and any machine pays the same on an input and on its mirror image
-  (`oriented_paid_dual`).
-* `GroundMirror.lean`, `OrientedSem.lean`, `OrientedKeeps.lean`: what a
-  machine run on one orientation keeps. In the mirrored program the mirror
-  image of an expression derives the converses (`gd_dual`), and the program
-  in normal form derives what the program derives (`gd_normed`); so the
-  input chosen derives what the input derives, or the converses when the run
-  is swapped (`orient_gd`), relates the same pairs that way round
-  (`orient_pairs`), and is well formed (`wf_orient`, with
-  `Kernel/NormalFormCalls.lean`: the normal form calls no new name). Two
-  writings of an input that differ by a law of `|` choose the same input
-  (`orient_of_normB`). `CostedRuntime.oriented_keeps`: a machine that on
-  every well-formed input is sound, complete, honest, no less general than a
-  derivation, emits nothing an earlier answer covers and halts where the
-  base halts, run on one orientation keeps every property of `Keeps`, given
-  the two mirror properties of the oriented machine and two facts the list
-  does not name: the machine halts on an input exactly when it halts on the
-  input chosen for it (`CostedRuntime.SameHalt`), and a side that halts and
-  relates nothing makes `;` and `&` halt (`Runtime.VoidSide`).
-* `DerivationBound.lean`: `Runtime.FinalMaximal.maximal`, and
-  `firstWording_false`: a bound polynomial in the size of an answer's
-  derivation and of the input is false for every sound machine that emits
-  spans and pays a tick for each.
-
-* `Derivation.lean`: every engine is sound and derivation-general, at every
-  kernel of a constraint domain that is lawful at well-formed sorts
-  (`Engine.sound`, `Engine.derivationGeneral`). An answer exists only with the proof that it
-  is valid, so the two theorems use nothing about the engine.
+  `fo_orient_root`). Any machine run so pays the same on an input and on its
+  mirror image (`oriented_paid_dual`).
+* `Derivation.lean`: every engine is sound, at every kernel of a constraint
+  domain that is lawful at well-formed sorts (`Engine.sound`). An answer
+  exists only with the proof that it is valid, so the theorem uses nothing
+  about the engine.
 
 * `Cost.lean`: the cost monad of `Trusted/CostMonad.lean` is a lawful monad; the
   value of each free traversal is the list function of the same name
@@ -450,34 +322,12 @@ rung unchanged.
   language. On the way: when the normal form of an expression is one span
   (`normB_or_span`, `normB_dual`, `normB_fill`).
 
-`Rungs/Tabled/Machine.lean` is the tabled machine as an engine for every
-derivation kernel, with the way a call is unfolded left to an `Unfolder`
-(`Tabled.engine u`). A goal is an interval of a chain or a set of members of a
-meet, between two boundaries; a round produces every goal's answers from its
-splits and from the unfolder, then marks as complete the largest set of goals
-that gained nothing and depend only on each other. `Rungs/Framework/Unfold.lean`
-has the unfolders: `eagerRace` (unfold every call to a depth, then evaluate),
-`walkRace` (the same answers, walking a chain from a boundary and pruning as
-it goes, from either end) and `sharedRace` (the walk with equal sub-chains
-evaluated once); `raced` races them with `K.race`. Each machine exists once
-and nothing is proved of a second copy (roadmap L04).
-
-The theorems about the tabled machine are proved on that text, for any
-unfolding race that meets a specification (`UOk` in
-`Rungs/Framework/RaceSpec.lean`: its answers are answers of the goal, and when
-it says the unfolding is final they cover every derivation of the goal).
-`Rungs/Tabled/Correct.lean` has them for a race that meets it at every lawful
-domain (`Good`): `complete`, `pointComplete`, `honestExhaustion`,
-`honestProgress`, `finalMaximal`. The files before it are the
-steps: what the rules of the derivation kernel return (`Framework/Rules.lean`),
-the tables read as values (`Tables`, `Round`), what the candidates of a goal
-cover (`Semantics`, `Covers`, `Candidates`, `Strategies`), the invariant of a
-round (`Invariant`), and that every derivation is covered in the end
-(`Eventually`, `Run`). They use derivations bounded by depth
-(`Kernel/NormalFormDepth.lean`) and the reading of a node by its kind
-(`Kernel/NormalFormSplit.lean`, `NormalFormSpans.lean`, `NormalFormSize.lean`).
-
-`Rungs/Framework/Unfolding/` proves that each race meets the specification.
+`Rungs/Framework/Unfold.lean` has the unfolders, each written once against
+the derivation kernel: `eagerRace` (unfold every call to a depth, then
+evaluate), `walkRace` (the same answers, walking a chain from a boundary),
+`sharedRace` (the walk with shared sub-chains), and the races of them side
+by side (`walkShared`, `raced`). `Rungs/Framework/Unfolding/` proves that
+each meets the specification of a race (`UOk`, `Framework/RaceSpec.lean`).
 `Sem.lean` says what an unfolding to a depth stands for (`GR P d`: the
 derivations on which every node is read). For each evaluation one file reads
 its text as a value (`EagerVal`, `WalkVal`, `SharedVal`) and one proves the
@@ -485,97 +335,11 @@ specification of what it builds (`Eager`: `POk`, `eagerRace_ok`; `Dir`,
 `WalkChain`, `Walk`: `WOk`, `walkRace_ok` in both directions; `Shared`:
 `SmOk` with the memo's invariant `MemoOk`, `sharedRace_ok`). `Races.lean`
 has `good_eagerRace`, `good_walkRace`, `good_sharedRace`, `UOk.race`
-(two races side by side), and `good_raced` for the race of R004 and R005.
-`Rungs/R005/Tables.lean` puts these together: `R001.tableKeeps` and
-`R004.tableKeeps`, which do not use that an interface is exact. What R005 is
-held to beyond that list does (roadmap L58).
-
-The tabled machine runs the same from either end and with any exact race.
-`Kernel/NormalFormMap.lean` has the map on nodes (`nmap b t`: the converse
-when `b`, read in the mirrored program when `t`), and
-`Rungs/Framework/Unfolding/ModelMap.lean` that the model of an unfolding says of
-the image of a node what it says of the node (`final_nmap`,
-`closedPart_nmap`). On the machine: `Rungs/Tabled/Reading.lean` reads a round
-table by table (`ansOf_next`, `idx_next_cases`, `prodG`); `MapGoal.lean` has
-the map on goals and representatives, what links two programs and their races
-(`Link`, `Twin`) and what two sets of tables have of each other (`Fwd`,
-`Tied`); `MapSplit.lean` and `MapNode.lean` carry each candidate of a goal to
-a candidate of its image (`cand_fwd`, `strat_fwd`); `MapRound.lean` that a
-round keeps two runs in correspondence (`tied_next`); `MapRun.lean` that the
-root tables gain corresponding answers and complete together (`rootGain_map`,
-`rootDone_map`, `rootMax_map`), and that exact races link (`Link.of_ex`).
-`Symmetry.lean` has the theorems for races that say what the unfolding is
-(`Exact`, which the races of R001 and R004 are): `sameRun` and
-`halts_iff` (two tabled machines that differ in the race show the same thing
-step for step and halt together), `convTrace` and `dualTrace`.
-
-`Kernel/ExactIface.lean` has the set of terms a boundary lets through and
-what it is for an interface, which is exact by the laws of a domain (`bset`,
-`bset_rightBound`, `bset_leftBound`).
-`Rungs/Framework/Unfolding/Model.lean` says what an unfolding to a depth relates,
-product by product, with no machine in it (`SE`, `Final`), and has the algebra
-of sequencing sets of products in either direction (`seqSets`, `chainS`,
-`chainD`, `pushSet`, `seqI_iff_push_ext`). `EagerExact.lean` proves that the
-whole unfolding builds exactly those products (`eager_ex`), so the unfolding
-race is final exactly when the model has no open product (`eagerRace_final`).
-`WalkExact.lean` proves, under exact interfaces, that what a walk holds of the
-items it hands on is what a walk holds of exactly those products (`walk_ex`,
-in either direction and under whatever was pushed), so a walk gives the same
-verdict (`walkRace_final`).
-
-`SharedExact.lean` proves the same of the evaluation that shares the suffixes
-of a chain and remembers what it has evaluated: a summary holds exactly the
-products of its node (`evalS_ex`, with the memo holding that of every entry),
-so the shared evaluation gives the same verdict (`sharedRace_final`).
-
-`RacesExact.lean` says what it is for an unfolding race to be exact (`UEx`:
-its verdict is the model's and its answers are the closed products), proves
-it of each evaluation and of two exact races side by side (`raced_ex` for the
-race of R004 and R005), and that two exact races give the same verdict and
-the same representatives (`UEx.agree`).
-
-What the races cost from below, for the separations over R005 (roadmap M6,
-`Rungs/R005/Bounds.lean`). `WalkTicks.lean`: a walk costs at least what its
-continuation costs on the items it hands on (`walk_ticks`).
-`WalkPrefix.lean`: a walk goes through the rest of a chain once for each
-product of the members before it, so the race answered by a walk costs
-`2 ^ k` on a chain that starts, in its direction, with `k` members that
-double (`Doubles`, `walkRace_prefix_ticks`). `SharedPrefix.lean`: the memo of
-the shared evaluation grows only at its head (`Gr`, `evalSV_gr`), every
-summary it records for the rest of a chain costs a tick (`sufS_pot`), and
-after `k` members that split there are `2 ^ k` contexts, no two the same
-(`Splits`, `sufSV_split`), so the shared race costs `2 ^ k` too
-(`sharedRace_prefix_ticks`). `RacedPrefix.lean`: the race of R004 costs at
-least its cheapest side, so `2 ^ k` on a chain that splits from the left and
-doubles from the right (`raced_prefix_ticks`).
-
-`Kernel/NormalFormMap.lean` reads a node as the node of its converse, of its
-mirror image in the mirrored program, or as itself (`nmap b t`): the mapped
-node is a node of the same kind with the members mapped, and the map is its
-own inverse. `Unfolding/ModelMap.lean` proves that the unfolding of the
-mapped node has the products of the unfolding of the node, turned round when
-the converse is taken (`se_nmap`, `final_nmap`, `closedPart_nmap`).
-
-`Rungs/Framework/Writing.lean` proves what holds of every engine because an
-engine is handed the normal form of the query: `Engine.orComm`, `orAssoc`,
-`seqAssoc`, `andComm`, `andAssoc`. `Rungs/Framework/ConvTrace.lean` proves
-that no engine has the trace of a converse as an equation, in order
-(`Engine.not_convTraceInOrder`), which is why `Runtime.ConvTrace` is stated
-up to the order of the answers of a step and up to equivalent answers
-(roadmap L57).
+(two races side by side), and `good_raced`, the race rung 1 uses.
 
 `Rungs/Framework/Race.lean` defines `Cost.race` and proves what it returns and spends
 (`Cost.race_val`, `Cost.race_ticks`, and from below `Cost.le_race_ticks`), for
-any two computations. A rung that adds one more way to answer the unfolding
-race races it against the previous rung's unfolder, as R004 did: simulation
-within 7 times is then `Tabled.spent_le_of_skips`, and a lower bound on the
-previous rung's first round is `le_race_ticks` on its two halves.
-
-`Rungs/Framework/RaceWinner.lean` says which computation a race returns and
-what it costs as functions of the two costs alone (`Cost.firstWins`,
-`Cost.raceCost`, `Cost.race_val_eq`, `Cost.race_ticks_eq`), with `raceCost_le` (at most 7 times the
-cheaper) and `winner_le_raceCost`. Use it when the proof must follow which
-side won.
+any two computations.
 
 `Rungs/Framework/Direction.lean` is how `DirectionFree` (`Trusted/Cost.lean`)
 is established. `CostBisim A B E rel`: two machines go through related states,
@@ -589,21 +353,6 @@ and a bound on what the new machine has paid by the old one's step. The file
 also has the facts about `dual` (`RelOf.dual_dual`, `size_dual`,
 `ProgramOf.WellFormed.dual`).
 
-`Rungs/Mirror/Machine.lean` is the mirrored machine of any engine `E`
-(`Engine.mirrored`): `E` on the root and `E` on its converse (`K.convNode`),
-stepped by level so that neither run is ever more than one doubling ahead in
-ticks, with the converse run's answers swapped (`K.swapA`). R005 is
-`R004.engine.mirrored`. `Mirror.go_val` says a step of it shows the same step
-of one of the two runs, and `Mirror.paid_ge_min` that it has paid at least the
-cheaper of the two (`Rungs/Mirror/Trace.lean`, `Bounds.lean`). For the tabled
-machine with an exact race the two runs gain the same answers in the same
-round, so the mirrored machine shows what the tabled machine shows
-(`Tabled.mirror_trace`) and keeps what it keeps (`Tabled.mirror_keeps`). The
-upper bounds of epoch 1 (`paid_le_min`, `directionFree`) are at the tag and
-are not restated: they were how R005 was admitted.
-
-The goal-directed machine and the hedge of two machines (`Rungs/Directed/`,
-`Rungs/Hedge/`) are not on master; they are at the tag `epoch-1`.
 
 An engine cannot declare its own cost and cannot make up an answer.
 `Trusted/Kernel.lean` has two classes. `Kernel S M` is an abstract type of
@@ -639,13 +388,11 @@ lawful when the sorts are well formed, and a kernel that returns what the
 domain returns (`Kernel.Refines`). No charge of an operation on
 representatives is postulated: the trusted files fix no kernel.
 `Engine.costedAt` is an engine at the derivation kernel over a kernel
-(`DerivationKernel.over`). Three rungs exist. `sortsRung`
+(`DerivationKernel.over`). Two rungs exist. `sortsRung`
 (`verified/lean/RwLogVerified/SortsRung.lean`) is the one engines are judged
 at: the charge of each operation of the domain of sorts is the tick bound
 proved of the Rust function on the store of `verified/rust/src/store.rs`
-(see `verified/README.md`); its charges are not computable. `Sorts.uncharged`
-(`Rungs/R005/Sorts.lean`) charges nothing for the domain and is what the
-tests run. `Witness.sized` (`Rungs/Framework/RecordWitness.lean`) is a toy
+(see `verified/README.md`); its charges are not computable. `Witness.sized` (`Rungs/Framework/RecordWitness.lean`) is a toy
 for the proof that the admission rule has inhabitants. The operations on
 nodes and the interning of answers are charged as postulated at every kernel
 rung so far (roadmap L45).
@@ -656,41 +403,25 @@ two equal. That ended with the port (roadmap L04): each machine exists once,
 as an engine, and proofs are carried out on that text at
 `DerivationKernel.over`.
 
-A rung whose machine is equal to an earlier one as a `Runtime` (as R002 was
-to R001) uses `SameRun.of_eq`, or simply rewrites.
+## Where the earlier machines went
 
-## Where epoch 1 went
-
-| At the tag `epoch-1` | On master |
-|---|---|
-| `Rungs/R000/` Chain, Normalize, NormalizeCorrect, Unfold | `Rungs/Naive/`, same file names |
-| `Rungs/R000/` Engine, Correct, Properties (the naive machine) | removed |
-| `Rungs/R000/` Products, Termination | removed |
-| `Rungs/R001/Engine.lean`, `Spec.lean` | removed; `R001.engine` is `Tabled.engine Unfold.eagerRace` |
-| `Rungs/R001/Proofs/` Kernel, Base, Derivations, Tier0 and `Tier0/`, Symmetry, SymmetryLists, SymmetryGoals | removed; proved again on the one machine in `Rungs/Tabled/` |
-| the rest of `Rungs/R001/Proofs/` (termination certificates, exact tables, the mirror trace, `R001.keeps`) | removed |
-| `Rungs/R002/` to `Rungs/R004/` (unfolders, their `Gen`, `Spec`, `Reading`, `Proofs/`) | removed; the three ways of unfolding are rewritten in `Rungs/Framework/Unfold.lean` |
-| `Rungs/R005/` Spec, Family, `Proofs/` | removed; `Rungs/R005/Engine.lean` is the engine, `Keeps.lean` what it keeps, `Bounds.lean` the families |
-| `Rungs/Directed/`, `Rungs/Hedge/`, `Tests/DirectedRuns.lean`, `MiddleRuns.lean` | removed |
-| `Tests/R000Runs.lean`, `R001Runs.lean` | removed |
-| `Tests/R002Runs.lean` to `R005Runs.lean` | removed |
-| `R001.Obligation.finite_answers` and its proof | removed: it holds of every runtime (`Runtime.finite_answers`), so it obliged nothing (roadmap L05) |
-
-Declarations keep their epoch 1 namespaces (`R000` to `R005`), so a name on
-master is the same name at the tag.
+Epoch 1 (rungs R000 to R005 on the size-charged cost model) is at the git
+tag `epoch-1`; `EPOCH1.md` says what its theorems are about. The tabled
+machine, the mirrored machine, R005 as an engine for every kernel, and the
+proofs of the properties that are no longer asked of a rung (equal traces of
+two writings, of the converse and of the mirror image; halting where another
+machine halts; the lower bounds on R005) were on master up to the commit
+`3c03bb3` and are in its history.
 
 ## Proving a new engine
 
 An engine is written once against the derivation kernel
 (`Trusted/Kernel.lean`), in any monad, and proved at
-`DerivationKernel.over D K hK P` in `Cost`. The parts of `Runtime.Keeps`
-come from these places.
+`DerivationKernel.over D K hK P` in `Cost`. A rung owes the three laws
+(`Runtime.Laws`, `Trusted/Properties.lean`); they come from these places.
 
-1. Free for every engine: `Engine.sound`, `Engine.derivationGeneral`
-   (`Framework/Derivation.lean`), `Engine.orComm`, `Engine.orAssoc`
-   (`Framework/Writing.lean`). `Engine.Obligations` (`Framework/EngineKeeps.lean`)
-   names the eight parts that are the engine's own, and `Obligations.keeps`
-   fills in the free ones and returns `Runtime.Keeps`.
+1. Sound, free for every engine: `Engine.sound`
+   (`Framework/Derivation.lean`).
 2. Reading the text as values: open the goal with `at_cost K hK`
    (`Framework/KernelAt.lean`), rewrite the traversals with the `_std`
    lemmas and `Cost.*_val` (`Framework/TraverseStd.lean`,
@@ -699,24 +430,20 @@ come from these places.
    goal operations with `Framework/GoalsVal.lean`. `rw [Cost.bind_val]`
    works on a bind of the kernel's monad after `at_cost`; `erw` is not
    needed.
-3. Completeness: describe the run as `Saturation.Tables` and the goals it
-   opens, prove `Saturation.Saturated`, and take `Saturated.complete`
-   (`Framework/Saturation.lean`). Honest exhaustion follows from
-   `Tier0Cert` (`Framework/Tier0.lean`), or pair by pair from
-   `Saturated.covers_pair` once everything the run holds for the query is
-   emitted when the machine reports that it is done.
-4. The converse and the mirrored program: run the machine on one
-   orientation and prove `CostedRuntime.SelfConverse`
-   (`Framework/Oriented.lean`).
-5. A machine that shows what a proved machine shows, step for step up to
-   order and equivalence: prove `Runtime.SameTrace` by a simulation
-   (`Runtime.trace_of_sim`, `TraceEquiv.of_perm`) and take
-   `SameTrace.keeps`. A machine that only emits the same answers:
-   `SameRun` (`Framework/Transfer.lean`).
-6. Cost: `Framework/CostCalculus.lean` and `CostSpec.lean` for the ticks of
-   the traversals, `Framework/Race.lean` for races, `Framework/Admission.lean`
+3. Complete, and honest when done: describe the run as `Saturation.Tables`
+   and the goals it opens, prove `Saturation.Saturated`, and take
+   `Saturated.covers_pair` (`Framework/Saturation.lean`): every pair the
+   relation relates is related by an answer the run holds. Both laws follow
+   once everything the run holds for the root is emitted, at the latest when
+   the machine reports that it is done (`Symmetric.pointComplete`,
+   `honestExhaustion`).
+4. The rung: `CostedRung.Lawful` for the engine with no rewrite is the laws
+   of its machine (`Symmetric.rung_lawful`); with rewrites, `Rung.laws`
+   (`Framework/Transfer.lean`) carries them through.
+5. Cost: `Framework/CostCalculus.lean` and `CostSpec.lean` for the ticks of
+   the traversals, `Framework/Race.lean` for races, `Framework/Direction.lean`
+   and `Oriented.lean` for cost in the two directions, `Framework/Admission.lean`
    and `Latency.lean` for the statement a rung is admitted by.
-
 ## Rules that hold in every epoch
 
 1. Use kernel theorems by name. If a proof needs a fact about `covers?`,
@@ -734,6 +461,5 @@ come from these places.
    `#assert_axioms` and what it trusts with `#trusted_files`
    (`RwLog/Lib/Audit.lean`); every file under `Manifest/` is built.
 
-How a rung is admitted is being restated (roadmap M3 part A: `Keeps` for a
-whole rung, admission for three kinds of win on a decidable class). The rule
-of epoch 1 is in `EPOCH1.md`.
+A rung is admitted by `Admits` (`Trusted/Cost.lean`); `ADMISSION.md` says what
+it asks.

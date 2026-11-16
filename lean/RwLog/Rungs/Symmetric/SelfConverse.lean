@@ -7,15 +7,6 @@ one (`root_reach`, from `Reach`). So what a request adds to the root table,
 and the maximal answers of the table, are each a list of representatives
 without repeats that holds the converse of each of its members: a list that
 is a rearrangement of its own converses (`perm_map_swap`).
-
-On a root node that is its own converse the machine therefore shows, at
-every step, answers that are their own converses rearranged
-(`selfConverse_of`): this is `CostedRuntime.SelfConverse`, what running on
-one orientation asks of a machine (`Framework/Oriented.lean`). The theorem
-is stated under one condition on the run, that every answer of the root
-table is an answer of the root goal; the machine reports the answers of the
-root goal only, and the converse of an answer of another goal could be one.
-`Goals.lean` proves the condition.
 -/
 import RwLog.Rungs.Symmetric.Invariant
 import RwLog.Rungs.Framework.Oriented
@@ -429,98 +420,6 @@ theorem costed_step_val (s : (engine @U).StateAt dom)
   cases hd : t.done <;> rw [hd] at this <;> erw [this] <;> rfl
 
 variable {U dom K hK}
-
-/-- From a state whose root table is the table of a goal that is its own
-converse, every step shows a list of answers that is a rearrangement of its
-converses. `Good` is any property of the states of a run under which every
-answer of the root table is an answer of the root goal. -/
-theorem trace_selfConverse (hD : ∀ S : Sorts, S.WellFormed → (dom S).Lawful S.interp)
-    (Good : (engine @U).StateAt dom → Prop) (hroot : ∀ s, Good s → RootGoals @U dom s)
-    (hstep : ∀ s as s', Good s → (((engine @U).costedAt dom K hK).step s).val = .emit as s' →
-      Good s') :
-    ∀ (n : Nat) (s : (engine @U).StateAt dom), s.P.sorts.WellFormed → Good s → RootSelf @U dom s →
-      TraceEquiv s.P.sorts.interp (((engine @U).costedAt dom K hK).runtime.trace s n)
-        ((((engine @U).costedAt dom K hK).runtime.trace s n).map Shown.swap)
-  | 0, _, _, _, _ => List.Forall₂.nil
-  | n + 1, s, hwf, hg, hr => by
-    have hL := hD _ hwf
-    obtain ⟨g, L, h0, hc, hn, hsh⟩ := hr
-    obtain ⟨t, ht, -, -, hA⟩ := cores_get _ h0
-    have hhead : (stOf @U dom s).tables.head? = some t := by rw [List.head?_eq_getElem?]; exact ht
-    have hs := costed_step_val @U dom K hK s hhead
-    have eA : (stOf @U dom s).answers 0 = L := by unfold StateOf.answers; rw [ht]; exact hA
-    cases hd : t.done with
-    | true =>
-      rw [hd] at hs
-      simp only [ite_true] at hs
-      subst hA
-      have hm := maxima_swapClosed (P := s.P) hL hc
-      have hgoal : ∀ a ∈ t.answers.maximaBy (covB (dom s.P.sorts) s.P),
-          a.goal = ⟨none, s.root, none⟩ := fun a ha =>
-        hroot s hg a (by rw [eA]; exact List.mem_maximaBy ha)
-      rw [filterMap_rootSpan hgoal] at hs
-      have e : ((engine @U).costedAt dom K hK).runtime.trace s (n + 1) =
-          [.final (((t.answers.maximaBy (covB (dom s.P.sorts) s.P)).map Ans.span).map
-            (Sigma.mk s.P.sorts))] := by
-        have hs' : ((engine @U).costedAt dom K hK).runtime.step s = _ := hs
-        simp only [Runtime.trace, hs']
-        rfl
-      rw [e]
-      exact List.Forall₂.cons (stepEquiv_swap _ _ (perm_map_swap hL hm.1 hm.2)) .nil
-    | false =>
-      rw [hd] at hs
-      simp only [Bool.false_eq_true, ite_false] at hs
-      obtain ⟨st', hre, hreq⟩ := reach_request (K := K s.P.sorts) (hK := hK s.P.sorts)
-        (UAt @U dom K hK s.P) (stOf @U dom s)
-      rw [hreq] at hs
-      obtain ⟨ext, h1, c1, n1⟩ := root_reach hL hre g L h0 hc hn
-      have hsh' := reach_shown hre
-      obtain ⟨t', ht', -, -, hA'⟩ := cores_get _ h1
-      have eA' : st'.answers 0 = L ++ ext := by unfold StateOf.answers; rw [ht']; exact hA'
-      have enew : (st'.answers 0).drop st'.shown = ext := by
-        rw [eA', hsh', hsh, List.drop_left]
-      have hg' := hstep s _ _ hg hs
-      have hgoal : ∀ a ∈ ext, a.goal = ⟨none, s.root, none⟩ := fun a ha =>
-        hroot _ hg' a (by
-          show a ∈ st'.answers 0
-          rw [eA']; exact List.mem_append_right _ ha)
-      simp only [enew, filterMap_rootSpan hgoal] at hs hg'
-      have hr' : RootSelf @U dom ⟨s.P, s.root, { st' with shown := (st'.answers 0).length }⟩ :=
-        ⟨g, L ++ ext, h1, by rw [List.map_append]; exact hc.append c1, n1, by
-          show (st'.answers 0).length = _
-          rw [eA']⟩
-      have ih := trace_selfConverse hD Good hroot hstep n
-        ⟨s.P, s.root, { st' with shown := (st'.answers 0).length }⟩ hwf hg' hr'
-      have e : ((engine @U).costedAt dom K hK).runtime.trace s (n + 1) =
-          .answers ((ext.map Ans.span).map (Sigma.mk s.P.sorts)) ::
-            ((engine @U).costedAt dom K hK).runtime.trace
-              ⟨s.P, s.root, { st' with shown := (st'.answers 0).length }⟩ n := by
-        have hs' : ((engine @U).costedAt dom K hK).runtime.step s = _ := hs
-        simp only [Runtime.trace, hs']
-        rfl
-      rw [e]
-      have hnd : (ext.map Ans.span).Nodup := by
-        have := NoCov.nodup hL n1
-        rw [List.map_append] at this
-        exact this.of_append_right
-      exact List.Forall₂.cons (stepEquiv_swap _ _ (perm_map_swap hL hnd c1)) ih
-
-/-- **The run on a root that is its own converse.** If every answer of the
-root table is an answer of the root goal throughout a run (`Good`), then on a
-root node that is its own converse the symmetric engine shows, at every
-step, a list of answers that is a rearrangement of its converses. -/
-theorem selfConverse_of (hD : ∀ S : Sorts, S.WellFormed → (dom S).Lawful S.interp)
-    (Good : (engine @U).StateAt dom → Prop) (hroot : ∀ s, Good s → RootGoals @U dom s)
-    (hinit : ∀ (P : Program) (root : Rel), P.sorts.WellFormed → ProgFO P → Normal root →
-      root.FO → Good (((engine @U).costedAt dom K hK).start P root))
-    (hstep : ∀ s as s', Good s → (((engine @U).costedAt dom K hK).step s).val = .emit as s' →
-      Good s') :
-    ((engine @U).costedAt dom K hK).SelfConverse := by
-  intro P root hwf hP hN hfo hself n
-  refine trace_selfConverse hD Good hroot hstep n _ hwf (hinit P root hwf hP hN hfo) ?_
-  have h := init_cores (P := P) (K P.sorts) (hK P.sorts) (root := root.norm)
-    (by rw [hN.norm_eq]; exact hself)
-  exact ⟨_, [], h.1, (fun y hy => by cases hy), List.Pairwise.nil, h.2⟩
 
 end run
 
