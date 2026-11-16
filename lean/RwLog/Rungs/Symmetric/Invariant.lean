@@ -581,6 +581,44 @@ theorem feedGroup_keeps (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf
     simp only [Cost.bind_val, Cost.pure_val]
     exact step _ _ hb
 
+/-- A strategy without its feed cursor. Feeding changes nothing else of a
+strategy. -/
+def Strat.core {N A : Type} : Strat N A → Strat N A
+  | .push k l side o subs dead reads c _ => .push k l side o subs dead reads c Cursor.start
+  | s => s
+
+theorem feedPush_core (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R Rel (Ans D P) × Nat))
+    (st : StateOf R Rel (Ans D P)) (d : Nat) (s : Strat Rel (Ans D P)) :
+    (feedPush (K := DerivationKernel.over D K hK P) adv st d s).val.2.2.core = s.core := by
+  at_cost K hK
+  cases s <;> simp only [feedPush, Cost.bind_val, Cost.pure_val, Strat.core]
+
+/-- **Feeding changes the feed cursors of the pushes of a group and nothing
+else of its strategies.** -/
+theorem feedPushes_core (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R Rel (Ans D P) × Nat))
+    (ss : List (Strat Rel (Ans D P))) (st : StateOf R Rel (Ans D P)) (d : Nat) :
+    (feedPushes (K := DerivationKernel.over D K hK P) adv st d ss).val.2.2.map Strat.core =
+      ss.map Strat.core := by
+  have hT := fun X d s => feedPush_core (K := K) (hK := hK) (P := P) adv X d s
+  at_cost K hK
+  induction ss generalizing st d with
+  | nil => simp only [feedPushes, Cost.pure_val, List.map_nil]
+  | cons s rest ih =>
+    simp only [feedPushes, Cost.bind_val, Cost.pure_val, List.map_cons]
+    rw [ih, hT]
+
+theorem feedGroup_core (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R Rel (Ans D P) × Nat))
+    (i k : Nat) (st : StateOf R Rel (Ans D P)) (d : Nat) :
+    (feedGroup (K := DerivationKernel.over D K hK P) adv i k st d).val.2.2.map Strat.core =
+      (((groupsAt st i)[k]?.map (·.strats)).getD []).map Strat.core := by
+  have hT := fun ss X d => feedPushes_core (K := K) (hK := hK) (P := P) adv ss X d
+  at_cost K hK
+  simp only [feedGroup]
+  split
+  · next h => simp only [Cost.bind_val, Cost.pure_val, h]
+  · simp only [Cost.bind_val]
+    exact hT _ _ _
+
 theorem reach_workGroup (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R Rel (Ans D P) × Nat))
     (hadv : ∀ h st, Reach K hK st (adv h st).val.1) (i : Nat) (g : GoalOf R Rel)
     (k : Nat) (st : StateOf R Rel (Ans D P)) :

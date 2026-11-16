@@ -847,7 +847,7 @@ theorem inv_work_aux {st : StateOf R Rel (Ans D P)} (hI : Inv st) (i : Nat)
         · obtain ⟨y, hy, rfl⟩ := List.mem_map.1 hm
           refine ⟨hI.answers h1 _ (List.of_mem_zip (List.mem_of_mem_drop hy)).1, fun t ht => ?_⟩
           cases ht
-    have hok : ∀ c', StratOk st g (.push k left side other f.1 dead0 f.2.1 c' fc') := fun _ =>
+    have hok : ∀ c', StratOk st g (.push k left side other f.1 dead0 f.2.1 c' fc) := fun _ =>
       ⟨gs, h1, hk, hno, hf⟩
     split
     · exact ⟨hI, fun _ => hok _⟩
@@ -1014,6 +1014,45 @@ theorem strat_of_groupsAt {st : StateOf R Rel (Ans D P)} (hI : Inv st) {i k j : 
         rw [hgr] at h
         exact hI.strat i t ht gs hgs gr (List.mem_of_getElem? hgr) s (List.mem_of_getElem? h)
 
+omit [DecidableEq R] in
+/-- Whether a strategy fits its goal does not depend on its feed cursor. -/
+theorem StratOk.core {st : StateOf R Rel (Ans D P)} {g : GoalOf R Rel}
+    {s s' : Strat Rel (Ans D P)} (h : s'.core = s.core) (hs : StratOk st g s) :
+    StratOk st g s' := by
+  cases s <;> cases s' <;> cases h <;> exact hs
+
+/-- The tables a group reads have their rounds, and the group is given its
+strategies with the feed cursors moved: the invariant is kept. -/
+theorem inv_feedGroup (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R Rel (Ans D P) × Nat))
+    (hadv : ∀ h st, Inv st → Inv (adv h st).val.1)
+    (hadvR : ∀ h st, Reach K hK st (adv h st).val.1) {X : StateOf R Rel (Ans D P)}
+    (hI : Inv X) (i : Nat) (g : GoalOf R Rel) (k : Nat) (hg : goalAt X i = some g) (d : Nat) :
+    Inv (setGroup (feedGroup (K := DerivationKernel.over D K hK P) adv i k X d).val.1 i k
+      fun gr => { gr with
+        level := gr.level + (feedGroup (K := DerivationKernel.over D K hK P) adv i k X d).val.2.1,
+        strats := (feedGroup (K := DerivationKernel.over D K hK P) adv i k X d).val.2.2 }) := by
+  have hf := feedGroup_keeps (K := K) (hK := hK) (P := P) adv
+    (fun Y => Inv Y ∧ Reach K hK X Y)
+    (fun h Y hY => ⟨hadv h Y hY.1, hY.2.trans (hadvR h Y)⟩)
+    (fun h c Y hY => ⟨hY.1.modify_same h _ (fun _ => rfl) (fun _ => rfl),
+      hY.2.trans (reach_modify Y h _ fun _ => rfl)⟩)
+    i k X d ⟨hI, Reach.refl X⟩
+  have hc := feedGroup_core (K := K) (hK := hK) (P := P) adv i k X d
+  refine inv_setGroup hf.1 _ _ _ (fun g' gr hg' _ s' hs' => ?_)
+  obtain rfl : g' = g := Option.some.inj (hg'.symm.trans (hf.2.ext _ _ hg))
+  have hm : s'.core ∈ (((groupsAt X i)[k]?.map (·.strats)).getD []).map Strat.core := by
+    rw [← hc]
+    exact List.mem_map_of_mem hs'
+  obtain ⟨s, hs, e⟩ := List.mem_map.1 hm
+  cases hgr : (groupsAt X i)[k]? with
+  | none => rw [hgr] at hs; cases hs
+  | some gr0 =>
+    rw [hgr] at hs
+    obtain ⟨j, hj⟩ := List.getElem?_of_mem hs
+    refine StratOk.core e.symm (StratOk.mono hf.2.ext (strat_of_groupsAt hI hg (k := k) (j := j) ?_))
+    rw [hgr]
+    exact hj
+
 theorem inv_workGroup (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R Rel (Ans D P) × Nat))
     (hadv : ∀ h st, Inv st → Inv (adv h st).val.1)
     (hadvR : ∀ h st, Reach K hK st (adv h st).val.1) {st : StateOf R Rel (Ans D P)}
@@ -1023,17 +1062,12 @@ theorem inv_workGroup (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R
   have hturn := fun (st : StateOf R Rel (Ans D P)) hI f left s c hg hs =>
     inv_turn (K := K) (hK := hK) (st := st) hI i g f left s c hg hs
   have hrt := fun f left st s c => reach_turn (K := K) (hK := hK) (P := P) i g f left st s c
-  have hf := fun X d hX => feedGroup_keeps (K := K) (hK := hK) (P := P) adv
-    (fun X => Inv X ∧ goalAt X i = some g)
-    (fun h X hX => ⟨hadv h X hX.1, (hadvR h X).ext _ _ hX.2⟩)
-    (fun h c X hX => ⟨hX.1.modify_same h _ (fun _ => rfl) (fun _ => rfl),
-      (goalAt_modify X h i (fun t => { t with fed := t.fed + c }) fun _ => rfl).trans hX.2⟩)
-    i k X d hX
+  have hf := fun X d (hX : Inv X ∧ goalAt X i = some g) =>
+    inv_feedGroup (K := K) (hK := hK) (P := P) adv hadv hadvR hX.1 i g k hX.2 d
   at_cost K hK
   simp only [workGroup, workStrats, Cost.bind_val, Cost.pure_val]
   refine Inv.modify_same ?_ i _ (fun _ => rfl) (fun _ => rfl)
-  refine inv_setGroup ?_ _ _ _ (fun g' gr _ h => h)
-  refine (hf _ _ ?_).1
+  refine hf _ _ ?_
   · refine foldL_inv (fun acc : StateOf R Rel (Ans D P) × Nat × Bool =>
       Inv acc.1 ∧ goalAt acc.1 i = some g) _ _ (fun b j _ hb => ?_) (st, 0, false) ⟨hI, hg⟩
     split
