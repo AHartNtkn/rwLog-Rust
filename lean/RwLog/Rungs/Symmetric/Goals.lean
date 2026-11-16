@@ -23,6 +23,7 @@ namespace Symmetric
 open Traverse
 
 variable {R : Type} [Answer R] [DecidableEq R] {D : Domain R} {P : Program}
+variable {rd : EdgeReader}
 
 /-! ## The goals of the tables -/
 
@@ -568,7 +569,7 @@ theorem Inv.of_tables {st st' : StateOf R Rel (Ans D P)} (hI : Inv st)
     (hI.strat i t (h ▸ ht) gs hgs gr hgr s hs).mono hE⟩
 
 theorem inv_edgeOf {st : StateOf R Rel (Ans D P)} (hI : Inv st) (last : Bool) (n : Rel) :
-    Inv (edgeOf (K := DerivationKernel.over D K hK P) st last n).val.1 := by
+    Inv (edgeOf @rd (K := DerivationKernel.over D K hK P) st last n).val.1 := by
   at_cost K hK
   simp only [edgeOf, Cost.bind_val]
   split
@@ -580,10 +581,10 @@ theorem inv_edgeOf {st : StateOf R Rel (Ans D P)} (hI : Inv st) (last : Bool) (n
 
 theorem inv_checkOf {st : StateOf R Rel (Ans D P)} (hI : Inv st) (left : Bool)
     (side other : Rel) (g : GoalOf R Rel) (hn : Normal other) :
-    Inv (checkOf (K := DerivationKernel.over D K hK P) st left side other).val.1 ∧
-      ∀ s ∈ (checkOf (K := DerivationKernel.over D K hK P) st left side other).val.2,
+    Inv (checkOf @rd (K := DerivationKernel.over D K hK P) st left side other).val.1 ∧
+      ∀ s ∈ (checkOf @rd (K := DerivationKernel.over D K hK P) st left side other).val.2,
         ∀ st' : StateOf R Rel (Ans D P), StratOk st' g s := by
-  have h := inv_edgeOf (K := K) (hK := hK) hI left side
+  have h := inv_edgeOf (rd := @rd) (K := K) (hK := hK) hI left side
   at_cost K hK
   simp only [checkOf, Cost.bind_val, Cost.pure_val]
   refine ⟨h, fun s hs st' => ?_⟩
@@ -596,12 +597,12 @@ theorem inv_checkOf {st : StateOf R Rel (Ans D P)} (hI : Inv st) (left : Bool)
 goal. -/
 theorem inv_chainGroups {st : StateOf R Rel (Ans D P)} (hI : Inv st) (g : GoalOf R Rel)
     (hn : Normal g.node) {xs : List Rel} (hvc : g.node.view = .chain xs) :
-    Inv (chainGroups (K := DerivationKernel.over D K hK P) g xs.length st).val.1 ∧
-      (∀ gr ∈ (chainGroups (K := DerivationKernel.over D K hK P) g xs.length st).val.2.1,
+    Inv (chainGroups @rd (K := DerivationKernel.over D K hK P) g xs.length st).val.1 ∧
+      (∀ gr ∈ (chainGroups @rd (K := DerivationKernel.over D K hK P) g xs.length st).val.2.1,
         ∀ s ∈ gr.strats,
-          StratOk (chainGroups (K := DerivationKernel.over D K hK P) g xs.length st).val.1 g s) ∧
-      ∀ s ∈ (chainGroups (K := DerivationKernel.over D K hK P) g xs.length st).val.2.2,
-        StratOk (chainGroups (K := DerivationKernel.over D K hK P) g xs.length st).val.1 g s := by
+          StratOk (chainGroups @rd (K := DerivationKernel.over D K hK P) g xs.length st).val.1 g s) ∧
+      ∀ s ∈ (chainGroups @rd (K := DerivationKernel.over D K hK P) g xs.length st).val.2.2,
+        StratOk (chainGroups @rd (K := DerivationKernel.over D K hK P) g xs.length st).val.1 g s := by
   at_cost K hK
   refine foldL_inv (fun acc : StateOf R Rel (Ans D P) × List (Group Rel (Ans D P)) ×
       List (Strat Rel (Ans D P)) =>
@@ -617,11 +618,11 @@ theorem inv_chainGroups {st : StateOf R Rel (Ans D P)} (hI : Inv st) (g : GoalOf
       ⟨rfl, rfl, chain_split_of hn hvc hl hr⟩
     have hE1 := (reach_splitGroup (K := _) (hK := hK) .seq ⟨g.lb, l, none⟩ ⟨none, r, g.rb⟩ b.1).ext
     obtain ⟨h3, h4⟩ := inv_checkOf (K := _) (hK := hK) h1 true l r g (hn.interval hr)
-    have hE2 := (reach_checkOf (K := _) (hK := hK) (P := P) (splitGroup
+    have hE2 := (reach_checkOf (rd := @rd) (K := _) (hK := hK) (P := P) (splitGroup
       (K := DerivationKernel.over D _ hK P) .seq ⟨g.lb, l, none⟩ ⟨none, r, g.rb⟩ b.1).val.1
       true l r).ext
     obtain ⟨h5, h6⟩ := inv_checkOf (K := _) (hK := hK) h3 false r l g (hn.interval hl)
-    have hE3 := (reach_checkOf (K := _) (hK := hK) (P := P) (checkOf
+    have hE3 := (reach_checkOf (rd := @rd) (K := _) (hK := hK) (P := P) (checkOf @rd
       (K := DerivationKernel.over D _ hK P) (splitGroup
         (K := DerivationKernel.over D _ hK P) .seq ⟨g.lb, l, none⟩ ⟨none, r, g.rb⟩ b.1).val.1
       true l r).val.1 false r l).ext
@@ -641,9 +642,9 @@ theorem inv_chainGroups {st : StateOf R Rel (Ans D P)} (hI : Inv st) (g : GoalOf
 goal. -/
 theorem inv_expand {st : StateOf R Rel (Ans D P)} (hI : Inv st) (g : GoalOf R Rel)
     (hn : Normal g.node) :
-    Inv (expand (K := DerivationKernel.over D K hK P) g st).val.1 ∧
-      ∀ gr ∈ (expand (K := DerivationKernel.over D K hK P) g st).val.2, ∀ s ∈ gr.strats,
-        StratOk (expand (K := DerivationKernel.over D K hK P) g st).val.1 g s := by
+    Inv (expand @rd (K := DerivationKernel.over D K hK P) g st).val.1 ∧
+      ∀ gr ∈ (expand @rd (K := DerivationKernel.over D K hK P) g st).val.2, ∀ s ∈ gr.strats,
+        StratOk (expand @rd (K := DerivationKernel.over D K hK P) g st).val.1 g s := by
   at_cost K hK
   simp only [expand, Cost.bind_val]
   split
@@ -770,10 +771,10 @@ given. -/
 theorem inv_work_aux {st : StateOf R Rel (Ans D P)} (hI : Inv st) (i : Nat)
     (g : GoalOf R Rel) (s : Strat Rel (Ans D P)) (hg : goalAt st i = some g)
     (hs : StratOk st g s) :
-    Inv (work (K := DerivationKernel.over D K hK P) i g st s).val.1 ∧
-      (Ext st (work (K := DerivationKernel.over D K hK P) i g st s).val.1 →
-        StratOk (work (K := DerivationKernel.over D K hK P) i g st s).val.1 g
-          (work (K := DerivationKernel.over D K hK P) i g st s).val.2.1) := by
+    Inv (work @rd (K := DerivationKernel.over D K hK P) i g st s).val.1 ∧
+      (Ext st (work @rd (K := DerivationKernel.over D K hK P) i g st s).val.1 →
+        StratOk (work @rd (K := DerivationKernel.over D K hK P) i g st s).val.1 g
+          (work @rd (K := DerivationKernel.over D K hK P) i g st s).val.2.1) := by
   at_cost K hK
   cases s with
   | span ran =>
@@ -880,7 +881,7 @@ theorem inv_work_aux {st : StateOf R Rel (Ans D P)} (hI : Inv st) (i : Nat)
       · exact ⟨hI, fun _ => hok _⟩
   | check left side other c =>
     have hno : Normal other := hs
-    have hI1 := inv_edgeOf (K := _) (hK := hK) hI left side
+    have hI1 := inv_edgeOf (rd := @rd) (K := _) (hK := hK) hI left side
     have hopen := fun ps => inv_checkOpen (K := _) (hK := hK) hI1 g left other ps hno
     cases c with
     | reading =>
@@ -898,9 +899,9 @@ strategy it leaves fits the goal. -/
 theorem inv_work {st : StateOf R Rel (Ans D P)} (hI : Inv st) (i : Nat)
     (g : GoalOf R Rel) (s : Strat Rel (Ans D P)) (hg : goalAt st i = some g)
     (hs : StratOk st g s) :
-    Inv (work (K := DerivationKernel.over D K hK P) i g st s).val.1 ∧
-      StratOk (work (K := DerivationKernel.over D K hK P) i g st s).val.1 g
-        (work (K := DerivationKernel.over D K hK P) i g st s).val.2.1 :=
+    Inv (work @rd (K := DerivationKernel.over D K hK P) i g st s).val.1 ∧
+      StratOk (work @rd (K := DerivationKernel.over D K hK P) i g st s).val.1 g
+        (work @rd (K := DerivationKernel.over D K hK P) i g st s).val.2.1 :=
   ⟨(inv_work_aux hI i g s hg hs).1,
     (inv_work_aux hI i g s hg hs).2 (reach_work _ _ _ _).ext⟩
 
@@ -909,14 +910,14 @@ strategy it leaves fits the goal. -/
 theorem inv_turn {st : StateOf R Rel (Ans D P)} (hI : Inv st) (i : Nat)
     (g : GoalOf R Rel) (f left : Nat) (s : Strat Rel (Ans D P)) (c : Nat)
     (hg : goalAt st i = some g) (hs : StratOk st g s) :
-    Inv (turn (K := DerivationKernel.over D K hK P) i g f left st s c).val.1 ∧
-      StratOk (turn (K := DerivationKernel.over D K hK P) i g f left st s c).val.1 g
-        (turn (K := DerivationKernel.over D K hK P) i g f left st s c).val.2.1 := by
-  have h := turn_ind (K := K) (hK := hK) (P := P) i g
+    Inv (turn @rd (K := DerivationKernel.over D K hK P) i g f left st s c).val.1 ∧
+      StratOk (turn @rd (K := DerivationKernel.over D K hK P) i g f left st s c).val.1 g
+        (turn @rd (K := DerivationKernel.over D K hK P) i g f left st s c).val.2.1 := by
+  have h := turn_ind (rd := @rd) (K := K) (hK := hK) (P := P) i g
     (fun st' s' => Inv st' ∧ goalAt st' i = some g ∧ StratOk st' g s')
-    (fun st' s' h => ⟨(inv_work h.1 i g s' h.2.1 h.2.2).1,
-      (reach_work (K := K) (hK := hK) i g st' s').ext _ _ h.2.1,
-      (inv_work h.1 i g s' h.2.1 h.2.2).2⟩) f left st s c ⟨hI, hg, hs⟩
+    (fun st' s' h => ⟨(inv_work (rd := @rd) h.1 i g s' h.2.1 h.2.2).1,
+      (reach_work (rd := @rd) (K := K) (hK := hK) i g st' s').ext _ _ h.2.1,
+      (inv_work (rd := @rd) h.1 i g s' h.2.1 h.2.2).2⟩) f left st s c ⟨hI, hg, hs⟩
   exact ⟨h.1, h.2.2⟩
 
 /-! ## A round -/
@@ -1042,10 +1043,10 @@ theorem inv_workGroup (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R
     (hadvR : ∀ h st, Reach K hK st (adv h st).val.1) {st : StateOf R Rel (Ans D P)}
     (hI : Inv st) (i : Nat) (g : GoalOf R Rel) (k : Nat)
     (hg : goalAt st i = some g) :
-    Inv (workGroup (K := DerivationKernel.over D K hK P) adv i g k st).val.1 := by
+    Inv (workGroup @rd (K := DerivationKernel.over D K hK P) adv i g k st).val.1 := by
   have hturn := fun (st : StateOf R Rel (Ans D P)) hI f left s c hg hs =>
-    inv_turn (K := K) (hK := hK) (st := st) hI i g f left s c hg hs
-  have hrt := fun f left st s c => reach_turn (K := K) (hK := hK) (P := P) i g f left st s c
+    inv_turn (rd := @rd) (K := K) (hK := hK) (st := st) hI i g f left s c hg hs
+  have hrt := fun f left st s c => reach_turn (rd := @rd) (K := K) (hK := hK) (P := P) i g f left st s c
   have hf := fun X d (hX : Inv X ∧ goalAt X i = some g) =>
     inv_feedGroup (K := K) (hK := hK) (P := P) adv hadv hX.1 i k d
   at_cost K hK
@@ -1075,7 +1076,7 @@ theorem inv_workLevel (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R
     (hadvR : ∀ h st, Reach K hK st (adv h st).val.1) {st : StateOf R Rel (Ans D P)}
     (hI : Inv st) (i : Nat) (g : GoalOf R Rel) (lv : Nat)
     (hg : goalAt st i = some g) :
-    Inv (workLevel (K := DerivationKernel.over D K hK P) adv i g lv st).val.1 := by
+    Inv (workLevel @rd (K := DerivationKernel.over D K hK P) adv i g lv st).val.1 := by
   at_cost K hK
   refine (foldL_inv (fun acc : StateOf R Rel (Ans D P) × Bool =>
     Inv acc.1 ∧ goalAt acc.1 i = some g) _ _ (fun b p _ hb => ?_) (st, false) ⟨hI, hg⟩).1
@@ -1087,10 +1088,10 @@ theorem inv_workLevel (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R
 
 theorem inv_prepare {st : StateOf R Rel (Ans D P)} (hI : Inv st) (i : Nat)
     (t : Table R Rel (Ans D P)) (ht : st.tables[i]? = some t) :
-    Inv (prepare (K := DerivationKernel.over D K hK P) i t st).val := by
+    Inv (prepare @rd (K := DerivationKernel.over D K hK P) i t st).val := by
   have hg : goalAt st i = some t.goal := by unfold goalAt; rw [ht]; rfl
   obtain ⟨h1, h2⟩ := inv_expand (K := K) (hK := hK) hI t.goal (hI.core i t ht).1
-  have hE := (reach_expand (K := K) (hK := hK) t.goal st).ext
+  have hE := (reach_expand (rd := @rd) (K := K) (hK := hK) t.goal st).ext
   at_cost K hK
   unfold prepare
   cases t.groups with

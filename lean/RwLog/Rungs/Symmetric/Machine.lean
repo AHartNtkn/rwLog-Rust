@@ -139,7 +139,9 @@ that no answer of `q` begins with. For each split and each side that
 contains a call, the machine reads from the program the spans the answers
 of that side can end with (for the right side: begin with): it follows the
 edge of the node inwards, composing adjacent spans, through unions and
-through each call once (`runs`). The other side is opened under the
+through each call once (`runs`). That is the reading of the first rung
+(`runsReader`); the machine is written for any reading (`EdgeReader`) and the
+proofs ask of one only `ReadOk` (`Rungs/Symmetric/Progress.lean`). The other side is opened under the
 interface of each of those spans, as ordinary goals. If all of them complete
 with no answer, the chain goal is complete. The checks of a goal are one
 group of their own. A check makes no answer.
@@ -778,6 +780,17 @@ def readEdge (last : Bool) (depth : Nat) (n : N) : M (Option (Option (List S))) 
         | _, _ => pure none) (some []) rs
       pure (some ps)
 
+/-- A reading of an edge, for every derivation kernel: given an end (the last
+one if the flag is set), a depth and a node, the interfaces the answers of
+the node can show at that end, or nothing where a check on them is not
+offered; nothing at all if the depth was not enough. The machine is written
+for any such reading (`edgeOf`); what it needs of one is that it is right
+about the program (`ReadOk`, `Rungs/Symmetric/Progress.lean`) and does not
+give up for ever (`ReadLive`, `Rungs/Symmetric/ReadLive.lean`). -/
+abbrev EdgeReader :=
+  {S N A : Type} → {M : Type → Type} → [DerivationKernel S N A M] →
+    Bool → Nat → N → M (Option (Option (List S)))
+
 /-- What was read at an end of a node, if it was. -/
 def lookupEdge (n : N) (last : Bool) :
     List (N × Bool × Option (List S)) → M (Option (Option (List S)))
@@ -789,30 +802,30 @@ def lookupEdge (n : N) (last : Bool) :
     else lookupEdge n last es
 
 /-- The edge of a node at one end: what was read of it, or a reading to the
-depth of the state. What is read is kept. If the depth was not enough,
+depth of the state, by the reading `rd`. What is read is kept. If the depth was not enough,
 nothing is returned and the depth of the state doubles. -/
-def edgeOf (st : StateOf S N A) (last : Bool) (n : N) :
+def edgeOf (rd : EdgeReader) (st : StateOf S N A) (last : Bool) (n : N) :
     M (StateOf S N A × Option (Option (List S))) := do
   let c ← lookupEdge (K := K) n last st.edges
   match c with
   | some e => pure (st, some e)
   | none => do
-    let r ← readEdge (K := K) last st.depth n
+    let r ← rd (A := A) last st.depth n
     pure (match r with
       | some e => ({ st with edges := st.edges ++ [(n, last, e)] }, some e)
       | none => ({ st with depth := 2 * st.depth }, none))
 
 /-- The check of one side of a split, unless it is not offered. -/
-def checkOf (st : StateOf S N A) (left : Bool) (side other : N) :
+def checkOf (rd : EdgeReader) (st : StateOf S N A) (left : Bool) (side other : N) :
     M (StateOf S N A × List (Strat N A)) := do
-  let (st, e) ← edgeOf (K := K) st left side
+  let (st, e) ← edgeOf @rd (K := K) st left side
   pure (st, match e with
     | some none => []
     | _ => [.check left side other .reading])
 
 /-- The groups of the splits of a chain goal of `k` members, and its
 interface checks. -/
-def chainGroups (g : GoalOf S N) (k : Nat) (st : StateOf S N A) :
+def chainGroups (rd : EdgeReader) (g : GoalOf S N) (k : Nat) (st : StateOf S N A) :
     M (StateOf S N A × List (Group N A) × List (Strat N A)) :=
   foldL (fun (acc : StateOf S N A × List (Group N A) × List (Strat N A)) i => do
     let l ← K.interval g.node 0 i
@@ -820,14 +833,14 @@ def chainGroups (g : GoalOf S N) (k : Nat) (st : StateOf S N A) :
     match l, r with
     | some l, some r => do
       let (st, gr) ← splitGroup (K := K) .seq ⟨g.lb, l, none⟩ ⟨none, r, g.rb⟩ acc.1
-      let (st, cl) ← checkOf (K := K) st true l r
-      let (st, cr) ← checkOf (K := K) st false r l
+      let (st, cl) ← checkOf @rd (K := K) st true l r
+      let (st, cr) ← checkOf @rd (K := K) st false r l
       pure (st, acc.2.1 ++ [gr], acc.2.2 ++ cl ++ cr)
     | _, _ => pure acc) (st, [], []) ((List.range k).drop 1)
 
 /-- The groups of a goal, by the kind of its node. The goals its strategies
 read are opened. -/
-def expand (g : GoalOf S N) (st : StateOf S N A) : M (StateOf S N A × List (Group N A)) := do
+def expand (rd : EdgeReader) (g : GoalOf S N) (st : StateOf S N A) : M (StateOf S N A × List (Group N A)) := do
   let v ← K.view g.node
   match v with
   | .span _ => pure (st, [⟨0, [.span false], []⟩])
@@ -844,7 +857,7 @@ def expand (g : GoalOf S N) (st : StateOf S N A) : M (StateOf S N A × List (Gro
       pure (st, acc.2 ++ [(j, 0)])) (st, []) xs
     pure (st, [⟨0, [.copy false subs], []⟩])
   | .chain xs => do
-    let r ← chainGroups (K := K) g xs.length st
+    let r ← chainGroups @rd (K := K) g xs.length st
     pure (r.1, if r.2.2.isEmpty then r.2.1 else r.2.1 ++ [⟨0, r.2.2, []⟩])
   | .meet xs =>
     foldL (fun (acc : StateOf S N A × List (Group N A)) i => do
@@ -966,7 +979,7 @@ def checkOpen (g : GoalOf S N) (left : Bool) (other : N) (st : StateOf S N A) (p
 /-- One unit of the work of a strategy of the table at `i`. Returns the
 state, the strategy with its cursors moved, and whether anything was
 done. -/
-def work (i : Nat) (g : GoalOf S N) (st : StateOf S N A) :
+def work (rd : EdgeReader) (i : Nat) (g : GoalOf S N) (st : StateOf S N A) :
     Strat N A → M (StateOf S N A × Strat N A × Bool)
   | .span true => pure (st, .span true, false)
   | .span false => do
@@ -1014,7 +1027,7 @@ def work (i : Nat) (g : GoalOf S N) (st : StateOf S N A) :
           .push k left side other f.1 dead f.2.1 (f.2.2.mark p (t + 1)) fc, true)
       | _, _ => pure (st, .push k left side other f.1 dead f.2.1 (f.2.2.mark p 1) fc, true)
   | .check left side other .reading => do
-    let (st, e) ← edgeOf (K := K) st left side
+    let (st, e) ← edgeOf @rd (K := K) st left side
     match e with
     | none => pure (st, .check left side other .reading, true)
     | some none => pure (st, .check left side other .off, true)
@@ -1073,16 +1086,16 @@ at every kernel: a kernel may charge nothing. The last unit is done whole,
 whatever it costs. Returns the state, the strategy with its cursors moved,
 and what was spent. The first argument counts the ticks down, and is never
 used up. -/
-def turn (i : Nat) (g : GoalOf S N) :
+def turn (rd : EdgeReader) (i : Nat) (g : GoalOf S N) :
     Nat → Nat → StateOf S N A → Strat N A → Nat → M (StateOf S N A × Strat N A × Nat)
   | 0, _, st, s, c => pure (st, s, c)
   | f + 1, left, st, s, c =>
     if left = 0 then pure (st, s, c)
     else do
-      let (r, t) ← K.metered (work (K := K) i g st s)
+      let (r, t) ← K.metered (work @rd (K := K) i g st s)
       if r.2.2 then do
         K.tick 1
-        turn i g f (left - (t + 1)) r.1 r.2.1 (c + t + 1)
+        turn @rd i g f (left - (t + 1)) r.1 r.2.1 (c + t + 1)
       else pure (r.1, r.2.1, c)
 
 /-- Each strategy of the group `k` of the table at `i` has its turn, in
@@ -1091,7 +1104,7 @@ strategy. A strategy that owes that much or more does nothing and owes that
 much less. Otherwise it works until it has spent what the turn is worth less
 what it owed, and owes what it spent beyond that. Returns what the turns
 cost, and whether anything was done. -/
-def workStrats (i : Nat) (g : GoalOf S N) (k : Nat) (st : StateOf S N A) :
+def workStrats (rd : EdgeReader) (i : Nat) (g : GoalOf S N) (k : Nat) (st : StateOf S N A) :
     M (StateOf S N A × Nat × Bool) :=
   let n := ((groupsAt st i)[k]?.map (·.strats.length)).getD 0
   foldL (fun (acc : StateOf S N A × Nat × Bool) j =>
@@ -1099,7 +1112,7 @@ def workStrats (i : Nat) (g : GoalOf S N) (k : Nat) (st : StateOf S N A) :
     | none => pure acc
     | some (s, o) => do
       let a := turnTicks * weight acc.1 s
-      let (st', s', c) ← turn (K := K) i g (a - o) (a - o) acc.1 s 0
+      let (st', s', c) ← turn @rd (K := K) i g (a - o) (a - o) acc.1 s 0
       let st' := setGroup st' i k fun gr =>
         { gr with strats := gr.strats.set j s', owed := setOwed gr.owed j (o + c - a) }
       pure (st', acc.2.1 + c, acc.2.2 || decide (0 < c)))
@@ -1249,20 +1262,20 @@ and its pushes are given their feed cursors as the rounds left them. The
 ticks of the strategies' own work are added to the own work of the table.
 Returns how much the level of the group rose, and whether anything was
 done. -/
-def workGroup (adv : Nat → StateOf S N A → M (StateOf S N A × Nat)) (i : Nat)
+def workGroup (rd : EdgeReader) (adv : Nat → StateOf S N A → M (StateOf S N A × Nat)) (i : Nat)
     (g : GoalOf S N) (k : Nat) (st : StateOf S N A) : M (StateOf S N A × Nat × Bool) := do
-  let (st, d0, did) ← workStrats (K := K) i g k st
+  let (st, d0, did) ← workStrats @rd (K := K) i g k st
   let (st, d, strats) ← feedGroup (K := K) adv i k st d0
   pure ((setGroup st i k fun gr => { gr with level := gr.level + d, strats := reFeed gr.strats strats }).modify i
     fun t => { t with own := t.own + d0 }, d, did || decide (0 < d))
 
 /-- The groups of the table at `i` that stand at the level `lv` work.
 Returns whether any of them did anything. -/
-def workLevel (adv : Nat → StateOf S N A → M (StateOf S N A × Nat)) (i : Nat)
+def workLevel (rd : EdgeReader) (adv : Nat → StateOf S N A → M (StateOf S N A × Nat)) (i : Nat)
     (g : GoalOf S N) (lv : Nat) (st : StateOf S N A) : M (StateOf S N A × Bool) :=
   foldL (fun (acc : StateOf S N A × Bool) (p : Group N A × Nat) =>
     if p.1.level = lv then do
-      let (st', _, did) ← workGroup (K := K) adv i g p.2 acc.1
+      let (st', _, did) ← workGroup @rd (K := K) adv i g p.2 acc.1
       pure (st', acc.2 || did)
     else pure acc) (st, false) (groupsAt st i).zipIdx
 
@@ -1277,11 +1290,11 @@ def raceOf (g : GoalOf S N) : M (Option Race) := do
 
 /-- Before the round of the table at `i`, read as `t`: its groups and its
 race are made if it has no groups, and the round is stamped. -/
-def prepare (i : Nat) (t : Table S N A) (st : StateOf S N A) : M (StateOf S N A) := do
+def prepare (rd : EdgeReader) (i : Nat) (t : Table S N A) (st : StateOf S N A) : M (StateOf S N A) := do
   let st ← match t.groups with
     | some _ => pure st
     | none => do
-      let (st', gs) ← expand (K := K) t.goal st
+      let (st', gs) ← expand @rd (K := K) t.goal st
       let r ← raceOf (K := K) t.goal
       pure (st'.modify i fun t => { t with groups := some gs, race := r })
   pure (st.modify i fun t => { t with stamp := st.round, delta := 0 })
@@ -1321,7 +1334,7 @@ worked, the race of the table asks once if it is within its budget, and the
 table is complete if a strategy has nothing left to do and reads only
 complete tables, or if its race found the unfolding final. Returns how much
 the level of the goal rose. -/
-def advance (U : GOracle S N A M) : Nat → Nat → StateOf S N A → M (StateOf S N A × Nat)
+def advance (rd : EdgeReader) (U : GOracle S N A M) : Nat → Nat → StateOf S N A → M (StateOf S N A × Nat)
   | 0, _, st => pure (st, 0)
   | fuel + 1, i, st =>
     match st.tables[i]? with
@@ -1332,12 +1345,12 @@ def advance (U : GOracle S N A M) : Nat → Nat → StateOf S N A → M (StateOf
       else if t.born = st.round then pure (st, 0)
       else do
         K.tick 1
-        let st ← prepare (K := K) i t st
+        let st ← prepare @rd (K := K) i t st
         let gs := groupsAt st i
         let low := levelOf gs
         let (st, _) ← foldL (fun (acc : StateOf S N A × Bool) lv =>
           if acc.2 then pure acc
-          else workLevel (K := K) (advance U fuel) i t.goal lv acc.1) (st, false)
+          else workLevel @rd (K := K) (advance @rd U fuel) i t.goal lv acc.1) (st, false)
           (levelsOf gs)
         let st := st.modify i fun t =>
           { t with groups := t.groups.map fun gs =>
@@ -1352,10 +1365,10 @@ def advance (U : GOracle S N A M) : Nat → Nat → StateOf S N A → M (StateOf
 /-- One request: a round of the root, and then the tables that complete
 together are marked. Returns the answers the root table gained. A request
 costs at least one tick. -/
-def request (U : GOracle S N A M) (st : StateOf S N A) : M (StateOf S N A × List A) := do
+def request (rd : EdgeReader) (U : GOracle S N A M) (st : StateOf S N A) : M (StateOf S N A × List A) := do
   K.tick 1
   let st : StateOf S N A := { st with round := st.round + 1 }
-  let (st, _) ← advance (K := K) U st.tables.length 0 st
+  let (st, _) ← advance @rd (K := K) U st.tables.length 0 st
   let C := completing st
   let st : StateOf S N A :=
     { st with tables := st.tables.mapIdx fun i t => if C.contains i then { t with done := true } else t }
@@ -1364,7 +1377,7 @@ def request (U : GOracle S N A M) (st : StateOf S N A) : M (StateOf S N A × Lis
 
 /-- A step: a request, or the final report when the root table is
 complete. -/
-def step (U : GOracle S N A M) (st : StateOf S N A) : M (StepOf A (StateOf S N A)) :=
+def step (rd : EdgeReader) (U : GOracle S N A M) (st : StateOf S N A) : M (StepOf A (StateOf S N A)) :=
   match st.tables.head? with
   | none => pure (.done [])
   | some t =>
@@ -1372,7 +1385,7 @@ def step (U : GOracle S N A M) (st : StateOf S N A) : M (StepOf A (StateOf S N A
       let fin ← maxima (K := K) t.answers
       pure (.done fin)
     else do
-      let r ← request (K := K) U st
+      let r ← request @rd (K := K) U st
       pure (.emit r.2 r.1)
 
 /-- The first state: the table of the root goal alone. -/
@@ -1450,12 +1463,16 @@ theorem heldOf_inj : Function.Injective (heldOf : StateOf S N A → Holding S N 
 
 end Holding
 
-/-- The symmetric engine with a given unfolding race. Its first state is the
-table of the root goal alone. -/
-def engine (u : Unfolder) : Engine where
+/-- The reading of an edge the first rung is run with: every run of spans
+at the edge, composed (`readEdge`). -/
+def runsReader : EdgeReader := @readEdge
+
+/-- The symmetric engine with a given unfolding race and a given reading of
+edges. Its first state is the table of the root goal alone. -/
+def engine (u : Unfolder) (rd : EdgeReader) : Engine where
   State := StateOf
   init root := init root
-  step st := step u st
+  step st := step @rd u st
   held := heldOf
   held_inj _ _ _ := heldOf_inj
 

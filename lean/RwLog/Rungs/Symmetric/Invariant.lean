@@ -24,6 +24,7 @@ namespace Symmetric
 open Traverse
 
 variable {R : Type} [Answer R] [DecidableEq R] {D : Domain R} {P : Program}
+variable {rd : EdgeReader}
 
 /-- What never changes of a table, and its answers. -/
 def Table.core {S N A : Type} (t : Table S N A) : GoalOf S N × Bool × List A :=
@@ -204,7 +205,7 @@ theorem inner_splitGroup {w : Nat} (k : Kind) (L Rg : GoalOf R Rel) (st : StateO
   exact (inner_openGoal _ _).trans (inner_openGoal _ _)
 
 theorem inner_edgeOf {w : Nat} (st : StateOf R Rel (Ans D P)) (last : Bool) (n : Rel) :
-    Inner K hK w st (edgeOf (K := DerivationKernel.over D K hK P) st last n).val.1 := by
+    Inner K hK w st (edgeOf @rd (K := DerivationKernel.over D K hK P) st last n).val.1 := by
   at_cost K hK
   simp only [edgeOf, Cost.bind_val]
   split
@@ -215,13 +216,13 @@ theorem inner_edgeOf {w : Nat} (st : StateOf R Rel (Ans D P)) (last : Bool) (n :
     · exact .same rfl rfl rfl (Nat.le_mul_of_pos_left _ (by decide))
 
 theorem inner_checkOf {w : Nat} (st : StateOf R Rel (Ans D P)) (left : Bool) (side other : Rel) :
-    Inner K hK w st (checkOf (K := DerivationKernel.over D K hK P) st left side other).val.1 := by
+    Inner K hK w st (checkOf @rd (K := DerivationKernel.over D K hK P) st left side other).val.1 := by
   at_cost K hK
   simp only [checkOf, Cost.bind_val, Cost.pure_val]
   exact inner_edgeOf _ _ _
 
 theorem inner_chainGroups {w : Nat} (g : GoalOf R Rel) (k : Nat) (st : StateOf R Rel (Ans D P)) :
-    Inner K hK w st (chainGroups (K := DerivationKernel.over D K hK P) g k st).val.1 := by
+    Inner K hK w st (chainGroups @rd (K := DerivationKernel.over D K hK P) g k st).val.1 := by
   at_cost K hK
   refine inner_foldL (fun acc : StateOf R Rel (Ans D P) × List (Group Rel (Ans D P)) ×
     List (Strat Rel (Ans D P)) => acc.1) _ (fun b x => ?_) _ (st, [], [])
@@ -233,7 +234,7 @@ theorem inner_chainGroups {w : Nat} (g : GoalOf R Rel) (k : Nat) (st : StateOf R
   · exact Inner.refl _
 
 theorem inner_expand {w : Nat} (g : GoalOf R Rel) (st : StateOf R Rel (Ans D P)) :
-    Inner K hK w st (expand (K := DerivationKernel.over D K hK P) g st).val.1 := by
+    Inner K hK w st (expand @rd (K := DerivationKernel.over D K hK P) g st).val.1 := by
   at_cost K hK
   simp only [expand, Cost.bind_val]
   split
@@ -273,7 +274,7 @@ theorem inner_stamp {w : Nat} (i n : Nat) (pth : Path) (st : StateOf R Rel (Ans 
 
 theorem inner_work (i : Nat) (g : GoalOf R Rel) (st : StateOf R Rel (Ans D P))
     (s : Strat Rel (Ans D P)) :
-    Inner K hK i st (work (K := DerivationKernel.over D K hK P) i g st s).val.1 := by
+    Inner K hK i st (work @rd (K := DerivationKernel.over D K hK P) i g st s).val.1 := by
   at_cost K hK
   cases s with
   | span ran =>
@@ -366,19 +367,19 @@ theorem reach_splitGroup (k : Kind) (L Rg : GoalOf R Rel) (st : StateOf R Rel (A
   (inner_splitGroup (w := 0) k L Rg st).reach
 
 theorem reach_edgeOf (st : StateOf R Rel (Ans D P)) (last : Bool) (n : Rel) :
-    Reach K hK st (edgeOf (K := DerivationKernel.over D K hK P) st last n).val.1 :=
+    Reach K hK st (edgeOf @rd (K := DerivationKernel.over D K hK P) st last n).val.1 :=
   (inner_edgeOf (w := 0) st last n).reach
 
 theorem reach_checkOf (st : StateOf R Rel (Ans D P)) (left : Bool) (side other : Rel) :
-    Reach K hK st (checkOf (K := DerivationKernel.over D K hK P) st left side other).val.1 :=
+    Reach K hK st (checkOf @rd (K := DerivationKernel.over D K hK P) st left side other).val.1 :=
   (inner_checkOf (w := 0) st left side other).reach
 
 theorem reach_chainGroups (g : GoalOf R Rel) (k : Nat) (st : StateOf R Rel (Ans D P)) :
-    Reach K hK st (chainGroups (K := DerivationKernel.over D K hK P) g k st).val.1 :=
+    Reach K hK st (chainGroups @rd (K := DerivationKernel.over D K hK P) g k st).val.1 :=
   (inner_chainGroups (w := 0) g k st).reach
 
 theorem reach_expand (g : GoalOf R Rel) (st : StateOf R Rel (Ans D P)) :
-    Reach K hK st (expand (K := DerivationKernel.over D K hK P) g st).val.1 :=
+    Reach K hK st (expand @rd (K := DerivationKernel.over D K hK P) g st).val.1 :=
   (inner_expand (w := 0) g st).reach
 
 theorem reach_checkOpen (g : GoalOf R Rel) (left : Bool) (other : Rel)
@@ -388,7 +389,7 @@ theorem reach_checkOpen (g : GoalOf R Rel) (left : Bool) (other : Rel)
 
 theorem reach_work (i : Nat) (g : GoalOf R Rel) (st : StateOf R Rel (Ans D P))
     (s : Strat Rel (Ans D P)) :
-    Reach K hK st (work (K := DerivationKernel.over D K hK P) i g st s).val.1 :=
+    Reach K hK st (work @rd (K := DerivationKernel.over D K hK P) i g st s).val.1 :=
   (inner_work i g st s).reach
 
 /-- The strategy `workStrats` picks, with what it owes, is the strategy at
@@ -428,13 +429,13 @@ unit (`turn_succ`). -/
 
 theorem turn_fuel_zero (i : Nat) (g : GoalOf R Rel) (left : Nat) (st : StateOf R Rel (Ans D P))
     (s : Strat Rel (Ans D P)) (c : Nat) :
-    (turn (K := DerivationKernel.over D K hK P) i g 0 left st s c).val = (st, s, c) := by
+    (turn @rd (K := DerivationKernel.over D K hK P) i g 0 left st s c).val = (st, s, c) := by
   at_cost K hK
   rfl
 
 theorem turn_zero (i : Nat) (g : GoalOf R Rel) (f : Nat) (st : StateOf R Rel (Ans D P))
     (s : Strat Rel (Ans D P)) (c : Nat) :
-    (turn (K := DerivationKernel.over D K hK P) i g f 0 st s c).val = (st, s, c) := by
+    (turn @rd (K := DerivationKernel.over D K hK P) i g f 0 st s c).val = (st, s, c) := by
   at_cost K hK
   cases f <;> simp [turn]
 
@@ -442,15 +443,15 @@ theorem turn_zero (i : Nat) (g : GoalOf R Rel) (f : Nat) (st : StateOf R Rel (An
 the turn. -/
 theorem turn_succ (i : Nat) (g : GoalOf R Rel) (f left : Nat) (st : StateOf R Rel (Ans D P))
     (s : Strat Rel (Ans D P)) (c : Nat) (hl : left ≠ 0) :
-    (turn (K := DerivationKernel.over D K hK P) i g (f + 1) left st s c).val =
-      if (work (K := DerivationKernel.over D K hK P) i g st s).val.2.2 then
-        (turn (K := DerivationKernel.over D K hK P) i g f
-          (left - ((work (K := DerivationKernel.over D K hK P) i g st s).ticks + 1))
-          (work (K := DerivationKernel.over D K hK P) i g st s).val.1
-          (work (K := DerivationKernel.over D K hK P) i g st s).val.2.1
-          (c + (work (K := DerivationKernel.over D K hK P) i g st s).ticks + 1)).val
-      else ((work (K := DerivationKernel.over D K hK P) i g st s).val.1,
-        (work (K := DerivationKernel.over D K hK P) i g st s).val.2.1, c) := by
+    (turn @rd (K := DerivationKernel.over D K hK P) i g (f + 1) left st s c).val =
+      if (work @rd (K := DerivationKernel.over D K hK P) i g st s).val.2.2 then
+        (turn @rd (K := DerivationKernel.over D K hK P) i g f
+          (left - ((work @rd (K := DerivationKernel.over D K hK P) i g st s).ticks + 1))
+          (work @rd (K := DerivationKernel.over D K hK P) i g st s).val.1
+          (work @rd (K := DerivationKernel.over D K hK P) i g st s).val.2.1
+          (c + (work @rd (K := DerivationKernel.over D K hK P) i g st s).ticks + 1)).val
+      else ((work @rd (K := DerivationKernel.over D K hK P) i g st s).val.1,
+        (work @rd (K := DerivationKernel.over D K hK P) i g st s).val.2.1, c) := by
   at_cost K hK
   simp only [turn, hl, ↓reduceIte, Cost.bind_val]
   split
@@ -460,11 +461,11 @@ theorem turn_succ (i : Nat) (g : GoalOf R Rel) (f left : Nat) (st : StateOf R Re
 /-- What every unit of the work of a strategy keeps, a turn keeps. -/
 theorem turn_ind (i : Nat) (g : GoalOf R Rel)
     (Q : StateOf R Rel (Ans D P) → Strat Rel (Ans D P) → Prop)
-    (hw : ∀ st s, Q st s → Q (work (K := DerivationKernel.over D K hK P) i g st s).val.1
-      (work (K := DerivationKernel.over D K hK P) i g st s).val.2.1) :
+    (hw : ∀ st s, Q st s → Q (work @rd (K := DerivationKernel.over D K hK P) i g st s).val.1
+      (work @rd (K := DerivationKernel.over D K hK P) i g st s).val.2.1) :
     ∀ (f left : Nat) (st : StateOf R Rel (Ans D P)) (s : Strat Rel (Ans D P)) (c : Nat), Q st s →
-      Q (turn (K := DerivationKernel.over D K hK P) i g f left st s c).val.1
-        (turn (K := DerivationKernel.over D K hK P) i g f left st s c).val.2.1
+      Q (turn @rd (K := DerivationKernel.over D K hK P) i g f left st s c).val.1
+        (turn @rd (K := DerivationKernel.over D K hK P) i g f left st s c).val.2.1
   | 0, left, st, s, c, h => by
     rw [turn_fuel_zero]
     exact h
@@ -480,13 +481,13 @@ theorem turn_ind (i : Nat) (g : GoalOf R Rel)
 
 theorem inner_turn (i : Nat) (g : GoalOf R Rel) (f left : Nat) (st : StateOf R Rel (Ans D P))
     (s : Strat Rel (Ans D P)) (c : Nat) :
-    Inner K hK i st (turn (K := DerivationKernel.over D K hK P) i g f left st s c).val.1 :=
+    Inner K hK i st (turn @rd (K := DerivationKernel.over D K hK P) i g f left st s c).val.1 :=
   turn_ind i g (fun st' _ => Inner K hK i st st')
     (fun st' s' h => h.trans (inner_work i g st' s')) f left st s c (Inner.refl st)
 
 theorem reach_turn (i : Nat) (g : GoalOf R Rel) (f left : Nat) (st : StateOf R Rel (Ans D P))
     (s : Strat Rel (Ans D P)) (c : Nat) :
-    Reach K hK st (turn (K := DerivationKernel.over D K hK P) i g f left st s c).val.1 :=
+    Reach K hK st (turn @rd (K := DerivationKernel.over D K hK P) i g f left st s c).val.1 :=
   (inner_turn i g f left st s c).reach
 
 theorem reach_setGroup (st : StateOf R Rel (Ans D P)) (i k : Nat)
@@ -686,7 +687,7 @@ theorem getElem?_reFeed {N A : Type} (ss fed : List (Strat N A)) (m : Nat) :
 /-- **The work of a strategy leaves its feed cursor.** -/
 theorem work_feedOf (i : Nat) (g : GoalOf R Rel) (st : StateOf R Rel (Ans D P))
     (s : Strat Rel (Ans D P)) :
-    (work (K := DerivationKernel.over D K hK P) i g st s).val.2.1.feedOf = s.feedOf := by
+    (work @rd (K := DerivationKernel.over D K hK P) i g st s).val.2.1.feedOf = s.feedOf := by
   at_cost K hK
   cases s with
   | span ran =>
@@ -720,15 +721,15 @@ theorem work_feedOf (i : Nat) (g : GoalOf R Rel) (st : StateOf R Rel (Ans D P))
 /-- **The turn of a strategy leaves its feed cursor.** -/
 theorem turn_feedOf (i : Nat) (g : GoalOf R Rel) (f left : Nat) (st : StateOf R Rel (Ans D P))
     (s : Strat Rel (Ans D P)) (c : Nat) :
-    (turn (K := DerivationKernel.over D K hK P) i g f left st s c).val.2.1.feedOf = s.feedOf :=
+    (turn @rd (K := DerivationKernel.over D K hK P) i g f left st s c).val.2.1.feedOf = s.feedOf :=
   turn_ind i g (fun _ s' => s'.feedOf = s.feedOf)
     (fun st' s' h => (work_feedOf i g st' s').trans h) f left st s c rfl
 
 theorem reach_workGroup (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R Rel (Ans D P) × Nat))
     (hadv : ∀ h st, Reach K hK st (adv h st).val.1) (i : Nat) (g : GoalOf R Rel)
     (k : Nat) (st : StateOf R Rel (Ans D P)) :
-    Reach K hK st (workGroup (K := DerivationKernel.over D K hK P) adv i g k st).val.1 := by
-  have ht := fun f left st s c => reach_turn (K := K) (hK := hK) (P := P) i g f left st s c
+    Reach K hK st (workGroup @rd (K := DerivationKernel.over D K hK P) adv i g k st).val.1 := by
+  have ht := fun f left st s c => reach_turn (rd := @rd) (K := K) (hK := hK) (P := P) i g f left st s c
   have hf := fun X d hX => feedGroup_keeps (K := K) (hK := hK) (P := P) adv (Reach K hK st)
     (fun h X hX => hX.trans (hadv h X))
     (fun h c X hX => hX.trans (reach_modify X h _ fun _ => rfl)) i k X d hX
@@ -747,7 +748,7 @@ theorem reach_workGroup (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf
 theorem reach_workLevel (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R Rel (Ans D P) × Nat))
     (hadv : ∀ h st, Reach K hK st (adv h st).val.1) (i : Nat) (g : GoalOf R Rel)
     (lv : Nat) (st : StateOf R Rel (Ans D P)) :
-    Reach K hK st (workLevel (K := DerivationKernel.over D K hK P) adv i g lv st).val.1 := by
+    Reach K hK st (workLevel @rd (K := DerivationKernel.over D K hK P) adv i g lv st).val.1 := by
   at_cost K hK
   refine reach_foldL (fun acc : StateOf R Rel (Ans D P) × Bool => acc.1) _ (fun b p => ?_) _
     (st, false)
@@ -757,7 +758,7 @@ theorem reach_workLevel (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf
   · exact Reach.refl _
 
 theorem reach_prepare (i : Nat) (t : Table R Rel (Ans D P)) (st : StateOf R Rel (Ans D P)) :
-    Reach K hK st (prepare (K := DerivationKernel.over D K hK P) i t st).val := by
+    Reach K hK st (prepare @rd (K := DerivationKernel.over D K hK P) i t st).val := by
   at_cost K hK
   unfold prepare
   cases t.groups with
@@ -841,7 +842,7 @@ theorem reach_askRace (U : GOracle R Rel (Ans D P) Cost) (i : Nat) (g : GoalOf R
 
 theorem reach_advance (U : GOracle R Rel (Ans D P) Cost) :
     ∀ (fuel i : Nat) (st : StateOf R Rel (Ans D P)),
-    Reach K hK st (advance (K := DerivationKernel.over D K hK P) U fuel i st).val.1
+    Reach K hK st (advance @rd (K := DerivationKernel.over D K hK P) U fuel i st).val.1
   | 0, _, st => by
     at_cost K hK
     exact Reach.refl st
@@ -884,9 +885,9 @@ and returns what the root table holds from the position the answers were
 emitted to, which it moves to the end. -/
 theorem reach_request (U : GOracle R Rel (Ans D P) Cost) (st : StateOf R Rel (Ans D P)) :
     ∃ st' : StateOf R Rel (Ans D P), Reach K hK st st' ∧
-      (request (K := DerivationKernel.over D K hK P) U st).val =
+      (request @rd (K := DerivationKernel.over D K hK P) U st).val =
         ({ st' with shown := (st'.answers 0).length }, (st'.answers 0).drop st'.shown) := by
-  have h := fun st => reach_advance (K := K) (hK := hK) (P := P) U st.tables.length 0 st
+  have h := fun st => reach_advance (rd := @rd) (K := K) (hK := hK) (P := P) U st.tables.length 0 st
   at_cost K hK
   simp only [request, Cost.bind_val, Cost.pure_val]
   refine ⟨_, Reach.trans (Reach.trans (Reach.same (st' := { st with round := st.round + 1 }) rfl rfl)

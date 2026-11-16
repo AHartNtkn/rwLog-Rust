@@ -30,6 +30,7 @@ namespace Symmetric
 open Answer Saturation
 
 variable {R : Type} [Answer R] [DecidableEq R] {D : Domain R} {P : Program}
+variable {rd : EdgeReader}
   {U : GOracle R Rel (Ans D P) Cost}
 
 /-- A run of requests: each state is a request after the one before; the
@@ -38,7 +39,7 @@ every state has what a run keeps. -/
 structure IsRun (U : GOracle R Rel (Ans D P) Cost) (σ : Nat → StateOf R Rel (Ans D P)) :
     Prop where
   req : Requests (readNeed P) (raceSem U) σ
-  good : ∀ r, Good (σ r)
+  good : ∀ r, Good (rd := @rd) (σ r)
   depth : 0 < (σ 0).depth
   fresh : ∀ (k : Nat) (t : Table R Rel (Ans D P)), (σ 0).tables[k]? = some t → t.done = false
 
@@ -99,14 +100,14 @@ variable {σ : Nat → StateOf R Rel (Ans D P)}
 
 /-! ## The tables over time -/
 
-theorem IsRun.stable (h : IsRun U σ) {r r' : Nat} (hr : r ≤ r') : Stable (σ r) (σ r') :=
+theorem IsRun.stable (h : IsRun (rd := @rd) U σ) {r r' : Nat} (hr : r ≤ r') : Stable (σ r) (σ r') :=
   h.req.stable hr
 
-theorem IsRun.goal_le (h : IsRun U σ) {r r' k : Nat} {g : GoalOf R Rel} (hr : r ≤ r')
+theorem IsRun.goal_le (h : IsRun (rd := @rd) U σ) {r r' k : Nat} {g : GoalOf R Rel} (hr : r ≤ r')
     (hg : goalAt (σ r) k = some g) : goalAt (σ r') k = some g := (h.stable hr).ext _ _ hg
 
 /-- A table has one goal, at all times. -/
-theorem IsRun.goal_any (h : IsRun U σ) {r r' k : Nat} {g g' : GoalOf R Rel}
+theorem IsRun.goal_any (h : IsRun (rd := @rd) U σ) {r r' k : Nat} {g g' : GoalOf R Rel}
     (hg : goalAt (σ r) k = some g) (hg' : goalAt (σ r') k = some g') : g = g' := by
   have h1 := h.goal_le (Nat.le_max_left r r') hg
   have h2 := h.goal_le (Nat.le_max_right r r') hg'
@@ -114,29 +115,29 @@ theorem IsRun.goal_any (h : IsRun U σ) {r r' k : Nat} {g g' : GoalOf R Rel}
   exact Option.some.inj h2
 
 /-- A goal has one table, at all times. -/
-theorem IsRun.goal_inj (h : IsRun U σ) {r r' k k' : Nat} {g : GoalOf R Rel}
+theorem IsRun.goal_inj (h : IsRun (rd := @rd) U σ) {r r' k k' : Nat} {g : GoalOf R Rel}
     (hg : goalAt (σ r) k = some g) (hg' : goalAt (σ r') k' = some g) : k = k' :=
   (h.good (max r r')).base.nodup k k' g (h.goal_le (Nat.le_max_left r r') hg)
     (h.goal_le (Nat.le_max_right r r') hg')
 
-theorem IsRun.goal_at (h : IsRun U σ) {r0 r k : Nat} {g : GoalOf R Rel}
+theorem IsRun.goal_at (h : IsRun (rd := @rd) U σ) {r0 r k : Nat} {g : GoalOf R Rel}
     (hk : goalAt (σ r0) k = some g) {t : Table R Rel (Ans D P)}
     (ht : (σ r).tables[k]? = some t) : goalAt (σ r) k = some g := by
   have := goalAt_of_table ht
   rw [h.goal_any hk this]
   exact this
 
-theorem IsRun.normal (h : IsRun U σ) {r k : Nat} {g : GoalOf R Rel}
+theorem IsRun.normal (h : IsRun (rd := @rd) U σ) {r k : Nat} {g : GoalOf R Rel}
     (hk : goalAt (σ r) k = some g) : Normal g.node := by
   obtain ⟨t, ht, rfl⟩ := table_of_goalAt hk
   exact ((h.good r).inv.core k t ht).1
 
-theorem IsRun.mem_le (h : IsRun U σ) {r r' : Nat} (hr : r ≤ r') {j : Nat} {y : Ans D P}
+theorem IsRun.mem_le (h : IsRun (rd := @rd) U σ) {r r' : Nat} (hr : r ≤ r') {j : Nat} {y : Ans D P}
     (hy : y ∈ (σ r).answers j) : y ∈ (σ r').answers j := ((h.stable hr).answers j).subset hy
 
 /-- An answer at a position that is inside the table at another time is
 there at that time. -/
-theorem IsRun.at_of_lt (h : IsRun U σ) {r r1 j n : Nat} {y : Ans D P}
+theorem IsRun.at_of_lt (h : IsRun (rd := @rd) U σ) {r r1 j n : Nat} {y : Ans D P}
     (hy : ((σ r1).answers j)[n]? = some y) (hn : n < ((σ r).answers j).length) :
     ((σ r).answers j)[n]? = some y := by
   rcases Nat.le_total r1 r with hle | hle
@@ -144,13 +145,13 @@ theorem IsRun.at_of_lt (h : IsRun U σ) {r r1 j n : Nat} {y : Ans D P}
   · exact (h.stable hle).getElem?_old hy hn
 
 /-- A complete table has every answer it ever has. -/
-theorem IsRun.done_answers (h : IsRun U σ) {r j : Nat} (hd : (σ r).isDone j = true) (r' : Nat) :
+theorem IsRun.done_answers (h : IsRun (rd := @rd) U σ) {r j : Nat} (hd : (σ r).isDone j = true) (r' : Nat) :
     (σ r').answers j ⊆ (σ r).answers j := by
   rcases Nat.le_total r r' with hr | hr
   · rw [((h.stable hr).isDone hd).2]
   · exact ((h.stable hr).answers j).subset
 
-theorem IsRun.done_len (h : IsRun U σ) {r j : Nat} (hd : (σ r).isDone j = true) (r' : Nat) :
+theorem IsRun.done_len (h : IsRun (rd := @rd) U σ) {r j : Nat} (hd : (σ r).isDone j = true) (r' : Nat) :
     (σ r').len j ≤ (σ r).len j := by
   unfold StateOf.len
   rcases Nat.le_total r r' with hr | hr
@@ -159,13 +160,13 @@ theorem IsRun.done_len (h : IsRun U σ) {r j : Nat} (hd : (σ r).isDone j = true
 
 /-! ## What the run holds -/
 
-theorem IsRun.mem_opened (_ : IsRun U σ) {r k : Nat} {g : GoalOf R Rel}
+theorem IsRun.mem_opened (_ : IsRun (rd := @rd) U σ) {r k : Nat} {g : GoalOf R Rel}
     (hk : goalAt (σ r) k = some g) (ho : Opened σ k) : toGoal g ∈ opened σ :=
   ⟨k, r, g, hk, rfl, ho⟩
 
 /-- What the run ever holds for the goal of a table: the representatives of
 the answers the table ever has. -/
-theorem IsRun.held_iff (h : IsRun U σ) {r0 k : Nat} {g : GoalOf R Rel}
+theorem IsRun.held_iff (h : IsRun (rd := @rd) U σ) {r0 k : Nat} {g : GoalOf R Rel}
     (hk : goalAt (σ r0) k = some g) (a : R) :
     Held (held σ) (toGoal g) a ↔ ∃ r, ∃ y ∈ (σ r).answers k, y.span = a := by
   constructor
@@ -178,36 +179,36 @@ theorem IsRun.held_iff (h : IsRun U σ) {r0 k : Nat} {g : GoalOf R Rel}
       h.mem_le (Nat.le_max_left _ _) hy, rfl⟩
 
 /-- What a table covers at some time the run covers for its goal. -/
-theorem IsRun.ev (h : IsRun U σ) {r0 r k : Nat} {g : GoalOf R Rel}
+theorem IsRun.ev (h : IsRun (rd := @rd) U σ) {r0 r k : Nat} {g : GoalOf R Rel}
     (hk : goalAt (σ r0) k = some g) {c : R} (hc : CovS (σ r) k c) :
     Ev P (held σ) (toGoal g) (den P.sorts.interp c) := by
   obtain ⟨y, hy, hs⟩ := hc
   exact ⟨y.span, (h.held_iff hk _).2 ⟨r, y, hy, rfl⟩, hs⟩
 
 /-- What the cursors of a strategy of a table mean. -/
-theorem IsRun.prog (h : IsRun U σ) {r0 r k : Nat} {g : GoalOf R Rel}
+theorem IsRun.prog (h : IsRun (rd := @rd) U σ) {r0 r k : Nat} {g : GoalOf R Rel}
     (hk : goalAt (σ r0) k = some g) {s : Strat Rel (Ans D P)} (hs : IsStrat σ k r s) :
-    Prog (σ r) k g s := by
+    Prog (rd := @rd) (σ r) k g s := by
   obtain ⟨t, gs, gr, ht, hg, hgr, hs⟩ := hs
   rw [h.goal_any hk (goalAt_of_table ht)]
   exact (h.good r).prog k t ht gs hg gr hgr s hs
 
 /-- What a table has read of another it covers, whenever the answer read
 was found. -/
-theorem IsRun.read_cov (h : IsRun U σ) {r r1 i j pos n : Nat} {f : R → Option R} {y : Ans D P}
+theorem IsRun.read_cov (h : IsRun (rd := @rd) U σ) {r r1 i j pos n : Nat} {f : R → Option R} {y : Ans D P}
     (hr : Read (σ r) i j pos f) (hn : n < pos) (hy : ((σ r1).answers j)[n]? = some y) :
     ∀ z, f y.span = some z → CovS (σ r) i z :=
   hr.2 n y hn (h.at_of_lt hy (by have := hr.1; omega))
 
 /-- The complete tables of a run stand in an order at every time: none is
 complete only because of itself. -/
-theorem IsRun.founded (h : IsRun U σ) : ∀ r, Founded (raceSem U) (σ r)
+theorem IsRun.founded (h : IsRun (rd := @rd) U σ) : ∀ r, Founded (raceSem U) (σ r)
   | 0 => ⟨fun _ => 0, fun i t ht hd => by rw [h.fresh i t ht] at hd; cases hd⟩
   | r + 1 => (h.req.req r).founded (h.founded r)
 
 /-- A table that needs no round in infinitely many requests is not
 neglected. -/
-theorem IsRun.opened_of_settled (h : IsRun U σ) {r0 j : Nat} {g : GoalOf R Rel}
+theorem IsRun.opened_of_settled (h : IsRun (rd := @rd) U σ) {r0 j : Nat} {g : GoalOf R Rel}
     (hj : goalAt (σ r0) j = some g) (hs : ∀ r', ∃ r, r' ≤ r ∧ Settled (σ (r + 1)) j) :
     Opened σ j := by
   by_contra hno
@@ -233,7 +234,7 @@ theorem IsRun.opened_of_settled (h : IsRun U σ) {r0 j : Nat} {g : GoalOf R Rel}
 /-! ## A strategy that reaches everything serves its table -/
 
 /-- A span that has run. -/
-theorem IsRun.served_span (h : IsRun U σ) {r0 r k : Nat} {g : GoalOf R Rel}
+theorem IsRun.served_span (h : IsRun (rd := @rd) U σ) {r0 r k : Nat} {g : GoalOf R Rel}
     (hk : goalAt (σ r0) k = some g) (hs : IsStrat σ k r (.span true)) :
     Served D P (opened σ) (held σ) (toGoal g) := by
   have hp := h.prog hk hs
@@ -243,7 +244,7 @@ theorem IsRun.served_span (h : IsRun U σ) {r0 r k : Nat} {g : GoalOf R Rel}
 
 /-- A call or a union that reads tables that are not neglected, each as far
 as it ever gets. -/
-theorem IsRun.served_copy (h : IsRun U σ) {r0 k : Nat} {g : GoalOf R Rel} {c : Bool}
+theorem IsRun.served_copy (h : IsRun (rd := @rd) U σ) {r0 k : Nat} {g : GoalOf R Rel} {c : Bool}
     {subs0 : List (Nat × Nat)} (hk : goalAt (σ r0) k = some g)
     (hs : IsStrat σ k r0 (.copy c subs0))
     (hex : ∀ (m j pos0 : Nat), subs0[m]? = some (j, pos0) → Opened σ j ∧
@@ -301,7 +302,7 @@ theorem IsRun.served_copy (h : IsRun U σ) {r0 k : Nat} {g : GoalOf R Rel} {c : 
 
 /-- A join of two tables that are not neglected that combines every pair
 of answers they ever have. -/
-theorem IsRun.served_join (h : IsRun U σ) {r0 k : Nat} {g : GoalOf R Rel} {kd : Kind} {a b : Nat}
+theorem IsRun.served_join (h : IsRun (rd := @rd) U σ) {r0 k : Nat} {g : GoalOf R Rel} {kd : Kind} {a b : Nat}
     {c0 : Cursor} (hk : goalAt (σ r0) k = some g) (hs : IsStrat σ k r0 (.join kd a b c0))
     (ha : Opened σ a) (hb : Opened σ b)
     (hex : ∀ p q r1, p < (σ r1).len a → q < (σ r1).len b →
@@ -337,7 +338,7 @@ theorem IsRun.served_join (h : IsRun U σ) {r0 k : Nat} {g : GoalOf R Rel} {kd :
 /-- A push of a complete table that has seen every answer of it, opened the
 goal of each that no later one covers, and read the complete table of each
 to its end. -/
-theorem IsRun.served_push (hL : D.Lawful P.sorts.interp) (h : IsRun U σ) {r k : Nat}
+theorem IsRun.served_push (hL : D.Lawful P.sorts.interp) (h : IsRun (rd := @rd) U σ) {r k : Nat}
     {g : GoalOf R Rel} {kd : Kind} {left : Bool}
     {side : Nat} {other : Rel} {subs : List (Ans D P × Option (Nat × Nat))} {dead : List Nat}
     {reads : List (Nat × Option Nat)} {c fc : Cursor}
@@ -426,7 +427,7 @@ theorem IsRun.served_push (hL : D.Lawful P.sorts.interp) (h : IsRun U σ) {r k :
 
 /-- An interface check whose goals are not neglected and never have an
 answer. -/
-theorem IsRun.served_check (h : IsRun U σ) {r k : Nat} {g : GoalOf R Rel} {left : Bool}
+theorem IsRun.served_check (h : IsRun (rd := @rd) U σ) {r k : Nat} {g : GoalOf R Rel} {left : Bool}
     {side other : Rel} {subs : List Nat} (hk : goalAt (σ r) k = some g)
     (hs : IsStrat σ k r (.check left side other (.opened subs)))
     (hsub : ∀ j ∈ subs, (∀ r' h', goalAt (σ r') j = some h' → Opened σ j) ∧
@@ -470,7 +471,7 @@ theorem IsRun.served_check (h : IsRun U σ) {r k : Nat} {g : GoalOf R Rel} {left
 /-- A table that is complete had, when it became so, a strategy with
 nothing left to do that reads complete tables only, or a final verdict of
 its race. -/
-theorem IsRun.quiet_of_done (h : IsRun U σ) {k : Nat} : ∀ r, (σ r).isDone k = true →
+theorem IsRun.quiet_of_done (h : IsRun (rd := @rd) U σ) {k : Nat} : ∀ r, (σ r).isDone k = true →
     ∃ r' t', (σ r').tables[k]? = some t' ∧ (QuietAt (σ r') t' ∨ Raced (raceSem U) (σ r') k)
   | 0, hd => by
     cases ht : (σ 0).tables[k]? with
@@ -488,7 +489,7 @@ theorem IsRun.quiet_of_done (h : IsRun U σ) {k : Nat} : ∀ r, (σ r).isDone k 
       · exact ⟨r + 1, t', ht, hq⟩
 
 /-- **A complete table is served.** -/
-theorem IsRun.served_done (hL : D.Lawful P.sorts.interp) (h : IsRun U σ) {r0 k : Nat} {g : GoalOf R Rel}
+theorem IsRun.served_done (hL : D.Lawful P.sorts.interp) (h : IsRun (rd := @rd) U σ) {r0 k : Nat} {g : GoalOf R Rel}
     (hk : goalAt (σ r0) k = some g) (hd : EvDone σ k) :
     Served D P (opened σ) (held σ) (toGoal g) := by
   obtain ⟨r1, hd1⟩ := hd

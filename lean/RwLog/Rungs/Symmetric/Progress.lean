@@ -191,6 +191,7 @@ end pure
 open Answer
 
 variable {R : Type} [Answer R] [DecidableEq R] {D : Domain R} {P : Program}
+variable {rd : EdgeReader}
 
 /-- Some answer of the table at `i` relates every pair `c` relates. -/
 def CovS (st : StateOf R Rel (Ans D P)) (i : Nat) (c : R) : Prop :=
@@ -345,9 +346,10 @@ def EdgeOk (D : Domain R) (P : Program) (n : Rel) (last : Bool) (ps : List R) : 
 /-- Some reading of the end of `n`, at some depth and some kernel, did not
 give up and returned `e`. Every reading that does not give up returns the
 same (`Reads.unique`), so this is a fact of the program alone. -/
-def Reads (D : Domain R) (P : Program) (n : Rel) (last : Bool) (e : Option (List R)) : Prop :=
+def Reads (rd : EdgeReader) (D : Domain R) (P : Program) (n : Rel) (last : Bool)
+    (e : Option (List R)) : Prop :=
   ∃ (K : Kernel R Cost) (hK : K.Refines D) (d : Nat),
-    (readEdge (K := DerivationKernel.over D K hK P) last d n).val = some e
+    (@rd R Rel (Ans D P) Cost (DerivationKernel.over D K hK P) last d n).val = some e
 
 /-- What the cursors of the strategy `s` of the table at `i`, of the goal
 `g`, mean. -/
@@ -381,11 +383,11 @@ def Prog (st : StateOf R Rel (Ans D P)) (i : Nat) (g : GoalOf R Rel) :
   | .check left side other c => ∃ L Rg, SplitAt g .seq L Rg ∧
       side = (if left then L.node else Rg.node) ∧ other = (if left then Rg.node else L.node) ∧
       match c with
-      | .opened subs => ∃ ps, Reads D P side left (some ps) ∧ EdgeOk D P side left ps ∧
+      | .opened subs => ∃ ps, Reads @rd D P side left (some ps) ∧ EdgeOk D P side left ps ∧
           subs.length = ps.length ∧
           ∀ (n : Nat) (p : R), ps[n]? = some p → ∃ j, subs[n]? = some j ∧
             goalAt st j = some (if left then ⟨some p, other, g.rb⟩ else ⟨g.lb, other, some p⟩)
-      | .off => Reads D P side left none
+      | .off => Reads @rd D P side left none
       | .reading => True
 
 /-- The first entries of a list are the first entries of a list it begins. -/
@@ -396,7 +398,7 @@ theorem take_of_prefix {α : Type} {l l' : List α} (h : l <+: l') {n : Nat} (hn
 
 /-- What the cursors of a strategy mean stays so in every later state. -/
 theorem Prog.mono {st st' : StateOf R Rel (Ans D P)} (h : Stable st st') {i : Nat}
-    {g : GoalOf R Rel} {s : Strat Rel (Ans D P)} (hs : Prog st i g s) : Prog st' i g s := by
+    {g : GoalOf R Rel} {s : Strat Rel (Ans D P)} (hs : Prog (rd := @rd) st i g s) : Prog (rd := @rd) st' i g s := by
   have hE := h.ext
   cases s with
   | span ran =>
@@ -454,13 +456,13 @@ empty: a check of it is not offered, or the other side has an answer under
 one of the interfaces read. -/
 def CheckGone (st : StateOf R Rel (Ans D P)) (g : GoalOf R Rel) (left : Bool)
     (side other : Rel) : Prop :=
-  Reads D P side left none ∨ ∃ ps, Reads D P side left (some ps) ∧ ∃ p ∈ ps, ∃ j,
+  Reads @rd D P side left none ∨ ∃ ps, Reads @rd D P side left (some ps) ∧ ∃ p ∈ ps, ∃ j,
     goalAt st j = some (if left then ⟨some p, other, g.rb⟩ else ⟨g.lb, other, some p⟩) ∧
     st.answers j ≠ []
 
 theorem CheckGone.mono {st st' : StateOf R Rel (Ans D P)} (h : Stable st st')
-    {g : GoalOf R Rel} {left : Bool} {side other : Rel} (hc : CheckGone st g left side other) :
-    CheckGone st' g left side other := by
+    {g : GoalOf R Rel} {left : Bool} {side other : Rel} (hc : CheckGone (rd := @rd) st g left side other) :
+    CheckGone (rd := @rd) st' g left side other := by
   rcases hc with hc | ⟨ps, h1, p, hp, j, hj, hne⟩
   · exact .inl hc
   · refine .inr ⟨ps, h1, p, hp, j, h.ext _ _ hj, fun he => hne ?_⟩
@@ -470,9 +472,9 @@ theorem CheckGone.mono {st st' : StateOf R Rel (Ans D P)} (h : Stable st st')
 
 /-- A check that is dead can never show the goal empty. -/
 theorem prog_dead_gone {st : StateOf R Rel (Ans D P)} {i : Nat} {g : GoalOf R Rel} {left : Bool}
-    {side other : Rel} {c : Check} (hp : Prog st i g (.check left side other c))
+    {side other : Rel} {c : Check} (hp : Prog (rd := @rd) st i g (.check left side other c))
     (hd : (Strat.check left side other c : Strat Rel (Ans D P)).dead st = true) :
-    CheckGone st g left side other := by
+    CheckGone (rd := @rd) st g left side other := by
   dsimp only [Prog] at hp
   obtain ⟨L, Rg, -, -, -, hc⟩ := hp
   cases c with
@@ -506,17 +508,17 @@ structure Full (st : StateOf R Rel (Ans D P)) (g : GoalOf R Rel)
     .push k true a Rg.node [] none [] Cursor.start Cursor.start ∈ gr.kinds ∧
       .push k false b L.node [] none [] Cursor.start Cursor.start ∈ gr.kinds
   check : ∀ L Rg, SplitAt g .seq L Rg → ∀ left : Bool,
-    CheckGone st g left (if left then L.node else Rg.node) (if left then Rg.node else L.node) ∨
+    CheckGone (rd := @rd) st g left (if left then L.node else Rg.node) (if left then Rg.node else L.node) ∨
       ∃ gr ∈ gs, .check left (if left then L.node else Rg.node)
         (if left then Rg.node else L.node) .reading ∈ gr.kinds
 
 /-- The groups stay full when each group stays, with strategies of the same
 kinds, or was all checks that can never show the goal empty. -/
 theorem Full.keep {st st' : StateOf R Rel (Ans D P)} (hS : Stable st st') {g : GoalOf R Rel}
-    {gs gs' : List (Group Rel (Ans D P))} (hF : Full st g gs)
+    {gs gs' : List (Group Rel (Ans D P))} (hF : Full (rd := @rd) st g gs)
     (h : ∀ gr ∈ gs, (∃ gr' ∈ gs', gr'.kinds = gr.kinds) ∨
-      ∀ s ∈ gr.strats, ∃ l side o c, s = .check l side o c ∧ CheckGone st' g l side o) :
-    Full st' g gs' := by
+      ∀ s ∈ gr.strats, ∃ l side o c, s = .check l side o c ∧ CheckGone (rd := @rd) st' g l side o) :
+    Full (rd := @rd) st' g gs' := by
   have lead : ∀ gr ∈ gs, ∀ x ∈ gr.kinds, (∀ l side o, x ≠ .check l side o .reading) →
       ∃ gr' ∈ gs', x ∈ gr'.kinds := by
     intro gr hgr x hx hne
@@ -581,10 +583,10 @@ theorem Full.of_view {st : StateOf R Rel (Ans D P)} {g : GoalOf R Rel}
       .push k true a Rg.node [] none [] Cursor.start Cursor.start ∈ gr.kinds ∧
       .push k false b L.node [] none [] Cursor.start Cursor.start ∈ gr.kinds)
     (hcheck : ∀ L Rg, SplitAt g .seq L Rg → ∀ left : Bool,
-      CheckGone st g left (if left then L.node else Rg.node)
+      CheckGone (rd := @rd) st g left (if left then L.node else Rg.node)
           (if left then Rg.node else L.node) ∨
         ∃ gr ∈ gs, .check left (if left then L.node else Rg.node)
-          (if left then Rg.node else L.node) .reading ∈ gr.kinds) : Full st g gs := by
+          (if left then Rg.node else L.node) .reading ∈ gr.kinds) : Full (rd := @rd) st g gs := by
   refine ⟨fun ⟨s, hs⟩ => hspan s (by rw [← hv, hs]; rfl), fun c h1 h2 => ?_, hsplit, hcheck⟩
   cases c with
   | true =>
@@ -596,14 +598,14 @@ theorem Full.of_view {st : StateOf R Rel (Ans D P)} {g : GoalOf R Rel}
     exact hunion xs (by rw [← hv, e])
 
 theorem Full.mono {st st' : StateOf R Rel (Ans D P)} (hS : Stable st st') {g : GoalOf R Rel}
-    {gs : List (Group Rel (Ans D P))} (hF : Full st g gs) : Full st' g gs :=
+    {gs : List (Group Rel (Ans D P))} (hF : Full (rd := @rd) st g gs) : Full (rd := @rd) st' g gs :=
   hF.keep hS fun gr hgr => .inl ⟨gr, hgr, rfl⟩
 
 /-- Every table that has groups has a strategy for every way to answer its
 goal. -/
 def FullAll (st : StateOf R Rel (Ans D P)) : Prop :=
   ∀ (i : Nat) (t : Table R Rel (Ans D P)), st.tables[i]? = some t → ∀ gs, t.groups = some gs →
-    Full st t.goal gs
+    Full (rd := @rd) st t.goal gs
 
 /-! ## What the rules return -/
 
@@ -888,15 +890,38 @@ theorem pushOpen_spec (g : GoalOf R Rel) (other : Rel) (k : Kind) (left : Bool)
 
 /-- Every edge the state keeps is right about the program. -/
 def EdgesOk (st : StateOf R Rel (Ans D P)) : Prop :=
-  ∀ e ∈ st.edges, Reads D P e.1 e.2.1 e.2.2 ∧ ∀ ps, e.2.2 = some ps → EdgeOk D P e.1 e.2.1 ps
+  ∀ e ∈ st.edges, Reads @rd D P e.1 e.2.1 e.2.2 ∧ ∀ ps, e.2.2 = some ps → EdgeOk D P e.1 e.2.1 ps
+
+/-- The call nodes of the names the program defines. -/
+def callNodes (P : Program) : List Rel :=
+  P.defs.flatMap fun d => [.call d.1, .conv (.call d.1)]
+
+/-- No body of a name the program defines is larger, in either direction. -/
+def bodyBound (P : Program) : Nat :=
+  (P.defs.map fun d => d.2.norm.size + d.2.normConv.size).sum
+
+/-- The call nodes of defined names that are not among `seen`. -/
+def rem (P : Program) (seen : List Rel) : Nat :=
+  ((callNodes P).filter fun c => decide (c ∉ seen)).length
+
+/-- The depth that is enough under `m` calls still to pass, less the size of
+the node. -/
+def underCalls (P : Program) (m : Nat) : Nat := m * (bodyBound P + 2) + 1
+
+/-- The depth from which the edges of a node are read. -/
+def readNeed (P : Program) (n : Rel) : Nat := n.size + 1 + underCalls P (rem P [])
 
 variable (D P K hK) in
-/-- A reading of an edge that returns interfaces is right about the
-program. -/
-def ReadOk : Prop :=
-  ∀ (last : Bool) (d : Nat) (n : Rel) (ps : List R),
-    (readEdge (K := DerivationKernel.over D K hK P) last d n).val = some (some ps) →
+/-- What the machine needs of the reading `rd`. It is right about the
+program: when it returns interfaces, every answer of the node ends or begins
+inside one of them. And it does not give up for ever: from the depth
+`readNeed` on it returns something. -/
+structure ReadOk (rd : EdgeReader) : Prop where
+  sound : ∀ (last : Bool) (d : Nat) (n : Rel) (ps : List R),
+    (@rd R Rel (Ans D P) Cost (DerivationKernel.over D K hK P) last d n).val = some (some ps) →
       EdgeOk D P n last ps
+  live : ∀ (last : Bool) (d : Nat) (n : Rel), readNeed P n ≤ d →
+    (@rd R Rel (Ans D P) Cost (DerivationKernel.over D K hK P) last d n).val ≠ none
 
 theorem lookupEdge_mem (n : Rel) (last : Bool) :
     ∀ (es : List (Rel × Bool × Option (List R))) (e : Option (List R)),
@@ -925,18 +950,18 @@ theorem lookupEdge_mem (n : Rel) (last : Bool) :
 
 /-- The edge of a node, as the state gives it, is right about the program,
 and the state keeps only edges that are. -/
-theorem edgeOf_spec (hR : ReadOk D P K hK) {st : StateOf R Rel (Ans D P)} (hE : EdgesOk st)
+theorem edgeOf_spec (hR : ReadOk D P K hK @rd) {st : StateOf R Rel (Ans D P)} (hE : EdgesOk (rd := @rd) st)
     (last : Bool) (n : Rel) :
-    EdgesOk (edgeOf (K := DerivationKernel.over D K hK P) st last n).val.1 ∧
-      (edgeOf (K := DerivationKernel.over D K hK P) st last n).val.1.tables = st.tables ∧
-      (∀ ps, (edgeOf (K := DerivationKernel.over D K hK P) st last n).val.2 = some (some ps) →
+    EdgesOk (rd := @rd) (edgeOf @rd (K := DerivationKernel.over D K hK P) st last n).val.1 ∧
+      (edgeOf @rd (K := DerivationKernel.over D K hK P) st last n).val.1.tables = st.tables ∧
+      (∀ ps, (edgeOf @rd (K := DerivationKernel.over D K hK P) st last n).val.2 = some (some ps) →
         EdgeOk D P n last ps) ∧
-      ∀ e, (edgeOf (K := DerivationKernel.over D K hK P) st last n).val.2 = some e →
-        Reads D P n last e := by
+      ∀ e, (edgeOf @rd (K := DerivationKernel.over D K hK P) st last n).val.2 = some e →
+        Reads @rd D P n last e := by
   have hlk := lookupEdge_mem (K := K) (hK := hK) (P := P) n last st.edges
-  have hR' := hR last st.depth n
-  have hrd : ∀ e, (readEdge (K := DerivationKernel.over D K hK P) last st.depth n).val = some e →
-      Reads D P n last e := fun e h => ⟨K, hK, st.depth, h⟩
+  have hR' := hR.sound last st.depth n
+  have hrd : ∀ e, (@rd R Rel (Ans D P) Cost (DerivationKernel.over D K hK P) last st.depth n).val = some e →
+      Reads @rd D P n last e := fun e h => ⟨K, hK, st.depth, h⟩
   clear hR
   at_cost K hK
   simp only [edgeOf, Cost.bind_val]
@@ -945,7 +970,7 @@ theorem edgeOf_spec (hR : ReadOk D P K hK) {st : StateOf R Rel (Ans D P)} (hE : 
     exact ⟨hE, rfl, (fun ps hps => (hE _ (hlk e he)).2 ps (by cases hps; rfl)),
       fun e' he' => by cases he'; exact (hE _ (hlk e he)).1⟩
   · simp only [Cost.bind_val, Cost.pure_val]
-    cases hr : (readEdge (K := DerivationKernel.over D _ hK P) last st.depth n).val with
+    cases hr : (@rd R Rel (Ans D P) Cost (DerivationKernel.over D _ hK P) last st.depth n).val with
     | none => exact ⟨hE, rfl, (fun ps hps => by cases hps), fun e he => by cases he⟩
     | some e =>
       refine ⟨fun x hx => ?_, rfl, fun ps hps => ?_, fun e' he' => ?_⟩
@@ -991,14 +1016,14 @@ theorem deadIs_stamp (st : StateOf R Rel (Ans D P)) (j n : Nat) (pth : Path) (si
 /-- Giving paths to answers changes nothing `Prog` speaks of. -/
 theorem prog_stamp (st : StateOf R Rel (Ans D P)) (j n : Nat) (pth : Path) (i : Nat)
     (g : GoalOf R Rel) (s : Strat Rel (Ans D P)) :
-    Prog (stamp j n pth st) i g s = Prog st i g s := by
+    Prog (rd := @rd) (stamp j n pth st) i g s = Prog (rd := @rd) st i g s := by
   cases s <;> simp only [Prog, CovS, Read, answers_stamp, goalAt_stamp, deadIs_stamp]
 
 theorem prog_work_span (hL : D.Lawful P.sorts.interp) {st : StateOf R Rel (Ans D P)}
     (i : Nat) (g : GoalOf R Rel) (ran : Bool) (ho : Open st i)
-    (hb : IsBound D g.lb ∧ IsBound D g.rb) (hs : Prog st i g (.span ran)) :
-    Prog (work (K := DerivationKernel.over D K hK P) i g st (.span ran)).val.1 i g
-      (work (K := DerivationKernel.over D K hK P) i g st (.span ran)).val.2.1 := by
+    (hb : IsBound D g.lb ∧ IsBound D g.rb) (hs : Prog (rd := @rd) st i g (.span ran)) :
+    Prog (rd := @rd) (work @rd (K := DerivationKernel.over D K hK P) i g st (.span ran)).val.1 i g
+      (work @rd (K := DerivationKernel.over D K hK P) i g st (.span ran)).val.2.1 := by
   have hcov := fun c => cov_addOption (K := K) (hK := hK) hL st i ho c
   have hleaf := fun s z hz => Ans.leaf_ok (P := P) K hK (s := s) (z := z) hb.1 hb.2 hz
   at_cost K hK
@@ -1016,9 +1041,9 @@ theorem prog_work_span (hL : D.Lawful P.sorts.interp) {st : StateOf R Rel (Ans D
 
 theorem prog_work_copy (hL : D.Lawful P.sorts.interp) {st : StateOf R Rel (Ans D P)}
     (hI : Inv st) (i : Nat) (g : GoalOf R Rel) (isCall : Bool)
-    (subs : List (Nat × Nat)) (ho : Open st i) (hs : Prog st i g (.copy isCall subs)) :
-    Prog (work (K := DerivationKernel.over D K hK P) i g st (.copy isCall subs)).val.1 i g
-      (work (K := DerivationKernel.over D K hK P) i g st (.copy isCall subs)).val.2.1 := by
+    (subs : List (Nat × Nat)) (ho : Open st i) (hs : Prog (rd := @rd) st i g (.copy isCall subs)) :
+    Prog (rd := @rd) (work @rd (K := DerivationKernel.over D K hK P) i g st (.copy isCall subs)).val.1 i g
+      (work @rd (K := DerivationKernel.over D K hK P) i g st (.copy isCall subs)).val.2.1 := by
   have hcf := fun m st' as ho happ =>
     copyFrom_cov (K := K) (hK := hK) hL i g isCall m st' as ho happ
   have hs0 := hs
@@ -1069,9 +1094,9 @@ theorem prog_work_copy (hL : D.Lawful P.sorts.interp) {st : StateOf R Rel (Ans D
 
 theorem prog_work_join (hL : D.Lawful P.sorts.interp) {st : StateOf R Rel (Ans D P)}
     (hI : Inv st) (i : Nat) (g : GoalOf R Rel) (k : Kind) (a b : Nat)
-    (c : Cursor) (ho : Open st i) (hs : Prog st i g (.join k a b c)) :
-    Prog (work (K := DerivationKernel.over D K hK P) i g st (.join k a b c)).val.1 i g
-      (work (K := DerivationKernel.over D K hK P) i g st (.join k a b c)).val.2.1 := by
+    (c : Cursor) (ho : Open st i) (hs : Prog (rd := @rd) st i g (.join k a b c)) :
+    Prog (rd := @rd) (work @rd (K := DerivationKernel.over D K hK P) i g st (.join k a b c)).val.1 i g
+      (work @rd (K := DerivationKernel.over D K hK P) i g st (.join k a b c)).val.2.1 := by
   dsimp only [Prog] at hs
   obtain ⟨L, Rg, h1, h2, h3, h4, h5⟩ := hs
   have hjp := fun ps => joinPairs_cov (K := K) (hK := hK) hL i k (st.answers a) (st.answers b)
@@ -1082,7 +1107,7 @@ theorem prog_work_join (hL : D.Lawful P.sorts.interp) {st : StateOf R Rel (Ans D
         (st.answers b)[p.2]? = some y → ∀ z, opS D k x.span y.span = some z → CovS st' i z) →
       c'.Ok (st.answers a).length (st.answers b).length →
       (∀ p q, c'.Before p q → c.Before p q ∨ (p, q) ∈ ps) →
-      Prog st' i g (.join k a b c') := by
+      Prog (rd := @rd) st' i g (.join k a b c') := by
     intro ps c' st' hf hc hok hbef
     have hS := hf.stable ho
     dsimp only [Prog]
@@ -1231,8 +1256,8 @@ theorem prog_push_file {st : StateOf R Rel (Ans D P)} (i : Nat) (g : GoalOf R Re
     (hD' : ∀ d, dead' = some d → st.isDone side = true ∧
       DeadOk D P (st.answers side) (st.answers side).length d)
     (hdsub : ∀ d, dead = some d → dead' = some d)
-    (hs : Prog st i g (.push k left side other subs dead reads c fc)) :
-    Prog st i g (.push k left side other
+    (hs : Prog (rd := @rd) st i g (.push k left side other subs dead reads c fc)) :
+    Prog (rd := @rd) st i g (.push k left side other
       (pushFile st (dead'.getD []) 0
         (seeSide (((st.answers side).zip (st.pathsAt side)).drop subs.length) subs reads c).2.1
         ((seeSide (((st.answers side).zip (st.pathsAt side)).drop subs.length) subs reads c).2.2.kill
@@ -1370,10 +1395,10 @@ theorem prog_work_push (hL : D.Lawful P.sorts.interp) {st : StateOf R Rel (Ans D
     (side : Nat) (other : Rel) (subs : List (Ans D P × Option (Nat × Nat)))
     (dead : Option (List Nat))
     (reads : List (Nat × Option Nat)) (c : Cursor) (fc : Cursor) (ho : Open st i)
-    (hs : Prog st i g (.push k left side other subs dead reads c fc)) :
-    Prog (work (K := DerivationKernel.over D K hK P) i g st
+    (hs : Prog (rd := @rd) st i g (.push k left side other subs dead reads c fc)) :
+    Prog (rd := @rd) (work @rd (K := DerivationKernel.over D K hK P) i g st
         (.push k left side other subs dead reads c fc)).val.1 i g
-      (work (K := DerivationKernel.over D K hK P) i g st
+      (work @rd (K := DerivationKernel.over D K hK P) i g st
         (.push k left side other subs dead reads c fc)).val.2.1 := by
   have hsup := superseded_spec (K := K) (hK := hK) (P := P) st side dead
   have hD0 : DeadIs D P st side subs.length dead := by
@@ -1517,12 +1542,12 @@ theorem prog_work_push (hL : D.Lawful P.sorts.interp) {st : StateOf R Rel (Ans D
       · exact absurd h (hno1 x' p.1 hx')
       · exact absurd h (hno2 x' t p.1 r' hx')
 
-theorem prog_work_check (hR : ReadOk D P K hK) {st : StateOf R Rel (Ans D P)}
-    (hE : EdgesOk st) (i : Nat) (g : GoalOf R Rel) (left : Bool)
-    (side other : Rel) (c : Check) (hs : Prog st i g (.check left side other c)) :
-    Prog (work (K := DerivationKernel.over D K hK P) i g st
+theorem prog_work_check (hR : ReadOk D P K hK @rd) {st : StateOf R Rel (Ans D P)}
+    (hE : EdgesOk (rd := @rd) st) (i : Nat) (g : GoalOf R Rel) (left : Bool)
+    (side other : Rel) (c : Check) (hs : Prog (rd := @rd) st i g (.check left side other c)) :
+    Prog (rd := @rd) (work @rd (K := DerivationKernel.over D K hK P) i g st
         (.check left side other c)).val.1 i g
-      (work (K := DerivationKernel.over D K hK P) i g st
+      (work @rd (K := DerivationKernel.over D K hK P) i g st
         (.check left side other c)).val.2.1 := by
   have hs0 := hs
   dsimp only [Prog] at hs
@@ -1554,12 +1579,12 @@ theorem prog_work_check (hR : ReadOk D P K hK) {st : StateOf R Rel (Ans D P)}
   | opened subs => exact hs0
 
 /-- **The work of a strategy keeps what its cursors mean.** -/
-theorem prog_work (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK)
-    {st : StateOf R Rel (Ans D P)} (hI : Inv st) (hE : EdgesOk st) (i : Nat)
+theorem prog_work (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK @rd)
+    {st : StateOf R Rel (Ans D P)} (hI : Inv st) (hE : EdgesOk (rd := @rd) st) (i : Nat)
     (g : GoalOf R Rel) (s : Strat Rel (Ans D P)) (ho : Open st i)
-    (hb : IsBound D g.lb ∧ IsBound D g.rb) (hok : StratOk st g s) (hs : Prog st i g s) :
-    Prog (work (K := DerivationKernel.over D K hK P) i g st s).val.1 i g
-      (work (K := DerivationKernel.over D K hK P) i g st s).val.2.1 := by
+    (hb : IsBound D g.lb ∧ IsBound D g.rb) (hok : StratOk st g s) (hs : Prog (rd := @rd) st i g s) :
+    Prog (rd := @rd) (work @rd (K := DerivationKernel.over D K hK P) i g st s).val.1 i g
+      (work @rd (K := DerivationKernel.over D K hK P) i g st s).val.2.1 := by
   cases s with
   | span ran => exact prog_work_span hL i g ran ho hb hs
   | copy isCall subs => exact prog_work_copy hL hI i g isCall subs ho hs
