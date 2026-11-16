@@ -1,37 +1,20 @@
 /-
-# Fairness: what the bound means, and the wording that is false
+# The final report, and a bound that is false
 
-`Trusted/Properties.lean` states the fairness bound `Fair`. This file has the
-facts that show the statement says what it is meant to say, and the
-counterexample to the wording it replaced.
-
-* `Alternative.semAt_subset`: an alternative of a query relates only pairs
-  the query relates, so the bound compares two runs that owe the same pair.
 * `Runtime.FinalMaximal.maximal`: under `FinalMaximal` every reported answer
   is maximal among the emitted ones.
 
-## The size term
+## A bound in the size of a derivation
 
-`Fair.share` allows, beside the cost on the alternative, what loading the
-whole input is charged. It first allowed the size of the input
-(`ShareLinear`). `shareLinear_false`: no machine that pays the loading charge
-when it starts, and covers some pair of some span, has that statement, and
-every machine made of an engine pays it (`Engine.costedAt_load_le`). The
-inputs are `wide s m`, the union of `m + 1` copies of the span: the
-alternative is the span alone, so its cost does not grow with `m`, and
-loading the union costs the square of its size.
-
-## The first wording
-
-The first wording of the bound was: an answer is covered within a polynomial
-of the size of its derivation and of the input. `FirstWording C coeff deg` is
-that statement, with derivations of ground pairs (`GDerives`, the ground
-semantics with the size of the derivation). `firstWording_false`: no machine
-that emits spans, is sound and pays a tick for each answer it emits has it,
-for any polynomial. The inputs are `bits k`, the query `bit ; … ; bit` with
-`k + 1` factors and no program, where `bit` puts `o` or `i` on top of a term.
-It has `2 ^ (k + 1)` answers, one for each word, each with a derivation of
-size `3 * k + 2`, and no sound span relates the pairs of two words
+A bound on when an answer is covered that is polynomial in the size of its
+derivation and of the input is false. `FirstWording C coeff deg` is that
+statement, with derivations of ground pairs (`GDerives`, the ground semantics
+with the size of the derivation). `firstWording_false`: no machine that emits
+spans, is sound and pays a tick for each answer it emits has it, for any
+polynomial. The inputs are `bits k`, the query `bit ; … ; bit` with `k + 1`
+factors and no program, where `bit` puts `o` or `i` on top of a term. It has
+`2 ^ (k + 1)` answers, one for each word, each with a derivation of size
+`3 * k + 2`, and no sound span relates the pairs of two words
 (`no_shared_span`), so covering them takes `2 ^ (k + 1)` answers.
 -/
 import RwLog.SpanLayer.Sorts
@@ -42,34 +25,6 @@ import Mathlib.Data.Fintype.BigOperators
 import Mathlib.Analysis.SpecificLimits.Normed
 
 namespace RwLog
-
-/-! ## Alternatives -/
-
-theorem RelOf.semAt_of_mem_members (P : Program) (M : Interp) :
-    ∀ (e : Rel) {m : Rel}, m ∈ e.members → P.semAt M m ⊆ P.semAt M e
-  | .or a b, m, hm => by
-    rcases List.mem_append.1 hm with h | h
-    · exact (semAt_of_mem_members P M a h).trans Set.subset_union_left
-    · exact (semAt_of_mem_members P M b h).trans Set.subset_union_right
-  | .zero, m, hm => by rw [List.mem_singleton.1 hm]
-  | .span _, m, hm => by rw [List.mem_singleton.1 hm]
-  | .and _ _, m, hm => by rw [List.mem_singleton.1 hm]
-  | .seq _ _, m, hm => by rw [List.mem_singleton.1 hm]
-  | .conv _, m, hm => by rw [List.mem_singleton.1 hm]
-  | .call _, m, hm => by rw [List.mem_singleton.1 hm]
-
-/-- An alternative of a query relates only pairs the query relates. -/
-theorem Alternative.semAt_subset {P : Program} {q q' : Rel} {f : Nat} (h : Alternative P q q' f)
-    (M : Interp) : P.semAt M q' ⊆ P.semAt M q := by
-  induction h with
-  | same e => exact le_rfl
-  | pick hm _ ih => exact ih.trans (RelOf.semAt_of_mem_members P M _ hm)
-  | seq _ _ iha ihb => exact fun p ⟨m, h1, h2⟩ => ⟨m, iha h1, ihb h2⟩
-  | and _ _ iha ihb => exact fun p ⟨h1, h2⟩ => ⟨iha h1, ihb h2⟩
-  | conv _ ih => exact fun p hp => ih hp
-  | @call n e' f _ ih =>
-    refine ih.trans (le_of_eq ?_)
-    exact (P.meaningAt_eq M n).symm
 
 /-! ## The final report -/
 
@@ -90,7 +45,7 @@ theorem Runtime.FinalMaximal.maximal {R : Runtime} (h : R.FinalMaximal) {P : Pro
       ⟨fun _ _ h => ⟨h.2, h.1⟩⟩
     exact (hpw.forall hc ha hac).1 hca
 
-/-! ## The first wording of the fairness bound is false -/
+/-! ## A bound in the size of a derivation is false -/
 
 /-- A derivation of a ground pair in an interpretation, with its size: the
 ground semantics with every use of a rule counted. -/
@@ -123,7 +78,7 @@ theorem GDerives.semAt {P : Program} {M : Interp} {d : Nat} {e : Rel} {p : GTerm
     show p ∈ P.meaningAt M n
     rw [P.meaningAt_eq M n]; exact ih
 
-/-- The first wording: every pair with a derivation of size `d` is covered
+/-- The bound: every pair with a derivation of size `d` is covered
 within `coeff * (d + size + 1) ^ deg` ticks. -/
 def FirstWording (C : CostedRuntime) (coeff deg : Nat) : Prop :=
   ∀ P q, P.WellFormed q → ∀ d x, GDerives P P.sorts.interp d q x →
@@ -453,7 +408,7 @@ theorem exists_pow_lt (coeff deg : Nat) : ∃ k : Nat, coeff * (15 * (k + 1)) ^ 
 end FirstWordingFalse
 
 open FirstWordingFalse in
-/-- The first wording of the fairness bound is false for every machine that
+/-- A bound in the size of a derivation is false for every machine that
 emits spans, is sound, and pays a tick for each answer it emits, whatever the
 polynomial. -/
 theorem firstWording_false (State : Type) (init : Program → Rel → Cost State)
@@ -501,102 +456,5 @@ theorem firstWording_false (State : Type) (init : Program → Rel → Cost State
     rw [prog_size]; omega
   have := Nat.mul_le_mul_left coeff (Nat.pow_le_pow_left hsize deg)
   omega
-
-/-! ## The size term -/
-
-/-- The union of `m + 1` copies of a span. -/
-def wide (s : Span) : Nat → Rel
-  | 0 => .span s
-  | m + 1 => .or (.span s) (wide s m)
-
-theorem wide_spans (s : Span) : ∀ m, ∀ t ∈ (wide s m).spans, t = s
-  | 0, t, h => List.mem_singleton.1 h
-  | m + 1, t, h => by
-    rcases List.mem_append.1 h with h | h
-    · exact List.mem_singleton.1 h
-    · exact wide_spans s m t h
-
-theorem wide_calls (s : Span) : ∀ m, (wide s m).calls = []
-  | 0 => rfl
-  | m + 1 => by show ([] : List Name) ++ (wide s m).calls = []; rw [wide_calls s m]; rfl
-
-theorem wide_members_length (s : Span) : ∀ m, (wide s m).members.length = m + 1
-  | 0 => rfl
-  | m + 1 => by
-    show ([RelOf.span s] ++ (wide s m).members).length = m + 1 + 1
-    rw [List.length_append, wide_members_length s m, List.length_singleton]; omega
-
-theorem wide_size (s : Span) : ∀ m, m + 1 ≤ (wide s m).size
-  | 0 => by show 1 ≤ 1 + s.size; omega
-  | m + 1 => by
-    have := wide_size s m
-    show m + 1 + 1 ≤ 1 + (1 + s.size) + (wide s m).size; omega
-
-theorem wide_wellFormed {P : Program} {s : Span} (h : P.WellFormed (.span s)) (m : Nat) :
-    P.WellFormed (wide s m) := by
-  obtain ⟨h₁, h₂, h₃, h₄⟩ := h
-  refine ⟨h₁, fun n hn => h₂ n ?_, h₃, fun t ht => ?_⟩
-  · rw [wide_calls] at hn; exact hn
-  · rcases List.mem_append.1 ht with ht | ht
-    · exact h₄ t (List.mem_append_left _ (by rw [wide_spans s m t ht]; exact List.mem_singleton_self s))
-    · exact h₄ t (List.mem_append_right _ ht)
-
-/-- The span alone is an alternative of the union of its copies, with a
-factor that is at most the size of the union. -/
-theorem wide_alternative (P : Program) (s : Span) :
-    ∀ m, ∃ f, Alternative P (wide s m) (.span s) f ∧ f ≤ (wide s m).size
-  | 0 => ⟨1, .same _, wide_size s 0⟩
-  | m + 1 => by
-    refine ⟨(wide s (m + 1)).members.length * 1,
-      .pick (a := .span s) (b := wide s m) (List.mem_append_left _ (List.mem_singleton_self _))
-        (.same _), ?_⟩
-    rw [Nat.mul_one, wide_members_length]
-    exact wide_size s (m + 1)
-
-/-- The fairness bound with the size of the input where `Fair.share` has the
-charge for loading it. -/
-def ShareLinear (C : CostedRuntime) (c : Nat) : Prop :=
-  ∀ P q q' f, P.WellFormed q → Alternative P q q' f →
-    ∀ x n, C.Covered P q' P.sorts.interp x n →
-      C.CoversWithin P q P.sorts.interp x (c * (f * C.paid P q' n + P.size + q.size))
-
-/-- A machine that pays the loading charge when it starts, and covers some
-pair of some span, does not have the bound with the size of the input,
-whatever the constant. -/
-theorem shareLinear_false (C : CostedRuntime)
-    (hload : ∀ P q, (Charged.load P q).ticks ≤ (C.init P q).ticks)
-    {P : Program} {s : Span} (hwf : P.WellFormed (.span s)) {x : GTerm × GTerm} {n : Nat}
-    (hc : C.Covered P (.span s) P.sorts.interp x n) (c : Nat) : ¬ ShareLinear C c := by
-  intro h
-  set N := C.paid P (.span s) n with hN
-  set m := c * (N + 1) with hm
-  obtain ⟨f, halt, hf⟩ := wide_alternative P s m
-  obtain ⟨k, -, hk⟩ := h P (wide s m) (.span s) f (wide_wellFormed hwf m) halt x n hc
-  have hsz := wide_size s m
-  set S := (wide s m).size with hS
-  set T := P.size + S with hT
-  have hpaid : T ^ 2 ≤ C.paid P (wide s m) k :=
-    (hload P (wide s m)).trans (Nat.le_add_right _ _)
-  have hbound : c * (f * N + P.size + S) ≤ c * (N + 1) * T := by
-    rw [Nat.mul_assoc]
-    refine Nat.mul_le_mul_left c ?_
-    calc f * N + P.size + S ≤ S * N + P.size + S := by
-          have := Nat.mul_le_mul_right N hf; omega
-      _ ≤ (N + 1) * T := by
-          rw [hT, Nat.add_mul, Nat.mul_add, Nat.mul_add, Nat.one_mul, Nat.mul_comm N S]
-          have := Nat.zero_le (N * P.size); omega
-  have hTT : T * T ≤ m * T := by
-    rw [← Nat.pow_two]; exact hpaid.trans (hk.trans hbound)
-  have hTpos : 0 < T := by omega
-  have := Nat.le_of_mul_le_mul_right hTT hTpos
-  omega
-
-/-- Every machine made of an engine pays the loading charge when it
-starts. -/
-theorem Engine.costedAt_load_le (E : Engine) {R : Sorts → Type} [∀ S, Answer (R S)]
-    [∀ S, DecidableEq (R S)] (dom : ∀ S, Domain (R S)) (K : ∀ S, Kernel (R S) Cost)
-    (hK : ∀ S, (K S).Refines (dom S)) (P : Program) (q : Rel) :
-    (Charged.load P q).ticks ≤ ((E.costedAt dom K hK).init P q).ticks :=
-  Nat.le_add_right _ _
 
 end RwLog

@@ -2903,44 +2903,24 @@ theorem feedPush_le (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R R
     simp only [feedPush, Cost.pure_val]
     exact Nat.le_refl _
 
-theorem feedOne_le (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R Rel (Ans D P) × Nat))
-    (ss : List (Strat Rel (Ans D P))) (st : StateOf R Rel (Ans D P)) (d : Nat) (x : Fedee) :
-    d ≤ (feedOne (K := DerivationKernel.over D K hK P) adv st d ss x).val.2.1 := by
-  have hT := fun s => feedPush_le (K := K) (hK := hK) (P := P) adv st d s
+theorem feedPushes_le (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R Rel (Ans D P) × Nat))
+    (ss : List (Strat Rel (Ans D P))) (st : StateOf R Rel (Ans D P)) (d : Nat) :
+    d ≤ (feedPushes (K := DerivationKernel.over D K hK P) adv st d ss).val.2.1 := by
+  have hT := fun X d s => feedPush_le (K := K) (hK := hK) (P := P) adv X d s
   at_cost K hK
-  cases x with
-  | inl t =>
-    simp only [feedOne, Cost.bind_val, Cost.pure_val]
-    omega
-  | inr j =>
-    simp only [feedOne]
-    split
-    · simp only [Cost.pure_val]
-      exact Nat.le_refl _
-    · simp only [Cost.bind_val, Cost.pure_val]
-      exact hT _
-
-theorem feedLeast_le (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R Rel (Ans D P) × Nat))
-    (l : List Fedee) (ss : List (Strat Rel (Ans D P))) (st : StateOf R Rel (Ans D P)) (d : Nat) :
-    d ≤ (feedLeast (K := DerivationKernel.over D K hK P) adv st d ss l).val.2.1 := by
-  have hT := fun ss X d x => feedOne_le (K := K) (hK := hK) (P := P) adv ss X d x
-  at_cost K hK
-  induction l generalizing st d ss with
+  induction ss generalizing st d with
   | nil =>
-    simp only [feedLeast, Cost.pure_val]
+    simp only [feedPushes, Cost.pure_val]
     exact Nat.le_refl _
-  | cons x rest ih =>
-    simp only [feedLeast, Cost.bind_val]
-    split
-    · simp only [Cost.pure_val]
-      exact hT _ _ _ _
-    · exact Nat.le_trans (hT _ _ _ _) (ih _ _ _)
+  | cons s rest ih =>
+    simp only [feedPushes, Cost.bind_val, Cost.pure_val]
+    exact Nat.le_trans (hT st d s) (ih _ _)
 
-/-- What a group spends on what it reads only adds to what it spent. -/
+/-- The rounds of the tables a group reads only add to what it spent. -/
 theorem feedGroup_le (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R Rel (Ans D P) × Nat))
     (i k : Nat) (st : StateOf R Rel (Ans D P)) (d : Nat) :
     d ≤ (feedGroup (K := DerivationKernel.over D K hK P) adv i k st d).val.2.1 := by
-  have hT := fun l ss X d => feedLeast_le (K := K) (hK := hK) (P := P) adv l ss X d
+  have hT := fun ss X d => feedPushes_le (K := K) (hK := hK) (P := P) adv ss X d
   at_cost K hK
   simp only [feedGroup]
   split
@@ -2951,7 +2931,13 @@ theorem feedGroup_le (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R 
     · exact hI
     · simp only [Cost.bind_val, Cost.pure_val]
       omega
-  · exact hT _ _ _ _
+  · simp only [Cost.bind_val]
+    refine Nat.le_trans ?_ (hT _ _ _)
+    simp only [feedAll]
+    refine foldL_inv (fun (acc : StateOf R Rel (Ans D P) × Nat) => d ≤ acc.2) _ _
+      (fun b h _ hI => ?_) (st, d) (Nat.le_refl _)
+    simp only [Cost.bind_val, Cost.pure_val]
+    omega
 
 /-- **A group did something exactly when its level rose**: the engine
 charges itself for every unit of work that did anything, so this holds at a

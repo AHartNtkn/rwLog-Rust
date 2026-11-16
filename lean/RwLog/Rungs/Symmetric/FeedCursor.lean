@@ -208,37 +208,36 @@ theorem feedPush_fits (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R
     simp only [feedPush, Cost.pure_val]
     exact h
 
-theorem feedOne_fits (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R Rel (Ans D P) × Nat))
-    (x : Fedee) (a : Feeding R Rel (Ans D P)) (h : ∀ s ∈ a.2.2, s.FeedFits) :
-    ∀ s ∈ (feedOne (K := DerivationKernel.over D K hK P) adv x a).val.1.2.2, s.FeedFits := by
-  have hT := fun s hs => feedPush_fits (K := K) (hK := hK) (P := P) adv a.1 a.2.1 s hs
+theorem feedPushes_fits (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R Rel (Ans D P) × Nat))
+    (ss : List (Strat Rel (Ans D P))) (st : StateOf R Rel (Ans D P)) (d : Nat)
+    (h : ∀ s ∈ ss, s.FeedFits) :
+    ∀ s ∈ (feedPushes (K := DerivationKernel.over D K hK P) adv st d ss).val.2.2, s.FeedFits := by
+  have hT := fun X d s hs => feedPush_fits (K := K) (hK := hK) (P := P) adv X d s hs
   at_cost K hK
-  cases x with
-  | inl t =>
-    simp only [feedOne, Cost.bind_val, Cost.pure_val]
-    exact h
-  | inr j =>
-    simp only [feedOne]
-    split
-    · simp only [Cost.pure_val]
-      exact h
-    · next s hs =>
-      simp only [Cost.bind_val, Cost.pure_val]
-      intro s' hs'
-      rcases List.mem_or_eq_of_mem_set hs' with hm | rfl
-      · exact h _ hm
-      · exact hT s (h s (List.mem_of_getElem? hs))
+  induction ss generalizing st d with
+  | nil =>
+    simp only [feedPushes, Cost.pure_val]
+    exact fun _ hs => absurd hs List.not_mem_nil
+  | cons s rest ih =>
+    simp only [feedPushes, Cost.bind_val, Cost.pure_val]
+    intro s' hs'
+    rcases List.mem_cons.1 hs' with rfl | hs'
+    · exact hT st d s (h s List.mem_cons_self)
+    · exact ih _ _ (fun s hs => h s (List.mem_cons_of_mem _ hs)) s' hs'
 
 /-- **The feeding of a group leaves every feed cursor fitting.** -/
 theorem feedGroup_fits (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R Rel (Ans D P) × Nat))
     (i k : Nat) (st : StateOf R Rel (Ans D P)) (d : Nat)
     (h : ∀ s ∈ ((groupsAt st i)[k]?.map (·.strats)).getD [], s.FeedFits) :
     ∀ s ∈ (feedGroup (K := DerivationKernel.over D K hK P) adv i k st d).val.2.2, s.FeedFits := by
-  have hT := fun x a hs => feedOne_fits (K := K) (hK := hK) (P := P) adv x a hs
+  have hT := fun ss X d hs => feedPushes_fits (K := K) (hK := hK) (P := P) adv ss X d hs
   at_cost K hK
-  simp only [feedGroup, Cost.bind_val, Cost.pure_val]
-  exact Share.offer_inv _ (fun a : Feeding R Rel (Ans D P) => ∀ s ∈ a.2.2, s.FeedFits)
-    hT _ _ h
+  simp only [feedGroup]
+  split
+  · simp only [Cost.bind_val, Cost.pure_val]
+    exact h
+  · simp only [Cost.bind_val]
+    exact hT _ _ _ h
 
 end Symmetric
 

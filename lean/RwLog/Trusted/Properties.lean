@@ -45,8 +45,6 @@ rules.
   input happens to be written.
 * `FinalMaximal`: when a run reports that it is done, its final report is the
   set of maximal emitted answers.
-* `Fair`: the fairness bound, in the last section. It is about ticks, so it
-  is a property of a machine with its cost (`Trusted/Cost.lean`).
 
 ## Whole rungs
 
@@ -297,92 +295,5 @@ inductive Ladder (κ : KernelRung) (base : CostedRung) : CostedRung → List Win
       {C : ProgClass} {record : List Win} {keep : Nat} :
       Ladder κ base Old record → Admits κ kind Old New b d pre C record keep →
       New.Lawful base κ → Ladder κ base New (⟨kind, C, b⟩ :: record)
-
-/-! ## Fairness
-
-Search is fair: an answer is not starved by the alternatives that compete
-with it. The bound says by how much they may delay it, relative to what the
-answer costs when its alternative is the whole query.
-
-### Alternatives
-
-`Alternative P q q' f`: `q'` is `q` with some of its choices made. A choice is
-made at a union, by taking one of its members (the members of a union are
-counted however it is bracketed), and behind a call, by making choices in its
-body, so the choices of a recursion are made level by level. `f` is the
-number of members of each union at which a choice was made, multiplied: the
-alternatives that compete with `q'` along the nesting. The query `q'` relates
-only pairs that `q` relates.
-
-### The bound
-
-`Fair C c` is fair OR, in ticks: a pair that `C` covers within `n` ticks when
-run on `q'` alone is covered within `c * (f * n + load)` ticks when run on
-`q`. For one union of `m` members that is `m * n`, whatever is inside the
-other members, which is what breadth-first search does not have.
-
-`load` is what bringing the whole input to its normal form is charged
-(`Charged.load`). A machine reads all of `q` before its first step, the
-members not chosen included, and the run on `q'` alone never pays for those.
-The charge is a function of the size of the input and no machine sets it. An
-earlier statement allowed the size of the input itself, which is less than
-loading costs: it is false for every machine that loads its input
-(`shareLinear_false`, `Rungs/Framework/Fairness.lean`).
-
-Through a recursion `f` multiplies level by level. So where every level of a
-recursion has a member that never finishes, the bound allows a delay
-exponential in the depth, and interleaving search has that delay. Nothing
-here promises better. A promise that the delay does not compound would need
-the machine to know that the member met at each level is the same one, and
-no statement of that survives rewriting a program into another with the same
-meaning. Such inputs are for a preprocessor that recognises the shape and
-rewrites it.
-
-Every member of a union counts in `f`, whether or not it is still running.
-
-### What is false
-
-A bound in steps of the machine says nothing: a step is a unit of one
-machine and may cost any number of ticks. An earlier second part of `Fair`,
-`flat`, was such a bound and is gone; read in ticks, as what the alternative
-costs alone times the goals the machine has opened, it is false for every
-machine that tables, by the inputs below.
-
-A bound polynomial in the size of an answer's derivation and of the input is
-false for every machine that emits spans and pays a tick for each:
-`bit ; … ; bit` with `k` factors has `2 ^ k` answers, no two covered by one
-sound span, each with a derivation of size linear in `k`. That is
-`FirstWording` and `firstWording_false` in `Rungs/Framework/Fairness.lean`.
--/
-
-/-- The members of a union, however it is bracketed. An expression that is
-not a union is its own only member. -/
-def RelOf.members : Rel → List Rel
-  | .or a b => a.members ++ b.members
-  | e => [e]
-
-/-- `q'` is `q` with some of its choices made, and `f` is the number of
-members of each union at which a choice was made, multiplied. -/
-inductive Alternative (P : Program) : Rel → Rel → Nat → Prop
-  | same (e : Rel) : Alternative P e e 1
-  | pick {a b m e' : Rel} {f : Nat} : m ∈ (RelOf.or a b).members → Alternative P m e' f →
-      Alternative P (.or a b) e' ((RelOf.or a b).members.length * f)
-  | seq {a b a' b' : Rel} {f g : Nat} : Alternative P a a' f → Alternative P b b' g →
-      Alternative P (.seq a b) (.seq a' b') (f * g)
-  | and {a b a' b' : Rel} {f g : Nat} : Alternative P a a' f → Alternative P b b' g →
-      Alternative P (.and a b) (.and a' b') (f * g)
-  | conv {a a' : Rel} {f : Nat} : Alternative P a a' f → Alternative P (.conv a) (.conv a') f
-  | call {n : Name} {e' : Rel} {f : Nat} : Alternative P (P.body n) e' f →
-      Alternative P (.call n) e' f
-
-/-- The fairness bound with constant `c`. -/
-structure Fair (C : CostedRuntime) (c : Nat) : Prop where
-  /-- A pair covered within `n` ticks by an alternative run alone is covered
-  within `c * (f * n + load)` ticks, `f` being the alternatives that compete
-  with it along the nesting, multiplied, and `load` the charge for loading
-  the whole input. -/
-  share : ∀ P q q' f, P.WellFormed q → Alternative P q q' f →
-    ∀ x n, C.Covered P q' P.sorts.interp x n →
-      C.CoversWithin P q P.sorts.interp x (c * (f * C.paid P q' n + (Charged.load P q).ticks))
 
 end RwLog

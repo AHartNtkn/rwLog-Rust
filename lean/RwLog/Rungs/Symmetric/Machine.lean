@@ -182,7 +182,6 @@ and whether it would save anything is not measured (design note, section 1).
 import RwLog.Trusted.Cost
 import RwLog.Rungs.Framework.RaceSpec
 import RwLog.Lib.Gfp
-import RwLog.Rungs.Framework.Share
 
 namespace RwLog
 
@@ -1113,6 +1112,31 @@ def feed (adv : Nat → StateOf S N A → M (StateOf S N A × Nat)) (h : Nat) (s
   let (r, c) ← K.metered (adv h st)
   pure (r.1.modify h fun t => { t with fed := t.fed + c }, r.2, c)
 
+/-- Each of the tables given has its round. Returns `d` and how much their
+levels rose. -/
+def feedAll (adv : Nat → StateOf S N A → M (StateOf S N A × Nat)) (st : StateOf S N A) (d : Nat)
+    (feeds : List Nat) : M (StateOf S N A × Nat) :=
+  foldL (fun (acc : StateOf S N A × Nat) h => do
+    let (st', dh, _) ← feed (K := K) adv h acc.1
+    pure (st', acc.2 + dh)) (st, d) feeds
+
+/-- The tables given are offered a round in order, until the round of one
+has cost something: a table that is complete, or has had its round in this
+request, costs nothing and passes the offer on. Returns `d` and how much
+their levels rose. -/
+def feedFirst (adv : Nat → StateOf S N A → M (StateOf S N A × Nat)) (st : StateOf S N A)
+    (d : Nat) (feeds : List Nat) : M (StateOf S N A × Nat) := do
+  let r ← foldL (fun (acc : StateOf S N A × Nat × Bool) h =>
+    if acc.2.2 then pure acc
+    else do
+      let (st', dh, c) ← feed (K := K) adv h acc.1
+      pure (st', acc.2.1 + dh, decide (0 < c))) (st, d, false) feeds
+  pure (r.1, r.2.1)
+
+/-- The tables given, the one that has been fed least first. -/
+def byFed (st : StateOf S N A) (feeds : List Nat) : List Nat :=
+  feeds.mergeSort fun a b => decide (st.fedAt a ≤ st.fedAt b)
+
 /-- The tables a strategy reads that have a round whenever its group is
 fed: all of them, but for a push its side only. The tables a push opened
 share their rounds (`feedPush`). -/
@@ -1176,70 +1200,33 @@ def feedPush (adv : Nat → StateOf S N A → M (StateOf S N A × Nat)) (st : St
     pure (r.1, r.2.1, .push k left side other subs dead reads c r.2.2)
   | s => pure (st, d, s)
 
-/-- What a push has spent on the tables it opened: the ticks of every unit
-of its feed cursor. Any other strategy has spent nothing so. -/
-def Strat.pushFed : Strat N A → Nat
-  | .push _ _ _ _ _ _ _ _ fc => fc.fedOf []
-  | _ => 0
+/-- Each push of the strategies given feeds the tables it opened
+(`feedPush`), in order. -/
+def feedPushes (adv : Nat → StateOf S N A → M (StateOf S N A × Nat)) :
+    StateOf S N A → Nat → List (Strat N A) → M (StateOf S N A × Nat × List (Strat N A))
+  | st, d, [] => pure (st, d, [])
+  | st, d, s :: rest => do
+    let a ← feedPush (K := K) adv st d s
+    let b ← feedPushes adv a.1 a.2.1 rest
+    pure (b.1, b.2.1, a.2.2 :: b.2.2)
 
-/-- A thing a group spends ticks on beside its own work: a table it reads
-(`inl`), or the tables the push at a place among its strategies opened, taken
-together (`inr`). -/
-abbrev Fedee := Nat ⊕ Nat
-
-/-- What the group has spent on a thing: what the table was fed, or what the
-push spent on the tables it opened. -/
-def fedeeKey (st : StateOf S N A) (strats : List (Strat N A)) : Fedee → Nat
-  | .inl h => st.fedAt h
-  | .inr j => (strats[j]?.map Strat.pushFed).getD 0
-
-/-- The things the strategies given spend on: the tables they read that have
-a round whenever the group is fed, each once, and each push. -/
-def fedees (st : StateOf S N A) (strats : List (Strat N A)) : List Fedee :=
-  ((strats.flatMap (Strat.feeds0 st)).eraseDups.map Sum.inl) ++
-    (strats.zipIdx.filterMap fun e =>
-      match e.1 with
-      | .push _ _ _ _ _ _ _ _ _ => some (Sum.inr e.2)
-      | _ => none)
-
-/-- The things given, the one the group has spent least on first. -/
-def byLedger (st : StateOf S N A) (strats : List (Strat N A)) (l : List Fedee) : List Fedee :=
-  l.mergeSort fun a b => decide (fedeeKey st strats a ≤ fedeeKey st strats b)
-
-/-- What a group has while it spends on the things it reads: the state,
-what it has spent so far and how much levels rose, and its strategies. -/
-abbrev Feeding (S N A : Type) := StateOf S N A × Nat × List (Strat N A)
-
-/-- One thing is spent on: a table has its round, or a push feeds the tables
-it opened (`feedPush`), and has its feed cursor moved. Returns what it took:
-what the round cost, or how much the ledger of the push rose. -/
-def feedOne (adv : Nat → StateOf S N A → M (StateOf S N A × Nat)) :
-    Fedee → Feeding S N A → M (Feeding S N A × Nat)
-  | .inl h, a => do
-    let r ← feed (K := K) adv h a.1
-    pure ((r.1, a.2.1 + r.2.1, a.2.2), r.2.2)
-  | .inr j, a =>
-    match a.2.2[j]? with
-    | none => pure (a, 0)
-    | some s => do
-      let r ← feedPush (K := K) adv a.1 a.2.1 s
-      pure ((r.1, r.2.1, a.2.2.set j r.2.2), r.2.2.pushFed - s.pushFed)
-
-/-- The group `k` of the table at `i` spends on one of the things it spends
-on (`adv` is a round): the one it has spent least on, in ticks, of those that
-take anything (`Share.offer`). The things are the tables its strategies read
-and, for each push, the tables the push opened taken together, which share
-among themselves by where the answers pushed came from (`feedPush`). For a
-union they are its members. A group shares ticks and never rounds: whatever
-it reads in place of a table, a union with that table as a member, takes that
-table's share and divides it, and no other share changes. Returns `d` and how
-much levels rose, and the strategies of the group with the feed cursors of
-its pushes moved. -/
+/-- The tables the group `k` of the table at `i` reads have their rounds
+(`adv`). The members of a union share the ticks: one member has its round,
+the one that has been fed least of those that still need one. The tables a
+push opened share the ticks by where the answers pushed came from
+(`feedPush`). Every other table a group reads has its round. Returns `d` and
+how much their levels rose, and the strategies of the group with the feed
+cursors of its pushes moved. -/
 def feedGroup (adv : Nat → StateOf S N A → M (StateOf S N A × Nat)) (i k : Nat)
-    (st : StateOf S N A) (d : Nat) : M (Feeding S N A) := do
+    (st : StateOf S N A) (d : Nat) : M (StateOf S N A × Nat × List (Strat N A)) :=
   let strats : List (Strat N A) := ((groupsAt st i)[k]?.map (·.strats)).getD []
-  let r ← Share.offer (feedOne (K := K) adv) (st, d, strats) (byLedger st strats (fedees st strats))
-  pure r.1
+  match strats with
+  | [Strat.copy false subs] => do
+    let r ← feedFirst (K := K) adv st d (byFed st (subs.map Prod.fst).eraseDups)
+    pure (r.1, r.2, strats)
+  | _ => do
+    let r ← feedAll (K := K) adv st d (strats.flatMap (Strat.feeds0 st)).eraseDups
+    feedPushes (K := K) adv r.1 r.2 strats
 
 /-- A strategy with the feed cursor of another, if both are pushes. -/
 def Strat.withFeed : Strat N A → Strat N A → Strat N A
