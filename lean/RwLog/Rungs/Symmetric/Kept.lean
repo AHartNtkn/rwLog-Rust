@@ -281,14 +281,13 @@ theorem base_work (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK)
       · exact (s1.fo hg.2.2).1
     simp only [work]
     split
-    · simp only [Cost.bind_val, Cost.pure_val]
-      exact h5 other ho k left _
+    · exact hB
     · split
+      · simp only [Cost.bind_val, Cost.pure_val, Kernel.metered, Cost.metered_val]
+        exact h5 other ho k left _
+      · simp only [Cost.bind_val, Cost.pure_val, Kernel.metered, Cost.metered_val]
+        exact hB.same ((h4 _ _ _ _ _).trans (sameG_modify _ i _ fun _ => rfl))
       · exact hB
-      · split
-        · simp only [Cost.bind_val, Cost.pure_val, Kernel.metered, Cost.metered_val]
-          exact hB.same ((h4 _ _ _ _ _).trans (sameG_modify _ i _ fun _ => rfl))
-        · exact hB
   | check left side other c =>
     dsimp only [Prog] at hs
     obtain ⟨L, Rg, s1, -, s3, -⟩ := hs
@@ -339,10 +338,10 @@ theorem prog_splitGroup {st : StateOf R Rel (Ans D P)} (hB : Base st) (w : Nat) 
       fun p q x y hb => absurd hb (Cursor.before_start p q)⟩
   · dsimp only [Prog]
     exact ⟨L, Rg, hs, hg1', rfl, rfl, (fun e he => by cases he), PushFits.start,
-      fun s q e r y hb => absurd hb (Cursor.before_start s q)⟩
+      fun s q x t r y hb => absurd hb (Cursor.before_start s q)⟩
   · dsimp only [Prog]
     exact ⟨L, Rg, hs, hg2, rfl, rfl, (fun e he => by cases he), PushFits.start,
-      fun s q e r y hb => absurd hb (Cursor.before_start s q)⟩
+      fun s q x t r y hb => absurd hb (Cursor.before_start s q)⟩
 
 theorem prog_checkOf (hR : ReadOk D P K hK) {st : StateOf R Rel (Ans D P)} (hB : Base st)
     (w : Nat) (left : Bool) (side other : Rel) :
@@ -1121,9 +1120,7 @@ theorem work_kind (i : Nat) (g : GoalOf R Rel) (st : StateOf R Rel (Ans D P))
     simp only [work]
     split
     · rfl
-    · split
-      · rfl
-      · split <;> rfl
+    · split <;> rfl
   | check l side o c =>
     cases c with
     | reading =>
