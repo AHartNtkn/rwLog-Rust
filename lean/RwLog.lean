@@ -67,7 +67,7 @@ import RwLog.Rungs.Framework.Oriented
 import RwLog.Rungs.Framework.GroundMirror
 import RwLog.Rungs.Framework.OrientedSem
 import RwLog.Rungs.Framework.OrientedKeeps
-import RwLog.Rungs.Framework.Fairness
+import RwLog.Rungs.Framework.DerivationBound
 import RwLog.Rungs.Framework.Writing
 import RwLog.Rungs.Framework.EngineKeeps
 import RwLog.Rungs.Framework.ConvTrace
@@ -186,7 +186,7 @@ import RwLog.Rungs.Symmetric.Turns
 import RwLog.Rungs.Symmetric.Lines
 import RwLog.Rungs.Symmetric.Served
 import RwLog.Rungs.Symmetric.Settle
-import RwLog.Rungs.Symmetric.Fair
+import RwLog.Rungs.Symmetric.Saturated
 import RwLog.Rungs.Symmetric.Transfer
 import RwLog.Rungs.Symmetric.Correct
 import RwLog.Rungs.Symmetric.EmptySide

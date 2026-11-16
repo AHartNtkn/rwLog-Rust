@@ -19,7 +19,7 @@ shows how its answers relate to the earlier rung's and uses one of:
 A rung is a list of preprocessors followed by a runtime. The laws of the list
 follow from the laws of its members (`Preprocessor.runAll_wf`,
 `runAll_equiv`, `runAll_adds`). `Rung.sound`, `Rung.pointComplete`,
-`Rung.honest`, `Rung.honestProgress` and `Rung.noSubsumed` state what the
+`Rung.honest` and `Rung.honestProgress` state what the
 rung guarantees about the *original* program and query, given the same
 property of the runtime. `Rung.convTrace` and `Rung.dualTrace` need the
 preprocessors to commute with the converse and the mirror image
@@ -371,13 +371,6 @@ theorem honestProgress (hA : Answer.SelfRead G.rt.Ans) (hh : G.rt.HonestProgress
   rw [hA _ P.sorts.interp a] at hpa
   exact ⟨a, ha, hpa⟩
 
-/-- No answer of the rung is covered by an earlier one. -/
-theorem noSubsumed (hA : Answer.SelfRead G.rt.Ans) (hn : G.rt.NoSubsumed) (A : ArtifactStore) :
-    (G.runtime κ A).NoSubsumed := by
-  intro P q hP n
-  rw [G.emitted_runtime κ]
-  exact (hn _ _ (G.wf_pre κ hP) n).imp fun h hc => h ((hA.covers _ _).1 hc)
-
 /-! ### The laws that compare two runs
 
 `ConvTrace` and `DualTrace` compare the run on an input with the run on its
@@ -434,7 +427,6 @@ theorem keepsPointwise (hA : Answer.SelfRead G.rt.Ans) {Base₀ Base : Runtime}
   emptySide := he
   convTrace := G.convTrace κ hA h.convTrace hm A
   dualTrace := G.dualTrace κ hA h.dualTrace hm A
-  noSubsumed := G.noSubsumed κ hA h.noSubsumed A
 
 /-- The rung with no preprocessor is its machine. -/
 theorem runtime_nil (R : Runtime) (A : ArtifactStore) : (Rung.mk [] R).runtime κ A = R := rfl

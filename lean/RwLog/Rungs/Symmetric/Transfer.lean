@@ -42,7 +42,7 @@ in one run has a complete table in every run that does not neglect it
 (`Rungs/Symmetric/FromTabled.lean`).
 -/
 import RwLog.Rungs.Symmetric.Settle
-import RwLog.Rungs.Symmetric.Fair
+import RwLog.Rungs.Symmetric.Saturated
 import RwLog.Rungs.Symmetric.EdgeSame
 
 namespace RwLog
@@ -261,7 +261,7 @@ theorem Cert.covered (hC : Cert U C ρ A) (hτ : IsRun U τ) {r' k : Nat} {g : G
   have hv : Valid D P (toGoal g) f.span := by
     rw [← hC.goal g hg f hf]
     exact f.valid
-  obtain ⟨a, ha, hsub⟩ := (hτ.fair hL).covers_valid hL (hτ.mem_opened hk ho) hv
+  obtain ⟨a, ha, hsub⟩ := (hτ.saturated hL).covers_valid hL (hτ.mem_opened hk ho) hv
   obtain ⟨r3, x, hx, rfl⟩ := (hτ.held_iff hk a).1 ha
   exact ⟨r3, x, hx, (covB_iff hL x f).2 hsub⟩
 
@@ -727,7 +727,7 @@ theorem IsRun.fcert (hσ : IsRun U σ) (r : Nat) :
     have hv : Valid D P (toGoal g) y.span := by
       rw [← hy]
       exact y.valid
-    obtain ⟨a, ha, hsub⟩ := (hσ.fair hL).covers_valid hL (hσ.mem_opened hi (.inl ⟨r, hd⟩)) hv
+    obtain ⟨a, ha, hsub⟩ := (hσ.saturated hL).covers_valid hL (hσ.mem_opened hi (.inl ⟨r, hd⟩)) hv
     obtain ⟨r3, x, hx, rfl⟩ := (hσ.held_iff hi a).1 ha
     exact ⟨x, by rw [(key i g hi).2]; exact hσ.done_answers hd r3 hx,
       (covB_iff hL x y).2 hsub⟩

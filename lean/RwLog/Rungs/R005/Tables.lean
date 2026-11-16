@@ -40,7 +40,6 @@ structure Runtime.TableKeeps (R : Runtime) : Prop where
   pointComplete : R.PointComplete
   honest : R.HonestExhaustion
   honestProgress : R.HonestProgress
-  noSubsumed : R.NoSubsumed
   finalMaximal : R.FinalMaximal
   orComm : R.OrComm
   orAssoc : R.OrAssoc
@@ -58,7 +57,6 @@ theorem Tabled.tableKeeps {U : Unfolder} (hU : Good @U) :
   pointComplete := Tabled.pointComplete hD hU
   honest := Tabled.honestExhaustion hD hU
   honestProgress := Tabled.honestProgress hD hU
-  noSubsumed := Tabled.noSubsumed hD hU
   finalMaximal := Tabled.finalMaximal hD hU
   orComm := Engine.orComm _ dom K hK
   orAssoc := Engine.orAssoc _ dom K hK

@@ -10,10 +10,7 @@ machine of any other such race as base (`mirror_keeps`), and its final report
 is the maximal emitted answers (`mirror_finalMaximal`).
 
 The properties carry over along the trace (`Runtime.SameTrace.keeps`,
-`Rungs/Framework/SameTrace.lean`). The laws of `|` hold of every engine, and
-no answer is covered by an earlier one because the answers the tabled machine
-shows in one step do not cover each other in either order
-(`stepAntichain`), so their order does not matter.
+`Rungs/Framework/SameTrace.lean`). The laws of `|` hold of every engine.
 
 `tabled_keeps` is the same list for the tabled machine itself.
 -/
@@ -113,7 +110,6 @@ theorem tabled_obligations (hG₀ : Good @U₀) (hE₀ : Exact @U₀) :
   emptySide := emptySide hD hG hE
   convTrace := convTrace hD hG hE
   dualTrace := dualTrace hD hG hE
-  noSubsumed := noSubsumed hD hG
 
 include hD hG hE in
 /-- The tabled machine keeps every property, with the tabled machine of any
@@ -121,13 +117,6 @@ other exact race as base. -/
 theorem tabled_keeps (hG₀ : Good @U₀) (hE₀ : Exact @U₀) :
     (Rt @U dom K hK).Keeps (Rt @U₀ dom K hK) :=
   (tabled_obligations hD hG hE hG₀ hE₀).keeps hD
-
-include hD hG in
-/-- The answers the tabled machine shows in one step do not cover each
-other. -/
-theorem stepAntichain : (Rt @U dom K hK).StepAntichain := fun P q wf n => by
-  rw [init_eq]
-  exact trace_step_pairwise (inv_of_wf (K := K) (hK := hK) hD hG wf) (hD _ wf.2.2.1) n 0
 
 include hD hG hE in
 /-- The mirrored tabled machine shows at every step what the tabled machine
@@ -146,7 +135,7 @@ machine of any exact race as base. -/
 theorem mirror_keeps (hG₀ : Good @U₀) (hE₀ : Exact @U₀) :
     (Mt @U dom K hK).Keeps (Rt @U₀ dom K hK) :=
   (mirror_sameTrace (K := K) (hK := hK) hD hG hE).keeps (tabled_keeps hD hG hE hG₀ hE₀)
-    (stepAntichain hD hG) (Engine.orComm _ dom K hK) (Engine.orAssoc _ dom K hK)
+    (Engine.orComm _ dom K hK) (Engine.orAssoc _ dom K hK)
 
 include hD hG in
 /-- **The tabled machine emits no progress certificate.** -/

@@ -3,9 +3,9 @@
 
 `stateAt K hK P root r` is the state of the engine after `r` requests from
 its first state. These states are a run of requests (`isRun`), so the run
-is fair (`IsRun.fair`, `Fair.lean`) and holds, for every span the root
+is saturated (`IsRun.saturated`, `Saturated.lean`) and holds, for every span the root
 derives, an answer of the root table that covers it
-(`Saturation.Fair.complete`).
+(`Saturation.Saturated.complete`).
 
 The machine `engine.costedAt dom K hK` makes one request a step while the
 root table is not complete, emits what the root table gained, and then
@@ -17,8 +17,6 @@ emitted, at the latest when it reports that it is done. Hence
 * when it reports that it is done, its answers relate every pair the query
   relates (`honestExhaustion`);
 * it emits no progress certificate (`honestProgress`);
-* no answer it emits is covered by an earlier one (`noSubsumed`), since no
-  answer of a table covers a later one (`nocov_stateAt`);
 * its final report is the maximal emitted answers (`finalMaximal`);
 * on first-order input with a root that is its own converse it shows answers
   that are their own converses rearranged (`engine_selfConverse`), so run on
@@ -28,7 +26,7 @@ emitted, at the latest when it reports that it is done. Hence
 The engine is the engine of any unfolding race that meets its specification
 (`RwLog.Good`).
 -/
-import RwLog.Rungs.Symmetric.Fair
+import RwLog.Rungs.Symmetric.Saturated
 import RwLog.Rungs.Symmetric.SelfConverse
 import RwLog.Rungs.Symmetric.Edge
 import RwLog.Rungs.Framework.Runtime
@@ -431,7 +429,7 @@ theorem complete : (Rt @U dom K hK).Complete := fun P q wf s hs => by
   by_cases hne : (s.denAt P.sorts.interp).Nonempty
   · right
     have hI := isRun_of_wf (K := K) (hK := hK) hD hG wf
-    obtain ⟨a, ha, hsub⟩ := (hI.fair (hD _ wf.2.2.1)).complete (hD _ wf.2.2.1) (hI.root_opened root_goal0) hs hne
+    obtain ⟨a, ha, hsub⟩ := (hI.saturated (hD _ wf.2.2.1)).complete (hD _ wf.2.2.1) (hI.root_opened root_goal0) hs hne
     obtain ⟨r, y, hy, rfl⟩ := (hI.held_iff root_goal0 a).1 ha
     obtain ⟨n, hn⟩ := (emitted_of_root hI hy).1
     exact ⟨n, _, hn, hsub⟩
@@ -443,7 +441,7 @@ theorem honestExhaustion : (Rt @U dom K hK).HonestExhaustion := fun P q wf n hn 
   have hI := isRun_of_wf (K := K) (hK := hK) hD hG wf
   apply Set.Subset.antisymm
   · intro p hp
-    obtain ⟨a, ha, hpa⟩ := (hI.fair (hD _ wf.2.2.1)).covers_pair (hD _ wf.2.2.1) (hI.root_opened root_goal0) hp
+    obtain ⟨a, ha, hpa⟩ := (hI.saturated (hD _ wf.2.2.1)).covers_pair (hD _ wf.2.2.1) (hI.root_opened root_goal0) hp
     obtain ⟨r, y, hy, rfl⟩ := (hI.held_iff root_goal0 a).1 ha
     exact Set.mem_iUnion₂.2 ⟨sp @U dom K hK P y, (emitted_of_root hI hy).2 n hn, hpa⟩
   · intro p hp
@@ -465,18 +463,6 @@ theorem emitted_eq {P : Program} {q : Rel} (wf : P.WellFormed q) (n : Nat) :
   rcases run_cases hI n with ⟨-, hr⟩ | ⟨j, -, -, hr⟩
   · exact ⟨n, congrArg Prod.fst hr⟩
   · exact ⟨j, congrArg Prod.fst hr⟩
-
-/-- **No answer the symmetric engine emits is covered by an earlier one.** -/
-theorem noSubsumed : (Rt @U dom K hK).NoSubsumed := fun P q wf n => by
-  obtain ⟨j, hj⟩ := emitted_eq (K := K) (hK := hK) hD hG wf n
-  rw [hj, List.pairwise_map]
-  have := nocov_stateAt (K := K P.sorts) (hK := hK P.sorts) (P := P) (root := q.norm)
-    (U := UAt @U dom K hK P) j 0
-  rw [NoCov, List.pairwise_map] at this
-  refine this.imp fun {y x} h hc => ?_
-  have := (covB_iff (hD _ wf.2.2.1) y x).2 hc
-  rw [covB, h] at this
-  cases this
 
 /-- **The final report of the symmetric engine is the maximal emitted
 answers.** -/

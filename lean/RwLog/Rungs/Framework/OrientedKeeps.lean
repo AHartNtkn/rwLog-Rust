@@ -343,13 +343,6 @@ theorem oriented_derivationGeneral (h : C.runtime.DerivationGeneral) :
   rw [orient_sorts] at hr
   exact Answer.den_as_eq _ _ (Eq.trans hr (Span.den_as e P.sorts.interp))
 
-theorem oriented_noSubsumed (h : C.runtime.NoSubsumed) : C.oriented.runtime.NoSubsumed := by
-  intro P q wf n
-  rw [C.oriented_init_emitted]
-  refine List.pairwise_map.2 ((h _ _ (wf_orient wf) n).imp fun {x y} hxy hc => hxy ?_)
-  rw [orient_sorts]
-  exact Answer.as_sub_as _ _ hc
-
 theorem oriented_honest (h : C.runtime.HonestExhaustion) :
     C.oriented.runtime.HonestExhaustion := by
   intro P q wf n hn
@@ -424,7 +417,7 @@ properties are not asked of the machine itself. -/
 theorem oriented_keeps {Base : Runtime} (hsound : C.runtime.Sound)
     (hcomplete : C.runtime.Complete) (hhonest : C.runtime.HonestExhaustion)
     (hprogress : C.runtime.HonestProgress) (hgeneral : C.runtime.DerivationGeneral)
-    (hno : C.runtime.NoSubsumed) (hterm : C.runtime.TerminatesWhere Base) (hS : C.SameHalt)
+    (hterm : C.runtime.TerminatesWhere Base) (hS : C.SameHalt)
     (hV : C.runtime.VoidSide) (hc : C.oriented.runtime.ConvTrace)
     (hd : C.oriented.runtime.DualTrace) : C.oriented.runtime.Keeps Base where
   sound := oriented_sound hsound
@@ -438,7 +431,6 @@ theorem oriented_keeps {Base : Runtime} (hsound : C.runtime.Sound)
   emptySide := oriented_emptySide hS hhonest hV
   convTrace := hc
   dualTrace := hd
-  noSubsumed := oriented_noSubsumed hno
   complete := oriented_complete hcomplete
 
 end CostedRuntime

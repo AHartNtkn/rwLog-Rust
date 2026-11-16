@@ -130,11 +130,11 @@ What this forces to be redone: nothing. O7 is unchanged: that the check covers t
 2. *A table that has a round in infinitely many requests has a group that works in infinitely many* (`Requests.line`): the number of its groups stops falling, and then one place works again and again.
 3. *Such a group reaches everything* (`IsRun.served_live`). A span has run. A call or a union reads every answer: what it has not read below a position falls whenever the group works. A join combines every pair: the rank of its cursor falls. Of a group of checks one is never dead; the depth doubles while it has not read its side, and from the depth `readNeed` a reading does not give up (`readEdge_some`), so it reads it, is offered, and none of its goals ever has an answer. The tables these strategies read need no round in infinitely many requests, so each is complete at some time or has rounds for ever.
 4. *A complete table is served by the strategy that completed it* (`IsRun.served_done`).
-5. So a run of requests is fair in the sense of `Saturation.Fair` (`IsRun.fair`), with the tables that are complete at some time or have rounds for ever as the goals it opens. The root is one of them, and the machine has emitted every answer of the root table at the latest when it reports that it is done. Hence `Symmetric.complete`, `Symmetric.honestExhaustion` and `Symmetric.honestProgress`.
+5. So a run of requests is saturated (`Saturation.Saturated`, `IsRun.saturated`), with the tables that are complete at some time or have rounds for ever as the goals it opens. The root is one of them, and the machine has emitted every answer of the root table at the latest when it reports that it is done. Hence `Symmetric.complete`, `Symmetric.honestExhaustion` and `Symmetric.honestProgress`.
 
 A table that is opened and then has only finitely many rounds without becoming complete is not in that set, and nothing is claimed of it: no strategy that serves a table reads one.
 
-No answer of a table covers a later one (`nocov_stateAt`), so `Symmetric.noSubsumed` and `Symmetric.finalMaximal` hold too.
+No answer of a table covers a later one (`nocov_stateAt`), so `Symmetric.finalMaximal` holds too.
 
 Still owed for `Keeps`: `TerminatesWhere` (which needs O7) and `EmptySide`.
 
@@ -316,6 +316,8 @@ Where every level of a recursion has members that never finish (`fairOr`), the l
 *Proved, with the full build passing and nothing run.* Every statement of the thirteenth revision stands for this engine: it is fair and complete, it halts wherever R005 halts, and it keeps every property on one orientation. The one proof that changed in substance is the transfer of completion: that the table opened for a maximal answer is asked for ever was read off the feeding of every opened goal, and is now `Line.push_fed`.
 
 *Not done here.* The weight of a push still counts every goal it opened (`Strat.feeds`), and the law is not proved for the engine (L36).
+
+**Revision, 2026-11-16 (fifteenth): fair OR in ticks is no law.** The eleventh to fourteenth revisions changed how work is shared so as to meet `Fair.share`. That law is removed from the specification (Anthony, 2026-11-16): it was a cheap way to force some optimizations early and stopped being cheap, and as it was worded no machine that stops paying for dead branches can meet it (billboard FR4). Completeness is the law, and the ladder carries cost. The sharing rules of those revisions stay as the engine's schedule; nothing is owed of them beyond what completeness needs (every member that is never settled is fed in infinitely many requests). `Fair`, `Alternative` and `shareLinear_false` are deleted from the Lean development.
 
 ### What a step is
 

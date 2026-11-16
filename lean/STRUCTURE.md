@@ -24,8 +24,8 @@ Trusted/        the specification: syntax with sort declarations, semantics (wha
                 Tier-0 properties (Runtime.lean), what a constraint system gives an
                 engine and the laws it satisfies (Domain.lean), Rung and Preprocessor
                 (Engine.lean),
-                the properties every machine and every whole rung keeps and the fairness
-                bound (Properties.lean), the cost monad (CostMonad.lean),
+                the properties every machine and every whole rung keeps (Properties.lean),
+                the cost monad (CostMonad.lean),
                 the charged primitives on nodes (Charged.lean), the kernel an engine is
                 written against and what a kernel rung is (Kernel.lean),
                 and the cost model (Cost.lean) by which rungs from R002 on are judged:
@@ -98,7 +98,7 @@ Rungs/Symmetric/ the symmetric engine of `SYMMETRIC_ENGINE.md` (Machine.lean): a
                 passed) holds of the strategies made for a goal and is kept by a whole
                 request, with the goals of the tables distinct and good (Kept.lean,
                 `Good`, `good_request`); and the interfaces read from the program are
-                right about it (Edge.lean, `readOk`). Towards fairness: the cursor of
+                right about it (Edge.lean, `readOk`). How the ticks are shared: the cursor of
                 a join shares its ticks among its pairs by the unions their answers came
                 from and still reaches every pair it has filed, by a measure that falls
                 (Cursor.lean, `Cursor.rank_fall`, `rankLt_wf`); and the record of a
@@ -142,19 +142,18 @@ Rungs/Symmetric/ the symmetric engine of `SYMMETRIC_ENGINE.md` (Machine.lean): a
                 what it owes cannot fall for ever, with as many groups from
                 some request on (Lines.lean, `Requests.lines`, `Line.step`), and every member of a union
                 that works for ever is settled again and again
-                (`Requests.union_settled`). Fairness and
+                (`Requests.union_settled`). Towards
                 completeness: a run of requests (`IsRun`) holds for each goal the answers
                 of its table (`held`) and does not neglect the tables that are complete at
                 some time or have rounds for ever (`opened`); a complete table is served by
                 the strategy that completed it (Served.lean, `IsRun.served_done`), a table
                 with rounds for ever by a strategy of the group that works for ever
-                (Fair.lean, `IsRun.served_live`), so the run is fair (`IsRun.fair`); the
+                (Saturated.lean, `IsRun.served_live`), so the run is saturated (`IsRun.saturated`); the
                 states of the engine are such a run, and the machine is complete, honest
                 when it reports that it is done, and emits no progress certificate
                 (Correct.lean, `Symmetric.complete`, `honestExhaustion`,
-                `honestProgress`); no answer of a table covers a later one, so no
-                answer emitted is covered by an earlier one, and the final report is the
-                maximal emitted answers (`noSubsumed`, `finalMaximal`). Towards halting:
+                `honestProgress`); no answer of a table covers a later one, and the final report is the
+                maximal emitted answers (`finalMaximal`). Towards halting:
                 what an edge reads is a fact of the program, whatever the depth and the
                 kernel (EdgeSame.lean, `Reads.unique`), and every check records it
                 (`Prog`); the groups of a goal have a strategy for every way to answer it
@@ -303,8 +302,7 @@ rung unchanged.
   the program it is handed (`Preprocessor.runAll`, `Trusted/Engine.lean`), so
   the laws of the list follow from the laws of its members
   (`Preprocessor.runAll_wf`, `runAll_equiv`, `runAll_adds`) and a rung that
-  adds a rewrite proves the laws of that rewrite only. `Rung.noSubsumed`
-  carries through any list as the four above do; `Rung.convTrace` and
+  adds a rewrite proves the laws of that rewrite only. `Rung.convTrace` and
   `Rung.dualTrace` carry through a list that commutes with the converse and
   the mirror image (`Rung.Mirrors`); `Rung.keepsPointwise` puts the list of
   `KeepsPointwise` together from the machine's and shows the five properties
@@ -323,10 +321,9 @@ rung unchanged.
   up to the order of the answers of a step and up to equivalent answers. It
   gives `SameRun`, and the two certify and halt together. `SameTrace.keeps`:
   `R'` keeps every property `R` keeps, with the same base, given the laws of
-  `|` of `R'` (free for an engine) and that the answers `R` shows in one step
-  do not cover each other (`StepAntichain`). Each property has its own
+  `|` of `R'` (free for an engine). Each property has its own
   transfer (`SameTrace.honestProgress`, `emptySide`, `convTrace`,
-  `dualTrace`, `noSubsumed`). `HonestProgress.of_never` is honest progress of
+  `dualTrace`). `HonestProgress.of_never` is honest progress of
   a machine that emits no certificate. The mirrored tabled machine gets
   `mirror_keeps` this way (`Rungs/Tabled/MirrorKeeps.lean`).
 * `Void.lean`: goals that relate nothing. The pairs a goal and a derivation
@@ -348,15 +345,15 @@ rung unchanged.
   strategies of a node (a span, a call, a union, a chain split anywhere and
   joined or pushed from either side, a meet split at any member and
   conjoined or pushed either way) and says one of them is carried out on
-  everything the run ever holds, up to coverage. `Saturation.Fair` is every
-  opened goal served. `Fair.covers`: a fair run covers the pairs of every
+  everything the run ever holds, up to coverage. `Saturation.Saturated` is every
+  opened goal served. `Saturated.covers`: a saturated run covers the pairs of every
   ground relation the node of an opened goal derives, by induction on the
-  depth of the derivation and then on the node. `Fair.complete` is
-  completeness at the query, `Fair.covers_pair` the same pair by pair, and
-  `Fair.covers_valid` says a valid answer
-  found by any schedule is covered by every fair run that opens its goal.
+  depth of the derivation and then on the node. `Saturated.complete` is
+  completeness at the query, `Saturated.covers_pair` the same pair by pair, and
+  `Saturated.covers_valid` says a valid answer
+  found by any schedule is covered by every saturated run that opens its goal.
   Nothing is assumed of the order of work or of tables growing. A machine
-  proves `Fair` of its runs and receives completeness.
+  proves `Saturated` of its runs and receives completeness.
   `Served.checkL` and `checkR` serve a chain that has no answer by the
   interface check.
 * `Oriented.lean`: a machine run on one orientation of its input
@@ -388,13 +385,10 @@ rung unchanged.
   does not name: the machine halts on an input exactly when it halts on the
   input chosen for it (`CostedRuntime.SameHalt`), and a side that halts and
   relates nothing makes `;` and `&` halt (`Runtime.VoidSide`).
-* `Fairness.lean`: what the fairness bound of `Trusted/Properties.lean` means
-  (`Alternative.semAt_subset`,
-  `Runtime.FinalMaximal.maximal`), and `firstWording_false`: a bound
-  polynomial in the size of an answer's derivation and of the input is false
-  for every sound machine that emits spans and pays a tick for each. `shareLinear_false`:
-  the fairness bound with the size of the input in place of the loading
-  charge is false for every machine that loads its input.
+* `DerivationBound.lean`: `Runtime.FinalMaximal.maximal`, and
+  `firstWording_false`: a bound polynomial in the size of an answer's
+  derivation and of the input is false for every sound machine that emits
+  spans and pays a tick for each.
 
 * `Derivation.lean`: every engine is sound and derivation-general, at every
   kernel of a constraint domain that is lawful at well-formed sorts
@@ -467,7 +461,7 @@ unfolding race that meets a specification (`UOk` in
 it says the unfolding is final they cover every derivation of the goal).
 `Rungs/Tabled/Correct.lean` has them for a race that meets it at every lawful
 domain (`Good`): `complete`, `pointComplete`, `honestExhaustion`,
-`honestProgress`, `noSubsumed`, `finalMaximal`. The files before it are the
+`honestProgress`, `finalMaximal`. The files before it are the
 steps: what the rules of the derivation kernel return (`Framework/Rules.lean`),
 the tables read as values (`Tables`, `Round`), what the candidates of a goal
 cover (`Semantics`, `Covers`, `Candidates`, `Strategies`), the invariant of a
@@ -699,10 +693,10 @@ come from these places.
    works on a bind of the kernel's monad after `at_cost`; `erw` is not
    needed.
 3. Completeness: describe the run as `Saturation.Tables` and the goals it
-   opens, prove `Saturation.Fair`, and take `Fair.complete`
+   opens, prove `Saturation.Saturated`, and take `Saturated.complete`
    (`Framework/Saturation.lean`). Honest exhaustion follows from
    `Tier0Cert` (`Framework/Tier0.lean`), or pair by pair from
-   `Fair.covers_pair` once everything the run holds for the query is
+   `Saturated.covers_pair` once everything the run holds for the query is
    emitted when the machine reports that it is done.
 4. The converse and the mirrored program: run the machine on one
    orientation and prove `CostedRuntime.SelfConverse`

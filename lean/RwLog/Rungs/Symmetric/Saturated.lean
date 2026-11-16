@@ -1,5 +1,5 @@
 /-
-# A run of requests is fair
+# A run of requests is saturated
 
 A table that has a round in infinitely many requests is served
 (`IsRun.served_live`). One of its groups works in infinitely many requests
@@ -21,7 +21,7 @@ so they are not neglected either. Of the members of a union one has a round
 when the group works, the one fed least, and every member still needs no
 round in infinitely many requests (`Requests.union_settled`).
 
-With `IsRun.served_done`, a run of requests is fair (`IsRun.fair`), and it
+With `IsRun.served_done`, a run of requests is saturated (`IsRun.saturated`), and it
 opens the root (`IsRun.root_opened`).
 -/
 import RwLog.Rungs.Symmetric.Served
@@ -351,9 +351,9 @@ theorem IsRun.served_live (h : IsRun U σ) {r0 k : Nat} {g : GoalOf R Rel}
     | check _ _ _ _ => cases hlead
   · exact h.live_check hka hL hall
 
-/-- **A run of requests is fair.** -/
-theorem IsRun.fair (hL : D.Lawful P.sorts.interp) (h : IsRun U σ) :
-    Saturation.Fair D P (opened σ) (held σ) where
+/-- **A run of requests is saturated.** -/
+theorem IsRun.saturated (hL : D.Lawful P.sorts.interp) (h : IsRun U σ) :
+    Saturation.Saturated D P (opened σ) (held σ) where
   ok := by
     rintro _ ⟨k, r, g, hk, rfl, -⟩
     have hg := (h.good r).base.good k g hk
