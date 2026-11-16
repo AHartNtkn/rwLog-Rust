@@ -271,7 +271,7 @@ theorem base_work (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK)
     · exact hB
     · simp only [Cost.bind_val, Cost.pure_val, Kernel.metered, Cost.metered_val]
       exact hB.same ((h3 _ _ _ _ _).trans (sameG_modify _ i _ fun _ => rfl))
-  | push k left side other subs reads c =>
+  | push k left side other subs dead reads c =>
     dsimp only [Prog] at hs
     obtain ⟨L, Rg, s1, -, s3, -, -⟩ := hs
     have ho : other.FO := by
@@ -317,8 +317,8 @@ theorem prog_splitGroup {st : StateOf R Rel (Ans D P)} (hB : Base st) (w : Nat) 
       (∀ s ∈ (splitGroup (K := DerivationKernel.over D K hK P) k L Rg st).val.2.strats,
         Prog (splitGroup (K := DerivationKernel.over D K hK P) k L Rg st).val.1 w g s) ∧
       ∃ a b, (splitGroup (K := DerivationKernel.over D K hK P) k L Rg st).val.2.strats =
-          [.join k a b Cursor.start, .push k true a Rg.node [] [] Cursor.start,
-            .push k false b L.node [] [] Cursor.start] ∧
+          [.join k a b Cursor.start, .push k true a Rg.node [] [] [] Cursor.start,
+            .push k false b L.node [] [] [] Cursor.start] ∧
         goalAt (splitGroup (K := DerivationKernel.over D K hK P) k L Rg st).val.1 a = some L ∧
         goalAt (splitGroup (K := DerivationKernel.over D K hK P) k L Rg st).val.1 b = some Rg := by
   have hF := (inner_splitGroup (K := K) (hK := hK) (P := P) (w := w) k L Rg st).frame
@@ -375,7 +375,7 @@ def ChainDone (w : Nat) (g : GoalOf R Rel) (n : Nat) (st : StateOf R Rel (Ans D 
     ∀ i ∈ done, ∀ l r, g.node.interval 0 i = some l → g.node.interval i n = some r →
       (∃ gr ∈ acc.2.1, ∃ a b, goalAt acc.1 a = some ⟨g.lb, l, none⟩ ∧
         goalAt acc.1 b = some ⟨none, r, g.rb⟩ ∧ .join .seq a b Cursor.start ∈ gr.kinds ∧
-        .push .seq true a r [] [] Cursor.start ∈ gr.kinds ∧ .push .seq false b l [] [] Cursor.start ∈ gr.kinds) ∧
+        .push .seq true a r [] [] [] Cursor.start ∈ gr.kinds ∧ .push .seq false b l [] [] [] Cursor.start ∈ gr.kinds) ∧
       (Reads D P l true none ∨ .check true l r .reading ∈ acc.2.2) ∧
       (Reads D P r false none ∨ .check false r l .reading ∈ acc.2.2)
 
@@ -395,8 +395,8 @@ theorem ChainDone.out {w : Nat} {g : GoalOf R Rel} {xs : List Rel} {st : StateOf
       (∀ s ∈ acc.2.2, Prog acc.1 w g s) ∧
       ∀ L Rg, SplitAt g .seq L Rg →
         (∃ gr ∈ acc.2.1, ∃ a b, goalAt acc.1 a = some L ∧ goalAt acc.1 b = some Rg ∧
-          .join .seq a b Cursor.start ∈ gr.kinds ∧ .push .seq true a Rg.node [] [] Cursor.start ∈ gr.kinds ∧
-          .push .seq false b L.node [] [] Cursor.start ∈ gr.kinds) ∧
+          .join .seq a b Cursor.start ∈ gr.kinds ∧ .push .seq true a Rg.node [] [] [] Cursor.start ∈ gr.kinds ∧
+          .push .seq false b L.node [] [] [] Cursor.start ∈ gr.kinds) ∧
         ∀ left : Bool, Reads D P (if left then L.node else Rg.node) left none ∨
           .check left (if left then L.node else Rg.node) (if left then Rg.node else L.node)
             .reading ∈ acc.2.2 := by
@@ -504,7 +504,7 @@ def MeetDone (w : Nat) (g : GoalOf R Rel) (xs : List Rel) (st : StateOf R Rel (A
     ∀ i ∈ done, ∀ l r, xs[i]? = some l → g.node.without i = some r →
       ∃ gr ∈ acc.2, ∃ a b, goalAt acc.1 a = some ⟨g.lb, l, g.rb⟩ ∧
         goalAt acc.1 b = some ⟨g.lb, r, g.rb⟩ ∧ .join .and a b Cursor.start ∈ gr.kinds ∧
-        .push .and true a r [] [] Cursor.start ∈ gr.kinds ∧ .push .and false b l [] [] Cursor.start ∈ gr.kinds
+        .push .and true a r [] [] [] Cursor.start ∈ gr.kinds ∧ .push .and false b l [] [] [] Cursor.start ∈ gr.kinds
 
 omit [DecidableEq R] [Answer R] in
 theorem no_split {g : GoalOf R Rel}
@@ -1116,7 +1116,7 @@ theorem work_kind (i : Nat) (g : GoalOf R Rel) (st : StateOf R Rel (Ans D P))
   | join k a b c =>
     simp only [work]
     split <;> rfl
-  | push k l side o subs reads c =>
+  | push k l side o subs dead reads c =>
     simp only [work]
     split
     · rfl

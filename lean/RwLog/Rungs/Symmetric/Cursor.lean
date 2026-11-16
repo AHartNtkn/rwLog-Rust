@@ -837,6 +837,18 @@ theorem Cursor.rank_read (s : Nat) (pth : Path) (c : Cursor) {p q : Nat}
   rw [Cursor.stepsAt_read s pth c (x := (p, q)) h2]
   rfl
 
+/-- Taking units off a cursor leaves the measure of every unit: the measure
+is of what was combined and what it cost. -/
+@[simp] theorem Cursor.rank_kill (dead : List Nat) (c : Cursor) (p q : Nat) :
+    (c.kill dead).rank p q = c.rank p q := rfl
+
+@[simp] theorem Cursor.before_kill (dead : List Nat) (c : Cursor) (p q : Nat) :
+    (c.kill dead).Before p q ↔ c.Before p q := Iff.rfl
+
+theorem Cursor.mem_kill {dead : List Nat} {c : Cursor} {x : Nat × Nat} :
+    x ∈ (c.kill dead).todo ↔ x ∈ c.todo ∧ x.1 ∉ dead := by
+  simp [Cursor.kill]
+
 end Symmetric
 
 end RwLog

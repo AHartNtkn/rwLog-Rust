@@ -35,7 +35,7 @@ def IsOpen (subs : List (A × Option (Nat × Nat))) (s : Nat) : Prop :=
 
 /-- The units and the cursor fit `n` answers seen, of which `opened` are
 opened, with the counts `cnt` of answers filed. -/
-structure Filed (n : Nat) (opened : Nat → Prop) (cnt : Nat → Nat)
+structure Filed (n : Nat) (opened : Nat → Prop) (cnt : Nat → Nat) (dead : Nat → Prop)
     (reads : List (Nat × Option Nat)) (c : Cursor) : Prop where
   pb : c.pb.length = reads.length
   filed : ∀ q s r : Nat, reads[q]? = some (s, some r) → r < cnt s
@@ -43,27 +43,30 @@ structure Filed (n : Nat) (opened : Nat → Prop) (cnt : Nat → Nat)
   seen : ∀ q s : Nat, reads[q]? = some (s, none) → s < n
   opens : ∀ s : Nat, s < n → ∃ q : Nat, reads[q]? = some (s, none)
   once : ∀ q q' s : Nat, reads[q]? = some (s, none) → reads[q']? = some (s, none) → q = q'
+  onceR : ∀ q q' s r : Nat, reads[q]? = some (s, some r) → reads[q']? = some (s, some r) → q = q'
   isOpen : ∀ q s : Nat, reads[q]? = some (s, none) → ((s, q) ∈ c.done ↔ opened s)
   done : ∀ x ∈ c.done, ∃ r : Option Nat, reads[x.2]? = some (x.1, r)
-  todo : ∀ x, x ∈ c.todo ↔ (∃ r : Option Nat, reads[x.2]? = some (x.1, r)) ∧ x ∉ c.done
+  todo : ∀ x, x ∈ c.todo ↔
+    (∃ r : Option Nat, reads[x.2]? = some (x.1, r)) ∧ x ∉ c.done ∧ ¬ dead x.1
 
 /-- The answers seen, the units and the cursor of a push fit. -/
-def PushFits (subs : List (A × Option (Nat × Nat))) (reads : List (Nat × Option Nat))
-    (c : Cursor) : Prop :=
-  c.pa.length = subs.length ∧ Filed subs.length (IsOpen subs) (cntOf subs) reads c
+def PushFits (subs : List (A × Option (Nat × Nat))) (dead : List Nat)
+    (reads : List (Nat × Option Nat)) (c : Cursor) : Prop :=
+  c.pa.length = subs.length ∧ Filed subs.length (IsOpen subs) (cntOf subs) (· ∈ dead) reads c
 
-theorem Filed.congr {n : Nat} {o o' : Nat → Prop} {cnt cnt' : Nat → Nat}
-    {reads : List (Nat × Option Nat)} {c : Cursor} (h : Filed n o cnt reads c)
-    (ho : ∀ s, o s ↔ o' s) (hc : cnt = cnt') : Filed n o' cnt' reads c := by
+theorem Filed.congr {n : Nat} {o o' : Nat → Prop} {cnt cnt' : Nat → Nat} {dd : Nat → Prop}
+    {reads : List (Nat × Option Nat)} {c : Cursor} (h : Filed n o cnt dd reads c)
+    (ho : ∀ s, o s ↔ o' s) (hc : cnt = cnt') : Filed n o' cnt' dd reads c := by
   subst hc
-  exact ⟨h.pb, h.filed, h.all, h.seen, h.opens, h.once,
+  exact ⟨h.pb, h.filed, h.all, h.seen, h.opens, h.once, h.onceR,
     fun q s hq => (h.isOpen q s hq).trans (ho s), h.done, h.todo⟩
 
-theorem PushFits.start : PushFits ([] : List (A × Option (Nat × Nat))) [] Cursor.start := by
+theorem PushFits.start : PushFits ([] : List (A × Option (Nat × Nat))) [] [] [] Cursor.start := by
   refine ⟨rfl, ⟨rfl, fun q s r h => ?_, fun s r h => ?_, fun q s h => ?_, fun s h => ?_,
-    fun q q' s h => ?_, fun q s h => ?_, fun x hx => ?_, fun x => ?_⟩⟩
+    fun q q' s h => ?_, fun q q' s r h => ?_, fun q s h => ?_, fun x hx => ?_, fun x => ?_⟩⟩
   · simp at h
   · simp [cntOf] at h
+  · simp at h
   · simp at h
   · simp at h
   · simp at h
@@ -93,18 +96,20 @@ theorem lt_of_getElem? {α : Type} {l : List α} {b : α} {q : Nat} (h : l[q]? =
     q < l.length := (List.getElem?_eq_some_iff.1 h).1
 
 /-- The units to take once one more unit is filed. -/
-theorem todo_read {n : Nat} {o : Nat → Prop} {cnt : Nat → Nat}
-    {reads : List (Nat × Option Nat)} {c : Cursor} (h : Filed n o cnt reads c) (s : Nat)
-    (pth : Path) (r : Option Nat) (x : Nat × Nat) :
+theorem todo_read {n : Nat} {o : Nat → Prop} {cnt : Nat → Nat} {dd : Nat → Prop}
+    {reads : List (Nat × Option Nat)} {c : Cursor} (h : Filed n o cnt dd reads c) (s : Nat)
+    (pth : Path) (r : Option Nat) (x : Nat × Nat)
+    (hs : ¬ dd s) :
     x ∈ (c.read s pth).todo ↔
-      (∃ r' : Option Nat, (reads ++ [(s, r)])[x.2]? = some (x.1, r')) ∧ x ∉ (c.read s pth).done := by
+      (∃ r' : Option Nat, (reads ++ [(s, r)])[x.2]? = some (x.1, r')) ∧
+        x ∉ (c.read s pth).done ∧ ¬ dd x.1 := by
   have ht : (c.read s pth).todo = c.todo ++ [(s, c.pb.length)] := rfl
   have hd : (c.read s pth).done = c.done := rfl
   rw [ht, hd, List.mem_append, h.todo x, List.mem_singleton, h.pb]
   constructor
   · rintro (⟨⟨r', hr⟩, hn⟩ | rfl)
     · exact ⟨⟨r', getElem?_concat_of hr⟩, hn⟩
-    · refine ⟨⟨r, by simp⟩, fun hx => ?_⟩
+    · refine ⟨⟨r, by simp⟩, fun hx => ?_, hs⟩
       obtain ⟨r', hr⟩ := h.done _ hx
       have := lt_of_getElem? hr
       simp at this
@@ -115,14 +120,14 @@ theorem todo_read {n : Nat} {o : Nat → Prop} {cnt : Nat → Nat}
       exact .inr (Prod.ext hr.1.symm e)
 
 /-- Filing one answer for the answer seen at `s`. -/
-theorem Filed.read {n : Nat} {o : Nat → Prop} {cnt : Nat → Nat}
-    {reads : List (Nat × Option Nat)} {c : Cursor} (h : Filed n o cnt reads c) (s : Nat)
-    (pth : Path) :
-    Filed n o (Function.update cnt s (cnt s + 1)) (reads ++ [(s, some (cnt s))])
+theorem Filed.read {n : Nat} {o : Nat → Prop} {cnt : Nat → Nat} {dd : Nat → Prop}
+    {reads : List (Nat × Option Nat)} {c : Cursor} (h : Filed n o cnt dd reads c) (s : Nat)
+    (pth : Path) (hs : ¬ dd s) :
+    Filed n o (Function.update cnt s (cnt s + 1)) dd (reads ++ [(s, some (cnt s))])
       (c.read s pth) := by
   refine ⟨by simp [Cursor.read, h.pb], fun q s' r hq => ?_, fun s' r hr => ?_,
-    fun q s' hq => ?_, fun s' hs => ?_, fun q q' s' hq hq' => ?_, fun q s' hq => ?_,
-    fun x hx => ?_, todo_read h s pth _⟩
+    fun q s' hq => ?_, fun s' hs => ?_, fun q q' s' hq hq' => ?_, fun q q' s' r hq hq' => ?_,
+    fun q s' hq => ?_, fun x hx => ?_, fun x => todo_read h s pth _ x hs⟩
   · rcases getElem?_concat_cases hq with hq | ⟨-, hq⟩
     · have := h.filed q s' r hq
       by_cases e : s' = s
@@ -151,6 +156,17 @@ theorem Filed.read {n : Nat} {o : Nat → Prop} {cnt : Nat → Nat}
       · exact h.once q q' s' hq hq'
       · simp at hq'
     · simp at hq
+  · rcases getElem?_concat_cases hq with hq | ⟨e, hq⟩
+    · rcases getElem?_concat_cases hq' with hq' | ⟨e', hq'⟩
+      · exact h.onceR q q' s' r hq hq'
+      · simp only [Prod.mk.injEq, Option.some.injEq] at hq'
+        obtain ⟨rfl, rfl⟩ := hq'
+        exact absurd (h.filed q _ _ hq) (Nat.lt_irrefl _)
+    · rcases getElem?_concat_cases hq' with hq' | ⟨e', hq'⟩
+      · simp only [Prod.mk.injEq, Option.some.injEq] at hq
+        obtain ⟨rfl, rfl⟩ := hq
+        exact absurd (h.filed q' _ _ hq') (Nat.lt_irrefl _)
+      · omega
   · rcases getElem?_concat_cases hq with hq | ⟨-, hq⟩
     · exact h.isOpen q s' hq
     · simp at hq
@@ -159,15 +175,15 @@ theorem Filed.read {n : Nat} {o : Nat → Prop} {cnt : Nat → Nat}
 
 /-- Seeing one more answer of the side: the unit that opens its goal is
 filed. -/
-theorem Filed.see {n : Nat} {o : Nat → Prop} {cnt : Nat → Nat}
-    {reads : List (Nat × Option Nat)} {c : Cursor} (h : Filed n o cnt reads c) (hn : ¬ o n)
-    (pth : Path) :
-    Filed (n + 1) o cnt (reads ++ [(n, none)]) ((c.opened pth).read n []) := by
-  have h' : Filed n o cnt reads (c.opened pth) :=
-    ⟨h.pb, h.filed, h.all, h.seen, h.opens, h.once, h.isOpen, h.done, h.todo⟩
+theorem Filed.see {n : Nat} {o : Nat → Prop} {cnt : Nat → Nat} {dd : Nat → Prop}
+    {reads : List (Nat × Option Nat)} {c : Cursor} (h : Filed n o cnt dd reads c) (hn : ¬ o n)
+    (hdn : ¬ dd n) (pth : Path) :
+    Filed (n + 1) o cnt dd (reads ++ [(n, none)]) ((c.opened pth).read n []) := by
+  have h' : Filed n o cnt dd reads (c.opened pth) :=
+    ⟨h.pb, h.filed, h.all, h.seen, h.opens, h.once, h.onceR, h.isOpen, h.done, h.todo⟩
   refine ⟨by simp [Cursor.read, Cursor.opened, h.pb], fun q s' r hq => ?_, fun s' r hr => ?_,
-    fun q s' hq => ?_, fun s' hs => ?_, fun q q' s' hq hq' => ?_, fun q s' hq => ?_,
-    fun x hx => ?_, todo_read h' n [] _⟩
+    fun q s' hq => ?_, fun s' hs => ?_, fun q q' s' hq hq' => ?_, fun q q' s' r hq hq' => ?_,
+    fun q s' hq => ?_, fun x hx => ?_, fun x => todo_read h' n [] _ x hdn⟩
   · rcases getElem?_concat_cases hq with hq | ⟨-, hq⟩
     · exact h.filed q s' r hq
     · simp at hq
@@ -192,6 +208,11 @@ theorem Filed.see {n : Nat} {o : Nat → Prop} {cnt : Nat → Nat}
         have := h.seen q' s' hq'
         omega
       · omega
+  · rcases getElem?_concat_cases hq with hq | ⟨e, hq⟩
+    · rcases getElem?_concat_cases hq' with hq' | ⟨e', hq'⟩
+      · exact h.onceR q q' s' r hq hq'
+      · simp at hq'
+    · simp at hq
   · rcases getElem?_concat_cases hq with hq | ⟨e, hq⟩
     · exact h.isOpen q s' hq
     · simp only [Prod.mk.injEq, and_true] at hq
@@ -234,33 +255,60 @@ theorem not_isOpen_length (subs : List (A × Option (Nat × Nat))) : ¬ IsOpen s
 
 /-- Seeing one more answer of the side keeps the fit. -/
 theorem PushFits.see {subs : List (A × Option (Nat × Nat))} {reads : List (Nat × Option Nat)}
-    {c : Cursor} (h : PushFits subs reads c) (x : A) (pth : Path) :
-    PushFits (subs ++ [(x, none)]) (reads ++ [(subs.length, none)])
+    {dead : List Nat} {c : Cursor} (h : PushFits subs dead reads c)
+    (hd : ∀ s ∈ dead, s < subs.length) (x : A) (pth : Path) :
+    PushFits (subs ++ [(x, none)]) dead (reads ++ [(subs.length, none)])
       ((c.opened pth).read subs.length []) := by
   refine ⟨by simp [Cursor.read, Cursor.opened, h.1], ?_⟩
   rw [List.length_append, List.length_singleton]
-  exact (h.2.see (not_isOpen_length subs) pth).congr (isOpen_append_none subs x)
-    (cntOf_append_none subs x).symm
+  exact (h.2.see (not_isOpen_length subs) (fun hm => Nat.lt_irrefl _ (hd _ hm)) pth).congr
+    (isOpen_append_none subs x) (cntOf_append_none subs x).symm
 
 /-- Seeing the answers the side has gained keeps the fit. -/
-theorem PushFits.seeSide : ∀ (new : List (A × Path)) {subs : List (A × Option (Nat × Nat))}
-    {reads : List (Nat × Option Nat)} {c : Cursor}, PushFits subs reads c →
-    PushFits (seeSide new subs reads c).1 (seeSide new subs reads c).2.1
+theorem PushFits.seeSide {dead : List Nat} : ∀ (new : List (A × Path))
+    {subs : List (A × Option (Nat × Nat))} {reads : List (Nat × Option Nat)} {c : Cursor},
+    PushFits subs dead reads c → (∀ s ∈ dead, s < subs.length) →
+    PushFits (seeSide new subs reads c).1 dead (seeSide new subs reads c).2.1
       (seeSide new subs reads c).2.2
-  | [], _, _, _, h => h
-  | x :: rest, _, _, _, h => by
+  | [], _, _, _, h, _ => h
+  | x :: rest, _, _, _, h, hd => by
     rw [RwLog.Symmetric.seeSide]
-    exact PushFits.seeSide rest (h.see x.1 x.2)
+    exact PushFits.seeSide rest (h.see hd x.1 x.2) fun s hs => by
+      have := hd s hs
+      simp only [List.length_append, List.length_singleton]
+      omega
+
+/-- Taking the units of the answers superseded off the cursor: the fit with
+more answers superseded. -/
+theorem Filed.kill {n : Nat} {o : Nat → Prop} {cnt : Nat → Nat} {dd : Nat → Prop}
+    {reads : List (Nat × Option Nat)} {c : Cursor} (h : Filed n o cnt dd reads c)
+    (dead : List Nat) (hd : ∀ s, dd s → s ∈ dead) :
+    Filed n o cnt (· ∈ dead) reads (c.kill dead) := by
+  refine ⟨h.pb, h.filed, h.all, h.seen, h.opens, h.once, h.onceR, h.isOpen, h.done, fun x => ?_⟩
+  simp only [Cursor.kill, List.mem_filter, Bool.not_eq_true', List.contains_eq_mem,
+    decide_eq_false_iff_not]
+  rw [h.todo x]
+  constructor
+  · rintro ⟨⟨hf, hn, -⟩, hk⟩
+    exact ⟨hf, hn, hk⟩
+  · rintro ⟨hf, hn, hk⟩
+    exact ⟨⟨hf, hn, fun hx => hk (hd _ hx)⟩, hk⟩
+
+theorem PushFits.kill {subs : List (A × Option (Nat × Nat))} {reads : List (Nat × Option Nat)}
+    {dead : List Nat} {c : Cursor} (h : PushFits subs dead reads c) (dead' : List Nat)
+    (hd : ∀ s ∈ dead, s ∈ dead') : PushFits subs dead' reads (c.kill dead') :=
+  ⟨h.1, h.2.kill dead' hd⟩
 
 /-- Filing the answers `pths` for the answer seen at `s`. -/
-theorem Filed.files {n : Nat} {o : Nat → Prop} (s : Nat) : ∀ (pths : List Path)
-    (cnt : Nat → Nat) (reads : List (Nat × Option Nat)) (c : Cursor), Filed n o cnt reads c →
-    Filed n o (Function.update cnt s (cnt s + pths.length)) (fileReads s (cnt s) reads c pths).1
-      (fileReads s (cnt s) reads c pths).2
+theorem Filed.files {n : Nat} {o : Nat → Prop} {dd : Nat → Prop} (s : Nat) (hs : ¬ dd s) :
+    ∀ (pths : List Path)
+    (cnt : Nat → Nat) (reads : List (Nat × Option Nat)) (c : Cursor), Filed n o cnt dd reads c →
+    Filed n o (Function.update cnt s (cnt s + pths.length)) dd
+      (fileReads s (cnt s) reads c pths).1 (fileReads s (cnt s) reads c pths).2
   | [], cnt, reads, c, h => by simpa [fileReads] using h
   | pth :: rest, cnt, reads, c, h => by
-    have h1 := h.read s pth
-    have h2 := Filed.files s rest _ _ _ h1
+    have h1 := h.read s pth hs
+    have h2 := Filed.files s hs rest _ _ _ h1
     simp only [Function.update_self, Function.update_idem] at h2
     simp only [fileReads, List.length_cons]
     rw [show cnt s + (rest.length + 1) = cnt s + 1 + rest.length by omega]
@@ -271,15 +319,18 @@ theorem fileReads_pa (s : Nat) : ∀ (pths : List Path) (n : Nat)
   | [], _, _, _ => rfl
   | _ :: rest, _, _, _ => by rw [fileReads, fileReads_pa s rest]; rfl
 
-theorem pushFile_pa (st : StateOf S N A) : ∀ (subs : List (A × Option (Nat × Nat))) (s : Nat)
-    (reads : List (Nat × Option Nat)) (c : Cursor), (pushFile st s reads c subs).2.2.pa = c.pa
+theorem pushFile_pa (st : StateOf S N A) (dead : List Nat) :
+    ∀ (subs : List (A × Option (Nat × Nat))) (s : Nat)
+    (reads : List (Nat × Option Nat)) (c : Cursor), (pushFile st dead s reads c subs).2.2.pa = c.pa
   | [], _, _, _ => rfl
   | (x, none) :: rest, s, reads, c => by
     simp only [pushFile]
-    rw [pushFile_pa st rest]
+    rw [pushFile_pa st dead rest]
   | (x, some t) :: rest, s, reads, c => by
-    simp only [pushFile]
-    rw [pushFile_pa st rest, fileReads_pa]
+    rw [pushFile]
+    split
+    · exact pushFile_pa st dead rest _ _ _
+    · exact (pushFile_pa st dead rest _ _ _).trans (fileReads_pa _ _ _ _ _)
 
 theorem cntOf_update (pre rest : List (A × Option (Nat × Nat))) (x : A) (t : Nat × Nat)
     (n : Nat) :
@@ -298,37 +349,48 @@ theorem cntOf_update (pre rest : List (A × Option (Nat × Nat))) (x : A) (t : N
     simp [show pre.length + 1 + d - pre.length = d + 1 by omega]
 
 /-- Filing the answers the tables of a push have gained keeps the fit. -/
-theorem Filed.push {n : Nat} {o : Nat → Prop} (st : StateOf S N A) :
+theorem Filed.push {n : Nat} {o : Nat → Prop} (st : StateOf S N A) (dead : List Nat) :
     ∀ (rest pre : List (A × Option (Nat × Nat))) (reads : List (Nat × Option Nat))
-      (c : Cursor), Filed n o (cntOf (pre ++ rest)) reads c →
+      (c : Cursor), Filed n o (cntOf (pre ++ rest)) (· ∈ dead) reads c →
     (∀ e ∈ rest, ∀ t, e.2 = some t → t.2 ≤ (st.pathsAt t.1).length) →
-    Filed n o (cntOf (pre ++ (pushFile st pre.length reads c rest).1))
-      (pushFile st pre.length reads c rest).2.1 (pushFile st pre.length reads c rest).2.2
+    Filed n o (cntOf (pre ++ (pushFile st dead pre.length reads c rest).1)) (· ∈ dead)
+      (pushFile st dead pre.length reads c rest).2.1 (pushFile st dead pre.length reads c rest).2.2
   | [], pre, reads, c, h, _ => by simpa [pushFile] using h
   | (x, none) :: rest, pre, reads, c, h, hle => by
-    have h1 : Filed n o (cntOf ((pre ++ [(x, none)]) ++ rest)) reads c := by
+    have h1 : Filed n o (cntOf ((pre ++ [(x, none)]) ++ rest)) (· ∈ dead) reads c := by
       simpa using h
-    have h2 := Filed.push st rest (pre ++ [(x, none)]) _ _ h1
+    have h2 := Filed.push st dead rest (pre ++ [(x, none)]) _ _ h1
       fun e' he' => hle e' (List.mem_cons_of_mem _ he')
     simp only [List.length_append, List.length_cons, List.length_nil, List.append_assoc,
       List.cons_append, List.nil_append] at h2
     simpa [pushFile] using h2
   | (x, some t) :: rest, pre, reads, c, h, hle => by
-    have hc : cntOf (pre ++ (x, some t) :: rest) pre.length = t.2 := by simp [cntOf]
-    have h1 := Filed.files pre.length ((st.pathsAt t.1).drop t.2) _ _ _ h
-    rw [hc, List.length_drop,
-      show t.2 + ((st.pathsAt t.1).length - t.2) = (st.pathsAt t.1).length from by
-        have := hle _ List.mem_cons_self t rfl
-        omega, cntOf_update] at h1
-    have h2 := Filed.push st rest (pre ++ [(x, some (t.1, (st.pathsAt t.1).length))]) _ _ h1
-      fun e' he' => hle e' (List.mem_cons_of_mem _ he')
-    simp only [List.length_append, List.length_cons, List.length_nil, List.append_assoc,
-      List.cons_append, List.nil_append] at h2
-    simpa [pushFile] using h2
+    rw [pushFile]
+    split
+    · have h1 : Filed n o (cntOf ((pre ++ [(x, some t)]) ++ rest)) (· ∈ dead) reads c := by
+        simpa using h
+      have h2 := Filed.push st dead rest (pre ++ [(x, some t)]) _ _ h1
+        fun e' he' => hle e' (List.mem_cons_of_mem _ he')
+      simp only [List.length_append, List.length_cons, List.length_nil, List.append_assoc,
+        List.cons_append, List.nil_append] at h2
+      exact h2
+    · next hdn =>
+      have hc : cntOf (pre ++ (x, some t) :: rest) pre.length = t.2 := by simp [cntOf]
+      have h1 := Filed.files pre.length (by simpa using hdn) ((st.pathsAt t.1).drop t.2) _ _ _ h
+      rw [hc, List.length_drop,
+        show t.2 + ((st.pathsAt t.1).length - t.2) = (st.pathsAt t.1).length from by
+          have := hle _ List.mem_cons_self t rfl
+          omega, cntOf_update] at h1
+      have h2 := Filed.push st dead rest (pre ++ [(x, some (t.1, (st.pathsAt t.1).length))]) _ _
+        h1 fun e' he' => hle e' (List.mem_cons_of_mem _ he')
+      simp only [List.length_append, List.length_cons, List.length_nil, List.append_assoc,
+        List.cons_append, List.nil_append] at h2
+      exact h2
 
-theorem isOpen_pushFile (st : StateOf S N A) (subs : List (A × Option (Nat × Nat)))
+theorem isOpen_pushFile (st : StateOf S N A) (dead : List Nat)
+    (subs : List (A × Option (Nat × Nat)))
     (reads : List (Nat × Option Nat)) (c : Cursor) (s : Nat) :
-    IsOpen subs s ↔ IsOpen (pushFile st 0 reads c subs).1 s := by
+    IsOpen subs s ↔ IsOpen (pushFile st dead 0 reads c subs).1 s := by
   unfold IsOpen
   rw [pushFile_getElem?]
   cases subs[s]? with
@@ -340,25 +402,26 @@ theorem isOpen_pushFile (st : StateOf S N A) (subs : List (A × Option (Nat × N
 
 /-- Filing keeps the fit of a push. -/
 theorem PushFits.file {subs : List (A × Option (Nat × Nat))} {reads : List (Nat × Option Nat)}
-    {c : Cursor} (h : PushFits subs reads c) (st : StateOf S N A)
+    {dead : List Nat} {c : Cursor} (h : PushFits subs dead reads c) (st : StateOf S N A)
     (hle : ∀ e ∈ subs, ∀ t, e.2 = some t → t.2 ≤ (st.pathsAt t.1).length) :
-    PushFits (pushFile st 0 reads c subs).1 (pushFile st 0 reads c subs).2.1
-      (pushFile st 0 reads c subs).2.2 := by
+    PushFits (pushFile st dead 0 reads c subs).1 dead (pushFile st dead 0 reads c subs).2.1
+      (pushFile st dead 0 reads c subs).2.2 := by
   refine ⟨by rw [pushFile_pa, pushFile_length]; exact h.1, ?_⟩
   rw [pushFile_length]
-  have := Filed.push (n := subs.length) (o := IsOpen subs) st subs [] reads c
+  have := Filed.push (n := subs.length) (o := IsOpen subs) st dead subs [] reads c
     (by simpa using h.2) hle
-  exact Filed.congr (by simpa using this) (isOpen_pushFile st subs reads c) rfl
+  exact Filed.congr (by simpa using this) (isOpen_pushFile st dead subs reads c) rfl
 
 /-- The unit a push takes: it opens an answer seen that is not opened, or
 combines an answer of an opened table; and it was not taken before. -/
 theorem PushFits.next {subs : List (A × Option (Nat × Nat))} {reads : List (Nat × Option Nat)}
-    {c : Cursor} (h : PushFits subs reads c) {p : Nat × Nat} (hp : c.next = some p) :
-    ¬ c.Before p.1 p.2 ∧
+    {dead : List Nat} {c : Cursor} (h : PushFits subs dead reads c) {p : Nat × Nat}
+    (hp : c.next = some p) :
+    ¬ c.Before p.1 p.2 ∧ p.1 ∉ dead ∧
       ((∃ x, subs[p.1]? = some (x, none) ∧ reads[p.2]? = some (p.1, none)) ∨
         ∃ x t r, subs[p.1]? = some (x, some t) ∧ reads[p.2]? = some (p.1, some r) ∧ r < t.2) := by
-  obtain ⟨⟨r, hr⟩, hn⟩ := (h.2.todo p).1 (Cursor.next_todo hp)
-  refine ⟨hn, ?_⟩
+  obtain ⟨⟨r, hr⟩, hn, hlive⟩ := (h.2.todo p).1 (Cursor.next_todo hp)
+  refine ⟨hn, hlive, ?_⟩
   cases r with
   | none =>
     have hlt := h.2.seen _ _ hr
@@ -377,26 +440,27 @@ theorem PushFits.next {subs : List (A × Option (Nat × Nat))} {reads : List (Na
       · rw [he] at hlt
         exact .inr ⟨x, t, r, rfl, hr, hlt⟩
 
-theorem Filed.mark_todo {n : Nat} {o : Nat → Prop} {cnt : Nat → Nat}
-    {reads : List (Nat × Option Nat)} {c : Cursor} (h : Filed n o cnt reads c) (p : Nat × Nat)
+theorem Filed.mark_todo {n : Nat} {o : Nat → Prop} {cnt : Nat → Nat} {dd : Nat → Prop}
+    {reads : List (Nat × Option Nat)} {c : Cursor} (h : Filed n o cnt dd reads c) (p : Nat × Nat)
     (t : Nat) (x : Nat × Nat) :
     x ∈ (c.mark p t).todo ↔
-      (∃ r : Option Nat, reads[x.2]? = some (x.1, r)) ∧ x ∉ (c.mark p t).done := by
+      (∃ r : Option Nat, reads[x.2]? = some (x.1, r)) ∧ x ∉ (c.mark p t).done ∧ ¬ dd x.1 := by
   simp only [Cursor.mark, List.mem_filter, List.mem_cons, bne_iff_ne, ne_eq, not_or]
   rw [h.todo x]
   constructor
-  · rintro ⟨⟨hf, hd⟩, hne⟩
-    exact ⟨hf, hne, hd⟩
-  · rintro ⟨hf, hne, hd⟩
-    exact ⟨⟨hf, hd⟩, hne⟩
+  · rintro ⟨⟨hf, hd, hl⟩, hne⟩
+    exact ⟨hf, ⟨hne, hd⟩, hl⟩
+  · rintro ⟨hf, ⟨hne, hd⟩, hl⟩
+    exact ⟨⟨hf, hd, hl⟩, hne⟩
 
 /-- Marking a unit that combines keeps the fit. -/
 theorem PushFits.markRead {subs : List (A × Option (Nat × Nat))}
-    {reads : List (Nat × Option Nat)} {c : Cursor} (h : PushFits subs reads c) {p : Nat × Nat}
+    {reads : List (Nat × Option Nat)} {dead : List Nat} {c : Cursor}
+    (h : PushFits subs dead reads c) {p : Nat × Nat}
     {r : Nat} (hr : reads[p.2]? = some (p.1, some r)) (t : Nat) :
-    PushFits subs reads (c.mark p t) := by
-  refine ⟨h.1, ⟨h.2.pb, h.2.filed, h.2.all, h.2.seen, h.2.opens, h.2.once, fun q s hq => ?_,
-    fun x hx => ?_, h.2.mark_todo p t⟩⟩
+    PushFits subs dead reads (c.mark p t) := by
+  refine ⟨h.1, ⟨h.2.pb, h.2.filed, h.2.all, h.2.seen, h.2.opens, h.2.once, h.2.onceR,
+    fun q s hq => ?_, fun x hx => ?_, h.2.mark_todo p t⟩⟩
   · rw [← h.2.isOpen q s hq]
     simp only [Cursor.mark, List.mem_cons]
     constructor
@@ -439,14 +503,16 @@ theorem isOpen_set_open (subs : List (A × Option (Nat × Nat))) {s : Nat} {x : 
 /-- Marking the unit that opens an answer, with the table opened for it,
 keeps the fit. -/
 theorem PushFits.markOpen {subs : List (A × Option (Nat × Nat))}
-    {reads : List (Nat × Option Nat)} {c : Cursor} (h : PushFits subs reads c) {p : Nat × Nat}
+    {reads : List (Nat × Option Nat)} {dead : List Nat} {c : Cursor}
+    (h : PushFits subs dead reads c) {p : Nat × Nat}
     {x : A} (hs : subs[p.1]? = some (x, none)) (hr : reads[p.2]? = some (p.1, none))
     (j t : Nat) :
-    PushFits (subs.set p.1 (x, some (j, 0))) reads (c.mark p t) := by
+    PushFits (subs.set p.1 (x, some (j, 0))) dead reads (c.mark p t) := by
   refine ⟨by rw [List.length_set]; exact h.1, ?_⟩
   rw [List.length_set, cntOf_set_open subs hs j]
   refine Filed.congr (o := fun s => IsOpen subs s ∨ s = p.1) ⟨h.2.pb, h.2.filed, h.2.all,
-    h.2.seen, h.2.opens, h.2.once, fun q s hq => ?_, fun y hy => ?_, h.2.mark_todo p t⟩
+    h.2.seen, h.2.opens, h.2.once, h.2.onceR, fun q s hq => ?_, fun y hy => ?_,
+    h.2.mark_todo p t⟩
     (isOpen_set_open subs hs j) rfl
   · simp only [Cursor.mark, List.mem_cons]
     constructor
@@ -462,21 +528,21 @@ theorem PushFits.markOpen {subs : List (A × Option (Nat × Nat))}
     · exact ⟨_, hr⟩
     · exact h.2.done y hy
 
-/-- When no unit is left, every answer seen is opened and every answer filed
-is combined. -/
+/-- When no unit is left, every answer seen that is not superseded is opened,
+and every answer filed for one is combined. -/
 theorem PushFits.done_of_todo {subs : List (A × Option (Nat × Nat))}
-    {reads : List (Nat × Option Nat)} {c : Cursor} (h : PushFits subs reads c)
-    (ht : c.todo = []) :
-    (∀ s, s < subs.length → IsOpen subs s) ∧
-      ∀ q s r, reads[q]? = some (s, r) → c.Before s q := by
-  have key : ∀ q s r, reads[q]? = some (s, r) → c.Before s q := by
-    intro q s r hq
+    {reads : List (Nat × Option Nat)} {dead : List Nat} {c : Cursor}
+    (h : PushFits subs dead reads c) (ht : c.todo = []) :
+    (∀ s, s < subs.length → s ∉ dead → IsOpen subs s) ∧
+      ∀ q s r, reads[q]? = some (s, r) → s ∉ dead → c.Before s q := by
+  have key : ∀ q s r, reads[q]? = some (s, r) → s ∉ dead → c.Before s q := by
+    intro q s r hq hl
     by_contra hn
-    have : (s, q) ∈ c.todo := (h.2.todo (s, q)).2 ⟨⟨r, hq⟩, hn⟩
+    have : (s, q) ∈ c.todo := (h.2.todo (s, q)).2 ⟨⟨r, hq⟩, hn, hl⟩
     rw [ht] at this
     cases this
-  refine ⟨fun s hs => ?_, key⟩
+  refine ⟨fun s hs hl => ?_, key⟩
   obtain ⟨q, hq⟩ := h.2.opens s hs
-  exact (h.2.isOpen q s hq).1 (key q s none hq)
+  exact (h.2.isOpen q s hq).1 (key q s none hq hl)
 
 end RwLog.Symmetric

@@ -151,7 +151,7 @@ def Strat.kind : Strat N A → Strat N A
   | .span _ => .span false
   | .copy c _ => .copy c []
   | .join k a b _ => .join k a b Cursor.start
-  | .push k l side o _ _ _ => .push k l side o [] [] Cursor.start
+  | .push k l side o _ _ _ => .push k l side o [] [] [] Cursor.start
   | .check l side o _ => .check l side o .reading
 
 /-- The strategies of a group, without their cursors. -/
@@ -174,8 +174,8 @@ theorem kind_join {s : Strat N A} {k : Kind} {a b : Nat} (h : s.kind = .join k a
   exact ⟨_, rfl⟩
 
 theorem kind_push {s : Strat N A} {k : Kind} {l : Bool} {side : Nat} {o : N}
-    (h : s.kind = .push k l side o [] [] Cursor.start) :
-    ∃ subs reads c, s = .push k l side o subs reads c := by
+    (h : s.kind = .push k l side o [] [] [] Cursor.start) :
+    ∃ subs reads c, s = .push k l side o subs dead reads c := by
   cases s <;> simp only [Strat.kind, reduceCtorEq, Strat.push.injEq] at h
   obtain ⟨rfl, rfl, rfl, rfl, -⟩ := h
   exact ⟨_, _, _, rfl⟩
@@ -278,7 +278,7 @@ def Prog (st : StateOf R Rel (Ans D P)) (i : Nat) (g : GoalOf R Rel) :
       c.Ok (st.answers a).length (st.answers b).length ∧
       ∀ p q x y, c.Before p q → (st.answers a)[p]? = some x → (st.answers b)[q]? = some y →
         ∀ z, opS D k x.span y.span = some z → CovS st i z
-  | .push k left side other subs reads c => ∃ L Rg, SplitAt g k L Rg ∧
+  | .push k left side other subs dead reads c => ∃ L Rg, SplitAt g k L Rg ∧
       goalAt st side = some (if left then L else Rg) ∧
       other = (if left then Rg.node else L.node) ∧
       subs.map (·.1) = (st.answers side).take subs.length ∧
@@ -326,7 +326,7 @@ theorem Prog.mono {st st' : StateOf R Rel (Ans D P)} (h : Stable st st') {i : Na
       fun p q x y hb hx hy z hz => ?_⟩
     have hp := h4.before_lt hb
     exact (h5 p q x y hb (h.getElem?_old hx hp.1) (h.getElem?_old hy hp.2) z hz).mono h
-  | push k left side other subs reads c =>
+  | push k left side other subs dead reads c =>
     dsimp only [Prog] at hs ⊢
     obtain ⟨L, Rg, h1, h2, h3, h4, h5, h6, h7⟩ := hs
     refine ⟨L, Rg, h1, hE _ _ h2, h3, ?_, fun e he t ht => ?_, h6,
@@ -413,8 +413,8 @@ structure Full (st : StateOf R Rel (Ans D P)) (g : GoalOf R Rel)
     (c = false → ∃ xs, g.node.view = .union xs) → ∃ gr ∈ gs, .copy c [] ∈ gr.kinds
   split : ∀ k L Rg, SplitAt g k L Rg → ∃ gr ∈ gs, ∃ a b, goalAt st a = some L ∧
     goalAt st b = some Rg ∧ .join k a b Cursor.start ∈ gr.kinds ∧
-    .push k true a Rg.node [] [] Cursor.start ∈ gr.kinds ∧
-      .push k false b L.node [] [] Cursor.start ∈ gr.kinds
+    .push k true a Rg.node [] [] [] Cursor.start ∈ gr.kinds ∧
+      .push k false b L.node [] [] [] Cursor.start ∈ gr.kinds
   check : ∀ L Rg, SplitAt g .seq L Rg → ∀ left : Bool,
     CheckGone st g left (if left then L.node else Rg.node) (if left then Rg.node else L.node) ∨
       ∃ gr ∈ gs, .check left (if left then L.node else Rg.node)
@@ -488,8 +488,8 @@ theorem Full.of_view {st : StateOf R Rel (Ans D P)} {g : GoalOf R Rel}
     (hunion : ∀ xs, V = .union xs → ∃ gr ∈ gs, .copy false [] ∈ gr.kinds)
     (hsplit : ∀ k L Rg, SplitAt g k L Rg → ∃ gr ∈ gs, ∃ a b, goalAt st a = some L ∧
       goalAt st b = some Rg ∧ .join k a b Cursor.start ∈ gr.kinds ∧
-      .push k true a Rg.node [] [] Cursor.start ∈ gr.kinds ∧
-      .push k false b L.node [] [] Cursor.start ∈ gr.kinds)
+      .push k true a Rg.node [] [] [] Cursor.start ∈ gr.kinds ∧
+      .push k false b L.node [] [] [] Cursor.start ∈ gr.kinds)
     (hcheck : ∀ L Rg, SplitAt g .seq L Rg → ∀ left : Bool,
       CheckGone st g left (if left then L.node else Rg.node)
           (if left then Rg.node else L.node) ∨
@@ -1026,7 +1026,7 @@ have gained. -/
 theorem prog_push_file {st : StateOf R Rel (Ans D P)} (i : Nat) (g : GoalOf R Rel) (k : Kind)
     (left : Bool) (side : Nat) (other : Rel) (subs : List (Ans D P × Option (Nat × Nat)))
     (reads : List (Nat × Option Nat)) (c : Cursor)
-    (hs : Prog st i g (.push k left side other subs reads c)) :
+    (hs : Prog st i g (.push k left side other subs dead reads c)) :
     Prog st i g (.push k left side other
       (pushFile st 0
         (seeSide (((st.answers side).zip (st.pathsAt side)).drop subs.length) subs reads c).2.1
@@ -1139,11 +1139,11 @@ theorem prog_work_push (hL : D.Lawful P.sorts.interp) {st : StateOf R Rel (Ans D
     (hI : Inv st) (i : Nat) (g : GoalOf R Rel) (k : Kind) (left : Bool)
     (side : Nat) (other : Rel) (subs : List (Ans D P × Option (Nat × Nat)))
     (reads : List (Nat × Option Nat)) (c : Cursor) (ho : Open st i)
-    (hs : Prog st i g (.push k left side other subs reads c)) :
+    (hs : Prog st i g (.push k left side other subs dead reads c)) :
     Prog (work (K := DerivationKernel.over D K hK P) i g st
-        (.push k left side other subs reads c)).val.1 i g
+        (.push k left side other subs dead reads c)).val.1 i g
       (work (K := DerivationKernel.over D K hK P) i g st
-        (.push k left side other subs reads c)).val.2.1 := by
+        (.push k left side other subs dead reads c)).val.2.1 := by
   have hP := prog_push_file i g k left side other subs reads c hs
   have hpo := fun xs => pushOpen_spec (K := K) (hK := hK) (P := P) g other k left st xs
   have hpi := fun xs =>
@@ -1315,7 +1315,7 @@ theorem prog_work (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK)
   | span ran => exact prog_work_span hL i g ran ho hb hs
   | copy isCall subs => exact prog_work_copy hL hI i g isCall subs ho hs
   | join k a b c => exact prog_work_join hL hI i g k a b c ho hs
-  | push k left side other subs reads c =>
+  | push k left side other subs dead reads c =>
     exact prog_work_push hL hI i g k left side other subs reads c ho hs
   | check left side other c => exact prog_work_check hR hE i g left side other c hs
 

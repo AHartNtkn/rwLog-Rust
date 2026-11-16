@@ -416,7 +416,7 @@ theorem Cert.waits_quiet (hC : Cert U C ρ A) (hτ : IsRun U τ)
     rw [← hother] at hsub
     obtain ⟨gr', hgr', a', b', hga', hgb', -, hxl, hxr⟩ := hfull.split kd Lg Rg hsp
     obtain ⟨side', hgside', hx⟩ : ∃ side', goalAt (τ r0) side' = some (if left then Lg else Rg) ∧
-        Strat.push kd left side' other [] [] Cursor.start ∈ gr'.kinds := by
+        Strat.push kd left side' other [] [] [] Cursor.start ∈ gr'.kinds := by
       subst hother
       cases left
       · exact ⟨b', by simpa using hgb', by simpa using hxr⟩

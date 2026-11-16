@@ -126,7 +126,7 @@ def StratOk (st : StateOf R Rel (Ans D P)) (g : GoalOf R Rel) : Strat Rel (Ans D
   | .span _ => True
   | .copy _ subs => ∀ p ∈ subs.map Prod.fst, ∃ h, goalAt st p = some h ∧ h.lb = g.lb ∧ h.rb = g.rb
   | .join k a b _ => ∃ ga gb, goalAt st a = some ga ∧ goalAt st b = some gb ∧ SplitOk g ga gb k
-  | .push k left side other subs _ _ =>
+  | .push k left side other subs _ _ _ =>
     ∃ gs, goalAt st side = some gs ∧ PushOk g gs other k left ∧ Normal other ∧
       ∀ e ∈ subs, GoalIs gs e.1 ∧
         ∀ t, e.2 = some t → goalAt st t.1 = some (pushG D g other k left e.1)
@@ -144,7 +144,7 @@ theorem StratOk.mono {st st' : StateOf R Rel (Ans D P)} (h : Ext st st') {g : Go
   | join k a b _ =>
     obtain ⟨ga, gb, ha, hb, hk⟩ := hs
     exact ⟨ga, gb, h _ _ ha, h _ _ hb, hk⟩
-  | push k left side other subs reads c =>
+  | push k left side other subs dead reads c =>
     obtain ⟨gs, h1, h2, h3, h5⟩ := hs
     exact ⟨gs, h _ _ h1, h2, h3, fun e he => ⟨(h5 e he).1, fun t ht => h _ _ ((h5 e he).2 t ht)⟩⟩
   | check _ _ _ _ => exact hs
@@ -815,15 +815,16 @@ theorem inv_work_aux {st : StateOf R Rel (Ans D P)} (hI : Inv st) (i : Nat)
     · simp only [Cost.bind_val, Cost.pure_val, Kernel.metered, Cost.metered_val]
       exact ⟨(inv_joinPairs hI i k _ _ _ hg (hI.answers ha) (hI.answers hb) hk).modify_same i _
         (fun _ => rfl) (fun _ => rfl), fun hE => (hs' _).mono hE⟩
-  | push k left side other subs reads c =>
+  | push k left side other subs dead reads c =>
     obtain ⟨gs, h1, hk, hno, hsubs⟩ := hs
-    simp only [work]
+    simp only [work, Cost.bind_val]
+    generalize (supersede (K := DerivationKernel.over D _ hK P) _ _ dead).val = dead'
     have hss := seeSide_subs (((st.answers side).zip (st.pathsAt side)).drop subs.length) subs
       reads c
     generalize seeSide (((st.answers side).zip (st.pathsAt side)).drop subs.length) subs
       reads c = f0 at hss ⊢
-    have hfe := pushFile_getElem? st f0.1 0 f0.2.1 f0.2.2
-    generalize pushFile st 0 f0.2.1 f0.2.2 f0.1 = f at hfe ⊢
+    have hfe := pushFile_getElem? st dead' f0.1 0 f0.2.1 (f0.2.2.kill dead')
+    generalize pushFile st dead' 0 f0.2.1 (f0.2.2.kill dead') f0.1 = f at hfe ⊢
     have hf : ∀ e ∈ f.1, GoalIs gs e.1 ∧
         ∀ t, e.2 = some t → goalAt st t.1 = some (pushG D g other k left e.1) := by
       intro e he
@@ -845,7 +846,7 @@ theorem inv_work_aux {st : StateOf R Rel (Ans D P)} (hI : Inv st) (i : Nat)
         · obtain ⟨y, hy, rfl⟩ := List.mem_map.1 hm
           refine ⟨hI.answers h1 _ (List.of_mem_zip (List.mem_of_mem_drop hy)).1, fun t ht => ?_⟩
           cases ht
-    have hok : ∀ c', StratOk st g (.push k left side other f.1 f.2.1 c') := fun _ =>
+    have hok : ∀ c', StratOk st g (.push k left side other f.1 dead' f.2.1 c') := fun _ =>
       ⟨gs, h1, hk, hno, hf⟩
     split
     · exact ⟨hI, fun _ => hok _⟩
