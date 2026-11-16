@@ -2917,7 +2917,7 @@ theorem feedOne_le (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R Re
     split
     · simp only [Cost.pure_val]
       exact Nat.le_refl _
-    · simp only [Cost.bind_val, Cost.pure_val, Kernel.metered, Cost.metered_val]
+    · simp only [Cost.bind_val, Cost.pure_val]
       exact hT _
 
 theorem feedLeast_le (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R Rel (Ans D P) × Nat))

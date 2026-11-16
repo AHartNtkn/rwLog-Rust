@@ -551,7 +551,7 @@ theorem feedOne_keeps (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R
     split
     · simp only [Cost.pure_val]
       exact h
-    · simp only [Cost.bind_val, Cost.pure_val, Kernel.metered, Cost.metered_val]
+    · simp only [Cost.bind_val, Cost.pure_val]
       exact hT _
 
 theorem feedLeast_keeps (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R Rel (Ans D P) × Nat))
@@ -663,7 +663,7 @@ theorem feedOne_core (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R 
     split
     · simp only [Cost.pure_val]
     · next s hs =>
-      simp only [Cost.bind_val, Cost.pure_val, Kernel.metered, Cost.metered_val, List.map_set, hT]
+      simp only [Cost.bind_val, Cost.pure_val, List.map_set, hT]
       refine List.ext_getElem? fun n => ?_
       by_cases hn : j = n
       · subst hn

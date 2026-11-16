@@ -224,7 +224,7 @@ theorem feedOne_fits (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R 
     · simp only [Cost.pure_val]
       exact h
     · next s hs =>
-      simp only [Cost.bind_val, Cost.pure_val, Kernel.metered, Cost.metered_val]
+      simp only [Cost.bind_val, Cost.pure_val]
       intro s' hs'
       rcases List.mem_or_eq_of_mem_set hs' with hm | rfl
       · exact h _ hm
