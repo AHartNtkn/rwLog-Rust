@@ -44,6 +44,22 @@ end
 
 variable {σ ι : Type}
 
+/-- What every spending keeps, an offer keeps. -/
+theorem offer_inv (spend : ι → σ → Cost (σ × Nat)) (J : σ → Prop)
+    (hJ : ∀ x s, J s → J (spend x s).val.1) :
+    ∀ (l : List ι) (s : σ), J s → J (offer spend s l).val.1
+  | [], s, h => by
+    simp only [offer, Cost.pure_val]
+    exact h
+  | x :: rest, s, h => by
+    have ih := offer_inv spend J hJ rest (spend x s).val.1 (hJ x s h)
+    simp only [offer, Cost.bind_val]
+    by_cases hc : 0 < (spend x s).val.2
+    · simp only [hc, ↓reduceIte, Cost.pure_val]
+      exact hJ x s h
+    · simp only [hc, ↓reduceIte]
+      exact ih
+
 /-- **The law of sharing.** `I` is what every state has, and `R` relates a
 state to every later one. `Passed x s` says that `x` wanted nothing in the
 state `s`, and stays true later; `Took x s s'` says that `x` took ticks
