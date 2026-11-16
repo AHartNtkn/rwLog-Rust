@@ -317,6 +317,20 @@ Where every level of a recursion has members that never finish (`fairOr`), the l
 
 *Not done here.* The weight of a push still counts every goal it opened (`Strat.feeds`), and the law is not proved for the engine (L36).
 
+**Revision, 2026-11-16 (fifteenth): every group shares ticks, never rounds. Decided, not yet built.** Fair OR is to be how a budget is divided, not a property looked for afterwards.
+
+*What is wrong now.* A union gives one member a round each time it works, the member fed least in ticks. Every other group gives a round to each table it reads, a turn to each of its strategies and a round to one opened goal of each push, every time it works. So beside a union with a cheap member that never finishes the requests multiply, and whatever shares a group with that union is paid for in every one of them. On the Python prototype, with a tick charged per round as here, the whole over the alternative alone grows 2.9, 3.1, 3.5, 4.5 on a family built on this, at factor 2 (`fairness/joins-design.md`, `exp64.py`). Nothing is proved about the Lean engine either way.
+
+*The rule.* A group keeps one ledger, in ticks, of what it has spent on each thing it spends on: each table it reads, the goals each of its pushes opened taken together, and its strategies' own turns. Each time it works it spends on one of them, the one the ledger shows least for, and passes over those that cost nothing (complete, or already served in this request). Inside a push the opened goals share by the feed cursor as now; inside a join the pairs share by the cursor as now. A union is the case of a group whose things are its members, and is unchanged.
+
+*What this gives by construction.* For every group, the amounts spent on any two of its things that can still use ticks differ by at most what one spending costs. Replacing a table by a union that has it as a member then divides that table's share by the number of members and changes no other share. That is the statement of fair OR one level at a time, and it is the invariant to be proved for the machine, in this ledger form, before the law itself.
+
+*What it costs.* Where both sides of a join never finish, and are different goals at every level of a nesting, the shares multiply: on the prototype the answer at depth `d` of `r_j = up_j ; r_(j-1)` costs about `2^d`, where a round to each side is polynomial (research billboard, FR3). The bound against R005 is no longer a target (Anthony, 2026-11-16), and no property asks for better here.
+
+*What has to be redone.* `feedGroup` and `workGroup` in `Machine.lean`; the records of a round in `Turns.lean` (a group that worked has fed one thing, as a union has); that every table a strategy reads still has rounds for ever (`Lines.lean`, `Settle.lean`, by the argument now used for the members of a union); and what rests on those (`Fair.lean`, `Transfer.lean`, `EmptySide.lean`, `Served.lean`). The levels and the weights stay as they are.
+
+*Not settled.* Whether the law follows from the ledgers alone. A side that is ahead of where it would be in the run on the alternative brings pairs the alternative's run did not have, and the cursor may take them before the pair wanted.
+
 ### What a step is
 
 A step is one request to the root and emits the answers the root table gained, usually none. Two writings of one input give the same sequence of steps, so the trace properties hold with equality and not only up to `TraceEquiv`.
