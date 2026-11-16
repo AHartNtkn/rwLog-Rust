@@ -92,15 +92,16 @@ Rungs/Symmetric/ the symmetric engine of `SYMMETRIC_ENGINE.md` (Machine.lean): a
                 complete with no answer when the other side fails under every interface
                 one side can show, read from the program) is a strategy of its own; the
                 invariant and the mirror criterion cover it. Towards completeness:
-                the cursor of a join visits every pair once (Cursor.lean,
+                the cursor of a join combines a pair once (Cursor.lean,
                 `Cursor.next_spec`); what the cursors of every strategy mean (Progress.lean,
                 `Prog`: the table covers what its rule makes of everything a cursor has
                 passed) holds of the strategies made for a goal and is kept by a whole
                 request, with the goals of the tables distinct and good (Kept.lean,
                 `Good`, `good_request`); and the interfaces read from the program are
                 right about it (Edge.lean, `readOk`). Towards fairness: the cursor of
-                a join reaches every pair that is there, by a rank that falls
-                (Cursor.lean, `Cursor.next_rank`, `rankLt_wf`); and the record of a
+                a join shares its ticks among its pairs by the unions their answers came
+                from and still reaches every pair it has filed, by a measure that falls
+                (Cursor.lean, `Cursor.rank_fall`, `rankLt_wf`); and the record of a
                 request (Turns.lean, `Req`, `req_request`), which takes what a race means
                 as a parameter (`RaceSem`, for the engine `raceSem`): a table completes by
                 a strategy with nothing left to do or by a final verdict of its race
@@ -151,7 +152,7 @@ Rungs/Symmetric/ the symmetric engine of `SYMMETRIC_ENGINE.md` (Machine.lean): a
                 (`Prog`); the groups of a goal have a strategy for every way to answer it
                 (Progress.lean, `Full`, kept by a request in `Good`); a join that has
                 combined every pair has nothing left to combine (`SStep.join`,
-                `Cursor.next_step`); a group that works for ever runs out of work once the
+                `Cursor.Ok.pending_false`); a group that works for ever runs out of work once the
                 tables it reads gain no more answers (Settle.lean, `Line.copy_read`,
                 `Line.join_done`, `Line.push_read`, `Line.check_read`); and a goal whose
                 table is complete in one run of requests has a complete table in every run

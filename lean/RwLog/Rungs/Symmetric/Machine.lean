@@ -42,10 +42,22 @@ group with a *level*.
 
 A strategy keeps cursors into the tables it reads, so it combines nothing
 twice. It takes its units in an order that
-reaches everything, however fast the tables it reads grow: a join finishes
-the pairs of one answer before it begins another and begins on the side it
-has counted fewer answers of, and a strategy that reads several tables reads
-next the one it has read least.
+reaches everything, however fast the tables it reads grow: a strategy that
+reads several tables reads next the one it has read least, and a join shares
+its ticks among its pairs by where their answers came from.
+
+An answer has a *path*: for each union on the way to it, the member chosen
+and the number of members (`Table.paths`). A union puts its choice before the
+path of the answer it copies, a call keeps the path, and a join puts the
+paths of its two answers one after the other. A join files the answers of
+its tables by their paths (`Cursor.see`). The pairs whose answers came from
+the same choices so far are a *class*, and the join shares its ticks among
+the classes of one choice as a union shares its ticks among its members: the
+class fed least that has a pair left is served, and so on down to a single
+class, where the pair of the earliest answers is taken (`Cursor.next`). So a
+pair waits for the pairs of other choices by the number of members at each
+choice on the way to it, and not by how many answers the other members
+have.
 
 ## A request
 
