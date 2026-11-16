@@ -130,7 +130,7 @@ theorem IsRun.done_of_side (hτ : IsRun U τ) {r k : Nat} {g Lg Rg sg : GoalOf R
     obtain rfl : subs2 = [] := List.length_eq_zero_iff.1 hlen
     obtain ⟨t', gs, gr, ht', hg, hgr, hs⟩ :=
       hLn.mem (T1 + 1) (by omega) _ (List.mem_of_getElem? hs2)
-    refine ⟨t', ht', gs, hg, gr, hgr, _, hs, ?_, fun _ _ _ _ _ _ e => ?_⟩
+    refine ⟨t', ht', gs, hg, gr, hgr, _, hs, ?_, fun _ _ _ _ _ _ _ _ e => ?_⟩
     · simp [Strat.quiet, Strat.pending, hdn (T1 + 1) (by omega)]
     · cases e
       exact hdn T1 (by omega)) k (List.mem_singleton.2 rfl)

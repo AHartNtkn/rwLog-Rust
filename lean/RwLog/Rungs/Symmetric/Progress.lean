@@ -1062,6 +1062,12 @@ theorem supersede_cons (y : Ans D P) (rest seen : List (Ans D P)) (dead : List N
   funext e
   simp [hc]
 
+/-- With no answer more to see, the answers superseded are the same. -/
+theorem supersede_nil (seen : List (Ans D P)) (dead : List Nat) :
+    (supersede (K := DerivationKernel.over D K hK P) [] seen dead).val = dead := by
+  at_cost K hK
+  rfl
+
 /-- **The answers superseded are those a later answer seen covers**, once
 the answers the side has gained are seen. -/
 theorem supersede_ok : ∀ (new seen : List (Ans D P)) (dead : List Nat),

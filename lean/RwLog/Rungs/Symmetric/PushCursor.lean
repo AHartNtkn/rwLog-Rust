@@ -545,4 +545,73 @@ theorem PushFits.done_of_todo {subs : List (A × Option (Nat × Nat))}
   obtain ⟨q, hq⟩ := h.2.opens s hs
   exact (h.2.isOpen q s hq).1 (key q s none hq hl)
 
+/-! ## Filing leaves the units there were -/
+
+/-- The cursor `c'` is the cursor `c` with more filed: the units to take are
+still to take, and each unit that was filed is as far from its turn. -/
+def Cursor.Grows (c c' : Cursor) : Prop :=
+  (∀ x ∈ c.todo, x ∈ c'.todo) ∧ c.pa.length ≤ c'.pa.length ∧ c.pb.length ≤ c'.pb.length ∧
+    ∀ p q, p < c.pa.length → q < c.pb.length → c'.rank p q = c.rank p q
+
+theorem Cursor.Grows.refl (c : Cursor) : c.Grows c :=
+  ⟨fun _ h => h, Nat.le_refl _, Nat.le_refl _, fun _ _ _ _ => rfl⟩
+
+theorem Cursor.Grows.trans {a b c : Cursor} (h₁ : a.Grows b) (h₂ : b.Grows c) : a.Grows c :=
+  ⟨fun x h => h₂.1 x (h₁.1 x h), h₁.2.1.trans h₂.2.1, h₁.2.2.1.trans h₂.2.2.1,
+    fun p q hp hq => (h₂.2.2.2 p q (Nat.lt_of_lt_of_le hp h₁.2.1)
+      (Nat.lt_of_lt_of_le hq h₁.2.2.1)).trans (h₁.2.2.2 p q hp hq)⟩
+
+theorem Cursor.grows_opened (pth : Path) (c : Cursor) : c.Grows (c.opened pth) :=
+  ⟨fun _ h => h, by simp [Cursor.opened], Nat.le_refl _,
+    fun _ _ hp _ => Cursor.rank_opened pth c hp⟩
+
+theorem Cursor.grows_read (s : Nat) (pth : Path) (c : Cursor) : c.Grows (c.read s pth) :=
+  ⟨fun _ h => List.mem_append_left _ h, Nat.le_refl _, by simp [Cursor.read],
+    fun _ _ _ hq => Cursor.rank_read s pth c hq⟩
+
+theorem seeSide_grows : ∀ (new : List (A × Path)) (subs : List (A × Option (Nat × Nat)))
+    (reads : List (Nat × Option Nat)) (c : Cursor), c.Grows (seeSide new subs reads c).2.2
+  | [], _, _, c => Cursor.Grows.refl c
+  | x :: rest, subs, reads, c => by
+    rw [seeSide]
+    exact ((Cursor.grows_opened x.2 c).trans (Cursor.grows_read _ _ _)).trans
+      (seeSide_grows rest _ _ _)
+
+theorem fileReads_grows (s : Nat) : ∀ (pths : List Path) (n : Nat)
+    (reads : List (Nat × Option Nat)) (c : Cursor), c.Grows (fileReads s n reads c pths).2
+  | [], _, _, c => Cursor.Grows.refl c
+  | pth :: rest, n, reads, c => by
+    rw [fileReads]
+    exact (Cursor.grows_read s pth c).trans (fileReads_grows s rest _ _ _)
+
+theorem pushFile_grows (st : StateOf S N A) (dead : List Nat) :
+    ∀ (subs : List (A × Option (Nat × Nat))) (s : Nat) (reads : List (Nat × Option Nat))
+      (c : Cursor), c.Grows (pushFile st dead s reads c subs).2.2
+  | [], _, _, c => Cursor.Grows.refl c
+  | (x, none) :: rest, s, reads, c => by
+    simp only [pushFile]
+    exact pushFile_grows st dead rest _ _ _
+  | (x, some t) :: rest, s, reads, c => by
+    rw [pushFile]
+    split
+    · exact pushFile_grows st dead rest _ _ _
+    · exact (fileReads_grows _ _ _ _ _).trans (pushFile_grows st dead rest _ _ _)
+
+/-- A unit still to take was filed for an answer seen. -/
+theorem PushFits.todo_lt {subs : List (A × Option (Nat × Nat))}
+    {reads : List (Nat × Option Nat)} {dead : List Nat} {c : Cursor}
+    (h : PushFits subs dead reads c) {x : Nat × Nat} (hx : x ∈ c.todo) :
+    x.1 < c.pa.length ∧ x.2 < c.pb.length := by
+  obtain ⟨⟨r, hr⟩, -, -⟩ := (h.2.todo x).1 hx
+  rw [h.1, h.2.pb]
+  refine ⟨?_, lt_of_getElem? hr⟩
+  cases r with
+  | none => exact h.2.seen _ _ hr
+  | some r =>
+    have hlt := h.2.filed _ _ _ hr
+    unfold cntOf at hlt
+    cases he : subs[x.1]? with
+    | none => rw [he] at hlt; cases hlt
+    | some e => exact lt_of_getElem? he
+
 end RwLog.Symmetric

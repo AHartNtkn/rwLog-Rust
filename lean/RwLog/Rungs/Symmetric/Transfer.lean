@@ -307,7 +307,7 @@ theorem Cert.waits_quiet (hC : Cert U C ρ A) (hτ : IsRun U τ)
     (hk : Waits C ρ τ n k) :
     ∃ T, ∀ r1, T ≤ r1 → ∃ s, IsStrat τ k (r1 + 1) s ∧
       s.quiet (τ (r1 + 1)) (fun j => (τ (r1 + 1)).isDone j || X.contains j) = true ∧
-      ∀ kd l side o todo subs, s = .push kd l side o todo subs →
+      ∀ kd l side o subs dead reads c, s = .push kd l side o subs dead reads c →
         (τ r1).isDone side = true := by
   obtain ⟨g, r', hg, hn, hgk, hop, hnd⟩ := hk
   subst hn
@@ -340,7 +340,7 @@ theorem Cert.waits_quiet (hC : Cert U C ρ A) (hτ : IsRun U τ)
     obtain ⟨T, hT, hall⟩ := hLn.span_ran h0
     exact ⟨T, fun r1 hr1 => ⟨.span true, hLn.mem (r1 + 1) (by omega) _
       (List.mem_of_getElem? (hall (r1 + 1) (by omega))), by simp [Strat.quiet, Strat.pending],
-      fun _ _ _ _ _ _ e => by cases e⟩⟩
+      fun _ _ _ _ _ _ _ _ e => by cases e⟩⟩
   | copy c p0 p1 hsubs =>
     obtain ⟨gr', hgr', hx⟩ := hfull.copy c p0 p1
     obtain ⟨L, q, s0, hLn, h0, e⟩ := lk gr' hgr' _ hx
@@ -374,7 +374,7 @@ theorem Cert.waits_quiet (hC : Cert U C ρ A) (hτ : IsRun U τ)
     refine ⟨T', fun r1 hr1 => ?_⟩
     obtain ⟨subs1, hs1, hadv, hrd⟩ := hall (r1 + 1) (by omega)
     refine ⟨_, hLn.mem (r1 + 1) (by omega) _ (List.mem_of_getElem? hs1), ?_,
-      fun _ _ _ _ _ _ e => by cases e⟩
+      fun _ _ _ _ _ _ _ _ e => by cases e⟩
     simp only [Strat.quiet, Strat.pending, Bool.and_eq_true, Bool.not_eq_true',
       List.any_eq_false, List.all_eq_true, decide_eq_true_eq]
     refine ⟨fun p hp' => ?_, fun p hp' => ?_⟩
@@ -408,7 +408,7 @@ theorem Cert.waits_quiet (hC : Cert U C ρ A) (hτ : IsRun U τ)
     refine ⟨T', fun r1 hr1 => ?_⟩
     obtain ⟨c1, hs1, hpend⟩ := hall (r1 + 1) (by omega)
     refine ⟨_, hLn.mem (r1 + 1) (by omega) _ (List.mem_of_getElem? hs1), ?_,
-      fun _ _ _ _ _ _ e => by cases e⟩
+      fun _ _ _ _ _ _ _ _ e => by cases e⟩
     simp only [Strat.quiet, Strat.pending, Bool.and_eq_true, Bool.not_eq_true']
     exact ⟨hpend, (hTa (r1 + 1) (by omega)).2, (hTb (r1 + 1) (by omega)).2⟩
   | push kd Lg Rg left hsp hside hsub =>
@@ -461,7 +461,7 @@ theorem Cert.waits_quiet (hC : Cert U C ρ A) (hτ : IsRun U τ)
     refine ⟨T', fun r1 hr1 => ?_⟩
     obtain ⟨subs2, hs2, hadv, hlen, hrd⟩ := hall (r1 + 1) (by omega)
     refine ⟨_, hLn.mem (r1 + 1) (by omega) _ (List.mem_of_getElem? hs2), ?_,
-      fun _ _ _ _ _ _ e => ?_⟩
+      fun _ _ _ _ _ _ _ _ e => ?_⟩
     · have hdd := hdn (r1 + 1) (by omega)
       simp only [Strat.quiet, Strat.pending, hdd, Bool.true_and, Option.isSome_some,
         List.isEmpty_nil, Bool.not_true, Bool.false_or, Bool.and_eq_true, Bool.not_eq_true',
@@ -538,7 +538,7 @@ theorem Cert.waits_quiet (hC : Cert U C ρ A) (hτ : IsRun U τ)
         obtain ⟨T2, hT2⟩ := eventually_forall_mem subs1 _ each
         refine ⟨max T2 T, fun r1 hr1 => ⟨_, hLn.mem (r1 + 1) (by omega) _
           (List.mem_of_getElem? (hconst (r1 + 1) (by omega))), ?_,
-          fun _ _ _ _ _ _ e => by cases e⟩⟩
+          fun _ _ _ _ _ _ _ _ e => by cases e⟩⟩
         simp only [Strat.quiet, Strat.pending, Bool.not_false, Bool.true_and,
           List.all_eq_true, Bool.and_eq_true, List.isEmpty_iff]
         exact fun j' hj' => ⟨(hT2 j' hj' (r1 + 1) (by omega)).2, hempty j' hj' _⟩
@@ -560,7 +560,7 @@ theorem Cert.completes (hC : Cert U C ρ A) {g : GoalOf R Rel} (hg : C g) : Comp
       obtain ⟨T, hT⟩ := eventually_forall_mem X
         (fun k r1 => ∃ s, IsStrat τ k (r1 + 1) s ∧
           s.quiet (τ (r1 + 1)) (fun j => (τ (r1 + 1)).isDone j || X.contains j) = true ∧
-          ∀ kd l side o todo subs, s = .push kd l side o todo subs →
+          ∀ kd l side o subs dead reads c, s = .push kd l side o subs dead reads c →
             (τ r1).isDone side = true)
         (fun k hk' => hC.waits_quiet hL hτ hN
           (fun g hg hlt r' k hk ho => ih (ρ g) hlt g hg rfl r' k hk ho) hX
