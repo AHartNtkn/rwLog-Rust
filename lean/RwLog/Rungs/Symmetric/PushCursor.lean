@@ -3,16 +3,16 @@
 
 A push keeps, for each answer it has pushed, how many answers of the table
 opened for it are filed (`subs`), the answers filed (`reads`), and a cursor
-over the pairs of an answer pushed and an answer filed for it. `PushOk` says
+over the pairs of an answer pushed and an answer filed for it. `PushFits` says
 how the three fit: the reads are exactly the answers filed, each once for
 every position below the count of its table, and the pairs to combine are
 the reads not combined yet.
 
-* `PushOk.start`, `PushOk.opened`, `PushOk.file`, `PushOk.mark`: the fit is
+* `PushFits.start`, `PushFits.opened`, `PushFits.file`, `PushFits.mark`: the fit is
   kept by every unit of a push.
-* `PushOk.next`: the pair a push takes is a read of an answer pushed, not
+* `PushFits.next`: the pair a push takes is a read of an answer pushed, not
   combined before.
-* `PushOk.done_of_todo`: when no pair is left, every read is combined.
+* `PushFits.done_of_todo`: when no pair is left, every read is combined.
 -/
 import RwLog.Rungs.Symmetric.Cursor
 import RwLog.Rungs.Symmetric.PushFile
@@ -38,10 +38,10 @@ structure Filed (cnt : Nat → Nat) (reads : List (Nat × Nat)) (c : Cursor) : P
   todo : ∀ x, x ∈ c.todo ↔ (∃ r : Nat, reads[x.2]? = some (x.1, r)) ∧ x ∉ c.done
 
 /-- The answers pushed, the reads and the cursor of a push fit. -/
-def PushOk (subs : List (A × Nat × Nat)) (reads : List (Nat × Nat)) (c : Cursor) : Prop :=
+def PushFits (subs : List (A × Nat × Nat)) (reads : List (Nat × Nat)) (c : Cursor) : Prop :=
   c.pa.length = subs.length ∧ Filed (cntOf subs) reads c
 
-theorem PushOk.start : PushOk ([] : List (A × Nat × Nat)) [] Cursor.start := by
+theorem PushFits.start : PushFits ([] : List (A × Nat × Nat)) [] Cursor.start := by
   refine ⟨rfl, ⟨rfl, fun q s r h => ?_, fun s r h => ?_, fun x hx => ?_, fun x => ?_⟩⟩
   · simp at h
   · simp [cntOf] at h
@@ -59,9 +59,9 @@ theorem cntOf_append_zero (subs : List (A × Nat × Nat)) (x : A) (j : Nat) :
   · rw [List.getElem?_eq_none (by simp; omega), List.getElem?_eq_none (by omega)]
 
 /-- Pushing one more answer keeps the fit. -/
-theorem PushOk.opened {subs : List (A × Nat × Nat)} {reads : List (Nat × Nat)} {c : Cursor}
-    (h : PushOk subs reads c) (x : A) (j : Nat) (pth : Path) :
-    PushOk (subs ++ [(x, j, 0)]) reads (c.opened pth) := by
+theorem PushFits.opened {subs : List (A × Nat × Nat)} {reads : List (Nat × Nat)} {c : Cursor}
+    (h : PushFits subs reads c) (x : A) (j : Nat) (pth : Path) :
+    PushFits (subs ++ [(x, j, 0)]) reads (c.opened pth) := by
   refine ⟨by simp [Cursor.opened, h.1], ?_⟩
   rw [cntOf_append_zero]
   exact ⟨h.2.pb, h.2.filed, h.2.all, h.2.done, h.2.todo⟩
@@ -181,18 +181,18 @@ theorem Filed.push (st : StateOf S N A) : ∀ (rest pre : List (A × Nat × Nat)
     simpa [pushFile] using h2
 
 /-- Filing keeps the fit of a push. -/
-theorem PushOk.file {subs : List (A × Nat × Nat)} {reads : List (Nat × Nat)} {c : Cursor}
-    (h : PushOk subs reads c) (st : StateOf S N A)
+theorem PushFits.file {subs : List (A × Nat × Nat)} {reads : List (Nat × Nat)} {c : Cursor}
+    (h : PushFits subs reads c) (st : StateOf S N A)
     (hle : ∀ e ∈ subs, e.2.2 ≤ (st.pathsAt e.2.1).length) :
-    PushOk (pushFile st 0 reads c subs).1 (pushFile st 0 reads c subs).2.1
+    PushFits (pushFile st 0 reads c subs).1 (pushFile st 0 reads c subs).2.1
       (pushFile st 0 reads c subs).2.2 := by
   refine ⟨by rw [pushFile_pa, pushFile_length]; exact h.1, ?_⟩
   simpa using Filed.push st subs [] reads c (by simpa using h.2) hle
 
 /-- The pair a push takes: a read of an answer pushed, not combined
 before. -/
-theorem PushOk.next {subs : List (A × Nat × Nat)} {reads : List (Nat × Nat)} {c : Cursor}
-    (h : PushOk subs reads c) {p : Nat × Nat} (hp : c.next = some p) :
+theorem PushFits.next {subs : List (A × Nat × Nat)} {reads : List (Nat × Nat)} {c : Cursor}
+    (h : PushFits subs reads c) {p : Nat × Nat} (hp : c.next = some p) :
     ∃ e r, subs[p.1]? = some e ∧ reads[p.2]? = some (p.1, r) ∧ r < e.2.2 ∧
       ¬ c.Before p.1 p.2 := by
   obtain ⟨⟨r, hr⟩, hn⟩ := (h.2.todo p).1 (Cursor.next_todo hp)
@@ -203,9 +203,9 @@ theorem PushOk.next {subs : List (A × Nat × Nat)} {reads : List (Nat × Nat)} 
   | some e => rw [he] at hlt; exact ⟨e, r, rfl, hr, hlt, hn⟩
 
 /-- Marking the pair taken keeps the fit. -/
-theorem PushOk.mark {subs : List (A × Nat × Nat)} {reads : List (Nat × Nat)} {c : Cursor}
-    (h : PushOk subs reads c) {p : Nat × Nat} (hp : c.next = some p) (t : Nat) :
-    PushOk subs reads (c.mark p t) := by
+theorem PushFits.mark {subs : List (A × Nat × Nat)} {reads : List (Nat × Nat)} {c : Cursor}
+    (h : PushFits subs reads c) {p : Nat × Nat} (hp : c.next = some p) (t : Nat) :
+    PushFits subs reads (c.mark p t) := by
   have hm := (h.2.todo p).1 (Cursor.next_todo hp)
   refine ⟨h.1, ⟨h.2.pb, h.2.filed, h.2.all, fun x hx => ?_, fun x => ?_⟩⟩
   · simp only [Cursor.mark, List.mem_cons] at hx
@@ -221,8 +221,8 @@ theorem PushOk.mark {subs : List (A × Nat × Nat)} {reads : List (Nat × Nat)} 
       exact ⟨⟨hf, hd⟩, hne⟩
 
 /-- When no pair is left to combine, every read is combined. -/
-theorem PushOk.done_of_todo {subs : List (A × Nat × Nat)} {reads : List (Nat × Nat)}
-    {c : Cursor} (h : PushOk subs reads c) (ht : c.todo = []) {q s r : Nat}
+theorem PushFits.done_of_todo {subs : List (A × Nat × Nat)} {reads : List (Nat × Nat)}
+    {c : Cursor} (h : PushFits subs reads c) (ht : c.todo = []) {q s r : Nat}
     (hq : reads[q]? = some (s, r)) : c.Before s q := by
   by_contra hn
   have : (s, q) ∈ c.todo := (h.2.todo (s, q)).2 ⟨⟨r, hq⟩, hn⟩
