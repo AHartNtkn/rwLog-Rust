@@ -342,7 +342,7 @@ theorem IsRun.served_push (hL : D.Lawful P.sorts.interp) (h : IsRun U σ) {r k :
     {side : Nat} {other : Rel} {subs : List (Ans D P × Option (Nat × Nat))} {dead : List Nat}
     {reads : List (Nat × Option Nat)} {c : Cursor}
     (hk : goalAt (σ r) k = some g)
-    (hs : IsStrat σ k r (.push kd left side other subs dead reads c))
+    (hs : IsStrat σ k r (.push kd left side other subs (some dead) reads c))
     (hd : (σ r).isDone side = true) (hseen : (σ r).len side ≤ subs.length)
     (htodo : c.todo = [])
     (hsub : ∀ (n : Nat) (x : Ans D P) (o : Option (Nat × Nat)), subs[n]? = some (x, o) →
@@ -356,7 +356,7 @@ theorem IsRun.served_push (hL : D.Lawful P.sorts.interp) (h : IsRun U σ) {r k :
     exact List.take_of_length_le hseen
   have hlen : subs.length = ((σ r).answers side).length := by
     rw [← hall, List.length_map]
-  rw [hlen] at hD
+  have hD := hD.2.2
   have key : ∀ a, Held (held σ) (toGoal (if left then L else Rg)) a → ∃ x' : Ans D P,
       Held (held σ) (toGoal (if left then L else Rg)) x'.span ∧
       den P.sorts.interp a ⊆ den P.sorts.interp x'.span ∧
@@ -534,10 +534,14 @@ theorem IsRun.served_done (hL : D.Lawful P.sorts.interp) (h : IsRun U σ) {r0 k 
     · exact Nat.lt_of_lt_of_le hp (h.done_len hq.2.1 r1)
     · exact Nat.lt_of_lt_of_le hq' (h.done_len hq.2.2 r1)
   | push kd left side other subs dead reads c =>
+    obtain ⟨dead, rfl⟩ : ∃ d, dead = some d := by
+      cases dead with
+      | none => simp [Strat.quiet] at hq
+      | some d => exact ⟨d, rfl⟩
     simp only [Strat.quiet, Strat.pending, Bool.and_eq_true, Bool.not_eq_true',
       Bool.or_eq_false_iff, decide_eq_false_iff_not, Bool.not_eq_false', List.isEmpty_iff,
-      List.any_eq_false, List.all_eq_true] at hq
-    obtain ⟨⟨⟨hseen, htodo⟩, hread⟩, hside, hall⟩ := hq
+      List.any_eq_false, List.all_eq_true, Option.getD_some, Option.isSome_some] at hq
+    obtain ⟨⟨⟨hseen, htodo⟩, hread⟩, ⟨hside, -⟩, hall⟩ := hq
     refine h.served_push hL hkr hst hside (by unfold StateOf.len; omega) htodo
       fun n x o he hn => ?_
     have hm : ((x, o), n) ∈ subs.zipIdx := List.mem_zipIdx_iff_getElem?.2 he
