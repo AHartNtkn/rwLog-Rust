@@ -151,7 +151,7 @@ def Strat.kind : Strat N A → Strat N A
   | .span _ => .span false
   | .copy c _ => .copy c []
   | .join k a b _ => .join k a b Cursor.start
-  | .push k l side o _ _ _ _ => .push k l side o [] none [] Cursor.start
+  | .push k l side o _ _ _ _ _ => .push k l side o [] none [] Cursor.start Cursor.start
   | .check l side o _ => .check l side o .reading
 
 /-- The strategies of a group, without their cursors. -/
@@ -174,11 +174,11 @@ theorem kind_join {s : Strat N A} {k : Kind} {a b : Nat} (h : s.kind = .join k a
   exact ⟨_, rfl⟩
 
 theorem kind_push {s : Strat N A} {k : Kind} {l : Bool} {side : Nat} {o : N}
-    (h : s.kind = .push k l side o [] none [] Cursor.start) :
-    ∃ subs dead reads c, s = .push k l side o subs dead reads c := by
+    (h : s.kind = .push k l side o [] none [] Cursor.start Cursor.start) :
+    ∃ subs dead reads c fc, s = .push k l side o subs dead reads c fc := by
   cases s <;> simp only [Strat.kind, reduceCtorEq, Strat.push.injEq] at h
   obtain ⟨rfl, rfl, rfl, rfl, -⟩ := h
-  exact ⟨_, _, _, _, rfl⟩
+  exact ⟨_, _, _, _, _, rfl⟩
 
 theorem kind_check {s : Strat N A} {l : Bool} {side o : N}
     (h : s.kind = .check l side o .reading) : ∃ c, s = .check l side o c := by
@@ -365,7 +365,7 @@ def Prog (st : StateOf R Rel (Ans D P)) (i : Nat) (g : GoalOf R Rel) :
       c.Ok (st.answers a).length (st.answers b).length ∧
       ∀ p q x y, c.Before p q → (st.answers a)[p]? = some x → (st.answers b)[q]? = some y →
         ∀ z, opS D k x.span y.span = some z → CovS st i z
-  | .push k left side other subs dead reads c => ∃ L Rg, SplitAt g k L Rg ∧
+  | .push k left side other subs dead reads c fc => ∃ L Rg, SplitAt g k L Rg ∧
       goalAt st side = some (if left then L else Rg) ∧
       other = (if left then Rg.node else L.node) ∧
       subs.map (·.1) = (st.answers side).take subs.length ∧
@@ -373,10 +373,11 @@ def Prog (st : StateOf R Rel (Ans D P)) (i : Nat) (g : GoalOf R Rel) :
       (∀ e ∈ subs, ∀ t, e.2 = some t →
         goalAt st t.1 = some (pushG D g other k left e.1) ∧ t.2 ≤ (st.answers t.1).length) ∧
       PushFits subs (dead.getD []) reads c ∧
-      ∀ (s q : Nat) (x : Ans D P) (t : Nat × Nat) (r : Nat) (y : Ans D P), c.Before s q →
+      (∀ (s q : Nat) (x : Ans D P) (t : Nat × Nat) (r : Nat) (y : Ans D P), c.Before s q →
         subs[s]? = some (x, some t) → reads[q]? = some (s, some r) →
         (st.answers t.1)[r]? = some y →
-        ∀ z, pushedS D k left x.span y.span = some z → CovS st i z
+        ∀ z, pushedS D k left x.span y.span = some z → CovS st i z) ∧
+      fc.Fits
   | .check left side other c => ∃ L Rg, SplitAt g .seq L Rg ∧
       side = (if left then L.node else Rg.node) ∧ other = (if left then Rg.node else L.node) ∧
       match c with
@@ -414,15 +415,15 @@ theorem Prog.mono {st st' : StateOf R Rel (Ans D P)} (h : Stable st st') {i : Na
       fun p q x y hb hx hy z hz => ?_⟩
     have hp := h4.before_lt hb
     exact (h5 p q x y hb (h.getElem?_old hx hp.1) (h.getElem?_old hy hp.2) z hz).mono h
-  | push k left side other subs dead reads c =>
+  | push k left side other subs dead reads c fc =>
     dsimp only [Prog] at hs ⊢
-    obtain ⟨L, Rg, h1, h2, h3, h4, hD, h5, h6, h7⟩ := hs
+    obtain ⟨L, Rg, h1, h2, h3, h4, hD, h5, h6, h7, hF⟩ := hs
     have hlen : subs.length ≤ (st.answers side).length := by
       have := congrArg List.length h4
       simp only [List.length_map, List.length_take] at this
       omega
     refine ⟨L, Rg, h1, hE _ _ h2, h3, ?_, hD.mono h,
-      fun e he t ht => ?_, h6, fun s q x t r y hb he hq hy z hz => ?_⟩
+      fun e he t ht => ?_, h6, fun s q x t r y hb he hq hy z hz => ?_, hF⟩
     · rw [h4]
       exact (take_of_prefix (h.answers side) hlen).symm
     · exact ⟨hE _ _ (h5 e he t ht).1, (h5 e he t ht).2.trans (h.length_le _)⟩
@@ -502,8 +503,8 @@ structure Full (st : StateOf R Rel (Ans D P)) (g : GoalOf R Rel)
     (c = false → ∃ xs, g.node.view = .union xs) → ∃ gr ∈ gs, .copy c [] ∈ gr.kinds
   split : ∀ k L Rg, SplitAt g k L Rg → ∃ gr ∈ gs, ∃ a b, goalAt st a = some L ∧
     goalAt st b = some Rg ∧ .join k a b Cursor.start ∈ gr.kinds ∧
-    .push k true a Rg.node [] none [] Cursor.start ∈ gr.kinds ∧
-      .push k false b L.node [] none [] Cursor.start ∈ gr.kinds
+    .push k true a Rg.node [] none [] Cursor.start Cursor.start ∈ gr.kinds ∧
+      .push k false b L.node [] none [] Cursor.start Cursor.start ∈ gr.kinds
   check : ∀ L Rg, SplitAt g .seq L Rg → ∀ left : Bool,
     CheckGone st g left (if left then L.node else Rg.node) (if left then Rg.node else L.node) ∨
       ∃ gr ∈ gs, .check left (if left then L.node else Rg.node)
@@ -577,8 +578,8 @@ theorem Full.of_view {st : StateOf R Rel (Ans D P)} {g : GoalOf R Rel}
     (hunion : ∀ xs, V = .union xs → ∃ gr ∈ gs, .copy false [] ∈ gr.kinds)
     (hsplit : ∀ k L Rg, SplitAt g k L Rg → ∃ gr ∈ gs, ∃ a b, goalAt st a = some L ∧
       goalAt st b = some Rg ∧ .join k a b Cursor.start ∈ gr.kinds ∧
-      .push k true a Rg.node [] none [] Cursor.start ∈ gr.kinds ∧
-      .push k false b L.node [] none [] Cursor.start ∈ gr.kinds)
+      .push k true a Rg.node [] none [] Cursor.start Cursor.start ∈ gr.kinds ∧
+      .push k false b L.node [] none [] Cursor.start Cursor.start ∈ gr.kinds)
     (hcheck : ∀ L Rg, SplitAt g .seq L Rg → ∀ left : Bool,
       CheckGone st g left (if left then L.node else Rg.node)
           (if left then Rg.node else L.node) ∨
@@ -1225,12 +1226,12 @@ gained, drops the answers superseded, and files what its tables have
 gained. -/
 theorem prog_push_file {st : StateOf R Rel (Ans D P)} (i : Nat) (g : GoalOf R Rel) (k : Kind)
     (left : Bool) (side : Nat) (other : Rel) (subs : List (Ans D P × Option (Nat × Nat)))
-    (dead : Option (List Nat)) (reads : List (Nat × Option Nat)) (c : Cursor)
+    (dead : Option (List Nat)) (reads : List (Nat × Option Nat)) (c : Cursor) (fc : Cursor)
     (dead' : Option (List Nat))
     (hD' : ∀ d, dead' = some d → st.isDone side = true ∧
       DeadOk D P (st.answers side) (st.answers side).length d)
     (hdsub : ∀ d, dead = some d → dead' = some d)
-    (hs : Prog st i g (.push k left side other subs dead reads c)) :
+    (hs : Prog st i g (.push k left side other subs dead reads c fc)) :
     Prog st i g (.push k left side other
       (pushFile st (dead'.getD []) 0
         (seeSide (((st.answers side).zip (st.pathsAt side)).drop subs.length) subs reads c).2.1
@@ -1247,7 +1248,8 @@ theorem prog_push_file {st : StateOf R Rel (Ans D P)} (i : Nat) (g : GoalOf R Re
         (seeSide (((st.answers side).zip (st.pathsAt side)).drop subs.length) subs reads c).2.1
         ((seeSide (((st.answers side).zip (st.pathsAt side)).drop subs.length) subs reads c).2.2.kill
           (dead'.getD []))
-        (seeSide (((st.answers side).zip (st.pathsAt side)).drop subs.length) subs reads c).1).2.2) := by
+        (seeSide (((st.answers side).zip (st.pathsAt side)).drop subs.length) subs reads c).1).2.2
+      fc) := by
   have hss0 := seeSide_subs (((st.answers side).zip (st.pathsAt side)).drop subs.length) subs
     reads c
   have hsd0 := seeSide_done (((st.answers side).zip (st.pathsAt side)).drop subs.length) subs
@@ -1269,7 +1271,7 @@ theorem prog_push_file {st : StateOf R Rel (Ans D P)} (i : Nat) (g : GoalOf R Re
   generalize hfdef : pushFile st (dead'.getD []) 0 f0.2.1 (f0.2.2.kill (dead'.getD [])) f0.1 = f
   rw [hfdef] at hfe0 hflen0 hfd0 hfp0 hff0
   dsimp only [Prog] at hs ⊢
-  obtain ⟨L, Rg, h1, h2, h3, h4, hD, h5, h6, h7⟩ := hs
+  obtain ⟨L, Rg, h1, h2, h3, h4, hD, h5, h6, h7, hF⟩ := hs
   have hlen : subs.length ≤ (st.answers side).length := by
     have := congrArg List.length h4
     simp only [List.length_map, List.length_take] at this
@@ -1330,7 +1332,7 @@ theorem prog_push_file {st : StateOf R Rel (Ans D P)} (i : Nat) (g : GoalOf R Re
     | none => exact True.intro
     | some d => exact ⟨(hD' d rfl).1, hfl, (hD' d rfl).2⟩
   refine ⟨L, Rg, h1, h2, h3, ?_, hDn, fun e he t ht => ?_, hfit,
-    fun s q x t r y hb he hq hy z hz => ?_⟩
+    fun s q x t r y hb he hq hy z hz => ?_, hF⟩
   · have hm : f.1.map (·.1) = f0.1.map (·.1) := by
       refine List.ext_getElem? fun n => ?_
       rw [List.getElem?_map, List.getElem?_map, hfe]
@@ -1367,12 +1369,12 @@ theorem prog_work_push (hL : D.Lawful P.sorts.interp) {st : StateOf R Rel (Ans D
     (hI : Inv st) (i : Nat) (g : GoalOf R Rel) (k : Kind) (left : Bool)
     (side : Nat) (other : Rel) (subs : List (Ans D P × Option (Nat × Nat)))
     (dead : Option (List Nat))
-    (reads : List (Nat × Option Nat)) (c : Cursor) (ho : Open st i)
-    (hs : Prog st i g (.push k left side other subs dead reads c)) :
+    (reads : List (Nat × Option Nat)) (c : Cursor) (fc : Cursor) (ho : Open st i)
+    (hs : Prog st i g (.push k left side other subs dead reads c fc)) :
     Prog (work (K := DerivationKernel.over D K hK P) i g st
-        (.push k left side other subs dead reads c)).val.1 i g
+        (.push k left side other subs dead reads c fc)).val.1 i g
       (work (K := DerivationKernel.over D K hK P) i g st
-        (.push k left side other subs dead reads c)).val.2.1 := by
+        (.push k left side other subs dead reads c fc)).val.2.1 := by
   have hsup := superseded_spec (K := K) (hK := hK) (P := P) st side dead
   have hD0 : DeadIs D P st side subs.length dead := by
     have hs' := hs
@@ -1382,7 +1384,7 @@ theorem prog_work_push (hL : D.Lawful P.sorts.interp) {st : StateOf R Rel (Ans D
   have hP := fun dead' (h1 : ∀ d, dead' = some d → st.isDone side = true ∧
       DeadOk D P (st.answers side) (st.answers side).length d)
       (h2 : ∀ d, dead = some d → dead' = some d) =>
-    prog_push_file i g k left side other subs dead reads c dead' h1 h2 hs
+    prog_push_file i g k left side other subs dead reads c fc dead' h1 h2 hs
   have hpo := fun xs => pushOpen_spec (K := K) (hK := hK) (P := P) g other k left st xs
   have hpi := fun xs =>
     (inner_pushOpen (K := K) (hK := hK) (P := P) (w := i) g other k left st xs).frame
@@ -1405,7 +1407,7 @@ theorem prog_work_push (hL : D.Lawful P.sorts.interp) {st : StateOf R Rel (Ans D
   dsimp only at hP ⊢
   have hP0 := hP
   dsimp only [Prog] at hP
-  obtain ⟨L, Rg, h1, h2, h3, h4, hD, h5, hfit, h7⟩ := hP
+  obtain ⟨L, Rg, h1, h2, h3, h4, hD, h5, hfit, h7, hF⟩ := hP
   have hlen : subs'.length ≤ (st.answers side).length := by
     have := congrArg List.length h4
     simp only [List.length_map, List.length_take] at this
@@ -1435,7 +1437,7 @@ theorem prog_work_push (hL : D.Lawful P.sorts.interp) {st : StateOf R Rel (Ans D
       dsimp only [Prog]
       refine ⟨L, Rg, h1, hS1.ext _ _ h2, h3, ?_,
         by rw [List.length_set]; exact hD.mono hS1,
-        fun e he t ht => ?_, hfit' _, fun s q x' t r y hb he hq hy z hz => ?_⟩
+        fun e he t ht => ?_, hfit' _, fun s q x' t r y hb he hq hy z hz => ?_, hF⟩
       · have hm : (subs'.set p.1 (x, some (e0.2.1, 0))).map (·.1) = subs'.map (·.1) := by
           refine List.ext_getElem? fun n => ?_
           rw [List.getElem?_map, List.getElem?_map]
@@ -1489,7 +1491,7 @@ theorem prog_work_push (hL : D.Lawful P.sorts.interp) {st : StateOf R Rel (Ans D
       have hS := hf.stable ho
       dsimp only [Prog]
       refine ⟨L, Rg, h1, hS.ext _ _ h2, h3, ?_, hD.mono hS,
-        fun e he t ht => ?_, hfit.markRead hr' _, fun s q x' t r'' y hb he hq hy z hz => ?_⟩
+        fun e he t ht => ?_, hfit.markRead hr' _, fun s q x' t r'' y hb he hq hy z hz => ?_, hF⟩
       · rw [h4]
         exact (take_of_prefix (hS.answers side) hlen).symm
       · exact ⟨hS.ext _ _ (h5 e he t ht).1, (h5 e he t ht).2.trans (hS.length_le _)⟩
@@ -1562,8 +1564,8 @@ theorem prog_work (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK)
   | span ran => exact prog_work_span hL i g ran ho hb hs
   | copy isCall subs => exact prog_work_copy hL hI i g isCall subs ho hs
   | join k a b c => exact prog_work_join hL hI i g k a b c ho hs
-  | push k left side other subs dead reads c =>
-    exact prog_work_push hL hI i g k left side other subs dead reads c ho hs
+  | push k left side other subs dead reads c fc =>
+    exact prog_work_push hL hI i g k left side other subs dead reads c fc ho hs
   | check left side other c => exact prog_work_check hR hE i g left side other c hs
 
 end kernel

@@ -120,7 +120,7 @@ Rungs/Symmetric/ the symmetric engine of `SYMMETRIC_ENGINE.md` (Machine.lean): a
                 a round to the member its rounds have cost the least, `feedGroup`, so
                 that its members share the ticks), and the round is balanced: a group worked, each of its
                 strategies having worked or owing less than it did (`GrStep`, `OStep`), or
-                it stands as it stood, owing what it owed, while a lower one rose
+                it stands as it stood, its strategies the same and owing what they owed, while a lower one rose
                 (`Turn`, `Balanced`); of the groups a goal begins with one has a span, a call, a
                 union or a join, and one that has none is all checks (`shaped_expand`); a table
                 marked complete has a strategy with nothing left to do that reads complete
@@ -129,7 +129,14 @@ Rungs/Symmetric/ the symmetric engine of `SYMMETRIC_ENGINE.md` (Machine.lean): a
                 stands lower (`Founded`, `IsRun.founded`); a push that works sees every
                 answer of its side, drops those a later one covers once the side is complete, and is nearer to every
                 unit left: opening the goal of an answer, or combining an answer of an
-                opened goal (`SStep.push`, `step_work_push`); and an edge is read in the end, from a depth that the node
+                opened goal (`SStep.push`, `step_work_push`); the goals a push opened share
+                their rounds by where the pushed answers came from, through a second cursor
+                of the push that its own work never touches (`feedPush`, `work_feedOf`,
+                FeedCursor.lean, `feedGroup_fits`), and in a round where its group worked
+                each unit of that cursor is taken, with its table settled, or is of an
+                answer superseded, or is nearer to its turn (`FedP`, `turn_feedToks`), so
+                the table opened for an answer never superseded is settled again and again
+                (Settle.lean, `Line.push_fed`); and an edge is read in the end, from a depth that the node
                 and the program give (ReadLive.lean, `readEdge_some`); and of a table that
                 has rounds for ever every strategy of every group works for ever, since
                 what it owes cannot fall for ever, with as many groups from

@@ -126,7 +126,7 @@ def StratOk (st : StateOf R Rel (Ans D P)) (g : GoalOf R Rel) : Strat Rel (Ans D
   | .span _ => True
   | .copy _ subs => ∀ p ∈ subs.map Prod.fst, ∃ h, goalAt st p = some h ∧ h.lb = g.lb ∧ h.rb = g.rb
   | .join k a b _ => ∃ ga gb, goalAt st a = some ga ∧ goalAt st b = some gb ∧ SplitOk g ga gb k
-  | .push k left side other subs _ _ _ =>
+  | .push k left side other subs _ _ _ _ =>
     ∃ gs, goalAt st side = some gs ∧ PushOk g gs other k left ∧ Normal other ∧
       ∀ e ∈ subs, GoalIs gs e.1 ∧
         ∀ t, e.2 = some t → goalAt st t.1 = some (pushG D g other k left e.1)
@@ -144,7 +144,7 @@ theorem StratOk.mono {st st' : StateOf R Rel (Ans D P)} (h : Ext st st') {g : Go
   | join k a b _ =>
     obtain ⟨ga, gb, ha, hb, hk⟩ := hs
     exact ⟨ga, gb, h _ _ ha, h _ _ hb, hk⟩
-  | push k left side other subs dead reads c =>
+  | push k left side other subs dead reads c fc =>
     obtain ⟨gs, h1, h2, h3, h5⟩ := hs
     exact ⟨gs, h _ _ h1, h2, h3, fun e he => ⟨(h5 e he).1, fun t ht => h _ _ ((h5 e he).2 t ht)⟩⟩
   | check _ _ _ _ => exact hs
@@ -815,7 +815,7 @@ theorem inv_work_aux {st : StateOf R Rel (Ans D P)} (hI : Inv st) (i : Nat)
     · simp only [Cost.bind_val, Cost.pure_val, Kernel.metered, Cost.metered_val]
       exact ⟨(inv_joinPairs hI i k _ _ _ hg (hI.answers ha) (hI.answers hb) hk).modify_same i _
         (fun _ => rfl) (fun _ => rfl), fun hE => (hs' _).mono hE⟩
-  | push k left side other subs dead reads c =>
+  | push k left side other subs dead reads c fc =>
     obtain ⟨gs, h1, hk, hno, hsubs⟩ := hs
     simp only [work, Cost.bind_val]
     generalize (superseded (K := DerivationKernel.over D _ hK P) st side dead).val = dead0
@@ -847,7 +847,7 @@ theorem inv_work_aux {st : StateOf R Rel (Ans D P)} (hI : Inv st) (i : Nat)
         · obtain ⟨y, hy, rfl⟩ := List.mem_map.1 hm
           refine ⟨hI.answers h1 _ (List.of_mem_zip (List.mem_of_mem_drop hy)).1, fun t ht => ?_⟩
           cases ht
-    have hok : ∀ c', StratOk st g (.push k left side other f.1 dead0 f.2.1 c') := fun _ =>
+    have hok : ∀ c', StratOk st g (.push k left side other f.1 dead0 f.2.1 c' fc) := fun _ =>
       ⟨gs, h1, hk, hno, hf⟩
     split
     · exact ⟨hI, fun _ => hok _⟩
@@ -1014,6 +1014,29 @@ theorem strat_of_groupsAt {st : StateOf R Rel (Ans D P)} (hI : Inv st) {i k j : 
         rw [hgr] at h
         exact hI.strat i t ht gs hgs gr (List.mem_of_getElem? hgr) s (List.mem_of_getElem? h)
 
+omit [DecidableEq R] in
+/-- Whether a strategy fits its goal does not depend on its feed cursor. -/
+theorem StratOk.core {st : StateOf R Rel (Ans D P)} {g : GoalOf R Rel}
+    {s s' : Strat Rel (Ans D P)} (h : s'.core = s.core) (hs : StratOk st g s) :
+    StratOk st g s' := by
+  cases s <;> cases s' <;> cases h <;> exact hs
+
+/-- The tables a group reads have their rounds, and its pushes are given
+their feed cursors: the invariant is kept. -/
+theorem inv_feedGroup (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R Rel (Ans D P) × Nat))
+    (hadv : ∀ h st, Inv st → Inv (adv h st).val.1) {X : StateOf R Rel (Ans D P)}
+    (hI : Inv X) (i k d : Nat) :
+    Inv (setGroup (feedGroup (K := DerivationKernel.over D K hK P) adv i k X d).val.1 i k
+      fun gr => { gr with
+        level := gr.level + (feedGroup (K := DerivationKernel.over D K hK P) adv i k X d).val.2.1,
+        strats := reFeed gr.strats
+          (feedGroup (K := DerivationKernel.over D K hK P) adv i k X d).val.2.2 }) := by
+  have hf := feedGroup_keeps (K := K) (hK := hK) (P := P) adv Inv hadv
+    (fun h c Y hY => hY.modify_same h _ (fun _ => rfl) (fun _ => rfl)) i k X d hI
+  refine inv_setGroup hf _ _ _ (fun g' gr _ h s' hs' => ?_)
+  obtain ⟨s, hs, e⟩ := mem_reFeed hs'
+  exact StratOk.core e (h s hs)
+
 theorem inv_workGroup (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R Rel (Ans D P) × Nat))
     (hadv : ∀ h st, Inv st → Inv (adv h st).val.1)
     (hadvR : ∀ h st, Reach K hK st (adv h st).val.1) {st : StateOf R Rel (Ans D P)}
@@ -1023,17 +1046,12 @@ theorem inv_workGroup (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R
   have hturn := fun (st : StateOf R Rel (Ans D P)) hI f left s c hg hs =>
     inv_turn (K := K) (hK := hK) (st := st) hI i g f left s c hg hs
   have hrt := fun f left st s c => reach_turn (K := K) (hK := hK) (P := P) i g f left st s c
-  have hf := fun X d hX => feedGroup_keeps (K := K) (hK := hK) (P := P) adv
-    (fun X => Inv X ∧ goalAt X i = some g)
-    (fun h X hX => ⟨hadv h X hX.1, (hadvR h X).ext _ _ hX.2⟩)
-    (fun h c X hX => ⟨hX.1.modify_same h _ (fun _ => rfl) (fun _ => rfl),
-      (goalAt_modify X h i (fun t => { t with fed := t.fed + c }) fun _ => rfl).trans hX.2⟩)
-    i k X d hX
+  have hf := fun X d (hX : Inv X ∧ goalAt X i = some g) =>
+    inv_feedGroup (K := K) (hK := hK) (P := P) adv hadv hX.1 i k d
   at_cost K hK
   simp only [workGroup, workStrats, Cost.bind_val, Cost.pure_val]
   refine Inv.modify_same ?_ i _ (fun _ => rfl) (fun _ => rfl)
-  refine inv_setGroup ?_ _ _ _ (fun g' gr _ h => h)
-  refine (hf _ _ ?_).1
+  refine hf _ _ ?_
   · refine foldL_inv (fun acc : StateOf R Rel (Ans D P) × Nat × Bool =>
       Inv acc.1 ∧ goalAt acc.1 i = some g) _ _ (fun b j _ hb => ?_) (st, 0, false) ⟨hI, hg⟩
     split

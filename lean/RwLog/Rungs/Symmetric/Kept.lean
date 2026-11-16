@@ -7,6 +7,7 @@ goal, and every edge the state keeps is right about the program. `ProgAll
 st` says `Prog` of every strategy of every table. A request keeps both.
 -/
 import RwLog.Rungs.Symmetric.Progress
+import RwLog.Rungs.Symmetric.FeedCursor
 import RwLog.Kernel.NormalFormSpans
 
 namespace RwLog
@@ -271,7 +272,7 @@ theorem base_work (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK)
     · exact hB
     · simp only [Cost.bind_val, Cost.pure_val, Kernel.metered, Cost.metered_val]
       exact hB.same ((h3 _ _ _ _ _).trans (sameG_modify _ i _ fun _ => rfl))
-  | push k left side other subs dead reads c =>
+  | push k left side other subs dead reads c fc =>
     dsimp only [Prog] at hs
     obtain ⟨L, Rg, s1, -, s3, -, -⟩ := hs
     have ho : other.FO := by
@@ -317,8 +318,8 @@ theorem prog_splitGroup {st : StateOf R Rel (Ans D P)} (hB : Base st) (w : Nat) 
       (∀ s ∈ (splitGroup (K := DerivationKernel.over D K hK P) k L Rg st).val.2.strats,
         Prog (splitGroup (K := DerivationKernel.over D K hK P) k L Rg st).val.1 w g s) ∧
       ∃ a b, (splitGroup (K := DerivationKernel.over D K hK P) k L Rg st).val.2.strats =
-          [.join k a b Cursor.start, .push k true a Rg.node [] none [] Cursor.start,
-            .push k false b L.node [] none [] Cursor.start] ∧
+          [.join k a b Cursor.start, .push k true a Rg.node [] none [] Cursor.start Cursor.start,
+            .push k false b L.node [] none [] Cursor.start Cursor.start] ∧
         goalAt (splitGroup (K := DerivationKernel.over D K hK P) k L Rg st).val.1 a = some L ∧
         goalAt (splitGroup (K := DerivationKernel.over D K hK P) k L Rg st).val.1 b = some Rg := by
   have hF := (inner_splitGroup (K := K) (hK := hK) (P := P) (w := w) k L Rg st).frame
@@ -338,10 +339,10 @@ theorem prog_splitGroup {st : StateOf R Rel (Ans D P)} (hB : Base st) (w : Nat) 
       fun p q x y hb => absurd hb (Cursor.before_start p q)⟩
   · dsimp only [Prog]
     exact ⟨L, Rg, hs, hg1', rfl, rfl, True.intro, (fun e he => by cases he), PushFits.start,
-      fun s q x t r y hb => absurd hb (Cursor.before_start s q)⟩
+      fun s q x t r y hb => absurd hb (Cursor.before_start s q), Cursor.fits_start⟩
   · dsimp only [Prog]
     exact ⟨L, Rg, hs, hg2, rfl, rfl, True.intro, (fun e he => by cases he), PushFits.start,
-      fun s q x t r y hb => absurd hb (Cursor.before_start s q)⟩
+      fun s q x t r y hb => absurd hb (Cursor.before_start s q), Cursor.fits_start⟩
 
 theorem prog_checkOf (hR : ReadOk D P K hK) {st : StateOf R Rel (Ans D P)} (hB : Base st)
     (w : Nat) (left : Bool) (side other : Rel) :
@@ -375,7 +376,7 @@ def ChainDone (w : Nat) (g : GoalOf R Rel) (n : Nat) (st : StateOf R Rel (Ans D 
     ∀ i ∈ done, ∀ l r, g.node.interval 0 i = some l → g.node.interval i n = some r →
       (∃ gr ∈ acc.2.1, ∃ a b, goalAt acc.1 a = some ⟨g.lb, l, none⟩ ∧
         goalAt acc.1 b = some ⟨none, r, g.rb⟩ ∧ .join .seq a b Cursor.start ∈ gr.kinds ∧
-        .push .seq true a r [] none [] Cursor.start ∈ gr.kinds ∧ .push .seq false b l [] none [] Cursor.start ∈ gr.kinds) ∧
+        .push .seq true a r [] none [] Cursor.start Cursor.start ∈ gr.kinds ∧ .push .seq false b l [] none [] Cursor.start Cursor.start ∈ gr.kinds) ∧
       (Reads D P l true none ∨ .check true l r .reading ∈ acc.2.2) ∧
       (Reads D P r false none ∨ .check false r l .reading ∈ acc.2.2)
 
@@ -395,8 +396,8 @@ theorem ChainDone.out {w : Nat} {g : GoalOf R Rel} {xs : List Rel} {st : StateOf
       (∀ s ∈ acc.2.2, Prog acc.1 w g s) ∧
       ∀ L Rg, SplitAt g .seq L Rg →
         (∃ gr ∈ acc.2.1, ∃ a b, goalAt acc.1 a = some L ∧ goalAt acc.1 b = some Rg ∧
-          .join .seq a b Cursor.start ∈ gr.kinds ∧ .push .seq true a Rg.node [] none [] Cursor.start ∈ gr.kinds ∧
-          .push .seq false b L.node [] none [] Cursor.start ∈ gr.kinds) ∧
+          .join .seq a b Cursor.start ∈ gr.kinds ∧ .push .seq true a Rg.node [] none [] Cursor.start Cursor.start ∈ gr.kinds ∧
+          .push .seq false b L.node [] none [] Cursor.start Cursor.start ∈ gr.kinds) ∧
         ∀ left : Bool, Reads D P (if left then L.node else Rg.node) left none ∨
           .check left (if left then L.node else Rg.node) (if left then Rg.node else L.node)
             .reading ∈ acc.2.2 := by
@@ -504,7 +505,7 @@ def MeetDone (w : Nat) (g : GoalOf R Rel) (xs : List Rel) (st : StateOf R Rel (A
     ∀ i ∈ done, ∀ l r, xs[i]? = some l → g.node.without i = some r →
       ∃ gr ∈ acc.2, ∃ a b, goalAt acc.1 a = some ⟨g.lb, l, g.rb⟩ ∧
         goalAt acc.1 b = some ⟨g.lb, r, g.rb⟩ ∧ .join .and a b Cursor.start ∈ gr.kinds ∧
-        .push .and true a r [] none [] Cursor.start ∈ gr.kinds ∧ .push .and false b l [] none [] Cursor.start ∈ gr.kinds
+        .push .and true a r [] none [] Cursor.start Cursor.start ∈ gr.kinds ∧ .push .and false b l [] none [] Cursor.start Cursor.start ∈ gr.kinds
 
 omit [DecidableEq R] [Answer R] in
 theorem no_split {g : GoalOf R Rel}
@@ -1007,15 +1008,67 @@ theorem Good.dropGroups {st : StateOf R Rel (Ans D P)} (hG : Good st) (i : Nat)
       | true => exact .inl ⟨gr, List.mem_filter.2 ⟨hgr, hpg⟩, rfl⟩
       | false => exact .inr fun s hs => dead_gone (hG.prog i t ht gs' hg gr hgr s hs) (hp gr hpg s hs)
 
+/-- A strategy that means what it should has a feed cursor that fits. -/
+theorem Prog.feedFits {st : StateOf R Rel (Ans D P)} {i : Nat} {g : GoalOf R Rel}
+    {s : Strat Rel (Ans D P)} (hs : Prog st i g s) : s.FeedFits := by
+  cases s with
+  | push k left side other subs dead reads c fc =>
+    dsimp only [Prog] at hs
+    obtain ⟨_, _, -, -, -, -, -, -, -, -, hF⟩ := hs
+    exact hF
+  | _ => trivial
+
+/-- What a strategy means does not depend on its feed cursor, as long as the
+cursor fits. -/
+theorem Prog.withFeed {st : StateOf R Rel (Ans D P)} {i : Nat} {g : GoalOf R Rel}
+    {s f : Strat Rel (Ans D P)} (hs : Prog st i g s) (hf : f.FeedFits) :
+    Prog st i g (s.withFeed f) := by
+  cases s with
+  | push k left side other subs dead reads c fc =>
+    cases f with
+    | push _ _ _ _ _ _ _ _ fc' =>
+      dsimp only [Prog, Strat.withFeed] at hs ⊢
+      obtain ⟨L, Rg, h1, h2, h3, h4, hD, h5, h6, h7, -⟩ := hs
+      exact ⟨L, Rg, h1, h2, h3, h4, hD, h5, h6, h7, hf⟩
+    | _ => exact hs
+  | _ => exact hs
+
+/-- The kind of a strategy does not depend on its feed cursor. -/
+theorem kind_of_core {N A : Type} {s s' : Strat N A} (h : s'.core = s.core) : s'.kind = s.kind := by
+  cases s <;> cases s' <;> cases h <;> rfl
+
+/-- A group given feed cursors has the kinds it had. -/
+theorem reFeed_kinds {N A : Type} (ss fed : List (Strat N A)) :
+    (reFeed ss fed).map Strat.kind = ss.map Strat.kind := by
+  refine List.ext_getElem? fun n => ?_
+  have := congrArg (fun l => l[n]?) (reFeed_map_core ss fed)
+  simp only [List.getElem?_map] at this ⊢
+  cases h1 : (reFeed ss fed)[n]? with
+  | none =>
+    rw [h1] at this
+    cases h2 : ss[n]? with
+    | none => rfl
+    | some _ => rw [h2] at this; cases this
+  | some s' =>
+    rw [h1] at this
+    cases h2 : ss[n]? with
+    | none => rw [h2] at this; cases this
+    | some s0 =>
+      rw [h2] at this
+      exact congrArg some (kind_of_core (Option.some.inj this))
+
 /-- Changing a group of a table keeps what a run keeps, if each strategy of
 the group stays or fits with cursors that mean what they should. -/
 theorem Good.setGroup {st : StateOf R Rel (Ans D P)} (hG : Good st) (i k : Nat)
     (f : Group Rel (Ans D P) → Group Rel (Ans D P))
     (hf : ∀ g gr, goalAt st i = some g → ∀ s ∈ (f gr).strats,
-      s ∈ gr.strats ∨ (StratOk st g s ∧ Prog st i g s))
+      (∃ s0 ∈ gr.strats, s.core = s0.core) ∨ StratOk st g s)
+    (hp : ∀ g gr, goalAt st i = some g → (∀ s ∈ gr.strats, Prog st i g s) →
+      ∀ s ∈ (f gr).strats, Prog st i g s)
     (hk : ∀ gr, (groupsAt st i)[k]? = some gr → (f gr).kinds = gr.kinds) :
     Good (setGroup st i k f) := by
-  refine ⟨inv_setGroup hG.inv i k f fun g gr hg h s hs => (hf g gr hg s hs).elim (h s) (·.1),
+  refine ⟨inv_setGroup hG.inv i k f fun g gr hg h s hs =>
+      (hf g gr hg s hs).elim (fun h0 => StratOk.core h0.choose_spec.2 (h _ h0.choose_spec.1)) id,
     hG.base.same (sameG_modify st i _ fun _ => rfl),
     hG.prog.modify i _ (fun _ => rfl)
       (stable_modify st i _ fun _ _ => ⟨rfl, rfl, rfl, fun h => h⟩)
@@ -1033,9 +1086,7 @@ theorem Good.setGroup {st : StateOf R Rel (Ans D P)} (hG : Good st) (i k : Nat)
       cases hgs
       rcases mem_modify hgr with hgr | ⟨gr', hgr', rfl⟩
       · exact hG.prog i t ht gs' hgs' gr hgr s hs
-      · rcases hf t.goal gr' hg s hs with h | h
-        · exact hG.prog i t ht gs' hgs' gr' hgr' s h
-        · exact h.2
+      · exact hp t.goal gr' hg (hG.prog i t ht gs' hgs' gr' hgr') s hs
   · simp only at hgs
     cases hgs' : t.groups with
     | none => rw [hgs'] at hgs; cases hgs
@@ -1116,7 +1167,7 @@ theorem work_kind (i : Nat) (g : GoalOf R Rel) (st : StateOf R Rel (Ans D P))
   | join k a b c =>
     simp only [work]
     split <;> rfl
-  | push k l side o subs dead reads c =>
+  | push k l side o subs dead reads c fc =>
     simp only [work, Cost.bind_val]
     split
     · rfl
@@ -1178,11 +1229,15 @@ theorem good_workStep (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK)
   have hA1 := hG.prog.frame hfr hb.isOpen
   have hF1 := hG.full.frame hfr hb.isOpen
   refine Good.setGroup ⟨hU.inv, hU.base, hA1, hF1, hG.race.inner hU.inner⟩ i k _
-    (fun g' gr hg'' s' hs' => ?_) fun gr hgk => ?_
+    (fun g' gr hg'' s' hs' => ?_) (fun g' gr hg'' hpr s' hs' => ?_) fun gr hgk => ?_
   · obtain rfl : g' = g := Option.some.inj (hg''.symm.trans hU.goal)
     rcases List.mem_or_eq_of_mem_set hs' with h' | rfl
-    · exact .inl h'
-    · exact .inr ⟨hU.ok, hU.prog⟩
+    · exact .inl ⟨_, h', rfl⟩
+    · exact .inr hU.ok
+  · obtain rfl : g' = g := Option.some.inj (hg''.symm.trans hU.goal)
+    rcases List.mem_or_eq_of_mem_set hs' with h' | rfl
+    · exact hpr _ h'
+    · exact hU.prog
   · have hga : groupsAt (turn (K := DerivationKernel.over D K hK P) i g f left st s c).val.1 i =
         groupsAt st i := by
       obtain ⟨t, ht, -⟩ := hb
@@ -1191,6 +1246,39 @@ theorem good_workStep (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK)
     rw [hga] at hgk
     rw [hgk] at hs
     exact map_set_same Strat.kind hs hU.kind
+
+/-- A group is given feed cursors that fit, and its level: what a run keeps
+is kept. -/
+theorem Good.setFeeds {st : StateOf R Rel (Ans D P)} (hG : Good st) (i k d : Nat)
+    (fed : List (Strat Rel (Ans D P))) (hfit : ∀ f ∈ fed, f.FeedFits) :
+    Good (Symmetric.setGroup st i k fun gr =>
+      { gr with level := gr.level + d, strats := reFeed gr.strats fed }) := by
+  refine Good.setGroup hG i k _ (fun g gr _ s hs => .inl (mem_reFeed hs))
+    (fun g gr _ hpr s hs => ?_) (fun gr _ => reFeed_kinds _ _)
+  rcases mem_reFeed' hs with h | ⟨s0, h0, f, hf, rfl⟩
+  · exact hpr s h
+  · exact (hpr s0 h0).withFeed (hfit f hf)
+
+/-- The strategies of a group of a table have feed cursors that fit. -/
+theorem Good.feedFits {st : StateOf R Rel (Ans D P)} (hG : Good st) (i k : Nat) :
+    ∀ s ∈ ((groupsAt st i)[k]?.map (·.strats)).getD [], s.FeedFits := by
+  intro s hs
+  unfold groupsAt at hs
+  cases ht : st.tables[i]? with
+  | none => rw [ht] at hs; simp at hs
+  | some t =>
+    rw [ht] at hs
+    simp only at hs
+    cases hgs : t.groups with
+    | none => rw [hgs] at hs; simp at hs
+    | some gs =>
+      rw [hgs] at hs
+      simp only [Option.getD_some] at hs
+      cases hgr : gs[k]? with
+      | none => rw [hgr] at hs; simp at hs
+      | some gr =>
+        rw [hgr] at hs
+        exact (hG.prog i t ht gs hgs gr (List.mem_of_getElem? hgr) s hs).feedFits
 
 theorem good_workGroup (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK)
     (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R Rel (Ans D P) × Nat))
@@ -1211,13 +1299,16 @@ theorem good_workGroup (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK)
       (goalAt_modify X h i (fun t => { t with fed := t.fed + c }) fun _ => rfl).trans hX.2.1,
       (keep_modify X h (fun t => { t with fed := t.fed + c }) fun _ _ =>
         ⟨rfl, rfl, rfl, fun h => h, fun h => ⟨h, fun h => h⟩⟩).busy hX.2.2⟩) i k X d hX
-  clear hR
+  have hsf := fun X d (hX : Good X ∧ goalAt X i = some g ∧ Busy X i) =>
+    Good.setFeeds (hf X d hX).1 i k
+      (feedGroup (K := DerivationKernel.over D K hK P) adv i k X d).val.2.1 _
+      (feedGroup_fits (K := K) (hK := hK) (P := P) adv i k X d (hX.1.feedFits i k))
+  clear hR hf
   at_cost K hK
   simp only [workGroup, workStrats, Cost.bind_val, Cost.pure_val]
   refine Good.modify ?_ i _ (fun _ => rfl) (fun _ => rfl) (fun _ => rfl) (fun _ h => h)
     (fun _ => rfl)
-  refine Good.setGroup ?_ _ _ _ (fun g' gr _ s hs => .inl hs) (fun _ _ => rfl)
-  refine (hf _ _ ?_).1
+  refine hsf _ _ ?_
   · refine foldL_inv (fun acc : StateOf R Rel (Ans D P) × Nat × Bool =>
       Good acc.1 ∧ goalAt acc.1 i = some g ∧ Busy acc.1 i) _ _ (fun b j _ hb => ?_)
       (st, 0, false) ⟨hG, hg, hb⟩

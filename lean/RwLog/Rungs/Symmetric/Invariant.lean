@@ -293,7 +293,7 @@ theorem inner_work (i : Nat) (g : GoalOf R Rel) (st : StateOf R Rel (Ans D P))
     · exact Inner.refl _
     · simp only [Cost.bind_val, Cost.pure_val, Kernel.metered, Cost.metered_val]
       exact (inner_joinPairs _ _ _ _ _ _).trans (inner_stamp _ _ _ _)
-  | push k left side other subs dead reads c =>
+  | push k left side other subs dead reads c fc =>
     simp only [work, Cost.bind_val]
     split
     · exact Inner.refl _
@@ -493,6 +493,63 @@ theorem reach_setGroup (st : StateOf R Rel (Ans D P)) (i k : Nat)
     (f : Group Rel (Ans D P) → Group Rel (Ans D P)) : Reach K hK st (setGroup st i k f) :=
   reach_modify st i _ fun _ => rfl
 
+/-- The rounds a push shares among the tables it opened keep what a round
+keeps. -/
+theorem feedToks_keeps (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R Rel (Ans D P) × Nat))
+    (I : StateOf R Rel (Ans D P) → Prop)
+    (step : ∀ h X, I X → I (feed (K := DerivationKernel.over D K hK P) adv h X).val.1)
+    (subs : List (Ans D P × Option (Nat × Nat))) (f : Nat) (st : StateOf R Rel (Ans D P))
+    (d : Nat) (fc : Cursor) (h : I st) :
+    I (feedToks (K := DerivationKernel.over D K hK P) adv subs f st d fc).val.1 := by
+  at_cost K hK
+  induction f generalizing st d fc with
+  | zero =>
+    simp only [feedToks, Cost.pure_val]
+    exact h
+  | succ f ih =>
+    simp only [feedToks]
+    split
+    · simp only [Cost.pure_val]
+      exact h
+    · split
+      · exact ih _ _ _ h
+      · simp only [Cost.bind_val]
+        split
+        · simp only [Cost.pure_val]
+          exact step _ _ h
+        · exact ih _ _ _ (step _ _ h)
+
+theorem feedPush_keeps (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R Rel (Ans D P) × Nat))
+    (I : StateOf R Rel (Ans D P) → Prop)
+    (step : ∀ h X, I X → I (feed (K := DerivationKernel.over D K hK P) adv h X).val.1)
+    (st : StateOf R Rel (Ans D P)) (d : Nat) (s : Strat Rel (Ans D P)) (h : I st) :
+    I (feedPush (K := DerivationKernel.over D K hK P) adv st d s).val.1 := by
+  have hT := fun subs f fc =>
+    feedToks_keeps (K := K) (hK := hK) (P := P) adv I step subs f st d fc h
+  at_cost K hK
+  cases s with
+  | push k left side other subs dead reads c fc =>
+    simp only [feedPush, Cost.bind_val, Cost.pure_val]
+    exact hT _ _ _
+  | _ =>
+    simp only [feedPush, Cost.pure_val]
+    exact h
+
+theorem feedPushes_keeps (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R Rel (Ans D P) × Nat))
+    (I : StateOf R Rel (Ans D P) → Prop)
+    (step : ∀ h X, I X → I (feed (K := DerivationKernel.over D K hK P) adv h X).val.1)
+    (ss : List (Strat Rel (Ans D P))) (st : StateOf R Rel (Ans D P)) (d : Nat) (h : I st) :
+    I (feedPushes (K := DerivationKernel.over D K hK P) adv st d ss).val.1 := by
+  have hT := fun X d s hX => feedPush_keeps (K := K) (hK := hK) (P := P) adv I step X d s hX
+  at_cost K hK
+  induction ss generalizing st d with
+  | nil =>
+    simp only [feedPushes, Cost.pure_val]
+    exact h
+  | cons s rest ih =>
+    simp only [feedPushes, Cost.bind_val, Cost.pure_val]
+    exact ih _ _ (hT st d s h)
+
 /-- The rounds of the tables a group reads keep what a round keeps and a
 change to what a table has been fed keeps. -/
 theorem feedGroup_keeps (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R Rel (Ans D P) × Nat))
@@ -500,6 +557,8 @@ theorem feedGroup_keeps (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf
     (hfed : ∀ h c st, I st → I (st.modify h fun t => { t with fed := t.fed + c }))
     (i k : Nat) (st : StateOf R Rel (Ans D P)) (d : Nat) (h0 : I st) :
     I (feedGroup (K := DerivationKernel.over D K hK P) adv i k st d).val.1 := by
+  have hT := fun step ss X d hX =>
+    feedPushes_keeps (K := K) (hK := hK) (P := P) adv I step ss X d hX
   at_cost K hK
   have step : ∀ h X, I X → I (feed (K := DerivationKernel.over D _ hK P) adv h X).val.1 := by
     intro h X hX
@@ -514,11 +573,156 @@ theorem feedGroup_keeps (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf
     · exact hb
     · simp only [Cost.bind_val, Cost.pure_val]
       exact step _ _ hb
-  · simp only [feedAll]
+  · simp only [Cost.bind_val]
+    refine hT step _ _ _ ?_
+    simp only [feedAll]
     refine foldL_inv (fun acc : StateOf R Rel (Ans D P) × Nat => I acc.1) _ _
       (fun b h _ hb => ?_) _ h0
     simp only [Cost.bind_val, Cost.pure_val]
     exact step _ _ hb
+
+/-- A strategy without its feed cursor. Feeding changes nothing else of a
+strategy. -/
+def Strat.core {N A : Type} : Strat N A → Strat N A
+  | .push k l side o subs dead reads c _ => .push k l side o subs dead reads c Cursor.start
+  | s => s
+
+theorem Strat.withFeed_core {N A : Type} (s f : Strat N A) : (s.withFeed f).core = s.core := by
+  cases s <;> cases f <;> rfl
+
+/-- **Giving strategies their feed cursors changes nothing else of them.** -/
+theorem mem_reFeed {N A : Type} {ss fed : List (Strat N A)} {s' : Strat N A}
+    (h : s' ∈ reFeed ss fed) : ∃ s ∈ ss, s'.core = s.core := by
+  unfold reFeed at h
+  obtain ⟨e, he, rfl⟩ := List.mem_map.1 h
+  refine ⟨e.1, (List.mem_zipIdx_iff_getElem?.1 (by rcases e with ⟨a, b⟩; exact he) |> List.mem_of_getElem?), ?_⟩
+  split
+  · exact Strat.withFeed_core _ _
+  · rfl
+
+theorem mem_reFeed' {N A : Type} {ss fed : List (Strat N A)} {s' : Strat N A}
+    (h : s' ∈ reFeed ss fed) : s' ∈ ss ∨ ∃ s ∈ ss, ∃ f ∈ fed, s' = s.withFeed f := by
+  unfold reFeed at h
+  obtain ⟨e, he, rfl⟩ := List.mem_map.1 h
+  have hm : e.1 ∈ ss :=
+    List.mem_of_getElem? (List.mem_zipIdx_iff_getElem?.1 (by rcases e with ⟨a, b⟩; exact he))
+  split
+  · next f hf => exact .inr ⟨e.1, hm, f, List.mem_of_getElem? hf, rfl⟩
+  · exact .inl hm
+
+theorem reFeed_map_core {N A : Type} (ss fed : List (Strat N A)) :
+    (reFeed ss fed).map Strat.core = ss.map Strat.core := by
+  unfold reFeed
+  rw [List.map_map]
+  refine List.ext_getElem? fun n => ?_
+  simp only [List.getElem?_map, List.getElem?_zipIdx]
+  cases ss[n]? with
+  | none => rfl
+  | some s =>
+    simp only [Option.map_some, Nat.zero_add]
+    congr 1
+    show Strat.core (match fed[n]? with
+      | some f => s.withFeed f
+      | none => s) = s.core
+    split
+    · exact Strat.withFeed_core _ _
+    · rfl
+
+theorem feedPush_core (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R Rel (Ans D P) × Nat))
+    (st : StateOf R Rel (Ans D P)) (d : Nat) (s : Strat Rel (Ans D P)) :
+    (feedPush (K := DerivationKernel.over D K hK P) adv st d s).val.2.2.core = s.core := by
+  at_cost K hK
+  cases s <;> simp only [feedPush, Cost.bind_val, Cost.pure_val, Strat.core]
+
+/-- **Feeding changes the feed cursors of the pushes of a group and nothing
+else of its strategies.** -/
+theorem feedPushes_core (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R Rel (Ans D P) × Nat))
+    (ss : List (Strat Rel (Ans D P))) (st : StateOf R Rel (Ans D P)) (d : Nat) :
+    (feedPushes (K := DerivationKernel.over D K hK P) adv st d ss).val.2.2.map Strat.core =
+      ss.map Strat.core := by
+  have hT := fun X d s => feedPush_core (K := K) (hK := hK) (P := P) adv X d s
+  at_cost K hK
+  induction ss generalizing st d with
+  | nil => simp only [feedPushes, Cost.pure_val, List.map_nil]
+  | cons s rest ih =>
+    simp only [feedPushes, Cost.bind_val, Cost.pure_val, List.map_cons]
+    rw [ih, hT]
+
+theorem feedGroup_core (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R Rel (Ans D P) × Nat))
+    (i k : Nat) (st : StateOf R Rel (Ans D P)) (d : Nat) :
+    (feedGroup (K := DerivationKernel.over D K hK P) adv i k st d).val.2.2.map Strat.core =
+      (((groupsAt st i)[k]?.map (·.strats)).getD []).map Strat.core := by
+  have hT := fun ss X d => feedPushes_core (K := K) (hK := hK) (P := P) adv ss X d
+  at_cost K hK
+  simp only [feedGroup]
+  split
+  · next h => simp only [Cost.bind_val, Cost.pure_val, h]
+  · simp only [Cost.bind_val]
+    exact hT _ _ _
+
+/-- The feed cursor of a push; of any other strategy, the cursor that has
+done nothing. -/
+def Strat.feedOf {N A : Type} : Strat N A → Cursor
+  | .push _ _ _ _ _ _ _ _ fc => fc
+  | _ => Cursor.start
+
+/-- A strategy takes its own feed cursor from a strategy that is itself but
+for the feed cursor. -/
+theorem Strat.withFeed_of_core {N A : Type} {s f : Strat N A} (h : f.core = s.core) :
+    s.withFeed f = f := by
+  cases s <;> cases f <;> cases h <;> rfl
+
+theorem getElem?_reFeed {N A : Type} (ss fed : List (Strat N A)) (m : Nat) :
+    (reFeed ss fed)[m]? = (ss[m]?).map fun s =>
+      match fed[m]? with
+      | some f => s.withFeed f
+      | none => s := by
+  unfold reFeed
+  simp only [List.getElem?_map, List.getElem?_zipIdx]
+  cases ss[m]? with
+  | none => rfl
+  | some s => simp only [Option.map_some, Nat.zero_add]; rfl
+
+/-- **The work of a strategy leaves its feed cursor.** -/
+theorem work_feedOf (i : Nat) (g : GoalOf R Rel) (st : StateOf R Rel (Ans D P))
+    (s : Strat Rel (Ans D P)) :
+    (work (K := DerivationKernel.over D K hK P) i g st s).val.2.1.feedOf = s.feedOf := by
+  at_cost K hK
+  cases s with
+  | span ran =>
+    cases ran with
+    | true => simp only [work, Cost.pure_val]
+    | false => simp only [work, Cost.bind_val, Cost.pure_val]; rfl
+  | copy c subs =>
+    simp only [work]
+    split
+    · simp only [Cost.pure_val]
+    · simp only [Cost.bind_val, Cost.pure_val]; rfl
+  | join k a b c =>
+    simp only [work]
+    split <;> simp only [Cost.bind_val, Cost.pure_val] <;> rfl
+  | push k l side o subs dead reads c fc =>
+    simp only [work, Cost.bind_val]
+    split
+    · rfl
+    · split <;> simp only [Cost.bind_val, Cost.pure_val] <;> rfl
+  | check l side o c =>
+    cases c with
+    | reading =>
+      simp only [work, Cost.bind_val]
+      split
+      · rfl
+      · rfl
+      · simp only [Cost.bind_val, Cost.pure_val]; rfl
+    | off => simp only [work, Cost.pure_val]
+    | opened _ => simp only [work, Cost.pure_val]
+
+/-- **The turn of a strategy leaves its feed cursor.** -/
+theorem turn_feedOf (i : Nat) (g : GoalOf R Rel) (f left : Nat) (st : StateOf R Rel (Ans D P))
+    (s : Strat Rel (Ans D P)) (c : Nat) :
+    (turn (K := DerivationKernel.over D K hK P) i g f left st s c).val.2.1.feedOf = s.feedOf :=
+  turn_ind i g (fun _ s' => s'.feedOf = s.feedOf)
+    (fun st' s' h => (work_feedOf i g st' s').trans h) f left st s c rfl
 
 theorem reach_workGroup (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R Rel (Ans D P) × Nat))
     (hadv : ∀ h st, Reach K hK st (adv h st).val.1) (i : Nat) (g : GoalOf R Rel)

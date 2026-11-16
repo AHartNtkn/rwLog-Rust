@@ -8,7 +8,9 @@ its groups works in infinitely many requests (`Requests.lines`). `Line` is a
 group through time: its strategies, each later than itself before (`SAdv`),
 each of them working again and again (`SStep`), the tables they read fed
 again and again (`Fed`), and never all dead; and the group has a span, a call, a
-union or a join, or is all interface checks.
+union or a join, or is all interface checks. From one state to the next the
+strategies are the same or the tables its pushes opened have shared rounds
+(`FedP`), and they share rounds again and again.
 
 That every group has its turn is the balance (`Balanced`, `Turns.lean`): in
 a round a group worked, or it stands as it stood while a group below it
@@ -89,6 +91,10 @@ structure Line (need : N → Nat) (σ : Nat → StateOf S N A) (k r0 : Nat)
   stepped : ∀ m, m < (L r0).length → ∀ r', ∃ r, r' ≤ r ∧ r0 ≤ r ∧ ∃ s s',
     (L r)[m]? = some s ∧ (L (r + 1))[m]? = some s' ∧
     SStep need (σ r).len (σ r).isDone (σ r).depth (σ (r + 1)).depth s s'
+  shared : ∀ r, r0 ≤ r → L (r + 1) = L r ∨ ∀ (m : Nat) (s s' : Strat N A),
+    (L r)[m]? = some s → (L (r + 1))[m]? = some s' → FedP (σ (r + 1)) s s'
+  moved : ∀ r', ∃ r, r' ≤ r ∧ r0 ≤ r ∧ ∀ (m : Nat) (s s' : Strat N A),
+    (L r)[m]? = some s → (L (r + 1))[m]? = some s' → FedP (σ (r + 1)) s s'
 
 theorem Line.length {k r0 : Nat} {L : Nat → List (Strat N A)} (hL : Line need σ k r0 L)
     {r : Nat} (hr : r0 ≤ r) : (L r).length = (L r0).length := by
@@ -317,7 +323,7 @@ theorem Requests.lines (h : Requests need Rc σ) (k : Nat)
       obtain ⟨gr0, e0⟩ := hat r (by omega)
       obtain ⟨gr1, e1⟩ := hat (r + 1) (by omega)
       have hl0 := hlev r hr grm gr0 em e0
-      obtain ⟨-, -, ht | ⟨-, -, k', gr0', gr1', e0', e1', hlt, hrise⟩⟩ :=
+      obtain ⟨-, -, ht | ⟨-, -, -, k', gr0', gr1', e0', e1', hlt, hrise⟩⟩ :=
         (hst r (by omega)).2.2 hround m gr0 gr1 e0 e1
       · exact absurd ht (hno' r (by omega) (by omega) hround gr0 gr1 e0 e1)
       · refine sum_lt_sum_of_getElem (by simp [hlen r (by omega)]) (fun i a b ha hb => ?_)
@@ -354,7 +360,25 @@ theorem Requests.lines (h : Requests need Rc σ) (k : Nat)
     have h3 := hsum_lt r (by omega) hround
     have h4 := hbound (r + 1) (by omega)
     omega
-  refine ⟨?_, ?_, ?_, ?_, ?_⟩
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+  rotate_left 5
+  · intro r hr
+    obtain ⟨gr0, e0⟩ := hat r hr
+    obtain ⟨gr1, e1⟩ := hat (r + 1) (by omega)
+    simp only [e0, e1, Option.map_some, Option.getD_some]
+    by_cases hround : HadRound σ r k
+    · obtain ⟨-, -, ht | ⟨-, -, hstr, -⟩⟩ := (hst r hr).2.2 hround m gr0 gr1 e0 e1
+      · exact .inr ht.2.2
+      · exact .inl hstr
+    · have e1' := e1
+      rw [(hst r hr).2.1 hround, e0] at e1'
+      cases e1'
+      exact .inl rfl
+  · intro r'
+    obtain ⟨r, hr, hr0', -, gr0, gr1, e0, e1, htr⟩ := hwork r'
+    refine ⟨r, hr, hr0', ?_⟩
+    simp only [e0, e1, Option.map_some, Option.getD_some]
+    exact htr.2.2
   · intro r hr s hs
     obtain ⟨gr, hgr'⟩ := hat r hr
     obtain ⟨t, ht, hg⟩ := hgr r (by omega)
@@ -373,7 +397,7 @@ theorem Requests.lines (h : Requests need Rc σ) (k : Nat)
     obtain ⟨r, hr, hr0', hround, gr0, gr1, e0, e1, -, hfed⟩ := hwork r'
     refine ⟨r, hr, hr0', ?_, ?_⟩
     · simp only [e1, Option.map_some, Option.getD_some]
-      exact hfed
+      exact hfed.1
     · simp only [e0, Option.map_some, Option.getD_some]
       exact ((hst r hr0').2.2 hround m gr0 gr1 e0 e1).1
   · -- a strategy that never worked again would owe less and less for ever

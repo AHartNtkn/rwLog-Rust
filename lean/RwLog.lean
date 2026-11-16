@@ -175,6 +175,7 @@ import RwLog.Rungs.Symmetric.SelfConverse
 import RwLog.Rungs.Symmetric.Goals
 import RwLog.Rungs.Symmetric.Rounds
 import RwLog.Rungs.Symmetric.Cursor
+import RwLog.Rungs.Symmetric.FeedCursor
 import RwLog.Rungs.Symmetric.Progress
 import RwLog.Rungs.Symmetric.Kept
 import RwLog.Rungs.Symmetric.Edge

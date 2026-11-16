@@ -714,6 +714,9 @@ new axiom.
 /-- info: 'RwLog.Symmetric.Cursor.rank_fall' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Symmetric.Cursor.rank_fall
 
+/-- info: 'RwLog.Symmetric.Line.push_fed' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Symmetric.Line.push_fed
+
 /-- info: 'RwLog.Symmetric.rankLt_wf' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Symmetric.rankLt_wf
 
