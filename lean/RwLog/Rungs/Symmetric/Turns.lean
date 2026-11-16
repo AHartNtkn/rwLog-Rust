@@ -20,11 +20,17 @@ works, and of the levels that choose the order only the balance of a round.
   reads: they are settled, but of the members of a union one that was not
   settled had a round that cost something, and it had been fed no more than
   any member that is still not settled.
+  Of the tables of a push its side is fed so; the tables it opened share
+  rounds through its feed cursor, and `FedP st' s s'` is what a group that
+  worked did for them: each unit that was to take is taken, with its table
+  settled, or is of an answer superseded, or is nearer to its turn, and every
+  table opened of an answer not superseded is settled or has a unit.
 * `Turn st st' go go'` relates the groups of a table before its round to its
   groups after: the groups are the same ones, each strategy moved on, less
   the groups all of whose strategies are dead; one of the groups worked,
-  and the tables it reads are fed (`Tried`); and the round is balanced
-  (`Balanced`): no level fell, and each group worked, or stands as it stood
+  the tables it reads are fed and the tables its pushes opened have shared
+  rounds (`Tried`); and the round is balanced (`Balanced`): no level fell,
+  and each group worked, or stands as it stood, its strategies the same,
   while a group that stood lower rose. The levels are worked lowest first
   (`pairwise_levelsOf`), a level only if nothing was done at the lower ones,
   and a group did something exactly when its level rose (`workGroup_did`).

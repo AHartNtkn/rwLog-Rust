@@ -8,7 +8,9 @@ its groups works in infinitely many requests (`Requests.lines`). `Line` is a
 group through time: its strategies, each later than itself before (`SAdv`),
 each of them working again and again (`SStep`), the tables they read fed
 again and again (`Fed`), and never all dead; and the group has a span, a call, a
-union or a join, or is all interface checks.
+union or a join, or is all interface checks. From one state to the next the
+strategies are the same or the tables its pushes opened have shared rounds
+(`FedP`), and they share rounds again and again.
 
 That every group has its turn is the balance (`Balanced`, `Turns.lean`): in
 a round a group worked, or it stands as it stood while a group below it

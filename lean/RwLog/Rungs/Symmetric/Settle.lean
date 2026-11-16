@@ -19,6 +19,10 @@ a strategy of it reads gain no more answers (`Still`):
 Each falls in a well-founded measure whenever the group works while the
 strategy has work, and never rises.
 
+And while the group works, with no table still: the table a push opened for
+an answer that is never superseded needs no round again and again
+(`Line.push_fed`), by the measure of its feed cursor.
+
 Nothing here is about a kernel.
 -/
 import RwLog.Rungs.Symmetric.Lines
