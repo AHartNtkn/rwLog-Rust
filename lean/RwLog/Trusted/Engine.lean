@@ -9,7 +9,8 @@ A rung is a *preprocessor* followed by a *runtime*.
   (`Trusted/Kernel.lean`) and for any type of spans, which it can read only
   as the kernel reads a span of the program (`rep`), so it is a charged
   computation, and its cost is recorded apart from the cost of running.
-  Rung zero's preprocessor is the identity and its store is empty.
+  A rung has a list of them, run one after another (`Preprocessor.runAll`);
+  rung zero's list is empty and so is its store.
 
   What a preprocessor may add is this, and nothing else.
 
@@ -98,14 +99,31 @@ program, reading a span as that kernel does. -/
 /-- A list of sorts extends itself. -/
 theorem Sorts.Extends.refl (S : Sorts) : S.Extends S := ⟨List.prefix_refl S, fun _ _ _ => Iff.rfl⟩
 
-def Preprocessor.id : Preprocessor where
-  gen _ _ A P q := pure (P, q, A)
-  adds κ A P q _ := by rw [(κ.refines P.sorts).pure_eq]; exact Sorts.Extends.refl _
-  wf κ A P q h := by rw [(κ.refines P.sorts).pure_eq]; exact h
-  equiv κ A P q _ := by rw [(κ.refines P.sorts).pure_eq]; rfl
+/-! ## Rewrites one after another
+
+A rung has a list of preprocessors, and they are run in order, each on the
+program and query the one before it returned. Each is run at the kernel of
+the sorts of the program it is handed, since the one before it may have
+added sorts: that is the kernel its laws (`adds`, `wf`, `equiv`) are stated
+at, so the laws of a list follow from the laws of its members
+(`Preprocessor.runAll_wf`, `runAll_equiv`, `runAll_adds`,
+`Rungs/Framework/Transfer.lean`). One preprocessor written as two run one
+after the other at the kernel of the first program would not have the laws
+of the second. The empty list is no preprocessing, at no cost. A rung that
+adds a rewrite to the rung below it adds a member to this list. -/
+
+/-- The preprocessors of a list, run in order, each at the kernel of the
+sorts of the program it is handed. What each costs is added up. -/
+def Preprocessor.runAll (κ : KernelRung) :
+    List Preprocessor → ArtifactStore → Program → Rel → Cost (Program × Rel × ArtifactStore)
+  | [], A, P, q => pure (P, q, A)
+  | p :: rest, A, P, q => do
+    let r ← p.run κ A P q
+    Preprocessor.runAll κ rest r.2.2 r.1 r.2.1
 
 structure Rung where
-  pre : Preprocessor
+  /-- The rewrites before execution, in the order they are run. -/
+  pre : List Preprocessor
   rt : Runtime
 
 end RwLog

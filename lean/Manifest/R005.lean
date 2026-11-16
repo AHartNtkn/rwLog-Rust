@@ -1,6 +1,6 @@
 import RwLog.Rungs.R005.Sorts
 import RwLog.Rungs.R005.Bounds
-import Lean
+import RwLog.Lib.Audit
 
 /-!
 # Manifest of R005, the yardstick
@@ -11,8 +11,9 @@ What is claimed of R005, in one file the build checks (roadmap L06).
   theorem it names, so the build fails if a statement changes or weakens.
 * **Bounds.** The lower bound on a mirrored machine that is proved, and the
   two lower bounds on R005 that are stated and not proved.
-* **Trusted files.** The files under `Trusted/` this manifest depends on,
-  compared with the list written here.
+* **Trusted files.** The files under `Trusted/` this manifest depends on, and
+  the files whose definitions those are written with, compared with the
+  list written here.
 * **Axioms.** The headline theorems use only Lean's three standard axioms.
 -/
 
@@ -101,12 +102,6 @@ example (κ : KernelRung) (h : R005.FreeLower κ) (k : Nat) {n : Nat}
 
 /-! ## Trusted files -/
 
-open Lean Elab Command in
-/-- The files under `Trusted/` among everything this file imports. -/
-elab "#trusted_files" : command => do
-  let ms := (← getEnv).header.moduleNames.filter fun m => (`RwLog.Trusted).isPrefixOf m
-  logInfo m!"{(ms.map toString).qsort (· < ·)}"
-
 /--
 info: [RwLog.Trusted.Charged,
  RwLog.Trusted.Cost,
@@ -118,24 +113,30 @@ info: [RwLog.Trusted.Charged,
  RwLog.Trusted.Runtime,
  RwLog.Trusted.Semantics,
  RwLog.Trusted.Syntax]
+and the definitions they are written with:
+[RwLog.Kernel.Canon,
+ RwLog.Kernel.Covers,
+ RwLog.Kernel.Derivation,
+ RwLog.Kernel.Iface,
+ RwLog.Kernel.Match,
+ RwLog.Kernel.NormalForm,
+ RwLog.Kernel.NormalFormCorrect,
+ RwLog.Kernel.Order,
+ RwLog.Kernel.Solve,
+ RwLog.Kernel.Span,
+ RwLog.Kernel.TermFacts,
+ RwLog.SpanLayer.Algebra,
+ RwLog.SpanLayer.Bridge,
+ RwLog.SpanLayer.Coverage,
+ RwLog.SpanLayer.Derives,
+ RwLog.SpanLayer.Modulo,
+ RwLog.SpanLayer.Triples]
 -/
-#guard_msgs in #trusted_files
+#guard_msgs in #trusted_files RwLog.Trusted
 
 /-! ## Axioms -/
 
-/-- info: 'RwLog.R005.keeps' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLog.R005.keeps
-/-- info: 'RwLog.R005.keeps_rung' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLog.R005.keeps_rung
-/-- info: 'RwLog.R005.keeps_sorts' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLog.R005.keeps_sorts
-/-- info: 'RwLog.R005.trace' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLog.R005.trace
-/-- info: 'RwLog.R005.record' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLog.R005.record
-/-- info: 'RwLog.R005.neverCertifies' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLog.R005.neverCertifies
-/-- info: 'RwLog.Mirror.paid_ge_min' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLog.Mirror.paid_ge_min
+#assert_axioms RwLog.R005.keeps RwLog.R005.keeps_rung RwLog.R005.keeps_sorts RwLog.R005.trace
+  RwLog.R005.record RwLog.R005.neverCertifies RwLog.Mirror.paid_ge_min
 
 end RwLog.Manifest.R005

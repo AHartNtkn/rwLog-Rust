@@ -2,16 +2,16 @@
 # The record of wins: the admission rule has inhabitants
 
 `Trusted/Cost.lean` admits a rung by `Admits`, over the record of the wins of
-the rungs below it, and `Ladder` is a chain of such admissions. This file
-shows that the statement can be met: a ladder of two rungs above a base, the
-second admitted for an exponential gain over a record that holds the
-polynomial win of the first.
+the rungs below it. This file shows that the statement can be met: two
+admissions one above the other over a base, the second for an exponential
+gain over a record that holds the polynomial win of the first.
 
 The three engines are toys, made for this purpose only. None of them is a
 machine for the language: they are not complete, and correctness is no part
-of `Admits` (it is `Keeps`, `Trusted/Properties.lean`). What is shown is that
-the clauses of `Admits` can hold together, with a record that is empty and
-with one that is not.
+of `Admits`. What is shown is that the clauses of `Admits` can hold together,
+with a record that is empty and with one that is not. They are not a
+`Ladder` (`Trusted/Properties.lean`): a ladder asks every rung on it for the
+laws, which these engines do not have.
 
 `Admits` is at a kernel rung, and the rung here is a toy too: `sized` is the
 domain of sorts where reading a span of the program is charged its size and
@@ -36,8 +36,6 @@ written out, so in a context it costs exactly its residue.
   span, that span has the size of the pair's (`norm_fill_pair`), so `slow`
   has wasted `2 ^ size` before it answers. `quick_keeps` is the clause this
   file is for: `quick` meets the bound `slow` was admitted with.
-* `ladder`: the two admissions as a `Ladder`, with both wins on its record.
-
 The facts about normal forms used on the way: when the normal form of a
 union is one span, each side is that span or nothing (`normB_or_span`); the
 normal form of a meet or a sequence is never one span (`normB_and_ne`,
@@ -911,9 +909,9 @@ theorem slow_improves :
 /-- The slow reader is admitted above the silent engine, over the empty
 record. -/
 theorem slow_admits :
-    Admits sized ⟨.time, .polynomial⟩ ⟨Preprocessor.id, silent, false⟩ ⟨Preprocessor.id, slow, false⟩ slowBounds ⟨2, 1⟩
+    Admits sized ⟨.time, .polynomial⟩ ⟨[], silent, false⟩ ⟨[], slow, false⟩ slowBounds ⟨2, 1⟩
       (fun _ => 0) slowClass [] 0 :=
-  Admits.of_id slow_improves (rd_direction _) fun _ h => absurd h List.not_mem_nil
+  Admits.of_nil slow_improves (rd_direction _) fun _ h => absurd h List.not_mem_nil
 
 /-- What the quick reader pays on a pair: at most what the slow one pays. -/
 theorem quick_le_slow (a c : GTerm) :
@@ -978,17 +976,11 @@ theorem quick_improves :
 /-- The quick reader is admitted above the slow one by an exponential gain,
 over the record that holds the slow reader's polynomial win. -/
 theorem quick_admits :
-    Admits sized ⟨.time, .exponential⟩ ⟨Preprocessor.id, slow, false⟩ ⟨Preprocessor.id, quick, false⟩ quickBounds
+    Admits sized ⟨.time, .exponential⟩ ⟨[], slow, false⟩ ⟨[], quick, false⟩ quickBounds
       ⟨2, 1⟩ (fun _ => 0) quickClass [slowWin] 1 :=
-  Admits.of_id quick_improves (rd_direction _) fun w hw => by
+  Admits.of_nil quick_improves (rd_direction _) fun w hw => by
     obtain rfl := List.mem_singleton.1 hw
     exact quick_keeps
-
-/-- A ladder of two rungs above the silent engine, with both wins on its
-record. -/
-theorem ladder :
-    Ladder sized ⟨Preprocessor.id, silent, false⟩ ⟨Preprocessor.id, quick, false⟩ [quickWin, slowWin] :=
-  .admit (.admit .base slow_admits) quick_admits
 
 end Witness
 end RwLog

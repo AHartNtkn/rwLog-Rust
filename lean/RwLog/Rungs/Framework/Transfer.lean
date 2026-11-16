@@ -16,12 +16,19 @@ shows how its answers relate to the earlier rung's and uses one of:
 * `HonestExhaustion.of_cover`: honest exhaustion from soundness and coverage
   of every derivation at the halting step, for a runtime on its own.
 
-A rung is a preprocessor followed by a runtime. `Rung.sound`,
-`Rung.pointComplete` and `Rung.honest` state what the pipeline guarantees
-about the *original* program and query, given the runtime's Tier 0 and that
-the preprocessor's output is well formed. Completeness is pair by pair here:
-a preprocessor keeps the meaning, not the derivations, so "one answer covers
-each derivable span of the original query" is not something it preserves.
+A rung is a list of preprocessors followed by a runtime. The laws of the list
+follow from the laws of its members (`Preprocessor.runAll_wf`,
+`runAll_equiv`, `runAll_adds`). `Rung.sound`, `Rung.pointComplete`,
+`Rung.honest`, `Rung.honestProgress` and `Rung.noSubsumed` state what the
+rung guarantees about the *original* program and query, given the same
+property of the runtime. `Rung.convTrace` and `Rung.dualTrace` need the
+preprocessors to commute with the converse and the mirror image
+(`Rung.Mirrors`). `Rung.keepsPointwise` puts the list of `KeepsPointwise`
+together and shows what is left: five properties that the laws of a
+preprocessor do not give and that are asked of the rung. Completeness is pair
+by pair here: a preprocessor keeps the meaning, not the derivations, so "one
+answer covers each derivable span of the original query" is not something it
+preserves.
 -/
 import RwLog.Rungs.Framework.Tier0
 import RwLog.Rungs.Framework.Trace
@@ -146,6 +153,91 @@ theorem SameRun.terminatesOn (h : SameRun R' R) {C : Program → Rel → Prop}
 
 end Runtime
 
+/-! ## Preprocessors one after another
+
+The laws of a list of preprocessors follow from the laws of its members,
+because each member is run at the kernel of the sorts of the program it is
+handed (`Preprocessor.runAll`, `Trusted/Engine.lean`). A rung that adds a
+rewrite proves the three laws of that rewrite and nothing about the list. -/
+
+/-- Extending sorts twice extends them. -/
+theorem Sorts.Extends.trans {S S' S'' : Sorts} (h : S.Extends S') (h' : S'.Extends S'') :
+    S.Extends S'' :=
+  ⟨h.1.trans h'.1, fun n hn t =>
+    (h'.2 n ((h.1.map Prod.fst).subset hn) t).trans (h.2 n hn t)⟩
+
+namespace Preprocessor
+
+variable (κ : KernelRung)
+
+/-- No preprocessor costs nothing. -/
+theorem runAll_nil_ticks (A : ArtifactStore) (P : Program) (q : Rel) :
+    (runAll κ [] A P q).ticks = 0 := rfl
+
+/-- A list of preprocessors costs what its members cost, each on what the
+ones before it returned. -/
+theorem runAll_cons_ticks (p : Preprocessor) (rest : List Preprocessor) (A : ArtifactStore)
+    (P : Program) (q : Rel) :
+    (runAll κ (p :: rest) A P q).ticks = (p.run κ A P q).ticks +
+      (runAll κ rest (p.run κ A P q).val.2.2 (p.run κ A P q).val.1
+        (p.run κ A P q).val.2.1).ticks := rfl
+
+/-- What a list of preprocessors returns on a well-formed input is well
+formed. -/
+theorem runAll_wf : ∀ (ps : List Preprocessor) (A : ArtifactStore) (P : Program) (q : Rel),
+    P.WellFormed q → (runAll κ ps A P q).val.1.WellFormed (runAll κ ps A P q).val.2.1
+  | [], _, _, _, h => h
+  | p :: rest, A, P, q, h => runAll_wf rest _ _ _ (p.wf κ A P q h)
+
+/-- What a list of preprocessors returns relates the pairs the input
+relates. -/
+theorem runAll_equiv : ∀ (ps : List Preprocessor) (A : ArtifactStore) (P : Program) (q : Rel),
+    P.WellFormed q →
+      (runAll κ ps A P q).val.1.pairs (runAll κ ps A P q).val.2.1 = P.pairs q
+  | [], _, _, _, _ => rfl
+  | p :: rest, A, P, q, h =>
+    (runAll_equiv rest _ _ _ (p.wf κ A P q h)).trans (p.equiv κ A P q h)
+
+/-- The sorts a list of preprocessors returns extend the sorts of the
+input. -/
+theorem runAll_adds : ∀ (ps : List Preprocessor) (A : ArtifactStore) (P : Program) (q : Rel),
+    P.WellFormed q → P.sorts.Extends (runAll κ ps A P q).val.1.sorts
+  | [], _, _, _, _ => Sorts.Extends.refl _
+  | p :: rest, A, P, q, h =>
+    (p.adds κ A P q h).trans (runAll_adds rest _ _ _ (p.wf κ A P q h))
+
+end Preprocessor
+
+/-! ## Answers that say how they are read, in two interpretations -/
+
+section
+variable {A : Type} [Answer A]
+
+theorem Answer.SelfRead.covers (hA : Answer.SelfRead A) (M M' : Interp) {a b : A} :
+    Answer.Covers M a b ↔ Answer.Covers M' a b := by
+  unfold Answer.Covers
+  rw [hA M M' a, hA M M' b]
+
+theorem Answer.SelfRead.equiv (hA : Answer.SelfRead A) (M M' : Interp) {a b : A}
+    (h : Answer.Equiv M a b) : Answer.Equiv M' a b :=
+  ⟨(hA.covers M M').1 h.1, (hA.covers M M').1 h.2⟩
+
+theorem StepEquiv.selfRead (hA : Answer.SelfRead A) (M M' : Interp) {xs ys : List A} :
+    StepEquiv M xs ys → StepEquiv M' xs ys
+  | ⟨ys', hp, hf⟩ => ⟨ys', hp, hf.imp fun _ _ h => hA.equiv M M' h⟩
+
+theorem ShownEquiv.selfRead (hA : Answer.SelfRead A) (M M' : Interp) {s s' : Shown A}
+    (h : ShownEquiv M s s') : ShownEquiv M' s s' := by
+  cases s <;> cases s' <;> first | exact h | exact StepEquiv.selfRead hA M M' h
+
+/-- Traces of answers that say how they are read agree in one interpretation
+if they agree in another. -/
+theorem TraceEquiv.selfRead (hA : Answer.SelfRead A) (M M' : Interp) {t t' : List (Shown A)}
+    (h : TraceEquiv M t t') : TraceEquiv M' t t' :=
+  List.Forall₂.imp (fun _ _ h => ShownEquiv.selfRead hA M M' h) h
+
+end
+
 /-! ## The whole rung, on the original program -/
 
 namespace Rung
@@ -153,17 +245,24 @@ namespace Rung
 variable (G : Rung) (κ : KernelRung)
 
 /-- The program and query the runtime is run on. -/
-def prog (A : ArtifactStore) (P : Program) (q : Rel) : Program := (G.pre.run κ A P q).val.1
-def query (A : ArtifactStore) (P : Program) (q : Rel) : Rel := (G.pre.run κ A P q).val.2.1
+def prog (A : ArtifactStore) (P : Program) (q : Rel) : Program :=
+  (Preprocessor.runAll κ G.pre A P q).val.1
+def query (A : ArtifactStore) (P : Program) (q : Rel) : Rel :=
+  (Preprocessor.runAll κ G.pre A P q).val.2.1
+
+/-- What the runtime is run on is well formed. -/
+theorem wf_pre {A : ArtifactStore} {P : Program} {q : Rel} (hP : P.WellFormed q) :
+    (G.prog κ A P q).WellFormed (G.query κ A P q) :=
+  Preprocessor.runAll_wf κ G.pre A P q hP
 
 theorem pairs_pre {A : ArtifactStore} {P : Program} {q : Rel} (hP : P.WellFormed q) :
     (G.prog κ A P q).pairs (G.query κ A P q) = P.pairs q :=
-  G.pre.equiv κ A P q hP
+  Preprocessor.runAll_equiv κ G.pre A P q hP
 
 /-- The sorts the runtime is run on extend the sorts of the program. -/
 theorem sorts_pre {A : ArtifactStore} {P : Program} {q : Rel} (hP : P.WellFormed q) :
     P.sorts.Extends (G.prog κ A P q).sorts :=
-  G.pre.adds κ A P q hP
+  Preprocessor.runAll_adds κ G.pre A P q hP
 
 /-- The rung runs its machine: from the same state the two runs are the
 same. -/
@@ -203,6 +302,13 @@ theorem trace_runtime (A : ArtifactStore) :
       rw [Runtime.trace_succ_done _ h, Runtime.trace_succ_done _ h']
       rfl
 
+/-- The trace of the rung is the trace of its machine on the preprocessed
+input. -/
+theorem trace_init (A : ArtifactStore) (P : Program) (q : Rel) (n : Nat) :
+    (G.runtime κ A).trace ((G.runtime κ A).init P q) n =
+      G.rt.trace (G.rt.init (G.prog κ A P q) (G.query κ A P q)) n :=
+  G.trace_runtime κ A n _
+
 theorem emitted_runtime (A : ArtifactStore) (P : Program) (q : Rel) (n : Nat) :
     (G.runtime κ A).emitted ((G.runtime κ A).init P q) n =
       G.rt.emitted (G.rt.init (G.prog κ A P q) (G.query κ A P q)) n :=
@@ -231,7 +337,7 @@ theorem sound (hA : Answer.SelfRead G.rt.Ans) (hs : G.rt.Sound) (A : ArtifactSto
   intro P q hP n a ha
   rw [G.emitted_runtime κ] at ha
   rw [← G.pairs_pre κ (A := A) hP]
-  have h := hs _ _ (G.pre.wf κ A P q hP) n a ha
+  have h := hs _ _ (G.wf_pre κ hP) n a ha
   rwa [hA _ P.sorts.interp a] at h
 
 /-- Every pair the original query relates is related by some answer of the
@@ -240,7 +346,7 @@ theorem pointComplete (hA : Answer.SelfRead G.rt.Ans) (hc : G.rt.PointComplete)
     (A : ArtifactStore) : (G.runtime κ A).PointComplete := by
   intro P q hP p hp
   rw [← G.pairs_pre κ hP] at hp
-  obtain ⟨n, a, ha, hpa⟩ := hc _ _ (G.pre.wf κ A P q hP) p hp
+  obtain ⟨n, a, ha, hpa⟩ := hc _ _ (G.wf_pre κ hP) p hp
   rw [hA _ P.sorts.interp a] at hpa
   exact ⟨n, a, by rw [G.emitted_runtime κ]; exact ha, hpa⟩
 
@@ -250,7 +356,7 @@ theorem honest (hA : Answer.SelfRead G.rt.Ans) (hh : G.rt.HonestExhaustion)
     (A : ArtifactStore) : (G.runtime κ A).HonestExhaustion := by
   intro P q hP n hn
   rw [← G.pairs_pre κ (A := A) hP, G.emitted_runtime]
-  exact (hh _ _ (G.pre.wf κ A P q hP) n ((G.halts_runtime κ A P q n).1 hn)).trans
+  exact (hh _ _ (G.wf_pre κ hP) n ((G.halts_runtime κ A P q n).1 hn)).trans
     (Set.iUnion₂_congr fun a _ => hA _ _ a)
 
 /-- A progress certificate of the rung is true of the original query. -/
@@ -261,21 +367,82 @@ theorem honestProgress (hA : Answer.SelfRead G.rt.Ans) (hh : G.rt.HonestProgress
   intro h1 h2
   rw [G.emitted_runtime κ]
   obtain ⟨a, ha, hpa⟩ :=
-    hh _ _ (G.pre.wf κ A P q hP) k n ((G.certifies_runtime κ A P q k n).1 hc) p hp h1 h2
+    hh _ _ (G.wf_pre κ hP) k n ((G.certifies_runtime κ A P q k n).1 hc) p hp h1 h2
   rw [hA _ P.sorts.interp a] at hpa
   exact ⟨a, ha, hpa⟩
 
-/-- The rung with the identity preprocessor is its machine. -/
-theorem runtime_id (R : Runtime) (A : ArtifactStore) : (Rung.mk .id R).runtime κ A = R := by
-  have h : ∀ P q, (Preprocessor.id.run κ A P q).val = (P, q, A) := fun P q =>
-    congrArg Cost.val ((κ.refines P.sorts).pure_eq _)
-  unfold Rung.runtime
-  simp only [h]
+/-- No answer of the rung is covered by an earlier one. -/
+theorem noSubsumed (hA : Answer.SelfRead G.rt.Ans) (hn : G.rt.NoSubsumed) (A : ArtifactStore) :
+    (G.runtime κ A).NoSubsumed := by
+  intro P q hP n
+  rw [G.emitted_runtime κ]
+  exact (hn _ _ (G.wf_pre κ hP) n).imp fun h hc => h ((hA.covers _ _).1 hc)
 
-/-- A machine that keeps every property is a rung that keeps them, with the
-identity preprocessor. -/
-theorem Keeps.of_id {R Base : Runtime} (h : R.Keeps Base) : (Rung.mk .id R).Keeps κ Base :=
-  fun A => (runtime_id κ R A).symm ▸ h.toKeepsPointwise
+/-! ### The laws that compare two runs
+
+`ConvTrace` and `DualTrace` compare the run on an input with the run on its
+converse and on its mirror image. Both are stated on the original input, so
+they hold of a rung when its preprocessors commute with the converse and with
+the mirror image (`Rung.Mirrors`): this is part of what a rewrite before
+execution owes, beside its meaning. -/
+
+/-- The preprocessors of the rung commute with the converse of a query and
+with the mirror image of an input. -/
+structure Mirrors : Prop where
+  conv : ∀ A P q, P.WellFormed q →
+    G.prog κ A P (.conv q) = G.prog κ A P q ∧ G.query κ A P (.conv q) = .conv (G.query κ A P q)
+  dual : ∀ A P q, P.WellFormed q →
+    G.prog κ A P.dual q.dual = (G.prog κ A P q).dual ∧
+      G.query κ A P.dual q.dual = (G.query κ A P q).dual
+
+/-- The run of the rung on a converse is the run swapped. -/
+theorem convTrace (hA : Answer.SelfRead G.rt.Ans) (hc : G.rt.ConvTrace) (hm : G.Mirrors κ)
+    (A : ArtifactStore) : (G.runtime κ A).ConvTrace := by
+  intro P q n hP
+  have h := hc _ _ n (G.wf_pre κ (A := A) hP)
+  rw [G.trace_init κ A P (.conv q) n, G.trace_init κ A P q n, (hm.conv A P q hP).1,
+    (hm.conv A P q hP).2]
+  exact TraceEquiv.selfRead hA _ _ h
+
+/-- The run of the rung on a mirror image is the run swapped. -/
+theorem dualTrace (hA : Answer.SelfRead G.rt.Ans) (hd : G.rt.DualTrace) (hm : G.Mirrors κ)
+    (A : ArtifactStore) : (G.runtime κ A).DualTrace := by
+  intro P q n hP
+  have h := hd _ _ n (G.wf_pre κ (A := A) hP)
+  rw [G.trace_init κ A P.dual q.dual n, G.trace_init κ A P q n, (hm.dual A P q hP).1,
+    (hm.dual A P q hP).2]
+  exact TraceEquiv.selfRead hA _ _ h
+
+/-- **What a rung keeps, from what its machine keeps and what its
+preprocessors owe.** Seven properties need nothing of the preprocessors but
+their three laws and that they commute with the converse and the mirror
+image. The other five are stated on the original input and are not
+consequences of those: they are asked of the rung. -/
+theorem keepsPointwise (hA : Answer.SelfRead G.rt.Ans) {Base₀ Base : Runtime}
+    (h : G.rt.KeepsPointwise Base₀) (hm : G.Mirrors κ) (A : ArtifactStore)
+    (hg : (G.runtime κ A).DerivationGeneral) (ht : (G.runtime κ A).TerminatesWhere Base)
+    (hoc : (G.runtime κ A).OrComm) (hoa : (G.runtime κ A).OrAssoc)
+    (he : (G.runtime κ A).EmptySide) : (G.runtime κ A).KeepsPointwise Base where
+  sound := G.sound κ hA h.sound A
+  pointComplete := G.pointComplete κ hA h.pointComplete A
+  honest := G.honest κ hA h.honest A
+  honestProgress := G.honestProgress κ hA h.honestProgress A
+  derivationGeneral := hg
+  terminates := ht
+  orComm := hoc
+  orAssoc := hoa
+  emptySide := he
+  convTrace := G.convTrace κ hA h.convTrace hm A
+  dualTrace := G.dualTrace κ hA h.dualTrace hm A
+  noSubsumed := G.noSubsumed κ hA h.noSubsumed A
+
+/-- The rung with no preprocessor is its machine. -/
+theorem runtime_nil (R : Runtime) (A : ArtifactStore) : (Rung.mk [] R).runtime κ A = R := rfl
+
+/-- A machine that keeps every property is a rung that keeps them, with no
+preprocessor. -/
+theorem Keeps.of_nil {R Base : Runtime} (h : R.Keeps Base) : (Rung.mk [] R).Keeps κ Base :=
+  fun _ => h.toKeepsPointwise
 
 end Rung
 
