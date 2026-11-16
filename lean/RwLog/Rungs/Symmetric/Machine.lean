@@ -1223,8 +1223,23 @@ def feedGroup (adv : Nat → StateOf S N A → M (StateOf S N A × Nat)) (i k : 
     let r ← feedAll (K := K) adv st d (strats.flatMap (Strat.feeds0 st)).eraseDups
     feedPushes (K := K) adv r.1 r.2 strats
 
+/-- A strategy with the feed cursor of another, if both are pushes. -/
+def Strat.withFeed : Strat N A → Strat N A → Strat N A
+  | .push k l side o subs dead reads c _, .push _ _ _ _ _ _ _ _ fc =>
+    .push k l side o subs dead reads c fc
+  | s, _ => s
+
+/-- Strategies with the feed cursors of the strategies `fed`, place by
+place. -/
+def reFeed (ss fed : List (Strat N A)) : List (Strat N A) :=
+  ss.zipIdx.map fun e =>
+    match fed[e.2]? with
+    | some f => e.1.withFeed f
+    | none => e.1
+
 /-- The group `k` of the table at `i` works: each of its strategies does its
-own work, and then the tables they read have their rounds (`feedGroup`). The
+own work, and then the tables they read have their rounds (`feedGroup`),
+and its pushes are given their feed cursors as the rounds left them. The
 ticks of the strategies' own work are added to the own work of the table.
 Returns how much the level of the group rose, and whether anything was
 done. -/
@@ -1232,7 +1247,7 @@ def workGroup (adv : Nat → StateOf S N A → M (StateOf S N A × Nat)) (i : Na
     (g : GoalOf S N) (k : Nat) (st : StateOf S N A) : M (StateOf S N A × Nat × Bool) := do
   let (st, d0, did) ← workStrats (K := K) i g k st
   let (st, d, strats) ← feedGroup (K := K) adv i k st d0
-  pure ((setGroup st i k fun gr => { gr with level := gr.level + d, strats := strats }).modify i
+  pure ((setGroup st i k fun gr => { gr with level := gr.level + d, strats := reFeed gr.strats strats }).modify i
     fun t => { t with own := t.own + d0 }, d, did || decide (0 < d))
 
 /-- The groups of the table at `i` that stand at the level `lv` work.

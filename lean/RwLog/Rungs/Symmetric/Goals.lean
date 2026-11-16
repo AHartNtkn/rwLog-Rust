@@ -1021,37 +1021,21 @@ theorem StratOk.core {st : StateOf R Rel (Ans D P)} {g : GoalOf R Rel}
     StratOk st g s' := by
   cases s <;> cases s' <;> cases h <;> exact hs
 
-/-- The tables a group reads have their rounds, and the group is given its
-strategies with the feed cursors moved: the invariant is kept. -/
+/-- The tables a group reads have their rounds, and its pushes are given
+their feed cursors: the invariant is kept. -/
 theorem inv_feedGroup (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R Rel (Ans D P) × Nat))
-    (hadv : ∀ h st, Inv st → Inv (adv h st).val.1)
-    (hadvR : ∀ h st, Reach K hK st (adv h st).val.1) {X : StateOf R Rel (Ans D P)}
-    (hI : Inv X) (i : Nat) (g : GoalOf R Rel) (k : Nat) (hg : goalAt X i = some g) (d : Nat) :
+    (hadv : ∀ h st, Inv st → Inv (adv h st).val.1) {X : StateOf R Rel (Ans D P)}
+    (hI : Inv X) (i k d : Nat) :
     Inv (setGroup (feedGroup (K := DerivationKernel.over D K hK P) adv i k X d).val.1 i k
       fun gr => { gr with
         level := gr.level + (feedGroup (K := DerivationKernel.over D K hK P) adv i k X d).val.2.1,
-        strats := (feedGroup (K := DerivationKernel.over D K hK P) adv i k X d).val.2.2 }) := by
-  have hf := feedGroup_keeps (K := K) (hK := hK) (P := P) adv
-    (fun Y => Inv Y ∧ Reach K hK X Y)
-    (fun h Y hY => ⟨hadv h Y hY.1, hY.2.trans (hadvR h Y)⟩)
-    (fun h c Y hY => ⟨hY.1.modify_same h _ (fun _ => rfl) (fun _ => rfl),
-      hY.2.trans (reach_modify Y h _ fun _ => rfl)⟩)
-    i k X d ⟨hI, Reach.refl X⟩
-  have hc := feedGroup_core (K := K) (hK := hK) (P := P) adv i k X d
-  refine inv_setGroup hf.1 _ _ _ (fun g' gr hg' _ s' hs' => ?_)
-  obtain rfl : g' = g := Option.some.inj (hg'.symm.trans (hf.2.ext _ _ hg))
-  have hm : s'.core ∈ (((groupsAt X i)[k]?.map (·.strats)).getD []).map Strat.core := by
-    rw [← hc]
-    exact List.mem_map_of_mem hs'
-  obtain ⟨s, hs, e⟩ := List.mem_map.1 hm
-  cases hgr : (groupsAt X i)[k]? with
-  | none => rw [hgr] at hs; cases hs
-  | some gr0 =>
-    rw [hgr] at hs
-    obtain ⟨j, hj⟩ := List.getElem?_of_mem hs
-    refine StratOk.core e.symm (StratOk.mono hf.2.ext (strat_of_groupsAt hI hg (k := k) (j := j) ?_))
-    rw [hgr]
-    exact hj
+        strats := reFeed gr.strats
+          (feedGroup (K := DerivationKernel.over D K hK P) adv i k X d).val.2.2 }) := by
+  have hf := feedGroup_keeps (K := K) (hK := hK) (P := P) adv Inv hadv
+    (fun h c Y hY => hY.modify_same h _ (fun _ => rfl) (fun _ => rfl)) i k X d hI
+  refine inv_setGroup hf _ _ _ (fun g' gr _ h s' hs' => ?_)
+  obtain ⟨s, hs, e⟩ := mem_reFeed hs'
+  exact StratOk.core e (h s hs)
 
 theorem inv_workGroup (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R Rel (Ans D P) × Nat))
     (hadv : ∀ h st, Inv st → Inv (adv h st).val.1)
@@ -1063,7 +1047,7 @@ theorem inv_workGroup (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R
     inv_turn (K := K) (hK := hK) (st := st) hI i g f left s c hg hs
   have hrt := fun f left st s c => reach_turn (K := K) (hK := hK) (P := P) i g f left st s c
   have hf := fun X d (hX : Inv X ∧ goalAt X i = some g) =>
-    inv_feedGroup (K := K) (hK := hK) (P := P) adv hadv hadvR hX.1 i g k hX.2 d
+    inv_feedGroup (K := K) (hK := hK) (P := P) adv hadv hX.1 i k d
   at_cost K hK
   simp only [workGroup, workStrats, Cost.bind_val, Cost.pure_val]
   refine Inv.modify_same ?_ i _ (fun _ => rfl) (fun _ => rfl)

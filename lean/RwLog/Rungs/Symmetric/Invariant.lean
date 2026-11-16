@@ -587,6 +587,37 @@ def Strat.core {N A : Type} : Strat N A → Strat N A
   | .push k l side o subs dead reads c _ => .push k l side o subs dead reads c Cursor.start
   | s => s
 
+theorem Strat.withFeed_core {N A : Type} (s f : Strat N A) : (s.withFeed f).core = s.core := by
+  cases s <;> cases f <;> rfl
+
+/-- **Giving strategies their feed cursors changes nothing else of them.** -/
+theorem mem_reFeed {N A : Type} {ss fed : List (Strat N A)} {s' : Strat N A}
+    (h : s' ∈ reFeed ss fed) : ∃ s ∈ ss, s'.core = s.core := by
+  unfold reFeed at h
+  obtain ⟨e, he, rfl⟩ := List.mem_map.1 h
+  refine ⟨e.1, (List.mem_zipIdx_iff_getElem?.1 (by rcases e with ⟨a, b⟩; exact he) |> List.mem_of_getElem?), ?_⟩
+  split
+  · exact Strat.withFeed_core _ _
+  · rfl
+
+theorem reFeed_map_core {N A : Type} (ss fed : List (Strat N A)) :
+    (reFeed ss fed).map Strat.core = ss.map Strat.core := by
+  unfold reFeed
+  rw [List.map_map]
+  refine List.ext_getElem? fun n => ?_
+  simp only [List.getElem?_map, List.getElem?_zipIdx]
+  cases ss[n]? with
+  | none => rfl
+  | some s =>
+    simp only [Option.map_some, Nat.zero_add]
+    congr 1
+    show Strat.core (match fed[n]? with
+      | some f => s.withFeed f
+      | none => s) = s.core
+    split
+    · exact Strat.withFeed_core _ _
+    · rfl
+
 theorem feedPush_core (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R Rel (Ans D P) × Nat))
     (st : StateOf R Rel (Ans D P)) (d : Nat) (s : Strat Rel (Ans D P)) :
     (feedPush (K := DerivationKernel.over D K hK P) adv st d s).val.2.2.core = s.core := by
