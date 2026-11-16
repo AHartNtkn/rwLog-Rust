@@ -431,7 +431,7 @@ theorem complete : (Rt @U dom K hK).Complete := fun P q wf s hs => by
   by_cases hne : (s.denAt P.sorts.interp).Nonempty
   · right
     have hI := isRun_of_wf (K := K) (hK := hK) hD hG wf
-    obtain ⟨a, ha, hsub⟩ := hI.fair.complete (hD _ wf.2.2.1) (hI.root_opened root_goal0) hs hne
+    obtain ⟨a, ha, hsub⟩ := (hI.fair (hD _ wf.2.2.1)).complete (hD _ wf.2.2.1) (hI.root_opened root_goal0) hs hne
     obtain ⟨r, y, hy, rfl⟩ := (hI.held_iff root_goal0 a).1 ha
     obtain ⟨n, hn⟩ := (emitted_of_root hI hy).1
     exact ⟨n, _, hn, hsub⟩
@@ -443,7 +443,7 @@ theorem honestExhaustion : (Rt @U dom K hK).HonestExhaustion := fun P q wf n hn 
   have hI := isRun_of_wf (K := K) (hK := hK) hD hG wf
   apply Set.Subset.antisymm
   · intro p hp
-    obtain ⟨a, ha, hpa⟩ := hI.fair.covers_pair (hD _ wf.2.2.1) (hI.root_opened root_goal0) hp
+    obtain ⟨a, ha, hpa⟩ := (hI.fair (hD _ wf.2.2.1)).covers_pair (hD _ wf.2.2.1) (hI.root_opened root_goal0) hp
     obtain ⟨r, y, hy, rfl⟩ := (hI.held_iff root_goal0 a).1 ha
     exact Set.mem_iUnion₂.2 ⟨sp @U dom K hK P y, (emitted_of_root hI hy).2 n hn, hpa⟩
   · intro p hp

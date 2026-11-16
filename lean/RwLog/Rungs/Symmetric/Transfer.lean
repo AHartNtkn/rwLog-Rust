@@ -115,6 +115,21 @@ theorem IsRun.race_done (hτ : IsRun U τ) {r' k : Nat} {g : GoalOf R Rel}
     (fun r t ht => hτ.goal_any (goalAt_of_table ht) hgk) hh hfin
   exact ⟨r, by rw [isDone_of_table ht]; exact hd⟩
 
+/-- The pushes of a group of a run are sound (`PushSound`): what a push
+means (`Prog`) says so. -/
+theorem IsRun.pushSound (hτ : IsRun U τ) {r' k : Nat} {g : GoalOf R Rel}
+    (hgk : goalAt (τ r') k = some g) {r0 : Nat} {L : Nat → List (Strat Rel (Ans D P))}
+    (hLn : Line (readNeed P) τ k r0 L) (q side : Nat) : PushSound τ L q side r0 := by
+  intro r1 kd left other subs dead reads c hr1 hs
+  have hp := hτ.prog hgk (hLn.mem r1 hr1 _ (List.mem_of_getElem? hs))
+  dsimp only [Prog] at hp
+  obtain ⟨Lg, Rg, -, -, -, h4, -, h5, hfit, -⟩ := hp
+  refine ⟨?_, hfit, fun n x t he => (h5 _ (List.mem_of_getElem? he) t rfl).2⟩
+  have := congrArg List.length h4
+  simp only [List.length_map, List.length_take] at this
+  unfold StateOf.len
+  omega
+
 /-! ## Why a goal completes -/
 
 /-- Every run of requests that does not neglect the goal `g`, and keeps no
@@ -246,7 +261,7 @@ theorem Cert.covered (hC : Cert U C ρ A) (hτ : IsRun U τ) {r' k : Nat} {g : G
   have hv : Valid D P (toGoal g) f.span := by
     rw [← hC.goal g hg f hf]
     exact f.valid
-  obtain ⟨a, ha, hsub⟩ := hτ.fair.covers_valid hL (hτ.mem_opened hk ho) hv
+  obtain ⟨a, ha, hsub⟩ := (hτ.fair hL).covers_valid hL (hτ.mem_opened hk ho) hv
   obtain ⟨r3, x, hx, rfl⟩ := (hτ.held_iff hk a).1 ha
   exact ⟨r3, x, hx, (covB_iff hL x f).2 hsub⟩
 
@@ -307,7 +322,7 @@ theorem Cert.waits_quiet (hC : Cert U C ρ A) (hτ : IsRun U τ)
     (hk : Waits C ρ τ n k) :
     ∃ T, ∀ r1, T ≤ r1 → ∃ s, IsStrat τ k (r1 + 1) s ∧
       s.quiet (τ (r1 + 1)) (fun j => (τ (r1 + 1)).isDone j || X.contains j) = true ∧
-      ∀ kd l side o todo subs, s = .push kd l side o todo subs →
+      ∀ kd l side o subs dead reads c, s = .push kd l side o subs dead reads c →
         (τ r1).isDone side = true := by
   obtain ⟨g, r', hg, hn, hgk, hop, hnd⟩ := hk
   subst hn
@@ -340,7 +355,7 @@ theorem Cert.waits_quiet (hC : Cert U C ρ A) (hτ : IsRun U τ)
     obtain ⟨T, hT, hall⟩ := hLn.span_ran h0
     exact ⟨T, fun r1 hr1 => ⟨.span true, hLn.mem (r1 + 1) (by omega) _
       (List.mem_of_getElem? (hall (r1 + 1) (by omega))), by simp [Strat.quiet, Strat.pending],
-      fun _ _ _ _ _ _ e => by cases e⟩⟩
+      fun _ _ _ _ _ _ _ _ e => by cases e⟩⟩
   | copy c p0 p1 hsubs =>
     obtain ⟨gr', hgr', hx⟩ := hfull.copy c p0 p1
     obtain ⟨L, q, s0, hLn, h0, e⟩ := lk gr' hgr' _ hx
@@ -374,7 +389,7 @@ theorem Cert.waits_quiet (hC : Cert U C ρ A) (hτ : IsRun U τ)
     refine ⟨T', fun r1 hr1 => ?_⟩
     obtain ⟨subs1, hs1, hadv, hrd⟩ := hall (r1 + 1) (by omega)
     refine ⟨_, hLn.mem (r1 + 1) (by omega) _ (List.mem_of_getElem? hs1), ?_,
-      fun _ _ _ _ _ _ e => by cases e⟩
+      fun _ _ _ _ _ _ _ _ e => by cases e⟩
     simp only [Strat.quiet, Strat.pending, Bool.and_eq_true, Bool.not_eq_true',
       List.any_eq_false, List.all_eq_true, decide_eq_true_eq]
     refine ⟨fun p hp' => ?_, fun p hp' => ?_⟩
@@ -408,7 +423,7 @@ theorem Cert.waits_quiet (hC : Cert U C ρ A) (hτ : IsRun U τ)
     refine ⟨T', fun r1 hr1 => ?_⟩
     obtain ⟨c1, hs1, hpend⟩ := hall (r1 + 1) (by omega)
     refine ⟨_, hLn.mem (r1 + 1) (by omega) _ (List.mem_of_getElem? hs1), ?_,
-      fun _ _ _ _ _ _ e => by cases e⟩
+      fun _ _ _ _ _ _ _ _ e => by cases e⟩
     simp only [Strat.quiet, Strat.pending, Bool.and_eq_true, Bool.not_eq_true']
     exact ⟨hpend, (hTa (r1 + 1) (by omega)).2, (hTb (r1 + 1) (by omega)).2⟩
   | push kd Lg Rg left hsp hside hsub =>
@@ -416,66 +431,147 @@ theorem Cert.waits_quiet (hC : Cert U C ρ A) (hτ : IsRun U τ)
     rw [← hother] at hsub
     obtain ⟨gr', hgr', a', b', hga', hgb', -, hxl, hxr⟩ := hfull.split kd Lg Rg hsp
     obtain ⟨side', hgside', hx⟩ : ∃ side', goalAt (τ r0) side' = some (if left then Lg else Rg) ∧
-        Strat.push kd left side' other none [] ∈ gr'.kinds := by
+        Strat.push kd left side' other [] none [] Cursor.start ∈ gr'.kinds := by
       subst hother
       cases left
       · exact ⟨b', by simpa using hgb', by simpa using hxr⟩
       · exact ⟨a', by simpa using hga', by simpa using hxl⟩
     obtain ⟨L, q, s0, hLn, h0, e⟩ := lk gr' hgr' _ hx
-    obtain ⟨todo0, subs0, rfl⟩ := kind_push e
+    obtain ⟨subs0, dead0, reads0, c0, rfl⟩ := kind_push e
+    have hS : PushSound τ L q side' r0 := hτ.pushSound hgk hLn q side'
     have hoS : Opened τ side' := hτ.opened_of_settled hgside' fun r' => by
       obtain ⟨r2, hr2', hr2, hfed, -⟩ := hLn.worked r'
-      obtain ⟨todo2, subs2, hs2⟩ := hLn.push_kept h0 (show r0 ≤ r2 + 1 by omega)
-      exact ⟨r2, hr2', (hfed _ (List.mem_of_getElem? hs2)).1⟩
+      obtain ⟨subs2, dead2, reads2, c2, hs2, -⟩ :=
+        hLn.push_kept (Nat.le_refl _) h0 (show r0 ≤ r2 + 1 by omega)
+      exact ⟨r2, hr2', hfed _ (List.mem_of_getElem? hs2) _ (feeds_push_side _ _ _ _ _ _ _ _ _)⟩
     obtain ⟨Td, hTd⟩ := ih _ hside.1 hside.2 r0 side' hgside' hoS
     have hdn : ∀ r1, Td ≤ r1 → (τ r1).isDone side' = true := fun r1 hr1 =>
       ((hτ.stable hr1).isDone hTd).1
-    obtain ⟨T1, subs1, hT1, h1⟩ := hLn.push_empty h0 (Nat.le_max_right Td r0)
-      (fun r1 hr1 => hdn r1 (by omega))
-    have hp1 := hτ.prog hgk (hLn.mem T1 (by omega) _ (List.mem_of_getElem? h1))
-    dsimp only [Prog] at hp1
-    obtain ⟨Lg', Rg', -, -, -, htodo1, hsubs1, -⟩ := hp1
-    obtain ⟨hd1, hmax1, -⟩ := htodo1 [] rfl
-    have hmx := hC.maxima hL hτ hside.1 hgside' hd1
-    have each : ∀ e' ∈ subs1, ∃ T, ∀ r1, T ≤ r1 → Still τ r1 e'.2.1 ∧
-        ((τ r1).isDone e'.2.1 || X.contains e'.2.1) = true := by
-      intro e' he'
-      obtain ⟨x, hxm, hxs⟩ := hmx e'.1 (hmax1 e'.1 (.inr (List.mem_map_of_mem he')))
-      obtain ⟨hcx, hrx⟩ := hsub x hxm
-      rw [pushG_span g other kd left hxs] at hcx hrx
-      obtain ⟨-, hge', -⟩ := hsubs1 e' he'
-      obtain ⟨m', hm'⟩ := List.getElem?_of_mem he'
-      refine rd _ _ T1 hcx hrx hge' (hτ.opened_of_settled hge' fun r' => ?_)
-      obtain ⟨r2, hr2', hr2, hfed, -⟩ := hLn.worked (max r' T1)
-      obtain ⟨subs2, hs2, hadv, -⟩ := hLn.push_fixed (show r0 ≤ T1 by omega) h1
-        (show T1 ≤ r2 + 1 by omega)
-      have hlt : m' < subs2.length :=
-        Nat.lt_of_lt_of_le (List.getElem?_eq_some_iff.1 hm').1 hadv.1
-      have h2 := (hfed _ (List.mem_of_getElem? hs2)).2 rfl subs2[m'] (List.getElem_mem hlt)
-      rw [(hadv.2 m' e' subs2[m'] hm' (List.getElem?_eq_getElem hlt)).2.1] at h2
-      exact ⟨r2, by omega, h2⟩
-    obtain ⟨T, hT⟩ := eventually_forall_mem subs1 _ each
-    obtain ⟨T', hT', hall⟩ := hLn.push_read (show r0 ≤ T1 by omega) h1
-      (fun r1 hr1 => hdn r1 (by omega)) (show T1 ≤ max T T1 by omega)
-      (fun e he => (hT e he (max T T1) (Nat.le_max_left T T1)).1)
-    refine ⟨T', fun r1 hr1 => ?_⟩
-    obtain ⟨subs2, hs2, hadv, hlen, hrd⟩ := hall (r1 + 1) (by omega)
-    refine ⟨_, hLn.mem (r1 + 1) (by omega) _ (List.mem_of_getElem? hs2), ?_,
-      fun _ _ _ _ _ _ e => ?_⟩
+    have hstS : Still τ Td side' := fun r1 hr1 => by
+      unfold StateOf.len
+      rw [((hτ.stable hr1).isDone hTd).2]
+    obtain ⟨T1, subs1, dead2, reads1, c1, hT1, hr01, h1, hl1⟩ := hLn.push_seen hS h0 hstS hdn
+    obtain ⟨T2, subs2, reads2, c2, hT2, h2, hl2, hopen⟩ :=
+      hLn.push_opened hS hstS hT1 hr01 h1 hl1
+    have fx := fun r (hr : T2 ≤ r) => hLn.push_fixed hS hstS (show Td ≤ T2 by omega)
+      (show r0 ≤ T2 by omega) h2 (hl2.trans hl1) hr
+    have hp2 := hτ.prog hgk (hLn.mem T2 (by omega) _ (List.mem_of_getElem? h2))
+    dsimp only [Prog] at hp2
+    obtain ⟨Lg', Rg', -, -, -, h42, hD2, h52, -, -⟩ := hp2
+    have hlen2 : subs2.length = ((τ T2).answers side').length := by
+      have := hstS T2 (by omega)
+      unfold StateOf.len at this hl1
+      omega
+    have hall2 : subs2.map (·.1) = (τ T2).answers side' := by
+      rw [h42]
+      exact List.take_of_length_le (Nat.le_of_eq hlen2.symm)
+    have hmx := hC.maxima hL hτ hside.1 hgside' (hdn T2 (by omega))
+    -- an answer that is not superseded is a maximal answer of the side
+    have hmax : ∀ (n : Nat) (x : Ans D P) (o : Option (Nat × Nat)), subs2[n]? = some (x, o) →
+        n ∉ dead2 → ∃ z ∈ ((τ T2).answers side').maximaBy (covB D P), z.span = x.span := by
+      intro n x o he hn
+      have hx : ((τ T2).answers side')[n]? = some x := by
+        rw [← hall2, List.getElem?_map, he]
+        rfl
+      obtain ⟨z, hz, hzc⟩ := List.maximaBy_covers (covB_refl hL) (covB_trans hL)
+        (List.mem_of_getElem? hx)
+      refine ⟨z, hz, hL.covers_antisymm hzc ?_⟩
+      obtain ⟨j, hj⟩ := List.getElem?_of_mem (List.mem_maximaBy hz)
+      rcases Nat.lt_trichotomy j n with hlt | heq | hgt
+      · exfalso
+        have hn' := hN T2 side'
+        unfold NoCov at hn'
+        rw [List.pairwise_map] at hn'
+        obtain ⟨hj1, rfl⟩ := List.getElem?_eq_some_iff.1 hj
+        obtain ⟨hx1, rfl⟩ := List.getElem?_eq_some_iff.1 hx
+        have := (List.pairwise_iff_getElem.1 hn') j n hj1 hx1 hlt
+        unfold covB at hzc
+        rw [this] at hzc
+        cases hzc
+      · subst heq
+        rw [hx] at hj
+        cases hj
+        exact covB_refl hL x
+      · exfalso
+        have := hD2.2.2.2 n j x z hgt (lt_of_getElem? hj) hx hj hn
+        rw [this] at hzc
+        cases hzc
+    -- the table opened for one gains no more answers, and is complete or waits
+    have each : ∀ n, n < subs2.length → ∃ T, ∀ r1, T ≤ r1 → ∀ (x : Ans D P) (t : Nat × Nat),
+        subs2[n]? = some (x, some t) → n ∉ dead2 →
+        Still τ r1 t.1 ∧ ((τ r1).isDone t.1 || X.contains t.1) = true := by
+      intro n hn
+      have he : subs2[n]? = some subs2[n] := List.getElem?_eq_getElem hn
+      generalize subs2[n] = e at he
+      rcases e with ⟨x, _ | t⟩
+      · refine ⟨0, fun _ _ _ _ h _ => ?_⟩
+        rw [he] at h
+        cases h
+      · by_cases hd : n ∈ dead2
+        · exact ⟨0, fun _ _ _ _ _ h => absurd hd h⟩
+        · obtain ⟨z, hz, hzs⟩ := hmax n x _ he hd
+          obtain ⟨x0, hxm, hxs⟩ := hmx z hz
+          obtain ⟨hcx, hrx⟩ := hsub x0 hxm
+          rw [pushG_span g other kd left (hxs.trans hzs)] at hcx hrx
+          obtain ⟨hge, -⟩ := h52 _ (List.mem_of_getElem? he) t rfl
+          have hop' : Opened τ t.1 := hτ.opened_of_settled hge fun r' => by
+            obtain ⟨r2, hr2', hr2, hfed, -⟩ := hLn.worked (max r' T2)
+            obtain ⟨subs3, reads3, c3, hs3, hA3, -⟩ := fx (r2 + 1) (by omega)
+            obtain ⟨t3, he3, e3, -⟩ := hA3.adv.get he
+            have := hfed _ (List.mem_of_getElem? hs3) _
+              (feeds_push_sub (τ (r2 + 1)) kd left side' other reads3 c3 he3 hd)
+            rw [e3] at this
+            exact ⟨r2, by omega, this⟩
+          obtain ⟨T, hT⟩ := rd _ _ T2 hcx hrx hge hop'
+          refine ⟨T, fun r1 hr1 x' t' h _ => ?_⟩
+          rw [he] at h
+          cases h
+          exact hT r1 hr1
+    obtain ⟨T, hT⟩ := eventually_forall_lt subs2.length _ each
+    obtain ⟨T', hT', hall⟩ := hLn.push_done hS hstS (show Td ≤ T2 by omega)
+      (show r0 ≤ T2 by omega) h2 (hl2.trans hl1) hopen (T3 := max T T2)
+      (fun n x t he hd =>
+        (hT n (lt_of_getElem? he) (max T T2) (Nat.le_max_left _ _) x t he hd).1)
+    refine ⟨max T' T, fun r1 hr1 => ?_⟩
+    obtain ⟨subs, reads, c, hs, hA, hlen, htodo, hrd⟩ := hall (r1 + 1) (by omega)
+    refine ⟨_, hLn.mem (r1 + 1) (by omega) _ (List.mem_of_getElem? hs), ?_,
+      fun _ _ _ _ _ _ _ _ e => ?_⟩
     · have hdd := hdn (r1 + 1) (by omega)
-      simp only [Strat.quiet, Strat.pending, hdd, Bool.true_and, Option.isSome_some,
-        List.isEmpty_nil, Bool.not_true, Bool.false_or, Bool.and_eq_true, Bool.not_eq_true',
-        List.any_eq_false, List.all_eq_true, decide_eq_true_eq]
-      refine ⟨fun e he => ?_, fun e he => ?_⟩
-      · have := hrd e he
-        unfold StateOf.len at this
+      have hseen : ¬ subs.length < ((τ (r1 + 1)).answers side').length := by
+        have := hstS (r1 + 1) (by omega)
+        unfold StateOf.len at this hl1
         omega
-      · obtain ⟨m', hm'⟩ := List.getElem?_of_mem he
-        have hlt : m' < subs1.length := by
-          rw [← hlen]
-          exact (List.getElem?_eq_some_iff.1 hm').1
-        rw [(hadv.2 m' subs1[m'] e (List.getElem?_eq_getElem hlt) hm').2.1]
-        exact (hT subs1[m'] (List.getElem_mem hlt) (r1 + 1) (by omega)).2
+      have ent : ∀ (n : Nat) (x : Ans D P) (o : Option (Nat × Nat)), subs[n]? = some (x, o) →
+          n ∉ dead2 → ∃ t, o = some t ∧ ¬ t.2 < ((τ (r1 + 1)).answers t.1).length ∧
+            ((τ (r1 + 1)).isDone t.1 || X.contains t.1) = true := by
+        intro n x o he hn
+        have hn2 : n ∉ dead2 := hn
+        obtain ⟨x2, t2, he2⟩ := hopen n (by rw [← hlen]; exact lt_of_getElem? he) hn2
+        obtain ⟨t', he', e1, -⟩ := hA.adv.get he2
+        rw [he] at he'
+        cases he'
+        refine ⟨t', rfl, ?_, ?_⟩
+        · have := hrd n _ t' he hn
+          unfold StateOf.len at this
+          omega
+        · rw [e1]
+          exact (hT n (lt_of_getElem? he2) (r1 + 1) (by omega) _ t2 he2 hn2).2
+      simp only [Strat.quiet, Strat.pending, hdd, htodo, Bool.true_and, Bool.and_eq_true,
+        Bool.not_eq_true', Bool.or_eq_false_iff, decide_eq_false_iff_not, List.isEmpty_nil,
+        Bool.not_true, List.any_eq_false, List.all_eq_true, Option.getD_some, Option.isSome_some]
+      refine ⟨⟨⟨hseen, trivial⟩, fun e he => ?_⟩, fun e he => ?_⟩
+      · rcases e with ⟨⟨x, o⟩, n⟩
+        have he' := List.mem_zipIdx_iff_getElem?.1 he
+        by_cases hn : n ∈ dead2
+        · simp [hn]
+        · obtain ⟨t, rfl, h1, -⟩ := ent n x o he' hn
+          simp [hn, h1]
+      · rcases e with ⟨⟨x, o⟩, n⟩
+        have he' := List.mem_zipIdx_iff_getElem?.1 he
+        by_cases hn : n ∈ dead2
+        · simp [hn]
+        · obtain ⟨t, rfl, -, h2⟩ := ent n x o he' hn
+          simpa [hn] using h2
     · cases e
       exact hdn r1 (by omega)
   | check Lg Rg hsp left ps hreads hall =>
@@ -538,7 +634,7 @@ theorem Cert.waits_quiet (hC : Cert U C ρ A) (hτ : IsRun U τ)
         obtain ⟨T2, hT2⟩ := eventually_forall_mem subs1 _ each
         refine ⟨max T2 T, fun r1 hr1 => ⟨_, hLn.mem (r1 + 1) (by omega) _
           (List.mem_of_getElem? (hconst (r1 + 1) (by omega))), ?_,
-          fun _ _ _ _ _ _ e => by cases e⟩⟩
+          fun _ _ _ _ _ _ _ _ e => by cases e⟩⟩
         simp only [Strat.quiet, Strat.pending, Bool.not_false, Bool.true_and,
           List.all_eq_true, Bool.and_eq_true, List.isEmpty_iff]
         exact fun j' hj' => ⟨(hT2 j' hj' (r1 + 1) (by omega)).2, hempty j' hj' _⟩
@@ -560,7 +656,7 @@ theorem Cert.completes (hC : Cert U C ρ A) {g : GoalOf R Rel} (hg : C g) : Comp
       obtain ⟨T, hT⟩ := eventually_forall_mem X
         (fun k r1 => ∃ s, IsStrat τ k (r1 + 1) s ∧
           s.quiet (τ (r1 + 1)) (fun j => (τ (r1 + 1)).isDone j || X.contains j) = true ∧
-          ∀ kd l side o todo subs, s = .push kd l side o todo subs →
+          ∀ kd l side o subs dead reads c, s = .push kd l side o subs dead reads c →
             (τ r1).isDone side = true)
         (fun k hk' => hC.waits_quiet hL hτ hN
           (fun g hg hlt r' k hk ho => ih (ρ g) hlt g hg rfl r' k hk ho) hX
@@ -633,7 +729,7 @@ theorem IsRun.fcert (hσ : IsRun U σ) (r : Nat) :
     have hv : Valid D P (toGoal g) y.span := by
       rw [← hy]
       exact y.valid
-    obtain ⟨a, ha, hsub⟩ := hσ.fair.covers_valid hL (hσ.mem_opened hi (.inl ⟨r, hd⟩)) hv
+    obtain ⟨a, ha, hsub⟩ := (hσ.fair hL).covers_valid hL (hσ.mem_opened hi (.inl ⟨r, hd⟩)) hv
     obtain ⟨r3, x, hx, rfl⟩ := (hσ.held_iff hi a).1 ha
     exact ⟨x, by rw [(key i g hi).2]; exact hσ.done_answers hd r3 hx,
       (covB_iff hL x y).2 hsub⟩
@@ -686,35 +782,47 @@ theorem IsRun.fcert (hσ : IsRun U σ) (r : Nat) :
       exact .join kd Lg Rg hsp
         ⟨⟨a, hga, hq.2.1.1⟩, by rw [(key _ _ hga).1, hρi]; exact hq.2.1.2⟩
         ⟨⟨b, hgb, hq.2.2.1⟩, by rw [(key _ _ hgb).1, hρi]; exact hq.2.2.2⟩
-    | push kd left side other todo subs =>
+    | push kd left side other subs dead reads c =>
       dsimp only [Prog] at hp
-      obtain ⟨Lg, Rg, hsp, hgside, hother, htodo, hsubs, -⟩ := hp
-      have hrank := hpush kd left side other todo subs rfl
+      obtain ⟨Lg, Rg, hsp, hgside, hother, h4, hD, hsubs, -, -⟩ := hp
+      have hrank := hpush kd left side other subs dead reads c rfl
+      obtain ⟨dead, rfl⟩ : ∃ d, dead = some d := by
+        cases dead with
+        | none => simp [Strat.quiet] at hq
+        | some d => exact ⟨d, rfl⟩
+      have hD := hD.2.2
       simp only [Strat.quiet, Strat.pending, Bool.and_eq_true, Bool.not_eq_true',
-        List.all_eq_true, decide_eq_true_eq] at hq
-      obtain ⟨hpend, ⟨hds, hsome⟩, hokσ⟩ := hq
-      cases todo with
-      | none => cases hsome
-      | some l =>
-      have hl : l = [] := by
-        cases l with
-        | nil => rfl
-        | cons x l => simp [hds] at hpend
-      subst hl
-      obtain ⟨-, -, hcovσ⟩ := htodo [] rfl
+        Bool.or_eq_false_iff, decide_eq_false_iff_not, List.all_eq_true, Option.getD_some,
+        Option.isSome_some] at hq
+      obtain ⟨⟨⟨hseen, -⟩, -⟩, ⟨hds, -⟩, hokσ⟩ := hq
+      have hall : subs.map (·.1) = (σ r).answers side := by
+        rw [h4]
+        exact List.take_of_length_le (by omega)
+      have hlen : subs.length = ((σ r).answers side).length := by
+        rw [← hall, List.length_map]
       subst hother
       refine .push kd Lg Rg left hsp
         ⟨⟨side, hgside, hds⟩, by rw [(key _ _ hgside).1, hρi]; exact hrank⟩ fun x hxm => ?_
       rw [(key _ _ hgside).2] at hxm
-      obtain ⟨x'', hx''m, hx''in, hx''c⟩ := hcovσ x (List.mem_maximaBy hxm)
-      have hx''s : x'' ∈ subs.map (·.1) := hx''in.resolve_left (fun h => by cases h)
-      obtain ⟨e, he, rfl⟩ := List.mem_map.1 hx''s
-      have hcv : covB D P e.1 x = true := (covB_iff hL e.1 x).2 hx''c
-      have hspn : e.1.span = x.span := hL.covers_antisymm hcv (maxima_max hxm hx''m hcv)
-      obtain ⟨-, hge, -⟩ := hsubs e he
-      rw [pushG_span g _ kd left hspn] at hge
-      have hok := hokσ e he
-      exact ⟨⟨_, hge, hok.1⟩, by rw [(key _ _ hge).1, hρi]; exact hok.2⟩
+      obtain ⟨n, hn⟩ := List.getElem?_of_mem (List.mem_maximaBy hxm)
+      obtain ⟨n', x', hlive, hx', hcv⟩ := hD.live hL n x hn
+      have hspn : x'.span = x.span :=
+        hL.covers_antisymm hcv (maxima_max hxm (List.mem_of_getElem? hx') hcv)
+      have he : ∃ o, subs[n']? = some (x', o) := by
+        rw [← hall, List.getElem?_map] at hx'
+        obtain ⟨e, he, rfl⟩ := Option.map_eq_some_iff.1 hx'
+        exact ⟨e.2, he⟩
+      obtain ⟨o, he⟩ := he
+      have hok := hokσ ((x', o), n') (List.mem_zipIdx_iff_getElem?.2 he)
+      have hc : dead.contains n' = false := by simpa using hlive
+      simp only [hc, Bool.false_or] at hok
+      cases o with
+      | none => cases hok
+      | some t =>
+        simp only [Bool.and_eq_true, decide_eq_true_eq] at hok
+        obtain ⟨hge, -⟩ := hsubs _ (List.mem_of_getElem? he) t rfl
+        rw [pushG_span g _ kd left hspn] at hge
+        exact ⟨⟨_, hge, hok.1⟩, by rw [(key _ _ hge).1, hρi]; exact hok.2⟩
     | check left side other c =>
       dsimp only [Prog] at hp
       obtain ⟨Lg, Rg, hsp, hside, hother, hc⟩ := hp

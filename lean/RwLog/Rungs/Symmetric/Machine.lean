@@ -28,17 +28,15 @@ group with a *level*.
 * A union: the answers of the goal of each member, by the rule `inj`.
 * A chain: for every place it can be split in two, one group of three
   strategies. *Join* combines every answer of the left side with every
-  answer of the right side, each pair once. *Push left*, once the table of
-  the left side is complete, opens for each of its maximal answers the right
-  side between the right interface of the answer and the boundary of the
-  goal, and joins the answer with the answers of that goal. *Push right* is
-  its mirror image.
+  answer of the right side, each pair once. *Push left* opens, for each
+  answer of the left side as it arrives, the right side between the right
+  interface of the answer and the boundary of the goal, and joins the answer
+  with the answers of that goal. *Push right* is its mirror image.
 * A meet: for every member (for the first member of a meet of two), one
   group of three strategies on the member and the meet of the others. *Join*
-  conjoins every answer of the one with every answer of the other. A *push*,
-  once the table of one side is complete, opens for each of its maximal
-  answers the other side between the two interfaces of the answer, and
-  conjoins.
+  conjoins every answer of the one with every answer of the other. A *push*
+  opens, for each answer of one side as it arrives, the other side between
+  the two interfaces of the answer, and conjoins.
 
 A strategy keeps cursors into the tables it reads, so it combines nothing
 twice. It takes its units in an order that
@@ -58,6 +56,27 @@ class, where the pair of the earliest answers is taken (`Cursor.next`). So a
 pair waits for the pairs of other choices by the number of members at each
 choice on the way to it, and not by how many answers the other members
 have.
+
+A push does not wait for its side to be complete: a side that is a union
+with a member that never finishes is never complete, and the answers of its
+other members would never be pushed. A push shares its ticks as a join does.
+Its units are opening the goal of an answer of its side, and combining an
+answer whose goal is open with an answer of that goal. Each is filed with the
+cursor of the push as a pair is filed with the cursor of a join, the path of
+the answer of the side first (`Cursor.opened`, `Cursor.read`), and the unit
+of the least key is taken. So opening goals for the answers of one member of
+a union does not keep the push from the answers of another.
+
+Once the side is complete, an answer of it that a later answer of it covers
+is *superseded* (`supersede`, `superseded`): what it would give, the answer
+that covers it gives. The cover tests are made once, when the push first
+works with its side complete; a side that never completes is never tested.
+The units of the superseded are taken off the cursor (`Cursor.kill`), the
+goals opened for them are read no more, and the push has nothing left to do
+without them. So whether a goal completes does not depend on the order in
+which the answers of a side arrive: the answers not superseded are the
+maximal answers of the side, and only the goals opened for those have to
+complete.
 
 ## A request
 
@@ -280,6 +299,22 @@ def Cursor.mark (c : Cursor) (p : Nat × Nat) (t : Nat) : Cursor :=
   { c with todo := c.todo.filter fun x => x != p, done := p :: c.done,
            fed := bump (c.stepsAt p) t c.fed }
 
+/-- The cursor of a push with one more answer of its side seen, of the path
+`pth`. -/
+def Cursor.opened (pth : Path) (c : Cursor) : Cursor :=
+  { c with pa := c.pa ++ [pth] }
+
+/-- The cursor of a push with one more unit filed for the answer of the side
+at `s`: `pth` is the path of the answer to combine it with, and empty for the
+unit that opens its goal. The unit is still to take. -/
+def Cursor.read (s : Nat) (pth : Path) (c : Cursor) : Cursor :=
+  { c with pb := c.pb ++ [pth], todo := c.todo ++ [(s, c.pb.length)] }
+
+/-- The cursor of a push without the units of the answers of its side at the
+positions `dead`: they are not to take any more. -/
+def Cursor.kill (dead : List Nat) (c : Cursor) : Cursor :=
+  { c with todo := c.todo.filter fun x => !dead.contains x.1 }
+
 /-- Is a pair left to combine in tables of `la` and `lb` answers: one of
 answers filed, or one with an answer not filed yet? -/
 def Cursor.pending (la lb : Nat) (c : Cursor) : Bool :=
@@ -303,12 +338,20 @@ inductive Strat (N A : Type) where
   | copy (isCall : Bool) (subs : List (Nat × Nat))
   /-- Every pair of answers of two tables. -/
   | join (k : Kind) (a b : Nat) (c : Cursor)
-  /-- Once the table `side` is complete, its maximal answers are pushed into
-  the node `other`. `todo` is the answers still to push, nothing before the
-  maximal ones are taken. `subs` is each answer pushed with the table opened
-  for it and the position that table is read from. -/
-  | push (k : Kind) (left : Bool) (side : Nat) (other : N) (todo : Option (List A))
-      (subs : List (A × Nat × Nat))
+  /-- The answers of the table `side` are pushed into the node `other`, each
+  as it arrives. `subs` is the answers of the side seen, in the order of the
+  table, each with the table opened for it, once it is opened, and how many
+  answers of that table are filed. `dead` is the positions in `subs` of the
+  answers superseded, those a later answer covers, once the side is complete
+  and they are known. Nothing more is done for them, and the goal completes
+  without them, since what they give the answer that covers them gives. `reads` is the units filed, each with the
+  position in `subs` of its answer of the side: opening the goal of that
+  answer (`none`), or combining it with the answer at a position of its table.
+  The cursor `c` has the paths of the answers seen and of the units filed,
+  and the units still to take. -/
+  | push (k : Kind) (left : Bool) (side : Nat) (other : N)
+      (subs : List (A × Option (Nat × Nat))) (dead : Option (List Nat))
+      (reads : List (Nat × Option Nat)) (c : Cursor)
   /-- The interface check of one split of a chain: the node `side` (the left
   side of the split if `left`) is read from the program, and the node `other`
   is opened under each interface it can show. -/
@@ -462,7 +505,8 @@ def Strat.feeds (st : StateOf S N A) : Strat N A → List Nat
   | .span _ => []
   | .copy _ subs => subs.map Prod.fst
   | .join _ a b _ => [a, b]
-  | .push _ _ side _ _ subs => if st.isDone side then subs.map (·.2.1) else [side]
+  | .push _ _ side _ subs dead _ _ => side :: subs.zipIdx.filterMap fun e =>
+      if (dead.getD []).contains e.2 then none else e.1.2.map Prod.fst
   | .check _ _ _ (.opened subs) =>
     if subs.any fun j => !(st.answers j).isEmpty then [] else subs
   | .check _ _ _ _ => []
@@ -479,10 +523,12 @@ def Strat.pending (st : StateOf S N A) : Strat N A → Bool
   | .span ran => !ran
   | .copy _ subs => subs.any fun p => decide (p.2 < (st.answers p.1).length)
   | .join _ a b c => c.pending (st.answers a).length (st.answers b).length
-  | .push _ _ side _ todo subs =>
-    st.isDone side && (match todo with
-      | none => true
-      | some l => !l.isEmpty || subs.any fun e => decide (e.2.2 < (st.answers e.2.1).length))
+  | .push _ _ side _ subs dead _ c =>
+    decide (subs.length < (st.answers side).length) || !c.todo.isEmpty ||
+      subs.zipIdx.any fun e => !(dead.getD []).contains e.2 &&
+        match e.1.2 with
+        | some t => decide (t.2 < (st.answers t.1).length)
+        | none => false
   | .check _ _ _ .reading => true
   | .check _ _ _ _ => false
 
@@ -494,8 +540,11 @@ def Strat.quiet (st : StateOf S N A) (ok : Nat → Bool) (s : Strat N A) : Bool 
     | .span ran => ran
     | .copy _ subs => subs.all fun p => ok p.1
     | .join _ a b _ => ok a && ok b
-    | .push _ _ side _ todo subs =>
-      st.isDone side && todo.isSome && subs.all fun e => ok e.2.1
+    | .push _ _ side _ subs dead _ _ => st.isDone side && dead.isSome && subs.zipIdx.all fun e =>
+        (dead.getD []).contains e.2 ||
+          match e.1.2 with
+          | some t => ok t.1
+          | none => false
     | .check _ _ _ (.opened subs) => subs.all fun j => ok j && (st.answers j).isEmpty
     | .check _ _ _ _ => false)
 
@@ -593,8 +642,8 @@ def splitGroup (k : Kind) (L R : GoalOf S N) (st : StateOf S N A) :
     M (StateOf S N A × Group N A) := do
   let (st, a) ← openGoal (K := K) st L
   let (st, b) ← openGoal (K := K) st R
-  pure (st, ⟨0, [.join k a b Cursor.start, .push k true a R.node none [],
-    .push k false b L.node none []], []⟩)
+  pure (st, ⟨0, [.join k a b Cursor.start, .push k true a R.node [] none [] Cursor.start,
+    .push k false b L.node [] none [] Cursor.start], []⟩)
 
 /-! ## Reading an edge from the program -/
 
@@ -835,6 +884,69 @@ def pushTake (i : Nat) (k : Kind) (left : Bool) (x : A) (st : StateOf S N A) (ys
     let c ← pushed (K := K) k left x y
     addOption (K := K) i st c) st ys
 
+/-- See the answers that the side of a push has gained, each with its path:
+each is one more answer seen, and the unit that opens its goal is filed. -/
+def seeSide : List (A × Path) → List (A × Option (Nat × Nat)) → List (Nat × Option Nat) →
+    Cursor → List (A × Option (Nat × Nat)) × List (Nat × Option Nat) × Cursor
+  | [], subs, reads, c => (subs, reads, c)
+  | x :: rest, subs, reads, c =>
+    seeSide rest (subs ++ [(x.1, none)]) (reads ++ [(subs.length, none)])
+      ((c.opened x.2).read subs.length [])
+
+/-- File the answers that the table opened for the answer of the side at `s`
+has gained since `n` of them were filed: each is one more unit of the
+cursor. -/
+def fileReads (s : Nat) : Nat → List (Nat × Option Nat) → Cursor → List Path →
+    List (Nat × Option Nat) × Cursor
+  | _, reads, c, [] => (reads, c)
+  | n, reads, c, pth :: rest =>
+    fileReads s (n + 1) (reads ++ [(s, some n)]) (c.read s pth) rest
+
+/-- File the answers that the tables opened by a push have gained: the
+answers seen with every answer of their tables filed, the units, and the
+cursor. `s` is the position of the first answer of the list. Nothing is
+filed for an answer superseded. -/
+def pushFile (st : StateOf S N A) (dead : List Nat) (s : Nat) (reads : List (Nat × Option Nat))
+    (c : Cursor) : List (A × Option (Nat × Nat)) →
+      List (A × Option (Nat × Nat)) × List (Nat × Option Nat) × Cursor
+  | [] => ([], reads, c)
+  | (x, none) :: rest =>
+    let out := pushFile st dead (s + 1) reads c rest
+    ((x, none) :: out.1, out.2)
+  | (x, some t) :: rest =>
+    if dead.contains s then
+      let out := pushFile st dead (s + 1) reads c rest
+      ((x, some t) :: out.1, out.2)
+    else
+      let pths := st.pathsAt t.1
+      let r := fileReads s t.2 reads c (pths.drop t.2)
+      let out := pushFile st dead (s + 1) r.1 r.2 rest
+      ((x, some (t.1, pths.length)) :: out.1, out.2)
+
+/-- The answers superseded once the answers `new` are seen after the answers
+`seen`: each new answer is compared with every answer seen before it that is
+not superseded, and supersedes those it covers. -/
+def supersede : List A → List A → List Nat → M (List Nat)
+  | [], _, dead => pure dead
+  | y :: rest, seen, dead => do
+    let ks ← filterL (fun e : A × Nat =>
+      if dead.contains e.2 then pure false else coversA (K := K) y e.1) seen.zipIdx
+    supersede rest (seen ++ [y]) (dead ++ ks.map (·.2))
+
+/-- The answers of the table `side` that are superseded, once that table is
+complete: found once, by `supersede` over all its answers, and kept. -/
+def superseded (st : StateOf S N A) (side : Nat) : Option (List Nat) → M (Option (List Nat))
+  | some d => pure (some d)
+  | none =>
+    if st.isDone side then do
+      let d ← supersede (K := K) (st.answers side) [] []
+      pure (some d)
+    else pure none
+
+/-- The table opened for one answer, with none of its answers filed. -/
+def openedAt (new : List (A × Nat × Nat)) : Option (Nat × Nat) :=
+  new.head?.map fun e => (e.2.1, 0)
+
 /-- Open the other side of a split under each interface of a check. -/
 def checkOpen (g : GoalOf S N) (left : Bool) (other : N) (st : StateOf S N A) (ps : List S) :
     M (StateOf S N A × List Nat) :=
@@ -872,25 +984,27 @@ def work (i : Nat) (g : GoalOf S N) (st : StateOf S N A) :
       let (st', t) ← K.metered (joinPairs (K := K) i k xs ys st [p])
       pure (stamp i (st.answers i).length (c.pa.getD p.1 [] ++ c.pb.getD p.2 []) st',
         .join k a b (c.mark p (t + 1)), true)
-  | .push k left side other todo subs =>
-    if !st.isDone side then pure (st, .push k left side other todo subs, false)
-    else
-      match todo with
-      | none => do
-        let xs ← maxima (K := K) (st.answers side)
-        pure (st, .push k left side other (some xs) subs, true)
-      | some (x :: rest) => do
-        let (st1, new) ← pushOpen (K := K) g other k left st [x]
-        pure (st1, .push k left side other (some rest) (subs ++ new), true)
-      | some [] =>
-        match leastBy (fun p => p.1.2.2)
-            (fun p => decide (p.1.2.2 < (st.answers p.1.2.1).length)) subs.zipIdx with
-        | none => pure (st, .push k left side other (some []) subs, false)
-        | some p => do
-          let st' ← pushTake (K := K) i k left p.1.1 st
-            (((st.answers p.1.2.1).drop p.1.2.2).take 1)
-          pure (stamp i (st.answers i).length ((st.pathsAt p.1.2.1).getD p.1.2.2 []) st', .push k left side other (some [])
-            (subs.modify p.2 fun e => (e.1, e.2.1, e.2.2 + 1)), true)
+  | .push k left side other subs dead reads c => do
+    let new := ((st.answers side).zip (st.pathsAt side)).drop subs.length
+    let dead ← superseded (K := K) st side dead
+    let f0 := seeSide new subs reads c
+    let f := pushFile st (dead.getD []) 0 f0.2.1 (f0.2.2.kill (dead.getD [])) f0.1
+    match f.2.2.next with
+    | none => pure (st, .push k left side other f.1 dead f.2.1 f.2.2, false)
+    | some p =>
+      match f.1[p.1]?, f.2.1[p.2]? with
+      | some (x, none), some (_, none) => do
+        let (out, t) ← K.metered (pushOpen (K := K) g other k left st [x])
+        pure (out.1, .push k left side other (f.1.set p.1 (x, openedAt out.2)) dead f.2.1
+          (f.2.2.mark p (t + 1)), true)
+      | some (x, some tb), some (_, some r) => do
+        let (st', t) ← K.metered (pushTake (K := K) i k left x st
+          (((st.answers tb.1).drop r).take 1))
+        let u := f.2.2.pa.getD p.1 []
+        let v := f.2.2.pb.getD p.2 []
+        pure (stamp i (st.answers i).length (if left then u ++ v else v ++ u) st',
+          .push k left side other f.1 dead f.2.1 (f.2.2.mark p (t + 1)), true)
+      | _, _ => pure (st, .push k left side other f.1 dead f.2.1 (f.2.2.mark p 1), true)
   | .check left side other .reading => do
     let (st, e) ← edgeOf (K := K) st left side
     match e with

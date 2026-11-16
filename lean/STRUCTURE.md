@@ -126,9 +126,10 @@ Rungs/Symmetric/ the symmetric engine of `SYMMETRIC_ENGINE.md` (Machine.lean): a
                 marked complete has a strategy with nothing left to do that reads complete
                 tables only, and the complete tables stand in an order in which tables that
                 complete together stand together and a table whose answers are pushed
-                stands lower (`Founded`, `IsRun.founded`); a push that works takes the
-                answers of its side once the side is complete, then opens a goal for each,
-                then is nearer to every answer of those goals (`SStep.push`); and an edge is read in the end, from a depth that the node
+                stands lower (`Founded`, `IsRun.founded`); a push that works sees every
+                answer of its side, drops those a later one covers once the side is complete, and is nearer to every
+                unit left: opening the goal of an answer, or combining an answer of an
+                opened goal (`SStep.push`, `step_work_push`); and an edge is read in the end, from a depth that the node
                 and the program give (ReadLive.lean, `readEdge_some`); and of a table that
                 has rounds for ever every strategy of every group works for ever, since
                 what it owes cannot fall for ever, with as many groups from
@@ -154,7 +155,7 @@ Rungs/Symmetric/ the symmetric engine of `SYMMETRIC_ENGINE.md` (Machine.lean): a
                 combined every pair has nothing left to combine (`SStep.join`,
                 `Cursor.Ok.pending_false`); a group that works for ever runs out of work once the
                 tables it reads gain no more answers (Settle.lean, `Line.copy_read`,
-                `Line.join_done`, `Line.push_read`, `Line.check_read`); and a goal whose
+                `Line.join_done`, `Line.push_done`, `Line.check_read`); and a goal whose
                 table is complete in one run of requests has a complete table in every run
                 that does not neglect it (Transfer.lean, `IsRun.transfer`). That is a case
                 of a statement with no first run in it: goals with a certificate that they

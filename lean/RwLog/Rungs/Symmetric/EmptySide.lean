@@ -97,41 +97,47 @@ theorem IsRun.done_of_side (hτ : IsRun U τ) {r k : Nat} {g Lg Rg sg : GoalOf R
   obtain ⟨r0, hfull, lk⟩ := hτ.live_strat hk hlive
   obtain ⟨gr', hgr', a', b', hga', hgb', -, hxl, hxr⟩ := hfull.split kd Lg Rg hsp
   obtain ⟨side', other, hgside', hx⟩ : ∃ side' other, goalAt (τ r0) side' = some sg ∧
-      Strat.push kd left side' other none [] ∈ gr'.kinds := by
+      Strat.push kd left side' other [] none [] Cursor.start ∈ gr'.kinds := by
     subst hsg
     cases left
     · exact ⟨b', _, by simpa using hgb', hxr⟩
     · exact ⟨a', _, by simpa using hga', hxl⟩
   obtain ⟨Ln, q, s0, hLn, h0, e⟩ := lk gr' hgr' _ hx
-  obtain ⟨todo0, subs0, rfl⟩ := kind_push e
+  obtain ⟨subs0, dead0, reads0, c0, rfl⟩ := kind_push e
+  have hS : PushSound τ Ln q side' r0 := hτ.pushSound hk hLn q side'
   have hoS : Opened τ side' := hτ.opened_of_settled hgside' fun r' => by
     obtain ⟨r2, hr2', hr2, hfed, -⟩ := hLn.worked r'
-    obtain ⟨todo2, subs2, hs2⟩ := hLn.push_kept h0 (show r0 ≤ r2 + 1 by omega)
-    exact ⟨r2, hr2', (hfed _ (List.mem_of_getElem? hs2)).1⟩
+    obtain ⟨subs2, dead2, reads2, c2, hs2, -⟩ :=
+      hLn.push_kept (Nat.le_refl _) h0 (show r0 ≤ r2 + 1 by omega)
+    exact ⟨r2, hr2', hfed _ (List.mem_of_getElem? hs2) _ (feeds_push_side _ _ _ _ _ _ _ _ _)⟩
   obtain ⟨Td, hTd⟩ := hside r0 side' hgside' hoS
   have hdn : ∀ r1, Td ≤ r1 → (τ r1).isDone side' = true := fun r1 hr1 =>
     ((hτ.stable hr1).isDone hTd).1
-  obtain ⟨T1, subs1, hT1, h1⟩ := hLn.push_empty h0 (Nat.le_max_right Td r0)
-    (fun r1 hr1 => hdn r1 (by omega))
-  have hp1 := hτ.prog hk (hLn.mem T1 (by omega) _ (List.mem_of_getElem? h1))
-  dsimp only [Prog] at hp1
-  obtain ⟨_, _, -, -, -, -, hsubs1, -⟩ := hp1
-  have hnil : subs1 = [] := by
-    cases subs1 with
-    | nil => rfl
-    | cons e l =>
-      have := (hsubs1 e List.mem_cons_self).1
-      rw [hτ.void_empty hL hgside' hv T1] at this
-      cases this
-  subst hnil
+  have hlen0 : ∀ r1, (τ r1).len side' = 0 := fun r1 => by
+    unfold StateOf.len
+    rw [hτ.void_empty hL hgside' hv r1]
+    rfl
+  have hstS : Still τ Td side' := fun r1 _ => by rw [hlen0, hlen0]
+  obtain ⟨T1, subs1, dead1, reads1, c1, hT1, hr01, h1, hl1⟩ := hLn.push_seen hS h0 hstS hdn
   have hdone := (hτ.req.req T1).closed [k] (fun k' hk' => by
     obtain rfl := List.mem_singleton.1 hk'
-    obtain ⟨subs2, hs2, -, hlen⟩ := hLn.push_fixed (show r0 ≤ T1 by omega) h1 (Nat.le_succ T1)
+    obtain ⟨subs2, reads2, c2, hs2, -, hlen⟩ :=
+      hLn.push_fixed hS hstS hT1 hr01 h1 hl1 (Nat.le_succ T1)
+    rw [hl1, hlen0] at hlen
     obtain rfl : subs2 = [] := List.length_eq_zero_iff.1 hlen
+    obtain ⟨-, hfit, -⟩ := hS (T1 + 1) _ _ _ _ _ _ _ (by omega) hs2
+    have htodo : c2.todo = [] := List.eq_nil_iff_forall_not_mem.2 fun x hx => by
+      obtain ⟨⟨ro, hro⟩, -, -⟩ := (hfit.2.todo x).1 hx
+      cases ro with
+      | none => exact absurd (hfit.2.seen _ _ hro) (Nat.not_lt_zero _)
+      | some r' =>
+        have := hfit.2.filed _ _ _ hro
+        simp [cntOf] at this
     obtain ⟨t', gs, gr, ht', hg, hgr, hs⟩ :=
       hLn.mem (T1 + 1) (by omega) _ (List.mem_of_getElem? hs2)
-    refine ⟨t', ht', gs, hg, gr, hgr, _, hs, ?_, fun _ _ _ _ _ _ e => ?_⟩
-    · simp [Strat.quiet, Strat.pending, hdn (T1 + 1) (by omega)]
+    refine ⟨t', ht', gs, hg, gr, hgr, _, hs, ?_, fun _ _ _ _ _ _ _ _ e => ?_⟩
+    · simp [Strat.quiet, Strat.pending, hdn (T1 + 1) (by omega), htodo,
+        hτ.void_empty hL hgside' hv (T1 + 1)]
     · cases e
       exact hdn T1 (by omega)) k (List.mem_singleton.2 rfl)
   exact hnd ⟨T1 + 1, hdone⟩

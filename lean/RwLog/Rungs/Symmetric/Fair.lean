@@ -229,7 +229,7 @@ theorem IsRun.live_check (h : IsRun U σ) {ra k : Nat} {g : GoalOf R Rel}
   | span _ => cases hc0
   | copy _ _ => cases hc0
   | join _ _ _ _ => cases hc0
-  | push _ _ _ _ _ _ => cases hc0
+  | push _ _ _ _ _ _ _ _ => cases hc0
   | check left side other c0 =>
   have al : ∀ r, ra ≤ r → ∃ c, (L r)[m]? = some (.check left side other c) := fun r hr => by
     obtain ⟨_, hs, c, rfl⟩ := hL.along (fun _ s => ∃ c, s = Strat.check left side other c) h0
@@ -347,19 +347,20 @@ theorem IsRun.served_live (h : IsRun U σ) {r0 k : Nat} {g : GoalOf R Rel}
     | span _ => exact h.live_span hka hL hm
     | copy _ _ => exact h.live_copy hka hL hm
     | join _ _ _ _ => exact h.live_join hka hL hm
-    | push _ _ _ _ _ _ => cases hlead
+    | push _ _ _ _ _ _ _ _ => cases hlead
     | check _ _ _ _ => cases hlead
   · exact h.live_check hka hL hall
 
 /-- **A run of requests is fair.** -/
-theorem IsRun.fair (h : IsRun U σ) : Saturation.Fair D P (opened σ) (held σ) where
+theorem IsRun.fair (hL : D.Lawful P.sorts.interp) (h : IsRun U σ) :
+    Saturation.Fair D P (opened σ) (held σ) where
   ok := by
     rintro _ ⟨k, r, g, hk, rfl, -⟩
     have hg := (h.good r).base.good k g hk
     exact ⟨hg.1, hg.2.1, h.normal hk, hg.2.2⟩
   served := by
     rintro _ ⟨k, r, g, hk, rfl, ho | ho⟩
-    · exact h.served_done hk ho
+    · exact h.served_done hL hk ho
     · exact h.served_live hk ho
 
 /-- The run does not neglect the root. -/

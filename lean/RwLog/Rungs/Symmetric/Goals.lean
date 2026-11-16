@@ -12,6 +12,7 @@ may open, so a round keeps it together with what says that the goals are
 such goals (`good_advance`, `Kept.lean`).
 -/
 import RwLog.Rungs.Symmetric.SelfConverse
+import RwLog.Rungs.Symmetric.PushFile
 import RwLog.Rungs.Framework.Rules
 import RwLog.Kernel.NormalFormSplit
 
@@ -125,11 +126,10 @@ def StratOk (st : StateOf R Rel (Ans D P)) (g : GoalOf R Rel) : Strat Rel (Ans D
   | .span _ => True
   | .copy _ subs => ∀ p ∈ subs.map Prod.fst, ∃ h, goalAt st p = some h ∧ h.lb = g.lb ∧ h.rb = g.rb
   | .join k a b _ => ∃ ga gb, goalAt st a = some ga ∧ goalAt st b = some gb ∧ SplitOk g ga gb k
-  | .push k left side other todo subs =>
+  | .push k left side other subs _ _ _ =>
     ∃ gs, goalAt st side = some gs ∧ PushOk g gs other k left ∧ Normal other ∧
-      (∀ l, todo = some l → ∀ x ∈ l, GoalIs gs x) ∧
-      ∀ e ∈ subs.map (fun e => (e.1, e.2.1)),
-        GoalIs gs e.1 ∧ goalAt st e.2 = some (pushG D g other k left e.1)
+      ∀ e ∈ subs, GoalIs gs e.1 ∧
+        ∀ t, e.2 = some t → goalAt st t.1 = some (pushG D g other k left e.1)
   | .check _ _ other _ => Normal other
 
 omit [DecidableEq R] in
@@ -144,9 +144,9 @@ theorem StratOk.mono {st st' : StateOf R Rel (Ans D P)} (h : Ext st st') {g : Go
   | join k a b _ =>
     obtain ⟨ga, gb, ha, hb, hk⟩ := hs
     exact ⟨ga, gb, h _ _ ha, h _ _ hb, hk⟩
-  | push k left side other todo subs =>
-    obtain ⟨gs, h1, h2, h3, h4, h5⟩ := hs
-    exact ⟨gs, h _ _ h1, h2, h3, h4, fun e he => ⟨(h5 e he).1, h _ _ (h5 e he).2⟩⟩
+  | push k left side other subs dead reads c =>
+    obtain ⟨gs, h1, h2, h3, h5⟩ := hs
+    exact ⟨gs, h _ _ h1, h2, h3, fun e he => ⟨(h5 e he).1, fun t ht => h _ _ ((h5 e he).2 t ht)⟩⟩
   | check _ _ _ _ => exact hs
 
 /-- The invariant: the goals are goals of the normal form, a table marked as
@@ -501,11 +501,11 @@ theorem inv_splitGroup {st : StateOf R Rel (Ans D P)} (hI : Inv st) (k : Kind)
     cases k
     · exact ⟨hk.1, hk.2.1, hk.2.2⟩
     · exact ⟨hk.1, hk.2.1, hk.2.2.2.2.1⟩
-  · refine ⟨L, hg1', ?_, hR, (fun l hl => by cases hl), fun e he => by cases he⟩
+  · refine ⟨L, hg1', ?_, hR, fun e he => by cases he⟩
     cases k
     · exact ⟨hk.1, hk.2.2⟩
     · exact ⟨hk.1, hk.2.1, hk.2.2.2.2.1⟩
-  · refine ⟨Rg, hg2, ?_, hL, (fun l hl => by cases hl), fun e he => by cases he⟩
+  · refine ⟨Rg, hg2, ?_, hL, fun e he => by cases he⟩
     cases k
     · exact ⟨hk.2.1, hk.2.2⟩
     · exact ⟨hk.2.2.1, hk.2.2.2.1, hk.2.2.2.2.2⟩
@@ -774,7 +774,6 @@ theorem inv_work_aux {st : StateOf R Rel (Ans D P)} (hI : Inv st) (i : Nat)
       (Ext st (work (K := DerivationKernel.over D K hK P) i g st s).val.1 →
         StratOk (work (K := DerivationKernel.over D K hK P) i g st s).val.1 g
           (work (K := DerivationKernel.over D K hK P) i g st s).val.2.1) := by
-  have hmax := fun (xs : List (Ans D P)) x => mem_maxima (K := K) (hK := hK) (xs := xs) (x := x)
   at_cost K hK
   cases s with
   | span ran =>
@@ -816,45 +815,69 @@ theorem inv_work_aux {st : StateOf R Rel (Ans D P)} (hI : Inv st) (i : Nat)
     · simp only [Cost.bind_val, Cost.pure_val, Kernel.metered, Cost.metered_val]
       exact ⟨(inv_joinPairs hI i k _ _ _ hg (hI.answers ha) (hI.answers hb) hk).modify_same i _
         (fun _ => rfl) (fun _ => rfl), fun hE => (hs' _).mono hE⟩
-  | push k left side other todo subs =>
-    obtain ⟨gs, h1, hk, hno, htodo, hsubs⟩ := hs
-    have hsub : ∀ e ∈ subs, GoalIs gs e.1 ∧
-        goalAt st e.2.1 = some (pushG D g other k left e.1) := fun e he =>
-      hsubs (e.1, e.2.1) (List.mem_map.2 ⟨e, he, rfl⟩)
-    simp only [work]
+  | push k left side other subs dead reads c =>
+    obtain ⟨gs, h1, hk, hno, hsubs⟩ := hs
+    simp only [work, Cost.bind_val]
+    generalize (superseded (K := DerivationKernel.over D _ hK P) st side dead).val = dead0
+    generalize dead0.getD [] = dead'
+    have hss := seeSide_subs (((st.answers side).zip (st.pathsAt side)).drop subs.length) subs
+      reads c
+    generalize seeSide (((st.answers side).zip (st.pathsAt side)).drop subs.length) subs
+      reads c = f0 at hss ⊢
+    have hfe := pushFile_getElem? st dead' f0.1 0 f0.2.1 (f0.2.2.kill dead')
+    generalize pushFile st dead' 0 f0.2.1 (f0.2.2.kill dead') f0.1 = f at hfe ⊢
+    have hf : ∀ e ∈ f.1, GoalIs gs e.1 ∧
+        ∀ t, e.2 = some t → goalAt st t.1 = some (pushG D g other k left e.1) := by
+      intro e he
+      obtain ⟨n, hn⟩ := List.getElem?_of_mem he
+      rw [hfe] at hn
+      cases h0 : f0.1[n]? with
+      | none => rw [h0] at hn; cases hn
+      | some e0 =>
+        rw [h0] at hn
+        cases hn
+        have hm := List.mem_of_getElem? h0
+        rw [hss] at hm
+        rcases List.mem_append.1 hm with hm | hm
+        · refine ⟨(hsubs e0 hm).1, fun t ht => ?_⟩
+          rcases e0 with ⟨x, _ | t0⟩
+          · cases ht
+          · cases ht
+            exact (hsubs _ hm).2 t0 rfl
+        · obtain ⟨y, hy, rfl⟩ := List.mem_map.1 hm
+          refine ⟨hI.answers h1 _ (List.of_mem_zip (List.mem_of_mem_drop hy)).1, fun t ht => ?_⟩
+          cases ht
+    have hok : ∀ c', StratOk st g (.push k left side other f.1 dead0 f.2.1 c') := fun _ =>
+      ⟨gs, h1, hk, hno, hf⟩
     split
-    · exact ⟨hI, fun _ => ⟨gs, h1, hk, hno, htodo, hsubs⟩⟩
-    · split
-      · simp only [Cost.bind_val, Cost.pure_val]
-        refine ⟨hI, fun _ => ⟨gs, h1, hk, hno, fun l hl x hx => ?_, hsubs⟩⟩
-        cases hl
-        exact hI.answers h1 x (hmax _ _ hx)
-      · next x rest =>
-        simp only [Cost.bind_val, Cost.pure_val]
+    · exact ⟨hI, fun _ => hok _⟩
+    · next p hp =>
+      split
+      · next x _ hx _ =>
+        simp only [Cost.bind_val, Cost.pure_val, Kernel.metered, Cost.metered_val]
         obtain ⟨hI1, hnew⟩ := inv_pushOpen (K := _) (hK := hK) hI g other k left [x] hno
         have hE01 := (reach_pushOpen (K := _) (hK := hK) g other k left st [x]).ext
-        refine ⟨hI1, fun _ => ⟨gs, hE01 _ _ h1, hk, hno, fun l hl y hy => ?_, fun e he => ?_⟩⟩
-        · cases hl
-          exact htodo _ rfl y (List.mem_cons_of_mem _ hy)
-        · rw [List.map_append] at he
-          rcases List.mem_append.1 he with he | he
-          · exact ⟨(hsubs e he).1, hE01 _ _ (hsubs e he).2⟩
-          · obtain ⟨e', he', rfl⟩ := List.mem_map.1 he
-            obtain ⟨hm, hgo⟩ := hnew e' he'
+        refine ⟨hI1, fun _ => ⟨gs, hE01 _ _ h1, hk, hno, fun e he => ?_⟩⟩
+        rcases List.mem_or_eq_of_mem_set he with he | rfl
+        · exact ⟨(hf e he).1, fun t ht => hE01 _ _ ((hf e he).2 t ht)⟩
+        · refine ⟨(hf _ (List.mem_of_getElem? hx)).1, fun t ht => ?_⟩
+          unfold openedAt at ht
+          cases hh : (pushOpen (K := DerivationKernel.over D _ hK P) g other k left st
+            [x]).val.2.head? with
+          | none => rw [hh] at ht; cases ht
+          | some e' =>
+            rw [hh] at ht
+            cases ht
+            obtain ⟨hm, hgo⟩ := hnew e' (List.mem_of_mem_head? hh)
             obtain rfl := List.mem_singleton.1 hm
-            exact ⟨htodo _ rfl _ List.mem_cons_self, hgo⟩
-      · split
-        · exact ⟨hI, fun _ => ⟨gs, h1, hk, hno, htodo, hsubs⟩⟩
-        · next p hp =>
-          simp only [Cost.bind_val, Cost.pure_val]
-          have hp' := hsub p.1 (List.fst_mem_of_mem_zipIdx (mem_of_leastBy hp))
-          refine ⟨(inv_pushTake hI i k left p.1.1 _ hg hp'.1 (fun y hy =>
-            hI.answers hp'.2 y (List.mem_of_mem_drop (List.mem_of_mem_take hy))) hk).modify_same i _
-              (fun _ => rfl) (fun _ => rfl),
-            fun hE => StratOk.mono hE ⟨gs, h1, hk, hno, htodo, fun e he => ?_⟩⟩
-          rw [map_modify_eq (fun e : Ans D P × Nat × Nat => (e.1, e.2.1))
-            (fun e : Ans D P × Nat × Nat => (e.1, e.2.1, e.2.2 + 1)) (fun _ => rfl)] at he
-          exact hsubs e he
+            exact hgo
+      · next x tb _ r hx _ =>
+        simp only [Cost.bind_val, Cost.pure_val, Kernel.metered, Cost.metered_val]
+        have hp' := hf _ (List.mem_of_getElem? hx)
+        exact ⟨(inv_pushTake hI i k left x _ hg hp'.1 (fun y hy =>
+          hI.answers (hp'.2 tb rfl) y (List.mem_of_mem_drop (List.mem_of_mem_take hy)))
+            hk).modify_same i _ (fun _ => rfl) (fun _ => rfl), fun hE => (hok _).mono hE⟩
+      · exact ⟨hI, fun _ => hok _⟩
   | check left side other c =>
     have hno : Normal other := hs
     have hI1 := inv_edgeOf (K := _) (hK := hK) hI left side

@@ -11,10 +11,9 @@ everything its cursors have passed:
 * a call or a union covers the answers of each table it reads up to the
   position it has read to;
 * a join covers what the rule makes of every pair its cursor has combined;
-* a push that has taken the maximal answers of its side has, for every
-  answer of the side, one that covers it and is pushed or still to push, and
-  covers what the rule makes of each answer pushed and the answers of the
-  goal opened for it, up to the position read;
+* a push has seen the first answers of its side, in order, and covers what
+  the rule makes of every pair its cursor has combined, of an answer of the
+  side and an answer of the goal opened for it;
 * an interface check that has opened goals has opened one for each
   interface its side can show.
 
@@ -22,7 +21,7 @@ everything its cursors have passed:
 -/
 import RwLog.Rungs.Symmetric.Rounds
 import RwLog.Rungs.Framework.RaceSpec
-import RwLog.Rungs.Symmetric.Cursor
+import RwLog.Rungs.Symmetric.PushCursor
 import RwLog.Kernel.NormalFormDepth
 import RwLog.Kernel.NormalFormSpans
 
@@ -152,7 +151,7 @@ def Strat.kind : Strat N A → Strat N A
   | .span _ => .span false
   | .copy c _ => .copy c []
   | .join k a b _ => .join k a b Cursor.start
-  | .push k l side o _ _ => .push k l side o none []
+  | .push k l side o _ _ _ _ => .push k l side o [] none [] Cursor.start
   | .check l side o _ => .check l side o .reading
 
 /-- The strategies of a group, without their cursors. -/
@@ -175,10 +174,11 @@ theorem kind_join {s : Strat N A} {k : Kind} {a b : Nat} (h : s.kind = .join k a
   exact ⟨_, rfl⟩
 
 theorem kind_push {s : Strat N A} {k : Kind} {l : Bool} {side : Nat} {o : N}
-    (h : s.kind = .push k l side o none []) : ∃ todo subs, s = .push k l side o todo subs := by
+    (h : s.kind = .push k l side o [] none [] Cursor.start) :
+    ∃ subs dead reads c, s = .push k l side o subs dead reads c := by
   cases s <;> simp only [Strat.kind, reduceCtorEq, Strat.push.injEq] at h
   obtain ⟨rfl, rfl, rfl, rfl, -⟩ := h
-  exact ⟨_, _, rfl⟩
+  exact ⟨_, _, _, _, rfl⟩
 
 theorem kind_check {s : Strat N A} {l : Bool} {side o : N}
     (h : s.kind = .check l side o .reading) : ∃ c, s = .check l side o c := by
@@ -230,6 +230,93 @@ def pushedS (D : Domain R) : Kind → Bool → R → R → Option R
   | .seq, false, x, y => D.compose y x
   | .and, _, x, y => D.meet x y
 
+/-- The positions `dead` are those of the first `n` answers of `xs` that a
+later one of them covers. -/
+def DeadOk (D : Domain R) (P : Program) (xs : List (Ans D P)) (n : Nat) (dead : List Nat) :
+    Prop :=
+  (∀ s ∈ dead, ∃ j x y, s < j ∧ j < n ∧ xs[s]? = some x ∧ xs[j]? = some y ∧
+    covB D P y x = true) ∧
+  ∀ s j x y, s < j → j < n → xs[s]? = some x → xs[j]? = some y → s ∉ dead →
+    covB D P y x = false
+
+/-- What a push knows of the answers of its side that are superseded: nothing
+until the side is complete; from then on the side is complete, the push has
+seen all `n` answers of it, and the positions are those a later one covers. -/
+def DeadIs (D : Domain R) (P : Program) (st : StateOf R Rel (Ans D P)) (side n : Nat) :
+    Option (List Nat) → Prop
+  | none => True
+  | some d => st.isDone side = true ∧ n = (st.answers side).length ∧
+      DeadOk D P (st.answers side) (st.answers side).length d
+
+omit [DecidableEq R] in
+theorem DeadIs.mono {st st' : StateOf R Rel (Ans D P)} (h : Stable st st') {side n : Nat}
+    {dead : Option (List Nat)} (hd : DeadIs D P st side n dead) : DeadIs D P st' side n dead := by
+  cases dead with
+  | none => exact True.intro
+  | some d =>
+    obtain ⟨h1, h2, h3⟩ := hd
+    have e := (h.isDone h1).2
+    exact ⟨(h.isDone h1).1, by rw [e]; exact h2, by rw [e]; exact h3⟩
+
+omit [DecidableEq R] in
+/-- The positions superseded are positions of answers seen. -/
+theorem DeadIs.lt {st : StateOf R Rel (Ans D P)} {side n : Nat} {dead : Option (List Nat)}
+    (hd : DeadIs D P st side n dead) : ∀ s ∈ dead.getD [], s < n := by
+  cases dead with
+  | none => exact fun s hs => by cases hs
+  | some d =>
+    obtain ⟨-, h2, h3⟩ := hd
+    intro s hs
+    obtain ⟨j, _, _, hj, hjn, -⟩ := h3.1 s hs
+    omega
+
+omit [DecidableEq R] in
+/-- **Every answer is covered by one that is not superseded**, once all are
+seen. -/
+theorem DeadOk.live (hL : D.Lawful P.sorts.interp) {xs : List (Ans D P)} {dead : List Nat}
+    (h : DeadOk D P xs xs.length dead) (n : Nat) (x : Ans D P) (hx : xs[n]? = some x) :
+    ∃ (n' : Nat) (x' : Ans D P), n' ∉ dead ∧ xs[n']? = some x' ∧ covB D P x' x = true := by
+  have main : ∀ (d n : Nat) (x : Ans D P), xs.length - n ≤ d → xs[n]? = some x →
+      ∃ (n' : Nat) (x' : Ans D P), n' ∉ dead ∧ xs[n']? = some x' ∧ covB D P x' x = true := by
+    intro d
+    induction d with
+    | zero =>
+      intro n x hd hx
+      have := (List.getElem?_eq_some_iff.1 hx).1
+      omega
+    | succ d ih =>
+      intro n x hd hx
+      by_cases hn : n ∈ dead
+      · obtain ⟨j, x1, y, hj, hjn, hx1, hy, hc⟩ := h.1 n hn
+        rw [hx] at hx1
+        cases hx1
+        obtain ⟨n', x', h1, h2, h3⟩ := ih j y (by omega) hy
+        exact ⟨n', x', h1, h2, covB_trans hL _ _ _ h3 hc⟩
+      · exact ⟨n, x, hn, hx, covB_refl hL x⟩
+  exact main _ n x (Nat.le_refl _) hx
+
+omit [DecidableEq R] in
+theorem DeadOk.mono {xs xs' : List (Ans D P)} {n : Nat} {dead : List Nat}
+    (h : DeadOk D P xs n dead) (hp : xs <+: xs') (hn : n ≤ xs.length) :
+    DeadOk D P xs' n dead := by
+  obtain ⟨tl, rfl⟩ := hp
+  refine ⟨fun s hs => ?_, fun s j x y hsj hj hx hy hd => ?_⟩
+  · obtain ⟨j, x, y, h1, h2, h3, h4, h5⟩ := h.1 s hs
+    exact ⟨j, x, y, h1, h2, by rw [List.getElem?_append_left (by omega)]; exact h3,
+      by rw [List.getElem?_append_left (by omega)]; exact h4, h5⟩
+  · rw [List.getElem?_append_left (by omega)] at hx hy
+    exact h.2 s j x y hsj hj hx hy hd
+
+omit [DecidableEq R] in
+theorem DeadOk.nil (xs : List (Ans D P)) : DeadOk D P xs 0 [] :=
+  ⟨fun _ hs => (by cases hs), fun _ _ _ _ _ hj => absurd hj (Nat.not_lt_zero _)⟩
+
+omit [DecidableEq R] in
+theorem DeadOk.lt {xs : List (Ans D P)} {n : Nat} {dead : List Nat}
+    (h : DeadOk D P xs n dead) : ∀ s ∈ dead, s < n := fun s hs => by
+  obtain ⟨j, -, -, h1, h2, -⟩ := h.1 s hs
+  omega
+
 /-- The goals of the two sides of a split of the goal `g`: a chain at a
 place inside it, with the middle left open; a meet into one member and the
 others, at one of the members a meet is split at. -/
@@ -278,17 +365,18 @@ def Prog (st : StateOf R Rel (Ans D P)) (i : Nat) (g : GoalOf R Rel) :
       c.Ok (st.answers a).length (st.answers b).length ∧
       ∀ p q x y, c.Before p q → (st.answers a)[p]? = some x → (st.answers b)[q]? = some y →
         ∀ z, opS D k x.span y.span = some z → CovS st i z
-  | .push k left side other todo subs => ∃ L Rg, SplitAt g k L Rg ∧
+  | .push k left side other subs dead reads c => ∃ L Rg, SplitAt g k L Rg ∧
       goalAt st side = some (if left then L else Rg) ∧
       other = (if left then Rg.node else L.node) ∧
-      (∀ l, todo = some l → st.isDone side = true ∧
-        (∀ x, (x ∈ l ∨ x ∈ subs.map (·.1)) → x ∈ (st.answers side).maximaBy (covB D P)) ∧
-        ∀ x ∈ st.answers side, ∃ x' ∈ st.answers side, (x' ∈ l ∨ x' ∈ subs.map (·.1)) ∧
-          den P.sorts.interp x.span ⊆ den P.sorts.interp x'.span) ∧
-      (∀ e ∈ subs, e.1 ∈ st.answers side ∧
-        goalAt st e.2.1 = some (pushG D g other k left e.1) ∧
-        Read st i e.2.1 e.2.2 (pushedS D k left e.1.span)) ∧
-      (todo = none → subs = [])
+      subs.map (·.1) = (st.answers side).take subs.length ∧
+      DeadIs D P st side subs.length dead ∧
+      (∀ e ∈ subs, ∀ t, e.2 = some t →
+        goalAt st t.1 = some (pushG D g other k left e.1) ∧ t.2 ≤ (st.answers t.1).length) ∧
+      PushFits subs (dead.getD []) reads c ∧
+      ∀ (s q : Nat) (x : Ans D P) (t : Nat × Nat) (r : Nat) (y : Ans D P), c.Before s q →
+        subs[s]? = some (x, some t) → reads[q]? = some (s, some r) →
+        (st.answers t.1)[r]? = some y →
+        ∀ z, pushedS D k left x.span y.span = some z → CovS st i z
   | .check left side other c => ∃ L Rg, SplitAt g .seq L Rg ∧
       side = (if left then L.node else Rg.node) ∧ other = (if left then Rg.node else L.node) ∧
       match c with
@@ -298,6 +386,12 @@ def Prog (st : StateOf R Rel (Ans D P)) (i : Nat) (g : GoalOf R Rel) :
             goalAt st j = some (if left then ⟨some p, other, g.rb⟩ else ⟨g.lb, other, some p⟩)
       | .off => Reads D P side left none
       | .reading => True
+
+/-- The first entries of a list are the first entries of a list it begins. -/
+theorem take_of_prefix {α : Type} {l l' : List α} (h : l <+: l') {n : Nat} (hn : n ≤ l.length) :
+    l'.take n = l.take n := by
+  obtain ⟨t, rfl⟩ := h
+  rw [List.take_append_of_le_length hn]
 
 /-- What the cursors of a strategy mean stays so in every later state. -/
 theorem Prog.mono {st st' : StateOf R Rel (Ans D P)} (h : Stable st st') {i : Nat}
@@ -320,16 +414,25 @@ theorem Prog.mono {st st' : StateOf R Rel (Ans D P)} (h : Stable st st') {i : Na
       fun p q x y hb hx hy z hz => ?_⟩
     have hp := h4.before_lt hb
     exact (h5 p q x y hb (h.getElem?_old hx hp.1) (h.getElem?_old hy hp.2) z hz).mono h
-  | push k left side other todo subs =>
+  | push k left side other subs dead reads c =>
     dsimp only [Prog] at hs ⊢
-    obtain ⟨L, Rg, h1, h2, h3, h4, h5, h6⟩ := hs
-    refine ⟨L, Rg, h1, hE _ _ h2, h3, fun l hl => ?_, fun e he => ?_, h6⟩
-    · obtain ⟨d1, d2, d3⟩ := h4 l hl
-      obtain ⟨e1, e2⟩ := h.isDone d1
-      rw [e2]
-      exact ⟨e1, d2, d3⟩
-    · obtain ⟨d1, d2, d3⟩ := h5 e he
-      exact ⟨(h.answers side).subset d1, hE _ _ d2, d3.mono h⟩
+    obtain ⟨L, Rg, h1, h2, h3, h4, hD, h5, h6, h7⟩ := hs
+    have hlen : subs.length ≤ (st.answers side).length := by
+      have := congrArg List.length h4
+      simp only [List.length_map, List.length_take] at this
+      omega
+    refine ⟨L, Rg, h1, hE _ _ h2, h3, ?_, hD.mono h,
+      fun e he t ht => ?_, h6, fun s q x t r y hb he hq hy z hz => ?_⟩
+    · rw [h4]
+      exact (take_of_prefix (h.answers side) hlen).symm
+    · exact ⟨hE _ _ (h5 e he t ht).1, (h5 e he t ht).2.trans (h.length_le _)⟩
+    · have hr : r < t.2 := by
+        have := h6.2.filed q s r hq
+        unfold cntOf at this
+        rw [he] at this
+        exact this
+      exact (h7 s q x t r y hb he hq (h.getElem?_old hy
+        (lt_of_lt_of_le hr (h5 _ (List.mem_of_getElem? he) t rfl).2)) z hz).mono h
   | check left side other c =>
     dsimp only [Prog] at hs ⊢
     obtain ⟨L, Rg, h1, h2, h3, h4⟩ := hs
@@ -399,7 +502,8 @@ structure Full (st : StateOf R Rel (Ans D P)) (g : GoalOf R Rel)
     (c = false → ∃ xs, g.node.view = .union xs) → ∃ gr ∈ gs, .copy c [] ∈ gr.kinds
   split : ∀ k L Rg, SplitAt g k L Rg → ∃ gr ∈ gs, ∃ a b, goalAt st a = some L ∧
     goalAt st b = some Rg ∧ .join k a b Cursor.start ∈ gr.kinds ∧
-    .push k true a Rg.node none [] ∈ gr.kinds ∧ .push k false b L.node none [] ∈ gr.kinds
+    .push k true a Rg.node [] none [] Cursor.start ∈ gr.kinds ∧
+      .push k false b L.node [] none [] Cursor.start ∈ gr.kinds
   check : ∀ L Rg, SplitAt g .seq L Rg → ∀ left : Bool,
     CheckGone st g left (if left then L.node else Rg.node) (if left then Rg.node else L.node) ∨
       ∃ gr ∈ gs, .check left (if left then L.node else Rg.node)
@@ -473,7 +577,8 @@ theorem Full.of_view {st : StateOf R Rel (Ans D P)} {g : GoalOf R Rel}
     (hunion : ∀ xs, V = .union xs → ∃ gr ∈ gs, .copy false [] ∈ gr.kinds)
     (hsplit : ∀ k L Rg, SplitAt g k L Rg → ∃ gr ∈ gs, ∃ a b, goalAt st a = some L ∧
       goalAt st b = some Rg ∧ .join k a b Cursor.start ∈ gr.kinds ∧
-      .push k true a Rg.node none [] ∈ gr.kinds ∧ .push k false b L.node none [] ∈ gr.kinds)
+      .push k true a Rg.node [] none [] Cursor.start ∈ gr.kinds ∧
+      .push k false b L.node [] none [] Cursor.start ∈ gr.kinds)
     (hcheck : ∀ L Rg, SplitAt g .seq L Rg → ∀ left : Bool,
       CheckGone st g left (if left then L.node else Rg.node)
           (if left then Rg.node else L.node) ∨
@@ -876,11 +981,17 @@ theorem checkOpen_spec (g : GoalOf R Rel) (left : Bool) (other : Rel)
 
 /-! ## The work of one strategy keeps what its cursors mean -/
 
+omit [DecidableEq R] in
+theorem deadIs_stamp (st : StateOf R Rel (Ans D P)) (j n : Nat) (pth : Path) (side m : Nat)
+    (dead : Option (List Nat)) :
+    DeadIs D P (stamp j n pth st) side m dead = DeadIs D P st side m dead := by
+  cases dead <;> simp only [DeadIs, answers_stamp, isDone_stamp]
+
 /-- Giving paths to answers changes nothing `Prog` speaks of. -/
 theorem prog_stamp (st : StateOf R Rel (Ans D P)) (j n : Nat) (pth : Path) (i : Nat)
     (g : GoalOf R Rel) (s : Strat Rel (Ans D P)) :
     Prog (stamp j n pth st) i g s = Prog st i g s := by
-  cases s <;> simp only [Prog, CovS, Read, answers_stamp, isDone_stamp, goalAt_stamp]
+  cases s <;> simp only [Prog, CovS, Read, answers_stamp, goalAt_stamp, deadIs_stamp]
 
 theorem prog_work_span (hL : D.Lawful P.sorts.interp) {st : StateOf R Rel (Ans D P)}
     (i : Nat) (g : GoalOf R Rel) (ran : Bool) (ho : Open st i)
@@ -1000,135 +1111,409 @@ theorem prog_work_join (hL : D.Lawful P.sorts.interp) {st : StateOf R Rel (Ans D
       · exact .inl h
       · exact .inr (h ▸ List.mem_cons_self))
 
+/-- One answer more seen: it supersedes the answers seen that it covers. -/
+theorem supersede_cons (y : Ans D P) (rest seen : List (Ans D P)) (dead : List Nat) :
+    (supersede (K := DerivationKernel.over D K hK P) (y :: rest) seen dead).val =
+      (supersede (K := DerivationKernel.over D K hK P) rest (seen ++ [y])
+        (dead ++ (seen.zipIdx.filter fun e => !dead.contains e.2 && covB D P y e.1).map
+          (·.2))).val := by
+  have hc := coversA_val (P := P) K hK
+  at_cost K hK
+  simp only [supersede, Cost.bind_val, filterL_std, Cost.filterL_val]
+  congr 5
+  funext e
+  simp [hc]
+
+/-- With no answer more to see, the answers superseded are the same. -/
+theorem supersede_nil (seen : List (Ans D P)) (dead : List Nat) :
+    (supersede (K := DerivationKernel.over D K hK P) [] seen dead).val = dead := by
+  at_cost K hK
+  rfl
+
+/-- **The answers superseded are those a later answer seen covers**, once
+the answers the side has gained are seen. -/
+theorem supersede_ok : ∀ (new seen : List (Ans D P)) (dead : List Nat),
+    DeadOk D P (seen ++ new) seen.length dead →
+    DeadOk D P (seen ++ new) (seen ++ new).length
+        (supersede (K := DerivationKernel.over D K hK P) new seen dead).val ∧
+      ∀ s ∈ dead, s ∈ (supersede (K := DerivationKernel.over D K hK P) new seen dead).val
+  | [], seen, dead, h => by
+    have e : (supersede (K := DerivationKernel.over D K hK P) [] seen dead).val = dead := by
+      at_cost K hK
+      rfl
+    rw [e]
+    exact ⟨by simpa using h, fun _ hs => hs⟩
+  | y :: rest, seen, dead, h => by
+    rw [supersede_cons]
+    have e : seen ++ y :: rest = (seen ++ [y]) ++ rest := by simp
+    have hd' : DeadOk D P ((seen ++ [y]) ++ rest) (seen ++ [y]).length
+        (dead ++ (seen.zipIdx.filter fun e => !dead.contains e.2 && covB D P y e.1).map
+          (·.2)) := by
+      rw [← e, List.length_append, List.length_singleton]
+      refine ⟨fun s hs => ?_, fun s j x y' hsj hj hx hy hnd => ?_⟩
+      · rcases List.mem_append.1 hs with hs | hs
+        · obtain ⟨j, x, y', h1, h2, h3⟩ := h.1 s hs
+          exact ⟨j, x, y', h1, by omega, h3⟩
+        · obtain ⟨e', he', rfl⟩ := List.mem_map.1 hs
+          obtain ⟨hm, hf⟩ := List.mem_filter.1 he'
+          have hg : seen[e'.2]? = some e'.1 := List.mk_mem_zipIdx_iff_getElem?.1 hm
+          have hlt := (List.getElem?_eq_some_iff.1 hg).1
+          simp only [Bool.and_eq_true] at hf
+          exact ⟨seen.length, e'.1, y, hlt, by omega,
+            by rw [List.getElem?_append_left hlt]; exact hg, by simp, hf.2⟩
+      · rw [List.mem_append, not_or] at hnd
+        rcases Nat.lt_or_eq_of_le (Nat.le_of_lt_succ hj) with hj' | rfl
+        · exact h.2 s j x y' hsj hj' hx hy hnd.1
+        · simp only [List.getElem?_append_right (Nat.le_refl _), Nat.sub_self,
+            List.getElem?_cons_zero, Option.some.injEq] at hy
+          subst hy
+          rw [List.getElem?_append_left hsj] at hx
+          cases hcv : covB D P y x with
+          | false => rfl
+          | true =>
+            exfalso
+            refine hnd.2 (List.mem_map.2 ⟨(x, s), List.mem_filter.2
+              ⟨List.mk_mem_zipIdx_iff_getElem?.2 hx, ?_⟩, rfl⟩)
+            simp [hcv, hnd.1]
+    obtain ⟨a, b⟩ := supersede_ok rest (seen ++ [y]) _ hd'
+    rw [e]
+    exact ⟨a, fun s hs => b s (List.mem_append_left _ hs)⟩
+
+/-- The first components of two lists zipped, from a position on. -/
+theorem map_fst_zip_drop {α β : Type} (l : List α) (l' : List β) (h : l'.length = l.length)
+    (n : Nat) : ((l.zip l').drop n).map Prod.fst = l.drop n := by
+  rw [List.map_drop, List.map_fst_zip (by omega)]
+
+/-- **The answers superseded are found once the side is complete, and
+kept.** -/
+theorem superseded_spec (st : StateOf R Rel (Ans D P)) (side : Nat) (dead : Option (List Nat)) :
+    (∀ d, dead = some d →
+      (superseded (K := DerivationKernel.over D K hK P) st side dead).val = some d) ∧
+    (∀ d, (superseded (K := DerivationKernel.over D K hK P) st side dead).val = some d →
+      dead = some d ∨ (dead = none ∧ st.isDone side = true ∧
+        DeadOk D P (st.answers side) (st.answers side).length d)) ∧
+    (st.isDone side = true →
+      (superseded (K := DerivationKernel.over D K hK P) st side dead).val.isSome = true) := by
+  cases dead with
+  | some d0 =>
+    have e : (superseded (K := DerivationKernel.over D K hK P) st side (some d0)).val =
+        some d0 := by
+      at_cost K hK
+      rfl
+    rw [e]
+    exact ⟨fun d h => h, fun d h => .inl h, fun _ => rfl⟩
+  | none =>
+    by_cases hd : st.isDone side = true
+    · have e : (superseded (K := DerivationKernel.over D K hK P) st side none).val =
+          some (supersede (K := DerivationKernel.over D K hK P) (st.answers side) [] []).val := by
+        at_cost K hK
+        simp only [superseded, hd, ↓reduceIte, Cost.bind_val, Cost.pure_val]
+      rw [e]
+      refine ⟨fun d h => (by cases h), fun d h => .inr ⟨rfl, hd, ?_⟩, fun _ => rfl⟩
+      cases h
+      have := (supersede_ok (K := K) (hK := hK) (P := P) (st.answers side) [] []
+        (by simpa using DeadOk.nil _)).1
+      simpa using this
+    · have e : (superseded (K := DerivationKernel.over D K hK P) st side none).val = none := by
+        at_cost K hK
+        simp only [superseded, hd, Bool.false_eq_true, ↓reduceIte, Cost.pure_val]
+      rw [e]
+      exact ⟨fun d h => (by cases h), fun d h => (by cases h), fun h => absurd h hd⟩
+
+/-- What the cursors of a push mean stays so when it sees what its side has
+gained, drops the answers superseded, and files what its tables have
+gained. -/
+theorem prog_push_file {st : StateOf R Rel (Ans D P)} (i : Nat) (g : GoalOf R Rel) (k : Kind)
+    (left : Bool) (side : Nat) (other : Rel) (subs : List (Ans D P × Option (Nat × Nat)))
+    (dead : Option (List Nat)) (reads : List (Nat × Option Nat)) (c : Cursor)
+    (dead' : Option (List Nat))
+    (hD' : ∀ d, dead' = some d → st.isDone side = true ∧
+      DeadOk D P (st.answers side) (st.answers side).length d)
+    (hdsub : ∀ d, dead = some d → dead' = some d)
+    (hs : Prog st i g (.push k left side other subs dead reads c)) :
+    Prog st i g (.push k left side other
+      (pushFile st (dead'.getD []) 0
+        (seeSide (((st.answers side).zip (st.pathsAt side)).drop subs.length) subs reads c).2.1
+        ((seeSide (((st.answers side).zip (st.pathsAt side)).drop subs.length) subs reads c).2.2.kill
+          (dead'.getD []))
+        (seeSide (((st.answers side).zip (st.pathsAt side)).drop subs.length) subs reads c).1).1
+      dead'
+      (pushFile st (dead'.getD []) 0
+        (seeSide (((st.answers side).zip (st.pathsAt side)).drop subs.length) subs reads c).2.1
+        ((seeSide (((st.answers side).zip (st.pathsAt side)).drop subs.length) subs reads c).2.2.kill
+          (dead'.getD []))
+        (seeSide (((st.answers side).zip (st.pathsAt side)).drop subs.length) subs reads c).1).2.1
+      (pushFile st (dead'.getD []) 0
+        (seeSide (((st.answers side).zip (st.pathsAt side)).drop subs.length) subs reads c).2.1
+        ((seeSide (((st.answers side).zip (st.pathsAt side)).drop subs.length) subs reads c).2.2.kill
+          (dead'.getD []))
+        (seeSide (((st.answers side).zip (st.pathsAt side)).drop subs.length) subs reads c).1).2.2) := by
+  have hss0 := seeSide_subs (((st.answers side).zip (st.pathsAt side)).drop subs.length) subs
+    reads c
+  have hsd0 := seeSide_done (((st.answers side).zip (st.pathsAt side)).drop subs.length) subs
+    reads c
+  have hsp0 := seeSide_prefix (((st.answers side).zip (st.pathsAt side)).drop subs.length) subs
+    reads c
+  have hsf0 := fun h hd => PushFits.seeSide (dead := dead.getD [])
+    (((st.answers side).zip (st.pathsAt side)).drop subs.length) (subs := subs) (reads := reads)
+    (c := c) h hd
+  generalize seeSide (((st.answers side).zip (st.pathsAt side)).drop subs.length) subs
+    reads c = f0 at hss0 hsd0 hsp0 hsf0 ⊢
+  have hfe0 := pushFile_getElem? st (dead'.getD []) f0.1 0 f0.2.1 (f0.2.2.kill (dead'.getD []))
+  have hflen0 := pushFile_length st (dead'.getD []) f0.1 0 f0.2.1 (f0.2.2.kill (dead'.getD []))
+  have hfd0 : (pushFile st (dead'.getD []) 0 f0.2.1 (f0.2.2.kill (dead'.getD [])) f0.1).2.2.done = f0.2.2.done :=
+    pushFile_done st (dead'.getD []) f0.1 0 f0.2.1 (f0.2.2.kill (dead'.getD []))
+  have hfp0 := pushFile_prefix st (dead'.getD []) f0.1 0 f0.2.1 (f0.2.2.kill (dead'.getD []))
+  have hff0 := fun h hle => PushFits.file (subs := f0.1) (dead := dead'.getD []) (reads := f0.2.1)
+    (c := f0.2.2.kill (dead'.getD [])) h st hle
+  generalize hfdef : pushFile st (dead'.getD []) 0 f0.2.1 (f0.2.2.kill (dead'.getD [])) f0.1 = f
+  rw [hfdef] at hfe0 hflen0 hfd0 hfp0 hff0
+  dsimp only [Prog] at hs ⊢
+  obtain ⟨L, Rg, h1, h2, h3, h4, hD, h5, h6, h7⟩ := hs
+  have hlen : subs.length ≤ (st.answers side).length := by
+    have := congrArg List.length h4
+    simp only [List.length_map, List.length_take] at this
+    omega
+  have hss := hss0
+  have hfe := hfe0
+  have hflen := hflen0
+  have hdone : f.2.2.done = c.done := hfd0.trans hsd0
+  have hpre : reads <+: f.2.1 := hsp0.trans hfp0
+  have h50 : ∀ e ∈ f0.1, ∀ t, e.2 = some t →
+      goalAt st t.1 = some (pushG D g other k left e.1) ∧ t.2 ≤ (st.answers t.1).length := by
+    intro e he t ht
+    rw [hss] at he
+    rcases List.mem_append.1 he with he | he
+    · exact h5 e he t ht
+    · obtain ⟨y, -, rfl⟩ := List.mem_map.1 he
+      cases ht
+  have hsub0 : ∀ s ∈ dead.getD [], s ∈ dead'.getD [] := by
+    cases dead with
+    | none => exact fun s hs => by cases hs
+    | some d =>
+      rw [hdsub d rfl]
+      exact fun s hs => hs
+  have hfit : PushFits f.1 (dead'.getD []) f.2.1 f.2.2 :=
+    hff0 ((hsf0 h6 hD.lt).kill (dead'.getD []) hsub0) fun e he t ht => by
+      rw [pathsAt_length]; exact (h50 e he t ht).2
+  have hsub : ∀ (s : Nat) (x : Ans D P) (t : Nat × Nat), f.1[s]? = some (x, some t) →
+      ∃ t0, subs[s]? = some (x, some t0) ∧ t.1 = t0.1 ∧ t.2 ≤ (st.answers t0.1).length := by
+    intro s x t he
+    rw [hfe] at he
+    cases h0 : f0.1[s]? with
+    | none => rw [h0] at he; cases he
+    | some e0 =>
+      rw [h0] at he
+      rcases e0 with ⟨x0, _ | t0⟩
+      · cases he
+      · cases he
+        have h00 := h0
+        rw [hss] at h0
+        rcases Nat.lt_or_ge s subs.length with hl | hl
+        · rw [List.getElem?_append_left hl] at h0
+          refine ⟨t0, h0, rfl, ?_⟩
+          dsimp only
+          split
+          · exact (h5 _ (List.mem_of_getElem? h0) t0 rfl).2
+          · rw [pathsAt_length]
+        · rw [List.getElem?_append_right hl, List.getElem?_map] at h0
+          cases hh : (((st.answers side).zip (st.pathsAt side)).drop subs.length)[s -
+            subs.length]? with
+          | none => rw [hh] at h0; cases h0
+          | some y => rw [hh] at h0; cases h0
+  have hfl : f.1.length = (st.answers side).length := by
+    rw [hflen, hss, List.length_append, List.length_map, List.length_drop, List.length_zip,
+      pathsAt_length, Nat.min_self]
+    omega
+  have hDn : DeadIs D P st side f.1.length dead' := by
+    cases dead' with
+    | none => exact True.intro
+    | some d => exact ⟨(hD' d rfl).1, hfl, (hD' d rfl).2⟩
+  refine ⟨L, Rg, h1, h2, h3, ?_, hDn, fun e he t ht => ?_, hfit,
+    fun s q x t r y hb he hq hy z hz => ?_⟩
+  · have hm : f.1.map (·.1) = f0.1.map (·.1) := by
+      refine List.ext_getElem? fun n => ?_
+      rw [List.getElem?_map, List.getElem?_map, hfe]
+      cases f0.1[n]? <;> rfl
+    rw [hm, hflen, hss, List.map_append, List.map_map, h4, List.length_append, List.length_map,
+      List.length_drop, List.length_zip, pathsAt_length, Nat.min_self,
+      show subs.length + ((st.answers side).length - subs.length) = (st.answers side).length by
+        omega, List.take_length]
+    have := map_fst_zip_drop (st.answers side) (st.pathsAt side) (pathsAt_length _ _) subs.length
+    rw [show (List.map ((fun x => x.1) ∘ fun x => (x.1, (none : Option (Nat × Nat))))
+      (List.drop subs.length ((st.answers side).zip (st.pathsAt side)))) =
+        List.map Prod.fst (List.drop subs.length ((st.answers side).zip (st.pathsAt side)))
+      from rfl, this, List.take_append_drop]
+  · obtain ⟨s, hs⟩ := List.getElem?_of_mem he
+    rcases e with ⟨x, o⟩
+    cases ht
+    obtain ⟨t0, he0, e1, e2⟩ := hsub s x t hs
+    rw [e1]
+    exact ⟨(h5 _ (List.mem_of_getElem? he0) t0 rfl).1, e2⟩
+  · have hb' : c.Before s q := by
+      unfold Cursor.Before at hb ⊢
+      rw [hdone] at hb
+      exact hb
+    obtain ⟨r', hr'⟩ := h6.2.done _ hb'
+    obtain ⟨tl, htl⟩ := hpre
+    have hq' : reads[q]? = some (s, some r) := by
+      rw [← htl, List.getElem?_append_left (lt_of_getElem? hr')] at hq
+      exact hq
+    obtain ⟨t0, he0, e1, -⟩ := hsub s x t he
+    rw [e1] at hy
+    exact h7 s q x t0 r y hb' he0 hq' hy z hz
+
 theorem prog_work_push (hL : D.Lawful P.sorts.interp) {st : StateOf R Rel (Ans D P)}
     (hI : Inv st) (i : Nat) (g : GoalOf R Rel) (k : Kind) (left : Bool)
-    (side : Nat) (other : Rel) (todo : Option (List (Ans D P)))
-    (subs : List (Ans D P × Nat × Nat)) (ho : Open st i) (hno : Normal other)
-    (hs : Prog st i g (.push k left side other todo subs)) :
+    (side : Nat) (other : Rel) (subs : List (Ans D P × Option (Nat × Nat)))
+    (dead : Option (List Nat))
+    (reads : List (Nat × Option Nat)) (c : Cursor) (ho : Open st i)
+    (hs : Prog st i g (.push k left side other subs dead reads c)) :
     Prog (work (K := DerivationKernel.over D K hK P) i g st
-        (.push k left side other todo subs)).val.1 i g
+        (.push k left side other subs dead reads c)).val.1 i g
       (work (K := DerivationKernel.over D K hK P) i g st
-        (.push k left side other todo subs)).val.2.1 := by
-  have hs0 := hs
-  dsimp only [Prog] at hs
-  obtain ⟨L, Rg, h1, h2, h3, h4, h5, h6⟩ := hs
+        (.push k left side other subs dead reads c)).val.2.1 := by
+  have hsup := superseded_spec (K := K) (hK := hK) (P := P) st side dead
+  have hD0 : DeadIs D P st side subs.length dead := by
+    have hs' := hs
+    dsimp only [Prog] at hs'
+    obtain ⟨_, _, -, -, -, -, hD, -⟩ := hs'
+    exact hD
+  have hP := fun dead' (h1 : ∀ d, dead' = some d → st.isDone side = true ∧
+      DeadOk D P (st.answers side) (st.answers side).length d)
+      (h2 : ∀ d, dead = some d → dead' = some d) =>
+    prog_push_file i g k left side other subs dead reads c dead' h1 h2 hs
   have hpo := fun xs => pushOpen_spec (K := K) (hK := hK) (P := P) g other k left st xs
   have hpi := fun xs =>
     (inner_pushOpen (K := K) (hK := hK) (P := P) (w := i) g other k left st xs).frame
-  have hpI := fun xs => (inv_pushOpen (K := K) (hK := hK) hI g other k left xs hno).1
-  have hpt := fun (x : Ans D P) st' ys ho' hx hy =>
+  have hpt := fun (x : Ans D P) st' ys ho' L Rg (h1 : SplitAt g k L Rg) hx hy =>
     pushTake_cov (K := K) (hK := hK) hL i k left x st' ys ho' (other := other) h1 hx hy
-  have hmv := maxima_val (P := P) K hK (st.answers side)
-  have hmm : ∀ x ∈ (maxima (K := DerivationKernel.over D K hK P) (st.answers side)).val,
-      x ∈ st.answers side := fun x h => mem_maxima (K := K) (hK := hK) h
-  have hcovmax : ∀ x ∈ st.answers side,
-      ∃ x' ∈ (maxima (K := DerivationKernel.over D K hK P) (st.answers side)).val,
-        den P.sorts.interp x.span ⊆ den P.sorts.interp x'.span := by
-    intro x hx
-    rw [hmv]
-    obtain ⟨z, hz, hc⟩ := List.maximaBy_covers (cov := covB D P)
-      (fun a => (hL.covers_iff _ _).2 subset_rfl)
-      (fun a b c h1 h2 => (hL.covers_iff _ _).2
-        (((hL.covers_iff _ _).1 h2).trans ((hL.covers_iff _ _).1 h1))) hx
-    exact ⟨z, hz, (hL.covers_iff _ _).1 hc⟩
   at_cost K hK
-  simp only [work]
+  simp only [work, Cost.bind_val]
+  generalize (superseded (K := DerivationKernel.over D _ hK P) st side dead).val = dead'
+    at hsup ⊢
+  replace hP := hP dead' (fun d hd => by
+    rcases hsup.2.1 d hd with h | ⟨-, h1, h2⟩
+    · subst h
+      exact ⟨hD0.1, hD0.2.2⟩
+    · exact ⟨h1, h2⟩) hsup.1
+  generalize seeSide (((st.answers side).zip (st.pathsAt side)).drop subs.length) subs
+    reads c = f0 at hP ⊢
+  generalize pushFile st (dead'.getD []) 0 f0.2.1 (f0.2.2.kill (dead'.getD [])) f0.1 = f
+    at hP ⊢
+  obtain ⟨subs', reads', c'⟩ := f
+  dsimp only at hP ⊢
+  have hP0 := hP
+  dsimp only [Prog] at hP
+  obtain ⟨L, Rg, h1, h2, h3, h4, hD, h5, hfit, h7⟩ := hP
+  have hlen : subs'.length ≤ (st.answers side).length := by
+    have := congrArg List.length h4
+    simp only [List.length_map, List.length_take] at this
+    omega
   split
-  · exact hs0
-  · next hnd =>
-    have hd : st.isDone side = true := by simpa using hnd
+  · exact hP0
+  · next p hp =>
+    obtain ⟨hnb, -, hcase⟩ := hfit.next hp
     split
-    · simp only [Cost.bind_val, Cost.pure_val]
-      dsimp only [Prog]
-      exact ⟨L, Rg, h1, h2, h3, fun l hl => by
-        cases hl
-        exact ⟨hd, (fun x hx => by
-            rcases hx with hx | hx
-            · rw [hmv] at hx
-              exact hx
-            · rw [h6 rfl] at hx
-              cases hx),
-          fun x hx => (hcovmax x hx).imp fun x' h => ⟨hmm x' h.1, .inl h.1, h.2⟩⟩,
-        h5, fun h => by cases h⟩
-    · next x rest =>
-      simp only [Cost.bind_val, Cost.pure_val]
+    · next x a hx hr =>
+      have hr' : reads'[p.2]? = some (p.1, none) := by
+        rcases hcase with ⟨x', -, h⟩ | ⟨x', t, r, hx', -⟩
+        · exact h
+        · rw [hx] at hx'
+          cases hx'
+      simp only [Cost.bind_val, Cost.pure_val, Kernel.metered, Cost.metered_val]
       obtain ⟨hmap, hnew⟩ := hpo [x]
-      have hF1 := hpi [x]
-      have hS1 := hF1.stable ho
-      obtain ⟨hd', hans⟩ := hS1.isDone hd
-      obtain ⟨-, d2, d3⟩ := h4 (x :: rest) rfl
+      have hS1 := (hpi [x]).stable ho
+      obtain ⟨e0, he0, hx0⟩ := List.map_eq_singleton_iff.1 hmap
+      obtain ⟨-, e02, e03⟩ := hnew e0 (by rw [he0]; exact List.mem_cons_self)
+      have hop : openedAt (pushOpen (K := DerivationKernel.over D _ hK P) g other k left st
+          [x]).val.2 = some (e0.2.1, 0) := by
+        rw [he0]; rfl
+      rw [hop]
+      rw [hx0] at e03
+      have hfit' := fun t => hfit.markOpen hx hr' e0.2.1 t
       dsimp only [Prog]
-      refine ⟨L, Rg, h1, hS1.ext _ _ h2, h3, fun l hl => ?_, fun e he => ?_,
-        fun h => by cases h⟩
-      · cases hl
-        rw [hans]
-        refine ⟨hd', fun y hy => d2 y (by
-          rcases hy with hy | hy
-          · exact .inl (List.mem_cons_of_mem _ hy)
-          · rw [List.map_append, hmap] at hy
-            rcases List.mem_append.1 hy with h | h
-            · exact .inr h
-            · exact .inl (by rw [List.mem_singleton.1 h]; exact List.mem_cons_self)),
-          fun y hy => ?_⟩
-        obtain ⟨x', hx', hor, hsubset⟩ := d3 y hy
-        refine ⟨x', hx', ?_, hsubset⟩
-        rw [List.map_append, hmap]
-        rcases hor with h | h
-        · rcases List.mem_cons.1 h with rfl | h
-          · exact .inr (List.mem_append_right _ List.mem_cons_self)
-          · exact .inl h
-        · exact .inr (List.mem_append_left _ h)
-      · rcases List.mem_append.1 he with he | he
-        · obtain ⟨e1, e2, e3⟩ := h5 e he
-          exact ⟨by rw [hans]; exact e1, hS1.ext _ _ e2, e3.mono hS1⟩
-        · obtain ⟨e1, e2, e3⟩ := hnew e he
-          refine ⟨?_, e3, by rw [e2]; exact Read.zero _ _ _ _⟩
-          rw [hans]
-          exact List.mem_maximaBy
-            (d2 _ (.inl (by rw [List.mem_singleton.1 e1]; exact List.mem_cons_self)))
-    · split
-      · exact hs0
-      · next p hp =>
-        simp only [Cost.bind_val, Cost.pure_val]
-        rw [prog_stamp]
-        have hpm := mem_of_leastBy hp
-        have hpok : p.1.2.2 < (st.answers p.1.2.1).length := by simpa using leastBy_ok hp
-        have hq0 : subs[p.2]? = some p.1 := List.mem_zipIdx_iff_getElem?.1 hpm
-        obtain ⟨e1, e2, e3⟩ := h5 p.1 (List.mem_of_getElem? hq0)
-        obtain ⟨hf, hc⟩ := hpt p.1.1 st (((st.answers p.1.2.1).drop p.1.2.2).take 1) ho
-          (hI.answers h2 _ e1)
-          (fun y hy => hI.answers e2 y (List.mem_of_mem_drop (List.mem_of_mem_take hy)))
-        have hS := hf.stable ho
-        obtain ⟨hd', hans⟩ := hS.isDone hd
-        dsimp only [Prog]
-        refine ⟨L, Rg, h1, hS.ext _ _ h2, h3, fun l hl => ?_, fun e he => ?_,
-          fun h => by cases h⟩
-        · obtain ⟨-, d2, d3⟩ := h4 l hl
-          rw [hans, map_modify_eq (fun e : Ans D P × Nat × Nat => e.1)
-            (fun e : Ans D P × Nat × Nat => (e.1, e.2.1, e.2.2 + 1)) (fun _ => rfl)]
-          exact ⟨hd', d2, d3⟩
-        · obtain ⟨n, hn⟩ := List.getElem?_of_mem he
-          rw [List.getElem?_modify] at hn
-          by_cases hpn : p.2 = n
-          · subst hpn
-            rw [hq0] at hn
-            simp only [ite_true] at hn
-            cases hn
-            refine ⟨by rw [hans]; exact e1, hS.ext _ _ e2,
-              Nat.succ_le_of_lt (lt_of_lt_of_le hpok (hS.length_le _)),
-              fun n y hn hy z hz => ?_⟩
-            by_cases hlt : n < p.1.2.2
-            · exact (e3.mono hS).2 n y hlt hy z hz
-            · have hn2 : n < p.1.2.2 + 1 := hn
-              obtain rfl : n = p.1.2.2 := by omega
-              have hy' := hS.getElem?_old hy hpok
-              refine hc y (List.mem_iff_getElem?.2 ⟨0, ?_⟩) z hz
-              rw [List.getElem?_take_of_lt (by omega), List.getElem?_drop]
-              exact hy'
-          · simp only [hpn, ite_false] at hn
-            rw [id_map'] at hn
-            obtain ⟨d1, d2, d3⟩ := h5 e (List.mem_of_getElem? hn)
-            exact ⟨by rw [hans]; exact d1, hS.ext _ _ d2, d3.mono hS⟩
+      refine ⟨L, Rg, h1, hS1.ext _ _ h2, h3, ?_,
+        by rw [List.length_set]; exact hD.mono hS1,
+        fun e he t ht => ?_, hfit' _, fun s q x' t r y hb he hq hy z hz => ?_⟩
+      · have hm : (subs'.set p.1 (x, some (e0.2.1, 0))).map (·.1) = subs'.map (·.1) := by
+          refine List.ext_getElem? fun n => ?_
+          rw [List.getElem?_map, List.getElem?_map]
+          by_cases e : p.1 = n
+          · subst e
+            rw [List.getElem?_set_self (lt_of_getElem? hx), hx]
+            rfl
+          · rw [List.getElem?_set_ne e]
+        rw [hm, List.length_set, h4]
+        exact (take_of_prefix (hS1.answers side) hlen).symm
+      · rcases List.mem_or_eq_of_mem_set he with he | rfl
+        · exact ⟨hS1.ext _ _ (h5 e he t ht).1, (h5 e he t ht).2.trans (hS1.length_le _)⟩
+        · cases ht
+          exact ⟨e03, Nat.zero_le _⟩
+      · have hr2 : r < t.2 := by
+          have := (hfit' 0).2.filed q s r hq
+          unfold cntOf at this
+          rw [he] at this
+          exact this
+        by_cases e : p.1 = s
+        · subst e
+          rw [List.getElem?_set_self (lt_of_getElem? hx)] at he
+          cases he
+          exact absurd hr2 (Nat.not_lt_zero _)
+        · rw [List.getElem?_set_ne e] at he
+          have hy' := hS1.getElem?_old hy
+            (lt_of_lt_of_le hr2 (h5 _ (List.mem_of_getElem? he) t rfl).2)
+          rcases Cursor.before_mark.1 hb with hb | hb
+          · exact (h7 s q x' t r y hb he hq hy' z hz).mono hS1
+          · exact absurd (congrArg Prod.fst hb) e
+    · next x tb a r hx hr =>
+      obtain ⟨hr', hrlt⟩ : reads'[p.2]? = some (p.1, some r) ∧ r < tb.2 := by
+        rcases hcase with ⟨x', hx', -⟩ | ⟨x', t, r', hx', h, hlt⟩
+        · rw [hx] at hx'
+          cases hx'
+        · rw [hx] at hx'
+          cases hx'
+          rw [hr] at h
+          cases h
+          exact ⟨hr, hlt⟩
+      simp only [Cost.bind_val, Cost.pure_val, Kernel.metered, Cost.metered_val]
+      rw [prog_stamp]
+      have hgo := h5 (x, some tb) (List.mem_of_getElem? hx) tb rfl
+      have hxs : x ∈ st.answers side := by
+        have : x ∈ subs'.map (·.1) := List.mem_map.2 ⟨_, List.mem_of_getElem? hx, rfl⟩
+        rw [h4] at this
+        exact List.mem_of_mem_take this
+      obtain ⟨hf, hc⟩ := hpt x st (((st.answers tb.1).drop r).take 1) ho L Rg h1
+        (hI.answers h2 _ hxs)
+        (fun y hy => hI.answers hgo.1 y (List.mem_of_mem_drop (List.mem_of_mem_take hy)))
+      have hS := hf.stable ho
+      dsimp only [Prog]
+      refine ⟨L, Rg, h1, hS.ext _ _ h2, h3, ?_, hD.mono hS,
+        fun e he t ht => ?_, hfit.markRead hr' _, fun s q x' t r'' y hb he hq hy z hz => ?_⟩
+      · rw [h4]
+        exact (take_of_prefix (hS.answers side) hlen).symm
+      · exact ⟨hS.ext _ _ (h5 e he t ht).1, (h5 e he t ht).2.trans (hS.length_le _)⟩
+      · have hr2 : r'' < t.2 := by
+          have := hfit.2.filed q s r'' hq
+          unfold cntOf at this
+          rw [he] at this
+          exact this
+        have hy' := hS.getElem?_old hy
+          (lt_of_lt_of_le hr2 (h5 _ (List.mem_of_getElem? he) t rfl).2)
+        rcases Cursor.before_mark.1 hb with hb | hb
+        · exact (h7 s q x' t r'' y hb he hq hy' z hz).mono hS
+        · cases hb
+          rw [hx] at he
+          rw [hr'] at hq
+          cases he
+          cases hq
+          refine hc y (List.mem_iff_getElem?.2 ⟨0, ?_⟩) z hz
+          rw [List.getElem?_take_of_lt (by omega), List.getElem?_drop]
+          exact hy'
+    · next hno1 hno2 =>
+      rcases hcase with ⟨x', hx', h⟩ | ⟨x', t, r', hx', h, -⟩
+      · exact absurd h (hno1 x' p.1 hx')
+      · exact absurd h (hno2 x' t p.1 r' hx')
 
 theorem prog_work_check (hR : ReadOk D P K hK) {st : StateOf R Rel (Ans D P)}
     (hE : EdgesOk st) (i : Nat) (g : GoalOf R Rel) (left : Bool)
@@ -1177,9 +1562,8 @@ theorem prog_work (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK)
   | span ran => exact prog_work_span hL i g ran ho hb hs
   | copy isCall subs => exact prog_work_copy hL hI i g isCall subs ho hs
   | join k a b c => exact prog_work_join hL hI i g k a b c ho hs
-  | push k left side other todo subs =>
-    obtain ⟨-, -, -, hno, -⟩ := hok
-    exact prog_work_push hL hI i g k left side other todo subs ho hno hs
+  | push k left side other subs dead reads c =>
+    exact prog_work_push hL hI i g k left side other subs dead reads c ho hs
   | check left side other c => exact prog_work_check hR hE i g left side other c hs
 
 end kernel
