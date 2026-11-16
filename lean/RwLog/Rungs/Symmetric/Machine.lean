@@ -67,13 +67,16 @@ the answer of the side first (`Cursor.opened`, `Cursor.read`), and the unit
 of the least key is taken. So opening goals for the answers of one member of
 a union does not keep the push from the answers of another.
 
-An answer of the side that a later answer of the side covers is *superseded*
-(`supersede`): what it would give, the answer that covers it gives. Its units
-are taken off the cursor (`Cursor.kill`), the goal opened for it is read no
-more, and the push has nothing left to do without it. So whether a goal
-completes does not depend on the order in which the answers of a side
-arrive: once the side is complete, the answers not superseded are its maximal
-answers, and only the goals opened for those have to complete.
+Once the side is complete, an answer of it that a later answer of it covers
+is *superseded* (`supersede`, `superseded`): what it would give, the answer
+that covers it gives. The cover tests are made once, when the push first
+works with its side complete; a side that never completes is never tested.
+The units of the superseded are taken off the cursor (`Cursor.kill`), the
+goals opened for them are read no more, and the push has nothing left to do
+without them. So whether a goal completes does not depend on the order in
+which the answers of a side arrive: the answers not superseded are the
+maximal answers of the side, and only the goals opened for those have to
+complete.
 
 ## A request
 
@@ -339,15 +342,15 @@ inductive Strat (N A : Type) where
   as it arrives. `subs` is the answers of the side seen, in the order of the
   table, each with the table opened for it, once it is opened, and how many
   answers of that table are filed. `dead` is the positions in `subs` of the
-  answers superseded: those an answer seen later covers. Nothing more is done
-  for them, and the goal completes without them, since what they give the
-  answer that covers them gives. `reads` is the units filed, each with the
+  answers superseded, those a later answer covers, once the side is complete
+  and they are known. Nothing more is done for them, and the goal completes
+  without them, since what they give the answer that covers them gives. `reads` is the units filed, each with the
   position in `subs` of its answer of the side: opening the goal of that
   answer (`none`), or combining it with the answer at a position of its table.
   The cursor `c` has the paths of the answers seen and of the units filed,
   and the units still to take. -/
   | push (k : Kind) (left : Bool) (side : Nat) (other : N)
-      (subs : List (A × Option (Nat × Nat))) (dead : List Nat)
+      (subs : List (A × Option (Nat × Nat))) (dead : Option (List Nat))
       (reads : List (Nat × Option Nat)) (c : Cursor)
   /-- The interface check of one split of a chain: the node `side` (the left
   side of the split if `left`) is read from the program, and the node `other`
@@ -503,7 +506,7 @@ def Strat.feeds (st : StateOf S N A) : Strat N A → List Nat
   | .copy _ subs => subs.map Prod.fst
   | .join _ a b _ => [a, b]
   | .push _ _ side _ subs dead _ _ => side :: subs.zipIdx.filterMap fun e =>
-      if dead.contains e.2 then none else e.1.2.map Prod.fst
+      if (dead.getD []).contains e.2 then none else e.1.2.map Prod.fst
   | .check _ _ _ (.opened subs) =>
     if subs.any fun j => !(st.answers j).isEmpty then [] else subs
   | .check _ _ _ _ => []
@@ -522,7 +525,7 @@ def Strat.pending (st : StateOf S N A) : Strat N A → Bool
   | .join _ a b c => c.pending (st.answers a).length (st.answers b).length
   | .push _ _ side _ subs dead _ c =>
     decide (subs.length < (st.answers side).length) || !c.todo.isEmpty ||
-      subs.zipIdx.any fun e => !dead.contains e.2 &&
+      subs.zipIdx.any fun e => !(dead.getD []).contains e.2 &&
         match e.1.2 with
         | some t => decide (t.2 < (st.answers t.1).length)
         | none => false
@@ -537,8 +540,8 @@ def Strat.quiet (st : StateOf S N A) (ok : Nat → Bool) (s : Strat N A) : Bool 
     | .span ran => ran
     | .copy _ subs => subs.all fun p => ok p.1
     | .join _ a b _ => ok a && ok b
-    | .push _ _ side _ subs dead _ _ => st.isDone side && subs.zipIdx.all fun e =>
-        dead.contains e.2 ||
+    | .push _ _ side _ subs dead _ _ => st.isDone side && dead.isSome && subs.zipIdx.all fun e =>
+        (dead.getD []).contains e.2 ||
           match e.1.2 with
           | some t => ok t.1
           | none => false
@@ -639,8 +642,8 @@ def splitGroup (k : Kind) (L R : GoalOf S N) (st : StateOf S N A) :
     M (StateOf S N A × Group N A) := do
   let (st, a) ← openGoal (K := K) st L
   let (st, b) ← openGoal (K := K) st R
-  pure (st, ⟨0, [.join k a b Cursor.start, .push k true a R.node [] [] [] Cursor.start,
-    .push k false b L.node [] [] [] Cursor.start], []⟩)
+  pure (st, ⟨0, [.join k a b Cursor.start, .push k true a R.node [] none [] Cursor.start,
+    .push k false b L.node [] none [] Cursor.start], []⟩)
 
 /-! ## Reading an edge from the program -/
 
@@ -930,6 +933,16 @@ def supersede : List A → List A → List Nat → M (List Nat)
       if dead.contains e.2 then pure false else coversA (K := K) y e.1) seen.zipIdx
     supersede rest (seen ++ [y]) (dead ++ ks.map (·.2))
 
+/-- The answers of the table `side` that are superseded, once that table is
+complete: found once, by `supersede` over all its answers, and kept. -/
+def superseded (st : StateOf S N A) (side : Nat) : Option (List Nat) → M (Option (List Nat))
+  | some d => pure (some d)
+  | none =>
+    if st.isDone side then do
+      let d ← supersede (K := K) (st.answers side) [] []
+      pure (some d)
+    else pure none
+
 /-- The table opened for one answer, with none of its answers filed. -/
 def openedAt (new : List (A × Nat × Nat)) : Option (Nat × Nat) :=
   new.head?.map fun e => (e.2.1, 0)
@@ -973,9 +986,9 @@ def work (i : Nat) (g : GoalOf S N) (st : StateOf S N A) :
         .join k a b (c.mark p (t + 1)), true)
   | .push k left side other subs dead reads c => do
     let new := ((st.answers side).zip (st.pathsAt side)).drop subs.length
-    let dead ← supersede (K := K) (new.map (·.1)) (subs.map (·.1)) dead
+    let dead ← superseded (K := K) st side dead
     let f0 := seeSide new subs reads c
-    let f := pushFile st dead 0 f0.2.1 (f0.2.2.kill dead) f0.1
+    let f := pushFile st (dead.getD []) 0 f0.2.1 (f0.2.2.kill (dead.getD [])) f0.1
     match f.2.2.next with
     | none => pure (st, .push k left side other f.1 dead f.2.1 f.2.2, false)
     | some p =>

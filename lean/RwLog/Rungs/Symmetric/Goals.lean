@@ -818,7 +818,8 @@ theorem inv_work_aux {st : StateOf R Rel (Ans D P)} (hI : Inv st) (i : Nat)
   | push k left side other subs dead reads c =>
     obtain ⟨gs, h1, hk, hno, hsubs⟩ := hs
     simp only [work, Cost.bind_val]
-    generalize (supersede (K := DerivationKernel.over D _ hK P) _ _ dead).val = dead'
+    generalize (superseded (K := DerivationKernel.over D _ hK P) st side dead).val = dead0
+    generalize dead0.getD [] = dead'
     have hss := seeSide_subs (((st.answers side).zip (st.pathsAt side)).drop subs.length) subs
       reads c
     generalize seeSide (((st.answers side).zip (st.pathsAt side)).drop subs.length) subs
@@ -846,7 +847,7 @@ theorem inv_work_aux {st : StateOf R Rel (Ans D P)} (hI : Inv st) (i : Nat)
         · obtain ⟨y, hy, rfl⟩ := List.mem_map.1 hm
           refine ⟨hI.answers h1 _ (List.of_mem_zip (List.mem_of_mem_drop hy)).1, fun t ht => ?_⟩
           cases ht
-    have hok : ∀ c', StratOk st g (.push k left side other f.1 dead' f.2.1 c') := fun _ =>
+    have hok : ∀ c', StratOk st g (.push k left side other f.1 dead0 f.2.1 c') := fun _ =>
       ⟨gs, h1, hk, hno, hf⟩
     split
     · exact ⟨hI, fun _ => hok _⟩
