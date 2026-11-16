@@ -852,10 +852,10 @@ def pushTake (i : Nat) (k : Kind) (left : Bool) (x : A) (st : StateOf S N A) (ys
 /-- File the answers that the table opened for the answer pushed at `s` has
 gained since `n` of them were filed: each is one more read and one more pair
 of the cursor. -/
-def fileReads (s : Nat) (pths : List Path) (n : Nat) (reads : List (Nat × Nat)) (c : Cursor) :
-    List Path → List (Nat × Nat) × Cursor
-  | [] => (reads, c)
-  | pth :: rest => fileReads s pths (n + 1) (reads ++ [(s, n)]) (c.read s pth) rest
+def fileReads (s : Nat) : Nat → List (Nat × Nat) → Cursor → List Path →
+    List (Nat × Nat) × Cursor
+  | _, reads, c, [] => (reads, c)
+  | n, reads, c, pth :: rest => fileReads s (n + 1) (reads ++ [(s, n)]) (c.read s pth) rest
 
 /-- File the answers that the tables opened by a push have gained: the
 answers pushed with every answer of their tables filed, the reads, and the
@@ -865,7 +865,7 @@ def pushFile (st : StateOf S N A) (s : Nat) (reads : List (Nat × Nat)) (c : Cur
   | [] => ([], reads, c)
   | e :: rest =>
     let pths := st.pathsAt e.2.1
-    let r := fileReads s pths e.2.2 reads c (pths.drop e.2.2)
+    let r := fileReads s e.2.2 reads c (pths.drop e.2.2)
     let out := pushFile st (s + 1) r.1 r.2 rest
     ((e.1, e.2.1, pths.length) :: out.1, out.2)
 

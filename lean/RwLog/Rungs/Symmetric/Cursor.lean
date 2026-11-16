@@ -272,6 +272,22 @@ theorem foldl_choose_least {α β : Type} [LinearOrder β] (key : α → β) (lt
         · exact le_trans hb (not_lt.1 hl)
         · exact i1 y hy
 
+/-- A pair returned is one of the pairs to combine. -/
+theorem Cursor.next_todo {c : Cursor} {x : Nat × Nat} (h : c.next = some x) : x ∈ c.todo := by
+  rcases foldl_choose_mem _ _ _ _ (show List.foldl _ none _ = some x from h) with h1 | h1
+  · exact h1
+  · cases h1
+
+/-- No pair is returned only when there is none to combine. -/
+theorem Cursor.next_none_todo {c : Cursor} (h : c.next = none) : c.todo = [] :=
+  (foldl_choose_none _ _ _ (show List.foldl _ none _ = none from h)).1
+
+/-- The pair returned has the least key of the pairs to combine. -/
+theorem Cursor.next_least {c : Cursor} {x : Nat × Nat} (h : c.next = some x) :
+    ∀ y ∈ c.todo, c.keyOf x ≤ c.keyOf y :=
+  fun y hy => (foldl_choose_least c.keyOf _ (fun _ _ => by simp) _ _ _
+    (show List.foldl _ none _ = some x from h)).1 y hy
+
 /-- A pair returned is of answers filed and was not combined. -/
 theorem Cursor.next_mem {la lb : Nat} {c : Cursor} (hok : c.Ok la lb) {x : Nat × Nat}
     (h : c.next = some x) : x ∈ c.left c.pa.length c.pb.length := by
@@ -666,13 +682,13 @@ theorem Cursor.place_mark (c : Cursor) (x : Nat × Nat) (t : Nat) (k : List Step
   rw [show c.fedOf k + d + 1 = (c.fedOf k + 1) + d by omega, Nat.add_mul]
   omega
 
-/-- **A unit of a join that combines a pair brings the join nearer to each
-pair left.** -/
-theorem Cursor.rank_fall {la lb : Nat} {c : Cursor} (hok : c.Ok la lb) {x : Nat × Nat}
-    {t : Nat} (ht : 0 < t) (h : c.next = some x) {p q : Nat} (hpq : (p, q) ∈ c.left c.pa.length c.pb.length) :
+/-- **A unit that combines a pair brings its cursor nearer to each pair still
+to combine.** -/
+theorem Cursor.rank_fall_todo {c : Cursor} {x : Nat × Nat} (hx : ¬ c.Before x.1 x.2)
+    {t : Nat} (ht : 0 < t) (h : c.next = some x) {p q : Nat} (hpq : (p, q) ∈ c.todo) :
     RankLt ((c.mark x t).rank p q) (c.rank p q) := by
-  have hkey := Cursor.next_le hok h (p, q) hpq
-  have hxm := Cursor.mem_left.1 (Cursor.next_mem hok h)
+  have hkey := Cursor.next_least h (p, q) hpq
+  have hxm : True ∧ ¬ c.Before x.1 x.2 := ⟨trivial, hx⟩
   obtain ⟨hL, hL'⟩ := c.left_mark x t (max p q + 1)
   unfold Cursor.rank
   simp only [Cursor.stepsAt_mark]
@@ -781,6 +797,45 @@ theorem Cursor.rank_fall {la lb : Nat} {c : Cursor} (hok : c.Ok la lb) {x : Nat 
     · exact .rel hlt'
     · rw [heq]
       exact .cons (lex_range _ _ e ss.length he2 hgt hlt)
+
+/-- **A unit of a join that combines a pair brings the join nearer to each
+pair left.** -/
+theorem Cursor.rank_fall {la lb : Nat} {c : Cursor} (hok : c.Ok la lb) {x : Nat × Nat}
+    {t : Nat} (ht : 0 < t) (h : c.next = some x) {p q : Nat}
+    (hpq : (p, q) ∈ c.left c.pa.length c.pb.length) :
+    RankLt ((c.mark x t).rank p q) (c.rank p q) :=
+  Cursor.rank_fall_todo (Cursor.mem_left.1 (Cursor.next_mem hok h)).2 ht h (hok.mem_todo.2 hpq)
+
+/-! ## The cursor of a push -/
+
+/-- The steps down to a pair of answers that were filed stay when an answer
+is pushed. -/
+theorem Cursor.stepsAt_opened (pth : Path) (c : Cursor) {x : Nat × Nat}
+    (h1 : x.1 < c.pa.length) : (c.opened pth).stepsAt x = c.stepsAt x := by
+  simp only [Cursor.stepsAt, Cursor.opened, List.getD_eq_getElem?_getD,
+    List.getElem?_append_left h1]
+
+/-- The steps down to a pair of answers that were filed stay when an answer
+is filed. -/
+theorem Cursor.stepsAt_read (s : Nat) (pth : Path) (c : Cursor) {x : Nat × Nat}
+    (h2 : x.2 < c.pb.length) : (c.read s pth).stepsAt x = c.stepsAt x := by
+  simp only [Cursor.stepsAt, Cursor.read, List.getD_eq_getElem?_getD,
+    List.getElem?_append_left h2]
+
+/-- The measure of a pair stays when an answer is pushed. -/
+theorem Cursor.rank_opened (pth : Path) (c : Cursor) {p q : Nat} (h1 : p < c.pa.length) :
+    (c.opened pth).rank p q = c.rank p q := by
+  unfold Cursor.rank
+  rw [Cursor.stepsAt_opened pth c (x := (p, q)) h1]
+  rfl
+
+/-- The measure of a pair of answers that were filed stays when an answer is
+filed. -/
+theorem Cursor.rank_read (s : Nat) (pth : Path) (c : Cursor) {p q : Nat}
+    (h2 : q < c.pb.length) : (c.read s pth).rank p q = c.rank p q := by
+  unfold Cursor.rank
+  rw [Cursor.stepsAt_read s pth c (x := (p, q)) h2]
+  rfl
 
 end Symmetric
 
