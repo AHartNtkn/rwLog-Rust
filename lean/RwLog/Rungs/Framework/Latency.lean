@@ -99,15 +99,22 @@ theorem Advances.of_nil {κ : KernelRung} {kind : Kind} {Old New : Engine} {b : 
   preCost _ _ _ _ := Nat.le_refl 0
 
 /-- A bound that is met is met by anything larger. -/
-theorem MeetsOn.mono {μ : Meter} {M : CostedRuntime} {C : ProgClass} {hi hi' : Nat → Nat}
-    {f f' : Nat → Nat → Nat → Nat} (h : MeetsOn μ M C hi f) (hhi : ∀ k, hi k ≤ hi' k)
-    (hf : ∀ k res n, f k res n ≤ f' k res n) : MeetsOn μ M C hi' f' where
+theorem MeetsOn.mono {ρ : Resource} {M : CostedRuntime} {C : ProgClass} {hi hi' : Nat → Nat}
+    {f f' : Nat → Nat → Nat → Nat} (h : MeetsOn ρ M C hi f) (hhi : ∀ k, hi k ≤ hi' k)
+    (hf : ∀ k res n, f k res n ≤ f' k res n) : MeetsOn ρ M C hi' f' where
   alone P r hm x hx := by
     obtain ⟨n, hn, hc⟩ := h.alone P r hm x hx
     exact ⟨n, hn, le_trans hc (hhi _)⟩
-  inContext P r hm K hK hwf y hy res hres := by
-    obtain ⟨n, hn, hc⟩ := h.inContext P r hm K hK hwf y hy res hres
-    exact ⟨n, hn, le_trans hc (hf _ _ _)⟩
+  inContext P r hm K hK hwf y hy := by
+    have h0 := h.inContext P r hm K hK hwf y hy
+    cases ρ with
+    | time =>
+      intro res hres
+      obtain ⟨n, hn, hc⟩ := h0 res hres
+      exact ⟨n, hn, le_trans hc (hf _ _ _)⟩
+    | space =>
+      obtain ⟨n, hn, m, hm', hc⟩ := h0
+      exact ⟨n, hn, m, hm', le_trans hc (hf _ _ _)⟩
 
 /-- A win is kept within any larger factor. -/
 theorem Win.KeptBy.mono {w : Win} {M : CostedRuntime} {c c' : Nat} (h : w.KeptBy M c)
@@ -148,17 +155,21 @@ theorem Ladder.lawful {κ : KernelRung} {base G : CostedRung} {record : List Win
 
 /-- Two rungs without preprocessing: admission is the improvement of the
 machines, that the new one halts where the old one does, the direction bound
-of the new one, and that it keeps the wins on the record. -/
+of the new one, that it keeps the wins on the record, and for a win in space
+that it keeps the time of the old one. -/
 theorem Admits.of_nil {κ : KernelRung} {kind : Kind} {Old New : Engine} {b : Bounds}
     {d : DirBound} {C : ProgClass} {record : List Win} {keep : Nat}
     (h : Improves kind (Old.costed κ) (New.costed κ) b C)
     (hh : ∀ P q, P.WellFormed q → (Old.costed κ).runtime.Terminates P q →
       (New.costed κ).runtime.Terminates P q)
-    (hd : DirectionFree (New.costed κ) d.fn) (hk : ∀ w ∈ record, w.KeptBy (New.costed κ) keep) :
+    (hd : DirectionFree (New.costed κ) d.fn) (hk : ∀ w ∈ record, w.KeptBy (New.costed κ) keep)
+    (ht : kind.resource = .space →
+      Simulates (Old.costed κ) (New.costed κ) fun c n => b.timeCoeff * (c + n + 1)) :
     Admits κ kind ⟨[], Old, false⟩ ⟨[], New, false⟩ b d (fun _ => 0) C record keep where
   toAdvances := Advances.of_nil h
   halts _ := hh
   direction _ := hd
   keeps _ := hk
+  time hs _ := ht hs
 
 end RwLog

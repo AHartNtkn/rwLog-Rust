@@ -822,13 +822,14 @@ theorem pairClass_meets {M : CostedRuntime} {hi : Nat → Nat} {f : Nat → Nat 
     (halone : ∀ a c, M.CoversUsing Meter.time ⟨[], []⟩ (.ofPairs [(a, c)])
       (ProgramOf.sorts (S := Span) ⟨[], []⟩).interp (a, c)
       (hi (rank ⟨[], []⟩ (.ofPairs [(a, c)]))))
-    (hf : ∀ k res n, res ≤ f k res n) : MeetsOn Meter.time M (pairClass rank) hi f where
+    (hf : ∀ k res n, res ≤ f k res n) : MeetsOn .time M (pairClass rank) hi f where
   alone P r hm x hx := by
     obtain ⟨rfl, a, c, rfl, ht⟩ := pairClass_mem hm
     rw [ht] at hx
     obtain rfl := List.mem_singleton.1 hx
     exact halone _ _
-  inContext P r hm K _ _ y _ res hres := by
+  inContext P r hm K _ _ y _ := by
+    intro res hres
     obtain ⟨rfl, a, c, rfl, ht⟩ := pairClass_mem hm
     rw [ht] at hres
     obtain ⟨n, hn, hc⟩ := hres
@@ -910,7 +911,7 @@ theorem slow_admits :
     Admits sized ⟨.time, .polynomial⟩ ⟨[], silent, false⟩ ⟨[], slow, false⟩ slowBounds ⟨2, 1⟩
       (fun _ => 0) slowClass [] 0 :=
   Admits.of_nil slow_improves (fun P q _ ⟨n, hn⟩ => absurd hn (silent_not_halts P q n))
-    (rd_direction _) fun _ h => absurd h List.not_mem_nil
+    (rd_direction _) (fun _ h => absurd h List.not_mem_nil) (fun h => by cases h)
 
 /-- What the quick reader pays on a pair: at most what the slow one pays. -/
 theorem quick_le_slow (a c : GTerm) :
@@ -970,9 +971,9 @@ theorem quick_admits :
     Admits sized ⟨.time, .exponential⟩ ⟨[], slow, false⟩ ⟨[], quick, false⟩ quickBounds
       ⟨2, 1⟩ (fun _ => 0) quickClass [slowWin] 1 :=
   Admits.of_nil quick_improves (fun P q _ ⟨n, hn⟩ => absurd hn (rd_not_halts _ P q n))
-    (rd_direction _) fun w hw => by
-    obtain rfl := List.mem_singleton.1 hw
-    exact quick_keeps
+    (rd_direction _) (fun w hw => by
+      obtain rfl := List.mem_singleton.1 hw
+      exact quick_keeps) (fun h => by cases h)
 
 end Witness
 end RwLog
