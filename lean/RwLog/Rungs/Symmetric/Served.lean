@@ -356,25 +356,7 @@ theorem IsRun.served_push (hL : D.Lawful P.sorts.interp) (h : IsRun U σ) {r k :
     exact List.take_of_length_le hseen
   have hlen : subs.length = ((σ r).answers side).length := by
     rw [← hall, List.length_map]
-  -- every answer of the side is covered by one that is not superseded
-  have live : ∀ (d n : Nat) (x : Ans D P), subs.length - n ≤ d →
-      ((σ r).answers side)[n]? = some x → ∃ (n' : Nat) (x' : Ans D P), n' ∉ dead ∧
-        ((σ r).answers side)[n']? = some x' ∧ covB D P x' x = true := by
-    intro d
-    induction d with
-    | zero =>
-      intro n x hd' hx
-      have := lt_of_getElem? hx
-      omega
-    | succ d ih =>
-      intro n x hd' hx
-      by_cases hn : n ∈ dead
-      · obtain ⟨j, x1, y, hj, hjn, hx1, hy, hc⟩ := hD.1 n hn
-        rw [hx] at hx1
-        cases hx1
-        obtain ⟨n', x', h1, h2, h3⟩ := ih j y (by omega) hy
-        exact ⟨n', x', h1, h2, covB_trans hL _ _ _ h3 hc⟩
-      · exact ⟨n, x, hn, hx, covB_refl hL x⟩
+  rw [hlen] at hD
   have key : ∀ a, Held (held σ) (toGoal (if left then L else Rg)) a → ∃ x' : Ans D P,
       Held (held σ) (toGoal (if left then L else Rg)) x'.span ∧
       den P.sorts.interp a ⊆ den P.sorts.interp x'.span ∧
@@ -384,7 +366,7 @@ theorem IsRun.served_push (hL : D.Lawful P.sorts.interp) (h : IsRun U σ) {r k :
     intro a ha
     obtain ⟨r1, y, hy, rfl⟩ := (h.held_iff hgs a).1 ha
     obtain ⟨n, hn⟩ := List.getElem?_of_mem (h.done_answers hd r1 hy)
-    obtain ⟨n', x', hlive, hx', hcx⟩ := live _ n y (Nat.le_refl _) hn
+    obtain ⟨n', x', hlive, hx', hcx⟩ := hD.live hL n y hn
     have he : ∃ o, subs[n']? = some (x', o) := by
       rw [← hall, List.getElem?_map] at hx'
       obtain ⟨e, he, rfl⟩ := Option.map_eq_some_iff.1 hx'

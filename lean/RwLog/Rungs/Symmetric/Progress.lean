@@ -240,6 +240,31 @@ def DeadOk (D : Domain R) (P : Program) (xs : List (Ans D P)) (n : Nat) (dead : 
     covB D P y x = false
 
 omit [DecidableEq R] in
+/-- **Every answer is covered by one that is not superseded**, once all are
+seen. -/
+theorem DeadOk.live (hL : D.Lawful P.sorts.interp) {xs : List (Ans D P)} {dead : List Nat}
+    (h : DeadOk D P xs xs.length dead) (n : Nat) (x : Ans D P) (hx : xs[n]? = some x) :
+    ∃ (n' : Nat) (x' : Ans D P), n' ∉ dead ∧ xs[n']? = some x' ∧ covB D P x' x = true := by
+  have main : ∀ (d n : Nat) (x : Ans D P), xs.length - n ≤ d → xs[n]? = some x →
+      ∃ (n' : Nat) (x' : Ans D P), n' ∉ dead ∧ xs[n']? = some x' ∧ covB D P x' x = true := by
+    intro d
+    induction d with
+    | zero =>
+      intro n x hd hx
+      have := (List.getElem?_eq_some_iff.1 hx).1
+      omega
+    | succ d ih =>
+      intro n x hd hx
+      by_cases hn : n ∈ dead
+      · obtain ⟨j, x1, y, hj, hjn, hx1, hy, hc⟩ := h.1 n hn
+        rw [hx] at hx1
+        cases hx1
+        obtain ⟨n', x', h1, h2, h3⟩ := ih j y (by omega) hy
+        exact ⟨n', x', h1, h2, covB_trans hL _ _ _ h3 hc⟩
+      · exact ⟨n, x, hn, hx, covB_refl hL x⟩
+  exact main _ n x (Nat.le_refl _) hx
+
+omit [DecidableEq R] in
 theorem DeadOk.mono {xs xs' : List (Ans D P)} {n : Nat} {dead : List Nat}
     (h : DeadOk D P xs n dead) (hp : xs <+: xs') (hn : n ≤ xs.length) :
     DeadOk D P xs' n dead := by
