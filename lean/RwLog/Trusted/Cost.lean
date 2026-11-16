@@ -89,7 +89,7 @@ wanted. And the pair that is compared needs the targets
 targets in the hole, and does not relate it with everything the member
 relates except the targets.
 
-`SeparatesOn μ Old New C lo hi ctx`: on every member of `C`, of rank `k`,
+`SeparatesOn ρ Old New C lo hi ctx`, for a resource `ρ`: on every member of `C`, of rank `k`,
 `New` covers every target having used at most `hi k`; and in every open
 context, for every pair the context demands, `Old` has used at least `lo k`
 at any step at which it has covered the pair, and `New` covers it having used
