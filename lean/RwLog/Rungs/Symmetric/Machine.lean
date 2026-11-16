@@ -348,10 +348,12 @@ inductive Strat (N A : Type) where
   position in `subs` of its answer of the side: opening the goal of that
   answer (`none`), or combining it with the answer at a position of its table.
   The cursor `c` has the paths of the answers seen and of the units filed,
-  and the units still to take. -/
+  and the units still to take. The cursor `fc` shares the rounds the push
+  gives the tables it opened: a unit of it is one round offered to the table
+  of the answer of the side at its first position (`feedPush`). -/
   | push (k : Kind) (left : Bool) (side : Nat) (other : N)
       (subs : List (A × Option (Nat × Nat))) (dead : Option (List Nat))
-      (reads : List (Nat × Option Nat)) (c : Cursor)
+      (reads : List (Nat × Option Nat)) (c : Cursor) (fc : Cursor)
   /-- The interface check of one split of a chain: the node `side` (the left
   side of the split if `left`) is read from the program, and the node `other`
   is opened under each interface it can show. -/
@@ -505,7 +507,7 @@ def Strat.feeds (st : StateOf S N A) : Strat N A → List Nat
   | .span _ => []
   | .copy _ subs => subs.map Prod.fst
   | .join _ a b _ => [a, b]
-  | .push _ _ side _ subs dead _ _ => side :: subs.zipIdx.filterMap fun e =>
+  | .push _ _ side _ subs dead _ _ _ => side :: subs.zipIdx.filterMap fun e =>
       if (dead.getD []).contains e.2 then none else e.1.2.map Prod.fst
   | .check _ _ _ (.opened subs) =>
     if subs.any fun j => !(st.answers j).isEmpty then [] else subs
@@ -523,7 +525,7 @@ def Strat.pending (st : StateOf S N A) : Strat N A → Bool
   | .span ran => !ran
   | .copy _ subs => subs.any fun p => decide (p.2 < (st.answers p.1).length)
   | .join _ a b c => c.pending (st.answers a).length (st.answers b).length
-  | .push _ _ side _ subs dead _ c =>
+  | .push _ _ side _ subs dead _ c _ =>
     decide (subs.length < (st.answers side).length) || !c.todo.isEmpty ||
       subs.zipIdx.any fun e => !(dead.getD []).contains e.2 &&
         match e.1.2 with
@@ -540,7 +542,7 @@ def Strat.quiet (st : StateOf S N A) (ok : Nat → Bool) (s : Strat N A) : Bool 
     | .span ran => ran
     | .copy _ subs => subs.all fun p => ok p.1
     | .join _ a b _ => ok a && ok b
-    | .push _ _ side _ subs dead _ _ => st.isDone side && dead.isSome && subs.zipIdx.all fun e =>
+    | .push _ _ side _ subs dead _ _ _ => st.isDone side && dead.isSome && subs.zipIdx.all fun e =>
         (dead.getD []).contains e.2 ||
           match e.1.2 with
           | some t => ok t.1
@@ -642,8 +644,8 @@ def splitGroup (k : Kind) (L R : GoalOf S N) (st : StateOf S N A) :
     M (StateOf S N A × Group N A) := do
   let (st, a) ← openGoal (K := K) st L
   let (st, b) ← openGoal (K := K) st R
-  pure (st, ⟨0, [.join k a b Cursor.start, .push k true a R.node [] none [] Cursor.start,
-    .push k false b L.node [] none [] Cursor.start], []⟩)
+  pure (st, ⟨0, [.join k a b Cursor.start, .push k true a R.node [] none [] Cursor.start Cursor.start,
+    .push k false b L.node [] none [] Cursor.start Cursor.start], []⟩)
 
 /-! ## Reading an edge from the program -/
 
@@ -984,27 +986,27 @@ def work (i : Nat) (g : GoalOf S N) (st : StateOf S N A) :
       let (st', t) ← K.metered (joinPairs (K := K) i k xs ys st [p])
       pure (stamp i (st.answers i).length (c.pa.getD p.1 [] ++ c.pb.getD p.2 []) st',
         .join k a b (c.mark p (t + 1)), true)
-  | .push k left side other subs dead reads c => do
+  | .push k left side other subs dead reads c fc => do
     let new := ((st.answers side).zip (st.pathsAt side)).drop subs.length
     let dead ← superseded (K := K) st side dead
     let f0 := seeSide new subs reads c
     let f := pushFile st (dead.getD []) 0 f0.2.1 (f0.2.2.kill (dead.getD [])) f0.1
     match f.2.2.next with
-    | none => pure (st, .push k left side other f.1 dead f.2.1 f.2.2, false)
+    | none => pure (st, .push k left side other f.1 dead f.2.1 f.2.2 fc, false)
     | some p =>
       match f.1[p.1]?, f.2.1[p.2]? with
       | some (x, none), some (_, none) => do
         let (out, t) ← K.metered (pushOpen (K := K) g other k left st [x])
         pure (out.1, .push k left side other (f.1.set p.1 (x, openedAt out.2)) dead f.2.1
-          (f.2.2.mark p (t + 1)), true)
+          (f.2.2.mark p (t + 1)) fc, true)
       | some (x, some tb), some (_, some r) => do
         let (st', t) ← K.metered (pushTake (K := K) i k left x st
           (((st.answers tb.1).drop r).take 1))
         let u := f.2.2.pa.getD p.1 []
         let v := f.2.2.pb.getD p.2 []
         pure (stamp i (st.answers i).length (if left then u ++ v else v ++ u) st',
-          .push k left side other f.1 dead f.2.1 (f.2.2.mark p (t + 1)), true)
-      | _, _ => pure (st, .push k left side other f.1 dead f.2.1 (f.2.2.mark p 1), true)
+          .push k left side other f.1 dead f.2.1 (f.2.2.mark p (t + 1)) fc, true)
+      | _, _ => pure (st, .push k left side other f.1 dead f.2.1 (f.2.2.mark p 1) fc, true)
   | .check left side other .reading => do
     let (st, e) ← edgeOf (K := K) st left side
     match e with
@@ -1130,17 +1132,96 @@ def feedFirst (adv : Nat → StateOf S N A → M (StateOf S N A × Nat)) (st : S
 def byFed (st : StateOf S N A) (feeds : List Nat) : List Nat :=
   feeds.mergeSort fun a b => decide (st.fedAt a ≤ st.fedAt b)
 
+/-- The tables a strategy reads that have a round whenever its group is
+fed: all of them, but for a push its side only. The tables a push opened
+share their rounds (`feedPush`). -/
+def Strat.feeds0 (st : StateOf S N A) : Strat N A → List Nat
+  | .push _ _ side _ _ _ _ _ _ => [side]
+  | s => s.feeds st
+
+/-- A unit of the feed cursor is filed for each answer of the side whose
+table is opened, not complete and not superseded, and has no unit filed. -/
+def fileToks (st : StateOf S N A) (dead : List Nat) :
+    List ((A × Option (Nat × Nat)) × Nat) → Cursor → Cursor
+  | [], fc => fc
+  | (e, n) :: rest, fc =>
+    match e.2 with
+    | some t =>
+      if dead.contains n || st.isDone t.1 || fc.todo.any (fun x => x.1 == n) then
+        fileToks st dead rest fc
+      else fileToks st dead rest (fc.read n [])
+    | none => fileToks st dead rest fc
+
+/-- The feed cursor of a push brought up to date: it has the path of every
+answer of the side seen, no unit of an answer superseded, and a unit for
+every table opened that could use a round. -/
+def syncFeed (st : StateOf S N A) (side : Nat) (dead : List Nat)
+    (subs : List (A × Option (Nat × Nat))) (fc : Cursor) : Cursor :=
+  let fc1 := (((st.pathsAt side).take subs.length).drop fc.pa.length).foldl
+    (fun c pth => c.opened pth) fc
+  fileToks st dead subs.zipIdx (fc1.kill dead)
+
+/-- The tables a push opened are offered a round in the order of its feed
+cursor, until the round of one has cost something: the classes of the
+answers pushed share the ticks as the classes of a join's pairs share its
+ticks, so a table waits for the tables of other choices by the number of
+members at each choice on the way to its answer, and not by how many
+answers the other members have. A unit taken is marked with what the round
+cost. Returns the state, `d` and how much the levels of the tables rose, and
+the cursor. The first argument counts the units, and is never used up. -/
+def feedToks (adv : Nat → StateOf S N A → M (StateOf S N A × Nat))
+    (subs : List (A × Option (Nat × Nat))) :
+    Nat → StateOf S N A → Nat → Cursor → M (StateOf S N A × Nat × Cursor)
+  | 0, st, d, fc => pure (st, d, fc)
+  | f + 1, st, d, fc =>
+    match fc.next with
+    | none => pure (st, d, fc)
+    | some x =>
+      match (subs[x.1]?).bind (·.2) with
+      | none => feedToks adv subs f st d (fc.mark x 0)
+      | some t => do
+        let (st', dh, c) ← feed (K := K) adv t.1 st
+        if 0 < c then pure (st', d + dh, fc.mark x c)
+        else feedToks adv subs f st' (d + dh) (fc.mark x c)
+
+/-- The tables a push opened have their share of rounds (`feedToks`), after
+its feed cursor is brought up to date. Any other strategy is left as it is.
+Returns the strategy with its feed cursor moved. -/
+def feedPush (adv : Nat → StateOf S N A → M (StateOf S N A × Nat)) (st : StateOf S N A) (d : Nat) :
+    Strat N A → M (StateOf S N A × Nat × Strat N A)
+  | .push k left side other subs dead reads c fc => do
+    let fc0 := syncFeed st side (dead.getD []) subs fc
+    let r ← feedToks (K := K) adv subs fc0.todo.length st d fc0
+    pure (r.1, r.2.1, .push k left side other subs dead reads c r.2.2)
+  | s => pure (st, d, s)
+
+/-- Each push of the strategies given feeds the tables it opened
+(`feedPush`), in order. -/
+def feedPushes (adv : Nat → StateOf S N A → M (StateOf S N A × Nat)) :
+    StateOf S N A → Nat → List (Strat N A) → M (StateOf S N A × Nat × List (Strat N A))
+  | st, d, [] => pure (st, d, [])
+  | st, d, s :: rest => do
+    let a ← feedPush (K := K) adv st d s
+    let b ← feedPushes adv a.1 a.2.1 rest
+    pure (b.1, b.2.1, a.2.2 :: b.2.2)
+
 /-- The tables the group `k` of the table at `i` reads have their rounds
 (`adv`). The members of a union share the ticks: one member has its round,
-the one that has been fed least of those that still need one. Every table
-any other group reads has its round. Returns `d` and how much their levels
-rose. -/
+the one that has been fed least of those that still need one. The tables a
+push opened share the ticks by where the answers pushed came from
+(`feedPush`). Every other table a group reads has its round. Returns `d` and
+how much their levels rose, and the strategies of the group with the feed
+cursors of its pushes moved. -/
 def feedGroup (adv : Nat → StateOf S N A → M (StateOf S N A × Nat)) (i k : Nat)
-    (st : StateOf S N A) (d : Nat) : M (StateOf S N A × Nat) :=
+    (st : StateOf S N A) (d : Nat) : M (StateOf S N A × Nat × List (Strat N A)) :=
   let strats : List (Strat N A) := ((groupsAt st i)[k]?.map (·.strats)).getD []
   match strats with
-  | [Strat.copy false subs] => feedFirst (K := K) adv st d (byFed st (subs.map Prod.fst).eraseDups)
-  | _ => feedAll (K := K) adv st d (strats.flatMap (Strat.feeds st)).eraseDups
+  | [Strat.copy false subs] => do
+    let r ← feedFirst (K := K) adv st d (byFed st (subs.map Prod.fst).eraseDups)
+    pure (r.1, r.2, strats)
+  | _ => do
+    let r ← feedAll (K := K) adv st d (strats.flatMap (Strat.feeds0 st)).eraseDups
+    feedPushes (K := K) adv r.1 r.2 strats
 
 /-- The group `k` of the table at `i` works: each of its strategies does its
 own work, and then the tables they read have their rounds (`feedGroup`). The
@@ -1150,9 +1231,9 @@ done. -/
 def workGroup (adv : Nat → StateOf S N A → M (StateOf S N A × Nat)) (i : Nat)
     (g : GoalOf S N) (k : Nat) (st : StateOf S N A) : M (StateOf S N A × Nat × Bool) := do
   let (st, d0, did) ← workStrats (K := K) i g k st
-  let (st, d) ← feedGroup (K := K) adv i k st d0
-  pure ((setGroup st i k fun gr => { gr with level := gr.level + d }).modify i fun t =>
-    { t with own := t.own + d0 }, d, did || decide (0 < d))
+  let (st, d, strats) ← feedGroup (K := K) adv i k st d0
+  pure ((setGroup st i k fun gr => { gr with level := gr.level + d, strats := strats }).modify i
+    fun t => { t with own := t.own + d0 }, d, did || decide (0 < d))
 
 /-- The groups of the table at `i` that stand at the level `lv` work.
 Returns whether any of them did anything. -/
