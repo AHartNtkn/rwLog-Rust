@@ -50,7 +50,7 @@ rules.
 
 ## Whole rungs
 
-A rung is a preprocessor followed by a machine, and from the outside it is
+A rung is its preprocessors followed by a machine, and from the outside it is
 one machine on the original input (`Rung.runtime`). `Rung.Keeps` says what
 that machine keeps, which is what a preprocessor must respect: every property
 in the list except `Complete`. One emitted answer covering a whole derivable
@@ -250,11 +250,13 @@ end Runtime
 
 /-- The rung as one runtime on the original input, for an artifact store: its
 first state is the machine's first state on the preprocessed input, the
-preprocessor being run at the kernel rung `κ`. -/
+preprocessors being run one after another at the kernel rung `κ`
+(`Preprocessor.runAll`). -/
 def Rung.runtime (G : Rung) (κ : KernelRung) (A : ArtifactStore) : Runtime where
   Ans := G.rt.Ans
   State := G.rt.State
-  init P q := G.rt.init (G.pre.run κ A P q).val.1 (G.pre.run κ A P q).val.2.1
+  init P q := G.rt.init (Preprocessor.runAll κ G.pre A P q).val.1
+    (Preprocessor.runAll κ G.pre A P q).val.2.1
   step := G.rt.step
 
 /-- What a whole rung keeps at a kernel rung: whatever the artifact store,
@@ -262,6 +264,39 @@ the rung as one machine on the original input has every property of
 `KeepsPointwise`. -/
 def Rung.Keeps (G : Rung) (κ : KernelRung) (Base : Runtime) : Prop :=
   ∀ A, (G.runtime κ A).KeepsPointwise Base
+
+/-! ## The laws, and the ladder
+
+The laws are what the language promises of every rung, the first included,
+and no later rung weakens one. `CostedRung.Lawful` is their one statement:
+a rung of the ladder is held to this definition and to nothing beside it, so
+a promise that becomes a law is added here, once, and is from then on owed
+by every rung.
+
+An admission (`Admits`, `Trusted/Cost.lean`) compares costs. It does not ask
+that the rung admitted is sound or complete, so the ladder asks for the laws
+separately, of the base and of every rung put on top. -/
+
+/-- The rung `G` has the laws at the kernel rung `κ`, and halts wherever the
+rung `base` halts: whatever the artifact store, the rung as one machine on
+the original input keeps every property of `KeepsPointwise`, the base being
+`base` as one machine on the original input with the same store. -/
+def CostedRung.Lawful (G base : CostedRung) (κ : KernelRung) : Prop :=
+  ∀ A, ((G.rung κ).runtime κ A).KeepsPointwise ((base.rung κ).runtime κ A)
+
+/-- The ladder above the rung `base` at the kernel rung `κ`, with its record
+of wins. The base has the laws and its record is empty. A rung is put on top
+only by an admission over the whole record of the rung below it, and only if
+it has the laws; its own win then goes on the record. So every rung of a
+ladder has the laws, the record of a rung is exactly the wins of the
+admissions below it, and none of them can be left out of a later
+admission. -/
+inductive Ladder (κ : KernelRung) (base : CostedRung) : CostedRung → List Win → Prop where
+  | base : base.Lawful base κ → Ladder κ base base []
+  | admit {kind : Kind} {Old New : CostedRung} {b : Bounds} {d : DirBound} {pre : Nat → Nat}
+      {C : ProgClass} {record : List Win} {keep : Nat} :
+      Ladder κ base Old record → Admits κ kind Old New b d pre C record keep →
+      New.Lawful base κ → Ladder κ base New (⟨kind, C, b⟩ :: record)
 
 /-! ## Fairness
 

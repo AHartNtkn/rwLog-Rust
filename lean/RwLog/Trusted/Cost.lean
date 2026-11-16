@@ -161,10 +161,13 @@ and neither does a gain on a sequence of inputs that is not a class, a gain
 that holds only when the input is the whole program, an improvement that
 holds from one end only, or a gain that gives back a win of an earlier rung.
 
-`Ladder κ base G record` is the ladder itself: the base has the empty record,
-and each admission is over the whole record of the rung below and puts its
-own win on it. So every rung of a ladder has every win below it at once,
-each within a constant factor of the bound it was admitted with.
+`Ladder κ base G record` (`Trusted/Properties.lean`, where the laws are
+stated) is the ladder itself: the base has the empty record, and each
+admission is over the whole record of the rung below and puts its own win on
+it. So every rung of a ladder has every win below it at once, each within a
+constant factor of the bound it was admitted with. Every rung of a ladder,
+the base included, has the laws (`CostedRung.Lawful`): an admission says how
+a rung costs less, and by itself it does not say that the rung is right.
 
 `SeparatesExhaustion` is the comparison for the report of exhaustion instead
 of answers, on a sequence of inputs. It is the special case for the rare
@@ -828,10 +831,11 @@ the cost of preprocessing is recorded beside it: any preprocessing is allowed,
 and a reader sees what it costs. What a machine costs is what it spends at a
 kernel rung, and two rungs are compared at the same one. -/
 
-/-- A preprocessor followed by an engine, run on the input as it is given or
-on one orientation of it (`CostedRuntime.oriented`). -/
+/-- Preprocessors, run one after another (`Preprocessor.runAll`), followed by
+an engine, run on the input as it is given or on one orientation of it
+(`CostedRuntime.oriented`). -/
 structure CostedRung where
-  pre : Preprocessor
+  pre : List Preprocessor
   eng : Engine
   oriented : Bool := false
 
@@ -853,7 +857,8 @@ them). -/
 def machine (A : ArtifactStore) : CostedRuntime where
   Ans := (G.rt κ).Ans
   State := (G.rt κ).State
-  init P q := (G.rt κ).init (G.pre.run κ A P q).val.1 (G.pre.run κ A P q).val.2.1
+  init P q := (G.rt κ).init (Preprocessor.runAll κ G.pre A P q).val.1
+    (Preprocessor.runAll κ G.pre A P q).val.2.1
   step := (G.rt κ).step
 
 end CostedRung
@@ -866,7 +871,7 @@ not capped. -/
 structure Advances (κ : KernelRung) (kind : Kind) (Old New : CostedRung) (b : Bounds) (pre : Nat → Nat)
     (C : ProgClass) : Prop where
   improves : ∀ A, Improves kind (Old.machine κ A) (New.machine κ A) b C
-  preCost : ∀ A P q, P.WellFormed q → (New.pre.run κ A P q).ticks ≤ pre (P.size + q.size)
+  preCost : ∀ A P q, P.WellFormed q → (Preprocessor.runAll κ New.pre A P q).ticks ≤ pre (P.size + q.size)
 
 /-! ## The record of wins
 
@@ -903,17 +908,5 @@ structure Admits (κ : KernelRung) (kind : Kind) (Old New : CostedRung) (b : Bou
     extends Advances κ kind Old New b pre C where
   direction : ∀ A, DirectionFree (New.machine κ A) d.fn
   keeps : ∀ A, ∀ w ∈ record, w.KeptBy (New.machine κ A) keep
-
-/-- The ladder above the rung `base` at the kernel rung `κ`, with its record of wins. The record of
-the base is empty. A rung is put on top only by an admission over the whole
-record of the rung below it, and its own win then goes on the record. So the
-record of a rung is exactly the wins of the admissions below it, and none of
-them can be left out of a later admission. -/
-inductive Ladder (κ : KernelRung) (base : CostedRung) : CostedRung → List Win → Prop where
-  | base : Ladder κ base base []
-  | admit {kind : Kind} {Old New : CostedRung} {b : Bounds} {d : DirBound} {pre : Nat → Nat}
-      {C : ProgClass} {record : List Win} {keep : Nat} :
-      Ladder κ base Old record → Admits κ kind Old New b d pre C record keep →
-      Ladder κ base New (⟨kind, C, b⟩ :: record)
 
 end RwLog
