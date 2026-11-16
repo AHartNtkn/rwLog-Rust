@@ -535,30 +535,52 @@ theorem feedPush_keeps (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf 
     simp only [feedPush, Cost.pure_val]
     exact h
 
-theorem feedPushes_keeps (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R Rel (Ans D P) × Nat))
+theorem feedOne_keeps (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R Rel (Ans D P) × Nat))
     (I : StateOf R Rel (Ans D P) → Prop)
     (step : ∀ h X, I X → I (feed (K := DerivationKernel.over D K hK P) adv h X).val.1)
-    (ss : List (Strat Rel (Ans D P))) (st : StateOf R Rel (Ans D P)) (d : Nat) (h : I st) :
-    I (feedPushes (K := DerivationKernel.over D K hK P) adv st d ss).val.1 := by
-  have hT := fun X d s hX => feedPush_keeps (K := K) (hK := hK) (P := P) adv I step X d s hX
+    (ss : List (Strat Rel (Ans D P))) (st : StateOf R Rel (Ans D P)) (d : Nat) (x : Fedee)
+    (h : I st) : I (feedOne (K := DerivationKernel.over D K hK P) adv st d ss x).val.1 := by
+  have hT := fun s => feedPush_keeps (K := K) (hK := hK) (P := P) adv I step st d s h
   at_cost K hK
-  induction ss generalizing st d with
-  | nil =>
-    simp only [feedPushes, Cost.pure_val]
-    exact h
-  | cons s rest ih =>
-    simp only [feedPushes, Cost.bind_val, Cost.pure_val]
-    exact ih _ _ (hT st d s h)
+  cases x with
+  | inl t =>
+    simp only [feedOne, Cost.bind_val, Cost.pure_val]
+    exact step _ _ h
+  | inr j =>
+    simp only [feedOne]
+    split
+    · simp only [Cost.pure_val]
+      exact h
+    · simp only [Cost.bind_val, Cost.pure_val, Kernel.metered, Cost.metered_val]
+      exact hT _
 
-/-- The rounds of the tables a group reads keep what a round keeps and a
+theorem feedLeast_keeps (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R Rel (Ans D P) × Nat))
+    (I : StateOf R Rel (Ans D P) → Prop)
+    (step : ∀ h X, I X → I (feed (K := DerivationKernel.over D K hK P) adv h X).val.1)
+    (l : List Fedee) (ss : List (Strat Rel (Ans D P))) (st : StateOf R Rel (Ans D P)) (d : Nat)
+    (h : I st) : I (feedLeast (K := DerivationKernel.over D K hK P) adv st d ss l).val.1 := by
+  have hT := fun ss X d x hX => feedOne_keeps (K := K) (hK := hK) (P := P) adv I step ss X d x hX
+  at_cost K hK
+  induction l generalizing st d ss with
+  | nil =>
+    simp only [feedLeast, Cost.pure_val]
+    exact h
+  | cons x rest ih =>
+    simp only [feedLeast, Cost.bind_val]
+    split
+    · simp only [Cost.pure_val]
+      exact hT _ _ _ _ h
+    · exact ih _ _ _ (hT _ _ _ _ h)
+
+/-- The ticks a group spends on what it reads keep what a round keeps and a
 change to what a table has been fed keeps. -/
 theorem feedGroup_keeps (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R Rel (Ans D P) × Nat))
     (I : StateOf R Rel (Ans D P) → Prop) (hadv : ∀ h st, I st → I (adv h st).val.1)
     (hfed : ∀ h c st, I st → I (st.modify h fun t => { t with fed := t.fed + c }))
     (i k : Nat) (st : StateOf R Rel (Ans D P)) (d : Nat) (h0 : I st) :
     I (feedGroup (K := DerivationKernel.over D K hK P) adv i k st d).val.1 := by
-  have hT := fun step ss X d hX =>
-    feedPushes_keeps (K := K) (hK := hK) (P := P) adv I step ss X d hX
+  have hT := fun step l ss X d hX =>
+    feedLeast_keeps (K := K) (hK := hK) (P := P) adv I step l ss X d hX
   at_cost K hK
   have step : ∀ h X, I X → I (feed (K := DerivationKernel.over D _ hK P) adv h X).val.1 := by
     intro h X hX
@@ -573,13 +595,7 @@ theorem feedGroup_keeps (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf
     · exact hb
     · simp only [Cost.bind_val, Cost.pure_val]
       exact step _ _ hb
-  · simp only [Cost.bind_val]
-    refine hT step _ _ _ ?_
-    simp only [feedAll]
-    refine foldL_inv (fun acc : StateOf R Rel (Ans D P) × Nat => I acc.1) _ _
-      (fun b h _ hb => ?_) _ h0
-    simp only [Cost.bind_val, Cost.pure_val]
-    exact step _ _ hb
+  · exact hT step _ _ _ _ h0
 
 /-- A strategy without its feed cursor. Feeding changes nothing else of a
 strategy. -/
@@ -634,31 +650,54 @@ theorem feedPush_core (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R
   at_cost K hK
   cases s <;> simp only [feedPush, Cost.bind_val, Cost.pure_val, Strat.core]
 
+theorem feedOne_core (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R Rel (Ans D P) × Nat))
+    (ss : List (Strat Rel (Ans D P))) (st : StateOf R Rel (Ans D P)) (d : Nat) (x : Fedee) :
+    (feedOne (K := DerivationKernel.over D K hK P) adv st d ss x).val.2.2.1.map Strat.core =
+      ss.map Strat.core := by
+  have hT := fun s => feedPush_core (K := K) (hK := hK) (P := P) adv st d s
+  at_cost K hK
+  cases x with
+  | inl t => simp only [feedOne, Cost.bind_val, Cost.pure_val]
+  | inr j =>
+    simp only [feedOne]
+    split
+    · simp only [Cost.pure_val]
+    · next s hs =>
+      simp only [Cost.bind_val, Cost.pure_val, Kernel.metered, Cost.metered_val, List.map_set, hT]
+      refine List.ext_getElem? fun n => ?_
+      by_cases hn : j = n
+      · subst hn
+        simp [List.getElem?_set, List.getElem?_map, hs]
+        exact (List.getElem?_eq_some_iff.1 hs).1
+      · simp [hn]
+
 /-- **Feeding changes the feed cursors of the pushes of a group and nothing
 else of its strategies.** -/
-theorem feedPushes_core (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R Rel (Ans D P) × Nat))
-    (ss : List (Strat Rel (Ans D P))) (st : StateOf R Rel (Ans D P)) (d : Nat) :
-    (feedPushes (K := DerivationKernel.over D K hK P) adv st d ss).val.2.2.map Strat.core =
+theorem feedLeast_core (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R Rel (Ans D P) × Nat))
+    (l : List Fedee) (ss : List (Strat Rel (Ans D P))) (st : StateOf R Rel (Ans D P)) (d : Nat) :
+    (feedLeast (K := DerivationKernel.over D K hK P) adv st d ss l).val.2.2.map Strat.core =
       ss.map Strat.core := by
-  have hT := fun X d s => feedPush_core (K := K) (hK := hK) (P := P) adv X d s
+  have hT := fun ss X d x => feedOne_core (K := K) (hK := hK) (P := P) adv ss X d x
   at_cost K hK
-  induction ss generalizing st d with
-  | nil => simp only [feedPushes, Cost.pure_val, List.map_nil]
-  | cons s rest ih =>
-    simp only [feedPushes, Cost.bind_val, Cost.pure_val, List.map_cons]
-    rw [ih, hT]
+  induction l generalizing st d ss with
+  | nil => simp only [feedLeast, Cost.pure_val]
+  | cons x rest ih =>
+    simp only [feedLeast, Cost.bind_val]
+    split
+    · simp only [Cost.pure_val]
+      exact hT _ _ _ _
+    · rw [ih, hT]
 
 theorem feedGroup_core (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R Rel (Ans D P) × Nat))
     (i k : Nat) (st : StateOf R Rel (Ans D P)) (d : Nat) :
     (feedGroup (K := DerivationKernel.over D K hK P) adv i k st d).val.2.2.map Strat.core =
       (((groupsAt st i)[k]?.map (·.strats)).getD []).map Strat.core := by
-  have hT := fun ss X d => feedPushes_core (K := K) (hK := hK) (P := P) adv ss X d
+  have hT := fun l ss X d => feedLeast_core (K := K) (hK := hK) (P := P) adv l ss X d
   at_cost K hK
   simp only [feedGroup]
   split
   · next h => simp only [Cost.bind_val, Cost.pure_val, h]
-  · simp only [Cost.bind_val]
-    exact hT _ _ _
+  · exact hT _ _ _ _
 
 /-- The feed cursor of a push; of any other strategy, the cursor that has
 done nothing. -/
