@@ -88,7 +88,7 @@ structure Line (need : N → Nat) (σ : Nat → StateOf S N A) (k r0 : Nat)
     (∀ s ∈ L (r + 1), Fed (σ r) (σ (r + 1)) s) ∧ ∃ s ∈ L r, s.dead (σ r) = false
   stepped : ∀ m, m < (L r0).length → ∀ r', ∃ r, r' ≤ r ∧ r0 ≤ r ∧ ∃ s s',
     (L r)[m]? = some s ∧ (L (r + 1))[m]? = some s' ∧
-    SStep need (σ r).len (σ r).depth (σ (r + 1)).depth s s'
+    SStep need (σ r).len (σ r).isDone (σ r).depth (σ (r + 1)).depth s s'
 
 theorem Line.length {k r0 : Nat} {L : Nat → List (Strat N A)} (hL : Line need σ k r0 L)
     {r : Nat} (hr : r0 ≤ r) : (L r).length = (L r0).length := by
@@ -101,7 +101,7 @@ theorem Line.length {k r0 : Nat} {L : Nat → List (Strat N A)} (hL : Line need 
 theorem Line.step {k r0 : Nat} {L : Nat → List (Strat N A)} (hL : Line need σ k r0 L)
     (m r' : Nat) : ∃ r, r' ≤ r ∧ r0 ≤ r ∧ ∀ s, (L r)[m]? = some s → ∃ s',
       (L (r + 1))[m]? = some s' ∧
-      SStep need (σ r).len (σ r).depth (σ (r + 1)).depth s s' := by
+      SStep need (σ r).len (σ r).isDone (σ r).depth (σ (r + 1)).depth s s' := by
   by_cases hm : m < (L r0).length
   · obtain ⟨r, hr', hr, s, s', hs, hs', hstp⟩ := hL.stepped m hm r'
     refine ⟨r, hr', hr, fun s1 hs1 => ?_⟩
@@ -398,7 +398,7 @@ theorem Requests.lines (h : Requests need Rc σ) (k : Nat)
     have hno' : ∀ r, r' ≤ r → r0 ≤ r → ∀ (gr0 gr1 : Group N A) (s s' : Strat N A),
         (groupsAt (σ r) k)[m]? = some gr0 → (groupsAt (σ (r + 1)) k)[m]? = some gr1 →
         gr0.strats[q]? = some s → gr1.strats[q]? = some s' →
-        ¬ SStep need (σ r).len (σ r).depth (σ (r + 1)).depth s s' :=
+        ¬ SStep need (σ r).len (σ r).isDone (σ r).depth (σ (r + 1)).depth s s' :=
       fun r h1 h2 gr0 gr1 s s' e0 e1 hs hs' hstp => hno ⟨r, h1, h2, s, s', by
         simp only [e0, Option.map_some, Option.getD_some]
         exact hs, by
