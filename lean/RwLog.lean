@@ -25,6 +25,7 @@ import RwLog.Kernel.Covers
 import RwLog.Kernel.Iface
 import RwLog.SpanLayer.Dual
 import RwLog.SpanLayer.Modulo
+import RwLog.Lib.Audit
 import RwLog.Lib.List
 import RwLog.Lib.Sequences
 import RwLog.Lib.Gfp

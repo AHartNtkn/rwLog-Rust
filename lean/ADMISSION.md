@@ -168,10 +168,18 @@ the lower bound on the old machine is history and is not asked again.
 
 **The rule.** `Admits` takes the record of the rung below and a factor
 `keep`, and has the clause that the new rung keeps every win on that record
-within `keep`. `Ladder base G record` is the only way a record is made: the
-base has the empty record, and an admission over the whole record of the rung
-below puts its own win on top. So no admission can be checked against a
-record that leaves a win out.
+within `keep`. `Ladder base G record` (`Trusted/Properties.lean`) is the only
+way a record is made: the base has the empty record, and an admission over
+the whole record of the rung below puts its own win on top. So no admission
+can be checked against a record that leaves a win out.
+
+**The laws.** An admission compares costs and says nothing about whether the
+rung is right. So the ladder asks separately that every rung on it, the base
+included, has the laws (`CostedRung.Lawful`: `Rung.Keeps` of the rung as one
+machine on the original input, halting wherever the base halts). That
+definition is the one place the laws of the language are listed for the
+ladder; a law that is added there is owed by every rung from then on.
+`Ladder.lawful` (`Rungs/Framework/Latency.lean`) reads it back.
 
 **Why the recorded bound and not the rung below.** If each rung had only to
 stay within a constant of what the rung below uses on the class, the factor
@@ -192,13 +200,14 @@ the bound it was admitted with. The top of the ladder has every win at once.
 **What it costs.** One proof per win on the record for each new rung. Until
 M6 there is no admission, so nothing is re-proved.
 
-**That it can be met.** `Rungs/Framework/RecordWitness.lean` has a ladder of
-two toy rungs above a base that never answers: the first admitted over the
-empty record for a polynomial win, the second admitted for an exponential
+**That it can be met.** `Rungs/Framework/RecordWitness.lean` has two toy
+rungs admitted one above the other over a base that never answers: the first
+over the empty record for a polynomial win, the second for an exponential
 gain over the record that holds the first one's win (`Witness.slow_admits`,
-`Witness.quick_admits`, `Witness.ladder`). The engines are not machines for
-the language, and correctness is no part of `Admits`; the file shows only
-that the clauses can hold together.
+`Witness.quick_admits`). The engines are not machines for the language, and
+correctness is no part of `Admits`; the file shows only that the clauses of
+`Admits` can hold together. They are not a `Ladder`, which asks for the laws;
+the first ladder is rung 1 as its own base.
 
 ## 7. Priority
 

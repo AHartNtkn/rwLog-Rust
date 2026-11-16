@@ -203,7 +203,9 @@ Rungs/R005/     the engines: `R001.engine` (tables, unfolding to a depth), `R004
 Sorts/          the constraint domain of sorts and the proof that it is lawful
 Manifest/       R005's manifest: headline statements, bounds, trusted files and axioms,
                 all checked by the build
-AxiomAudit.lean every headline and shared theorem, checked to use only the three standard axioms
+AxiomAudit.lean every declaration of the library, checked to use only the three standard axioms;
+                every file under RwLog/ is in the build; the shared layers import no machine
+                (the commands are in RwLog/Lib/Audit.lean; nothing is listed by hand)
 ```
 
 `SYMMETRIC_ENGINE.md` is the design note for the engine of milestone M6: what it
@@ -295,8 +297,19 @@ rung unchanged.
   from a simulation. A rung is one runtime on the original input
   (`Rung.runtime`, `Trusted/Properties.lean`); `Rung.sound`,
   `Rung.pointComplete`, `Rung.honest` and `Rung.honestProgress` carry the
-  machine's theorems through the preprocessor, and `Rung.Keeps.of_id` is
-  `Rung.Keeps` for a machine with the identity preprocessor. A preprocessor
+  machine's theorems through the preprocessors, and `Rung.Keeps.of_nil` is
+  `Rung.Keeps` for a machine with no preprocessor. A rung has a list of
+  preprocessors, run one after another, each at the kernel of the sorts of
+  the program it is handed (`Preprocessor.runAll`, `Trusted/Engine.lean`), so
+  the laws of the list follow from the laws of its members
+  (`Preprocessor.runAll_wf`, `runAll_equiv`, `runAll_adds`) and a rung that
+  adds a rewrite proves the laws of that rewrite only. `Rung.noSubsumed`
+  carries through any list as the four above do; `Rung.convTrace` and
+  `Rung.dualTrace` carry through a list that commutes with the converse and
+  the mirror image (`Rung.Mirrors`); `Rung.keepsPointwise` puts the list of
+  `KeepsPointwise` together from the machine's and shows the five properties
+  that are still asked of the rung as a whole (`DerivationGeneral`,
+  `TerminatesWhere`, `OrComm`, `OrAssoc`, `EmptySide`; roadmap L69). A preprocessor
   may add sort declarations (`Preprocessor.adds`, `Sorts.Extends`), so the
   machine is run on sorts that may declare more than the program's. Its
   theorems are about its answers read in those sorts, and the four theorems
@@ -425,12 +438,14 @@ rung unchanged.
   `N` steps has paid for `N + 1` before it covers anything). For the record
   of wins (`ADMISSION.md` section 6): `Improves.keptBy` (a machine keeps the
   win it improves by), `Admits.keptBy`, and `Ladder.keeps` (every rung of a
-  ladder keeps every win on its record).
+  ladder keeps every win on its record). `Ladder.lawful`: every rung of a
+  ladder has the laws (`CostedRung.Lawful`, `Trusted/Properties.lean`), which
+  the ladder asks of the base and of every rung put on top.
 
-* `RecordWitness.lean`: `Admits` and `Ladder` have inhabitants. Two toy
+* `RecordWitness.lean`: `Admits` has inhabitants. Two toy
   engines, admitted one above the other over a base that never answers, the
   second for an exponential gain over the record that holds the polynomial
-  win of the first (`Witness.ladder`). They are not machines for the
+  win of the first. They are not a `Ladder`, which asks for the laws. They are not machines for the
   language. On the way: when the normal form of an expression is one span
   (`normB_or_span`, `normB_dual`, `normB_fill`).
 
@@ -711,8 +726,12 @@ come from these places.
 3. `Complete` (one emitted answer covers the derived span) does not survive
    preprocessing in general, only `PointComplete` does. State completeness of
    a whole rung pointwise.
-4. Add each headline theorem to `AxiomAudit.lean`. The build is
-   `lake build --wfail`: no `sorry`, no warnings, no new axioms.
+4. Nothing is added to `AxiomAudit.lean` by hand: it checks every
+   declaration of the library, that every file is imported by `RwLog.lean`,
+   and rule 2. The build is `lake build --wfail`: no `sorry`, no warnings,
+   no new axioms. A manifest (`Manifest/`) names its headline theorems with
+   `#assert_axioms` and what it trusts with `#trusted_files`
+   (`RwLog/Lib/Audit.lean`); every file under `Manifest/` is built.
 
 How a rung is admitted is being restated (roadmap M3 part A: `Keeps` for a
 whole rung, admission for three kinds of win on a decidable class). The rule

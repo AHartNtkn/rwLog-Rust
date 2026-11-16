@@ -15,6 +15,7 @@ ways a rung establishes those statements are here, for any costed runtime.
   its first `N` steps has paid for `N + 1` steps before it covers anything.
 -/
 import RwLog.Rungs.Framework.Cost
+import RwLog.Trusted.Properties
 import RwLog.Rungs.Framework.Runtime
 import RwLog.SpanLayer.Coverage
 
@@ -86,24 +87,16 @@ theorem Simulates.mono {Old New : CostedRuntime} {p p' : Nat → Nat → Nat}
   exact ⟨m, hm, le_trans hs (hp _ _)⟩
 
 /-- A rung without preprocessing is its engine at the kernel rung. -/
-theorem CostedRung.machine_id (κ : KernelRung) (E : Engine) (A : ArtifactStore) :
-    (CostedRung.mk Preprocessor.id E false).machine κ A = E.costed κ := by
-  have h : ∀ P q, (Preprocessor.id.run κ A P q).val = (P, q, A) := fun P q =>
-    congrArg Cost.val ((κ.refines P.sorts).pure_eq _)
-  unfold CostedRung.machine
-  simp only [h]
-  rfl
+theorem CostedRung.machine_nil (κ : KernelRung) (E : Engine) (A : ArtifactStore) :
+    (CostedRung.mk [] E false).machine κ A = E.costed κ := rfl
 
 /-- Two rungs without preprocessing: the improvement of the machines, and
 preprocessing costs nothing. -/
-theorem Advances.of_id {κ : KernelRung} {kind : Kind} {Old New : Engine} {b : Bounds}
+theorem Advances.of_nil {κ : KernelRung} {kind : Kind} {Old New : Engine} {b : Bounds}
     {C : ProgClass} (h : Improves kind (Old.costed κ) (New.costed κ) b C) :
-    Advances κ kind ⟨Preprocessor.id, Old, false⟩ ⟨Preprocessor.id, New, false⟩ b (fun _ => 0) C where
-  improves A := by rw [CostedRung.machine_id, CostedRung.machine_id]; exact h
-  preCost A P q _ := by
-    show (Preprocessor.id.run κ A P q).ticks ≤ 0
-    rw [show Preprocessor.id.run κ A P q = pure (P, q, A) from (κ.refines P.sorts).pure_eq _]
-    exact Nat.le_refl 0
+    Advances κ kind ⟨[], Old, false⟩ ⟨[], New, false⟩ b (fun _ => 0) C where
+  improves _ := h
+  preCost _ _ _ _ := Nat.le_refl 0
 
 /-- A bound that is met is met by anything larger. -/
 theorem MeetsOn.mono {μ : Meter} {M : CostedRuntime} {C : ProgClass} {hi hi' : Nat → Nat}
@@ -143,19 +136,27 @@ by a later rung, of whatever kind. -/
 theorem Ladder.keeps {κ : KernelRung} {base G : CostedRung} {record : List Win}
     (h : Ladder κ base G record) : ∃ c, ∀ A, ∀ w ∈ record, w.KeptBy (G.machine κ A) c := by
   cases h with
-  | base => exact ⟨0, fun _ _ hw => absurd hw List.not_mem_nil⟩
-  | admit _ ha => exact ⟨_, fun A => ha.keptBy A⟩
+  | base _ => exact ⟨0, fun _ _ hw => absurd hw List.not_mem_nil⟩
+  | admit _ ha _ => exact ⟨_, fun A => ha.keptBy A⟩
+
+/-- Every rung of a ladder has the laws, and halts wherever the base
+halts. -/
+theorem Ladder.lawful {κ : KernelRung} {base G : CostedRung} {record : List Win}
+    (h : Ladder κ base G record) : G.Lawful base κ := by
+  cases h with
+  | base hb => exact hb
+  | admit _ _ hl => exact hl
 
 /-- Two rungs without preprocessing: admission is the improvement of the
 machines, the direction bound of the new one, and that it keeps the wins on
 the record. -/
-theorem Admits.of_id {κ : KernelRung} {kind : Kind} {Old New : Engine} {b : Bounds}
+theorem Admits.of_nil {κ : KernelRung} {kind : Kind} {Old New : Engine} {b : Bounds}
     {d : DirBound} {C : ProgClass} {record : List Win} {keep : Nat}
     (h : Improves kind (Old.costed κ) (New.costed κ) b C)
     (hd : DirectionFree (New.costed κ) d.fn) (hk : ∀ w ∈ record, w.KeptBy (New.costed κ) keep) :
-    Admits κ kind ⟨Preprocessor.id, Old, false⟩ ⟨Preprocessor.id, New, false⟩ b d (fun _ => 0) C record keep where
-  toAdvances := Advances.of_id h
-  direction A := by rw [CostedRung.machine_id]; exact hd
-  keeps A := by rw [CostedRung.machine_id]; exact hk
+    Admits κ kind ⟨[], Old, false⟩ ⟨[], New, false⟩ b d (fun _ => 0) C record keep where
+  toAdvances := Advances.of_nil h
+  direction _ := hd
+  keeps _ := hk
 
 end RwLog

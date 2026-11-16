@@ -23,4 +23,4 @@ allowNonModules = true
 [[lean_lib]]
 name = "Manifest"
 allowNonModules = true
-globs = ["Manifest.R005"]
+globs = ["Manifest.+"]
