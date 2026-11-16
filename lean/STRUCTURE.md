@@ -127,7 +127,7 @@ Rungs/Symmetric/ the symmetric engine of `SYMMETRIC_ENGINE.md` (Machine.lean): a
                 tables only, and the complete tables stand in an order in which tables that
                 complete together stand together and a table whose answers are pushed
                 stands lower (`Founded`, `IsRun.founded`); a push that works sees every
-                answer of its side, drops those a later one covers, and is nearer to every
+                answer of its side, drops those a later one covers once the side is complete, and is nearer to every
                 unit left: opening the goal of an answer, or combining an answer of an
                 opened goal (`SStep.push`, `step_work_push`); and an edge is read in the end, from a depth that the node
                 and the program give (ReadLive.lean, `readEdge_some`); and of a table that
