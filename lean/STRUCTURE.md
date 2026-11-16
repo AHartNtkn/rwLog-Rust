@@ -152,9 +152,8 @@ Rungs/Symmetric/ the symmetric engine of `SYMMETRIC_ENGINE.md` (Machine.lean): a
                 states of the engine are such a run, and the machine is complete, honest
                 when it reports that it is done, and emits no progress certificate
                 (Correct.lean, `Symmetric.complete`, `honestExhaustion`,
-                `honestProgress`); no answer of a table covers a later one, so no
-                answer emitted is covered by an earlier one, and the final report is the
-                maximal emitted answers (`noSubsumed`, `finalMaximal`). Towards halting:
+                `honestProgress`); no answer of a table covers a later one, and the final report is the
+                maximal emitted answers (`finalMaximal`). Towards halting:
                 what an edge reads is a fact of the program, whatever the depth and the
                 kernel (EdgeSame.lean, `Reads.unique`), and every check records it
                 (`Prog`); the groups of a goal have a strategy for every way to answer it
@@ -303,8 +302,7 @@ rung unchanged.
   the program it is handed (`Preprocessor.runAll`, `Trusted/Engine.lean`), so
   the laws of the list follow from the laws of its members
   (`Preprocessor.runAll_wf`, `runAll_equiv`, `runAll_adds`) and a rung that
-  adds a rewrite proves the laws of that rewrite only. `Rung.noSubsumed`
-  carries through any list as the four above do; `Rung.convTrace` and
+  adds a rewrite proves the laws of that rewrite only. `Rung.convTrace` and
   `Rung.dualTrace` carry through a list that commutes with the converse and
   the mirror image (`Rung.Mirrors`); `Rung.keepsPointwise` puts the list of
   `KeepsPointwise` together from the machine's and shows the five properties
@@ -323,10 +321,9 @@ rung unchanged.
   up to the order of the answers of a step and up to equivalent answers. It
   gives `SameRun`, and the two certify and halt together. `SameTrace.keeps`:
   `R'` keeps every property `R` keeps, with the same base, given the laws of
-  `|` of `R'` (free for an engine) and that the answers `R` shows in one step
-  do not cover each other (`StepAntichain`). Each property has its own
+  `|` of `R'` (free for an engine). Each property has its own
   transfer (`SameTrace.honestProgress`, `emptySide`, `convTrace`,
-  `dualTrace`, `noSubsumed`). `HonestProgress.of_never` is honest progress of
+  `dualTrace`). `HonestProgress.of_never` is honest progress of
   a machine that emits no certificate. The mirrored tabled machine gets
   `mirror_keeps` this way (`Rungs/Tabled/MirrorKeeps.lean`).
 * `Void.lean`: goals that relate nothing. The pairs a goal and a derivation
@@ -464,7 +461,7 @@ unfolding race that meets a specification (`UOk` in
 it says the unfolding is final they cover every derivation of the goal).
 `Rungs/Tabled/Correct.lean` has them for a race that meets it at every lawful
 domain (`Good`): `complete`, `pointComplete`, `honestExhaustion`,
-`honestProgress`, `noSubsumed`, `finalMaximal`. The files before it are the
+`honestProgress`, `finalMaximal`. The files before it are the
 steps: what the rules of the derivation kernel return (`Framework/Rules.lean`),
 the tables read as values (`Tables`, `Round`), what the candidates of a goal
 cover (`Semantics`, `Covers`, `Candidates`, `Strategies`), the invariant of a

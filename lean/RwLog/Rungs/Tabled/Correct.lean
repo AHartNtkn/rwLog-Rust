@@ -10,7 +10,6 @@ machine `(Tabled.engine U).costedAt dom K hK` is
 * complete span by span and pair by pair (`complete`, `pointComplete`);
 * honest when it reports that it is done (`honestExhaustion`), and it emits
   no progress certificate (`honestProgress`);
-* free of answers covered by an earlier one (`noSubsumed`);
 * and its final report is the maximal emitted answers (`finalMaximal`).
 
 Soundness and derivation-generality hold of every engine
@@ -332,18 +331,6 @@ theorem nocov_at (P : Program) (root : Rel) :
     obtain rfl : t = ⟨⟨none, root, none⟩, [], false⟩ := by simpa [T, tablesAt] using ht
     exact List.Pairwise.nil
   | r + 1 => nocov_next _ _ r (nocov_at P root r)
-
-include hD hU in
-/-- **No answer the tabled machine emits is covered by an earlier one.** -/
-theorem noSubsumed : (Rt @U dom K hK).NoSubsumed := fun P q wf n => by
-  obtain ⟨j, hj⟩ := emitted_eq (K := K) (hK := hK) hD hU wf n
-  rw [hj, List.pairwise_map]
-  have := nocov_at (U := @U) (dom := dom) (K := K) (hK := hK) P q.norm j _
-    (List.getElem_mem (root_pos j))
-  rw [← rootAns_eq] at this
-  refine this.imp fun {y x} h hc => ?_
-  have := (covB_iff (hD _ wf.2.2.1) y x).2 hc
-  rw [h] at this; cases this
 
 include hD hU in
 /-- **The final report of the tabled machine is the maximal emitted

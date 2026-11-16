@@ -38,7 +38,6 @@ theorem oriented_keeps (hG : RwLog.Good @U) (hE : Exact @U) (hG₀ : RwLog.Good 
     ((engine @U).costedAt dom K hK).oriented.runtime.Keeps (Tabled.Rt @U₀ dom K hK) :=
   CostedRuntime.oriented_keeps (Engine.sound _ dom K hK hD) (complete hD hG)
     (honestExhaustion hD hG) (honestProgress hD hG) (Engine.derivationGeneral _ dom K hK hD)
-    (noSubsumed hD hG)
     (fun P q wf hb => terminatesWhere hD hG hE P q wf
       ((Tabled.mirror_keeps hD hG hE hG₀ hE₀).terminates P q wf hb))
     (sameHalt hD hG hE) (voidSide hD hG) (oriented_convTrace hD hG) (oriented_dualTrace hD hG)

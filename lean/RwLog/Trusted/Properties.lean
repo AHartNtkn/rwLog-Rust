@@ -26,8 +26,11 @@ and `Rung.Keeps G Base` for a whole rung, preprocessor and machine together.
   finitely;
 * P1.4 strong `ConvTrace`, `DualTrace`: the run of the converse, and of the
   mirrored query in the mirrored program, is the mirror image of the run,
-  step for step;
-* P3.1 and P3.2 `NoSubsumed`: no answer is covered by an earlier one.
+  step for step.
+
+No property forbids a run to emit an answer that an earlier one covers:
+leaving such answers out is the business of the final report
+(`FinalMaximal`).
 
 "Step for step" is up to the order of the answers of one step and up to
 equivalent answers (`TraceEquiv`). Answers are compared by what they relate
@@ -202,11 +205,6 @@ def DualTrace : Prop :=
     TraceEquiv P.sorts.interp (R.trace (R.init P.dual q.dual) n)
       ((R.trace (R.init P q) n).map Shown.swap)
 
-/-- P3.1 and P3.2: no emitted answer is covered by an earlier one. -/
-def NoSubsumed : Prop :=
-  ∀ P q, P.WellFormed q → ∀ n,
-    (R.emitted (R.init P q) n).Pairwise fun a b => ¬ Answer.Covers P.sorts.interp a b
-
 /-- When a run reports that it is done, its final report is the set of
 maximal emitted answers: every reported answer was emitted, every emitted
 answer is covered by a reported one, and no reported answer covers another.
@@ -235,7 +233,6 @@ structure KeepsPointwise (Base : Runtime) : Prop where
   emptySide : R.EmptySide
   convTrace : R.ConvTrace
   dualTrace : R.DualTrace
-  noSubsumed : R.NoSubsumed
 
 /-- Every property a machine keeps: the list of `KeepsPointwise`, and
 completeness span by span. -/

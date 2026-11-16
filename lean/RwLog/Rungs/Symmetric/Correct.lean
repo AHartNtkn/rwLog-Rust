@@ -17,8 +17,6 @@ emitted, at the latest when it reports that it is done. Hence
 * when it reports that it is done, its answers relate every pair the query
   relates (`honestExhaustion`);
 * it emits no progress certificate (`honestProgress`);
-* no answer it emits is covered by an earlier one (`noSubsumed`), since no
-  answer of a table covers a later one (`nocov_stateAt`);
 * its final report is the maximal emitted answers (`finalMaximal`);
 * on first-order input with a root that is its own converse it shows answers
   that are their own converses rearranged (`engine_selfConverse`), so run on
@@ -465,18 +463,6 @@ theorem emitted_eq {P : Program} {q : Rel} (wf : P.WellFormed q) (n : Nat) :
   rcases run_cases hI n with ⟨-, hr⟩ | ⟨j, -, -, hr⟩
   · exact ⟨n, congrArg Prod.fst hr⟩
   · exact ⟨j, congrArg Prod.fst hr⟩
-
-/-- **No answer the symmetric engine emits is covered by an earlier one.** -/
-theorem noSubsumed : (Rt @U dom K hK).NoSubsumed := fun P q wf n => by
-  obtain ⟨j, hj⟩ := emitted_eq (K := K) (hK := hK) hD hG wf n
-  rw [hj, List.pairwise_map]
-  have := nocov_stateAt (K := K P.sorts) (hK := hK P.sorts) (P := P) (root := q.norm)
-    (U := UAt @U dom K hK P) j 0
-  rw [NoCov, List.pairwise_map] at this
-  refine this.imp fun {y x} h hc => ?_
-  have := (covB_iff (hD _ wf.2.2.1) y x).2 hc
-  rw [covB, h] at this
-  cases this
 
 /-- **The final report of the symmetric engine is the maximal emitted
 answers.** -/

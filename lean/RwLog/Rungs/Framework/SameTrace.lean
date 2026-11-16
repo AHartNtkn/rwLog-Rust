@@ -12,10 +12,8 @@ answers.
 * `SameTrace.sameRun`: such machines run the same.
 * `SameTrace.certifies`, `.terminates`: they certify and halt together.
 * `SameTrace.keeps`: `R'` keeps every property `R` keeps, with the same base.
-  Two things are asked beside: the laws of `|` of `R'`, which are equalities
-  of traces and hold of every engine (`Engine.orComm`, `Engine.orAssoc`), and
-  that the answers `R` shows in one step do not cover each other
-  (`StepAntichain`), since their order is not kept.
+  The laws of `|` of `R'` are asked beside: they are equalities of traces and
+  hold of every engine (`Engine.orComm`, `Engine.orAssoc`).
 
 `HonestProgress.of_never` is honest progress for a machine that emits no
 certificate.
@@ -83,43 +81,6 @@ theorem TraceEquiv.of_perm {t t' : List (Shown A)}
   List.Forall₂.imp (fun x y hxy => by
     cases x <;> cases y <;> first | exact StepEquiv.of_perm hxy | exact hxy) h
 
-/-- Answers that do not cover each other, in either order, in one list do
-not in a list that agrees with it. -/
-theorem StepEquiv.antichain {xs : List A} {ys : List B} (h : StepEquiv M xs ys)
-    (hp : ys.Pairwise fun a b => ¬ Answer.Covers M a b ∧ ¬ Answer.Covers M b a) :
-    xs.Pairwise fun a b => ¬ Answer.Covers M a b ∧ ¬ Answer.Covers M b a := by
-  obtain ⟨u, hu, hf⟩ := h
-  have hp' := (List.Perm.pairwise_iff (fun hab => ⟨hab.2, hab.1⟩) hu).2 hp
-  clear hu hp
-  induction hf with
-  | nil => exact List.Pairwise.nil
-  | @cons a b xs u hab hf ih =>
-    obtain ⟨h₁, h₂⟩ := List.pairwise_cons.1 hp'
-    refine List.pairwise_cons.2 ⟨fun a' ha' => ?_, ih h₂⟩
-    obtain ⟨b', hb', e⟩ := forall₂_mem_left hf ha'
-    exact ⟨fun hc => (h₁ b' hb').1 (hc.of_equiv hab e),
-      fun hc => (h₁ b' hb').2 (hc.of_equiv e hab)⟩
-
-/-- No answer of a trace is covered by an earlier one when that holds of a
-trace that agrees with it, in which the answers of one step do not cover
-each other. -/
-theorem TraceEquiv.noSubsumed : ∀ {t : List (Shown A)} {t' : List (Shown B)},
-    TraceEquiv M t t' →
-    (t'.flatMap Shown.emits).Pairwise (fun a b => ¬ Answer.Covers M a b) →
-    (∀ x ∈ t', x.emits.Pairwise fun a b => ¬ Answer.Covers M a b ∧ ¬ Answer.Covers M b a) →
-    (t.flatMap Shown.emits).Pairwise fun a b => ¬ Answer.Covers M a b
-  | _, _, .nil, _, _ => List.Pairwise.nil
-  | _, _, @List.Forall₂.cons _ _ _ x y t t' h hs, hp, hstep => by
-    simp only [List.flatMap_cons] at hp ⊢
-    obtain ⟨-, h₂, h₃⟩ := List.pairwise_append.1 hp
-    refine List.pairwise_append.2 ⟨?_,
-      TraceEquiv.noSubsumed hs h₂ fun z hz => hstep z (List.mem_cons_of_mem _ hz),
-      fun a ha b hb hc => ?_⟩
-    · exact ((ShownEquiv.emits h).antichain (hstep y List.mem_cons_self)).imp fun h => h.1
-    · obtain ⟨a', ha', ea⟩ := (ShownEquiv.emits h).mem ha
-      obtain ⟨b', hb', eb⟩ := (TraceEquiv.emits hs).mem hb
-      exact h₃ a' ha' b' hb' (hc.of_equiv ea eb)
-
 end trace
 
 namespace Runtime
@@ -130,13 +91,6 @@ variable {R' R Base : Runtime}
 theorem HonestProgress.of_never
     (h : ∀ P q, P.WellFormed q → ∀ k n, ¬ R.Certifies (R.init P q) k n) : R.HonestProgress :=
   fun P q wf k n hc => absurd hc (h P q wf k n)
-
-/-- The answers shown in one step do not cover each other, in either
-order. -/
-def StepAntichain (R : Runtime) : Prop :=
-  ∀ P q, P.WellFormed q → ∀ n, ∀ x ∈ R.trace (R.init P q) n,
-    x.emits.Pairwise fun a b =>
-      ¬ Answer.Covers P.sorts.interp a b ∧ ¬ Answer.Covers P.sorts.interp b a
 
 /-- `R'` shows at every step what `R` shows, up to the order of the answers
 of the step and up to equivalent answers. -/
@@ -212,17 +166,10 @@ theorem dualTrace (h : SameTrace R' R) (hd : R.DualTrace) : R'.DualTrace :=
   fun P q n wf => (h.trace P.dual q.dual wf.dual n).trans
     ((hd P q n wf).trans (h.trace P q wf n).symm.map_swap)
 
-theorem noSubsumed (h : SameTrace R' R) (hn : R.NoSubsumed) (hs : R.StepAntichain) :
-    R'.NoSubsumed := fun P q wf n => by
-  rw [R'.emitted_eq_flatMap_trace]
-  refine TraceEquiv.noSubsumed (h.trace P q wf n) ?_ (hs P q wf n)
-  rw [← R.emitted_eq_flatMap_trace]
-  exact hn P q wf n
-
 /-- **A machine that shows at every step what another shows keeps every
 property the other keeps.** The laws of `|` are equalities of traces of the
 machine itself and hold of every engine. -/
-theorem keeps (h : SameTrace R' R) (hk : R.Keeps Base) (hs : R.StepAntichain)
+theorem keeps (h : SameTrace R' R) (hk : R.Keeps Base)
     (orComm : R'.OrComm) (orAssoc : R'.OrAssoc) : R'.Keeps Base where
   sound := h.sameRun.sound hk.sound
   pointComplete := (h.sameRun.complete hk.complete).pointwise
@@ -235,7 +182,6 @@ theorem keeps (h : SameTrace R' R) (hk : R.Keeps Base) (hs : R.StepAntichain)
   emptySide := h.emptySide hk.emptySide
   convTrace := h.convTrace hk.convTrace
   dualTrace := h.dualTrace hk.dualTrace
-  noSubsumed := h.noSubsumed hk.noSubsumed hs
   complete := h.sameRun.complete hk.complete
 
 end SameTrace

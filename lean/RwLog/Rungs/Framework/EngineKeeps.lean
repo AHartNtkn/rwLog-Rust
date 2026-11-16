@@ -18,7 +18,7 @@ Where each obligation usually comes from:
   emits no certificate (`Rungs/Framework/SameTrace.lean`);
 * `convTrace`, `dualTrace`: `oriented_convTrace`, `oriented_dualTrace`
   (`Rungs/Framework/Oriented.lean`);
-* `terminates`, `emptySide`, `noSubsumed`: from the engine's invariant.
+* `terminates`, `emptySide`: from the engine's invariant.
 
 An engine that shows what a proved machine shows needs none of this:
 `Runtime.SameTrace.keeps`.
@@ -43,7 +43,6 @@ structure Obligations (Base : Runtime) : Prop where
   emptySide : (E.costedAt dom K hK).runtime.EmptySide
   convTrace : (E.costedAt dom K hK).runtime.ConvTrace
   dualTrace : (E.costedAt dom K hK).runtime.DualTrace
-  noSubsumed : (E.costedAt dom K hK).runtime.NoSubsumed
 
 variable {E dom K hK}
 
@@ -64,7 +63,6 @@ theorem Obligations.keeps {Base : Runtime} (h : E.Obligations dom K hK Base)
   emptySide := h.emptySide
   convTrace := h.convTrace
   dualTrace := h.dualTrace
-  noSubsumed := h.noSubsumed
   complete := h.complete
 
 end Engine
