@@ -330,6 +330,52 @@ theorem oriented_spent (b : Bool) : ∀ (n : Nat) (s : C.State),
       rw [C.oriented.spent_succ_progress hs', C.spent_succ_progress hs, oriented_step_ticks,
         oriented_spent b n s']
 
+/-- On first-order input with a root that is its own converse the machine
+shows, at every step, a
+set of answers that is its own converse. This is what the choice of one
+orientation leaves to the machine. -/
+def SelfConverse : Prop :=
+  ∀ (P : Program) (root : Rel), P.sorts.WellFormed → ProgFO P → Normal root → root.FO →
+    root.normConv = root →
+    ∀ n, TraceEquiv P.sorts.interp (C.runtime.trace (C.start P root) n)
+      ((C.runtime.trace (C.start P root) n).map Shown.swap)
+
+variable {C}
+
+theorem traceEquiv_swap_swap {A : Type} [Answer A] (M : Interp) (t : List (Shown A)) :
+    TraceEquiv M t ((t.map Shown.swap).map Shown.swap) := by
+  rw [List.map_map]
+  refine List.forall₂_map_right_iff.2 (List.forall₂_same.2 fun x _ => ?_)
+  cases x with
+  | answers xs => exact (StepEquiv.swap_swap M xs).symm
+  | level n => exact rfl
+  | final xs => exact (StepEquiv.swap_swap M xs).symm
+
+/-- Two choices, one the other way round from the other, show runs that are
+each the other swapped. -/
+theorem trace_of_mirrors (hS : C.SelfConverse) {P : Program} (hP : P.sorts.WellFormed)
+    {o o' : Oriented} (h : o.Mirrors o') (ho : o.P.sorts = P.sorts) (hfP : ProgFO o.P)
+    (hN : Normal o.root) (hfo : o.root.FO) (n : Nat) :
+    TraceEquiv P.sorts.interp (C.oriented.runtime.trace (o'.swap, C.start o'.P o'.root) n)
+      ((C.oriented.runtime.trace (o.swap, C.start o.P o.root) n).map Shown.swap) := by
+  obtain ⟨hPe, hre, hsw⟩ := h
+  rw [oriented_trace, oriented_trace, hPe, hre]
+  rcases hsw with hsw | ⟨hsw, hself⟩
+  · rw [hsw]
+    cases o.swap
+    · rw [Bool.not_false, map_shownAs_true, map_shownAs_false]
+      exact TraceEquiv.refl _
+    · rw [Bool.not_true, map_shownAs_true, map_shownAs_false]
+      exact traceEquiv_swap_swap _ _
+  · rw [hsw]
+    have hT := hS o.P o.root (ho ▸ hP) hfP hN hfo hself n
+    rw [ho] at hT
+    cases o.swap
+    · rw [map_shownAs_false]
+      exact hT
+    · rw [map_shownAs_true]
+      exact hT.symm.trans (traceEquiv_swap_swap _ _)
+
 end CostedRuntime
 
 theorem normal_pick_root (Pn : Program) {f : Rel × Bool} {r : List (Rel × Bool)}

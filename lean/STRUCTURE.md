@@ -3,9 +3,11 @@
 The development is layered so that a new rung proves only what is new about
 its machine.
 
-The engine on master is rung 1, the symmetric engine (`Rungs/Symmetric/`). It
-has the three laws and is the base of the ladder (`Symmetric.rung1_lawful`,
-`rung1_ladder`, `Manifest/Rung1.lean`). Master also has the specification,
+The engine on master is rung 1, the symmetric engine (`Rungs/Symmetric/`) run
+on one orientation of its input. It has the three laws, is the base of the
+ladder, and costs the same whichever direction a query is written in
+(`Symmetric.rung1_lawful`, `rung1_ladder`, `rung1_directionFree`,
+`Manifest/Rung1.lean`). Master also has the specification,
 the kernel, the shared libraries and the constraint domain of sorts
 (`Sorts/`). The machines before it are in the history
 (see "Where the earlier machines went"). No file is out of the build.
@@ -126,10 +128,15 @@ Rungs/Symmetric/ the symmetric engine of `SYMMETRIC_ENGINE.md` (Machine.lean): a
                 (Correct.lean, `Symmetric.complete`, `honestExhaustion`,
                 `honestProgress`); no answer of a table covers a later one, and the final report is the
                 maximal emitted answers (`finalMaximal`). So the engine has the three laws
-                (`Symmetric.pointComplete`, `Symmetric.laws`), and with no rewrite before it
-                it is a rung that has them at every kernel rung and the base of a ladder
-                (Rung.lean, `Symmetric.rung_lawful`, `rung_ladder`; `rung1` is the one with
-                the raced unfolding). Not proved yet: any bound on its cost.
+                (`Symmetric.pointComplete`, `Symmetric.laws`), and on a root that is its own
+                converse every step shows answers that are their own converses rearranged
+                (SelfConverse.lean, `selfConverse_of`; Correct.lean, `engine_selfConverse`).
+                With no rewrite before it and run on one orientation it is a rung that has
+                the laws at every kernel rung, the base of a ladder, and its cost does not
+                depend on the direction a query is written in (Rung.lean,
+                `Symmetric.rung_lawful`, `rung_ladder`, `rung_direction`,
+                `rung_directionFree`; `rung1` is the one with the raced unfolding). Not
+                proved yet: any bound on its cost in the size of the input.
 Sorts/          the constraint domain of sorts and the proof that it is lawful
 Manifest/       rung 1's manifest (Rung1.lean): headline statements, trusted files and
                 axioms, all checked by the build
@@ -267,8 +274,28 @@ rung unchanged.
   made from the input the other way round, or the same choice of a node that
   is its own converse (`orient_conv`, `orient_dual`), and the program and
   the node chosen from a well-formed input are first-order (`progFO_orient`,
-  `fo_orient_root`). Any machine run so pays the same on an input and on its
-  mirror image (`oriented_paid_dual`).
+  `fo_orient_root`). A machine that shows, on first-order input with a root
+  that is its own converse, sets of answers that are their own converse
+  (`CostedRuntime.SelfConverse`) shows the same from two choices that are
+  each the other way round (`trace_of_mirrors`), and any machine run so pays
+  the same on an input and on its mirror image (`oriented_paid_dual`).
+* `GroundMirror.lean`, `OrientedSem.lean`, `OrientedLaws.lean`: a machine run
+  on one orientation has the laws. In the mirrored program the mirror image
+  of an expression derives the converses (`gd_dual`), and the program in
+  normal form derives what the program derives (`gd_normed`); so the input
+  chosen relates the same pairs, or the converses when the run is swapped
+  (`orient_pairs`), and is well formed (`wf_orient`, with
+  `Kernel/NormalFormCalls.lean`: the normal form calls no new name). Hence
+  `CostedRuntime.oriented_sound`, `oriented_complete`, `oriented_honest` and
+  `oriented_laws`.
+* `OrientedDirection.lean`: a machine run on one orientation that has
+  `SelfConverse` costs the same in both directions. Its runs on an input, on
+  the converse and on the mirror image show the same the right way round
+  (`oriented_trace_conv`, `oriented_trace_dual`) and pay the same from the
+  first step on, with `8 * n + 12` ticks more for choosing the input on a
+  converse (`oriented_paid_conv`); so it has `DirectionFree`
+  (`oriented_directionFree`, and `oriented_directionFree_bound` within
+  `12 * (c + n + 1)`).
 * `Derivation.lean`: every engine is sound, at every kernel of a constraint
   domain that is lawful at well-formed sorts (`Engine.sound`). An answer
   exists only with the proof that it is valid, so the theorem uses nothing
@@ -437,12 +464,15 @@ An engine is written once against the derivation kernel
    once everything the run holds for the root is emitted, at the latest when
    the machine reports that it is done (`Symmetric.pointComplete`,
    `honestExhaustion`).
-4. The rung: `CostedRung.Lawful` for the engine with no rewrite is the laws
-   of its machine (`Symmetric.rung_lawful`); with rewrites, `Rung.laws`
+4. The rung: run on one orientation the machine keeps the laws
+   (`CostedRuntime.oriented_laws`, `Framework/OrientedLaws.lean`), and
+   `CostedRung.Lawful` for the engine with no rewrite is that
+   (`Symmetric.rung_lawful`); with rewrites, `Rung.laws`
    (`Framework/Transfer.lean`) carries them through.
-5. Cost: `Framework/CostCalculus.lean` and `CostSpec.lean` for the ticks of
-   the traversals, `Framework/Race.lean` for races, `Framework/Direction.lean`
-   and `Oriented.lean` for cost in the two directions, `Framework/Admission.lean`
+5. Cost forward and backward: prove `CostedRuntime.SelfConverse` and take
+   `oriented_directionFree` (`Framework/OrientedDirection.lean`).
+6. Cost: `Framework/CostCalculus.lean` and `CostSpec.lean` for the ticks of
+   the traversals, `Framework/Race.lean` for races, `Framework/Admission.lean`
    and `Latency.lean` for the statement a rung is admitted by.
 ## Rules that hold in every epoch
 

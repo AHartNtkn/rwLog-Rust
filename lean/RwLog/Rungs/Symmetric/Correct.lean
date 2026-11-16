@@ -504,6 +504,37 @@ theorem finalMaximal : (Rt @U dom K hK).FinalMaximal := fun P q wf n fin hfin =>
       · have := (covB_iff hL x y).2 hc
         rw [h.2] at this; cases this
 
+/-- **On first-order input with a root node that is its own converse the
+symmetric engine shows, at every step, answers that are their own converses
+rearranged.** So run on one orientation (`CostedRuntime.oriented`) its runs
+on an input, on its converse and on its mirror image show the same, the
+right way round (`CostedRuntime.trace_of_mirrors`). -/
+theorem engine_selfConverse : ((engine @U).costedAt dom K hK).SelfConverse := by
+  refine selfConverse_of hD
+    (fun s => s.P.sorts.WellFormed ∧ ProgFO s.P ∧ Good (stOf @U dom s) ∧
+      goalAt (stOf @U dom s) 0 = some ⟨none, s.root, none⟩)
+    (fun s hs => hs.2.2.1.inv.answers hs.2.2.2) (fun P root hwf hP _ hfo => ?_)
+    (fun s as s' hs he => ?_)
+  · exact ⟨hwf, hP, good_init (K := K P.sorts) (hK := hK P.sorts) (P := P) (normal_norm root)
+      hfo.norm, (inv_init (K := K P.sorts) (hK := hK P.sorts) (P := P) (normal_norm root)).2⟩
+  · obtain ⟨hwf, hP, hI, hg⟩ := hs
+    have hL := hD _ hwf
+    have hlt := lt_of_goalAt hg
+    have hhead : (stOf @U dom s).tables.head? = some (stOf @U dom s).tables[0] := by
+      rw [List.head?_eq_getElem?]; exact List.getElem?_eq_getElem hlt
+    rw [costed_step_val @U dom K hK s hhead] at he
+    split at he
+    · cases he
+    · cases he
+      obtain ⟨st', hre, hreq⟩ := reach_request (K := K s.P.sorts) (hK := hK s.P.sorts)
+        (UAt @U dom K hK s.P) (stOf @U dom s)
+      refine ⟨hwf, hP, good_request hL (readOk hL hP) hP _
+        (hG (dom s.P.sorts) s.P (K s.P.sorts) (hK s.P.sorts) hL hP) hI, ?_⟩
+      show goalAt (request (K := DerivationKernel.over (dom s.P.sorts) (K s.P.sorts)
+        (hK s.P.sorts) s.P) (UAt @U dom K hK s.P) (stOf @U dom s)).val.1 0 = _
+      rw [hreq]
+      exact hre.ext _ _ hg
+
 end theorems
 
 end Symmetric

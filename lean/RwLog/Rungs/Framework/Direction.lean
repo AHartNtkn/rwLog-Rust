@@ -166,6 +166,46 @@ theorem TraceEquiv.final {A B : Type} [Answer A] [Answer B] {M : Interp} :
     rw [List.getLast?_cons_cons] at hf ⊢
     exact TraceEquiv.final (.cons h' hs) ⟨fin, hf⟩
 
+/-! ## Well-formed queries -/
+
+/-- A query that calls and writes no more than a well-formed one is well
+formed. -/
+theorem ProgramOf.WellFormed.of_sub {P : Program} {q q' : Rel} (h : P.WellFormed q)
+    (hc : ∀ n ∈ q'.calls, n ∈ q.calls) (hs : ∀ s ∈ q'.spans, s ∈ q.spans) :
+    P.WellFormed q' := by
+  refine ⟨h.1, fun n hn => h.2.1 n ?_, h.2.2.1, fun s hs' => h.2.2.2 s ?_⟩
+  · rcases List.mem_append.1 hn with hn | hn
+    · exact List.mem_append_left _ (hc n hn)
+    · exact List.mem_append_right _ hn
+  · rcases List.mem_append.1 hs' with hs' | hs'
+    · exact List.mem_append_left _ (hs s hs')
+    · exact List.mem_append_right _ hs'
+
+theorem ProgramOf.WellFormed.conv {P : Program} {q : Rel} (h : P.WellFormed q) :
+    P.WellFormed (.conv q) :=
+  h.of_sub (fun _ h => h) (fun _ h => h)
+
+theorem ProgramOf.WellFormed.seq_left {P : Program} {a b : Rel} (h : P.WellFormed (.seq a b)) :
+    P.WellFormed a :=
+  h.of_sub (fun _ h => List.mem_append_left _ h) (fun _ h => List.mem_append_left _ h)
+
+theorem ProgramOf.WellFormed.seq_swap {P : Program} {a b : Rel} (h : P.WellFormed (.seq a b)) :
+    P.WellFormed (.seq b a) :=
+  h.of_sub
+    (fun _ h => (List.mem_append.1 h).elim (List.mem_append_right _) (List.mem_append_left _))
+    (fun _ h => (List.mem_append.1 h).elim (List.mem_append_right _) (List.mem_append_left _))
+
+theorem ProgramOf.WellFormed.and_of_seq {P : Program} {a b : Rel} (h : P.WellFormed (.seq a b)) :
+    P.WellFormed (.and a b) :=
+  h.of_sub (fun _ h => h) (fun _ h => h)
+
+/-- Swapping every answer keeps two traces in agreement. -/
+theorem TraceEquiv.map_swap {A B : Type} [Answer A] [Answer B] {M : Interp}
+    {t : List (Shown A)} {t' : List (Shown B)}
+    (h : TraceEquiv M t t') : TraceEquiv M (t.map Shown.swap) (t'.map Shown.swap) :=
+  List.forall₂_map_left_iff.2 (List.forall₂_map_right_iff.2
+    (List.Forall₂.imp (fun _ _ h => h.swap) h))
+
 /-- Swapping twice gives equivalent answers. -/
 theorem StepEquiv.swap_swap {A : Type} [Answer A] (M : Interp) (xs : List A) :
     StepEquiv M ((xs.map Answer.swap).map Answer.swap) xs := by

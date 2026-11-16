@@ -56,12 +56,17 @@ import RwLog.Trusted.Runtime
 import RwLog.Rungs.Framework.Answer
 import RwLog.Rungs.Framework.Saturation
 import RwLog.Rungs.Framework.Oriented
+import RwLog.Rungs.Framework.GroundMirror
+import RwLog.Rungs.Framework.OrientedSem
+import RwLog.Rungs.Framework.OrientedLaws
+import RwLog.Rungs.Framework.OrientedDirection
 import RwLog.Rungs.Framework.Race
 import RwLog.Rungs.Framework.Goals
 import RwLog.Rungs.Framework.Unfold
 import RwLog.Kernel.NormalFormDepth
 import RwLog.Kernel.NormalFormSize
 import RwLog.Kernel.NormalFormSpans
+import RwLog.Kernel.NormalFormCalls
 import RwLog.Kernel.NormalFormSplit
 import RwLog.Lib.Maxima
 import RwLog.Rungs.Framework.KernelAt

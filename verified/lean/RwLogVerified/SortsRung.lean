@@ -151,4 +151,10 @@ end Realised
 /-- **Rung 1 has the laws at the kernel rung engines are judged at.** -/
 theorem rung1_lawful : Symmetric.rung1.Lawful sortsRung := Symmetric.rung1_lawful sortsRung
 
+/-- **Rung 1 costs the same in both directions at that kernel rung**, within
+`12 * (c + n + 1)`. -/
+theorem rung1_directionFree (A : ArtifactStore) :
+    DirectionFree (Symmetric.rung1.machine sortsRung A) (DirBound.fn ⟨12, 1⟩) :=
+  Symmetric.rung1_directionFree sortsRung A
+
 end RwLogVerified
