@@ -76,6 +76,7 @@ noncomputable def sortsRung : KernelRung where
   dom := Sorts.dom
   kernel S := sortsKernel naming S (sortNames S) (reachBound S) (goalBound S)
   refines S := sortsKernel_refines naming S (sortNames S) (reachBound S) (goalBound S)
+  cells _ := Sorts.Rep.cells
   lawful _ hS := Sorts.dom_lawful hS
 
 /-! ## Each operation of the rung runs in Rust within its charge -/

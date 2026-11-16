@@ -45,6 +45,12 @@ def Rep (S : Sorts) : Type := {r : Raw // S.WellFormed ∧ r.Normal S ∧ ∃ a 
 
 instance (S : Sorts) : DecidableEq (Rep S) := by unfold Rep; infer_instance
 
+/-- The cells of a representative while a machine holds it: its pattern, the
+sorts of each variable, and its exclusions, each as it is written. -/
+def Rep.cells {S : Sorts} (ρ : Rep S) : Nat :=
+  ρ.1.t.size + (ρ.1.c.map fun c => 1 + c.card).sum +
+    ((ρ.1.x.sort bindsLE).map fun θ => 1 + (θ.map fun b => 1 + b.2.size).sum).sum
+
 namespace Rep
 
 variable {S : Sorts}

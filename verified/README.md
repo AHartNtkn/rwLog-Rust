@@ -194,9 +194,12 @@ What is not derived, and why:
 `eqRel`, `canon`, `size` and `idSpan` are no longer operations of the kernel
 (roadmap L30, L44).
 
-Space. `Cost` has a space component. The store only grows and an allocation
-is a tick, so an operation that may add nodes is charged its tick bound as
-cells held. `Realises` (`RwLogVerified/Realises.lean`) says so: an operation adds at most as many nodes as it holds
+Space. `Cost` has a space component. Within one operation the store only
+grows and an allocation is a tick, so an operation that may add nodes is
+charged its tick bound as cells held. Between two steps of a machine what is
+counted is what its state holds, a representative by `Sorts.Rep.cells`: its
+pattern, the sorts of each variable and its exclusions as they are written
+(`KernelRung.cells` of `sortsRung`). `Realises` (`RwLogVerified/Realises.lean`) says so: an operation adds at most as many nodes as it holds
 cells. The stack is empty when an operation returns, and while it runs its
 depth is under the ticks spent, which is the peak of the charge.
 

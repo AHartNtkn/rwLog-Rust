@@ -47,6 +47,7 @@ import RwLog.Rungs.Framework.Direction
 import RwLog.Kernel.NormalFormStable
 import RwLog.Rungs.Framework.Rules
 import RwLog.Sorts.Dom
+import RwLog.Rungs.Framework.Holding
 
 namespace RwLog
 namespace Witness
@@ -56,6 +57,8 @@ def silent : Engine where
   State _ _ _ := Unit
   init _ := pure ()
   step _ := pure (.emit [] ())
+  held _ := Holding.nil
+  held_inj _ _ _ _ _ _ := rfl
 
 /-- The engine that reads its root node as a span: if the root is a span node
 it emits the answer of that span in its first step, after spending `waste t`
@@ -73,6 +76,8 @@ def reader (waste : Nat → Nat) : Engine where
         Kernel.tick (S := S) (waste r.2)
         pure (.emit [a] none)
       | none => pure (.emit [] none)
+  held {S N A} st := @Pack.pack S N A (Option N) (@Pack.option S N A N Pack.node) st
+  held_inj S N A := @Pack.inj S N A (Option N) (@Pack.option S N A N Pack.node)
 
 /-- The kernel rung the witnesses are read at: the domain of sorts, where
 reading a span of the program is charged its size and no other operation is
@@ -92,6 +97,7 @@ charges are not derived on any machine. -/
       rep := fun _ => rfl, compose := fun _ _ => rfl, meet := fun _ _ => rfl,
       composable := fun _ => rfl, covers := fun _ _ => rfl, eq := fun _ _ => rfl,
       rightBound := fun _ => rfl, leftBound := fun _ => rfl }
+  cells _ := Sorts.Rep.cells
   lawful _ hS := Sorts.dom_lawful hS
 
 /-- The reader as a machine with its cost. -/

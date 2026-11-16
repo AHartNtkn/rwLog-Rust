@@ -342,6 +342,13 @@ rung unchanged.
   ladder has the laws (`CostedRung.Lawful`, `Trusted/Properties.lean`), which
   the ladder asks of the base and of every rung put on top.
 
+* `Holding.lean`: saying what a state holds. `Pack S N A α` lists a value of
+  `α` as representatives, nodes, answers and numbers so that the listing can
+  be told apart from whatever follows it (`Pack.cancel`), which makes the
+  listing of a pair, a list or an alternative one to one from the listings of
+  its parts (`Pack.inj`); `Pack.ofInj` lists a structure through its fields.
+  This is how an engine meets `Engine.held_inj`.
+
 * `RecordWitness.lean`: `Admits` has inhabitants. Two toy
   engines, admitted one above the other over a base that never answers, the
   second for an exponential gain over the record that holds the polynomial
@@ -405,9 +412,18 @@ at a kernel rung, and `Admits` is over the record of the wins admitted below
 (`Win`, `Ladder`).
 
 The cost monad (`Trusted/CostMonad.lean`) counts ticks and space: `peak` is
-the most cells live at once and `held` the cells still live at the end. Cells
-are released only when a computation is abandoned (`Cost.within`, and so
-`Cost.race`). `CostedRuntime.space P q n` is the peak of the first `n` steps.
+the most cells a computation had live at once and `held` the cells it
+allocated and did not abandon (`Cost.within`, and so `Cost.race`, abandon).
+Both are about one step. Between two steps what is live is the state: a
+machine has the cells of each of its states (`CostedRuntime.live`), and
+`CostedRuntime.space P q n` is the most cells live at one moment of the first
+`n` steps, the state a step starts from together with the peak of the step.
+An engine lists what its state holds (`Engine.held`) and proves the state is
+determined by the listing (`Engine.held_inj`); the cells of the listing are
+counted by `Engine.liveAt`, with representatives of the size the kernel rung
+gives them (`KernelRung.cells`). `Rungs/Framework/Holding.lean` builds such a
+listing piece by piece (`Pack`), and the symmetric engine's is `heldOf`
+(`Rungs/Symmetric/Machine.lean`).
 
 A kernel rung (`KernelRung`, `Trusted/Kernel.lean`) gives, for the sorts of
 each program, a type of representatives, a constraint domain on it that is
