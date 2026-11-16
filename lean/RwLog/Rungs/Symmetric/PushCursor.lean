@@ -61,7 +61,7 @@ theorem Filed.congr {n : Nat} {o o' : Nat → Prop} {cnt cnt' : Nat → Nat} {dd
   exact ⟨h.pb, h.filed, h.all, h.seen, h.opens, h.once, h.onceR,
     fun q s hq => (h.isOpen q s hq).trans (ho s), h.done, h.todo⟩
 
-theorem PushFits.start : PushFits ([] : List (A × Option (Nat × Nat))) [] [] [] Cursor.start := by
+theorem PushFits.start : PushFits ([] : List (A × Option (Nat × Nat))) [] [] Cursor.start := by
   refine ⟨rfl, ⟨rfl, fun q s r h => ?_, fun s r h => ?_, fun q s h => ?_, fun s h => ?_,
     fun q q' s h => ?_, fun q q' s r h => ?_, fun q s h => ?_, fun x hx => ?_, fun x => ?_⟩⟩
   · simp at h

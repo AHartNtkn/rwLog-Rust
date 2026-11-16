@@ -279,7 +279,7 @@ theorem base_work (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK)
       split
       · exact (s1.fo hg.2.2).2
       · exact (s1.fo hg.2.2).1
-    simp only [work]
+    simp only [work, Cost.bind_val]
     split
     · exact hB
     · split
@@ -337,10 +337,10 @@ theorem prog_splitGroup {st : StateOf R Rel (Ans D P)} (hB : Base st) (w : Nat) 
     exact ⟨L, Rg, hs, hg1', hg2, Cursor.ok_start _ _,
       fun p q x y hb => absurd hb (Cursor.before_start p q)⟩
   · dsimp only [Prog]
-    exact ⟨L, Rg, hs, hg1', rfl, rfl, (fun e he => by cases he), PushFits.start,
+    exact ⟨L, Rg, hs, hg1', rfl, rfl, DeadOk.nil _, (fun e he => by cases he), PushFits.start,
       fun s q x t r y hb => absurd hb (Cursor.before_start s q)⟩
   · dsimp only [Prog]
-    exact ⟨L, Rg, hs, hg2, rfl, rfl, (fun e he => by cases he), PushFits.start,
+    exact ⟨L, Rg, hs, hg2, rfl, rfl, DeadOk.nil _, (fun e he => by cases he), PushFits.start,
       fun s q x t r y hb => absurd hb (Cursor.before_start s q)⟩
 
 theorem prog_checkOf (hR : ReadOk D P K hK) {st : StateOf R Rel (Ans D P)} (hB : Base st)
@@ -1117,7 +1117,7 @@ theorem work_kind (i : Nat) (g : GoalOf R Rel) (st : StateOf R Rel (Ans D P))
     simp only [work]
     split <;> rfl
   | push k l side o subs dead reads c =>
-    simp only [work]
+    simp only [work, Cost.bind_val]
     split
     · rfl
     · split <;> rfl
