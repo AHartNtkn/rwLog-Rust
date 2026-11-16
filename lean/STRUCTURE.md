@@ -70,7 +70,7 @@ Rungs/Symmetric/ the symmetric engine of `SYMMETRIC_ENGINE.md` (Machine.lean): a
                 that costs more is given up and charged, and the next waits until twice
                 as much is left; a final verdict completes the table. A level rises by what was spent, and the engine charges
                 itself one tick for a unit of work that did something, so a group that
-                worked has risen at every kernel (`workGroup_did`). Run in `Tests/SymmetricRuns.lean`. The table of a
+                worked has risen at every kernel (`workGroup_did`). The table of a
                 goal that is its own converse holds the converse of everything it holds;
                 with the choice of one orientation where the input is loaded
                 (`CostedRuntime.oriented`, `Trusted/Cost.lean`) that is what makes the run
@@ -92,15 +92,16 @@ Rungs/Symmetric/ the symmetric engine of `SYMMETRIC_ENGINE.md` (Machine.lean): a
                 complete with no answer when the other side fails under every interface
                 one side can show, read from the program) is a strategy of its own; the
                 invariant and the mirror criterion cover it. Towards completeness:
-                the cursor of a join visits every pair once (Cursor.lean,
+                the cursor of a join combines a pair once (Cursor.lean,
                 `Cursor.next_spec`); what the cursors of every strategy mean (Progress.lean,
                 `Prog`: the table covers what its rule makes of everything a cursor has
                 passed) holds of the strategies made for a goal and is kept by a whole
                 request, with the goals of the tables distinct and good (Kept.lean,
                 `Good`, `good_request`); and the interfaces read from the program are
                 right about it (Edge.lean, `readOk`). Towards fairness: the cursor of
-                a join reaches every pair that is there, by a rank that falls
-                (Cursor.lean, `Cursor.next_rank`, `rankLt_wf`); and the record of a
+                a join shares its ticks among its pairs by the unions their answers came
+                from and still reaches every pair it has filed, by a measure that falls
+                (Cursor.lean, `Cursor.rank_fall`, `rankLt_wf`); and the record of a
                 request (Turns.lean, `Req`, `req_request`), which takes what a race means
                 as a parameter (`RaceSem`, for the engine `raceSem`): a table completes by
                 a strategy with nothing left to do or by a final verdict of its race
@@ -151,7 +152,7 @@ Rungs/Symmetric/ the symmetric engine of `SYMMETRIC_ENGINE.md` (Machine.lean): a
                 (`Prog`); the groups of a goal have a strategy for every way to answer it
                 (Progress.lean, `Full`, kept by a request in `Good`); a join that has
                 combined every pair has nothing left to combine (`SStep.join`,
-                `Cursor.next_step`); a group that works for ever runs out of work once the
+                `Cursor.Ok.pending_false`); a group that works for ever runs out of work once the
                 tables it reads gain no more answers (Settle.lean, `Line.copy_read`,
                 `Line.join_done`, `Line.push_read`, `Line.check_read`); and a goal whose
                 table is complete in one run of requests has a complete table in every run
@@ -192,13 +193,9 @@ Rungs/R005/     the engines: `R001.engine` (tables, unfolding to a depth), `R004
                 what they keep (Tables.lean, Keeps.lean, Sorts.lean) and the stated lower
                 bounds (Bounds.lean)
 Sorts/          the constraint domain of sorts and the proof that it is lawful
-Manifest/       R005's manifest: headline statements, bounds, trusted files, axioms and a
-                space report, all checked by the build
+Manifest/       R005's manifest: headline statements, bounds, trusted files and axioms,
+                all checked by the build
 AxiomAudit.lean every headline and shared theorem, checked to use only the three standard axioms
-Tests/          executable runs at the domain of sorts with nothing charged: the three engines on
-                the conformance cases and on each other (R005Runs), the cases about
-                constraints at the domain of sorts (SortsConformance), R005 on the inputs
-                of the simulation note (SimulationRuns), the sorts (SortsRuns)
 ```
 
 `SYMMETRIC_ENGINE.md` is the design note for the engine of milestone M6: what it
@@ -207,9 +204,10 @@ for it. Its measurements on R004 and R005 are in `Tests/MiddleRuns.lean` at the 
 `SYMMETRIC_ENGINE_SIMULATION.md` is the attack on that design's main risk, whether
 the engine stays within a polynomial of R005: the inputs on which the first
 design fails, the changes measured, and the lemmas still open. Its prototype is
-`scripts/symmetric_engine_tables.py`, and R005's side of each comparison is
-`Tests/SimulationRuns.lean` (on master it runs R005 as it is written now; the figures
-of the note are those of the tag). `scripts/r005_interpreter.py`
+`scripts/symmetric_engine_tables.py`, and R005's side of each comparison was
+`Tests/SimulationRuns.lean` at the tag `epoch-1`. The build runs nothing on concrete
+inputs now: what a machine does is proved, and the figures of the notes are
+measurements taken once. `scripts/r005_interpreter.py`
 is R005 at the tag `epoch-1` outside Lean, counting the same ticks (`check` compares it
 with every number Lean guards for those inputs); it is what decides the inputs Lean does
 not evaluate in reasonable time. `scripts/symmetric_engine_halting.py` runs random small
@@ -650,8 +648,8 @@ to R001) uses `SameRun.of_eq`, or simply rewrites.
 | `Rungs/R002/` to `Rungs/R004/` (unfolders, their `Gen`, `Spec`, `Reading`, `Proofs/`) | removed; the three ways of unfolding are rewritten in `Rungs/Framework/Unfold.lean` |
 | `Rungs/R005/` Spec, Family, `Proofs/` | removed; `Rungs/R005/Engine.lean` is the engine, `Keeps.lean` what it keeps, `Bounds.lean` the families |
 | `Rungs/Directed/`, `Rungs/Hedge/`, `Tests/DirectedRuns.lean`, `MiddleRuns.lean` | removed |
-| `Tests/R000Runs.lean`, `R001Runs.lean` | removed; `R001.engine` runs in `Tests/R005Runs.lean` |
-| `Tests/R002Runs.lean` to `R005Runs.lean` | removed; `Tests/R005Runs.lean` is new |
+| `Tests/R000Runs.lean`, `R001Runs.lean` | removed |
+| `Tests/R002Runs.lean` to `R005Runs.lean` | removed |
 | `R001.Obligation.finite_answers` and its proof | removed: it holds of every runtime (`Runtime.finite_answers`), so it obliged nothing (roadmap L05) |
 
 Declarations keep their epoch 1 namespaces (`R000` to `R005`), so a name on

@@ -82,7 +82,7 @@ structure Line (need : N → Nat) (σ : Nat → StateOf S N A) (k r0 : Nat)
     (L : Nat → List (Strat N A)) : Prop where
   mem : ∀ r, r0 ≤ r → ∀ s ∈ L r, ∃ (t : Table S N A) (gs : List (Group N A)) (gr : Group N A),
     (σ r).tables[k]? = some t ∧ t.groups = some gs ∧ gr ∈ gs ∧ s ∈ gr.strats
-  adv : ∀ r, r0 ≤ r → Pointwise (SAdv (σ r).len) (L r) (L (r + 1))
+  adv : ∀ r, r0 ≤ r → Pointwise (SAdv) (L r) (L (r + 1))
   shape : (∃ s ∈ L r0, s.lead = true) ∨ ∀ s ∈ L r0, s.isCheck = true
   worked : ∀ r', ∃ r, r' ≤ r ∧ r0 ≤ r ∧
     (∀ s ∈ L (r + 1), Fed (σ r) (σ (r + 1)) s) ∧ ∃ s ∈ L r, s.dead (σ r) = false
@@ -119,7 +119,7 @@ theorem Line.along {k r0 : Nat} {L : Nat → List (Strat N A)} (hL : Line need �
     (Q : Nat → Strat N A → Prop) {m : Nat} {s0 : Strat N A} (h0 : (L r0)[m]? = some s0)
     (hQ : Q r0 s0)
     (hstep : ∀ r s s', r0 ≤ r → (L r)[m]? = some s → (L (r + 1))[m]? = some s' → Q r s →
-      SAdv (σ r).len s s' → Q (r + 1) s') {r : Nat} (hr : r0 ≤ r) :
+      SAdv s s' → Q (r + 1) s') {r : Nat} (hr : r0 ≤ r) :
     ∃ s, (L r)[m]? = some s ∧ Q r s := by
   obtain ⟨d, rfl⟩ := Nat.exists_eq_add_of_le hr
   induction d with
@@ -137,7 +137,7 @@ theorem Requests.step (h : Requests need Rc σ) (k r : Nat) {t t' : Table S N A}
     {G G' : List (Group N A)} (ht : (σ r).tables[k]? = some t) (hg : t.groups = some G)
     (ht' : (σ (r + 1)).tables[k]? = some t') (hg' : t'.groups = some G') :
     G'.length ≤ G.length ∧ (G'.length = G.length →
-      Pointwise (GrAdv (σ r).len) G G' ∧ (¬ HadRound σ r k → G' = G) ∧
+      Pointwise (GrAdv) G G' ∧ (¬ HadRound σ r k → G' = G) ∧
       (HadRound σ r k → ∀ (m : Nat) (gr0 gr1 : Group N A), G[m]? = some gr0 →
         G'[m]? = some gr1 → (∃ s ∈ gr0.strats, s.dead (σ r) = false) ∧
           Balanced need (σ r) (σ (r + 1)) G G' gr0 gr1)) := by
@@ -160,7 +160,7 @@ theorem Requests.step (h : Requests need Rc σ) (k r : Nat) {t t' : Table S N A}
     rw [hg, hg'] at e
     cases e
     refine ⟨Nat.le_refl _, fun _ => ⟨Pointwise.refl (fun gr =>
-      Pointwise.refl (SAdv.refl _) gr.strats) _, fun _ => rfl, ?_⟩⟩
+      Pointwise.refl SAdv.refl gr.strats) _, fun _ => rfl, ?_⟩⟩
     rintro ⟨u, hu, hsu⟩
     rw [ht'] at hu
     cases hu
@@ -210,7 +210,7 @@ theorem Requests.lines (h : Requests need Rc σ) (k : Nat)
   have hstep : ∀ r, r2 + 1 ≤ r →
       (groupsAt (σ (r + 1)) k).length ≤ (groupsAt (σ r) k).length ∧
       ((groupsAt (σ (r + 1)) k).length = (groupsAt (σ r) k).length →
-        Pointwise (GrAdv (σ r).len) (groupsAt (σ r) k) (groupsAt (σ (r + 1)) k) ∧
+        Pointwise (GrAdv) (groupsAt (σ r) k) (groupsAt (σ (r + 1)) k) ∧
         (¬ HadRound σ r k → groupsAt (σ (r + 1)) k = groupsAt (σ r) k) ∧
         (HadRound σ r k → ∀ (m : Nat) (gr0 gr1 : Group N A),
           (groupsAt (σ r) k)[m]? = some gr0 → (groupsAt (σ (r + 1)) k)[m]? = some gr1 →
@@ -229,7 +229,7 @@ theorem Requests.lines (h : Requests need Rc σ) (k : Nat)
       have h2 := hconst (r + 1) (by omega)
       rw [h1, h2]
   have hst : ∀ r, r0 ≤ r →
-      Pointwise (GrAdv (σ r).len) (groupsAt (σ r) k) (groupsAt (σ (r + 1)) k) ∧
+      Pointwise (GrAdv) (groupsAt (σ r) k) (groupsAt (σ (r + 1)) k) ∧
       (¬ HadRound σ r k → groupsAt (σ (r + 1)) k = groupsAt (σ r) k) ∧
       (HadRound σ r k → ∀ (m : Nat) (gr0 gr1 : Group N A),
         (groupsAt (σ r) k)[m]? = some gr0 → (groupsAt (σ (r + 1)) k)[m]? = some gr1 →

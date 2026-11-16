@@ -702,7 +702,7 @@ new axiom.
 /-- info: 'RwLog.Symmetric.oriented_dualTrace' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Symmetric.oriented_dualTrace
 
-/-- info: 'RwLog.Symmetric.Cursor.next_spec' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+/-- info: 'RwLog.Symmetric.Cursor.next_spec' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Symmetric.Cursor.next_spec
 
 /-- info: 'RwLog.Symmetric.good_request' depends on axioms: [propext, Classical.choice, Quot.sound] -/
@@ -711,10 +711,10 @@ new axiom.
 /-- info: 'RwLog.Symmetric.readOk' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Symmetric.readOk
 
-/-- info: 'RwLog.Symmetric.Cursor.next_rank' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms RwLog.Symmetric.Cursor.next_rank
+/-- info: 'RwLog.Symmetric.Cursor.rank_fall' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms RwLog.Symmetric.Cursor.rank_fall
 
-/-- info: 'RwLog.Symmetric.rankLt_wf' does not depend on any axioms -/
+/-- info: 'RwLog.Symmetric.rankLt_wf' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Symmetric.rankLt_wf
 
 /-- info: 'RwLog.Symmetric.readEdge_some' depends on axioms: [propext, Classical.choice, Quot.sound] -/

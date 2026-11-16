@@ -264,13 +264,13 @@ theorem base_work (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK)
     split
     · exact hB
     · simp only [Cost.bind_val, Cost.pure_val]
-      exact hB.same (h2 isCall _ _ _)
+      exact hB.same ((h2 isCall _ _ _).trans (sameG_modify _ i _ fun _ => rfl))
   | join k a b c =>
     simp only [work]
     split
     · exact hB
-    · simp only [Cost.bind_val, Cost.pure_val]
-      exact hB.same (h3 _ _ _ _ _)
+    · simp only [Cost.bind_val, Cost.pure_val, Kernel.metered, Cost.metered_val]
+      exact hB.same ((h3 _ _ _ _ _).trans (sameG_modify _ i _ fun _ => rfl))
   | push k left side other todo subs =>
     dsimp only [Prog] at hs
     obtain ⟨L, Rg, s1, -, s3, -, -⟩ := hs
@@ -290,7 +290,7 @@ theorem base_work (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK)
       · split
         · exact hB
         · simp only [Cost.bind_val, Cost.pure_val]
-          exact hB.same (h4 _ _ _ _ _)
+          exact hB.same ((h4 _ _ _ _ _).trans (sameG_modify _ i _ fun _ => rfl))
   | check left side other c =>
     dsimp only [Prog] at hs
     obtain ⟨L, Rg, s1, -, s3, -⟩ := hs

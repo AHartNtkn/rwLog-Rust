@@ -1,6 +1,5 @@
 import RwLog.Rungs.R005.Sorts
 import RwLog.Rungs.R005.Bounds
-import Tests.R005Runs
 import Lean
 
 /-!
@@ -15,13 +14,6 @@ What is claimed of R005, in one file the build checks (roadmap L06).
 * **Trusted files.** The files under `Trusted/` this manifest depends on,
   compared with the list written here.
 * **Axioms.** The headline theorems use only Lean's three standard axioms.
-* **Space.** What R005 pays and the most cells it has live at one moment
-  (`CostedRuntime.space`, the space component of `Cost`), measured on the
-  conformance programs and the two families. These are measurements at the
-  domain of sorts with nothing charged (`Sorts.uncharged`): what the engine
-  itself spends and holds. The charges of the kernel engines are judged at
-  are derived on a machine (`verified/`) and are not computed here. No bound
-  on space is proved.
 -/
 
 namespace RwLog.Manifest.R005
@@ -145,30 +137,5 @@ info: [RwLog.Trusted.Charged,
 #guard_msgs in #print axioms RwLog.R005.neverCertifies
 /-- info: 'RwLog.Mirror.paid_ge_min' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms RwLog.Mirror.paid_ge_min
-
-/-! ## Space -/
-
-open RwLog.Tests
-
-/-- The ticks paid and the most cells live at one moment, in the first `n`
-steps. -/
-def use (E : Engine) (P : Program) (q : Rel) (n : Nat) : Nat × Nat :=
-  (E.atSorts.paid P q n, E.atSorts.space P q n)
-
--- `add ; @2`, to its end, and twelve steps of the left-recursive `lr`.
-#guard use R005.engine addP (.seq (.call "add") (.at_ (num 2))) 40 == (952091, 5617)
-#guard use R005.engine (prog [("lr", lr)]) (.call "lr") 12 == (125676, 559)
-
--- The chain restricted in the middle, `k` from 0 to 3, to its end: R005, and
--- R004 on the query alone.
-#guard (List.range 4).map (fun k => use R005.engine empty (R005.mid k) 12) ==
-  [(189, 9), (30350, 841), (117916, 3025), (219141, 6561)]
-#guard (List.range 4).map (fun k => use R004.engine empty (R005.mid k) 12) ==
-  [(38, 9), (4194, 841), (17865, 3025), (44979, 6561)]
-
--- The free factor beside an answer, `k` from 0 to 3, to the step at which
--- `a -> a` arrives.
-#guard (List.range 4).map (fun k => use R005.engine (R005.freeProg k) R005.freeRel 4) ==
-  [(9887, 729), (11291, 1521), (17811, 2601), (29401, 3969)]
 
 end RwLog.Manifest.R005

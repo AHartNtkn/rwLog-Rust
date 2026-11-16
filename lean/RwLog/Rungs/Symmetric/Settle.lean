@@ -42,7 +42,7 @@ and is kept by a strategy moving on holds of it from then on. -/
 theorem Line.along_from (hL : Line need σ k r0 L) (Q : Nat → Strat N A → Prop) {m r1 : Nat}
     {s1 : Strat N A} (hr1 : r0 ≤ r1) (h1 : (L r1)[m]? = some s1) (hQ : Q r1 s1)
     (hstep : ∀ r s s', r1 ≤ r → (L r)[m]? = some s → (L (r + 1))[m]? = some s' → Q r s →
-      SAdv (σ r).len s s' → Q (r + 1) s') {r : Nat} (hr : r1 ≤ r) :
+      SAdv s s' → Q (r + 1) s') {r : Nat} (hr : r1 ≤ r) :
     ∃ s, (L r)[m]? = some s ∧ Q r s := by
   obtain ⟨d, rfl⟩ := Nat.exists_eq_add_of_le hr
   induction d with
@@ -160,15 +160,15 @@ theorem Line.copy_read (hL : Line need σ k r0 L) {m : Nat} {c : Bool}
   exact hT' m' hlt r (by omega) subs p hs hm'
 
 /-- A join stays one of the same tables, with every pair it has combined
-combined and no fewer answers counted. -/
+combined and no fewer answers filed. -/
 theorem Line.join_kept (hL : Line need σ k r0 L) {m : Nat} {kd : Kind} {a b ra : Nat}
     {ca : Cursor} (hra : r0 ≤ ra) (hsa : (L ra)[m]? = some (.join kd a b ca)) {r : Nat}
     (hr : ra ≤ r) :
     ∃ c, (L r)[m]? = some (.join kd a b c) ∧ (∀ p q, ca.Before p q → c.Before p q) ∧
-      ca.na ≤ c.na ∧ ca.nb ≤ c.nb := by
+      ca.pa.length ≤ c.pa.length ∧ ca.pb.length ≤ c.pb.length := by
   obtain ⟨_, hs, c, rfl, h1, h2⟩ := hL.along_from
     (fun _ s => ∃ c, s = Strat.join kd a b c ∧ (∀ p q, ca.Before p q → c.Before p q) ∧
-      ca.na ≤ c.na ∧ ca.nb ≤ c.nb) hra hsa
+      ca.pa.length ≤ c.pa.length ∧ ca.pb.length ≤ c.pb.length) hra hsa
     ⟨ca, rfl, fun _ _ h => h, Nat.le_refl _, Nat.le_refl _⟩
     (fun r s s' _ _ _ hq hadv => by
       obtain ⟨c, rfl, h1, h2, h3⟩ := hq
@@ -188,6 +188,23 @@ theorem Line.join_done (hL : Line need σ k r0 L) {m : Nat} {kd : Kind} {a b : N
       c.pending ((σ r).len a) ((σ r).len b) = false := by
   have keep := fun ra ca (hra : r0 ≤ ra) (hsa : (L ra)[m]? = some (.join kd a b ca)) r
     (hr : ra ≤ r) => hL.join_kept hra hsa hr
+  -- once the join has worked after `T`, it has filed every answer
+  obtain ⟨rf, hrf', hrf, hstf⟩ := hL.step m T
+  obtain ⟨cf, hsf, -⟩ := keep r0 c0 (Nat.le_refl _) h0 rf hrf
+  obtain ⟨sf', hsf', hstepf⟩ := hstf _ hsf
+  obtain ⟨cf', rfl, hfa, hfb⟩ : ∃ cf', sf' = .join kd a b cf' ∧
+      (σ T).len a ≤ cf'.pa.length ∧ (σ T).len b ≤ cf'.pb.length := by
+    cases hstepf with
+    | join _ _ _ g5 _ =>
+      have h1 := ha rf hrf'
+      have h2 := hb rf hrf'
+      exact ⟨_, rfl, by omega, by omega⟩
+  have filed : ∀ r c, rf + 1 ≤ r → (L r)[m]? = some (.join kd a b c) →
+      (σ T).len a ≤ c.pa.length ∧ (σ T).len b ≤ c.pb.length := fun r c hr hs => by
+    obtain ⟨c2, hs2, -, hna, hnb⟩ := keep (rf + 1) cf' (by omega) hsf' r hr
+    rw [hs] at hs2
+    cases hs2
+    exact ⟨hfa.trans hna, hfb.trans hnb⟩
   have each : ∀ p, p < (σ T).len a → ∀ q, q < (σ T).len b → ∃ T', ∀ r, T' ≤ r → ∀ c,
       (L r)[m]? = some (.join kd a b c) → c.Before p q := by
     intro p hp q hq
@@ -201,35 +218,31 @@ theorem Line.join_done (hL : Line need σ k r0 L) {m : Nat} {kd : Kind} {a b : N
     · exfalso
       have hno : ∀ r c, T ≤ r → (L r)[m]? = some (.join kd a b c) → ¬ c.Before p q :=
         fun r c hr hs hbf => hex ⟨r, c, hr, hs, hbf⟩
-      let f : Nat → Nat × Nat := fun r =>
+      let f : Nat → List Nat := fun r =>
         match (L r)[m]? with
-        | some (.join _ _ _ c) => Cursor.rank (max p q + 1) c
-        | _ => (0, 0)
+        | some (.join _ _ _ c) => c.rank p q
+        | _ => []
       refine no_descent RankLt rankLt_wf (fun _ _ _ h1 h2 => RankLt.trans h1 h2) f
-        T (fun r hr => ?_) (fun r' => ?_)
+        (rf + 1) (fun r hr => ?_) (fun r' => ?_)
       · obtain ⟨c, hs, -⟩ := keep r0 c0 (Nat.le_refl _) h0 r (by omega)
         obtain ⟨s', hs', hadv⟩ := (hL.adv r (by omega)).get hs
+        obtain ⟨fa, fb⟩ := filed r c hr hs
         cases hadv with
         | join h1 h2 _ =>
-          have hpa := ha r hr
-          have hqb := hb r hr
           simp only [f, hs, hs']
-          rcases h2 p q (max p q + 1) (by omega) (by omega) (by omega) (by omega) with
-            hb' | he | hlt
+          rcases h2 p q (by omega) (by omega) with hb' | he | hlt
           · exact absurd hb' (hno (r + 1) _ (by omega) hs')
-          · exact .inl (by rw [he])
+          · exact .inl he
           · exact .inr hlt
-      · obtain ⟨r, hr', hr, hst⟩ := hL.step m (max r' T)
+      · obtain ⟨r, hr', hr, hst⟩ := hL.step m (max r' (rf + 1))
         obtain ⟨c, hs, -⟩ := keep r0 c0 (Nat.le_refl _) h0 r hr
         obtain ⟨s', hs', hstep⟩ := hst _ hs
+        obtain ⟨fa, fb⟩ := filed r c (by omega) hs
         cases hstep with
-        | join h1 h2 _ _ =>
-          have hpa := ha r (by omega)
-          have hqb := hb r (by omega)
+        | join h1 h2 _ _ _ =>
           refine ⟨r, by omega, ?_⟩
           simp only [f, hs, hs']
-          rcases h2 p q (max p q + 1) (by omega) (by omega) (by omega) (by omega) with
-            hb' | hlt
+          rcases h2 p q (by omega) (by omega) with hb' | hlt
           · exact absurd hb' (hno (r + 1) _ (by omega) hs')
           · exact hlt
   obtain ⟨T1, hT1⟩ := eventually_forall_lt ((σ T).len a)
@@ -243,13 +256,13 @@ theorem Line.join_done (hL : Line need σ k r0 L) {m : Nat} {kd : Kind} {a b : N
   obtain ⟨c, hs, -⟩ := keep r0 c0 (Nat.le_refl _) h0 r hr
   obtain ⟨s', hs', hstep⟩ := hst _ hs
   cases hstep with
-  | join h1 h2 h3 h4 =>
+  | join h1 h2 h3 h5 h4 =>
     rename_i c'
     have hpa := ha r (by omega)
     have hqb := hb r (by omega)
     have hpa' := ha (r + 1) (by omega)
     have hqb' := hb (r + 1) (by omega)
-    have hdone : c'.pending ((σ T).len a) ((σ T).len b) = false := by
+    have hdone : c'.Full ((σ T).len a) ((σ T).len b) := by
       rcases h4 with h4 | ⟨p, q, hn, hy⟩
       · rw [hpa, hqb] at h4
         exact h4
@@ -257,11 +270,10 @@ theorem Line.join_done (hL : Line need σ k r0 L) {m : Nat} {kd : Kind} {a b : N
         rw [hpa', hqb'] at hlt
         exact absurd (hT1 p hlt.1 r (by omega) q hlt.2 c hs) hn
     refine ⟨r + 1, by omega, fun r2 hr2 => ?_⟩
-    obtain ⟨c2, hs2, -, hna, hnb⟩ := keep (r + 1) c' (by omega) hs' r2 hr2
+    obtain ⟨c2, hs2, hbf, -⟩ := keep (r + 1) c' (by omega) hs' r2 hr2
     refine ⟨c2, hs2, ?_⟩
-    rw [ha r2 (by omega), hb r2 (by omega)]
-    simp only [Cursor.pending, Bool.or_eq_false_iff, decide_eq_false_iff_not] at hdone ⊢
-    omega
+    rw [(hok r2 c2 (by omega) hs2).pending_false, ha r2 (by omega), hb r2 (by omega)]
+    exact fun p q hp hq => hbf p q (hdone p q hp hq)
 
 /-- A push stays a push of the same side into the same node. -/
 theorem Line.push_kept (hL : Line need σ k r0 L) {m : Nat} {kd : Kind} {left : Bool}

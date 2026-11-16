@@ -160,7 +160,7 @@ proved to return the one representative of the pairs it is to relate, or
 nothing when there is no pair (`dom_rep`, `dom_compose`, `dom_meet`,
 `dom_rightBound`, `Rep.conv_eq`, stated with `Rep.mk?`, the representative of
 a relation chosen without computing). The laws are proved from those
-statements. `Tests/SortsRuns.lean` runs the operations. The Rust of L39 is
+statements. The Rust of L39 is
 correct when it returns a normal store with the right denotation; uniqueness
 then makes it equal to `dom S`.
 
@@ -177,8 +177,7 @@ least fixpoints over the conjunctions of declared sorts, `big S` (two
 different members) and `fin S` (finitely many members), and the sorts are well
 formed exactly when no conjunction is in both (`wellFormed_iff`). With it
 `ProgramOf.WellFormed` is decidable; `ProgramOf.check` is the function and
-`ProgramOf.check_iff` says it is exact. `Tests/SortsRuns.lean` runs it on the
-sorts of section 5 and on the declarations section 4 rejects.
+`ProgramOf.check_iff` says it is exact.
 
 An engine's cost is taken at a kernel rung (`KernelRung`,
 `Trusted/Kernel.lean`), and the rung engines are judged at is the domain of
@@ -362,8 +361,7 @@ problem `P`, for well-formed sorts `S`:
 
 The operations in Rust are proved against this function. Because the normal
 store is unique, any program whose result is normal and denotes the problem
-returns the same store whatever route it takes. `Tests/SortsRuns.lean`
-evaluates the function on problems and compares the stores.
+returns the same store whatever route it takes.
 
 The route:
 
@@ -428,8 +426,7 @@ most symbols, an exclusion with the fewest free variables) are deleted;
 `Prob.normal` follows from the function.
 
 `count`, `inclBut` and `sole` go through every set of declared sorts. They are
-the specification, and the runs in `Tests/SortsRuns.lean` keep to a few sorts
-for that reason. The Rust looks only at the sets it reaches.
+the specification. The Rust looks only at the sets it reaches.
 
 The operations of `dom S` are defined by `Prob.norm` (section 6), so the
 domain runs in Lean.

@@ -42,10 +42,22 @@ group with a *level*.
 
 A strategy keeps cursors into the tables it reads, so it combines nothing
 twice. It takes its units in an order that
-reaches everything, however fast the tables it reads grow: a join finishes
-the pairs of one answer before it begins another and begins on the side it
-has counted fewer answers of, and a strategy that reads several tables reads
-next the one it has read least.
+reaches everything, however fast the tables it reads grow: a strategy that
+reads several tables reads next the one it has read least, and a join shares
+its ticks among its pairs by where their answers came from.
+
+An answer has a *path*: for each union on the way to it, the member chosen
+and the number of members (`Table.paths`). A union puts its choice before the
+path of the answer it copies, a call keeps the path, and a join puts the
+paths of its two answers one after the other. A join files the answers of
+its tables by their paths (`Cursor.see`). The pairs whose answers came from
+the same choices so far are a *class*, and the join shares its ticks among
+the classes of one choice as a union shares its ticks among its members: the
+class fed least that has a pair left is served, and so on down to a single
+class, where the pair of the earliest answers is taken (`Cursor.next`). So a
+pair waits for the pairs of other choices by the number of members at each
+choice on the way to it, and not by how many answers the other members
+have.
 
 ## A request
 
@@ -162,53 +174,117 @@ export Goals (GoalOf GoalOf.mk GoalOf.lb GoalOf.node GoalOf.rb toGoal Kind Kind.
   andSplits
   sameBound same indexFrom coversA maxima both)
 
-/-- The cursor of a join. Every pair of the first `na` answers of the one side
-and the first `nb` of the other is combined. A *line* is the pairs of the
-next answer of one side with the answers of the other side counted so far.
-`inner` pairs of the line in progress are combined, and `col` says the line
-is of the second side. With `inner = 0` no line is in progress. -/
+/-- Where an answer came from: for each union on the way to it, the member
+chosen and the number of members, the outermost union first. -/
+abbrev Path := List (Nat × Nat)
+
+/-- One step on the way down to a pair of answers of a join: a choice on the
+path of the first answer (`0`), one on the path of the second (`1`), each with
+the member chosen and the number of members, or the end of both paths
+(`2`). -/
+abbrev Step := Nat × Nat × Nat
+
+/-- The steps down to a pair of answers with the paths `u` and `v`: the
+choices of the first answer, those of the second, and the end. -/
+def stepsOf (u v : Path) : List Step :=
+  (u.map fun e => (0, e)) ++ (v.map fun e => (1, e)) ++ [(2, 0, 0)]
+
+/-- The cursor of a join. `pa` and `pb` are the paths of the answers of its
+two tables, as far as it has filed them; `todo` is the pairs of positions of
+answers filed that it has not combined, and `done` those it has; `fed` is,
+for each run of steps down to a pair combined, the ticks the pairs of those
+steps cost. A *class* of pairs is a beginning of the steps of a pair: the
+pairs whose answers came from those choices. A class has no work but that of
+its pairs. -/
 structure Cursor where
-  na : Nat
-  nb : Nat
-  inner : Nat
-  col : Bool
+  pa : List Path
+  pb : List Path
+  todo : List (Nat × Nat)
+  done : List (Nat × Nat)
+  fed : List (List Step × Nat)
   deriving DecidableEq, Repr
 
 /-- The cursor of a join that has combined nothing. -/
-def Cursor.start : Cursor := ⟨0, 0, 0, false⟩
+def Cursor.start : Cursor := ⟨[], [], [], [], []⟩
 
-/-- The next pair of positions to combine in tables of `la` and `lb`
-answers, if one is left, and the cursor after it. A line in progress is
-finished before another is begun, whatever the tables have gained since: its
-pairs are of answers counted when it began. When no line is in progress and
-both sides have an answer not yet counted, the line of the side with fewer
-counted is begun, so neither side waits for the other to run out. A line all
-of whose pairs are combined is counted in. The first argument counts the
-answers not yet counted in, and is never used up. -/
-def Cursor.next (la lb : Nat) : Nat → Cursor → Option (Nat × Nat) × Cursor
-  | 0, c => (none, c)
-  | f + 1, c =>
-    let col :=
-      if c.inner = 0 then
-        (if c.na < la ∧ c.nb < lb then decide (c.nb < c.na) else decide (¬ c.na < la))
-      else c.col
-    if col then
-      if c.nb < lb then
-        if c.inner < c.na then (some (c.inner, c.nb), { c with inner := c.inner + 1, col := true })
-        else Cursor.next la lb f ⟨c.na, c.nb + 1, 0, false⟩
-      else (none, c)
-    else
-      if c.na < la then
-        if c.inner < c.nb then
-          (some (c.na, c.inner), { c with inner := c.inner + 1, col := false })
-        else Cursor.next la lb f ⟨c.na + 1, c.nb, 0, false⟩
-      else (none, c)
+/-- The pairs of positions below `a1` and `b1` that are not both below `a0`
+and `b0`: the pairs that tables of `a0` and `b0` answers gain when they grow
+to `a1` and `b1`. -/
+def pairsNew (a0 b0 a1 b1 : Nat) : List (Nat × Nat) :=
+  ((List.range' a0 (a1 - a0)).flatMap fun i => (List.range b1).map fun j => (i, j)) ++
+    ((List.range a0).flatMap fun i => (List.range' b0 (b1 - b0)).map fun j => (i, j))
 
-/-- What `Cursor.next` is given to count down. -/
-def Cursor.room (la lb : Nat) (c : Cursor) : Nat := (la - c.na) + (lb - c.nb) + 1
+/-- The cursor with the answers filed that its tables have gained: `pa` and
+`pb` are the paths of all their answers now. The path of an answer that was
+filed stays, and the pairs with an answer newly filed are still to
+combine. -/
+def Cursor.see (pa pb : List Path) (c : Cursor) : Cursor :=
+  let pa' := c.pa ++ pa.drop c.pa.length
+  let pb' := c.pb ++ pb.drop c.pb.length
+  { c with pa := pa', pb := pb',
+           todo := c.todo ++ pairsNew c.pa.length c.pb.length pa'.length pb'.length }
 
-/-- Is a pair left to combine? -/
-def Cursor.pending (la lb : Nat) (c : Cursor) : Bool := decide (c.na < la) || decide (c.nb < lb)
+/-- The ticks spent on the pairs of a class. -/
+def Cursor.fedOf (c : Cursor) (k : List Step) : Nat :=
+  ((c.fed.filter fun e => k.isPrefixOf e.1).map (·.2)).sum
+
+/-- Count `t` ticks more for the pairs of the steps `ss`. -/
+def bump (ss : List Step) (t : Nat) : List (List Step × Nat) → List (List Step × Nat)
+  | [] => [(ss, t)]
+  | e :: l => if e.1 = ss then (e.1, e.2 + t) :: l else e :: bump ss t l
+
+/-- The steps down to the pair at the positions `p`. -/
+def Cursor.stepsAt (c : Cursor) (p : Nat × Nat) : List Step :=
+  stepsOf (c.pa.getD p.1 []) (c.pb.getD p.2 [])
+
+/-- The place of a class among its siblings: what it was fed and one tick
+more, once for each member of its choice and once more, and then its member.
+Among the members of one choice this is the order by what each was fed, the
+earlier member first of two fed alike; and whatever choices the siblings come
+from, only finitely many places come before any place. -/
+def Cursor.place (c : Cursor) (k : List Step) (s : Step) : Nat :=
+  (c.fedOf k + 1) * (s.2.2 + 1) + s.2.1
+
+/-- The entry of the key of a pair for its class at the depth `i`: the place
+of the class, and its step. -/
+def Cursor.group (c : Cursor) (ss : List Step) (i : Nat) : List Nat :=
+  let s := ss.getD i (2, 0, 0)
+  [c.place (ss.take (i + 1)) s, s.1, s.2.1, s.2.2]
+
+/-- The key of a pair: the entry of each of its classes, the widest first,
+and last the pair by the later of its two positions. -/
+def Cursor.keyOf (c : Cursor) (p : Nat × Nat) : List (List Nat) :=
+  ((List.range (c.stepsAt p).length).map (c.group (c.stepsAt p))) ++ [[max p.1 p.2, p.1, p.2]]
+
+/-- Of the entries of a list, the first that no other comes before in the
+order given. -/
+def chooseBy {α : Type} (lt : α → α → Bool) (l : List α) : Option α :=
+  l.foldl (fun best p =>
+    match best with
+    | none => some p
+    | some b => if lt p b then some p else some b) none
+
+/-- The next pair of positions to combine among the answers filed, if one is
+left: the pair of the least key. The ticks of a join are shared among the
+classes as a union shares its ticks among its members: of the classes of one
+choice that have a pair left, the one fed least is served, and so on down to a
+single class, where the pair of the earliest answers is taken. So a pair
+waits for the pairs of other choices by the number of members at each choice
+on the way to it, and not by how many answers the other members have. -/
+def Cursor.next (c : Cursor) : Option (Nat × Nat) :=
+  chooseBy (fun p b => decide (c.keyOf p < c.keyOf b)) c.todo
+
+/-- The cursor after the pair `p` was combined at `t` ticks: every class of
+the pair has been fed that much. -/
+def Cursor.mark (c : Cursor) (p : Nat × Nat) (t : Nat) : Cursor :=
+  { c with todo := c.todo.filter fun x => x != p, done := p :: c.done,
+           fed := bump (c.stepsAt p) t c.fed }
+
+/-- Is a pair left to combine in tables of `la` and `lb` answers: one of
+answers filed, or one with an answer not filed yet? -/
+def Cursor.pending (la lb : Nat) (c : Cursor) : Bool :=
+  !c.todo.isEmpty || (decide (c.pa.length < la) && decide (0 < lb)) ||
+    (decide (c.pb.length < lb) && decide (0 < la))
 
 /-- The state of an interface check: its side is still to be read; it is not
 offered; or the tables of the goals opened for the interfaces. -/
@@ -277,6 +353,7 @@ structure Table (S N A : Type) where
   own : Nat
   rounds : Nat
   fed : Nat
+  paths : List Path
 
 /-- The machine state: the tables, the root first, the number of requests
 made, how many answers of the root table have been emitted, and the edges
@@ -300,6 +377,20 @@ def StateOf.answers {S N A : Type} (st : StateOf S N A) (i : Nat) : List A :=
   match st.tables[i]? with
   | some t => t.answers
   | none => []
+
+/-- The paths of the answers of the table at a position, one for each
+answer: the empty path for an answer that was given none. -/
+def StateOf.pathsAt {S N A : Type} (st : StateOf S N A) (i : Nat) : List Path :=
+  match st.tables[i]? with
+  | some t => (List.range t.answers.length).map fun n => t.paths.getD n []
+  | none => []
+
+/-- Give the path `pth` to the answers the table at `i` has gained since it
+had `n`. An answer that was given no path has the empty one. -/
+def stamp {S N A : Type} (i n : Nat) (pth : Path) (st : StateOf S N A) : StateOf S N A :=
+  st.modify i fun t =>
+    let ps := t.paths ++ List.replicate (n - t.paths.length) []
+    { t with paths := ps ++ List.replicate (t.answers.length - ps.length) pth }
 
 /-- Is the goal of the table at a position its own converse? -/
 def StateOf.isSelf {S N A : Type} (st : StateOf S N A) (i : Nat) : Bool :=
@@ -446,7 +537,7 @@ def openGoal (st : StateOf S N A) (g : GoalOf S N) : M (StateOf S N A × Nat) :=
   | some i => pure (st, i)
   | none => do
     let self ← selfConverse (K := K) g
-    pure ({ st with tables := st.tables ++ [⟨g, self, [], false, none, st.round, 0, 0, none, 0, 0, 0⟩] },
+    pure ({ st with tables := st.tables ++ [⟨g, self, [], false, none, st.round, 0, 0, none, 0, 0, 0, []⟩] },
       st.tables.length)
 
 /-- Put an answer in the table at `i`, unless an answer there covers it. -/
@@ -767,16 +858,20 @@ def work (i : Nat) (g : GoalOf S N) (st : StateOf S N A) :
         subs.zipIdx with
     | none => pure (st, .copy isCall subs, false)
     | some p => do
+      let pth := (st.pathsAt p.1.1).getD p.1.2 []
       let st' ← copyFrom (K := K) i g isCall p.2 st (((st.answers p.1.1).drop p.1.2).take 1)
-      pure (st', .copy isCall (subs.modify p.2 fun q => (q.1, q.2 + 1)), true)
+      pure (stamp i (st.answers i).length (if isCall then pth else (p.2, subs.length) :: pth) st',
+        .copy isCall (subs.modify p.2 fun q => (q.1, q.2 + 1)), true)
   | .join k a b c =>
     let xs := st.answers a
     let ys := st.answers b
-    match Cursor.next xs.length ys.length (c.room xs.length ys.length) c with
-    | (none, c') => pure (st, .join k a b c', false)
-    | (some p, c') => do
-      let st' ← joinPairs (K := K) i k xs ys st [p]
-      pure (st', .join k a b c', true)
+    let c := c.see (st.pathsAt a) (st.pathsAt b)
+    match c.next with
+    | none => pure (st, .join k a b c, false)
+    | some p => do
+      let (st', t) ← K.metered (joinPairs (K := K) i k xs ys st [p])
+      pure (stamp i (st.answers i).length (c.pa.getD p.1 [] ++ c.pb.getD p.2 []) st',
+        .join k a b (c.mark p (t + 1)), true)
   | .push k left side other todo subs =>
     if !st.isDone side then pure (st, .push k left side other todo subs, false)
     else
@@ -794,7 +889,7 @@ def work (i : Nat) (g : GoalOf S N) (st : StateOf S N A) :
         | some p => do
           let st' ← pushTake (K := K) i k left p.1.1 st
             (((st.answers p.1.2.1).drop p.1.2.2).take 1)
-          pure (st', .push k left side other (some [])
+          pure (stamp i (st.answers i).length ((st.pathsAt p.1.2.1).getD p.1.2.2 []) st', .push k left side other (some [])
             (subs.modify p.2 fun e => (e.1, e.2.1, e.2.2 + 1)), true)
   | .check left side other .reading => do
     let (st, e) ← edgeOf (K := K) st left side
@@ -1067,7 +1162,7 @@ def step (U : GOracle S N A M) (st : StateOf S N A) : M (StepOf A (StateOf S N A
 /-- The first state: the table of the root goal alone. -/
 def init (root : N) : M (StateOf S N A) := do
   let self ← selfConverse (K := K) ⟨none, root, none⟩
-  pure ⟨[⟨⟨none, root, none⟩, self, [], false, none, 0, 0, 0, none, 0, 0, 0⟩], 0, 0, [], 1⟩
+  pure ⟨[⟨⟨none, root, none⟩, self, [], false, none, 0, 0, 0, none, 0, 0, 0, []⟩], 0, 0, [], 1⟩
 
 end
 

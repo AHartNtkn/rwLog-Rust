@@ -452,12 +452,6 @@ theorem IsRun.served_check (h : IsRun U σ) {r k : Nat} {g : GoalOf R Rel} {left
 
 /-! ## A complete table is served -/
 
-theorem Cursor.before_of_not_pending {la lb : Nat} {c : Cursor} (h : c.Ok la lb)
-    (hp : c.pending la lb = false) {p q : Nat} (hpl : p < la) (hql : q < lb) : c.Before p q := by
-  simp only [Cursor.pending, Bool.or_eq_false_iff, decide_eq_false_iff_not] at hp
-  obtain ⟨h1, h2, -, -⟩ := h
-  exact .inl ⟨by omega, by omega⟩
-
 /-- A table that is complete had, when it became so, a strategy with
 nothing left to do that reads complete tables only, or a final verdict of
 its race. -/
@@ -521,7 +515,7 @@ theorem IsRun.served_done (h : IsRun U σ) {r0 k : Nat} {g : GoalOf R Rel}
     dsimp only [Prog] at hp
     obtain ⟨-, -, -, -, -, hok, -⟩ := hp
     refine h.served_join hkr hst (dn a hq.2.1) (dn b hq.2.2) fun p q r1 hp hq' =>
-      ⟨r, c, hst, Cursor.before_of_not_pending hok hq.1 ?_ ?_⟩
+      ⟨r, c, hst, hok.pending_false.1 hq.1 p q ?_ ?_⟩
     · exact Nat.lt_of_lt_of_le hp (h.done_len hq.2.1 r1)
     · exact Nat.lt_of_lt_of_le hq' (h.done_len hq.2.2 r1)
   | push kd left side other todo subs =>

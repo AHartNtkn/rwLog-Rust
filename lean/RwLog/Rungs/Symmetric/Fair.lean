@@ -150,33 +150,63 @@ theorem IsRun.live_join (h : IsRun U σ) {ra k m : Nat} {g : GoalOf R Rel}
   simp only [not_exists, not_and] at hcon
   have hno : ∀ r c, ra ≤ r → (L r)[m]? = some (.join kd a b c) → ¬ c.Before p q :=
     fun r c hr hs => hcon r c (hL.mem r hr _ (List.mem_of_getElem? hs))
-  let f : Nat → Nat × Nat := fun r =>
+  -- once the join has worked after `r1`, it has filed the two answers
+  obtain ⟨rf, hrf', hrf, hstf⟩ := hL.step m (max ra r1)
+  obtain ⟨cf, hsf⟩ := al rf hrf
+  obtain ⟨sf', hsf', hstepf⟩ := hstf _ hsf
+  have filed : ∀ r c, rf + 1 ≤ r → (L r)[m]? = some (.join kd a b c) →
+      p < c.pa.length ∧ q < c.pb.length := by
+    have base : ∀ d c, (L (rf + 1 + d))[m]? = some (.join kd a b c) →
+        p < c.pa.length ∧ q < c.pb.length := by
+      intro d
+      induction d with
+      | zero =>
+        intro c hs
+        rw [Nat.add_zero, hsf'] at hs
+        cases hs
+        cases hstepf with
+        | join _ _ _ g5 _ =>
+          have hpa := (h.stable (show r1 ≤ rf by omega)).len_le a
+          have hqb := (h.stable (show r1 ≤ rf by omega)).len_le b
+          exact ⟨by omega, by omega⟩
+      | succ d ih =>
+        intro c hs
+        obtain ⟨c1, hs1⟩ := al (rf + 1 + d) (by omega)
+        obtain ⟨s', hs', hadv⟩ := (hL.adv (rf + 1 + d) (by omega)).get hs1
+        rw [show rf + 1 + (d + 1) = rf + 1 + d + 1 from rfl, hs'] at hs
+        cases hs
+        cases hadv with
+        | join _ _ g3 =>
+          have := ih c1 hs1
+          exact ⟨by omega, by omega⟩
+    intro r c hr hs
+    obtain ⟨d, rfl⟩ := Nat.exists_eq_add_of_le hr
+    exact base d c hs
+  let f : Nat → List Nat := fun r =>
     match (L r)[m]? with
-    | some (.join _ _ _ c) => Cursor.rank (max p q + 1) c
-    | _ => (0, 0)
+    | some (.join _ _ _ c) => c.rank p q
+    | _ => []
   refine no_descent RankLt rankLt_wf (fun _ _ _ h1 h2 => RankLt.trans h1 h2) f
-    (max ra r1) (fun r hr => ?_) (fun r' => ?_)
+    (rf + 1) (fun r hr => ?_) (fun r' => ?_)
   · obtain ⟨c, hs⟩ := al r (by omega)
     obtain ⟨s', hs', hadv⟩ := (hL.adv r (by omega)).get hs
+    obtain ⟨fa, fb⟩ := filed r c hr hs
     cases hadv with
     | join h1 h2 =>
-      have hpa := (h.stable (show r1 ≤ r by omega)).len_le a
-      have hqb := (h.stable (show r1 ≤ r by omega)).len_le b
       simp only [f, hs, hs']
-      rcases h2 p q (max p q + 1) (by omega) (by omega) (by omega) (by omega) with hb | he | hlt
+      rcases h2 p q fa fb with hb | he | hlt
       · exact absurd hb (hno (r + 1) _ (by omega) hs')
-      · exact .inl (by rw [he])
+      · exact .inl he
       · exact .inr hlt
-  · obtain ⟨r, hr', hr, hst⟩ := hL.step m (max r' (max ra r1))
+  · obtain ⟨r, hr', hr, hst⟩ := hL.step m (max r' (rf + 1))
     obtain ⟨c, hs⟩ := al r hr
     obtain ⟨s', hs', hstep⟩ := hst _ hs
+    obtain ⟨fa, fb⟩ := filed r c (by omega) hs
     cases hstep with
     | join h1 h2 =>
-      have hpa := (h.stable (show r1 ≤ r by omega)).len_le a
-      have hqb := (h.stable (show r1 ≤ r by omega)).len_le b
       refine ⟨r, by omega, ?_⟩
       simp only [f, hs, hs']
-      rcases h2 p q (max p q + 1) (by omega) (by omega) (by omega) (by omega) with hb | hlt
+      rcases h2 p q fa fb with hb | hlt
       · exact absurd hb (hno (r + 1) _ (by omega) hs')
       · exact hlt
 
