@@ -252,7 +252,7 @@ inductive SAdv : Strat N A → Strat N A → Prop
   | push {k : Kind} {l : Bool} {side : Nat} {o : N} {subs subs' : List (A × Option (Nat × Nat))}
       {dead dead' : Option (List Nat)} {reads reads' : List (Nat × Option Nat)} {c c' : Cursor} :
       PAdv subs dead reads c subs' dead' reads' c' →
-      SAdv (.push k l side o subs dead reads c) (.push k l side o subs' dead' reads' c')
+      SAdv (.push k l side o subs dead reads c fc) (.push k l side o subs' dead' reads' c' fc')
   | check {l : Bool} {side o : N} {c c' : Check} : (c = .reading ∨ c' = c) →
       SAdv (.check l side o c) (.check l side o c')
 
@@ -261,7 +261,7 @@ theorem SAdv.refl : ∀ s : Strat N A, SAdv s s
   | .copy _ _ => .copy (Pointwise.refl (fun _ => ⟨rfl, Nat.le_refl _⟩) _)
   | .join _ _ _ _ => .join (fun _ _ h => h) (fun _ _ _ _ => .inr (.inl rfl))
       ⟨Nat.le_refl _, Nat.le_refl _⟩
-  | .push _ _ _ _ _ _ _ _ => .push (PAdv.refl _ _ _ _)
+  | .push _ _ _ _ _ _ _ _ _ => .push (PAdv.refl _ _ _ _)
   | .check _ _ _ _ => .check (.inr rfl)
 
 theorem SubAdv.trans {a b c : Nat × Nat} (h₁ : SubAdv a b) (h₂ : SubAdv b c) : SubAdv a c :=
@@ -324,8 +324,8 @@ inductive SStep (need : N → Nat) (len : Nat → Nat) (dn : Nat → Bool) (d d'
   | push {k : Kind} {l : Bool} {side : Nat} {o : N} {subs subs' : List (A × Option (Nat × Nat))}
       {dead dead' : Option (List Nat)} {reads reads' : List (Nat × Option Nat)} {c c' : Cursor} :
       PAdv subs dead reads c subs' dead' reads' c' → PStep len dn side subs c subs' dead' c' →
-      SStep need len dn d d' (.push k l side o subs dead reads c)
-        (.push k l side o subs' dead' reads' c')
+      SStep need len dn d d' (.push k l side o subs dead reads c fc)
+        (.push k l side o subs' dead' reads' c' fc')
   | check {l : Bool} {side o : N} {c c' : Check} : (c = .reading ∨ c' = c) →
       (c = .reading → c' ≠ .reading ∨ (2 * d ≤ d' ∧ d < need side)) →
       SStep need len dn d d' (.check l side o c) (.check l side o c')
@@ -534,7 +534,7 @@ theorem Stable.dead {st st' : StateOf S N A} (h : Stable st st') {s : Strat N A}
 a state where the tables that pass are complete with the same answers, has
 nothing left to do and reads complete tables only. -/
 theorem quiet_mono' {st st' : StateOf S N A} {ok ok' : Nat → Bool} {s : Strat N A}
-    (hd : ∀ k l side o subs dead reads c, s = .push k l side o subs dead reads c →
+    (hd : ∀ k l side o subs dead reads c fc, s = .push k l side o subs dead reads c fc →
       st.isDone side = true → st'.isDone side = true ∧ st'.answers side = st.answers side)
     (hok : ∀ j, ok j = true → ok' j = true ∧ st'.answers j = st.answers j)
     (h : s.quiet st ok = true) : s.quiet st' ok' = true := by
@@ -549,7 +549,7 @@ theorem quiet_mono' {st st' : StateOf S N A} {ok ok' : Nat → Bool} {s : Strat 
     simp only [Strat.quiet, Strat.pending, Bool.and_eq_true, Bool.not_eq_true'] at h ⊢
     rw [(hok a h.2.1).2, (hok b h.2.2).2]
     exact ⟨h.1, (hok a h.2.1).1, (hok b h.2.2).1⟩
-  | push k l side o subs dead reads c =>
+  | push k l side o subs dead reads c fc =>
     simp only [Strat.quiet, Bool.and_eq_true, Bool.not_eq_true'] at h ⊢
     obtain ⟨h1, ⟨h2, h2s⟩, h3⟩ := h
     obtain ⟨hd1, hd2⟩ := hd k l side o subs dead reads c rfl h2
@@ -601,7 +601,7 @@ theorem quiet_mono {st st' : StateOf S N A} {ok : Nat → Bool}
 theorem quiet_push_side {st : StateOf S N A} {ok : Nat → Bool} {k : Kind} {l : Bool} {side : Nat}
     {o : N} {subs : List (A × Option (Nat × Nat))} {dead : Option (List Nat)}
     {reads : List (Nat × Option Nat)} {c : Cursor}
-    (h : (Strat.push k l side o subs dead reads c).quiet st ok = true) :
+    (h : (Strat.push k l side o subs dead reads c fc).quiet st ok = true) :
     st.isDone side = true := by
   simp only [Strat.quiet, Bool.and_eq_true] at h
   exact h.2.1.1
@@ -740,8 +740,8 @@ def SFed (st : StateOf S N A) : Strat N A → Prop
     match c with
     | .opened subs => (∀ j ∈ subs, st.answers j = []) → ∀ j ∈ subs, Settled st j
     | _ => True
-  | .push k l side o subs dead reads c =>
-    ∀ j ∈ (Strat.push k l side o subs dead reads c : Strat N A).feeds st, Settled st j
+  | .push k l side o subs dead reads c fc =>
+    ∀ j ∈ (Strat.push k l side o subs dead reads c fc : Strat N A).feeds st, Settled st j
   | .span _ => True
 
 theorem SFed.mono {st st' : StateOf S N A} (h : Stable st st')
@@ -751,7 +751,7 @@ theorem SFed.mono {st st' : StateOf S N A} (h : Stable st st')
   | span _ => trivial
   | copy _ subs => exact fun p hp => hset _ (hs p hp)
   | join _ a b _ => exact ⟨hset _ hs.1, hset _ hs.2⟩
-  | push _ _ _ _ _ _ _ _ => exact fun j hj => hset _ (hs j hj)
+  | push _ _ _ _ _ _ _ _ _ => exact fun j hj => hset _ (hs j hj)
   | check _ _ _ c =>
     cases c with
     | reading => trivial
@@ -775,7 +775,7 @@ theorem settled_of_isDone {st : StateOf S N A} {j : Nat} (h : st.isDone j = true
 theorem feeds_push_side (st : StateOf S N A) (k : Kind) (l : Bool) (side : Nat) (o : N)
     (subs : List (A × Option (Nat × Nat))) (dead : Option (List Nat))
     (reads : List (Nat × Option Nat))
-    (c : Cursor) : side ∈ (Strat.push k l side o subs dead reads c : Strat N A).feeds st :=
+    (c : Cursor) : side ∈ (Strat.push k l side o subs dead reads c fc : Strat N A).feeds st :=
   List.mem_cons_self
 
 /-- A push reads the table opened for an answer that is not superseded. -/
@@ -783,7 +783,7 @@ theorem feeds_push_sub (st : StateOf S N A) (k : Kind) (l : Bool) (side : Nat) (
     {subs : List (A × Option (Nat × Nat))} {dead : Option (List Nat)}
     (reads : List (Nat × Option Nat))
     (c : Cursor) {n : Nat} {x : A} {t : Nat × Nat} (he : subs[n]? = some (x, some t))
-    (hn : n ∉ dead.getD []) : t.1 ∈ (Strat.push k l side o subs dead reads c : Strat N A).feeds st := by
+    (hn : n ∉ dead.getD []) : t.1 ∈ (Strat.push k l side o subs dead reads c fc : Strat N A).feeds st := by
   refine List.mem_cons_of_mem _ (List.mem_filterMap.2 ⟨((x, some t), n),
     List.mk_mem_zipIdx_iff_getElem?.2 he, ?_⟩)
   simp [hn]
@@ -796,7 +796,7 @@ theorem sfed_of_feeds {st st' : StateOf S N A} (hS : Stable st st') {s : Strat N
   | span _ => trivial
   | copy _ subs => exact fun p hp => h p.1 (List.mem_map.2 ⟨p, hp, rfl⟩)
   | join _ a b _ => exact ⟨h a (by simp [Strat.feeds]), h b (by simp [Strat.feeds])⟩
-  | push k l side o subs dead reads c => exact h
+  | push k l side o subs dead reads c fc => exact h
   | check _ _ _ c =>
     cases c with
     | reading => trivial
@@ -832,7 +832,7 @@ theorem Fed.of_sfed {st st' : StateOf S N A} {s : Strat N A} (h : SFed st' s) : 
     | false => exact fun p hp => .inl (h p hp)
   | span _ => exact h
   | join _ _ _ _ => exact h
-  | push _ _ _ _ _ _ _ _ => exact h
+  | push _ _ _ _ _ _ _ _ _ => exact h
   | check _ _ _ _ => exact h
 
 /-- What is fed is fed from an earlier state. -/
@@ -849,7 +849,7 @@ theorem Fed.start {a b c : StateOf S N A} (hf : ∀ j, a.fedAt j ≤ b.fedAt j) 
       · exact .inr ⟨q, hq, Nat.lt_of_le_of_lt (hf _) h1, Nat.le_trans (hf _) h2⟩
   | span _ => exact h
   | join _ _ _ _ => exact h
-  | push _ _ _ _ _ _ _ _ => exact h
+  | push _ _ _ _ _ _ _ _ _ => exact h
   | check _ _ _ _ => exact h
 
 /-- What is fed is fed to a later state. -/
@@ -867,7 +867,7 @@ theorem Fed.finish {a b c : StateOf S N A} (hS : Stable b c)
       · exact .inr ⟨q, hq, Nat.lt_of_lt_of_le h1 (hf _), Nat.le_trans h2 (hf _)⟩
   | span _ => exact h
   | join k x y cu => exact SFed.mono hS hset (s := .join k x y cu) h
-  | push k l sd o sb dd rd cu => exact SFed.mono hS hset (s := .push k l sd o sb dd rd cu) h
+  | push k l sd o sb dd rd cu fcu => exact SFed.mono hS hset (s := .push k l sd o sb dd rd cu fcu) h
   | check l sd o ck => exact SFed.mono hS hset (s := .check l sd o ck) h
 
 /-! ## The groups of a table over its round -/
@@ -1181,7 +1181,7 @@ def Ranked (Rc : RaceSem S N A) (st : StateOf S N A) (ρ : Nat → Nat) : Prop :
   ∀ (i : Nat) (t : Table S N A), st.tables[i]? = some t → t.done = true →
     (∃ gs, t.groups = some gs ∧ ∃ gr ∈ gs, ∃ s ∈ gr.strats,
       s.quiet st (fun j => st.isDone j && decide (ρ j ≤ ρ i)) = true ∧
-      ∀ k l side o subs dead reads c, s = .push k l side o subs dead reads c → ρ side < ρ i) ∨
+      ∀ k l side o subs dead reads c fc, s = .push k l side o subs dead reads c fc → ρ side < ρ i) ∨
     Raced Rc st i
 
 /-- The complete tables stand in some order (`Ranked`): none is complete
@@ -1198,7 +1198,7 @@ theorem Founded.step {st st' : StateOf S N A} (hS : Stable st st')
     (hnew : ∀ (k : Nat) (t' : Table S N A), st'.tables[k]? = some t' → t'.done = true →
       (∃ t, st.tables[k]? = some t ∧ t.done = true) ∨
       (∃ gs, t'.groups = some gs ∧ ∃ gr ∈ gs, ∃ s ∈ gr.strats, s.quiet st' st'.isDone = true ∧
-        ∀ k l side o subs dead reads c, s = .push k l side o subs dead reads c → st.isDone side = true) ∨
+        ∀ k l side o subs dead reads c fc, s = .push k l side o subs dead reads c fc → st.isDone side = true) ∨
       Raced Rc st' k)
     (h : Founded Rc st) : Founded Rc st' := by
   obtain ⟨ρ, hρ⟩ := h
@@ -1425,7 +1425,7 @@ structure Req (need : N → Nat) (Rc : RaceSem S N A) (st st' : StateOf S N A) :
   founded : Founded Rc st → Founded Rc st'
   closed : ∀ X : List Nat, (∀ k ∈ X, ∃ t', st'.tables[k]? = some t' ∧ ∃ gs, t'.groups = some gs ∧
       ∃ gr ∈ gs, ∃ s ∈ gr.strats, s.quiet st' (fun j => st'.isDone j || X.contains j) = true ∧
-        ∀ k l side o subs dead reads c, s = .push k l side o subs dead reads c → st.isDone side = true) →
+        ∀ k l side o subs dead reads c fc, s = .push k l side o subs dead reads c fc → st.isDone side = true) →
     ∀ k ∈ X, st'.isDone k = true
   race : ∀ (k : Nat) (t t' : Table S N A), st.tables[k]? = some t → st'.tables[k]? = some t' →
     (t.done = true ∨ t'.stamp ≠ st'.round) → t'.race = t.race ∧ t'.rounds = t.rounds
@@ -1508,7 +1508,7 @@ theorem req_of_turns {st st2 : StateOf S N A} (hD : Dated st)
   have hcomp : ∀ (k : Nat) (t2 t' : Table S N A), st2.tables[k]? = some t2 →
       t'.groups = t2.groups → k ∈ completing st2 →
       ∃ gs, t'.groups = some gs ∧ ∃ gr ∈ gs, ∃ s ∈ gr.strats, s.quiet st' st'.isDone = true ∧
-        ∀ k l side o subs dead reads c, s = .push k l side o subs dead reads c → st2.isDone side = true := by
+        ∀ k l side o subs dead reads c fc, s = .push k l side o subs dead reads c fc → st2.isDone side = true := by
     intro k t2 t' h2 e3 h
     unfold completing at h
     obtain ⟨-, hok⟩ := gfpFrom_closed _ _ _ (Nat.le_refl _) k h
@@ -2059,13 +2059,13 @@ is taken, or is of an answer superseded, or is nearer to its turn. -/
 theorem step_work_push (i : Nat) (g : GoalOf R Rel) (st : StateOf R Rel (Ans D P)) (k : Kind)
     (left : Bool) (side : Nat) (other : Rel) (subs : List (Ans D P × Option (Nat × Nat)))
     (dead : Option (List Nat)) (reads : List (Nat × Option Nat)) (c : Cursor)
-    (hp : Prog st i g (.push k left side other subs dead reads c)) :
+    (hp : Prog st i g (.push k left side other subs dead reads c fc)) :
     SStep (readNeed P) st.len st.isDone st.depth
       (work (K := DerivationKernel.over D K hK P) i g st
-        (.push k left side other subs dead reads c)).val.1.depth
-      (.push k left side other subs dead reads c)
+        (.push k left side other subs dead reads c fc)).val.1.depth
+      (.push k left side other subs dead reads c fc)
       (work (K := DerivationKernel.over D K hK P) i g st
-        (.push k left side other subs dead reads c)).val.2.1 := by
+        (.push k left side other subs dead reads c fc)).val.2.1 := by
   have hp0 := hp
   dsimp only [Prog] at hp0
   obtain ⟨L, Rg, -, -, -, h4, hD, h5, hfit, -⟩ := hp0
@@ -2168,8 +2168,8 @@ theorem step_work_push (i : Nat) (g : GoalOf R Rel) (st : StateOf R Rel (Ans D P
         PushAdv subs' subs'' → subs''.length = subs'.length →
         (∀ (n : Nat) (x : Ans D P) (t : Nat × Nat), subs'[n]? = some (x, some t) → subs''[n]? = some (x, some t)) → ∀ d',
         SStep (readNeed P) st.len st.isDone st.depth d'
-          (.push k left side other subs dead reads c)
-          (.push k left side other subs'' dead0 reads' (c'.mark p tt)) := by
+          (.push k left side other subs dead reads c fc)
+          (.push k left side other subs'' dead0 reads' (c'.mark p tt) fc) := by
       intro subs'' tt htt hadv hl hkeep d'
       refine SStep.after (.push hA) (.push ⟨hadv, fun _ h => h, List.prefix_rfl,
         fun a b h => Cursor.before_mark.2 (.inl h), fun a b h => ?_⟩
@@ -2216,7 +2216,7 @@ theorem step_work (i : Nat) (g : GoalOf R Rel) (st : StateOf R Rel (Ans D P))
     obtain ⟨L, Rg, -, -, -, hok, -⟩ := hp
     exact hok
   have hpush := fun k left side other subs dead reads c
-      (e : s = .push k left side other subs dead reads c) =>
+      (e : s = .push k left side other subs dead reads c fc) =>
     step_work_push (K := K) (hK := hK) i g st k left side other subs dead reads c (e ▸ hp)
   clear hp
   at_cost K hK
@@ -2274,7 +2274,7 @@ theorem step_work (i : Nat) (g : GoalOf R Rel) (st : StateOf R Rel (Ans D P))
         rw [← Cursor.rank_see (st.pathsAt a) (st.pathsAt b) c hp hq]
         exact Cursor.rank_fall hsok (Nat.succ_pos _) hx (Cursor.mem_left.2
           ⟨⟨Nat.lt_of_lt_of_le hp hlen.1, Nat.lt_of_lt_of_le hq hlen.2⟩, hb⟩)
-  | push k left side other subs dead reads c =>
+  | push k left side other subs dead reads c fc =>
     exact hpush k left side other subs dead reads c rfl
   | check left side other c =>
     cases c with
@@ -3591,7 +3591,7 @@ theorem turns_finish {st stp X Y : StateOf R Rel (Ans D P)} {i : Nat} {g : GoalO
   have hrY : Y.round = st.round := T.keep.1
   have hfu : fin = true → (∃ gs, (f u).groups = some gs ∧ ∃ gr ∈ gs, ∃ s ∈ gr.strats,
       s.quiet (Y.modify i f) (Y.modify i f).isDone = true ∧
-      ∀ k l side o subs dead reads c, s = .push k l side o subs dead reads c → Y.isDone side = true) ∨
+      ∀ k l side o subs dead reads c fc, s = .push k l side o subs dead reads c fc → Y.isDone side = true) ∨
       Raced Rc (Y.modify i f) i := by
     intro hfn
     rcases hfin hfn with ⟨gr, hgr, s, hs1, hq⟩ | hrc

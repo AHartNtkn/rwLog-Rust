@@ -293,7 +293,7 @@ theorem inner_work (i : Nat) (g : GoalOf R Rel) (st : StateOf R Rel (Ans D P))
     · exact Inner.refl _
     · simp only [Cost.bind_val, Cost.pure_val, Kernel.metered, Cost.metered_val]
       exact (inner_joinPairs _ _ _ _ _ _).trans (inner_stamp _ _ _ _)
-  | push k left side other subs dead reads c =>
+  | push k left side other subs dead reads c fc =>
     simp only [work, Cost.bind_val]
     split
     · exact Inner.refl _

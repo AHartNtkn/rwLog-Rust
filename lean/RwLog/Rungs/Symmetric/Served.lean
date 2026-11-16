@@ -342,7 +342,7 @@ theorem IsRun.served_push (hL : D.Lawful P.sorts.interp) (h : IsRun U σ) {r k :
     {side : Nat} {other : Rel} {subs : List (Ans D P × Option (Nat × Nat))} {dead : List Nat}
     {reads : List (Nat × Option Nat)} {c : Cursor}
     (hk : goalAt (σ r) k = some g)
-    (hs : IsStrat σ k r (.push kd left side other subs (some dead) reads c))
+    (hs : IsStrat σ k r (.push kd left side other subs (some dead) reads c fc))
     (hd : (σ r).isDone side = true) (hseen : (σ r).len side ≤ subs.length)
     (htodo : c.todo = [])
     (hsub : ∀ (n : Nat) (x : Ans D P) (o : Option (Nat × Nat)), subs[n]? = some (x, o) →
@@ -533,7 +533,7 @@ theorem IsRun.served_done (hL : D.Lawful P.sorts.interp) (h : IsRun U σ) {r0 k 
       ⟨r, c, hst, hok.pending_false.1 hq.1 p q ?_ ?_⟩
     · exact Nat.lt_of_lt_of_le hp (h.done_len hq.2.1 r1)
     · exact Nat.lt_of_lt_of_le hq' (h.done_len hq.2.2 r1)
-  | push kd left side other subs dead reads c =>
+  | push kd left side other subs dead reads c fc =>
     obtain ⟨dead, rfl⟩ : ∃ d, dead = some d := by
       cases dead with
       | none => simp [Strat.quiet] at hq
