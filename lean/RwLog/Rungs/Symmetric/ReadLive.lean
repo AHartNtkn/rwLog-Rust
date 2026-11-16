@@ -195,21 +195,34 @@ theorem runs_some (last : Bool) : ∀ (d : Nat) (seen : List Rel) (n : Rel),
             · simp
           · exact hb
 
-/-- **An edge is read in the end**: from the depth `readNeed` on, a reading
-never gives up. -/
-theorem readEdge_some (last : Bool) (d : Nat) (n : Rel) (hd : readNeed P n ≤ d) :
-    (readEdge (K := DerivationKernel.over D K hK P) last d n).val ≠ none := by
+/-- A reading made a reading of every node does not give up from the depth
+`readNeed` on if the reading does not. -/
+theorem offered_some {rd : Bool → Nat → Rel → Cost (Option (Option (List R)))}
+    (h : ∀ (last : Bool) (d : Nat) (n : Rel), readNeed P n ≤ d → (rd last d n).val ≠ none)
+    (last : Bool) (d : Nat) (n : Rel) (hd : readNeed P n ≤ d) :
+    (offered (K := DerivationKernel.over D K hK P) rd last d n).val ≠ none := by
   have h1 := hasCall_some (K := K) (hK := hK) (P := P) d n (by unfold readNeed at hd; omega)
-  have h2 := runs_some (K := K) (hK := hK) (P := P) last d [] n hd
   at_cost K hK
-  simp only [readEdge, Cost.bind_val]
+  simp only [offered, Cost.bind_val]
   split
   · next hc => exact absurd hc h1
   · simp
-  · simp only [Cost.bind_val]
-    split
-    · next hr => exact absurd hr h2
-    · simp
+  · exact h last d n hd
+
+theorem readRuns_some (last : Bool) (d : Nat) (n : Rel) (hd : readNeed P n ≤ d) :
+    (readRuns (K := DerivationKernel.over D K hK P) last d n).val ≠ none := by
+  have h2 := runs_some (K := K) (hK := hK) (P := P) last d [] n hd
+  at_cost K hK
+  simp only [readRuns, Cost.bind_val]
+  split
+  · next hr => exact absurd hr h2
+  · simp
+
+/-- **An edge is read in the end**: from the depth `readNeed` on, a reading
+never gives up. -/
+theorem readEdge_some (last : Bool) (d : Nat) (n : Rel) (hd : readNeed P n ≤ d) :
+    (readEdge (K := DerivationKernel.over D K hK P) last d n).val ≠ none :=
+  offered_some (fun last d n hd => readRuns_some last d n hd) last d n hd
 
 end kernel
 

@@ -141,8 +141,14 @@ Rungs/Symmetric/ the symmetric engine of `SYMMETRIC_ENGINE.md` (Machine.lean): a
                 `Symmetric.rung_lawful`, `rung_ladder`, `rung_direction`,
                 `rung_directionFree`, for any unfolding race and any reading of edges
                 that meet their specifications; `rung1` is the one with the raced
-                unfolding and the reading `runsReader`). Not
-                proved yet: any bound on its cost in the size of the input.
+                unfolding and the reading `runsReader`). A second reading reads an
+                edge from the far end of the node and carries interfaces only (`faces`,
+                Machine.lean), and `bothReader` runs the two side by side; it is right
+                about the program and does not give up for ever (Faces.lean, `faces_ok`,
+                `faces_some`, `good_bothReader`), so the engine with it, `bothWays`, has
+                the laws and the bound on direction (Rung.lean). It is not a rung of the
+                ladder until it is admitted. Not
+                proved yet: any bound on the cost of either in the size of the input.
 Sorts/          the constraint domain of sorts and the proof that it is lawful
 Manifest/       rung 1's manifest (Rung1.lean): headline statements, trusted files and
                 axioms, all checked by the build

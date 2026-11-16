@@ -344,8 +344,9 @@ def EdgeOk (D : Domain R) (P : Program) (n : Rel) (last : Bool) (ps : List R) : 
       ∃ p ∈ ps, (if last then (z, z) else (x, x)) ∈ bdenAt P.sorts.interp (some p))
 
 /-- Some reading of the end of `n`, at some depth and some kernel, did not
-give up and returned `e`. Every reading that does not give up returns the
-same (`Reads.unique`), so this is a fact of the program alone. -/
+give up and returned `e`. A reading may read the ticks, so what it returns
+can depend on the kernel; what is kept of an edge is what some reading
+returned. -/
 def Reads (rd : EdgeReader) (D : Domain R) (P : Program) (n : Rel) (last : Bool)
     (e : Option (List R)) : Prop :=
   ∃ (K : Kernel R Cost) (hK : K.Refines D) (d : Nat),

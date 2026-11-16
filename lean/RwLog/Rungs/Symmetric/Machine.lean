@@ -754,39 +754,152 @@ def runs (last : Bool) : Nat → List N → N → M (Option (List (Run S)))
                 pure (some rs')
             else pure acc) r rest
 
-/-- The interfaces the answers of a node can show at one end, read to the
+/-- The interfaces of the runs of a node that contains a call, read to the
 depth given: nothing if the depth was not enough; otherwise the interfaces,
-or nothing where a check on them is not offered, because the node contains no
-call or because one of the interfaces restricts nothing. -/
-def readEdge (last : Bool) (depth : Nat) (n : N) : M (Option (Option (List S))) := do
+or nothing where one of them restricts nothing. -/
+def readRuns (last : Bool) (depth : Nat) (n : N) : M (Option (Option (List S))) := do
+  let r ← runs (K := K) last depth [] n
+  match r with
+  | none => pure none
+  | some rs => do
+    let ps ← foldL (fun (acc : Option (List S)) (r : Run S) =>
+      match acc, r.1 with
+      | some ps, some x => do
+        let p ← if last then K.rightBound x else K.leftBound x
+        match p with
+        | none => pure none
+        | some p => do
+          let b ← anyL (fun q => K.eq q p) ps
+          pure (some (if b then ps else ps ++ [p]))
+      | _, _ => pure none) (some []) rs
+    pure (some ps)
+
+/-- A reading of the edges of the nodes that contain a call, made a reading
+of every node: a check is not offered on a node that contains no call. -/
+def offered (rd : Bool → Nat → N → M (Option (Option (List S)))) (last : Bool) (depth : Nat)
+    (n : N) : M (Option (Option (List S))) := do
   let c ← hasCall (K := K) depth n
   match c with
   | none => pure none
   | some false => pure (some none)
-  | some true => do
-    let r ← runs (K := K) last depth [] n
-    match r with
-    | none => pure none
-    | some rs => do
-      let ps ← foldL (fun (acc : Option (List S)) (r : Run S) =>
-        match acc, r.1 with
-        | some ps, some x => do
-          let p ← if last then K.rightBound x else K.leftBound x
-          match p with
+  | some true => rd last depth n
+
+/-- The interfaces the answers of a node can show at one end, read to the
+depth given, by composing the runs of spans at that end: nothing if the depth
+was not enough; otherwise the interfaces, or nothing where a check on them is
+not offered, because the node contains no call or because one of the
+interfaces restricts nothing. -/
+def readEdge (last : Bool) (depth : Nat) (n : N) : M (Option (Option (List S))) :=
+  offered (K := K) (readRuns (K := K)) last depth n
+
+/-! ## Reading an edge from the far end
+
+`runs` follows an edge inwards and carries whole products of spans, so a node
+whose first members are unions of spans costs it the product of their sizes,
+however few of the products the members behind them let through. `faces`
+reads the same edge from the other end and carries interfaces only: what the
+answers of a node show at the edge, given what the answers of what follows it
+show. Two products with the same interface are one interface, so it pays for
+the interfaces there are and not for the products.
+
+Neither way is the cheaper on every node: the far end can show many
+interfaces of which the members before it let few through. So the two are
+run side by side until one finishes (`readBoth`), which costs at most seven
+times the cheaper. -/
+
+/-- Add an interface to a list that may have it. Nothing is the interface
+that restricts nothing. -/
+def addFace (acc : List (Option S)) (p : Option S) : M (List (Option S)) := do
+  let b ← anyL (fun q => sameBound (K := K) q p) acc
+  pure (if b then acc else acc ++ [p])
+
+/-- The interfaces of a span followed by something that shows the interfaces
+`C`: the span is composed with each, and its interface at the edge is
+read. -/
+def spanFaces (last : Bool) (s : S) (C : List (Option S)) : M (List (Option S)) :=
+  foldL (fun (acc : List (Option S)) (p : Option S) => do
+    let z ← match p with
+      | none => pure (some s)
+      | some p => if last then K.compose p s else K.compose s p
+    match z with
+    | none => pure acc
+    | some z => do
+      let b ← if last then K.rightBound z else K.leftBound z
+      addFace (K := K) acc b) [] C
+
+/-- The interfaces the answers of a node show at their right end (`last`) or
+their left end, when what comes before (after) them shows the interfaces `C`
+at its own. The members of a chain are read from the far end. Each call is
+followed once: `seen` is the calls being read, and one of them, like a meet,
+shows the interface that restricts nothing. Nothing if the program is deeper
+than the first argument. -/
+def faces (last : Bool) : Nat → List N → N → List (Option S) → M (Option (List (Option S)))
+  | 0, _, _, _ => pure none
+  | d + 1, seen, n, C => do
+    let v ← K.view n
+    match v with
+    | .span _ => do
+      let a ← K.leaf none n none
+      match a with
+      | none => pure (some [])
+      | some a => do
+        let r ← spanFaces (K := K) last (K.span a) C
+        pure (some r)
+    | .meet _ => pure (some [none])
+    | .union xs =>
+      foldL (fun (acc : Option (List (Option S))) x =>
+        match acc with
+        | none => pure none
+        | some rs => do
+          let r ← faces last d seen x C
+          match r with
           | none => pure none
-          | some p => do
-            let b ← anyL (fun q => K.eq q p) ps
-            pure (some (if b then ps else ps ++ [p]))
-        | _, _ => pure none) (some []) rs
-      pure (some ps)
+          | some r => do
+            let rs' ← foldL (addFace (K := K)) rs r
+            pure (some rs')) (some []) xs
+    | .call _ _ => do
+      let b ← anyL (fun m => K.eqNode m n) seen
+      if b then pure (some [none])
+      else do
+        let bd ← K.body n
+        match bd with
+        | none => pure (some [])
+        | some bd => faces last d (n :: seen) bd C
+    | .chain xs =>
+      match xs with
+      | [] => pure (some [none])
+      | _ =>
+        foldL (fun (acc : Option (List (Option S))) x =>
+          match acc with
+          | none => pure none
+          | some C' => faces last d seen x C') (some C) (if last then xs else xs.reverse)
+
+/-- The interfaces of a list, if each restricts something. -/
+def allFaces : List (Option S) → Option (List S)
+  | [] => some []
+  | none :: _ => none
+  | some p :: C => (allFaces C).map (p :: ·)
+
+/-- The interfaces of a node that contains a call, read from the far end to
+the depth given: nothing if the depth was not enough; otherwise the
+interfaces, or nothing where one of them restricts nothing. -/
+def readFaces (last : Bool) (depth : Nat) (n : N) : M (Option (Option (List S))) := do
+  let r ← faces (K := K) last depth [] n [none]
+  pure (r.map allFaces)
+
+/-- The edge of a node read both ways side by side, until one way has
+it. -/
+def readBoth (last : Bool) (depth : Nat) (n : N) : M (Option (Option (List S))) :=
+  offered (K := K) (fun last depth n =>
+    K.race (readRuns (K := K) last depth n) (readFaces (K := K) last depth n)) last depth n
 
 /-- A reading of an edge, for every derivation kernel: given an end (the last
 one if the flag is set), a depth and a node, the interfaces the answers of
 the node can show at that end, or nothing where a check on them is not
 offered; nothing at all if the depth was not enough. The machine is written
 for any such reading (`edgeOf`); what it needs of one is that it is right
-about the program (`ReadOk`, `Rungs/Symmetric/Progress.lean`) and does not
-give up for ever (`ReadLive`, `Rungs/Symmetric/ReadLive.lean`). -/
+about the program and does not give up for ever (`ReadOk`,
+`Rungs/Symmetric/Progress.lean`). -/
 abbrev EdgeReader :=
   {S N A : Type} → {M : Type → Type} → [DerivationKernel S N A M] →
     Bool → Nat → N → M (Option (Option (List S)))
@@ -1466,6 +1579,9 @@ end Holding
 /-- The reading of an edge the first rung is run with: every run of spans
 at the edge, composed (`readEdge`). -/
 def runsReader : EdgeReader := @readEdge
+
+/-- The reading that reads an edge both ways side by side. -/
+def bothReader : EdgeReader := @readBoth
 
 /-- The symmetric engine with a given unfolding race and a given reading of
 edges. Its first state is the table of the root goal alone. -/
