@@ -188,8 +188,8 @@ can be checked against a record that leaves a win out.
 
 **The laws.** An admission compares costs and says nothing about whether the
 rung is right. So the ladder asks separately that every rung on it, the base
-included, has the laws (`CostedRung.Lawful`: `Rung.Keeps` of the rung as one
-machine on the original input, halting wherever the base halts). That
+included, has the laws (`CostedRung.Lawful`: `Runtime.Laws` of the rung as one
+machine on the original input). That
 definition is the one place the laws of the language are listed for the
 ladder; a law that is added there is owed by every rung from then on.
 `Ladder.lawful` (`Rungs/Framework/Latency.lean`) reads it back.

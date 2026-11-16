@@ -121,15 +121,6 @@ theorem sound (hD : ∀ S : Sorts, S.WellFormed → (dom S).Lawful S.interp) :
   obtain ⟨r, rfl, hv⟩ := valid_of_emitted E dom K hK ha
   exact hv.sound (hD P.sorts hwf.2.2.1)
 
-/-- **No answer of an engine is less general than its derivation**, at every
-kernel that returns what a domain returns that is lawful at well-formed
-sorts. -/
-theorem derivationGeneral (hD : ∀ S : Sorts, S.WellFormed → (dom S).Lawful S.interp) :
-    (E.costedAt dom K hK).runtime.DerivationGeneral :=
-  fun P _ hwf _ ⟨_, ha⟩ => by
-    obtain ⟨r, rfl, hv⟩ := valid_of_emitted E dom K hK ha
-    exact hv.general (hD P.sorts hwf.2.2.1)
-
 end Engine
 
 end RwLog

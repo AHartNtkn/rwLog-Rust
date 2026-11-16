@@ -7,15 +7,6 @@ one (`root_reach`, from `Reach`). So what a request adds to the root table,
 and the maximal answers of the table, are each a list of representatives
 without repeats that holds the converse of each of its members: a list that
 is a rearrangement of its own converses (`perm_map_swap`).
-
-On a root node that is its own converse the machine therefore shows, at
-every step, answers that are their own converses rearranged
-(`selfConverse_of`): this is `CostedRuntime.SelfConverse`, what running on
-one orientation asks of a machine (`Framework/Oriented.lean`). The theorem
-is stated under one condition on the run, that every answer of the root
-table is an answer of the root goal; the machine reports the answers of the
-root goal only, and the converse of an answer of another goal could be one.
-`Goals.lean` proves the condition.
 -/
 import RwLog.Rungs.Symmetric.Invariant
 import RwLog.Rungs.Framework.Oriented

@@ -10,8 +10,6 @@
   `a`'s two sides onto `s`'s and every constraint of `a` onto some constraint
   of `s`.
 
-The specifications these must meet are stated in `Rungs/Tabled/Base/Spec.lean`
-(`Kernel` obligations).
 -/
 import RwLog.Kernel.Span
 

@@ -8,7 +8,6 @@ it is well formed if the input is (`wf_orient`).
 -/
 import RwLog.Rungs.Framework.Oriented
 import RwLog.Rungs.Framework.GroundMirror
-import RwLog.Rungs.Framework.SameTrace
 import RwLog.Kernel.NormalFormCalls
 
 namespace RwLog

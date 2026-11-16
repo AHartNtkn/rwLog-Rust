@@ -13,15 +13,13 @@ reports that it is done (`run_cases`). A complete table gains nothing more,
 so everything the run of requests ever holds for the root the machine has
 emitted, at the latest when it reports that it is done. Hence
 
-* the machine is complete span by span (`complete`);
+* the machine is complete span by span (`complete`) and pair by pair
+  (`pointComplete`);
 * when it reports that it is done, its answers relate every pair the query
   relates (`honestExhaustion`);
+* so it has the three laws (`laws`);
 * it emits no progress certificate (`honestProgress`);
-* its final report is the maximal emitted answers (`finalMaximal`);
-* on first-order input with a root that is its own converse it shows answers
-  that are their own converses rearranged (`engine_selfConverse`), so run on
-  one orientation it has `ConvTrace` and `DualTrace` (`oriented_convTrace`,
-  `oriented_dualTrace`).
+* its final report is the maximal emitted answers (`finalMaximal`).
 
 The engine is the engine of any unfolding race that meets its specification
 (`RwLog.Good`).
@@ -448,6 +446,19 @@ theorem honestExhaustion : (Rt @U dom K hK).HonestExhaustion := fun P q wf n hn 
     obtain ⟨a, ha, hpa⟩ := Set.mem_iUnion₂.1 hp
     exact Engine.sound (engine @U) dom K hK hD P q wf n a ha hpa
 
+/-- **Every pair the relation relates is related by an answer the symmetric
+engine emits.** -/
+theorem pointComplete : (Rt @U dom K hK).PointComplete := fun P q wf p hp => by
+  have hI := isRun_of_wf (K := K) (hK := hK) hD hG wf
+  obtain ⟨a, ha, hpa⟩ := (hI.saturated (hD _ wf.2.2.1)).covers_pair (hD _ wf.2.2.1) (hI.root_opened root_goal0) hp
+  obtain ⟨r, y, hy, rfl⟩ := (hI.held_iff root_goal0 a).1 ha
+  obtain ⟨n, hn⟩ := (emitted_of_root hI hy).1
+  exact ⟨n, _, hn, hpa⟩
+
+/-- **The symmetric engine has the laws.** -/
+theorem laws : (Rt @U dom K hK).Laws :=
+  ⟨Engine.sound (engine @U) dom K hK hD, pointComplete hD hG, honestExhaustion hD hG⟩
+
 /-- **The symmetric engine emits no progress certificate**, so every one it
 emits is true. -/
 theorem honestProgress : (Rt @U dom K hK).HonestProgress := fun P q wf k n hc => by
@@ -495,10 +506,9 @@ theorem finalMaximal : (Rt @U dom K hK).FinalMaximal := fun P q wf n fin hfin =>
 
 /-- **On first-order input with a root node that is its own converse the
 symmetric engine shows, at every step, answers that are their own converses
-rearranged.** So run on one orientation (`CostedRuntime.oriented`) it shows
-on the converse of a query, and on the mirror image of an input, the run on
-the query with every answer swapped (`oriented_convTrace`,
-`oriented_dualTrace`). -/
+rearranged.** So run on one orientation (`CostedRuntime.oriented`) its runs
+on an input, on its converse and on its mirror image show the same, the
+right way round (`CostedRuntime.trace_of_mirrors`). -/
 theorem engine_selfConverse : ((engine @U).costedAt dom K hK).SelfConverse := by
   refine selfConverse_of hD
     (fun s => s.P.sorts.WellFormed ∧ ProgFO s.P ∧ Good (stOf @U dom s) ∧
@@ -524,18 +534,6 @@ theorem engine_selfConverse : ((engine @U).costedAt dom K hK).SelfConverse := by
         (hK s.P.sorts) s.P) (UAt @U dom K hK s.P) (stOf @U dom s)).val.1 0 = _
       rw [hreq]
       exact hre.ext _ _ hg
-
-/-- **The converse, for the symmetric engine on one orientation.** The run
-on the converse of a query is the run on the query with every answer
-swapped, step for step. -/
-theorem oriented_convTrace : ((engine @U).costedAt dom K hK).oriented.runtime.ConvTrace :=
-  CostedRuntime.oriented_convTrace (engine_selfConverse hD hG)
-
-/-- **The mirror image, for the symmetric engine on one orientation.** The
-run on the mirrored query in the mirrored program is the run on the query
-with every answer swapped, step for step. -/
-theorem oriented_dualTrace : ((engine @U).costedAt dom K hK).oriented.runtime.DualTrace :=
-  CostedRuntime.oriented_dualTrace (engine_selfConverse hD hG)
 
 end theorems
 

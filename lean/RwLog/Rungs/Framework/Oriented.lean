@@ -12,11 +12,6 @@ that gives, for any machine.
   chosen is its own converse.
 * The program and the node chosen from a well-formed input are first-order
   (`progFO_orient`, `fo_orient_root`).
-* So if a machine shows, on first-order input with a root that is its own
-  converse, at every step a
-  set of answers that is its own converse (`CostedRuntime.SelfConverse`),
-  then run on one orientation it has `ConvTrace` and `DualTrace`
-  (`CostedRuntime.oriented_convTrace`, `CostedRuntime.oriented_dualTrace`).
 * On an input and on its mirror image it pays the same ticks, step for step
   (`CostedRuntime.oriented_paid_dual`), with nothing asked of the machine.
 -/
@@ -468,24 +463,6 @@ theorem fo_orient_root {P : Program} {q : Rel} (wf : P.WellFormed q) : (orient P
 namespace CostedRuntime
 
 variable {C : CostedRuntime}
-
-/-- **The converse of a query, on one orientation.** A machine that shows
-sets of answers that are their own converse on a root that is its own
-converse has, run on one orientation of its input, the run on the converse
-of a query as the run on the query with every answer swapped, step for
-step. -/
-theorem oriented_convTrace (hS : C.SelfConverse) : C.oriented.runtime.ConvTrace :=
-  fun P q n hwf =>
-    trace_of_mirrors hS hwf.2.2.1 (orient_conv P q) (orient_sorts P q) (progFO_orient hwf)
-      (normal_orient_root P q) (fo_orient_root hwf) n
-
-/-- **The mirror image, on one orientation.** The same machine has the run
-on the mirrored query in the mirrored program as the run on the query with
-every answer swapped, step for step. -/
-theorem oriented_dualTrace (hS : C.SelfConverse) : C.oriented.runtime.DualTrace :=
-  fun P q n hwf =>
-    trace_of_mirrors hS hwf.2.2.1 (orient_dual P q) (orient_sorts P q) (progFO_orient hwf)
-      (normal_orient_root P q) (fo_orient_root hwf) n
 
 /-- **The mirror image costs the same.** Run on one orientation, any machine
 pays on the mirrored query in the mirrored program exactly what it pays on
