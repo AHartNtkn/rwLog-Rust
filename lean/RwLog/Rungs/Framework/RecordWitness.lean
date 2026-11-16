@@ -715,12 +715,6 @@ theorem silent_not_halts (P : Program) (q : Rel) (n : Nat) :
     ¬ (silent.costed sized).runtime.Halts ((silent.costed sized).start P q) n := by
   simp [Runtime.Halts, Runtime.final, silent_run]
 
-/-- Every machine simulates the silent one, in every resource and within any
-bound. -/
-theorem silent_simBy (μ : Meter) (B : CostedRuntime) (p : Nat → Nat → Nat) :
-    SimulatesBy μ (silent.costed sized) B p :=
-  simBy_of_covers silent_not_halts fun _ _ _ _ hx => absurd hx silent_not_covered
-
 
 /-! ## The class: one pair written out, in the empty program -/
 
@@ -869,13 +863,13 @@ def quickClass : ProgClass := pairClass fun _ q => q.size
 /-- The numerals of the first win: the slow reader uses at most `k + 1` on a
 member of rank `k`. -/
 def slowBounds : Bounds :=
-  { simCoeff := 1, simDeg := 1, sizeCoeff := 1, sizeDeg := 1, hiCoeff := 1, hiDeg := 1, gain := 1,
+  { sizeCoeff := 1, sizeDeg := 1, hiCoeff := 1, hiDeg := 1, gain := 1,
     ctxCoeff := 1, ctxDeg := 0 }
 
 /-- The numerals of the second win: the quick reader uses at most
 `(k + 1) ^ 2` on a member of rank `k`. -/
 def quickBounds : Bounds :=
-  { simCoeff := 1, simDeg := 1, sizeCoeff := 1, sizeDeg := 1, hiCoeff := 1, hiDeg := 2, gain := 0,
+  { sizeCoeff := 1, sizeDeg := 1, hiCoeff := 1, hiDeg := 2, gain := 0,
     ctxCoeff := 1, ctxDeg := 1 }
 
 /-- The first win, as it goes on the record. -/
@@ -894,8 +888,6 @@ theorem slow_improves :
     show k ≤ 1 * (k + 1) ^ 1
     rw [Nat.pow_one]; omega
   grows _ := Nat.one_pos
-  simulates := silent_simBy _ _ _
-  simulatesSpace _ := silent_simBy _ _ _
   separates :=
     { toMeetsOn := pairClass_meets
         (fun a c => ⟨1, rd_covers_pair _ a c _, by
@@ -911,7 +903,8 @@ record. -/
 theorem slow_admits :
     Admits sized ⟨.time, .polynomial⟩ ⟨[], silent, false⟩ ⟨[], slow, false⟩ slowBounds ⟨2, 1⟩
       (fun _ => 0) slowClass [] 0 :=
-  Admits.of_nil slow_improves (rd_direction _) fun _ h => absurd h List.not_mem_nil
+  Admits.of_nil slow_improves (fun P q _ ⟨n, hn⟩ => absurd hn (silent_not_halts P q n))
+    (rd_direction _) fun _ h => absurd h List.not_mem_nil
 
 /-- What the quick reader pays on a pair: at most what the slow one pays. -/
 theorem quick_le_slow (a c : GTerm) :
@@ -943,14 +936,6 @@ theorem quick_improves :
     show k ≤ 1 * (k + 1) ^ 1
     rw [Nat.pow_one]; omega
   grows h := by cases h
-  simulates := simBy_of_covers (rd_not_halts _) fun P q n x hx => by
-    obtain ⟨s, r, m, hs, hr, hx', rfl⟩ := rd_covered _ hx
-    refine ⟨1, rd_covers _ hs hr hx', ?_⟩
-    show (rd _).paid P q 1 ≤ 1 * ((rd _).paid P q (m + 1) + (P.size + q.size) + 1) ^ 1
-    rw [rd_paid_span _ hs hr 0, rd_paid_span _ hs hr m, Nat.pow_one]
-    generalize 2 ^ (2 + s.size + 1) = e
-    omega
-  simulatesSpace h := absurd rfl h
   separates :=
     { toMeetsOn := pairClass_meets
         (fun a c => ⟨1, rd_covers_pair _ a c _, by
@@ -978,7 +963,8 @@ over the record that holds the slow reader's polynomial win. -/
 theorem quick_admits :
     Admits sized ⟨.time, .exponential⟩ ⟨[], slow, false⟩ ⟨[], quick, false⟩ quickBounds
       ⟨2, 1⟩ (fun _ => 0) quickClass [slowWin] 1 :=
-  Admits.of_nil quick_improves (rd_direction _) fun w hw => by
+  Admits.of_nil quick_improves (fun P q _ ⟨n, hn⟩ => absurd hn (rd_not_halts _ P q n))
+    (rd_direction _) fun w hw => by
     obtain rfl := List.mem_singleton.1 hw
     exact quick_keeps
 

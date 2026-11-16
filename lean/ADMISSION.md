@@ -4,6 +4,19 @@ This note settles the design of the admission rule in `RwLog/Trusted/Cost.lean`
 (ledger rows L33, L02 and L66 of the roadmap) and records why each choice was made.
 The Lean text is the statement; this is the reasoning.
 
+**Revision, 2026-11-16: what an admission asks.** By the roadmap rebuilt from
+Anthony's own words, an admission asks four things and nothing beside: a
+strict improvement (`Advances`, the separation on a class and in context), no
+earlier gain lost (`keeps`, the record of wins), no halting lost (`halts`:
+the new rung halts on every input on which the rung below halts), and the
+cost of a relation forward and backward comparable (`direction`). The
+simulation of the rung below, in time and in space, is no longer asked:
+`Improves.simulates` and `simulatesSpace` and the simulation numerals of
+`Bounds` are removed. Everything below about the simulation (its bound for
+each kind of win, which resources it covers, what it does not protect)
+describes the rule before this date. `SimulatesBy` remains as the meaning of
+"comparable" in `DirectionFree`.
+
 ## 1. What had to be decided
 
 Until now a rung was admitted by one hand-picked sequence of inputs on which

@@ -27,7 +27,7 @@ Also for every runtime:
 -/
 import RwLog.Rungs.Framework.Runtime
 import RwLog.Rungs.Framework.Answer
-import RwLog.Trusted.Properties
+import RwLog.Rungs.Framework.RunProperties
 import RwLog.SpanLayer.Modulo
 
 namespace RwLog
