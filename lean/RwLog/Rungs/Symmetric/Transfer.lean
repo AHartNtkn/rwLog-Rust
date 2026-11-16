@@ -450,8 +450,8 @@ theorem Cert.waits_quiet (hC : Cert U C ρ A) (hτ : IsRun U τ)
     have hstS : Still τ Td side' := fun r1 hr1 => by
       unfold StateOf.len
       rw [((hτ.stable hr1).isDone hTd).2]
-    obtain ⟨T1, subs1, dead1, reads1, c1, hT1, hr01, h1, hl1⟩ := hLn.push_seen hS h0 hstS
-    obtain ⟨T2, subs2, dead2, reads2, c2, hT2, h2, hl2, hopen⟩ :=
+    obtain ⟨T1, subs1, dead2, reads1, c1, hT1, hr01, h1, hl1⟩ := hLn.push_seen hS h0 hstS hdn
+    obtain ⟨T2, subs2, reads2, c2, hT2, h2, hl2, hopen⟩ :=
       hLn.push_opened hS hstS hT1 hr01 h1 hl1
     have fx := fun r (hr : T2 ≤ r) => hLn.push_fixed hS hstS (show Td ≤ T2 by omega)
       (show r0 ≤ T2 by omega) h2 (hl2.trans hl1) hr
@@ -493,7 +493,7 @@ theorem Cert.waits_quiet (hC : Cert U C ρ A) (hτ : IsRun U τ)
         cases hj
         exact covB_refl hL x
       · exfalso
-        have := hD2.2 n j x z hgt (by rw [hlen2]; exact lt_of_getElem? hj) hx hj hn
+        have := hD2.2.2.2 n j x z hgt (lt_of_getElem? hj) hx hj hn
         rw [this] at hzc
         cases hzc
     -- the table opened for one gains no more answers, and is complete or waits
@@ -516,11 +516,10 @@ theorem Cert.waits_quiet (hC : Cert U C ρ A) (hτ : IsRun U τ)
           obtain ⟨hge, -⟩ := h52 _ (List.mem_of_getElem? he) t rfl
           have hop' : Opened τ t.1 := hτ.opened_of_settled hge fun r' => by
             obtain ⟨r2, hr2', hr2, hfed, -⟩ := hLn.worked (max r' T2)
-            obtain ⟨subs3, dead3, reads3, c3, hs3, hA3, -, hdead3⟩ := fx (r2 + 1) (by omega)
+            obtain ⟨subs3, reads3, c3, hs3, hA3, -⟩ := fx (r2 + 1) (by omega)
             obtain ⟨t3, he3, e3, -⟩ := hA3.adv.get he
             have := hfed _ (List.mem_of_getElem? hs3) _
-              (feeds_push_sub (τ (r2 + 1)) kd left side' other reads3 c3 he3
-                (fun h => hd ((hdead3 n).1 h)))
+              (feeds_push_sub (τ (r2 + 1)) kd left side' other reads3 c3 he3 hd)
             rw [e3] at this
             exact ⟨r2, by omega, this⟩
           obtain ⟨T, hT⟩ := rd _ _ T2 hcx hrx hge hop'
@@ -534,7 +533,7 @@ theorem Cert.waits_quiet (hC : Cert U C ρ A) (hτ : IsRun U τ)
       (fun n x t he hd =>
         (hT n (lt_of_getElem? he) (max T T2) (Nat.le_max_left _ _) x t he hd).1)
     refine ⟨max T' T, fun r1 hr1 => ?_⟩
-    obtain ⟨subs, dead, reads, c, hs, hA, hlen, hdead, htodo, hrd⟩ := hall (r1 + 1) (by omega)
+    obtain ⟨subs, reads, c, hs, hA, hlen, htodo, hrd⟩ := hall (r1 + 1) (by omega)
     refine ⟨_, hLn.mem (r1 + 1) (by omega) _ (List.mem_of_getElem? hs), ?_,
       fun _ _ _ _ _ _ _ _ e => ?_⟩
     · have hdd := hdn (r1 + 1) (by omega)
@@ -543,10 +542,10 @@ theorem Cert.waits_quiet (hC : Cert U C ρ A) (hτ : IsRun U τ)
         unfold StateOf.len at this hl1
         omega
       have ent : ∀ (n : Nat) (x : Ans D P) (o : Option (Nat × Nat)), subs[n]? = some (x, o) →
-          n ∉ dead → ∃ t, o = some t ∧ ¬ t.2 < ((τ (r1 + 1)).answers t.1).length ∧
+          n ∉ dead2 → ∃ t, o = some t ∧ ¬ t.2 < ((τ (r1 + 1)).answers t.1).length ∧
             ((τ (r1 + 1)).isDone t.1 || X.contains t.1) = true := by
         intro n x o he hn
-        have hn2 : n ∉ dead2 := fun h => hn ((hdead n).2 h)
+        have hn2 : n ∉ dead2 := hn
         obtain ⟨x2, t2, he2⟩ := hopen n (by rw [← hlen]; exact lt_of_getElem? he) hn2
         obtain ⟨t', he', e1, -⟩ := hA.adv.get he2
         rw [he] at he'
@@ -559,17 +558,17 @@ theorem Cert.waits_quiet (hC : Cert U C ρ A) (hτ : IsRun U τ)
           exact (hT n (lt_of_getElem? he2) (r1 + 1) (by omega) _ t2 he2 hn2).2
       simp only [Strat.quiet, Strat.pending, hdd, htodo, Bool.true_and, Bool.and_eq_true,
         Bool.not_eq_true', Bool.or_eq_false_iff, decide_eq_false_iff_not, List.isEmpty_nil,
-        Bool.not_true, List.any_eq_false, List.all_eq_true]
+        Bool.not_true, List.any_eq_false, List.all_eq_true, Option.getD_some, Option.isSome_some]
       refine ⟨⟨⟨hseen, trivial⟩, fun e he => ?_⟩, fun e he => ?_⟩
       · rcases e with ⟨⟨x, o⟩, n⟩
         have he' := List.mem_zipIdx_iff_getElem?.1 he
-        by_cases hn : n ∈ dead
+        by_cases hn : n ∈ dead2
         · simp [hn]
         · obtain ⟨t, rfl, h1, -⟩ := ent n x o he' hn
           simp [hn, h1]
       · rcases e with ⟨⟨x, o⟩, n⟩
         have he' := List.mem_zipIdx_iff_getElem?.1 he
-        by_cases hn : n ∈ dead
+        by_cases hn : n ∈ dead2
         · simp [hn]
         · obtain ⟨t, rfl, -, h2⟩ := ent n x o he' hn
           simpa [hn] using h2
@@ -787,15 +786,20 @@ theorem IsRun.fcert (hσ : IsRun U σ) (r : Nat) :
       dsimp only [Prog] at hp
       obtain ⟨Lg, Rg, hsp, hgside, hother, h4, hD, hsubs, -, -⟩ := hp
       have hrank := hpush kd left side other subs dead reads c rfl
+      obtain ⟨dead, rfl⟩ : ∃ d, dead = some d := by
+        cases dead with
+        | none => simp [Strat.quiet] at hq
+        | some d => exact ⟨d, rfl⟩
+      have hD := hD.2.2
       simp only [Strat.quiet, Strat.pending, Bool.and_eq_true, Bool.not_eq_true',
-        Bool.or_eq_false_iff, decide_eq_false_iff_not, List.all_eq_true] at hq
-      obtain ⟨⟨⟨hseen, -⟩, -⟩, hds, hokσ⟩ := hq
+        Bool.or_eq_false_iff, decide_eq_false_iff_not, List.all_eq_true, Option.getD_some,
+        Option.isSome_some] at hq
+      obtain ⟨⟨⟨hseen, -⟩, -⟩, ⟨hds, -⟩, hokσ⟩ := hq
       have hall : subs.map (·.1) = (σ r).answers side := by
         rw [h4]
         exact List.take_of_length_le (by omega)
       have hlen : subs.length = ((σ r).answers side).length := by
         rw [← hall, List.length_map]
-      rw [hlen] at hD
       subst hother
       refine .push kd Lg Rg left hsp
         ⟨⟨side, hgside, hds⟩, by rw [(key _ _ hgside).1, hρi]; exact hrank⟩ fun x hxm => ?_

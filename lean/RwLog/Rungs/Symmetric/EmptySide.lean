@@ -118,10 +118,10 @@ theorem IsRun.done_of_side (hτ : IsRun U τ) {r k : Nat} {g Lg Rg sg : GoalOf R
     rw [hτ.void_empty hL hgside' hv r1]
     rfl
   have hstS : Still τ Td side' := fun r1 _ => by rw [hlen0, hlen0]
-  obtain ⟨T1, subs1, dead1, reads1, c1, hT1, hr01, h1, hl1⟩ := hLn.push_seen hS h0 hstS
+  obtain ⟨T1, subs1, dead1, reads1, c1, hT1, hr01, h1, hl1⟩ := hLn.push_seen hS h0 hstS hdn
   have hdone := (hτ.req.req T1).closed [k] (fun k' hk' => by
     obtain rfl := List.mem_singleton.1 hk'
-    obtain ⟨subs2, dead2, reads2, c2, hs2, -, hlen, -⟩ :=
+    obtain ⟨subs2, reads2, c2, hs2, -, hlen⟩ :=
       hLn.push_fixed hS hstS hT1 hr01 h1 hl1 (Nat.le_succ T1)
     rw [hl1, hlen0] at hlen
     obtain rfl : subs2 = [] := List.length_eq_zero_iff.1 hlen
