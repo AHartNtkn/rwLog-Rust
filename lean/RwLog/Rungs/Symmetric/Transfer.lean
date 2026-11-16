@@ -115,6 +115,21 @@ theorem IsRun.race_done (hτ : IsRun U τ) {r' k : Nat} {g : GoalOf R Rel}
     (fun r t ht => hτ.goal_any (goalAt_of_table ht) hgk) hh hfin
   exact ⟨r, by rw [isDone_of_table ht]; exact hd⟩
 
+/-- The pushes of a group of a run are sound (`PushSound`): what a push
+means (`Prog`) says so. -/
+theorem IsRun.pushSound (hτ : IsRun U τ) {r' k : Nat} {g : GoalOf R Rel}
+    (hgk : goalAt (τ r') k = some g) {r0 : Nat} {L : Nat → List (Strat Rel (Ans D P))}
+    (hLn : Line (readNeed P) τ k r0 L) (q side : Nat) : PushSound τ L q side r0 := by
+  intro r1 kd left other subs dead reads c hr1 hs
+  have hp := hτ.prog hgk (hLn.mem r1 hr1 _ (List.mem_of_getElem? hs))
+  dsimp only [Prog] at hp
+  obtain ⟨Lg, Rg, -, -, -, h4, -, h5, hfit, -⟩ := hp
+  refine ⟨?_, hfit, fun n x t he => (h5 _ (List.mem_of_getElem? he) t rfl).2⟩
+  have := congrArg List.length h4
+  simp only [List.length_map, List.length_take] at this
+  unfold StateOf.len
+  omega
+
 /-! ## Why a goal completes -/
 
 /-- Every run of requests that does not neglect the goal `g`, and keeps no
@@ -423,16 +438,7 @@ theorem Cert.waits_quiet (hC : Cert U C ρ A) (hτ : IsRun U τ)
       · exact ⟨a', by simpa using hga', by simpa using hxl⟩
     obtain ⟨L, q, s0, hLn, h0, e⟩ := lk gr' hgr' _ hx
     obtain ⟨subs0, dead0, reads0, c0, rfl⟩ := kind_push e
-    have hS : PushSound τ L q side' r0 := by
-      intro r1 kd' left' other' subs dead reads c hr1 hs
-      have hp := hτ.prog hgk (hLn.mem r1 hr1 _ (List.mem_of_getElem? hs))
-      dsimp only [Prog] at hp
-      obtain ⟨Lg', Rg', -, -, -, h4, -, h5, hfit, -⟩ := hp
-      refine ⟨?_, hfit, fun n x t he => (h5 _ (List.mem_of_getElem? he) t rfl).2⟩
-      have := congrArg List.length h4
-      simp only [List.length_map, List.length_take] at this
-      unfold StateOf.len
-      omega
+    have hS : PushSound τ L q side' r0 := hτ.pushSound hgk hLn q side'
     have hoS : Opened τ side' := hτ.opened_of_settled hgside' fun r' => by
       obtain ⟨r2, hr2', hr2, hfed, -⟩ := hLn.worked r'
       obtain ⟨subs2, dead2, reads2, c2, hs2, -⟩ :=
