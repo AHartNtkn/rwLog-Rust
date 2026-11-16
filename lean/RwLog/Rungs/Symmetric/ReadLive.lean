@@ -21,25 +21,6 @@ open Traverse Answer
 
 variable {R : Type} [Answer R] [DecidableEq R] {D : Domain R} {P : Program}
 
-/-- The call nodes of the names the program defines. -/
-def callNodes (P : Program) : List Rel :=
-  P.defs.flatMap fun d => [.call d.1, .conv (.call d.1)]
-
-/-- No body of a name the program defines is larger, in either direction. -/
-def bodyBound (P : Program) : Nat :=
-  (P.defs.map fun d => d.2.norm.size + d.2.normConv.size).sum
-
-/-- The call nodes of defined names that are not among `seen`. -/
-def rem (P : Program) (seen : List Rel) : Nat :=
-  ((callNodes P).filter fun c => decide (c ∉ seen)).length
-
-/-- The depth that is enough under `m` calls still to pass, less the size of
-the node. -/
-def underCalls (P : Program) (m : Nat) : Nat := m * (bodyBound P + 2) + 1
-
-/-- The depth from which the edges of a node are read. -/
-def readNeed (P : Program) (n : Rel) : Nat := n.size + 1 + underCalls P (rem P [])
-
 omit [Answer R] [DecidableEq R] in
 /-- The body of a call node: the node is one of a defined name and the body
 is within the bound, or the body is `0`. -/
@@ -231,6 +212,21 @@ theorem readEdge_some (last : Bool) (d : Nat) (n : Rel) (hd : readNeed P n ≤ d
     · simp
 
 end kernel
+
+/-- **The reading of the first rung is right about the program and does not
+give up for ever.** -/
+theorem readOk {K : Kernel R Cost} {hK : K.Refines D} (hL : D.Lawful P.sorts.interp)
+    (hP : ProgFO P) : ReadOk D P K hK @runsReader :=
+  ⟨readEdge_sound hL hP, fun last d n hd => readEdge_some last d n hd⟩
+
+/-- What the machine needs of a reading of edges, at the derivation kernel of
+every lawful domain (`ReadOk`). -/
+def GoodReader (rd : EdgeReader) : Prop :=
+  ∀ {R : Type} [Answer R] [DecidableEq R] {D : Domain R} {P : Program} (K : Kernel R Cost)
+    (hK : K.Refines D), D.Lawful P.sorts.interp → ProgFO P → ReadOk D P K hK @rd
+
+/-- The reading of the first rung is good. -/
+theorem good_runsReader : GoodReader @runsReader := fun _ _ hL hP => readOk hL hP
 
 end Symmetric
 

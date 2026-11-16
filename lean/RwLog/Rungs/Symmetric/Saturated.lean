@@ -33,12 +33,13 @@ namespace Symmetric
 open Answer Saturation
 
 variable {R : Type} [Answer R] [DecidableEq R] {D : Domain R} {P : Program}
+variable {rd : EdgeReader}
   {U : GOracle R Rel (Ans D P) Cost}
 
 variable {σ : Nat → StateOf R Rel (Ans D P)}
 
 /-- The group has a span. -/
-theorem IsRun.live_span (h : IsRun U σ) {ra k m : Nat} {g : GoalOf R Rel}
+theorem IsRun.live_span (h : IsRun (rd := @rd) U σ) {ra k m : Nat} {g : GoalOf R Rel}
     {L : Nat → List (Strat Rel (Ans D P))} {ran0 : Bool} (hk : goalAt (σ ra) k = some g)
     (hL : Line (readNeed P) σ k ra L) (h0 : (L ra)[m]? = some (.span ran0)) :
     Served D P (opened σ) (held σ) (toGoal g) := by
@@ -53,7 +54,7 @@ theorem IsRun.live_span (h : IsRun U σ) {ra k m : Nat} {g : GoalOf R Rel}
   exact h.served_span hk (hL.mem (r + 1) (by omega) _ (List.mem_of_getElem? hs'))
 
 /-- The group has a call or a union. -/
-theorem IsRun.live_copy (h : IsRun U σ) {ra k m : Nat} {g : GoalOf R Rel}
+theorem IsRun.live_copy (h : IsRun (rd := @rd) U σ) {ra k m : Nat} {g : GoalOf R Rel}
     {L : Nat → List (Strat Rel (Ans D P))} {c : Bool} {subs0 : List (Nat × Nat)}
     (hk : goalAt (σ ra) k = some g) (hL : Line (readNeed P) σ k ra L)
     (h0 : (L ra)[m]? = some (.copy c subs0)) :
@@ -121,7 +122,7 @@ theorem IsRun.live_copy (h : IsRun U σ) {ra k m : Nat} {g : GoalOf R Rel}
           omega
 
 /-- The group has a join. -/
-theorem IsRun.live_join (h : IsRun U σ) {ra k m : Nat} {g : GoalOf R Rel}
+theorem IsRun.live_join (h : IsRun (rd := @rd) U σ) {ra k m : Nat} {g : GoalOf R Rel}
     {L : Nat → List (Strat Rel (Ans D P))} {kd : Kind} {a b : Nat} {c0 : Cursor}
     (hk : goalAt (σ ra) k = some g) (hL : Line (readNeed P) σ k ra L)
     (h0 : (L ra)[m]? = some (.join kd a b c0)) :
@@ -211,7 +212,7 @@ theorem IsRun.live_join (h : IsRun U σ) {ra k m : Nat} {g : GoalOf R Rel}
       · exact hlt
 
 /-- The group is all interface checks. -/
-theorem IsRun.live_check (h : IsRun U σ) {ra k : Nat} {g : GoalOf R Rel}
+theorem IsRun.live_check (h : IsRun (rd := @rd) U σ) {ra k : Nat} {g : GoalOf R Rel}
     {L : Nat → List (Strat Rel (Ans D P))} (hk : goalAt (σ ra) k = some g)
     (hL : Line (readNeed P) σ k ra L) (hall : ∀ s ∈ L ra, s.isCheck = true) :
     Served D P (opened σ) (held σ) (toGoal g) := by
@@ -323,7 +324,7 @@ theorem IsRun.live_check (h : IsRun U σ) {ra k : Nat} {g : GoalOf R Rel}
     exact ⟨r, by omega, hfed _ (List.mem_of_getElem? hs) (fun j' hj' => empty j' hj' _) j hj⟩
 
 /-- **A table that has rounds for ever is served.** -/
-theorem IsRun.served_live (h : IsRun U σ) {r0 k : Nat} {g : GoalOf R Rel}
+theorem IsRun.served_live (h : IsRun (rd := @rd) U σ) {r0 k : Nat} {g : GoalOf R Rel}
     (hk : goalAt (σ r0) k = some g) (hl : Live σ k) :
     Served D P (opened σ) (held σ) (toGoal g) := by
   obtain ⟨ra, L, hL⟩ := h.req.line k hl
@@ -352,7 +353,7 @@ theorem IsRun.served_live (h : IsRun U σ) {r0 k : Nat} {g : GoalOf R Rel}
   · exact h.live_check hka hL hall
 
 /-- **A run of requests is saturated.** -/
-theorem IsRun.saturated (hL : D.Lawful P.sorts.interp) (h : IsRun U σ) :
+theorem IsRun.saturated (hL : D.Lawful P.sorts.interp) (h : IsRun (rd := @rd) U σ) :
     Saturation.Saturated D P (opened σ) (held σ) where
   ok := by
     rintro _ ⟨k, r, g, hk, rfl, -⟩
@@ -364,7 +365,7 @@ theorem IsRun.saturated (hL : D.Lawful P.sorts.interp) (h : IsRun U σ) :
     · exact h.served_live hk ho
 
 /-- The run does not neglect the root. -/
-theorem IsRun.root_opened (h : IsRun U σ) {g : GoalOf R Rel} (h0 : goalAt (σ 0) 0 = some g) :
+theorem IsRun.root_opened (h : IsRun (rd := @rd) U σ) {g : GoalOf R Rel} (h0 : goalAt (σ 0) 0 = some g) :
     toGoal g ∈ opened σ :=
   h.mem_opened h0
     (h.opened_of_settled h0 fun r' => ⟨r', Nat.le_refl _, (h.req.req r').root⟩)

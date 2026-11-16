@@ -302,6 +302,7 @@ theorem keep_mark {st mid : StateOf S N A} (h : Keep st mid) {i : Nat} {t : Tabl
 end pure
 
 variable {R : Type} [Answer R] [DecidableEq R] {D : Domain R} {P : Program}
+variable {rd : EdgeReader}
 
 section kernel
 
@@ -366,12 +367,12 @@ theorem keep_foldL_from {α β : Type} (π : β → StateOf R Rel (Ans D P)) (f 
 
 theorem keep_work (i : Nat) (g : GoalOf R Rel) (st : StateOf R Rel (Ans D P))
     (s : Strat Rel (Ans D P)) (hb : Busy st i) :
-    Keep st (work (K := DerivationKernel.over D K hK P) i g st s).val.1 :=
+    Keep st (work @rd (K := DerivationKernel.over D K hK P) i g st s).val.1 :=
   (inner_work (K := K) (hK := hK) i g st s).frame.keep hb.open
 
 theorem keep_turn (i : Nat) (g : GoalOf R Rel) (f left : Nat) (st : StateOf R Rel (Ans D P))
     (s : Strat Rel (Ans D P)) (c : Nat) (hb : Busy st i) :
-    Keep st (turn (K := DerivationKernel.over D K hK P) i g f left st s c).val.1 :=
+    Keep st (turn @rd (K := DerivationKernel.over D K hK P) i g f left st s c).val.1 :=
   (inner_turn (K := K) (hK := hK) i g f left st s c).frame.keep hb.open
 
 omit [DecidableEq R] in
@@ -382,9 +383,9 @@ theorem keep_setGroup (st : StateOf R Rel (Ans D P)) (i k : Nat)
 theorem keep_workGroup (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R Rel (Ans D P) × Nat))
     (hadv : ∀ h st, Keep st (adv h st).val.1) (i : Nat) (g : GoalOf R Rel)
     (k : Nat) (st : StateOf R Rel (Ans D P)) (hb : Busy st i) :
-    Keep st (workGroup (K := DerivationKernel.over D K hK P) adv i g k st).val.1 := by
+    Keep st (workGroup @rd (K := DerivationKernel.over D K hK P) adv i g k st).val.1 := by
   have hw := fun g f left st s c hb =>
-    keep_turn (K := K) (hK := hK) (P := P) i g f left st s c hb
+    keep_turn (rd := @rd) (K := K) (hK := hK) (P := P) i g f left st s c hb
   have hf := fun X d hX => feedGroup_keeps (K := K) (hK := hK) (P := P) adv (Keep st)
     (fun h X hX => hX.trans (hadv h X))
     (fun h c X hX => hX.trans (keep_modify X h _ fun _ _ =>
@@ -405,9 +406,9 @@ theorem keep_workGroup (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf 
 theorem keep_workLevel (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R Rel (Ans D P) × Nat))
     (hadv : ∀ h st, Keep st (adv h st).val.1) (i : Nat) (g : GoalOf R Rel)
     (lv : Nat) (st : StateOf R Rel (Ans D P)) (hb : Busy st i) :
-    Keep st (workLevel (K := DerivationKernel.over D K hK P) adv i g lv st).val.1 := by
+    Keep st (workLevel @rd (K := DerivationKernel.over D K hK P) adv i g lv st).val.1 := by
   have hw := fun g k st hb =>
-    keep_workGroup (K := K) (hK := hK) (P := P) adv hadv i g k st hb
+    keep_workGroup (rd := @rd) (K := K) (hK := hK) (P := P) adv hadv i g k st hb
   at_cost K hK
   refine keep_foldL (fun acc : StateOf R Rel (Ans D P) × Bool => acc.1) _ i (fun b p hb => ?_) _
     (st, false) hb
@@ -418,11 +419,11 @@ theorem keep_workLevel (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf 
 
 theorem keep_prepare (i : Nat) (t : Table R Rel (Ans D P)) (st : StateOf R Rel (Ans D P))
     (ht : st.tables[i]? = some t) (hd : t.done = false) :
-    Keep st (prepare (K := DerivationKernel.over D K hK P) i t st).val ∧
-      Busy (prepare (K := DerivationKernel.over D K hK P) i t st).val i := by
+    Keep st (prepare @rd (K := DerivationKernel.over D K hK P) i t st).val ∧
+      Busy (prepare @rd (K := DerivationKernel.over D K hK P) i t st).val i := by
   have hopen : ∀ t', st.tables[i]? = some t' → t'.done = false := fun t' h => by
     rw [ht] at h; cases h; exact hd
-  have hfr := (inner_expand (K := K) (hK := hK) (P := P) (w := i) t.goal st).frame
+  have hfr := (inner_expand (rd := @rd) (K := K) (hK := hK) (P := P) (w := i) t.goal st).frame
   have hexp := hfr.keep hopen
   at_cost K hK
   unfold prepare
@@ -443,7 +444,7 @@ theorem keep_prepare (i : Nat) (t : Table R Rel (Ans D P)) (st : StateOf R Rel (
   | none =>
     simp only [Cost.bind_val, Cost.pure_val]
     obtain ⟨t1, ht1, -, d1, -⟩ := hfr.2.1 i t ht
-    generalize some (expand (K := DerivationKernel.over D _ hK P) t.goal st).val.2 = gs
+    generalize some (expand @rd (K := DerivationKernel.over D _ hK P) t.goal st).val.2 = gs
     generalize (raceOf (K := DerivationKernel.over D _ hK P) t.goal).val = r
     refine fin _ (hexp.trans (keep_modify _ _ _ fun _ _ =>
       ⟨rfl, rfl, rfl, fun h => h, fun h => ⟨h, fun h => h⟩⟩))
@@ -456,7 +457,7 @@ complete table as it is, and every open table that has had its round in this
 request open. -/
 theorem keep_advance (U : GOracle R Rel (Ans D P) Cost) :
     ∀ (fuel i : Nat) (st : StateOf R Rel (Ans D P)),
-    Keep st (advance (K := DerivationKernel.over D K hK P) U fuel i st).val.1
+    Keep st (advance @rd (K := DerivationKernel.over D K hK P) U fuel i st).val.1
   | 0, _, st => by
     at_cost K hK
     exact Keep.refl st
@@ -464,9 +465,9 @@ theorem keep_advance (U : GOracle R Rel (Ans D P) Cost) :
     have ih := fun h st => keep_advance U fuel h st
     have hrace := fun g (st : StateOf R Rel (Ans D P)) =>
       frame_askRace (K := K) (hK := hK) (P := P) U i g st
-    have hprep := fun t ht hd => keep_prepare (K := K) (hK := hK) (P := P) i t st ht hd
+    have hprep := fun t ht hd => keep_prepare (rd := @rd) (K := K) (hK := hK) (P := P) i t st ht hd
     have hlev := fun g lv st hb =>
-      keep_workLevel (K := K) (hK := hK) (P := P) _ ih i g lv st hb
+      keep_workLevel (rd := @rd) (K := K) (hK := hK) (P := P) _ ih i g lv st hb
     at_cost K hK
     simp only [advance]
     split
@@ -485,13 +486,13 @@ theorem keep_advance (U : GOracle R Rel (Ans D P) Cost) :
             have hmid := keep_foldL_from (fun acc : StateOf R Rel (Ans D P) × Bool => acc.1)
               (fun (acc : StateOf R Rel (Ans D P) × Bool) lv =>
                 if acc.2 then pure acc
-                else workLevel (K := DerivationKernel.over D _ hK P)
-                  (advance (K := DerivationKernel.over D _ hK P) U fuel) i t.goal lv acc.1) i
+                else workLevel @rd (K := DerivationKernel.over D _ hK P)
+                  (advance @rd (K := DerivationKernel.over D _ hK P) U fuel) i t.goal lv acc.1) i
               (fun b lv hb => by
                 split
                 · exact Keep.refl _
                 · exact hlev _ _ _ hb)
-              (levelsOf (groupsAt (prepare (K := DerivationKernel.over D _ hK P) i t st).val i))
+              (levelsOf (groupsAt (prepare @rd (K := DerivationKernel.over D _ hK P) i t st).val i))
               (_, false) (Keep.refl _) hb
             have hd' : t.done = false := by simpa using hd
             refine keep_mark ?_ ht hs hd' _ fun t'' => ⟨rfl, rfl, rfl, rfl, fun h => by simp [h]⟩
@@ -507,8 +508,8 @@ theorem keep_advance (U : GOracle R Rel (Ans D P) Cost) :
 stays, its answers stay with more at the end, and a complete table stays
 complete and gains none. -/
 theorem stable_request (U : GOracle R Rel (Ans D P) Cost) (st : StateOf R Rel (Ans D P)) :
-    Stable st (request (K := DerivationKernel.over D K hK P) U st).val.1 := by
-  have h := fun st => keep_advance (K := K) (hK := hK) (P := P) U st.tables.length 0 st
+    Stable st (request @rd (K := DerivationKernel.over D K hK P) U st).val.1 := by
+  have h := fun st => keep_advance (rd := @rd) (K := K) (hK := hK) (P := P) U st.tables.length 0 st
   at_cost K hK
   simp only [request, Cost.bind_val, Cost.pure_val]
   have h1 := (h { st with round := st.round + 1 }).stable

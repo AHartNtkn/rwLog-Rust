@@ -72,7 +72,11 @@ Rungs/Symmetric/ the symmetric engine of `SYMMETRIC_ENGINE.md` (Machine.lean): a
                 passed) holds of the strategies made for a goal and is kept by a whole
                 request, with the goals of the tables distinct and good (Kept.lean,
                 `Good`, `good_request`); and the interfaces read from the program are
-                right about it (Edge.lean, `readOk`). How the ticks are shared: the cursor of
+                right about it (Edge.lean, `readEdge_sound`). The reading is a part the
+                engine is given (`EdgeReader`, Machine.lean): what the proofs need of one
+                is `ReadOk` (Progress.lean), that it is right about the program and does
+                not give up for ever, and the reading of rung 1 has it (ReadLive.lean,
+                `readOk`, `good_runsReader`). How the ticks are shared: the cursor of
                 a join shares its ticks among its pairs by the unions their answers came
                 from and still reaches every pair it has filed, by a measure that falls
                 (Cursor.lean, `Cursor.rank_fall`, `rankLt_wf`); and the record of a
@@ -135,7 +139,9 @@ Rungs/Symmetric/ the symmetric engine of `SYMMETRIC_ENGINE.md` (Machine.lean): a
                 the laws at every kernel rung, the base of a ladder, and its cost does not
                 depend on the direction a query is written in (Rung.lean,
                 `Symmetric.rung_lawful`, `rung_ladder`, `rung_direction`,
-                `rung_directionFree`; `rung1` is the one with the raced unfolding). Not
+                `rung_directionFree`, for any unfolding race and any reading of edges
+                that meet their specifications; `rung1` is the one with the raced
+                unfolding and the reading `runsReader`). Not
                 proved yet: any bound on its cost in the size of the input.
 Sorts/          the constraint domain of sorts and the proof that it is lawful
 Manifest/       rung 1's manifest (Rung1.lean): headline statements, trusted files and

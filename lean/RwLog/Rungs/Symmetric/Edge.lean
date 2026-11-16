@@ -2,7 +2,7 @@
 # Reading an edge is right about the program
 
 `readEdge` reads from the program the interfaces the answers of a node can
-show at one end. Here: what it returns is right (`readOk`). Every answer of a
+show at one end. Here: what it returns is right (`readEdge_sound`). Every answer of a
 node of the normal form with first-order spans ends (begins) with one of the
 runs `runs` returns (`runs_ok`), so inside the interface of one of them.
 -/
@@ -518,7 +518,10 @@ theorem runs_ok (hL : D.Lawful P.sorts.interp) (hP : ProgFO P) (last : Bool) :
 /-- **Reading an edge is right about the program**: the interfaces read are
 boundaries, and every answer of a node of the normal form with first-order
 spans ends (begins) inside one of them. -/
-theorem readOk (hL : D.Lawful P.sorts.interp) (hP : ProgFO P) : ReadOk D P K hK := by
+theorem readEdge_sound (hL : D.Lawful P.sorts.interp) (hP : ProgFO P) :
+    ∀ (last : Bool) (d : Nat) (n : Rel) (ps : List R),
+      (readEdge (K := DerivationKernel.over D K hK P) last d n).val = some (some ps) →
+        EdgeOk D P n last ps := by
   intro last d n ps h
   have hruns := fun rs => runs_ok (K := K) (hK := hK) hL hP last d [] n rs
   at_cost K hK

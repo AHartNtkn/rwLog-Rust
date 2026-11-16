@@ -17,6 +17,7 @@ namespace Symmetric
 open Traverse Answer
 
 variable {R : Type} [Answer R] [DecidableEq R] {D : Domain R} {P : Program}
+variable {rd : EdgeReader}
 
 /-- A goal a run may open: its boundaries pass as boundaries and its node has
 first-order spans. -/
@@ -28,7 +29,7 @@ table, and the edges kept are right about the program. -/
 structure Base (st : StateOf R Rel (Ans D P)) : Prop where
   good : ∀ j g, goalAt st j = some g → GoodG D g
   nodup : ∀ i j g, goalAt st i = some g → goalAt st j = some g → i = j
-  edges : EdgesOk st
+  edges : EdgesOk (rd := @rd) st
 
 /-- The same goals at the same places, and the same edges. -/
 def SameG (st st' : StateOf R Rel (Ans D P)) : Prop :=
@@ -41,8 +42,8 @@ omit [DecidableEq R] in
 theorem SameG.trans {a b c : StateOf R Rel (Ans D P)} (h₁ : SameG a b) (h₂ : SameG b c) :
     SameG a c := ⟨fun j => (h₂.1 j).trans (h₁.1 j), h₂.2.trans h₁.2⟩
 
-theorem Base.same {st st' : StateOf R Rel (Ans D P)} (hB : Base st) (h : SameG st st') :
-    Base st' := by
+theorem Base.same {st st' : StateOf R Rel (Ans D P)} (hB : Base (rd := @rd) st) (h : SameG st st') :
+    Base (rd := @rd) st' := by
   refine ⟨fun j g hg => hB.good j g ?_, fun i j g hi hj => hB.nodup i j g ?_ ?_, fun e he => ?_⟩
   · rw [← h.1 j]; exact hg
   · rw [← h.1 i]; exact hi
@@ -78,8 +79,8 @@ section kernel
 variable {K : Kernel R Cost} {hK : K.Refines D}
 
 /-- Opening a goal a run may open keeps the base. -/
-theorem base_openGoal {st : StateOf R Rel (Ans D P)} (hB : Base st) (h : GoalOf R Rel)
-    (hg : GoodG D h) : Base (openGoal (K := DerivationKernel.over D K hK P) st h).val.1 := by
+theorem base_openGoal {st : StateOf R Rel (Ans D P)} (hB : Base (rd := @rd) st) (h : GoalOf R Rel)
+    (hg : GoodG D h) : Base (rd := @rd) (openGoal (K := DerivationKernel.over D K hK P) st h).val.1 := by
   have hv := indexFrom_val (P := P) K hK (fun t : Table R Rel (Ans D P) => t.goal) h st.tables 0
   at_cost K hK
   simp only [openGoal, Cost.bind_val]
@@ -183,22 +184,22 @@ theorem good_pushG (hL : D.Lawful P.sorts.interp) {g : GoalOf R Rel} (hg : GoodG
   · exact ⟨hl _, hr _, ho⟩
 
 theorem base_pushOpen (hL : D.Lawful P.sorts.interp) {st : StateOf R Rel (Ans D P)}
-    (hB : Base st) {g : GoalOf R Rel} (hg : GoodG D g) {other : Rel} (ho : other.FO) (k : Kind)
+    (hB : Base (rd := @rd) st) {g : GoalOf R Rel} (hg : GoodG D g) {other : Rel} (ho : other.FO) (k : Kind)
     (left : Bool) (xs : List (Ans D P)) :
-    Base (pushOpen (K := DerivationKernel.over D K hK P) g other k left st xs).val.1 := by
+    Base (rd := @rd) (pushOpen (K := DerivationKernel.over D K hK P) g other k left st xs).val.1 := by
   have hp := pushGoal_val (K := K) (hK := hK) (P := P) g other k left
-  have hop := fun st hB h hg => base_openGoal (K := K) (hK := hK) (P := P) (st := st) hB h hg
+  have hop := fun st hB h hg => base_openGoal (rd := @rd) (K := K) (hK := hK) (P := P) (st := st) hB h hg
   at_cost K hK
   refine foldL_inv (fun acc : StateOf R Rel (Ans D P) × List (Ans D P × Nat × Nat) =>
     Base acc.1) _ xs (fun b x _ hb => ?_) (st, []) hB
   simp only [Cost.bind_val, Cost.pure_val, hp]
   exact hop _ hb _ (good_pushG hL hg ho k left x)
 
-theorem base_checkOpen {st : StateOf R Rel (Ans D P)} (hB : Base st) {g : GoalOf R Rel}
+theorem base_checkOpen {st : StateOf R Rel (Ans D P)} (hB : Base (rd := @rd) st) {g : GoalOf R Rel}
     (hg : GoodG D g) {other : Rel} (ho : other.FO) (left : Bool) (ps : List R)
     (hps : ∀ p ∈ ps, D.isBound p = true) :
-    Base (checkOpen (K := DerivationKernel.over D K hK P) g left other st ps).val.1 := by
-  have hop := fun st hB h hg => base_openGoal (K := K) (hK := hK) (P := P) (st := st) hB h hg
+    Base (rd := @rd) (checkOpen (K := DerivationKernel.over D K hK P) g left other st ps).val.1 := by
+  have hop := fun st hB h hg => base_openGoal (rd := @rd) (K := K) (hK := hK) (P := P) (st := st) hB h hg
   at_cost K hK
   refine foldL_inv (fun acc : StateOf R Rel (Ans D P) × List Nat => Base acc.1) _ ps
     (fun b p hp hb => ?_) (st, []) hB
@@ -209,11 +210,11 @@ theorem base_checkOpen {st : StateOf R Rel (Ans D P)} (hB : Base st) {g : GoalOf
   · exact ⟨hpb, hg.2.1, ho⟩
   · exact ⟨hg.1, hpb, ho⟩
 
-theorem base_edgeOf (hR : ReadOk D P K hK) {st : StateOf R Rel (Ans D P)} (hB : Base st)
+theorem base_edgeOf (hR : ReadOk D P K hK @rd) {st : StateOf R Rel (Ans D P)} (hB : Base (rd := @rd) st)
     (last : Bool) (n : Rel) :
-    Base (edgeOf (K := DerivationKernel.over D K hK P) st last n).val.1 := by
+    Base (rd := @rd) (edgeOf @rd (K := DerivationKernel.over D K hK P) st last n).val.1 := by
   obtain ⟨h1, h2, -⟩ := edgeOf_spec hR hB.edges last n
-  have hg : ∀ j, goalAt (edgeOf (K := DerivationKernel.over D K hK P) st last n).val.1 j =
+  have hg : ∀ j, goalAt (edgeOf @rd (K := DerivationKernel.over D K hK P) st last n).val.1 j =
       goalAt st j := fun j => by unfold goalAt; rw [h2]
   refine ⟨fun j g hj => hB.good j g ?_, fun i j g hi hj => hB.nodup i j g ?_ ?_, h1⟩
   · rw [← hg j]; exact hj
@@ -236,10 +237,10 @@ theorem SplitAt.fo {g L Rg : GoalOf R Rel} {k : Kind} (h : SplitAt g k L Rg) (hg
     exact List.mem_of_getElem? hx
 
 /-- The work of a strategy keeps the base. -/
-theorem base_work (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK)
-    {st : StateOf R Rel (Ans D P)} (hB : Base st) (i : Nat) (g : GoalOf R Rel)
-    (s : Strat Rel (Ans D P)) (hg : GoodG D g) (hs : Prog st i g s) :
-    Base (work (K := DerivationKernel.over D K hK P) i g st s).val.1 := by
+theorem base_work (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK @rd)
+    {st : StateOf R Rel (Ans D P)} (hB : Base (rd := @rd) st) (i : Nat) (g : GoalOf R Rel)
+    (s : Strat Rel (Ans D P)) (hg : GoodG D g) (hs : Prog (rd := @rd) st i g s) :
+    Base (rd := @rd) (work @rd (K := DerivationKernel.over D K hK P) i g st s).val.1 := by
   have h1 := fun st o => sameG_addOption (K := K) (hK := hK) (P := P) st i o
   have h2 := fun (isCall : Bool) (m : Nat) st as =>
     sameG_copyFrom (K := K) (hK := hK) (P := P) i g isCall m st as
@@ -249,9 +250,9 @@ theorem base_work (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK)
     base_pushOpen (K := K) (hK := hK) hL hB hg ho k left xs
   have h6 := fun left n => edgeOf_spec hR hB.edges left n
   have h7 := fun left n => base_edgeOf hR hB left n
-  have h8 := fun (st' : StateOf R Rel (Ans D P)) (hB' : Base st') (other : Rel) (ho : other.FO)
+  have h8 := fun (st' : StateOf R Rel (Ans D P)) (hB' : Base (rd := @rd) st') (other : Rel) (ho : other.FO)
       left ps hps =>
-    base_checkOpen (K := K) (hK := hK) hB' hg ho left ps hps
+    base_checkOpen (rd := @rd) (K := K) (hK := hK) hB' hg ho left ps hps
   clear hR
   at_cost K hK
   cases s with
@@ -311,12 +312,12 @@ theorem base_work (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK)
 
 /-! ## The strategies of a goal start right -/
 
-theorem prog_splitGroup {st : StateOf R Rel (Ans D P)} (hB : Base st) (w : Nat) (k : Kind)
+theorem prog_splitGroup {st : StateOf R Rel (Ans D P)} (hB : Base (rd := @rd) st) (w : Nat) (k : Kind)
     (L Rg g : GoalOf R Rel) (hL' : GoodG D L) (hR' : GoodG D Rg) (hs : SplitAt g k L Rg) :
     Frame w st (splitGroup (K := DerivationKernel.over D K hK P) k L Rg st).val.1 ∧
-      Base (splitGroup (K := DerivationKernel.over D K hK P) k L Rg st).val.1 ∧
+      Base (rd := @rd) (splitGroup (K := DerivationKernel.over D K hK P) k L Rg st).val.1 ∧
       (∀ s ∈ (splitGroup (K := DerivationKernel.over D K hK P) k L Rg st).val.2.strats,
-        Prog (splitGroup (K := DerivationKernel.over D K hK P) k L Rg st).val.1 w g s) ∧
+        Prog (rd := @rd) (splitGroup (K := DerivationKernel.over D K hK P) k L Rg st).val.1 w g s) ∧
       ∃ a b, (splitGroup (K := DerivationKernel.over D K hK P) k L Rg st).val.2.strats =
           [.join k a b Cursor.start, .push k true a Rg.node [] none [] Cursor.start Cursor.start,
             .push k false b L.node [] none [] Cursor.start Cursor.start] ∧
@@ -344,15 +345,15 @@ theorem prog_splitGroup {st : StateOf R Rel (Ans D P)} (hB : Base st) (w : Nat) 
     exact ⟨L, Rg, hs, hg2, rfl, rfl, True.intro, (fun e he => by cases he), PushFits.start,
       fun s q x t r y hb => absurd hb (Cursor.before_start s q), Cursor.fits_start⟩
 
-theorem prog_checkOf (hR : ReadOk D P K hK) {st : StateOf R Rel (Ans D P)} (hB : Base st)
+theorem prog_checkOf (hR : ReadOk D P K hK @rd) {st : StateOf R Rel (Ans D P)} (hB : Base (rd := @rd) st)
     (w : Nat) (left : Bool) (side other : Rel) :
-    Frame w st (checkOf (K := DerivationKernel.over D K hK P) st left side other).val.1 ∧
-      Base (checkOf (K := DerivationKernel.over D K hK P) st left side other).val.1 ∧
-      (∀ s ∈ (checkOf (K := DerivationKernel.over D K hK P) st left side other).val.2,
+    Frame w st (checkOf @rd (K := DerivationKernel.over D K hK P) st left side other).val.1 ∧
+      Base (rd := @rd) (checkOf @rd (K := DerivationKernel.over D K hK P) st left side other).val.1 ∧
+      (∀ s ∈ (checkOf @rd (K := DerivationKernel.over D K hK P) st left side other).val.2,
         s = .check left side other .reading) ∧
-      (Reads D P side left none ∨ .check left side other .reading ∈
-        (checkOf (K := DerivationKernel.over D K hK P) st left side other).val.2) := by
-  have hF := (inner_checkOf (K := K) (hK := hK) (P := P) (w := w) st left side other).frame
+      (Reads @rd D P side left none ∨ .check left side other .reading ∈
+        (checkOf @rd (K := DerivationKernel.over D K hK P) st left side other).val.2) := by
+  have hF := (inner_checkOf (rd := @rd) (K := K) (hK := hK) (P := P) (w := w) st left side other).frame
   have h := base_edgeOf hR hB left side
   have hrd := (edgeOf_spec hR hB.edges left side).2.2.2
   clear hR
@@ -371,14 +372,14 @@ passed. -/
 def ChainDone (w : Nat) (g : GoalOf R Rel) (n : Nat) (st : StateOf R Rel (Ans D P))
     (done : List Nat) (acc : StateOf R Rel (Ans D P) × List (Group Rel (Ans D P)) ×
       List (Strat Rel (Ans D P))) : Prop :=
-  Frame w st acc.1 ∧ Base acc.1 ∧ (∀ gr ∈ acc.2.1, ∀ s ∈ gr.strats, Prog acc.1 w g s) ∧
-    (∀ s ∈ acc.2.2, Prog acc.1 w g s) ∧
+  Frame w st acc.1 ∧ Base (rd := @rd) acc.1 ∧ (∀ gr ∈ acc.2.1, ∀ s ∈ gr.strats, Prog (rd := @rd) acc.1 w g s) ∧
+    (∀ s ∈ acc.2.2, Prog (rd := @rd) acc.1 w g s) ∧
     ∀ i ∈ done, ∀ l r, g.node.interval 0 i = some l → g.node.interval i n = some r →
       (∃ gr ∈ acc.2.1, ∃ a b, goalAt acc.1 a = some ⟨g.lb, l, none⟩ ∧
         goalAt acc.1 b = some ⟨none, r, g.rb⟩ ∧ .join .seq a b Cursor.start ∈ gr.kinds ∧
         .push .seq true a r [] none [] Cursor.start Cursor.start ∈ gr.kinds ∧ .push .seq false b l [] none [] Cursor.start Cursor.start ∈ gr.kinds) ∧
-      (Reads D P l true none ∨ .check true l r .reading ∈ acc.2.2) ∧
-      (Reads D P r false none ∨ .check false r l .reading ∈ acc.2.2)
+      (Reads @rd D P l true none ∨ .check true l r .reading ∈ acc.2.2) ∧
+      (Reads @rd D P r false none ∨ .check false r l .reading ∈ acc.2.2)
 
 theorem mem_range_drop_one {i n : Nat} (h0 : 0 < i) (hi : i < n) :
     i ∈ (List.range n).drop 1 := by
@@ -390,15 +391,15 @@ theorem mem_range_drop_one {i n : Nat} (h0 : 0 < i) (hi : i < n) :
 
 theorem ChainDone.out {w : Nat} {g : GoalOf R Rel} {xs : List Rel} {st : StateOf R Rel (Ans D P)}
     {acc : StateOf R Rel (Ans D P) × List (Group Rel (Ans D P)) × List (Strat Rel (Ans D P))}
-    (h : ChainDone w g xs.length st ((List.range xs.length).drop 1) acc)
+    (h : ChainDone (rd := @rd) w g xs.length st ((List.range xs.length).drop 1) acc)
     (hv : g.node.view = .chain xs) :
-    Base acc.1 ∧ (∀ gr ∈ acc.2.1, ∀ s ∈ gr.strats, Prog acc.1 w g s) ∧
-      (∀ s ∈ acc.2.2, Prog acc.1 w g s) ∧
+    Base (rd := @rd) acc.1 ∧ (∀ gr ∈ acc.2.1, ∀ s ∈ gr.strats, Prog (rd := @rd) acc.1 w g s) ∧
+      (∀ s ∈ acc.2.2, Prog (rd := @rd) acc.1 w g s) ∧
       ∀ L Rg, SplitAt g .seq L Rg →
         (∃ gr ∈ acc.2.1, ∃ a b, goalAt acc.1 a = some L ∧ goalAt acc.1 b = some Rg ∧
           .join .seq a b Cursor.start ∈ gr.kinds ∧ .push .seq true a Rg.node [] none [] Cursor.start Cursor.start ∈ gr.kinds ∧
           .push .seq false b L.node [] none [] Cursor.start Cursor.start ∈ gr.kinds) ∧
-        ∀ left : Bool, Reads D P (if left then L.node else Rg.node) left none ∨
+        ∀ left : Bool, Reads @rd D P (if left then L.node else Rg.node) left none ∨
           .check left (if left then L.node else Rg.node) (if left then Rg.node else L.node)
             .reading ∈ acc.2.2 := by
   obtain ⟨-, k1, k2, k3, k4⟩ := h
@@ -414,13 +415,13 @@ theorem ChainDone.out {w : Nat} {g : GoalOf R Rel} {xs : List Rel} {st : StateOf
   · simp only [↓reduceIte]
     exact c1
 
-theorem prog_chainGroups (hR : ReadOk D P K hK) {st : StateOf R Rel (Ans D P)} (hB : Base st)
+theorem prog_chainGroups (hR : ReadOk D P K hK @rd) {st : StateOf R Rel (Ans D P)} (hB : Base (rd := @rd) st)
     (w : Nat) (ho : Open st w) (g : GoalOf R Rel) (hg : GoodG D g) {xs : List Rel}
     (hv : g.node.view = .chain xs) :
-    ChainDone w g xs.length st ((List.range xs.length).drop 1)
-      (chainGroups (K := DerivationKernel.over D K hK P) g xs.length st).val := by
-  have hsg := fun (st' : StateOf R Rel (Ans D P)) (hB' : Base st') l r hl hr hs =>
-    prog_splitGroup (K := K) (hK := hK) hB' w .seq ⟨g.lb, l, none⟩ ⟨none, r, g.rb⟩ g hl hr hs
+    ChainDone (rd := @rd) w g xs.length st ((List.range xs.length).drop 1)
+      (chainGroups @rd (K := DerivationKernel.over D K hK P) g xs.length st).val := by
+  have hsg := fun (st' : StateOf R Rel (Ans D P)) (hB' : Base (rd := @rd) st') l r hl hr hs =>
+    prog_splitGroup (rd := @rd) (K := K) (hK := hK) hB' w .seq ⟨g.lb, l, none⟩ ⟨none, r, g.rb⟩ g hl hr hs
   have hco := fun (st' : StateOf R Rel (Ans D P)) (hB' : Base st') left side other =>
     prog_checkOf hR hB' w left side other
   clear hR
@@ -501,7 +502,7 @@ theorem prog_chainGroups (hR : ReadOk D P K hK) {st : StateOf R Rel (Ans D P)} (
 passed. -/
 def MeetDone (w : Nat) (g : GoalOf R Rel) (xs : List Rel) (st : StateOf R Rel (Ans D P))
     (done : List Nat) (acc : StateOf R Rel (Ans D P) × List (Group Rel (Ans D P))) : Prop :=
-  Frame w st acc.1 ∧ Base acc.1 ∧ (∀ gr ∈ acc.2, ∀ s ∈ gr.strats, Prog acc.1 w g s) ∧
+  Frame w st acc.1 ∧ Base (rd := @rd) acc.1 ∧ (∀ gr ∈ acc.2, ∀ s ∈ gr.strats, Prog (rd := @rd) acc.1 w g s) ∧
     ∀ i ∈ done, ∀ l r, xs[i]? = some l → g.node.without i = some r →
       ∃ gr ∈ acc.2, ∃ a b, goalAt acc.1 a = some ⟨g.lb, l, g.rb⟩ ∧
         goalAt acc.1 b = some ⟨g.lb, r, g.rb⟩ ∧ .join .and a b Cursor.start ∈ gr.kinds ∧
@@ -517,8 +518,8 @@ theorem no_split {g : GoalOf R Rel}
 
 theorem MeetDone.out {w : Nat} {g : GoalOf R Rel} {xs : List Rel} {st : StateOf R Rel (Ans D P)}
     {acc : StateOf R Rel (Ans D P) × List (Group Rel (Ans D P))}
-    (h : MeetDone w g xs st (andSplits xs.length) acc) (hv : g.node.view = .meet xs) :
-    Base acc.1 ∧ (∀ gr ∈ acc.2, ∀ s ∈ gr.strats, Prog acc.1 w g s) ∧ Full acc.1 g acc.2 := by
+    (h : MeetDone (rd := @rd) w g xs st (andSplits xs.length) acc) (hv : g.node.view = .meet xs) :
+    Base (rd := @rd) acc.1 ∧ (∀ gr ∈ acc.2, ∀ s ∈ gr.strats, Prog (rd := @rd) acc.1 w g s) ∧ Full (rd := @rd) acc.1 g acc.2 := by
   obtain ⟨-, k1, k2, k3⟩ := h
   refine ⟨k1, k2, Full.of_view hv (fun _ e => by cases e) (fun _ _ e => by cases e)
     (fun _ e => by cases e) (fun k L Rg hsp => ?_) (fun L Rg hsp => ?_)⟩
@@ -538,28 +539,28 @@ theorem MeetDone.out {w : Nat} {g : GoalOf R Rel} {xs : List Rel} {st : StateOf 
 
 /-- **The strategies made for a goal start right, and there is one for
 every way to answer it**; making them keeps the base. -/
-theorem prog_expand (hR : ReadOk D P K hK) (hP : ProgFO P) {st : StateOf R Rel (Ans D P)}
-    (hB : Base st) (w : Nat) (ho : Open st w) (g : GoalOf R Rel) (hg : GoodG D g)
+theorem prog_expand (hR : ReadOk D P K hK @rd) (hP : ProgFO P) {st : StateOf R Rel (Ans D P)}
+    (hB : Base (rd := @rd) st) (w : Nat) (ho : Open st w) (g : GoalOf R Rel) (hg : GoodG D g)
     (hn : Normal g.node) :
-    Base (expand (K := DerivationKernel.over D K hK P) g st).val.1 ∧
-      (∀ gr ∈ (expand (K := DerivationKernel.over D K hK P) g st).val.2, ∀ s ∈ gr.strats,
-        Prog (expand (K := DerivationKernel.over D K hK P) g st).val.1 w g s) ∧
-      Full (expand (K := DerivationKernel.over D K hK P) g st).val.1 g
-        (expand (K := DerivationKernel.over D K hK P) g st).val.2 := by
-  have hop := fun (st' : StateOf R Rel (Ans D P)) (hB' : Base st') h hg' =>
-    base_openGoal (K := K) (hK := hK) hB' h hg'
+    Base (rd := @rd) (expand @rd (K := DerivationKernel.over D K hK P) g st).val.1 ∧
+      (∀ gr ∈ (expand @rd (K := DerivationKernel.over D K hK P) g st).val.2, ∀ s ∈ gr.strats,
+        Prog (rd := @rd) (expand @rd (K := DerivationKernel.over D K hK P) g st).val.1 w g s) ∧
+      Full (rd := @rd) (expand @rd (K := DerivationKernel.over D K hK P) g st).val.1 g
+        (expand @rd (K := DerivationKernel.over D K hK P) g st).val.2 := by
+  have hop := fun (st' : StateOf R Rel (Ans D P)) (hB' : Base (rd := @rd) st') h hg' =>
+    base_openGoal (rd := @rd) (K := K) (hK := hK) hB' h hg'
   have hog := fun st' h => openGoal_goalAt (K := K) (hK := hK) (P := P) st' h
   have hin := fun st' h =>
     (inner_openGoal (K := K) (hK := hK) (P := P) (w := 0) st' h).reach.ext
   have hcg := fun xs (hv : g.node.view = .chain xs) =>
     (prog_chainGroups hR hB w ho g hg hv).out hv
-  have hsg := fun (st' : StateOf R Rel (Ans D P)) (hB' : Base st') l r hl hr hs =>
-    prog_splitGroup (K := K) (hK := hK) hB' w .and ⟨g.lb, l, g.rb⟩ ⟨g.lb, r, g.rb⟩ g hl hr hs
+  have hsg := fun (st' : StateOf R Rel (Ans D P)) (hB' : Base (rd := @rd) st') l r hl hr hs =>
+    prog_splitGroup (rd := @rd) (K := K) (hK := hK) hB' w .and ⟨g.lb, l, g.rb⟩ ⟨g.lb, r, g.rb⟩ g hl hr hs
   have one : ∀ (st' : StateOf R Rel (Ans D P)) (s : Strat Rel (Ans D P)) (V : NodeView Span Rel),
       g.node.view = V → (∀ xs, V ≠ .chain xs ∧ V ≠ .meet xs) →
       (∀ s0, V = .span s0 → s.kind = .span false) →
       (∀ n f, V = .call n f → s.kind = .copy true []) →
-      (∀ xs, V = .union xs → s.kind = .copy false []) → Full st' g [⟨0, [s], []⟩] := by
+      (∀ xs, V = .union xs → s.kind = .copy false []) → Full (rd := @rd) st' g [⟨0, [s], []⟩] := by
     intro st' s V hv hns h1 h2 h3
     have hmem : ∀ x, s.kind = x → ∃ gr ∈ [(⟨0, [s], []⟩ : Group Rel (Ans D P))], x ∈ gr.kinds :=
       fun x e => ⟨_, List.mem_singleton.2 rfl, by simp [Group.kinds, e]⟩
@@ -650,7 +651,7 @@ theorem prog_expand (hR : ReadOk D P K hK) (hP : ProgFO P) {st : StateOf R Rel (
     simp only [Cost.bind_val, Cost.pure_val]
     have hvc := forget_chain hv
     obtain ⟨h1, h2, h3, h4⟩ := hcg xs hvc
-    generalize (chainGroups (K := DerivationKernel.over D _ hK P) g xs.length st).val = r
+    generalize (chainGroups @rd (K := DerivationKernel.over D _ hK P) g xs.length st).val = r
       at h1 h2 h3 h4 ⊢
     have hin' : ∀ gr ∈ r.2.1, gr ∈ (if r.2.2.isEmpty then r.2.1 else r.2.1 ++ [⟨0, r.2.2, []⟩]) :=
       fun gr h => by
@@ -729,7 +730,7 @@ theorem prog_expand (hR : ReadOk D P K hK) (hP : ProgFO P) {st : StateOf R Rel (
 /-- Every strategy of every table has cursors that mean what `Prog` says. -/
 def ProgAll (st : StateOf R Rel (Ans D P)) : Prop :=
   ∀ (i : Nat) (t : Table R Rel (Ans D P)), st.tables[i]? = some t → ∀ gs, t.groups = some gs →
-    ∀ gr ∈ gs, ∀ s ∈ gr.strats, Prog st i t.goal s
+    ∀ gr ∈ gs, ∀ s ∈ gr.strats, Prog (rd := @rd) st i t.goal s
 
 /-- Whether a goal has a race: its node is a chain. -/
 def hasRace (g : GoalOf R Rel) : Bool :=
@@ -760,9 +761,9 @@ every cursor, a strategy for every way to answer a goal, and that only a
 goal with a race has a table with one. -/
 structure Good (st : StateOf R Rel (Ans D P)) : Prop where
   inv : Inv st
-  base : Base st
-  prog : ProgAll st
-  full : FullAll st
+  base : Base (rd := @rd) st
+  prog : ProgAll (rd := @rd) st
+  full : FullAll (rd := @rd) st
   race : RaceAll st
 
 omit [DecidableEq R] in
@@ -795,11 +796,11 @@ theorem stable_modify (st : StateOf R Rel (Ans D P)) (i : Nat)
     exact ⟨f t, by simp, h1, h2, by rw [h3], fun hd => ⟨h4 hd, h3⟩⟩
   · exact ⟨t, by simp [e], rfl, rfl, List.prefix_refl _, fun h => ⟨h, rfl⟩⟩
 
-theorem ProgAll.modify {st : StateOf R Rel (Ans D P)} (hA : ProgAll st) (i : Nat)
+theorem ProgAll.modify {st : StateOf R Rel (Ans D P)} (hA : ProgAll (rd := @rd) st) (i : Nat)
     (f : Table R Rel (Ans D P) → Table R Rel (Ans D P)) (hgoal : ∀ t, (f t).goal = t.goal)
     (hS : Stable st (st.modify i f))
     (hg : ∀ t, st.tables[i]? = some t → ∀ gs, (f t).groups = some gs → ∀ gr ∈ gs,
-      ∀ s ∈ gr.strats, Prog st i t.goal s) : ProgAll (st.modify i f) := by
+      ∀ s ∈ gr.strats, Prog (rd := @rd) st i t.goal s) : ProgAll (rd := @rd) (st.modify i f) := by
   intro j t' h gs hgs gr hgr s hs
   rcases getElem?_modify_cases st i f h with ⟨-, h⟩ | ⟨rfl, t, ht, rfl⟩
   · exact (hA j t' h gs hgs gr hgr s hs).mono hS
@@ -808,8 +809,8 @@ theorem ProgAll.modify {st : StateOf R Rel (Ans D P)} (hA : ProgAll st) (i : Nat
 
 /-- The work of the strategies of an open table leaves every cursor its
 meaning. -/
-theorem ProgAll.frame {st st' : StateOf R Rel (Ans D P)} (hA : ProgAll st) {j : Nat}
-    (h : Frame j st st') (ho : Open st j) : ProgAll st' := by
+theorem ProgAll.frame {st st' : StateOf R Rel (Ans D P)} (hA : ProgAll (rd := @rd) st) {j : Nat}
+    (h : Frame j st st') (ho : Open st j) : ProgAll (rd := @rd) st' := by
   intro k t' hk gs hgs gr hgr s hs
   cases hst : st.tables[k]? with
   | none => rw [(h.2.2 k t' hk hst).1] at hgs; cases hgs
@@ -821,11 +822,11 @@ theorem ProgAll.frame {st st' : StateOf R Rel (Ans D P)} (hA : ProgAll st) {j : 
     rw [e5] at hgs
     exact (hA k t hst gs hgs gr hgr s hs).mono (h.stable ho)
 
-theorem FullAll.modify {st : StateOf R Rel (Ans D P)} (hA : FullAll st) (i : Nat)
+theorem FullAll.modify {st : StateOf R Rel (Ans D P)} (hA : FullAll (rd := @rd) st) (i : Nat)
     (f : Table R Rel (Ans D P) → Table R Rel (Ans D P)) (hgoal : ∀ t, (f t).goal = t.goal)
     (hS : Stable st (st.modify i f))
-    (hg : ∀ t, st.tables[i]? = some t → ∀ gs, (f t).groups = some gs → Full st t.goal gs) :
-    FullAll (st.modify i f) := by
+    (hg : ∀ t, st.tables[i]? = some t → ∀ gs, (f t).groups = some gs → Full (rd := @rd) st t.goal gs) :
+    FullAll (rd := @rd) (st.modify i f) := by
   intro j t' h gs hgs
   rcases getElem?_modify_cases st i f h with ⟨-, h⟩ | ⟨rfl, t, ht, rfl⟩
   · exact (hA j t' h gs hgs).mono hS
@@ -834,8 +835,8 @@ theorem FullAll.modify {st : StateOf R Rel (Ans D P)} (hA : FullAll st) (i : Nat
 
 /-- The work of the strategies of an open table leaves every table its
 strategies. -/
-theorem FullAll.frame {st st' : StateOf R Rel (Ans D P)} (hA : FullAll st) {j : Nat}
-    (h : Frame j st st') (ho : Open st j) : FullAll st' := by
+theorem FullAll.frame {st st' : StateOf R Rel (Ans D P)} (hA : FullAll (rd := @rd) st) {j : Nat}
+    (h : Frame j st st') (ho : Open st j) : FullAll (rd := @rd) st' := by
   intro k t' hk gs hgs
   cases hst : st.tables[k]? with
   | none => rw [(h.2.2 k t' hk hst).1] at hgs; cases hgs
@@ -850,15 +851,15 @@ theorem FullAll.frame {st st' : StateOf R Rel (Ans D P)} (hA : FullAll st) {j : 
 /-- Only a check can be dead, and one that is can never show its goal
 empty. -/
 theorem dead_gone {st : StateOf R Rel (Ans D P)} {i : Nat} {g : GoalOf R Rel}
-    {s : Strat Rel (Ans D P)} (hp : Prog st i g s) (hd : s.dead st = true) :
-    ∃ l side o c, s = .check l side o c ∧ CheckGone st g l side o := by
+    {s : Strat Rel (Ans D P)} (hp : Prog (rd := @rd) st i g s) (hd : s.dead st = true) :
+    ∃ l side o c, s = .check l side o c ∧ CheckGone (rd := @rd) st g l side o := by
   cases s with
   | check l side o c => exact ⟨l, side, o, c, rfl, prog_dead_gone hp hd⟩
   | _ => simp [Strat.dead] at hd
 
-theorem prog_of_groupsAt {st : StateOf R Rel (Ans D P)} (hA : ProgAll st) {i k j : Nat}
+theorem prog_of_groupsAt {st : StateOf R Rel (Ans D P)} (hA : ProgAll (rd := @rd) st) {i k j : Nat}
     {g : GoalOf R Rel} {s : Strat Rel (Ans D P)} (hg : goalAt st i = some g)
-    (h : ((groupsAt st i)[k]?).bind (·.strats[j]?) = some s) : Prog st i g s := by
+    (h : ((groupsAt st i)[k]?).bind (·.strats[j]?) = some s) : Prog (rd := @rd) st i g s := by
   unfold goalAt at hg
   unfold groupsAt at h
   cases ht : st.tables[i]? with
@@ -957,11 +958,11 @@ theorem RaceAll.inner {st st' : StateOf R Rel (Ans D P)} {j : Nat} (hA : RaceAll
 /-- Changing one table keeps what a run keeps, if its goal, its mark, its
 answers, its strategies and its race stay, and it stays complete if it
 was. -/
-theorem Good.modify {st : StateOf R Rel (Ans D P)} (hG : Good st) (i : Nat)
+theorem Good.modify {st : StateOf R Rel (Ans D P)} (hG : Good (rd := @rd) st) (i : Nat)
     (f : Table R Rel (Ans D P) → Table R Rel (Ans D P)) (hcore : ∀ t, (f t).core = t.core)
     (hgr : ∀ t, (f t).groups = t.groups) (hb : ∀ t, (f t).born = t.born)
     (hd : ∀ t, t.done = true → (f t).done = true)
-    (hr : ∀ t, (f t).race = t.race) : Good (st.modify i f) := by
+    (hr : ∀ t, (f t).race = t.race) : Good (rd := @rd) (st.modify i f) := by
   have e : ∀ t, (f t).goal = t.goal ∧ (f t).self = t.self ∧ (f t).answers = t.answers :=
     fun t => by
       have := hcore t
@@ -980,10 +981,10 @@ theorem Good.modify {st : StateOf R Rel (Ans D P)} (hG : Good st) (i : Nat)
 
 /-- Removing groups of one table whose strategies are all dead keeps what a
 run keeps. -/
-theorem Good.dropGroups {st : StateOf R Rel (Ans D P)} (hG : Good st) (i : Nat)
+theorem Good.dropGroups {st : StateOf R Rel (Ans D P)} (hG : Good (rd := @rd) st) (i : Nat)
     (p : Group Rel (Ans D P) → Bool)
     (hp : ∀ gr, p gr = false → ∀ s ∈ gr.strats, s.dead st = true) :
-    Good (st.modify i fun t => { t with groups := t.groups.map fun gs => gs.filter p }) := by
+    Good (rd := @rd) (st.modify i fun t => { t with groups := t.groups.map fun gs => gs.filter p }) := by
   refine ⟨hG.inv.dropGroups i p, hG.base.same (sameG_modify st i _ fun _ => rfl),
     hG.prog.modify i _ (fun _ => rfl)
       (stable_modify st i _ fun _ _ => ⟨rfl, rfl, rfl, fun h => h⟩)
@@ -1010,7 +1011,7 @@ theorem Good.dropGroups {st : StateOf R Rel (Ans D P)} (hG : Good st) (i : Nat)
 
 /-- A strategy that means what it should has a feed cursor that fits. -/
 theorem Prog.feedFits {st : StateOf R Rel (Ans D P)} {i : Nat} {g : GoalOf R Rel}
-    {s : Strat Rel (Ans D P)} (hs : Prog st i g s) : s.FeedFits := by
+    {s : Strat Rel (Ans D P)} (hs : Prog (rd := @rd) st i g s) : s.FeedFits := by
   cases s with
   | push k left side other subs dead reads c fc =>
     dsimp only [Prog] at hs
@@ -1021,8 +1022,8 @@ theorem Prog.feedFits {st : StateOf R Rel (Ans D P)} {i : Nat} {g : GoalOf R Rel
 /-- What a strategy means does not depend on its feed cursor, as long as the
 cursor fits. -/
 theorem Prog.withFeed {st : StateOf R Rel (Ans D P)} {i : Nat} {g : GoalOf R Rel}
-    {s f : Strat Rel (Ans D P)} (hs : Prog st i g s) (hf : f.FeedFits) :
-    Prog st i g (s.withFeed f) := by
+    {s f : Strat Rel (Ans D P)} (hs : Prog (rd := @rd) st i g s) (hf : f.FeedFits) :
+    Prog (rd := @rd) st i g (s.withFeed f) := by
   cases s with
   | push k left side other subs dead reads c fc =>
     cases f with
@@ -1059,14 +1060,14 @@ theorem reFeed_kinds {N A : Type} (ss fed : List (Strat N A)) :
 
 /-- Changing a group of a table keeps what a run keeps, if each strategy of
 the group stays or fits with cursors that mean what they should. -/
-theorem Good.setGroup {st : StateOf R Rel (Ans D P)} (hG : Good st) (i k : Nat)
+theorem Good.setGroup {st : StateOf R Rel (Ans D P)} (hG : Good (rd := @rd) st) (i k : Nat)
     (f : Group Rel (Ans D P) → Group Rel (Ans D P))
     (hf : ∀ g gr, goalAt st i = some g → ∀ s ∈ (f gr).strats,
       (∃ s0 ∈ gr.strats, s.core = s0.core) ∨ StratOk st g s)
-    (hp : ∀ g gr, goalAt st i = some g → (∀ s ∈ gr.strats, Prog st i g s) →
-      ∀ s ∈ (f gr).strats, Prog st i g s)
+    (hp : ∀ g gr, goalAt st i = some g → (∀ s ∈ gr.strats, Prog (rd := @rd) st i g s) →
+      ∀ s ∈ (f gr).strats, Prog (rd := @rd) st i g s)
     (hk : ∀ gr, (groupsAt st i)[k]? = some gr → (f gr).kinds = gr.kinds) :
-    Good (setGroup st i k f) := by
+    Good (rd := @rd) (setGroup st i k f) := by
   refine ⟨inv_setGroup hG.inv i k f fun g gr hg h s hs =>
       (hf g gr hg s hs).elim (fun h0 => StratOk.core h0.choose_spec.2 (h _ h0.choose_spec.1)) id,
     hG.base.same (sameG_modify st i _ fun _ => rfl),
@@ -1106,12 +1107,12 @@ theorem Good.setGroup {st : StateOf R Rel (Ans D P)} (hG : Good st) (i k : Nat)
 /-- A change of the tables that keeps of each its goal, its mark, its
 answers and its strategies, and leaves a complete table complete, keeps what
 a run keeps. -/
-theorem Good.of_map {st st' : StateOf R Rel (Ans D P)} (hG : Good st)
+theorem Good.of_map {st st' : StateOf R Rel (Ans D P)} (hG : Good (rd := @rd) st)
     (F : Nat → Table R Rel (Ans D P) → Table R Rel (Ans D P))
     (hget : ∀ j, st'.tables[j]? = (st.tables[j]?).map (F j))
     (hcore : ∀ j t, (F j t).core = t.core) (hgr : ∀ j t, (F j t).groups = t.groups)
     (hb : ∀ j t, (F j t).born = t.born) (hd : ∀ j t, t.done = true → (F j t).done = true)
-    (hr : ∀ j t, (F j t).race = t.race) (he : st'.edges = st.edges) : Good st' := by
+    (hr : ∀ j t, (F j t).race = t.race) (he : st'.edges = st.edges) : Good (rd := @rd) st' := by
   have e : ∀ j t, (F j t).goal = t.goal ∧ (F j t).self = t.self ∧ (F j t).answers = t.answers :=
     fun j t => by
       have := hcore j t
@@ -1157,7 +1158,7 @@ theorem Good.of_map {st st' : StateOf R Rel (Ans D P)} (hG : Good st)
 /-- The work of a strategy moves its cursors and nothing else. -/
 theorem work_kind (i : Nat) (g : GoalOf R Rel) (st : StateOf R Rel (Ans D P))
     (s : Strat Rel (Ans D P)) :
-    (work (K := DerivationKernel.over D K hK P) i g st s).val.2.1.kind = s.kind := by
+    (work @rd (K := DerivationKernel.over D K hK P) i g st s).val.2.1.kind = s.kind := by
   at_cost K hK
   cases s with
   | span ran => cases ran <;> rfl
@@ -1186,19 +1187,19 @@ structure UnitOk (K : Kernel R Cost) (hK : K.Refines D) (i : Nat) (g : GoalOf R 
     (st0 : StateOf R Rel (Ans D P)) (s0 : Strat Rel (Ans D P)) (st : StateOf R Rel (Ans D P))
     (s : Strat Rel (Ans D P)) : Prop where
   inv : Inv st
-  base : Base st
+  base : Base (rd := @rd) st
   goal : goalAt st i = some g
   isOpen : Open st i
   ok : StratOk st g s
-  prog : Prog st i g s
+  prog : Prog (rd := @rd) st i g s
   kind : s.kind = s0.kind
   inner : Inner K hK i st0 st
 
-theorem UnitOk.work (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK) {i : Nat}
+theorem UnitOk.work (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK @rd) {i : Nat}
     {g : GoalOf R Rel} {st0 st : StateOf R Rel (Ans D P)} {s0 s : Strat Rel (Ans D P)}
-    (hg : GoodG D g) (h : UnitOk K hK i g st0 s0 st s) :
-    UnitOk K hK i g st0 s0 (work (K := DerivationKernel.over D K hK P) i g st s).val.1
-      (work (K := DerivationKernel.over D K hK P) i g st s).val.2.1 where
+    (hg : GoodG D g) (h : UnitOk (rd := @rd) K hK i g st0 s0 st s) :
+    UnitOk (rd := @rd) K hK i g st0 s0 (work @rd (K := DerivationKernel.over D K hK P) i g st s).val.1
+      (work @rd (K := DerivationKernel.over D K hK P) i g st s).val.2.1 where
   inv := (inv_work h.inv i g s h.goal h.ok).1
   base := base_work hL hR h.base i g s hg h.prog
   goal := (reach_work (K := K) (hK := hK) i g st s).ext _ _ h.goal
@@ -1209,15 +1210,15 @@ theorem UnitOk.work (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK) {i : N
   inner := h.inner.trans (inner_work (K := K) (hK := hK) i g st s)
 
 /-- One strategy has its turn and is put back. -/
-theorem good_workStep (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK)
-    {st : StateOf R Rel (Ans D P)} (hG : Good st) (i : Nat) (g : GoalOf R Rel)
+theorem good_workStep (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK @rd)
+    {st : StateOf R Rel (Ans D P)} (hG : Good (rd := @rd) st) (i : Nat) (g : GoalOf R Rel)
     (k j : Nat) (s : Strat Rel (Ans D P)) (f left c : Nat) (ow : List Nat → List Nat)
     (hg : goalAt st i = some g) (hb : Busy st i)
     (hs : ((groupsAt st i)[k]?).bind (·.strats[j]?) = some s) :
-    Good (setGroup (turn (K := DerivationKernel.over D K hK P) i g f left st s c).val.1 i k
+    Good (rd := @rd) (setGroup (turn @rd (K := DerivationKernel.over D K hK P) i g f left st s c).val.1 i k
       fun gr => { gr with
         strats := gr.strats.set j
-          (turn (K := DerivationKernel.over D K hK P) i g f left st s c).val.2.1,
+          (turn @rd (K := DerivationKernel.over D K hK P) i g f left st s c).val.2.1,
         owed := ow gr.owed }) := by
   have hok := strat_of_groupsAt hG.inv hg hs
   have hp := prog_of_groupsAt hG.prog hg hs
@@ -1238,7 +1239,7 @@ theorem good_workStep (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK)
     rcases List.mem_or_eq_of_mem_set hs' with h' | rfl
     · exact hpr _ h'
     · exact hU.prog
-  · have hga : groupsAt (turn (K := DerivationKernel.over D K hK P) i g f left st s c).val.1 i =
+  · have hga : groupsAt (turn @rd (K := DerivationKernel.over D K hK P) i g f left st s c).val.1 i =
         groupsAt st i := by
       obtain ⟨t, ht, -⟩ := hb
       obtain ⟨t', ht', -, -, -, -, e5, -⟩ := hfr.2.1 i t ht
@@ -1249,9 +1250,9 @@ theorem good_workStep (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK)
 
 /-- A group is given feed cursors that fit, and its level: what a run keeps
 is kept. -/
-theorem Good.setFeeds {st : StateOf R Rel (Ans D P)} (hG : Good st) (i k d : Nat)
+theorem Good.setFeeds {st : StateOf R Rel (Ans D P)} (hG : Good (rd := @rd) st) (i k d : Nat)
     (fed : List (Strat Rel (Ans D P))) (hfit : ∀ f ∈ fed, f.FeedFits) :
-    Good (Symmetric.setGroup st i k fun gr =>
+    Good (rd := @rd) (Symmetric.setGroup st i k fun gr =>
       { gr with level := gr.level + d, strats := reFeed gr.strats fed }) := by
   refine Good.setGroup hG i k _ (fun g gr _ s hs => .inl (mem_reFeed hs))
     (fun g gr _ hpr s hs => ?_) (fun gr _ => reFeed_kinds _ _)
@@ -1260,7 +1261,7 @@ theorem Good.setFeeds {st : StateOf R Rel (Ans D P)} (hG : Good st) (i k d : Nat
   · exact (hpr s0 h0).withFeed (hfit f hf)
 
 /-- The strategies of a group of a table have feed cursors that fit. -/
-theorem Good.feedFits {st : StateOf R Rel (Ans D P)} (hG : Good st) (i k : Nat) :
+theorem Good.feedFits {st : StateOf R Rel (Ans D P)} (hG : Good (rd := @rd) st) (i k : Nat) :
     ∀ s ∈ ((groupsAt st i)[k]?.map (·.strats)).getD [], s.FeedFits := by
   intro s hs
   unfold groupsAt at hs
@@ -1280,17 +1281,17 @@ theorem Good.feedFits {st : StateOf R Rel (Ans D P)} (hG : Good st) (i k : Nat) 
         rw [hgr] at hs
         exact (hG.prog i t ht gs hgs gr (List.mem_of_getElem? hgr) s hs).feedFits
 
-theorem good_workGroup (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK)
+theorem good_workGroup (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK @rd)
     (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R Rel (Ans D P) × Nat))
-    (hadv : ∀ h st, Good st → Good (adv h st).val.1)
+    (hadv : ∀ h st, Good (rd := @rd) st → Good (rd := @rd) (adv h st).val.1)
     (hadvK : ∀ h st, Keep st (adv h st).val.1) {st : StateOf R Rel (Ans D P)}
-    (hG : Good st) (i : Nat) (g : GoalOf R Rel) (k : Nat)
+    (hG : Good (rd := @rd) st) (i : Nat) (g : GoalOf R Rel) (k : Nat)
     (hg : goalAt st i = some g) (hb : Busy st i) :
-    Good (workGroup (K := DerivationKernel.over D K hK P) adv i g k st).val.1 := by
+    Good (rd := @rd) (workGroup @rd (K := DerivationKernel.over D K hK P) adv i g k st).val.1 := by
   have hstep := fun (st : StateOf R Rel (Ans D P)) hG j s f left c ow hg hb hs =>
     good_workStep (K := K) (hK := hK) hL hR (st := st) hG i g k j s f left c ow hg hb hs
   have hkw := fun (st : StateOf R Rel (Ans D P)) s f left c hb =>
-    keep_turn (K := K) (hK := hK) (P := P) i g f left st s c hb
+    keep_turn (rd := @rd) (K := K) (hK := hK) (P := P) i g f left st s c hb
   have hf := fun X d hX => feedGroup_keeps (K := K) (hK := hK) (P := P) adv
     (fun X => Good X ∧ goalAt X i = some g ∧ Busy X i)
     (fun h X hX => ⟨hadv h X hX.1, (hadvK h X).stable.ext _ _ hX.2.1, (hadvK h X).busy hX.2.2⟩)
@@ -1317,23 +1318,23 @@ theorem good_workGroup (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK)
     · next s o hs =>
       simp only [Cost.bind_val, Cost.pure_val]
       refine ⟨hstep b.1 hb.1 j s _ _ 0
-        (fun l => setOwed l j (o + (turn (K := DerivationKernel.over D _ hK P) i g
+        (fun l => setOwed l j (o + (turn @rd (K := DerivationKernel.over D _ hK P) i g
           (turnTicks * weight b.1 s - o) (turnTicks * weight b.1 s - o) b.1 s 0).val.2.2 -
             turnTicks * weight b.1 s)) hb.2.1 hb.2.2 (pick_strat hs).1, ?_, ?_⟩
       · exact ((hkw b.1 s _ _ 0 hb.2.2).trans (keep_setGroup _ i k _)).stable.ext _ _ hb.2.1
       · exact ((hkw b.1 s _ _ 0 hb.2.2).trans (keep_setGroup _ i k _)).busy hb.2.2
 
-theorem good_workLevel (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK)
+theorem good_workLevel (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK @rd)
     (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R Rel (Ans D P) × Nat))
-    (hadv : ∀ h st, Good st → Good (adv h st).val.1)
+    (hadv : ∀ h st, Good (rd := @rd) st → Good (rd := @rd) (adv h st).val.1)
     (hadvK : ∀ h st, Keep st (adv h st).val.1) {st : StateOf R Rel (Ans D P)}
-    (hG : Good st) (i : Nat) (g : GoalOf R Rel) (lv : Nat)
+    (hG : Good (rd := @rd) st) (i : Nat) (g : GoalOf R Rel) (lv : Nat)
     (hg : goalAt st i = some g) (hb : Busy st i) :
-    Good (workLevel (K := DerivationKernel.over D K hK P) adv i g lv st).val.1 := by
+    Good (rd := @rd) (workLevel @rd (K := DerivationKernel.over D K hK P) adv i g lv st).val.1 := by
   have hwg := fun (st : StateOf R Rel (Ans D P)) hG k hg hb =>
     good_workGroup (K := K) (hK := hK) hL hR adv hadv hadvK (st := st) hG i g k hg hb
   have hkg := fun k (st : StateOf R Rel (Ans D P)) hb =>
-    keep_workGroup (K := K) (hK := hK) (P := P) adv hadvK i g k st hb
+    keep_workGroup (rd := @rd) (K := K) (hK := hK) (P := P) adv hadvK i g k st hb
   clear hR
   at_cost K hK
   refine (foldL_inv (fun acc : StateOf R Rel (Ans D P) × Bool =>
@@ -1345,25 +1346,25 @@ theorem good_workLevel (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK)
     exact ⟨hwg b.1 hb.1 p.2 hb.2.1 hb.2.2, hk.stable.ext _ _ hb.2.1, hk.busy hb.2.2⟩
   · exact hb
 
-theorem good_prepare (hR : ReadOk D P K hK) (hP : ProgFO P) {st : StateOf R Rel (Ans D P)}
-    (hG : Good st) (i : Nat) (t : Table R Rel (Ans D P)) (ht : st.tables[i]? = some t)
+theorem good_prepare (hR : ReadOk D P K hK @rd) (hP : ProgFO P) {st : StateOf R Rel (Ans D P)}
+    (hG : Good (rd := @rd) st) (i : Nat) (t : Table R Rel (Ans D P)) (ht : st.tables[i]? = some t)
     (hd : t.done = false) :
-    Good (prepare (K := DerivationKernel.over D K hK P) i t st).val := by
+    Good (rd := @rd) (prepare @rd (K := DerivationKernel.over D K hK P) i t st).val := by
   have hg : goalAt st i = some t.goal := by unfold goalAt; rw [ht]; rfl
   have ho : Open st i := ⟨t, ht, hd⟩
-  have hI := inv_prepare (K := K) (hK := hK) hG.inv i t ht
+  have hI := inv_prepare (rd := @rd) (K := K) (hK := hK) hG.inv i t ht
   obtain ⟨b1, p1, q1⟩ := prog_expand hR hP hG.base i ho t.goal (hG.base.good i _ hg)
     (hG.inv.core i t ht).1
-  have hfr := (inner_expand (K := K) (hK := hK) (P := P) (w := i) t.goal st).frame
+  have hfr := (inner_expand (rd := @rd) (K := K) (hK := hK) (P := P) (w := i) t.goal st).frame
   have hA1 := hG.prog.frame hfr ho
   have hF1 := hG.full.frame hfr ho
   have hE := (hfr.stable ho).ext
-  have hR1 := hG.race.inner (inner_expand (K := K) (hK := hK) (P := P) (w := i) t.goal st)
+  have hR1 := hG.race.inner (inner_expand (rd := @rd) (K := K) (hK := hK) (P := P) (w := i) t.goal st)
   have hrv := raceOf_val (K := K) (hK := hK) (P := P) t.goal
-  suffices h : Base (prepare (K := DerivationKernel.over D K hK P) i t st).val ∧
-      ProgAll (prepare (K := DerivationKernel.over D K hK P) i t st).val ∧
-      FullAll (prepare (K := DerivationKernel.over D K hK P) i t st).val ∧
-      RaceAll (prepare (K := DerivationKernel.over D K hK P) i t st).val from
+  suffices h : Base (prepare @rd (K := DerivationKernel.over D K hK P) i t st).val ∧
+      ProgAll (prepare @rd (K := DerivationKernel.over D K hK P) i t st).val ∧
+      FullAll (prepare @rd (K := DerivationKernel.over D K hK P) i t st).val ∧
+      RaceAll (prepare @rd (K := DerivationKernel.over D K hK P) i t st).val from
     ⟨hI, h.1, h.2.1, h.2.2.1, h.2.2.2⟩
   clear hI hR
   at_cost K hK
@@ -1381,9 +1382,9 @@ theorem good_prepare (hR : ReadOk D P K hK) (hP : ProgFO P) {st : StateOf R Rel 
       hG.race.modify i _ (fun _ => rfl) fun _ _ h => .inl h⟩
   | none =>
     simp only [Cost.bind_val, Cost.pure_val]
-    have hA2 : ProgAll ((expand (K := DerivationKernel.over D _ hK P) t.goal st).val.1.modify i
+    have hA2 : ProgAll (rd := @rd) ((expand @rd (K := DerivationKernel.over D _ hK P) t.goal st).val.1.modify i
         fun t' => { t' with race := (raceOf (K := DerivationKernel.over D _ hK P) t.goal).val,
-                            groups := some (expand (K := DerivationKernel.over D _ hK P) t.goal
+                            groups := some (expand @rd (K := DerivationKernel.over D _ hK P) t.goal
           st).val.2 }) := by
       refine hA1.modify i _ (fun _ => rfl)
         (stable_modify _ i _ fun _ _ => ⟨rfl, rfl, rfl, fun h => h⟩)
@@ -1396,9 +1397,9 @@ theorem good_prepare (hR : ReadOk D P K hK) (hP : ProgFO P) {st : StateOf R Rel 
         exact Option.some.inj this
       rw [this]
       exact p1 gr hgr s hs
-    have hF2 : FullAll ((expand (K := DerivationKernel.over D _ hK P) t.goal st).val.1.modify i
+    have hF2 : FullAll (rd := @rd) ((expand @rd (K := DerivationKernel.over D _ hK P) t.goal st).val.1.modify i
         fun t' => { t' with race := (raceOf (K := DerivationKernel.over D _ hK P) t.goal).val,
-                            groups := some (expand (K := DerivationKernel.over D _ hK P) t.goal
+                            groups := some (expand @rd (K := DerivationKernel.over D _ hK P) t.goal
           st).val.2 }) := by
       refine hF1.modify i _ (fun _ => rfl)
         (stable_modify _ i _ fun _ _ => ⟨rfl, rfl, rfl, fun h => h⟩)
@@ -1411,9 +1412,9 @@ theorem good_prepare (hR : ReadOk D P K hK) (hP : ProgFO P) {st : StateOf R Rel 
         exact Option.some.inj this
       rw [this]
       exact q1
-    have hB2 : Base ((expand (K := DerivationKernel.over D _ hK P) t.goal st).val.1.modify i
+    have hB2 : Base ((expand @rd (K := DerivationKernel.over D _ hK P) t.goal st).val.1.modify i
         fun t' => { t' with race := (raceOf (K := DerivationKernel.over D _ hK P) t.goal).val,
-                            groups := some (expand (K := DerivationKernel.over D _ hK P) t.goal
+                            groups := some (expand @rd (K := DerivationKernel.over D _ hK P) t.goal
           st).val.2 }) := b1.same (sameG_modify _ i _ fun _ => rfl)
     refine ⟨hB2.same (sameG_modify _ i _ fun _ => rfl),
       hA2.modify i _ (fun _ => rfl)
@@ -1422,9 +1423,9 @@ theorem good_prepare (hR : ReadOk D P K hK) (hP : ProgFO P) {st : StateOf R Rel 
       hF2.modify i _ (fun _ => rfl)
         (stable_modify _ i _ fun _ _ => ⟨rfl, rfl, rfl, fun h => h⟩)
         fun t' ht' gs hgs => hF2 i t' ht' gs hgs, ?_⟩
-    have hR2 : RaceAll ((expand (K := DerivationKernel.over D _ hK P) t.goal st).val.1.modify i
+    have hR2 : RaceAll ((expand @rd (K := DerivationKernel.over D _ hK P) t.goal st).val.1.modify i
         fun t' => { t' with race := (raceOf (K := DerivationKernel.over D _ hK P) t.goal).val,
-                            groups := some (expand (K := DerivationKernel.over D _ hK P) t.goal
+                            groups := some (expand @rd (K := DerivationKernel.over D _ hK P) t.goal
           st).val.2 }) := by
       refine RaceAll.modify hR1 i _ (fun _ => rfl) fun t' ht' h => .inr ?_
       have e : t'.goal = t.goal := by
@@ -1466,9 +1467,9 @@ theorem sameG_askRace (U : GOracle R Rel (Ans D P) Cost) (i : Nat) (g : GoalOf R
 /-- **The race of an open table keeps** what a run keeps: its answers are
 answers of the goal, by its specification on a goal a run may open. -/
 theorem good_askRace (U : GOracle R Rel (Ans D P) Cost) (hU : UOk D P U)
-    {st : StateOf R Rel (Ans D P)} (hG : Good st) (i : Nat) (g : GoalOf R Rel)
+    {st : StateOf R Rel (Ans D P)} (hG : Good (rd := @rd) st) (i : Nat) (g : GoalOf R Rel)
     (hg : goalAt st i = some g) (ho : Open st i) :
-    Good (askRace (K := DerivationKernel.over D K hK P) U i g st).val.1 := by
+    Good (rd := @rd) (askRace (K := DerivationKernel.over D K hK P) U i g st).val.1 := by
   have hfr := frame_askRace (K := K) (hK := hK) (P := P) U i g st
   have hgood := hG.base.good i g hg
   have hn : Normal g.node := by
@@ -1510,25 +1511,25 @@ theorem good_askRace (U : GOracle R Rel (Ans D P) Cost) (hU : UOk D P U)
 
 /-- **A round keeps** the invariant of the goals, the base, and the meaning
 of every cursor. -/
-theorem good_advance (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK) (hP : ProgFO P)
+theorem good_advance (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK @rd) (hP : ProgFO P)
     (U : GOracle R Rel (Ans D P) Cost) (hU : UOk D P U) :
-    ∀ (fuel i : Nat) (st : StateOf R Rel (Ans D P)), Good st →
-      Good (advance (K := DerivationKernel.over D K hK P) U fuel i st).val.1
+    ∀ (fuel i : Nat) (st : StateOf R Rel (Ans D P)), Good (rd := @rd) st →
+      Good (rd := @rd) (advance @rd (K := DerivationKernel.over D K hK P) U fuel i st).val.1
   | 0, _, st, hG => by
     clear hR
     at_cost K hK
     exact hG
   | fuel + 1, i, st, hG => by
     have ih := fun h st => good_advance hL hR hP U hU fuel h st
-    have ihK := fun h st => keep_advance (K := K) (hK := hK) (P := P) U fuel h st
+    have ihK := fun h st => keep_advance (rd := @rd) (K := K) (hK := hK) (P := P) U fuel h st
     have hrace := fun g (st : StateOf R Rel (Ans D P)) hG hg ho =>
-      good_askRace (K := K) (hK := hK) U hU (st := st) hG i g hg ho
+      good_askRace (rd := @rd) (K := K) (hK := hK) U hU (st := st) hG i g hg ho
     have hprep := fun t ht hd => good_prepare (K := K) (hK := hK) hR hP hG i t ht hd
-    have hprepK := fun t ht hd => keep_prepare (K := K) (hK := hK) (P := P) i t st ht hd
+    have hprepK := fun t ht hd => keep_prepare (rd := @rd) (K := K) (hK := hK) (P := P) i t st ht hd
     have hlev := fun g lv (st : StateOf R Rel (Ans D P)) hG hg hb =>
       good_workLevel (K := K) (hK := hK) hL hR _ ih ihK (st := st) hG i g lv hg hb
     have hlevK := fun g lv st hb =>
-      keep_workLevel (K := K) (hK := hK) (P := P) _ ihK i g lv st hb
+      keep_workLevel (rd := @rd) (K := K) (hK := hK) (P := P) _ ihK i g lv st hb
     clear hR
     at_cost K hK
     simp only [advance]
@@ -1549,8 +1550,8 @@ theorem good_advance (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK) (hP :
             refine Good.modify ?_ i _ (fun _ => rfl) (fun _ => rfl) (fun _ => rfl)
               (fun _ h => by simp [h]) (fun _ => rfl)
             have key : ∀ X : StateOf R Rel (Ans D P),
-                Good X ∧ goalAt X i = some t.goal ∧ Busy X i →
-                Good (askRace (K := DerivationKernel.over D _ hK P) U i t.goal
+                Good (rd := @rd) X ∧ goalAt X i = some t.goal ∧ Busy X i →
+                Good (rd := @rd) (askRace (K := DerivationKernel.over D _ hK P) U i t.goal
                   (X.modify i fun t =>
                     { t with
                       groups := t.groups.map fun gs =>
@@ -1574,10 +1575,10 @@ theorem good_advance (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK) (hP :
 
 /-- **A request keeps** the invariant of the goals, the base, and the
 meaning of every cursor. -/
-theorem good_request (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK) (hP : ProgFO P)
+theorem good_request (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK @rd) (hP : ProgFO P)
     (U : GOracle R Rel (Ans D P) Cost) (hU : UOk D P U)
-    {st : StateOf R Rel (Ans D P)} (hG : Good st) :
-    Good (request (K := DerivationKernel.over D K hK P) U st).val.1 := by
+    {st : StateOf R Rel (Ans D P)} (hG : Good (rd := @rd) st) :
+    Good (rd := @rd) (request @rd (K := DerivationKernel.over D K hK P) U st).val.1 := by
   have h := fun (st : StateOf R Rel (Ans D P)) hG =>
     good_advance (K := K) (hK := hK) hL hR hP U hU st.tables.length 0 st hG
   clear hR
@@ -1598,7 +1599,7 @@ theorem good_request (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK) (hP :
 
 /-- The first state has what a run keeps. -/
 theorem good_init {root : Rel} (hn : Normal root) (hfo : root.FO) :
-    Good (init (K := DerivationKernel.over D K hK P) root).val := by
+    Good (rd := @rd) (init (K := DerivationKernel.over D K hK P) root).val := by
   have hI := (inv_init (K := K) (hK := hK) (P := P) hn).1
   suffices h : Base (init (K := DerivationKernel.over D K hK P) root).val ∧
       ProgAll (init (K := DerivationKernel.over D K hK P) root).val ∧
