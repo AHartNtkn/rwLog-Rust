@@ -120,7 +120,7 @@ means (`Prog`) says so. -/
 theorem IsRun.pushSound (hτ : IsRun U τ) {r' k : Nat} {g : GoalOf R Rel}
     (hgk : goalAt (τ r') k = some g) {r0 : Nat} {L : Nat → List (Strat Rel (Ans D P))}
     (hLn : Line (readNeed P) τ k r0 L) (q side : Nat) : PushSound τ L q side r0 := by
-  intro r1 kd left other subs dead reads c hr1 hs
+  intro r1 kd left other subs dead reads c fc hr1 hs
   have hp := hτ.prog hgk (hLn.mem r1 hr1 _ (List.mem_of_getElem? hs))
   dsimp only [Prog] at hp
   obtain ⟨Lg, Rg, -, -, -, h4, -, h5, hfit, -⟩ := hp
@@ -785,7 +785,7 @@ theorem IsRun.fcert (hσ : IsRun U σ) (r : Nat) :
     | push kd left side other subs dead reads c fc =>
       dsimp only [Prog] at hp
       obtain ⟨Lg, Rg, hsp, hgside, hother, h4, hD, hsubs, -, -⟩ := hp
-      have hrank := hpush kd left side other subs dead reads c rfl
+      have hrank := hpush kd left side other subs dead reads c fc rfl
       obtain ⟨dead, rfl⟩ : ∃ d, dead = some d := by
         cases dead with
         | none => simp [Strat.quiet] at hq

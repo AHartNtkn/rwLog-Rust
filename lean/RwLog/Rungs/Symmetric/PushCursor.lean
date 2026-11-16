@@ -408,7 +408,7 @@ theorem PushFits.file {subs : List (A × Option (Nat × Nat))} {reads : List (Na
       (pushFile st dead 0 reads c subs).2.2 := by
   refine ⟨by rw [pushFile_pa, pushFile_length]; exact h.1, ?_⟩
   rw [pushFile_length]
-  have := Filed.push (n := subs.length) (o := IsOpen subs) st dead subs [] reads c fc
+  have := Filed.push (n := subs.length) (o := IsOpen subs) st dead subs [] reads c
     (by simpa using h.2) hle
   exact Filed.congr (by simpa using this) (isOpen_pushFile st dead subs reads c) rfl
 

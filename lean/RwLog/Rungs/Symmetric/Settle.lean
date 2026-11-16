@@ -289,7 +289,7 @@ answers seen are answers of the side, the units and the cursor fit them, and
 the answers filed of a table are answers of it. -/
 def PushSound (σ : Nat → StateOf S N A) (L : Nat → List (Strat N A)) (m side r0 : Nat) : Prop :=
   ∀ (r : Nat) (kd : Kind) (left : Bool) (other : N) (subs : List (A × Option (Nat × Nat)))
-    (dead : Option (List Nat)) (reads : List (Nat × Option Nat)) (c : Cursor), r0 ≤ r →
+    (dead : Option (List Nat)) (reads : List (Nat × Option Nat)) (c : Cursor) (fc : Cursor), r0 ≤ r →
     (L r)[m]? = some (.push kd left side other subs dead reads c fc) →
     subs.length ≤ (σ r).len side ∧ PushFits subs (dead.getD []) reads c ∧
       ∀ (n : Nat) (x : A) (t : Nat × Nat), subs[n]? = some (x, some t) → t.2 ≤ (σ r).len t.1
@@ -301,12 +301,12 @@ variable {m : Nat} {kd : Kind} {left : Bool} {side : Nat} {other : N}
 /-- A push stays a push of the same side into the same node, moved on. -/
 theorem Line.push_kept (hL : Line need σ k r0 L) {ra : Nat}
     {sa : List (A × Option (Nat × Nat))} {da : Option (List Nat)} {rda : List (Nat × Option Nat)}
-    {ca : Cursor} (hra : r0 ≤ ra)
+    {ca : Cursor} {fca : Cursor} (hra : r0 ≤ ra)
     (hsa : (L ra)[m]? = some (.push kd left side other sa da rda ca fca)) {r : Nat} (hr : ra ≤ r) :
-    ∃ subs dead reads c, (L r)[m]? = some (.push kd left side other subs dead reads c fc) ∧
-      PAdv sa da rda ca subs dead reads c := by
+    ∃ subs dead reads c fc, (L r)[m]? = some (.push kd left side other subs dead reads c fc) ∧
+      PAdv sa da rda ca subs dead reads c fc := by
   obtain ⟨_, hs, subs, dead, reads, c, rfl, hp⟩ := hL.along_from
-    (fun _ s => ∃ subs dead reads c, s = Strat.push kd left side other subs dead reads c fc ∧
+    (fun _ s => ∃ subs dead reads c fc, s = Strat.push kd left side other subs dead reads c fc ∧
       PAdv sa da rda ca subs dead reads c) hra hsa ⟨sa, da, rda, ca, rfl, PAdv.refl _ _ _ _⟩
     (fun r s s' _ _ _ hq hadv => by
       obtain ⟨subs, dead, reads, c, rfl, hp⟩ := hq
@@ -317,19 +317,19 @@ theorem Line.push_kept (hL : Line need σ k r0 L) {ra : Nat}
 /-- **A push takes each unit of an answer that is never superseded.** -/
 theorem Line.push_unit (hL : Line need σ k r0 L) {Ta : Nat} (hTa : r0 ≤ Ta)
     {sa : List (A × Option (Nat × Nat))} {da : Option (List Nat)} {rda : List (Nat × Option Nat)}
-    {ca : Cursor} (ha : (L Ta)[m]? = some (.push kd left side other sa da rda ca fca)) {p q : Nat}
+    {ca : Cursor} {fca : Cursor} (ha : (L Ta)[m]? = some (.push kd left side other sa da rda ca fca)) {p q : Nat}
     (hin : (p, q) ∈ ca.todo ∨ ca.Before p q)
-    (hlive : ∀ r subs dead reads c, Ta ≤ r →
+    (hlive : ∀ r subs dead reads c fc, Ta ≤ r →
       (L r)[m]? = some (.push kd left side other subs dead reads c fc) → p ∉ dead.getD []) :
-    ∃ T', ∀ r, T' ≤ r → ∀ subs dead reads c,
+    ∃ T', ∀ r, T' ≤ r → ∀ subs dead reads c fc,
       (L r)[m]? = some (.push kd left side other subs dead reads c fc) → c.Before p q := by
   have keep := fun rb sb db rdb cb (hrb : r0 ≤ rb)
     (hsb : (L rb)[m]? = some (.push kd left side other sb db rdb cb fcb)) r (hr : rb ≤ r) =>
     hL.push_kept hrb hsb hr
-  have inv : ∀ r subs dead reads c, Ta ≤ r →
+  have inv : ∀ r subs dead reads c fc, Ta ≤ r →
       (L r)[m]? = some (.push kd left side other subs dead reads c fc) →
       (p, q) ∈ c.todo ∨ c.Before p q := by
-    intro r subs dead reads c hr hs
+    intro r subs dead reads c fc hr hs
     obtain ⟨subs', dead', reads', c', hs', hA⟩ := keep Ta _ _ _ _ hTa ha r hr
     rw [hs] at hs'
     cases hs'
@@ -342,17 +342,17 @@ theorem Line.push_unit (hL : Line need σ k r0 L) {Ta : Nat} (hTa : r0 ≤ Ta)
   by_cases hex : ∃ rb sb db rdb cb, Ta ≤ rb ∧
       (L rb)[m]? = some (.push kd left side other sb db rdb cb fcb) ∧ cb.Before p q
   · obtain ⟨rb, sb, db, rdb, cb, hrb, hsb, hbb⟩ := hex
-    refine ⟨rb, fun r hr subs dead reads c hs => ?_⟩
+    refine ⟨rb, fun r hr subs dead reads c fc hs => ?_⟩
     obtain ⟨subs', dead', reads', c', hs', hA⟩ := keep rb _ _ _ _ (by omega) hsb r hr
     rw [hs] at hs'
     cases hs'
     exact hA.before p q hbb
   · exfalso
-    have hno : ∀ r subs dead reads c, Ta ≤ r →
+    have hno : ∀ r subs dead reads c fc, Ta ≤ r →
         (L r)[m]? = some (.push kd left side other subs dead reads c fc) →
-        (p, q) ∈ c.todo ∧ ¬ c.Before p q := fun r subs dead reads c hr hs =>
+        (p, q) ∈ c.todo ∧ ¬ c.Before p q := fun r subs dead reads c fc hr hs =>
       have hn : ¬ c.Before p q := fun hb => hex ⟨r, subs, dead, reads, c, hr, hs, hb⟩
-      ⟨(inv r subs dead reads c hr hs).resolve_right hn, hn⟩
+      ⟨(inv r subs dead reads c fc hr hs).resolve_right hn, hn⟩
     let f : Nat → List Nat := fun r =>
       match (L r)[m]? with
       | some (.push _ _ _ _ _ _ _ c fc) => c.rank p q
@@ -385,7 +385,7 @@ theorem Line.push_unit (hL : Line need σ k r0 L) {Ta : Nat} (hTa : r0 ≤ Ta)
 once the side is complete. -/
 theorem Line.push_seen (hL : Line need σ k r0 L) (hS : PushSound σ L m side r0)
     {subs0 : List (A × Option (Nat × Nat))} {dead0 : Option (List Nat)}
-    {reads0 : List (Nat × Option Nat)} {c0 : Cursor}
+    {reads0 : List (Nat × Option Nat)} {c0 : Cursor} {fc0 : Cursor}
     (h0 : (L r0)[m]? = some (.push kd left side other subs0 dead0 reads0 c0 fc0)) {T : Nat}
     (hside : Still σ T side) (hdone : ∀ r, T ≤ r → (σ r).isDone side = true) :
     ∃ T1 subs1 dead1 reads1 c1, T ≤ T1 ∧ r0 ≤ T1 ∧
@@ -414,10 +414,10 @@ superseded. -/
 theorem Line.push_fixed (hL : Line need σ k r0 L) (hS : PushSound σ L m side r0) {T T1 : Nat}
     (hside : Still σ T side) (hT : T ≤ T1) (hT1 : r0 ≤ T1)
     {subs1 : List (A × Option (Nat × Nat))} {dead1 : List Nat}
-    {reads1 : List (Nat × Option Nat)} {c1 : Cursor}
+    {reads1 : List (Nat × Option Nat)} {c1 : Cursor} {fc1 : Cursor}
     (h1 : (L T1)[m]? = some (.push kd left side other subs1 (some dead1) reads1 c1 fc1))
     (hl1 : subs1.length = (σ T).len side) {r : Nat} (hr : T1 ≤ r) :
-    ∃ subs reads c, (L r)[m]? = some (.push kd left side other subs (some dead1) reads c fc) ∧
+    ∃ subs reads c fc, (L r)[m]? = some (.push kd left side other subs (some dead1) reads c fc) ∧
       PAdv subs1 (some dead1) reads1 c1 subs (some dead1) reads c ∧
       subs.length = subs1.length := by
   obtain ⟨subs, dead, reads, c, hs, hA⟩ := hL.push_kept hT1 h1 hr
@@ -432,14 +432,14 @@ it has seen every answer of a side that gains no more. -/
 theorem Line.push_opened (hL : Line need σ k r0 L) (hS : PushSound σ L m side r0) {T T1 : Nat}
     (hside : Still σ T side) (hT : T ≤ T1) (hT1 : r0 ≤ T1)
     {subs1 : List (A × Option (Nat × Nat))} {dead1 : List Nat}
-    {reads1 : List (Nat × Option Nat)} {c1 : Cursor}
+    {reads1 : List (Nat × Option Nat)} {c1 : Cursor} {fc1 : Cursor}
     (h1 : (L T1)[m]? = some (.push kd left side other subs1 (some dead1) reads1 c1 fc1))
     (hl1 : subs1.length = (σ T).len side) :
     ∃ T2 subs2 reads2 c2, T1 ≤ T2 ∧
       (L T2)[m]? = some (.push kd left side other subs2 (some dead1) reads2 c2 fc2) ∧
       subs2.length = subs1.length ∧ ∀ n, n < subs2.length → n ∉ dead1 → IsOpen subs2 n := by
   have fx := fun r (hr : T1 ≤ r) => hL.push_fixed hS hside hT hT1 h1 hl1 hr
-  have each : ∀ n, n < subs1.length → ∃ T', ∀ r, T' ≤ r → T1 ≤ r → ∀ subs dead reads c,
+  have each : ∀ n, n < subs1.length → ∃ T', ∀ r, T' ≤ r → T1 ≤ r → ∀ subs dead reads c fc,
       (L r)[m]? = some (.push kd left side other subs dead reads c fc) → n ∉ dead1 →
       IsOpen subs n := by
     intro n hn
@@ -452,12 +452,12 @@ theorem Line.push_opened (hL : Line need σ k r0 L) (hS : PushSound σ L m side 
           by_cases hb : (n, q) ∈ c1.done
           · exact .inr hb
           · exact .inl ((hF1.2.todo (n, q)).2 ⟨⟨none, hq⟩, hb, hd⟩))
-        (fun r subs dead reads c hr hs hdd => by
+        (fun r subs dead reads c fc hr hs hdd => by
           obtain ⟨subs', reads', c', hs', -, -⟩ := fx r hr
           rw [hs] at hs'
           cases hs'
           exact hd hdd)
-      refine ⟨T', fun r hr hr1 subs dead reads c hs _ => ?_⟩
+      refine ⟨T', fun r hr hr1 subs dead reads c fc hs _ => ?_⟩
       obtain ⟨subs', reads', c', hs', hA, -⟩ := fx r hr1
       rw [hs] at hs'
       cases hs'
@@ -475,13 +475,13 @@ each of them and has no unit left to take, from some state on. -/
 theorem Line.push_done (hL : Line need σ k r0 L) (hS : PushSound σ L m side r0) {T T2 : Nat}
     (hside : Still σ T side) (hT : T ≤ T2) (hT2 : r0 ≤ T2)
     {subs2 : List (A × Option (Nat × Nat))} {dead2 : List Nat}
-    {reads2 : List (Nat × Option Nat)} {c2 : Cursor}
+    {reads2 : List (Nat × Option Nat)} {c2 : Cursor} {fc2 : Cursor}
     (h2 : (L T2)[m]? = some (.push kd left side other subs2 (some dead2) reads2 c2 fc2))
     (hl2 : subs2.length = (σ T).len side)
     (hopen : ∀ n, n < subs2.length → n ∉ dead2 → IsOpen subs2 n) {T3 : Nat}
     (hstill : ∀ (n : Nat) (x : A) (t : Nat × Nat), subs2[n]? = some (x, some t) → n ∉ dead2 →
       Still σ T3 t.1) :
-    ∃ T', T2 ≤ T' ∧ ∀ r, T' ≤ r → ∃ subs reads c,
+    ∃ T', T2 ≤ T' ∧ ∀ r, T' ≤ r → ∃ subs reads c fc,
       (L r)[m]? = some (.push kd left side other subs (some dead2) reads c fc) ∧
       PAdv subs2 (some dead2) reads2 c2 subs (some dead2) reads c ∧
       subs.length = subs2.length ∧ c.todo = [] ∧
@@ -489,11 +489,11 @@ theorem Line.push_done (hL : Line need σ k r0 L) (hS : PushSound σ L m side r0
         (σ r).len t.1 ≤ t.2 := by
   have fx := fun r (hr : T2 ≤ r) => hL.push_fixed hS hside hT hT2 h2 hl2 hr
   -- the table of an answer that is not superseded gains no more answers
-  have ent : ∀ r subs dead reads c, T2 ≤ r →
+  have ent : ∀ r subs dead reads c fc, T2 ≤ r →
       (L r)[m]? = some (.push kd left side other subs dead reads c fc) →
       ∀ (n : Nat) (x : A) (t : Nat × Nat), subs[n]? = some (x, some t) → n ∉ dead2 →
         Still σ T3 t.1 := by
-    intro r subs dead reads c hr hs n x t he hd
+    intro r subs dead reads c fc hr hs n x t he hd
     obtain ⟨subs', reads', c', hs', hA, hl⟩ := fx r hr
     rw [hs] at hs'
     cases hs'
@@ -512,11 +512,11 @@ theorem Line.push_done (hL : Line need σ k r0 L) (hS : PushSound σ L m side r0
   cases hs'
   cases hstep with
   | push hA hP =>
-    have full : ∀ r subs dead reads c, ra + 1 ≤ r →
+    have full : ∀ r subs dead reads c fc, ra + 1 ≤ r →
         (L r)[m]? = some (.push kd left side other subs dead reads c fc) →
         ∀ (n : Nat) (x : A) (t : Nat × Nat), subs[n]? = some (x, some t) → n ∉ dead2 →
           (σ r).len t.1 ≤ t.2 := by
-      intro r subs dead reads c hr hs n x t he hd
+      intro r subs dead reads c fc hr hs n x t he hd
       have hstl := ent r _ _ _ _ (by omega) hs n x t he hd
       obtain ⟨subs', reads', c', hs'', -, hl⟩ := fx r (by omega)
       rw [hs] at hs''
@@ -540,7 +540,7 @@ theorem Line.push_done (hL : Line need σ k r0 L) (hS : PushSound σ L m side r0
       rw [er1, eb1, s1, ← s2]
       omega
     obtain ⟨-, hFb, -⟩ := hS (ra + 1) _ _ _ _ _ _ _ (by omega) hsb
-    have units : ∀ q, q < rdb.length → ∃ T', ∀ r, T' ≤ r → ∀ subs dead reads c,
+    have units : ∀ q, q < rdb.length → ∃ T', ∀ r, T' ≤ r → ∀ subs dead reads c fc,
         (L r)[m]? = some (.push kd left side other subs dead reads c fc) →
         ∀ (s : Nat) (ro : Option Nat), rdb[q]? = some (s, ro) → s ∉ dead2 → c.Before s q := by
       intro q hq
@@ -548,7 +548,7 @@ theorem Line.push_done (hL : Line need σ k r0 L) (hS : PushSound σ L m side r0
       generalize rdb[q] = e at he
       obtain ⟨s0, ro0⟩ := e
       by_cases hd : s0 ∈ dead2
-      · refine ⟨0, fun r _ subs dead reads c _ s ro h hn => ?_⟩
+      · refine ⟨0, fun r _ subs dead reads c fc _ s ro h hn => ?_⟩
         rw [he] at h
         cases h
         exact absurd hd hn
@@ -557,12 +557,12 @@ theorem Line.push_done (hL : Line need σ k r0 L) (hS : PushSound σ L m side r0
             by_cases hb : (s0, q) ∈ cb.done
             · exact .inr hb
             · exact .inl ((hFb.2.todo (s0, q)).2 ⟨⟨ro0, he⟩, hb, hd⟩))
-          (fun r subs dead reads c hr hs hdd => by
+          (fun r subs dead reads c fc hr hs hdd => by
             obtain ⟨subs', reads', c', hs', -, -⟩ := fx r (by omega)
             rw [hs] at hs'
             cases hs'
             exact hd hdd)
-        refine ⟨T', fun r hr subs dead reads c hs s ro h _ => ?_⟩
+        refine ⟨T', fun r hr subs dead reads c fc hs s ro h _ => ?_⟩
         rw [he] at h
         cases h
         exact hT' r hr _ _ _ _ hs

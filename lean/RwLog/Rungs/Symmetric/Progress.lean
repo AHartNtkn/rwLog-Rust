@@ -175,10 +175,10 @@ theorem kind_join {s : Strat N A} {k : Kind} {a b : Nat} (h : s.kind = .join k a
 
 theorem kind_push {s : Strat N A} {k : Kind} {l : Bool} {side : Nat} {o : N}
     (h : s.kind = .push k l side o [] none [] Cursor.start Cursor.start) :
-    ∃ subs dead reads c, s = .push k l side o subs dead reads c fc := by
+    ∃ subs dead reads c fc, s = .push k l side o subs dead reads c fc := by
   cases s <;> simp only [Strat.kind, reduceCtorEq, Strat.push.injEq] at h
   obtain ⟨rfl, rfl, rfl, rfl, -⟩ := h
-  exact ⟨_, _, _, _, rfl⟩
+  exact ⟨_, _, _, _, _, rfl⟩
 
 theorem kind_check {s : Strat N A} {l : Bool} {side o : N}
     (h : s.kind = .check l side o .reading) : ∃ c, s = .check l side o c := by
@@ -365,7 +365,7 @@ def Prog (st : StateOf R Rel (Ans D P)) (i : Nat) (g : GoalOf R Rel) :
       c.Ok (st.answers a).length (st.answers b).length ∧
       ∀ p q x y, c.Before p q → (st.answers a)[p]? = some x → (st.answers b)[q]? = some y →
         ∀ z, opS D k x.span y.span = some z → CovS st i z
-  | .push k left side other subs dead reads c fc => ∃ L Rg, SplitAt g k L Rg ∧
+  | .push k left side other subs dead reads c _ => ∃ L Rg, SplitAt g k L Rg ∧
       goalAt st side = some (if left then L else Rg) ∧
       other = (if left then Rg.node else L.node) ∧
       subs.map (·.1) = (st.answers side).take subs.length ∧
@@ -1225,7 +1225,7 @@ gained, drops the answers superseded, and files what its tables have
 gained. -/
 theorem prog_push_file {st : StateOf R Rel (Ans D P)} (i : Nat) (g : GoalOf R Rel) (k : Kind)
     (left : Bool) (side : Nat) (other : Rel) (subs : List (Ans D P × Option (Nat × Nat)))
-    (dead : Option (List Nat)) (reads : List (Nat × Option Nat)) (c : Cursor)
+    (dead : Option (List Nat)) (reads : List (Nat × Option Nat)) (c : Cursor) (fc : Cursor)
     (dead' : Option (List Nat))
     (hD' : ∀ d, dead' = some d → st.isDone side = true ∧
       DeadOk D P (st.answers side) (st.answers side).length d)
@@ -1247,7 +1247,8 @@ theorem prog_push_file {st : StateOf R Rel (Ans D P)} (i : Nat) (g : GoalOf R Re
         (seeSide (((st.answers side).zip (st.pathsAt side)).drop subs.length) subs reads c).2.1
         ((seeSide (((st.answers side).zip (st.pathsAt side)).drop subs.length) subs reads c).2.2.kill
           (dead'.getD []))
-        (seeSide (((st.answers side).zip (st.pathsAt side)).drop subs.length) subs reads c).1).2.2) := by
+        (seeSide (((st.answers side).zip (st.pathsAt side)).drop subs.length) subs reads c).1).2.2
+      fc) := by
   have hss0 := seeSide_subs (((st.answers side).zip (st.pathsAt side)).drop subs.length) subs
     reads c
   have hsd0 := seeSide_done (((st.answers side).zip (st.pathsAt side)).drop subs.length) subs
@@ -1367,7 +1368,7 @@ theorem prog_work_push (hL : D.Lawful P.sorts.interp) {st : StateOf R Rel (Ans D
     (hI : Inv st) (i : Nat) (g : GoalOf R Rel) (k : Kind) (left : Bool)
     (side : Nat) (other : Rel) (subs : List (Ans D P × Option (Nat × Nat)))
     (dead : Option (List Nat))
-    (reads : List (Nat × Option Nat)) (c : Cursor) (ho : Open st i)
+    (reads : List (Nat × Option Nat)) (c : Cursor) (fc : Cursor) (ho : Open st i)
     (hs : Prog st i g (.push k left side other subs dead reads c fc)) :
     Prog (work (K := DerivationKernel.over D K hK P) i g st
         (.push k left side other subs dead reads c fc)).val.1 i g
@@ -1382,7 +1383,7 @@ theorem prog_work_push (hL : D.Lawful P.sorts.interp) {st : StateOf R Rel (Ans D
   have hP := fun dead' (h1 : ∀ d, dead' = some d → st.isDone side = true ∧
       DeadOk D P (st.answers side) (st.answers side).length d)
       (h2 : ∀ d, dead = some d → dead' = some d) =>
-    prog_push_file i g k left side other subs dead reads c dead' h1 h2 hs
+    prog_push_file i g k left side other subs dead reads c fc dead' h1 h2 hs
   have hpo := fun xs => pushOpen_spec (K := K) (hK := hK) (P := P) g other k left st xs
   have hpi := fun xs =>
     (inner_pushOpen (K := K) (hK := hK) (P := P) (w := i) g other k left st xs).frame
@@ -1563,7 +1564,7 @@ theorem prog_work (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK)
   | copy isCall subs => exact prog_work_copy hL hI i g isCall subs ho hs
   | join k a b c => exact prog_work_join hL hI i g k a b c ho hs
   | push k left side other subs dead reads c fc =>
-    exact prog_work_push hL hI i g k left side other subs dead reads c ho hs
+    exact prog_work_push hL hI i g k left side other subs dead reads c fc ho hs
   | check left side other c => exact prog_work_check hR hE i g left side other c hs
 
 end kernel

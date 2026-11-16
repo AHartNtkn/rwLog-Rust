@@ -340,7 +340,7 @@ to its end. -/
 theorem IsRun.served_push (hL : D.Lawful P.sorts.interp) (h : IsRun U σ) {r k : Nat}
     {g : GoalOf R Rel} {kd : Kind} {left : Bool}
     {side : Nat} {other : Rel} {subs : List (Ans D P × Option (Nat × Nat))} {dead : List Nat}
-    {reads : List (Nat × Option Nat)} {c : Cursor}
+    {reads : List (Nat × Option Nat)} {c : Cursor} {fc : Cursor}
     (hk : goalAt (σ r) k = some g)
     (hs : IsStrat σ k r (.push kd left side other subs (some dead) reads c fc))
     (hd : (σ r).isDone side = true) (hseen : (σ r).len side ≤ subs.length)
