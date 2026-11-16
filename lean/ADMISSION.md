@@ -41,14 +41,32 @@ that nothing can be packed into a number for free. Two things held are counted
 apart though a machine might share a part of both; the count is of the
 listing, and it is the same rule for every rung.
 
-*What is not settled here.* The rule for a gain inside a larger program
-(`MeetsOn.inContext`) takes the residue at the moment the larger program
-covers the pair with the targets written out. For space that moment is too
-early: a part of the larger program that never finishes holds more the longer
-the run goes on, so a rung that gains space and no time could not meet the
-bound. A rung admitted by a gain in space alone needs its own statement, with
-the residue taken after the same amount of work and with the time of the
-rung below kept. That is a separate change.
+**Revision, 2026-11-16 (third): the rung admitted by a win in space.** Asked
+for by Anthony: a rung that improves space only, and otherwise only has to
+keep time from getting worse. Two changes make that rung possible.
+
+*The residue for space is taken after the same work.* The rule for a gain
+inside a larger program (`MeetsOn.inContext`) bounds what the new machine
+uses, with the member in the hole, by its residue: what it uses when the hole
+holds the targets written out. For time the residue is what it has paid when
+it covers the pair there. Taken at that moment the rule could not admit a
+gain in space alone: what a machine holds grows with the work it has done,
+and a part of the larger program that never finishes holds more the longer
+the run goes on, so on a member the new machine needs long to cover, the
+rest of the program alone holds more than any bound in a residue taken
+early. For space the residue is therefore what the machine holds, with the
+targets written out, at a step by which it has paid no more than it has paid
+when it covers the pair with the member in the hole
+(`CostedRuntime.MeetsIn`). The statement is still about one machine, so a
+win in space goes on the record and is kept by later rungs as a win in time
+is (`Win.KeptBy`).
+
+*A win in space keeps the time.* A rung admitted by a win in space is held to
+one clause more (`Admits.time`): on every input it covers every pair, and
+halts where the rung below halts, having paid at most
+`Bounds.timeCoeff * (c + n + 1)` ticks, for what the rung below has paid `c`
+and an input of size `n`. A win in time is not held to the space of the rung
+below: the usual gain in time is a table.
 
 ## 1. What had to be decided
 

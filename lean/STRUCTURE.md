@@ -423,7 +423,10 @@ determined by the listing (`Engine.held_inj`); the cells of the listing are
 counted by `Engine.liveAt`, with representatives of the size the kernel rung
 gives them (`KernelRung.cells`). `Rungs/Framework/Holding.lean` builds such a
 listing piece by piece (`Pack`), and the symmetric engine's is `heldOf`
-(`Rungs/Symmetric/Machine.lean`).
+(`Rungs/Symmetric/Machine.lean`). A gain is stated for a resource
+(`Resource`, time or space): in a larger program the residue for space is
+taken after the same amount of work (`CostedRuntime.MeetsIn`), and a rung
+admitted by a win in space keeps the time of the rung below (`Admits.time`).
 
 A kernel rung (`KernelRung`, `Trusted/Kernel.lean`) gives, for the sorts of
 each program, a type of representatives, a constraint domain on it that is

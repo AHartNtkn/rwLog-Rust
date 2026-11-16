@@ -99,6 +99,15 @@ holds the targets written out (`RelOf.ofPairs`). The residue is what the rest
 of the context costs. Neither machine has to halt. The two upper bounds on
 `New` mention no other machine; they are `MeetsOn`.
 
+When the residue is taken depends on the resource (`CostedRuntime.MeetsIn`).
+For time it is what `New` has paid when it covers the pair with the targets
+written out. For space that moment is too early: what a machine holds grows
+with the work it has done, in the rest of the context as in the hole, and a
+part of the context that never finishes holds more the longer the run goes
+on. So for space the residue is what `New` holds, with the targets written
+out, after no more work than it has done when it covers the pair with the
+member in the hole.
+
 ## Three kinds of win
 
 A rung improves on its predecessor by a win of some kind (`Kind`), and the
@@ -155,7 +164,9 @@ within a constant factor that its specification writes out. It loses no
 halting: it halts on every input on which its predecessor halts. And the cost
 of a relation forward and backward is comparable: its cost does not depend
 on direction, within a polynomial whose numerals its specification writes
-out. A separation with other functions does not admit it, and neither does a
+out. And a rung admitted by a win in space gives up no time for it: on every
+input it covers every pair, and halts where its predecessor halts, within a
+written factor of what its predecessor has paid (`Admits.time`). A separation with other functions does not admit it, and neither does a
 gain on a sequence of inputs that is not a class, a gain that holds only
 when the input is the whole program, an improvement that holds from one end
 only, or a gain that gives back a win of an earlier rung.
@@ -298,6 +309,17 @@ def Meter.time : Meter := fun C => C.paid
 let go of is not counted from the end of the step in which it let go. -/
 def Meter.space : Meter := fun C => C.space
 
+/-- What a gain is a gain in. -/
+inductive Resource where
+  | time
+  | space
+  deriving DecidableEq, Repr
+
+/-- The meter of a resource. -/
+def Resource.meter : Resource → Meter
+  | .time => Meter.time
+  | .space => Meter.space
+
 namespace CostedRuntime
 
 variable (C : CostedRuntime)
@@ -312,6 +334,28 @@ def CoversUsing (μ : Meter) (P : Program) (q : Rel) (M : Interp) (x : GTerm × 
 has reported that it is done. For time this is `ExhaustsWithin`. -/
 def ExhaustsUsing (μ : Meter) (P : Program) (q : Rel) (c : Nat) : Prop :=
   ∃ n, C.runtime.Halts (C.start P q) n ∧ μ C P q n ≤ c
+
+/-- The machine covers the pair `y` on the query `qr` within `bound` of the
+residue: what the same machine uses on the query `qt`, which is `qr` with
+the targets written out in the hole.
+
+For time the residue is what the machine has paid when it covers `y` on
+`qt`: if it covers `y` there having paid `res`, it covers `y` on `qr` having
+paid at most `bound res`.
+
+For space the residue is what the machine holds on `qt` after no more work.
+What a machine holds grows with the work it has done, in the rest of the
+program as in the hole, so the residue taken when `qt` covers `y` would be
+taken too early. The machine covers `y` on `qr` at a step at which it has
+used at most `bound` of the space it has used on `qt` at some step by which
+it has paid no more there. -/
+def MeetsIn (ρ : Resource) (P : Program) (qr qt : Rel) (M : Interp) (y : GTerm × GTerm)
+    (bound : Nat → Nat) : Prop :=
+  match ρ with
+  | .time => ∀ res, C.CoversUsing Meter.time P qt M y res →
+      C.CoversUsing Meter.time P qr M y (bound res)
+  | .space => ∃ n, C.Covered P qr M y n ∧
+      ∃ m, C.paid P qt m ≤ C.paid P qr n ∧ C.space P qr n ≤ bound (C.space P qt m)
 
 end CostedRuntime
 
@@ -527,31 +571,31 @@ end Context
 
 /-! ## Separation on a class, in context -/
 
-/-- `New` meets an upper bound on the class `C` in the resource `μ`, on a
+/-- `New` meets an upper bound on the class `C` in the resource `ρ`, on a
 member and in context.
 
 On a member `(P, r)` of rank `k`, `New` covers every target having used at
 most `hi k`.
 
 In every context `K` whose hole is open and whose plugged input is well
-formed, for every pair `y` that needs the targets: if `New` covers `y` having
-used `res` when the hole holds the targets written out, then it covers `y`
-having used at most `inCtx k res K.size` when the hole holds `r`.
+formed, for every pair `y` that needs the targets, `New` covers `y` when the
+hole holds `r` within `inCtx k res K.size`, where `res` is the residue: what
+`New` uses when the hole holds the targets written out
+(`CostedRuntime.MeetsIn`, which says when the residue is taken for each
+resource).
 
 The machine does not have to halt, and no other machine is mentioned. -/
-structure MeetsOn (μ : Meter) (New : CostedRuntime) (C : ProgClass)
+structure MeetsOn (ρ : Resource) (New : CostedRuntime) (C : ProgClass)
     (hi : Nat → Nat) (inCtx : Nat → Nat → Nat → Nat) : Prop where
   alone : ∀ P r, C.mem P r → ∀ x ∈ C.tgt P r,
-    New.CoversUsing μ P r P.sorts.interp x (hi (C.rank P r))
+    New.CoversUsing ρ.meter P r P.sorts.interp x (hi (C.rank P r))
   inContext : ∀ P r, C.mem P r → ∀ K : Context, K.Open →
     (K.program P).WellFormed (K.query r) →
     ∀ y, K.Demands P r P.sorts.interp {x | x ∈ C.tgt P r} y →
-      ∀ res, New.CoversUsing μ (K.program P) (K.query (.ofPairs (C.tgt P r)))
-          P.sorts.interp y res →
-        New.CoversUsing μ (K.program P) (K.query r) P.sorts.interp y
-          (inCtx (C.rank P r) res K.size)
+      New.MeetsIn ρ (K.program P) (K.query r) (K.query (.ofPairs (C.tgt P r)))
+        P.sorts.interp y fun res => inCtx (C.rank P r) res K.size
 
-/-- `New` is separated from `Old` on the class `C` in the resource `μ`.
+/-- `New` is separated from `Old` on the class `C` in the resource `ρ`.
 
 `New` meets the upper bound `hi` on a member of rank `k`, and
 `ctx (hi k) res K.size` in a context `K` with residue `res` (`MeetsOn`).
@@ -562,14 +606,14 @@ formed, for every pair `y` that needs the targets, `Old` has used at least
 
 The member alone is the context that is only a hole, so the lower bound on
 `Old` holds there for every target. Neither machine has to halt. -/
-structure SeparatesOn (μ : Meter) (Old New : CostedRuntime) (C : ProgClass)
+structure SeparatesOn (ρ : Resource) (Old New : CostedRuntime) (C : ProgClass)
     (lo hi : Nat → Nat) (ctx : Nat → Nat → Nat → Nat) : Prop
-    extends MeetsOn μ New C hi (fun k => ctx (hi k)) where
+    extends MeetsOn ρ New C hi (fun k => ctx (hi k)) where
   below : ∀ P r, C.mem P r → ∀ K : Context, K.Open →
     (K.program P).WellFormed (K.query r) →
     ∀ y, K.Demands P r P.sorts.interp {x | x ∈ C.tgt P r} y →
       ∀ n, Old.Covered (K.program P) (K.query r) P.sorts.interp y n →
-        lo (C.rank P r) ≤ μ Old (K.program P) (K.query r) n
+        lo (C.rank P r) ≤ ρ.meter Old (K.program P) (K.query r) n
 
 /-! ## Three kinds of win -/
 
@@ -580,17 +624,6 @@ inductive Gap where
   /-- The old machine uses `(k + 1) ^ gain` times what the new one uses. -/
   | polynomial
   deriving DecidableEq, Repr
-
-/-- What a gain is a gain in. -/
-inductive Resource where
-  | time
-  | space
-  deriving DecidableEq, Repr
-
-/-- The meter of a resource. -/
-def Resource.meter : Resource → Meter
-  | .time => Meter.time
-  | .space => Meter.space
 
 /-- The kind of win that admits a rung: a gain of some size in some
 resource. -/
@@ -612,6 +645,9 @@ structure Bounds where
   /-- The bound in context. -/
   ctxCoeff : Nat
   ctxDeg : Nat
+  /-- For a win in space: the factor within which the time of the rung below
+  is kept. A win in time does not use it. -/
+  timeCoeff : Nat := 1
 
 namespace Bounds
 
@@ -649,7 +685,7 @@ structure Improves (kind : Kind) (Old New : CostedRuntime) (b : Bounds) (C : Pro
     Prop where
   proper : C.Proper b.size
   grows : kind.gap = .polynomial → 0 < b.gain
-  separates : SeparatesOn kind.resource.meter Old New C (b.lo kind.gap) b.hi (b.ctx kind.gap)
+  separates : SeparatesOn kind.resource Old New C (b.lo kind.gap) b.hi (b.ctx kind.gap)
 
 /-! ## Engines
 
@@ -941,14 +977,19 @@ having used at most `c * w.b.hi k`, and in every open context, for every pair
 that needs the targets, at most `c` times the bound in context the win was
 admitted with, at `M`'s own residue. -/
 def Win.KeptBy (w : Win) (M : CostedRuntime) (c : Nat) : Prop :=
-  MeetsOn w.kind.resource.meter M w.cls (fun k => c * w.b.hi k)
+  MeetsOn w.kind.resource M w.cls (fun k => c * w.b.hi k)
     (fun k res n => c * w.b.ctx w.kind.gap (w.b.hi k) res n)
 
 /-- The rung `New` is admitted above `Old` at the kernel rung `κ` by a win of
 the given kind, over the wins on `record`: it advances on `Old`; whatever the
 artifact store, it halts on every input on which `Old` halts, its cost does
 not depend on direction, within the polynomial `d`, and it keeps every win on
-the record within the factor `keep`. -/
+the record within the factor `keep`.
+
+A rung admitted by a win in space gives up no time for it: on every input it
+covers every pair, and halts where `Old` halts, having paid at most
+`b.timeCoeff * (c + n + 1)`, for what `Old` has paid `c` and an input of size
+`n` (`time`). -/
 structure Admits (κ : KernelRung) (kind : Kind) (Old New : CostedRung) (b : Bounds)
     (d : DirBound) (pre : Nat → Nat) (C : ProgClass) (record : List Win) (keep : Nat) : Prop
     extends Advances κ kind Old New b pre C where
@@ -956,5 +997,7 @@ structure Admits (κ : KernelRung) (kind : Kind) (Old New : CostedRung) (b : Bou
     (New.machine κ A).runtime.Terminates P q
   direction : ∀ A, DirectionFree (New.machine κ A) d.fn
   keeps : ∀ A, ∀ w ∈ record, w.KeptBy (New.machine κ A) keep
+  time : kind.resource = .space → ∀ A,
+    Simulates (Old.machine κ A) (New.machine κ A) fun c n => b.timeCoeff * (c + n + 1)
 
 end RwLog
