@@ -660,6 +660,70 @@ theorem feedGroup_core (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf 
   · simp only [Cost.bind_val]
     exact hT _ _ _
 
+/-- The feed cursor of a push; of any other strategy, the cursor that has
+done nothing. -/
+def Strat.feedOf {N A : Type} : Strat N A → Cursor
+  | .push _ _ _ _ _ _ _ _ fc => fc
+  | _ => Cursor.start
+
+/-- A strategy takes its own feed cursor from a strategy that is itself but
+for the feed cursor. -/
+theorem Strat.withFeed_of_core {N A : Type} {s f : Strat N A} (h : f.core = s.core) :
+    s.withFeed f = f := by
+  cases s <;> cases f <;> cases h <;> rfl
+
+theorem getElem?_reFeed {N A : Type} (ss fed : List (Strat N A)) (m : Nat) :
+    (reFeed ss fed)[m]? = (ss[m]?).map fun s =>
+      match fed[m]? with
+      | some f => s.withFeed f
+      | none => s := by
+  unfold reFeed
+  simp only [List.getElem?_map, List.getElem?_zipIdx]
+  cases ss[m]? with
+  | none => rfl
+  | some s => simp only [Option.map_some, Nat.zero_add]; rfl
+
+/-- **The work of a strategy leaves its feed cursor.** -/
+theorem work_feedOf (i : Nat) (g : GoalOf R Rel) (st : StateOf R Rel (Ans D P))
+    (s : Strat Rel (Ans D P)) :
+    (work (K := DerivationKernel.over D K hK P) i g st s).val.2.1.feedOf = s.feedOf := by
+  at_cost K hK
+  cases s with
+  | span ran =>
+    cases ran with
+    | true => simp only [work, Cost.pure_val]
+    | false => simp only [work, Cost.bind_val, Cost.pure_val]; rfl
+  | copy c subs =>
+    simp only [work]
+    split
+    · simp only [Cost.pure_val]
+    · simp only [Cost.bind_val, Cost.pure_val]; rfl
+  | join k a b c =>
+    simp only [work]
+    split <;> simp only [Cost.bind_val, Cost.pure_val] <;> rfl
+  | push k l side o subs dead reads c fc =>
+    simp only [work, Cost.bind_val]
+    split
+    · rfl
+    · split <;> simp only [Cost.bind_val, Cost.pure_val] <;> rfl
+  | check l side o c =>
+    cases c with
+    | reading =>
+      simp only [work, Cost.bind_val]
+      split
+      · rfl
+      · rfl
+      · simp only [Cost.bind_val, Cost.pure_val]; rfl
+    | off => simp only [work, Cost.pure_val]
+    | opened _ => simp only [work, Cost.pure_val]
+
+/-- **The turn of a strategy leaves its feed cursor.** -/
+theorem turn_feedOf (i : Nat) (g : GoalOf R Rel) (f left : Nat) (st : StateOf R Rel (Ans D P))
+    (s : Strat Rel (Ans D P)) (c : Nat) :
+    (turn (K := DerivationKernel.over D K hK P) i g f left st s c).val.2.1.feedOf = s.feedOf :=
+  turn_ind i g (fun _ s' => s'.feedOf = s.feedOf)
+    (fun st' s' h => (work_feedOf i g st' s').trans h) f left st s c rfl
+
 theorem reach_workGroup (adv : Nat → StateOf R Rel (Ans D P) → Cost (StateOf R Rel (Ans D P) × Nat))
     (hadv : ∀ h st, Reach K hK st (adv h st).val.1) (i : Nat) (g : GoalOf R Rel)
     (k : Nat) (st : StateOf R Rel (Ans D P)) :

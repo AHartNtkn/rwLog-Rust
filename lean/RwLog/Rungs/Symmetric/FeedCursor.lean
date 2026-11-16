@@ -73,6 +73,96 @@ theorem syncFeed_fits (st : StateOf S N A) (side : Nat) (dead : List Nat)
   simp only [Cursor.kill, Cursor.pad, List.length_append, List.length_map, List.length_range']
   omega
 
+/-- Filing units keeps the units there are. -/
+theorem fileToks_todo (st : StateOf S N A) (dead : List Nat) :
+    ∀ (l : List ((A × Option (Nat × Nat)) × Nat)) (fc : Cursor) (x : Nat × Nat), x ∈ fc.todo →
+      x ∈ (fileToks st dead l fc).todo
+  | [], _, _, h => h
+  | (e, n) :: rest, fc, x, h => by
+    unfold fileToks
+    split
+    · split
+      · exact fileToks_todo st dead rest fc x h
+      · exact fileToks_todo st dead rest _ x (by
+          simp only [Cursor.read, List.mem_append]
+          exact .inl h)
+    · exact fileToks_todo st dead rest fc x h
+
+/-- Filing units leaves the measure of the units there are. -/
+theorem fileToks_rank (st : StateOf S N A) (dead : List Nat) (p q : Nat) :
+    ∀ (l : List ((A × Option (Nat × Nat)) × Nat)) (fc : Cursor), q < fc.pb.length →
+      (fileToks st dead l fc).rank p q = fc.rank p q
+  | [], _, _ => rfl
+  | (e, n) :: rest, fc, h => by
+    unfold fileToks
+    split
+    · split
+      · exact fileToks_rank st dead p q rest fc h
+      · refine (fileToks_rank st dead p q rest _ ?_).trans (Cursor.rank_read n [] fc h)
+        simp only [Cursor.read, List.length_append, List.length_cons, List.length_nil]
+        omega
+    · exact fileToks_rank st dead p q rest fc h
+
+/-- After the filing, a table opened that is not complete, of an answer not
+superseded, has a unit. -/
+theorem fileToks_has (st : StateOf S N A) (dead : List Nat) {x : A} {t : Nat × Nat} {n : Nat}
+    (hn : n ∉ dead) (hd : st.isDone t.1 = false) :
+    ∀ (l : List ((A × Option (Nat × Nat)) × Nat)) (fc : Cursor), ((x, some t), n) ∈ l →
+      ∃ q, (n, q) ∈ (fileToks st dead l fc).todo
+  | [], _, h => absurd h List.not_mem_nil
+  | (e, m) :: rest, fc, h => by
+    rcases List.mem_cons.1 h with h | h
+    · cases h
+      unfold fileToks
+      simp only
+      split
+      · next hc =>
+        simp only [Bool.or_eq_true, List.contains_iff_mem, hn, hd, false_or, Bool.false_eq_true,
+          List.any_eq_true, beq_iff_eq] at hc
+        obtain ⟨y, hy, rfl⟩ := hc
+        exact ⟨y.2, fileToks_todo st dead rest fc _ hy⟩
+      · exact ⟨fc.pb.length, fileToks_todo st dead rest _ _ (by simp [Cursor.read])⟩
+    · unfold fileToks
+      split
+      · split
+        · exact fileToks_has st dead hn hd rest fc h
+        · exact fileToks_has st dead hn hd rest _ h
+      · exact fileToks_has st dead hn hd rest fc h
+
+/-- Bringing a feed cursor up to date keeps each unit that is not of an
+answer superseded, as far from its turn as it was. -/
+theorem syncFeed_tok (st : StateOf S N A) (side : Nat) (dead : List Nat)
+    (subs : List (A × Option (Nat × Nat))) {fc : Cursor} (h : fc.Fits) {p q : Nat}
+    (hpq : (p, q) ∈ fc.todo) :
+    p ∈ dead ∨ ((p, q) ∈ (syncFeed st side dead subs fc).todo ∧
+      (syncFeed st side dead subs fc).rank p q = fc.rank p q) := by
+  by_cases hp : p ∈ dead
+  · exact .inl hp
+  · obtain ⟨h1, h2, -⟩ := h.1 (p, q) hpq
+    refine .inr ⟨?_, ?_⟩
+    · unfold syncFeed
+      exact fileToks_todo st dead _ _ _ (Cursor.mem_kill.2 ⟨hpq, hp⟩)
+    · unfold syncFeed
+      have e1 := fileToks_rank st dead p q subs.zipIdx
+        ((fc.pad ((List.range' fc.pa.length (subs.length - fc.pa.length)).map fun n =>
+          (st.pathsAt side).getD n [])).kill dead) h2
+      have e2 := Cursor.rank_pad ((List.range' fc.pa.length (subs.length - fc.pa.length)).map
+        fun n => (st.pathsAt side).getD n []) fc (q := q) h1
+      rw [Cursor.rank_kill] at e1
+      exact e1.trans e2
+
+/-- After a feed cursor is brought up to date, a table opened of an answer
+not superseded is complete or has a unit. -/
+theorem syncFeed_has (st : StateOf S N A) (side : Nat) (dead : List Nat)
+    (subs : List (A × Option (Nat × Nat))) (fc : Cursor) {n : Nat} {x : A} {t : Nat × Nat}
+    (he : subs[n]? = some (x, some t)) (hn : n ∉ dead) :
+    st.isDone t.1 = true ∨ ∃ q, (n, q) ∈ (syncFeed st side dead subs fc).todo := by
+  cases hd : st.isDone t.1 with
+  | true => exact .inl rfl
+  | false =>
+    unfold syncFeed
+    exact .inr (fileToks_has st dead hn hd _ _ (List.mk_mem_zipIdx_iff_getElem?.2 he))
+
 end pure
 
 variable {R : Type} [Answer R] [DecidableEq R] {D : Domain R} {P : Program}
