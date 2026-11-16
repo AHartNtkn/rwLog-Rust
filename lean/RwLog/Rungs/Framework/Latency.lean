@@ -148,21 +148,17 @@ theorem Ladder.lawful {κ : KernelRung} {base G : CostedRung} {record : List Win
 
 /-- Two rungs without preprocessing: admission is the improvement of the
 machines, that the new one halts where the old one does, the direction bound
-of the new one, that it keeps the wins on the record, and for a win in space
-that it keeps the time of the old one. -/
+of the new one, and that it keeps the wins on the record. -/
 theorem Admits.of_nil {κ : KernelRung} {kind : Kind} {Old New : Engine} {b : Bounds}
     {d : DirBound} {C : ProgClass} {record : List Win} {keep : Nat}
     (h : Improves kind (Old.costed κ) (New.costed κ) b C)
     (hh : ∀ P q, P.WellFormed q → (Old.costed κ).runtime.Terminates P q →
       (New.costed κ).runtime.Terminates P q)
-    (hd : DirectionFree (New.costed κ) d.fn) (hk : ∀ w ∈ record, w.KeptBy (New.costed κ) keep)
-    (ht : kind.resource = .space →
-      Simulates (Old.costed κ) (New.costed κ) fun c n => b.timeCoeff * (c + n + 1)) :
+    (hd : DirectionFree (New.costed κ) d.fn) (hk : ∀ w ∈ record, w.KeptBy (New.costed κ) keep) :
     Admits κ kind ⟨[], Old, false⟩ ⟨[], New, false⟩ b d (fun _ => 0) C record keep where
   toAdvances := Advances.of_nil h
   halts _ := hh
   direction _ := hd
   keeps _ := hk
-  time hs _ := ht hs
 
 end RwLog

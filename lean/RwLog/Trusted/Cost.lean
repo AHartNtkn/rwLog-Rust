@@ -155,9 +155,7 @@ within a constant factor that its specification writes out. It loses no
 halting: it halts on every input on which its predecessor halts. And the cost
 of a relation forward and backward is comparable: its cost does not depend
 on direction, within a polynomial whose numerals its specification writes
-out. And a rung admitted by a win in space gives up no time for it: on every
-input it covers every pair, and halts where its predecessor halts, within a
-written factor of what its predecessor has paid. A separation with other functions does not admit it, and neither does a
+out. A separation with other functions does not admit it, and neither does a
 gain on a sequence of inputs that is not a class, a gain that holds only
 when the input is the whole program, an improvement that holds from one end
 only, or a gain that gives back a win of an earlier rung.
@@ -614,9 +612,6 @@ structure Bounds where
   /-- The bound in context. -/
   ctxCoeff : Nat
   ctxDeg : Nat
-  /-- For a win in space: the factor within which the time of the rung below
-  is kept. The other kinds do not use it. -/
-  timeCoeff : Nat := 1
 
 namespace Bounds
 
@@ -953,12 +948,7 @@ def Win.KeptBy (w : Win) (M : CostedRuntime) (c : Nat) : Prop :=
 the given kind, over the wins on `record`: it advances on `Old`; whatever the
 artifact store, it halts on every input on which `Old` halts, its cost does
 not depend on direction, within the polynomial `d`, and it keeps every win on
-the record within the factor `keep`.
-
-A rung admitted by a win in space gives up no time for it: on every input it
-covers every pair, and halts where `Old` halts, having paid at most
-`b.timeCoeff` times what `Old` has paid and the size of the input
-(`time`). -/
+the record within the factor `keep`. -/
 structure Admits (κ : KernelRung) (kind : Kind) (Old New : CostedRung) (b : Bounds)
     (d : DirBound) (pre : Nat → Nat) (C : ProgClass) (record : List Win) (keep : Nat) : Prop
     extends Advances κ kind Old New b pre C where
@@ -966,7 +956,5 @@ structure Admits (κ : KernelRung) (kind : Kind) (Old New : CostedRung) (b : Bou
     (New.machine κ A).runtime.Terminates P q
   direction : ∀ A, DirectionFree (New.machine κ A) d.fn
   keeps : ∀ A, ∀ w ∈ record, w.KeptBy (New.machine κ A) keep
-  time : kind.resource = .space → ∀ A,
-    Simulates (Old.machine κ A) (New.machine κ A) fun c n => b.timeCoeff * (c + n + 1)
 
 end RwLog

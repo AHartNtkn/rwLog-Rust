@@ -17,8 +17,8 @@ each kind of win, which resources it covers, what it does not protect)
 describes the rule before this date. `SimulatesBy` remains as the meaning of
 "comparable" in `DirectionFree`.
 
-**Revision, 2026-11-16 (second): space counts what is live, and a win in
-space keeps the time.** Two changes, both asked for by Anthony.
+**Revision, 2026-11-16 (second): space counts what is live.** Asked for by
+Anthony.
 
 *How space is counted.* Until now a cell, once allocated, was counted for the
 rest of the run, so no rung could show a gain in space by letting go of
@@ -41,13 +41,14 @@ that nothing can be packed into a number for free. Two things held are counted
 apart though a machine might share a part of both; the count is of the
 listing, and it is the same rule for every rung.
 
-*The space rung.* A rung admitted by a win in space (`Kind.resource = .space`)
-is held to one clause more (`Admits.time`): on every input it covers every
-pair, and halts where the rung below halts, having paid at most
-`Bounds.timeCoeff * (c + n + 1)` ticks, for what the rung below has paid `c`
-and an input of size `n`. So a gain in space is not bought with time. A win
-in time is not held to the space of the rung below: the usual gain in time is
-a table.
+*What is not settled here.* The rule for a gain inside a larger program
+(`MeetsOn.inContext`) takes the residue at the moment the larger program
+covers the pair with the targets written out. For space that moment is too
+early: a part of the larger program that never finishes holds more the longer
+the run goes on, so a rung that gains space and no time could not meet the
+bound. A rung admitted by a gain in space alone needs its own statement, with
+the residue taken after the same amount of work and with the time of the
+rung below kept. That is a separate change.
 
 ## 1. What had to be decided
 

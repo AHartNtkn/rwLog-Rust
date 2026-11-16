@@ -910,7 +910,7 @@ theorem slow_admits :
     Admits sized ⟨.time, .polynomial⟩ ⟨[], silent, false⟩ ⟨[], slow, false⟩ slowBounds ⟨2, 1⟩
       (fun _ => 0) slowClass [] 0 :=
   Admits.of_nil slow_improves (fun P q _ ⟨n, hn⟩ => absurd hn (silent_not_halts P q n))
-    (rd_direction _) (fun _ h => absurd h List.not_mem_nil) (fun h => by cases h)
+    (rd_direction _) fun _ h => absurd h List.not_mem_nil
 
 /-- What the quick reader pays on a pair: at most what the slow one pays. -/
 theorem quick_le_slow (a c : GTerm) :
@@ -970,9 +970,9 @@ theorem quick_admits :
     Admits sized ⟨.time, .exponential⟩ ⟨[], slow, false⟩ ⟨[], quick, false⟩ quickBounds
       ⟨2, 1⟩ (fun _ => 0) quickClass [slowWin] 1 :=
   Admits.of_nil quick_improves (fun P q _ ⟨n, hn⟩ => absurd hn (rd_not_halts _ P q n))
-    (rd_direction _) (fun w hw => by
-      obtain rfl := List.mem_singleton.1 hw
-      exact quick_keeps) (fun h => by cases h)
+    (rd_direction _) fun w hw => by
+    obtain rfl := List.mem_singleton.1 hw
+    exact quick_keeps
 
 end Witness
 end RwLog
