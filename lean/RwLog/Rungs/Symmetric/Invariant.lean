@@ -600,6 +600,16 @@ theorem mem_reFeed {N A : Type} {ss fed : List (Strat N A)} {s' : Strat N A}
   · exact Strat.withFeed_core _ _
   · rfl
 
+theorem mem_reFeed' {N A : Type} {ss fed : List (Strat N A)} {s' : Strat N A}
+    (h : s' ∈ reFeed ss fed) : s' ∈ ss ∨ ∃ s ∈ ss, ∃ f ∈ fed, s' = s.withFeed f := by
+  unfold reFeed at h
+  obtain ⟨e, he, rfl⟩ := List.mem_map.1 h
+  have hm : e.1 ∈ ss :=
+    List.mem_of_getElem? (List.mem_zipIdx_iff_getElem?.1 (by rcases e with ⟨a, b⟩; exact he))
+  split
+  · next f hf => exact .inr ⟨e.1, hm, f, List.mem_of_getElem? hf, rfl⟩
+  · exact .inl hm
+
 theorem reFeed_map_core {N A : Type} (ss fed : List (Strat N A)) :
     (reFeed ss fed).map Strat.core = ss.map Strat.core := by
   unfold reFeed

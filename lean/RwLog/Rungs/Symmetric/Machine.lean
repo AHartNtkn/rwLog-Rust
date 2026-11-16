@@ -304,6 +304,11 @@ def Cursor.mark (c : Cursor) (p : Nat × Nat) (t : Nat) : Cursor :=
 def Cursor.opened (pth : Path) (c : Cursor) : Cursor :=
   { c with pa := c.pa ++ [pth] }
 
+/-- The cursor of a push with more answers of its side seen, of the paths
+`pths`. -/
+def Cursor.pad (pths : List Path) (c : Cursor) : Cursor :=
+  { c with pa := c.pa ++ pths }
+
 /-- The cursor of a push with one more unit filed for the answer of the side
 at `s`: `pth` is the path of the answer to combine it with, and empty for the
 unit that opens its goal. The unit is still to take. -/
@@ -1157,8 +1162,8 @@ answer of the side seen, no unit of an answer superseded, and a unit for
 every table opened that could use a round. -/
 def syncFeed (st : StateOf S N A) (side : Nat) (dead : List Nat)
     (subs : List (A × Option (Nat × Nat))) (fc : Cursor) : Cursor :=
-  let fc1 := (((st.pathsAt side).take subs.length).drop fc.pa.length).foldl
-    (fun c pth => c.opened pth) fc
+  let fc1 := fc.pad ((List.range' fc.pa.length (subs.length - fc.pa.length)).map fun n =>
+    (st.pathsAt side).getD n [])
   fileToks st dead subs.zipIdx (fc1.kill dead)
 
 /-- The tables a push opened are offered a round in the order of its feed

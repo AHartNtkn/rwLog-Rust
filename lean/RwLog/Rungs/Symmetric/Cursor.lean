@@ -849,6 +849,89 @@ theorem Cursor.mem_kill {dead : List Nat} {c : Cursor} {x : Nat × Nat} :
     x ∈ (c.kill dead).todo ↔ x ∈ c.todo ∧ x.1 ∉ dead := by
   simp [Cursor.kill]
 
+/-! ## The feed cursor of a push -/
+
+/-- What the feed cursor of a push keeps: a unit still to take is of an
+answer seen and was filed, and is not taken; a unit taken was filed. -/
+def Cursor.Fits (c : Cursor) : Prop :=
+  (∀ x ∈ c.todo, x.1 < c.pa.length ∧ x.2 < c.pb.length ∧ ¬ c.Before x.1 x.2) ∧
+    ∀ x ∈ c.done, x.2 < c.pb.length
+
+theorem Cursor.fits_start : Cursor.start.Fits :=
+  ⟨fun _ h => absurd h List.not_mem_nil, fun _ h => absurd h List.not_mem_nil⟩
+
+theorem Cursor.Fits.opened {c : Cursor} (h : c.Fits) (pth : Path) : (c.opened pth).Fits := by
+  refine ⟨fun x hx => ?_, h.2⟩
+  obtain ⟨h1, h2, h3⟩ := h.1 x hx
+  refine ⟨?_, h2, h3⟩
+  simp only [Cursor.opened, List.length_append, List.length_cons, List.length_nil]
+  omega
+
+theorem Cursor.Fits.pad {c : Cursor} (h : c.Fits) (pths : List Path) : (c.pad pths).Fits := by
+  refine ⟨fun x hx => ?_, h.2⟩
+  obtain ⟨h1, h2, h3⟩ := h.1 x hx
+  refine ⟨?_, h2, h3⟩
+  simp only [Cursor.pad, List.length_append]
+  omega
+
+/-- The measure of a unit of an answer seen stays when more answers are
+seen. -/
+theorem Cursor.rank_pad (pths : List Path) (c : Cursor) {p q : Nat} (h1 : p < c.pa.length) :
+    (c.pad pths).rank p q = c.rank p q := by
+  have e : (c.pad pths).stepsAt (p, q) = c.stepsAt (p, q) := by
+    simp only [Cursor.stepsAt, Cursor.pad, List.getD_eq_getElem?_getD,
+      List.getElem?_append_left h1]
+  unfold Cursor.rank
+  rw [e]
+  rfl
+
+theorem Cursor.Fits.kill {c : Cursor} (h : c.Fits) (dead : List Nat) : (c.kill dead).Fits :=
+  ⟨fun x hx => h.1 x (Cursor.mem_kill.1 hx).1, h.2⟩
+
+theorem Cursor.Fits.read {c : Cursor} (h : c.Fits) {s : Nat} (hs : s < c.pa.length) (pth : Path) :
+    (c.read s pth).Fits := by
+  refine ⟨fun x hx => ?_, fun x hx => ?_⟩
+  · simp only [Cursor.read, List.mem_append, List.mem_singleton] at hx
+    simp only [Cursor.read, List.length_append, List.length_cons, List.length_nil]
+    rcases hx with hx | rfl
+    · obtain ⟨h1, h2, h3⟩ := h.1 x hx
+      exact ⟨h1, by omega, h3⟩
+    · refine ⟨hs, by simp, fun hb => ?_⟩
+      exact absurd (h.2 _ hb) (Nat.lt_irrefl _)
+  · have := h.2 x hx
+    simp only [Cursor.read, List.length_append, List.length_cons, List.length_nil]
+    omega
+
+theorem Cursor.Fits.mark {c : Cursor} (h : c.Fits) {x : Nat × Nat} (hx : x ∈ c.todo) (t : Nat) :
+    (c.mark x t).Fits := by
+  refine ⟨fun y hy => ?_, fun y hy => ?_⟩
+  · simp only [Cursor.mark, List.mem_filter, bne_iff_ne, ne_eq] at hy
+    obtain ⟨h1, h2, h3⟩ := h.1 y hy.1
+    refine ⟨h1, h2, fun hb => ?_⟩
+    rcases Cursor.before_mark.1 hb with hb | hb
+    · exact h3 hb
+    · exact hy.2 hb.symm
+  · simp only [Cursor.mark, List.mem_cons] at hy
+    rcases hy with rfl | hy
+    · exact (h.1 _ hx).2.1
+    · exact h.2 y hy
+
+/-- Taking a unit that cost nothing leaves every other unit no further from
+its turn. -/
+theorem Cursor.rank_mark_zero (c : Cursor) (x : Nat × Nat) (p q : Nat) :
+    (c.mark x 0).rank p q = c.rank p q ∨ RankLt ((c.mark x 0).rank p q) (c.rank p q) := by
+  obtain ⟨hL, -⟩ := c.left_mark x 0 (max p q + 1)
+  have hlev : ∀ ss e, (c.mark x 0).level ss e = c.level ss e := fun ss e => by
+    unfold Cursor.level
+    simp only [Cursor.place_mark, ite_self, Nat.zero_mul, Nat.add_zero]
+  unfold Cursor.rank
+  simp only [Cursor.stepsAt_mark]
+  rw [show (c.mark x 0).level (c.stepsAt (p, q)) = c.level (c.stepsAt (p, q)) from
+    funext (hlev _)]
+  rcases Nat.lt_or_eq_of_le hL with h | h
+  · exact .inr (List.Shortlex.of_lex (by simp) (List.Lex.rel h))
+  · exact .inl (by rw [h])
+
 end Symmetric
 
 end RwLog

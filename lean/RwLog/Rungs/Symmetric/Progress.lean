@@ -365,7 +365,7 @@ def Prog (st : StateOf R Rel (Ans D P)) (i : Nat) (g : GoalOf R Rel) :
       c.Ok (st.answers a).length (st.answers b).length ∧
       ∀ p q x y, c.Before p q → (st.answers a)[p]? = some x → (st.answers b)[q]? = some y →
         ∀ z, opS D k x.span y.span = some z → CovS st i z
-  | .push k left side other subs dead reads c _ => ∃ L Rg, SplitAt g k L Rg ∧
+  | .push k left side other subs dead reads c fc => ∃ L Rg, SplitAt g k L Rg ∧
       goalAt st side = some (if left then L else Rg) ∧
       other = (if left then Rg.node else L.node) ∧
       subs.map (·.1) = (st.answers side).take subs.length ∧
@@ -373,10 +373,11 @@ def Prog (st : StateOf R Rel (Ans D P)) (i : Nat) (g : GoalOf R Rel) :
       (∀ e ∈ subs, ∀ t, e.2 = some t →
         goalAt st t.1 = some (pushG D g other k left e.1) ∧ t.2 ≤ (st.answers t.1).length) ∧
       PushFits subs (dead.getD []) reads c ∧
-      ∀ (s q : Nat) (x : Ans D P) (t : Nat × Nat) (r : Nat) (y : Ans D P), c.Before s q →
+      (∀ (s q : Nat) (x : Ans D P) (t : Nat × Nat) (r : Nat) (y : Ans D P), c.Before s q →
         subs[s]? = some (x, some t) → reads[q]? = some (s, some r) →
         (st.answers t.1)[r]? = some y →
-        ∀ z, pushedS D k left x.span y.span = some z → CovS st i z
+        ∀ z, pushedS D k left x.span y.span = some z → CovS st i z) ∧
+      fc.Fits
   | .check left side other c => ∃ L Rg, SplitAt g .seq L Rg ∧
       side = (if left then L.node else Rg.node) ∧ other = (if left then Rg.node else L.node) ∧
       match c with
@@ -416,13 +417,13 @@ theorem Prog.mono {st st' : StateOf R Rel (Ans D P)} (h : Stable st st') {i : Na
     exact (h5 p q x y hb (h.getElem?_old hx hp.1) (h.getElem?_old hy hp.2) z hz).mono h
   | push k left side other subs dead reads c fc =>
     dsimp only [Prog] at hs ⊢
-    obtain ⟨L, Rg, h1, h2, h3, h4, hD, h5, h6, h7⟩ := hs
+    obtain ⟨L, Rg, h1, h2, h3, h4, hD, h5, h6, h7, hF⟩ := hs
     have hlen : subs.length ≤ (st.answers side).length := by
       have := congrArg List.length h4
       simp only [List.length_map, List.length_take] at this
       omega
     refine ⟨L, Rg, h1, hE _ _ h2, h3, ?_, hD.mono h,
-      fun e he t ht => ?_, h6, fun s q x t r y hb he hq hy z hz => ?_⟩
+      fun e he t ht => ?_, h6, fun s q x t r y hb he hq hy z hz => ?_, hF⟩
     · rw [h4]
       exact (take_of_prefix (h.answers side) hlen).symm
     · exact ⟨hE _ _ (h5 e he t ht).1, (h5 e he t ht).2.trans (h.length_le _)⟩
@@ -1270,7 +1271,7 @@ theorem prog_push_file {st : StateOf R Rel (Ans D P)} (i : Nat) (g : GoalOf R Re
   generalize hfdef : pushFile st (dead'.getD []) 0 f0.2.1 (f0.2.2.kill (dead'.getD [])) f0.1 = f
   rw [hfdef] at hfe0 hflen0 hfd0 hfp0 hff0
   dsimp only [Prog] at hs ⊢
-  obtain ⟨L, Rg, h1, h2, h3, h4, hD, h5, h6, h7⟩ := hs
+  obtain ⟨L, Rg, h1, h2, h3, h4, hD, h5, h6, h7, hF⟩ := hs
   have hlen : subs.length ≤ (st.answers side).length := by
     have := congrArg List.length h4
     simp only [List.length_map, List.length_take] at this
@@ -1331,7 +1332,7 @@ theorem prog_push_file {st : StateOf R Rel (Ans D P)} (i : Nat) (g : GoalOf R Re
     | none => exact True.intro
     | some d => exact ⟨(hD' d rfl).1, hfl, (hD' d rfl).2⟩
   refine ⟨L, Rg, h1, h2, h3, ?_, hDn, fun e he t ht => ?_, hfit,
-    fun s q x t r y hb he hq hy z hz => ?_⟩
+    fun s q x t r y hb he hq hy z hz => ?_, hF⟩
   · have hm : f.1.map (·.1) = f0.1.map (·.1) := by
       refine List.ext_getElem? fun n => ?_
       rw [List.getElem?_map, List.getElem?_map, hfe]
@@ -1406,7 +1407,7 @@ theorem prog_work_push (hL : D.Lawful P.sorts.interp) {st : StateOf R Rel (Ans D
   dsimp only at hP ⊢
   have hP0 := hP
   dsimp only [Prog] at hP
-  obtain ⟨L, Rg, h1, h2, h3, h4, hD, h5, hfit, h7⟩ := hP
+  obtain ⟨L, Rg, h1, h2, h3, h4, hD, h5, hfit, h7, hF⟩ := hP
   have hlen : subs'.length ≤ (st.answers side).length := by
     have := congrArg List.length h4
     simp only [List.length_map, List.length_take] at this
@@ -1436,7 +1437,7 @@ theorem prog_work_push (hL : D.Lawful P.sorts.interp) {st : StateOf R Rel (Ans D
       dsimp only [Prog]
       refine ⟨L, Rg, h1, hS1.ext _ _ h2, h3, ?_,
         by rw [List.length_set]; exact hD.mono hS1,
-        fun e he t ht => ?_, hfit' _, fun s q x' t r y hb he hq hy z hz => ?_⟩
+        fun e he t ht => ?_, hfit' _, fun s q x' t r y hb he hq hy z hz => ?_, hF⟩
       · have hm : (subs'.set p.1 (x, some (e0.2.1, 0))).map (·.1) = subs'.map (·.1) := by
           refine List.ext_getElem? fun n => ?_
           rw [List.getElem?_map, List.getElem?_map]
@@ -1490,7 +1491,7 @@ theorem prog_work_push (hL : D.Lawful P.sorts.interp) {st : StateOf R Rel (Ans D
       have hS := hf.stable ho
       dsimp only [Prog]
       refine ⟨L, Rg, h1, hS.ext _ _ h2, h3, ?_, hD.mono hS,
-        fun e he t ht => ?_, hfit.markRead hr' _, fun s q x' t r'' y hb he hq hy z hz => ?_⟩
+        fun e he t ht => ?_, hfit.markRead hr' _, fun s q x' t r'' y hb he hq hy z hz => ?_, hF⟩
       · rw [h4]
         exact (take_of_prefix (hS.answers side) hlen).symm
       · exact ⟨hS.ext _ _ (h5 e he t ht).1, (h5 e he t ht).2.trans (hS.length_le _)⟩
