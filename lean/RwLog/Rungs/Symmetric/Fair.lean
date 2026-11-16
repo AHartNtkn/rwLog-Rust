@@ -229,7 +229,7 @@ theorem IsRun.live_check (h : IsRun U σ) {ra k : Nat} {g : GoalOf R Rel}
   | span _ => cases hc0
   | copy _ _ => cases hc0
   | join _ _ _ _ => cases hc0
-  | push _ _ _ _ _ _ _ _ _ => cases hc0
+  | push _ _ _ _ _ _ _ _ => cases hc0
   | check left side other c0 =>
   have al : ∀ r, ra ≤ r → ∃ c, (L r)[m]? = some (.check left side other c) := fun r hr => by
     obtain ⟨_, hs, c, rfl⟩ := hL.along (fun _ s => ∃ c, s = Strat.check left side other c) h0
@@ -347,7 +347,7 @@ theorem IsRun.served_live (h : IsRun U σ) {r0 k : Nat} {g : GoalOf R Rel}
     | span _ => exact h.live_span hka hL hm
     | copy _ _ => exact h.live_copy hka hL hm
     | join _ _ _ _ => exact h.live_join hka hL hm
-    | push _ _ _ _ _ _ _ _ _ => cases hlead
+    | push _ _ _ _ _ _ _ _ => cases hlead
     | check _ _ _ _ => cases hlead
   · exact h.live_check hka hL hall
 

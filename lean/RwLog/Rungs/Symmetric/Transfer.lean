@@ -120,7 +120,7 @@ means (`Prog`) says so. -/
 theorem IsRun.pushSound (hτ : IsRun U τ) {r' k : Nat} {g : GoalOf R Rel}
     (hgk : goalAt (τ r') k = some g) {r0 : Nat} {L : Nat → List (Strat Rel (Ans D P))}
     (hLn : Line (readNeed P) τ k r0 L) (q side : Nat) : PushSound τ L q side r0 := by
-  intro r1 kd left other subs dead reads c fc hr1 hs
+  intro r1 kd left other subs dead reads c hr1 hs
   have hp := hτ.prog hgk (hLn.mem r1 hr1 _ (List.mem_of_getElem? hs))
   dsimp only [Prog] at hp
   obtain ⟨Lg, Rg, -, -, -, h4, -, h5, hfit, -⟩ := hp
@@ -322,7 +322,7 @@ theorem Cert.waits_quiet (hC : Cert U C ρ A) (hτ : IsRun U τ)
     (hk : Waits C ρ τ n k) :
     ∃ T, ∀ r1, T ≤ r1 → ∃ s, IsStrat τ k (r1 + 1) s ∧
       s.quiet (τ (r1 + 1)) (fun j => (τ (r1 + 1)).isDone j || X.contains j) = true ∧
-      ∀ kd l side o subs dead reads c fc, s = .push kd l side o subs dead reads c fc →
+      ∀ kd l side o subs dead reads c, s = .push kd l side o subs dead reads c →
         (τ r1).isDone side = true := by
   obtain ⟨g, r', hg, hn, hgk, hop, hnd⟩ := hk
   subst hn
@@ -431,7 +431,7 @@ theorem Cert.waits_quiet (hC : Cert U C ρ A) (hτ : IsRun U τ)
     rw [← hother] at hsub
     obtain ⟨gr', hgr', a', b', hga', hgb', -, hxl, hxr⟩ := hfull.split kd Lg Rg hsp
     obtain ⟨side', hgside', hx⟩ : ∃ side', goalAt (τ r0) side' = some (if left then Lg else Rg) ∧
-        Strat.push kd left side' other [] none [] Cursor.start Cursor.start ∈ gr'.kinds := by
+        Strat.push kd left side' other [] none [] Cursor.start ∈ gr'.kinds := by
       subst hother
       cases left
       · exact ⟨b', by simpa using hgb', by simpa using hxr⟩
@@ -656,7 +656,7 @@ theorem Cert.completes (hC : Cert U C ρ A) {g : GoalOf R Rel} (hg : C g) : Comp
       obtain ⟨T, hT⟩ := eventually_forall_mem X
         (fun k r1 => ∃ s, IsStrat τ k (r1 + 1) s ∧
           s.quiet (τ (r1 + 1)) (fun j => (τ (r1 + 1)).isDone j || X.contains j) = true ∧
-          ∀ kd l side o subs dead reads c fc, s = .push kd l side o subs dead reads c fc →
+          ∀ kd l side o subs dead reads c, s = .push kd l side o subs dead reads c →
             (τ r1).isDone side = true)
         (fun k hk' => hC.waits_quiet hL hτ hN
           (fun g hg hlt r' k hk ho => ih (ρ g) hlt g hg rfl r' k hk ho) hX
@@ -782,10 +782,10 @@ theorem IsRun.fcert (hσ : IsRun U σ) (r : Nat) :
       exact .join kd Lg Rg hsp
         ⟨⟨a, hga, hq.2.1.1⟩, by rw [(key _ _ hga).1, hρi]; exact hq.2.1.2⟩
         ⟨⟨b, hgb, hq.2.2.1⟩, by rw [(key _ _ hgb).1, hρi]; exact hq.2.2.2⟩
-    | push kd left side other subs dead reads c fc =>
+    | push kd left side other subs dead reads c =>
       dsimp only [Prog] at hp
       obtain ⟨Lg, Rg, hsp, hgside, hother, h4, hD, hsubs, -, -⟩ := hp
-      have hrank := hpush kd left side other subs dead reads c fc rfl
+      have hrank := hpush kd left side other subs dead reads c rfl
       obtain ⟨dead, rfl⟩ : ∃ d, dead = some d := by
         cases dead with
         | none => simp [Strat.quiet] at hq

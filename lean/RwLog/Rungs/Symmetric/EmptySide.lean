@@ -97,7 +97,7 @@ theorem IsRun.done_of_side (hτ : IsRun U τ) {r k : Nat} {g Lg Rg sg : GoalOf R
   obtain ⟨r0, hfull, lk⟩ := hτ.live_strat hk hlive
   obtain ⟨gr', hgr', a', b', hga', hgb', -, hxl, hxr⟩ := hfull.split kd Lg Rg hsp
   obtain ⟨side', other, hgside', hx⟩ : ∃ side' other, goalAt (τ r0) side' = some sg ∧
-      Strat.push kd left side' other [] none [] Cursor.start Cursor.start ∈ gr'.kinds := by
+      Strat.push kd left side' other [] none [] Cursor.start ∈ gr'.kinds := by
     subst hsg
     cases left
     · exact ⟨b', _, by simpa using hgb', hxr⟩
