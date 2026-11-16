@@ -14,9 +14,12 @@ edges that meet their specifications, at every kernel rung:
   `rung_directionFree`).
 
 `rung1` is the one with the raced unfolding and the reading that composes
-every run of spans at an edge.
+every run of spans at an edge. `bothWays` is the one that reads an edge both
+ways side by side (`Faces.lean`): it has the laws and the same bound on
+direction, and it is no rung of the ladder until it is admitted above rung 1.
 -/
 import RwLog.Rungs.Symmetric.Correct
+import RwLog.Rungs.Symmetric.Faces
 import RwLog.Rungs.Framework.OrientedLaws
 import RwLog.Rungs.Framework.OrientedDirection
 import RwLog.Rungs.Framework.Unfolding.Races
@@ -72,6 +75,20 @@ theorem rung1_ladder (κ : KernelRung) : Ladder κ rung1 rung1 [] := rung_ladder
 theorem rung1_directionFree (κ : KernelRung) (A : ArtifactStore) :
     DirectionFree (rung1.machine κ A) (DirBound.fn ⟨12, 1⟩) :=
   rung_directionFree good_raced good_runsReader κ A
+
+/-- The symmetric engine with the raced unfolding, reading edges both ways
+side by side (`bothReader`). -/
+def bothWays : CostedRung := rung Unfold.raced @bothReader
+
+/-- **The engine that reads edges both ways has the laws.** -/
+theorem bothWays_lawful (κ : KernelRung) : bothWays.Lawful κ :=
+  rung_lawful good_raced good_bothReader κ
+
+/-- **The engine that reads edges both ways costs the same in both
+directions**, within `12 * (c + n + 1)`. -/
+theorem bothWays_directionFree (κ : KernelRung) (A : ArtifactStore) :
+    DirectionFree (bothWays.machine κ A) (DirBound.fn ⟨12, 1⟩) :=
+  rung_directionFree good_raced good_bothReader κ A
 
 end Symmetric
 

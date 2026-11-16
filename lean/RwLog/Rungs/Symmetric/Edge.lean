@@ -515,22 +515,35 @@ theorem runs_ok (hL : D.Lawful P.sorts.interp) (hP : ProgFO P) (last : Bool) :
             | false => rfl
             | true => exact absurd (List.any_eq_true.2 ⟨r, hr, hr2⟩) hany
 
-/-- **Reading an edge is right about the program**: the interfaces read are
+/-- A reading made a reading of every node is right about the program if
+the reading is. -/
+theorem offered_sound {rd : Bool → Nat → Rel → Cost (Option (Option (List R)))}
+    (h : ∀ (last : Bool) (d : Nat) (n : Rel) (ps : List R),
+      (rd last d n).val = some (some ps) → EdgeOk D P n last ps) :
+    ∀ (last : Bool) (d : Nat) (n : Rel) (ps : List R),
+      (offered (K := DerivationKernel.over D K hK P) rd last d n).val = some (some ps) →
+        EdgeOk D P n last ps := by
+  intro last d n ps
+  at_cost K hK
+  intro h'
+  simp only [offered, Cost.bind_val] at h'
+  split at h'
+  · cases h'
+  · cases h'
+  · exact h last d n ps h'
+
+/-- **The interfaces of the runs are right about the program**: they are
 boundaries, and every answer of a node of the normal form with first-order
 spans ends (begins) inside one of them. -/
-theorem readEdge_sound (hL : D.Lawful P.sorts.interp) (hP : ProgFO P) :
+theorem readRuns_sound (hL : D.Lawful P.sorts.interp) (hP : ProgFO P) :
     ∀ (last : Bool) (d : Nat) (n : Rel) (ps : List R),
-      (readEdge (K := DerivationKernel.over D K hK P) last d n).val = some (some ps) →
+      (readRuns (K := DerivationKernel.over D K hK P) last d n).val = some (some ps) →
         EdgeOk D P n last ps := by
   intro last d n ps h
   have hruns := fun rs => runs_ok (K := K) (hK := hK) hL hP last d [] n rs
   at_cost K hK
-  simp only [readEdge, Cost.bind_val] at h
-  split at h
-  · cases h
-  · cases h
-  · simp only [Cost.bind_val] at h
-    split at h
+  simp only [readRuns, Cost.bind_val] at h
+  · split at h
     · cases h
     · next rs hrs =>
       simp only [Cost.bind_val, Cost.pure_val, foldL_std, Cost.foldL_val, Option.some.injEq] at h
@@ -599,6 +612,13 @@ theorem readEdge_sound (hL : D.Lawful P.sorts.interp) (hP : ProgFO P) :
                 Option.some.injEq] at hg
               subst hg
               exact bounds_add D true _ (hflag p) hp hI
+
+/-- **Reading an edge is right about the program.** -/
+theorem readEdge_sound (hL : D.Lawful P.sorts.interp) (hP : ProgFO P) :
+    ∀ (last : Bool) (d : Nat) (n : Rel) (ps : List R),
+      (readEdge (K := DerivationKernel.over D K hK P) last d n).val = some (some ps) →
+        EdgeOk D P n last ps :=
+  offered_sound (readRuns_sound hL hP)
 
 end kernel
 
