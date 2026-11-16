@@ -16,7 +16,7 @@ domain of a kernel rung is lawful (`KernelRung.lawful`), so both hold of
 `Engine.costed E κ` for every engine and every rung.
 -/
 import RwLog.Trusted.Cost
-import RwLog.Trusted.Properties
+import RwLog.Rungs.Framework.RunProperties
 
 namespace RwLog
 

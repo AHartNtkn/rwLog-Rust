@@ -45,15 +45,17 @@ is done (`ExhaustsWithin`); it is infinite on most queries.
 What a machine has used on an input by the end of its first `n` steps is a
 number, and there is one such number for each resource (`Meter`). Time is the
 ticks paid (`Meter.time`) and space is the most cells live at any moment so
-far (`Meter.space`). Simulation and separation are written once, for any
-resource.
+far (`Meter.space`). A comparison is written once, for any resource.
 
-## Improvement
+## Comparing two machines
 
 `SimulatesBy μ Old New p`: every pair is covered by `New` having used at most
 the explicit function `p` of what `Old` has used when it covers it and of the
 size of the input, and likewise for exhaustion when `Old` halts. Nothing here
-depends on either machine halting. `Simulates` is the case of time.
+depends on either machine halting. `Simulates` is the case of time. It is
+what "comparable" means where two costs are asked to be comparable, as for
+the two directions of a relation. An admission does not ask it of a rung
+against the rung below.
 
 ## Classes and contexts
 
@@ -97,22 +99,10 @@ numerals of the improvement are explicit (`Bounds`).
 A kind is a resource (time or space) and the size of the gain (`Gap`).
 
 * An exponential gain. The old machine has used at least `2 ^ k` of the
-  resource; the new one simulates it within a polynomial, and the bound in
-  context is a polynomial.
+  resource, and the bound in context is a polynomial.
 * A polynomial gain. The old machine has used at least
   `(k + 1) ^ gain * hi k` with `gain` positive, so the ratio grows without
-  bound. The new machine simulates the old one within a constant factor,
-  `simCoeff * (c + 1)`, with no term in the size of the input, so that a
-  polynomial rung is nowhere worse than its predecessor by more than a
-  constant factor. The bound in context is linear in `hi k` and in the
-  residue.
-
-The simulation is required in time for every kind. It is required in space
-too, within the same bound, for every kind except an exponential gain in
-time: that one is usually bought with space (a table), and what it uses is
-reported and not capped. So a polynomial rung, in either resource, keeps both
-resources within a constant factor, and polynomial rungs cannot trade a gain
-in one for a loss in the other.
+  bound. The bound in context is linear in `hi k` and in the residue.
 
 Since the size of a member is polynomial in its rank, `2 ^ k` is exponential
 in a root of the size of the input. `Improves kind Old New b C` is the
@@ -138,10 +128,8 @@ polynomially later because the query was written from the other end.
 
 ## The record of wins
 
-The simulation does not keep a win by itself: a rung admitted for an
-exponential gain simulates its predecessor only within a polynomial, so it
-could lose again what an earlier rung won by a polynomial factor. So wins are
-kept on a record. A win on record (`Win`) is the kind of an admission, its
+No later rung may lose a gain an earlier rung made. So wins are kept on a
+record, and every admission is held to every win on it. A win on record (`Win`) is the kind of an admission, its
 class and its numerals. A machine keeps it within a factor `c`
 (`Win.KeptBy`) when, in the resource of the win, it covers every target of a
 member of rank `k` having used at most `c * hi k`, and in every open context
@@ -152,14 +140,20 @@ of successive rungs do not multiply.
 ## Admission
 
 A rung is admitted by a proof of `Admits κ kind` over the record of the rung
-below it, at a kernel rung `κ` (`Trusted/Kernel.lean`), and by nothing else: it advances on its predecessor by a win of
-that kind (`Advances`), its cost does not depend on direction, within a
-polynomial whose numerals its specification writes out, and it keeps every
-win on the record within a constant factor that its specification writes
-out. A simulation or a separation with other functions does not admit it,
-and neither does a gain on a sequence of inputs that is not a class, a gain
-that holds only when the input is the whole program, an improvement that
-holds from one end only, or a gain that gives back a win of an earlier rung.
+below it, at a kernel rung `κ` (`Trusted/Kernel.lean`), and by nothing else.
+It is a strict improvement: it advances on its predecessor by a win of that
+kind (`Advances`). It loses no earlier gain: it keeps every win on the record
+within a constant factor that its specification writes out. It loses no
+halting: it halts on every input on which its predecessor halts. And the cost
+of a relation forward and backward is comparable: its cost does not depend
+on direction, within a polynomial whose numerals its specification writes
+out. A separation with other functions does not admit it, and neither does a
+gain on a sequence of inputs that is not a class, a gain that holds only
+when the input is the whole program, an improvement that holds from one end
+only, or a gain that gives back a win of an earlier rung.
+
+Every clause is about what has been paid when an answer has arrived, or
+about whether a run halts. None compares two runs step by step.
 
 `Ladder κ base G record` (`Trusted/Properties.lean`, where the laws are
 stated) is the ladder itself: the base has the empty record, and each
@@ -592,10 +586,6 @@ structure Kind where
 
 /-- The numerals of an improvement. -/
 structure Bounds where
-  /-- The simulation bound: a coefficient, and a degree that a polynomial win
-  does not use. -/
-  simCoeff : Nat
-  simDeg : Nat
   /-- The size of a member of rank `k`. -/
   sizeCoeff : Nat
   sizeDeg : Nat
@@ -618,14 +608,6 @@ def size (b : Bounds) (k : Nat) : Nat := b.sizeCoeff * (k + 1) ^ b.sizeDeg
 member of rank `k`. -/
 def hi (b : Bounds) (k : Nat) : Nat := b.hiCoeff * (k + 1) ^ b.hiDeg
 
-/-- The simulation bound, for what the old machine has used `c` and the size
-of the input `n`. For a polynomial win it is the constant factor
-`simCoeff * (c + 1)`, whatever the size; otherwise the polynomial
-`simCoeff * (c + n + 1) ^ simDeg`. -/
-def sim (b : Bounds) : Gap → Nat → Nat → Nat
-  | .polynomial, c, _ => b.simCoeff * (c + 1)
-  | .exponential, c, n => b.simCoeff * (c + n + 1) ^ b.simDeg
-
 /-- What the old machine has used at least, on a member of rank `k`. For a
 polynomial win it is `(k + 1) ^ gain` times the new machine's bound;
 otherwise `2 ^ k`. -/
@@ -645,19 +627,13 @@ end Bounds
 
 /-- `New` improves on `Old` by a win of the given kind, on the class `C`,
 with the numerals `b`: the class is proper with members of size at most
-`b.size`; `New` is never worse in time than `b.sim kind.gap` of `Old` on any
-answer of any input, and never worse in space within the same bound unless
-the win is an exponential gain in time; and it is separated from `Old` on `C`, in the resource
-of the kind, with `Old` at `b.lo kind.gap` or more, `New` within `b.hi` on a
-member and within `b.ctx kind.gap` in context. The ratio of a polynomial win
-grows. -/
+`b.size`; and it is separated from `Old` on `C`, in the resource of the kind,
+with `Old` at `b.lo kind.gap` or more, `New` within `b.hi` on a member and
+within `b.ctx kind.gap` in context. The ratio of a polynomial win grows. -/
 structure Improves (kind : Kind) (Old New : CostedRuntime) (b : Bounds) (C : ProgClass) :
     Prop where
   proper : C.Proper b.size
   grows : kind.gap = .polynomial → 0 < b.gain
-  simulates : Simulates Old New (b.sim kind.gap)
-  simulatesSpace : kind ≠ ⟨.time, .exponential⟩ →
-    SimulatesBy Meter.space Old New (b.sim kind.gap)
   separates : SeparatesOn kind.resource.meter Old New C (b.lo kind.gap) b.hi (b.ctx kind.gap)
 
 /-! ## Engines
@@ -875,11 +851,9 @@ structure Advances (κ : KernelRung) (kind : Kind) (Old New : CostedRung) (b : B
 
 /-! ## The record of wins
 
-Simulation alone does not keep a win. A rung admitted for an exponential gain
-simulates its predecessor only within a polynomial, so on a class where an
-earlier rung won a polynomial factor it could lose that factor again. So
-every win is put on record when it is admitted, and every later admission, of
-whatever kind, is held to every win on the record. -/
+No later rung may lose a gain an earlier rung made. So every win is put on
+record when it is admitted, and every later admission, of whatever kind, is
+held to every win on the record. -/
 
 /-- A win on record: the kind of the win, the class it was shown on, and the
 numerals it was admitted with. What a later rung is held to are the upper
@@ -900,12 +874,15 @@ def Win.KeptBy (w : Win) (M : CostedRuntime) (c : Nat) : Prop :=
     (fun k res n => c * w.b.ctx w.kind.gap (w.b.hi k) res n)
 
 /-- The rung `New` is admitted above `Old` at the kernel rung `κ` by a win of
-the given kind, over the wins on `record`: it advances on `Old`; whatever the artifact store, its
-cost does not depend on direction, within the polynomial `d`; and it keeps
-every win on the record within the factor `keep`. -/
+the given kind, over the wins on `record`: it advances on `Old`; whatever the
+artifact store, it halts on every input on which `Old` halts, its cost does
+not depend on direction, within the polynomial `d`, and it keeps every win on
+the record within the factor `keep`. -/
 structure Admits (κ : KernelRung) (kind : Kind) (Old New : CostedRung) (b : Bounds)
     (d : DirBound) (pre : Nat → Nat) (C : ProgClass) (record : List Win) (keep : Nat) : Prop
     extends Advances κ kind Old New b pre C where
+  halts : ∀ A P q, P.WellFormed q → (Old.machine κ A).runtime.Terminates P q →
+    (New.machine κ A).runtime.Terminates P q
   direction : ∀ A, DirectionFree (New.machine κ A) d.fn
   keeps : ∀ A, ∀ w ∈ record, w.KeptBy (New.machine κ A) keep
 

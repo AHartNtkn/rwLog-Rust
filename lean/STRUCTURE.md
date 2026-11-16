@@ -24,7 +24,8 @@ Trusted/        the specification: syntax with sort declarations, semantics (wha
                 Tier-0 properties (Runtime.lean), what a constraint system gives an
                 engine and the laws it satisfies (Domain.lean), Rung and Preprocessor
                 (Engine.lean),
-                the properties every machine and every whole rung keeps (Properties.lean),
+                the three laws (sound, complete pair by pair, honest when done) and the
+                ladder (Properties.lean),
                 the cost monad (CostMonad.lean),
                 the charged primitives on nodes (Charged.lean), the kernel an engine is
                 written against and what a kernel rung is (Kernel.lean),
@@ -289,6 +290,12 @@ rung unchanged.
   halt every derivation is, and receives `HonestExhaustion` from
   `Tier0Cert.tier0` (`HonestExhaustion.of_cover`). `sound_of_refines`,
   `derivationGeneral_of_refines` and `Complete.pointwise` are generic too.
+* `RunProperties.lean`: properties of a run that are no law and that proofs
+  use (`DerivationGeneral`, `TerminatesWhere`, `EmptySide`, the equal-trace
+  properties of two writings, of the converse and of the mirror image,
+  `FinalMaximal`), with `KeepsPointwise`, `Keeps` and `Rung.Keeps`, which
+  collect them with the laws as the machines here were proved to have them.
+  `KeepsPointwise.laws` gives the laws from that list.
 * `Transfer.lean`: moving theorems between rungs. `SameRun R' R` says two
   runtimes emit equivalent answers and halt together; it carries `Tier0`,
   `DerivationGeneral` and `TerminatesOn` from `R` to `R'`

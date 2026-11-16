@@ -19,7 +19,7 @@ factors and no program, where `bit` puts `o` or `i` on top of a term. It has
 -/
 import RwLog.SpanLayer.Sorts
 import RwLog.Rungs.Framework.Latency
-import RwLog.Trusted.Properties
+import RwLog.Rungs.Framework.RunProperties
 import Mathlib.Data.Vector.Basic
 import Mathlib.Data.Fintype.BigOperators
 import Mathlib.Analysis.SpecificLimits.Normed
