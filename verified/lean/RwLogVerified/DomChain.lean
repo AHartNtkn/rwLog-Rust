@@ -91,6 +91,25 @@ noncomputable def composeAt (ma mb : Form) : Nat :=
 noncomputable def composeTicks (ρa ρb : Sorts.Rep S) : Nat :=
   most ρa fun ma => most ρb fun mb => composeAt nm S U rc q ma mb
 
+/-- Every representative is held in some way: its store is normal, so it
+has a folded canonical store, whose exclusions can be listed. -/
+theorem heldAs_exists {S : Sorts} (ρ : Sorts.Rep S) : ∃ m, HeldAs ρ m := by
+  have hn := (ρ.orient false).normal
+  have hR : (ρ.orient false).1.Roomy S :=
+    ⟨hn.toShaped, hn.sol_nonempty ρ.wf, fun _ hv => hn.infinite ρ.wf hv⟩
+  exact ⟨⟨Sorts.foldRaw S (ρ.orient false).1, false, (Sorts.foldRaw S (ρ.orient false).1).x.toList⟩,
+    Sorts.foldRaw_spec ρ.wf hR, Finset.nodup_toList _, Finset.toList_toFinset _⟩
+
+/-- **A composition is charged a tick or more.** -/
+theorem one_le_composeTicks (ρa ρb : Sorts.Rep S) : 1 ≤ composeTicks nm S U rc q ρa ρb := by
+  obtain ⟨ma, ha⟩ := heldAs_exists ρa
+  obtain ⟨mb, hb⟩ := heldAs_exists ρb
+  have h := le_most₂ ha hb (composeAt nm S U rc q)
+  have h8 : 8 ≤ composeAt nm S U rc q ma mb := by
+    unfold composeAt halvesCost
+    omega
+  exact le_trans (by omega) h
+
 /-- What `meet` may spend on representatives held in two given ways. -/
 noncomputable def meetAt (ma mb : Form) : Nat :=
   halvesCost nm U.length ma.r ma.Y mb.r mb.Y + 2 +
