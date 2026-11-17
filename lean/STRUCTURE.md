@@ -161,9 +161,18 @@ Rungs/Symmetric/ the symmetric engine of `SYMMETRIC_ENGINE.md` (Machine.lean): a
                 (Framework/Zeroed.lean, `not_demands_zero`, with the choice of the
                 input to run carried through, `orient_pairs_zero`), so a run of the
                 machine with the raced unfolding that has covered such a pair has
-                a table that holds an answer of the body of `h` (LightRun.lean,
-                `covered_body_ctx`). Not
-                proved yet: any bound on the cost of either in the size of the input.
+                a table that holds an answer of the body of `h`, in a state it came
+                to before its root table was complete (LightRun.lean,
+                `covered_body_ctx`). A lower bound on what a run has paid is proved
+                along the engine's text: a computation has spent `B` ticks or what
+                it returns has a property (Framework/PaidOr.lean), and a request
+                keeps a state cheap, with no dear edge read and no round of a
+                marked table, or costs `B` (Paid.lean, `cheap_request`), when
+                reading a dear edge costs `B` and the first round of a marked goal
+                reads one (`Dear`). So, with the bodies of `h` marked, a run that
+                has covered such a pair has paid `B` (`covered_paid_ctx`). Not
+                proved yet: `Dear` for any program, or any bound on the cost of
+                either engine in the size of the input.
 Sorts/          the constraint domain of sorts and the proof that it is lawful
 Manifest/       rung 1's manifest (Rung1.lean): headline statements, trusted files and
                 axioms, all checked by the build
@@ -210,6 +219,7 @@ every charge derived from the Rust. No domain of spans as written is left
 | A sorted list with its duplicates erased is strictly sorted | `Lib/List.lean` | `pairwise_lt_eraseDups` |
 | Lists related member by member, one member changed, conditionals | `Lib/List.lean` | `forall₂_mem_left`, `forall₂_mem_right`, `forall₂_getElem?`, `forall₂_getLast?`, `map_modify_eq`, `mem_modify`, `two_le_length_of_mem`, `drop_take_reverse`, `ite_of_pos`, `ite_of_neg` |
 | Goals, the same goal, maximal answers, the rule of a split, for any machine that tables | `Rungs/Framework/Goals.lean`, `GoalsVal.lean` | `GoalOf`, `Kind`, `same`, `indexFrom`, `coversA`, `maxima`, `fresh`, `both`; their values: `same_val`, `indexFrom_val`, `coversA_val`, `maxima_val`, `fresh_val`, `both_some` |
+| A computation in `Cost` has spent a bound or what it returns has a property, through `>>=` and a fold | `Rungs/Framework/PaidOr.lean` | `Cost.PaidOr`, `PaidOr.bind`, `PaidOr.bind'`, `PaidOr.foldL`, `Traverse.paidOr_foldL` |
 | A fold in `Cost` keeps an invariant | `Rungs/Framework/Cost.lean`, `TraverseStd.lean` | `Cost.foldL_inv`, `Traverse.foldL_inv`, `Traverse.foldL_done` (may speak of the members passed), `Traverse.foldL_split` (and knows the members to come) |
 | Well-formed queries built from a well-formed one | `Rungs/Framework/Direction.lean` | `ProgramOf.WellFormed.of_sub`, `.conv`, `.seq_left`, `.seq_swap`, `.and_of_seq`, `.dual` |
 | Converse of a program | `SpanLayer/Dual.lean` | `Program.sem_dual` |

@@ -12,7 +12,8 @@ body, in the program run, needs a name the unfolding race never reads whole
   query relates in the program where `h` derives nothing
   (`Light.root_sub`).
 * So a run that has covered a pair the query does not relate where `h`
-  derives nothing has a table that holds an answer of the body of `h`
+  derives nothing has a table that holds an answer of the body of `h`,
+  in a state the machine came to before its root table was complete
   (`covered_body`), and that is so of a pair that needs pairs of a call of
   `h` in a context (`covered_body_ctx`).
 -/
@@ -86,14 +87,17 @@ include hD hRd in
 /-- **A run that has covered a pair the query does not relate where `h`
 derives nothing holds an answer of the body of `h`.** The run is of the
 machine on one orientation of its input, with the raced unfolding and any
-reading of edges; the state is one of the first `n + 1` of the run. -/
+reading of edges; the state is one of the first `n + 1` of the run, and the
+root table is complete in no state before it. -/
 theorem covered_body {P : Program} {q : Rel} (wf : P.WellFormed q)
     (hT : Unfold.Tags (orient P q).P c ξ τ)
     (hneed : ∀ s, ¬ Derives ((orient P q).P.withBody c .zero) ((orient P q).P.body h) s)
     {y : GTerm × GTerm} (hy : y ∉ (P.withBody h .zero).pairs q) {n : Nat}
     (hc : ((engine Unfold.raced @rd).costedAt dom K hK).oriented.Covered P q P.sorts.interp y n) :
-    ∃ r ≤ n, HoldsBody (orient P q).P h
-      (sAt Unfold.raced @rd dom K hK (orient P q).P (orient P q).root r) := by
+    ∃ r ≤ n, (∀ i < r,
+        (sAt Unfold.raced @rd dom K hK (orient P q).P (orient P q).root i).isDone 0 = false) ∧
+      HoldsBody (orient P q).P h
+        (sAt Unfold.raced @rd dom K hK (orient P q).P (orient P q).root r) := by
   have wf' := wf_orient wf
   have hn := normal_orient_root P q
   have hL := hD _ wf'.2.2.1
@@ -111,23 +115,31 @@ theorem covered_body {P : Program} {q : Rel} (wf : P.WellFormed q)
   rw [hn.norm_eq] at hinit
   have hb' : b ∈ (Rt Unfold.raced @rd dom K hK).emitted
       (stAt Unfold.raced @rd dom K hK (orient P q).P (orient P q).root 0) n := hinit ▸ hb
-  obtain ⟨j, hj, a, ha, rfl⟩ : ∃ j ≤ n, ∃ a ∈
-      (sAt Unfold.raced @rd dom K hK (orient P q).P (orient P q).root j).answers 0,
+  obtain ⟨j, hj, hlive, a, ha, rfl⟩ : ∃ j ≤ n, (∀ i < j,
+        (sAt Unfold.raced @rd dom K hK (orient P q).P (orient P q).root i).isDone 0 = false) ∧
+      ∃ a ∈ (sAt Unfold.raced @rd dom K hK (orient P q).P (orient P q).root j).answers 0,
       b = sp Unfold.raced @rd dom K hK (orient P q).P a := by
-    rcases run_cases hI n with ⟨-, hr⟩ | ⟨j, hj, -, hr⟩
+    rcases run_cases hI n with ⟨hall, hr⟩ | ⟨j, hj, hd, hr⟩
     · have e : (Rt Unfold.raced @rd dom K hK).emitted
           (stAt Unfold.raced @rd dom K hK (orient P q).P (orient P q).root 0) n = _ :=
         congrArg Prod.fst hr
       rw [e] at hb'
       obtain ⟨a, ha, rfl⟩ := List.mem_map.1 hb'
-      exact ⟨n, Nat.le_refl n, a, ha, rfl⟩
+      exact ⟨n, Nat.le_refl n, hall, a, ha, rfl⟩
     · have e : (Rt Unfold.raced @rd dom K hK).emitted
           (stAt Unfold.raced @rd dom K hK (orient P q).P (orient P q).root 0) n = _ :=
         congrArg Prod.fst hr
       rw [e] at hb'
       obtain ⟨a, ha, rfl⟩ := List.mem_map.1 hb'
-      exact ⟨j, Nat.le_of_lt hj, a, ha, rfl⟩
-  refine ⟨j, hj, ?_⟩
+      classical
+      have hex : ∃ j0, (sAt Unfold.raced @rd dom K hK (orient P q).P (orient P q).root j0).isDone 0 =
+          true := ⟨j, hd⟩
+      refine ⟨Nat.find hex, Nat.le_trans (Nat.find_min' hex hd) (Nat.le_of_lt hj), fun i hi => ?_,
+        a, hI.done_answers (Nat.find_spec hex) j ha, rfl⟩
+      cases hdi : (sAt Unfold.raced @rd dom K hK (orient P q).P (orient P q).root i).isDone 0 with
+      | false => rfl
+      | true => exact absurd hdi (Nat.find_min hex hi)
+  refine ⟨j, hj, hlive, ?_⟩
   rcases body_or_light (hI.good j)
     (prov_stateAt hL (progFO_orient wf) hT hneed j) with hbody | hlight
   · exact hbody
@@ -152,9 +164,12 @@ theorem covered_body_ctx {P : Program} (Kc : Context)
     {X : PRel} {y : GTerm × GTerm} (hd : Kc.Demands P (.call h) P.sorts.interp X y) {n : Nat}
     (hc : ((engine Unfold.raced @rd).costedAt dom K hK).oriented.Covered (Kc.program P)
       (Kc.query (.call h)) P.sorts.interp y n) :
-    ∃ r ≤ n, HoldsBody (orient (Kc.program P) (Kc.query (.call h))).P h
-      (sAt Unfold.raced @rd dom K hK (orient (Kc.program P) (Kc.query (.call h))).P
-        (orient (Kc.program P) (Kc.query (.call h))).root r) :=
+    ∃ r ≤ n, (∀ i < r,
+        (sAt Unfold.raced @rd dom K hK (orient (Kc.program P) (Kc.query (.call h))).P
+          (orient (Kc.program P) (Kc.query (.call h))).root i).isDone 0 = false) ∧
+      HoldsBody (orient (Kc.program P) (Kc.query (.call h))).P h
+        (sAt Unfold.raced @rd dom K hK (orient (Kc.program P) (Kc.query (.call h))).P
+          (orient (Kc.program P) (Kc.query (.call h))).root r) :=
   covered_body @rd dom K hK hD hRd wf hT hneed (not_demands_zero P h Kc hd) hc
 
 end run

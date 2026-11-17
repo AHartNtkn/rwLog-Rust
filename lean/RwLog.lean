@@ -87,6 +87,7 @@ import RwLog.Rungs.Framework.Unfolding.Shared
 import RwLog.Rungs.Framework.Unfolding.Races
 import RwLog.Rungs.Framework.Unfolding.Never
 import RwLog.Rungs.Framework.Zeroed
+import RwLog.Rungs.Framework.PaidOr
 import RwLog.Sorts.Incl
 import RwLog.Sorts.Indep
 import RwLog.Sorts.Trusted
@@ -130,6 +131,7 @@ import RwLog.Rungs.Symmetric.Kept
 import RwLog.Rungs.Symmetric.Provenance
 import RwLog.Rungs.Symmetric.Light
 import RwLog.Rungs.Symmetric.LightRun
+import RwLog.Rungs.Symmetric.Paid
 import RwLog.Rungs.Symmetric.Edge
 import RwLog.Rungs.Symmetric.ReadLive
 import RwLog.Rungs.Symmetric.Faces
