@@ -196,7 +196,33 @@ Rungs/Symmetric/ the symmetric engine of `SYMMETRIC_ENGINE.md` (Machine.lean): a
                 lower bound is the lower clause of a separation of rung 1 on it
                 (`Fan.below`, at a kernel that charges a tick or more for a
                 composition). Not proved yet: any bound from above on the cost
-                of either engine in the size of the input.
+                of the first engine in the size of the input.
+  Dive/         rung 2: the engine of rung 1 with the diving engine beside it
+                (`Framework/Beside.lean`). The diving engine keeps no tables
+                (Engine.lean): a step is one reading of the root from the top
+                under a budget of ticks, the choice at each union a digit of
+                a number, and the answer of the reading is emitted with its
+                converse. It never reports that it is done and is not
+                complete. A reading is traced rule by rule at a kernel
+                (Read.lean, `Reads`, `Joins`); on a member of the fan the
+                reading by the number 0 takes the ground span at the union
+                and makes an answer that relates the target, in either
+                direction of the chain, at a cost that does not depend on the
+                rank (Fan.lean, `reads_root`, `fanTicks`). The run reaches
+                the budget `2 ^ L` within `L * L` steps (Run.lean, `reach`,
+                `first_reading`), so the machine has emitted that answer
+                within a number of steps and ticks free of the rank
+                (FanRun.lean, `dive_fan`). A reading makes an answer of the
+                goal of its node between no boundaries, so on a root that is
+                its own converse every step shows an answer and its converse
+                or nothing (Converse.lean, `rd_goal`, `dive_selfConverse`).
+                Rung 2 (Rung.lean, `rung2`) has the laws (`rung2_lawful`),
+                is done exactly where rung 1 is (`rung2_halts`), costs the
+                same in both directions (`rung2_directionFree`), and on a
+                member of the fan of rank `k` covers the target having paid
+                at most `rung2Hi κ * (k + 1) ^ 2` ticks (`rung2_alone`),
+                where rung 1 has paid `2 ^ k` (`Fan.below`). Not proved yet:
+                the admission of rung 2 above rung 1 (`Admits`).
 Sorts/          the constraint domain of sorts and the proof that it is lawful
 Manifest/       rung 1's manifest (Rung1.lean): headline statements, trusted files and
                 axioms, all checked by the build
@@ -432,6 +458,11 @@ rung unchanged.
   (`beside_honest`), reports that it is done exactly where its first engine
   does (`beside_terminates`), and `beside_paid` bounds what it has paid when
   its second engine has taken `n` steps.
+
+* `BesideConverse.lean`: on a root that is its own converse the machine of
+  the pair shows its own converse if the machines of its two engines do
+  (`beside_selfConverse`): a step of the pair shows what a step of one of
+  its engines shows, or nothing (`stepC_cases`).
 
 * `RecordWitness.lean`: `Admits` has inhabitants. Two toy
   engines, admitted one above the other over a base that never answers, the

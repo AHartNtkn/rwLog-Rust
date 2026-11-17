@@ -38,6 +38,7 @@ import RwLog.Rungs.Framework.Holding
 import RwLog.Rungs.Framework.Beside
 import RwLog.Rungs.Framework.BesideRun
 import RwLog.Rungs.Framework.BesideLaws
+import RwLog.Rungs.Framework.BesideConverse
 import RwLog.Rungs.Framework.Admission
 import RwLog.Rungs.Framework.RecordWitness
 import RwLog.Rungs.Framework.CostCalculus
@@ -149,3 +150,10 @@ import RwLog.Rungs.Symmetric.Served
 import RwLog.Rungs.Symmetric.Saturated
 import RwLog.Rungs.Symmetric.Correct
 import RwLog.Rungs.Symmetric.Rung
+import RwLog.Rungs.Dive.Engine
+import RwLog.Rungs.Dive.Read
+import RwLog.Rungs.Dive.Fan
+import RwLog.Rungs.Dive.Run
+import RwLog.Rungs.Dive.FanRun
+import RwLog.Rungs.Dive.Converse
+import RwLog.Rungs.Dive.Rung
