@@ -13,6 +13,7 @@ relation that relates nothing. This file says what it means beside `P`.
   nothing (`not_demands_zero`).
 -/
 import RwLog.Rungs.Framework.OrientedLaws
+import RwLog.Rungs.Framework.Admission
 import RwLog.Rungs.Framework.Unfolding.Never
 
 namespace RwLog
@@ -125,28 +126,17 @@ theorem orient_pairs_zero (q : Rel) :
 
 /-! ## In a context -/
 
-theorem Ctx.denoteAt_fill (M : Interp) (ρ : Name → PRel) (r : Rel) :
-    ∀ K : Ctx, denoteAt M ρ (K.fill r) = K.denAt M ρ (denoteAt M ρ r)
-  | .hole => rfl
-  | .orL K b => by simp only [Ctx.fill, Ctx.denAt, denoteAt, Ctx.denoteAt_fill M ρ r K]
-  | .orR a K => by simp only [Ctx.fill, Ctx.denAt, denoteAt, Ctx.denoteAt_fill M ρ r K]
-  | .andL K b => by simp only [Ctx.fill, Ctx.denAt, denoteAt, Ctx.denoteAt_fill M ρ r K]
-  | .andR a K => by simp only [Ctx.fill, Ctx.denAt, denoteAt, Ctx.denoteAt_fill M ρ r K]
-  | .seqL K b => by simp only [Ctx.fill, Ctx.denAt, denoteAt, Ctx.denoteAt_fill M ρ r K]
-  | .seqR a K => by simp only [Ctx.fill, Ctx.denAt, denoteAt, Ctx.denoteAt_fill M ρ r K]
-  | .conv K => by simp only [Ctx.fill, Ctx.denAt, denoteAt, Ctx.denoteAt_fill M ρ r K]
-
 /-- A context relates more when its hole and the names relate more. -/
-theorem Ctx.denAt_mono (M : Interp) {ρ ρ' : Name → PRel} (hρ : ρ ≤ ρ') {X X' : PRel}
+theorem Ctx.denAt_mono_names (M : Interp) {ρ ρ' : Name → PRel} (hρ : ρ ≤ ρ') {X X' : PRel}
     (hX : X ⊆ X') : ∀ K : Ctx, K.denAt M ρ X ⊆ K.denAt M ρ' X'
   | .hole => hX
-  | .orL K b => Set.union_subset_union (Ctx.denAt_mono M hρ hX K) (denoteAt_mono M hρ b)
-  | .orR a K => Set.union_subset_union (denoteAt_mono M hρ a) (Ctx.denAt_mono M hρ hX K)
-  | .andL K b => Set.inter_subset_inter (Ctx.denAt_mono M hρ hX K) (denoteAt_mono M hρ b)
-  | .andR a K => Set.inter_subset_inter (denoteAt_mono M hρ a) (Ctx.denAt_mono M hρ hX K)
-  | .seqL K b => fun _ ⟨m, h1, h2⟩ => ⟨m, Ctx.denAt_mono M hρ hX K h1, denoteAt_mono M hρ b h2⟩
-  | .seqR a K => fun _ ⟨m, h1, h2⟩ => ⟨m, denoteAt_mono M hρ a h1, Ctx.denAt_mono M hρ hX K h2⟩
-  | .conv K => fun _ hp => Ctx.denAt_mono M hρ hX K hp
+  | .orL K b => Set.union_subset_union (Ctx.denAt_mono_names M hρ hX K) (denoteAt_mono M hρ b)
+  | .orR a K => Set.union_subset_union (denoteAt_mono M hρ a) (Ctx.denAt_mono_names M hρ hX K)
+  | .andL K b => Set.inter_subset_inter (Ctx.denAt_mono_names M hρ hX K) (denoteAt_mono M hρ b)
+  | .andR a K => Set.inter_subset_inter (denoteAt_mono M hρ a) (Ctx.denAt_mono_names M hρ hX K)
+  | .seqL K b => fun _ ⟨m, h1, h2⟩ => ⟨m, Ctx.denAt_mono_names M hρ hX K h1, denoteAt_mono M hρ b h2⟩
+  | .seqR a K => fun _ ⟨m, h1, h2⟩ => ⟨m, denoteAt_mono M hρ a h1, Ctx.denAt_mono_names M hρ hX K h2⟩
+  | .conv K => fun _ hp => Ctx.denAt_mono_names M hρ hX K hp
 
 /-- The names mean no more in the program where `h` derives nothing. -/
 theorem meaningAt_zero_le (M : Interp) : (P.withBody h .zero).meaningAt M ≤ P.meaningAt M := by
@@ -170,8 +160,8 @@ theorem not_demands_zero (K : Context) {M : Interp} {X : PRel} {y : GTerm × GTe
   intro hy
   refine hd.2 ?_
   unfold ProgramOf.semAt Context.query at hy
-  rw [Ctx.denoteAt_fill] at hy
-  refine Ctx.denAt_mono M (meaningAt_zero_le _ h M) ?_ _ hy
+  rw [← Ctx.denAt_fill] at hy
+  refine Ctx.denAt_mono_names M (meaningAt_zero_le _ h M) ?_ _ hy
   show ((K.program P).withBody h .zero).meaningAt M h ⊆ _
   rw [meaningAt_zero_self]
   exact Set.empty_subset _
