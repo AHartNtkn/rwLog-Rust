@@ -373,10 +373,10 @@ theorem nodeD_walk (rev : Bool) (xs : List Rel) :
 
 include hL in
 /-- The items of a walk are the unfolding of the goal between its near and
-its far boundary. -/
-theorem walk_ok (hP : ProgFO P) (rev : Bool) : ∀ (d : Nat) (c : Near R) (n : Rel)
-    (far : Option R), IsBound D c.bound → IsBound D far → Normal n → n.FO →
-    WOk rev c.bound n far (GR P d n) (GD P n) (walkV (P := P) K hK rev d c n far)
+its far boundary, whatever the nodes are taken to derive (`OLaws`). -/
+theorem walk_ok (hP : ProgFO P) {Der : Rel → Set GRel} (hDer : OLaws P Der) (rev : Bool) :
+    ∀ (d : Nat) (c : Near R) (n : Rel) (far : Option R), IsBound D c.bound → IsBound D far → Normal n → n.FO →
+    WOk rev c.bound n far (GR P d n) (Der n) (walkV (P := P) K hK rev d c n far)
   | 0, c, n, far, _, _, _, _ =>
     ⟨fun a ha => by simp [walkV] at ha, fun G hG => by simp at hG,
       fun G _ _ _ => ⟨far, by simp [walkV], fun _ hp => adm_far rev hp⟩⟩
@@ -387,7 +387,7 @@ theorem walk_ok (hP : ProgFO P) (rev : Bool) : ∀ (d : Nat) (c : Near R) (n : R
       have e : walkV (P := P) K hK rev (d + 1) c (.span s) far =
           (leafAtV (P := P) K hK rev c.bound (.span s) far).toList.map .closed := by
         simp only [walkV, hv]
-      rw [e, gr_span P hv, (gd_laws P).span]
+      rw [e, gr_span P hv, (gd_laws P).span, hDer.span]
       exact leaf_wok hL K hK rev hc hf (hfo s (by simp [RelOf.spans]))
     | call m f =>
       obtain ⟨b, hb⟩ := forget_call (P := P) hv
@@ -395,8 +395,8 @@ theorem walk_ok (hP : ProgFO P) (rev : Bool) : ∀ (d : Nat) (c : Near R) (n : R
           (walkV K hK rev d c b far).flatMap fun it =>
             (liftItemV (fun a => (Ans.unfold D P a n).val) it).toList := by
         simp only [walkV, hv, hb]
-      rw [e, gr_call P hv hb, gd_of_body P hb]
-      refine lift_wok (walk_ok hP rev d c b far hc hf (bodyOf_normal hb) (bodyOf_fo hP hb))
+      rw [e, gr_call P hv hb, hDer.body hb]
+      refine lift_wok (walk_ok hP hDer rev d c b far hc hf (bodyOf_normal hb) (bodyOf_fo hP hb))
         (fun a c e => (Ans.unfold_val.1 e).2.2) (fun a ha => ?_)
       obtain ⟨c', hc', hs, -⟩ := Ans.unfold_ok (a := a) (n := n) (by
         rw [hb, ha]; cases rev <;> rfl)
@@ -418,14 +418,14 @@ theorem walk_ok (hP : ProgFO P) (rev : Bool) : ∀ (d : Nat) (c : Near R) (n : R
         · rintro ⟨x, hx, hG⟩
           obtain ⟨i, hi⟩ := List.getElem?_of_mem hx
           exact ⟨(x, i), List.mem_zipIdx_iff_getElem?.2 hi, hG⟩
-      refine (union_wok xs.zipIdx (fun p => GR P d p.1) (fun p => GD P p.1)
+      refine (union_wok xs.zipIdx (fun p => GR P d p.1) (fun p => Der p.1)
         (fun p => (walkV K hK rev d c p.1 far).flatMap fun it =>
           (liftItemV (fun a => (Ans.inj D P a n p.2).val) it).toList) (fun p hp => ?_)).of_eq
         (by ext G; exact (hzip _ G).symm)
-        (by ext G; rw [gd_of_union P hn hvu]; exact (hzip _ G).symm)
+        (by ext G; rw [hDer.union hn hvu]; exact (hzip _ G).symm)
       have hx : xs[p.2]? = some p.1 := List.mem_zipIdx_iff_getElem?.1 hp
       have hm : p.1 ∈ n.view.members := by rw [hvu]; exact List.mem_of_getElem? hx
-      refine lift_wok (walk_ok hP rev d c p.1 far hc hf (hn.view_members hm)
+      refine lift_wok (walk_ok hP hDer rev d c p.1 far hc hf (hn.view_members hm)
         (hfo.view_members hm)) (fun a c e => (Ans.inj_val.1 e).2.2) (fun a ha => ?_)
       obtain ⟨c', hc', hs, -⟩ := Ans.inj_ok (a := a) (u := n) (i := p.2) (by
         rw [← hparts, ha]; cases rev <;> exact hx)
@@ -441,29 +441,29 @@ theorem walk_ok (hP : ProgFO P) (rev : Bool) : ∀ (d : Nat) (c : Near R) (n : R
         cases rev
         · exact hx
         · exact List.mem_reverse.1 hx
-      have key := chain_wok hL K hK rev (walkV K hK rev d) far (GR P d) (GD P) hf
+      have key := chain_wok hL K hK rev (walkV K hK rev d) far (GR P d) Der hf
         (ys := if rev then xs.reverse else xs) (by cases rev <;> simpa using h2)
-        (fun x hx c' fr hc' hfr => walk_ok hP rev d c' x fr hc' hfr (hmem x (hin x hx)).1
+        (fun x hx c' fr hc' hfr => walk_ok hP hDer rev d c' x fr hc' hfr (hmem x (hin x hx)).1
           (hfo.view_members (by rw [hvc]; exact hin x hx)))
         (fun x hx => (hmem x (hin x hx)).2) c hc
       rw [chainSet_seqAll rev _ hxs, chainSet_seqAll rev _ hxs, nodeD_walk, hmk] at key
-      rw [e, gr_chain P hv, gd_of_chain P hvc]
+      rw [e, gr_chain P hv, hDer.chain hvc]
       exact key
     | meet xs =>
       have hvm := forget_meet hv
       obtain ⟨h2, hmem, hs, hmk⟩ := hn.view_meet hvm
       have mem : ∀ c' : Near R, IsBound D c'.bound → ∀ x ∈ xs,
-          WOk rev c'.bound x far (GR P d x) (GD P x) (walkV K hK rev d c' x far) :=
-        fun c' hc' x hx => walk_ok hP rev d c' x far hc' hf (hmem x hx).1
+          WOk rev c'.bound x far (GR P d x) (Der x) (walkV K hK rev d c' x far) :=
+        fun c' hc' x hx => walk_ok hP hDer rev d c' x far hc' hf (hmem x hx).1
           (hfo.view_members (by rw [hvm]; exact hx))
-      rw [gr_meet P hv, gd_of_meet P hvm]
+      rw [gr_meet P hv, hDer.meet hvm]
       cases hp : c.isPushed with
       | false =>
         have e : walkV (P := P) K hK rev (d + 1) c n far =
             andV K hK true true (fun x => walkV K hK rev d c x far) far .start xs := by
           simp only [walkV, hv, hp, Bool.false_eq_true, ite_false]
         rw [e]
-        have := meet_wok_plain hL K hK rev h2 (fun x hx => (hmem x hx).2) hs (GR P d) (GD P)
+        have := meet_wok_plain hL K hK rev h2 (fun x hx => (hmem x hx).2) hs (GR P d) Der
           _ (mem c hc)
         rwa [hmk] at this
       | true =>
@@ -476,7 +476,7 @@ theorem walk_ok (hP : ProgFO P) (rev : Bool) : ∀ (d : Nat) (c : Near R) (n : R
           simp only [Near.isPushed, Bool.and_eq_true] at h
           simp [Near.own, h.1]
         rw [e]
-        have := meet_wok_pushed hL K hK rev hc h2 (fun x hx => (hmem x hx).2) hs (GR P d) (GD P)
+        have := meet_wok_pushed hL K hK rev hc h2 (fun x hx => (hmem x hx).2) hs (GR P d) Der
           _ _ (mem c hc) (fun x hx => by
             have h := mem c.own (by rw [ho]; exact isBound_none D) x hx
             rwa [ho] at h)
@@ -554,7 +554,7 @@ theorem walkRace_ok (hP : ProgFO P) (rev : Bool) :
       WOk rev (if rev then g.rb else g.lb) g.node (if rev then g.lb else g.rb) (GR P d g.node)
         (GD P g.node) (walkV K hK rev d ⟨if rev then g.rb else g.lb, false⟩ g.node
           (if rev then g.lb else g.rb)) := fun d g hg =>
-    walk_ok hL K hK hP rev d ⟨if rev then g.rb else g.lb, false⟩ g.node
+    walk_ok hL K hK hP (gd_olaws P) rev d ⟨if rev then g.rb else g.lb, false⟩ g.node
       (if rev then g.lb else g.rb) (by cases rev <;> first | exact hg.lb | exact hg.rb)
       (by cases rev <;> first | exact hg.lb | exact hg.rb) hg.normal hg.fo
   have hgoal : ∀ g : GoalOf R Rel,
@@ -587,6 +587,23 @@ theorem walkRace_ok (hP : ProgFO P) (rev : Bool) :
         exact ⟨b, hb, by rw [hbs]; exact hX⟩
       · obtain ⟨t, ht, -⟩ := (ok d g hg).opn G (gdn_sub_gd k _ hG) hc hne
         exact absurd (any_itOpn.2 ⟨t, ht⟩) hop
+
+include hL in
+/-- When a walk says the unfolding is final, every derivation of the goal
+that relates a pair was read whole: whatever the nodes are taken to derive. -/
+theorem walkRace_whole (hP : ProgFO P) (rev : Bool) {Der : Rel → Set GRel} (hDer : OLaws P Der)
+    {d : Nat} {g : GoalOf R Rel} (hg : GoalOk D g)
+    (hfin : (walkRace (K := DerivationKernel.over D K hK P) rev d g).val.1 = true) {G : GRel}
+    (hG : G ∈ Der g.node) (hne : (pairsOf P g G).Nonempty) : G ∈ GR P d g.node := by
+  have ok := walk_ok hL K hK hP hDer rev d ⟨if rev then g.rb else g.lb, false⟩ g.node
+    (if rev then g.lb else g.rb) (by cases rev <;> first | exact hg.lb | exact hg.rb)
+    (by cases rev <;> first | exact hg.lb | exact hg.rb) hg.normal hg.fo
+  have hwrap : wrapD P.sorts.interp rev (if rev then g.rb else g.lb) (G.at P.sorts.interp)
+      (if rev then g.lb else g.rb) = pairsOf P g G := by cases rev <;> rfl
+  by_contra hc
+  obtain ⟨t, ht, -⟩ := ok.opn G hG hc (hwrap ▸ hne)
+  rw [walkRace_val] at hfin
+  simp [any_itOpn.2 ⟨t, ht⟩] at hfin
 
 end Unfold
 

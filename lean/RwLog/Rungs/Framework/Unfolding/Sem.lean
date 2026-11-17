@@ -72,6 +72,22 @@ theorem gd_of_body {e b : Rel} (hb : Charged.bodyOf P e = some b) : GD P e = GD 
   · rintro ⟨k, hk⟩
     exact ⟨k + 1, by rw [(gdn_bodyOf hb k).1]; exact hk⟩
 
+/-- What the evaluations of an unfolding use of the derivations of the nodes:
+a span derives itself, a call what its body derives, and a union, a chain and
+a meet what their members do. The derivations of the program are that
+(`gd_olaws`), and so are those of a program that has more of them and derives
+the same from a call as from its body in this program. -/
+structure OLaws (O : Rel → Set GRel) : Prop where
+  span : ∀ s : Span, O (.span s) = {s.den}
+  body : ∀ {e b : Rel}, Charged.bodyOf P e = some b → O e = O b
+  union : ∀ {e : Rel} {xs : List Rel}, Normal e → e.view = .union xs → ∀ {G : GRel},
+    (G ∈ O e ↔ ∃ x ∈ xs, G ∈ O x)
+  chain : ∀ {e : Rel} {xs : List Rel}, e.view = .chain xs → O e = RwLog.seqAll (xs.map O)
+  meet : ∀ {e : Rel} {xs : List Rel}, e.view = .meet xs → O e = RwLog.andAll (xs.map O)
+
+theorem gd_olaws : OLaws P (GD P) :=
+  ⟨(gd_laws P).span, gd_of_body P, gd_of_union P, gd_of_chain P, gd_of_meet P⟩
+
 /-! ## Derivations read whole -/
 
 /-- The derivations of a node on which every node is read at depth `d`. -/

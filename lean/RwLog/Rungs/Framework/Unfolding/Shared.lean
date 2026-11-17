@@ -32,6 +32,7 @@ namespace Unfold
 open Answer
 
 variable {R : Type} [Answer R] [DecidableEq R] {D : Domain R} {P : Program}
+  {Der : Rel → Set GRel}
 
 /-- The summary is the unfolding of the goal between the boundaries. -/
 structure SmOk (near : Option R) (n : Rel) (far : Option R) (C O : Set GRel) (s : Sm D P) :
@@ -182,24 +183,24 @@ theorem union_sm {ι : Type} {near far : Option R} {n : Rel} (L : List ι) (C O 
 
 /-- What the summary recorded for a key has to be: the unfolding of a node,
 or of the members of a chain from the `idx`-th on. -/
-def Means (k : Key R Rel) (s : Sm D P) : Prop :=
+def Means (Der : Rel → Set GRel) (k : Key R Rel) (s : Sm D P) : Prop :=
   IsBound D k.near.bound → IsBound D k.far → Normal k.node → k.node.FO →
-    (k.idx = 0 → SmOk k.near.bound k.node k.far (GR P k.d k.node) (GD P k.node) s) ∧
+    (k.idx = 0 → SmOk k.near.bound k.node k.far (GR P k.d k.node) (Der k.node) s) ∧
       (k.idx ≠ 0 → ∀ xs, k.node.view.forget = .chain xs → 2 ≤ (xs.drop k.idx).length →
         SmOk k.near.bound (mkSeq (xs.drop k.idx)) k.far
-          (chainSet false (GR P k.d) (xs.drop k.idx)) (chainSet false (GD P) (xs.drop k.idx)) s)
+          (chainSet false (GR P k.d) (xs.drop k.idx)) (chainSet false Der (xs.drop k.idx)) s)
 
 /-- Every summary of the memo is what its key says. -/
-def MemoOk (m : Mm D P) : Prop := ∀ p ∈ m, Means p.1 p.2
+def MemoOk (Der : Rel → Set GRel) (m : Mm D P) : Prop := ∀ p ∈ m, Means Der p.1 p.2
 
 /-- A summary that is the unfolding of a goal, and a memo that is right. -/
-abbrev Good2 (near : Option R) (n : Rel) (far : Option R) (C O : Set GRel)
+abbrev Good2 (Der : Rel → Set GRel) (near : Option R) (n : Rel) (far : Option R) (C O : Set GRel)
     (r : Sm D P × Mm D P) : Prop :=
-  SmOk near n far C O r.1 ∧ MemoOk r.2
+  SmOk near n far C O r.1 ∧ MemoOk Der r.2
 
-theorem memo_spec {k : Key R Rel} {m : Mm D P} {body : Mm D P → Sm D P × Mm D P} (hm : MemoOk m)
-    (hb : Means k (body m).1 ∧ MemoOk (body m).2) :
-    Means k (memoV k m body).1 ∧ MemoOk (memoV k m body).2 := by
+theorem memo_spec {k : Key R Rel} {m : Mm D P} {body : Mm D P → Sm D P × Mm D P} (hm : MemoOk Der m)
+    (hb : Means Der k (body m).1 ∧ MemoOk Der (body m).2) :
+    Means Der k (memoV k m body).1 ∧ MemoOk Der (memoV k m body).2 := by
   unfold memoV
   cases h : lookupV m k with
   | some s =>
@@ -217,10 +218,10 @@ theorem memo_spec {k : Key R Rel} {m : Mm D P} {body : Mm D P → Sm D P × Mm D
 
 /-- The summary of a node, looked up or computed. -/
 theorem memo_node {c : Near R} {n : Rel} {far : Option R} {d : Nat} {m : Mm D P}
-    {body : Mm D P → Sm D P × Mm D P} (hm : MemoOk m) (hc : IsBound D c.bound)
+    {body : Mm D P → Sm D P × Mm D P} (hm : MemoOk Der m) (hc : IsBound D c.bound)
     (hf : IsBound D far) (hn : Normal n) (hfo : n.FO)
-    (hb : ∀ m', MemoOk m' → Good2 c.bound n far (GR P d n) (GD P n) (body m')) :
-    Good2 c.bound n far (GR P d n) (GD P n) (memoV ⟨n, 0, d, c, far⟩ m body) := by
+    (hb : ∀ m', MemoOk Der m' → Good2 Der c.bound n far (GR P d n) (Der n) (body m')) :
+    Good2 Der c.bound n far (GR P d n) (Der n) (memoV ⟨n, 0, d, c, far⟩ m body) := by
   obtain ⟨h₁, h₂⟩ := memo_spec (k := ⟨n, 0, d, c, far⟩) (body := body) hm
     ⟨fun _ _ _ _ => ⟨fun _ => (hb m hm).1, fun h => absurd rfl h⟩, (hb m hm).2⟩
   exact ⟨(h₁ hc hf hn hfo).1 rfl, h₂⟩
@@ -236,11 +237,11 @@ include hL in
 of the rest. -/
 theorem suf_body {c : Near R} {x : Rel} {tl : List Rel} (htl : tl ≠ []) (hx : NotSeq x)
     (hnt : ∀ y ∈ tl, NotSeq y) {C₁ O₁ C₂ O₂ : Set GRel} {far : Option R}
-    (s₁ : Sm D P × Mm D P) (h₁ : SmOk c.bound x none C₁ O₁ s₁.1) (hm₁ : MemoOk s₁.2)
+    (s₁ : Sm D P × Mm D P) (h₁ : SmOk c.bound x none C₁ O₁ s₁.1) (hm₁ : MemoOk Der s₁.2)
     (sv : Near R → Mm D P → Sm D P × Mm D P)
-    (hsv : ∀ c' m, MemoOk m → IsBound D c'.bound →
-      Good2 c'.bound (mkSeq tl) far C₂ O₂ (sv c' m)) :
-    Good2 c.bound (mkSeq (x :: tl)) far {G | ∃ G₁ ∈ C₁, ∃ G' ∈ C₂, G = G₁.comp G'}
+    (hsv : ∀ c' m, MemoOk Der m → IsBound D c'.bound →
+      Good2 Der c'.bound (mkSeq tl) far C₂ O₂ (sv c' m)) :
+    Good2 Der c.bound (mkSeq (x :: tl)) far {G | ∃ G₁ ∈ C₁, ∃ G' ∈ C₂, G = G₁.comp G'}
       {G | ∃ G₁ ∈ O₁, ∃ G' ∈ O₂, G = G₁.comp G'} (sufBodyV K hK sv s₁) := by
   obtain ⟨hmF₁, F₁⟩ := fold_spec (ι := Ans D P)
     (fun a m => ((sv ⟨D.rightBound a.span, true⟩ m).1.closed.filterMap
@@ -248,7 +249,7 @@ theorem suf_body {c : Near R} {x : Rel} {tl : List Rel} (htl : tl ≠ []) (hx : 
       (sv ⟨D.rightBound a.span, true⟩ m).1.opens, (sv ⟨D.rightBound a.span, true⟩ m).2))
     (fun a cs os => ∃ t : Sm D P, SmOk (D.rightBound a.span) (mkSeq tl) far C₂ O₂ t ∧
       cs = t.closed.filterMap (fun b => (Ans.join D P K hK a b).val) ∧ os = t.opens)
-    MemoOk s₁.1.closed (⟨[], []⟩, s₁.2) hm₁
+    (MemoOk Der) s₁.1.closed (⟨[], []⟩, s₁.2) hm₁
     (fun a _ m hm => ⟨⟨_, (hsv ⟨_, true⟩ m hm (isBound_right hL _)).1, rfl, rfl⟩,
       (hsv ⟨_, true⟩ m hm (isBound_right hL _)).2⟩)
   obtain ⟨hmF₂, F₂⟩ := fold_spec (ι := Option R)
@@ -256,7 +257,7 @@ theorem suf_body {c : Near R} {x : Rel} {tl : List Rel} (htl : tl ≠ []) (hx : 
         (sv ⟨o, o.isSome⟩ m).1.opens, (sv ⟨o, o.isSome⟩ m).2))
     (fun o cs os => ∃ t : Sm D P, SmOk o (mkSeq tl) far C₂ O₂ t ∧ cs = [] ∧
       os = t.closed.map (fun b => D.rightBound b.span) ++ t.opens)
-    MemoOk s₁.1.opens _ hmF₁
+    (MemoOk Der) s₁.1.opens _ hmF₁
     (fun o ho m hm => ⟨⟨_, (hsv ⟨o, o.isSome⟩ m hm (h₁.bound o ho)).1, rfl, rfl⟩,
       (hsv ⟨o, o.isSome⟩ m hm (h₁.bound o ho)).2⟩)
   -- what follows a closed product of the first member
@@ -357,17 +358,17 @@ theorem suf_body {c : Near R} {x : Rel} {tl : List Rel} (htl : tl ≠ []) (hx : 
 variable (wv : Near R → Rel → Option R → Mm D P → Sm D P × Mm D P)
 
 /-- The members know their summaries in every context, at every memo. -/
-def MembersS (d : Nat) (ys : List Rel) : Prop :=
-  ∀ x ∈ ys, ∀ (c : Near R) (fr : Option R) (m : Mm D P), MemoOk m → IsBound D c.bound →
-    IsBound D fr → Good2 c.bound x fr (GR P d x) (GD P x) (wv c x fr m)
+def MembersS (Der : Rel → Set GRel) (d : Nat) (ys : List Rel) : Prop :=
+  ∀ x ∈ ys, ∀ (c : Near R) (fr : Option R) (m : Mm D P), MemoOk Der m → IsBound D c.bound →
+    IsBound D fr → Good2 Der c.bound x fr (GR P d x) (Der x) (wv c x fr m)
 
 include hL in
 /-- The summary of the members of a chain from the `i`-th on. -/
 theorem suf_ok {n : Rel} {d : Nat} {far : Option R} (hfar : IsBound D far) (hn : Normal n)
     (hfo : n.FO) {xsAll : List Rel} (hv : n.view.forget = .chain xsAll) :
     ∀ (ys : List Rel) (i : Nat) (c : Near R) (m : Mm D P), ys ≠ [] → xsAll.drop i = ys →
-      MembersS wv d ys → (∀ x ∈ ys, NotSeq x) → MemoOk m → IsBound D c.bound →
-      Good2 c.bound (mkSeq ys) far (chainSet false (GR P d) ys) (chainSet false (GD P) ys)
+      MembersS wv Der d ys → (∀ x ∈ ys, NotSeq x) → MemoOk Der m → IsBound D c.bound →
+      Good2 Der c.bound (mkSeq ys) far (chainSet false (GR P d) ys) (chainSet false Der ys)
         (sufSV K hK wv n d far i ys c m)
   | [], _, _, _, h, _, _, _, _, _ => absurd rfl h
   | [x], i, c, m, _, _, HW, _, hm, hc => by
@@ -377,9 +378,9 @@ theorem suf_ok {n : Rel} {d : Nat} {far : Option R} (hfar : IsBound D far) (hn :
     have hi' : xsAll.drop (i + 1) = y :: zs := by
       rw [← List.tail_drop, hi]
       rfl
-    have body : ∀ m', MemoOk m' →
-        Good2 c.bound (mkSeq (x :: y :: zs)) far (chainSet false (GR P d) (x :: y :: zs))
-          (chainSet false (GD P) (x :: y :: zs))
+    have body : ∀ m', MemoOk Der m' →
+        Good2 Der c.bound (mkSeq (x :: y :: zs)) far (chainSet false (GR P d) (x :: y :: zs))
+          (chainSet false Der (x :: y :: zs))
           (sufBodyV K hK (sufSV K hK wv n d far (i + 1) (y :: zs)) (wv c x none m')) := by
       intro m' hm'
       obtain ⟨h₁, hm₁⟩ := HW x (by simp) c none m' hm' hc (isBound_none D)
@@ -416,9 +417,9 @@ end chain
 omit [DecidableEq R] in
 /-- The summaries of the members of a meet, one for each. -/
 theorem members_ok (wv : Rel → Mm D P → Sm D P × Mm D P) (Q : Rel → Sm D P → Prop) :
-    ∀ (xs : List Rel) (m : Mm D P), MemoOk m →
-      (∀ x ∈ xs, ∀ m, MemoOk m → Q x (wv x m).1 ∧ MemoOk (wv x m).2) →
-      List.Forall₂ Q xs (membersSV wv xs m).1 ∧ MemoOk (membersSV wv xs m).2
+    ∀ (xs : List Rel) (m : Mm D P), MemoOk Der m →
+      (∀ x ∈ xs, ∀ m, MemoOk Der m → Q x (wv x m).1 ∧ MemoOk Der (wv x m).2) →
+      List.Forall₂ Q xs (membersSV wv xs m).1 ∧ MemoOk Der (membersSV wv xs m).2
   | [], _, hm, _ => ⟨.nil, hm⟩
   | x :: xs, m, hm, H => by
     obtain ⟨h₁, h₂⟩ := H x (by simp) m hm
@@ -488,9 +489,9 @@ theorem meet_sm {near near' far : Option R}
 
 include hL in
 /-- The summary of a node is its unfolding, and the memo stays right. -/
-theorem evalS_ok (hP : ProgFO P) : ∀ (d : Nat) (c : Near R) (n : Rel) (far : Option R)
-    (m : Mm D P), MemoOk m → IsBound D c.bound → IsBound D far → Normal n → n.FO →
-    Good2 c.bound n far (GR P d n) (GD P n) (evalSV K hK d c n far m)
+theorem evalS_ok (hP : ProgFO P) (hDer : OLaws P Der) : ∀ (d : Nat) (c : Near R) (n : Rel)
+    (far : Option R) (m : Mm D P), MemoOk Der m → IsBound D c.bound → IsBound D far → Normal n → n.FO →
+    Good2 Der c.bound n far (GR P d n) (Der n) (evalSV K hK d c n far m)
   | 0, c, n, far, m, hm, _, hf, _, _ => by
     simp only [evalSV]
     refine ⟨⟨fun a ha => by simp at ha, fun G hG => by simp at hG,
@@ -503,14 +504,14 @@ theorem evalS_ok (hP : ProgFO P) : ∀ (d : Nat) (c : Near R) (n : Rel) (far : O
     · obtain rfl : o = far := by simpa using ho
       exact hf
   | d + 1, c, n, far, m, hm, hc, hf, hn, hfo => by
-    have ih := evalS_ok hP d
+    have ih := evalS_ok hP hDer d
     simp only [evalSV]
     refine memo_node hm hc hf hn hfo fun m' hm' => ?_
     cases hv : n.view.forget with
     | span u =>
       obtain ⟨s, rfl⟩ := forget_span hv
       dsimp only
-      rw [gr_span P hv, (gd_laws P).span]
+      rw [gr_span P hv, (gd_laws P).span, hDer.span]
       have lc := leaf_cov hL K hK hc hf (hfo s (by simp [RelOf.spans]))
       refine ⟨⟨fun a ha => lc.1 a (Option.mem_toList.1 ha), fun G hG hne => ?_,
         fun G hG hnC _ => absurd hG hnC, fun o ho => by simp at ho⟩, hm'⟩
@@ -520,7 +521,7 @@ theorem evalS_ok (hP : ProgFO P) : ∀ (d : Nat) (c : Near R) (n : Rel) (far : O
     | call f b₀ =>
       obtain ⟨b, hb⟩ := forget_call (P := P) hv
       simp only [hb]
-      rw [gr_call P hv hb, gd_of_body P hb]
+      rw [gr_call P hv hb, hDer.body hb]
       obtain ⟨h₁, h₂⟩ := ih c b far m' hm' hc hf (bodyOf_normal hb) (bodyOf_fo hP hb)
       refine ⟨lift_sm h₁ (fun a c e => (Ans.unfold_val.1 e).2.2) (fun a ha => ?_), h₂⟩
       obtain ⟨c', hc', hs, -⟩ := Ans.unfold_ok (a := a) (n := n) (by rw [hb, ha])
@@ -542,8 +543,8 @@ theorem evalS_ok (hP : ProgFO P) : ∀ (d : Nat) (c : Near R) (n : Rel) (far : O
         (fun p m => ((evalSV K hK d c p.1 far m).1.closed.filterMap
             fun a => (Ans.inj D P a n p.2).val,
           (evalSV K hK d c p.1 far m).1.opens, (evalSV K hK d c p.1 far m).2))
-        (fun p cs os => SmOk c.bound n far (GR P d p.1) (GD P p.1) (⟨cs, os⟩ : Sm D P))
-        MemoOk xs.zipIdx (⟨[], []⟩, m') hm'
+        (fun p cs os => SmOk c.bound n far (GR P d p.1) (Der p.1) (⟨cs, os⟩ : Sm D P))
+        (MemoOk Der) xs.zipIdx (⟨[], []⟩, m') hm'
         (fun p hp m₂ hm₂ => by
           have hx : xs[p.2]? = some p.1 := List.mem_zipIdx_iff_getElem?.1 hp
           have hmem : p.1 ∈ n.view.members := by rw [hvu]; exact List.mem_of_getElem? hx
@@ -553,9 +554,9 @@ theorem evalS_ok (hP : ProgFO P) : ∀ (d : Nat) (c : Near R) (n : Rel) (far : O
           obtain ⟨c', hc', hs, -⟩ := Ans.inj_ok (a := a) (u := n) (i := p.2) (by
             rw [← hparts, ha]; exact hx)
           exact ⟨c', hc', hs⟩)
-      refine ⟨(union_sm xs.zipIdx (fun p => GR P d p.1) (fun p => GD P p.1) F).of_eq ?_ ?_, hmF⟩
+      refine ⟨(union_sm xs.zipIdx (fun p => GR P d p.1) (fun p => Der p.1) F).of_eq ?_ ?_, hmF⟩
       · rw [gr_union P hv]; ext G; exact (hzip _ G).symm
-      · ext G; rw [gd_of_union P hn hvu]; exact (hzip _ G).symm
+      · ext G; rw [hDer.union hn hvu]; exact (hzip _ G).symm
     | chain xs =>
       have hvc := forget_chain hv
       obtain ⟨h2, hmem, hmk⟩ := hn.view_chain hvc
@@ -566,30 +567,30 @@ theorem evalS_ok (hP : ProgFO P) : ∀ (d : Nat) (c : Near R) (n : Rel) (far : O
           (hfo.view_members (by rw [hvc]; exact hx)))
         (fun x hx => (hmem x hx).2) hm' hc
       rw [chainSet_fwd _ xs hxs, chainSet_fwd _ xs hxs, hmk] at key
-      rw [gr_chain P hv, gd_of_chain P hvc]
+      rw [gr_chain P hv, hDer.chain hvc]
       exact key
     | meet xs =>
       have hvm := forget_meet hv
       obtain ⟨h2, hmem, hs, hmk⟩ := hn.view_meet hvm
       dsimp only
-      have mem : ∀ c' : Near R, IsBound D c'.bound → ∀ x ∈ xs, ∀ m₂, MemoOk m₂ →
-          SmOk c'.bound x far (GR P d x) (GD P x) (evalSV K hK d c' x far m₂).1 ∧
-            MemoOk (evalSV K hK d c' x far m₂).2 :=
+      have mem : ∀ c' : Near R, IsBound D c'.bound → ∀ x ∈ xs, ∀ m₂, MemoOk Der m₂ →
+          SmOk c'.bound x far (GR P d x) (Der x) (evalSV K hK d c' x far m₂).1 ∧
+            MemoOk Der (evalSV K hK d c' x far m₂).2 :=
         fun c' hc' x hx m₂ hm₂ => ih c' x far m₂ hm₂ hc' hf (hmem x hx).1
           (hfo.view_members (by rw [hvm]; exact hx))
       obtain ⟨hA, hmA⟩ := members_ok (fun x m => evalSV K hK d c x far m)
-        (fun x s => SmOk c.bound x far (GR P d x) (GD P x) s) xs m' hm' (mem c hc)
+        (fun x s => SmOk c.bound x far (GR P d x) (Der x) s) xs m' hm' (mem c hc)
       have hmok : MOk c.bound (mkAnd xs) far (RwLog.andAll (xs.map (GR P d)))
           (meetAllV K hK ((membersSV (fun x m => evalSV K hK d c x far m) xs m').1.map
             (·.closed))) :=
         meetAll_mok hL K hK hc hf h2 (fun x hx => (hmem x hx).2) hs (GR P d) (by
           rw [List.forall₂_map_right_iff]
           exact List.Forall₂.imp (fun _ _ h => h.mok) hA)
-      rw [gr_meet P hv, gd_of_meet P hvm]
+      rw [gr_meet P hv, hDer.meet hvm]
       cases hp : c.isPushed with
       | false =>
         simp only [Bool.false_eq_true, ite_false]
-        have := meet_sm hL (fun _ => subset_rfl) hf (GR P d) (GD P) hmok hA
+        have := meet_sm hL (fun _ => subset_rfl) hf (GR P d) Der hmok hA
         rw [hmk] at this
         exact ⟨this, hmA⟩
       | true =>
@@ -599,11 +600,11 @@ theorem evalS_ok (hP : ProgFO P) : ∀ (d : Nat) (c : Near R) (n : Rel) (far : O
           simp only [Near.isPushed, Bool.and_eq_true] at h
           simp [Near.own, h.1]
         obtain ⟨hB, hmB⟩ := members_ok (fun x m => evalSV K hK d c.own x far m)
-          (fun x s => SmOk none x far (GR P d x) (GD P x) s) xs _ hmA
+          (fun x s => SmOk none x far (GR P d x) (Der x) s) xs _ hmA
           (fun x hx m₂ hm₂ => by
             have h := mem c.own (by rw [ho]; exact isBound_none D) x hx m₂ hm₂
             rwa [ho] at h)
-        have := meet_sm hL (fun X => wrapD_none_sub hL false hc X far) hf (GR P d) (GD P)
+        have := meet_sm hL (fun X => wrapD_none_sub hL false hc X far) hf (GR P d) Der
           hmok hB
         rw [hmk] at this
         exact ⟨this, hmB⟩
@@ -617,7 +618,7 @@ theorem sharedRace_ok (hP : ProgFO P) :
   have ok : ∀ (d : Nat) (g : GoalOf R Rel), GoalOk D g →
       SmOk g.lb g.node g.rb (GR P d g.node) (GD P g.node)
         (evalSV (P := P) K hK d ⟨g.lb, false⟩ g.node g.rb []).1 := fun d g hg =>
-    (evalS_ok hL K hK hP d ⟨g.lb, false⟩ g.node g.rb [] (fun p hp => by cases hp) hg.lb hg.rb
+    (evalS_ok hL K hK hP (gd_olaws P) d ⟨g.lb, false⟩ g.node g.rb [] (fun p hp => by cases hp) hg.lb hg.rb
       hg.normal hg.fo).1
   refine ⟨fun d g hg a ha => ?_, fun d g hg hfin k G hG hne => ?_⟩
   · rw [sharedRace_val] at ha
@@ -635,6 +636,21 @@ theorem sharedRace_ok (hP : ProgFO P) :
         cases hop
     · rw [sharedRace_val] at hfin
       simp [hop] at hfin
+
+include hL in
+/-- When the shared evaluation says the unfolding is final, every derivation
+of the goal that relates a pair was read whole: whatever the nodes are taken
+to derive. -/
+theorem sharedRace_whole (hP : ProgFO P) (hDer : OLaws P Der) {d : Nat} {g : GoalOf R Rel}
+    (hg : GoalOk D g)
+    (hfin : (sharedRace (K := DerivationKernel.over D K hK P) d g).val.1 = true) {G : GRel}
+    (hG : G ∈ Der g.node) (hne : (pairsOf P g G).Nonempty) : G ∈ GR P d g.node := by
+  have ok := (evalS_ok hL K hK hP hDer d ⟨g.lb, false⟩ g.node g.rb [] (fun p hp => by cases hp)
+    hg.lb hg.rb hg.normal hg.fo).1
+  by_contra hc
+  obtain ⟨o, ho, -⟩ := ok.opn G hG hc hne
+  rw [sharedRace_val] at hfin
+  simp [isEmpty_of_mem ho] at hfin
 
 end Unfold
 

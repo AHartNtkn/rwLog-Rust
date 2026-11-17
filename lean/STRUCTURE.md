@@ -143,12 +143,86 @@ Rungs/Symmetric/ the symmetric engine of `SYMMETRIC_ENGINE.md` (Machine.lean): a
                 that meet their specifications; `rung1` is the one with the raced
                 unfolding and the reading `runsReader`). A second reading reads an
                 edge from the far end of the node and carries interfaces only (`faces`,
-                Machine.lean), and `bothReader` runs the two side by side; it is right
+                Machine.lean), and `cappedReader` runs the two side by side within a
+                budget that grows by a tick each time the depth doubles; it is right
                 about the program and does not give up for ever (Faces.lean, `faces_ok`,
-                `faces_some`, `good_bothReader`), so the engine with it, `bothWays`, has
+                `faces_some`; Capped.lean, `runs_stable`, `good_cappedReader`), so the
+                engine with it, `bothWays`, has
                 the laws and the bound on direction (Rung.lean). It is not a rung of the
-                ladder until it is admitted. Not
-                proved yet: any bound on the cost of either in the size of the input.
+                ladder until it is admitted. Every answer a table holds was made
+                by a rule of the kernel from answers the tables hold, or by the
+                unfolding race: a property of answers that the rules keep, but for
+                the unfolding of marked answers, and that the answers of the race
+                have, is a property of everything a run holds until a table holds
+                a marked answer (Provenance.lean, `prov_request`, `prov_init`).
+                Owing nothing to a name `h` is such a property, marked the
+                answers of the body of `h`, when the body of `h` needs a name the
+                unfolding race never reads whole (Light.lean, `rules_light`,
+                `light_raced`, `prov_light`). A pair that needs pairs of a call of
+                `h` in a context is not related where `h` derives nothing
+                (Framework/Zeroed.lean, `not_demands_zero`, with the choice of the
+                input to run carried through, `orient_pairs_zero`), so a run of the
+                machine with the raced unfolding that has covered such a pair has
+                a table that holds an answer of the body of `h`, in a state it came
+                to before its root table was complete (LightRun.lean,
+                `covered_body_ctx`). A lower bound on what a run has paid is proved
+                along the engine's text: a computation has spent `B` ticks or what
+                it returns has a property (Framework/PaidOr.lean), and a request
+                keeps a state cheap, with no dear edge read and no round of a
+                marked table, or costs `B` (Paid.lean, `cheap_request`), when
+                reading a dear edge costs `B` and the first round of a marked goal
+                reads one (`Dear`). So, with the bodies of `h` marked, a run that
+                has covered such a pair has paid `B` (`covered_paid_ctx`). Reading
+                an edge inwards carries whole products: on a chain with `m + 2`
+                members at the edge that are one union of two spans, whose
+                products relate different pairs, reading the last of them costs
+                `2 ^ (m + 1)` compositions (RunsCost.lean, `runs_dear`). A side
+                that leads into such a chain, through copies of a span and a union
+                that has the chain for a member, pays for it: `readEdge` has spent
+                `2 ^ (m + 1)` ticks when it returns something or reads to a depth
+                of five, at a kernel that charges a tick or more for a composition
+                (`readEdge_side_dear`). A reading that fails doubles the depth, so
+                of `N` dear sides of the splits of a chain the last is read to a
+                depth of `2 ^ (N - 1)`: making the groups of such a chain costs
+                `B`, which is what `Dear` asks (DearChain.lean, `expand_dear`,
+                `Dear.of_chain`). The fan is a family with such a chain (Fan.lean):
+                `h := id ; id ; id ; id ; (g | u ; … ; u) ; c` with `m + 2` copies
+                of `u`, a union of two spans, and `c := id | c ; id`. The race
+                never reads `c` whole and `h` relates nothing without it, so in
+                every context the first engine has paid `2 ^ (m + 1)` before it
+                covers a pair that needs a pair of `h` (`Fan.paid`). The members
+                with the input `h`, ranked by `m`, with the target `(a, b)`, are a
+                proper class (FanClass.lean, `Fan.cls`, `Fan.proper`), and the
+                lower bound is the lower clause of a separation of rung 1 on it
+                (`Fan.below`, at a kernel that charges a tick or more for a
+                composition). Not proved yet: any bound from above on the cost
+                of the first engine in the size of the input.
+  Dive/         rung 2: the engine of rung 1 with the diving engine beside it
+                (`Framework/Beside.lean`). The diving engine keeps no tables
+                (Engine.lean): a step is one reading of the root from the top
+                under a budget of ticks, the choice at each union a digit of
+                a number, and the answer of the reading is emitted with its
+                converse. It never reports that it is done and is not
+                complete. A reading is traced rule by rule at a kernel
+                (Read.lean, `Reads`, `Joins`); on a member of the fan the
+                reading by the number 0 takes the ground span at the union
+                and makes an answer that relates the target, in either
+                direction of the chain, at a cost that does not depend on the
+                rank (Fan.lean, `reads_root`, `fanTicks`). The run reaches
+                the budget `2 ^ L` within `L * L` steps (Run.lean, `reach`,
+                `first_reading`), so the machine has emitted that answer
+                within a number of steps and ticks free of the rank
+                (FanRun.lean, `dive_fan`). A reading makes an answer of the
+                goal of its node between no boundaries, so on a root that is
+                its own converse every step shows an answer and its converse
+                or nothing (Converse.lean, `rd_goal`, `dive_selfConverse`).
+                Rung 2 (Rung.lean, `rung2`) has the laws (`rung2_lawful`),
+                is done exactly where rung 1 is (`rung2_halts`), costs the
+                same in both directions (`rung2_directionFree`), and on a
+                member of the fan of rank `k` covers the target having paid
+                at most `rung2Hi κ * (k + 1) ^ 2` ticks (`rung2_alone`),
+                where rung 1 has paid `2 ^ k` (`Fan.below`). Not proved yet:
+                the admission of rung 2 above rung 1 (`Admits`).
 Sorts/          the constraint domain of sorts and the proof that it is lawful
 Manifest/       rung 1's manifest (Rung1.lean): headline statements, trusted files and
                 axioms, all checked by the build
@@ -195,6 +269,7 @@ every charge derived from the Rust. No domain of spans as written is left
 | A sorted list with its duplicates erased is strictly sorted | `Lib/List.lean` | `pairwise_lt_eraseDups` |
 | Lists related member by member, one member changed, conditionals | `Lib/List.lean` | `forall₂_mem_left`, `forall₂_mem_right`, `forall₂_getElem?`, `forall₂_getLast?`, `map_modify_eq`, `mem_modify`, `two_le_length_of_mem`, `drop_take_reverse`, `ite_of_pos`, `ite_of_neg` |
 | Goals, the same goal, maximal answers, the rule of a split, for any machine that tables | `Rungs/Framework/Goals.lean`, `GoalsVal.lean` | `GoalOf`, `Kind`, `same`, `indexFrom`, `coversA`, `maxima`, `fresh`, `both`; their values: `same_val`, `indexFrom_val`, `coversA_val`, `maxima_val`, `fresh_val`, `both_some` |
+| A computation in `Cost` has spent a bound or what it returns has a property, through `>>=` and a fold | `Rungs/Framework/PaidOr.lean` | `Cost.PaidOr`, `PaidOr.bind`, `PaidOr.bind'`, `PaidOr.foldL`, `Traverse.paidOr_foldL`, `Traverse.paidOr_foldL_done` (may speak of the members passed) |
 | A fold in `Cost` keeps an invariant | `Rungs/Framework/Cost.lean`, `TraverseStd.lean` | `Cost.foldL_inv`, `Traverse.foldL_inv`, `Traverse.foldL_done` (may speak of the members passed), `Traverse.foldL_split` (and knows the members to come) |
 | Well-formed queries built from a well-formed one | `Rungs/Framework/Direction.lean` | `ProgramOf.WellFormed.of_sub`, `.conv`, `.seq_left`, `.seq_swap`, `.and_of_seq`, `.dual` |
 | Converse of a program | `SpanLayer/Dual.lean` | `Program.sem_dual` |
@@ -361,6 +436,34 @@ rung unchanged.
   its parts (`Pack.inj`); `Pack.ofInj` lists a structure through its fields.
   This is how an engine meets `Engine.held_inj`.
 
+* `Beside.lean`: two engines side by side. `Engine.beside E F` runs both on
+  the same root and shares the ticks: the engine charged less takes the next
+  step, tried under a budget (`Kernel.within`) of one tick or twice the
+  budget it last gave up at, and a step that does not fit is dropped and
+  charged. The pair is done when `E` is; when `F` is done it takes no more
+  steps.
+
+* `BesideRun.lean`: what the pair keeps, on the runs of the two step
+  functions. The pair takes every step of its first engine (`took`,
+  `fst_run`), and is done only when the first engine is, having emitted what
+  it emitted (`halt_fst`). With the accounts in step (`Inv`), what the pair
+  spends is paid for out of what the accounts rise by (`step_pot`), so when
+  the second engine has taken `n` steps the pair has spent a fixed multiple
+  of what those steps cost (`snd_next`, `snd_run`).
+
+* `BesideLaws.lean`: the same for the machines. The machine of an engine is
+  read off the runs of its step (`machine_emitted`, `machine_halts`,
+  `machine_spent`). The pair is complete if its first engine is
+  (`beside_complete`), honest when done if its first engine is
+  (`beside_honest`), reports that it is done exactly where its first engine
+  does (`beside_terminates`), and `beside_paid` bounds what it has paid when
+  its second engine has taken `n` steps.
+
+* `BesideConverse.lean`: on a root that is its own converse the machine of
+  the pair shows its own converse if the machines of its two engines do
+  (`beside_selfConverse`): a step of the pair shows what a step of one of
+  its engines shows, or nothing (`stepC_cases`).
+
 * `RecordWitness.lean`: `Admits` has inhabitants. Two toy
   engines, admitted one above the other over a base that never answers, the
   second for an exponential gain over the record that holds the polynomial
@@ -382,6 +485,18 @@ specification of what it builds (`Eager`: `POk`, `eagerRace_ok`; `Dir`,
 `SmOk` with the memo's invariant `MemoOk`, `sharedRace_ok`). `Races.lean`
 has `good_eagerRace`, `good_walkRace`, `good_sharedRace`, `UOk.race`
 (two races side by side), and `good_raced`, the race rung 1 uses.
+
+The walk and the shared evaluation are proved for whatever the nodes are
+taken to derive, so long as a call derives what its body does and a union, a
+chain and a meet what their members do (`OLaws`, `Sem.lean`). So a final
+unfolding has read whole every derivation that relates a pair between the
+boundaries, of the program and of any larger program with those equations
+(`Whole`, `whole_raced`, `Races.lean`). `Never.lean` uses that for a name
+that is never read whole, such as `c := id | c ; id`: given spans that stand
+for its derivations and carry constraints that are all different (`Tags`),
+an answer of a final unfolding is an answer of the goal in the program where
+the name derives nothing (`light_of_final`), because only finitely many
+relations are read whole at a depth (`gr_finite`).
 
 `Rungs/Framework/Race.lean` defines `Cost.race` and proves what it returns and spends
 (`Cost.race_val`, `Cost.race_ticks`, and from below `Cost.le_race_ticks`), for

@@ -229,17 +229,17 @@ end kernel
 /-- **The reading of the first rung is right about the program and does not
 give up for ever.** -/
 theorem readOk {K : Kernel R Cost} {hK : K.Refines D} (hL : D.Lawful P.sorts.interp)
-    (hP : ProgFO P) : ReadOk D P K hK @runsReader :=
+    (hP : ProgFO P) : ReadOk D P K hK (readNeed P) @runsReader :=
   ⟨readEdge_sound hL hP, fun last d n hd => readEdge_some last d n hd⟩
 
 /-- What the machine needs of a reading of edges, at the derivation kernel of
 every lawful domain (`ReadOk`). -/
 def GoodReader (rd : EdgeReader) : Prop :=
   ∀ {R : Type} [Answer R] [DecidableEq R] {D : Domain R} {P : Program} (K : Kernel R Cost)
-    (hK : K.Refines D), D.Lawful P.sorts.interp → ProgFO P → ReadOk D P K hK @rd
+    (hK : K.Refines D), D.Lawful P.sorts.interp → ProgFO P → ∃ need, ReadOk D P K hK need @rd
 
 /-- The reading of the first rung is good. -/
-theorem good_runsReader : GoodReader @runsReader := fun _ _ hL hP => readOk hL hP
+theorem good_runsReader : GoodReader @runsReader := fun _ _ hL hP => ⟨_, readOk hL hP⟩
 
 end Symmetric
 
