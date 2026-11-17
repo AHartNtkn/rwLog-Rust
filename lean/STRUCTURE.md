@@ -170,9 +170,15 @@ Rungs/Symmetric/ the symmetric engine of `SYMMETRIC_ENGINE.md` (Machine.lean): a
                 marked table, or costs `B` (Paid.lean, `cheap_request`), when
                 reading a dear edge costs `B` and the first round of a marked goal
                 reads one (`Dear`). So, with the bodies of `h` marked, a run that
-                has covered such a pair has paid `B` (`covered_paid_ctx`). Not
-                proved yet: `Dear` for any program, or any bound on the cost of
-                either engine in the size of the input.
+                has covered such a pair has paid `B` (`covered_paid_ctx`). Reading
+                an edge inwards carries whole products: on a chain with `m + 2`
+                members at the edge that are one union of two spans, whose
+                products relate different pairs, `readEdge` has spent `2 ^ (m + 1)`
+                ticks when it returns something or reads to a depth of three, at a
+                kernel that charges a tick or more for a composition (RunsCost.lean,
+                `runs_dear`, `readEdge_dear`). Not proved yet: `Dear` for any
+                program, or any bound on the cost of either engine in the size of
+                the input.
 Sorts/          the constraint domain of sorts and the proof that it is lawful
 Manifest/       rung 1's manifest (Rung1.lean): headline statements, trusted files and
                 axioms, all checked by the build
