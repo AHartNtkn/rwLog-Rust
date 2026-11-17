@@ -173,12 +173,15 @@ Rungs/Symmetric/ the symmetric engine of `SYMMETRIC_ENGINE.md` (Machine.lean): a
                 has covered such a pair has paid `B` (`covered_paid_ctx`). Reading
                 an edge inwards carries whole products: on a chain with `m + 2`
                 members at the edge that are one union of two spans, whose
-                products relate different pairs, `readEdge` has spent `2 ^ (m + 1)`
-                ticks when it returns something or reads to a depth of three, at a
-                kernel that charges a tick or more for a composition (RunsCost.lean,
-                `runs_dear`, `readEdge_dear`). A reading that fails doubles the
-                depth, so of three dear sides of the splits of a chain the third is
-                read to a depth of four: making the groups of such a chain costs
+                products relate different pairs, reading the last of them costs
+                `2 ^ (m + 1)` compositions (RunsCost.lean, `runs_dear`). A side
+                that leads into such a chain, through copies of a span and a union
+                that has the chain for a member, pays for it: `readEdge` has spent
+                `2 ^ (m + 1)` ticks when it returns something or reads to a depth
+                of five, at a kernel that charges a tick or more for a composition
+                (`readEdge_side_dear`). A reading that fails doubles the depth, so
+                of `N` dear sides of the splits of a chain the last is read to a
+                depth of `2 ^ (N - 1)`: making the groups of such a chain costs
                 `B`, which is what `Dear` asks (DearChain.lean, `expand_dear`,
                 `Dear.of_chain`). Not proved yet: a program with such a chain, or
                 any bound on the cost of either engine in the size of the input.
