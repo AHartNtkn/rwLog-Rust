@@ -143,9 +143,11 @@ Rungs/Symmetric/ the symmetric engine of `SYMMETRIC_ENGINE.md` (Machine.lean): a
                 that meet their specifications; `rung1` is the one with the raced
                 unfolding and the reading `runsReader`). A second reading reads an
                 edge from the far end of the node and carries interfaces only (`faces`,
-                Machine.lean), and `bothReader` runs the two side by side; it is right
+                Machine.lean), and `cappedReader` runs the two side by side within a
+                budget that grows by a tick each time the depth doubles; it is right
                 about the program and does not give up for ever (Faces.lean, `faces_ok`,
-                `faces_some`, `good_bothReader`), so the engine with it, `bothWays`, has
+                `faces_some`; Capped.lean, `runs_stable`, `good_cappedReader`), so the
+                engine with it, `bothWays`, has
                 the laws and the bound on direction (Rung.lean). It is not a rung of the
                 ladder until it is admitted. Every answer a table holds was made
                 by a rule of the kernel from answers the tables hold, or by the

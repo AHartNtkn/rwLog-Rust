@@ -4,8 +4,8 @@
 `faces` reads the interfaces the answers of a node show at one end from the
 other end of the node, carrying interfaces only (`Machine.lean`). Here: it is
 right about the program (`readFaces_sound`) and it does not give up for ever
-(`readFaces_some`), so the reading that runs it side by side with the runs of
-the first rung is a reading the machine can be given (`good_bothReader`).
+(`readFaces_some`). The reading the machine is given runs it side by side
+with the runs of the first rung, within a budget (`Capped.lean`).
 
 What `faces` is given is what the part of a chain beyond the node shows:
 `FacesOk C T` says that every pair of every relation of `T` has its near end
@@ -13,7 +13,6 @@ in one of the interfaces `C`. What it returns is that of the node followed
 by that part (`faces_ok`).
 -/
 import RwLog.Rungs.Symmetric.ReadLive
-import RwLog.Rungs.Framework.Race
 
 namespace RwLog
 
@@ -584,41 +583,7 @@ theorem readFaces_some (last : Bool) (d : Nat) (n : Rel) (hd : readNeed P n ≤ 
   simp only [readFaces, Cost.bind_val, Cost.pure_val, ne_eq, Option.map_eq_none_iff]
   exact h2
 
-/-! ## Both ways side by side -/
-
-/-- **The reading that reads both ways is right about the program and does
-not give up for ever**: it returns what one of the two returns. -/
-theorem readBoth_ok (hL : D.Lawful P.sorts.interp) (hP : ProgFO P) :
-    ReadOk D P K hK (readNeed P) @bothReader := by
-  have hs1 := readRuns_sound (K := K) (hK := hK) hL hP
-  have hs2 := readFaces_sound (K := K) (hK := hK) hL hP
-  have hl1 := fun last d n hd => readRuns_some (K := K) (hK := hK) (P := P) last d n hd
-  have hl2 := fun last d n hd => readFaces_some (K := K) (hK := hK) (P := P) last d n hd
-  have hval : ∀ (last : Bool) (d : Nat) (n : Rel),
-      ((DerivationKernel.over D K hK P).race
-          (readRuns (K := DerivationKernel.over D K hK P) last d n)
-          (readFaces (K := DerivationKernel.over D K hK P) last d n)).val =
-        (readRuns (K := DerivationKernel.over D K hK P) last d n).val ∨
-      ((DerivationKernel.over D K hK P).race
-          (readRuns (K := DerivationKernel.over D K hK P) last d n)
-          (readFaces (K := DerivationKernel.over D K hK P) last d n)).val =
-        (readFaces (K := DerivationKernel.over D K hK P) last d n).val := by
-    intro last d n
-    at_cost K hK
-    exact Cost.race_val _ _
-  refine ⟨offered_sound fun last d n ps h => ?_, fun last d n hd => offered_some
-    (fun last d n hd => ?_) last d n hd⟩
-  · rcases hval last d n with e | e
-    · exact hs1 last d n ps (e ▸ h)
-    · exact hs2 last d n ps (e ▸ h)
-  · rcases hval last d n with e | e
-    · rw [e]; exact hl1 last d n hd
-    · rw [e]; exact hl2 last d n hd
-
 end kernel
-
-/-- The reading that reads both ways is good. -/
-theorem good_bothReader : GoodReader @bothReader := fun _ _ hL hP => ⟨_, readBoth_ok hL hP⟩
 
 end Symmetric
 

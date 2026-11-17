@@ -138,6 +138,7 @@ import RwLog.Rungs.Symmetric.Fan
 import RwLog.Rungs.Symmetric.Edge
 import RwLog.Rungs.Symmetric.ReadLive
 import RwLog.Rungs.Symmetric.Faces
+import RwLog.Rungs.Symmetric.Capped
 import RwLog.Rungs.Symmetric.Turns
 import RwLog.Rungs.Symmetric.Lines
 import RwLog.Rungs.Symmetric.Served

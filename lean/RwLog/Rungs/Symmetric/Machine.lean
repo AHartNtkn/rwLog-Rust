@@ -804,8 +804,9 @@ the interfaces there are and not for the products.
 
 Neither way is the cheaper on every node: the far end can show many
 interfaces of which the members before it let few through. So the two are
-run side by side until one finishes (`readBoth`), which costs at most seven
-times the cheaper. -/
+run side by side until one finishes, which costs at most seven times the
+cheaper; and since a node can be dear to read both ways, they are run within
+a budget (`readCapped`). -/
 
 /-- Add an interface to a list that may have it. Nothing is the interface
 that restricts nothing. -/
@@ -887,11 +888,25 @@ def readFaces (last : Bool) (depth : Nat) (n : N) : M (Option (Option (List S)))
   let r ← faces (K := K) last depth [] n [none]
   pure (r.map allFaces)
 
-/-- The edge of a node read both ways side by side, until one way has
-it. -/
-def readBoth (last : Bool) (depth : Nat) (n : N) : M (Option (Option (List S))) :=
-  offered (K := K) (fun last depth n =>
-    K.race (readRuns (K := K) last depth n) (readFaces (K := K) last depth n)) last depth n
+/-- What a reading of an edge at a depth may spend: one tick more each time
+the depth doubles. The depth doubles each time a reading gives up, so a
+reading that is given up on has cost no more than the readings given up on
+before it are many. -/
+def readCap (depth : Nat) : Nat := Nat.log2 depth + 1
+
+/-- The edge of a node that contains a call read both ways side by side
+within what a reading at the depth may spend (`readCap`): nothing if that was
+not enough, as when the depth was not. A reading that is given up on costs
+what it was allowed, so a node whose edge is dear to read both ways costs its
+neighbours no more than that. -/
+def readCapped (last : Bool) (depth : Nat) (n : N) : M (Option (Option (List S))) := do
+  let r ← K.within (readCap depth)
+    (K.race (readRuns (K := K) last depth n) (readFaces (K := K) last depth n))
+  pure (r.getD none)
+
+/-- The edge of a node read both ways within a budget. -/
+def readWithin (last : Bool) (depth : Nat) (n : N) : M (Option (Option (List S))) :=
+  offered (K := K) (readCapped (K := K)) last depth n
 
 /-- A reading of an edge, for every derivation kernel: given an end (the last
 one if the flag is set), a depth and a node, the interfaces the answers of
@@ -1580,8 +1595,9 @@ end Holding
 at the edge, composed (`readEdge`). -/
 def runsReader : EdgeReader := @readEdge
 
-/-- The reading that reads an edge both ways side by side. -/
-def bothReader : EdgeReader := @readBoth
+/-- The reading that reads an edge both ways side by side within a budget
+that grows with the depth. -/
+def cappedReader : EdgeReader := @readWithin
 
 /-- The symmetric engine with a given unfolding race and a given reading of
 edges. Its first state is the table of the root goal alone. -/
