@@ -150,10 +150,13 @@ Rungs/Symmetric/ the symmetric engine of `SYMMETRIC_ENGINE.md` (Machine.lean): a
                 ladder until it is admitted. Every answer a table holds was made
                 by a rule of the kernel from answers the tables hold, or by the
                 unfolding race: a property of answers that the rules keep, but for
-                the unfolding onto marked calls, and that the answers of the race
-                have, is a property of everything a run holds until the table of a
-                marked call holds an answer (Provenance.lean, `prov_request`,
-                `prov_init`). Not
+                the unfolding of marked answers, and that the answers of the race
+                have, is a property of everything a run holds until a table holds
+                a marked answer (Provenance.lean, `prov_request`, `prov_init`).
+                Owing nothing to a name `h` is such a property, marked the
+                answers of the body of `h`, when the body of `h` needs a name the
+                unfolding race never reads whole (Light.lean, `rules_light`,
+                `light_raced`, `prov_light`). Not
                 proved yet: any bound on the cost of either in the size of the input.
 Sorts/          the constraint domain of sorts and the proof that it is lawful
 Manifest/       rung 1's manifest (Rung1.lean): headline statements, trusted files and
@@ -388,6 +391,18 @@ specification of what it builds (`Eager`: `POk`, `eagerRace_ok`; `Dir`,
 `SmOk` with the memo's invariant `MemoOk`, `sharedRace_ok`). `Races.lean`
 has `good_eagerRace`, `good_walkRace`, `good_sharedRace`, `UOk.race`
 (two races side by side), and `good_raced`, the race rung 1 uses.
+
+The walk and the shared evaluation are proved for whatever the nodes are
+taken to derive, so long as a call derives what its body does and a union, a
+chain and a meet what their members do (`OLaws`, `Sem.lean`). So a final
+unfolding has read whole every derivation that relates a pair between the
+boundaries, of the program and of any larger program with those equations
+(`Whole`, `whole_raced`, `Races.lean`). `Never.lean` uses that for a name
+that is never read whole, such as `c := id | c ; id`: given spans that stand
+for its derivations and carry constraints that are all different (`Tags`),
+an answer of a final unfolding is an answer of the goal in the program where
+the name derives nothing (`light_of_final`), because only finitely many
+relations are read whole at a depth (`gr_finite`).
 
 `Rungs/Framework/Race.lean` defines `Cost.race` and proves what it returns and spends
 (`Cost.race_val`, `Cost.race_ticks`, and from below `Cost.le_race_ticks`), for
