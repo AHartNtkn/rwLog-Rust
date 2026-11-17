@@ -38,10 +38,17 @@ first has no groups, no complete table and a depth to read edges to; and
 every state has what a run keeps. -/
 structure IsRun (U : GOracle R Rel (Ans D P) Cost) (σ : Nat → StateOf R Rel (Ans D P)) :
     Prop where
-  req : Requests (readNeed P) (raceSem U) σ
+  reqs : ∃ need, Requests need (raceSem U) σ
   good : ∀ r, Good (rd := @rd) (σ r)
   depth : 0 < (σ 0).depth
   fresh : ∀ (k : Nat) (t : Table R Rel (Ans D P)), (σ 0).tables[k]? = some t → t.done = false
+
+/-- A depth from which each edge is read in a run. -/
+noncomputable def IsRun.need {σ : Nat → StateOf R Rel (Ans D P)} (h : IsRun (rd := @rd) U σ) :
+    Rel → Nat := h.reqs.choose
+
+theorem IsRun.req {σ : Nat → StateOf R Rel (Ans D P)} (h : IsRun (rd := @rd) U σ) :
+    Requests h.need (raceSem U) σ := h.reqs.choose_spec
 
 omit [DecidableEq R] [Answer R] in
 theorem toGoal_inj {g g' : GoalOf R Rel} (e : toGoal g = toGoal g') : g = g' := by

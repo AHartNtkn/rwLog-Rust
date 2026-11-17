@@ -589,7 +589,7 @@ theorem readFaces_some (last : Bool) (d : Nat) (n : Rel) (hd : readNeed P n ≤ 
 /-- **The reading that reads both ways is right about the program and does
 not give up for ever**: it returns what one of the two returns. -/
 theorem readBoth_ok (hL : D.Lawful P.sorts.interp) (hP : ProgFO P) :
-    ReadOk D P K hK @bothReader := by
+    ReadOk D P K hK (readNeed P) @bothReader := by
   have hs1 := readRuns_sound (K := K) (hK := hK) hL hP
   have hs2 := readFaces_sound (K := K) (hK := hK) hL hP
   have hl1 := fun last d n hd => readRuns_some (K := K) (hK := hK) (P := P) last d n hd
@@ -618,7 +618,7 @@ theorem readBoth_ok (hL : D.Lawful P.sorts.interp) (hP : ProgFO P) :
 end kernel
 
 /-- The reading that reads both ways is good. -/
-theorem good_bothReader : GoodReader @bothReader := fun _ _ hL hP => readBoth_ok hL hP
+theorem good_bothReader : GoodReader @bothReader := fun _ _ hL hP => ⟨_, readBoth_ok hL hP⟩
 
 end Symmetric
 

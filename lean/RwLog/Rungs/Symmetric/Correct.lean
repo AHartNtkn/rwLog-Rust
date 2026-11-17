@@ -38,7 +38,7 @@ open Answer Saturation
 section kernel
 
 variable {R : Type} [Answer R] [DecidableEq R] {D : Domain R} (K : Kernel R Cost)
-variable {rd : EdgeReader}
+variable {rd : EdgeReader} {need : Rel → Nat}
   (hK : K.Refines D) (P : Program) (root : Rel) (U : GOracle R Rel (Ans D P) Cost)
 
 /-- The state of the engine after `r` requests. -/
@@ -62,7 +62,7 @@ theorem root_goal0 : goalAt (stateAt (rd := @rd) K hK P root U 0) 0 = some ⟨no
   rw [e]
   rfl
 
-theorem good_dated (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK @rd) (hP : ProgFO P)
+theorem good_dated (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK need @rd) (hP : ProgFO P)
     (hU : UOk D P U)
     (hn : Normal root) (hfo : root.FO) : ∀ r, Good (rd := @rd) (stateAt (rd := @rd) K hK P root U r) ∧ Dated (stateAt (rd := @rd) K hK P root U r)
   | 0 => by
@@ -78,12 +78,12 @@ theorem good_dated (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK @rd) (hP
       (req_request hL hR hP U hU hg hd).dated⟩
 
 /-- **The states of the engine are a run of requests.** -/
-theorem isRun (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK @rd) (hP : ProgFO P)
+theorem isRun (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK need @rd) (hP : ProgFO P)
     (hU : UOk D P U)
     (hn : Normal root) (hfo : root.FO) : IsRun (rd := @rd) U (stateAt (rd := @rd) K hK P root U) := by
   obtain ⟨self, e⟩ := init_shape (K := K) (hK := hK) (P := P) (root := root) (U := U)
   have gd := good_dated (rd := @rd) (K := K) (hK := hK) hL hR hP hU hn hfo
-  refine ⟨⟨fun r => req_request hL hR hP U hU (gd r).1 (gd r).2, fun k t ht => ?_⟩,
+  refine ⟨⟨_, fun r => req_request hL hR hP U hU (gd r).1 (gd r).2, fun k t ht => ?_⟩,
     fun r => (gd r).1, ?_, fun k t ht => ?_⟩
   · rw [e] at ht
     obtain rfl := List.mem_singleton.1 (List.mem_of_getElem? ht)
@@ -420,7 +420,9 @@ include hD hG hRd
 requests. -/
 theorem isRun_of_wf {P : Program} {q : Rel} (wf : P.WellFormed q) :
     IsRun (rd := @rd) (UAt @U dom K hK P) (sAt @U @rd dom K hK P q.norm) :=
-  isRun (hD _ wf.2.2.1) (hRd _ _ (hD _ wf.2.2.1) fun s hs => wf.2.2.2 s (List.mem_append_right _ hs))
+  isRun (hD _ wf.2.2.1)
+    (hRd (K P.sorts) (hK P.sorts) (hD _ wf.2.2.1) fun s hs =>
+      wf.2.2.2 s (List.mem_append_right _ hs)).choose_spec
     (fun s hs => wf.2.2.2 s (List.mem_append_right _ hs))
     (hG (dom P.sorts) P (K P.sorts) (hK P.sorts) (hD _ wf.2.2.1)
       fun s hs => wf.2.2.2 s (List.mem_append_right _ hs)) (normal_norm q)
@@ -533,7 +535,7 @@ theorem engine_selfConverse : ((engine @U @rd).costedAt dom K hK).SelfConverse :
     · cases he
       obtain ⟨st', hre, hreq⟩ := reach_request (K := K s.P.sorts) (hK := hK s.P.sorts)
         (UAt @U dom K hK s.P) (stOf @U dom s)
-      refine ⟨hwf, hP, good_request hL (hRd _ _ hL hP) hP _
+      refine ⟨hwf, hP, good_request hL (hRd (K s.P.sorts) (hK s.P.sorts) hL hP).choose_spec hP _
         (hG (dom s.P.sorts) s.P (K s.P.sorts) (hK s.P.sorts) hL hP) hI, ?_⟩
       show goalAt (request @rd (K := DerivationKernel.over (dom s.P.sorts) (K s.P.sorts)
         (hK s.P.sorts) s.P) (UAt @U dom K hK s.P) (stOf @U dom s)).val.1 0 = _

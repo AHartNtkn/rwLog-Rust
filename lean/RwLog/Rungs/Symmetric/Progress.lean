@@ -191,7 +191,7 @@ end pure
 open Answer
 
 variable {R : Type} [Answer R] [DecidableEq R] {D : Domain R} {P : Program}
-variable {rd : EdgeReader}
+variable {rd : EdgeReader} {need : Rel → Nat}
 
 /-- Some answer of the table at `i` relates every pair `c` relates. -/
 def CovS (st : StateOf R Rel (Ans D P)) (i : Nat) (c : R) : Prop :=
@@ -915,13 +915,14 @@ def readNeed (P : Program) (n : Rel) : Nat := n.size + 1 + underCalls P (rem P [
 variable (D P K hK) in
 /-- What the machine needs of the reading `rd`. It is right about the
 program: when it returns interfaces, every answer of the node ends or begins
-inside one of them. And it does not give up for ever: from the depth
-`readNeed` on it returns something. -/
-structure ReadOk (rd : EdgeReader) : Prop where
+inside one of them. And it does not give up for ever: from the depth `need`
+of a node on it returns something. The depth may depend on the kernel: a
+reading may give up because of what it has spent. -/
+structure ReadOk (need : Rel → Nat) (rd : EdgeReader) : Prop where
   sound : ∀ (last : Bool) (d : Nat) (n : Rel) (ps : List R),
     (@rd R Rel (Ans D P) Cost (DerivationKernel.over D K hK P) last d n).val = some (some ps) →
       EdgeOk D P n last ps
-  live : ∀ (last : Bool) (d : Nat) (n : Rel), readNeed P n ≤ d →
+  live : ∀ (last : Bool) (d : Nat) (n : Rel), need n ≤ d →
     (@rd R Rel (Ans D P) Cost (DerivationKernel.over D K hK P) last d n).val ≠ none
 
 theorem lookupEdge_mem (n : Rel) (last : Bool) :
@@ -951,7 +952,7 @@ theorem lookupEdge_mem (n : Rel) (last : Bool) :
 
 /-- The edge of a node, as the state gives it, is right about the program,
 and the state keeps only edges that are. -/
-theorem edgeOf_spec (hR : ReadOk D P K hK @rd) {st : StateOf R Rel (Ans D P)} (hE : EdgesOk (rd := @rd) st)
+theorem edgeOf_spec (hR : ReadOk D P K hK need @rd) {st : StateOf R Rel (Ans D P)} (hE : EdgesOk (rd := @rd) st)
     (last : Bool) (n : Rel) :
     EdgesOk (rd := @rd) (edgeOf @rd (K := DerivationKernel.over D K hK P) st last n).val.1 ∧
       (edgeOf @rd (K := DerivationKernel.over D K hK P) st last n).val.1.tables = st.tables ∧
@@ -1543,7 +1544,7 @@ theorem prog_work_push (hL : D.Lawful P.sorts.interp) {st : StateOf R Rel (Ans D
       · exact absurd h (hno1 x' p.1 hx')
       · exact absurd h (hno2 x' t p.1 r' hx')
 
-theorem prog_work_check (hR : ReadOk D P K hK @rd) {st : StateOf R Rel (Ans D P)}
+theorem prog_work_check (hR : ReadOk D P K hK need @rd) {st : StateOf R Rel (Ans D P)}
     (hE : EdgesOk (rd := @rd) st) (i : Nat) (g : GoalOf R Rel) (left : Bool)
     (side other : Rel) (c : Check) (hs : Prog (rd := @rd) st i g (.check left side other c)) :
     Prog (rd := @rd) (work @rd (K := DerivationKernel.over D K hK P) i g st
@@ -1580,7 +1581,7 @@ theorem prog_work_check (hR : ReadOk D P K hK @rd) {st : StateOf R Rel (Ans D P)
   | opened subs => exact hs0
 
 /-- **The work of a strategy keeps what its cursors mean.** -/
-theorem prog_work (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK @rd)
+theorem prog_work (hL : D.Lawful P.sorts.interp) (hR : ReadOk D P K hK need @rd)
     {st : StateOf R Rel (Ans D P)} (hI : Inv st) (hE : EdgesOk (rd := @rd) st) (i : Nat)
     (g : GoalOf R Rel) (s : Strat Rel (Ans D P)) (ho : Open st i)
     (hb : IsBound D g.lb ∧ IsBound D g.rb) (hok : StratOk st g s) (hs : Prog (rd := @rd) st i g s) :

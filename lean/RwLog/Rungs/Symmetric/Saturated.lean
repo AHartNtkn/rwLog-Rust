@@ -41,7 +41,7 @@ variable {σ : Nat → StateOf R Rel (Ans D P)}
 /-- The group has a span. -/
 theorem IsRun.live_span (h : IsRun (rd := @rd) U σ) {ra k m : Nat} {g : GoalOf R Rel}
     {L : Nat → List (Strat Rel (Ans D P))} {ran0 : Bool} (hk : goalAt (σ ra) k = some g)
-    (hL : Line (readNeed P) σ k ra L) (h0 : (L ra)[m]? = some (.span ran0)) :
+    (hL : Line h.need σ k ra L) (h0 : (L ra)[m]? = some (.span ran0)) :
     Served D P (opened σ) (held σ) (toGoal g) := by
   obtain ⟨r, -, hr, hst⟩ := hL.step m ra
   obtain ⟨s, hs, ran, rfl⟩ := hL.along (fun _ s => ∃ ran, s = Strat.span ran) h0 ⟨ran0, rfl⟩
@@ -56,7 +56,7 @@ theorem IsRun.live_span (h : IsRun (rd := @rd) U σ) {ra k m : Nat} {g : GoalOf 
 /-- The group has a call or a union. -/
 theorem IsRun.live_copy (h : IsRun (rd := @rd) U σ) {ra k m : Nat} {g : GoalOf R Rel}
     {L : Nat → List (Strat Rel (Ans D P))} {c : Bool} {subs0 : List (Nat × Nat)}
-    (hk : goalAt (σ ra) k = some g) (hL : Line (readNeed P) σ k ra L)
+    (hk : goalAt (σ ra) k = some g) (hL : Line h.need σ k ra L)
     (h0 : (L ra)[m]? = some (.copy c subs0)) :
     Served D P (opened σ) (held σ) (toGoal g) := by
   have al : ∀ r, ra ≤ r → ∃ s, (L r)[m]? = some s ∧
@@ -124,7 +124,7 @@ theorem IsRun.live_copy (h : IsRun (rd := @rd) U σ) {ra k m : Nat} {g : GoalOf 
 /-- The group has a join. -/
 theorem IsRun.live_join (h : IsRun (rd := @rd) U σ) {ra k m : Nat} {g : GoalOf R Rel}
     {L : Nat → List (Strat Rel (Ans D P))} {kd : Kind} {a b : Nat} {c0 : Cursor}
-    (hk : goalAt (σ ra) k = some g) (hL : Line (readNeed P) σ k ra L)
+    (hk : goalAt (σ ra) k = some g) (hL : Line h.need σ k ra L)
     (h0 : (L ra)[m]? = some (.join kd a b c0)) :
     Served D P (opened σ) (held σ) (toGoal g) := by
   have al : ∀ r, ra ≤ r → ∃ c, (L r)[m]? = some (.join kd a b c) := fun r hr => by
@@ -214,7 +214,7 @@ theorem IsRun.live_join (h : IsRun (rd := @rd) U σ) {ra k m : Nat} {g : GoalOf 
 /-- The group is all interface checks. -/
 theorem IsRun.live_check (h : IsRun (rd := @rd) U σ) {ra k : Nat} {g : GoalOf R Rel}
     {L : Nat → List (Strat Rel (Ans D P))} (hk : goalAt (σ ra) k = some g)
-    (hL : Line (readNeed P) σ k ra L) (hall : ∀ s ∈ L ra, s.isCheck = true) :
+    (hL : Line h.need σ k ra L) (hall : ∀ s ∈ L ra, s.isCheck = true) :
     Served D P (opened σ) (held σ) (toGoal g) := by
   -- one check is not dead in infinitely many requests
   obtain ⟨m, hm, hlive⟩ := infinitely_often_fin (L ra).length
@@ -269,7 +269,7 @@ theorem IsRun.live_check (h : IsRun (rd := @rd) U σ) {ra k : Nat} {g : GoalOf R
       rw [hcon r c hr hs] at hs
       exact hs
     refine no_descent (· < ·) Nat.lt_wfRel.wf (fun _ _ _ h1 h2 => Nat.lt_trans h1 h2)
-      (fun r => readNeed P side - (σ r).depth) ra (fun r _ => ?_) (fun r' => ?_)
+      (fun r => h.need side - (σ r).depth) ra (fun r _ => ?_) (fun r' => ?_)
     · have := (h.req.req r).depth
       omega
     · obtain ⟨r, hr', hr, hst⟩ := hL.step m r'
