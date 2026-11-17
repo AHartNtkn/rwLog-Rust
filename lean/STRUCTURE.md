@@ -156,7 +156,13 @@ Rungs/Symmetric/ the symmetric engine of `SYMMETRIC_ENGINE.md` (Machine.lean): a
                 Owing nothing to a name `h` is such a property, marked the
                 answers of the body of `h`, when the body of `h` needs a name the
                 unfolding race never reads whole (Light.lean, `rules_light`,
-                `light_raced`, `prov_light`). Not
+                `light_raced`, `prov_light`). A pair that needs pairs of a call of
+                `h` in a context is not related where `h` derives nothing
+                (Framework/Zeroed.lean, `not_demands_zero`, with the choice of the
+                input to run carried through, `orient_pairs_zero`), so a run of the
+                machine with the raced unfolding that has covered such a pair has
+                a table that holds an answer of the body of `h` (LightRun.lean,
+                `covered_body_ctx`). Not
                 proved yet: any bound on the cost of either in the size of the input.
 Sorts/          the constraint domain of sorts and the proof that it is lawful
 Manifest/       rung 1's manifest (Rung1.lean): headline statements, trusted files and
