@@ -3,7 +3,8 @@
 
 `Light D P h a`: the answer `a` relates nothing, or it is an answer of its
 goal in the program where `h` derives nothing. Every rule of the kernel keeps
-that, but unfolding an answer of the body of `h` onto a call of `h`
+that, but unfolding an answer of the body of `h` that relates a pair onto a
+call of `h`
 (`rules_light`). When the body of `h` needs a name that the unfolding race
 never reads whole (`Unfold.Tags`), the answers of a final unfolding have it
 too (`light_raced`). So a request keeps it (`prov_light`): a run holds
@@ -26,10 +27,12 @@ where `h` derives nothing. -/
 def Light (D : Domain R) (P : Program) (h : Name) (a : Ans D P) : Prop :=
   den P.sorts.interp a.span = ∅ ∨ Valid D (P.withBody h .zero) a.goal a.span
 
-/-- The answer is an answer of the body of `h`, or of its converse. -/
+/-- The answer is an answer of the body of `h`, or of its converse, and it
+relates a pair. -/
 def OnBody (P : Program) (h : Name) (a : Ans D P) : Prop :=
-  Charged.bodyOf P (.call h) = some a.goal.node ∨
-    Charged.bodyOf P (.conv (.call h)) = some a.goal.node
+  (Charged.bodyOf P (.call h) = some a.goal.node ∨
+    Charged.bodyOf P (.conv (.call h)) = some a.goal.node) ∧
+  (den P.sorts.interp a.span).Nonempty
 
 variable (hL : D.Lawful P.sorts.interp) (K : Kernel R Cost) (hK : K.Refines D) {h : Name}
 
@@ -79,12 +82,15 @@ theorem rules_light : Rules K hK (Light D P h) (OnBody P h) := by
       | false => exact light_join hL K hK hy hx e
     | and => exact light_meet hL K hK hx hy e
   · obtain ⟨hb, hs, hg⟩ := Ans.unfold_val.1 e
-    by_cases hon : OnBody P h a
-    · exact .inl hon
-    refine .inr ?_
     rcases ha with ha | ha
-    · exact .inl (by rw [hs]; exact ha)
-    refine .inr ?_
+    · exact .inr (.inl (by rw [hs]; exact ha))
+    by_cases hne : (den P.sorts.interp a.span).Nonempty
+    swap
+    · exact .inr (.inl (by rw [hs]; exact Set.not_nonempty_iff_eq_empty.1 hne))
+    by_cases hon : Charged.bodyOf P (.call h) = some a.goal.node ∨
+        Charged.bodyOf P (.conv (.call h)) = some a.goal.node
+    · exact .inl ⟨hon, hne⟩
+    refine .inr (.inr ?_)
     rw [hg, hs]
     unfold Charged.bodyOf at hb
     split at hb
