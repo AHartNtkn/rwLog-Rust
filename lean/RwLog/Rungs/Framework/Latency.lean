@@ -172,4 +172,30 @@ theorem Admits.of_nil {κ : KernelRung} {kind : Kind} {Old New : Engine} {b : Bo
   keeps _ := hk
   time hs _ := ht hs
 
+namespace CostedRuntime
+
+/-- The machine with its cells counted another way. What it does and what it
+pays are the same. -/
+def reLive (C : CostedRuntime) (l : C.State → Nat) : CostedRuntime := { C with live := l }
+
+theorem spent_reLive (C : CostedRuntime) (l : C.State → Nat) :
+    ∀ (n : Nat) (s : C.State), (C.reLive l).spent s n = C.spent s n
+  | 0, _ => rfl
+  | n + 1, s => by
+    have ih := spent_reLive C l n
+    simp only [CostedRuntime.spent, reLive] at ih ⊢
+    cases (C.step s).val <;> simp only [ih]
+
+theorem paid_reLive (C : CostedRuntime) (l : C.State → Nat) (P : Program) (q : Rel) (n : Nat) :
+    (C.reLive l).paid P q n = C.paid P q n := by
+  show (C.init P q).ticks + (C.reLive l).spent (C.start P q) n = _
+  rw [spent_reLive]
+  rfl
+
+theorem covered_reLive (C : CostedRuntime) (l : C.State → Nat) {P : Program} {q : Rel}
+    {M : Interp} {x : GTerm × GTerm} {n : Nat} :
+    (C.reLive l).Covered P q M x n ↔ C.Covered P q M x n := Iff.rfl
+
+end CostedRuntime
+
 end RwLog

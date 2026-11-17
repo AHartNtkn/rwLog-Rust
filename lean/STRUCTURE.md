@@ -190,9 +190,13 @@ Rungs/Symmetric/ the symmetric engine of `SYMMETRIC_ENGINE.md` (Machine.lean): a
                 of `u`, a union of two spans, and `c := id | c ; id`. The race
                 never reads `c` whole and `h` relates nothing without it, so in
                 every context the first engine has paid `2 ^ (m + 1)` before it
-                covers a pair that needs a pair of `h` (`Fan.paid`). Not proved
-                yet: any bound from above on the cost of either engine in the
-                size of the input.
+                covers a pair that needs a pair of `h` (`Fan.paid`). The members
+                with the input `h`, ranked by `m`, with the target `(a, b)`, are a
+                proper class (FanClass.lean, `Fan.cls`, `Fan.proper`), and the
+                lower bound is the lower clause of a separation of rung 1 on it
+                (`Fan.below`, at a kernel that charges a tick or more for a
+                composition). Not proved yet: any bound from above on the cost
+                of either engine in the size of the input.
 Sorts/          the constraint domain of sorts and the proof that it is lawful
 Manifest/       rung 1's manifest (Rung1.lean): headline statements, trusted files and
                 axioms, all checked by the build
