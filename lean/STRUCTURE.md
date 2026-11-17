@@ -183,8 +183,14 @@ Rungs/Symmetric/ the symmetric engine of `SYMMETRIC_ENGINE.md` (Machine.lean): a
                 of `N` dear sides of the splits of a chain the last is read to a
                 depth of `2 ^ (N - 1)`: making the groups of such a chain costs
                 `B`, which is what `Dear` asks (DearChain.lean, `expand_dear`,
-                `Dear.of_chain`). Not proved yet: a program with such a chain, or
-                any bound on the cost of either engine in the size of the input.
+                `Dear.of_chain`). The fan is a family with such a chain (Fan.lean):
+                `h := id ; id ; id ; id ; (g | u ; … ; u) ; c` with `m + 2` copies
+                of `u`, a union of two spans, and `c := id | c ; id`. The race
+                never reads `c` whole and `h` relates nothing without it, so in
+                every context the first engine has paid `2 ^ (m + 1)` before it
+                covers a pair that needs a pair of `h` (`Fan.paid`). Not proved
+                yet: any bound from above on the cost of either engine in the
+                size of the input.
 Sorts/          the constraint domain of sorts and the proof that it is lawful
 Manifest/       rung 1's manifest (Rung1.lean): headline statements, trusted files and
                 axioms, all checked by the build
