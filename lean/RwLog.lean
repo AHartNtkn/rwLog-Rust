@@ -125,6 +125,7 @@ import RwLog.Rungs.Symmetric.Cursor
 import RwLog.Rungs.Symmetric.FeedCursor
 import RwLog.Rungs.Symmetric.Progress
 import RwLog.Rungs.Symmetric.Kept
+import RwLog.Rungs.Symmetric.Provenance
 import RwLog.Rungs.Symmetric.Edge
 import RwLog.Rungs.Symmetric.ReadLive
 import RwLog.Rungs.Symmetric.Faces

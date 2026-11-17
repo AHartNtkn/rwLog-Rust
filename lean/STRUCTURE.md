@@ -147,7 +147,13 @@ Rungs/Symmetric/ the symmetric engine of `SYMMETRIC_ENGINE.md` (Machine.lean): a
                 about the program and does not give up for ever (Faces.lean, `faces_ok`,
                 `faces_some`, `good_bothReader`), so the engine with it, `bothWays`, has
                 the laws and the bound on direction (Rung.lean). It is not a rung of the
-                ladder until it is admitted. Not
+                ladder until it is admitted. Every answer a table holds was made
+                by a rule of the kernel from answers the tables hold, or by the
+                unfolding race: a property of answers that the rules keep, but for
+                the unfolding onto marked calls, and that the answers of the race
+                have, is a property of everything a run holds until the table of a
+                marked call holds an answer (Provenance.lean, `prov_request`,
+                `prov_init`). Not
                 proved yet: any bound on the cost of either in the size of the input.
 Sorts/          the constraint domain of sorts and the proof that it is lawful
 Manifest/       rung 1's manifest (Rung1.lean): headline statements, trusted files and
