@@ -410,6 +410,29 @@ rung unchanged.
   its parts (`Pack.inj`); `Pack.ofInj` lists a structure through its fields.
   This is how an engine meets `Engine.held_inj`.
 
+* `Beside.lean`: two engines side by side. `Engine.beside E F` runs both on
+  the same root and shares the ticks: the engine charged less takes the next
+  step, tried under a budget (`Kernel.within`) of one tick or twice the
+  budget it last gave up at, and a step that does not fit is dropped and
+  charged. The pair is done when `E` is; when `F` is done it takes no more
+  steps.
+
+* `BesideRun.lean`: what the pair keeps, on the runs of the two step
+  functions. The pair takes every step of its first engine (`took`,
+  `fst_run`), and is done only when the first engine is, having emitted what
+  it emitted (`halt_fst`). With the accounts in step (`Inv`), what the pair
+  spends is paid for out of what the accounts rise by (`step_pot`), so when
+  the second engine has taken `n` steps the pair has spent a fixed multiple
+  of what those steps cost (`snd_next`, `snd_run`).
+
+* `BesideLaws.lean`: the same for the machines. The machine of an engine is
+  read off the runs of its step (`machine_emitted`, `machine_halts`,
+  `machine_spent`). The pair is complete if its first engine is
+  (`beside_complete`), honest when done if its first engine is
+  (`beside_honest`), reports that it is done exactly where its first engine
+  does (`beside_terminates`), and `beside_paid` bounds what it has paid when
+  its second engine has taken `n` steps.
+
 * `RecordWitness.lean`: `Admits` has inhabitants. Two toy
   engines, admitted one above the other over a base that never answers, the
   second for an exponential gain over the record that holds the polynomial
