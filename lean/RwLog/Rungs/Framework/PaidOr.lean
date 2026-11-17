@@ -71,6 +71,27 @@ theorem paidOr_foldL (I : β → Prop) (f : β → α → Cost β) (xs : List α
   rw [foldL_std]
   exact PaidOr.foldL I f xs h b hb
 
+/-- A fold has paid, or keeps what each of its steps keeps, where what is
+kept may speak of the members passed. -/
+theorem paidOr_foldL_done (I : List α → β → Prop) (f : β → α → Cost β) (xs : List α)
+    (h : ∀ done b x, x ∈ xs → I done b → PaidOr B (f b x) (I (done ++ [x]))) (b : β)
+    (hb : I [] b) : PaidOr B (Traverse.foldL f b xs) (I xs) := by
+  have main : ∀ (ys done : List α) (b : β), (∀ y ∈ ys, y ∈ xs) → I done b →
+      PaidOr B (Cost.foldL f b ys) (I (done ++ ys)) := by
+    intro ys
+    induction ys with
+    | nil =>
+      intro done b _ hb
+      rw [List.append_nil]
+      exact .inr hb
+    | cons y ys ih =>
+      intro done b hys hb
+      refine PaidOr.bind (h done b y (hys y List.mem_cons_self) hb) fun hb' => ?_
+      have := ih (done ++ [y]) _ (fun z hz => hys z (List.mem_cons_of_mem _ hz)) hb'
+      rwa [List.append_assoc, List.singleton_append] at this
+  rw [foldL_std]
+  exact main xs [] b (fun _ h => h) hb
+
 end Traverse
 
 end RwLog

@@ -2,7 +2,8 @@
 # What a run has paid before a marked table has its first round
 
 A lower bound on what the symmetric engine pays, along its text. Some edges
-are dear (`Exp`): reading one costs `B` ticks or more. Some goals are marked
+are dear (`Exp`): reading one costs `B` ticks or more, when the reading
+returns something or is to a depth of three or more. Some goals are marked
 (`Mark`, by their node): the first round of a marked goal reads a dear edge
 unless one has been read (`Dear`).
 
@@ -245,8 +246,9 @@ edge that returns something costs `B` ticks or more, and so does the first
 round of a marked goal in a state that has read no dear edge. -/
 structure Dear (rd : EdgeReader) (K : Kernel R Cost) (hK : K.Refines D) (P : Program)
     (Exp : Rel → Bool → Prop) (Mark : Rel → Prop) (B : Nat) : Prop where
-  read : ∀ (last : Bool) (depth : Nat) (n : Rel) (e : Option (List R)), Exp n last →
-    (@rd R Rel (Ans D P) Cost (DerivationKernel.over D K hK P) last depth n).val = some e →
+  read : ∀ (last : Bool) (depth : Nat) (n : Rel), Exp n last →
+    (3 ≤ depth ∨
+      ∃ e, (@rd R Rel (Ans D P) Cost (DerivationKernel.over D K hK P) last depth n).val = some e) →
     B ≤ (@rd R Rel (Ans D P) Cost (DerivationKernel.over D K hK P) last depth n).ticks
   expand : ∀ (g : GoalOf R Rel) (st : StateOf R Rel (Ans D P)), Mark g.node → CheapE Exp st →
     B ≤ (expand @rd (K := DerivationKernel.over D K hK P) g st).ticks
@@ -266,7 +268,7 @@ theorem e_edgeOf (hD : Dear @rd K hK P Exp Mark B) {st : StateOf R Rel (Ans D P)
     · by_cases hE : Exp n last
       · cases hv : (@rd R Rel (Ans D P) Cost (DerivationKernel.over D _ hK P) last st.depth n).val with
         | none => exact .inr fun e he => by rw [hv] at he; cases he
-        | some e => exact .inl (hread e hE hv)
+        | some e => exact .inl (hread hE (.inr ⟨e, hv⟩))
       · exact .of_val fun _ _ => hE
     · refine .of_val ?_
       simp only [Cost.pure_val]

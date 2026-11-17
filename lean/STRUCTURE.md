@@ -176,9 +176,12 @@ Rungs/Symmetric/ the symmetric engine of `SYMMETRIC_ENGINE.md` (Machine.lean): a
                 products relate different pairs, `readEdge` has spent `2 ^ (m + 1)`
                 ticks when it returns something or reads to a depth of three, at a
                 kernel that charges a tick or more for a composition (RunsCost.lean,
-                `runs_dear`, `readEdge_dear`). Not proved yet: `Dear` for any
-                program, or any bound on the cost of either engine in the size of
-                the input.
+                `runs_dear`, `readEdge_dear`). A reading that fails doubles the
+                depth, so of three dear sides of the splits of a chain the third is
+                read to a depth of four: making the groups of such a chain costs
+                `B`, which is what `Dear` asks (DearChain.lean, `expand_dear`,
+                `Dear.of_chain`). Not proved yet: a program with such a chain, or
+                any bound on the cost of either engine in the size of the input.
 Sorts/          the constraint domain of sorts and the proof that it is lawful
 Manifest/       rung 1's manifest (Rung1.lean): headline statements, trusted files and
                 axioms, all checked by the build
@@ -225,7 +228,7 @@ every charge derived from the Rust. No domain of spans as written is left
 | A sorted list with its duplicates erased is strictly sorted | `Lib/List.lean` | `pairwise_lt_eraseDups` |
 | Lists related member by member, one member changed, conditionals | `Lib/List.lean` | `forall₂_mem_left`, `forall₂_mem_right`, `forall₂_getElem?`, `forall₂_getLast?`, `map_modify_eq`, `mem_modify`, `two_le_length_of_mem`, `drop_take_reverse`, `ite_of_pos`, `ite_of_neg` |
 | Goals, the same goal, maximal answers, the rule of a split, for any machine that tables | `Rungs/Framework/Goals.lean`, `GoalsVal.lean` | `GoalOf`, `Kind`, `same`, `indexFrom`, `coversA`, `maxima`, `fresh`, `both`; their values: `same_val`, `indexFrom_val`, `coversA_val`, `maxima_val`, `fresh_val`, `both_some` |
-| A computation in `Cost` has spent a bound or what it returns has a property, through `>>=` and a fold | `Rungs/Framework/PaidOr.lean` | `Cost.PaidOr`, `PaidOr.bind`, `PaidOr.bind'`, `PaidOr.foldL`, `Traverse.paidOr_foldL` |
+| A computation in `Cost` has spent a bound or what it returns has a property, through `>>=` and a fold | `Rungs/Framework/PaidOr.lean` | `Cost.PaidOr`, `PaidOr.bind`, `PaidOr.bind'`, `PaidOr.foldL`, `Traverse.paidOr_foldL`, `Traverse.paidOr_foldL_done` (may speak of the members passed) |
 | A fold in `Cost` keeps an invariant | `Rungs/Framework/Cost.lean`, `TraverseStd.lean` | `Cost.foldL_inv`, `Traverse.foldL_inv`, `Traverse.foldL_done` (may speak of the members passed), `Traverse.foldL_split` (and knows the members to come) |
 | Well-formed queries built from a well-formed one | `Rungs/Framework/Direction.lean` | `ProgramOf.WellFormed.of_sub`, `.conv`, `.seq_left`, `.seq_swap`, `.and_of_seq`, `.dual` |
 | Converse of a program | `SpanLayer/Dual.lean` | `Program.sem_dual` |
