@@ -14,6 +14,10 @@ characterised on surface terms `(f t₁ … tₙ)` by `mem_mk`.
 import RwLog.Trusted.Semantics
 
 namespace RwLog
+
+/-- A ground term as a pattern. -/
+def GTerm.toPat (t : GTerm) : Pat := t.rename Empty.elim
+
 namespace Sorts
 
 /-- The sorts of the arguments of a term with root `f` and `n` arguments, when

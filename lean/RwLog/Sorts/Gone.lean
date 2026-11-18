@@ -15,9 +15,6 @@ import RwLog.Sorts.Tight
 
 namespace RwLog
 
-/-- A ground term as a pattern. -/
-def GTerm.toPat (t : GTerm) : Pat := t.rename Empty.elim
-
 namespace Sorts
 
 /-- The pattern as a ground term, when it has no variable. -/
