@@ -34,12 +34,6 @@ theorem ShowsSelf.emit {s s' : R.State} {as : List R.Ans} (h : R.step s = .emit 
     rw [R.trace_succ_emit h] at this
     exact (List.forall₂_cons.1 this).2
 
-theorem ShowsSelf.progress {s s' : R.State} {k : Nat} (h : R.step s = .progress k s')
-    (hs : R.ShowsSelf M s) : R.ShowsSelf M s' := fun n => by
-  have := hs (n + 1)
-  rw [R.trace_succ_progress h] at this
-  exact (List.forall₂_cons.1 this).2
-
 theorem ShowsSelf.done {s : R.State} {fin : List R.Ans} (h : R.step s = .done fin)
     (hs : R.ShowsSelf M s) : StepEquiv M fin (fin.map Answer.swap) := by
   have := hs 1
@@ -59,12 +53,10 @@ theorem stepC_cases (s : State X Y) :
     (∃ s', (stepC f g s).val = .emit [] s' ∧ s'.fst = s.fst ∧ s'.snd = s.snd) ∨
     (match (f s.fst).val with
       | .emit as x => ∃ s', (stepC f g s).val = .emit as s' ∧ s'.fst = x ∧ s'.snd = s.snd
-      | .progress k x => ∃ s', (stepC f g s).val = .progress k s' ∧ s'.fst = x ∧ s'.snd = s.snd
       | .done fin => (stepC f g s).val = .done fin) ∨
     (∃ y s', s.snd = some y ∧ s'.fst = s.fst ∧
       match (g y).val with
       | .emit as y' => (stepC f g s).val = .emit as s' ∧ s'.snd = some y'
-      | .progress _ y' => (stepC f g s).val = .emit [] s' ∧ s'.snd = some y'
       | .done fin => (stepC f g s).val = .emit fin s' ∧ s'.snd = none) := by
   cases hy : s.snd with
   | none =>
@@ -72,7 +64,6 @@ theorem stepC_cases (s : State X Y) :
     rw [(alone f g hy).1]
     cases (f s.fst).val with
     | emit as x => exact ⟨_, rfl, rfl, hy⟩
-    | progress k x => exact ⟨_, rfl, rfl, hy⟩
     | done fin => rfl
   | some y =>
     by_cases ht : s.paidFst ≤ s.paidSnd
@@ -81,7 +72,6 @@ theorem stepC_cases (s : State X Y) :
         rw [(fst_fit f g hy ht hb).1]
         cases (f s.fst).val with
         | emit as x => exact ⟨_, rfl, rfl, hy⟩
-        | progress k x => exact ⟨_, rfl, rfl, hy⟩
         | done fin => rfl
       · exact .inl ⟨_, (fst_fail f g hy ht (Nat.not_le.1 hb)).1, rfl, hy⟩
     · by_cases hb : price g y ≤ budget s.gaveSnd
@@ -90,7 +80,6 @@ theorem stepC_cases (s : State X Y) :
         rw [(snd_fit f g hy ht hb).1]
         cases (g y).val with
         | emit as y' => exact ⟨rfl, rfl⟩
-        | progress k y' => exact ⟨rfl, rfl⟩
         | done fin => exact ⟨rfl, rfl⟩
       · exact .inl ⟨_, (snd_fail f g hy ht (Nat.not_le.1 hb)).1, rfl, hy⟩
 
@@ -143,21 +132,6 @@ theorem beside_showsSelf (M : Interp) : ∀ (m : Nat) (s : (E.beside F).StateAt 
           rw [hf]; exact e2
         · intro y hy'
           exact h2 y (by rw [← hy]; exact hy')
-      | progress k x =>
-        rw [hr] at hc hE
-        obtain ⟨s', hs, hf, hy⟩ := hc
-        have hE' : (E.costedAt dom K hK cells).runtime.step (fstAt E F dom s) =
-            .progress k ⟨s.P, s.root, x⟩ := hE
-        have e2 := h1.progress hE'
-        rw [hs] at hv
-        have hs' : ((E.beside F).costedAt dom K hK cells).runtime.step s =
-            .progress k ⟨s.P, s.root, s'⟩ := hv
-        rw [Runtime.trace_succ_progress _ hs']
-        refine List.Forall₂.cons rfl (beside_showsSelf M m _ ?_ ?_)
-        · show (E.costedAt dom K hK cells).runtime.ShowsSelf M ⟨s.P, s.root, s'.fst⟩
-          rw [hf]; exact e2
-        · intro y hy'
-          exact h2 y (by rw [← hy]; exact hy')
       | done fin =>
         rw [hr] at hc hE
         have hE' : (E.costedAt dom K hK cells).runtime.step (fstAt E F dom s) =
@@ -184,20 +158,6 @@ theorem beside_showsSelf (M : Interp) : ∀ (m : Nat) (s : (E.beside F).StateAt 
             .emit (shownAt dom s.P s.root as) ⟨s.P, s.root, s'⟩ := hv
         rw [Runtime.trace_succ_emit _ hs']
         refine List.Forall₂.cons e1 (beside_showsSelf M m _ hfst ?_)
-        intro z hz
-        have : z = y' := Option.some.inj (hz.symm.trans hy')
-        rw [this]; exact e2
-      | progress k y' =>
-        rw [hr] at hc hF
-        obtain ⟨hs, hy'⟩ := hc
-        have hF' : (F.costedAt dom K hK cells).runtime.step ⟨s.P, s.root, y⟩ =
-            .progress k ⟨s.P, s.root, y'⟩ := hF
-        have e2 := h2y.progress hF'
-        rw [hs] at hv
-        have hs' : ((E.beside F).costedAt dom K hK cells).runtime.step s =
-            .emit (shownAt dom s.P s.root []) ⟨s.P, s.root, s'⟩ := hv
-        rw [Runtime.trace_succ_emit _ hs']
-        refine List.Forall₂.cons (StepEquiv.refl _) (beside_showsSelf M m _ hfst ?_)
         intro z hz
         have : z = y' := Option.some.inj (hz.symm.trans hy')
         rw [this]; exact e2

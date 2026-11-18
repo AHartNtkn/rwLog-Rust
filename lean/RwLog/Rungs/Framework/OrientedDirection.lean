@@ -64,8 +64,8 @@ theorem traceEquiv_of_swap {A : Type} [Answer A] {M : Interp} {t t' : List (Show
 
 /-- **The cost of a machine run on one orientation does not depend on the
 direction a query is written in**: the machine, the machine run on the
-mirror image and the machine run on the converse each finish every level another
-has finished, and halt where it has halted, having paid at most what it has paid and `8 * n + 12` ticks, `n` the
+mirror image and the machine run on the converse each cover every level another
+has covered, and halt where it has halted, having paid at most what it has paid and `8 * n + 12` ticks, `n` the
 size of the input. Asked of the machine: that on a root that is its own
 converse it shows sets of answers that are their own converse. -/
 theorem oriented_directionFree (hS : C.SelfConverse) :

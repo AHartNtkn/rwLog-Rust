@@ -33,17 +33,9 @@ set of answers. It is no law and does not constrain a run.
 Performance is what an admission asks (`Admits`, `Trusted/Cost.lean`): a
 strict win on a class, no trade for it on any other program beyond the bound
 its kind of win allows, halting kept, and the cost of a relation forward and
-backward comparable. It is stated on what a machine has paid when it has
-finished a level (`Trusted/Levels.lean`), and never by comparing two runs
-step by step or answer by answer.
-
-That measure reads a machine's own reports, so the ladder asks one thing of
-reports beside the laws: every rung reports levels truly
-(`Runtime.HonestReports`). When it reports a level, its answers relate every
-pair of that level. This is what the third law says of the report that a run
-is done, said of each level. A rung need not report any level; one that
-reports none finishes a level only by reporting that it is done. `Ladder` is
-the rungs so admitted.
+backward comparable. It is stated on what a machine has paid when its
+answers cover a level (`Trusted/Levels.lean`), and never by comparing two
+runs step by step or answer by answer. `Ladder` is the rungs so admitted.
 -/
 import RwLog.Trusted.Cost
 
@@ -90,21 +82,14 @@ store, the rung as one machine on the original input has them. -/
 def CostedRung.Lawful (G : CostedRung) (κ : KernelRung) : Prop :=
   ∀ A, ((G.rung κ).runtime κ A).Laws
 
-/-- The rung `G` reports levels truly at the kernel rung `κ`: whatever the
-artifact store, when the rung as one machine on the original input reports a
-level, its answers relate every pair of that level of the original query. -/
-def CostedRung.Honest (G : CostedRung) (κ : KernelRung) : Prop :=
-  ∀ A, ((G.rung κ).runtime κ A).HonestReports
-
 /-- The ladder above the rung `base` at the kernel rung `κ`. The base has
-the laws and reports levels truly. A rung is put on top only by an admission
-above the rung below it, and only if it has the laws and reports levels
-truly. So every rung of a ladder has the laws. -/
+the laws. A rung is put on top only by an admission above the rung below it,
+and only if it has the laws. So every rung of a ladder has the laws. -/
 inductive Ladder (κ : KernelRung) (base : CostedRung) : CostedRung → Prop where
-  | base : base.Lawful κ → base.Honest κ → Ladder κ base base
+  | base : base.Lawful κ → Ladder κ base base
   | admit {kind : Kind} {Old New : CostedRung} {b : Bounds} {d : PolyBound} {pre : Nat → Nat}
       {C : ProgClass} :
       Ladder κ base Old → Admits κ kind Old New b d pre C →
-      New.Lawful κ → New.Honest κ → Ladder κ base New
+      New.Lawful κ → Ladder κ base New
 
 end RwLog

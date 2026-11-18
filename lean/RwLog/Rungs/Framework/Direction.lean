@@ -12,7 +12,7 @@ Facts used to establish `DirectionFree` (`Trusted/Cost.lean`).
   something, and one step further when it stops, so the bound is needed for
   those steps only.
 -/
-import RwLog.Rungs.Framework.Finishing
+import RwLog.Rungs.Framework.Covering
 import RwLog.Rungs.Framework.Trace
 import RwLog.Rungs.Framework.Cost
 import RwLog.Kernel.Size
@@ -129,9 +129,6 @@ theorem trace_trace_length : ∀ (n : Nat) (s : R.State),
     | done fin => rw [R.trace_succ_done hs]; exact R.trace_succ_done hs 0
     | emit as s' =>
       rw [R.trace_succ_emit hs, List.length_cons, R.trace_succ_emit hs, trace_trace_length n s']
-    | progress k s' =>
-      rw [R.trace_succ_progress hs, List.length_cons, R.trace_succ_progress hs,
-        trace_trace_length n s']
 
 /-- Two numbers of steps with the same trace have emitted the same answers
 and halted together. -/
@@ -157,7 +154,6 @@ theorem TraceEquiv.final {A B : Type} [Answer A] [Answer B] {M : Interp} :
     cases x with
     | final xs => exact ⟨xs, rfl⟩
     | answers xs => exact h.elim
-    | level n => exact h.elim
   | _, _, .cons _ (.cons h' hs), ⟨fin, hf⟩ => by
     rw [List.getLast?_cons_cons] at hf ⊢
     exact TraceEquiv.final (.cons h' hs) ⟨fin, hf⟩
@@ -234,12 +230,6 @@ theorem trace_length_le_spent (hpos : ∀ s, 1 ≤ (C.step s).ticks) :
       have := trace_length_le_spent hpos n s'
       simp only [List.length_cons]
       omega
-    | progress k s' =>
-      rw [C.runtime.trace_succ_progress (show C.runtime.step s = .progress k s' from hs),
-        C.spent_succ_progress hs]
-      have := trace_length_le_spent hpos n s'
-      simp only [List.length_cons]
-      omega
 
 /-! ## The machine on the mirror image and on the converse -/
 
@@ -266,11 +256,6 @@ theorem swapped_spent (init : Program → Rel → Cost C.State) : ∀ (n : Nat) 
         show (C.step s).val.swap = _; rw [hs]; rfl
       rw [(C.swapped init).spent_succ_emit hs', C.spent_succ_emit hs]
       exact congrArg ((C.step s).ticks + ·) (swapped_spent init n s')
-    | progress k s' =>
-      have hs' : ((C.swapped init).step s).val = .progress k s' := by
-        show (C.step s).val.swap = _; rw [hs]; rfl
-      rw [(C.swapped init).spent_succ_progress hs', C.spent_succ_progress hs]
-      exact congrArg ((C.step s).ticks + ·) (swapped_spent init n s')
 
 theorem swapped_trace (init : Program → Rel → Cost C.State) : ∀ (n : Nat) (s : C.State),
     (C.swapped init).runtime.trace s n = (C.runtime.trace s n).map Shown.swap
@@ -288,13 +273,6 @@ theorem swapped_trace (init : Program → Rel → Cost C.State) : ∀ (n : Nat) 
       rw [(C.swapped init).runtime.trace_succ_emit hs',
         C.runtime.trace_succ_emit (show C.runtime.step s = .emit as s' from hs), List.map_cons]
       exact congrArg (Shown.answers (as.map Answer.swap) :: ·) (swapped_trace init n s')
-    | progress k s' =>
-      have hs' : (C.swapped init).runtime.step s = .progress k s' := by
-        show (C.step s).val.swap = _; rw [hs]; rfl
-      rw [(C.swapped init).runtime.trace_succ_progress hs',
-        C.runtime.trace_succ_progress (show C.runtime.step s = .progress k s' from hs),
-        List.map_cons]
-      exact congrArg (Shown.level k :: ·) (swapped_trace init n s')
 
 theorem mirror_spent (n : Nat) (s : C.State) : C.mirror.spent s n = C.spent s n :=
   C.swapped_spent _ n s
@@ -322,36 +300,6 @@ end CostedRuntime
 
 /-! ## Never worse, from equal traces -/
 
-/-- Traces that agree step for step report the same levels. -/
-theorem TraceEquiv.level_mem {A B : Type} [Answer A] [Answer B] {M : Interp} {m : Nat} :
-    ∀ {t : List (Shown A)} {t' : List (Shown B)}, TraceEquiv M t t' →
-      Shown.level m ∈ t' → Shown.level m ∈ t
-  | _, _, .nil, h => absurd h List.not_mem_nil
-  | _, _, .cons (a := x) (b := y) h hs, hm => by
-    rcases List.mem_cons.1 hm with rfl | hm
-    · have h' := shownEquiv_iff.1 h
-      cases x with
-      | answers xs => exact h'.elim
-      | level n => obtain rfl : n = m := h'; exact List.mem_cons_self
-      | final xs => exact h'.elim
-    · exact List.mem_cons_of_mem _ (TraceEquiv.level_mem hs hm)
-
-/-- A run whose trace agrees with another's, step for step, has finished
-every level the other has. -/
-theorem Runtime.Finished.of_traceEquiv {R R' : Runtime} {M : Interp} {s : R.State}
-    {s' : R'.State} {c n : Nat} (ht : TraceEquiv M (R'.trace s' n) (R.trace s n))
-    (h : R.Finished s c n) : R'.Finished s' c n := by
-  rcases (R.finished_iff_trace).1 h with h | ⟨m, hm, hmem⟩
-  · exact Or.inl (R'.halts_iff_trace.2 (TraceEquiv.final ht (R.halts_iff_trace.1 h)))
-  · exact (R'.finished_iff_trace).2 (Or.inr ⟨m, hm, TraceEquiv.level_mem ht hmem⟩)
-
-/-- Two numbers of steps with the same trace have finished the same levels. -/
-theorem Runtime.finished_of_trace_eq {R : Runtime} {s : R.State} {c m n : Nat}
-    (h : R.trace s m = R.trace s n) (hf : R.Finished s c n) : R.Finished s c m := by
-  rcases (R.finished_iff_trace).1 hf with hh | hl
-  · exact Or.inl (R.halts_iff_trace.2 (h ▸ R.halts_iff_trace.1 hh))
-  · exact (R.finished_iff_trace).2 (Or.inr (h ▸ hl))
-
 /-- `B` is never worse than `A` within `p` when, on every input, the trace of
 `B` agrees with the trace of `A` step for step, and `B` has paid at most `p`
 of what `A` has paid by any step up to the last that `A` has shown. A run is
@@ -370,8 +318,16 @@ theorem neverWorse_of_trace {A B : CostedRuntime} {p : Nat → Nat → Nat}
   have hLn : L ≤ n := hL ▸ A.runtime.trace_length_le n (A.start P q)
   have htr : A.runtime.trace (A.start P q) L = A.runtime.trace (A.start P q) n :=
     hL ▸ A.runtime.trace_trace_length n (A.start P q)
-  refine ⟨L, hc n L hLn (le_of_eq hL.symm), fun c hf => ?_, fun hn => ?_⟩
-  · exact Runtime.Finished.of_traceEquiv (ht L) (Runtime.finished_of_trace_eq htr hf)
+  refine ⟨L, hc n L hLn (le_of_eq hL.symm), fun c hf p hp => ?_, fun hn => ?_⟩
+  · obtain ⟨a, ha, hpa⟩ := hf p hp
+    rw [← A.runtime.emitted_eq_of_trace htr] at ha
+    have he : StepEquiv P.sorts.interp (A.runtime.emitted (A.start P q) L)
+        (B.runtime.emitted (B.start P q) L) := by
+      have h1 := A.runtime.emitted_eq_flatMap_trace L (A.start P q)
+      have h2 := B.runtime.emitted_eq_flatMap_trace L (B.start P q)
+      exact h1 ▸ h2 ▸ (TraceEquiv.emits (ht L)).symm
+    obtain ⟨b, hb, e⟩ := he.mem ha
+    exact ⟨b, hb, e.2 hpa⟩
   · refine (B.runtime.halts_iff_trace (s := B.start P q)).2 (TraceEquiv.final (ht L) ?_)
     rw [htr]
     exact (A.runtime.halts_iff_trace (s := A.start P q)).1 hn

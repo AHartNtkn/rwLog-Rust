@@ -27,11 +27,10 @@ variable {A B : Type} [Answer A] [Answer B]
 def StepEquiv (M : Interp) (xs : List A) (ys : List B) : Prop :=
   ∃ ys', ys'.Perm ys ∧ List.Forall₂ (Answer.Equiv M) xs ys'
 
-/-- What two steps show agrees: answers and final reports up to `StepEquiv`,
-and certificates for the same level. -/
+/-- What two steps show agrees: answers and final reports up to
+`StepEquiv`. -/
 def ShownEquiv (M : Interp) : Shown A → Shown B → Prop
   | .answers xs, .answers ys => StepEquiv M xs ys
-  | .level n, .level m => n = m
   | .final xs, .final ys => StepEquiv M xs ys
   | _, _ => False
 

@@ -27,25 +27,25 @@ A `CostedRuntime` is a small-step machine, with its type of answers
 Forgetting the ticks gives an ordinary `Runtime`, the one the correctness
 theorems are about, so cost and behaviour cannot drift apart.
 
-## What is measured: finishing a level
+## What is measured: covering a level
 
-Cost is how soon a machine has finished the levels of a relation
+Cost is how soon a machine's answers cover the levels of a relation
 (`Trusted/Levels.lean`). Level `c` is the pairs with a derivation of weight
-at most `c`; it belongs to the program as written and mentions no machine. A
-machine may report a level, and a report is true when the answers emitted so
-far relate every pair of that level (`Runtime.HonestReports`). A machine has
-finished level `c` when it has reported a level `c` or higher, or has
-reported that it is done (`Runtime.Finished`).
+at most `c`; it belongs to the program as written and mentions no machine.
+A run *has covered level `c`* within `n` steps (`CostedRuntime.Covered`)
+when every pair of level `c` is related by an answer emitted in those steps.
+The machine says nothing about levels and need not know of them: whether a
+level is covered is read off its answers.
 
-`FinishesUsing μ P q c b` says the machine has finished level `c` of `q`
-having used at most `b` of a resource. The run is one continuing run: it is
-not started again for each level. So the cost of finishing a level never
-falls as the level rises.
+`CoversUsing μ P q c b` says the machine has covered level `c` of `q` having
+used at most `b` of a resource. The run is one continuing run: it is not
+started again for each level. The levels grow, so the cost of covering a
+level never falls as the level rises.
 
 Nothing is measured answer by answer. Two correct machines may emit different
 answers for the same relation, in different orders, and one answer with
 variables may cover what another machine needs many answers for; none of
-that is compared. No clause says when a particular pair is covered.
+that is compared.
 
 ## Resources
 
@@ -65,9 +65,9 @@ and the cells of the listing are counted here (`Engine.liveAt`).
 ## Never worse
 
 `NeverWorse Old New p` compares two machines on the same program, level by
-level: whenever `Old` has finished a level `c` of an input, `New` finishes
-that level having paid at most `p` of what `Old` has paid and of the size of
-the input and `c`; and whenever `Old` has reported that it is done, `New`
+level: whenever `Old` has covered a level `c` of an input, `New` covers that
+level having paid at most `p` of what `Old` has paid and of the size of the
+input and `c`; and whenever `Old` has reported that it is done, `New`
 reports that it is done having paid at most `p` of what `Old` has paid and
 of the size of the input. It is asked on every well-formed input. Both
 machines are run on the same program, so the levels are the same levels, and
@@ -83,8 +83,8 @@ their size is at most a stated function of their rank, and the rank is
 unbounded over the members.
 
 `WinsOn ρ Old New C lo hi`, for a resource `ρ`: on every member of `C`, of
-rank `k`, `New` finishes the member's level having used at most `hi k`, and
-`Old` has used at least `lo k` at any step by which it has finished it. The
+rank `k`, `New` covers the member's level having used at most `hi k`, and
+`Old` has used at least `lo k` at any step by which it has covered it. The
 upper bound on `New` mentions no other machine.
 
 The members are whole programs. Nothing is claimed about a program that has
@@ -129,7 +129,7 @@ A rung is admitted above the rung below it by a proof of `Admits κ kind`, at
 a kernel rung `κ` (`Trusted/Kernel.lean`), and by nothing else.
 
 * It is not a trade (`neverWorse`). On every program and at every level it
-  finishes what the rung below has finished, and reports that it is done
+  covers what the rung below has covered, and reports that it is done
   where the rung below does, having paid no more than a bound on what the
   rung below has paid. The bound depends on the kind of win
   (`Bounds.worse`). A rung admitted by an exponential win may be a
@@ -147,8 +147,7 @@ so it does not buy space with time beyond that bound.
 
 `Ladder κ base G` (`Trusted/Properties.lean`, where the laws are stated) is
 the ladder itself: the base, and each rung admitted above the rung below it.
-Every rung of a ladder, the base included, has the laws and reports levels
-truly.
+Every rung of a ladder, the base included, has the laws.
 
 What carries a gain upward is the first clause. A rung above stays within
 its bound of the rung that made a gain, on the members of that gain's class
@@ -158,6 +157,7 @@ rung admitted by an exponential win may lose a polynomial, so it may give
 back the gain of an earlier polynomial rung; nothing here forbids that.
 -/
 import RwLog.Trusted.Engine
+import RwLog.Trusted.Levels
 
 namespace RwLog
 
@@ -198,7 +198,6 @@ def spent : C.State → Nat → Nat
   | s, n + 1 =>
     (C.step s).ticks + match (C.step s).val with
       | .emit _ s' => spent s' n
-      | .progress _ s' => spent s' n
       | .done _ => 0
 
 /-- The ticks paid on `q` by the end of the first `n` steps: building the
@@ -215,7 +214,6 @@ def peakFrom : C.State → Nat → Nat
   | s, n + 1 =>
     max (C.live s + (C.step s).peak) (match (C.step s).val with
       | .emit _ s' => peakFrom s' n
-      | .progress _ s' => peakFrom s' n
       | .done _ => 0)
 
 /-- The space used on `q` by the end of the first `n` steps: the most cells
@@ -230,7 +228,6 @@ theorem peakFrom_mono (s : C.State) (n : Nat) : C.peakFrom s n ≤ C.peakFrom s 
     simp only [peakFrom]
     cases (C.step s).val with
     | emit _ s' => exact max_le_max le_rfl (ih s')
-    | progress _ s' => exact max_le_max le_rfl (ih s')
     | done _ => exact le_rfl
 
 /-- The space used never shrinks as the run goes on. -/
@@ -243,7 +240,7 @@ theorem space_mono (P : Program) (q : Rel) {n m : Nat} (h : n ≤ m) :
 
 end CostedRuntime
 
-/-! ## Finishing a level -/
+/-! ## Covering a level -/
 
 /-- A resource: what a machine has used on an input by the end of its first
 `n` steps. -/
@@ -271,15 +268,15 @@ namespace CostedRuntime
 
 variable (C : CostedRuntime)
 
-/-- The machine has finished level `c` of `q` within `n` steps: it has
-reported a level `c` or higher, or that it is done. -/
-def Finished (P : Program) (q : Rel) (c n : Nat) : Prop :=
-  C.runtime.Finished (C.start P q) c n
+/-- The machine has covered level `c` of `q` within `n` steps: every pair of
+level `c` is related by an answer emitted in those steps. -/
+def Covered (P : Program) (q : Rel) (c n : Nat) : Prop :=
+  ∀ p ∈ P.level c q, ∃ a ∈ C.runtime.emitted (C.start P q) n, p ∈ Answer.den P.sorts.interp a
 
 /-- The machine has used at most `b` of the resource by some step by which
-it has finished level `c` of `q`. -/
-def FinishesUsing (μ : Meter) (P : Program) (q : Rel) (c b : Nat) : Prop :=
-  ∃ n, C.Finished P q c n ∧ μ C P q n ≤ b
+it has covered level `c` of `q`. -/
+def CoversUsing (μ : Meter) (P : Program) (q : Rel) (c b : Nat) : Prop :=
+  ∃ n, C.Covered P q c n ∧ μ C P q n ≤ b
 
 /-- The machine has paid at most `b` ticks by some step at which it has
 reported that it is done. -/
@@ -292,14 +289,14 @@ end CostedRuntime
 
 /-- `New` is never worse than `Old`, in time, within `p`: on every
 well-formed input and for every number of steps of `Old`, every level `c`
-that `Old` has finished is finished by `New` having paid at most `p` of what
+that `Old` has covered is covered by `New` having paid at most `p` of what
 `Old` has paid and of the size of the input and `c`; and if `Old` has
 reported that it is done then `New` reports that it is done having paid at
 most `p` of what `Old` has paid and of the size of the input. -/
 def NeverWorse (Old New : CostedRuntime) (p : Nat → Nat → Nat) : Prop :=
   ∀ P q, P.WellFormed q → ∀ n,
-    (∀ c, Old.Finished P q c n →
-      New.FinishesUsing Meter.time P q c (p (Old.paid P q n) (P.size + q.size + c))) ∧
+    (∀ c, Old.Covered P q c n →
+      New.CoversUsing Meter.time P q c (p (Old.paid P q n) (P.size + q.size + c))) ∧
     (Old.runtime.Halts (Old.start P q) n →
       New.ExhaustsWithin P q (p (Old.paid P q n) (P.size + q.size)))
 
@@ -372,13 +369,13 @@ structure ProgClass.Proper (C : ProgClass) (size : Nat → Nat) : Prop where
 /-! ## A win on a class -/
 
 /-- `New` wins over `Old` on the class `C` in the resource `ρ`: on a member
-of rank `k`, `New` finishes the member's level having used at most `hi k`,
-and `Old` has used at least `lo k` at any step by which it has
-finished it. -/
+of rank `k`, `New` covers the member's level having used at most `hi k`,
+and `Old` has used at least `lo k` at any step by which it has covered
+it. -/
 structure WinsOn (ρ : Resource) (Old New : CostedRuntime) (C : ProgClass)
     (lo hi : Nat → Nat) : Prop where
-  above : ∀ P r, C.mem P r → New.FinishesUsing ρ.meter P r (C.level P r) (hi (C.rank P r))
-  below : ∀ P r, C.mem P r → ∀ n, Old.Finished P r (C.level P r) n →
+  above : ∀ P r, C.mem P r → New.CoversUsing ρ.meter P r (C.level P r) (hi (C.rank P r))
+  below : ∀ P r, C.mem P r → ∀ n, Old.Covered P r (C.level P r) n →
     lo (C.rank P r) ≤ ρ.meter Old P r n
 
 /-! ## The kinds of win -/
@@ -502,7 +499,7 @@ def Ans.rootSpan {R : Type} [Answer R] [DecidableEq R] {D : Domain R} {P : Progr
 /-- What the machine reports of a step of the engine: of the answers it
 emits or stands by in its final report, those of the root goal, as
 representatives with the sorts they are representatives for, at one tick for
-each answer looked at. A report of a level is passed on as it is. -/
+each answer looked at. -/
 def Engine.report (E : Engine) {R : Sorts → Type} [∀ S, Answer (R S)] [∀ S, DecidableEq (R S)]
     (dom : ∀ S, Domain (R S)) (P : Program) (root : Rel) :
     StepOf (Ans (dom P.sorts) P) (E.State (R P.sorts) Rel (Ans (dom P.sorts) P)) →
@@ -510,7 +507,6 @@ def Engine.report (E : Engine) {R : Sorts → Type} [∀ S, Answer (R S)] [∀ S
   | .emit as st' => do
     Cost.tick as.length
     pure (.emit ((as.filterMap (Ans.rootSpan root)).map (Sigma.mk P.sorts)) ⟨P, root, st'⟩)
-  | .progress n st' => pure (.progress n ⟨P, root, st'⟩)
   | .done final => do
     Cost.tick final.length
     pure (.done ((final.filterMap (Ans.rootSpan root)).map (Sigma.mk P.sorts)))
@@ -651,7 +647,6 @@ def Charged.orient (P : Program) (q : Rel) : Cost Oriented :=
 image. -/
 def StepOf.shownAs {A S : Type} [Answer A] (swap : Bool) : StepOf A S → StepOf A (Bool × S)
   | .emit as s => .emit (if swap then as.map Answer.swap else as) (swap, s)
-  | .progress n s => .progress n (swap, s)
   | .done final => .done (if swap then final.map Answer.swap else final)
 
 /-- A machine run on one orientation of its input (`orient`): its first
@@ -725,7 +720,7 @@ structure Advances (κ : KernelRung) (kind : Kind) (Old New : CostedRung) (b : B
 
 /-- The rung `New` is admitted above `Old` at the kernel rung `κ` by a win of
 the given kind. Whatever the artifact store: it advances on `Old` by the win;
-on every program and at every level it finishes what `Old` has finished, and
+on every program and at every level it covers what `Old` has covered, and
 reports that it is done where `Old` does, having paid at most
 `b.worse kind.gap` of what `Old` has paid, which is a polynomial for an
 exponential win and a constant factor for a polynomial win; and its cost does

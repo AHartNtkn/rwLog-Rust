@@ -201,10 +201,6 @@ theorem spent_succ_emit {s s' : C.State} {as : List C.Ans} (h : (C.step s).val =
     (n : Nat) : C.spent s (n + 1) = (C.step s).ticks + C.spent s' n := by
   simp only [spent, h]
 
-theorem spent_succ_progress {s s' : C.State} {k : Nat} (h : (C.step s).val = .progress k s')
-    (n : Nat) : C.spent s (n + 1) = (C.step s).ticks + C.spent s' n := by
-  simp only [spent, h]
-
 theorem spent_succ_done {s : C.State} {fin : List C.Ans} (h : (C.step s).val = .done fin)
     (n : Nat) : C.spent s (n + 1) = (C.step s).ticks := by
   simp only [spent, h, Nat.add_zero]
@@ -219,9 +215,6 @@ theorem spent_mono : ∀ (s : C.State) {m n : Nat}, m ≤ n → C.spent s m ≤ 
     | emit as s' =>
       rw [C.spent_succ_emit hs, C.spent_succ_emit hs]
       exact Nat.add_le_add_left (spent_mono s' (Nat.le_of_succ_le_succ h)) _
-    | progress k s' =>
-      rw [C.spent_succ_progress hs, C.spent_succ_progress hs]
-      exact Nat.add_le_add_left (spent_mono s' (Nat.le_of_succ_le_succ h)) _
 
 /-- A halted machine spends nothing more. -/
 theorem spent_of_halts : ∀ (s : C.State) {m n : Nat}, C.runtime.Halts s m → m ≤ n →
@@ -235,11 +228,6 @@ theorem spent_of_halts : ∀ (s : C.State) {m n : Nat}, C.runtime.Halts s m → 
       have hs' : C.runtime.step s = .emit as s' := hs
       rw [C.spent_succ_emit hs, C.spent_succ_emit hs,
         spent_of_halts s' ((C.runtime.halts_succ_emit hs' m).1 hm) (Nat.le_of_succ_le_succ h)]
-    | progress k s' =>
-      have hs' : C.runtime.step s = .progress k s' := hs
-      rw [C.spent_succ_progress hs, C.spent_succ_progress hs,
-        spent_of_halts s' ((C.runtime.halts_succ_progress hs' m).1 hm)
-          (Nat.le_of_succ_le_succ h)]
 
 /-- What has been paid grows with the number of steps. -/
 theorem paid_mono (P : Program) (q : Rel) {m n : Nat} (h : m ≤ n) : C.paid P q m ≤ C.paid P q n :=

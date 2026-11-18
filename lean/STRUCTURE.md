@@ -128,9 +128,8 @@ Rungs/Symmetric/ the symmetric engine of `SYMMETRIC_ENGINE.md` (Machine.lean): a
                 with rounds for ever by a strategy of the group that works for ever
                 (Saturated.lean, `IsRun.served_live`), so the run is saturated (`IsRun.saturated`); the
                 states of the engine are such a run, and the machine is complete, honest
-                when it reports that it is done, and emits no progress certificate
-                (Correct.lean, `Symmetric.complete`, `honestExhaustion`,
-                `honestProgress`); no answer of a table covers a later one, and the final report is the
+                when it reports that it is done
+                (Correct.lean, `Symmetric.complete`, `honestExhaustion`); no answer of a table covers a later one, and the final report is the
                 maximal emitted answers (`finalMaximal`). So the engine has the three laws
                 (`Symmetric.pointComplete`, `Symmetric.laws`), and on a root that is its own
                 converse every step shows answers that are their own converses rearranged
@@ -149,9 +148,7 @@ Rungs/Symmetric/ the symmetric engine of `SYMMETRIC_ENGINE.md` (Machine.lean): a
                 `faces_some`; Capped.lean, `runs_stable`, `good_cappedReader`), so the
                 engine with it, `bothWays`, has
                 the laws and the bound on direction (Rung.lean). It is not a rung of the
-                ladder until it is admitted. The engine reports no level (Correct.lean,
-                `silent`), so as a rung it reports levels truly (`rung_honest`) and
-                finishes a level only by reporting that it is done.
+                ladder until it is admitted.
 Sorts/          the constraint domain of sorts and the proof that it is lawful
 Manifest/       rung 1's manifest (Rung1.lean): headline statements, trusted files and
                 axioms, all checked by the build
@@ -213,8 +210,8 @@ every charge derived from the Rust. No domain of spans as written is left
 rung unchanged.
 
 * `Runtime.lean`: runs, prefixes, halting, the final report, `stateAfter`,
-  traces, certificates. `halts_iff_stateAfter`, `emitted_eq_flatMap_trace`,
-  `final_eq_some_iff`, `certifies_iff`.
+  traces. `halts_iff_stateAfter`, `emitted_eq_flatMap_trace`,
+  `final_eq_some_iff`.
 * `Answer.lean`: `Answer.Covers` and `Answer.Equiv` are a preorder and an
   equivalence on answers of any types and converse respects them. On spans
   they are the coverage the kernel decides (`Span.covers_iff`,
@@ -337,18 +334,19 @@ rung unchanged.
   weighs at least 1 (`LevelAt.pos`), the levels grow (`LevelAt.mono`), a
   level holds only pairs of the relation and every pair of the relation is
   in some level (`ProgramOf.pairs_eq_iUnion_level`), and weight does not
-  depend on direction (`ProgramOf.levelAt_conv`, `levelAt_dual`).
+  depend on direction (`ProgramOf.levelAt_conv`, `levelAt_dual`). A run that
+  has covered a level has covered every lower one, and a run that is done,
+  of a machine that exhausts honestly, has covered every level
+  (`CostedRuntime.Covered.anti`, `Covered.of_halts`).
 
-* `Finishing.lean`: how the improvement statements of `Trusted/Cost.lean`,
-  which measure what a machine has used when it has finished a level, are
-  established. `Runtime.finished_iff_trace` (a run has finished a level when
-  it is done or its trace shows a report of that level or a higher one),
-  `Runtime.Silent` (a machine that reports no level reports levels truly and
-  finishes a level only by halting), `NeverWorse.of_steps` (step by step the
-  new machine has finished every level the old one has, at a bounded cost),
-  `NeverWorse.terminates`, `Admits.halts`, and `Ladder.lawful`,
-  `Ladder.honest`: every rung of a ladder has the laws and reports levels
-  truly, which the ladder asks of the base and of every rung put on top.
+* `Covering.lean`: how the improvement statements of `Trusted/Cost.lean`,
+  which measure what a machine has used when its emitted answers cover a
+  level, are established. A level once covered stays covered
+  (`CostedRuntime.Covered.mono`), `NeverWorse.of_steps` (step by step the
+  new machine has covered every level the old one has, at a bounded cost),
+  `NeverWorse.terminates`, `Admits.halts`, and `Ladder.lawful`: every rung of
+  a ladder has the laws, which the ladder asks of the base and of every rung
+  put on top.
 
 * `Holding.lean`: saying what a state holds. `Pack S N A α` lists a value of
   `α` as representatives, nodes, answers and numbers so that the listing can

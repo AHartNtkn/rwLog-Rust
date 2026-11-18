@@ -6,10 +6,8 @@ orientation of its input (`rung`). With any unfolding race and any reading of
 edges that meet their specifications, at every kernel rung:
 
 * it has the laws (`rung_lawful`);
-* it reports no level, so every report it makes is true (`rung_silent`,
-  `rung_honest`), and it finishes a level only by reporting that it is done;
 * its cost does not depend on the direction a query is written in: on an
-  input, on its converse and on its mirror image it finishes the same levels
+  input, on its converse and on its mirror image it covers the same levels
   and halts alike, having paid the same and at most `8 * n + 12` ticks more
   for an input of size `n` (`rung_direction`, and within the bound of an
   admission `rung_directionFree`).
@@ -43,21 +41,9 @@ theorem rung_lawful (hG : RwLog.Good @U) (hRd : GoodReader @rd) (κ : KernelRung
     (complete (U := @U) (dom := κ.dom) (K := κ.kernel) (hK := κ.refines) κ.lawful hG hRd)
     (honestExhaustion (U := @U) (dom := κ.dom) (K := κ.kernel) (hK := κ.refines) κ.lawful hG hRd)
 
-/-- **The symmetric engine reports no level as a rung.** -/
-theorem rung_silent (hG : RwLog.Good @U) (hRd : GoodReader @rd) (κ : KernelRung)
-    (A : ArtifactStore) : (((rung @U @rd).rung κ).runtime κ A).Silent :=
-  CostedRuntime.oriented_silent
-    (silent (U := @U) (dom := κ.dom) (K := κ.kernel) (hK := κ.refines) κ.lawful hG hRd)
-
-/-- **Every report of a level the symmetric engine makes as a rung is
-true**: it makes none. -/
-theorem rung_honest (hG : RwLog.Good @U) (hRd : GoodReader @rd) (κ : KernelRung) :
-    (rung @U @rd).Honest κ :=
-  fun A => (rung_silent hG hRd κ A).honestReports
-
 /-- **The cost of the symmetric engine does not depend on the direction a
 query is written in.** The rung, the rung run on the mirror image and the
-rung run on the converse each finish every level another has finished, and
+rung run on the converse each cover every level another has covered, and
 halt where it has halted, having paid at most what it has paid and `8 * n + 12` ticks, `n` the size of the input. -/
 theorem rung_direction (hG : RwLog.Good @U) (hRd : GoodReader @rd) (κ : KernelRung) (A : ArtifactStore) :
     DirectionFree ((rung @U @rd).machine κ A) fun c n => c + (8 * n + 12) :=
@@ -82,10 +68,7 @@ theorem rung1_lawful (κ : KernelRung) : rung1.Lawful κ := rung_lawful good_rac
 /-- **The symmetric engine is the base of a ladder.** -/
 theorem rung_ladder (hG : RwLog.Good @U) (hRd : GoodReader @rd) (κ : KernelRung) :
     Ladder κ (rung @U @rd) (rung @U @rd) :=
-  .base (rung_lawful hG hRd κ) (rung_honest hG hRd κ)
-
-/-- **Rung 1 reports levels truly.** -/
-theorem rung1_honest (κ : KernelRung) : rung1.Honest κ := rung_honest good_raced good_runsReader κ
+  .base (rung_lawful hG hRd κ)
 
 /-- **Rung 1 is the base of the ladder.** -/
 theorem rung1_ladder (κ : KernelRung) : Ladder κ rung1 rung1 :=

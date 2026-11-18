@@ -17,7 +17,6 @@ again.
 * `emitted` is the answers of the `trace`, concatenated
   (`emitted_eq_flatMap_trace`), and a run has halted exactly when its trace
   stopped early (`halts_iff_trace_length`).
-* A certificate is the step a state takes (`certifies_iff`).
 -/
 import RwLog.Trusted.Engine
 import Mathlib.Data.Set.Finite.Basic
@@ -25,10 +24,9 @@ import Mathlib.Data.Set.Finite.Basic
 namespace RwLog
 
 /-- The answers a step shows as emitted: those of an emitting step, and none
-for a certificate or a final report. -/
+for a final report. -/
 def Shown.emits {A : Type} : Shown A → List A
   | .answers as => as
-  | .level _ => []
   | .final _ => []
 
 namespace Runtime
@@ -43,10 +41,6 @@ theorem run_succ_emit {s s' : R.State} {as : List R.Ans} (h : R.step s = .emit a
     R.run s (n + 1) = (as ++ (R.run s' n).1, (R.run s' n).2) := by
   simp only [run, h]
 
-theorem run_succ_progress {s s' : R.State} {k : Nat} (h : R.step s = .progress k s') (n : Nat) :
-    R.run s (n + 1) = R.run s' n := by
-  simp only [run, h]
-
 theorem run_succ_done {s : R.State} {fin : List R.Ans} (h : R.step s = .done fin) (n : Nat) :
     R.run s (n + 1) = ([], some fin) := by
   simp only [run, h]
@@ -56,10 +50,6 @@ theorem halts_zero (s : R.State) : ¬ R.Halts s 0 := by simp [Halts, final, run]
 theorem halts_succ_emit {s s' : R.State} {as : List R.Ans} (h : R.step s = .emit as s') (n : Nat) :
     R.Halts s (n + 1) ↔ R.Halts s' n := by
   simp only [Halts, final, R.run_succ_emit h]
-
-theorem halts_succ_progress {s s' : R.State} {k : Nat} (h : R.step s = .progress k s') (n : Nat) :
-    R.Halts s (n + 1) ↔ R.Halts s' n := by
-  simp only [Halts, final, R.run_succ_progress h]
 
 theorem halts_succ_done {s : R.State} {fin : List R.Ans} (h : R.step s = .done fin) (n : Nat) :
     R.Halts s (n + 1) := by
@@ -74,9 +64,6 @@ theorem run_halted : ∀ {n : Nat} {s : R.State}, R.Halts s n → ∀ m, R.run s
     cases hs : R.step s with
     | emit as s' =>
       rw [R.run_succ_emit hs, R.run_succ_emit hs, run_halted ((R.halts_succ_emit hs n).1 h) m]
-    | progress k s' =>
-      rw [R.run_succ_progress hs, R.run_succ_progress hs,
-        run_halted ((R.halts_succ_progress hs n).1 h) m]
     | done fin => rw [R.run_succ_done hs, R.run_succ_done hs]
 
 theorem run_halted_eq {s : R.State} {n m : Nat} (hn : R.Halts s n) (hm : R.Halts s m) :
@@ -94,9 +81,6 @@ theorem run_prefix : ∀ (m j : Nat) (s : R.State), ∃ r, (R.run s (m + j)).1 =
     | emit as s' =>
       obtain ⟨r, hr⟩ := run_prefix m j s'
       exact ⟨r, by rw [R.run_succ_emit hs, R.run_succ_emit hs, hr, List.append_assoc]⟩
-    | progress k s' =>
-      obtain ⟨r, hr⟩ := run_prefix m j s'
-      exact ⟨r, by rw [R.run_succ_progress hs, R.run_succ_progress hs, hr]⟩
     | done fin => exact ⟨[], by rw [R.run_succ_done hs, R.run_succ_done hs]; simp⟩
 
 theorem emitted_prefix (s : R.State) {m n : Nat} (h : m ≤ n) : R.emitted s m <+: R.emitted s n := by
@@ -157,7 +141,6 @@ def stateAfter (s : R.State) : Nat → R.State
   | n + 1 =>
     match R.step s with
     | .emit _ s' => stateAfter s' n
-    | .progress _ s' => stateAfter s' n
     | .done _ => s
 
 theorem stateAfter_done {s : R.State} {fin : List R.Ans} (h : R.step s = .done fin) :
@@ -166,10 +149,6 @@ theorem stateAfter_done {s : R.State} {fin : List R.Ans} (h : R.step s = .done f
   | k + 1 => by simp only [stateAfter, h]
 
 theorem stateAfter_succ_emit {s s' : R.State} {as : List R.Ans} (h : R.step s = .emit as s')
-    (k : Nat) : R.stateAfter s (k + 1) = R.stateAfter s' k := by
-  simp only [stateAfter, h]
-
-theorem stateAfter_succ_progress {s s' : R.State} {j : Nat} (h : R.step s = .progress j s')
     (k : Nat) : R.stateAfter s (k + 1) = R.stateAfter s' k := by
   simp only [stateAfter, h]
 
@@ -182,9 +161,6 @@ theorem stateAfter_add (s : R.State) :
     | emit as s' =>
       rw [show m + 1 + k = (m + k) + 1 by omega, R.stateAfter_succ_emit h,
         R.stateAfter_succ_emit h, stateAfter_add s' m k]
-    | progress j s' =>
-      rw [show m + 1 + k = (m + k) + 1 by omega, R.stateAfter_succ_progress h,
-        R.stateAfter_succ_progress h, stateAfter_add s' m k]
 
 /-- A run of `n + 1` steps reports that it is done exactly when one of the
 first `n + 1` states steps to `done`. -/
@@ -196,14 +172,6 @@ theorem halts_succ_iff : ∀ (n : Nat) (s : R.State),
       exact ⟨fun _ => ⟨0, le_rfl, fin, h⟩, fun _ => R.halts_succ_done h 0⟩
     | emit as s' =>
       rw [R.halts_succ_emit h]
-      constructor
-      · intro h'; exact absurd h' (R.halts_zero s')
-      · rintro ⟨k, hk, fin, h'⟩
-        rw [Nat.le_zero.1 hk] at h'
-        simp only [stateAfter] at h'
-        rw [h] at h'; cases h'
-    | progress j s' =>
-      rw [R.halts_succ_progress h]
       constructor
       · intro h'; exact absurd h' (R.halts_zero s')
       · rintro ⟨k, hk, fin, h'⟩
@@ -225,17 +193,6 @@ theorem halts_succ_iff : ∀ (n : Nat) (s : R.State),
         | succ k =>
           rw [R.stateAfter_succ_emit h] at h'
           exact ⟨k, by omega, fin, h'⟩
-    | progress j s' =>
-      rw [R.halts_succ_progress h, halts_succ_iff n s']
-      constructor
-      · rintro ⟨k, hk, fin, h'⟩
-        exact ⟨k + 1, by omega, fin, by rw [R.stateAfter_succ_progress h]; exact h'⟩
-      · rintro ⟨k, hk, fin, h'⟩
-        cases k with
-        | zero => simp only [stateAfter] at h'; rw [h] at h'; cases h'
-        | succ k =>
-          rw [R.stateAfter_succ_progress h] at h'
-          exact ⟨k, by omega, fin, h'⟩
 
 /-- A run halts exactly when it reaches a state that steps to `done`. -/
 theorem halts_iff_stateAfter (s : R.State) :
@@ -254,10 +211,6 @@ theorem trace_succ_emit {s s' : R.State} {as : List R.Ans} (h : R.step s = .emit
     (n : Nat) : R.trace s (n + 1) = .answers as :: R.trace s' n := by
   simp only [trace, h]
 
-theorem trace_succ_progress {s s' : R.State} {k : Nat} (h : R.step s = .progress k s')
-    (n : Nat) : R.trace s (n + 1) = .level k :: R.trace s' n := by
-  simp only [trace, h]
-
 theorem trace_succ_done {s : R.State} {fin : List R.Ans} (h : R.step s = .done fin) (n : Nat) :
     R.trace s (n + 1) = [.final fin] := by
   simp only [trace, h]
@@ -273,9 +226,6 @@ theorem emitted_eq_flatMap_trace :
     | emit as s' =>
       rw [R.run_succ_emit h, R.trace_succ_emit h, List.flatMap_cons]
       exact congrArg (as ++ ·) (emitted_eq_flatMap_trace n s')
-    | progress k s' =>
-      rw [R.run_succ_progress h, R.trace_succ_progress h, List.flatMap_cons]
-      exact emitted_eq_flatMap_trace n s'
 
 theorem trace_length_le : ∀ (n : Nat) (s : R.State), (R.trace s n).length ≤ n
   | 0, _ => le_rfl
@@ -283,7 +233,6 @@ theorem trace_length_le : ∀ (n : Nat) (s : R.State), (R.trace s n).length ≤ 
     cases h : R.step s with
     | done fin => rw [R.trace_succ_done h]; simp
     | emit as s' => rw [R.trace_succ_emit h]; simpa using trace_length_le n s'
-    | progress k s' => rw [R.trace_succ_progress h]; simpa using trace_length_le n s'
 
 /-- A run of `n` steps has reported that it is done exactly when its trace
 ends with a final report. -/
@@ -302,39 +251,6 @@ theorem final_eq_some_iff : ∀ (n : Nat) (s : R.State) (fin : List R.Ans),
       cases ht : R.trace s' n with
       | nil => simp
       | cons x xs => simp [List.getLast?_cons_cons]
-    | progress k s' =>
-      rw [R.run_succ_progress h, R.trace_succ_progress h]
-      have ih := final_eq_some_iff n s' fin
-      unfold final at ih
-      rw [ih]
-      cases ht : R.trace s' n with
-      | nil => simp
-      | cons x xs => simp [List.getLast?_cons_cons]
-
-/-! ## Certificates -/
-
-/-- The step taken after `k` steps certifies level `n` exactly when the state
-after `k` steps takes that step. -/
-theorem certifies_iff : ∀ (k : Nat) (s : R.State) (n : Nat),
-    R.Certifies s k n ↔ ∃ s', R.step (R.stateAfter s k) = .progress n s'
-  | 0, s, n => by
-    unfold Certifies
-    cases h : R.step s with
-    | done fin => rw [R.trace_succ_done h]; simp [stateAfter, h]
-    | emit as s' => rw [R.trace_succ_emit h]; simp [stateAfter, h]
-    | progress j s' => rw [R.trace_succ_progress h]; simp [stateAfter, h]
-  | k + 1, s, n => by
-    unfold Certifies
-    cases h : R.step s with
-    | done fin =>
-      rw [R.trace_succ_done h, R.stateAfter_done h]
-      simp [h]
-    | emit as s' =>
-      rw [R.trace_succ_emit h, R.stateAfter_succ_emit h, List.getElem?_cons_succ]
-      exact certifies_iff k s' n
-    | progress j s' =>
-      rw [R.trace_succ_progress h, R.stateAfter_succ_progress h, List.getElem?_cons_succ]
-      exact certifies_iff k s' n
 
 end Runtime
 

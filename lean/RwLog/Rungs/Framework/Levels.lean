@@ -12,7 +12,10 @@ derivation. Here:
   levels together are the relation (`pairs_eq_iUnion_level`);
 * weight does not depend on the direction an expression is written in: the
   levels of a converse are the levels swapped (`levelAt_conv`), and so are
-  the levels of the mirror image in the mirrored program (`levelAt_dual`).
+  the levels of the mirror image in the mirrored program (`levelAt_dual`);
+* a run that has covered a level has covered every lower one
+  (`CostedRuntime.Covered.anti`), and a run that is done, of a machine that
+  exhausts honestly, has covered every level (`CostedRuntime.Covered.of_halts`).
 -/
 import RwLog.Trusted.Levels
 import RwLog.SpanLayer.Dual
@@ -177,5 +180,25 @@ theorem ProgramOf.levelAt_dual (P : Program) (M : Interp) (c : Nat) (e : Rel) :
     have h' : LevelAt P.dual.dual M c e.dual.dual (p.2, p.1) := by
       rw [P.dual_dual, e.dual_dual]; exact h
     exact LevelAt.of_dual (P := P.dual) h' rfl
+
+namespace CostedRuntime
+
+variable (C : CostedRuntime)
+
+/-- A run that has covered a level has covered every lower one. -/
+theorem Covered.anti {P : Program} {q : Rel} {c c' n : Nat} (h : C.Covered P q c n)
+    (hc : c' ≤ c) : C.Covered P q c' n := fun p hp => h p (P.level_mono q hc hp)
+
+/-- A run that is done, of a machine that exhausts honestly, has covered
+every level. -/
+theorem Covered.of_halts (hh : C.runtime.HonestExhaustion) {P : Program} {q : Rel}
+    (wf : P.WellFormed q) {n : Nat} (hn : C.runtime.Halts (C.start P q) n) (c : Nat) :
+    C.Covered P q c n := fun p hp => by
+  have hp' : p ∈ P.pairs q := P.level_subset_pairs c q hp
+  rw [hh P q wf n hn] at hp'
+  obtain ⟨a, ha, hpa⟩ := Set.mem_iUnion₂.1 hp'
+  exact ⟨a, ha, hpa⟩
+
+end CostedRuntime
 
 end RwLog

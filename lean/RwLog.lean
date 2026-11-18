@@ -34,7 +34,7 @@ import RwLog.Trusted.Properties
 import RwLog.Rungs.Framework.RunProperties
 import RwLog.Kernel.Size
 import RwLog.Rungs.Framework.Cost
-import RwLog.Rungs.Framework.Finishing
+import RwLog.Rungs.Framework.Covering
 import RwLog.Rungs.Framework.Levels
 import RwLog.Rungs.Framework.Holding
 import RwLog.Rungs.Framework.Beside
