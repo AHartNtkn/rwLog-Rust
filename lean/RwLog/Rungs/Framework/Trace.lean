@@ -94,11 +94,9 @@ theorem StepEquiv.flatMap {α : Type} {xs ys : List α} (R : α → α → Prop)
 
 /-! ## What two steps show -/
 
-/-- What two steps show is related: answers and final reports by `E`, and
-certificates for the same level. -/
+/-- What two steps show is related: answers and final reports by `E`. -/
 def Shown.Rel (E : List A → List B → Prop) : Shown A → Shown B → Prop
   | .answers xs, .answers ys => E xs ys
-  | .level n, .level m => n = m
   | .final xs, .final ys => E xs ys
   | _, _ => False
 
@@ -108,16 +106,15 @@ theorem shownEquiv_iff {x : Shown A} {y : Shown B} : (ShownEquiv M) x y ↔ Show
 theorem ShownEquiv.refl (x : Shown A) : (ShownEquiv M) x x := by
   cases x with
   | answers xs => exact StepEquiv.refl xs
-  | level n => exact rfl
   | final xs => exact StepEquiv.refl xs
 
 theorem ShownEquiv.symm {x : Shown A} {y : Shown B} (h : (ShownEquiv M) x y) : (ShownEquiv M) y x := by
-  cases x <;> cases y <;> first | exact StepEquiv.symm h | exact Eq.symm h | exact h.elim
+  cases x <;> cases y <;> first | exact StepEquiv.symm h | exact h.elim
 
 theorem ShownEquiv.trans {x : Shown A} {y : Shown B} {z : Shown C} (h₁ : (ShownEquiv M) x y)
     (h₂ : (ShownEquiv M) y z) : (ShownEquiv M) x z := by
   cases x <;> cases y <;> cases z <;>
-    first | exact StepEquiv.trans h₁ h₂ | exact Eq.trans h₁ h₂ | exact h₁.elim | exact h₂.elim
+    first | exact StepEquiv.trans h₁ h₂ | exact h₁.elim | exact h₂.elim
 
 theorem ShownEquiv.swap {x : Shown A} {y : Shown B} (h : (ShownEquiv M) x y) :
     (ShownEquiv M) x.swap y.swap := by
@@ -151,12 +148,10 @@ theorem TraceEquiv.emits : ∀ {t : List (Shown A)} {t' : List (Shown B)}, (Trac
 /-! ## Lockstep simulation -/
 
 /-- Two steps correspond: both emit, with related answers and related next
-states, or both certify the same level and go to related states, or both are
-done with related final reports. -/
+states, or both are done with related final reports. -/
 def StepOf.Rel {S S' : Type} (E : List A → List B → Prop) (Sim : S → S' → Prop) :
     StepOf A S → StepOf B S' → Prop
   | .emit as t, .emit as' t' => E as as' ∧ Sim t t'
-  | .progress n t, .progress n' t' => n = n' ∧ Sim t t'
   | .done fin, .done fin' => E fin fin'
   | _, _ => False
 
@@ -179,8 +174,6 @@ theorem trace_of_sim (hstep : ∀ s s', Sim s s' → StepOf.Rel E Sim (R.step s)
       | exact hs.elim
       | (rw [R.trace_succ_emit h₁, R'.trace_succ_emit h₂]
          exact .cons hs.1 (trace_of_sim hstep n _ _ hs.2))
-      | (rw [R.trace_succ_progress h₁, R'.trace_succ_progress h₂]
-         exact .cons hs.1 (trace_of_sim hstep n _ _ hs.2))
       | (rw [R.trace_succ_done h₁, R'.trace_succ_done h₂]
          exact .cons hs .nil)
 
@@ -194,8 +187,6 @@ theorem halts_iff_of_sim (hstep : ∀ s s', Sim s s' → StepOf.Rel E Sim (R.ste
       first
       | exact hs.elim
       | (rw [R.halts_succ_emit h₁, R'.halts_succ_emit h₂]
-         exact halts_iff_of_sim hstep n hs.2)
-      | (rw [R.halts_succ_progress h₁, R'.halts_succ_progress h₂]
          exact halts_iff_of_sim hstep n hs.2)
       | exact iff_of_true (R.halts_succ_done h₁ n) (R'.halts_succ_done h₂ n)
 

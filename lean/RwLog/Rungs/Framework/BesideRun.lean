@@ -32,8 +32,6 @@ def stepC (f : X → Cost (StepOf A X)) (g : Y → Cost (StepOf A Y)) (s : State
                                         gaveFst := budget s.gaveFst })
       | some (.emit as x) => pure (.emit as { s with fst := x, paidFst := s.paidFst + r.2 + 1,
                                                      gaveFst := 0 })
-      | some (.progress n x) =>
-        pure (.progress n { s with fst := x, paidFst := s.paidFst + r.2 + 1, gaveFst := 0 })
       | some (.done fin) => pure (.done fin)
     else do
       let r ← Cost.metered (Cost.within (budget s.gaveSnd) (countedC (g y)))
@@ -42,15 +40,12 @@ def stepC (f : X → Cost (StepOf A X)) (g : Y → Cost (StepOf A Y)) (s : State
                                         gaveSnd := budget s.gaveSnd })
       | some (.emit as y') =>
         pure (.emit as { s with snd := some y', paidSnd := s.paidSnd + r.2 + 1, gaveSnd := 0 })
-      | some (.progress _ y') =>
-        pure (.emit [] { s with snd := some y', paidSnd := s.paidSnd + r.2 + 1, gaveSnd := 0 })
       | some (.done fin) =>
         pure (.emit fin { s with snd := none, paidSnd := s.paidSnd + r.2 + 1, gaveSnd := 0 })
   | none => do
     let r ← f s.fst
     match r with
     | .emit as x => pure (.emit as { s with fst := x })
-    | .progress n x => pure (.progress n { s with fst := x })
     | .done fin => pure (.done fin)
 
 /-- At a kernel that returns what a domain returns, the step of the pair is
@@ -76,13 +71,11 @@ theorem init_eq {R : Type} [Answer R] [DecidableEq R] (D : Domain R) (K : Kernel
 /-- The state a step goes on from, if it goes on. -/
 def next : StepOf A X → Option X
   | .emit _ x => some x
-  | .progress _ x => some x
   | .done _ => none
 
 /-- The answers a step emits and goes on. -/
 def outs : StepOf A X → List A
   | .emit as _ => as
-  | .progress _ _ => []
   | .done _ => []
 
 section Runs
@@ -218,8 +211,6 @@ theorem fst_fit {s : State X Y} {y : Y} (hy : s.snd = some y) (ht : s.paidFst �
         (match (f s.fst).val with
           | .emit as x => .emit as { s with fst := x, paidFst := s.paidFst + price f s.fst + 1,
                                             gaveFst := 0 }
-          | .progress n x =>
-            .progress n { s with fst := x, paidFst := s.paidFst + price f s.fst + 1, gaveFst := 0 }
           | .done fin => .done fin) ∧
       (stepC f g s).ticks = price f s.fst := by
   obtain ⟨h1, h2⟩ := tried_fit f hb
@@ -242,7 +233,6 @@ theorem snd_fit {s : State X Y} {y : Y} (hy : s.snd = some y) (ht : ¬ s.paidFst
     (stepC f g s).val =
         .emit (match (g y).val with
           | .emit as _ => as
-          | .progress _ _ => []
           | .done fin => fin)
           { s with snd := next (g y).val, paidSnd := s.paidSnd + price g y + 1, gaveSnd := 0 } ∧
       (stepC f g s).ticks = price g y := by
@@ -255,7 +245,6 @@ theorem alone {s : State X Y} (hy : s.snd = none) :
     (stepC f g s).val =
         (match (f s.fst).val with
           | .emit as x => .emit as { s with fst := x }
-          | .progress n x => .progress n { s with fst := x }
           | .done fin => .done fin) ∧
       (stepC f g s).ticks = (f s.fst).ticks := by
   simp only [stepC, hy, Cost.bind_val, Cost.bind_ticks]
@@ -305,26 +294,20 @@ theorem Took.later {s s1 : State X Y} {m : Nat} (h1 : next (stepC f g s).val = s
 /-- A step of the pair that is the first engine's next step. -/
 theorem Took.now {s : State X Y}
     (h : (∀ fin, (f s.fst).val = .done fin → next (stepC f g s).val = none) ∧
-      (∀ as x, (f s.fst).val = .emit as x → ∃ s', (stepC f g s).val = .emit as s' ∧ s'.fst = x) ∧
-      ∀ n x, (f s.fst).val = .progress n x →
-        ∃ s', (stepC f g s).val = .progress n s' ∧ s'.fst = x) : Took f g s 1 := by
+      (∀ as x, (f s.fst).val = .emit as x → ∃ s', (stepC f g s).val = .emit as s' ∧ s'.fst = x)) :
+    Took f g s 1 := by
   unfold Took
   cases hv : (f s.fst).val with
   | done fin =>
     simp only [next]
     exact after_succ_none _ (h.1 fin hv) 0
   | emit as x =>
-    obtain ⟨s', h1, h2⟩ := h.2.1 as x hv
+    obtain ⟨s', h1, h2⟩ := h.2 as x hv
     have hn : next (stepC f g s).val = some s' := by rw [h1]; rfl
     simp only [next]
     refine ⟨s', by rw [after_succ_some _ hn]; rfl, h2, fun a ha => ?_⟩
     rw [emits_succ_some _ hn, h1]
     exact List.mem_append_left _ ha
-  | progress n x =>
-    obtain ⟨s', h1, h2⟩ := h.2.2 n x hv
-    have hn : next (stepC f g s).val = some s' := by rw [h1]; rfl
-    simp only [next]
-    exact ⟨s', by rw [after_succ_some _ hn]; rfl, h2, fun a ha => by simp [outs] at ha⟩
 
 /-- **The pair takes the next step of its first engine**, whatever the
 second engine does and whatever either costs. -/
@@ -340,18 +323,16 @@ theorem took (s : State X Y) : ∃ m, Took f g s m := by
         refine ⟨1, Took.now f g ?_⟩
         obtain ⟨hv, -⟩ := alone f g hy
         rw [hv]
-        refine ⟨fun fin h => by rw [h]; rfl, fun as x h => ?_, fun n x h => ?_⟩
-        · rw [h]; exact ⟨_, rfl, rfl⟩
-        · rw [h]; exact ⟨_, rfl, rfl⟩
+        refine ⟨fun fin h => by rw [h]; rfl, fun as x h => ?_⟩
+        rw [h]; exact ⟨_, rfl, rfl⟩
       | some y =>
         by_cases ht : s.paidFst ≤ s.paidSnd
         · by_cases hb : price f s.fst ≤ budget s.gaveFst
           · refine ⟨1, Took.now f g ?_⟩
             obtain ⟨hv, -⟩ := fst_fit f g hy ht hb
             rw [hv]
-            refine ⟨fun fin h => by rw [h]; rfl, fun as x h => ?_, fun n x h => ?_⟩
-            · rw [h]; exact ⟨_, rfl, rfl⟩
-            · rw [h]; exact ⟨_, rfl, rfl⟩
+            refine ⟨fun fin h => by rw [h]; rfl, fun as x h => ?_⟩
+            rw [h]; exact ⟨_, rfl, rfl⟩
           · obtain ⟨hv, -⟩ := fst_fail f g hy ht (Nat.lt_of_not_le hb)
             have hn : next (stepC f g s).val = some
                 { s with paidFst := s.paidFst + budget s.gaveFst, gaveFst := budget s.gaveFst } := by
@@ -453,11 +434,6 @@ theorem fst_of_step {s s1 : State X Y} (h : next (stepC f g s).val = some s1) :
       simp only [next, Option.some.injEq] at h
       subst h
       exact .inr ⟨rfl, fun a ha => ha⟩
-    | progress n x =>
-      rw [hr] at h
-      simp only [next, Option.some.injEq] at h
-      subst h
-      exact .inr ⟨rfl, fun a ha => ha⟩
     | done fin => rw [hr] at h; simp [next] at h
   | some y =>
     by_cases ht : s.paidFst ≤ s.paidSnd
@@ -465,11 +441,6 @@ theorem fst_of_step {s s1 : State X Y} (h : next (stepC f g s).val = some s1) :
       · rw [(fst_fit f g hy ht hb).1] at h ⊢
         cases hr : (f s.fst).val with
         | emit as x =>
-          rw [hr] at h
-          simp only [next, Option.some.injEq] at h
-          subst h
-          exact .inr ⟨rfl, fun a ha => ha⟩
-        | progress n x =>
           rw [hr] at h
           simp only [next, Option.some.injEq] at h
           subst h
@@ -554,13 +525,6 @@ theorem step_pot {s : State X Y} {y : Y} (hy : s.snd = some y) (hI : Inv s) :
         subst h
         simp only [Inv, pot, shown]
         refine ⟨⟨Nat.zero_le _, ?_⟩, le_rfl, ?_⟩ <;> omega
-      | progress n x =>
-        have hsh : shown (f s.fst).val = 0 := by rw [hr]; rfl
-        refine ⟨fun s' h => ?_, fun h => by simp [next] at h⟩
-        simp only [next, Option.some.injEq] at h
-        subst h
-        simp only [Inv, pot, shown]
-        refine ⟨⟨Nat.zero_le _, ?_⟩, le_rfl, ?_⟩ <;> omega
       | done fin =>
         have hsh : shown (f s.fst).val = fin.length := by rw [hr]; rfl
         refine ⟨fun s' h => by simp [next] at h, fun _ => ?_⟩
@@ -584,7 +548,6 @@ theorem step_pot {s : State X Y} {y : Y} (hy : s.snd = some y) (hI : Inv s) :
       subst h
       have hl : (match (g y).val with
           | .emit as _ => as
-          | .progress _ _ => []
           | .done fin => fin : List A).length ≤ shown (g y).val := by
         cases (g y).val <;> simp [shown]
       simp only [Inv, pot, shown]
@@ -607,11 +570,6 @@ theorem fst_turn {s s1 : State X Y} {y : Y} (hy : s.snd = some y) (ht : s.paidFs
   · rw [(fst_fit f g hy ht hb).1] at h
     cases hv : (f s.fst).val with
     | emit as x =>
-      rw [hv] at h
-      simp only [next, Option.some.injEq] at h
-      subst h
-      exact ⟨rfl, rfl, rfl, by simp only; omega⟩
-    | progress n x =>
       rw [hv] at h
       simp only [next, Option.some.injEq] at h
       subst h

@@ -250,9 +250,6 @@ theorem run_runtime (A : ArtifactStore) :
       have h' : (G.runtime κ A).step s = .emit as s' := h
       rw [Runtime.run_succ_emit _ h, Runtime.run_succ_emit _ h', run_runtime A n s']
       rfl
-    | progress k s' =>
-      have h' : (G.runtime κ A).step s = .progress k s' := h
-      rw [Runtime.run_succ_progress _ h, Runtime.run_succ_progress _ h', run_runtime A n s']
     | done fin =>
       have h' : (G.runtime κ A).step s = .done fin := h
       rw [Runtime.run_succ_done _ h, Runtime.run_succ_done _ h']
@@ -266,11 +263,6 @@ theorem trace_runtime (A : ArtifactStore) :
     | emit as s' =>
       have h' : (G.runtime κ A).step s = .emit as s' := h
       rw [Runtime.trace_succ_emit _ h, Runtime.trace_succ_emit _ h', trace_runtime A n s']
-      rfl
-    | progress k s' =>
-      have h' : (G.runtime κ A).step s = .progress k s' := h
-      rw [Runtime.trace_succ_progress _ h, Runtime.trace_succ_progress _ h',
-        trace_runtime A n s']
       rfl
     | done fin =>
       have h' : (G.runtime κ A).step s = .done fin := h

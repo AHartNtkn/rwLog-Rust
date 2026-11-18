@@ -18,7 +18,6 @@ emitted, at the latest when it reports that it is done. Hence
 * when it reports that it is done, its answers relate every pair the query
   relates (`honestExhaustion`);
 * so it has the three laws (`laws`);
-* it emits no progress certificate (`honestProgress`);
 * its final report is the maximal emitted answers (`finalMaximal`).
 
 The engine is the engine of any unfolding race that meets its specification
@@ -386,23 +385,6 @@ theorem emitted_of_root {r : Nat} {y : Ans (dom P.sorts) P}
     · rw [show (Rt @U @rd dom K hK).emitted (stAt @U @rd dom K hK P root 0) n = _ from congrArg Prod.fst hr]
       exact List.mem_map_of_mem (hI.done_answers hd r hy)
 
-/-- The machine emits no progress certificate. -/
-theorem trace_no_level : ∀ (n r : Nat),
-    ∀ x ∈ (Rt @U @rd dom K hK).trace (stAt @U @rd dom K hK P root r) n, ∀ k, x ≠ .level k
-  | 0, _, x, hx, _ => by simp [Runtime.trace] at hx
-  | n + 1, r, x, hx, k => by
-    cases hd : (sAt @U @rd dom K hK P root r).isDone 0 with
-    | false =>
-      obtain ⟨l, -, hs⟩ := rt_step_live hI hd
-      rw [(Rt @U @rd dom K hK).trace_succ_emit hs] at hx
-      rcases List.mem_cons.1 hx with rfl | hx
-      · exact fun h => by cases h
-      · exact trace_no_level n (r + 1) x hx k
-    | true =>
-      rw [(Rt @U @rd dom K hK).trace_succ_done (rt_step_done hI hd)] at hx
-      obtain rfl : x = _ := by simpa using hx
-      exact fun h => by cases h
-
 end run
 
 /-! ## The theorems -/
@@ -465,12 +447,6 @@ theorem pointComplete : (Rt @U @rd dom K hK).PointComplete := fun P q wf p hp =>
 /-- **The symmetric engine has the laws.** -/
 theorem laws : (Rt @U @rd dom K hK).Laws :=
   ⟨Engine.sound (engine @U @rd) dom K hK hD, pointComplete hD hG hRd, honestExhaustion hD hG hRd⟩
-
-/-- **The symmetric engine emits no progress certificate**, so every one it
-emits is true. -/
-theorem honestProgress : (Rt @U @rd dom K hK).HonestProgress := fun P q wf k n hc => by
-  have hI := isRun_of_wf (K := K) (hK := hK) hD hG hRd wf
-  exact absurd rfl (trace_no_level hI (k + 1) 0 _ (List.mem_of_getElem? hc) n)
 
 /-- What a run has emitted is the answers of the root table after some
 number of requests. -/

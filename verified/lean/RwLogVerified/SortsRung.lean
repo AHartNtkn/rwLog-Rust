@@ -24,7 +24,6 @@ spends over the ways its arguments can be held (`most`,
 -/
 import RwLogVerified.SortsKernel
 import RwLog.Rungs.Symmetric.Rung
-import RwLog.Rungs.Dive.Rung
 import RwLog.Sorts.Dom
 
 open Aeneas Aeneas.Std Result
@@ -153,26 +152,19 @@ end Realised
 /-- **Rung 1 has the laws at the kernel rung engines are judged at.** -/
 theorem rung1_lawful : Symmetric.rung1.Lawful sortsRung := Symmetric.rung1_lawful sortsRung
 
+/-- **Rung 1 is the base of the ladder at that kernel rung.** -/
+theorem rung1_ladder : Ladder sortsRung Symmetric.rung1 Symmetric.rung1 :=
+  Symmetric.rung1_ladder sortsRung
+
 /-- **Rung 1 costs the same in both directions at that kernel rung**, within
 `12 * (c + n + 1)`. -/
 theorem rung1_directionFree (A : ArtifactStore) :
-    DirectionFree (Symmetric.rung1.machine sortsRung A) (DirBound.fn ⟨12, 1⟩) :=
+    DirectionFree (Symmetric.rung1.machine sortsRung A) (PolyBound.fn ⟨12, 1⟩) :=
   Symmetric.rung1_directionFree sortsRung A
 
-/-- **The kernel rung charges a tick or more for a composition.** This is
-what the lower bound on rung 1 on the fan asks of a kernel
-(`Symmetric.Fan.below`). -/
+/-- **The kernel rung charges a tick or more for a composition.** -/
 theorem rung_compose_ticks (S : Sorts) (a b : sortsRung.Rep S) :
     1 ≤ ((sortsRung.kernel S).compose a b).ticks :=
   one_le_composeTicks naming S (sortNames S) (reachBound S) (goalBound S) a b
-
-/-- **Rung 2 has the laws at the kernel rung engines are judged at.** -/
-theorem rung2_lawful : Dive.rung2.Lawful sortsRung := Dive.rung2_lawful sortsRung
-
-/-- **Rung 2 costs the same in both directions at that kernel rung**, within
-`12 * (c + n + 1)`. -/
-theorem rung2_directionFree (A : ArtifactStore) :
-    DirectionFree (Dive.rung2.machine sortsRung A) (DirBound.fn ⟨12, 1⟩) :=
-  Dive.rung2_directionFree sortsRung A
 
 end RwLogVerified

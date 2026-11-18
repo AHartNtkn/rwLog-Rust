@@ -50,7 +50,6 @@ theorem machine_step (s : E.StateAt dom) :
     ((E.costedAt dom K hK cells).step s).val =
       match (E.stepAt dom K hK s.P s.st).val with
       | .emit as st' => .emit (shownAt dom s.P s.root as) ⟨s.P, s.root, st'⟩
-      | .progress k st' => .progress k ⟨s.P, s.root, st'⟩
       | .done fin => .done (shownAt dom s.P s.root fin) :=
   costedAt_step_val E dom K hK s
 
@@ -81,14 +80,6 @@ theorem machine_emitted : ∀ (n : Nat) (s : E.StateAt dom),
       rw [emits_succ_some _ hn, hr, shownAt_append, ← ih]
       simp only [Runtime.emitted, Runtime.run_succ_emit _ hs]
       rfl
-    | progress k st' =>
-      rw [hr] at hv
-      have hs : (E.costedAt dom K hK cells).runtime.step s = .progress k ⟨s.P, s.root, st'⟩ := hv
-      have hn : next (E.stepAt dom K hK s.P s.st).val = some st' := by rw [hr]; rfl
-      have ih := machine_emitted n ⟨s.P, s.root, st'⟩
-      rw [emits_succ_some _ hn, hr, shownAt_append, ← ih]
-      simp only [Runtime.emitted, Runtime.run_succ_progress _ hs]
-      rfl
     | done fin =>
       rw [hr] at hv
       have hs : (E.costedAt dom K hK cells).runtime.step s = .done (shownAt dom s.P s.root fin) := hv
@@ -114,12 +105,6 @@ theorem machine_halts : ∀ (n : Nat) (s : E.StateAt dom),
       have hn : next (E.stepAt dom K hK s.P s.st).val = some st' := by rw [hr]; rfl
       rw [Runtime.halts_succ_emit _ hs, after_succ_some _ hn]
       exact machine_halts n ⟨s.P, s.root, st'⟩
-    | progress k st' =>
-      rw [hr] at hv
-      have hs : (E.costedAt dom K hK cells).runtime.step s = .progress k ⟨s.P, s.root, st'⟩ := hv
-      have hn : next (E.stepAt dom K hK s.P s.st).val = some st' := by rw [hr]; rfl
-      rw [Runtime.halts_succ_progress _ hs, after_succ_some _ hn]
-      exact machine_halts n ⟨s.P, s.root, st'⟩
     | done fin =>
       rw [hr] at hv
       have hs : (E.costedAt dom K hK cells).runtime.step s = .done (shownAt dom s.P s.root fin) := hv
@@ -142,12 +127,6 @@ theorem machine_spent : ∀ (n : Nat) (s : E.StateAt dom),
           .emit (shownAt dom s.P s.root as) ⟨s.P, s.root, st'⟩ := hv
       have hn : next (E.stepAt dom K hK s.P s.st).val = some st' := by rw [hr]; rfl
       rw [CostedRuntime.spent_succ_emit _ hs, cost_succ_some _ hn, ht,
-        machine_spent n ⟨s.P, s.root, st'⟩]
-    | progress k st' =>
-      rw [hr] at hv
-      have hs : (E.costedAt dom K hK cells).runtime.step s = .progress k ⟨s.P, s.root, st'⟩ := hv
-      have hn : next (E.stepAt dom K hK s.P s.st).val = some st' := by rw [hr]; rfl
-      rw [CostedRuntime.spent_succ_progress _ hs, cost_succ_some _ hn, ht,
         machine_spent n ⟨s.P, s.root, st'⟩]
     | done fin =>
       rw [hr] at hv

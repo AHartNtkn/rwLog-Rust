@@ -28,16 +28,12 @@ theorem bind_val_of {α β : Type} (m : Cost α) (f : α → Cost β) (g : α �
 within `n` steps of the state after it. -/
 theorem mem_emitted_succ (R : Runtime) {s : R.State} {n : Nat} {a : R.Ans}
     (h : a ∈ R.emitted s (n + 1)) :
-    (∃ as s', R.step s = .emit as s' ∧ (a ∈ as ∨ a ∈ R.emitted s' n)) ∨
-      ∃ k s', R.step s = .progress k s' ∧ a ∈ R.emitted s' n := by
+    ∃ as s', R.step s = .emit as s' ∧ (a ∈ as ∨ a ∈ R.emitted s' n) := by
   unfold Runtime.emitted Runtime.run at h
   cases hs : R.step s with
   | emit as s' =>
     rw [hs] at h
-    exact .inl ⟨as, s', rfl, List.mem_append.1 h⟩
-  | progress k s' =>
-    rw [hs] at h
-    exact .inr ⟨k, s', rfl, h⟩
+    exact ⟨as, s', rfl, List.mem_append.1 h⟩
   | done _ => rw [hs] at h; simp at h
 
 namespace Engine
@@ -52,7 +48,6 @@ theorem costedAt_step_val (s : E.StateAt dom) :
         (DerivationKernel.over (dom s.P.sorts) (K s.P.sorts) (hK s.P.sorts) s.P) s.st).val with
       | .emit as st' =>
         .emit ((as.filterMap (Ans.rootSpan s.root)).map (Sigma.mk s.P.sorts)) ⟨s.P, s.root, st'⟩
-      | .progress k st' => .progress k ⟨s.P, s.root, st'⟩
       | .done final => .done ((final.filterMap (Ans.rootSpan s.root)).map (Sigma.mk s.P.sorts)) :=
   bind_val_of (@Engine.step E (R s.P.sorts) Rel (Ans (dom s.P.sorts) s.P) Cost
         (DerivationKernel.over (dom s.P.sorts) (K s.P.sorts) (hK s.P.sorts) s.P) s.st)
@@ -60,7 +55,6 @@ theorem costedAt_step_val (s : E.StateAt dom) :
     (fun r => match r with
       | .emit as st' =>
         .emit ((as.filterMap (Ans.rootSpan s.root)).map (Sigma.mk s.P.sorts)) ⟨s.P, s.root, st'⟩
-      | .progress k st' => .progress k ⟨s.P, s.root, st'⟩
       | .done final => .done ((final.filterMap (Ans.rootSpan s.root)).map (Sigma.mk s.P.sorts)))
     fun r => by cases r <;> rfl
 
@@ -73,35 +67,25 @@ theorem emitted_valid : ∀ (n : Nat) (s : E.StateAt dom),
   | 0, _, a, h => by simp [Runtime.emitted, Runtime.run] at h
   | n + 1, s, a, h => by
     have hs : (E.costedAt dom K hK).runtime.step s = ((E.costedAt dom K hK).step s).val := rfl
-    rcases mem_emitted_succ _ h with ⟨as, s', hstep, h⟩ | ⟨k, s', hstep, h⟩
-    · rw [hs, costedAt_step_val] at hstep
-      cases hr : (@Engine.step E (R s.P.sorts) Rel (Ans (dom s.P.sorts) s.P) Cost
-        (DerivationKernel.over (dom s.P.sorts) (K s.P.sorts) (hK s.P.sorts) s.P) s.st).val with
-      | done _ => rw [hr] at hstep; cases hstep
-      | progress _ _ => rw [hr] at hstep; cases hstep
-      | emit bs st' =>
-        rw [hr] at hstep
-        cases hstep
-        rcases h with h | h
-        · obtain ⟨r, hr', rfl⟩ := List.mem_map.1 h
-          obtain ⟨ans, -, hans⟩ := List.mem_filterMap.1 hr'
-          refine ⟨r, rfl, ?_⟩
-          unfold Ans.rootSpan at hans
-          split at hans
-          · next hg =>
-            cases hans
-            exact hg ▸ ans.valid
-          · cases hans
-        · exact emitted_valid n ⟨s.P, s.root, st'⟩ a h
-    · rw [hs, costedAt_step_val] at hstep
-      cases hr : (@Engine.step E (R s.P.sorts) Rel (Ans (dom s.P.sorts) s.P) Cost
-        (DerivationKernel.over (dom s.P.sorts) (K s.P.sorts) (hK s.P.sorts) s.P) s.st).val with
-      | done _ => rw [hr] at hstep; cases hstep
-      | emit _ _ => rw [hr] at hstep; cases hstep
-      | progress _ st' =>
-        rw [hr] at hstep
-        cases hstep
-        exact emitted_valid n ⟨s.P, s.root, st'⟩ a h
+    obtain ⟨as, s', hstep, h⟩ := mem_emitted_succ _ h
+    rw [hs, costedAt_step_val] at hstep
+    cases hr : (@Engine.step E (R s.P.sorts) Rel (Ans (dom s.P.sorts) s.P) Cost
+      (DerivationKernel.over (dom s.P.sorts) (K s.P.sorts) (hK s.P.sorts) s.P) s.st).val with
+    | done _ => rw [hr] at hstep; cases hstep
+    | emit bs st' =>
+      rw [hr] at hstep
+      cases hstep
+      rcases h with h | h
+      · obtain ⟨r, hr', rfl⟩ := List.mem_map.1 h
+        obtain ⟨ans, -, hans⟩ := List.mem_filterMap.1 hr'
+        refine ⟨r, rfl, ?_⟩
+        unfold Ans.rootSpan at hans
+        split at hans
+        · next hg =>
+          cases hans
+          exact hg ▸ ans.valid
+        · cases hans
+      · exact emitted_valid n ⟨s.P, s.root, st'⟩ a h
 
 /-- The first state is for the program it was given and the normal form of
 the query. -/

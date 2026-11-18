@@ -299,13 +299,6 @@ theorem oriented_trace (b : Bool) : ∀ (n : Nat) (s : C.State),
         C.runtime.trace_succ_emit (show C.runtime.step s = .emit as s' from hs), List.map_cons,
         oriented_trace b n s']
       cases b <;> rfl
-    | progress k s' =>
-      have hs' : C.oriented.runtime.step (b, s) = .progress k (b, s') := by
-        show (C.oriented.step (b, s)).val = _; rw [oriented_step_val, hs]; rfl
-      rw [C.oriented.runtime.trace_succ_progress hs',
-        C.runtime.trace_succ_progress (show C.runtime.step s = .progress k s' from hs),
-        List.map_cons, oriented_trace b n s']
-      cases b <;> rfl
 
 /-- A machine run on one orientation spends what the machine spends on the
 chosen input. -/
@@ -323,11 +316,6 @@ theorem oriented_spent (b : Bool) : ∀ (n : Nat) (s : C.State),
           .emit (if b then as.map Answer.swap else as) (b, s') := by
         rw [oriented_step_val, hs]; rfl
       rw [C.oriented.spent_succ_emit hs', C.spent_succ_emit hs, oriented_step_ticks,
-        oriented_spent b n s']
-    | progress k s' =>
-      have hs' : (C.oriented.step (b, s)).val = .progress k (b, s') := by
-        rw [oriented_step_val, hs]; rfl
-      rw [C.oriented.spent_succ_progress hs', C.spent_succ_progress hs, oriented_step_ticks,
         oriented_spent b n s']
 
 /-- On first-order input with a root that is its own converse the machine
@@ -348,7 +336,6 @@ theorem traceEquiv_swap_swap {A : Type} [Answer A] (M : Interp) (t : List (Shown
   refine List.forall₂_map_right_iff.2 (List.forall₂_same.2 fun x _ => ?_)
   cases x with
   | answers xs => exact (StepEquiv.swap_swap M xs).symm
-  | level n => exact rfl
   | final xs => exact (StepEquiv.swap_swap M xs).symm
 
 /-- Two choices, one the other way round from the other, show runs that are

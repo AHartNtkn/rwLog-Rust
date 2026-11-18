@@ -12,6 +12,7 @@ input is so run on one orientation (`CostedRuntime.oriented_sound`,
 import RwLog.Rungs.Framework.OrientedSem
 import RwLog.Rungs.Framework.Runtime
 import RwLog.Rungs.Framework.Tier0
+import RwLog.Rungs.Framework.Covering
 import RwLog.SpanLayer.Bridge
 
 namespace RwLog

@@ -1,5 +1,6 @@
 import RwLog.Rungs.Symmetric.Rung
-import RwLog.Rungs.Framework.Latency
+import RwLog.Rungs.Framework.Covering
+import RwLog.Rungs.Framework.Levels
 import RwLog.Lib.Audit
 
 /-!
@@ -31,23 +32,27 @@ example (κ : KernelRung) (A : ArtifactStore) :
   ⟨(Symmetric.rung1_lawful κ A).sound, (Symmetric.rung1_lawful κ A).complete,
     (Symmetric.rung1_lawful κ A).honest⟩
 
-/-- Rung 1 is the base of the ladder, with an empty record of gains. -/
-example (κ : KernelRung) : Ladder κ Symmetric.rung1 Symmetric.rung1 [] :=
+/-- Rung 1 is the base of the ladder. -/
+example (κ : KernelRung) : Ladder κ Symmetric.rung1 Symmetric.rung1 :=
   Symmetric.rung1_ladder κ
 
 /-- What rung 1 costs does not depend on the direction a query is written
 in: the rung, the rung run on the mirror image and the rung run on the
-converse each cover what another has covered, having paid at most
-`12 * (c + n + 1)` for what the other has paid `c` and an input of size
-`n`. -/
+converse each cover every level another has covered, and halt where it has
+halted, having paid at most `12 * (c + n + 1)` for what the other has paid
+`c` and an input of size `n` (with the level, for a level). -/
 example (κ : KernelRung) (A : ArtifactStore) :
-    DirectionFree (Symmetric.rung1.machine κ A) (DirBound.fn ⟨12, 1⟩) :=
+    DirectionFree (Symmetric.rung1.machine κ A) (PolyBound.fn ⟨12, 1⟩) :=
   Symmetric.rung1_directionFree κ A
 
 /-- Every rung of a ladder has the laws. -/
-example {κ : KernelRung} {base G : CostedRung} {record : List Win}
-    (h : Ladder κ base G record) : G.Lawful κ :=
+example {κ : KernelRung} {base G : CostedRung}
+    (h : Ladder κ base G) : G.Lawful κ :=
   h.lawful
+
+/-- The levels of a query are, together, the relation. -/
+example (P : Program) (e : Rel) : P.pairs e = ⋃ c, P.level c e :=
+  P.pairs_eq_iUnion_level e
 
 /-! ## Trusted files -/
 
@@ -58,6 +63,7 @@ info: [RwLog.Trusted.Charged,
  RwLog.Trusted.Domain,
  RwLog.Trusted.Engine,
  RwLog.Trusted.Kernel,
+ RwLog.Trusted.Levels,
  RwLog.Trusted.Properties,
  RwLog.Trusted.Runtime,
  RwLog.Trusted.Semantics,
@@ -88,5 +94,6 @@ and the definitions they are written with:
 #assert_axioms RwLog.Symmetric.rung1_lawful RwLog.Symmetric.rung1_ladder
   RwLog.Symmetric.rung1_directionFree RwLog.Symmetric.rung_direction RwLog.Symmetric.laws
   RwLog.Ladder.lawful
+  RwLog.ProgramOf.pairs_eq_iUnion_level
 
 end RwLog.Manifest.Rung1

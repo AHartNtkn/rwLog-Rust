@@ -54,7 +54,6 @@ variable {S N A : Type} {M : Type → Type} [K : DerivationKernel S N A M] {X Y 
 /-- The number of answers a step shows. -/
 def shown : StepOf A X → Nat
   | .emit as _ => as.length
-  | .progress _ _ => 0
   | .done fin => fin.length
 
 /-- A step charged one tick more for each answer it shows. The machine
@@ -78,8 +77,6 @@ def step (f : X → M (StepOf A X)) (g : Y → M (StepOf A Y)) (s : State X Y) :
                                         gaveFst := budget s.gaveFst })
       | some (.emit as x) => pure (.emit as { s with fst := x, paidFst := s.paidFst + r.2 + 1,
                                                      gaveFst := 0 })
-      | some (.progress n x) =>
-        pure (.progress n { s with fst := x, paidFst := s.paidFst + r.2 + 1, gaveFst := 0 })
       | some (.done fin) => pure (.done fin)
     else do
       let r ← K.metered (K.within (budget s.gaveSnd) (counted (K := K) (g y)))
@@ -88,15 +85,12 @@ def step (f : X → M (StepOf A X)) (g : Y → M (StepOf A Y)) (s : State X Y) :
                                         gaveSnd := budget s.gaveSnd })
       | some (.emit as y') =>
         pure (.emit as { s with snd := some y', paidSnd := s.paidSnd + r.2 + 1, gaveSnd := 0 })
-      | some (.progress _ y') =>
-        pure (.emit [] { s with snd := some y', paidSnd := s.paidSnd + r.2 + 1, gaveSnd := 0 })
       | some (.done fin) =>
         pure (.emit fin { s with snd := none, paidSnd := s.paidSnd + r.2 + 1, gaveSnd := 0 })
   | none => do
     let r ← f s.fst
     match r with
     | .emit as x => pure (.emit as { s with fst := x })
-    | .progress n x => pure (.progress n { s with fst := x })
     | .done fin => pure (.done fin)
 
 /-- The first state of the pair: the first state of each engine, nothing

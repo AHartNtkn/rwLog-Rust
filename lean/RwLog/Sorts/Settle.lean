@@ -5,7 +5,6 @@ A variable whose sorts have one member is replaced by that member, and the
 store denotes what it did (`setStore_den`).
 -/
 import RwLog.Sorts.Gone
-import RwLog.Trusted.Cost
 
 namespace RwLog
 namespace Sorts

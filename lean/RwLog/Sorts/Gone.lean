@@ -14,6 +14,7 @@ import RwLog.Sorts.Roots
 import RwLog.Sorts.Tight
 
 namespace RwLog
+
 namespace Sorts
 
 /-- The pattern as a ground term, when it has no variable. -/
