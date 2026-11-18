@@ -33,10 +33,11 @@ A step of a machine has one of three outputs.
 * `emit as s`: it emits the answers `as` (possibly none) and goes on from
   `s`. A step may emit several answers at once, and the order inside one step
   carries no meaning.
-* `progress n s`: it emits a *progress certificate for level `n`* and goes on
-  from `s`. The certificate claims that every pair the query relates whose two
-  terms have size at most `n` is related by an answer already emitted
-  (`Runtime.HonestProgress`). A query that never halts can still report this.
+* `progress n s`: it *reports level `n`* and goes on from `s`. The report
+  claims that every pair of level `n` of the query (`Trusted/Levels.lean`:
+  the pairs with a derivation of weight at most `n`) is related by an answer
+  already emitted (`Runtime.HonestReports`). A query that never halts can
+  still report this, level after level.
 * `done final`: it reports that it is done. `final` is its final report, the
   answers it stands by (`Runtime.FinalMaximal`, in `Trusted/Properties.lean`).
 
@@ -45,14 +46,23 @@ A step of a machine has one of three outputs.
 A runtime is a deterministic small-step machine with its type of answers.
 `run`, `emitted`, `final`, `Halts` and `trace` observe the first `n` steps of
 a run. The trace is everything an observer sees, step by step: the answers of
-an emitting step, the level of a certificate, the final report.
+an emitting step, the level reported, the final report.
 
-The properties every machine must prove against the specification (soundness,
-completeness, honest exhaustion, honest progress) are stated here, so a
-machine cannot weaken them.
+The properties a machine proves against the specification (soundness,
+completeness, honest exhaustion, honest reports of levels) are stated here,
+so a machine cannot weaken them.
+
+## Finishing a level
+
+A run *has finished level `c`* within `n` steps (`Runtime.Finished`) when in
+those steps it has reported a level `c` or higher, or has reported that it
+is done. A run that is done has finished every level. This is one continuing
+run, so a level once finished stays finished, and a higher level is never
+finished before a lower one. What an improvement is, is stated on the cost
+of finishing levels (`Trusted/Cost.lean`).
 -/
 import RwLog.SpanLayer.Derives
-import RwLog.Trusted.Semantics
+import RwLog.Trusted.Levels
 
 namespace RwLog
 
@@ -107,8 +117,8 @@ end Answer
 
 /-! ## Steps -/
 
-/-- What a step does: it emits answers and goes on, or emits a progress
-certificate for a level and goes on, or reports that it is done, with its
+/-- What a step does: it emits answers and goes on, or reports a level
+and goes on, or reports that it is done, with its
 final report. `A` is the type of answers and `S` the type of states. -/
 inductive StepOf (A : Type) (S : Type) where
   | emit (as : List A) (s : S)
@@ -122,7 +132,7 @@ def StepOf.swap {A S : Type} [Answer A] : StepOf A S → StepOf A S
   | .done final => .done (final.map Answer.swap)
 
 /-- What one step shows an observer: the answers it emits, the level it
-certifies, or its final report. -/
+reports, or its final report. -/
 inductive Shown (A : Type) where
   | answers (as : List A)
   | level (n : Nat)
@@ -181,8 +191,7 @@ def final (s : R.State) (n : Nat) : Option (List R.Ans) := (R.run s n).2
 /-- The run reported that it is done within `n` steps. -/
 def Halts (s : R.State) (n : Nat) : Prop := (R.final s n).isSome = true
 
-/-- The step taken after `k` steps emits a progress certificate for level
-`n`. -/
+/-- The step taken after `k` steps reports level `n`. -/
 def Certifies (s : R.State) (k n : Nat) : Prop := (R.trace s (k + 1))[k]? = some (.level n)
 
 /-! ## Properties every machine proves (Tier 0)
@@ -212,14 +221,21 @@ def HonestExhaustion : Prop :=
   ∀ P q, P.WellFormed q → ∀ n, R.Halts (R.init P q) n →
     P.pairs q = ⋃ a ∈ R.emitted (R.init P q) n, Answer.den P.sorts.interp a
 
-/-- A progress certificate is true when it is emitted: if the step taken
-after `k` steps certifies level `n`, then every pair the query relates whose
-two terms have size at most `n` is related by an answer emitted in the first
-`k` steps. -/
-def HonestProgress : Prop :=
+/-- A report of a level is true when it is made: if the step taken after `k`
+steps reports level `n`, then every pair of level `n` of the query is related
+by an answer emitted in the first `k` steps. -/
+def HonestReports : Prop :=
   ∀ P q, P.WellFormed q → ∀ k n, R.Certifies (R.init P q) k n →
-    ∀ p ∈ P.pairs q, p.1.size ≤ n → p.2.size ≤ n →
-      ∃ a ∈ R.emitted (R.init P q) k, p ∈ Answer.den P.sorts.interp a
+    ∀ p ∈ P.level n q, ∃ a ∈ R.emitted (R.init P q) k, p ∈ Answer.den P.sorts.interp a
+
+/-- The run from `s` has finished level `c` within `n` steps: it has reported
+that it is done, or one of those steps reports a level `c` or higher. -/
+def Finished (s : R.State) (c n : Nat) : Prop :=
+  R.Halts s n ∨ ∃ k m, k < n ∧ R.Certifies s k m ∧ c ≤ m
+
+/-- Every level of every query is finished after finitely many steps. -/
+def FinishesEveryLevel : Prop :=
+  ∀ P q, P.WellFormed q → ∀ c, ∃ n, R.Finished (R.init P q) c n
 
 /-- The runtime reports it is done on every query of a class. -/
 def TerminatesOn (C : Program → Rel → Prop) : Prop :=

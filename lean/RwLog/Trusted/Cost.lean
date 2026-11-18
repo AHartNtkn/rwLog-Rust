@@ -1,8 +1,8 @@
 /-
 # The cost model and what counts as an improvement
 
-Rungs from R002 on are admitted by comparing costs, so cost has to be part of
-the trusted statement and not of a submission.
+Rungs from the second on are admitted by comparing costs, so cost has to be
+part of the trusted statement and not of a submission.
 
 ## Charged computations
 
@@ -27,25 +27,32 @@ A `CostedRuntime` is a small-step machine, with its type of answers
 Forgetting the ticks gives an ordinary `Runtime`, the one the correctness
 theorems are about, so cost and behaviour cannot drift apart.
 
-## Latency
+## What is measured: finishing a level
 
-Cost is how soon answers arrive. Almost no query worth running ever reports
-that it is done, so the measure cannot depend on halting, and two correct
-machines may emit different answers for the same query (one general span
-where the other emits several instances), so it cannot count answers either.
-What is comparable is *coverage latency*: for a ground pair that the query
-relates, the ticks a machine has spent by the first
-step at which some emitted answer relates that pair. `CoversWithin` says the
-coverage latency of a pair is at most a given number of ticks. *Exhaustion
-latency* is the ticks spent by the step at which the machine reports that it
-is done (`ExhaustsWithin`); it is infinite on most queries.
+Cost is how soon a machine has finished the levels of a relation
+(`Trusted/Levels.lean`). Level `c` is the pairs with a derivation of weight
+at most `c`; it belongs to the program as written and mentions no machine. A
+machine may report a level, and a report is true when the answers emitted so
+far relate every pair of that level (`Runtime.HonestReports`). A machine has
+finished level `c` when it has reported a level `c` or higher, or has
+reported that it is done (`Runtime.Finished`).
+
+`FinishesUsing μ P q c b` says the machine has finished level `c` of `q`
+having used at most `b` of a resource. The run is one continuing run: it is
+not started again for each level. So the cost of finishing a level never
+falls as the level rises.
+
+Nothing is measured answer by answer. Two correct machines may emit different
+answers for the same relation, in different orders, and one answer with
+variables may cover what another machine needs many answers for; none of
+that is compared. No clause says when a particular pair is covered.
 
 ## Resources
 
 What a machine has used on an input by the end of its first `n` steps is a
 number, and there is one such number for each resource (`Meter`). Time is the
 ticks paid (`Meter.time`) and space is the most cells live at any moment so
-far (`Meter.space`). A comparison is written once, for any resource.
+far (`Meter.space`).
 
 Between two steps the cells that are live are those of the state the machine
 holds (`CostedRuntime.live`); during a step they are those of the state it
@@ -55,71 +62,47 @@ many cells its state takes: it lists what the state holds and proves that
 the state is determined by the listing (`Engine.held`, `Engine.held_inj`),
 and the cells of the listing are counted here (`Engine.liveAt`).
 
-## Comparing two machines
+## Never worse
 
-`SimulatesBy μ Old New p`: every pair is covered by `New` having used at most
-the explicit function `p` of what `Old` has used when it covers it and of the
-size of the input, and likewise for exhaustion when `Old` halts. Nothing here
-depends on either machine halting. `Simulates` is the case of time. It is
-what "comparable" means where two costs are asked to be comparable, as for
-the two directions of a relation. An admission does not ask it of a rung
-against the rung below.
+`NeverWorse Old New p` compares two machines on the same program, level by
+level: whenever `Old` has finished a level `c` of an input, `New` finishes
+that level having paid at most `p` of what `Old` has paid and of the size of
+the input and `c`; and whenever `Old` has reported that it is done, `New`
+reports that it is done having paid at most `p` of what `Old` has paid and
+of the size of the input. It is asked on every well-formed input. Both
+machines are run on the same program, so the levels are the same levels, and
+"inside any larger program" is "on every program".
 
-## Classes and contexts
-
-A gain is shown on a class of inputs and inside larger programs
-(`lean/ADMISSION.md` gives the reasons for each choice).
+## A win on a class
 
 A class (`ProgClass`) is three computable functions on an input: `mem`
-decides membership, `rank` is the number the gain is stated in, and `tgt`
-lists finitely many ground pairs, the answers the comparison is about. The
-facts about a class that mention no machine are `ProgClass.Proper`: members
-are well formed, their size is at most a stated function of their rank,
-their targets are nonempty and related by the member, and the rank is
+decides membership, `rank` is the number the gain is stated in, and `level`
+is the level of the member the comparison is about. The facts about a class
+that mention no machine are `ProgClass.Proper`: members are well formed,
+their size is at most a stated function of their rank, and the rank is
 unbounded over the members.
 
-A context (`Context`) is an expression with one hole and further definitions.
-Plugging a member into it gives a larger program and query, with the
-member's sorts. A context demands the member's answers when two things hold.
-The hole is open (`Ctx.Open`): between the hole and the root there is only
-`|` with anything, converse, and `;` with a single span that accepts every
-term on the hole's side, so nothing tells the hole which of its answers are
-wanted. And the pair that is compared needs the targets
-(`Context.Demands`): in the interpretation of the sorts the context relates it with the
-targets in the hole, and does not relate it with everything the member
-relates except the targets.
+`WinsOn ρ Old New C lo hi`, for a resource `ρ`: on every member of `C`, of
+rank `k`, `New` finishes the member's level having used at most `hi k`, and
+`Old` has used at least `lo k` at any step by which it has finished it. The
+upper bound on `New` mentions no other machine.
 
-`SeparatesOn ρ Old New C lo hi ctx`, for a resource `ρ`: on every member of `C`, of rank `k`,
-`New` covers every target having used at most `hi k`; and in every open
-context, for every pair the context demands, `Old` has used at least `lo k`
-at any step at which it has covered the pair, and `New` covers it having used
-at most `ctx (hi k) res n`, where `n` is the size of the context alone and
-`res` is the residue: what `New` itself uses to cover the pair when the hole
-holds the targets written out (`RelOf.ofPairs`). The residue is what the rest
-of the context costs. Neither machine has to halt. The two upper bounds on
-`New` mention no other machine; they are `MeetsOn`.
+The members are whole programs. Nothing is claimed about a program that has
+a member as a part: a machine may stop early or drop work in a larger
+program, and then a gain on the part need not show in the whole. A class
+that is meant to reach larger programs has those programs as members, and
+its bounds are proved of them.
 
-When the residue is taken depends on the resource (`CostedRuntime.MeetsIn`).
-For time it is what `New` has paid when it covers the pair with the targets
-written out. For space that moment is too early: what a machine holds grows
-with the work it has done, in the rest of the context as in the hole, and a
-part of the context that never finishes holds more the longer the run goes
-on. So for space the residue is what `New` holds, with the targets written
-out, after no more work than it has done when it covers the pair with the
-member in the hole.
+## The kinds of win
 
-## Three kinds of win
-
-A rung improves on its predecessor by a win of some kind (`Kind`), and the
-numerals of the improvement are explicit (`Bounds`).
-
-A kind is a resource (time or space) and the size of the gain (`Gap`).
+A kind is a resource (time or space) and the size of the gain (`Gap`), and
+the numerals of the improvement are explicit (`Bounds`).
 
 * An exponential gain. The old machine has used at least `2 ^ k` of the
-  resource, and the bound in context is a polynomial.
+  resource where the new one uses a polynomial in `k`.
 * A polynomial gain. The old machine has used at least
   `(k + 1) ^ gain * hi k` with `gain` positive, so the ratio grows without
-  bound. The bound in context is linear in `hi k` and in the residue.
+  bound.
 
 Since the size of a member is polynomial in its rank, `2 ^ k` is exponential
 in a root of the size of the input. `Improves kind Old New b C` is the
@@ -127,65 +110,45 @@ statement for two machines. `Advances` is `Improves` for the whole rung (its
 engine at the kernel of the language, run on the preprocessed input),
 together with a recorded bound on the cost of preprocessing.
 
-Exponential wins are taken first while there are any. That is a rule for
-choosing the next rung, not a clause of the statement.
-
 ## Direction
 
-A relation can be asked for from either end, and what an answer costs must not
+A relation can be asked for from either end, and what it costs must not
 depend on which end the query was written from. There are two ways to write a
 query the other way round: `conv q`, in the same program, and the mirror image
 `q.dual` in the mirrored program, in which every span is swapped and every
 sequence reversed. `C.conv` and `C.mirror` are the machine `C` run on those,
 with every answer swapped back, so both are machines for the original query.
-`DirectionFree C p` says that `C` and each of them simulate each other within
-`p`: whenever one has covered a pair, the other covers it within `p` of what
-the first has paid, and likewise for exhaustion. So no pair arrives more than
-polynomially later because the query was written from the other end.
-
-## The record of wins
-
-No later rung may lose a gain an earlier rung made. So wins are kept on a
-record, and every admission is held to every win on it. A win on record (`Win`) is the kind of an admission, its
-class and its numerals. A machine keeps it within a factor `c`
-(`Win.KeptBy`) when, in the resource of the win, it covers every target of a
-member of rank `k` having used at most `c * hi k`, and in every open context
-at most `c` times the bound in context the win was admitted with. The bound
-is the recorded one, not what the rung below happens to use, so the factors
-of successive rungs do not multiply.
+`DirectionFree C p` says that `C` and each of them are never worse than the
+other within `p`. Weight does not depend on the direction an expression is
+written in, so the levels of a query and of its converse are the same levels
+the other way round.
 
 ## Admission
 
-A rung is admitted by a proof of `Admits κ kind` over the record of the rung
-below it, at a kernel rung `κ` (`Trusted/Kernel.lean`), and by nothing else.
-It is a strict improvement: it advances on its predecessor by a win of that
-kind (`Advances`). It loses no earlier gain: it keeps every win on the record
-within a constant factor that its specification writes out. It loses no
-halting: it halts on every input on which its predecessor halts. And the cost
-of a relation forward and backward is comparable: its cost does not depend
-on direction, within a polynomial whose numerals its specification writes
-out. And a rung admitted by a win in space gives up no time for it: on every
-input it covers every pair, and halts where its predecessor halts, within a
-written factor of what its predecessor has paid (`Admits.time`). A separation with other functions does not admit it, and neither does a
-gain on a sequence of inputs that is not a class, a gain that holds only
-when the input is the whole program, an improvement that holds from one end
-only, or a gain that gives back a win of an earlier rung.
+A rung is admitted above the rung below it by a proof of `Admits κ kind`, at
+a kernel rung `κ` (`Trusted/Kernel.lean`), and by nothing else.
 
-Every clause is about what has been paid when an answer has arrived, or
-about whether a run halts. None compares two runs step by step.
+* It is never worse than the rung below, in time, on every program and at
+  every level, within a polynomial whose numerals its specification writes
+  out (`neverWorse`). This holds halting too: where the rung below reports
+  that it is done, so does the new rung, within the same bound.
+* It is a strict improvement: it advances on the rung below by a win of the
+  stated kind on a class (`Advances`).
+* The cost of a relation forward and backward is comparable: its cost does
+  not depend on direction, within a polynomial whose numerals its
+  specification writes out (`direction`).
+A rung admitted by a win in space is held to the same first clause, so it
+gives up no more than a polynomial of time for it.
 
-`Ladder κ base G record` (`Trusted/Properties.lean`, where the laws are
-stated) is the ladder itself: the base has the empty record, and each
-admission is over the whole record of the rung below and puts its own win on
-it. So every rung of a ladder has every win below it at once, each within a
-constant factor of the bound it was admitted with. Every rung of a ladder,
-the base included, has the laws (`CostedRung.Lawful`): an admission says how
-a rung costs less, and by itself it does not say that the rung is right.
+`Ladder κ base G` (`Trusted/Properties.lean`, where the laws are stated) is
+the ladder itself: the base, and each rung admitted above the rung below it.
+Every rung of a ladder, the base included, has the laws and reports levels
+truly.
 
-`SeparatesExhaustion` is the comparison for the report of exhaustion instead
-of answers, on a sequence of inputs. It is the special case for the rare
-queries that halt: it is recorded where it holds, and it does not admit a
-rung.
+What carries a gain upward is the first clause. A rung above is within a
+polynomial of the rung that made a gain, on every program, so it still
+finishes the members of that gain's class within a polynomial of the bound
+the gain was shown with, of their size and of their level.
 -/
 import RwLog.Trusted.Engine
 
@@ -273,30 +236,7 @@ theorem space_mono (P : Program) (q : Rel) {n m : Nat} (h : n ≤ m) :
 
 end CostedRuntime
 
-/-! ## Latency -/
-
-namespace CostedRuntime
-
-variable (C : CostedRuntime)
-
-/-- Some answer emitted in the first `n` steps on `q` relates the pair `x`
-in `M`. -/
-def Covered (P : Program) (q : Rel) (M : Interp) (x : GTerm × GTerm) (n : Nat) : Prop :=
-  ∃ a ∈ C.runtime.emitted (C.start P q) n, x ∈ Answer.den M a
-
-/-- The coverage latency of `x` in `M` is at most `c`: the machine has spent
-at most `c` ticks by some step at which an emitted answer relates `x`. -/
-def CoversWithin (P : Program) (q : Rel) (M : Interp) (x : GTerm × GTerm) (c : Nat) : Prop :=
-  ∃ n, C.Covered P q M x n ∧ C.paid P q n ≤ c
-
-/-- The exhaustion latency is at most `c`: the machine has spent at most `c`
-ticks by some step at which it has reported that it is done. -/
-def ExhaustsWithin (P : Program) (q : Rel) (c : Nat) : Prop :=
-  ∃ n, C.runtime.Halts (C.start P q) n ∧ C.paid P q n ≤ c
-
-end CostedRuntime
-
-/-! ## Resources -/
+/-! ## Finishing a level -/
 
 /-- A resource: what a machine has used on an input by the end of its first
 `n` steps. -/
@@ -324,68 +264,46 @@ namespace CostedRuntime
 
 variable (C : CostedRuntime)
 
-/-- The machine has used at most `c` of the resource by some step at which an
-emitted answer relates `x`. For time this is `CoversWithin`. -/
-def CoversUsing (μ : Meter) (P : Program) (q : Rel) (M : Interp) (x : GTerm × GTerm)
-    (c : Nat) : Prop :=
-  ∃ n, C.Covered P q M x n ∧ μ C P q n ≤ c
+/-- The machine has finished level `c` of `q` within `n` steps: it has
+reported a level `c` or higher, or that it is done. -/
+def Finished (P : Program) (q : Rel) (c n : Nat) : Prop :=
+  C.runtime.Finished (C.start P q) c n
 
-/-- The machine has used at most `c` of the resource by some step at which it
-has reported that it is done. For time this is `ExhaustsWithin`. -/
-def ExhaustsUsing (μ : Meter) (P : Program) (q : Rel) (c : Nat) : Prop :=
-  ∃ n, C.runtime.Halts (C.start P q) n ∧ μ C P q n ≤ c
+/-- The machine has used at most `b` of the resource by some step by which
+it has finished level `c` of `q`. -/
+def FinishesUsing (μ : Meter) (P : Program) (q : Rel) (c b : Nat) : Prop :=
+  ∃ n, C.Finished P q c n ∧ μ C P q n ≤ b
 
-/-- The machine covers the pair `y` on the query `qr` within `bound` of the
-residue: what the same machine uses on the query `qt`, which is `qr` with
-the targets written out in the hole.
-
-For time the residue is what the machine has paid when it covers `y` on
-`qt`: if it covers `y` there having paid `res`, it covers `y` on `qr` having
-paid at most `bound res`.
-
-For space the residue is what the machine holds on `qt` after no more work.
-What a machine holds grows with the work it has done, in the rest of the
-program as in the hole, so the residue taken when `qt` covers `y` would be
-taken too early. The machine covers `y` on `qr` at a step at which it has
-used at most `bound` of the space it has used on `qt` at some step by which
-it has paid no more there. -/
-def MeetsIn (ρ : Resource) (P : Program) (qr qt : Rel) (M : Interp) (y : GTerm × GTerm)
-    (bound : Nat → Nat) : Prop :=
-  match ρ with
-  | .time => ∀ res, C.CoversUsing Meter.time P qt M y res →
-      C.CoversUsing Meter.time P qr M y (bound res)
-  | .space => ∃ n, C.Covered P qr M y n ∧
-      ∃ m, C.paid P qt m ≤ C.paid P qr n ∧ C.space P qr n ≤ bound (C.space P qt m)
+/-- The machine has paid at most `b` ticks by some step at which it has
+reported that it is done. -/
+def ExhaustsWithin (P : Program) (q : Rel) (b : Nat) : Prop :=
+  ∃ n, C.runtime.Halts (C.start P q) n ∧ C.paid P q n ≤ b
 
 end CostedRuntime
 
-/-! ## Improvement -/
+/-! ## Never worse -/
 
-/-- `New` simulates `Old` within `p` in the resource `μ`: for every
-well-formed input and every number of steps of `Old`, every pair that `Old`
-has covered is covered by `New` having used at most
-`p` of what `Old` has used and of the input's size, and if `Old` has halted
-then `New` halts within the same bound. -/
-def SimulatesBy (μ : Meter) (Old New : CostedRuntime) (p : Nat → Nat → Nat) : Prop :=
+/-- `New` is never worse than `Old`, in time, within `p`: on every
+well-formed input and for every number of steps of `Old`, every level `c`
+that `Old` has finished is finished by `New` having paid at most `p` of what
+`Old` has paid and of the size of the input and `c`; and if `Old` has
+reported that it is done then `New` reports that it is done having paid at
+most `p` of what `Old` has paid and of the size of the input. -/
+def NeverWorse (Old New : CostedRuntime) (p : Nat → Nat → Nat) : Prop :=
   ∀ P q, P.WellFormed q → ∀ n,
-    (∀ x, Old.Covered P q P.sorts.interp x n →
-      New.CoversUsing μ P q P.sorts.interp x (p (μ Old P q n) (P.size + q.size))) ∧
+    (∀ c, Old.Finished P q c n →
+      New.FinishesUsing Meter.time P q c (p (Old.paid P q n) (P.size + q.size + c))) ∧
     (Old.runtime.Halts (Old.start P q) n →
-      New.ExhaustsUsing μ P q (p (μ Old P q n) (P.size + q.size)))
+      New.ExhaustsWithin P q (p (Old.paid P q n) (P.size + q.size)))
 
-/-- `New` simulates `Old` within `p` in time. -/
-def Simulates (Old New : CostedRuntime) (p : Nat → Nat → Nat) : Prop :=
-  SimulatesBy Meter.time Old New p
+/-- The numerals of a polynomial bound: a coefficient and a degree. -/
+structure PolyBound where
+  coeff : Nat
+  deg : Nat
 
-/-- The special case for inputs that halt: `New` reports that it is done
-within `hi k` ticks, and `Old` has paid at least `lo k` whenever it has. This
-does not admit a rung. -/
-def SeparatesExhaustion (Old New : CostedRuntime) (fam : Nat → Program × Rel)
-    (size lo hi : Nat → Nat) : Prop :=
-  ∀ k, (fam k).1.WellFormed (fam k).2 ∧ (fam k).1.size + (fam k).2.size ≤ size k ∧
-    New.ExhaustsWithin (fam k).1 (fam k).2 (hi k) ∧
-    (∀ n, Old.runtime.Halts (Old.start (fam k).1 (fam k).2) n →
-      lo k ≤ Old.paid (fam k).1 (fam k).2 n)
+/-- The bound `coeff * (c + n + 1) ^ deg`, for what the other machine has
+paid `c` and the size `n`. -/
+def PolyBound.fn (d : PolyBound) (c n : Nat) : Nat := d.coeff * (c + n + 1) ^ d.deg
 
 /-! ## Direction -/
 
@@ -416,206 +334,47 @@ def conv : CostedRuntime where
 end CostedRuntime
 
 /-- The cost of `C` does not depend on the direction a query is written in,
-within `p`: `C` and `C` run on the mirror image simulate each other within
-`p`, and so do `C` and `C` run on the converse. -/
+within `p`: `C` and `C` run on the mirror image are each never worse than the
+other within `p`, and so are `C` and `C` run on the converse. -/
 structure DirectionFree (C : CostedRuntime) (p : Nat → Nat → Nat) : Prop where
-  toMirror : Simulates C C.mirror p
-  ofMirror : Simulates C.mirror C p
-  toConv : Simulates C C.conv p
-  ofConv : Simulates C.conv C p
-
-/-- The numerals of a direction bound: a coefficient and a degree. -/
-structure DirBound where
-  coeff : Nat
-  deg : Nat
-
-/-- The bound `coeff * (c + n + 1) ^ deg`, for what the other machine has
-paid `c` and the size of the input `n`. -/
-def DirBound.fn (d : DirBound) (c n : Nat) : Nat := d.coeff * (c + n + 1) ^ d.deg
+  toMirror : NeverWorse C C.mirror p
+  ofMirror : NeverWorse C.mirror C p
+  toConv : NeverWorse C C.conv p
+  ofConv : NeverWorse C.conv C p
 
 /-! ## Classes -/
 
-/-- A ground term as a pattern. -/
-def GTerm.toPat (t : GTerm) : Pat := t.rename Empty.elim
-
-/-- The pairs of a list written out as an expression: a union of ground
-spans. It relates exactly the pairs of the list, in every interpretation. -/
-def RelOf.ofPairs : List (GTerm × GTerm) → Rel
-  | [] => .zero
-  | x :: xs => .or (.span ⟨x.1.toPat, x.2.toPat, []⟩) (ofPairs xs)
-
 /-- A class of inputs. All three components are functions, so membership is
-decided, and the rank and the targets of a member are computed. -/
+decided, and the rank and the level of a member are computed. -/
 structure ProgClass where
   /-- Is the input a member? -/
   mem : Program → Rel → Bool
   /-- The number a gain on the class is stated in. -/
   rank : Program → Rel → Nat
-  /-- The ground pairs the comparison is about. -/
-  tgt : Program → Rel → List (GTerm × GTerm)
+  /-- The level of the member the comparison is about. -/
+  level : Program → Rel → Nat
 
 /-- The facts about a class that mention no machine. `size` bounds the size
 of a member by its rank. -/
 structure ProgClass.Proper (C : ProgClass) (size : Nat → Nat) : Prop where
   wf : ∀ P r, C.mem P r → P.WellFormed r
   size_le : ∀ P r, C.mem P r → P.size + r.size ≤ size (C.rank P r)
-  nonempty : ∀ P r, C.mem P r → C.tgt P r ≠ []
-  /-- The member relates every target. -/
-  related : ∀ P r, C.mem P r → ∀ x ∈ C.tgt P r, x ∈ P.pairs r
   /-- There are members of every rank or more. -/
   unbounded : ∀ k, ∃ P r, C.mem P r ∧ k ≤ C.rank P r
 
-/-! ## Contexts -/
+/-! ## A win on a class -/
 
-/-- An expression with one hole. -/
-inductive Ctx where
-  | hole
-  | orL (K : Ctx) (b : Rel)
-  | orR (a : Rel) (K : Ctx)
-  | andL (K : Ctx) (b : Rel)
-  | andR (a : Rel) (K : Ctx)
-  | seqL (K : Ctx) (b : Rel)
-  | seqR (a : Rel) (K : Ctx)
-  | conv (K : Ctx)
+/-- `New` wins over `Old` on the class `C` in the resource `ρ`: on a member
+of rank `k`, `New` finishes the member's level having used at most `hi k`,
+and `Old` has used at least `lo k` at any step by which it has
+finished it. -/
+structure WinsOn (ρ : Resource) (Old New : CostedRuntime) (C : ProgClass)
+    (lo hi : Nat → Nat) : Prop where
+  above : ∀ P r, C.mem P r → New.FinishesUsing ρ.meter P r (C.level P r) (hi (C.rank P r))
+  below : ∀ P r, C.mem P r → ∀ n, Old.Finished P r (C.level P r) n →
+    lo (C.rank P r) ≤ ρ.meter Old P r n
 
-namespace Ctx
-
-/-- The expression with `r` in the hole. -/
-def fill (r : Rel) : Ctx → Rel
-  | hole => r
-  | orL K b => .or (K.fill r) b
-  | orR a K => .or a (K.fill r)
-  | andL K b => .and (K.fill r) b
-  | andR a K => .and a (K.fill r)
-  | seqL K b => .seq (K.fill r) b
-  | seqR a K => .seq a (K.fill r)
-  | conv K => .conv (K.fill r)
-
-/-- The meaning of a context in `M` as a function of the meaning `X` of its
-hole, given the meaning `ρ` of each name. -/
-def denAt (M : Interp) (ρ : Name → PRel) (X : PRel) : Ctx → PRel
-  | hole => X
-  | orL K b => K.denAt M ρ X ∪ denoteAt M ρ b
-  | orR a K => denoteAt M ρ a ∪ K.denAt M ρ X
-  | andL K b => K.denAt M ρ X ∩ denoteAt M ρ b
-  | andR a K => denoteAt M ρ a ∩ K.denAt M ρ X
-  | seqL K b => (K.denAt M ρ X).comp (denoteAt M ρ b)
-  | seqR a K => (denoteAt M ρ a).comp (K.denAt M ρ X)
-  | conv K => (K.denAt M ρ X).inv
-
-/-- The size of a context: its nodes other than the hole, and the sizes of
-the expressions beside the path to the hole. -/
-def size : Ctx → Nat
-  | hole => 0
-  | orL K b => 1 + K.size + b.size
-  | orR a K => 1 + a.size + K.size
-  | andL K b => 1 + K.size + b.size
-  | andR a K => 1 + a.size + K.size
-  | seqL K b => 1 + K.size + b.size
-  | seqR a K => 1 + a.size + K.size
-  | conv K => 1 + K.size
-
-end Ctx
-
-/-- The span accepts every term on its left: its left pattern is a variable
-that its store does not mention. -/
-def Span.OpenLeft (s : Span) : Prop := ∃ v, s.l = .var v ∧ ∀ c ∈ s.c, v ∉ c.vars
-
-/-- The span accepts every term on its right. -/
-def Span.OpenRight (s : Span) : Prop := s.swap.OpenLeft
-
-/-- The hole is open: nothing between it and the root restricts it. Above
-the hole there is only `|` with anything on the other side, converse, and
-`;` with a single span that accepts every term on the hole's side. Under `&`,
-or under `;` with anything else, the other side says which answers of the
-hole are wanted, so the hole is not open. -/
-def Ctx.Open : Ctx → Prop
-  | .hole => True
-  | .orL K _ => K.Open
-  | .orR _ K => K.Open
-  | .conv K => K.Open
-  | .seqL K (.span s) => s.OpenLeft ∧ K.Open
-  | .seqR (.span s) K => s.OpenRight ∧ K.Open
-  | _ => False
-
-/-- A context: an expression with one hole, and further definitions. -/
-structure Context where
-  shape : Ctx
-  defs : List (Name × Rel)
-
-namespace Context
-
-variable (K : Context)
-
-/-- The member's program with the context's definitions. The sorts are the
-member's. -/
-def program (P : Program) : Program := { P with defs := P.defs ++ K.defs }
-
-/-- The context's query with `r` in the hole. -/
-def query (r : Rel) : Rel := K.shape.fill r
-
-/-- The size of the context alone. -/
-def size : Nat := K.shape.size + (K.defs.map fun d => 1 + d.2.size).sum
-
-/-- The hole is open. -/
-def Open : Prop := K.shape.Open
-
-/-- With `(P, r)` plugged in, the pair `y` needs the pairs `X` of `r` in
-`M`: the context relates `y` when the hole holds `X`, and does not when the
-hole holds everything `r` relates except `X`. -/
-def Demands (P : Program) (r : Rel) (M : Interp) (X : PRel) (y : GTerm × GTerm) : Prop :=
-  y ∈ K.shape.denAt M ((K.program P).meaningAt M) X ∧
-  y ∉ K.shape.denAt M ((K.program P).meaningAt M) ((K.program P).semAt M r \ X)
-
-end Context
-
-/-! ## Separation on a class, in context -/
-
-/-- `New` meets an upper bound on the class `C` in the resource `ρ`, on a
-member and in context.
-
-On a member `(P, r)` of rank `k`, `New` covers every target having used at
-most `hi k`.
-
-In every context `K` whose hole is open and whose plugged input is well
-formed, for every pair `y` that needs the targets, `New` covers `y` when the
-hole holds `r` within `inCtx k res K.size`, where `res` is the residue: what
-`New` uses when the hole holds the targets written out
-(`CostedRuntime.MeetsIn`, which says when the residue is taken for each
-resource).
-
-The machine does not have to halt, and no other machine is mentioned. -/
-structure MeetsOn (ρ : Resource) (New : CostedRuntime) (C : ProgClass)
-    (hi : Nat → Nat) (inCtx : Nat → Nat → Nat → Nat) : Prop where
-  alone : ∀ P r, C.mem P r → ∀ x ∈ C.tgt P r,
-    New.CoversUsing ρ.meter P r P.sorts.interp x (hi (C.rank P r))
-  inContext : ∀ P r, C.mem P r → ∀ K : Context, K.Open →
-    (K.program P).WellFormed (K.query r) →
-    ∀ y, K.Demands P r P.sorts.interp {x | x ∈ C.tgt P r} y →
-      New.MeetsIn ρ (K.program P) (K.query r) (K.query (.ofPairs (C.tgt P r)))
-        P.sorts.interp y fun res => inCtx (C.rank P r) res K.size
-
-/-- `New` is separated from `Old` on the class `C` in the resource `ρ`.
-
-`New` meets the upper bound `hi` on a member of rank `k`, and
-`ctx (hi k) res K.size` in a context `K` with residue `res` (`MeetsOn`).
-
-In every context `K` whose hole is open and whose plugged input is well
-formed, for every pair `y` that needs the targets, `Old` has used at least
-`lo k` at any step at which it has covered `y`.
-
-The member alone is the context that is only a hole, so the lower bound on
-`Old` holds there for every target. Neither machine has to halt. -/
-structure SeparatesOn (ρ : Resource) (Old New : CostedRuntime) (C : ProgClass)
-    (lo hi : Nat → Nat) (ctx : Nat → Nat → Nat → Nat) : Prop
-    extends MeetsOn ρ New C hi (fun k => ctx (hi k)) where
-  below : ∀ P r, C.mem P r → ∀ K : Context, K.Open →
-    (K.program P).WellFormed (K.query r) →
-    ∀ y, K.Demands P r P.sorts.interp {x | x ∈ C.tgt P r} y →
-      ∀ n, Old.Covered (K.program P) (K.query r) P.sorts.interp y n →
-        lo (C.rank P r) ≤ ρ.meter Old (K.program P) (K.query r) n
-
-/-! ## Three kinds of win -/
+/-! ## The kinds of win -/
 
 /-- How large a gain is. -/
 inductive Gap where
@@ -640,14 +399,8 @@ structure Bounds where
   /-- What the new machine uses on a member of rank `k`. -/
   hiCoeff : Nat
   hiDeg : Nat
-  /-- The degree of a polynomial win; the other kinds do not use it. -/
+  /-- The degree of a polynomial win; an exponential win does not use it. -/
   gain : Nat
-  /-- The bound in context. -/
-  ctxCoeff : Nat
-  ctxDeg : Nat
-  /-- For a win in space: the factor within which the time of the rung below
-  is kept. A win in time does not use it. -/
-  timeCoeff : Nat := 1
 
 namespace Bounds
 
@@ -666,26 +419,18 @@ def lo (b : Bounds) : Gap → Nat → Nat
   | .polynomial, k => (k + 1) ^ b.gain * b.hi k
   | .exponential, k => 2 ^ k
 
-/-- The bound in context, for the new machine's bound on the member `h`, the
-residue `res` and the size of the context `n`. For a polynomial win it is
-linear in `h` and `res`, `ctxCoeff * (n + 1) ^ ctxDeg * (h + res + 1)`;
-otherwise the polynomial `ctxCoeff * (h + res + n + 1) ^ ctxDeg`. -/
-def ctx (b : Bounds) : Gap → Nat → Nat → Nat → Nat
-  | .polynomial, h, res, n => b.ctxCoeff * (n + 1) ^ b.ctxDeg * (h + res + 1)
-  | .exponential, h, res, n => b.ctxCoeff * (h + res + n + 1) ^ b.ctxDeg
-
 end Bounds
 
 /-- `New` improves on `Old` by a win of the given kind, on the class `C`,
 with the numerals `b`: the class is proper with members of size at most
-`b.size`; and it is separated from `Old` on `C`, in the resource of the kind,
-with `Old` at `b.lo kind.gap` or more, `New` within `b.hi` on a member and
-within `b.ctx kind.gap` in context. The ratio of a polynomial win grows. -/
+`b.size`; and `New` wins over `Old` on `C`, in the resource of the kind, with
+`Old` at `b.lo kind.gap` or more and `New` within `b.hi`. The ratio of a
+polynomial win grows. -/
 structure Improves (kind : Kind) (Old New : CostedRuntime) (b : Bounds) (C : ProgClass) :
     Prop where
   proper : C.Proper b.size
   grows : kind.gap = .polynomial → 0 < b.gain
-  separates : SeparatesOn kind.resource Old New C (b.lo kind.gap) b.hi (b.ctx kind.gap)
+  wins : WinsOn kind.resource Old New C (b.lo kind.gap) b.hi
 
 /-! ## Engines
 
@@ -737,7 +482,7 @@ def Ans.rootSpan {R : Type} [Answer R] [DecidableEq R] {D : Domain R} {P : Progr
 /-- What the machine reports of a step of the engine: of the answers it
 emits or stands by in its final report, those of the root goal, as
 representatives with the sorts they are representatives for, at one tick for
-each answer looked at. A progress certificate is reported as it is. -/
+each answer looked at. A report of a level is passed on as it is. -/
 def Engine.report (E : Engine) {R : Sorts → Type} [∀ S, Answer (R S)] [∀ S, DecidableEq (R S)]
     (dom : ∀ S, Domain (R S)) (P : Program) (root : Rel) :
     StepOf (Ans (dom P.sorts) P) (E.State (R P.sorts) Rel (Ans (dom P.sorts) P)) →
@@ -934,7 +679,7 @@ def rung : Rung := ⟨G.pre, (G.rt κ).runtime⟩
 
 /-- The rung as one machine on the original input: its first state is the
 machine's first state on the preprocessed input, at the machine's charge. The
-ticks of preprocessing are not counted here (`Admits.preCost` records
+ticks of preprocessing are not counted here (`Advances.preCost` records
 them). -/
 def machine (A : ArtifactStore) : CostedRuntime where
   Ans := (G.rt κ).Ans
@@ -956,48 +701,17 @@ structure Advances (κ : KernelRung) (kind : Kind) (Old New : CostedRung) (b : B
   improves : ∀ A, Improves kind (Old.machine κ A) (New.machine κ A) b C
   preCost : ∀ A P q, P.WellFormed q → (Preprocessor.runAll κ New.pre A P q).ticks ≤ pre (P.size + q.size)
 
-/-! ## The record of wins
-
-No later rung may lose a gain an earlier rung made. So every win is put on
-record when it is admitted, and every later admission, of whatever kind, is
-held to every win on the record. -/
-
-/-- A win on record: the kind of the win, the class it was shown on, and the
-numerals it was admitted with. What a later rung is held to are the upper
-bound `b.hi` on a member and the bound in context `b.ctx kind.gap`, in the
-resource of the kind. -/
-structure Win where
-  kind : Kind
-  cls : ProgClass
-  b : Bounds
-
-/-- The machine `M` keeps the win `w` within the factor `c`: in the resource
-of the win, on a member of rank `k` of its class `M` covers every target
-having used at most `c * w.b.hi k`, and in every open context, for every pair
-that needs the targets, at most `c` times the bound in context the win was
-admitted with, at `M`'s own residue. -/
-def Win.KeptBy (w : Win) (M : CostedRuntime) (c : Nat) : Prop :=
-  MeetsOn w.kind.resource M w.cls (fun k => c * w.b.hi k)
-    (fun k res n => c * w.b.ctx w.kind.gap (w.b.hi k) res n)
+/-! ## Admission -/
 
 /-- The rung `New` is admitted above `Old` at the kernel rung `κ` by a win of
-the given kind, over the wins on `record`: it advances on `Old`; whatever the
-artifact store, it halts on every input on which `Old` halts, its cost does
-not depend on direction, within the polynomial `d`, and it keeps every win on
-the record within the factor `keep`.
-
-A rung admitted by a win in space gives up no time for it: on every input it
-covers every pair, and halts where `Old` halts, having paid at most
-`b.timeCoeff * (c + n + 1)`, for what `Old` has paid `c` and an input of size
-`n` (`time`). -/
+the given kind. Whatever the artifact store: it advances on `Old` by the win;
+it is never worse than `Old`, on every program and at every level, and
+reports that it is done where `Old` does, within the polynomial `nw`; and its
+cost does not depend on direction, within the polynomial `d`. -/
 structure Admits (κ : KernelRung) (kind : Kind) (Old New : CostedRung) (b : Bounds)
-    (d : DirBound) (pre : Nat → Nat) (C : ProgClass) (record : List Win) (keep : Nat) : Prop
+    (nw d : PolyBound) (pre : Nat → Nat) (C : ProgClass) : Prop
     extends Advances κ kind Old New b pre C where
-  halts : ∀ A P q, P.WellFormed q → (Old.machine κ A).runtime.Terminates P q →
-    (New.machine κ A).runtime.Terminates P q
+  neverWorse : ∀ A, NeverWorse (Old.machine κ A) (New.machine κ A) nw.fn
   direction : ∀ A, DirectionFree (New.machine κ A) d.fn
-  keeps : ∀ A, ∀ w ∈ record, w.KeptBy (New.machine κ A) keep
-  time : kind.resource = .space → ∀ A,
-    Simulates (Old.machine κ A) (New.machine κ A) fun c n => b.timeCoeff * (c + n + 1)
 
 end RwLog

@@ -5,9 +5,12 @@ A variable whose sorts have one member is replaced by that member, and the
 store denotes what it did (`setStore_den`).
 -/
 import RwLog.Sorts.Gone
-import RwLog.Trusted.Cost
 
 namespace RwLog
+
+/-- A ground term as a pattern. -/
+def GTerm.toPat (t : GTerm) : Pat := t.rename Empty.elim
+
 namespace Sorts
 
 open Function

@@ -149,80 +149,9 @@ Rungs/Symmetric/ the symmetric engine of `SYMMETRIC_ENGINE.md` (Machine.lean): a
                 `faces_some`; Capped.lean, `runs_stable`, `good_cappedReader`), so the
                 engine with it, `bothWays`, has
                 the laws and the bound on direction (Rung.lean). It is not a rung of the
-                ladder until it is admitted. Every answer a table holds was made
-                by a rule of the kernel from answers the tables hold, or by the
-                unfolding race: a property of answers that the rules keep, but for
-                the unfolding of marked answers, and that the answers of the race
-                have, is a property of everything a run holds until a table holds
-                a marked answer (Provenance.lean, `prov_request`, `prov_init`).
-                Owing nothing to a name `h` is such a property, marked the
-                answers of the body of `h`, when the body of `h` needs a name the
-                unfolding race never reads whole (Light.lean, `rules_light`,
-                `light_raced`, `prov_light`). A pair that needs pairs of a call of
-                `h` in a context is not related where `h` derives nothing
-                (Framework/Zeroed.lean, `not_demands_zero`, with the choice of the
-                input to run carried through, `orient_pairs_zero`), so a run of the
-                machine with the raced unfolding that has covered such a pair has
-                a table that holds an answer of the body of `h`, in a state it came
-                to before its root table was complete (LightRun.lean,
-                `covered_body_ctx`). A lower bound on what a run has paid is proved
-                along the engine's text: a computation has spent `B` ticks or what
-                it returns has a property (Framework/PaidOr.lean), and a request
-                keeps a state cheap, with no dear edge read and no round of a
-                marked table, or costs `B` (Paid.lean, `cheap_request`), when
-                reading a dear edge costs `B` and the first round of a marked goal
-                reads one (`Dear`). So, with the bodies of `h` marked, a run that
-                has covered such a pair has paid `B` (`covered_paid_ctx`). Reading
-                an edge inwards carries whole products: on a chain with `m + 2`
-                members at the edge that are one union of two spans, whose
-                products relate different pairs, reading the last of them costs
-                `2 ^ (m + 1)` compositions (RunsCost.lean, `runs_dear`). A side
-                that leads into such a chain, through copies of a span and a union
-                that has the chain for a member, pays for it: `readEdge` has spent
-                `2 ^ (m + 1)` ticks when it returns something or reads to a depth
-                of five, at a kernel that charges a tick or more for a composition
-                (`readEdge_side_dear`). A reading that fails doubles the depth, so
-                of `N` dear sides of the splits of a chain the last is read to a
-                depth of `2 ^ (N - 1)`: making the groups of such a chain costs
-                `B`, which is what `Dear` asks (DearChain.lean, `expand_dear`,
-                `Dear.of_chain`). The fan is a family with such a chain (Fan.lean):
-                `h := id ; id ; id ; id ; (g | u ; … ; u) ; c` with `m + 2` copies
-                of `u`, a union of two spans, and `c := id | c ; id`. The race
-                never reads `c` whole and `h` relates nothing without it, so in
-                every context the first engine has paid `2 ^ (m + 1)` before it
-                covers a pair that needs a pair of `h` (`Fan.paid`). The members
-                with the input `h`, ranked by `m`, with the target `(a, b)`, are a
-                proper class (FanClass.lean, `Fan.cls`, `Fan.proper`), and the
-                lower bound is the lower clause of a separation of rung 1 on it
-                (`Fan.below`, at a kernel that charges a tick or more for a
-                composition). Not proved yet: any bound from above on the cost
-                of the first engine in the size of the input.
-  Dive/         rung 2: the engine of rung 1 with the diving engine beside it
-                (`Framework/Beside.lean`). The diving engine keeps no tables
-                (Engine.lean): a step is one reading of the root from the top
-                under a budget of ticks, the choice at each union a digit of
-                a number, and the answer of the reading is emitted with its
-                converse. It never reports that it is done and is not
-                complete. A reading is traced rule by rule at a kernel
-                (Read.lean, `Reads`, `Joins`); on a member of the fan the
-                reading by the number 0 takes the ground span at the union
-                and makes an answer that relates the target, in either
-                direction of the chain, at a cost that does not depend on the
-                rank (Fan.lean, `reads_root`, `fanTicks`). The run reaches
-                the budget `2 ^ L` within `L * L` steps (Run.lean, `reach`,
-                `first_reading`), so the machine has emitted that answer
-                within a number of steps and ticks free of the rank
-                (FanRun.lean, `dive_fan`). A reading makes an answer of the
-                goal of its node between no boundaries, so on a root that is
-                its own converse every step shows an answer and its converse
-                or nothing (Converse.lean, `rd_goal`, `dive_selfConverse`).
-                Rung 2 (Rung.lean, `rung2`) has the laws (`rung2_lawful`),
-                is done exactly where rung 1 is (`rung2_halts`), costs the
-                same in both directions (`rung2_directionFree`), and on a
-                member of the fan of rank `k` covers the target having paid
-                at most `rung2Hi κ * (k + 1) ^ 2` ticks (`rung2_alone`),
-                where rung 1 has paid `2 ^ k` (`Fan.below`). Not proved yet:
-                the admission of rung 2 above rung 1 (`Admits`).
+                ladder until it is admitted. The engine reports no level (Correct.lean,
+                `silent`), so as a rung it reports levels truly (`rung_honest`) and
+                finishes a level only by reporting that it is done.
 Sorts/          the constraint domain of sorts and the proof that it is lawful
 Manifest/       rung 1's manifest (Rung1.lean): headline statements, trusted files and
                 axioms, all checked by the build
@@ -269,7 +198,6 @@ every charge derived from the Rust. No domain of spans as written is left
 | A sorted list with its duplicates erased is strictly sorted | `Lib/List.lean` | `pairwise_lt_eraseDups` |
 | Lists related member by member, one member changed, conditionals | `Lib/List.lean` | `forall₂_mem_left`, `forall₂_mem_right`, `forall₂_getElem?`, `forall₂_getLast?`, `map_modify_eq`, `mem_modify`, `two_le_length_of_mem`, `drop_take_reverse`, `ite_of_pos`, `ite_of_neg` |
 | Goals, the same goal, maximal answers, the rule of a split, for any machine that tables | `Rungs/Framework/Goals.lean`, `GoalsVal.lean` | `GoalOf`, `Kind`, `same`, `indexFrom`, `coversA`, `maxima`, `fresh`, `both`; their values: `same_val`, `indexFrom_val`, `coversA_val`, `maxima_val`, `fresh_val`, `both_some` |
-| A computation in `Cost` has spent a bound or what it returns has a property, through `>>=` and a fold | `Rungs/Framework/PaidOr.lean` | `Cost.PaidOr`, `PaidOr.bind`, `PaidOr.bind'`, `PaidOr.foldL`, `Traverse.paidOr_foldL`, `Traverse.paidOr_foldL_done` (may speak of the members passed) |
 | A fold in `Cost` keeps an invariant | `Rungs/Framework/Cost.lean`, `TraverseStd.lean` | `Cost.foldL_inv`, `Traverse.foldL_inv`, `Traverse.foldL_done` (may speak of the members passed), `Traverse.foldL_split` (and knows the members to come) |
 | Well-formed queries built from a well-formed one | `Rungs/Framework/Direction.lean` | `ProgramOf.WellFormed.of_sub`, `.conv`, `.seq_left`, `.seq_swap`, `.and_of_seq`, `.dual` |
 | Converse of a program | `SpanLayer/Dual.lean` | `Program.sem_dual` |
@@ -405,29 +333,22 @@ rung unchanged.
   the ticks of each traversal from a bound on each member
   (`anyL_ticks_le_mul`, ...).
 
-* `Admission.lean`: what the classes and contexts of the admission rule
-  (`Trusted/Cost.lean`, reasons in `ADMISSION.md`) mean, and an inhabitant of
-  each. `Ctx.denAt_fill` (the meaning of a context applied to the meaning of
-  an expression is the meaning of the plugged expression), `Ctx.denAt_union`,
-  `denoteAt_ofPairs`, `Context.demands_alone` (the member alone demands
-  exactly its targets), `demands_orL`, `Demands.related_ofPairs` (the residue
-  is the cost of a pair its query relates), `Ctx.open_wrap`, and the proper
-  class `ProgClass.points`.
+* `Levels.lean`: what the levels of `Trusted/Levels.lean` are. A derivation
+  weighs at least 1 (`LevelAt.pos`), the levels grow (`LevelAt.mono`), a
+  level holds only pairs of the relation and every pair of the relation is
+  in some level (`ProgramOf.pairs_eq_iUnion_level`), and weight does not
+  depend on direction (`ProgramOf.levelAt_conv`, `levelAt_dual`).
 
-* `Latency.lean`: how the improvement statements of `Trusted/Cost.lean`, which
-  measure the ticks until an answer covers a ground pair, are established.
-  `Simulates.of_steps` (the new machine covers each answer of the old one,
-  step by step, at a bounded cost), `CostedRuntime.coversWithin_of_halts` (on
-  an input that halts, an honest machine has covered every pair of the query
-  by the time it halts, so a separating family that halts needs only its
-  target pairs to be in the denotation), and
-  `CostedRuntime.le_spent_of_covered` (a machine that has emitted nothing in
-  `N` steps has paid for `N + 1` before it covers anything). For the record
-  of wins (`ADMISSION.md` section 6): `Improves.keptBy` (a machine keeps the
-  win it improves by), `Admits.keptBy`, and `Ladder.keeps` (every rung of a
-  ladder keeps every win on its record). `Ladder.lawful`: every rung of a
-  ladder has the laws (`CostedRung.Lawful`, `Trusted/Properties.lean`), which
-  the ladder asks of the base and of every rung put on top.
+* `Finishing.lean`: how the improvement statements of `Trusted/Cost.lean`,
+  which measure what a machine has used when it has finished a level, are
+  established. `Runtime.finished_iff_trace` (a run has finished a level when
+  it is done or its trace shows a report of that level or a higher one),
+  `Runtime.Silent` (a machine that reports no level reports levels truly and
+  finishes a level only by halting), `NeverWorse.of_steps` (step by step the
+  new machine has finished every level the old one has, at a bounded cost),
+  `NeverWorse.terminates`, `Admits.halts`, and `Ladder.lawful`,
+  `Ladder.honest`: every rung of a ladder has the laws and reports levels
+  truly, which the ladder asks of the base and of every rung put on top.
 
 * `Holding.lean`: saying what a state holds. `Pack S N A α` lists a value of
   `α` as representatives, nodes, answers and numbers so that the listing can
@@ -463,13 +384,6 @@ rung unchanged.
   the pair shows its own converse if the machines of its two engines do
   (`beside_selfConverse`): a step of the pair shows what a step of one of
   its engines shows, or nothing (`stepC_cases`).
-
-* `RecordWitness.lean`: `Admits` has inhabitants. Two toy
-  engines, admitted one above the other over a base that never answers, the
-  second for an exponential gain over the record that holds the polynomial
-  win of the first. They are not a `Ladder`, which asks for the laws. They are not machines for the
-  language. On the way: when the normal form of an expression is one span
-  (`normB_or_span`, `normB_dual`, `normB_fill`).
 
 `Rungs/Framework/Unfold.lean` has the unfolders, each written once against
 the derivation kernel: `eagerRace` (unfold every call to a depth, then
@@ -535,8 +449,7 @@ program, because which values are canonical depends on the sorts declared: an an
 the representative is a valid answer of the goal (`Ans D P`), and the answers
 reported are those of the root goal with no boundary. `Engine.costed E κ` is
 the engine at a kernel rung `κ`. `Advances` and `Admits` are stated on engines
-at a kernel rung, and `Admits` is over the record of the wins admitted below
-(`Win`, `Ladder`).
+at a kernel rung.
 
 The cost monad (`Trusted/CostMonad.lean`) counts ticks and space: `peak` is
 the most cells a computation had live at once and `held` the cells it
@@ -551,9 +464,9 @@ counted by `Engine.liveAt`, with representatives of the size the kernel rung
 gives them (`KernelRung.cells`). `Rungs/Framework/Holding.lean` builds such a
 listing piece by piece (`Pack`), and the symmetric engine's is `heldOf`
 (`Rungs/Symmetric/Machine.lean`). A gain is stated for a resource
-(`Resource`, time or space): in a larger program the residue for space is
-taken after the same amount of work (`CostedRuntime.MeetsIn`), and a rung
-admitted by a win in space keeps the time of the rung below (`Admits.time`).
+(`Resource`, time or space), and every admitted rung, a rung admitted by a
+win in space included, is never worse in time than the rung below
+(`Admits.neverWorse`).
 
 A kernel rung (`KernelRung`, `Trusted/Kernel.lean`) gives, for the sorts of
 each program, a type of representatives, a constraint domain on it that is
@@ -561,12 +474,11 @@ lawful when the sorts are well formed, and a kernel that returns what the
 domain returns (`Kernel.Refines`). No charge of an operation on
 representatives is postulated: the trusted files fix no kernel.
 `Engine.costedAt` is an engine at the derivation kernel over a kernel
-(`DerivationKernel.over`). Two rungs exist. `sortsRung`
+(`DerivationKernel.over`). One rung exists. `sortsRung`
 (`verified/lean/RwLogVerified/SortsRung.lean`) is the one engines are judged
 at: the charge of each operation of the domain of sorts is the tick bound
 proved of the Rust function on the store of `verified/rust/src/store.rs`
-(see `verified/README.md`); its charges are not computable. `Witness.sized` (`Rungs/Framework/RecordWitness.lean`) is a toy
-for the proof that the admission rule has inhabitants. The operations on
+(see `verified/README.md`); its charges are not computable. The operations on
 nodes and the interning of answers are charged as postulated at every kernel
 rung so far (roadmap L45).
 
@@ -618,8 +530,8 @@ An engine is written once against the derivation kernel
 5. Cost forward and backward: prove `CostedRuntime.SelfConverse` and take
    `oriented_directionFree` (`Framework/OrientedDirection.lean`).
 6. Cost: `Framework/CostCalculus.lean` and `CostSpec.lean` for the ticks of
-   the traversals, `Framework/Race.lean` for races, `Framework/Admission.lean`
-   and `Latency.lean` for the statement a rung is admitted by.
+   the traversals, `Framework/Race.lean` for races, `Framework/Finishing.lean`
+   and `Levels.lean` for the statement a rung is admitted by.
 ## Rules that hold in every epoch
 
 1. Use kernel theorems by name. If a proof needs a fact about `covers?`,

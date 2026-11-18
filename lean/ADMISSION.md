@@ -1,280 +1,89 @@
-# Admission: wins in time and space, on a class, in context
+# Admission: what a rung must prove
 
-This note settles the design of the admission rule in `RwLog/Trusted/Cost.lean`
-(ledger rows L33, L02 and L66 of the roadmap) and records why each choice was made.
-The Lean text is the statement; this is the reasoning.
+The Lean text is the statement (`RwLog/Trusted/Levels.lean`,
+`Trusted/Runtime.lean`, `Trusted/Cost.lean`, `Trusted/Properties.lean`). This
+note says what each part is for. It replaces the note of 2026-11-16, whose
+rule compared machines answer by answer and inside contexts; that rule is in
+the history of this file.
 
-**Revision, 2026-11-16: what an admission asks.** By the roadmap rebuilt from
-Anthony's own words, an admission asks four things and nothing beside: a
-strict improvement (`Advances`, the separation on a class and in context), no
-earlier gain lost (`keeps`, the record of wins), no halting lost (`halts`:
-the new rung halts on every input on which the rung below halts), and the
-cost of a relation forward and backward comparable (`direction`). The
-simulation of the rung below, in time and in space, is no longer asked:
-`Improves.simulates` and `simulatesSpace` and the simulation numerals of
-`Bounds` are removed. Everything below about the simulation (its bound for
-each kind of win, which resources it covers, what it does not protect)
-describes the rule before this date. `SimulatesBy` remains as the meaning of
-"comparable" in `DirectionFree`.
+## What is measured
 
-**Revision, 2026-11-16 (second): space counts what is live.** Asked for by
-Anthony.
+**Weight.** A derivation of a pair weighs: 1 for a span; the sum of its two
+sides for `;` and for `&`; what its side weighs for `|` and for converse; and
+1 more for each relation definition unfolded.
 
-*How space is counted.* Until now a cell, once allocated, was counted for the
-rest of the run, so no rung could show a gain in space by letting go of
-anything. Space is now the most cells live at one moment
-(`CostedRuntime.space`): between two steps the cells of the state the machine
-holds (`CostedRuntime.live`), and during a step those and what the step has
-allocated so far. What a step allocated and its next state does not hold is
-not counted after the step.
+**Levels.** Level `c` of a relation is the set of pairs with a derivation of
+weight at most `c` (`ProgramOf.level`). Levels belong to the program as
+written. They mention no machine, no order of answers and no table. Level 0
+is empty, the levels grow, and together they are the relation
+(`ProgramOf.pairs_eq_iUnion_level`). Weight does not depend on the direction
+an expression is written in (`ProgramOf.levelAt_conv`, `levelAt_dual`).
 
-*Why an engine cannot understate its state.* An engine does not say how many
-cells its state takes. It lists what the state holds, as the things that are
-counted: representatives, nodes, answers and numbers (`Engine.held`). And it
-proves that two states with the same listing are the same state
-(`Engine.held_inj`). So nothing is in a state that is not in the listing. The
-cells of the listing are counted by the trusted text (`Engine.liveAt`): a
-representative by the size its kernel rung gives it (`KernelRung.cells`, which
-no engine can read), a node by its members, an answer by its representative
-and its goal, a number by one cell and one for each time it can be halved, so
-that nothing can be packed into a number for free. Two things held are counted
-apart though a machine might share a part of both; the count is of the
-listing, and it is the same rule for every rung.
+**Reports.** A machine emits answers in any order and may report a level
+(`StepOf.progress`). A report of `c` is true when the answers emitted so far
+relate every pair of level `c` (`Runtime.HonestReports`). One answer with
+variables may cover a whole level; a level is a set of ground pairs, so this
+is credited.
 
-**Revision, 2026-11-16 (third): the rung admitted by a win in space.** Asked
-for by Anthony: a rung that improves space only, and otherwise only has to
-keep time from getting worse. Two changes make that rung possible.
+**Finishing.** A machine has finished level `c` when it has reported a level
+`c` or higher, or has reported that it is done (`Runtime.Finished`). The run
+is one continuing run. The cost of a level is what the machine has used when
+it has finished it (`CostedRuntime.FinishesUsing`), in time (ticks paid) or
+space (most cells live at one moment).
 
-*The residue for space is taken after the same work.* The rule for a gain
-inside a larger program (`MeetsOn.inContext`) bounds what the new machine
-uses, with the member in the hole, by its residue: what it uses when the hole
-holds the targets written out. For time the residue is what it has paid when
-it covers the pair there. Taken at that moment the rule could not admit a
-gain in space alone: what a machine holds grows with the work it has done,
-and a part of the larger program that never finishes holds more the longer
-the run goes on, so on a member the new machine needs long to cover, the
-rest of the program alone holds more than any bound in a residue taken
-early. For space the residue is therefore what the machine holds, with the
-targets written out, at a step by which it has paid no more than it has paid
-when it covers the pair with the member in the hole
-(`CostedRuntime.MeetsIn`). The statement is still about one machine, so a
-win in space goes on the record and is kept by later rungs as a win in time
-is (`Win.KeptBy`).
+## What a rung proves
 
-*A win in space keeps the time.* A rung admitted by a win in space is held to
-one clause more (`Admits.time`): on every input it covers every pair, and
-halts where the rung below halts, having paid at most
-`Bounds.timeCoeff * (c + n + 1)` ticks, for what the rung below has paid `c`
-and an input of size `n`. A win in time is not held to the space of the rung
-below: the usual gain in time is a table.
+A ladder (`Ladder`) asks of every rung, the base included:
 
-## 1. What had to be decided
+* the three laws (`CostedRung.Lawful`);
+* that it reports levels truly (`CostedRung.Honest`). The measure reads the
+  machine's reports, so without this it would mean nothing. It is what the
+  third law says of the report that a run is done, said of each level. A
+  rung need not report any level.
 
-Until now a rung was admitted by one hand-picked sequence of inputs on which
-its predecessor pays `2 ^ k` ticks and it pays a polynomial. Three things were
-missing.
+and of every rung above the base an admission (`Admits`):
 
-* Only an exponential gain in time could admit a rung (L33).
-* The gain was shown on one sequence, not on a class of programs that a
-  reader can recognise (L02).
-* The gain was shown on the inputs alone. Nothing said it holds when such an
-  input is a part of a larger program (L02). The open point was the charge:
-  inside `r | s` the new machine also pays for `s`, so its cost is not a
-  function of `k`.
+* **A strict win on a class** (`Advances`, `Improves`, `WinsOn`). A class is
+  a decidable set of whole programs with a rank and a level for each member.
+  On a member of rank `k` the new rung finishes the member's level having
+  used at most `hi k`, a polynomial, and the rung below has used at least
+  `2 ^ k` (an exponential gain) or `(k + 1) ^ gain * hi k` (a polynomial
+  gain) at any step by which it has finished it. The resource is time or
+  space. Members have size polynomial in their rank and there are members of
+  every rank.
+* **Never worse than the rung below** (`neverWorse`, `NeverWorse`). On every
+  well-formed program and at every level, when the rung below has finished
+  the level the new rung finishes it having paid at most a written
+  polynomial of what the rung below has paid, of the size of the input and
+  of the level; and where the rung below reports that it is done so does the
+  new rung, within the polynomial. So halting is not lost, and a rung
+  admitted by a win in space does not give up more than a polynomial of
+  time.
+* **Forward and backward comparable** (`direction`, `DirectionFree`). The
+  rung, the rung run on the converse of a query and the rung run on the
+  mirror image are each never worse than the other, within a written
+  polynomial.
 
-## 2. The class
+Preprocessing is charged apart and recorded (`Advances.preCost`).
 
-A class is three computable functions on an input (a program and a query):
-`mem` decides membership, `rank` is the number the gain is stated in, and
-`tgt` lists finitely many ground pairs, the answers the comparison is about.
-`ProgClass.Proper` holds the facts about the class that mention no machine:
-members are well formed, their size is at most a polynomial in their rank,
-the targets are nonempty and are related by the member, and the rank is
-unbounded over the members. The last
-one is what makes a gain stated in the rank a statement about infinitely many
-sizes.
+## What is not claimed
 
-The targets are a finite list, not a set, because the charge of section 4
-writes them into a program.
+* Nothing answer by answer. No clause says when a particular pair is
+  covered.
+* Nothing about a program that has a member of a class as a part. A machine
+  may stop early or drop work in a larger program, and then a gain on a part
+  need not show in the whole. A class that is meant to reach larger programs
+  has them as members.
+* Nothing against the best plan for a program.
+* No record of wins that each rung proves again. A gain is carried upward by
+  "never worse": a rung above is within a polynomial of the rung that made
+  the gain, on the members of its class as on every program. A gain that is
+  only polynomial is not protected by this.
 
-## 3. A context that demands a relation's answers
+## Rung 1
 
-A context is an expression with one hole and a list of further definitions.
-Plugging a member `(P, r)` into it gives the program `P` with the further
-definitions and the query with `r` in the hole. The sorts are the member's: a
-program has one list of sorts, and a class says for itself which sorts its
-members may declare.
-
-Two conditions make a context one that demands the member's answers. They are
-separate because they exclude different things.
-
-**The hole is open (`Ctx.Open`, syntactic).** Every operator between the hole
-and the root passes each answer of the hole on without restricting the hole:
-`|` with anything on the other side, converse, and `;` with a single span
-whose pattern on the hole's side is a variable that its store does not
-mention (`$x -> (f $x)`, a wrapper or a projection). `&` and `;` with
-anything else are not open: there the other side tells the hole which answers
-are wanted, and a machine may use that. `r ; @c` asks for the part of `r` that
-ends in `c`, which is another relation and may be easy for a machine for
-which `r` is hard. No condition on meanings can tell the two apart, since
-`r ; @c` needs the pair `(a, c)` of `r` exactly as `r | s` does. So this
-condition is on the text.
-
-**The pair needs the targets (`Context.Demands`, semantic).** A pair `y` of
-the plugged query is compared when, in the interpretation of the member's sorts, the context relates
-`y` with the targets in the hole, and does not relate it with everything the
-member relates except the targets in the hole. This excludes `Zero ; r`,
-where nothing is demanded, and `r | s` at a pair that `s` relates by itself.
-The meaning of a context is a function of the meaning of its hole
-(`Ctx.denAt`), so this needs no machine.
-
-A hole occurs once, in the query. A member called from inside a recursion of
-the larger program is not covered: there the hole is under `;` with the
-recursion, which restricts it.
-
-## 4. What the rest of the context costs
-
-The lower bound needs no accounting: the old machine has paid at least
-`lo k` before it covers a demanded pair, in every open context.
-
-The upper bound does. The candidates were:
-
-1. *The cost of the context with the hole empty.* Rejected: with `Zero` in the
-   hole the demanded pair is never covered, so there is no point of the run to
-   read a cost at, and the run of `s` alone is not the share `s` gets beside
-   `r`.
-2. *An absolute bound on the class* (billboard H9: latency at most a
-   polynomial in the smallest derivation). It survives embedding by
-   construction, but it says nothing about the old machine inside the
-   context, and it needs sizes of derivations in the trusted files. It stays
-   on the billboard as a ceiling a rung may state beside its admission.
-3. *The cost of the context with the member's answers given.* Adopted.
-
-The residue of a context at a demanded pair `y` is what the new machine
-itself pays to cover `y` when the hole holds the targets written out as a
-union of ground spans (`Rel.ofPairs`). That is the context's own work at `y`:
-everything the machine does on the plugged query except finding the member's
-answers. The requirement is
-
-    cost of y in K[r]  ≤  ctx (hi k) (residue of y in K) (size of K)
-
-for an explicit function `ctx` whose shape depends on the kind of win. The
-size is the context's alone, not the plugged input's, so for a fixed context
-the bound grows with `k` only through `hi k` and the residue. With a small
-residue the gap between `lo k` and `hi k` is the gap in context; with a large
-one the context dominates both machines and nothing is claimed, which is the
-truth.
-
-The bound is a function of three numbers and not a sum, because a fair
-machine multiplies: beside `m` alternatives a branch gets one tick in `m`.
-For the kinds whose gain is exponential `ctx` is a polynomial in all three.
-For a polynomial gain a polynomial in `hi k` would swallow the gain, so there
-`ctx` is linear in `hi k` and in the residue, with a factor polynomial in the
-size of the context only.
-
-The member alone is the hole with no further definitions; the bound `hi k`
-is also required there directly, so `hi` is what the new machine pays on a
-member and not that up to `ctx`.
-
-## 5. The kinds of win, one statement
-
-A kind is a resource (time or space) and the size of the gap (exponential or
-polynomial). The size of the gap fixes three functions of the numerals; the
-resource fixes what is measured.
-
-| gap | old machine has used at least | simulation of the old machine | in context |
-|---|---|---|---|
-| exponential | `2 ^ k` | polynomial in what it used and the size | polynomial |
-| polynomial | `(k + 1) ^ gain * hi k`, `gain ≥ 1` | `simCoeff * (c + 1)`: a constant factor | linear in `hi k` and the residue |
-
-The separation (`SeparatesOn`) and the simulation (`SimulatesBy`) are written
-once, for any resource. `Admits` takes the kind as its first argument, so
-every admission says which it is.
-
-**Which resources are simulated.** Time, for every kind. Space too, within
-the same bound, for every kind except an exponential gain in time. That
-exception is deliberate: the usual exponential gain in time is a table, which
-is bought with space; what such a rung uses is reported, not capped.
-
-**Why a constant factor for a polynomial win.** With a polynomial simulation,
-one rung could gain `k ^ g` on a class and lose `k ^ g` elsewhere, and the
-next could do the reverse, for ever. With a constant factor a polynomial rung
-is nowhere worse than its predecessor by more than a constant. The bound has
-no term in the size of the input, since on inputs the old machine answers
-quickly such a term is an unbounded loss. The factor is required in both
-resources, because otherwise a polynomial rung in time and one in space could
-trade a gain in one for a loss in the other. So polynomial wins in time and in
-space are admitted on the same terms.
-
-**What the simulation does not protect.** A rung with an exponential gain
-simulates its predecessor only within a polynomial, so by the simulation
-alone it could lose a polynomial anywhere, and give back the gain of every
-earlier polynomial rung. The simulation compares a rung with the one below
-it and with nothing else. Section 6 closes this.
-
-## 6. The record of wins
-
-A win, once admitted, is kept by every later rung of whatever kind (L66).
-The simulation cannot say that, so the rule has a second part.
-
-**The record.** A win on record (`Win`) is what an admission was for: its
-kind, its class, and its numerals. Of the numerals a later rung is held to
-two, the upper bound `hi` on a member and the bound in context `ctx` of the
-win's kind, in the resource of the win.
-
-**Keeping a win.** A machine keeps a win within a factor `c`
-(`Win.KeptBy w M c`) when it meets those two bounds times `c`: on a member of
-rank `k` it covers every target having used at most `c * hi k`, and in every
-open context, for every demanded pair, at most `c * ctx (hi k) res n` at its
-own residue `res`. This is the upper half of the separation the win was
-admitted by, for another machine (`MeetsOn`, which `SeparatesOn` now extends);
-the lower bound on the old machine is history and is not asked again.
-
-**The rule.** `Admits` takes the record of the rung below and a factor
-`keep`, and has the clause that the new rung keeps every win on that record
-within `keep`. `Ladder base G record` (`Trusted/Properties.lean`) is the only
-way a record is made: the base has the empty record, and an admission over
-the whole record of the rung below puts its own win on top. So no admission
-can be checked against a record that leaves a win out.
-
-**The laws.** An admission compares costs and says nothing about whether the
-rung is right. So the ladder asks separately that every rung on it, the base
-included, has the laws (`CostedRung.Lawful`: `Runtime.Laws` of the rung as one
-machine on the original input). That
-definition is the one place the laws of the language are listed for the
-ladder; a law that is added there is owed by every rung from then on.
-`Ladder.lawful` (`Rungs/Framework/Latency.lean`) reads it back.
-
-**Why the recorded bound and not the rung below.** If each rung had only to
-stay within a constant of what the rung below uses on the class, the factor
-after `m` rungs would be the product of `m` constants. Each rung is compared
-with the bound written down when the win was admitted, so its factor is its
-own and nothing compounds.
-
-**Why every kind.** A polynomial rung simulates its predecessor within a
-constant, which gives the bound on a member, but not the bound in context:
-that one is stated at the machine's own residue, and a simulation says
-nothing about residues. So the clause is asked of every admission, and is
-the same clause for all of them.
-
-**What it gives.** `Ladder.keeps` (`Rungs/Framework/Latency.lean`): every rung
-of a ladder keeps every win on its record, each within a constant factor of
-the bound it was admitted with. The top of the ladder has every win at once.
-
-**What it costs.** One proof per win on the record for each new rung. Until
-M6 there is no admission, so nothing is re-proved.
-
-**That it can be met.** `Rungs/Framework/RecordWitness.lean` has two toy
-rungs admitted one above the other over a base that never answers: the first
-over the empty record for a polynomial win, the second for an exponential
-gain over the record that holds the first one's win (`Witness.slow_admits`,
-`Witness.quick_admits`). The engines are not machines for the language, and
-correctness is no part of `Admits`; the file shows only that the clauses of
-`Admits` can hold together. They are not a `Ladder`, which asks for the laws;
-the first ladder is rung 1 as its own base.
-
-## 7. Priority
-
-"Exponential first" is a rule for choosing the next rung (roadmap, section 2),
-not a clause of `Admits`: no theorem about two machines can say that no
-exponential win is left.
+The symmetric engine reports no level (`Symmetric.silent`), so it finishes a
+level only by reporting that it is done. It has the laws, its reports are
+true because there are none, and its cost does not depend on direction
+(`Symmetric.rung1_lawful`, `rung1_honest`, `rung1_directionFree`). It is the
+base of the ladder (`rung1_ladder`).

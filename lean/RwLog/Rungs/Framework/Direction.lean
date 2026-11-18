@@ -6,17 +6,13 @@ Facts used to establish `DirectionFree` (`Trusted/Cost.lean`).
 * The mirror image: `dual` is an involution and keeps sizes and
   well-formedness; a swapped span relates the swapped pairs.
 * `C.mirror` and `C.conv` spend what `C` spends and emit its answers swapped.
-* `simulates_of_trace`: a machine whose trace agrees with another's, step for
-  step, simulates it within any bound on what it has paid by the step the
-  other has reached. A run is only followed as far as it emits, and one step
-  further when it stops, so the bound is needed for those steps only.
-* `CostBisim`: two machines go through related states at the same cost, step
-  for step. `ConvBisim` is that for the runs of one machine on `conv q` and on
-  `q`, and `DualBisim` for its runs on the mirror image and on the query.
-* `DirectionFree.of_bisim`: a machine with both does not depend on
-  direction, within what its first state costs more on a converse.
+* `neverWorse_of_trace`: a machine whose trace agrees with another's, step for
+  step, is never worse than it within any bound on what it has paid by the
+  step the other has reached. A run is only followed as far as it shows
+  something, and one step further when it stops, so the bound is needed for
+  those steps only.
 -/
-import RwLog.Rungs.Framework.Latency
+import RwLog.Rungs.Framework.Finishing
 import RwLog.Rungs.Framework.Trace
 import RwLog.Rungs.Framework.Cost
 import RwLog.Kernel.Size
@@ -324,186 +320,60 @@ theorem conv_paid (P : Program) (q : Rel) (n : Nat) :
 
 end CostedRuntime
 
-/-! ## Simulation from equal traces -/
+/-! ## Never worse, from equal traces -/
 
-/-- `B` simulates `A` within `p` when, on every input, the trace of `B` agrees
-with the trace of `A` step for step, and `B` has paid at most `p` of what `A`
-has paid by any step up to the last that `A` has shown. -/
-theorem simulates_of_trace {A B : CostedRuntime} {p : Nat → Nat → Nat}
+/-- Traces that agree step for step report the same levels. -/
+theorem TraceEquiv.level_mem {A B : Type} [Answer A] [Answer B] {M : Interp} {m : Nat} :
+    ∀ {t : List (Shown A)} {t' : List (Shown B)}, TraceEquiv M t t' →
+      Shown.level m ∈ t' → Shown.level m ∈ t
+  | _, _, .nil, h => absurd h List.not_mem_nil
+  | _, _, .cons (a := x) (b := y) h hs, hm => by
+    rcases List.mem_cons.1 hm with rfl | hm
+    · have h' := shownEquiv_iff.1 h
+      cases x with
+      | answers xs => exact h'.elim
+      | level n => obtain rfl : n = m := h'; exact List.mem_cons_self
+      | final xs => exact h'.elim
+    · exact List.mem_cons_of_mem _ (TraceEquiv.level_mem hs hm)
+
+/-- A run whose trace agrees with another's, step for step, has finished
+every level the other has. -/
+theorem Runtime.Finished.of_traceEquiv {R R' : Runtime} {M : Interp} {s : R.State}
+    {s' : R'.State} {c n : Nat} (ht : TraceEquiv M (R'.trace s' n) (R.trace s n))
+    (h : R.Finished s c n) : R'.Finished s' c n := by
+  rcases (R.finished_iff_trace).1 h with h | ⟨m, hm, hmem⟩
+  · exact Or.inl (R'.halts_iff_trace.2 (TraceEquiv.final ht (R.halts_iff_trace.1 h)))
+  · exact (R'.finished_iff_trace).2 (Or.inr ⟨m, hm, TraceEquiv.level_mem ht hmem⟩)
+
+/-- Two numbers of steps with the same trace have finished the same levels. -/
+theorem Runtime.finished_of_trace_eq {R : Runtime} {s : R.State} {c m n : Nat}
+    (h : R.trace s m = R.trace s n) (hf : R.Finished s c n) : R.Finished s c m := by
+  rcases (R.finished_iff_trace).1 hf with hh | hl
+  · exact Or.inl (R.halts_iff_trace.2 (h ▸ R.halts_iff_trace.1 hh))
+  · exact (R.finished_iff_trace).2 (Or.inr (h ▸ hl))
+
+/-- `B` is never worse than `A` within `p` when, on every input, the trace of
+`B` agrees with the trace of `A` step for step, and `B` has paid at most `p`
+of what `A` has paid by any step up to the last that `A` has shown. A run is
+only followed as far as it shows something, so the bound is needed for those
+steps only. The bound grows with the size. -/
+theorem neverWorse_of_trace {A B : CostedRuntime} {p : Nat → Nat → Nat}
+    (hp : ∀ a n n', n ≤ n' → p a n ≤ p a n')
     (h : ∀ P q, P.WellFormed q →
       (∀ m, TraceEquiv P.sorts.interp (B.runtime.trace (B.start P q) m) (A.runtime.trace (A.start P q) m)) ∧
       ∀ n m, m ≤ n → m ≤ (A.runtime.trace (A.start P q) n).length →
         B.paid P q m ≤ p (A.paid P q n) (P.size + q.size)) :
-    Simulates A B p := by
-  refine Simulates.of_steps fun P q hwf n => ?_
+    NeverWorse A B p := by
+  refine NeverWorse.of_steps hp fun P q hwf n => ?_
   obtain ⟨ht, hc⟩ := h P q hwf
   obtain ⟨L, hL⟩ : ∃ L, (A.runtime.trace (A.start P q) n).length = L := ⟨_, rfl⟩
   have hLn : L ≤ n := hL ▸ A.runtime.trace_length_le n (A.start P q)
   have htr : A.runtime.trace (A.start P q) L = A.runtime.trace (A.start P q) n :=
     hL ▸ A.runtime.trace_trace_length n (A.start P q)
-  refine ⟨L, hc n L hLn (le_of_eq hL.symm), fun a ha => ?_, fun hn => ?_⟩
-  · rw [← A.runtime.emitted_eq_of_trace htr] at ha
-    have he : StepEquiv P.sorts.interp (A.runtime.emitted (A.start P q) L)
-        (B.runtime.emitted (B.start P q) L) := by
-      have h1 := A.runtime.emitted_eq_flatMap_trace L (A.start P q)
-      have h2 := B.runtime.emitted_eq_flatMap_trace L (B.start P q)
-      exact h1 ▸ h2 ▸ (TraceEquiv.emits (ht L)).symm
-    obtain ⟨b, hb, e⟩ := he.mem ha
-    exact ⟨b, hb, e.2⟩
+  refine ⟨L, hc n L hLn (le_of_eq hL.symm), fun c hf => ?_, fun hn => ?_⟩
+  · exact Runtime.Finished.of_traceEquiv (ht L) (Runtime.finished_of_trace_eq htr hf)
   · refine (B.runtime.halts_iff_trace (s := B.start P q)).2 (TraceEquiv.final (ht L) ?_)
     rw [htr]
     exact (A.runtime.halts_iff_trace (s := A.start P q)).1 hn
-
-/-! ## Runs that cost the same, step for step -/
-
-/-- From states related by `rel`, `A` and `B` take steps that cost the same,
-show answers related by `E`, and end in related states. -/
-structure CostBisim (A B : CostedRuntime) (E : List A.Ans → List B.Ans → Prop)
-    (rel : A.State → B.State → Prop) : Prop where
-  ticks : ∀ s t, rel s t → (A.step s).ticks = (B.step t).ticks
-  step : ∀ s t, rel s t → StepOf.Rel E rel (A.step s).val (B.step t).val
-
-namespace CostBisim
-
-variable {A B : CostedRuntime} {E : List A.Ans → List B.Ans → Prop}
-  {rel : A.State → B.State → Prop}
-
-theorem spent (h : CostBisim A B E rel) : ∀ (n : Nat) (s : A.State) (t : B.State), rel s t →
-    A.spent s n = B.spent t n
-  | 0, _, _, _ => rfl
-  | n + 1, s, t, hr => by
-    have hs := h.step s t hr
-    have ht := h.ticks s t hr
-    cases h1 : (A.step s).val <;> cases h2 : (B.step t).val <;> rw [h1, h2] at hs <;>
-      first
-      | exact hs.elim
-      | rw [A.spent_succ_emit h1, B.spent_succ_emit h2, ht, spent h n _ _ hs.2]
-      | rw [A.spent_succ_progress h1, B.spent_succ_progress h2, ht, spent h n _ _ hs.2]
-      | rw [A.spent_succ_done h1, B.spent_succ_done h2, ht]
-
-theorem trace (h : CostBisim A B E rel) (n : Nat) (s : A.State) (t : B.State) (hr : rel s t) :
-    List.Forall₂ (Shown.Rel E) (A.runtime.trace s n) (B.runtime.trace t n) :=
-  Runtime.trace_of_sim (R := A.runtime) (R' := B.runtime) h.step n s t hr
-
-theorem mono {E' : List A.Ans → List B.Ans → Prop} (h : CostBisim A B E rel)
-    (hE : ∀ as bs, E as bs → E' as bs) : CostBisim A B E' rel where
-  ticks := h.ticks
-  step s t hr := by
-    have hs := h.step s t hr
-    cases h1 : (A.step s).val <;> cases h2 : (B.step t).val <;> rw [h1, h2] at hs <;>
-      first
-      | exact hs.elim
-      | exact ⟨hE _ _ hs.1, hs.2⟩
-      | exact hs
-      | exact hE _ _ hs
-
-/-- The same relation read from the other side. -/
-theorem flip (h : CostBisim A B E rel) :
-    CostBisim B A (fun bs as => E as bs) (fun t s => rel s t) where
-  ticks t s hr := (h.ticks s t hr).symm
-  step t s hr := by
-    have hs := h.step s t hr
-    cases h1 : (A.step s).val <;> cases h2 : (B.step t).val <;> rw [h1, h2] at hs <;>
-      first
-      | exact hs.elim
-      | exact ⟨hs.1.symm, hs.2⟩
-      | exact hs
-
-/-- With the second machine's answers swapped back. -/
-theorem toMirror (h : CostBisim A B (fun as bs => E as (bs.map Answer.swap)) rel) :
-    CostBisim A B.mirror E rel where
-  ticks := h.ticks
-  step s t hr := by
-    have hs := h.step s t hr
-    show StepOf.Rel E rel (A.step s).val (B.step t).val.swap
-    cases h1 : (A.step s).val <;> cases h2 : (B.step t).val <;> rw [h1, h2] at hs <;> exact hs
-
-/-- With the first machine's answers swapped back. -/
-theorem ofMirror (h : CostBisim A B (fun as bs => E (as.map Answer.swap) bs) rel) :
-    CostBisim A.mirror B E rel where
-  ticks := h.ticks
-  step s t hr := by
-    have hs := h.step s t hr
-    show StepOf.Rel E rel (A.step s).val.swap (B.step t).val
-    cases h1 : (A.step s).val <;> cases h2 : (B.step t).val <;> rw [h1, h2] at hs <;> exact hs
-
-theorem toConv (h : CostBisim A B (fun as bs => E as (bs.map Answer.swap)) rel) :
-    CostBisim A B.conv E rel := ⟨h.toMirror.ticks, h.toMirror.step⟩
-
-theorem ofConv (h : CostBisim A B (fun as bs => E (as.map Answer.swap) bs) rel) :
-    CostBisim A.conv B E rel := ⟨h.ofMirror.ticks, h.ofMirror.step⟩
-
-/-- Two machines that start in related states, take steps of the same cost
-and show the same answers up to order and equivalence: the second simulates
-the first within what its first state costs more. -/
-theorem simulates {rel : Interp → A.State → B.State → Prop}
-    (h : ∀ M, CostBisim A B (StepEquiv M) (rel M)) (k : Nat)
-    (hstart : ∀ P q, P.WellFormed q → rel P.sorts.interp (A.start P q) (B.start P q))
-    (hinit : ∀ P q, (B.init P q).ticks ≤ (A.init P q).ticks + k) :
-    Simulates A B fun c _ => c + k := by
-  refine simulates_of_trace fun P q hwf => ⟨fun m => ?_, fun n m hmn _ => ?_⟩
-  · exact TraceEquiv.symm
-      (((h _).trace m _ _ (hstart P q hwf)).imp fun _ _ h => shownEquiv_iff.2 h)
-  · show (B.init P q).ticks + B.spent (B.start P q) m ≤
-      (A.init P q).ticks + A.spent (A.start P q) n + k
-    rw [← (h _).spent m _ _ (hstart P q hwf)]
-    have := A.spent_mono (A.start P q) hmn
-    have := hinit P q
-    omega
-
-end CostBisim
-
-/-! ## The run on the converse -/
-
-/-- The run of `C` on `conv q` and its run on `q` go through states related
-by `rel`: every step costs the same and shows the same answers swapped. -/
-structure ConvBisim (C : CostedRuntime) (rel : C.State → C.State → Prop) : Prop
-    extends CostBisim C C (fun xs ys => xs = ys.map Answer.swap) rel where
-  start : ∀ P q, rel (C.start P (.conv q)) (C.start P q)
-
-/-- The run of `C` on the mirror image and its run on the query go through
-states related by `rel` at the interpretation of the program's sorts: every
-step costs the same and shows the same answers swapped, up to order and
-equivalence. -/
-structure DualBisim (C : CostedRuntime) (rel : Interp → C.State → C.State → Prop) : Prop where
-  bisim : ∀ M, CostBisim C C (fun xs ys => StepEquiv M xs (ys.map Answer.swap)) (rel M)
-  start : ∀ P q, P.WellFormed q → rel P.sorts.interp (C.start P q) (C.start P.dual q.dual)
-
-/-- A machine whose runs on the mirror image and on the converse cost what
-its run on the query costs, step for step, does not depend on direction: the
-only difference is what the first state costs, which for the mirror image is
-the same and for the converse at most `k` more. -/
-theorem DirectionFree.of_bisim {C : CostedRuntime} {D : Interp → C.State → C.State → Prop}
-    {rel : C.State → C.State → Prop} {k : Nat}
-    (hd : DualBisim C D) (hc : ConvBisim C rel)
-    (hdi : ∀ P q, (C.init P.dual q.dual).ticks = (C.init P q).ticks)
-    (hci : ∀ P q, (C.init P (.conv q)).ticks ≤ (C.init P q).ticks + k)
-    (hci' : ∀ P q, (C.init P q).ticks ≤ (C.init P (.conv q)).ticks) :
-    DirectionFree C fun c _ => c + k where
-  toMirror :=
-    CostBisim.simulates (fun M => (hd.bisim M).toMirror) k hd.start fun P q =>
-      show (C.init P.dual q.dual).ticks ≤ _ by rw [hdi]; omega
-  ofMirror := by
-    have h1 : ∀ M, CostBisim C C (fun xs ys => StepEquiv M (xs.map Answer.swap) ys)
-        (fun t s => D M s t) := fun M =>
-      (hd.bisim M).flip.mono fun _ _ h => h.symm
-    exact CostBisim.simulates (fun M => (h1 M).ofMirror) k (fun P q hwf => hd.start P q hwf)
-      fun P q => show _ ≤ (C.init P.dual q.dual).ticks + k by rw [hdi]; omega
-  toConv := by
-    have h1 : ∀ M, CostBisim C C (fun xs ys => StepEquiv M xs (ys.map Answer.swap))
-        (fun t s => rel s t) := fun M =>
-      hc.toCostBisim.flip.mono fun as bs h => by
-        subst h; exact (StepEquiv.swap_swap M as).symm
-    exact CostBisim.simulates (A := C) (B := C.conv) (rel := fun _ t s => rel s t)
-      (fun M => (h1 M).toConv) k
-      (fun P q _ => hc.start P q) fun P q => hci P q
-  ofConv := by
-    have h1 : ∀ M, CostBisim C C (fun xs ys => StepEquiv M (xs.map Answer.swap) ys) rel :=
-      fun M => hc.toCostBisim.mono fun as bs h => by
-        subst h; exact StepEquiv.swap_swap M bs
-    exact CostBisim.simulates (A := C.conv) (B := C) (rel := fun _ => rel)
-      (fun M => (h1 M).ofConv) k
-      (fun P q _ => hc.start P q) fun P q =>
-      show _ ≤ (C.init P (.conv q)).ticks + k by have := hci' P q; omega
 
 end RwLog

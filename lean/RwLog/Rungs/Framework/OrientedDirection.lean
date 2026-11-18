@@ -64,13 +64,16 @@ theorem traceEquiv_of_swap {A : Type} [Answer A] {M : Interp} {t t' : List (Show
 
 /-- **The cost of a machine run on one orientation does not depend on the
 direction a query is written in**: the machine, the machine run on the
-mirror image and the machine run on the converse each cover what another has
-covered, having paid at most what it has paid and `8 * n + 12` ticks, `n` the
+mirror image and the machine run on the converse each finish every level another
+has finished, and halt where it has halted, having paid at most what it has paid and `8 * n + 12` ticks, `n` the
 size of the input. Asked of the machine: that on a root that is its own
 converse it shows sets of answers that are their own converse. -/
 theorem oriented_directionFree (hS : C.SelfConverse) :
-    DirectionFree C.oriented fun c n => c + (8 * n + 12) where
-  toMirror := simulates_of_trace fun P q hwf =>
+    DirectionFree C.oriented fun c n => c + (8 * n + 12) := by
+  have hmono : ∀ a n n' : Nat, n ≤ n' → a + (8 * n + 12) ≤ a + (8 * n' + 12) :=
+    fun a n n' h => by omega
+  exact {
+  toMirror := neverWorse_of_trace hmono fun P q hwf =>
     ⟨fun m => by
       show TraceEquiv _ (C.oriented.mirror.runtime.trace (C.oriented.start P.dual q.dual) m) _
       rw [mirror_trace]
@@ -78,7 +81,7 @@ theorem oriented_directionFree (hS : C.SelfConverse) :
     fun n m hm _ => by
       rw [mirror_paid, oriented_paid_dual]
       exact le_trans (C.oriented.paid_mono P q hm) (Nat.le_add_right _ _)⟩
-  ofMirror := simulates_of_trace fun P q hwf =>
+  ofMirror := neverWorse_of_trace hmono fun P q hwf =>
     ⟨fun m => by
       show TraceEquiv _ _ (C.oriented.mirror.runtime.trace (C.oriented.start P.dual q.dual) m)
       rw [mirror_trace]
@@ -86,7 +89,7 @@ theorem oriented_directionFree (hS : C.SelfConverse) :
     fun n m hm _ => by
       rw [mirror_paid, oriented_paid_dual]
       exact le_trans (C.oriented.paid_mono P q hm) (Nat.le_add_right _ _)⟩
-  toConv := simulates_of_trace fun P q hwf =>
+  toConv := neverWorse_of_trace hmono fun P q hwf =>
     ⟨fun m => by
       show TraceEquiv _ (C.oriented.conv.runtime.trace (C.oriented.start P (.conv q)) m) _
       rw [conv_trace]
@@ -94,7 +97,7 @@ theorem oriented_directionFree (hS : C.SelfConverse) :
     fun n m hm _ => by
       rw [conv_paid, oriented_paid_conv]
       exact Nat.add_le_add_right (C.oriented.paid_mono P q hm) _⟩
-  ofConv := simulates_of_trace fun P q hwf =>
+  ofConv := neverWorse_of_trace hmono fun P q hwf =>
     ⟨fun m => by
       show TraceEquiv _ _ (C.oriented.conv.runtime.trace (C.oriented.start P (.conv q)) m)
       rw [conv_trace]
@@ -102,13 +105,13 @@ theorem oriented_directionFree (hS : C.SelfConverse) :
     fun n m hm _ => by
       rw [conv_paid, oriented_paid_conv]
       exact le_trans (C.oriented.paid_mono P q hm)
-        (le_trans (Nat.le_add_right _ _) (Nat.le_add_right _ _))⟩
+        (le_trans (Nat.le_add_right _ _) (Nat.le_add_right _ _))⟩ }
 
 /-- The same within the bound of an admission: `12 * (c + n + 1)`. -/
 theorem oriented_directionFree_bound (hS : C.SelfConverse) :
-    DirectionFree C.oriented (DirBound.fn ⟨12, 1⟩) := by
+    DirectionFree C.oriented (PolyBound.fn ⟨12, 1⟩) := by
   have h := oriented_directionFree hS
-  have hle : ∀ c n : Nat, c + (8 * n + 12) ≤ DirBound.fn ⟨12, 1⟩ c n := fun c n => by
+  have hle : ∀ c n : Nat, c + (8 * n + 12) ≤ PolyBound.fn ⟨12, 1⟩ c n := fun c n => by
     show c + (8 * n + 12) ≤ 12 * (c + n + 1) ^ 1
     rw [Nat.pow_one]
     omega

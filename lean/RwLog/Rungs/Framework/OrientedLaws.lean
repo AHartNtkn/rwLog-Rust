@@ -12,6 +12,7 @@ input is so run on one orientation (`CostedRuntime.oriented_sound`,
 import RwLog.Rungs.Framework.OrientedSem
 import RwLog.Rungs.Framework.Runtime
 import RwLog.Rungs.Framework.Tier0
+import RwLog.Rungs.Framework.Finishing
 import RwLog.SpanLayer.Bridge
 
 namespace RwLog
@@ -258,6 +259,19 @@ theorem oriented_honest (h : C.runtime.HonestExhaustion) :
   rw [orient_pairs, orient_sorts] at this
   rw [C.oriented_init_emitted]
   exact Answer.iUnion_as _ _ this
+
+/-- A machine that reports no level reports none run on one orientation. -/
+theorem oriented_silent (h : C.runtime.Silent) : C.oriented.runtime.Silent := by
+  intro P q wf n x hx k
+  have hx' : x ∈ (C.runtime.trace (C.runtime.init (orient P q).P (orient P q).root) n).map
+      (Shown.shownAs (orient P q).swap) :=
+    (C.oriented_trace (orient P q).swap n _) ▸ hx
+  obtain ⟨y, hy, rfl⟩ := List.mem_map.1 hx'
+  have hy' := h _ _ (wf_orient wf) n y hy
+  cases y with
+  | answers as => exact fun e => by cases hb : (orient P q).swap <;> rw [hb] at e <;> cases e
+  | level j => exact absurd rfl (hy' j)
+  | final as => exact fun e => by cases hb : (orient P q).swap <;> rw [hb] at e <;> cases e
 
 /-- **A machine that has the laws has them run on one orientation.** -/
 theorem oriented_laws (hs : C.runtime.Sound) (hc : C.runtime.Complete)
