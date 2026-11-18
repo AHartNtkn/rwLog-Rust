@@ -199,8 +199,8 @@ theorem Advances.of_nil {κ : KernelRung} {kind : Kind} {Old New : Engine} {b : 
 
 /-- An admitted rung halts on every input on which the rung below halts. -/
 theorem Admits.halts {κ : KernelRung} {kind : Kind} {Old New : CostedRung} {b : Bounds}
-    {nw d : PolyBound} {pre : Nat → Nat} {C : ProgClass} 
-    (h : Admits κ kind Old New b nw d pre C) (A : ArtifactStore) {P : Program}
+    {d : PolyBound} {pre : Nat → Nat} {C : ProgClass} 
+    (h : Admits κ kind Old New b d pre C) (A : ArtifactStore) {P : Program}
     {q : Rel} (hwf : P.WellFormed q) (ho : (Old.machine κ A).runtime.Terminates P q) :
     (New.machine κ A).runtime.Terminates P q :=
   (h.neverWorse A).terminates hwf ho
@@ -223,11 +223,11 @@ theorem Ladder.honest {κ : KernelRung} {base G : CostedRung}
 machines, that the new one is never worse than the old one, and the
 direction bound of the new one. -/
 theorem Admits.of_nil {κ : KernelRung} {kind : Kind} {Old New : Engine} {b : Bounds}
-    {nw d : PolyBound} {C : ProgClass} 
+    {d : PolyBound} {C : ProgClass} 
     (h : Improves kind (Old.costed κ) (New.costed κ) b C)
-    (hn : NeverWorse (Old.costed κ) (New.costed κ) nw.fn)
+    (hn : NeverWorse (Old.costed κ) (New.costed κ) (b.worse kind.gap))
     (hd : DirectionFree (New.costed κ) d.fn) :
-    Admits κ kind ⟨[], Old, false⟩ ⟨[], New, false⟩ b nw d (fun _ => 0) C where
+    Admits κ kind ⟨[], Old, false⟩ ⟨[], New, false⟩ b d (fun _ => 0) C where
   toAdvances := Advances.of_nil h
   neverWorse _ := hn
   direction _ := hd

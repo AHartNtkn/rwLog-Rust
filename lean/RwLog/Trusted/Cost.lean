@@ -128,27 +128,34 @@ the other way round.
 A rung is admitted above the rung below it by a proof of `Admits κ kind`, at
 a kernel rung `κ` (`Trusted/Kernel.lean`), and by nothing else.
 
-* It is never worse than the rung below, in time, on every program and at
-  every level, within a polynomial whose numerals its specification writes
-  out (`neverWorse`). This holds halting too: where the rung below reports
-  that it is done, so does the new rung, within the same bound.
+* It is not a trade (`neverWorse`). On every program and at every level it
+  finishes what the rung below has finished, and reports that it is done
+  where the rung below does, having paid no more than a bound on what the
+  rung below has paid. The bound depends on the kind of win
+  (`Bounds.worse`). A rung admitted by an exponential win may be a
+  polynomial worse elsewhere. A rung admitted by a polynomial win stays
+  within a constant factor, with no term in the size of the input: with a
+  polynomial allowed, one rung could gain a polynomial on a class and lose
+  one elsewhere, and the next do the reverse, for ever.
 * It is a strict improvement: it advances on the rung below by a win of the
   stated kind on a class (`Advances`).
 * The cost of a relation forward and backward is comparable: its cost does
   not depend on direction, within a polynomial whose numerals its
   specification writes out (`direction`).
-A rung admitted by a win in space is held to the same first clause, so it
-gives up no more than a polynomial of time for it.
+A rung admitted by a win in space is held to the same first clause, in time,
+so it does not buy space with time beyond that bound.
 
 `Ladder κ base G` (`Trusted/Properties.lean`, where the laws are stated) is
 the ladder itself: the base, and each rung admitted above the rung below it.
 Every rung of a ladder, the base included, has the laws and reports levels
 truly.
 
-What carries a gain upward is the first clause. A rung above is within a
-polynomial of the rung that made a gain, on every program, so it still
-finishes the members of that gain's class within a polynomial of the bound
-the gain was shown with, of their size and of their level.
+What carries a gain upward is the first clause. A rung above stays within
+its bound of the rung that made a gain, on the members of that gain's class
+as on every program. Rungs admitted by polynomial wins lose at most a
+constant factor each, so they give back no gain whose ratio is unbounded. A
+rung admitted by an exponential win may lose a polynomial, so it may give
+back the gain of an earlier polynomial rung; nothing here forbids that.
 -/
 import RwLog.Trusted.Engine
 
@@ -401,6 +408,10 @@ structure Bounds where
   hiDeg : Nat
   /-- The degree of a polynomial win; an exponential win does not use it. -/
   gain : Nat
+  /-- What the new machine may pay more than the old one on any program: a
+  coefficient, and for an exponential win a degree. -/
+  worseCoeff : Nat
+  worseDeg : Nat
 
 namespace Bounds
 
@@ -418,6 +429,15 @@ otherwise `2 ^ k`. -/
 def lo (b : Bounds) : Gap → Nat → Nat
   | .polynomial, k => (k + 1) ^ b.gain * b.hi k
   | .exponential, k => 2 ^ k
+
+/-- What the new machine may pay on any program, for what the old machine has
+paid `c` and the size `n`. A rung admitted by an exponential win may be a
+polynomial worse elsewhere: `worseCoeff * (c + n + 1) ^ worseDeg`. A rung
+admitted by a polynomial win may not trade: it stays within a constant
+factor, `worseCoeff * (c + 1)`, with no term in the size. -/
+def worse (b : Bounds) : Gap → Nat → Nat → Nat
+  | .exponential, c, n => b.worseCoeff * (c + n + 1) ^ b.worseDeg
+  | .polynomial, c, _ => b.worseCoeff * (c + 1)
 
 end Bounds
 
@@ -705,13 +725,15 @@ structure Advances (κ : KernelRung) (kind : Kind) (Old New : CostedRung) (b : B
 
 /-- The rung `New` is admitted above `Old` at the kernel rung `κ` by a win of
 the given kind. Whatever the artifact store: it advances on `Old` by the win;
-it is never worse than `Old`, on every program and at every level, and
-reports that it is done where `Old` does, within the polynomial `nw`; and its
-cost does not depend on direction, within the polynomial `d`. -/
+on every program and at every level it finishes what `Old` has finished, and
+reports that it is done where `Old` does, having paid at most
+`b.worse kind.gap` of what `Old` has paid, which is a polynomial for an
+exponential win and a constant factor for a polynomial win; and its cost does
+not depend on direction, within the polynomial `d`. -/
 structure Admits (κ : KernelRung) (kind : Kind) (Old New : CostedRung) (b : Bounds)
-    (nw d : PolyBound) (pre : Nat → Nat) (C : ProgClass) : Prop
+    (d : PolyBound) (pre : Nat → Nat) (C : ProgClass) : Prop
     extends Advances κ kind Old New b pre C where
-  neverWorse : ∀ A, NeverWorse (Old.machine κ A) (New.machine κ A) nw.fn
+  neverWorse : ∀ A, NeverWorse (Old.machine κ A) (New.machine κ A) (b.worse kind.gap)
   direction : ∀ A, DirectionFree (New.machine κ A) d.fn
 
 end RwLog

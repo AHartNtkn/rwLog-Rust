@@ -30,9 +30,10 @@ set of answers. It is no law and does not constrain a run.
 
 ## The ladder
 
-Performance is what an admission asks (`Admits`, `Trusted/Cost.lean`): never
-worse than the rung below on any program at any level, a strict win on a
-class, and the cost of a relation forward and backward comparable. It is stated on what a machine has paid when it has
+Performance is what an admission asks (`Admits`, `Trusted/Cost.lean`): a
+strict win on a class, no trade for it on any other program beyond the bound
+its kind of win allows, halting kept, and the cost of a relation forward and
+backward comparable. It is stated on what a machine has paid when it has
 finished a level (`Trusted/Levels.lean`), and never by comparing two runs
 step by step or answer by answer.
 
@@ -101,9 +102,9 @@ above the rung below it, and only if it has the laws and reports levels
 truly. So every rung of a ladder has the laws. -/
 inductive Ladder (κ : KernelRung) (base : CostedRung) : CostedRung → Prop where
   | base : base.Lawful κ → base.Honest κ → Ladder κ base base
-  | admit {kind : Kind} {Old New : CostedRung} {b : Bounds} {nw d : PolyBound} {pre : Nat → Nat}
+  | admit {kind : Kind} {Old New : CostedRung} {b : Bounds} {d : PolyBound} {pre : Nat → Nat}
       {C : ProgClass} :
-      Ladder κ base Old → Admits κ kind Old New b nw d pre C →
+      Ladder κ base Old → Admits κ kind Old New b d pre C →
       New.Lawful κ → New.Honest κ → Ladder κ base New
 
 end RwLog

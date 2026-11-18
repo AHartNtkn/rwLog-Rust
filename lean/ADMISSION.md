@@ -51,14 +51,16 @@ and of every rung above the base an admission (`Admits`):
   gain) at any step by which it has finished it. The resource is time or
   space. Members have size polynomial in their rank and there are members of
   every rank.
-* **Never worse than the rung below** (`neverWorse`, `NeverWorse`). On every
+* **No trade** (`neverWorse`, `NeverWorse`, `Bounds.worse`). On every
   well-formed program and at every level, when the rung below has finished
-  the level the new rung finishes it having paid at most a written
-  polynomial of what the rung below has paid, of the size of the input and
-  of the level; and where the rung below reports that it is done so does the
-  new rung, within the polynomial. So halting is not lost, and a rung
-  admitted by a win in space does not give up more than a polynomial of
-  time.
+  the level the new rung finishes it, and where the rung below reports that
+  it is done so does the new rung, having paid at most a bound on what the
+  rung below has paid. The bound depends on the kind of win. A rung admitted
+  by an exponential win may be a written polynomial worse (in what the rung
+  below paid, the size of the input and the level). A rung admitted by a
+  polynomial win stays within a written constant factor, with no term in the
+  size. So halting is not lost, and a rung admitted by a win in space does
+  not buy it with time beyond that bound.
 * **Forward and backward comparable** (`direction`, `DirectionFree`). The
   rung, the rung run on the converse of a query and the rung run on the
   mirror image are each never worse than the other, within a written
@@ -75,10 +77,10 @@ Preprocessing is charged apart and recorded (`Advances.preCost`).
   need not show in the whole. A class that is meant to reach larger programs
   has them as members.
 * Nothing against the best plan for a program.
-* No record of wins that each rung proves again. A gain is carried upward by
-  "never worse": a rung above is within a polynomial of the rung that made
-  the gain, on the members of its class as on every program. A gain that is
-  only polynomial is not protected by this.
+* No record of wins that each rung proves again. A gain is carried upward
+  by "no trade". Rungs admitted by polynomial wins lose at most a constant
+  factor each. A rung admitted by an exponential win may lose a polynomial,
+  so it may give back the gain of an earlier polynomial rung.
 
 ## Rung 1
 

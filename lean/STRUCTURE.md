@@ -466,7 +466,8 @@ listing piece by piece (`Pack`), and the symmetric engine's is `heldOf`
 (`Rungs/Symmetric/Machine.lean`). A gain is stated for a resource
 (`Resource`, time or space), and every admitted rung, a rung admitted by a
 win in space included, is never worse in time than the rung below
-(`Admits.neverWorse`).
+(`Admits.neverWorse`, within a polynomial for an exponential win and a
+constant factor for a polynomial win).
 
 A kernel rung (`KernelRung`, `Trusted/Kernel.lean`) gives, for the sorts of
 each program, a type of representatives, a constraint domain on it that is

@@ -7,10 +7,6 @@ store denotes what it did (`setStore_den`).
 import RwLog.Sorts.Gone
 
 namespace RwLog
-
-/-- A ground term as a pattern. -/
-def GTerm.toPat (t : GTerm) : Pat := t.rename Empty.elim
-
 namespace Sorts
 
 open Function
